@@ -475,7 +475,7 @@ static void serio_init_port(struct serio *serio)
 	init_MUTEX(&serio->drv_sem);
 	device_initialize(&serio->dev);
 	snprintf(serio->dev.bus_id, sizeof(serio->dev.bus_id),
-		 "serio%d", atomic_inc_return(&serio_no) - 1);
+		 "serio%ld", (long)atomic_inc_return(&serio_no) - 1);
 	serio->dev.bus = &serio_bus;
 	serio->dev.release = serio_release_port;
 	if (serio->parent)
