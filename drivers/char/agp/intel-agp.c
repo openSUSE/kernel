@@ -1812,7 +1812,7 @@ static int __init agp_intel_init(void)
 {
 	if (agp_off)
 		return -EINVAL;
-	return pci_module_init(&agp_intel_pci_driver);
+	return pci_register_driver(&agp_intel_pci_driver);
 }
 
 static void __exit agp_intel_cleanup(void)

@@ -375,7 +375,7 @@ static int __init agp_uninorth_init(void)
 {
 	if (agp_off)
 		return -EINVAL;
-	return pci_module_init(&agp_uninorth_pci_driver);
+	return pci_register_driver(&agp_uninorth_pci_driver);
 }
 
 static void __exit agp_uninorth_cleanup(void)

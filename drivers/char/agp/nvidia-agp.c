@@ -407,7 +407,7 @@ static int __init agp_nvidia_init(void)
 {
 	if (agp_off)
 		return -EINVAL;
-	return pci_module_init(&agp_nvidia_pci_driver);
+	return pci_register_driver(&agp_nvidia_pci_driver);
 }
 
 static void __exit agp_nvidia_cleanup(void)

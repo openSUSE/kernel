@@ -398,7 +398,7 @@ static int __init agp_ali_init(void)
 {
 	if (agp_off)
 		return -EINVAL;
-	return pci_module_init(&agp_ali_pci_driver);
+	return pci_register_driver(&agp_ali_pci_driver);
 }
 
 static void __exit agp_ali_cleanup(void)

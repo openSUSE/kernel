@@ -342,7 +342,7 @@ static int __init agp_sis_init(void)
 {
 	if (agp_off)
 		return -EINVAL;
-	return pci_module_init(&agp_sis_pci_driver);
+	return pci_register_driver(&agp_sis_pci_driver);
 }
 
 static void __exit agp_sis_cleanup(void)
