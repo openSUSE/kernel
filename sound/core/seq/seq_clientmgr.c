@@ -51,7 +51,7 @@
 #define SNDRV_SEQ_LFLG_OUTPUT	0x0002
 #define SNDRV_SEQ_LFLG_OPEN	(SNDRV_SEQ_LFLG_INPUT|SNDRV_SEQ_LFLG_OUTPUT)
 
-static spinlock_t clients_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(clients_lock);
 static DECLARE_MUTEX(register_mutex);
 
 /*

@@ -76,7 +76,7 @@ static LIST_HEAD(snd_timer_list);
 static LIST_HEAD(snd_timer_slave_list);
 
 /* lock for slave active lists */
-static spinlock_t slave_active_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(slave_active_lock);
 
 static DECLARE_MUTEX(register_mutex);
 

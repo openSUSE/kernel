@@ -65,7 +65,7 @@ static int snd_pcm_hw_params_old_user(snd_pcm_substream_t * substream, struct sn
  *
  */
 
-rwlock_t snd_pcm_link_rwlock = RW_LOCK_UNLOCKED;
+DEFINE_RWLOCK(snd_pcm_link_rwlock);
 static DECLARE_RWSEM(snd_pcm_link_rwsem);
 
 
