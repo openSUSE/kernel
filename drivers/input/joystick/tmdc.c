@@ -242,7 +242,7 @@ static void tmdc_close(struct input_dev *dev)
  * tmdc_probe() probes for ThrustMaster type joysticks.
  */
 
-static void tmdc_connect(struct gameport *gameport, struct gameport_dev *dev)
+static void tmdc_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct models {
 		unsigned char id;
@@ -275,7 +275,7 @@ static void tmdc_connect(struct gameport *gameport, struct gameport_dev *dev)
 	tmdc->timer.data = (long) tmdc;
 	tmdc->timer.function = tmdc_timer;
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW))
+	if (gameport_open(gameport, drv, GAMEPORT_MODE_RAW))
 		goto fail1;
 
 	if (!(tmdc->exists = tmdc_read_packet(gameport, data)))
@@ -362,20 +362,20 @@ static void tmdc_disconnect(struct gameport *gameport)
 	kfree(tmdc);
 }
 
-static struct gameport_dev tmdc_dev = {
+static struct gameport_driver tmdc_drv = {
 	.connect =	tmdc_connect,
 	.disconnect =	tmdc_disconnect,
 };
 
 static int __init tmdc_init(void)
 {
-	gameport_register_device(&tmdc_dev);
+	gameport_register_driver(&tmdc_drv);
 	return 0;
 }
 
 static void __exit tmdc_exit(void)
 {
-	gameport_unregister_device(&tmdc_dev);
+	gameport_unregister_driver(&tmdc_drv);
 }
 
 module_init(tmdc_init);

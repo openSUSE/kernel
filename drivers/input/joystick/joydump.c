@@ -46,7 +46,7 @@ struct joydump {
 	unsigned char data;
 };
 
-static void __devinit joydump_connect(struct gameport *gameport, struct gameport_dev *dev)
+static void __devinit joydump_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct joydump *buf;	/* all entries */
 	struct joydump *dump, *prev;	/* one entry each */
@@ -59,11 +59,11 @@ static void __devinit joydump_connect(struct gameport *gameport, struct gameport
 	printk(KERN_INFO "joydump: | Dumping gameport%s.\n", gameport->phys);
 	printk(KERN_INFO "joydump: | Speed: %4d kHz.                            |\n", gameport->speed);
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW)) {
+	if (gameport_open(gameport, drv, GAMEPORT_MODE_RAW)) {
 
 		printk(KERN_INFO "joydump: | Raw mode not available - trying cooked.    |\n");
 
-		if (gameport_open(gameport, dev, GAMEPORT_MODE_COOKED)) {
+		if (gameport_open(gameport, drv, GAMEPORT_MODE_COOKED)) {
 
 			printk(KERN_INFO "joydump: | Cooked not available either. Failing.      |\n");
 			printk(KERN_INFO "joydump: `-------------------- END -------------------'\n");
@@ -147,20 +147,20 @@ static void __devexit joydump_disconnect(struct gameport *gameport)
 	gameport_close(gameport);
 }
 
-static struct gameport_dev joydump_dev = {
+static struct gameport_driver joydump_drv = {
 	.connect =	joydump_connect,
 	.disconnect =	joydump_disconnect,
 };
 
 static int __init joydump_init(void)
 {
-	gameport_register_device(&joydump_dev);
+	gameport_register_driver(&joydump_drv);
 	return 0;
 }
 
 static void __exit joydump_exit(void)
 {
-	gameport_unregister_device(&joydump_dev);
+	gameport_unregister_driver(&joydump_drv);
 }
 
 module_init(joydump_init);

@@ -25,15 +25,15 @@ MODULE_LICENSE("GPL");
 
 EXPORT_SYMBOL(gameport_register_port);
 EXPORT_SYMBOL(gameport_unregister_port);
-EXPORT_SYMBOL(gameport_register_device);
-EXPORT_SYMBOL(gameport_unregister_device);
+EXPORT_SYMBOL(gameport_register_driver);
+EXPORT_SYMBOL(gameport_unregister_driver);
 EXPORT_SYMBOL(gameport_open);
 EXPORT_SYMBOL(gameport_close);
 EXPORT_SYMBOL(gameport_rescan);
 EXPORT_SYMBOL(gameport_cooked_read);
 
 static LIST_HEAD(gameport_list);
-static LIST_HEAD(gameport_dev_list);
+static LIST_HEAD(gameport_driver_list);
 
 #ifdef __i386__
 
@@ -100,61 +100,61 @@ static int gameport_measure_speed(struct gameport *gameport)
 #endif
 }
 
-static void gameport_find_dev(struct gameport *gameport)
+static void gameport_find_driver(struct gameport *gameport)
 {
-        struct gameport_dev *dev;
+        struct gameport_driver *drv;
 
-        list_for_each_entry(dev, &gameport_dev_list, node) {
-		if (gameport->dev)
+        list_for_each_entry(drv, &gameport_driver_list, node) {
+		if (gameport->drv)
 			break;
-		if (dev->connect)
-                	dev->connect(gameport, dev);
+		if (drv->connect)
+                	drv->connect(gameport, drv);
         }
 }
 
 void gameport_rescan(struct gameport *gameport)
 {
 	gameport_close(gameport);
-	gameport_find_dev(gameport);
+	gameport_find_driver(gameport);
 }
 
 void gameport_register_port(struct gameport *gameport)
 {
 	list_add_tail(&gameport->node, &gameport_list);
 	gameport->speed = gameport_measure_speed(gameport);
-	gameport_find_dev(gameport);
+	gameport_find_driver(gameport);
 }
 
 void gameport_unregister_port(struct gameport *gameport)
 {
 	list_del_init(&gameport->node);
-	if (gameport->dev && gameport->dev->disconnect)
-		gameport->dev->disconnect(gameport);
+	if (gameport->drv && gameport->drv->disconnect)
+		gameport->drv->disconnect(gameport);
 }
 
-void gameport_register_device(struct gameport_dev *dev)
+void gameport_register_driver(struct gameport_driver *drv)
 {
 	struct gameport *gameport;
 
-	list_add_tail(&dev->node, &gameport_dev_list);
+	list_add_tail(&drv->node, &gameport_driver_list);
 	list_for_each_entry(gameport, &gameport_list, node)
-		if (!gameport->dev && dev->connect)
-			dev->connect(gameport, dev);
+		if (!gameport->drv && drv->connect)
+			drv->connect(gameport, drv);
 }
 
-void gameport_unregister_device(struct gameport_dev *dev)
+void gameport_unregister_driver(struct gameport_driver *drv)
 {
 	struct gameport *gameport;
 
-	list_del_init(&dev->node);
+	list_del_init(&drv->node);
 	list_for_each_entry(gameport, &gameport_list, node) {
-		if (gameport->dev == dev && dev->disconnect)
-			dev->disconnect(gameport);
-		gameport_find_dev(gameport);
+		if (gameport->drv == drv && drv->disconnect)
+			drv->disconnect(gameport);
+		gameport_find_driver(gameport);
 	}
 }
 
-int gameport_open(struct gameport *gameport, struct gameport_dev *dev, int mode)
+int gameport_open(struct gameport *gameport, struct gameport_driver *drv, int mode)
 {
 	if (gameport->open) {
 		if (gameport->open(gameport, mode))
@@ -164,17 +164,17 @@ int gameport_open(struct gameport *gameport, struct gameport_dev *dev, int mode)
 			return -1;
 	}
 
-	if (gameport->dev)
+	if (gameport->drv)
 		return -1;
 
-	gameport->dev = dev;
+	gameport->drv = drv;
 
 	return 0;
 }
 
 void gameport_close(struct gameport *gameport)
 {
-	gameport->dev = NULL;
+	gameport->drv = NULL;
 	if (gameport->close)
 		gameport->close(gameport);
 }

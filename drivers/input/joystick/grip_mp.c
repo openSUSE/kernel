@@ -616,7 +616,7 @@ static void grip_timer(unsigned long private)
 	mod_timer(&grip->timer, jiffies + GRIP_REFRESH_TIME);
 }
 
-static void grip_connect(struct gameport *gameport, struct gameport_dev *dev)
+static void grip_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct grip_mp *grip;
 
@@ -629,7 +629,7 @@ static void grip_connect(struct gameport *gameport, struct gameport_dev *dev)
 	grip->timer.data = (long) grip;
 	grip->timer.function = grip_timer;
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW))
+	if (gameport_open(gameport, drv, GAMEPORT_MODE_RAW))
 		goto fail1;
 	if (!multiport_init(grip))
 		goto fail2;
@@ -654,20 +654,20 @@ static void grip_disconnect(struct gameport *gameport)
 	kfree(grip);
 }
 
-static struct gameport_dev grip_dev = {
+static struct gameport_driver grip_drv = {
 	.connect	= grip_connect,
 	.disconnect	= grip_disconnect,
 };
 
 static int grip_init(void)
 {
-	gameport_register_device(&grip_dev);
+	gameport_register_driver(&grip_drv);
 	return 0;
 }
 
 static void grip_exit(void)
 {
-	gameport_unregister_device(&grip_dev);
+	gameport_unregister_driver(&grip_drv);
 }
 
 module_init(grip_init);

@@ -587,7 +587,7 @@ static int analog_init_masks(struct analog_port *port)
 	return -!(analog[0].mask || analog[1].mask);
 }
 
-static int analog_init_port(struct gameport *gameport, struct gameport_dev *dev, struct analog_port *port)
+static int analog_init_port(struct gameport *gameport, struct gameport_driver *drv, struct analog_port *port)
 {
 	int i, t, u, v;
 
@@ -597,7 +597,7 @@ static int analog_init_port(struct gameport *gameport, struct gameport_dev *dev,
 	port->timer.data = (long) port;
 	port->timer.function = analog_timer;
 
-	if (!gameport_open(gameport, dev, GAMEPORT_MODE_RAW)) {
+	if (!gameport_open(gameport, drv, GAMEPORT_MODE_RAW)) {
 
 		analog_calibrate_timer(port);
 
@@ -632,7 +632,7 @@ static int analog_init_port(struct gameport *gameport, struct gameport_dev *dev,
 		gameport_close(gameport);
 	}
 
-	if (!gameport_open(gameport, dev, GAMEPORT_MODE_COOKED)) {
+	if (!gameport_open(gameport, drv, GAMEPORT_MODE_COOKED)) {
 
 		for (i = 0; i < ANALOG_INIT_RETRIES; i++)
 			if (!gameport_cooked_read(gameport, port->axes, &port->buttons))
@@ -645,13 +645,13 @@ static int analog_init_port(struct gameport *gameport, struct gameport_dev *dev,
 		return 0;
 	}
 
-	if (!gameport_open(gameport, dev, GAMEPORT_MODE_RAW))
+	if (!gameport_open(gameport, drv, GAMEPORT_MODE_RAW))
 		return 0;
 
 	return -1;
 }
 
-static void analog_connect(struct gameport *gameport, struct gameport_dev *dev)
+static void analog_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct analog_port *port;
 	int i;
@@ -660,7 +660,7 @@ static void analog_connect(struct gameport *gameport, struct gameport_dev *dev)
 		return;
 	memset(port, 0, sizeof(struct analog_port));
 
-	if (analog_init_port(gameport, dev, port)) {
+	if (analog_init_port(gameport, drv, port)) {
 		kfree(port);
 		return;
 	}
@@ -741,7 +741,7 @@ static void analog_parse_options(void)
  * The gameport device structure.
  */
 
-static struct gameport_dev analog_dev = {
+static struct gameport_driver analog_drv = {
 	.connect =	analog_connect,
 	.disconnect =	analog_disconnect,
 };
@@ -749,13 +749,13 @@ static struct gameport_dev analog_dev = {
 static int __init analog_init(void)
 {
 	analog_parse_options();
-	gameport_register_device(&analog_dev);
+	gameport_register_driver(&analog_drv);
 	return 0;
 }
 
 static void __exit analog_exit(void)
 {
-	gameport_unregister_device(&analog_dev);
+	gameport_unregister_driver(&analog_drv);
 }
 
 module_init(analog_init);

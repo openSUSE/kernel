@@ -35,23 +35,23 @@ struct gameport {
 	int (*open)(struct gameport *, int);
 	void (*close)(struct gameport *);
 
-	struct gameport_dev *dev;
+	struct gameport_driver *drv;
 
 	struct list_head node;
 };
 
-struct gameport_dev {
+struct gameport_driver {
 
 	void *private;
 	char *name;
 
-	void (*connect)(struct gameport *, struct gameport_dev *dev);
+	void (*connect)(struct gameport *, struct gameport_driver *drv);
 	void (*disconnect)(struct gameport *);
 
 	struct list_head node;
 };
 
-int gameport_open(struct gameport *gameport, struct gameport_dev *dev, int mode);
+int gameport_open(struct gameport *gameport, struct gameport_driver *drv, int mode);
 void gameport_close(struct gameport *gameport);
 void gameport_rescan(struct gameport *gameport);
 
@@ -63,8 +63,8 @@ static inline void gameport_register_port(struct gameport *gameport) { return; }
 static inline void gameport_unregister_port(struct gameport *gameport) { return; }
 #endif
 
-void gameport_register_device(struct gameport_dev *dev);
-void gameport_unregister_device(struct gameport_dev *dev);
+void gameport_register_driver(struct gameport_driver *drv);
+void gameport_unregister_driver(struct gameport_driver *drv);
 
 #define GAMEPORT_MODE_DISABLED		0
 #define GAMEPORT_MODE_RAW		1

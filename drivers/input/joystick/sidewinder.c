@@ -569,7 +569,7 @@ static int sw_guess_mode(unsigned char *buf, int len)
  * sw_connect() probes for SideWinder type joysticks.
  */
 
-static void sw_connect(struct gameport *gameport, struct gameport_dev *dev)
+static void sw_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct sw *sw;
 	int i, j, k, l;
@@ -595,7 +595,7 @@ static void sw_connect(struct gameport *gameport, struct gameport_dev *dev)
 	sw->timer.data = (long) sw;
 	sw->timer.function = sw_timer;
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW))
+	if (gameport_open(gameport, drv, GAMEPORT_MODE_RAW))
 		goto fail1;
 
 	dbg("Init 0: Opened %s, io %#x, speed %d",
@@ -760,20 +760,20 @@ static void sw_disconnect(struct gameport *gameport)
 	kfree(sw);
 }
 
-static struct gameport_dev sw_dev = {
+static struct gameport_driver sw_drv = {
 	.connect =	sw_connect,
 	.disconnect =	sw_disconnect,
 };
 
 static int __init sw_init(void)
 {
-	gameport_register_device(&sw_dev);
+	gameport_register_driver(&sw_drv);
 	return 0;
 }
 
 static void __exit sw_exit(void)
 {
-	gameport_unregister_device(&sw_dev);
+	gameport_unregister_driver(&sw_drv);
 }
 
 module_init(sw_init);

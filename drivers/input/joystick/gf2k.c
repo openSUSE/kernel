@@ -238,7 +238,7 @@ static void gf2k_close(struct input_dev *dev)
  * gf2k_connect() probes for Genius id joysticks.
  */
 
-static void gf2k_connect(struct gameport *gameport, struct gameport_dev *dev)
+static void gf2k_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct gf2k *gf2k;
 	unsigned char data[GF2K_LENGTH];
@@ -255,7 +255,7 @@ static void gf2k_connect(struct gameport *gameport, struct gameport_dev *dev)
 	gf2k->timer.data = (long) gf2k;
 	gf2k->timer.function = gf2k_timer;
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW))
+	if (gameport_open(gameport, drv, GAMEPORT_MODE_RAW))
 		goto fail1;
 
 	gf2k_trigger_seq(gameport, gf2k_seq_reset);
@@ -346,20 +346,20 @@ static void gf2k_disconnect(struct gameport *gameport)
 	kfree(gf2k);
 }
 
-static struct gameport_dev gf2k_dev = {
+static struct gameport_driver gf2k_drv = {
 	.connect =	gf2k_connect,
 	.disconnect =	gf2k_disconnect,
 };
 
 static int __init gf2k_init(void)
 {
-	gameport_register_device(&gf2k_dev);
+	gameport_register_driver(&gf2k_drv);
 	return 0;
 }
 
 static void __exit gf2k_exit(void)
 {
-	gameport_unregister_device(&gf2k_dev);
+	gameport_unregister_driver(&gf2k_drv);
 }
 
 module_init(gf2k_init);

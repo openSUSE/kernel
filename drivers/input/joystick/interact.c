@@ -209,7 +209,7 @@ static void interact_close(struct input_dev *dev)
  * interact_connect() probes for InterAct joysticks.
  */
 
-static void interact_connect(struct gameport *gameport, struct gameport_dev *dev)
+static void interact_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct interact *interact;
 	__u32 data[3];
@@ -226,7 +226,7 @@ static void interact_connect(struct gameport *gameport, struct gameport_dev *dev
 	interact->timer.data = (long) interact;
 	interact->timer.function = interact_timer;
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW))
+	if (gameport_open(gameport, drv, GAMEPORT_MODE_RAW))
 		goto fail1;
 
 	i = interact_read_packet(gameport, INTERACT_MAX_LENGTH * 2, data);
@@ -294,20 +294,20 @@ static void interact_disconnect(struct gameport *gameport)
 	kfree(interact);
 }
 
-static struct gameport_dev interact_dev = {
+static struct gameport_driver interact_drv = {
 	.connect =	interact_connect,
 	.disconnect =	interact_disconnect,
 };
 
 static int __init interact_init(void)
 {
-	gameport_register_device(&interact_dev);
+	gameport_register_driver(&interact_drv);
 	return 0;
 }
 
 static void __exit interact_exit(void)
 {
-	gameport_unregister_device(&interact_dev);
+	gameport_unregister_driver(&interact_drv);
 }
 
 module_init(interact_init);

@@ -258,7 +258,7 @@ static void a3d_close(struct input_dev *dev)
  * a3d_connect() probes for A3D joysticks.
  */
 
-static void a3d_connect(struct gameport *gameport, struct gameport_dev *dev)
+static void a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct a3d *a3d;
 	unsigned char data[A3D_MAX_LENGTH];
@@ -275,7 +275,7 @@ static void a3d_connect(struct gameport *gameport, struct gameport_dev *dev)
 	a3d->timer.data = (long) a3d;
 	a3d->timer.function = a3d_timer;
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW))
+	if (gameport_open(gameport, drv, GAMEPORT_MODE_RAW))
 		goto fail1;
 
 	i = a3d_read_packet(gameport, A3D_MAX_LENGTH, data);
@@ -385,20 +385,20 @@ static void a3d_disconnect(struct gameport *gameport)
 	kfree(a3d);
 }
 
-static struct gameport_dev a3d_dev = {
+static struct gameport_driver a3d_drv = {
 	.connect =	a3d_connect,
 	.disconnect =	a3d_disconnect,
 };
 
 static int __init a3d_init(void)
 {
-	gameport_register_device(&a3d_dev);
+	gameport_register_driver(&a3d_drv);
 	return 0;
 }
 
 static void __exit a3d_exit(void)
 {
-	gameport_unregister_device(&a3d_dev);
+	gameport_unregister_driver(&a3d_drv);
 }
 
 module_init(a3d_init);

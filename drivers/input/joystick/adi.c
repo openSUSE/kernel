@@ -475,7 +475,7 @@ static void adi_init_center(struct adi *adi)
  * adi_connect() probes for Logitech ADI joysticks.
  */
 
-static void adi_connect(struct gameport *gameport, struct gameport_dev *dev)
+static void adi_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct adi_port *port;
 	int i;
@@ -491,7 +491,7 @@ static void adi_connect(struct gameport *gameport, struct gameport_dev *dev)
 	port->timer.data = (long) port;
 	port->timer.function = adi_timer;
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW)) {
+	if (gameport_open(gameport, drv, GAMEPORT_MODE_RAW)) {
 		kfree(port);
 		return;
 	}
@@ -544,20 +544,20 @@ static void adi_disconnect(struct gameport *gameport)
  * The gameport device structure.
  */
 
-static struct gameport_dev adi_dev = {
+static struct gameport_driver adi_drv = {
 	.connect =	adi_connect,
 	.disconnect =	adi_disconnect,
 };
 
 static int __init adi_init(void)
 {
-	gameport_register_device(&adi_dev);
+	gameport_register_driver(&adi_drv);
 	return 0;
 }
 
 static void __exit adi_exit(void)
 {
-	gameport_unregister_device(&adi_dev);
+	gameport_unregister_driver(&adi_drv);
 }
 
 module_init(adi_init);

@@ -298,7 +298,7 @@ static void grip_close(struct input_dev *dev)
 		del_timer(&grip->timer);
 }
 
-static void grip_connect(struct gameport *gameport, struct gameport_dev *dev)
+static void grip_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct grip *grip;
 	unsigned int data[GRIP_LENGTH_XT];
@@ -315,7 +315,7 @@ static void grip_connect(struct gameport *gameport, struct gameport_dev *dev)
 	grip->timer.data = (long) grip;
 	grip->timer.function = grip_timer;
 
-	 if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW))
+	 if (gameport_open(gameport, drv, GAMEPORT_MODE_RAW))
 		goto fail1;
 
 	for (i = 0; i < 2; i++) {
@@ -409,20 +409,20 @@ static void grip_disconnect(struct gameport *gameport)
 	kfree(grip);
 }
 
-static struct gameport_dev grip_dev = {
+static struct gameport_driver grip_drv = {
 	.connect =	grip_connect,
 	.disconnect =	grip_disconnect,
 };
 
 static int __init grip_init(void)
 {
-	gameport_register_device(&grip_dev);
+	gameport_register_driver(&grip_drv);
 	return 0;
 }
 
 static void __exit grip_exit(void)
 {
-	gameport_unregister_device(&grip_dev);
+	gameport_unregister_driver(&grip_drv);
 }
 
 module_init(grip_init);

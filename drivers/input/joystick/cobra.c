@@ -158,7 +158,7 @@ static void cobra_close(struct input_dev *dev)
 		del_timer(&cobra->timer);
 }
 
-static void cobra_connect(struct gameport *gameport, struct gameport_dev *dev)
+static void cobra_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct cobra *cobra;
 	unsigned int data[2];
@@ -175,7 +175,7 @@ static void cobra_connect(struct gameport *gameport, struct gameport_dev *dev)
 	cobra->timer.data = (long) cobra;
 	cobra->timer.function = cobra_timer;
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW))
+	if (gameport_open(gameport, drv, GAMEPORT_MODE_RAW))
 		goto fail1;
 
 	cobra->exists = cobra_read_packet(gameport, data);
@@ -236,20 +236,20 @@ static void cobra_disconnect(struct gameport *gameport)
 	kfree(cobra);
 }
 
-static struct gameport_dev cobra_dev = {
+static struct gameport_driver cobra_drv = {
 	.connect =	cobra_connect,
 	.disconnect =	cobra_disconnect,
 };
 
 static int __init cobra_init(void)
 {
-	gameport_register_device(&cobra_dev);
+	gameport_register_driver(&cobra_drv);
 	return 0;
 }
 
 static void __exit cobra_exit(void)
 {
-	gameport_unregister_device(&cobra_dev);
+	gameport_unregister_driver(&cobra_drv);
 }
 
 module_init(cobra_init);

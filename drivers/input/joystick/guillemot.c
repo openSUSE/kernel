@@ -179,7 +179,7 @@ static void guillemot_close(struct input_dev *dev)
  * guillemot_connect() probes for Guillemot joysticks.
  */
 
-static void guillemot_connect(struct gameport *gameport, struct gameport_dev *dev)
+static void guillemot_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct guillemot *guillemot;
 	u8 data[GUILLEMOT_MAX_LENGTH];
@@ -196,7 +196,7 @@ static void guillemot_connect(struct gameport *gameport, struct gameport_dev *de
 	guillemot->timer.data = (long) guillemot;
 	guillemot->timer.function = guillemot_timer;
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW))
+	if (gameport_open(gameport, drv, GAMEPORT_MODE_RAW))
 		goto fail1;
 
 	i = guillemot_read_packet(gameport, data);
@@ -266,20 +266,20 @@ static void guillemot_disconnect(struct gameport *gameport)
 	kfree(guillemot);
 }
 
-static struct gameport_dev guillemot_dev = {
+static struct gameport_driver guillemot_drv = {
 	.connect =	guillemot_connect,
 	.disconnect =	guillemot_disconnect,
 };
 
 static int __init guillemot_init(void)
 {
-	gameport_register_device(&guillemot_dev);
+	gameport_register_driver(&guillemot_drv);
 	return 0;
 }
 
 static void __exit guillemot_exit(void)
 {
-	gameport_unregister_device(&guillemot_dev);
+	gameport_unregister_driver(&guillemot_drv);
 }
 
 module_init(guillemot_init);
