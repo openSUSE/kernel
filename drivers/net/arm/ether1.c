@@ -770,7 +770,7 @@ again:
 		/* special case */
 		if (ether1_readw(dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS)
 				!= (unsigned short)I82586_NULL) {
-			ether1_outw(dev, SCB_CMDCUCSTART | SCB_CMDRXSTART, SCB_ADDR, scb_t,
+			ether1_writew(dev, SCB_CMDCUCSTART | SCB_CMDRXSTART, SCB_ADDR, scb_t,
 				    scb_command, NORMALIRQS);
 			writeb(CTRL_CA, REG_CONTROL);
 		}
@@ -917,7 +917,7 @@ ether1_interrupt (int irq, void *dev_id, struct pt_regs *regs)
 	status = ether1_readw(dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS);
 
 	if (status) {
-		ether1_outw(dev, status & (SCB_STRNR | SCB_STCNA | SCB_STFR | SCB_STCX),
+		ether1_writew(dev, status & (SCB_STRNR | SCB_STCNA | SCB_STFR | SCB_STCX),
 			    SCB_ADDR, scb_t, scb_command, NORMALIRQS);
 		writeb(CTRL_CA | CTRL_ACK, REG_CONTROL);
 		if (status & SCB_STCX) {
