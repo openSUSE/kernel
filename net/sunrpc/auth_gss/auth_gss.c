@@ -581,10 +581,11 @@ gss_pipe_downcall(struct file *filp, const char __user *src, size_t mlen)
 	} else {
 		struct auth_cred acred = { .uid = uid };
 		spin_unlock(&gss_auth->lock);
-		err = -ENOENT;
 		cred = rpcauth_lookup_credcache(clnt->cl_auth, &acred, 0);
-		if (!cred)
+		if (IS_ERR(cred)) {
+			err = PTR_ERR(cred);
 			goto err_put_ctx;
+		}
 		gss_cred_set_ctx(cred, gss_get_ctx(ctx));
 	}
 	gss_put_ctx(ctx);
@@ -791,7 +792,7 @@ gss_create_cred(struct rpc_auth *auth, struct auth_cred *acred, int taskflags)
 out_err:
 	dprintk("RPC:      gss_create_cred failed with error %d\n", err);
 	if (cred) gss_destroy_cred(&cred->gc_base);
-	return NULL;
+	return ERR_PTR(err);
 }
 
 static int

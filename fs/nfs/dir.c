@@ -1532,8 +1532,11 @@ force_lookup:
 		goto out_notsup;
 
 	cred = rpcauth_lookupcred(NFS_CLIENT(inode)->cl_auth, 0);
-	res = nfs_do_access(inode, cred, mask);
-	put_rpccred(cred);
+	if (!IS_ERR(cred)) {
+		res = nfs_do_access(inode, cred, mask);
+		put_rpccred(cred);
+	} else
+		res = PTR_ERR(cred);
 	unlock_kernel();
 out:
 	return res;

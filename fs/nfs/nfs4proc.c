@@ -774,6 +774,8 @@ nfs4_atomic_open(struct inode *dir, struct dentry *dentry, struct nameidata *nd)
 	}
 
 	cred = rpcauth_lookupcred(NFS_SERVER(dir)->client->cl_auth, 0);
+	if (IS_ERR(cred))
+		return (struct inode *)cred;
 	state = nfs4_do_open(dir, dentry, nd->intent.open.flags, &attr, cred);
 	put_rpccred(cred);
 	if (IS_ERR(state))
@@ -789,6 +791,8 @@ nfs4_open_revalidate(struct inode *dir, struct dentry *dentry, int openflags)
 	struct inode *inode;
 
 	cred = rpcauth_lookupcred(NFS_SERVER(dir)->client->cl_auth, 0);
+	if (IS_ERR(cred))
+		return PTR_ERR(cred);
 	state = nfs4_open_delegated(dentry->d_inode, openflags, cred);
 	if (IS_ERR(state))
 		state = nfs4_do_open(dir, dentry, openflags, NULL, cred);
@@ -1009,6 +1013,8 @@ nfs4_proc_setattr(struct dentry *dentry, struct nfs_fattr *fattr,
 	
 	if (size_change) {
 		struct rpc_cred *cred = rpcauth_lookupcred(NFS_SERVER(inode)->client->cl_auth, 0);
+		if (IS_ERR(cred))
+			return PTR_ERR(cred);
 		state = nfs4_find_state(inode, cred, FMODE_WRITE);
 		if (state == NULL) {
 			state = nfs4_open_delegated(dentry->d_inode,
@@ -1324,6 +1330,8 @@ nfs4_proc_create(struct inode *dir, struct dentry *dentry, struct iattr *sattr,
 	struct rpc_cred *cred;
 
 	cred = rpcauth_lookupcred(NFS_SERVER(dir)->client->cl_auth, 0);
+	if (IS_ERR(cred))
+		return (struct inode *)cred;
 	state = nfs4_do_open(dir, dentry, flags, sattr, cred);
 	put_rpccred(cred);
 	if (IS_ERR(state)) {
@@ -2004,8 +2012,8 @@ nfs4_proc_file_open(struct inode *inode, struct file *filp)
 
 	/* Find our open stateid */
 	cred = rpcauth_lookupcred(NFS_SERVER(inode)->client->cl_auth, 0);
-	if (unlikely(cred == NULL))
-		return -ENOMEM;
+	if (IS_ERR(cred))
+		return PTR_ERR(cred);
 	ctx = alloc_nfs_open_context(dentry, cred);
 	put_rpccred(cred);
 	if (unlikely(ctx == NULL))

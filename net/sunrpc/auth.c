@@ -226,12 +226,13 @@ retry:
 
 	if (!cred) {
 		new = auth->au_ops->crcreate(auth, acred, taskflags);
-		if (new) {
+		if (!IS_ERR(new)) {
 #ifdef RPC_DEBUG
 			new->cr_magic = RPCAUTH_CRED_MAGIC;
 #endif
 			goto retry;
-		}
+		} else
+			cred = new;
 	}
 
 	return (struct rpc_cred *) cred;
@@ -269,10 +270,11 @@ rpcauth_bindcred(struct rpc_task *task)
 
 	dprintk("RPC: %4d looking up %s cred\n",
 		task->tk_pid, task->tk_auth->au_ops->au_name);
-	task->tk_msg.rpc_cred = auth->au_ops->lookup_cred(auth, &acred, task->tk_flags);
-	if (task->tk_msg.rpc_cred == 0)
-		task->tk_status = -ENOMEM;
-	ret = task->tk_msg.rpc_cred;
+	ret = auth->au_ops->lookup_cred(auth, &acred, task->tk_flags);
+	if (!IS_ERR(ret))
+		task->tk_msg.rpc_cred = ret;
+	else
+		task->tk_status = PTR_ERR(ret);
 	put_group_info(current->group_info);
 	return ret;
 }

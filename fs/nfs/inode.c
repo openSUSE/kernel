@@ -918,8 +918,9 @@ int nfs_open(struct inode *inode, struct file *filp)
 	struct nfs_open_context *ctx;
 	struct rpc_cred *cred;
 
-	if ((cred = rpcauth_lookupcred(NFS_CLIENT(inode)->cl_auth, 0)) == NULL)
-		return -ENOMEM;
+	cred = rpcauth_lookupcred(NFS_CLIENT(inode)->cl_auth, 0);
+	if (IS_ERR(cred))
+		return PTR_ERR(cred);
 	ctx = alloc_nfs_open_context(filp->f_dentry, cred);
 	put_rpccred(cred);
 	if (ctx == NULL)
@@ -1613,6 +1614,12 @@ static int nfs4_fill_super(struct super_block *sb, struct nfs4_mount_data *data,
 		clnt->cl_chatty   = 1;
 		clp->cl_rpcclient = clnt;
 		clp->cl_cred = rpcauth_lookupcred(clnt->cl_auth, 0);
+		if (IS_ERR(clp->cl_cred)) {
+			up_write(&clp->cl_sem);
+			err = PTR_ERR(clp->cl_cred);
+			clp->cl_cred = NULL;
+			goto out_fail;
+		}
 		memcpy(clp->cl_ipaddr, server->ip_addr, sizeof(clp->cl_ipaddr));
 		nfs_idmap_new(clp);
 	}

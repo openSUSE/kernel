@@ -425,9 +425,9 @@ rpc_call_setup(struct rpc_task *task, struct rpc_message *msg, int flags)
 	task->tk_msg   = *msg;
 	task->tk_flags |= flags;
 	/* Bind the user cred */
-	if (task->tk_msg.rpc_cred != NULL) {
+	if (task->tk_msg.rpc_cred != NULL)
 		rpcauth_holdcred(task);
-	} else
+	else
 		rpcauth_bindcred(task);
 
 	if (task->tk_status == 0)
