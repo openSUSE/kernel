@@ -405,6 +405,11 @@ EXPORT_SYMBOL(agp_unbind_memory);
 /* Generic Agp routines - Start */
 static void agp_v2_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_agpstat)
 {
+	if (*requested_mode & AGP2_RESERVED_MASK) {
+		printk (KERN_INFO PFX "reserved bits set in mode 0x%x. Fixed.\n", *requested_mode);
+		*requested_mode &= ~AGP2_RESERVED_MASK;
+	}
+
 	/* disable SBA if it's not supported */
 	if (!((*bridge_agpstat & AGPSTAT_SBA) && (*vga_agpstat & AGPSTAT_SBA) && (*requested_mode & AGPSTAT_SBA)))
 		*bridge_agpstat &= ~AGPSTAT_SBA;
@@ -439,6 +444,11 @@ static void agp_v3_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 {
 	u32 origbridge=*bridge_agpstat, origvga=*vga_agpstat;
 
+	if (*requested_mode & AGP3_RESERVED_MASK) {
+		printk (KERN_INFO PFX "reserved bits set in mode 0x%x. Fixed.\n", *requested_mode);
+		*requested_mode &= ~AGP3_RESERVED_MASK;
+	}
+
 	/* ARQSZ - Set the value to the maximum one.
 	 * Don't allow the mode register to override values. */
 	*bridge_agpstat = ((*bridge_agpstat & ~AGPSTAT_ARQSZ) |
@@ -459,7 +469,7 @@ static void agp_v3_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 	 */
 	if (*requested_mode & AGPSTAT_MODE_3_0) {
 		/*
-		 * Caller hasn't a clue what its doing. We are in 3.0 mode,
+		 * Caller hasn't a clue what its doing. Bridge is in 3.0 mode,
 		 * have been passed a 3.0 mode, but with 2.x speed bits set.
 		 * AGP2.x 4x -> AGP3.0 4x.
 		 */
