@@ -79,6 +79,7 @@ struct mthca_icm *mthca_alloc_icm(struct mthca_dev *dev, int npages,
 	if (!icm)
 		return icm;
 
+	icm->refcount = 0;
 	INIT_LIST_HEAD(&icm->chunk_list);
 
 	cur_order = get_order(MTHCA_ICM_ALLOC_SIZE);
@@ -138,9 +139,62 @@ fail:
 	return NULL;
 }
 
+int mthca_table_get(struct mthca_dev *dev, struct mthca_icm_table *table, int obj)
+{
+	int i = (obj & (table->num_obj - 1)) * table->obj_size / MTHCA_TABLE_CHUNK_SIZE;
+	int ret = 0;
+	u8 status;
+
+	down(&table->mutex);
+
+	if (table->icm[i]) {
+		++table->icm[i]->refcount;
+		goto out;
+	}
+
+	table->icm[i] = mthca_alloc_icm(dev, MTHCA_TABLE_CHUNK_SIZE >> PAGE_SHIFT,
+					(table->lowmem ? GFP_KERNEL : GFP_HIGHUSER) |
+					__GFP_NOWARN);
+	if (!table->icm[i]) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	if (mthca_MAP_ICM(dev, table->icm[i], table->virt + i * MTHCA_TABLE_CHUNK_SIZE,
+			  &status) || status) {
+		mthca_free_icm(dev, table->icm[i]);
+		table->icm[i] = NULL;
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	++table->icm[i]->refcount;
+
+out:
+	up(&table->mutex);
+	return ret;
+}
+
+void mthca_table_put(struct mthca_dev *dev, struct mthca_icm_table *table, int obj)
+{
+	int i = (obj & (table->num_obj - 1)) * table->obj_size / MTHCA_TABLE_CHUNK_SIZE;
+	u8 status;
+
+	down(&table->mutex);
+
+	if (--table->icm[i]->refcount == 0) {
+		mthca_UNMAP_ICM(dev, table->virt + i * MTHCA_TABLE_CHUNK_SIZE,
+				MTHCA_TABLE_CHUNK_SIZE >> 12, &status);
+		mthca_free_icm(dev, table->icm[i]);
+		table->icm[i] = NULL;
+	}
+
+	up(&table->mutex);
+}
+
 struct mthca_icm_table *mthca_alloc_icm_table(struct mthca_dev *dev,
-					      u64 virt, unsigned size,
-					      unsigned reserved,
+					      u64 virt, int obj_size,
+					      int nobj, int reserved,
 					      int use_lowmem)
 {
 	struct mthca_icm_table *table;
@@ -148,20 +202,23 @@ struct mthca_icm_table *mthca_alloc_icm_table(struct mthca_dev *dev,
 	int i;
 	u8 status;
 
-	num_icm = size / MTHCA_TABLE_CHUNK_SIZE;
+	num_icm = obj_size * nobj / MTHCA_TABLE_CHUNK_SIZE;
 
 	table = kmalloc(sizeof *table + num_icm * sizeof *table->icm, GFP_KERNEL);
 	if (!table)
 		return NULL;
 
-	table->virt    = virt;
-	table->num_icm = num_icm;
-	init_MUTEX(&table->sem);
+	table->virt     = virt;
+	table->num_icm  = num_icm;
+	table->num_obj  = nobj;
+	table->obj_size = obj_size;
+	table->lowmem   = use_lowmem;
+	init_MUTEX(&table->mutex);
 
 	for (i = 0; i < num_icm; ++i)
 		table->icm[i] = NULL;
 
-	for (i = 0; i < (reserved + MTHCA_TABLE_CHUNK_SIZE - 1) / MTHCA_TABLE_CHUNK_SIZE; ++i) {
+	for (i = 0; i * MTHCA_TABLE_CHUNK_SIZE < reserved * obj_size; ++i) {
 		table->icm[i] = mthca_alloc_icm(dev, MTHCA_TABLE_CHUNK_SIZE >> PAGE_SHIFT,
 						(use_lowmem ? GFP_KERNEL : GFP_HIGHUSER) |
 						__GFP_NOWARN);
@@ -173,6 +230,12 @@ struct mthca_icm_table *mthca_alloc_icm_table(struct mthca_dev *dev,
 			table->icm[i] = NULL;
 			goto err;
 		}
+
+		/*
+		 * Add a reference to this ICM chunk so that it never
+		 * gets freed (since it contains reserved firmware objects).
+		 */
+		++table->icm[i]->refcount;
 	}
 
 	return table;

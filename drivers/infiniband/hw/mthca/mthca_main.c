@@ -363,10 +363,9 @@ static int __devinit mthca_init_icm(struct mthca_dev *mdev,
 	}
 
 	mdev->mr_table.mtt_table = mthca_alloc_icm_table(mdev, init_hca->mtt_base,
-							 mdev->limits.num_mtt_segs *
 							 init_hca->mtt_seg_sz,
-							 mdev->limits.reserved_mtts *
-							 init_hca->mtt_seg_sz, 1);
+							 mdev->limits.num_mtt_segs,
+							 mdev->limits.reserved_mtts, 1);
 	if (!mdev->mr_table.mtt_table) {
 		mthca_err(mdev, "Failed to map MTT context memory, aborting.\n");
 		err = -ENOMEM;
@@ -374,10 +373,9 @@ static int __devinit mthca_init_icm(struct mthca_dev *mdev,
 	}
 
 	mdev->mr_table.mpt_table = mthca_alloc_icm_table(mdev, init_hca->mpt_base,
-							 mdev->limits.num_mpts *
 							 dev_lim->mpt_entry_sz,
-							 mdev->limits.reserved_mrws *
-							 dev_lim->mpt_entry_sz, 1);
+							 mdev->limits.num_mpts,
+							 mdev->limits.reserved_mrws, 1);
 	if (!mdev->mr_table.mpt_table) {
 		mthca_err(mdev, "Failed to map MPT context memory, aborting.\n");
 		err = -ENOMEM;
@@ -385,10 +383,9 @@ static int __devinit mthca_init_icm(struct mthca_dev *mdev,
 	}
 
 	mdev->qp_table.qp_table = mthca_alloc_icm_table(mdev, init_hca->qpc_base,
-							mdev->limits.num_qps *
 							dev_lim->qpc_entry_sz,
-							mdev->limits.reserved_qps *
-							dev_lim->qpc_entry_sz, 1);
+							mdev->limits.num_qps,
+							mdev->limits.reserved_qps, 0);
 	if (!mdev->qp_table.qp_table) {
 		mthca_err(mdev, "Failed to map QP context memory, aborting.\n");
 		err = -ENOMEM;
@@ -396,10 +393,9 @@ static int __devinit mthca_init_icm(struct mthca_dev *mdev,
 	}
 
 	mdev->qp_table.eqp_table = mthca_alloc_icm_table(mdev, init_hca->eqpc_base,
-							 mdev->limits.num_qps *
 							 dev_lim->eqpc_entry_sz,
-							 mdev->limits.reserved_qps *
-							 dev_lim->eqpc_entry_sz, 1);
+							 mdev->limits.num_qps,
+							 mdev->limits.reserved_qps, 0);
 	if (!mdev->qp_table.eqp_table) {
 		mthca_err(mdev, "Failed to map EQP context memory, aborting.\n");
 		err = -ENOMEM;
@@ -407,10 +403,9 @@ static int __devinit mthca_init_icm(struct mthca_dev *mdev,
 	}
 
 	mdev->cq_table.table = mthca_alloc_icm_table(mdev, init_hca->cqc_base,
-						     mdev->limits.num_cqs *
 						     dev_lim->cqc_entry_sz,
-						     mdev->limits.reserved_cqs *
-						     dev_lim->cqc_entry_sz, 1);
+						     mdev->limits.num_cqs,
+						     mdev->limits.reserved_cqs, 0);
 	if (!mdev->cq_table.table) {
 		mthca_err(mdev, "Failed to map CQ context memory, aborting.\n");
 		err = -ENOMEM;
