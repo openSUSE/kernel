@@ -108,6 +108,9 @@ nfs_file_open(struct inode *inode, struct file *filp)
 static int
 nfs_file_release(struct inode *inode, struct file *filp)
 {
+	/* Ensure that dirty pages are flushed out with the right creds */
+	if (filp->f_mode & FMODE_WRITE)
+		filemap_fdatawrite(filp->f_mapping);
 	return NFS_PROTO(inode)->file_release(inode, filp);
 }
 
