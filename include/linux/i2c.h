@@ -134,8 +134,6 @@ struct i2c_driver {
 };
 #define to_i2c_driver(d) container_of(d, struct i2c_driver, driver)
 
-extern struct bus_type i2c_bus_type;
-
 #define I2C_NAME_SIZE	50
 
 /*
