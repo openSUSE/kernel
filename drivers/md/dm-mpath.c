@@ -157,7 +157,7 @@ static void free_priority_group(struct priority_group *pg,
 	struct path_selector *ps = &pg->ps;
 
 	if (ps->type) {
-		ps->type->dtr(ps);
+		ps->type->destroy(ps);
 		dm_put_path_selector(ps->type);
 	}
 
@@ -199,7 +199,7 @@ static void free_multipath(struct multipath *m)
 	}
 
 	if (hwh->type) {
-		hwh->type->dtr(hwh);
+		hwh->type->destroy(hwh);
 		dm_put_hw_handler(hwh->type);
 	}
 
@@ -495,7 +495,7 @@ static int parse_path_selector(struct arg_set *as, struct priority_group *pg,
 	if (r)
 		return -EINVAL;
 
-	r = pst->ctr(&pg->ps, ps_argc, as->argv);
+	r = pst->create(&pg->ps, ps_argc, as->argv);
 	if (r) {
 		dm_put_path_selector(pst);
 		ti->error = ESTR("path selector constructor failed");
@@ -636,7 +636,7 @@ static int parse_hw_handler(struct arg_set *as, struct multipath *m,
 		return -EINVAL;
 	}
 
-	r = hwht->ctr(&m->hw_handler, hw_argc - 1, as->argv);
+	r = hwht->create(&m->hw_handler, hw_argc - 1, as->argv);
 	if (r) {
 		dm_put_hw_handler(hwht);
 		ti->error = ESTR("hardware handler constructor failed");
@@ -996,8 +996,8 @@ static int do_end_io(struct multipath *m, struct bio *bio,
 	}
 	spin_unlock(&m->lock);
 
-	if (hwh->type && hwh->type->err)
-		err_flags = hwh->type->err(hwh, bio);
+	if (hwh->type && hwh->type->error)
+		err_flags = hwh->type->error(hwh, bio);
 
 	if (mpio->pgpath) {
 		if (err_flags & MP_FAIL_PATH)

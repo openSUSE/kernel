@@ -27,12 +27,13 @@ struct hw_handler_type {
 	char *name;
 	struct module *module;
 
-	int (*ctr) (struct hw_handler *handler, unsigned int argc, char **argv);
-	void (*dtr) (struct hw_handler *hwh);
+	int (*create) (struct hw_handler *handler, unsigned int argc,
+		       char **argv);
+	void (*destroy) (struct hw_handler *hwh);
 
 	void (*pg_init) (struct hw_handler *hwh, unsigned bypassed,
 			 struct path *path);
-	unsigned (*err) (struct hw_handler *hwh, struct bio *bio);
+	unsigned (*error) (struct hw_handler *hwh, struct bio *bio);
 	int (*status) (struct hw_handler *hwh, status_type_t type,
 		       char *result, unsigned int maxlen);
 };

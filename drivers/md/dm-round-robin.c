@@ -56,7 +56,7 @@ static struct selector *alloc_selector(void)
 	return s;
 }
 
-static int rr_ctr(struct path_selector *ps, unsigned argc, char **argv)
+static int rr_create(struct path_selector *ps, unsigned argc, char **argv)
 {
 	struct selector *s;
 
@@ -68,7 +68,7 @@ static int rr_ctr(struct path_selector *ps, unsigned argc, char **argv)
 	return 0;
 }
 
-static void rr_dtr(struct path_selector *ps)
+static void rr_destroy(struct path_selector *ps)
 {
 	struct selector *s = (struct selector *) ps->context;
 
@@ -177,8 +177,8 @@ static struct path_selector_type rr_ps = {
 	.module = THIS_MODULE,
 	.table_args = 1,
 	.info_args = 0,
-	.ctr = rr_ctr,
-	.dtr = rr_dtr,
+	.create = rr_create,
+	.destroy = rr_destroy,
 	.status = rr_status,
 	.add_path = rr_add_path,
 	.fail_path = rr_fail_path,

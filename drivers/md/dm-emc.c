@@ -229,7 +229,7 @@ static struct emc_handler *alloc_emc_handler(void)
 	return h;
 }
 
-static int emc_ctr(struct hw_handler *hwh, unsigned argc, char **argv)
+static int emc_create(struct hw_handler *hwh, unsigned argc, char **argv)
 {
 	struct emc_handler *h;
 	unsigned hr, short_trespass;
@@ -276,7 +276,7 @@ static int emc_ctr(struct hw_handler *hwh, unsigned argc, char **argv)
 	return 0;
 }
 
-static void emc_dtr(struct hw_handler *hwh)
+static void emc_destroy(struct hw_handler *hwh)
 {
 	struct emc_handler *h = (struct emc_handler *) hwh->context;
 
@@ -284,7 +284,7 @@ static void emc_dtr(struct hw_handler *hwh)
 	hwh->context = NULL;
 }
 
-static unsigned emc_err(struct hw_handler *hwh, struct bio *bio)
+static unsigned emc_error(struct hw_handler *hwh, struct bio *bio)
 {
 	/* FIXME: Patch from axboe still missing */
 #if 0
@@ -325,10 +325,10 @@ static unsigned emc_err(struct hw_handler *hwh, struct bio *bio)
 static struct hw_handler_type emc_hwh = {
 	.name = "emc",
 	.module = THIS_MODULE,
-	.ctr = emc_ctr,
-	.dtr = emc_dtr,
+	.create = emc_create,
+	.destroy = emc_destroy,
 	.pg_init = emc_pg_init,
-	.err = emc_err,
+	.error = emc_error,
 };
 
 static int __init dm_emc_init(void)
