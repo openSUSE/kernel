@@ -9,6 +9,7 @@
 #	Mips port by Juan Quintela <quintela@mandrakesoft.com>
 #	IA64 port via Andreas Dilger
 #	Arm port by Holger Schurig
+#	sh64 port by Paul Mundt
 #	Random bits by Matt Mackall <mpm@selenic.com>
 #	M68k port by Geert Uytterhoeven and Andreas Schwab
 #
@@ -64,6 +65,12 @@ my (@stack, $re, $x, $xs);
 	} elsif ($arch =~ /^s390x?$/) {
 		#   11160:       a7 fb ff 60             aghi   %r15,-160
 		$re = qr/.*ag?hi.*\%r15,-(([0-9]{2}|[3-9])[0-9]{2})/o;
+	} elsif ($arch =~ /^sh64$/) {
+		#XXX: we only check for the immediate case presently,
+		#     though we will want to check for the movi/sub
+		#     pair for larger users. -- PFM.
+		#a00048e0:       d4fc40f0        addi.l  r15,-240,r15
+		$re = qr/.*addi\.l.*r15,-(([0-9]{2}|[3-9])[0-9]{2}),r15/o;
 	} else {
 		print("wrong or unknown architecture\n");
 		exit
