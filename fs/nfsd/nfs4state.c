@@ -145,7 +145,7 @@ alloc_init_deleg(struct nfs4_client *clp, struct nfs4_stateid *stp, struct svc_f
 	dp->dl_client = clp;
 	dp->dl_file = fp;
 	dp->dl_flock = NULL;
-	dp->dl_stp = NULL;
+	dp->dl_vfs_file = NULL;
 	dp->dl_type = type;
 	dp->dl_recall.cbr_dp = NULL;
 	dp->dl_recall.cbr_ident = cb->cb_ident;
@@ -198,12 +198,10 @@ nfs4_put_delegation(struct nfs4_delegation *dp)
 static void
 nfs4_close_delegation(struct nfs4_delegation *dp)
 {
-	struct file *filp = dp->dl_stp->st_vfs_file;
+	struct file *filp = dp->dl_vfs_file;
 
 	dprintk("NFSD: close_delegation dp %p\n",dp);
-	release_stateid_lockowners(dp->dl_stp);
-	kfree(dp->dl_stp);
-	dp->dl_stp = NULL;
+	dp->dl_vfs_file = NULL;
 	atomic_set(&dp->dl_state, NFS4_RECALL_COMPLETE);
 	nfsd_close(filp);
 	vfsclose++;
@@ -214,9 +212,9 @@ static void
 release_delegation(struct nfs4_delegation *dp)
 {
 	/* delayed nfsd_close */
-	if (dp->dl_stp)
+	if (dp->dl_vfs_file)
 		nfs4_close_delegation(dp);
-	} else {
+	else {
 		dprintk("NFSD: release_delegation remove lease dl_flock %p\n",
 			dp->dl_flock);
 		remove_lease(dp->dl_flock);
@@ -1174,7 +1172,8 @@ release_stateid(struct nfs4_stateid *stp, int flags)
 		list_for_each_entry(dp, &fp->fi_del_perfile, dl_del_perfile) {
 			if(cmp_clid(&dp->dl_client->cl_clientid,
 			    &stp->st_stateowner->so_client->cl_clientid)) {
-				dp->dl_stp = stp;
+				dp->dl_vfs_file = stp->st_vfs_file;
+				release_stateid_lockowners(stp);
 				return;
 			}
 		}

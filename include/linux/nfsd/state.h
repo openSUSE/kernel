@@ -91,7 +91,7 @@ struct nfs4_delegation {
 	struct nfs4_client	*dl_client;
 	struct nfs4_file	*dl_file;
 	struct file_lock	*dl_flock;
-	struct nfs4_stateid	*dl_stp;
+	struct file		*dl_vfs_file;
 	u32			dl_type;
 	time_t			dl_time;
 	struct nfs4_cb_recall	dl_recall;
