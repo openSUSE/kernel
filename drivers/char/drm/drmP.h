@@ -497,6 +497,7 @@ typedef struct drm_agp_head {
 	DRM_AGP_KERN       agp_info;	/**< AGP device information */
 	drm_agp_mem_t      *memory;	/**< memory entries */
 	unsigned long      mode;	/**< AGP mode */
+	struct agp_bridge_data  *bridge;
 	int                enabled;	/**< whether the AGP bus as been enabled */
 	int                acquired;	/**< whether the AGP device has been acquired */
 	unsigned long      base;
@@ -807,7 +808,7 @@ extern void	     *drm_ioremap_nocache(unsigned long offset, unsigned long size,
 					   drm_device_t *dev);
 extern void	     drm_ioremapfree(void *pt, unsigned long size, drm_device_t *dev);
 
-extern DRM_AGP_MEM   *drm_alloc_agp(int pages, u32 type);
+extern DRM_AGP_MEM   *drm_alloc_agp(struct agp_bridge_data *bridge, int pages, u32 type);
 extern int           drm_free_agp(DRM_AGP_MEM *handle, int pages);
 extern int           drm_bind_agp(DRM_AGP_MEM *handle, unsigned int start);
 extern int           drm_unbind_agp(DRM_AGP_MEM *handle);
@@ -930,10 +931,10 @@ extern int           drm_vblank_wait(drm_device_t *dev, unsigned int *vbl_seq);
 extern void          drm_vbl_send_signals( drm_device_t *dev );
 
 				/* AGP/GART support (drm_agpsupport.h) */
-extern drm_agp_head_t *drm_agp_init(void);
+extern drm_agp_head_t *drm_agp_init(drm_device_t *dev);
 extern int            drm_agp_acquire(struct inode *inode, struct file *filp,
 				       unsigned int cmd, unsigned long arg);
-extern void           drm_agp_do_release(void);
+extern void           drm_agp_do_release(drm_device_t *dev);
 extern int            drm_agp_release(struct inode *inode, struct file *filp,
 				       unsigned int cmd, unsigned long arg);
 extern int            drm_agp_enable(struct inode *inode, struct file *filp,
@@ -948,7 +949,7 @@ extern int            drm_agp_unbind(struct inode *inode, struct file *filp,
 				      unsigned int cmd, unsigned long arg);
 extern int            drm_agp_bind(struct inode *inode, struct file *filp,
 				    unsigned int cmd, unsigned long arg);
-extern DRM_AGP_MEM    *drm_agp_allocate_memory(size_t pages, u32 type);
+extern DRM_AGP_MEM    *drm_agp_allocate_memory(struct agp_bridge_data *bridge, size_t pages, u32 type);
 extern int            drm_agp_free_memory(DRM_AGP_MEM *handle);
 extern int            drm_agp_bind_memory(DRM_AGP_MEM *handle, off_t start);
 extern int            drm_agp_unbind_memory(DRM_AGP_MEM *handle);

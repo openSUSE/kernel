@@ -185,7 +185,7 @@ int drm_takedown( drm_device_t *dev )
 		}
 		dev->agp->memory = NULL;
 
-		if ( dev->agp->acquired ) drm_agp_do_release();
+		if ( dev->agp->acquired ) drm_agp_do_release(dev);
 
 		dev->agp->acquired = 0;
 		dev->agp->enabled  = 0;
