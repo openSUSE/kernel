@@ -271,6 +271,17 @@ static struct ndisc_options *ndisc_parse_options(u8 *opt, int opt_len,
 	return ndopts;
 }
 
+static inline u8 *ndisc_opt_addr_data(struct nd_opt_hdr *p,
+				      struct net_device *dev)
+{
+	u8 *lladdr = (u8 *)(p + 1);
+	int lladdrlen = p->nd_opt_len << 3;
+	int prepad = ndisc_addr_option_pad(dev->type);
+	if (lladdrlen != NDISC_OPT_SPACE(dev->addr_len + prepad))
+		return NULL;
+	return (lladdr + prepad);
+}
+
 int ndisc_mc_map(struct in6_addr *addr, char *buf, struct net_device *dev, int dir)
 {
 	switch (dev->type) {
@@ -708,7 +719,6 @@ static void ndisc_recv_ns(struct sk_buff *skb)
 	struct in6_addr *saddr = &skb->nh.ipv6h->saddr;
 	struct in6_addr *daddr = &skb->nh.ipv6h->daddr;
 	u8 *lladdr = NULL;
-	int lladdrlen = 0;
 	u32 ndoptlen = skb->tail - msg->opt;
 	struct ndisc_options ndopts;
 	struct net_device *dev = skb->dev;
@@ -745,10 +755,8 @@ static void ndisc_recv_ns(struct sk_buff *skb)
 	}
 
 	if (ndopts.nd_opts_src_lladdr) {
-		lladdr = (u8*)(ndopts.nd_opts_src_lladdr + 1) +
-			ndisc_addr_option_pad(dev->type);
-		lladdrlen = ndopts.nd_opts_src_lladdr->nd_opt_len << 3;
-		if (lladdrlen != ndisc_opt_addr_space(dev)) {
+		lladdr = ndisc_opt_addr_data(ndopts.nd_opts_src_lladdr, dev);
+		if (!lladdr) {
 			ND_PRINTK2(KERN_WARNING
 				   "ICMPv6 NS: invalid link-layer address length\n");
 			return;
@@ -871,7 +879,6 @@ static void ndisc_recv_na(struct sk_buff *skb)
 	struct in6_addr *saddr = &skb->nh.ipv6h->saddr;
 	struct in6_addr *daddr = &skb->nh.ipv6h->daddr;
 	u8 *lladdr = NULL;
-	int lladdrlen = 0;
 	u32 ndoptlen = skb->tail - msg->opt;
 	struct ndisc_options ndopts;
 	struct net_device *dev = skb->dev;
@@ -903,10 +910,8 @@ static void ndisc_recv_na(struct sk_buff *skb)
 		return;
 	}
 	if (ndopts.nd_opts_tgt_lladdr) {
-		lladdr = (u8*)(ndopts.nd_opts_tgt_lladdr + 1) +
-			ndisc_addr_option_pad(dev->type);
-		lladdrlen = ndopts.nd_opts_tgt_lladdr->nd_opt_len << 3;
-		if (lladdrlen != ndisc_opt_addr_space(dev)) {
+		lladdr = ndisc_opt_addr_data(ndopts.nd_opts_tgt_lladdr, dev);
+		if (!lladdr) {
 			ND_PRINTK2(KERN_WARNING
 				   "ICMPv6 NA: invalid link-layer address length\n");
 			return;
@@ -967,7 +972,6 @@ static void ndisc_recv_rs(struct sk_buff *skb)
 	struct in6_addr *saddr = &skb->nh.ipv6h->saddr;
 	struct ndisc_options ndopts;
 	u8 *lladdr = NULL;
-	int lladdrlen = 0;
 
 	if (skb->len < sizeof(*rs_msg))
 		return;
@@ -998,10 +1002,9 @@ static void ndisc_recv_rs(struct sk_buff *skb)
 	}
 
 	if (ndopts.nd_opts_src_lladdr) {
-		lladdr = (u8 *)(ndopts.nd_opts_src_lladdr + 1) +
-			ndisc_addr_option_pad(skb->dev->type);
-		lladdrlen = ndopts.nd_opts_src_lladdr->nd_opt_len << 3;
-		if (lladdrlen != ndisc_opt_addr_space(skb->dev))
+		lladdr = ndisc_opt_addr_data(ndopts.nd_opts_src_lladdr,
+					     skb->dev);
+		if (!lladdr)
 			goto out;
 	}
 
@@ -1170,12 +1173,10 @@ static void ndisc_router_discovery(struct sk_buff *skb)
 				       skb->dev, 1);
 	if (neigh) {
 		u8 *lladdr = NULL;
-		int lladdrlen;
 		if (ndopts.nd_opts_src_lladdr) {
-			lladdr = (u8*)((ndopts.nd_opts_src_lladdr)+1) +
-				ndisc_addr_option_pad(skb->dev->type);
-			lladdrlen = ndopts.nd_opts_src_lladdr->nd_opt_len << 3;
-			if (lladdrlen != ndisc_opt_addr_space(skb->dev)) {
+			lladdr = ndisc_opt_addr_data(ndopts.nd_opts_src_lladdr,
+						     skb->dev);
+			if (!lladdr) {
 				ND_PRINTK2(KERN_WARNING
 					   "ICMPv6 RA: invalid link-layer address length\n");
 				goto out;
@@ -1240,7 +1241,6 @@ static void ndisc_redirect_rcv(struct sk_buff *skb)
 	struct ndisc_options ndopts;
 	int optlen;
 	u8 *lladdr = NULL;
-	int lladdrlen;
 
 	if (!(ipv6_addr_type(&skb->nh.ipv6h->saddr) & IPV6_ADDR_LINKLOCAL)) {
 		ND_PRINTK2(KERN_WARNING
@@ -1295,10 +1295,9 @@ static void ndisc_redirect_rcv(struct sk_buff *skb)
 		return;
 	}
 	if (ndopts.nd_opts_tgt_lladdr) {
-		lladdr = (u8*)(ndopts.nd_opts_tgt_lladdr + 1) +
-			ndisc_addr_option_pad(skb->dev->type);
-		lladdrlen = ndopts.nd_opts_tgt_lladdr->nd_opt_len << 3;
-		if (lladdrlen != ndisc_opt_addr_space(skb->dev)) {
+		lladdr = ndisc_opt_addr_data(ndopts.nd_opts_tgt_lladdr,
+					     skb->dev);
+		if (!lladdr) {
 			ND_PRINTK2(KERN_WARNING
 				   "ICMPv6 Redirect: invalid link-layer address length\n");
 			in6_dev_put(in6_dev);
