@@ -305,6 +305,136 @@ int patch_wolfson11(ac97_t * ac97)
 	return 0;
 }
 
+static const char* wm9713_mic_mixer[] = {"Stereo", "Mic1", "Mic2", "Mute"};
+static const char* wm9713_rec_mux[] = {"Stereo", "Left", "Right", "Mute"};
+static const char* wm9713_rec_src_l[] = {"Mic1", "Mic2", "Line L", "Mono In", "HP Mix L", "Spk Mix", "Mono Mix", "Zh"};
+static const char* wm9713_rec_src_r[] = {"Mic1", "Mic2", "Line R", "Mono In", "HP Mix R", "Spk Mix", "Mono Mix", "Zh"};
+
+static const struct ac97_enum wm9713_enum[] = {
+AC97_ENUM_SINGLE(AC97_LINE, 3, 4, wm9713_mic_mixer),
+AC97_ENUM_SINGLE(AC97_VIDEO, 14, 4, wm9713_rec_mux),
+AC97_ENUM_SINGLE(AC97_VIDEO, 9, 4, wm9713_rec_mux),
+AC97_ENUM_SINGLE(AC97_VIDEO, 3, 8, wm9713_rec_src_l),
+AC97_ENUM_SINGLE(AC97_VIDEO, 0, 8, wm9713_rec_src_r),
+};
+
+static const snd_kcontrol_new_t wm13_snd_ac97_controls_line_in[] = {
+AC97_DOUBLE("Line In Volume", AC97_PC_BEEP, 8, 0, 31, 1),
+AC97_SINGLE("Line In to Headphone Mute", AC97_PC_BEEP, 15, 1, 1),
+AC97_SINGLE("Line In to Speaker Mute", AC97_PC_BEEP, 14, 1, 1),
+AC97_SINGLE("Line In to Mono Mute", AC97_PC_BEEP, 13, 1, 1),
+};
+
+static const snd_kcontrol_new_t wm13_snd_ac97_controls_dac[] = {
+AC97_DOUBLE("DAC Volume", AC97_PHONE, 8, 0, 31, 1),
+AC97_SINGLE("DAC to Headphone Mute", AC97_PHONE, 15, 1, 1),
+AC97_SINGLE("DAC to Speaker Mute", AC97_PHONE, 14, 1, 1),
+AC97_SINGLE("DAC to Mono Mute", AC97_PHONE, 13, 1, 1),
+};
+
+static const snd_kcontrol_new_t wm13_snd_ac97_controls_mic[] = {
+AC97_SINGLE("MICA Volume", AC97_MIC, 8, 31, 1),
+AC97_SINGLE("MICB Volume", AC97_MIC, 0, 31, 1),
+AC97_SINGLE("MICA to Mono Mute", AC97_LINE, 7, 1, 1),
+AC97_SINGLE("MICB to Mono Mute", AC97_LINE, 6, 1, 1),
+AC97_SINGLE("MIC Boost (+20dB)", AC97_LINE, 5, 1, 1),
+AC97_ENUM("MIC Headphone Routing", wm9713_enum[0]),
+AC97_SINGLE("MIC Headphone Mixer Volume", AC97_LINE, 0, 7, 1)
+};
+
+static const snd_kcontrol_new_t wm13_snd_ac97_controls_adc[] = {
+AC97_SINGLE("ADC Mute", AC97_CD, 15, 1, 1),
+AC97_DOUBLE("Gain Step Size (1.5dB/0.75dB)", AC97_CD, 14, 6, 1, 1),
+AC97_DOUBLE("ADC Volume",AC97_CD, 8, 0, 15, 0),
+AC97_SINGLE("ADC Zero Cross", AC97_CD, 7, 1, 1),
+};
+
+static const snd_kcontrol_new_t wm13_snd_ac97_controls_recsel[] = {
+AC97_ENUM("Record to Headphone Path", wm9713_enum[1]),
+AC97_SINGLE("Record to Headphone Volume", AC97_VIDEO, 11, 7, 0),
+AC97_ENUM("Record to Mono Path", wm9713_enum[2]),
+AC97_SINGLE("Record to Mono Boost (+20dB)", AC97_VIDEO, 8, 1, 0),
+AC97_SINGLE("Record ADC Boost (+20dB)", AC97_VIDEO, 6, 1, 0),
+AC97_ENUM("Record Select Left", wm9713_enum[3]),
+AC97_ENUM("Record Select Right", wm9713_enum[4]),
+};
+
+static int patch_wolfson_wm9713_specific(ac97_t * ac97)
+{
+	int err, i;
+	
+	for (i = 0; i < ARRAY_SIZE(wm13_snd_ac97_controls_line_in); i++) {
+		if ((err = snd_ctl_add(ac97->bus->card, snd_ac97_cnew(&wm13_snd_ac97_controls_line_in[i], ac97))) < 0)
+			return err;
+	}
+	snd_ac97_write_cache(ac97, AC97_PC_BEEP, 0x0808);
+	
+	for (i = 0; i < ARRAY_SIZE(wm13_snd_ac97_controls_dac); i++) {
+		if ((err = snd_ctl_add(ac97->bus->card, snd_ac97_cnew(&wm13_snd_ac97_controls_dac[i], ac97))) < 0)
+			return err;
+	}
+	snd_ac97_write_cache(ac97, AC97_PHONE, 0x0808);
+	
+	for (i = 0; i < ARRAY_SIZE(wm13_snd_ac97_controls_mic); i++) {
+		if ((err = snd_ctl_add(ac97->bus->card, snd_ac97_cnew(&wm13_snd_ac97_controls_mic[i], ac97))) < 0)
+			return err;
+	}
+	snd_ac97_write_cache(ac97, AC97_MIC, 0x0808);
+	snd_ac97_write_cache(ac97, AC97_LINE, 0x00da);
+	
+	for (i = 0; i < ARRAY_SIZE(wm13_snd_ac97_controls_adc); i++) {
+		if ((err = snd_ctl_add(ac97->bus->card, snd_ac97_cnew(&wm13_snd_ac97_controls_adc[i], ac97))) < 0)
+			return err;
+	}
+	snd_ac97_write_cache(ac97, AC97_CD, 0x0808);
+	
+	for (i = 0; i < ARRAY_SIZE(wm13_snd_ac97_controls_recsel); i++) {
+		if ((err = snd_ctl_add(ac97->bus->card, snd_ac97_cnew(&wm13_snd_ac97_controls_recsel[i], ac97))) < 0)
+			return err;
+	}
+	snd_ac97_write_cache(ac97, AC97_VIDEO, 0xd612);
+	snd_ac97_write_cache(ac97, AC97_REC_GAIN, 0x1ba0);
+	
+	return 0;
+}
+
+#ifdef CONFIG_PM
+static void patch_wolfson_wm9713_suspend (ac97_t * ac97)
+{
+	snd_ac97_write_cache(ac97, AC97_EXTENDED_MID, 0xfeff);
+	snd_ac97_write_cache(ac97, AC97_EXTENDED_MSTATUS, 0xffff);
+}
+
+static void patch_wolfson_wm9713_resume (ac97_t * ac97)
+{
+	snd_ac97_write_cache(ac97, AC97_EXTENDED_MID, 0xda00);
+	snd_ac97_write_cache(ac97, AC97_EXTENDED_MSTATUS, 0x3810);
+	snd_ac97_write_cache(ac97, AC97_POWERDOWN, 0x0);
+}
+#endif
+
+static struct snd_ac97_build_ops patch_wolfson_wm9713_ops = {
+	.build_specific = patch_wolfson_wm9713_specific,
+#ifdef CONFIG_PM	
+	.suspend = patch_wolfson_wm9713_suspend,
+	.resume = patch_wolfson_wm9713_resume
+#endif
+};
+
+int patch_wolfson13(ac97_t * ac97)
+{
+	ac97->build_ops = &patch_wolfson_wm9713_ops;
+
+	ac97->flags |= AC97_HAS_NO_REC_GAIN | AC97_STEREO_MUTES | AC97_HAS_NO_PHONE |
+		AC97_HAS_NO_PC_BEEP | AC97_HAS_NO_VIDEO | AC97_HAS_NO_CD;
+
+	snd_ac97_write_cache(ac97, AC97_EXTENDED_MID, 0xda00);
+	snd_ac97_write_cache(ac97, AC97_EXTENDED_MSTATUS, 0x3810);
+	snd_ac97_write_cache(ac97, AC97_POWERDOWN, 0x0);
+
+	return 0;
+}
+
 /*
  * Tritech codec
  */
