@@ -18,9 +18,9 @@
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * JEFF HARTMANN, OR ANY OTHER CONTRIBUTORS BE LIABLE FOR ANY CLAIM, 
- * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR 
- * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE 
+ * JEFF HARTMANN, OR ANY OTHER CONTRIBUTORS BE LIABLE FOR ANY CLAIM,
+ * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  */
@@ -152,8 +152,8 @@ static void agp_add_seg_to_client(struct agp_client *client,
 
 /* Originally taken from linux/mm/mmap.c from the array
  * protection_map.
- * The original really should be exported to modules, or 
- * some routine which does the conversion for you 
+ * The original really should be exported to modules, or
+ * some routine which does the conversion for you
  */
 
 static const pgprot_t my_protect_map[16] =
@@ -285,8 +285,8 @@ void agp_remove_file_private(struct agp_file_private * priv)
 
 /* End - File flag list routines */
 
-/* 
- * Wrappers for agp_free_memory & agp_allocate_memory 
+/*
+ * Wrappers for agp_free_memory & agp_allocate_memory
  * These make sure that internal lists are kept updated.
  */
 static void agp_free_memory_wrap(struct agp_memory *memory)
@@ -471,7 +471,7 @@ static void agp_controller_release_current(struct agp_controller *controller,
 	agp_backend_release();
 }
 
-/* 
+/*
  * Routines for managing client lists -
  * These routines are for managing the list of auth'ed clients.
  */
@@ -993,24 +993,24 @@ static int agp_ioctl(struct inode *inode, struct file *file,
 	if ((agp_fe.current_controller == NULL) &&
 	    (cmd != AGPIOC_ACQUIRE)) {
 		ret_val = -EINVAL;
-	   	goto ioctl_out;
+		goto ioctl_out;
 	}
 	if ((agp_fe.backend_acquired != TRUE) &&
 	    (cmd != AGPIOC_ACQUIRE)) {
 		ret_val = -EBUSY;
-	   	goto ioctl_out;
+		goto ioctl_out;
 	}
 	if (cmd != AGPIOC_ACQUIRE) {
 		if (!(test_bit(AGP_FF_IS_CONTROLLER, &curr_priv->access_flags))) {
 			ret_val = -EPERM;
-		   	goto ioctl_out;
+			goto ioctl_out;
 		}
 		/* Use the original pid of the controller,
 		 * in case it's threaded */
 
 		if (agp_fe.current_controller->pid != curr_priv->my_pid) {
 			ret_val = -EBUSY;
-		   	goto ioctl_out;
+			goto ioctl_out;
 		}
 	}
 
@@ -1022,35 +1022,35 @@ static int agp_ioctl(struct inode *inode, struct file *file,
 	case AGPIOC_ACQUIRE:
 		ret_val = agpioc_acquire_wrap(curr_priv);
 		break;
-	   	
+
 	case AGPIOC_RELEASE:
 		ret_val = agpioc_release_wrap(curr_priv);
 		break;
-	   	
+
 	case AGPIOC_SETUP:
 		ret_val = agpioc_setup_wrap(curr_priv, (void __user *) arg);
 		break;
-	   	
+
 	case AGPIOC_RESERVE:
 		ret_val = agpioc_reserve_wrap(curr_priv, (void __user *) arg);
 		break;
-	   	
+
 	case AGPIOC_PROTECT:
 		ret_val = agpioc_protect_wrap(curr_priv);
 		break;
-	  	
+
 	case AGPIOC_ALLOCATE:
 		ret_val = agpioc_allocate_wrap(curr_priv, (void __user *) arg);
 		break;
-	   	
+
 	case AGPIOC_DEALLOCATE:
 		ret_val = agpioc_deallocate_wrap(curr_priv, (int) arg);
 		break;
-	   	
+
 	case AGPIOC_BIND:
 		ret_val = agpioc_bind_wrap(curr_priv, (void __user *) arg);
 		break;
-	   	
+
 	case AGPIOC_UNBIND:
 		ret_val = agpioc_unbind_wrap(curr_priv, (void __user *) arg);
 		break;
