@@ -702,15 +702,17 @@ static void siu_release_port(struct uart_port *port)
 static int siu_request_port(struct uart_port *port)
 {
 	unsigned long size;
+	struct resource *res;
 
 	size = siu_port_size(port);
-	if (request_mem_region(port->mapbase, size, siu_type_name(port)) == NULL)
+	res = request_mem_region(port->mapbase, size, siu_type_name(port));
+	if (res == NULL)
 		return -EBUSY;
 
 	if (port->flags & UPF_IOREMAP) {
 		port->membase = ioremap(port->mapbase, size);
 		if (port->membase == NULL) {
-			release_mem_region(port->mapbase, size);
+			release_resource(res);
 			return -ENOMEM;
 		}
 	}
@@ -729,6 +731,12 @@ static void siu_config_port(struct uart_port *port, int flags)
 static int siu_verify_port(struct uart_port *port, struct serial_struct *serial)
 {
 	if (port->type != PORT_VR41XX_SIU && port->type != PORT_VR41XX_DSIU)
+		return -EINVAL;
+	if (port->irq != serial->irq)
+		return -EINVAL;
+	if (port->iotype != serial->io_type)
+		return -EINVAL;
+	if (port->mapbase != (unsigned long)serial->iomem_base)
 		return -EINVAL;
 
 	return 0;
