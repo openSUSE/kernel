@@ -97,7 +97,7 @@ struct ipt_hashlimit_htable {
 	struct list_head hash[0];	/* hashtable itself */
 };
 
-static DECLARE_RWLOCK(hashlimit_lock);	/* protects htables list */
+static DECLARE_LOCK(hashlimit_lock);	/* protects htables list */
 static DECLARE_MUTEX(hlimit_mutex);	/* additional checkentry protection */
 static LIST_HEAD(hashlimit_htables);
 static kmem_cache_t *hashlimit_cachep;
@@ -230,9 +230,9 @@ static int htable_create(struct ipt_hashlimit_info *minfo)
 	hinfo->timer.function = htable_gc;
 	add_timer(&hinfo->timer);
 
-	WRITE_LOCK(&hashlimit_lock);
+	LOCK_BH(&hashlimit_lock);
 	list_add(&hinfo->list, &hashlimit_htables);
-	WRITE_UNLOCK(&hashlimit_lock);
+	UNLOCK_BH(&hashlimit_lock);
 
 	return 0;
 }
@@ -296,15 +296,15 @@ static struct ipt_hashlimit_htable *htable_find_get(char *name)
 {
 	struct ipt_hashlimit_htable *hinfo;
 
-	READ_LOCK(&hashlimit_lock);
+	LOCK_BH(&hashlimit_lock);
 	list_for_each_entry(hinfo, &hashlimit_htables, list) {
 		if (!strcmp(name, hinfo->pde->name)) {
 			atomic_inc(&hinfo->use);
-			READ_UNLOCK(&hashlimit_lock);
+			UNLOCK_BH(&hashlimit_lock);
 			return hinfo;
 		}
 	}
-	READ_UNLOCK(&hashlimit_lock);
+	UNLOCK_BH(&hashlimit_lock);
 
 	return NULL;
 }
@@ -312,9 +312,9 @@ static struct ipt_hashlimit_htable *htable_find_get(char *name)
 static void htable_put(struct ipt_hashlimit_htable *hinfo)
 {
 	if (atomic_dec_and_test(&hinfo->use)) {
-		WRITE_LOCK(&hashlimit_lock);
+		LOCK_BH(&hashlimit_lock);
 		list_del(&hinfo->list);
-		WRITE_UNLOCK(&hashlimit_lock);
+		UNLOCK_BH(&hashlimit_lock);
 		htable_destroy(hinfo);
 	}
 }
