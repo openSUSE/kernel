@@ -3090,6 +3090,7 @@ static int moxaloadc320(int cardno, void __iomem *baseAddr, int len, int *numPor
 	return (0);
 }
 
+#if 0
 long MoxaPortGetCurBaud(int port)
 {
 
@@ -3097,6 +3098,7 @@ long MoxaPortGetCurBaud(int port)
 		return (0);
 	return (moxaCurBaud[port]);
 }
+#endif  /*  0  */
 
 static void MoxaSetFifo(int port, int enable)
 {
