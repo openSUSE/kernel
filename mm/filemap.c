@@ -2283,7 +2283,10 @@ generic_file_direct_IO(int rw, struct kiocb *iocb, const struct iovec *iov,
 		retval = mapping->a_ops->direct_IO(rw, iocb, iov,
 						offset, nr_segs);
 		if (rw == WRITE && mapping->nrpages) {
-			int err = invalidate_inode_pages2(mapping);
+			pgoff_t end = (offset + iov_length(iov, nr_segs) - 1)
+				      >> PAGE_CACHE_SHIFT;
+			int err = invalidate_inode_pages2_range(mapping,
+					offset >> PAGE_CACHE_SHIFT, end);
 			if (err)
 				retval = err;
 		}
