@@ -1599,6 +1599,8 @@ struct net_device *init_atmel_card( unsigned short irq, int port, const AtmelFWT
 	dev->irq = irq;
 	dev->base_addr = port;
 	
+	SET_NETDEV_DEV(dev, sys_dev);
+	
 	if ((rc = request_irq(dev->irq, service_interrupt, SA_SHIRQ, dev->name, dev))) {
 		printk(KERN_ERR "%s: register interrupt %d failed, rc %d\n", dev->name, irq, rc );
 		goto err_out_free;
