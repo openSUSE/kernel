@@ -170,7 +170,7 @@ cifs_put_super(struct super_block *sb)
 static int
 cifs_statfs(struct super_block *sb, struct kstatfs *buf)
 {
-	int xid, rc = 0;
+	int xid, rc = -EOPNOTSUPP;
 	struct cifs_sb_info *cifs_sb;
 	struct cifsTconInfo *pTcon;
 
