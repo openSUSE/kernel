@@ -217,7 +217,8 @@ void hci_inquiry_cache_update(struct hci_dev *hdev, struct inquiry_data *data);
 /* ----- HCI Connections ----- */
 enum {
 	HCI_CONN_AUTH_PEND,
-	HCI_CONN_ENCRYPT_PEND
+	HCI_CONN_ENCRYPT_PEND,
+	HCI_CONN_RSWITCH_PEND
 };
 
 static inline void hci_conn_hash_init(struct hci_dev *hdev)
@@ -290,6 +291,7 @@ struct hci_conn *hci_connect(struct hci_dev *hdev, int type, bdaddr_t *src);
 int hci_conn_auth(struct hci_conn *conn);
 int hci_conn_encrypt(struct hci_conn *conn);
 int hci_conn_change_link_key(struct hci_conn *conn);
+int hci_conn_switch_role(struct hci_conn *conn, uint8_t role);
 
 static inline void hci_conn_set_timer(struct hci_conn *conn, unsigned long timeout)
 {
@@ -515,6 +517,8 @@ struct hci_cb {
 
 	void (*auth_cfm)	(struct hci_conn *conn, __u8 status);
 	void (*encrypt_cfm)	(struct hci_conn *conn, __u8 status, __u8 encrypt);
+	void (*key_change_cfm)	(struct hci_conn *conn, __u8 status);
+	void (*role_switch_cfm)	(struct hci_conn *conn, __u8 status, __u8 role);
 };
 
 static inline void hci_auth_cfm(struct hci_conn *conn, __u8 status)
@@ -543,6 +547,32 @@ static inline void hci_encrypt_cfm(struct hci_conn *conn, __u8 status, __u8 encr
 		struct hci_cb *cb = list_entry(p, struct hci_cb, list);
 		if (cb->encrypt_cfm)
 			cb->encrypt_cfm(conn, status, encrypt);
+	}
+	read_unlock_bh(&hci_cb_list_lock);
+}
+
+static inline void hci_key_change_cfm(struct hci_conn *conn, __u8 status)
+{
+	struct list_head *p;
+
+	read_lock_bh(&hci_cb_list_lock);
+	list_for_each(p, &hci_cb_list) {
+		struct hci_cb *cb = list_entry(p, struct hci_cb, list);
+		if (cb->key_change_cfm)
+			cb->key_change_cfm(conn, status);
+	}
+	read_unlock_bh(&hci_cb_list_lock);
+}
+
+static inline void hci_role_switch_cfm(struct hci_conn *conn, __u8 status, __u8 role)
+{
+	struct list_head *p;
+
+	read_lock_bh(&hci_cb_list_lock);
+	list_for_each(p, &hci_cb_list) {
+		struct hci_cb *cb = list_entry(p, struct hci_cb, list);
+		if (cb->role_switch_cfm)
+			cb->role_switch_cfm(conn, status, role);
 	}
 	read_unlock_bh(&hci_cb_list_lock);
 }

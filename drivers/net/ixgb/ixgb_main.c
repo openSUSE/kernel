@@ -1161,7 +1161,7 @@ ixgb_watchdog(unsigned long data)
 #define IXGB_TX_FLAGS_VLAN		0x00000002
 #define IXGB_TX_FLAGS_TSO		0x00000004
 
-static inline boolean_t
+static inline int
 ixgb_tso(struct ixgb_adapter *adapter, struct sk_buff *skb)
 {
 #ifdef NETIF_F_TSO
@@ -1169,8 +1169,15 @@ ixgb_tso(struct ixgb_adapter *adapter, struct sk_buff *skb)
 	unsigned int i;
 	uint8_t ipcss, ipcso, tucss, tucso, hdr_len;
 	uint16_t ipcse, tucse, mss;
+	int err;
 
 	if(likely(skb_shinfo(skb)->tso_size)) {
+		if (skb_header_cloned(skb)) {
+			err = pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
+			if (err)
+				return err;
+		}
+
 		hdr_len = ((skb->h.raw - skb->data) + (skb->h.th->doff << 2));
 		mss = skb_shinfo(skb)->tso_size;
 		skb->nh.iph->tot_len = 0;
@@ -1209,11 +1216,11 @@ ixgb_tso(struct ixgb_adapter *adapter, struct sk_buff *skb)
 		if(++i == adapter->tx_ring.count) i = 0;
 		adapter->tx_ring.next_to_use = i;
 
-		return TRUE;
+		return 1;
 	}
 #endif
 
-	return FALSE;
+	return 0;
 }
 
 static inline boolean_t
@@ -1384,6 +1391,7 @@ ixgb_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 	unsigned int tx_flags = 0;
 	unsigned long flags;
 	int vlan_id = 0;
+	int tso;
 
 	if(skb->len <= 0) {
 		dev_kfree_skb_any(skb);
@@ -1405,7 +1413,13 @@ ixgb_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 
 	first = adapter->tx_ring.next_to_use;
 	
-	if(ixgb_tso(adapter, skb))
+	tso = ixgb_tso(adapter, skb);
+	if (tso < 0) {
+		dev_kfree_skb_any(skb);
+		return NETDEV_TX_OK;
+	}
+
+	if (tso)
 		tx_flags |= IXGB_TX_FLAGS_TSO;
 	else if(ixgb_tx_csum(adapter, skb))
 		tx_flags |= IXGB_TX_FLAGS_CSUM;

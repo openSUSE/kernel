@@ -457,6 +457,11 @@ P:	Marcel Holtmann
 M:	marcel@holtmann.org
 S:	Maintained
 
+BLUETOOTH HCI BPA10X DRIVER
+P:	Marcel Holtmann
+M:	marcel@holtmann.org
+S:	Maintained
+
 BLUETOOTH HCI BFUSB DRIVER
 P:	Marcel Holtmann
 M:	marcel@holtmann.org

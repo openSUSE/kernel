@@ -1021,18 +1021,7 @@ static struct dst_entry *xfrm_dst_check(struct dst_entry *dst, u32 cookie)
 
 static int stale_bundle(struct dst_entry *dst)
 {
-	struct dst_entry *child = dst;
-
-	while (child) {
-		if (child->obsolete > 0 ||
-		    (child->dev && !netif_running(child->dev)) ||
-		    (child->xfrm && child->xfrm->km.state != XFRM_STATE_VALID)) {
-			return 1;
-		}
-		child = child->child;
-	}
-
-	return 0;
+	return !xfrm_bundle_ok((struct xfrm_dst *)dst, NULL, AF_UNSPEC);
 }
 
 static void xfrm_dst_destroy(struct dst_entry *dst)
@@ -1120,6 +1109,31 @@ int xfrm_flush_bundles(void)
 	xfrm_prune_bundles(stale_bundle);
 	return 0;
 }
+
+/* Check that the bundle accepts the flow and its components are
+ * still valid.
+ */
+
+int xfrm_bundle_ok(struct xfrm_dst *xdst, struct flowi *fl, int family)
+{
+	struct dst_entry *dst = &xdst->u.dst;
+
+	if (dst->path->obsolete > 0 ||
+	    (dst->dev && !netif_running(dst->dev)))
+		return 0;
+
+	do {
+		if (fl && !xfrm_selector_match(&dst->xfrm->sel, fl, family))
+			return 0;
+		if (dst->xfrm->km.state != XFRM_STATE_VALID)
+			return 0;
+		dst = dst->child;
+	} while (dst->xfrm);
+
+	return 1;
+}
+
+EXPORT_SYMBOL(xfrm_bundle_ok);
 
 /* Well... that's _TASK_. We need to scan through transformation
  * list and figure out what mss tcp should generate in order to

@@ -1630,7 +1630,7 @@ e1000_watchdog(unsigned long data)
 #define E1000_TX_FLAGS_VLAN_MASK	0xffff0000
 #define E1000_TX_FLAGS_VLAN_SHIFT	16
 
-static inline boolean_t
+static inline int
 e1000_tso(struct e1000_adapter *adapter, struct sk_buff *skb)
 {
 #ifdef NETIF_F_TSO
@@ -1639,8 +1639,15 @@ e1000_tso(struct e1000_adapter *adapter, struct sk_buff *skb)
 	uint32_t cmd_length = 0;
 	uint16_t ipcse, tucse, mss;
 	uint8_t ipcss, ipcso, tucss, tucso, hdr_len;
+	int err;
 
 	if(skb_shinfo(skb)->tso_size) {
+		if (skb_header_cloned(skb)) {
+			err = pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
+			if (err)
+				return err;
+		}
+
 		hdr_len = ((skb->h.raw - skb->data) + (skb->h.th->doff << 2));
 		mss = skb_shinfo(skb)->tso_size;
 		skb->nh.iph->tot_len = 0;
@@ -1677,11 +1684,11 @@ e1000_tso(struct e1000_adapter *adapter, struct sk_buff *skb)
 		if(++i == adapter->tx_ring.count) i = 0;
 		adapter->tx_ring.next_to_use = i;
 
-		return TRUE;
+		return 1;
 	}
 #endif
 
-	return FALSE;
+	return 0;
 }
 
 static inline boolean_t
@@ -1906,6 +1913,7 @@ e1000_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 	unsigned int nr_frags = 0;
 	unsigned int mss = 0;
 	int count = 0;
+	int tso;
 	unsigned int f;
 	len -= skb->data_len;
 
@@ -1977,7 +1985,13 @@ e1000_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 
 	first = adapter->tx_ring.next_to_use;
 	
-	if(likely(e1000_tso(adapter, skb)))
+	tso = e1000_tso(adapter, skb);
+	if (tso < 0) {
+		dev_kfree_skb_any(skb);
+		return NETDEV_TX_OK;
+	}
+
+	if (likely(tso))
 		tx_flags |= E1000_TX_FLAGS_TSO;
 	else if(likely(e1000_tx_csum(adapter, skb)))
 		tx_flags |= E1000_TX_FLAGS_CSUM;
