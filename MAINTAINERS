@@ -712,13 +712,6 @@ L:	linux-net@vger.kernel.org
 W:	http://www.digi.com
 S:	Orphaned
 
-DIGIBOARD PC/XE AND PC/XI DRIVER
-P:	Christoph Lameter
-M:	christoph@lameter.com
-W:	http://www.digi.com
-L:	digilnux@digi.com
-S:	Obsolete
-
 DIRECTORY NOTIFICATION
 P:	Stephen Rothwell
 M:	sfr@canb.auug.org.au

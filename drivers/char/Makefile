@@ -25,7 +25,6 @@ obj-$(CONFIG_SERIAL167)		+= serial167.o
 obj-$(CONFIG_CYCLADES)		+= cyclades.o
 obj-$(CONFIG_STALLION)		+= stallion.o
 obj-$(CONFIG_ISTALLION)		+= istallion.o
-obj-$(CONFIG_DIGI)		+= pcxx.o
 obj-$(CONFIG_DIGIEPCA)		+= epca.o
 obj-$(CONFIG_SPECIALIX)		+= specialix.o
 obj-$(CONFIG_MOXA_INTELLIO)	+= moxa.o
