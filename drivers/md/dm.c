@@ -96,9 +96,15 @@ struct mapped_device {
 static kmem_cache_t *_io_cache;
 static kmem_cache_t *_tio_cache;
 
+static struct bio_set *dm_set;
+
 static int __init local_init(void)
 {
 	int r;
+
+	dm_set = bioset_create(16, 16, 4);
+	if (!dm_set)
+		return -ENOMEM;
 
 	/* allocate a slab for the dm_ios */
 	_io_cache = kmem_cache_create("dm_io",
@@ -132,6 +138,8 @@ static void local_exit(void)
 {
 	kmem_cache_destroy(_tio_cache);
 	kmem_cache_destroy(_io_cache);
+
+	bioset_free(dm_set);
 
 	if (unregister_blkdev(_major, _name) < 0)
 		DMERR("devfs_unregister_blkdev failed");
@@ -393,7 +401,7 @@ static struct bio *split_bvec(struct bio *bio, sector_t sector,
 	struct bio *clone;
 	struct bio_vec *bv = bio->bi_io_vec + idx;
 
-	clone = bio_alloc(GFP_NOIO, 1);
+	clone = bio_alloc_bioset(GFP_NOIO, 1, dm_set);
 	*clone->bi_io_vec = *bv;
 
 	clone->bi_sector = sector;
