@@ -447,7 +447,9 @@ nfs4_get_open_state(struct inode *inode, struct nfs4_state_owner *owner)
 	if (state == NULL && new != NULL) {
 		state = new;
 		/* Caller *must* be holding owner->so_sem */
-		list_add(&state->open_states, &owner->so_states);
+		/* Note: The reclaim code dictates that we add stateless
+		 * and read-only stateids to the end of the list */
+		list_add_tail(&state->open_states, &owner->so_states);
 		state->owner = owner;
 		atomic_inc(&owner->so_count);
 		list_add(&state->inode_states, &nfsi->open_states);
@@ -503,8 +505,12 @@ void nfs4_close_state(struct nfs4_state *state, mode_t mode)
 		state->nreaders--;
 	if (mode & FMODE_WRITE)
 		state->nwriters--;
-	if (state->nwriters == 0 && state->nreaders == 0)
-		list_del_init(&state->inode_states);
+	if (state->nwriters == 0) {
+		if (state->nreaders == 0)
+			list_del_init(&state->inode_states);
+		/* See reclaim code */
+		list_move_tail(&state->open_states, &owner->so_states);
+	}
 	spin_unlock(&inode->i_lock);
 	newstate = 0;
 	if (state->state != 0) {
@@ -798,6 +804,14 @@ static int nfs4_reclaim_open_state(struct nfs4_state_owner *sp)
 	struct nfs4_lock_state *lock;
 	int status = 0;
 
+	/* Note: we rely on the sp->so_states list being ordered 
+	 * so that we always reclaim open(O_RDWR) and/or open(O_WRITE)
+	 * states first.
+	 * This is needed to ensure that the server won't give us any
+	 * read delegations that we have to return if, say, we are
+	 * recovering after a network partition or a reboot from a
+	 * server that doesn't support a grace period.
+	 */
 	list_for_each_entry(state, &sp->so_states, open_states) {
 		if (state->state == 0)
 			continue;
