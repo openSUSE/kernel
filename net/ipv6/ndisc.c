@@ -156,14 +156,13 @@ struct neigh_table nd_tbl = {
 
 /* ND options */
 struct ndisc_options {
-	struct nd_opt_hdr *nd_opt_array[7];
-	struct nd_opt_hdr *nd_opt_piend;
+	struct nd_opt_hdr *nd_opt_array[__ND_OPT_MAX];
 };
 
 #define nd_opts_src_lladdr	nd_opt_array[ND_OPT_SOURCE_LL_ADDR]
 #define nd_opts_tgt_lladdr	nd_opt_array[ND_OPT_TARGET_LL_ADDR]
 #define nd_opts_pi		nd_opt_array[ND_OPT_PREFIX_INFO]
-#define nd_opts_pi_end		nd_opt_piend
+#define nd_opts_pi_end		nd_opt_array[__ND_OPT_PREFIX_INFO_END]
 #define nd_opts_rh		nd_opt_array[ND_OPT_REDIRECT_HDR]
 #define nd_opts_mtu		nd_opt_array[ND_OPT_MTU]
 
