@@ -27,7 +27,6 @@
  *  Copyright (C) 2001	      Hewlett-Packard <bame@debian.org>
  */
 
-#include <linux/config.h>
 #include <linux/sched.h>
 #include "float.h"
 #include "math-emu.h"
