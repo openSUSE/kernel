@@ -155,7 +155,8 @@ config HDLC
 	  Network) card supported by this driver and you are planning to
 	  connect the box to a WAN.
 
-	  You will need supporting software from <http://hq.pm.waw.pl/hdlc/>.
+	  You will need supporting software from
+	  <http://www.kernel.org/pub/linux/utils/net/hdlc/>.
 	  Generic HDLC driver currently supports raw HDLC, Cisco HDLC, Frame
 	  Relay, synchronous Point-to-Point Protocol (PPP) and X.25.
 
@@ -225,7 +226,7 @@ config PCI200SYN
 	  Driver for PCI200SYN cards by Goramo sp. j.
 
 	  If you have such a card, say Y here and see
-	  <http://hq.pm.waw.pl/hdlc/>.
+	  <http://www.kernel.org/pub/linux/utils/net/hdlc/>.
 
 	  To compile this as a module, choose M here: the
 	  module will be called pci200syn.
@@ -239,7 +240,7 @@ config WANXL
 	  Driver for wanXL PCI cards by SBE Inc.
 
 	  If you have such a card, say Y here and see
-	  <http://hq.pm.waw.pl/hdlc/>.
+	  <http://www.kernel.org/pub/linux/utils/net/hdlc/>.
 
 	  To compile this as a module, choose M here: the
 	  module will be called wanxl.
@@ -292,7 +293,7 @@ config N2
 	  SDL Communications Inc.
 
 	  If you have such a card, say Y here and see
-	  <http://hq.pm.waw.pl/hdlc/>.
+	  <http://www.kernel.org/pub/linux/utils/net/hdlc/>.
 
 	  Note that N2csu and N2dds cards are not supported by this driver.
 
@@ -308,7 +309,7 @@ config C101
 	  Driver for C101 SuperSync ISA cards by Moxa Technologies Co., Ltd.
 
 	  If you have such a card, say Y here and see
-	  <http://hq.pm.waw.pl/pub/hdlc/>
+	  <http://www.kernel.org/pub/linux/utils/net/hdlc/>.
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called c101.
