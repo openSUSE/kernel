@@ -39,5 +39,5 @@ quiet_cmd_conmakehash = CNMKHSH $@
 		sed -e '/\#include <[^>]*>/p' -e 's/types/init/' \
 		-e 's/dfont\(_uni.*\]\)/promfont\1 __initdata/' > $@
 
-$(obj)/promcon_tbl.c: $(src)/prom.uni FORCE
-	$(call if_changed,conmakehash)
+$(obj)/promcon_tbl.c: $(src)/prom.uni
+	$(call cmd,conmakehash)
