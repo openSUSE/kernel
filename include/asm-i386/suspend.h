@@ -63,5 +63,4 @@ static inline void acpi_save_register_state(unsigned long return_point)
 
 /* routines for saving/restoring kernel state */
 extern int acpi_save_state_mem(void);
-extern int acpi_save_state_disk(void);
 #endif
