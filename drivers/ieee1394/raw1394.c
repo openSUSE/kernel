@@ -2479,7 +2479,7 @@ static int raw1394_iso_recv_packets(struct file_info *fi, void __user * uaddr)
 		return -EINVAL;
 
 	/* ensure user-supplied buffer is accessible and big enough */
-	if (verify_area(VERIFY_WRITE, upackets.infos,
+	if (!access_ok(VERIFY_WRITE, upackets.infos,
 			upackets.n_packets *
 			sizeof(struct raw1394_iso_packet_info)))
 		return -EFAULT;
@@ -2510,7 +2510,7 @@ static int raw1394_iso_send_packets(struct file_info *fi, void __user * uaddr)
 		return -EINVAL;
 
 	/* ensure user-supplied buffer is accessible and big enough */
-	if (verify_area(VERIFY_READ, upackets.infos,
+	if (!access_ok(VERIFY_READ, upackets.infos,
 			upackets.n_packets *
 			sizeof(struct raw1394_iso_packet_info)))
 		return -EFAULT;

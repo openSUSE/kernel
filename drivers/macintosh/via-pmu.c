@@ -2774,13 +2774,12 @@ pmu_read(struct file *file, char __user *buf,
 	struct pmu_private *pp = file->private_data;
 	DECLARE_WAITQUEUE(wait, current);
 	unsigned long flags;
-	int ret;
+	int ret = 0;
 
 	if (count < 1 || pp == 0)
 		return -EINVAL;
-	ret = verify_area(VERIFY_WRITE, buf, count);
-	if (ret)
-		return ret;
+	if (!access_ok(VERIFY_WRITE, buf, count))
+		return -EFAULT;
 
 	spin_lock_irqsave(&pp->lock, flags);
 	add_wait_queue(&pp->wait, &wait);

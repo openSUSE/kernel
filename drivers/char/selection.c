@@ -120,7 +120,7 @@ int set_selection(const struct tiocl_selection __user *sel, struct tty_struct *t
 
 	{ unsigned short xs, ys, xe, ye;
 
-	  if (verify_area(VERIFY_READ, sel, sizeof(*sel)))
+	  if (!access_ok(VERIFY_READ, sel, sizeof(*sel)))
 		return -EFAULT;
 	  __get_user(xs, &sel->xs);
 	  __get_user(ys, &sel->ys);

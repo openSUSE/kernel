@@ -38,7 +38,7 @@
  * 03-06-24 Cleanup PARANOIA usage & code. <ldl@aros.net>
  * 04-02-19 Remove PARANOIA, plus various cleanups (Paul Clements)
  * possible FIXME: make set_sock / set_blksize / set_size / do_it one syscall
- * why not: would need verify_area and friends, would share yet another 
+ * why not: would need access_ok and friends, would share yet another
  *          structure with userland
  */
 

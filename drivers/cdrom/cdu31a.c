@@ -2769,7 +2769,6 @@ static int scd_dev_ioctl(struct cdrom_device_info *cdi,
 			 unsigned int cmd, unsigned long arg)
 {
 	void __user *argp = (void __user *)arg;
-	int i;
 
 	switch (cmd) {
 	case CDROMREADAUDIO:	/* Read 2352 byte audio tracks and 2340 byte
@@ -2790,10 +2789,9 @@ static int scd_dev_ioctl(struct cdrom_device_info *cdi,
 				return 0;
 			}
 
-			i = verify_area(VERIFY_WRITE, ra.buf,
-					CD_FRAMESIZE_RAW * ra.nframes);
-			if (i < 0)
-				return i;
+			if (!access_ok(VERIFY_WRITE, ra.buf,
+					CD_FRAMESIZE_RAW * ra.nframes))
+				return -EFAULT;
 
 			if (ra.addr_format == CDROM_LBA) {
 				if ((ra.addr.lba >=
