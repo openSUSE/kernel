@@ -1555,6 +1555,8 @@ int ndisc_ifinfo_sysctl_change(struct ctl_table *ctl, int write, struct file * f
 	}
 
 	if (write && ret == 0 && dev && (idev = in6_dev_get(dev)) != NULL) {
+		if (ctl->ctl_name == NET_NEIGH_REACHABLE_TIME)
+			idev->nd_parms->reachable_time = neigh_rand_reach_time(idev->nd_parms->base_reachable_time);
 		idev->tstamp = jiffies;
 		inet6_ifinfo_notify(RTM_NEWLINK, idev);
 		in6_dev_put(idev);
@@ -1583,6 +1585,8 @@ int ndisc_ifinfo_sysctl_strategy(ctl_table *ctl, int __user *name, int nlen,
 
 	if (newval && newlen && ret > 0 &&
 	    dev && (idev = in6_dev_get(dev)) != NULL) {
+		if (ctl->ctl_name == NET_NEIGH_REACHABLE_TIME)
+			idev->nd_parms->reachable_time = neigh_rand_reach_time(idev->nd_parms->base_reachable_time);
 		idev->tstamp = jiffies;
 		inet6_ifinfo_notify(RTM_NEWLINK, idev);
 		in6_dev_put(idev);
