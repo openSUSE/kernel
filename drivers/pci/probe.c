@@ -549,7 +549,6 @@ static int pci_setup_device(struct pci_dev * dev)
 {
 	u32 class;
 
-	dev->slot_name = dev->dev.bus_id;
 	sprintf(pci_name(dev), "%04x:%02x:%02x.%d", pci_domain_nr(dev->bus),
 		dev->bus->number, PCI_SLOT(dev->devfn), PCI_FUNC(dev->devfn));
 
