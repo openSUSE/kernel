@@ -301,6 +301,7 @@ static int vfat_create_shortname(struct inode *dir, struct nls_table *nls,
 				 wchar_t *uname, int ulen,
 				 unsigned char *name_res, unsigned char *lcase)
 {
+	struct fat_mount_options *opts = &MSDOS_SB(dir->i_sb)->options;
 	wchar_t *ip, *ext_start, *end, *name_start;
 	unsigned char base[9], ext[4], buf[8], *p;
 	unsigned char charbuf[NLS_MAX_CHARSET_SIZE];
@@ -308,7 +309,6 @@ static int vfat_create_shortname(struct inode *dir, struct nls_table *nls,
 	int sz = 0, extlen, baselen, i, numtail_baselen, numtail2_baselen;
 	int is_shortname;
 	struct shortname_info base_info, ext_info;
-	unsigned short opt_shortname = MSDOS_SB(dir->i_sb)->options.shortname;
 
 	is_shortname = 1;
 	INIT_SHORTNAME_INFO(&base_info);
@@ -421,9 +421,9 @@ static int vfat_create_shortname(struct inode *dir, struct nls_table *nls,
 		if (vfat_find_form(dir, name_res) == 0)
 			return -EEXIST;
 
-		if (opt_shortname & VFAT_SFN_CREATE_WIN95) {
+		if (opts->shortname & VFAT_SFN_CREATE_WIN95) {
 			return (base_info.upper && ext_info.upper);
-		} else if (opt_shortname & VFAT_SFN_CREATE_WINNT) {
+		} else if (opts->shortname & VFAT_SFN_CREATE_WINNT) {
 			if ((base_info.upper || base_info.lower) &&
 			    (ext_info.upper || ext_info.lower)) {
 				if (!base_info.upper && base_info.lower)
@@ -438,7 +438,7 @@ static int vfat_create_shortname(struct inode *dir, struct nls_table *nls,
 		}
 	}
 
-	if (MSDOS_SB(dir->i_sb)->options.numtail == 0)
+	if (opts->numtail == 0)
 		if (vfat_find_form(dir, name_res) < 0)
 			return 0;
 

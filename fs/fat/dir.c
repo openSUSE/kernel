@@ -205,18 +205,19 @@ int fat_search_long(struct inode *inode, const unsigned char *name,
 		    int name_len, struct fat_slot_info *sinfo)
 {
 	struct super_block *sb = inode->i_sb;
+	struct msdos_sb_info *sbi = MSDOS_SB(sb);
 	struct buffer_head *bh = NULL;
 	struct msdos_dir_entry *de;
-	struct nls_table *nls_io = MSDOS_SB(sb)->nls_io;
-	struct nls_table *nls_disk = MSDOS_SB(sb)->nls_disk;
+	struct nls_table *nls_io = sbi->nls_io;
+	struct nls_table *nls_disk = sbi->nls_disk;
 	wchar_t bufuname[14];
 	unsigned char xlate_len, nr_slots;
 	wchar_t *unicode = NULL;
 	unsigned char work[8], bufname[260];	/* 256 + 4 */
-	int uni_xlate = MSDOS_SB(sb)->options.unicode_xlate;
-	int utf8 = MSDOS_SB(sb)->options.utf8;
-	int anycase = (MSDOS_SB(sb)->options.name_check != 's');
-	unsigned short opt_shortname = MSDOS_SB(sb)->options.shortname;
+	int uni_xlate = sbi->options.unicode_xlate;
+	int utf8 = sbi->options.utf8;
+	int anycase = (sbi->options.name_check != 's');
+	unsigned short opt_shortname = sbi->options.shortname;
 	loff_t cpos = 0;
 	int chl, i, j, last_u, err;
 
@@ -386,10 +387,11 @@ static int fat_readdirx(struct inode *inode, struct file *filp, void *dirent,
 			filldir_t filldir, int short_only, int both)
 {
 	struct super_block *sb = inode->i_sb;
+	struct msdos_sb_info *sbi = MSDOS_SB(sb);
 	struct buffer_head *bh;
 	struct msdos_dir_entry *de;
-	struct nls_table *nls_io = MSDOS_SB(sb)->nls_io;
-	struct nls_table *nls_disk = MSDOS_SB(sb)->nls_disk;
+	struct nls_table *nls_io = sbi->nls_io;
+	struct nls_table *nls_disk = sbi->nls_disk;
 	unsigned char long_slots;
 	const char *fill_name;
 	int fill_len;
@@ -397,11 +399,11 @@ static int fat_readdirx(struct inode *inode, struct file *filp, void *dirent,
 	wchar_t *unicode = NULL;
 	unsigned char c, work[8], bufname[56], *ptname = bufname;
 	unsigned long lpos, dummy, *furrfu = &lpos;
-	int uni_xlate = MSDOS_SB(sb)->options.unicode_xlate;
-	int isvfat = MSDOS_SB(sb)->options.isvfat;
-	int utf8 = MSDOS_SB(sb)->options.utf8;
-	int nocase = MSDOS_SB(sb)->options.nocase;
-	unsigned short opt_shortname = MSDOS_SB(sb)->options.shortname;
+	int uni_xlate = sbi->options.unicode_xlate;
+	int isvfat = sbi->options.isvfat;
+	int utf8 = sbi->options.utf8;
+	int nocase = sbi->options.nocase;
+	unsigned short opt_shortname = sbi->options.shortname;
 	unsigned long inum;
 	int chi, chl, i, i2, j, last, last_u, dotoffset = 0;
 	loff_t cpos;
@@ -513,7 +515,7 @@ ParseLong:
 			long_slots = 0;
 	}
 
-	if (MSDOS_SB(sb)->options.dotsOK) {
+	if (sbi->options.dotsOK) {
 		ptname = bufname;
 		dotoffset = 0;
 		if (de->attr & ATTR_HIDDEN) {
