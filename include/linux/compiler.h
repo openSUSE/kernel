@@ -74,9 +74,9 @@ extern void __chk_io_ptr(void __iomem *);
     (typeof(ptr)) (__ptr + (off)); })
 #endif
 
-#endif /* __ASSEMBLY__ */
-
 #endif /* __KERNEL__ */
+
+#endif /* __ASSEMBLY__ */
 
 /*
  * Allow us to mark functions as 'deprecated' and have gcc emit a nice
