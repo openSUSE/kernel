@@ -5,7 +5,7 @@
  ******************************************************************************
  * intelfb
  *
- * Linux framebuffer driver for Intel(R) 830M/845G/852GM/855GM/865G
+ * Linux framebuffer driver for Intel(R) 830M/845G/852GM/855GM/865G/915G
  * integrated graphics chips.
  *
  * Copyright © 2004 Sylvain Meyer
@@ -28,7 +28,7 @@
  *    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
-int __init intelfb_setup(char *options);
+static int __init intelfb_setup(char *options);
 static void __devinit get_initial_mode(struct intelfb_info *dinfo);
 static void update_dinfo(struct intelfb_info *dinfo,
 			 struct fb_var_screeninfo *var);

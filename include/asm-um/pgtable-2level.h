@@ -21,7 +21,6 @@
  * we don't really have any PMD directory physically.
  */
 #define PTRS_PER_PTE	1024
-#define PTRS_PER_PMD	1
 #define USER_PTRS_PER_PGD ((TASK_SIZE + (PGDIR_SIZE - 1)) / PGDIR_SIZE)
 #define PTRS_PER_PGD	1024
 #define FIRST_USER_PGD_NR       0

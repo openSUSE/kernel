@@ -7,12 +7,16 @@
 #define __SYSDEP_I386_PTRACE_H
 
 #include "uml-config.h"
+#include "user_constants.h"
 
 #ifdef UML_CONFIG_MODE_TT
 #include "sysdep/sc.h"
 #endif
 
 #ifdef UML_CONFIG_MODE_SKAS
+
+#define MAX_REG_NR (UM_FRAME_SIZE / sizeof(unsigned long))
+#define MAX_REG_OFFSET (UM_FRAME_SIZE)
 
 /* syscall emulation path in ptrace */
 
@@ -26,7 +30,7 @@ extern int sysemu_supported;
 
 #include "skas_ptregs.h"
 
-#define HOST_FRAME_SIZE 17
+extern void update_debugregs(int seq);
 
 #define REGS_IP(r) ((r)[HOST_IP])
 #define REGS_SP(r) ((r)[HOST_SP])

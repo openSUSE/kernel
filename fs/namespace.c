@@ -1392,16 +1392,14 @@ static void __init init_mount_tree(void)
 void __init mnt_init(unsigned long mempages)
 {
 	struct list_head *d;
-	unsigned long order;
 	unsigned int nr_hash;
 	int i;
 
 	mnt_cache = kmem_cache_create("mnt_cache", sizeof(struct vfsmount),
 			0, SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL, NULL);
 
-	order = 0; 
 	mount_hashtable = (struct list_head *)
-		__get_free_pages(GFP_ATOMIC, order);
+		__get_free_page(GFP_ATOMIC);
 
 	if (!mount_hashtable)
 		panic("Failed to allocate mount hash table\n");
@@ -1411,7 +1409,7 @@ void __init mnt_init(unsigned long mempages)
 	 * We don't guarantee that "sizeof(struct list_head)" is necessarily
 	 * a power-of-two.
 	 */
-	nr_hash = (1UL << order) * PAGE_SIZE / sizeof(struct list_head);
+	nr_hash = PAGE_SIZE / sizeof(struct list_head);
 	hash_bits = 0;
 	do {
 		hash_bits++;
@@ -1425,8 +1423,7 @@ void __init mnt_init(unsigned long mempages)
 	nr_hash = 1UL << hash_bits;
 	hash_mask = nr_hash-1;
 
-	printk("Mount-cache hash table entries: %d (order: %ld, %ld bytes)\n",
-			nr_hash, order, (PAGE_SIZE << order));
+	printk("Mount-cache hash table entries: %d\n", nr_hash);
 
 	/* And initialize the newly allocated array */
 	d = mount_hashtable;

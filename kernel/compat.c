@@ -630,6 +630,27 @@ long compat_sys_clock_nanosleep(clockid_t which_clock, int flags,
 	return err;	
 } 
 
+/*
+ * We currently only need the following fields from the sigevent
+ * structure: sigev_value, sigev_signo, sig_notify and (sometimes
+ * sigev_notify_thread_id).  The others are handled in user mode.
+ * We also assume that copying sigev_value.sival_int is sufficient
+ * to keep all the bits of sigev_value.sival_ptr intact.
+ */
+int get_compat_sigevent(struct sigevent *event,
+		const struct compat_sigevent __user *u_event)
+{
+	memset(&event, 0, sizeof(*event));
+	return (!access_ok(VERIFY_READ, u_event, sizeof(*u_event)) ||
+		__get_user(event->sigev_value.sival_int,
+			&u_event->sigev_value.sival_int) ||
+		__get_user(event->sigev_signo, &u_event->sigev_signo) ||
+		__get_user(event->sigev_notify, &u_event->sigev_notify) ||
+		__get_user(event->sigev_notify_thread_id,
+			&u_event->sigev_notify_thread_id))
+		? -EFAULT : 0;
+}
+
 /* timer_create is architecture specific because it needs sigevent conversion */
 
 long compat_get_bitmap(unsigned long *mask, compat_ulong_t __user *umask,

@@ -1459,7 +1459,7 @@ static void savage_enable_mmio (struct savagefb_par *par)
 }
 
 
-void savage_disable_mmio (struct savagefb_par *par)
+static void savage_disable_mmio (struct savagefb_par *par)
 {
 	unsigned char val;
 
@@ -1498,7 +1498,7 @@ static int __devinit savage_map_mmio (struct fb_info *info)
 	info->fix.mmio_start = par->mmio.pbase;
 	info->fix.mmio_len   = par->mmio.len;
 
-	par->bci_base = (u32 __iomem *)(par->mmio.vbase + BCI_BUFFER_OFFSET);
+	par->bci_base = (u32*)(par->mmio.vbase + BCI_BUFFER_OFFSET);
 	par->bci_ptr  = 0;
 
 	savage_enable_mmio (par);
@@ -1514,7 +1514,7 @@ static void __devinit savage_unmap_mmio (struct fb_info *info)
 	savage_disable_mmio(par);
 
 	if (par->mmio.vbase) {
-		iounmap ((void __iomem *)par->mmio.vbase);
+		iounmap ((void *)par->mmio.vbase);
 		par->mmio.vbase = NULL;
 	}
 }
@@ -1551,6 +1551,10 @@ static int __devinit savage_map_video (struct fb_info *info,
 	par->video.mtrr = mtrr_add (par->video.pbase, video_len,
 				     MTRR_TYPE_WRCOMB, 1);
 #endif
+
+	/* Clear framebuffer, it's all white in memory after boot */
+	memset (par->video.vbase, 0, par->video.len);
+
 	return 0;
 }
 
@@ -2243,7 +2247,7 @@ static void __exit savage_done (void)
 
 /* ************************* init in-kernel code ************************** */
 
-int __init savagefb_setup(char *options)
+static int __init savagefb_setup(char *options)
 {
 #ifndef MODULE
 	char *this_opt;
@@ -2258,7 +2262,7 @@ int __init savagefb_setup(char *options)
 	return 0;
 }
 
-int __init savagefb_init(void)
+static int __init savagefb_init(void)
 {
 	char *option;
 

@@ -269,13 +269,11 @@ parse_error:
 int proc_ide_read_capacity
 	(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
-	ide_drive_t	*drive = (ide_drive_t *) data;
-	int		len;
-
-	len = sprintf(page,"%llu\n",
-		      (long long) (DRIVER(drive)->capacity(drive)));
+	int len = sprintf(page,"%llu\n", (long long)0x7fffffff);
 	PROC_IDE_READ_RETURN(page,start,off,count,eof,len);
 }
+
+EXPORT_SYMBOL_GPL(proc_ide_read_capacity);
 
 int proc_ide_read_geometry
 	(char *page, char **start, off_t off, int count, int *eof, void *data)

@@ -458,13 +458,15 @@ struct swap_info_struct;
  *	Check permissions for a mmap operation.  The @file may be NULL, e.g.
  *	if mapping anonymous memory.
  *	@file contains the file structure for file to map (may be NULL).
- *	@prot contains the requested permissions.
+ *	@reqprot contains the protection requested by the application.
+ *	@prot contains the protection that will be applied by the kernel.
  *	@flags contains the operational flags.
  *	Return 0 if permission is granted.
  * @file_mprotect:
  *	Check permissions before changing memory access permissions.
  *	@vma contains the memory region to modify.
- *	@prot contains the requested permissions.
+ *	@reqprot contains the protection requested by the application.
+ *	@prot contains the protection that will be applied by the kernel.
  *	Return 0 if permission is granted.
  * @file_lock:
  *	Check permission before performing file locking operations.
@@ -1129,8 +1131,11 @@ struct security_operations {
 	int (*file_ioctl) (struct file * file, unsigned int cmd,
 			   unsigned long arg);
 	int (*file_mmap) (struct file * file,
+			  unsigned long reqprot,
 			  unsigned long prot, unsigned long flags);
-	int (*file_mprotect) (struct vm_area_struct * vma, unsigned long prot);
+	int (*file_mprotect) (struct vm_area_struct * vma,
+			      unsigned long reqprot,
+			      unsigned long prot);
 	int (*file_lock) (struct file * file, unsigned int cmd);
 	int (*file_fcntl) (struct file * file, unsigned int cmd,
 			   unsigned long arg);
@@ -1693,16 +1698,18 @@ static inline int security_file_ioctl (struct file *file, unsigned int cmd,
 	return security_ops->file_ioctl (file, cmd, arg);
 }
 
-static inline int security_file_mmap (struct file *file, unsigned long prot,
+static inline int security_file_mmap (struct file *file, unsigned long reqprot,
+				      unsigned long prot,
 				      unsigned long flags)
 {
-	return security_ops->file_mmap (file, prot, flags);
+	return security_ops->file_mmap (file, reqprot, prot, flags);
 }
 
 static inline int security_file_mprotect (struct vm_area_struct *vma,
+					  unsigned long reqprot,
 					  unsigned long prot)
 {
-	return security_ops->file_mprotect (vma, prot);
+	return security_ops->file_mprotect (vma, reqprot, prot);
 }
 
 static inline int security_file_lock (struct file *file, unsigned int cmd)
@@ -2342,13 +2349,15 @@ static inline int security_file_ioctl (struct file *file, unsigned int cmd,
 	return 0;
 }
 
-static inline int security_file_mmap (struct file *file, unsigned long prot,
+static inline int security_file_mmap (struct file *file, unsigned long reqprot,
+				      unsigned long prot,
 				      unsigned long flags)
 {
 	return 0;
 }
 
 static inline int security_file_mprotect (struct vm_area_struct *vma,
+					  unsigned long reqprot,
 					  unsigned long prot)
 {
 	return 0;

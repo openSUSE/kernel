@@ -410,6 +410,7 @@ void __exit_signal(struct task_struct *tsk)
 		 * signals are constrained to threads inside the group.
 		 */
 		exit_itimers(sig);
+		exit_thread_group_keys(sig);
 		kmem_cache_free(signal_cachep, sig);
 	}
 }

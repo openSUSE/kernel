@@ -869,7 +869,6 @@ static int crypt_status(struct dm_target *ti, status_type_t type,
 			char *result, unsigned int maxlen)
 {
 	struct crypt_config *cc = (struct crypt_config *) ti->private;
-	char buffer[32];
 	const char *cipher;
 	const char *chainmode = NULL;
 	unsigned int sz = 0;
@@ -910,9 +909,8 @@ static int crypt_status(struct dm_target *ti, status_type_t type,
 			result[sz++] = '-';
 		}
 
-		format_dev_t(buffer, cc->dev->bdev->bd_dev);
 		DMEMIT(" " SECTOR_FORMAT " %s " SECTOR_FORMAT,
-		       cc->iv_offset, buffer, cc->start);
+		       cc->iv_offset, cc->dev->name, cc->start);
 		break;
 	}
 	return 0;

@@ -182,8 +182,10 @@ static __inline__ void ypan_up(struct vc_data *vc, int count);
 static __inline__ void ypan_down(struct vc_data *vc, int count);
 static void fbcon_bmove_rec(struct vc_data *vc, struct display *p, int sy, int sx,
 			    int dy, int dx, int height, int width, u_int y_break);
-static void fbcon_set_disp(struct fb_info *info, struct vc_data *vc);
-static void fbcon_preset_disp(struct fb_info *info, int unit);
+static void fbcon_set_disp(struct fb_info *info, struct fb_var_screeninfo *var,
+			   struct vc_data *vc);
+static void fbcon_preset_disp(struct fb_info *info, struct fb_var_screeninfo *var,
+			      int unit);
 static void fbcon_redraw_move(struct vc_data *vc, struct display *p,
 			      int line, int count, int dy);
 
@@ -209,7 +211,7 @@ static inline int fbcon_is_inactive(struct vc_data *vc, struct fb_info *info)
 static inline int get_color(struct vc_data *vc, struct fb_info *info,
 	      u16 c, int is_fg)
 {
-	int depth = fb_get_color_depth(info);
+	int depth = fb_get_color_depth(&info->var);
 	int color = 0;
 
 	if (console_blanked) {
@@ -277,7 +279,7 @@ static void fb_flashcursor(void *private)
 	c = scr_readw((u16 *) vc->vc_pos);
 	mode = (!ops->cursor_flash || ops->cursor_state.enable) ?
 		CM_ERASE : CM_DRAW;
-	ops->cursor(vc, info, p, mode, get_color(vc, info, c, 1),
+	ops->cursor(vc, info, p, mode, softback_lines, get_color(vc, info, c, 1),
 		    get_color(vc, info, c, 0));
 	release_console_sem();
 }
@@ -418,7 +420,7 @@ static void fbcon_prepare_logo(struct vc_data *vc, struct fb_info *info,
 	 * remove underline attribute from erase character
 	 * if black and white framebuffer.
 	 */
-	if (fb_get_color_depth(info) == 1)
+	if (fb_get_color_depth(&info->var) == 1)
 		erase &= ~0x400;
 	logo_height = fb_prepare_logo(info);
 	logo_lines = (logo_height + vc->vc_font.height - 1) /
@@ -595,9 +597,9 @@ static void con2fb_init_display(struct vc_data *vc, struct fb_info *info,
 		info->fbops->fb_set_par(info);
 
 	if (vc)
-		fbcon_set_disp(info, vc);
+		fbcon_set_disp(info, &info->var, vc);
 	else
-		fbcon_preset_disp(info, unit);
+		fbcon_preset_disp(info, &info->var, unit);
 
 	if (show_logo) {
 		struct vc_data *fg_vc = vc_cons[fg_console].d;
@@ -917,7 +919,7 @@ static void fbcon_init(struct vc_data *vc, int init)
 	}
 	if (p->userfont)
 		charcnt = FNTCHARCNT(p->fontdata);
-	vc->vc_can_do_color = (fb_get_color_depth(info) != 1);
+	vc->vc_can_do_color = (fb_get_color_depth(&info->var) != 1);
 	vc->vc_complement_mask = vc->vc_can_do_color ? 0x7700 : 0x0800;
 	if (charcnt == 256) {
 		vc->vc_hi_font_mask = 0;
@@ -1084,27 +1086,23 @@ static void fbcon_cursor(struct vc_data *vc, int mode)
 	struct fb_info *info = registered_fb[con2fb_map[vc->vc_num]];
 	struct fbcon_ops *ops = info->fbcon_par;
 	struct display *p = &fb_display[vc->vc_num];
-	int y = real_y(p, vc->vc_y);
+	int y;
  	int c = scr_readw((u16 *) vc->vc_pos);
 
 	if (fbcon_is_inactive(vc, info))
 		return;
 
-	ops->cursor_flash = 1;
+	ops->cursor_flash = (mode == CM_ERASE) ? 0 : 1;
 	if (mode & CM_SOFTBACK) {
 		mode &= ~CM_SOFTBACK;
-		if (softback_lines) {
-			if (y + softback_lines >= vc->vc_rows) {
-				mode = CM_ERASE;
-				ops->cursor_flash = 0;
-			}
-			else
-				y += softback_lines;
-		}
-	} else if (softback_lines)
-		fbcon_set_origin(vc);
+		y = softback_lines;
+	} else {
+		if (softback_lines)
+			fbcon_set_origin(vc);
+		y = 0;
+	}
 
-	ops->cursor(vc, info, p, mode, get_color(vc, info, c, 1),
+	ops->cursor(vc, info, p, mode, y, get_color(vc, info, c, 1),
 		    get_color(vc, info, c, 0));
 	vbl_cursor_cnt = CURSOR_DRAW_DELAY;
 }
@@ -1123,13 +1121,14 @@ int update_var(int con, struct fb_info *info)
 /*
  * If no vc is existent yet, just set struct display
  */
-static void fbcon_preset_disp(struct fb_info *info, int unit)
+static void fbcon_preset_disp(struct fb_info *info, struct fb_var_screeninfo *var,
+			      int unit)
 {
 	struct display *p = &fb_display[unit];
 	struct display *t = &fb_display[fg_console];
 
-	info->var.xoffset = info->var.yoffset = p->yscroll = 0;
-	if (var_to_display(p, &info->var, info))
+	var->xoffset = var->yoffset = p->yscroll = 0;
+	if (var_to_display(p, var, info))
 		return;
 
 	p->fontdata = t->fontdata;
@@ -1138,15 +1137,16 @@ static void fbcon_preset_disp(struct fb_info *info, int unit)
 		REFCOUNT(p->fontdata)++;
 }
 
-static void fbcon_set_disp(struct fb_info *info, struct vc_data *vc)
+static void fbcon_set_disp(struct fb_info *info, struct fb_var_screeninfo *var,
+			   struct vc_data *vc)
 {
 	struct display *p = &fb_display[vc->vc_num], *t;
 	struct vc_data **default_mode = vc->vc_display_fg;
 	struct vc_data *svc = *default_mode;
 	int rows, cols, charcnt = 256;
 
-	info->var.xoffset = info->var.yoffset = p->yscroll = 0;
-	if (var_to_display(p, &info->var, info))
+	var->xoffset = var->yoffset = p->yscroll = 0;
+	if (var_to_display(p, var, info))
 		return;
 	t = &fb_display[svc->vc_num];
 	if (!vc->vc_font.data) {
@@ -1160,7 +1160,7 @@ static void fbcon_set_disp(struct fb_info *info, struct vc_data *vc)
 	if (p->userfont)
 		charcnt = FNTCHARCNT(p->fontdata);
 
-	vc->vc_can_do_color = (fb_get_color_depth(info) != 1);
+	vc->vc_can_do_color = (fb_get_color_depth(var) != 1);
 	vc->vc_complement_mask = vc->vc_can_do_color ? 0x7700 : 0x0800;
 	if (charcnt == 256) {
 		vc->vc_hi_font_mask = 0;
@@ -1175,8 +1175,8 @@ static void fbcon_set_disp(struct fb_info *info, struct vc_data *vc)
 	if (!*vc->vc_uni_pagedir_loc)
 		con_copy_unimap(vc, svc);
 
-	cols = info->var.xres / vc->vc_font.width;
-	rows = info->var.yres / vc->vc_font.height;
+	cols = var->xres / vc->vc_font.width;
+	rows = var->yres / vc->vc_font.height;
 	vc_resize(vc, cols, rows);
 	if (CON_IS_VISIBLE(vc)) {
 		update_screen(vc);
@@ -1955,7 +1955,7 @@ static int fbcon_switch(struct vc_data *vc)
 	set_blitting_type(vc, info, p);
 	((struct fbcon_ops *)info->fbcon_par)->cursor_reset = 1;
 
-	vc->vc_can_do_color = (fb_get_color_depth(info) != 1);
+	vc->vc_can_do_color = (fb_get_color_depth(&info->var) != 1);
 	vc->vc_complement_mask = vc->vc_can_do_color ? 0x7700 : 0x0800;
 	updatescrollmode(p, info, vc);
 
@@ -2326,7 +2326,7 @@ static int fbcon_set_palette(struct vc_data *vc, unsigned char *table)
 	if (fbcon_is_inactive(vc, info))
 		return -EINVAL;
 
-	depth = fb_get_color_depth(info);
+	depth = fb_get_color_depth(&info->var);
 	if (depth > 3) {
 		for (i = j = 0; i < 16; i++) {
 			k = table[i];
@@ -2658,6 +2658,31 @@ static void fbcon_fb_blanked(struct fb_info *info, int blank)
 	ops->blank_state = blank;
 }
 
+static void fbcon_new_modelist(struct fb_info *info)
+{
+	int i;
+	struct vc_data *vc;
+	struct fb_var_screeninfo var;
+	struct fb_videomode *mode;
+
+	for (i = 0; i < MAX_NR_CONSOLES; i++) {
+		if (registered_fb[con2fb_map[i]] != info)
+			continue;
+		if (!fb_display[i].mode)
+			continue;
+		vc = vc_cons[i].d;
+		display_to_var(&var, &fb_display[i]);
+		mode = fb_find_nearest_mode(&var, &info->modelist);
+		fb_videomode_to_var(&var, mode);
+
+		if (vc)
+			fbcon_set_disp(info, &var, vc);
+		else
+			fbcon_preset_disp(info, &var, i);
+
+	}
+}
+
 static int fbcon_event_notify(struct notifier_block *self, 
 			      unsigned long action, void *data)
 {
@@ -2695,6 +2720,9 @@ static int fbcon_event_notify(struct notifier_block *self,
 		break;
 	case FB_EVENT_BLANK:
 		fbcon_fb_blanked(info, *(int *)event->data);
+		break;
+	case FB_EVENT_NEW_MODELIST:
+		fbcon_new_modelist(info);
 		break;
 	}
 

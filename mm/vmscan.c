@@ -30,6 +30,7 @@
 #include <linux/rmap.h>
 #include <linux/topology.h>
 #include <linux/cpu.h>
+#include <linux/cpuset.h>
 #include <linux/notifier.h>
 #include <linux/rwsem.h>
 
@@ -865,6 +866,9 @@ shrink_caches(struct zone **zones, struct scan_control *sc)
 		if (zone->present_pages == 0)
 			continue;
 
+		if (!cpuset_zone_allowed(zone))
+			continue;
+
 		zone->temp_priority = sc->priority;
 		if (zone->prev_priority > sc->priority)
 			zone->prev_priority = sc->priority;
@@ -908,6 +912,9 @@ int try_to_free_pages(struct zone **zones,
 	for (i = 0; zones[i] != NULL; i++) {
 		struct zone *zone = zones[i];
 
+		if (!cpuset_zone_allowed(zone))
+			continue;
+
 		zone->temp_priority = DEF_PRIORITY;
 		lru_pages += zone->nr_active + zone->nr_inactive;
 	}
@@ -948,8 +955,14 @@ int try_to_free_pages(struct zone **zones,
 			blk_congestion_wait(WRITE, HZ/10);
 	}
 out:
-	for (i = 0; zones[i] != 0; i++)
-		zones[i]->prev_priority = zones[i]->temp_priority;
+	for (i = 0; zones[i] != 0; i++) {
+		struct zone *zone = zones[i];
+
+		if (!cpuset_zone_allowed(zone))
+			continue;
+
+		zone->prev_priority = zone->temp_priority;
+	}
 	return ret;
 }
 
@@ -1210,6 +1223,8 @@ void wakeup_kswapd(struct zone *zone, int order)
 		return;
 	if (pgdat->kswapd_max_order < order)
 		pgdat->kswapd_max_order = order;
+	if (!cpuset_zone_allowed(zone))
+		return;
 	if (!waitqueue_active(&zone->zone_pgdat->kswapd_wait))
 		return;
 	wake_up_interruptible(&zone->zone_pgdat->kswapd_wait);

@@ -151,8 +151,8 @@ The key service provides a number of features besides keys:
      by using PR_JOIN_SESSION_KEYRING. It is permitted to request an anonymous
      new one, or to attempt to create or join one of a specific name.
 
-     The ownership of the thread and process-specific keyrings changes when
-     the real UID and GID of the thread changes.
+     The ownership of the thread keyring changes when the real UID and GID of
+     the thread changes.
 
  (*) Each user ID resident in the system holds two special keyrings: a user
      specific keyring and a default user session keyring. The default session

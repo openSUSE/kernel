@@ -845,7 +845,7 @@ int hostfs_setattr(struct dentry *dentry, struct iattr *attr)
 	if(attr->ia_valid & ATTR_GID){
 		if((dentry->d_inode->i_sb->s_dev == ROOT_DEV) &&
 		   (attr->ia_gid == 0))
-			attr->ia_gid = getuid();
+			attr->ia_gid = getgid();
 		attrs.ia_valid |= HOSTFS_ATTR_GID;
 		attrs.ia_gid = attr->ia_gid;
 	}

@@ -1793,7 +1793,6 @@ static void idefloppy_setup (ide_drive_t *drive, idefloppy_floppy_t *floppy)
 
 	*((u16 *) &gcw) = drive->id->config;
 	drive->driver_data = floppy;
-	drive->ready_stat = 0;
 	memset(floppy, 0, sizeof(idefloppy_floppy_t));
 	floppy->drive = drive;
 	floppy->pc = floppy->pc_stack;
@@ -1848,7 +1847,18 @@ static int idefloppy_cleanup (ide_drive_t *drive)
 
 #ifdef CONFIG_PROC_FS
 
+static int proc_idefloppy_read_capacity
+	(char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+	ide_drive_t*drive = (ide_drive_t *)data;
+	int len;
+
+	len = sprintf(page,"%llu\n", (long long)idefloppy_capacity(drive));
+	PROC_IDE_READ_RETURN(page,start,off,count,eof,len);
+}
+
 static ide_proc_entry_t idefloppy_proc[] = {
+	{ "capacity",	S_IFREG|S_IRUGO,	proc_idefloppy_read_capacity, NULL },
 	{ "geometry",	S_IFREG|S_IRUGO,	proc_ide_read_geometry,	NULL },
 	{ NULL, 0, NULL, NULL }
 };
@@ -1874,7 +1884,8 @@ static ide_driver_t idefloppy_driver = {
 	.cleanup		= idefloppy_cleanup,
 	.do_request		= idefloppy_do_request,
 	.end_request		= idefloppy_do_end_request,
-	.capacity		= idefloppy_capacity,
+	.error			= __ide_error,
+	.abort			= __ide_abort,
 	.proc			= idefloppy_proc,
 	.attach			= idefloppy_attach,
 	.drives			= LIST_HEAD_INIT(idefloppy_driver.drives),

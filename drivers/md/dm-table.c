@@ -455,6 +455,8 @@ static int __table_get_device(struct dm_table *t, struct dm_target *ti,
 			return r;
 		}
 
+		format_dev_t(dd->name, dev);
+
 		atomic_set(&dd->count, 0);
 		list_add(&dd->list, &t->devices);
 

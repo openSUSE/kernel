@@ -97,11 +97,12 @@ while (my $line = <STDIN>) {
 		my $size = $1;
 		$size = hex($size) if ($size =~ /^0x/);
 
-		if ($size > 0x80000000) {
+		if ($size > 0xf0000000) {
 			$size = - $size;
 			$size += 0x80000000;
 			$size += 0x80000000;
 		}
+		next if ($size > 0x10000000);
 
 		next if $line !~ m/^($xs*)/;
 		my $addr = $1;

@@ -940,7 +940,7 @@ static void super_1_sync(mddev_t *mddev, mdk_rdev_t *rdev)
 	
 	sb->max_dev = cpu_to_le32(max_dev);
 	for (i=0; i<max_dev;i++)
-		sb->dev_roles[max_dev] = cpu_to_le16(0xfffe);
+		sb->dev_roles[i] = cpu_to_le16(0xfffe);
 	
 	ITERATE_RDEV(mddev,rdev2,tmp) {
 		i = rdev2->desc_nr;
