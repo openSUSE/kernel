@@ -42,23 +42,12 @@ void arch_enter_kernel(void *task, int pid)
 void arch_leave_kernel(void *task, int pid)
 {
 #ifdef UM_USER_CS
-	if(ptrace(PTRACE_POKEUSER, pid, CS, UM_USER_CS) < 0)
-		tracer_panic("POKEUSER CS failed");
+        if(ptrace(PTRACE_POKEUSER, pid, CS, UM_USER_CS) < 0)
+                printk("POKEUSR CS failed");
 #endif
 
-	if(ptrace(PTRACE_POKEUSER, pid, DS, __USER_DS) < 0)
-		tracer_panic("POKEUSER DS failed");
-	if(ptrace(PTRACE_POKEUSER, pid, ES, __USER_DS) < 0)
-		tracer_panic("POKEUSER ES failed");
+        if(ptrace(PTRACE_POKEUSER, pid, DS, __USER_DS) < 0)
+                printk("POKEUSR DS failed");
+        if(ptrace(PTRACE_POKEUSER, pid, ES, __USER_DS) < 0)
+                printk("POKEUSR ES failed");
 }
-
-/*
- * Overrides for Emacs so that we follow Linus's tabbing style.
- * Emacs will notice this stuff at the end of the file and automatically
- * adjust the settings for this buffer only.  This must remain at the end
- * of the file.
- * ---------------------------------------------------------------------------
- * Local variables:
- * c-file-style: "linux"
- * End:
- */
