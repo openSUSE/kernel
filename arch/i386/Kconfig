@@ -1199,17 +1199,13 @@ config EISA
 source "drivers/eisa/Kconfig"
 
 config MCA
-	bool "MCA support"
-	depends on !(X86_VISWS || X86_VOYAGER)
+	bool "MCA support" if !(X86_VISWS || X86_VOYAGER)
+	default y if X86_VOYAGER
 	help
 	  MicroChannel Architecture is found in some IBM PS/2 machines and
 	  laptops.  It is a bus system similar to PCI or ISA. See
 	  <file:Documentation/mca.txt> (and especially the web page given
 	  there) before attempting to build an MCA bus kernel.
-
-config MCA
-	depends on X86_VOYAGER
-	default y if X86_VOYAGER
 
 source "drivers/mca/Kconfig"
 

@@ -707,8 +707,6 @@ fastcall void do_debug(struct pt_regs * regs, long error_code)
 	/*
 	 * Single-stepping through TF: make sure we ignore any events in
 	 * kernel space (but re-enable TF when returning to user mode).
-	 * And if the event was due to a debugger (PT_DTRACE), clear the
-	 * TF flag so that register information is correct.
 	 */
 	if (condition & DR_STEP) {
 		/*
@@ -718,11 +716,6 @@ fastcall void do_debug(struct pt_regs * regs, long error_code)
 		 */
 		if ((regs->xcs & 3) == 0)
 			goto clear_TF_reenable;
-
-		if (likely(tsk->ptrace & PT_DTRACE)) {
-			tsk->ptrace &= ~PT_DTRACE;
-			regs->eflags &= ~TF_MASK;
-		}
 	}
 
 	/* Ok, finally something we can handle */

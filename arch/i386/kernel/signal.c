@@ -277,18 +277,6 @@ setup_sigcontext(struct sigcontext __user *sc, struct _fpstate __user *fpstate,
 {
 	int tmp, err = 0;
 
-	/*
-	 * If TF is set due to a debugger (PT_DTRACE), clear the TF
-	 * flag so that register information in the sigcontext is
-	 * correct.
-	 */
-	if (unlikely(regs->eflags & TF_MASK)) {
-		if (likely(current->ptrace & PT_DTRACE)) {
-			current->ptrace &= ~PT_DTRACE;
-			regs->eflags &= ~TF_MASK;
-		}
-	}
-
 	tmp = 0;
 	__asm__("movl %%gs,%0" : "=r"(tmp): "0"(tmp));
 	err |= __put_user(tmp, (unsigned int __user *)&sc->gs);
@@ -567,6 +555,16 @@ handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
 				regs->eax = regs->orig_eax;
 				regs->eip -= 2;
 		}
+	}
+
+	/*
+	 * If TF is set due to a debugger (PT_DTRACE), clear the TF flag so
+	 * that register information in the sigcontext is correct.
+	 */
+	if (unlikely(regs->eflags & TF_MASK)
+	    && likely(current->ptrace & PT_DTRACE)) {
+		current->ptrace &= ~PT_DTRACE;
+		regs->eflags &= ~TF_MASK;
 	}
 
 	/* Set up the stack frame */
