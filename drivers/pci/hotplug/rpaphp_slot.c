@@ -211,7 +211,7 @@ int register_slot(struct slot *slot)
 	if (is_registered(slot)) { /* should't be here */
 		err("register_slot: slot[%s] is already registered\n", slot->name);
 		rpaphp_release_slot(slot->hotplug_slot);
-		return 1;
+		return -EAGAIN;
 	}	
 	retval = pci_hp_register(slot->hotplug_slot);
 	if (retval) {
@@ -270,7 +270,7 @@ int rpaphp_set_attention_status(struct slot *slot, u8 status)
 
 	/* status: LED_OFF or LED_ON */
 	rc = rtas_set_indicator(DR_INDICATOR, slot->index, status);
-	if (rc)
+	if (rc < 0)
 		err("slot(name=%s location=%s index=0x%x) set attention-status(%d) failed! rc=0x%x\n",
 		    slot->name, slot->location, slot->index, status, rc);
 
