@@ -699,6 +699,26 @@ static void __init quirk_svwks_csb5ide(struct pci_dev *pdev)
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_SERVERWORKS, PCI_DEVICE_ID_SERVERWORKS_CSB5IDE, quirk_svwks_csb5ide );
 
+/*
+ *	Intel 82801CAM ICH3-M datasheet says IDE modes must be the same
+ */
+static void __init quirk_ide_samemode(struct pci_dev *pdev)
+{
+	u8 prog;
+
+	pci_read_config_byte(pdev, PCI_CLASS_PROG, &prog);
+
+	if (((prog & 1) && !(prog & 4)) || ((prog & 4) && !(prog & 1))) {
+		printk(KERN_INFO "PCI: IDE mode mismatch; forcing legacy mode\n");
+		prog &= ~5;
+		pdev->class &= ~5;
+		pci_write_config_byte(pdev, PCI_CLASS_PROG, prog);
+		/* need to re-assign BARs for compat mode */
+		quirk_ide_bases(pdev);
+	}
+}
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82801CA_10, quirk_ide_samemode);
+
 /* This was originally an Alpha specific thing, but it really fits here.
  * The i82375 PCI/EISA bridge appears as non-classified. Fix that.
  */
@@ -1144,6 +1164,10 @@ static void __devinit quirk_intel_ide_combined(struct pci_dev *pdev)
 	case 0x2653:
 		ich = 6;
 		break;
+	case 0x27c0:
+	case 0x27c4:
+		ich = 7;
+		break;
 	default:
 		/* we do not handle this PCI device */
 		return;
@@ -1163,7 +1187,7 @@ static void __devinit quirk_intel_ide_combined(struct pci_dev *pdev)
 		else
 			return;			/* not in combined mode */
 	} else {
-		WARN_ON(ich != 6);
+		WARN_ON((ich != 6) && (ich != 7));
 		tmp &= 0x3;  /* interesting bits 1:0 */
 		if (tmp & (1 << 0))
 			comb = (1 << 2);	/* PATA port 0, SATA port 1 */

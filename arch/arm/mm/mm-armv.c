@@ -526,7 +526,7 @@ void setup_mm_for_reboot(char mode)
 			pmdval |= PMD_BIT4;
 		pmd = pmd_offset(pgd + i, i << PGDIR_SHIFT);
 		set_pmd(pmd, __pmd(pmdval));
-		set_pmd(pmd + 1, __pmd(pmdval + 1 << (PGDIR_SHIFT - 1)));
+		set_pmd(pmd + 1, __pmd(pmdval + (1 << (PGDIR_SHIFT - 1))));
 	}
 }
 
@@ -701,6 +701,6 @@ void __init create_memmap_holes(struct meminfo *mi)
 {
 	int node;
 
-	for (node = 0; node < numnodes; node++)
+	for_each_online_node(node)
 		free_unused_memmap_node(node, mi);
 }

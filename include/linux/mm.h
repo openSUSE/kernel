@@ -105,6 +105,7 @@ struct vm_area_struct {
 					   units, *not* PAGE_CACHE_SIZE */
 	struct file * vm_file;		/* File we map to (can be NULL). */
 	void * vm_private_data;		/* was vm_pte (shared mem) */
+	unsigned long vm_truncate_count;/* truncate_count or restart_addr */
 
 #ifndef CONFIG_MMU
 	atomic_t vm_usage;		/* refcount (VMAs shared if !MMU) */
@@ -231,6 +232,8 @@ struct page {
 					 * usually used for buffer_heads
 					 * if PagePrivate set; used for
 					 * swp_entry_t if PageSwapCache
+					 * When page is free, this indicates
+					 * order in the buddy system.
 					 */
 	struct address_space *mapping;	/* If low bit clear, points to
 					 * inode address_space, or NULL.
@@ -577,7 +580,9 @@ struct zap_details {
 	struct address_space *check_mapping;	/* Check page->mapping if set */
 	pgoff_t	first_index;			/* Lowest page->index to unmap */
 	pgoff_t last_index;			/* Highest page->index to unmap */
-	int atomic;				/* May not schedule() */
+	spinlock_t *i_mmap_lock;		/* For unmap_mapping_range: */
+	unsigned long break_addr;		/* Where unmap_vmas stopped */
+	unsigned long truncate_count;		/* Compare vm_truncate_count */
 };
 
 void zap_page_range(struct vm_area_struct *vma, unsigned long address,
@@ -659,6 +664,7 @@ extern void remove_shrinker(struct shrinker *shrinker);
  * The following ifdef needed to get the 4level-fixup.h header to work.
  * Remove it when 4level-fixup.h has been removed.
  */
+#ifdef CONFIG_MMU
 #ifndef __ARCH_HAS_4LEVEL_HACK 
 static inline pud_t *pud_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address)
 {
@@ -674,6 +680,7 @@ static inline pmd_t *pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long a
 	return pmd_offset(pud, address);
 }
 #endif
+#endif /* CONFIG_MMU */
 
 extern void free_area_init(unsigned long * zones_size);
 extern void free_area_init_node(int nid, pg_data_t *pgdat,
@@ -805,13 +812,6 @@ extern struct page * follow_page(struct mm_struct *mm, unsigned long address,
 extern int check_user_page_readable(struct mm_struct *mm, unsigned long address);
 int remap_pfn_range(struct vm_area_struct *, unsigned long,
 		unsigned long, unsigned long, pgprot_t);
-
-static inline __deprecated /* since 25 Sept 2004 -- wli */
-int remap_page_range(struct vm_area_struct *vma, unsigned long uvaddr,
-			unsigned long paddr, unsigned long size, pgprot_t prot)
-{
-	return remap_pfn_range(vma, uvaddr, paddr >> PAGE_SHIFT, size, prot);
-}
 
 #ifdef CONFIG_PROC_FS
 void __vm_stat_account(struct mm_struct *, unsigned long, struct file *, long);
