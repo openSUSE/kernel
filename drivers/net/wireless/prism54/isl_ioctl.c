@@ -1750,7 +1750,7 @@ prism54_process_trap_helper(islpci_private *priv, enum oid_num_t oid,
 	u8 wpa_ie[MAX_WPA_IE_LEN];
 	int wpa_ie_len;
 	size_t len = 0; /* u16, better? */
-	u8 *payload = 0, *pos = 0;
+	u8 *payload = NULL, *pos = NULL;
 	int ret;
 
 	/* I think all trapable objects are listed here.
