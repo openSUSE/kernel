@@ -1664,20 +1664,21 @@ nfs4_open_delegation(struct svc_fh *fh, struct nfsd4_open *open, struct nfs4_sta
 	if (*flag == NFS4_OPEN_DELEGATE_NONE)
 		return;
 
-	/* set flag */
 	*flag = NFS4_OPEN_DELEGATE_NONE;
 	if (open->op_claim_type != NFS4_OPEN_CLAIM_NULL
 	     || !atomic_read(&cb->cb_set) || !sop->so_confirmed)
 		return;
 
-	if (!(open->op_share_access & NFS4_SHARE_ACCESS_WRITE))
+	if (open->op_share_access & NFS4_SHARE_ACCESS_WRITE)
+		*flag = NFS4_OPEN_DELEGATE_WRITE;
+	else
 		*flag = NFS4_OPEN_DELEGATE_READ;
 
-	else if (!(open->op_share_access & NFS4_SHARE_ACCESS_READ))
-		*flag = NFS4_OPEN_DELEGATE_WRITE;
-
-	if (!(dp = alloc_init_deleg(sop->so_client, stp->st_file, fh, *flag)))
+	dp = alloc_init_deleg(sop->so_client, stp->st_file, fh, *flag);
+	if (dp == NULL) {
+		*flag = NFS4_OPEN_DELEGATE_NONE;
 		return;
+	}
 	locks_init_lock(&fl);
 	fl.fl_lmops = &nfsd_lease_mng_ops;
 	fl.fl_flags = FL_LEASE;
