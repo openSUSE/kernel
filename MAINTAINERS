@@ -601,11 +601,10 @@ W:	http://developer.axis.com
 S:	Maintained
 
 CRYPTO API
-P:	James Morris
-M:	jmorris@redhat.com
+P:	Herbert Xu
+M:	herbert@gondor.apana.org.au
 P:	David S. Miller
 M:	davem@davemloft.net
-W	http://samba.org/~jamesm/crypto/
 L:	linux-kernel@vger.kernel.org
 S:	Maintained
 
