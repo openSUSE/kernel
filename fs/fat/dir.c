@@ -144,7 +144,7 @@ int fat_search_long(struct inode *inode, const unsigned char *name,
 	struct nls_table *nls_io = MSDOS_SB(sb)->nls_io;
 	struct nls_table *nls_disk = MSDOS_SB(sb)->nls_disk;
 	wchar_t bufuname[14];
-	unsigned char xlate_len, long_slots;
+	unsigned char xlate_len, nr_slots;
 	wchar_t *unicode = NULL;
 	unsigned char work[8], bufname[260];	/* 256 + 4 */
 	int uni_xlate = MSDOS_SB(sb)->options.unicode_xlate;
@@ -159,7 +159,7 @@ int fat_search_long(struct inode *inode, const unsigned char *name,
 		if (fat_get_entry(inode, &cpos, &bh, &de, &i_pos) == -1)
 			goto EODir;
 parse_record:
-		long_slots = 0;
+		nr_slots = 0;
 		if (de->name[0] == DELETED_FLAG)
 			continue;
 		if (de->attr != ATTR_EXT && (de->attr & ATTR_VOLUME))
@@ -191,7 +191,7 @@ parse_long:
 			slots = id & ~0x40;
 			if (slots > 20 || !slots)	/* ceil(256 * 2 / 26) */
 				continue;
-			long_slots = slots;
+			nr_slots = slots;
 			alias_checksum = ds->alias_checksum;
 
 			slot = slots;
@@ -228,7 +228,7 @@ parse_long:
 			for (sum = 0, i = 0; i < 11; i++)
 				sum = (((sum&1)<<7)|((sum&0xfe)>>1)) + de->name[i];
 			if (sum != alias_checksum)
-				long_slots = 0;
+				nr_slots = 0;
 		}
 
 		memcpy(work, de->name, sizeof(de->name));
@@ -276,7 +276,7 @@ parse_long:
 								xlate_len)))
 				goto Found;
 
-		if (long_slots) {
+		if (nr_slots) {
 			xlate_len = utf8
 				?utf8_wcstombs(bufname, unicode, sizeof(bufname))
 				:uni16_to_x8(bufname, unicode, uni_xlate, nls_io);
@@ -290,9 +290,10 @@ parse_long:
 	}
 
 Found:
+	nr_slots++;	/* include the de */
 	sinfo->i_pos = i_pos;
-	sinfo->slot_off = cpos - (long_slots + 1) * sizeof(*de);
-	sinfo->nr_slots = long_slots;
+	sinfo->slot_off = cpos - nr_slots * sizeof(*de);
+	sinfo->nr_slots = nr_slots;
 	sinfo->de = de;
 	sinfo->bh = bh;
 	err = 0;
@@ -758,6 +759,94 @@ int fat_scan(struct inode *dir, const unsigned char *name,
 }
 
 EXPORT_SYMBOL(fat_scan);
+
+static int __fat_remove_entries(struct inode *dir, loff_t pos, int nr_slots)
+{
+	struct super_block *sb = dir->i_sb;
+	struct buffer_head *bh;
+	struct msdos_dir_entry *de, *endp;
+	loff_t i_pos;
+	int err = 0, orig_slots;
+
+	while (nr_slots) {
+		bh = NULL;
+		if (fat_get_entry(dir, &pos, &bh, &de, &i_pos) < 0) {
+			err = -EIO;
+			break;
+		}
+
+		orig_slots = nr_slots;
+		endp = (struct msdos_dir_entry *)(bh->b_data + sb->s_blocksize);
+		while (nr_slots && de < endp) {
+			de->name[0] = DELETED_FLAG;
+			de++;
+			nr_slots--;
+		}
+		mark_buffer_dirty(bh);
+		if (IS_DIRSYNC(dir))
+			err = sync_dirty_buffer(bh);
+		brelse(bh);
+		if (err)
+			break;
+
+		/* pos is *next* de's position, so this does `- sizeof(de)' */
+		pos += ((orig_slots - nr_slots) * sizeof(*de)) - sizeof(*de);
+	}
+
+	return err;
+}
+
+int fat_remove_entries(struct inode *dir, struct fat_slot_info *sinfo)
+{
+	struct msdos_dir_entry *de;
+	struct buffer_head *bh;
+	int err = 0, nr_slots;
+
+	/*
+	 * First stage: Remove the shortname. By this, the directory
+	 * entry is removed.
+	 */
+	nr_slots = sinfo->nr_slots;
+	de = sinfo->de;
+	sinfo->de = NULL;
+	bh = sinfo->bh;
+	sinfo->bh = NULL;
+	while (nr_slots && de >= (struct msdos_dir_entry *)bh->b_data) {
+		de->name[0] = DELETED_FLAG;
+		de--;
+		nr_slots--;
+	}
+	mark_buffer_dirty(bh);
+	if (IS_DIRSYNC(dir))
+		err = sync_dirty_buffer(bh);
+	brelse(bh);
+	if (err)
+		return err;
+	dir->i_version++;
+
+	if (nr_slots) {
+		/*
+		 * Second stage: remove the remaining longname slots.
+		 * (This directory entry is already removed, and so return
+		 * the success)
+		 */
+		err = __fat_remove_entries(dir, sinfo->slot_off, nr_slots);
+		if (err) {
+			printk(KERN_WARNING
+			       "FAT: Couldn't remove the long name slots\n");
+		}
+	}
+
+	dir->i_mtime = dir->i_atime = CURRENT_TIME_SEC;
+	if (IS_DIRSYNC(dir))
+		(void)fat_sync_inode(dir);
+	else
+		mark_inode_dirty(dir);
+
+	return 0;
+}
+
+EXPORT_SYMBOL(fat_remove_entries);
 
 static struct buffer_head *fat_extend_dir(struct inode *inode)
 {

@@ -721,7 +721,7 @@ static int vfat_add_entry(struct inode *dir, struct qstr *qname,
 
 	/* slots can't be less than 1 */
 	sinfo->slot_off = offset - sizeof(struct msdos_dir_slot) * slots;
-	sinfo->nr_slots = slots - 1;
+	sinfo->nr_slots = slots;
 	sinfo->de = de;
 	sinfo->bh = bh;
 
@@ -817,39 +817,6 @@ out:
 	return res;
 }
 
-static void vfat_remove_entry(struct inode *dir, struct fat_slot_info *sinfo)
-{
-	struct super_block *sb = dir->i_sb;
-	struct msdos_dir_entry *de = sinfo->de;
-	struct buffer_head *bh = sinfo->bh;
-	loff_t offset, i_pos;
-	int i;
-
-	dir->i_mtime = dir->i_atime = CURRENT_TIME_SEC;
-	dir->i_version++;
-	mark_inode_dirty(dir);
-
-	/* remove the shortname */
-	de->name[0] = DELETED_FLAG;
-	mark_buffer_dirty(bh);
-	if (sb->s_flags & MS_SYNCHRONOUS)
-		sync_dirty_buffer(bh);
-
-	/* remove the longname */
-	offset = sinfo->slot_off;
-	de = NULL;
-	for (i = sinfo->nr_slots; i > 0; --i) {
-		if (fat_get_entry(dir, &offset, &bh, &de, &i_pos) < 0)
-			continue;
-		de->name[0] = DELETED_FLAG;
-		de->attr = ATTR_NONE;
-		mark_buffer_dirty(bh);
-		if (sb->s_flags & MS_SYNCHRONOUS)
-			sync_dirty_buffer(bh);
-	}
-	brelse(bh);
-}
-
 static int vfat_rmdir(struct inode *dir, struct dentry *dentry)
 {
 	struct inode *inode = dentry->d_inode;
@@ -865,14 +832,15 @@ static int vfat_rmdir(struct inode *dir, struct dentry *dentry)
 	if (err)
 		goto out;
 
+	err = fat_remove_entries(dir, &sinfo);	/* and releases bh */
+	if (err)
+		goto out;
+	dir->i_nlink--;
+
 	inode->i_nlink = 0;
 	inode->i_mtime = inode->i_atime = CURRENT_TIME_SEC;
 	fat_detach(inode);
 	mark_inode_dirty(inode);
-	/* releases bh and syncs it if necessary */
-	vfat_remove_entry(dir, &sinfo);
-
-	dir->i_nlink--;
 out:
 	unlock_kernel();
 
@@ -891,12 +859,13 @@ static int vfat_unlink(struct inode *dir, struct dentry *dentry)
 	if (err)
 		goto out;
 
+	err = fat_remove_entries(dir, &sinfo);	/* and releases bh */
+	if (err)
+		goto out;
 	inode->i_nlink = 0;
 	inode->i_mtime = inode->i_atime = CURRENT_TIME_SEC;
 	fat_detach(inode);
 	mark_inode_dirty(inode);
-	/* releases bh and syncs it if necessary */
-	vfat_remove_entry(dir, &sinfo);
 out:
 	unlock_kernel();
 
@@ -939,8 +908,7 @@ mkdir_failed:
 	inode->i_mtime = inode->i_atime = CURRENT_TIME_SEC;
 	fat_detach(inode);
 	mark_inode_dirty(inode);
-	/* releases bh ands syncs if necessary */
-	vfat_remove_entry(dir, &sinfo);
+	fat_remove_entries(dir, &sinfo);	/* and releases bh */
 	iput(inode);
 	dir->i_nlink--;
 	goto out;
@@ -956,49 +924,56 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 	int err, is_dir;
 	struct fat_slot_info old_sinfo, sinfo;
 
-	old_sinfo.bh = sinfo.bh = dotdot_bh = NULL;
+	old_sinfo.bh = dotdot_bh = NULL;
 	old_inode = old_dentry->d_inode;
 	new_inode = new_dentry->d_inode;
 	lock_kernel();
 	err = vfat_find(old_dir, &old_dentry->d_name, &old_sinfo);
 	if (err)
-		goto rename_done;
+		goto out;
 
 	is_dir = S_ISDIR(old_inode->i_mode);
 	if (is_dir) {
 		if (fat_scan(old_inode, MSDOS_DOTDOT, &dotdot_bh,
 			     &dotdot_de, &dotdot_i_pos) < 0) {
 			err = -EIO;
-			goto rename_done;
+			goto out;
 		}
 	}
 
 	if (new_dentry->d_inode) {
 		err = vfat_find(new_dir, &new_dentry->d_name, &sinfo);
-		if (err || MSDOS_I(new_inode)->i_pos != sinfo.i_pos) {
+		if (err)
+			goto out;
+		brelse(sinfo.bh);
+		if (MSDOS_I(new_inode)->i_pos != sinfo.i_pos) {
 			/* WTF??? Cry and fail. */
 			printk(KERN_WARNING "vfat_rename: fs corrupted\n");
-			goto rename_done;
+			goto out;
 		}
 
 		if (is_dir) {
 			err = fat_dir_empty(new_inode);
 			if (err)
-				goto rename_done;
+				goto out;
 		}
 		fat_detach(new_inode);
 	} else {
 		err = vfat_add_entry(new_dir, &new_dentry->d_name, is_dir,
 				     &sinfo);
 		if (err)
-			goto rename_done;
+			goto out;
+		brelse(sinfo.bh);
 	}
-
 	new_dir->i_version++;
 
 	/* releases old_bh */
-	vfat_remove_entry(old_dir, &old_sinfo);
+	err = fat_remove_entries(old_dir, &old_sinfo);	/* and releases bh */
 	old_sinfo.bh = NULL;
+	if (err)
+		goto out;
+	if (is_dir)
+		old_dir->i_nlink--;
 	fat_detach(old_inode);
 	fat_attach(old_inode, sinfo.i_pos);
 	mark_inode_dirty(old_inode);
@@ -1019,7 +994,6 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 		if (new_dir->i_sb->s_flags & MS_SYNCHRONOUS)
 			sync_dirty_buffer(dotdot_bh);
 
-		old_dir->i_nlink--;
 		if (new_inode) {
 			new_inode->i_nlink--;
 		} else {
@@ -1027,10 +1001,9 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 			mark_inode_dirty(new_dir);
 		}
 	}
-rename_done:
+out:
 	brelse(dotdot_bh);
 	brelse(old_sinfo.bh);
-	brelse(sinfo.bh);
 	unlock_kernel();
 
 	return err;

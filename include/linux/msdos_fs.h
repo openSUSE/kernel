@@ -333,6 +333,7 @@ extern int fat_subdirs(struct inode *dir);
 extern int fat_scan(struct inode *dir, const unsigned char *name,
 		    struct buffer_head **res_bh,
 		    struct msdos_dir_entry **res_de, loff_t *i_pos);
+extern int fat_remove_entries(struct inode *dir, struct fat_slot_info *sinfo);
 
 /* fat/fatent.c */
 struct fat_entry {
