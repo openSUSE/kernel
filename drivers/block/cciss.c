@@ -61,7 +61,7 @@ MODULE_LICENSE("GPL");
 #include <linux/cciss_ioctl.h>
 
 /* define the PCI info for the cards we can control */
-const struct pci_device_id cciss_pci_device_id[] = {
+static const struct pci_device_id cciss_pci_device_id[] = {
 	{ PCI_VENDOR_ID_COMPAQ, PCI_DEVICE_ID_COMPAQ_CISS,
 			0x0E11, 0x4070, 0, 0, 0},
 	{ PCI_VENDOR_ID_COMPAQ, PCI_DEVICE_ID_COMPAQ_CISSB,
@@ -2946,7 +2946,7 @@ static struct pci_driver cciss_pci_driver = {
  *  This is it.  Register the PCI driver information for the cards we control
  *  the OS will call our registered routines when it finds one of our cards. 
  */
-int __init cciss_init(void)
+static int __init cciss_init(void)
 {
 	printk(KERN_INFO DRIVER_NAME "\n");
 
@@ -2954,12 +2954,7 @@ int __init cciss_init(void)
 	return pci_module_init(&cciss_pci_driver);
 }
 
-static int __init init_cciss_module(void)
-{
-	return ( cciss_init());
-}
-
-static void __exit cleanup_cciss_module(void)
+static void __exit cciss_cleanup(void)
 {
 	int i;
 
@@ -2977,5 +2972,5 @@ static void __exit cleanup_cciss_module(void)
 	remove_proc_entry("cciss", proc_root_driver);
 }
 
-module_init(init_cciss_module);
-module_exit(cleanup_cciss_module);
+module_init(cciss_init);
+module_exit(cciss_cleanup);
