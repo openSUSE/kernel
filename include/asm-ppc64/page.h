@@ -185,6 +185,9 @@ extern int page_is_ram(unsigned long pfn);
 
 extern u64 ppc64_pft_size;		/* Log 2 of page table size */
 
+/* We do define AT_SYSINFO_EHDR but don't use the gate mecanism */
+#define __HAVE_ARCH_GATE_AREA		1
+
 #endif /* __ASSEMBLY__ */
 
 #ifdef MODULE

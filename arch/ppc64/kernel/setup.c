@@ -991,6 +991,34 @@ static void __init emergency_stack_init(void)
 }
 
 /*
+ * Called from setup_arch to initialize the bitmap of available
+ * syscalls in the systemcfg page
+ */
+void __init setup_syscall_map(void)
+{
+	unsigned int i, count64 = 0, count32 = 0;
+	extern unsigned long *sys_call_table;
+	extern unsigned long *sys_call_table32;
+	extern unsigned long sys_ni_syscall;
+
+
+	for (i = 0; i < __NR_syscalls; i++) {
+		if (sys_call_table[i] == sys_ni_syscall)
+			continue;
+		count64++;
+		systemcfg->syscall_map_64[i >> 5] |= 0x80000000UL >> (i & 0x1f);
+	}
+	for (i = 0; i < __NR_syscalls; i++) {
+		if (sys_call_table32[i] == sys_ni_syscall)
+			continue;
+		count32++;
+		systemcfg->syscall_map_32[i >> 5] |= 0x80000000UL >> (i & 0x1f);
+	}
+	printk(KERN_INFO "Syscall map setup, %d 32 bits and %d 64 bits syscalls\n",
+	       count32, count64);
+}
+
+/*
  * Called into from start_kernel, after lock_kernel has been called.
  * Initializes bootmem, which is unsed to manage page allocation until
  * mem_init is called.
@@ -1027,6 +1055,9 @@ void __init setup_arch(char **cmdline_p)
 
 	/* set up the bootmem stuff with available memory */
 	do_init_bootmem();
+
+	/* initialize the syscall map in systemcfg */
+	setup_syscall_map();
 
 	ppc_md.setup_arch();
 

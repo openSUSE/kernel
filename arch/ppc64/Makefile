@@ -15,17 +15,38 @@
 
 KERNELLOAD	:= 0xc000000000000000
 
+# Set default 32 bits cross compilers for vdso and boot wrapper
+CROSS32_COMPILE ?=
+
+CROSS32CC		:= $(CROSS32_COMPILE)gcc
+CROSS32AS		:= $(CROSS32_COMPILE)as
+CROSS32LD		:= $(CROSS32_COMPILE)ld
+CROSS32OBJCOPY		:= $(CROSS32_COMPILE)objcopy
+
+# If we have a biarch compiler, use it for 32 bits cross compile if
+# CROSS32_COMPILE wasn't explicitely defined, and add proper explicit
+# target type to target compilers
+
 HAS_BIARCH      := $(call cc-option-yn, -m64)
 ifeq ($(HAS_BIARCH),y)
+ifeq ($(CROSS32_COMPILE),)
+CROSS32CC	:= $(CC) -m32
+CROSS32AS	:= $(AS) -a32
+CROSS32LD	:= $(LD) -m elf32ppc
+CROSS32OBJCOPY	:= $(OBJCOPY)
+endif
 AS              := $(AS) -a64
 LD              := $(LD) -m elf64ppc
 CC		:= $(CC) -m64
 endif
 
+export CROSS32CC CROSS32AS CROSS32LD CROSS32OBJCOPY
+
 new_nm := $(shell if $(NM) --help 2>&1 | grep -- '--synthetic' > /dev/null; then echo y; else echo n; fi)
 
 ifeq ($(new_nm),y)
 NM		:= $(NM) --synthetic
+
 endif
 
 CHECKFLAGS	+= -m64 -D__powerpc__

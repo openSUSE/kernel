@@ -43,10 +43,10 @@ extern time_t last_rtc_update;
 struct gettimeofday_vars {
 	unsigned long tb_to_xs;
 	unsigned long stamp_xsec;
+	unsigned long tb_orig_stamp;
 };
 
 struct gettimeofday_struct {
-	unsigned long tb_orig_stamp;
 	unsigned long tb_ticks_per_sec;
 	struct gettimeofday_vars vars[2];
 	struct gettimeofday_vars * volatile varp;

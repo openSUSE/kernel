@@ -383,7 +383,7 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 	 * For now we leave it which means the time can be some
 	 * number of msecs off until someone does a settimeofday()
 	 */
-	do_gtod.tb_orig_stamp = tb_last_stamp;
+	do_gtod.varp->tb_orig_stamp = tb_last_stamp;
 	systemcfg->tb_orig_stamp = tb_last_stamp;
 #endif
 
