@@ -403,71 +403,71 @@ EXPORT_SYMBOL(agp_unbind_memory);
 
 
 /* Generic Agp routines - Start */
-static void agp_v2_parse_one(u32 *mode, u32 *cmd, u32 *tmp)
+static void agp_v2_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_agpstat)
 {
 	/* disable SBA if it's not supported */
-	if (!((*cmd & AGPSTAT_SBA) && (*tmp & AGPSTAT_SBA) && (*mode & AGPSTAT_SBA)))
-		*cmd &= ~AGPSTAT_SBA;
+	if (!((*bridge_agpstat & AGPSTAT_SBA) && (*vga_agpstat & AGPSTAT_SBA) && (*requested_mode & AGPSTAT_SBA)))
+		*bridge_agpstat &= ~AGPSTAT_SBA;
 
 	/* Set speed */
-	if (!((*cmd & AGPSTAT2_4X) && (*tmp & AGPSTAT2_4X) && (*mode & AGPSTAT2_4X)))
-		*cmd &= ~AGPSTAT2_4X;
+	if (!((*bridge_agpstat & AGPSTAT2_4X) && (*vga_agpstat & AGPSTAT2_4X) && (*requested_mode & AGPSTAT2_4X)))
+		*bridge_agpstat &= ~AGPSTAT2_4X;
 
-	if (!((*cmd & AGPSTAT2_2X) && (*tmp & AGPSTAT2_2X) && (*mode & AGPSTAT2_2X)))
-		*cmd &= ~AGPSTAT2_2X;
+	if (!((*bridge_agpstat & AGPSTAT2_2X) && (*vga_agpstat & AGPSTAT2_2X) && (*requested_mode & AGPSTAT2_2X)))
+		*bridge_agpstat &= ~AGPSTAT2_2X;
 
-	if (!((*cmd & AGPSTAT2_1X) && (*tmp & AGPSTAT2_1X) && (*mode & AGPSTAT2_1X)))
-		*cmd &= ~AGPSTAT2_1X;
+	if (!((*bridge_agpstat & AGPSTAT2_1X) && (*vga_agpstat & AGPSTAT2_1X) && (*requested_mode & AGPSTAT2_1X)))
+		*bridge_agpstat &= ~AGPSTAT2_1X;
 
 	/* Now we know what mode it should be, clear out the unwanted bits. */
-	if (*cmd & AGPSTAT2_4X)
-		*cmd &= ~(AGPSTAT2_1X | AGPSTAT2_2X);	/* 4X */
+	if (*bridge_agpstat & AGPSTAT2_4X)
+		*bridge_agpstat &= ~(AGPSTAT2_1X | AGPSTAT2_2X);	/* 4X */
 
-	if (*cmd & AGPSTAT2_2X)
-		*cmd &= ~(AGPSTAT2_1X | AGPSTAT2_4X);	/* 2X */
+	if (*bridge_agpstat & AGPSTAT2_2X)
+		*bridge_agpstat &= ~(AGPSTAT2_1X | AGPSTAT2_4X);	/* 2X */
 
-	if (*cmd & AGPSTAT2_1X)
-		*cmd &= ~(AGPSTAT2_2X | AGPSTAT2_4X);	/* 1X */
+	if (*bridge_agpstat & AGPSTAT2_1X)
+		*bridge_agpstat &= ~(AGPSTAT2_2X | AGPSTAT2_4X);	/* 1X */
 }
 
 /*
- * mode = requested mode.
- * cmd = PCI_AGP_STATUS from agp bridge.
- * tmp = PCI_AGP_STATUS from graphic card.
+ * requested_mode = Mode requested by (typically) X.
+ * bridge_agpstat = PCI_AGP_STATUS from agp bridge.
+ * vga_agpstat = PCI_AGP_STATUS from graphic card.
  */
-static void agp_v3_parse_one(u32 *mode, u32 *cmd, u32 *tmp)
+static void agp_v3_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_agpstat)
 {
-	u32 origcmd=*cmd, origtmp=*tmp;
+	u32 origbridge=*bridge_agpstat, origvga=*vga_agpstat;
 
 	/* ARQSZ - Set the value to the maximum one.
 	 * Don't allow the mode register to override values. */
-	*cmd = ((*cmd & ~AGPSTAT_ARQSZ) |
-		max_t(u32,(*cmd & AGPSTAT_ARQSZ),(*tmp & AGPSTAT_ARQSZ)));
+	*bridge_agpstat = ((*bridge_agpstat & ~AGPSTAT_ARQSZ) |
+		max_t(u32,(*bridge_agpstat & AGPSTAT_ARQSZ),(*vga_agpstat & AGPSTAT_ARQSZ)));
 
 	/* Calibration cycle.
 	 * Don't allow the mode register to override values. */
-	*cmd = ((*cmd & ~AGPSTAT_CAL_MASK) |
-		min_t(u32,(*cmd & AGPSTAT_CAL_MASK),(*tmp & AGPSTAT_CAL_MASK)));
+	*bridge_agpstat = ((*bridge_agpstat & ~AGPSTAT_CAL_MASK) |
+		min_t(u32,(*bridge_agpstat & AGPSTAT_CAL_MASK),(*vga_agpstat & AGPSTAT_CAL_MASK)));
 
 	/* SBA *must* be supported for AGP v3 */
-	*cmd |= AGPSTAT_SBA;
+	*bridge_agpstat |= AGPSTAT_SBA;
 
 	/*
 	 * Set speed.
 	 * Check for invalid speeds. This can happen when applications
 	 * written before the AGP 3.0 standard pass AGP2.x modes to AGP3 hardware
 	 */
-	if (*mode & AGPSTAT_MODE_3_0) {
+	if (*requested_mode & AGPSTAT_MODE_3_0) {
 		/*
 		 * Caller hasn't a clue what its doing. We are in 3.0 mode,
 		 * have been passed a 3.0 mode, but with 2.x speed bits set.
 		 * AGP2.x 4x -> AGP3.0 4x.
 		 */
-		if (*mode & AGPSTAT2_4X) {
+		if (*requested_mode & AGPSTAT2_4X) {
 			printk (KERN_INFO PFX "%s passes broken AGP3 flags (%x). Fixed.\n",
-						current->comm, *mode);
-			*mode &= ~AGPSTAT2_4X;
-			*mode |= AGPSTAT3_4X;
+						current->comm, *requested_mode);
+			*requested_mode &= ~AGPSTAT2_4X;
+			*requested_mode |= AGPSTAT3_4X;
 		}
 	} else {
 		/*
@@ -476,26 +476,26 @@ static void agp_v3_parse_one(u32 *mode, u32 *cmd, u32 *tmp)
 		 * Convert AGP 1x,2x,4x -> AGP 3.0 4x.
 		 */
 		printk (KERN_INFO PFX "%s passes broken AGP2 flags (%x) in AGP3 mode. Fixed.\n",
-					current->comm, *mode);
-		*mode &= ~(AGPSTAT2_4X | AGPSTAT2_2X | AGPSTAT2_1X);
-		*mode |= AGPSTAT3_4X;
+					current->comm, *requested_mode);
+		*requested_mode &= ~(AGPSTAT2_4X | AGPSTAT2_2X | AGPSTAT2_1X);
+		*requested_mode |= AGPSTAT3_4X;
 	}
 
-	if (*mode & AGPSTAT3_8X) {
-		if (!(*cmd & AGPSTAT3_8X)) {
-			*cmd &= ~(AGPSTAT3_8X | AGPSTAT3_RSVD);
-			*cmd |= AGPSTAT3_4X;
+	if (*requested_mode & AGPSTAT3_8X) {
+		if (!(*bridge_agpstat & AGPSTAT3_8X)) {
+			*bridge_agpstat &= ~(AGPSTAT3_8X | AGPSTAT3_RSVD);
+			*bridge_agpstat |= AGPSTAT3_4X;
 			printk ("%s requested AGPx8 but bridge not capable.\n", current->comm);
 			return;
 		}
-		if (!(*tmp & AGPSTAT3_8X)) {
-			*cmd &= ~(AGPSTAT3_8X | AGPSTAT3_RSVD);
-			*cmd |= AGPSTAT3_4X;
+		if (!(*vga_agpstat & AGPSTAT3_8X)) {
+			*bridge_agpstat &= ~(AGPSTAT3_8X | AGPSTAT3_RSVD);
+			*bridge_agpstat |= AGPSTAT3_4X;
 			printk ("%s requested AGPx8 but graphic card not capable.\n", current->comm);
 			return;
 		}
 		/* All set, bridge & device can do AGP x8*/
-		*cmd &= ~(AGPSTAT3_4X | AGPSTAT3_RSVD);
+		*bridge_agpstat &= ~(AGPSTAT3_4X | AGPSTAT3_RSVD);
 		return;
 
 	} else {
@@ -505,16 +505,16 @@ static void agp_v3_parse_one(u32 *mode, u32 *cmd, u32 *tmp)
 		 * If the hardware can't do x4, we're up shit creek, and never
 		 *  should have got this far.
 		 */
-		*cmd &= ~(AGPSTAT3_8X | AGPSTAT3_RSVD);
-		if ((*cmd & AGPSTAT3_4X) && (*tmp & AGPSTAT3_4X))
-			*cmd |= AGPSTAT3_4X;
+		*bridge_agpstat &= ~(AGPSTAT3_8X | AGPSTAT3_RSVD);
+		if ((*bridge_agpstat & AGPSTAT3_4X) && (*vga_agpstat & AGPSTAT3_4X))
+			*bridge_agpstat |= AGPSTAT3_4X;
 		else {
 			printk (KERN_INFO PFX "Badness. Don't know which AGP mode to set. "
-							"[cmd:%x tmp:%x fell back to:- cmd:%x tmp:%x]\n",
-							origcmd, origtmp, *cmd, *tmp);
-			if (!(*cmd & AGPSTAT3_4X))
+							"[bridge_agpstat:%x vga_agpstat:%x fell back to:- bridge_agpstat:%x vga_agpstat:%x]\n",
+							origbridge, origvga, *bridge_agpstat, *vga_agpstat);
+			if (!(*bridge_agpstat & AGPSTAT3_4X))
 				printk (KERN_INFO PFX "Bridge couldn't do AGP x4.\n");
-			if (!(*tmp & AGPSTAT3_4X))
+			if (!(*vga_agpstat & AGPSTAT3_4X))
 				printk (KERN_INFO PFX "Graphic card couldn't do AGP x4.\n");
 		}
 	}
@@ -522,17 +522,17 @@ static void agp_v3_parse_one(u32 *mode, u32 *cmd, u32 *tmp)
 
 /**
  * agp_collect_device_status - determine correct agp_cmd from various agp_stat's
- * @mode: requested agp_stat from userspace (Typically from X)
- * @cmd: current agp_stat from AGP bridge.
+ * @requested_mode: requested agp_stat from userspace (Typically from X)
+ * @bridge_agpstat: current agp_stat from AGP bridge.
  *
  * This function will hunt for an AGP graphics card, and try to match
  * the requested mode to the capabilities of both the bridge and the card.
  */
-u32 agp_collect_device_status(u32 mode, u32 cmd)
+u32 agp_collect_device_status(u32 requested_mode, u32 bridge_agpstat)
 {
 	struct pci_dev *device = NULL;
 	u8 cap_ptr = 0;
-	u32 tmp;
+	u32 vga_agpstat;
 	u32 agp3;
 
 	while (!cap_ptr) {
@@ -552,36 +552,38 @@ u32 agp_collect_device_status(u32 mode, u32 cmd)
 	 * Ok, here we have a AGP device. Disable impossible
 	 * settings, and adjust the readqueue to the minimum.
 	 */
-	pci_read_config_dword(device, cap_ptr+PCI_AGP_STATUS, &tmp);
+	pci_read_config_dword(device, cap_ptr+PCI_AGP_STATUS, &vga_agpstat);
 
 	/* adjust RQ depth */
-	cmd = ((cmd & ~AGPSTAT_RQ_DEPTH) |
-	     min_t(u32, (mode & AGPSTAT_RQ_DEPTH),
-		 min_t(u32, (cmd & AGPSTAT_RQ_DEPTH), (tmp & AGPSTAT_RQ_DEPTH))));
+	bridge_agpstat = ((bridge_agpstat & ~AGPSTAT_RQ_DEPTH) |
+	     min_t(u32, (requested_mode & AGPSTAT_RQ_DEPTH),
+		 min_t(u32, (bridge_agpstat & AGPSTAT_RQ_DEPTH), (vga_agpstat & AGPSTAT_RQ_DEPTH))));
 
 	/* disable FW if it's not supported */
-	if (!((cmd & AGPSTAT_FW) && (tmp & AGPSTAT_FW) && (mode & AGPSTAT_FW)))
-		cmd &= ~AGPSTAT_FW;
+	if (!((bridge_agpstat & AGPSTAT_FW) &&
+		 (vga_agpstat & AGPSTAT_FW) &&
+		 (requested_mode & AGPSTAT_FW)))
+		bridge_agpstat &= ~AGPSTAT_FW;
 
 	/* Check to see if we are operating in 3.0 mode */
 	pci_read_config_dword(device, cap_ptr+AGPSTAT, &agp3);
 	if (agp3 & AGPSTAT_MODE_3_0) {
-		agp_v3_parse_one(&mode, &cmd, &tmp);
+		agp_v3_parse_one(&requested_mode, &bridge_agpstat, &vga_agpstat);
 	} else {
-		agp_v2_parse_one(&mode, &cmd, &tmp);
+		agp_v2_parse_one(&requested_mode, &bridge_agpstat, &vga_agpstat);
 	}
 
-	return cmd;
+	return bridge_agpstat;
 }
 EXPORT_SYMBOL(agp_collect_device_status);
 
 
-void agp_device_command(u32 command, int agp_v3)
+void agp_device_command(u32 bridge_agpstat, int agp_v3)
 {
 	struct pci_dev *device = NULL;
 	int mode;
 
-	mode = command & 0x7;
+	mode = bridge_agpstat & 0x7;
 	if (agp_v3)
 		mode *= 4;
 
@@ -592,7 +594,7 @@ void agp_device_command(u32 command, int agp_v3)
 
 		printk(KERN_INFO PFX "Putting AGP V%d device at %s into %dx mode\n",
 				agp_v3 ? 3 : 2, pci_name(device), mode);
-		pci_write_config_dword(device, agp + PCI_AGP_COMMAND, command);
+		pci_write_config_dword(device, agp + PCI_AGP_COMMAND, bridge_agpstat);
 	}
 }
 EXPORT_SYMBOL(agp_device_command);
@@ -615,7 +617,7 @@ EXPORT_SYMBOL(get_agp_version);
 
 void agp_generic_enable(u32 mode)
 {
-	u32 command, temp;
+	u32 bridge_agpstat, temp;
 	u32 agp3;
 
 	get_agp_version(agp_bridge);
@@ -626,14 +628,14 @@ void agp_generic_enable(u32 mode)
 				agp_bridge->dev->slot_name);
 
 	pci_read_config_dword(agp_bridge->dev,
-		      agp_bridge->capndx + PCI_AGP_STATUS, &command);
+		      agp_bridge->capndx + PCI_AGP_STATUS, &bridge_agpstat);
 
-	command = agp_collect_device_status(mode, command);
-	if (command==0)
+	bridge_agpstat = agp_collect_device_status(mode, bridge_agpstat);
+	if (bridge_agpstat == 0)
 		/* Something bad happened. FIXME: Return error code? */
 		return;
 
-	command |= AGPSTAT_AGP_ENABLE;
+	bridge_agpstat |= AGPSTAT_AGP_ENABLE;
 
 	/* Do AGP version specific frobbing. */
 	if(agp_bridge->major_version >= 3) {
@@ -645,11 +647,11 @@ void agp_generic_enable(u32 mode)
 			/* If we have 3.5, we can do the isoch stuff. */
 			if (agp_bridge->minor_version >= 5)
 				agp_3_5_enable(agp_bridge);
-			agp_device_command(command, TRUE);
+			agp_device_command(bridge_agpstat, TRUE);
 			return;
 		} else {
 		    /* Disable calibration cycle in RX91<1> when not in AGP3.0 mode of operation.*/
-		    command &= ~(7<<10) ;
+		    bridge_agpstat &= ~(7<<10) ;
 		    pci_read_config_dword(agp_bridge->dev, agp_bridge->capndx+AGPCTRL, &temp);
 		    temp |= (1<<9);
 		    pci_write_config_dword(agp_bridge->dev, agp_bridge->capndx+AGPCTRL, temp);
@@ -660,7 +662,7 @@ void agp_generic_enable(u32 mode)
 	}
 
 	/* AGP v<3 */
-	agp_device_command(command, FALSE);
+	agp_device_command(bridge_agpstat, FALSE);
 }
 EXPORT_SYMBOL(agp_generic_enable);
 
