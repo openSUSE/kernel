@@ -69,6 +69,7 @@
 #include <linux/moduleparam.h>
 #include <linux/firmware.h>
 #include "ieee802_11.h"
+#include "atmel.h"
 
 #define DRIVER_MAJOR 0
 #define DRIVER_MINOR 96
@@ -82,6 +83,23 @@ MODULE_SUPPORTED_DEVICE("Atmel at76c50x wireless cards");
    over-rides any automatic selection */
 static char *firmware = NULL;
 module_param(firmware, charp, 0);
+
+/* table of firmware file names */
+static struct { 
+	AtmelFWType fw_type;
+	const char *fw_file;
+	const char *fw_file_ext;
+} fw_table[] = {
+	{ ATMEL_FW_TYPE_502,      "atmel_at76c502",      "bin" },
+	{ ATMEL_FW_TYPE_502D,     "atmel_at76c502d",     "bin" },
+	{ ATMEL_FW_TYPE_502E,     "atmel_at76c502e",     "bin" },
+	{ ATMEL_FW_TYPE_502_3COM, "atmel_at76c502_3com", "bin" },
+	{ ATMEL_FW_TYPE_504,      "atmel_at76c504",      "bin" },
+	{ ATMEL_FW_TYPE_504_2958, "atmel_at76c504_2958", "bin" },
+	{ ATMEL_FW_TYPE_504A_2958,"atmel_at76c504a_2958","bin" },
+	{ ATMEL_FW_TYPE_506,      "atmel_at76c506",      "bin" },
+	{ ATMEL_FW_TYPE_NONE,      NULL,                  NULL }
+};
 
 #define MAX_SSID_LENGTH 32
 #define MGMT_JIFFIES (256 * HZ / 100)
@@ -458,8 +476,8 @@ struct atmel_private {
 	void *card; /* Bus dependent stucture varies for PCcard */
 	int (*present_callback)(void *); /* And callback which uses it */
 	char firmware_id[32];
-	char firmware_template[32];
-	unsigned char *firmware;
+	AtmelFWType firmware_type;
+	u8 *firmware;
 	int firmware_length;
 	struct timer_list management_timer;
 	struct net_device *dev;
@@ -1482,7 +1500,7 @@ static int atmel_read_proc(char *page, char **start, off_t off,
         return len;
 }
 
-struct net_device *init_atmel_card( unsigned short irq, int port, char *firmware_id,  
+struct net_device *init_atmel_card( unsigned short irq, int port, const AtmelFWType fw_type,  
 				    struct device *sys_dev, int (*card_present)(void *), void *card)
 {
 	struct net_device *dev;
@@ -1507,11 +1525,9 @@ struct net_device *init_atmel_card( unsigned short irq, int port, char *firmware
 	priv->card = card;
 	priv->firmware = NULL;
 	priv->firmware_id[0] = '\0';
-	priv->firmware_template[0] = '\0';
+	priv->firmware_type = fw_type;
 	if (firmware) /* module parameter */
 		strcpy(priv->firmware_id, firmware);
-	else if (firmware_id) /* from PCMCIA card-matching or PCI */
-		strcpy(priv->firmware_template, firmware_id);
 	priv->bus_type = card_present ? BUS_TYPE_PCCARD : BUS_TYPE_PCI;
 	priv->station_state = STATION_STATE_DOWN;
 	priv->do_rx_crc = 0;
@@ -3611,8 +3627,8 @@ static int reset_atmel_card(struct net_device *dev)
 		const struct firmware *fw_entry = NULL;
 		unsigned char *fw;
 		int len = priv->firmware_length;
-		if (!(fw = priv->firmware)) { 
-			if (strlen(priv->firmware_template) == 0) {	
+		if (!(fw = priv->firmware)) {
+			if (priv->firmware_type == ATMEL_FW_TYPE_NONE) {
 				if (strlen(priv->firmware_id) == 0) {
 					printk(KERN_INFO
 					       "%s: card type is unknown: assuming at76c502 firmware is OK.\n",
@@ -3627,24 +3643,36 @@ static int reset_atmel_card(struct net_device *dev)
 					       "%s: firmware %s is missing, cannot continue.\n", 
 					       dev->name, priv->firmware_id);
 					return 0;
-					
-				} 
-			} else {
-				int i;
-				
-				for (i = 0; firmware_modifier[i]; i++) {
-					sprintf(priv->firmware_id, priv->firmware_template, firmware_modifier[i]);
-					if (request_firmware(&fw_entry, priv->firmware_id, priv->sys_dev) == 0) 
-						break;
 				}
-				if (!firmware_modifier[i]) {
+			} else {
+				int fw_index = 0;
+				int success = 0;
+
+				/* get firmware filename entry based on firmware type ID */
+				while (fw_table[fw_index].fw_type != priv->firmware_type
+						&& fw_table[fw_index].fw_type != ATMEL_FW_TYPE_NONE)
+					fw_index++;
+				
+				/* construct the actual firmware file name */
+				if (fw_table[fw_index].fw_type != ATMEL_FW_TYPE_NONE) {
+					int i;
+					for (i = 0; firmware_modifier[i]; i++) {
+						snprintf(priv->firmware_id, 32, "%s%s.%s", fw_table[fw_index].fw_file,
+							firmware_modifier[i], fw_table[fw_index].fw_file_ext);
+						priv->firmware_id[31] = '\0';
+						if (request_firmware(&fw_entry, priv->firmware_id, priv->sys_dev) == 0) {
+							success = 1;
+							break;
+						}
+					}
+				}
+				if (!success) {
 					printk(KERN_ALERT 
 					       "%s: firmware %s is missing, cannot start.\n", 
 					       dev->name, priv->firmware_id);
 					priv->firmware_id[0] = '\0';
 					return 0;	
 				}
-				priv->firmware_template[0] = '\0';	
 			}
 			
 			fw = fw_entry->data;
