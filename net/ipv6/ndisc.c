@@ -1550,12 +1550,18 @@ int ndisc_ifinfo_sysctl_change(struct ctl_table *ctl, int write, struct file * f
 		ret = proc_dointvec_jiffies(ctl, write,
 					    filp, buffer, lenp, ppos);
 		break;
+	case NET_NEIGH_RETRANS_TIME_MS:
+	case NET_NEIGH_REACHABLE_TIME_MS:
+		ret = proc_dointvec_ms_jiffies(ctl, write,
+					       filp, buffer, lenp, ppos);
+		break;
 	default:
 		ret = -1;
 	}
 
 	if (write && ret == 0 && dev && (idev = in6_dev_get(dev)) != NULL) {
-		if (ctl->ctl_name == NET_NEIGH_REACHABLE_TIME)
+		if (ctl->ctl_name == NET_NEIGH_REACHABLE_TIME ||
+		    ctl->ctl_name == NET_NEIGH_REACHABLE_TIME_MS)
 			idev->nd_parms->reachable_time = neigh_rand_reach_time(idev->nd_parms->base_reachable_time);
 		idev->tstamp = jiffies;
 		inet6_ifinfo_notify(RTM_NEWLINK, idev);
@@ -1579,13 +1585,20 @@ int ndisc_ifinfo_sysctl_strategy(ctl_table *ctl, int __user *name, int nlen,
 				     oldval, oldlenp, newval, newlen,
 				     context);
 		break;
+	case NET_NEIGH_RETRANS_TIME_MS:
+	case NET_NEIGH_REACHABLE_TIME_MS:
+		 ret = sysctl_ms_jiffies(ctl, name, nlen,
+					 oldval, oldlenp, newval, newlen,
+					 context);
+		 break;
 	default:
 		ret = 0;
 	}
 
 	if (newval && newlen && ret > 0 &&
 	    dev && (idev = in6_dev_get(dev)) != NULL) {
-		if (ctl->ctl_name == NET_NEIGH_REACHABLE_TIME)
+		if (ctl->ctl_name == NET_NEIGH_REACHABLE_TIME ||
+		    ctl->ctl_name == NET_NEIGH_REACHABLE_TIME_MS)
 			idev->nd_parms->reachable_time = neigh_rand_reach_time(idev->nd_parms->base_reachable_time);
 		idev->tstamp = jiffies;
 		inet6_ifinfo_notify(RTM_NEWLINK, idev);
