@@ -25,6 +25,7 @@
 #include <linux/slab.h>
 #include <linux/interrupt.h>
 #include <linux/init.h>
+#include <linux/device.h>
 #include <linux/firmware.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -610,6 +611,10 @@ static void vx_proc_read(snd_info_entry_t *entry, snd_info_buffer_t *buffer)
 	static char *uer_type[] = { "Consumer", "Professional", "Not Present" };
 	
 	snd_iprintf(buffer, "%s\n", chip->card->longname);
+	snd_iprintf(buffer, "Xilinx Firmware: %s\n",
+		    chip->chip_status & VX_STAT_XILINX_LOADED ? "Loaded" : "No");
+	snd_iprintf(buffer, "Device Initialized: %s\n",
+		    chip->chip_status & VX_STAT_DEVICE_INIT ? "Yes" : "No");
 	snd_iprintf(buffer, "DSP audio info:");
 	if (chip->audio_info & VX_AUDIO_INFO_REAL_TIME)
 		snd_iprintf(buffer, " realtime");

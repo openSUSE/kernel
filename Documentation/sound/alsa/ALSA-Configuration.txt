@@ -599,6 +599,37 @@ Module parameters
 
     Module supports up to 8 cards and autoprobe.
     
+  Module snd-hda-intel
+  --------------------
+
+    Module for Intel HD Audio (ICH6, ICH6M, ICH7)
+
+    model	- force the model name
+
+    Module supports up to 8 cards.
+
+    Each codec may have a model table for different configurations.
+    If your machine isn't listed there, the default (usually minimal)
+    configuration is set up.  You can pass "model=<name>" option to
+    specify a certain model in such a case.  There are different
+    models depending on the codec chip.
+
+	  Model name	Description
+	  ----------    -----------
+	ALC880
+	  3stack	3-jack in back and a headphone out
+	  3stack-digout	3-jack in back, a HP out and a SPDIF out
+	  5stack	5-jack in back, 2-jack in front
+	  5stack-digout	5-jack in back, 2-jack in front, a SPDIF out
+	  w810		3-jack
+
+	CMI9880
+	  minimal	3-jack in back
+	  min_fp	3-jack in back, 2-jack in front
+	  full		6-jack in back, 2-jack in front
+	  full_dig	6-jack in back, 2-jack in front, SPDIF I/O
+	  allout	5-jack in back, 2-jack in front, SPDIF out
+
   Module snd-hdsp
   ---------------
 
@@ -689,7 +720,7 @@ Module parameters
                       hp_only = use headphone control as master
                       swap_hp = swap headphone and master controls
                       swap_surround = swap master and surround controls
-                      ad_shring = for AD1985, turn on OMS bit and use headphone
+                      ad_sharing = for AD1985, turn on OMS bit and use headphone
                       alc_jack = for ALC65x, turn on the jack sense mode
                       inv_eapd = inverted EAPD implementation
                       mute_led = bind EAPD bit for turning on/off mute LED
