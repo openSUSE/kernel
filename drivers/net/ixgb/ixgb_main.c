@@ -1,7 +1,7 @@
 /*******************************************************************************
 
   
-  Copyright(c) 1999 - 2004 Intel Corporation. All rights reserved.
+  Copyright(c) 1999 - 2005 Intel Corporation. All rights reserved.
   
   This program is free software; you can redistribute it and/or modify it 
   under the terms of the GNU General Public License as published by the Free 
@@ -29,6 +29,9 @@
 #include "ixgb.h"
 
 /* Change Log
+ * 1.0.88 01/05/05
+ * - include fix to the condition that determines when to quit NAPI - Robert Olsson
+ * - use netif_poll_{disable/enable} to synchronize between NAPI and i/f up/down
  * 1.0.84 10/26/04
  * - reset buffer_info->dma in Tx resource cleanup logic
  * 1.0.83 10/12/04
@@ -38,13 +41,14 @@
 
 char ixgb_driver_name[] = "ixgb";
 char ixgb_driver_string[] = "Intel(R) PRO/10GbE Network Driver";
+
 #ifndef CONFIG_IXGB_NAPI
 #define DRIVERNAPI
 #else
 #define DRIVERNAPI "-NAPI"
 #endif
-char ixgb_driver_version[] = "1.0.87-k2"DRIVERNAPI;
-char ixgb_copyright[] = "Copyright (c) 1999-2004 Intel Corporation.";
+char ixgb_driver_version[] = "1.0.90-k2"DRIVERNAPI;
+char ixgb_copyright[] = "Copyright (c) 1999-2005 Intel Corporation.";
 
 /* ixgb_pci_tbl - PCI Device ID Table
  *
@@ -715,14 +719,8 @@ ixgb_configure_tx(struct ixgb_adapter *adapter)
 	IXGB_WRITE_REG(hw, TDH, 0);
 	IXGB_WRITE_REG(hw, TDT, 0);
 
-	/* don't set up txdctl, it induces performance problems if
-	 * configured incorrectly
-	 txdctl  = TXDCTL_PTHRESH_DEFAULT; // prefetch txds below this threshold
-	 txdctl |= (TXDCTL_HTHRESH_DEFAULT // only prefetch if there are this many ready
-	 << IXGB_TXDCTL_HTHRESH_SHIFT);
-	 IXGB_WRITE_REG (hw, TXDCTL, txdctl);
-	 */
-
+	/* don't set up txdctl, it induces performance problems if configured
+	 * incorrectly */
 	/* Set the Tx Interrupt Delay register */
 
 	IXGB_WRITE_REG(hw, TIDV, adapter->tx_int_delay);
@@ -855,10 +853,17 @@ ixgb_configure_rx(struct ixgb_adapter *adapter)
 	IXGB_WRITE_REG(hw, RDH, 0);
 	IXGB_WRITE_REG(hw, RDT, 0);
 
-						/* burst 16 or burst when RXT0*/
-	rxdctl =  RXDCTL_WTHRESH_DEFAULT << IXGB_RXDCTL_WTHRESH_SHIFT 
-			| RXDCTL_HTHRESH_DEFAULT << IXGB_RXDCTL_HTHRESH_SHIFT 
-			| RXDCTL_PTHRESH_DEFAULT << IXGB_RXDCTL_PTHRESH_SHIFT;
+	/* set up pre-fetching of receive buffers so we get some before we
+	 * run out (default hardware behavior is to run out before fetching
+	 * more).  This sets up to fetch if HTHRESH rx descriptors are avail
+	 * and the descriptors in hw cache are below PTHRESH.  This avoids
+	 * the hardware behavior of fetching <=512 descriptors in a single
+	 * burst that pre-empts all other activity, usually causing fifo
+	 * overflows. */
+	/* use WTHRESH to burst write 16 descriptors or burst when RXT0 */
+	rxdctl = RXDCTL_WTHRESH_DEFAULT << IXGB_RXDCTL_WTHRESH_SHIFT |
+	         RXDCTL_HTHRESH_DEFAULT << IXGB_RXDCTL_HTHRESH_SHIFT |
+	         RXDCTL_PTHRESH_DEFAULT << IXGB_RXDCTL_PTHRESH_SHIFT;
 	IXGB_WRITE_REG(hw, RXDCTL, rxdctl);
 
 	/* Enable Receive Checksum Offload for TCP and UDP */
