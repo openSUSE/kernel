@@ -175,42 +175,34 @@ gss_cred_is_uptodate_ctx(struct rpc_cred *cred)
 	return res;
 }
 
-static inline int
-simple_get_bytes(char **ptr, const char *end, void *res, int len)
+static const void *
+simple_get_bytes(const void *p, const void *end, void *res, size_t len)
 {
-	char *p, *q;
-	p = *ptr;
-	q = p + len;
-	if (q > end || q < p)
-		return -1;
+	const void *q = (const void *)((const char *)p + len);
+	if (unlikely(q > end || q < p))
+		return ERR_PTR(-EFAULT);
 	memcpy(res, p, len);
-	*ptr = q;
-	return 0;
+	return q;
 }
 
-static inline int
-simple_get_netobj(char **ptr, const char *end, struct xdr_netobj *res)
+static inline const void *
+simple_get_netobj(const void *p, const void *end, struct xdr_netobj *dest)
 {
-	char *p, *q;
-	p = *ptr;
-	if (simple_get_bytes(&p, end, &res->len, sizeof(res->len)))
-		return -1;
-	q = p + res->len;
-	if (q > end || q < p)
-		return -1;
-	res->data = p;
-	*ptr = q;
-	return 0;
-}
+	const void *q;
+	unsigned int len;
 
-static int
-dup_netobj(struct xdr_netobj *source, struct xdr_netobj *dest)
-{
-	dest->len = source->len;
-	if (!(dest->data = kmalloc(dest->len, GFP_KERNEL)))
-		return -1;
-	memcpy(dest->data, source->data, dest->len);
-	return 0;
+	p = simple_get_bytes(p, end, &len, sizeof(len));
+	if (IS_ERR(p))
+		return p;
+	q = (const void *)((const char *)p + len);
+	if (unlikely(q > end || q < p))
+		return ERR_PTR(-EFAULT);
+	dest->data = kmalloc(len, GFP_KERNEL);
+	if (unlikely(dest->data == NULL))
+		return ERR_PTR(-ENOMEM);
+	dest->len = len;
+	memcpy(dest->data, p, len);
+	return q;
 }
 
 static struct gss_cl_ctx *
@@ -226,64 +218,68 @@ gss_cred_get_ctx(struct rpc_cred *cred)
 	return ctx;
 }
 
-static int
-gss_parse_init_downcall(struct gss_api_mech *gm, struct xdr_netobj *buf,
-		struct gss_cl_ctx **gc, uid_t *uid, int *gss_err)
+static struct gss_cl_ctx *
+gss_alloc_context(void)
 {
-	char *end = buf->data + buf->len;
-	char *p = buf->data;
 	struct gss_cl_ctx *ctx;
-	struct xdr_netobj tmp_buf;
-	unsigned int timeout;
-	int err = -EIO;
 
-	if (!(ctx = kmalloc(sizeof(*ctx), GFP_KERNEL))) {
-		err = -ENOMEM;
+	ctx = kmalloc(sizeof(*ctx), GFP_KERNEL);
+	if (ctx != NULL) {
+		memset(ctx, 0, sizeof(*ctx));
+		ctx->gc_proc = RPC_GSS_PROC_DATA;
+		ctx->gc_seq = 1;	/* NetApp 6.4R1 doesn't accept seq. no. 0 */
+		spin_lock_init(&ctx->gc_seq_lock);
+		atomic_set(&ctx->count,1);
+	}
+	return ctx;
+}
+
+static const void *
+gss_fill_context(const void *p, const void *end, struct gss_cl_ctx *ctx, struct gss_api_mech *gm)
+{
+	const void *q;
+	unsigned int seclen;
+	unsigned int timeout;
+	u32 window_size;
+	int ret;
+
+	/* First unsigned int gives the lifetime (in seconds) of the cred */
+	p = simple_get_bytes(p, end, &timeout, sizeof(timeout));
+	if (IS_ERR(p))
+		goto err;
+	/* Sequence number window. Determines the maximum number of simultaneous requests */
+	p = simple_get_bytes(p, end, &window_size, sizeof(window_size));
+	if (IS_ERR(p))
+		goto err;
+	ctx->gc_win = window_size;
+	/* gssd signals an error by passing ctx->gc_win = 0: */
+	if (ctx->gc_win == 0) {
+		/* in which case, p points to  an error code which we ignore */
+		p = ERR_PTR(-EACCES);
 		goto err;
 	}
-	ctx->gc_proc = RPC_GSS_PROC_DATA;
-	ctx->gc_seq = 1;	/* NetApp 6.4R1 doesn't accept seq. no. 0 */
-	spin_lock_init(&ctx->gc_seq_lock);
-	atomic_set(&ctx->count,1);
-
-	if (simple_get_bytes(&p, end, uid, sizeof(*uid)))
-		goto err_free_ctx;
-	/* FIXME: discarded timeout for now */
-	if (simple_get_bytes(&p, end, &timeout, sizeof(timeout)))
-		goto err_free_ctx;
-	*gss_err = 0;
-	if (simple_get_bytes(&p, end, &ctx->gc_win, sizeof(ctx->gc_win)))
-		goto err_free_ctx;
-	/* gssd signals an error by passing ctx->gc_win = 0: */
-	if (!ctx->gc_win) {
-		/* in which case the next int is an error code: */
-		if (simple_get_bytes(&p, end, gss_err, sizeof(*gss_err)))
-			goto err_free_ctx;
-		err = 0;
-		goto err_free_ctx;
+	/* copy the opaque wire context */
+	p = simple_get_netobj(p, end, &ctx->gc_wire_ctx);
+	if (IS_ERR(p))
+		goto err;
+	/* import the opaque security context */
+	p  = simple_get_bytes(p, end, &seclen, sizeof(seclen));
+	if (IS_ERR(p))
+		goto err;
+	q = (const void *)((const char *)p + seclen);
+	if (unlikely(q > end || q < p)) {
+		p = ERR_PTR(-EFAULT);
+		goto err;
 	}
-	if (simple_get_netobj(&p, end, &tmp_buf))
-		goto err_free_ctx;
-	if (dup_netobj(&tmp_buf, &ctx->gc_wire_ctx)) {
-		err = -ENOMEM;
-		goto err_free_ctx;
+	ret = gss_import_sec_context(p, seclen, gm, &ctx->gc_gss_ctx);
+	if (ret < 0) {
+		p = ERR_PTR(ret);
+		goto err;
 	}
-	if (simple_get_netobj(&p, end, &tmp_buf))
-		goto err_free_wire_ctx;
-	if (p != end)
-		goto err_free_wire_ctx;
-	if (gss_import_sec_context(tmp_buf.data, tmp_buf.len, gm, &ctx->gc_gss_ctx))
-		goto err_free_wire_ctx;
-	*gc = ctx;
-	return 0;
-err_free_wire_ctx:
-	kfree(ctx->gc_wire_ctx.data);
-err_free_ctx:
-	kfree(ctx);
+	return q;
 err:
-	*gc = NULL;
-	dprintk("RPC:      gss_parse_init_downcall returning %d\n", err);
-	return err;
+	dprintk("RPC:      gss_fill_context returning %ld\n", -PTR_ERR(p));
+	return p;
 }
 
 
@@ -441,65 +437,74 @@ gss_pipe_upcall(struct file *filp, struct rpc_pipe_msg *msg,
 static ssize_t
 gss_pipe_downcall(struct file *filp, const char __user *src, size_t mlen)
 {
-	struct xdr_netobj obj = {
-		.len	= mlen,
-	};
+	const void *p, *end;
+	void *buf;
 	struct inode *inode = filp->f_dentry->d_inode;
 	struct rpc_inode *rpci = RPC_I(inode);
 	struct rpc_clnt *clnt;
-	struct rpc_auth *auth;
 	struct gss_auth *gss_auth;
-	struct gss_api_mech *mech;
 	struct auth_cred acred = { 0 };
 	struct rpc_cred *cred;
 	struct gss_upcall_msg *gss_msg;
-	struct gss_cl_ctx *ctx = NULL;
-	ssize_t left;
-	int err;
-	int gss_err;
+	struct gss_cl_ctx *ctx;
+	uid_t uid;
+	int err = -EFBIG;
 
 	if (mlen > MSG_BUF_MAXSIZE)
-		return -EFBIG;
-	obj.data = kmalloc(mlen, GFP_KERNEL);
-	if (!obj.data)
-		return -ENOMEM;
-	left = copy_from_user(obj.data, src, mlen);
-	if (left) {
-		err = -EFAULT;
 		goto out;
-	}
+	err = -ENOMEM;
+	buf = kmalloc(mlen, GFP_KERNEL);
+	if (!buf)
+		goto out;
+
 	clnt = rpci->private;
-	auth = clnt->cl_auth;
-	gss_auth = container_of(auth, struct gss_auth, rpc_auth);
-	mech = gss_auth->mech;
-	err = gss_parse_init_downcall(mech, &obj, &ctx, &acred.uid, &gss_err);
-	if (err)
+	err = -EFAULT;
+	if (copy_from_user(buf, src, mlen))
 		goto err;
-	cred = rpcauth_lookup_credcache(auth, &acred, 0);
+
+	end = (const void *)((char *)buf + mlen);
+	p = simple_get_bytes(buf, end, &uid, sizeof(uid));
+	if (IS_ERR(p)) {
+		err = PTR_ERR(p);
+		goto err;
+	}
+	acred.uid = uid;
+	err = -ENOENT;
+	cred = rpcauth_lookup_credcache(clnt->cl_auth, &acred, 0);
 	if (!cred)
 		goto err;
-	if (gss_err)
-		cred->cr_flags &= ~RPCAUTH_CRED_UPTODATE;
-	else
-		gss_cred_set_ctx(cred, ctx);
+
+	err = -ENOMEM;
+	ctx = gss_alloc_context();
+	if (ctx == NULL)
+		goto err;
+	err = 0;
+	gss_auth = container_of(clnt->cl_auth, struct gss_auth, rpc_auth);
+	p = gss_fill_context(p, end, ctx, gss_auth->mech);
+	if (IS_ERR(p)) {
+		err = PTR_ERR(p);
+		if (err != -EACCES)
+			goto err_put_ctx;
+	} else
+		gss_cred_set_ctx(cred, gss_get_ctx(ctx));
 	spin_lock(&gss_auth->lock);
 	gss_msg = __gss_find_upcall(gss_auth, acred.uid);
 	if (gss_msg) {
-		if (gss_err)
-			gss_msg->msg.errno = -EACCES;
+		gss_msg->msg.errno = err;
 		__gss_unhash_msg(gss_msg);
 		spin_unlock(&gss_auth->lock);
 		gss_release_msg(gss_msg);
 	} else
 		spin_unlock(&gss_auth->lock);
-	kfree(obj.data);
+	gss_put_ctx(ctx);
+	kfree(buf);
 	dprintk("RPC:      gss_pipe_downcall returning length %Zu\n", mlen);
 	return mlen;
+err_put_ctx:
+	gss_put_ctx(ctx);
 err:
-	if (ctx)
-		gss_destroy_ctx(ctx);
+	kfree(buf);
 out:
-	kfree(obj.data);
 	dprintk("RPC:      gss_pipe_downcall returning %d\n", err);
 	return err;
 }
@@ -633,13 +638,8 @@ gss_destroy_ctx(struct gss_cl_ctx *ctx)
 	if (ctx->gc_gss_ctx)
 		gss_delete_sec_context(&ctx->gc_gss_ctx);
 
-	if (ctx->gc_wire_ctx.len > 0) {
-		kfree(ctx->gc_wire_ctx.data);
-		ctx->gc_wire_ctx.len = 0;
-	}
-
+	kfree(ctx->gc_wire_ctx.data);
 	kfree(ctx);
-
 }
 
 static void
