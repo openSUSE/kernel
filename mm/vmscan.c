@@ -828,6 +828,8 @@ shrink_zone(struct zone *zone, struct scan_control *sc)
 				break;
 		}
 	}
+
+	throttle_vm_writeout();
 }
 
 /*
