@@ -1066,10 +1066,11 @@ int usb_stor_Bulk_transport(struct scsi_cmnd *srb, struct us_data *us)
 	 */
 	if (!us->bcs_signature) {
 		us->bcs_signature = bcs->Signature;
-		US_DEBUGP("Learnt BCS signature 0x%08X\n",
-			  le32_to_cpu(us->bcs_signature));
+		if (us->bcs_signature != cpu_to_le32(US_BULK_CS_SIGN))
+			US_DEBUGP("Learnt BCS signature 0x%08X\n",
+					le32_to_cpu(us->bcs_signature));
 	} else if (bcs->Signature != us->bcs_signature) {
-		US_DEBUGP("Signature mismatch: device sent %08X, expecting %08X",
+		US_DEBUGP("Signature mismatch: got %08X, expecting %08X\n",
 			  le32_to_cpu(bcs->Signature),
 			  le32_to_cpu(us->bcs_signature));
 		return USB_STOR_TRANSPORT_ERROR;

@@ -149,7 +149,7 @@ static int slave_configure(struct scsi_device *sdev)
 		sdev->skip_ms_page_3f = 1;
 #endif
 
-		/* Some disks return the total number blocks in response
+		/* Some disks return the total number of blocks in response
 		 * to READ CAPACITY rather than the highest block number.
 		 * If this device makes that mistake, tell the sd driver. */
 		if (us->flags & US_FL_FIX_CAPACITY)
