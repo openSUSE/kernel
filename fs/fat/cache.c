@@ -269,8 +269,12 @@ static int __fat_access(struct super_block *sb, int nr, int new_value)
 				*p_last = (*p_last & 0xf0) | (new_value >> 8);
 			}
 			mark_buffer_dirty(bh2);
+			if (sb->s_flags & MS_SYNCHRONOUS)
+				sync_dirty_buffer(bh2);
 		}
 		mark_buffer_dirty(bh);
+		if (sb->s_flags & MS_SYNCHRONOUS)
+			sync_dirty_buffer(bh);
 		for (copy = 1; copy < sbi->fats; copy++) {
 			b = sbi->fat_start + (first >> sb->s_blocksize_bits)
 				+ sbi->fat_length * copy;
@@ -283,10 +287,14 @@ static int __fat_access(struct super_block *sb, int nr, int new_value)
 				}
 				memcpy(c_bh2->b_data, bh2->b_data, sb->s_blocksize);
 				mark_buffer_dirty(c_bh2);
+				if (sb->s_flags & MS_SYNCHRONOUS)
+					sync_dirty_buffer(c_bh2);
 				brelse(c_bh2);
 			}
 			memcpy(c_bh->b_data, bh->b_data, sb->s_blocksize);
 			mark_buffer_dirty(c_bh);
+			if (sb->s_flags & MS_SYNCHRONOUS)
+				sync_dirty_buffer(c_bh);
 			brelse(c_bh);
 		}
 	}

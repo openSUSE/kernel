@@ -663,6 +663,7 @@ static int vfat_add_entry(struct inode *dir, struct qstr *qname,
 			  int is_dir, struct vfat_slot_info *sinfo_out,
 			  struct buffer_head **bh, struct msdos_dir_entry **de)
 {
+	struct super_block *sb = dir->i_sb;
 	struct msdos_dir_slot *dir_slots;
 	loff_t offset;
 	int res, slots, slot;
@@ -702,6 +703,8 @@ static int vfat_add_entry(struct inode *dir, struct qstr *qname,
 		}
 		memcpy(*de, dir_slots + slot, sizeof(struct msdos_dir_slot));
 		mark_buffer_dirty(*bh);
+		if (sb->s_flags & MS_SYNCHRONOUS)
+			sync_dirty_buffer(*bh);
 	}
 
 	res = 0;
@@ -713,8 +716,9 @@ static int vfat_add_entry(struct inode *dir, struct qstr *qname,
 	dir->i_mtime.tv_nsec = 0;
 	(*de)->ctime = (*de)->time;
 	(*de)->adate = (*de)->cdate = (*de)->date;
-
 	mark_buffer_dirty(*bh);
+	if (sb->s_flags & MS_SYNCHRONOUS)
+		sync_dirty_buffer(*bh);
 
 	/* slots can't be less than 1 */
 	sinfo_out->long_slots = slots - 1;
@@ -820,9 +824,12 @@ static int vfat_create(struct inode *dir, struct dentry *dentry, int mode,
 	if (!inode)
 		goto out;
 	res = 0;
+	inode->i_version++;
 	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME_SEC;
 	mark_inode_dirty(inode);
-	inode->i_version++;
+	if (IS_SYNC(inode))
+		fat_sync_inode(inode);
+
 	dir->i_version++;
 	dentry->d_time = dentry->d_parent->d_inode->i_version;
 	d_instantiate(dentry, inode);
@@ -835,15 +842,20 @@ static void vfat_remove_entry(struct inode *dir, struct vfat_slot_info *sinfo,
 			      struct buffer_head *bh,
 			      struct msdos_dir_entry *de)
 {
+	struct super_block *sb = dir->i_sb;
 	loff_t offset, i_pos;
 	int i;
 
-	/* remove the shortname */
 	dir->i_mtime = dir->i_atime = CURRENT_TIME_SEC;
 	dir->i_version++;
 	mark_inode_dirty(dir);
+
+	/* remove the shortname */
 	de->name[0] = DELETED_FLAG;
 	mark_buffer_dirty(bh);
+	if (sb->s_flags & MS_SYNCHRONOUS)
+		sync_dirty_buffer(bh);
+
 	/* remove the longname */
 	offset = sinfo->longname_offset;
 	de = NULL;
@@ -853,6 +865,8 @@ static void vfat_remove_entry(struct inode *dir, struct vfat_slot_info *sinfo,
 		de->name[0] = DELETED_FLAG;
 		de->attr = ATTR_NONE;
 		mark_buffer_dirty(bh);
+		if (sb->s_flags & MS_SYNCHRONOUS)
+			sync_dirty_buffer(bh);
 	}
 	brelse(bh);
 }
@@ -879,7 +893,7 @@ static int vfat_rmdir(struct inode *dir, struct dentry *dentry)
 	inode->i_mtime = inode->i_atime = CURRENT_TIME_SEC;
 	fat_detach(inode);
 	mark_inode_dirty(inode);
-	/* releases bh */
+	/* releases bh and syncs it if necessary */
 	vfat_remove_entry(dir, &sinfo, bh, de);
 	dir->i_nlink--;
 out:
@@ -903,7 +917,7 @@ static int vfat_unlink(struct inode *dir, struct dentry *dentry)
 	inode->i_mtime = inode->i_atime = CURRENT_TIME_SEC;
 	fat_detach(inode);
 	mark_inode_dirty(inode);
-	/* releases bh */
+	/* releases bh and syncs it if necessary */
 	vfat_remove_entry(dir, &sinfo, bh, de);
 out:
 	unlock_kernel();
@@ -949,7 +963,7 @@ mkdir_failed:
 	inode->i_mtime = inode->i_atime = CURRENT_TIME_SEC;
 	fat_detach(inode);
 	mark_inode_dirty(inode);
-	/* releases bh */
+	/* releases bh ands syncs if necessary */
 	vfat_remove_entry(dir, &sinfo, bh, de);
 	iput(inode);
 	dir->i_nlink--;
@@ -1027,8 +1041,11 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (is_dir) {
 		int start = MSDOS_I(new_dir)->i_logstart;
 		dotdot_de->start = cpu_to_le16(start);
-		dotdot_de->starthi = cpu_to_le16(start>>16);
+		dotdot_de->starthi = cpu_to_le16(start >> 16);
 		mark_buffer_dirty(dotdot_bh);
+		if (new_dir->i_sb->s_flags & MS_SYNCHRONOUS)
+			sync_dirty_buffer(dotdot_bh);
+
 		old_dir->i_nlink--;
 		if (new_inode) {
 			new_inode->i_nlink--;

@@ -23,6 +23,9 @@ static ssize_t fat_file_aio_write(struct kiocb *iocb, const char __user *buf,
 		inode->i_mtime = inode->i_ctime = CURRENT_TIME_SEC;
 		MSDOS_I(inode)->i_attrs |= ATTR_ARCH;
 		mark_inode_dirty(inode);
+//		check the locking rules
+//		if (IS_SYNC(inode))
+//			fat_sync_inode(inode);
 	}
 	return retval;
 }
@@ -288,6 +291,8 @@ void fat_truncate(struct inode *inode)
 	unlock_kernel();
 	inode->i_ctime = inode->i_mtime = CURRENT_TIME_SEC;
 	mark_inode_dirty(inode);
+	if (IS_SYNC(inode))
+		fat_sync_inode(inode);
 }
 
 struct inode_operations fat_file_inode_operations = {

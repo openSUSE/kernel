@@ -778,6 +778,8 @@ static struct buffer_head *fat_extend_dir(struct inode *inode)
 			memset(bh->b_data, 0, sb->s_blocksize);
 			set_buffer_uptodate(bh);
 			mark_buffer_dirty(bh);
+			if (sb->s_flags & MS_SYNCHRONOUS)
+				sync_dirty_buffer(bh);
 			if (!res)
 				res = bh;
 			else
@@ -842,6 +844,7 @@ EXPORT_SYMBOL(fat_add_entries);
 
 int fat_new_dir(struct inode *dir, struct inode *parent, int is_vfat)
 {
+	struct super_block *sb = dir->i_sb;
 	struct buffer_head *bh;
 	struct msdos_dir_entry *de;
 	__le16 date, time;
@@ -851,26 +854,31 @@ int fat_new_dir(struct inode *dir, struct inode *parent, int is_vfat)
 		return PTR_ERR(bh);
 
 	/* zeroed out, so... */
-	fat_date_unix2dos(dir->i_mtime.tv_sec,&time,&date);
-	de = (struct msdos_dir_entry*)&bh->b_data[0];
-	memcpy(de[0].name,MSDOS_DOT,MSDOS_NAME);
-	memcpy(de[1].name,MSDOS_DOTDOT,MSDOS_NAME);
+	fat_date_unix2dos(dir->i_mtime.tv_sec, &time, &date);
+	de = (struct msdos_dir_entry *)bh->b_data;
+	memcpy(de[0].name, MSDOS_DOT, MSDOS_NAME);
+	memcpy(de[1].name, MSDOS_DOTDOT, MSDOS_NAME);
 	de[0].attr = de[1].attr = ATTR_DIR;
 	de[0].time = de[1].time = time;
 	de[0].date = de[1].date = date;
-	if (is_vfat) {	/* extra timestamps */
+	if (is_vfat) {
+		/* extra timestamps */
 		de[0].ctime = de[1].ctime = time;
-		de[0].adate = de[0].cdate =
-			de[1].adate = de[1].cdate = date;
+		de[0].adate = de[0].cdate = de[1].adate = de[1].cdate = date;
 	}
 	de[0].start = cpu_to_le16(MSDOS_I(dir)->i_logstart);
-	de[0].starthi = cpu_to_le16(MSDOS_I(dir)->i_logstart>>16);
+	de[0].starthi = cpu_to_le16(MSDOS_I(dir)->i_logstart >> 16);
 	de[1].start = cpu_to_le16(MSDOS_I(parent)->i_logstart);
-	de[1].starthi = cpu_to_le16(MSDOS_I(parent)->i_logstart>>16);
+	de[1].starthi = cpu_to_le16(MSDOS_I(parent)->i_logstart >> 16);
 	mark_buffer_dirty(bh);
+	if (sb->s_flags & MS_SYNCHRONOUS)
+		sync_dirty_buffer(bh);
 	brelse(bh);
+
 	dir->i_atime = dir->i_ctime = dir->i_mtime = CURRENT_TIME_SEC;
 	mark_inode_dirty(dir);
+	if (IS_SYNC(dir))
+		fat_sync_inode(dir);
 
 	return 0;
 }

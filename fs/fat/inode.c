@@ -501,10 +501,20 @@ retry:
 	}
 	spin_unlock(&sbi->inode_hash_lock);
 	mark_buffer_dirty(bh);
+	if (wait)
+		sync_dirty_buffer(bh);
 	brelse(bh);
 	unlock_kernel();
+
 	return 0;
 }
+
+int fat_sync_inode(struct inode *inode)
+{
+	return fat_write_inode(inode, 1);
+}
+
+EXPORT_SYMBOL(fat_sync_inode);
 
 static int fat_show_options(struct seq_file *m, struct vfsmount *mnt);
 static struct super_operations fat_sops = {
