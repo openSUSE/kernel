@@ -2080,6 +2080,15 @@ ctl_table ipv6_route_table[] = {
          	.proc_handler	=	&proc_dointvec_jiffies,
 		.strategy	=	&sysctl_jiffies,
 	},
+	{
+		.ctl_name	=	NET_IPV6_ROUTE_GC_MIN_INTERVAL_MS,
+		.procname	=	"gc_min_interval_ms",
+         	.data		=	&ip6_rt_gc_min_interval,
+		.maxlen		=	sizeof(int),
+		.mode		=	0644,
+         	.proc_handler	=	&proc_dointvec_ms_jiffies,
+		.strategy	=	&sysctl_ms_jiffies,
+	},
 	{ .ctl_name = 0 }
 };
 
