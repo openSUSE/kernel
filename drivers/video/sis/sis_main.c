@@ -50,6 +50,7 @@
 #include <linux/fb.h>
 #include <linux/console.h>
 #include <linux/selection.h>
+#include <linux/smp_lock.h>
 #include <linux/ioport.h>
 #include <linux/init.h>
 #include <linux/pci.h>
