@@ -1055,11 +1055,23 @@ int usb_stor_Bulk_transport(struct scsi_cmnd *srb, struct us_data *us)
 	US_DEBUGP("Bulk Status S 0x%x T 0x%x R %u Stat 0x%x\n",
 			le32_to_cpu(bcs->Signature), bcs->Tag, 
 			residue, bcs->Status);
-	if ((bcs->Signature != cpu_to_le32(US_BULK_CS_SIGN) &&
-		    bcs->Signature != cpu_to_le32(US_BULK_CS_OLYMPUS_SIGN)) ||
-			bcs->Tag != srb->serial_number || 
-			bcs->Status > US_BULK_STAT_PHASE) {
+	if (bcs->Tag != srb->serial_number || bcs->Status > US_BULK_STAT_PHASE) {
 		US_DEBUGP("Bulk logical error\n");
+		return USB_STOR_TRANSPORT_ERROR;
+	}
+
+	/* Some broken devices report odd signatures, so we do not check them
+	 * for validity against the spec. We store the first one we see,
+	 * and check subsequent transfers for validity against this signature.
+	 */
+	if (!us->bcs_signature) {
+		us->bcs_signature = bcs->Signature;
+		US_DEBUGP("Learnt BCS signature 0x%08X\n",
+			  le32_to_cpu(us->bcs_signature));
+	} else if (bcs->Signature != us->bcs_signature) {
+		US_DEBUGP("Signature mismatch: device sent %08X, expecting %08X",
+			  le32_to_cpu(bcs->Signature),
+			  le32_to_cpu(us->bcs_signature));
 		return USB_STOR_TRANSPORT_ERROR;
 	}
 

@@ -127,6 +127,7 @@ struct us_data {
 	char			serial[USB_STOR_STRING_LEN];
 	char			*transport_name;
 	char			*protocol_name;
+	__le32			bcs_signature;
 	u8			subclass;
 	u8			protocol;
 	u8			max_lun;
