@@ -194,7 +194,7 @@ nfs4_close_delegation(struct nfs4_delegation *dp)
 	dp->dl_vfs_file = NULL;
 	/* The following nfsd_close may not actually close the file,
 	 * but we want to remove the lease in any case. */
-	remove_lease(dp->dl_flock);
+	setlease(filp, F_UNLCK, &dp->dl_flock);
 	nfsd_close(filp);
 	vfsclose++;
 }
@@ -1436,7 +1436,6 @@ struct lock_manager_operations nfsd_lease_mng_ops = {
 	.fl_mylease = nfsd_same_client_deleg_cb,
 	.fl_change = nfsd_change_deleg_cb,
 };
-
 
 
 /*

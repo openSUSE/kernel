@@ -406,7 +406,7 @@ static void lease_release_private_callback(struct file_lock *fl)
 	fl->fl_file->f_owner.signum = 0;
 }
 
-static int lease_mylease_callback(struct file_lock *fl, struct file_lock *try)
+int lease_mylease_callback(struct file_lock *fl, struct file_lock *try)
 {
 	return fl->fl_file == try->fl_file;
 }
@@ -1098,24 +1098,6 @@ static void time_out_leases(struct inode *inode)
 			before = &fl->fl_next;
 	}
 }
-
- /**
-*	remove_lease - let time_out_leases remove the lease.
-*	@@file_lock: the lease to remove
-*/
-void remove_lease(struct file_lock *fl)
-{
-	lock_kernel();
-	if (!fl || !IS_LEASE(fl))
-		goto out;
-	fl->fl_type = F_UNLCK | F_INPROGRESS;
-	fl->fl_break_time = jiffies - 10;
-	time_out_leases(fl->fl_file->f_dentry->d_inode);
-out:
-	unlock_kernel();
-}
-
-EXPORT_SYMBOL(remove_lease);
 
 /**
  *	__break_lease	-	revoke all outstanding leases on file
