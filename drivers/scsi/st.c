@@ -1156,9 +1156,7 @@ static int st_flush(struct file *filp)
 	if (STps->rw == ST_WRITING && !STp->pos_unknown) {
 		struct st_cmdstatus *cmdstatp = &STp->buffer->cmdstat;
 
-                DEBC(printk(ST_DEB_MSG "%s: File length %lld bytes.\n",
-                            name, (long long)filp->f_pos);
-                     printk(ST_DEB_MSG "%s: Async write waits %d, finished %d.\n",
+                DEBC(printk(ST_DEB_MSG "%s: Async write waits %d, finished %d.\n",
                             name, STp->nbr_waits, STp->nbr_finished);
 		)
 
@@ -1520,7 +1518,6 @@ st_write(struct file *filp, const char __user *buf, size_t count, loff_t * ppos)
 			}
 		}
 		count -= do_count;
-		filp->f_pos += do_count;
 		b_point += do_count;
 
 		async_write = STp->block_size == 0 && !STbp->do_dio &&
@@ -1580,7 +1577,6 @@ st_write(struct file *filp, const char __user *buf, size_t count, loff_t * ppos)
 					undone = 0;
 				if (STp->block_size != 0)
 					undone *= STp->block_size;
-				filp->f_pos -= undone;
 				if (undone <= do_count) {
 					/* Only data from this write is not written */
 					count += undone;
@@ -1629,7 +1625,6 @@ st_write(struct file *filp, const char __user *buf, size_t count, loff_t * ppos)
 					}
 				}
 			} else {
-				filp->f_pos -= do_count;
 				count += do_count;
 				STps->drv_block = (-1);		/* Too cautious? */
 				retval = (-EIO);
@@ -1958,7 +1953,6 @@ st_read(struct file *filp, char __user *buf, size_t count, loff_t * ppos)
 					goto out;
 				}
 			}
-			filp->f_pos += transfer;
 			buf += transfer;
 			total += transfer;
 		}
