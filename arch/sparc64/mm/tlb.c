@@ -41,19 +41,10 @@ void flush_tlb_pending(void)
 	}
 }
 
-void tlb_batch_add(struct mm_struct *mm, unsigned long vaddr,
-		   pte_t *ptep, pte_t orig)
+void tlb_batch_add(struct mm_struct *mm, unsigned long vaddr, pte_t *ptep, pte_t orig)
 {
-	struct mmu_gather *mp;
+	struct mmu_gather *mp = &__get_cpu_var(mmu_gathers);
 	unsigned long nr;
-
-	/* It is more efficient to let flush_tlb_kernel_range()
-	 * handle these cases.
-	 */
-	if (mm == &init_mm)
-		return;
-
-	mp = &__get_cpu_var(mmu_gathers);
 
 	vaddr &= PAGE_MASK;
 	if (pte_exec(orig))
