@@ -917,12 +917,12 @@ int try_to_free_pages(struct zone **zones,
 			sc.nr_reclaimed += reclaim_state->reclaimed_slab;
 			reclaim_state->reclaimed_slab = 0;
 		}
-		if (sc.nr_reclaimed >= SWAP_CLUSTER_MAX) {
+		total_scanned += sc.nr_scanned;
+		total_reclaimed += sc.nr_reclaimed;
+		if (total_reclaimed >= SWAP_CLUSTER_MAX) {
 			ret = 1;
 			goto out;
 		}
-		total_scanned += sc.nr_scanned;
-		total_reclaimed += sc.nr_reclaimed;
 
 		/*
 		 * Try to write back as many pages as we just scanned.  This
