@@ -221,15 +221,15 @@ void init_main_window(const gchar * glade_file)
 	switch (view_mode) {
 	case SINGLE_VIEW:
 		widget = glade_xml_get_widget(xml, "button4");
-		gtk_button_clicked(GTK_BUTTON(widget));
+		g_signal_emit_by_name(widget, "clicked");
 		break;
 	case SPLIT_VIEW:
 		widget = glade_xml_get_widget(xml, "button5");
-		gtk_button_clicked(GTK_BUTTON(widget));
+		g_signal_emit_by_name(widget, "clicked");
 		break;
 	case FULL_VIEW:
 		widget = glade_xml_get_widget(xml, "button6");
-		gtk_button_clicked(GTK_BUTTON(widget));
+		g_signal_emit_by_name(widget, "clicked");
 		break;
 	}
 
