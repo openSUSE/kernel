@@ -192,8 +192,8 @@ scdrv_read(struct file *file, char __user *buf, size_t count, loff_t *f_pos)
 		}
 
 		len = CHUNKSIZE;
-		add_wait_queue(&sd->sd_rq, &wait);
 		set_current_state(TASK_INTERRUPTIBLE);
+		add_wait_queue(&sd->sd_rq, &wait);
 		spin_unlock_irqrestore(&sd->sd_rlock, flags);
 
 		schedule_timeout(SCDRV_TIMEOUT);
@@ -288,8 +288,8 @@ scdrv_write(struct file *file, const char __user *buf,
 			return -EAGAIN;
 		}
 
-		add_wait_queue(&sd->sd_wq, &wait);
 		set_current_state(TASK_INTERRUPTIBLE);
+		add_wait_queue(&sd->sd_wq, &wait);
 		spin_unlock_irqrestore(&sd->sd_wlock, flags);
 
 		schedule_timeout(SCDRV_TIMEOUT);
