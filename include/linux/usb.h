@@ -342,6 +342,9 @@ struct usb_device {
 	int have_langid;		/* whether string_langid is valid yet */
 	int string_langid;		/* language ID for strings */
 
+	char *product;
+	char *manufacturer;
+	char *serial;			/* static strings from the device */
 	struct list_head filelist;
 	struct dentry *usbfs_dentry;	/* usbfs dentry entry for the device */
 

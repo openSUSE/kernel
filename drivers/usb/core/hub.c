@@ -1102,23 +1102,31 @@ static int choose_configuration(struct usb_device *udev)
 }
 
 #ifdef DEBUG
-static void show_string(struct usb_device *udev, char *id, int index)
+static void show_string(struct usb_device *udev, char *id, char *string)
 {
-	char *buf;
-
-	if (!index)
+	if (!string)
 		return;
-	if (!(buf = kmalloc(256, GFP_KERNEL)))
-		return;
-	if (usb_string(udev, index, buf, 256) > 0)
-		dev_printk(KERN_INFO, &udev->dev, "%s: %s\n", id, buf);
-	kfree(buf);
+	dev_printk(KERN_INFO, &udev->dev, "%s: %s\n", id, string);
 }
 
 #else
 static inline void show_string(struct usb_device *udev, char *id, int index)
 {}
 #endif
+
+static void get_string(struct usb_device *udev, char **string, int index)
+{
+	char *buf;
+
+	if (!index)
+		return;
+	buf = kmalloc(256, GFP_KERNEL);
+	if (!buf)
+		return;
+	if (usb_string(udev, index, buf, 256) > 0)
+		*string = buf;
+}
+
 
 #ifdef	CONFIG_USB_OTG
 #include "otg_whitelist.h"
@@ -1156,22 +1164,20 @@ int usb_new_device(struct usb_device *udev)
 		goto fail;
 	}
 
+	/* read the standard strings and cache them if present */
+	get_string(udev, &udev->product, udev->descriptor.iProduct);
+	get_string(udev, &udev->manufacturer, udev->descriptor.iManufacturer);
+	get_string(udev, &udev->serial, udev->descriptor.iSerialNumber);
+
 	/* Tell the world! */
 	dev_dbg(&udev->dev, "new device strings: Mfr=%d, Product=%d, "
 			"SerialNumber=%d\n",
 			udev->descriptor.iManufacturer,
 			udev->descriptor.iProduct,
 			udev->descriptor.iSerialNumber);
-
-	if (udev->descriptor.iProduct)
-		show_string(udev, "Product",
-				udev->descriptor.iProduct);
-	if (udev->descriptor.iManufacturer)
-		show_string(udev, "Manufacturer",
-				udev->descriptor.iManufacturer);
-	if (udev->descriptor.iSerialNumber)
-		show_string(udev, "SerialNumber",
-				udev->descriptor.iSerialNumber);
+	show_string(udev, "Product", udev->product);
+	show_string(udev, "Manufacturer", udev->manufacturer);
+	show_string(udev, "SerialNumber", udev->serial);
 
 #ifdef	CONFIG_USB_OTG
 	/*
