@@ -137,11 +137,9 @@ static int msdos_format_name(const unsigned char *name, int len,
 
 /***** Locates a directory entry.  Uses unformatted name. */
 static int msdos_find(struct inode *dir, const unsigned char *name, int len,
-		      struct buffer_head **bh, struct msdos_dir_entry **de,
-		      loff_t *i_pos)
+		      struct fat_slot_info *sinfo)
 {
 	struct msdos_sb_info *sbi = MSDOS_SB(dir->i_sb);
-	struct fat_slot_info sinfo;
 	unsigned char msdos_name[MSDOS_NAME];
 	int err;
 
@@ -149,22 +147,17 @@ static int msdos_find(struct inode *dir, const unsigned char *name, int len,
 	if (err)
 		return -ENOENT;
 
-	err = fat_scan(dir, msdos_name, &sinfo);
+	err = fat_scan(dir, msdos_name, sinfo);
 	if (!err && sbi->options.dotsOK) {
 		if (name[0] == '.') {
-			if (!(sinfo.de->attr & ATTR_HIDDEN))
+			if (!(sinfo->de->attr & ATTR_HIDDEN))
 				err = -ENOENT;
 		} else {
-			if (sinfo.de->attr & ATTR_HIDDEN)
+			if (sinfo->de->attr & ATTR_HIDDEN)
 				err = -ENOENT;
 		}
 		if (err)
-			brelse(sinfo.bh);
-	}
-	if (!err) {
-		*i_pos = sinfo.i_pos;
-		*de = sinfo.de;
-		*bh = sinfo.bh;
+			brelse(sinfo->bh);
 	}
 	return err;
 }
@@ -228,22 +221,20 @@ static struct dentry *msdos_lookup(struct inode *dir, struct dentry *dentry,
 				   struct nameidata *nd)
 {
 	struct super_block *sb = dir->i_sb;
+	struct fat_slot_info sinfo;
 	struct inode *inode = NULL;
-	struct msdos_dir_entry *de;
-	struct buffer_head *bh = NULL;
-	loff_t i_pos;
 	int res;
 
 	dentry->d_op = &msdos_dentry_operations;
 
 	lock_kernel();
-	res = msdos_find(dir, dentry->d_name.name, dentry->d_name.len, &bh,
-			 &de, &i_pos);
+	res = msdos_find(dir, dentry->d_name.name, dentry->d_name.len, &sinfo);
 	if (res == -ENOENT)
 		goto add;
 	if (res < 0)
 		goto out;
-	inode = fat_build_inode(sb, de, i_pos);
+	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos);
+	brelse(sinfo.bh);
 	if (IS_ERR(inode)) {
 		res = PTR_ERR(inode);
 		goto out;
@@ -254,7 +245,6 @@ add:
 	if (dentry)
 		dentry->d_op = &msdos_dentry_operations;
 out:
-	brelse(bh);
 	unlock_kernel();
 	if (!res)
 		return dentry;
@@ -341,39 +331,35 @@ static int msdos_create(struct inode *dir, struct dentry *dentry, int mode,
 static int msdos_rmdir(struct inode *dir, struct dentry *dentry)
 {
 	struct inode *inode = dentry->d_inode;
-	loff_t i_pos;
-	int res;
-	struct buffer_head *bh;
-	struct msdos_dir_entry *de;
+	struct fat_slot_info sinfo;
+	int err;
 
-	bh = NULL;
 	lock_kernel();
-	res = msdos_find(dir, dentry->d_name.name, dentry->d_name.len,
-			 &bh, &de, &i_pos);
-	if (res < 0)
-		goto rmdir_done;
 	/*
 	 * Check whether the directory is not in use, then check
 	 * whether it is empty.
 	 */
-	res = fat_dir_empty(inode);
-	if (res)
-		goto rmdir_done;
+	err = fat_dir_empty(inode);
+	if (err)
+		goto out;
+	err = msdos_find(dir, dentry->d_name.name, dentry->d_name.len, &sinfo);
+	if (err)
+		goto out;
 
-	de->name[0] = DELETED_FLAG;
-	mark_buffer_dirty(bh);
+	sinfo.de->name[0] = DELETED_FLAG;
+	mark_buffer_dirty(sinfo.bh);
+	brelse(sinfo.bh);
 	fat_detach(inode);
 	inode->i_nlink = 0;
 	inode->i_ctime = dir->i_ctime = dir->i_mtime = CURRENT_TIME_SEC;
-	dir->i_nlink--;
 	mark_inode_dirty(inode);
-	mark_inode_dirty(dir);
-	res = 0;
 
-rmdir_done:
-	brelse(bh);
+	dir->i_nlink--;
+	mark_inode_dirty(dir);
+out:
 	unlock_kernel();
-	return res;
+
+	return err;
 }
 
 /***** Make a directory */
@@ -420,6 +406,7 @@ static int msdos_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	if (res)
 		goto mkdir_error;
 	brelse(bh);
+
 	d_instantiate(dentry, inode);
 	res = 0;
 
@@ -445,30 +432,27 @@ mkdir_error:
 static int msdos_unlink(struct inode *dir, struct dentry *dentry)
 {
 	struct inode *inode = dentry->d_inode;
-	loff_t i_pos;
-	int res;
-	struct buffer_head *bh;
-	struct msdos_dir_entry *de;
+	struct fat_slot_info sinfo;
+	int err;
 
-	bh = NULL;
 	lock_kernel();
-	res = msdos_find(dir, dentry->d_name.name, dentry->d_name.len,
-			 &bh, &de, &i_pos);
-	if (res < 0)
+	err = msdos_find(dir, dentry->d_name.name, dentry->d_name.len, &sinfo);
+	if (err)
 		goto unlink_done;
 
-	de->name[0] = DELETED_FLAG;
-	mark_buffer_dirty(bh);
+	sinfo.de->name[0] = DELETED_FLAG;
+	mark_buffer_dirty(sinfo.bh);
+	brelse(sinfo.bh);
 	fat_detach(inode);
-	brelse(bh);
 	inode->i_nlink = 0;
 	inode->i_ctime = dir->i_ctime = dir->i_mtime = CURRENT_TIME_SEC;
 	mark_inode_dirty(inode);
+
 	mark_inode_dirty(dir);
-	res = 0;
 unlink_done:
 	unlock_kernel();
-	return res;
+
+	return err;
 }
 
 static int do_msdos_rename(struct inode *old_dir, unsigned char *old_name,
