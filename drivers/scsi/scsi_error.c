@@ -1373,6 +1373,7 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 		return ADD_TO_MLQUEUE;
 	case GOOD:
 	case COMMAND_TERMINATED:
+	case TASK_ABORTED:
 		return SUCCESS;
 	case CHECK_CONDITION:
 		rtn = scsi_check_sense(scmd);
@@ -1386,6 +1387,7 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 	case CONDITION_GOOD:
 	case INTERMEDIATE_GOOD:
 	case INTERMEDIATE_C_GOOD:
+	case ACA_ACTIVE:
 		/*
 		 * who knows?  FIXME(eric)
 		 */
