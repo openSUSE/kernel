@@ -365,11 +365,14 @@ rpcauth_refreshcred(struct rpc_task *task)
 {
 	struct rpc_auth	*auth = task->tk_auth;
 	struct rpc_cred	*cred = task->tk_msg.rpc_cred;
+	int err;
 
 	dprintk("RPC: %4d refreshing %s cred %p\n",
 		task->tk_pid, auth->au_ops->au_name, cred);
-	task->tk_status = cred->cr_ops->crrefresh(task);
-	return task->tk_status;
+	err = cred->cr_ops->crrefresh(task);
+	if (err < 0)
+		task->tk_status = err;
+	return err;
 }
 
 void
