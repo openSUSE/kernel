@@ -16,13 +16,24 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ *
+ * NOTES:
+ *
+ * jds -- add private data to file to keep track of iso contexts associated
+ * with each open -- so release won't kill all iso transfers.
+ * 
+ * Damien Douxchamps: Fix failure when the number of DMA pages per frame is
+ * one.
+ * 
+ * ioctl return codes:
+ * EFAULT is only for invalid address for the argp
+ * EINVAL for out of range values
+ * EBUSY when trying to use an already used resource
+ * ESRCH when trying to free/stop a not used resource
+ * EAGAIN for resource allocation failure that could perhaps succeed later
+ * ENOTTY for unsupported ioctl request
+ *
  */
-
-/* jds -- add private data to file to keep track of iso contexts associated
-   with each open -- so release won't kill all iso transfers */
-
-/* Damien Douxchamps: Fix failure when the number of DMA pages per frame is
-   one */
 
 #include <linux/config.h>
 #include <linux/kernel.h>
@@ -723,7 +734,12 @@ static int __video1394_ioctl(struct file *file,
 		/* if channel < 0, find lowest available one */
 		if (v.channel < 0) {
 		    mask = (u64)0x1;
-		    for (i=0; i<ISO_CHANNELS; i++) {
+		    for (i=0; ; i++) {
+			if (i == ISO_CHANNELS) {
+			    PRINT(KERN_ERR, ohci->host->id, 
+				  "No free channel found");
+			    return EAGAIN;
+			}
 			if (!(ohci->ISO_channel_usage & mask)) {
 			    v.channel = i;
 			    PRINT(KERN_INFO, ohci->host->id, "Found free channel %d", i);
@@ -731,42 +747,40 @@ static int __video1394_ioctl(struct file *file,
 			}
 			mask = mask << 1;
 		    }
-		}
-
-		if (v.channel<0 || v.channel>(ISO_CHANNELS-1)) {
+		} else if (v.channel >= ISO_CHANNELS) {
 			PRINT(KERN_ERR, ohci->host->id,
 			      "Iso channel %d out of bounds", v.channel);
-			return -EFAULT;
+			return -EINVAL;
+		} else {
+			mask = (u64)0x1<<v.channel;
 		}
-		mask = (u64)0x1<<v.channel;
-		printk("mask: %08X%08X usage: %08X%08X\n",
-		       (u32)(mask>>32),(u32)(mask&0xffffffff),
-		       (u32)(ohci->ISO_channel_usage>>32),
-		       (u32)(ohci->ISO_channel_usage&0xffffffff));
+		PRINT(KERN_INFO, ohci->host->id, "mask: %08X%08X usage: %08X%08X\n",
+			(u32)(mask>>32),(u32)(mask&0xffffffff),
+			(u32)(ohci->ISO_channel_usage>>32),
+			(u32)(ohci->ISO_channel_usage&0xffffffff));
 		if (ohci->ISO_channel_usage & mask) {
 			PRINT(KERN_ERR, ohci->host->id,
 			      "Channel %d is already taken", v.channel);
-			return -EFAULT;
+			return -EBUSY;
 		}
-		ohci->ISO_channel_usage |= mask;
 
 		if (v.buf_size == 0 || v.buf_size > VIDEO1394_MAX_SIZE) {
 			PRINT(KERN_ERR, ohci->host->id,
 			      "Invalid %d length buffer requested",v.buf_size);
-			return -EFAULT;
+			return -EINVAL;
 		}
 
 		if (v.nb_buffers == 0 || v.nb_buffers > VIDEO1394_MAX_SIZE) {
 			PRINT(KERN_ERR, ohci->host->id,
 			      "Invalid %d buffers requested",v.nb_buffers);
-			return -EFAULT;
+			return -EINVAL;
 		}
 
 		if (v.nb_buffers * v.buf_size > VIDEO1394_MAX_SIZE) {
 			PRINT(KERN_ERR, ohci->host->id,
 			      "%d buffers of size %d bytes is too big",
 			      v.nb_buffers, v.buf_size);
-			return -EFAULT;
+			return -EINVAL;
 		}
 
 		if (cmd == VIDEO1394_IOC_LISTEN_CHANNEL) {
@@ -777,7 +791,7 @@ static int __video1394_ioctl(struct file *file,
 			if (d == NULL) {
 				PRINT(KERN_ERR, ohci->host->id,
 				      "Couldn't allocate ir context");
-				return -EFAULT;
+				return -EAGAIN;
 			}
 			initialize_dma_ir_ctx(d, v.sync_tag, v.flags);
 
@@ -798,7 +812,7 @@ static int __video1394_ioctl(struct file *file,
 			if (d == NULL) {
 				PRINT(KERN_ERR, ohci->host->id,
 				      "Couldn't allocate it context");
-				return -EFAULT;
+				return -EAGAIN;
 			}
 			initialize_dma_it_ctx(d, v.sync_tag,
 					      v.syt_offset, v.flags);
@@ -814,8 +828,12 @@ static int __video1394_ioctl(struct file *file,
 			      v.channel);
 		}
 
-		if (copy_to_user(argp, &v, sizeof(v)))
+		if (copy_to_user((void *)arg, &v, sizeof(v))) {
+			/* FIXME : free allocated dma resources */
 			return -EFAULT;
+		}
+		
+		ohci->ISO_channel_usage |= mask;
 
 		return 0;
 	}
@@ -829,16 +847,16 @@ static int __video1394_ioctl(struct file *file,
 		if (copy_from_user(&channel, argp, sizeof(int)))
 			return -EFAULT;
 
-		if (channel<0 || channel>(ISO_CHANNELS-1)) {
+		if (channel < 0 || channel >= ISO_CHANNELS) {
 			PRINT(KERN_ERR, ohci->host->id,
 			      "Iso channel %d out of bound", channel);
-			return -EFAULT;
+			return -EINVAL;
 		}
 		mask = (u64)0x1<<channel;
 		if (!(ohci->ISO_channel_usage & mask)) {
 			PRINT(KERN_ERR, ohci->host->id,
 			      "Channel %d is not being used", channel);
-			return -EFAULT;
+			return -ESRCH;
 		}
 
 		/* Mark this channel as unused */
@@ -849,7 +867,7 @@ static int __video1394_ioctl(struct file *file,
 		else
 			d = find_ctx(&ctx->context_list, OHCI_ISO_TRANSMIT, channel);
 
-		if (d == NULL) return -EFAULT;
+		if (d == NULL) return -ESRCH;
 		PRINT(KERN_INFO, ohci->host->id, "Iso context %d "
 		      "stop talking on channel %d", d->ctx, channel);
 		free_dma_iso_ctx(d);
@@ -870,7 +888,7 @@ static int __video1394_ioctl(struct file *file,
 		if ((v.buffer<0) || (v.buffer>d->num_desc)) {
 			PRINT(KERN_ERR, ohci->host->id,
 			      "Buffer %d out of range",v.buffer);
-			return -EFAULT;
+			return -EINVAL;
 		}
 
 		spin_lock_irqsave(&d->lock,flags);
@@ -879,7 +897,7 @@ static int __video1394_ioctl(struct file *file,
 			PRINT(KERN_ERR, ohci->host->id,
 			      "Buffer %d is already used",v.buffer);
 			spin_unlock_irqrestore(&d->lock,flags);
-			return -EFAULT;
+			return -EBUSY;
 		}
 
 		d->buffer_status[v.buffer]=VIDEO1394_BUFFER_QUEUED;
@@ -933,7 +951,7 @@ static int __video1394_ioctl(struct file *file,
 		if ((v.buffer<0) || (v.buffer>d->num_desc)) {
 			PRINT(KERN_ERR, ohci->host->id,
 			      "Buffer %d out of range",v.buffer);
-			return -EFAULT;
+			return -EINVAL;
 		}
 
 		/*
@@ -976,7 +994,7 @@ static int __video1394_ioctl(struct file *file,
 			PRINT(KERN_ERR, ohci->host->id,
 			      "Buffer %d is not queued",v.buffer);
 			spin_unlock_irqrestore(&d->lock, flags);
-			return -EFAULT;
+			return -ESRCH;
 		}
 
 		/* set time of buffer */
@@ -1015,7 +1033,7 @@ static int __video1394_ioctl(struct file *file,
 		if ((v.buffer<0) || (v.buffer>d->num_desc)) {
 			PRINT(KERN_ERR, ohci->host->id,
 			      "Buffer %d out of range",v.buffer);
-			return -EFAULT;
+			return -EINVAL;
 		}
 
 		if (d->flags & VIDEO1394_VARIABLE_PACKET_SIZE) {
@@ -1044,7 +1062,7 @@ static int __video1394_ioctl(struct file *file,
 			spin_unlock_irqrestore(&d->lock,flags);
 			if (psizes)
 				kfree(psizes);
-			return -EFAULT;
+			return -EBUSY;
 		}
 
 		if (d->flags & VIDEO1394_VARIABLE_PACKET_SIZE) {
@@ -1118,7 +1136,7 @@ static int __video1394_ioctl(struct file *file,
 		if ((v.buffer<0) || (v.buffer>d->num_desc)) {
 			PRINT(KERN_ERR, ohci->host->id,
 			      "Buffer %d out of range",v.buffer);
-			return -EFAULT;
+			return -EINVAL;
 		}
 
 		switch(d->buffer_status[v.buffer]) {
@@ -1144,11 +1162,11 @@ static int __video1394_ioctl(struct file *file,
 		default:
 			PRINT(KERN_ERR, ohci->host->id,
 			      "Buffer %d is not queued",v.buffer);
-			return -EFAULT;
+			return -ESRCH;
 		}
 	}
 	default:
-		return -EINVAL;
+		return -ENOTTY;
 	}
 }
 
