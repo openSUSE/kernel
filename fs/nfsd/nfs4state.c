@@ -1171,7 +1171,7 @@ release_stateid(struct nfs4_stateid *stp, int flags)
 	list_del_perfile++;
 	list_del(&stp->st_perfile);
 	list_del(&stp->st_perfilestate);
-	if ((stp->st_vfs_file) && (flags & OPEN_STATE)) {
+	if (flags & OPEN_STATE) {
 		list_for_each_entry(dp, &fp->fi_del_perfile, dl_del_perfile) {
 			if(cmp_clid(&dp->dl_client->cl_clientid,
 			    &stp->st_stateowner->so_client->cl_clientid)) {
@@ -1182,7 +1182,7 @@ release_stateid(struct nfs4_stateid *stp, int flags)
 		release_stateid_lockowners(stp);
 		nfsd_close(stp->st_vfs_file);
 		vfsclose++;
-	} else if ((stp->st_vfs_file) && (flags & LOCK_STATE)) {
+	} else if (flags & LOCK_STATE) {
 		struct file *filp = stp->st_vfs_file;
 
 		locks_remove_posix(filp, (fl_owner_t) stp->st_stateowner);
@@ -1921,8 +1921,7 @@ find_openstateowner_id(u32 st_id, int flags) {
 static inline int
 nfs4_check_fh(struct svc_fh *fhp, struct nfs4_stateid *stp)
 {
-	return (stp->st_vfs_file == NULL ||
-		fhp->fh_dentry->d_inode != stp->st_vfs_file->f_dentry->d_inode);
+	return fhp->fh_dentry->d_inode != stp->st_vfs_file->f_dentry->d_inode;
 }
 
 static int
@@ -3015,10 +3014,8 @@ nfsd4_release_lockowner(struct svc_rqst *rqstp, struct nfsd4_release_lockowner *
 		status = nfserr_locks_held;
 		list_for_each_entry(stp, &local->so_perfilestate,
 				st_perfilestate) {
-			if (stp->st_vfs_file) {
-				if (check_for_locks(stp->st_vfs_file, local))
-					goto out;
-			}
+			if (check_for_locks(stp->st_vfs_file, local))
+				goto out;
 		}
 		/* no locks held by (lock) stateowner */
 		status = nfs_ok;
