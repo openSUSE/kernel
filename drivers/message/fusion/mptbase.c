@@ -5913,7 +5913,7 @@ fusion_init(void)
 #ifdef CONFIG_PROC_FS
 	(void) procmpt_create();
 #endif
-	r = pci_module_init(&mptbase_driver);
+	r = pci_register_driver(&mptbase_driver);
 	if(r)
 		return(r);
 
