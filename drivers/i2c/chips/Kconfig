@@ -63,7 +63,7 @@ config SENSORS_ASB100
 	  will be called asb100.
 
 config SENSORS_DS1621
-      	tristate "Dallas Semiconductor DS1621 and DS1625"
+	tristate "Dallas Semiconductor DS1621 and DS1625"
 	depends on I2C && EXPERIMENTAL
 	select I2C_SENSOR
 	help
