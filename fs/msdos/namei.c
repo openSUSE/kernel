@@ -253,8 +253,8 @@ out:
 
 /***** Creates a directory entry (name is already formatted). */
 static int msdos_add_entry(struct inode *dir, const unsigned char *name,
-			   int is_dir, int is_hid, struct timespec *ts,
-			   struct fat_slot_info *sinfo)
+			   int is_dir, int is_hid, int cluster,
+			   struct timespec *ts, struct fat_slot_info *sinfo)
 {
 	struct msdos_dir_entry de;
 	__le16 time, date;
@@ -269,8 +269,8 @@ static int msdos_add_entry(struct inode *dir, const unsigned char *name,
 	de.time = de.ctime = time;
 	de.date = de.cdate = de.adate = date;
 	de.ctime_cs = 0;
-	de.start = 0;
-	de.starthi = 0;
+	de.start = cpu_to_le16(cluster);
+	de.starthi = cpu_to_le16(cluster >> 16);
 	de.size = 0;
 
 	offset = fat_add_entries(dir, 1, &sinfo->bh, &sinfo->de, &sinfo->i_pos);
@@ -314,7 +314,7 @@ static int msdos_create(struct inode *dir, struct dentry *dentry, int mode,
 	}
 
 	ts = CURRENT_TIME_SEC;
-	err = msdos_add_entry(dir, msdos_name, 0, is_hid, &ts, &sinfo);
+	err = msdos_add_entry(dir, msdos_name, 0, is_hid, 0, &ts, &sinfo);
 	if (err)
 		goto out;
 	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos);
@@ -375,7 +375,7 @@ static int msdos_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	struct inode *inode;
 	unsigned char msdos_name[MSDOS_NAME];
 	struct timespec ts;
-	int err, is_hid;
+	int err, is_hid, cluster;
 
 	lock_kernel();
 
@@ -392,43 +392,37 @@ static int msdos_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	}
 
 	ts = CURRENT_TIME_SEC;
-	err = msdos_add_entry(dir, msdos_name, 1, is_hid, &ts, &sinfo);
-	if (err)
-		goto out;
-	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos);
-	if (IS_ERR(inode)) {
-		brelse(sinfo.bh);
-		err = PTR_ERR(inode);
+	cluster = fat_alloc_new_dir(dir, &ts);
+	if (cluster < 0) {
+		err = cluster;
 		goto out;
 	}
+	err = msdos_add_entry(dir, msdos_name, 1, is_hid, cluster, &ts, &sinfo);
+	if (err)
+		goto out_free;
+	dir->i_nlink++;
+
+	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos);
+	brelse(sinfo.bh);
+	if (IS_ERR(inode)) {
+		err = PTR_ERR(inode);
+		/* the directory was completed, just return a error */
+		goto out;
+	}
+	inode->i_nlink = 2;	/* no need to mark them dirty */
 	inode->i_mtime = inode->i_atime = inode->i_ctime = ts;
 	/* timestamp is already written, so mark_inode_dirty() is unneeded. */
 
-	dir->i_nlink++;
-	inode->i_nlink = 2;	/* no need to mark them dirty */
-
-	err = fat_new_dir(inode, dir, 0);
-	if (err)
-		goto mkdir_error;
-	brelse(sinfo.bh);
-
 	d_instantiate(dentry, inode);
+
+	unlock_kernel();
+	return 0;
+
+out_free:
+	fat_free_clusters(dir, cluster);
 out:
 	unlock_kernel();
 	return err;
-
-mkdir_error:
-	inode->i_nlink = 0;
-	inode->i_ctime = dir->i_ctime = dir->i_mtime = ts;
-	dir->i_nlink--;
-	mark_inode_dirty(inode);
-	mark_inode_dirty(dir);
-	sinfo.de->name[0] = DELETED_FLAG;
-	mark_buffer_dirty(sinfo.bh);
-	brelse(sinfo.bh);
-	fat_detach(inode);
-	iput(inode);
-	goto out;
 }
 
 /***** Unlink a file */
@@ -529,7 +523,7 @@ static int do_msdos_rename(struct inode *old_dir, unsigned char *old_name,
 		}
 		fat_detach(new_inode);
 	} else {
-		err = msdos_add_entry(new_dir, new_name, is_dir, is_hid,
+		err = msdos_add_entry(new_dir, new_name, is_dir, is_hid, 0,
 				      &ts, &sinfo);
 		if (err)
 			goto out;

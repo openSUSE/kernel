@@ -327,13 +327,13 @@ extern int fat_search_long(struct inode *inode, const unsigned char *name,
 extern int fat_add_entries(struct inode *dir, int slots,
 			   struct buffer_head **bh,
 			   struct msdos_dir_entry **de, loff_t *i_pos);
-extern int fat_new_dir(struct inode *dir, struct inode *parent, int is_vfat);
 extern int fat_dir_empty(struct inode *dir);
 extern int fat_subdirs(struct inode *dir);
 extern int fat_scan(struct inode *dir, const unsigned char *name,
 		    struct fat_slot_info *sinfo);
 extern int fat_get_dotdot_entry(struct inode *dir, struct buffer_head **bh,
 				struct msdos_dir_entry **de, loff_t *i_pos);
+extern int fat_alloc_new_dir(struct inode *dir, struct timespec *ts);
 extern int fat_remove_entries(struct inode *dir, struct fat_slot_info *sinfo);
 
 /* fat/fatent.c */

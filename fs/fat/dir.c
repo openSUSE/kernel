@@ -869,6 +869,118 @@ int fat_remove_entries(struct inode *dir, struct fat_slot_info *sinfo)
 
 EXPORT_SYMBOL(fat_remove_entries);
 
+static int fat_zeroed_cluster(struct inode *dir, sector_t blknr, int nr_used,
+			      struct buffer_head **bhs, int nr_bhs)
+{
+	struct super_block *sb = dir->i_sb;
+	sector_t last_blknr = blknr + MSDOS_SB(sb)->sec_per_clus;
+	int err, i, n;
+
+	/* Zeroing the unused blocks on this cluster */
+	blknr += nr_used;
+	n = nr_used;
+	while (blknr < last_blknr) {
+		bhs[n] = sb_getblk(sb, blknr);
+		if (!bhs[n]) {
+			err = -ENOMEM;
+			goto error;
+		}
+		memset(bhs[n]->b_data, 0, sb->s_blocksize);
+		set_buffer_uptodate(bhs[n]);
+		mark_buffer_dirty(bhs[n]);
+
+		n++;
+		blknr++;
+		if (n == nr_bhs) {
+			if (IS_DIRSYNC(dir)) {
+				err = fat_sync_bhs(bhs, n);
+				if (err)
+					goto error;
+			}
+			for (i = 0; i < n; i++)
+				brelse(bhs[i]);
+			n = 0;
+		}
+	}
+	if (IS_DIRSYNC(dir)) {
+		err = fat_sync_bhs(bhs, n);
+		if (err)
+			goto error;
+	}
+	for (i = 0; i < n; i++)
+		brelse(bhs[i]);
+
+	return 0;
+
+error:
+	for (i = 0; i < n; i++)
+		bforget(bhs[i]);
+	return err;
+}
+
+int fat_alloc_new_dir(struct inode *dir, struct timespec *ts)
+{
+	struct super_block *sb = dir->i_sb;
+	struct msdos_sb_info *sbi = MSDOS_SB(sb);
+	struct buffer_head *bhs[MAX_BUF_PER_PAGE];
+	struct msdos_dir_entry *de;
+	sector_t blknr;
+	__le16 date, time;
+	int err, cluster;
+
+	err = fat_alloc_clusters(dir, &cluster, 1);
+	if (err)
+		goto error;
+
+	blknr = fat_clus_to_blknr(sbi, cluster);
+	bhs[0] = sb_getblk(sb, blknr);
+	if (!bhs[0]) {
+		err = -ENOMEM;
+		goto error_free;
+	}
+
+	fat_date_unix2dos(ts->tv_sec, &time, &date);
+
+	de = (struct msdos_dir_entry *)bhs[0]->b_data;
+	/* filling the new directory slots ("." and ".." entries) */
+	memcpy(de[0].name, MSDOS_DOT, MSDOS_NAME);
+	memcpy(de[1].name, MSDOS_DOTDOT, MSDOS_NAME);
+	de->attr = de[1].attr = ATTR_DIR;
+	de[0].lcase = de[1].lcase = 0;
+	de[0].time = de[1].time = time;
+	de[0].date = de[1].date = date;
+	de[0].ctime_cs = de[1].ctime_cs = 0;
+	if (sbi->options.isvfat) {
+		/* extra timestamps */
+		de[0].ctime = de[1].ctime = time;
+		de[0].adate = de[0].cdate = de[1].adate = de[1].cdate = date;
+	} else {
+		de[0].ctime = de[1].ctime = 0;
+		de[0].adate = de[0].cdate = de[1].adate = de[1].cdate = 0;
+	}
+	de[0].start = cpu_to_le16(cluster);
+	de[0].starthi = cpu_to_le16(cluster >> 16);
+	de[1].start = cpu_to_le16(MSDOS_I(dir)->i_logstart);
+	de[1].starthi = cpu_to_le16(MSDOS_I(dir)->i_logstart >> 16);
+	de[0].size = de[1].size = 0;
+	memset(de + 2, 0, sb->s_blocksize - 2 * sizeof(*de));
+	set_buffer_uptodate(bhs[0]);
+	mark_buffer_dirty(bhs[0]);
+
+	err = fat_zeroed_cluster(dir, blknr, 1, bhs, MAX_BUF_PER_PAGE);
+	if (err)
+		goto error_free;
+
+	return cluster;
+
+error_free:
+	fat_free_clusters(dir, cluster);
+error:
+	return err;
+}
+
+EXPORT_SYMBOL(fat_alloc_new_dir);
+
 static struct buffer_head *fat_extend_dir(struct inode *inode)
 {
 	struct super_block *sb = inode->i_sb;
@@ -960,46 +1072,3 @@ int fat_add_entries(struct inode *dir,int slots, struct buffer_head **bh,
 }
 
 EXPORT_SYMBOL(fat_add_entries);
-
-int fat_new_dir(struct inode *dir, struct inode *parent, int is_vfat)
-{
-	struct super_block *sb = dir->i_sb;
-	struct buffer_head *bh;
-	struct msdos_dir_entry *de;
-	__le16 date, time;
-
-	bh = fat_extend_dir(dir);
-	if (IS_ERR(bh))
-		return PTR_ERR(bh);
-
-	/* zeroed out, so... */
-	fat_date_unix2dos(dir->i_mtime.tv_sec, &time, &date);
-	de = (struct msdos_dir_entry *)bh->b_data;
-	memcpy(de[0].name, MSDOS_DOT, MSDOS_NAME);
-	memcpy(de[1].name, MSDOS_DOTDOT, MSDOS_NAME);
-	de[0].attr = de[1].attr = ATTR_DIR;
-	de[0].time = de[1].time = time;
-	de[0].date = de[1].date = date;
-	if (is_vfat) {
-		/* extra timestamps */
-		de[0].ctime = de[1].ctime = time;
-		de[0].adate = de[0].cdate = de[1].adate = de[1].cdate = date;
-	}
-	de[0].start = cpu_to_le16(MSDOS_I(dir)->i_logstart);
-	de[0].starthi = cpu_to_le16(MSDOS_I(dir)->i_logstart >> 16);
-	de[1].start = cpu_to_le16(MSDOS_I(parent)->i_logstart);
-	de[1].starthi = cpu_to_le16(MSDOS_I(parent)->i_logstart >> 16);
-	mark_buffer_dirty(bh);
-	if (sb->s_flags & MS_SYNCHRONOUS)
-		sync_dirty_buffer(bh);
-	brelse(bh);
-
-	dir->i_atime = dir->i_ctime = dir->i_mtime = CURRENT_TIME_SEC;
-	mark_inode_dirty(dir);
-	if (IS_SYNC(dir))
-		fat_sync_inode(dir);
-
-	return 0;
-}
-
-EXPORT_SYMBOL(fat_new_dir);

@@ -3,6 +3,7 @@
  * Released under GPL v2.
  */
 
+#include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/msdos_fs.h>
 
@@ -576,6 +577,8 @@ error:
 
 	return err;
 }
+
+EXPORT_SYMBOL(fat_free_clusters);
 
 int fat_count_free_clusters(struct super_block *sb)
 {

@@ -658,7 +658,7 @@ out_free:
 }
 
 static int vfat_add_entry(struct inode *dir, struct qstr *qname, int is_dir,
-			  struct timespec *ts,
+			  int cluster, struct timespec *ts,
 			  struct fat_slot_info *sinfo)
 {
 	struct super_block *sb = dir->i_sb;
@@ -678,7 +678,7 @@ static int vfat_add_entry(struct inode *dir, struct qstr *qname, int is_dir,
 	if (slots == NULL)
 		return -ENOMEM;
 
-	err = vfat_build_slots(dir, qname->name, len, is_dir, 0, ts,
+	err = vfat_build_slots(dir, qname->name, len, is_dir, cluster, ts,
 			       slots, &nr_slots);
 	if (err)
 		goto cleanup;
@@ -787,9 +787,11 @@ static int vfat_create(struct inode *dir, struct dentry *dentry, int mode,
 	lock_kernel();
 
 	ts = CURRENT_TIME_SEC;
-	err = vfat_add_entry(dir, &dentry->d_name, 0, &ts, &sinfo);
+	err = vfat_add_entry(dir, &dentry->d_name, 0, 0, &ts, &sinfo);
 	if (err)
 		goto out;
+	dir->i_version++;
+
 	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos);
 	brelse(sinfo.bh);
 	if (IS_ERR(inode)) {
@@ -800,7 +802,6 @@ static int vfat_create(struct inode *dir, struct dentry *dentry, int mode,
 	inode->i_mtime = inode->i_atime = inode->i_ctime = ts;
 	/* timestamp is already written, so mark_inode_dirty() is unneeded. */
 
-	dir->i_version++;
 	dentry->d_time = dentry->d_parent->d_inode->i_version;
 	d_instantiate(dentry, inode);
 out:
@@ -866,50 +867,48 @@ out:
 static int vfat_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 {
 	struct super_block *sb = dir->i_sb;
-	struct inode *inode = NULL;
+	struct inode *inode;
 	struct fat_slot_info sinfo;
 	struct timespec ts;
-	int err;
+	int err, cluster;
 
 	lock_kernel();
 
 	ts = CURRENT_TIME_SEC;
-	err = vfat_add_entry(dir, &dentry->d_name, 1, &ts, &sinfo);
-	if (err)
+	cluster = fat_alloc_new_dir(dir, &ts);
+	if (cluster < 0) {
+		err = cluster;
 		goto out;
+	}
+	err = vfat_add_entry(dir, &dentry->d_name, 1, cluster, &ts, &sinfo);
+	if (err)
+		goto out_free;
+	dir->i_version++;
+	dir->i_nlink++;
+
 	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos);
+	brelse(sinfo.bh);
 	if (IS_ERR(inode)) {
 		err = PTR_ERR(inode);
-		goto out_brelse;
+		/* the directory was completed, just return a error */
+		goto out;
 	}
 	inode->i_version++;
+	inode->i_nlink = 2;	/* no need to mark them dirty */
 	inode->i_mtime = inode->i_atime = inode->i_ctime = ts;
 	/* timestamp is already written, so mark_inode_dirty() is unneeded. */
 
-	dir->i_version++;
-	dir->i_nlink++;
-	inode->i_nlink = 2;	/* no need to mark them dirty */
-	err = fat_new_dir(inode, dir, 1);
-	if (err)
-		goto mkdir_failed;
-
 	dentry->d_time = dentry->d_parent->d_inode->i_version;
 	d_instantiate(dentry, inode);
-out_brelse:
-	brelse(sinfo.bh);
+
+	unlock_kernel();
+	return 0;
+
+out_free:
+	fat_free_clusters(dir, cluster);
 out:
 	unlock_kernel();
 	return err;
-
-mkdir_failed:
-	inode->i_nlink = 0;
-	inode->i_mtime = inode->i_atime = ts;
-	fat_detach(inode);
-	mark_inode_dirty(inode);
-	fat_remove_entries(dir, &sinfo);	/* and releases bh */
-	iput(inode);
-	dir->i_nlink--;
-	goto out;
 }
 
 static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
@@ -959,8 +958,8 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 		}
 		fat_detach(new_inode);
 	} else {
-		err = vfat_add_entry(new_dir, &new_dentry->d_name, is_dir, &ts,
-				     &sinfo);
+		err = vfat_add_entry(new_dir, &new_dentry->d_name, is_dir, 0,
+				     &ts, &sinfo);
 		if (err)
 			goto out;
 		brelse(sinfo.bh);
