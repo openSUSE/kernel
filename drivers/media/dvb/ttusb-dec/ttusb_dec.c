@@ -208,7 +208,7 @@ static int ttusb_dec_send_command(struct ttusb_dec *dec, const u8 command,
 	}
 
 	result = usb_bulk_msg(dec->udev, dec->command_pipe, b,
-			      COMMAND_PACKET_SIZE + 4, &actual_len, HZ);
+			      COMMAND_PACKET_SIZE + 4, &actual_len, 1000);
 
 	if (result) {
 		printk("%s: command bulk message failed: error %d\n",
@@ -219,7 +219,7 @@ static int ttusb_dec_send_command(struct ttusb_dec *dec, const u8 command,
 	}
 
 	result = usb_bulk_msg(dec->udev, dec->result_pipe, b,
-			      COMMAND_PACKET_SIZE + 4, &actual_len, HZ);
+			      COMMAND_PACKET_SIZE + 4, &actual_len, 1000);
 
 	if (result) {
 		printk("%s: result bulk message failed: error %d\n",
@@ -1205,12 +1205,12 @@ static int ttusb_dec_boot_dsp(struct ttusb_dec *dec)
 		if (j >= ARM_PACKET_SIZE) {
 			result = usb_bulk_msg(dec->udev, dec->command_pipe, b,
 					      ARM_PACKET_SIZE, &actual_len,
-					      HZ / 10);
+					      100);
 			j = 0;
 		} else if (size < COMMAND_PACKET_SIZE) {
 			result = usb_bulk_msg(dec->udev, dec->command_pipe, b,
 					      j - COMMAND_PACKET_SIZE + size,
-					      &actual_len, HZ / 10);
+					      &actual_len, 100);
 		}
 	}
 

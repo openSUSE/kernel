@@ -149,6 +149,11 @@ static int slave_configure(struct scsi_device *sdev)
 		sdev->skip_ms_page_3f = 1;
 #endif
 
+		/* Some disks return the total number of blocks in response
+		 * to READ CAPACITY rather than the highest block number.
+		 * If this device makes that mistake, tell the sd driver. */
+		if (us->flags & US_FL_FIX_CAPACITY)
+			sdev->fix_capacity = 1;
 	} else {
 
 		/* Non-disk-type devices don't need to blacklist any pages
@@ -156,6 +161,11 @@ static int slave_configure(struct scsi_device *sdev)
 		 * But they do need to use MODE SENSE(10). */
 		sdev->use_10_for_ms = 1;
 	}
+
+	/* Some devices choke when they receive a PREVENT-ALLOW MEDIUM
+	 * REMOVAL command, so suppress those commands. */
+	if (us->flags & US_FL_NOT_LOCKABLE)
+		sdev->lockable = 0;
 
 	/* this is to satisfy the compiler, tho I don't think the 
 	 * return code is ever checked anywhere. */
@@ -346,9 +356,22 @@ static int proc_info (struct Scsi_Host *hostptr, char *buffer, char **start, off
 	SPRINTF("   Host scsi%d: usb-storage\n", hostptr->host_no);
 
 	/* print product, vendor, and serial number strings */
-	SPRINTF("       Vendor: %s\n", us->vendor);
-	SPRINTF("      Product: %s\n", us->product);
-	SPRINTF("Serial Number: %s\n", us->serial);
+	if (us->pusb_dev->manufacturer)
+		SPRINTF("       Vendor: %s\n", us->pusb_dev->manufacturer);
+	else if (us->unusual_dev->vendorName)
+		SPRINTF("       Vendor: %s\n", us->unusual_dev->vendorName);
+	else
+		SPRINTF("       Vendor: Unknown\n");
+	if (us->pusb_dev->product)
+		SPRINTF("      Product: %s\n", us->pusb_dev->product);
+	else if (us->unusual_dev->productName)
+		SPRINTF("      Product: %s\n", us->unusual_dev->productName);
+	else
+		SPRINTF("      Product: Unknown\n");
+	if (us->pusb_dev->serial)
+		SPRINTF("Serial Number: %s\n", us->pusb_dev->serial);
+	else
+		SPRINTF("Serial Number: None\n");
 
 	/* show the protocol and transport */
 	SPRINTF("     Protocol: %s\n", us->protocol_name);

@@ -38,14 +38,14 @@
 
 int gsc_alloc_irq(struct gsc_irq *i)
 {
-	int irq = txn_alloc_irq();
+	int irq = txn_alloc_irq(GSC_EIM_WIDTH);
 	if (irq < 0) {
 		printk("cannot get irq\n");
 		return irq;
 	}
 
 	i->txn_addr = txn_alloc_addr(irq);
-	i->txn_data = txn_alloc_data(irq, GSC_EIM_WIDTH);
+	i->txn_data = txn_alloc_data(irq);
 	i->irq = irq;
 
 	return irq;
@@ -64,7 +64,7 @@ int gsc_claim_irq(struct gsc_irq *i, int irq)
 	}
 
 	i->txn_addr = txn_alloc_addr(irq);
-	i->txn_data = txn_alloc_data(irq, GSC_EIM_WIDTH);
+	i->txn_data = txn_alloc_data(irq);
 	i->irq = irq;
 
 	return irq;

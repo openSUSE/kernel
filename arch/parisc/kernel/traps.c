@@ -242,7 +242,7 @@ void handle_gdb_break(struct pt_regs *regs, int wot)
 	struct siginfo si;
 
 	si.si_code = wot;
-	si.si_addr = (void *) (regs->iaoq[0] & ~3);
+	si.si_addr = (void __user *) (regs->iaoq[0] & ~3);
 	si.si_signo = SIGTRAP;
 	si.si_errno = 0;
 	force_sig_info(SIGTRAP, &si, current);
@@ -263,7 +263,7 @@ void handle_break(unsigned iir, struct pt_regs *regs)
 		show_regs(regs);
 #endif
 		si.si_code = TRAP_BRKPT;
-		si.si_addr = (void *) (regs->iaoq[0] & ~3);
+		si.si_addr = (void __user *) (regs->iaoq[0] & ~3);
 		si.si_signo = SIGTRAP;
 		force_sig_info(SIGTRAP, &si, current);
 		break;
@@ -281,7 +281,7 @@ void handle_break(unsigned iir, struct pt_regs *regs)
 #endif
 		si.si_signo = SIGTRAP;
 		si.si_code = TRAP_BRKPT;
-		si.si_addr = (void *) (regs->iaoq[0] & ~3);
+		si.si_addr = (void __user *) (regs->iaoq[0] & ~3);
 		force_sig_info(SIGTRAP, &si, current);
 		return;
 	}
@@ -569,7 +569,7 @@ void handle_interruption(int code, struct pt_regs *regs)
 	give_sigill:
 		si.si_signo = SIGILL;
 		si.si_errno = 0;
-		si.si_addr = (void *) regs->iaoq[0];
+		si.si_addr = (void __user *) regs->iaoq[0];
 		force_sig_info(SIGILL, &si, current);
 		return;
 
@@ -577,7 +577,7 @@ void handle_interruption(int code, struct pt_regs *regs)
 		/* Overflow Trap, let the userland signal handler do the cleanup */
 		si.si_signo = SIGFPE;
 		si.si_code = FPE_INTOVF;
-		si.si_addr = (void *) regs->iaoq[0];
+		si.si_addr = (void __user *) regs->iaoq[0];
 		force_sig_info(SIGFPE, &si, current);
 		return;
 		
@@ -699,9 +699,9 @@ void handle_interruption(int code, struct pt_regs *regs)
 		si.si_signo = SIGSEGV;
 		si.si_errno = 0;
 		if (code == 7)
-		    si.si_addr = (void *) regs->iaoq[0];
+		    si.si_addr = (void __user *) regs->iaoq[0];
 		else
-		    si.si_addr = (void *) regs->ior;
+		    si.si_addr = (void __user *) regs->ior;
 		force_sig_info(SIGSEGV, &si, current);
 		return;
 
@@ -721,7 +721,7 @@ void handle_interruption(int code, struct pt_regs *regs)
 			si.si_signo = SIGBUS;
 			si.si_code = BUS_OBJERR;
 			si.si_errno = 0;
-			si.si_addr = (void *) regs->ior;
+			si.si_addr = (void __user *) regs->ior;
 			force_sig_info(SIGBUS, &si, current);
 			return;
 		}
@@ -745,7 +745,7 @@ void handle_interruption(int code, struct pt_regs *regs)
 		si.si_signo = SIGSEGV;
 		si.si_errno = 0;
 		si.si_code = SEGV_MAPERR;
-		si.si_addr = (void *) regs->ior;
+		si.si_addr = (void __user *) regs->ior;
 		force_sig_info(SIGSEGV, &si, current);
 		return;
 	    }

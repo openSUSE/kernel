@@ -260,13 +260,13 @@ comment "USB Network Adapters"
 	depends on USB_USBNET
 
 config USB_AX8817X
-	boolean "ASIX AX88172 Based USB 2.0 Ethernet Devices"
+	boolean "ASIX AX88xxx Based USB 2.0 Ethernet Devices"
 	depends on USB_USBNET && NET_ETHERNET
 	select CRC32
 	select MII
 	default y
 	help
-	  This option adds support for ASIX AX88172 based USB 2.0
+	  This option adds support for ASIX AX88xxx based USB 2.0
 	  10/100 Ethernet devices.
 
  	  This driver should work with at least the following devices:
@@ -286,5 +286,22 @@ config USB_AX8817X
 
 	  This driver creates an interface named "ethX", where X depends on
 	  what other networking devices you have in use.  
+
+config USB_ZD1201
+	tristate "USB ZD1201 based Wireless device support"
+	depends on NET_RADIO
+	select FW_LOADER
+	---help---
+	  Say Y if you want to use wireless LAN adapters based on the ZyDAS
+	  ZD1201 chip.
+
+	  This driver makes the adapter appear as a normal Ethernet interface,
+	  typically on wlan0.
+	  
+	  The zd1201 device requires external firmware to be loaded.
+	  This can be found at http://linux-lc100020.sourceforge.net/
+	  
+	  To compile this driver as a module, choose M here: the
+	  module will be called zd1201.
 
 endmenu

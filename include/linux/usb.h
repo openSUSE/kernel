@@ -70,6 +70,7 @@ struct usb_host_interface {
 	 */
 	struct usb_host_endpoint *endpoint;
 
+	char *string;		/* iInterface string, if present */
 	unsigned char *extra;   /* Extra descriptors */
 	int extralen;
 };
@@ -189,6 +190,8 @@ struct usb_interface_cache {
 /**
  * struct usb_host_config - representation of a device's configuration
  * @desc: the device's configuration descriptor.
+ * @string: pointer to the cached version of the iConfiguration string, if
+ *	present for this configuration.
  * @interface: array of pointers to usb_interface structures, one for each
  *	interface in the configuration.  The number of interfaces is stored
  *	in desc.bNumInterfaces.  These pointers are valid only while the
@@ -225,6 +228,7 @@ struct usb_interface_cache {
 struct usb_host_config {
 	struct usb_config_descriptor	desc;
 
+	char *string;
 	/* the interfaces associated with this configuration,
 	 * stored in no particular order */
 	struct usb_interface *interface[USB_MAXINTERFACES];
@@ -285,6 +289,10 @@ struct usb_bus {
 
 	struct class_device class_dev;	/* class device for this bus */
 	void (*release)(struct usb_bus *bus);	/* function to destroy this bus's memory */
+#if defined(CONFIG_USB_MON) || defined(CONFIG_USB_MON_MODULE)
+	struct mon_bus *mon_bus;	/* non-null when associated */
+	int monitored;			/* non-zero when monitored */
+#endif
 };
 #define	to_usb_bus(d) container_of(d, struct usb_bus, class_dev)
 
@@ -338,6 +346,9 @@ struct usb_device {
 	int have_langid;		/* whether string_langid is valid yet */
 	int string_langid;		/* language ID for strings */
 
+	char *product;
+	char *manufacturer;
+	char *serial;			/* static strings from the device */
 	struct list_head filelist;
 	struct dentry *usbfs_dentry;	/* usbfs dentry entry for the device */
 
@@ -986,13 +997,13 @@ extern int usb_reset_configuration(struct usb_device *dev);
 extern int usb_set_interface(struct usb_device *dev, int ifnum, int alternate);
 
 /*
- * timeouts, in seconds, used for sending/receiving control messages
+ * timeouts, in milliseconds, used for sending/receiving control messages
  * they typically complete within a few frames (msec) after they're issued
  * USB identifies 5 second timeouts, maybe more in a few cases, and a few
  * slow devices (like some MGE Ellipse UPSes) actually push that limit.
  */
-#define USB_CTRL_GET_TIMEOUT	5
-#define USB_CTRL_SET_TIMEOUT	5
+#define USB_CTRL_GET_TIMEOUT	5000
+#define USB_CTRL_SET_TIMEOUT	5000
 
 
 /**

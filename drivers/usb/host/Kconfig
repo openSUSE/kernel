@@ -7,13 +7,20 @@ config USB_ARCH_HAS_HCD
 	default y if ARM				# SL-811
 	default PCI
 
-# many non-PCI hcds implement OHCI
+# many non-PCI SOC chips embed OHCI
 config USB_ARCH_HAS_OHCI
 	boolean
+	# ARM:
 	default y if SA1111
 	default y if ARCH_OMAP
 	default y if ARCH_LH7A404
 	default y if PXA27x
+	# PPC:
+	default y if STB03xxx
+	default y if PPC_MPC52xx
+	# MIPS:
+	default y if SOC_AU1X00
+	# more:
 	default PCI
 
 #
@@ -65,7 +72,7 @@ config USB_EHCI_ROOT_HUB_TT
 	  controller is needed.  It's safe to say "y" even if your
 	  controller doesn't support this feature.
 
-	  This supports the EHCI implementation from ARC International.
+	  This supports the EHCI implementation from TransDimension Inc.
 
 config USB_OHCI_HCD
 	tristate "OHCI HCD support"
@@ -83,6 +90,35 @@ config USB_OHCI_HCD
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called ohci-hcd.
+
+config USB_OHCI_HCD_PPC_SOC
+	bool "OHCI support for on-chip PPC USB controller"
+	depends on USB_OHCI_HCD && (STB03xxx || PPC_MPC52xx)
+	default y
+	select USB_OHCI_BIG_ENDIAN
+	---help---
+	  Enables support for the USB controller on the MPC52xx or
+	  STB03xxx processor chip.  If unsure, say Y.
+
+config USB_OHCI_HCD_PCI
+	bool "OHCI support for PCI-bus USB controllers"
+	depends on USB_OHCI_HCD && PCI && (STB03xxx || PPC_MPC52xx)
+	default y
+	select USB_OHCI_LITTLE_ENDIAN
+	---help---
+	  Enables support for PCI-bus plug-in USB controller cards.
+	  If unsure, say Y.
+
+config USB_OHCI_BIG_ENDIAN
+	bool
+	depends on USB_OHCI_HCD
+	default n
+
+config USB_OHCI_LITTLE_ENDIAN
+	bool
+	depends on USB_OHCI_HCD
+	default n if STB03xxx || PPC_MPC52xx
+	default y
 
 config USB_UHCI_HCD
 	tristate "UHCI HCD (most Intel and VIA) support"

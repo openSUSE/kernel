@@ -123,13 +123,14 @@ struct siginfo;
  * compiler doesn't support code which changes or tests the address of
  * the function in the little struct.  This is really ugly -PB
  */
-typedef __kernel_caddr_t __sighandler_t;
+typedef char __user *__sighandler_t;
 #else
-typedef void (*__sighandler_t)(int);
+typedef void __signalfn_t(int);
+typedef __signalfn_t __user *__sighandler_t;
 #endif
 
 typedef struct sigaltstack {
-	void *ss_sp;
+	void __user *ss_sp;
 	int ss_flags;
 	size_t ss_size;
 } stack_t;

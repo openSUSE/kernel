@@ -29,6 +29,7 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/init.h>
+#include <linux/wait.h>
 #undef DEBUG   		/* include debug macros until it's done	*/
 #include <linux/usb.h>
 
@@ -605,7 +606,6 @@ static void auerchain_blocking_completion (struct urb *urb, struct pt_regs *regs
 /* Starts chained urb and waits for completion or timeout */
 static int auerchain_start_wait_urb (pauerchain_t acp, struct urb *urb, int timeout, int* actual_length)
 {
-	DECLARE_WAITQUEUE (wait, current);
 	auerchain_chs_t chs;
 	int status;
 
@@ -613,26 +613,13 @@ static int auerchain_start_wait_urb (pauerchain_t acp, struct urb *urb, int time
 	init_waitqueue_head (&chs.wqh);
 	chs.done = 0;
 
-	set_current_state (TASK_UNINTERRUPTIBLE);
-	add_wait_queue (&chs.wqh, &wait);
 	urb->context = &chs;
 	status = auerchain_submit_urb (acp, urb);
-	if (status) {
+	if (status)
 		/* something went wrong */
-		set_current_state (TASK_RUNNING);
-		remove_wait_queue (&chs.wqh, &wait);
 		return status;
-	}
 
-	while (timeout && !chs.done)
-	{
-		timeout = schedule_timeout (timeout);
-		set_current_state(TASK_UNINTERRUPTIBLE);
-		rmb();
-	}
-
-	set_current_state (TASK_RUNNING);
-	remove_wait_queue (&chs.wqh, &wait);
+	timeout = wait_event_timeout(chs.wqh, chs.done, timeout);
 
 	if (!timeout && !chs.done) {
 		if (urb->status != -EINPROGRESS) {	/* No callback?!! */
@@ -2009,7 +1996,7 @@ static int auerswald_probe (struct usb_interface *intf,
                 AUDI_MBCTRANS,                      /* USB message index value */
                 pbuf,                               /* pointer to the receive buffer */
                 2,                                  /* length of the buffer */
-                HZ * 2);                            /* time to wait for the message to complete before timing out */
+                2000);                            /* time to wait for the message to complete before timing out */
         if (ret == 2) {
 	        cp->maxControlLength = le16_to_cpup(pbuf);
                 kfree(pbuf);

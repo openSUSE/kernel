@@ -33,11 +33,27 @@
 #error "This file is OMAP bus glue.  CONFIG_OMAP must be defined."
 #endif
 
+#ifdef CONFIG_TPS65010
+#include <asm/arch/tps65010.h>
+#else
+
+#define LOW	0
+#define HIGH	1
+
+#define GPIO1	1
+
+static inline int tps65010_set_gpio_out_value(unsigned gpio, unsigned value)
+{
+	return 0;
+}
+
+#endif
+
 extern int usb_disabled(void);
 extern int ocpi_enable(void);
 
 /*
- * OHCI clock initialization for OMAP-1510 and 1610
+ * OHCI clock initialization for OMAP-1510 and 16xx
  */
 static int omap_ohci_clock_power(int on)
 {
@@ -78,7 +94,8 @@ static int omap_ohci_clock_power(int on)
 }
 
 /*
- * Hardware specific transceiver power on/off
+ * Board specific gang-switched transceiver power on/off.
+ * NOTE:  OSK supplies power from DC, not battery.
  */
 static int omap_ohci_transceiver_power(int on)
 {
@@ -87,17 +104,15 @@ static int omap_ohci_transceiver_power(int on)
 			fpga_write(fpga_read(INNOVATOR_FPGA_CAM_USB_CONTROL)
 				| ((1 << 5/*usb1*/) | (1 << 3/*usb2*/)), 
 			       INNOVATOR_FPGA_CAM_USB_CONTROL);
-		else if (machine_is_omap_osk()) {
-			/* FIXME: GPIO1 -> 1 on the TPS65010 I2C chip */
-		}
+		else if (machine_is_omap_osk())
+			tps65010_set_gpio_out_value(GPIO1, LOW);
 	} else {
 		if (machine_is_omap_innovator() && cpu_is_omap1510())
 			fpga_write(fpga_read(INNOVATOR_FPGA_CAM_USB_CONTROL)
 				& ~((1 << 5/*usb1*/) | (1 << 3/*usb2*/)), 
 			       INNOVATOR_FPGA_CAM_USB_CONTROL);
-		else if (machine_is_omap_osk()) {
-			/* FIXME: GPIO1 -> 0 on the TPS65010 I2C chip */
-		}
+		else if (machine_is_omap_osk())
+			tps65010_set_gpio_out_value(GPIO1, HIGH);
 	}
 
 	return 0;
@@ -177,6 +192,7 @@ static int omap_start_hc(struct ohci_hcd *ohci, struct platform_device *pdev)
 {
 	struct omap_usb_config	*config = pdev->dev.platform_data;
 	int			need_transceiver = (config->otg != 0);
+	int			ret;
 
 	dev_dbg(&pdev->dev, "starting USB Controller\n");
 
@@ -213,20 +229,43 @@ static int omap_start_hc(struct ohci_hcd *ohci, struct platform_device *pdev)
 	}
 #endif
 
-	if (machine_is_omap_osk()) {
-		omap_request_gpio(9);
-		omap_set_gpio_direction(9, 1);
-		omap_set_gpio_dataout(9, 1);
-	}
-
 	omap_ohci_clock_power(1);
-
-	omap_ohci_transceiver_power(1);
 
 	if (cpu_is_omap1510()) {
 		omap_1510_local_bus_power(1);
 		omap_1510_local_bus_init();
 	}
+
+	if ((ret = ohci_init(ohci)) < 0)
+		return ret;
+
+	/* board-specific power switching and overcurrent support */
+	if (machine_is_omap_osk() || machine_is_omap_innovator()) {
+		u32	rh = roothub_a (ohci);
+
+		/* power switching (ganged by default) */
+		rh &= ~RH_A_NPS;
+
+		/* TPS2045 switch for internal transceiver (port 1) */
+		if (machine_is_omap_osk()) {
+			ohci->power_budget = 250;
+
+			rh &= ~RH_A_NOCP;
+
+			/* gpio9 for overcurrent detction */
+			omap_cfg_reg(W8_1610_GPIO9);
+			omap_request_gpio(9);
+			omap_set_gpio_direction(9, 1 /* IN */);
+
+			/* for paranoia's sake:  disable USB.PUEN */
+			omap_cfg_reg(W4_USB_HIGHZ);
+		}
+		ohci_writel(ohci, rh, &ohci->regs->roothub.a);
+		// distrust_firmware = 0;
+	}
+
+	/* FIXME khubd hub requests should manage power switching */
+	omap_ohci_transceiver_power(1);
 
 	/* board init will have already handled HMC and mux setup.
 	 * any external transceiver should already be initialized
@@ -254,8 +293,6 @@ static void omap_stop_hc(struct platform_device *pdev)
 
 /*-------------------------------------------------------------------------*/
 
-void usb_hcd_omap_remove (struct usb_hcd *, struct platform_device *);
-
 /* configure so an HC device and id are always provided */
 /* always called with process context; sleeping is OK */
 
@@ -272,7 +309,7 @@ int usb_hcd_omap_probe (const struct hc_driver *driver,
 			  struct platform_device *pdev)
 {
 	int retval;
-	struct usb_hcd *hcd = 0;
+	struct usb_hcd *hcd;
 	struct ohci_hcd *ohci;
 
 	if (pdev->num_resources != 2) {
@@ -287,68 +324,38 @@ int usb_hcd_omap_probe (const struct hc_driver *driver,
 		return -ENODEV;
 	}
 
-	if (!request_mem_region(pdev->resource[0].start, 
-				pdev->resource[0].end - pdev->resource[0].start + 1, hcd_name)) {
-		dev_dbg(&pdev->dev, "request_mem_region failed\n");
-		return -EBUSY;
-	}
+	hcd = usb_create_hcd (driver, &pdev->dev, pdev->dev.bus_id);
+	if (!hcd)
+		return -ENOMEM;
+	hcd->rsrc_start = pdev->resource[0].start;
+	hcd->rsrc_len = pdev->resource[0].end - pdev->resource[0].start + 1;
 
-	hcd = usb_create_hcd (driver);
-	if (hcd == NULL){
-		dev_dbg(&pdev->dev, "hcd_alloc failed\n");
-		retval = -ENOMEM;
+	if (!request_mem_region(hcd->rsrc_start, hcd->rsrc_len, hcd_name)) {
+		dev_dbg(&pdev->dev, "request_mem_region failed\n");
+		retval = -EBUSY;
 		goto err1;
 	}
-	dev_set_drvdata(&pdev->dev, hcd);
+
+	/* FIXME: Cast to pointer from integer of different size!
+	 * Needs ioremap */
+	hcd->regs = (void __iomem *) (u32) hcd->rsrc_start;
+
 	ohci = hcd_to_ohci(hcd);
 	ohci_hcd_init(ohci);
-
-	hcd->irq = pdev->resource[1].start;
-	hcd->regs = (void *)pdev->resource[0].start;
-	hcd->self.controller = &pdev->dev;
 
 	retval = omap_start_hc(ohci, pdev);
 	if (retval < 0)
 		goto err2;
 
-	retval = hcd_buffer_create (hcd);
-	if (retval != 0) {
-		dev_dbg(&pdev->dev, "pool alloc fail\n");
-		goto err2;
-	}
-
-	retval = request_irq (hcd->irq, usb_hcd_irq, 
-			      SA_INTERRUPT, hcd->driver->description, hcd);
-	if (retval != 0) {
-		dev_dbg(&pdev->dev, "request_irq failed\n");
-		retval = -EBUSY;
-		goto err3;
-	}
-
-	dev_info(&pdev->dev, "at 0x%p, irq %d\n", hcd->regs, hcd->irq);
-
-	hcd->self.bus_name = pdev->dev.bus_id;
-	usb_register_bus (&hcd->self);
-
-	if ((retval = driver->start (hcd)) < 0) 
-	{
-		usb_hcd_omap_remove(hcd, pdev);
+	retval = usb_add_hcd(hcd, pdev->resource[1].start, SA_INTERRUPT);
+	if (retval == 0)
 		return retval;
-	}
 
-	return 0;
-
- err3:
-	hcd_buffer_destroy (hcd);
- err2:
-	dev_set_drvdata(&pdev->dev, NULL);
-	usb_put_hcd(hcd);
- err1:
 	omap_stop_hc(pdev);
-
-	release_mem_region(pdev->resource[0].start, 
-			   pdev->resource[0].end - pdev->resource[0].start + 1);
-
+ err2:
+	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
+ err1:
+	usb_put_hcd(hcd);
 	return retval;
 }
 
@@ -368,31 +375,12 @@ int usb_hcd_omap_probe (const struct hc_driver *driver,
  */
 void usb_hcd_omap_remove (struct usb_hcd *hcd, struct platform_device *pdev)
 {
-	dev_info(&pdev->dev, "remove: state %x\n", hcd->state);
-
-	if (in_interrupt ())
-		BUG ();
-
-	hcd->state = USB_STATE_QUIESCING;
-
-	dev_dbg(&pdev->dev, "roothub graceful disconnect\n");
-	usb_disconnect (&hcd->self.root_hub);
-
-	hcd->driver->stop (hcd);
-	hcd_buffer_destroy (hcd);
-	hcd->state = USB_STATE_HALT;
-
+	usb_remove_hcd(hcd);
 	if (machine_is_omap_osk())
 		omap_free_gpio(9);
-
-	free_irq (hcd->irq, hcd);
-
-	usb_deregister_bus (&hcd->self);
-
 	omap_stop_hc(pdev);
-
-	release_mem_region(pdev->resource[0].start, 
-			   pdev->resource[0].end - pdev->resource[0].start + 1);
+	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
+	usb_put_hcd(hcd);
 }
 
 /*-------------------------------------------------------------------------*/
@@ -403,9 +391,6 @@ ohci_omap_start (struct usb_hcd *hcd)
 	struct omap_usb_config *config;
 	struct ohci_hcd	*ohci = hcd_to_ohci (hcd);
 	int		ret;
-
-	if ((ret = ohci_init(ohci)) < 0)
-		return ret;
 
 	config = hcd->self.controller->platform_data;
 	if (config->otg || config->rwc)
@@ -430,7 +415,7 @@ static const struct hc_driver ohci_omap_hc_driver = {
 	 * generic hardware linkage
 	 */
 	.irq =			ohci_irq,
-	.flags =		HCD_USB11,
+	.flags =		HCD_USB11 | HCD_MEMORY,
 
 	/*
 	 * basic lifecycle operations
@@ -481,7 +466,6 @@ static int ohci_hcd_omap_drv_remove(struct device *dev)
 		(void) otg_set_host(ohci->transceiver, 0);
 		put_device(ohci->transceiver->dev);
 	}
-	dev_set_drvdata(dev, NULL);
 
 	return 0;
 }
@@ -499,6 +483,8 @@ static int ohci_omap_suspend(struct device *dev, u32 state, u32 level)
 	struct ohci_hcd	*ohci = hcd_to_ohci(dev_get_drvdata(dev));
 	int		status = -EINVAL;
 
+	if (level != SUSPEND_POWER_DOWN)
+		return 0;
 	if (state <= dev->power.power_state)
 		return 0;
 
@@ -524,6 +510,9 @@ static int ohci_omap_resume(struct device *dev, u32 level)
 {
 	struct ohci_hcd	*ohci = hcd_to_ohci(dev_get_drvdata(dev));
 	int		status = 0;
+
+	if (level != RESUME_POWER_ON)
+		return 0;
 
 	switch (dev->power.power_state) {
 	case 0:

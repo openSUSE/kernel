@@ -138,7 +138,7 @@ ohci_dump_status (struct ohci_hcd *controller, char **next, unsigned *size)
 	ohci_dbg_sw (controller, next, size,
 		"OHCI %d.%d, %s legacy support registers\n",
 		0x03 & (temp >> 4), (temp & 0x0f),
-		(temp & 0x10) ? "with" : "NO");
+		(temp & 0x0100) ? "with" : "NO");
 
 	temp = ohci_readl (controller, &regs->control);
 	ohci_dbg_sw (controller, next, size,
@@ -328,7 +328,7 @@ static void ohci_dump_td (const struct ohci_hcd *ohci, const char *label,
 			hc32_to_cpup (ohci, &td->hwCBP) & ~0x0fff,
 			hc32_to_cpup (ohci, &td->hwBE));
 		for (i = 0; i < MAXPSW; i++) {
-			u16	psw = hc16_to_cpup (ohci, &td->hwPSW [i]);
+			u16	psw = ohci_hwPSW (ohci, td, i);
 			int	cc = (psw >> 12) & 0x0f;
 			ohci_dbg (ohci, "    psw [%d] = %2x, CC=%x %s=%d\n", i,
 				psw, cc,

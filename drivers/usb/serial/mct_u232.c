@@ -166,7 +166,7 @@ struct mct_u232_private {
  * Handle vendor specific USB requests
  */
 
-#define WDR_TIMEOUT (HZ * 5 ) /* default urb timeout */
+#define WDR_TIMEOUT 5000 /* default urb timeout */
 
 /*
  * Later day 2.6.0-test kernels have new baud rates like B230400 which

@@ -166,7 +166,7 @@ ioctl_rio(struct inode *inode, struct file *file, unsigned int cmd,
 						 rio_cmd.value,
 						 rio_cmd.index, buffer,
 						 rio_cmd.length,
-						 rio_cmd.timeout);
+						 jiffies_to_msecs(rio_cmd.timeout));
 			if (result == -ETIMEDOUT)
 				retries--;
 			else if (result < 0) {
@@ -233,7 +233,7 @@ ioctl_rio(struct inode *inode, struct file *file, unsigned int cmd,
 						 rio_cmd.value,
 						 rio_cmd.index, buffer,
 						 rio_cmd.length,
-						 rio_cmd.timeout);
+						 jiffies_to_msecs(rio_cmd.timeout));
 			if (result == -ETIMEDOUT)
 				retries--;
 			else if (result < 0) {
@@ -309,7 +309,7 @@ write_rio(struct file *file, const char __user *buffer,
 
 			result = usb_bulk_msg(rio->rio_dev,
 					 usb_sndbulkpipe(rio->rio_dev, 2),
-					 obuf, thistime, &partial, 5 * HZ);
+					 obuf, thistime, &partial, 5000);
 
 			dbg("write stats: result:%d thistime:%lu partial:%u",
 			     result, thistime, partial);
@@ -386,7 +386,7 @@ read_rio(struct file *file, char __user *buffer, size_t count, loff_t * ppos)
 		result = usb_bulk_msg(rio->rio_dev,
 				      usb_rcvbulkpipe(rio->rio_dev, 1),
 				      ibuf, this_read, &partial,
-				      (int) (HZ * 8));
+				      8000);
 
 		dbg(KERN_DEBUG "read stats: result:%d this_read:%u partial:%u",
 		       result, this_read, partial);

@@ -19,6 +19,14 @@ config ARCH_H1940
 
 	  <http://www.handhelds.org/projects/h1940.html>.
 
+config MACH_N30
+	bool "Acer N30"
+	select CPU_S3C2410
+	help
+	  Say Y here if you are using the Acer N30
+
+	  <http://zoo.weinigel.se/n30>.
+
 config ARCH_SMDK2410
 	bool "SMDK2410/A9M2410"
 	select CPU_S3C2410

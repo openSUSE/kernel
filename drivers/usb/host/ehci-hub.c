@@ -178,7 +178,7 @@ static int check_reset_complete (
 	if (!(port_status & PORT_PE)) {
 
 		/* with integrated TT, there's nobody to hand it to! */
-		if (ehci_is_ARC(ehci)) {
+		if (ehci_is_TDI(ehci)) {
 			ehci_dbg (ehci,
 				"Failed to enable port %d on root hub TT\n",
 				index+1);
@@ -517,7 +517,7 @@ static int ehci_hub_control (
 			 * transaction translator built in.
 			 */
 			if ((temp & (PORT_PE|PORT_CONNECT)) == PORT_CONNECT
-					&& !ehci_is_ARC(ehci)
+					&& !ehci_is_TDI(ehci)
 					&& PORT_USB11 (temp)) {
 				ehci_dbg (ehci,
 					"port %d low speed --> companion\n",

@@ -199,7 +199,7 @@ static void __init parisc_proc_mkdir(void)
 	case pcxl2:
 		if (NULL == proc_gsc_root)
 		{
-			proc_gsc_root = proc_mkdir("bus/gsc", 0);
+			proc_gsc_root = proc_mkdir("bus/gsc", NULL);
 		}
 		break;
         case pcxt_:
@@ -210,13 +210,13 @@ static void __init parisc_proc_mkdir(void)
         case pcxw2:
                 if (NULL == proc_runway_root)
                 {
-                        proc_runway_root = proc_mkdir("bus/runway", 0);
+                        proc_runway_root = proc_mkdir("bus/runway", NULL);
                 }
                 break;
 	case mako:
                 if (NULL == proc_mckinley_root)
                 {
-                        proc_mckinley_root = proc_mkdir("bus/mckinley", 0);
+                        proc_mckinley_root = proc_mkdir("bus/mckinley", NULL);
                 }
                 break;
 	default:

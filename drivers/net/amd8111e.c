@@ -1489,7 +1489,7 @@ static void amd8111e_read_regs(struct amd8111e_priv *lp, u32 *buf)
 amd8111e crc generator implementation is different from the kernel
 ether_crc() function.
 */
-int amd8111e_ether_crc(int len, char* mac_addr)
+static int amd8111e_ether_crc(int len, char* mac_addr)
 {
 	int i,byte;
 	unsigned char octet;
@@ -1717,7 +1717,7 @@ static int amd8111e_set_mac_address(struct net_device *dev, void *p)
 /* 
 This function changes the mtu of the device. It restarts the device  to initialize the descriptor with new receive buffers.
 */  
-int amd8111e_change_mtu(struct net_device *dev, int new_mtu)
+static int amd8111e_change_mtu(struct net_device *dev, int new_mtu)
 {
 	struct amd8111e_priv *lp = netdev_priv(dev);
 	int err;

@@ -227,7 +227,7 @@ static int usb_pcwd_send_command(struct usb_pcwd_private *usb_pcwd, unsigned cha
 	if (usb_control_msg(usb_pcwd->udev, usb_sndctrlpipe(usb_pcwd->udev, 0),
 			HID_REQ_SET_REPORT, HID_DT_REPORT,
 			0x0200, usb_pcwd->interface_number, buf, sizeof(buf),
-			HZ) != sizeof(buf)) {
+			1000) != sizeof(buf)) {
 		dbg("usb_pcwd_send_command: error in usb_control_msg for cmd 0x%x 0x%x 0x%x\n", cmd, *msb, *lsb);
 	}
 	/* wait till the usb card processed the command,

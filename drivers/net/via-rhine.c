@@ -390,7 +390,7 @@ enum backoff_bits {
 
 #ifdef USE_MMIO
 /* Registers we check that mmio and reg are the same. */
-int mmio_verify_registers[] = {
+static const int mmio_verify_registers[] = {
 	RxConfig, TxConfig, IntrEnable, ConfigA, ConfigB, ConfigC, ConfigD,
 	0
 };
@@ -1900,6 +1900,9 @@ static void rhine_shutdown (struct device *gendev)
 	struct net_device *dev = pci_get_drvdata(pdev);
 	struct rhine_private *rp = netdev_priv(dev);
 	void __iomem *ioaddr = rp->base;
+
+	if (!(rp->quirks & rqWOL))
+		return; /* Nothing to do for non-WOL adapters */
 
 	rhine_power_init(dev);
 

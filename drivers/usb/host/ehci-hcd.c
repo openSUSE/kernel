@@ -191,9 +191,22 @@ static int ehci_halt (struct ehci_hcd *ehci)
 	return handshake (&ehci->regs->status, STS_HALT, STS_HALT, 16 * 125);
 }
 
+/* put TDI/ARC silicon into EHCI mode */
+static void tdi_reset (struct ehci_hcd *ehci)
+{
+	u32 __iomem	*reg_ptr;
+	u32		tmp;
+
+	reg_ptr = (u32 __iomem *)(((u8 __iomem *)ehci->regs) + 0x68);
+	tmp = readl (reg_ptr);
+	tmp |= 0x3;
+	writel (tmp, reg_ptr);
+}
+
 /* reset a non-running (STS_HALT == 1) controller */
 static int ehci_reset (struct ehci_hcd *ehci)
 {
+	int	retval;
 	u32	command = readl (&ehci->regs->command);
 
 	command |= CMD_RESET;
@@ -201,7 +214,15 @@ static int ehci_reset (struct ehci_hcd *ehci)
 	writel (command, &ehci->regs->command);
 	ehci_to_hcd(ehci)->state = USB_STATE_HALT;
 	ehci->next_statechange = jiffies;
-	return handshake (&ehci->regs->command, CMD_RESET, 0, 250 * 1000);
+	retval = handshake (&ehci->regs->command, CMD_RESET, 0, 250 * 1000);
+
+	if (retval)
+		return retval;
+
+	if (ehci_is_TDI(ehci))
+		tdi_reset (ehci);
+
+	return retval;
 }
 
 /* idle the controller (from running) */
@@ -346,11 +367,20 @@ static int ehci_hc_reset (struct usb_hcd *hcd)
 	if (hcd->self.controller->bus == &pci_bus_type) {
 		struct pci_dev	*pdev = to_pci_dev(hcd->self.controller);
 
-		/* AMD8111 EHCI doesn't work, according to AMD errata */
-		if ((pdev->vendor == PCI_VENDOR_ID_AMD)
-				&& (pdev->device == 0x7463)) {
-			ehci_info (ehci, "ignoring AMD8111 (errata)\n");
-			return -EIO;
+		switch (pdev->vendor) {
+		case PCI_VENDOR_ID_TDI:
+			if (pdev->device == PCI_DEVICE_ID_TDI_EHCI) {
+				ehci->is_tdi_rh_tt = 1;
+				tdi_reset (ehci);
+			}
+			break;
+		case PCI_VENDOR_ID_AMD:
+			/* AMD8111 EHCI doesn't work, according to AMD errata */
+			if (pdev->device == 0x7463) {
+				ehci_info (ehci, "ignoring AMD8111 (errata)\n");
+				return -EIO;
+			}
+			break;
 		}
 
 		temp = HCC_EXT_CAPS (readl (&ehci->caps->hcc_params));
@@ -380,6 +410,8 @@ static int ehci_hc_reset (struct usb_hcd *hcd)
 		ehci_err (ehci, "bogus capabilities ... PCI problems!\n");
 		return -EIO;
 	}
+	if (ehci_is_TDI(ehci))
+		ehci_reset (ehci);
 #endif
 
 	/* cache this readonly data; minimize PCI reads */
@@ -481,15 +513,6 @@ static int ehci_start (struct usb_hcd *hcd)
 
 		/* help hc dma work well with cachelines */
 		pci_set_mwi (pdev);
-
-		/* chip-specific init */
-		switch (pdev->vendor) {
-		case PCI_VENDOR_ID_ARC:
-			if (pdev->device == PCI_DEVICE_ID_ARC_EHCI)
-				ehci->is_arc_rh_tt = 1;
-			break;
-		}
-
 	}
 #endif
 

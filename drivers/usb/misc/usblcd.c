@@ -144,7 +144,7 @@ write_lcd(struct file *file, const char __user *buffer,
 
 			result = usb_bulk_msg(lcd->lcd_dev,
 					 usb_sndbulkpipe(lcd->lcd_dev, 1),
-					 obuf, thistime, &partial, 10 * HZ);
+					 obuf, thistime, &partial, 10000);
 
 			dbg("write stats: result:%d thistime:%lu partial:%u",
 			     result, thistime, partial);
@@ -203,7 +203,7 @@ read_lcd(struct file *file, char __user *buffer, size_t count, loff_t * ppos)
 		result = usb_bulk_msg(lcd->lcd_dev,
 				      usb_rcvbulkpipe(lcd->lcd_dev, 0),
 				      ibuf, this_read, &partial,
-				      (int) (HZ * 8));
+				      8000);
 
 		dbg(KERN_DEBUG "read stats: result:%d this_read:%u partial:%u",
 		       result, this_read, partial);

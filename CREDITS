@@ -841,6 +841,11 @@ E: cort@fsmlabs.com
 W: http://www.fsmlabs.com/linuxppcbk.html
 D: PowerPC
 
+N: Daniel Drake
+E: dsd@gentoo.org
+D: USBAT02 CompactFlash support in usb-storage
+S: UK
+
 N: Oleg Drokin
 E: green@ccssu.crimea.ua
 W: http://www.ccssu.crimea.ua/~green
@@ -3427,6 +3432,7 @@ N: Jeroen Vreeken
 E: pe1rxq@amsat.org
 W: http://www.chello.nl/~j.vreeken/
 D: SE401 usb webcam driver
+D: ZD1201 usb wireless lan driver
 S: Maastrichterweg 63
 S: 5554 GG Valkenswaard
 S: The Netherlands

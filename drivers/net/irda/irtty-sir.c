@@ -32,6 +32,7 @@
 #include <linux/init.h>
 #include <asm/uaccess.h>
 #include <linux/smp_lock.h>
+#include <linux/delay.h>
 
 #include <net/irda/irda.h>
 #include <net/irda/irda_device.h>
@@ -97,8 +98,7 @@ static void irtty_wait_until_sent(struct sir_dev *dev)
 		unlock_kernel();
 	}
 	else {
-		set_task_state(current, TASK_UNINTERRUPTIBLE);
-		schedule_timeout(msecs_to_jiffies(USBSERIAL_TX_DONE_DELAY));
+		msleep(USBSERIAL_TX_DONE_DELAY);
 	}
 }
 

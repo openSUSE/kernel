@@ -212,7 +212,7 @@ static int cinergyt2_command (struct cinergyt2 *cinergyt2,
 	int ret;
 
 	ret = usb_bulk_msg(cinergyt2->udev, usb_sndbulkpipe(cinergyt2->udev, 1),
-			   send_buf, send_buf_len, &actual_len, HZ);
+			   send_buf, send_buf_len, &actual_len, 1000);
 
 	if (ret)
 		dprintk(1, "usb_bulk_msg (send) failed, err %i\n", ret);
@@ -221,7 +221,7 @@ static int cinergyt2_command (struct cinergyt2 *cinergyt2,
 		recv_buf = &dummy;
 
 	ret = usb_bulk_msg(cinergyt2->udev, usb_rcvbulkpipe(cinergyt2->udev, 1),
-			   recv_buf, recv_buf_len, &actual_len, HZ);
+			   recv_buf, recv_buf_len, &actual_len, 1000);
 
 	if (ret)
 		dprintk(1, "usb_bulk_msg (read) failed, err %i\n", ret);

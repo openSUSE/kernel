@@ -343,7 +343,7 @@ static struct net_device_stats *ethertap_get_stats(struct net_device *dev)
 }
 
 
-int __init ethertap_init(void)
+static int __init ethertap_init(void)
 {
 	int i, err = 0;
 
@@ -371,7 +371,7 @@ int __init ethertap_init(void)
 }
 module_init(ethertap_init);
 
-void __exit ethertap_cleanup(void)
+static void __exit ethertap_cleanup(void)
 {
 	int i;
 

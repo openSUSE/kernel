@@ -187,7 +187,6 @@ static int mtouchusb_probe(struct usb_interface *intf, const struct usb_device_i
         struct usb_endpoint_descriptor *endpoint;
         struct usb_device *udev = interface_to_usbdev (intf);
         char path[64];
-        char *buf;
         int nRet;
 
         dbg("%s - called", __FUNCTION__);
@@ -242,23 +241,14 @@ static int mtouchusb_probe(struct usb_interface *intf, const struct usb_device_i
         mtouch->input.absfuzz[ABS_Y] = MTOUCHUSB_YC_FUZZ;
         mtouch->input.absflat[ABS_Y] = MTOUCHUSB_YC_FLAT;
 
-        if (!(buf = kmalloc(63, GFP_KERNEL))) {
-                kfree(mtouch);
-                return -ENOMEM;
-        }
-
-        if (udev->descriptor.iManufacturer &&
-            usb_string(udev, udev->descriptor.iManufacturer, buf, 63) > 0)
-                        strcat(mtouch->name, buf);
-        if (udev->descriptor.iProduct &&
-            usb_string(udev, udev->descriptor.iProduct, buf, 63) > 0)
-                        sprintf(mtouch->name, "%s %s", mtouch->name, buf);
+	if (udev->manufacturer)
+		strcat(mtouch->name, udev->manufacturer);
+	if (udev->product)
+		sprintf(mtouch->name, "%s %s", mtouch->name, udev->product);
 
         if (!strlen(mtouch->name))
                 sprintf(mtouch->name, "USB Touchscreen %04x:%04x",
                         mtouch->input.id.vendor, mtouch->input.id.product);
-
-        kfree(buf);
 
         nRet = usb_control_msg(mtouch->udev,
                                usb_rcvctrlpipe(udev, 0),
@@ -268,7 +258,7 @@ static int mtouchusb_probe(struct usb_interface *intf, const struct usb_device_i
                                0,
                                NULL,
                                0,
-                               HZ * USB_CTRL_SET_TIMEOUT);
+                               USB_CTRL_SET_TIMEOUT);
         dbg("%s - usb_control_msg - MTOUCHUSB_RESET - bytes|err: %d",
             __FUNCTION__, nRet);
 
@@ -302,7 +292,7 @@ static int mtouchusb_probe(struct usb_interface *intf, const struct usb_device_i
                                1,
                                NULL,
                                0,
-                               HZ * USB_CTRL_SET_TIMEOUT);
+                               USB_CTRL_SET_TIMEOUT);
         dbg("%s - usb_control_msg - MTOUCHUSB_ASYNC_REPORT - bytes|err: %d",
             __FUNCTION__, nRet);
 

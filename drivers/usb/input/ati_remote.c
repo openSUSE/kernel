@@ -94,6 +94,7 @@
 #include <linux/moduleparam.h>
 #include <linux/input.h>
 #include <linux/usb.h>
+#include <linux/wait.h>
 
 /*
  * Module and Version Information, Module Parameters
@@ -396,8 +397,6 @@ static void ati_remote_irq_out(struct urb *urb, struct pt_regs *regs)
  */
 static int ati_remote_sendpacket(struct ati_remote *ati_remote, u16 cmd, unsigned char *data)
 {
-	DECLARE_WAITQUEUE(wait, current);
-	int timeout = HZ;	/* 1 second */
 	int retval = 0;
 	
 	/* Set up out_urb */
@@ -415,18 +414,10 @@ static int ati_remote_sendpacket(struct ati_remote *ati_remote, u16 cmd, unsigne
 		return retval;
 	}
 
-	set_current_state(TASK_INTERRUPTIBLE);
-	add_wait_queue(&ati_remote->wait, &wait);
-
-	while (timeout && (ati_remote->out_urb->status == -EINPROGRESS) 
-	       && !(ati_remote->send_flags & SEND_FLAG_COMPLETE)) {
-		set_current_state(TASK_INTERRUPTIBLE);
-		timeout = schedule_timeout(timeout);
-		rmb();
-	}
-
-	set_current_state(TASK_RUNNING);
-	remove_wait_queue(&ati_remote->wait, &wait);
+	wait_event_timeout(ati_remote->wait,
+		((ati_remote->out_urb->status != -EINPROGRESS) ||
+		 	(ati_remote->send_flags & SEND_FLAG_COMPLETE)),
+		HZ);
 	usb_kill_urb(ati_remote->out_urb);
 	
 	return retval;
@@ -727,7 +718,6 @@ static int ati_remote_probe(struct usb_interface *interface, const struct usb_de
 	struct usb_host_interface *iface_host;
 	int retval = -ENOMEM;
 	char path[64];
-	char *buf = NULL;
 
 	/* Allocate and clear an ati_remote struct */
 	if (!(ati_remote = kmalloc(sizeof (struct ati_remote), GFP_KERNEL)))
@@ -761,8 +751,6 @@ static int ati_remote_probe(struct usb_interface *interface, const struct usb_de
 		retval = -ENODEV;
 		goto error;
 	}
-	if (!(buf = kmalloc(NAME_BUFSIZE, GFP_KERNEL)))
-		goto error;
 
 	/* Allocate URB buffers, URBs */
 	ati_remote->inbuf = usb_buffer_alloc(udev, DATA_BUFSIZE, SLAB_ATOMIC,
@@ -785,14 +773,11 @@ static int ati_remote_probe(struct usb_interface *interface, const struct usb_de
 
 	usb_make_path(udev, path, NAME_BUFSIZE);
 	sprintf(ati_remote->phys, "%s/input%d", path, ATI_INPUTNUM);
-	if (udev->descriptor.iManufacturer && 
-	    (usb_string(udev, udev->descriptor.iManufacturer, buf, 
-			NAME_BUFSIZE) > 0))
-		strcat(ati_remote->name, buf);
+	if (udev->manufacturer)
+		strcat(ati_remote->name, udev->manufacturer);
 
-	if (udev->descriptor.iProduct && 
-	    (usb_string(udev, udev->descriptor.iProduct, buf, NAME_BUFSIZE) > 0))
-		sprintf(ati_remote->name, "%s %s", ati_remote->name, buf);
+	if (udev->product)
+		sprintf(ati_remote->name, "%s %s", ati_remote->name, udev->product);
 
 	if (!strlen(ati_remote->name))
 		sprintf(ati_remote->name, DRIVER_DESC "(%04x,%04x)",
@@ -815,9 +800,6 @@ static int ati_remote_probe(struct usb_interface *interface, const struct usb_de
 	ati_remote->present = 1;	
 	
 error:
-	if (buf)
-		kfree(buf);
-
 	if (retval)
 		ati_remote_delete(ati_remote);
 

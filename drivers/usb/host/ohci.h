@@ -111,8 +111,10 @@ struct td {
   	__hc32		hwNextTD;	/* Next TD Pointer */
   	__hc32		hwBE;		/* Memory Buffer End Pointer */
 
-	/* PSW is only for ISO */
-#define MAXPSW 1		/* hardware allows 8 */
+	/* PSW is only for ISO.  Only 1 PSW entry is used, but on
+	 * big-endian PPC hardware that's the second entry.
+	 */
+#define MAXPSW	2
   	__hc16		hwPSW [MAXPSW];
 
 	/* rest are purely for the driver's use */
@@ -183,7 +185,7 @@ struct ohci_hcca {
 	/* 
 	 * OHCI defines u16 frame_no, followed by u16 zero pad.
 	 * Since some processors can't do 16 bit bus accesses,
-	 * portable access must be a 32 bit byteswapped access.
+	 * portable access must be a 32 bits wide.
 	 */
 	__hc32	frame_no;		/* current frame number */
 	__hc32	done_head;		/* info returned for an interrupt */
@@ -191,8 +193,6 @@ struct ohci_hcca {
 	u8	what [4];		/* spec only identifies 252 bytes :) */
 } __attribute__ ((aligned(256)));
 
-#define ohci_frame_no(ohci) ((u16)hc32_to_cpup(ohci,&(ohci)->hcca->frame_no))
-  
 /*
  * This is the structure of the OHCI controller's memory mapped I/O region.
  * You must use readl() and writel() (in <asm/io.h>) to access these fields!!
@@ -550,6 +550,44 @@ static inline u32 hc32_to_cpu (const struct ohci_hcd *ohci, const __hc32 x)
 static inline u32 hc32_to_cpup (const struct ohci_hcd *ohci, const __hc32 *x)
 {
 	return big_endian(ohci) ? be32_to_cpup((__force __be32 *)x) : le32_to_cpup((__force __le32 *)x);
+}
+
+/*-------------------------------------------------------------------------*/
+
+/* HCCA frame number is 16 bits, but is accessed as 32 bits since not all
+ * hardware handles 16 bit reads.  That creates a different confusion on
+ * some big-endian SOC implementations.  Same thing happens with PSW access.
+ */
+
+#ifdef CONFIG_STB03xxx
+#define OHCI_BE_FRAME_NO_SHIFT	16
+#else
+#define OHCI_BE_FRAME_NO_SHIFT	0
+#endif
+
+static inline u16 ohci_frame_no(const struct ohci_hcd *ohci)
+{
+	u32 tmp;
+	if (big_endian(ohci)) {
+		tmp = be32_to_cpup((__force __be32 *)&ohci->hcca->frame_no);
+		tmp >>= OHCI_BE_FRAME_NO_SHIFT;
+	} else
+		tmp = le32_to_cpup((__force __le32 *)&ohci->hcca->frame_no);
+
+	return (u16)tmp;
+}
+
+static inline __hc16 *ohci_hwPSWp(const struct ohci_hcd *ohci,
+                                 const struct td *td, int index)
+{
+	return (__hc16 *)(big_endian(ohci) ?
+			&td->hwPSW[index ^ 1] : &td->hwPSW[index]);
+}
+
+static inline u16 ohci_hwPSW(const struct ohci_hcd *ohci,
+                               const struct td *td, int index)
+{
+	return hc16_to_cpup(ohci, ohci_hwPSWp(ohci, td, index));
 }
 
 /*-------------------------------------------------------------------------*/

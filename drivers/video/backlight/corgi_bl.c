@@ -52,9 +52,9 @@ static void corgibl_send_intensity(int intensity)
 	corgi_ssp_blduty_set(intensity & 0x1f);
 	/* Bit 5 is via SCOOP */
 	if (intensity & 0x0020)
-		set_scoop_gpio(CORGI_SCP_BACKLIGHT_CONT);
+		set_scoop_gpio(&corgiscoop_device.dev, CORGI_SCP_BACKLIGHT_CONT);
 	else
-		reset_scoop_gpio(CORGI_SCP_BACKLIGHT_CONT);
+		reset_scoop_gpio(&corgiscoop_device.dev, CORGI_SCP_BACKLIGHT_CONT);
 	spin_unlock_irqrestore(&bl_lock, flags);
 }
 
