@@ -1455,9 +1455,8 @@ nfsd4_process_open1(struct nfsd4_open *open)
 	if (!check_name(open->op_owner))
 		goto out;
 
-	status = nfserr_stale_clientid;
 	if (STALE_CLIENTID(&open->op_clientid))
-		return status;
+		return nfserr_stale_clientid;
 
 	strhashval = ownerstr_hashval(clientid->cl_id, open->op_owner);
 	if (find_openstateowner_str(strhashval, open, &sop)) {
@@ -1475,14 +1474,11 @@ nfsd4_process_open1(struct nfsd4_open *open)
 				 */
 				dprintk("nfsd4_process_open1:"
 					" replay with no replay cache\n");
-				status = NFS_OK;
 				goto renew;
 			}
 		} else if (sop->so_confirmed) {
-			if (open->op_seqid == sop->so_seqid + 1) { 
-				status = nfs_ok;
+			if (open->op_seqid == sop->so_seqid + 1)
 				goto renew;
-			} 
 			status = nfserr_bad_seqid;
 			goto out;
 		} else {
@@ -1508,8 +1504,8 @@ nfsd4_process_open1(struct nfsd4_open *open)
 	if (!(sop = alloc_init_open_stateowner(strhashval, clp, open))) 
 		goto out;
 	open->op_stateowner = sop;
-	status = nfs_ok;
 renew:
+	status = nfs_ok;
 	renew_client(sop->so_client);
 out:
 	if (status && open->op_claim_type == NFS4_OPEN_CLAIM_PREVIOUS)
