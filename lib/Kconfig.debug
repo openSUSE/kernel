@@ -121,20 +121,9 @@ config DEBUG_INFO
 	help
           If you say Y here the resulting kernel image will include
 	  debugging info resulting in a larger kernel image.
-	  Say Y here only if you plan to use gdb to debug the kernel.
-	  If you don't debug the kernel, you can say N.
+	  Say Y here only if you plan to debug the kernel.
 
-config DEBUG_INFO
-	bool "Enable kernel debugging symbols"
-	depends on DEBUG_KERNEL && USERMODE
-	help
-	  When this is enabled, the User-Mode Linux binary will include
-	  debugging symbols.  This enlarges the binary by a few megabytes,
-	  but aids in tracking down kernel problems in UML.  It is required
-	  if you intend to do any kernel development.
-
-	  If you're truly short on disk space or don't expect to report any
-	  bugs back to the UML developers, say N, otherwise say Y.
+	  If unsure, say N.
 
 config DEBUG_IOREMAP
 	bool "Enable ioremap() debugging"
