@@ -57,9 +57,9 @@ static char version[] = "sb1000.c:v1.1.2 6/01/98 (fventuri@mediaone.net)\n";
 #include <asm/uaccess.h>
 
 #ifdef SB1000_DEBUG
-int sb1000_debug = SB1000_DEBUG;
+static int sb1000_debug = SB1000_DEBUG;
 #else
-int sb1000_debug = 1;
+static int sb1000_debug = 1;
 #endif
 
 static const int SB1000_IO_EXTENT = 8;
@@ -252,7 +252,7 @@ static struct pnp_driver sb1000_driver = {
  * SB1000 hardware routines to be used during open/configuration phases
  */
 
-const int TimeOutJiffies = (875 * HZ) / 100;
+static const int TimeOutJiffies = (875 * HZ) / 100;
 
 static inline void nicedelay(unsigned long usecs)
 {
@@ -363,7 +363,7 @@ card_send_command(const int ioaddr[], const char* name,
 /*
  * SB1000 hardware routines to be used during frame rx interrupt
  */
-const int Sb1000TimeOutJiffies = 7 * HZ;
+static const int Sb1000TimeOutJiffies = 7 * HZ;
 
 /* Card Wait For Ready (to be used during frame rx) */
 static inline int
