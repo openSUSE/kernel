@@ -1249,7 +1249,7 @@ config SCSI_QLOGIC_FAS
 
 config SCSI_QLOGIC_ISP
 	tristate "Qlogic ISP SCSI support (old driver)"
-	depends on PCI && SCSI
+	depends on PCI && SCSI && BROKEN
 	---help---
 	  This driver works for all QLogic PCI SCSI host adapters (IQ-PCI,
 	  IQ-PCI-10, IQ_PCI-D) except for the PCI-basic card.  (This latter
