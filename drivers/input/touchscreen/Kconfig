@@ -60,6 +60,17 @@ config TOUCHSCREEN_ELO
 	  To compile this driver as a module, choose M here: the
 	  module will be called gunze.
 
+config TOUCHSCREEN_MTOUCH
+	tristate "MicroTouch serial touchscreens"
+	select SERIO
+	help
+	  Say Y here if you have a MicroTouch (3M) serial touchscreen connected to
+	  your system.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called mtouch.
 
 config TOUCHSCREEN_MK712
 	tristate "ICS MicroClock MK712 touchscreen"
