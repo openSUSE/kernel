@@ -248,32 +248,6 @@ enum {
 };
 
 /*
- * Serial Interface Unit
- */
-
-/* SIU interfaces */
-typedef enum {
-	SIU_RS232C,
-	SIU_IRDA
-} siu_interface_t;
-
-/* IrDA interfaces */
-typedef enum {
-	IRDA_NONE,
-	IRDA_SHARP,
-	IRDA_TEMIC,
-	IRDA_HP
-} irda_module_t;
-
-extern void vr41xx_select_siu_interface(siu_interface_t interface,
-                                        irda_module_t module);
-
-/*
- * Debug Serial Interface Unit
- */
-extern void vr41xx_dsiu_init(void);
-
-/*
  * PCI Control Unit
  */
 #define PCI_MASTER_ADDRESS_MASK	0x7fffffffU

@@ -32,7 +32,6 @@
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
-#include <linux/platform.h>
 #include <linux/serial.h>
 #include <linux/serial_core.h>
 #include <linux/serial_reg.h>
@@ -40,6 +39,7 @@
 #include <linux/tty_flip.h>
 
 #include <asm/io.h>
+#include <asm/vr41xx/siu.h>
 #include <asm/vr41xx/vr41xx.h>
 
 #define SIU_PORTS_MAX	2
@@ -50,21 +50,26 @@
 #define RX_MAX_COUNT	256
 #define TX_MAX_COUNT	15
 
+#define SIUIRSEL	0x08
+ #define TMICMODE	0x20
+ #define TMICTX		0x10
+ #define IRMSEL		0x0c
+ #define IRMSEL_HP	0x08
+ #define IRMSEL_TEMIC	0x04
+ #define IRMSEL_SHARP	0x00
+ #define IRUSESEL	0x02
+ #define SIRSEL		0x01
+
 struct siu_port {
 	unsigned int type;
 	unsigned int irq;
 	unsigned long start;
-	uint8_t flags;
 };
-
-#define SIU_HAS_IRDA_SUPPORT	0x01
-#define SIU_OUTPUT_IRDA		0x10
 
 static const struct siu_port siu_type1_ports[] = {
 	{	.type		= PORT_VR41XX_SIU,
 		.irq		= SIU_IRQ,
-		.start		= 0x0c000000UL,
-		.flags		= SIU_HAS_IRDA_SUPPORT,	},
+		.start		= 0x0c000000UL,		},
 };
 
 #define SIU_TYPE1_NR_PORTS	(sizeof(siu_type1_ports) / sizeof(struct siu_port))
@@ -72,8 +77,7 @@ static const struct siu_port siu_type1_ports[] = {
 static const struct siu_port siu_type2_ports[] = {
 	{	.type		= PORT_VR41XX_SIU,
 		.irq		= SIU_IRQ,
-		.start		= 0x0f000800UL,
-		.flags		= SIU_HAS_IRDA_SUPPORT,	},
+		.start		= 0x0f000800UL,		},
 	{	.type		= PORT_VR41XX_DSIU,
 		.irq		= DSIU_IRQ,
 		.start		= 0x0f000820UL,		},
@@ -86,6 +90,84 @@ static uint8_t lsr_break_flag[SIU_PORTS_MAX];
 
 #define siu_read(port, offset)		readb((port)->membase + (offset))
 #define siu_write(port, offset, value)	writeb((value), (port)->membase + (offset))
+
+void vr41xx_select_siu_interface(siu_interface_t interface)
+{
+	struct uart_port *port;
+	unsigned long flags;
+	uint8_t irsel;
+
+	port = &siu_uart_ports[0];
+
+	spin_lock_irqsave(&port->lock, flags);
+
+	irsel = siu_read(port, SIUIRSEL);
+	if (interface == SIU_INTERFACE_IRDA)
+		irsel |= SIRSEL;
+	else
+		irsel &= ~SIRSEL;
+	siu_write(port, SIUIRSEL, irsel);
+
+	spin_unlock_irqrestore(&port->lock, flags);
+}
+
+EXPORT_SYMBOL_GPL(vr41xx_select_siu_interface);
+
+void vr41xx_use_irda(irda_use_t use)
+{
+	struct uart_port *port;
+	unsigned long flags;
+	uint8_t irsel;
+
+	port = &siu_uart_ports[0];
+
+	spin_lock_irqsave(&port->lock, flags);
+
+	irsel = siu_read(port, SIUIRSEL);
+	if (use == FIR_USE_IRDA)
+		irsel |= IRUSESEL;
+	else
+		irsel &= ~IRUSESEL;
+	siu_write(port, SIUIRSEL, irsel);
+
+	spin_unlock_irqrestore(&port->lock, flags);
+}
+
+EXPORT_SYMBOL_GPL(vr41xx_use_irda);
+
+void vr41xx_select_irda_module(irda_module_t module, irda_speed_t speed)
+{
+	struct uart_port *port;
+	unsigned long flags;
+	uint8_t irsel;
+
+	port = &siu_uart_ports[0];
+
+	spin_lock_irqsave(&port->lock, flags);
+
+	irsel = siu_read(port, SIUIRSEL);
+	irsel &= ~(IRMSEL | TMICTX | TMICMODE);
+	switch (module) {
+	case SHARP_IRDA:
+		irsel |= IRMSEL_SHARP;
+		break;
+	case TEMIC_IRDA:
+		irsel |= IRMSEL_TEMIC | TMICMODE;
+		if (speed == IRDA_TX_4MBPS)
+			irsel |= TMICTX;
+		break;
+	case HP_IRDA:
+		irsel |= IRMSEL_HP;
+		break;
+	default:
+		break;
+	}
+	siu_write(port, SIUIRSEL, irsel);
+
+	spin_unlock_irqrestore(&port->lock, flags);
+}
+
+EXPORT_SYMBOL_GPL(vr41xx_select_irda_module);
 
 static inline void siu_clear_fifo(struct uart_port *port)
 {
@@ -830,6 +912,8 @@ static int siu_console_setup(struct console *con, char *options)
 		port->membase = (unsigned char __iomem *)KSEG1ADDR(port->mapbase);
 	}
 
+	vr41xx_select_siu_interface(SIU_INTERFACE_RS232C);
+
 	if (options != NULL)
 		uart_parse_options(options, &baud, &parity, &bits, &flow);
 
@@ -991,9 +1075,8 @@ static int __devinit vr41xx_siu_init(void)
 		return PTR_ERR(siu_platform_device);
 
 	retval = driver_register(&siu_device_driver);
-	if (retval < 0) {
+	if (retval < 0)
 		platform_device_unregister(siu_platform_device);
-	}
 
 	return retval;
 }
