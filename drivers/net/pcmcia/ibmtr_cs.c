@@ -401,7 +401,7 @@ static void ibmtr_release(dev_link_t *link)
     pcmcia_release_irq(link->handle, &link->irq);
     if (link->win) {
 	struct tok_info *ti = netdev_priv(dev);
-	iounmap((void *)ti->mmio);
+	iounmap(ti->mmio);
 	pcmcia_release_window(link->win);
 	pcmcia_release_window(info->sram_win_handle);
     }
