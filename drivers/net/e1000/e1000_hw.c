@@ -1572,7 +1572,8 @@ e1000_phy_force_speed_duplex(struct e1000_hw *hw)
             if(mii_status_reg & MII_SR_LINK_STATUS) break;
             msec_delay(100);
         }
-        if((i == 0) && (hw->phy_type == e1000_phy_m88)) {
+        if((i == 0) &&
+           (hw->phy_type == e1000_phy_m88)) {
             /* We didn't get link.  Reset the DSP and wait again for link. */
             ret_val = e1000_phy_reset_dsp(hw);
             if(ret_val) {
@@ -2955,8 +2956,7 @@ e1000_phy_m88_get_info(struct e1000_hw *hw,
     /* Check polarity status */
     ret_val = e1000_check_polarity(hw, &polarity);
     if(ret_val)
-        return ret_val;
-
+        return ret_val; 
     phy_info->cable_polarity = polarity;
 
     ret_val = e1000_read_phy_reg(hw, M88E1000_PHY_SPEC_STATUS, &phy_data);
@@ -4924,8 +4924,7 @@ e1000_check_downshift(struct e1000_hw *hw)
             return ret_val;
 
         hw->speed_downgraded = (phy_data & IGP01E1000_PLHR_SS_DOWNGRADE) ? 1 : 0;
-    }
-    else if(hw->phy_type == e1000_phy_m88) {
+    } else if(hw->phy_type == e1000_phy_m88) {
         ret_val = e1000_read_phy_reg(hw, M88E1000_PHY_SPEC_STATUS,
                                      &phy_data);
         if(ret_val)

@@ -35,6 +35,14 @@
  * - More errlogging support from Jon Mason <jonmason@us.ibm.com>
  * - Fix TSO issues on PPC64 machines -- Jon Mason <jonmason@us.ibm.com>
  *
+ * 5.7.1	12/16/04
+ * - Resurrect 82547EI/GI related fix in e1000_intr to avoid deadlocks. This
+ *   fix was removed as it caused system instability. The suspected cause of 
+ *   this is the called to e1000_irq_disable in e1000_intr. Inlined the 
+ *   required piece of e1000_irq_disable into e1000_intr - Anton Blanchard
+ * 5.7.0	12/10/04
+ * - include fix to the condition that determines when to quit NAPI - Robert Olsson
+ * - use netif_poll_{disable/enable} to synchronize between NAPI and i/f up/down
  * 5.6.5 	11/01/04
  * - Enabling NETIF_F_SG without checksum offload is illegal - 
      John Mason <jdmason@us.ibm.com>
@@ -57,7 +65,7 @@ char e1000_driver_string[] = "Intel(R) PRO/1000 Network Driver";
 #else
 #define DRIVERNAPI "-NAPI"
 #endif
-char e1000_driver_version[] = "5.6.10.1-k2"DRIVERNAPI;
+char e1000_driver_version[] = "5.7.6-k2"DRIVERNAPI;
 char e1000_copyright[] = "Copyright (c) 1999-2004 Intel Corporation.";
 
 /* e1000_pci_tbl - PCI Device ID Table
@@ -81,6 +89,7 @@ static struct pci_device_id e1000_pci_tbl[] = {
 	INTEL_E1000_ETHERNET_DEVICE(0x1011),
 	INTEL_E1000_ETHERNET_DEVICE(0x1012),
 	INTEL_E1000_ETHERNET_DEVICE(0x1013),
+	INTEL_E1000_ETHERNET_DEVICE(0x1014),
 	INTEL_E1000_ETHERNET_DEVICE(0x1015),
 	INTEL_E1000_ETHERNET_DEVICE(0x1016),
 	INTEL_E1000_ETHERNET_DEVICE(0x1017),
@@ -518,9 +527,6 @@ e1000_probe(struct pci_dev *pdev,
 	}
 
 #ifdef NETIF_F_TSO
-	/* Disbaled for now until root-cause is found for
-	 * hangs reported against non-IA archs.  TSO can be
-	 * enabled using ethtool -K eth<x> tso on */
 	if((adapter->hw.mac_type >= e1000_82544) &&
 	   (adapter->hw.mac_type != e1000_82547))
 		netdev->features |= NETIF_F_TSO;
@@ -862,7 +868,7 @@ e1000_setup_tx_resources(struct e1000_adapter *adapter)
 	txdr->buffer_info = vmalloc(size);
 	if(!txdr->buffer_info) {
 		DPRINTK(PROBE, ERR, 
-		"Unble to Allocate Memory for the Transmit descriptor ring\n");
+		"Unable to Allocate Memory for the Transmit descriptor ring\n");
 		return -ENOMEM;
 	}
 	memset(txdr->buffer_info, 0, size);
@@ -876,7 +882,7 @@ e1000_setup_tx_resources(struct e1000_adapter *adapter)
 	if(!txdr->desc) {
 setup_tx_desc_die:
 		DPRINTK(PROBE, ERR, 
-		"Unble to Allocate Memory for the Transmit descriptor ring\n");
+		"Unable to Allocate Memory for the Transmit descriptor ring\n");
 		vfree(txdr->buffer_info);
 		return -ENOMEM;
 	}
@@ -1014,7 +1020,7 @@ e1000_setup_rx_resources(struct e1000_adapter *adapter)
 	rxdr->buffer_info = vmalloc(size);
 	if(!rxdr->buffer_info) {
 		DPRINTK(PROBE, ERR, 
-		"Unble to Allocate Memory for the Recieve descriptor ring\n");
+		"Unable to Allocate Memory for the Recieve descriptor ring\n");
 		return -ENOMEM;
 	}
 	memset(rxdr->buffer_info, 0, size);
