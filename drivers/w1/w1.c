@@ -58,7 +58,6 @@ LIST_HEAD(w1_masters);
 static pid_t control_thread;
 static int control_needs_exit;
 static DECLARE_COMPLETION(w1_control_complete);
-static DECLARE_WAIT_QUEUE_HEAD(w1_control_wait);
 
 static int w1_master_match(struct device *dev, struct device_driver *drv)
 {
@@ -649,7 +648,7 @@ int w1_control(void *data)
 	struct w1_slave *sl;
 	struct w1_master *dev;
 	struct list_head *ent, *ment, *n, *mn;
-	int err, have_to_wait = 0, timeout;
+	int err, have_to_wait = 0;
 
 	daemonize("w1_control");
 	allow_signal(SIGTERM);
@@ -657,11 +656,8 @@ int w1_control(void *data)
 	while (!control_needs_exit || have_to_wait) {
 		have_to_wait = 0;
 
-		timeout = w1_timeout*HZ;
-		do {
-			timeout = interruptible_sleep_on_timeout(&w1_control_wait, timeout);
-			try_to_freeze(PF_FREEZE);
-		} while (!signal_pending(current) && (timeout > 0));
+		try_to_freeze(PF_FREEZE);
+		msleep_interruptible(w1_timeout * 1000);
 
 		if (signal_pending(current))
 			flush_signals(current);
@@ -721,7 +717,6 @@ int w1_control(void *data)
 int w1_process(void *data)
 {
 	struct w1_master *dev = (struct w1_master *) data;
-	unsigned long timeout;
 	struct list_head *ent, *n;
 	struct w1_slave *sl;
 
@@ -729,11 +724,8 @@ int w1_process(void *data)
 	allow_signal(SIGTERM);
 
 	while (!dev->need_exit) {
-		timeout = w1_timeout*HZ;
-		do {
-			timeout = interruptible_sleep_on_timeout(&dev->kwait, timeout);
-			try_to_freeze(PF_FREEZE);
-		} while (!signal_pending(current) && (timeout > 0));
+		try_to_freeze(PF_FREEZE);
+		msleep_interruptible(w1_timeout * 1000);
 
 		if (signal_pending(current))
 			flush_signals(current);

@@ -74,7 +74,6 @@ struct w1_master * w1_alloc_dev(u32 id, int slave_count, int slave_ttl,
 	INIT_LIST_HEAD(&dev->slist);
 	init_MUTEX(&dev->mutex);
 
-	init_waitqueue_head(&dev->kwait);
 	init_completion(&dev->dev_released);
 	init_completion(&dev->dev_exited);
 
