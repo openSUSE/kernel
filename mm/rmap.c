@@ -574,7 +574,7 @@ static int try_to_unmap_one(struct page *page, struct vm_area_struct *vma)
 	}
 
 	/* Nuke the page table entry. */
-	flush_cache_page(vma, address);
+	flush_cache_page(vma, address, page_to_pfn(page));
 	pteval = ptep_clear_flush(vma, address, pte);
 
 	/* Move the dirty bit to the physical page now the pte is gone. */
@@ -692,7 +692,7 @@ static void try_to_unmap_cluster(unsigned long cursor,
 			continue;
 
 		/* Nuke the page table entry. */
-		flush_cache_page(vma, address);
+		flush_cache_page(vma, address, pfn);
 		pteval = ptep_clear_flush(vma, address, pte);
 
 		/* If nonlinear, store the file page offset in the pte. */

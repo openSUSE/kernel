@@ -56,7 +56,7 @@ static void __flush_dcache_page(struct address_space *mapping, struct page *page
 		if (!(mpnt->vm_flags & VM_MAYSHARE))
 			continue;
 		offset = (pgoff - mpnt->vm_pgoff) << PAGE_SHIFT;
-		flush_cache_page(mpnt, mpnt->vm_start + offset);
+		flush_cache_page(mpnt, mpnt->vm_start + offset, page_to_pfn(page));
 		if (cache_is_vipt())
 			break;
 	}
