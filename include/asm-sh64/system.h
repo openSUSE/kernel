@@ -191,4 +191,6 @@ extern void print_seg(char *file,int line);
 
 #define PL() printk("@ <%s,%s:%d>\n",__FILE__,__FUNCTION__,__LINE__)
 
+#define arch_align_stack(x) (x)
+
 #endif /* __ASM_SH64_SYSTEM_H */

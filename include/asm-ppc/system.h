@@ -201,5 +201,7 @@ __cmpxchg(volatile void *ptr, unsigned long old, unsigned long new, int size)
 				    (unsigned long)_n_, sizeof(*(ptr))); \
   })
 
+#define arch_align_stack(x) (x)
+
 #endif /* __KERNEL__ */
 #endif /* __PPC_SYSTEM_H */

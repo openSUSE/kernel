@@ -468,4 +468,6 @@ void enable_hlt(void);
 extern int es7000_plat;
 void cpu_idle_wait(void);
 
+extern unsigned long arch_align_stack(unsigned long sp);
+
 #endif

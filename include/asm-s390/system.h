@@ -461,6 +461,8 @@ extern void (*_machine_restart)(char *command);
 extern void (*_machine_halt)(void);
 extern void (*_machine_power_off)(void);
 
+#define arch_align_stack(x) (x)
+
 #endif /* __KERNEL__ */
 
 #endif
