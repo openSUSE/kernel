@@ -151,7 +151,7 @@
 #include <asm/timex.h>
 
 
-#define VERSION  "pktgen v2.59: Packet Generator for packet performance testing.\n"
+#define VERSION  "pktgen v2.60: Packet Generator for packet performance testing.\n"
 
 /* #define PG_DEBUG(a) a */
 #define PG_DEBUG(a) 
@@ -1419,7 +1419,6 @@ static int proc_thread_write(struct file *file, const char __user *user_buffer,
 	if (debug) 
 		printk("pktgen: t=%s, count=%lu\n", name, count);
         
-	thread_lock();
 
         t = (struct pktgen_thread*)(data);
 	if(!t) {
@@ -1441,14 +1440,18 @@ static int proc_thread_write(struct file *file, const char __user *user_buffer,
 		if( copy_from_user(f, &user_buffer[i], len) )
 			return -EFAULT;
 		i += len;
+		thread_lock();
                 pktgen_add_device(t, f);
+		thread_unlock();
                 ret = count;
                 sprintf(pg_result, "OK: add_device=%s", f);
 		goto out;
 	}
 
         if (!strcmp(name, "rem_device_all")) {
+		thread_lock();
 		t->control |= T_REMDEV;
+		thread_unlock();
 		current->state = TASK_INTERRUPTIBLE;
 		schedule_timeout(HZ/8);  /* Propagate thread->control  */
 		ret = count;
@@ -1456,10 +1459,11 @@ static int proc_thread_write(struct file *file, const char __user *user_buffer,
 		goto out;
 	}
 
-
         if (!strcmp(name, "max_before_softirq")) {
                 len = num_arg(&user_buffer[i], 10, &value);
+		thread_lock();
                 t->max_before_softirq = value;
+		thread_unlock();
                 ret = count;
                 sprintf(pg_result, "OK: max_before_softirq=%lu", value);
 		goto out;
@@ -1467,7 +1471,6 @@ static int proc_thread_write(struct file *file, const char __user *user_buffer,
 
 	ret = -EINVAL;
  out:
-	thread_unlock();
 
 	return ret;
 }
