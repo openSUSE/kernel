@@ -32,3 +32,8 @@ Why:	/proc/sys/cpu/* has been deprecated since inclusion of cpufreq into
 	/sys/devices/system/cpu/cpu%n/cpufreq/.
 Who:	Dominik Brodowski <linux@brodo.de>
 
+What:	ACPI S4bios support
+When:	May 2005
+Why:	Noone uses it, and it probably does not work, anyway. swsusp is
+	faster, more reliable, and people are actually using it.
+Who:	Pavel Machek <pavel@suse.cz>

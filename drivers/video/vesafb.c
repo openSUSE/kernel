@@ -185,7 +185,7 @@ static struct fb_ops vesafb_ops = {
 	.fb_cursor	= soft_cursor,
 };
 
-int __init vesafb_setup(char *options)
+static int __init vesafb_setup(char *options)
 {
 	char *this_opt;
 	
@@ -434,7 +434,7 @@ static struct platform_device vesafb_device = {
 	.name	= "vesafb",
 };
 
-int __init vesafb_init(void)
+static int __init vesafb_init(void)
 {
 	int ret;
 	char *option = NULL;
@@ -452,13 +452,5 @@ int __init vesafb_init(void)
 	return ret;
 }
 module_init(vesafb_init);
-
-/*
- * Overrides for Emacs so that we follow Linus's tabbing style.
- * ---------------------------------------------------------------------------
- * Local variables:
- * c-basic-offset: 8
- * End:
- */
 
 MODULE_LICENSE("GPL");

@@ -1995,7 +1995,7 @@ int __init i810fb_init(void)
 
 #ifdef MODULE
 
-int __init i810fb_init(void)
+static int __init i810fb_init(void)
 {
 	hsync1 *= 1000;
 	hsync2 *= 1000;

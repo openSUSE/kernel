@@ -67,6 +67,7 @@ restrictions referred to are that the relevant option is valid if:
 	SCSI	Appropriate SCSI support is enabled.
 			A lot of drivers has their options described inside of
 			Documentation/scsi/.
+	SELINUX SELinux support is enabled.
 	SERIAL	Serial support is enabled.
 	SMP	The kernel is an SMP kernel.
 	SPARC	Sparc architecture is enabled.
@@ -295,6 +296,14 @@ running once the system is up.
 			See header of drivers/cdrom/cdu31a.c.
 
 	chandev=	[HW,NET] Generic channel device initialisation
+
+	checkreqprot	[SELINUX] Set initial checkreqprot flag value.
+			Format: { "0" | "1" }
+			See security/selinux/Kconfig help text.
+			0 -- check protection applied by kernel (includes any implied execute protection).
+			1 -- check protection requested by application.
+			Default value is set via a kernel config option.
+			Value can be changed at runtime via /selinux/checkreqprot.
  
  	clock=		[BUGS=IA-32, HW] gettimeofday timesource override. 
 			Forces specified timesource (if avaliable) to be used
@@ -434,6 +443,14 @@ running once the system is up.
 			Format: {"as"|"cfq"|"deadline"|"noop"}
 			See Documentation/block/as-iosched.txt
 			and Documentation/block/deadline-iosched.txt for details.
+
+	enforcing	[SELINUX] Set initial enforcing status.
+			Format: {"0" | "1"}
+			See security/selinux/Kconfig help text.
+			0 -- permissive (log only, no denials).
+			1 -- enforcing (deny and log).
+			Default value is 0.
+			Value can be changed at runtime via /selinux/enforce.
 
 	es1370=		[HW,OSS]
 			Format: <lineout>[,<micbias>]
@@ -1159,6 +1176,15 @@ running once the system is up.
 			(flags are integer value)
 
 	scsi_logging=	[SCSI]
+
+	selinux		[SELINUX] Disable or enable SELinux at boot time.
+			Format: { "0" | "1" }
+			See security/selinux/Kconfig help text.
+			0 -- disable.
+			1 -- enable.
+			Default value is set via kernel config option.
+			If enabled at boot time, /selinux/disable can be used
+			later to disable prior to initial policy load.
 
 	serialnumber	[BUGS=IA-32]
 

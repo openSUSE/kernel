@@ -29,6 +29,7 @@
 #include <linux/mman.h>
 #include <linux/fs.h>
 #include <linux/cpu.h>
+#include <linux/cpuset.h>
 #include <linux/security.h>
 #include <linux/swap.h>
 #include <linux/syscalls.h>
@@ -721,6 +722,7 @@ static inline int copy_sighand(unsigned long clone_flags, struct task_struct * t
 static inline int copy_signal(unsigned long clone_flags, struct task_struct * tsk)
 {
 	struct signal_struct *sig;
+	int ret;
 
 	if (clone_flags & CLONE_THREAD) {
 		atomic_inc(&current->signal->count);
@@ -731,6 +733,13 @@ static inline int copy_signal(unsigned long clone_flags, struct task_struct * ts
 	tsk->signal = sig;
 	if (!sig)
 		return -ENOMEM;
+
+	ret = copy_thread_group_keys(tsk);
+	if (ret < 0) {
+		kmem_cache_free(signal_cachep, sig);
+		return ret;
+	}
+
 	atomic_set(&sig->count, 1);
 	atomic_set(&sig->live, 1);
 	init_waitqueue_head(&sig->wait_chldexit);
@@ -1060,6 +1069,8 @@ static task_t *copy_process(unsigned long clone_flags,
 	SET_LINKS(p);
 	if (unlikely(p->ptrace & PT_PTRACED))
 		__ptrace_link(p, current->parent);
+
+	cpuset_fork(p);
 
 	attach_pid(p, PIDTYPE_PID, p->pid);
 	attach_pid(p, PIDTYPE_TGID, p->tgid);

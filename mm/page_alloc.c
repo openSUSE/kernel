@@ -31,19 +31,24 @@
 #include <linux/topology.h>
 #include <linux/sysctl.h>
 #include <linux/cpu.h>
+#include <linux/cpuset.h>
 #include <linux/nodemask.h>
 #include <linux/vmalloc.h>
 
 #include <asm/tlbflush.h>
 #include "internal.h"
 
-/* MCD - HACK: Find somewhere to initialize this EARLY, or make this initializer cleaner */
+/*
+ * MCD - HACK: Find somewhere to initialize this EARLY, or make this
+ * initializer cleaner
+ */
 nodemask_t node_online_map = { { [0] = 1UL } };
 nodemask_t node_possible_map = NODE_MASK_ALL;
 struct pglist_data *pgdat_list;
 unsigned long totalram_pages;
 unsigned long totalhigh_pages;
 long nr_swap_pages;
+
 /*
  * results with 256, 32 in the lowmem_reserve sysctl:
  *	1G machine -> (16M dma, 800M-16M normal, 1G-800M high)
@@ -761,6 +766,9 @@ __alloc_pages(unsigned int gfp_mask, unsigned int order,
 				       classzone_idx, 0, 0))
 			continue;
 
+		if (!cpuset_zone_allowed(z))
+			continue;
+
 		page = buffered_rmqueue(z, order, gfp_mask);
 		if (page)
 			goto got_pg;
@@ -779,6 +787,9 @@ __alloc_pages(unsigned int gfp_mask, unsigned int order,
 				       gfp_mask & __GFP_HIGH))
 			continue;
 
+		if (!cpuset_zone_allowed(z))
+			continue;
+
 		page = buffered_rmqueue(z, order, gfp_mask);
 		if (page)
 			goto got_pg;
@@ -788,6 +799,8 @@ __alloc_pages(unsigned int gfp_mask, unsigned int order,
 	if (((p->flags & PF_MEMALLOC) || unlikely(test_thread_flag(TIF_MEMDIE))) && !in_interrupt()) {
 		/* go through the zonelist yet again, ignoring mins */
 		for (i = 0; (z = zones[i]) != NULL; i++) {
+			if (!cpuset_zone_allowed(z))
+				continue;
 			page = buffered_rmqueue(z, order, gfp_mask);
 			if (page)
 				goto got_pg;
@@ -827,6 +840,9 @@ rebalance:
 					       gfp_mask & __GFP_HIGH))
 				continue;
 
+			if (!cpuset_zone_allowed(z))
+				continue;
+
 			page = buffered_rmqueue(z, order, gfp_mask);
 			if (page)
 				goto got_pg;
@@ -841,6 +857,9 @@ rebalance:
 		for (i = 0; (z = zones[i]) != NULL; i++) {
 			if (!zone_watermark_ok(z, order, z->pages_high,
 					       classzone_idx, 0, 0))
+				continue;
+
+			if (!cpuset_zone_allowed(z))
 				continue;
 
 			page = buffered_rmqueue(z, order, gfp_mask);
@@ -1399,7 +1418,6 @@ static void __init build_zonelists(pg_data_t *pgdat)
 	/* initialize zonelists */
 	for (i = 0; i < GFP_ZONETYPES; i++) {
 		zonelist = pgdat->node_zonelists + i;
-		memset(zonelist, 0, sizeof(*zonelist));
 		zonelist->zones[0] = NULL;
 	}
 
@@ -1446,7 +1464,6 @@ static void __init build_zonelists(pg_data_t *pgdat)
 		struct zonelist *zonelist;
 
 		zonelist = pgdat->node_zonelists + i;
-		memset(zonelist, 0, sizeof(*zonelist));
 
 		j = 0;
 		k = ZONE_NORMAL;
@@ -1488,6 +1505,7 @@ void __init build_all_zonelists(void)
 	for_each_online_node(i)
 		build_zonelists(NODE_DATA(i));
 	printk("Built %i zonelists\n", num_online_nodes());
+	cpuset_init_current_mems_allowed();
 }
 
 /*
@@ -1953,15 +1971,20 @@ static void setup_per_zone_lowmem_reserve(void)
 
 	for_each_pgdat(pgdat) {
 		for (j = 0; j < MAX_NR_ZONES; j++) {
-			struct zone * zone = pgdat->node_zones + j;
+			struct zone *zone = pgdat->node_zones + j;
 			unsigned long present_pages = zone->present_pages;
 
 			zone->lowmem_reserve[j] = 0;
 
 			for (idx = j-1; idx >= 0; idx--) {
-				struct zone * lower_zone = pgdat->node_zones + idx;
+				struct zone *lower_zone;
 
-				lower_zone->lowmem_reserve[j] = present_pages / sysctl_lowmem_reserve_ratio[idx];
+				if (sysctl_lowmem_reserve_ratio[idx] < 1)
+					sysctl_lowmem_reserve_ratio[idx] = 1;
+
+				lower_zone = pgdat->node_zones + idx;
+				lower_zone->lowmem_reserve[j] = present_pages /
+					sysctl_lowmem_reserve_ratio[idx];
 				present_pages += lower_zone->present_pages;
 			}
 		}
@@ -2068,7 +2091,7 @@ module_init(init_per_zone_pages_min)
  *	changes.
  */
 int min_free_kbytes_sysctl_handler(ctl_table *table, int write, 
-		struct file *file, void __user *buffer, size_t *length, loff_t *ppos)
+	struct file *file, void __user *buffer, size_t *length, loff_t *ppos)
 {
 	proc_dointvec(table, write, file, buffer, length, ppos);
 	setup_per_zone_pages_min();
@@ -2085,7 +2108,7 @@ int min_free_kbytes_sysctl_handler(ctl_table *table, int write,
  * if in function of the boot time zone sizes.
  */
 int lowmem_reserve_ratio_sysctl_handler(ctl_table *table, int write,
-		 struct file *file, void __user *buffer, size_t *length, loff_t *ppos)
+	struct file *file, void __user *buffer, size_t *length, loff_t *ppos)
 {
 	proc_dointvec_minmax(table, write, file, buffer, length, ppos);
 	setup_per_zone_lowmem_reserve();

@@ -15,7 +15,7 @@
 
 void before_mem_tt(unsigned long brk_start)
 {
-	if(!jail || debug)
+	if(debug)
 		remap_data(UML_ROUND_DOWN(&_stext), UML_ROUND_UP(&_etext), 1);
 	remap_data(UML_ROUND_DOWN(&_sdata), UML_ROUND_UP(&_edata), 1);
 	remap_data(UML_ROUND_DOWN(&__bss_start), UML_ROUND_UP(&_end), 1);

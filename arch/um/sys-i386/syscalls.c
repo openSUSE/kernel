@@ -88,7 +88,7 @@ long sys_clone(unsigned long clone_flags, unsigned long newsp,
  * This is really horribly ugly.
  */
 long sys_ipc (uint call, int first, int second,
-	     int third, void *__user ptr, long fifth)
+	     int third, void __user *ptr, long fifth)
 {
 	int version, ret;
 

@@ -89,7 +89,7 @@
 #define VOODOO3_MAX_PIXCLOCK 300000
 #define VOODOO5_MAX_PIXCLOCK 350000
 
-static struct fb_fix_screeninfo tdfx_fix __initdata = {
+static struct fb_fix_screeninfo tdfx_fix __devinitdata = {
 	.id =		"3Dfx",
 	.type =		FB_TYPE_PACKED_PIXELS,
 	.visual =	FB_VISUAL_PSEUDOCOLOR, 
@@ -98,7 +98,7 @@ static struct fb_fix_screeninfo tdfx_fix __initdata = {
 	.accel =	FB_ACCEL_3DFX_BANSHEE
 };
 
-static struct fb_var_screeninfo tdfx_var __initdata = {
+static struct fb_var_screeninfo tdfx_var __devinitdata = {
 	/* "640x480, 8 bpp @ 60 Hz */
 	.xres =		640,
 	.yres =		480,
@@ -154,9 +154,6 @@ MODULE_DEVICE_TABLE(pci, tdfxfb_id_table);
 /*
  *  Frame buffer device API
  */
-int tdfxfb_init(void);
-void tdfxfb_setup(char *options);
-
 static int tdfxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb); 
 static int tdfxfb_set_par(struct fb_info *info); 
 static int tdfxfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue, 
@@ -202,7 +199,7 @@ static unsigned long do_lfb_size(struct tdfx_par *par, unsigned short);
  */
 static int  nopan   = 0;
 static int  nowrap  = 1;      // not implemented (yet)
-static char *mode_option __initdata = NULL;
+static char *mode_option __devinitdata = NULL;
 
 /* ------------------------------------------------------------------------- 
  *                      Hardware-specific funcions
@@ -1292,6 +1289,28 @@ out_err:
 	return -ENXIO;
 }
 
+#ifndef MODULE
+void tdfxfb_setup(char *options)
+{
+	char* this_opt;
+
+	if (!options || !*options)
+		return;
+
+	while ((this_opt = strsep(&options, ",")) != NULL) {
+		if (!*this_opt)
+			continue;
+		if(!strcmp(this_opt, "nopan")) {
+			nopan = 1;
+		} else if(!strcmp(this_opt, "nowrap")) {
+			nowrap = 1;
+		} else {
+			mode_option = this_opt;
+		}
+	}
+}
+#endif
+
 /**
  *      tdfxfb_remove - Device removal
  *
@@ -1321,7 +1340,7 @@ static void __devexit tdfxfb_remove(struct pci_dev *pdev)
 	framebuffer_release(info);
 }
 
-int __init tdfxfb_init(void)
+static int __init tdfxfb_init(void)
 {
 #ifndef MODULE
 	char *option = NULL;
@@ -1345,27 +1364,3 @@ MODULE_LICENSE("GPL");
  
 module_init(tdfxfb_init);
 module_exit(tdfxfb_exit);
-
-
-#ifndef MODULE
-void tdfxfb_setup(char *options)
-{ 
-	char* this_opt;
-
-	if (!options || !*options)
-		return;
-
-	while ((this_opt = strsep(&options, ",")) != NULL) {	
-		if (!*this_opt)
-			continue;
-		if(!strcmp(this_opt, "nopan")) {
-			nopan = 1;
-		} else if(!strcmp(this_opt, "nowrap")) {
-			nowrap = 1;
-		} else {
-			mode_option = this_opt;
-		}
-	} 
-}
-#endif
-

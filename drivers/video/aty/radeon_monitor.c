@@ -655,8 +655,14 @@ static void radeon_fixup_panel_info(struct radeonfb_info *rinfo)
 	 */
 	if (!rinfo->panel_info.use_bios_dividers && rinfo->mon1_type == MT_LCD
 	    && rinfo->is_mobility) {
-		int ppll_div_sel = INREG8(CLOCK_CNTL_INDEX + 1) & 0x3;
-		u32 ppll_divn = INPLL(PPLL_DIV_0 + ppll_div_sel);
+		int ppll_div_sel;
+		u32 ppll_divn;
+		radeon_pll_workaround_before(rinfo);
+		ppll_div_sel = INREG8(CLOCK_CNTL_INDEX + 1) & 0x3;
+		radeon_pll_workaround_after(rinfo);
+		if (rinfo->R300_cg_workaround)
+			R300_cg_workardound(rinfo);
+		ppll_divn = INPLL(PPLL_DIV_0 + ppll_div_sel);
 		rinfo->panel_info.ref_divider = rinfo->pll.ref_div;
 		rinfo->panel_info.fbk_divider = ppll_divn & 0x7ff;
 		rinfo->panel_info.post_divider = (ppll_divn >> 16) & 0x7;

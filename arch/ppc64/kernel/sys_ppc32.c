@@ -1290,14 +1290,7 @@ long ppc32_timer_create(clockid_t clock,
 	if (ev32 == NULL)
 		return sys_timer_create(clock, NULL, timer_id);
 
-	memset(&event, 0, sizeof(event));
-	if (!access_ok(VERIFY_READ, ev32, sizeof(struct compat_sigevent))
-	    || __get_user(event.sigev_value.sival_int,
-			  &ev32->sigev_value.sival_int)
-	    || __get_user(event.sigev_signo, &ev32->sigev_signo)
-	    || __get_user(event.sigev_notify, &ev32->sigev_notify)
-	    || __get_user(event.sigev_notify_thread_id,
-			  &ev32->sigev_notify_thread_id))
+	if (get_compat_sigevent(&event, ev32))
 		return -EFAULT;
 
 	if (!access_ok(VERIFY_WRITE, timer_id, sizeof(timer_t)))

@@ -20,8 +20,6 @@ void sig_handler_common_tt(int sig, void *sc_ptr)
 	struct signal_info *info;
 	int save_errno = errno, is_user;
 
-	unprotect_kernel_mem();
-
 	/* This is done because to allow SIGSEGV to be delivered inside a SEGV
 	 * handler.  This can happen in copy_user, and if SEGV is disabled,
 	 * the process will die.
@@ -48,7 +46,6 @@ void sig_handler_common_tt(int sig, void *sc_ptr)
 	}
 	*r = save_regs;
 	errno = save_errno;
-	if(is_user) protect_kernel_mem();
 }
 
 /*

@@ -31,7 +31,7 @@ struct tridentfb_par {
 	void __iomem * io_virt;	//iospace virtual memory address
 };
 
-unsigned char eng_oper;		//engine operation...
+static unsigned char eng_oper;		//engine operation...
 static struct fb_ops tridentfb_ops;
 
 static struct tridentfb_par default_par;
@@ -91,7 +91,7 @@ module_param(crt, int, 0);
 static int chip3D;
 static int chipcyber;
 
-int is3Dchip(int id)
+static int is3Dchip(int id)
 {
 	return 	((id == BLADE3D) || (id == CYBERBLADEE4) ||
 		 (id == CYBERBLADEi7) || (id == CYBERBLADEi7D) ||
@@ -104,7 +104,7 @@ int is3Dchip(int id)
 		 (id ==	CYBERBLADEXPAi1));
 }
 
-int iscyber(int id)
+static int iscyber(int id)
 {
 	switch (id) {
 		case CYBER9388:		
@@ -1216,33 +1216,13 @@ static struct pci_driver tridentfb_pci_driver = {
 	.remove		= __devexit_p(trident_pci_remove)
 };
 
-int tridentfb_setup(char *options);
-
-int __init tridentfb_init(void)
-{
-#ifndef MODULE
-	char *option = NULL;
-
-	if (fb_get_options("tridentfb", &option))
-		return -ENODEV;
-	tridentfb_setup(option);
-#endif
-	output("Trident framebuffer %s initializing\n", VERSION);
-	return pci_module_init(&tridentfb_pci_driver);
-}
-
-void __exit tridentfb_exit(void)
-{
-	pci_unregister_driver(&tridentfb_pci_driver);
-}
-
-
 /*
  * Parse user specified options (`video=trident:')
  * example:
  * 	video=trident:800x600,bpp=16,noaccel
  */
-int tridentfb_setup(char *options)
+#ifndef MODULE
+static int tridentfb_setup(char *options)
 {
 	char * opt;
 	if (!options || !*options)
@@ -1271,6 +1251,25 @@ int tridentfb_setup(char *options)
 			mode = opt;
 	}
 	return 0;
+}
+#endif
+
+static int __init tridentfb_init(void)
+{
+#ifndef MODULE
+	char *option = NULL;
+
+	if (fb_get_options("tridentfb", &option))
+		return -ENODEV;
+	tridentfb_setup(option);
+#endif
+	output("Trident framebuffer %s initializing\n", VERSION);
+	return pci_module_init(&tridentfb_pci_driver);
+}
+
+static void __exit tridentfb_exit(void)
+{
+	pci_unregister_driver(&tridentfb_pci_driver);
 }
 
 static struct fb_ops tridentfb_ops = {

@@ -20,6 +20,7 @@
 #include <asm/io.h>
 #include <asm/smp.h>
 
+#include "pci.h"
 #include "msi.h"
 
 static DEFINE_SPINLOCK(msi_lock);
@@ -371,6 +372,13 @@ static int msi_init(void)
 
 	if (!status)
 		return status;
+
+	if (pci_msi_quirk) {
+		pci_msi_enable = 0;
+		printk(KERN_WARNING "PCI: MSI quirk detected. MSI disabled.\n");
+		status = -EINVAL;
+		return status;
+	}
 
 	if ((status = msi_cache_init()) < 0) {
 		pci_msi_enable = 0;

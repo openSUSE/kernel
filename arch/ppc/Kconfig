@@ -228,7 +228,6 @@ config PPC601_SYNC_FIX
 	  If in doubt, say Y here.
 
 source arch/ppc/platforms/4xx/Kconfig
-source arch/ppc/platforms/83xx/Kconfig
 source arch/ppc/platforms/85xx/Kconfig
 
 config PPC64BRIDGE
@@ -476,7 +475,7 @@ endchoice
 
 choice
 	prompt "Machine Type"
-	depends on (6xx && !83xx) || POWER3 || POWER4
+	depends on 6xx || POWER3 || POWER4
 	default PPC_MULTIPLATFORM
 	---help---
 	  Linux currently supports several different kinds of PowerPC-based
@@ -643,6 +642,11 @@ config LITE5200
 	  much but it's only been tested on this board version. I think this
 	  board is also known as IceCube.
 
+config MPC834x_SYS
+	bool "Freescale MPC834x SYS"
+	help
+	  This option enables support for the MPC 834x SYS evaluation board.
+
 endchoice
 
 config PQ2ADS
@@ -665,7 +669,7 @@ config PPC_MPC52xx
 
 config 8260
 	bool "CPM2 Support" if WILLOW
-	depends on 6xx && !83xx
+	depends on 6xx
 	default y if TQM8260 || RPX8260 || EST8260 || SBS8260 || SBC82xx || PQ2FADS
 	help
 	  The MPC8260 is a typical embedded CPU made by Motorola.  Selecting
@@ -680,6 +684,14 @@ config 8272
 	help
 	  The MPC8272 CPM has a different internal dpram setup than other CPM2
 	  devices
+
+config 83xx
+	bool
+	default y if MPC834x_SYS
+
+config MPC834x
+	bool
+	default y if MPC834x_SYS
 
 config CPM2
 	bool
@@ -720,7 +732,8 @@ config PPC_GEN550
 	bool
 	depends on SANDPOINT || MCPN765 || SPRUCE || PPLUS || PCORE || \
 		PRPMC750 || K2 || PRPMC800 || LOPEC || \
-		(EV64260 && !SERIAL_MPSC) || CHESTNUT || RADSTONE_PPC7D
+		(EV64260 && !SERIAL_MPSC) || CHESTNUT || RADSTONE_PPC7D || \
+		MPC834x_SYS
 	default y
 
 config FORCE
