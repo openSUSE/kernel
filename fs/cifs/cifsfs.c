@@ -71,15 +71,7 @@ unsigned int cifs_max_pending = CIFS_MAX_REQ;
 module_param(cifs_max_pending, int, 0);
 MODULE_PARM_DESC(cifs_max_pending,"Simultaneous requests to server. Default: 50 Range: 2 to 256");
 
-
-extern int cifs_mount(struct super_block *, struct cifs_sb_info *, char *,
-			const char *);
-extern int cifs_umount(struct super_block *, struct cifs_sb_info *);
-void cifs_proc_init(void);
-void cifs_proc_clean(void);
-
 static DECLARE_COMPLETION(cifs_oplock_exited);
-
 
 static int
 cifs_read_super(struct super_block *sb, void *data,

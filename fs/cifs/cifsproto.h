@@ -72,6 +72,12 @@ extern int cifs_get_inode_info_unix(struct inode **pinode,
 			const unsigned char *search_path,
 			struct super_block *sb,int xid);
 
+extern int cifs_mount(struct super_block *, struct cifs_sb_info *, char *,
+			const char *);
+extern int cifs_umount(struct super_block *, struct cifs_sb_info *);
+void cifs_proc_init(void);
+void cifs_proc_clean(void);
+
 extern int cifs_setup_session(unsigned int xid, struct cifsSesInfo *pSesInfo, 
 			struct nls_table * nls_info);
 extern int CIFSSMBNegotiate(unsigned int xid, struct cifsSesInfo *ses);
