@@ -1,5 +1,35 @@
-#ifndef __LINUX_PARPORT_GSC_H
-#define __LINUX_PARPORT_GSC_H
+/*
+ *	Low-level parallel-support for PC-style hardware integrated in the
+ *	LASI-Controller (on GSC-Bus) for HP-PARISC Workstations
+ *
+ *	(C) 1999-2001 by Helge Deller <deller@gmx.de>
+ *
+ *
+ *	This program is free software; you can redistribute it and/or modify
+ *	it under the terms of the GNU General Public License as published by
+ *	the Free Software Foundation; either version 2 of the License, or
+ *	(at your option) any later version.
+ *
+ *	This program is distributed in the hope that it will be useful,
+ *	but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *	GNU General Public License for more details.
+ *
+ *	You should have received a copy of the GNU General Public License
+ *	along with this program; if not, write to the Free Software
+ *	Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * based on parport_pc.c by
+ * 	    Grant Guenther <grant@torque.net>
+ * 	    Phil Blundell <Philip.Blundell@pobox.com>
+ *          Tim Waugh <tim@cyberelk.demon.co.uk>
+ *	    Jose Renau <renau@acm.org>
+ *          David Campbell <campbell@torque.net>
+ *          Andrea Arcangeli
+ */
+
+#ifndef	__DRIVERS_PARPORT_PARPORT_GSC_H
+#define	__DRIVERS_PARPORT_PARPORT_GSC_H
 
 #include <asm/io.h>
 #include <linux/delay.h>
@@ -52,7 +82,7 @@ struct parport_gsc_private {
 	struct pci_dev *dev;
 };
 
-extern __inline__ void parport_gsc_write_data(struct parport *p, unsigned char d)
+static inline void parport_gsc_write_data(struct parport *p, unsigned char d)
 {
 #ifdef DEBUG_PARPORT
 	printk (KERN_DEBUG "parport_gsc_write_data(%p,0x%02x)\n", p, d);
@@ -60,7 +90,7 @@ extern __inline__ void parport_gsc_write_data(struct parport *p, unsigned char d
 	parport_writeb(d, DATA(p));
 }
 
-extern __inline__ unsigned char parport_gsc_read_data(struct parport *p)
+static inline unsigned char parport_gsc_read_data(struct parport *p)
 {
 	unsigned char val = parport_readb (DATA (p));
 #ifdef DEBUG_PARPORT
@@ -72,9 +102,9 @@ extern __inline__ unsigned char parport_gsc_read_data(struct parport *p)
 
 /* __parport_gsc_frob_control differs from parport_gsc_frob_control in that
  * it doesn't do any extra masking. */
-static __inline__ unsigned char __parport_gsc_frob_control (struct parport *p,
-							   unsigned char mask,
-							   unsigned char val)
+static inline unsigned char __parport_gsc_frob_control(struct parport *p,
+							unsigned char mask,
+							unsigned char val)
 {
 	struct parport_gsc_private *priv = p->physport->private_data;
 	unsigned char ctr = priv->ctr;
@@ -90,17 +120,17 @@ static __inline__ unsigned char __parport_gsc_frob_control (struct parport *p,
 	return ctr;
 }
 
-extern __inline__ void parport_gsc_data_reverse (struct parport *p)
+static inline void parport_gsc_data_reverse(struct parport *p)
 {
 	__parport_gsc_frob_control (p, 0x20, 0x20);
 }
 
-extern __inline__ void parport_gsc_data_forward (struct parport *p)
+static inline void parport_gsc_data_forward(struct parport *p)
 {
 	__parport_gsc_frob_control (p, 0x20, 0x00);
 }
 
-extern __inline__ void parport_gsc_write_control (struct parport *p,
+static inline void parport_gsc_write_control(struct parport *p,
 						 unsigned char d)
 {
 	const unsigned char wm = (PARPORT_CONTROL_STROBE |
@@ -118,7 +148,7 @@ extern __inline__ void parport_gsc_write_control (struct parport *p,
 	__parport_gsc_frob_control (p, wm, d & wm);
 }
 
-extern __inline__ unsigned char parport_gsc_read_control(struct parport *p)
+static inline unsigned char parport_gsc_read_control(struct parport *p)
 {
 	const unsigned char rm = (PARPORT_CONTROL_STROBE |
 				  PARPORT_CONTROL_AUTOFD |
@@ -128,9 +158,9 @@ extern __inline__ unsigned char parport_gsc_read_control(struct parport *p)
 	return priv->ctr & rm; /* Use soft copy */
 }
 
-extern __inline__ unsigned char parport_gsc_frob_control (struct parport *p,
-							 unsigned char mask,
-							 unsigned char val)
+static inline unsigned char parport_gsc_frob_control(struct parport *p,
+							unsigned char mask,
+							unsigned char val)
 {
 	const unsigned char wm = (PARPORT_CONTROL_STROBE |
 				  PARPORT_CONTROL_AUTOFD |
@@ -155,18 +185,17 @@ extern __inline__ unsigned char parport_gsc_frob_control (struct parport *p,
 	return __parport_gsc_frob_control (p, mask, val);
 }
 
-extern __inline__ unsigned char parport_gsc_read_status(struct parport *p)
+static inline unsigned char parport_gsc_read_status(struct parport *p)
 {
 	return parport_readb (STATUS(p));
 }
 
-
-extern __inline__ void parport_gsc_disable_irq(struct parport *p)
+static inline void parport_gsc_disable_irq(struct parport *p)
 {
 	__parport_gsc_frob_control (p, 0x10, 0x00);
 }
 
-extern __inline__ void parport_gsc_enable_irq(struct parport *p)
+static inline void parport_gsc_enable_irq(struct parport *p)
 {
 	__parport_gsc_frob_control (p, 0x10, 0x10);
 }
@@ -185,9 +214,9 @@ extern void parport_gsc_inc_use_count(void);
 
 extern void parport_gsc_dec_use_count(void);
 
-extern struct parport *parport_gsc_probe_port (unsigned long base,
-					      unsigned long base_hi,
-					      int irq, int dma,
-					      struct pci_dev *dev);
+extern struct parport *parport_gsc_probe_port(unsigned long base,
+						unsigned long base_hi,
+						int irq, int dma,
+						struct pci_dev *dev);
 
-#endif
+#endif	/* __DRIVERS_PARPORT_PARPORT_GSC_H */
