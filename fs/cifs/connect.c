@@ -812,7 +812,7 @@ cifs_parse_mount_options(char *options, const char *devname,struct smb_vol *vol)
 			return 1;
 		}
 	}
-	if(vol->UNCip == 0)
+	if(vol->UNCip == NULL)
 		vol->UNCip = &vol->UNC[2];
 
 	return 0;
@@ -1471,7 +1471,7 @@ cifs_mount(struct super_block *sb, struct cifs_sb_info *cifs_sb,
 		 /* If find_unc succeeded then rc == 0 so we can not end */
 		if (tcon)  /* up accidently freeing someone elses tcon struct */
 			tconInfoFree(tcon);
-		if (existingCifsSes == 0) {
+		if (existingCifsSes == NULL) {
 			if (pSesInfo) {
 				if ((pSesInfo->server) && 
 				    (pSesInfo->status == CifsGood)) {
@@ -1542,7 +1542,7 @@ CIFSSessSetup(unsigned int xid, struct cifsSesInfo *ses,
 	user = ses->userName;
 	domain = ses->domainName;
 	smb_buffer = cifs_buf_get();
-	if (smb_buffer == 0) {
+	if (smb_buffer == NULL) {
 		return -ENOMEM;
 	}
 	smb_buffer_response = smb_buffer;
@@ -1795,7 +1795,7 @@ CIFSSpnegoSessSetup(unsigned int xid, struct cifsSesInfo *ses,
 	domain = ses->domainName;
 
 	smb_buffer = cifs_buf_get();
-	if (smb_buffer == 0) {
+	if (smb_buffer == NULL) {
 		return -ENOMEM;
 	}
 	smb_buffer_response = smb_buffer;
@@ -2060,7 +2060,7 @@ CIFSNTLMSSPNegotiateSessSetup(unsigned int xid,
 	domain = ses->domainName;
 	*pNTLMv2_flag = FALSE;
 	smb_buffer = cifs_buf_get();
-	if (smb_buffer == 0) {
+	if (smb_buffer == NULL) {
 		return -ENOMEM;
 	}
 	smb_buffer_response = smb_buffer;
@@ -2402,7 +2402,7 @@ CIFSNTLMSSPAuthSessSetup(unsigned int xid, struct cifsSesInfo *ses,
 	user = ses->userName;
 	domain = ses->domainName;
 	smb_buffer = cifs_buf_get();
-	if (smb_buffer == 0) {
+	if (smb_buffer == NULL) {
 		return -ENOMEM;
 	}
 	smb_buffer_response = smb_buffer;
@@ -2776,7 +2776,7 @@ CIFSTCon(unsigned int xid, struct cifsSesInfo *ses,
 		return -EIO;
 
 	smb_buffer = cifs_buf_get();
-	if (smb_buffer == 0) {
+	if (smb_buffer == NULL) {
 		return -ENOMEM;
 	}
 	smb_buffer_response = smb_buffer;

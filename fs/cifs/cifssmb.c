@@ -154,7 +154,7 @@ small_smb_init(int smb_command, int wct, struct cifsTconInfo *tcon,
 		return rc;
 
 	*request_buf = cifs_small_buf_get();
-	if (*request_buf == 0) {
+	if (*request_buf == NULL) {
 		/* BB should we add a retry in here if not a writepage? */
 		return -ENOMEM;
 	}
@@ -246,7 +246,7 @@ smb_init(int smb_command, int wct, struct cifsTconInfo *tcon,
 		return rc;
 
 	*request_buf = cifs_buf_get();
-	if (*request_buf == 0) {
+	if (*request_buf == NULL) {
 		/* BB should we add a retry in here if not a writepage? */
 		return -ENOMEM;
 	}
@@ -448,7 +448,7 @@ CIFSSMBTDis(const int xid, struct cifsTconInfo *tcon)
 		return 0;  
 	}
 
-	if((tcon->ses == 0) || (tcon->ses->server == 0)) {    
+	if((tcon->ses == NULL) || (tcon->ses->server == NULL)) {    
 		up(&tcon->tconSem);
 		return -EIO;
 	}
