@@ -8,11 +8,15 @@ me="`basename $0`"
 # (or environment can specify where to find udev.conf)
 #
 if test -z "$conf"; then
-	conf="`find /etc -type f -name udev.conf 2> /dev/null`"
-fi
-if test -z "$conf" || test ! -r $conf; then
-	echo "$me Error: could not find readable udev.conf in /etc" 1>&2
-	exit 1
+	if test -r /etc/udev/udev.conf; then
+		conf=/etc/udev/udev.conf
+	else
+		conf="`find /etc -type f -name udev.conf 2> /dev/null`"
+		if test -z "$conf" || test ! -r "$conf"; then
+			echo "$me Error: no udev.conf found" 1>&2
+			exit 1
+		fi
+	fi
 fi
 
 # find the directory where udev rules are stored, often
