@@ -141,7 +141,7 @@ struct mthca_cq {
 	spinlock_t             lock;
 	atomic_t               refcount;
 	int                    cqn;
-	int                    cons_index;
+	u32                    cons_index;
 	int                    is_direct;
 
 	/* Next fields are Arbel only */

@@ -368,8 +368,8 @@ void mthca_unmap_eq_icm(struct mthca_dev *dev);
 
 int mthca_poll_cq(struct ib_cq *ibcq, int num_entries,
 		  struct ib_wc *entry);
-void mthca_arm_cq(struct mthca_dev *dev, struct mthca_cq *cq,
-		  int solicited);
+int mthca_tavor_arm_cq(struct ib_cq *cq, enum ib_cq_notify notify);
+int mthca_arbel_arm_cq(struct ib_cq *cq, enum ib_cq_notify notify);
 int mthca_init_cq(struct mthca_dev *dev, int nent,
 		  struct mthca_cq *cq);
 void mthca_free_cq(struct mthca_dev *dev,
@@ -384,7 +384,7 @@ int mthca_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 		    struct ib_send_wr **bad_wr);
 int mthca_post_receive(struct ib_qp *ibqp, struct ib_recv_wr *wr,
 		       struct ib_recv_wr **bad_wr);
-int mthca_free_err_wqe(struct mthca_qp *qp, int is_send,
+int mthca_free_err_wqe(struct mthca_dev *dev, struct mthca_qp *qp, int is_send,
 		       int index, int *dbd, u32 *new_wqe);
 int mthca_alloc_qp(struct mthca_dev *dev,
 		   struct mthca_pd *pd,

@@ -421,13 +421,6 @@ static int mthca_destroy_cq(struct ib_cq *cq)
 	return 0;
 }
 
-static int mthca_req_notify_cq(struct ib_cq *cq, enum ib_cq_notify notify)
-{
-	mthca_arm_cq(to_mdev(cq->device), to_mcq(cq),
-		     notify == IB_CQ_SOLICITED);
-	return 0;
-}
-
 static inline u32 convert_access(int acc)
 {
 	return (acc & IB_ACCESS_REMOTE_ATOMIC ? MTHCA_MPT_FLAG_ATOMIC       : 0) |
@@ -625,13 +618,17 @@ int mthca_register_device(struct mthca_dev *dev)
 	dev->ib_dev.create_cq            = mthca_create_cq;
 	dev->ib_dev.destroy_cq           = mthca_destroy_cq;
 	dev->ib_dev.poll_cq              = mthca_poll_cq;
-	dev->ib_dev.req_notify_cq        = mthca_req_notify_cq;
 	dev->ib_dev.get_dma_mr           = mthca_get_dma_mr;
 	dev->ib_dev.reg_phys_mr          = mthca_reg_phys_mr;
 	dev->ib_dev.dereg_mr             = mthca_dereg_mr;
 	dev->ib_dev.attach_mcast         = mthca_multicast_attach;
 	dev->ib_dev.detach_mcast         = mthca_multicast_detach;
 	dev->ib_dev.process_mad          = mthca_process_mad;
+
+	if (dev->hca_type == ARBEL_NATIVE)
+		dev->ib_dev.req_notify_cq = mthca_arbel_arm_cq;
+	else
+		dev->ib_dev.req_notify_cq = mthca_tavor_arm_cq;
 
 	init_MUTEX(&dev->cap_mask_mutex);
 

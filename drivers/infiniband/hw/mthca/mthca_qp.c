@@ -1551,7 +1551,7 @@ out:
 	return err;
 }
 
-int mthca_free_err_wqe(struct mthca_qp *qp, int is_send,
+int mthca_free_err_wqe(struct mthca_dev *dev, struct mthca_qp *qp, int is_send,
 		       int index, int *dbd, u32 *new_wqe)
 {
 	struct mthca_next_seg *next;
@@ -1561,7 +1561,10 @@ int mthca_free_err_wqe(struct mthca_qp *qp, int is_send,
 	else
 		next = get_recv_wqe(qp, index);
 
-	*dbd = !!(next->ee_nds & cpu_to_be32(MTHCA_NEXT_DBD));
+	if (dev->hca_type == ARBEL_NATIVE)
+		*dbd = 1;
+	else
+		*dbd = !!(next->ee_nds & cpu_to_be32(MTHCA_NEXT_DBD));
 	if (next->ee_nds & cpu_to_be32(0x3f))
 		*new_wqe = (next->nda_op & cpu_to_be32(~0x3f)) |
 			(next->ee_nds & cpu_to_be32(0x3f));
