@@ -1751,6 +1751,8 @@ static int __init ide_setup(char *s)
 			case -4: /* "cdrom" */
 				drive->present = 1;
 				drive->media = ide_cdrom;
+				/* an ATAPI device ignores DRDY */
+				drive->ready_stat = 0;
 				hwif->noprobe = 0;
 				goto done;
 			case -5: /* "serialize" */
@@ -1777,6 +1779,7 @@ static int __init ide_setup(char *s)
 				goto done;
 			case 3: /* cyl,head,sect */
 				drive->media	= ide_disk;
+				drive->ready_stat = READY_STAT;
 				drive->cyl	= drive->bios_cyl  = vals[0];
 				drive->head	= drive->bios_head = vals[1];
 				drive->sect	= drive->bios_sect = vals[2];

@@ -4537,8 +4537,6 @@ static void idetape_setup (ide_drive_t *drive, idetape_tape_t *tape, int minor)
 	memset(tape, 0, sizeof (idetape_tape_t));
 	spin_lock_init(&tape->spinlock);
 	drive->driver_data = tape;
-	/* An ATAPI device ignores DRDY */
-	drive->ready_stat = 0;
 	drive->dsc_overlap = 1;
 #ifdef CONFIG_BLK_DEV_IDEPCI
 	if (HWIF(drive)->pci_dev != NULL) {

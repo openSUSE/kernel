@@ -679,7 +679,6 @@ static void idescsi_add_settings(ide_drive_t *drive)
 static void idescsi_setup (ide_drive_t *drive, idescsi_scsi_t *scsi)
 {
 	DRIVER(drive)->busy++;
-	drive->ready_stat = 0;
 	if (drive->id && (drive->id->config & 0x0060) == 0x20)
 		set_bit (IDESCSI_DRQ_INTERRUPT, &scsi->flags);
 	set_bit(IDESCSI_TRANSFORM, &scsi->transform);

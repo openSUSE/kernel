@@ -3088,7 +3088,6 @@ int ide_cdrom_setup (ide_drive_t *drive)
 		drive->queue->unplug_delay = 1;
 
 	drive->special.all	= 0;
-	drive->ready_stat	= 0;
 
 	CDROM_STATE_FLAGS(drive)->media_changed = 1;
 	CDROM_STATE_FLAGS(drive)->toc_valid     = 0;

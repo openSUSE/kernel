@@ -1793,7 +1793,6 @@ static void idefloppy_setup (ide_drive_t *drive, idefloppy_floppy_t *floppy)
 
 	*((u16 *) &gcw) = drive->id->config;
 	drive->driver_data = floppy;
-	drive->ready_stat = 0;
 	memset(floppy, 0, sizeof(idefloppy_floppy_t));
 	floppy->drive = drive;
 	floppy->pc = floppy->pc_stack;

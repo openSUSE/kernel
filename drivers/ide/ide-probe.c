@@ -221,6 +221,8 @@ static inline void do_identify (ide_drive_t *drive, u8 cmd)
 		}
 		printk (" drive\n");
 		drive->media = type;
+		/* an ATAPI device ignores DRDY */
+		drive->ready_stat = 0;
 		return;
 	}
 
