@@ -1432,7 +1432,6 @@ e1000_watchdog(unsigned long data)
 	struct e1000_adapter *adapter = (struct e1000_adapter *) data;
 	struct net_device *netdev = adapter->netdev;
 	struct e1000_desc_ring *txdr = &adapter->tx_ring;
-	unsigned int i;
 	uint32_t link;
 
 	e1000_check_for_link(&adapter->hw);
@@ -1512,12 +1511,8 @@ e1000_watchdog(unsigned long data)
 	/* Cause software interrupt to ensure rx ring is cleaned */
 	E1000_WRITE_REG(&adapter->hw, ICS, E1000_ICS_RXDMT0);
 
-	/* Early detection of hung controller */
-	i = txdr->next_to_clean;
-	if(txdr->buffer_info[i].dma &&
-	   time_after(jiffies, txdr->buffer_info[i].time_stamp + HZ) &&
-	   !(E1000_READ_REG(&adapter->hw, STATUS) & E1000_STATUS_TXOFF))
-		netif_stop_queue(netdev);
+	/* Force detection of hung controller every watchdog period*/
+	adapter->detect_tx_hung = TRUE;
 
 	/* Reset the timer */
 	mod_timer(&adapter->watchdog_timer, jiffies + 2 * HZ);
@@ -2245,6 +2240,16 @@ e1000_clean_tx_irq(struct e1000_adapter *adapter)
 		netif_wake_queue(netdev);
 
 	spin_unlock(&adapter->tx_lock);
+ 
+	if(adapter->detect_tx_hung) {
+		/* detect a transmit hang in hardware, this serializes the
+		 * check with the clearing of time_stamp and movement of i */
+		adapter->detect_tx_hung = FALSE;
+		if(tx_ring->buffer_info[i].dma &&
+		   time_after(jiffies, tx_ring->buffer_info[i].time_stamp + HZ) &&
+		   !(E1000_READ_REG(&adapter->hw, STATUS) & E1000_STATUS_TXOFF))
+			netif_stop_queue(netdev);
+	}
 
 	return cleaned;
 }
