@@ -3935,7 +3935,7 @@ void tcp_cwnd_application_limited(struct sock *sk)
 
 
 /* When incoming ACK allowed to free some skb from write_queue,
- * we remember this event in flag sk->sk_queue_shrunk and wake up socket
+ * we remember this event in flag SOCK_QUEUE_SHRUNK and wake up socket
  * on the exit from tcp input handler.
  *
  * PROBLEM: sndbuf expansion does not work well with largesend.
@@ -3963,8 +3963,8 @@ static void tcp_new_space(struct sock *sk)
 
 static inline void tcp_check_space(struct sock *sk)
 {
-	if (sk->sk_queue_shrunk) {
-		sk->sk_queue_shrunk = 0;
+	if (sock_flag(sk, SOCK_QUEUE_SHRUNK)) {
+		sock_reset_flag(sk, SOCK_QUEUE_SHRUNK);
 		if (sk->sk_socket &&
 		    test_bit(SOCK_NOSPACE, &sk->sk_socket->flags))
 			tcp_new_space(sk);

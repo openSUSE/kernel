@@ -164,7 +164,6 @@ struct sock_common {
   *	@sk_sndmsg_off - cached offset for sendmsg
   *	@sk_send_head - front of stuff to transmit
   *	@sk_write_pending - a write to stream socket waits to start
-  *	@sk_queue_shrunk - write queue has been shrunk recently
   *	@sk_state_change - callback to indicate change in the state of the sock
   *	@sk_data_ready - callback to indicate there is data to be processed
   *	@sk_write_space - callback to indicate there is bf sending space available
@@ -243,7 +242,6 @@ struct sock {
 	struct sk_buff		*sk_send_head;
 	int			sk_write_pending;
 	void			*sk_security;
-	__u8			sk_queue_shrunk;
 	/* three bytes hole, try to pack */
 	void			(*sk_state_change)(struct sock *sk);
 	void			(*sk_data_ready)(struct sock *sk, int bytes);
@@ -385,6 +383,7 @@ enum sock_flags {
 	SOCK_RCVTSTAMP, /* %SO_TIMESTAMP setting */
 	SOCK_NO_LARGESEND, /* whether to sent large segments or not */
 	SOCK_LOCALROUTE, /* route locally only, %SO_DONTROUTE setting */
+	SOCK_QUEUE_SHRUNK, /* write queue has been shrunk recently */
 };
 
 static inline void sock_set_flag(struct sock *sk, enum sock_flags flag)
@@ -449,7 +448,7 @@ static inline void sk_stream_set_owner_r(struct sk_buff *skb, struct sock *sk)
 
 static inline void sk_stream_free_skb(struct sock *sk, struct sk_buff *skb)
 {
-	sk->sk_queue_shrunk   = 1;
+	sock_set_flag(sk, SOCK_QUEUE_SHRUNK);
 	sk->sk_wmem_queued   -= skb->truesize;
 	sk->sk_forward_alloc += skb->truesize;
 	__kfree_skb(skb);
