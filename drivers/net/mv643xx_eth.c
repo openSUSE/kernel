@@ -69,6 +69,7 @@
 #define PHY_WAIT_MICRO_SECONDS	10
 
 /* Static function declarations */
+static int eth_port_link_is_up(unsigned int eth_port_num);
 static void eth_port_uc_addr_get(struct net_device *dev,
 		                                 unsigned char *MacAddr);
 static int mv64340_eth_real_open(struct net_device *);
@@ -531,27 +532,14 @@ static irqreturn_t mv64340_eth_int_handler(int irq, void *dev_id,
 	}
 	/* PHY status changed */
 	if (eth_int_cause_ext & (BIT16 | BIT20)) {
-		unsigned int phy_reg_data;
-
-		/* Check Link status on ethernet port */
-		eth_port_read_smi_reg(port_num, 1, &phy_reg_data);
-		if (!(phy_reg_data & 0x20)) {
-			netif_carrier_off(dev);
-			netif_stop_queue(dev);
-		} else {
+		if (eth_port_link_is_up(port_num)) {
 			netif_carrier_on(dev);
 			netif_wake_queue(dev);
-
-			/*
-			 * Start all TX queues on ethernet port. This is good in
-			 * case of previous packets where not transmitted, due
-			 * to link down and this command re-enables all TX
-			 * queues.
-			 * Note that it is possible to get a TX resource error
-			 * interrupt after issuing this, since not all TX queues
-			 * are enabled, or has anything to send.
-			 */
+			/* Start TX queue */
 			MV_WRITE(MV64340_ETH_TRANSMIT_QUEUE_COMMAND_REG(port_num), 1);
+		} else {
+			netif_carrier_off(dev);
+			netif_stop_queue(dev);
 		}
 	}
 
@@ -786,9 +774,9 @@ static int mv64340_eth_real_open(struct net_device *dev)
 {
 	struct mv64340_private *mp = netdev_priv(dev);
 	unsigned int port_num = mp->port_num;
-	u32 phy_reg_data;
 	unsigned int size;
 	int i;
+	u32 port_serial_control_reg;
 
 	/* Stop RX Queues */
 	MV_WRITE(MV64340_ETH_RECEIVE_QUEUE_COMMAND_REG(port_num),
@@ -903,18 +891,17 @@ static int mv64340_eth_real_open(struct net_device *dev)
 	mp->tx_int_coal =
 		eth_port_set_tx_coal (port_num, 133000000, MV64340_TX_COAL);  
 
-	/* Increase the Rx side buffer size */
+	/* Increase the Rx side buffer size if supporting GigE */
+	port_serial_control_reg =
+			MV_READ(MV64340_ETH_PORT_SERIAL_CONTROL_REG(port_num));
+	if (port_serial_control_reg & MV64340_ETH_SET_GMII_SPEED_TO_1000)
+		MV_WRITE(MV64340_ETH_PORT_SERIAL_CONTROL_REG(port_num),
+			(port_serial_control_reg & 0xfff1ffff) | (0x5 << 17));
 
-	MV_WRITE (MV64340_ETH_PORT_SERIAL_CONTROL_REG(port_num), (0x5 << 17) |
-			(MV_READ(MV64340_ETH_PORT_SERIAL_CONTROL_REG(port_num))
-					& 0xfff1ffff));
 	/* wait up to 1 second for link to come up */
-	for (i = 0; i < 10; i++) {
-		eth_port_read_smi_reg(port_num, 1, &phy_reg_data);
-		if (phy_reg_data & 0x20)
-			break;
-		msleep(100);			/* sleep 1/10 second */
-	}
+	for (i = 0; i < 10 && !eth_port_link_is_up(port_num); i++)
+		msleep(100);				/* sleep 1/10 second */
+
 	netif_start_queue(dev);
 
 	return 0;
@@ -1809,14 +1796,12 @@ static void eth_port_init(struct mv64340_private * mp)
  *       Ethernet port is ready to receive and transmit.
  *
  * RETURN:
- *       false if the port PHY is not up.
- *       true otherwise.
+ *       None.
  */
-static int eth_port_start(struct mv64340_private *mp)
+static void eth_port_start(struct mv64340_private *mp)
 {
 	unsigned int eth_port_num = mp->port_num;
 	int tx_curr_desc, rx_curr_desc;
-	unsigned int phy_reg_data;
 
 	/* Assignment of Tx CTRP of given queue */
 	tx_curr_desc = mp->tx_curr_desc_q;
@@ -1852,14 +1837,6 @@ static int eth_port_start(struct mv64340_private *mp)
 	/* Enable port Rx. */
 	MV_WRITE(MV64340_ETH_RECEIVE_QUEUE_COMMAND_REG(eth_port_num),
 		 mp->port_rx_queue_command);
-
-	/* Check if link is up */
-	eth_port_read_smi_reg(eth_port_num, 1, &phy_reg_data);
-
-	if (!(phy_reg_data & 0x20))
-		return 0;
-
-	return 1;
 }
 
 /*
@@ -2237,6 +2214,23 @@ static void ethernet_set_config_reg(unsigned int eth_port_num,
 	eth_config_reg |= value;
 	MV_WRITE(MV64340_ETH_PORT_CONFIG_REG(eth_port_num),
 		 eth_config_reg);
+}
+
+static int eth_port_link_is_up(unsigned int eth_port_num)
+{
+	unsigned int phy_reg_data0;
+	unsigned int phy_reg_data1;
+
+	eth_port_read_smi_reg(eth_port_num, 0, &phy_reg_data0);
+	eth_port_read_smi_reg(eth_port_num, 1, &phy_reg_data1);
+
+	if (phy_reg_data0 & 0x1000) {		/* auto-neg supported? */
+		if (phy_reg_data1 & 0x20)	/* auto-neg complete */
+			return 1;
+	} else
+		if (phy_reg_data1 & 0x4)	/* link up */
+			return 1;
+	return 0;
 }
 
 /*

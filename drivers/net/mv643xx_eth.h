@@ -372,7 +372,7 @@ struct mv64340_private {
 /* Port operation control routines */
 static void eth_port_init(struct mv64340_private *mp);
 static void eth_port_reset(unsigned int eth_port_num);
-static int eth_port_start(struct mv64340_private *mp);
+static void eth_port_start(struct mv64340_private *mp);
 
 static void ethernet_set_config_reg(unsigned int eth_port_num,
 				    unsigned int value);
