@@ -15,6 +15,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/string.h>
+#include <linux/kdev_t.h>
 #include "base.h"
 
 #define to_class_attr(_attr) container_of(_attr, struct class_attribute, attr)
@@ -298,9 +299,9 @@ static int class_hotplug(struct kset *kset, struct kobject *kobj, char **envp,
 			 int num_envp, char *buffer, int buffer_size)
 {
 	struct class_device *class_dev = to_class_dev(kobj);
-	int retval = 0;
 	int i = 0;
 	int length = 0;
+	int retval = 0;
 
 	pr_debug("%s - name = %s\n", __FUNCTION__, class_dev->class_id);
 
@@ -313,25 +314,33 @@ static int class_hotplug(struct kset *kset, struct kobject *kobj, char **envp,
 				    &length, "PHYSDEVPATH=%s", path);
 		kfree(path);
 
-		/* add bus name of physical device */
 		if (dev->bus)
 			add_hotplug_env_var(envp, num_envp, &i,
 					    buffer, buffer_size, &length,
 					    "PHYSDEVBUS=%s", dev->bus->name);
 
-		/* add driver name of physical device */
 		if (dev->driver)
 			add_hotplug_env_var(envp, num_envp, &i,
 					    buffer, buffer_size, &length,
 					    "PHYSDEVDRIVER=%s", dev->driver->name);
-
-		/* terminate, set to next free slot, shrink available space */
-		envp[i] = NULL;
-		envp = &envp[i];
-		num_envp -= i;
-		buffer = &buffer[length];
-		buffer_size -= length;
 	}
+
+	if (MAJOR(class_dev->devt)) {
+		add_hotplug_env_var(envp, num_envp, &i,
+				    buffer, buffer_size, &length,
+				    "MAJOR=%u", MAJOR(class_dev->devt));
+
+		add_hotplug_env_var(envp, num_envp, &i,
+				    buffer, buffer_size, &length,
+				    "MINOR=%u", MINOR(class_dev->devt));
+	}
+
+	/* terminate, set to next free slot, shrink available space */
+	envp[i] = NULL;
+	envp = &envp[i];
+	num_envp -= i;
+	buffer = &buffer[length];
+	buffer_size -= length;
 
 	if (class_dev->class->hotplug) {
 		/* have the bus specific function add its stuff */
@@ -388,6 +397,12 @@ static void class_device_remove_attrs(struct class_device * cd)
 	}
 }
 
+static ssize_t show_dev(struct class_device *class_dev, char *buf)
+{
+	return print_dev_t(buf, class_dev->devt);
+}
+static CLASS_DEVICE_ATTR(dev, S_IRUGO, show_dev, NULL);
+
 void class_device_initialize(struct class_device *class_dev)
 {
 	kobj_set_kset_s(class_dev, class_obj_subsys);
@@ -432,6 +447,10 @@ int class_device_add(struct class_device *class_dev)
 				class_intf->add(class_dev);
 		up_write(&parent->subsys.rwsem);
 	}
+
+	if (MAJOR(class_dev->devt))
+		class_device_create_file(class_dev, &class_device_attr_dev);
+
 	class_device_add_attrs(class_dev);
 	class_device_dev_link(class_dev);
 	class_device_driver_link(class_dev);
