@@ -129,6 +129,8 @@ void __init fork_init(unsigned long mempages)
 
 	init_task.signal->rlim[RLIMIT_NPROC].rlim_cur = max_threads/2;
 	init_task.signal->rlim[RLIMIT_NPROC].rlim_max = max_threads/2;
+	init_task.signal->rlim[RLIMIT_SIGPENDING] =
+		init_task.signal->rlim[RLIMIT_NPROC];
 }
 
 static struct task_struct *dup_task_struct(struct task_struct *orig)
