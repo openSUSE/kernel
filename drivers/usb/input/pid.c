@@ -114,28 +114,28 @@ static int hid_pid_erase(struct input_dev *dev, int id)
 	struct hid_report* report;
 	struct hid_ff_pid *pid = hid->ff_private;
 	unsigned long flags;
-	unsigned wanted_report = HID_UP_PID | FF_PID_USAGE_BLOCK_FREE;  /*  PID Block Free Report */
 	int ret;
 
 	if (!CHECK_OWNERSHIP(id, pid))
 		return -EACCES;
 
 	/* Find report */
-	ret =  hid_find_report_by_usage(hid, wanted_report, &report, HID_OUTPUT_REPORT);
-	if(!ret) {
+	report = hid_find_report_by_usage(hid,
+		HID_UP_PID | FF_PID_USAGE_BLOCK_FREE, HID_OUTPUT_REPORT);
+	if (!report) {
 		dev_err(&hid->dev->dev, "couldn't find report\n");
 		return ret;
 	}
 
 	/* Find field */
 	field = (struct hid_field *) kmalloc(sizeof(struct hid_field), GFP_KERNEL);
-	if(!field) {
+	if (!field) {
 		dev_err(&hid->dev->dev, "couldn't allocate field\n");
 		return -ENOMEM;
 	}
 
 	ret = hid_set_field(field, ret, pid->effects[id].device_id);
-	if(!ret) {
+	if (ret) {
 		dev_err(&hid->dev->dev, "couldn't set field\n");
 		return ret;
 	}

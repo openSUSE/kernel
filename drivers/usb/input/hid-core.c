@@ -1007,63 +1007,21 @@ int hid_set_field(struct hid_field *field, unsigned offset, __s32 value)
 	return 0;
 }
 
-int hid_find_field(struct hid_device *hid, unsigned int type, unsigned int code, struct hid_field **field)
-{
-	struct hid_report_enum *report_enum = hid->report_enum + HID_OUTPUT_REPORT;
-	struct list_head *list = report_enum->report_list.next;
-	int i, j;
-
-	while (list != &report_enum->report_list) {
-		struct hid_report *report = (struct hid_report *) list;
-		list = list->next;
-		for (i = 0; i < report->maxfield; i++) {
-			*field = report->field[i];
-			for (j = 0; j < (*field)->maxusage; j++)
-				if ((*field)->usage[j].type == type && (*field)->usage[j].code == code)
-					return j;
-		}
-	}
-	return -1;
-}
-
 /*
  * Find a report with a specified HID usage.
  */
 
-int hid_find_report_by_usage(struct hid_device *hid, __u32 wanted_usage, struct hid_report **report, int type)
+struct hid_report *hid_find_report_by_usage(struct hid_device *hid, __u32 wanted_usage, int type)
 {
-	struct hid_report_enum *report_enum = hid->report_enum + type;
-	struct list_head *list = report_enum->report_list.next;
-	int i, j;
+	struct hid_report *report;
+	int i;
 
-	while (list != &report_enum->report_list) {
-		*report = (struct hid_report *) list;
-		list = list->next;
-		for (i = 0; i < (*report)->maxfield; i++) {
-			struct hid_field *field = (*report)->field[i];
-			for (j = 0; j < field->maxusage; j++)
-				if (field->logical == wanted_usage)
-					return j;
-		}
-	}
-	return -1;
+	list_for_each_entry(report, &hid->report_enum[type].report_list, list)
+		for (i = 0; i < report->maxfield; i++)
+			if (report->field[i]->logical == wanted_usage)
+				return report;
+	return NULL;
 }
-
-#if 0
-static int hid_find_field_in_report(struct hid_report *report, __u32 wanted_usage, struct hid_field **field)
-{
-	int i, j;
-
-	for (i = 0; i < report->maxfield; i++) {
-		*field = report->field[i];
-		for (j = 0; j < (*field)->maxusage; j++)
-			if ((*field)->usage[j].hid == wanted_usage)
-				return j;
-	}
-
-	return -1;
-}
-#endif
 
 static int hid_submit_out(struct hid_device *hid)
 {
@@ -1336,47 +1294,19 @@ void hid_close(struct hid_device *hid)
 
 void hid_init_reports(struct hid_device *hid)
 {
-	struct hid_report_enum *report_enum;
 	struct hid_report *report;
-	struct list_head *list;
-	int err, ret, size;
+	int err, ret;
 
-	/*
-	 * The Set_Idle request is supposed to affect only the
-	 * "Interrupt In" pipe. Unfortunately, buggy devices such as
-	 * the BTC keyboard (ID 046e:5303) the request also affects
-	 * Get_Report requests on the control pipe.  In the worst
-	 * case, if the device was put on idle for an indefinite
-	 * amount of time (as we do below) and there are no input
-	 * events to report, the Get_Report requests will just hang
-	 * until we get a USB timeout.  To avoid this, we temporarily
-	 * establish a minimal idle time of 1ms.  This shouldn't hurt
-	 * bugfree devices and will cause a worst-case extra delay of
-	 * 1ms for buggy ones.
-	 */
-	usb_control_msg(hid->dev, usb_sndctrlpipe(hid->dev, 0),
-			HID_REQ_SET_IDLE, USB_TYPE_CLASS | USB_RECIP_INTERFACE, (1 << 8),
-			hid->ifnum, NULL, 0, HZ * USB_CTRL_SET_TIMEOUT);
-
-	report_enum = hid->report_enum + HID_INPUT_REPORT;
-	list = report_enum->report_list.next;
-	while (list != &report_enum->report_list) {
-		report = (struct hid_report *) list;
-		size = ((report->size - 1) >> 3) + 1 + report_enum->numbered;
+	list_for_each_entry(report, &hid->report_enum[HID_INPUT_REPORT].report_list, list) {
+		int size = ((report->size - 1) >> 3) + 1 + hid->report_enum[HID_INPUT_REPORT].numbered;
 		if (size > HID_BUFFER_SIZE) size = HID_BUFFER_SIZE;
 		if (size > hid->urbin->transfer_buffer_length)
 			hid->urbin->transfer_buffer_length = size;
 		hid_submit_report(hid, report, USB_DIR_IN);
-		list = list->next;
 	}
 
-	report_enum = hid->report_enum + HID_FEATURE_REPORT;
-	list = report_enum->report_list.next;
-	while (list != &report_enum->report_list) {
-		report = (struct hid_report *) list;
+	list_for_each_entry(report, &hid->report_enum[HID_FEATURE_REPORT].report_list, list)
 		hid_submit_report(hid, report, USB_DIR_IN);
-		list = list->next;
-	}
 
 	err = 0;
 	ret = hid_wait_io(hid);
@@ -1392,15 +1322,9 @@ void hid_init_reports(struct hid_device *hid)
 	if (err)
 		warn("timeout initializing reports\n");
 
-	report_enum = hid->report_enum + HID_INPUT_REPORT;
-	list = report_enum->report_list.next;
-	while (list != &report_enum->report_list) {
-		report = (struct hid_report *) list;
-		usb_control_msg(hid->dev, usb_sndctrlpipe(hid->dev, 0),
-			HID_REQ_SET_IDLE, USB_TYPE_CLASS | USB_RECIP_INTERFACE, report->id,
-			hid->ifnum, NULL, 0, HZ * USB_CTRL_SET_TIMEOUT);
-		list = list->next;
-	}
+	usb_control_msg(hid->dev, usb_sndctrlpipe(hid->dev, 0),
+		HID_REQ_SET_IDLE, USB_TYPE_CLASS | USB_RECIP_INTERFACE, 0,
+		hid->ifnum, NULL, 0, HZ * USB_CTRL_SET_TIMEOUT);
 }
 
 #define USB_VENDOR_ID_WACOM		0x056a
@@ -1505,6 +1429,9 @@ void hid_init_reports(struct hid_device *hid)
 #define USB_VENDOR_ID_CHICONY		0x04f2
 #define USB_DEVICE_ID_CHICONY_USBHUB_KB	0x0100
 
+#define USB_VENDOR_ID_BTC		0x046e
+#define USB_DEVICE_ID_BTC_KEYBOARD	0x5303
+
 
 /*
  * Alphabetically sorted blacklist by quirk type.
@@ -1582,6 +1509,7 @@ static struct hid_blacklist {
 	{ USB_VENDOR_ID_ATEN, USB_DEVICE_ID_ATEN_2PORTKVM, HID_QUIRK_NOGET },
 	{ USB_VENDOR_ID_ATEN, USB_DEVICE_ID_ATEN_4PORTKVM, HID_QUIRK_NOGET },
 	{ USB_VENDOR_ID_ATEN, USB_DEVICE_ID_ATEN_4PORTKVMC, HID_QUIRK_NOGET },
+	{ USB_VENDOR_ID_BTC, USB_DEVICE_ID_BTC_KEYBOARD, HID_QUIRK_NOGET},
 	{ USB_VENDOR_ID_CHICONY, USB_DEVICE_ID_CHICONY_USBHUB_KB, HID_QUIRK_NOGET},
 	{ USB_VENDOR_ID_TANGTOP, USB_DEVICE_ID_TANGTOP_USBPS2, HID_QUIRK_NOGET },
 
@@ -1825,7 +1753,7 @@ static void hid_disconnect(struct usb_interface *intf)
 	hid_free_device(hid);
 }
 
-static int hid_probe (struct usb_interface *intf, const struct usb_device_id *id)
+static int hid_probe(struct usb_interface *intf, const struct usb_device_id *id)
 {
 	struct hid_device *hid;
 	char path[64];
