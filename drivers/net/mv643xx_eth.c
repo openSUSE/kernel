@@ -995,6 +995,7 @@ static int mv643xx_eth_real_stop(struct net_device *dev)
 	struct mv643xx_private *mp = netdev_priv(dev);
 	unsigned int port_num = mp->port_num;
 
+	netif_carrier_off(dev);
 	netif_stop_queue(dev);
 
 	mv643xx_eth_free_tx_rings(dev);
