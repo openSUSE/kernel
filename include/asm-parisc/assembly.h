@@ -45,7 +45,7 @@
 
 #ifdef CONFIG_PA20
 #define BL		b,l
-# ifdef CONFIG_PARISC64
+# ifdef CONFIG_64BIT
 #  define LEVEL		2.0w
 # else
 #  define LEVEL		2.0
