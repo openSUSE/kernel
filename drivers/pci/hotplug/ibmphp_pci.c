@@ -1384,9 +1384,6 @@ static int unconfigure_boot_bridge (u8 busno, u8 device, u8 function)
 		return -EINVAL;
 	}
 
-	pci_bus_read_config_byte (ibmphp_pci_bus, devfn, PCI_SECONDARY_BUS, &sec_number);
-	sec_no = (int) sec_no;
-
 	pci_bus_read_config_byte (ibmphp_pci_bus, devfn, PCI_SUBORDINATE_BUS, &sub_number);
 	sub_no = (int) sub_number;
 	debug ("sub_no is %d, sec_no is %d\n", sub_no, sec_no);
