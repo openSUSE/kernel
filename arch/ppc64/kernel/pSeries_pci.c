@@ -52,6 +52,16 @@ static int s7a_workaround;
 
 extern struct mpic *pSeries_mpic;
 
+static int config_access_valid(struct device_node *dn, int where)
+{
+	if (where < 256)
+		return 1;
+	if (where < 4096 && dn->pci_ext_config_space)
+		return 1;
+
+	return 0;
+}
+
 static int rtas_read_config(struct device_node *dn, int where, int size, u32 *val)
 {
 	int returnval = -1;
@@ -60,10 +70,11 @@ static int rtas_read_config(struct device_node *dn, int where, int size, u32 *va
 
 	if (!dn)
 		return PCIBIOS_DEVICE_NOT_FOUND;
-	if (where & (size - 1))
+	if (!config_access_valid(dn, where))
 		return PCIBIOS_BAD_REGISTER_NUMBER;
 
-	addr = (dn->busno << 16) | (dn->devfn << 8) | where;
+	addr = ((where & 0xf00) << 20) | (dn->busno << 16) |
+		(dn->devfn << 8) | (where & 0xff);
 	buid = dn->phb->buid;
 	if (buid) {
 		ret = rtas_call(ibm_read_pci_config, 4, 2, &returnval,
@@ -108,10 +119,11 @@ static int rtas_write_config(struct device_node *dn, int where, int size, u32 va
 
 	if (!dn)
 		return PCIBIOS_DEVICE_NOT_FOUND;
-	if (where & (size - 1))
+	if (!config_access_valid(dn, where))
 		return PCIBIOS_BAD_REGISTER_NUMBER;
 
-	addr = (dn->busno << 16) | (dn->devfn << 8) | where;
+	addr = ((where & 0xf00) << 20) | (dn->busno << 16) |
+		(dn->devfn << 8) | (where & 0xff);
 	buid = dn->phb->buid;
 	if (buid) {
 		ret = rtas_call(ibm_write_pci_config, 5, 1, NULL, addr, buid >> 32, buid & 0xffffffff, size, (ulong) val);
