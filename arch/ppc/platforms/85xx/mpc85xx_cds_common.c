@@ -39,6 +39,7 @@
 #include <asm/page.h>
 #include <asm/atomic.h>
 #include <asm/time.h>
+#include <asm/todc.h>
 #include <asm/io.h>
 #include <asm/machdep.h>
 #include <asm/prom.h>
@@ -304,6 +305,8 @@ mpc85xx_exclude_device(u_char bus, u_char devfn)
 }
 #endif /* CONFIG_PCI */
 
+TODC_ALLOC();
+
 /* ************************************************************************
  *
  * Setup the architecture
@@ -328,6 +331,13 @@ mpc85xx_cds_setup_arch(void)
 	cadmus = ioremap(CADMUS_BASE, CADMUS_SIZE);
 	cds_pci_slot = ((cadmus[CM_CSR] >> 6) & 0x3) + 1;
 	printk("CDS Version = %x in PCI slot %d\n", cadmus[CM_VER], cds_pci_slot);
+
+	/* Setup TODC access */
+	TODC_INIT(TODC_TYPE_DS1743,
+			0,
+			0,
+			ioremap(CDS_RTC_ADDR, CDS_RTC_SIZE),
+			8);
 
 	/* Set loops_per_jiffy to a half-way reasonable value,
 	   for use until calibrate_delay gets called. */
@@ -453,10 +463,14 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 
 	ppc_md.find_end_of_memory = mpc85xx_find_end_of_memory;
 
-	ppc_md.time_init = NULL;
-	ppc_md.set_rtc_time = NULL;
-	ppc_md.get_rtc_time = NULL;
 	ppc_md.calibrate_decr = mpc85xx_calibrate_decr;
+
+	ppc_md.time_init = todc_time_init;
+	ppc_md.set_rtc_time = todc_set_rtc_time;
+	ppc_md.get_rtc_time = todc_get_rtc_time;
+
+	ppc_md.nvram_read_val = todc_direct_read_val;
+	ppc_md.nvram_write_val = todc_direct_write_val;
 
 #if defined(CONFIG_SERIAL_8250) && defined(CONFIG_SERIAL_TEXT_DEBUG)
 	ppc_md.progress = gen550_progress;
