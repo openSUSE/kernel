@@ -358,11 +358,11 @@ static void azx_init_cmd_io(azx_t *chip)
 	/* set N=1, get RIRB response interrupt for new entry */
 	azx_writew(chip, RINTCNT, 1);
 	/* enable rirb dma and response irq */
-	azx_writeb(chip, RIRBCTL, ICH6_RBCTL_DMA_EN
 #ifdef USE_CORB_RIRB
-		   | ICH6_RBCTL_IRQ_EN
+	azx_writeb(chip, RIRBCTL, ICH6_RBCTL_DMA_EN | ICH6_RBCTL_IRQ_EN);
+#else
+	azx_writeb(chip, RIRBCTL, ICH6_RBCTL_DMA_EN);
 #endif
-		   );
 	chip->rirb.rp = chip->rirb.cmds = 0;
 }
 
