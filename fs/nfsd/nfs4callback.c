@@ -434,7 +434,6 @@ nfsd4_probe_callback(struct nfs4_client *clp)
 	clnt->cl_intr = 1;
 	clnt->cl_softrtry = 1;
 	clnt->cl_chatty = 1;
-	cb->cb_client = clnt;
 
 	/* Kick rpciod, put the call on the wire. */
 
@@ -444,6 +443,7 @@ nfsd4_probe_callback(struct nfs4_client *clp)
 	}
 
 	/* the task holds a reference to the nfs4_client struct */
+	cb->cb_client = clnt;
 	atomic_inc(&clp->cl_count);
 
 	msg.rpc_cred = nfsd4_lookupcred(clp,0);
@@ -456,6 +456,7 @@ nfsd4_probe_callback(struct nfs4_client *clp)
 	return;
 
 out_rpciod:
+	atomic_dec(&clp->cl_count);
 	rpciod_down();
 out_clnt:
 	rpc_shutdown_client(clnt);
