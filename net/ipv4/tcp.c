@@ -598,6 +598,7 @@ static inline void skb_entail(struct sock *sk, struct tcp_sock *tp,
 	TCP_SKB_CB(skb)->end_seq = tp->write_seq;
 	TCP_SKB_CB(skb)->flags = TCPCB_FLAG_ACK;
 	TCP_SKB_CB(skb)->sacked = 0;
+	skb_header_release(skb);
 	__skb_queue_tail(&sk->sk_write_queue, skb);
 	sk_charge_skb(sk, skb);
 	if (!sk->sk_send_head)
