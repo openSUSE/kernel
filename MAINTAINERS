@@ -2516,6 +2516,14 @@ L:	linux-usb-devel@lists.sourceforge.net
 W:	http://www.linux-projects.org
 S:	Maintained
 
+USB ZD1201 DRIVER
+P:	Jeroen Vreeken
+M:	pe1rxq@amsat.org
+L:	linux-usb-users@lists.sourceforge.net
+L:	linux-usb-devel@lists.sourceforge.net
+W:	http://linux-lc100020.sourceforge.net
+S:	Maintained
+
 USER-MODE LINUX
 P:	Jeff Dike
 M:	jdike@karaya.com
