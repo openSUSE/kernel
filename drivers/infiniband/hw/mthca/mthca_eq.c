@@ -54,10 +54,10 @@ struct mthca_eq_context {
 	u32 flags;
 	u64 start;
 	u32 logsize_usrpage;
-	u32 pd;
+	u32 tavor_pd;		/* reserved for Arbel */
 	u8  reserved1[3];
 	u8  intr;
-	u32 lost_count;
+	u32 arbel_pd;		/* lost_count for Tavor */
 	u32 lkey;
 	u32 reserved2[2];
 	u32 consumer_index;
@@ -75,6 +75,7 @@ struct mthca_eq_context {
 #define MTHCA_EQ_STATE_ARMED        ( 1 <<  8)
 #define MTHCA_EQ_STATE_FIRED        ( 2 <<  8)
 #define MTHCA_EQ_STATE_ALWAYS_ARMED ( 3 <<  8)
+#define MTHCA_EQ_STATE_ARBEL        ( 8 <<  8)
 
 enum {
 	MTHCA_EVENT_TYPE_COMP       	    = 0x00,
@@ -467,10 +468,16 @@ static int __devinit mthca_create_eq(struct mthca_dev *dev,
 						  MTHCA_EQ_OWNER_HW    |
 						  MTHCA_EQ_STATE_ARMED |
 						  MTHCA_EQ_FLAG_TR);
-	eq_context->start           = cpu_to_be64(0);
-	eq_context->logsize_usrpage = cpu_to_be32((ffs(nent) - 1) << 24 |
-						  dev->driver_uar.index);
-	eq_context->pd              = cpu_to_be32(dev->driver_pd.pd_num);
+	if (dev->hca_type == ARBEL_NATIVE)
+		eq_context->flags  |= cpu_to_be32(MTHCA_EQ_STATE_ARBEL);
+
+	eq_context->logsize_usrpage = cpu_to_be32((ffs(nent) - 1) << 24);
+	if (dev->hca_type == ARBEL_NATIVE) {
+		eq_context->arbel_pd = cpu_to_be32(dev->driver_pd.pd_num);
+	} else {
+		eq_context->logsize_usrpage |= cpu_to_be32(dev->driver_uar.index);
+		eq_context->tavor_pd         = cpu_to_be32(dev->driver_pd.pd_num);
+	}
 	eq_context->intr            = intr;
 	eq_context->lkey            = cpu_to_be32(eq->mr.ibmr.lkey);
 
