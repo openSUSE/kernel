@@ -728,7 +728,6 @@ struct ipr_resource_entry {
 	u8 resetting_device:1;
 	u8 tcq_active:1;
 
-	int qdepth;
 	struct scsi_device *sdev;
 	struct list_head queue;
 };

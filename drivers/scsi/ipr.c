@@ -793,7 +793,6 @@ static void ipr_init_res_entry(struct ipr_resource_entry *res)
 	res->del_from_ml = 0;
 	res->resetting_device = 0;
 	res->tcq_active = 0;
-	res->qdepth = IPR_MAX_CMD_PER_LUN;
 	res->sdev = NULL;
 }
 
@@ -2667,23 +2666,8 @@ static int ipr_free_dump(struct ipr_ioa_cfg *ioa_cfg) { return 0; };
  **/
 static int ipr_change_queue_depth(struct scsi_device *sdev, int qdepth)
 {
-	struct ipr_ioa_cfg *ioa_cfg = (struct ipr_ioa_cfg *)sdev->host->hostdata;
-	struct ipr_resource_entry *res;
-	int tagged = 0;
-	unsigned long lock_flags = 0;
-
-	spin_lock_irqsave(ioa_cfg->host->host_lock, lock_flags);
-	res = (struct ipr_resource_entry *)sdev->hostdata;
-	if (res) {
-		res->qdepth = qdepth;
-
-		if (ipr_is_gscsi(res) && res->tcq_active)
-			tagged = MSG_ORDERED_TAG;
-	}
-
-	spin_unlock_irqrestore(ioa_cfg->host->host_lock, lock_flags);
-	scsi_adjust_queue_depth(sdev, tagged, qdepth);
-	return qdepth;
+	scsi_adjust_queue_depth(sdev, scsi_get_tag_type(sdev), qdepth);
+	return sdev->queue_depth;
 }
 
 /**
@@ -2713,10 +2697,10 @@ static int ipr_change_queue_type(struct scsi_device *sdev, int tag_type)
 
 			if (tag_type) {
 				res->tcq_active = 1;
-				scsi_activate_tcq(sdev, res->qdepth);
+				scsi_activate_tcq(sdev, sdev->queue_depth);
 			} else {
 				res->tcq_active = 0;
-				scsi_deactivate_tcq(sdev, res->qdepth);
+				scsi_deactivate_tcq(sdev, sdev->queue_depth);
 			}
 		} else
 			tag_type = 0;
@@ -2851,7 +2835,7 @@ static int ipr_slave_configure(struct scsi_device *sdev)
 		}
 		if (IPR_IS_DASD_DEVICE(res->cfgte.std_inq_data))
 			sdev->allow_restart = 1;
-		scsi_adjust_queue_depth(sdev, 0, res->qdepth);
+		scsi_adjust_queue_depth(sdev, 0, sdev->host->cmd_per_lun);
 	}
 	spin_unlock_irqrestore(ioa_cfg->host->host_lock, lock_flags);
 	return 0;
