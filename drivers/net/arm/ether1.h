@@ -19,6 +19,8 @@
 #define NET_DEBUG 0
 #endif
 
+#define priv(dev)	((struct ether1_priv *)netdev_priv(dev))
+
 /* Page register */
 #define REG_PAGE	(dev->base_addr + 0x00)
 

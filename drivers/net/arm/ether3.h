@@ -22,6 +22,8 @@
 #define NET_DEBUG 	0
 #endif
 
+#define priv(dev)	((struct dev_priv *)netdev_priv(dev))
+
 /* Command register definitions & bits */
 #define REG_COMMAND		(dev->base_addr + 0x00)
 #define CMD_ENINTDMA		0x0001
