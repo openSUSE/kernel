@@ -258,7 +258,7 @@ static int msdos_add_entry(struct inode *dir, const unsigned char *name,
 {
 	struct msdos_dir_entry de;
 	__le16 time, date;
-	int offset;
+	int err;
 
 	memcpy(de.name, name, MSDOS_NAME);
 	de.attr = is_dir ? ATTR_DIR : ATTR_ARCH;
@@ -273,14 +273,9 @@ static int msdos_add_entry(struct inode *dir, const unsigned char *name,
 	de.starthi = cpu_to_le16(cluster >> 16);
 	de.size = 0;
 
-	offset = fat_add_entries(dir, 1, &sinfo->bh, &sinfo->de, &sinfo->i_pos);
-	if (offset < 0)
-		return offset;
-	sinfo->slot_off = offset;
-	sinfo->nr_slots = 1;
-
-	memcpy(sinfo->de, &de, sizeof(de));
-	mark_buffer_dirty(sinfo->bh);
+	err = fat_add_entries(dir, &de, 1, sinfo);
+	if (err)
+		return err;
 
 	dir->i_ctime = dir->i_mtime = *ts;
 	mark_inode_dirty(dir);

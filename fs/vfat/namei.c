@@ -661,14 +661,9 @@ static int vfat_add_entry(struct inode *dir, struct qstr *qname, int is_dir,
 			  int cluster, struct timespec *ts,
 			  struct fat_slot_info *sinfo)
 {
-	struct super_block *sb = dir->i_sb;
 	struct msdos_dir_slot *slots;
 	unsigned int len;
-	int err, i, nr_slots;
-	loff_t offset;
-	struct msdos_dir_entry *de, *dummy_de;
-	struct buffer_head *bh, *dummy_bh;
-	loff_t dummy_i_pos;
+	int err, nr_slots;
 
 	len = vfat_striptail_len(qname);
 	if (len == 0)
@@ -683,37 +678,13 @@ static int vfat_add_entry(struct inode *dir, struct qstr *qname, int is_dir,
 	if (err)
 		goto cleanup;
 
-	/* build the empty directory entry of number of slots */
-	offset =
-	    fat_add_entries(dir, nr_slots, &dummy_bh, &dummy_de, &dummy_i_pos);
-	if (offset < 0) {
-		err = offset;
+	err = fat_add_entries(dir, slots, nr_slots, sinfo);
+	if (err)
 		goto cleanup;
-	}
-	brelse(dummy_bh);
-
-	/* Now create the new entry */
-	bh = NULL;
-	for (i = 0; i < nr_slots; i++) {
-		if (fat_get_entry(dir, &offset, &bh, &de, &sinfo->i_pos) < 0) {
-			err = -EIO;
-			goto cleanup;
-		}
-		memcpy(de, slots + i, sizeof(struct msdos_dir_slot));
-		mark_buffer_dirty(bh);
-		if (sb->s_flags & MS_SYNCHRONOUS)
-			sync_dirty_buffer(bh);
-	}
 
 	/* update timestamp */
 	dir->i_ctime = dir->i_mtime = dir->i_atime = *ts;
 	mark_inode_dirty(dir);
-
-	/* slots can't be less than 1 */
-	sinfo->slot_off = offset - sizeof(struct msdos_dir_slot) * nr_slots;
-	sinfo->nr_slots = nr_slots;
-	sinfo->de = de;
-	sinfo->bh = bh;
 cleanup:
 	kfree(slots);
 	return err;
