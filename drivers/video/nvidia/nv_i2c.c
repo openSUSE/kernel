@@ -119,9 +119,12 @@ static int nvidia_setup_i2c_bus(struct nvidia_i2c_chan *chan, const char *name)
 	if (rc == 0)
 		dev_dbg(&chan->par->pci_dev->dev,
 			"I2C bus %s registered.\n", name);
-	else
+	else {
 		dev_warn(&chan->par->pci_dev->dev,
 			 "Failed to register I2C bus %s.\n", name);
+		chan->par = NULL;
+	}
+
 	return rc;
 }
 
@@ -174,6 +177,9 @@ static u8 *nvidia_do_probe_i2c_edid(struct nvidia_i2c_chan *chan)
 		     },
 	};
 	u8 *buf;
+
+	if (!chan->par)
+		return NULL;
 
 	buf = kmalloc(EDID_LENGTH, GFP_KERNEL);
 	if (!buf) {
