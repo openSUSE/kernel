@@ -1326,7 +1326,6 @@ static void ip_rt_update_pmtu(struct dst_entry *dst, u32 mtu)
 
 static struct dst_entry *ipv4_dst_check(struct dst_entry *dst, u32 cookie)
 {
-	dst_release(dst);
 	return NULL;
 }
 

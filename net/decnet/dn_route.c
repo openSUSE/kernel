@@ -253,7 +253,6 @@ static void dn_dst_update_pmtu(struct dst_entry *dst, u32 mtu)
  */
 static struct dst_entry *dn_dst_check(struct dst_entry *dst, __u32 cookie)
 {
-	dst_release(dst);
 	return NULL;
 }
 

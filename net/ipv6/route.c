@@ -589,7 +589,6 @@ static struct dst_entry *ip6_dst_check(struct dst_entry *dst, u32 cookie)
 	if (rt && rt->rt6i_node && (rt->rt6i_node->fn_sernum == cookie))
 		return dst;
 
-	dst_release(dst);
 	return NULL;
 }
 
