@@ -27,6 +27,8 @@
  *		     - updated init code to use platform_device info
  *
  * 06-Mar-2005  BJD  Add s3c2440 fclk clock source
+ *
+ * 09-Mar-2005  BJD  Add s3c2400 support
 */
 
 /* Note on 2440 fclk clock source handling
@@ -1198,6 +1200,97 @@ int s3c24xx_serial_init(struct device_driver *drv,
 
 /* cpu specific variations on the serial port support */
 
+#ifdef CONFIG_CPU_S3C2400
+
+static int s3c2400_serial_getsource(struct uart_port *port,
+				    struct s3c24xx_uart_clksrc *clk)
+{
+	clk->divisor = 1;
+	clk->name = "pclk";
+
+	return 0;
+}
+
+static int s3c2400_serial_setsource(struct uart_port *port,
+				    struct s3c24xx_uart_clksrc *clk)
+{
+	return 0;
+}
+
+static int s3c2400_serial_resetport(struct uart_port *port,
+				    struct s3c2410_uartcfg *cfg)
+{
+	dbg("s3c2400_serial_resetport: port=%p (%08lx), cfg=%p\n",
+	    port, port->mapbase, cfg);
+
+	wr_regl(port, S3C2410_UCON,  cfg->ucon);
+	wr_regl(port, S3C2410_ULCON, cfg->ulcon);
+
+	/* reset both fifos */
+
+	wr_regl(port, S3C2410_UFCON, cfg->ufcon | S3C2410_UFCON_RESETBOTH);
+	wr_regl(port, S3C2410_UFCON, cfg->ufcon);
+
+	return 0;
+}
+
+static struct s3c24xx_uart_info s3c2400_uart_inf = {
+	.name		= "Samsung S3C2400 UART",
+	.type		= PORT_S3C2400,
+	.fifosize	= 16,
+	.rx_fifomask	= S3C2410_UFSTAT_RXMASK,
+	.rx_fifoshift	= S3C2410_UFSTAT_RXSHIFT,
+	.rx_fifofull	= S3C2410_UFSTAT_RXFULL,
+	.tx_fifofull	= S3C2410_UFSTAT_TXFULL,
+	.tx_fifomask	= S3C2410_UFSTAT_TXMASK,
+	.tx_fifoshift	= S3C2410_UFSTAT_TXSHIFT,
+	.get_clksrc	= s3c2400_serial_getsource,
+	.set_clksrc	= s3c2400_serial_setsource,
+	.reset_port	= s3c2400_serial_resetport,
+};
+
+static int s3c2400_serial_probe(struct device *dev)
+{
+	return s3c24xx_serial_probe(dev, &s3c2400_uart_inf);
+}
+
+static struct device_driver s3c2400_serial_drv = {
+	.name		= "s3c2400-uart",
+	.bus		= &platform_bus_type,
+	.probe		= s3c2400_serial_probe,
+	.remove		= s3c24xx_serial_remove,
+	.suspend	= s3c24xx_serial_suspend,
+	.resume		= s3c24xx_serial_resume,
+};
+
+static inline int s3c2400_serial_init(void)
+{
+	return s3c24xx_serial_init(&s3c2400_serial_drv, &s3c2400_uart_inf);
+}
+
+static inline void s3c2400_serial_exit(void)
+{
+	driver_unregister(&s3c2400_serial_drv);
+}
+
+#define s3c2400_uart_inf_at &s3c2400_uart_inf
+#else
+
+static inline int s3c2400_serial_init(void)
+{
+	return 0;
+}
+
+static inline void s3c2400_serial_exit(void)
+{
+}
+
+#define s3c2400_uart_inf_at NULL
+
+#endif /* CONFIG_CPU_S3C2400 */
+
+/* S3C2410 support */
+
 #ifdef CONFIG_CPU_S3C2410
 
 static int s3c2410_serial_setsource(struct uart_port *port,
@@ -1472,6 +1565,7 @@ static int __init s3c24xx_serial_modinit(void)
 		return -1;
 	}
 
+	s3c2400_serial_init();
 	s3c2410_serial_init();
 	s3c2440_serial_init();
 
@@ -1480,6 +1574,7 @@ static int __init s3c24xx_serial_modinit(void)
 
 static void __exit s3c24xx_serial_modexit(void)
 {
+	s3c2400_serial_exit();
 	s3c2410_serial_exit();
 	s3c2440_serial_exit();
 
@@ -1703,7 +1798,9 @@ static int s3c24xx_serial_initconsole(void)
 		return 0;
 	}
 
-	if (strcmp(dev->name, "s3c2410-uart") == 0) {
+	if (strcmp(dev->name, "s3c2400-uart") == 0) {
+		info = s3c2400_uart_inf_at;
+	} else if (strcmp(dev->name, "s3c2410-uart") == 0) {
 		info = s3c2410_uart_inf_at;
 	} else if (strcmp(dev->name, "s3c2440-uart") == 0) {
 		info = s3c2440_uart_inf_at;
