@@ -658,13 +658,13 @@ static __inline__ int _max(int val1, int val2)
  * globals
  */
         
-static char *mode_option __initdata;
+static char *mode_option;
 static char noaccel = 0;
 static char mirror = 0;
-static int panel_yres __initdata = 0;
-static char force_dfp __initdata = 0;
+static int panel_yres = 0;
+static char force_dfp = 0;
 static struct radeonfb_info *board_list = NULL;
-static char nomtrr __initdata = 0;
+static char nomtrr = 0;
 
 /*
  * prototypes
