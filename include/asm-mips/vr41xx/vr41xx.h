@@ -45,6 +45,7 @@
 /*
  * Bus Control Uint
  */
+extern unsigned long vr41xx_calculate_clock_frequency(void);
 extern unsigned long vr41xx_get_vtclock_frequency(void);
 extern unsigned long vr41xx_get_tclock_frequency(void);
 

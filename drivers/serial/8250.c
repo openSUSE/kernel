@@ -450,9 +450,11 @@ static void disable_rsa(struct uart_8250_port *up)
  */
 static int size_fifo(struct uart_8250_port *up)
 {
-	unsigned char old_fcr, old_mcr, old_dll, old_dlm;
+	unsigned char old_fcr, old_mcr, old_dll, old_dlm, old_lcr;
 	int count;
 
+	old_lcr = serial_inp(up, UART_LCR);
+	serial_outp(up, UART_LCR, 0);
 	old_fcr = serial_inp(up, UART_FCR);
 	old_mcr = serial_inp(up, UART_MCR);
 	serial_outp(up, UART_FCR, UART_FCR_ENABLE_FIFO |
@@ -475,8 +477,37 @@ static int size_fifo(struct uart_8250_port *up)
 	serial_outp(up, UART_LCR, UART_LCR_DLAB);
 	serial_outp(up, UART_DLL, old_dll);
 	serial_outp(up, UART_DLM, old_dlm);
+	serial_outp(up, UART_LCR, old_lcr);
 
 	return count;
+}
+
+/*
+ * Read UART ID using the divisor method - set DLL and DLM to zero
+ * and the revision will be in DLL and device type in DLM.  We
+ * preserve the device state across this.
+ */
+static unsigned int autoconfig_read_divisor_id(struct uart_8250_port *p)
+{
+	unsigned char old_dll, old_dlm, old_lcr;
+	unsigned int id;
+
+	old_lcr = serial_inp(p, UART_LCR);
+	serial_outp(p, UART_LCR, UART_LCR_DLAB);
+
+	old_dll = serial_inp(p, UART_DLL);
+	old_dlm = serial_inp(p, UART_DLM);
+
+	serial_outp(p, UART_DLL, 0);
+	serial_outp(p, UART_DLM, 0);
+
+	id = serial_inp(p, UART_DLL) | serial_inp(p, UART_DLM) << 8;
+
+	serial_outp(p, UART_DLL, old_dll);
+	serial_outp(p, UART_DLM, old_dlm);
+	serial_outp(p, UART_LCR, old_lcr);
+
+	return id;
 }
 
 /*
@@ -491,7 +522,7 @@ static int size_fifo(struct uart_8250_port *up)
  */
 static void autoconfig_has_efr(struct uart_8250_port *up)
 {
-	unsigned char id1, id2, id3, rev, saved_dll, saved_dlm;
+	unsigned int id1, id2, id3, rev;
 
 	/*
 	 * Everything with an EFR has SLEEP
@@ -541,21 +572,13 @@ static void autoconfig_has_efr(struct uart_8250_port *up)
 	 *  0x12 - XR16C2850.
 	 *  0x14 - XR16C854.
 	 */
-	serial_outp(up, UART_LCR, UART_LCR_DLAB);
-	saved_dll = serial_inp(up, UART_DLL);
-	saved_dlm = serial_inp(up, UART_DLM);
-	serial_outp(up, UART_DLL, 0);
-	serial_outp(up, UART_DLM, 0);
-	id2 = serial_inp(up, UART_DLL);
-	id1 = serial_inp(up, UART_DLM);
-	serial_outp(up, UART_DLL, saved_dll);
-	serial_outp(up, UART_DLM, saved_dlm);
+	id1 = autoconfig_read_divisor_id(up);
+	DEBUG_AUTOCONF("850id=%04x ", id1);
 
-	DEBUG_AUTOCONF("850id=%02x:%02x ", id1, id2);
-
-	if (id1 == 0x10 || id1 == 0x12 || id1 == 0x14) {
-		if (id1 == 0x10)
-			up->rev = id2;
+	id2 = id1 >> 8;
+	if (id2 == 0x10 || id2 == 0x12 || id2 == 0x14) {
+		if (id2 == 0x10)
+			up->rev = id1 & 255;
 		up->port.type = PORT_16850;
 		return;
 	}
@@ -597,6 +620,19 @@ static void autoconfig_8250(struct uart_8250_port *up)
 		up->port.type = PORT_16450;
 }
 
+static int broken_efr(struct uart_8250_port *up)
+{
+	/*
+	 * Exar ST16C2550 "A2" devices incorrectly detect as
+	 * having an EFR, and report an ID of 0x0201.  See
+	 * http://www.exar.com/info.php?pdf=dan180_oct2004.pdf
+	 */
+	if (autoconfig_read_divisor_id(up) == 0x0201 && size_fifo(up) == 16)
+		return 1;
+
+	return 0;
+}
+
 /*
  * We know that the chip has FIFOs.  Does it have an EFR?  The
  * EFR is located in the same register position as the IIR and
@@ -606,6 +642,7 @@ static void autoconfig_8250(struct uart_8250_port *up)
 static void autoconfig_16550a(struct uart_8250_port *up)
 {
 	unsigned char status1, status2;
+	unsigned int iersave;
 
 	up->port.type = PORT_16550A;
 	up->capabilities |= UART_CAP_FIFO;
@@ -633,7 +670,7 @@ static void autoconfig_16550a(struct uart_8250_port *up)
 	 * (other ST16C650V2 UARTs, TI16C752A, etc)
 	 */
 	serial_outp(up, UART_LCR, 0xBF);
-	if (serial_in(up, UART_EFR) == 0) {
+	if (serial_in(up, UART_EFR) == 0 && !broken_efr(up)) {
 		DEBUG_AUTOCONF("EFRv2 ");
 		autoconfig_has_efr(up);
 		return;
@@ -700,6 +737,40 @@ static void autoconfig_16550a(struct uart_8250_port *up)
 		up->capabilities |= UART_CAP_AFE | UART_CAP_SLEEP;
 		return;
 	}
+
+	/*
+	 * Try writing and reading the UART_IER_UUE bit (b6).
+	 * If it works, this is probably one of the Xscale platform's
+	 * internal UARTs.
+	 * We're going to explicitly set the UUE bit to 0 before
+	 * trying to write and read a 1 just to make sure it's not
+	 * already a 1 and maybe locked there before we even start start.
+	 */
+	iersave = serial_in(up, UART_IER);
+	serial_outp(up, UART_IER, iersave & ~UART_IER_UUE);
+	if (!(serial_in(up, UART_IER) & UART_IER_UUE)) {
+		/*
+		 * OK it's in a known zero state, try writing and reading
+		 * without disturbing the current state of the other bits.
+		 */
+		serial_outp(up, UART_IER, iersave | UART_IER_UUE);
+		if (serial_in(up, UART_IER) & UART_IER_UUE) {
+			/*
+			 * It's an Xscale.
+			 * We'll leave the UART_IER_UUE bit set to 1 (enabled).
+			 */
+			DEBUG_AUTOCONF("Xscale ");
+			up->port.type = PORT_XSCALE;
+			return;
+		}
+	} else {
+		/*
+		 * If we got here we couldn't force the IER_UUE bit to 0.
+		 * Log it and continue.
+		 */
+		DEBUG_AUTOCONF("Couldn't force IER_UUE to 0 ");
+	}
+	serial_outp(up, UART_IER, iersave);
 }
 
 /*

@@ -274,7 +274,7 @@ pmac_setup_arch(void)
 	pmac_find_bridges();
 
 	/* Checks "l2cr-value" property in the registry */
-	if (cur_cpu_spec[0]->cpu_features & CPU_FTR_L2CR) {
+	if (cpu_has_feature(CPU_FTR_L2CR)) {
 		struct device_node *np = find_devices("cpus");
 		if (np == 0)
 			np = find_type_devices("cpu");

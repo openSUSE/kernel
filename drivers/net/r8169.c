@@ -1180,7 +1180,7 @@ rtl8169_init_board(struct pci_dev *pdev, struct net_device **dev_out,
 	/* enable device (incl. PCI PM wakeup and hotplug setup) */
 	rc = pci_enable_device(pdev);
 	if (rc) {
-		printk(KERN_ERR PFX "%s: enable failure\n", pdev->slot_name);
+		printk(KERN_ERR PFX "%s: enable failure\n", pci_name(pdev));
 		goto err_out_free_dev;
 	}
 
@@ -1218,7 +1218,7 @@ rtl8169_init_board(struct pci_dev *pdev, struct net_device **dev_out,
 	rc = pci_request_regions(pdev, MODULENAME);
 	if (rc) {
 		printk(KERN_ERR PFX "%s: could not request regions.\n",
-		       pdev->slot_name);
+		       pci_name(pdev));
 		goto err_out_mwi;
 	}
 

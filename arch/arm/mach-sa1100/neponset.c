@@ -266,6 +266,7 @@ static struct platform_device sa1111_device = {
 
 static struct resource smc91x_resources[] = {
 	[0] = {
+		.name	= "smc91x-regs",
 		.start	= SA1100_CS3_PHYS,
 		.end	= SA1100_CS3_PHYS + 0x01ffffff,
 		.flags	= IORESOURCE_MEM,
@@ -276,6 +277,7 @@ static struct resource smc91x_resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
+		.name	= "smc91x-attrib",
 		.start	= SA1100_CS3_PHYS + 0x02000000,
 		.end	= SA1100_CS3_PHYS + 0x03ffffff,
 		.flags	= IORESOURCE_MEM,

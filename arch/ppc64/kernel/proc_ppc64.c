@@ -89,7 +89,7 @@ static int __init proc_ppc64_init(void)
 		return 1;
 	pde->nlink = 1;
 	pde->data = systemcfg;
-	pde->size = 4096;
+	pde->size = PAGE_SIZE;
 	pde->proc_fops = &page_map_fops;
 
 #ifdef CONFIG_PPC_PSERIES

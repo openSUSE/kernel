@@ -27,6 +27,8 @@
 #include <linux/stddef.h>
 #include <linux/elf.h>
 #include <linux/ptrace.h>
+#include <linux/module.h>
+
 #include <asm/sigcontext.h>
 #include <asm/ucontext.h>
 #include <asm/uaccess.h>
@@ -34,6 +36,7 @@
 #include <asm/ppcdebug.h>
 #include <asm/unistd.h>
 #include <asm/cacheflush.h>
+#include <asm/vdso.h>
 
 #define DEBUG_SIG 0
 
@@ -426,10 +429,14 @@ static int setup_rt_frame(int signr, struct k_sigaction *ka, siginfo_t *info,
 		goto badframe;
 
 	/* Set up to return from userspace. */
-	err |= setup_trampoline(__NR_rt_sigreturn, &frame->tramp[0]);
-	if (err)
-		goto badframe;
-
+	if (vdso64_rt_sigtramp && current->thread.vdso_base) {
+		regs->link = current->thread.vdso_base + vdso64_rt_sigtramp;
+	} else {
+		err |= setup_trampoline(__NR_rt_sigreturn, &frame->tramp[0]);
+		if (err)
+			goto badframe;
+		regs->link = (unsigned long) &frame->tramp[0];
+	}
 	funct_desc_ptr = (func_descr_t __user *) ka->sa.sa_handler;
 
 	/* Allocate a dummy caller frame for the signal handler. */
@@ -438,7 +445,6 @@ static int setup_rt_frame(int signr, struct k_sigaction *ka, siginfo_t *info,
 
 	/* Set up "regs" so we "return" to the signal handler. */
 	err |= get_user(regs->nip, &funct_desc_ptr->entry);
-	regs->link = (unsigned long) &frame->tramp[0];
 	regs->gpr[1] = newsp;
 	err |= get_user(regs->gpr[2], &funct_desc_ptr->toc);
 	regs->gpr[3] = signr;
@@ -566,6 +572,4 @@ int do_signal(sigset_t *oldset, struct pt_regs *regs)
 
 	return 0;
 }
-
-
-
+EXPORT_SYMBOL(do_signal);

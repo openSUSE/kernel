@@ -481,7 +481,7 @@ static int __init pci_sysfs_init(void)
 	struct pci_dev *pdev = NULL;
 	
 	sysfs_initialized = 1;
-	while ((pdev = pci_find_device(PCI_ANY_ID, PCI_ANY_ID, pdev)) != NULL)
+	while ((pdev = pci_get_device(PCI_ANY_ID, PCI_ANY_ID, pdev)) != NULL)
 		pci_create_sysfs_dev_files(pdev);
 
 	return 0;

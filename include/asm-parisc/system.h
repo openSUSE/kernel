@@ -205,4 +205,6 @@ extern spinlock_t pa_tlb_lock;
 
 #endif
 
+#define arch_align_stack(x) (x)
+
 #endif

@@ -15,6 +15,7 @@
  *  12-Mar-2004 BJD  Updated header protection
  *  12-Oct-2004 BJD  Take account of debug uart configuration
  *  15-Nov-2004 BJD  Fixed uart configuration
+ *  22-Feb-2005 BJD  Added watchdog to uncompress
 */
 
 #ifndef __ASM_ARCH_UNCOMPRESS_H
@@ -25,12 +26,16 @@
 /* defines for UART registers */
 #include "asm/arch/regs-serial.h"
 #include "asm/arch/regs-gpio.h"
+#include "asm/arch/regs-watchdog.h"
 
 #include <asm/arch/map.h>
 
 /* working in physical space... */
 #undef S3C2410_GPIOREG
+#undef S3C2410_WDOGREG
+
 #define S3C2410_GPIOREG(x) ((S3C2410_PA_GPIO + (x)))
+#define S3C2410_WDOGREG(x) ((S3C2410_PA_WATCHDOG + (x)))
 
 /* how many bytes we allow into the FIFO at a time in FIFO mode */
 #define FIFO_MAX	 (14)
@@ -55,21 +60,6 @@ uart_rd(unsigned int reg)
 	return *ptr;
 }
 
-
-/* currently we do not need the watchdog... */
-#define arch_decomp_wdog()
-
-
-static void error(char *err);
-
-static void
-arch_decomp_setup(void)
-{
-	/* we may need to setup the uart(s) here if we are not running
-	 * on an BAST... the BAST will have left the uarts configured
-	 * after calling linux.
-	 */
-}
 
 /* we can deal with the case the UARTs are being run
  * in FIFO mode, so that we don't hold up our execution
@@ -121,5 +111,48 @@ putstr(const char *ptr)
 		putc(*ptr);
 	}
 }
+
+/* CONFIG_S3C2410_BOOT_WATCHDOG
+ *
+ * Simple boot-time watchdog setup, to reboot the system if there is
+ * any problem with the boot process
+*/
+
+#ifdef CONFIG_S3C2410_BOOT_WATCHDOG
+
+#define WDOG_COUNT (0xff00)
+
+#define __raw_writel(d,ad) do { *((volatile unsigned int *)(ad)) = (d); } while(0)
+
+static inline void arch_decomp_wdog(void)
+{
+	__raw_writel(WDOG_COUNT, S3C2410_WTCNT);
+}
+
+static void arch_decomp_wdog_start(void)
+{
+	__raw_writel(WDOG_COUNT, S3C2410_WTDAT);
+	__raw_writel(WDOG_COUNT, S3C2410_WTCNT);
+	__raw_writel(S3C2410_WTCON_ENABLE | S3C2410_WTCON_DIV128 | S3C2410_WTCON_RSTEN | S3C2410_WTCON_PRESCALE(0x40), S3C2410_WTCON);
+}
+
+#else
+#define arch_decomp_wdog_start()
+#define arch_decomp_wdog()
+#endif
+
+static void error(char *err);
+
+static void
+arch_decomp_setup(void)
+{
+	/* we may need to setup the uart(s) here if we are not running
+	 * on an BAST... the BAST will have left the uarts configured
+	 * after calling linux.
+	 */
+
+	arch_decomp_wdog_start();
+}
+
 
 #endif /* __ASM_ARCH_UNCOMPRESS_H */
