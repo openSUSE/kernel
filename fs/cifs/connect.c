@@ -1410,7 +1410,7 @@ cifs_mount(struct super_block *sb, struct cifs_sb_info *cifs_sb,
     
 	/* search for existing tcon to this server share */
 	if (!rc) {
-		if((volume_info.rsize) && (volume_info.rsize + MAX_CIFS_HDR_SIZE < srvTcp->maxBuf))
+		if((volume_info.rsize) && (volume_info.rsize <= CIFSMaxBufSize))
 			cifs_sb->rsize = volume_info.rsize;
 		else
 			cifs_sb->rsize = srvTcp->maxBuf - MAX_CIFS_HDR_SIZE; /* default */
