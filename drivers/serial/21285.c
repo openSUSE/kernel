@@ -142,7 +142,6 @@ static irqreturn_t serial21285_rx_chars(int irq, void *dev_id, struct pt_regs *r
 	}
 	tty_flip_buffer_push(tty);
 
- out:
 	return IRQ_HANDLED;
 }
 
@@ -383,11 +382,9 @@ static struct uart_ops serial21285_ops = {
 };
 
 static struct uart_port serial21285_port = {
-	.membase	= 0,
 	.mapbase	= 0x42000160,
 	.iotype		= SERIAL_IO_MEM,
 	.irq		= NO_IRQ,
-	.uartclk	= 0,
 	.fifosize	= 16,
 	.ops		= &serial21285_ops,
 	.flags		= ASYNC_BOOT_AUTOCONF,
