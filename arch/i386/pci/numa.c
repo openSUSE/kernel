@@ -14,7 +14,8 @@
 #define PCI_CONF1_MQ_ADDRESS(bus, devfn, reg) \
 	(0x80000000 | (BUS2LOCAL(bus) << 16) | (devfn << 8) | (reg & ~3))
 
-static int pci_conf1_mq_read (int seg, int bus, int devfn, int reg, int len, u32 *value)
+static int pci_conf1_mq_read(unsigned int seg, unsigned int bus,
+			     unsigned int devfn, int reg, int len, u32 *value)
 {
 	unsigned long flags;
 
@@ -42,7 +43,8 @@ static int pci_conf1_mq_read (int seg, int bus, int devfn, int reg, int len, u32
 	return 0;
 }
 
-static int pci_conf1_mq_write (int seg, int bus, int devfn, int reg, int len, u32 value)
+static int pci_conf1_mq_write(unsigned int seg, unsigned int bus,
+			      unsigned int devfn, int reg, int len, u32 value)
 {
 	unsigned long flags;
 

@@ -3,9 +3,9 @@
  *
  * Derived from bios32.c of i386 tree.
  *
- * Copyright (C) 2002 Hewlett-Packard Co
+ * (c) Copyright 2002, 2005 Hewlett-Packard Development Company, L.P.
  *	David Mosberger-Tang <davidm@hpl.hp.com>
- *	Bjorn Helgaas <bjorn_helgaas@hp.com>
+ *	Bjorn Helgaas <bjorn.helgaas@hp.com>
  * Copyright (C) 2004 Silicon Graphics, Inc.
  *
  * Note: Above list of copyright holders is incomplete...
@@ -27,25 +27,11 @@
 #include <asm/segment.h>
 #include <asm/system.h>
 #include <asm/io.h>
-
 #include <asm/sal.h>
-
-
-#ifdef CONFIG_SMP
-# include <asm/smp.h>
-#endif
+#include <asm/smp.h>
 #include <asm/irq.h>
 #include <asm/hw_irq.h>
 
-
-#undef DEBUG
-#define DEBUG
-
-#ifdef DEBUG
-#define DBG(x...) printk(x)
-#else
-#define DBG(x...)
-#endif
 
 static int pci_routeirq;
 
@@ -55,23 +41,22 @@ static int pci_routeirq;
  * synchronization mechanism here.
  */
 
-#define PCI_SAL_ADDRESS(seg, bus, devfn, reg)	\
-	((u64)(seg << 24) | (u64)(bus << 16) |	\
-	 (u64)(devfn << 8) | (u64)(reg))
+#define PCI_SAL_ADDRESS(seg, bus, devfn, reg)		\
+	(((u64) seg << 24) | (bus << 16) | (devfn << 8) | (reg))
 
 /* SAL 3.2 adds support for extended config space. */
 
 #define PCI_SAL_EXT_ADDRESS(seg, bus, devfn, reg)	\
-	((u64)(seg << 28) | (u64)(bus << 20) |		\
-	 (u64)(devfn << 12) | (u64)(reg))
+	(((u64) seg << 28) | (bus << 20) | (devfn << 12) | (reg))
 
 static int
-pci_sal_read (int seg, int bus, int devfn, int reg, int len, u32 *value)
+pci_sal_read (unsigned int seg, unsigned int bus, unsigned int devfn,
+	      int reg, int len, u32 *value)
 {
-	u64 addr, mode, data = 0;
-	int result = 0;
+	u64 addr, data = 0;
+	int mode, result;
 
-	if ((seg > 65535) || (bus > 255) || (devfn > 255) || (reg > 4095))
+	if (!value || (seg > 65535) || (bus > 255) || (devfn > 255) || (reg > 4095))
 		return -EINVAL;
 
 	if ((seg | reg) <= 255) {
@@ -82,16 +67,19 @@ pci_sal_read (int seg, int bus, int devfn, int reg, int len, u32 *value)
 		mode = 1;
 	}
 	result = ia64_sal_pci_config_read(addr, mode, len, &data);
+	if (result != 0)
+		return -EINVAL;
 
 	*value = (u32) data;
-
-	return result;
+	return 0;
 }
 
 static int
-pci_sal_write (int seg, int bus, int devfn, int reg, int len, u32 value)
+pci_sal_write (unsigned int seg, unsigned int bus, unsigned int devfn,
+	       int reg, int len, u32 value)
 {
-	u64 addr, mode;
+	u64 addr;
+	int mode, result;
 
 	if ((seg > 65535) || (bus > 255) || (devfn > 255) || (reg > 4095))
 		return -EINVAL;
@@ -103,7 +91,10 @@ pci_sal_write (int seg, int bus, int devfn, int reg, int len, u32 value)
 		addr = PCI_SAL_EXT_ADDRESS(seg, bus, devfn, reg);
 		mode = 1;
 	}
-	return ia64_sal_pci_config_write(addr, mode, len, value);
+	result = ia64_sal_pci_config_write(addr, mode, len, value);
+	if (result != 0)
+		return -EINVAL;
+	return 0;
 }
 
 static struct pci_raw_ops pci_sal_ops = {
