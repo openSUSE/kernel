@@ -156,7 +156,13 @@ static struct pnp_driver i8042_pnp_kbd_driver = {
 };
 
 static struct pnp_device_id pnp_aux_devids[] = {
+	{ .id = "PNP0f03", .driver_data = 0 },
+	{ .id = "PNP0f0b", .driver_data = 0 },
+	{ .id = "PNP0f0e", .driver_data = 0 },
+	{ .id = "PNP0f12", .driver_data = 0 },
 	{ .id = "PNP0f13", .driver_data = 0 },
+	{ .id = "PNP0f19", .driver_data = 0 },
+	{ .id = "PNP0f1c", .driver_data = 0 },
 	{ .id = "SYN0801", .driver_data = 0 },
 	{ .id = "", },
 };
