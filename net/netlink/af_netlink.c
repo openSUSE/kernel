@@ -430,7 +430,6 @@ retry:
 	err = netlink_insert(sk, pid);
 	if (err == -EADDRINUSE)
 		goto retry;
-	nlk_sk(sk)->groups = 0;
 	return 0;
 }
 
