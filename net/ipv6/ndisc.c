@@ -1584,7 +1584,7 @@ int __init ndisc_init(struct net_proto_family *ops)
 
 #ifdef CONFIG_SYSCTL
 	neigh_sysctl_register(NULL, &nd_tbl.parms, NET_IPV6, NET_IPV6_NEIGH, 
-			      "ipv6", &ndisc_ifinfo_sysctl_change);
+			      "ipv6", &ndisc_ifinfo_sysctl_change, NULL);
 #endif
 
 	register_netdevice_notifier(&ndisc_netdev_notifier);

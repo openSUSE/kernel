@@ -391,7 +391,9 @@ static struct inet6_dev * ipv6_add_dev(struct net_device *dev)
 		ndev->tstamp = jiffies;
 #ifdef CONFIG_SYSCTL
 		neigh_sysctl_register(dev, ndev->nd_parms, NET_IPV6, 
-			NET_IPV6_NEIGH, "ipv6", &ndisc_ifinfo_sysctl_change);
+				      NET_IPV6_NEIGH, "ipv6",
+				      &ndisc_ifinfo_sysctl_change,
+				      NULL);
 		addrconf_sysctl_register(ndev, &ndev->cnf);
 #endif
 	}
@@ -1982,7 +1984,10 @@ static int addrconf_notify(struct notifier_block *this, unsigned long event,
 		if (idev) {
 			addrconf_sysctl_unregister(&idev->cnf);
 			neigh_sysctl_unregister(idev->nd_parms);
-			neigh_sysctl_register(dev, idev->nd_parms, NET_IPV6, NET_IPV6_NEIGH, "ipv6", &ndisc_ifinfo_sysctl_change);
+			neigh_sysctl_register(dev, idev->nd_parms,
+					      NET_IPV6, NET_IPV6_NEIGH, "ipv6",
+					      &ndisc_ifinfo_sysctl_change,
+					      NULL);
 			addrconf_sysctl_register(idev, &idev->cnf);
 		}
 #endif

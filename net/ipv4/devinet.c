@@ -153,7 +153,7 @@ struct in_device *inetdev_init(struct net_device *dev)
 	dev_hold(dev);
 #ifdef CONFIG_SYSCTL
 	neigh_sysctl_register(dev, in_dev->arp_parms, NET_IPV4,
-			      NET_IPV4_NEIGH, "ipv4", NULL);
+			      NET_IPV4_NEIGH, "ipv4", NULL, NULL);
 #endif
 
 	/* Account for reference dev->ip_ptr */
@@ -992,7 +992,7 @@ static int inetdev_event(struct notifier_block *this, unsigned long event,
 		devinet_sysctl_unregister(&in_dev->cnf);
 		neigh_sysctl_unregister(in_dev->arp_parms);
 		neigh_sysctl_register(dev, in_dev->arp_parms, NET_IPV4,
-				      NET_IPV4_NEIGH, "ipv4", NULL);
+				      NET_IPV4_NEIGH, "ipv4", NULL, NULL);
 		devinet_sysctl_register(in_dev, &in_dev->cnf);
 #endif
 		break;
