@@ -3591,10 +3591,11 @@ SetTimesRetry:
 
 int
 CIFSSMBSetTimesLegacy(int xid, struct cifsTconInfo *tcon, char *fileName,
-		FILE_INFO_STANDARD * data, const struct nls_table *nls_codepage)
+		FILE_BASIC_INFO * data, const struct nls_table *nls_codepage)
 {
 	TRANSACTION2_SPI_REQ *pSMB = NULL;
 	TRANSACTION2_SPI_RSP *pSMBr = NULL;
+	FILE_INFO_STANDARD   *pfinfo;
 	int name_len;
 	int rc = 0;
 	int bytes_returned = 0;
@@ -3624,7 +3625,6 @@ SetTimesRetryLegacy:
 /* BB fixme - we have to map to FILE_STANDARD_INFO (level 1 info
 	in parent function, from the better and ususal FILE_BASIC_INFO */
 	params = 6 + name_len;
-	count = sizeof (FILE_INFO_STANDARD);
 	pSMB->MaxParameterCount = cpu_to_le16(2);
 	pSMB->MaxDataCount = cpu_to_le16(1000);	/* BB find exact max SMB PDU from sess structure BB */
 	pSMB->MaxSetupCount = 0;
@@ -3636,11 +3636,15 @@ SetTimesRetryLegacy:
                                      InformationLevel) - 4;
 	offset = param_offset + params;
 	data_offset = (char *) (&pSMB->hdr.Protocol) + offset;
+	pfinfo = (FILE_INFO_STANDARD *)data_offset;
+	/* BB add conversion for FILE_BASIC_INFO data struct to
+		 FILE_INFO_STANDARD finfo struct */
 	pSMB->ParameterOffset = cpu_to_le16(param_offset);
 	pSMB->DataOffset = cpu_to_le16(offset);
 	pSMB->SetupCount = 1;
 	pSMB->Reserved3 = 0;
 	pSMB->SubCommand = cpu_to_le16(TRANS2_SET_PATH_INFORMATION);
+	count = sizeof(FILE_INFO_STANDARD);
 	byte_count = 3 /* pad */  + params + count;
 
 	pSMB->DataCount = cpu_to_le16(count);
@@ -3650,7 +3654,6 @@ SetTimesRetryLegacy:
 	pSMB->InformationLevel = cpu_to_le16(SMB_INFO_STANDARD);
 	pSMB->Reserved4 = 0;
 	pSMB->hdr.smb_buf_length += byte_count;
-	memcpy(data_offset, data, sizeof (FILE_INFO_STANDARD));
 	pSMB->ByteCount = cpu_to_le16(byte_count);
 	rc = SendReceive(xid, tcon->ses, (struct smb_hdr *) pSMB,
 			 (struct smb_hdr *) pSMBr, &bytes_returned, 0);
