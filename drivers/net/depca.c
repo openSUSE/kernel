@@ -342,14 +342,14 @@ static char depca_string[] = "depca";
 static int depca_device_remove (struct device *device);
 
 #ifdef CONFIG_EISA
-struct eisa_device_id depca_eisa_ids[] = {
+static struct eisa_device_id depca_eisa_ids[] = {
 	{ "DEC4220", de422 },
 	{ "" }
 };
 
 static int depca_eisa_probe  (struct device *device);
 
-struct eisa_driver depca_eisa_driver = {
+static struct eisa_driver depca_eisa_driver = {
 	.id_table = depca_eisa_ids,
 	.driver   = {
 		.name    = depca_string,

@@ -848,7 +848,7 @@ static void tx_intr_handler(struct s2io_nic *sp);
 static void alarm_intr_handler(struct s2io_nic *sp);
 
 static int s2io_starter(void);
-void s2io_closer(void);
+static void s2io_closer(void);
 static void s2io_tx_watchdog(struct net_device *dev);
 static void s2io_tasklet(unsigned long dev_addr);
 static void s2io_set_multicast(struct net_device *dev);
@@ -858,13 +858,13 @@ static int rx_osm_handler(nic_t * sp, u16 len, RxD_t * rxdp, int ring_no);
 static int rx_osm_handler(nic_t * sp, RxD_t * rxdp, int ring_no,
 			  buffAdd_t * ba);
 #endif
-void s2io_link(nic_t * sp, int link);
-void s2io_reset(nic_t * sp);
+static void s2io_link(nic_t * sp, int link);
+static void s2io_reset(nic_t * sp);
 #ifdef CONFIG_S2IO_NAPI
 static int s2io_poll(struct net_device *dev, int *budget);
 #endif
 static void s2io_init_pci(nic_t * sp);
-int s2io_set_mac_addr(struct net_device *dev, u8 * addr);
+static int s2io_set_mac_addr(struct net_device *dev, u8 * addr);
 static irqreturn_t s2io_isr(int irq, void *dev_id, struct pt_regs *regs);
 static int verify_xena_quiescence(u64 val64, int flag);
 static struct ethtool_ops netdev_ethtool_ops;

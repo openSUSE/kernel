@@ -184,7 +184,7 @@ static struct net_device_stats *get_stats(struct net_device *dev)
 	return stats;
 }
 
-u32 loopback_get_link(struct net_device *dev)
+static u32 loopback_get_link(struct net_device *dev)
 {
 	return 1;
 }

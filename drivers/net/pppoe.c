@@ -1059,7 +1059,7 @@ static void pppoe_seq_stop(struct seq_file *seq, void *v)
 	read_unlock_bh(&pppoe_hash_lock);
 }
 
-struct seq_operations pppoe_seq_ops = {
+static struct seq_operations pppoe_seq_ops = {
 	.start		= pppoe_seq_start,
 	.next		= pppoe_seq_next,
 	.stop		= pppoe_seq_stop,
