@@ -71,12 +71,15 @@ __obsolete_setup("atkbd_softrepeat=");
  * are loadable via an userland utility.
  */
 
-#if defined(__hppa__)
-#include "hpps2atkbd.h"
-#else
-
 static unsigned char atkbd_set2_keycode[512] = {
 
+#ifdef CONFIG_KEYBOARD_ATKBD_HP_KEYCODES
+
+/* XXX: need a more general approach */
+
+#include "hpps2atkbd.h"	/* include the keyboard scancodes */
+
+#else
 	  0, 67, 65, 63, 61, 59, 60, 88,  0, 68, 66, 64, 62, 15, 41,117,
 	  0, 56, 42, 93, 29, 16,  2,  0,  0,  0, 44, 31, 30, 17,  3,  0,
 	  0, 46, 45, 32, 18,  5,  4, 95,  0, 57, 47, 33, 20, 19,  6,183,
@@ -96,9 +99,8 @@ static unsigned char atkbd_set2_keycode[512] = {
 	110,111,108,112,106,103,  0,119,  0,118,109,  0, 99,104,119,  0,
 
 	  0,  0,  0, 65, 99,
-};
-
 #endif
+};
 
 static unsigned char atkbd_set3_keycode[512] = {
 
@@ -249,7 +251,7 @@ static void atkbd_report_key(struct input_dev *dev, struct pt_regs *regs, int co
 static irqreturn_t atkbd_interrupt(struct serio *serio, unsigned char data,
 			unsigned int flags, struct pt_regs *regs)
 {
-	struct atkbd *atkbd = serio->private;
+	struct atkbd *atkbd = serio_get_drvdata(serio);
 	unsigned int code = data;
 	int scroll = 0, click = -1;
 	int value;
@@ -380,7 +382,7 @@ static irqreturn_t atkbd_interrupt(struct serio *serio, unsigned char data,
 					break;
 				case 1:
 					atkbd->last = code;
-					atkbd->time = jiffies + (atkbd->dev.rep[REP_DELAY] * HZ + 500) / 1000 / 2;
+					atkbd->time = jiffies + msecs_to_jiffies(atkbd->dev.rep[REP_DELAY]) / 2;
 					break;
 				case 2:
 					if (!time_after(jiffies, atkbd->time) && atkbd->last == code)
@@ -647,7 +649,7 @@ static int atkbd_activate(struct atkbd *atkbd)
 
 static void atkbd_cleanup(struct serio *serio)
 {
-	struct atkbd *atkbd = serio->private;
+	struct atkbd *atkbd = serio_get_drvdata(serio);
 	ps2_command(&atkbd->ps2dev, NULL, ATKBD_CMD_RESET_BAT);
 }
 
@@ -658,7 +660,7 @@ static void atkbd_cleanup(struct serio *serio)
 
 static void atkbd_disconnect(struct serio *serio)
 {
-	struct atkbd *atkbd = serio->private;
+	struct atkbd *atkbd = serio_get_drvdata(serio);
 
 	atkbd_disable(atkbd);
 
@@ -674,6 +676,7 @@ static void atkbd_disconnect(struct serio *serio)
 
 	input_unregister_device(&atkbd->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(atkbd);
 }
 
@@ -768,23 +771,25 @@ static void atkbd_set_device_attrs(struct atkbd *atkbd)
 }
 
 /*
- * atkbd_connect() is called when the serio module finds and interface
+ * atkbd_connect() is called when the serio module finds an interface
  * that isn't handled yet by an appropriate device driver. We check if
  * there is an AT keyboard out there and if yes, we register ourselves
  * to the input module.
  */
 
-static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
+static int atkbd_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct atkbd *atkbd;
+	int err;
 
 	if (!(atkbd = kmalloc(sizeof(struct atkbd), GFP_KERNEL)))
-		return;
+		return - ENOMEM;
+
 	memset(atkbd, 0, sizeof(struct atkbd));
 
 	ps2_init(&atkbd->ps2dev, serio);
 
-	switch (serio->type & SERIO_TYPE) {
+	switch (serio->id.type) {
 
 		case SERIO_8042_XL:
 			atkbd->translated = 1;
@@ -792,12 +797,6 @@ static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
 			if (serio->write)
 				atkbd->write = 1;
 			break;
-		case SERIO_RS232:
-			if ((serio->type & SERIO_PROTO) == SERIO_PS2SER)
-				break;
-		default:
-			kfree(atkbd);
-			return;
 	}
 
 	atkbd->softraw = atkbd_softraw;
@@ -810,20 +809,22 @@ static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
 	if (atkbd->softrepeat)
 		atkbd->softraw = 1;
 
-	serio->private = atkbd;
+	serio_set_drvdata(serio, atkbd);
 
-	if (serio_open(serio, drv)) {
+	err = serio_open(serio, drv);
+	if (err) {
+		serio_set_drvdata(serio, NULL);
 		kfree(atkbd);
-		return;
+		return err;
 	}
 
 	if (atkbd->write) {
 
 		if (atkbd_probe(atkbd)) {
 			serio_close(serio);
-			serio->private = NULL;
+			serio_set_drvdata(serio, NULL);
 			kfree(atkbd);
-			return;
+			return -ENODEV;
 		}
 
 		atkbd->set = atkbd_select_set(atkbd, atkbd_set, atkbd_extra);
@@ -856,6 +857,8 @@ static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
 	atkbd_enable(atkbd);
 
 	printk(KERN_INFO "input: %s on %s\n", atkbd->name, serio->phys);
+
+	return 0;
 }
 
 /*
@@ -865,7 +868,7 @@ static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
 
 static int atkbd_reconnect(struct serio *serio)
 {
-	struct atkbd *atkbd = serio->private;
+	struct atkbd *atkbd = serio_get_drvdata(serio);
 	struct serio_driver *drv = serio->drv;
 	unsigned char param[1];
 
@@ -897,11 +900,36 @@ static int atkbd_reconnect(struct serio *serio)
 	return 0;
 }
 
+static struct serio_device_id atkbd_serio_ids[] = {
+	{
+		.type	= SERIO_8042,
+		.proto	= SERIO_ANY,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{
+		.type	= SERIO_8042_XL,
+		.proto	= SERIO_ANY,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_PS2SER,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, atkbd_serio_ids);
+
 static struct serio_driver atkbd_drv = {
 	.driver		= {
 		.name	= "atkbd",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= atkbd_serio_ids,
 	.interrupt	= atkbd_interrupt,
 	.connect	= atkbd_connect,
 	.reconnect	= atkbd_reconnect,
@@ -924,7 +952,7 @@ static ssize_t atkbd_attr_show_helper(struct device *dev, char *buf,
 		goto out;
 	}
 
-	retval = handler((struct atkbd *)serio->private, buf);
+	retval = handler((struct atkbd *)serio_get_drvdata(serio), buf);
 
 out:
 	serio_unpin_driver(serio);
@@ -947,7 +975,7 @@ static ssize_t atkbd_attr_set_helper(struct device *dev, const char *buf, size_t
 		goto out;
 	}
 
-	atkbd = serio->private;
+	atkbd = serio_get_drvdata(serio);
 	atkbd_disable(atkbd);
 	retval = handler(atkbd, buf, count);
 	atkbd_enable(atkbd);
@@ -1095,13 +1123,13 @@ static ssize_t atkbd_set_softraw(struct atkbd *atkbd, const char *buf, size_t co
 }
 
 
-int __init atkbd_init(void)
+static int __init atkbd_init(void)
 {
 	serio_register_driver(&atkbd_drv);
 	return 0;
 }
 
-void __exit atkbd_exit(void)
+static void __exit atkbd_exit(void)
 {
 	serio_unregister_driver(&atkbd_drv);
 }

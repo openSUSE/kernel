@@ -36,8 +36,10 @@
 #include <linux/input.h>
 #include <linux/gameport.h>
 
+#define DRIVER_DESC	"Microsoft SideWinder joystick family driver"
+
 MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
-MODULE_DESCRIPTION("Microsoft SideWinder joystick family driver");
+MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
 /*
@@ -160,7 +162,8 @@ static int sw_read_packet(struct gameport *gameport, unsigned char *buf, int len
 		v = gameport_read(gameport);
 	} while (!(~v & u & 0x10) && (bitout > 0));		/* Wait for first falling edge on clock */
 
-	if (bitout > 0) bitout = strobe;			/* Extend time if not timed out */
+	if (bitout > 0)
+		bitout = strobe;				/* Extend time if not timed out */
 
 	while ((timeout > 0 || bitout > 0) && (i < length)) {
 
@@ -266,6 +269,7 @@ static void sw_init_digital(struct gameport *gameport)
 static int sw_parity(__u64 t)
 {
 	int x = t ^ (t >> 32);
+
 	x ^= x >> 16;
 	x ^= x >> 8;
 	x ^= x >> 4;
@@ -307,7 +311,8 @@ static int sw_parse(unsigned char *buf, struct sw *sw)
 
 		case SW_ID_3DP:
 
-			if (sw_check(GB(0,64)) || (hat = (GB(6,1) << 3) | GB(60,3)) > 8) return -1;
+			if (sw_check(GB(0,64)) || (hat = (GB(6,1) << 3) | GB(60,3)) > 8)
+				return -1;
 
 			input_report_abs(dev, ABS_X,        (GB( 3,3) << 7) | GB(16,7));
 			input_report_abs(dev, ABS_Y,        (GB( 0,3) << 7) | GB(24,7));
@@ -331,7 +336,8 @@ static int sw_parse(unsigned char *buf, struct sw *sw)
 
 			for (i = 0; i < sw->number; i ++) {
 
-				if (sw_parity(GB(i*15,15))) return -1;
+				if (sw_parity(GB(i*15,15)))
+					return -1;
 
 				input_report_abs(dev + i, ABS_X, GB(i*15+3,1) - GB(i*15+2,1));
 				input_report_abs(dev + i, ABS_Y, GB(i*15+0,1) - GB(i*15+1,1));
@@ -347,7 +353,8 @@ static int sw_parse(unsigned char *buf, struct sw *sw)
 		case SW_ID_PP:
 		case SW_ID_FFP:
 
-			if (!sw_parity(GB(0,48)) || (hat = GB(42,4)) > 8) return -1;
+			if (!sw_parity(GB(0,48)) || (hat = GB(42,4)) > 8)
+				return -1;
 
 			input_report_abs(dev, ABS_X,        GB( 9,10));
 			input_report_abs(dev, ABS_Y,        GB(19,10));
@@ -366,7 +373,8 @@ static int sw_parse(unsigned char *buf, struct sw *sw)
 
 		case SW_ID_FSP:
 
-			if (!sw_parity(GB(0,43)) || (hat = GB(28,4)) > 8) return -1;
+			if (!sw_parity(GB(0,43)) || (hat = GB(28,4)) > 8)
+				return -1;
 
 			input_report_abs(dev, ABS_X,        GB( 0,10));
 			input_report_abs(dev, ABS_Y,        GB(16,10));
@@ -389,7 +397,8 @@ static int sw_parse(unsigned char *buf, struct sw *sw)
 
 		case SW_ID_FFW:
 
-			if (!sw_parity(GB(0,33))) return -1;
+			if (!sw_parity(GB(0,33)))
+				return -1;
 
 			input_report_abs(dev, ABS_RX,       GB( 0,10));
 			input_report_abs(dev, ABS_RUDDER,   GB(10, 6));
@@ -466,7 +475,8 @@ static int sw_read(struct sw *sw)
 		sw->length = 66;
 	}
 
-	if (sw->fail < SW_FAIL) return -1;					/* Not enough, don't reinitialize yet */
+	if (sw->fail < SW_FAIL)
+		return -1;							/* Not enough, don't reinitialize yet */
 
 	printk(KERN_WARNING "sidewinder.c: Too many bit errors on %s"
 		" - reinitializing joystick.\n", sw->gameport->phys);
@@ -491,13 +501,15 @@ static void sw_timer(unsigned long private)
 	struct sw *sw = (void *) private;
 
 	sw->reads++;
-	if (sw_read(sw)) sw->bads++;
+	if (sw_read(sw))
+		sw->bads++;
 	mod_timer(&sw->timer, jiffies + SW_REFRESH);
 }
 
 static int sw_open(struct input_dev *dev)
 {
 	struct sw *sw = dev->private;
+
 	if (!sw->used++)
 		mod_timer(&sw->timer, jiffies + SW_REFRESH);
 	return 0;
@@ -506,6 +518,7 @@ static int sw_open(struct input_dev *dev)
 static void sw_close(struct input_dev *dev)
 {
 	struct sw *sw = dev->private;
+
 	if (!--sw->used)
 		del_timer(&sw->timer);
 }
@@ -561,7 +574,10 @@ static int sw_guess_mode(unsigned char *buf, int len)
 {
 	int i;
 	unsigned char xor = 0;
-	for (i = 1; i < len; i++) xor |= (buf[i - 1] ^ buf[i]) & 6;
+
+	for (i = 1; i < len; i++)
+		xor |= (buf[i - 1] ^ buf[i]) & 6;
+
 	return !!xor * 2 + 1;
 }
 
@@ -569,10 +585,11 @@ static int sw_guess_mode(unsigned char *buf, int len)
  * sw_connect() probes for SideWinder type joysticks.
  */
 
-static void sw_connect(struct gameport *gameport, struct gameport_dev *dev)
+static int sw_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct sw *sw;
 	int i, j, k, l;
+	int err;
 	unsigned char *buf = NULL;	/* [SW_LENGTH] */
 	unsigned char *idbuf = NULL;	/* [SW_LENGTH] */
 	unsigned char m = 1;
@@ -580,22 +597,23 @@ static void sw_connect(struct gameport *gameport, struct gameport_dev *dev)
 
 	comment[0] = 0;
 
-	if (!(sw = kmalloc(sizeof(struct sw), GFP_KERNEL))) return;
-	memset(sw, 0, sizeof(struct sw));
-
+	sw = kcalloc(1, sizeof(struct sw), GFP_KERNEL);
 	buf = kmalloc(SW_LENGTH, GFP_KERNEL);
 	idbuf = kmalloc(SW_LENGTH, GFP_KERNEL);
-	if (!buf || !idbuf)
+	if (!sw || !buf || !idbuf) {
+		err = -ENOMEM;
 		goto fail1;
-
-	gameport->private = sw;
+	}
 
 	sw->gameport = gameport;
 	init_timer(&sw->timer);
 	sw->timer.data = (long) sw;
 	sw->timer.function = sw_timer;
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW))
+	gameport_set_drvdata(gameport, sw);
+
+	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
+	if (err)
 		goto fail1;
 
 	dbg("Init 0: Opened %s, io %#x, speed %d",
@@ -611,7 +629,10 @@ static void sw_connect(struct gameport *gameport, struct gameport_dev *dev)
 		i = sw_read_packet(gameport, buf, SW_LENGTH, 0);	/* Retry reading packet */
 		udelay(SW_TIMEOUT);
 		dbg("Init 1b: Length %d.", i);
-		if (!i) goto fail2;					/* No data -> FAIL */
+		if (!i) {						/* No data -> FAIL */
+			err = -ENODEV;
+			goto fail2;
+		}
 	}
 
 	j = sw_read_packet(gameport, idbuf, SW_LENGTH, i);		/* Read ID. This initializes the stick */
@@ -622,7 +643,10 @@ static void sw_connect(struct gameport *gameport, struct gameport_dev *dev)
 		udelay(SW_TIMEOUT);
 		i = sw_read_packet(gameport, buf, SW_LENGTH, 0);	/* Retry reading packet */
 		dbg("Init 2b: Mode %d. Length %d.", m, i);
-		if (!i) goto fail2;
+		if (!i) {
+			err = -ENODEV;
+			goto fail2;
+		}
 		udelay(SW_TIMEOUT);
 		j = sw_read_packet(gameport, idbuf, SW_LENGTH, i);	/* Retry reading ID */
 		dbg("Init 2c: ID Length %d.", j);
@@ -686,13 +710,14 @@ static void sw_connect(struct gameport *gameport, struct gameport_dev *dev)
 			}
 		}
 
-	} while (k && (sw->type == -1));
+	} while (k && sw->type == -1);
 
 	if (sw->type == -1) {
 		printk(KERN_WARNING "sidewinder.c: unknown joystick device detected "
 			"on %s, contact <vojtech@ucw.cz>\n", gameport->phys);
 		sw_print_packet("ID", j * 3, idbuf, 3);
 		sw_print_packet("Data", i * m, buf, m);
+		err = -ENODEV;
 		goto fail2;
 	}
 
@@ -742,38 +767,46 @@ static void sw_connect(struct gameport *gameport, struct gameport_dev *dev)
 			sw->name, comment, gameport->phys, m, l, k);
 	}
 
-	return;
+	return 0;
+
 fail2:	gameport_close(gameport);
-fail1:	kfree(sw);
+fail1:	gameport_set_drvdata(gameport, NULL);
+	kfree(sw);
 	kfree(buf);
 	kfree(idbuf);
+	return err;
 }
 
 static void sw_disconnect(struct gameport *gameport)
 {
+	struct sw *sw = gameport_get_drvdata(gameport);
 	int i;
 
-	struct sw *sw = gameport->private;
 	for (i = 0; i < sw->number; i++)
 		input_unregister_device(sw->dev + i);
 	gameport_close(gameport);
+	gameport_set_drvdata(gameport, NULL);
 	kfree(sw);
 }
 
-static struct gameport_dev sw_dev = {
-	.connect =	sw_connect,
-	.disconnect =	sw_disconnect,
+static struct gameport_driver sw_drv = {
+	.driver		= {
+		.name	= "sidewinder",
+	},
+	.description	= DRIVER_DESC,
+	.connect	= sw_connect,
+	.disconnect	= sw_disconnect,
 };
 
-int __init sw_init(void)
+static int __init sw_init(void)
 {
-	gameport_register_device(&sw_dev);
+	gameport_register_driver(&sw_drv);
 	return 0;
 }
 
-void __exit sw_exit(void)
+static void __exit sw_exit(void)
 {
-	gameport_unregister_device(&sw_dev);
+	gameport_unregister_driver(&sw_drv);
 }
 
 module_init(sw_init);

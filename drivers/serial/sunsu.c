@@ -1314,12 +1314,13 @@ static int __init sunsu_kbd_ms_init(struct uart_sunsu_port *up, int channel)
 
 		serio->port_data = up;
 
-		serio->type = SERIO_RS232;
+		serio->id.type = SERIO_RS232;
 		if (up->su_type == SU_PORT_KBD) {
-			serio->type |= SERIO_SUNKBD;
+			serio->id.proto = SERIO_SUNKBD;
 			strlcpy(serio->name, "sukbd", sizeof(serio->name));
 		} else {
-			serio->type |= (SERIO_SUN | (1 << 16));
+			serio->id.proto = SERIO_SUN;
+			serio->id.extra = 1;
 			strlcpy(serio->name, "sums", sizeof(serio->name));
 		}
 		strlcpy(serio->phys, (channel == 0 ? "su/serio0" : "su/serio1"),
