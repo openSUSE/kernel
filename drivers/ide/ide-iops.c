@@ -1127,7 +1127,7 @@ static void pre_reset(ide_drive_t *drive)
 	if (drive->media == ide_disk)
 		ide_disk_pre_reset(drive);
 	else
-		drive->driver->pre_reset(drive);
+		drive->post_reset = 1;
 
 	if (!drive->keep_settings) {
 		if (drive->using_dma) {

@@ -2428,6 +2428,11 @@ static ide_startstop_t idetape_do_request(ide_drive_t *drive,
 	if (!drive->dsc_overlap && !(rq->cmd[0] & REQ_IDETAPE_PC2))
 		set_bit(IDETAPE_IGNORE_DSC, &tape->flags);
 
+	if (drive->post_reset == 1) {
+		set_bit(IDETAPE_IGNORE_DSC, &tape->flags);
+		drive->post_reset = 0;
+	}
+
 	if (tape->tape_still_time > 100 && tape->tape_still_time < 200)
 		tape->measure_insert_time = 1;
 	if (time_after(jiffies, tape->insert_time))
@@ -3559,16 +3564,6 @@ static int idetape_blkdev_ioctl(ide_drive_t *drive, unsigned int cmd, unsigned l
 }
 
 /*
- *	idetape_pre_reset is called before an ATAPI/ATA software reset.
- */
-static void idetape_pre_reset (ide_drive_t *drive)
-{
-	idetape_tape_t *tape = drive->driver_data;
-	if (tape != NULL)
-		set_bit(IDETAPE_IGNORE_DSC, &tape->flags);
-}
-
-/*
  *	idetape_space_over_filemarks is now a bit more complicated than just
  *	passing the command to the tape since we may have crossed some
  *	filemarks during our pipelined read-ahead mode.
@@ -4697,7 +4692,6 @@ static ide_driver_t idetape_driver = {
 	.cleanup		= idetape_cleanup,
 	.do_request		= idetape_do_request,
 	.end_request		= idetape_end_request,
-	.pre_reset		= idetape_pre_reset,
 	.proc			= idetape_proc,
 	.attach			= idetape_attach,
 	.drives			= LIST_HEAD_INIT(idetape_driver.drives),

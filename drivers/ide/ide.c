@@ -2042,10 +2042,6 @@ default_error(ide_drive_t *drive, struct request *rq, u8 stat, u8 err)
 	return __ide_error(drive, rq, stat, err);
 }
 
-static void default_pre_reset (ide_drive_t *drive)
-{
-}
-
 static sector_t default_capacity (ide_drive_t *drive)
 {
 	return 0x7fffffff;
@@ -2064,7 +2060,6 @@ static void setup_driver_defaults (ide_driver_t *d)
 	if (d->end_request == NULL)	d->end_request = default_end_request;
 	if (d->error == NULL)		d->error = default_error;
 	if (d->abort == NULL)		d->abort = default_abort;
-	if (d->pre_reset == NULL)	d->pre_reset = default_pre_reset;
 	if (d->capacity == NULL)	d->capacity = default_capacity;
 }
 
