@@ -208,15 +208,11 @@ static int vfat_valid_longname(const unsigned char *name, unsigned int len)
 
 static int vfat_find_form(struct inode *dir, unsigned char *name)
 {
-	struct msdos_dir_entry *de;
-	struct buffer_head *bh = NULL;
-	loff_t i_pos;
-	int res;
-
-	res = fat_scan(dir, name, &bh, &de, &i_pos);
-	brelse(bh);
-	if (res < 0)
+	struct fat_slot_info sinfo;
+	int err = fat_scan(dir, name, &sinfo);
+	if (err)
 		return -ENOENT;
+	brelse(sinfo.bh);
 	return 0;
 }
 
@@ -938,8 +934,8 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 
 	is_dir = S_ISDIR(old_inode->i_mode);
 	if (is_dir) {
-		if (fat_scan(old_inode, MSDOS_DOTDOT, &dotdot_bh,
-			     &dotdot_de, &dotdot_i_pos) < 0) {
+		if (fat_get_dotdot_entry(old_inode, &dotdot_bh, &dotdot_de,
+					 &dotdot_i_pos) < 0) {
 			err = -EIO;
 			goto out;
 		}

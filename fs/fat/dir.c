@@ -510,9 +510,9 @@ ParseLong:
 	j = last_u;
 
 	lpos = cpos - (long_slots+1)*sizeof(struct msdos_dir_entry);
-	if (!memcmp(de->name,MSDOS_DOT,11))
+	if (!memcmp(de->name, MSDOS_DOT, MSDOS_NAME))
 		inum = inode->i_ino;
-	else if (!memcmp(de->name,MSDOS_DOTDOT,11)) {
+	else if (!memcmp(de->name, MSDOS_DOTDOT, MSDOS_NAME)) {
 		inum = parent_ino(filp->f_dentry);
 	} else {
 		struct inode *tmp = fat_iget(sb, i_pos);
@@ -695,6 +695,26 @@ static int fat_get_short_entry(struct inode *dir, loff_t *pos,
 	return -ENOENT;
 }
 
+/*
+ * The ".." entry can not provide the "struct fat_slot_info" informations
+ * for inode. So, this function provide the some informations only.
+ */
+int fat_get_dotdot_entry(struct inode *dir, struct buffer_head **bh,
+			 struct msdos_dir_entry **de, loff_t *i_pos)
+{
+	loff_t offset;
+
+	offset = 0;
+	*bh = NULL;
+	while (fat_get_short_entry(dir, &offset, bh, de, i_pos) >= 0) {
+		if (!strncmp((*de)->name, MSDOS_DOTDOT, MSDOS_NAME))
+			return 0;
+	}
+	return -ENOENT;
+}
+
+EXPORT_SYMBOL(fat_get_dotdot_entry);
+
 /* See if directory is empty */
 int fat_dir_empty(struct inode *dir)
 {
@@ -744,16 +764,17 @@ int fat_subdirs(struct inode *dir)
  * Returns an error code or zero.
  */
 int fat_scan(struct inode *dir, const unsigned char *name,
-	     struct buffer_head **bh, struct msdos_dir_entry **de,
-	     loff_t *i_pos)
+	     struct fat_slot_info *sinfo)
 {
-	loff_t cpos;
-
-	*bh = NULL;
-	cpos = 0;
-	while (fat_get_short_entry(dir, &cpos, bh, de, i_pos) >= 0) {
-		if (!strncmp((*de)->name, name, MSDOS_NAME))
+	sinfo->slot_off = 0;
+	sinfo->bh = NULL;
+	while (fat_get_short_entry(dir, &sinfo->slot_off, &sinfo->bh,
+				   &sinfo->de, &sinfo->i_pos) >= 0) {
+		if (!strncmp(sinfo->de->name, name, MSDOS_NAME)) {
+			sinfo->slot_off -= sizeof(*sinfo->de);
+			sinfo->nr_slots = 1;
 			return 0;
+		}
 	}
 	return -ENOENT;
 }

@@ -654,7 +654,7 @@ static struct dentry *fat_get_parent(struct dentry *child)
 
 	lock_kernel();
 
-	err = fat_scan(child->d_inode, MSDOS_DOTDOT, &bh, &de, &i_pos);
+	err = fat_get_dotdot_entry(child->d_inode, &bh, &de, &i_pos);
 	if (err) {
 		parent = ERR_PTR(err);
 		goto out;
