@@ -19,8 +19,7 @@ struct mtrr_state {
 };
 
 static unsigned long smp_changes_mask;
-struct mtrr_state mtrr_state = {};
-
+static struct mtrr_state mtrr_state = {};
 
 /*  Get the MSR pair relating to a var range  */
 static void __init
@@ -383,7 +382,7 @@ int generic_validate_add_page(unsigned long base, unsigned long size, unsigned i
 }
 
 
-int generic_have_wrcomb(void)
+static int generic_have_wrcomb(void)
 {
 	unsigned long config, dummy;
 	rdmsr(MTRRcap_MSR, config, dummy);
