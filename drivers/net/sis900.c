@@ -1,6 +1,6 @@
 /* sis900.c: A SiS 900/7016 PCI Fast Ethernet driver for Linux.
    Copyright 1999 Silicon Integrated System Corporation 
-   Revision:	1.08.06 Sep. 24 2002
+   Revision:	1.08.08 Jan. 22 2005
    
    Modified from the driver which is originally written by Donald Becker.
    
@@ -16,8 +16,8 @@
    preliminary Rev. 1.0 Nov. 10, 1998
    SiS 7014 Single Chip 100BASE-TX/10BASE-T Physical Layer Solution,
    preliminary Rev. 1.0 Jan. 18, 1998
-   http://www.sis.com.tw/support/databook.htm
 
+   Rev 1.08.08 Jan. 22 2005 Daniele Venzano use netif_msg for debugging messages
    Rev 1.08.07 Nov.  2 2003 Daniele Venzano <webvenza@libero.it> add suspend/resume support
    Rev 1.08.06 Sep. 24 2002 Mufasa Yang bug fix for Tx timeout & add SiS963 support
    Rev 1.08.05 Jun.  6 2002 Mufasa Yang bug fix for read_eeprom & Tx descriptor over-boundary
@@ -74,7 +74,7 @@
 #include "sis900.h"
 
 #define SIS900_MODULE_NAME "sis900"
-#define SIS900_DRV_VERSION "v1.08.07 11/02/2003"
+#define SIS900_DRV_VERSION "v1.08.08 Jan. 22 2005"
 
 static char version[] __devinitdata =
 KERN_INFO "sis900.c: " SIS900_DRV_VERSION "\n";
