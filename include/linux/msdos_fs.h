@@ -348,19 +348,25 @@ struct fat_entry {
 static inline void fatent_init(struct fat_entry *fatent)
 {
 	fatent->nr_bhs = 0;
+	fatent->entry = 0;
+	fatent->u.ent32_p = NULL;
+	fatent->bhs[0] = fatent->bhs[1] = NULL;
 }
 
 static inline void fatent_set_entry(struct fat_entry *fatent, int entry)
 {
 	fatent->entry = entry;
+	fatent->u.ent32_p = NULL;
 }
 
 static inline void fatent_brelse(struct fat_entry *fatent)
 {
 	int i;
+	fatent->u.ent32_p = NULL;
 	for (i = 0; i < fatent->nr_bhs; i++)
 		brelse(fatent->bhs[i]);
 	fatent->nr_bhs = 0;
+	fatent->bhs[0] = fatent->bhs[1] = NULL;
 }
 
 extern void fat_ent_access_init(struct super_block *sb);

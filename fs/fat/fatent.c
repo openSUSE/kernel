@@ -21,6 +21,7 @@ static void fat12_ent_blocknr(struct super_block *sb, int entry,
 {
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
 	int bytes = entry + (entry >> 1);
+	WARN_ON(entry < FAT_START_ENT || sbi->max_cluster <= entry);
 	*offset = bytes & (sb->s_blocksize - 1);
 	*blocknr = sbi->fat_start + (bytes >> sb->s_blocksize_bits);
 }
@@ -30,6 +31,7 @@ static void fat_ent_blocknr(struct super_block *sb, int entry,
 {
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
 	int bytes = (entry << sbi->fatent_shift);
+	WARN_ON(entry < FAT_START_ENT || sbi->max_cluster <= entry);
 	*offset = bytes & (sb->s_blocksize - 1);
 	*blocknr = sbi->fat_start + (bytes >> sb->s_blocksize_bits);
 }
@@ -38,9 +40,11 @@ static void fat12_ent_set_ptr(struct fat_entry *fatent, int offset)
 {
 	struct buffer_head **bhs = fatent->bhs;
 	if (fatent->nr_bhs == 1) {
+		WARN_ON(offset >= (bhs[0]->b_size - 1));
 		fatent->u.ent12_p[0] = bhs[0]->b_data + offset;
 		fatent->u.ent12_p[1] = bhs[0]->b_data + (offset + 1);
 	} else {
+		WARN_ON(offset != (bhs[0]->b_size - 1));
 		fatent->u.ent12_p[0] = bhs[0]->b_data + offset;
 		fatent->u.ent12_p[1] = bhs[1]->b_data;
 	}
@@ -48,11 +52,13 @@ static void fat12_ent_set_ptr(struct fat_entry *fatent, int offset)
 
 static void fat16_ent_set_ptr(struct fat_entry *fatent, int offset)
 {
+	WARN_ON(offset & (2 - 1));
 	fatent->u.ent16_p = (__le16 *)(fatent->bhs[0]->b_data + offset);
 }
 
 static void fat32_ent_set_ptr(struct fat_entry *fatent, int offset)
 {
+	WARN_ON(offset & (4 - 1));
 	fatent->u.ent32_p = (__le32 *)(fatent->bhs[0]->b_data + offset);
 }
 
@@ -61,6 +67,7 @@ static int fat12_ent_bread(struct super_block *sb, struct fat_entry *fatent,
 {
 	struct buffer_head **bhs = fatent->bhs;
 
+	WARN_ON(blocknr < MSDOS_SB(sb)->fat_start);
 	bhs[0] = sb_bread(sb, blocknr);
 	if (!bhs[0])
 		goto err;
@@ -91,6 +98,7 @@ static int fat_ent_bread(struct super_block *sb, struct fat_entry *fatent,
 {
 	struct fatent_operations *ops = MSDOS_SB(sb)->fatent_ops;
 
+	WARN_ON(blocknr < MSDOS_SB(sb)->fat_start);
 	fatent->bhs[0] = sb_bread(sb, blocknr);
 	if (!fatent->bhs[0]) {
 		printk(KERN_ERR "FAT: FAT read failed (blocknr %llu)\n",
@@ -120,6 +128,7 @@ static int fat12_ent_get(struct fat_entry *fatent)
 static int fat16_ent_get(struct fat_entry *fatent)
 {
 	int next = le16_to_cpu(*fatent->u.ent16_p);
+	WARN_ON((unsigned long)fatent->u.ent16_p & (2 - 1));
 	if (next >= BAD_FAT16)
 		next = FAT_ENT_EOF;
 	return next;
@@ -128,6 +137,7 @@ static int fat16_ent_get(struct fat_entry *fatent)
 static int fat32_ent_get(struct fat_entry *fatent)
 {
 	int next = le32_to_cpu(*fatent->u.ent32_p) & 0x0fffffff;
+	WARN_ON((unsigned long)fatent->u.ent32_p & (4 - 1));
 	if (next >= BAD_FAT32)
 		next = FAT_ENT_EOF;
 	return next;
@@ -167,6 +177,7 @@ static void fat32_ent_put(struct fat_entry *fatent, int new)
 	if (new == FAT_ENT_EOF)
 		new = EOF_FAT32;
 
+	WARN_ON(new & 0xf0000000);
 	new |= le32_to_cpu(*fatent->u.ent32_p) & ~0x0fffffff;
 	*fatent->u.ent32_p = cpu_to_le32(new);
 	mark_buffer_dirty(fatent->bhs[0]);
@@ -180,12 +191,16 @@ static int fat12_ent_next(struct fat_entry *fatent)
 
 	fatent->entry++;
 	if (fatent->nr_bhs == 1) {
+		WARN_ON(ent12_p[0] > (u8 *)(bhs[0]->b_data + (bhs[0]->b_size - 2)));
+		WARN_ON(ent12_p[1] > (u8 *)(bhs[0]->b_data + (bhs[0]->b_size - 1)));
 		if (nextp < (u8 *)(bhs[0]->b_data + (bhs[0]->b_size - 1))) {
 			ent12_p[0] = nextp - 1;
 			ent12_p[1] = nextp;
 			return 1;
 		}
 	} else {
+		WARN_ON(ent12_p[0] != (u8 *)(bhs[0]->b_data + (bhs[0]->b_size - 1)));
+		WARN_ON(ent12_p[1] != (u8 *)bhs[1]->b_data);
 		ent12_p[0] = nextp - 1;
 		ent12_p[1] = nextp;
 		brelse(bhs[0]);
@@ -193,6 +208,8 @@ static int fat12_ent_next(struct fat_entry *fatent)
 		fatent->nr_bhs = 1;
 		return 1;
 	}
+	ent12_p[0] = NULL;
+	ent12_p[1] = NULL;
 	return 0;
 }
 
@@ -204,6 +221,7 @@ static int fat16_ent_next(struct fat_entry *fatent)
 		fatent->u.ent16_p++;
 		return 1;
 	}
+	fatent->u.ent16_p = NULL;
 	return 0;
 }
 
@@ -215,6 +233,7 @@ static int fat32_ent_next(struct fat_entry *fatent)
 		fatent->u.ent32_p++;
 		return 1;
 	}
+	fatent->u.ent32_p = NULL;
 	return 0;
 }
 
@@ -323,6 +342,7 @@ int fat_ent_read(struct inode *inode, struct fat_entry *fatent, int entry)
 	return ops->ent_get(fatent);
 }
 
+/* FIXME: We can write the blocks as more big chunk. */
 static int fat_mirror_bhs(struct super_block *sb, struct buffer_head **bhs,
 			  int nr_bhs)
 {
