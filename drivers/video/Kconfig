@@ -38,6 +38,42 @@ config FB
 	  (e.g. an accelerated X server) and that are not frame buffer
 	  device-aware may cause unexpected results. If unsure, say N.
 
+config FB_CFB_FILLRECT
+	tristate
+	depends on FB
+	default n
+	---help---
+	  Include the cfb_fillrect function for generic software rectangle
+	  filling. This is used by drivers that don't provide their own
+	  (accelerated) version.
+
+config FB_CFB_COPYAREA
+	tristate
+	depends on FB
+	default n
+	---help---
+	  Include the cfb_copyarea function for generic software area copying.
+	  This is used by drivers that don't provide their own (accelerated)
+	  version.
+
+config FB_CFB_IMAGEBLIT
+	tristate
+	depends on FB
+	default n
+	---help---
+	  Include the cfb_imageblit function for generic software image
+	  blitting. This is used by drivers that don't provide their own
+	  (accelerated) version.
+
+config FB_SOFT_CURSOR
+	tristate
+	depends on FB
+	default n
+	---help---
+	  Include the soft_cursor function for generic software cursor support.
+	  This is used by drivers that don't provide their own (accelerated)
+	  version.
+
 config FB_MODE_HELPERS
         bool "Enable Video Mode Handling Helpers"
         depends on FB
@@ -70,6 +106,10 @@ config FB_TILEBLITTING
 config FB_CIRRUS
 	tristate "Cirrus Logic support"
 	depends on FB && (ZORRO || PCI)
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	---help---
 	  This enables support for Cirrus Logic GD542x/543x based boards on
 	  Amiga: SD64, Piccolo, Picasso II/II+, Picasso IV, or EGS Spectrum.
@@ -85,6 +125,10 @@ config FB_CIRRUS
 config FB_PM2
 	tristate "Permedia2 support"
 	depends on FB && ((AMIGA && BROKEN) || PCI)
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the Permedia2 AGP frame
 	  buffer card from ASK, aka `Graphic Blaster Exxtreme'.  There is a
@@ -100,6 +144,10 @@ config FB_PM2_FIFO_DISCONNECT
 config FB_ARMCLCD
 	tristate "ARM PrimeCell PL110 support"
 	depends on FB && ARM && ARM_AMBA
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This framebuffer device driver is for the ARM PrimeCell PL110
 	  Colour LCD controller.  ARM PrimeCells provide the building
@@ -113,6 +161,10 @@ config FB_ARMCLCD
 config FB_ACORN
 	bool "Acorn VIDC support"
 	depends on FB && ARM && ARCH_ACORN
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the Acorn VIDC graphics
 	  hardware found in Acorn RISC PCs and other ARM-based machines.  If
@@ -121,10 +173,18 @@ config FB_ACORN
 config FB_CLPS711X
 	bool "CLPS711X LCD support"
 	depends on FB && ARM && ARCH_CLPS711X
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 
 config FB_SA1100
 	bool "SA-1100 LCD support"
 	depends on FB && ARM && ARCH_SA1100
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is a framebuffer device for the SA-1100 LCD Controller.
 	  See <http://www.linux-fbdev.org/> for information on framebuffer
@@ -136,6 +196,10 @@ config FB_SA1100
 config FB_CYBER2000
 	tristate "CyberPro 2000/2010/5000 support"
 	depends on FB && PCI && (BROKEN || !SPARC64)
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This enables support for the Integraphics CyberPro 20x0 and 5000
 	  VGA chips used in the Rebel.com Netwinder and other machines.
@@ -146,15 +210,23 @@ config FB_APOLLO
 	bool
 	depends on FB && APOLLO
 	default y
+	select FB_CFB_FILLRECT
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 
 config FB_Q40
 	bool
 	depends on FB && Q40
 	default y
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 
 config FB_AMIGA
 	tristate "Amiga native chipset support"
 	depends on FB && AMIGA
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the builtin graphics
 	  chipset found in Amigas.
@@ -191,6 +263,10 @@ config FB_AMIGA_AGA
 config FB_CYBER
 	tristate "Amiga CyberVision 64 support"
 	depends on FB && ZORRO && BROKEN
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This enables support for the Cybervision 64 graphics card from
 	  Phase5. Please note that its use is not all that intuitive (i.e. if
@@ -202,6 +278,10 @@ config FB_CYBER
 config FB_VIRGE
 	bool "Amiga CyberVision 64/3D support "
 	depends on FB && ZORRO && BROKEN
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This enables support for the Cybervision 64/3D graphics card from
 	  Phase5. Please note that its use is not all that intuitive (i.e. if
@@ -221,6 +301,10 @@ config FB_RETINAZ3
 config FB_FM2
 	bool "Amiga FrameMaster II/Rainbow II support"
 	depends on FB && ZORRO
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the Amiga FrameMaster
 	  card from BSC (exhibited 1992 but not shipped as a CBM product).
@@ -235,6 +319,10 @@ config FB_ATARI
 config FB_OF
 	bool "Open Firmware frame buffer device support"
 	depends on FB && (PPC64 || PPC_OF)
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  Say Y if you want support with Open Firmware for your graphics
 	  board.
@@ -242,6 +330,10 @@ config FB_OF
 config FB_CONTROL
 	bool "Apple \"control\" display support"
 	depends on FB && PPC_PMAC
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This driver supports a frame buffer for the graphics adapter in the
 	  Power Macintosh 7300 and others.
@@ -249,6 +341,10 @@ config FB_CONTROL
 config FB_PLATINUM
 	bool "Apple \"platinum\" display support"
 	depends on FB && PPC_PMAC
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This driver supports a frame buffer for the "platinum" graphics
 	  adapter in some Power Macintoshes.
@@ -256,6 +352,10 @@ config FB_PLATINUM
 config FB_VALKYRIE
 	bool "Apple \"valkyrie\" display support"
 	depends on FB && (MAC || PPC_PMAC)
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This driver supports a frame buffer for the "valkyrie" graphics
 	  adapter in some Power Macintoshes.
@@ -263,6 +363,10 @@ config FB_VALKYRIE
 config FB_CT65550
 	bool "Chips 65550 display support"
 	depends on FB && PPC
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the Chips & Technologies
 	  65550 graphics chip in PowerBooks.
@@ -270,10 +374,16 @@ config FB_CT65550
 config FB_ASILIANT
 	bool "Chips 69000 display support"
 	depends on FB && PCI
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 
 config FB_IMSTT
 	bool "IMS Twin Turbo display support"
 	depends on FB && PCI
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  The IMS Twin Turbo is a PCI-based frame buffer card bundled with
 	  many Macintosh and compatible computers.
@@ -287,6 +397,10 @@ config FB_S3TRIO
 config FB_VGA16
 	tristate "VGA 16-color graphics support"
 	depends on FB && (X86 || PPC)
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for VGA 16 color graphic
 	  cards. Say Y if you have such a card.
@@ -297,6 +411,10 @@ config FB_VGA16
 config FB_STI
 	tristate "HP STI frame buffer device support"
 	depends on FB && PARISC
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	default y
 	---help---
 	  STI refers to the HP "Standard Text Interface" which is a set of
@@ -314,16 +432,27 @@ config FB_STI
 config FB_MAC
 	bool "Generic Macintosh display support"
 	depends on FB && MAC
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 
 #      bool '  Apple DAFB display support' CONFIG_FB_DAFB
 config FB_HP300
 	bool
 	depends on FB && HP300
+	select FB_CFB_FILLRECT
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	default y
 
 config FB_TGA
 	tristate "TGA framebuffer support"
 	depends on FB && ALPHA
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for generic TGA graphic
 	  cards. Say Y if you have one of those.
@@ -331,6 +460,10 @@ config FB_TGA
 config FB_VESA
 	bool "VESA VGA graphics support"
 	depends on FB && (X86 || X86_64)
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for generic VESA 2.0
 	  compliant graphic cards. The older VESA 1.2 cards are not supported.
@@ -345,6 +478,10 @@ config VIDEO_SELECT
 config FB_HGA
 	tristate "Hercules mono graphics support"
 	depends on FB && X86
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  Say Y here if you have a Hercules mono graphics card.
 
@@ -370,12 +507,20 @@ config VIDEO_SELECT
 config FB_SGIVW
 	tristate "SGI Visual Workstation framebuffer support"
 	depends on FB && X86_VISWS
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  SGI Visual Workstation support for framebuffer graphics.
 
 config FB_GBE
 	bool "SGI Graphics Backend frame buffer support"
 	depends on FB && (SGI_IP32 || X86_VISWS)
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
  	help
 	  This is the frame buffer device driver for SGI Graphics Backend.
 	  This chip is used in SGI O2 and Visual Workstation 320/540.
@@ -400,18 +545,28 @@ config FB_SUN3
 config FB_BW2
 	bool "BWtwo support"
 	depends on FB && ((SPARC32 || SPARC64) && FB_SBUS || (SUN3 || SUN3X) && FB_SUN3)
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the BWtwo frame buffer.
 
 config FB_CG3
 	bool "CGthree support"
 	depends on FB && ((SPARC32 || SPARC64) && FB_SBUS || (SUN3 || SUN3X) && FB_SUN3)
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the CGthree frame buffer.
 
 config FB_CG6
 	bool "CGsix (GX,TurboGX) support"
 	depends on FB && ((SPARC32 || SPARC64) && FB_SBUS || (SUN3 || SUN3X) && FB_SUN3)
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the CGsix (GX, TurboGX)
 	  frame buffer.
@@ -419,6 +574,10 @@ config FB_CG6
 config FB_PVR2
 	tristate "NEC PowerVR 2 display support"
 	depends on FB && SH_DREAMCAST
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	---help---
 	  Say Y here if you have a PowerVR 2 card in your box.  If you plan to
 	  run linux on your Dreamcast, you will have to say Y here.
@@ -437,6 +596,10 @@ config FB_PVR2
 config FB_EPSON1355
 	bool "Epson 1355 framebuffer support"
 	depends on FB && (SUPERH || ARCH_CEIVA)
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  Build in support for the SED1355 Epson Research Embedded RAMDAC
 	  LCD/CRT Controller (since redesignated as the S1D13505) as a
@@ -449,6 +612,10 @@ config FB_RIVA
 	select I2C_ALGOBIT if FB_RIVA_I2C
 	select I2C if FB_RIVA_I2C
 	select FB_MODE_HELPERS
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This driver supports graphics boards with the nVidia Riva/Geforce
 	  chips.
@@ -484,6 +651,10 @@ config FB_I810
 	select AGP
 	select AGP_INTEL
 	select FB_MODE_HELPERS
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This driver supports the on-board graphics built in to the Intel 810 
           and 815 chipsets.  Say Y if you have and plan to use such a board.
@@ -523,6 +694,10 @@ config FB_INTEL
 	select AGP
 	select AGP_INTEL
 	select FB_MODE_HELPERS
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This driver supports the on-board graphics built in to the Intel
           830M/845G/852GM/855GM/865G chipsets.
@@ -542,6 +717,10 @@ config FB_INTEL_DEBUG
 config FB_MATROX
 	tristate "Matrox acceleration"
 	depends on FB && PCI
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	---help---
 	  Say Y here if you have a Matrox Millennium, Matrox Millennium II,
 	  Matrox Mystique, Matrox Mystique 220, Matrox Productiva G100, Matrox
@@ -677,6 +856,10 @@ config FB_MATROX_MULTIHEAD
 config FB_RADEON_OLD
 	tristate "ATI Radeon display support (Old driver)"
 	depends on FB && PCI
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  Choose this option if you want to use an ATI Radeon graphics card as
 	  a framebuffer device.  There are both PCI and AGP versions.  You
@@ -690,6 +873,10 @@ config FB_RADEON
 	select I2C_ALGOBIT if FB_RADEON_I2C
 	select I2C if FB_RADEON_I2C
 	select FB_MODE_HELPERS
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  Choose this option if you want to use an ATI Radeon graphics card as
 	  a framebuffer device.  There are both PCI and AGP versions.  You
@@ -724,6 +911,10 @@ config FB_RADEON_DEBUG
 config FB_ATY128
 	tristate "ATI Rage128 display support"
 	depends on FB && PCI
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This driver supports graphics boards with the ATI Rage128 chips.
 	  Say Y if you have such a graphics board and read
@@ -735,6 +926,10 @@ config FB_ATY128
 config FB_ATY
 	tristate "ATI Mach64 display support" if PCI || ATARI
 	depends on FB
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This driver supports graphics boards with the ATI Mach64 chips.
 	  Say Y if you have such a graphics board.
@@ -782,6 +977,10 @@ config FB_SAVAGE
 	select I2C_ALGOBIT if FB_SAVAGE_I2C
 	select I2C if FB_SAVAGE_I2C
 	select FB_MODE_HELPERS
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This driver supports notebooks and computers with S3 Savage PCI/AGP
 	  chips.
@@ -815,6 +1014,10 @@ config FB_SAVAGE_ACCEL
 config FB_SIS
 	tristate "SiS acceleration"
 	depends on FB && PCI
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the SiS 300, 315 and
 	  330 series VGA chipsets. Specs available at <http://www.sis.com>
@@ -839,6 +1042,10 @@ config FB_NEOMAGIC
 	tristate "NeoMagic display support"
 	depends on FB && PCI
 	select FB_MODE_HELPERS
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This driver supports notebooks with NeoMagic PCI chips.
 	  Say Y if you have such a graphics card. 
@@ -849,6 +1056,10 @@ config FB_NEOMAGIC
 config FB_KYRO
 	tristate "IMG Kyro support"
 	depends on FB && PCI
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  Say Y here if you have a STG4000 / Kyro / PowerVR 3 based
 	  graphics board.
@@ -859,6 +1070,10 @@ config FB_KYRO
 config FB_3DFX
 	tristate "3Dfx Banshee/Voodoo3 display support"
 	depends on FB && PCI
+	select FB_CFB_IMAGEBLIT
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_SOFT_CURSOR
 	help
 	  This driver supports graphics boards with the 3Dfx Banshee/Voodoo3
 	  chips. Say Y if you have such a graphics board.
@@ -877,6 +1092,10 @@ config FB_3DFX_ACCEL
 config FB_VOODOO1
 	tristate "3Dfx Voodoo Graphics (sst1) support"
 	depends on FB && PCI
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	---help---
 	  Say Y here if you have a 3Dfx Voodoo Graphics (Voodoo1/sst1) or 
 	  Voodoo2 (cvg) based graphics card.
@@ -892,6 +1111,10 @@ config FB_VOODOO1
 config FB_TRIDENT
 	tristate "Trident support"
 	depends on FB && PCI
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	---help---
 	  This driver is supposed to support graphics boards with the
 	  Trident CyberXXXX/Image/CyberBlade chips mostly found in laptops
@@ -965,6 +1188,9 @@ config FB_SBUS
 config FB_FFB
 	bool "Creator/Creator3D/Elite3D support"
 	depends on FB_SBUS && SPARC64
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the Creator, Creator3D,
 	  and Elite3D graphics boards.
@@ -972,6 +1198,10 @@ config FB_FFB
 config FB_TCX
 	bool "TCX (SS4/SS5 only) support"
 	depends on FB_SBUS
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the TCX 24/8bit frame
 	  buffer.
@@ -979,6 +1209,10 @@ config FB_TCX
 config FB_CG14
 	bool "CGfourteen (SX) support"
 	depends on FB_SBUS
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the CGfourteen frame
 	  buffer on Desktop SPARCsystems with the SX graphics option.
@@ -986,6 +1220,10 @@ config FB_CG14
 config FB_P9100
 	bool "P9100 (Sparcbook 3 only) support"
 	depends on FB_SBUS
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the P9100 card
 	  supported on Sparcbook 3 machines.
@@ -993,6 +1231,10 @@ config FB_P9100
 config FB_LEO
 	bool "Leo (ZX) support"
 	depends on FB_SBUS
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the SBUS-based Sun ZX
 	  (leo) frame buffer cards.
@@ -1004,6 +1246,10 @@ config FB_PCI
 config FB_IGA
 	bool "IGA 168x display support"
 	depends on SPARC32 && FB_PCI
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the framebuffer device for the INTERGRAPHICS 1680 and
 	  successor frame buffer cards.
@@ -1011,6 +1257,10 @@ config FB_IGA
 config FB_HIT
 	tristate "HD64461 Frame Buffer support"
 	depends on FB && HD64461
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  This is the frame buffer device driver for the Hitachi HD64461 LCD
 	  frame buffer card.
@@ -1018,6 +1268,10 @@ config FB_HIT
 config FB_PMAG_AA
 	bool "PMAG-AA TURBOchannel framebuffer support"
 	depends on FB && MACH_DECSTATION && TC
+ 	select FB_CFB_FILLRECT
+ 	select FB_CFB_COPYAREA
+ 	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  Support for the PMAG-AA TURBOchannel framebuffer card (1280x1024x1)
 	  used mainly in the MIPS-based DECstation series.
@@ -1025,6 +1279,10 @@ config FB_PMAG_AA
 config FB_PMAG_BA
 	bool "PMAG-BA TURBOchannel framebuffer support"
 	depends on FB && MACH_DECSTATION && TC
+ 	select FB_CFB_FILLRECT
+ 	select FB_CFB_COPYAREA
+ 	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  Support for the PMAG-BA TURBOchannel framebuffer card (1024x864x8)
 	  used mainly in the MIPS-based DECstation series.
@@ -1032,6 +1290,10 @@ config FB_PMAG_BA
 config FB_PMAGB_B
 	bool "PMAGB-B TURBOchannel framebuffer support"
 	depends on FB && MACH_DECSTATION && TC
+ 	select FB_CFB_FILLRECT
+ 	select FB_CFB_COPYAREA
+ 	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  Support for the PMAGB-B TURBOchannel framebuffer card used mainly
 	  in the MIPS-based DECstation series. The card is currently only
@@ -1040,6 +1302,10 @@ config FB_PMAGB_B
 config FB_MAXINE
 	bool "Maxine (Personal DECstation) onboard framebuffer support"
 	depends on FB && MACH_DECSTATION && TC
+ 	select FB_CFB_FILLRECT
+ 	select FB_CFB_COPYAREA
+ 	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  Support for the onboard framebuffer (1024x768x8) in the Personal
 	  DECstation series (Personal DECstation 5000/20, /25, /33, /50,
@@ -1048,6 +1314,10 @@ config FB_MAXINE
 config FB_TX3912
 	bool "TMPTX3912/PR31700 frame buffer support"
 	depends on FB && NINO
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  The TX3912 is a Toshiba RISC processor based on the MIPS 3900 core
 	  see <http://www.toshiba.com/taec/components/Generic/risc/tx3912.htm>.
@@ -1057,6 +1327,10 @@ config FB_TX3912
 config FB_G364
 	bool
 	depends on MIPS_MAGNUM_4000 || OLIVETTI_M700
+ 	select FB_CFB_FILLRECT
+ 	select FB_CFB_COPYAREA
+ 	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  The G364 driver is the framebuffer used in MIPS Magnum 4000 and
 	  Olivetti M700-10 systems.
@@ -1064,6 +1338,10 @@ config FB_G364
 config FB_68328
 	bool "Motorola 68328 native frame buffer support"
 	depends on (M68328 || M68EZ328 || M68VZ328)
+ 	select FB_CFB_FILLRECT
+ 	select FB_CFB_COPYAREA
+ 	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	help
 	  Say Y here if you want to support the built-in frame buffer of
 	  the Motorola 68328 CPU family.
@@ -1071,6 +1349,10 @@ config FB_68328
 config FB_PXA
 	tristate "PXA LCD framebuffer support"
 	depends on FB && ARCH_PXA
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	---help---
 	  Frame buffer driver for the built-in LCD controller in the Intel
 	  PXA2x0 processor.
@@ -1085,6 +1367,10 @@ config FB_PXA
 config FB_W100
 	tristate "W100 frame buffer support"
 	depends on FB && PXA_SHARPSL
+ 	select FB_CFB_FILLRECT
+ 	select FB_CFB_COPYAREA
+ 	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	---help---
 	  Frame buffer driver for the w100 as found on the Sharp SL-Cxx series.
 
@@ -1115,6 +1401,10 @@ config FB_PXA_PARAMETERS
 config FB_VIRTUAL
 	tristate "Virtual Frame Buffer support (ONLY FOR TESTING!)"
 	depends on FB
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
 	---help---
 	  This is a `virtual' frame buffer device. It operates on a chunk of
 	  unswappable kernel memory instead of on the memory of a graphics
