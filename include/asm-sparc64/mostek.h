@@ -134,13 +134,11 @@ do {	u8 __val = mostek_read(regs + MOSTEK_ ## name); \
  */
 #define MOSTEK_48T08_OFFSET	0x0000UL	/* Lower NVRAM portions */
 #define MOSTEK_48T08_48T02	0x1800UL	/* Offset to 48T02 chip */
-extern unsigned long mstk48t08_regs;
 
 /* SUN5 systems usually have 48t59 model clock chipsets.  But we keep the older
  * clock chip definitions around just in case.
  */
 #define MOSTEK_48T59_OFFSET	0x0000UL	/* Lower NVRAM portions */
 #define MOSTEK_48T59_48T02	0x1800UL	/* Offset to 48T02 chip */
-extern unsigned long mstk48t59_regs;
 
 #endif /* !(_SPARC64_MOSTEK_H) */
