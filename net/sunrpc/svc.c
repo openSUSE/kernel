@@ -311,8 +311,8 @@ svc_process(struct svc_serv *serv, struct svc_rqst *rqstp)
 	 * We do this before anything else in order to get a decent
 	 * auth verifier.
 	 */
-	if (progp->pg_authenticate != NULL)
-		auth_res = progp->pg_authenticate(rqstp, &auth_stat);
+	if (progp->pg_authenticate_obsolete != NULL)
+		auth_res = progp->pg_authenticate_obsolete(rqstp, &auth_stat);
 	else
 		auth_res = svc_authenticate(rqstp, &auth_stat);
 	switch (auth_res) {

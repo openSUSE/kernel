@@ -321,5 +321,5 @@ static struct svc_program nfs4_callback_program = {
 	.pg_name = "NFSv4 callback",			/* service name */
 	.pg_class = "nfs",				/* authentication class */
 	.pg_stats = &nfs4_callback_stats,
-	.pg_authenticate = nfs_callback_auth,
+	.pg_authenticate_obsolete = nfs_callback_auth,
 };
