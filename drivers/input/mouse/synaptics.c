@@ -324,8 +324,11 @@ static void synaptics_parse_hw_state(unsigned char buf[], struct synaptics_data 
 		hw->left  = (buf[0] & 0x01) ? 1 : 0;
 		hw->right = (buf[0] & 0x02) ? 1 : 0;
 
-		if (SYN_CAP_MIDDLE_BUTTON(priv->capabilities))
+		if (SYN_CAP_MIDDLE_BUTTON(priv->capabilities)) {
 			hw->middle = ((buf[0] ^ buf[3]) & 0x01) ? 1 : 0;
+			if (hw->w == 2)
+				hw->scroll = (signed char)(buf[1]);
+		}
 
 		if (SYN_CAP_FOUR_BUTTON(priv->capabilities)) {
 			hw->up   = ((buf[0] ^ buf[3]) & 0x01) ? 1 : 0;
@@ -380,6 +383,26 @@ static void synaptics_process_packet(struct psmouse *psmouse)
 	int i;
 
 	synaptics_parse_hw_state(psmouse->packet, priv, &hw);
+
+	if (hw.scroll) {
+		priv->scroll += hw.scroll;
+
+		while (priv->scroll >= 4) {
+			input_report_key(dev, BTN_BACK, !hw.down);
+			input_sync(dev);
+			input_report_key(dev, BTN_BACK, hw.down);
+			input_sync(dev);
+			priv->scroll -= 4;
+		}
+		while (priv->scroll <= -4) {
+			input_report_key(dev, BTN_FORWARD, !hw.up);
+			input_sync(dev);
+			input_report_key(dev, BTN_FORWARD, hw.up);
+			input_sync(dev);
+			priv->scroll += 4;
+		}
+		return;
+	}
 
 	if (hw.z > 0) {
 		num_fingers = 1;
@@ -530,7 +553,8 @@ static void set_input_params(struct input_dev *dev, struct synaptics_data *priv)
 	if (SYN_CAP_MIDDLE_BUTTON(priv->capabilities))
 		set_bit(BTN_MIDDLE, dev->keybit);
 
-	if (SYN_CAP_FOUR_BUTTON(priv->capabilities)) {
+	if (SYN_CAP_FOUR_BUTTON(priv->capabilities) ||
+	    SYN_CAP_MIDDLE_BUTTON(priv->capabilities)) {
 		set_bit(BTN_FORWARD, dev->keybit);
 		set_bit(BTN_BACK, dev->keybit);
 	}
