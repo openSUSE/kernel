@@ -6,6 +6,7 @@
 #include <linux/init.h>
 #include <linux/pagemap.h>
 #include <linux/agp_backend.h>
+#include <linux/delay.h>
 #include <asm/uninorth.h>
 #include <asm/pci-bridge.h>
 #include "agp.h"
@@ -51,6 +52,11 @@ static void uninorth_tlbflush(struct agp_memory *mem)
 
 static void uninorth_cleanup(void)
 {
+	u32 tmp;
+
+	pci_read_config_dword(agp_bridge->dev, UNI_N_CFG_GART_CTRL, &tmp);
+	if (!(tmp & UNI_N_CFG_GART_ENABLE))
+		return;
 	pci_write_config_dword(agp_bridge->dev, UNI_N_CFG_GART_CTRL,
 			UNI_N_CFG_GART_ENABLE | UNI_N_CFG_GART_INVAL);
 	pci_write_config_dword(agp_bridge->dev, UNI_N_CFG_GART_CTRL,
@@ -154,6 +160,62 @@ static void uninorth_agp_enable(struct agp_bridge_data *bridge, u32 mode)
 
 	uninorth_tlbflush(NULL);
 }
+
+#ifdef CONFIG_PM
+static int agp_uninorth_suspend(struct pci_dev *pdev, pm_message_t state)
+{
+	u32 cmd;
+	u8 agp;
+	struct pci_dev *device = NULL;
+
+	if (state != PMSG_SUSPEND)
+		return 0;
+
+	/* turn off AGP on the video chip, if it was enabled */
+	for_each_pci_dev(device) {
+		/* Don't touch the bridge yet, device first */
+		if (device == pdev)
+			continue;
+		/* Only deal with devices on the same bus here, no Mac has a P2P
+		 * bridge on the AGP port, and mucking around the entire PCI
+		 * tree is source of problems on some machines because of a bug
+		 * in some versions of pci_find_capability() when hitting a dead
+		 * device
+		 */
+		if (device->bus != pdev->bus)
+			continue;
+		agp = pci_find_capability(device, PCI_CAP_ID_AGP);
+		if (!agp)
+			continue;
+		pci_read_config_dword(device, agp + PCI_AGP_COMMAND, &cmd);
+		if (!(cmd & PCI_AGP_COMMAND_AGP))
+			continue;
+		printk("uninorth-agp: disabling AGP on device %s\n",
+				pci_name(device));
+		cmd &= ~PCI_AGP_COMMAND_AGP;
+		pci_write_config_dword(device, agp + PCI_AGP_COMMAND, cmd);
+	}
+
+	/* turn off AGP on the bridge */
+	agp = pci_find_capability(pdev, PCI_CAP_ID_AGP);
+	pci_read_config_dword(pdev, agp + PCI_AGP_COMMAND, &cmd);
+	if (cmd & PCI_AGP_COMMAND_AGP) {
+		printk("uninorth-agp: disabling AGP on bridge %s\n",
+				pci_name(pdev));
+		cmd &= ~PCI_AGP_COMMAND_AGP;
+		pci_write_config_dword(pdev, agp + PCI_AGP_COMMAND, cmd);
+	}
+	/* turn off the GART */
+	uninorth_cleanup();
+
+	return 0;
+}
+
+static int agp_uninorth_resume(struct pci_dev *pdev)
+{
+	return 0;
+}
+#endif
 
 static int uninorth_create_gatt_table(struct agp_bridge_data *bridge)
 {
@@ -369,6 +431,10 @@ static struct pci_driver agp_uninorth_pci_driver = {
 	.id_table	= agp_uninorth_pci_table,
 	.probe		= agp_uninorth_probe,
 	.remove		= agp_uninorth_remove,
+#ifdef CONFIG_PM
+	.suspend	= agp_uninorth_suspend,
+	.resume		= agp_uninorth_resume,
+#endif
 };
 
 static int __init agp_uninorth_init(void)
