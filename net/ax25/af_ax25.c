@@ -1421,7 +1421,7 @@ static int ax25_sendmsg(struct kiocb *iocb, struct socket *sock,
 	lock_sock(sk);
 	ax25 = ax25_sk(sk);
 
-	if (sock_flag(sk, SOCK_ZAPPED))
+	if (sock_flag(sk, SOCK_ZAPPED)) {
 		err = -EADDRNOTAVAIL;
 		goto out;
 	}
