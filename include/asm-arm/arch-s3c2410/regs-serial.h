@@ -73,6 +73,11 @@
 #define S3C2440_UCON_UCLK	  (1<<10)
 #define S3C2440_UCON_PCLK2	  (2<<10)
 #define S3C2440_UCON_FCLK	  (3<<10)
+#define S3C2440_UCON2_FCLK_EN	  (1<<15)
+#define S3C2440_UCON0_DIVMASK	  (15 << 12)
+#define S3C2440_UCON1_DIVMASK	  (15 << 12)
+#define S3C2440_UCON2_DIVMASK	  (7 << 12)
+#define S3C2440_UCON_DIVSHIFT	  (12)
 
 #define S3C2410_UCON_UCLK	  (1<<10)
 #define S3C2410_UCON_SBREAK	  (1<<4)
