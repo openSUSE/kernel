@@ -1195,13 +1195,25 @@ linear:
 	} else {
 		unsigned int frag;
 		u32 ipheader;
-		skb_frag_t *last_frag;
 
-		frag = skb_shinfo(skb)->nr_frags - 1;
-		last_frag = &skb_shinfo(skb)->frags[frag];
-		if (last_frag->size <= 8 && last_frag->page_offset & 0x7) {
-			skb_linearize(skb, GFP_ATOMIC);
-			goto linear;
+		/* Since hardware can't handle unaligned fragments smaller
+		 * than 9 bytes, if we find any, we linearize the skb
+		 * and start again.  When I've seen it, it's always been
+		 * the first frag (probably near the end of the page),
+		 * but we check all frags to be safe.
+		 */
+		for (frag = 0; frag < skb_shinfo(skb)->nr_frags; frag++) {
+			skb_frag_t *fragp;
+
+			fragp = &skb_shinfo(skb)->frags[frag];
+			if (fragp->size <= 8 && fragp->page_offset & 0x7) {
+				skb_linearize(skb, GFP_ATOMIC);
+				printk(KERN_DEBUG "%s: unaligned tiny fragment"
+						"%d of %d, fixed\n",
+						dev->name, frag,
+						skb_shinfo(skb)->nr_frags);
+				goto linear;
+			}
 		}
 
 		/* first frag which is skb header */
