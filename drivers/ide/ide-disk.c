@@ -516,75 +516,6 @@ static sector_t idedisk_capacity (ide_drive_t *drive)
 	return drive->capacity64 - drive->sect0;
 }
 
-#define IS_PDC4030_DRIVE	0
-
-static ide_startstop_t idedisk_special (ide_drive_t *drive)
-{
-	special_t *s = &drive->special;
-
-	if (s->b.set_geometry) {
-		s->b.set_geometry	= 0;
-		if (!IS_PDC4030_DRIVE) {
-			ide_task_t args;
-			memset(&args, 0, sizeof(ide_task_t));
-			args.tfRegister[IDE_NSECTOR_OFFSET] = drive->sect;
-			args.tfRegister[IDE_SECTOR_OFFSET]  = drive->sect;
-			args.tfRegister[IDE_LCYL_OFFSET]    = drive->cyl;
-			args.tfRegister[IDE_HCYL_OFFSET]    = drive->cyl>>8;
-			args.tfRegister[IDE_SELECT_OFFSET]  = ((drive->head-1)|drive->select.all)&0xBF;
-			args.tfRegister[IDE_COMMAND_OFFSET] = WIN_SPECIFY;
-			args.command_type = IDE_DRIVE_TASK_NO_DATA;
-			args.handler	  = &set_geometry_intr;
-			do_rw_taskfile(drive, &args);
-		}
-	} else if (s->b.recalibrate) {
-		s->b.recalibrate = 0;
-		if (!IS_PDC4030_DRIVE) {
-			ide_task_t args;
-			memset(&args, 0, sizeof(ide_task_t));
-			args.tfRegister[IDE_NSECTOR_OFFSET] = drive->sect;
-			args.tfRegister[IDE_COMMAND_OFFSET] = WIN_RESTORE;
-			args.command_type = IDE_DRIVE_TASK_NO_DATA;
-			args.handler	  = &recal_intr;
-			do_rw_taskfile(drive, &args);
-		}
-	} else if (s->b.set_multmode) {
-		s->b.set_multmode = 0;
-		if (drive->mult_req > drive->id->max_multsect)
-			drive->mult_req = drive->id->max_multsect;
-		if (!IS_PDC4030_DRIVE) {
-			ide_task_t args;
-			memset(&args, 0, sizeof(ide_task_t));
-			args.tfRegister[IDE_NSECTOR_OFFSET] = drive->mult_req;
-			args.tfRegister[IDE_COMMAND_OFFSET] = WIN_SETMULT;
-			args.command_type = IDE_DRIVE_TASK_NO_DATA;
-			args.handler	  = &set_multmode_intr;
-			do_rw_taskfile(drive, &args);
-		}
-	} else if (s->all) {
-		int special = s->all;
-		s->all = 0;
-		printk(KERN_ERR "%s: bad special flag: 0x%02x\n", drive->name, special);
-		return ide_stopped;
-	}
-	return IS_PDC4030_DRIVE ? ide_stopped : ide_started;
-}
-
-static void idedisk_pre_reset (ide_drive_t *drive)
-{
-	int legacy = (drive->id->cfs_enable_2 & 0x0400) ? 0 : 1;
-
-	drive->special.all = 0;
-	drive->special.b.set_geometry = legacy;
-	drive->special.b.recalibrate  = legacy;
-	if (OK_TO_RESET_CONTROLLER)
-		drive->mult_count = 0;
-	if (!drive->keep_settings && !drive->using_dma)
-		drive->mult_req = 0;
-	if (drive->mult_req != drive->mult_count)
-		drive->special.b.set_multmode = 1;
-}
-
 #ifdef CONFIG_PROC_FS
 
 static int smart_enable(ide_drive_t *drive)
@@ -941,28 +872,6 @@ static void idedisk_setup (ide_drive_t *drive)
 
 	printk(KERN_INFO "%s: max request size: %dKiB\n", drive->name, drive->queue->max_sectors / 2);
 
-	/* Extract geometry if we did not already have one for the drive */
-	if (!drive->cyl || !drive->head || !drive->sect) {
-		drive->cyl     = drive->bios_cyl  = id->cyls;
-		drive->head    = drive->bios_head = id->heads;
-		drive->sect    = drive->bios_sect = id->sectors;
-	}
-
-	/* Handle logical geometry translation by the drive */
-	if ((id->field_valid & 1) && id->cur_cyls &&
-	    id->cur_heads && (id->cur_heads <= 16) && id->cur_sectors) {
-		drive->cyl  = id->cur_cyls;
-		drive->head = id->cur_heads;
-		drive->sect = id->cur_sectors;
-	}
-
-	/* Use physical geometry if what we have still makes no sense */
-	if (drive->head > 16 && id->heads && id->heads <= 16) {
-		drive->cyl  = id->cyls;
-		drive->head = id->heads;
-		drive->sect = id->sectors;
-	}
-
 	/* calculate drive capacity, and select LBA if possible */
 	init_idedisk_capacity (drive);
 
@@ -1026,21 +935,6 @@ static void idedisk_setup (ide_drive_t *drive)
 		ide_dma_verbose(drive);
 	printk("\n");
 
-	drive->mult_count = 0;
-	if (id->max_multsect) {
-#ifdef CONFIG_IDEDISK_MULTI_MODE
-		id->multsect = ((id->max_multsect/2) > 1) ? id->max_multsect : 0;
-		id->multsect_valid = id->multsect ? 1 : 0;
-		drive->mult_req = id->multsect_valid ? id->max_multsect : INITIAL_MULT_COUNT;
-		drive->special.b.set_multmode = drive->mult_req ? 1 : 0;
-#else	/* original, pre IDE-NFG, per request of AC */
-		drive->mult_req = INITIAL_MULT_COUNT;
-		if (drive->mult_req > id->max_multsect)
-			drive->mult_req = id->max_multsect;
-		if (drive->mult_req || ((id->multsect_valid & 1) && id->multsect))
-			drive->special.b.set_multmode = 1;
-#endif	/* CONFIG_IDEDISK_MULTI_MODE */
-	}
 	drive->no_io_32bit = id->dword_io ? 1 : 0;
 
 	/* write cache enabled? */
@@ -1141,9 +1035,7 @@ static ide_driver_t idedisk_driver = {
 	.supports_dsc_overlap	= 0,
 	.cleanup		= idedisk_cleanup,
 	.do_request		= ide_do_rw_disk,
-	.pre_reset		= idedisk_pre_reset,
 	.capacity		= idedisk_capacity,
-	.special		= idedisk_special,
 	.proc			= idedisk_proc,
 	.attach			= idedisk_attach,
 	.drives			= LIST_HEAD_INIT(idedisk_driver.drives),

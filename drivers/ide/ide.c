@@ -2051,15 +2051,6 @@ static sector_t default_capacity (ide_drive_t *drive)
 	return 0x7fffffff;
 }
 
-static ide_startstop_t default_special (ide_drive_t *drive)
-{
-	special_t *s = &drive->special;
-
-	s->all = 0;
-	drive->mult_req = 0;
-	return ide_stopped;
-}
-
 static ide_startstop_t default_abort(ide_drive_t *drive, struct request *rq)
 {
 	return __ide_abort(drive, rq);
@@ -2075,7 +2066,6 @@ static void setup_driver_defaults (ide_driver_t *d)
 	if (d->abort == NULL)		d->abort = default_abort;
 	if (d->pre_reset == NULL)	d->pre_reset = default_pre_reset;
 	if (d->capacity == NULL)	d->capacity = default_capacity;
-	if (d->special == NULL)		d->special = default_special;
 }
 
 int ide_register_subdriver(ide_drive_t *drive, ide_driver_t *driver)

@@ -625,6 +625,65 @@ static ide_startstop_t drive_cmd_intr (ide_drive_t *drive)
 	return ide_stopped;
 }
 
+static void ide_init_specify_cmd(ide_drive_t *drive, ide_task_t *task)
+{
+	task->tfRegister[IDE_NSECTOR_OFFSET] = drive->sect;
+	task->tfRegister[IDE_SECTOR_OFFSET]  = drive->sect;
+	task->tfRegister[IDE_LCYL_OFFSET]    = drive->cyl;
+	task->tfRegister[IDE_HCYL_OFFSET]    = drive->cyl>>8;
+	task->tfRegister[IDE_SELECT_OFFSET]  = ((drive->head-1)|drive->select.all)&0xBF;
+	task->tfRegister[IDE_COMMAND_OFFSET] = WIN_SPECIFY;
+
+	task->handler = &set_geometry_intr;
+}
+
+static void ide_init_restore_cmd(ide_drive_t *drive, ide_task_t *task)
+{
+	task->tfRegister[IDE_NSECTOR_OFFSET] = drive->sect;
+	task->tfRegister[IDE_COMMAND_OFFSET] = WIN_RESTORE;
+
+	task->handler = &recal_intr;
+}
+
+static void ide_init_setmult_cmd(ide_drive_t *drive, ide_task_t *task)
+{
+	task->tfRegister[IDE_NSECTOR_OFFSET] = drive->mult_req;
+	task->tfRegister[IDE_COMMAND_OFFSET] = WIN_SETMULT;
+
+	task->handler = &set_multmode_intr;
+}
+
+static ide_startstop_t ide_disk_special(ide_drive_t *drive)
+{
+	special_t *s = &drive->special;
+	ide_task_t args;
+
+	memset(&args, 0, sizeof(ide_task_t));
+	args.command_type = IDE_DRIVE_TASK_NO_DATA;
+
+	if (s->b.set_geometry) {
+		s->b.set_geometry = 0;
+		ide_init_specify_cmd(drive, &args);
+	} else if (s->b.recalibrate) {
+		s->b.recalibrate = 0;
+		ide_init_restore_cmd(drive, &args);
+	} else if (s->b.set_multmode) {
+		s->b.set_multmode = 0;
+		if (drive->mult_req > drive->id->max_multsect)
+			drive->mult_req = drive->id->max_multsect;
+		ide_init_setmult_cmd(drive, &args);
+	} else if (s->all) {
+		int special = s->all;
+		s->all = 0;
+		printk(KERN_ERR "%s: bad special flag: 0x%02x\n", drive->name, special);
+		return ide_stopped;
+	}
+
+	do_rw_taskfile(drive, &args);
+
+	return ide_started;
+}
+
 /**
  *	do_special		-	issue some special commands
  *	@drive: drive the command is for
@@ -646,9 +705,14 @@ static ide_startstop_t do_special (ide_drive_t *drive)
 		if (HWIF(drive)->tuneproc != NULL)
 			HWIF(drive)->tuneproc(drive, drive->tune_req);
 		return ide_stopped;
+	} else {
+		if (drive->media == ide_disk)
+			return ide_disk_special(drive);
+
+		s->all = 0;
+		drive->mult_req = 0;
+		return ide_stopped;
 	}
-	else
-		return DRIVER(drive)->special(drive);
 }
 
 void ide_map_sg(ide_drive_t *drive, struct request *rq)

@@ -74,7 +74,55 @@ static void generic_id(ide_drive_t *drive)
 	drive->id->cur_heads = drive->head;
 	drive->id->cur_sectors = drive->sect;
 }
-		
+
+static void ide_disk_init_chs(ide_drive_t *drive)
+{
+	struct hd_driveid *id = drive->id;
+
+	/* Extract geometry if we did not already have one for the drive */
+	if (!drive->cyl || !drive->head || !drive->sect) {
+		drive->cyl  = drive->bios_cyl  = id->cyls;
+		drive->head = drive->bios_head = id->heads;
+		drive->sect = drive->bios_sect = id->sectors;
+	}
+
+	/* Handle logical geometry translation by the drive */
+	if ((id->field_valid & 1) && id->cur_cyls &&
+	    id->cur_heads && (id->cur_heads <= 16) && id->cur_sectors) {
+		drive->cyl  = id->cur_cyls;
+		drive->head = id->cur_heads;
+		drive->sect = id->cur_sectors;
+	}
+
+	/* Use physical geometry if what we have still makes no sense */
+	if (drive->head > 16 && id->heads && id->heads <= 16) {
+		drive->cyl  = id->cyls;
+		drive->head = id->heads;
+		drive->sect = id->sectors;
+	}
+}
+
+static void ide_disk_init_mult_count(ide_drive_t *drive)
+{
+	struct hd_driveid *id = drive->id;
+
+	drive->mult_count = 0;
+	if (id->max_multsect) {
+#ifdef CONFIG_IDEDISK_MULTI_MODE
+		id->multsect = ((id->max_multsect/2) > 1) ? id->max_multsect : 0;
+		id->multsect_valid = id->multsect ? 1 : 0;
+		drive->mult_req = id->multsect_valid ? id->max_multsect : INITIAL_MULT_COUNT;
+		drive->special.b.set_multmode = drive->mult_req ? 1 : 0;
+#else	/* original, pre IDE-NFG, per request of AC */
+		drive->mult_req = INITIAL_MULT_COUNT;
+		if (drive->mult_req > id->max_multsect)
+			drive->mult_req = id->max_multsect;
+		if (drive->mult_req || ((id->multsect_valid & 1) && id->multsect))
+			drive->special.b.set_multmode = 1;
+#endif
+	}
+}
+
 /**
  *	drive_is_flashcard	-	check for compact flash
  *	@drive: drive to check
@@ -590,8 +638,16 @@ static inline u8 probe_for_drive (ide_drive_t *drive)
 	if(!drive->present)
 		return 0;
 	/* The drive wasn't being helpful. Add generic info only */
-	if(!drive->id_read)
+	if (drive->id_read == 0) {
 		generic_id(drive);
+		return 1;
+	}
+
+	if (drive->media == ide_disk) {
+		ide_disk_init_chs(drive);
+		ide_disk_init_mult_count(drive);
+	}
+
 	return drive->present;
 }
 
