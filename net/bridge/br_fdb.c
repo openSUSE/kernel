@@ -337,6 +337,10 @@ void br_fdb_update(struct net_bridge *br, struct net_bridge_port *source,
 	struct hlist_head *head = &br->hash[br_mac_hash(addr)];
 	struct net_bridge_fdb_entry *fdb;
 
+	/* some users want to always flood. */
+	if (hold_time(br) == 0)
+		return;
+
 	rcu_read_lock();
 	fdb = fdb_find(head, addr);
 	if (likely(fdb)) {
