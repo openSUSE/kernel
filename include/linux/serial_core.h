@@ -110,6 +110,9 @@
 #define PORT_VR41XX_SIU		65
 #define PORT_VR41XX_DSIU	66
 
+/* Samsung S3C2400 SoC */
+#define PORT_S3C2400	67
+
 #ifdef __KERNEL__
 
 #include <linux/config.h>
