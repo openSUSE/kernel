@@ -348,8 +348,8 @@ int force_page_cache_readahead(struct address_space *mapping, struct file *filp,
  * readahead isn't helping.
  *
  */
-int check_ra_success(struct file_ra_state *ra, unsigned long nr_to_read,
-				 unsigned long actual)
+static inline int check_ra_success(struct file_ra_state *ra,
+			unsigned long nr_to_read, unsigned long actual)
 {
 	if (actual == 0) {
 		ra->cache_hit += nr_to_read;
@@ -394,15 +394,11 @@ blockable_page_cache_readahead(struct address_space *mapping, struct file *filp,
 {
 	int actual;
 
-	if (block) {
-		actual = __do_page_cache_readahead(mapping, filp,
-						offset, nr_to_read);
-	} else {
-		actual = do_page_cache_readahead(mapping, filp,
-						offset, nr_to_read);
-		if (actual == -1)
-			return 0;
-	}
+	if (!block && bdi_read_congested(mapping->backing_dev_info))
+		return 0;
+
+	actual = __do_page_cache_readahead(mapping, filp, offset, nr_to_read);
+
 	return check_ra_success(ra, nr_to_read, actual);
 }
 
