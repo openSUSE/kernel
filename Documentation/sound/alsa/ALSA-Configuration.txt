@@ -689,7 +689,7 @@ Module parameters
                       hp_only = use headphone control as master
                       swap_hp = swap headphone and master controls
                       swap_surround = swap master and surround controls
-                      ad_shring = for AD1985, turn on OMS bit and use headphone
+                      ad_sharing = for AD1985, turn on OMS bit and use headphone
                       alc_jack = for ALC65x, turn on the jack sense mode
                       inv_eapd = inverted EAPD implementation
                       mute_led = bind EAPD bit for turning on/off mute LED
