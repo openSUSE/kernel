@@ -985,14 +985,38 @@ release_all_files(void)
 	}
 }
 
-/* should use a slab cache */
+kmem_cache_t *stateowner_slab = NULL;
+
+static int
+nfsd4_init_slabs(void)
+{
+	stateowner_slab = kmem_cache_create("nfsd4_stateowners",
+			sizeof(struct nfs4_stateowner), 0, 0, NULL, NULL);
+	if (stateowner_slab == NULL) {
+		dprintk("nfsd4: out of memory while initializing nfsv4\n");
+		return -ENOMEM;
+	}
+	return 0;
+}
+
+static void
+nfsd4_free_slabs(void)
+{
+	int status = 0;
+
+	if (stateowner_slab)
+		status = kmem_cache_destroy(stateowner_slab);
+	stateowner_slab = NULL;
+	BUG_ON(status);
+}
+
 void
 nfs4_free_stateowner(struct kref *kref)
 {
 	struct nfs4_stateowner *sop =
 		container_of(kref, struct nfs4_stateowner, so_ref);
 	kfree(sop->so_owner.data);
-	kfree(sop);
+	kmem_cache_free(stateowner_slab, sop);
 	free_sowner++;
 }
 
@@ -1001,14 +1025,14 @@ alloc_stateowner(struct xdr_netobj *owner)
 {
 	struct nfs4_stateowner *sop;
 
-	if ((sop = kmalloc(sizeof(struct nfs4_stateowner),GFP_KERNEL))) {
+	if ((sop = kmem_cache_alloc(stateowner_slab, GFP_KERNEL))) {
 		if ((sop->so_owner.data = kmalloc(owner->len, GFP_KERNEL))) {
 			memcpy(sop->so_owner.data, owner->data, owner->len);
 			sop->so_owner.len = owner->len;
 			kref_init(&sop->so_ref);
 			return sop;
 		} 
-		kfree(sop);
+		kmem_cache_free(stateowner_slab, sop);
 	}
 	return NULL;
 }
@@ -3129,14 +3153,12 @@ nfs4_check_open_reclaim(clientid_t *clid)
  * Start and stop routines
  */
 
-void 
-nfs4_state_init(void)
+static void
+__nfs4_state_init(void)
 {
 	int i;
 	time_t grace_time;
 
-	if (nfs4_init)
-		return;
 	if (!nfs4_reclaim_init) {
 		for (i = 0; i < CLIENT_HASH_SIZE; i++)
 			INIT_LIST_HEAD(&reclaim_str_hashtbl[i]);
@@ -3180,7 +3202,21 @@ nfs4_state_init(void)
 	grace_end = boot_time + grace_time;
 	INIT_WORK(&laundromat_work,laundromat_main, NULL);
 	schedule_delayed_work(&laundromat_work, NFSD_LEASE_TIME*HZ);
+}
+
+int
+nfs4_state_init(void)
+{
+	int status;
+
+	if (nfs4_init)
+		return 0;
+	status = nfsd4_init_slabs();
+	if (status)
+		return status;
+	__nfs4_state_init();
 	nfs4_init = 1;
+	return 0;
 }
 
 int
@@ -3253,6 +3289,7 @@ nfs4_state_shutdown(void)
 	nfs4_lock_state();
 	nfs4_release_reclaim();
 	__nfs4_state_shutdown();
+	nfsd4_free_slabs();
 	nfs4_unlock_state();
 }
 
@@ -3305,7 +3342,7 @@ nfs4_reset_lease(time_t leasetime)
 	}
 init_state:
 	__nfs4_state_shutdown();
-	nfs4_state_init();
+	__nfs4_state_init();
 	nfs4_unlock_state();
 }
 

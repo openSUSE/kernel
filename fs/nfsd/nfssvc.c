@@ -92,7 +92,9 @@ nfsd_svc(unsigned short port, int nrservs)
 	
 	/* Readahead param cache - will no-op if it already exists */
 	error =	nfsd_racache_init(2*nrservs);
-	nfs4_state_init();
+	if (error<0)
+		goto out;
+	error = nfs4_state_init();
 	if (error<0)
 		goto out;
 	if (!nfsd_serv) {

@@ -129,12 +129,12 @@ int		nfsd_permission(struct svc_export *, struct dentry *, int);
  * NFSv4 State
  */
 #ifdef CONFIG_NFSD_V4
-void nfs4_state_init(void);
+int nfs4_state_init(void);
 void nfs4_state_shutdown(void);
 time_t nfs4_lease_time(void);
 void nfs4_reset_lease(time_t leasetime);
 #else
-void static inline nfs4_state_init(void){}
+int static inline nfs4_state_init(void){return 0;}
 void static inline nfs4_state_shutdown(void){}
 time_t static inline nfs4_lease_time(void){return 0;}
 void static inline nfs4_reset_lease(time_t leasetime){}
