@@ -1112,7 +1112,10 @@ int snd_emu10k1_fx8010_unregister_irq_handler(emu10k1_t *emu,
 /* GPRs */
 #define FXBUS(x)	(0x00 + (x))	/* x = 0x00 - 0x0f */
 #define EXTIN(x)	(0x10 + (x))	/* x = 0x00 - 0x0f */
-#define EXTOUT(x)	(0x20 + (x))	/* x = 0x00 - 0x0f */
+#define EXTOUT(x)	(0x20 + (x))	/* x = 0x00 - 0x0f physical outs -> FXWC low 16 bits */
+#define FXBUS2(x)	(0x30 + (x))	/* x = 0x00 - 0x0f copies of fx buses for capture -> FXWC high 16 bits */
+					/* NB: 0x31 and 0x32 are shared with Center/LFE on SB live 5.1 */
+
 #define C_00000000	0x40
 #define C_00000001	0x41
 #define C_00000002	0x42
@@ -1154,9 +1157,13 @@ int snd_emu10k1_fx8010_unregister_irq_handler(emu10k1_t *emu,
 #define A_ITRAM_CTL(x)	(A_TANKMEMCTLREGBASE + 0x00 + (x)) /* x = 0x00 - 0xbf */
 #define A_ETRAM_CTL(x)	(A_TANKMEMCTLREGBASE + 0xc0 + (x)) /* x = 0x00 - 0x3f */
 
-#define A_FXBUS(x)	(0x00 + (x))	/* x = 0x00 - 0x3f? */
-#define A_EXTIN(x)	(0x40 + (x))	/* x = 0x00 - 0x1f? */
-#define A_EXTOUT(x)	(0x60 + (x))	/* x = 0x00 - 0x1f? */
+#define A_FXBUS(x)	(0x00 + (x))	/* x = 0x00 - 0x3f FX buses */
+#define A_EXTIN(x)	(0x40 + (x))	/* x = 0x00 - 0x0f physical ins */
+#define A_P16VIN(x)	(0x50 + (x))	/* x = 0x00 - 0x0f p16v ins (A2 only) "EMU32 inputs" */
+#define A_EXTOUT(x)	(0x60 + (x))	/* x = 0x00 - 0x1f physical outs -> A_FXWC1 0x79-7f unknown   */
+#define A_FXBUS2(x)	(0x80 + (x))	/* x = 0x00 - 0x1f extra outs used for EFX capture -> A_FXWC2 */
+#define A_EMU32OUTH(x)	(0xa0 + (x))	/* x = 0x00 - 0x0f "EMU32_OUT_10 - _1F" - ??? */
+#define A_EMU32OUTL(x)	(0xb0 + (x))	/* x = 0x00 - 0x0f "EMU32_OUT_1 - _F" - ??? */
 #define A_GPR(x)	(A_FXGPREGBASE + (x))
 
 /* cc_reg constants */

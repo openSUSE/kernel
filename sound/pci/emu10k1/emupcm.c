@@ -1390,8 +1390,18 @@ int __devinit snd_emu10k1_pcm_efx(emu10k1_t * emu, int device, snd_pcm_t ** rpcm
 	if (rpcm)
 		*rpcm = pcm;
 
-	emu->efx_voices_mask[0] = FXWC_DEFAULTROUTE_C | FXWC_DEFAULTROUTE_A;
-	emu->efx_voices_mask[1] = 0;
+	/* EFX capture - record the "FXBUS2" channels, by default we connect the EXTINs 
+	 * to these
+	 */	
+	
+	/* emu->efx_voices_mask[0] = FXWC_DEFAULTROUTE_C | FXWC_DEFAULTROUTE_A; */
+	if (emu->audigy) {
+		emu->efx_voices_mask[0] = 0;
+		emu->efx_voices_mask[1] = 0xffff;
+	} else {
+		emu->efx_voices_mask[0] = 0xffff;
+		emu->efx_voices_mask[1] = 0;
+	}
 	snd_ctl_add(emu->card, snd_ctl_new1(&snd_emu10k1_pcm_efx_voices_mask, emu));
 
 	snd_pcm_lib_preallocate_pages_for_all(pcm, SNDRV_DMA_TYPE_DEV, snd_dma_pci_data(emu->pci), 64*1024, 64*1024);
