@@ -41,9 +41,8 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
-#define A3D_MAX_START		400	/* 400 us */
-#define A3D_MAX_STROBE		60	/* 40 us */
-#define A3D_DELAY_READ		3	/* 3 ms */
+#define A3D_MAX_START		600	/* 600 us */
+#define A3D_MAX_STROBE		80	/* 80 us */
 #define A3D_MAX_LENGTH		40	/* 40*3 bits */
 
 #define A3D_MODE_A3D		1	/* Assassin 3D */
