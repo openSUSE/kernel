@@ -46,6 +46,7 @@
 
 #include "usb.h"
 #include "hcd.h"
+#include "hub.h"
 
 
 // #define USB_BANDWIDTH_MESSAGES
@@ -272,6 +273,10 @@ static int ascii2utf (char *s, u8 *utf, int utfmax)
 		*utf++ = *s++;
 		*utf++ = 0;
 	}
+	if (utfmax > 0) {
+		*utf = *s;
+		++retval;
+	}
 	return retval;
 }
 
@@ -296,30 +301,40 @@ static int rh_string (
 
 	// language ids
 	if (id == 0) {
-		*data++ = 4; *data++ = 3;	/* 4 bytes string data */
-		*data++ = 0x09; *data++ = 0x04;	/* MSFT-speak for "en-us" */
-		return 4;
+		buf[0] = 4;    buf[1] = 3;	/* 4 bytes string data */
+		buf[2] = 0x09; buf[3] = 0x04;	/* MSFT-speak for "en-us" */
+		len = min (len, 4);
+		memcpy (data, buf, len);
+		return len;
 
 	// serial number
 	} else if (id == 1) {
-		strcpy (buf, hcd->self.bus_name);
+		strlcpy (buf, hcd->self.bus_name, sizeof buf);
 
 	// product description
 	} else if (id == 2) {
-                strcpy (buf, hcd->product_desc);
+		strlcpy (buf, hcd->product_desc, sizeof buf);
 
  	// id 3 == vendor description
 	} else if (id == 3) {
-                sprintf (buf, "%s %s %s",  system_utsname.sysname,
+		snprintf (buf, sizeof buf, "%s %s %s", system_utsname.sysname,
 			system_utsname.release, hcd->driver->description);
 
 	// unsupported IDs --> "protocol stall"
 	} else
-	    return 0;
+		return -EPIPE;
 
-	data [0] = 2 * (strlen (buf) + 1);
-	data [1] = 3;	/* type == string */
-	return 2 + ascii2utf (buf, data + 2, len - 2);
+	switch (len) {		/* All cases fall through */
+	default:
+		len = 2 + ascii2utf (buf, data + 2, len - 2);
+	case 2:
+		data [1] = 3;	/* type == string */
+	case 1:
+		data [0] = 2 * (strlen (buf) + 1);
+	case 0:
+		;		/* Compiler wants a statement here */
+	}
+	return len;
 }
 
 
@@ -328,11 +343,14 @@ static int rh_call_control (struct usb_hcd *hcd, struct urb *urb)
 {
 	struct usb_ctrlrequest *cmd;
  	u16		typeReq, wValue, wIndex, wLength;
-	const u8	*bufp = NULL;
 	u8		*ubuf = urb->transfer_buffer;
+	u8		tbuf [sizeof (struct usb_hub_descriptor)];
+	const u8	*bufp = tbuf;
 	int		len = 0;
 	int		patch_wakeup = 0;
 	unsigned long	flags;
+	int		status = 0;
+	int		n;
 
 	cmd = (struct usb_ctrlrequest *) urb->setup_packet;
 	typeReq  = (cmd->bRequestType << 8) | cmd->bRequest;
@@ -343,17 +361,16 @@ static int rh_call_control (struct usb_hcd *hcd, struct urb *urb)
 	if (wLength > urb->transfer_buffer_length)
 		goto error;
 
-	/* set up for success */
-	urb->status = 0;
-	urb->actual_length = wLength;
+	urb->actual_length = 0;
 	switch (typeReq) {
 
 	/* DEVICE REQUESTS */
 
 	case DeviceRequest | USB_REQ_GET_STATUS:
-		ubuf [0] = (hcd->remote_wakeup << USB_DEVICE_REMOTE_WAKEUP)
+		tbuf [0] = (hcd->remote_wakeup << USB_DEVICE_REMOTE_WAKEUP)
 				| (1 << USB_DEVICE_SELF_POWERED);
-		ubuf [1] = 0;
+		tbuf [1] = 0;
+		len = 2;
 		break;
 	case DeviceOutRequest | USB_REQ_CLEAR_FEATURE:
 		if (wValue == USB_DEVICE_REMOTE_WAKEUP)
@@ -368,7 +385,8 @@ static int rh_call_control (struct usb_hcd *hcd, struct urb *urb)
 			goto error;
 		break;
 	case DeviceRequest | USB_REQ_GET_CONFIGURATION:
-		ubuf [0] = 1;
+		tbuf [0] = 1;
+		len = 1;
 			/* FALLTHROUGH */
 	case DeviceOutRequest | USB_REQ_SET_CONFIGURATION:
 		break;
@@ -395,16 +413,18 @@ static int rh_call_control (struct usb_hcd *hcd, struct urb *urb)
 				patch_wakeup = 1;
 			break;
 		case USB_DT_STRING << 8:
-			urb->actual_length = rh_string (
-				wValue & 0xff, hcd,
-				ubuf, wLength);
+			n = rh_string (wValue & 0xff, hcd, ubuf, wLength);
+			if (n < 0)
+				goto error;
+			urb->actual_length = n;
 			break;
 		default:
 			goto error;
 		}
 		break;
 	case DeviceRequest | USB_REQ_GET_INTERFACE:
-		ubuf [0] = 0;
+		tbuf [0] = 0;
+		len = 1;
 			/* FALLTHROUGH */
 	case DeviceOutRequest | USB_REQ_SET_INTERFACE:
 		break;
@@ -420,8 +440,9 @@ static int rh_call_control (struct usb_hcd *hcd, struct urb *urb)
 
 	case EndpointRequest | USB_REQ_GET_STATUS:
 		// ENDPOINT_HALT flag
-		ubuf [0] = 0;
-		ubuf [1] = 0;
+		tbuf [0] = 0;
+		tbuf [1] = 0;
+		len = 2;
 			/* FALLTHROUGH */
 	case EndpointOutRequest | USB_REQ_CLEAR_FEATURE:
 	case EndpointOutRequest | USB_REQ_SET_FEATURE:
@@ -433,19 +454,30 @@ static int rh_call_control (struct usb_hcd *hcd, struct urb *urb)
 	default:
 		/* non-generic request */
 		if (HCD_IS_SUSPENDED (hcd->state))
-			urb->status = -EAGAIN;
-		else
-			urb->status = hcd->driver->hub_control (hcd,
+			status = -EAGAIN;
+		else {
+			switch (typeReq) {
+			case GetHubStatus:
+			case GetPortStatus:
+				len = 4;
+				break;
+			case GetHubDescriptor:
+				len = sizeof (struct usb_hub_descriptor);
+				break;
+			}
+			status = hcd->driver->hub_control (hcd,
 				typeReq, wValue, wIndex,
-				ubuf, wLength);
+				tbuf, wLength);
+		}
 		break;
 error:
 		/* "protocol stall" on error */
-		urb->status = -EPIPE;
+		status = -EPIPE;
 	}
-	if (urb->status) {
-		urb->actual_length = 0;
-		if (urb->status != -EPIPE) {
+
+	if (status) {
+		len = 0;
+		if (status != -EPIPE) {
 			dev_dbg (hcd->self.controller,
 				"CTRL: TypeReq=0x%x val=0x%x "
 				"idx=0x%x len=%d ==> %d\n",
@@ -453,7 +485,7 @@ error:
 				wLength, urb->status);
 		}
 	}
-	if (bufp) {
+	if (len) {
 		if (urb->transfer_buffer_length < len)
 			len = urb->transfer_buffer_length;
 		urb->actual_length = len;
@@ -461,13 +493,19 @@ error:
 		memcpy (ubuf, bufp, len);
 
 		/* report whether RH hardware supports remote wakeup */
-		if (patch_wakeup)
+		if (patch_wakeup &&
+				len > offsetof (struct usb_config_descriptor,
+						bmAttributes))
 			((struct usb_config_descriptor *)ubuf)->bmAttributes
 				|= USB_CONFIG_ATT_WAKEUP;
 	}
 
 	/* any errors get returned through the urb completion */
 	local_irq_save (flags);
+	spin_lock (&urb->lock);
+	if (urb->status == -EINPROGRESS)
+		urb->status = status;
+	spin_unlock (&urb->lock);
 	usb_hcd_giveback_urb (hcd, urb, NULL);
 	local_irq_restore (flags);
 	return 0;
