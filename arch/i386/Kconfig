@@ -537,9 +537,9 @@ config PREEMPT_BKL
 	  Say N if you are unsure.
 
 config X86_UP_APIC
-	bool "Local APIC support on uniprocessors" if !SMP
-	depends on !(X86_VISWS || X86_VOYAGER)
-	---help---
+	bool "Local APIC support on uniprocessors"
+	depends on !SMP && !(X86_VISWS || X86_VOYAGER)
+	help
 	  A local APIC (Advanced Programmable Interrupt Controller) is an
 	  integrated interrupt controller in the CPU. If you have a single-CPU
 	  system which has a processor with a local APIC, you can say Y here to
@@ -549,31 +549,31 @@ config X86_UP_APIC
 	  performance counters), and the NMI watchdog which detects hard
 	  lockups.
 
-	  If you have a system with several CPUs, you do not need to say Y
-	  here: the local APIC will be used automatically.
-
 config X86_UP_IOAPIC
 	bool "IO-APIC support on uniprocessors"
-	depends on !SMP && X86_UP_APIC
+	depends on X86_UP_APIC
 	help
 	  An IO-APIC (I/O Advanced Programmable Interrupt Controller) is an
 	  SMP-capable replacement for PC-style interrupt controllers. Most
-	  SMP systems and a small number of uniprocessor systems have one.
+	  SMP systems and many recent uniprocessor systems have one.
+
 	  If you have a single-CPU system with an IO-APIC, you can say Y here
 	  to use it. If you say Y here even though your machine doesn't have
 	  an IO-APIC, then the kernel will still run with no slowdown at all.
 
-	  If you have a system with several CPUs, you do not need to say Y
-	  here: the IO-APIC will be used automatically.
-
 config X86_LOCAL_APIC
 	bool
-	depends on !SMP && X86_UP_APIC
+	depends on X86_UP_APIC || ((X86_VISWS || SMP) && !X86_VOYAGER)
 	default y
 
 config X86_IO_APIC
 	bool
-	depends on !SMP && X86_UP_IOAPIC
+	depends on X86_UP_IOAPIC || (SMP && !(X86_VISWS || X86_VOYAGER))
+	default y
+
+config X86_VISWS_APIC
+	bool
+	depends on X86_VISWS
 	default y
 
 config X86_TSC
@@ -1086,21 +1086,6 @@ source "arch/i386/kernel/cpu/cpufreq/Kconfig"
 endmenu
 
 menu "Bus options (PCI, PCMCIA, EISA, MCA, ISA)"
-
-config X86_VISWS_APIC
-	bool
-	depends on X86_VISWS
-	default y
-
-config X86_LOCAL_APIC
-	bool
-	depends on (X86_VISWS || SMP) && !X86_VOYAGER
-	default y
-
-config X86_IO_APIC
-	bool
-	depends on SMP && !(X86_VISWS || X86_VOYAGER)
-	default y
 
 config PCI
 	bool "PCI support" if !X86_VISWS
