@@ -148,10 +148,21 @@ char * getname(const char __user * filename)
 			result = ERR_PTR(retval);
 		}
 	}
-	if (unlikely(current->audit_context) && !IS_ERR(result) && result)
-		audit_getname(result);
+	audit_getname(result);
 	return result;
 }
+
+#ifdef CONFIG_AUDITSYSCALL
+void putname(const char *name)
+{
+	if (unlikely(current->audit_context))
+		audit_putname(name);
+	else
+		__putname(name);
+}
+EXPORT_SYMBOL(putname);
+#endif
+
 
 /**
  * generic_permission  -  check for access rights on a Posix-like filesystem
@@ -1012,9 +1023,7 @@ int fastcall path_lookup(const char *name, unsigned int flags, struct nameidata 
 	retval = link_path_walk(name, nd);
 	if (unlikely(current->audit_context
 		     && nd && nd->dentry && nd->dentry->d_inode))
-		audit_inode(name,
-			    nd->dentry->d_inode->i_ino,
-			    nd->dentry->d_inode->i_rdev);
+		audit_inode(name, nd->dentry->d_inode);
 	return retval;
 }
 
