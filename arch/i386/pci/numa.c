@@ -18,7 +18,7 @@ static int pci_conf1_mq_read (int seg, int bus, int devfn, int reg, int len, u32
 {
 	unsigned long flags;
 
-	if (!value || (bus > MAX_MP_BUSSES) || (devfn > 255) || (reg > 255))
+	if (!value || (bus >= MAX_MP_BUSSES) || (devfn > 255) || (reg > 255))
 		return -EINVAL;
 
 	spin_lock_irqsave(&pci_config_lock, flags);
@@ -46,7 +46,7 @@ static int pci_conf1_mq_write (int seg, int bus, int devfn, int reg, int len, u3
 {
 	unsigned long flags;
 
-	if ((bus > MAX_MP_BUSSES) || (devfn > 255) || (reg > 255)) 
+	if ((bus >= MAX_MP_BUSSES) || (devfn > 255) || (reg > 255)) 
 		return -EINVAL;
 
 	spin_lock_irqsave(&pci_config_lock, flags);
