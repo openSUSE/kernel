@@ -59,10 +59,10 @@ static unsigned int i8042_blink_frequency = 500;
 module_param_named(panicblink, i8042_blink_frequency, uint, 0600);
 MODULE_PARM_DESC(panicblink, "Frequency with which keyboard LEDs should blink when kernel panics");
 
-#ifdef CONFIG_ACPI
-static int i8042_noacpi;
-module_param_named(noacpi, i8042_noacpi, bool, 0);
-MODULE_PARM_DESC(noacpi, "Do not use ACPI to detect controller settings");
+#ifdef CONFIG_PNP
+static int i8042_nopnp;
+module_param_named(nopnp, i8042_nopnp, bool, 0);
+MODULE_PARM_DESC(nopnp, "Do not use PNP to detect controller settings");
 #endif
 
 #define DEBUG
