@@ -1,5 +1,5 @@
 /*
-    Support for B2C2/BBTI Technisat Air2PC - ATSC  
+    Support for B2C2/BBTI Technisat Air2PC - ATSC
 
     Copyright (C) 2004 Taylor Jacob <rtjacob@earthlink.net>
 
@@ -59,7 +59,7 @@ static int i2c_writebytes (struct nxt2002_state* state, u8 reg, u8 *buf, u8 len)
 	u8 buf2 [256],x;
 	int err;
 	struct i2c_msg msg = { .addr = state->config->demod_address, .flags = 0, .buf = buf2, .len = len + 1 };
-       
+
 	buf2[0] = reg;
 	for (x = 0 ; x < len ; x++)
 		buf2[x+1] = buf[x];
@@ -91,12 +91,12 @@ static u8 i2c_readbytes (struct nxt2002_state* state, u8 reg, u8* buf, u8 len)
 	return 0;
 }
 
-static u16 nxt2002_crc(u16 crc, u8 c) 
+static u16 nxt2002_crc(u16 crc, u8 c)
 {
 
 	u8 i;
 	u16 input = (u16) c & 0xFF;
-  
+
 	input<<=8;
 	for(i=0 ;i<8 ;i++) {
 		if((crc ^ input) & 0x8000)
@@ -130,7 +130,7 @@ static int nxt2002_writereg_multibyte (struct nxt2002_state* state, u8 reg, u8* 
 
 	if ((buf & 0x02) == 0)
 		return 0;
- 
+
 	dprintk("Error writing multireg register %02X\n",reg);
 
 	return 0;
@@ -162,16 +162,16 @@ static void nxt2002_microcontroller_stop (struct nxt2002_state* state)
 	buf[0] = 0x80;
 	i2c_writebytes(state,0x22,buf,1);
 
-	while (counter < 20) { 
+	while (counter < 20) {
 		i2c_readbytes(state,0x31,buf,1);
-		if (buf[0] & 0x40) 
+		if (buf[0] & 0x40)
 			return;
 		msleep(10);
 		counter++;
 	}
 
 	dprintk("Timeout waiting for micro to stop.. This is ok after firmware upload\n");
-	return; 
+	return;
 }
 
 static void nxt2002_microcontroller_start (struct nxt2002_state* state)
@@ -211,7 +211,7 @@ static int nxt2002_writetuner (struct nxt2002_state* state, u8* data)
 	/* write UC Opmode to begin transfer */
 	buf = 0x80;
 	i2c_writebytes(state,0x21,&buf,1);
- 
+
 	while (count < 20) {
 		i2c_readbytes(state,0x21,&buf,1);
 		if ((buf & 0x80)== 0x00)
@@ -243,7 +243,7 @@ static int nxt2002_load_firmware (struct dvb_frontend* fe, const struct firmware
 
 	struct nxt2002_state* state = (struct nxt2002_state*) fe->demodulator_priv;
 	u8 buf[256],written = 0,chunkpos = 0;
-	u16 rambase,position,crc = 0;  
+	u16 rambase,position,crc = 0;
 
 	dprintk("%s\n", __FUNCTION__);
 	dprintk("Firmware is %zu bytes\n",fw->size);
@@ -251,7 +251,6 @@ static int nxt2002_load_firmware (struct dvb_frontend* fe, const struct firmware
 	/* Get the RAM base for this nxt2002 */
 	i2c_readbytes(state,0x10,buf,1);
 
-	
 	if (buf[0] & 0x10)
 		rambase = 0x1000;
 	else
@@ -263,7 +262,6 @@ static int nxt2002_load_firmware (struct dvb_frontend* fe, const struct firmware
 	buf[0] = 0x80;
 	i2c_writebytes(state,0x2B,buf,1);
 
-        
 	for (position = 0; position < fw->size ; position++) {
 		if (written == 0) {
 			crc = 0;
@@ -274,7 +272,7 @@ static int nxt2002_load_firmware (struct dvb_frontend* fe, const struct firmware
 			/* write starting address */
 			i2c_writebytes(state,0x29,buf,3);
 		}
-		written++;          
+		written++;
 		chunkpos++;
 
 		if ((written % 4) == 0)
@@ -282,7 +280,6 @@ static int nxt2002_load_firmware (struct dvb_frontend* fe, const struct firmware
 
 		crc = nxt2002_crc(crc,fw->data[position]);
 
-            
 		if ((written == 255) || (position+1 == fw->size)) {
 			/* write remaining bytes of firmware */
 			i2c_writebytes(state, chunkpos+4-(written %4),
@@ -290,7 +287,7 @@ static int nxt2002_load_firmware (struct dvb_frontend* fe, const struct firmware
 				written %4);
 			buf[0] = crc << 8;
 			buf[1] = crc & 0xFF;
-               
+
 			/* write crc */
 			i2c_writebytes(state,0x2C,buf,2);
 
@@ -309,24 +306,23 @@ static int nxt2002_load_firmware (struct dvb_frontend* fe, const struct firmware
 	return 0;
 };
 
-
 static int nxt2002_setup_frontend_parameters (struct dvb_frontend* fe,
 					     struct dvb_frontend_parameters *p)
 {
 	struct nxt2002_state* state = (struct nxt2002_state*) fe->demodulator_priv;
 	u32 freq = 0;
-	u16 tunerfreq = 0; 
+	u16 tunerfreq = 0;
 	u8 buf[4];
 
-	freq = 44000 + ( p->frequency / 1000 ); 
+	freq = 44000 + ( p->frequency / 1000 );
 
 	dprintk("freq = %d      p->frequency = %d\n",freq,p->frequency);
 
 	tunerfreq = freq * 24/4000;
- 
+
 	buf[0] = (tunerfreq >> 8) & 0x7F;
 	buf[1] = (tunerfreq & 0xFF);
-        
+
 	if (p->frequency <= 214000000) {
 		buf[2] = 0x84 + (0x06 << 3);
 		buf[3] = (p->frequency <= 172000000) ? 0x01 : 0x02;
@@ -337,7 +333,7 @@ static int nxt2002_setup_frontend_parameters (struct dvb_frontend* fe,
 		buf[2] = 0x84 + (0x0E << 3);
 		buf[3] = 0x08;
 	} else {
-		buf[2] = 0x84 + (0x0F << 3);         
+		buf[2] = 0x84 + (0x0F << 3);
 		buf[3] = 0x02;
 	}
 
@@ -348,7 +344,7 @@ static int nxt2002_setup_frontend_parameters (struct dvb_frontend* fe,
 	nxt2002_agc_reset(state);
 
 	/* set target power level */
-	buf[0] = 0x70;
+				buf[0] = 0x70;
 	i2c_writebytes(state,0x42,buf,1);
 
 	/* configure sdm */
@@ -361,7 +357,7 @@ static int nxt2002_setup_frontend_parameters (struct dvb_frontend* fe,
 	nxt2002_writereg_multibyte(state,0x58,buf,2);
 
 	/* write sdmx input */
-	buf[0] = 0x60;
+				buf[0] = 0x60;
 	buf[1] = 0x00;
 	nxt2002_writereg_multibyte(state,0x5C,buf,2);
 
@@ -391,7 +387,7 @@ static int nxt2002_setup_frontend_parameters (struct dvb_frontend* fe,
 	i2c_writebytes(state,0x41,buf,1);
 
 	/* write agc ucgp0 */
-	buf[0] = 0x00;
+				buf[0] = 0x00;
 	i2c_writebytes(state,0x30,buf,1);
 
 	/* write agc control reg */
@@ -410,7 +406,7 @@ static int nxt2002_setup_frontend_parameters (struct dvb_frontend* fe,
 
 	nxt2002_microcontroller_start(state);
 
-	/* adjacent channel detection should be done here, but I don't 
+	/* adjacent channel detection should be done here, but I don't
 	have any stations with this need so I cannot test it */
 
 	return 0;
@@ -427,7 +423,7 @@ static int nxt2002_read_status(struct dvb_frontend* fe, fe_status_t* status)
 		*status |= FE_HAS_SIGNAL;
 		*status |= FE_HAS_CARRIER;
 		*status |= FE_HAS_VITERBI;
-		*status |= FE_HAS_SYNC;                
+		*status |= FE_HAS_SYNC;
 		*status |= FE_HAS_LOCK;
 	}
 	return 0;
@@ -438,10 +434,10 @@ static int nxt2002_read_ber(struct dvb_frontend* fe, u32* ber)
 	struct nxt2002_state* state = (struct nxt2002_state*) fe->demodulator_priv;
 	u8 b[3];
 
-	nxt2002_readreg_multibyte(state,0xE6,b,3);        
+	nxt2002_readreg_multibyte(state,0xE6,b,3);
 
 	*ber = ((b[0] << 8) + b[1]) * 8;
- 
+
 	return 0;
 }
 
@@ -456,7 +452,7 @@ static int nxt2002_read_signal_strength(struct dvb_frontend* fe, u16* strength)
 	i2c_writebytes(state,0xA1,b,1);
 
 	/* get multreg val */
-	nxt2002_readreg_multibyte(state,0xA6,b,2);        
+	nxt2002_readreg_multibyte(state,0xA6,b,2);
 
 	temp = (b[0] << 8) | b[1];
 	*strength = ((0x7FFF - temp) & 0x0FFF) * 16;
@@ -477,7 +473,7 @@ static int nxt2002_read_snr(struct dvb_frontend* fe, u16* snr)
 	i2c_writebytes(state,0xA1,b,1);
 
 	/* get multreg val from 0xA6 */
-	nxt2002_readreg_multibyte(state,0xA6,b,2);        
+	nxt2002_readreg_multibyte(state,0xA6,b,2);
 
 	temp = (b[0] << 8) | b[1];
 	temp2 = 0x7FFF - temp;
@@ -503,9 +499,8 @@ static int nxt2002_read_ucblocks(struct dvb_frontend* fe, u32* ucblocks)
 {
 	struct nxt2002_state* state = (struct nxt2002_state*) fe->demodulator_priv;
 	u8 b[3];
- 
-	nxt2002_readreg_multibyte(state,0xE6,b,3);
 
+	nxt2002_readreg_multibyte(state,0xE6,b,3);
 	*ucblocks = b[2];
 
 	return 0;
@@ -542,7 +537,7 @@ static int nxt2002_init(struct dvb_frontend* fe)
 
 		/* Put the micro into reset */
 		nxt2002_microcontroller_stop(state);
- 
+
 		/* ensure transfer is complete */
 		buf[0]=0;
 		i2c_writebytes(state,0x2B,buf,1);
@@ -557,11 +552,11 @@ static int nxt2002_init(struct dvb_frontend* fe)
 		i2c_writebytes(state,0x08,buf,1);
 
 		/* write agc sdm configure */
-		buf[0] = 0xF1;		
+		buf[0] = 0xF1;
 		i2c_writebytes(state,0x57,buf,1);
 
 		/* write mod output format */
-		buf[0] = 0x20;		
+		buf[0] = 0x20;
 		i2c_writebytes(state,0x09,buf,1);
 
 		/* write fec mpeg mode */
@@ -614,11 +609,11 @@ struct dvb_frontend* nxt2002_attach(const struct nxt2002_config* config,
         /* Check the first 5 registers to ensure this a revision we can handle */
 
 	i2c_readbytes(state, 0x00, buf, 5);
-	if (buf[0] != 0x04) goto error; 		/* device id */
-	if (buf[1] != 0x02) goto error; 		/* fab id */
-	if (buf[2] != 0x11) goto error; 		/* month */
-	if (buf[3] != 0x20) goto error; 		/* year msb */
-	if (buf[4] != 0x00) goto error; 		/* year lsb */
+	if (buf[0] != 0x04) goto error;		/* device id */
+	if (buf[1] != 0x02) goto error;		/* fab id */
+	if (buf[2] != 0x11) goto error;		/* month */
+	if (buf[3] != 0x20) goto error;		/* year msb */
+	if (buf[4] != 0x00) goto error;		/* year lsb */
 
 	/* create dvb_frontend */
 	state->frontend.ops = &state->ops;
@@ -638,10 +633,10 @@ static struct dvb_frontend_ops nxt2002_ops = {
 		.frequency_min =  54000000,
 		.frequency_max = 803000000,
                 /* stepsize is just a guess */
-		.frequency_stepsize = 166666,	
+		.frequency_stepsize = 166666,
 		.caps = FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 			FE_CAN_FEC_5_6 | FE_CAN_FEC_7_8 | FE_CAN_FEC_AUTO |
-			FE_CAN_8VSB 
+			FE_CAN_8VSB
 	},
 
 	.release = nxt2002_release,

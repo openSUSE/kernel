@@ -39,19 +39,14 @@
 #define TDA1004X_DEMOD_TDA10046 1
 
 
-struct tda1004x_state
-{
+struct tda1004x_state {
 	struct i2c_adapter* i2c;
-
 	struct dvb_frontend_ops ops;
-
 	const struct tda1004x_config* config;
-
 	struct dvb_frontend frontend;
 
 	/* private demod data */
 	u8 initialised:1;
-
 	u8 demod_type;
 };
 
@@ -347,7 +342,6 @@ static int tda1004x_check_upload_ok(struct tda1004x_state *state, u8 dspVersion)
 	return 0;
 }
 
-
 static int tda10045_fwupload(struct dvb_frontend* fe)
 {
 	struct tda1004x_state* state = fe->demodulator_priv;
@@ -363,7 +357,7 @@ static int tda10045_fwupload(struct dvb_frontend* fe)
 	ret = state->config->request_firmware(fe, &fw, TDA10045_DEFAULT_FIRMWARE);
 	if (ret) {
 		printk("tda1004x: no firmware upload (timeout or file not found?)\n");
-	   	return ret;
+		return ret;
 	}
 
 	/* reset chip */
@@ -406,7 +400,7 @@ static int tda10046_fwupload(struct dvb_frontend* fe)
 	ret = state->config->request_firmware(fe, &fw, TDA10046_DEFAULT_FIRMWARE);
 	if (ret) {
 		printk("tda1004x: no firmware upload (timeout or file not found?)\n");
-   	   	return ret;
+		return ret;
 	}
 
 	/* set parameters */
@@ -474,29 +468,12 @@ static int tda1004x_decode_fec(int tdafec)
 	return -1;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 int tda1004x_write_byte(struct dvb_frontend* fe, int reg, int data)
 {
 	struct tda1004x_state* state = fe->demodulator_priv;
 
 	return tda1004x_write_byteI(state, reg, data);
-		}
+}
 
 static int tda10045_init(struct dvb_frontend* fe)
 {
@@ -509,7 +486,7 @@ static int tda10045_init(struct dvb_frontend* fe)
 	if (tda10045_fwupload(fe)) {
 		printk("tda1004x: firmware upload failed\n");
 		return -EIO;
-		}
+	}
 
 	tda1004x_write_mask(state, TDA1004X_CONFADC1, 0x10, 0); // wake up the ADC
 
@@ -537,7 +514,7 @@ static int tda10045_init(struct dvb_frontend* fe)
 
 	state->initialised = 1;
 	return 0;
-		}
+}
 
 static int tda10046_init(struct dvb_frontend* fe)
 {
@@ -548,8 +525,8 @@ static int tda10046_init(struct dvb_frontend* fe)
 
 	if (tda10046_fwupload(fe)) {
 		printk("tda1004x: firmware upload failed\n");
-			return -EIO;
-		}
+		return -EIO;
+	}
 
 	tda1004x_write_mask(state, TDA1004X_CONFC4, 1, 0); // wake up the chip
 
@@ -623,9 +600,9 @@ static int tda1004x_set_fe(struct dvb_frontend* fe,
 	// Hardcoded to use auto as much as possible on the TDA10045 as it
 	// is very unreliable if AUTO mode is _not_ used.
 	if (state->demod_type == TDA1004X_DEMOD_TDA10045) {
-	fe_params->u.ofdm.code_rate_HP = FEC_AUTO;
-	fe_params->u.ofdm.guard_interval = GUARD_INTERVAL_AUTO;
-	fe_params->u.ofdm.transmission_mode = TRANSMISSION_MODE_AUTO;
+		fe_params->u.ofdm.code_rate_HP = FEC_AUTO;
+		fe_params->u.ofdm.guard_interval = GUARD_INTERVAL_AUTO;
+		fe_params->u.ofdm.transmission_mode = TRANSMISSION_MODE_AUTO;
 	}
 
 	// Set standard params.. or put them to auto
@@ -1066,30 +1043,30 @@ static int tda1004x_sleep(struct dvb_frontend* fe)
 	switch(state->demod_type) {
 	case TDA1004X_DEMOD_TDA10045:
 		tda1004x_write_mask(state, TDA1004X_CONFADC1, 0x10, 0x10);
-			break;
+		break;
 
 	case TDA1004X_DEMOD_TDA10046:
 		tda1004x_write_mask(state, TDA1004X_CONFC4, 1, 1);
-			break;
-		}
+		break;
+	}
 	state->initialised = 0;
 
-			return 0;
-		}
+	return 0;
+}
 
 static int tda1004x_get_tune_settings(struct dvb_frontend* fe, struct dvb_frontend_tune_settings* fesettings)
-	{
-		fesettings->min_delay_ms = 800;
-		fesettings->step_size = 166667;
-		fesettings->max_drift = 166667*2;
-		return 0;
-	}
+{
+	fesettings->min_delay_ms = 800;
+	fesettings->step_size = 166667;
+	fesettings->max_drift = 166667*2;
+	return 0;
+}
 
 static void tda1004x_release(struct dvb_frontend* fe)
 {
 	struct tda1004x_state* state = (struct tda1004x_state*) fe->demodulator_priv;
 	kfree(state);
-	}
+}
 
 static struct dvb_frontend_ops tda10045_ops;
 
@@ -1120,7 +1097,7 @@ struct dvb_frontend* tda10045_attach(const struct tda1004x_config* config,
 error:
 	if (state) kfree(state);
 	return NULL;
-	}
+}
 
 static struct dvb_frontend_ops tda10046_ops;
 
@@ -1151,7 +1128,7 @@ struct dvb_frontend* tda10046_attach(const struct tda1004x_config* config,
 error:
 	if (state) kfree(state);
 	return NULL;
-		}
+}
 
 static struct dvb_frontend_ops tda10045_ops = {
 

@@ -130,7 +130,7 @@ static int sp8870_firmware_upload (struct sp8870_state* state, const struct firm
 		msg.flags = 0;
 		msg.buf = tx_buf;
 		msg.len = tx_len + 2;
-        	if ((err = i2c_transfer (state->i2c, &msg, 1)) != 1) {
+		if ((err = i2c_transfer (state->i2c, &msg, 1)) != 1) {
 			printk("%s: firmware upload failed!\n", __FUNCTION__);
 			printk ("%s: i2c error (err == %i)\n", __FUNCTION__, err);
 			return err;

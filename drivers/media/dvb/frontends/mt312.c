@@ -1,4 +1,4 @@
-/* 
+/*
     Driver for Zarlink VP310/MT312 Satellite Channel Decoder
 
     Copyright (C) 2003 Andreas Oberritter <obi@linuxtv.org>
@@ -36,14 +36,10 @@
 
 
 struct mt312_state {
-
 	struct i2c_adapter* i2c;
-
 	struct dvb_frontend_ops ops;
-
 	/* configuration settings */
 	const struct mt312_config* config;
-
 	struct dvb_frontend frontend;
 
 	u8 id;
@@ -128,7 +124,7 @@ static int mt312_write(struct mt312_state* state, const enum mt312_reg_addr reg,
 }
 
 static inline int mt312_readreg(struct mt312_state* state,
-				const enum mt312_reg_addr reg, u8 * val)
+				const enum mt312_reg_addr reg, u8 *val)
 {
 	return mt312_read(state, reg, val, 1);
 }
@@ -181,7 +177,7 @@ static int mt312_get_symbol_rate(struct mt312_state* state, u32 *sr)
 			return ret;
 
 		if ((ret = mt312_read(state, MONITOR_H, buf, sizeof(buf))) < 0)
-		return ret;
+			return ret;
 
 		monitor = (buf[0] << 8) | buf[1];
 
@@ -206,7 +202,7 @@ static int mt312_get_symbol_rate(struct mt312_state* state, u32 *sr)
 		dprintk(KERN_DEBUG "*sr(manual) = %lu\n",
 		       (((MT312_PLL_CLK * 8192) / (sym_rat_op + 8192)) *
 			2) - dec_ratio);
-}
+	}
 
 	return 0;
 }
@@ -226,21 +222,7 @@ static int mt312_get_code_rate(struct mt312_state* state, fe_code_rate_t *cr)
 	*cr = fec_tab[(fec_status >> 4) & 0x07];
 
 	return 0;
-	}
-
-
-
-
-
-
-
-
-	
-
-
-
-
-
+}
 
 static int mt312_initfe(struct dvb_frontend* fe)
 {
@@ -525,7 +507,7 @@ static int mt312_set_frontend(struct dvb_frontend* fe,
 				state->frequency = 90;
 				if ((ret = mt312_initfe(fe)) < 0)
 					return ret;
-		}
+			}
 		}
 		else
 		{
@@ -533,7 +515,7 @@ static int mt312_set_frontend(struct dvb_frontend* fe,
 				state->frequency = 60;
 				if ((ret = mt312_initfe(fe)) < 0)
 					return ret;
-		}
+			}
 		}
 		break;
 
@@ -614,12 +596,12 @@ static int mt312_sleep(struct dvb_frontend* fe)
 }
 
 static int mt312_get_tune_settings(struct dvb_frontend* fe, struct dvb_frontend_tune_settings* fesettings)
-	{
-	        fesettings->min_delay_ms = 50;
-	        fesettings->step_size = 0;
-	        fesettings->max_drift = 0;
-	        return 0;
-	}	    
+{
+	fesettings->min_delay_ms = 50;
+	fesettings->step_size = 0;
+	fesettings->max_drift = 0;
+	return 0;
+}
 
 static void mt312_release(struct dvb_frontend* fe)
 {
@@ -653,7 +635,7 @@ struct dvb_frontend* vp310_attach(const struct mt312_config* config,
 	}
 
 	/* create dvb_frontend */
-		state->frequency = 90;
+	state->frequency = 90;
 	state->frontend.ops = &state->ops;
 	state->frontend.demodulator_priv = state;
 	return &state->frontend;
@@ -685,7 +667,7 @@ struct dvb_frontend* mt312_attach(const struct mt312_config* config,
 		goto error;
 	if (state->id != ID_MT312) {
 		goto error;
-}
+	}
 
 	/* create dvb_frontend */
 	state->frequency = 60;
@@ -716,7 +698,7 @@ static struct dvb_frontend_ops vp310_mt312_ops = {
 	            FE_CAN_RECOVER
 	},
 
-     	.release = mt312_release,
+	.release = mt312_release,
 
 	.init = mt312_initfe,
 	.sleep = mt312_sleep,

@@ -35,14 +35,10 @@
 
 
 struct tda8083_state {
-
 	struct i2c_adapter* i2c;
-
 	struct dvb_frontend_ops ops;
-
 	/* configuration settings */
 	const struct tda8083_config* config;
-
 	struct dvb_frontend frontend;
 };
 
@@ -78,7 +74,6 @@ static int tda8083_writereg (struct tda8083_state* state, u8 reg, u8 data)
         return (ret != 1) ? -1 : 0;
 }
 
-
 static int tda8083_readregs (struct tda8083_state* state, u8 reg1, u8 *b, u8 len)
 {
 	int ret;
@@ -94,7 +89,6 @@ static int tda8083_readregs (struct tda8083_state* state, u8 reg1, u8 *b, u8 len
         return ret == 2 ? 0 : -1;
 }
 
-
 static inline u8 tda8083_readreg (struct tda8083_state* state, u8 reg)
 {
 	u8 val;
@@ -104,8 +98,6 @@ static inline u8 tda8083_readreg (struct tda8083_state* state, u8 reg)
 	return val;
 }
 
-
-
 static int tda8083_set_inversion (struct tda8083_state* state, fe_spectral_inversion_t inversion)
 {
 	/*  XXX FIXME: implement other modes than FEC_AUTO */
@@ -114,7 +106,6 @@ static int tda8083_set_inversion (struct tda8083_state* state, fe_spectral_inver
 
 	return -EINVAL;
 }
-
 
 static int tda8083_set_fec (struct tda8083_state* state, fe_code_rate_t fec)
 {
@@ -127,7 +118,6 @@ static int tda8083_set_fec (struct tda8083_state* state, fe_code_rate_t fec)
 	return -EINVAL;
 }
 
-
 static fe_code_rate_t tda8083_get_fec (struct tda8083_state* state)
 {
 	u8 index;
@@ -138,7 +128,6 @@ static fe_code_rate_t tda8083_get_fec (struct tda8083_state* state)
 
 	return fec_tab [index];
 }
-
 
 static int tda8083_set_symbolrate (struct tda8083_state* state, u32 srate)
 {
@@ -179,7 +168,6 @@ static int tda8083_set_symbolrate (struct tda8083_state* state, u32 srate)
 	return 1;
 }
 
-
 static void tda8083_wait_diseqc_fifo (struct tda8083_state* state, int timeout)
 {
 	unsigned long start = jiffies;
@@ -204,7 +192,6 @@ static int tda8083_set_tone (struct tda8083_state* state, fe_sec_tone_mode_t ton
 		return -EINVAL;
 	};
 }
-
 
 static int tda8083_set_voltage (struct tda8083_state* state, fe_sec_voltage_t voltage)
 {
@@ -235,27 +222,6 @@ static int tda8083_send_diseqc_burst (struct tda8083_state* state, fe_sec_mini_c
 
 	return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 static int tda8083_send_diseqc_msg (struct dvb_frontend* fe,
 				    struct dvb_diseqc_master_cmd *m)
@@ -475,9 +441,9 @@ static struct dvb_frontend_ops tda8083_ops = {
 	.read_snr = tda8083_read_snr,
 
 	.diseqc_send_master_cmd = tda8083_send_diseqc_msg,
-     	.diseqc_send_burst = tda8083_diseqc_send_burst,
-     	.set_tone = tda8083_diseqc_set_tone,
-     	.set_voltage = tda8083_diseqc_set_voltage,
+	.diseqc_send_burst = tda8083_diseqc_send_burst,
+	.set_tone = tda8083_diseqc_set_tone,
+	.set_voltage = tda8083_diseqc_set_voltage,
 };
 
 module_param(debug, int, 0644);

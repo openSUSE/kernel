@@ -186,7 +186,7 @@ static int cx22702_get_tps (struct cx22702_state *state, struct dvb_ofdm_paramet
 		case 1: p->guard_interval = GUARD_INTERVAL_1_16; break;
 		case 2: p->guard_interval =  GUARD_INTERVAL_1_8; break;
 		case 3: p->guard_interval =  GUARD_INTERVAL_1_4; break;
-}
+	}
 	switch( val&0x03 ) {
 		case 0: p->transmission_mode = TRANSMISSION_MODE_2K; break;
 		case 1: p->transmission_mode = TRANSMISSION_MODE_8K; break;
@@ -194,18 +194,6 @@ static int cx22702_get_tps (struct cx22702_state *state, struct dvb_ofdm_paramet
 
 	return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 /* Talk to the demod, set the FEC, GUARD, QAM settings etc */
 static int cx22702_set_tps (struct dvb_frontend* fe, struct dvb_frontend_parameters *p)
@@ -259,7 +247,7 @@ static int cx22702_set_tps (struct dvb_frontend* fe, struct dvb_frontend_paramet
 		return 0;
 	}
 
-   	/* manually programmed values */
+	/* manually programmed values */
 	val=0;
 	switch(p->u.ofdm.constellation) {
 		case   QPSK: val = (val&0xe7); break;
@@ -332,7 +320,6 @@ static int cx22702_set_tps (struct dvb_frontend* fe, struct dvb_frontend_paramet
 	return 0;
 }
 
-
 /* Reset the demod hardware and reset all of the configuration registers
    to a default state. */
 static int cx22702_init (struct dvb_frontend* fe)
@@ -364,48 +351,48 @@ static int cx22702_read_status(struct dvb_frontend* fe, fe_status_t* status)
 	u8 reg0A;
 	u8 reg23;
 
-			*status = 0;
+	*status = 0;
 
 	reg0A = cx22702_readreg (state, 0x0A);
 	reg23 = cx22702_readreg (state, 0x23);
 
-			dprintk ("%s: status demod=0x%02x agc=0x%02x\n"
-				,__FUNCTION__,reg0A,reg23);
+	dprintk ("%s: status demod=0x%02x agc=0x%02x\n"
+		,__FUNCTION__,reg0A,reg23);
 
-			if(reg0A & 0x10) {
-				*status |= FE_HAS_LOCK;
-				*status |= FE_HAS_VITERBI;
-				*status |= FE_HAS_SYNC;
-			}
+	if(reg0A & 0x10) {
+		*status |= FE_HAS_LOCK;
+		*status |= FE_HAS_VITERBI;
+		*status |= FE_HAS_SYNC;
+	}
 
-			if(reg0A & 0x20)
-				*status |= FE_HAS_CARRIER;
+	if(reg0A & 0x20)
+		*status |= FE_HAS_CARRIER;
 
-			if(reg23 < 0xf0)
-				*status |= FE_HAS_SIGNAL;
+	if(reg23 < 0xf0)
+		*status |= FE_HAS_SIGNAL;
 
 	return 0;
-			}
+}
 
 static int cx22702_read_ber(struct dvb_frontend* fe, u32* ber)
-		{
+{
 	struct cx22702_state* state = (struct cx22702_state*) fe->demodulator_priv;
 
 	if(cx22702_readreg (state, 0xE4) & 0x02) {
-				/* Realtime statistics */
+		/* Realtime statistics */
 		*ber = (cx22702_readreg (state, 0xDE) & 0x7F) << 7
 			| (cx22702_readreg (state, 0xDF)&0x7F);
-			} else {
+	} else {
 		/* Averagtine statistics */
 		*ber = (cx22702_readreg (state, 0xDE) & 0x7F) << 7
 			| cx22702_readreg (state, 0xDF);
-		}
+	}
 
 	return 0;
-		}
+}
 
 static int cx22702_read_signal_strength(struct dvb_frontend* fe, u16* signal_strength)
-		{
+{
 	struct cx22702_state* state = (struct cx22702_state*) fe->demodulator_priv;
 
 	*signal_strength = cx22702_readreg (state, 0x23);
@@ -460,8 +447,8 @@ static int cx22702_get_frontend(struct dvb_frontend* fe, struct dvb_frontend_par
 static void cx22702_release(struct dvb_frontend* fe)
 {
 	struct cx22702_state* state = (struct cx22702_state*) fe->demodulator_priv;
-		kfree(state);
-	}
+	kfree(state);
+}
 
 static struct dvb_frontend_ops cx22702_ops;
 

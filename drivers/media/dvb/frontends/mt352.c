@@ -53,9 +53,9 @@ struct mt352_state {
 
 static int debug;
 #define dprintk(args...) \
-do {									\
+	do { \
 		if (debug) printk(KERN_DEBUG "mt352: " args); \
-} while (0)
+	} while (0)
 
 static int mt352_single_write(struct dvb_frontend *fe, u8 reg, u8 val)
 {
@@ -483,8 +483,8 @@ static int mt352_read_ber(struct dvb_frontend* fe, u32* ber)
 	       (mt352_read_register (state, RS_ERR_CNT_1) << 8) |
 	       (mt352_read_register (state, RS_ERR_CNT_0));
 
-			return 0;
-	}
+	return 0;
+}
 
 static int mt352_read_signal_strength(struct dvb_frontend* fe, u16* strength)
 {
@@ -515,7 +515,7 @@ static int mt352_read_ucblocks(struct dvb_frontend* fe, u32* ucblocks)
 		    (mt352_read_register (state,  RS_UBC_0));
 
 	return 0;
-	}
+}
 
 static int mt352_get_tune_settings(struct dvb_frontend* fe, struct dvb_frontend_tune_settings* fe_tune_settings)
 {

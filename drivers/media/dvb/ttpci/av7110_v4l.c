@@ -70,8 +70,6 @@ int msp_readreg(struct av7110 *av7110, u8 dev, u16 reg, u16 *val)
 	return 0;
 }
 
-
-
 static struct v4l2_input inputs[2] = {
 	{
 		.index		= 0,

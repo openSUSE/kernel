@@ -1,5 +1,5 @@
 /*
- * Bt8xx based DVB adapter driver 
+ * Bt8xx based DVB adapter driver
  *
  * Copyright (C) 2002,2003 Florian Schirmer <jolt@tuxbox.org>
  * Copyright (C) 2002 Peter Hettkamp <peter.hettkamp@t-online.de>
@@ -51,7 +51,7 @@ struct dvb_bt8xx_card {
 	u32 irq_err_ignore;
 	struct i2c_adapter *i2c_adapter;
 	struct dvb_net dvbnet;
-				
+
 	struct dvb_frontend* fe;
 };
 

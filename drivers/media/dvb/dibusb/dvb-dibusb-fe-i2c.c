@@ -1,5 +1,5 @@
 /*
- * dvb-dibusb-fe-i2c.c is part of the driver for mobile USB Budget DVB-T devices 
+ * dvb-dibusb-fe-i2c.c is part of the driver for mobile USB Budget DVB-T devices
  * based on reference design made by DiBcom (http://www.dibcom.fr/)
  *
  * Copyright (C) 2004-5 Patrick Boettcher (patrick.boettcher@desy.de)
@@ -8,30 +8,30 @@
  *
  * This file contains functions for attaching, initializing of an appropriate
  * demodulator/frontend. I2C-stuff is also located here.
- * 
+ *
  */
 #include "dvb-dibusb.h"
 
 #include <linux/usb.h>
 
-int dibusb_i2c_msg(struct usb_dibusb *dib, u8 addr, 
-		u8 *wbuf, u16 wlen, u8 *rbuf, u16 rlen)
+int dibusb_i2c_msg(struct usb_dibusb *dib, u8 addr,
+			  u8 *wbuf, u16 wlen, u8 *rbuf, u16 rlen)
 {
 	u8 sndbuf[wlen+4]; /* lead(1) devaddr,direction(1) addr(2) data(wlen) (len(2) (when reading)) */
 	/* write only ? */
-	int wo = (rbuf == NULL || rlen == 0), 
+	int wo = (rbuf == NULL || rlen == 0),
 		len = 2 + wlen + (wo ? 0 : 2);
-	
+
 	sndbuf[0] = wo ? DIBUSB_REQ_I2C_WRITE : DIBUSB_REQ_I2C_READ;
 	sndbuf[1] = (addr << 1) | (wo ? 0 : 1);
 
 	memcpy(&sndbuf[2],wbuf,wlen);
-	
+
 	if (!wo) {
 		sndbuf[wlen+2] = (rlen >> 8) & 0xff;
 		sndbuf[wlen+3] = rlen & 0xff;
 	}
-	
+
 	return dibusb_readwrite_usb(dib,sndbuf,len,rbuf,rlen);
 }
 
@@ -43,12 +43,12 @@ static int dibusb_i2c_xfer(struct i2c_adapter *adap,struct i2c_msg *msg,int num)
 	struct usb_dibusb *dib = i2c_get_adapdata(adap);
 	int i;
 
-	if (down_interruptible(&dib->i2c_sem) < 0) 
+	if (down_interruptible(&dib->i2c_sem) < 0)
 		return -EAGAIN;
 
 	if (num > 2)
 		warn("more than 2 i2c messages at a time is not handled yet. TODO.");
-	
+
 	for (i = 0; i < num; i++) {
 		/* write/read request */
 		if (i+1 < num && (msg[i+1].flags & I2C_M_RD)) {
@@ -56,13 +56,13 @@ static int dibusb_i2c_xfer(struct i2c_adapter *adap,struct i2c_msg *msg,int num)
 						msg[i+1].buf,msg[i+1].len) < 0)
 				break;
 			i++;
-		} else 
+		} else
 			if (dibusb_i2c_msg(dib, msg[i].addr, msg[i].buf,msg[i].len,NULL,0) < 0)
 				break;
 	}
-	
+
 	up(&dib->i2c_sem);
-	return i;	
+	return i;
 }
 
 static u32 dibusb_i2c_func(struct i2c_adapter *adapter)
@@ -80,16 +80,16 @@ static struct i2c_algorithm dibusb_algo = {
 static int dibusb_general_demod_init(struct dvb_frontend *fe);
 static u8 dibusb_general_pll_addr(struct dvb_frontend *fe);
 static int dibusb_general_pll_init(struct dvb_frontend *fe, u8 pll_buf[5]);
-static int dibusb_general_pll_set(struct dvb_frontend *fe, 
+static int dibusb_general_pll_set(struct dvb_frontend *fe,
 		struct dvb_frontend_parameters* params, u8 pll_buf[5]);
 
 static struct mt352_config mt352_hanftek_umt_010_config = {
 	.demod_address = 0x1e,
 	.demod_init = dibusb_general_demod_init,
-   	.pll_set = dibusb_general_pll_set,
+	.pll_set = dibusb_general_pll_set,
 };
 
-static int dibusb_tuner_quirk(struct usb_dibusb *dib) 
+static int dibusb_tuner_quirk(struct usb_dibusb *dib)
 {
 	switch (dib->dibdev->dev_cl->id) {
 		case DIBUSB1_1: /* some these device have the ENV77H11D5 and some the THOMSON CABLE */
@@ -100,11 +100,11 @@ static int dibusb_tuner_quirk(struct usb_dibusb *dib)
 				{ .flags = 0, .buf = b, .len = 2 },
 				{ .flags = I2C_M_RD, .buf = b2, .len = 1},
 			};
-			
+
 			t = &dibusb_tuner[DIBUSB_TUNER_COFDM_PANASONIC_ENV77H11D5];
-			
+
 			msg[0].addr = msg[1].addr = t->pll_addr;
-		
+
 			if (dib->xfer_ops.tuner_pass_ctrl != NULL)
 				dib->xfer_ops.tuner_pass_ctrl(dib->fe,1,t->pll_addr);
 			dibusb_i2c_xfer(&dib->i2c_adap,msg,2);
@@ -117,7 +117,7 @@ static int dibusb_tuner_quirk(struct usb_dibusb *dib)
 				dib->tuner = t;
 				info("this device has the Panasonic ENV77H11D5 onboard.");
 			}
-			break;	
+			break;
 		}
 		default:
 			break;
@@ -125,7 +125,7 @@ static int dibusb_tuner_quirk(struct usb_dibusb *dib)
 	return 0;
 }
 
-/* there is a ugly pid_filter in the firmware of the umt devices, it is accessible 
+/* there is a ugly pid_filter in the firmware of the umt devices, it is accessible
  * by i2c address 0x8. Don't know how to deactivate it and how many rows it has.
  */
 static int dibusb_umt_pid_control(struct dvb_frontend *fe, int index, int pid, int onoff)
@@ -150,9 +150,9 @@ int dibusb_fe_init(struct usb_dibusb* dib)
 {
 	struct dib3000_config demod_cfg;
 	int i;
-	
-	if (dib->init_state & DIBUSB_STATE_I2C) { 
-		for (i = 0; i < sizeof(dib->dibdev->dev_cl->demod->i2c_addrs) / sizeof(unsigned char) && 
+
+	if (dib->init_state & DIBUSB_STATE_I2C) {
+		for (i = 0; i < sizeof(dib->dibdev->dev_cl->demod->i2c_addrs) / sizeof(unsigned char) &&
 				dib->dibdev->dev_cl->demod->i2c_addrs[i] != 0; i++) {
 
 			demod_cfg.demod_address = dib->dibdev->dev_cl->demod->i2c_addrs[i];
@@ -178,20 +178,20 @@ int dibusb_fe_init(struct usb_dibusb* dib)
 				break;
 			}
 		}
-		if (dib->fe->ops->sleep != NULL)
-			dib->fe_sleep = dib->fe->ops->sleep;
-		dib->fe->ops->sleep = dibusb_hw_sleep;
+			if (dib->fe->ops->sleep != NULL)
+				dib->fe_sleep = dib->fe->ops->sleep;
+			dib->fe->ops->sleep = dibusb_hw_sleep;
 
-		if (dib->fe->ops->init != NULL ) 
-			dib->fe_init = dib->fe->ops->init;
-		dib->fe->ops->init = dibusb_hw_wakeup;
-	
-		/* setting the default tuner */ 
-		dib->tuner = dib->dibdev->dev_cl->tuner;
+			if (dib->fe->ops->init != NULL )
+				dib->fe_init = dib->fe->ops->init;
+			dib->fe->ops->init = dibusb_hw_wakeup;
 
-		/* check which tuner is mounted on this device, in case this is unsure */
-		dibusb_tuner_quirk(dib);
-	}
+			/* setting the default tuner */
+			dib->tuner = dib->dibdev->dev_cl->tuner;
+
+			/* check which tuner is mounted on this device, in case this is unsure */
+			dibusb_tuner_quirk(dib);
+		}
 	if (dib->fe == NULL) {
 		err("A frontend driver was not found for device '%s'.",
 		       dib->dibdev->name);
@@ -227,15 +227,15 @@ int dibusb_i2c_init(struct usb_dibusb *dib)
 #else
 	dib->i2c_adap.class = I2C_CLASS_TV_DIGITAL,
 #endif
-	dib->i2c_adap.algo 		= &dibusb_algo;
+	dib->i2c_adap.algo		= &dibusb_algo;
 	dib->i2c_adap.algo_data = NULL;
 	dib->i2c_adap.id		= I2C_ALGO_BIT;
-	
+
 	i2c_set_adapdata(&dib->i2c_adap, dib);
-	
+
 	if ((ret = i2c_add_adapter(&dib->i2c_adap)) < 0)
 		err("could not add i2c adapter");
-	
+
 	dib->init_state |= DIBUSB_STATE_I2C;
 
 	return ret;
@@ -267,8 +267,8 @@ static int thomson_cable_eu_pll_set(struct dvb_frontend_parameters *fep, u8 pllb
 
 	pllbuf[0] = (tfreq >> 8) & 0x7f;
 	pllbuf[1] = tfreq & 0xff;
-   	pllbuf[2] = 0x8e;
-   	pllbuf[3] = (vu << 7) | (p2 << 2) | (p1 << 1) | p0;
+	pllbuf[2] = 0x8e;
+	pllbuf[3] = (vu << 7) | (p2 << 2) | (p1 << 1) | p0;
 	return 0;
 }
 
@@ -281,7 +281,7 @@ static int panasonic_cofdm_env57h1xd5_pll_set(struct dvb_frontend_parameters *fe
 		err("frequency cannot be larger than 858 MHz.");
 		return -EINVAL;
 	}
-	
+
 	// contol data 1 : 1 | T/A=1 | T2,T1,T0 = 0,0,0 | R2,R1,R0 = 0,1,0
 	TA = 1;
 	T210 = 0;
@@ -289,19 +289,19 @@ static int panasonic_cofdm_env57h1xd5_pll_set(struct dvb_frontend_parameters *fe
 	ctrl1 = (1 << 7) | (TA << 6) | (T210 << 3) | R210;
 
 // ********    CHARGE PUMP CONFIG vs RF FREQUENCIES     *****************
-	if (freq < 470000000) 
+	if (freq < 470000000)
 		cp210 = 2;  // VHF Low and High band ch E12 to E4 to E12
-	else if (freq < 526000000) 
+	else if (freq < 526000000)
 		cp210 = 4;  // UHF band Ch E21 to E27
-	else // if (freq < 862000000) 
+	else // if (freq < 862000000)
 		cp210 = 5;  // UHF band ch E28 to E69
 
 //*********************    BW select  *******************************
-	if (freq < 153000000) 
+	if (freq < 153000000)
 		p4321  = 1; // BW selected for VHF low
-	else if (freq < 470000000) 
+	else if (freq < 470000000)
 		p4321  = 2; // BW selected for VHF high E5 to E12
-	else // if (freq < 862000000) 
+	else // if (freq < 862000000)
 		p4321  = 4; // BW selection for UHF E21 to E69
 
 	pllbuf[0] = (tfreq >> 8) & 0xff;
@@ -313,7 +313,7 @@ static int panasonic_cofdm_env57h1xd5_pll_set(struct dvb_frontend_parameters *fe
 }
 
 /*
- *            	            7	6		5	4	3	2	1	0
+ *			    7	6		5	4	3	2	1	0
  * Address Byte             1	1		0	0	0	MA1	MA0	R/~W=0
  *
  * Program divider byte 1   0	n14		n13	n12	n11	n10	n9	n8
@@ -321,14 +321,14 @@ static int panasonic_cofdm_env57h1xd5_pll_set(struct dvb_frontend_parameters *fe
  *
  * Control byte 1           1	T/A=1	T2	T1	T0	R2	R1	R0
  *                          1	T/A=0	0	0	ATC	AL2	AL1	AL0
- * 
+ *
  * Control byte 2           CP2	CP1		CP0	BS5	BS4	BS3	BS2	BS1
- * 
+ *
  * MA0/1 = programmable address bits
  * R/~W  = read/write bit (0 for writing)
  * N14-0 = programmable LO frequency
- * 
- * T/A   = test AGC bit (0 = next 6 bits AGC setting, 
+ *
+ * T/A   = test AGC bit (0 = next 6 bits AGC setting,
  *                       1 = next 6 bits test and reference divider ratio settings)
  * T2-0  = test bits
  * R2-0  = reference divider ratio and programmable frequency step
@@ -420,14 +420,14 @@ static int panasonic_cofdm_env77h11d5_tda6650_set (struct dvb_frontend_parameter
 }
 
 /*
- *            	            7	6	5	4	3	2	1	0
+ *			    7	6	5	4	3	2	1	0
  * Address Byte             1	1	0	0	0	MA1	MA0	R/~W=0
  *
  * Program divider byte 1   0	n14	n13	n12	n11	n10	n9	n8
  * Program divider byte 2	n7	n6	n5	n4	n3	n2	n1	n0
  *
  * Control byte             1	CP	T2	T1	T0	RSA	RSB	OS
- * 
+ *
  * Band Switch byte         X	X	X	P4	P3	P2	P1	P0
  *
  * Auxiliary byte           ATC	AL2	AL1	AL0	0	0	0	0
@@ -439,10 +439,10 @@ static int panasonic_cofdm_env77h11d5_tda6650_set (struct dvb_frontend_parameter
  *          1	1	c6
  *
  *
- * 
+ *
  */
 
-static int lg_tdtp_e102p_tua6034(struct dvb_frontend_parameters* fep, u8 pllbuf[4]) 
+static int lg_tdtp_e102p_tua6034(struct dvb_frontend_parameters* fep, u8 pllbuf[4])
 {
 	u32 div;
 	u8 p3210, p4;
@@ -451,18 +451,18 @@ static int lg_tdtp_e102p_tua6034(struct dvb_frontend_parameters* fep, u8 pllbuf[
 
 	div = (fep->frequency + 36125000 + TUNER_MUL / 2) / TUNER_MUL;
 
-	if (fep->frequency < 174500000) 
+	if (fep->frequency < 174500000)
 		p3210 = 1; // not supported by the tdtp_e102p
 	else if (fep->frequency < 230000000) // VHF
 		p3210 = 2;
-	else 
+	else
 		p3210 = 4;
 
 	if (fep->u.ofdm.bandwidth == BANDWIDTH_7_MHZ)
 		p4 = 0;
-	else 
+	else
 		p4 = 1;
-		
+
 	pllbuf[0] = (div >> 8) & 0x7f;
 	pllbuf[1] = div & 0xff;
 	pllbuf[2] = 0xce;
@@ -484,24 +484,24 @@ static int lg_tdtp_e102p_mt352_demod_init(struct dvb_frontend *fe)
 
 	static u8 mt352_acq_ctl[] = { 0x53, 0x5f };
 	static u8 mt352_input_freq_1[] = { 0x56, 0xf1, 0x05 };
-	
+
 //	static u8 mt352_capt_range_cfg[] = { 0x75, 0x32 };
 
 	mt352_write(fe, mt352_clock_config, sizeof(mt352_clock_config));
 	udelay(2000);
 	mt352_write(fe, mt352_reset, sizeof(mt352_reset));
 	mt352_write(fe, mt352_mclk_ratio, sizeof(mt352_mclk_ratio));
-	
+
 	mt352_write(fe, mt352_adc_ctl_1_cfg, sizeof(mt352_adc_ctl_1_cfg));
 	mt352_write(fe, mt352_agc_cfg, sizeof(mt352_agc_cfg));
 
 	mt352_write(fe, mt352_sec_agc_cfg, sizeof(mt352_sec_agc_cfg));
 
 	mt352_write(fe, mt352_unk, sizeof(mt352_unk));
-	
+
 	mt352_write(fe, mt352_acq_ctl, sizeof(mt352_acq_ctl));
 	mt352_write(fe, mt352_input_freq_1, sizeof(mt352_input_freq_1));
-	
+
 //	mt352_write(fe, mt352_capt_range_cfg, sizeof(mt352_capt_range_cfg));
 
 	return 0;
@@ -528,11 +528,11 @@ static u8 dibusb_general_pll_addr(struct dvb_frontend *fe)
 static int dibusb_pll_i2c_helper(struct usb_dibusb *dib, u8 pll_buf[5], u8 buf[4])
 {
 	if (pll_buf == NULL) {
-		struct i2c_msg msg = { 
-			.addr = dib->tuner->pll_addr, 
-			.flags = 0, 
-			.buf = buf, 
-			.len = sizeof(buf) 
+		struct i2c_msg msg = {
+			.addr = dib->tuner->pll_addr,
+			.flags = 0,
+			.buf = buf,
+			.len = sizeof(buf)
 		};
 		if (i2c_transfer (&dib->i2c_adap, &msg, 1) != 1)
 			return -EIO;
@@ -545,7 +545,7 @@ static int dibusb_pll_i2c_helper(struct usb_dibusb *dib, u8 pll_buf[5], u8 buf[4
 	return 0;
 }
 
-static int dibusb_general_pll_init(struct dvb_frontend *fe, 
+static int dibusb_general_pll_init(struct dvb_frontend *fe,
 		u8 pll_buf[5])
 {
 	struct usb_dibusb* dib = (struct usb_dibusb*) fe->dvb->priv;
@@ -558,14 +558,14 @@ static int dibusb_general_pll_init(struct dvb_frontend *fe,
 		default:
 			break;
 	}
-	
+
 	if (ret)
 		return ret;
 
 	return dibusb_pll_i2c_helper(dib,pll_buf,buf);
 }
 
-static int dibusb_general_pll_set(struct dvb_frontend *fe, 
+static int dibusb_general_pll_set(struct dvb_frontend *fe,
 		struct dvb_frontend_parameters *fep, u8 pll_buf[5])
 {
 	struct usb_dibusb* dib = (struct usb_dibusb*) fe->dvb->priv;
@@ -573,14 +573,14 @@ static int dibusb_general_pll_set(struct dvb_frontend *fe,
 	int ret=0;
 
 	switch (dib->tuner->id) {
-		case DIBUSB_TUNER_CABLE_THOMSON: 
-			ret = thomson_cable_eu_pll_set(fep, buf); 
+		case DIBUSB_TUNER_CABLE_THOMSON:
+			ret = thomson_cable_eu_pll_set(fep, buf);
 			break;
 		case DIBUSB_TUNER_COFDM_PANASONIC_ENV57H1XD5:
 			ret = panasonic_cofdm_env57h1xd5_pll_set(fep, buf);
 			break;
 		case DIBUSB_TUNER_CABLE_LG_TDTP_E102P:
-			ret = lg_tdtp_e102p_tua6034(fep, buf); 
+			ret = lg_tdtp_e102p_tua6034(fep, buf);
 			break;
 		case DIBUSB_TUNER_COFDM_PANASONIC_ENV77H11D5:
 			ret = panasonic_cofdm_env77h11d5_tda6650_set(fep,buf);
@@ -590,9 +590,9 @@ static int dibusb_general_pll_set(struct dvb_frontend *fe,
 			ret = -ENODEV;
 			break;
 	}
-	
+
 	if (ret)
 		return ret;
-	
+
 	return dibusb_pll_i2c_helper(dib,pll_buf,buf);
 }

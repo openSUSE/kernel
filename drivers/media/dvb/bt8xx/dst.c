@@ -141,7 +141,7 @@ static int dst_gpio_inb(struct dst_state *state, u8 * result)
 }
 
 #define DST_I2C_ENABLE	1
-#define DST_8820  	2
+#define DST_8820	2
 
 static int dst_reset8820(struct dst_state *state)
 {
@@ -1036,7 +1036,7 @@ static struct dvb_frontend_ops dst_dvbs_ops = {
 		.frequency_tolerance = 29500,
 		.symbol_rate_min = 1000000,
 		.symbol_rate_max = 45000000,
-	/*     . symbol_rate_tolerance	= 	???,*/
+	/*     . symbol_rate_tolerance	=	???,*/
 		.caps = FE_CAN_FEC_AUTO | FE_CAN_QPSK
 	},
 
@@ -1066,7 +1066,7 @@ static struct dvb_frontend_ops dst_dvbc_ops = {
 		.frequency_max = 858000000,
 		.symbol_rate_min = 1000000,
 		.symbol_rate_max = 45000000,
-	/*     . symbol_rate_tolerance	= 	???,*/
+	/*     . symbol_rate_tolerance	=	???,*/
 		.caps = FE_CAN_FEC_AUTO | FE_CAN_QAM_AUTO
 	},
 

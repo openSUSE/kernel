@@ -113,7 +113,7 @@ struct dibusb_device_class {
 
 	int pipe_cmd;                                 /* command pipe (read/write) */
 	int pipe_data;                                /* data pipe */
-	
+
 	int urb_count;                                /* number of data URBs to be submitted */
 	int urb_buffer_size;                          /* the size of the buffer for each URB */
 
@@ -149,7 +149,7 @@ struct usb_dibusb {
 #define DIBUSB_STATE_INIT       0x000
 #define DIBUSB_STATE_URB_LIST   0x001
 #define DIBUSB_STATE_URB_BUF    0x002
-#define DIBUSB_STATE_URB_SUBMIT 0x004 
+#define DIBUSB_STATE_URB_SUBMIT 0x004
 #define DIBUSB_STATE_DVB        0x008
 #define DIBUSB_STATE_I2C        0x010
 #define DIBUSB_STATE_REMOTE		0x020
@@ -175,7 +175,7 @@ struct usb_dibusb {
 	/* pid filtering */
 	spinlock_t pid_list_lock;
 	struct dibusb_pid *pid_list;
-	
+
 	/* dvb */
 	struct dvb_adapter *adapter;
 	struct dmxdev dmxdev;
@@ -206,7 +206,7 @@ int dibusb_remote_exit(struct usb_dibusb *dib);
 int dibusb_remote_init(struct usb_dibusb *dib);
 
 /* dvb-dibusb-fe-i2c.c */
-int dibusb_i2c_msg(struct usb_dibusb *dib, u8 addr, 
+int dibusb_i2c_msg(struct usb_dibusb *dib, u8 addr,
 		u8 *wbuf, u16 wlen, u8 *rbuf, u16 rlen);
 int dibusb_fe_init(struct usb_dibusb* dib);
 int dibusb_fe_exit(struct usb_dibusb *dib);
@@ -238,11 +238,11 @@ int dibusb_ctrl_pid(struct usb_dibusb *dib, struct dvb_demux_feed *dvbdmxfeed , 
 /* i2c and transfer stuff */
 #define DIBUSB_I2C_TIMEOUT				5000
 
-/* 
+/*
  * protocol of all dibusb related devices
  */
 
-/* 
+/*
  * bulk msg to/from endpoint 0x01
  *
  * general structure:
@@ -252,23 +252,23 @@ int dibusb_ctrl_pid(struct usb_dibusb *dib, struct dvb_demux_feed *dvbdmxfeed , 
 #define DIBUSB_REQ_START_READ			0x00
 #define DIBUSB_REQ_START_DEMOD			0x01
 
-/* 
- * i2c read 
+/*
+ * i2c read
  * bulk write: 0x02 ((7bit i2c_addr << 1) & 0x01) register_bytes length_word
  * bulk read:  byte_buffer (length_word bytes)
  */
-#define DIBUSB_REQ_I2C_READ  			0x02
- 
+#define DIBUSB_REQ_I2C_READ			0x02
+
 /*
  * i2c write
  * bulk write: 0x03 (7bit i2c_addr << 1) register_bytes value_bytes
  */
-#define DIBUSB_REQ_I2C_WRITE 			0x03
+#define DIBUSB_REQ_I2C_WRITE			0x03
 
-/* 
- * polling the value of the remote control 
+/*
+ * polling the value of the remote control
  * bulk write: 0x04
- * bulk read:  byte_buffer (5 bytes) 
+ * bulk read:  byte_buffer (5 bytes)
  *
  * first byte of byte_buffer shows the status (0x00, 0x01, 0x02)
  */
@@ -279,26 +279,26 @@ int dibusb_ctrl_pid(struct usb_dibusb *dib, struct dvb_demux_feed *dvbdmxfeed , 
 #define DIBUSB_RC_NEC_KEY_REPEATED		0x02
 
 /* streaming mode:
- * bulk write: 0x05 mode_byte 
+ * bulk write: 0x05 mode_byte
  *
  * mode_byte is mostly 0x00
  */
 #define DIBUSB_REQ_SET_STREAMING_MODE	0x05
 
 /* interrupt the internal read loop, when blocking */
-#define DIBUSB_REQ_INTR_READ		   	0x06
+#define DIBUSB_REQ_INTR_READ			0x06
 
 /* io control
  * 0x07 cmd_byte param_bytes
  *
  * param_bytes can be up to 32 bytes
  *
- * cmd_byte function    parameter name 
+ * cmd_byte function    parameter name
  * 0x00     power mode
  *                      0x00      sleep
  *                      0x01      wakeup
  *
- * 0x01     enable streaming 
+ * 0x01     enable streaming
  * 0x02     disable streaming
  *
  *

@@ -33,6 +33,7 @@
 #include <linux/dvb/dmx.h>
 #include <linux/pci.h>
 
+
 /*
   TTUSB_HWSECTIONS:
     the DSP supports filtering in hardware, however, since the "muxstream"
@@ -41,12 +42,12 @@
     so the best way is maybe to keep TTUSB_HWSECTIONS undef'd and just
     parse TS data. USB bandwith will be a problem when having large
     datastreams, especially for dvb-net, but hey, that's not my problem.
-	
+
   TTUSB_DISEQC, TTUSB_TONE:
     let the STC do the diseqc/tone stuff. this isn't supported at least with
     my TTUSB, so let it undef'd unless you want to implement another
     frontend. never tested.
-		
+
   DEBUG:
     define it to > 3 for really hardcore debugging. you probably don't want
     this unless the device doesn't load at all. > 2 for bandwidth statistics.
@@ -117,7 +118,6 @@ struct ttusb {
 
 	int cc;			/* MuxCounter - will increment on EVERY MUX PACKET */
 	/* (including stuffing. yes. really.) */
-
 
 	u8 last_result[32];
 
@@ -445,7 +445,7 @@ static int ttusb_init_controller(struct ttusb *ttusb)
 
 	if (memcmp(get_version + 4, "V 0.0", 5) &&
 	    memcmp(get_version + 4, "V 1.1", 5) &&
-   	    memcmp(get_version + 4, "V 2.1", 5)) {
+	    memcmp(get_version + 4, "V 2.1", 5)) {
 		printk
 		    ("%s: unknown STC version %c%c%c%c%c, please report!\n",
 		     __FUNCTION__, get_version[4], get_version[5],
@@ -468,7 +468,7 @@ static int ttusb_init_controller(struct ttusb *ttusb)
 
 #ifdef TTUSB_DISEQC
 static int ttusb_send_diseqc(struct dvb_frontend* fe,
-		      const struct dvb_diseqc_master_cmd *cmd)
+			     const struct dvb_diseqc_master_cmd *cmd)
 {
 	struct ttusb* ttusb = (struct ttusb*) fe->dvb->priv;
 	u8 b[12] = { 0xaa, ++ttusb->c, 0x18 };
@@ -1448,9 +1448,9 @@ static int ttusb_probe(struct usb_interface *intf, const struct usb_device_id *i
 	i2c_set_adapdata(&ttusb->i2c_adap, ttusb);
 
 #ifdef I2C_ADAP_CLASS_TV_DIGITAL
-	ttusb->i2c_adap.class 	    	  = I2C_ADAP_CLASS_TV_DIGITAL;
+	ttusb->i2c_adap.class		  = I2C_ADAP_CLASS_TV_DIGITAL;
 #else
-	ttusb->i2c_adap.class 	    	  = I2C_CLASS_TV_DIGITAL;
+	ttusb->i2c_adap.class		  = I2C_CLASS_TV_DIGITAL;
 #endif
 	ttusb->i2c_adap.algo              = &ttusb_dec_algo;
 	ttusb->i2c_adap.algo_data         = NULL;
@@ -1555,10 +1555,10 @@ static struct usb_device_id ttusb_table[] = {
 MODULE_DEVICE_TABLE(usb, ttusb_table);
 
 static struct usb_driver ttusb_driver = {
-      .name 		= "Technotrend/Hauppauge USB-Nova",
-      .probe 		= ttusb_probe,
-      .disconnect 	= ttusb_disconnect,
-      .id_table 	= ttusb_table,
+      .name		= "Technotrend/Hauppauge USB-Nova",
+      .probe		= ttusb_probe,
+      .disconnect	= ttusb_disconnect,
+      .id_table		= ttusb_table,
 };
 
 static int __init ttusb_init(void)

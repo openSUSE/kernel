@@ -204,8 +204,8 @@ static int tda80xx_set_parameters(struct tda80xx_state* state,
 	 * r = k * clk / symbol_rate
 	 *
 	 * k:	2^21 for caa 0..3,
-	 * 	2^20 for caa 4..5,
-	 * 	2^19 for caa 6..7
+	 *	2^20 for caa 4..5,
+	 *	2^19 for caa 6..7
 	 */
 	if (symbol_rate <= (clk * 3) / 32)
 		k = (1 << 19);
@@ -422,7 +422,7 @@ static int tda8044_init(struct dvb_frontend* fe)
 	tda80xx_write(state, 0x00, tda8044_inittab_post, sizeof(tda8044_inittab_post));
 
 	if (state->config->pll_init) {
-	   	tda80xx_writereg(state, 0x1c, 0x80);
+		tda80xx_writereg(state, 0x1c, 0x80);
 		state->config->pll_init(fe);
 		tda80xx_writereg(state, 0x1c, 0x00);
 	}
@@ -437,28 +437,13 @@ static int tda8083_init(struct dvb_frontend* fe)
 	tda80xx_write(state, 0x00, tda8083_inittab, sizeof(tda8083_inittab));
 
 	if (state->config->pll_init) {
-	   	tda80xx_writereg(state, 0x1c, 0x80);
+		tda80xx_writereg(state, 0x1c, 0x80);
 		state->config->pll_init(fe);
 		tda80xx_writereg(state, 0x1c, 0x00);
 	}
 
 	return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 static int tda80xx_set_voltage(struct dvb_frontend* fe, fe_sec_voltage_t voltage)
 {
@@ -492,7 +477,7 @@ static int tda80xx_set_tone(struct dvb_frontend* fe, fe_sec_tone_mode_t tone)
 
 static int tda80xx_send_diseqc_msg(struct dvb_frontend* fe, struct dvb_diseqc_master_cmd *cmd)
 {
-   	struct tda80xx_state* state = (struct tda80xx_state*) fe->demodulator_priv;
+	struct tda80xx_state* state = (struct tda80xx_state*) fe->demodulator_priv;
 
 	if (cmd->msg_len > 6)
 		return -EINVAL;
@@ -536,7 +521,7 @@ static int tda80xx_sleep(struct dvb_frontend* fe)
 
 static int tda80xx_set_frontend(struct dvb_frontend* fe, struct dvb_frontend_parameters *p)
 {
-   	struct tda80xx_state* state = (struct tda80xx_state*) fe->demodulator_priv;
+	struct tda80xx_state* state = (struct tda80xx_state*) fe->demodulator_priv;
 
 	tda80xx_writereg(state, 0x1c, 0x80);
 	state->config->pll_set(fe, p);
@@ -735,9 +720,9 @@ static struct dvb_frontend_ops tda80xx_ops = {
 	.read_ucblocks = tda80xx_read_ucblocks,
 
 	.diseqc_send_master_cmd = tda80xx_send_diseqc_msg,
-     	.diseqc_send_burst = tda80xx_send_diseqc_burst,
-     	.set_tone = tda80xx_set_tone,
-     	.set_voltage = tda80xx_set_voltage,
+	.diseqc_send_burst = tda80xx_send_diseqc_burst,
+	.set_tone = tda80xx_set_tone,
+	.set_voltage = tda80xx_set_voltage,
 };
 
 module_param(debug, int, 0644);

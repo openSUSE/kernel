@@ -399,7 +399,7 @@ int __av7110_send_fw_cmd(struct av7110 *av7110, u16* buf, int length)
 
 	if (type != NULL) {
 		/* non-immediate COMMAND type */
-	start = jiffies;
+		start = jiffies;
 		for (;;) {
 			stat = rdebi(av7110, DEBINOSWAP, MSGSTATE, 0, 2);
 			if (stat & flags[0]) {
@@ -412,8 +412,8 @@ int __av7110_send_fw_cmd(struct av7110 *av7110, u16* buf, int length)
 			if (time_after(jiffies, start + ARM_WAIT_FREE)) {
 				printk(KERN_ERR "%s: timeout waiting on busy %s QUEUE\n",
 					__FUNCTION__, type);
-			return -1;
-		}
+				return -1;
+			}
 			msleep(1);
 		}
 	}
@@ -889,11 +889,11 @@ static int BlitBitmap(struct av7110 *av7110, u16 win, u16 x, u16 y, u16 trans)
 		       ret, av7110->bmp_state);
 		av7110->bmp_state = BMP_NONE;
 		return (ret == 0) ? -ETIMEDOUT : ret;
-		}
+	}
 
 	BUG_ON (av7110->bmp_state != BMP_LOADED);
 
-		return av7110_fw_cmd(av7110, COMTYPE_OSD, BlitBmp, 4, win, x, y, trans);
+	return av7110_fw_cmd(av7110, COMTYPE_OSD, BlitBmp, 4, win, x, y, trans);
 }
 
 static inline int ReleaseBitmap(struct av7110 *av7110)
@@ -962,7 +962,7 @@ static int OSDSetPalette(struct av7110 *av7110, u32 __user * colors, u8 first, u
 }
 
 static int OSDSetBlock(struct av7110 *av7110, int x0, int y0,
-		       int x1, int y1, int inc, u8 __user *data)
+		       int x1, int y1, int inc, u8 __user * data)
 {
 	uint w, h, bpp, bpl, size, lpb, bnum, brest;
 	int i;
@@ -1061,9 +1061,9 @@ int av7110_osd_cmd(struct av7110 *av7110, osd_cmd_t *dc)
 				    get_user(blend, colors + i * 4 + 3)) {
 					ret = -EFAULT;
 					goto out;
-		}
+				    }
 				OSDSetColor(av7110, dc->color + i, r, g, b, blend);
-		}
+			}
 		}
 		ret = 0;
 		goto out;
@@ -1162,9 +1162,9 @@ int av7110_osd_capability(struct av7110 *av7110, osd_cap_t *cap)
                         cap->val = 1000000;
                 else
                         cap->val = 92000;
-		return 0;
-	default:
-		return -EINVAL;
-	}
+                return 0;
+        default:
+                return -EINVAL;
+        }
 }
 #endif /* CONFIG_DVB_AV7110_OSD */

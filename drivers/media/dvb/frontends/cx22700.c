@@ -230,16 +230,6 @@ static int cx22700_get_tps (struct cx22700_state* state, struct dvb_ofdm_paramet
 	return 0;
 }
 
-
-
-
-
-
-
-
-
-
-
 static int cx22700_init (struct dvb_frontend* fe)
 
 {	struct cx22700_state* state = (struct cx22700_state*) fe->demodulator_priv;
@@ -409,11 +399,11 @@ error:
 static struct dvb_frontend_ops cx22700_ops = {
 
 	.info = {
-		.name 			= "Conexant CX22700 DVB-T",
-		.type 			= FE_OFDM,
-		.frequency_min 		= 470000000,
-		.frequency_max 		= 860000000,
-		.frequency_stepsize 	= 166667,
+		.name			= "Conexant CX22700 DVB-T",
+		.type			= FE_OFDM,
+		.frequency_min		= 470000000,
+		.frequency_max		= 860000000,
+		.frequency_stepsize	= 166667,
 		.caps = FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 		      FE_CAN_FEC_5_6 | FE_CAN_FEC_7_8 | FE_CAN_FEC_AUTO |
 		      FE_CAN_QPSK | FE_CAN_QAM_16 | FE_CAN_QAM_64 |

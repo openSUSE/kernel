@@ -35,14 +35,10 @@
 
 
 struct tda10021_state {
-
 	struct i2c_adapter* i2c;
-
 	struct dvb_frontend_ops ops;
-
 	/* configuration settings */
 	const struct tda10021_config* config;
-
 	struct dvb_frontend frontend;
 
 	u8 pwm;
@@ -93,7 +89,6 @@ static int tda10021_writereg (struct tda10021_state* state, u8 reg, u8 data)
 	msleep(10);
 	return (ret != 1) ? -EREMOTEIO : 0;
 }
-
 
 static u8 tda10021_readreg (struct tda10021_state* state, u8 reg)
 {
@@ -208,15 +203,6 @@ static int tda10021_set_symbolrate (struct tda10021_state* state, u32 symbolrate
 	return 0;
 }
 
-
-
-
-
-
-
-
-
-
 static int tda10021_init (struct dvb_frontend *fe)
 {
 	struct tda10021_state* state = (struct tda10021_state*) fe->demodulator_priv;
@@ -320,8 +306,8 @@ static int tda10021_read_ber(struct dvb_frontend* fe, u32* ber)
 	struct tda10021_state* state = (struct tda10021_state*) fe->demodulator_priv;
 
 	u32 _ber = tda10021_readreg(state, 0x14) |
-     		  (tda10021_readreg(state, 0x15) << 8) |
-		 ((tda10021_readreg(state, 0x16) & 0x0f) << 16);
+		(tda10021_readreg(state, 0x15) << 8) |
+		((tda10021_readreg(state, 0x16) & 0x0f) << 16);
 	*ber = 10 * _ber;
 
 	return 0;

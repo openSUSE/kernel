@@ -32,17 +32,13 @@
 
 
 struct l64781_state {
-
 	struct i2c_adapter* i2c;
-
 	struct dvb_frontend_ops ops;
-
 	const struct l64781_config* config;
-
 	struct dvb_frontend frontend;
 
 	/* private demodulator data */
-   	int first:1;
+	int first:1;
 };
 
 #define dprintk(args...) \
@@ -544,7 +540,7 @@ struct dvb_frontend* l64781_attach(const struct l64781_config* config,
 
 	/* Responds to all reads with 0 */
 	if (l64781_readreg(state, 0x1a) != 0) {
- 	        dprintk("Read 1 returned unexpcted value\n");
+	        dprintk("Read 1 returned unexpcted value\n");
 		goto error;
 	}
 
@@ -553,7 +549,7 @@ struct dvb_frontend* l64781_attach(const struct l64781_config* config,
 
 	/* Responds with register default value */
 	if (l64781_readreg(state, 0x1a) != 0xa1) {
- 	        dprintk("Read 2 returned unexpcted value\n");
+	        dprintk("Read 2 returned unexpcted value\n");
 		goto error;
 	}
 
@@ -581,10 +577,10 @@ static struct dvb_frontend_ops l64781_ops = {
 		.caps = FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 		      FE_CAN_FEC_5_6 | FE_CAN_FEC_7_8 |
 		      FE_CAN_QPSK | FE_CAN_QAM_16 | FE_CAN_QAM_64 |
-        	      FE_CAN_MUTE_TS
+		      FE_CAN_MUTE_TS
 	},
 
-     	.release = l64781_release,
+	.release = l64781_release,
 
 	.init = l64781_init,
 	.sleep = l64781_sleep,

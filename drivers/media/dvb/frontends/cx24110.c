@@ -131,7 +131,6 @@ static int cx24110_writereg (struct cx24110_state* state, int reg, int data)
         return 0;
 }
 
-
 static int cx24110_readreg (struct cx24110_state* state, u8 reg)
 {
 	int ret;
@@ -181,7 +180,6 @@ static int cx24110_set_inversion (struct cx24110_state* state, fe_spectral_inver
 	return 0;
 }
 
-
 static int cx24110_set_fec (struct cx24110_state* state, fe_code_rate_t fec)
 {
 /* fixme (low): error handling */
@@ -227,7 +225,6 @@ static int cx24110_set_fec (struct cx24110_state* state, fe_code_rate_t fec)
 	return 0;
 }
 
-
 static fe_code_rate_t cx24110_get_fec (struct cx24110_state* state)
 {
 	int i;
@@ -243,7 +240,6 @@ static fe_code_rate_t cx24110_get_fec (struct cx24110_state* state)
 	   return FEC_NONE;
 	}
 }
-
 
 static int cx24110_set_symbolrate (struct cx24110_state* state, u32 srate)
 {
@@ -317,17 +313,6 @@ dprintk("cx24110 debug: entering %s(%d)\n",__FUNCTION__,srate);
 
 }
 
-
-
-
-
-
-
-
-
-
-
-
 int cx24110_pll_write (struct dvb_frontend* fe, u32 data)
 {
 	struct cx24110_state *state = (struct cx24110_state*) fe->demodulator_priv;
@@ -369,8 +354,6 @@ int cx24110_pll_write (struct dvb_frontend* fe, u32 data)
         return 0;
 }
 
-
-
 static int cx24110_initfe(struct dvb_frontend* fe)
 {
 	struct cx24110_state *state = (struct cx24110_state*) fe->demodulator_priv;
@@ -388,7 +371,6 @@ static int cx24110_initfe(struct dvb_frontend* fe)
 	return 0;
 }
 
-
 static int cx24110_set_voltage (struct dvb_frontend* fe, fe_sec_voltage_t voltage)
 {
 	struct cx24110_state *state = (struct cx24110_state*) fe->demodulator_priv;
@@ -404,7 +386,7 @@ static int cx24110_set_voltage (struct dvb_frontend* fe, fe_sec_voltage_t voltag
 }
 
 static int cx24110_send_diseqc_msg(struct dvb_frontend* fe,
-				    struct dvb_diseqc_master_cmd *cmd)
+				   struct dvb_diseqc_master_cmd *cmd)
 {
 	int i, rv;
 	struct cx24110_state *state = (struct cx24110_state*) fe->demodulator_priv;
@@ -427,33 +409,33 @@ static int cx24110_read_status(struct dvb_frontend* fe, fe_status_t* status)
 
 	int sync = cx24110_readreg (state, 0x55);
 
-		*status = 0;
+	*status = 0;
 
-		if (sync & 0x10)
-			*status |= FE_HAS_SIGNAL;
+	if (sync & 0x10)
+		*status |= FE_HAS_SIGNAL;
 
-		if (sync & 0x08)
-			*status |= FE_HAS_CARRIER;
+	if (sync & 0x08)
+		*status |= FE_HAS_CARRIER;
 
 	sync = cx24110_readreg (state, 0x08);
 
-		if (sync & 0x40)
-			*status |= FE_HAS_VITERBI;
+	if (sync & 0x40)
+		*status |= FE_HAS_VITERBI;
 
-		if (sync & 0x20)
-			*status |= FE_HAS_SYNC;
+	if (sync & 0x20)
+		*status |= FE_HAS_SYNC;
 
-		if ((sync & 0x60) == 0x60)
-			*status |= FE_HAS_LOCK;
+	if ((sync & 0x60) == 0x60)
+		*status |= FE_HAS_LOCK;
 
 	return 0;
-	}
+}
 
 static int cx24110_read_ber(struct dvb_frontend* fe, u32* ber)
-	{
+{
 	struct cx24110_state *state = (struct cx24110_state*) fe->demodulator_priv;
 
-/* fixme (maybe): value range is 16 bit. Scale? */
+	/* fixme (maybe): value range is 16 bit. Scale? */
 	if(cx24110_readreg(state,0x24)&0x10) {
 		/* the Viterbi error counter has finished one counting window */
 		cx24110_writereg(state,0x24,0x04); /* select the ber reg */
@@ -465,10 +447,10 @@ static int cx24110_read_ber(struct dvb_frontend* fe, u32* ber)
 	*ber = state->lastber;
 
 	return 0;
-	}
+}
 
 static int cx24110_read_signal_strength(struct dvb_frontend* fe, u16* signal_strength)
-	{
+{
 	struct cx24110_state *state = (struct cx24110_state*) fe->demodulator_priv;
 
 /* no provision in hardware. Read the frontend AGC accumulator. No idea how to scale this, but I know it is 2s complement */
@@ -476,13 +458,13 @@ static int cx24110_read_signal_strength(struct dvb_frontend* fe, u16* signal_str
 	*signal_strength = (signal << 8) | signal;
 
 	return 0;
-	}
+}
 
 static int cx24110_read_snr(struct dvb_frontend* fe, u16* snr)
-	{
+{
 	struct cx24110_state *state = (struct cx24110_state*) fe->demodulator_priv;
 
-/* no provision in hardware. Can be computed from the Es/N0 estimator, but I don't know how. */
+	/* no provision in hardware. Can be computed from the Es/N0 estimator, but I don't know how. */
 	if(cx24110_readreg(state,0x6a)&0x80) {
 		/* the Es/N0 error counter has finished one counting window */
 		state->lastesn0=cx24110_readreg(state,0x69)|
@@ -492,10 +474,10 @@ static int cx24110_read_snr(struct dvb_frontend* fe, u16* snr)
 	*snr = state->lastesn0;
 
 	return 0;
-	}
+}
 
 static int cx24110_read_ucblocks(struct dvb_frontend* fe, u32* ucblocks)
-	{
+{
 	struct cx24110_state *state = (struct cx24110_state*) fe->demodulator_priv;
 	u32 lastbyer;
 
@@ -517,7 +499,7 @@ static int cx24110_read_ucblocks(struct dvb_frontend* fe, u32* ucblocks)
 }
 
 static int cx24110_set_frontend(struct dvb_frontend* fe, struct dvb_frontend_parameters *p)
-        {
+{
 	struct cx24110_state *state = (struct cx24110_state*) fe->demodulator_priv;
 
 	state->config->pll_set(fe, p);
@@ -527,38 +509,38 @@ static int cx24110_set_frontend(struct dvb_frontend* fe, struct dvb_frontend_par
 	cx24110_writereg(state,0x04,0x05); /* start aquisition */
 
 	return 0;
-        }
+}
 
 static int cx24110_get_frontend(struct dvb_frontend* fe, struct dvb_frontend_parameters *p)
-	{
-   	struct cx24110_state *state = (struct cx24110_state*) fe->demodulator_priv;
-		s32 afc; unsigned sclk;
+{
+	struct cx24110_state *state = (struct cx24110_state*) fe->demodulator_priv;
+	s32 afc; unsigned sclk;
 
 /* cannot read back tuner settings (freq). Need to have some private storage */
 
 	sclk = cx24110_readreg (state, 0x07) & 0x03;
 /* ok, real AFC (FEDR) freq. is afc/2^24*fsamp, fsamp=45/60/80/90MHz.
  * Need 64 bit arithmetic. Is thiss possible in the kernel? */
-		if (sclk==0) sclk=90999000L/2L;
-		else if (sclk==1) sclk=60666000L;
-		else if (sclk==2) sclk=80888000L;
-		else sclk=90999000L;
-		sclk>>=8;
+	if (sclk==0) sclk=90999000L/2L;
+	else if (sclk==1) sclk=60666000L;
+	else if (sclk==2) sclk=80888000L;
+	else sclk=90999000L;
+	sclk>>=8;
 	afc = sclk*(cx24110_readreg (state, 0x44)&0x1f)+
 	      ((sclk*cx24110_readreg (state, 0x45))>>8)+
 	      ((sclk*cx24110_readreg (state, 0x46))>>16);
 
-		p->frequency += afc;
+	p->frequency += afc;
 	p->inversion = (cx24110_readreg (state, 0x22) & 0x10) ?
-					INVERSION_ON : INVERSION_OFF;
+				INVERSION_ON : INVERSION_OFF;
 	p->u.qpsk.fec_inner = cx24110_get_fec (state);
 
-        return 0;
+	return 0;
 }
 
 static int cx24110_set_tone(struct dvb_frontend* fe, fe_sec_tone_mode_t tone)
 {
-   	struct cx24110_state *state = (struct cx24110_state*) fe->demodulator_priv;
+	struct cx24110_state *state = (struct cx24110_state*) fe->demodulator_priv;
 
 	return cx24110_writereg(state,0x76,(cx24110_readreg(state,0x76)&~0x10)|(((tone==SEC_TONE_ON))?0x10:0));
 }
@@ -566,7 +548,7 @@ static int cx24110_set_tone(struct dvb_frontend* fe, fe_sec_tone_mode_t tone)
 static void cx24110_release(struct dvb_frontend* fe)
 {
 	struct cx24110_state* state = (struct cx24110_state*) fe->demodulator_priv;
-		kfree(state);
+	kfree(state);
 }
 
 static struct dvb_frontend_ops cx24110_ops;
@@ -587,7 +569,7 @@ struct dvb_frontend* cx24110_attach(const struct cx24110_config* config,
 	memcpy(&state->ops, &cx24110_ops, sizeof(struct dvb_frontend_ops));
 	state->lastber = 0;
 	state->lastbler = 0;
-   	state->lastesn0 = 0;
+	state->lastesn0 = 0;
 
 	/* check if the demod is there */
 	ret = cx24110_readreg(state, 0x00);

@@ -1,4 +1,4 @@
-/* 
+/*
  * dvbdev.h
  *
  * Copyright (C) 2000 Ralph Metzler & Marcus Metzler
@@ -58,9 +58,6 @@ struct dvb_adapter {
 struct dvb_device {
 	struct list_head list_head;
 	struct file_operations *fops;
- 
- 
- 
 	struct dvb_adapter *adapter;
 	int type;
 	u32 id;
@@ -83,7 +80,7 @@ extern int dvb_register_adapter (struct dvb_adapter **padap, const char *name, s
 extern int dvb_unregister_adapter (struct dvb_adapter *adap);
 
 extern int dvb_register_device (struct dvb_adapter *adap,
-				struct dvb_device **pdvbdev, 
+				struct dvb_device **pdvbdev,
 				const struct dvb_device *template,
 				void *priv,
 				int type);
@@ -105,4 +102,3 @@ extern int dvb_usercopy(struct inode *inode, struct file *file,
 			    unsigned int cmd, void *arg));
 
 #endif /* #ifndef _DVBDEV_H_ */
-

@@ -1,5 +1,5 @@
 /*
- * Bt8xx based DVB adapter driver 
+ * Bt8xx based DVB adapter driver
  *
  * Copyright (C) 2002,2003 Florian Schirmer <jolt@tuxbox.org>
  *
@@ -71,7 +71,7 @@ static int dvb_bt8xx_start_feed(struct dvb_demux_feed *dvbdmxfeed)
 	int rc;
 
 	dprintk("dvb_bt8xx: start_feed\n");
-	
+
 	if (!dvbdmx->dmx.frontend)
 		return -EINVAL;
 
@@ -91,10 +91,10 @@ static int dvb_bt8xx_stop_feed(struct dvb_demux_feed *dvbdmxfeed)
 	struct dvb_bt8xx_card *card = dvbdmx->priv;
 
 	dprintk("dvb_bt8xx: stop_feed\n");
-	
+
 	if (!dvbdmx->dmx.frontend)
 		return -EINVAL;
-		
+
 	down(&card->lock);
 	card->nfeeds--;
 	if (card->nfeeds == 0)
@@ -117,7 +117,7 @@ static int is_pci_slot_eq(struct pci_dev* adev, struct pci_dev* bdev)
 static struct bt878 __init *dvb_bt8xx_878_match(unsigned int bttv_nr, struct pci_dev* bttv_pci_dev)
 {
 	unsigned int card_nr;
-	
+
 	/* Hmm, n squared. Hope n is small */
 	for (card_nr = 0; card_nr < bt878_num; card_nr++) {
 		if (is_pci_slot_eq(bt878[card_nr].dev, bttv_pci_dev))
@@ -167,9 +167,9 @@ static int thomson_dtt7579_pll_set(struct dvb_frontend* fe, struct dvb_frontend_
 
 	pllbuf[0] = 0xc0; // Note: non-linux standard PLL i2c address
 	pllbuf[1] = div >> 8;
-   	pllbuf[2] = div & 0xff;
-   	pllbuf[3] = cp;
-   	pllbuf[4] = bs;
+	pllbuf[2] = div & 0xff;
+	pllbuf[3] = cp;
+	pllbuf[4] = bs;
 
 	return 0;
 }
@@ -184,25 +184,25 @@ static struct mt352_config thomson_dtt7579_config = {
 static int cx24108_pll_set(struct dvb_frontend* fe, struct dvb_frontend_parameters* params)
 {
    u32 freq = params->frequency;
-   
-   int i, a, n, pump; 
+
+   int i, a, n, pump;
    u32 band, pll;
-   
-   
+
+
    u32 osci[]={950000,1019000,1075000,1178000,1296000,1432000,
                1576000,1718000,1856000,2036000,2150000};
    u32 bandsel[]={0,0x00020000,0x00040000,0x00100800,0x00101000,
                0x00102000,0x00104000,0x00108000,0x00110000,
                0x00120000,0x00140000};
-   
+
 #define XTAL 1011100 /* Hz, really 1.0111 MHz and a /10 prescaler */
         printk("cx24108 debug: entering SetTunerFreq, freq=%d\n",freq);
-        
+
         /* This is really the bit driving the tuner chip cx24108 */
-        
+
         if(freq<950000) freq=950000; /* kHz */
         if(freq>2150000) freq=2150000; /* satellite IF is 950..2150MHz */
-        
+
         /* decide which VCO to use for the input frequency */
         for(i=1;(i<sizeof(osci)/sizeof(osci[0]))&&(osci[i]<freq);i++);
         printk("cx24108 debug: select vco #%d (f=%d)\n",i,freq);
@@ -210,7 +210,7 @@ static int cx24108_pll_set(struct dvb_frontend* fe, struct dvb_frontend_paramete
         /* the gain values must be set by SetSymbolrate */
         /* compute the pll divider needed, from Conexant data sheet,
            resolved for (n*32+a), remember f(vco) is f(receive) *2 or *4,
-           depending on the divider bit. It is set to /4 on the 2 lowest 
+           depending on the divider bit. It is set to /4 on the 2 lowest
            bands  */
         n=((i<=2?2:1)*freq*10L)/(XTAL/100);
         a=n%32; n/=32; if(a==0) n--;
@@ -348,9 +348,9 @@ static int advbt771_samsung_tdtc9251dh0_pll_set(struct dvb_frontend* fe, struct 
 
 	pllbuf[0] = 0xc2; // Note: non-linux standard PLL i2c address
 	pllbuf[1] = div >> 8;
-   	pllbuf[2] = div & 0xff;
-   	pllbuf[3] = cp;
-   	pllbuf[4] = bs;
+	pllbuf[2] = div & 0xff;
+	pllbuf[3] = cp;
+	pllbuf[4] = bs;
 
 	return 0;
 }
@@ -451,7 +451,7 @@ static void frontend_init(struct dvb_bt8xx_card *card, u32 type)
 			break;
 		}
 		break;
-	
+
 	case BTTV_PINNACLESAT:
 		card->fe = cx24110_attach(&pctvsat_config, card->i2c_adapter);
 		if (card->fe != NULL) {
@@ -484,7 +484,7 @@ static int __init dvb_bt8xx_load_card(struct dvb_bt8xx_card *card, u32 type)
 					   THIS_MODULE)) < 0) {
 		printk("dvb_bt8xx: dvb_register_adapter failed (errno = %d)\n", result);
 		return result;
-		
+
 	}
 	card->dvb_adapter->priv = card;
 
@@ -500,7 +500,7 @@ static int __init dvb_bt8xx_load_card(struct dvb_bt8xx_card *card, u32 type)
 	card->demux.start_feed = dvb_bt8xx_start_feed;
 	card->demux.stop_feed = dvb_bt8xx_stop_feed;
 	card->demux.write_to_decoder = NULL;
-	
+
 	if ((result = dvb_dmx_init(&card->demux)) < 0) {
 		printk("dvb_bt8xx: dvb_dmx_init failed (errno = %d)\n", result);
 
@@ -511,7 +511,7 @@ static int __init dvb_bt8xx_load_card(struct dvb_bt8xx_card *card, u32 type)
 	card->dmxdev.filternum = 256;
 	card->dmxdev.demux = &card->demux.dmx;
 	card->dmxdev.capabilities = 0;
-	
+
 	if ((result = dvb_dmxdev_init(&card->dmxdev, card->dvb_adapter)) < 0) {
 		printk("dvb_bt8xx: dvb_dmxdev_init failed (errno = %d)\n", result);
 
@@ -530,7 +530,7 @@ static int __init dvb_bt8xx_load_card(struct dvb_bt8xx_card *card, u32 type)
 		dvb_unregister_adapter(card->dvb_adapter);
 		return result;
 	}
-	
+
 	card->fe_mem.source = DMX_MEMORY_FE;
 
 	if ((result = card->demux.dmx.add_frontend(&card->demux.dmx, &card->fe_mem)) < 0) {
@@ -557,7 +557,7 @@ static int __init dvb_bt8xx_load_card(struct dvb_bt8xx_card *card, u32 type)
 	dvb_net_init(card->dvb_adapter, &card->dvbnet, &card->demux.dmx);
 
 	tasklet_init(&card->bt->tasklet, dvb_bt8xx_task, (unsigned long) card);
-	
+
 	frontend_init(card, type);
 
 	return 0;
@@ -588,17 +588,17 @@ static int dvb_bt8xx_probe(struct device *dev)
 		card->op_sync_orin = 0;
 		card->irq_err_ignore = 0;
 		break;
-		
+
 #ifdef BTTV_DVICO_DVBT_LITE
 	case BTTV_DVICO_DVBT_LITE:
 #endif
 		card->gpio_mode = 0x0400C060;
 		card->op_sync_orin = 0;
 		card->irq_err_ignore = 0;
-				/* 26, 15, 14, 6, 5 
+		/* 26, 15, 14, 6, 5
 		 * A_PWRDN  DA_DPM DA_SBR DA_IOM_DA
-				 * DA_APP(parallel) */
-				break;
+		 * DA_APP(parallel) */
+		break;
 
 #ifdef BTTV_TWINHAN_VP3021
 	case BTTV_TWINHAN_VP3021:
@@ -609,40 +609,40 @@ static int dvb_bt8xx_probe(struct device *dev)
 		card->gpio_mode = (1 << 26) | (1 << 14) | (1 << 5);
 		card->op_sync_orin = 0;
 		card->irq_err_ignore = 0;
-				/* A_PWRDN DA_SBR DA_APP (high speed serial) */
-				break;
+		/* A_PWRDN DA_SBR DA_APP (high speed serial) */
+		break;
 
 	case BTTV_AVDVBT_771: //case 0x07711461:
 		card->gpio_mode = 0x0400402B;
 		card->op_sync_orin = BT878_RISC_SYNC_MASK;
 		card->irq_err_ignore = 0;
 		/* A_PWRDN DA_SBR  DA_APP[0] PKTP=10 RISC_ENABLE FIFO_ENABLE*/
-				break;
+		break;
 
 	case BTTV_TWINHAN_DST:
 		card->gpio_mode = 0x2204f2c;
 		card->op_sync_orin = BT878_RISC_SYNC_MASK;
 		card->irq_err_ignore = BT878_APABORT | BT878_ARIPERR |
 				       BT878_APPERR | BT878_AFBUS;
-				/* 25,21,14,11,10,9,8,3,2 then
-				 * 0x33 = 5,4,1,0
-				 * A_SEL=SML, DA_MLB, DA_SBR, 
-				 * DA_SDR=f, fifo trigger = 32 DWORDS
-				 * IOM = 0 == audio A/D
-				 * DPM = 0 == digital audio mode
-				 * == async data parallel port
-				 * then 0x33 (13 is set by start_capture)
-				 * DA_APP = async data parallel port, 
-				 * ACAP_EN = 1,
-				 * RISC+FIFO ENABLE */
-				break;
+		/* 25,21,14,11,10,9,8,3,2 then
+		 * 0x33 = 5,4,1,0
+		 * A_SEL=SML, DA_MLB, DA_SBR,
+		 * DA_SDR=f, fifo trigger = 32 DWORDS
+		 * IOM = 0 == audio A/D
+		 * DPM = 0 == digital audio mode
+		 * == async data parallel port
+		 * then 0x33 (13 is set by start_capture)
+		 * DA_APP = async data parallel port,
+		 * ACAP_EN = 1,
+		 * RISC+FIFO ENABLE */
+		break;
 
-			default:
+	default:
 		printk(KERN_WARNING "dvb_bt8xx: Unknown bttv card type: %d.\n",
 				sub->core->type);
 		kfree(card);
 		return -ENODEV;
-		}
+	}
 
 	dprintk("dvb_bt8xx: identified card%d as %s\n", card->bttv_nr, card->card_name);
 
@@ -661,7 +661,7 @@ static int dvb_bt8xx_probe(struct device *dev)
 		kfree(card);
 		return -EFAULT;
 
-}
+	}
 
 	init_MUTEX(&card->bt->gpio_lock);
 	card->bt->bttv_nr = sub->core->nr;
@@ -678,23 +678,23 @@ static int dvb_bt8xx_probe(struct device *dev)
 static int dvb_bt8xx_remove(struct device *dev)
 {
 	struct dvb_bt8xx_card *card = dev_get_drvdata(dev);
-		
-		dprintk("dvb_bt8xx: unloading card%d\n", card->bttv_nr);
 
-		bt878_stop(card->bt);
-		tasklet_kill(&card->bt->tasklet);
-		dvb_net_release(&card->dvbnet);
-		card->demux.dmx.remove_frontend(&card->demux.dmx, &card->fe_mem);
-		card->demux.dmx.remove_frontend(&card->demux.dmx, &card->fe_hw);
-		dvb_dmxdev_release(&card->dmxdev);
-		dvb_dmx_release(&card->demux);
+	dprintk("dvb_bt8xx: unloading card%d\n", card->bttv_nr);
+
+	bt878_stop(card->bt);
+	tasklet_kill(&card->bt->tasklet);
+	dvb_net_release(&card->dvbnet);
+	card->demux.dmx.remove_frontend(&card->demux.dmx, &card->fe_mem);
+	card->demux.dmx.remove_frontend(&card->demux.dmx, &card->fe_hw);
+	dvb_dmxdev_release(&card->dmxdev);
+	dvb_dmx_release(&card->demux);
 	if (card->fe) dvb_unregister_frontend(card->fe);
-		dvb_unregister_adapter(card->dvb_adapter);
-		
-		kfree(card);
+	dvb_unregister_adapter(card->dvb_adapter);
+
+	kfree(card);
 
 	return 0;
-	}
+}
 
 static struct bttv_sub_driver driver = {
 	.drv = {
@@ -721,7 +721,7 @@ static void __exit dvb_bt8xx_exit(void)
 
 module_init(dvb_bt8xx_init);
 module_exit(dvb_bt8xx_exit);
+
 MODULE_DESCRIPTION("Bt8xx based DVB adapter driver");
 MODULE_AUTHOR("Florian Schirmer <jolt@tuxbox.org>");
 MODULE_LICENSE("GPL");
-
