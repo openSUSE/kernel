@@ -1166,15 +1166,10 @@ static void extract_buf(struct entropy_store *r, __u32 *buf)
 	 * In case the hash function has some recognizable
 	 * output pattern, we fold it in half.
 	 */
-	for (i = 0; i <  HASH_BUFFER_SIZE / 2; i++)
-		buf[i] ^= buf[i + (HASH_BUFFER_SIZE + 1) / 2];
 
-	if (HASH_BUFFER_SIZE & 1) {
-		/* There's a middle word to deal with */
-		x = buf[HASH_BUFFER_SIZE/2];
-		x ^= (x >> 16);	/* Fold it in half */
-		((__u16 *)buf)[HASH_BUFFER_SIZE - 1] = (__u16)x;
-	}
+	buf[0] ^= buf[3];
+	buf[1] ^= buf[4];
+	buf[0] ^= rol32(buf[3], 16);
 }
 
 static ssize_t extract_entropy(struct entropy_store *r, void * buf,
