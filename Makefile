@@ -1145,20 +1145,30 @@ endif # KBUILD_EXTMOD
 # Generate tags for editors
 # ---------------------------------------------------------------------------
 
+#We want __srctree to totally vanish out when KBUILD_OUTPUT is not set
+#(which is the most common case IMHO) to avoid unneeded clutter in the big tags file.
+#Adding $(srctree) adds about 20M on i386 to the size of the output file!
+
+ifeq ($(KBUILD_OUTPUT),)
+__srctree =
+else
+__srctree = $(srctree)/
+endif
+
 define all-sources
-	( find $(srctree) $(RCS_FIND_IGNORE) \
+	( find $(__srctree) $(RCS_FIND_IGNORE) \
 	       \( -name include -o -name arch \) -prune -o \
 	       -name '*.[chS]' -print; \
-	  find $(srctree)/arch/$(ARCH) $(RCS_FIND_IGNORE) \
+	  find $(__srctree)arch/$(ARCH) $(RCS_FIND_IGNORE) \
 	       -name '*.[chS]' -print; \
-	  find $(srctree)/security/selinux/include $(RCS_FIND_IGNORE) \
+	  find $(__srctree)security/selinux/include $(RCS_FIND_IGNORE) \
 	       -name '*.[chS]' -print; \
-	  find $(srctree)/include $(RCS_FIND_IGNORE) \
+	  find $(__srctree)include $(RCS_FIND_IGNORE) \
 	       \( -name config -o -name 'asm-*' \) -prune \
 	       -o -name '*.[chS]' -print; \
-	  find $(srctree)/include/asm-$(ARCH) $(RCS_FIND_IGNORE) \
+	  find $(__srctree)include/asm-$(ARCH) $(RCS_FIND_IGNORE) \
 	       -name '*.[chS]' -print; \
-	  find $(srctree)/include/asm-generic $(RCS_FIND_IGNORE) \
+	  find $(__srctree)include/asm-generic $(RCS_FIND_IGNORE) \
 	       -name '*.[chS]' -print )
 endef
 
