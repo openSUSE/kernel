@@ -2258,7 +2258,7 @@ static int cx8800_init(void)
 	printk(KERN_INFO "cx2388x: snapshot date %04d-%02d-%02d\n",
 	       SNAPSHOT/10000, (SNAPSHOT/100)%100, SNAPSHOT%100);
 #endif
-	return pci_module_init(&cx8800_pci_driver);
+	return pci_register_driver(&cx8800_pci_driver);
 }
 
 static void cx8800_fini(void)

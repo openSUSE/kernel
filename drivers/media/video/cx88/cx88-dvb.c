@@ -362,7 +362,7 @@ static int dvb_init(void)
 	printk(KERN_INFO "cx2388x: snapshot date %04d-%02d-%02d\n",
 	       SNAPSHOT/10000, (SNAPSHOT/100)%100, SNAPSHOT%100);
 #endif
-	return pci_module_init(&dvb_pci_driver);
+	return pci_register_driver(&dvb_pci_driver);
 }
 
 static void dvb_fini(void)
