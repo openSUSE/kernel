@@ -801,7 +801,7 @@ static struct console sal_console = {
 
 #define SAL_CONSOLE	&sal_console
 
-static struct uart_driver sal_console_uart = {
+struct uart_driver sal_console_uart = {
 	.owner = THIS_MODULE,
 	.driver_name = "sn_console",
 	.dev_name = DEVICE_NAME,
