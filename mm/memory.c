@@ -110,15 +110,14 @@ void pmd_clear_bad(pmd_t *pmd)
  * Note: this doesn't free the actual pages themselves. That
  * has been handled earlier when unmapping all the memory regions.
  */
-static inline void clear_pmd_range(struct mmu_gather *tlb, pmd_t *pmd, unsigned long start, unsigned long end)
+static inline void clear_pte_range(struct mmu_gather *tlb, pmd_t *pmd,
+				unsigned long addr, unsigned long end)
 {
-	struct page *page;
-
 	if (pmd_none_or_clear_bad(pmd))
 		return;
-	if (!((start | end) & ~PMD_MASK)) {
-		/* Only clear full, aligned ranges */
-		page = pmd_page(*pmd);
+	if (!((addr | end) & ~PMD_MASK)) {
+		/* Only free fully aligned ranges */
+		struct page *page = pmd_page(*pmd);
 		pmd_clear(pmd);
 		dec_page_state(nr_page_table_pages);
 		tlb->mm->nr_ptes--;
@@ -126,77 +125,72 @@ static inline void clear_pmd_range(struct mmu_gather *tlb, pmd_t *pmd, unsigned 
 	}
 }
 
-static inline void clear_pud_range(struct mmu_gather *tlb, pud_t *pud, unsigned long start, unsigned long end)
+static inline void clear_pmd_range(struct mmu_gather *tlb, pud_t *pud,
+				unsigned long addr, unsigned long end)
 {
-	unsigned long addr = start, next;
-	pmd_t *pmd, *__pmd;
+	pmd_t *pmd;
+	unsigned long next;
+	pmd_t *empty_pmd = NULL;
 
 	if (pud_none_or_clear_bad(pud))
 		return;
-	pmd = __pmd = pmd_offset(pud, start);
-	do {
-		next = (addr + PMD_SIZE) & PMD_MASK;
-		if (next > end || next <= addr)
-			next = end;
-		
-		clear_pmd_range(tlb, pmd, addr, next);
-		pmd++;
-		addr = next;
-	} while (addr && (addr < end));
+	pmd = pmd_offset(pud, addr);
 
-	if (!((start | end) & ~PUD_MASK)) {
-		/* Only clear full, aligned ranges */
+	/* Only free fully aligned ranges */
+	if (!((addr | end) & ~PUD_MASK))
+		empty_pmd = pmd;
+	do {
+		next = pmd_addr_end(addr, end);
+		clear_pte_range(tlb, pmd, addr, next);
+	} while (pmd++, addr = next, addr != end);
+
+	if (empty_pmd) {
 		pud_clear(pud);
-		pmd_free_tlb(tlb, __pmd);
+		pmd_free_tlb(tlb, empty_pmd);
 	}
 }
 
-
-static inline void clear_pgd_range(struct mmu_gather *tlb, pgd_t *pgd, unsigned long start, unsigned long end)
+static inline void clear_pud_range(struct mmu_gather *tlb, pgd_t *pgd,
+				unsigned long addr, unsigned long end)
 {
-	unsigned long addr = start, next;
-	pud_t *pud, *__pud;
+	pud_t *pud;
+	unsigned long next;
+	pud_t *empty_pud = NULL;
 
 	if (pgd_none_or_clear_bad(pgd))
 		return;
-	pud = __pud = pud_offset(pgd, start);
-	do {
-		next = (addr + PUD_SIZE) & PUD_MASK;
-		if (next > end || next <= addr)
-			next = end;
-		
-		clear_pud_range(tlb, pud, addr, next);
-		pud++;
-		addr = next;
-	} while (addr && (addr < end));
+	pud = pud_offset(pgd, addr);
 
-	if (!((start | end) & ~PGDIR_MASK)) {
-		/* Only clear full, aligned ranges */
+	/* Only free fully aligned ranges */
+	if (!((addr | end) & ~PGDIR_MASK))
+		empty_pud = pud;
+	do {
+		next = pud_addr_end(addr, end);
+		clear_pmd_range(tlb, pud, addr, next);
+	} while (pud++, addr = next, addr != end);
+
+	if (empty_pud) {
 		pgd_clear(pgd);
-		pud_free_tlb(tlb, __pud);
+		pud_free_tlb(tlb, empty_pud);
 	}
 }
 
 /*
  * This function clears user-level page tables of a process.
- *
+ * Unlike other pagetable walks, some memory layouts might give end 0.
  * Must be called with pagetable lock held.
  */
-void clear_page_range(struct mmu_gather *tlb, unsigned long start, unsigned long end)
+void clear_page_range(struct mmu_gather *tlb,
+				unsigned long addr, unsigned long end)
 {
-	unsigned long addr = start, next;
-	pgd_t * pgd = pgd_offset(tlb->mm, start);
-	unsigned long i;
+	pgd_t *pgd;
+	unsigned long next;
 
-	for (i = pgd_index(start); i <= pgd_index(end-1); i++) {
-		next = (addr + PGDIR_SIZE) & PGDIR_MASK;
-		if (next > end || next <= addr)
-			next = end;
-		
-		clear_pgd_range(tlb, pgd, addr, next);
-		pgd++;
-		addr = next;
-	}
+	pgd = pgd_offset(tlb->mm, addr);
+	do {
+		next = pgd_addr_end(addr, end);
+		clear_pud_range(tlb, pgd, addr, next);
+	} while (pgd++, addr = next, addr != end);
 }
 
 pte_t fastcall * pte_alloc_map(struct mm_struct *mm, pmd_t *pmd, unsigned long address)
