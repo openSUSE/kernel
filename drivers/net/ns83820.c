@@ -2203,7 +2203,7 @@ static void __exit ns83820_exit(void)
 	pci_unregister_driver(&driver);
 }
 
-MODULE_AUTHOR("Benjamin LaHaise <bcrl@redhat.com>");
+MODULE_AUTHOR("Benjamin LaHaise <bcrl@kvack.org>");
 MODULE_DESCRIPTION("National Semiconductor DP83820 10/100/1000 driver");
 MODULE_LICENSE("GPL");
 

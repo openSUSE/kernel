@@ -1,6 +1,6 @@
 /*
  *	An async IO implementation for Linux
- *	Written by Benjamin LaHaise <bcrl@redhat.com>
+ *	Written by Benjamin LaHaise <bcrl@kvack.org>
  *
  *	Implements an efficient asynchronous io interface.
  *
