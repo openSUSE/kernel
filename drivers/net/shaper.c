@@ -96,7 +96,7 @@ struct shaper_cb {
 }; 
 #define SHAPERCB(skb) ((struct shaper_cb *) ((skb)->cb))
 
-int sh_debug;		/* Debug flag */
+static int sh_debug;		/* Debug flag */
 
 #define SHAPER_BANNER	"CymruNet Traffic Shaper BETA 0.04 for Linux 2.1\n"
 

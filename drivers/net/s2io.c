@@ -1350,7 +1350,7 @@ static int verify_xena_quiescence(u64 val64, int flag)
  *
  */
 
-void fix_mac_address(nic_t * sp)
+static void fix_mac_address(nic_t * sp)
 {
 	XENA_dev_config_t __iomem *bar0 = sp->bar0;
 	u64 val64;
@@ -1506,7 +1506,7 @@ static int start_nic(struct s2io_nic *nic)
  *  Return Value: void 
 */
 
-void free_tx_buffers(struct s2io_nic *nic)
+static void free_tx_buffers(struct s2io_nic *nic)
 {
 	struct net_device *dev = nic->dev;
 	struct sk_buff *skb;
@@ -1597,7 +1597,7 @@ static void stop_nic(struct s2io_nic *nic)
  *  SUCCESS on success or an appropriate -ve value on failure.
  */
 
-int fill_rx_buffers(struct s2io_nic *nic, int ring_no)
+static int fill_rx_buffers(struct s2io_nic *nic, int ring_no)
 {
 	struct net_device *dev = nic->dev;
 	struct sk_buff *skb;
@@ -2422,7 +2422,7 @@ static void alarm_intr_handler(struct s2io_nic *nic)
  *   SUCCESS on success and FAILURE on failure.
  */
 
-int wait_for_cmd_complete(nic_t * sp)
+static int wait_for_cmd_complete(nic_t * sp)
 {
 	XENA_dev_config_t __iomem *bar0 = sp->bar0;
 	int ret = FAILURE, cnt = 0;
@@ -2452,7 +2452,7 @@ int wait_for_cmd_complete(nic_t * sp)
  *  void.
  */
 
-void s2io_reset(nic_t * sp)
+static void s2io_reset(nic_t * sp)
 {
 	XENA_dev_config_t __iomem *bar0 = sp->bar0;
 	u64 val64;
@@ -2504,7 +2504,7 @@ void s2io_reset(nic_t * sp)
  *  SUCCESS on success and FAILURE on failure.
  */
 
-int s2io_set_swapper(nic_t * sp)
+static int s2io_set_swapper(nic_t * sp)
 {
 	struct net_device *dev = sp->dev;
 	XENA_dev_config_t __iomem *bar0 = sp->bar0;
@@ -2598,7 +2598,7 @@ int s2io_set_swapper(nic_t * sp)
  *   file on failure.
  */
 
-int s2io_open(struct net_device *dev)
+static int s2io_open(struct net_device *dev)
 {
 	nic_t *sp = dev->priv;
 	int err = 0;
@@ -2650,7 +2650,7 @@ int s2io_open(struct net_device *dev)
  *  file on failure.
  */
 
-int s2io_close(struct net_device *dev)
+static int s2io_close(struct net_device *dev)
 {
 	nic_t *sp = dev->priv;
 
@@ -2677,7 +2677,7 @@ int s2io_close(struct net_device *dev)
  *  0 on success & 1 on failure.
  */
 
-int s2io_xmit(struct sk_buff *skb, struct net_device *dev)
+static int s2io_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	nic_t *sp = dev->priv;
 	u16 frg_cnt, frg_len, i, queue, queue_len, put_off, get_off;
@@ -2897,7 +2897,7 @@ static irqreturn_t s2io_isr(int irq, void *dev_id, struct pt_regs *regs)
  *  pointer to the updated net_device_stats structure.
  */
 
-struct net_device_stats *s2io_get_stats(struct net_device *dev)
+static struct net_device_stats *s2io_get_stats(struct net_device *dev)
 {
 	nic_t *sp = dev->priv;
 	mac_info_t *mac_control;
@@ -3150,7 +3150,7 @@ static int s2io_ethtool_sset(struct net_device *dev,
  * return 0 on success.
  */
 
-int s2io_ethtool_gset(struct net_device *dev, struct ethtool_cmd *info)
+static int s2io_ethtool_gset(struct net_device *dev, struct ethtool_cmd *info)
 {
 	nic_t *sp = dev->priv;
 	info->supported = (SUPPORTED_10000baseT_Full | SUPPORTED_FIBRE);
@@ -3347,8 +3347,8 @@ static void s2io_ethtool_getpause_data(struct net_device *dev,
  * int, returns 0 on Success
  */
 
-int s2io_ethtool_setpause_data(struct net_device *dev,
-			       struct ethtool_pauseparam *ep)
+static int s2io_ethtool_setpause_data(struct net_device *dev,
+				      struct ethtool_pauseparam *ep)
 {
 	u64 val64;
 	nic_t *sp = dev->priv;
@@ -3463,8 +3463,8 @@ static int write_eeprom(nic_t * sp, int off, u32 data, int cnt)
  *  int  0 on success
  */
 
-int s2io_ethtool_geeprom(struct net_device *dev,
-			 struct ethtool_eeprom *eeprom, u8 * data_buf)
+static int s2io_ethtool_geeprom(struct net_device *dev,
+				struct ethtool_eeprom *eeprom, u8 * data_buf)
 {
 	u32 data, i, valid;
 	nic_t *sp = dev->priv;
@@ -3961,19 +3961,20 @@ static void s2io_get_ethtool_stats(struct net_device *dev,
 	tmp_stats[i++] = stat_info->rmac_err_tcp;
 }
 
-int s2io_ethtool_get_regs_len(struct net_device *dev)
+static int s2io_ethtool_get_regs_len(struct net_device *dev)
 {
 	return (XENA_REG_SPACE);
 }
 
 
-u32 s2io_ethtool_get_rx_csum(struct net_device * dev)
+static u32 s2io_ethtool_get_rx_csum(struct net_device * dev)
 {
 	nic_t *sp = dev->priv;
 
 	return (sp->rx_csum);
 }
-int s2io_ethtool_set_rx_csum(struct net_device *dev, u32 data)
+
+static int s2io_ethtool_set_rx_csum(struct net_device *dev, u32 data)
 {
 	nic_t *sp = dev->priv;
 
@@ -3984,17 +3985,19 @@ int s2io_ethtool_set_rx_csum(struct net_device *dev, u32 data)
 
 	return 0;
 }
-int s2io_get_eeprom_len(struct net_device *dev)
+
+static int s2io_get_eeprom_len(struct net_device *dev)
 {
 	return (XENA_EEPROM_SPACE);
 }
 
-int s2io_ethtool_self_test_count(struct net_device *dev)
+static int s2io_ethtool_self_test_count(struct net_device *dev)
 {
 	return (S2IO_TEST_LEN);
 }
-void s2io_ethtool_get_strings(struct net_device *dev,
-			      u32 stringset, u8 * data)
+
+static void s2io_ethtool_get_strings(struct net_device *dev,
+				     u32 stringset, u8 * data)
 {
 	switch (stringset) {
 	case ETH_SS_TEST:
@@ -4005,12 +4008,13 @@ void s2io_ethtool_get_strings(struct net_device *dev,
 		       sizeof(ethtool_stats_keys));
 	}
 }
+
 static int s2io_ethtool_get_stats_count(struct net_device *dev)
 {
 	return (S2IO_STAT_LEN);
 }
 
-int s2io_ethtool_op_set_tx_csum(struct net_device *dev, u32 data)
+static int s2io_ethtool_op_set_tx_csum(struct net_device *dev, u32 data)
 {
 	if (data)
 		dev->features |= NETIF_F_IP_CSUM;
@@ -4066,7 +4070,7 @@ static struct ethtool_ops netdev_ethtool_ops = {
  *  function returns OP NOT SUPPORTED value.
  */
 
-int s2io_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
+static int s2io_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
 	return -EOPNOTSUPP;
 }
@@ -4082,7 +4086,7 @@ int s2io_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
  *   file on failure.
  */
 
-int s2io_change_mtu(struct net_device *dev, int new_mtu)
+static int s2io_change_mtu(struct net_device *dev, int new_mtu)
 {
 	nic_t *sp = dev->priv;
 	XENA_dev_config_t __iomem *bar0 = sp->bar0;
@@ -4476,7 +4480,7 @@ static int rx_osm_handler(nic_t * sp, RxD_t * rxdp, int ring_no,
  *  void.
  */
 
-void s2io_link(nic_t * sp, int link)
+static void s2io_link(nic_t * sp, int link)
 {
 	struct net_device *dev = (struct net_device *) sp->dev;
 
@@ -4490,23 +4494,6 @@ void s2io_link(nic_t * sp, int link)
 		}
 	}
 	sp->last_link_state = link;
-}
-
-/**
- *  get_xena_rev_id - to identify revision ID of xena. 
- *  @pdev : PCI Dev structure
- *  Description:
- *  Function to identify the Revision ID of xena.
- *  Return value:
- *  returns the revision ID of the device.
- */
-
-int get_xena_rev_id(struct pci_dev *pdev)
-{
-	u8 id = 0;
-	int ret;
-	ret = pci_read_config_byte(pdev, PCI_REVISION_ID, (u8 *) & id);
-	return id;
 }
 
 /**
@@ -4962,7 +4949,7 @@ int __init s2io_starter(void)
  * Description: This function is the cleanup routine for the driver. It unregist * ers the driver.
  */
 
-void s2io_closer(void)
+static void s2io_closer(void)
 {
 	pci_unregister_driver(&s2io_driver);
 	DBG_PRINT(INIT_DBG, "cleanup done\n");

@@ -843,7 +843,7 @@ static struct ethtool_ops tun_ethtool_ops = {
 	.set_rx_csum	= tun_set_rx_csum
 };
 
-int __init tun_init(void)
+static int __init tun_init(void)
 {
 	int ret = 0;
 
@@ -856,7 +856,7 @@ int __init tun_init(void)
 	return ret;
 }
 
-void tun_cleanup(void)
+static void tun_cleanup(void)
 {
 	struct tun_struct *tun, *nxt;
 

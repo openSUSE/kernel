@@ -56,7 +56,6 @@
 #include <linux/etherdevice.h>
 #include <linux/ethtool.h>
 #include <linux/skbuff.h>
-#include <linux/dp83840.h>
 #include <net/ip.h>
 
 #include <asm/byteorder.h>
