@@ -374,11 +374,6 @@ static struct poolinfo {
 static DECLARE_WAIT_QUEUE_HEAD(random_read_wait);
 static DECLARE_WAIT_QUEUE_HEAD(random_write_wait);
 
-static inline __u32 rol32(__u32 word, int shift)
-{
-	return (word << shift) | (word >> (32 - shift));
-}
-
 #if 0
 static int debug = 0;
 module_param(debug, bool, 0644);
