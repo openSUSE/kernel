@@ -441,7 +441,7 @@ struct trident_card {
 	struct timer_list timer;
 
 	/* Game port support */
-	struct gameport gameport;
+	struct gameport *gameport;
 };
 
 enum dmabuf_mode {
@@ -4305,6 +4305,31 @@ trident_game_open(struct gameport *gameport, int mode)
 	return 0;
 }
 
+static int __devinit
+trident_register_gameport(struct trident_card *card)
+{
+	struct gameport *gp;
+
+	card->gameport = gp = gameport_allocate_port();
+	if (!gp) {
+		printk(KERN_ERR "trident: can not allocate memory for gameport\n");
+		return -ENOMEM;
+	}
+
+	gameport_set_name(gp, "Trident 4DWave");
+	gameport_set_phys(gp, "pci%s/gameport0", pci_name(card->pci_dev));
+	gp->read = trident_game_read;
+	gp->trigger = trident_game_trigger;
+	gp->cooked_read = trident_game_cooked_read;
+	gp->open = trident_game_open;
+	gp->fuzz = 64;
+	gp->port_data = card;
+
+	gameport_register_port(gp);
+
+	return 0;
+}
+
 /* install the driver, we do not allocate hardware channel nor DMA buffer */ 
 /* now, they are defered until "ACCESS" time (in prog_dmabuf called by */ 
 /* open/read/write/ioctl/mmap) */
@@ -4367,13 +4392,6 @@ trident_probe(struct pci_dev *pci_dev, const struct pci_device_id *pci_id)
 	card->banks[BANK_A].bitmap = 0UL;
 	card->banks[BANK_B].addresses = &bank_b_addrs;
 	card->banks[BANK_B].bitmap = 0UL;
-
-	card->gameport.port_data = card;
-	card->gameport.fuzz = 64;
-	card->gameport.read = trident_game_read;
-	card->gameport.trigger = trident_game_trigger;
-	card->gameport.cooked_read = trident_game_cooked_read;
-	card->gameport.open = trident_game_open;
 
 	init_MUTEX(&card->open_sem);
 	spin_lock_init(&card->lock);
@@ -4508,7 +4526,7 @@ trident_probe(struct pci_dev *pci_dev, const struct pci_device_id *pci_id)
 	trident_enable_loop_interrupts(card);
 
 	/* Register gameport */
-	gameport_register_port(&card->gameport);
+	trident_register_gameport(card);
 
 out:
 	return rc;
@@ -4551,7 +4569,8 @@ trident_remove(struct pci_dev *pci_dev)
 	}
 
 	/* Unregister gameport */
-	gameport_unregister_port(&card->gameport);
+	if (card->gameport)
+		gameport_unregister_port(card->gameport);
 
 	/* Kill interrupts, and SP/DIF */
 	trident_disable_loop_interrupts(card);
