@@ -782,6 +782,8 @@ int pdc_pci_irt(unsigned long num_entries, unsigned long hpa, void *tbl)
 {
 	int retval;
 
+	BUG_ON((unsigned long)tbl & 0x7);
+
 	spin_lock_irq(&pdc_lock);
 	pdc_result[0] = num_entries;
 	retval = mem_pdc_call(PDC_PCI_INDEX, PDC_PCI_GET_INT_TBL, 
