@@ -55,7 +55,7 @@ static inline void ra_off(struct file_ra_state *ra)
 {
 	ra->start = 0;
 	ra->flags = 0;
-	ra->size = -1;
+	ra->size = 0;
 	ra->ahead_start = 0;
 	ra->ahead_size = 0;
 	return;
@@ -452,7 +452,7 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 	 * perturbing the readahead window expansion logic.
 	 * If size is zero, there is no read ahead window so we need one
 	 */
-	if (offset == ra->prev_page && req_size == 1 && ra->size != 0)
+	if (offset == ra->prev_page && req_size == 1)
 		goto out;
 
 	ra->prev_page = offset;
@@ -471,9 +471,7 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 	 * at start of file, and grow the window fast.  Or detect first
 	 * sequential access
 	 */
-	if ((ra->size == 0 && offset == 0)	/* first io and start of file */
-	    || (ra->size == -1 && sequential)) {
-		/* First sequential */
+	if (sequential && ra->size == 0) {
 		ra->size = get_init_ra_size(newsize, max);
 		ra->start = offset;
 		if (!blockable_page_cache_readahead(mapping, filp, offset,
@@ -499,7 +497,7 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 	 * partial page reads and first access were handled above,
 	 * so this must be the next page otherwise it is random
 	 */
-	if (!sequential || (ra->size == 0)) {
+	if (!sequential) {
 		ra_off(ra);
 		blockable_page_cache_readahead(mapping, filp, offset,
 				 newsize, ra, 1);
