@@ -154,6 +154,22 @@ long sys_olduname(struct oldold_utsname * name)
 	return error;
 }
 
+DEFINE_SPINLOCK(syscall_lock);
+
+static int syscall_index = 0;
+
+int next_syscall_index(int limit)
+{
+	int ret;
+
+	spin_lock(&syscall_lock);
+	ret = syscall_index;
+	if(++syscall_index == limit)
+		syscall_index = 0;
+	spin_unlock(&syscall_lock);
+	return(ret);
+}
+
 /*
  * Overrides for Emacs so that we follow Linus's tabbing style.
  * Emacs will notice this stuff at the end of the file and automatically

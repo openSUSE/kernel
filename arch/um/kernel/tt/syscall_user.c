@@ -23,11 +23,17 @@ void syscall_handler_tt(int sig, union uml_pt_regs *regs)
 	void *sc;
 	long result;
 	int syscall;
+#ifdef UML_CONFIG_DEBUG_SYSCALL
+	int index;
+#endif
 
 	syscall = UPT_SYSCALL_NR(regs);
 	sc = UPT_SC(regs);
 	SC_START_SYSCALL(sc);
 
+#ifdef UML_CONFIG_DEBUG_SYSCALL
+  	index = record_syscall_start(syscall);
+#endif
 	syscall_trace(regs, 0);
 	result = execute_syscall_tt(regs);
 
@@ -39,6 +45,9 @@ void syscall_handler_tt(int sig, union uml_pt_regs *regs)
 	SC_SET_SYSCALL_RETURN(sc, result);
 
 	syscall_trace(regs, 1);
+#ifdef UML_CONFIG_DEBUG_SYSCALL
+  	record_syscall_end(index, result);
+#endif
 }
 
 void do_sigtrap(void *task)
