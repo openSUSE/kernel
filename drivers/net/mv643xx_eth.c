@@ -510,7 +510,6 @@ static irqreturn_t mv64340_eth_int_handler(int irq, void *dev_id,
 			__netif_rx_schedule(dev);
 		}
 #else
-		{
 		if (eth_int_cause & (BIT2 | BIT11))
 			mv64340_eth_receive_queue(dev, 0);
 
