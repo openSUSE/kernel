@@ -302,20 +302,6 @@
 #define B44_MII_TLEDCTRL	27	/* Traffic Meter LED */
 #define  MII_TLEDCTRL_ENABLE	0x0040
 
-/* XXX Add this to mii.h */
-#ifndef ADVERTISE_PAUSE
-#define ADVERTISE_PAUSE_CAP		0x0400
-#endif
-#ifndef ADVERTISE_PAUSE_ASYM
-#define ADVERTISE_PAUSE_ASYM		0x0800
-#endif
-#ifndef LPA_PAUSE
-#define LPA_PAUSE_CAP			0x0400
-#endif
-#ifndef LPA_PAUSE_ASYM
-#define LPA_PAUSE_ASYM			0x0800
-#endif
-
 struct dma_desc {
 	u32	ctrl;
 	u32	addr;
