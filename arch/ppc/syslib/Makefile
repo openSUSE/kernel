@@ -74,6 +74,7 @@ obj-$(CONFIG_PRPMC750)		+= open_pic.o indirect_pci.o pci_auto.o \
 					hawk_common.o
 obj-$(CONFIG_HARRIER)		+= harrier.o
 obj-$(CONFIG_PRPMC800)		+= open_pic.o indirect_pci.o pci_auto.o
+obj-$(CONFIG_RADSTONE_PPC7D)	+= i8259.o pci_auto.o
 obj-$(CONFIG_SANDPOINT)		+= i8259.o pci_auto.o todc_time.o
 obj-$(CONFIG_SBC82xx)		+= todc_time.o
 obj-$(CONFIG_SPRUCE)		+= cpc700_pic.o indirect_pci.o pci_auto.o \
