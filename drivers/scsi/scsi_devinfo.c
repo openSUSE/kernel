@@ -63,6 +63,7 @@ static struct {
 	{"MAXTOR", "XT-4170S", "B5A", BLIST_NOLUN},	/* locks up */
 	{"MAXTOR", "XT-8760S", "B7B", BLIST_NOLUN},	/* locks up */
 	{"MEDIAVIS", "RENO CD-ROMX2A", "2.03", BLIST_NOLUN},	/* responds to all lun */
+	{"MICROTEK", "ScanMakerIII", "2.30", BLIST_NOLUN},	/* responds to all lun */
 	{"NEC", "CD-ROM DRIVE:841", "1.0", BLIST_NOLUN},/* locks up */
 	{"PHILIPS", "PCA80SC", "V4-2", BLIST_NOLUN},	/* responds to all lun */
 	{"RODIME", "RO3000S", "2.33", BLIST_NOLUN},	/* locks up */
