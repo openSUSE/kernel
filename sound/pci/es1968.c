@@ -2403,7 +2403,7 @@ static void snd_es1968_start_irq(es1968_t *chip)
 /*
  * PM support
  */
-static int es1968_suspend(snd_card_t *card, unsigned int state)
+static int es1968_suspend(snd_card_t *card, pm_message_t state)
 {
 	es1968_t *chip = card->pm_private_data;
 
@@ -2418,7 +2418,7 @@ static int es1968_suspend(snd_card_t *card, unsigned int state)
 	return 0;
 }
 
-static int es1968_resume(snd_card_t *card, unsigned int state)
+static int es1968_resume(snd_card_t *card)
 {
 	es1968_t *chip = card->pm_private_data;
 
