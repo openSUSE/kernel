@@ -199,7 +199,7 @@ static inline int flag_is_changeable_p(u32 flag)
 
 
 /* Probe for the CPUID instruction */
-int __init have_cpuid_p(void)
+static int __init have_cpuid_p(void)
 {
 	return flag_is_changeable_p(X86_EFLAGS_ID);
 }
@@ -207,7 +207,7 @@ int __init have_cpuid_p(void)
 /* Do minimum CPU detection early.
    Fields really needed: vendor, cpuid_level, family, model, mask, cache alignment.
    The others are not touched to avoid unwanted side effects. */
-void __init early_cpu_detect(void)
+static void __init early_cpu_detect(void)
 {
 	struct cpuinfo_x86 *c = &boot_cpu_data;
 
@@ -426,16 +426,6 @@ void __init identify_cpu(struct cpuinfo_x86 *c)
 	mcheck_init(c);
 #endif
 }
-/*
- *	Perform early boot up checks for a valid TSC. See arch/i386/kernel/time.c
- */
- 
-void __init dodgy_tsc(void)
-{
-	if (( boot_cpu_data.x86_vendor == X86_VENDOR_CYRIX ) ||
-	    ( boot_cpu_data.x86_vendor == X86_VENDOR_NSC   ))
-		cpu_devs[X86_VENDOR_CYRIX]->c_init(&boot_cpu_data);
-}
 
 #ifdef CONFIG_X86_HT
 void __init detect_ht(struct cpuinfo_x86 *c)
@@ -523,7 +513,6 @@ extern int transmeta_init_cpu(void);
 extern int rise_init_cpu(void);
 extern int nexgen_init_cpu(void);
 extern int umc_init_cpu(void);
-void early_cpu_detect(void);
 
 void __init early_cpu_init(void)
 {
