@@ -507,7 +507,6 @@ static struct i2c_driver i2cdev_driver = {
 
 static struct i2c_client i2cdev_client_template = {
 	.name		= "I2C /dev entry",
-	.id		= 1,
 	.addr		= -1,
 	.driver		= &i2cdev_driver,
 };
