@@ -757,11 +757,11 @@ static struct dentry *vfat_lookup(struct inode *dir, struct dentry *dentry,
 		table++;
 		goto error;
 	}
-	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos, &err);
+	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos);
 	brelse(sinfo.bh);
-	if (err) {
+	if (IS_ERR(inode)) {
 		unlock_kernel();
-		return ERR_PTR(err);
+		return ERR_PTR(PTR_ERR(inode));
 	}
 	alias = d_find_alias(inode);
 	if (alias) {
@@ -798,10 +798,12 @@ static int vfat_create(struct inode *dir, struct dentry *dentry, int mode,
 	res = vfat_add_entry(dir, &dentry->d_name, 0, &sinfo);
 	if (res < 0)
 		goto out;
-	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos, &res);
+	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos);
 	brelse(sinfo.bh);
-	if (!inode)
+	if (IS_ERR(inode)) {
+		res = PTR_ERR(inode);
 		goto out;
+	}
 	res = 0;
 	inode->i_version++;
 	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME_SEC;
@@ -883,9 +885,11 @@ static int vfat_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	res = vfat_add_entry(dir, &dentry->d_name, 1, &sinfo);
 	if (res < 0)
 		goto out;
-	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos, &res);
-	if (!inode)
+	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos);
+	if (IS_ERR(inode)) {
+		res = PTR_ERR(inode);
 		goto out_brelse;
+	}
 	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME_SEC;
 	mark_inode_dirty(inode);
 	inode->i_version++;
@@ -967,7 +971,6 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 	}
 	new_dir->i_version++;
 
-	/* releases old_bh */
 	err = fat_remove_entries(old_dir, &old_sinfo);	/* and releases bh */
 	old_sinfo.bh = NULL;
 	if (err)

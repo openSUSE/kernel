@@ -236,9 +236,11 @@ static struct dentry *msdos_lookup(struct inode *dir, struct dentry *dentry,
 		goto add;
 	if (res < 0)
 		goto out;
-	inode = fat_build_inode(sb, de, i_pos, &res);
-	if (res)
+	inode = fat_build_inode(sb, de, i_pos);
+	if (IS_ERR(inode)) {
+		res = PTR_ERR(inode);
 		goto out;
+	}
 add:
 	res = 0;
 	dentry = d_splice_alias(inode, dentry);
@@ -314,11 +316,11 @@ static int msdos_create(struct inode *dir, struct dentry *dentry, int mode,
 		unlock_kernel();
 		return res;
 	}
-	inode = fat_build_inode(dir->i_sb, de, i_pos, &res);
+	inode = fat_build_inode(dir->i_sb, de, i_pos);
 	brelse(bh);
-	if (!inode) {
+	if (IS_ERR(inode)) {
 		unlock_kernel();
-		return res;
+		return PTR_ERR(inode);
 	}
 	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME_SEC;
 	mark_inode_dirty(inode);
@@ -392,9 +394,10 @@ static int msdos_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	res = msdos_add_entry(dir, msdos_name, &bh, &de, &i_pos, 1, is_hid);
 	if (res)
 		goto out_unlock;
-	inode = fat_build_inode(dir->i_sb, de, i_pos, &res);
-	if (!inode) {
+	inode = fat_build_inode(dir->i_sb, de, i_pos);
+	if (IS_ERR(inode)) {
 		brelse(bh);
+		res = PTR_ERR(inode);
 		goto out_unlock;
 	}
 	res = 0;

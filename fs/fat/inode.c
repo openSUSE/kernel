@@ -304,23 +304,25 @@ static int fat_fill_inode(struct inode *inode, struct msdos_dir_entry *de)
 }
 
 struct inode *fat_build_inode(struct super_block *sb,
-			struct msdos_dir_entry *de, loff_t i_pos, int *res)
+			struct msdos_dir_entry *de, loff_t i_pos)
 {
 	struct inode *inode;
-	*res = 0;
+	int err;
+
 	inode = fat_iget(sb, i_pos);
 	if (inode)
 		goto out;
 	inode = new_inode(sb);
-	*res = -ENOMEM;
-	if (!inode)
+	if (!inode) {
+		inode = ERR_PTR(-ENOMEM);
 		goto out;
+	}
 	inode->i_ino = iunique(sb, MSDOS_ROOT_INO);
 	inode->i_version = 1;
-	*res = fat_fill_inode(inode, de);
-	if (*res < 0) {
+	err = fat_fill_inode(inode, de);
+	if (err) {
 		iput(inode);
-		inode = NULL;
+		inode = ERR_PTR(err);
 		goto out;
 	}
 	fat_attach(inode, i_pos);
@@ -643,39 +645,35 @@ fat_encode_fh(struct dentry *de, __u32 *fh, int *lenp, int connectable)
 
 static struct dentry *fat_get_parent(struct dentry *child)
 {
-	struct buffer_head *bh=NULL;
-	struct msdos_dir_entry *de = NULL;
-	struct dentry *parent = NULL;
-	int res;
-	loff_t i_pos = 0;
+	struct buffer_head *bh;
+	struct msdos_dir_entry *de;
+	loff_t i_pos;
+	struct dentry *parent;
 	struct inode *inode;
+	int err;
 
 	lock_kernel();
-	res = fat_scan(child->d_inode, MSDOS_DOTDOT, &bh, &de, &i_pos);
 
-	if (res < 0)
+	err = fat_scan(child->d_inode, MSDOS_DOTDOT, &bh, &de, &i_pos);
+	if (err) {
+		parent = ERR_PTR(err);
 		goto out;
-	inode = fat_build_inode(child->d_sb, de, i_pos, &res);
-	if (res)
-		goto out;
-	if (!inode)
-		res = -EACCES;
-	else {
-		parent = d_alloc_anon(inode);
-		if (!parent) {
-			iput(inode);
-			res = -ENOMEM;
-		}
 	}
-
- out:
-	if(bh)
-		brelse(bh);
+	inode = fat_build_inode(child->d_sb, de, i_pos);
+	brelse(bh);
+	if (IS_ERR(inode)) {
+		parent = ERR_PTR(PTR_ERR(inode));
+		goto out;
+	}
+	parent = d_alloc_anon(inode);
+	if (!parent) {
+		iput(inode);
+		parent = ERR_PTR(-ENOMEM);
+	}
+out:
 	unlock_kernel();
-	if (res)
-		return ERR_PTR(res);
-	else
-		return parent;
+
+	return parent;
 }
 
 static struct export_operations fat_export_ops = {
