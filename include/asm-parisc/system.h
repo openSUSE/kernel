@@ -125,7 +125,7 @@ static inline void set_eiem(unsigned long val)
 ** The __asm__ op below simple prevents gcc/ld from reordering
 ** instructions across the mb() "call".
 */
-#define mb()		__asm__ __volatile__("":::"memory");	/* barrier() */
+#define mb()		__asm__ __volatile__("":::"memory")	/* barrier() */
 #define rmb()		mb()
 #define wmb()		mb()
 #define smp_mb()	mb()
