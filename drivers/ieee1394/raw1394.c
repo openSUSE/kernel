@@ -78,7 +78,6 @@ static atomic_t iso_buffer_size;
 static const int iso_buffer_max = 4 * 1024 * 1024;	/* 4 MB */
 
 static struct hpsb_highlevel raw1394_highlevel;
-static struct class_simple *raw1394_class;
 
 static int arm_read(struct hpsb_host *host, int nodeid, quadlet_t * buffer,
 		    u64 addr, size_t length, u16 flags);
@@ -2901,20 +2900,16 @@ static int __init init_raw1394(void)
 
 	hpsb_register_highlevel(&raw1394_highlevel);
 
-	raw1394_class = class_simple_create(THIS_MODULE, "raw1394");
-	if (IS_ERR(raw1394_class)) {
-		ret = PTR_ERR(raw1394_class);
+	if (IS_ERR(class_simple_device_add(hpsb_protocol_class, MKDEV(
+		IEEE1394_MAJOR,	IEEE1394_MINOR_BLOCK_RAW1394 * 16), 
+		NULL, RAW1394_DEVICE_NAME))) {
+		ret = -EFAULT;
 		goto out_unreg;
 	}
-
-	class_simple_device_add(raw1394_class,
-				MKDEV(IEEE1394_MAJOR,
-				      IEEE1394_MINOR_BLOCK_RAW1394 * 16), NULL,
-				RAW1394_DEVICE_NAME);
-	ret =
-	    devfs_mk_cdev(MKDEV
-			  (IEEE1394_MAJOR, IEEE1394_MINOR_BLOCK_RAW1394 * 16),
-			  S_IFCHR | S_IRUSR | S_IWUSR, RAW1394_DEVICE_NAME);
+	
+	ret = devfs_mk_cdev(MKDEV(
+		IEEE1394_MAJOR, IEEE1394_MINOR_BLOCK_RAW1394 * 16),
+		S_IFCHR | S_IRUSR | S_IWUSR, RAW1394_DEVICE_NAME);
 	if (ret)
 		goto out_class;
 
@@ -2938,25 +2933,21 @@ static int __init init_raw1394(void)
 
 	goto out;
 
-      out_dev:
+out_dev:
 	devfs_remove(RAW1394_DEVICE_NAME);
-      out_class:
-	class_simple_device_remove(MKDEV
-				   (IEEE1394_MAJOR,
-				    IEEE1394_MINOR_BLOCK_RAW1394 * 16));
-	class_simple_destroy(raw1394_class);
-      out_unreg:
+out_class:
+	class_simple_device_remove(MKDEV(
+		IEEE1394_MAJOR, IEEE1394_MINOR_BLOCK_RAW1394 * 16));
+out_unreg:
 	hpsb_unregister_highlevel(&raw1394_highlevel);
-      out:
+out:
 	return ret;
 }
 
 static void __exit cleanup_raw1394(void)
 {
-	class_simple_device_remove(MKDEV
-				   (IEEE1394_MAJOR,
-				    IEEE1394_MINOR_BLOCK_RAW1394 * 16));
-	class_simple_destroy(raw1394_class);
+	class_simple_device_remove(MKDEV(
+		IEEE1394_MAJOR, IEEE1394_MINOR_BLOCK_RAW1394 * 16));
 	hpsb_unregister_protocol(&raw1394_driver);
 	cdev_del(&raw1394_cdev);
 	devfs_remove(RAW1394_DEVICE_NAME);

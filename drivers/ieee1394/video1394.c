@@ -1332,6 +1332,9 @@ static void video1394_add_host (struct hpsb_host *host)
 	hpsb_set_hostinfo_key(&video1394_highlevel, host, ohci->host->id);
 
 	minor = IEEE1394_MINOR_BLOCK_VIDEO1394 * 16 + ohci->host->id;
+	class_simple_device_add(hpsb_protocol_class, MKDEV(
+		IEEE1394_MAJOR,	minor), 
+		NULL, "%s-%d", VIDEO1394_DRIVER_NAME, ohci->host->id);
 	devfs_mk_cdev(MKDEV(IEEE1394_MAJOR, minor),
 		       S_IFCHR | S_IRUSR | S_IWUSR,
 		       "%s/%d", VIDEO1394_DRIVER_NAME, ohci->host->id);
@@ -1342,9 +1345,12 @@ static void video1394_remove_host (struct hpsb_host *host)
 {
 	struct ti_ohci *ohci = hpsb_get_hostinfo(&video1394_highlevel, host);
 
-	if (ohci)
+	if (ohci) {
+		class_simple_device_remove(MKDEV(IEEE1394_MAJOR, 
+			IEEE1394_MINOR_BLOCK_VIDEO1394 * 16 + ohci->host->id));
 		devfs_remove("%s/%d", VIDEO1394_DRIVER_NAME, ohci->host->id);
-
+	}
+	
 	return;
 }
 
