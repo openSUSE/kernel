@@ -303,9 +303,7 @@ int fat_bmap(struct inode *inode, sector_t sector, sector_t *phys)
 	int cluster, offset;
 
 	*phys = 0;
-	if ((sbi->fat_bits != 32) &&
-	    (inode->i_ino == MSDOS_ROOT_INO || (S_ISDIR(inode->i_mode) &&
-	     !MSDOS_I(inode)->i_start))) {
+	if ((sbi->fat_bits != 32) && (inode->i_ino == MSDOS_ROOT_INO)) {
 		if (sector < (sbi->dir_entries >> sbi->dir_per_block_bits))
 			*phys = sector + sbi->dir_start;
 		return 0;

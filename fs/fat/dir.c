@@ -1172,8 +1172,15 @@ int fat_add_entries(struct inode *dir, void *slots, int nr_slots,
 			free_slots = nr_bhs = 0;
 		}
 	}
-	if ((dir->i_ino == MSDOS_ROOT_INO) && (sbi->fat_bits != 32))
+	if (dir->i_ino == MSDOS_ROOT_INO) {
+		if (sbi->fat_bits != 32)
+			goto error;
+	} else if (MSDOS_I(dir)->i_start == 0) {
+		printk(KERN_ERR "FAT: Corrupted directory (i_pos %lld)\n",
+		       MSDOS_I(dir)->i_pos);
+		err = -EIO;
 		goto error;
+	}
 
 found:
 	err = 0;

@@ -33,6 +33,8 @@ void fat_fs_panic(struct super_block *s, const char *fmt, ...)
 	}
 }
 
+EXPORT_SYMBOL(fat_fs_panic);
+
 /* Flushes the number of free clusters on FAT32 */
 /* XXX: Need to write one per FSINFO block.  Currently only writes 1 */
 void fat_clusters_flush(struct super_block *sb)
