@@ -1094,9 +1094,17 @@ KBUILD_MODULES := 1
 crmodverdir:
 	$(Q)mkdir -p $(MODVERDIR)
 
+.PHONY: $(objtree)/Module.symvers
+$(objtree)/Module.symvers:
+	@test -e $(objtree)/Module.symvers || ( \
+	echo; \
+	echo "WARNING: Symbol version dump $(objtree)/Module.symvers is " \
+	     "missing; modules will have no dependencies and modversions."; \
+	echo )
+
 module-dirs := $(addprefix _module_,$(KBUILD_EXTMOD))
 .PHONY: $(module-dirs) modules
-$(module-dirs): crmodverdir
+$(module-dirs): crmodverdir $(objtree)/Module.symvers
 	$(Q)$(MAKE) $(build)=$(patsubst _module_%,%,$@)
 
 modules: $(module-dirs)
