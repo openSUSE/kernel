@@ -97,15 +97,23 @@ static int i8042_pnp_aux_registered;
 
 static int i8042_pnp_kbd_probe(struct pnp_dev *dev, const struct pnp_device_id *did)
 {
-	if (pnp_port_valid(dev, 0) && pnp_port_len(dev, 0) == 1)
-		i8042_data_reg = pnp_port_start(dev,0);
-	else
+	if (pnp_port_valid(dev, 0) && pnp_port_len(dev, 0) == 1) {
+		if ((pnp_port_start(dev,1) & ~0xf) == 0x60 && pnp_port_start(dev,1) != 0x60)
+			printk(KERN_WARNING "PNP: [%s] has invalid data port %#lx; default is %#x\n",
+	                        pnp_dev_name(dev), pnp_port_start(dev,1), i8042_data_reg);
+		else
+			i8042_data_reg = pnp_port_start(dev,0);
+	} else
 		printk(KERN_WARNING "PNP: [%s] has no data port; default is 0x%x\n",
 			pnp_dev_name(dev), i8042_data_reg);
 
-	if (pnp_port_valid(dev, 1) && pnp_port_len(dev, 1) == 1)
-		i8042_command_reg = pnp_port_start(dev,1);
-	else
+	if (pnp_port_valid(dev, 1) && pnp_port_len(dev, 1) == 1) {
+		if ((pnp_port_start(dev,1) & ~0xf) == 0x60 && pnp_port_start(dev,1) != 0x64)
+			printk(KERN_WARNING "PNP: [%s] has invalid command port %#lx; default is %#x\n",
+	                        pnp_dev_name(dev), pnp_port_start(dev,1), i8042_command_reg);
+		else
+			i8042_command_reg = pnp_port_start(dev,1);
+	} else
 		printk(KERN_WARNING "PNP: [%s] has no command port; default is 0x%x\n",
 			pnp_dev_name(dev), i8042_command_reg);
 
