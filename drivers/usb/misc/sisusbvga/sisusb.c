@@ -565,7 +565,7 @@ static int sisusb_send_packet(struct sisusb_usb_data *sisusb, int len,
 {
 	int ret;
 	int bytes_transferred = 0;
-	u32 tmp;
+	__le32 tmp;
 
 	if (len == 6)
 		packet->data = 0;
@@ -602,7 +602,7 @@ static int sisusb_send_bridge_packet(struct sisusb_usb_data *sisusb, int len,
 {
 	int ret;
 	int bytes_transferred = 0;
-	u32 tmp;
+	__le32 tmp;
 
 	if (len == 6)
 		packet->data = 0;
