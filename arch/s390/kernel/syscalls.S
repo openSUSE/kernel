@@ -286,3 +286,6 @@ SYSCALL(sys_mq_timedreceive,sys_mq_timedreceive,compat_sys_mq_timedreceive_wrapp
 SYSCALL(sys_mq_notify,sys_mq_notify,compat_sys_mq_notify_wrapper) /* 275 */
 SYSCALL(sys_mq_getsetattr,sys_mq_getsetattr,compat_sys_mq_getsetattr_wrapper)
 NI_SYSCALL							/* reserved for kexec */
+SYSCALL(sys_add_key,sys_add_key,compat_sys_add_key)
+SYSCALL(sys_request_key,sys_request_key,compat_sys_request_key)
+SYSCALL(sys_keyctl,sys_keyctl,compat_sys_keyctl)		/* 280 */
