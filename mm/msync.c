@@ -105,7 +105,7 @@ static void sync_page_range(struct vm_area_struct *vma,
 }
 
 #ifdef CONFIG_PREEMPT
-static void filemap_sync(struct vm_area_struct *vma,
+static inline void filemap_sync(struct vm_area_struct *vma,
 				unsigned long addr, unsigned long end)
 {
 	const size_t chunk = 64 * 1024;	/* bytes */
@@ -120,7 +120,7 @@ static void filemap_sync(struct vm_area_struct *vma,
 	} while (addr = next, addr != end);
 }
 #else
-static void filemap_sync(struct vm_area_struct *vma,
+static inline void filemap_sync(struct vm_area_struct *vma,
 				unsigned long addr, unsigned long end)
 {
 	sync_page_range(vma, addr, end);

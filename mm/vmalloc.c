@@ -34,7 +34,8 @@ static void vunmap_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end)
 	} while (pte++, addr += PAGE_SIZE, addr != end);
 }
 
-static void vunmap_pmd_range(pud_t *pud, unsigned long addr, unsigned long end)
+static inline void vunmap_pmd_range(pud_t *pud, unsigned long addr,
+						unsigned long end)
 {
 	pmd_t *pmd;
 	unsigned long next;
@@ -48,7 +49,8 @@ static void vunmap_pmd_range(pud_t *pud, unsigned long addr, unsigned long end)
 	} while (pmd++, addr = next, addr != end);
 }
 
-static void vunmap_pud_range(pgd_t *pgd, unsigned long addr, unsigned long end)
+static inline void vunmap_pud_range(pgd_t *pgd, unsigned long addr,
+						unsigned long end)
 {
 	pud_t *pud;
 	unsigned long next;
@@ -81,8 +83,8 @@ void unmap_vm_area(struct vm_struct *area)
 	flush_tlb_kernel_range((unsigned long) area->addr, end);
 }
 
-static int vmap_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
-				pgprot_t prot, struct page ***pages)
+static int vmap_pte_range(pmd_t *pmd, unsigned long addr,
+			unsigned long end, pgprot_t prot, struct page ***pages)
 {
 	pte_t *pte;
 
@@ -100,8 +102,8 @@ static int vmap_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 	return 0;
 }
 
-static int vmap_pmd_range(pud_t *pud, unsigned long addr, unsigned long end,
-				pgprot_t prot, struct page ***pages)
+static inline int vmap_pmd_range(pud_t *pud, unsigned long addr,
+			unsigned long end, pgprot_t prot, struct page ***pages)
 {
 	pmd_t *pmd;
 	unsigned long next;
@@ -117,8 +119,8 @@ static int vmap_pmd_range(pud_t *pud, unsigned long addr, unsigned long end,
 	return 0;
 }
 
-static int vmap_pud_range(pgd_t *pgd, unsigned long addr, unsigned long end,
-				pgprot_t prot, struct page ***pages)
+static inline int vmap_pud_range(pgd_t *pgd, unsigned long addr,
+			unsigned long end, pgprot_t prot, struct page ***pages)
 {
 	pud_t *pud;
 	unsigned long next;

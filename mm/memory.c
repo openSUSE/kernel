@@ -358,7 +358,7 @@ again:
 	return 0;
 }
 
-static int copy_pmd_range(struct mm_struct *dst_mm, struct mm_struct *src_mm,
+static inline int copy_pmd_range(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 		pud_t *dst_pud, pud_t *src_pud, struct vm_area_struct *vma,
 		unsigned long addr, unsigned long end)
 {
@@ -380,7 +380,7 @@ static int copy_pmd_range(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 	return 0;
 }
 
-static int copy_pud_range(struct mm_struct *dst_mm, struct mm_struct *src_mm,
+static inline int copy_pud_range(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 		pgd_t *dst_pgd, pgd_t *src_pgd, struct vm_area_struct *vma,
 		unsigned long addr, unsigned long end)
 {
@@ -496,7 +496,7 @@ static void zap_pte_range(struct mmu_gather *tlb, pmd_t *pmd,
 	pte_unmap(pte - 1);
 }
 
-static void zap_pmd_range(struct mmu_gather *tlb, pud_t *pud,
+static inline void zap_pmd_range(struct mmu_gather *tlb, pud_t *pud,
 				unsigned long addr, unsigned long end,
 				struct zap_details *details)
 {
@@ -512,7 +512,7 @@ static void zap_pmd_range(struct mmu_gather *tlb, pud_t *pud,
 	} while (pmd++, addr = next, addr != end);
 }
 
-static void zap_pud_range(struct mmu_gather *tlb, pgd_t *pgd,
+static inline void zap_pud_range(struct mmu_gather *tlb, pgd_t *pgd,
 				unsigned long addr, unsigned long end,
 				struct zap_details *details)
 {
@@ -1013,7 +1013,7 @@ int zeromap_page_range(struct vm_area_struct *vma,
  * mappings are removed. any references to nonexistent pages results
  * in null mappings (currently treated as "copy-on-access")
  */
-static inline int remap_pte_range(struct mm_struct *mm, pmd_t *pmd,
+static int remap_pte_range(struct mm_struct *mm, pmd_t *pmd,
 			unsigned long addr, unsigned long end,
 			unsigned long pfn, pgprot_t prot)
 {

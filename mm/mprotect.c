@@ -25,7 +25,7 @@
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
 
-static inline void change_pte_range(struct mm_struct *mm, pmd_t *pmd,
+static void change_pte_range(struct mm_struct *mm, pmd_t *pmd,
 		unsigned long addr, unsigned long end, pgprot_t newprot)
 {
 	pte_t *pte;
