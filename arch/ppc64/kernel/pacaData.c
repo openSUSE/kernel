@@ -20,8 +20,13 @@
 #include <asm/iSeries/ItLpQueue.h>
 #include <asm/paca.h>
 
-struct systemcfg *systemcfg;
+static union {
+	struct systemcfg	data;
+	u8			page[PAGE_SIZE];
+} systemcfg_store __page_aligned;
+struct systemcfg *systemcfg = &systemcfg_store.data;
 EXPORT_SYMBOL(systemcfg);
+
 
 /* This symbol is provided by the linker - let it fill in the paca
  * field correctly */

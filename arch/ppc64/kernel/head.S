@@ -517,16 +517,7 @@ __end_interrupts:
 	.globl naca
 naca:
 	.llong itVpdAreas
-#endif
 
-	. = SYSTEMCFG_PHYS_ADDR
-	.globl __start_systemcfg
-__start_systemcfg:
-	. = (SYSTEMCFG_PHYS_ADDR + PAGE_SIZE)
-	.globl __end_systemcfg
-__end_systemcfg:
-
-#ifdef CONFIG_PPC_ISERIES
 	/*
 	 * The iSeries LPAR map is at this fixed address
 	 * so that the HvReleaseData structure can address
@@ -535,6 +526,8 @@ __end_systemcfg:
 	 * The VSID values below are dependent on the
 	 * VSID generation algorithm.  See include/asm/mmu_context.h.
 	 */
+
+	. = 0x4800
 
 	.llong	2		/* # ESIDs to be mapped by hypervisor	 */
 	.llong	1		/* # memory ranges to be mapped by hypervisor */
@@ -1264,10 +1257,6 @@ _STATIC(__start_initialization_iSeries)
 	addi	r2,r2,0x4000
 	addi	r2,r2,0x4000
 
-	LOADADDR(r9,systemcfg)
-	SET_REG_TO_CONST(r4, SYSTEMCFG_VIRT_ADDR)
-	std	r4,0(r9)		/* set the systemcfg pointer */
-
 	bl	.iSeries_early_setup
 
 	/* relocation is on at this point */
@@ -1772,7 +1761,7 @@ _GLOBAL(__secondary_start)
 	sc				/* HvCall_setASR */
 #else
 	/* set the ASR */
-	li	r3,SYSTEMCFG_PHYS_ADDR	/* r3 = ptr to systemcfg	 */
+	ld	r3,systemcfg@got(r2)	/* r3 = ptr to systemcfg	 */
 	lwz	r3,PLATFORM(r3)		/* r3 = platform flags		 */
 	cmpldi 	r3,PLATFORM_PSERIES_LPAR
 	bne	98f
@@ -1861,12 +1850,6 @@ _STATIC(start_here_multiplatform)
 	ori	r6,r6,MSR_RI
 	mtmsrd	r6			/* RI on */
 
-	/* setup the systemcfg pointer which is needed by *tab_initialize	*/
-	LOADADDR(r6,systemcfg)
-	sub	r6,r6,r26		/* addr of the variable systemcfg */
-	li	r27,SYSTEMCFG_PHYS_ADDR
-	std	r27,0(r6)	 	/* set the value of systemcfg	*/
-
 #ifdef CONFIG_HMT
 	/* Start up the second thread on cpu 0 */
 	mfspr	r3,PVR
@@ -1941,7 +1924,7 @@ _STATIC(start_here_multiplatform)
 	/* set the ASR */
 	ld	r3,PACASTABREAL(r13)
 	ori	r4,r3,1			/* turn on valid bit		 */
-	li	r3,SYSTEMCFG_PHYS_ADDR	/* r3 = ptr to systemcfg */
+	ld	r3,systemcfg@got(r2)	/* r3 = ptr to systemcfg */
 	lwz	r3,PLATFORM(r3)		/* r3 = platform flags */
 	cmpldi 	r3,PLATFORM_PSERIES_LPAR
 	bne	98f
@@ -1960,7 +1943,7 @@ _STATIC(start_here_multiplatform)
 	mtasr	r4			/* set the stab location	*/
 99:
 	/* Set SDR1 (hash table pointer) */
-	li	r3,SYSTEMCFG_PHYS_ADDR	/* r3 = ptr to systemcfg */
+	ld	r3,systemcfg@got(r2)	/* r3 = ptr to systemcfg */
 	lwz	r3,PLATFORM(r3)		/* r3 = platform flags */
 	/* Test if bit 0 is set (LPAR bit) */
 	andi.	r3,r3,0x1
@@ -1997,11 +1980,6 @@ _STATIC(start_here_common)
 	 */
 	li	r3,0
 	bl	.do_cpu_ftr_fixups
-
-	/* setup the systemcfg pointer */
-	LOADADDR(r9,systemcfg)
-	SET_REG_TO_CONST(r8, SYSTEMCFG_VIRT_ADDR)
-	std	r8,0(r9)
 
 	LOADADDR(r26, boot_cpuid)
 	lwz	r26,0(r26)

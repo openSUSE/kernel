@@ -47,7 +47,6 @@ struct systemcfg {
 	__u32 dcache_line_size;		/* L1 d-cache line size		0x64 */
 	__u32 icache_size;		/* L1 i-cache size		0x68 */
 	__u32 icache_line_size;		/* L1 i-cache line size		0x6C */
-	__u8  reserved0[3984];		/* Reserve rest of page		0x70 */
 };
 
 #ifdef __KERNEL__
@@ -55,9 +54,5 @@ extern struct systemcfg *systemcfg;
 #endif
 
 #endif /* __ASSEMBLY__ */
-
-#define SYSTEMCFG_PAGE      0x5
-#define SYSTEMCFG_PHYS_ADDR (SYSTEMCFG_PAGE<<PAGE_SHIFT)
-#define SYSTEMCFG_VIRT_ADDR (KERNELBASE+SYSTEMCFG_PHYS_ADDR)
 
 #endif /* _SYSTEMCFG_H */
