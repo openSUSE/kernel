@@ -1813,7 +1813,7 @@ sisusb_set_default_mode(struct sisusb_usb_data *sisusb, int touchengines)
 	SETIREG(SISSR, 0x02, 0x0f);
 	SETIREG(SISSR, 0x03, 0x00);
 	SETIREG(SISSR, 0x04, 0x0e);
-	SETREG(SISMISCW,0x23);		/* misc */
+	SETREG(SISMISCW, 0x23);		/* misc */
 	for (i = 0; i <= 0x18; i++) {	/* crtc */
 		SETIREG(SISCR, i, crtcrdata[i]);
 	}
@@ -2833,6 +2833,7 @@ sisusb_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 			x.sisusb_pcibase    = SISUSB_PCI_PSEUDO_PCIBASE;
 			x.sisusb_vramsize   = sisusb->vramsize;
 			x.sisusb_minor	    = sisusb->minor;
+			x.sisusb_fbdevactive= 0;
 
 			if (copy_to_user((void __user *)arg, &x, sizeof(x)))
 				retval = -EFAULT;

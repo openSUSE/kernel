@@ -50,7 +50,7 @@
 
 #define SISUSB_VERSION		0
 #define SISUSB_REVISION 	0
-#define SISUSB_PATCHLEVEL	6
+#define SISUSB_PATCHLEVEL	7
 
 /* USB related */
 
@@ -83,7 +83,7 @@
 	do {						\
 		p->header  = cpu_to_le16(p->header);	\
 		p->address = cpu_to_le32(p->address);	\
-		p->address = cpu_to_le32(p->data);	\
+		p->data    = cpu_to_le32(p->data);	\
 	} while(0)
 #else
 #define SISUSB_CORRECT_ENDIANNESS_PACKET(p)
