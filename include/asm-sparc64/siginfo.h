@@ -18,11 +18,6 @@
 
 #ifdef CONFIG_COMPAT
 
-typedef union sigval32 {
-	int sival_int;
-	u32 sival_ptr;
-} sigval_t32;
-
 struct compat_siginfo;
 
 #endif /* CONFIG_COMPAT */
@@ -42,7 +37,7 @@ struct compat_siginfo;
 #ifdef CONFIG_COMPAT
 
 typedef struct sigevent32 {
-	sigval_t32 sigev_value;
+	compat_sigval_t sigev_value;
 	int sigev_signo;
 	int sigev_notify;
 	union {

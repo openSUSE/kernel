@@ -225,11 +225,6 @@ struct stat64 {
 	unsigned int	st_ino_hi;
 };
 
-typedef union sigval32 {
-	int sival_int;
-	unsigned int sival_ptr;
-} sigval_t32;
-
 typedef struct compat_siginfo {
 	int si_signo;
 	int si_errno;
@@ -249,7 +244,7 @@ typedef struct compat_siginfo {
 			timer_t _tid;		/* timer id */
 			int _overrun;		/* overrun count */
 			char _pad[sizeof(unsigned int) - sizeof(int)];
-			sigval_t32 _sigval;	/* same as below */
+			compat_sigval_t _sigval;	/* same as below */
 			int _sys_private;       /* not to be passed to user */
 		} _timer;
 
@@ -257,7 +252,7 @@ typedef struct compat_siginfo {
 		struct {
 			unsigned int _pid;	/* sender's pid */
 			unsigned int _uid;	/* sender's uid */
-			sigval_t32 _sigval;
+			compat_sigval_t _sigval;
 		} _rt;
 
 		/* SIGCHLD */
@@ -283,7 +278,7 @@ typedef struct compat_siginfo {
 } compat_siginfo_t;
 
 typedef struct sigevent32 {
-	sigval_t32 sigev_value;
+	compat_sigval_t sigev_value;
 	int sigev_signo;
 	int sigev_notify;
 	union {
