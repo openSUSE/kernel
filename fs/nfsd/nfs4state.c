@@ -1815,11 +1815,6 @@ nfsd4_renew(clientid_t *clid)
 		renew_client(clp);
 		goto out;
 	}
-	clp = find_unconfirmed_client(clid);
-	if (clp) {
-		renew_client(clp);
-		goto out;
-	}
 	/*
 	* Couldn't find an nfs4_client for this clientid.  
 	* Presumably this is because the client took too long to 
