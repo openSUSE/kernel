@@ -65,6 +65,7 @@ zimageinitrd-$(CONFIG_IBM_OPENBIOS)	:= zImage.initrd-TREE
 zimageinitrd-$(CONFIG_EBONY)		:= zImage.initrd-TREE
          end-$(CONFIG_EBONY)		:= ebony
   entrypoint-$(CONFIG_EBONY)		:= 0x01000000
+     extra.o-$(CONFIG_EBONY)		:= openbios.o
 
       zimage-$(CONFIG_LUAN)		:= zImage-TREE
 zimageinitrd-$(CONFIG_LUAN)		:= zImage.initrd-TREE
