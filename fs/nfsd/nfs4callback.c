@@ -309,7 +309,7 @@ nfs4_xdr_dec_cb_recall(struct rpc_rqst *rqstp, u32 *p)
 	if (status)
 		goto out;
 	status = decode_cb_op_hdr(&xdr, OP_CB_RECALL);
-out	:
+out:
 	return status;
 }
 
@@ -545,24 +545,20 @@ retry:
 void
 nfsd4_cb_recall(struct nfs4_delegation *dp)
 {
-	struct nfs4_client *clp;
-	struct rpc_clnt *clnt;
+	struct nfs4_client *clp = dp->dl_client;
+	struct rpc_clnt *clnt = clp->cl_callback.cb_client;
+	struct nfs4_cb_recall *cbr = &dp->dl_recall;
 	struct rpc_message msg = {
 		.rpc_proc = &nfs4_cb_procedures[NFSPROC4_CLNT_CB_RECALL],
+		.rpc_argp = cbr,
+		.rpc_resp = cbr,
 	};
-	struct nfs4_cb_recall *cbr = &dp->dl_recall;
 	int status;
 
-	dprintk("NFSD: nfsd4_cb_recall NFS4_enc_cb_recall_sz %d NFS4_dec_cb_recall_sz %d \n",NFS4_enc_cb_recall_sz,NFS4_dec_cb_recall_sz);
-
-	clp = dp->dl_client;
-	clnt = clp->cl_callback.cb_client;
 	if ((!atomic_read(&clp->cl_callback.cb_set)) || !clnt)
 		return;
 
-	msg.rpc_argp = cbr;
-	msg.rpc_resp = cbr;
-	msg.rpc_cred = nfsd4_lookupcred(clp,0);
+	msg.rpc_cred = nfsd4_lookupcred(clp, 0);
 	if (IS_ERR(msg.rpc_cred))
 		return;
 
