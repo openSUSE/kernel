@@ -159,7 +159,6 @@ alloc_init_deleg(struct nfs4_client *clp, struct nfs4_stateid *stp, struct svc_f
 	memcpy(dp->dl_fhval, &current_fh->fh_handle.fh_base,
 		        current_fh->fh_handle.fh_size);
 	dp->dl_time = 0;
-	atomic_set(&dp->dl_state, NFS4_NO_RECALL);
 	atomic_set(&dp->dl_count, 1);
 	list_add(&dp->dl_del_perfile, &fp->fi_del_perfile);
 	list_add(&dp->dl_del_perclnt, &clp->cl_del_perclnt);
@@ -193,7 +192,6 @@ nfs4_close_delegation(struct nfs4_delegation *dp)
 
 	dprintk("NFSD: close_delegation dp %p\n",dp);
 	dp->dl_vfs_file = NULL;
-	atomic_set(&dp->dl_state, NFS4_RECALL_COMPLETE);
 	/* The following nfsd_close may not actually close the file,
 	 * but we want to remove the lease in any case. */
 	remove_lease(dp->dl_flock);
@@ -338,11 +336,8 @@ expire_client(struct nfs4_client *clp)
 	spin_lock(&recall_lock);
 	while (!list_empty(&clp->cl_del_perclnt)) {
 		dp = list_entry(clp->cl_del_perclnt.next, struct nfs4_delegation, dl_del_perclnt);
-		dprintk("NFSD: expire client. dp %p, dl_state %d, fp %p\n",
-				dp, atomic_read(&dp->dl_state), dp->dl_flock);
-
-		/* force release of delegation. */
-		atomic_set(&dp->dl_state, NFS4_RECALL_COMPLETE);
+		dprintk("NFSD: expire client. dp %p, fp %p\n", dp,
+				dp->dl_flock);
 		list_del_init(&dp->dl_del_perclnt);
 		list_move(&dp->dl_recall_lru, &reaplist);
 	}
@@ -1355,7 +1350,6 @@ void nfsd_break_deleg_cb(struct file_lock *fl)
 	atomic_inc(&dp->dl_count);
 
 	spin_lock(&recall_lock);
-	atomic_set(&dp->dl_state, NFS4_RECALL_IN_PROGRESS);
 	list_add_tail(&dp->dl_recall_lru, &del_recall_lru);
 	spin_unlock(&recall_lock);
 
@@ -1385,11 +1379,10 @@ void nfsd_release_deleg_cb(struct file_lock *fl)
 {
 	struct nfs4_delegation *dp = (struct nfs4_delegation *)fl->fl_owner;
 
-	dprintk("NFSD nfsd_release_deleg_cb: fl %p dp %p dl_count %d, dl_state %d\n", fl,dp, atomic_read(&dp->dl_count), atomic_read(&dp->dl_state));
+	dprintk("NFSD nfsd_release_deleg_cb: fl %p dp %p dl_count %d\n", fl,dp, atomic_read(&dp->dl_count));
 
 	if (!(fl->fl_flags & FL_LEASE) || !dp)
 		return;
-	atomic_set(&dp->dl_state,NFS4_RECALL_COMPLETE);
 	dp->dl_flock = NULL;
 }
 
@@ -1514,11 +1507,8 @@ nfs4_check_deleg_recall(struct nfs4_file *fp, struct nfsd4_open *op, int *flag)
 	int status = 0;
 
 	list_for_each_entry(dp, &fp->fi_del_perfile, dl_del_perfile) {
-		dprintk("NFSD: found delegation %p with dl_state %d\n",
-		 	                 dp, atomic_read(&dp->dl_state));
 		if (op->op_share_access & NFS4_SHARE_ACCESS_WRITE
-			|| op->op_stateowner->so_client == dp->dl_client
-			|| atomic_read(&dp->dl_state) != NFS4_NO_RECALL) {
+			|| op->op_stateowner->so_client == dp->dl_client) {
 			*flag = NFS4_OPEN_DELEGATE_NONE;
 			goto out;
 		}
@@ -2064,10 +2054,8 @@ nfs4_preprocess_stateid_op(struct svc_fh *current_fh, stateid_t *stateid, int fl
 		if ((status = nfs4_check_delegmode(dp, flags)))
 			goto out;
 		renew_client(dp->dl_client);
-		if (flags & DELEG_RET) {
-			atomic_set(&dp->dl_state,NFS4_RECALL_COMPLETE);
+		if (flags & DELEG_RET)
 			release_delegation(dp);
-		}
 		if (filpp)
 			*filpp = dp->dl_vfs_file;
 	}
@@ -3236,7 +3224,6 @@ __nfs4_state_shutdown(void)
 	spin_lock(&recall_lock);
 	list_for_each_safe(pos, next, &del_recall_lru) {
 		dp = list_entry (pos, struct nfs4_delegation, dl_recall_lru);
-		atomic_set(&dp->dl_state, NFS4_RECALL_COMPLETE);
 		list_move(&dp->dl_recall_lru, &reaplist);
 	}
 	spin_unlock(&recall_lock);

@@ -67,12 +67,6 @@ extern stateid_t onestateid;
 #define ZERO_STATEID(stateid)       (!memcmp((stateid), &zerostateid, sizeof(stateid_t)))
 #define ONE_STATEID(stateid)        (!memcmp((stateid), &onestateid, sizeof(stateid_t)))
 
-/* Delegation recall states */
-#define NFS4_NO_RECALL			0x000
-#define NFS4_RECALL_IN_PROGRESS		0x001
-#define NFS4_RECALL_COMPLETE		0x002
-#define NFS4_REAP_DELEG			0x004
-
 struct nfs4_cb_recall {
 	u32			cbr_ident;
 	int			cbr_trunc;
@@ -87,7 +81,6 @@ struct nfs4_delegation {
 	struct list_head	dl_del_perclnt; /* nfs4_client->cl_del_perclnt*/
 	struct list_head	dl_recall_lru;  /* delegation recalled */
 	atomic_t		dl_count;       /* ref count */
-	atomic_t		dl_state;       /* recall state */
 	struct nfs4_client	*dl_client;
 	struct nfs4_file	*dl_file;
 	struct file_lock	*dl_flock;

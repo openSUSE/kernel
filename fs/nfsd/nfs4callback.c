@@ -541,7 +541,6 @@ nfsd4_cb_recall(struct nfs4_delegation *dp)
 		atomic_set(&clp->cl_callback.cb_set, 0);
 	/* Success or failure, now we're either waiting for lease expiration
 	 * or deleg_return. */
-	atomic_set(&dp->dl_state, NFS4_RECALL_COMPLETE);
 	nfs4_put_delegation(dp);
 	dprintk("NFSD: nfs4_cb_recall: dp %p dl_flock %p dl_count %d\n",dp, dp->dl_flock, atomic_read(&dp->dl_count));
 	put_rpccred(msg.rpc_cred);
