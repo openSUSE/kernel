@@ -326,6 +326,9 @@ nfs_sb_init(struct super_block *sb, rpc_authflavor_t authflavor)
 	if (sb->s_maxbytes > MAX_LFS_FILESIZE) 
 		sb->s_maxbytes = MAX_LFS_FILESIZE; 
 
+	server->client->cl_intr = (server->flags & NFS_MOUNT_INTR) ? 1 : 0;
+	server->client->cl_softrtry = (server->flags & NFS_MOUNT_SOFT) ? 1 : 0;
+
 	/* We're airborne Set socket buffersize */
 	rpc_setbufsize(server->client, server->wsize + 100, server->rsize + 100);
 	return 0;
@@ -373,8 +376,8 @@ nfs_create_client(struct nfs_server *server, const struct nfs_mount_data *data)
 		goto out_fail;
 	}
 
-	clnt->cl_intr     = (server->flags & NFS_MOUNT_INTR) ? 1 : 0;
-	clnt->cl_softrtry = (server->flags & NFS_MOUNT_SOFT) ? 1 : 0;
+	clnt->cl_intr     = 1;
+	clnt->cl_softrtry = 1;
 	clnt->cl_chatty   = 1;
 
 	return clnt;
@@ -1624,6 +1627,8 @@ static int nfs4_fill_super(struct super_block *sb, struct nfs4_mount_data *data,
 			err = PTR_ERR(clnt);
 			goto out_fail;
 		}
+		clnt->cl_intr     = 1;
+		clnt->cl_softrtry = 1;
 		clnt->cl_chatty   = 1;
 		clp->cl_rpcclient = clnt;
 		clp->cl_cred = rpcauth_lookupcred(clnt->cl_auth, 0);
@@ -1655,8 +1660,6 @@ static int nfs4_fill_super(struct super_block *sb, struct nfs4_mount_data *data,
 		return PTR_ERR(clnt);
 	}
 
-	clnt->cl_intr     = (server->flags & NFS4_MOUNT_INTR) ? 1 : 0;
-	clnt->cl_softrtry = (server->flags & NFS4_MOUNT_SOFT) ? 1 : 0;
 	server->client    = clnt;
 
 	if (server->nfs4_state->cl_idmap == NULL) {
