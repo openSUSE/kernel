@@ -89,6 +89,7 @@ static int orinoco_tmd_init_one(struct pci_dev *pdev,
 	unsigned long pccard_ioaddr = 0;
 	unsigned long pccard_iolen = 0;
 	struct net_device *dev = NULL;
+	void __iomem *mem;
 
 	err = pci_enable_device(pdev);
 	if (err)
@@ -100,9 +101,8 @@ static int orinoco_tmd_init_one(struct pci_dev *pdev,
 	if (! request_region(pccard_ioaddr, pccard_iolen, DRIVER_NAME)) {
 		printk(KERN_ERR PFX "I/O resource at 0x%lx len 0x%lx busy\n",
 			pccard_ioaddr, pccard_iolen);
-		pccard_ioaddr = 0;
 		err = -EBUSY;
-		goto fail;
+		goto out;
 	}
 	addr = pci_resource_start(pdev, 1);
 	outb(COR_VALUE, addr);
@@ -111,14 +111,20 @@ static int orinoco_tmd_init_one(struct pci_dev *pdev,
 	if (reg != COR_VALUE) {
 		printk(KERN_ERR PFX "Error setting TMD COR values %x should be %x\n", reg, COR_VALUE);
 		err = -EIO;
-		goto fail;
+		goto out2;
 	}
 
 	/* Allocate network device */
 	dev = alloc_orinocodev(0, NULL);
 	if (! dev) {
 		err = -ENOMEM;
-		goto fail;
+		goto out2;
+	}
+
+	mem = pci_iomap(pdev, 2, 0);
+	if (!mem) {
+		err = -ENOMEM;
+		goto out3;
 	}
 
 	priv = netdev_priv(dev);
@@ -130,8 +136,7 @@ static int orinoco_tmd_init_one(struct pci_dev *pdev,
 	       "at %s irq:%d, io addr:0x%lx\n", pci_name(pdev), pdev->irq,
 	       pccard_ioaddr);
 
-	hermes_struct_init(&(priv->hw), dev->base_addr,
-			HERMES_IO, HERMES_16BIT_REGSPACING);
+	hermes_struct_init(&(priv->hw), mem, HERMES_16BIT_REGSPACING);
 	pci_set_drvdata(pdev, dev);
 
 	err = request_irq(pdev->irq, orinoco_interrupt, SA_SHIRQ,
@@ -140,30 +145,27 @@ static int orinoco_tmd_init_one(struct pci_dev *pdev,
 		printk(KERN_ERR PFX "Error allocating IRQ %d.\n",
 		       pdev->irq);
 		err = -EBUSY;
-		goto fail;
+		goto out4;
 	}
 	dev->irq = pdev->irq;
 
 	err = register_netdev(dev);
 	if (err)
-		goto fail;
+		goto out5;
 
 	return 0;
 
- fail:
-	printk(KERN_DEBUG PFX "init_one(), FAIL!\n");
-
-	if (dev) {
-		if (dev->irq)
-			free_irq(dev->irq, dev);
-		
-		free_netdev(dev);
-	}
-
-	if (pccard_ioaddr)
-		release_region(pccard_ioaddr, pccard_iolen);
-
+out5:
+	free_irq(dev->irq, dev);
+out4:
+	pci_iounmap(pdev, mem);
+out3:
+	free_netdev(dev);
+out2:
+	release_region(pccard_ioaddr, pccard_iolen);
+out:
 	pci_disable_device(pdev);
+	printk(KERN_DEBUG PFX "init_one(), FAIL!\n");
 
 	return err;
 }
@@ -171,14 +173,15 @@ static int orinoco_tmd_init_one(struct pci_dev *pdev,
 static void __devexit orinoco_tmd_remove_one(struct pci_dev *pdev)
 {
 	struct net_device *dev = pci_get_drvdata(pdev);
-
-	BUG_ON(! dev);
+	struct orinoco_private *priv = netdev_priv(dev);
 
 	unregister_netdev(dev);
 		
 	if (dev->irq)
 		free_irq(dev->irq, dev);
-		
+
+	pci_iounmap(pdev, priv->hw.iobase);
+
 	pci_set_drvdata(pdev, NULL);
 
 	free_netdev(dev);
