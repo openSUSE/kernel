@@ -678,8 +678,7 @@ static void __init prom_init_mem(void)
 	 * point to after it
 	 */
 	if (RELOC(prom_initrd_start)) {
-		if ((RELOC(prom_initrd_start) + RELOC(prom_initrd_end))
-		    > RELOC(alloc_bottom))
+		if (RELOC(prom_initrd_end) > RELOC(alloc_bottom))
 			RELOC(alloc_bottom) = PAGE_ALIGN(RELOC(prom_initrd_end));
 	}
 
