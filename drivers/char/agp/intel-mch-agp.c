@@ -622,6 +622,8 @@ static struct pci_driver agp_intelmch_pci_driver = {
 int __init agp_intelmch_init(void)
 {
 	static int agp_initialised=0;
+	if (agp_off)
+		return -EINVAL;
 
 	if (agp_initialised == 1)
 		return 0;
