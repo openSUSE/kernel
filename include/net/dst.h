@@ -124,6 +124,16 @@ dst_pmtu(const struct dst_entry *dst)
 	return mtu;
 }
 
+static inline u32 dst_mtu(const struct dst_entry *dst)
+{
+	u32 mtu = dst_metric(dst, RTAX_MTU);
+	/*
+	 * Alexey put it here, so ask him about it :)
+	 */
+	barrier();
+	return mtu;
+}
+
 static inline int
 dst_metric_locked(struct dst_entry *dst, int metric)
 {

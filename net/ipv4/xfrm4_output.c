@@ -82,7 +82,7 @@ static int xfrm4_tunnel_check_size(struct sk_buff *skb)
 		goto out;
 
 	dst = skb->dst;
-	mtu = dst_pmtu(dst) - dst->header_len - dst->trailer_len;
+	mtu = dst_mtu(dst);
 	if (skb->len > mtu) {
 		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
 		ret = -EMSGSIZE;
