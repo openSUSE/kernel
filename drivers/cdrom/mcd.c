@@ -244,7 +244,7 @@ static struct block_device_operations mcd_bdops =
 
 static struct gendisk *mcd_gendisk;
 
-static int __init mcd_setup(char *str)
+static int __init mcd_setup(const char *str)
 {
 	int ints[9];
 
