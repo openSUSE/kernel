@@ -273,7 +273,7 @@ static int TIReadVendorRequestSync (struct usb_device *dev,
 				index,
 				data,
 				size,
-				HZ);
+				1000);
 	if (status < 0)
 		return status;
 	if (status != size) {
@@ -303,8 +303,7 @@ static int TISendVendorRequestSync (struct usb_device *dev,
 				index,
 				data,
 				size,
-				HZ);
-
+				1000);
 	if (status < 0)
 		return status;
 	if (status != size) {
@@ -985,7 +984,7 @@ static int TISendBulkTransferSync (struct usb_serial *serial, void *buffer, int 
 				buffer,
 				length,
 				num_sent,
-				HZ);
+				1000);
 	return status;
 }
 
