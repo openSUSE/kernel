@@ -166,21 +166,22 @@ struct mthca_cq {
 };
 
 struct mthca_wq {
-	int   max;
-	int   cur;
-	int   next;
-	int   last_comp;
-	void *last;
-	int   max_gs;
-	int   wqe_shift;
+	spinlock_t lock;
+	int        max;
+	unsigned   next_ind;
+	unsigned   last_comp;
+	unsigned   head;
+	unsigned   tail;
+	void      *last;
+	int        max_gs;
+	int        wqe_shift;
 
-	int   db_index;		/* Arbel only */
-	u32  *db;
+	int        db_index;	/* Arbel only */
+	u32       *db;
 };
 
 struct mthca_qp {
 	struct ib_qp           ibqp;
-	spinlock_t             lock;
 	atomic_t               refcount;
 	u32                    qpn;
 	int                    is_direct;

@@ -577,9 +577,11 @@ int mthca_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr, int attr_mask)
 		else
 			cur_state = attr->cur_qp_state;
 	} else {
-		spin_lock_irq(&qp->lock);
+		spin_lock_irq(&qp->sq.lock);
+		spin_lock(&qp->rq.lock);
 		cur_state = qp->state;
-		spin_unlock_irq(&qp->lock);
+		spin_unlock(&qp->rq.lock);
+		spin_unlock_irq(&qp->sq.lock);
 	}
 
 	if (attr_mask & IB_QP_STATE) {
@@ -1076,6 +1078,16 @@ static void mthca_free_memfree(struct mthca_dev *dev,
 	}
 }
 
+static void mthca_wq_init(struct mthca_wq* wq)
+{
+	spin_lock_init(&wq->lock);
+	wq->next_ind  = 0;
+	wq->last_comp = wq->max - 1;
+	wq->head      = 0;
+	wq->tail      = 0;
+	wq->last      = NULL;
+}
+
 static int mthca_alloc_qp_common(struct mthca_dev *dev,
 				 struct mthca_pd *pd,
 				 struct mthca_cq *send_cq,
@@ -1087,20 +1099,13 @@ static int mthca_alloc_qp_common(struct mthca_dev *dev,
 	int ret;
 	int i;
 
-	spin_lock_init(&qp->lock);
 	atomic_set(&qp->refcount, 1);
 	qp->state    	 = IB_QPS_RESET;
 	qp->atomic_rd_en = 0;
 	qp->resp_depth   = 0;
 	qp->sq_policy    = send_policy;
-	qp->rq.cur       = 0;
-	qp->sq.cur       = 0;
-	qp->rq.next      = 0;
-	qp->sq.next      = 0;
-	qp->rq.last_comp = qp->rq.max - 1;
-	qp->sq.last_comp = qp->sq.max - 1;
-	qp->rq.last      = NULL;
-	qp->sq.last      = NULL;
+	mthca_wq_init(&qp->sq);
+	mthca_wq_init(&qp->rq);
 
 	ret = mthca_alloc_memfree(dev, qp);
 	if (ret)
@@ -1394,6 +1399,24 @@ static int build_mlx_header(struct mthca_dev *dev, struct mthca_sqp *sqp,
 	return 0;
 }
 
+static inline int mthca_wq_overflow(struct mthca_wq *wq, int nreq,
+				    struct ib_cq *ib_cq)
+{
+	unsigned cur;
+	struct mthca_cq *cq;
+
+	cur = wq->head - wq->tail;
+	if (likely(cur + nreq < wq->max))
+		return 0;
+
+	cq = to_mcq(ib_cq);
+	spin_lock(&cq->lock);
+	cur = wq->head - wq->tail;
+	spin_unlock(&cq->lock);
+
+	return cur + nreq >= wq->max;
+}
+
 int mthca_tavor_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 			  struct ib_send_wr **bad_wr)
 {
@@ -1411,16 +1434,18 @@ int mthca_tavor_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 	int ind;
 	u8 op0 = 0;
 
-	spin_lock_irqsave(&qp->lock, flags);
+	spin_lock_irqsave(&qp->sq.lock, flags);
 
 	/* XXX check that state is OK to post send */
 
-	ind = qp->sq.next;
+	ind = qp->sq.next_ind;
 
 	for (nreq = 0; wr; ++nreq, wr = wr->next) {
-		if (qp->sq.cur + nreq >= qp->sq.max) {
-			mthca_err(dev, "SQ full (%d posted, %d max, %d nreq)\n",
-				  qp->sq.cur, qp->sq.max, nreq);
+		if (mthca_wq_overflow(&qp->sq, nreq, qp->ibqp.send_cq)) {
+			mthca_err(dev, "SQ %06x full (%u head, %u tail,"
+					" %d max, %d nreq)\n", qp->qpn,
+					qp->sq.head, qp->sq.tail,
+					qp->sq.max, nreq);
 			err = -ENOMEM;
 			*bad_wr = wr;
 			goto out;
@@ -1580,7 +1605,7 @@ out:
 	if (likely(nreq)) {
 		u32 doorbell[2];
 
-		doorbell[0] = cpu_to_be32(((qp->sq.next << qp->sq.wqe_shift) +
+		doorbell[0] = cpu_to_be32(((qp->sq.next_ind << qp->sq.wqe_shift) +
 					   qp->send_wqe_offset) | f0 | op0);
 		doorbell[1] = cpu_to_be32((qp->qpn << 8) | size0);
 
@@ -1591,10 +1616,10 @@ out:
 			      MTHCA_GET_DOORBELL_LOCK(&dev->doorbell_lock));
 	}
 
-	qp->sq.cur += nreq;
-	qp->sq.next = ind;
+	qp->sq.next_ind = ind;
+	qp->sq.head    += nreq;
 
-	spin_unlock_irqrestore(&qp->lock, flags);
+	spin_unlock_irqrestore(&qp->sq.lock, flags);
 	return err;
 }
 
@@ -1613,15 +1638,18 @@ int mthca_tavor_post_receive(struct ib_qp *ibqp, struct ib_recv_wr *wr,
 	void *wqe;
 	void *prev_wqe;
 
-	spin_lock_irqsave(&qp->lock, flags);
+	spin_lock_irqsave(&qp->rq.lock, flags);
 
 	/* XXX check that state is OK to post receive */
 
-	ind = qp->rq.next;
+	ind = qp->rq.next_ind;
 
 	for (nreq = 0; wr; ++nreq, wr = wr->next) {
-		if (unlikely(qp->rq.cur + nreq >= qp->rq.max)) {
-			mthca_err(dev, "RQ %06x full\n", qp->qpn);
+		if (mthca_wq_overflow(&qp->rq, nreq, qp->ibqp.recv_cq)) {
+			mthca_err(dev, "RQ %06x full (%u head, %u tail,"
+					" %d max, %d nreq)\n", qp->qpn,
+					qp->rq.head, qp->rq.tail,
+					qp->rq.max, nreq);
 			err = -ENOMEM;
 			*bad_wr = wr;
 			goto out;
@@ -1678,7 +1706,7 @@ out:
 	if (likely(nreq)) {
 		u32 doorbell[2];
 
-		doorbell[0] = cpu_to_be32((qp->rq.next << qp->rq.wqe_shift) | size0);
+		doorbell[0] = cpu_to_be32((qp->rq.next_ind << qp->rq.wqe_shift) | size0);
 		doorbell[1] = cpu_to_be32((qp->qpn << 8) | nreq);
 
 		wmb();
@@ -1688,10 +1716,10 @@ out:
 			      MTHCA_GET_DOORBELL_LOCK(&dev->doorbell_lock));
 	}
 
-	qp->rq.cur += nreq;
-	qp->rq.next = ind;
+	qp->rq.next_ind = ind;
+	qp->rq.head    += nreq;
 
-	spin_unlock_irqrestore(&qp->lock, flags);
+	spin_unlock_irqrestore(&qp->rq.lock, flags);
 	return err;
 }
 
@@ -1712,16 +1740,18 @@ int mthca_arbel_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 	int ind;
 	u8 op0 = 0;
 
-	spin_lock_irqsave(&qp->lock, flags);
+	spin_lock_irqsave(&qp->sq.lock, flags);
 
 	/* XXX check that state is OK to post send */
 
-	ind = qp->sq.next & (qp->sq.max - 1);
+	ind = qp->sq.head & (qp->sq.max - 1);
 
 	for (nreq = 0; wr; ++nreq, wr = wr->next) {
-		if (qp->sq.cur + nreq >= qp->sq.max) {
-			mthca_err(dev, "SQ full (%d posted, %d max, %d nreq)\n",
-				  qp->sq.cur, qp->sq.max, nreq);
+		if (mthca_wq_overflow(&qp->sq, nreq, qp->ibqp.send_cq)) {
+			mthca_err(dev, "SQ %06x full (%u head, %u tail,"
+					" %d max, %d nreq)\n", qp->qpn,
+					qp->sq.head, qp->sq.tail,
+					qp->sq.max, nreq);
 			err = -ENOMEM;
 			*bad_wr = wr;
 			goto out;
@@ -1831,19 +1861,18 @@ out:
 		u32 doorbell[2];
 
 		doorbell[0] = cpu_to_be32((nreq << 24)                  |
-					  ((qp->sq.next & 0xffff) << 8) |
+					  ((qp->sq.head & 0xffff) << 8) |
 					  f0 | op0);
 		doorbell[1] = cpu_to_be32((qp->qpn << 8) | size0);
 
-		qp->sq.cur  += nreq;
-		qp->sq.next += nreq;
+		qp->sq.head += nreq;
 
 		/*
 		 * Make sure that descriptors are written before
 		 * doorbell record.
 		 */
 		wmb();
-		*qp->sq.db = cpu_to_be32(qp->sq.next & 0xffff);
+		*qp->sq.db = cpu_to_be32(qp->sq.head & 0xffff);
 
 		/*
 		 * Make sure doorbell record is written before we
@@ -1855,7 +1884,7 @@ out:
 			      MTHCA_GET_DOORBELL_LOCK(&dev->doorbell_lock));
 	}
 
-	spin_unlock_irqrestore(&qp->lock, flags);
+	spin_unlock_irqrestore(&qp->sq.lock, flags);
 	return err;
 }
 
@@ -1871,15 +1900,18 @@ int mthca_arbel_post_receive(struct ib_qp *ibqp, struct ib_recv_wr *wr,
 	int i;
 	void *wqe;
 
-	spin_lock_irqsave(&qp->lock, flags);
+ 	spin_lock_irqsave(&qp->rq.lock, flags);
 
 	/* XXX check that state is OK to post receive */
 
-	ind = qp->rq.next & (qp->rq.max - 1);
+	ind = qp->rq.head & (qp->rq.max - 1);
 
 	for (nreq = 0; wr; ++nreq, wr = wr->next) {
-		if (unlikely(qp->rq.cur + nreq >= qp->rq.max)) {
-			mthca_err(dev, "RQ %06x full\n", qp->qpn);
+		if (mthca_wq_overflow(&qp->rq, nreq, qp->ibqp.recv_cq)) {
+			mthca_err(dev, "RQ %06x full (%u head, %u tail,"
+					" %d max, %d nreq)\n", qp->qpn,
+					qp->rq.head, qp->rq.tail,
+					qp->rq.max, nreq);
 			err = -ENOMEM;
 			*bad_wr = wr;
 			goto out;
@@ -1921,18 +1953,17 @@ int mthca_arbel_post_receive(struct ib_qp *ibqp, struct ib_recv_wr *wr,
 	}
 out:
 	if (likely(nreq)) {
-		qp->rq.cur  += nreq;
-		qp->rq.next += nreq;
+		qp->rq.head += nreq;
 
 		/*
 		 * Make sure that descriptors are written before
 		 * doorbell record.
 		 */
 		wmb();
-		*qp->rq.db = cpu_to_be32(qp->rq.next & 0xffff);
+		*qp->rq.db = cpu_to_be32(qp->rq.head & 0xffff);
 	}
 
-	spin_unlock_irqrestore(&qp->lock, flags);
+	spin_unlock_irqrestore(&qp->rq.lock, flags);
 	return err;
 }
 

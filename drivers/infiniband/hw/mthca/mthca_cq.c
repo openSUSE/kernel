@@ -423,15 +423,6 @@ static inline int mthca_poll_one(struct mthca_dev *dev,
 	is_send  = is_error ? cqe->opcode & 0x01 : cqe->is_send & 0x80;
 
 	if (!*cur_qp || be32_to_cpu(cqe->my_qpn) != (*cur_qp)->qpn) {
-		if (*cur_qp) {
-			if (*freed) {
-				wmb();
-				update_cons_index(dev, cq, *freed);
-				*freed = 0;
-			}
-			spin_unlock(&(*cur_qp)->lock);
-		}
-
 		/*
 		 * We do not have to take the QP table lock here,
 		 * because CQs will be locked while QPs are removed
@@ -446,8 +437,6 @@ static inline int mthca_poll_one(struct mthca_dev *dev,
 			err = -EINVAL;
 			goto out;
 		}
-
-		spin_lock(&(*cur_qp)->lock);
 	}
 
 	entry->qp_num = (*cur_qp)->qpn;
@@ -465,9 +454,9 @@ static inline int mthca_poll_one(struct mthca_dev *dev,
 	}
 
 	if (wq->last_comp < wqe_index)
-		wq->cur -= wqe_index - wq->last_comp;
+		wq->tail += wqe_index - wq->last_comp;
 	else
-		wq->cur -= wq->max - wq->last_comp + wqe_index;
+		wq->tail += wqe_index + wq->max - wq->last_comp;
 
 	wq->last_comp = wqe_index;
 
@@ -550,9 +539,6 @@ int mthca_poll_cq(struct ib_cq *ibcq, int num_entries,
 		wmb();
 		update_cons_index(dev, cq, freed);
 	}
-
-	if (qp)
-		spin_unlock(&qp->lock);
 
 	spin_unlock_irqrestore(&cq->lock, flags);
 
