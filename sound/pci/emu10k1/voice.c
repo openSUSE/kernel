@@ -69,10 +69,8 @@ static int voice_alloc(emu10k1_t *emu, emu10k1_voice_type_t type, int number, em
 		skip = 0;
 		for (k = 0; k < number; k++) {
 			voice = &emu->voices[(i+k) % NUM_G];
-			if (voice->use) {
-				printk("voice %d: use=1!\n", i+k);
+			if (voice->use)
 				skip = 1;
-			}
 		}
 		if (!skip) {
 			// printk("allocated voice %d\n", i);
