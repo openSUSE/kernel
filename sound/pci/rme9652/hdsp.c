@@ -809,7 +809,7 @@ static int hdsp_write_gain(hdsp_t *hdsp, unsigned int addr, unsigned short data)
 	
 	if (hdsp->io_type == H9652 || hdsp->io_type == H9632) {
 
-		/* from martin björnsen:
+		/* from martin bjornsen:
 		   
 		   "You can only write dwords to the
 		   mixer memory which contain two
