@@ -21,7 +21,6 @@
 #include <linux/device.h>
 
 struct serio {
-	void *private;
 	void *port_data;
 
 	char name[32];
@@ -110,6 +109,19 @@ static __inline__ void serio_cleanup(struct serio *serio)
 		serio->drv->cleanup(serio);
 }
 
+/*
+ * Use the following fucntions to manipulate serio's per-port
+ * driver-specific data.
+ */
+static __inline__ void *serio_get_drvdata(struct serio *serio)
+{
+	return dev_get_drvdata(&serio->dev);
+}
+
+static __inline__ void serio_set_drvdata(struct serio *serio, void *data)
+{
+	dev_set_drvdata(&serio->dev, data);
+}
 
 /*
  * Use the following fucntions to protect critical sections in

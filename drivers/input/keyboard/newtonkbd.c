@@ -69,7 +69,7 @@ struct nkbd {
 irqreturn_t nkbd_interrupt(struct serio *serio,
 		unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
-	struct nkbd *nkbd = serio->private;
+	struct nkbd *nkbd = serio_get_drvdata(serio);
 
 	/* invalid scan codes are probably the init sequence, so we ignore them */
 	if (nkbd->keycode[data & NKBD_KEY]) {
@@ -106,9 +106,11 @@ void nkbd_connect(struct serio *serio, struct serio_driver *drv)
 	nkbd->dev.keycodesize = sizeof(unsigned char);
 	nkbd->dev.keycodemax = ARRAY_SIZE(nkbd_keycode);
 	nkbd->dev.private = nkbd;
-	serio->private = nkbd;
+
+	serio_set_drvdata(serio, nkbd);
 
 	if (serio_open(serio, drv)) {
+		serio_set_drvdata(serio, NULL);
 		kfree(nkbd);
 		return;
 	}
@@ -135,9 +137,11 @@ void nkbd_connect(struct serio *serio, struct serio_driver *drv)
 
 void nkbd_disconnect(struct serio *serio)
 {
-	struct nkbd *nkbd = serio->private;
+	struct nkbd *nkbd = serio_get_drvdata(serio);
+
 	input_unregister_device(&nkbd->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(nkbd);
 }
 

@@ -75,13 +75,15 @@ again:
 
 static void iforce_serio_write_wakeup(struct serio *serio)
 {
-	iforce_serial_xmit((struct iforce *)serio->private);
+	struct iforce *iforce = serio_get_drvdata(serio);
+
+	iforce_serial_xmit(iforce);
 }
 
 static irqreturn_t iforce_serio_irq(struct serio *serio,
 		unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
-	struct iforce* iforce = serio->private;
+	struct iforce *iforce = serio_get_drvdata(serio);
 
 	if (!iforce->pkt) {
 		if (data == 0x2b)
@@ -135,15 +137,18 @@ static void iforce_serio_connect(struct serio *serio, struct serio_driver *drv)
 
 	iforce->bus = IFORCE_232;
 	iforce->serio = serio;
-	serio->private = iforce;
+
+	serio_set_drvdata(serio, iforce);
 
 	if (serio_open(serio, drv)) {
+		serio_set_drvdata(serio, NULL);
 		kfree(iforce);
 		return;
 	}
 
 	if (iforce_init_device(iforce)) {
 		serio_close(serio);
+		serio_set_drvdata(serio, NULL);
 		kfree(iforce);
 		return;
 	}
@@ -151,10 +156,11 @@ static void iforce_serio_connect(struct serio *serio, struct serio_driver *drv)
 
 static void iforce_serio_disconnect(struct serio *serio)
 {
-	struct iforce* iforce = serio->private;
+	struct iforce *iforce = serio_get_drvdata(serio);
 
 	input_unregister_device(&iforce->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(iforce);
 }
 

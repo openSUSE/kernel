@@ -417,7 +417,7 @@ static irqreturn_t
 lkkbd_interrupt (struct serio *serio, unsigned char data, unsigned int flags,
 		struct pt_regs *regs)
 {
-	struct lkkbd *lk = serio->private;
+	struct lkkbd *lk = serio_get_drvdata (serio);
 	int i;
 
 	DBG (KERN_INFO "Got byte 0x%02x\n", data);
@@ -665,9 +665,10 @@ lkkbd_connect (struct serio *serio, struct serio_driver *drv)
 	lk->dev.event = lkkbd_event;
 	lk->dev.private = lk;
 
-	serio->private = lk;
+	serio_set_drvdata (serio, lk);
 
 	if (serio_open (serio, drv)) {
+		serio_set_drvdata (serio, NULL);
 		kfree (lk);
 		return;
 	}
@@ -699,10 +700,11 @@ lkkbd_connect (struct serio *serio, struct serio_driver *drv)
 static void
 lkkbd_disconnect (struct serio *serio)
 {
-	struct lkkbd *lk = serio->private;
+	struct lkkbd *lk = serio_get_drvdata (serio);
 
 	input_unregister_device (&lk->dev);
 	serio_close (serio);
+	serio_set_drvdata (serio, NULL);
 	kfree (lk);
 }
 

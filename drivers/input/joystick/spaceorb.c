@@ -135,7 +135,7 @@ static void spaceorb_process_packet(struct spaceorb *spaceorb, struct pt_regs *r
 static irqreturn_t spaceorb_interrupt(struct serio *serio,
 		unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
-	struct spaceorb* spaceorb = serio->private;
+	struct spaceorb* spaceorb = serio_get_drvdata(serio);
 
 	if (~data & 0x80) {
 		if (spaceorb->idx) spaceorb_process_packet(spaceorb, regs);
@@ -152,9 +152,11 @@ static irqreturn_t spaceorb_interrupt(struct serio *serio,
 
 static void spaceorb_disconnect(struct serio *serio)
 {
-	struct spaceorb* spaceorb = serio->private;
+	struct spaceorb* spaceorb = serio_get_drvdata(serio);
+
 	input_unregister_device(&spaceorb->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(spaceorb);
 }
 
@@ -202,9 +204,10 @@ static void spaceorb_connect(struct serio *serio, struct serio_driver *drv)
 	spaceorb->dev.id.version = 0x0100;
 	spaceorb->dev.dev = &serio->dev;
 
-	serio->private = spaceorb;
+	serio_set_drvdata(serio, spaceorb);
 
 	if (serio_open(serio, drv)) {
+		serio_set_drvdata(serio, NULL);
 		kfree(spaceorb);
 		return;
 	}

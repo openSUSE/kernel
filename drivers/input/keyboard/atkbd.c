@@ -249,7 +249,7 @@ static void atkbd_report_key(struct input_dev *dev, struct pt_regs *regs, int co
 static irqreturn_t atkbd_interrupt(struct serio *serio, unsigned char data,
 			unsigned int flags, struct pt_regs *regs)
 {
-	struct atkbd *atkbd = serio->private;
+	struct atkbd *atkbd = serio_get_drvdata(serio);
 	unsigned int code = data;
 	int scroll = 0, click = -1;
 	int value;
@@ -647,7 +647,7 @@ static int atkbd_activate(struct atkbd *atkbd)
 
 static void atkbd_cleanup(struct serio *serio)
 {
-	struct atkbd *atkbd = serio->private;
+	struct atkbd *atkbd = serio_get_drvdata(serio);
 	ps2_command(&atkbd->ps2dev, NULL, ATKBD_CMD_RESET_BAT);
 }
 
@@ -658,7 +658,7 @@ static void atkbd_cleanup(struct serio *serio)
 
 static void atkbd_disconnect(struct serio *serio)
 {
-	struct atkbd *atkbd = serio->private;
+	struct atkbd *atkbd = serio_get_drvdata(serio);
 
 	atkbd_disable(atkbd);
 
@@ -674,6 +674,7 @@ static void atkbd_disconnect(struct serio *serio)
 
 	input_unregister_device(&atkbd->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(atkbd);
 }
 
@@ -810,9 +811,10 @@ static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
 	if (atkbd->softrepeat)
 		atkbd->softraw = 1;
 
-	serio->private = atkbd;
+	serio_set_drvdata(serio, atkbd);
 
 	if (serio_open(serio, drv)) {
+		serio_set_drvdata(serio, NULL);
 		kfree(atkbd);
 		return;
 	}
@@ -821,7 +823,7 @@ static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
 
 		if (atkbd_probe(atkbd)) {
 			serio_close(serio);
-			serio->private = NULL;
+			serio_set_drvdata(serio, NULL);
 			kfree(atkbd);
 			return;
 		}
@@ -865,7 +867,7 @@ static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
 
 static int atkbd_reconnect(struct serio *serio)
 {
-	struct atkbd *atkbd = serio->private;
+	struct atkbd *atkbd = serio_get_drvdata(serio);
 	struct serio_driver *drv = serio->drv;
 	unsigned char param[1];
 
@@ -924,7 +926,7 @@ static ssize_t atkbd_attr_show_helper(struct device *dev, char *buf,
 		goto out;
 	}
 
-	retval = handler((struct atkbd *)serio->private, buf);
+	retval = handler((struct atkbd *)serio_get_drvdata(serio), buf);
 
 out:
 	serio_unpin_driver(serio);
@@ -947,7 +949,7 @@ static ssize_t atkbd_attr_set_helper(struct device *dev, const char *buf, size_t
 		goto out;
 	}
 
-	atkbd = serio->private;
+	atkbd = serio_get_drvdata(serio);
 	atkbd_disable(atkbd);
 	retval = handler(atkbd, buf, count);
 	atkbd_enable(atkbd);

@@ -103,7 +103,7 @@ static void stinger_process_packet(struct stinger *stinger, struct pt_regs *regs
 static irqreturn_t stinger_interrupt(struct serio *serio,
 	unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
-	struct stinger* stinger = serio->private;
+	struct stinger *stinger = serio_get_drvdata(serio);
 
 	/* All Stinger packets are 4 bytes */
 
@@ -124,9 +124,11 @@ static irqreturn_t stinger_interrupt(struct serio *serio,
 
 static void stinger_disconnect(struct serio *serio)
 {
-	struct stinger* stinger = serio->private;
+	struct stinger *stinger = serio_get_drvdata(serio);
+
 	input_unregister_device(&stinger->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(stinger);
 }
 
@@ -173,9 +175,11 @@ static void stinger_connect(struct serio *serio, struct serio_driver *drv)
 	}
 
 	stinger->dev.private = stinger;
-	serio->private = stinger;
+
+	serio_set_drvdata(serio, stinger);
 
 	if (serio_open(serio, drv)) {
+		serio_set_drvdata(serio, NULL);
 		kfree(stinger);
 		return;
 	}

@@ -95,7 +95,7 @@ struct sunkbd {
 static irqreturn_t sunkbd_interrupt(struct serio *serio,
 		unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
-	struct sunkbd* sunkbd = serio->private;
+	struct sunkbd* sunkbd = serio_get_drvdata(serio);
 
 	if (sunkbd->reset <= -1) {		/* If cp[i] is 0xff, sunkbd->reset will stay -1. */
 		sunkbd->reset = data;		/* The keyboard sends 0xff 0xff 0xID on powerup */
@@ -257,15 +257,17 @@ static void sunkbd_connect(struct serio *serio, struct serio_driver *drv)
 	sunkbd->dev.event = sunkbd_event;
 	sunkbd->dev.private = sunkbd;
 
-	serio->private = sunkbd;
+	serio_set_drvdata(serio, sunkbd);
 
 	if (serio_open(serio, drv)) {
+		serio_set_drvdata(serio, NULL);
 		kfree(sunkbd);
 		return;
 	}
 
 	if (sunkbd_initialize(sunkbd) < 0) {
 		serio_close(serio);
+		serio_set_drvdata(serio, NULL);
 		kfree(sunkbd);
 		return;
 	}
@@ -298,9 +300,10 @@ static void sunkbd_connect(struct serio *serio, struct serio_driver *drv)
 
 static void sunkbd_disconnect(struct serio *serio)
 {
-	struct sunkbd *sunkbd = serio->private;
+	struct sunkbd *sunkbd = serio_get_drvdata(serio);
 	input_unregister_device(&sunkbd->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(sunkbd);
 }
 

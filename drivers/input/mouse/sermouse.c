@@ -209,7 +209,7 @@ static void sermouse_process_ms(struct sermouse *sermouse, signed char data, str
 static irqreturn_t sermouse_interrupt(struct serio *serio,
 		unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
-	struct sermouse *sermouse = serio->private;
+	struct sermouse *sermouse = serio_get_drvdata(serio);
 
 	if (time_after(jiffies, sermouse->last + HZ/10)) sermouse->count = 0;
 	sermouse->last = jiffies;
@@ -228,9 +228,11 @@ static irqreturn_t sermouse_interrupt(struct serio *serio,
 
 static void sermouse_disconnect(struct serio *serio)
 {
-	struct sermouse *sermouse = serio->private;
+	struct sermouse *sermouse = serio_get_drvdata(serio);
+
 	input_unregister_device(&sermouse->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(sermouse);
 }
 
@@ -261,8 +263,6 @@ static void sermouse_connect(struct serio *serio, struct serio_driver *drv)
 	sermouse->dev.relbit[0] = BIT(REL_X) | BIT(REL_Y);
 	sermouse->dev.private = sermouse;
 
-	serio->private = sermouse;
-
 	sermouse->type = serio->type & SERIO_PROTO;
 	c = (serio->type & SERIO_EXTRA) >> 16;
 
@@ -282,7 +282,10 @@ static void sermouse_connect(struct serio *serio, struct serio_driver *drv)
 	sermouse->dev.id.version = 0x0100;
 	sermouse->dev.dev = &serio->dev;
 
+	serio_set_drvdata(serio, sermouse);
+
 	if (serio_open(serio, drv)) {
+		serio_set_drvdata(serio, NULL);
 		kfree(sermouse);
 		return;
 	}

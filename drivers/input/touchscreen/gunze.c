@@ -83,7 +83,7 @@ static void gunze_process_packet(struct gunze* gunze, struct pt_regs *regs)
 static irqreturn_t gunze_interrupt(struct serio *serio,
 		unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
-	struct gunze* gunze = serio->private;
+	struct gunze* gunze = serio_get_drvdata(serio);
 
 	if (data == '\r') {
 		gunze_process_packet(gunze, regs);
@@ -101,9 +101,11 @@ static irqreturn_t gunze_interrupt(struct serio *serio,
 
 static void gunze_disconnect(struct serio *serio)
 {
-	struct gunze* gunze = serio->private;
+	struct gunze* gunze = serio_get_drvdata(serio);
+
 	input_unregister_device(&gunze->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(gunze);
 }
 
@@ -132,7 +134,6 @@ static void gunze_connect(struct serio *serio, struct serio_driver *drv)
 	input_set_abs_params(&gunze->dev, ABS_Y, 72, 3000, 0, 0);
 
 	gunze->serio = serio;
-	serio->private = gunze;
 
 	sprintf(gunze->phys, "%s/input0", serio->phys);
 
@@ -144,7 +145,10 @@ static void gunze_connect(struct serio *serio, struct serio_driver *drv)
 	gunze->dev.id.product = 0x0051;
 	gunze->dev.id.version = 0x0100;
 
+	serio_set_drvdata(serio, gunze);
+
 	if (serio_open(serio, drv)) {
+		serio_set_drvdata(serio, NULL);
 		kfree(gunze);
 		return;
 	}

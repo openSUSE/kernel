@@ -154,7 +154,7 @@ static void spaceball_process_packet(struct spaceball* spaceball, struct pt_regs
 static irqreturn_t spaceball_interrupt(struct serio *serio,
 		unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
-	struct spaceball *spaceball = serio->private;
+	struct spaceball *spaceball = serio_get_drvdata(serio);
 
 	switch (data) {
 		case 0xd:
@@ -191,9 +191,11 @@ static irqreturn_t spaceball_interrupt(struct serio *serio,
 
 static void spaceball_disconnect(struct serio *serio)
 {
-	struct spaceball* spaceball = serio->private;
+	struct spaceball* spaceball = serio_get_drvdata(serio);
+
 	input_unregister_device(&spaceball->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(spaceball);
 }
 
@@ -255,9 +257,10 @@ static void spaceball_connect(struct serio *serio, struct serio_driver *drv)
 	spaceball->dev.id.version = 0x0100;
 	spaceball->dev.dev = &serio->dev;
 
-	serio->private = spaceball;
+	serio_set_drvdata(serio, spaceball);
 
 	if (serio_open(serio, drv)) {
+		serio_set_drvdata(serio, NULL);
 		kfree(spaceball);
 		return;
 	}

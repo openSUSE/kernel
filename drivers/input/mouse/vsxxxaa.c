@@ -470,7 +470,7 @@ static irqreturn_t
 vsxxxaa_interrupt (struct serio *serio, unsigned char data, unsigned int flags,
 		struct pt_regs *regs)
 {
-	struct vsxxxaa *mouse = serio->private;
+	struct vsxxxaa *mouse = serio_get_drvdata (serio);
 
 	vsxxxaa_queue_byte (mouse, data);
 	vsxxxaa_parse_buffer (mouse, regs);
@@ -481,10 +481,11 @@ vsxxxaa_interrupt (struct serio *serio, unsigned char data, unsigned int flags,
 static void
 vsxxxaa_disconnect (struct serio *serio)
 {
-	struct vsxxxaa *mouse = serio->private;
+	struct vsxxxaa *mouse = serio_get_drvdata (serio);
 
 	input_unregister_device (&mouse->dev);
 	serio_close (serio);
+	serio_set_drvdata (serio, NULL);
 	kfree (mouse);
 }
 
@@ -522,7 +523,6 @@ vsxxxaa_connect (struct serio *serio, struct serio_driver *drv)
 	mouse->dev.absmax[ABS_Y] = 1023;
 
 	mouse->dev.private = mouse;
-	serio->private = mouse;
 
 	sprintf (mouse->name, "DEC VSXXX-AA/-GA mouse or VSXXX-AB digitizer");
 	sprintf (mouse->phys, "%s/input0", serio->phys);
@@ -532,7 +532,10 @@ vsxxxaa_connect (struct serio *serio, struct serio_driver *drv)
 	mouse->dev.dev = &serio->dev;
 	mouse->serio = serio;
 
+	serio_set_drvdata (serio, mouse);
+
 	if (serio_open (serio, drv)) {
+		serio_set_drvdata (serio, NULL);
 		kfree (mouse);
 		return;
 	}

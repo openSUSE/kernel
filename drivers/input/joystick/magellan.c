@@ -118,7 +118,7 @@ static void magellan_process_packet(struct magellan* magellan, struct pt_regs *r
 static irqreturn_t magellan_interrupt(struct serio *serio,
 		unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
-	struct magellan* magellan = serio->private;
+	struct magellan* magellan = serio_get_drvdata(serio);
 
 	if (data == '\r') {
 		magellan_process_packet(magellan, regs);
@@ -136,9 +136,11 @@ static irqreturn_t magellan_interrupt(struct serio *serio,
 
 static void magellan_disconnect(struct serio *serio)
 {
-	struct magellan* magellan = serio->private;
+	struct magellan* magellan = serio_get_drvdata(serio);
+
 	input_unregister_device(&magellan->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(magellan);
 }
 
@@ -185,9 +187,10 @@ static void magellan_connect(struct serio *serio, struct serio_driver *drv)
 	magellan->dev.id.version = 0x0100;
 	magellan->dev.dev = &serio->dev;
 
-	serio->private = magellan;
+	serio_set_drvdata(serio, magellan);
 
 	if (serio_open(serio, drv)) {
+		serio_set_drvdata(serio, NULL);
 		kfree(magellan);
 		return;
 	}

@@ -68,7 +68,7 @@ struct xtkbd {
 irqreturn_t xtkbd_interrupt(struct serio *serio,
 	unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
-	struct xtkbd *xtkbd = serio->private;
+	struct xtkbd *xtkbd = serio_get_drvdata(serio);
 
 	switch (data) {
 		case XTKBD_EMUL0:
@@ -111,9 +111,10 @@ void xtkbd_connect(struct serio *serio, struct serio_driver *drv)
 	xtkbd->dev.keycodemax = ARRAY_SIZE(xtkbd_keycode);
 	xtkbd->dev.private = xtkbd;
 
-	serio->private = xtkbd;
+	serio_set_drvdata(serio, xtkbd);
 
 	if (serio_open(serio, drv)) {
+		serio_set_drvdata(serio, NULL);
 		kfree(xtkbd);
 		return;
 	}
@@ -140,9 +141,11 @@ void xtkbd_connect(struct serio *serio, struct serio_driver *drv)
 
 void xtkbd_disconnect(struct serio *serio)
 {
-	struct xtkbd *xtkbd = serio->private;
+	struct xtkbd *xtkbd = serio_get_drvdata(serio);
+
 	input_unregister_device(&xtkbd->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(xtkbd);
 }
 

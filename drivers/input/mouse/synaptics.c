@@ -229,7 +229,7 @@ static void synaptics_set_rate(struct psmouse *psmouse, unsigned int rate)
  ****************************************************************************/
 static int synaptics_pt_write(struct serio *serio, unsigned char c)
 {
-	struct psmouse *parent = serio->parent->private;
+	struct psmouse *parent = serio_get_drvdata(serio->parent);
 	char rate_param = SYN_PS_CLIENT_CMD; /* indicates that we want pass-through port */
 
 	if (psmouse_sliced_command(parent, c))
@@ -246,7 +246,7 @@ static inline int synaptics_is_pt_packet(unsigned char *buf)
 
 static void synaptics_pass_pt_packet(struct serio *ptport, unsigned char *packet)
 {
-	struct psmouse *child = ptport->private;
+	struct psmouse *child = serio_get_drvdata(ptport);
 
 	if (child && child->state == PSMOUSE_ACTIVATED) {
 		serio_interrupt(ptport, packet[1], 0, NULL);
@@ -260,7 +260,8 @@ static void synaptics_pass_pt_packet(struct serio *ptport, unsigned char *packet
 
 static void synaptics_pt_activate(struct psmouse *psmouse)
 {
-	struct psmouse *child = psmouse->ps2dev.serio->child->private;
+	struct serio *ptport = psmouse->ps2dev.serio->child;
+	struct psmouse *child = serio_get_drvdata(ptport);
 	struct synaptics_data *priv = psmouse->private;
 
 	/* adjust the touchpad to child's choice of protocol */

@@ -253,7 +253,7 @@ struct file_operations serio_raw_fops = {
 static irqreturn_t serio_raw_interrupt(struct serio *serio, unsigned char data,
 					unsigned int dfl, struct pt_regs *regs)
 {
-	struct serio_raw *serio_raw = serio->private;
+	struct serio_raw *serio_raw = serio_get_drvdata(serio);
 	struct serio_raw_list *list;
 	unsigned int head = serio_raw->head;
 
@@ -292,7 +292,7 @@ static void serio_raw_connect(struct serio *serio, struct serio_driver *drv)
 	INIT_LIST_HEAD(&serio_raw->list);
 	init_waitqueue_head(&serio_raw->wait);
 
-	serio->private = serio_raw;
+	serio_set_drvdata(serio, serio_raw);
 	if (serio_open(serio, drv))
 		goto out_free;
 
@@ -322,7 +322,7 @@ out_close:
 	serio_close(serio);
 	list_del_init(&serio_raw->node);
 out_free:
-	serio->private = NULL;
+	serio_set_drvdata(serio, NULL);
 	kfree(serio_raw);
 out:
 	up(&serio_raw_sem);
@@ -330,7 +330,7 @@ out:
 
 static int serio_raw_reconnect(struct serio *serio)
 {
-	struct serio_raw *serio_raw = serio->private;
+	struct serio_raw *serio_raw = serio_get_drvdata(serio);
 	struct serio_driver *drv = serio->drv;
 
 	if (!drv || !serio_raw) {
@@ -351,10 +351,10 @@ static void serio_raw_disconnect(struct serio *serio)
 
 	down(&serio_raw_sem);
 
-	serio_raw = serio->private;
+	serio_raw = serio_get_drvdata(serio);
 
 	serio_close(serio);
-	serio->private = NULL;
+	serio_set_drvdata(serio, NULL);
 
 	serio_raw->serio = NULL;
 	if (!serio_raw_cleanup(serio_raw))

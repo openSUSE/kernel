@@ -147,7 +147,7 @@ static void twidjoy_process_packet(struct twidjoy *twidjoy, struct pt_regs *regs
 
 static irqreturn_t twidjoy_interrupt(struct serio *serio, unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
-	struct twidjoy *twidjoy = serio->private;
+	struct twidjoy *twidjoy = serio_get_drvdata(serio);
 
 	/* All Twiddler packets are 5 bytes. The fact that the first byte
 	 * has a MSB of 0 and all other bytes have a MSB of 1 can be used
@@ -175,9 +175,11 @@ static irqreturn_t twidjoy_interrupt(struct serio *serio, unsigned char data, un
 
 static void twidjoy_disconnect(struct serio *serio)
 {
-	struct twidjoy *twidjoy = serio->private;
+	struct twidjoy *twidjoy = serio_get_drvdata(serio);
+
 	input_unregister_device(&twidjoy->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(twidjoy);
 }
 
@@ -231,9 +233,11 @@ static void twidjoy_connect(struct serio *serio, struct serio_driver *drv)
 	}
 
 	twidjoy->dev.private = twidjoy;
-	serio->private = twidjoy;
+
+	serio_set_drvdata(serio, twidjoy);
 
 	if (serio_open(serio, drv)) {
+		serio_set_drvdata(serio, NULL);
 		kfree(twidjoy);
 		return;
 	}

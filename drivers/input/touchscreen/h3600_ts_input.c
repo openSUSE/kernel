@@ -331,7 +331,7 @@ static int state;
 static irqreturn_t h3600ts_interrupt(struct serio *serio, unsigned char data,
                                      unsigned int flags, struct pt_regs *regs)
 {
-        struct h3600_dev *ts = serio->private;
+        struct h3600_dev *ts = serio_get_drvdata(serio);
 
 	/*
          * We have a new frame coming in.
@@ -431,7 +431,6 @@ static void h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 	ts->dev.keybit[LONG(KEY_SUSPEND)] |= BIT(KEY_SUSPEND);
 
 	ts->serio = serio;
-	serio->private = ts;
 
 	sprintf(ts->phys, "%s/input0", serio->phys);
 
@@ -444,9 +443,12 @@ static void h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 	ts->dev.id.product = 0x0666;  /* FIXME !!! We can ask the hardware */
 	ts->dev.id.version = 0x0100;
 
+	serio_set_drvdata(serio, ts);
+
 	if (serio_open(serio, drv)) {
         	free_irq(IRQ_GPIO_BITSY_ACTION_BUTTON, ts);
         	free_irq(IRQ_GPIO_BITSY_NPOWER_BUTTON, ts);
+		serio_set_drvdata(serio, NULL);
 		kfree(ts);
 		return;
 	}
@@ -468,12 +470,13 @@ static void h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 
 static void h3600ts_disconnect(struct serio *serio)
 {
-	struct h3600_dev *ts = serio->private;
+	struct h3600_dev *ts = serio_get_drvdata(serio);
 
-        free_irq(IRQ_GPIO_BITSY_ACTION_BUTTON, &ts->dev);
-        free_irq(IRQ_GPIO_BITSY_NPOWER_BUTTON, &ts->dev);
+	free_irq(IRQ_GPIO_BITSY_ACTION_BUTTON, &ts->dev);
+	free_irq(IRQ_GPIO_BITSY_NPOWER_BUTTON, &ts->dev);
 	input_unregister_device(&ts->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(ts);
 }
 

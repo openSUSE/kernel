@@ -104,7 +104,7 @@ static void warrior_process_packet(struct warrior *warrior, struct pt_regs *regs
 static irqreturn_t warrior_interrupt(struct serio *serio,
 		unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
-	struct warrior* warrior = serio->private;
+	struct warrior *warrior = serio_get_drvdata(serio);
 
 	if (data & 0x80) {
 		if (warrior->idx) warrior_process_packet(warrior, regs);
@@ -129,9 +129,11 @@ static irqreturn_t warrior_interrupt(struct serio *serio,
 
 static void warrior_disconnect(struct serio *serio)
 {
-	struct warrior* warrior = serio->private;
+	struct warrior *warrior = serio_get_drvdata(serio);
+
 	input_unregister_device(&warrior->dev);
 	serio_close(serio);
+	serio_set_drvdata(serio, NULL);
 	kfree(warrior);
 }
 
@@ -186,9 +188,10 @@ static void warrior_connect(struct serio *serio, struct serio_driver *drv)
 
 	warrior->dev.private = warrior;
 
-	serio->private = warrior;
+	serio_set_drvdata(serio, warrior);
 
 	if (serio_open(serio, drv)) {
+		serio_set_drvdata(serio, NULL);
 		kfree(warrior);
 		return;
 	}
