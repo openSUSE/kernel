@@ -27,7 +27,7 @@ dump_backtrace(struct frame_head * head)
 	/* frame pointers should strictly progress back up the stack
 	 * (towards higher addresses) */
 	if (head >= head->ebp)
-		return 0;
+		return NULL;
 
 	return head->ebp;
 }
