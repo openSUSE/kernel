@@ -47,7 +47,7 @@
 #define MAX_SLOTS 8
 static __u8 __initdata id_array[MAX_SLOTS] = { [0 ... MAX_SLOTS-1] = 7 };
 
-char *sim710;		/* command line passed by insmod */
+static char *sim710;		/* command line passed by insmod */
 
 MODULE_AUTHOR("Richard Hirst");
 MODULE_DESCRIPTION("Simple NCR53C710 driver");
@@ -61,7 +61,7 @@ module_param(sim710, charp, 0);
 #define ARG_SEP ','
 #endif
 
-__init int
+static __init int
 param_setup(char *str)
 {
 	char *pos = str, *next;
@@ -314,7 +314,7 @@ sim710_eisa_probe(struct device *dev)
 				   differential, scsi_id);
 }
 
-struct eisa_driver sim710_eisa_driver = {
+static struct eisa_driver sim710_eisa_driver = {
 	.id_table		= sim710_eisa_ids,
 	.driver = {
 		.name		= "sim710",
