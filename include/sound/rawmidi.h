@@ -65,8 +65,7 @@ typedef struct _snd_rawmidi_global_ops {
 } snd_rawmidi_global_ops_t;
 
 struct _snd_rawmidi_runtime {
-	unsigned int trigger: 1, /* transfer is running */
-		     drain: 1,	/* drain stage */
+	unsigned int drain: 1,	/* drain stage */
 		     oss: 1;	/* OSS compatible mode */
 	/* midi stream buffer */
 	unsigned char *buffer;	/* buffer for MIDI data */

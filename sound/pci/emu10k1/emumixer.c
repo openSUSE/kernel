@@ -67,6 +67,91 @@ static int snd_emu10k1_spdif_get_mask(snd_kcontrol_t * kcontrol,
 	return 0;
 }
 
+static int snd_audigy_spdif_output_rate_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uinfo)
+{
+	static char *texts[] = {"44100", "48000", "96000"};
+
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_ENUMERATED;
+	uinfo->count = 1;
+	uinfo->value.enumerated.items = 3;
+	if (uinfo->value.enumerated.item >= uinfo->value.enumerated.items)
+		uinfo->value.enumerated.item = uinfo->value.enumerated.items - 1;
+	strcpy(uinfo->value.enumerated.name, texts[uinfo->value.enumerated.item]);
+	return 0;
+}
+
+static int snd_audigy_spdif_output_rate_get(snd_kcontrol_t * kcontrol,
+                                 snd_ctl_elem_value_t * ucontrol)
+{
+	emu10k1_t *emu = snd_kcontrol_chip(kcontrol);
+	unsigned int tmp;
+	unsigned long flags;
+	
+
+	spin_lock_irqsave(&emu->reg_lock, flags);
+	tmp = snd_emu10k1_ptr_read(emu, A_SPDIF_SAMPLERATE, 0);
+	switch (tmp & A_SPDIF_RATE_MASK) {
+	case A_SPDIF_44100:
+		ucontrol->value.enumerated.item[0] = 0;
+		break;
+	case A_SPDIF_48000:
+		ucontrol->value.enumerated.item[0] = 1;
+		break;
+	case A_SPDIF_96000:
+		ucontrol->value.enumerated.item[0] = 2;
+		break;
+	default:
+		ucontrol->value.enumerated.item[0] = 1;
+	}
+	spin_unlock_irqrestore(&emu->reg_lock, flags);
+	return 0;
+}
+
+static int snd_audigy_spdif_output_rate_put(snd_kcontrol_t * kcontrol,
+                                 snd_ctl_elem_value_t * ucontrol)
+{
+	emu10k1_t *emu = snd_kcontrol_chip(kcontrol);
+	int change;
+	unsigned int reg, val, tmp;
+	unsigned long flags;
+
+	switch(ucontrol->value.enumerated.item[0]) {
+	case 0:
+		val = A_SPDIF_44100;
+		break;
+	case 1:
+		val = A_SPDIF_48000;
+		break;
+	case 2:
+		val = A_SPDIF_96000;
+		break;
+	default:
+		val = A_SPDIF_48000;
+		break;
+	}
+
+	
+	spin_lock_irqsave(&emu->reg_lock, flags);
+	reg = snd_emu10k1_ptr_read(emu, A_SPDIF_SAMPLERATE, 0);
+	tmp = reg & ~A_SPDIF_RATE_MASK;
+	tmp |= val;
+	if ((change = (tmp != reg)))
+		snd_emu10k1_ptr_write(emu, A_SPDIF_SAMPLERATE, 0, tmp);
+	spin_unlock_irqrestore(&emu->reg_lock, flags);
+	return change;
+}
+
+static snd_kcontrol_new_t snd_audigy_spdif_output_rate =
+{
+	.access =	SNDRV_CTL_ELEM_ACCESS_READWRITE,
+	.iface =        SNDRV_CTL_ELEM_IFACE_MIXER,
+	.name =         "Audigy SPDIF Output Sample Rate",
+	.count =	1,
+	.info =         snd_audigy_spdif_output_rate_info,
+	.get =          snd_audigy_spdif_output_rate_get,
+	.put =          snd_audigy_spdif_output_rate_put
+};
+
 static int snd_emu10k1_spdif_put(snd_kcontrol_t * kcontrol,
                                  snd_ctl_elem_value_t * ucontrol)
 {
@@ -138,6 +223,8 @@ static void update_emu10k1_send_volume(emu10k1_t *emu, int voice, unsigned char 
 		snd_emu10k1_ptr_write(emu, A_SENDAMOUNTS, voice, val);
 	}
 }
+
+/* PCM stream controls */
 
 static int snd_emu10k1_send_routing_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uinfo)
 {
@@ -343,6 +430,190 @@ static snd_kcontrol_new_t snd_emu10k1_attn_control =
 	.info =         snd_emu10k1_attn_info,
 	.get =          snd_emu10k1_attn_get,
 	.put =          snd_emu10k1_attn_put
+};
+
+/* Mutichannel PCM stream controls */
+
+static int snd_emu10k1_efx_send_routing_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uinfo)
+{
+	emu10k1_t *emu = snd_kcontrol_chip(kcontrol);
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = emu->audigy ? 8 : 4;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = emu->audigy ? 0x3f : 0x0f;
+	return 0;
+}
+
+static int snd_emu10k1_efx_send_routing_get(snd_kcontrol_t * kcontrol,
+                                        snd_ctl_elem_value_t * ucontrol)
+{
+	unsigned long flags;
+	emu10k1_t *emu = snd_kcontrol_chip(kcontrol);
+	emu10k1_pcm_mixer_t *mix = &emu->efx_pcm_mixer[snd_ctl_get_ioffidx(kcontrol, &ucontrol->id)];
+	int idx;
+	int num_efx = emu->audigy ? 8 : 4;
+	int mask = emu->audigy ? 0x3f : 0x0f;
+
+	spin_lock_irqsave(&emu->reg_lock, flags);
+	for (idx = 0; idx < num_efx; idx++)
+		ucontrol->value.integer.value[idx] = 
+			mix->send_routing[0][idx] & mask;
+	spin_unlock_irqrestore(&emu->reg_lock, flags);
+	return 0;
+}
+
+static int snd_emu10k1_efx_send_routing_put(snd_kcontrol_t * kcontrol,
+                                        snd_ctl_elem_value_t * ucontrol)
+{
+	unsigned long flags;
+	emu10k1_t *emu = snd_kcontrol_chip(kcontrol);
+	int ch = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id);
+	emu10k1_pcm_mixer_t *mix = &emu->efx_pcm_mixer[ch];
+	int change = 0, idx, val;
+	int num_efx = emu->audigy ? 8 : 4;
+	int mask = emu->audigy ? 0x3f : 0x0f;
+
+	spin_lock_irqsave(&emu->reg_lock, flags);
+	for (idx = 0; idx < num_efx; idx++) {
+		val = ucontrol->value.integer.value[idx] & mask;
+		if (mix->send_routing[0][idx] != val) {
+			mix->send_routing[0][idx] = val;
+			change = 1;
+		}
+	}	
+	if (change && mix->epcm->voices[ch])
+		update_emu10k1_fxrt(emu, mix->epcm->voices[ch]->number,
+				    &mix->send_routing[0][0]);
+	spin_unlock_irqrestore(&emu->reg_lock, flags);
+	return change;
+}
+
+static snd_kcontrol_new_t snd_emu10k1_efx_send_routing_control =
+{
+	.access =	SNDRV_CTL_ELEM_ACCESS_READWRITE | SNDRV_CTL_ELEM_ACCESS_INACTIVE,
+	.iface =        SNDRV_CTL_ELEM_IFACE_PCM,
+	.name =         "Multichannel PCM Send Routing",
+	.count =	16,
+	.info =         snd_emu10k1_efx_send_routing_info,
+	.get =          snd_emu10k1_efx_send_routing_get,
+	.put =          snd_emu10k1_efx_send_routing_put
+};
+
+static int snd_emu10k1_efx_send_volume_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uinfo)
+{
+	emu10k1_t *emu = snd_kcontrol_chip(kcontrol);
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = emu->audigy ? 8 : 4;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = 255;
+	return 0;
+}
+
+static int snd_emu10k1_efx_send_volume_get(snd_kcontrol_t * kcontrol,
+                                       snd_ctl_elem_value_t * ucontrol)
+{
+	unsigned long flags;
+	emu10k1_t *emu = snd_kcontrol_chip(kcontrol);
+	emu10k1_pcm_mixer_t *mix = &emu->efx_pcm_mixer[snd_ctl_get_ioffidx(kcontrol, &ucontrol->id)];
+	int idx;
+	int num_efx = emu->audigy ? 8 : 4;
+
+	spin_lock_irqsave(&emu->reg_lock, flags);
+	for (idx = 0; idx < num_efx; idx++)
+		ucontrol->value.integer.value[idx] = mix->send_volume[0][idx];
+	spin_unlock_irqrestore(&emu->reg_lock, flags);
+	return 0;
+}
+
+static int snd_emu10k1_efx_send_volume_put(snd_kcontrol_t * kcontrol,
+                                       snd_ctl_elem_value_t * ucontrol)
+{
+	unsigned long flags;
+	emu10k1_t *emu = snd_kcontrol_chip(kcontrol);
+	int ch = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id);
+	emu10k1_pcm_mixer_t *mix = &emu->efx_pcm_mixer[ch];
+	int change = 0, idx, val;
+	int num_efx = emu->audigy ? 8 : 4;
+
+	spin_lock_irqsave(&emu->reg_lock, flags);
+	for (idx = 0; idx < num_efx; idx++) {
+		val = ucontrol->value.integer.value[idx] & 255;
+		if (mix->send_volume[0][idx] != val) {
+			mix->send_volume[0][idx] = val;
+			change = 1;
+		}
+	}
+	if (change && mix->epcm->voices[ch])
+		update_emu10k1_send_volume(emu, mix->epcm->voices[ch]->number,
+					   &mix->send_volume[0][0]);
+	spin_unlock_irqrestore(&emu->reg_lock, flags);
+	return change;
+}
+
+
+static snd_kcontrol_new_t snd_emu10k1_efx_send_volume_control =
+{
+	.access =	SNDRV_CTL_ELEM_ACCESS_READWRITE | SNDRV_CTL_ELEM_ACCESS_INACTIVE,
+	.iface =        SNDRV_CTL_ELEM_IFACE_PCM,
+	.name =         "Multichannel PCM Send Volume",
+	.count =	16,
+	.info =         snd_emu10k1_efx_send_volume_info,
+	.get =          snd_emu10k1_efx_send_volume_get,
+	.put =          snd_emu10k1_efx_send_volume_put
+};
+
+static int snd_emu10k1_efx_attn_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = 1;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = 0xffff;
+	return 0;
+}
+
+static int snd_emu10k1_efx_attn_get(snd_kcontrol_t * kcontrol,
+                                snd_ctl_elem_value_t * ucontrol)
+{
+	emu10k1_t *emu = snd_kcontrol_chip(kcontrol);
+	emu10k1_pcm_mixer_t *mix = &emu->efx_pcm_mixer[snd_ctl_get_ioffidx(kcontrol, &ucontrol->id)];
+	unsigned long flags;
+
+	spin_lock_irqsave(&emu->reg_lock, flags);
+	ucontrol->value.integer.value[0] = mix->attn[0];
+	spin_unlock_irqrestore(&emu->reg_lock, flags);
+	return 0;
+}
+
+static int snd_emu10k1_efx_attn_put(snd_kcontrol_t * kcontrol,
+				snd_ctl_elem_value_t * ucontrol)
+{
+	unsigned long flags;
+	emu10k1_t *emu = snd_kcontrol_chip(kcontrol);
+	int ch = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id);
+	emu10k1_pcm_mixer_t *mix = &emu->efx_pcm_mixer[ch];
+	int change = 0, val;
+
+	spin_lock_irqsave(&emu->reg_lock, flags);
+	val = ucontrol->value.integer.value[0] & 0xffff;
+	if (mix->attn[0] != val) {
+		mix->attn[0] = val;
+		change = 1;
+	}
+	if (change && mix->epcm->voices[ch])
+		snd_emu10k1_ptr_write(emu, VTFT_VOLUMETARGET, mix->epcm->voices[ch]->number, mix->attn[0]);
+	spin_unlock_irqrestore(&emu->reg_lock, flags);
+	return change;
+}
+
+static snd_kcontrol_new_t snd_emu10k1_efx_attn_control =
+{
+	.access =	SNDRV_CTL_ELEM_ACCESS_READWRITE | SNDRV_CTL_ELEM_ACCESS_INACTIVE,
+	.iface =        SNDRV_CTL_ELEM_IFACE_PCM,
+	.name =         "Multichannel PCM Volume",
+	.count =	16,
+	.info =         snd_emu10k1_efx_attn_info,
+	.get =          snd_emu10k1_efx_attn_get,
+	.put =          snd_emu10k1_efx_attn_put
 };
 
 static int snd_emu10k1_shared_spdif_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uinfo)
@@ -578,7 +849,22 @@ int __devinit snd_emu10k1_mixer(emu10k1_t *emu)
 	if ((err = snd_ctl_add(card, kctl)))
 		return err;
 
-	/* intiailize the routing and volume table for each pcm playback stream */
+	if ((kctl = emu->ctl_efx_send_routing = snd_ctl_new1(&snd_emu10k1_efx_send_routing_control, emu)) == NULL)
+		return -ENOMEM;
+	if ((err = snd_ctl_add(card, kctl)))
+		return err;
+	
+	if ((kctl = emu->ctl_efx_send_volume = snd_ctl_new1(&snd_emu10k1_efx_send_volume_control, emu)) == NULL)
+		return -ENOMEM;
+	if ((err = snd_ctl_add(card, kctl)))
+		return err;
+	
+	if ((kctl = emu->ctl_efx_attn = snd_ctl_new1(&snd_emu10k1_efx_attn_control, emu)) == NULL)
+		return -ENOMEM;
+	if ((err = snd_ctl_add(card, kctl)))
+		return err;
+
+	/* initialize the routing and volume table for each pcm playback stream */
 	for (pcm = 0; pcm < 32; pcm++) {
 		emu10k1_pcm_mixer_t *mix;
 		int v;
@@ -596,6 +882,28 @@ int __devinit snd_emu10k1_mixer(emu10k1_t *emu)
 		mix->send_volume[1][0] = mix->send_volume[2][1] = 255;
 		
 		mix->attn[0] = mix->attn[1] = mix->attn[2] = 0xffff;
+	}
+	
+	/* initialize the routing and volume table for the multichannel playback stream */
+	for (pcm = 0; pcm < NUM_EFX_PLAYBACK; pcm++) {
+		emu10k1_pcm_mixer_t *mix;
+		int v;
+		
+		mix = &emu->efx_pcm_mixer[pcm];
+		mix->epcm = NULL;
+
+		mix->send_routing[0][0] = pcm;
+		mix->send_routing[0][1] = (pcm == 0) ? 1 : 0;
+		for (v = 0; v < 2; v++)
+			mix->send_routing[0][2+v] = 13+v;
+		if (emu->audigy)
+			for (v = 0; v < 4; v++)
+				mix->send_routing[0][4+v] = 60+v;
+		
+		memset(&mix->send_volume, 0, sizeof(mix->send_volume));
+		mix->send_volume[0][0]  = 255;
+		
+		mix->attn[0] = 0xffff;
 	}
 	
 	if (! emu->APS) { /* FIXME: APS has these controls? */
@@ -617,6 +925,10 @@ int __devinit snd_emu10k1_mixer(emu10k1_t *emu)
 
 	if (emu->audigy) {
 		if ((kctl = snd_ctl_new1(&snd_audigy_shared_spdif, emu)) == NULL)
+			return -ENOMEM;
+		if ((err = snd_ctl_add(card, kctl)))
+			return err;
+		if ((kctl = snd_ctl_new1(&snd_audigy_spdif_output_rate, emu)) == NULL)
 			return -ENOMEM;
 		if ((err = snd_ctl_add(card, kctl)))
 			return err;
