@@ -27,12 +27,6 @@
 /*  Unlocked, I don't care if this is a bit off */
 int nsyscalls = 0;
 
-long um_mount(char __user * dev_name, char __user * dir_name,
-	      char __user * type, unsigned long new_flags, void __user * data)
-{
-	return(sys_mount(dev_name, dir_name, type, new_flags, data));
-}
-
 long sys_fork(void)
 {
 	long ret;
