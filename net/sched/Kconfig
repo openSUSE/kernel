@@ -375,6 +375,29 @@ config NET_CLS_RSVP6
 	  To compile this code as a module, choose M here: the
 	  module will be called cls_rsvp6.
 
+config NET_EMATCH
+	bool "Extended Matches"
+	depends on NET_CLS
+	---help---
+	  Say Y here if you want to use extended matches on top of classifiers
+	  and select the extended matches below.
+
+	  Extended matches are small classification helpers not worth writing
+	  a separate classifier.
+
+	  You must have a recent version of the iproute2 tools in order to use
+	  extended matches.
+
+config NET_EMATCH_STACK
+	int "Stack size"
+	depends on NET_EMATCH
+	default "32"
+	---help---
+	  Size of the local stack variable used while evaluating the tree of
+	  ematches. Limits the depth of the tree, i.e. the number of
+	  encapsulated precedences. Every level requires 4 bytes of addtional
+	  stack space.
+
 config NET_CLS_ACT
 	bool "Packet ACTION"
 	depends on EXPERIMENTAL && NET_CLS && NET_QOS

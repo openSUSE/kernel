@@ -319,4 +319,76 @@ enum
 
 #define TCA_TCINDEX_MAX     (__TCA_TCINDEX_MAX - 1)
 
+/* Extended Matches */
+
+struct tcf_ematch_tree_hdr
+{
+	__u16		nmatches;
+	__u16		progid;
+};
+
+enum
+{
+	TCA_EMATCH_TREE_UNSPEC,
+	TCA_EMATCH_TREE_HDR,
+	TCA_EMATCH_TREE_LIST,
+	__TCA_EMATCH_TREE_MAX
+};
+#define TCA_EMATCH_TREE_MAX (__TCA_EMATCH_TREE_MAX - 1)
+
+struct tcf_ematch_hdr
+{
+	__u16		matchid;
+	__u16		kind;
+	__u16		flags;
+	__u16		pad; /* currently unused */
+};
+
+/*  0                   1
+ *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 
+ * +-----------------------+-+-+---+
+ * |         Unused        |S|I| R |
+ * +-----------------------+-+-+---+
+ *
+ * R(2) ::= relation to next ematch
+ *          where: 0 0 END (last ematch)
+ *                 0 1 AND
+ *                 1 0 OR
+ *                 1 1 Unused (invalid)
+ * I(1) ::= invert result
+ * S(1) ::= simple payload
+ */
+#define TCF_EM_REL_END	0
+#define TCF_EM_REL_AND	(1<<0)
+#define TCF_EM_REL_OR	(1<<1)
+#define TCF_EM_INVERT	(1<<2)
+#define TCF_EM_SIMPLE	(1<<3)
+
+#define TCF_EM_REL_MASK	3
+#define TCF_EM_REL_VALID(v) (((v) & TCF_EM_REL_MASK) != TCF_EM_REL_MASK)
+
+enum
+{
+	TCF_LAYER_LINK,
+	TCF_LAYER_NETWORK,
+	TCF_LAYER_TRANSPORT,
+	__TCF_LAYER_MAX
+};
+#define TCF_LAYER_MAX (__TCF_LAYER_MAX - 1)
+
+/* Ematch type assignments
+ *   1..32767		Reserved for ematches inside kernel tree
+ *   32768..65535	Free to use, not reliable
+ */
+enum
+{
+	TCF_EM_CONTAINER,
+	__TCF_EM_MAX
+};
+
+enum
+{
+	TCF_EM_PROG_TC
+};
+
 #endif
