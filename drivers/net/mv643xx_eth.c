@@ -70,6 +70,8 @@
 #define PHY_WAIT_MICRO_SECONDS	10
 
 /* Static function declarations */
+static void eth_port_uc_addr_get(struct net_device *dev,
+		                                 unsigned char *MacAddr);
 static int mv64340_eth_real_open(struct net_device *);
 static int mv64340_eth_real_stop(struct net_device *);
 static int mv64340_eth_change_mtu(struct net_device *, int);
@@ -79,11 +81,19 @@ static void eth_port_init_mac_tables(unsigned int eth_port_num);
 static int mv64340_poll(struct net_device *dev, int *budget);
 #endif
 
-unsigned char prom_mac_addr_base[6];
-unsigned long mv64340_sram_base;
+static void __iomem *mv64x60_eth_shared_base;
 
 /* used to protect MV64340_ETH_SMI_REG, which is shared across ports */
 static spinlock_t mv64340_eth_phy_lock = SPIN_LOCK_UNLOCKED;
+
+#undef MV_READ
+#define MV_READ(offset)	\
+	readl(mv64x60_eth_shared_base - MV64340_ETH_SHARED_REGS + offset)
+
+#undef MV_WRITE
+#define MV_WRITE(offset, data)	\
+	writel((u32)data,	\
+		mv64x60_eth_shared_base - MV64340_ETH_SHARED_REGS + offset)
 
 /*
  * Changes MTU (maximum transfer unit) of the gigabit ethenret port
@@ -1309,29 +1319,43 @@ static struct net_device_stats *mv64340_eth_get_stats(struct net_device *dev)
 }
 
 /*/
- * mv64340_eth_init
+ * mv64340_eth_probe
  *								       
  * First function called after registering the network device. 
  * It's purpose is to initialize the device as an ethernet device, 
- * fill the structure that was given in registration with pointers
- * to functions, and setting the MAC address of the interface
+ * fill the ethernet device structure with pointers * to functions,
+ * and set the MAC address of the interface
  *
- * Input : number of port to initialize
- * Output : -ENONMEM if failed , 0 if success
+ * Input : struct device *
+ * Output : -ENOMEM or -ENODEV if failed , 0 if success
  */
-static struct net_device *mv64340_eth_init(int port_num)
+static int mv64340_eth_probe(struct device *ddev)
 {
+	struct platform_device *pdev = to_platform_device(ddev);
+	struct mv64xxx_eth_platform_data *pd;
+	int port_num = pdev->id;
 	struct mv64340_private *mp;
 	struct net_device *dev;
+	u8 *p;
+	struct resource *res;
 	int err;
 
 	dev = alloc_etherdev(sizeof(struct mv64340_private));
 	if (!dev)
-		return NULL;
+		return -ENOMEM;
+
+ 	dev_set_drvdata(ddev, dev);
 
 	mp = netdev_priv(dev);
 
-	dev->irq = ETH_PORT0_IRQ_NUM + port_num;
+	if ((res = platform_get_resource(pdev, IORESOURCE_IRQ, 0)))
+		dev->irq = res->start;
+	else {
+		err = -ENODEV;
+		goto out;
+	}
+
+	mp->port_num = port_num;
 
 	dev->open = mv64340_eth_open;
 	dev->stop = mv64340_eth_stop;
@@ -1364,58 +1388,111 @@ static struct net_device *mv64340_eth_init(int port_num)
 #endif
 #endif
 
-	mp->port_num = port_num;
 
 	/* Configure the timeout task */
         INIT_WORK(&mp->tx_timeout_task,
                   (void (*)(void *))mv64340_eth_tx_timeout_task, dev);
 
 	spin_lock_init(&mp->lock);
-
-	/* set MAC addresses */
-	memcpy(dev->dev_addr, prom_mac_addr_base, 6);
-	dev->dev_addr[5] += port_num;
+	
+	/* set default config values */
+	eth_port_uc_addr_get(dev, dev->dev_addr);
+	pd = pdev->dev.platform_data;
+	if (pd) {
+		if (pd->mac_addr != NULL)
+			memcpy(dev->dev_addr, pd->mac_addr, 6);
+	}
 
 	err = register_netdev(dev);
 	if (err)
-		goto out_free_dev;
+		goto out;
 
-	printk(KERN_NOTICE "%s: port %d with MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
-		dev->name, port_num,
-		dev->dev_addr[0], dev->dev_addr[1], dev->dev_addr[2],
-		dev->dev_addr[3], dev->dev_addr[4], dev->dev_addr[5]);
+	p = dev->dev_addr;
+	printk(KERN_NOTICE
+		"%s: port %d with MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
+		dev->name, port_num, p[0], p[1], p[2], p[3], p[4], p[5]);
 
 	if (dev->features & NETIF_F_SG)
-		printk("Scatter Gather Enabled  ");
+		printk(KERN_NOTICE "%s: Scatter Gather Enabled", dev->name);
 
 	if (dev->features & NETIF_F_IP_CSUM)
-		printk("TX TCP/IP Checksumming Supported  \n");
+		printk(KERN_NOTICE "%s: TX TCP/IP Checksumming Supported\n",
+								dev->name);
 
-	printk("RX TCP/UDP Checksum Offload ON, \n");
-	printk("TX and RX Interrupt Coalescing ON \n");
-
-#ifdef MV64340_NAPI
-	printk("RX NAPI Enabled \n");
+#ifdef MV64340_CHECKSUM_OFFLOAD_TX
+	printk(KERN_NOTICE "%s: RX TCP/UDP Checksum Offload ON \n", dev->name);
 #endif
 
-	return dev;
+#ifdef MV64340_COAL
+	printk(KERN_NOTICE "%s: TX and RX Interrupt Coalescing ON \n",
+								dev->name);
+#endif
 
-out_free_dev:
+#ifdef MV64340_NAPI
+	printk(KERN_NOTICE "%s: RX NAPI Enabled \n", dev->name);
+#endif
+
+	return 0;
+
+out:
 	free_netdev(dev);
 
-	return NULL;
+	return err;
 }
 
-static void mv64340_eth_remove(struct net_device *dev)
+static int mv64340_eth_remove(struct device *ddev)
 {
+	struct net_device *dev = dev_get_drvdata(ddev);
+
 	unregister_netdev(dev);
 	flush_scheduled_work();
+
 	free_netdev(dev);
+	dev_set_drvdata(ddev, NULL);
+	return 0;
 }
 
-static struct net_device *mv64340_dev0;
-static struct net_device *mv64340_dev1;
-static struct net_device *mv64340_dev2;
+static int mv64340_eth_shared_probe(struct device *ddev)
+{
+	struct platform_device *pdev = to_platform_device(ddev);
+	struct resource *res;
+
+	printk(KERN_NOTICE "MV-643xx 10/100/1000 Ethernet Driver\n");
+
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (res == NULL)
+		return -ENODEV;
+
+	mv64x60_eth_shared_base = ioremap(res->start,
+						MV64340_ETH_SHARED_REGS_SIZE);
+	if (mv64x60_eth_shared_base == NULL)
+		return -ENOMEM;
+
+	return 0;
+
+}
+
+static int mv64340_eth_shared_remove(struct device *ddev)
+{
+	iounmap(mv64x60_eth_shared_base);
+	mv64x60_eth_shared_base = NULL;
+
+	return 0;
+}
+
+static struct device_driver mv643xx_eth_driver = {
+	.name	= MV64XXX_ETH_NAME,
+	.bus	= &platform_bus_type,
+	.probe	= mv64340_eth_probe,
+	.remove	= mv64340_eth_remove,
+};
+
+static struct device_driver mv643xx_eth_shared_driver = {
+	.name	= MV64XXX_ETH_SHARED_NAME,
+	.bus	= &platform_bus_type,
+	.probe	= mv64340_eth_shared_probe,
+	.remove	= mv64340_eth_shared_remove,
+};
 
 /*
  * mv64340_init_module
@@ -1428,30 +1505,15 @@ static struct net_device *mv64340_dev2;
  */
 static int __init mv64340_init_module(void)
 {
-	printk(KERN_NOTICE "MV-643xx 10/100/1000 Ethernet Driver\n");
+	int rc;
 
-#ifdef CONFIG_MV643XX_ETH_0
-	mv64340_dev0 = mv64340_eth_init(0);
-	if (!mv64340_dev0) {
-		printk(KERN_ERR
-		       "Error registering MV-64360 ethernet port 0\n");
+	rc = driver_register(&mv643xx_eth_shared_driver);
+	if (!rc) {
+		rc = driver_register(&mv643xx_eth_driver);
+		if (rc)
+			driver_unregister(&mv643xx_eth_shared_driver);
 	}
-#endif
-#ifdef CONFIG_MV643XX_ETH_1
-	mv64340_dev1 = mv64340_eth_init(1);
-	if (!mv64340_dev1) {
-		printk(KERN_ERR
-		       "Error registering MV-64360 ethernet port 1\n");
-	}
-#endif
-#ifdef CONFIG_MV643XX_ETH_2
-	mv64340_dev2 = mv64340_eth_init(2);
-	if (!mv64340_dev2) {
-		printk(KERN_ERR
-		       "Error registering MV-64360 ethernet port 2\n");
-	}
-#endif
-	return 0;
+	return rc;
 }
 
 /*
@@ -1465,19 +1527,16 @@ static int __init mv64340_init_module(void)
  */
 static void __exit mv64340_cleanup_module(void)
 {
-	if (mv64340_dev2)
-		mv64340_eth_remove(mv64340_dev2);
-	if (mv64340_dev1)
-		mv64340_eth_remove(mv64340_dev1);
-	if (mv64340_dev0)
-		mv64340_eth_remove(mv64340_dev0);
+	driver_unregister(&mv643xx_eth_driver);
+	driver_unregister(&mv643xx_eth_shared_driver);
 }
 
 module_init(mv64340_init_module);
 module_exit(mv64340_cleanup_module);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Rabeeh Khoury, Assaf Hoffman, Matthew Dharm and Manish Lachwani");
+MODULE_AUTHOR("Rabeeh Khoury, Assaf Hoffman, Matthew Dharm, Manish Lachwani"
+		" and Dale Farnsworth");
 MODULE_DESCRIPTION("Ethernet driver for Marvell MV64340");
 
 /*
@@ -1747,8 +1806,9 @@ static int eth_port_start(struct mv64340_private *mp)
 	MV_WRITE(MV64340_ETH_PORT_SERIAL_CONTROL_REG(eth_port_num),
 		 mp->port_serial_control);
 
-	MV_SET_REG_BITS(MV64340_ETH_PORT_SERIAL_CONTROL_REG(eth_port_num),
-			ETH_SERIAL_PORT_ENABLE);
+	MV_WRITE(MV64340_ETH_PORT_SERIAL_CONTROL_REG(eth_port_num),
+		MV_READ(MV64340_ETH_PORT_SERIAL_CONTROL_REG(eth_port_num)) |
+						ETH_SERIAL_PORT_ENABLE);
 
 	/* Assign port SDMA configuration */
 	MV_WRITE(MV64340_ETH_SDMA_CONFIG_REG(eth_port_num),
@@ -1802,6 +1862,41 @@ static void eth_port_uc_addr_set(unsigned int eth_port_num,
 	eth_port_uc_addr(eth_port_num, p_addr[5], ACCEPT_MAC_ADDR);
 
 	return;
+}
+
+/*
+ * eth_port_uc_addr_get - This function retrieves the port Unicast address
+ * (MAC address) from the ethernet hw registers.
+ *
+ * DESCRIPTION:
+ *		This function retrieves the port Ethernet MAC address.
+ *
+ * INPUT:
+ *	unsigned int	eth_port_num	Port number.
+ *	char		*MacAddr	pointer where the MAC address is stored
+ *
+ * OUTPUT:
+ *	Copy the MAC address to the location pointed to by MacAddr
+ *
+ * RETURN:
+ *	N/A.
+ *
+ */
+static void eth_port_uc_addr_get(struct net_device *dev, unsigned char *p_addr)
+{
+	struct mv64340_private *mp = netdev_priv(dev);
+	unsigned int mac_h;
+	unsigned int mac_l;
+
+	mac_h = MV_READ(MV64340_ETH_MAC_ADDR_HIGH(mp->port_num));
+	mac_l = MV_READ(MV64340_ETH_MAC_ADDR_LOW(mp->port_num));
+
+	p_addr[0] = (mac_h >> 24) & 0xff;
+	p_addr[1] = (mac_h >> 16) & 0xff;
+	p_addr[2] = (mac_h >> 8) & 0xff;
+	p_addr[3] = mac_h & 0xff;
+	p_addr[4] = (mac_l >> 8) & 0xff;
+	p_addr[5] = mac_l & 0xff;
 }
 
 /*

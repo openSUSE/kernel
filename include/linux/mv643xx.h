@@ -662,6 +662,9 @@
 /*        Ethernet Unit Registers  		*/
 /****************************************/
 
+#define MV64340_ETH_SHARED_REGS                                     0x2000
+#define MV64340_ETH_SHARED_REGS_SIZE                                0x2000
+
 #define MV64340_ETH_PHY_ADDR_REG                                    0x2000
 #define MV64340_ETH_SMI_REG                                         0x2004
 #define MV64340_ETH_UNIT_DEFAULT_ADDR_REG                           0x2008
@@ -1083,6 +1086,15 @@ struct mpsc_pd_dd {
 	u8	brg_can_tune;
 	u8	brg_clk_src;
 	u32	brg_clk_freq;
+};
+
+#define MV64340_ETH_DESC_SIZE				64
+
+#define MV64XXX_ETH_SHARED_NAME	"mv64xxx_eth_shared"
+#define MV64XXX_ETH_NAME	"mv64xxx_eth"
+
+struct mv64xxx_eth_platform_data {
+	char	*mac_addr;	/* pointer to mac address */
 };
 
 #endif /* __ASM_MV64340_H */

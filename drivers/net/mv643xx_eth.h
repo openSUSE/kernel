@@ -46,10 +46,6 @@
  *  The first part is the high level driver of the gigE ethernet ports.
  */
 
-#define ETH_PORT0_IRQ_NUM 48			/* main high register, bit0 */
-#define ETH_PORT1_IRQ_NUM ETH_PORT0_IRQ_NUM+1	/* main high register, bit1 */
-#define ETH_PORT2_IRQ_NUM ETH_PORT0_IRQ_NUM+2	/* main high register, bit1 */
-
 /* Checksum offload for Tx works */
 #define  MV64340_CHECKSUM_OFFLOAD_TX
 #define	 MV64340_NAPI
