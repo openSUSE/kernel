@@ -422,7 +422,7 @@ get_fd_set32(unsigned long n, u32 *ufdset, unsigned long *fdset)
 	if (ufdset) {
 		unsigned long odd;
 
-		if (verify_area(VERIFY_WRITE, ufdset, n*sizeof(u32)))
+		if (!access_ok(VERIFY_WRITE, ufdset, n*sizeof(u32)))
 			return -EFAULT;
 
 		odd = n & 1UL;

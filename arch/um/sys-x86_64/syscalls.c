@@ -29,8 +29,8 @@ long sys_modify_ldt_tt(int func, void *ptr, unsigned long bytecount)
 	/* XXX This should check VERIFY_WRITE depending on func, check this
 	 * in i386 as well.
 	 */
-	if(verify_area(VERIFY_READ, ptr, bytecount))
-		return(-EFAULT);
+	if (!access_ok(VERIFY_READ, ptr, bytecount))
+		return -EFAULT;
 	return(modify_ldt(func, ptr, bytecount));
 }
 #endif

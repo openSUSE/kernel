@@ -217,8 +217,8 @@ int setup_signal_stack_sc(unsigned long stack_top, int sig,
 
 	stack_top &= -8UL;
 	frame = (struct sigframe *) stack_top - 1;
-	if(verify_area(VERIFY_WRITE, frame, sizeof(*frame)))
-		return(1);
+	if (!access_ok(VERIFY_WRITE, frame, sizeof(*frame)))
+		return 1;
 
 	restorer = (void *) frame->retcode;
 	if(ka->sa.sa_flags & SA_RESTORER)
@@ -267,8 +267,8 @@ int setup_signal_stack_si(unsigned long stack_top, int sig,
 
 	stack_top &= -8UL;
 	frame = (struct rt_sigframe *) stack_top - 1;
-	if(verify_area(VERIFY_WRITE, frame, sizeof(*frame)))
-		return(1);
+	if (!access_ok(VERIFY_WRITE, frame, sizeof(*frame)))
+		return 1;
 
 	restorer = (void *) frame->retcode;
 	if(ka->sa.sa_flags & SA_RESTORER)

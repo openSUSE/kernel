@@ -17,7 +17,7 @@ extern int modify_ldt(int func, void *ptr, unsigned long bytecount);
 
 int sys_modify_ldt_tt(int func, void __user *ptr, unsigned long bytecount)
 {
-	if (verify_area(VERIFY_READ, ptr, bytecount))
+	if (!access_ok(VERIFY_READ, ptr, bytecount))
 		return -EFAULT;
 
 	return modify_ldt(func, ptr, bytecount);

@@ -41,7 +41,7 @@ unsigned int csum_partial_copy_from(const unsigned char *src, unsigned char *dst
  *	passed in an incorrect kernel address to one of these functions.
  *
  *	If you use these functions directly please don't forget the
- *	verify_area().
+ *	access_ok().
  */
 
 static __inline__
