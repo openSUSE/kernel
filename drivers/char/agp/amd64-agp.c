@@ -106,7 +106,8 @@ static int amd64_insert_memory(struct agp_memory *mem, off_t pg_start, int type)
 	}
 
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
-		tmp = agp_bridge->driver->mask_memory(mem->memory[i], mem->type);
+		tmp = agp_bridge->driver->mask_memory(agp_bridge,
+			mem->memory[i], mem->type);
 
 		BUG_ON(tmp & 0xffffff0000000ffcULL);
 		pte = (tmp & 0x000000ff00000000ULL) >> 28;

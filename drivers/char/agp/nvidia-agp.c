@@ -215,7 +215,8 @@ static int nvidia_insert_memory(struct agp_memory *mem, off_t pg_start, int type
 		mem->is_flushed = TRUE;
 	}
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
-		writel(agp_bridge->driver->mask_memory(mem->memory[i], mem->type),
+		writel(agp_bridge->driver->mask_memory(agp_bridge,
+			mem->memory[i], mem->type),
 			agp_bridge->gatt_table+nvidia_private.pg_offset+j);
 		readl(agp_bridge->gatt_table+nvidia_private.pg_offset+j);	/* PCI Posting. */
 	}

@@ -132,7 +132,7 @@ static int amd_create_gatt_pages(int nr_tables)
 #define GET_GATT(addr) (amd_irongate_private.gatt_pages[\
 	GET_PAGE_DIR_IDX(addr)]->remapped)
 
-static int amd_create_gatt_table(void)
+static int amd_create_gatt_table(struct agp_bridge_data *bridge)
 {
 	struct aper_size_info_lvl2 *value;
 	struct amd_page_map page_dir;
@@ -175,7 +175,7 @@ static int amd_create_gatt_table(void)
 	return 0;
 }
 
-static int amd_free_gatt_table(void)
+static int amd_free_gatt_table(struct agp_bridge_data *bridge)
 {
 	struct amd_page_map page_dir;
 
@@ -314,7 +314,8 @@ static int amd_insert_memory(struct agp_memory *mem, off_t pg_start, int type)
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
 		addr = (j * PAGE_SIZE) + agp_bridge->gart_bus_addr;
 		cur_gatt = GET_GATT(addr);
-		writel(agp_generic_mask_memory(mem->memory[i], mem->type), cur_gatt+GET_GATT_OFF(addr));
+		writel(agp_generic_mask_memory(agp_bridge,
+			mem->memory[i], mem->type), cur_gatt+GET_GATT_OFF(addr));
 		readl(cur_gatt+GET_GATT_OFF(addr));	/* PCI Posting. */
 	}
 	amd_irongate_tlbflush(mem);

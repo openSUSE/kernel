@@ -720,7 +720,7 @@ void get_agp_version(struct agp_bridge_data *bridge)
 EXPORT_SYMBOL(get_agp_version);
 
 
-void agp_generic_enable(u32 requested_mode)
+void agp_generic_enable(struct agp_bridge_data *bridge, u32 requested_mode)
 {
 	u32 bridge_agpstat, temp;
 
@@ -742,19 +742,21 @@ void agp_generic_enable(u32 requested_mode)
 	bridge_agpstat |= AGPSTAT_AGP_ENABLE;
 
 	/* Do AGP version specific frobbing. */
-	if(agp_bridge->major_version >= 3) {
-		if (check_bridge_mode(agp_bridge->dev)) {
+	if (bridge->major_version >= 3) {
+		if (check_bridge_mode(bridge->dev)) {
 			/* If we have 3.5, we can do the isoch stuff. */
-			if (agp_bridge->minor_version >= 5)
-				agp_3_5_enable(agp_bridge);
+			if (bridge->minor_version >= 5)
+				agp_3_5_enable(bridge);
 			agp_device_command(bridge_agpstat, TRUE);
 			return;
 		} else {
 		    /* Disable calibration cycle in RX91<1> when not in AGP3.0 mode of operation.*/
 		    bridge_agpstat &= ~(7<<10) ;
-		    pci_read_config_dword(agp_bridge->dev, agp_bridge->capndx+AGPCTRL, &temp);
+		    pci_read_config_dword(bridge->dev,
+					bridge->capndx+AGPCTRL, &temp);
 		    temp |= (1<<9);
-		    pci_write_config_dword(agp_bridge->dev, agp_bridge->capndx+AGPCTRL, temp);
+		    pci_write_config_dword(bridge->dev,
+					bridge->capndx+AGPCTRL, temp);
 
 		    printk (KERN_INFO PFX "Device is in legacy mode,"
 				" falling back to 2.x\n");
@@ -767,7 +769,7 @@ void agp_generic_enable(u32 requested_mode)
 EXPORT_SYMBOL(agp_generic_enable);
 
 
-int agp_generic_create_gatt_table(void)
+int agp_generic_create_gatt_table(struct agp_bridge_data *bridge)
 {
 	char *table;
 	char *table_end;
@@ -779,17 +781,17 @@ int agp_generic_create_gatt_table(void)
 	struct page *page;
 
 	/* The generic routines can't handle 2 level gatt's */
-	if (agp_bridge->driver->size_type == LVL2_APER_SIZE)
+	if (bridge->driver->size_type == LVL2_APER_SIZE)
 		return -EINVAL;
 
 	table = NULL;
-	i = agp_bridge->aperture_size_idx;
-	temp = agp_bridge->current_size;
+	i = bridge->aperture_size_idx;
+	temp = bridge->current_size;
 	size = page_order = num_entries = 0;
 
-	if (agp_bridge->driver->size_type != FIXED_APER_SIZE) {
+	if (bridge->driver->size_type != FIXED_APER_SIZE) {
 		do {
-			switch (agp_bridge->driver->size_type) {
+			switch (bridge->driver->size_type) {
 			case U8_APER_SIZE:
 				size = A_SIZE_8(temp)->size;
 				page_order =
@@ -820,29 +822,29 @@ int agp_generic_create_gatt_table(void)
 
 			if (table == NULL) {
 				i++;
-				switch (agp_bridge->driver->size_type) {
+				switch (bridge->driver->size_type) {
 				case U8_APER_SIZE:
-					agp_bridge->current_size = A_IDX8(agp_bridge);
+					bridge->current_size = A_IDX8(bridge);
 					break;
 				case U16_APER_SIZE:
-					agp_bridge->current_size = A_IDX16(agp_bridge);
+					bridge->current_size = A_IDX16(bridge);
 					break;
 				case U32_APER_SIZE:
-					agp_bridge->current_size = A_IDX32(agp_bridge);
+					bridge->current_size = A_IDX32(bridge);
 					break;
 					/* This case will never really happen. */
 				case FIXED_APER_SIZE:
 				case LVL2_APER_SIZE:
 				default:
-					agp_bridge->current_size =
-					    agp_bridge->current_size;
+					bridge->current_size =
+					    bridge->current_size;
 					break;
 				}
-				temp = agp_bridge->current_size;
+				temp = bridge->current_size;
 			} else {
-				agp_bridge->aperture_size_idx = i;
+				bridge->aperture_size_idx = i;
 			}
-		} while (!table && (i < agp_bridge->driver->num_aperture_sizes));
+		} while (!table && (i < bridge->driver->num_aperture_sizes));
 	} else {
 		size = ((struct aper_size_info_fixed *) temp)->size;
 		page_order = ((struct aper_size_info_fixed *) temp)->page_order;
@@ -858,15 +860,15 @@ int agp_generic_create_gatt_table(void)
 	for (page = virt_to_page(table); page <= virt_to_page(table_end); page++)
 		SetPageReserved(page);
 
-	agp_bridge->gatt_table_real = (u32 *) table;
+	bridge->gatt_table_real = (u32 *) table;
 	agp_gatt_table = (void *)table;
 
-	agp_bridge->driver->cache_flush();
-	agp_bridge->gatt_table = ioremap_nocache(virt_to_phys(table),
+	bridge->driver->cache_flush();
+	bridge->gatt_table = ioremap_nocache(virt_to_phys(table),
 					(PAGE_SIZE * (1 << page_order)));
-	agp_bridge->driver->cache_flush();
+	bridge->driver->cache_flush();
 
-	if (agp_bridge->gatt_table == NULL) {
+	if (bridge->gatt_table == NULL) {
 		for (page = virt_to_page(table); page <= virt_to_page(table_end); page++)
 			ClearPageReserved(page);
 
@@ -874,28 +876,28 @@ int agp_generic_create_gatt_table(void)
 
 		return -ENOMEM;
 	}
-	agp_bridge->gatt_bus_addr = virt_to_phys(agp_bridge->gatt_table_real);
+	bridge->gatt_bus_addr = virt_to_phys(bridge->gatt_table_real);
 
 	/* AK: bogus, should encode addresses > 4GB */
 	for (i = 0; i < num_entries; i++) {
-		writel(agp_bridge->scratch_page, agp_bridge->gatt_table+i);
-		readl(agp_bridge->gatt_table+i);	/* PCI Posting. */
+		writel(bridge->scratch_page, bridge->gatt_table+i);
+		readl(bridge->gatt_table+i);	/* PCI Posting. */
 	}
 
 	return 0;
 }
 EXPORT_SYMBOL(agp_generic_create_gatt_table);
 
-int agp_generic_free_gatt_table(void)
+int agp_generic_free_gatt_table(struct agp_bridge_data *bridge)
 {
 	int page_order;
 	char *table, *table_end;
 	void *temp;
 	struct page *page;
 
-	temp = agp_bridge->current_size;
+	temp = bridge->current_size;
 
-	switch (agp_bridge->driver->size_type) {
+	switch (bridge->driver->size_type) {
 	case U8_APER_SIZE:
 		page_order = A_SIZE_8(temp)->page_order;
 		break;
@@ -921,19 +923,19 @@ int agp_generic_free_gatt_table(void)
 	 * called, then all agp memory is deallocated and removed
 	 * from the table. */
 
-	iounmap(agp_bridge->gatt_table);
-	table = (char *) agp_bridge->gatt_table_real;
+	iounmap(bridge->gatt_table);
+	table = (char *) bridge->gatt_table_real;
 	table_end = table + ((PAGE_SIZE * (1 << page_order)) - 1);
 
 	for (page = virt_to_page(table); page <= virt_to_page(table_end); page++)
 		ClearPageReserved(page);
 
-	free_pages((unsigned long) agp_bridge->gatt_table_real, page_order);
+	free_pages((unsigned long) bridge->gatt_table_real, page_order);
 
 	agp_gatt_table = NULL;
-	agp_bridge->gatt_table = NULL;
-	agp_bridge->gatt_table_real = NULL;
-	agp_bridge->gatt_bus_addr = 0;
+	bridge->gatt_table = NULL;
+	bridge->gatt_table_real = NULL;
+	bridge->gatt_bus_addr = 0;
 
 	return 0;
 }
@@ -1002,7 +1004,7 @@ int agp_generic_insert_memory(struct agp_memory * mem, off_t pg_start, int type)
 	}
 
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
-		writel(bridge->driver->mask_memory(mem->memory[i], mem->type), bridge->gatt_table+j);
+		writel(bridge->driver->mask_memory(bridge, mem->memory[i], mem->type), bridge->gatt_table+j);
 		readl(bridge->gatt_table+j);	/* PCI Posting. */
 	}
 
@@ -1110,7 +1112,7 @@ void agp_enable(struct agp_bridge_data *bridge, u32 mode)
 {
 	if (!bridge)
 		return;
-	bridge->driver->agp_enable(mode);
+	bridge->driver->agp_enable(bridge, mode);
 }
 EXPORT_SYMBOL(agp_enable);
 
@@ -1138,11 +1140,12 @@ void global_cache_flush(void)
 }
 EXPORT_SYMBOL(global_cache_flush);
 
-unsigned long agp_generic_mask_memory(unsigned long addr, int type)
+unsigned long agp_generic_mask_memory(struct agp_bridge_data *bridge,
+	unsigned long addr, int type)
 {
 	/* memory type is ignored in the generic routine */
-	if (agp_bridge->driver->masks)
-		return addr | agp_bridge->driver->masks[0].mask;
+	if (bridge->driver->masks)
+		return addr | bridge->driver->masks[0].mask;
 	else
 		return addr;
 }

@@ -101,13 +101,14 @@ struct agp_bridge_driver {
 	struct gatt_mask *masks;
 	int (*fetch_size)(void);
 	int (*configure)(void);
-	void (*agp_enable)(u32);
+	void (*agp_enable)(struct agp_bridge_data *, u32);
 	void (*cleanup)(void);
 	void (*tlb_flush)(struct agp_memory *);
-	unsigned long (*mask_memory)(unsigned long, int);
+	unsigned long (*mask_memory)(struct agp_bridge_data *,
+		unsigned long, int);
 	void (*cache_flush)(void);
-	int (*create_gatt_table)(void);
-	int (*free_gatt_table)(void);
+	int (*create_gatt_table)(struct agp_bridge_data *);
+	int (*free_gatt_table)(struct agp_bridge_data *);
 	int (*insert_memory)(struct agp_memory *, off_t, int);
 	int (*remove_memory)(struct agp_memory *, off_t, int);
 	struct agp_memory *(*alloc_by_type) (size_t, int);
@@ -246,9 +247,9 @@ int agp_frontend_initialize(void);
 void agp_frontend_cleanup(void);
 
 /* Generic routines. */
-void agp_generic_enable(u32 mode);
-int agp_generic_create_gatt_table(void);
-int agp_generic_free_gatt_table(void);
+void agp_generic_enable(struct agp_bridge_data *bridge, u32 mode);
+int agp_generic_create_gatt_table(struct agp_bridge_data *bridge);
+int agp_generic_free_gatt_table(struct agp_bridge_data *bridge);
 struct agp_memory *agp_create_memory(int scratch_pages);
 int agp_generic_insert_memory(struct agp_memory *mem, off_t pg_start, int type);
 int agp_generic_remove_memory(struct agp_memory *mem, off_t pg_start, int type);
@@ -263,7 +264,8 @@ void agp_device_command(u32 command, int agp_v3);
 int agp_3_5_enable(struct agp_bridge_data *bridge);
 void global_cache_flush(void);
 void get_agp_version(struct agp_bridge_data *bridge);
-unsigned long agp_generic_mask_memory(unsigned long addr, int type);
+unsigned long agp_generic_mask_memory(struct agp_bridge_data *bridge,
+	unsigned long addr, int type);
 struct agp_bridge_data *agp_generic_find_bridge(struct pci_dev *pdev);
 
 /* generic routines for agp>=3 */

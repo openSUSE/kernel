@@ -148,7 +148,7 @@ static int efficeon_configure(void)
 	return 0;
 }
 
-static int efficeon_free_gatt_table(void)
+static int efficeon_free_gatt_table(struct agp_bridge_data *bridge)
 {
 	int index, freed = 0;
 
@@ -183,7 +183,7 @@ static int efficeon_free_gatt_table(void)
 #define GET_GATT(addr) (efficeon_private.gatt_pages[\
 	GET_PAGE_DIR_IDX(addr)]->remapped)
 
-static int efficeon_create_gatt_table(void)
+static int efficeon_create_gatt_table(struct agp_bridge_data *bridge)
 {
 	int index;
 	const int pati    = EFFICEON_PATI;
@@ -209,7 +209,7 @@ static int efficeon_create_gatt_table(void)
 
 		page = get_zeroed_page(GFP_KERNEL);
 		if (!page) {
-			efficeon_free_gatt_table();
+			efficeon_free_gatt_table(agp_bridge);
 			return -ENOMEM;
 		}
 		SetPageReserved(virt_to_page((char *)page));

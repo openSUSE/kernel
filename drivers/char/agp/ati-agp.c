@@ -291,7 +291,8 @@ static int ati_insert_memory(struct agp_memory * mem,
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
 		addr = (j * PAGE_SIZE) + agp_bridge->gart_bus_addr;
 		cur_gatt = GET_GATT(addr);
-		writel(agp_bridge->driver->mask_memory(mem->memory[i], mem->type), cur_gatt+GET_GATT_OFF(addr));
+		writel(agp_bridge->driver->mask_memory(agp_bridge,
+			mem->memory[i], mem->type), cur_gatt+GET_GATT_OFF(addr));
 		readl(cur_gatt+GET_GATT_OFF(addr));	/* PCI Posting. */
 	}
 	agp_bridge->driver->tlb_flush(mem);
@@ -319,7 +320,7 @@ static int ati_remove_memory(struct agp_memory * mem, off_t pg_start,
 	return 0;
 }
 
-static int ati_create_gatt_table(void)
+static int ati_create_gatt_table(struct agp_bridge_data *bridge)
 {
 	struct aper_size_info_lvl2 *value;
 	ati_page_map page_dir;
@@ -380,7 +381,7 @@ static int ati_create_gatt_table(void)
 	return 0;
 }
 
-static int ati_free_gatt_table(void)
+static int ati_free_gatt_table(struct agp_bridge_data *bridge)
 {
 	ati_page_map page_dir;
 

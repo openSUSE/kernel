@@ -149,7 +149,7 @@ static int agp_backend_initialize(struct agp_bridge_data *bridge)
 
 		bridge->scratch_page_real = virt_to_phys(addr);
 		bridge->scratch_page =
-		    bridge->driver->mask_memory(bridge->scratch_page_real, 0);
+		    bridge->driver->mask_memory(bridge, bridge->scratch_page_real, 0);
 	}
 
 	size_value = bridge->driver->fetch_size();
@@ -158,7 +158,7 @@ static int agp_backend_initialize(struct agp_bridge_data *bridge)
 		rc = -EINVAL;
 		goto err_out;
 	}
-	if (bridge->driver->create_gatt_table()) {
+	if (bridge->driver->create_gatt_table(bridge)) {
 		printk(KERN_ERR PFX
 		    "unable to get memory for graphics translation table.\n");
 		rc = -ENOMEM;
@@ -190,7 +190,7 @@ err_out:
 		bridge->driver->agp_destroy_page(
 				phys_to_virt(bridge->scratch_page_real));
 	if (got_gatt)
-		bridge->driver->free_gatt_table();
+		bridge->driver->free_gatt_table(bridge);
 	if (got_keylist) {
 		vfree(bridge->key_list);
 		bridge->key_list = NULL;
@@ -204,7 +204,7 @@ static void agp_backend_cleanup(struct agp_bridge_data *bridge)
 	if (bridge->driver->cleanup)
 		bridge->driver->cleanup();
 	if (bridge->driver->free_gatt_table)
-		bridge->driver->free_gatt_table();
+		bridge->driver->free_gatt_table(bridge);
 	if (bridge->key_list) {
 		vfree(bridge->key_list);
 		bridge->key_list = NULL;

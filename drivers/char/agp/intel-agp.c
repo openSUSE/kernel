@@ -150,7 +150,7 @@ static void intel_i810_tlbflush(struct agp_memory *mem)
 	return;
 }
 
-static void intel_i810_agp_enable(u32 mode)
+static void intel_i810_agp_enable(struct agp_bridge_data *bridge, u32 mode)
 {
 	return;
 }
@@ -229,8 +229,9 @@ static int intel_i810_insert_entries(struct agp_memory *mem, off_t pg_start,
 insert:
 	global_cache_flush();
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
-		writel(agp_bridge->driver->mask_memory(mem->memory[i], mem->type),
-				intel_i810_private.registers+I810_PTE_BASE+(j*4));
+		writel(agp_bridge->driver->mask_memory(agp_bridge,
+			mem->memory[i], mem->type),
+			intel_i810_private.registers+I810_PTE_BASE+(j*4));
 		readl(intel_i810_private.registers+I810_PTE_BASE+(j*4));	/* PCI Posting. */
 	}
 	global_cache_flush();
@@ -337,10 +338,11 @@ static void intel_i810_free_by_type(struct agp_memory *curr)
 	kfree(curr);
 }
 
-static unsigned long intel_i810_mask_memory(unsigned long addr, int type)
+static unsigned long intel_i810_mask_memory(struct agp_bridge_data *bridge,
+	unsigned long addr, int type)
 {
 	/* Type checking must be done elsewhere */
-	return addr | agp_bridge->driver->masks[type].mask;
+	return addr | bridge->driver->masks[type].mask;
 }
 
 static struct aper_size_info_fixed intel_i830_sizes[] =
@@ -447,7 +449,7 @@ static void intel_i830_init_gtt_entries(void)
 /* The intel i830 automatically initializes the agp aperture during POST.
  * Use the memory already set aside for in the GTT.
  */
-static int intel_i830_create_gatt_table(void)
+static int intel_i830_create_gatt_table(struct agp_bridge_data *bridge)
 {
 	int page_order;
 	struct aper_size_info_fixed *size;
@@ -482,7 +484,7 @@ static int intel_i830_create_gatt_table(void)
 /* Return the gatt table to a sane state. Use the top of stolen
  * memory for the GTT.
  */
-static int intel_i830_free_gatt_table(void)
+static int intel_i830_free_gatt_table(struct agp_bridge_data *bridge)
 {
 	return 0;
 }
@@ -582,8 +584,9 @@ static int intel_i830_insert_entries(struct agp_memory *mem,off_t pg_start, int 
 	global_cache_flush();	/* FIXME: Necessary ?*/
 
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
-		writel(agp_bridge->driver->mask_memory(mem->memory[i], mem->type),
-				intel_i830_private.registers+I810_PTE_BASE+(j*4));
+		writel(agp_bridge->driver->mask_memory(agp_bridge,
+			mem->memory[i], mem->type),
+			intel_i830_private.registers+I810_PTE_BASE+(j*4));
 		readl(intel_i830_private.registers+I810_PTE_BASE+(j*4));	/* PCI Posting. */
 	}
 
@@ -691,7 +694,8 @@ static int intel_i915_insert_entries(struct agp_memory *mem,off_t pg_start,
 	global_cache_flush();
 
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
-		writel(agp_bridge->driver->mask_memory(mem->memory[i], mem->type), intel_i830_private.gtt+j);
+		writel(agp_bridge->driver->mask_memory(agp_bridge,
+			mem->memory[i], mem->type), intel_i830_private.gtt+j);
 		readl(intel_i830_private.gtt+j);	/* PCI Posting. */
 	}
 
@@ -743,7 +747,7 @@ static int intel_i915_fetch_size(void)
 /* The intel i915 automatically initializes the agp aperture during POST.
  * Use the memory already set aside for in the GTT.
  */
-static int intel_i915_create_gatt_table(void)
+static int intel_i915_create_gatt_table(struct agp_bridge_data *bridge)
 {
 	int page_order;
 	struct aper_size_info_fixed *size;
