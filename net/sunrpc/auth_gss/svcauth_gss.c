@@ -906,11 +906,6 @@ svcauth_gss_accept(struct svc_rqst *rqstp, u32 *authp)
 		svc_putu32(resv, rpc_success);
 		goto complete;
 	case RPC_GSS_PROC_DATA:
-		*authp = rpc_autherr_badcred;
-		rqstp->rq_client =
-			find_gss_auth_domain(rsci->mechctx, gc->gc_svc);
-		if (rqstp->rq_client == NULL)
-			goto auth_err;
 		*authp = rpcsec_gsserr_ctxproblem;
 		if (gss_write_verf(rqstp, rsci->mechctx, gc->gc_seq))
 			goto auth_err;
@@ -924,8 +919,6 @@ svcauth_gss_accept(struct svc_rqst *rqstp, u32 *authp)
 			if (unwrap_integ_data(&rqstp->rq_arg,
 					gc->gc_seq, rsci->mechctx))
 				goto auth_err;
-			svcdata->rsci = rsci;
-			cache_get(&rsci->h);
 			/* placeholders for length and seq. number: */
 			svcdata->body_start = resv->iov_base + resv->iov_len;
 			svc_putu32(resv, 0);
@@ -936,6 +929,8 @@ svcauth_gss_accept(struct svc_rqst *rqstp, u32 *authp)
 		default:
 			goto auth_err;
 		}
+		svcdata->rsci = rsci;
+		cache_get(&rsci->h);
 		ret = SVC_OK;
 		goto out;
 	}

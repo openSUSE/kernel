@@ -403,6 +403,20 @@ static int param_set_##name(const char *val, struct kernel_param *kp)	\
 	return 0;							\
 }
 
+static int lockd_authenticate(struct svc_rqst *rqstp)
+{
+	rqstp->rq_client = NULL;
+	switch (rqstp->rq_authop->flavour) {
+		case RPC_AUTH_NULL:
+		case RPC_AUTH_UNIX:
+			if (rqstp->rq_proc == 0)
+				return SVC_OK;
+			return svc_set_client(rqstp);
+	}
+	return SVC_DENIED;
+}
+
+
 param_set_min_max(port, int, simple_strtol, 0, 65535)
 param_set_min_max(grace_period, unsigned long, simple_strtoul,
 		  nlm_grace_period_min, nlm_grace_period_max)
@@ -483,4 +497,5 @@ static struct svc_program	nlmsvc_program = {
 	.pg_name		= "lockd",		/* service name */
 	.pg_class		= "nfsd",		/* share authentication with nfsd */
 	.pg_stats		= &nlmsvc_stats,	/* stats table */
+	.pg_authenticate = &lockd_authenticate	/* export authentication */
 };
