@@ -29,6 +29,7 @@
 #include <linux/time.h>
 #include <linux/wait.h>
 #include <linux/moduleparam.h>
+#include <linux/delay.h>
 #include <sound/rawmidi.h>
 #include <sound/info.h>
 #include <sound/control.h>
@@ -149,10 +150,8 @@ int snd_rawmidi_drain_output(snd_rawmidi_substream_t * substream)
 		/* we need wait a while to make sure that Tx FIFOs are empty */
 		if (substream->ops->drain)
 			substream->ops->drain(substream);
-		else {
-			set_current_state(TASK_UNINTERRUPTIBLE);
-			schedule_timeout(HZ / 20);
-		}
+		else
+			msleep(50);
 		snd_rawmidi_drop_output(substream);
 	}
 	return err;
