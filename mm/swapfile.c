@@ -441,13 +441,8 @@ static unsigned long unuse_pmd(struct vm_area_struct *vma, pmd_t *dir,
 	pte_t *pte;
 	pte_t swp_pte = swp_entry_to_pte(entry);
 
-	if (pmd_none(*dir))
+	if (pmd_none_or_clear_bad(dir))
 		return 0;
-	if (pmd_bad(*dir)) {
-		pmd_ERROR(*dir);
-		pmd_clear(dir);
-		return 0;
-	}
 	pte = pte_offset_map(dir, address);
 	do {
 		/*
@@ -483,13 +478,8 @@ static unsigned long unuse_pud(struct vm_area_struct *vma, pud_t *pud,
 	unsigned long next;
 	unsigned long foundaddr;
 
-	if (pud_none(*pud))
+	if (pud_none_or_clear_bad(pud))
 		return 0;
-	if (pud_bad(*pud)) {
-		pud_ERROR(*pud);
-		pud_clear(pud);
-		return 0;
-	}
 	pmd = pmd_offset(pud, address);
 	do {
 		next = (address + PMD_SIZE) & PMD_MASK;
@@ -513,13 +503,8 @@ static unsigned long unuse_pgd(struct vm_area_struct *vma, pgd_t *pgd,
 	unsigned long next;
 	unsigned long foundaddr;
 
-	if (pgd_none(*pgd))
+	if (pgd_none_or_clear_bad(pgd))
 		return 0;
-	if (pgd_bad(*pgd)) {
-		pgd_ERROR(*pgd);
-		pgd_clear(pgd);
-		return 0;
-	}
 	pud = pud_offset(pgd, address);
 	do {
 		next = (address + PUD_SIZE) & PUD_MASK;

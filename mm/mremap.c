@@ -30,26 +30,16 @@ static pte_t *get_one_pte_map_nested(struct mm_struct *mm, unsigned long addr)
 	pte_t *pte = NULL;
 
 	pgd = pgd_offset(mm, addr);
-	if (pgd_none(*pgd))
+	if (pgd_none_or_clear_bad(pgd))
 		goto end;
 
 	pud = pud_offset(pgd, addr);
-	if (pud_none(*pud))
+	if (pud_none_or_clear_bad(pud))
 		goto end;
-	if (pud_bad(*pud)) {
-		pud_ERROR(*pud);
-		pud_clear(pud);
-		goto end;
-	}
 
 	pmd = pmd_offset(pud, addr);
-	if (pmd_none(*pmd))
+	if (pmd_none_or_clear_bad(pmd))
 		goto end;
-	if (pmd_bad(*pmd)) {
-		pmd_ERROR(*pmd);
-		pmd_clear(pmd);
-		goto end;
-	}
 
 	pte = pte_offset_map_nested(pmd, addr);
 	if (pte_none(*pte)) {
@@ -67,15 +57,17 @@ static pte_t *get_one_pte_map(struct mm_struct *mm, unsigned long addr)
 	pmd_t *pmd;
 
 	pgd = pgd_offset(mm, addr);
-	if (pgd_none(*pgd))
+	if (pgd_none_or_clear_bad(pgd))
 		return NULL;
 
 	pud = pud_offset(pgd, addr);
-	if (pud_none(*pud))
+	if (pud_none_or_clear_bad(pud))
 		return NULL;
+
 	pmd = pmd_offset(pud, addr);
-	if (!pmd_present(*pmd))
+	if (pmd_none_or_clear_bad(pmd))
 		return NULL;
+
 	return pte_offset_map(pmd, addr);
 }
 

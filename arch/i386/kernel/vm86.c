@@ -145,29 +145,14 @@ static void mark_screen_rdonly(struct task_struct * tsk)
 	preempt_disable();
 	spin_lock(&tsk->mm->page_table_lock);
 	pgd = pgd_offset(tsk->mm, 0xA0000);
-	if (pgd_none(*pgd))
+	if (pgd_none_or_clear_bad(pgd))
 		goto out;
-	if (pgd_bad(*pgd)) {
-		pgd_ERROR(*pgd);
-		pgd_clear(pgd);
-		goto out;
-	}
 	pud = pud_offset(pgd, 0xA0000);
-	if (pud_none(*pud))
+	if (pud_none_or_clear_bad(pud))
 		goto out;
-	if (pud_bad(*pud)) {
-		pud_ERROR(*pud);
-		pud_clear(pud);
-		goto out;
-	}
 	pmd = pmd_offset(pud, 0xA0000);
-	if (pmd_none(*pmd))
+	if (pmd_none_or_clear_bad(pmd))
 		goto out;
-	if (pmd_bad(*pmd)) {
-		pmd_ERROR(*pmd);
-		pmd_clear(pmd);
-		goto out;
-	}
 	pte = mapped = pte_offset_map(pmd, 0xA0000);
 	for (i = 0; i < 32; i++) {
 		if (pte_present(*pte))

@@ -32,13 +32,8 @@ change_pte_range(struct mm_struct *mm, pmd_t *pmd, unsigned long address,
 	pte_t * pte;
 	unsigned long base, end;
 
-	if (pmd_none(*pmd))
+	if (pmd_none_or_clear_bad(pmd))
 		return;
-	if (pmd_bad(*pmd)) {
-		pmd_ERROR(*pmd);
-		pmd_clear(pmd);
-		return;
-	}
 	pte = pte_offset_map(pmd, address);
 	base = address & PMD_MASK;
 	address &= ~PMD_MASK;
@@ -69,13 +64,8 @@ change_pmd_range(struct mm_struct *mm, pud_t *pud, unsigned long address,
 	pmd_t * pmd;
 	unsigned long base, end;
 
-	if (pud_none(*pud))
+	if (pud_none_or_clear_bad(pud))
 		return;
-	if (pud_bad(*pud)) {
-		pud_ERROR(*pud);
-		pud_clear(pud);
-		return;
-	}
 	pmd = pmd_offset(pud, address);
 	base = address & PUD_MASK;
 	address &= ~PUD_MASK;
@@ -96,13 +86,8 @@ change_pud_range(struct mm_struct *mm, pgd_t *pgd, unsigned long address,
 	pud_t * pud;
 	unsigned long base, end;
 
-	if (pgd_none(*pgd))
+	if (pgd_none_or_clear_bad(pgd))
 		return;
-	if (pgd_bad(*pgd)) {
-		pgd_ERROR(*pgd);
-		pgd_clear(pgd);
-		return;
-	}
 	pud = pud_offset(pgd, address);
 	base = address & PGDIR_MASK;
 	address &= ~PGDIR_MASK;

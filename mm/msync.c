@@ -45,13 +45,8 @@ static int filemap_sync_pte_range(pmd_t * pmd,
 	pte_t *pte;
 	int error;
 
-	if (pmd_none(*pmd))
+	if (pmd_none_or_clear_bad(pmd))
 		return 0;
-	if (pmd_bad(*pmd)) {
-		pmd_ERROR(*pmd);
-		pmd_clear(pmd);
-		return 0;
-	}
 	pte = pte_offset_map(pmd, address);
 	if ((address & PMD_MASK) != (end & PMD_MASK))
 		end = (address & PMD_MASK) + PMD_SIZE;
@@ -74,13 +69,8 @@ static inline int filemap_sync_pmd_range(pud_t * pud,
 	pmd_t * pmd;
 	int error;
 
-	if (pud_none(*pud))
+	if (pud_none_or_clear_bad(pud))
 		return 0;
-	if (pud_bad(*pud)) {
-		pud_ERROR(*pud);
-		pud_clear(pud);
-		return 0;
-	}
 	pmd = pmd_offset(pud, address);
 	if ((address & PUD_MASK) != (end & PUD_MASK))
 		end = (address & PUD_MASK) + PUD_SIZE;
@@ -100,13 +90,8 @@ static inline int filemap_sync_pud_range(pgd_t *pgd,
 	pud_t *pud;
 	int error;
 
-	if (pgd_none(*pgd))
+	if (pgd_none_or_clear_bad(pgd))
 		return 0;
-	if (pgd_bad(*pgd)) {
-		pgd_ERROR(*pgd);
-		pgd_clear(pgd);
-		return 0;
-	}
 	pud = pud_offset(pgd, address);
 	if ((address & PGDIR_MASK) != (end & PGDIR_MASK))
 		end = (address & PGDIR_MASK) + PGDIR_SIZE;

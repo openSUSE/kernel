@@ -29,13 +29,8 @@ static void unmap_area_pte(pmd_t *pmd, unsigned long address,
 	unsigned long base, end;
 	pte_t *pte;
 
-	if (pmd_none(*pmd))
+	if (pmd_none_or_clear_bad(pmd))
 		return;
-	if (pmd_bad(*pmd)) {
-		pmd_ERROR(*pmd);
-		pmd_clear(pmd);
-		return;
-	}
 
 	pte = pte_offset_kernel(pmd, address);
 	base = address & PMD_MASK;
@@ -63,13 +58,8 @@ static void unmap_area_pmd(pud_t *pud, unsigned long address,
 	unsigned long base, end;
 	pmd_t *pmd;
 
-	if (pud_none(*pud))
+	if (pud_none_or_clear_bad(pud))
 		return;
-	if (pud_bad(*pud)) {
-		pud_ERROR(*pud);
-		pud_clear(pud);
-		return;
-	}
 
 	pmd = pmd_offset(pud, address);
 	base = address & PUD_MASK;
@@ -91,13 +81,8 @@ static void unmap_area_pud(pgd_t *pgd, unsigned long address,
 	pud_t *pud;
 	unsigned long base, end;
 
-	if (pgd_none(*pgd))
+	if (pgd_none_or_clear_bad(pgd))
 		return;
-	if (pgd_bad(*pgd)) {
-		pgd_ERROR(*pgd);
-		pgd_clear(pgd);
-		return;
-	}
 
 	pud = pud_offset(pgd, address);
 	base = address & PGDIR_MASK;

@@ -83,6 +83,30 @@ EXPORT_SYMBOL(high_memory);
 EXPORT_SYMBOL(vmalloc_earlyreserve);
 
 /*
+ * If a p?d_bad entry is found while walking page tables, report
+ * the error, before resetting entry to p?d_none.  Usually (but
+ * very seldom) called out from the p?d_none_or_clear_bad macros.
+ */
+
+void pgd_clear_bad(pgd_t *pgd)
+{
+	pgd_ERROR(*pgd);
+	pgd_clear(pgd);
+}
+
+void pud_clear_bad(pud_t *pud)
+{
+	pud_ERROR(*pud);
+	pud_clear(pud);
+}
+
+void pmd_clear_bad(pmd_t *pmd)
+{
+	pmd_ERROR(*pmd);
+	pmd_clear(pmd);
+}
+
+/*
  * Note: this doesn't free the actual pages themselves. That
  * has been handled earlier when unmapping all the memory regions.
  */
@@ -90,13 +114,8 @@ static inline void clear_pmd_range(struct mmu_gather *tlb, pmd_t *pmd, unsigned 
 {
 	struct page *page;
 
-	if (pmd_none(*pmd))
+	if (pmd_none_or_clear_bad(pmd))
 		return;
-	if (unlikely(pmd_bad(*pmd))) {
-		pmd_ERROR(*pmd);
-		pmd_clear(pmd);
-		return;
-	}
 	if (!((start | end) & ~PMD_MASK)) {
 		/* Only clear full, aligned ranges */
 		page = pmd_page(*pmd);
@@ -112,14 +131,8 @@ static inline void clear_pud_range(struct mmu_gather *tlb, pud_t *pud, unsigned 
 	unsigned long addr = start, next;
 	pmd_t *pmd, *__pmd;
 
-	if (pud_none(*pud))
+	if (pud_none_or_clear_bad(pud))
 		return;
-	if (unlikely(pud_bad(*pud))) {
-		pud_ERROR(*pud);
-		pud_clear(pud);
-		return;
-	}
-
 	pmd = __pmd = pmd_offset(pud, start);
 	do {
 		next = (addr + PMD_SIZE) & PMD_MASK;
@@ -144,14 +157,8 @@ static inline void clear_pgd_range(struct mmu_gather *tlb, pgd_t *pgd, unsigned 
 	unsigned long addr = start, next;
 	pud_t *pud, *__pud;
 
-	if (pgd_none(*pgd))
+	if (pgd_none_or_clear_bad(pgd))
 		return;
-	if (unlikely(pgd_bad(*pgd))) {
-		pgd_ERROR(*pgd);
-		pgd_clear(pgd);
-		return;
-	}
-
 	pud = __pud = pud_offset(pgd, start);
 	do {
 		next = (addr + PUD_SIZE) & PUD_MASK;
@@ -374,13 +381,8 @@ static int copy_pmd_range(struct mm_struct *dst_mm,  struct mm_struct *src_mm,
 		next = (addr + PMD_SIZE) & PMD_MASK;
 		if (next > end || next <= addr)
 			next = end;
-		if (pmd_none(*src_pmd))
+		if (pmd_none_or_clear_bad(src_pmd))
 			continue;
-		if (pmd_bad(*src_pmd)) {
-			pmd_ERROR(*src_pmd);
-			pmd_clear(src_pmd);
-			continue;
-		}
 		err = copy_pte_range(dst_mm, src_mm, dst_pmd, src_pmd,
 							vma, addr, next);
 		if (err)
@@ -406,13 +408,8 @@ static int copy_pud_range(struct mm_struct *dst_mm,  struct mm_struct *src_mm,
 		next = (addr + PUD_SIZE) & PUD_MASK;
 		if (next > end || next <= addr)
 			next = end;
-		if (pud_none(*src_pud))
+		if (pud_none_or_clear_bad(src_pud))
 			continue;
-		if (pud_bad(*src_pud)) {
-			pud_ERROR(*src_pud);
-			pud_clear(src_pud);
-			continue;
-		}
 		err = copy_pmd_range(dst_mm, src_mm, dst_pud, src_pud,
 							vma, addr, next);
 		if (err)
@@ -441,13 +438,8 @@ int copy_page_range(struct mm_struct *dst, struct mm_struct *src,
 		next = (addr + PGDIR_SIZE) & PGDIR_MASK;
 		if (next > end || next <= addr)
 			next = end;
-		if (pgd_none(*src_pgd))
+		if (pgd_none_or_clear_bad(src_pgd))
 			goto next_pgd;
-		if (pgd_bad(*src_pgd)) {
-			pgd_ERROR(*src_pgd);
-			pgd_clear(src_pgd);
-			goto next_pgd;
-		}
 		err = copy_pud_range(dst, src, dst_pgd, src_pgd,
 							vma, addr, next);
 		if (err)
@@ -469,13 +461,8 @@ static void zap_pte_range(struct mmu_gather *tlb,
 	unsigned long offset;
 	pte_t *ptep;
 
-	if (pmd_none(*pmd))
+	if (pmd_none_or_clear_bad(pmd))
 		return;
-	if (unlikely(pmd_bad(*pmd))) {
-		pmd_ERROR(*pmd);
-		pmd_clear(pmd);
-		return;
-	}
 	ptep = pte_offset_map(pmd, address);
 	offset = address & ~PMD_MASK;
 	if (offset + size > PMD_SIZE)
@@ -553,13 +540,8 @@ static void zap_pmd_range(struct mmu_gather *tlb,
 	pmd_t * pmd;
 	unsigned long end;
 
-	if (pud_none(*pud))
+	if (pud_none_or_clear_bad(pud))
 		return;
-	if (unlikely(pud_bad(*pud))) {
-		pud_ERROR(*pud);
-		pud_clear(pud);
-		return;
-	}
 	pmd = pmd_offset(pud, address);
 	end = address + size;
 	if (end > ((address + PUD_SIZE) & PUD_MASK))
@@ -577,13 +559,8 @@ static void zap_pud_range(struct mmu_gather *tlb,
 {
 	pud_t * pud;
 
-	if (pgd_none(*pgd))
+	if (pgd_none_or_clear_bad(pgd))
 		return;
-	if (unlikely(pgd_bad(*pgd))) {
-		pgd_ERROR(*pgd);
-		pgd_clear(pgd);
-		return;
-	}
 	pud = pud_offset(pgd, address);
 	do {
 		zap_pmd_range(tlb, pud, address, end - address, details);
