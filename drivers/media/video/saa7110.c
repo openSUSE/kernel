@@ -30,6 +30,7 @@
 #include <linux/types.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
+#include <linux/wait.h>
 #include <asm/io.h>
 #include <asm/uaccess.h>
 
@@ -205,13 +206,16 @@ static const unsigned char initseq[] = {
 static int
 determine_norm (struct i2c_client *client)
 {
+	DEFINE_WAIT(wait);
 	struct saa7110 *decoder = i2c_get_clientdata(client);
 	int status;
 
 	/* mode changed, start automatic detection */
 	saa7110_write_block(client, initseq, sizeof(initseq));
 	saa7110_selmux(client, decoder->input);
-	sleep_on_timeout(&decoder->wq, HZ / 4);
+	prepare_to_wait(&decoder->wq, &wait, TASK_UNINTERRUPTIBLE);
+	schedule_timeout(HZ/4);
+	finish_wait(&decoder->wq, &wait);
 	status = saa7110_read(client);
 	if (status & 0x40) {
 		dprintk(1, KERN_INFO "%s: status=0x%02x (no signal)\n",
@@ -250,7 +254,9 @@ determine_norm (struct i2c_client *client)
 	saa7110_write(client, 0x11, 0x59);
 	//saa7110_write(client,0x2E,0x9A);
 
-	sleep_on_timeout(&decoder->wq, HZ / 4);
+	prepare_to_wait(&decoder->wq, &wait, TASK_UNINTERRUPTIBLE);
+	schedule_timeout(HZ/4);
+	finish_wait(&decoder->wq, &wait);
 
 	status = saa7110_read(client);
 	if ((status & 0x03) == 0x01) {
