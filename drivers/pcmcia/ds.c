@@ -438,9 +438,9 @@ static int pcmcia_device_remove(struct device * dev)
  */
 static DECLARE_MUTEX(device_add_lock);
 
-static struct pcmcia_device * pcmcia_device_add(struct pcmcia_bus_socket *s, unsigned int function, struct pcmcia_driver *p_drv)
+static struct pcmcia_device * pcmcia_device_add(struct pcmcia_bus_socket *s, unsigned int function)
 {
-	struct pcmcia_device *p_dev, *tmp_dev;
+	struct pcmcia_device *p_dev;
 	unsigned long flags;
 
 	s = pcmcia_get_bus_socket(s);
@@ -463,25 +463,14 @@ static struct pcmcia_device * pcmcia_device_add(struct pcmcia_bus_socket *s, uns
 	p_dev->dev.release = pcmcia_release_dev;
 	sprintf (p_dev->dev.bus_id, "%d.%d", p_dev->socket->sock, p_dev->device_no);
 
-	/* temporary workaround */
-	p_dev->dev.driver = &p_drv->drv;
-
 	/* compat */
 	p_dev->client.client_magic = CLIENT_MAGIC;
 	p_dev->client.Socket = s->parent;
 	p_dev->client.Function = function;
 	p_dev->client.state = CLIENT_UNBOUND;
 
-	/* Add to the list in pcmcia_bus_socket, but only if no device
-	 * with the same func _and_ driver exists */
+	/* Add to the list in pcmcia_bus_socket */
 	spin_lock_irqsave(&pcmcia_dev_list_lock, flags);
-	list_for_each_entry(tmp_dev, &s->devices_list, socket_device_list) {
-		if ((tmp_dev->func == function) &&
-		    (tmp_dev->dev.driver == p_dev->dev.driver)){
-			spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
-			goto err_free;
-		}
-	}
 	list_add_tail(&p_dev->socket_device_list, &s->devices_list);
 	spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
 
@@ -492,8 +481,6 @@ static struct pcmcia_device * pcmcia_device_add(struct pcmcia_bus_socket *s, uns
 
 		goto err_free;
        }
-
-	pcmcia_device_probe(&p_dev->dev);
 
 	up(&device_add_lock);
 
@@ -507,6 +494,18 @@ static struct pcmcia_device * pcmcia_device_add(struct pcmcia_bus_socket *s, uns
 	pcmcia_put_bus_socket(s);
 
 	return NULL;
+}
+
+
+static int pcmcia_bus_match(struct device * dev, struct device_driver * drv) {
+	struct pcmcia_device * p_dev = to_pcmcia_dev(dev);
+	struct pcmcia_driver * p_drv = to_pcmcia_drv(drv);
+
+	/* matching by cardmgr */
+	if (p_dev->cardmgr == p_drv)
+		return 1;
+
+	return 0;
 }
 
 /*======================================================================
@@ -716,12 +715,21 @@ static int bind_request(struct pcmcia_bus_socket *s, bind_info_t *bind_info)
 	}
 	spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
 
-	p_dev = pcmcia_device_add(s, bind_info->function, p_drv);
+	p_dev = pcmcia_device_add(s, bind_info->function);
 	if (!p_dev) {
 		ret = -EIO;
 		goto err_put_module;
 	}
-	p_dev->cardmgr++;
+	p_dev->cardmgr = p_drv;
+
+	bus_rescan_devices(&pcmcia_bus_type);
+
+	/* check whether the driver indeed matched. I don't care if this
+	 * is racy or not, because it can only happen on cardmgr access
+	 * paths...
+	 */
+	if (!(p_dev->dev.driver == &p_drv->drv))
+		p_dev->cardmgr = NULL;
 
  err_put_module:
 	module_put(p_drv->owner);
@@ -1451,6 +1459,7 @@ static struct class_interface pcmcia_bus_interface = {
 
 struct bus_type pcmcia_bus_type = {
 	.name = "pcmcia",
+	.match = pcmcia_bus_match,
 };
 EXPORT_SYMBOL(pcmcia_bus_type);
 
