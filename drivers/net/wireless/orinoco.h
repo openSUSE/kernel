@@ -42,7 +42,6 @@ struct orinoco_private {
 	/* driver state */
 	int open;
 	u16 last_linkstatus;
-	int connected;
 
 	/* Net device stuff */
 	struct net_device *ndev;

@@ -784,7 +784,7 @@ static int orinoco_xmit(struct sk_buff *skb, struct net_device *dev)
 		return 1;
 	}
 
-	if (! priv->connected) {
+	if (! netif_carrier_ok(dev)) {
 		/* Oops, the firmware hasn't established a connection,
                    silently drop the packet (this seems to be the
                    safest approach). */
@@ -1269,6 +1269,7 @@ static void __orinoco_ev_info(struct net_device *dev, hermes_t *hw)
 	case HERMES_INQ_LINKSTATUS: {
 		struct hermes_linkstatus linkstatus;
 		u16 newstatus;
+		int connected;
 
 		if (len != sizeof(linkstatus)) {
 			printk(KERN_WARNING "%s: Unexpected size for linkstatus frame (%d bytes)\n",
@@ -1280,15 +1281,14 @@ static void __orinoco_ev_info(struct net_device *dev, hermes_t *hw)
 				  len / 2);
 		newstatus = le16_to_cpu(linkstatus.linkstatus);
 
-		if ( (newstatus == HERMES_LINKSTATUS_CONNECTED)
-		     || (newstatus == HERMES_LINKSTATUS_AP_CHANGE)
-		     || (newstatus == HERMES_LINKSTATUS_AP_IN_RANGE) )
-			priv->connected = 1;
-		else if ( (newstatus == HERMES_LINKSTATUS_NOT_CONNECTED)
-			  || (newstatus == HERMES_LINKSTATUS_DISCONNECTED)
-			  || (newstatus == HERMES_LINKSTATUS_AP_OUT_OF_RANGE)
-			  || (newstatus == HERMES_LINKSTATUS_ASSOC_FAILED) )
-			priv->connected = 0;
+		connected = (newstatus == HERMES_LINKSTATUS_CONNECTED)
+			|| (newstatus == HERMES_LINKSTATUS_AP_CHANGE)
+			|| (newstatus == HERMES_LINKSTATUS_AP_IN_RANGE);
+
+		if (connected)
+			netif_carrier_on(dev);
+		else
+			netif_carrier_off(dev);
 
 		if (newstatus != priv->last_linkstatus)
 			print_linkstatus(dev, newstatus);
@@ -1366,8 +1366,8 @@ int __orinoco_down(struct net_device *dev)
 	}
 	
 	/* firmware will have to reassociate */
+	netif_carrier_off(dev);
 	priv->last_linkstatus = 0xffff;
-	priv->connected = 0;
 
 	return 0;
 }
@@ -1878,7 +1878,7 @@ static void orinoco_reset(struct net_device *dev)
 
 	priv->hw_unavailable++;
 	priv->last_linkstatus = 0xffff; /* firmware will have to reassociate */
-	priv->connected = 0;
+	netif_carrier_off(dev);
 
 	orinoco_unlock(priv, &flags);
 
@@ -2388,8 +2388,8 @@ struct net_device *alloc_orinocodev(int sizeof_card,
 				   * hardware */
 	INIT_WORK(&priv->reset_work, (void (*)(void *))orinoco_reset, dev);
 
+	netif_carrier_off(dev);
 	priv->last_linkstatus = 0xffff;
-	priv->connected = 0;
 
 	return dev;
 
