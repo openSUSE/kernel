@@ -24,6 +24,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 
@@ -109,8 +110,6 @@ static struct i2c_driver adm1031_driver = {
 	.attach_adapter = adm1031_attach_adapter,
 	.detach_client = adm1031_detach_client,
 };
-
-static int adm1031_id;
 
 static inline u8 adm1031_read_value(struct i2c_client *client, u8 reg)
 {
@@ -781,8 +780,6 @@ static int adm1031_detect(struct i2c_adapter *adapter, int address, int kind)
 	data->chip_type = kind;
 
 	strlcpy(new_client->name, name, I2C_NAME_SIZE);
-
-	new_client->id = adm1031_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 
@@ -888,8 +885,8 @@ static struct adm1031_data *adm1031_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-	if ((jiffies - data->last_updated > HZ + HZ / 2) ||
-	    (jiffies < data->last_updated) || !data->valid) {
+	if (time_after(jiffies, data->last_updated + HZ + HZ / 2)
+	    || !data->valid) {
 
 		dev_dbg(&client->dev, "Starting adm1031 update\n");
 		for (chan = 0;

@@ -35,6 +35,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 #include <linux/i2c-vid.h>
@@ -103,6 +104,9 @@ superio_exit(void)
 
 /* Update battery voltage after every reading if true */
 static int update_vbat;
+
+/* Not all BIOSes properly configure the PWM registers */
+static int fix_pwm_polarity;
 
 /* Chip Type */
 
@@ -224,6 +228,7 @@ static int it87_read_value(struct i2c_client *client, u8 register);
 static int it87_write_value(struct i2c_client *client, u8 register,
 			u8 value);
 static struct it87_data *it87_update_device(struct device *dev);
+static int it87_check_pwm(struct i2c_client *client);
 static void it87_init_client(struct i2c_client *client, struct it87_data *data);
 
 
@@ -718,7 +723,6 @@ int it87_detect(struct i2c_adapter *adapter, int address, int kind)
 	const char *name = "";
 	int is_isa = i2c_is_isa_adapter(adapter);
 	int enable_pwm_interface;
-	int tmp;
 
 	if (!is_isa && 
 	    !i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA))
@@ -822,19 +826,11 @@ int it87_detect(struct i2c_adapter *adapter, int address, int kind)
 	if ((err = i2c_attach_client(new_client)))
 		goto ERROR2;
 
+	/* Check PWM configuration */
+	enable_pwm_interface = it87_check_pwm(new_client);
+
 	/* Initialize the IT87 chip */
 	it87_init_client(new_client, data);
-
-	/* Some BIOSes fail to correctly configure the IT87 fans. All fans off
-	 * and polarity set to active low is sign that this is the case so we
-	 * disable pwm control to protect the user. */
-	enable_pwm_interface = 1;
-	tmp = it87_read_value(new_client, IT87_REG_FAN_CTL);
-	if ((tmp & 0x87) == 0) {
-		enable_pwm_interface = 0;
-		dev_info(&new_client->dev,
-			"detected broken BIOS defaults, disabling pwm interface");
-	}
 
 	/* Register sysfs hooks */
 	device_create_file(&new_client->dev, &dev_attr_in0_input);
@@ -966,6 +962,56 @@ static int it87_write_value(struct i2c_client *client, u8 reg, u8 value)
 		return i2c_smbus_write_byte_data(client, reg, value);
 }
 
+/* Return 1 if and only if the PWM interface is safe to use */
+static int it87_check_pwm(struct i2c_client *client)
+{
+	/* Some BIOSes fail to correctly configure the IT87 fans. All fans off
+	 * and polarity set to active low is sign that this is the case so we
+	 * disable pwm control to protect the user. */
+	int tmp = it87_read_value(client, IT87_REG_FAN_CTL);
+	if ((tmp & 0x87) == 0) {
+		if (fix_pwm_polarity) {
+			/* The user asks us to attempt a chip reconfiguration.
+			 * This means switching to active high polarity and
+			 * inverting all fan speed values. */
+			int i;
+			u8 pwm[3];
+
+			for (i = 0; i < 3; i++)
+				pwm[i] = it87_read_value(client,
+							 IT87_REG_PWM(i));
+
+			/* If any fan is in automatic pwm mode, the polarity
+			 * might be correct, as suspicious as it seems, so we
+			 * better don't change anything (but still disable the
+			 * PWM interface). */
+			if (!((pwm[0] | pwm[1] | pwm[2]) & 0x80)) {
+				dev_info(&client->dev, "Reconfiguring PWM to "
+					 "active high polarity\n");
+				it87_write_value(client, IT87_REG_FAN_CTL,
+						 tmp | 0x87);
+				for (i = 0; i < 3; i++)
+					it87_write_value(client,
+							 IT87_REG_PWM(i),
+							 0x7f & ~pwm[i]);
+				return 1;
+			}
+
+			dev_info(&client->dev, "PWM configuration is "
+				 "too broken to be fixed\n");
+		}
+
+		dev_info(&client->dev, "Detected broken BIOS "
+			 "defaults, disabling PWM interface\n");
+		return 0;
+	} else if (fix_pwm_polarity) {
+		dev_info(&client->dev, "PWM configuration looks "
+			 "sane, won't touch\n");
+	}
+
+	return 1;
+}
+
 /* Called when we have found a new IT87. */
 static void it87_init_client(struct i2c_client *client, struct it87_data *data)
 {
@@ -1038,8 +1084,8 @@ static struct it87_data *it87_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-	if ((jiffies - data->last_updated > HZ + HZ / 2) ||
-	    (jiffies < data->last_updated) || !data->valid) {
+	if (time_after(jiffies, data->last_updated + HZ + HZ / 2)
+	    || !data->valid) {
 
 		if (update_vbat) {
 			/* Cleared after each update, so reenable.  Value
@@ -1126,6 +1172,8 @@ MODULE_AUTHOR("Chris Gauthron <chrisg@0-in.com>");
 MODULE_DESCRIPTION("IT8705F, IT8712F, Sis950 driver");
 module_param(update_vbat, bool, 0);
 MODULE_PARM_DESC(update_vbat, "Update vbat if set else return powerup value");
+module_param(fix_pwm_polarity, bool, 0);
+MODULE_PARM_DESC(fix_pwm_polarity, "Force PWM polarity to active high (DANGEROUS)");
 MODULE_LICENSE("GPL");
 
 module_init(sm_it87_init);

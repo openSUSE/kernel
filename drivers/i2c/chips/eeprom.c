@@ -32,6 +32,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/sched.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 
@@ -86,8 +87,7 @@ static void eeprom_update_client(struct i2c_client *client, u8 slice)
 	down(&data->update_lock);
 
 	if (!(data->valid & (1 << slice)) ||
-	    (jiffies - data->last_updated[slice] > 300 * HZ) ||
-	    (jiffies < data->last_updated[slice])) {
+	    time_after(jiffies, data->last_updated[slice] + 300 * HZ)) {
 		dev_dbg(&client->dev, "Starting eeprom update, slice %u\n", slice);
 
 		if (i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_READ_I2C_BLOCK)) {

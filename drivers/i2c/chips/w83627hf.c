@@ -40,6 +40,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 #include <linux/i2c-vid.h>
@@ -1321,6 +1322,27 @@ static void w83627hf_init_client(struct i2c_client *client)
 	data->pwmenable[2] = 1;
 
 	if(init) {
+		/* Enable temp2 */
+		tmp = w83627hf_read_value(client, W83781D_REG_TEMP2_CONFIG);
+		if (tmp & 0x01) {
+			dev_warn(&client->dev, "Enabling temp2, readings "
+				 "might not make sense\n");
+			w83627hf_write_value(client, W83781D_REG_TEMP2_CONFIG,
+				tmp & 0xfe);
+		}
+
+		/* Enable temp3 */
+		if (type != w83697hf) {
+			tmp = w83627hf_read_value(client,
+				W83781D_REG_TEMP3_CONFIG);
+			if (tmp & 0x01) {
+				dev_warn(&client->dev, "Enabling temp3, "
+					 "readings might not make sense\n");
+				w83627hf_write_value(client,
+					W83781D_REG_TEMP3_CONFIG, tmp & 0xfe);
+			}
+		}
+
 		if (type == w83627hf) {
 			/* enable PWM2 control (can't hurt since PWM reg
 		           should have been reset to 0xff) */
@@ -1350,8 +1372,8 @@ static struct w83627hf_data *w83627hf_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-	if ((jiffies - data->last_updated > HZ + HZ / 2) ||
-	    (jiffies < data->last_updated) || !data->valid) {
+	if (time_after(jiffies, data->last_updated + HZ + HZ / 2)
+	    || !data->valid) {
 		for (i = 0; i <= 8; i++) {
 			/* skip missing sensors */
 			if (((data->type == w83697hf) && (i == 1)) ||

@@ -35,6 +35,7 @@
 #include <linux/slab.h>
 #include <linux/pci.h>
 #include <linux/delay.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 #include <linux/init.h>
@@ -726,9 +727,8 @@ static struct via686a_data *via686a_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-       if ((jiffies - data->last_updated > HZ + HZ / 2) ||
-           (jiffies < data->last_updated) || !data->valid) {
-
+	if (time_after(jiffies, data->last_updated + HZ + HZ / 2)
+	    || !data->valid) {
 		for (i = 0; i <= 4; i++) {
 			data->in[i] =
 			    via686a_read_value(client, VIA686A_REG_IN(i));

@@ -49,6 +49,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 #include <linux/i2c-vid.h>
@@ -146,12 +147,6 @@ struct adm1025_data {
 	u8 vid;			/* register values, combined */
 	u8 vrm;
 };
-
-/*
- * Internal variables
- */
-
-static int adm1025_id;
 
 /*
  * Sysfs stuff
@@ -397,7 +392,6 @@ static int adm1025_detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* We can fill in the remaining client fields */
 	strlcpy(new_client->name, name, I2C_NAME_SIZE);
-	new_client->id = adm1025_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 
@@ -512,9 +506,7 @@ static struct adm1025_data *adm1025_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-	if ((jiffies - data->last_updated > HZ * 2) ||
-	    (jiffies < data->last_updated) ||
-	    !data->valid) {
+	if (time_after(jiffies, data->last_updated + HZ * 2) || !data->valid) {
 		int i;
 
 		dev_dbg(&client->dev, "Updating data.\n");

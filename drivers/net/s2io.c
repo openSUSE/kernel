@@ -3197,7 +3197,7 @@ static void s2io_ethtool_gdrvinfo(struct net_device *dev,
 	strncpy(info->version, s2io_driver_version,
 		sizeof(s2io_driver_version));
 	strncpy(info->fw_version, "", 32);
-	strncpy(info->bus_info, sp->pdev->slot_name, 32);
+	strncpy(info->bus_info, pci_name(sp->pdev), 32);
 	info->regdump_len = XENA_REG_SPACE;
 	info->eedump_len = XENA_EEPROM_SPACE;
 	info->testinfo_len = S2IO_TEST_LEN;

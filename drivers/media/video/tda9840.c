@@ -51,9 +51,6 @@ I2C_CLIENT_INSMOD;
 static struct i2c_driver driver;
 static struct i2c_client client_template;
 
-/* unique ID allocation */
-static int tda9840_id = 0;
-
 static int command(struct i2c_client *client, unsigned int cmd, void *arg)
 {
 	int result;
@@ -179,7 +176,6 @@ static int detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* fill client structure */
 	memcpy(client, &client_template, sizeof(struct i2c_client));
-	client->id = tda9840_id++;
 	client->addr = address;
 	client->adapter = adapter;
 
