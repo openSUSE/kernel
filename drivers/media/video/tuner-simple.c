@@ -1,5 +1,5 @@
 /*
- * $Id: tuner-simple.c,v 1.4 2005/02/15 15:59:35 kraxel Exp $
+ * $Id: tuner-simple.c,v 1.10 2005/03/08 08:38:00 kraxel Exp $
  *
  * i2c tv tuner chip device driver
  * controls all those simple 4-control-bytes style tuners.
@@ -204,6 +204,13 @@ static struct tunertype tuners[] = {
 	  16*160.00,16*454.00,0x41,0x42,0x04,0x8e,940}, // UHF band untested
 	{ "tda8290+75", Philips,PAL|NTSC,
 	  /* see tda8290.c for details */ },
+	{ "LG PAL (TAPE series)", LGINNOTEK, PAL,
+          16*170.00, 16*450.00, 0x01,0x02,0x08,0xce,623},
+
+        { "Philips PAL/SECAM multi (FQ1216AME MK4)", Philips, PAL,
+          16*160.00,16*442.00,0x01,0x02,0x04,0xce,623 },
+        { "Philips FQ1236A MK4", Philips, NTSC,
+          16*160.00,16*442.00,0x01,0x02,0x04,0x8e,732 },
 
 };
 unsigned const int tuner_count = ARRAY_SIZE(tuners);
