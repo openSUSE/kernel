@@ -351,7 +351,7 @@ static void __init root_nfs_print(void)
 #endif
 
 
-int __init root_nfs_init(void)
+static int __init root_nfs_init(void)
 {
 #ifdef NFSROOT_DEBUG
 	nfs_debug |= NFSDBG_ROOT;
@@ -379,7 +379,7 @@ int __init root_nfs_init(void)
  *  Parse NFS server and directory information passed on the kernel
  *  command line.
  */
-int __init nfs_root_setup(char *line)
+static int __init nfs_root_setup(char *line)
 {
 	ROOT_DEV = Root_NFS;
 	if (line[0] == '/' || line[0] == ',' || (line[0] >= '0' && line[0] <= '9')) {

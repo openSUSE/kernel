@@ -731,7 +731,5 @@ extern struct nfs_rpc_ops	nfs_v4_clientops;
 extern struct rpc_version	nfs_version2;
 extern struct rpc_version	nfs_version3;
 extern struct rpc_version	nfs_version4;
-extern struct rpc_program	nfs_program;
-extern struct rpc_stat		nfs_rpcstat;
 
 #endif

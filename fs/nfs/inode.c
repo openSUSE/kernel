@@ -64,6 +64,8 @@ static void nfs_umount_begin(struct super_block *);
 static int  nfs_statfs(struct super_block *, struct kstatfs *);
 static int  nfs_show_options(struct seq_file *, struct vfsmount *);
 
+static struct rpc_program	nfs_program;
+
 static struct super_operations nfs_sops = { 
 	.alloc_inode	= nfs_alloc_inode,
 	.destroy_inode	= nfs_destroy_inode,
@@ -78,7 +80,7 @@ static struct super_operations nfs_sops = {
 /*
  * RPC cruft for NFS
  */
-struct rpc_stat			nfs_rpcstat = {
+static struct rpc_stat		nfs_rpcstat = {
 	.program		= &nfs_program
 };
 static struct rpc_version *	nfs_version[] = {
@@ -95,7 +97,7 @@ static struct rpc_version *	nfs_version[] = {
 #endif
 };
 
-struct rpc_program		nfs_program = {
+static struct rpc_program	nfs_program = {
 	.name			= "nfs",
 	.number			= NFS_PROGRAM,
 	.nrvers			= sizeof(nfs_version) / sizeof(nfs_version[0]),
@@ -792,7 +794,7 @@ nfs_setattr(struct dentry *dentry, struct iattr *attr)
  * Wait for the inode to get unlocked.
  * (Used for NFS_INO_LOCKED and NFS_INO_REVALIDATING).
  */
-int
+static int
 nfs_wait_on_inode(struct inode *inode, int flag)
 {
 	struct rpc_clnt	*clnt = NFS_CLIENT(inode);
