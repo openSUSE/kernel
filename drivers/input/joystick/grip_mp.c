@@ -38,11 +38,9 @@ MODULE_LICENSE("GPL");
 
 struct grip_mp {
 	struct gameport *gameport;
-	struct timer_list timer;
 	struct input_dev dev[4];
 	int mode[4];
 	int registered[4];
-	int used;
 	int reads;
 	int bads;
 
@@ -81,7 +79,6 @@ struct grip_mp {
  */
 
 #define GRIP_INIT_DELAY         2000          /*  2 ms */
-#define GRIP_REFRESH_TIME       HZ/50	      /* 20 ms */
 
 #define GRIP_MODE_NONE		0
 #define GRIP_MODE_RESET         1
@@ -526,8 +523,9 @@ static void report_slot(struct grip_mp *grip, int slot)
  * Get the multiport state.
  */
 
-static void get_and_report_mp_state(struct grip_mp *grip)
+static void grip_poll(struct gameport *gameport)
 {
+	struct grip_mp *grip = gameport_get_drvdata(gameport);
 	int i, npkts, flags;
 
 	for (npkts = 0; npkts < 4; npkts++) {
@@ -554,8 +552,7 @@ static int grip_open(struct input_dev *dev)
 {
 	struct grip_mp *grip = dev->private;
 
-	if (!grip->used++)
-		mod_timer(&grip->timer, jiffies + GRIP_REFRESH_TIME);
+	gameport_start_polling(grip->gameport);
 	return 0;
 }
 
@@ -567,8 +564,7 @@ static void grip_close(struct input_dev *dev)
 {
 	struct grip_mp *grip = dev->private;
 
-	if (!--grip->used)
-		del_timer(&grip->timer);
+	gameport_start_polling(grip->gameport);
 }
 
 /*
@@ -606,18 +602,6 @@ static void register_slot(int slot, struct grip_mp *grip)
 	       grip_name[grip->mode[slot]], slot);
 }
 
-/*
- * Repeatedly polls the multiport and generates events.
- */
-
-static void grip_timer(unsigned long private)
-{
-	struct grip_mp *grip = (void*) private;
-
-	get_and_report_mp_state(grip);
-	mod_timer(&grip->timer, jiffies + GRIP_REFRESH_TIME);
-}
-
 static int grip_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct grip_mp *grip;
@@ -627,15 +611,15 @@ static int grip_connect(struct gameport *gameport, struct gameport_driver *drv)
 		return -ENOMEM;
 
 	grip->gameport = gameport;
-	init_timer(&grip->timer);
-	grip->timer.data = (long) grip;
-	grip->timer.function = grip_timer;
 
 	gameport_set_drvdata(gameport, grip);
 
 	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
 	if (err)
 		goto fail1;
+
+	gameport_set_poll_handler(gameport, grip_poll);
+	gameport_set_poll_interval(gameport, 20);
 
 	if (!multiport_init(grip)) {
 		err = -ENODEV;

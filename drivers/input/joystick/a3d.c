@@ -45,7 +45,6 @@ MODULE_LICENSE("GPL");
 #define A3D_MAX_STROBE		60	/* 40 us */
 #define A3D_DELAY_READ		3	/* 3 ms */
 #define A3D_MAX_LENGTH		40	/* 40*3 bits */
-#define A3D_REFRESH_TIME	HZ/50	/* 20 ms */
 
 #define A3D_MODE_A3D		1	/* Assassin 3D */
 #define A3D_MODE_PAN		2	/* Panther */
@@ -59,12 +58,10 @@ struct a3d {
 	struct gameport *gameport;
 	struct gameport *adc;
 	struct input_dev dev;
-	struct timer_list timer;
 	int axes[4];
 	int buttons;
 	int mode;
 	int length;
-	int used;
 	int reads;
 	int bads;
 	char phys[32];
@@ -178,19 +175,20 @@ static void a3d_read(struct a3d *a3d, unsigned char *data)
 
 
 /*
- * a3d_timer() reads and analyzes A3D joystick data.
+ * a3d_poll() reads and analyzes A3D joystick data.
  */
 
-static void a3d_timer(unsigned long private)
+static void a3d_poll(struct gameport *gameport)
 {
-	struct a3d *a3d = (void *) private;
+	struct a3d *a3d = gameport_get_drvdata(gameport);
 	unsigned char data[A3D_MAX_LENGTH];
 
 	a3d->reads++;
-	if (a3d_read_packet(a3d->gameport, a3d->length, data) != a3d->length
-		|| data[0] != a3d->mode || a3d_csum(data, a3d->length))
-	 	a3d->bads++; else a3d_read(a3d, data);
-	mod_timer(&a3d->timer, jiffies + A3D_REFRESH_TIME);
+	if (a3d_read_packet(a3d->gameport, a3d->length, data) != a3d->length ||
+	    data[0] != a3d->mode || a3d_csum(data, a3d->length))
+	 	a3d->bads++;
+	else
+		a3d_read(a3d, data);
 }
 
 /*
@@ -218,10 +216,11 @@ static int a3d_adc_cooked_read(struct gameport *gameport, int *axes, int *button
 static int a3d_adc_open(struct gameport *gameport, int mode)
 {
 	struct a3d *a3d = gameport->port_data;
+
 	if (mode != GAMEPORT_MODE_COOKED)
 		return -1;
-	if (!a3d->used++)
-		mod_timer(&a3d->timer, jiffies + A3D_REFRESH_TIME);
+
+	gameport_start_polling(a3d->gameport);
 	return 0;
 }
 
@@ -233,8 +232,7 @@ static void a3d_adc_close(struct gameport *gameport)
 {
 	struct a3d *a3d = gameport->port_data;
 
-	if (!--a3d->used)
-		del_timer(&a3d->timer);
+	gameport_stop_polling(a3d->gameport);
 }
 
 /*
@@ -245,8 +243,7 @@ static int a3d_open(struct input_dev *dev)
 {
 	struct a3d *a3d = dev->private;
 
-	if (!a3d->used++)
-		mod_timer(&a3d->timer, jiffies + A3D_REFRESH_TIME);
+	gameport_start_polling(a3d->gameport);
 	return 0;
 }
 
@@ -258,8 +255,7 @@ static void a3d_close(struct input_dev *dev)
 {
 	struct a3d *a3d = dev->private;
 
-	if (!--a3d->used)
-		del_timer(&a3d->timer);
+	gameport_stop_polling(a3d->gameport);
 }
 
 /*
@@ -278,9 +274,6 @@ static int a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
 		return -ENOMEM;
 
 	a3d->gameport = gameport;
-	init_timer(&a3d->timer);
-	a3d->timer.data = (long) a3d;
-	a3d->timer.function = a3d_timer;
 
 	gameport_set_drvdata(gameport, a3d);
 
@@ -303,6 +296,9 @@ static int a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
 		err = -ENODEV;
 		goto fail2;
 	}
+
+	gameport_set_poll_handler(gameport, a3d_poll);
+	gameport_set_poll_interval(gameport, 20);
 
 	sprintf(a3d->phys, "%s/input0", gameport->phys);
 

@@ -30,6 +30,12 @@ struct gameport {
 	int (*open)(struct gameport *, int);
 	void (*close)(struct gameport *);
 
+	struct timer_list poll_timer;
+	unsigned int poll_interval;	/* in msecs */
+	spinlock_t timer_lock;
+	unsigned int poll_cnt;
+	void (*poll_handler)(struct gameport *);
+
 	struct gameport *parent, *child;
 
 	struct gameport_driver *drv;
@@ -175,5 +181,18 @@ static inline int gameport_time(struct gameport *gameport, int time)
 {
 	return (time * gameport->speed) / 1000;
 }
+
+static inline void gameport_set_poll_handler(struct gameport *gameport, void (*handler)(struct gameport *))
+{
+	gameport->poll_handler = handler;
+}
+
+static inline void gameport_set_poll_interval(struct gameport *gameport, unsigned int msecs)
+{
+	gameport->poll_interval = msecs;
+}
+
+void gameport_start_polling(struct gameport *gameport);
+void gameport_stop_polling(struct gameport *gameport);
 
 #endif

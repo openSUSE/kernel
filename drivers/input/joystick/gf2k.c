@@ -46,7 +46,6 @@ MODULE_LICENSE("GPL");
 #define GF2K_STROBE		40	/* The time we wait for the first bit [40 us] */
 #define GF2K_TIMEOUT		4	/* Wait for everything to settle [4 ms] */
 #define GF2K_LENGTH		80	/* Max number of triplets in a packet */
-#define GF2K_REFRESH		HZ/50	/* Time between joystick polls [20 ms] */
 
 /*
  * Genius joystick ids ...
@@ -82,11 +81,9 @@ static short gf2k_seq_digital[] = { 590, 320, 860, 0 };
 
 struct gf2k {
 	struct gameport *gameport;
-	struct timer_list timer;
 	struct input_dev dev;
 	int reads;
 	int bads;
-	int used;
 	unsigned char id;
 	unsigned char length;
 	char phys[32];
@@ -204,36 +201,35 @@ static void gf2k_read(struct gf2k *gf2k, unsigned char *data)
 }
 
 /*
- * gf2k_timer() reads and analyzes Genius joystick data.
+ * gf2k_poll() reads and analyzes Genius joystick data.
  */
 
-static void gf2k_timer(unsigned long private)
+static void gf2k_poll(struct gameport *gameport)
 {
-	struct gf2k *gf2k = (void *) private;
+	struct gf2k *gf2k = gameport_get_drvdata(gameport);
 	unsigned char data[GF2K_LENGTH];
 
 	gf2k->reads++;
 
-	if (gf2k_read_packet(gf2k->gameport, gf2k_length[gf2k->id], data) < gf2k_length[gf2k->id]) {
+	if (gf2k_read_packet(gf2k->gameport, gf2k_length[gf2k->id], data) < gf2k_length[gf2k->id])
 		gf2k->bads++;
-	} else gf2k_read(gf2k, data);
-
-	mod_timer(&gf2k->timer, jiffies + GF2K_REFRESH);
+	else
+		gf2k_read(gf2k, data);
 }
 
 static int gf2k_open(struct input_dev *dev)
 {
 	struct gf2k *gf2k = dev->private;
-	if (!gf2k->used++)
-		mod_timer(&gf2k->timer, jiffies + GF2K_REFRESH);
+
+	gameport_start_polling(gf2k->gameport);
 	return 0;
 }
 
 static void gf2k_close(struct input_dev *dev)
 {
 	struct gf2k *gf2k = dev->private;
-	if (!--gf2k->used)
-		del_timer(&gf2k->timer);
+
+	gameport_stop_polling(gf2k->gameport);
 }
 
 /*
@@ -250,9 +246,6 @@ static int gf2k_connect(struct gameport *gameport, struct gameport_driver *drv)
 		return -ENOMEM;
 
 	gf2k->gameport = gameport;
-	init_timer(&gf2k->timer);
-	gf2k->timer.data = (long) gf2k;
-	gf2k->timer.function = gf2k_timer;
 
 	gameport_set_drvdata(gameport, gf2k);
 
@@ -294,6 +287,9 @@ static int gf2k_connect(struct gameport *gameport, struct gameport_driver *drv)
 		err = -ENODEV;
 		goto fail2;
 	}
+
+	gameport_set_poll_handler(gameport, gf2k_poll);
+	gameport_set_poll_interval(gameport, 20);
 
 	sprintf(gf2k->phys, "%s/input0", gameport->phys);
 

@@ -53,14 +53,10 @@ MODULE_LICENSE("GPL");
 #define GRIP_MAX_CHUNKS_XT	10
 #define GRIP_MAX_BITS_XT	30
 
-#define GRIP_REFRESH_TIME	HZ/50	/* 20 ms */
-
 struct grip {
 	struct gameport *gameport;
-	struct timer_list timer;
 	struct input_dev dev[2];
 	unsigned char mode[2];
-	int used;
 	int reads;
 	int bads;
 	char phys[2][32];
@@ -185,9 +181,9 @@ static int grip_xt_read_packet(struct gameport *gameport, int shift, unsigned in
  * grip_timer() repeatedly polls the joysticks and generates events.
  */
 
-static void grip_timer(unsigned long private)
+static void grip_poll(struct gameport *gameport)
 {
-	struct grip *grip = (void*) private;
+	struct grip *grip = gameport_get_drvdata(gameport);
 	unsigned int data[GRIP_LENGTH_XT];
 	struct input_dev *dev;
 	int i, j;
@@ -281,23 +277,21 @@ static void grip_timer(unsigned long private)
 
 		input_sync(dev);
 	}
-
-	mod_timer(&grip->timer, jiffies + GRIP_REFRESH_TIME);
 }
 
 static int grip_open(struct input_dev *dev)
 {
 	struct grip *grip = dev->private;
-	if (!grip->used++)
-		mod_timer(&grip->timer, jiffies + GRIP_REFRESH_TIME);
+
+	gameport_start_polling(grip->gameport);
 	return 0;
 }
 
 static void grip_close(struct input_dev *dev)
 {
 	struct grip *grip = dev->private;
-	if (!--grip->used)
-		del_timer(&grip->timer);
+
+	gameport_stop_polling(grip->gameport);
 }
 
 static int grip_connect(struct gameport *gameport, struct gameport_driver *drv)
@@ -311,9 +305,6 @@ static int grip_connect(struct gameport *gameport, struct gameport_driver *drv)
 		return -ENOMEM;
 
 	grip->gameport = gameport;
-	init_timer(&grip->timer);
-	grip->timer.data = (long) grip;
-	grip->timer.function = grip_timer;
 
 	gameport_set_drvdata(gameport, grip);
 
@@ -344,6 +335,9 @@ static int grip_connect(struct gameport *gameport, struct gameport_driver *drv)
 		err = -ENODEV;
 		goto fail2;
 	}
+
+	gameport_set_poll_handler(gameport, grip_poll);
+	gameport_set_poll_interval(gameport, 20);
 
 	for (i = 0; i < 2; i++)
 		if (grip->mode[i]) {

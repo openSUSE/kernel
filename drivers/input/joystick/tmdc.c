@@ -48,7 +48,6 @@ MODULE_LICENSE("GPL");
 #define TMDC_MAX_START		400	/* 400 us */
 #define TMDC_MAX_STROBE		45	/* 45 us */
 #define TMDC_MAX_LENGTH		13
-#define TMDC_REFRESH_TIME	HZ/50	/* 20 ms */
 
 #define TMDC_MODE_M3DI		1
 #define TMDC_MODE_3DRP		3
@@ -94,7 +93,6 @@ static struct {
 
 struct tmdc {
 	struct gameport *gameport;
-	struct timer_list timer;
 	struct input_dev dev[2];
 	char name[2][64];
 	char phys[2][32];
@@ -104,7 +102,6 @@ struct tmdc {
 	unsigned char absc[2];
 	unsigned char btnc[2][4];
 	unsigned char btno[2][4];
-	int used;
 	int reads;
 	int bads;
 	unsigned char exists;
@@ -160,13 +157,13 @@ static int tmdc_read_packet(struct gameport *gameport, unsigned char data[2][TMD
 }
 
 /*
- * tmdc_read() reads and analyzes ThrustMaster joystick data.
+ * tmdc_poll() reads and analyzes ThrustMaster joystick data.
  */
 
-static void tmdc_timer(unsigned long private)
+static void tmdc_poll(struct gameport *gameport)
 {
 	unsigned char data[2][TMDC_MAX_LENGTH];
-	struct tmdc *tmdc = (void *) private;
+	struct tmdc *tmdc = gameport_get_drvdata(gameport);
 	struct input_dev *dev;
 	unsigned char r, bad = 0;
 	int i, j, k, l;
@@ -221,23 +218,21 @@ static void tmdc_timer(unsigned long private)
 	}
 
 	tmdc->bads += bad;
-
-	mod_timer(&tmdc->timer, jiffies + TMDC_REFRESH_TIME);
 }
 
 static int tmdc_open(struct input_dev *dev)
 {
 	struct tmdc *tmdc = dev->private;
-	if (!tmdc->used++)
-		mod_timer(&tmdc->timer, jiffies + TMDC_REFRESH_TIME);
+
+	gameport_start_polling(tmdc->gameport);
 	return 0;
 }
 
 static void tmdc_close(struct input_dev *dev)
 {
 	struct tmdc *tmdc = dev->private;
-	if (!--tmdc->used)
-		del_timer(&tmdc->timer);
+
+	gameport_stop_polling(tmdc->gameport);
 }
 
 /*
@@ -271,9 +266,6 @@ static int tmdc_connect(struct gameport *gameport, struct gameport_driver *drv)
 		return -ENOMEM;
 
 	tmdc->gameport = gameport;
-	init_timer(&tmdc->timer);
-	tmdc->timer.data = (long) tmdc;
-	tmdc->timer.function = tmdc_timer;
 
 	gameport_set_drvdata(gameport, tmdc);
 
@@ -285,6 +277,9 @@ static int tmdc_connect(struct gameport *gameport, struct gameport_driver *drv)
 		err = -ENODEV;
 		goto fail2;
 	}
+
+	gameport_set_poll_handler(gameport, tmdc_poll);
+	gameport_set_poll_interval(gameport, 20);
 
 	for (j = 0; j < 2; j++)
 		if (tmdc->exists & (1 << j)) {

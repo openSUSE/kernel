@@ -90,7 +90,6 @@ __obsolete_setup("js=");
 
 #define ANALOG_MAX_TIME		3	/* 3 ms */
 #define ANALOG_LOOP_TIME	2000	/* 2 * loop */
-#define ANALOG_REFRESH_TIME	HZ/100	/* 10 ms */
 #define ANALOG_SAITEK_DELAY	200	/* 200 us */
 #define ANALOG_SAITEK_TIME	2000	/* 2000 us */
 #define ANALOG_AXIS_TIME	2	/* 2 * refresh */
@@ -121,7 +120,6 @@ struct analog {
 
 struct analog_port {
 	struct gameport *gameport;
-	struct timer_list timer;
 	struct analog analog[2];
 	unsigned char mask;
 	char saitek;
@@ -134,7 +132,6 @@ struct analog_port {
 	int axes[4];
 	int buttons;
 	int initial[4];
-	int used;
 	int axtime;
 };
 
@@ -307,12 +304,12 @@ static int analog_button_read(struct analog_port *port, char saitek, char chf)
 }
 
 /*
- * analog_timer() repeatedly polls the Analog joysticks.
+ * analog_poll() repeatedly polls the Analog joysticks.
  */
 
-static void analog_timer(unsigned long data)
+static void analog_poll(struct gameport *gameport)
 {
-	struct analog_port *port = (void *) data;
+	struct analog_port *port = gameport_get_drvdata(gameport);
 	int i;
 
 	char saitek = !!(port->analog[0].mask & ANALOG_SAITEK);
@@ -338,8 +335,6 @@ static void analog_timer(unsigned long data)
 	for (i = 0; i < 2; i++)
 		if (port->analog[i].mask)
 			analog_decode(port->analog + i, port->axes, port->initial, port->buttons);
-
-	mod_timer(&port->timer, jiffies + ANALOG_REFRESH_TIME);
 }
 
 /*
@@ -349,8 +344,8 @@ static void analog_timer(unsigned long data)
 static int analog_open(struct input_dev *dev)
 {
 	struct analog_port *port = dev->private;
-	if (!port->used++)
-		mod_timer(&port->timer, jiffies + ANALOG_REFRESH_TIME);
+
+	gameport_start_polling(port->gameport);
 	return 0;
 }
 
@@ -361,8 +356,8 @@ static int analog_open(struct input_dev *dev)
 static void analog_close(struct input_dev *dev)
 {
 	struct analog_port *port = dev->private;
-	if (!--port->used)
-		del_timer(&port->timer);
+
+	gameport_stop_polling(port->gameport);
 }
 
 /*
@@ -594,9 +589,6 @@ static int analog_init_port(struct gameport *gameport, struct gameport_driver *d
 	int i, t, u, v;
 
 	port->gameport = gameport;
-	init_timer(&port->timer);
-	port->timer.data = (long) port;
-	port->timer.function = analog_timer;
 
 	gameport_set_drvdata(gameport, port);
 
@@ -677,6 +669,9 @@ static int analog_connect(struct gameport *gameport, struct gameport_driver *drv
 		kfree(port);
 		return err;
 	}
+
+	gameport_set_poll_handler(gameport, analog_poll);
+	gameport_set_poll_interval(gameport, 10);
 
 	for (i = 0; i < 2; i++)
 		if (port->analog[i].mask)

@@ -49,7 +49,6 @@ MODULE_LICENSE("GPL");
 
 #define ADI_MAX_START		200	/* Trigger to packet timeout [200us] */
 #define ADI_MAX_STROBE		40	/* Single bit timeout [40us] */
-#define ADI_REFRESH_TIME	HZ/50	/* How often to poll the joystick [20 ms] */
 #define ADI_INIT_DELAY		10	/* Delay after init packet [10ms] */
 #define ADI_DATA_DELAY		4	/* Delay after data packet [4ms] */
 
@@ -129,11 +128,9 @@ struct adi {
 
 struct adi_port {
 	struct gameport *gameport;
-	struct timer_list timer;
 	struct adi adi[2];
 	int bad;
 	int reads;
-	int used;
 };
 
 /*
@@ -277,15 +274,15 @@ static int adi_read(struct adi_port *port)
 }
 
 /*
- * adi_timer() repeatedly polls the Logitech joysticks.
+ * adi_poll() repeatedly polls the Logitech joysticks.
  */
 
-static void adi_timer(unsigned long data)
+static void adi_poll(struct gameport *gameport)
 {
-	struct adi_port *port = (void *) data;
+	struct adi_port *port = gameport_get_drvdata(gameport);
+
 	port->bad -= adi_read(port);
 	port->reads++;
-	mod_timer(&port->timer, jiffies + ADI_REFRESH_TIME);
 }
 
 /*
@@ -295,8 +292,8 @@ static void adi_timer(unsigned long data)
 static int adi_open(struct input_dev *dev)
 {
 	struct adi_port *port = dev->private;
-	if (!port->used++)
-		mod_timer(&port->timer, jiffies + ADI_REFRESH_TIME);
+
+	gameport_start_polling(port->gameport);
 	return 0;
 }
 
@@ -307,8 +304,8 @@ static int adi_open(struct input_dev *dev)
 static void adi_close(struct input_dev *dev)
 {
 	struct adi_port *port = dev->private;
-	if (!--port->used)
-		del_timer(&port->timer);
+
+	gameport_stop_polling(port->gameport);
 }
 
 /*
@@ -475,9 +472,6 @@ static int adi_connect(struct gameport *gameport, struct gameport_driver *drv)
 		return -ENOMEM;
 
 	port->gameport = gameport;
-	init_timer(&port->timer);
-	port->timer.data = (long) port;
-	port->timer.function = adi_timer;
 
 	gameport_set_drvdata(gameport, port);
 
@@ -503,6 +497,9 @@ static int adi_connect(struct gameport *gameport, struct gameport_driver *drv)
 		kfree(port);
 		return -ENODEV;
 	}
+
+	gameport_set_poll_handler(gameport, adi_poll);
+	gameport_set_poll_interval(gameport, 20);
 
 	msleep(ADI_INIT_DELAY);
 	if (adi_read(port)) {

@@ -42,7 +42,6 @@ MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
 #define COBRA_MAX_STROBE	45	/* 45 us max wait for first strobe */
-#define COBRA_REFRESH_TIME	HZ/50	/* 20 ms between reads */
 #define COBRA_LENGTH		36
 
 static char* cobra_name = "Creative Labs Blaster GamePad Cobra";
@@ -51,9 +50,7 @@ static int cobra_btn[] = { BTN_START, BTN_SELECT, BTN_TL, BTN_TR, BTN_X, BTN_Y, 
 
 struct cobra {
 	struct gameport *gameport;
-	struct timer_list timer;
 	struct input_dev dev[2];
-	int used;
 	int reads;
 	int bads;
 	unsigned char exists;
@@ -114,18 +111,19 @@ static unsigned char cobra_read_packet(struct gameport *gameport, unsigned int *
 	return ret;
 }
 
-static void cobra_timer(unsigned long private)
+static void cobra_poll(struct gameport *gameport)
 {
-	struct cobra *cobra = (void *) private;
+	struct cobra *cobra = gameport_get_drvdata(gameport);
 	struct input_dev *dev;
 	unsigned int data[2];
 	int i, j, r;
 
 	cobra->reads++;
 
-	if ((r = cobra_read_packet(cobra->gameport, data)) != cobra->exists)
+	if ((r = cobra_read_packet(gameport, data)) != cobra->exists) {
 		cobra->bads++;
-	else
+		return;
+	}
 
 	for (i = 0; i < 2; i++)
 		if (cobra->exists & r & (1 << i)) {
@@ -141,23 +139,21 @@ static void cobra_timer(unsigned long private)
 			input_sync(dev);
 
 		}
-
-	mod_timer(&cobra->timer, jiffies + COBRA_REFRESH_TIME);
 }
 
 static int cobra_open(struct input_dev *dev)
 {
 	struct cobra *cobra = dev->private;
-	if (!cobra->used++)
-		mod_timer(&cobra->timer, jiffies + COBRA_REFRESH_TIME);
+
+	gameport_start_polling(cobra->gameport);
 	return 0;
 }
 
 static void cobra_close(struct input_dev *dev)
 {
 	struct cobra *cobra = dev->private;
-	if (!--cobra->used)
-		del_timer(&cobra->timer);
+
+	gameport_stop_polling(cobra->gameport);
 }
 
 static int cobra_connect(struct gameport *gameport, struct gameport_driver *drv)
@@ -171,9 +167,6 @@ static int cobra_connect(struct gameport *gameport, struct gameport_driver *drv)
 		return -ENOMEM;
 
 	cobra->gameport = gameport;
-	init_timer(&cobra->timer);
-	cobra->timer.data = (long) cobra;
-	cobra->timer.function = cobra_timer;
 
 	gameport_set_drvdata(gameport, cobra);
 
@@ -194,6 +187,9 @@ static int cobra_connect(struct gameport *gameport, struct gameport_driver *drv)
 		err = -ENODEV;
 		goto fail2;
 	}
+
+	gameport_set_poll_handler(gameport, cobra_poll);
+	gameport_set_poll_interval(gameport, 20);
 
 	for (i = 0; i < 2; i++)
 		if ((cobra->exists >> i) & 1) {

@@ -45,7 +45,6 @@ MODULE_LICENSE("GPL");
 #define GUILLEMOT_MAX_START	600	/* 600 us */
 #define GUILLEMOT_MAX_STROBE	60	/* 60 us */
 #define GUILLEMOT_MAX_LENGTH	17	/* 17 bytes */
-#define GUILLEMOT_REFRESH_TIME	HZ/50	/* 20 ms */
 
 static short guillemot_abs_pad[] =
 	{ ABS_X, ABS_Y, ABS_THROTTLE, ABS_RUDDER, -1 };
@@ -69,8 +68,6 @@ struct guillemot_type {
 struct guillemot {
 	struct gameport *gameport;
 	struct input_dev dev;
-	struct timer_list timer;
-	int used;
 	int bads;
 	int reads;
 	struct guillemot_type *type;
@@ -120,12 +117,12 @@ static int guillemot_read_packet(struct gameport *gameport, u8 *data)
 }
 
 /*
- * guillemot_timer() reads and analyzes Guillemot joystick data.
+ * guillemot_poll() reads and analyzes Guillemot joystick data.
  */
 
-static void guillemot_timer(unsigned long private)
+static void guillemot_poll(struct gameport *gameport)
 {
-	struct guillemot *guillemot = (struct guillemot *) private;
+	struct guillemot *guillemot = gameport_get_drvdata(gameport);
 	struct input_dev *dev = &guillemot->dev;
 	u8 data[GUILLEMOT_MAX_LENGTH];
 	int i;
@@ -150,8 +147,6 @@ static void guillemot_timer(unsigned long private)
 	}
 
 	input_sync(dev);
-
-	mod_timer(&guillemot->timer, jiffies + GUILLEMOT_REFRESH_TIME);
 }
 
 /*
@@ -162,8 +157,7 @@ static int guillemot_open(struct input_dev *dev)
 {
 	struct guillemot *guillemot = dev->private;
 
-	if (!guillemot->used++)
-		mod_timer(&guillemot->timer, jiffies + GUILLEMOT_REFRESH_TIME);
+	gameport_start_polling(guillemot->gameport);
 	return 0;
 }
 
@@ -175,8 +169,7 @@ static void guillemot_close(struct input_dev *dev)
 {
 	struct guillemot *guillemot = dev->private;
 
-	if (!--guillemot->used)
-		del_timer(&guillemot->timer);
+	gameport_stop_polling(guillemot->gameport);
 }
 
 /*
@@ -194,9 +187,6 @@ static int guillemot_connect(struct gameport *gameport, struct gameport_driver *
 		return -ENOMEM;
 
 	guillemot->gameport = gameport;
-	init_timer(&guillemot->timer);
-	guillemot->timer.data = (long) guillemot;
-	guillemot->timer.function = guillemot_timer;
 
 	gameport_set_drvdata(gameport, guillemot);
 
@@ -221,6 +211,9 @@ static int guillemot_connect(struct gameport *gameport, struct gameport_driver *
 		err = -ENODEV;
 		goto fail2;
 	}
+
+	gameport_set_poll_handler(gameport, guillemot_poll);
+	gameport_set_poll_interval(gameport, 20);
 
 	sprintf(guillemot->phys, "%s/input0", gameport->phys);
 

@@ -48,7 +48,6 @@ MODULE_LICENSE("GPL");
 #define INTERACT_MAX_START	400	/* 400 us */
 #define INTERACT_MAX_STROBE	40	/* 40 us */
 #define INTERACT_MAX_LENGTH	32	/* 32 bits */
-#define INTERACT_REFRESH_TIME	HZ/50	/* 20 ms */
 
 #define INTERACT_TYPE_HHFX	0	/* HammerHead/FX */
 #define INTERACT_TYPE_PP8D	1	/* ProPad 8 */
@@ -56,8 +55,6 @@ MODULE_LICENSE("GPL");
 struct interact {
 	struct gameport *gameport;
 	struct input_dev dev;
-	struct timer_list timer;
-	int used;
 	int bads;
 	int reads;
 	unsigned char type;
@@ -127,12 +124,12 @@ static int interact_read_packet(struct gameport *gameport, int length, u32 *data
 }
 
 /*
- * interact_timer() reads and analyzes InterAct joystick data.
+ * interact_poll() reads and analyzes InterAct joystick data.
  */
 
-static void interact_timer(unsigned long private)
+static void interact_poll(struct gameport *gameport)
 {
-	struct interact *interact = (struct interact *) private;
+	struct interact *interact = gameport_get_drvdata(gameport);
 	struct input_dev *dev = &interact->dev;
 	u32 data[3];
 	int i;
@@ -179,9 +176,6 @@ static void interact_timer(unsigned long private)
 	}
 
 	input_sync(dev);
-
-	mod_timer(&interact->timer, jiffies + INTERACT_REFRESH_TIME);
-
 }
 
 /*
@@ -192,8 +186,7 @@ static int interact_open(struct input_dev *dev)
 {
 	struct interact *interact = dev->private;
 
-	if (!interact->used++)
-		mod_timer(&interact->timer, jiffies + INTERACT_REFRESH_TIME);
+	gameport_start_polling(interact->gameport);
 	return 0;
 }
 
@@ -205,8 +198,7 @@ static void interact_close(struct input_dev *dev)
 {
 	struct interact *interact = dev->private;
 
-	if (!--interact->used)
-		del_timer(&interact->timer);
+	gameport_stop_polling(interact->gameport);
 }
 
 /*
@@ -224,9 +216,6 @@ static int interact_connect(struct gameport *gameport, struct gameport_driver *d
 		return -ENOMEM;
 
 	interact->gameport = gameport;
-	init_timer(&interact->timer);
-	interact->timer.data = (long) interact;
-	interact->timer.function = interact_timer;
 
 	gameport_set_drvdata(gameport, interact);
 
@@ -251,6 +240,9 @@ static int interact_connect(struct gameport *gameport, struct gameport_driver *d
 		err = -ENODEV;
 		goto fail2;
 	}
+
+	gameport_set_poll_handler(gameport, interact_poll);
+	gameport_set_poll_interval(gameport, 20);
 
 	sprintf(interact->phys, "%s/input0", gameport->phys);
 

@@ -39,6 +39,8 @@ EXPORT_SYMBOL(gameport_rescan);
 EXPORT_SYMBOL(gameport_cooked_read);
 EXPORT_SYMBOL(gameport_set_name);
 EXPORT_SYMBOL(gameport_set_phys);
+EXPORT_SYMBOL(gameport_start_polling);
+EXPORT_SYMBOL(gameport_stop_polling);
 
 /*
  * gameport_sem protects entire gameport subsystem and is taken
@@ -122,6 +124,37 @@ static int gameport_measure_speed(struct gameport *gameport)
 #endif
 }
 
+void gameport_start_polling(struct gameport *gameport)
+{
+	spin_lock(&gameport->timer_lock);
+
+	if (!gameport->poll_cnt++) {
+		BUG_ON(!gameport->poll_handler);
+		BUG_ON(!gameport->poll_interval);
+		mod_timer(&gameport->poll_timer, jiffies + msecs_to_jiffies(gameport->poll_interval));
+	}
+
+	spin_unlock(&gameport->timer_lock);
+}
+
+void gameport_stop_polling(struct gameport *gameport)
+{
+	spin_lock(&gameport->timer_lock);
+
+	if (!--gameport->poll_cnt)
+		del_timer(&gameport->poll_timer);
+
+	spin_unlock(&gameport->timer_lock);
+}
+
+static void gameport_run_poll_handler(unsigned long d)
+{
+	struct gameport *gameport = (struct gameport *)d;
+
+	gameport->poll_handler(gameport);
+	if (gameport->poll_cnt)
+		mod_timer(&gameport->poll_timer, jiffies + msecs_to_jiffies(gameport->poll_interval));
+}
 
 /*
  * Basic gameport -> driver core mappings
@@ -465,10 +498,14 @@ static void gameport_init_port(struct gameport *gameport)
 	device_initialize(&gameport->dev);
 	snprintf(gameport->dev.bus_id, sizeof(gameport->dev.bus_id),
 		 "gameport%lu", (unsigned long)atomic_inc_return(&gameport_no) - 1);
-	gameport->dev.bus = &gameport_bus;
 	gameport->dev.release = gameport_release_port;
 	if (gameport->parent)
 		gameport->dev.parent = &gameport->parent->dev;
+
+	spin_lock_init(&gameport->timer_lock);
+	init_timer(&gameport->poll_timer);
+	gameport->poll_timer.function = gameport_run_poll_handler;
+	gameport->poll_timer.data = (unsigned long)gameport;
 }
 
 /*
@@ -697,6 +734,9 @@ int gameport_open(struct gameport *gameport, struct gameport_driver *drv, int mo
 
 void gameport_close(struct gameport *gameport)
 {
+	del_timer_sync(&gameport->poll_timer);
+	gameport->poll_handler = NULL;
+	gameport->poll_interval = 0;
 	gameport_set_drv(gameport, NULL);
 	if (gameport->close)
 		gameport->close(gameport);
