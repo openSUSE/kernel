@@ -141,7 +141,6 @@ static struct i2c_adapter cx8800_i2c_adap_template = {
 
 static struct i2c_client cx8800_i2c_client_template = {
         I2C_DEVNAME("cx88xx internal"),
-        .id   = -1,
 };
 
 static char *i2c_devs[128] = {

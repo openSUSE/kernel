@@ -362,7 +362,6 @@ static struct i2c_adapter saa7134_adap_template = {
 
 static struct i2c_client saa7134_client_template = {
 	I2C_DEVNAME("saa7134 internal"),
-        .id        = -1,
 };
 
 /* ----------------------------------------------------------- */

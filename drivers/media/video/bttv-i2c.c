@@ -330,7 +330,6 @@ void bttv_call_i2c_clients(struct bttv *btv, unsigned int cmd, void *arg)
 
 static struct i2c_client bttv_i2c_client_template = {
 	I2C_DEVNAME("bttv internal"),
-        .id       = -1,
 };
 
 
