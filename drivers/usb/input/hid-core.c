@@ -814,8 +814,7 @@ static void hid_input_field(struct hid_device *hid, struct hid_field *field, __u
 	__s32 max = field->logical_maximum;
 	__s32 *value;
 
-	value = kmalloc(sizeof(__s32)*count, GFP_ATOMIC);
-	if (!value)
+	if (!(value = kmalloc(sizeof(__s32) * count, GFP_ATOMIC))
 		return;
 
 	for (n = 0; n < count; n++) {
@@ -832,14 +831,6 @@ static void hid_input_field(struct hid_device *hid, struct hid_field *field, __u
 	for (n = 0; n < count; n++) {
 
 		if (HID_MAIN_ITEM_VARIABLE & field->flags) {
-
-			if (field->flags & HID_MAIN_ITEM_RELATIVE) {
-				if (!value[n])
-					continue;
-			} else {
-				if (value[n] == field->value[n])
-					continue;
-			}
 			hid_process_event(hid, field, &field->usage[n], value[n], regs);
 			continue;
 		}
