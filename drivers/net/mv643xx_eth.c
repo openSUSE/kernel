@@ -1227,7 +1227,6 @@ linear:
 		pkt_info.cmd_sts = ETH_TX_FIRST_DESC;
 
 		if (skb->ip_summed == CHECKSUM_HW) {
-			/* CPU already calculated pseudo header checksum. */
 			ipheader = skb->nh.iph->ihl << 11;
 			pkt_info.cmd_sts |= ETH_GEN_TCP_UDP_CHECKSUM |
 					ETH_GEN_IP_V_4_CHECKSUM | ipheader;
