@@ -3169,7 +3169,7 @@ QFSPosixRetry:
 					le64_to_cpu(response_data->TotalBlocks);
 			FSData->f_bfree =
 			    le64_to_cpu(response_data->BlocksAvail);
-			FSData->f_avail =
+			FSData->f_bavail =
 					le64_to_cpu(response_data->UserBlocksAvail);
 			FSData->f_files =
 					le64_to_cpu(response_data->TotalFileNodes);
