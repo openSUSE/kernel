@@ -104,6 +104,7 @@ static ssize_t w1_therm_read_bin(struct kobject *kobj, char *buf, loff_t off, si
 	int i, max_trying = 10;
 
 	atomic_inc(&sl->refcnt);
+	smp_mb__after_atomic_inc();
 	if (down_interruptible(&sl->master->mutex)) {
 		count = 0;
 		goto out_dec;
@@ -179,6 +180,7 @@ static ssize_t w1_therm_read_bin(struct kobject *kobj, char *buf, loff_t off, si
 out:
 	up(&dev->mutex);
 out_dec:
+	smp_mb__before_atomic_inc();
 	atomic_dec(&sl->refcnt);
 
 	return count;
