@@ -1098,8 +1098,8 @@ crmodverdir:
 $(objtree)/Module.symvers:
 	@test -e $(objtree)/Module.symvers || ( \
 	echo; \
-	echo "WARNING: Symbol version dump $(objtree)/Module.symvers is " \
-	     "missing; modules will have no dependencies and modversions."; \
+	echo "  WARNING: Symbol version dump $(objtree)/Module.symvers"; \
+	echo "           is missing; modules will have no dependencies and modversions."; \
 	echo )
 
 module-dirs := $(addprefix _module_,$(KBUILD_EXTMOD))
