@@ -72,11 +72,8 @@ u32 add_perclient = 0;
 u32 del_perclient = 0;
 u32 alloc_file = 0;
 u32 free_file = 0;
-u32 alloc_sowner = 0;
-u32 free_sowner = 0;
 u32 vfsopen = 0;
 u32 vfsclose = 0;
-u32 alloc_lsowner= 0;
 u32 alloc_delegation= 0;
 u32 free_delegation= 0;
 
@@ -1017,7 +1014,6 @@ nfs4_free_stateowner(struct kref *kref)
 		container_of(kref, struct nfs4_stateowner, so_ref);
 	kfree(sop->so_owner.data);
 	kmem_cache_free(stateowner_slab, sop);
-	free_sowner++;
 }
 
 static inline struct nfs4_stateowner *
@@ -1066,7 +1062,6 @@ alloc_init_open_stateowner(unsigned int strhashval, struct nfs4_client *clp, str
 	rp->rp_status = NFSERR_SERVERFAULT;
 	rp->rp_buflen = 0;
 	rp->rp_buf = rp->rp_ibuf;
-	alloc_sowner++;
 	return sop;
 }
 
@@ -2589,7 +2584,6 @@ alloc_init_lock_stateowner(unsigned int strhashval, struct nfs4_client *clp, str
 	rp->rp_status = NFSERR_SERVERFAULT;
 	rp->rp_buflen = 0;
 	rp->rp_buf = rp->rp_ibuf;
-	alloc_lsowner++;
 	return sop;
 }
 
@@ -3274,8 +3268,6 @@ __nfs4_state_shutdown(void)
 			add_perclient, del_perclient);
 	dprintk("NFSD: alloc_file %d free_file %d\n",
 			alloc_file, free_file);
-	dprintk("NFSD: alloc_sowner %d alloc_lsowner %d free_sowner %d\n",
-			alloc_sowner, alloc_lsowner, free_sowner);
 	dprintk("NFSD: vfsopen %d vfsclose %d\n",
 			vfsopen, vfsclose);
 	dprintk("NFSD: alloc_delegation %d free_delegation %d\n",
