@@ -1413,6 +1413,13 @@ free_interfaces:
 		}
 		kfree(new_interfaces);
 
+		if ((cp->desc.iConfiguration) &&
+		    (cp->string == NULL)) {
+			cp->string = kmalloc(256, GFP_KERNEL);
+			if (cp->string)
+				usb_string(dev, cp->desc.iConfiguration, cp->string, 256);
+		}
+
 		/* Now that all the interfaces are set up, register them
 		 * to trigger binding of drivers to interfaces.  probe()
 		 * routines may install different altsettings and may
