@@ -83,8 +83,10 @@ static void via_tlbflush(struct agp_memory *mem)
 
 	pci_read_config_dword(agp_bridge->dev, VIA_GARTCTRL, &temp);
 	temp |= (1<<7);
+	temp &= ~0x7f;
 	pci_write_config_dword(agp_bridge->dev, VIA_GARTCTRL, temp);
 	temp &= ~(1<<7);
+	temp &= ~0x7f;
 	pci_write_config_dword(agp_bridge->dev, VIA_GARTCTRL, temp);
 }
 
