@@ -12,7 +12,7 @@
  * "lp=" command line parameters added by Grant Guenther, grant@torque.net
  * lp_read (Status readback) support added by Carsten Gross,
  *                                             carsten@sol.wohnheim.uni-ulm.de
- * Support for parport by Philip Blundell <Philip.Blundell@pobox.com>
+ * Support for parport by Philip Blundell <philb@gnu.org>
  * Parport sharing hacking by Andrea Arcangeli
  * Fixed kernel_(to/from)_user memory copy to check for errors
  * 				by Riccardo Facchetti <fizban@tin.it>

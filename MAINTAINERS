@@ -80,7 +80,7 @@ S:	Maintained
 
 3C505 NETWORK DRIVER
 P:	Philip Blundell
-M:	Philip.Blundell@pobox.com
+M:	philb@gnu.org
 L:	linux-net@vger.kernel.org
 S:	Maintained
 
@@ -820,7 +820,7 @@ S:	Maintained
 
 ETHEREXPRESS-16 NETWORK DRIVER
 P:	Philip Blundell
-M:	Philip.Blundell@pobox.com
+M:	philb@gnu.org
 L:	linux-net@vger.kernel.org
 S:	Maintained
 
@@ -1724,7 +1724,7 @@ S:	Maintained
 
 PARALLEL PORT SUPPORT
 P:	Phil Blundell
-M:	Philip.Blundell@pobox.com
+M:	philb@gnu.org
 P:	Tim Waugh
 M:	tim@cyberelk.net
 P:	David Campbell

@@ -714,7 +714,7 @@
      Tom Rini <trini@kernel.crashing.org> provided the CONFIG_ISA
      patch and helped with PowerPC wide and narrow board support.
 
-     Philip Blundell <philip.blundell@pobox.com> provided an
+     Philip Blundell <philb@gnu.org> provided an
      advansys_interrupts_enabled patch.
 
      Dave Jones <dave@denial.force9.co.uk> reported the compiler

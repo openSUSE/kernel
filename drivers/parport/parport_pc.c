@@ -1,6 +1,6 @@
 /* Low-level parallel-port routines for 8255-based PC-style hardware.
  * 
- * Authors: Phil Blundell <Philip.Blundell@pobox.com>
+ * Authors: Phil Blundell <philb@gnu.org>
  *          Tim Waugh <tim@cyberelk.demon.co.uk>
  *	    Jose Renau <renau@acm.org>
  *          David Campbell <campbell@torque.net>
