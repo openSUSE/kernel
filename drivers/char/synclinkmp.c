@@ -2313,7 +2313,7 @@ void isr_rxrdy(SLMP_INFO * info)
 		tty_flip_buffer_push(tty);
 }
 
-void isr_txeom(SLMP_INFO * info, unsigned char status)
+static void isr_txeom(SLMP_INFO * info, unsigned char status)
 {
 	if ( debug_level >= DEBUG_LEVEL_ISR )
 		printk("%s(%d):%s isr_txeom status=%02x\n",
@@ -3815,7 +3815,7 @@ void add_device(SLMP_INFO *info)
  *
  * Return Value:	pointer to SLMP_INFO if success, otherwise NULL
  */
-SLMP_INFO *alloc_dev(int adapter_num, int port_num, struct pci_dev *pdev)
+static SLMP_INFO *alloc_dev(int adapter_num, int port_num, struct pci_dev *pdev)
 {
 	SLMP_INFO *info;
 
@@ -5205,7 +5205,7 @@ int irq_test(SLMP_INFO *info)
 
 /* initialize individual SCA device (2 ports)
  */
-int sca_init(SLMP_INFO *info)
+static int sca_init(SLMP_INFO *info)
 {
 	/* set wait controller to single mem partition (low), no wait states */
 	write_reg(info, PABR0, 0);	/* wait controller addr boundary 0 */

@@ -264,7 +264,7 @@ cpumask_t __cacheline_aligned pending_irq_balance_cpumask[NR_IRQS];
 static int irqbalance_disabled = IRQBALANCE_CHECK_ARCH;
 static int physical_balance = 0;
 
-struct irq_cpu_info {
+static struct irq_cpu_info {
 	unsigned long * last_irq;
 	unsigned long * irq_delta;
 	unsigned long irq;
@@ -286,7 +286,7 @@ struct irq_cpu_info {
 #define BALANCED_IRQ_MORE_DELTA		(HZ/10)
 #define BALANCED_IRQ_LESS_DELTA		(HZ)
 
-long balanced_irq_interval = MAX_BALANCED_IRQ_INTERVAL;
+static long balanced_irq_interval = MAX_BALANCED_IRQ_INTERVAL;
 
 static unsigned long move(int curr_cpu, cpumask_t allowed_mask,
 			unsigned long now, int direction)

@@ -635,7 +635,7 @@ static void i810_save_vga_state(struct i810fb_par *par)
  * DESCRIPTION:
  * Calculates buffer pitch in bytes.  
  */
-u32 get_line_length(struct i810fb_par *par, int xres_virtual, int bpp)
+static u32 get_line_length(struct i810fb_par *par, int xres_virtual, int bpp)
 {
    	u32 length;
 	
@@ -724,7 +724,7 @@ static void i810_calc_dclk(u32 freq, u32 *m, u32 *n, u32 *p)
  * Description:
  * Shows or hides the hardware cursor
  */
-void i810_enable_cursor(u8 __iomem *mmio, int mode)
+static void i810_enable_cursor(u8 __iomem *mmio, int mode)
 {
 	u32 temp;
 	
@@ -1805,8 +1805,9 @@ i810_allocate_pci_resource(struct i810fb_par *par,
 
 	return 0;
 }
-	
-int __init i810fb_setup(char *options)
+
+#ifndef MODULE
+static int __init i810fb_setup(char *options)
 {
 	char *this_opt, *suffix = NULL;
 
@@ -1851,6 +1852,7 @@ int __init i810fb_setup(char *options)
 	}
 	return 0;
 }
+#endif
 
 static int __devinit i810fb_init_pci (struct pci_dev *dev, 
 				   const struct pci_device_id *entry)
@@ -1977,7 +1979,7 @@ static void __exit i810fb_remove_pci(struct pci_dev *dev)
 }                                                	
 
 #ifndef MODULE
-int __init i810fb_init(void)
+static int __init i810fb_init(void)
 {
 	char *option = NULL;
 

@@ -115,7 +115,7 @@ static void suspend_finish(suspend_state_t state)
 
 
 
-char * pm_states[] = {
+static char * pm_states[] = {
 	[PM_SUSPEND_STANDBY]	= "standby",
 	[PM_SUSPEND_MEM]	= "mem",
 	[PM_SUSPEND_DISK]	= "disk",

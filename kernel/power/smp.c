@@ -42,7 +42,7 @@ static void smp_pause(void * data)
 	__restore_processor_state(&ctxt);
 }
 
-cpumask_t oldmask;
+static cpumask_t oldmask;
 
 void disable_nonboot_cpus(void)
 {

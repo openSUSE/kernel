@@ -173,16 +173,10 @@ extern void		    audit_log_format(struct audit_buffer *ab,
 					     const char *fmt, ...)
 			    __attribute__((format(printf,2,3)));
 extern void		    audit_log_end(struct audit_buffer *ab);
-extern void		    audit_log_end_fast(struct audit_buffer *ab);
-extern void		    audit_log_end_irq(struct audit_buffer *ab);
 extern void		    audit_log_d_path(struct audit_buffer *ab,
 					     const char *prefix,
 					     struct dentry *dentry,
 					     struct vfsmount *vfsmnt);
-extern int		    audit_set_rate_limit(int limit);
-extern int		    audit_set_backlog_limit(int limit);
-extern int		    audit_set_enabled(int state);
-extern int		    audit_set_failure(int state);
 
 				/* Private API (for auditsc.c only) */
 extern void		    audit_send_reply(int pid, int seq, int type,
@@ -195,13 +189,7 @@ extern void		    audit_log_lost(const char *message);
 #define audit_log_vformat(b,f,a) do { ; } while (0)
 #define audit_log_format(b,f,...) do { ; } while (0)
 #define audit_log_end(b) do { ; } while (0)
-#define audit_log_end_fast(b) do { ; } while (0)
-#define audit_log_end_irq(b) do { ; } while (0)
 #define audit_log_d_path(b,p,d,v) do { ; } while (0)
-#define audit_set_rate_limit(l) do { ; } while (0)
-#define audit_set_backlog_limit(l) do { ; } while (0)
-#define audit_set_enabled(s) do { ; } while (0)
-#define audit_set_failure(s) do { ; } while (0)
 #endif
 #endif
 #endif

@@ -155,6 +155,9 @@ struct audit_entry {
 	struct audit_rule rule;
 };
 
+static void audit_log_end_irq(struct audit_buffer *ab);
+static void audit_log_end_fast(struct audit_buffer *ab);
+
 static void audit_panic(const char *message)
 {
 	switch (audit_failure)
@@ -236,7 +239,7 @@ void audit_log_lost(const char *message)
 
 }
 
-int audit_set_rate_limit(int limit)
+static int audit_set_rate_limit(int limit)
 {
 	int old		 = audit_rate_limit;
 	audit_rate_limit = limit;
@@ -245,7 +248,7 @@ int audit_set_rate_limit(int limit)
 	return old;
 }
 
-int audit_set_backlog_limit(int limit)
+static int audit_set_backlog_limit(int limit)
 {
 	int old		 = audit_backlog_limit;
 	audit_backlog_limit = limit;
@@ -254,7 +257,7 @@ int audit_set_backlog_limit(int limit)
 	return old;
 }
 
-int audit_set_enabled(int state)
+static int audit_set_enabled(int state)
 {
 	int old		 = audit_enabled;
 	if (state != 0 && state != 1)
@@ -265,7 +268,7 @@ int audit_set_enabled(int state)
 	return old;
 }
 
-int audit_set_failure(int state)
+static int audit_set_failure(int state)
 {
 	int old		 = audit_failure;
 	if (state != AUDIT_FAIL_SILENT
@@ -547,7 +550,7 @@ static inline int audit_log_drain(struct audit_buffer *ab)
 }
 
 /* Initialize audit support at boot time. */
-int __init audit_init(void)
+static int __init audit_init(void)
 {
 	printk(KERN_INFO "audit: initializing netlink socket (%s)\n",
 	       audit_default ? "enabled" : "disabled");
@@ -768,7 +771,7 @@ static DECLARE_TASKLET(audit_tasklet, audit_tasklet_handler, 0);
  * the audit buffer is places on a queue and a tasklet is scheduled to
  * remove them from the queue outside the irq context.  May be called in
  * any context. */
-void audit_log_end_irq(struct audit_buffer *ab)
+static void audit_log_end_irq(struct audit_buffer *ab)
 {
 	unsigned long flags;
 
@@ -783,7 +786,7 @@ void audit_log_end_irq(struct audit_buffer *ab)
 
 /* Send the message in the audit buffer directly to user space.  May not
  * be called in an irq context. */
-void audit_log_end_fast(struct audit_buffer *ab)
+static void audit_log_end_fast(struct audit_buffer *ab)
 {
 	unsigned long flags;
 

@@ -381,7 +381,7 @@ static struct file_operations ISILoad_fops = {
 	.ioctl		= ISILoad_ioctl,
 };
 
-struct miscdevice isiloader_device = {
+static struct miscdevice isiloader_device = {
 	ISILOAD_MISC_MINOR, "isictl", &ISILoad_fops
 };
 

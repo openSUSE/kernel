@@ -650,7 +650,7 @@ void __init init_apic_mappings(void)
 
 #define APIC_DIVISOR 16
 
-void __setup_APIC_LVTT(unsigned int clocks)
+static void __setup_APIC_LVTT(unsigned int clocks)
 {
 	unsigned int lvtt_value, tmp_value, ver;
 
@@ -723,7 +723,7 @@ static void setup_APIC_timer(unsigned int clocks)
 
 #define TICK_COUNT 100000000
 
-int __init calibrate_APIC_clock(void)
+static int __init calibrate_APIC_clock(void)
 {
 	int apic, apic_start, tsc, tsc_start;
 	int result;

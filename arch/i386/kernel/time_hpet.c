@@ -23,9 +23,9 @@
 #include <asm/hpet.h>
 #include <linux/hpet.h>
 
-unsigned long hpet_period;	/* fsecs / HPET clock */
-unsigned long hpet_tick;	/* hpet clks count per tick */
-unsigned long hpet_address;	/* hpet memory map physical address */
+static unsigned long hpet_period;	/* fsecs / HPET clock */
+unsigned long hpet_tick;		/* hpet clks count per tick */
+unsigned long hpet_address;		/* hpet memory map physical address */
 
 static int use_hpet; 		/* can be used for runtime check of hpet */
 static int boot_hpet_disable; 	/* boottime override for HPET timer */
@@ -38,7 +38,7 @@ int hpet_readl(unsigned long a)
 	return readl(hpet_virt_address + a);
 }
 
-void hpet_writel(unsigned long d, unsigned long a)
+static void hpet_writel(unsigned long d, unsigned long a)
 {
 	writel(d, hpet_virt_address + a);
 }
@@ -49,7 +49,7 @@ void hpet_writel(unsigned long d, unsigned long a)
  * comparator value and continue. Next tick can be caught by checking
  * for a change in the comparator value. Used in apic.c.
  */
-void __init wait_hpet_tick(void)
+static void __init wait_hpet_tick(void)
 {
 	unsigned int start_cmp_val, end_cmp_val;
 

@@ -170,7 +170,7 @@ out:
  *
  * NOTE: acct_globals.lock MUST be held on entry and exit.
  */
-void acct_file_reopen(struct file *file)
+static void acct_file_reopen(struct file *file)
 {
 	struct file *old_acct = NULL;
 

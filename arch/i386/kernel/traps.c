@@ -814,7 +814,7 @@ fastcall void do_coprocessor_error(struct pt_regs * regs, long error_code)
 	math_error((void __user *)regs->eip);
 }
 
-void simd_math_error(void __user *eip)
+static void simd_math_error(void __user *eip)
 {
 	struct task_struct * task;
 	siginfo_t info;
