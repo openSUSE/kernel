@@ -271,7 +271,7 @@ static int skel_probe(struct usb_interface *interface, const struct usb_device_i
 		}
 
 		if (!dev->bulk_out_endpointAddr &&
-		    !(endpoint->bEndpointAddress & USB_DIR_IN) &&
+		    !(endpoint->bEndpointAddress & USB_DIR_OUT) &&
 		    ((endpoint->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK)
 					== USB_ENDPOINT_XFER_BULK)) {
 			/* we found a bulk out endpoint */
