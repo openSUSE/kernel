@@ -117,7 +117,6 @@ do_open_lookup(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_o
 
 		/* set reply cache */
 		fh_dup2(current_fh, &resfh);
-		/* XXXJBF: keep a saved svc_fh struct instead?? */
 		open->op_stateowner->so_replay.rp_openfh_len =
 			resfh.fh_handle.fh_size;
 		memcpy(open->op_stateowner->so_replay.rp_openfh,
@@ -153,7 +152,7 @@ do_open_fhandle(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_
 		current_fh->fh_handle.fh_size);
 
 	open->op_truncate = (open->op_iattr.ia_valid & ATTR_SIZE) &&
-	!open->op_iattr.ia_size;
+		(open->op_iattr.ia_size == 0);
 
 	status = do_open_permission(rqstp, current_fh, open);
 

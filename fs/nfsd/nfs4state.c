@@ -1465,18 +1465,17 @@ nfsd4_process_open1(struct nfsd4_open *open)
 		/* check for replay */
 		if (open->op_seqid == sop->so_seqid){
 			if (!sop->so_replay.rp_buflen) {
-			/*
-			* The original OPEN failed in so spectacularly that we
-			* don't even have replay data saved!  Therefore, we
-			* have no choice but to continue processing
-			* this OPEN; presumably, we'll fail again for the same
-			* reason.
-			*/
-				dprintk("nfsd4_process_open1: replay with no replay cache\n");
+				/* The original OPEN failed so spectacularly
+				 * that we don't even have replay data saved!
+				 * Therefore, we have no choice but to continue
+				 * processing this OPEN; presumably, we'll
+				 * fail again for the same reason.
+				 */
+				dprintk("nfsd4_process_open1:"
+					" replay with no replay cache\n");
 				status = NFS_OK;
 				goto renew;
 			}
-			/* replay: indicate to calling function */
 			status = NFSERR_REPLAY_ME;
 			return status;
 		}
@@ -1488,7 +1487,7 @@ nfsd4_process_open1(struct nfsd4_open *open)
 			status = nfserr_bad_seqid;
 			goto out;
 		}
-		/* If we get here, we received and OPEN for an unconfirmed
+		/* If we get here, we received an OPEN for an unconfirmed
 		 * nfs4_stateowner. 
 		 * Since the sequid's are different, purge the 
 		 * existing nfs4_stateowner, and instantiate a new one.
