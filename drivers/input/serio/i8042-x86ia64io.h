@@ -191,53 +191,54 @@ static int i8042_pnp_init(void)
 	if ((result_aux = pnp_register_driver(&i8042_pnp_aux_driver)) >= 0)
 		i8042_pnp_aux_registered = 1;
 
-	if (result_kbd > 0 || result_aux > 0) {
-
-		if (((i8042_pnp_data_reg & ~0xf) == (i8042_data_reg & ~0xf) &&
-		      i8042_pnp_data_reg != i8042_data_reg) || !i8042_pnp_data_reg) {
-			printk(KERN_WARNING "PNP: PS/2 controller has invalid data port %#x; using default %#x\n",
-                                i8042_pnp_data_reg, i8042_data_reg);
-			i8042_pnp_data_reg = i8042_data_reg;
-		}
-
-		if (((i8042_pnp_command_reg & ~0xf) == (i8042_command_reg & ~0xf) &&
-		      i8042_pnp_command_reg != i8042_command_reg) || !i8042_pnp_data_reg) {
-			printk(KERN_WARNING "PNP: PS/2 controller has invalid command port %#x; using default %#x\n",
-                                i8042_pnp_command_reg, i8042_command_reg);
-			i8042_pnp_command_reg = i8042_command_reg;
-		}
-
-		if (!i8042_pnp_kbd_irq) {
-			printk(KERN_WARNING "PNP: PS/2 controller doesn't have KBD irq; using default %#x\n", i8042_kbd_irq);
-                        i8042_pnp_kbd_irq = i8042_kbd_irq;
-                }
-
-		if (result_aux > 0 && !i8042_pnp_aux_irq) {
-			printk(KERN_WARNING "PNP: PS/2 controller doesn't have AUX irq; using default %#x\n", i8042_aux_irq);
-                        i8042_pnp_aux_irq = i8042_aux_irq;
-                }
-		
-		if (result_aux <= 0)
-			i8042_noaux = 1;
-
-		i8042_data_reg = i8042_pnp_data_reg;
-		i8042_command_reg = i8042_pnp_command_reg;
-		i8042_kbd_irq = i8042_pnp_kbd_irq;
-		i8042_aux_irq = i8042_pnp_aux_irq;
-
-		printk(KERN_INFO "PNP: PS/2 Controller [%s%s%s] at %#x,%#x irq %d%s%d\n",
-			i8042_pnp_kbd_name, (result_kbd > 0 || result_aux > 0) ? "," : "", i8042_pnp_aux_name,
-			i8042_data_reg, i8042_command_reg, i8042_kbd_irq,
-			(result_aux > 0) ? "," : "", i8042_aux_irq);
-	} 
-
-	else {
+	if (result_kbd <= 0 && result_aux <= 0) {
 		i8042_pnp_exit();
 #ifdef CONFIG_PNPACPI
-		if (!acpi_disabled)
+		if (!acpi_disabled) {
+			printk(KERN_INFO "PNP: No PS/2 (keyboard/mouse) controller found.\n");
 			return -ENODEV;
+		}
 #endif
+		printk(KERN_WARNING "PNP: No PS/2 controller found. Probing ports directly.\n");
+		return 0;
 	}
+
+	if (((i8042_pnp_data_reg & ~0xf) == (i8042_data_reg & ~0xf) &&
+	      i8042_pnp_data_reg != i8042_data_reg) || !i8042_pnp_data_reg) {
+		printk(KERN_WARNING "PNP: PS/2 controller has invalid data port %#x; using default %#x\n",
+			i8042_pnp_data_reg, i8042_data_reg);
+		i8042_pnp_data_reg = i8042_data_reg;
+	}
+
+	if (((i8042_pnp_command_reg & ~0xf) == (i8042_command_reg & ~0xf) &&
+	      i8042_pnp_command_reg != i8042_command_reg) || !i8042_pnp_data_reg) {
+		printk(KERN_WARNING "PNP: PS/2 controller has invalid command port %#x; using default %#x\n",
+			i8042_pnp_command_reg, i8042_command_reg);
+		i8042_pnp_command_reg = i8042_command_reg;
+	}
+
+	if (!i8042_pnp_kbd_irq) {
+		printk(KERN_WARNING "PNP: PS/2 controller doesn't have KBD irq; using default %#x\n", i8042_kbd_irq);
+		i8042_pnp_kbd_irq = i8042_kbd_irq;
+	}
+
+	if (result_aux > 0 && !i8042_pnp_aux_irq) {
+		printk(KERN_WARNING "PNP: PS/2 controller doesn't have AUX irq; using default %#x\n", i8042_aux_irq);
+		i8042_pnp_aux_irq = i8042_aux_irq;
+	}
+	
+	if (result_aux <= 0)
+		i8042_noaux = 1;
+
+	i8042_data_reg = i8042_pnp_data_reg;
+	i8042_command_reg = i8042_pnp_command_reg;
+	i8042_kbd_irq = i8042_pnp_kbd_irq;
+	i8042_aux_irq = i8042_pnp_aux_irq;
+
+	printk(KERN_INFO "PNP: PS/2 Controller [%s%s%s] at %#x,%#x irq %d%s%d\n",
+		i8042_pnp_kbd_name, (result_kbd > 0 || result_aux > 0) ? "," : "", i8042_pnp_aux_name,
+		i8042_data_reg, i8042_command_reg, i8042_kbd_irq,
+		(result_aux > 0) ? "," : "", i8042_aux_irq);
 
 	return 0;
 }
