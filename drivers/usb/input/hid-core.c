@@ -227,11 +227,13 @@ static int hid_add_field(struct hid_parser *parser, unsigned report_type, unsign
 		return -1;
 	}
 
-	if (!(usages = max_t(int, parser->local.usage_index, parser->global.report_count)))
-		return 0; /* Ignore padding fields */
-
 	offset = report->size;
 	report->size += parser->global.report_size * parser->global.report_count;
+
+	if (!parser->local.usage_index) /* Ignore padding fields */
+		return 0; 
+
+	usages = max_t(int, parser->local.usage_index, parser->global.report_count)
 
 	if ((field = hid_register_field(report, usages, parser->global.report_count)) == NULL)
 		return 0;
