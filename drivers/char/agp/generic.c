@@ -520,45 +520,57 @@ static void agp_v3_parse_one(u32 *mode, u32 *cmd, u32 *tmp)
 	}
 }
 
-//FIXME: This doesn't smell right.
-//We need a function we pass an agp_device to.
+/**
+ * agp_collect_device_status - determine correct agp_cmd from various agp_stat's
+ * @mode: requested agp_stat from userspace (Typically from X)
+ * @cmd: current agp_stat from AGP bridge.
+ *
+ * This function will hunt for an AGP graphics card, and try to match
+ * the requested mode to the capabilities of both the bridge and the card.
+ */
 u32 agp_collect_device_status(u32 mode, u32 cmd)
 {
 	struct pci_dev *device = NULL;
-	u8 cap_ptr;
+	u8 cap_ptr = 0;
 	u32 tmp;
 	u32 agp3;
 
-	for_each_pci_dev(device) {
+	while (!cap_ptr) {
+		device = pci_get_class(PCI_CLASS_DISPLAY_VGA, device);
+		if (!device) {
+			printk (KERN_INFO PFX "Couldn't find an AGP VGA controller.\n");
+			return 0;
+		}
 		cap_ptr = pci_find_capability(device, PCI_CAP_ID_AGP);
-		if (!cap_ptr)
+		if (!cap_ptr) {
+			pci_dev_put(device);
 			continue;
-
-		//FIXME: We should probably skip anything here that
-		// isn't an AGP graphic card.
-		/*
-		 * Ok, here we have a AGP device. Disable impossible
-		 * settings, and adjust the readqueue to the minimum.
-		 */
-		pci_read_config_dword(device, cap_ptr+PCI_AGP_STATUS, &tmp);
-
-		/* adjust RQ depth */
-		cmd = ((cmd & ~AGPSTAT_RQ_DEPTH) |
-		     min_t(u32, (mode & AGPSTAT_RQ_DEPTH),
-			 min_t(u32, (cmd & AGPSTAT_RQ_DEPTH), (tmp & AGPSTAT_RQ_DEPTH))));
-
-		/* disable FW if it's not supported */
-		if (!((cmd & AGPSTAT_FW) && (tmp & AGPSTAT_FW) && (mode & AGPSTAT_FW)))
-			cmd &= ~AGPSTAT_FW;
-
-		/* Check to see if we are operating in 3.0 mode */
-		pci_read_config_dword(device, cap_ptr+AGPSTAT, &agp3);
-		if (agp3 & AGPSTAT_MODE_3_0) {
-			agp_v3_parse_one(&mode, &cmd, &tmp);
-		} else {
-			agp_v2_parse_one(&mode, &cmd, &tmp);
 		}
 	}
+
+	/*
+	 * Ok, here we have a AGP device. Disable impossible
+	 * settings, and adjust the readqueue to the minimum.
+	 */
+	pci_read_config_dword(device, cap_ptr+PCI_AGP_STATUS, &tmp);
+
+	/* adjust RQ depth */
+	cmd = ((cmd & ~AGPSTAT_RQ_DEPTH) |
+	     min_t(u32, (mode & AGPSTAT_RQ_DEPTH),
+		 min_t(u32, (cmd & AGPSTAT_RQ_DEPTH), (tmp & AGPSTAT_RQ_DEPTH))));
+
+	/* disable FW if it's not supported */
+	if (!((cmd & AGPSTAT_FW) && (tmp & AGPSTAT_FW) && (mode & AGPSTAT_FW)))
+		cmd &= ~AGPSTAT_FW;
+
+	/* Check to see if we are operating in 3.0 mode */
+	pci_read_config_dword(device, cap_ptr+AGPSTAT, &agp3);
+	if (agp3 & AGPSTAT_MODE_3_0) {
+		agp_v3_parse_one(&mode, &cmd, &tmp);
+	} else {
+		agp_v2_parse_one(&mode, &cmd, &tmp);
+	}
+
 	return cmd;
 }
 EXPORT_SYMBOL(agp_collect_device_status);
@@ -617,6 +629,10 @@ void agp_generic_enable(u32 mode)
 		      agp_bridge->capndx + PCI_AGP_STATUS, &command);
 
 	command = agp_collect_device_status(mode, command);
+	if (command==0)
+		/* Something bad happened. FIXME: Return error code? */
+		return;
+
 	command |= AGPSTAT_AGP_ENABLE;
 
 	/* Do AGP version specific frobbing. */
