@@ -2284,46 +2284,6 @@ unsigned long long current_sched_time(const task_t *tsk)
 			((rq)->curr->static_prio > (rq)->best_expired_prio))
 
 /*
- * Do the virtual cpu time signal calculations.
- * @p: the process that the cpu time gets accounted to
- * @cputime: the cpu time spent in user space since the last update
- */
-static inline void account_it_virt(struct task_struct * p, cputime_t cputime)
-{
-	cputime_t it_virt = p->it_virt_value;
-
-	if (cputime_gt(it_virt, cputime_zero) &&
-	    cputime_gt(cputime, cputime_zero)) {
-		if (cputime_ge(cputime, it_virt)) {
-			it_virt = cputime_add(it_virt, p->it_virt_incr);
-			send_sig(SIGVTALRM, p, 1);
-		}
-		it_virt = cputime_sub(it_virt, cputime);
-		p->it_virt_value = it_virt;
-	}
-}
-
-/*
- * Do the virtual profiling signal calculations.
- * @p: the process that the cpu time gets accounted to
- * @cputime: the cpu time spent in user and kernel space since the last update
- */
-static void account_it_prof(struct task_struct *p, cputime_t cputime)
-{
-	cputime_t it_prof = p->it_prof_value;
-
-	if (cputime_gt(it_prof, cputime_zero) &&
-	    cputime_gt(cputime, cputime_zero)) {
-		if (cputime_ge(cputime, it_prof)) {
-			it_prof = cputime_add(it_prof, p->it_prof_incr);
-			send_sig(SIGPROF, p, 1);
-		}
-		it_prof = cputime_sub(it_prof, cputime);
-		p->it_prof_value = it_prof;
-	}
-}
-
-/*
  * Check if the process went over its cputime resource limit after
  * some cpu time got added to utime/stime.
  * @p: the process that the cpu time gets accounted to
@@ -2360,10 +2320,8 @@ void account_user_time(struct task_struct *p, cputime_t cputime)
 
 	p->utime = cputime_add(p->utime, cputime);
 
-	/* Check for signals (SIGVTALRM, SIGPROF, SIGXCPU & SIGKILL). */
+	/* Check for signals (SIGXCPU & SIGKILL). */
 	check_rlimit(p, cputime);
-	account_it_virt(p, cputime);
-	account_it_prof(p, cputime);
 
 	/* Add user time to cpustat. */
 	tmp = cputime_to_cputime64(cputime);
@@ -2388,10 +2346,9 @@ void account_system_time(struct task_struct *p, int hardirq_offset,
 
 	p->stime = cputime_add(p->stime, cputime);
 
-	/* Check for signals (SIGPROF, SIGXCPU & SIGKILL). */
+	/* Check for signals (SIGXCPU & SIGKILL). */
 	if (likely(p->signal && p->exit_state < EXIT_ZOMBIE)) {
 		check_rlimit(p, cputime);
-		account_it_prof(p, cputime);
 	}
 
 	/* Add system time to cpustat. */

@@ -133,5 +133,7 @@ void run_posix_cpu_timers(struct task_struct *);
 void posix_cpu_timers_exit(struct task_struct *);
 void posix_cpu_timers_exit_group(struct task_struct *);
 
+void set_process_cpu_timer(struct task_struct *, unsigned int,
+			   cputime_t *, cputime_t *);
 
 #endif

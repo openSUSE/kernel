@@ -1048,7 +1048,7 @@ __group_complete_signal(int sig, struct task_struct *p)
 	return;
 }
 
-static int
+int
 __group_send_sig_info(int sig, struct siginfo *info, struct task_struct *p)
 {
 	int ret = 0;

@@ -745,6 +745,11 @@ static inline int copy_signal(unsigned long clone_flags, struct task_struct * ts
 	sig->real_timer.data = (unsigned long) tsk;
 	init_timer(&sig->real_timer);
 
+	sig->it_virt_expires = cputime_zero;
+	sig->it_virt_incr = cputime_zero;
+	sig->it_prof_expires = cputime_zero;
+	sig->it_prof_incr = cputime_zero;
+
 	sig->tty = current->signal->tty;
 	sig->pgrp = process_group(current);
 	sig->session = current->signal->session;
@@ -874,11 +879,6 @@ static task_t *copy_process(unsigned long clone_flags,
 
 	clear_tsk_thread_flag(p, TIF_SIGPENDING);
 	init_sigpending(&p->pending);
-
-	p->it_virt_value = cputime_zero;
-	p->it_virt_incr = cputime_zero;
-	p->it_prof_value = cputime_zero;
-	p->it_prof_incr = cputime_zero;
 
 	p->utime = cputime_zero;
 	p->stime = cputime_zero;
@@ -1028,7 +1028,11 @@ static task_t *copy_process(unsigned long clone_flags,
 			set_tsk_thread_flag(p, TIF_SIGPENDING);
 		}
 
-		if (!list_empty(&current->signal->cpu_timers[0]) ||
+		if (!cputime_eq(current->signal->it_virt_expires,
+				cputime_zero) ||
+		    !cputime_eq(current->signal->it_prof_expires,
+				cputime_zero) ||
+		    !list_empty(&current->signal->cpu_timers[0]) ||
 		    !list_empty(&current->signal->cpu_timers[1]) ||
 		    !list_empty(&current->signal->cpu_timers[2])) {
 			/*

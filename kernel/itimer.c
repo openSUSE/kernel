@@ -11,6 +11,7 @@
 #include <linux/interrupt.h>
 #include <linux/syscalls.h>
 #include <linux/time.h>
+#include <linux/posix-timers.h>
 
 #include <asm/uaccess.h>
 
@@ -29,24 +30,67 @@ static unsigned long it_real_value(struct signal_struct *sig)
 
 int do_getitimer(int which, struct itimerval *value)
 {
+	struct task_struct *tsk = current;
 	unsigned long interval, val;
+	cputime_t cinterval, cval;
 
 	switch (which) {
 	case ITIMER_REAL:
-		spin_lock_irq(&current->sighand->siglock);
-		interval = current->signal->it_real_incr;
-		val = it_real_value(current->signal);
-		spin_unlock_irq(&current->sighand->siglock);
+		spin_lock_irq(&tsk->sighand->siglock);
+		interval = tsk->signal->it_real_incr;
+		val = it_real_value(tsk->signal);
+		spin_unlock_irq(&tsk->sighand->siglock);
 		jiffies_to_timeval(val, &value->it_value);
 		jiffies_to_timeval(interval, &value->it_interval);
 		break;
 	case ITIMER_VIRTUAL:
-		cputime_to_timeval(current->it_virt_value, &value->it_value);
-		cputime_to_timeval(current->it_virt_incr, &value->it_interval);
+		read_lock(&tasklist_lock);
+		spin_lock_irq(&tsk->sighand->siglock);
+		cval = tsk->signal->it_virt_expires;
+		cinterval = tsk->signal->it_virt_incr;
+		if (!cputime_eq(cval, cputime_zero)) {
+			struct task_struct *t = tsk;
+			cputime_t utime = tsk->signal->utime;
+			do {
+				utime = cputime_add(utime, t->utime);
+				t = next_thread(t);
+			} while (t != tsk);
+			if (cputime_le(cval, utime)) { /* about to fire */
+				cval = jiffies_to_cputime(1);
+			} else {
+				cval = cputime_sub(cval, utime);
+			}
+		}
+		spin_unlock_irq(&tsk->sighand->siglock);
+		read_unlock(&tasklist_lock);
+		cputime_to_timeval(cval, &value->it_value);
+		cputime_to_timeval(cinterval, &value->it_interval);
 		break;
 	case ITIMER_PROF:
-		cputime_to_timeval(current->it_prof_value, &value->it_value);
-		cputime_to_timeval(current->it_prof_incr, &value->it_interval);
+		read_lock(&tasklist_lock);
+		spin_lock_irq(&tsk->sighand->siglock);
+		cval = tsk->signal->it_prof_expires;
+		cinterval = tsk->signal->it_prof_incr;
+		if (!cputime_eq(cval, cputime_zero)) {
+			struct task_struct *t = tsk;
+			cputime_t ptime = cputime_add(tsk->signal->utime,
+						      tsk->signal->stime);
+			do {
+				ptime = cputime_add(ptime,
+						    cputime_add(t->utime,
+								t->stime));
+				t = next_thread(t);
+			} while (t != tsk);
+			if (cputime_le(cval, ptime)) { /* about to fire */
+				cval = jiffies_to_cputime(1);
+			} else {
+				cval = cputime_sub(cval, ptime);
+			}
+		}
+		spin_unlock_irq(&tsk->sighand->siglock);
+		read_unlock(&tasklist_lock);
+		cputime_to_timeval(cval, &value->it_value);
+		cputime_to_timeval(cinterval, &value->it_interval);
 		break;
 	default:
 		return(-EINVAL);
@@ -101,57 +145,75 @@ int do_setitimer(int which, struct itimerval *value, struct itimerval *ovalue)
 {
 	struct task_struct *tsk = current;
  	unsigned long val, interval;
-	cputime_t cputime;
+	cputime_t cval, cinterval, nval, ninterval;
 
 	switch (which) {
-		case ITIMER_REAL:
- 			spin_lock_irq(&tsk->sighand->siglock);
- 			interval = tsk->signal->it_real_incr;
- 			val = it_real_value(tsk->signal);
- 			if (val)
- 				del_timer_sync(&tsk->signal->real_timer);
- 			tsk->signal->it_real_incr =
-				timeval_to_jiffies(&value->it_interval);
- 			it_real_arm(tsk, timeval_to_jiffies(&value->it_value));
- 			spin_unlock_irq(&tsk->sighand->siglock);
-			if (ovalue) {
-				jiffies_to_timeval(val, &ovalue->it_value);
-				jiffies_to_timeval(interval,
-						   &ovalue->it_interval);
-			}
-			break;
-		case ITIMER_VIRTUAL:
-			if (ovalue) {
-				cputime_to_timeval(tsk->it_virt_value,
-						   &ovalue->it_value);
-				cputime_to_timeval(tsk->it_virt_incr,
-						   &ovalue->it_interval);
-			}
-			cputime = timeval_to_cputime(&value->it_value);
-			if (cputime_gt(cputime, cputime_zero))
-				cputime = cputime_add(cputime,
-						      jiffies_to_cputime(1));
-			tsk->it_virt_value = cputime;
-			cputime = timeval_to_cputime(&value->it_interval);
-			tsk->it_virt_incr = cputime;
-			break;
-		case ITIMER_PROF:
-			if (ovalue) {
-				cputime_to_timeval(tsk->it_prof_value,
-						   &ovalue->it_value);
-				cputime_to_timeval(tsk->it_prof_incr,
-						   &ovalue->it_interval);
-			}
-			cputime = timeval_to_cputime(&value->it_value);
-			if (cputime_gt(cputime, cputime_zero))
-				cputime = cputime_add(cputime,
-						      jiffies_to_cputime(1));
-			tsk->it_prof_value = cputime;
-			cputime = timeval_to_cputime(&value->it_interval);
-			tsk->it_prof_incr = cputime;
-			break;
-		default:
-			return -EINVAL;
+	case ITIMER_REAL:
+		spin_lock_irq(&tsk->sighand->siglock);
+		interval = tsk->signal->it_real_incr;
+		val = it_real_value(tsk->signal);
+		if (val)
+			del_timer_sync(&tsk->signal->real_timer);
+		tsk->signal->it_real_incr =
+			timeval_to_jiffies(&value->it_interval);
+		it_real_arm(tsk, timeval_to_jiffies(&value->it_value));
+		spin_unlock_irq(&tsk->sighand->siglock);
+		if (ovalue) {
+			jiffies_to_timeval(val, &ovalue->it_value);
+			jiffies_to_timeval(interval,
+					   &ovalue->it_interval);
+		}
+		break;
+	case ITIMER_VIRTUAL:
+		nval = timeval_to_cputime(&value->it_value);
+		ninterval = timeval_to_cputime(&value->it_interval);
+		read_lock(&tasklist_lock);
+		spin_lock_irq(&tsk->sighand->siglock);
+		cval = tsk->signal->it_virt_expires;
+		cinterval = tsk->signal->it_virt_incr;
+		if (!cputime_eq(cval, cputime_zero) ||
+		    !cputime_eq(nval, cputime_zero)) {
+			if (cputime_gt(nval, cputime_zero))
+				nval = cputime_add(nval,
+						   jiffies_to_cputime(1));
+			set_process_cpu_timer(tsk, CPUCLOCK_VIRT,
+					      &nval, &cval);
+		}
+		tsk->signal->it_virt_expires = nval;
+		tsk->signal->it_virt_incr = ninterval;
+		spin_unlock_irq(&tsk->sighand->siglock);
+		read_unlock(&tasklist_lock);
+		if (ovalue) {
+			cputime_to_timeval(cval, &ovalue->it_value);
+			cputime_to_timeval(cinterval, &ovalue->it_interval);
+		}
+		break;
+	case ITIMER_PROF:
+		nval = timeval_to_cputime(&value->it_value);
+		ninterval = timeval_to_cputime(&value->it_interval);
+		read_lock(&tasklist_lock);
+		spin_lock_irq(&tsk->sighand->siglock);
+		cval = tsk->signal->it_prof_expires;
+		cinterval = tsk->signal->it_prof_incr;
+		if (!cputime_eq(cval, cputime_zero) ||
+		    !cputime_eq(nval, cputime_zero)) {
+			if (cputime_gt(nval, cputime_zero))
+				nval = cputime_add(nval,
+						   jiffies_to_cputime(1));
+			set_process_cpu_timer(tsk, CPUCLOCK_PROF,
+					      &nval, &cval);
+		}
+		tsk->signal->it_prof_expires = nval;
+		tsk->signal->it_prof_incr = ninterval;
+		spin_unlock_irq(&tsk->sighand->siglock);
+		read_unlock(&tasklist_lock);
+		if (ovalue) {
+			cputime_to_timeval(cval, &ovalue->it_value);
+			cputime_to_timeval(cinterval, &ovalue->it_interval);
+		}
+		break;
+	default:
+		return -EINVAL;
 	}
 	return 0;
 }

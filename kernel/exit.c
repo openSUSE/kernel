@@ -753,9 +753,6 @@ static void exit_notify(struct task_struct *tsk)
 		state = EXIT_DEAD;
 	tsk->exit_state = state;
 
-	tsk->it_virt_value = cputime_zero;
-	tsk->it_prof_value = cputime_zero;
-
 	write_unlock_irq(&tasklist_lock);
 
 	list_for_each_safe(_p, _n, &ptrace_dead) {
