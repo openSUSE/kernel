@@ -53,6 +53,14 @@ static void asp_choose_irq(struct parisc_device *dev, void *ctrl)
 	}
 
 	gsc_asic_assign_irq(ctrl, irq, &dev->irq);
+
+	switch (dev->id.sversion) {
+	case 0x73:	irq =  2; break; /* i8042 High-priority */
+	case 0x76:	irq =  0; break; /* EISA BA */
+	default:	return;		 /* Other */
+	}
+
+	gsc_asic_assign_irq(ctrl, irq, &dev->aux_irq);
 }
 
 /* There are two register ranges we're interested in.  Interrupt /
