@@ -1050,7 +1050,7 @@ static int patch_alc880(struct hda_codec *codec)
  * never used.
  */
 static struct alc_channel_mode alc260_modes[1] = {
-	{ 2, 0 },
+	{ 2, NULL },
 };
 
 snd_kcontrol_new_t alc260_base_mixer[] = {
