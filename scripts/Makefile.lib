@@ -183,8 +183,12 @@ cmd_gzip = gzip -f -9 < $< > $@
 # Generic stuff
 # ===========================================================================
 
+ifneq ($(KBUILD_NOCMDDEP),1)
 # Check if both arguments has same arguments. Result in empty string if equal
-arg-check := $(strip $(filter-out $(1), $(2)) $(filter-out $(2), $(1)) )
+# User may override this check using make KBUILD_NOCMDDEP=1
+_arg-check = $(strip $(filter-out $(1), $(2)) $(filter-out $(2), $(1)) )
+
+endif
 
 # echo command. Short version is $(quiet) equals quiet, otherwise full command
 echo-cmd = $(if $($(quiet)cmd_$(1)), \
