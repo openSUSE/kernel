@@ -59,7 +59,7 @@ static void gameport_destroy_port(struct gameport *gameport);
 static void gameport_reconnect_port(struct gameport *gameport);
 static void gameport_disconnect_port(struct gameport *gameport);
 
-#ifdef __i386__
+#if defined(__i386__)
 
 #define DELTA(x,y)      ((y)-(x)+((y)<(x)?1193182/HZ:0))
 #define GET_TIME(x)     do { x = get_time_pit(); } while (0)
@@ -81,13 +81,15 @@ static unsigned int get_time_pit(void)
 
 #endif
 
+
+
 /*
  * gameport_measure_speed() measures the gameport i/o speed.
  */
 
 static int gameport_measure_speed(struct gameport *gameport)
 {
-#ifdef __i386__
+#if defined(__i386__)
 
 	unsigned int i, t, t1, t2, t3, tx;
 	unsigned long flags;
@@ -100,7 +102,7 @@ static int gameport_measure_speed(struct gameport *gameport)
 	for(i = 0; i < 50; i++) {
 		local_irq_save(flags);
 		GET_TIME(t1);
-		for(t = 0; t < 50; t++) gameport_read(gameport);
+		for (t = 0; t < 50; t++) gameport_read(gameport);
 		GET_TIME(t2);
 		GET_TIME(t3);
 		local_irq_restore(flags);
@@ -111,9 +113,35 @@ static int gameport_measure_speed(struct gameport *gameport)
 	gameport_close(gameport);
 	return 59659 / (tx < 1 ? 1 : tx);
 
+#elif defined (__x86_64__)
+
+	unsigned int i, t;
+	unsigned long tx, t1, t2, flags;
+
+	if (gameport_open(gameport, NULL, GAMEPORT_MODE_RAW))
+		return 0;
+
+	tx = 1 << 30;
+
+	for(i = 0; i < 50; i++) {
+		local_irq_save(flags);
+		rdtscl(t1);
+		for (t = 0; t < 50; t++) gameport_read(gameport);
+		rdtscl(t2);
+		local_irq_restore(flags);
+		udelay(i * 10);
+		if (t2 - t1 < tx) tx = t2 - t1;
+	}
+
+	gameport_close(gameport);
+	return (cpu_data[_smp_processor_id()].loops_per_jiffy * (unsigned long)HZ / (1000 / 50)) / (tx < 1 ? 1 : tx);
+
 #else
 
 	unsigned int j, t = 0;
+
+	if (gameport_open(gameport, NULL, GAMEPORT_MODE_RAW))
+		return 0;
 
 	j = jiffies; while (j == jiffies);
 	j = jiffies; while (j == jiffies) { t++; gameport_read(gameport); }

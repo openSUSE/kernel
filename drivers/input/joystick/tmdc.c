@@ -45,8 +45,8 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
-#define TMDC_MAX_START		400	/* 400 us */
-#define TMDC_MAX_STROBE		45	/* 45 us */
+#define TMDC_MAX_START		600	/* 600 us */
+#define TMDC_MAX_STROBE		60	/* 60 us */
 #define TMDC_MAX_LENGTH		13
 
 #define TMDC_MODE_M3DI		1

@@ -376,7 +376,7 @@ static void analog_calibrate_timer(struct analog_port *port)
 #ifdef FAKE_TIME
 	analog_faketime += 830;
 #endif
-	udelay(1000);
+	mdelay(1);
 	GET_TIME(t2);
 	GET_TIME(t3);
 	local_irq_restore(flags);

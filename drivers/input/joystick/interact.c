@@ -45,8 +45,8 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
-#define INTERACT_MAX_START	400	/* 400 us */
-#define INTERACT_MAX_STROBE	40	/* 40 us */
+#define INTERACT_MAX_START	600	/* 400 us */
+#define INTERACT_MAX_STROBE	60	/* 40 us */
 #define INTERACT_MAX_LENGTH	32	/* 32 bits */
 
 #define INTERACT_TYPE_HHFX	0	/* HammerHead/FX */

@@ -1,7 +1,5 @@
 /*
- * $Id: adi.c,v 1.23 2002/01/22 20:26:17 vojtech Exp $
- *
- *  Copyright (c) 1998-2001 Vojtech Pavlik
+ *  Copyright (c) 1998-2005 Vojtech Pavlik
  */
 
 /*
@@ -58,7 +56,7 @@ MODULE_LICENSE("GPL");
 #define ADI_MIN_ID_LENGTH	66
 #define ADI_MAX_NAME_LENGTH	48
 #define ADI_MAX_CNAME_LENGTH	16
-#define ADI_MAX_PHYS_LENGTH	32
+#define ADI_MAX_PHYS_LENGTH	64
 
 #define ADI_FLAG_HAT		0x04
 #define ADI_FLAG_10BIT		0x08
@@ -315,13 +313,16 @@ static void adi_close(struct input_dev *dev)
 
 static void adi_init_digital(struct gameport *gameport)
 {
-	int seq[] = { 3, -2, -3, 10, -6, -11, -7, -9, 11, 0 };
+	int seq[] = { 4, -2, -3, 10, -6, -11, -7, -9, 11, 0 };
 	int i;
 
 	for (i = 0; seq[i]; i++) {
 		gameport_trigger(gameport);
 		if (seq[i] > 0) msleep(seq[i]);
-		if (seq[i] < 0) mdelay(-seq[i]);
+		if (seq[i] < 0) {
+			mdelay(-seq[i]);
+			udelay(-seq[i]*14);	/* It looks like mdelay() is off by approx 1.4% */
+		}
 	}
 }
 
@@ -407,9 +408,9 @@ static void adi_init_input(struct adi *adi, struct adi_port *port, int half)
 
 	t = adi->id < ADI_ID_MAX ? adi->id : ADI_ID_MAX;
 
-	sprintf(buf, adi_names[t], adi->id);
-	sprintf(adi->name, "Logitech %s", buf);
-	sprintf(adi->phys, "%s/input%d", port->gameport->phys, half);
+	snprintf(buf, ADI_MAX_PHYS_LENGTH, adi_names[t], adi->id);
+	snprintf(adi->name, ADI_MAX_NAME_LENGTH, "Logitech %s", buf);
+	snprintf(adi->phys, ADI_MAX_PHYS_LENGTH, "%s/input%d", port->gameport->phys, half);
 
 	adi->abs = adi_abs[t];
 	adi->key = adi_key[t];
