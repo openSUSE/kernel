@@ -713,7 +713,7 @@ static char **names[EV_MAX + 1] = {
 	[EV_SND] = sounds,			[EV_REP] = repeats,
 };
 
-static void resolv_event(__u8 type, __u16 code) {
+static void __attribute__((unused)) resolv_event(__u8 type, __u16 code) {
 
 	printk("%s.%s", events[type] ? events[type] : "?",
 		names[type] ? (names[type][code] ? names[type][code] : "?") : "?");
