@@ -30,6 +30,12 @@ struct orinoco_key {
 	char data[ORINOCO_MAX_KEY_SIZE];
 } __attribute__ ((packed));
 
+typedef enum {
+	FIRMWARE_TYPE_AGERE,
+	FIRMWARE_TYPE_INTERSIL,
+	FIRMWARE_TYPE_SYMBOL
+} fwtype_t;
+
 struct orinoco_private {
 	void *card;	/* Pointer to card dependent structure */
 	int (*hard_reset)(struct orinoco_private *);
@@ -53,19 +59,22 @@ struct orinoco_private {
 	u16 txfid;
 
 	/* Capabilities of the hardware/firmware */
-	int firmware_type;
-#define FIRMWARE_TYPE_AGERE 1
-#define FIRMWARE_TYPE_INTERSIL 2
-#define FIRMWARE_TYPE_SYMBOL 3
-	int has_ibss, has_port3, ibss_port;
-	int has_wep, has_big_wep;
-	int has_mwo;
-	int has_pm;
-	int has_preamble;
-	int has_sensitivity;
+	fwtype_t firmware_type;
+	char fw_name[32];
+	int ibss_port;
 	int nicbuf_size;
 	u16 channel_mask;
-	int broken_disableport;
+
+	/* Boolean capabilities */
+	unsigned int has_ibss:1;
+	unsigned int has_port3:1;
+	unsigned int has_wep:1;
+	unsigned int has_big_wep:1;
+	unsigned int has_mwo:1;
+	unsigned int has_pm:1;
+	unsigned int has_preamble:1;
+	unsigned int has_sensitivity:1;
+	unsigned int broken_disableport:1;
 
 	/* Configuration paramaters */
 	u32 iw_mode;

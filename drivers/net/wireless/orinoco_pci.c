@@ -251,10 +251,6 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 		goto fail;
 	}
 
-	/* Override the normal firmware detection - the Prism 2.5 PCI
-	 * cards look like Lucent firmware but are actually Intersil */
-	priv->firmware_type = FIRMWARE_TYPE_INTERSIL;
-
 	err = register_netdev(dev);
 	if (err) {
 		printk(KERN_ERR PFX "Failed to register net device\n");

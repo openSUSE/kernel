@@ -2047,39 +2047,54 @@ irqreturn_t orinoco_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 /* Initialization                                                   */
 /********************************************************************/
 
-struct sta_id {
+struct comp_id {
 	u16 id, variant, major, minor;
 } __attribute__ ((packed));
 
-static int determine_firmware_type(struct net_device *dev, struct sta_id *sta_id)
+static inline fwtype_t determine_firmware_type(struct comp_id *nic_id)
 {
-	/* FIXME: this is fundamentally broken */
-	unsigned int firmver = ((u32)sta_id->major << 16) | sta_id->minor;
-	
-	if (sta_id->variant == 1)
+	if (nic_id->id < 0x8000)
 		return FIRMWARE_TYPE_AGERE;
-	else if ((sta_id->variant == 2) &&
-		   ((firmver == 0x10001) || (firmver == 0x20001)))
+	else if (nic_id->id == 0x8000 && nic_id->major == 0)
 		return FIRMWARE_TYPE_SYMBOL;
 	else
 		return FIRMWARE_TYPE_INTERSIL;
 }
 
-static void determine_firmware(struct net_device *dev)
+/* Set priv->firmware type, determine firmware properties */
+static int determine_firmware(struct net_device *dev)
 {
 	struct orinoco_private *priv = netdev_priv(dev);
 	hermes_t *hw = &priv->hw;
 	int err;
-	struct sta_id sta_id;
+	struct comp_id nic_id, sta_id;
 	unsigned int firmver;
 	char tmp[SYMBOL_MAX_VER_LEN+1];
+
+	/* Get the hardware version */
+	err = HERMES_READ_RECORD(hw, USER_BAP, HERMES_RID_NICID, &nic_id);
+	if (err) {
+		printk(KERN_ERR "%s: Cannot read hardware identity: error %d\n",
+		       dev->name, err);
+		return err;
+	}
+
+	le16_to_cpus(&nic_id.id);
+	le16_to_cpus(&nic_id.variant);
+	le16_to_cpus(&nic_id.major);
+	le16_to_cpus(&nic_id.minor);
+	printk(KERN_DEBUG "%s: Hardware identity %04x:%04x:%04x:%04x\n",
+	       dev->name, nic_id.id, nic_id.variant,
+	       nic_id.major, nic_id.minor);
+
+	priv->firmware_type = determine_firmware_type(&nic_id);
 
 	/* Get the firmware version */
 	err = HERMES_READ_RECORD(hw, USER_BAP, HERMES_RID_STAID, &sta_id);
 	if (err) {
-		printk(KERN_WARNING "%s: Error %d reading firmware info. Wildly guessing capabilities...\n",
+		printk(KERN_ERR "%s: Cannot read station identity: error %d\n",
 		       dev->name, err);
-		memset(&sta_id, 0, sizeof(sta_id));
+		return err;
 	}
 
 	le16_to_cpus(&sta_id.id);
@@ -2090,8 +2105,23 @@ static void determine_firmware(struct net_device *dev)
 	       dev->name, sta_id.id, sta_id.variant,
 	       sta_id.major, sta_id.minor);
 
-	if (! priv->firmware_type)
-		priv->firmware_type = determine_firmware_type(dev, &sta_id);
+	switch (sta_id.id) {
+	case 0x15:
+		printk(KERN_ERR "%s: Primary firmware is active\n",
+		       dev->name);
+		return -ENODEV;
+	case 0x14b:
+		printk(KERN_ERR "%s: Tertiary firmware is active\n",
+		       dev->name);
+		return -ENODEV;
+	case 0x1f:	/* Intersil, Agere, Symbol Spectrum24 */
+	case 0x21:	/* Symbol Spectrum24 Trilogy */
+		break;
+	default:
+		printk(KERN_NOTICE "%s: Unknown station ID, please report\n",
+		       dev->name);
+		break;
+	}
 
 	/* Default capabilities */
 	priv->has_sensitivity = 1;
@@ -2107,9 +2137,8 @@ static void determine_firmware(struct net_device *dev)
 	case FIRMWARE_TYPE_AGERE:
 		/* Lucent Wavelan IEEE, Lucent Orinoco, Cabletron RoamAbout,
 		   ELSA, Melco, HP, IBM, Dell 1150, Compaq 110/210 */
-		printk(KERN_DEBUG "%s: Looks like a Lucent/Agere firmware "
-		       "version %d.%02d\n", dev->name,
-		       sta_id.major, sta_id.minor);
+		snprintf(priv->fw_name, sizeof(priv->fw_name) - 1,
+			 "Lucent/Agere %d.%02d", sta_id.major, sta_id.minor);
 
 		firmver = ((unsigned long)sta_id.major << 16) | sta_id.minor;
 
@@ -2152,14 +2181,15 @@ static void determine_firmware(struct net_device *dev)
 			tmp[SYMBOL_MAX_VER_LEN] = '\0';
 		}
 
-		printk(KERN_DEBUG "%s: Looks like a Symbol firmware "
-		       "version [%s] (parsing to %X)\n", dev->name,
-		       tmp, firmver);
+		snprintf(priv->fw_name, sizeof(priv->fw_name) - 1,
+			 "Symbol %s", tmp);
 
 		priv->has_ibss = (firmver >= 0x20000);
 		priv->has_wep = (firmver >= 0x15012);
 		priv->has_big_wep = (firmver >= 0x20000);
-		priv->has_pm = (firmver >= 0x20000) && (firmver < 0x22000);
+		priv->has_pm = (firmver >= 0x20000 && firmver < 0x22000) || 
+			       (firmver >= 0x29000 && firmver < 0x30000) ||
+			       firmver >= 0x31000;
 		priv->has_preamble = (firmver >= 0x20000);
 		priv->ibss_port = 4;
 		/* Tested with Intel firmware : 0x20015 => Jean II */
@@ -2171,9 +2201,9 @@ static void determine_firmware(struct net_device *dev)
 		 * different and less well tested */
 		/* D-Link MAC : 00:40:05:* */
 		/* Addtron MAC : 00:90:D1:* */
-		printk(KERN_DEBUG "%s: Looks like an Intersil firmware "
-		       "version %d.%d.%d\n", dev->name,
-		       sta_id.major, sta_id.minor, sta_id.variant);
+		snprintf(priv->fw_name, sizeof(priv->fw_name) - 1,
+			 "Intersil %d.%d.%d", sta_id.major, sta_id.minor,
+			 sta_id.variant);
 
 		firmver = ((unsigned long)sta_id.major << 16) |
 			((unsigned long)sta_id.minor << 8) | sta_id.variant;
@@ -2191,9 +2221,11 @@ static void determine_firmware(struct net_device *dev)
 			priv->ibss_port = 1;
 		}
 		break;
-	default:
-		break;
 	}
+	printk(KERN_DEBUG "%s: Firmware determined as %s\n", dev->name,
+	       priv->fw_name);
+
+	return 0;
 }
 
 static int orinoco_init(struct net_device *dev)
@@ -2219,7 +2251,12 @@ static int orinoco_init(struct net_device *dev)
 		goto out;
 	}
 
-	determine_firmware(dev);
+	err = determine_firmware(dev);
+	if (err != 0) {
+		printk(KERN_ERR "%s: Incompatible firmware, aborting\n",
+		       dev->name);
+		goto out;
+	}
 
 	if (priv->has_port3)
 		printk(KERN_DEBUG "%s: Ad-hoc demo mode supported\n", dev->name);
