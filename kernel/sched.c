@@ -1766,7 +1766,7 @@ find_busiest_group(struct sched_domain *sd, int this_cpu,
 	do {
 		unsigned long load;
 		int local_group;
-		int i, nr_cpus = 0;
+		int i;
 
 		local_group = cpu_isset(this_cpu, group->cpumask);
 
@@ -1780,12 +1780,8 @@ find_busiest_group(struct sched_domain *sd, int this_cpu,
 			else
 				load = source_load(i);
 
-			nr_cpus++;
 			avg_load += load;
 		}
-
-		if (!nr_cpus)
-			goto nextgroup;
 
 		total_load += avg_load;
 		total_pwr += group->cpu_power;
