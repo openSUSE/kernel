@@ -103,9 +103,16 @@ reiserfs_read_unlock_xattr_i(struct inode *inode)
     up_read (&REISERFS_I(inode)->xattr_sem);
 }
 
+static inline void
+reiserfs_mark_inode_private(struct inode *inode)
+{
+    REISERFS_I(inode)->i_flags |= i_priv_object;
+}
+
 #else
 
 #define is_reiserfs_priv_object(inode) 0
+#define reiserfs_mark_inode_private(inode)
 #define reiserfs_getxattr NULL
 #define reiserfs_setxattr NULL
 #define reiserfs_listxattr NULL
