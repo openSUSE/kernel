@@ -1021,7 +1021,7 @@ static struct dst_entry *xfrm_dst_check(struct dst_entry *dst, u32 cookie)
 
 static int stale_bundle(struct dst_entry *dst)
 {
-	return xfrm_bundle_ok((struct xfrm_dst *)dst, NULL, AF_UNSPEC);
+	return !xfrm_bundle_ok((struct xfrm_dst *)dst, NULL, AF_UNSPEC);
 }
 
 static void xfrm_dst_destroy(struct dst_entry *dst)
