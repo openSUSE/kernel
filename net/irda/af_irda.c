@@ -87,10 +87,10 @@ static int irda_data_indication(void *instance, void *sap, struct sk_buff *skb)
 
 	IRDA_DEBUG(3, "%s()\n", __FUNCTION__);
 
-	self = (struct irda_sock *) instance;
+	self = instance;
 	ASSERT(self != NULL, return -1;);
 
-	sk = self->sk;
+	sk = instance;
 	ASSERT(sk != NULL, return -1;);
 
 	err = sock_queue_rcv_skb(sk, skb);
@@ -117,7 +117,7 @@ static void irda_disconnect_indication(void *instance, void *sap,
 	struct irda_sock *self;
 	struct sock *sk;
 
-	self = (struct irda_sock *) instance;
+	self = instance;
 
 	IRDA_DEBUG(2, "%s(%p)\n", __FUNCTION__, self);
 
@@ -125,7 +125,7 @@ static void irda_disconnect_indication(void *instance, void *sap,
 	if(skb)
 		dev_kfree_skb(skb);
 
-	sk = self->sk;
+	sk = instance;
 	if (sk == NULL) {
 		IRDA_DEBUG(0, "%s(%p) : BUG : sk is NULL\n",
 			   __FUNCTION__, self);
@@ -183,11 +183,11 @@ static void irda_connect_confirm(void *instance, void *sap,
 	struct irda_sock *self;
 	struct sock *sk;
 
-	self = (struct irda_sock *) instance;
+	self = instance;
 
 	IRDA_DEBUG(2, "%s(%p)\n", __FUNCTION__, self);
 
-	sk = self->sk;
+	sk = instance;
 	if (sk == NULL) {
 		dev_kfree_skb(skb);
 		return;
@@ -245,11 +245,11 @@ static void irda_connect_indication(void *instance, void *sap,
 	struct irda_sock *self;
 	struct sock *sk;
 
-	self = (struct irda_sock *) instance;
+	self = instance;
 
 	IRDA_DEBUG(2, "%s(%p)\n", __FUNCTION__, self);
 
-	sk = self->sk;
+	sk = instance;
 	if (sk == NULL) {
 		dev_kfree_skb(skb);
 		return;
@@ -332,10 +332,10 @@ static void irda_flow_indication(void *instance, void *sap, LOCAL_FLOW flow)
 
 	IRDA_DEBUG(2, "%s()\n", __FUNCTION__);
 
-	self = (struct irda_sock *) instance;
+	self = instance;
 	ASSERT(self != NULL, return;);
 
-	sk = self->sk;
+	sk = instance;
 	ASSERT(sk != NULL, return;);
 
 	switch (flow) {
@@ -1082,17 +1082,12 @@ static int irda_create(struct socket *sock, int protocol)
 	}
 
 	/* Allocate networking socket */
-	if ((sk = sk_alloc(PF_IRDA, GFP_ATOMIC, 1, NULL)) == NULL)
+	sk = sk_alloc(PF_IRDA, GFP_ATOMIC,
+		      sizeof(struct irda_sock), NULL);
+	if (sk == NULL)
 		return -ENOMEM;
 
-	/* Allocate IrDA socket */
-	self = sk->sk_protinfo = kmalloc(sizeof(struct irda_sock), GFP_ATOMIC);
-	if (self == NULL) {
-		sk_free(sk);
-		return -ENOMEM;
-	}
-	memset(self, 0, sizeof(struct irda_sock));
-
+	self = irda_sk(sk);
 	IRDA_DEBUG(2, "%s() : self is %p\n", __FUNCTION__, self);
 
 	init_waitqueue_head(&self->query_wait);
@@ -1102,8 +1097,6 @@ static int irda_create(struct socket *sock, int protocol)
 	sk_set_owner(sk, THIS_MODULE);
 	sk->sk_family = PF_IRDA;
 	sk->sk_protocol = protocol;
-	/* Link networking socket and IrDA socket structs together */
-	self->sk = sk;
 
 	switch (sock->type) {
 	case SOCK_STREAM:
@@ -1187,7 +1180,6 @@ static void irda_destroy_socket(struct irda_sock *self)
 		self->lsap = NULL;
 	}
 #endif /* CONFIG_IRDA_ULTRA */
-	kfree(self);
 }
 
 /*
@@ -1208,8 +1200,6 @@ static int irda_release(struct socket *sock)
 
 	/* Destroy IrDA socket */
 	irda_destroy_socket(irda_sk(sk));
-	/* Prevent sock_def_destruct() to create havoc */
-	sk->sk_protinfo = NULL;
 
 	sock_orphan(sk);
 	sock->sk   = NULL;

@@ -621,9 +621,17 @@ struct sock *sk_alloc(int family, int priority, int zero_it, kmem_cache_t *slab)
 {
 	struct sock *sk = NULL;
 
-	if (!slab)
+	/*
+	 * Transitional, this test will be removed when sk_cachep is killed
+	 */
+	if (slab == NULL && zero_it == 1)
 		slab = sk_cachep;
-	sk = kmem_cache_alloc(slab, priority);
+
+	if (slab != NULL)
+		sk = kmem_cache_alloc(slab, priority);
+	else
+		sk = kmalloc(zero_it, priority);
+
 	if (sk) {
 		if (zero_it) {
 			memset(sk, 0,
@@ -662,7 +670,10 @@ void sk_free(struct sock *sk)
 		       __FUNCTION__, atomic_read(&sk->sk_omem_alloc));
 
 	security_sk_free(sk);
-	kmem_cache_free(sk->sk_slab, sk);
+	if (sk->sk_slab != NULL)
+		kmem_cache_free(sk->sk_slab, sk);
+	else
+		kfree(sk);
 	module_put(owner);
 }
 
