@@ -149,22 +149,23 @@ struct exception_data {
 #define __put_user(x,ptr)                                       \
 ({								\
 	register long __pu_err __asm__ ("r8") = 0;      	\
+        __typeof__(*(ptr)) __x = (__typeof__(*(ptr)))(x);	\
 								\
 	if (segment_eq(get_fs(),KERNEL_DS)) {                   \
 	    switch (sizeof(*(ptr))) {                           \
-	    case 1: __put_kernel_asm("stb",x,ptr); break;       \
-	    case 2: __put_kernel_asm("sth",x,ptr); break;       \
-	    case 4: __put_kernel_asm("stw",x,ptr); break;       \
-	    case 8: STD_KERNEL(x,ptr); break;			\
+	    case 1: __put_kernel_asm("stb",__x,ptr); break;     \
+	    case 2: __put_kernel_asm("sth",__x,ptr); break;     \
+	    case 4: __put_kernel_asm("stw",__x,ptr); break;     \
+	    case 8: STD_KERNEL(__x,ptr); break;			\
 	    default: __put_kernel_bad(); break;			\
 	    }                                                   \
 	}                                                       \
 	else {                                                  \
 	    switch (sizeof(*(ptr))) {                           \
-	    case 1: __put_user_asm("stb",x,ptr); break;         \
-	    case 2: __put_user_asm("sth",x,ptr); break;         \
-	    case 4: __put_user_asm("stw",x,ptr); break;         \
-	    case 8: STD_USER(x,ptr); break;			\
+	    case 1: __put_user_asm("stb",__x,ptr); break;       \
+	    case 2: __put_user_asm("sth",__x,ptr); break;       \
+	    case 4: __put_user_asm("stw",__x,ptr); break;       \
+	    case 8: STD_USER(__x,ptr); break;			\
 	    default: __put_user_bad(); break;			\
 	    }                                                   \
 	}                                                       \
