@@ -225,8 +225,8 @@ struct msdos_sb_info {
 	unsigned long root_cluster;  /* first cluster of the root directory */
 	unsigned long fsinfo_sector; /* sector number of FAT32 fsinfo */
 	struct semaphore fat_lock;
-	int prev_free;               /* previously allocated cluster number */
-	int free_clusters;           /* -1 if undefined */
+	unsigned int prev_free;      /* previously allocated cluster number */
+	unsigned int free_clusters;  /* -1 if undefined */
 	struct fat_mount_options options;
 	struct nls_table *nls_disk;  /* Codepage used on disk */
 	struct nls_table *nls_io;    /* Charset used for input and display */

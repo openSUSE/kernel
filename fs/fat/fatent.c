@@ -453,8 +453,7 @@ int fat_alloc_clusters(struct inode *inode, int *cluster, int nr_cluster)
 	fatent_init(&fatent);
 	fatent_set_entry(&fatent, sbi->prev_free + 1);
 	while (count < sbi->max_cluster) {
-		fatent.entry %= sbi->max_cluster;
-		if (fatent.entry < FAT_START_ENT)
+		if (fatent.entry >= sbi->max_cluster)
 			fatent.entry = FAT_START_ENT;
 		fatent_set_entry(&fatent, fatent.entry);
 		err = fat_ent_read_block(sb, &fatent);

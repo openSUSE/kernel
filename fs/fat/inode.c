@@ -1163,7 +1163,7 @@ int fat_fill_super(struct super_block *sb, void *data, int silent,
 	sbi->fat_length = le16_to_cpu(b->fat_length);
 	sbi->root_cluster = 0;
 	sbi->free_clusters = -1;	/* Don't know yet */
-	sbi->prev_free = -1;
+	sbi->prev_free = FAT_START_ENT;
 
 	if (!sbi->fat_length && b->fat32_length) {
 		struct fat_boot_fsinfo *fsinfo;
@@ -1247,6 +1247,10 @@ int fat_fill_super(struct super_block *sb, void *data, int silent,
 	/* check the free_clusters, it's not necessarily correct */
 	if (sbi->free_clusters != -1 && sbi->free_clusters > total_clusters)
 		sbi->free_clusters = -1;
+	/* check the prev_free, it's not necessarily correct */
+	sbi->prev_free %= sbi->max_cluster;
+	if (sbi->prev_free < FAT_START_ENT)
+		sbi->prev_free = FAT_START_ENT;
 
 	brelse(bh);
 
