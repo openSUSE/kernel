@@ -548,7 +548,15 @@ thermostat_init(void)
 	prop = (u32 *)get_property(np, "reg", NULL);
 	if (!prop)
 		return -ENODEV;
-	therm_bus = ((*prop) >> 8) & 0x0f;
+
+	/* look for bus either by path or using "reg" */
+	if (strstr(np->full_name, "/i2c-bus@") != NULL) {
+		const char *tmp_bus = (strstr(np->full_name, "/i2c-bus@") + 9);
+		therm_bus = tmp_bus[0]-'0';
+	} else {
+		therm_bus = ((*prop) >> 8) & 0x0f;
+	}
+
 	therm_address = ((*prop) & 0xff) >> 1;
 
 	printk(KERN_INFO "adt746x: Thermostat bus: %d, address: 0x%02x, "
