@@ -73,16 +73,16 @@ _GLOBAL(__setup_cpu_745x)
 
 /* Enable caches for 603's, 604, 750 & 7400 */
 setup_common_caches:
-	mfspr	r11,HID0
+	mfspr	r11,SPRN_HID0
 	andi.	r0,r11,HID0_DCE
 	ori	r11,r11,HID0_ICE|HID0_DCE
 	ori	r8,r11,HID0_ICFI
 	bne	1f			/* don't invalidate the D-cache */
 	ori	r8,r8,HID0_DCI		/* unless it wasn't enabled */
 1:	sync
-	mtspr	HID0,r8			/* enable and invalidate caches */
+	mtspr	SPRN_HID0,r8			/* enable and invalidate caches */
 	sync
-	mtspr	HID0,r11		/* enable caches */
+	mtspr	SPRN_HID0,r11		/* enable caches */
 	sync
 	isync
 	blr
@@ -91,13 +91,13 @@ setup_common_caches:
  * Enable superscalar execution & branch history table
  */
 setup_604_hid0:
-	mfspr	r11,HID0
+	mfspr	r11,SPRN_HID0
 	ori	r11,r11,HID0_SIED|HID0_BHTE
 	ori	r8,r11,HID0_BTCD
 	sync
-	mtspr	HID0,r8		/* flush branch target address cache */
+	mtspr	SPRN_HID0,r8	/* flush branch target address cache */
 	sync			/* on 604e/604r */
-	mtspr	HID0,r11
+	mtspr	SPRN_HID0,r11
 	sync
 	isync
 	blr
@@ -150,7 +150,7 @@ setup_7410_workarounds:
  * Clear Instruction cache throttling (ICTC)
  */
 setup_750_7400_hid0:
-	mfspr	r11,HID0
+	mfspr	r11,SPRN_HID0
 	ori	r11,r11,HID0_SGE | HID0_ABE | HID0_BHTE | HID0_BTIC
 BEGIN_FTR_SECTION
 	oris	r11,r11,HID0_DPM@h	/* enable dynamic power mgmt */
@@ -158,9 +158,9 @@ END_FTR_SECTION_IFCLR(CPU_FTR_NO_DPM)
 	li	r3,HID0_SPD
 	andc	r11,r11,r3		/* clear SPD: enable speculative */
  	li	r3,0
- 	mtspr	ICTC,r3			/* Instruction Cache Throttling off */
+ 	mtspr	SPRN_ICTC,r3		/* Instruction Cache Throttling off */
 	isync
-	mtspr	HID0,r11
+	mtspr	SPRN_HID0,r11
 	sync
 	isync
 	blr
@@ -214,7 +214,7 @@ setup_745x_specifics:
 	andc	r6,r6,r7
 	stw	r6,CPU_SPEC_FEATURES(r5)
 1:
-	mfspr	r11,HID0
+	mfspr	r11,SPRN_HID0
 
 	/* All of the bits we have to set.....
 	 */
@@ -232,9 +232,9 @@ END_FTR_SECTION_IFCLR(CPU_FTR_NO_DPM)
 	andc	r11,r11,r3		/* clear SPD: enable speculative */
  	li	r3,0
 
- 	mtspr	ICTC,r3			/* Instruction Cache Throttling off */
+ 	mtspr	SPRN_ICTC,r3		/* Instruction Cache Throttling off */
 	isync
-	mtspr	HID0,r11
+	mtspr	SPRN_HID0,r11
 	sync
 	isync
 
@@ -285,7 +285,7 @@ _GLOBAL(__save_cpu_setup)
 	stw	r3,CS_HID0(r5)
 
 	/* Now deal with CPU type dependent registers */
-	mfspr	r3,PVR
+	mfspr	r3,SPRN_PVR
 	srwi	r3,r3,16
 	cmplwi	cr0,r3,0x8000	/* 7450 */
 	cmplwi	cr1,r3,0x000c	/* 7400 */
@@ -323,7 +323,7 @@ _GLOBAL(__save_cpu_setup)
 	mfspr	r4,SPRN_HID1
 	stw	r4,CS_HID1(r5)
 	/* If rev 2.x, backup HID2 */
-	mfspr	r3,PVR
+	mfspr	r3,SPRN_PVR
 	andi.	r3,r3,0xff00
 	cmpwi	cr0,r3,0x0200
 	bne	1f
@@ -354,7 +354,7 @@ _GLOBAL(__restore_cpu_setup)
 	isync
 
 	/* Now deal with CPU type dependent registers */
-	mfspr	r3,PVR
+	mfspr	r3,SPRN_PVR
 	srwi	r3,r3,16
 	cmplwi	cr0,r3,0x8000	/* 7450 */
 	cmplwi	cr1,r3,0x000c	/* 7400 */
@@ -414,7 +414,7 @@ _GLOBAL(__restore_cpu_setup)
 	 * to PLL 0 on all
 	 */
 	/* If rev 2.x, restore HID2 with low voltage bit cleared */
-	mfspr	r3,PVR
+	mfspr	r3,SPRN_PVR
 	andi.	r3,r3,0xff00
 	cmpwi	cr0,r3,0x0200
 	bne	4f

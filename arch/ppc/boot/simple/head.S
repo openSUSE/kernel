@@ -52,7 +52,7 @@ start_:
 	 */
 	li	r4,0x0000
 	isync
-	mtspr	HID0,r4
+	mtspr	SPRN_HID0,r4
 	sync
 	isync
 #endif

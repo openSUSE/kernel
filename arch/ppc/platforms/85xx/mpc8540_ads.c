@@ -187,7 +187,7 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 		strcpy(cmd_line, (char *) (r6 + KERNELBASE));
 	}
 
-	identify_ppc_sys_by_id(mfspr(SVR));
+	identify_ppc_sys_by_id(mfspr(SPRN_SVR));
 
 	/* setup the PowerPC module struct */
 	ppc_md.setup_arch = mpc8540ads_setup_arch;

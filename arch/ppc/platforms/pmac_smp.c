@@ -294,7 +294,7 @@ static int __init smp_psurge_probe(void)
 	int i, ncpus;
 
 	/* We don't do SMP on the PPC601 -- paulus */
-	if (PVR_VER(mfspr(PVR)) == 1)
+	if (PVR_VER(mfspr(SPRN_PVR)) == 1)
 		return 1;
 
 	/*

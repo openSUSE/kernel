@@ -119,7 +119,7 @@ void smp_message_recv(int msg, struct pt_regs *regs)
  */
 void smp_send_tlb_invalidate(int cpu)
 {
-	if ( PVR_VER(mfspr(PVR)) == 8 )
+	if ( PVR_VER(mfspr(SPRN_PVR)) == 8 )
 		smp_message_pass(MSG_ALL_BUT_SELF, PPC_MSG_INVALIDATE_TLB, 0, 0);
 }
 
@@ -283,7 +283,7 @@ static void __devinit smp_store_cpu_info(int id)
 
 	/* assume bogomips are same for everything */
         c->loops_per_jiffy = loops_per_jiffy;
-        c->pvr = mfspr(PVR);
+        c->pvr = mfspr(SPRN_PVR);
 }
 
 void __init smp_prepare_cpus(unsigned int max_cpus)

@@ -690,8 +690,8 @@ prep_set_bat(void)
 	mb();
 
 	/* setup DBATs */
-	mtspr(DBAT2U, 0x80001ffe);
-	mtspr(DBAT2L, 0x8000002a);
+	mtspr(SPRN_DBAT2U, 0x80001ffe);
+	mtspr(SPRN_DBAT2L, 0x8000002a);
 
 	/* wait for updates */
 	mb();

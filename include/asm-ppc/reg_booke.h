@@ -427,26 +427,6 @@ do {						\
 #define SPEFSCR_FOVFE	0x00000004	/* Embedded FP overflow enable */
 #define SPEFSCR_FRMC 	0x00000003	/* Embedded FP rounding mode control */
 
-/* Short-hand for various SPRs. */
-#ifdef CONFIG_BOOKE
-#define CSRR0	SPRN_CSRR0	/* Critical Save and Restore Register 0 */
-#define CSRR1	SPRN_CSRR1	/* Critical Save and Restore Register 1 */
-#else
-#define CSRR0	SPRN_SRR2	/* Logically and functionally equivalent. */
-#define CSRR1	SPRN_SRR3	/* Logically and functionally equivalent. */
-#endif
-#define MCSRR0	SPRN_MCSRR0	/* Machine Check Save and Restore Register 0 */
-#define MCSRR1	SPRN_MCSRR1	/* Machine Check Save and Restore Register 1 */
-#define DCMP	SPRN_DCMP	/* Data TLB Compare Register */
-#define SPRG4R	SPRN_SPRG4R	/* Supervisor Private Registers */
-#define SPRG5R	SPRN_SPRG5R
-#define SPRG6R	SPRN_SPRG6R
-#define SPRG7R	SPRN_SPRG7R
-#define SPRG4W	SPRN_SPRG4W
-#define SPRG5W	SPRN_SPRG5W
-#define SPRG6W	SPRN_SPRG6W
-#define SPRG7W	SPRN_SPRG7W
-
 /*
  * The IBM-403 is an even more odd special case, as it is much
  * older than the IBM-405 series.  We put these down here incase someone

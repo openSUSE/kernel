@@ -513,8 +513,8 @@ static __inline__ void
 chestnut_set_bat(void)
 {
         mb();
-        mtspr(DBAT3U, 0xf0001ffe);
-        mtspr(DBAT3L, 0xf000002a);
+        mtspr(SPRN_DBAT3U, 0xf0001ffe);
+        mtspr(SPRN_DBAT3L, 0xf000002a);
         mb();
 }
 

@@ -97,7 +97,7 @@ ebony_calibrate_decr(void)
 	 * on Rev. C silicon then errata forces us to
 	 * use the internal clock.
 	 */
-	switch (PVR_REV(mfspr(PVR))) {
+	switch (PVR_REV(mfspr(SPRN_PVR))) {
 		case PVR_REV(PVR_440GP_RB):
 			freq = EBONY_440GP_RB_SYSCLK;
 			break;

@@ -41,12 +41,12 @@
 #define LOAD_BAT(n, reg, RA, RB)	\
 	ld	RA,(n*32)+0(reg);	\
 	ld	RB,(n*32)+8(reg);	\
-	mtspr	IBAT##n##U,RA;		\
-	mtspr	IBAT##n##L,RB;		\
+	mtspr	SPRN_IBAT##n##U,RA;	\
+	mtspr	SPRN_IBAT##n##L,RB;	\
 	ld	RA,(n*32)+16(reg);	\
 	ld	RB,(n*32)+24(reg);	\
-	mtspr	DBAT##n##U,RA;		\
-	mtspr	DBAT##n##L,RB;		\
+	mtspr	SPRN_DBAT##n##U,RA;	\
+	mtspr	SPRN_DBAT##n##L,RB;	\
 
 #else /* CONFIG_PPC64BRIDGE */
 
@@ -54,17 +54,17 @@
 #define LOAD_BAT(n, reg, RA, RB)	\
 	/* see the comment for clear_bats() -- Cort */ \
 	li	RA,0;			\
-	mtspr	IBAT##n##U,RA;		\
-	mtspr	DBAT##n##U,RA;		\
+	mtspr	SPRN_IBAT##n##U,RA;	\
+	mtspr	SPRN_DBAT##n##U,RA;	\
 	lwz	RA,(n*16)+0(reg);	\
 	lwz	RB,(n*16)+4(reg);	\
-	mtspr	IBAT##n##U,RA;		\
-	mtspr	IBAT##n##L,RB;		\
+	mtspr	SPRN_IBAT##n##U,RA;	\
+	mtspr	SPRN_IBAT##n##L,RB;	\
 	beq	1f;			\
 	lwz	RA,(n*16)+8(reg);	\
 	lwz	RB,(n*16)+12(reg);	\
-	mtspr	DBAT##n##U,RA;		\
-	mtspr	DBAT##n##L,RB;		\
+	mtspr	SPRN_DBAT##n##U,RA;	\
+	mtspr	SPRN_DBAT##n##L,RB;	\
 1:
 #endif /* CONFIG_PPC64BRIDGE */
 
@@ -224,10 +224,10 @@ __after_mmu_off:
 turn_on_mmu:
 	mfmsr	r0
 	ori	r0,r0,MSR_DR|MSR_IR
-	mtspr	SRR1,r0
+	mtspr	SPRN_SRR1,r0
 	lis	r0,start_here@h
 	ori	r0,r0,start_here@l
-	mtspr	SRR0,r0
+	mtspr	SPRN_SRR0,r0
 	SYNC
 	RFI				/* enables MMU */
 
@@ -260,18 +260,18 @@ __secondary_hold:
  * task's thread_struct.
  */
 #define EXCEPTION_PROLOG	\
-	mtspr	SPRG0,r10;	\
-	mtspr	SPRG1,r11;	\
+	mtspr	SPRN_SPRG0,r10;	\
+	mtspr	SPRN_SPRG1,r11;	\
 	mfcr	r10;		\
 	EXCEPTION_PROLOG_1;	\
 	EXCEPTION_PROLOG_2
 
 #define EXCEPTION_PROLOG_1	\
-	mfspr	r11,SRR1;		/* check whether user or kernel */ \
+	mfspr	r11,SPRN_SRR1;		/* check whether user or kernel */ \
 	andi.	r11,r11,MSR_PR;	\
 	tophys(r11,r1);			/* use tophys(r1) if kernel */ \
 	beq	1f;		\
-	mfspr	r11,SPRG3;	\
+	mfspr	r11,SPRN_SPRG3;	\
 	lwz	r11,THREAD_INFO-THREAD(r11);	\
 	addi	r11,r11,THREAD_SIZE;	\
 	tophys(r11,r11);	\
@@ -283,14 +283,14 @@ __secondary_hold:
 	stw	r10,_CCR(r11);		/* save registers */ \
 	stw	r12,GPR12(r11);	\
 	stw	r9,GPR9(r11);	\
-	mfspr	r10,SPRG0;	\
+	mfspr	r10,SPRN_SPRG0;	\
 	stw	r10,GPR10(r11);	\
-	mfspr	r12,SPRG1;	\
+	mfspr	r12,SPRN_SPRG1;	\
 	stw	r12,GPR11(r11);	\
 	mflr	r10;		\
 	stw	r10,_LINK(r11);	\
-	mfspr	r12,SRR0;	\
-	mfspr	r9,SRR1;	\
+	mfspr	r12,SPRN_SRR0;	\
+	mfspr	r9,SPRN_SRR1;	\
 	stw	r1,GPR1(r11);	\
 	stw	r1,0(r11);	\
 	tovirt(r1,r11);			/* set new kernel sp */	\
@@ -373,11 +373,11 @@ i##n:								\
  *	-- paulus.
  */
 	. = 0x200
-	mtspr	SPRG0,r10
-	mtspr	SPRG1,r11
+	mtspr	SPRN_SPRG0,r10
+	mtspr	SPRN_SPRG1,r11
 	mfcr	r10
 #ifdef CONFIG_PPC_CHRP
-	mfspr	r11,SPRG2
+	mfspr	r11,SPRN_SPRG2
 	cmpwi	0,r11,0
 	bne	7f
 #endif /* CONFIG_PPC_CHRP */
@@ -385,7 +385,7 @@ i##n:								\
 7:	EXCEPTION_PROLOG_2
 	addi	r3,r1,STACK_FRAME_OVERHEAD
 #ifdef CONFIG_PPC_CHRP
-	mfspr	r4,SPRG2
+	mfspr	r4,SPRN_SPRG2
 	cmpwi	cr1,r4,0
 	bne	cr1,1f
 #endif
@@ -403,15 +403,15 @@ DataAccessCont:
 DataAccess:
 	EXCEPTION_PROLOG
 #endif /* CONFIG_PPC64BRIDGE */
-	mfspr	r10,DSISR
+	mfspr	r10,SPRN_DSISR
 	andis.	r0,r10,0xa470		/* weird error? */
 	bne	1f			/* if not, try to put a PTE */
-	mfspr	r4,DAR			/* into the hash table */
+	mfspr	r4,SPRN_DAR		/* into the hash table */
 	rlwinm	r3,r10,32-15,21,21	/* DSISR_STORE -> _PAGE_RW */
 	bl	hash_page
 1:	stw	r10,_DSISR(r11)
 	mr	r5,r10
-	mfspr	r4,DAR
+	mfspr	r4,SPRN_DAR
 	EXC_XFER_EE_LITE(0x300, handle_page_fault)
 
 #ifdef CONFIG_PPC64BRIDGE
@@ -451,9 +451,9 @@ InstructionAccess:
 	. = 0x600
 Alignment:
 	EXCEPTION_PROLOG
-	mfspr	r4,DAR
+	mfspr	r4,SPRN_DAR
 	stw	r4,_DAR(r11)
-	mfspr	r5,DSISR
+	mfspr	r5,SPRN_DSISR
 	stw	r5,_DSISR(r11)
 	addi	r3,r1,STACK_FRAME_OVERHEAD
 	EXC_XFER_EE(0x600, AlignmentException)
@@ -518,16 +518,16 @@ InstructionTLBMiss:
  */
 	mfctr	r0
 	/* Get PTE (linux-style) and check access */
-	mfspr	r3,IMISS
+	mfspr	r3,SPRN_IMISS
 	lis	r1,KERNELBASE@h		/* check if kernel address */
 	cmplw	0,r3,r1
-	mfspr	r2,SPRG3
+	mfspr	r2,SPRN_SPRG3
 	li	r1,_PAGE_USER|_PAGE_PRESENT /* low addresses tested as user */
 	lwz	r2,PGDIR(r2)
 	blt+	112f
 	lis	r2,swapper_pg_dir@ha	/* if kernel address, use */
 	addi	r2,r2,swapper_pg_dir@l	/* kernel page table */
-	mfspr	r1,SRR1			/* and MSR_PR bit from SRR1 */
+	mfspr	r1,SPRN_SRR1		/* and MSR_PR bit from SRR1 */
 	rlwinm	r1,r1,32-12,29,29	/* shift MSR_PR to _PAGE_USER posn */
 112:	tophys(r2,r2)
 	rlwimi	r2,r3,12,20,29		/* insert top 10 bits of address */
@@ -553,26 +553,26 @@ InstructionTLBMiss:
 	ori	r1,r1,0xe14		/* clear out reserved bits and M */
 	andc	r1,r3,r1		/* PP = user? (rw&dirty? 2: 3): 0 */
 	mtspr	SPRN_RPA,r1
-	mfspr	r3,IMISS
+	mfspr	r3,SPRN_IMISS
 	tlbli	r3
-	mfspr	r3,SRR1		/* Need to restore CR0 */
+	mfspr	r3,SPRN_SRR1		/* Need to restore CR0 */
 	mtcrf	0x80,r3
 	rfi
 InstructionAddressInvalid:
-	mfspr	r3,SRR1
+	mfspr	r3,SPRN_SRR1
 	rlwinm	r1,r3,9,6,6	/* Get load/store bit */
 
 	addis	r1,r1,0x2000
-	mtspr	DSISR,r1	/* (shouldn't be needed) */
+	mtspr	SPRN_DSISR,r1	/* (shouldn't be needed) */
 	mtctr	r0		/* Restore CTR */
 	andi.	r2,r3,0xFFFF	/* Clear upper bits of SRR1 */
 	or	r2,r2,r1
-	mtspr	SRR1,r2
-	mfspr	r1,IMISS	/* Get failing address */
+	mtspr	SPRN_SRR1,r2
+	mfspr	r1,SPRN_IMISS	/* Get failing address */
 	rlwinm.	r2,r2,0,31,31	/* Check for little endian access */
 	rlwimi	r2,r2,1,30,30	/* change 1 -> 3 */
 	xor	r1,r1,r2
-	mtspr	DAR,r1		/* Set fault address */
+	mtspr	SPRN_DAR,r1	/* Set fault address */
 	mfmsr	r0		/* Restore "normal" registers */
 	xoris	r0,r0,MSR_TGPR>>16
 	mtcrf	0x80,r3		/* Restore CR0 */
@@ -592,16 +592,16 @@ DataLoadTLBMiss:
  */
 	mfctr	r0
 	/* Get PTE (linux-style) and check access */
-	mfspr	r3,DMISS
+	mfspr	r3,SPRN_DMISS
 	lis	r1,KERNELBASE@h		/* check if kernel address */
 	cmplw	0,r3,r1
-	mfspr	r2,SPRG3
+	mfspr	r2,SPRN_SPRG3
 	li	r1,_PAGE_USER|_PAGE_PRESENT /* low addresses tested as user */
 	lwz	r2,PGDIR(r2)
 	blt+	112f
 	lis	r2,swapper_pg_dir@ha	/* if kernel address, use */
 	addi	r2,r2,swapper_pg_dir@l	/* kernel page table */
-	mfspr	r1,SRR1			/* and MSR_PR bit from SRR1 */
+	mfspr	r1,SPRN_SRR1		/* and MSR_PR bit from SRR1 */
 	rlwinm	r1,r1,32-12,29,29	/* shift MSR_PR to _PAGE_USER posn */
 112:	tophys(r2,r2)
 	rlwimi	r2,r3,12,20,29		/* insert top 10 bits of address */
@@ -627,24 +627,24 @@ DataLoadTLBMiss:
 	ori	r1,r1,0xe14		/* clear out reserved bits and M */
 	andc	r1,r3,r1		/* PP = user? (rw&dirty? 2: 3): 0 */
 	mtspr	SPRN_RPA,r1
-	mfspr	r3,DMISS
+	mfspr	r3,SPRN_DMISS
 	tlbld	r3
-	mfspr	r3,SRR1		/* Need to restore CR0 */
+	mfspr	r3,SPRN_SRR1		/* Need to restore CR0 */
 	mtcrf	0x80,r3
 	rfi
 DataAddressInvalid:
-	mfspr	r3,SRR1
+	mfspr	r3,SPRN_SRR1
 	rlwinm	r1,r3,9,6,6	/* Get load/store bit */
 	addis	r1,r1,0x2000
-	mtspr	DSISR,r1
+	mtspr	SPRN_DSISR,r1
 	mtctr	r0		/* Restore CTR */
 	andi.	r2,r3,0xFFFF	/* Clear upper bits of SRR1 */
-	mtspr	SRR1,r2
-	mfspr	r1,DMISS	/* Get failing address */
+	mtspr	SPRN_SRR1,r2
+	mfspr	r1,SPRN_DMISS	/* Get failing address */
 	rlwinm.	r2,r2,0,31,31	/* Check for little endian access */
 	beq	20f		/* Jump if big endian */
 	xori	r1,r1,3
-20:	mtspr	DAR,r1		/* Set fault address */
+20:	mtspr	SPRN_DAR,r1	/* Set fault address */
 	mfmsr	r0		/* Restore "normal" registers */
 	xoris	r0,r0,MSR_TGPR>>16
 	mtcrf	0x80,r3		/* Restore CR0 */
@@ -664,16 +664,16 @@ DataStoreTLBMiss:
  */
 	mfctr	r0
 	/* Get PTE (linux-style) and check access */
-	mfspr	r3,DMISS
+	mfspr	r3,SPRN_DMISS
 	lis	r1,KERNELBASE@h		/* check if kernel address */
 	cmplw	0,r3,r1
-	mfspr	r2,SPRG3
+	mfspr	r2,SPRN_SPRG3
 	li	r1,_PAGE_RW|_PAGE_USER|_PAGE_PRESENT /* access flags */
 	lwz	r2,PGDIR(r2)
 	blt+	112f
 	lis	r2,swapper_pg_dir@ha	/* if kernel address, use */
 	addi	r2,r2,swapper_pg_dir@l	/* kernel page table */
-	mfspr	r1,SRR1			/* and MSR_PR bit from SRR1 */
+	mfspr	r1,SPRN_SRR1		/* and MSR_PR bit from SRR1 */
 	rlwinm	r1,r1,32-12,29,29	/* shift MSR_PR to _PAGE_USER posn */
 112:	tophys(r2,r2)
 	rlwimi	r2,r3,12,20,29		/* insert top 10 bits of address */
@@ -695,9 +695,9 @@ DataStoreTLBMiss:
 	li	r1,0xe15		/* clear out reserved bits and M */
 	andc	r1,r3,r1		/* PP = user? 2: 0 */
 	mtspr	SPRN_RPA,r1
-	mfspr	r3,DMISS
+	mfspr	r3,SPRN_DMISS
 	tlbld	r3
-	mfspr	r3,SRR1		/* Need to restore CR0 */
+	mfspr	r3,SPRN_SRR1		/* Need to restore CR0 */
 	mtcrf	0x80,r3
 	rfi
 
@@ -765,7 +765,7 @@ InstructionAccess:
 DataSegment:
 	EXCEPTION_PROLOG
 	addi	r3,r1,STACK_FRAME_OVERHEAD
-	mfspr	r4,DAR
+	mfspr	r4,SPRN_DAR
 	stw	r4,_DAR(r11)
 	EXC_XFER_STD(0x380, UnknownException)
 
@@ -816,7 +816,7 @@ load_up_fpu:
 1:
 #endif /* CONFIG_SMP */
 	/* enable use of FP after return */
-	mfspr	r5,SPRG3		/* current task's THREAD (phys) */
+	mfspr	r5,SPRN_SPRG3		/* current task's THREAD (phys) */
 	lwz	r4,THREAD_FPEXC_MODE(r5)
 	ori	r9,r9,MSR_FP		/* enable FP for current */
 	or	r9,r9,r4
@@ -843,8 +843,8 @@ fast_exception_return:
 	lwz	r10,_LINK(r11)
 	mtlr	r10
 	REST_GPR(10, r11)
-	mtspr	SRR1,r9
-	mtspr	SRR0,r12
+	mtspr	SPRN_SRR1,r9
+	mtspr	SPRN_SRR0,r12
 	REST_GPR(9, r11)
 	REST_GPR(12, r11)
 	lwz	r11,GPR11(r11)
@@ -945,7 +945,7 @@ load_up_altivec:
 #endif /* CONFIG_SMP */
 	/* enable use of AltiVec after return */
 	oris	r9,r9,MSR_VEC@h
-	mfspr	r5,SPRG3		/* current task's THREAD (phys) */
+	mfspr	r5,SPRN_SPRG3		/* current task's THREAD (phys) */
 	li	r4,1
 	li	r10,THREAD_VSCR
 	stw	r4,THREAD_USED_VR(r5)
@@ -1142,8 +1142,8 @@ fix_mem_constants:
 	lis	r8,0
 #endif
 	ori	r8,r8,0x2		/* 128KB, supervisor */
-	mtspr	DBAT3U,r8
-	mtspr	DBAT3L,r8
+	mtspr	SPRN_DBAT3U,r8
+	mtspr	SPRN_DBAT3L,r8
 
 	lis	r12,__ptov_table_begin@h
 	ori	r12,r12,__ptov_table_begin@l
@@ -1179,12 +1179,12 @@ fix_mem_constants:
 #ifdef CONFIG_GEMINI
 	.globl	__secondary_start_gemini
 __secondary_start_gemini:
-        mfspr   r4,HID0
+        mfspr   r4,SPRN_HID0
         ori     r4,r4,HID0_ICFI
         li      r3,0
         ori     r3,r3,HID0_ICE
         andc    r4,r4,r3
-        mtspr   HID0,r4
+        mtspr   SPRN_HID0,r4
         sync
         bl      gemini_prom_init
         b       __secondary_start
@@ -1255,17 +1255,17 @@ __secondary_start:
 	tophys(r4,r2)
 	addi	r4,r4,THREAD	/* phys address of our thread_struct */
 	CLR_TOP32(r4)
-	mtspr	SPRG3,r4
+	mtspr	SPRN_SPRG3,r4
 	li	r3,0
-	mtspr	SPRG2,r3	/* 0 => not in RTAS */
+	mtspr	SPRN_SPRG2,r3	/* 0 => not in RTAS */
 
 	/* enable MMU and jump to start_secondary */
 	li	r4,MSR_KERNEL
 	FIX_SRR1(r4,r5)
 	lis	r3,start_secondary@h
 	ori	r3,r3,start_secondary@l
-	mtspr	SRR0,r3
-	mtspr	SRR1,r4
+	mtspr	SPRN_SRR0,r3
+	mtspr	SPRN_SRR1,r4
 	SYNC
 	RFI
 #endif /* CONFIG_SMP */
@@ -1301,7 +1301,7 @@ load_up_mmu:
 	lis	r6,_SDR1@ha
 	tophys(r6,r6)
 	lwz	r6,_SDR1@l(r6)
-	mtspr	SDR1,r6
+	mtspr	SPRN_SDR1,r6
 #ifdef CONFIG_PPC64BRIDGE
 	/* clear the ASR so we only use the pseudo-segment registers. */
 	li	r6,0
@@ -1343,9 +1343,9 @@ start_here:
 	tophys(r4,r2)
 	addi	r4,r4,THREAD	/* init task's THREAD */
 	CLR_TOP32(r4)
-	mtspr	SPRG3,r4
+	mtspr	SPRN_SPRG3,r4
 	li	r3,0
-	mtspr	SPRG2,r3	/* 0 => not in RTAS */
+	mtspr	SPRN_SPRG2,r3	/* 0 => not in RTAS */
 
 	/* stack */
 	lis	r1,init_thread_union@ha
@@ -1387,8 +1387,8 @@ start_here:
 	tophys(r4,r4)
 	li	r3,MSR_KERNEL & ~(MSR_IR|MSR_DR)
 	FIX_SRR1(r3,r5)
-	mtspr	SRR0,r4
-	mtspr	SRR1,r3
+	mtspr	SPRN_SRR0,r4
+	mtspr	SPRN_SRR1,r3
 	SYNC
 	RFI
 /* Load up the kernel context */
@@ -1413,8 +1413,8 @@ start_here:
 	FIX_SRR1(r4,r5)
 	lis	r3,start_kernel@h
 	ori	r3,r3,start_kernel@l
-	mtspr	SRR0,r3
-	mtspr	SRR1,r4
+	mtspr	SPRN_SRR0,r3
+	mtspr	SPRN_SRR1,r4
 	SYNC
 	RFI
 
@@ -1461,28 +1461,28 @@ _GLOBAL(set_context)
  */
 clear_bats:
 	li	r10,0
-	mfspr	r9,PVR
+	mfspr	r9,SPRN_PVR
 	rlwinm	r9,r9,16,16,31		/* r9 = 1 for 601, 4 for 604 */
 	cmpwi	r9, 1
 	beq	1f
 
-	mtspr	DBAT0U,r10
-	mtspr	DBAT0L,r10
-	mtspr	DBAT1U,r10
-	mtspr	DBAT1L,r10
-	mtspr	DBAT2U,r10
-	mtspr	DBAT2L,r10
-	mtspr	DBAT3U,r10
-	mtspr	DBAT3L,r10
+	mtspr	SPRN_DBAT0U,r10
+	mtspr	SPRN_DBAT0L,r10
+	mtspr	SPRN_DBAT1U,r10
+	mtspr	SPRN_DBAT1L,r10
+	mtspr	SPRN_DBAT2U,r10
+	mtspr	SPRN_DBAT2L,r10
+	mtspr	SPRN_DBAT3U,r10
+	mtspr	SPRN_DBAT3L,r10
 1:
-	mtspr	IBAT0U,r10
-	mtspr	IBAT0L,r10
-	mtspr	IBAT1U,r10
-	mtspr	IBAT1L,r10
-	mtspr	IBAT2U,r10
-	mtspr	IBAT2L,r10
-	mtspr	IBAT3U,r10
-	mtspr	IBAT3L,r10
+	mtspr	SPRN_IBAT0U,r10
+	mtspr	SPRN_IBAT0L,r10
+	mtspr	SPRN_IBAT1U,r10
+	mtspr	SPRN_IBAT1L,r10
+	mtspr	SPRN_IBAT2U,r10
+	mtspr	SPRN_IBAT2L,r10
+	mtspr	SPRN_IBAT3U,r10
+	mtspr	SPRN_IBAT3L,r10
 BEGIN_FTR_SECTION
 	/* Here's a tweak: at this point, CPU setup have
 	 * not been called yet, so HIGH_BAT_EN may not be
@@ -1523,8 +1523,8 @@ mmu_off:
 	andi.	r0,r3,MSR_DR|MSR_IR		/* MMU enabled? */
 	beqlr
 	andc	r3,r3,r0
-	mtspr	SRR0,r4
-	mtspr	SRR1,r3
+	mtspr	SPRN_SRR0,r4
+	mtspr	SPRN_SRR1,r3
 	sync
 	RFI
 
@@ -1537,7 +1537,7 @@ mmu_off:
 initial_bats:
 	lis	r11,KERNELBASE@h
 #ifndef CONFIG_PPC64BRIDGE
-	mfspr	r9,PVR
+	mfspr	r9,SPRN_PVR
 	rlwinm	r9,r9,16,16,31		/* r9 = 1 for 601, 4 for 604 */
 	cmpwi	0,r9,1
 	bne	4f
@@ -1545,10 +1545,10 @@ initial_bats:
 	li	r8,0x7f			/* valid, block length = 8MB */
 	oris	r9,r11,0x800000@h	/* set up BAT reg for 2nd 8M */
 	oris	r10,r8,0x800000@h	/* set up BAT reg for 2nd 8M */
-	mtspr	IBAT0U,r11		/* N.B. 601 has valid bit in */
-	mtspr	IBAT0L,r8		/* lower BAT register */
-	mtspr	IBAT1U,r9
-	mtspr	IBAT1L,r10
+	mtspr	SPRN_IBAT0U,r11		/* N.B. 601 has valid bit in */
+	mtspr	SPRN_IBAT0L,r8		/* lower BAT register */
+	mtspr	SPRN_IBAT1U,r9
+	mtspr	SPRN_IBAT1L,r10
 	isync
 	blr
 #endif /* CONFIG_PPC64BRIDGE */
@@ -1570,10 +1570,10 @@ initial_bats:
 	clrldi	r11,r11,32
 	clrldi	r8,r8,32
 #endif /* CONFIG_PPC64BRIDGE */
-	mtspr	DBAT0L,r8		/* N.B. 6xx (not 601) have valid */
-	mtspr	DBAT0U,r11		/* bit in upper BAT register */
-	mtspr	IBAT0L,r8
-	mtspr	IBAT0U,r11
+	mtspr	SPRN_DBAT0L,r8		/* N.B. 6xx (not 601) have valid */
+	mtspr	SPRN_DBAT0U,r11		/* bit in upper BAT register */
+	mtspr	SPRN_IBAT0L,r8
+	mtspr	SPRN_IBAT0U,r11
 	isync
 	blr
 
@@ -1589,15 +1589,15 @@ setup_disp_bat:
 	addi	r8,r8,disp_BAT@l
 	lwz	r11,0(r8)
 	lwz	r8,4(r8)
-	mfspr	r9,PVR
+	mfspr	r9,SPRN_PVR
 	rlwinm	r9,r9,16,16,31		/* r9 = 1 for 601, 4 for 604 */
 	cmpwi	0,r9,1
 	beq	1f
-	mtspr	DBAT3L,r8
-	mtspr	DBAT3U,r11
+	mtspr	SPRN_DBAT3L,r8
+	mtspr	SPRN_DBAT3U,r11
 	blr
-1:	mtspr	IBAT3L,r8
-	mtspr	IBAT3U,r11
+1:	mtspr	SPRN_IBAT3L,r8
+	mtspr	SPRN_IBAT3U,r11
 	blr
 
 #endif /* !defined(CONFIG_APUS) && defined(CONFIG_BOOTX_TEXT) */
@@ -1612,7 +1612,7 @@ setup_disp_bat:
 initial_mm_power4:
 	addis	r14,r3,_SDR1@ha		/* get the value from _SDR1 */
 	lwz	r14,_SDR1@l(r14)	/* assume hash table below 4GB */
-	mtspr	SDR1,r14
+	mtspr	SPRN_SDR1,r14
 	slbia
 	lis	r4,0x2000		/* set pseudo-segment reg 12 */
 	ori	r5,r4,0x0ccc
@@ -1649,18 +1649,18 @@ m8260_gorom:
 	sync
 	mtmsr	r0
 	sync
-	mfspr	r11, HID0
+	mfspr	r11, SPRN_HID0
 	lis	r10, 0
 	ori	r10,r10,HID0_ICE|HID0_DCE
 	andc	r11, r11, r10
-	mtspr	HID0, r11
+	mtspr	SPRN_HID0, r11
 	isync
 	li	r5, MSR_ME|MSR_RI
 	lis	r6,2f@h
 	addis	r6,r6,-KERNELBASE@h
 	ori	r6,r6,2f@l
-	mtspr	SRR0,r6
-	mtspr	SRR1,r5
+	mtspr	SPRN_SRR0,r6
+	mtspr	SPRN_SRR1,r5
 	isync
 	sync
 	rfi

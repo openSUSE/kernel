@@ -142,7 +142,7 @@ void __init setbat(int index, unsigned long virt, unsigned long phys,
 		flags |= _PAGE_COHERENT;
 
 	bl = (size >> 17) - 1;
-	if (PVR_VER(mfspr(PVR)) != 1) {
+	if (PVR_VER(mfspr(SPRN_PVR)) != 1) {
 		/* 603, 604, etc. */
 		/* Do DBAT first */
 		wimgxpp = flags & (_PAGE_WRITETHRU | _PAGE_NO_CACHE

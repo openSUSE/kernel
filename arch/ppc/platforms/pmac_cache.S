@@ -55,7 +55,7 @@ BEGIN_FTR_SECTION
 END_FTR_SECTION_IFSET(CPU_FTR_ALTIVEC)
 
 	/* Stop DPM */
-	mfspr	r8,SPRN_HID0		/* Save HID0 in r8 */
+	mfspr	r8,SPRN_HID0		/* Save SPRN_HID0 in r8 */
 	rlwinm	r4,r8,0,12,10		/* Turn off HID0[DPM] */
 	sync
 	mtspr	SPRN_HID0,r4		/* Disable DPM */
@@ -86,13 +86,13 @@ END_FTR_SECTION_IFSET(CPU_FTR_ALTIVEC)
 	sync
 
 	/* Get the current enable bit of the L2CR into r4 */
-	mfspr	r5,L2CR
+	mfspr	r5,SPRN_L2CR
 	/* Set to data-only (pre-745x bit) */
 	oris	r3,r5,L2CR_L2DO@h
 	b	2f
 	/* When disabling L2, code must be in L1 */
 	.balign 32
-1:	mtspr	L2CR,r3
+1:	mtspr	SPRN_L2CR,r3
 3:	sync
 	isync
 	b	1f
@@ -117,7 +117,7 @@ END_FTR_SECTION_IFSET(CPU_FTR_ALTIVEC)
 	b	2f
 	/* When disabling L2, code must be in L1 */
 	.balign 32
-1:	mtspr	L2CR,r5
+1:	mtspr	SPRN_L2CR,r5
 3:	sync
 	isync
 	b	1f
@@ -129,18 +129,18 @@ END_FTR_SECTION_IFSET(CPU_FTR_ALTIVEC)
 	isync
 	/* Invalidate L2. This is pre-745x, we clear the L2I bit ourselves */
 	oris	r4,r5,L2CR_L2I@h
-	mtspr	L2CR,r4
+	mtspr	SPRN_L2CR,r4
 	sync
 	isync
 	xoris	r4,r4,L2CR_L2I@h
 	sync
-	mtspr	L2CR,r4
+	mtspr	SPRN_L2CR,r4
 	sync
 
 	/* now disable the L1 data cache */
-	mfspr	r0,HID0
+	mfspr	r0,SPRN_HID0
 	rlwinm	r0,r0,0,~HID0_DCE
-	mtspr	HID0,r0
+	mtspr	SPRN_HID0,r0
 	sync
 	isync
 
@@ -239,14 +239,14 @@ flush_disable_745x:
 	isync
 
 	/* Flush the L2 cache using the hardware assist */
-	mfspr	r3,L2CR
+	mfspr	r3,SPRN_L2CR
 	cmpwi	r3,0		/* check if it is enabled first */
 	bge	4f
 	oris	r0,r3,(L2CR_L2IO_745x|L2CR_L2DO_745x)@h
 	b	2f
 	/* When disabling/locking L2, code must be in L1 */
 	.balign 32
-1:	mtspr	L2CR,r0		/* lock the L2 cache */
+1:	mtspr	SPRN_L2CR,r0	/* lock the L2 cache */
 3:	sync
 	isync
 	b	1f
@@ -258,8 +258,8 @@ flush_disable_745x:
 	isync
 	ori	r0,r3,L2CR_L2HWF_745x
 	sync
-	mtspr	L2CR,r0		/* set the hardware flush bit */
-3:	mfspr	r0,L2CR		/* wait for it to go to 0 */
+	mtspr	SPRN_L2CR,r0	/* set the hardware flush bit */
+3:	mfspr	r0,SPRN_L2CR	/* wait for it to go to 0 */
 	andi.	r0,r0,L2CR_L2HWF_745x
 	bne	3b
 	sync
@@ -267,7 +267,7 @@ flush_disable_745x:
 	b	2f
 	/* When disabling L2, code must be in L1 */
 	.balign 32
-1:	mtspr	L2CR,r3		/* disable the L2 cache */
+1:	mtspr	SPRN_L2CR,r3	/* disable the L2 cache */
 3:	sync
 	isync
 	b	1f
@@ -278,34 +278,34 @@ flush_disable_745x:
 1:	sync
 	isync
 	oris	r4,r3,L2CR_L2I@h
-	mtspr	L2CR,r4
+	mtspr	SPRN_L2CR,r4
 	sync
 	isync
-1:	mfspr	r4,L2CR
+1:	mfspr	r4,SPRN_L2CR
 	andis.	r0,r4,L2CR_L2I@h
 	bne	1b
 	sync
 
 BEGIN_FTR_SECTION
 	/* Flush the L3 cache using the hardware assist */
-4:	mfspr	r3,L3CR
+4:	mfspr	r3,SPRN_L3CR
 	cmpwi	r3,0		/* check if it is enabled */
 	bge	6f
 	oris	r0,r3,L3CR_L3IO@h
 	ori	r0,r0,L3CR_L3DO
 	sync
-	mtspr	L3CR,r0		/* lock the L3 cache */
+	mtspr	SPRN_L3CR,r0	/* lock the L3 cache */
 	sync
 	isync
 	ori	r0,r0,L3CR_L3HWF
 	sync
-	mtspr	L3CR,r0		/* set the hardware flush bit */
-5:	mfspr	r0,L3CR		/* wait for it to go to zero */
+	mtspr	SPRN_L3CR,r0	/* set the hardware flush bit */
+5:	mfspr	r0,SPRN_L3CR	/* wait for it to go to zero */
 	andi.	r0,r0,L3CR_L3HWF
 	bne	5b
 	rlwinm	r3,r3,0,~L3CR_L3E
 	sync
-	mtspr	L3CR,r3		/* disable the L3 cache */
+	mtspr	SPRN_L3CR,r3	/* disable the L3 cache */
 	sync
 	ori	r4,r3,L3CR_L3I
 	mtspr	SPRN_L3CR,r4
@@ -315,9 +315,9 @@ BEGIN_FTR_SECTION
 	sync
 END_FTR_SECTION_IFSET(CPU_FTR_L3CR)
 
-6:	mfspr	r0,HID0		/* now disable the L1 data cache */
+6:	mfspr	r0,SPRN_HID0	/* now disable the L1 data cache */
 	rlwinm	r0,r0,0,~HID0_DCE
-	mtspr	HID0,r0
+	mtspr	SPRN_HID0,r0
 	sync
 	isync
 	mtmsr	r11		/* restore DR and EE */

@@ -452,7 +452,7 @@ katana_setup_arch(void)
 	 * DD2.0 has bug that requires the L2 to be in WRT mode
 	 * avoid dirty data in cache
 	 */
-	if (PVR_REV(mfspr(PVR)) == 0x0200) {
+	if (PVR_REV(mfspr(SPRN_PVR)) == 0x0200) {
 		printk(KERN_INFO "DD2.0 detected. Setting L2 cache"
 			"to Writethrough mode\n");
 		_set_L2CR(L2CR_L2E | L2CR_L2PE | L2CR_L2WT);
@@ -733,8 +733,8 @@ static inline void
 katana_set_bat(void)
 {
 	mb();
-	mtspr(DBAT2U, 0xf0001ffe);
-	mtspr(DBAT2L, 0xf000002a);
+	mtspr(SPRN_DBAT2U, 0xf0001ffe);
+	mtspr(SPRN_DBAT2L, 0xf000002a);
 	mb();
 }
 

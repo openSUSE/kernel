@@ -47,8 +47,8 @@
 #ifdef CONFIG_BOOKE
 #define	COR	r8	/* Critical Offset Register (COR) */
 #define BOOKE_LOAD_COR	lis COR,crit_save@ha
-#define BOOKE_REST_COR	mfspr COR,SPRG2
-#define BOOKE_SAVE_COR	mtspr SPRG2,COR
+#define BOOKE_REST_COR	mfspr COR,SPRN_SPRG2
+#define BOOKE_SAVE_COR	mtspr SPRN_SPRG2,COR
 #else
 #define COR	0
 #define BOOKE_LOAD_COR
@@ -59,13 +59,13 @@
 #ifdef CONFIG_BOOKE
 	.globl	mcheck_transfer_to_handler
 mcheck_transfer_to_handler:
-	mtspr	SPRG6W,r8
+	mtspr	SPRN_SPRG6W,r8
 	lis	r8,mcheck_save@ha
 	lwz	r0,mcheck_r10@l(r8)
 	stw	r0,GPR10(r11)
 	lwz	r0,mcheck_r11@l(r8)
 	stw	r0,GPR11(r11)
-	mfspr	r8,SPRG6R
+	mfspr	r8,SPRN_SPRG6R
 	b	transfer_to_handler_full
 #endif
 
@@ -101,10 +101,10 @@ transfer_to_handler:
 	stw	r9,_MSR(r11)
 	andi.	r2,r9,MSR_PR
 	mfctr	r12
-	mfspr	r2,XER
+	mfspr	r2,SPRN_XER
 	stw	r12,_CTR(r11)
 	stw	r2,_XER(r11)
-	mfspr	r12,SPRG3
+	mfspr	r12,SPRN_SPRG3
 	addi	r2,r12,-THREAD
 	tovirt(r2,r2)			/* set r2 to current */
 	beq	2f			/* if from user, fix up THREAD.regs */
@@ -152,8 +152,8 @@ transfer_to_handler_cont:
 	lwz	r11,0(r9)		/* virtual address of handler */
 	lwz	r9,4(r9)		/* where to go when done */
 	FIX_SRR1(r10,r12)
-	mtspr	SRR0,r11
-	mtspr	SRR1,r10
+	mtspr	SPRN_SRR0,r11
+	mtspr	SPRN_SRR1,r10
 	mtlr	r9
 	SYNC
 	RFI				/* jump to handler, enable MMU */
@@ -177,8 +177,8 @@ stack_ovf:
 	addi	r9,r9,StackOverflow@l
 	LOAD_MSR_KERNEL(r10,MSR_KERNEL)
 	FIX_SRR1(r10,r12)
-	mtspr	SRR0,r9
-	mtspr	SRR1,r10
+	mtspr	SPRN_SRR0,r9
+	mtspr	SPRN_SRR1,r10
 	SYNC
 	RFI
 
@@ -260,8 +260,8 @@ syscall_exit_cont:
 	FIX_SRR1(r8, r0)
 	lwz	r2,GPR2(r1)
 	lwz	r1,GPR1(r1)
-	mtspr	SRR0,r7
-	mtspr	SRR1,r8
+	mtspr	SPRN_SRR0,r7
+	mtspr	SPRN_SRR1,r8
 	SYNC
 	RFI
 
@@ -538,7 +538,7 @@ END_FTR_SECTION_IFSET(CPU_FTR_ALTIVEC)
 
 	tophys(r0,r4)
 	CLR_TOP32(r0)
-	mtspr	SPRG3,r0	/* Update current THREAD phys addr */
+	mtspr	SPRN_SPRG3,r0	/* Update current THREAD phys addr */
 	lwz	r1,KSP(r4)	/* Load new stack pointer */
 
 	/* save the old current 'last' for return value */
@@ -642,7 +642,7 @@ restore:
 
 	lwz	r10,_XER(r1)
 	lwz	r11,_CTR(r1)
-	mtspr	XER,r10
+	mtspr	SPRN_XER,r10
 	mtctr	r11
 
 	PPC405_ERR77(0,r1)
@@ -675,8 +675,8 @@ exc_exit_restart:
 	lwz	r9,_MSR(r1)
 	lwz	r12,_NIP(r1)
 	FIX_SRR1(r9,r10)
-	mtspr	SRR0,r12
-	mtspr	SRR1,r9
+	mtspr	SPRN_SRR0,r12
+	mtspr	SPRN_SRR1,r9
 	REST_4GPRS(9, r1)
 	lwz	r1,GPR1(r1)
 	.globl exc_exit_restart_end
@@ -702,8 +702,8 @@ exc_exit_restart:
 	lwz	r11,_NIP(r1)
 	lwz	r12,_MSR(r1)
 exc_exit_start:
-	mtspr	SRR0,r11
-	mtspr	SRR1,r12
+	mtspr	SPRN_SRR0,r11
+	mtspr	SPRN_SRR1,r12
 	REST_2GPRS(11, r1)
 	lwz	r1,GPR1(r1)
 	.globl exc_exit_restart_end
@@ -742,7 +742,7 @@ ret_from_crit_exc:
 
 	lwz	r10,_XER(r1)
 	lwz	r11,_CTR(r1)
-	mtspr	XER,r10
+	mtspr	SPRN_XER,r10
 	mtctr	r11
 
 	PPC405_ERR77(0,r1)
@@ -766,8 +766,8 @@ ret_from_crit_exc:
 	mtspr	SPRN_ESR,r10
 	lwz	r11,_NIP(r1)
 	lwz	r12,_MSR(r1)
-	mtspr	CSRR0,r11
-	mtspr	CSRR1,r12
+	mtspr	SPRN_CSRR0,r11
+	mtspr	SPRN_CSRR1,r12
 	lwz	r9,GPR9(r1)
 	lwz	r12,GPR12(r1)
 	BOOKE_SAVE_COR
@@ -787,9 +787,9 @@ ret_from_crit_exc:
 	lwz	r10,crit_sprg7@l(COR)
 	mtspr	SPRN_SPRG7,r10
 	lwz	r10,crit_srr0@l(COR)
-	mtspr	SRR0,r10
+	mtspr	SPRN_SRR0,r10
 	lwz	r10,crit_srr1@l(COR)
-	mtspr	SRR1,r10
+	mtspr	SPRN_SRR1,r10
 	lwz	r10,crit_pid@l(COR)
 	mtspr	SPRN_PID,r10
 	lwz	r10,GPR10(r1)
@@ -820,7 +820,7 @@ ret_from_mcheck_exc:
 
 	lwz	r10,_XER(r1)
 	lwz	r11,_CTR(r1)
-	mtspr	XER,r10
+	mtspr	SPRN_XER,r10
 	mtctr	r11
 
 	stwcx.	r0,0,r1			/* to clear the reservation */
@@ -835,11 +835,11 @@ ret_from_mcheck_exc:
 	mtspr	SPRN_ESR,r10
 	lwz	r11,_NIP(r1)
 	lwz	r12,_MSR(r1)
-	mtspr	MCSRR0,r11
-	mtspr	MCSRR1,r12
+	mtspr	SPRN_MCSRR0,r11
+	mtspr	SPRN_MCSRR1,r12
 	lwz	r9,GPR9(r1)
 	lwz	r12,GPR12(r1)
-	mtspr	SPRG6W,r8
+	mtspr	SPRN_SPRG6W,r8
 	lis	r8,mcheck_save@ha
 	lwz	r10,mcheck_sprg0@l(r8)
 	mtspr	SPRN_SPRG0,r10
@@ -852,19 +852,19 @@ ret_from_mcheck_exc:
 	lwz	r10,mcheck_sprg7@l(r8)
 	mtspr	SPRN_SPRG7,r10
 	lwz	r10,mcheck_srr0@l(r8)
-	mtspr	SRR0,r10
+	mtspr	SPRN_SRR0,r10
 	lwz	r10,mcheck_srr1@l(r8)
-	mtspr	SRR1,r10
+	mtspr	SPRN_SRR1,r10
 	lwz	r10,mcheck_csrr0@l(r8)
-	mtspr	CSRR0,r10
+	mtspr	SPRN_CSRR0,r10
 	lwz	r10,mcheck_csrr1@l(r8)
-	mtspr	CSRR1,r10
+	mtspr	SPRN_CSRR1,r10
 	lwz	r10,mcheck_pid@l(r8)
 	mtspr	SPRN_PID,r10
 	lwz	r10,GPR10(r1)
 	lwz	r11,GPR11(r1)
 	lwz	r1,GPR1(r1)
-	mfspr	r8,SPRG6R
+	mfspr	r8,SPRN_SPRG6R
 	RFMCI
 #endif /* CONFIG_BOOKE */
 
@@ -997,9 +997,9 @@ _GLOBAL(enter_rtas)
 	li	r9,MSR_KERNEL & ~(MSR_IR|MSR_DR)
 	mtlr	r6
 	CLR_TOP32(r7)
-	mtspr	SPRG2,r7
-	mtspr	SRR0,r8
-	mtspr	SRR1,r9
+	mtspr	SPRN_SPRG2,r7
+	mtspr	SPRN_SRR0,r8
+	mtspr	SPRN_SRR1,r9
 	RFI
 1:	tophys(r9,r1)
 	lwz	r8,INT_FRAME_SIZE+4(r9)	/* get return address */
@@ -1007,9 +1007,9 @@ _GLOBAL(enter_rtas)
 	FIX_SRR1(r9,r0)
 	addi	r1,r1,INT_FRAME_SIZE
 	li	r0,0
-	mtspr	SPRG2,r0
-	mtspr	SRR0,r8
-	mtspr	SRR1,r9
+	mtspr	SPRN_SPRG2,r0
+	mtspr	SPRN_SRR0,r8
+	mtspr	SPRN_SRR1,r9
 	RFI			/* return to caller */
 
 	.globl	machine_check_in_rtas

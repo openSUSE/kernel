@@ -188,8 +188,8 @@ skpinv:	addi	r6,r6,1				/* Increment */
 1:	mflr	r9
 	rlwimi	r7,r9,0,20,31
 	addi	r7,r7,24
-	mtspr	SRR0,r7
-	mtspr	SRR1,r6
+	mtspr	SPRN_SRR0,r7
+	mtspr	SPRN_SRR1,r6
 	rfi
 
 /* 4. Clear out PIDs & Search info */
@@ -236,8 +236,8 @@ skpinv:	addi	r6,r6,1				/* Increment */
 1:	mflr	r9
 	rlwimi	r6,r9,0,20,31
 	addi	r6,r6,24
-	mtspr	SRR0,r6
-	mtspr	SRR1,r7
+	mtspr	SPRN_SRR0,r6
+	mtspr	SPRN_SRR1,r7
 	rfi				/* start execution out of TLB1[0] entry */
 
 /* 8. Clear out the temp mapping */
@@ -302,7 +302,7 @@ skpinv:	addi	r6,r6,1				/* Increment */
 
 	/* ptr to current thread */
 	addi	r4,r2,THREAD	/* init task's THREAD */
-	mtspr	SPRG3,r4
+	mtspr	SPRN_SPRG3,r4
 
 	/* stack */
 	lis	r1,init_thread_union@h
@@ -342,8 +342,8 @@ skpinv:	addi	r6,r6,1				/* Increment */
 	ori	r4,r4,start_kernel@l
 	lis	r3,MSR_KERNEL@h
 	ori	r3,r3,MSR_KERNEL@l
-	mtspr	SRR0,r4
-	mtspr	SRR1,r3
+	mtspr	SPRN_SRR0,r4
+	mtspr	SPRN_SRR1,r3
 	rfi			/* change context and jump to start_kernel */
 
 /*
@@ -372,12 +372,12 @@ interrupt_base:
 
 	/* Data Storage Interrupt */
 	START_EXCEPTION(DataStorage)
-	mtspr	SPRG0, r10		/* Save some working registers */
-	mtspr	SPRG1, r11
-	mtspr	SPRG4W, r12
-	mtspr	SPRG5W, r13
+	mtspr	SPRN_SPRG0, r10		/* Save some working registers */
+	mtspr	SPRN_SPRG1, r11
+	mtspr	SPRN_SPRG4W, r12
+	mtspr	SPRN_SPRG5W, r13
 	mfcr	r11
-	mtspr	SPRG7W, r11
+	mtspr	SPRN_SPRG7W, r11
 
 	/*
 	 * Check if it was a store fault, if not then bail
@@ -401,7 +401,7 @@ interrupt_base:
 
 	/* Get the PGD for the current thread */
 3:
-	mfspr	r11,SPRG3
+	mfspr	r11,SPRN_SPRG3
 	lwz	r11,PGDIR(r11)
 4:
 	rlwimi	r11, r10, 12, 20, 29	/* Create L1 (pgdir/pmd) address */
@@ -442,12 +442,12 @@ interrupt_base:
 	tlbwe
 
 	/* Done...restore registers and get out of here.  */
-	mfspr	r11, SPRG7R
+	mfspr	r11, SPRN_SPRG7R
 	mtcr	r11
-	mfspr	r13, SPRG5R
-	mfspr	r12, SPRG4R
-	mfspr	r11, SPRG1
-	mfspr	r10, SPRG0
+	mfspr	r13, SPRN_SPRG5R
+	mfspr	r12, SPRN_SPRG4R
+	mfspr	r11, SPRN_SPRG1
+	mfspr	r10, SPRN_SPRG0
 	rfi			/* Force context change */
 
 2:
@@ -455,12 +455,12 @@ interrupt_base:
 	 * The bailout.  Restore registers to pre-exception conditions
 	 * and call the heavyweights to help us out.
 	 */
-	mfspr	r11, SPRG7R
+	mfspr	r11, SPRN_SPRG7R
 	mtcr	r11
-	mfspr	r13, SPRG5R
-	mfspr	r12, SPRG4R
-	mfspr	r11, SPRG1
-	mfspr	r10, SPRG0
+	mfspr	r13, SPRN_SPRG5R
+	mfspr	r12, SPRN_SPRG4R
+	mfspr	r11, SPRN_SPRG1
+	mfspr	r10, SPRN_SPRG0
 	b	data_access
 
 	/* Instruction Storage Interrupt */
@@ -499,12 +499,12 @@ interrupt_base:
 
 	/* Data TLB Error Interrupt */
 	START_EXCEPTION(DataTLBError)
-	mtspr	SPRG0, r10		/* Save some working registers */
-	mtspr	SPRG1, r11
-	mtspr	SPRG4W, r12
-	mtspr	SPRG5W, r13
+	mtspr	SPRN_SPRG0, r10		/* Save some working registers */
+	mtspr	SPRN_SPRG1, r11
+	mtspr	SPRN_SPRG4W, r12
+	mtspr	SPRN_SPRG5W, r13
 	mfcr	r11
-	mtspr	SPRG7W, r11
+	mtspr	SPRN_SPRG7W, r11
 	mfspr	r10, SPRN_DEAR		/* Get faulting address */
 
 	/* If we are faulting a kernel address, we have to use the
@@ -525,7 +525,7 @@ interrupt_base:
 
 	/* Get the PGD for the current thread */
 3:
-	mfspr	r11,SPRG3
+	mfspr	r11,SPRN_SPRG3
 	lwz	r11,PGDIR(r11)
 
 4:
@@ -548,12 +548,12 @@ interrupt_base:
 	/* The bailout.  Restore registers to pre-exception conditions
 	 * and call the heavyweights to help us out.
 	 */
-	mfspr	r11, SPRG7R
+	mfspr	r11, SPRN_SPRG7R
 	mtcr	r11
-	mfspr	r13, SPRG5R
-	mfspr	r12, SPRG4R
-	mfspr	r11, SPRG1
-	mfspr	r10, SPRG0
+	mfspr	r13, SPRN_SPRG5R
+	mfspr	r12, SPRN_SPRG4R
+	mfspr	r11, SPRN_SPRG1
+	mfspr	r10, SPRN_SPRG0
 	b	data_access
 
 	/* Instruction TLB Error Interrupt */
@@ -563,13 +563,13 @@ interrupt_base:
 	 * to a different point.
 	 */
 	START_EXCEPTION(InstructionTLBError)
-	mtspr	SPRG0, r10		/* Save some working registers */
-	mtspr	SPRG1, r11
-	mtspr	SPRG4W, r12
-	mtspr	SPRG5W, r13
+	mtspr	SPRN_SPRG0, r10		/* Save some working registers */
+	mtspr	SPRN_SPRG1, r11
+	mtspr	SPRN_SPRG4W, r12
+	mtspr	SPRN_SPRG5W, r13
 	mfcr	r11
-	mtspr	SPRG7W, r11
-	mfspr	r10, SRR0		/* Get faulting address */
+	mtspr	SPRN_SPRG7W, r11
+	mfspr	r10, SPRN_SRR0		/* Get faulting address */
 
 	/* If we are faulting a kernel address, we have to use the
 	 * kernel page tables.
@@ -589,7 +589,7 @@ interrupt_base:
 
 	/* Get the PGD for the current thread */
 3:
-	mfspr	r11,SPRG3
+	mfspr	r11,SPRN_SPRG3
 	lwz	r11,PGDIR(r11)
 
 4:
@@ -613,12 +613,12 @@ interrupt_base:
 	/* The bailout.  Restore registers to pre-exception conditions
 	 * and call the heavyweights to help us out.
 	 */
-	mfspr	r11, SPRG7R
+	mfspr	r11, SPRN_SPRG7R
 	mtcr	r11
-	mfspr	r13, SPRG5R
-	mfspr	r12, SPRG4R
-	mfspr	r11, SPRG1
-	mfspr	r10, SPRG0
+	mfspr	r13, SPRN_SPRG5R
+	mfspr	r12, SPRN_SPRG4R
+	mfspr	r11, SPRN_SPRG1
+	mfspr	r10, SPRN_SPRG0
 	b	InstructionStorage
 
 #ifdef CONFIG_SPE
@@ -713,12 +713,12 @@ finish_tlb_load:
 	tlbwe
 
 	/* Done...restore registers and get out of here.  */
-	mfspr	r11, SPRG7R
+	mfspr	r11, SPRN_SPRG7R
 	mtcr	r11
-	mfspr	r13, SPRG5R
-	mfspr	r12, SPRG4R
-	mfspr	r11, SPRG1
-	mfspr	r10, SPRG0
+	mfspr	r13, SPRN_SPRG5R
+	mfspr	r12, SPRN_SPRG4R
+	mfspr	r11, SPRN_SPRG1
+	mfspr	r10, SPRN_SPRG0
 	rfi					/* Force context change */
 
 #ifdef CONFIG_SPE
@@ -762,7 +762,7 @@ load_up_spe:
 #endif /* CONFIG_SMP */
 	/* enable use of SPE after return */
 	oris	r9,r9,MSR_SPE@h
-	mfspr	r5,SPRG3		/* current task's THREAD (phys) */
+	mfspr	r5,SPRN_SPRG3		/* current task's THREAD (phys) */
 	li	r4,1
 	li	r10,THREAD_ACC
 	stw	r4,THREAD_USED_SPE(r5)
@@ -781,8 +781,8 @@ load_up_spe:
 	lwz	r10,_LINK(r11)
 	mtlr	r10
 	REST_GPR(10, r11)
-	mtspr	SRR1,r9
-	mtspr	SRR0,r12
+	mtspr	SPRN_SRR1,r9
+	mtspr	SPRN_SRR0,r12
 	REST_GPR(9, r11)
 	REST_GPR(12, r11)
 	lwz	r11,GPR11(r11)

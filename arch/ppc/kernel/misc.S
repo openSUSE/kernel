@@ -216,10 +216,10 @@ _GLOBAL(low_choose_750fx_pll)
 	/* If switching to PLL1, disable HID0:BTIC */
 	cmplwi	cr0,r3,0
 	beq	1f
-	mfspr	r5,HID0
+	mfspr	r5,SPRN_HID0
 	rlwinm	r5,r5,0,27,25
 	sync
-	mtspr	HID0,r5
+	mtspr	SPRN_HID0,r5
 	isync
 	sync
 
@@ -241,10 +241,10 @@ _GLOBAL(low_choose_750fx_pll)
 	/* If switching to PLL0, enable HID0:BTIC */
 	cmplwi	cr0,r3,0
 	bne	1f
-	mfspr	r5,HID0
+	mfspr	r5,SPRN_HID0
 	ori	r5,r5,HID0_BTIC
 	sync
-	mtspr	HID0,r5
+	mtspr	SPRN_HID0,r5
 	isync
 	sync
 
@@ -579,7 +579,7 @@ _GLOBAL(flush_instruction_cache)
 #if defined(CONFIG_8xx)
 	isync
 	lis	r5, IDC_INVALL@h
-	mtspr	IC_CST, r5
+	mtspr	SPRN_IC_CST, r5
 #elif defined(CONFIG_4xx)
 #ifdef CONFIG_403GCX
 	li      r3, 512
@@ -597,14 +597,14 @@ _GLOBAL(flush_instruction_cache)
 	ori	r3,r3,L1CSR1_ICFI|L1CSR1_ICLFR
 	mtspr	SPRN_L1CSR1,r3
 #else
-	mfspr	r3,PVR
+	mfspr	r3,SPRN_PVR
 	rlwinm	r3,r3,16,16,31
 	cmpwi	0,r3,1
 	beqlr			/* for 601, do nothing */
 	/* 603/604 processor - use invalidate-all bit in HID0 */
-	mfspr	r3,HID0
+	mfspr	r3,SPRN_HID0
 	ori	r3,r3,HID0_ICFI
-	mtspr	HID0,r3
+	mtspr	SPRN_HID0,r3
 #endif /* CONFIG_8xx/4xx */
 	isync
 	blr

@@ -80,8 +80,8 @@ mpc52xx_set_bat(void)
 	 * mpc52xx_find_end_of_memory, and UARTs/GPIO access for debug
 	 */
 	mb();
-	mtspr(DBAT2U, 0xf0001ffe);
-	mtspr(DBAT2L, 0xf000002a);
+	mtspr(SPRN_DBAT2U, 0xf0001ffe);
+	mtspr(SPRN_DBAT2L, 0xf000002a);
 	mb();
 }
 

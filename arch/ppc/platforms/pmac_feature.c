@@ -1796,7 +1796,7 @@ core99_sleep_state(struct device_node* node, long param, long value)
 			if (value == 1) {
 				pmac_call_feature(PMAC_FTR_WRITE_GPIO, NULL,
 						  *reg, 0x05);
-			} else if (value == 0 && (mfspr(HID1) & HID1_DFS)) {
+			} else if (value == 0 && (mfspr(SPRN_HID1) & HID1_DFS)) {
 				pmac_call_feature(PMAC_FTR_WRITE_GPIO, NULL,
 						  *reg, 0x04);
 			}

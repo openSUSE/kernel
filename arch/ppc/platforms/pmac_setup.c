@@ -247,7 +247,7 @@ pmac_setup_arch(void)
 	int *fp;
 	unsigned long pvr;
 
-	pvr = PVR_VER(mfspr(PVR));
+	pvr = PVR_VER(mfspr(SPRN_PVR));
 
 	/* Set loops_per_jiffy to a half-way reasonable value,
 	   for use until calibrate_delay gets called. */

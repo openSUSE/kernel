@@ -263,8 +263,8 @@ gp3_show_cpuinfo(struct seq_file *m)
 	/* get the core frequency */
 	freq = binfo->bi_intfreq;
 
-	pvid = mfspr(PVR);
-	svid = mfspr(SVR);
+	pvid = mfspr(SPRN_PVR);
+	svid = mfspr(SPRN_SVR);
 
 	memsize = total_memory;
 
@@ -277,7 +277,7 @@ gp3_show_cpuinfo(struct seq_file *m)
 	seq_printf(m, "SVR\t\t: 0x%x\n", svid);
 
 	/* Display cpu Pll setting */
-	phid1 = mfspr(HID1);
+	phid1 = mfspr(SPRN_HID1);
 	seq_printf(m, "PLL setting\t: 0x%x\n", ((phid1 >> 24) & 0x3f));
 
 	/* Display the amount of memory */
@@ -349,7 +349,7 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 		strcpy(cmd_line, (char *) (r6 + KERNELBASE));
 	}
 
-	identify_ppc_sys_by_id(mfspr(SVR));
+	identify_ppc_sys_by_id(mfspr(SPRN_SVR));
 
 	/* setup the PowerPC module struct */
 	ppc_md.setup_arch = gp3_setup_arch;

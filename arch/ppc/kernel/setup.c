@@ -179,7 +179,7 @@ int show_cpuinfo(struct seq_file *m, void *v)
 	pvr = cpu_data[i].pvr;
 	lpj = cpu_data[i].loops_per_jiffy;
 #else
-	pvr = mfspr(PVR);
+	pvr = mfspr(SPRN_PVR);
 	lpj = loops_per_jiffy;
 #endif
 

@@ -89,7 +89,7 @@ cpci690_get_cpu_speed(void)
 {
 	unsigned long	hid1;
 
-	hid1 = mfspr(HID1) >> 28;
+	hid1 = mfspr(SPRN_HID1) >> 28;
 	return cpci690_get_bus_speed() * cpu_7xx[hid1]/2;
 }
 
@@ -441,8 +441,8 @@ cpci690_set_bat(u32 addr, u32 size)
 	size = ((size >> 17) - 1) << 2;
 
 	mb();
-	mtspr(DBAT1U, addr | size | 0x2); /* Vs == 1; Vp == 0 */
-	mtspr(DBAT1L, addr | 0x2a); /* WIMG bits == 0101; PP == r/w access */
+	mtspr(SPRN_DBAT1U, addr | size | 0x2); /* Vs == 1; Vp == 0 */
+	mtspr(SPRN_DBAT1L, addr | 0x2a); /* WIMG bits == 0101; PP == r/w access */
 	mb();
 
 	return;

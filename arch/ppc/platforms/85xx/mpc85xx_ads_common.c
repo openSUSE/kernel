@@ -126,8 +126,8 @@ mpc85xx_ads_show_cpuinfo(struct seq_file *m)
 	/* get the core frequency */
 	freq = binfo->bi_intfreq;
 
-	pvid = mfspr(PVR);
-	svid = mfspr(SVR);
+	pvid = mfspr(SPRN_PVR);
+	svid = mfspr(SPRN_SVR);
 
 	seq_printf(m, "chip\t\t: MPC%s\n", cur_ppc_sys_spec->ppc_sys_name);
 	seq_printf(m, "Vendor\t\t: Freescale Semiconductor\n");
@@ -137,7 +137,7 @@ mpc85xx_ads_show_cpuinfo(struct seq_file *m)
 	seq_printf(m, "SVR\t\t: 0x%x\n", svid);
 
 	/* Display cpu Pll setting */
-	phid1 = mfspr(HID1);
+	phid1 = mfspr(SPRN_HID1);
 	seq_printf(m, "PLL setting\t: 0x%x\n", ((phid1 >> 24) & 0x3f));
 
 	/* Display the amount of memory */

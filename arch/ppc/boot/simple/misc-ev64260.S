@@ -21,13 +21,13 @@
 	.globl	mv64x60_board_init
 mv64x60_board_init:
 	/* DINK doesn't enable 745x timebase, so enable here (Adrian Cox) */
-	mfspr	r25,PVR
+	mfspr	r25,SPRN_PVR
 	srwi	r25,r25,16
 	cmplwi	r25,(PVR_7450 >> 16)
 	bne	1f
-	mfspr	r25,HID0
+	mfspr	r25,SPRN_HID0
 	oris	r25,r25,(HID0_TBEN >> 16)
-	mtspr	HID0,r25
+	mtspr	SPRN_HID0,r25
 1:
 #if (CONFIG_MV64X60_NEW_BASE != CONFIG_MV64X60_BASE)
 	li	r23,20

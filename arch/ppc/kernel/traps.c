@@ -486,7 +486,7 @@ static int emulate_instruction(struct pt_regs *regs)
 	 */
 	if ((instword & INST_MFSPR_PVR_MASK) == INST_MFSPR_PVR) {
 		rd = (instword >> 21) & 0x1f;
-		regs->gpr[rd] = mfspr(PVR);
+		regs->gpr[rd] = mfspr(SPRN_PVR);
 		return 0;
 	}
 
