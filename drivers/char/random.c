@@ -1473,16 +1473,14 @@ void get_random_bytes(void *buf, int nbytes)
 
 EXPORT_SYMBOL(get_random_bytes);
 
-/*********************************************************************
- *
- * Functions to interface with Linux
- *
- *********************************************************************/
-
 /*
- * Initialize the random pool with standard stuff.
+ * init_std_data - initialize pool with system data
  *
- * NOTE: This is an OS-dependent function.
+ * @r: pool to initialize
+ *
+ * This function clears the pool's entropy count and mixes some system
+ * data into the pool to prepare it for use. The pool is not cleared
+ * as that can only decrease the entropy in the pool.
  */
 static void init_std_data(struct entropy_store *r)
 {
@@ -1490,6 +1488,11 @@ static void init_std_data(struct entropy_store *r)
 	__u32 words[2];
 	char *p;
 	int i;
+	unsigned long flags;
+
+	spin_lock_irqsave(&r->lock, flags);
+	r->entropy_count = 0;
+	spin_unlock_irqrestore(&r->lock, flags);
 
 	do_gettimeofday(&tv);
 	words[0] = tv.tv_sec;
@@ -1753,8 +1756,9 @@ random_ioctl(struct inode * inode, struct file * file,
 		/* Clear the entropy pool counters. */
 		if (!capable(CAP_SYS_ADMIN))
 			return -EPERM;
-		random_state->entropy_count = 0;
 		init_std_data(random_state);
+		init_std_data(sec_random_state);
+		init_std_data(urandom_state);
 		return 0;
 	default:
 		return -EINVAL;
