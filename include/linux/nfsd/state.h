@@ -279,7 +279,7 @@ struct nfs4_stateid {
 extern time_t nfs4_laundromat(void);
 extern int nfsd4_renew(clientid_t *clid);
 extern int nfs4_preprocess_stateid_op(struct svc_fh *current_fh, 
-		stateid_t *stateid, int flags);
+		stateid_t *stateid, int flags, struct file **filp);
 extern int nfs4_share_conflict(struct svc_fh *current_fh, 
 		unsigned int deny_type);
 extern void nfs4_lock_state(void);

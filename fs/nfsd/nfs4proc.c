@@ -464,6 +464,7 @@ static inline int
 nfsd4_read(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_read *read)
 {
 	int status;
+	struct file *filp = NULL;
 
 	/* no need to check permission - this will be done in nfsd_read() */
 
@@ -472,8 +473,8 @@ nfsd4_read(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_read 
 
 	nfs4_lock_state();
 	/* check stateid */
-	if ((status = nfs4_preprocess_stateid_op(current_fh, &read->rd_stateid, 
-					CHECK_FH | RD_STATE))) {
+	if ((status = nfs4_preprocess_stateid_op(current_fh, &read->rd_stateid,
+					CHECK_FH | RD_STATE, &filp))) {
 		dprintk("NFSD: nfsd4_read: couldn't process stateid!\n");
 		goto out;
 	}
@@ -482,6 +483,7 @@ out:
 	nfs4_unlock_state();
 	read->rd_rqstp = rqstp;
 	read->rd_fhp = current_fh;
+	read->rd_filp = filp;
 	return status;
 }
 
@@ -574,7 +576,7 @@ nfsd4_setattr(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_se
 		nfs4_lock_state();
 		if ((status = nfs4_preprocess_stateid_op(current_fh, 
 						&setattr->sa_stateid, 
-						CHECK_FH | WR_STATE))) {
+						CHECK_FH | WR_STATE, NULL))) {
 			dprintk("NFSD: nfsd4_setattr: couldn't process stateid!\n");
 			goto out_unlock;
 		}
@@ -598,6 +600,7 @@ static inline int
 nfsd4_write(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_write *write)
 {
 	stateid_t *stateid = &write->wr_stateid;
+	struct file *filp = NULL;
 	u32 *p;
 	int status = nfs_ok;
 
@@ -608,7 +611,7 @@ nfsd4_write(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_writ
 
 	nfs4_lock_state();
 	if ((status = nfs4_preprocess_stateid_op(current_fh, stateid, 
-					CHECK_FH | WR_STATE))) {
+					CHECK_FH | WR_STATE, &filp))) {
 		dprintk("NFSD: nfsd4_write: couldn't process stateid!\n");
 		goto out;
 	}
@@ -620,9 +623,10 @@ nfsd4_write(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_writ
 	*p++ = nfssvc_boot.tv_sec;
 	*p++ = nfssvc_boot.tv_usec;
 
-	status =  nfsd_write(rqstp, current_fh, write->wr_offset,
-			  write->wr_vec, write->wr_vlen, write->wr_buflen,
-			  &write->wr_how_written);
+	status =  nfsd_write(rqstp, current_fh, filp, write->wr_offset,
+			write->wr_vec, write->wr_vlen, write->wr_buflen,
+			&write->wr_how_written);
+
 	if (status == nfserr_symlink)
 		status = nfserr_inval;
 	return status;

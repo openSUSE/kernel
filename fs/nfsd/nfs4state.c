@@ -2042,7 +2042,7 @@ io_during_grace_disallowed(struct inode *inode, int flags)
 * Checks for stateid operations
 */
 int
-nfs4_preprocess_stateid_op(struct svc_fh *current_fh, stateid_t *stateid, int flags)
+nfs4_preprocess_stateid_op(struct svc_fh *current_fh, stateid_t *stateid, int flags, struct file **filpp)
 {
 	struct nfs4_stateid *stp = NULL;
 	struct nfs4_delegation *dp = NULL;
@@ -2053,6 +2053,8 @@ nfs4_preprocess_stateid_op(struct svc_fh *current_fh, stateid_t *stateid, int fl
 	dprintk("NFSD: preprocess_stateid_op: stateid = (%08x/%08x/%08x/%08x)\n",
 		stateid->si_boot, stateid->si_stateownerid, 
 		stateid->si_fileid, stateid->si_generation); 
+	if (filpp)
+		*filpp = NULL;
 
 	if (io_during_grace_disallowed(ino, flags))
 		return nfserr_grace;
@@ -2099,6 +2101,8 @@ nfs4_preprocess_stateid_op(struct svc_fh *current_fh, stateid_t *stateid, int fl
 		if ((status = nfs4_check_openmode(stp,flags)))
 			goto out;
 		renew_client(stp->st_stateowner->so_client);
+		if (filpp)
+			*filpp = stp->st_vfs_file;
 	} else if (dp) {
 		if ((status = nfs4_check_delegmode(dp, flags)))
 			goto out;
@@ -2405,7 +2409,7 @@ nfsd4_delegreturn(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd
 		goto out;
 
 	nfs4_lock_state();
-	status = nfs4_preprocess_stateid_op(current_fh, &dr->dr_stateid, DELEG_RET);
+	status = nfs4_preprocess_stateid_op(current_fh, &dr->dr_stateid, DELEG_RET, NULL);
 	nfs4_unlock_state();
 out:
 	return status;

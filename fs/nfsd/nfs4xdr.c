@@ -2068,10 +2068,10 @@ nfsd4_encode_read(struct nfsd4_compoundres *resp, int nfserr, struct nfsd4_read 
 	}
 	read->rd_vlen = v;
 
-	nfserr = nfsd_read(read->rd_rqstp, read->rd_fhp,
-			   read->rd_offset,
-			   read->rd_iov, read->rd_vlen,
-			   &maxcount);
+	nfserr = nfsd_read(read->rd_rqstp, read->rd_fhp, read->rd_filp,
+			read->rd_offset, read->rd_iov, read->rd_vlen,
+			&maxcount);
+
 	if (nfserr == nfserr_symlink)
 		nfserr = nfserr_inval;
 	if (nfserr)

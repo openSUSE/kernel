@@ -96,9 +96,9 @@ int		nfsd_commit(struct svc_rqst *, struct svc_fh *,
 int		nfsd_open(struct svc_rqst *, struct svc_fh *, int,
 				int, struct file **);
 void		nfsd_close(struct file *);
-int		nfsd_read(struct svc_rqst *, struct svc_fh *,
-				loff_t, struct kvec *,int, unsigned long *);
-int		nfsd_write(struct svc_rqst *, struct svc_fh *,
+int 		nfsd_read(struct svc_rqst *, struct svc_fh *, struct file *,
+				loff_t, struct kvec *, int, unsigned long *);
+int 		nfsd_write(struct svc_rqst *, struct svc_fh *,struct file *,
 				loff_t, struct kvec *,int, unsigned long, int *);
 int		nfsd_readlink(struct svc_rqst *, struct svc_fh *,
 				char *, int *);
