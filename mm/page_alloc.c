@@ -306,7 +306,7 @@ static inline void __free_pages_bulk (struct page *page,
 
 static inline void free_pages_check(const char *function, struct page *page)
 {
-	if (	page_mapped(page) ||
+	if (	page_mapcount(page) ||
 		page->mapping != NULL ||
 		page_count(page) != 0 ||
 		(page->flags & (
@@ -433,7 +433,7 @@ void set_page_refs(struct page *page, int order)
  */
 static void prep_new_page(struct page *page, int order)
 {
-	if (page->mapping || page_mapped(page) ||
+	if (page->mapping || page_mapcount(page) ||
 	    (page->flags & (
 			1 << PG_private	|
 			1 << PG_locked	|
