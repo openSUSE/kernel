@@ -12,8 +12,39 @@
 #include "asm/mmu.h"
 #include "user_util.h"
 #include "mem_user.h"
+#include "mem.h"
 #include "skas.h"
 #include "os.h"
+#include "tlb.h"
+
+static void do_ops(int fd, struct host_vm_op *ops, int last)
+{
+	struct host_vm_op *op;
+	int i;
+
+	for(i = 0; i <= last; i++){
+		op = &ops[i];
+		switch(op->type){
+		case MMAP:
+			map(fd, op->u.mmap.addr, op->u.mmap.len,
+			    op->u.mmap.r, op->u.mmap.w, op->u.mmap.x,
+			    op->u.mmap.fd, op->u.mmap.offset);
+			break;
+		case MUNMAP:
+			unmap(fd, (void *) op->u.munmap.addr,
+			      op->u.munmap.len);
+			break;
+		case MPROTECT:
+			protect(fd, op->u.mprotect.addr, op->u.mprotect.len,
+				op->u.mprotect.r, op->u.mprotect.w,
+				op->u.mprotect.x);
+			break;
+		default:
+			printk("Unknown op type %d in do_ops\n", op->type);
+			break;
+		}
+	}
+}
 
 static void fix_range(struct mm_struct *mm, unsigned long start_addr,
 		      unsigned long end_addr, int force)
@@ -23,7 +54,9 @@ static void fix_range(struct mm_struct *mm, unsigned long start_addr,
 	pmd_t *npmd;
 	pte_t *npte;
 	unsigned long addr,  end;
-	int r, w, x, err, fd;
+	int r, w, x, fd;
+	struct host_vm_op ops[16];
+	int op_index = -1, last_op = sizeof(ops) / sizeof(ops[0]) - 1;
 
 	if(mm == NULL) return;
 	fd = mm->context.skas.mm_fd;
@@ -34,10 +67,9 @@ static void fix_range(struct mm_struct *mm, unsigned long start_addr,
 				end = addr + PGDIR_SIZE;
 				if(end > end_addr)
 					end = end_addr;
-				err = unmap(fd, (void *) addr, end - addr);
-				if(err < 0)
-					panic("munmap failed, errno = %d\n",
-					      -err);
+				op_index = add_munmap(addr, end - addr, ops,
+						      op_index, last_op, fd,
+						      do_ops);
 				pgd_mkuptodate(*npgd);
 			}
 			addr += PGDIR_SIZE;
@@ -50,10 +82,9 @@ static void fix_range(struct mm_struct *mm, unsigned long start_addr,
 				end = addr + PUD_SIZE;
 				if(end > end_addr)
 					end = end_addr;
-				err = unmap(fd, (void *) addr, end - addr);
-				if(err < 0)
-					panic("munmap failed, errno = %d\n",
-					      -err);
+				op_index = add_munmap(addr, end - addr, ops,
+						      op_index, last_op, fd,
+						      do_ops);
 				pud_mkuptodate(*npud);
 			}
 			addr += PUD_SIZE;
@@ -66,10 +97,9 @@ static void fix_range(struct mm_struct *mm, unsigned long start_addr,
 				end = addr + PMD_SIZE;
 				if(end > end_addr)
 					end = end_addr;
-				err = unmap(fd, (void *) addr, end - addr);
-				if(err < 0)
-					panic("munmap failed, errno = %d\n",
-					      -err);
+				op_index = add_munmap(addr, end - addr, ops,
+						      op_index, last_op, fd,
+						      do_ops);
 				pmd_mkuptodate(*npmd);
 			}
 			addr += PMD_SIZE;
@@ -87,19 +117,25 @@ static void fix_range(struct mm_struct *mm, unsigned long start_addr,
 			w = 0;
 		}
 		if(force || pte_newpage(*npte)){
-			err = unmap(fd, (void *) addr, PAGE_SIZE);
-			if(err < 0)
-				panic("munmap failed, errno = %d\n", -err);
 			if(pte_present(*npte))
-				map(fd, addr, pte_val(*npte) & PAGE_MASK,
-				    PAGE_SIZE, r, w, x);
+				op_index = add_mmap(addr,
+						    pte_val(*npte) & PAGE_MASK,
+						    PAGE_SIZE, r, w, x, ops,
+						    op_index, last_op, fd,
+						    do_ops);
+			else op_index = add_munmap(addr, PAGE_SIZE, ops,
+						   op_index, last_op, fd,
+						   do_ops);
 		}
 		else if(pte_newprot(*npte))
-			protect(fd, addr, PAGE_SIZE, r, w, x, 1);
+			op_index = add_mprotect(addr, PAGE_SIZE, r, w, x, ops,
+						op_index, last_op, fd,
+						do_ops);
 
 		*npte = pte_mkuptodate(*npte);
 		addr += PAGE_SIZE;
 	}
+	do_ops(fd, ops, op_index);
 }
 
 void flush_tlb_kernel_range_skas(unsigned long start, unsigned long end)
@@ -205,6 +241,12 @@ void flush_tlb_range_skas(struct vm_area_struct *vma, unsigned long start,
 
 void flush_tlb_mm_skas(struct mm_struct *mm)
 {
+	/* Don't bother flushing if this address space is about to be
+	 * destroyed.
+	 */
+	if(atomic_read(&mm->mm_users) == 0)
+		return;
+
 	flush_tlb_kernel_vm_skas();
 	fix_range(mm, 0, host_task_size, 0);
 }
