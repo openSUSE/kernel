@@ -58,6 +58,7 @@
 #include <linux/ethtool.h>
 #include <linux/pci.h>
 #include <linux/dma-mapping.h>
+#include <linux/wait.h>
 #include <asm/uaccess.h>
 #include <asm/semaphore.h>
 #include <asm/byteorder.h>
@@ -1180,31 +1181,21 @@ static void usb_api_blocking_completion(struct urb *urb, struct pt_regs *regs)
 // Starts urb and waits for completion or timeout
 static int usb_start_wait_urb(struct urb *urb, int timeout, int* actual_length)
 {
-        DECLARE_WAITQUEUE(wait, current);
 	struct usb_api_data awd;
         int status;
 
         init_waitqueue_head(&awd.wqh);
         awd.done = 0;
 
-        add_wait_queue(&awd.wqh, &wait);
         urb->context = &awd;
         status = usb_submit_urb(urb, GFP_NOIO);
         if (status) {
                 // something went wrong
                 usb_free_urb(urb);
-                remove_wait_queue(&awd.wqh, &wait);
                 return status;
         }
 
-	while (timeout && !awd.done) {
-		set_current_state(TASK_UNINTERRUPTIBLE);
-		timeout = schedule_timeout(timeout);
-	}
-
-        remove_wait_queue(&awd.wqh, &wait);
-
-        if (!timeout) {
+	if (!wait_event_timeout(awd.wqh, awd.done, timeout)) {
                 // timeout
                 kaweth_warn("usb_control/bulk_msg: timeout");
                 usb_kill_urb(urb);  // remove urb safely
