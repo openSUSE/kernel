@@ -602,6 +602,44 @@ static int pcmcia_bus_match(struct device * dev, struct device_driver * drv) {
 	return 0;
 }
 
+/************************ per-device sysfs output ***************************/
+
+#define pcmcia_device_attr(field, test, format)				\
+static ssize_t field##_show (struct device *dev, char *buf)		\
+{									\
+	struct pcmcia_device *p_dev = to_pcmcia_dev(dev);		\
+	return p_dev->test ? sprintf (buf, format, p_dev->field) : -ENODEV; \
+}
+
+#define pcmcia_device_stringattr(name, field)					\
+static ssize_t name##_show (struct device *dev, char *buf)		\
+{									\
+	struct pcmcia_device *p_dev = to_pcmcia_dev(dev);		\
+	return p_dev->field ? sprintf (buf, "%s\n", p_dev->field) : -ENODEV; \
+}
+
+pcmcia_device_attr(func, socket, "0x%02x\n");
+pcmcia_device_attr(func_id, has_func_id, "0x%02x\n");
+pcmcia_device_attr(manf_id, has_manf_id, "0x%04x\n");
+pcmcia_device_attr(card_id, has_card_id, "0x%04x\n");
+pcmcia_device_stringattr(prod_id1, prod_id[0]);
+pcmcia_device_stringattr(prod_id2, prod_id[1]);
+pcmcia_device_stringattr(prod_id3, prod_id[2]);
+pcmcia_device_stringattr(prod_id4, prod_id[3]);
+
+static struct device_attribute pcmcia_dev_attrs[] = {
+	__ATTR(function, 0444, func_show, NULL),
+	__ATTR_RO(func_id),
+	__ATTR_RO(manf_id),
+	__ATTR_RO(card_id),
+	__ATTR_RO(prod_id1),
+	__ATTR_RO(prod_id2),
+	__ATTR_RO(prod_id3),
+	__ATTR_RO(prod_id4),
+	__ATTR_NULL,
+};
+
+
 /*======================================================================
 
     These manage a ring buffer of events pending for one user process
@@ -1575,6 +1613,7 @@ static struct class_interface pcmcia_bus_interface = {
 struct bus_type pcmcia_bus_type = {
 	.name = "pcmcia",
 	.match = pcmcia_bus_match,
+	.dev_attrs = pcmcia_dev_attrs,
 };
 EXPORT_SYMBOL(pcmcia_bus_type);
 
