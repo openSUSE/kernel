@@ -10,10 +10,11 @@
  * published by the Free Software Foundation.
  *
  * Modifications:
- *	16-Sep-2004 BJD Copied from mach-h1940.c
- *	25-Oct-2004 BJD Updates for 2.6.10-rc1
- *	10-Jan-2005 BJD Removed include of s3c2410.h s3c2440.h
- *	14-Jan-2005 BJD Added new clock init
+ *	16-Sep-2004 BJD  Copied from mach-h1940.c
+ *	25-Oct-2004 BJD  Updates for 2.6.10-rc1
+ *	10-Jan-2005 BJD  Removed include of s3c2410.h s3c2440.h
+ *	14-Jan-2005 BJD  Added new clock init
+ *	10-Mar-2005 LCVR Changed S3C2410_VA to S3C24XX_VA
 */
 
 #include <linux/kernel.h>
@@ -48,8 +49,8 @@
 static struct map_desc rx3715_iodesc[] __initdata = {
 	/* dump ISA space somewhere unused */
 
-	{ S3C2410_VA_ISA_WORD, S3C2410_CS3, SZ_16M, MT_DEVICE },
-	{ S3C2410_VA_ISA_BYTE, S3C2410_CS3, SZ_16M, MT_DEVICE },
+	{ S3C24XX_VA_ISA_WORD, S3C2410_CS3, SZ_16M, MT_DEVICE },
+	{ S3C24XX_VA_ISA_BYTE, S3C2410_CS3, SZ_16M, MT_DEVICE },
 };
 
 static struct s3c2410_uartcfg rx3715_uartcfgs[] = {
@@ -114,7 +115,7 @@ static void __init rx3715_init_machine(void)
 
 MACHINE_START(RX3715, "IPAQ-RX3715")
      MAINTAINER("Ben Dooks <ben@fluff.org>")
-     BOOT_MEM(S3C2410_SDRAM_PA, S3C2410_PA_UART, S3C2410_VA_UART)
+     BOOT_MEM(S3C2410_SDRAM_PA, S3C2410_PA_UART, S3C24XX_VA_UART)
      BOOT_PARAMS(S3C2410_SDRAM_PA + 0x100)
      MAPIO(rx3715_map_io)
      INITIRQ(rx3715_init_irq)
