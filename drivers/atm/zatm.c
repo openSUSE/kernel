@@ -1639,7 +1639,7 @@ static struct pci_driver zatm_driver = {
 
 static int __init zatm_init_module(void)
 {
-	return pci_module_init(&zatm_driver);
+	return pci_register_driver(&zatm_driver);
 }
 
 module_init(zatm_init_module);

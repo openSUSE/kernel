@@ -3276,7 +3276,7 @@ static int __init ia_module_init(void)
 {
 	int ret;
 
-	ret = pci_module_init(&ia_driver);
+	ret = pci_register_driver(&ia_driver);
 	if (ret >= 0) {
 		ia_timer.expires = jiffies + 3*HZ;
 		add_timer(&ia_timer); 

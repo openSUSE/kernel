@@ -3079,7 +3079,7 @@ static struct pci_driver he_driver = {
 
 static int __init he_init(void)
 {
-	return pci_module_init(&he_driver);
+	return pci_register_driver(&he_driver);
 }
 
 static void __exit he_cleanup(void)

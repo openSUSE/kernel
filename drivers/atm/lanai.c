@@ -2746,7 +2746,7 @@ static int __init lanai_module_init(void)
 {
 	int x;
 
-	x = pci_module_init(&lanai_driver);
+	x = pci_register_driver(&lanai_driver);
 	if (x != 0)
 		printk(KERN_ERR DEV_LABEL ": no adapter found\n");
 	return x;
