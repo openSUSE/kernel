@@ -41,7 +41,6 @@
 #include "smi.h"
 #include "agent.h"
 
-
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_DESCRIPTION("kernel IB MAD API");
 MODULE_AUTHOR("Hal Rosenstock");
@@ -490,6 +489,7 @@ static void unregister_mad_agent(struct ib_mad_agent_private *mad_agent_priv)
 	cancel_mads(mad_agent_priv);
 
 	port_priv = mad_agent_priv->qp_info->port_priv;
+
 	cancel_delayed_work(&mad_agent_priv->timed_work);
 	flush_workqueue(port_priv->wq);
 
@@ -1266,12 +1266,12 @@ static void remove_mad_reg_req(struct ib_mad_agent_private *agent_priv)
 	}
 
 	port_priv = agent_priv->qp_info->port_priv;
+	mgmt_class = convert_mgmt_class(agent_priv->reg_req->mgmt_class);
 	class = port_priv->version[
 			agent_priv->reg_req->mgmt_class_version].class;
 	if (!class)
 		goto vendor_check;
 
-	mgmt_class = convert_mgmt_class(agent_priv->reg_req->mgmt_class);
 	method = class->method_table[mgmt_class];
 	if (method) {
 		/* Remove any methods for this mad agent */
@@ -1293,16 +1293,21 @@ static void remove_mad_reg_req(struct ib_mad_agent_private *agent_priv)
 	}
 
 vendor_check:
+	if (!is_vendor_class(mgmt_class))
+		goto out;
+
+	/* normalize mgmt_class to vendor range 2 */
+	mgmt_class = vendor_class_index(agent_priv->reg_req->mgmt_class);
 	vendor = port_priv->version[
 			agent_priv->reg_req->mgmt_class_version].vendor;
+
 	if (!vendor)
 		goto out;
 
-	mgmt_class = vendor_class_index(agent_priv->reg_req->mgmt_class);
 	vendor_class = vendor->vendor_class[mgmt_class];
 	if (vendor_class) {
 		index = find_vendor_oui(vendor_class, agent_priv->reg_req->oui);
-		if (index == -1)
+		if (index < 0)
 			goto out;
 		method = vendor_class->method_table[index];
 		if (method) {
