@@ -1405,7 +1405,7 @@ static int snd_emu10k1_pcm_efx_voices_mask_put(snd_kcontrol_t * kcontrol, snd_ct
 
 static snd_kcontrol_new_t snd_emu10k1_pcm_efx_voices_mask = {
 	.iface = SNDRV_CTL_ELEM_IFACE_PCM,
-	.name = "EFX voices mask",
+	.name = "Captured FX8010 Outputs",
 	.info = snd_emu10k1_pcm_efx_voices_mask_info,
 	.get = snd_emu10k1_pcm_efx_voices_mask_get,
 	.put = snd_emu10k1_pcm_efx_voices_mask_put
@@ -1690,7 +1690,7 @@ int __devinit snd_emu10k1_pcm_efx(emu10k1_t * emu, int device, snd_pcm_t ** rpcm
 		emu->efx_voices_mask[0] = 0;
 		emu->efx_voices_mask[1] = 0xffff;
 	} else {
-		emu->efx_voices_mask[0] = 0xffff;
+		emu->efx_voices_mask[0] = 0xffff0000;
 		emu->efx_voices_mask[1] = 0;
 	}
 	snd_ctl_add(emu->card, snd_ctl_new1(&snd_emu10k1_pcm_efx_voices_mask, emu));
