@@ -36,6 +36,8 @@
 #define GT64260_WINDOW_SIZE_MIN			0x00100000
 #define MV64360_WINDOW_SIZE_MIN			0x00010000
 
+#define	MV64x60_TCLK_FREQ_MAX			133333333U
+
 /* IRQ's for embedded controllers */
 #define	MV64x60_IRQ_DEV				1
 #define	MV64x60_IRQ_CPU_ERR			3
@@ -303,7 +305,7 @@
 #define	MV64360_SRAM_ERR_DATA_HI		0x03a0
 #define	MV64360_SRAM_ERR_PARITY			0x03a8
 
-#define	MV64360_SRAM_SIZE			0x00040000 /* 256 KB of SRAM */
+#define	MV64360_SRAM_SIZE			0x00200000 /* 2 MB of SRAM */
 
 /*
  *****************************************************************************
