@@ -3011,6 +3011,8 @@ static int remove_from_transaction(struct super_block *p_s_sb, b_blocknr_t block
 
   if (!already_cleaned) {
     clear_buffer_journal_dirty (bh);
+    clear_buffer_dirty(bh);
+    clear_buffer_journal_test (bh);
     put_bh(bh) ;
     if (atomic_read(&(bh->b_count)) < 0) {
       reiserfs_warning (p_s_sb, "journal-1752: remove from trans, b_count < 0");
@@ -3317,6 +3319,8 @@ int journal_mark_freed(struct reiserfs_transaction_handle *th, struct super_bloc
 	    ** in the current trans
 	    */
             clear_buffer_journal_dirty (cn->bh);
+	    clear_buffer_dirty(cn->bh);
+	    clear_buffer_journal_test(cn->bh);
 	    cleaned = 1 ;
 	    put_bh(cn->bh) ;
 	    if (atomic_read(&(cn->bh->b_count)) < 0) {
