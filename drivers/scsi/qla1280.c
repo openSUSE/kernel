@@ -1462,16 +1462,12 @@ qla1280_done(struct scsi_qla_host *ha)
 
 		/* Release memory used for this I/O */
 		if (cmd->use_sg) {
-			dprintk(3, "S/G unmap_sg cmd=%p\n", cmd);
-
 			pci_unmap_sg(ha->pdev, cmd->request_buffer,
-				     cmd->use_sg, cmd->sc_data_direction);
+					cmd->use_sg, cmd->sc_data_direction);
 		} else if (cmd->request_bufflen) {
-			/*dprintk(1, "No S/G unmap_single cmd=%x saved_dma_handle=%lx\n",
-			  cmd, sp->saved_dma_handle); */
-
-			pci_unmap_page(ha->pdev, sp->saved_dma_handle,
-				       cmd->request_bufflen, cmd->sc_data_direction);
+			pci_unmap_single(ha->pdev, sp->saved_dma_handle,
+					cmd->request_bufflen,
+					cmd->sc_data_direction);
 		}
 
 		/* Call the mid-level driver interrupt handler */
@@ -3245,14 +3241,11 @@ qla1280_64bit_start_scsi(struct scsi_qla_host *ha, struct srb * sp)
 						    REQUEST_ENTRY_SIZE);
 			}
 		} else {	/* No scatter gather data transfer */
-			struct page *page = virt_to_page(cmd->request_buffer);
-			unsigned long off = (unsigned long)cmd->request_buffer & ~PAGE_MASK;
+			dma_handle = pci_map_single(ha->pdev,
+					cmd->request_buffer,
+					cmd->request_bufflen,
+					cmd->sc_data_direction);
 
-			dma_handle = pci_map_page(ha->pdev, page, off,
-						  cmd->request_bufflen,
-						  cmd->sc_data_direction);
-
-			/* save dma_handle for pci_unmap_page */
 			sp->saved_dma_handle = dma_handle;
 #if defined(CONFIG_IA64_GENERIC) || defined(CONFIG_IA64_SGI_SN2)
 			if (ha->flags.use_pci_vchannel)
@@ -3527,11 +3520,10 @@ qla1280_32bit_start_scsi(struct scsi_qla_host *ha, struct srb * sp)
 						    REQUEST_ENTRY_SIZE);
 			}
 		} else {	/* No S/G data transfer */
-			struct page *page = virt_to_page(cmd->request_buffer);
-			unsigned long off = (unsigned long)cmd->request_buffer & ~PAGE_MASK;
-			dma_handle = pci_map_page(ha->pdev, page, off,
-						  cmd->request_bufflen,
-						  cmd->sc_data_direction);
+			dma_handle = pci_map_single(ha->pdev,
+					cmd->request_buffer,
+					cmd->request_bufflen,
+					cmd->sc_data_direction);
 			sp->saved_dma_handle = dma_handle;
 
 			*dword_ptr++ = cpu_to_le32(pci_dma_lo32(dma_handle));
