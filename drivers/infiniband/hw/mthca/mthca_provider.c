@@ -613,8 +613,6 @@ int mthca_register_device(struct mthca_dev *dev)
 	dev->ib_dev.create_qp            = mthca_create_qp;
 	dev->ib_dev.modify_qp            = mthca_modify_qp;
 	dev->ib_dev.destroy_qp           = mthca_destroy_qp;
-	dev->ib_dev.post_send            = mthca_post_send;
-	dev->ib_dev.post_recv            = mthca_post_receive;
 	dev->ib_dev.create_cq            = mthca_create_cq;
 	dev->ib_dev.destroy_cq           = mthca_destroy_cq;
 	dev->ib_dev.poll_cq              = mthca_poll_cq;
@@ -625,10 +623,15 @@ int mthca_register_device(struct mthca_dev *dev)
 	dev->ib_dev.detach_mcast         = mthca_multicast_detach;
 	dev->ib_dev.process_mad          = mthca_process_mad;
 
-	if (dev->hca_type == ARBEL_NATIVE)
+	if (dev->hca_type == ARBEL_NATIVE) {
 		dev->ib_dev.req_notify_cq = mthca_arbel_arm_cq;
-	else
+		dev->ib_dev.post_send     = mthca_arbel_post_send;
+		dev->ib_dev.post_recv     = mthca_arbel_post_receive;
+	} else {
 		dev->ib_dev.req_notify_cq = mthca_tavor_arm_cq;
+		dev->ib_dev.post_send     = mthca_tavor_post_send;
+		dev->ib_dev.post_recv     = mthca_tavor_post_receive;
+	}
 
 	init_MUTEX(&dev->cap_mask_mutex);
 

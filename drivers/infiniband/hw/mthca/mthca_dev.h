@@ -380,10 +380,14 @@ void mthca_cq_clean(struct mthca_dev *dev, u32 cqn, u32 qpn);
 void mthca_qp_event(struct mthca_dev *dev, u32 qpn,
 		    enum ib_event_type event_type);
 int mthca_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr, int attr_mask);
-int mthca_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
-		    struct ib_send_wr **bad_wr);
-int mthca_post_receive(struct ib_qp *ibqp, struct ib_recv_wr *wr,
-		       struct ib_recv_wr **bad_wr);
+int mthca_tavor_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
+			  struct ib_send_wr **bad_wr);
+int mthca_tavor_post_receive(struct ib_qp *ibqp, struct ib_recv_wr *wr,
+			     struct ib_recv_wr **bad_wr);
+int mthca_arbel_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
+			  struct ib_send_wr **bad_wr);
+int mthca_arbel_post_receive(struct ib_qp *ibqp, struct ib_recv_wr *wr,
+			     struct ib_recv_wr **bad_wr);
 int mthca_free_err_wqe(struct mthca_dev *dev, struct mthca_qp *qp, int is_send,
 		       int index, int *dbd, u32 *new_wqe);
 int mthca_alloc_qp(struct mthca_dev *dev,
