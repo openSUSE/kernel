@@ -609,7 +609,8 @@ static int nfs_lookup_revalidate(struct dentry * dentry, struct nameidata *nd)
 	}
 
 	/* Revalidate parent directory attribute cache */
-	nfs_revalidate_inode(NFS_SERVER(dir), dir);
+	if (nfs_revalidate_inode(NFS_SERVER(dir), dir) < 0)
+		goto out_zap_parent;
 
 	/* Force a full look up iff the parent directory has changed */
 	if (nfs_check_verifier(dir, dentry)) {
@@ -729,7 +730,11 @@ static struct dentry *nfs_lookup(struct inode *dir, struct dentry * dentry, stru
 
 	lock_kernel();
 	/* Revalidate parent directory attribute cache */
-	nfs_revalidate_inode(NFS_SERVER(dir), dir);
+	error = nfs_revalidate_inode(NFS_SERVER(dir), dir);
+	if (error < 0) {
+		res = ERR_PTR(error);
+		goto out_unlock;
+	}
 
 	/* If we're doing an exclusive create, optimize away the lookup */
 	if (nfs_is_exclusive_create(dir, nd))
@@ -787,6 +792,7 @@ static struct dentry *nfs_atomic_lookup(struct inode *dir, struct dentry *dentry
 {
 	struct dentry *res = NULL;
 	struct inode *inode = NULL;
+	int error;
 
 	/* Check that we are indeed trying to open this file */
 	if (!is_atomic_open(dir, nd))
@@ -805,7 +811,11 @@ static struct dentry *nfs_atomic_lookup(struct inode *dir, struct dentry *dentry
 	/* Open the file on the server */
 	lock_kernel();
 	/* Revalidate parent directory attribute cache */
-	nfs_revalidate_inode(NFS_SERVER(dir), dir);
+	error = nfs_revalidate_inode(NFS_SERVER(dir), dir);
+	if (error < 0) {
+		res = ERR_PTR(error);
+		goto out;
+	}
 
 	if (nd->intent.open.flags & O_CREAT) {
 		nfs_begin_data_update(dir);
@@ -815,7 +825,7 @@ static struct dentry *nfs_atomic_lookup(struct inode *dir, struct dentry *dentry
 		inode = nfs4_atomic_open(dir, dentry, nd);
 	unlock_kernel();
 	if (IS_ERR(inode)) {
-		int error = PTR_ERR(inode);
+		error = PTR_ERR(inode);
 		switch (error) {
 			/* Make a negative dentry */
 			case -ENOENT:
@@ -1548,8 +1558,9 @@ force_lookup:
 out:
 	return res;
 out_notsup:
-	nfs_revalidate_inode(NFS_SERVER(inode), inode);
-	res = generic_permission(inode, mask, NULL);
+	res = nfs_revalidate_inode(NFS_SERVER(inode), inode);
+	if (res == 0)
+		res = generic_permission(inode, mask, NULL);
 	unlock_kernel();
 	return res;
 }
