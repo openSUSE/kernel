@@ -16,23 +16,23 @@
  * 
  *  Parallel port            Keyboard port
  *
- *     +5V --------------------- +5V
+ *     +5V --------------------- +5V (4)
  *  
  *                 ______
  *     +5V -------|______|--.
  *                          |
- *     ACK -----------------|
- *                          |--- KBD CLOCK
- *     STROBE -------|<|----'
+ *     ACK (10) ------------|
+ *                          |--- KBD CLOCK (5)
+ *     STROBE (1) ---|<|----'
  *     
  *                 ______
  *     +5V -------|______|--.
  *                          |
- *     BUSY ----------------|
- *                          |--- KBD DATA
- *     AUTOFD -------|<|----'
+ *     BUSY (11) -----------|
+ *                          |--- KBD DATA (1)
+ *     AUTOFD (14) --|<|----'
  *
- *     GND --------------------- GND
+ *     GND (18-25) ------------- GND (3)
  *     
  * The diodes can be fairly any type, and the resistors should be somewhere
  * around 5 kOhm, but the adapter will likely work without the resistors,
