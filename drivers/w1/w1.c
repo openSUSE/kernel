@@ -19,8 +19,6 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
-#include <asm/atomic.h>
-
 #include <linux/delay.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -32,6 +30,8 @@
 #include <linux/device.h>
 #include <linux/slab.h>
 #include <linux/sched.h>
+
+#include <asm/atomic.h>
 
 #include "w1.h"
 #include "w1_io.h"
@@ -100,7 +100,7 @@ static ssize_t w1_default_read_bin(struct kobject *kobj, char *buf, loff_t off,
 	return sprintf(buf, "No family registered.\n");
 }
 
-struct bus_type w1_bus_type = {
+static struct bus_type w1_bus_type = {
 	.name = "w1",
 	.match = w1_master_match,
 };
@@ -138,7 +138,7 @@ static struct device_attribute w1_slave_attribute_val = {
 	.show = &w1_default_read_name,
 };
 
-ssize_t w1_master_attribute_show_name(struct device *dev, char *buf)
+static ssize_t w1_master_attribute_show_name(struct device *dev, char *buf)
 {
 	struct w1_master *md = container_of (dev, struct w1_master, dev);
 	ssize_t count;
@@ -153,7 +153,7 @@ ssize_t w1_master_attribute_show_name(struct device *dev, char *buf)
 	return count;
 }
 
-ssize_t w1_master_attribute_show_pointer(struct device *dev, char *buf)
+static ssize_t w1_master_attribute_show_pointer(struct device *dev, char *buf)
 {
 	struct w1_master *md = container_of(dev, struct w1_master, dev);
 	ssize_t count;
@@ -167,14 +167,14 @@ ssize_t w1_master_attribute_show_pointer(struct device *dev, char *buf)
 	return count;
 }
 
-ssize_t w1_master_attribute_show_timeout(struct device *dev, char *buf)
+static ssize_t w1_master_attribute_show_timeout(struct device *dev, char *buf)
 {
 	ssize_t count;
 	count = sprintf(buf, "%d\n", w1_timeout);
 	return count;
 }
 
-ssize_t w1_master_attribute_show_max_slave_count(struct device *dev, char *buf)
+static ssize_t w1_master_attribute_show_max_slave_count(struct device *dev, char *buf)
 {
 	struct w1_master *md = container_of(dev, struct w1_master, dev);
 	ssize_t count;
@@ -188,7 +188,7 @@ ssize_t w1_master_attribute_show_max_slave_count(struct device *dev, char *buf)
 	return count;
 }
 
-ssize_t w1_master_attribute_show_attempts(struct device *dev, char *buf)
+static ssize_t w1_master_attribute_show_attempts(struct device *dev, char *buf)
 {
 	struct w1_master *md = container_of(dev, struct w1_master, dev);
 	ssize_t count;
@@ -202,7 +202,7 @@ ssize_t w1_master_attribute_show_attempts(struct device *dev, char *buf)
 	return count;
 }
 
-ssize_t w1_master_attribute_show_slave_count(struct device *dev, char *buf)
+static ssize_t w1_master_attribute_show_slave_count(struct device *dev, char *buf)
 {
 	struct w1_master *md = container_of(dev, struct w1_master, dev);
 	ssize_t count;
@@ -216,7 +216,7 @@ ssize_t w1_master_attribute_show_slave_count(struct device *dev, char *buf)
 	return count;
 }
 
-ssize_t w1_master_attribute_show_slaves(struct device *dev, char *buf)
+static ssize_t w1_master_attribute_show_slaves(struct device *dev, char *buf)
 
 {
 	struct w1_master *md = container_of(dev, struct w1_master, dev);
@@ -839,6 +839,3 @@ void w1_fini(void)
 
 module_init(w1_init);
 module_exit(w1_fini);
-
-EXPORT_SYMBOL(w1_create_master_attributes);
-EXPORT_SYMBOL(w1_destroy_master_attributes);

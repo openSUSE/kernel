@@ -217,8 +217,5 @@ void w1_remove_master_device(struct w1_bus_master *bm)
 	__w1_remove_master_device(dev);
 }
 
-EXPORT_SYMBOL(w1_alloc_dev);
-EXPORT_SYMBOL(w1_free_dev);
 EXPORT_SYMBOL(w1_add_master_device);
 EXPORT_SYMBOL(w1_remove_master_device);
-EXPORT_SYMBOL(__w1_remove_master_device);
