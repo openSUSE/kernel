@@ -202,6 +202,7 @@ ia64_phys_addr_valid (unsigned long addr)
  * the PTE in a page table.  Nothing special needs to be on IA-64.
  */
 #define set_pte(ptep, pteval)	(*(ptep) = (pteval))
+#define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
 
 #define RGN_SIZE	(1UL << 61)
 #define RGN_KERNEL	7
@@ -243,7 +244,7 @@ ia64_phys_addr_valid (unsigned long addr)
 
 #define pte_none(pte) 			(!pte_val(pte))
 #define pte_present(pte)		(pte_val(pte) & (_PAGE_P | _PAGE_PROTNONE))
-#define pte_clear(pte)			(pte_val(*(pte)) = 0UL)
+#define pte_clear(mm,addr,pte)		(pte_val(*(pte)) = 0UL)
 /* pte_page() returns the "struct page *" corresponding to the PTE: */
 #define pte_page(pte)			virt_to_page(((pte_val(pte) & _PFN_MASK) + PAGE_OFFSET))
 
@@ -345,7 +346,7 @@ pgd_offset (struct mm_struct *mm, unsigned long address)
 /* atomic versions of the some PTE manipulations: */
 
 static inline int
-ptep_test_and_clear_young (pte_t *ptep)
+ptep_test_and_clear_young (struct vm_area_struct *vma, unsigned long addr, pte_t *ptep)
 {
 #ifdef CONFIG_SMP
 	if (!pte_young(*ptep))
@@ -355,13 +356,13 @@ ptep_test_and_clear_young (pte_t *ptep)
 	pte_t pte = *ptep;
 	if (!pte_young(pte))
 		return 0;
-	set_pte(ptep, pte_mkold(pte));
+	set_pte_at(vma->vm_mm, addr, ptep, pte_mkold(pte));
 	return 1;
 #endif
 }
 
 static inline int
-ptep_test_and_clear_dirty (pte_t *ptep)
+ptep_test_and_clear_dirty (struct vm_area_struct *vma, unsigned long addr, pte_t *ptep)
 {
 #ifdef CONFIG_SMP
 	if (!pte_dirty(*ptep))
@@ -371,25 +372,25 @@ ptep_test_and_clear_dirty (pte_t *ptep)
 	pte_t pte = *ptep;
 	if (!pte_dirty(pte))
 		return 0;
-	set_pte(ptep, pte_mkclean(pte));
+	set_pte_at(vma->vm_mm, addr, ptep, pte_mkclean(pte));
 	return 1;
 #endif
 }
 
 static inline pte_t
-ptep_get_and_clear (pte_t *ptep)
+ptep_get_and_clear(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 #ifdef CONFIG_SMP
 	return __pte(xchg((long *) ptep, 0));
 #else
 	pte_t pte = *ptep;
-	pte_clear(ptep);
+	pte_clear(mm, addr, ptep);
 	return pte;
 #endif
 }
 
 static inline void
-ptep_set_wrprotect (pte_t *ptep)
+ptep_set_wrprotect(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 #ifdef CONFIG_SMP
 	unsigned long new, old;
@@ -400,18 +401,7 @@ ptep_set_wrprotect (pte_t *ptep)
 	} while (cmpxchg((unsigned long *) ptep, old, new) != old);
 #else
 	pte_t old_pte = *ptep;
-	set_pte(ptep, pte_wrprotect(old_pte));
-#endif
-}
-
-static inline void
-ptep_mkdirty (pte_t *ptep)
-{
-#ifdef CONFIG_SMP
-	set_bit(_PAGE_D_BIT, ptep);
-#else
-	pte_t old_pte = *ptep;
-	set_pte(ptep, pte_mkdirty(old_pte));
+	set_pte_at(mm, addr, ptep, pte_wrprotect(old_pte));
 #endif
 }
 
@@ -558,7 +548,6 @@ do {											\
 #define __HAVE_ARCH_PTEP_TEST_AND_CLEAR_DIRTY
 #define __HAVE_ARCH_PTEP_GET_AND_CLEAR
 #define __HAVE_ARCH_PTEP_SET_WRPROTECT
-#define __HAVE_ARCH_PTEP_MKDIRTY
 #define __HAVE_ARCH_PTE_SAME
 #define __HAVE_ARCH_PGD_OFFSET_GATE
 #include <asm-generic/pgtable.h>

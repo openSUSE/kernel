@@ -594,7 +594,7 @@ static int try_to_unmap_one(struct page *page, struct vm_area_struct *vma)
 			list_add(&mm->mmlist, &init_mm.mmlist);
 			spin_unlock(&mmlist_lock);
 		}
-		set_pte(pte, swp_entry_to_pte(entry));
+		set_pte_at(mm, address, pte, swp_entry_to_pte(entry));
 		BUG_ON(pte_file(*pte));
 		mm->anon_rss--;
 	}
@@ -697,7 +697,7 @@ static void try_to_unmap_cluster(unsigned long cursor,
 
 		/* If nonlinear, store the file page offset in the pte. */
 		if (page->index != linear_page_index(vma, address))
-			set_pte(pte, pgoff_to_pte(page->index));
+			set_pte_at(mm, address, pte, pgoff_to_pte(page->index));
 
 		/* Move the dirty bit to the physical page now the pte is gone. */
 		if (pte_dirty(pteval))

@@ -114,7 +114,7 @@ static inline void kunmap_atomic(void *kvaddr, enum km_type type)
 	 * force other mappings to Oops if they'll try to access
 	 * this pte without first remap it
 	 */
-	pte_clear(kmap_pte+idx);
+	pte_clear(&init_mm, vaddr, kmap_pte+idx);
 	flush_tlb_page(NULL, vaddr);
 #endif
 	dec_preempt_count();

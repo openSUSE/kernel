@@ -26,7 +26,7 @@
 #include <asm/tlbflush.h>
 
 static inline void
-change_pte_range(pmd_t *pmd, unsigned long address,
+change_pte_range(struct mm_struct *mm, pmd_t *pmd, unsigned long address,
 		unsigned long size, pgprot_t newprot)
 {
 	pte_t * pte;
@@ -52,8 +52,8 @@ change_pte_range(pmd_t *pmd, unsigned long address,
 			 * bits by wiping the pte and then setting the new pte
 			 * into place.
 			 */
-			entry = ptep_get_and_clear(pte);
-			set_pte(pte, pte_modify(entry, newprot));
+			entry = ptep_get_and_clear(mm, address, pte);
+			set_pte_at(mm, address, pte, pte_modify(entry, newprot));
 		}
 		address += PAGE_SIZE;
 		pte++;
@@ -62,8 +62,8 @@ change_pte_range(pmd_t *pmd, unsigned long address,
 }
 
 static inline void
-change_pmd_range(pud_t *pud, unsigned long address,
-		unsigned long size, pgprot_t newprot)
+change_pmd_range(struct mm_struct *mm, pud_t *pud, unsigned long address,
+		 unsigned long size, pgprot_t newprot)
 {
 	pmd_t * pmd;
 	unsigned long end;
@@ -81,15 +81,15 @@ change_pmd_range(pud_t *pud, unsigned long address,
 	if (end > PUD_SIZE)
 		end = PUD_SIZE;
 	do {
-		change_pte_range(pmd, address, end - address, newprot);
+		change_pte_range(mm, pmd, address, end - address, newprot);
 		address = (address + PMD_SIZE) & PMD_MASK;
 		pmd++;
 	} while (address && (address < end));
 }
 
 static inline void
-change_pud_range(pgd_t *pgd, unsigned long address,
-		unsigned long size, pgprot_t newprot)
+change_pud_range(struct mm_struct *mm, pgd_t *pgd, unsigned long address,
+		 unsigned long size, pgprot_t newprot)
 {
 	pud_t * pud;
 	unsigned long end;
@@ -107,7 +107,7 @@ change_pud_range(pgd_t *pgd, unsigned long address,
 	if (end > PGDIR_SIZE)
 		end = PGDIR_SIZE;
 	do {
-		change_pmd_range(pud, address, end - address, newprot);
+		change_pmd_range(mm, pud, address, end - address, newprot);
 		address = (address + PUD_SIZE) & PUD_MASK;
 		pud++;
 	} while (address && (address < end));
@@ -130,7 +130,7 @@ change_protection(struct vm_area_struct *vma, unsigned long start,
 		next = (start + PGDIR_SIZE) & PGDIR_MASK;
 		if (next <= start || next > end)
 			next = end;
-		change_pud_range(pgd, start, next - start, newprot);
+		change_pud_range(mm, pgd, start, next - start, newprot);
 		start = next;
 		pgd++;
 	}

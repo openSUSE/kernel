@@ -317,7 +317,7 @@ static inline unsigned long pte_update(pte_t *p, unsigned long clr)
  */
 extern void hpte_update(pte_t *ptep, unsigned long pte, int wrprot);
 
-static inline int ptep_test_and_clear_young(pte_t *ptep)
+static inline int ptep_test_and_clear_young(struct vm_area_struct *vma, unsigned long addr, pte_t *ptep)
 {
 	unsigned long old;
 
@@ -336,7 +336,7 @@ static inline int ptep_test_and_clear_young(pte_t *ptep)
  * moment we always flush but we need to fix hpte_update and test if the
  * optimisation is worth it.
  */
-static inline int ptep_test_and_clear_dirty(pte_t *ptep)
+static inline int ptep_test_and_clear_dirty(struct vm_area_struct *vma, unsigned long addr, pte_t *ptep)
 {
 	unsigned long old;
 
@@ -348,7 +348,7 @@ static inline int ptep_test_and_clear_dirty(pte_t *ptep)
 	return (old & _PAGE_DIRTY) != 0;
 }
 
-static inline void ptep_set_wrprotect(pte_t *ptep)
+static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 	unsigned long old;
 
@@ -370,19 +370,21 @@ static inline void ptep_set_wrprotect(pte_t *ptep)
 #define __HAVE_ARCH_PTEP_CLEAR_YOUNG_FLUSH
 #define ptep_clear_flush_young(__vma, __address, __ptep)		\
 ({									\
-	int __young = ptep_test_and_clear_young(__ptep);		\
+	int __young;							\
+	__young = ptep_test_and_clear_young(__vma, __address, __ptep);	\
 	__young;							\
 })
 
 #define __HAVE_ARCH_PTEP_CLEAR_DIRTY_FLUSH
 #define ptep_clear_flush_dirty(__vma, __address, __ptep)		\
 ({									\
-	int __dirty = ptep_test_and_clear_dirty(__ptep);		\
+	int __dirty;							\
+	__dirty = ptep_test_and_clear_dirty(__vma, __address, __ptep);	\
 	flush_tlb_page(__vma, __address);				\
 	__dirty;							\
 })
 
-static inline pte_t ptep_get_and_clear(pte_t *ptep)
+static inline pte_t ptep_get_and_clear(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 	unsigned long old = pte_update(ptep, ~0UL);
 
@@ -391,7 +393,7 @@ static inline pte_t ptep_get_and_clear(pte_t *ptep)
 	return __pte(old);
 }
 
-static inline void pte_clear(pte_t * ptep)
+static inline void pte_clear(struct mm_struct *mm, unsigned long addr, pte_t * ptep)
 {
 	unsigned long old = pte_update(ptep, ~0UL);
 
@@ -402,10 +404,11 @@ static inline void pte_clear(pte_t * ptep)
 /*
  * set_pte stores a linux PTE into the linux page table.
  */
-static inline void set_pte(pte_t *ptep, pte_t pte)
+static inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
+			      pte_t *ptep, pte_t pte)
 {
 	if (pte_present(*ptep)) {
-		pte_clear(ptep);
+		pte_clear(mm, addr, ptep);
 		flush_tlb_pending();
 	}
 	*ptep = __pte(pte_val(pte)) & ~_PAGE_HPTEFLAGS;

@@ -45,7 +45,7 @@ static void unmap_area_pte(pmd_t *pmd, unsigned long address,
 
 	do {
 		pte_t page;
-		page = ptep_get_and_clear(pte);
+		page = ptep_get_and_clear(&init_mm, address, pte);
 		address += PAGE_SIZE;
 		pte++;
 		if (pte_none(page))
@@ -127,7 +127,7 @@ static int map_area_pte(pte_t *pte, unsigned long address,
 		if (!page)
 			return -ENOMEM;
 
-		set_pte(pte, mk_pte(page, prot));
+		set_pte_at(&init_mm, address, pte, mk_pte(page, prot));
 		address += PAGE_SIZE;
 		pte++;
 		(*pages)++;

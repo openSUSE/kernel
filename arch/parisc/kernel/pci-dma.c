@@ -180,7 +180,7 @@ static inline void unmap_uncached_pte(pmd_t * pmd, unsigned long vaddr,
 		end = PMD_SIZE;
 	do {
 		pte_t page = *pte;
-		pte_clear(pte);
+		pte_clear(&init_mm, vaddr, pte);
 		purge_tlb_start();
 		pdtlb_kernel(orig_vaddr);
 		purge_tlb_end();

@@ -154,7 +154,8 @@ extern struct page *empty_zero_page;
 #define pte_none(pte)           (!pte_val(pte))
 #define pte_present(pte)        (pte_val(pte) & _PAGE_PRESENT)
 #define set_pte(pte_ptr, pte)   ((*(pte_ptr)) = (pte))
-#define pte_clear(ptep)         set_pte((ptep), __pte(0))
+#define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
+#define pte_clear(mm,addr,ptep)	set_pte_at((mm),(addr),(ptep), __pte(0))
 
 /* macros to ease the getting of pointers to stuff... */
 #define pgd_offset(mm, addr)	((pgd_t *)(mm)->pgd        + __pgd_index(addr))

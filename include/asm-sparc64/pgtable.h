@@ -343,8 +343,10 @@ static inline void set_pte(pte_t *ptep, pte_t pte)
 	if (pte_present(orig))
 		tlb_batch_add(ptep, orig);
 }
+#define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
 
-#define pte_clear(ptep)		set_pte((ptep), __pte(0UL))
+#define pte_clear(mm,addr,ptep)		\
+	set_pte_at((mm), (addr), (ptep), __pte(0UL))
 
 extern pgd_t swapper_pg_dir[1];
 

@@ -262,7 +262,7 @@ EXPORT_SYMBOL(__dma_alloc_coherent);
 void __dma_free_coherent(size_t size, void *vaddr)
 {
 	struct vm_region *c;
-	unsigned long flags;
+	unsigned long flags, addr;
 	pte_t *ptep;
 
 	size = PAGE_ALIGN(size);
@@ -281,11 +281,13 @@ void __dma_free_coherent(size_t size, void *vaddr)
 	}
 
 	ptep = consistent_pte + CONSISTENT_OFFSET(c->vm_start);
+	addr = c->vm_start;
 	do {
-		pte_t pte = ptep_get_and_clear(ptep);
+		pte_t pte = ptep_get_and_clear(&init_mm, addr, ptep);
 		unsigned long pfn;
 
 		ptep++;
+		addr += PAGE_SIZE;
 
 		if (!pte_none(pte) && pte_present(pte)) {
 			pfn = pte_pfn(pte);

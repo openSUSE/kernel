@@ -153,7 +153,7 @@ static void map_io_page(unsigned long ea, unsigned long pa, int flags)
 		ptep = pte_alloc_kernel(&ioremap_mm, pmdp, ea);
 
 		pa = abs_to_phys(pa);
-		set_pte(ptep, pfn_pte(pa >> PAGE_SHIFT, __pgprot(flags)));
+		set_pte_at(&ioremap_mm, ea, ptep, pfn_pte(pa >> PAGE_SHIFT, __pgprot(flags)));
 		spin_unlock(&ioremap_mm.page_table_lock);
 	} else {
 		unsigned long va, vpn, hash, hpteg;
@@ -305,7 +305,7 @@ static void unmap_im_area_pte(pmd_t *pmd, unsigned long address,
 
 	do {
 		pte_t page;
-		page = ptep_get_and_clear(pte);
+		page = ptep_get_and_clear(&ioremap_mm, address, pte);
 		address += PAGE_SIZE;
 		pte++;
 		if (pte_none(page))

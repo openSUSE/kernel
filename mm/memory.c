@@ -278,7 +278,7 @@ copy_one_pte(struct mm_struct *dst_mm,  struct mm_struct *src_mm,
 	/* pte contains position in swap, so copy. */
 	if (!pte_present(pte)) {
 		copy_swap_pte(dst_mm, src_mm, pte);
-		set_pte(dst_pte, pte);
+		set_pte_at(dst_mm, addr, dst_pte, pte);
 		return;
 	}
 	pfn = pte_pfn(pte);
@@ -292,7 +292,7 @@ copy_one_pte(struct mm_struct *dst_mm,  struct mm_struct *src_mm,
 		page = pfn_to_page(pfn);
 
 	if (!page || PageReserved(page)) {
-		set_pte(dst_pte, pte);
+		set_pte_at(dst_mm, addr, dst_pte, pte);
 		return;
 	}
 
@@ -301,7 +301,7 @@ copy_one_pte(struct mm_struct *dst_mm,  struct mm_struct *src_mm,
 	 * in the parent and the child
 	 */
 	if ((vm_flags & (VM_SHARED | VM_MAYWRITE)) == VM_MAYWRITE) {
-		ptep_set_wrprotect(src_pte);
+		ptep_set_wrprotect(src_mm, addr, src_pte);
 		pte = *src_pte;
 	}
 
@@ -316,7 +316,7 @@ copy_one_pte(struct mm_struct *dst_mm,  struct mm_struct *src_mm,
 	dst_mm->rss++;
 	if (PageAnon(page))
 		dst_mm->anon_rss++;
-	set_pte(dst_pte, pte);
+	set_pte_at(dst_mm, addr, dst_pte, pte);
 	page_dup_rmap(page);
 }
 
@@ -502,14 +502,15 @@ static void zap_pte_range(struct mmu_gather *tlb,
 				     page->index > details->last_index))
 					continue;
 			}
-			pte = ptep_get_and_clear(ptep);
+			pte = ptep_get_and_clear(tlb->mm, address+offset, ptep);
 			tlb_remove_tlb_entry(tlb, ptep, address+offset);
 			if (unlikely(!page))
 				continue;
 			if (unlikely(details) && details->nonlinear_vma
 			    && linear_page_index(details->nonlinear_vma,
 					address+offset) != page->index)
-				set_pte(ptep, pgoff_to_pte(page->index));
+				set_pte_at(tlb->mm, address+offset,
+					   ptep, pgoff_to_pte(page->index));
 			if (pte_dirty(pte))
 				set_page_dirty(page);
 			if (PageAnon(page))
@@ -529,7 +530,7 @@ static void zap_pte_range(struct mmu_gather *tlb,
 			continue;
 		if (!pte_file(pte))
 			free_swap_and_cache(pte_to_swp_entry(pte));
-		pte_clear(ptep);
+		pte_clear(tlb->mm, address+offset, ptep);
 	}
 	pte_unmap(ptep-1);
 }
@@ -987,8 +988,9 @@ out:
 
 EXPORT_SYMBOL(get_user_pages);
 
-static void zeromap_pte_range(pte_t * pte, unsigned long address,
-                                     unsigned long size, pgprot_t prot)
+static void zeromap_pte_range(struct mm_struct *mm, pte_t * pte,
+			      unsigned long address,
+			      unsigned long size, pgprot_t prot)
 {
 	unsigned long end;
 
@@ -999,7 +1001,7 @@ static void zeromap_pte_range(pte_t * pte, unsigned long address,
 	do {
 		pte_t zero_pte = pte_wrprotect(mk_pte(ZERO_PAGE(address), prot));
 		BUG_ON(!pte_none(*pte));
-		set_pte(pte, zero_pte);
+		set_pte_at(mm, address, pte, zero_pte);
 		address += PAGE_SIZE;
 		pte++;
 	} while (address && (address < end));
@@ -1019,7 +1021,7 @@ static inline int zeromap_pmd_range(struct mm_struct *mm, pmd_t * pmd,
 		pte_t * pte = pte_alloc_map(mm, pmd, base + address);
 		if (!pte)
 			return -ENOMEM;
-		zeromap_pte_range(pte, base + address, end - address, prot);
+		zeromap_pte_range(mm, pte, base + address, end - address, prot);
 		pte_unmap(pte);
 		address = (address + PMD_SIZE) & PMD_MASK;
 		pmd++;
@@ -1100,7 +1102,8 @@ int zeromap_page_range(struct vm_area_struct *vma, unsigned long address,
  * in null mappings (currently treated as "copy-on-access")
  */
 static inline void
-remap_pte_range(pte_t * pte, unsigned long address, unsigned long size,
+remap_pte_range(struct mm_struct *mm, pte_t * pte,
+		unsigned long address, unsigned long size,
 		unsigned long pfn, pgprot_t prot)
 {
 	unsigned long end;
@@ -1112,7 +1115,7 @@ remap_pte_range(pte_t * pte, unsigned long address, unsigned long size,
 	do {
 		BUG_ON(!pte_none(*pte));
 		if (!pfn_valid(pfn) || PageReserved(pfn_to_page(pfn)))
- 			set_pte(pte, pfn_pte(pfn, prot));
+			set_pte_at(mm, address, pte, pfn_pte(pfn, prot));
 		address += PAGE_SIZE;
 		pfn++;
 		pte++;
@@ -1135,7 +1138,7 @@ remap_pmd_range(struct mm_struct *mm, pmd_t * pmd, unsigned long address,
 		pte_t * pte = pte_alloc_map(mm, pmd, base + address);
 		if (!pte)
 			return -ENOMEM;
-		remap_pte_range(pte, base + address, end - address,
+		remap_pte_range(mm, pte, base + address, end - address,
 				(address >> PAGE_SHIFT) + pfn, prot);
 		pte_unmap(pte);
 		address = (address + PMD_SIZE) & PMD_MASK;
@@ -1758,7 +1761,7 @@ static int do_swap_page(struct mm_struct * mm,
 	unlock_page(page);
 
 	flush_icache_page(vma, page);
-	set_pte(page_table, pte);
+	set_pte_at(mm, address, page_table, pte);
 	page_add_anon_rmap(page, vma, address);
 
 	if (write_access) {
@@ -1824,7 +1827,7 @@ do_anonymous_page(struct mm_struct *mm, struct vm_area_struct *vma,
 		page_add_anon_rmap(page, vma, addr);
 	}
 
-	set_pte(page_table, entry);
+	set_pte_at(mm, addr, page_table, entry);
 	pte_unmap(page_table);
 
 	/* No need to invalidate - it was non-present before */
@@ -1939,7 +1942,7 @@ retry:
 		entry = mk_pte(new_page, vma->vm_page_prot);
 		if (write_access)
 			entry = maybe_mkwrite(pte_mkdirty(entry), vma);
-		set_pte(page_table, entry);
+		set_pte_at(mm, address, page_table, entry);
 		if (anon) {
 			lru_cache_add_active(new_page);
 			page_add_anon_rmap(new_page, vma, address);
@@ -1983,7 +1986,7 @@ static int do_file_page(struct mm_struct * mm, struct vm_area_struct * vma,
 	 */
 	if (!vma->vm_ops || !vma->vm_ops->populate || 
 			(write_access && !(vma->vm_flags & VM_SHARED))) {
-		pte_clear(pte);
+		pte_clear(mm, address, pte);
 		return do_no_page(mm, vma, address, write_access, pte, pmd);
 	}
 

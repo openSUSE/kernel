@@ -207,7 +207,7 @@ void unmap_hugepage_range(struct vm_area_struct *vma,
 		page = pte_page(*pte);
 		put_page(page);
 		for (i = 0; i < (1 << HUGETLB_PAGE_ORDER); i++) {
-			pte_clear(pte);
+			pte_clear(mm, address+(i*PAGE_SIZE), pte);
 			pte++;
 		}
 	}

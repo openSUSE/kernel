@@ -164,7 +164,7 @@ extern unsigned long empty_zero_page[1024];
 
 #define pte_none(x)	(!pte_val(x))
 #define pte_present(x)	(pte_val(x) & (_PAGE_PRESENT | _PAGE_PROTNONE))
-#define pte_clear(xp)	do { set_pte(xp, __pte(0)); } while (0)
+#define pte_clear(mm,addr,xp)	do { set_pte_at(mm, addr, xp, __pte(0)); } while (0)
 
 #define pmd_none(x)	(!pmd_val(x))
 #define pmd_present(x)	(pmd_val(x) & _PAGE_PRESENT)
@@ -290,7 +290,7 @@ extern unsigned int kobjsize(const void *objp);
 
 #if defined(CONFIG_CPU_SH4) || defined(CONFIG_SH7705_CACHE_32KB)
 #define __HAVE_ARCH_PTEP_GET_AND_CLEAR
-extern pte_t ptep_get_and_clear(pte_t *ptep);
+extern pte_t ptep_get_and_clear(struct mm_struct *mm, unsigned long addr, pte_t *ptep);
 #endif
 
 #include <asm-generic/pgtable.h>

@@ -16,7 +16,7 @@
 #ifndef __HAVE_ARCH_SET_PTE_ATOMIC
 #define ptep_establish(__vma, __address, __ptep, __entry)		\
 do {				  					\
-	set_pte(__ptep, __entry);					\
+	set_pte_at((__vma)->vm_mm, (__address), __ptep, __entry);	\
 	flush_tlb_page(__vma, __address);				\
 } while (0)
 #else /* __HAVE_ARCH_SET_PTE_ATOMIC */
@@ -37,26 +37,30 @@ do {				  					\
  */
 #define ptep_set_access_flags(__vma, __address, __ptep, __entry, __dirty) \
 do {				  					  \
-	set_pte(__ptep, __entry);					  \
+	set_pte_at((__vma)->vm_mm, (__address), __ptep, __entry);	  \
 	flush_tlb_page(__vma, __address);				  \
 } while (0)
 #endif
 
 #ifndef __HAVE_ARCH_PTEP_TEST_AND_CLEAR_YOUNG
-static inline int ptep_test_and_clear_young(pte_t *ptep)
-{
-	pte_t pte = *ptep;
-	if (!pte_young(pte))
-		return 0;
-	set_pte(ptep, pte_mkold(pte));
-	return 1;
-}
+#define ptep_test_and_clear_young(__vma, __address, __ptep)		\
+({									\
+	pte_t __pte = *(__ptep);					\
+	int r = 1;							\
+	if (!pte_young(__pte))						\
+		r = 0;							\
+	else								\
+		set_pte_at((__vma)->vm_mm, (__address),			\
+			   (__ptep), pte_mkold(__pte));			\
+	r;								\
+})
 #endif
 
 #ifndef __HAVE_ARCH_PTEP_CLEAR_YOUNG_FLUSH
 #define ptep_clear_flush_young(__vma, __address, __ptep)		\
 ({									\
-	int __young = ptep_test_and_clear_young(__ptep);		\
+	int __young;							\
+	__young = ptep_test_and_clear_young(__vma, __address, __ptep);	\
 	if (__young)							\
 		flush_tlb_page(__vma, __address);			\
 	__young;							\
@@ -64,20 +68,24 @@ static inline int ptep_test_and_clear_young(pte_t *ptep)
 #endif
 
 #ifndef __HAVE_ARCH_PTEP_TEST_AND_CLEAR_DIRTY
-static inline int ptep_test_and_clear_dirty(pte_t *ptep)
-{
-	pte_t pte = *ptep;
-	if (!pte_dirty(pte))
-		return 0;
-	set_pte(ptep, pte_mkclean(pte));
-	return 1;
-}
+#define ptep_test_and_clear_dirty(__vma, __address, __ptep)		\
+({									\
+	pte_t __pte = *ptep;						\
+	int r = 1;							\
+	if (!pte_dirty(__pte))						\
+		r = 0;							\
+	else								\
+		set_pte_at((__vma)->vm_mm, (__address), (__ptep),	\
+			   pte_mkclean(__pte));				\
+	r;								\
+})
 #endif
 
 #ifndef __HAVE_ARCH_PTEP_CLEAR_DIRTY_FLUSH
 #define ptep_clear_flush_dirty(__vma, __address, __ptep)		\
 ({									\
-	int __dirty = ptep_test_and_clear_dirty(__ptep);		\
+	int __dirty;							\
+	__dirty = ptep_test_and_clear_dirty(__vma, __address, __ptep);	\
 	if (__dirty)							\
 		flush_tlb_page(__vma, __address);			\
 	__dirty;							\
@@ -85,36 +93,29 @@ static inline int ptep_test_and_clear_dirty(pte_t *ptep)
 #endif
 
 #ifndef __HAVE_ARCH_PTEP_GET_AND_CLEAR
-static inline pte_t ptep_get_and_clear(pte_t *ptep)
-{
-	pte_t pte = *ptep;
-	pte_clear(ptep);
-	return pte;
-}
+#define ptep_get_and_clear(__mm, __address, __ptep)			\
+({									\
+	pte_t __pte = *(__ptep);					\
+	pte_clear((__mm), (__address), (__ptep));			\
+	__pte;								\
+})
 #endif
 
 #ifndef __HAVE_ARCH_PTEP_CLEAR_FLUSH
 #define ptep_clear_flush(__vma, __address, __ptep)			\
 ({									\
-	pte_t __pte = ptep_get_and_clear(__ptep);			\
+	pte_t __pte;							\
+	__pte = ptep_get_and_clear((__vma)->vm_mm, __address, __ptep);	\
 	flush_tlb_page(__vma, __address);				\
 	__pte;								\
 })
 #endif
 
 #ifndef __HAVE_ARCH_PTEP_SET_WRPROTECT
-static inline void ptep_set_wrprotect(pte_t *ptep)
+static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long address, pte_t *ptep)
 {
 	pte_t old_pte = *ptep;
-	set_pte(ptep, pte_wrprotect(old_pte));
-}
-#endif
-
-#ifndef __HAVE_ARCH_PTEP_MKDIRTY
-static inline void ptep_mkdirty(pte_t *ptep)
-{
-	pte_t old_pte = *ptep;
-	set_pte(ptep, pte_mkdirty(old_pte));
+	set_pte_at(mm, address, ptep, pte_wrprotect(old_pte));
 }
 #endif
 
