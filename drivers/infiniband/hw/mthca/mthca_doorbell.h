@@ -57,6 +57,11 @@ static inline void mthca_write64(u32 val[2], void __iomem *dest,
 	__raw_writeq(*(u64 *) val, dest);
 }
 
+static inline void mthca_write_db_rec(u32 val[2], u32 *db)
+{
+	*(u64 *) db = *(u64 *) val;
+}
+
 #else
 
 /*
@@ -78,6 +83,13 @@ static inline void mthca_write64(u32 val[2], void __iomem *dest,
 	__raw_writel(val[0], dest);
 	__raw_writel(val[1], dest + 4);
 	spin_unlock_irqrestore(doorbell_lock, flags);
+}
+
+static inline void mthca_write_db_rec(u32 val[2], u32 *db)
+{
+	db[0] = val[0];
+	wmb();
+	db[1] = val[1];
 }
 
 #endif
