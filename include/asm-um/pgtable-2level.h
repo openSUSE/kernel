@@ -59,6 +59,7 @@ static inline void set_pte(pte_t *pteptr, pte_t pteval)
 	*pteptr = pte_mknewpage(pteval);
 	if(pte_present(*pteptr)) *pteptr = pte_mknewprot(*pteptr);
 }
+#define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
 
 #define set_pmd(pmdptr, pmdval) (*(pmdptr) = (pmdval))
 

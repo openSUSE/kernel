@@ -145,7 +145,7 @@ void __init paging_init(void)
                 for (tmp = 0 ; tmp < PTRS_PER_PTE ; tmp++,pg_table++) {
                         pte = pfn_pte(pfn, PAGE_KERNEL);
                         if (pfn >= max_low_pfn)
-                                pte_clear(&pte);
+                                pte_clear(&init_mm, 0, &pte);
                         set_pte(pg_table, pte);
                         pfn++;
                 }
@@ -229,7 +229,7 @@ void __init paging_init(void)
                         for (k = 0 ; k < PTRS_PER_PTE ; k++,pt_dir++) {
                                 pte = pfn_pte(pfn, PAGE_KERNEL);
                                 if (pfn >= max_low_pfn) {
-                                        pte_clear(&pte); 
+                                        pte_clear(&init_mm, 0, &pte); 
                                         continue;
                                 }
                                 set_pte(pt_dir, pte);

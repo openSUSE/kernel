@@ -90,7 +90,7 @@ static inline void *kmap_atomic(struct page *page, enum km_type type)
 #ifdef HIGHMEM_DEBUG
 	BUG_ON(!pte_none(*(kmap_pte+idx)));
 #endif
-	set_pte(kmap_pte+idx, mk_pte(page, kmap_prot));
+	set_pte_at(&init_mm, vaddr, kmap_pte+idx, mk_pte(page, kmap_prot));
 	flush_tlb_page(NULL, vaddr);
 
 	return (void*) vaddr;
@@ -114,7 +114,7 @@ static inline void kunmap_atomic(void *kvaddr, enum km_type type)
 	 * force other mappings to Oops if they'll try to access
 	 * this pte without first remap it
 	 */
-	pte_clear(kmap_pte+idx);
+	pte_clear(&init_mm, vaddr, kmap_pte+idx);
 	flush_tlb_page(NULL, vaddr);
 #endif
 	dec_preempt_count();

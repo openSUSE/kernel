@@ -100,14 +100,15 @@ static inline void set_pte(pte_t *ptep, pte_t pte)
 			buddy->pte_low |= _PAGE_GLOBAL;
 	}
 }
+#define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
 
-static inline void pte_clear(pte_t *ptep)
+static inline void pte_clear(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 	/* Preserve global status for the pair */
 	if (pte_val(*ptep_buddy(ptep)) & _PAGE_GLOBAL)
-		set_pte(ptep, __pte(_PAGE_GLOBAL));
+		set_pte_at(mm, addr, ptep, __pte(_PAGE_GLOBAL));
 	else
-		set_pte(ptep, __pte(0));
+		set_pte_at(mm, addr, ptep, __pte(0));
 }
 #else
 /*
@@ -130,16 +131,17 @@ static inline void set_pte(pte_t *ptep, pte_t pteval)
 	}
 #endif
 }
+#define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
 
-static inline void pte_clear(pte_t *ptep)
+static inline void pte_clear(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 #if !defined(CONFIG_CPU_R3000) && !defined(CONFIG_CPU_TX39XX)
 	/* Preserve global status for the pair */
 	if (pte_val(*ptep_buddy(ptep)) & _PAGE_GLOBAL)
-		set_pte(ptep, __pte(_PAGE_GLOBAL));
+		set_pte_at(mm, addr, ptep, __pte(_PAGE_GLOBAL));
 	else
 #endif
-		set_pte(ptep, __pte(0));
+		set_pte_at(mm, addr, ptep, __pte(0));
 }
 #endif
 

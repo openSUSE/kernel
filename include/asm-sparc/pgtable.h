@@ -157,7 +157,7 @@ extern __inline__ int pte_none(pte_t pte)
 }
 
 #define pte_present(pte) BTFIXUP_CALL(pte_present)(pte)
-#define pte_clear(pte) BTFIXUP_CALL(pte_clear)(pte)
+#define pte_clear(mm,addr,pte) BTFIXUP_CALL(pte_clear)(pte)
 
 BTFIXUPDEF_CALL_CONST(int, pmd_bad, pmd_t)
 BTFIXUPDEF_CALL_CONST(int, pmd_present, pmd_t)
@@ -339,6 +339,7 @@ extern unsigned int pg_iobits;
 BTFIXUPDEF_CALL(void, set_pte, pte_t *, pte_t)
 
 #define set_pte(ptep,pteval) BTFIXUP_CALL(set_pte)(ptep,pteval)
+#define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
 
 struct seq_file;
 BTFIXUPDEF_CALL(void, mmu_info, struct seq_file *)

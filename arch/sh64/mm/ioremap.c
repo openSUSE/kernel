@@ -400,7 +400,7 @@ static void shmedia_unmapioaddr(unsigned long vaddr)
 		return;
 
 	clear_page((void *)ptep);
-	pte_clear(ptep);
+	pte_clear(&init_mm, vaddr, ptep);
 }
 
 unsigned long onchip_remap(unsigned long phys, unsigned long size, const char *name)

@@ -62,6 +62,7 @@ static pte_t *huge_pte_offset(struct mm_struct *mm, unsigned long addr)
 #define mk_pte_huge(entry) do { pte_val(entry) |= _PAGE_SZHUGE; } while (0)
 
 static void set_huge_pte(struct mm_struct *mm, struct vm_area_struct *vma,
+			 unsigned long addr,
 			 struct page *page, pte_t * page_table, int write_access)
 {
 	unsigned long i;
@@ -78,8 +79,9 @@ static void set_huge_pte(struct mm_struct *mm, struct vm_area_struct *vma,
 	mk_pte_huge(entry);
 
 	for (i = 0; i < (1 << HUGETLB_PAGE_ORDER); i++) {
-		set_pte(page_table, entry);
+		set_pte_at(mm, addr, page_table, entry);
 		page_table++;
+		addr += PAGE_SIZE;
 
 		pte_val(entry) += PAGE_SIZE;
 	}
@@ -116,12 +118,12 @@ int copy_hugetlb_page_range(struct mm_struct *dst, struct mm_struct *src,
 		ptepage = pte_page(entry);
 		get_page(ptepage);
 		for (i = 0; i < (1 << HUGETLB_PAGE_ORDER); i++) {
-			set_pte(dst_pte, entry);
+			set_pte_at(dst, addr, dst_pte, entry);
 			pte_val(entry) += PAGE_SIZE;
 			dst_pte++;
+			addr += PAGE_SIZE;
 		}
 		dst->rss += (HPAGE_SIZE / PAGE_SIZE);
-		addr += HPAGE_SIZE;
 	}
 	return 0;
 
@@ -207,7 +209,7 @@ void unmap_hugepage_range(struct vm_area_struct *vma,
 		page = pte_page(*pte);
 		put_page(page);
 		for (i = 0; i < (1 << HUGETLB_PAGE_ORDER); i++) {
-			pte_clear(pte);
+			pte_clear(mm, address+(i*PAGE_SIZE), pte);
 			pte++;
 		}
 	}
@@ -261,7 +263,7 @@ int hugetlb_prefault(struct address_space *mapping, struct vm_area_struct *vma)
 				goto out;
 			}
 		}
-		set_huge_pte(mm, vma, page, pte, vma->vm_flags & VM_WRITE);
+		set_huge_pte(mm, vma, addr, page, pte, vma->vm_flags & VM_WRITE);
 	}
 out:
 	spin_unlock(&mm->page_table_lock);

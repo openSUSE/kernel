@@ -315,9 +315,10 @@ static inline unsigned long pte_update(pte_t *p, unsigned long clr)
  * batch, doesn't actually triggers the hash flush immediately,
  * you need to call flush_tlb_pending() to do that.
  */
-extern void hpte_update(pte_t *ptep, unsigned long pte, int wrprot);
+extern void hpte_update(struct mm_struct *mm, unsigned long addr, unsigned long pte,
+			int wrprot);
 
-static inline int ptep_test_and_clear_young(pte_t *ptep)
+static inline int __ptep_test_and_clear_young(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 	unsigned long old;
 
@@ -325,18 +326,25 @@ static inline int ptep_test_and_clear_young(pte_t *ptep)
 		return 0;
 	old = pte_update(ptep, _PAGE_ACCESSED);
 	if (old & _PAGE_HASHPTE) {
-		hpte_update(ptep, old, 0);
+		hpte_update(mm, addr, old, 0);
 		flush_tlb_pending();
 	}
 	return (old & _PAGE_ACCESSED) != 0;
 }
+#define __HAVE_ARCH_PTEP_TEST_AND_CLEAR_YOUNG
+#define ptep_test_and_clear_young(__vma, __addr, __ptep)		   \
+({									   \
+	int __r;							   \
+	__r = __ptep_test_and_clear_young((__vma)->vm_mm, __addr, __ptep); \
+	__r;								   \
+})
 
 /*
  * On RW/DIRTY bit transitions we can avoid flushing the hpte. For the
  * moment we always flush but we need to fix hpte_update and test if the
  * optimisation is worth it.
  */
-static inline int ptep_test_and_clear_dirty(pte_t *ptep)
+static inline int __ptep_test_and_clear_dirty(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 	unsigned long old;
 
@@ -344,11 +352,19 @@ static inline int ptep_test_and_clear_dirty(pte_t *ptep)
 		return 0;
 	old = pte_update(ptep, _PAGE_DIRTY);
 	if (old & _PAGE_HASHPTE)
-		hpte_update(ptep, old, 0);
+		hpte_update(mm, addr, old, 0);
 	return (old & _PAGE_DIRTY) != 0;
 }
+#define __HAVE_ARCH_PTEP_TEST_AND_CLEAR_DIRTY
+#define ptep_test_and_clear_dirty(__vma, __addr, __ptep)		   \
+({									   \
+	int __r;							   \
+	__r = __ptep_test_and_clear_dirty((__vma)->vm_mm, __addr, __ptep); \
+	__r;								   \
+})
 
-static inline void ptep_set_wrprotect(pte_t *ptep)
+#define __HAVE_ARCH_PTEP_SET_WRPROTECT
+static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 	unsigned long old;
 
@@ -356,7 +372,7 @@ static inline void ptep_set_wrprotect(pte_t *ptep)
        		return;
 	old = pte_update(ptep, _PAGE_RW);
 	if (old & _PAGE_HASHPTE)
-		hpte_update(ptep, old, 0);
+		hpte_update(mm, addr, old, 0);
 }
 
 /*
@@ -370,42 +386,46 @@ static inline void ptep_set_wrprotect(pte_t *ptep)
 #define __HAVE_ARCH_PTEP_CLEAR_YOUNG_FLUSH
 #define ptep_clear_flush_young(__vma, __address, __ptep)		\
 ({									\
-	int __young = ptep_test_and_clear_young(__ptep);		\
+	int __young = __ptep_test_and_clear_young((__vma)->vm_mm, __address, \
+						  __ptep);		\
 	__young;							\
 })
 
 #define __HAVE_ARCH_PTEP_CLEAR_DIRTY_FLUSH
 #define ptep_clear_flush_dirty(__vma, __address, __ptep)		\
 ({									\
-	int __dirty = ptep_test_and_clear_dirty(__ptep);		\
+	int __dirty = __ptep_test_and_clear_dirty((__vma)->vm_mm, __address, \
+						  __ptep); 		\
 	flush_tlb_page(__vma, __address);				\
 	__dirty;							\
 })
 
-static inline pte_t ptep_get_and_clear(pte_t *ptep)
+#define __HAVE_ARCH_PTEP_GET_AND_CLEAR
+static inline pte_t ptep_get_and_clear(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 	unsigned long old = pte_update(ptep, ~0UL);
 
 	if (old & _PAGE_HASHPTE)
-		hpte_update(ptep, old, 0);
+		hpte_update(mm, addr, old, 0);
 	return __pte(old);
 }
 
-static inline void pte_clear(pte_t * ptep)
+static inline void pte_clear(struct mm_struct *mm, unsigned long addr, pte_t * ptep)
 {
 	unsigned long old = pte_update(ptep, ~0UL);
 
 	if (old & _PAGE_HASHPTE)
-		hpte_update(ptep, old, 0);
+		hpte_update(mm, addr, old, 0);
 }
 
 /*
  * set_pte stores a linux PTE into the linux page table.
  */
-static inline void set_pte(pte_t *ptep, pte_t pte)
+static inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
+			      pte_t *ptep, pte_t pte)
 {
 	if (pte_present(*ptep)) {
-		pte_clear(ptep);
+		pte_clear(mm, addr, ptep);
 		flush_tlb_pending();
 	}
 	*ptep = __pte(pte_val(pte)) & ~_PAGE_HPTEFLAGS;
@@ -443,6 +463,7 @@ static inline void __ptep_set_access_flags(pte_t *ptep, pte_t entry, int dirty)
  */
 #define pgprot_noncached(prot)	(__pgprot(pgprot_val(prot) | _PAGE_NO_CACHE | _PAGE_GUARDED))
 
+#define __HAVE_ARCH_PTE_SAME
 #define pte_same(A,B)	(((pte_val(A) ^ pte_val(B)) & ~_PAGE_HPTEFLAGS) == 0)
 
 extern unsigned long ioremap_bot, ioremap_base;
@@ -550,14 +571,8 @@ static inline pte_t *find_linux_pte(pgd_t *pgdir, unsigned long ea)
 	return pt;
 }
 
-#endif /* __ASSEMBLY__ */
-
-#define __HAVE_ARCH_PTEP_TEST_AND_CLEAR_YOUNG
-#define __HAVE_ARCH_PTEP_TEST_AND_CLEAR_DIRTY
-#define __HAVE_ARCH_PTEP_GET_AND_CLEAR
-#define __HAVE_ARCH_PTEP_SET_WRPROTECT
-#define __HAVE_ARCH_PTEP_MKDIRTY
-#define __HAVE_ARCH_PTE_SAME
 #include <asm-generic/pgtable.h>
+
+#endif /* __ASSEMBLY__ */
 
 #endif /* _PPC64_PGTABLE_H */

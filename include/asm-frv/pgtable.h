@@ -173,6 +173,7 @@ do {							\
 	*(pteptr) = (pteval);				\
 	asm volatile("dcf %M0" :: "U"(*pteptr));	\
 } while(0)
+#define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
 
 #define set_pte_atomic(pteptr, pteval)		set_pte((pteptr), (pteval))
 
@@ -353,7 +354,7 @@ static inline pmd_t *pmd_offset(pud_t *dir, unsigned long address)
 #undef TEST_VERIFY_AREA
 
 #define pte_present(x)	(pte_val(x) & _PAGE_PRESENT)
-#define pte_clear(xp)	do { set_pte(xp, __pte(0)); } while (0)
+#define pte_clear(mm,addr,xp)	do { set_pte_at(mm, addr, xp, __pte(0)); } while (0)
 
 #define pmd_none(x)	(!pmd_val(x))
 #define pmd_present(x)	(pmd_val(x) & _PAGE_PRESENT)
@@ -390,36 +391,30 @@ static inline pte_t pte_mkdirty(pte_t pte)	{ (pte).pte |= _PAGE_DIRTY; return pt
 static inline pte_t pte_mkyoung(pte_t pte)	{ (pte).pte |= _PAGE_ACCESSED; return pte; }
 static inline pte_t pte_mkwrite(pte_t pte)	{ (pte).pte &= ~_PAGE_WP; return pte; }
 
-static inline int ptep_test_and_clear_dirty(pte_t *ptep)
+static inline int ptep_test_and_clear_dirty(struct vm_area_struct *vma, unsigned long addr, pte_t *ptep)
 {
 	int i = test_and_clear_bit(_PAGE_BIT_DIRTY, ptep);
 	asm volatile("dcf %M0" :: "U"(*ptep));
 	return i;
 }
 
-static inline int ptep_test_and_clear_young(pte_t *ptep)
+static inline int ptep_test_and_clear_young(struct vm_area_struct *vma, unsigned long addr, pte_t *ptep)
 {
 	int i = test_and_clear_bit(_PAGE_BIT_ACCESSED, ptep);
 	asm volatile("dcf %M0" :: "U"(*ptep));
 	return i;
 }
 
-static inline pte_t ptep_get_and_clear(pte_t *ptep)
+static inline pte_t ptep_get_and_clear(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 	unsigned long x = xchg(&ptep->pte, 0);
 	asm volatile("dcf %M0" :: "U"(*ptep));
 	return __pte(x);
 }
 
-static inline void ptep_set_wrprotect(pte_t *ptep)
+static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 	set_bit(_PAGE_BIT_WP, ptep);
-	asm volatile("dcf %M0" :: "U"(*ptep));
-}
-
-static inline void ptep_mkdirty(pte_t *ptep)
-{
-	set_bit(_PAGE_BIT_DIRTY, ptep);
 	asm volatile("dcf %M0" :: "U"(*ptep));
 }
 
@@ -512,7 +507,6 @@ static inline int pte_file(pte_t pte)
 #define __HAVE_ARCH_PTEP_TEST_AND_CLEAR_DIRTY
 #define __HAVE_ARCH_PTEP_GET_AND_CLEAR
 #define __HAVE_ARCH_PTEP_SET_WRPROTECT
-#define __HAVE_ARCH_PTEP_MKDIRTY
 #define __HAVE_ARCH_PTE_SAME
 #include <asm-generic/pgtable.h>
 

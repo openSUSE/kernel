@@ -26,7 +26,7 @@ struct vm_struct *vmlist;
 static void unmap_area_pte(pmd_t *pmd, unsigned long address,
 				  unsigned long size)
 {
-	unsigned long end;
+	unsigned long base, end;
 	pte_t *pte;
 
 	if (pmd_none(*pmd))
@@ -38,6 +38,7 @@ static void unmap_area_pte(pmd_t *pmd, unsigned long address,
 	}
 
 	pte = pte_offset_kernel(pmd, address);
+	base = address & PMD_MASK;
 	address &= ~PMD_MASK;
 	end = address + size;
 	if (end > PMD_SIZE)
@@ -45,7 +46,7 @@ static void unmap_area_pte(pmd_t *pmd, unsigned long address,
 
 	do {
 		pte_t page;
-		page = ptep_get_and_clear(pte);
+		page = ptep_get_and_clear(&init_mm, base + address, pte);
 		address += PAGE_SIZE;
 		pte++;
 		if (pte_none(page))
@@ -59,7 +60,7 @@ static void unmap_area_pte(pmd_t *pmd, unsigned long address,
 static void unmap_area_pmd(pud_t *pud, unsigned long address,
 				  unsigned long size)
 {
-	unsigned long end;
+	unsigned long base, end;
 	pmd_t *pmd;
 
 	if (pud_none(*pud))
@@ -71,13 +72,14 @@ static void unmap_area_pmd(pud_t *pud, unsigned long address,
 	}
 
 	pmd = pmd_offset(pud, address);
+	base = address & PUD_MASK;
 	address &= ~PUD_MASK;
 	end = address + size;
 	if (end > PUD_SIZE)
 		end = PUD_SIZE;
 
 	do {
-		unmap_area_pte(pmd, address, end - address);
+		unmap_area_pte(pmd, base + address, end - address);
 		address = (address + PMD_SIZE) & PMD_MASK;
 		pmd++;
 	} while (address < end);
@@ -87,7 +89,7 @@ static void unmap_area_pud(pgd_t *pgd, unsigned long address,
 			   unsigned long size)
 {
 	pud_t *pud;
-	unsigned long end;
+	unsigned long base, end;
 
 	if (pgd_none(*pgd))
 		return;
@@ -98,13 +100,14 @@ static void unmap_area_pud(pgd_t *pgd, unsigned long address,
 	}
 
 	pud = pud_offset(pgd, address);
+	base = address & PGDIR_MASK;
 	address &= ~PGDIR_MASK;
 	end = address + size;
 	if (end > PGDIR_SIZE)
 		end = PGDIR_SIZE;
 
 	do {
-		unmap_area_pmd(pud, address, end - address);
+		unmap_area_pmd(pud, base + address, end - address);
 		address = (address + PUD_SIZE) & PUD_MASK;
 		pud++;
 	} while (address && (address < end));
@@ -114,8 +117,9 @@ static int map_area_pte(pte_t *pte, unsigned long address,
 			       unsigned long size, pgprot_t prot,
 			       struct page ***pages)
 {
-	unsigned long end;
+	unsigned long base, end;
 
+	base = address & PMD_MASK;
 	address &= ~PMD_MASK;
 	end = address + size;
 	if (end > PMD_SIZE)
@@ -127,7 +131,7 @@ static int map_area_pte(pte_t *pte, unsigned long address,
 		if (!page)
 			return -ENOMEM;
 
-		set_pte(pte, mk_pte(page, prot));
+		set_pte_at(&init_mm, base + address, pte, mk_pte(page, prot));
 		address += PAGE_SIZE;
 		pte++;
 		(*pages)++;
@@ -151,7 +155,7 @@ static int map_area_pmd(pmd_t *pmd, unsigned long address,
 		pte_t * pte = pte_alloc_kernel(&init_mm, pmd, base + address);
 		if (!pte)
 			return -ENOMEM;
-		if (map_area_pte(pte, address, end - address, prot, pages))
+		if (map_area_pte(pte, base + address, end - address, prot, pages))
 			return -ENOMEM;
 		address = (address + PMD_SIZE) & PMD_MASK;
 		pmd++;
