@@ -69,7 +69,7 @@ struct agp_kern_info {
  * allocated.  A caller may manipulate the next and prev pointers to link
  * each allocated item into a list.  These pointers are ignored by the backend.
  * Everything else should never be written to, but the caller may read any of
- * the items to detrimine the status of this block of agp memory.
+ * the items to determine the status of this block of agp memory.
  */
 
 struct agp_bridge_data;
