@@ -156,12 +156,14 @@ static int orinoco_plx_init_one(struct pci_dev *pdev,
 				const struct pci_device_id *ent)
 {
 	int err = 0;
-	u16 *attr_mem = NULL;
+	u16 __iomem *attr_mem = NULL;
 	u32 reg, addr;
 	struct orinoco_private *priv = NULL;
 	unsigned long pccard_ioaddr = 0;
 	unsigned long pccard_iolen = 0;
+	u16 magic[8];
 	struct net_device *dev = NULL;
+	void __iomem *mem;
 	int i;
 
 	err = pci_enable_device(pdev);
@@ -170,41 +172,41 @@ static int orinoco_plx_init_one(struct pci_dev *pdev,
 
 	/* Resource 2 is mapped to the PCMCIA space */
 	attr_mem = ioremap(pci_resource_start(pdev, 2), PAGE_SIZE);
-	if (! attr_mem)
-		goto fail;
+	if (!attr_mem)
+		goto out;
 
 	printk(KERN_DEBUG "orinoco_plx: CIS: ");
 	for (i = 0; i < 16; i++) {
-		printk("%02X:", (int)attr_mem[i]);
+		printk("%02X:", readw(attr_mem+i));
 	}
 	printk("\n");
 
 	/* Verify whether PC card is present */
 	/* FIXME: we probably need to be smarted about this */
-	if (memcmp(attr_mem, cis_magic, sizeof(cis_magic)) != 0) {
+	memcpy_fromio(magic, attr_mem, 16);
+	if (memcmp(magic, cis_magic, 16) != 0) {
 		printk(KERN_ERR "orinoco_plx: The CIS value of Prism2 PC card is invalid.\n");
 		err = -EIO;
-		goto fail;
+		iounmap(attr_mem);
+		goto out;
 	}
 
 	/* PCMCIA COR is the first byte following CIS: this write should
 	 * enable I/O mode and select level-triggered interrupts */
-	attr_mem[COR_OFFSET] = COR_VALUE;
+	writew(COR_VALUE, attr_mem + COR_OFFSET);
 	mdelay(1);
-	reg = attr_mem[COR_OFFSET];
+	reg = readw(attr_mem + COR_OFFSET);
+	iounmap(attr_mem);
+
 	if (reg != COR_VALUE) {
 		printk(KERN_ERR "orinoco_plx: Error setting COR value (reg=%x)\n", reg);
-		goto fail;
+		goto out;
 	}			
-
-	iounmap(attr_mem);
-	attr_mem = NULL; /* done with this now, it seems */
 
 	/* bjoern: We need to tell the card to enable interrupts, in
 	   case the serial eprom didn't do this already. See the
 	   PLX9052 data book, p8-1 and 8-24 for reference. */
 	addr = pci_resource_start(pdev, 1);
-	reg = 0;
 	reg = inl(addr+PLX_INTCSR);
 	if (reg & PLX_INTCSR_INTEN)
 		printk(KERN_DEBUG "orinoco_plx: "
@@ -216,7 +218,7 @@ static int orinoco_plx_init_one(struct pci_dev *pdev,
 		if(!(reg & PLX_INTCSR_INTEN)) {
 			printk(KERN_ERR "orinoco_plx: "
 			       "Couldn't enable Local Interrupts\n");
-			goto fail;
+			goto out;
 		}
 	}
 
@@ -226,16 +228,21 @@ static int orinoco_plx_init_one(struct pci_dev *pdev,
 	if (! request_region(pccard_ioaddr, pccard_iolen, DRIVER_NAME)) {
 		printk(KERN_ERR "orinoco_plx: I/O resource 0x%lx @ 0x%lx busy\n",
 		       pccard_iolen, pccard_ioaddr);
-		pccard_ioaddr = 0;
 		err = -EBUSY;
-		goto fail;
+		goto out;
+	}
+
+	mem = pci_iomap(pdev, 3, 0);
+	if (!mem) {
+		err = -ENOMEM;
+		goto out1;
 	}
 
 	/* Allocate network device */
 	dev = alloc_orinocodev(0, NULL);
-	if (! dev) {
+	if (!dev) {
 		err = -ENOMEM;
-		goto fail;
+		goto out2;
 	}
 
 	priv = netdev_priv(dev);
@@ -247,8 +254,7 @@ static int orinoco_plx_init_one(struct pci_dev *pdev,
 	       "at %s irq:%d, io addr:0x%lx\n", pci_name(pdev), pdev->irq,
 	       pccard_ioaddr);
 
-	hermes_struct_init(&(priv->hw), dev->base_addr, HERMES_IO,
-			   HERMES_16BIT_REGSPACING);
+	hermes_struct_init(&(priv->hw), mem, HERMES_16BIT_REGSPACING);
 	pci_set_drvdata(pdev, dev);
 
 	err = request_irq(pdev->irq, orinoco_interrupt, SA_SHIRQ,
@@ -256,47 +262,41 @@ static int orinoco_plx_init_one(struct pci_dev *pdev,
 	if (err) {
 		printk(KERN_ERR PFX "Error allocating IRQ %d.\n", pdev->irq);
 		err = -EBUSY;
-		goto fail;
+		goto out3;
 	}
 	dev->irq = pdev->irq;
 
 	err = register_netdev(dev);
 	if (err)
-		goto fail;
+		goto out4;
 
 	return 0;
 
- fail:
-	printk(KERN_DEBUG PFX "init_one(), FAIL!\n");
-
-	if (dev) {
-		if (dev->irq)
-			free_irq(dev->irq, dev);
-		
-		free_netdev(dev);
-	}
-
-	if (pccard_ioaddr)
-		release_region(pccard_ioaddr, pccard_iolen);
-
-	if (attr_mem)
-		iounmap(attr_mem);
-
+out4:
+	free_irq(dev->irq, dev);
+out3:
+	free_netdev(dev);
+out2:
+	pci_iounmap(pdev, mem);
+out1:
+	release_region(pccard_ioaddr, pccard_iolen);
+out:
 	pci_disable_device(pdev);
-
+	printk(KERN_DEBUG PFX "init_one(), FAIL!\n");
 	return err;
 }
 
 static void __devexit orinoco_plx_remove_one(struct pci_dev *pdev)
 {
 	struct net_device *dev = pci_get_drvdata(pdev);
-
-	BUG_ON(! dev);
+	struct orinoco_private *priv = netdev_priv(dev);
 
 	unregister_netdev(dev);
 		
 	if (dev->irq)
 		free_irq(dev->irq, dev);
+
+	pci_iounmap(pdev, priv->hw.iobase);
 		
 	pci_set_drvdata(pdev, NULL);
 

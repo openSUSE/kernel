@@ -196,7 +196,7 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 {
 	int err = 0;
 	unsigned long pci_iorange;
-	u16 *pci_ioaddr = NULL;
+	u16 __iomem *pci_ioaddr = NULL;
 	unsigned long pci_iolen;
 	struct orinoco_private *priv = NULL;
 	struct net_device *dev = NULL;
@@ -230,8 +230,7 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 	       "Detected Orinoco/Prism2 PCI device at %s, mem:0x%lX to 0x%lX -> 0x%p, irq:%d\n",
 	       pci_name(pdev), dev->mem_start, dev->mem_end, pci_ioaddr, pdev->irq);
 
-	hermes_struct_init(&priv->hw, dev->base_addr,
-			   HERMES_MEM, HERMES_32BIT_REGSPACING);
+	hermes_struct_init(&priv->hw, pci_ioaddr, HERMES_32BIT_REGSPACING);
 	pci_set_drvdata(pdev, dev);
 
 	err = request_irq(pdev->irq, orinoco_interrupt, SA_SHIRQ,
@@ -290,7 +289,7 @@ static void __devexit orinoco_pci_remove_one(struct pci_dev *pdev)
 		free_irq(dev->irq, dev);
 
 	if (priv->hw.iobase)
-		iounmap((unsigned char *) priv->hw.iobase);
+		iounmap(priv->hw.iobase);
 
 	pci_set_drvdata(pdev, NULL);
 	free_netdev(dev);

@@ -67,8 +67,7 @@ MODULE_LICENSE("Dual MPL/GPL");
  * Debugging helpers
  */
 
-#define IO_TYPE(hw)	((hw)->io_space ? "IO " : "MEM ")
-#define DMSG(stuff...) do {printk(KERN_DEBUG "hermes @ %s0x%x: " , IO_TYPE(hw), hw->iobase); \
+#define DMSG(stuff...) do {printk(KERN_DEBUG "hermes @ %p: " , hw->iobase); \
 			printk(stuff);} while (0)
 
 #undef HERMES_DEBUG
@@ -123,11 +122,9 @@ static int hermes_issue_cmd(hermes_t *hw, u16 cmd, u16 param0)
  * Function definitions
  */
 
-void hermes_struct_init(hermes_t *hw, ulong address,
-			int io_space, int reg_spacing)
+void hermes_struct_init(hermes_t *hw, void __iomem *address, int reg_spacing)
 {
 	hw->iobase = address;
-	hw->io_space = io_space;
 	hw->reg_spacing = reg_spacing;
 	hw->inten = 0x0;
 
@@ -200,9 +197,9 @@ int hermes_init(hermes_t *hw)
 	}
 		
 	if (! (reg & HERMES_EV_CMD)) {
-		printk(KERN_ERR "hermes @ %s0x%lx: " 
+		printk(KERN_ERR "hermes @ %p: " 
 		       "Timeout waiting for card to reset (reg=0x%04x)!\n",
-		       IO_TYPE(hw), hw->iobase, reg);
+		       hw->iobase, reg);
 		err = -ETIMEDOUT;
 		goto out;
 	}
@@ -235,13 +232,13 @@ int hermes_docmd_wait(hermes_t *hw, u16 cmd, u16 parm0,
 	err = hermes_issue_cmd(hw, cmd, parm0);
 	if (err) {
 		if (! hermes_present(hw)) {
-			printk(KERN_WARNING "hermes @ %s0x%lx: "
+			printk(KERN_WARNING "hermes @ %p: "
 			       "Card removed while issuing command.\n",
-			       IO_TYPE(hw), hw->iobase);
+			       hw->iobase);
 			err = -ENODEV;
 		} else 
-			printk(KERN_ERR "hermes @ %s0x%lx: Error %d issuing command.\n",
-			       IO_TYPE(hw), hw->iobase, err);
+			printk(KERN_ERR "hermes @ %p: Error %d issuing command.\n",
+			       hw->iobase, err);
 		goto out;
 	}
 
@@ -254,17 +251,17 @@ int hermes_docmd_wait(hermes_t *hw, u16 cmd, u16 parm0,
 	}
 
 	if (! hermes_present(hw)) {
-		printk(KERN_WARNING "hermes @ %s0x%lx: "
+		printk(KERN_WARNING "hermes @ %p: "
 		       "Card removed while waiting for command completion.\n",
-		       IO_TYPE(hw), hw->iobase);
+		       hw->iobase);
 		err = -ENODEV;
 		goto out;
 	}
 		
 	if (! (reg & HERMES_EV_CMD)) {
-		printk(KERN_ERR "hermes @ %s0x%lx: "
+		printk(KERN_ERR "hermes @ %p: "
 		       "Timeout waiting for command completion.\n",
-		       IO_TYPE(hw), hw->iobase);
+		       hw->iobase);
 		err = -ETIMEDOUT;
 		goto out;
 	}
@@ -309,16 +306,16 @@ int hermes_allocate(hermes_t *hw, u16 size, u16 *fid)
 	}
 	
 	if (! hermes_present(hw)) {
-		printk(KERN_WARNING "hermes @ %s0x%lx: "
+		printk(KERN_WARNING "hermes @ %p: "
 		       "Card removed waiting for frame allocation.\n",
-		       IO_TYPE(hw), hw->iobase);
+		       hw->iobase);
 		return -ENODEV;
 	}
 		
 	if (! (reg & HERMES_EV_ALLOC)) {
-		printk(KERN_ERR "hermes @ %s0x%lx: "
+		printk(KERN_ERR "hermes @ %p: "
 		       "Timeout waiting for frame allocation\n",
-		       IO_TYPE(hw), hw->iobase);
+		       hw->iobase);
 		return -ETIMEDOUT;
 	}
 
@@ -484,14 +481,14 @@ int hermes_read_ltv(hermes_t *hw, int bap, u16 rid, unsigned bufsize,
 		*length = rlength;
 
 	if (rtype != rid)
-		printk(KERN_WARNING "hermes @ %s0x%lx: "
+		printk(KERN_WARNING "hermes @ %p: "
 		       "hermes_read_ltv(): rid  (0x%04x) does not match type (0x%04x)\n",
-		       IO_TYPE(hw), hw->iobase, rid, rtype);
+		       hw->iobase, rid, rtype);
 	if (HERMES_RECLEN_TO_BYTES(rlength) > bufsize)
-		printk(KERN_WARNING "hermes @ %s0x%lx: "
+		printk(KERN_WARNING "hermes @ %p: "
 		       "Truncating LTV record from %d to %d bytes. "
 		       "(rid=0x%04x, len=0x%04x)\n",
-		       IO_TYPE(hw), hw->iobase,
+		       hw->iobase,
 		       HERMES_RECLEN_TO_BYTES(rlength), bufsize, rid, rlength);
 
 	nwords = min((unsigned)rlength - 1, bufsize / 2);
