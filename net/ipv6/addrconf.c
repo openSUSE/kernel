@@ -1924,11 +1924,6 @@ static int addrconf_notify(struct notifier_block *this, unsigned long event,
 	struct inet6_dev *idev = __in6_dev_get(dev);
 
 	switch(event) {
-	case NETDEV_REGISTER:
-		if (dev == &loopback_dev && !ipv6_find_idev(dev))
-			panic("addrconf: Failed to create loopback\n");
-		break;
-
 	case NETDEV_UP:
 		switch(dev->type) {
 		case ARPHRD_SIT:
@@ -2013,7 +2008,7 @@ static int addrconf_ifdown(struct net_device *dev, int how)
 
 	ASSERT_RTNL();
 
-	if (dev == &loopback_dev)
+	if (dev == &loopback_dev && how == 1)
 		how = 0;
 
 	rt6_ifdown(dev);
@@ -3446,8 +3441,10 @@ int unregister_inet6addr_notifier(struct notifier_block *nb)
  *	Init / cleanup code
  */
 
-void __init addrconf_init(void)
+int __init addrconf_init(void)
 {
+	int err = 0;
+
 	/* The addrconf netdev notifier requires that loopback_dev
 	 * has it's ipv6 private information allocated and setup
 	 * before it can bring up and give link-local addresses
@@ -3461,13 +3458,17 @@ void __init addrconf_init(void)
 	 * first, then loopback_dev, which cases all the non-loopback_dev
 	 * devices to fail to get a link-local address.
 	 *
-	 * So, as a temporary fix, register loopback_dev first by hand.
+	 * So, as a temporary fix, allocate the ipv6 structure for
+	 * loopback_dev first by hand.
 	 * Longer term, all of the dependencies ipv6 has upon the loopback
 	 * device and it being up should be removed.
 	 */
 	rtnl_lock();
-	addrconf_notify(&ipv6_dev_notf, NETDEV_REGISTER, &loopback_dev);
+	if (!ipv6_add_dev(&loopback_dev))
+		err = -ENOMEM;
 	rtnl_unlock();
+	if (err)
+		return err;
 
 	register_netdevice_notifier(&ipv6_dev_notf);
 
@@ -3485,6 +3486,8 @@ void __init addrconf_init(void)
 		register_sysctl_table(addrconf_sysctl.addrconf_root_dir, 0);
 	addrconf_sysctl_register(NULL, &ipv6_devconf_dflt);
 #endif
+
+	return 0;
 }
 
 void __exit addrconf_cleanup(void)
@@ -3513,6 +3516,7 @@ void __exit addrconf_cleanup(void)
 			continue;
 		addrconf_ifdown(dev, 1);
 	}
+	addrconf_ifdown(&loopback_dev, 2);
 
 	/*
 	 *	Check hash table.
