@@ -432,7 +432,6 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 
 	if (newsize == 0 || (ra->flags & RA_FLAG_INCACHE)) {
 		newsize = 1;
-		ra->prev_page = offset;
 		goto out;	/* No readahead or file already in cache */
 	}
 	/*
@@ -443,7 +442,6 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 	if ((ra->size == 0 && offset == 0)	/* first io and start of file */
 	    || (ra->size == -1 && ra->prev_page == offset - 1)) {
 		/* First sequential */
-		ra->prev_page  = offset + newsize - 1;
 		ra->size = get_init_ra_size(newsize, max);
 		ra->start = offset;
 		if (!blockable_page_cache_readahead(mapping, filp, offset,
@@ -475,7 +473,6 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 	 */
 	if ((offset != (ra->prev_page+1) || (ra->size == 0))) {
 		ra_off(ra);
-		ra->prev_page  = offset + newsize - 1;
 		blockable_page_cache_readahead(mapping, filp, offset,
 				 newsize, ra, 1);
 		goto out;
@@ -545,7 +542,7 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 
 out:
 	ra->prev_page = offset + newsize - 1;
-	return(newsize);
+	return newsize;
 }
 
 /*
