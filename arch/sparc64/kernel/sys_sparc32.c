@@ -268,7 +268,7 @@ asmlinkage long compat_sys_ipc(u32 call, u32 first, u32 second, u32 third, compa
 			/* sign extend semid */
 			return compat_sys_semtimedop((int)first,
 						     compat_ptr(ptr), second,
-						     compat_ptr(third));
+						     compat_ptr(fifth));
 		/* else fall through for normal semop() */
 	case SEMOP:
 		/* struct sembuf is the same on 32 and 64bit :)) */
