@@ -1234,10 +1234,10 @@ int usb_new_device(struct usb_device *udev)
 		 */
 		if (udev->bus->b_hnp_enable || udev->bus->is_b_host) {
 			static int __usb_suspend_device (struct usb_device *,
-						int port1, u32 state);
+						int port1, pm_message_t state);
 			err = __usb_suspend_device(udev,
 					udev->bus->otg_port,
-					PM_SUSPEND_MEM);
+					PMSG_SUSPEND);
 			if (err < 0)
 				dev_dbg(&udev->dev, "HNP fail, %d\n", err);
 		}
@@ -1525,7 +1525,7 @@ static int hub_port_suspend(struct usb_hub *hub, int port1,
  * Linux (2.6) currently has NO mechanisms to initiate that:  no khubd
  * timer, no SRP, no requests through sysfs.
  */
-int __usb_suspend_device (struct usb_device *udev, int port1, u32 state)
+int __usb_suspend_device (struct usb_device *udev, int port1, pm_message_t state)
 {
 	int	status;
 
@@ -1623,7 +1623,7 @@ int __usb_suspend_device (struct usb_device *udev, int port1, u32 state)
 /**
  * usb_suspend_device - suspend a usb device
  * @udev: device that's no longer in active use
- * @state: PM_SUSPEND_MEM to suspend
+ * @state: PMSG_SUSPEND to suspend
  * Context: must be able to sleep; device not locked
  *
  * Suspends a USB device that isn't in active use, conserving power.
@@ -1672,7 +1672,7 @@ static int finish_port_resume(struct usb_device *udev)
 	usb_set_device_state(udev, udev->actconfig
 			? USB_STATE_CONFIGURED
 			: USB_STATE_ADDRESS);
-	udev->dev.power.power_state = PM_SUSPEND_ON;
+	udev->dev.power.power_state = PMSG_ON;
 
  	/* 10.5.4.5 says be sure devices in the tree are still there.
  	 * For now let's assume the device didn't go crazy on resume,
@@ -1873,7 +1873,7 @@ static int remote_wakeup(struct usb_device *udev)
 	return status;
 }
 
-static int hub_suspend(struct usb_interface *intf, u32 state)
+static int hub_suspend(struct usb_interface *intf, pm_message_t state)
 {
 	struct usb_hub		*hub = usb_get_intfdata (intf);
 	struct usb_device	*hdev = hub->hdev;
@@ -1945,7 +1945,7 @@ static int hub_resume(struct usb_interface *intf)
 		}
 		up(&udev->serialize);
 	}
-	intf->dev.power.power_state = PM_SUSPEND_ON;
+	intf->dev.power.power_state = PMSG_ON;
 
 	hub_activate(hub);
 	return 0;
