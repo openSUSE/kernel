@@ -2242,6 +2242,32 @@ DEFINE_PER_CPU(struct kernel_stat, kstat);
 EXPORT_PER_CPU_SYMBOL(kstat);
 
 /*
+ * This is called on clock ticks and on context switches.
+ * Bank in p->sched_time the ns elapsed since the last tick or switch.
+ */
+static inline void update_cpu_clock(task_t *p, runqueue_t *rq,
+				    unsigned long long now)
+{
+	unsigned long long last = max(p->timestamp, rq->timestamp_last_tick);
+	p->sched_time += now - last;
+}
+
+/*
+ * Return current->sched_time plus any more ns on the sched_clock
+ * that have not yet been banked.
+ */
+unsigned long long current_sched_time(const task_t *tsk)
+{
+	unsigned long long ns;
+	unsigned long flags;
+	local_irq_save(flags);
+	ns = max(tsk->timestamp, task_rq(tsk)->timestamp_last_tick);
+	ns = tsk->sched_time + (sched_clock() - ns);
+	local_irq_restore(flags);
+	return ns;
+}
+
+/*
  * We place interactive tasks back into the active array, if possible.
  *
  * To guarantee that this does not starve expired tasks we ignore the
@@ -2419,8 +2445,11 @@ void scheduler_tick(void)
 	int cpu = smp_processor_id();
 	runqueue_t *rq = this_rq();
 	task_t *p = current;
+	unsigned long long now = sched_clock();
 
-	rq->timestamp_last_tick = sched_clock();
+	update_cpu_clock(p, rq, now);
+
+	rq->timestamp_last_tick = now;
 
 	if (p == rq->idle) {
 		if (wake_priority_sleeper(rq))
@@ -2803,6 +2832,8 @@ switch_tasks:
 	prefetch(next);
 	clear_tsk_need_resched(prev);
 	rcu_qsctr_inc(task_cpu(prev));
+
+	update_cpu_clock(prev, rq, now);
 
 	prev->sleep_avg -= run_time;
 	if ((long)prev->sleep_avg <= 0)

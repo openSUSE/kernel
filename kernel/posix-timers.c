@@ -200,13 +200,15 @@ static inline void unlock_timer(struct k_itimer *timr, unsigned long flags)
 
 #ifdef CLOCK_DISPATCH_DIRECT
 #define CLOCK_DISPATCH(clock, call, arglist) \
-	((*posix_clocks[clock].call) arglist)
+	((clock) < 0 ? posix_cpu_##call arglist : \
+	 (*posix_clocks[clock].call) arglist)
 #define DEFHOOK(name)	if (clock->name == NULL) clock->name = common_##name
 #define COMMONDEFN	static
 #else
 #define CLOCK_DISPATCH(clock, call, arglist) \
-	(posix_clocks[clock].call != NULL \
-	 ? (*posix_clocks[clock].call) arglist : common_##call arglist)
+	((clock) < 0 ? posix_cpu_##call arglist : \
+	 (posix_clocks[clock].call != NULL \
+	  ? (*posix_clocks[clock].call) arglist : common_##call arglist))
 #define DEFHOOK(name)		(void) 0 /* Nothing here.  */
 #define COMMONDEFN	static inline
 #endif
@@ -277,6 +279,8 @@ static inline void common_default_hooks(struct k_clock *clock)
  */
 static inline int invalid_clockid(clockid_t which_clock)
 {
+	if (which_clock < 0)	/* CPU clock, posix_cpu_* will check it */
+		return 0;
 	if ((unsigned) which_clock >= MAX_CLOCKS)
 		return 1;
 	if (posix_clocks[which_clock].clock_getres != NULL)

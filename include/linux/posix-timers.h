@@ -4,6 +4,23 @@
 #include <linux/spinlock.h>
 #include <linux/list.h>
 
+#define CPUCLOCK_PID(clock)	((pid_t) ~((clock) >> 3))
+#define CPUCLOCK_PERTHREAD(clock) \
+	(((clock) & (clockid_t) CPUCLOCK_PERTHREAD_MASK) != 0)
+#define CPUCLOCK_PID_MASK	7
+#define CPUCLOCK_PERTHREAD_MASK	4
+#define CPUCLOCK_WHICH(clock)	((clock) & (clockid_t) CPUCLOCK_CLOCK_MASK)
+#define CPUCLOCK_CLOCK_MASK	3
+#define CPUCLOCK_PROF		0
+#define CPUCLOCK_VIRT		1
+#define CPUCLOCK_SCHED		2
+#define CPUCLOCK_MAX		3
+
+#define MAKE_PROCESS_CPUCLOCK(pid, clock) \
+	((~(clockid_t) (pid) << 3) | (clockid_t) (clock))
+#define MAKE_THREAD_CPUCLOCK(tid, clock) \
+	MAKE_PROCESS_CPUCLOCK((tid), (clock) | CPUCLOCK_PERTHREAD_MASK)
+
 /* POSIX.1b interval timer structure. */
 struct k_itimer {
 	struct list_head list;		/* free/ allocate list */
@@ -72,5 +89,18 @@ struct now_struct {
                   (timr)->it_overrun += orun;				\
               }								\
             }while (0)
-#endif
 
+int posix_cpu_clock_getres(clockid_t which_clock, struct timespec *);
+int posix_cpu_clock_get(clockid_t which_clock, struct timespec *);
+int posix_cpu_clock_set(clockid_t which_clock, const struct timespec *tp);
+int posix_cpu_timer_create(struct k_itimer *);
+int posix_cpu_nsleep(clockid_t, int, struct timespec *);
+#define posix_cpu_timer_create do_posix_clock_notimer_create
+#define posix_cpu_nsleep do_posix_clock_nonanosleep
+int posix_cpu_timer_set(struct k_itimer *, int,
+			struct itimerspec *, struct itimerspec *);
+int posix_cpu_timer_del(struct k_itimer *);
+void posix_cpu_timer_get(struct k_itimer *, struct itimerspec *);
+
+
+#endif
