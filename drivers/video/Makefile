@@ -30,6 +30,7 @@ obj-$(CONFIG_FB_PM3)		  += pm3fb.o
 
 obj-$(CONFIG_FB_MATROX)		  += matrox/
 obj-$(CONFIG_FB_RIVA)		  += riva/ vgastate.o
+obj-$(CONFIG_FB_NVIDIA)		  += nvidia/
 obj-$(CONFIG_FB_ATY)		  += aty/
 obj-$(CONFIG_FB_ATY128)		  += aty/
 obj-$(CONFIG_FB_RADEON)		  += aty/
