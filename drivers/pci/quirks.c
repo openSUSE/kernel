@@ -801,6 +801,12 @@ static void __init asus_hides_smbus_hostbridge(struct pci_dev *dev)
 			case 0x12bc: /* HP D330L */
 				asus_hides_smbus = 1;
 			}
+	} else if (unlikely(dev->subsystem_vendor == PCI_VENDOR_ID_TOSHIBA)) {
+		if (dev->device == PCI_DEVICE_ID_INTEL_82855GM_HB)
+			switch(dev->subsystem_device) {
+			case 0x0001: /* Toshiba Satellite A40 */
+				asus_hides_smbus = 1;
+			}
 	}
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL,	PCI_DEVICE_ID_INTEL_82845_HB,	asus_hides_smbus_hostbridge );
