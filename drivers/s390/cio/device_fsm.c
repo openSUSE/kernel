@@ -560,6 +560,8 @@ ccw_device_offline(struct ccw_device *cdev)
 	struct subchannel *sch;
 
 	sch = to_subchannel(cdev->dev.parent);
+	if (stsch(sch->irq, &sch->schib) || !sch->schib.pmcw.dnv)
+		return -ENODEV;
 	if (cdev->private->state != DEV_STATE_ONLINE) {
 		if (sch->schib.scsw.actl != 0)
 			return -EBUSY;
@@ -668,6 +670,12 @@ ccw_device_online_verify(struct ccw_device *cdev, enum dev_event dev_event)
 		return;
 	}
 	sch = to_subchannel(cdev->dev.parent);
+	/*
+	 * Since we might not just be coming from an interrupt from the
+	 * subchannel we have to update the schib.
+	 */
+	stsch(sch->irq, &sch->schib);
+
 	if (sch->schib.scsw.actl != 0 ||
 	    (cdev->private->irb.scsw.stctl & SCSW_STCTL_STATUS_PEND)) {
 		/*
@@ -982,21 +990,17 @@ void
 device_trigger_reprobe(struct subchannel *sch)
 {
 	struct ccw_device *cdev;
-	unsigned long flags;
 
 	if (!sch->dev.driver_data)
 		return;
 	cdev = sch->dev.driver_data;
-	spin_lock_irqsave(&sch->lock, flags);
-	if (cdev->private->state != DEV_STATE_DISCONNECTED) {
-		spin_unlock_irqrestore(&sch->lock, flags);
+	if (cdev->private->state != DEV_STATE_DISCONNECTED)
 		return;
-	}
+
 	/* Update some values. */
-	if (stsch(sch->irq, &sch->schib)) {
-		spin_unlock_irqrestore(&sch->lock, flags);
+	if (stsch(sch->irq, &sch->schib))
 		return;
-	}
+
 	/*
 	 * The pim, pam, pom values may not be accurate, but they are the best
 	 * we have before performing device selection :/
@@ -1014,7 +1018,6 @@ device_trigger_reprobe(struct subchannel *sch)
 	sch->schib.pmcw.intparm = (__u32)(unsigned long)sch;
 	/* We should also udate ssd info, but this has to wait. */
 	ccw_device_start_id(cdev, 0);
-	spin_unlock_irqrestore(&sch->lock, flags);
 }
 
 static void

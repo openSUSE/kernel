@@ -1,7 +1,7 @@
 /*
  *  drivers/s390/cio/chsc.c
  *   S/390 common I/O routines -- channel subsystem call
- *   $Revision: 1.115 $
+ *   $Revision: 1.118 $
  *
  *    Copyright (C) 1999-2002 IBM Deutschland Entwicklung GmbH,
  *			      IBM Corporation
@@ -423,12 +423,12 @@ s390_process_res_acc (u8 chpid, __u16 fla, u32 fla_mask)
 			     sch->schib.pmcw.pam &
 			     sch->schib.pmcw.pom)
 			    | chp_mask) & sch->opm;
-		spin_unlock_irq(&sch->lock);
 		if (!old_lpm && sch->lpm)
 			device_trigger_reprobe(sch);
 		else if (sch->driver && sch->driver->verify)
 			sch->driver->verify(&sch->dev);
 
+		spin_unlock_irq(&sch->lock);
 		put_device(&sch->dev);
 		if (fla_mask != 0)
 			break;
@@ -717,10 +717,12 @@ static inline void
 __s390_subchannel_vary_chpid(struct subchannel *sch, __u8 chpid, int on)
 {
 	int chp, old_lpm;
+	unsigned long flags;
 
 	if (!sch->ssd_info.valid)
 		return;
 	
+	spin_lock_irqsave(&sch->lock, flags);
 	old_lpm = sch->lpm;
 	for (chp = 0; chp < 8; chp++) {
 		if (sch->ssd_info.chpid[chp] != chpid)
@@ -751,6 +753,7 @@ __s390_subchannel_vary_chpid(struct subchannel *sch, __u8 chpid, int on)
 		}
 		break;
 	}
+	spin_unlock_irqrestore(&sch->lock, flags);
 }
 
 static int
