@@ -272,7 +272,7 @@ gss_parse_init_downcall(struct gss_api_mech *gm, struct xdr_netobj *buf,
 		goto err_free_wire_ctx;
 	if (p != end)
 		goto err_free_wire_ctx;
-	if (gss_import_sec_context(&tmp_buf, gm, &ctx->gc_gss_ctx))
+	if (gss_import_sec_context(tmp_buf.data, tmp_buf.len, gm, &ctx->gc_gss_ctx))
 		goto err_free_wire_ctx;
 	*gc = ctx;
 	return 0;
