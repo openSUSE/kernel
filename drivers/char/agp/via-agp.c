@@ -89,7 +89,7 @@ static void via_tlbflush(struct agp_memory *mem)
 }
 
 
-static struct aper_size_info_8 via_generic_sizes[7] =
+static struct aper_size_info_8 via_generic_sizes[9] =
 {
 	{256, 65536, 6, 0},
 	{128, 32768, 5, 128},
@@ -97,8 +97,8 @@ static struct aper_size_info_8 via_generic_sizes[7] =
 	{32, 8192, 3, 224},
 	{16, 4096, 2, 240},
 	{8, 2048, 1, 248},
-	{4, 1024, 0, 252}
-	{2, 512, 0, 254}
+	{4, 1024, 0, 252},
+	{2, 512, 0, 254},
 	{1, 256, 0, 255}
 };
 
@@ -197,7 +197,7 @@ struct agp_bridge_driver via_driver = {
 	.owner			= THIS_MODULE,
 	.aperture_sizes		= via_generic_sizes,
 	.size_type		= U8_APER_SIZE,
-	.num_aperture_sizes	= 7,
+	.num_aperture_sizes	= 9,
 	.configure		= via_configure,
 	.fetch_size		= via_fetch_size,
 	.cleanup		= via_cleanup,
