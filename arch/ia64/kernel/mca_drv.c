@@ -45,14 +45,14 @@ static ia64_mca_os_to_sal_state_t *os_to_sal_handoff_state;
 /* from mca_drv_asm.S */
 extern void *mca_handler_bhhook(void);
 
-static spinlock_t mca_bh_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(mca_bh_lock);
 
 typedef enum {
 	MCA_IS_LOCAL  = 0,
 	MCA_IS_GLOBAL = 1
 } mca_type_t;
 
-#define MAX_PAGE_ISOLATE 32
+#define MAX_PAGE_ISOLATE 1024
 
 static struct page *page_isolate[MAX_PAGE_ISOLATE];
 static int num_page_isolate = 0;

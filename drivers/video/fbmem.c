@@ -35,6 +35,7 @@
 #include <linux/err.h>
 #include <linux/kernel.h>
 #include <linux/device.h>
+#include <linux/efi.h>
 
 #if defined(__mc68000__) || defined(CONFIG_APUS)
 #include <asm/setup.h>
@@ -868,6 +869,23 @@ fb_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 	}
 }
 
+#ifdef CONFIG_COMPAT
+static long
+fb_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	int fbidx = iminor(file->f_dentry->d_inode);
+	struct fb_info *info = registered_fb[fbidx];
+	struct fb_ops *fb = info->fbops;
+	int ret;
+	if (fb->fb_compat_ioctl == NULL)
+		return -ENOIOCTLCMD;
+	lock_kernel();
+	ret = fb->fb_compat_ioctl(file, cmd, arg, info);
+	unlock_kernel();
+	return ret;
+}
+#endif
+
 static int 
 fb_mmap(struct file *file, struct vm_area_struct * vma)
 {
@@ -950,9 +968,13 @@ fb_mmap(struct file *file, struct vm_area_struct * vma)
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 #elif defined(__hppa__)
 	pgprot_val(vma->vm_page_prot) |= _PAGE_NO_CACHE;
-#elif defined(__ia64__) || defined(__arm__) || defined(__sh__) || \
-      defined(__m32r__)
+#elif defined(__arm__) || defined(__sh__) || defined(__m32r__)
 	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
+#elif defined(__ia64__)
+	if (efi_range_is_wc(vma->vm_start, vma->vm_end - vma->vm_start))
+		vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
+	else
+		vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 #else
 #warning What do we have to do here??
 #endif
@@ -1009,6 +1031,9 @@ static struct file_operations fb_fops = {
 	.read =		fb_read,
 	.write =	fb_write,
 	.ioctl =	fb_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = fb_compat_ioctl,
+#endif
 	.mmap =		fb_mmap,
 	.open =		fb_open,
 	.release =	fb_release,
