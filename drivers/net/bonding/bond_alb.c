@@ -954,9 +954,9 @@ static int alb_set_slave_mac_addr(struct slave *slave, u8 addr[], int hw)
 	/* each slave will receive packets destined to a different mac */
 	memcpy(s_addr.sa_data, addr, dev->addr_len);
 	s_addr.sa_family = dev->type;
-	if (dev->set_mac_address(dev, &s_addr)) {
+	if (dev_set_mac_address(dev, &s_addr)) {
 		printk(KERN_ERR DRV_NAME
-		       ": Error: dev->set_mac_address of dev %s failed! ALB "
+		       ": Error: dev_set_mac_address of dev %s failed! ALB "
 		       "mode requires that the base driver support setting "
 		       "the hw address also when the network device's "
 		       "interface is open\n",
@@ -1209,7 +1209,7 @@ static int alb_set_mac_address(struct bonding *bond, void *addr)
 		/* save net_device's current hw address */
 		memcpy(tmp_addr, slave->dev->dev_addr, ETH_ALEN);
 
-		res = slave->dev->set_mac_address(slave->dev, addr);
+		res = dev_set_mac_address(slave->dev, addr);
 
 		/* restore net_device's hw address */
 		memcpy(slave->dev->dev_addr, tmp_addr, ETH_ALEN);
@@ -1229,7 +1229,7 @@ unwind:
 	stop_at = slave;
 	bond_for_each_slave_from_to(bond, slave, i, bond->first_slave, stop_at) {
 		memcpy(tmp_addr, slave->dev->dev_addr, ETH_ALEN);
-		slave->dev->set_mac_address(slave->dev, &sa);
+		dev_set_mac_address(slave->dev, &sa);
 		memcpy(slave->dev->dev_addr, tmp_addr, ETH_ALEN);
 	}
 
