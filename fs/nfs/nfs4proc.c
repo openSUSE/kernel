@@ -37,6 +37,7 @@
 
 #include <linux/mm.h>
 #include <linux/utsname.h>
+#include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/string.h>
 #include <linux/sunrpc/clnt.h>
@@ -2163,9 +2164,7 @@ int nfs4_handle_exception(struct nfs_server *server, int errorcode, struct nfs4_
 
 int nfs4_proc_setclientid(struct nfs4_client *clp, u32 program, unsigned short port)
 {
-	static nfs4_verifier sc_verifier;
-	static int initialized;
-	
+	nfs4_verifier sc_verifier;
 	struct nfs4_setclientid setclientid = {
 		.sc_verifier = &sc_verifier,
 		.sc_prog = program,
@@ -2176,27 +2175,38 @@ int nfs4_proc_setclientid(struct nfs4_client *clp, u32 program, unsigned short p
 		.rpc_resp = clp,
 		.rpc_cred = clp->cl_cred,
 	};
+	u32 *p;
+	int loop = 0;
+	int status;
 
-	if (!initialized) {
-		struct timespec boot_time;
-		u32 *p;
+	p = (u32*)sc_verifier.data;
+	*p++ = htonl((u32)clp->cl_boot_time.tv_sec);
+	*p = htonl((u32)clp->cl_boot_time.tv_nsec);
 
-		initialized = 1;
-		boot_time = CURRENT_TIME;
-		p = (u32*)sc_verifier.data;
-		*p++ = htonl((u32)boot_time.tv_sec);
-		*p = htonl((u32)boot_time.tv_nsec);
+	for(;;) {
+		setclientid.sc_name_len = scnprintf(setclientid.sc_name,
+				sizeof(setclientid.sc_name), "%s/%u.%u.%u.%u %s %u",
+				clp->cl_ipaddr, NIPQUAD(clp->cl_addr.s_addr),
+				clp->cl_cred->cr_ops->cr_name,
+				clp->cl_id_uniquifier);
+		setclientid.sc_netid_len = scnprintf(setclientid.sc_netid,
+				sizeof(setclientid.sc_netid), "tcp");
+		setclientid.sc_uaddr_len = scnprintf(setclientid.sc_uaddr,
+				sizeof(setclientid.sc_uaddr), "%s.%d.%d",
+				clp->cl_ipaddr, port >> 8, port & 255);
+
+		status = rpc_call_sync(clp->cl_rpcclient, &msg, 0);
+		if (status != -NFS4ERR_CLID_INUSE)
+			break;
+		if (signalled())
+			break;
+		if (loop++ & 1)
+			ssleep(clp->cl_lease_time + 1);
+		else
+			if (++clp->cl_id_uniquifier == 0)
+				break;
 	}
-	setclientid.sc_name_len = scnprintf(setclientid.sc_name,
-			sizeof(setclientid.sc_name), "%s/%u.%u.%u.%u",
-			clp->cl_ipaddr, NIPQUAD(clp->cl_addr.s_addr));
-	setclientid.sc_netid_len = scnprintf(setclientid.sc_netid,
-			sizeof(setclientid.sc_netid), "tcp");
-	setclientid.sc_uaddr_len = scnprintf(setclientid.sc_uaddr,
-			sizeof(setclientid.sc_uaddr), "%s.%d.%d",
-			clp->cl_ipaddr, port >> 8, port & 255);
-
-	return rpc_call_sync(clp->cl_rpcclient, &msg, 0);
+	return status;
 }
 
 int

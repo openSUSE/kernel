@@ -3175,7 +3175,7 @@ static int decode_setclientid(struct xdr_stream *xdr, struct nfs4_client *clp)
 		READ_BUF(4);
 		READ32(len);
 		READ_BUF(len);
-		return -EEXIST;
+		return -NFSERR_CLID_INUSE;
 	} else
 		return -nfs_stat_to_errno(nfserr);
 

@@ -583,6 +583,9 @@ struct nfs4_client {
 	wait_queue_head_t	cl_waitq;
 	struct rpc_wait_queue	cl_rpcwaitq;
 
+	/* used for the setclientid verifier */
+	struct timespec		cl_boot_time;
+
 	/* idmapper */
 	struct idmap *		cl_idmap;
 
@@ -590,6 +593,7 @@ struct nfs4_client {
 	 * This is used to generate the clientid, and the callback address.
 	 */
 	char			cl_ipaddr[16];
+	unsigned char		cl_id_uniquifier;
 };
 
 /*
