@@ -1109,9 +1109,11 @@ unhash_stateowner(struct nfs4_stateowner *sop)
 
 	list_del(&sop->so_idhash);
 	list_del(&sop->so_strhash);
-	list_del(&sop->so_perclient);
+	if (sop->so_is_open_owner) {
+		list_del(&sop->so_perclient);
+		del_perclient++;
+	}
 	list_del(&sop->so_perlockowner);
-	del_perclient++;
 	while (!list_empty(&sop->so_perfilestate)) {
 		stp = list_entry(sop->so_perfilestate.next, 
 			struct nfs4_stateid, st_perfilestate);
@@ -2575,9 +2577,7 @@ alloc_init_lock_stateowner(unsigned int strhashval, struct nfs4_client *clp, str
 	sop->so_time = 0;
 	list_add(&sop->so_idhash, &lock_ownerid_hashtbl[idhashval]);
 	list_add(&sop->so_strhash, &lock_ownerstr_hashtbl[strhashval]);
-	list_add(&sop->so_perclient, &clp->cl_perclient);
 	list_add(&sop->so_perlockowner, &open_stp->st_perlockowner);
-	add_perclient++;
 	sop->so_is_open_owner = 0;
 	sop->so_id = current_ownerid++;
 	sop->so_client = clp;
