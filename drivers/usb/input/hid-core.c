@@ -37,13 +37,20 @@
  * Version Information
  */
 
-#define DRIVER_VERSION "v2.0"
+#define DRIVER_VERSION "v2.01"
 #define DRIVER_AUTHOR "Andreas Gal, Vojtech Pavlik"
 #define DRIVER_DESC "USB HID core driver"
 #define DRIVER_LICENSE "GPL"
 
 static char *hid_types[] = {"Device", "Pointer", "Mouse", "Device", "Joystick",
 				"Gamepad", "Keyboard", "Keypad", "Multi-Axis Controller"};
+/*
+ * Module parameters.
+ */
+
+static unsigned int hid_mousepoll_interval;
+module_param_named(mousepoll, hid_mousepoll_interval, uint, 0644);
+MODULE_PARM_DESC(mousepoll, "Polling interval of mice");
 
 /*
  * Register a new report for a device.
@@ -1694,6 +1701,10 @@ static struct hid_device *usb_hid_configure(struct usb_interface *intf)
 		if (dev->speed == USB_SPEED_HIGH)
 			interval = 1 << (interval - 1);
 
+		/* Change the polling interval of mice. */
+		if (hid->collection->usage == HID_GD_MOUSE && hid_mousepoll_interval > 0)
+			interval = hid_mousepoll_interval;
+		
 		if (endpoint->bEndpointAddress & USB_DIR_IN) {
 			if (hid->urbin)
 				continue;

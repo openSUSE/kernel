@@ -73,6 +73,7 @@ restrictions referred to are that the relevant option is valid if:
 	SWSUSP	Software suspension is enabled.
 	TS	Appropriate touchscreen support is enabled.
 	USB	USB support is enabled.
+	USBHID	USB Human Interface Device support is enabled.
 	V4L	Video For Linux support is enabled.
 	VGA	The VGA console has been enabled.
 	VT	Virtual terminal support is enabled.
@@ -1396,6 +1397,9 @@ running once the system is up.
 			Format: <io>,<irq>
 
 	usb-handoff	[HW] Enable early USB BIOS -> OS handoff
+
+	usbhid.mousepoll=
+			[USBHID] The interval which mice are to be polled at.
  
 	video=		[FB] Frame buffer configuration
 			See Documentation/fb/modedb.txt.
