@@ -574,7 +574,7 @@ ptep_clear_flush(struct vm_area_struct *vma,
 				      : "=m" (*ptep) : "m" (*ptep),
 				        "a" (ptep), "a" (address) );
 #endif /* __s390x__ */
-	pte_clear(vma->vm_mm, address, ptep);
+	pte_val(*ptep) = _PAGE_INVALID_EMPTY;
 	return pte;
 }
 
