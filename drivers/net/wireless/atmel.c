@@ -1311,17 +1311,21 @@ static struct iw_statistics *atmel_get_wireless_stats (struct net_device *dev)
 	if (priv->operating_mode == IW_MODE_INFRA) {
 		if (priv->station_state != STATION_STATE_READY) {
 			priv->wstats.qual.qual = 0;
-			priv->wstats.qual.level	= 0;
+			priv->wstats.qual.level = 0;
+			priv->wstats.qual.updated = (IW_QUAL_QUAL_INVALID
+					| IW_QUAL_LEVEL_INVALID);
 		}
 		priv->wstats.qual.noise = 0;
-		priv->wstats.qual.updated = 7;
+		priv->wstats.qual.updated |= IW_QUAL_NOISE_INVALID;
 	} else {
 		/* Quality levels cannot be determined in ad-hoc mode,
 		   because we can 'hear' more that one remote station. */
 		priv->wstats.qual.qual = 0;
 		priv->wstats.qual.level	= 0;
 		priv->wstats.qual.noise	= 0;
-		priv->wstats.qual.updated = 0;
+		priv->wstats.qual.updated = IW_QUAL_QUAL_INVALID
+					| IW_QUAL_LEVEL_INVALID
+					| IW_QUAL_NOISE_INVALID;
 		priv->wstats.miss.beacon = 0;
 	}
 	
@@ -2234,6 +2238,13 @@ static int atmel_get_range(struct net_device *dev,
 	range->max_qual.qual = 100;
 	range->max_qual.level = 100;
 	range->max_qual.noise = 0;
+	range->max_qual.updated = IW_QUAL_NOISE_INVALID;
+
+	range->avg_qual.qual = 50;
+	range->avg_qual.level = 50;
+	range->avg_qual.noise = 0;
+	range->avg_qual.updated = IW_QUAL_NOISE_INVALID;
+
 	range->sensitivity = 0;
 
 	range->bitrate[0] =  1000000;
@@ -2263,9 +2274,6 @@ static int atmel_get_range(struct net_device *dev,
 	range->r_time_flags = 0;
 	range->min_retry = 1;
 	range->max_retry = 65535;
-	range->avg_qual.qual = 50;
-	range->avg_qual.level = 50;
-	range->avg_qual.noise = 0;
 
 	return 0;
 }
@@ -3041,16 +3049,23 @@ static void restart_search(struct atmel_private *priv)
 static void smooth_rssi(struct atmel_private *priv, u8 rssi)
 {
 	u8 old = priv->wstats.qual.level;
+	u8 max_rssi = 42; /* 502-rmfd-revd max by experiment, default for now */
 
-	/* 502-rmfd-revd gives max signal level as 42, by experiment.
-	   This is going to break for other hardware variants. */
+	switch (priv->firmware_type) {
+		case ATMEL_FW_TYPE_502E:
+			max_rssi = 63; /* 502-rmfd-reve max by experiment */
+			break;
+		default:
+			break;
+	}
 
-	rssi = rssi * 100 / 42;
+	rssi = rssi * 100 / max_rssi;
 	if((rssi + old) % 2)
 		priv->wstats.qual.level =  ((rssi + old)/2) + 1;
 	else
 		priv->wstats.qual.level =  ((rssi + old)/2);		
-	
+	priv->wstats.qual.updated |= IW_QUAL_LEVEL_UPDATED;
+	priv->wstats.qual.updated &= ~IW_QUAL_LEVEL_INVALID;
 }
 
 static void atmel_smooth_qual(struct atmel_private *priv)
@@ -3063,8 +3078,10 @@ static void atmel_smooth_qual(struct atmel_private *priv)
 			priv->beacons_this_sec * priv->beacon_period * (priv->wstats.qual.level + 100) / 4000;
 		priv->beacons_this_sec = 0;
 	}
+	priv->wstats.qual.updated |= IW_QUAL_QUAL_UPDATED;
+	priv->wstats.qual.updated &= ~IW_QUAL_QUAL_INVALID;
 }
-	
+
 /* deals with incoming managment frames. */
 static void atmel_management_frame(struct atmel_private *priv, struct ieee802_11_hdr *header, 
 		      u16 frame_len, u8 rssi)
