@@ -186,7 +186,7 @@ static void ether1394_header_cache_update(struct hh_cache *hh,
 					  unsigned char * haddr);
 static int ether1394_mac_addr(struct net_device *dev, void *p);
 
-static inline void purge_partial_datagram(struct list_head *old);
+static void purge_partial_datagram(struct list_head *old);
 static int ether1394_tx(struct sk_buff *skb, struct net_device *dev);
 static void ether1394_iso(struct hpsb_iso *iso);
 
@@ -289,7 +289,7 @@ static int ether1394_change_mtu(struct net_device *dev, int new_mtu)
 	return 0;
 }
 
-static inline void purge_partial_datagram(struct list_head *old)
+static void purge_partial_datagram(struct list_head *old)
 {
 	struct partial_datagram *pd = list_entry(old, struct partial_datagram, list);
 	struct list_head *lh, *n;
