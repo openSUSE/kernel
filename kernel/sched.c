@@ -650,6 +650,7 @@ static inline void __activate_idle_task(task_t *p, runqueue_t *rq)
 
 static void recalc_task_prio(task_t *p, unsigned long long now)
 {
+	/* Caller must always ensure 'now >= p->timestamp' */
 	unsigned long long __sleep_time = now - p->timestamp;
 	unsigned long sleep_time;
 
@@ -2663,9 +2664,11 @@ need_resched_nonpreemptible:
 
 	schedstat_inc(rq, sched_cnt);
 	now = sched_clock();
-	if (likely(now - prev->timestamp < NS_MAX_SLEEP_AVG))
+	if (likely((long long)now - prev->timestamp < NS_MAX_SLEEP_AVG)) {
 		run_time = now - prev->timestamp;
-	else
+		if (unlikely((long long)now - prev->timestamp < 0))
+			run_time = 0;
+	} else
 		run_time = NS_MAX_SLEEP_AVG;
 
 	/*
@@ -2742,6 +2745,8 @@ go_idle:
 
 	if (!rt_task(next) && next->activated > 0) {
 		unsigned long long delta = now - next->timestamp;
+		if (unlikely((long long)now - next->timestamp < 0))
+			delta = 0;
 
 		if (next->activated == 1)
 			delta = delta * (ON_RUNQUEUE_WEIGHT * 128 / 100) / 128;
