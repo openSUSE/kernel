@@ -349,8 +349,6 @@ static unsigned int nf_iterate(struct list_head *head,
 			       int (*okfn)(struct sk_buff *),
 			       int hook_thresh)
 {
-	unsigned int verdict;
-
 	/*
 	 * The caller must not block between calls to this
 	 * function because of risk of continuing from deleted element.
@@ -363,18 +361,28 @@ static unsigned int nf_iterate(struct list_head *head,
 
 		/* Optimization: we don't need to hold module
                    reference here, since function can't sleep. --RR */
-		verdict = elem->hook(hook, skb, indev, outdev, okfn);
-		if (verdict != NF_ACCEPT) {
-#ifdef CONFIG_NETFILTER_DEBUG
-			if (unlikely(verdict > NF_MAX_VERDICT)) {
-				NFDEBUG("Evil return from %p(%u).\n",
-				        elem->hook, hook);
-				continue;
-			}
-#endif
-			if (verdict != NF_REPEAT)
-				return verdict;
+		switch (elem->hook(hook, skb, indev, outdev, okfn)) {
+		case NF_QUEUE:
+			return NF_QUEUE;
+
+		case NF_STOLEN:
+			return NF_STOLEN;
+
+		case NF_DROP:
+			return NF_DROP;
+
+		case NF_REPEAT:
 			*i = (*i)->prev;
+			break;
+
+#ifdef CONFIG_NETFILTER_DEBUG
+		case NF_ACCEPT:
+			break;
+
+		default:
+			NFDEBUG("Evil return from %p(%u).\n", 
+				elem->hook, hook);
+#endif
 		}
 	}
 	return NF_ACCEPT;
@@ -486,9 +494,7 @@ static int nf_queue(struct sk_buff *skb,
 	return 1;
 }
 
-/* Returns 1 if okfn() needs to be executed by the caller,
- * -EPERM for NF_DROP, 0 otherwise. */
-int nf_hook_slow(int pf, unsigned int hook, struct sk_buff **pskb,
+int nf_hook_slow(int pf, unsigned int hook, struct sk_buff *skb,
 		 struct net_device *indev,
 		 struct net_device *outdev,
 		 int (*okfn)(struct sk_buff *),
@@ -502,29 +508,34 @@ int nf_hook_slow(int pf, unsigned int hook, struct sk_buff **pskb,
 	rcu_read_lock();
 
 #ifdef CONFIG_NETFILTER_DEBUG
-	if (unlikely((*pskb)->nf_debug & (1 << hook))) {
+	if (skb->nf_debug & (1 << hook)) {
 		printk("nf_hook: hook %i already set.\n", hook);
-		nf_dump_skb(pf, *pskb);
+		nf_dump_skb(pf, skb);
 	}
-	(*pskb)->nf_debug |= (1 << hook);
+	skb->nf_debug |= (1 << hook);
 #endif
 
 	elem = &nf_hooks[pf][hook];
-next_hook:
-	verdict = nf_iterate(&nf_hooks[pf][hook], pskb, hook, indev,
+ next_hook:
+	verdict = nf_iterate(&nf_hooks[pf][hook], &skb, hook, indev,
 			     outdev, &elem, okfn, hook_thresh);
-	if (verdict == NF_ACCEPT || verdict == NF_STOP) {
-		ret = 1;
-		goto unlock;
-	} else if (verdict == NF_DROP) {
-		kfree_skb(*pskb);
-		ret = -EPERM;
-	} else if (verdict == NF_QUEUE) {
+	if (verdict == NF_QUEUE) {
 		NFDEBUG("nf_hook: Verdict = QUEUE.\n");
-		if (!nf_queue(*pskb, elem, pf, hook, indev, outdev, okfn))
+		if (!nf_queue(skb, elem, pf, hook, indev, outdev, okfn))
 			goto next_hook;
 	}
-unlock:
+
+	switch (verdict) {
+	case NF_ACCEPT:
+		ret = okfn(skb);
+		break;
+
+	case NF_DROP:
+		kfree_skb(skb);
+		ret = -EPERM;
+		break;
+	}
+
 	rcu_read_unlock();
 	return ret;
 }
