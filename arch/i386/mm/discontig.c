@@ -203,6 +203,15 @@ static unsigned long calculate_numa_remap_pages(void)
 	for_each_online_node(nid) {
 		if (nid == 0)
 			continue;
+		/*
+		 * The acpi/srat node info can show hot-add memroy zones
+		 * where memory could be added but not currently present.
+		 */
+		if (node_start_pfn[nid] > max_pfn)
+			continue;
+		if (node_end_pfn[nid] > max_pfn)
+			node_end_pfn[nid] = max_pfn;
+
 		/* calculate the size of the mem_map needed in bytes */
 		size = (node_end_pfn[nid] - node_start_pfn[nid] + 1) 
 			* sizeof(struct page) + sizeof(pg_data_t);
@@ -265,12 +274,12 @@ unsigned long __init setup_memory(void)
 		printk("\n");
 	}
 
+	find_max_pfn();
 	reserve_pages = calculate_numa_remap_pages();
 
 	/* partially used pages are not usable - thus round upwards */
 	system_start_pfn = min_low_pfn = PFN_UP(init_pg_tables_end);
 
-	find_max_pfn();
 	system_max_low_pfn = max_low_pfn = find_max_low_pfn() - reserve_pages;
 	printk("reserve_pages = %ld find_max_low_pfn() ~ %ld\n",
 			reserve_pages, max_low_pfn + reserve_pages);
