@@ -3343,6 +3343,7 @@ EXPORT_SYMBOL(unregister_netdevice);
 EXPORT_SYMBOL(unregister_netdevice_notifier);
 EXPORT_SYMBOL(net_enable_timestamp);
 EXPORT_SYMBOL(net_disable_timestamp);
+EXPORT_SYMBOL(dev_get_flags);
 
 #if defined(CONFIG_BRIDGE) || defined(CONFIG_BRIDGE_MODULE)
 EXPORT_SYMBOL(br_handle_frame_hook);
