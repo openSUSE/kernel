@@ -25,7 +25,7 @@ struct port_list {
 	struct list_head list;
 	atomic_t wait_count;
 	int has_connection;
-	struct semaphore sem;
+	struct completion done;
 	int port;
 	int fd;
 	spinlock_t lock;
@@ -68,7 +68,7 @@ static irqreturn_t pipe_interrupt(int irq, void *data, struct pt_regs *regs)
 	conn->fd = fd;
 	list_add(&conn->list, &conn->port->connections);
 
-	up(&conn->port->sem);
+	complete(&conn->port->done);
 	return(IRQ_HANDLED);
 }
 
@@ -197,13 +197,12 @@ void *port_data(int port_num)
 		{ .list 	 	= LIST_HEAD_INIT(port->list),
 		  .wait_count		= ATOMIC_INIT(0),
 		  .has_connection 	= 0,
-		  .sem 			= __SEMAPHORE_INITIALIZER(port->sem, 
-								  0),
 		  .port 	 	= port_num,
 		  .fd  			= fd,
 		  .pending 		= LIST_HEAD_INIT(port->pending),
 		  .connections 		= LIST_HEAD_INIT(port->connections) });
 	spin_lock_init(&port->lock);
+	init_completion(&port->done);
 	list_add(&port->list, &ports);
 
  found:
@@ -237,7 +236,7 @@ int port_wait(void *data)
         atomic_inc(&port->wait_count);
 	while(1){
 		fd = -ERESTARTSYS;
-		if(down_interruptible(&port->sem))
+                if(wait_for_completion_interruptible(&port->done))
                         goto out;
 
 		spin_lock(&port->lock);
@@ -308,14 +307,3 @@ static void free_port(void)
 }
 
 __uml_exitcall(free_port);
-
-/*
- * Overrides for Emacs so that we follow Linus's tabbing style.
- * Emacs will notice this stuff at the end of the file and automatically
- * adjust the settings for this buffer only.  This must remain at the end
- * of the file.
- * ---------------------------------------------------------------------------
- * Local variables:
- * c-file-style: "linux"
- * End:
- */
