@@ -278,9 +278,6 @@ module_param (msg_level, int, 0);
 MODULE_PARM_DESC (msg_level, "Initial message level (default = 1)");
 
 
-#define	RUN_CONTEXT (in_irq () ? "in_irq" \
-			: (in_interrupt () ? "in_interrupt" : "can sleep"))
-
 #ifdef DEBUG
 #define devdbg(usbnet, fmt, arg...) \
 	printk(KERN_DEBUG "%s: " fmt "\n" , (usbnet)->net->name , ## arg)
@@ -1941,9 +1938,9 @@ static const struct driver_info	genelink_info = {
  */
 
 struct nc_header {		// packed:
-	u16	hdr_len;		// sizeof nc_header (LE, all)
-	u16	packet_len;		// payload size (including ethhdr)
-	u16	packet_id;		// detects dropped packets
+	__le16	hdr_len;		// sizeof nc_header (LE, all)
+	__le16	packet_len;		// payload size (including ethhdr)
+	__le16	packet_id;		// detects dropped packets
 #define MIN_HEADER	6
 
 	// all else is optional, and must start with:
@@ -1954,7 +1951,7 @@ struct nc_header {		// packed:
 #define	PAD_BYTE	((unsigned char)0xAC)
 
 struct nc_trailer {
-	u16	packet_id;
+	__le16	packet_id;
 } __attribute__((__packed__));
 
 // packets may use FLAG_FRAMING_NC and optional pad
@@ -2312,6 +2309,7 @@ static int net1080_rx_fixup (struct usbnet *dev, struct sk_buff *skb)
 {
 	struct nc_header	*header;
 	struct nc_trailer	*trailer;
+	u16			hdr_len, packet_len;
 
 	if (!(skb->len & 0x01)
 			|| MIN_FRAMED > skb->len
@@ -2325,50 +2323,50 @@ static int net1080_rx_fixup (struct usbnet *dev, struct sk_buff *skb)
 	}
 
 	header = (struct nc_header *) skb->data;
-	le16_to_cpus (&header->hdr_len);
-	le16_to_cpus (&header->packet_len);
-	if (FRAMED_SIZE (header->packet_len) > MAX_PACKET) {
+	hdr_len = le16_to_cpup (&header->hdr_len);
+	packet_len = le16_to_cpup (&header->packet_len);
+	if (FRAMED_SIZE (packet_len) > MAX_PACKET) {
 		dev->stats.rx_frame_errors++;
-		dbg ("packet too big, %d", header->packet_len);
+		dbg ("packet too big, %d", packet_len);
 		nc_ensure_sync (dev);
 		return 0;
-	} else if (header->hdr_len < MIN_HEADER) {
+	} else if (hdr_len < MIN_HEADER) {
 		dev->stats.rx_frame_errors++;
-		dbg ("header too short, %d", header->hdr_len);
+		dbg ("header too short, %d", hdr_len);
 		nc_ensure_sync (dev);
 		return 0;
-	} else if (header->hdr_len > MIN_HEADER) {
+	} else if (hdr_len > MIN_HEADER) {
 		// out of band data for us?
-		dbg ("header OOB, %d bytes",
-			header->hdr_len - MIN_HEADER);
+		dbg ("header OOB, %d bytes", hdr_len - MIN_HEADER);
 		nc_ensure_sync (dev);
 		// switch (vendor/product ids) { ... }
 	}
-	skb_pull (skb, header->hdr_len);
+	skb_pull (skb, hdr_len);
 
 	trailer = (struct nc_trailer *)
 		(skb->data + skb->len - sizeof *trailer);
 	skb_trim (skb, skb->len - sizeof *trailer);
 
-	if ((header->packet_len & 0x01) == 0) {
-		if (skb->data [header->packet_len] != PAD_BYTE) {
+	if ((packet_len & 0x01) == 0) {
+		if (skb->data [packet_len] != PAD_BYTE) {
 			dev->stats.rx_frame_errors++;
 			dbg ("bad pad");
 			return 0;
 		}
 		skb_trim (skb, skb->len - 1);
 	}
-	if (skb->len != header->packet_len) {
+	if (skb->len != packet_len) {
 		dev->stats.rx_frame_errors++;
 		dbg ("bad packet len %d (expected %d)",
-			skb->len, header->packet_len);
+			skb->len, packet_len);
 		nc_ensure_sync (dev);
 		return 0;
 	}
 	if (header->packet_id != get_unaligned (&trailer->packet_id)) {
 		dev->stats.rx_fifo_errors++;
 		dbg ("(2+ dropped) rx packet_id mismatch 0x%x 0x%x",
-			header->packet_id, trailer->packet_id);
+			le16_to_cpu (header->packet_id),
+			le16_to_cpu (trailer->packet_id));
 		return 0;
 	}
 #if 0
@@ -3543,6 +3541,32 @@ out:
 	return status;
 }
 
+/*-------------------------------------------------------------------------*/
+
+#ifdef	CONFIG_PM
+
+static int usbnet_suspend (struct usb_interface *intf, u32 state)
+{
+	struct usbnet		*dev = usb_get_intfdata(intf);
+	
+	netif_device_detach (dev->net);
+	return 0;
+}
+
+static int usbnet_resume (struct usb_interface *intf)
+{
+	struct usbnet		*dev = usb_get_intfdata(intf);
+
+	netif_device_attach (dev->net);
+	return 0;
+}
+
+#else	/* !CONFIG_PM */
+
+#define	usbnet_suspend	NULL
+#define	usbnet_resume	NULL
+
+#endif	/* CONFIG_PM */
 
 /*-------------------------------------------------------------------------*/
 
@@ -3845,6 +3869,8 @@ static struct usb_driver usbnet_driver = {
 	.id_table =	products,
 	.probe =	usbnet_probe,
 	.disconnect =	usbnet_disconnect,
+	.suspend =	usbnet_suspend,
+	.resume =	usbnet_resume,
 };
 
 /* Default ethtool_ops assigned.  Devices can override in their bind() routine */
