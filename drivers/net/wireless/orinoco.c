@@ -966,15 +966,17 @@ static void orinoco_tx_timeout(struct net_device *dev)
 
 /* Does the frame have a SNAP header indicating it should be
  * de-encapsulated to Ethernet-II? */
-static inline int is_ethersnap(struct header_struct *hdr)
+static inline int is_ethersnap(void *_hdr)
 {
+	u8 *hdr = _hdr;
+
 	/* We de-encapsulate all packets which, a) have SNAP headers
 	 * (i.e. SSAP=DSAP=0xaa and CTRL=0x3 in the 802.2 LLC header
 	 * and where b) the OUI of the SNAP header is 00:00:00 or
 	 * 00:00:f8 - we need both because different APs appear to use
 	 * different OUIs for some reason */
-	return (memcmp(&hdr->dsap, &encaps_hdr, 5) == 0)
-		&& ( (hdr->oui[2] == 0x00) || (hdr->oui[2] == 0xf8) );
+	return (memcmp(hdr, &encaps_hdr, 5) == 0)
+		&& ( (hdr[5] == 0x00) || (hdr[5] == 0xf8) );
 }
 
 static inline void orinoco_spy_gather(struct net_device *dev, u_char *mac,
