@@ -78,7 +78,7 @@ struct gss_cl_ctx {
 
 struct gss_cred {
 	struct rpc_cred		gc_base;
-	u32			gc_flavor;
+	enum rpc_gss_svc	gc_service;
 	struct gss_cl_ctx	*gc_ctx;
 };
 

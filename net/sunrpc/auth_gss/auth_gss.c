@@ -85,6 +85,7 @@ static DEFINE_RWLOCK(gss_ctx_lock);
 struct gss_auth {
 	struct rpc_auth rpc_auth;
 	struct gss_api_mech *mech;
+	enum rpc_gss_svc service;
 	struct list_head upcalls;
 	struct dentry *dentry;
 	char path[48];
@@ -581,6 +582,10 @@ gss_create(struct rpc_clnt *clnt, rpc_authflavor_t flavor)
 				__FUNCTION__, flavor);
 		goto err_free;
 	}
+	gss_auth->service = gss_pseudoflavor_to_service(gss_auth->mech, flavor);
+	/* FIXME: Will go away once privacy support is merged in */
+	if (gss_auth->service == RPC_GSS_SVC_PRIVACY)
+		gss_auth->service = RPC_GSS_SVC_INTEGRITY;
 	INIT_LIST_HEAD(&gss_auth->upcalls);
 	spin_lock_init(&gss_auth->lock);
 	auth = &gss_auth->rpc_auth;
@@ -645,7 +650,7 @@ gss_destroy_ctx(struct gss_cl_ctx *ctx)
 static void
 gss_destroy_cred(struct rpc_cred *rc)
 {
-	struct gss_cred *cred = (struct gss_cred *)rc;
+	struct gss_cred *cred = container_of(rc, struct gss_cred, gc_base);
 
 	dprintk("RPC:      gss_destroy_cred \n");
 
@@ -666,6 +671,7 @@ gss_lookup_cred(struct rpc_auth *auth, struct auth_cred *acred, int taskflags)
 static struct rpc_cred *
 gss_create_cred(struct rpc_auth *auth, struct auth_cred *acred, int taskflags)
 {
+	struct gss_auth *gss_auth = container_of(auth, struct gss_auth, rpc_auth);
 	struct gss_cred	*cred = NULL;
 
 	dprintk("RPC:      gss_create_cred for uid %d, flavor %d\n",
@@ -683,13 +689,13 @@ gss_create_cred(struct rpc_auth *auth, struct auth_cred *acred, int taskflags)
 	 */
 	cred->gc_flags = 0;
 	cred->gc_base.cr_ops = &gss_credops;
-	cred->gc_flavor = auth->au_flavor;
+	cred->gc_service = gss_auth->service;
 
-	return (struct rpc_cred *) cred;
+	return &cred->gc_base;
 
 out_err:
 	dprintk("RPC:      gss_create_cred failed\n");
-	if (cred) gss_destroy_cred((struct rpc_cred *)cred);
+	if (cred) gss_destroy_cred(&cred->gc_base);
 	return NULL;
 }
 
@@ -716,20 +722,12 @@ gss_marshal(struct rpc_task *task, u32 *p, int ruid)
 	struct xdr_netobj mic;
 	struct kvec	iov;
 	struct xdr_buf	verf_buf;
-	u32		service;
 
 	dprintk("RPC: %4u gss_marshal\n", task->tk_pid);
 
 	*p++ = htonl(RPC_AUTH_GSS);
 	cred_len = p++;
 
-	service = gss_pseudoflavor_to_service(ctx->gc_gss_ctx->mech_type,
-						gss_cred->gc_flavor);
-	if (service == 0) {
-		dprintk("RPC: %4u Bad pseudoflavor %d in gss_marshal\n",
-			task->tk_pid, gss_cred->gc_flavor);
-		goto out_put_ctx;
-	}
 	spin_lock(&ctx->gc_seq_lock);
 	req->rq_seqno = ctx->gc_seq++;
 	spin_unlock(&ctx->gc_seq_lock);
@@ -737,7 +735,7 @@ gss_marshal(struct rpc_task *task, u32 *p, int ruid)
 	*p++ = htonl((u32) RPC_GSS_VERSION);
 	*p++ = htonl((u32) ctx->gc_proc);
 	*p++ = htonl((u32) req->rq_seqno);
-	*p++ = htonl((u32) service);
+	*p++ = htonl((u32) gss_cred->gc_service);
 	p = xdr_encode_netobj(p, &ctx->gc_wire_ctx);
 	*cred_len = htonl((p - (cred_len + 1)) << 2);
 
@@ -797,7 +795,6 @@ gss_validate(struct rpc_task *task, u32 *p)
 	struct xdr_buf	verf_buf;
 	struct xdr_netobj mic;
 	u32		flav,len;
-	u32		service;
 	u32		maj_stat;
 
 	dprintk("RPC: %4u gss_validate\n", task->tk_pid);
@@ -819,9 +816,7 @@ gss_validate(struct rpc_task *task, u32 *p)
 		cred->cr_flags &= ~RPCAUTH_CRED_UPTODATE;
 	if (maj_stat)
 		goto out_bad;
-       service = gss_pseudoflavor_to_service(ctx->gc_gss_ctx->mech_type,
-					gss_cred->gc_flavor);
-       switch (service) {
+       switch (gss_cred->gc_service) {
        case RPC_GSS_SVC_NONE:
 	       /* verifier data, flavor, length: */
 	       task->tk_auth->au_rslack = XDR_QUADLEN(len) + 2;
@@ -830,7 +825,7 @@ gss_validate(struct rpc_task *task, u32 *p)
 	       /* verifier data, flavor, length, length, sequence number: */
 	       task->tk_auth->au_rslack = XDR_QUADLEN(len) + 4;
 	       break;
-       default:
+       case RPC_GSS_SVC_PRIVACY:
 	       goto out_bad;
        }
 	gss_put_ctx(ctx);
@@ -901,7 +896,6 @@ gss_wrap_req(struct rpc_task *task,
 			gc_base);
 	struct gss_cl_ctx *ctx = gss_cred_get_ctx(cred);
 	int             status = -EIO;
-	u32		service;
 
 	dprintk("RPC: %4u gss_wrap_req\n", task->tk_pid);
 	if (ctx->gc_proc != RPC_GSS_PROC_DATA) {
@@ -911,19 +905,16 @@ gss_wrap_req(struct rpc_task *task,
 		status = encode(rqstp, p, obj);
 		goto out;
 	}
-	service = gss_pseudoflavor_to_service(ctx->gc_gss_ctx->mech_type,
-						gss_cred->gc_flavor);
-	switch (service) {
+	switch (gss_cred->gc_service) {
 		case RPC_GSS_SVC_NONE:
 			status = encode(rqstp, p, obj);
-			goto out;
+			break;
 		case RPC_GSS_SVC_INTEGRITY:
 			status = gss_wrap_req_integ(cred, ctx, encode,
 								rqstp, p, obj);
-			goto out;
-		case RPC_GSS_SVC_PRIVACY:
-		default:
-			goto out;
+			break;
+       		case RPC_GSS_SVC_PRIVACY:
+			break;
 	}
 out:
 	gss_put_ctx(ctx);
@@ -978,23 +969,19 @@ gss_unwrap_resp(struct rpc_task *task,
 			gc_base);
 	struct gss_cl_ctx *ctx = gss_cred_get_ctx(cred);
 	int             status = -EIO;
-	u32		service;
 
 	if (ctx->gc_proc != RPC_GSS_PROC_DATA)
 		goto out_decode;
-	service = gss_pseudoflavor_to_service(ctx->gc_gss_ctx->mech_type,
-						gss_cred->gc_flavor);
-	switch (service) {
+	switch (gss_cred->gc_service) {
 		case RPC_GSS_SVC_NONE:
-			goto out_decode;
+			break;
 		case RPC_GSS_SVC_INTEGRITY:
 			status = gss_unwrap_resp_integ(cred, ctx, rqstp, &p);
 			if (status)
 				goto out;
 			break;
-		case RPC_GSS_SVC_PRIVACY:
-		default:
-			goto out;
+       		case RPC_GSS_SVC_PRIVACY:
+			break;
 	}
 out_decode:
 	status = decode(rqstp, p, obj);
