@@ -216,5 +216,6 @@ static inline void serio_unpin_driver(struct serio *serio)
 #define SERIO_SNES232	0x26
 #define SERIO_SEMTECH	0x27
 #define SERIO_LKKBD	0x28
+#define SERIO_ELO	0x29
 
 #endif
