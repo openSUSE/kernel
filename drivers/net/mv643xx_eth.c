@@ -2497,9 +2497,6 @@ static ETH_FUNC_RET_STATUS eth_port_send(struct mv643xx_private *mp,
 
 	command = p_pkt_info->cmd_sts | ETH_ZERO_PADDING | ETH_GEN_CRC |
 							ETH_BUFFER_OWNED_BY_DMA;
-	if (command & ETH_TX_LAST_DESC)
-		command |= ETH_TX_ENABLE_INTERRUPT;
-
 	if (command & ETH_TX_FIRST_DESC) {
 		tx_first_desc = tx_desc_curr;
 		mp->tx_first_desc_q = tx_first_desc;
