@@ -746,15 +746,9 @@ static int ubd_config(char *str)
 static int ubd_get_config(char *name, char *str, int size, char **error_out)
 {
 	struct ubd *dev;
-	char *end;
 	int n, len = 0;
 
-	n = simple_strtoul(name, &end, 0);
-	if((*end != '\0') || (end == name)){
-		*error_out = "ubd_get_config : didn't parse device number";
-		return(-1);
-	}
-
+	n = parse_unit(&name);
 	if((n >= MAX_DEV) || (n < 0)){
 		*error_out = "ubd_get_config : device number out of range";
 		return(-1);
