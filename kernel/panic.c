@@ -49,8 +49,7 @@ EXPORT_SYMBOL(panic_blink);
  *	panic - halt the system
  *	@fmt: The text string to print
  *
- *	Display a message, then perform cleanups. Functions in the panic
- *	notifier list are called after the filesystem cache is flushed (when possible).
+ *	Display a message, then perform cleanups.
  *
  *	This function never returns.
  */
