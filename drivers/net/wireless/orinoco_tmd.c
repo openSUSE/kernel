@@ -166,7 +166,6 @@ static int orinoco_tmd_init_one(struct pci_dev *pdev,
 	SET_NETDEV_DEV(dev, &pdev->dev);
 
 	hermes_struct_init(&priv->hw, mem, HERMES_16BIT_REGSPACING);
-	pci_set_drvdata(pdev, dev);
 
 	printk(KERN_DEBUG PFX "Detected Orinoco/Prism2 TMD device "
 	       "at %s irq:%d, io addr:0x%lx\n", pci_name(pdev), pdev->irq,
@@ -192,6 +191,8 @@ static int orinoco_tmd_init_one(struct pci_dev *pdev,
 		printk(KERN_ERR PFX "Cannot register network device\n");
 		goto fail;
 	}
+
+	pci_set_drvdata(pdev, dev);
 
 	return 0;
 

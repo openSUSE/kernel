@@ -230,7 +230,6 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 	SET_NETDEV_DEV(dev, &pdev->dev);
 
 	hermes_struct_init(&priv->hw, pci_ioaddr, HERMES_32BIT_REGSPACING);
-	pci_set_drvdata(pdev, dev);
 
 	printk(KERN_DEBUG PFX "Detected device %s, mem:0x%lx-0x%lx, irq %d\n",
 	       pci_name(pdev), dev->mem_start, dev->mem_end, pdev->irq);
@@ -256,6 +255,8 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 		printk(KERN_ERR PFX "Failed to register net device\n");
 		goto fail;
 	}
+
+	pci_set_drvdata(pdev, dev);
 
 	return 0;
 
