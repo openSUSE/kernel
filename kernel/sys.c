@@ -216,12 +216,13 @@ int unregister_reboot_notifier(struct notifier_block * nb)
 }
 
 EXPORT_SYMBOL(unregister_reboot_notifier);
+
 static int set_one_prio(struct task_struct *p, int niceval, int error)
 {
 	int no_nice;
 
 	if (p->uid != current->euid &&
-		p->uid != current->uid && !capable(CAP_SYS_NICE)) {
+		p->euid != current->euid && !capable(CAP_SYS_NICE)) {
 		error = -EPERM;
 		goto out;
 	}
