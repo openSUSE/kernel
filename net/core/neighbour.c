@@ -1554,6 +1554,7 @@ static int neigh_fill_info(struct sk_buff *skb, struct neighbour *n,
 	unsigned char *b = skb->tail;
 	struct nda_cacheinfo ci;
 	int locked = 0;
+	u32 probes;
 	struct nlmsghdr *nlh = NLMSG_PUT(skb, pid, seq, event,
 					 sizeof(struct ndmsg));
 	struct ndmsg *ndm = NLMSG_DATA(nlh);
@@ -1573,9 +1574,11 @@ static int neigh_fill_info(struct sk_buff *skb, struct neighbour *n,
 	ci.ndm_confirmed = now - n->confirmed;
 	ci.ndm_updated	 = now - n->updated;
 	ci.ndm_refcnt	 = atomic_read(&n->refcnt) - 1;
+	probes = atomic_read(&n->probes);
 	read_unlock_bh(&n->lock);
 	locked		 = 0;
 	RTA_PUT(skb, NDA_CACHEINFO, sizeof(ci), &ci);
+	RTA_PUT(skb, NDA_PROBES, sizeof(probes), &probes);
 	nlh->nlmsg_len	 = skb->tail - b;
 	return skb->len;
 
