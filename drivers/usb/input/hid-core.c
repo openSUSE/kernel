@@ -814,7 +814,7 @@ static void hid_input_field(struct hid_device *hid, struct hid_field *field, __u
 	__s32 max = field->logical_maximum;
 	__s32 *value;
 
-	if (!(value = kmalloc(sizeof(__s32) * count, GFP_ATOMIC))
+	if (!(value = kmalloc(sizeof(__s32) * count, GFP_ATOMIC)))
 		return;
 
 	for (n = 0; n < count; n++) {
