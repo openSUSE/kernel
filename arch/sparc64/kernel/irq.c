@@ -1112,7 +1112,7 @@ void enable_prom_timer(void)
 void init_irqwork_curcpu(void)
 {
 	register struct irq_work_struct *workp asm("o2");
-	unsigned long tmp;
+	register unsigned long tmp asm("o3");
 	int cpu = hard_smp_processor_id();
 
 	memset(__irq_work + cpu, 0, sizeof(*workp));
