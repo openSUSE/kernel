@@ -16,6 +16,10 @@ struct path {
 	unsigned is_active;	/* Read-only */
 
 	void *pscontext;	/* For path-selector use */
+	void *hwhcontext;	/* For hw-handler use */
 };
+
+/* Callback for hwh_pg_init_fn to use when complete */
+void dm_pg_init_complete(struct path *path, unsigned err_flags);
 
 #endif

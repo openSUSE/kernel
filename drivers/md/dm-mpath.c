@@ -7,6 +7,7 @@
 
 #include "dm.h"
 #include "dm-path-selector.h"
+#include "dm-hw-handler.h"
 #include "dm-bio-list.h"
 #include "dm-bio-record.h"
 
@@ -58,8 +59,10 @@ struct multipath {
 
 	spinlock_t lock;
 
+	struct hw_handler hw_handler;
 	unsigned nr_priority_groups;
 	struct list_head priority_groups;
+	unsigned pg_init_required;	/* pg_init needs calling? */
 
 	unsigned nr_valid_paths;	/* Total number of usable paths */
 	struct pgpath *current_pgpath;
@@ -188,10 +191,16 @@ static struct multipath *alloc_multipath(void)
 static void free_multipath(struct multipath *m)
 {
 	struct priority_group *pg, *tmp;
+	struct hw_handler *hwh = &m->hw_handler;
 
 	list_for_each_entry_safe (pg, tmp, &m->priority_groups, list) {
 		list_del(&pg->list);
 		free_priority_group(pg, m->ti);
+	}
+
+	if (hwh->type) {
+		hwh->type->dtr(hwh);
+		dm_put_hw_handler(hwh->type);
 	}
 
 	mempool_destroy(m->mpio_pool);
@@ -205,8 +214,18 @@ static void free_multipath(struct multipath *m)
 
 static void __switch_pg(struct multipath *m, struct pgpath *pgpath)
 {
+	struct hw_handler *hwh = &m->hw_handler;
+
 	m->current_pg = pgpath->pg;
-	m->queue_io = 0;
+
+	/* Must we initialise the PG first, and queue I/O till it's ready? */
+	if (hwh->type && hwh->type->pg_init) {
+		m->pg_init_required = 1;
+		m->queue_io = 1;
+	} else {
+		m->pg_init_required = 0;
+		m->queue_io = 0;
+	}
 }
 
 static int __choose_path_in_pg(struct multipath *m, struct priority_group *pg)
@@ -288,7 +307,7 @@ static int map_io(struct multipath *m, struct bio *bio, struct mpath_io *mpio,
 		/* Queue for the daemon to resubmit */
 		bio_list_add(&m->queued_ios, bio);
 		m->queue_size++;
-		if (!m->queue_io)
+		if (m->pg_init_required || !m->queue_io)
 			schedule_work(&m->process_queued_ios);
 		pgpath = NULL;
 		r = 0;
@@ -358,8 +377,9 @@ static void dispatch_queued_ios(struct multipath *m)
 static void process_queued_ios(void *data)
 {
 	struct multipath *m = (struct multipath *) data;
+	struct hw_handler *hwh = &m->hw_handler;
 	struct pgpath *pgpath;
-	unsigned must_queue = 0;
+	unsigned init_required, must_queue = 0;
 	unsigned long flags;
 
 	spin_lock_irqsave(&m->lock, flags);
@@ -373,7 +393,14 @@ static void process_queued_ios(void *data)
 	    (!pgpath && m->queue_if_no_path && !m->suspended))
 		must_queue = 1;
 
+	init_required = m->pg_init_required;
+	if (init_required)
+		m->pg_init_required = 0;
+
 	spin_unlock_irqrestore(&m->lock, flags);
+
+	if (init_required)
+		hwh->type->pg_init(hwh, pgpath->pg->bypassed, &pgpath->path);
 
 	if (!must_queue)
 		dispatch_queued_ios(m);
@@ -393,6 +420,7 @@ static void trigger_event(void *data)
 /*-----------------------------------------------------------------
  * Constructor/argument parsing:
  * <#multipath feature args> [<arg>]*
+ * <#hw_handler args> [hw_handler [<arg>]*]
  * <#priority groups>
  * <initial priority group>
  *     [<selector> <#selector args> [<arg>]*
@@ -584,6 +612,43 @@ static struct priority_group *parse_priority_group(struct arg_set *as,
 	return NULL;
 }
 
+static int parse_hw_handler(struct arg_set *as, struct multipath *m,
+			    struct dm_target *ti)
+{
+	int r;
+	struct hw_handler_type *hwht;
+	unsigned hw_argc;
+
+	static struct param _params[] = {
+		{0, 1024, ESTR("invalid number of hardware handler args")},
+	};
+
+	r = read_param(_params, shift(as), &hw_argc, &ti->error);
+	if (r)
+		return -EINVAL;
+
+	if (!hw_argc)
+		return 0;
+
+	hwht = dm_get_hw_handler(shift(as));
+	if (!hwht) {
+		ti->error = ESTR("unknown hardware handler type");
+		return -EINVAL;
+	}
+
+	r = hwht->ctr(&m->hw_handler, hw_argc - 1, as->argv);
+	if (r) {
+		dm_put_hw_handler(hwht);
+		ti->error = ESTR("hardware handler constructor failed");
+		return r;
+	}
+
+	m->hw_handler.type = hwht;
+	consume(as, hw_argc - 1);
+
+	return 0;
+}
+
 static int parse_features(struct arg_set *as, struct multipath *m,
 			  struct dm_target *ti)
 {
@@ -634,6 +699,10 @@ static int multipath_ctr(struct dm_target *ti, unsigned int argc,
 	}
 
 	r = parse_features(&as, m, ti);
+	if (r)
+		goto bad;
+
+	r = parse_hw_handler(&as, m, ti);
 	if (r)
 		goto bad;
 
@@ -873,11 +942,43 @@ static int bypass_pg_num(struct multipath *m, const char *pgstr, int bypassed)
 }
 
 /*
+ * pg_init must call this when it has completed its initialisation
+ */
+void dm_pg_init_complete(struct path *path, unsigned err_flags)
+{
+	struct pgpath *pgpath = path_to_pgpath(path);
+	struct priority_group *pg = pgpath->pg;
+	struct multipath *m = pg->m;
+	unsigned long flags;
+
+	/* We insist on failing the path if the PG is already bypassed. */
+	if (err_flags && pg->bypassed)
+		err_flags |= MP_FAIL_PATH;
+
+	if (err_flags & MP_FAIL_PATH)
+		fail_path(pgpath);
+
+	if (err_flags & MP_BYPASS_PG)
+		bypass_pg(m, pg, 1);
+
+	spin_lock_irqsave(&m->lock, flags);
+	if (!err_flags)
+		m->queue_io = 0;
+	else {
+		m->current_pgpath = NULL;
+		m->current_pg = NULL;
+	}
+	schedule_work(&m->process_queued_ios);
+	spin_unlock_irqrestore(&m->lock, flags);
+}
+
+/*
  * end_io handling
  */
 static int do_end_io(struct multipath *m, struct bio *bio,
 		     int error, struct mpath_io *mpio)
 {
+	struct hw_handler *hwh = &m->hw_handler;
 	unsigned err_flags = MP_FAIL_PATH;	/* Default behavior */
 
 	if (!error)
@@ -894,6 +995,9 @@ static int do_end_io(struct multipath *m, struct bio *bio,
 		}
 	}
 	spin_unlock(&m->lock);
+
+	if (hwh->type && hwh->type->err)
+		err_flags = hwh->type->err(hwh, bio);
 
 	if (mpio->pgpath) {
 		if (err_flags & MP_FAIL_PATH)
@@ -970,6 +1074,7 @@ static void multipath_resume(struct dm_target *ti)
 /*
  * Info output has the following format:
  * num_multipath_feature_args [multipath_feature_args]*
+ * num_handler_status_args [handler_status_args]*
  * num_groups init_group_number
  *            [A|D|E num_ps_status_args [ps_status_args]*
  *             num_paths num_selector_args
@@ -977,6 +1082,7 @@ static void multipath_resume(struct dm_target *ti)
  *
  * Table output has the following format (identical to the constructor string):
  * num_feature_args [features_args]*
+ * num_handler_args hw_handler [hw_handler_args]*
  * num_groups init_group_number
  *     [priority selector-name num_ps_args [ps_args]*
  *      num_paths num_selector_args [path_dev [selector_args]* ]+ ]+
@@ -987,6 +1093,7 @@ static int multipath_status(struct dm_target *ti, status_type_t type,
 	int sz = 0;
 	unsigned long flags;
 	struct multipath *m = (struct multipath *) ti->private;
+	struct hw_handler *hwh = &m->hw_handler;
 	struct priority_group *pg;
 	struct pgpath *p;
 	unsigned pg_num;
@@ -1001,6 +1108,13 @@ static int multipath_status(struct dm_target *ti, status_type_t type,
 		DMEMIT("1 queue_if_no_path ");
 	else
 		DMEMIT("0 ");
+
+	if (hwh->type && hwh->type->status)
+		sz += hwh->type->status(hwh, type, result + sz, maxlen - sz);
+	else if (!hwh->type || type == STATUSTYPE_INFO)
+		DMEMIT("0 ");
+	else
+		DMEMIT("1 %s ", hwh->type->name);
 
 	DMEMIT("%u ", m->nr_priority_groups);
 
@@ -1177,6 +1291,8 @@ static void __exit dm_multipath_exit(void)
 		      multipath_target.name, r);
 	kmem_cache_destroy(_mpio_cache);
 }
+
+EXPORT_SYMBOL(dm_pg_init_complete);
 
 module_init(dm_multipath_init);
 module_exit(dm_multipath_exit);
