@@ -1024,7 +1024,7 @@ config FB_SAVAGE
 	  will be called savagefb.
 
 config FB_SAVAGE_I2C
-       tristate "Enable DDC2 Support"
+       bool "Enable DDC2 Support"
        depends on FB_SAVAGE
        help
 	  This enables I2C support for S3 Savage Chipsets.  This is used
@@ -1036,7 +1036,7 @@ config FB_SAVAGE_I2C
 	  here.
 
 config FB_SAVAGE_ACCEL
-       tristate "Enable Console Acceleration"
+       bool "Enable Console Acceleration"
        depends on FB_SAVAGE
        default n
        help
