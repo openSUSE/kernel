@@ -400,7 +400,7 @@ int setup_arg_pages(struct linux_binprm *bprm,
 	while (i < MAX_ARG_PAGES)
 		bprm->page[i++] = NULL;
 #else
-	stack_base = arch_align_stack(STACK_TOP - MAX_ARG_PAGES*PAGE_SIZE);
+	stack_base = arch_align_stack(stack_top - MAX_ARG_PAGES*PAGE_SIZE);
 	stack_base = PAGE_ALIGN(stack_base);
 	bprm->p += stack_base;
 	mm->arg_start = bprm->p;

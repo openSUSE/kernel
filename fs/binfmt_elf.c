@@ -37,6 +37,7 @@
 #include <linux/pagemap.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
+#include <linux/random.h>
 
 #include <asm/uaccess.h>
 #include <asm/param.h>
@@ -494,6 +495,19 @@ out:
 #define INTERPRETER_ELF 2
 
 
+static unsigned long randomize_stack_top(unsigned long stack_top)
+{
+	unsigned int random_variable = 0;
+
+	if (current->flags & PF_RANDOMIZE)
+		random_variable = get_random_int() % (8*1024*1024);
+#ifdef CONFIG_STACK_GROWSUP
+	return PAGE_ALIGN(stack_top + random_variable);
+#else
+	return PAGE_ALIGN(stack_top - random_variable);
+#endif
+}
+
 static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 {
 	struct file *interpreter = NULL; /* to shut gcc up */
@@ -761,7 +775,8 @@ static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	   change some of these later */
 	current->mm->rss = 0;
 	current->mm->free_area_cache = current->mm->mmap_base;
-	retval = setup_arg_pages(bprm, STACK_TOP, executable_stack);
+	retval = setup_arg_pages(bprm, randomize_stack_top(STACK_TOP),
+				 executable_stack);
 	if (retval < 0) {
 		send_sig(SIGKILL, current, 0);
 		goto out_free_dentry;
