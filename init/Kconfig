@@ -272,7 +272,8 @@ config BASE_FULL
 	bool "Enable full-sized data structures for core" if EMBEDDED
 	help
 	  Disabling this option reduces the size of miscellaneous core
-	  kernel data structures.
+	  kernel data structures. This saves memory on small machines,
+	  but may reduce performance.
 
 config FUTEX
 	bool "Enable futex support" if EMBEDDED
