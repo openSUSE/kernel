@@ -1179,6 +1179,8 @@ config FB_AU1100
 	bool "Au1100 LCD Driver"
 	depends on FB && EXPERIMENTAL && PCI && MIPS && MIPS_PB1100=y
 
+source "drivers/video/geode/Kconfig"
+
 config FB_SBUS
 	bool "SBUS and UPA framebuffers"
 	depends on FB && (SPARC32 || SPARC64)
