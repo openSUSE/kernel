@@ -20,89 +20,82 @@
 #define ISA_START_ADDRESS	0xa0000
 #define ISA_END_ADDRESS		0x100000
 
-static inline void remap_area_pte(pte_t * pte, unsigned long address, unsigned long size,
-	unsigned long phys_addr, unsigned long flags)
+static int ioremap_pte_range(pmd_t *pmd, unsigned long addr,
+		unsigned long end, unsigned long phys_addr, unsigned long flags)
 {
-	unsigned long end;
+	pte_t *pte;
 	unsigned long pfn;
 
-	address &= ~PMD_MASK;
-	end = address + size;
-	if (end > PMD_SIZE)
-		end = PMD_SIZE;
-	if (address >= end)
-		BUG();
 	pfn = phys_addr >> PAGE_SHIFT;
+	pte = pte_alloc_kernel(&init_mm, pmd, addr);
+	if (!pte)
+		return -ENOMEM;
 	do {
-		if (!pte_none(*pte)) {
-			printk("remap_area_pte: page already exists\n");
-			BUG();
-		}
+		BUG_ON(!pte_none(*pte));
 		set_pte(pte, pfn_pte(pfn, __pgprot(_PAGE_PRESENT | _PAGE_RW | 
 					_PAGE_DIRTY | _PAGE_ACCESSED | flags)));
-		address += PAGE_SIZE;
 		pfn++;
-		pte++;
-	} while (address && (address < end));
-}
-
-static inline int remap_area_pmd(pmd_t * pmd, unsigned long address, unsigned long size,
-	unsigned long phys_addr, unsigned long flags)
-{
-	unsigned long end;
-
-	address &= ~PGDIR_MASK;
-	end = address + size;
-	if (end > PGDIR_SIZE)
-		end = PGDIR_SIZE;
-	phys_addr -= address;
-	if (address >= end)
-		BUG();
-	do {
-		pte_t * pte = pte_alloc_kernel(&init_mm, pmd, address);
-		if (!pte)
-			return -ENOMEM;
-		remap_area_pte(pte, address, end - address, address + phys_addr, flags);
-		address = (address + PMD_SIZE) & PMD_MASK;
-		pmd++;
-	} while (address && (address < end));
+	} while (pte++, addr += PAGE_SIZE, addr != end);
 	return 0;
 }
 
-static int remap_area_pages(unsigned long address, unsigned long phys_addr,
-				 unsigned long size, unsigned long flags)
+static inline int ioremap_pmd_range(pud_t *pud, unsigned long addr,
+		unsigned long end, unsigned long phys_addr, unsigned long flags)
 {
-	int error;
-	pgd_t * dir;
-	unsigned long end = address + size;
+	pmd_t *pmd;
+	unsigned long next;
 
-	phys_addr -= address;
-	dir = pgd_offset(&init_mm, address);
+	phys_addr -= addr;
+	pmd = pmd_alloc(&init_mm, pud, addr);
+	if (!pmd)
+		return -ENOMEM;
+	do {
+		next = pmd_addr_end(addr, end);
+		if (ioremap_pte_range(pmd, addr, next, phys_addr + addr, flags))
+			return -ENOMEM;
+	} while (pmd++, addr = next, addr != end);
+	return 0;
+}
+
+static inline int ioremap_pud_range(pgd_t *pgd, unsigned long addr,
+		unsigned long end, unsigned long phys_addr, unsigned long flags)
+{
+	pud_t *pud;
+	unsigned long next;
+
+	phys_addr -= addr;
+	pud = pud_alloc(&init_mm, pgd, addr);
+	if (!pud)
+		return -ENOMEM;
+	do {
+		next = pud_addr_end(addr, end);
+		if (ioremap_pmd_range(pud, addr, next, phys_addr + addr, flags))
+			return -ENOMEM;
+	} while (pud++, addr = next, addr != end);
+	return 0;
+}
+
+static int ioremap_page_range(unsigned long addr,
+		unsigned long end, unsigned long phys_addr, unsigned long flags)
+{
+	pgd_t *pgd;
+	unsigned long next;
+	int err;
+
+	BUG_ON(addr >= end);
 	flush_cache_all();
-	if (address >= end)
-		BUG();
+	phys_addr -= addr;
+	pgd = pgd_offset_k(addr);
 	spin_lock(&init_mm.page_table_lock);
 	do {
-		pud_t *pud;
-		pmd_t *pmd;
-		
-		error = -ENOMEM;
-		pud = pud_alloc(&init_mm, dir, address);
-		if (!pud)
+		next = pgd_addr_end(addr, end);
+		err = ioremap_pud_range(pgd, addr, next, phys_addr+addr, flags);
+		if (err)
 			break;
-		pmd = pmd_alloc(&init_mm, pud, address);
-		if (!pmd)
-			break;
-		if (remap_area_pmd(pmd, address, end - address,
-					 phys_addr + address, flags))
-			break;
-		error = 0;
-		address = (address + PGDIR_SIZE) & PGDIR_MASK;
-		dir++;
-	} while (address && (address < end));
+	} while (pgd++, addr = next, addr != end);
 	spin_unlock(&init_mm.page_table_lock);
 	flush_tlb_all();
-	return error;
+	return err;
 }
 
 /*
@@ -165,7 +158,8 @@ void __iomem * __ioremap(unsigned long phys_addr, unsigned long size, unsigned l
 		return NULL;
 	area->phys_addr = phys_addr;
 	addr = (void __iomem *) area->addr;
-	if (remap_area_pages((unsigned long) addr, phys_addr, size, flags)) {
+	if (ioremap_page_range((unsigned long) addr,
+			(unsigned long) addr + size, phys_addr, flags)) {
 		vunmap((void __force *) addr);
 		return NULL;
 	}
