@@ -820,7 +820,7 @@ void usb_deregister_bus (struct usb_bus *bus)
 
 	clear_bit (bus->busnum, busmap.busmap);
 
-	class_device_unregister(&bus->class_dev);
+	class_device_del(&bus->class_dev);
 }
 EXPORT_SYMBOL (usb_deregister_bus);
 
@@ -1539,12 +1539,11 @@ EXPORT_SYMBOL (usb_hcd_giveback_urb);
 /**
  * usb_hcd_irq - hook IRQs to HCD framework (bus glue)
  * @irq: the IRQ being raised
- * @__hcd: pointer to the HCD whose IRQ is beinng signaled
+ * @__hcd: pointer to the HCD whose IRQ is being signaled
  * @r: saved hardware registers
  *
- * When registering a USB bus through the HCD framework code, use this
- * to handle interrupts.  The PCI glue layer does so automatically; only
- * bus glue for non-PCI system busses will need to use this.
+ * If the controller isn't HALTed, calls the driver's irq handler.
+ * Checks whether the controller is now dead.
  */
 irqreturn_t usb_hcd_irq (int irq, void *__hcd, struct pt_regs * r)
 {
@@ -1595,6 +1594,8 @@ static void hcd_release (struct usb_bus *bus)
 /**
  * usb_create_hcd - create and initialize an HCD structure
  * @driver: HC driver that will use this hcd
+ * @dev: device for this HC, stored in hcd->self.controller
+ * @bus_name: value to store in hcd->self.bus_name
  * Context: !in_interrupt()
  *
  * Allocate a struct usb_hcd, with extra space at the end for the
@@ -1603,25 +1604,30 @@ static void hcd_release (struct usb_bus *bus)
  *
  * If memory is unavailable, returns NULL.
  */
-struct usb_hcd *usb_create_hcd (const struct hc_driver *driver)
+struct usb_hcd *usb_create_hcd (const struct hc_driver *driver,
+		struct device *dev, char *bus_name)
 {
 	struct usb_hcd *hcd;
 
 	hcd = kcalloc(1, sizeof(*hcd) + driver->hcd_priv_size, GFP_KERNEL);
-	if (!hcd)
+	if (!hcd) {
+		dev_dbg (dev, "hcd alloc failed\n");
 		return NULL;
+	}
+	dev_set_drvdata(dev, hcd);
 
 	usb_bus_init(&hcd->self);
 	hcd->self.op = &usb_hcd_operations;
 	hcd->self.hcpriv = hcd;
 	hcd->self.release = &hcd_release;
+	hcd->self.controller = dev;
+	hcd->self.bus_name = bus_name;
 
 	init_timer(&hcd->rh_timer);
 
 	hcd->driver = driver;
 	hcd->product_desc = (driver->product_desc) ? driver->product_desc :
 			"USB Host Controller";
-	hcd->state = USB_STATE_HALT;
 
 	return hcd;
 }
@@ -1629,9 +1635,116 @@ EXPORT_SYMBOL (usb_create_hcd);
 
 void usb_put_hcd (struct usb_hcd *hcd)
 {
+	dev_set_drvdata(hcd->self.controller, NULL);
 	usb_bus_put(&hcd->self);
 }
 EXPORT_SYMBOL (usb_put_hcd);
+
+/**
+ * usb_add_hcd - finish generic HCD structure initialization and register
+ * @hcd: the usb_hcd structure to initialize
+ * @irqnum: Interrupt line to allocate
+ * @irqflags: Interrupt type flags
+ *
+ * Finish the remaining parts of generic HCD initialization: allocate the
+ * buffers of consistent memory, register the bus, request the IRQ line,
+ * and call the driver's reset() and start() routines.
+ */
+int usb_add_hcd(struct usb_hcd *hcd,
+		unsigned int irqnum, unsigned long irqflags)
+{
+	int	retval;
+
+	dev_info(hcd->self.controller, "%s\n", hcd->product_desc);
+
+	/* till now HC has been in an indeterminate state ... */
+	if (hcd->driver->reset && (retval = hcd->driver->reset(hcd)) < 0) {
+		dev_err(hcd->self.controller, "can't reset\n");
+		return retval;
+	}
+
+	if ((retval = hcd_buffer_create(hcd)) != 0) {
+		dev_dbg(hcd->self.controller, "pool alloc failed\n");
+		return retval;
+	}
+
+	if ((retval = usb_register_bus(&hcd->self)) < 0)
+		goto err1;
+
+	if (hcd->driver->irq) {
+		char	buf[8], *bufp = buf;
+
+#ifdef __sparc__
+		bufp = __irq_itoa(irqnum);
+#else
+		sprintf(buf, "%d", irqnum);
+#endif
+
+		snprintf(hcd->irq_descr, sizeof(hcd->irq_descr), "%s:usb%d",
+				hcd->driver->description, hcd->self.busnum);
+		if ((retval = request_irq(irqnum, &usb_hcd_irq, irqflags,
+				hcd->irq_descr, hcd)) != 0) {
+			dev_err(hcd->self.controller,
+					"request interrupt %s failed\n", bufp);
+			goto err2;
+		}
+		hcd->irq = irqnum;
+		dev_info(hcd->self.controller, "irq %s, %s 0x%08llx\n", bufp,
+				(hcd->driver->flags & HCD_MEMORY) ?
+					"io mem" : "io base", hcd->rsrc_start);
+	} else {
+		hcd->irq = -1;
+		if (hcd->rsrc_start)
+			dev_info(hcd->self.controller, "%s 0x%08llx\n",
+					(hcd->driver->flags & HCD_MEMORY) ?
+					"io mem" : "io base", hcd->rsrc_start);
+	}
+
+	if ((retval = hcd->driver->start(hcd)) < 0) {
+		dev_err(hcd->self.controller, "startup error %d\n", retval);
+		goto err3;
+	}
+
+	return retval;
+
+ err3:
+	if (hcd->irq >= 0)
+		free_irq(irqnum, hcd);
+ err2:
+	usb_deregister_bus(&hcd->self);
+ err1:
+	hcd_buffer_destroy(hcd);
+	return retval;
+} 
+EXPORT_SYMBOL (usb_add_hcd);
+
+/**
+ * usb_remove_hcd - shutdown processing for generic HCDs
+ * @hcd: the usb_hcd structure to remove
+ * Context: !in_interrupt()
+ *
+ * Disconnects the root hub, then reverses the effects of usb_add_hcd(),
+ * invoking the HCD's stop() method.
+ */
+void usb_remove_hcd(struct usb_hcd *hcd)
+{
+	dev_info(hcd->self.controller, "remove, state %x\n", hcd->state);
+
+	if (HCD_IS_RUNNING (hcd->state))
+		hcd->state = USB_STATE_QUIESCING;
+
+	dev_dbg(hcd->self.controller, "roothub graceful disconnect\n");
+	usb_disconnect(&hcd->self.root_hub);
+
+	hcd->driver->stop(hcd);
+	hcd->state = USB_STATE_HALT;
+
+	if (hcd->irq >= 0)
+		free_irq(hcd->irq, hcd);
+	usb_deregister_bus(&hcd->self);
+	hcd_buffer_destroy(hcd);
+}
+EXPORT_SYMBOL (usb_remove_hcd);
 
 /*-------------------------------------------------------------------------*/
 

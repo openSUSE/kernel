@@ -63,6 +63,7 @@ struct usb_hcd {	/* usb_bus.hcpriv points to this */
 	struct usb_bus		self;		/* hcd is-a bus */
 
 	const char		*product_desc;	/* product/vendor string */
+	char			irq_descr[24];	/* driver + bus # */
 
 	struct timer_list	rh_timer;	/* drives root hub */
 
@@ -75,10 +76,8 @@ struct usb_hcd {	/* usb_bus.hcpriv points to this */
 	unsigned		remote_wakeup:1;/* sw should use wakeup? */
 	int			irq;		/* irq allocated */
 	void __iomem		*regs;		/* device memory/io */
-
-#ifdef	CONFIG_PCI
-	int			region;		/* pci region for regs */
-#endif
+	u64			rsrc_start;	/* memory/io resource start */
+	u64			rsrc_len;	/* memory/io resource length */
 
 #define HCD_BUFFER_POOLS	4
 	struct dma_pool		*pool [HCD_BUFFER_POOLS];
@@ -211,9 +210,12 @@ struct hc_driver {
 extern void usb_hcd_giveback_urb (struct usb_hcd *hcd, struct urb *urb, struct pt_regs *regs);
 extern void usb_bus_init (struct usb_bus *bus);
 
-extern struct usb_hcd *usb_create_hcd (const struct hc_driver *driver);
+extern struct usb_hcd *usb_create_hcd (const struct hc_driver *driver,
+		struct device *dev, char *bus_name);
 extern void usb_put_hcd (struct usb_hcd *hcd);
-
+extern int usb_add_hcd(struct usb_hcd *hcd,
+		unsigned int irqnum, unsigned long irqflags);
+extern void usb_remove_hcd(struct usb_hcd *hcd);
 
 #ifdef CONFIG_PCI
 struct pci_dev;
