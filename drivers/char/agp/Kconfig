@@ -162,3 +162,10 @@ config AGP_EFFICEON
 	  You should say Y here if you use XFree86 3.3.6 or 4.x and want to
 	  use GLX or DRI.  If unsure, say Y.
 
+config AGP_SGI_TIOCA
+        tristate "SGI TIO chipset AGP support"
+        depends on AGP && (IA64_SGI_SN2 || IA64_GENERIC)
+        help
+          This option gives you AGP GART support for the SGI TIO chipset
+          for IA64 processors.
+
