@@ -167,6 +167,9 @@ struct mthca_wq {
 	void *last;
 	int   max_gs;
 	int   wqe_shift;
+
+	int   db_index;		/* Arbel only */
+	u32  *db;
 };
 
 struct mthca_qp {
