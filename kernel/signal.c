@@ -28,8 +28,6 @@
 #include <asm/unistd.h>
 #include <asm/siginfo.h>
 
-extern void k_getrusage(struct task_struct *, int, struct rusage *);
-
 /*
  * SLAB caches for signal bits.
  */

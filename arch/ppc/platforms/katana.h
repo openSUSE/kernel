@@ -3,7 +3,8 @@
  *
  * Definitions for Artesyn Katana750i/3750 board.
  *
- * Tim Montgomery <timm@artesyncp.com>
+ * Author: Tim Montgomery <timm@artesyncp.com>
+ * Maintained by: Mark A. Greer <mgreer@mvista.com>
  *
  * Based on code done by Rabeeh Khoury - rabeeh@galileo.co.il
  * Based on code done by Mark A. Greer <mgreer@mvista.com>
@@ -221,4 +222,34 @@ typedef enum {
 
 #endif
 
-#endif				/* __PPC_PLATFORMS_KATANA_H */
+static inline u32
+katana_bus_freq(void __iomem *cpld_base)
+{
+	u8 bd_cfg_0;
+
+	bd_cfg_0 = in_8(cpld_base + KATANA_CPLD_BD_CFG_0);
+
+	switch (bd_cfg_0 & KATANA_CPLD_BD_CFG_0_SYSCLK_MASK) {
+	case KATANA_CPLD_BD_CFG_0_SYSCLK_200:
+		return 200000000;
+		break;
+
+	case KATANA_CPLD_BD_CFG_0_SYSCLK_166:
+		return 166666666;
+		break;
+
+	case KATANA_CPLD_BD_CFG_0_SYSCLK_133:
+		return 133333333;
+		break;
+
+	case KATANA_CPLD_BD_CFG_0_SYSCLK_100:
+		return 100000000;
+		break;
+
+	default:
+		return 133333333;
+		break;
+	}
+}
+
+#endif	/* __PPC_PLATFORMS_KATANA_H */

@@ -1652,6 +1652,15 @@ static int sync_request (mddev_t *mddev, sector_t sector_nr, int go_faster)
 		unplug_slaves(mddev);
 		return 0;
 	}
+	/* if there are 2 or more failed drives and we are trying
+	 * to resync, then assert that we are finished, because there is
+	 * nothing we can do.
+	 */
+	if (mddev->degraded >= 2 && test_bit(MD_RECOVERY_SYNC, &mddev->recovery)) {
+		int rv = (mddev->size << 1) - sector_nr;
+		md_done_sync(mddev, rv, 1);
+		return rv;
+	}
 
 	x = sector_nr;
 	chunk_offset = sector_div(x, sectors_per_chunk);
@@ -2050,6 +2059,9 @@ static int raid6_add_disk(mddev_t *mddev, mdk_rdev_t *rdev)
 	int disk;
 	struct disk_info *p;
 
+	if (mddev->degraded > 2)
+		/* no point adding a device */
+		return 0;
 	/*
 	 * find the disk ...
 	 */

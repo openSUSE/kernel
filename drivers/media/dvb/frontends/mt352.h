@@ -40,6 +40,13 @@ struct mt352_config
 	/* the demodulator's i2c address */
 	u8 demod_address;
 
+	/* frequencies in kHz */
+	int adc_clock;  // default: 20480
+	int if2;        // default: 36166
+
+	/* set if no pll is connected to the secondary i2c bus */
+	int no_tuner;
+
 	/* Initialise the demodulator and PLL. Cannot be NULL */
 	int (*demod_init)(struct dvb_frontend* fe);
 
@@ -54,6 +61,12 @@ extern struct dvb_frontend* mt352_attach(const struct mt352_config* config,
 					 struct i2c_adapter* i2c);
 
 extern int mt352_write(struct dvb_frontend* fe, u8* ibuf, int ilen);
-extern u8 mt352_read(struct dvb_frontend *fe, u8 reg);
+extern int mt352_read(struct dvb_frontend *fe, u8 reg);
 
 #endif // MT352_H
+
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

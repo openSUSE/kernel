@@ -5155,7 +5155,7 @@ static struct pci_device_id skge_pci_tbl[] = {
 MODULE_DEVICE_TABLE(pci, skge_pci_tbl);
 
 static struct pci_driver skge_driver = {
-	.name		= "skge",
+	.name		= "sk98lin",
 	.id_table	= skge_pci_tbl,
 	.probe		= skge_probe_one,
 	.remove		= __devexit_p(skge_remove_one),

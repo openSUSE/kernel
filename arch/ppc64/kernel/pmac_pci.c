@@ -656,13 +656,32 @@ static int __init add_bridge(struct device_node *dev)
 	return 0;
 }
 
+/*
+ * We use our own read_irq_line here because PCI_INTERRUPT_PIN is
+ * crap on some of Apple ASICs. We unconditionally use the Open Firmware
+ * interrupt number as this is always right.
+ */
+static int pmac_pci_read_irq_line(struct pci_dev *pci_dev)
+{
+	struct device_node *node;
+
+	node = pci_device_to_OF_node(pci_dev);
+	if (node == NULL)
+		return -1;
+	if (node->n_intrs == 0)
+		return -1;
+	pci_dev->irq = node->intrs[0].line;
+	pci_write_config_byte(pci_dev, PCI_INTERRUPT_LINE, pci_dev->irq);
+
+	return 0;
+}
 
 void __init pmac_pcibios_fixup(void)
 {
 	struct pci_dev *dev = NULL;
 
 	for_each_pci_dev(dev)
-		pci_read_irq_line(dev);
+		pmac_pci_read_irq_line(dev);
 }
 
 static void __init pmac_fixup_phb_resources(void)
@@ -771,3 +790,4 @@ static void fixup_k2_sata(struct pci_dev* dev)
 	}
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_SERVERWORKS, 0x0240, fixup_k2_sata);
+

@@ -874,11 +874,10 @@ static int __init hp_sdc_init_hppa(struct parisc_device *d)
 
 	hp_sdc.dev		= d;
 	hp_sdc.irq		= d->irq;
-	/* TODO: Is NMI == IRQ - 1 all cases, or is there a way to query? */
-	hp_sdc.nmi		= d->irq - 1;
-	hp_sdc.base_io		= (unsigned long) d->hpa;
-	hp_sdc.data_io		= (unsigned long) d->hpa + 0x800;
-	hp_sdc.status_io	= (unsigned long) d->hpa + 0x801;
+	hp_sdc.nmi		= d->aux_irq;
+	hp_sdc.base_io		= d->hpa;
+	hp_sdc.data_io		= d->hpa + 0x800;
+	hp_sdc.status_io	= d->hpa + 0x801;
 
 	return hp_sdc_init();
 }

@@ -40,6 +40,7 @@
 #include <linux/mm.h>
 #include <linux/sched.h>
 #include <linux/videodev.h>
+#include <linux/wait.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/prom.h>
@@ -1609,8 +1610,7 @@ static int planb_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 				}
 				planb_lock(pb);
 				/* empty the grabbing queue */
-				while(pb->grabbing)
-					interruptible_sleep_on(&pb->capq);
+				wait_event(pb->capq, !pb->grabbing);
 				pb->maxlines = maxlines;
 				pb->win.norm = v.norm;
 				/* Stop overlay if running */

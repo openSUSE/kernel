@@ -28,7 +28,7 @@
 ** Data needed by pcibios layer belongs here.
 */
 struct pci_hba_data {
-	unsigned long	base_addr;	/* aka Host Physical Address */
+	void __iomem   *base_addr;	/* aka Host Physical Address */
 	const struct parisc_device *dev; /* device from PA bus walk */
 	struct pci_bus *hba_bus;	/* primary PCI bus below HBA */
 	int		hba_num;	/* I/O port space access "key" */
@@ -69,7 +69,7 @@ struct pci_hba_data {
 #define PCI_PORT_HBA(a)		((a) >> HBA_PORT_SPACE_BITS)
 #define PCI_PORT_ADDR(a)	((a) & (HBA_PORT_SPACE_SIZE - 1))
 
-#if CONFIG_PARISC64
+#if CONFIG_64BIT
 #define PCI_F_EXTEND		0xffffffff00000000UL
 #define PCI_IS_LMMIO(hba,a)	pci_is_lmmio(hba,a)
 
@@ -90,14 +90,14 @@ static __inline__  int pci_is_lmmio(struct pci_hba_data *hba, unsigned long a)
 		: (a))					/* GMMIO */
 #define PCI_HOST_ADDR(hba,a)	((a) + hba->lmmio_space_offset)
 
-#else	/* !CONFIG_PARISC64 */
+#else	/* !CONFIG_64BIT */
 
 #define PCI_BUS_ADDR(hba,a)	(a)
 #define PCI_HOST_ADDR(hba,a)	(a)
 #define PCI_F_EXTEND		0UL
 #define PCI_IS_LMMIO(hba,a)	(1)	/* 32-bit doesn't support GMMIO */
 
-#endif /* !CONFIG_PARISC64 */
+#endif /* !CONFIG_64BIT */
 
 /*
 ** KLUGE: linux/pci.h include asm/pci.h BEFORE declaring struct pci_bus
@@ -199,16 +199,27 @@ extern inline void pcibios_register_hba(struct pci_hba_data *x)
 #endif
 
 /*
-** used by drivers/pci/pci.c:pci_do_scan_bus()
-**   0 == check if bridge is numbered before re-numbering.
-**   1 == pci_do_scan_bus() should automatically number all PCI-PCI bridges.
-**
-** REVISIT:
-**   To date, only alpha sets this to one. We'll need to set this
-**   to zero for legacy platforms and one for PAT platforms.
-*/
-#define pcibios_assign_all_busses()     (pdc_type == PDC_TYPE_PAT)
-#define pcibios_scan_all_fns(a, b)	0
+ * pcibios_assign_all_busses() is used in drivers/pci/pci.c:pci_do_scan_bus()
+ *   0 == check if bridge is numbered before re-numbering.
+ *   1 == pci_do_scan_bus() should automatically number all PCI-PCI bridges.
+ *
+ *   We *should* set this to zero for "legacy" platforms and one
+ *   for PAT platforms.
+ *
+ *   But legacy platforms also need to renumber the busses below a Host
+ *   Bus controller.  Adding a 4-port Tulip card on the first PCI root
+ *   bus of a C200 resulted in the secondary bus being numbered as 1.
+ *   The second PCI host bus controller's root bus had already been
+ *   assigned bus number 1 by firmware and sysfs complained.
+ *
+ *   Firmware isn't doing anything wrong here since each controller
+ *   is its own PCI domain.  It's simpler and easier for us to renumber
+ *   the busses rather than treat each Dino as a separate PCI domain.
+ *   Eventually, we may want to introduce PCI domains for Superdome or
+ *   rp7420/8420 boxes and then revisit this issue.
+ */
+#define pcibios_assign_all_busses()     (1)
+#define pcibios_scan_all_fns(a, b)	(0)
 
 #define PCIBIOS_MIN_IO          0x10
 #define PCIBIOS_MIN_MEM         0x1000 /* NBPG - but pci/setup-res.c dies */

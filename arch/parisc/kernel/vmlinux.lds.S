@@ -84,6 +84,9 @@ SECTIONS
  
   .data : {			/* Data */
 	*(.data)
+	*(.data.vm0.pmd)
+	*(.data.vm0.pgd)
+	*(.data.vm0.pte)
 	CONSTRUCTORS
 	}
 

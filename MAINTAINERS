@@ -506,7 +506,7 @@ P:	Gerd Knorr
 M:	kraxel@bytesex.org
 L:	video4linux-list@redhat.com
 W:	http://bytesex.org/bttv/
-S:	Maintained
+S:	Orphan
 
 BUSLOGIC SCSI DRIVER
 P:	Leonard N. Zubkoff
@@ -2589,7 +2589,8 @@ S:	Maintained
 VIDEO FOR LINUX
 P:	Gerd Knorr
 M:	kraxel@bytesex.org
-S:	Maintained
+L:	video4linux-list@redhat.com
+S:	Orphan
 
 W1 DALLAS'S 1-WIRE BUS
 P:	Evgeniy Polyakov

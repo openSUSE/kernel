@@ -86,7 +86,7 @@ int rd_size = CONFIG_BLK_DEV_RAM_SIZE;		/* Size of the RAM disks */
  * behaviour. The default is still BLOCK_SIZE (needed by rd_load_image that
  * supposes the filesystem in the image uses a BLOCK_SIZE blocksize).
  */
-int rd_blocksize = BLOCK_SIZE;			/* blocksize of the RAM disks */
+static int rd_blocksize = BLOCK_SIZE;		/* blocksize of the RAM disks */
 
 /*
  * Copyright (C) 2000 Linus Torvalds.

@@ -1,5 +1,5 @@
 /*
- * $Id: tda8290.c,v 1.5 2005/02/15 15:59:35 kraxel Exp $
+ * $Id: tda8290.c,v 1.7 2005/03/07 12:01:51 kraxel Exp $
  *
  * i2c tv tuner chip device driver
  * controls the philips tda8290+75 tuner chip combo.
@@ -123,7 +123,7 @@ static int tda8290_tune(struct i2c_client *c)
 	struct i2c_msg easy_mode =
 		{ I2C_ADDR_TDA8290, 0, 2, t->i2c_easy_mode };
 	struct i2c_msg set_freq =
-		{ I2C_ADDR_TDA8290, 0, 8, t->i2c_set_freq  };
+		{ I2C_ADDR_TDA8275, 0, 8, t->i2c_set_freq  };
 
 	i2c_transfer(c->adapter, &easy_mode,      1);
 	i2c_transfer(c->adapter, i2c_msg_prolog, ARRAY_SIZE(i2c_msg_prolog));

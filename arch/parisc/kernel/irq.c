@@ -102,8 +102,10 @@ int show_interrupts(struct seq_file *p, void *v)
 	}
 
 	if (i < NR_IRQS) {
+		struct irqaction *action;
+
 		spin_lock_irqsave(&irq_desc[i].lock, flags);
-		struct irqaction *action = irq_desc[i].action;
+		action = irq_desc[i].action;
 		if (!action)
 			goto skip;
 		seq_printf(p, "%3d: ", i);

@@ -121,6 +121,7 @@ typedef enum sys_ctrler_kind {
 	SYS_CTRLER_UNKNOWN = 0,
 	SYS_CTRLER_CUDA = 1,
 	SYS_CTRLER_PMU = 2,
+	SYS_CTRLER_SMU = 3,
 } sys_ctrler_t;
 
 extern sys_ctrler_t sys_ctrler;

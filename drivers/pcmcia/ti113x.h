@@ -262,6 +262,7 @@ static void ti_set_zv(struct yenta_socket *socket)
 			case PCI_DEVICE_ID_TI_1220:
 			case PCI_DEVICE_ID_TI_1221:
 			case PCI_DEVICE_ID_TI_1225:
+			case PCI_DEVICE_ID_TI_4510:
 				socket->socket.zoom_video = ti_zoom_video;
 				break;	
 			case PCI_DEVICE_ID_TI_1250:

@@ -79,7 +79,7 @@ static void handleMonitorEvent(struct HvLpEvent *event);
 /*
  * We use this structure to handle asynchronous responses.  The caller
  * blocks on the semaphore and the handler posts the semaphore.  However,
- * if in_atomic() is true in the caller, then wait_atomic is used ...
+ * if system_state is not SYSTEM_RUNNING, then wait_atomic is used ...
  */
 struct doneAllocParms_t {
 	struct semaphore *sem;
@@ -465,7 +465,7 @@ static int allocateEvents(HvLpIndex remoteLp, int numEvents)
 	DECLARE_MUTEX_LOCKED(Semaphore);
 	atomic_t wait_atomic;
 
-	if (in_atomic()) {
+	if (system_state != SYSTEM_RUNNING) {
 		parms.used_wait_atomic = 1;
 		atomic_set(&wait_atomic, 1);
 		parms.wait_atomic = &wait_atomic;
@@ -475,7 +475,7 @@ static int allocateEvents(HvLpIndex remoteLp, int numEvents)
 	}
 	mf_allocate_lp_events(remoteLp, HvLpEvent_Type_VirtualIo, 250,	/* It would be nice to put a real number here! */
 			    numEvents, &viopath_donealloc, &parms);
-	if (in_atomic()) {
+	if (system_state != SYSTEM_RUNNING) {
 		while (atomic_read(&wait_atomic))
 			mb();
 	} else

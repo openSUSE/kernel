@@ -1,4 +1,7 @@
-<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook V3.1//EN"[]>
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook XML V4.1.2//EN"
+	"http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd" []>
+
 <book id="LinuxKernelAPI">
  <bookinfo>
   <title>The Linux Kernel API</title>
@@ -94,6 +97,14 @@ KAO -->
      <sect1><title>User Space Memory Access</title>
 !Iinclude/asm-i386/uaccess.h
 !Iarch/i386/lib/usercopy.c
+     </sect1>
+  </chapter>
+
+  <chapter id="kfifo">
+     <title>FIFO Buffer</title>
+     <sect1><title>kfifo interface</title>
+!Iinclude/linux/kfifo.h
+!Ekernel/kfifo.c
      </sect1>
   </chapter>
 

@@ -909,7 +909,7 @@ static struct sysfs_ops deadline_sysfs_ops = {
 	.store	= deadline_attr_store,
 };
 
-struct kobj_type deadline_ktype = {
+static struct kobj_type deadline_ktype = {
 	.sysfs_ops	= &deadline_sysfs_ops,
 	.default_attrs	= default_attrs,
 };

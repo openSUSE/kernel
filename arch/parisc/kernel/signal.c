@@ -32,6 +32,7 @@
 #include <asm/uaccess.h>
 #include <asm/pgalloc.h>
 #include <asm/cacheflush.h>
+#include <asm/offsets.h>
 
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
@@ -442,6 +443,18 @@ setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 		if(personality(current->personality) == PER_LINUX)
 			psw |= PSW_W;
 #endif
+
+		/* If we are singlestepping, arrange a trap to be delivered
+		   when we return to userspace. Note the semantics -- we
+		   should trap before the first insn in the handler is
+		   executed. Ref:
+			http://sources.redhat.com/ml/gdb/2004-11/msg00245.html
+		 */
+		if (pa_psw(current)->r) {
+			pa_psw(current)->r = 0;
+			psw |= PSW_R;
+			mtctl(-1, 0);
+		}
 
 		regs->gr[0] = psw;
 		regs->iaoq[0] = haddr | 3;

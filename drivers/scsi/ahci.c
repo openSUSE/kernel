@@ -177,6 +177,7 @@ static void ahci_eng_timeout(struct ata_port *ap);
 static int ahci_port_start(struct ata_port *ap);
 static void ahci_port_stop(struct ata_port *ap);
 static void ahci_host_stop(struct ata_host_set *host_set);
+static void ahci_tf_read(struct ata_port *ap, struct ata_taskfile *tf);
 static void ahci_qc_prep(struct ata_queued_cmd *qc);
 static u8 ahci_check_status(struct ata_port *ap);
 static u8 ahci_check_err(struct ata_port *ap);
@@ -209,6 +210,8 @@ static struct ata_port_operations ahci_ops = {
 	.check_altstatus	= ahci_check_status,
 	.check_err		= ahci_check_err,
 	.dev_select		= ata_noop_dev_select,
+
+	.tf_read		= ahci_tf_read,
 
 	.phy_reset		= ahci_phy_reset,
 
@@ -463,6 +466,14 @@ static u8 ahci_check_err(struct ata_port *ap)
 	return (readl(mmio + PORT_TFDATA) >> 8) & 0xFF;
 }
 
+static void ahci_tf_read(struct ata_port *ap, struct ata_taskfile *tf)
+{
+	struct ahci_port_priv *pp = ap->private_data;
+	u8 *d2h_fis = pp->rx_fis + RX_FIS_D2H_REG;
+
+	ata_tf_from_fis(d2h_fis, tf);
+}
+
 static void ahci_fill_sg(struct ata_queued_cmd *qc)
 {
 	struct ahci_port_priv *pp = qc->ap->private_data;
@@ -539,7 +550,7 @@ static void ahci_intr_error(struct ata_port *ap, u32 irq_stat)
 
 	/* stop DMA */
 	tmp = readl(port_mmio + PORT_CMD);
-	tmp &= PORT_CMD_START | PORT_CMD_FIS_RX;
+	tmp &= ~PORT_CMD_START;
 	writel(tmp, port_mmio + PORT_CMD);
 
 	/* wait for engine to stop.  TODO: this could be
@@ -571,7 +582,7 @@ static void ahci_intr_error(struct ata_port *ap, u32 irq_stat)
 
 	/* re-start DMA */
 	tmp = readl(port_mmio + PORT_CMD);
-	tmp |= PORT_CMD_START | PORT_CMD_FIS_RX;
+	tmp |= PORT_CMD_START;
 	writel(tmp, port_mmio + PORT_CMD);
 	readl(port_mmio + PORT_CMD); /* flush */
 

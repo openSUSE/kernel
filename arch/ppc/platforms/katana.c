@@ -3,7 +3,7 @@
  *
  * Board setup routines for the Artesyn Katana cPCI boards.
  *
- * Athor: Tim Montgomery <timm@artesyncp.com>
+ * Author: Tim Montgomery <timm@artesyncp.com>
  * Maintained by: Mark A. Greer <mgreer@mvista.com>
  *
  * Based on code done by Rabeeh Khoury - rabeeh@galileo.co.il
@@ -49,6 +49,8 @@ static void __iomem	*sram_base;
 
 static u32		katana_flash_size_0;
 static u32		katana_flash_size_1;
+
+static u32		katana_bus_frequency;
 
 unsigned char	__res[sizeof(bd_t)];
 
@@ -183,44 +185,102 @@ katana_is_monarch(void)
 }
 
 static void __init
-katana_enable_ipmi(void)
+katana_setup_bridge(void)
 {
-	u8 reset_out;
+	struct pci_controller hose;
+	struct mv64x60_setup_info si;
+	void __iomem *vaddr;
+	int i;
+	u16 val;
+	u8 save_exclude;
 
-	/* Enable access to IPMI ctlr by clearing IPMI PORTSEL bit in CPLD */
-	reset_out = in_8(cpld_base + KATANA_CPLD_RESET_OUT);
-	reset_out &= ~KATANA_CPLD_RESET_OUT_PORTSEL;
-	out_8(cpld_base + KATANA_CPLD_RESET_OUT, reset_out);
-}
+	/*
+	 * Some versions of the Katana firmware mistakenly change the vendor
+	 * & device id fields in the bridge's pci device (visible via pci
+	 * config accesses).  This breaks mv64x60_init() because those values
+	 * are used to identify the type of bridge that's there.  Artesyn
+	 * claims that the subsystem vendor/device id's will have the correct
+	 * Marvell values so this code puts back the correct values from there.
+	 */
+	memset(&hose, 0, sizeof(hose));
+	vaddr = ioremap(CONFIG_MV64X60_NEW_BASE, MV64x60_INTERNAL_SPACE_SIZE);
+	setup_indirect_pci_nomap(&hose, vaddr + MV64x60_PCI0_CONFIG_ADDR,
+		vaddr + MV64x60_PCI0_CONFIG_DATA);
+	save_exclude = mv64x60_pci_exclude_bridge;
+	mv64x60_pci_exclude_bridge = 0;
 
-static u32
-katana_bus_freq(void)
-{
-	u8 bd_cfg_0;
+	early_read_config_word(&hose, 0, PCI_DEVFN(0, 0), PCI_VENDOR_ID, &val);
 
-	bd_cfg_0 = in_8(cpld_base + KATANA_CPLD_BD_CFG_0);
-
-	switch (bd_cfg_0 & KATANA_CPLD_BD_CFG_0_SYSCLK_MASK) {
-	case KATANA_CPLD_BD_CFG_0_SYSCLK_200:
-		return 200000000;
-		break;
-
-	case KATANA_CPLD_BD_CFG_0_SYSCLK_166:
-		return 166666666;
-		break;
-
-	case KATANA_CPLD_BD_CFG_0_SYSCLK_133:
-		return 133333333;
-		break;
-
-	case KATANA_CPLD_BD_CFG_0_SYSCLK_100:
-		return 100000000;
-		break;
-
-	default:
-		return 133333333;
-		break;
+	if (val != PCI_VENDOR_ID_MARVELL) {
+		early_read_config_word(&hose, 0, PCI_DEVFN(0, 0),
+			PCI_SUBSYSTEM_VENDOR_ID, &val);
+		early_write_config_word(&hose, 0, PCI_DEVFN(0, 0),
+			PCI_VENDOR_ID, val);
+		early_read_config_word(&hose, 0, PCI_DEVFN(0, 0),
+			PCI_SUBSYSTEM_ID, &val);
+		early_write_config_word(&hose, 0, PCI_DEVFN(0, 0),
+			PCI_DEVICE_ID, val);
 	}
+
+	mv64x60_pci_exclude_bridge = save_exclude;
+	iounmap(vaddr);
+
+	memset(&si, 0, sizeof(si));
+
+	si.phys_reg_base = CONFIG_MV64X60_NEW_BASE;
+
+	si.pci_1.enable_bus = 1;
+	si.pci_1.pci_io.cpu_base = KATANA_PCI1_IO_START_PROC_ADDR;
+	si.pci_1.pci_io.pci_base_hi = 0;
+	si.pci_1.pci_io.pci_base_lo = KATANA_PCI1_IO_START_PCI_ADDR;
+	si.pci_1.pci_io.size = KATANA_PCI1_IO_SIZE;
+	si.pci_1.pci_io.swap = MV64x60_CPU2PCI_SWAP_NONE;
+	si.pci_1.pci_mem[0].cpu_base = KATANA_PCI1_MEM_START_PROC_ADDR;
+	si.pci_1.pci_mem[0].pci_base_hi = KATANA_PCI1_MEM_START_PCI_HI_ADDR;
+	si.pci_1.pci_mem[0].pci_base_lo = KATANA_PCI1_MEM_START_PCI_LO_ADDR;
+	si.pci_1.pci_mem[0].size = KATANA_PCI1_MEM_SIZE;
+	si.pci_1.pci_mem[0].swap = MV64x60_CPU2PCI_SWAP_NONE;
+	si.pci_1.pci_cmd_bits = 0;
+	si.pci_1.latency_timer = 0x80;
+
+	for (i = 0; i < MV64x60_CPU2MEM_WINDOWS; i++) {
+#if defined(CONFIG_NOT_COHERENT_CACHE)
+		si.cpu_prot_options[i] = 0;
+		si.enet_options[i] = MV64360_ENET2MEM_SNOOP_NONE;
+		si.mpsc_options[i] = MV64360_MPSC2MEM_SNOOP_NONE;
+		si.idma_options[i] = MV64360_IDMA2MEM_SNOOP_NONE;
+
+		si.pci_1.acc_cntl_options[i] =
+		    MV64360_PCI_ACC_CNTL_SNOOP_NONE |
+		    MV64360_PCI_ACC_CNTL_SWAP_NONE |
+		    MV64360_PCI_ACC_CNTL_MBURST_128_BYTES |
+		    MV64360_PCI_ACC_CNTL_RDSIZE_256_BYTES;
+#else
+		si.cpu_prot_options[i] = 0;
+		si.enet_options[i] = MV64360_ENET2MEM_SNOOP_NONE; /* errata */
+		si.mpsc_options[i] = MV64360_MPSC2MEM_SNOOP_NONE; /* errata */
+		si.idma_options[i] = MV64360_IDMA2MEM_SNOOP_NONE; /* errata */
+
+		si.pci_1.acc_cntl_options[i] =
+		    MV64360_PCI_ACC_CNTL_SNOOP_WB |
+		    MV64360_PCI_ACC_CNTL_SWAP_NONE |
+		    MV64360_PCI_ACC_CNTL_MBURST_32_BYTES |
+		    MV64360_PCI_ACC_CNTL_RDSIZE_32_BYTES;
+#endif
+	}
+
+	/* Lookup PCI host bridges */
+	if (mv64x60_init(&bh, &si))
+		printk(KERN_WARNING "Bridge initialization failed.\n");
+
+	pci_dram_offset = 0; /* sys mem at same addr on PCI & cpu bus */
+	ppc_md.pci_swizzle = common_swizzle;
+	ppc_md.pci_map_irq = katana_map_irq;
+	ppc_md.pci_exclude_device = mv64x60_pci_exclude_device;
+
+	mv64x60_set_bus(&bh, 1, 0);
+	bh.hose_b->first_busno = 0;
+	bh.hose_b->last_busno = 0xff;
 }
 
 /* Bridge & platform setup routines */
@@ -356,67 +416,134 @@ katana_setup_peripherals(void)
 }
 
 static void __init
-katana_setup_bridge(void)
+katana_enable_ipmi(void)
 {
-	struct mv64x60_setup_info si;
-	int i;
+	u8 reset_out;
 
-	memset(&si, 0, sizeof(si));
+	/* Enable access to IPMI ctlr by clearing IPMI PORTSEL bit in CPLD */
+	reset_out = in_8(cpld_base + KATANA_CPLD_RESET_OUT);
+	reset_out &= ~KATANA_CPLD_RESET_OUT_PORTSEL;
+	out_8(cpld_base + KATANA_CPLD_RESET_OUT, reset_out);
+}
 
-	si.phys_reg_base = CONFIG_MV64X60_NEW_BASE;
+static void __init
+katana_setup_arch(void)
+{
+	if (ppc_md.progress)
+		ppc_md.progress("katana_setup_arch: enter", 0);
 
-	si.pci_1.enable_bus = 1;
-	si.pci_1.pci_io.cpu_base = KATANA_PCI1_IO_START_PROC_ADDR;
-	si.pci_1.pci_io.pci_base_hi = 0;
-	si.pci_1.pci_io.pci_base_lo = KATANA_PCI1_IO_START_PCI_ADDR;
-	si.pci_1.pci_io.size = KATANA_PCI1_IO_SIZE;
-	si.pci_1.pci_io.swap = MV64x60_CPU2PCI_SWAP_NONE;
-	si.pci_1.pci_mem[0].cpu_base = KATANA_PCI1_MEM_START_PROC_ADDR;
-	si.pci_1.pci_mem[0].pci_base_hi = KATANA_PCI1_MEM_START_PCI_HI_ADDR;
-	si.pci_1.pci_mem[0].pci_base_lo = KATANA_PCI1_MEM_START_PCI_LO_ADDR;
-	si.pci_1.pci_mem[0].size = KATANA_PCI1_MEM_SIZE;
-	si.pci_1.pci_mem[0].swap = MV64x60_CPU2PCI_SWAP_NONE;
-	si.pci_1.pci_cmd_bits = 0;
-	si.pci_1.latency_timer = 0x80;
+	set_tb(0, 0);
 
-	for (i = 0; i < MV64x60_CPU2MEM_WINDOWS; i++) {
-#if defined(CONFIG_NOT_COHERENT_CACHE)
-		si.cpu_prot_options[i] = 0;
-		si.enet_options[i] = MV64360_ENET2MEM_SNOOP_NONE;
-		si.mpsc_options[i] = MV64360_MPSC2MEM_SNOOP_NONE;
-		si.idma_options[i] = MV64360_IDMA2MEM_SNOOP_NONE;
-
-		si.pci_1.acc_cntl_options[i] =
-		    MV64360_PCI_ACC_CNTL_SNOOP_NONE |
-		    MV64360_PCI_ACC_CNTL_SWAP_NONE |
-		    MV64360_PCI_ACC_CNTL_MBURST_128_BYTES |
-		    MV64360_PCI_ACC_CNTL_RDSIZE_256_BYTES;
-#else
-		si.cpu_prot_options[i] = 0;
-		si.enet_options[i] = MV64360_ENET2MEM_SNOOP_NONE; /* errata */
-		si.mpsc_options[i] = MV64360_MPSC2MEM_SNOOP_NONE; /* errata */
-		si.idma_options[i] = MV64360_IDMA2MEM_SNOOP_NONE; /* errata */
-
-		si.pci_1.acc_cntl_options[i] =
-		    MV64360_PCI_ACC_CNTL_SNOOP_WB |
-		    MV64360_PCI_ACC_CNTL_SWAP_NONE |
-		    MV64360_PCI_ACC_CNTL_MBURST_32_BYTES |
-		    MV64360_PCI_ACC_CNTL_RDSIZE_32_BYTES;
+#ifdef CONFIG_BLK_DEV_INITRD
+	if (initrd_start)
+		ROOT_DEV = Root_RAM0;
+	else
 #endif
-	}
+#ifdef   CONFIG_ROOT_NFS
+		ROOT_DEV = Root_NFS;
+#else
+		ROOT_DEV = Root_SDA2;
+#endif
 
-	/* Lookup PCI host bridges */
-	if (mv64x60_init(&bh, &si))
-		printk(KERN_WARNING "Bridge initialization failed.\n");
+	/*
+	 * Set up the L2CR register.
+	 *
+	 * 750FX has only L2E, L2PE (bits 2-8 are reserved)
+	 * DD2.0 has bug that requires the L2 to be in WRT mode
+	 * avoid dirty data in cache
+	 */
+	if (PVR_REV(mfspr(PVR)) == 0x0200) {
+		printk(KERN_INFO "DD2.0 detected. Setting L2 cache"
+			"to Writethrough mode\n");
+		_set_L2CR(L2CR_L2E | L2CR_L2PE | L2CR_L2WT);
+	} else
+		_set_L2CR(L2CR_L2E | L2CR_L2PE);
 
-	pci_dram_offset = 0; /* sys mem at same addr on PCI & cpu bus */
-	ppc_md.pci_swizzle = common_swizzle;
-	ppc_md.pci_map_irq = katana_map_irq;
-	ppc_md.pci_exclude_device = mv64x60_pci_exclude_device;
+	if (ppc_md.progress)
+		ppc_md.progress("katana_setup_arch: calling setup_bridge", 0);
 
-	mv64x60_set_bus(&bh, 1, 0);
-	bh.hose_b->first_busno = 0;
-	bh.hose_b->last_busno = 0xff;
+	katana_setup_bridge();
+	katana_setup_peripherals();
+	katana_enable_ipmi();
+
+	katana_bus_frequency = katana_bus_freq(cpld_base);
+
+	printk(KERN_INFO "Artesyn Communication Products, LLC - Katana(TM)\n");
+	if (ppc_md.progress)
+		ppc_md.progress("katana_setup_arch: exit", 0);
+}
+
+/* Platform device data fixup routines. */
+#if defined(CONFIG_SERIAL_MPSC)
+static void __init
+katana_fixup_mpsc_pdata(struct platform_device *pdev)
+{
+	struct mpsc_pdata *pdata;
+
+	pdata = (struct mpsc_pdata *)pdev->dev.platform_data;
+
+	pdata->max_idle = 40;
+	pdata->default_baud = KATANA_DEFAULT_BAUD;
+	pdata->brg_clk_src = KATANA_MPSC_CLK_SRC;
+	/*
+	 * TCLK (not SysCLk) is routed to BRG, then to the MPSC.  On most parts,
+	 * TCLK == SysCLK but on 64460, they are separate pins.
+	 * SysCLK can go up to 200 MHz but TCLK can only go up to 133 MHz.
+	 */
+	pdata->brg_clk_freq = min(katana_bus_frequency, MV64x60_TCLK_FREQ_MAX);
+}
+#endif
+
+#if defined(CONFIG_MV643XX_ETH)
+static void __init
+katana_fixup_eth_pdata(struct platform_device *pdev)
+{
+	struct mv643xx_eth_platform_data *eth_pd;
+	static u16 phy_addr[] = {
+		KATANA_ETH0_PHY_ADDR,
+		KATANA_ETH1_PHY_ADDR,
+		KATANA_ETH2_PHY_ADDR,
+	};
+
+	eth_pd = pdev->dev.platform_data;
+	eth_pd->force_phy_addr = 1;
+	eth_pd->phy_addr = phy_addr[pdev->id];
+	eth_pd->tx_queue_size = KATANA_ETH_TX_QUEUE_SIZE;
+	eth_pd->rx_queue_size = KATANA_ETH_RX_QUEUE_SIZE;
+}
+#endif
+
+static int __init
+katana_platform_notify(struct device *dev)
+{
+	static struct {
+		char	*bus_id;
+		void	((*rtn)(struct platform_device *pdev));
+	} dev_map[] = {
+#if defined(CONFIG_SERIAL_MPSC)
+		{ MPSC_CTLR_NAME "0", katana_fixup_mpsc_pdata },
+		{ MPSC_CTLR_NAME "1", katana_fixup_mpsc_pdata },
+#endif
+#if defined(CONFIG_MV643XX_ETH)
+		{ MV643XX_ETH_NAME "0", katana_fixup_eth_pdata },
+		{ MV643XX_ETH_NAME "1", katana_fixup_eth_pdata },
+		{ MV643XX_ETH_NAME "2", katana_fixup_eth_pdata },
+#endif
+	};
+	struct platform_device	*pdev;
+	int	i;
+
+	if (dev && dev->bus_id)
+		for (i=0; i<ARRAY_SIZE(dev_map); i++)
+			if (!strncmp(dev->bus_id, dev_map[i].bus_id,
+				BUS_ID_SIZE)) {
+
+				pdev = container_of(dev,
+					struct platform_device, dev);
+				dev_map[i].rtn(pdev);
+			}
+
+	return 0;
 }
 
 #ifdef CONFIG_MTD_PHYSMAP
@@ -488,124 +615,6 @@ katana_setup_mtd(void)
 arch_initcall(katana_setup_mtd);
 #endif
 
-static void __init
-katana_setup_arch(void)
-{
-	if (ppc_md.progress)
-		ppc_md.progress("katana_setup_arch: enter", 0);
-
-	set_tb(0, 0);
-
-#ifdef CONFIG_BLK_DEV_INITRD
-	if (initrd_start)
-		ROOT_DEV = Root_RAM0;
-	else
-#endif
-#ifdef   CONFIG_ROOT_NFS
-		ROOT_DEV = Root_NFS;
-#else
-		ROOT_DEV = Root_SDA2;
-#endif
-
-	/*
-	 * Set up the L2CR register.
-	 *
-	 * 750FX has only L2E, L2PE (bits 2-8 are reserved)
-	 * DD2.0 has bug that requires the L2 to be in WRT mode
-	 * avoid dirty data in cache
-	 */
-	if (PVR_REV(mfspr(PVR)) == 0x0200) {
-		printk(KERN_INFO "DD2.0 detected. Setting L2 cache"
-			"to Writethrough mode\n");
-		_set_L2CR(L2CR_L2E | L2CR_L2PE | L2CR_L2WT);
-	} else
-		_set_L2CR(L2CR_L2E | L2CR_L2PE);
-
-	if (ppc_md.progress)
-		ppc_md.progress("katana_setup_arch: calling setup_bridge", 0);
-
-	katana_setup_bridge();
-	katana_setup_peripherals();
-	katana_enable_ipmi();
-
-	printk(KERN_INFO "Artesyn Communication Products, LLC - Katana(TM)\n");
-	if (ppc_md.progress)
-		ppc_md.progress("katana_setup_arch: exit", 0);
-}
-
-/* Platform device data fixup routines. */
-#if defined(CONFIG_SERIAL_MPSC)
-static void __init
-katana_fixup_mpsc_pdata(struct platform_device *pdev)
-{
-	struct mpsc_pdata *pdata;
-
-	pdata = (struct mpsc_pdata *)pdev->dev.platform_data;
-
-	pdata->max_idle = 40;
-	pdata->default_baud = KATANA_DEFAULT_BAUD;
-	pdata->brg_clk_src = KATANA_MPSC_CLK_SRC;
-	/*
-	 * TCLK (not SysCLk) is routed to BRG, then to the MPSC.  On most parts,
-	 * TCLK == SysCLK but on 64460, they are separate pins.
-	 * SysCLK can go up to 200 MHz but TCLK can only go up to 133 MHz.
-	 */
-	pdata->brg_clk_freq = min(katana_bus_freq(), MV64x60_TCLK_FREQ_MAX);
-}
-#endif
-
-#if defined(CONFIG_MV643XX_ETH)
-static void __init
-katana_fixup_eth_pdata(struct platform_device *pdev)
-{
-	struct mv643xx_eth_platform_data *eth_pd;
-	static u16 phy_addr[] = {
-		KATANA_ETH0_PHY_ADDR,
-		KATANA_ETH1_PHY_ADDR,
-		KATANA_ETH2_PHY_ADDR,
-	};
-
-	eth_pd = pdev->dev.platform_data;
-	eth_pd->force_phy_addr = 1;
-	eth_pd->phy_addr = phy_addr[pdev->id];
-	eth_pd->tx_queue_size = KATANA_ETH_TX_QUEUE_SIZE;
-	eth_pd->rx_queue_size = KATANA_ETH_RX_QUEUE_SIZE;
-}
-#endif
-
-static int __init
-katana_platform_notify(struct device *dev)
-{
-	static struct {
-		char	*bus_id;
-		void	((*rtn)(struct platform_device *pdev));
-	} dev_map[] = {
-#if defined(CONFIG_SERIAL_MPSC)
-		{ MPSC_CTLR_NAME "0", katana_fixup_mpsc_pdata },
-		{ MPSC_CTLR_NAME "1", katana_fixup_mpsc_pdata },
-#endif
-#if defined(CONFIG_MV643XX_ETH)
-		{ MV643XX_ETH_NAME "0", katana_fixup_eth_pdata },
-		{ MV643XX_ETH_NAME "1", katana_fixup_eth_pdata },
-		{ MV643XX_ETH_NAME "2", katana_fixup_eth_pdata },
-#endif
-	};
-	struct platform_device	*pdev;
-	int	i;
-
-	if (dev && dev->bus_id)
-		for (i=0; i<ARRAY_SIZE(dev_map); i++)
-			if (!strncmp(dev->bus_id, dev_map[i].bus_id,
-				BUS_ID_SIZE)) {
-
-				pdev = container_of(dev,
-					struct platform_device, dev);
-				dev_map[i].rtn(pdev);
-			}
-
-	return 0;
-}
-
 static void
 katana_restart(char *cmd)
 {
@@ -672,7 +681,7 @@ katana_show_cpuinfo(struct seq_file *m)
 	seq_printf(m, "PLD rev\t\t: 0x%x\n",
 		   in_8(cpld_base + KATANA_CPLD_PLD_VER));
 	seq_printf(m, "PLB freq\t: %ldMhz\n",
-		(long)katana_bus_freq() / 1000000);
+		(long)katana_bus_frequency / 1000000);
 	seq_printf(m, "PCI\t\t: %sMonarch\n", katana_is_monarch()? "" : "Non-");
 
 	return 0;
@@ -683,7 +692,7 @@ katana_calibrate_decr(void)
 {
 	u32 freq;
 
-	freq = katana_bus_freq() / 4;
+	freq = katana_bus_frequency / 4;
 
 	printk(KERN_INFO "time_init: decrementer frequency = %lu.%.6lu MHz\n",
 	       (long)freq / 1000000, (long)freq % 1000000);
@@ -698,6 +707,27 @@ katana_find_end_of_memory(void)
 	return mv64x60_get_mem_size(CONFIG_MV64X60_NEW_BASE,
 		MV64x60_TYPE_MV64360);
 }
+
+#if defined(CONFIG_I2C_MV64XXX) && defined(CONFIG_SENSORS_M41T00)
+extern ulong	m41t00_get_rtc_time(void);
+extern int	m41t00_set_rtc_time(ulong);
+
+static int __init
+katana_rtc_hookup(void)
+{
+	struct timespec	tv;
+
+	ppc_md.get_rtc_time = m41t00_get_rtc_time;
+	ppc_md.set_rtc_time = m41t00_set_rtc_time;
+
+	tv.tv_nsec = 0;
+	tv.tv_sec = (ppc_md.get_rtc_time)();
+	do_settimeofday(&tv);
+
+	return 0;
+}
+late_initcall(katana_rtc_hookup);
+#endif
 
 static inline void
 katana_set_bat(void)

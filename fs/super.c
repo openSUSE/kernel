@@ -143,7 +143,7 @@ int __put_super_and_need_restart(struct super_block *sb)
 
 /**
  *	put_super	-	drop a temporary reference to superblock
- *	@s: superblock in question
+ *	@sb: superblock in question
  *
  *	Drops a temporary reference, frees superblock if there's no
  *	references left.

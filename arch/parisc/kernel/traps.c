@@ -163,13 +163,20 @@ void show_stack(struct task_struct *task, unsigned long *s)
 	struct unwind_frame_info info;
 
 	if (!task) {
-		unsigned long sp, ip, rp;
+		unsigned long sp;
+		struct pt_regs *r;
 
 HERE:
 		asm volatile ("copy %%r30, %0" : "=r"(sp));
-		ip = (unsigned long)&&HERE;
-		rp = (unsigned long)__builtin_return_address(0);
-		unwind_frame_init(&info, current, sp, ip, rp);
+		r = (struct pt_regs *)kmalloc(sizeof(struct pt_regs), GFP_KERNEL);
+		if (!r)
+			return;
+		memset(r, 0, sizeof(struct pt_regs));
+		r->iaoq[0] = (unsigned long)&&HERE;
+		r->gr[2] = (unsigned long)__builtin_return_address(0);
+		r->gr[30] = sp;
+		unwind_frame_init(&info, current, r);
+		kfree(r);
 	} else {
 		unwind_frame_init_from_blocked_task(&info, task);
 	}
@@ -416,7 +423,7 @@ void parisc_terminate(char *msg, struct pt_regs *regs, int code, unsigned long o
 	{
 		/* show_stack(NULL, (unsigned long *)regs->gr[30]); */
 		struct unwind_frame_info info;
-		unwind_frame_init(&info, current, regs->gr[30], regs->iaoq[0], regs->gr[2]);
+		unwind_frame_init(&info, current, regs);
 		do_show_stack(&info);
 	}
 
@@ -732,7 +739,7 @@ void handle_interruption(int code, struct pt_regs *regs)
 	}
 
 	if (user_mode(regs)) {
-	    if ((fault_space>>SPACEID_SHIFT) != (regs->sr[7] >> SPACEID_SHIFT)) {
+	    if ((fault_space >> SPACEID_SHIFT) != (regs->sr[7] >> SPACEID_SHIFT)) {
 #ifdef PRINT_USER_FAULTS
 		if (fault_space == 0)
 			printk(KERN_DEBUG "User Fault on Kernel Space ");
