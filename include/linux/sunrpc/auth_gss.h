@@ -77,10 +77,12 @@ struct gss_cl_ctx {
 	unsigned long		gc_expiry;
 };
 
+struct gss_upcall_msg;
 struct gss_cred {
 	struct rpc_cred		gc_base;
 	enum rpc_gss_svc	gc_service;
 	struct gss_cl_ctx	*gc_ctx;
+	struct gss_upcall_msg	*gc_upcall;
 };
 
 #define gc_uid			gc_base.cr_uid

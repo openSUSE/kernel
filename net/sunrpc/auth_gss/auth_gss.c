@@ -289,12 +289,13 @@ err:
 
 
 struct gss_upcall_msg {
+	atomic_t count;
+	uid_t	uid;
 	struct rpc_pipe_msg msg;
 	struct list_head list;
 	struct gss_auth *auth;
 	struct rpc_wait_queue waitq;
-	uid_t	uid;
-	atomic_t count;
+	struct gss_cl_ctx *ctx;
 };
 
 static void
@@ -303,6 +304,8 @@ gss_release_msg(struct gss_upcall_msg *gss_msg)
 	if (!atomic_dec_and_test(&gss_msg->count))
 		return;
 	BUG_ON(!list_empty(&gss_msg->list));
+	if (gss_msg->ctx != NULL)
+		gss_put_ctx(gss_msg->ctx);
 	kfree(gss_msg);
 }
 
@@ -344,11 +347,29 @@ gss_unhash_msg(struct gss_upcall_msg *gss_msg)
 	spin_unlock(&gss_auth->lock);
 }
 
+static void
+gss_upcall_callback(struct rpc_task *task)
+{
+	struct gss_cred *gss_cred = container_of(task->tk_msg.rpc_cred,
+			struct gss_cred, gc_base);
+	struct gss_upcall_msg *gss_msg = gss_cred->gc_upcall;
+
+	BUG_ON(gss_msg == NULL);
+	if (gss_msg->ctx)
+		gss_cred_set_ctx(task->tk_msg.rpc_cred, gss_get_ctx(gss_msg->ctx));
+	else
+		task->tk_status = gss_msg->msg.errno;
+	gss_cred->gc_upcall = NULL;
+	gss_release_msg(gss_msg);
+}
+
 static int
 gss_upcall(struct rpc_clnt *clnt, struct rpc_task *task, struct rpc_cred *cred)
 {
 	struct gss_auth *gss_auth = container_of(clnt->cl_auth,
 			struct gss_auth, rpc_auth);
+	struct gss_cred *gss_cred = container_of(cred,
+			struct gss_cred, gc_base);
 	struct gss_upcall_msg *gss_msg, *gss_new = NULL;
 	struct rpc_pipe_msg *msg;
 	struct dentry *dentry = gss_auth->dentry;
@@ -387,7 +408,9 @@ retry:
 	if (!gss_cred_is_uptodate_ctx(cred)) {
 		/* No, so do upcall and sleep */
 		task->tk_timeout = 0;
-		rpc_sleep_on(&gss_msg->waitq, task, NULL, NULL);
+		/* gss_upcall_callback will release the reference to gss_msg */
+		gss_cred->gc_upcall = gss_msg;
+		rpc_sleep_on(&gss_msg->waitq, task, gss_upcall_callback, NULL);
 		spin_unlock(&gss_auth->lock);
 		res = rpc_queue_upcall(dentry->d_inode, msg);
 		if (res)
@@ -396,23 +419,20 @@ retry:
 		/* Yes, so cancel upcall */
 		__gss_unhash_msg(gss_msg);
 		spin_unlock(&gss_auth->lock);
+		gss_release_msg(gss_msg);
 	}
-	gss_release_msg(gss_msg);
 	dprintk("RPC: %4u gss_upcall for uid %u result %d\n", task->tk_pid,
 			uid, res);
 	return res;
 out_sleep:
 	task->tk_timeout = 0;
-	rpc_sleep_on(&gss_msg->waitq, task, NULL, NULL);
+	/* gss_upcall_callback will release the reference to gss_msg */
+	gss_cred->gc_upcall = gss_msg;
+	rpc_sleep_on(&gss_msg->waitq, task, gss_upcall_callback, NULL);
 	spin_unlock(&gss_auth->lock);
 	dprintk("RPC: %4u gss_upcall  sleeping\n", task->tk_pid);
 	if (gss_new)
 		kfree(gss_new);
-	/* Note: we drop the reference here: we are automatically removed
-	 * from the queue when we're woken up, and we should in any case
-	 * have no further responsabilities w.r.t. the upcall.
-	 */
-	gss_release_msg(gss_msg);
 	return 0;
 }
 
@@ -446,7 +466,6 @@ gss_pipe_downcall(struct file *filp, const char __user *src, size_t mlen)
 	void *buf;
 	struct rpc_clnt *clnt;
 	struct gss_auth *gss_auth;
-	struct auth_cred acred = { 0 };
 	struct rpc_cred *cred;
 	struct gss_upcall_msg *gss_msg;
 	struct gss_cl_ctx *ctx;
@@ -471,11 +490,6 @@ gss_pipe_downcall(struct file *filp, const char __user *src, size_t mlen)
 		err = PTR_ERR(p);
 		goto err;
 	}
-	acred.uid = uid;
-	err = -ENOENT;
-	cred = rpcauth_lookup_credcache(clnt->cl_auth, &acred, 0);
-	if (!cred)
-		goto err;
 
 	err = -ENOMEM;
 	ctx = gss_alloc_context();
@@ -488,17 +502,25 @@ gss_pipe_downcall(struct file *filp, const char __user *src, size_t mlen)
 		err = PTR_ERR(p);
 		if (err != -EACCES)
 			goto err_put_ctx;
-	} else
-		gss_cred_set_ctx(cred, gss_get_ctx(ctx));
+	}
 	spin_lock(&gss_auth->lock);
-	gss_msg = __gss_find_upcall(gss_auth, acred.uid);
+	gss_msg = __gss_find_upcall(gss_auth, uid);
 	if (gss_msg) {
+		if (err == 0 && gss_msg->ctx == NULL)
+			gss_msg->ctx = gss_get_ctx(ctx);
 		gss_msg->msg.errno = err;
 		__gss_unhash_msg(gss_msg);
 		spin_unlock(&gss_auth->lock);
 		gss_release_msg(gss_msg);
-	} else
+	} else {
+		struct auth_cred acred = { .uid = uid };
 		spin_unlock(&gss_auth->lock);
+		err = -ENOENT;
+		cred = rpcauth_lookup_credcache(clnt->cl_auth, &acred, 0);
+		if (!cred)
+			goto err_put_ctx;
+		gss_cred_set_ctx(cred, gss_get_ctx(ctx));
+	}
 	gss_put_ctx(ctx);
 	kfree(buf);
 	dprintk("RPC:      gss_pipe_downcall returning length %Zu\n", mlen);
