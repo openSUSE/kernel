@@ -129,6 +129,11 @@
 #define HERMES_PCI_COR_OFFT	(500)		/* ms */
 #define HERMES_PCI_COR_BUSYT	(500)		/* ms */
 
+/* Orinoco PCI specific data */
+struct orinoco_pci_card {
+	void __iomem *pci_ioaddr;
+};
+
 /*
  * Do a soft reset of the PCI card using the Configuration Option Register
  * We need this to get going...
@@ -164,8 +169,9 @@ orinoco_pci_cor_reset(struct orinoco_private *priv)
 		mdelay(1);
 		reg = hermes_read_regn(hw, CMD);
 	}
-	/* Did we timeout ? */
-	if(time_after_eq(jiffies, timeout)) {
+
+	/* Still busy? */
+	if (reg & HERMES_CMD_BUSY) {
 		printk(KERN_ERR PFX "Busy timeout\n");
 		return -ETIMEDOUT;
 	}
@@ -184,6 +190,7 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 	u16 __iomem *pci_ioaddr = NULL;
 	unsigned long pci_iolen;
 	struct orinoco_private *priv = NULL;
+	struct orinoco_pci_card *card;
 	struct net_device *dev = NULL;
 
 	err = pci_enable_device(pdev);
@@ -192,24 +199,31 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 		return err;
 	}
 
+	err = pci_request_regions(pdev, DRIVER_NAME);
+	if (err != 0) {
+		printk(KERN_ERR PFX "Cannot obtain PCI resources\n");
+		goto fail_resources;
+	}
+
 	/* Resource 0 is mapped to the hermes registers */
 	pci_iorange = pci_resource_start(pdev, 0);
 	pci_iolen = pci_resource_len(pdev, 0);
 	pci_ioaddr = ioremap(pci_iorange, pci_iolen);
-	if (! pci_iorange) {
+	if (!pci_iorange) {
 		printk(KERN_ERR PFX "Cannot remap hardware registers\n");
-		goto fail;
+		goto fail_map;
 	}
 
 	/* Allocate network device */
-	dev = alloc_orinocodev(0, NULL);
+	dev = alloc_orinocodev(sizeof(*card), orinoco_pci_cor_reset);
 	if (! dev) {
 		err = -ENOMEM;
-		goto fail;
+		goto fail_alloc;
 	}
 
 	priv = netdev_priv(dev);
-	dev->base_addr = (unsigned long) pci_ioaddr;
+	card = priv->card;
+	card->pci_ioaddr = pci_ioaddr;
 	dev->mem_start = pci_iorange;
 	dev->mem_end = pci_iorange + pci_iolen - 1;
 	SET_MODULE_OWNER(dev);
@@ -226,14 +240,14 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 	if (err) {
 		printk(KERN_ERR PFX "Cannot allocate IRQ %d\n", pdev->irq);
 		err = -EBUSY;
-		goto fail;
+		goto fail_irq;
 	}
 	dev->irq = pdev->irq;
 
 	/* Perform a COR reset to start the card */
-	if(orinoco_pci_cor_reset(priv) != 0) {
+	err = orinoco_pci_cor_reset(priv);
+	if (err) {
 		printk(KERN_ERR PFX "Initial reset failed\n");
-		err = -ETIMEDOUT;
 		goto fail;
 	}
 
@@ -250,16 +264,19 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 	return 0;
 
  fail:
-	if (dev) {
-		if (dev->irq)
-			free_irq(dev->irq, dev);
+	free_irq(pdev->irq, dev);
 
-		free_orinocodev(dev);
-	}
+ fail_irq:
+	pci_set_drvdata(pdev, NULL);
+	free_orinocodev(dev);
 
-	if (pci_ioaddr)
-		iounmap(pci_ioaddr);
+ fail_alloc:
+	iounmap(pci_ioaddr);
 
+ fail_map:
+	pci_release_regions(pdev);
+
+ fail_resources:
 	pci_disable_device(pdev);
 
 	return err;
@@ -269,18 +286,14 @@ static void __devexit orinoco_pci_remove_one(struct pci_dev *pdev)
 {
 	struct net_device *dev = pci_get_drvdata(pdev);
 	struct orinoco_private *priv = netdev_priv(dev);
+	struct orinoco_pci_card *card = priv->card;
 
 	unregister_netdev(dev);
-
-	if (dev->irq)
-		free_irq(dev->irq, dev);
-
-	if (priv->hw.iobase)
-		iounmap(priv->hw.iobase);
-
+	free_irq(dev->irq, dev);
 	pci_set_drvdata(pdev, NULL);
 	free_orinocodev(dev);
-
+	iounmap(card->pci_ioaddr);
+	pci_release_regions(pdev);
 	pci_disable_device(pdev);
 }
 
@@ -312,6 +325,9 @@ static int orinoco_pci_suspend(struct pci_dev *pdev, u32 state)
 	
 	orinoco_unlock(priv, &flags);
 
+	pci_save_state(pdev);
+	pci_set_power_state(pdev, 3);
+
 	return 0;
 }
 
@@ -323,6 +339,9 @@ static int orinoco_pci_resume(struct pci_dev *pdev)
 	int err;
 
 	printk(KERN_DEBUG "%s: Orinoco-PCI waking up\n", dev->name);
+
+	pci_set_power_state(pdev, 0);
+	pci_restore_state(pdev);
 
 	err = orinoco_reinit_firmware(dev);
 	if (err) {
@@ -354,6 +373,8 @@ static struct pci_device_id orinoco_pci_pci_id_table[] = {
 	{0x1260, 0x3872, PCI_ANY_ID, PCI_ANY_ID,},
 	/* Intersil Prism 2.5 */
 	{0x1260, 0x3873, PCI_ANY_ID, PCI_ANY_ID,},
+	/* Samsung MagicLAN SWL-2210P */
+	{0x167d, 0xa000, PCI_ANY_ID, PCI_ANY_ID,},
 	{0,},
 };
 
