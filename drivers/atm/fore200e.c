@@ -1027,7 +1027,7 @@ fore200e_tx_irq(struct fore200e* fore200e)
 		/* when a vcc is closed, some PDUs may be still pending in the tx queue.
 		   if the same vcc is immediately re-opened, those pending PDUs must
 		   not be popped after the completion of their emission, as they refer
-		   to the prior incarnation of that vcc. otherwise, vcc->sk->sk_wmem_alloc
+		   to the prior incarnation of that vcc. otherwise, sk_atm(vcc)->sk_wmem_alloc
 		   would be decremented by the size of the (unrelated) skb, possibly
 		   leading to a negative sk->sk_wmem_alloc count, ultimately freezing the vcc.
 		   we thus bind the tx entry to the current incarnation of the vcc
@@ -1054,8 +1054,8 @@ fore200e_tx_irq(struct fore200e* fore200e)
 		}
 #if 1
 		/* race fixed by the above incarnation mechanism, but... */
-		if (atomic_read(&vcc->sk->sk_wmem_alloc) < 0) {
-		    atomic_set(&vcc->sk->sk_wmem_alloc, 0);
+		if (atomic_read(&sk_atm(vcc)->sk_wmem_alloc) < 0) {
+		    atomic_set(&sk_atm(vcc)->sk_wmem_alloc, 0);
 		}
 #endif
 		/* check error condition */
@@ -1258,12 +1258,12 @@ fore200e_push_rpd(struct fore200e* fore200e, struct atm_vcc* vcc, struct rpd* rp
 	return -ENOMEM;
     }
 
-    ASSERT(atomic_read(&vcc->sk->sk_wmem_alloc) >= 0);
+    ASSERT(atomic_read(&sk_atm(vcc)->sk_wmem_alloc) >= 0);
 
     vcc->push(vcc, skb);
     atomic_inc(&vcc->stats->rx);
 
-    ASSERT(atomic_read(&vcc->sk->sk_wmem_alloc) >= 0);
+    ASSERT(atomic_read(&sk_atm(vcc)->sk_wmem_alloc) >= 0);
 
     return 0;
 }
@@ -1700,7 +1700,7 @@ fore200e_send(struct atm_vcc *vcc, struct sk_buff *skb)
     unsigned long           flags;
 
     ASSERT(vcc);
-    ASSERT(atomic_read(&vcc->sk->sk_wmem_alloc) >= 0);
+    ASSERT(atomic_read(&sk_atm(vcc)->sk_wmem_alloc) >= 0);
     ASSERT(fore200e);
     ASSERT(fore200e_vcc);
 
