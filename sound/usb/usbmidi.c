@@ -1023,9 +1023,9 @@ static struct {
 	{0x07fd, 0x0001, 0, "%s MIDI A"},
 	{0x07fd, 0x0001, 1, "%s MIDI B"},
 	/* Emagic Unitor8/AMT8/MT4 */
-	{0x086a, 0x0001, 8, "%s Broadcast/Control"},
-	{0x086a, 0x0002, 8, "%s Broadcast/Control"},
-	{0x086a, 0x0003, 4, "%s Broadcast/Control"},
+	{0x086a, 0x0001, 8, "%s Broadcast"},
+	{0x086a, 0x0002, 8, "%s Broadcast"},
+	{0x086a, 0x0003, 4, "%s Broadcast"},
 };
 
 static void snd_usbmidi_init_substream(snd_usb_midi_t* umidi,
