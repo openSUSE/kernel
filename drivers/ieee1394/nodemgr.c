@@ -831,6 +831,31 @@ static struct node_entry *find_entry_by_nodeid(struct hpsb_host *host, nodeid_t 
 }
 
 
+static void nodemgr_register_device(struct node_entry *ne, 
+	struct unit_directory *ud, struct device *parent)
+{
+	memcpy(&ud->device, &nodemgr_dev_template_ud,
+	       sizeof(ud->device));
+
+	ud->device.parent = parent;
+
+	snprintf(ud->device.bus_id, BUS_ID_SIZE, "%s-%u",
+		 ne->device.bus_id, ud->id);
+
+	ud->class_dev.dev = &ud->device;
+	ud->class_dev.class = &nodemgr_ud_class;
+	snprintf(ud->class_dev.class_id, BUS_ID_SIZE, "%s-%u",
+		 ne->device.bus_id, ud->id);
+
+	device_register(&ud->device);
+	class_device_register(&ud->class_dev);
+	get_device(&ud->device);
+
+	if (ud->vendor_oui)
+		device_create_file(&ud->device, &dev_attr_ud_vendor_oui);
+	nodemgr_create_ud_dev_files(ud);
+}	
+
 
 /* This implementation currently only scans the config rom and its
  * immediate unit directories looking for software_id and
@@ -840,7 +865,7 @@ static struct unit_directory *nodemgr_process_unit_directory
 	 unsigned int *id, struct unit_directory *parent)
 {
 	struct unit_directory *ud;
-	struct unit_directory *ud_temp = NULL;
+	struct unit_directory *ud_child = NULL;
 	struct csr1212_dentry *dentry;
 	struct csr1212_keyval *kv;
 	u8 last_key_id = 0;
@@ -909,40 +934,47 @@ static struct unit_directory *nodemgr_process_unit_directory
 		case CSR1212_KV_ID_DEPENDENT_INFO:
 			if (kv->key.type == CSR1212_KV_TYPE_DIRECTORY) {
 				/* This should really be done in SBP2 as this is
-				 * doing SBP2 specific parsing. */
+				 * doing SBP2 specific parsing.
+				 * DRD> Hmm.. that would add a lot of udev bits to sbp2.c, and
+				 * really it is just subdirectory handling, not necessarily
+				 * specific to SBP2 although that is only known application at
+				 * this time.
+				 */
+				
+				/* first register the parent unit */
 				ud->flags |= UNIT_DIRECTORY_HAS_LUN_DIRECTORY;
-				ud_temp = nodemgr_process_unit_directory(hi, ne, kv, id,
-									 parent);
+				if (ud->device.bus != &ieee1394_bus_type)
+					nodemgr_register_device(ne, ud, &ne->device);
+				
+				/* process the child unit */
+				ud_child = nodemgr_process_unit_directory(hi, ne, kv, id, ud);
 
-				if (ud_temp == NULL)
+				if (ud_child == NULL)
 					break;
-
-				/* inherit unspecified values */
-				if ((ud->flags & UNIT_DIRECTORY_VENDOR_ID) &&
-				    !(ud_temp->flags & UNIT_DIRECTORY_VENDOR_ID))
-				{
-					ud_temp->flags |=  UNIT_DIRECTORY_VENDOR_ID;
-					ud_temp->vendor_id = ud->vendor_id;
-					ud_temp->vendor_oui = ud->vendor_oui;
-				}
+				
+				/* inherit unspecified values so hotplug picks it up */
 				if ((ud->flags & UNIT_DIRECTORY_MODEL_ID) &&
-				    !(ud_temp->flags & UNIT_DIRECTORY_MODEL_ID))
+				    !(ud_child->flags & UNIT_DIRECTORY_MODEL_ID))
 				{
-					ud_temp->flags |=  UNIT_DIRECTORY_MODEL_ID;
-					ud_temp->model_id = ud->model_id;
+					ud_child->flags |=  UNIT_DIRECTORY_MODEL_ID;
+					ud_child->model_id = ud->model_id;
 				}
 				if ((ud->flags & UNIT_DIRECTORY_SPECIFIER_ID) &&
-				    !(ud_temp->flags & UNIT_DIRECTORY_SPECIFIER_ID))
+				    !(ud_child->flags & UNIT_DIRECTORY_SPECIFIER_ID))
 				{
-					ud_temp->flags |=  UNIT_DIRECTORY_SPECIFIER_ID;
-					ud_temp->specifier_id = ud->specifier_id;
+					ud_child->flags |=  UNIT_DIRECTORY_SPECIFIER_ID;
+					ud_child->specifier_id = ud->specifier_id;
 				}
 				if ((ud->flags & UNIT_DIRECTORY_VERSION) &&
-				    !(ud_temp->flags & UNIT_DIRECTORY_VERSION))
+				    !(ud_child->flags & UNIT_DIRECTORY_VERSION))
 				{
-					ud_temp->flags |=  UNIT_DIRECTORY_VERSION;
-					ud_temp->version = ud->version;
+					ud_child->flags |=  UNIT_DIRECTORY_VERSION;
+					ud_child->version = ud->version;
 				}
+				
+				/* register the child unit */
+				ud_child->flags |= UNIT_DIRECTORY_LUN_DIRECTORY;
+				nodemgr_register_device(ne, ud_child, &ud->device);
 			}
 
 			break;
@@ -952,31 +984,10 @@ static struct unit_directory *nodemgr_process_unit_directory
 		}
 		last_key_id = kv->key.id;
 	}
-
-	memcpy(&ud->device, &nodemgr_dev_template_ud,
-	       sizeof(ud->device));
-
-	if (parent) {
-		ud->flags |= UNIT_DIRECTORY_LUN_DIRECTORY;
-		ud->device.parent = &parent->device;
-	} else
-		ud->device.parent = &ne->device;
-
-	snprintf(ud->device.bus_id, BUS_ID_SIZE, "%s-%u",
-		 ne->device.bus_id, ud->id);
-
-	ud->class_dev.dev = &ud->device;
-	ud->class_dev.class = &nodemgr_ud_class;
-	snprintf(ud->class_dev.class_id, BUS_ID_SIZE, "%s-%u",
-		 ne->device.bus_id, ud->id);
-
-	device_register(&ud->device);
-	class_device_register(&ud->class_dev);
-	get_device(&ud->device);
-
-	if (ud->vendor_oui)
-		device_create_file(&ud->device, &dev_attr_ud_vendor_oui);
-	nodemgr_create_ud_dev_files(ud);
+	
+	/* do not process child units here and only if not already registered */
+	if (!parent && ud->device.bus != &ieee1394_bus_type)
+		nodemgr_register_device(ne, ud, &ne->device);
 
 	return ud;
 

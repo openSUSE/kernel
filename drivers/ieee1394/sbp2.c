@@ -1521,7 +1521,7 @@ static void sbp2_parse_unit_directory(struct scsi_id_instance_data *scsi_id,
 
 				SBP2_DEBUG("sbp2_management_agent_addr = %x",
 					   (unsigned int) management_agent_addr);
-			} else
+			} else if (kv->key.type == CSR1212_KV_TYPE_IMMEDIATE)
 				scsi_id->sbp2_device_type_and_lun = kv->value.immediate;
 			break;
 
