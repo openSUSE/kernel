@@ -408,8 +408,7 @@ static struct ib_cq *mthca_create_cq(struct ib_device *ibdev, int entries)
 	if (err) {
 		kfree(cq);
 		cq = ERR_PTR(err);
-	} else
-		cq->ibcq.cqe = nent - 1;
+	}
 
 	return &cq->ibcq;
 }
