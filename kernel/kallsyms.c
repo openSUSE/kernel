@@ -355,7 +355,7 @@ static int s_show(struct seq_file *m, void *p)
 	return 0;
 }
 
-struct seq_operations kallsyms_op = {
+static struct seq_operations kallsyms_op = {
 	.start = s_start,
 	.next = s_next,
 	.stop = s_stop,
@@ -397,7 +397,7 @@ static struct file_operations kallsyms_operations = {
 	.release = kallsyms_release,
 };
 
-int __init kallsyms_init(void)
+static int __init kallsyms_init(void)
 {
 	struct proc_dir_entry *entry;
 
