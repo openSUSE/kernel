@@ -225,7 +225,7 @@ fail:
 asmlinkage long
 sys_mprotect(unsigned long start, size_t len, unsigned long prot)
 {
-	unsigned long vm_flags, nstart, end, tmp;
+	unsigned long vm_flags, nstart, end, tmp, reqprot;
 	struct vm_area_struct *vma, *prev;
 	int error = -EINVAL;
 	const int grows = prot & (PROT_GROWSDOWN|PROT_GROWSUP);
@@ -243,6 +243,8 @@ sys_mprotect(unsigned long start, size_t len, unsigned long prot)
 		return -EINVAL;
 	if (end == start)
 		return 0;
+
+	reqprot = prot;
 	/*
 	 * Does the application expect PROT_READ to imply PROT_EXEC:
 	 */
@@ -296,7 +298,7 @@ sys_mprotect(unsigned long start, size_t len, unsigned long prot)
 			goto out;
 		}
 
-		error = security_file_mprotect(vma, prot);
+		error = security_file_mprotect(vma, reqprot, prot);
 		if (error)
 			goto out;
 

@@ -872,7 +872,7 @@ unsigned long do_mmap_pgoff(struct file * file, unsigned long addr,
 	int error;
 	struct rb_node ** rb_link, * rb_parent;
 	int accountable = 1;
-	unsigned long charged = 0;
+	unsigned long charged = 0, reqprot = prot;
 
 	if (file) {
 		if (is_file_hugepages(file))
@@ -990,7 +990,7 @@ unsigned long do_mmap_pgoff(struct file * file, unsigned long addr,
 		}
 	}
 
-	error = security_file_mmap(file, prot, flags);
+	error = security_file_mmap(file, reqprot, prot, flags);
 	if (error)
 		return error;
 		
