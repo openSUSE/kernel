@@ -50,10 +50,12 @@ endif
 
 # Help text used by make help
 help:
-	@echo  '  oldconfig	  - Update current config utilising a line-oriented program'
+	@echo  '  config	  - Update current config utilising a line-oriented program'
 	@echo  '  menuconfig	  - Update current config utilising a menu based program'
 	@echo  '  xconfig	  - Update current config utilising a QT based front-end'
 	@echo  '  gconfig	  - Update current config utilising a GTK based front-end'
+	@echo  '  oldconfig	  - Update current config utilising a provided .config as base'
+	@echo  '  randconfig	  - New config with random answer to all options'
 	@echo  '  defconfig	  - New config with default answer to all options'
 	@echo  '  allmodconfig	  - New config selecting modules when possible'
 	@echo  '  allyesconfig	  - New config where all options are accepted with yes'
