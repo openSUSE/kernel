@@ -2068,6 +2068,8 @@ nfs4_preprocess_stateid_op(struct svc_fh *current_fh, stateid_t *stateid, int fl
 			atomic_set(&dp->dl_state,NFS4_RECALL_COMPLETE);
 			release_delegation(dp);
 		}
+		if (filpp)
+			*filpp = dp->dl_vfs_file;
 	}
 	status = nfs_ok;
 out:
