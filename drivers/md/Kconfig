@@ -233,5 +233,11 @@ config DM_MULTIPATH
 	---help---
 	  Allow volume managers to support multipath hardware.
 
+config DM_MULTIPATH_EMC
+	tristate "EMC CX/AX multipath support (EXPERIMENTAL)"
+	depends on DM_MULTIPATH && BLK_DEV_DM && EXPERIMENTAL
+	---help---
+	  Multipath support for EMC CX/AX series hardware.
+
 endmenu
 
