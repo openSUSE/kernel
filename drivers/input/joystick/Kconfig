@@ -187,7 +187,7 @@ config JOYSTICK_STINGER
 	  To compile this driver as a module, choose M here: the
 	  module will be called stinger.
 
-config JOYSTICK_TWIDDLER
+config JOYSTICK_TWIDJOY
 	tristate "Twiddler as a joystick"
 	depends on INPUT && INPUT_JOYSTICK
 	select SERIO
