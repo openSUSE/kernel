@@ -138,10 +138,16 @@ static char version[] __devinitdata =
     "typhoon.c: version " DRV_MODULE_VERSION " (" DRV_MODULE_RELDATE ")\n";
 
 MODULE_AUTHOR("David Dillow <dave@thedillows.org>");
+MODULE_VERSION(DRV_MODULE_VERSION);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("3Com Typhoon Family (3C990, 3CR990, and variants)");
-MODULE_PARM(rx_copybreak, "i");
-MODULE_PARM(use_mmio, "i");
+MODULE_PARM_DESC(rx_copybreak, "Packets smaller than this are copied and "
+			       "the buffer given back to the NIC. Default "
+			       "is 200.");
+MODULE_PARM_DESC(use_mmio, "Use MMIO (1) or PIO(0) to access the NIC. "
+			   "Default is to try MMIO and fallback to PIO.");
+module_param(rx_copybreak, int, 0);
+module_param(use_mmio, int, 0);
 
 #if defined(NETIF_F_TSO) && MAX_SKB_FRAGS > 32
 #warning Typhoon only supports 32 entries in its SG list for TSO, disabling TSO
