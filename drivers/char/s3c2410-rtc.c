@@ -13,6 +13,7 @@
  *	08-Nov-2004	BJD	Initial creation
  *	12-Nov-2004	BJD	Added periodic IRQ and PM code
  *	22-Nov-2004	BJD	Sign-test on alarm code to check for <0
+ *	10-Mar-2005	LCVR	Changed S3C2410_VA_RTC to S3C24XX_VA_RTC
 */
 
 #include <linux/module.h>
@@ -38,8 +39,8 @@
 /* need this for the RTC_AF definitions */
 #include <linux/mc146818rtc.h>
 
-#undef S3C2410_VA_RTC
-#define S3C2410_VA_RTC s3c2410_rtc_base
+#undef S3C24XX_VA_RTC
+#define S3C24XX_VA_RTC s3c2410_rtc_base
 
 static struct resource *s3c2410_rtc_mem;
 
