@@ -558,32 +558,18 @@ katana_fixup_mpsc_pdata(struct platform_device *pdev)
 static void __init
 katana_fixup_eth_pdata(struct platform_device *pdev)
 {
-	struct mv64xxx_eth_platform_data *eth_pd;
+	struct mv643xx_eth_platform_data *eth_pd;
 	static u16 phy_addr[] = {
 		KATANA_ETH0_PHY_ADDR,
 		KATANA_ETH1_PHY_ADDR,
 		KATANA_ETH2_PHY_ADDR,
 	};
-	int	rx_size = KATANA_ETH_RX_QUEUE_SIZE * MV64340_ETH_DESC_SIZE;
-	int	tx_size = KATANA_ETH_TX_QUEUE_SIZE * MV64340_ETH_DESC_SIZE;
 
 	eth_pd = pdev->dev.platform_data;
 	eth_pd->force_phy_addr = 1;
 	eth_pd->phy_addr = phy_addr[pdev->id];
 	eth_pd->tx_queue_size = KATANA_ETH_TX_QUEUE_SIZE;
 	eth_pd->rx_queue_size = KATANA_ETH_RX_QUEUE_SIZE;
-	eth_pd->tx_sram_addr = mv643xx_sram_alloc(tx_size);
-
-	if (eth_pd->tx_sram_addr)
-		eth_pd->tx_sram_size = tx_size;
-	else
-		printk(KERN_ERR "mv643xx_sram_alloc failed\n");
-
-	eth_pd->rx_sram_addr = mv643xx_sram_alloc(rx_size);
-	if (eth_pd->rx_sram_addr)
-		eth_pd->rx_sram_size = rx_size;
-	else
-		printk(KERN_ERR "mv643xx_sram_alloc failed\n");
 }
 #endif
 
@@ -599,9 +585,9 @@ katana_platform_notify(struct device *dev)
 		{ MPSC_CTLR_NAME "1", katana_fixup_mpsc_pdata },
 #endif
 #if defined(CONFIG_MV643XX_ETH)
-		{ MV64XXX_ETH_NAME "0", katana_fixup_eth_pdata },
-		{ MV64XXX_ETH_NAME "1", katana_fixup_eth_pdata },
-		{ MV64XXX_ETH_NAME "2", katana_fixup_eth_pdata },
+		{ MV643XX_ETH_NAME "0", katana_fixup_eth_pdata },
+		{ MV643XX_ETH_NAME "1", katana_fixup_eth_pdata },
+		{ MV643XX_ETH_NAME "2", katana_fixup_eth_pdata },
 #endif
 	};
 	struct platform_device	*pdev;
