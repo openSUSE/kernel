@@ -117,8 +117,8 @@ static irqreturn_t mk712_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 
 end:
 
-	last_x =  inw(mk712_io + MK712_X) & 0x0fff;
-	last_y = (inw(mk712_io + MK712_Y) & 0x0fff) * 3 / 4;
+	last_x = inw(mk712_io + MK712_X) & 0x0fff;
+	last_y = inw(mk712_io + MK712_Y) & 0x0fff;
 	input_sync(&mk712_dev);
 	spin_unlock(&mk712_lock);
 	return IRQ_HANDLED;
@@ -168,7 +168,7 @@ static struct input_dev mk712_dev = {
 	.name    = "ICS MicroClock MK712 TouchScreen",
 	.phys    = "isa0260/input0",
 	.absmin  = { [ABS_X] = 0, [ABS_Y] = 0 },
-	.absmax  = { [ABS_X] = 0xfff, [ABS_Y] = 0xbff },
+	.absmax  = { [ABS_X] = 0xfff, [ABS_Y] = 0xfff },
 	.absfuzz = { [ABS_X] = 88, [ABS_Y] = 88 },
 	.id      = {
 		.bustype = BUS_ISA,
