@@ -54,7 +54,7 @@ struct agp_kern_info {
 	struct pci_dev *device;
 	enum chipset_type chipset;
 	unsigned long mode;
-	off_t aper_base;
+	unsigned long aper_base;
 	size_t aper_size;
 	int max_memory;		/* In pages */
 	int current_memory;
@@ -63,12 +63,12 @@ struct agp_kern_info {
 	struct vm_operations_struct *vm_ops;
 };
 
-/* 
+/*
  * The agp_memory structure has information about the block of agp memory
  * allocated.  A caller may manipulate the next and prev pointers to link
  * each allocated item into a list.  These pointers are ignored by the backend.
  * Everything else should never be written to, but the caller may read any of
- * the items to detrimine the status of this block of agp memory. 
+ * the items to detrimine the status of this block of agp memory.
  */
 
 struct agp_memory {
