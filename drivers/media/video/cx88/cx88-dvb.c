@@ -32,7 +32,7 @@
 
 /* those two frontends need merging via linuxtv cvs ... */
 #define HAVE_CX22702 0
-#define HAVE_OR51132 0
+#define HAVE_OR51132 1
 
 #include "cx88.h"
 #include "dvb-pll.h"

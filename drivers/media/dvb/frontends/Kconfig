@@ -157,4 +157,8 @@ config DVB_NXT2002
 	help
 	  An ATSC 8VSB tuner module. Say Y when you want to support this frontend.
 
+config DVB_OR51132
+	tristate "OR51132 based (pcHDTV)"
+	depends on DVB_CORE
+
 endmenu
