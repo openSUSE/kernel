@@ -235,10 +235,8 @@ static inline int xfrm4_garbage_collect(void)
 
 static void xfrm4_update_pmtu(struct dst_entry *dst, u32 mtu)
 {
-	struct dst_entry *path = dst->path;
-
-	if (mtu < 68 + dst->header_len)
-		return;
+	struct xfrm_dst *xdst = (struct xfrm_dst *)dst;
+	struct dst_entry *path = xdst->route;
 
 	path->ops->update_pmtu(path, mtu);
 }
