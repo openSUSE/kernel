@@ -1825,13 +1825,12 @@ nextgroup:
 	 * by pulling tasks to us.  Be careful of negative numbers as they'll
 	 * appear as very large values with unsigned longs.
 	 */
-	*imbalance = min(max_load - avg_load, avg_load - this_load);
-
 	/* How much load to actually move to equalise the imbalance */
-	*imbalance = (*imbalance * min(busiest->cpu_power, this->cpu_power))
-				/ SCHED_LOAD_SCALE;
+	*imbalance = min((max_load - avg_load) * busiest->cpu_power,
+				(avg_load - this_load) * this->cpu_power)
+			/ SCHED_LOAD_SCALE;
 
-	if (*imbalance < SCHED_LOAD_SCALE - 1) {
+	if (*imbalance < SCHED_LOAD_SCALE) {
 		unsigned long pwr_now = 0, pwr_move = 0;
 		unsigned long tmp;
 
@@ -1857,14 +1856,16 @@ nextgroup:
 							max_load - tmp);
 
 		/* Amount of load we'd add */
-		tmp = SCHED_LOAD_SCALE*SCHED_LOAD_SCALE/this->cpu_power;
-		if (max_load < tmp)
-			tmp = max_load;
+		if (max_load*busiest->cpu_power <
+				SCHED_LOAD_SCALE*SCHED_LOAD_SCALE)
+			tmp = max_load*busiest->cpu_power/this->cpu_power;
+		else
+			tmp = SCHED_LOAD_SCALE*SCHED_LOAD_SCALE/this->cpu_power;
 		pwr_move += this->cpu_power*min(SCHED_LOAD_SCALE, this_load + tmp);
 		pwr_move /= SCHED_LOAD_SCALE;
 
-		/* Move if we gain another 8th of a CPU worth of throughput */
-		if (pwr_move < pwr_now + SCHED_LOAD_SCALE / 8)
+		/* Move if we gain throughput */
+		if (pwr_move <= pwr_now)
 			goto out_balanced;
 
 		*imbalance = 1;
@@ -1872,7 +1873,7 @@ nextgroup:
 	}
 
 	/* Get rid of the scaling factor, rounding down as we divide */
-	*imbalance = (*imbalance + 1) / SCHED_LOAD_SCALE;
+	*imbalance = *imbalance / SCHED_LOAD_SCALE;
 
 	return busiest;
 
