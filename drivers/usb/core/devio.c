@@ -565,7 +565,7 @@ static int proc_control(struct dev_state *ps, void __user *arg)
 		return -EINVAL;
 	if (!(tbuf = (unsigned char *)__get_free_page(GFP_KERNEL)))
 		return -ENOMEM;
-	tmo = (ctrl.timeout * HZ + 999) / 1000;
+	tmo = ctrl.timeout;
 	if (ctrl.bRequestType & 0x80) {
 		if (ctrl.wLength && !access_ok(VERIFY_WRITE, ctrl.data, ctrl.wLength)) {
 			free_page((unsigned long)tbuf);
@@ -646,7 +646,7 @@ static int proc_bulk(struct dev_state *ps, void __user *arg)
 		return -EINVAL;
 	if (!(tbuf = kmalloc(len1, GFP_KERNEL)))
 		return -ENOMEM;
-	tmo = (bulk.timeout * HZ + 999) / 1000;
+	tmo = bulk.timeout;
 	if (bulk.ep & 0x80) {
 		if (len1 && !access_ok(VERIFY_WRITE, bulk.data, len1)) {
 			kfree(tbuf);
