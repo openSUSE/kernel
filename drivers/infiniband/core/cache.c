@@ -37,6 +37,8 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 
+#include <ib_cache.h>
+
 #include "core_priv.h"
 
 struct ib_pkey_cache {

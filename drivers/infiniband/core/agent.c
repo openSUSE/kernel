@@ -45,13 +45,10 @@
 #include "smi.h"
 #include "agent_priv.h"
 #include "mad_priv.h"
-
+#include "agent.h"
 
 spinlock_t ib_agent_port_list_lock;
 static LIST_HEAD(ib_agent_port_list);
-
-extern kmem_cache_t *ib_mad_cache;
-
 
 /*
  * Caller must hold ib_agent_port_list_lock
