@@ -483,7 +483,19 @@ static inline void  smc_rcv(struct net_device *dev)
 		dev->name, packet_number, status,
 		packet_len, packet_len);
 
-	if (unlikely(status & RS_ERRORS)) {
+	back:
+	if (unlikely(packet_len < 6 || status & RS_ERRORS)) {
+		if (status & RS_TOOLONG && packet_len <= (1514 + 4 + 6)) {
+			/* accept VLAN packets */
+			status &= ~RS_TOOLONG;
+			goto back;
+		}
+		if (packet_len < 6) {
+			/* bloody hardware */
+			printk(KERN_ERR "%s: fubar (rxlen %u status %x\n",
+					dev->name, packet_len, status);
+			status |= RS_TOOSHORT;
+		}
 		SMC_WAIT_MMU_BUSY();
 		SMC_SET_MMU_CMD(MC_RELEASE);
 		lp->stats.rx_errors++;
@@ -508,7 +520,7 @@ static inline void  smc_rcv(struct net_device *dev)
 		 * (2 bytes, possibly containing the payload odd byte).
 		 * Furthermore, we add 2 bytes to allow rounding up to
 		 * multiple of 4 bytes on 32 bit buses.
-		 * Ence packet_len - 6 + 2 + 2 + 2.
+		 * Hence packet_len - 6 + 2 + 2 + 2.
 		 */
 		skb = dev_alloc_skb(packet_len);
 		if (unlikely(skb == NULL)) {
