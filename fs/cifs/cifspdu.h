@@ -1078,6 +1078,7 @@ struct smb_t2_rsp {
 #define SMB_QUERY_FILE_UNIX_LINK        0x201
 #define SMB_QUERY_POSIX_ACL             0x204
 #define SMB_QUERY_XATTR                 0x205
+#define SMB_QUERY_ATTR_FLAGS            0x206  /* append,immutable etc. */
 #define SMB_QUERY_FILE_INTERNAL_INFO    0x3ee
 #define SMB_QUERY_FILE_ACCESS_INFO      0x3f0
 #define SMB_QUERY_FILE_NAME_INFO2       0x3f1 /* 0x30 bytes */
@@ -1095,6 +1096,7 @@ struct smb_t2_rsp {
 #define SMB_SET_FILE_UNIX_HLINK         0x203
 #define SMB_SET_POSIX_ACL               0x204
 #define SMB_SET_XATTR                   0x205
+#define SMB_SET_ATTR_FLAGS              0x206  /* append, immutable etc. */
 #define SMB_SET_FILE_BASIC_INFO2        0x3ec
 #define SMB_SET_FILE_RENAME_INFORMATION 0x3f2 /* BB check if qpathinfo level too */
 #define SMB_FILE_ALL_INFO2              0x3fa

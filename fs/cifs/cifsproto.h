@@ -242,4 +242,6 @@ extern int CIFSSMBSetPosixACL(const int xid, struct cifsTconInfo *tcon,
 		const unsigned char *fileName,
 		const char *local_acl, const int buflen, const int acl_type,
 		const struct nls_table *nls_codepage);
+int cifs_ioctl (struct inode * inode, struct file * filep,
+                unsigned int command, unsigned long arg);
 #endif			/* _CIFSPROTO_H */

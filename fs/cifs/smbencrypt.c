@@ -186,6 +186,7 @@ nt_lm_owf_gen(char *pwd, unsigned char nt_p16[16], unsigned char p16[16])
 }
 
 /* Does the NTLMv2 owfs of a user's password */
+#if 0  /* function not needed yet - but will be soon */
 static void
 ntv2_owf_gen(const unsigned char owf[16], const char *user_n,
 		const char *domain_n, unsigned char kr_buf[16],
@@ -219,6 +220,7 @@ ntv2_owf_gen(const unsigned char owf[16], const char *user_n,
 
 	kfree(user_u);
 }
+#endif 
 
 /* Does the des encryption from the NT or LM MD4 hash. */
 void
