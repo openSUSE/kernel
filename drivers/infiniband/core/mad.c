@@ -68,6 +68,7 @@ static void cancel_mads(struct ib_mad_agent_private *mad_agent_priv);
 static void ib_mad_complete_send_wr(struct ib_mad_send_wr_private *mad_send_wr,
 				    struct ib_mad_send_wc *mad_send_wc);
 static void timeout_sends(void *data);
+static void cancel_sends(void *data);
 static void local_completions(void *data);
 static int solicited_mad(struct ib_mad *mad);
 static int add_nonoui_reg_req(struct ib_mad_reg_req *mad_reg_req,
@@ -341,6 +342,8 @@ struct ib_mad_agent *ib_register_mad_agent(struct ib_device *device,
 	INIT_LIST_HEAD(&mad_agent_priv->local_list);
 	INIT_WORK(&mad_agent_priv->local_work, local_completions,
 		   mad_agent_priv);
+	INIT_LIST_HEAD(&mad_agent_priv->canceled_list);
+	INIT_WORK(&mad_agent_priv->canceled_work, cancel_sends, mad_agent_priv);
 	atomic_set(&mad_agent_priv->refcount, 1);
 	init_waitqueue_head(&mad_agent_priv->wait);
 
@@ -2004,12 +2007,44 @@ find_send_by_wr_id(struct ib_mad_agent_private *mad_agent_priv,
 	return NULL;
 }
 
+void cancel_sends(void *data)
+{
+	struct ib_mad_agent_private *mad_agent_priv;
+	struct ib_mad_send_wr_private *mad_send_wr;
+	struct ib_mad_send_wc mad_send_wc;
+	unsigned long flags;
+
+	mad_agent_priv = data;
+
+	mad_send_wc.status = IB_WC_WR_FLUSH_ERR;
+	mad_send_wc.vendor_err = 0;
+
+	spin_lock_irqsave(&mad_agent_priv->lock, flags);
+	while (!list_empty(&mad_agent_priv->canceled_list)) {
+		mad_send_wr = list_entry(mad_agent_priv->canceled_list.next,
+					 struct ib_mad_send_wr_private,
+					 agent_list);
+
+		list_del(&mad_send_wr->agent_list);
+		spin_unlock_irqrestore(&mad_agent_priv->lock, flags);
+
+		mad_send_wc.wr_id = mad_send_wr->wr_id;
+		mad_agent_priv->agent.send_handler(&mad_agent_priv->agent,
+						   &mad_send_wc);
+
+		kfree(mad_send_wr);
+		if (atomic_dec_and_test(&mad_agent_priv->refcount))
+			wake_up(&mad_agent_priv->wait);
+		spin_lock_irqsave(&mad_agent_priv->lock, flags);
+	}
+	spin_unlock_irqrestore(&mad_agent_priv->lock, flags);
+}
+
 void ib_cancel_mad(struct ib_mad_agent *mad_agent,
 		  u64 wr_id)
 {
 	struct ib_mad_agent_private *mad_agent_priv;
 	struct ib_mad_send_wr_private *mad_send_wr;
-	struct ib_mad_send_wc mad_send_wc;
 	unsigned long flags;
 
 	mad_agent_priv = container_of(mad_agent, struct ib_mad_agent_private,
@@ -2031,19 +2066,12 @@ void ib_cancel_mad(struct ib_mad_agent *mad_agent,
 	}
 
 	list_del(&mad_send_wr->agent_list);
+	list_add_tail(&mad_send_wr->agent_list, &mad_agent_priv->canceled_list);
 	adjust_timeout(mad_agent_priv);
 	spin_unlock_irqrestore(&mad_agent_priv->lock, flags);
 
-	mad_send_wc.status = IB_WC_WR_FLUSH_ERR;
-	mad_send_wc.vendor_err = 0;
-	mad_send_wc.wr_id = mad_send_wr->wr_id;
-	mad_agent_priv->agent.send_handler(&mad_agent_priv->agent,
-					   &mad_send_wc);
-
-	kfree(mad_send_wr);
-	if (atomic_dec_and_test(&mad_agent_priv->refcount))
-		wake_up(&mad_agent_priv->wait);
-
+	queue_work(mad_agent_priv->qp_info->port_priv->wq,
+		   &mad_agent_priv->canceled_work);
 out:
 	return;
 }
