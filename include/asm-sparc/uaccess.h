@@ -46,9 +46,10 @@
 #define __access_ok(addr,size) (__user_ok((addr) & get_fs().seg,(size)))
 #define access_ok(type,addr,size) __access_ok((unsigned long)(addr),(size))
 
-static inline int verify_area(int type, const void __user * addr, unsigned long size)
+/* this function will go away soon - use access_ok() instead */
+static inline int __deprecated verify_area(int type, const void __user * addr, unsigned long size)
 {
-	return access_ok(type,addr,size)?0:-EFAULT;
+	return access_ok(type,addr,size) ? 0 : -EFAULT;
 }
 
 /*

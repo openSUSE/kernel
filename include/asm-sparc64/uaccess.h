@@ -59,7 +59,8 @@ static inline int access_ok(int type, const void __user * addr, unsigned long si
 	return 1;
 }
 
-static inline int verify_area(int type, const void __user * addr, unsigned long size)
+/* this function will go away soon - use access_ok() instead */
+static inline int __deprecated verify_area(int type, const void __user * addr, unsigned long size)
 {
 	return 0;
 }

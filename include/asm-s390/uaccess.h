@@ -65,7 +65,8 @@
 
 #define access_ok(type,addr,size) __access_ok(addr,size)
 
-extern inline int verify_area(int type, const void __user *addr,
+/* this function will go away soon - use access_ok() instead */
+extern inline int __deprecated verify_area(int type, const void __user *addr,
 						unsigned long size)
 {
 	return access_ok(type, addr, size) ? 0 : -EFAULT;
