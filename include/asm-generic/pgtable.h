@@ -135,6 +135,27 @@ static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addres
 #define pgd_offset_gate(mm, addr)	pgd_offset(mm, addr)
 #endif
 
+/*
+ * When walking page tables, get the address of the next boundary, or
+ * the end address of the range if that comes earlier.  Although end might
+ * wrap to 0 only in clear_page_range, __boundary may wrap to 0 throughout.
+ */
+
+#define pgd_addr_end(addr, end)						\
+({	unsigned long __boundary = ((addr) + PGDIR_SIZE) & PGDIR_MASK;	\
+	(__boundary - 1 < (end) - 1)? __boundary: (end);		\
+})
+
+#define pud_addr_end(addr, end)						\
+({	unsigned long __boundary = ((addr) + PUD_SIZE) & PUD_MASK;	\
+	(__boundary - 1 < (end) - 1)? __boundary: (end);		\
+})
+
+#define pmd_addr_end(addr, end)						\
+({	unsigned long __boundary = ((addr) + PMD_SIZE) & PMD_MASK;	\
+	(__boundary - 1 < (end) - 1)? __boundary: (end);		\
+})
+
 #ifndef __ASSEMBLY__
 /*
  * When walking page tables, we usually want to skip any p?d_none entries;

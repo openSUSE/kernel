@@ -25,104 +25,76 @@
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
 
-static inline void
-change_pte_range(struct mm_struct *mm, pmd_t *pmd, unsigned long address,
-		unsigned long size, pgprot_t newprot)
+static inline void change_pte_range(struct mm_struct *mm, pmd_t *pmd,
+		unsigned long addr, unsigned long end, pgprot_t newprot)
 {
-	pte_t * pte;
-	unsigned long base, end;
+	pte_t *pte;
 
 	if (pmd_none_or_clear_bad(pmd))
 		return;
-	pte = pte_offset_map(pmd, address);
-	base = address & PMD_MASK;
-	address &= ~PMD_MASK;
-	end = address + size;
-	if (end > PMD_SIZE)
-		end = PMD_SIZE;
+	pte = pte_offset_map(pmd, addr);
 	do {
 		if (pte_present(*pte)) {
-			pte_t entry;
+			pte_t ptent;
 
 			/* Avoid an SMP race with hardware updated dirty/clean
 			 * bits by wiping the pte and then setting the new pte
 			 * into place.
 			 */
-			entry = ptep_get_and_clear(mm, base + address, pte);
-			set_pte_at(mm, base + address, pte, pte_modify(entry, newprot));
+			ptent = ptep_get_and_clear(mm, addr, pte);
+			set_pte_at(mm, addr, pte, pte_modify(ptent, newprot));
 		}
-		address += PAGE_SIZE;
-		pte++;
-	} while (address && (address < end));
+	} while (pte++, addr += PAGE_SIZE, addr != end);
 	pte_unmap(pte - 1);
 }
 
-static inline void
-change_pmd_range(struct mm_struct *mm, pud_t *pud, unsigned long address,
-		 unsigned long size, pgprot_t newprot)
+static inline void change_pmd_range(struct mm_struct *mm, pud_t *pud,
+		unsigned long addr, unsigned long end, pgprot_t newprot)
 {
-	pmd_t * pmd;
-	unsigned long base, end;
+	pmd_t *pmd;
+	unsigned long next;
 
 	if (pud_none_or_clear_bad(pud))
 		return;
-	pmd = pmd_offset(pud, address);
-	base = address & PUD_MASK;
-	address &= ~PUD_MASK;
-	end = address + size;
-	if (end > PUD_SIZE)
-		end = PUD_SIZE;
+	pmd = pmd_offset(pud, addr);
 	do {
-		change_pte_range(mm, pmd, base + address, end - address, newprot);
-		address = (address + PMD_SIZE) & PMD_MASK;
-		pmd++;
-	} while (address && (address < end));
+		next = pmd_addr_end(addr, end);
+		change_pte_range(mm, pmd, addr, next, newprot);
+	} while (pmd++, addr = next, addr != end);
 }
 
-static inline void
-change_pud_range(struct mm_struct *mm, pgd_t *pgd, unsigned long address,
-		 unsigned long size, pgprot_t newprot)
+static inline void change_pud_range(struct mm_struct *mm, pgd_t *pgd,
+		unsigned long addr, unsigned long end, pgprot_t newprot)
 {
-	pud_t * pud;
-	unsigned long base, end;
+	pud_t *pud;
+	unsigned long next;
 
 	if (pgd_none_or_clear_bad(pgd))
 		return;
-	pud = pud_offset(pgd, address);
-	base = address & PGDIR_MASK;
-	address &= ~PGDIR_MASK;
-	end = address + size;
-	if (end > PGDIR_SIZE)
-		end = PGDIR_SIZE;
+	pud = pud_offset(pgd, addr);
 	do {
-		change_pmd_range(mm, pud, base + address, end - address, newprot);
-		address = (address + PUD_SIZE) & PUD_MASK;
-		pud++;
-	} while (address && (address < end));
+		next = pud_addr_end(addr, end);
+		change_pmd_range(mm, pud, addr, next, newprot);
+	} while (pud++, addr = next, addr != end);
 }
 
-static void
-change_protection(struct vm_area_struct *vma, unsigned long start,
-		unsigned long end, pgprot_t newprot)
+static void change_protection(struct vm_area_struct *vma,
+		unsigned long addr, unsigned long end, pgprot_t newprot)
 {
-	struct mm_struct *mm = current->mm;
+	struct mm_struct *mm = vma->vm_mm;
 	pgd_t *pgd;
-	unsigned long beg = start, next;
-	int i;
+	unsigned long next;
+	unsigned long start = addr;
 
-	pgd = pgd_offset(mm, start);
-	flush_cache_range(vma, beg, end);
-	BUG_ON(start >= end);
+	BUG_ON(addr >= end);
+	pgd = pgd_offset(mm, addr);
+	flush_cache_range(vma, addr, end);
 	spin_lock(&mm->page_table_lock);
-	for (i = pgd_index(start); i <= pgd_index(end-1); i++) {
-		next = (start + PGDIR_SIZE) & PGDIR_MASK;
-		if (next <= start || next > end)
-			next = end;
-		change_pud_range(mm, pgd, start, next - start, newprot);
-		start = next;
-		pgd++;
-	}
-	flush_tlb_range(vma, beg, end);
+	do {
+		next = pgd_addr_end(addr, end);
+		change_pud_range(mm, pgd, addr, next, newprot);
+	} while (pgd++, addr = next, addr != end);
+	flush_tlb_range(vma, start, end);
 	spin_unlock(&mm->page_table_lock);
 }
 
@@ -130,7 +102,7 @@ static int
 mprotect_fixup(struct vm_area_struct *vma, struct vm_area_struct **pprev,
 	unsigned long start, unsigned long end, unsigned long newflags)
 {
-	struct mm_struct * mm = vma->vm_mm;
+	struct mm_struct *mm = vma->vm_mm;
 	unsigned long oldflags = vma->vm_flags;
 	long nrpages = (end - start) >> PAGE_SHIFT;
 	unsigned long charged = 0;
