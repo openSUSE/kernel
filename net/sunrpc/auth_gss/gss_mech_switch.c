@@ -143,7 +143,7 @@ gss_mech_get(struct gss_api_mech *gm)
 EXPORT_SYMBOL(gss_mech_get);
 
 struct gss_api_mech *
-gss_mech_get_by_name(char *name)
+gss_mech_get_by_name(const char *name)
 {
 	struct gss_api_mech	*pos, *gm = NULL;
 

@@ -440,8 +440,6 @@ gss_pipe_downcall(struct file *filp, const char __user *src, size_t mlen)
 {
 	const void *p, *end;
 	void *buf;
-	struct inode *inode = filp->f_dentry->d_inode;
-	struct rpc_inode *rpci = RPC_I(inode);
 	struct rpc_clnt *clnt;
 	struct gss_auth *gss_auth;
 	struct auth_cred acred = { 0 };
@@ -458,7 +456,7 @@ gss_pipe_downcall(struct file *filp, const char __user *src, size_t mlen)
 	if (!buf)
 		goto out;
 
-	clnt = rpci->private;
+	clnt = RPC_I(filp->f_dentry->d_inode)->private;
 	err = -EFAULT;
 	if (copy_from_user(buf, src, mlen))
 		goto err;

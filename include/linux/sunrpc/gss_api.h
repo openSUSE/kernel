@@ -51,8 +51,6 @@ u32 gss_verify_mic(
 u32 gss_delete_sec_context(
 		struct gss_ctx		**ctx_id);
 
-struct gss_api_mech * gss_mech_get_by_name(char *name);
-struct gss_api_mech * gss_mech_get_by_pseudoflavor(u32 pseudoflavor);
 u32 gss_pseudoflavor_to_service(struct gss_api_mech *, u32 pseudoflavor);
 char *gss_service_to_auth_domain_name(struct gss_api_mech *, u32 service);
 
@@ -107,7 +105,7 @@ void gss_mech_unregister(struct gss_api_mech *);
 struct gss_api_mech * gss_mech_get_by_OID(struct xdr_netobj *);
 
 /* Returns a reference to a mechanism, given a name like "krb5" etc. */
-struct gss_api_mech *gss_mech_get_by_name(char *);
+struct gss_api_mech *gss_mech_get_by_name(const char *);
 
 /* Similar, but get by pseudoflavor. */
 struct gss_api_mech *gss_mech_get_by_pseudoflavor(u32);
