@@ -148,9 +148,6 @@ static void warrior_connect(struct serio *serio, struct serio_driver *drv)
 	struct warrior *warrior;
 	int i;
 
-	if (serio->type != (SERIO_RS232 | SERIO_WARRIOR))
-		return;
-
 	if (!(warrior = kmalloc(sizeof(struct warrior), GFP_KERNEL)))
 		return;
 
@@ -202,14 +199,27 @@ static void warrior_connect(struct serio *serio, struct serio_driver *drv)
 }
 
 /*
- * The serio device structure.
+ * The serio driver structure.
  */
+
+static struct serio_device_id warrior_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_WARRIOR,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, warrior_serio_ids);
 
 static struct serio_driver warrior_drv = {
 	.driver		= {
 		.name	= "warrior",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= warrior_serio_ids,
 	.interrupt	= warrior_interrupt,
 	.connect	= warrior_connect,
 	.disconnect	= warrior_disconnect,

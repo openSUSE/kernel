@@ -162,7 +162,7 @@ static void spaceorb_disconnect(struct serio *serio)
 
 /*
  * spaceorb_connect() is the routine that is called when someone adds a
- * new serio device. It looks for the SpaceOrb/Avenger, and if found, registers
+ * new serio device that supports SpaceOrb/Avenger protocol and registers
  * it as an input device.
  */
 
@@ -170,9 +170,6 @@ static void spaceorb_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct spaceorb *spaceorb;
 	int i, t;
-
-	if (serio->type != (SERIO_RS232 | SERIO_SPACEORB))
-		return;
 
 	if (!(spaceorb = kmalloc(sizeof(struct spaceorb), GFP_KERNEL)))
 		return;
@@ -216,14 +213,27 @@ static void spaceorb_connect(struct serio *serio, struct serio_driver *drv)
 }
 
 /*
- * The serio device structure.
+ * The serio driver structure.
  */
+
+static struct serio_device_id spaceorb_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_SPACEORB,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, spaceorb_serio_ids);
 
 static struct serio_driver spaceorb_drv = {
 	.driver		= {
 		.name	= "spaceorb",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= spaceorb_serio_ids,
 	.interrupt	= spaceorb_interrupt,
 	.connect	= spaceorb_connect,
 	.disconnect	= spaceorb_disconnect,

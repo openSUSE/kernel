@@ -494,11 +494,6 @@ vsxxxaa_connect (struct serio *serio, struct serio_driver *drv)
 {
 	struct vsxxxaa *mouse;
 
-	if ((serio->type & SERIO_TYPE) != SERIO_RS232)
-		return;
-	if ((serio->type & SERIO_PROTO) != SERIO_VSXXXAA)
-		return;
-
 	if (!(mouse = kmalloc (sizeof (struct vsxxxaa), GFP_KERNEL)))
 		return;
 
@@ -551,11 +546,24 @@ vsxxxaa_connect (struct serio *serio, struct serio_driver *drv)
 	printk (KERN_INFO "input: %s on %s\n", mouse->name, mouse->phys);
 }
 
+static struct serio_device_id vsxxaa_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_VSXXXAA,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, vsxxaa_serio_ids);
+
 static struct serio_driver vsxxxaa_drv = {
 	.driver		= {
 		.name	= "vsxxxaa",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= vsxxaa_serio_ids,
 	.connect	= vsxxxaa_connect,
 	.interrupt	= vsxxxaa_interrupt,
 	.disconnect	= vsxxxaa_disconnect,

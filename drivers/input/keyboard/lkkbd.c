@@ -629,11 +629,6 @@ lkkbd_connect (struct serio *serio, struct serio_driver *drv)
 	struct lkkbd *lk;
 	int i;
 
-	if ((serio->type & SERIO_TYPE) != SERIO_RS232)
-		return;
-	if ((serio->type & SERIO_PROTO) != SERIO_LKKBD)
-		return;
-
 	if (!(lk = kmalloc (sizeof (struct lkkbd), GFP_KERNEL)))
 		return;
 	memset (lk, 0, sizeof (struct lkkbd));
@@ -708,11 +703,24 @@ lkkbd_disconnect (struct serio *serio)
 	kfree (lk);
 }
 
+static struct serio_device_id lkkbd_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_LKKBD,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, lkkbd_serio_ids);
+
 static struct serio_driver lkkbd_drv = {
 	.driver		= {
 		.name	= "lkkbd",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= lkkbd_serio_ids,
 	.connect	= lkkbd_connect,
 	.disconnect	= lkkbd_disconnect,
 	.interrupt	= lkkbd_interrupt,

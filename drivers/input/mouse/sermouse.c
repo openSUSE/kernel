@@ -246,10 +246,7 @@ static void sermouse_connect(struct serio *serio, struct serio_driver *drv)
 	struct sermouse *sermouse;
 	unsigned char c;
 
-	if ((serio->type & SERIO_TYPE) != SERIO_RS232)
-		return;
-
-	if (!(serio->type & SERIO_PROTO) || ((serio->type & SERIO_PROTO) > SERIO_MZPP))
+	if (!serio->id.proto || serio->id.proto > SERIO_MZPP)
 		return;
 
 	if (!(sermouse = kmalloc(sizeof(struct sermouse), GFP_KERNEL)))
@@ -263,8 +260,8 @@ static void sermouse_connect(struct serio *serio, struct serio_driver *drv)
 	sermouse->dev.relbit[0] = BIT(REL_X) | BIT(REL_Y);
 	sermouse->dev.private = sermouse;
 
-	sermouse->type = serio->type & SERIO_PROTO;
-	c = (serio->type & SERIO_EXTRA) >> 16;
+	sermouse->type = serio->id.proto;
+	c = serio->id.extra;
 
 	if (c & 0x01) set_bit(BTN_MIDDLE, sermouse->dev.keybit);
 	if (c & 0x02) set_bit(BTN_SIDE, sermouse->dev.keybit);
@@ -295,11 +292,60 @@ static void sermouse_connect(struct serio *serio, struct serio_driver *drv)
 	printk(KERN_INFO "input: %s on %s\n", sermouse_protocols[sermouse->type], serio->phys);
 }
 
+static struct serio_device_id sermouse_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_MSC,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_SUN,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_MS,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_MP,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_MZ,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_MZP,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_MZPP,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, sermouse_serio_ids);
+
 static struct serio_driver sermouse_drv = {
 	.driver		= {
 		.name	= "sermouse",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= sermouse_serio_ids,
 	.interrupt	= sermouse_interrupt,
 	.connect	= sermouse_connect,
 	.disconnect	= sermouse_disconnect,

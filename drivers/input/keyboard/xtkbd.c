@@ -93,9 +93,6 @@ void xtkbd_connect(struct serio *serio, struct serio_driver *drv)
 	struct xtkbd *xtkbd;
 	int i;
 
-	if ((serio->type & SERIO_TYPE) != SERIO_XT)
-		return;
-
 	if (!(xtkbd = kmalloc(sizeof(struct xtkbd), GFP_KERNEL)))
 		return;
 
@@ -149,11 +146,24 @@ void xtkbd_disconnect(struct serio *serio)
 	kfree(xtkbd);
 }
 
+static struct serio_device_id xtkbd_serio_ids[] = {
+	{
+		.type	= SERIO_XT,
+		.proto	= SERIO_ANY,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, xtkbd_serio_ids);
+
 struct serio_driver xtkbd_drv = {
 	.driver		= {
 		.name	= "xtkbd",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= xtkbd_serio_ids,
 	.interrupt	= xtkbd_interrupt,
 	.connect	= xtkbd_connect,
 	.disconnect	= xtkbd_disconnect,

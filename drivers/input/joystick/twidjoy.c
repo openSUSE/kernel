@@ -195,9 +195,6 @@ static void twidjoy_connect(struct serio *serio, struct serio_driver *drv)
 	struct twidjoy *twidjoy;
 	int i;
 
-	if (serio->type != (SERIO_RS232 | SERIO_TWIDJOY))
-		return;
-
 	if (!(twidjoy = kmalloc(sizeof(struct twidjoy), GFP_KERNEL)))
 		return;
 
@@ -248,14 +245,27 @@ static void twidjoy_connect(struct serio *serio, struct serio_driver *drv)
 }
 
 /*
- * The serio device structure.
+ * The serio driver structure.
  */
+
+static struct serio_device_id twidjoy_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_TWIDJOY,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, twidjoy_serio_ids);
 
 static struct serio_driver twidjoy_drv = {
 	.driver		= {
 		.name	= "twidjoy",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= twidjoy_serio_ids,
 	.interrupt	= twidjoy_interrupt,
 	.connect	= twidjoy_connect,
 	.disconnect	= twidjoy_disconnect,

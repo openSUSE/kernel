@@ -20,6 +20,13 @@
 #include <linux/spinlock.h>
 #include <linux/device.h>
 
+struct serio_device_id {
+	unsigned char type;
+	unsigned char extra;
+	unsigned char id;
+	unsigned char proto;
+};
+
 struct serio {
 	void *port_data;
 
@@ -28,13 +35,7 @@ struct serio {
 
 	unsigned int manual_bind;
 
-	unsigned short idbus;
-	unsigned short idvendor;
-	unsigned short idproduct;
-	unsigned short idversion;
-
-	unsigned long type;
-	unsigned long event;
+	struct serio_device_id id;
 
 	spinlock_t lock;		/* protects critical sections from port's interrupt handler */
 
@@ -59,6 +60,7 @@ struct serio_driver {
 	void *private;
 	char *description;
 
+	struct serio_device_id *id_table;
 	unsigned int manual_bind;
 
 	void (*write_wakeup)(struct serio *);
@@ -160,15 +162,22 @@ static __inline__ void serio_unpin_driver(struct serio *serio)
 #define SERIO_PARITY	2
 #define SERIO_FRAME	4
 
-#define SERIO_TYPE	0xff000000UL
-#define SERIO_XT	0x00000000UL
-#define SERIO_8042	0x01000000UL
-#define SERIO_RS232	0x02000000UL
-#define SERIO_HIL_MLC	0x03000000UL
-#define SERIO_PS_PSTHRU	0x05000000UL
-#define SERIO_8042_XL	0x06000000UL
+#define SERIO_ANY	0xff
 
-#define SERIO_PROTO	0xFFUL
+/*
+ * Serio types
+ */
+#define SERIO_XT	0x00
+#define SERIO_8042	0x01
+#define SERIO_RS232	0x02
+#define SERIO_HIL_MLC	0x03
+#define SERIO_PS_PSTHRU	0x05
+#define SERIO_8042_XL	0x06
+
+/*
+ * Serio types
+ */
+#define SERIO_UNKNOWN	0x00
 #define SERIO_MSC	0x01
 #define SERIO_SUN	0x02
 #define SERIO_MS	0x03
@@ -195,8 +204,5 @@ static __inline__ void serio_unpin_driver(struct serio *serio)
 #define SERIO_SNES232	0x26
 #define SERIO_SEMTECH	0x27
 #define SERIO_LKKBD	0x28
-
-#define SERIO_ID	0xff00UL
-#define SERIO_EXTRA	0xff0000UL
 
 #endif

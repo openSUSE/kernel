@@ -201,8 +201,8 @@ static void spaceball_disconnect(struct serio *serio)
 
 /*
  * spaceball_connect() is the routine that is called when someone adds a
- * new serio device. It looks for the Magellan, and if found, registers
- * it as an input device.
+ * new serio device that supports Spaceball protocol and registers it as
+ * an input device.
  */
 
 static void spaceball_connect(struct serio *serio, struct serio_driver *drv)
@@ -210,10 +210,7 @@ static void spaceball_connect(struct serio *serio, struct serio_driver *drv)
 	struct spaceball *spaceball;
 	int i, t, id;
 
-	if ((serio->type & ~SERIO_ID) != (SERIO_RS232 | SERIO_SPACEBALL))
-		return;
-
-	if ((id = (serio->type & SERIO_ID) >> 8) > SPACEBALL_MAX_ID)
+	if ((id = serio->id.id) > SPACEBALL_MAX_ID)
 		return;
 
 	if (!(spaceball = kmalloc(sizeof(struct spaceball), GFP_KERNEL)))
@@ -272,14 +269,27 @@ static void spaceball_connect(struct serio *serio, struct serio_driver *drv)
 }
 
 /*
- * The serio device structure.
+ * The serio driver structure.
  */
+
+static struct serio_device_id spaceball_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_SPACEBALL,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, spaceball_serio_ids);
 
 static struct serio_driver spaceball_drv = {
 	.driver		= {
 		.name	= "spaceball",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= spaceball_serio_ids,
 	.interrupt	= spaceball_interrupt,
 	.connect	= spaceball_connect,
 	.disconnect	= spaceball_disconnect,

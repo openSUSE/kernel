@@ -129,10 +129,9 @@ out:
 static void iforce_serio_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct iforce *iforce;
-	if (serio->type != (SERIO_RS232 | SERIO_IFORCE))
-		return;
 
-	if (!(iforce = kmalloc(sizeof(struct iforce), GFP_KERNEL))) return;
+	if (!(iforce = kmalloc(sizeof(struct iforce), GFP_KERNEL)))
+		return;
 	memset(iforce, 0, sizeof(struct iforce));
 
 	iforce->bus = IFORCE_232;
@@ -164,11 +163,24 @@ static void iforce_serio_disconnect(struct serio *serio)
 	kfree(iforce);
 }
 
+static struct serio_device_id iforce_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_IFORCE,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, iforce_serio_ids);
+
 struct serio_driver iforce_serio_drv = {
 	.driver		= {
 		.name	= "iforce",
 	},
 	.description	= "RS232 I-Force joysticks and wheels driver",
+	.id_table	= iforce_serio_ids,
 	.write_wakeup	= iforce_serio_write_wakeup,
 	.interrupt	= iforce_serio_irq,
 	.connect	= iforce_serio_connect,

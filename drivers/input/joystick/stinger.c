@@ -134,17 +134,14 @@ static void stinger_disconnect(struct serio *serio)
 
 /*
  * stinger_connect() is the routine that is called when someone adds a
- * new serio device. It looks for the Stinger, and if found, registers
- * it as an input device.
+ * new serio device that supports Stinger protocol and registers it as
+ * an input device.
  */
 
 static void stinger_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct stinger *stinger;
 	int i;
-
-	if (serio->type != (SERIO_RS232 | SERIO_STINGER))
-		return;
 
 	if (!(stinger = kmalloc(sizeof(struct stinger), GFP_KERNEL)))
 		return;
@@ -191,14 +188,27 @@ static void stinger_connect(struct serio *serio, struct serio_driver *drv)
 }
 
 /*
- * The serio device structure.
+ * The serio driver structure.
  */
+
+static struct serio_device_id stinger_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_STINGER,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, stinger_serio_ids);
 
 static struct serio_driver stinger_drv = {
 	.driver		= {
 		.name	= "stinger",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= stinger_serio_ids,
 	.interrupt	= stinger_interrupt,
 	.connect	= stinger_connect,
 	.disconnect	= stinger_disconnect,

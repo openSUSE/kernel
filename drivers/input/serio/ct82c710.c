@@ -181,7 +181,7 @@ static struct serio * __init ct82c710_allocate_port(void)
 	serio = kmalloc(sizeof(struct serio), GFP_KERNEL);
 	if (serio) {
 		memset(serio, 0, sizeof(struct serio));
-		serio->type = SERIO_8042;
+		serio->id.type = SERIO_8042;
 		serio->open = ct82c710_open;
 		serio->close = ct82c710_close;
 		serio->write = ct82c710_write;

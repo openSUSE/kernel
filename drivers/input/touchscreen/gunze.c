@@ -111,16 +111,13 @@ static void gunze_disconnect(struct serio *serio)
 
 /*
  * gunze_connect() is the routine that is called when someone adds a
- * new serio device. It looks whether it was registered as a Gunze touchscreen
- * and if yes, registers it as an input device.
+ * new serio device that supports Gunze protocol and registers it as
+ * an input device.
  */
 
 static void gunze_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct gunze *gunze;
-
-	if (serio->type != (SERIO_RS232 | SERIO_GUNZE))
-		return;
 
 	if (!(gunze = kmalloc(sizeof(struct gunze), GFP_KERNEL)))
 		return;
@@ -159,14 +156,27 @@ static void gunze_connect(struct serio *serio, struct serio_driver *drv)
 }
 
 /*
- * The serio device structure.
+ * The serio driver structure.
  */
+
+static struct serio_device_id gunze_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_GUNZE,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, gunze_serio_ids);
 
 static struct serio_driver gunze_drv = {
 	.driver		= {
 		.name	= "gunze",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= gunze_serio_ids,
 	.interrupt	= gunze_interrupt,
 	.connect	= gunze_connect,
 	.disconnect	= gunze_disconnect,

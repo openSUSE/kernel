@@ -288,7 +288,7 @@ static void synaptics_pt_create(struct psmouse *psmouse)
 
 	memset(serio, 0, sizeof(struct serio));
 
-	serio->type = SERIO_PS_PSTHRU;
+	serio->id.type = SERIO_PS_PSTHRU;
 	strlcpy(serio->name, "Synaptics pass-through", sizeof(serio->name));
 	strlcpy(serio->phys, "synaptics-pt/serio0", sizeof(serio->name));
 	serio->write = synaptics_pt_write;

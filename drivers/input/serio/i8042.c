@@ -971,7 +971,7 @@ static void __init i8042_create_kbd_port(void)
 	serio = kmalloc(sizeof(struct serio), GFP_KERNEL);
 	if (serio) {
 		memset(serio, 0, sizeof(struct serio));
-		serio->type		= i8042_direct ? SERIO_8042 : SERIO_8042_XL;
+		serio->id.type		= i8042_direct ? SERIO_8042 : SERIO_8042_XL;
 		serio->write		= i8042_dumbkbd ? NULL : i8042_kbd_write;
 		serio->open		= i8042_open;
 		serio->close		= i8042_close;
@@ -995,7 +995,7 @@ static void __init i8042_create_aux_port(void)
 	serio = kmalloc(sizeof(struct serio), GFP_KERNEL);
 	if (serio) {
 		memset(serio, 0, sizeof(struct serio));
-		serio->type		= SERIO_8042;
+		serio->id.type		= SERIO_8042;
 		serio->write		= i8042_aux_write;
 		serio->open		= i8042_open;
 		serio->close		= i8042_close;
@@ -1019,7 +1019,7 @@ static void __init i8042_create_mux_port(int index)
 	serio = kmalloc(sizeof(struct serio), GFP_KERNEL);
 	if (serio) {
 		memset(serio, 0, sizeof(struct serio));
-		serio->type		= SERIO_8042;
+		serio->id.type		= SERIO_8042;
 		serio->write		= i8042_aux_write;
 		serio->open		= i8042_open;
 		serio->close		= i8042_close;

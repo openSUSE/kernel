@@ -654,7 +654,7 @@ static void psmouse_disconnect(struct serio *serio)
 	psmouse = serio_get_drvdata(serio);
 	psmouse_set_state(psmouse, PSMOUSE_CMD_MODE);
 
-	if (serio->parent && (serio->type & SERIO_TYPE) == SERIO_PS_PSTHRU) {
+	if (serio->parent && serio->id.type == SERIO_PS_PSTHRU) {
 		parent = serio_get_drvdata(serio->parent);
 		if (parent->pt_deactivate)
 			parent->pt_deactivate(parent);
@@ -679,15 +679,11 @@ static void psmouse_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct psmouse *psmouse, *parent = NULL;
 
-	if ((serio->type & SERIO_TYPE) != SERIO_8042 &&
-	    (serio->type & SERIO_TYPE) != SERIO_PS_PSTHRU)
-		return;
-
 	/*
 	 * If this is a pass-through port deactivate parent so the device
 	 * connected to this port can be successfully identified
 	 */
-	if (serio->parent && (serio->type & SERIO_TYPE) == SERIO_PS_PSTHRU) {
+	if (serio->parent && serio->id.type == SERIO_PS_PSTHRU) {
 		parent = serio_get_drvdata(serio->parent);
 		psmouse_deactivate(parent);
 	}
@@ -787,7 +783,7 @@ static int psmouse_reconnect(struct serio *serio)
 		return -1;
 	}
 
-	if (serio->parent && (serio->type & SERIO_TYPE) == SERIO_PS_PSTHRU) {
+	if (serio->parent && serio->id.type == SERIO_PS_PSTHRU) {
 		parent = serio_get_drvdata(serio->parent);
 		psmouse_deactivate(parent);
 	}
@@ -822,12 +818,30 @@ out:
 	return rc;
 }
 
+static struct serio_device_id psmouse_serio_ids[] = {
+	{
+		.type	= SERIO_8042,
+		.proto	= SERIO_ANY,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{
+		.type	= SERIO_PS_PSTHRU,
+		.proto	= SERIO_ANY,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, psmouse_serio_ids);
 
 static struct serio_driver psmouse_drv = {
 	.driver		= {
 		.name	= "psmouse",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= psmouse_serio_ids,
 	.interrupt	= psmouse_interrupt,
 	.connect	= psmouse_connect,
 	.reconnect	= psmouse_reconnect,
@@ -874,7 +888,7 @@ ssize_t psmouse_attr_set_helper(struct device *dev, const char *buf, size_t coun
 		goto out;
 	}
 
-	if (serio->parent && (serio->type & SERIO_TYPE) == SERIO_PS_PSTHRU) {
+	if (serio->parent && serio->id.type == SERIO_PS_PSTHRU) {
 		parent = serio_get_drvdata(serio->parent);
 		psmouse_deactivate(parent);
 	}

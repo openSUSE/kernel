@@ -102,6 +102,7 @@ struct h3600_dev {
 	struct input_dev dev;
 	struct pm_dev *pm_dev;
 	struct serio *serio;
+	struct pm_dev *pm_dev;
 	unsigned char event;	/* event ID from packet */
 	unsigned char chksum;
 	unsigned char len;
@@ -373,15 +374,12 @@ static irqreturn_t h3600ts_interrupt(struct serio *serio, unsigned char data,
 
 /*
  * h3600ts_connect() is the routine that is called when someone adds a
- * new serio device. It looks whether it was registered as a H3600 touchscreen
- * and if yes, registers it as an input device.
+ * new serio device that supports H3600 protocol and registers it as
+ * an input device.
  */
 static void h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct h3600_dev *ts;
-
-	if (serio->type != (SERIO_RS232 | SERIO_H3600))
-		return;
 
 	if (!(ts = kmalloc(sizeof(struct h3600_dev), GFP_KERNEL)))
 		return;
@@ -481,14 +479,27 @@ static void h3600ts_disconnect(struct serio *serio)
 }
 
 /*
- * The serio device structure.
+ * The serio driver structure.
  */
+
+static struct serio_device_id h3600ts_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_H3600,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, h3600ts_serio_ids);
 
 static struct serio_driver h3600ts_drv = {
 	.driver		= {
 		.name	= "h3600ts",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= h3600ts_serio_ids,
 	.interrupt	= h3600ts_interrupt,
 	.connect	= h3600ts_connect,
 	.disconnect	= h3600ts_disconnect,

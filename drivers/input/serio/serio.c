@@ -68,17 +68,33 @@ static void serio_connect_port(struct serio *serio, struct serio_driver *drv);
 static void serio_reconnect_port(struct serio *serio);
 static void serio_disconnect_port(struct serio *serio);
 
+static int serio_match_port(const struct serio_device_id *ids, struct serio *serio)
+{
+	while (ids->type || ids->proto) {
+		if ((ids->type == SERIO_ANY || ids->type == serio->id.type) &&
+		    (ids->proto == SERIO_ANY || ids->proto == serio->id.proto) &&
+		    (ids->extra == SERIO_ANY || ids->extra == serio->id.extra) &&
+		    (ids->id == SERIO_ANY || ids->id == serio->id.id))
+			return 1;
+		ids++;
+	}
+	return 0;
+}
+
 static int serio_bind_driver(struct serio *serio, struct serio_driver *drv)
 {
 	get_driver(&drv->driver);
 
-	drv->connect(serio, drv);
-	if (serio->drv) {
-		down_write(&serio_bus.subsys.rwsem);
-		serio->dev.driver = &drv->driver;
-		device_bind_driver(&serio->dev);
-		up_write(&serio_bus.subsys.rwsem);
-		return 1;
+	if (serio_match_port(drv->id_table, serio)) {
+		drv->connect(serio, drv);
+
+		if (serio->drv) {
+			down_write(&serio_bus.subsys.rwsem);
+			serio->dev.driver = &drv->driver;
+			device_bind_driver(&serio->dev);
+			up_write(&serio_bus.subsys.rwsem);
+			return 1;
+		}
 	}
 
 	put_driver(&drv->driver);
@@ -648,6 +664,48 @@ static void serio_set_drv(struct serio *serio, struct serio_driver *drv)
 	up(&serio->drv_sem);
 }
 
+#ifdef CONFIG_HOTPLUG
+
+#define PUT_ENVP(fmt, val) 						\
+do {									\
+	envp[i++] = buffer;						\
+	length += snprintf(buffer, buffer_size - length, fmt, val);	\
+	if (buffer_size - length <= 0 || i >= num_envp)			\
+		return -ENOMEM;						\
+	length++;							\
+	buffer += length;						\
+} while (0)
+static int serio_hotplug(struct device *dev, char **envp, int num_envp, char *buffer, int buffer_size)
+{
+	struct serio *serio;
+	int i = 0;
+	int length = 0;
+
+	if (!dev)
+		return -ENODEV;
+
+	serio = to_serio_port(dev);
+
+	PUT_ENVP("SERIO_TYPE=%02x", serio->id.type);
+	PUT_ENVP("SERIO_PROTO=%02x", serio->id.proto);
+	PUT_ENVP("SERIO_ID=%02x", serio->id.id);
+	PUT_ENVP("SERIO_EXTRA=%02x", serio->id.extra);
+
+	envp[i] = NULL;
+
+	return 0;
+}
+#undef PUT_ENVP
+
+#else
+
+static int serio_hotplug(struct device *dev, char **envp, int num_envp, char *buffer, int buffer_size)
+{
+	return -ENODEV;
+}
+
+#endif /* CONFIG_HOTPLUG */
+
 /* called from serio_driver->connect/disconnect methods under serio_sem */
 int serio_open(struct serio *serio, struct serio_driver *drv)
 {
@@ -698,6 +756,7 @@ static int __init serio_init(void)
 
 	serio_bus.dev_attrs = serio_device_attrs;
 	serio_bus.drv_attrs = serio_driver_attrs;
+	serio_bus.hotplug = serio_hotplug;
 	bus_register(&serio_bus);
 
 	return 0;

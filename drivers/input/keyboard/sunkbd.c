@@ -228,12 +228,6 @@ static void sunkbd_connect(struct serio *serio, struct serio_driver *drv)
 	struct sunkbd *sunkbd;
 	int i;
 
-	if ((serio->type & SERIO_TYPE) != SERIO_RS232)
-		return;
-
-	if ((serio->type & SERIO_PROTO) && (serio->type & SERIO_PROTO) != SERIO_SUNKBD)
-		return;
-
 	if (!(sunkbd = kmalloc(sizeof(struct sunkbd), GFP_KERNEL)))
 		return;
 
@@ -307,11 +301,30 @@ static void sunkbd_disconnect(struct serio *serio)
 	kfree(sunkbd);
 }
 
+static struct serio_device_id sunkbd_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_SUNKBD,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_UNKNOWN, /* sunkbd does probe */
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, sunkbd_serio_ids);
+
 static struct serio_driver sunkbd_drv = {
 	.driver		= {
 		.name	= "sunkbd",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= sunkbd_serio_ids,
 	.interrupt	= sunkbd_interrupt,
 	.connect	= sunkbd_connect,
 	.disconnect	= sunkbd_disconnect,

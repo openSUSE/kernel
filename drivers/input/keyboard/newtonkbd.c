@@ -89,9 +89,6 @@ void nkbd_connect(struct serio *serio, struct serio_driver *drv)
 	struct nkbd *nkbd;
 	int i;
 
-	if (serio->type != (SERIO_RS232 | SERIO_NEWTON))
-		return;
-
 	if (!(nkbd = kmalloc(sizeof(struct nkbd), GFP_KERNEL)))
 		return;
 
@@ -145,11 +142,24 @@ void nkbd_disconnect(struct serio *serio)
 	kfree(nkbd);
 }
 
+static struct serio_device_id nkbd_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_NEWTON,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, nkbd_serio_ids);
+
 struct serio_driver nkbd_drv = {
 	.driver		= {
 		.name	= "newtonkbd",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= nkbd_serio_ids,
 	.interrupt	= nkbd_interrupt,
 	.connect	= nkbd_connect,
 	.disconnect	= nkbd_disconnect,

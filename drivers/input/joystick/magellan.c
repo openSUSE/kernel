@@ -146,17 +146,14 @@ static void magellan_disconnect(struct serio *serio)
 
 /*
  * magellan_connect() is the routine that is called when someone adds a
- * new serio device. It looks for the Magellan, and if found, registers
- * it as an input device.
+ * new serio device that supports Magellan protocol and registers it as
+ * an input device.
  */
 
 static void magellan_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct magellan *magellan;
 	int i, t;
-
-	if (serio->type != (SERIO_RS232 | SERIO_MAGELLAN))
-		return;
 
 	if (!(magellan = kmalloc(sizeof(struct magellan), GFP_KERNEL)))
 		return;
@@ -202,14 +199,27 @@ static void magellan_connect(struct serio *serio, struct serio_driver *drv)
 }
 
 /*
- * The serio device structure.
+ * The serio driver structure.
  */
+
+static struct serio_device_id magellan_serio_ids[] = {
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_MAGELLAN,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, magellan_serio_ids);
 
 static struct serio_driver magellan_drv = {
 	.driver		= {
 		.name	= "magellan",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= magellan_serio_ids,
 	.interrupt	= magellan_interrupt,
 	.connect	= magellan_connect,
 	.disconnect	= magellan_disconnect,

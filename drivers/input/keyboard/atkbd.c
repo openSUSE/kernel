@@ -785,7 +785,7 @@ static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
 
 	ps2_init(&atkbd->ps2dev, serio);
 
-	switch (serio->type & SERIO_TYPE) {
+	switch (serio->id.type) {
 
 		case SERIO_8042_XL:
 			atkbd->translated = 1;
@@ -793,12 +793,6 @@ static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
 			if (serio->write)
 				atkbd->write = 1;
 			break;
-		case SERIO_RS232:
-			if ((serio->type & SERIO_PROTO) == SERIO_PS2SER)
-				break;
-		default:
-			kfree(atkbd);
-			return;
 	}
 
 	atkbd->softraw = atkbd_softraw;
@@ -899,11 +893,36 @@ static int atkbd_reconnect(struct serio *serio)
 	return 0;
 }
 
+static struct serio_device_id atkbd_serio_ids[] = {
+	{
+		.type	= SERIO_8042,
+		.proto	= SERIO_ANY,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{
+		.type	= SERIO_8042_XL,
+		.proto	= SERIO_ANY,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{
+		.type	= SERIO_RS232,
+		.proto	= SERIO_PS2SER,
+		.id	= SERIO_ANY,
+		.extra	= SERIO_ANY,
+	},
+	{ 0 }
+};
+
+MODULE_DEVICE_TABLE(serio, atkbd_serio_ids);
+
 static struct serio_driver atkbd_drv = {
 	.driver		= {
 		.name	= "atkbd",
 	},
 	.description	= DRIVER_DESC,
+	.id_table	= atkbd_serio_ids,
 	.interrupt	= atkbd_interrupt,
 	.connect	= atkbd_connect,
 	.reconnect	= atkbd_reconnect,
