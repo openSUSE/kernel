@@ -1542,7 +1542,17 @@ int ndisc_ifinfo_sysctl_change(struct ctl_table *ctl, int write, struct file * f
 	struct inet6_dev *idev;
 	int ret;
 	
-	ret = proc_dointvec(ctl, write, filp, buffer, lenp, ppos);
+	switch (ctl->ctl_name) {
+	case NET_NEIGH_RETRANS_TIME:
+		ret = proc_dointvec(ctl, write, filp, buffer, lenp, ppos);
+		break;
+	case NET_NEIGH_REACHABLE_TIME:
+		ret = proc_dointvec_jiffies(ctl, write,
+					    filp, buffer, lenp, ppos);
+		break;
+	default:
+		ret = -1;
+	}
 
 	if (write && ret == 0 && dev && (idev = in6_dev_get(dev)) != NULL) {
 		idev->tstamp = jiffies;
@@ -1551,6 +1561,36 @@ int ndisc_ifinfo_sysctl_change(struct ctl_table *ctl, int write, struct file * f
 	}
 	return ret;
 }
+
+int ndisc_ifinfo_sysctl_strategy(ctl_table *ctl, int __user *name, int nlen,
+				 void __user *oldval, size_t __user *oldlenp,
+				 void __user *newval, size_t newlen,
+				 void **context)
+{
+	struct net_device *dev = ctl->extra1;
+	struct inet6_dev *idev;
+	int ret;
+
+	switch (ctl->ctl_name) {
+	case NET_NEIGH_REACHABLE_TIME:
+		ret = sysctl_jiffies(ctl, name, nlen,
+				     oldval, oldlenp, newval, newlen,
+				     context);
+		break;
+	default:
+		ret = 0;
+	}
+
+	if (newval && newlen && ret > 0 &&
+	    dev && (idev = in6_dev_get(dev)) != NULL) {
+		idev->tstamp = jiffies;
+		inet6_ifinfo_notify(RTM_NEWLINK, idev);
+		in6_dev_put(idev);
+	}
+
+	return ret;
+}
+
 #endif
 
 int __init ndisc_init(struct net_proto_family *ops)
@@ -1584,7 +1624,9 @@ int __init ndisc_init(struct net_proto_family *ops)
 
 #ifdef CONFIG_SYSCTL
 	neigh_sysctl_register(NULL, &nd_tbl.parms, NET_IPV6, NET_IPV6_NEIGH, 
-			      "ipv6", &ndisc_ifinfo_sysctl_change, NULL);
+			      "ipv6",
+			      &ndisc_ifinfo_sysctl_change,
+			      &ndisc_ifinfo_sysctl_strategy);
 #endif
 
 	register_netdevice_notifier(&ndisc_netdev_notifier);

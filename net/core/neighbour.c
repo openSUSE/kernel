@@ -2215,9 +2215,14 @@ int neigh_sysctl_register(struct net_device *dev, struct neigh_parms *p,
 	t->neigh_vars[2].data  = &p->app_probes;
 	t->neigh_vars[3].data  = &p->retrans_time;
 	if (handler || strategy) {
+		/* RetransTime */
 		t->neigh_vars[3].proc_handler = handler;
 		t->neigh_vars[3].strategy = strategy;
 		t->neigh_vars[3].extra1 = dev;
+		/* ReachableTime */
+		t->neigh_vars[4].proc_handler = handler;
+		t->neigh_vars[4].strategy = strategy;
+		t->neigh_vars[4].extra1 = dev;
 	}
 	t->neigh_vars[4].data  = &p->base_reachable_time;
 	t->neigh_vars[5].data  = &p->delay_probe_time;
