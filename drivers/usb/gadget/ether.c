@@ -2414,9 +2414,12 @@ autoconf_fail:
 				"can't run RNDIS on %s\n",
 				gadget->name);
 			return -ENODEV;
+#ifdef DEV_CONFIG_CDC
+		/* pxa25x only does CDC subset; often used with RNDIS */
 		} else if (cdc) {
 			control_intf.bNumEndpoints = 0;
 			/* FIXME remove endpoint from descriptor list */
+#endif
 		}
 	}
 #endif
