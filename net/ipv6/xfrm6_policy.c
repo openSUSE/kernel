@@ -149,7 +149,7 @@ __xfrm6_bundle_create(struct xfrm_policy *policy, struct xfrm_state **xfrm, int 
 		dst_prev->lastuse	= jiffies;
 		dst_prev->header_len	= header_len;
 		dst_prev->trailer_len	= trailer_len;
-		memcpy(&dst_prev->metrics, &rt->u.dst.metrics, sizeof(dst_prev->metrics));
+		memcpy(&dst_prev->metrics, &x->route->metrics, sizeof(dst_prev->metrics));
 
 		/* Copy neighbour for reachability confirmation */
 		dst_prev->neighbour	= neigh_clone(rt->u.dst.neighbour);
