@@ -85,7 +85,7 @@ struct vm_area_struct {
 			struct vm_area_struct *head;
 		} vm_set;
 
-		struct prio_tree_node prio_tree_node;
+		struct raw_prio_tree_node prio_tree_node;
 	} shared;
 
 	/*
@@ -106,10 +106,30 @@ struct vm_area_struct {
 	struct file * vm_file;		/* File we map to (can be NULL). */
 	void * vm_private_data;		/* was vm_pte (shared mem) */
 
+#ifndef CONFIG_MMU
+	atomic_t vm_usage;		/* refcount (VMAs shared if !MMU) */
+#endif
 #ifdef CONFIG_NUMA
 	struct mempolicy *vm_policy;	/* NUMA policy for the VMA */
 #endif
 };
+
+/*
+ * This struct defines the per-mm list of VMAs for uClinux. If CONFIG_MMU is
+ * disabled, then there's a single shared list of VMAs maintained by the
+ * system, and mm's subscribe to these individually
+ */
+struct vm_list_struct {
+	struct vm_list_struct	*next;
+	struct vm_area_struct	*vma;
+};
+
+#ifndef CONFIG_MMU
+extern struct rb_root nommu_vma_tree;
+extern struct rw_semaphore nommu_vma_sem;
+
+extern unsigned int kobjsize(const void *objp);
+#endif
 
 /*
  * vm_flags..
@@ -603,6 +623,10 @@ int FASTCALL(set_page_dirty(struct page *page));
 int set_page_dirty_lock(struct page *page);
 int clear_page_dirty_for_io(struct page *page);
 
+extern unsigned long do_mremap(unsigned long addr,
+			       unsigned long old_len, unsigned long new_len,
+			       unsigned long flags, unsigned long new_addr);
+
 /*
  * Prototype to add a shrinker callback for ageable caches.
  * 
@@ -778,6 +802,7 @@ extern struct page * vmalloc_to_page(void *addr);
 extern unsigned long vmalloc_to_pfn(void *addr);
 extern struct page * follow_page(struct mm_struct *mm, unsigned long address,
 		int write);
+extern int check_user_page_readable(struct mm_struct *mm, unsigned long address);
 int remap_pfn_range(struct vm_area_struct *, unsigned long,
 		unsigned long, unsigned long, pgprot_t);
 
@@ -808,6 +833,9 @@ static inline void vm_stat_unaccount(struct vm_area_struct *vma)
 	__vm_stat_account(vma->vm_mm, vma->vm_flags, vma->vm_file,
 							-vma_pages(vma));
 }
+
+/* update per process rss and vm hiwater data */
+extern void update_mem_hiwater(void);
 
 #ifndef CONFIG_DEBUG_PAGEALLOC
 static inline void

@@ -46,6 +46,7 @@
 #include <linux/highmem.h>
 #include <linux/pagemap.h>
 #include <linux/rmap.h>
+#include <linux/acct.h>
 #include <linux/module.h>
 #include <linux/init.h>
 
@@ -738,6 +739,7 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long address,
 	tlb = tlb_gather_mmu(mm, 0);
 	unmap_vmas(&tlb, mm, vma, address, end, &nr_accounted, details);
 	tlb_finish_mmu(tlb, address, end);
+	acct_update_integrals();
 	spin_unlock(&mm->page_table_lock);
 }
 
@@ -745,8 +747,8 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long address,
  * Do a quick page-table lookup for a single page.
  * mm->page_table_lock must be held.
  */
-struct page *
-follow_page(struct mm_struct *mm, unsigned long address, int write) 
+static struct page *
+__follow_page(struct mm_struct *mm, unsigned long address, int read, int write)
 {
 	pgd_t *pgd;
 	pud_t *pud;
@@ -782,6 +784,8 @@ follow_page(struct mm_struct *mm, unsigned long address, int write)
 	if (pte_present(pte)) {
 		if (write && !pte_write(pte))
 			goto out;
+		if (read && !pte_read(pte))
+			goto out;
 		pfn = pte_pfn(pte);
 		if (pfn_valid(pfn)) {
 			page = pfn_to_page(pfn);
@@ -795,6 +799,20 @@ follow_page(struct mm_struct *mm, unsigned long address, int write)
 out:
 	return NULL;
 }
+
+struct page *
+follow_page(struct mm_struct *mm, unsigned long address, int write)
+{
+	return __follow_page(mm, address, /*read*/0, write);
+}
+
+int
+check_user_page_readable(struct mm_struct *mm, unsigned long address)
+{
+	return __follow_page(mm, address, /*read*/1, /*write*/0) != NULL;
+}
+
+EXPORT_SYMBOL(check_user_page_readable);
 
 /* 
  * Given a physical address, is there a useful struct page pointing to
@@ -1316,9 +1334,11 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct * vma,
 	if (likely(pte_same(*page_table, pte))) {
 		if (PageAnon(old_page))
 			mm->anon_rss--;
-		if (PageReserved(old_page))
+		if (PageReserved(old_page)) {
 			++mm->rss;
-		else
+			acct_update_integrals();
+			update_mem_hiwater();
+		} else
 			page_remove_rmap(old_page);
 		break_cow(vma, new_page, address, page_table);
 		lru_cache_add_active(new_page);
@@ -1600,6 +1620,9 @@ static int do_swap_page(struct mm_struct * mm,
 		remove_exclusive_swap_page(page);
 
 	mm->rss++;
+	acct_update_integrals();
+	update_mem_hiwater();
+
 	pte = mk_pte(page, vma->vm_page_prot);
 	if (write_access && can_share_swap_page(page)) {
 		pte = maybe_mkwrite(pte_mkdirty(pte), vma);
@@ -1665,6 +1688,8 @@ do_anonymous_page(struct mm_struct *mm, struct vm_area_struct *vma,
 			goto out;
 		}
 		mm->rss++;
+		acct_update_integrals();
+		update_mem_hiwater();
 		entry = maybe_mkwrite(pte_mkdirty(mk_pte(page,
 							 vma->vm_page_prot)),
 				      vma);
@@ -1774,6 +1799,9 @@ retry:
 	if (pte_none(*page_table)) {
 		if (!PageReserved(new_page))
 			++mm->rss;
+		acct_update_integrals();
+		update_mem_hiwater();
+
 		flush_icache_page(vma, new_page);
 		entry = mk_pte(new_page, vma->vm_page_prot);
 		if (write_access)
@@ -2091,6 +2119,22 @@ unsigned long vmalloc_to_pfn(void * vmalloc_addr)
 }
 
 EXPORT_SYMBOL(vmalloc_to_pfn);
+
+/*
+ * update_mem_hiwater
+ *	- update per process rss and vm high water data
+ */
+void update_mem_hiwater(void)
+{
+	struct task_struct *tsk = current;
+
+	if (tsk->mm) {
+		if (tsk->mm->hiwater_rss < tsk->mm->rss)
+			tsk->mm->hiwater_rss = tsk->mm->rss;
+		if (tsk->mm->hiwater_vm < tsk->mm->total_vm)
+			tsk->mm->hiwater_vm = tsk->mm->total_vm;
+	}
+}
 
 #if !defined(__HAVE_ARCH_GATE_AREA)
 

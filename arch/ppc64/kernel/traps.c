@@ -38,6 +38,7 @@
 #include <asm/processor.h>
 #include <asm/ppcdebug.h>
 #include <asm/rtas.h>
+#include <asm/systemcfg.h>
 
 #ifdef CONFIG_PPC_PSERIES
 /* This is true if we are using the firmware NMI handler (typically LPAR) */
@@ -480,6 +481,9 @@ check_bug_trap(struct pt_regs *regs)
 void
 ProgramCheckException(struct pt_regs *regs)
 {
+	if (debugger_fault_handler(regs))
+		return;
+
 	if (regs->msr & 0x100000) {
 		/* IEEE FP exception */
 		parse_fpe(regs);

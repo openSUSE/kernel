@@ -108,14 +108,19 @@ void ext3_journal_abort_handle(const char *caller, const char *err_fn,
 	char nbuf[16];
 	const char *errstr = ext3_decode_error(NULL, err, nbuf);
 
-	printk(KERN_ERR "%s: aborting transaction: %s in %s", 
-	       caller, errstr, err_fn);
-
 	if (bh)
 		BUFFER_TRACE(bh, "abort");
-	journal_abort_handle(handle);
+
 	if (!handle->h_err)
 		handle->h_err = err;
+
+	if (is_handle_aborted(handle))
+		return;
+
+	printk(KERN_ERR "%s: aborting transaction: %s in %s\n",
+	       caller, errstr, err_fn);
+
+	journal_abort_handle(handle);
 }
 
 /* Deal with the reporting of failure conditions on a filesystem such as
@@ -1324,7 +1329,6 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 	if (!parse_options ((char *) data, sb, &journal_inum, NULL, 0))
 		goto failed_mount;
 
-	sb->s_flags |= MS_ONE_SECOND;
 	sb->s_flags = (sb->s_flags & ~MS_POSIXACL) |
 		((sbi->s_mount_opt & EXT3_MOUNT_POSIX_ACL) ? MS_POSIXACL : 0);
 

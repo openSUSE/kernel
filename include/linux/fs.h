@@ -123,7 +123,6 @@ extern int dir_notify_enable;
 #define MS_REC		16384
 #define MS_VERBOSE	32768
 #define MS_POSIXACL	(1<<16)	/* VFS does not apply the umask */
-#define MS_ONE_SECOND	(1<<17)	/* fs has 1 sec a/m/ctime resolution */
 #define MS_ACTIVE	(1<<30)
 #define MS_NOUSER	(1<<31)
 
@@ -179,7 +178,6 @@ extern int dir_notify_enable;
 #define IS_NOATIME(inode)	(__IS_FLG(inode, MS_NOATIME) || ((inode)->i_flags & S_NOATIME))
 #define IS_NODIRATIME(inode)	__IS_FLG(inode, MS_NODIRATIME)
 #define IS_POSIXACL(inode)	__IS_FLG(inode, MS_POSIXACL)
-#define IS_ONE_SECOND(inode)	__IS_FLG(inode, MS_ONE_SECOND)
 
 #define IS_DEADDIR(inode)	((inode)->i_flags & S_DEAD)
 #define IS_NOCMTIME(inode)	((inode)->i_flags & S_NOCMTIME)
@@ -429,6 +427,7 @@ static inline int mapping_writably_mapped(struct address_space *mapping)
 struct inode {
 	struct hlist_node	i_hash;
 	struct list_head	i_list;
+	struct list_head	i_sb_list;
 	struct list_head	i_dentry;
 	unsigned long		i_ino;
 	atomic_t		i_count;
@@ -777,6 +776,7 @@ struct super_block {
 	void                    *s_security;
 	struct xattr_handler	**s_xattr;
 
+	struct list_head	s_inodes;	/* all inodes */
 	struct list_head	s_dirty;	/* dirty inodes */
 	struct list_head	s_io;		/* parked for writeback */
 	struct hlist_head	s_anon;		/* anonymous dentries for (nfs) exporting */
@@ -798,7 +798,13 @@ struct super_block {
 	 * even looking at it. You had been warned.
 	 */
 	struct semaphore s_vfs_rename_sem;	/* Kludge */
+
+	/* Granuality of c/m/atime in ns.
+	   Cannot be worse than a second */
+	u32		   s_time_gran;
 };
+
+extern struct timespec current_fs_time(struct super_block *sb);
 
 /*
  * Snapshotting support.
@@ -1188,11 +1194,6 @@ extern int may_umount(struct vfsmount *);
 extern long do_mount(char *, char *, char *, unsigned long, void *);
 
 extern int vfs_statfs(struct super_block *, struct kstatfs *);
-
-/* Return value for VFS lock functions - tells locks.c to lock conventionally
- * REALLY kosha for root NFS and nfs_lock
- */ 
-#define LOCK_USE_CLNT 1
 
 #define FLOCK_VERIFY_READ  1
 #define FLOCK_VERIFY_WRITE 2
