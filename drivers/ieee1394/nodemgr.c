@@ -932,13 +932,28 @@ static struct unit_directory *nodemgr_process_unit_directory
 			break;
 
 		case CSR1212_KV_ID_DEPENDENT_INFO:
-			if (kv->key.type == CSR1212_KV_TYPE_DIRECTORY) {
+			/* Logical Unit Number */
+			if (kv->key.type == CSR1212_KV_TYPE_IMMEDIATE) {
+				if (ud->flags & UNIT_DIRECTORY_HAS_LUN) {
+					nodemgr_register_device(ne, ud, &ne->device);
+
+					ud_child = kmalloc(sizeof(struct unit_directory), GFP_KERNEL);
+					if (!ud_child)
+						goto unit_directory_error;
+					memcpy(ud_child, ud, sizeof(struct unit_directory));
+					ud = ud_child;
+					ud_child = NULL;
+
+					ud->id = (*id)++;
+					ud->device.bus = NULL;
+				}
+				ud->lun = kv->value.immediate;
+				ud->flags |= UNIT_DIRECTORY_HAS_LUN;
+
+			/* Logical Unit Directory */
+			} else if (kv->key.type == CSR1212_KV_TYPE_DIRECTORY) {
 				/* This should really be done in SBP2 as this is
 				 * doing SBP2 specific parsing.
-				 * DRD> Hmm.. that would add a lot of udev bits to sbp2.c, and
-				 * really it is just subdirectory handling, not necessarily
-				 * specific to SBP2 although that is only known application at
-				 * this time.
 				 */
 				
 				/* first register the parent unit */
