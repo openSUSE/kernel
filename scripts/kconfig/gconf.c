@@ -11,7 +11,6 @@
 #endif
 
 #include "lkc.h"
-#include "images.c"
 
 #include <glade/glade.h>
 #include <gtk/gtk.h>
@@ -1142,6 +1141,39 @@ on_treeview1_button_press_event(GtkWidget * widget,
 
 /* Conf management */
 
+static const char *xpm_menu[] = {
+"12 12 2 1",
+"  c white",
+". c black",
+"            ",
+"            ",
+"  .         ",
+"  ..        ",
+"  ...       ",
+"  ....      ",
+"  .....     ",
+"  ....      ",
+"  ...       ",
+"  ..        ",
+"  .         ",
+"            "};
+
+static const char *xpm_void[] = {
+"12 12 2 1",
+"  c white",
+". c black",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            "};
 
 /* Fill a row of strings */
 static gchar **fill_row(struct menu *menu)
