@@ -27,8 +27,6 @@ static void sync_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 {
 	pte_t *pte;
 
-	if (pmd_none_or_clear_bad(pmd))
-		return;
 	pte = pte_offset_map(pmd, addr);
 	do {
 		unsigned long pfn;
@@ -56,11 +54,11 @@ static inline void sync_pmd_range(struct vm_area_struct *vma, pud_t *pud,
 	pmd_t *pmd;
 	unsigned long next;
 
-	if (pud_none_or_clear_bad(pud))
-		return;
 	pmd = pmd_offset(pud, addr);
 	do {
 		next = pmd_addr_end(addr, end);
+		if (pmd_none_or_clear_bad(pmd))
+			continue;
 		sync_pte_range(vma, pmd, addr, next);
 	} while (pmd++, addr = next, addr != end);
 }
@@ -71,11 +69,11 @@ static inline void sync_pud_range(struct vm_area_struct *vma, pgd_t *pgd,
 	pud_t *pud;
 	unsigned long next;
 
-	if (pgd_none_or_clear_bad(pgd))
-		return;
 	pud = pud_offset(pgd, addr);
 	do {
 		next = pud_addr_end(addr, end);
+		if (pud_none_or_clear_bad(pud))
+			continue;
 		sync_pmd_range(vma, pud, addr, next);
 	} while (pud++, addr = next, addr != end);
 }
@@ -99,6 +97,8 @@ static void sync_page_range(struct vm_area_struct *vma,
 	spin_lock(&mm->page_table_lock);
 	do {
 		next = pgd_addr_end(addr, end);
+		if (pgd_none_or_clear_bad(pgd))
+			continue;
 		sync_pud_range(vma, pgd, addr, next);
 	} while (pgd++, addr = next, addr != end);
 	spin_unlock(&mm->page_table_lock);

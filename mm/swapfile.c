@@ -442,8 +442,6 @@ static int unuse_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 	pte_t *pte;
 	pte_t swp_pte = swp_entry_to_pte(entry);
 
-	if (pmd_none_or_clear_bad(pmd))
-		return 0;
 	pte = pte_offset_map(pmd, addr);
 	do {
 		/*
@@ -467,11 +465,11 @@ static int unuse_pmd_range(struct vm_area_struct *vma, pud_t *pud,
 	pmd_t *pmd;
 	unsigned long next;
 
-	if (pud_none_or_clear_bad(pud))
-		return 0;
 	pmd = pmd_offset(pud, addr);
 	do {
 		next = pmd_addr_end(addr, end);
+		if (pmd_none_or_clear_bad(pmd))
+			continue;
 		if (unuse_pte_range(vma, pmd, addr, next, entry, page))
 			return 1;
 	} while (pmd++, addr = next, addr != end);
@@ -485,11 +483,11 @@ static int unuse_pud_range(struct vm_area_struct *vma, pgd_t *pgd,
 	pud_t *pud;
 	unsigned long next;
 
-	if (pgd_none_or_clear_bad(pgd))
-		return 0;
 	pud = pud_offset(pgd, addr);
 	do {
 		next = pud_addr_end(addr, end);
+		if (pud_none_or_clear_bad(pud))
+			continue;
 		if (unuse_pmd_range(vma, pud, addr, next, entry, page))
 			return 1;
 	} while (pud++, addr = next, addr != end);
@@ -516,6 +514,8 @@ static int unuse_vma(struct vm_area_struct *vma,
 	pgd = pgd_offset(vma->vm_mm, addr);
 	do {
 		next = pgd_addr_end(addr, end);
+		if (pgd_none_or_clear_bad(pgd))
+			continue;
 		if (unuse_pud_range(vma, pgd, addr, next, entry, page))
 			return 1;
 	} while (pgd++, addr = next, addr != end);

@@ -30,8 +30,6 @@ static inline void change_pte_range(struct mm_struct *mm, pmd_t *pmd,
 {
 	pte_t *pte;
 
-	if (pmd_none_or_clear_bad(pmd))
-		return;
 	pte = pte_offset_map(pmd, addr);
 	do {
 		if (pte_present(*pte)) {
@@ -54,11 +52,11 @@ static inline void change_pmd_range(struct mm_struct *mm, pud_t *pud,
 	pmd_t *pmd;
 	unsigned long next;
 
-	if (pud_none_or_clear_bad(pud))
-		return;
 	pmd = pmd_offset(pud, addr);
 	do {
 		next = pmd_addr_end(addr, end);
+		if (pmd_none_or_clear_bad(pmd))
+			continue;
 		change_pte_range(mm, pmd, addr, next, newprot);
 	} while (pmd++, addr = next, addr != end);
 }
@@ -69,11 +67,11 @@ static inline void change_pud_range(struct mm_struct *mm, pgd_t *pgd,
 	pud_t *pud;
 	unsigned long next;
 
-	if (pgd_none_or_clear_bad(pgd))
-		return;
 	pud = pud_offset(pgd, addr);
 	do {
 		next = pud_addr_end(addr, end);
+		if (pud_none_or_clear_bad(pud))
+			continue;
 		change_pmd_range(mm, pud, addr, next, newprot);
 	} while (pud++, addr = next, addr != end);
 }
@@ -92,6 +90,8 @@ static void change_protection(struct vm_area_struct *vma,
 	spin_lock(&mm->page_table_lock);
 	do {
 		next = pgd_addr_end(addr, end);
+		if (pgd_none_or_clear_bad(pgd))
+			continue;
 		change_pud_range(mm, pgd, addr, next, newprot);
 	} while (pgd++, addr = next, addr != end);
 	flush_tlb_range(vma, start, end);

@@ -27,9 +27,6 @@ static void vunmap_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end)
 {
 	pte_t *pte;
 
-	if (pmd_none_or_clear_bad(pmd))
-		return;
-
 	pte = pte_offset_kernel(pmd, addr);
 	do {
 		pte_t ptent = ptep_get_and_clear(&init_mm, addr, pte);
@@ -42,12 +39,11 @@ static void vunmap_pmd_range(pud_t *pud, unsigned long addr, unsigned long end)
 	pmd_t *pmd;
 	unsigned long next;
 
-	if (pud_none_or_clear_bad(pud))
-		return;
-
 	pmd = pmd_offset(pud, addr);
 	do {
 		next = pmd_addr_end(addr, end);
+		if (pmd_none_or_clear_bad(pmd))
+			continue;
 		vunmap_pte_range(pmd, addr, next);
 	} while (pmd++, addr = next, addr != end);
 }
@@ -57,12 +53,11 @@ static void vunmap_pud_range(pgd_t *pgd, unsigned long addr, unsigned long end)
 	pud_t *pud;
 	unsigned long next;
 
-	if (pgd_none_or_clear_bad(pgd))
-		return;
-
 	pud = pud_offset(pgd, addr);
 	do {
 		next = pud_addr_end(addr, end);
+		if (pud_none_or_clear_bad(pud))
+			continue;
 		vunmap_pmd_range(pud, addr, next);
 	} while (pud++, addr = next, addr != end);
 }
@@ -79,6 +74,8 @@ void unmap_vm_area(struct vm_struct *area)
 	flush_cache_vunmap(addr, end);
 	do {
 		next = pgd_addr_end(addr, end);
+		if (pgd_none_or_clear_bad(pgd))
+			continue;
 		vunmap_pud_range(pgd, addr, next);
 	} while (pgd++, addr = next, addr != end);
 	flush_tlb_kernel_range((unsigned long) area->addr, end);

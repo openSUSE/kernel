@@ -113,8 +113,6 @@ void pmd_clear_bad(pmd_t *pmd)
 static inline void clear_pte_range(struct mmu_gather *tlb, pmd_t *pmd,
 				unsigned long addr, unsigned long end)
 {
-	if (pmd_none_or_clear_bad(pmd))
-		return;
 	if (!((addr | end) & ~PMD_MASK)) {
 		/* Only free fully aligned ranges */
 		struct page *page = pmd_page(*pmd);
@@ -132,8 +130,6 @@ static inline void clear_pmd_range(struct mmu_gather *tlb, pud_t *pud,
 	unsigned long next;
 	pmd_t *empty_pmd = NULL;
 
-	if (pud_none_or_clear_bad(pud))
-		return;
 	pmd = pmd_offset(pud, addr);
 
 	/* Only free fully aligned ranges */
@@ -141,6 +137,8 @@ static inline void clear_pmd_range(struct mmu_gather *tlb, pud_t *pud,
 		empty_pmd = pmd;
 	do {
 		next = pmd_addr_end(addr, end);
+		if (pmd_none_or_clear_bad(pmd))
+			continue;
 		clear_pte_range(tlb, pmd, addr, next);
 	} while (pmd++, addr = next, addr != end);
 
@@ -157,8 +155,6 @@ static inline void clear_pud_range(struct mmu_gather *tlb, pgd_t *pgd,
 	unsigned long next;
 	pud_t *empty_pud = NULL;
 
-	if (pgd_none_or_clear_bad(pgd))
-		return;
 	pud = pud_offset(pgd, addr);
 
 	/* Only free fully aligned ranges */
@@ -166,6 +162,8 @@ static inline void clear_pud_range(struct mmu_gather *tlb, pgd_t *pgd,
 		empty_pud = pud;
 	do {
 		next = pud_addr_end(addr, end);
+		if (pud_none_or_clear_bad(pud))
+			continue;
 		clear_pmd_range(tlb, pud, addr, next);
 	} while (pud++, addr = next, addr != end);
 
@@ -189,6 +187,8 @@ void clear_page_range(struct mmu_gather *tlb,
 	pgd = pgd_offset(tlb->mm, addr);
 	do {
 		next = pgd_addr_end(addr, end);
+		if (pgd_none_or_clear_bad(pgd))
+			continue;
 		clear_pud_range(tlb, pgd, addr, next);
 	} while (pgd++, addr = next, addr != end);
 }
@@ -432,8 +432,6 @@ static void zap_pte_range(struct mmu_gather *tlb, pmd_t *pmd,
 {
 	pte_t *pte;
 
-	if (pmd_none_or_clear_bad(pmd))
-		return;
 	pte = pte_offset_map(pmd, addr);
 	do {
 		pte_t ptent = *pte;
@@ -505,11 +503,11 @@ static void zap_pmd_range(struct mmu_gather *tlb, pud_t *pud,
 	pmd_t *pmd;
 	unsigned long next;
 
-	if (pud_none_or_clear_bad(pud))
-		return;
 	pmd = pmd_offset(pud, addr);
 	do {
 		next = pmd_addr_end(addr, end);
+		if (pmd_none_or_clear_bad(pmd))
+			continue;
 		zap_pte_range(tlb, pmd, addr, next, details);
 	} while (pmd++, addr = next, addr != end);
 }
@@ -521,11 +519,11 @@ static void zap_pud_range(struct mmu_gather *tlb, pgd_t *pgd,
 	pud_t *pud;
 	unsigned long next;
 
-	if (pgd_none_or_clear_bad(pgd))
-		return;
 	pud = pud_offset(pgd, addr);
 	do {
 		next = pud_addr_end(addr, end);
+		if (pud_none_or_clear_bad(pud))
+			continue;
 		zap_pmd_range(tlb, pud, addr, next, details);
 	} while (pud++, addr = next, addr != end);
 }
@@ -545,6 +543,8 @@ static void unmap_page_range(struct mmu_gather *tlb, struct vm_area_struct *vma,
 	pgd = pgd_offset(vma->vm_mm, addr);
 	do {
 		next = pgd_addr_end(addr, end);
+		if (pgd_none_or_clear_bad(pgd))
+			continue;
 		zap_pud_range(tlb, pgd, addr, next, details);
 	} while (pgd++, addr = next, addr != end);
 	tlb_end_vma(tlb, vma);
