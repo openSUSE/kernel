@@ -162,16 +162,17 @@ static int i8042_wait_write(void)
 static int i8042_flush(void)
 {
 	unsigned long flags;
-	unsigned char data;
+	unsigned char data, str;
 	int i = 0;
 
 	spin_lock_irqsave(&i8042_lock, flags);
 
-	while ((i8042_read_status() & I8042_STR_OBF) && (i++ < I8042_BUFFER_SIZE)) {
+	while (((str = i8042_read_status()) & I8042_STR_OBF) && (i < I8042_BUFFER_SIZE)) {
 		udelay(50);
 		data = i8042_read_data();
+		i++;
 		dbg("%02x <- i8042 (flush, %s)", data,
-			i8042_read_status() & I8042_STR_AUXDATA ? "aux" : "kbd");
+			str & I8042_STR_AUXDATA ? "aux" : "kbd");
 	}
 
 	spin_unlock_irqrestore(&i8042_lock, flags);
@@ -713,7 +714,10 @@ static int i8042_controller_init(void)
  * before doing anything else.
  */
 
-	i8042_flush();
+	if (i8042_flush() == I8042_BUFFER_SIZE) {
+		printk(KERN_ERR "i8042.c: No controller found.\n");
+		return -1;
+	}
 
 	if (i8042_reset) {
 
