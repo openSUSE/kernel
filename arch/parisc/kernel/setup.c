@@ -121,6 +121,10 @@ extern void collect_boot_cpu_data(void);
 
 void __init setup_arch(char **cmdline_p)
 {
+#ifdef __LP64__
+	extern int parisc_narrow_firmware;
+#endif
+
 	init_per_cpu(smp_processor_id());	/* Set Modes & Enable FP */
 
 #ifdef __LP64__
@@ -132,7 +136,6 @@ void __init setup_arch(char **cmdline_p)
 	pdc_console_init();
 
 #ifdef __LP64__
-	extern int parisc_narrow_firmware;
 	if(parisc_narrow_firmware) {
 		printk(KERN_INFO "Kernel is using PDC in 32-bit mode.\n");
 	}
