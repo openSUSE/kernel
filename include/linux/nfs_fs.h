@@ -351,11 +351,6 @@ extern struct dentry_operations nfs_dentry_operations;
 extern struct inode_operations nfs_symlink_inode_operations;
 
 /*
- * linux/fs/nfs/locks.c
- */
-extern int nfs_lock(struct file *, int, struct file_lock *);
-
-/*
  * linux/fs/nfs/unlink.c
  */
 extern int  nfs_async_unlink(struct dentry *);

@@ -2364,6 +2364,25 @@ static int nfs4_proc_getlk(struct nfs4_state *state, int cmd, struct file_lock *
 	return err;
 }
 
+static int do_vfs_lock(struct file *file, struct file_lock *fl)
+{
+	int res = 0;
+	switch (fl->fl_flags & (FL_POSIX|FL_FLOCK)) {
+		case FL_POSIX:
+			res = posix_lock_file_wait(file, fl);
+			break;
+		case FL_FLOCK:
+			res = flock_lock_file_wait(file, fl);
+			break;
+		default:
+			BUG();
+	}
+	if (res < 0)
+		printk(KERN_WARNING "%s: VFS is out of sync with lock manager!\n",
+				__FUNCTION__);
+	return res;
+}
+
 static int _nfs4_proc_unlck(struct nfs4_state *state, int cmd, struct file_lock *request)
 {
 	struct inode *inode = state->inode;
@@ -2411,7 +2430,7 @@ static int _nfs4_proc_unlck(struct nfs4_state *state, int cmd, struct file_lock 
 out:
 	up(&state->lock_sema);
 	if (status == 0)
-		posix_lock_file(request->fl_file, request);
+		do_vfs_lock(request->fl_file, request);
 	up_read(&clp->cl_sem);
 	return status;
 }
@@ -2520,7 +2539,7 @@ static int _nfs4_proc_setlk(struct nfs4_state *state, int cmd, struct file_lock 
 	if (status == 0) {
 		/* Note: we always want to sleep here! */
 		request->fl_flags |= FL_SLEEP;
-		if (posix_lock_file_wait(request->fl_file, request) < 0)
+		if (do_vfs_lock(request->fl_file, request) < 0)
 			printk(KERN_WARNING "%s: VFS is out of sync with lock manager!\n", __FUNCTION__);
 	}
 	up_read(&clp->cl_sem);
