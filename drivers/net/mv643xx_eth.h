@@ -46,8 +46,10 @@
  *  The first part is the high level driver of the gigE ethernet ports.
  */
 
-/* Checksum offload for Tx works */
-#define	MV643XX_CHECKSUM_OFFLOAD_TX
+/* Checksum offload for Tx works for most packets, but
+ * fails if previous packet sent did not use hw csum
+ */
+#undef	MV643XX_CHECKSUM_OFFLOAD_TX
 #define	MV643XX_NAPI
 #define	MV643XX_TX_FAST_REFILL
 #undef	MV643XX_RX_QUEUE_FILL_ON_TASK	/* Does not work, yet */
@@ -286,6 +288,39 @@ struct pkt_info {
 
 /* Ethernet port specific infomation */
 
+struct mv643xx_mib_counters {
+	u64 good_octets_received;
+	u32 bad_octets_received;
+	u32 internal_mac_transmit_err;
+	u32 good_frames_received;
+	u32 bad_frames_received;
+	u32 broadcast_frames_received;
+	u32 multicast_frames_received;
+	u32 frames_64_octets;
+	u32 frames_65_to_127_octets;
+	u32 frames_128_to_255_octets;
+	u32 frames_256_to_511_octets;
+	u32 frames_512_to_1023_octets;
+	u32 frames_1024_to_max_octets;
+	u64 good_octets_sent;
+	u32 good_frames_sent;
+	u32 excessive_collision;
+	u32 multicast_frames_sent;
+	u32 broadcast_frames_sent;
+	u32 unrec_mac_control_received;
+	u32 fc_sent;
+	u32 good_fc_received;
+	u32 bad_fc_received;
+	u32 undersize_received;
+	u32 fragments_received;
+	u32 oversize_received;
+	u32 jabber_received;
+	u32 mac_receive_error;
+	u32 bad_crc_event;
+	u32 collision;
+	u32 late_collision;
+};
+
 struct mv643xx_private {
 	int port_num;			/* User Ethernet port number	*/
 	u8 port_mac_addr[6];		/* User defined port MAC address.*/
@@ -336,6 +371,7 @@ struct mv643xx_private {
 	 * Former struct mv643xx_eth_priv members start here
 	 */
 	struct net_device_stats stats;
+	struct mv643xx_mib_counters mib_counters;
 	spinlock_t lock;
 	/* Size of Tx Ring per queue */
 	unsigned int tx_ring_size;

@@ -38,6 +38,7 @@
 
 #include <linux/bitops.h>
 #include <linux/delay.h>
+#include <linux/ethtool.h>
 #include <asm/io.h>
 #include <asm/types.h>
 #include <asm/pgtable.h>
@@ -82,8 +83,12 @@ static int mv643xx_poll(struct net_device *dev, int *budget);
 #endif
 static void ethernet_phy_set(unsigned int eth_port_num, int phy_addr);
 static int ethernet_phy_detect(unsigned int eth_port_num);
+void mv643xx_set_ethtool_ops(struct net_device *netdev);
 
-static void __iomem *mv64x60_eth_shared_base;
+static char mv643xx_driver_name[] = "mv643xx_eth";
+static char mv643xx_driver_version[] = "1.0";
+
+static void __iomem *mv643xx_eth_shared_base;
 
 /* used to protect MV643XX_ETH_SMI_REG, which is shared across ports */
 static spinlock_t mv643xx_eth_phy_lock = SPIN_LOCK_UNLOCKED;
@@ -92,7 +97,7 @@ static inline u32 mv_read(int offset)
 {
 	void *__iomem reg_base;
 
-	reg_base = mv64x60_eth_shared_base - MV643XX_ETH_SHARED_REGS;
+	reg_base = mv643xx_eth_shared_base - MV643XX_ETH_SHARED_REGS;
 
 	return readl(reg_base + offset);
 }
@@ -101,7 +106,7 @@ static inline void mv_write(int offset, u32 data)
 {
 	void * __iomem reg_base;
 
-	reg_base = mv64x60_eth_shared_base - MV643XX_ETH_SHARED_REGS;
+	reg_base = mv643xx_eth_shared_base - MV643XX_ETH_SHARED_REGS;
 	writel(data, reg_base + offset);
 }
 
@@ -785,8 +790,6 @@ static int mv643xx_eth_real_open(struct net_device *dev)
 	struct mv643xx_private *mp = netdev_priv(dev);
 	unsigned int port_num = mp->port_num;
 	unsigned int size;
-	int i;
-	u32 port_serial_control_reg;
 
 	/* Stop RX Queues */
 	mv_write(MV643XX_ETH_RECEIVE_QUEUE_COMMAND_REG(port_num), 0x0000ff00);
@@ -904,17 +907,6 @@ static int mv643xx_eth_real_open(struct net_device *dev)
 	mp->tx_int_coal =
 		eth_port_set_tx_coal(port_num, 133000000, MV643XX_TX_COAL);
 
-	/* Increase the Rx side buffer size if supporting GigE */
-	port_serial_control_reg =
-		mv_read(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(port_num));
-	if (port_serial_control_reg & MV643XX_ETH_SET_GMII_SPEED_TO_1000)
-		mv_write(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(port_num),
-			(port_serial_control_reg & 0xfff1ffff) | (0x5 << 17));
-
-	/* wait up to 1 second for link to come up */
-	for (i = 0; i < 10 && !eth_port_link_is_up(port_num); i++)
-		msleep(100);	/* sleep 1/10 second */
-
 	netif_start_queue(dev);
 
 	return 0;
@@ -995,6 +987,7 @@ static int mv643xx_eth_real_stop(struct net_device *dev)
 	struct mv643xx_private *mp = netdev_priv(dev);
 	unsigned int port_num = mp->port_num;
 
+	netif_carrier_off(dev);
 	netif_stop_queue(dev);
 
 	mv643xx_eth_free_tx_rings(dev);
@@ -1159,10 +1152,11 @@ static int mv643xx_eth_start_xmit(struct sk_buff *skb, struct net_device *dev)
 #ifdef MV643XX_CHECKSUM_OFFLOAD_TX
 	if (!skb_shinfo(skb)->nr_frags) {
 linear:
-		if (skb->ip_summed != CHECKSUM_HW)
+		if (skb->ip_summed != CHECKSUM_HW) {
 			pkt_info.cmd_sts = ETH_TX_ENABLE_INTERRUPT |
 					ETH_TX_FIRST_DESC | ETH_TX_LAST_DESC;
-		else {
+			pkt_info.l4i_chk = 0;
+		} else {
 			u32 ipheader = skb->nh.iph->ihl << 11;
 
 			pkt_info.cmd_sts = ETH_TX_ENABLE_INTERRUPT |
@@ -1187,21 +1181,34 @@ linear:
 		pkt_info.buf_ptr = dma_map_single(NULL, skb->data, skb->len,
 							DMA_TO_DEVICE);
 		pkt_info.return_info = skb;
+		mp->tx_ring_skbs++;
 		status = eth_port_send(mp, &pkt_info);
 		if ((status == ETH_ERROR) || (status == ETH_QUEUE_FULL))
 			printk(KERN_ERR "%s: Error on transmitting packet\n",
 								dev->name);
-		mp->tx_ring_skbs++;
+		stats->tx_bytes += pkt_info.byte_cnt;
 	} else {
 		unsigned int frag;
 		u32 ipheader;
-		skb_frag_t *last_frag;
 
-		frag = skb_shinfo(skb)->nr_frags - 1;
-		last_frag = &skb_shinfo(skb)->frags[frag];
-		if (last_frag->size <= 8 && last_frag->page_offset & 0x7) {
-			skb_linearize(skb, GFP_ATOMIC);
-			goto linear;
+		/* Since hardware can't handle unaligned fragments smaller
+		 * than 9 bytes, if we find any, we linearize the skb
+		 * and start again.  When I've seen it, it's always been
+		 * the first frag (probably near the end of the page),
+		 * but we check all frags to be safe.
+		 */
+		for (frag = 0; frag < skb_shinfo(skb)->nr_frags; frag++) {
+			skb_frag_t *fragp;
+
+			fragp = &skb_shinfo(skb)->frags[frag];
+			if (fragp->size <= 8 && fragp->page_offset & 0x7) {
+				skb_linearize(skb, GFP_ATOMIC);
+				printk(KERN_DEBUG "%s: unaligned tiny fragment"
+						"%d of %d, fixed\n",
+						dev->name, frag,
+						skb_shinfo(skb)->nr_frags);
+				goto linear;
+			}
 		}
 
 		/* first frag which is skb header */
@@ -1209,11 +1216,11 @@ linear:
 		pkt_info.buf_ptr = dma_map_single(NULL, skb->data,
 							skb_headlen(skb),
 							DMA_TO_DEVICE);
+		pkt_info.l4i_chk = 0;
 		pkt_info.return_info = 0;
 		pkt_info.cmd_sts = ETH_TX_FIRST_DESC;
 
 		if (skb->ip_summed == CHECKSUM_HW) {
-			/* CPU already calculated pseudo header checksum. */
 			ipheader = skb->nh.iph->ihl << 11;
 			pkt_info.cmd_sts |= ETH_GEN_TCP_UDP_CHECKSUM |
 					ETH_GEN_IP_V_4_CHECKSUM | ipheader;
@@ -1243,6 +1250,7 @@ linear:
 			if (status == ETH_QUEUE_LAST_RESOURCE)
 				printk("Tx resource error \n");
 		}
+		stats->tx_bytes += pkt_info.byte_cnt;
 
 		/* Check for the remaining frags */
 		for (frag = 0; frag < skb_shinfo(skb)->nr_frags; frag++) {
@@ -1259,6 +1267,7 @@ linear:
 			} else {
 				pkt_info.return_info = 0;
 			}
+			pkt_info.l4i_chk = 0;
 			pkt_info.byte_cnt = this_frag->size;
 
 			pkt_info.buf_ptr = dma_map_page(NULL, this_frag->page,
@@ -1280,20 +1289,23 @@ linear:
 				if (status == ETH_QUEUE_FULL)
 					printk("Queue is full \n");
 			}
+			stats->tx_bytes += pkt_info.byte_cnt;
 		}
 	}
 #else
 	pkt_info.cmd_sts = ETH_TX_ENABLE_INTERRUPT | ETH_TX_FIRST_DESC |
 							ETH_TX_LAST_DESC;
+	pkt_info.l4i_chk = 0;
 	pkt_info.byte_cnt = skb->len;
 	pkt_info.buf_ptr = dma_map_single(NULL, skb->data, skb->len,
 								DMA_TO_DEVICE);
 	pkt_info.return_info = skb;
+	mp->tx_ring_skbs++;
 	status = eth_port_send(mp, &pkt_info);
 	if ((status == ETH_ERROR) || (status == ETH_QUEUE_FULL))
 		printk(KERN_ERR "%s: Error on transmitting packet\n",
 								dev->name);
-	mp->tx_ring_skbs++;
+	stats->tx_bytes += pkt_info.byte_cnt;
 #endif
 
 	/* Check if TX queue can handle another skb. If not, then
@@ -1308,7 +1320,6 @@ linear:
 		netif_stop_queue(dev);
 
 	/* Update statistics and start of transmittion time */
-	stats->tx_bytes += skb->len;
 	stats->tx_packets++;
 	dev->trans_start = jiffies;
 
@@ -1388,6 +1399,7 @@ static int mv643xx_eth_probe(struct device *ddev)
 	dev->tx_queue_len = mp->tx_ring_size;
 	dev->base_addr = 0;
 	dev->change_mtu = mv643xx_eth_change_mtu;
+	mv643xx_set_ethtool_ops(dev);
 
 #ifdef MV643XX_CHECKSUM_OFFLOAD_TX
 #ifdef MAX_SKB_FRAGS
@@ -1521,9 +1533,9 @@ static int mv643xx_eth_shared_probe(struct device *ddev)
 	if (res == NULL)
 		return -ENODEV;
 
-	mv64x60_eth_shared_base = ioremap(res->start,
+	mv643xx_eth_shared_base = ioremap(res->start,
 						MV643XX_ETH_SHARED_REGS_SIZE);
-	if (mv64x60_eth_shared_base == NULL)
+	if (mv643xx_eth_shared_base == NULL)
 		return -ENOMEM;
 
 	return 0;
@@ -1532,8 +1544,8 @@ static int mv643xx_eth_shared_probe(struct device *ddev)
 
 static int mv643xx_eth_shared_remove(struct device *ddev)
 {
-	iounmap(mv64x60_eth_shared_base);
-	mv64x60_eth_shared_base = NULL;
+	iounmap(mv643xx_eth_shared_base);
+	mv643xx_eth_shared_base = NULL;
 
 	return 0;
 }
@@ -1820,41 +1832,47 @@ static void eth_port_init(struct mv643xx_private *mp)
  */
 static void eth_port_start(struct mv643xx_private *mp)
 {
-	unsigned int eth_port_num = mp->port_num;
+	unsigned int port_num = mp->port_num;
 	int tx_curr_desc, rx_curr_desc;
 
 	/* Assignment of Tx CTRP of given queue */
 	tx_curr_desc = mp->tx_curr_desc_q;
-	mv_write(MV643XX_ETH_TX_CURRENT_QUEUE_DESC_PTR_0(eth_port_num),
+	mv_write(MV643XX_ETH_TX_CURRENT_QUEUE_DESC_PTR_0(port_num),
 		(u32)((struct eth_tx_desc *)mp->tx_desc_dma + tx_curr_desc));
 
 	/* Assignment of Rx CRDP of given queue */
 	rx_curr_desc = mp->rx_curr_desc_q;
-	mv_write(MV643XX_ETH_RX_CURRENT_QUEUE_DESC_PTR_0(eth_port_num),
+	mv_write(MV643XX_ETH_RX_CURRENT_QUEUE_DESC_PTR_0(port_num),
 		(u32)((struct eth_rx_desc *)mp->rx_desc_dma + rx_curr_desc));
 
 	/* Add the assigned Ethernet address to the port's address table */
-	eth_port_uc_addr_set(mp->port_num, mp->port_mac_addr);
+	eth_port_uc_addr_set(port_num, mp->port_mac_addr);
 
 	/* Assign port configuration and command. */
-	mv_write(MV643XX_ETH_PORT_CONFIG_REG(eth_port_num), mp->port_config);
+	mv_write(MV643XX_ETH_PORT_CONFIG_REG(port_num), mp->port_config);
 
-	mv_write(MV643XX_ETH_PORT_CONFIG_EXTEND_REG(eth_port_num),
+	mv_write(MV643XX_ETH_PORT_CONFIG_EXTEND_REG(port_num),
 						mp->port_config_extend);
 
-	mv_write(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(eth_port_num),
+
+	/* Increase the Rx side buffer size if supporting GigE */
+	if (mp->port_serial_control & MV643XX_ETH_SET_GMII_SPEED_TO_1000)
+		mv_write(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(port_num),
+			(mp->port_serial_control & 0xfff1ffff) | (0x5 << 17));
+	else
+		mv_write(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(port_num),
 						mp->port_serial_control);
 
-	mv_write(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(eth_port_num),
-		mv_read(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(eth_port_num)) |
+	mv_write(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(port_num),
+		mv_read(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(port_num)) |
 						MV643XX_ETH_SERIAL_PORT_ENABLE);
 
 	/* Assign port SDMA configuration */
-	mv_write(MV643XX_ETH_SDMA_CONFIG_REG(eth_port_num),
+	mv_write(MV643XX_ETH_SDMA_CONFIG_REG(port_num),
 							mp->port_sdma_config);
 
 	/* Enable port Rx. */
-	mv_write(MV643XX_ETH_RECEIVE_QUEUE_COMMAND_REG(eth_port_num),
+	mv_write(MV643XX_ETH_RECEIVE_QUEUE_COMMAND_REG(port_num),
 						mp->port_rx_queue_command);
 }
 
@@ -2056,6 +2074,36 @@ static void eth_clear_mib_counters(unsigned int eth_port_num)
 	for (i = ETH_MIB_GOOD_OCTETS_RECEIVED_LOW; i < ETH_MIB_LATE_COLLISION;
 									i += 4)
 		mv_read(MV643XX_ETH_MIB_COUNTERS_BASE(eth_port_num) + i);
+}
+
+static inline u32 read_mib(struct mv643xx_private *mp, int offset)
+{
+	return mv_read(MV643XX_ETH_MIB_COUNTERS_BASE(mp->port_num) + offset);
+}
+
+static void eth_update_mib_counters(struct mv643xx_private *mp)
+{
+	struct mv643xx_mib_counters *p = &mp->mib_counters;
+	int offset;
+
+	p->good_octets_received +=
+		read_mib(mp, ETH_MIB_GOOD_OCTETS_RECEIVED_LOW);
+	p->good_octets_received +=
+		(u64)read_mib(mp, ETH_MIB_GOOD_OCTETS_RECEIVED_HIGH) << 32;
+
+	for (offset = ETH_MIB_BAD_OCTETS_RECEIVED;
+			offset <= ETH_MIB_FRAMES_1024_TO_MAX_OCTETS;
+			offset += 4)
+		*(u32 *)((char *)p + offset) = read_mib(mp, offset);
+
+	p->good_octets_sent += read_mib(mp, ETH_MIB_GOOD_OCTETS_SENT_LOW);
+	p->good_octets_sent +=
+		(u64)read_mib(mp, ETH_MIB_GOOD_OCTETS_SENT_HIGH) << 32;
+
+	for (offset = ETH_MIB_GOOD_FRAMES_SENT;
+			offset <= ETH_MIB_LATE_COLLISION;
+			offset += 4)
+		*(u32 *)((char *)p + offset) = read_mib(mp, offset);
 }
 
 /*
@@ -2264,19 +2312,27 @@ static void ethernet_set_config_reg(unsigned int eth_port_num,
 	mv_write(MV643XX_ETH_PORT_CONFIG_REG(eth_port_num), eth_config_reg);
 }
 
-static int eth_port_link_is_up(unsigned int eth_port_num)
+static int eth_port_autoneg_supported(unsigned int eth_port_num)
 {
 	unsigned int phy_reg_data0;
-	unsigned int phy_reg_data1;
 
 	eth_port_read_smi_reg(eth_port_num, 0, &phy_reg_data0);
+
+	return phy_reg_data0 & 0x1000;
+}
+
+static int eth_port_link_is_up(unsigned int eth_port_num)
+{
+	unsigned int phy_reg_data1;
+
 	eth_port_read_smi_reg(eth_port_num, 1, &phy_reg_data1);
 
-	if (phy_reg_data0 & 0x1000) {	/* auto-neg supported? */
+	if (eth_port_autoneg_supported(eth_port_num)) {
 		if (phy_reg_data1 & 0x20)	/* auto-neg complete */
 			return 1;
-	} else if (phy_reg_data1 & 0x4)	/* link up */
+	} else if (phy_reg_data1 & 0x4)		/* link up */
 		return 1;
+
 	return 0;
 }
 
@@ -2478,9 +2534,6 @@ static ETH_FUNC_RET_STATUS eth_port_send(struct mv643xx_private *mp,
 
 	command = p_pkt_info->cmd_sts | ETH_ZERO_PADDING | ETH_GEN_CRC |
 							ETH_BUFFER_OWNED_BY_DMA;
-	if (command & ETH_TX_LAST_DESC)
-		command |= ETH_TX_ENABLE_INTERRUPT;
-
 	if (command & ETH_TX_FIRST_DESC) {
 		tx_first_desc = tx_desc_curr;
 		mp->tx_first_desc_q = tx_first_desc;
@@ -2754,3 +2807,230 @@ static ETH_FUNC_RET_STATUS eth_rx_return_buff(struct mv643xx_private *mp,
 
 	return ETH_OK;
 }
+
+/************* Begin ethtool support *************************/
+
+struct mv643xx_stats {
+	char stat_string[ETH_GSTRING_LEN];
+	int sizeof_stat;
+	int stat_offset;
+};
+
+#define MV643XX_STAT(m) sizeof(((struct mv643xx_private *)0)->m), \
+		      offsetof(struct mv643xx_private, m)
+
+static const struct mv643xx_stats mv643xx_gstrings_stats[] = {
+	{ "rx_packets", MV643XX_STAT(stats.rx_packets) },
+	{ "tx_packets", MV643XX_STAT(stats.tx_packets) },
+	{ "rx_bytes", MV643XX_STAT(stats.rx_bytes) },
+	{ "tx_bytes", MV643XX_STAT(stats.tx_bytes) },
+	{ "rx_errors", MV643XX_STAT(stats.rx_errors) },
+	{ "tx_errors", MV643XX_STAT(stats.tx_errors) },
+	{ "rx_dropped", MV643XX_STAT(stats.rx_dropped) },
+	{ "tx_dropped", MV643XX_STAT(stats.tx_dropped) },
+	{ "good_octets_received", MV643XX_STAT(mib_counters.good_octets_received) },
+	{ "bad_octets_received", MV643XX_STAT(mib_counters.bad_octets_received) },
+	{ "internal_mac_transmit_err", MV643XX_STAT(mib_counters.internal_mac_transmit_err) },
+	{ "good_frames_received", MV643XX_STAT(mib_counters.good_frames_received) },
+	{ "bad_frames_received", MV643XX_STAT(mib_counters.bad_frames_received) },
+	{ "broadcast_frames_received", MV643XX_STAT(mib_counters.broadcast_frames_received) },
+	{ "multicast_frames_received", MV643XX_STAT(mib_counters.multicast_frames_received) },
+	{ "frames_64_octets", MV643XX_STAT(mib_counters.frames_64_octets) },
+	{ "frames_65_to_127_octets", MV643XX_STAT(mib_counters.frames_65_to_127_octets) },
+	{ "frames_128_to_255_octets", MV643XX_STAT(mib_counters.frames_128_to_255_octets) },
+	{ "frames_256_to_511_octets", MV643XX_STAT(mib_counters.frames_256_to_511_octets) },
+	{ "frames_512_to_1023_octets", MV643XX_STAT(mib_counters.frames_512_to_1023_octets) },
+	{ "frames_1024_to_max_octets", MV643XX_STAT(mib_counters.frames_1024_to_max_octets) },
+	{ "good_octets_sent", MV643XX_STAT(mib_counters.good_octets_sent) },
+	{ "good_frames_sent", MV643XX_STAT(mib_counters.good_frames_sent) },
+	{ "excessive_collision", MV643XX_STAT(mib_counters.excessive_collision) },
+	{ "multicast_frames_sent", MV643XX_STAT(mib_counters.multicast_frames_sent) },
+	{ "broadcast_frames_sent", MV643XX_STAT(mib_counters.broadcast_frames_sent) },
+	{ "unrec_mac_control_received", MV643XX_STAT(mib_counters.unrec_mac_control_received) },
+	{ "fc_sent", MV643XX_STAT(mib_counters.fc_sent) },
+	{ "good_fc_received", MV643XX_STAT(mib_counters.good_fc_received) },
+	{ "bad_fc_received", MV643XX_STAT(mib_counters.bad_fc_received) },
+	{ "undersize_received", MV643XX_STAT(mib_counters.undersize_received) },
+	{ "fragments_received", MV643XX_STAT(mib_counters.fragments_received) },
+	{ "oversize_received", MV643XX_STAT(mib_counters.oversize_received) },
+	{ "jabber_received", MV643XX_STAT(mib_counters.jabber_received) },
+	{ "mac_receive_error", MV643XX_STAT(mib_counters.mac_receive_error) },
+	{ "bad_crc_event", MV643XX_STAT(mib_counters.bad_crc_event) },
+	{ "collision", MV643XX_STAT(mib_counters.collision) },
+	{ "late_collision", MV643XX_STAT(mib_counters.late_collision) },
+};
+
+#define MV643XX_STATS_LEN	\
+	sizeof(mv643xx_gstrings_stats) / sizeof(struct mv643xx_stats)
+
+static int
+mv643xx_get_settings(struct net_device *netdev, struct ethtool_cmd *ecmd)
+{
+	struct mv643xx_private *mp = netdev->priv;
+	int port_num = mp->port_num;
+	int autoneg = eth_port_autoneg_supported(port_num);
+	int mode_10_bit;
+	int auto_duplex;
+	int half_duplex = 0;
+	int full_duplex = 0;
+	int auto_speed;
+	int speed_10 = 0;
+	int speed_100 = 0;
+	int speed_1000 = 0;
+
+	u32 pcs = mv_read(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(port_num));
+	u32 psr = mv_read(MV643XX_ETH_PORT_STATUS_REG(port_num));
+
+	mode_10_bit = psr & MV643XX_ETH_PORT_STATUS_MODE_10_BIT;
+
+	if (mode_10_bit) {
+		ecmd->supported = SUPPORTED_10baseT_Half;
+	} else {
+		ecmd->supported = (SUPPORTED_10baseT_Half		|
+				   SUPPORTED_10baseT_Full		|
+				   SUPPORTED_100baseT_Half		|
+				   SUPPORTED_100baseT_Full		|
+				   SUPPORTED_1000baseT_Full		|
+				   (autoneg ? SUPPORTED_Autoneg : 0)	|
+				   SUPPORTED_TP);
+
+		auto_duplex = !(pcs & MV643XX_ETH_DISABLE_AUTO_NEG_FOR_DUPLX);
+		auto_speed = !(pcs & MV643XX_ETH_DISABLE_AUTO_NEG_SPEED_GMII);
+
+		ecmd->advertising = ADVERTISED_TP;
+
+		if (autoneg) {
+			ecmd->advertising |= ADVERTISED_Autoneg;
+
+			if (auto_duplex) {
+				half_duplex = 1;
+				full_duplex = 1;
+			} else {
+				if (pcs & MV643XX_ETH_SET_FULL_DUPLEX_MODE)
+					full_duplex = 1;
+				else
+					half_duplex = 1;
+			}
+
+			if (auto_speed) {
+				speed_10 = 1;
+				speed_100 = 1;
+				speed_1000 = 1;
+			} else {
+				if (pcs & MV643XX_ETH_SET_GMII_SPEED_TO_1000)
+					speed_1000 = 1;
+				else if (pcs & MV643XX_ETH_SET_MII_SPEED_TO_100)
+					speed_100 = 1;
+				else
+					speed_10 = 1;
+			}
+
+			if (speed_10 & half_duplex)
+				ecmd->advertising |= ADVERTISED_10baseT_Half;
+			if (speed_10 & full_duplex)
+				ecmd->advertising |= ADVERTISED_10baseT_Full;
+			if (speed_100 & half_duplex)
+				ecmd->advertising |= ADVERTISED_100baseT_Half;
+			if (speed_100 & full_duplex)
+				ecmd->advertising |= ADVERTISED_100baseT_Full;
+			if (speed_1000)
+				ecmd->advertising |= ADVERTISED_1000baseT_Full;
+		}
+	}
+
+	ecmd->port = PORT_TP;
+	ecmd->phy_address = ethernet_phy_get(port_num);
+
+	ecmd->transceiver = XCVR_EXTERNAL;
+
+	if (netif_carrier_ok(netdev)) {
+		if (mode_10_bit)
+			ecmd->speed = SPEED_10;
+		else {
+			if (psr & MV643XX_ETH_PORT_STATUS_GMII_1000)
+				ecmd->speed = SPEED_1000;
+			else if (psr & MV643XX_ETH_PORT_STATUS_MII_100)
+				ecmd->speed = SPEED_100;
+			else
+				ecmd->speed = SPEED_10;
+		}
+
+		if (psr & MV643XX_ETH_PORT_STATUS_FULL_DUPLEX)
+			ecmd->duplex = DUPLEX_FULL;
+		else
+			ecmd->duplex = DUPLEX_HALF;
+	} else {
+		ecmd->speed = -1;
+		ecmd->duplex = -1;
+	}
+
+	ecmd->autoneg = autoneg ? AUTONEG_ENABLE : AUTONEG_DISABLE;
+	return 0;
+}
+
+static void
+mv643xx_get_drvinfo(struct net_device *netdev,
+                       struct ethtool_drvinfo *drvinfo)
+{
+	strncpy(drvinfo->driver,  mv643xx_driver_name, 32);
+	strncpy(drvinfo->version, mv643xx_driver_version, 32);
+	strncpy(drvinfo->fw_version, "N/A", 32);
+	strncpy(drvinfo->bus_info, "mv643xx", 32);
+	drvinfo->n_stats = MV643XX_STATS_LEN;
+}
+
+static int 
+mv643xx_get_stats_count(struct net_device *netdev)
+{
+	return MV643XX_STATS_LEN;
+}
+
+static void 
+mv643xx_get_ethtool_stats(struct net_device *netdev, 
+		struct ethtool_stats *stats, uint64_t *data)
+{
+	struct mv643xx_private *mp = netdev->priv;
+	int i;
+
+	eth_update_mib_counters(mp);
+
+	for(i = 0; i < MV643XX_STATS_LEN; i++) {
+		char *p = (char *)mp+mv643xx_gstrings_stats[i].stat_offset;	
+		data[i] = (mv643xx_gstrings_stats[i].sizeof_stat == 
+			sizeof(uint64_t)) ? *(uint64_t *)p : *(uint32_t *)p;
+	}
+}
+
+static void 
+mv643xx_get_strings(struct net_device *netdev, uint32_t stringset, uint8_t *data)
+{
+	int i;
+
+	switch(stringset) {
+	case ETH_SS_STATS:
+		for (i=0; i < MV643XX_STATS_LEN; i++) {
+			memcpy(data + i * ETH_GSTRING_LEN, 
+			mv643xx_gstrings_stats[i].stat_string,
+			ETH_GSTRING_LEN);
+		}
+		break;
+	}
+}
+
+struct ethtool_ops mv643xx_ethtool_ops = {
+	.get_settings           = mv643xx_get_settings,
+	.get_drvinfo            = mv643xx_get_drvinfo,
+	.get_link               = ethtool_op_get_link,
+	.get_sg			= ethtool_op_get_sg,
+	.set_sg			= ethtool_op_set_sg,
+	.get_strings            = mv643xx_get_strings,
+	.get_stats_count        = mv643xx_get_stats_count,
+	.get_ethtool_stats      = mv643xx_get_ethtool_stats,
+};
+
+void mv643xx_set_ethtool_ops(struct net_device *netdev)
+{
+	SET_ETHTOOL_OPS(netdev, &mv643xx_ethtool_ops);
+}
+
+/************* End ethtool support *************************/
