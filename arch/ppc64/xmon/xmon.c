@@ -32,6 +32,7 @@
 #include <asm/rtas.h>
 #include <asm/sstep.h>
 #include <asm/bug.h>
+#include <asm/hvcall.h>
 
 #include "nonstdio.h"
 #include "privinst.h"
