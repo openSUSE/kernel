@@ -39,7 +39,7 @@ obj-$(CONFIG_TTY_CHAN) += tty.o
 obj-$(CONFIG_XTERM_CHAN) += xterm.o xterm_kern.o
 obj-$(CONFIG_UML_WATCHDOG) += harddog.o
 obj-$(CONFIG_BLK_DEV_COW_COMMON) += cow_user.o
-
+obj-$(CONFIG_UML_RANDOM) += random.o
 
 USER_SINGLE_OBJS = $(foreach f,$(patsubst %.o,%,$(obj-y) $(obj-m)),$($(f)-objs))
 
