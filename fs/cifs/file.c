@@ -1755,57 +1755,7 @@ unix_fill_in_inode(struct inode *tmp_inode,
 	}
 }
 
-/* Returns one if new inode created (which therefore needs to be hashed) */
-/* Might check in the future if inode number changed so we can rehash inode */
-int
-construct_dentry(struct qstr *qstring, struct file *file,
-		 struct inode **ptmp_inode, struct dentry **pnew_dentry)
-{
-	struct dentry *tmp_dentry;
-	struct cifs_sb_info *cifs_sb;
-	struct cifsTconInfo *pTcon;
-	int rc = 0;
-
-	cFYI(1, ("For %s ", qstring->name));
-	cifs_sb = CIFS_SB(file->f_dentry->d_sb);
-	pTcon = cifs_sb->tcon;
-
-	qstring->hash = full_name_hash(qstring->name, qstring->len);
-	tmp_dentry = d_lookup(file->f_dentry, qstring);
-	if (tmp_dentry) {
-		cFYI(0, (" existing dentry with inode 0x%p", tmp_dentry->d_inode));
-		*ptmp_inode = tmp_dentry->d_inode;
-		/* BB overwrite the old name? i.e. tmp_dentry->d_name and tmp_dentry->d_name.len ?? */
-		if(*ptmp_inode == NULL) {
-	                *ptmp_inode = new_inode(file->f_dentry->d_sb);
-			if(*ptmp_inode == NULL)
-				return rc;
-			rc = 1;
-			d_instantiate(tmp_dentry, *ptmp_inode);
-		}
-	} else {
-		tmp_dentry = d_alloc(file->f_dentry, qstring);
-		if(tmp_dentry == NULL) {
-			cERROR(1,("Failed allocating dentry"));
-			*ptmp_inode = NULL;
-			return rc;
-		}
-			
-		*ptmp_inode = new_inode(file->f_dentry->d_sb);
-		tmp_dentry->d_op = &cifs_dentry_ops;
-		if(*ptmp_inode == NULL)
-			return rc;
-		rc = 1;
-		d_instantiate(tmp_dentry, *ptmp_inode);
-		d_rehash(tmp_dentry);
-	}
-
-	tmp_dentry->d_time = jiffies;
-	*pnew_dentry = tmp_dentry;
-	return rc; 
-}
-
-int cifs_prepare_write(struct file *file, struct page *page,
+static int cifs_prepare_write(struct file *file, struct page *page,
 			unsigned from, unsigned to)
 {
 	int rc = 0;

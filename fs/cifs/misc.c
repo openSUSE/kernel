@@ -33,7 +33,7 @@ extern mempool_t *cifs_sm_req_poolp;
 extern mempool_t *cifs_req_poolp;
 extern struct task_struct * oplockThread;
 
-__u16 GlobalMid;		/* multiplex id - rotating counter */
+static __u16 GlobalMid;		/* multiplex id - rotating counter */
 
 /* The xid serves as a useful identifier for each incoming vfs request, 
    in a similar way to the mid which is useful to track each sent smb, 

@@ -30,8 +30,6 @@
 #include "cifs_debug.h"
 #include "cifs_fs_sb.h"
 
-extern int is_size_safe_to_change(struct cifsInodeInfo *);
-
 int
 cifs_get_inode_info_unix(struct inode **pinode,
 			 const unsigned char *search_path,

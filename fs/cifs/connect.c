@@ -47,7 +47,6 @@ extern void SMBencrypt(unsigned char *passwd, unsigned char *c8,
 		       unsigned char *p24);
 extern void SMBNTencrypt(unsigned char *passwd, unsigned char *c8,
 			 unsigned char *p24);
-extern int cifs_inet_pton(int, const char *, void *dst);
 
 extern mempool_t *cifs_req_poolp;
 
@@ -2977,16 +2976,21 @@ int cifs_setup_session(unsigned int xid, struct cifsSesInfo *pSesInfo,
 				if(ntlmv2_flag) {
 					char * v2_response;
 					cFYI(1,("Can use more secure NTLM version 2 password hash"));
-					CalcNTLMv2_partial_mac_key(pSesInfo, 
-						nls_info);
-					v2_response = kmalloc(16 + 64 /* blob */, GFP_KERNEL);
+					if(CalcNTLMv2_partial_mac_key(pSesInfo, 
+						nls_info)) {
+						rc = -ENOMEM;
+						goto ss_err_exit;
+					} else
+						v2_response = kmalloc(16 + 64 /* blob */, GFP_KERNEL);
 					if(v2_response) {
 						CalcNTLMv2_response(pSesInfo,v2_response);
 /*						cifs_calculate_ntlmv2_mac_key(pSesInfo->mac_signing_key, response, ntlm_session_key, */
 						kfree(v2_response);
 					/* BB Put dummy sig in SessSetup PDU? */
-					} else
+					} else {
 						rc = -ENOMEM;
+						goto ss_err_exit;
+					}
 
 				} else {
 					SMBNTencrypt(pSesInfo->password,
@@ -3023,6 +3027,7 @@ int cifs_setup_session(unsigned int xid, struct cifsSesInfo *pSesInfo,
 			pSesInfo->status = CifsGood;
 		}
 	}
+ss_err_exit:
 	return rc;
 }
 

@@ -34,7 +34,7 @@
 extern mempool_t *cifs_mid_poolp;
 extern kmem_cache_t *cifs_oplock_cachep;
 
-struct mid_q_entry *
+static struct mid_q_entry *
 AllocMidQEntry(struct smb_hdr *smb_buffer, struct cifsSesInfo *ses)
 {
 	struct mid_q_entry *temp;
@@ -70,7 +70,7 @@ AllocMidQEntry(struct smb_hdr *smb_buffer, struct cifsSesInfo *ses)
 	return temp;
 }
 
-void
+static void
 DeleteMidQEntry(struct mid_q_entry *midEntry)
 {
 	spin_lock(&GlobalMid_Lock);

@@ -1845,7 +1845,7 @@ static int cifs_copy_posix_acl(char * trgt,char * src, const int buflen,const in
 	return size;
 }
 
-__u16 convert_ace_to_cifs_ace(struct cifs_posix_ace * cifs_ace,
+static __u16 convert_ace_to_cifs_ace(struct cifs_posix_ace * cifs_ace,
 			const posix_acl_xattr_entry * local_ace)
 {
 	__u16 rc = 0; /* 0 = ACL converted ok */
@@ -1863,7 +1863,7 @@ __u16 convert_ace_to_cifs_ace(struct cifs_posix_ace * cifs_ace,
 }
 
 /* Convert ACL from local Linux POSIX xattr to CIFS POSIX ACL wire format */
-__u16 ACL_to_cifs_posix(char * parm_data,const char * pACL,const int buflen,
+static __u16 ACL_to_cifs_posix(char * parm_data,const char * pACL,const int buflen,
 		const int acl_type)
 {
 	__u16 rc = 0;
@@ -2323,118 +2323,9 @@ findUniqueRetry:
 }
 #endif /* CIFS_EXPERIMENTAL */
 
-int
-CIFSFindFirst(const int xid, struct cifsTconInfo *tcon,
-	      const char *searchName, FILE_DIRECTORY_INFO * findData,
-	      T2_FFIRST_RSP_PARMS * findParms,
-	      const struct nls_table *nls_codepage, int *pUnicodeFlag,
-	      int *pUnixFlag)
-{
-/* level 257 SMB_ */
-	TRANSACTION2_FFIRST_REQ *pSMB = NULL;
-	TRANSACTION2_FFIRST_RSP *pSMBr = NULL;
-	char *response_data;
-	int rc = 0;
-	int bytes_returned;
-	int name_len;
-	__u16 params, byte_count;
-
-	cFYI(1, ("In FindFirst"));
-findFirstRetry:
-	rc = smb_init(SMB_COM_TRANSACTION2, 15, tcon, (void **) &pSMB,
-		      (void **) &pSMBr);
-	if (rc)
-		return rc;
-
-	if (pSMB->hdr.Flags2 & SMBFLG2_UNICODE) {
-		name_len =
-		    cifs_strtoUCS((wchar_t *) pSMB->FileName, searchName, PATH_MAX
-				  /* find define for this maxpathcomponent */
-				  , nls_codepage);
-		name_len++;	/* trailing null */
-		name_len *= 2;
-	} else {		/* BB improve the check for buffer overruns BB */
-		name_len = strnlen(searchName, PATH_MAX);
-		name_len++;	/* trailing null */
-		strncpy(pSMB->FileName, searchName, name_len);
-	}
-
-	params = 12 + name_len /* includes null */ ;
-	pSMB->TotalDataCount = 0;	/* no EAs */
-	pSMB->MaxParameterCount = cpu_to_le16(10);
-	pSMB->MaxDataCount = cpu_to_le16((tcon->ses->server->maxBuf -
-					  MAX_CIFS_HDR_SIZE) & 0xFFFFFF00);
-	pSMB->MaxSetupCount = 0;
-	pSMB->Reserved = 0;
-	pSMB->Flags = 0;
-	pSMB->Timeout = 0;
-	pSMB->Reserved2 = 0;
-	byte_count = params + 1 /* pad */ ;
-	pSMB->TotalParameterCount = cpu_to_le16(params);
-	pSMB->ParameterCount = pSMB->TotalParameterCount;
-	pSMB->ParameterOffset = cpu_to_le16(
-		offsetof(struct smb_com_transaction2_ffirst_req, SearchAttributes) - 4);
-	pSMB->DataCount = 0;
-	pSMB->DataOffset = 0;
-	pSMB->SetupCount = 1;	/* one byte no need to make endian neutral */
-	pSMB->Reserved3 = 0;
-	pSMB->SubCommand = cpu_to_le16(TRANS2_FIND_FIRST);
-	pSMB->SearchAttributes =
-	    cpu_to_le16(ATTR_READONLY | ATTR_HIDDEN | ATTR_SYSTEM |
-			ATTR_DIRECTORY);
-	pSMB->SearchCount = cpu_to_le16(CIFSMaxBufSize / sizeof (FILE_DIRECTORY_INFO));	/* should this be shrunk even more ? */
-	pSMB->SearchFlags = cpu_to_le16(CIFS_SEARCH_CLOSE_AT_END | CIFS_SEARCH_RETURN_RESUME);
-
-	/* test for Unix extensions */
-	if (tcon->ses->capabilities & CAP_UNIX) {
-		pSMB->InformationLevel = cpu_to_le16(SMB_FIND_FILE_UNIX);
-		*pUnixFlag = TRUE;
-	} else {
-		pSMB->InformationLevel =
-		    cpu_to_le16(SMB_FIND_FILE_DIRECTORY_INFO);
-		*pUnixFlag = FALSE;
-	}
-	pSMB->SearchStorageType = 0;	/* BB what should we set this to? It is not clear if it matters BB */
-	pSMB->hdr.smb_buf_length += byte_count;
-	pSMB->ByteCount = cpu_to_le16(byte_count);
-
-	rc = SendReceive(xid, tcon->ses, (struct smb_hdr *) pSMB,
-			 (struct smb_hdr *) pSMBr, &bytes_returned, 0);
-
-	if (rc) {		/* BB add logic to retry regular search if Unix search rejected unexpectedly by server */
-		cFYI(1, ("Error in FindFirst = %d", rc));
-	} else {
-		rc = validate_t2((struct smb_t2_rsp *)pSMBr);
-		if(!rc) {
-		/* decode response */
-		/* BB add safety checks for these memcpys */
-			if (pSMBr->hdr.Flags2 & SMBFLG2_UNICODE)
-				*pUnicodeFlag = TRUE;
-			else
-				*pUnicodeFlag = FALSE;
-			memcpy(findParms,
-			       (char *) &pSMBr->hdr.Protocol +
-			       le16_to_cpu(pSMBr->t2.ParameterOffset),
-			       sizeof (T2_FFIRST_RSP_PARMS));
-			response_data =
-			    (char *) &pSMBr->hdr.Protocol +
-			    le16_to_cpu(pSMBr->t2.DataOffset);
-			memcpy(findData, response_data, 
-				le16_to_cpu(pSMBr->t2.DataCount));
-		}
-	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
-
-	if (rc == -EAGAIN)
-		goto findFirstRetry;
-
-	return rc;
-}
-
 /* xid, tcon, searchName and codepage are input parms, rest are returned */
 int
-CIFSFindFirst2(const int xid, struct cifsTconInfo *tcon,
+CIFSFindFirst(const int xid, struct cifsTconInfo *tcon,
 	      const char *searchName, 
 	      const struct nls_table *nls_codepage,
 	      __u16 *	pnetfid,
@@ -2558,7 +2449,7 @@ findFirst2Retry:
 	return rc;
 }
 
-int CIFSFindNext2(const int xid, struct cifsTconInfo *tcon,
+int CIFSFindNext(const int xid, struct cifsTconInfo *tcon,
             __u16 searchHandle, struct cifs_search_info * psrch_inf)
 {
 	TRANSACTION2_FNEXT_REQ *pSMB = NULL;
@@ -2679,113 +2570,6 @@ FNext2_err_exit:
 	if ((rc != 0) && pSMB)
 		cifs_buf_release(pSMB);
                                                                                               
-	return rc;
-}
-
-int
-CIFSFindNext(const int xid, struct cifsTconInfo *tcon,
-		FILE_DIRECTORY_INFO * findData, T2_FNEXT_RSP_PARMS * findParms,
-		const __u16 searchHandle, char * resume_file_name, int name_len,
-		__u32 resume_key, int *pUnicodeFlag, int *pUnixFlag)
-{
-/* level 257 SMB_ */
-	TRANSACTION2_FNEXT_REQ *pSMB = NULL;
-	TRANSACTION2_FNEXT_RSP *pSMBr = NULL;
-	char *response_data;
-	int rc = 0;
-	int bytes_returned;
-	__u16 params, byte_count;
-
-	cFYI(1, ("In FindNext"));
-
-	if(resume_file_name == NULL) {
-		return -EIO;
-	}
-	rc = smb_init(SMB_COM_TRANSACTION2, 15, tcon, (void **) &pSMB,
-		      (void **) &pSMBr);
-	if (rc)
-		return rc;
-
-	params = 14;	/* includes 2 bytes of null string, converted to LE below */
-	byte_count = 0;
-	pSMB->TotalDataCount = 0;	/* no EAs */
-	pSMB->MaxParameterCount = cpu_to_le16(8);
-	pSMB->MaxDataCount =
-	    cpu_to_le16((tcon->ses->server->maxBuf - MAX_CIFS_HDR_SIZE) & 0xFFFFFF00);
-	pSMB->MaxSetupCount = 0;
-	pSMB->Reserved = 0;
-	pSMB->Flags = 0;
-	pSMB->Timeout = 0;
-	pSMB->Reserved2 = 0;
-	pSMB->ParameterOffset =  cpu_to_le16(
-           offsetof(struct smb_com_transaction2_fnext_req,SearchHandle) - 4);
-	pSMB->DataCount = 0;
-	pSMB->DataOffset = 0;
-	pSMB->SetupCount = 1;
-	pSMB->Reserved3 = 0;
-	pSMB->SubCommand = cpu_to_le16(TRANS2_FIND_NEXT);
-	pSMB->SearchHandle = searchHandle;	/* always kept as le */
-	findParms->SearchCount = 0;	/* set to zero in case of error */
-	pSMB->SearchCount =
-	    cpu_to_le16(CIFSMaxBufSize / sizeof (FILE_UNIX_INFO));
-	/* test for Unix extensions */
-	if (tcon->ses->capabilities & CAP_UNIX) {
-		pSMB->InformationLevel = cpu_to_le16(SMB_FIND_FILE_UNIX);
-		*pUnixFlag = TRUE;
-	} else {
-		pSMB->InformationLevel =
-		    cpu_to_le16(SMB_FIND_FILE_DIRECTORY_INFO);
-		*pUnixFlag = FALSE;
-	}
-	pSMB->ResumeKey = resume_key;
-	pSMB->SearchFlags =
-	    cpu_to_le16(CIFS_SEARCH_CLOSE_AT_END | CIFS_SEARCH_RETURN_RESUME);
-	/* BB add check to make sure we do not cross end of smb */
-	if(name_len < PATH_MAX) {
-		memcpy(pSMB->ResumeFileName, resume_file_name, name_len);
-		byte_count += name_len;
-	}
-	params += name_len;
-	byte_count = params + 1 /* pad */ ;
-	pSMB->TotalParameterCount = cpu_to_le16(params);
-	pSMB->ParameterCount = pSMB->TotalParameterCount;
-	/* BB improve error handling here */
-	pSMB->hdr.smb_buf_length += byte_count;
-	pSMB->ByteCount = cpu_to_le16(byte_count);
-
-	rc = SendReceive(xid, tcon->ses, (struct smb_hdr *) pSMB,
-			 (struct smb_hdr *) pSMBr, &bytes_returned, 0);
-
-	if (rc) {
-		if (rc == -EBADF)
-			rc = 0;	/* search probably was closed at end of search above */
-		else
-			cFYI(1, ("FindNext returned = %d", rc));
-	} else {		/* decode response */
-		rc = validate_t2((struct smb_t2_rsp *)pSMBr);
-
-		/* BB add safety checks for these memcpys */
-		if(rc == 0) {
-			if (pSMBr->hdr.Flags2 & SMBFLG2_UNICODE)
-				*pUnicodeFlag = TRUE;
-			else
-				*pUnicodeFlag = FALSE;
-			memcpy(findParms,
-			       (char *) &pSMBr->hdr.Protocol +
-			       le16_to_cpu(pSMBr->t2.ParameterOffset),
-			       sizeof (T2_FNEXT_RSP_PARMS));
-			response_data =
-			    (char *) &pSMBr->hdr.Protocol +
-			    le16_to_cpu(pSMBr->t2.DataOffset);
-			memcpy(findData,response_data,le16_to_cpu(pSMBr->t2.DataCount));
-		}
-	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
-
-	/* Note: On -EAGAIN error only caller can retry on handle based calls
-		since file handle passed in no longer valid */
-
 	return rc;
 }
 

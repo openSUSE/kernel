@@ -57,7 +57,7 @@ cifs_dump_mem(char *label, void *data, int length)
 }
 
 #ifdef CONFIG_PROC_FS
-int
+static int
 cifs_debug_data_read(char *buf, char **beginBuffer, off_t offset,
 		     int count, int *eof, void *data)
 {
@@ -178,7 +178,7 @@ cifs_debug_data_read(char *buf, char **beginBuffer, off_t offset,
 }
 
 #ifdef CONFIG_CIFS_STATS
-int
+static int
 cifs_stats_read(char *buf, char **beginBuffer, off_t offset,
 		  int count, int *eof, void *data)
 {
@@ -286,7 +286,7 @@ cifs_stats_read(char *buf, char **beginBuffer, off_t offset,
 }
 #endif
 
-struct proc_dir_entry *proc_fs_cifs;
+static struct proc_dir_entry *proc_fs_cifs;
 read_proc_t cifs_txanchor_read;
 static read_proc_t cifsFYI_read;
 static write_proc_t cifsFYI_write;
