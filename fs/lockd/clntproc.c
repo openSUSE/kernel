@@ -322,7 +322,7 @@ static int nlm_wait_on_grace(wait_queue_head_t *queue)
 /*
  * Generic NLM call
  */
-int
+static int
 nlmclnt_call(struct nlm_rqst *req, u32 proc)
 {
 	struct nlm_host	*host = req->a_host;
@@ -424,7 +424,7 @@ nlmsvc_async_call(struct nlm_rqst *req, u32 proc, rpc_action callback)
 	return status;
 }
 
-int
+static int
 nlmclnt_async_call(struct nlm_rqst *req, u32 proc, rpc_action callback)
 {
 	struct nlm_host	*host = req->a_host;
