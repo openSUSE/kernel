@@ -47,16 +47,13 @@ config BONDING
 	---help---
 	  Say 'Y' or 'M' if you wish to be able to 'bond' multiple Ethernet
 	  Channels together. This is called 'Etherchannel' by Cisco,
-	  'Trunking' by Sun, and 'Bonding' in Linux.
+	  'Trunking' by Sun, 802.3ad by the IEEE, and 'Bonding' in Linux.
 
-	  If you have two Ethernet connections to some other computer, you can
-	  make them behave like one double speed connection using this driver.
-	  Naturally, this has to be supported at the other end as well, either
-	  with a similar Bonding Linux driver, a Cisco 5500 switch or a
-	  SunTrunking SunSoft driver.
+	  The driver supports multiple bonding modes to allow for both high
+	  perfomance and high availability operation.
 
-	  This is similar to the EQL driver, but it merges Ethernet segments
-	  instead of serial lines.
+	  Refer to <file:Documentation/networking/bonding.txt> for more
+	  information.
 
 	  To compile this driver as a module, choose M here: the module
 	  will be called bonding.

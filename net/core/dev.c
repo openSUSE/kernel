@@ -2300,6 +2300,21 @@ int dev_set_mtu(struct net_device *dev, int new_mtu)
 	return err;
 }
 
+int dev_set_mac_address(struct net_device *dev, struct sockaddr *sa)
+{
+	int err;
+
+	if (!dev->set_mac_address)
+		return -EOPNOTSUPP;
+	if (sa->sa_family != dev->type)
+		return -EINVAL;
+	if (!netif_device_present(dev))
+		return -ENODEV;
+	err = dev->set_mac_address(dev, sa);
+	if (!err)
+		notifier_call_chain(&netdev_chain, NETDEV_CHANGEADDR, dev);
+	return err;
+}
 
 /*
  *	Perform the SIOCxIFxxx calls.
@@ -2346,17 +2361,7 @@ static int dev_ifsioc(struct ifreq *ifr, unsigned int cmd)
 			return 0;
 
 		case SIOCSIFHWADDR:
-			if (!dev->set_mac_address)
-				return -EOPNOTSUPP;
-			if (ifr->ifr_hwaddr.sa_family != dev->type)
-				return -EINVAL;
-			if (!netif_device_present(dev))
-				return -ENODEV;
-			err = dev->set_mac_address(dev, &ifr->ifr_hwaddr);
-			if (!err)
-				notifier_call_chain(&netdev_chain,
-						    NETDEV_CHANGEADDR, dev);
-			return err;
+			return dev_set_mac_address(dev, &ifr->ifr_hwaddr);
 
 		case SIOCSIFHWBROADCAST:
 			if (ifr->ifr_hwaddr.sa_family != dev->type)
@@ -3322,6 +3327,7 @@ EXPORT_SYMBOL(dev_set_allmulti);
 EXPORT_SYMBOL(dev_set_promiscuity);
 EXPORT_SYMBOL(dev_change_flags);
 EXPORT_SYMBOL(dev_set_mtu);
+EXPORT_SYMBOL(dev_set_mac_address);
 EXPORT_SYMBOL(free_netdev);
 EXPORT_SYMBOL(netdev_boot_setup_check);
 EXPORT_SYMBOL(netdev_set_master);
