@@ -36,28 +36,29 @@
  * in PCI Configuration space.
  ************************************************************************/
 
-#include<linux/config.h>
-#include<linux/module.h>
-#include<linux/types.h>
-#include<linux/errno.h>
-#include<linux/ioport.h>
-#include<linux/pci.h>
-#include<linux/kernel.h>
-#include<linux/netdevice.h>
-#include<linux/etherdevice.h>
-#include<linux/skbuff.h>
-#include<linux/init.h>
-#include<linux/delay.h>
-#include<linux/stddef.h>
-#include<linux/ioctl.h>
-#include<linux/timex.h>
-#include<linux/sched.h>
-#include<linux/ethtool.h>
-#include<asm/system.h>
-#include<asm/uaccess.h>
-#include<linux/version.h>
-#include<asm/io.h>
-#include<linux/workqueue.h>
+#include <linux/config.h>
+#include <linux/module.h>
+#include <linux/types.h>
+#include <linux/errno.h>
+#include <linux/ioport.h>
+#include <linux/pci.h>
+#include <linux/kernel.h>
+#include <linux/netdevice.h>
+#include <linux/etherdevice.h>
+#include <linux/skbuff.h>
+#include <linux/init.h>
+#include <linux/delay.h>
+#include <linux/stddef.h>
+#include <linux/ioctl.h>
+#include <linux/timex.h>
+#include <linux/sched.h>
+#include <linux/ethtool.h>
+#include <linux/version.h>
+#include <linux/workqueue.h>
+
+#include <asm/io.h>
+#include <asm/system.h>
+#include <asm/uaccess.h>
 
 /* local include */
 #include "s2io.h"
