@@ -124,6 +124,7 @@ static DEFINE_SPINLOCK(jfsTxnLock);
 
 DECLARE_WAIT_QUEUE_HEAD(jfs_sync_thread_wait);
 DECLARE_WAIT_QUEUE_HEAD(jfs_commit_thread_wait);
+static int jfs_commit_thread_waking;
 
 /*
  * Retry logic exist outside these macros to protect from spurrious wakeups.
@@ -2754,6 +2755,7 @@ int jfs_lazycommit(void *arg)
 
 	do {
 		LAZY_LOCK(flags);
+		jfs_commit_thread_waking = 0;	/* OK to wake another thread */
 		while (!list_empty(&TxAnchor.unlock_queue)) {
 			WorkDone = 0;
 			list_for_each_entry(tblk, &TxAnchor.unlock_queue,
@@ -2826,10 +2828,13 @@ void txLazyUnlock(struct tblock * tblk)
 	list_add_tail(&tblk->cqueue, &TxAnchor.unlock_queue);
 	/*
 	 * Don't wake up a commit thread if there is already one servicing
-	 * this superblock.
+	 * this superblock, or if the last one we woke up hasn't started yet.
 	 */
-	if (!(JFS_SBI(tblk->sb)->commit_state & IN_LAZYCOMMIT))
+	if (!(JFS_SBI(tblk->sb)->commit_state & IN_LAZYCOMMIT) &&
+	    !jfs_commit_thread_waking) {
+		jfs_commit_thread_waking = 1;
 		wake_up(&jfs_commit_thread_wait);
+	}
 	LAZY_UNLOCK(flags);
 }
 

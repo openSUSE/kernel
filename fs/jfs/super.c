@@ -622,7 +622,7 @@ static int __init init_jfs_fs(void)
 
 	if (commit_threads < 1)
 		commit_threads = num_online_cpus();
-	else if (commit_threads > MAX_COMMIT_THREADS)
+	if (commit_threads > MAX_COMMIT_THREADS)
 		commit_threads = MAX_COMMIT_THREADS;
 
 	for (i = 0; i < commit_threads; i++) {
