@@ -1152,6 +1152,13 @@ static void nodemgr_update_node(struct node_entry *ne, struct csr1212_csr *csr,
 
 		/* Mark the node as new, so it gets re-probed */
 		ne->needs_probe = 1;
+	} else {
+		/* old cache is valid, so update its generation */
+		struct nodemgr_csr_info *ci = ne->csr->private;
+		ci->generation = generation;
+		/* free the partially filled now unneeded new cache */
+		kfree(csr->private);
+		csr1212_destroy_csr(csr);
 	}
 
 	if (ne->in_limbo)
