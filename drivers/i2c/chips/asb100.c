@@ -36,17 +36,12 @@
     asb100	7	3	1	4	0x31	0x0694	yes	no
 */
 
-#include <linux/config.h>
 #include <linux/module.h>
 #include <linux/slab.h>
-#include <linux/ioport.h>
-#include <linux/types.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 #include <linux/i2c-vid.h>
 #include <linux/init.h>
-#include <asm/errno.h>
-#include <asm/io.h>
 #include "lm75.h"
 
 /*
