@@ -4,7 +4,7 @@
 #
 
 extra-y := vmlinux.lds
-clean-files := vmlinux.lds.S
+clean-files := vmlinux.lds.S config.tmp
 
 obj-y = checksum.o config.o exec_kern.o exitcode.o \
 	helper.o init_task.o irq.o irq_user.o ksyms.o main.o mem.o mem_user.o \
@@ -34,11 +34,25 @@ CFLAGS_frame.o := -fno-omit-frame-pointer
 $(USER_OBJS) : %.o: %.c
 	$(CC) $(USER_CFLAGS) $(CFLAGS_$(notdir $@)) -c -o $@ $<
 
-QUOTE = 'my $$config=`cat $(TOPDIR)/.config`; $$config =~ s/"/\\"/g ; $$config =~ s/\n/\\n"\n"/g ; while(<STDIN>) { $$_ =~ s/CONFIG/$$config/; print $$_ }'
-
-quiet_cmd_quote = QUOTE   $@
-cmd_quote = $(PERL) -e $(QUOTE) < $< > $@
-
 targets += config.c
-$(obj)/config.c : $(src)/config.c.in $(TOPDIR)/.config FORCE
-	$(call if_changed,quote)
+
+# Be careful with the below Sed code - sed is pitfall-rich!
+# We use sed to lower build requirements, for "embedded" builders for instance.
+
+$(obj)/config.tmp: $(objtree)/.config FORCE
+	$(call if_changed,quote1)
+
+quiet_cmd_quote1 = QUOTE   $@
+      cmd_quote1 = sed -e 's/"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' \
+		   $< > $@
+
+$(obj)/config.c: $(src)/config.c.in $(obj)/config.tmp FORCE
+	$(call if_changed,quote2)
+
+quiet_cmd_quote2 = QUOTE   $@
+      cmd_quote2 = sed -e '/CONFIG/{'          \
+		  -e 's/"CONFIG"\;/""/'        \
+		  -e 'r $(obj)/config.tmp'     \
+		  -e 'a""\;'                   \
+		  -e '}'                       \
+		  $< > $@
