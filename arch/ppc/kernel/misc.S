@@ -1450,3 +1450,4 @@ _GLOBAL(sys_call_table)
 	.long sys_add_key
 	.long sys_request_key		/* 270 */
 	.long sys_keyctl
+	.long sys_waitid

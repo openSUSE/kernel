@@ -590,7 +590,7 @@ ia32_sys_call_table:
 	.quad compat_sys_mq_notify
 	.quad compat_sys_mq_getsetattr
 	.quad quiet_ni_syscall		/* reserved for kexec */
-	.quad sys32_waitid
+	.quad compat_sys_waitid
 	.quad quiet_ni_syscall		/* sys_altroot */
 	.quad sys_add_key
 	.quad sys_request_key

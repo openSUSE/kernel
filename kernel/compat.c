@@ -23,6 +23,7 @@
 #include <linux/security.h>
 
 #include <asm/uaccess.h>
+#include <asm/bug.h>
 
 int get_compat_timespec(struct timespec *ts, const struct compat_timespec __user *cts)
 {
@@ -411,6 +412,36 @@ compat_sys_wait4(compat_pid_t pid, compat_uint_t __user *stat_addr, int options,
 		}
 		return ret;
 	}
+}
+
+asmlinkage long compat_sys_waitid(int which, compat_pid_t pid,
+		struct compat_siginfo __user *uinfo, int options,
+		struct compat_rusage __user *uru)
+{
+	siginfo_t info;
+	struct rusage ru;
+	long ret;
+	mm_segment_t old_fs = get_fs();
+
+	memset(&info, 0, sizeof(info));
+
+	set_fs(KERNEL_DS);
+	ret = sys_waitid(which, pid, (siginfo_t __user *)&info, options,
+			 uru ? (struct rusage __user *)&ru : NULL);
+	set_fs(old_fs);
+
+	if ((ret < 0) || (info.si_signo == 0))
+		return ret;
+
+	if (uru) {
+		ret = put_compat_rusage(&ru, uru);
+		if (ret)
+			return ret;
+	}
+
+	BUG_ON(info.si_code & __SI_MASK);
+	info.si_code |= __SI_CHLD;
+	return copy_siginfo_to_user32(uinfo, &info);
 }
 
 static int compat_get_user_cpu_mask(compat_ulong_t __user *user_mask_ptr,
