@@ -282,8 +282,7 @@ cifs_demultiplex_thread(struct TCP_Server_Info *server)
 				cFYI(0,("Received 4 byte keep alive packet"));
 			} else if (temp[0] == (char) RFC1002_POSITIVE_SESSION_RESPONSE) {
 					cFYI(1,("Good RFC 1002 session rsp"));
-			} else if ((temp[0] == (char)RFC1002_NEGATIVE_SESSION_RESPONSE)
-				   && (length == 5)) {
+			} else if (temp[0] == (char)RFC1002_NEGATIVE_SESSION_RESPONSE) {
 				/* we get this from Windows 98 instead of error on SMB negprot response */
 				cFYI(1,("Negative RFC 1002 Session Response Error 0x%x)",temp[4]));
 				if(server->tcpStatus == CifsNew) {
