@@ -154,7 +154,6 @@ struct mthca_wq {
 	void *last;
 	int   max_gs;
 	int   wqe_shift;
-	enum ib_sig_type policy;
 };
 
 struct mthca_qp {
@@ -172,6 +171,7 @@ struct mthca_qp {
 
 	struct mthca_wq        rq;
 	struct mthca_wq        sq;
+	enum ib_sig_type       sq_policy;
 	int                    send_wqe_offset;
 
 	u64                   *wrid;

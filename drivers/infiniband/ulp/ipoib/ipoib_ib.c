@@ -105,7 +105,6 @@ static inline int ipoib_ib_receive(struct ipoib_dev_priv *priv,
 		.wr_id 	    = wr_id | IPOIB_OP_RECV,
 		.sg_list    = &list,
 		.num_sge    = 1,
-		.recv_flags = IB_RECV_SIGNALED
 	};
 	struct ib_recv_wr *bad_wr;
 

@@ -690,7 +690,7 @@ int mthca_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr, int attr_mask)
 					     MTHCA_QP_BIT_SRE           |
 					     MTHCA_QP_BIT_SWE           |
 					     MTHCA_QP_BIT_SAE);
-	if (qp->sq.policy == IB_SIGNAL_ALL_WR)
+	if (qp->sq_policy == IB_SIGNAL_ALL_WR)
 		qp_context->params1 |= cpu_to_be32(MTHCA_QP_BIT_SSC);
 	if (attr_mask & IB_QP_RETRY_CNT) {
 		qp_context->params1 |= cpu_to_be32(attr->retry_cnt << 16);
@@ -778,8 +778,8 @@ int mthca_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr, int attr_mask)
 		qp->resp_depth = attr->max_rd_atomic;
 	}
 
-	if (qp->rq.policy == IB_SIGNAL_ALL_WR)
-		qp_context->params2 |= cpu_to_be32(MTHCA_QP_BIT_RSC);
+	qp_context->params2 |= cpu_to_be32(MTHCA_QP_BIT_RSC);
+
 	if (attr_mask & IB_QP_MIN_RNR_TIMER) {
 		qp_context->rnr_nextrecvpsn |= cpu_to_be32(attr->min_rnr_timer << 24);
 		qp_param->opt_param_mask |= cpu_to_be32(MTHCA_QP_OPTPAR_RNR_TIMEOUT);
@@ -977,7 +977,6 @@ static int mthca_alloc_qp_common(struct mthca_dev *dev,
 				 struct mthca_cq *send_cq,
 				 struct mthca_cq *recv_cq,
 				 enum ib_sig_type send_policy,
-				 enum ib_sig_type recv_policy,
 				 struct mthca_qp *qp)
 {
 	int err;
@@ -987,8 +986,7 @@ static int mthca_alloc_qp_common(struct mthca_dev *dev,
 	qp->state    	 = IB_QPS_RESET;
 	qp->atomic_rd_en = 0;
 	qp->resp_depth   = 0;
-	qp->sq.policy    = send_policy;
-	qp->rq.policy    = recv_policy;
+	qp->sq_policy    = send_policy;
 	qp->rq.cur       = 0;
 	qp->sq.cur       = 0;
 	qp->rq.next      = 0;
@@ -1008,7 +1006,6 @@ int mthca_alloc_qp(struct mthca_dev *dev,
 		   struct mthca_cq *recv_cq,
 		   enum ib_qp_type type,
 		   enum ib_sig_type send_policy,
-		   enum ib_sig_type recv_policy,
 		   struct mthca_qp *qp)
 {
 	int err;
@@ -1025,7 +1022,7 @@ int mthca_alloc_qp(struct mthca_dev *dev,
 		return -ENOMEM;
 
 	err = mthca_alloc_qp_common(dev, pd, send_cq, recv_cq,
-				    send_policy, recv_policy, qp);
+				    send_policy, qp);
 	if (err) {
 		mthca_free(&dev->qp_table.alloc, qp->qpn);
 		return err;
@@ -1044,7 +1041,6 @@ int mthca_alloc_sqp(struct mthca_dev *dev,
 		    struct mthca_cq *send_cq,
 		    struct mthca_cq *recv_cq,
 		    enum ib_sig_type send_policy,
-		    enum ib_sig_type recv_policy,
 		    int qpn,
 		    int port,
 		    struct mthca_sqp *sqp)
@@ -1073,8 +1069,7 @@ int mthca_alloc_sqp(struct mthca_dev *dev,
 	sqp->qp.transport = MLX;
 
 	err = mthca_alloc_qp_common(dev, pd, send_cq, recv_cq,
-				    send_policy, recv_policy,
-				    &sqp->qp);
+				    send_policy, &sqp->qp);
 	if (err)
 		goto err_out_free;
 
@@ -1495,9 +1490,7 @@ int mthca_post_receive(struct ib_qp *ibqp, struct ib_recv_wr *wr,
 		((struct mthca_next_seg *) wqe)->nda_op = 0;
 		((struct mthca_next_seg *) wqe)->ee_nds =
 			cpu_to_be32(MTHCA_NEXT_DBD);
-		((struct mthca_next_seg *) wqe)->flags =
-			(wr->recv_flags & IB_RECV_SIGNALED) ?
-			cpu_to_be32(MTHCA_NEXT_CQ_UPDATE) : 0;
+		((struct mthca_next_seg *) wqe)->flags = 0;
 
 		wqe += sizeof (struct mthca_next_seg);
 		size = sizeof (struct mthca_next_seg) / 16;

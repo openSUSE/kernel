@@ -343,7 +343,7 @@ static struct ib_qp *mthca_create_qp(struct ib_pd *pd,
 				     to_mcq(init_attr->send_cq),
 				     to_mcq(init_attr->recv_cq),
 				     init_attr->qp_type, init_attr->sq_sig_type,
-				     init_attr->rq_sig_type, qp);
+				     qp);
 		qp->ibqp.qp_num = qp->qpn;
 		break;
 	}
@@ -364,7 +364,7 @@ static struct ib_qp *mthca_create_qp(struct ib_pd *pd,
 		err = mthca_alloc_sqp(to_mdev(pd->device), to_mpd(pd),
 				      to_mcq(init_attr->send_cq),
 				      to_mcq(init_attr->recv_cq),
-				      init_attr->sq_sig_type, init_attr->rq_sig_type,
+				      init_attr->sq_sig_type,
 				      qp->ibqp.qp_num, init_attr->port_num,
 				      to_msqp(qp));
 		break;

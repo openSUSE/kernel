@@ -2191,7 +2191,6 @@ static int ib_mad_post_receive_mads(struct ib_mad_qp_info *qp_info,
 	recv_wr.next = NULL;
 	recv_wr.sg_list = &sg_list;
 	recv_wr.num_sge = 1;
-	recv_wr.recv_flags = IB_RECV_SIGNALED;
 
 	do {
 		/* Allocate and map receive buffer */
@@ -2386,7 +2385,6 @@ static int create_mad_qp(struct ib_mad_qp_info *qp_info,
 	qp_init_attr.send_cq = qp_info->port_priv->cq;
 	qp_init_attr.recv_cq = qp_info->port_priv->cq;
 	qp_init_attr.sq_sig_type = IB_SIGNAL_ALL_WR;
-	qp_init_attr.rq_sig_type = IB_SIGNAL_ALL_WR;
 	qp_init_attr.cap.max_send_wr = IB_MAD_QP_SEND_SIZE;
 	qp_init_attr.cap.max_recv_wr = IB_MAD_QP_RECV_SIZE;
 	qp_init_attr.cap.max_send_sge = IB_MAD_SEND_REQ_MAX_SG;
