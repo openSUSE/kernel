@@ -93,7 +93,7 @@ static int external;
 static int libretto;
 static int nostretch;
 static int nopciburst;
-static char *mode_option __initdata = NULL;
+static char *mode_option __devinitdata = NULL;
 
 #ifdef MODULE
 
