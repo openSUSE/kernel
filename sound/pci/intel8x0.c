@@ -1774,6 +1774,12 @@ static struct ac97_quirk ac97_quirks[] __devinitdata = {
 		.type = AC97_TUNE_HP_ONLY
 	},
 	{
+		.vendor = 0x1028,
+		.device = 0x0163,
+		.name = "Dell Unknown",	/* STAC9750/51 */
+		.type = AC97_TUNE_HP_ONLY
+	},
+	{
 		.vendor = 0x103c,
 		.device = 0x006d,
 		.name = "HP zv5000",
