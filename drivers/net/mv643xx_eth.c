@@ -28,7 +28,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 #include <linux/init.h>
-#include <linux/pci.h>
+#include <linux/dma-mapping.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
 #include <linux/etherdevice.h>
@@ -160,9 +160,9 @@ static void mv64340_eth_rx_task(void *data)
 			pkt_info.byte_cnt += 8;
 		}
 		pkt_info.buf_ptr =
-		    pci_map_single(0, skb->data,
+		    dma_map_single(NULL, skb->data,
 				   dev->mtu + ETH_HLEN + 4 + 2 + EXTRA_BYTES,
-				   PCI_DMA_FROMDEVICE);
+				   DMA_FROM_DEVICE);
 		pkt_info.return_info = skb;
 		if (eth_rx_return_buff(mp, &pkt_info) != ETH_OK) {
 			printk(KERN_ERR
@@ -346,11 +346,11 @@ static int mv64340_eth_free_tx_queue(struct net_device *dev,
 		 */
 		if (pkt_info.return_info) {
 			if (skb_shinfo(pkt_info.return_info)->nr_frags)
-				pci_unmap_page(NULL, pkt_info.buf_ptr,
-					pkt_info.byte_cnt, PCI_DMA_TODEVICE);
+				dma_unmap_page(NULL, pkt_info.buf_ptr,
+					pkt_info.byte_cnt, DMA_TO_DEVICE);
 			else
-				pci_unmap_single(NULL, pkt_info.buf_ptr,
-					pkt_info.byte_cnt, PCI_DMA_TODEVICE);
+				dma_unmap_single(NULL, pkt_info.buf_ptr,
+					pkt_info.byte_cnt, DMA_TO_DEVICE);
 
 			dev_kfree_skb_irq(pkt_info.return_info);
 			released = 0;
@@ -364,8 +364,8 @@ static int mv64340_eth_free_tx_queue(struct net_device *dev,
 						" counter is corrupted");
 			mp->tx_ring_skbs--;
 		} else 
-			pci_unmap_page(NULL, pkt_info.buf_ptr,
-					pkt_info.byte_cnt, PCI_DMA_TODEVICE);
+			dma_unmap_page(NULL, pkt_info.buf_ptr,
+					pkt_info.byte_cnt, DMA_TO_DEVICE);
 	}
 
 	spin_unlock(&mp->lock);
@@ -830,7 +830,8 @@ static int mv64340_eth_real_open(struct net_device *dev)
 	mp->tx_desc_area_size = size;
 
 	/* Assumes allocated ring is 16 bytes alligned */
-	mp->p_tx_desc_area = pci_alloc_consistent(NULL, size, &mp->tx_desc_dma);
+	mp->p_tx_desc_area = dma_alloc_coherent(NULL, size, &mp->tx_desc_dma,
+								GFP_KERNEL);
 	if (!mp->p_tx_desc_area) {
 		printk(KERN_ERR "%s: Cannot allocate Tx Ring (size %d bytes)\n",
 		       dev->name, size);
@@ -850,16 +851,16 @@ static int mv64340_eth_real_open(struct net_device *dev)
 
 	/* Assumes allocated ring is 16 bytes aligned */
 
-	mp->p_rx_desc_area = pci_alloc_consistent(NULL, size, &mp->rx_desc_dma);
+	mp->p_rx_desc_area = dma_alloc_coherent(NULL, size, &mp->rx_desc_dma,
+								GFP_KERNEL);
 
 	if (!mp->p_rx_desc_area) {
 		printk(KERN_ERR "%s: Cannot allocate Rx ring (size %d bytes)\n",
 		       dev->name, size);
 		printk(KERN_ERR "%s: Freeing previously allocated TX queues...",
 		       dev->name);
-		pci_free_consistent(0, mp->tx_desc_area_size,
-				    (void *) mp->p_tx_desc_area,
-				    mp->tx_desc_dma);
+		dma_free_coherent(NULL, mp->tx_desc_area_size,
+				    mp->p_tx_desc_area, mp->tx_desc_dma);
 		return -ENOMEM;
 	}
 	memset(mp->p_rx_desc_area, 0, size);
@@ -921,8 +922,8 @@ static void mv64340_eth_free_tx_rings(struct net_device *dev)
 		printk("%s: Error on Tx descriptor free - could not free %d"
 		     " descriptors\n", dev->name,
 		     mp->tx_ring_skbs);
-	pci_free_consistent(0, mp->tx_desc_area_size,
-			    (void *) mp->p_tx_desc_area, mp->tx_desc_dma);
+	dma_free_coherent(0, mp->tx_desc_area_size,
+			    mp->p_tx_desc_area, mp->tx_desc_dma);
 }
 
 static void mv64340_eth_free_rx_rings(struct net_device *dev)
@@ -951,9 +952,8 @@ static void mv64340_eth_free_rx_rings(struct net_device *dev)
 		       "%s: Error in freeing Rx Ring. %d skb's still"
 		       " stuck in RX Ring - ignoring them\n", dev->name,
 		       mp->rx_ring_skbs);
-	pci_free_consistent(0, mp->rx_desc_area_size,
-			    (void *) mp->p_rx_desc_area,
-			    mp->rx_desc_dma);
+	dma_free_coherent(NULL, mp->rx_desc_area_size,
+			    mp->p_rx_desc_area, mp->rx_desc_dma);
 }
 
 /*
@@ -1016,20 +1016,19 @@ static void mv64340_tx(struct net_device *dev)
 	while (eth_tx_return_desc(mp, &pkt_info) == ETH_OK) {
 		if (pkt_info.return_info) {
 			if (skb_shinfo(pkt_info.return_info)->nr_frags) 
-                                 pci_unmap_page(NULL, pkt_info.buf_ptr,
-                                             pkt_info.byte_cnt,
-                                             PCI_DMA_TODEVICE);
+				dma_unmap_page(NULL, pkt_info.buf_ptr,
+					pkt_info.byte_cnt, DMA_TO_DEVICE);
 			else
-                                 pci_unmap_single(NULL, pkt_info.buf_ptr,
-                                             pkt_info.byte_cnt,
-                                             PCI_DMA_TODEVICE);
+				dma_unmap_single(NULL, pkt_info.buf_ptr,
+					pkt_info.byte_cnt, DMA_TO_DEVICE);
+
 			dev_kfree_skb_irq(pkt_info.return_info);
 
 			if (mp->tx_ring_skbs)
 				mp->tx_ring_skbs--;
                 } else 
-                       pci_unmap_page(NULL, pkt_info.buf_ptr, pkt_info.byte_cnt,
-                                      PCI_DMA_TODEVICE);
+			dma_unmap_page(NULL, pkt_info.buf_ptr,
+					pkt_info.byte_cnt, DMA_TO_DEVICE);
 	}
 
 	if (netif_queue_stopped(dev) &&
@@ -1162,8 +1161,8 @@ linear:
 			}
 		}
 		pkt_info.byte_cnt = skb->len;
-		pkt_info.buf_ptr = pci_map_single(0, skb->data, skb->len,
-		                                  PCI_DMA_TODEVICE);
+		pkt_info.buf_ptr = dma_map_single(NULL, skb->data, skb->len,
+							  DMA_TO_DEVICE);
 		pkt_info.return_info = skb;
 		status = eth_port_send(mp, &pkt_info);
 		if ((status == ETH_ERROR) || (status == ETH_QUEUE_FULL))
@@ -1184,8 +1183,8 @@ linear:
 
                 /* first frag which is skb header */
                 pkt_info.byte_cnt = skb_headlen(skb);
-                pkt_info.buf_ptr = pci_map_single(0, skb->data,
-                                        skb_headlen(skb), PCI_DMA_TODEVICE);
+                pkt_info.buf_ptr = dma_map_single(NULL, skb->data,
+                                        skb_headlen(skb), DMA_TO_DEVICE);
                 pkt_info.return_info = 0;
                 pkt_info.cmd_sts = ETH_TX_FIRST_DESC;
 
@@ -1239,9 +1238,9 @@ linear:
                         }
                         pkt_info.byte_cnt = this_frag->size;
 
-                        pkt_info.buf_ptr = pci_map_page(NULL, this_frag->page,
+                        pkt_info.buf_ptr = dma_map_page(NULL, this_frag->page,
                                         this_frag->page_offset,
-                                        this_frag->size, PCI_DMA_TODEVICE);
+                                        this_frag->size, DMA_TO_DEVICE);
 
                         status = eth_port_send(mp, &pkt_info);
 
@@ -1261,8 +1260,8 @@ linear:
 	pkt_info.cmd_sts = ETH_TX_ENABLE_INTERRUPT | ETH_TX_FIRST_DESC |
 							ETH_TX_LAST_DESC;
 	pkt_info.byte_cnt = skb->len;
-	pkt_info.buf_ptr = pci_map_single(0, skb->data, skb->len,
-							PCI_DMA_TODEVICE);
+	pkt_info.buf_ptr = dma_map_single(NULL, skb->data, skb->len,
+								DMA_TO_DEVICE);
 	pkt_info.return_info = skb;
 	status = eth_port_send(mp, &pkt_info);
 	if ((status == ETH_ERROR) || (status == ETH_QUEUE_FULL))
