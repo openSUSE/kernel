@@ -108,7 +108,6 @@ superio_exit(void)
 struct smsc47m1_data {
 	struct i2c_client client;
 	struct semaphore lock;
-	int sysctl_id;
 
 	struct semaphore update_lock;
 	unsigned long last_updated;	/* In jiffies */
@@ -132,8 +131,6 @@ static void smsc47m1_write_value(struct i2c_client *client, u8 reg, u8 value);
 static struct smsc47m1_data *smsc47m1_update_device(struct device *dev,
 		int init);
 
-
-static int smsc47m1_id;
 
 static struct i2c_driver smsc47m1_driver = {
 	.owner		= THIS_MODULE,
@@ -420,8 +417,6 @@ static int smsc47m1_detect(struct i2c_adapter *adapter, int address, int kind)
 	new_client->flags = 0;
 
 	strlcpy(new_client->name, "smsc47m1", I2C_NAME_SIZE);
-
-	new_client->id = smsc47m1_id++;
 	init_MUTEX(&data->update_lock);
 
 	/* If no function is properly configured, there's no point in

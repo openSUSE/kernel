@@ -114,12 +114,6 @@ struct w83l785ts_data {
 };
 
 /*
- * Internal variables
- */
-
-static int w83l785ts_id = 0;
-
-/*
  * Sysfs stuff
  */
 
@@ -229,7 +223,6 @@ static int w83l785ts_detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* We can fill in the remaining client fields. */
 	strlcpy(new_client->name, "w83l785ts", I2C_NAME_SIZE);
-	new_client->id = w83l785ts_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 

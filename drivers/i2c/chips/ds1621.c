@@ -95,8 +95,6 @@ static struct i2c_driver ds1621_driver = {
 	.detach_client	= ds1621_detach_client,
 };
 
-static int ds1621_id;
-
 /* All registers are word-sized, except for the configuration register.
    DS1621 uses a high-byte first convention, which is exactly opposite to
    the usual practice. */
@@ -236,8 +234,6 @@ int ds1621_detect(struct i2c_adapter *adapter, int address,
 
 	/* Fill in remaining client fields and put it into the global list */
 	strlcpy(new_client->name, "ds1621", I2C_NAME_SIZE);
-
-	new_client->id = ds1621_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 

@@ -117,12 +117,6 @@ struct max1619_data {
 };
 
 /*
- * Internal variables
- */
-
-static int max1619_id;
-
-/*
  * Sysfs stuff
  */
 
@@ -267,7 +261,6 @@ static int max1619_detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* We can fill in the remaining client fields */
 	strlcpy(new_client->name, name, I2C_NAME_SIZE);
-	new_client->id = max1619_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 

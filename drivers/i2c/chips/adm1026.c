@@ -313,8 +313,6 @@ static struct i2c_driver adm1026_driver = {
 	.detach_client  = adm1026_detach_client,
 };
 
-static int adm1026_id;
-
 int adm1026_attach_adapter(struct i2c_adapter *adapter)
 {
 	if (!(adapter->class & I2C_CLASS_HWMON)) {
@@ -363,49 +361,47 @@ void adm1026_init_client(struct i2c_client *client)
 	int value, i;
 	struct adm1026_data *data = i2c_get_clientdata(client);
 
-        dev_dbg(&client->dev,"(%d): Initializing device\n", client->id);
+        dev_dbg(&client->dev, "Initializing device\n");
 	/* Read chip config */
 	data->config1 = adm1026_read_value(client, ADM1026_REG_CONFIG1);
 	data->config2 = adm1026_read_value(client, ADM1026_REG_CONFIG2);
 	data->config3 = adm1026_read_value(client, ADM1026_REG_CONFIG3);
 
 	/* Inform user of chip config */
-	dev_dbg(&client->dev, "(%d): ADM1026_REG_CONFIG1 is: 0x%02x\n",
-		client->id, data->config1);
+	dev_dbg(&client->dev, "ADM1026_REG_CONFIG1 is: 0x%02x\n",
+		data->config1);
 	if ((data->config1 & CFG1_MONITOR) == 0) {
-		dev_dbg(&client->dev, "(%d): Monitoring not currently "
-			"enabled.\n", client->id);
+		dev_dbg(&client->dev, "Monitoring not currently "
+			"enabled.\n");
 	}
 	if (data->config1 & CFG1_INT_ENABLE) {
-		dev_dbg(&client->dev, "(%d): SMBALERT interrupts are "
-			"enabled.\n", client->id);
+		dev_dbg(&client->dev, "SMBALERT interrupts are "
+			"enabled.\n");
 	}
 	if (data->config1 & CFG1_AIN8_9) {
-		dev_dbg(&client->dev, "(%d): in8 and in9 enabled. "
-			"temp3 disabled.\n", client->id);
+		dev_dbg(&client->dev, "in8 and in9 enabled. "
+			"temp3 disabled.\n");
 	} else {
-		dev_dbg(&client->dev, "(%d): temp3 enabled.  in8 and "
-			"in9 disabled.\n", client->id);
+		dev_dbg(&client->dev, "temp3 enabled.  in8 and "
+			"in9 disabled.\n");
 	}
 	if (data->config1 & CFG1_THERM_HOT) {
-		dev_dbg(&client->dev, "(%d): Automatic THERM, PWM, "
-			"and temp limits enabled.\n", client->id);
+		dev_dbg(&client->dev, "Automatic THERM, PWM, "
+			"and temp limits enabled.\n");
 	}
 
 	value = data->config3;
 	if (data->config3 & CFG3_GPIO16_ENABLE) {
-		dev_dbg(&client->dev, "(%d): GPIO16 enabled.  THERM"
-			"pin disabled.\n", client->id);
+		dev_dbg(&client->dev, "GPIO16 enabled.  THERM"
+			"pin disabled.\n");
 	} else {
-		dev_dbg(&client->dev, "(%d): THERM pin enabled.  "
-			"GPIO16 disabled.\n", client->id);
+		dev_dbg(&client->dev, "THERM pin enabled.  "
+			"GPIO16 disabled.\n");
 	}
 	if (data->config3 & CFG3_VREF_250) {
-		dev_dbg(&client->dev, "(%d): Vref is 2.50 Volts.\n",
-			client->id);
+		dev_dbg(&client->dev, "Vref is 2.50 Volts.\n");
 	} else {
-		dev_dbg(&client->dev, "(%d): Vref is 1.82 Volts.\n",
-			client->id);
+		dev_dbg(&client->dev, "Vref is 1.82 Volts.\n");
 	}
 	/* Read and pick apart the existing GPIO configuration */
 	value = 0;
@@ -423,12 +419,11 @@ void adm1026_init_client(struct i2c_client *client)
 	adm1026_print_gpio(client);
 
 	/* If the user asks us to reprogram the GPIO config, then
-	 *   do it now.  But only if this is the first ADM1026.
+	 * do it now.
 	 */
-	if (client->id == 0
-	    && (gpio_input[0] != -1 || gpio_output[0] != -1
+	if (gpio_input[0] != -1 || gpio_output[0] != -1
 		|| gpio_inverted[0] != -1 || gpio_normal[0] != -1
-		|| gpio_fan[0] != -1)) {
+		|| gpio_fan[0] != -1) {
 		adm1026_fixup_gpio(client);
 	}
 
@@ -448,8 +443,7 @@ void adm1026_init_client(struct i2c_client *client)
 	value = adm1026_read_value(client, ADM1026_REG_CONFIG1);
 	/* Set MONITOR, clear interrupt acknowledge and s/w reset */
 	value = (value | CFG1_MONITOR) & (~CFG1_INT_CLEAR & ~CFG1_RESET);
-	dev_dbg(&client->dev, "(%d): Setting CONFIG to: 0x%02x\n",
-		client->id, value);
+	dev_dbg(&client->dev, "Setting CONFIG to: 0x%02x\n", value);
 	data->config1 = value;
 	adm1026_write_value(client, ADM1026_REG_CONFIG1, value);
 
@@ -467,31 +461,30 @@ void adm1026_print_gpio(struct i2c_client *client)
 	struct adm1026_data *data = i2c_get_clientdata(client);
 	int  i;
 
-	dev_dbg(&client->dev, "(%d): GPIO config is:", client->id);
+	dev_dbg(&client->dev, "GPIO config is:");
 	for (i = 0;i <= 7;++i) {
 		if (data->config2 & (1 << i)) {
-			dev_dbg(&client->dev, "\t(%d): %sGP%s%d\n", client->id,
+			dev_dbg(&client->dev, "\t%sGP%s%d\n",
 				data->gpio_config[i] & 0x02 ? "" : "!",
 				data->gpio_config[i] & 0x01 ? "OUT" : "IN",
 				i);
 		} else {
-			dev_dbg(&client->dev, "\t(%d): FAN%d\n",
-				client->id, i);
+			dev_dbg(&client->dev, "\tFAN%d\n", i);
 		}
 	}
 	for (i = 8;i <= 15;++i) {
-		dev_dbg(&client->dev, "\t(%d): %sGP%s%d\n", client->id,
+		dev_dbg(&client->dev, "\t%sGP%s%d\n",
 			data->gpio_config[i] & 0x02 ? "" : "!",
 			data->gpio_config[i] & 0x01 ? "OUT" : "IN",
 			i);
 	}
 	if (data->config3 & CFG3_GPIO16_ENABLE) {
-		dev_dbg(&client->dev, "\t(%d): %sGP%s16\n", client->id,
+		dev_dbg(&client->dev, "\t%sGP%s16\n",
 			data->gpio_config[16] & 0x02 ? "" : "!",
 			data->gpio_config[16] & 0x01 ? "OUT" : "IN");
 	} else {
 		/* GPIO16 is THERM  */
-		dev_dbg(&client->dev, "\t(%d): THERM\n", client->id);
+		dev_dbg(&client->dev, "\tTHERM\n");
 	}
 }
 
@@ -582,8 +575,7 @@ static struct adm1026_data *adm1026_update_device(struct device *dev)
 	if (!data->valid
 	    || (jiffies - data->last_reading > ADM1026_DATA_INTERVAL)) {
 		/* Things that change quickly */
-		dev_dbg(&client->dev,"(%d): Reading sensor values\n", 
-			client->id);
+		dev_dbg(&client->dev,"Reading sensor values\n");
 		for (i = 0;i <= 16;++i) {
 			data->in[i] =
 			    adm1026_read_value(client, ADM1026_REG_IN[i]);
@@ -631,8 +623,7 @@ static struct adm1026_data *adm1026_update_device(struct device *dev)
 	if (!data->valid || (jiffies - data->last_config > 
 		ADM1026_CONFIG_INTERVAL)) {
 		/* Things that don't change often */
-		dev_dbg(&client->dev, "(%d): Reading config values\n", 
-			client->id);
+		dev_dbg(&client->dev, "Reading config values\n");
 		for (i = 0;i <= 16;++i) {
 			data->in_min[i] = adm1026_read_value(client, 
 				ADM1026_REG_IN_MIN[i]);
@@ -712,8 +703,7 @@ static struct adm1026_data *adm1026_update_device(struct device *dev)
 		data->last_config = jiffies;
 	};  /* last_config */
 
-	dev_dbg(&client->dev, "(%d): Setting VID from GPIO11-15.\n", 
-		client->id);
+	dev_dbg(&client->dev, "Setting VID from GPIO11-15.\n");
 	data->vid = (data->gpio >> 11) & 0x1f;
 	data->valid = 1;
 	up(&data->update_lock);
@@ -1608,15 +1598,9 @@ int adm1026_detect(struct i2c_adapter *adapter, int address,
 	strlcpy(new_client->name, type_name, I2C_NAME_SIZE);
 
 	/* Fill in the remaining client fields */
-	new_client->id = adm1026_id++;
 	data->type = kind;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
-
-	dev_dbg(&new_client->dev, "(%d): Assigning ID %d to %s at %d,0x%02x\n",
-		new_client->id, new_client->id, new_client->name,
-		i2c_adapter_id(new_client->adapter),
-		new_client->addr);
 
 	/* Tell the I2C layer a new client has arrived */
 	if ((err = i2c_attach_client(new_client)))

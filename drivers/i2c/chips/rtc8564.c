@@ -163,14 +163,12 @@ static int rtc8564_attach(struct i2c_adapter *adap, int addr, int kind)
 
 	strlcpy(new_client->name, "RTC8564", I2C_NAME_SIZE);
 	i2c_set_clientdata(new_client, d);
-	new_client->id = rtc8564_driver.id;
 	new_client->flags = I2C_CLIENT_ALLOW_USE | I2C_DF_NOTIFY;
 	new_client->addr = addr;
 	new_client->adapter = adap;
 	new_client->driver = &rtc8564_driver;
 
 	_DBG(1, "client=%p", new_client);
-	_DBG(1, "client.id=%d", new_client->id);
 
 	/* init ctrl1 reg */
 	data[0] = 0;

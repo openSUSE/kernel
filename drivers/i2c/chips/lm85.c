@@ -389,9 +389,6 @@ static struct i2c_driver lm85_driver = {
 	.detach_client  = lm85_detach_client,
 };
 
-/* Unique ID assigned to each LM85 detected */
-static int lm85_id;
-
 
 /* 4 Fans */
 static ssize_t show_fan(struct device *dev, char *buf, int nr)
@@ -1148,15 +1145,9 @@ int lm85_detect(struct i2c_adapter *adapter, int address,
 	strlcpy(new_client->name, type_name, I2C_NAME_SIZE);
 
 	/* Fill in the remaining client fields */
-	new_client->id = lm85_id++;
 	data->type = kind;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
-
-	dev_dbg(&adapter->dev, "Assigning ID %d to %s at %d,0x%02x\n",
-		new_client->id, new_client->name,
-		i2c_adapter_id(new_client->adapter),
-		new_client->addr);
 
 	/* Tell the I2C layer a new client has arrived */
 	if ((err = i2c_attach_client(new_client)))

@@ -203,12 +203,6 @@ struct lm87_data {
 };
 
 /*
- * Internal variables
- */
-
-static int lm87_id;
-
-/*
  * Sysfs stuff
  */
 
@@ -569,7 +563,6 @@ static int lm87_detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* We can fill in the remaining client fields */
 	strlcpy(new_client->name, "lm87", I2C_NAME_SIZE);
-	new_client->id = lm87_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 

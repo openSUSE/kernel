@@ -151,12 +151,6 @@ struct fscher_data {
 };
 
 /*
- * Internal variables
- */
-
-static int fscher_id;
-
-/*
  * Sysfs stuff
  */
 
@@ -337,7 +331,6 @@ static int fscher_detect(struct i2c_adapter *adapter, int address, int kind)
 	/* Fill in the remaining client fields and put it into the
 	 * global list */
 	strlcpy(new_client->name, "fscher", I2C_NAME_SIZE);
-	new_client->id = fscher_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 

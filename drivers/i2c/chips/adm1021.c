@@ -147,8 +147,6 @@ static struct i2c_driver adm1021_driver = {
 	.detach_client	= adm1021_detach_client,
 };
 
-static int adm1021_id;
-
 #define show(value)	\
 static ssize_t show_##value(struct device *dev, char *buf)		\
 {									\
@@ -299,8 +297,6 @@ static int adm1021_detect(struct i2c_adapter *adapter, int address, int kind)
 	/* Fill in the remaining client fields and put it into the global list */
 	strlcpy(new_client->name, type_name, I2C_NAME_SIZE);
 	data->type = kind;
-
-	new_client->id = adm1021_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 

@@ -110,8 +110,6 @@ static struct i2c_driver adm1031_driver = {
 	.detach_client = adm1031_detach_client,
 };
 
-static int adm1031_id;
-
 static inline u8 adm1031_read_value(struct i2c_client *client, u8 reg)
 {
 	return i2c_smbus_read_byte_data(client, reg);
@@ -781,8 +779,6 @@ static int adm1031_detect(struct i2c_adapter *adapter, int address, int kind)
 	data->chip_type = kind;
 
 	strlcpy(new_client->name, name, I2C_NAME_SIZE);
-
-	new_client->id = adm1031_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 

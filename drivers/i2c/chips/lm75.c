@@ -73,8 +73,6 @@ static struct i2c_driver lm75_driver = {
 	.detach_client	= lm75_detach_client,
 };
 
-static int lm75_id;
-
 #define show(value)	\
 static ssize_t show_##value(struct device *dev, char *buf)		\
 {									\
@@ -196,8 +194,6 @@ static int lm75_detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* Fill in the remaining client fields and put it into the global list */
 	strlcpy(new_client->name, name, I2C_NAME_SIZE);
-
-	new_client->id = lm75_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 

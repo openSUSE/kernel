@@ -159,12 +159,6 @@ static struct i2c_driver gl518_driver = {
 };
 
 /*
- * Internal variables
- */
-
-static int gl518_id;
-
-/*
  * Sysfs stuff
  */
 
@@ -396,7 +390,6 @@ static int gl518_detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* Fill in the remaining client fields */
 	strlcpy(new_client->name, "gl518sm", I2C_NAME_SIZE);
-	new_client->id = gl518_id++;
 	data->type = kind;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);

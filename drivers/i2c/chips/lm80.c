@@ -141,12 +141,6 @@ static int lm80_read_value(struct i2c_client *client, u8 reg);
 static int lm80_write_value(struct i2c_client *client, u8 reg, u8 value);
 
 /*
- * Internal variables
- */
-
-static int lm80_id;
-
-/*
  * Driver data (common to all clients)
  */
 
@@ -425,8 +419,6 @@ int lm80_detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* Fill in the remaining client fields and put it into the global list */
 	strlcpy(new_client->name, name, I2C_NAME_SIZE);
-
-	new_client->id = lm80_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 
