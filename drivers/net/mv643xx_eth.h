@@ -1,5 +1,5 @@
-#ifndef __MV64340_ETH_H__
-#define __MV64340_ETH_H__
+#ifndef __MV643XX_ETH_H__
+#define __MV643XX_ETH_H__
 
 #include <linux/version.h>
 #include <linux/module.h>
@@ -47,11 +47,11 @@
  */
 
 /* Checksum offload for Tx works */
-#define	MV64340_CHECKSUM_OFFLOAD_TX
-#define	MV64340_NAPI
-#define	MV64340_TX_FAST_REFILL
-#undef	MV64340_RX_QUEUE_FILL_ON_TASK	/* Does not work, yet */
-#undef	MV64340_COAL
+#define	MV643XX_CHECKSUM_OFFLOAD_TX
+#define	MV643XX_NAPI
+#define	MV643XX_TX_FAST_REFILL
+#undef	MV643XX_RX_QUEUE_FILL_ON_TASK	/* Does not work, yet */
+#undef	MV643XX_COAL
 
 /*
  * Number of RX / TX descriptors on RX / TX rings.
@@ -62,14 +62,14 @@
  */
 
 /* Default TX ring size is 1000 descriptors */
-#define MV64340_DEFAULT_TX_QUEUE_SIZE 1000
+#define MV643XX_DEFAULT_TX_QUEUE_SIZE 1000
 
 /* Default RX ring size is 400 descriptors */
-#define MV64340_DEFAULT_RX_QUEUE_SIZE 400
+#define MV643XX_DEFAULT_RX_QUEUE_SIZE 400
 
-#define MV64340_TX_COAL 100
-#ifdef MV64340_COAL
-#define MV64340_RX_COAL 100
+#define MV643XX_TX_COAL 100
+#ifdef MV643XX_COAL
+#define MV643XX_RX_COAL 100
 #endif
 
 /*
@@ -286,7 +286,7 @@ struct pkt_info {
 
 /* Ethernet port specific infomation */
 
-struct mv64340_private {
+struct mv643xx_private {
 	int port_num;			/* User Ethernet port number	*/
 	u8 port_mac_addr[6];		/* User defined port MAC address.*/
 	u32 port_config;		/* User port configuration value*/
@@ -311,12 +311,12 @@ struct mv64340_private {
 
 	/* Next available and first returning Tx resource */
 	int tx_curr_desc_q, tx_used_desc_q;
-#ifdef MV64340_CHECKSUM_OFFLOAD_TX
+#ifdef MV643XX_CHECKSUM_OFFLOAD_TX
 	int tx_first_desc_q;
 	u32 tx_first_command;
 #endif
 
-#ifdef MV64340_TX_FAST_REFILL
+#ifdef MV643XX_TX_FAST_REFILL
 	u32 tx_clean_threshold;
 #endif
 
@@ -333,7 +333,7 @@ struct mv64340_private {
 	struct work_struct tx_timeout_task;
 
 	/*
-	 * Former struct mv64340_eth_priv members start here
+	 * Former struct mv643xx_eth_priv members start here
 	 */
 	struct net_device_stats stats;
 	spinlock_t lock;
@@ -366,9 +366,9 @@ struct mv64340_private {
 /* ethernet.h API list */
 
 /* Port operation control routines */
-static void eth_port_init(struct mv64340_private *mp);
+static void eth_port_init(struct mv643xx_private *mp);
 static void eth_port_reset(unsigned int eth_port_num);
-static void eth_port_start(struct mv64340_private *mp);
+static void eth_port_start(struct mv643xx_private *mp);
 
 static void ethernet_set_config_reg(unsigned int eth_port_num,
 				    unsigned int value);
@@ -390,13 +390,13 @@ static void eth_port_read_smi_reg(unsigned int eth_port_num,
 static void eth_clear_mib_counters(unsigned int eth_port_num);
 
 /* Port data flow control routines */
-static ETH_FUNC_RET_STATUS eth_port_send(struct mv64340_private *mp,
+static ETH_FUNC_RET_STATUS eth_port_send(struct mv643xx_private *mp,
 					 struct pkt_info *p_pkt_info);
-static ETH_FUNC_RET_STATUS eth_tx_return_desc(struct mv64340_private *mp,
+static ETH_FUNC_RET_STATUS eth_tx_return_desc(struct mv643xx_private *mp,
 					      struct pkt_info *p_pkt_info);
-static ETH_FUNC_RET_STATUS eth_port_receive(struct mv64340_private *mp,
+static ETH_FUNC_RET_STATUS eth_port_receive(struct mv643xx_private *mp,
 					    struct pkt_info *p_pkt_info);
-static ETH_FUNC_RET_STATUS eth_rx_return_buff(struct mv64340_private *mp,
+static ETH_FUNC_RET_STATUS eth_rx_return_buff(struct mv643xx_private *mp,
 					      struct pkt_info *p_pkt_info);
 
-#endif				/* __MV64340_ETH_H__ */
+#endif				/* __MV643XX_ETH_H__ */
