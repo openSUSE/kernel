@@ -1451,8 +1451,10 @@ static int ext3_group_sparse(int group)
 {
 	if (group <= 1)
 		return 1;
-	return (test_root(group, 3) || test_root(group, 5) ||
-		test_root(group, 7));
+	if (!(group & 1))
+		return 0;
+	return (test_root(group, 7) || test_root(group, 5) ||
+		test_root(group, 3));
 }
 
 /**
