@@ -423,7 +423,6 @@ static int rtc_read_proc(char *page, char **start, off_t off, int count, int *eo
 	struct rtc_wkalrm alrm;
 	struct rtc_time tm;
 	char *p = page;
-	int len;
 
 	rtc_read_time(ops, &tm);
 
@@ -472,13 +471,7 @@ static int rtc_read_proc(char *page, char **start, off_t off, int count, int *eo
 	if (ops->proc)
 		p += ops->proc(p);
 
-	len = (p - page) - off;
-	if (len < 0)
-		len = 0;
-	*eof = len <= count;
-	*start = page + off;
-
-	return len;
+	return p - page;
 }
 
 int register_rtc(struct rtc_ops *ops)
