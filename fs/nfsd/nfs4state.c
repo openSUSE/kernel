@@ -2015,12 +2015,27 @@ check_special_stateids(svc_fh *current_fh, stateid_t *stateid, int flags)
 		return nfserr_bad_stateid;
 	else if (ONE_STATEID(stateid) && (flags & RD_STATE))
 		return nfs_ok;
-	else if (flags & WR_STATE)
+	else if (nfs4_in_grace()) {
+		/* Answer in remaining cases depends on existance of
+		 * conflicting state; so we must wait out the grace period. */
+		return nfserr_grace;
+	} else if (flags & WR_STATE)
 		return nfs4_share_conflict(current_fh,
 				NFS4_SHARE_DENY_WRITE);
 	else /* (flags & RD_STATE) && ZERO_STATEID(stateid) */
 		return nfs4_share_conflict(current_fh,
 				NFS4_SHARE_DENY_READ);
+}
+
+/*
+ * Allow READ/WRITE during grace period on recovered state only for files
+ * that are not able to provide mandatory locking.
+ */
+static inline int
+io_during_grace_disallowed(struct inode *inode, int flags)
+{
+	return nfs4_in_grace() && (flags & (RD_STATE | WR_STATE))
+		&& MANDATORY_LOCK(inode);
 }
 
 /*
@@ -2032,11 +2047,15 @@ nfs4_preprocess_stateid_op(struct svc_fh *current_fh, stateid_t *stateid, int fl
 	struct nfs4_stateid *stp = NULL;
 	struct nfs4_delegation *dp = NULL;
 	stateid_t *stidp;
+	struct inode *ino = current_fh->fh_dentry->d_inode;
 	int status;
 
 	dprintk("NFSD: preprocess_stateid_op: stateid = (%08x/%08x/%08x/%08x)\n",
 		stateid->si_boot, stateid->si_stateownerid, 
 		stateid->si_fileid, stateid->si_generation); 
+
+	if (io_during_grace_disallowed(ino, flags))
+		return nfserr_grace;
 
 	if (ZERO_STATEID(stateid) || ONE_STATEID(stateid))
 		return check_special_stateids(current_fh, stateid, flags);
@@ -2049,16 +2068,18 @@ nfs4_preprocess_stateid_op(struct svc_fh *current_fh, stateid_t *stateid, int fl
 	/* BAD STATEID */
 	status = nfserr_bad_stateid;
 	if (!stateid->si_fileid) { /* delegation stateid */
-		struct inode *ino = current_fh->fh_dentry->d_inode;
-
 		if(!(dp = find_delegation_stateid(ino, stateid))) {
 			dprintk("NFSD: delegation stateid not found\n");
+			if (nfs4_in_grace())
+				status = nfserr_grace;
 			goto out;
 		}
 		stidp = &dp->dl_stateid;
 	} else { /* open or lock stateid */
 		if (!(stp = find_stateid(stateid, flags))) {
 			dprintk("NFSD: open or lock stateid not found\n");
+			if (nfs4_in_grace())
+				status = nfserr_grace;
 			goto out;
 		}
 		if ((flags & CHECK_FH) && nfs4_check_fh(current_fh, stp))

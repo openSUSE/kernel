@@ -466,8 +466,6 @@ nfsd4_read(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_read 
 	int status;
 
 	/* no need to check permission - this will be done in nfsd_read() */
-	if (nfs4_in_grace())
-		return nfserr_grace;
 
 	if (read->rd_offset >= OFFSET_MAX)
 		return nfserr_inval;
@@ -568,9 +566,6 @@ nfsd4_setattr(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_se
 {
 	int status = nfs_ok;
 
-	if (nfs4_in_grace())
-		return nfserr_grace;
-
 	if (!current_fh->fh_dentry)
 		return nfserr_nofilehandle;
 
@@ -605,9 +600,6 @@ nfsd4_write(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_writ
 	stateid_t *stateid = &write->wr_stateid;
 	u32 *p;
 	int status = nfs_ok;
-
-	if (nfs4_in_grace())
-		return nfserr_grace;
 
 	/* no need to check permission - this will be done in nfsd_write() */
 
