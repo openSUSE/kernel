@@ -59,8 +59,9 @@
 #define NL_EMULATE_DEV
 #endif
 
-struct netlink_opt
-{
+struct netlink_sock {
+	/* struct sock has to be the first member of netlink_sock */
+	struct sock		sk;
 	u32			pid;
 	unsigned int		groups;
 	u32			dst_pid;
@@ -73,7 +74,10 @@ struct netlink_opt
 	void			(*data_ready)(struct sock *sk, int bytes);
 };
 
-#define nlk_sk(__sk) ((struct netlink_opt *)(__sk)->sk_protinfo)
+static inline struct netlink_sock *nlk_sk(struct sock *sk)
+{
+	return (struct netlink_sock *)sk;
+}
 
 struct nl_pid_hash {
 	struct hlist_head *table;
@@ -122,8 +126,6 @@ static void netlink_sock_destruct(struct sock *sk)
 	BUG_TRAP(!atomic_read(&sk->sk_rmem_alloc));
 	BUG_TRAP(!atomic_read(&sk->sk_wmem_alloc));
 	BUG_TRAP(!nlk_sk(sk)->cb);
-
-	kfree(nlk_sk(sk));
 }
 
 /* This lock without WQ_FLAG_EXCLUSIVE is good on UP and it is _very_ bad on SMP.
@@ -327,7 +329,7 @@ static void netlink_remove(struct sock *sk)
 static int netlink_create(struct socket *sock, int protocol)
 {
 	struct sock *sk;
-	struct netlink_opt *nlk;
+	struct netlink_sock *nlk;
 
 	sock->state = SS_UNCONNECTED;
 
@@ -339,19 +341,15 @@ static int netlink_create(struct socket *sock, int protocol)
 
 	sock->ops = &netlink_ops;
 
-	sk = sk_alloc(PF_NETLINK, GFP_KERNEL, 1, NULL);
+	sk = sk_alloc(PF_NETLINK, GFP_KERNEL,
+		      sizeof(struct netlink_sock), NULL);
 	if (!sk)
 		return -ENOMEM;
 
 	sock_init_data(sock,sk);
 	sk_set_owner(sk, THIS_MODULE);
 
-	nlk = sk->sk_protinfo = kmalloc(sizeof(*nlk), GFP_KERNEL);
-	if (!nlk) {
-		sk_free(sk);
-		return -ENOMEM;
-	}
-	memset(nlk, 0, sizeof(*nlk));
+	nlk = nlk_sk(sk);
 
 	spin_lock_init(&nlk->cb_lock);
 	init_waitqueue_head(&nlk->wait);
@@ -364,7 +362,7 @@ static int netlink_create(struct socket *sock, int protocol)
 static int netlink_release(struct socket *sock)
 {
 	struct sock *sk = sock->sk;
-	struct netlink_opt *nlk;
+	struct netlink_sock *nlk;
 
 	if (!sk)
 		return 0;
@@ -445,7 +443,7 @@ static inline int netlink_capable(struct socket *sock, unsigned int flag)
 static int netlink_bind(struct socket *sock, struct sockaddr *addr, int addr_len)
 {
 	struct sock *sk = sock->sk;
-	struct netlink_opt *nlk = nlk_sk(sk);
+	struct netlink_sock *nlk = nlk_sk(sk);
 	struct sockaddr_nl *nladdr = (struct sockaddr_nl *)addr;
 	int err;
 	
@@ -486,7 +484,7 @@ static int netlink_connect(struct socket *sock, struct sockaddr *addr,
 {
 	int err = 0;
 	struct sock *sk = sock->sk;
-	struct netlink_opt *nlk = nlk_sk(sk);
+	struct netlink_sock *nlk = nlk_sk(sk);
 	struct sockaddr_nl *nladdr=(struct sockaddr_nl*)addr;
 
 	if (addr->sa_family == AF_UNSPEC) {
@@ -517,7 +515,7 @@ static int netlink_connect(struct socket *sock, struct sockaddr *addr,
 static int netlink_getname(struct socket *sock, struct sockaddr *addr, int *addr_len, int peer)
 {
 	struct sock *sk = sock->sk;
-	struct netlink_opt *nlk = nlk_sk(sk);
+	struct netlink_sock *nlk = nlk_sk(sk);
 	struct sockaddr_nl *nladdr=(struct sockaddr_nl *)addr;
 	
 	nladdr->nl_family = AF_NETLINK;
@@ -546,7 +544,7 @@ static struct sock *netlink_getsockbypid(struct sock *ssk, u32 pid)
 {
 	int protocol = ssk->sk_protocol;
 	struct sock *sock;
-	struct netlink_opt *nlk;
+	struct netlink_sock *nlk;
 
 	sock = netlink_lookup(protocol, pid);
 	if (!sock)
@@ -592,7 +590,7 @@ struct sock *netlink_getsockbyfilp(struct file *filp)
  */
 int netlink_attachskb(struct sock *sk, struct sk_buff *skb, int nonblock, long timeo)
 {
-	struct netlink_opt *nlk;
+	struct netlink_sock *nlk;
 
 	nlk = nlk_sk(sk);
 
@@ -635,7 +633,7 @@ int netlink_attachskb(struct sock *sk, struct sk_buff *skb, int nonblock, long t
 
 int netlink_sendskb(struct sock *sk, struct sk_buff *skb, int protocol)
 {
-	struct netlink_opt *nlk;
+	struct netlink_sock *nlk;
 	int len = skb->len;
 
 	nlk = nlk_sk(sk);
@@ -710,7 +708,7 @@ retry:
 
 static __inline__ int netlink_broadcast_deliver(struct sock *sk, struct sk_buff *skb)
 {
-	struct netlink_opt *nlk = nlk_sk(sk);
+	struct netlink_sock *nlk = nlk_sk(sk);
 #ifdef NL_EMULATE_DEV
 	if (nlk->handler) {
 		nlk->handler(sk->sk_protocol, skb);
@@ -741,7 +739,7 @@ struct netlink_broadcast_data {
 static inline int do_one_broadcast(struct sock *sk,
 				   struct netlink_broadcast_data *p)
 {
-	struct netlink_opt *nlk = nlk_sk(sk);
+	struct netlink_sock *nlk = nlk_sk(sk);
 	int val;
 
 	if (p->exclude_sk == sk)
@@ -833,7 +831,7 @@ struct netlink_set_err_data {
 static inline int do_one_set_err(struct sock *sk,
 				 struct netlink_set_err_data *p)
 {
-	struct netlink_opt *nlk = nlk_sk(sk);
+	struct netlink_sock *nlk = nlk_sk(sk);
 
 	if (sk == p->exclude_sk)
 		goto out;
@@ -868,7 +866,7 @@ void netlink_set_err(struct sock *ssk, u32 pid, u32 group, int code)
 
 static inline void netlink_rcv_wake(struct sock *sk)
 {
-	struct netlink_opt *nlk = nlk_sk(sk);
+	struct netlink_sock *nlk = nlk_sk(sk);
 
 	if (!skb_queue_len(&sk->sk_receive_queue))
 		clear_bit(0, &nlk->state);
@@ -881,7 +879,7 @@ static int netlink_sendmsg(struct kiocb *kiocb, struct socket *sock,
 {
 	struct sock_iocb *siocb = kiocb_to_siocb(kiocb);
 	struct sock *sk = sock->sk;
-	struct netlink_opt *nlk = nlk_sk(sk);
+	struct netlink_sock *nlk = nlk_sk(sk);
 	struct sockaddr_nl *addr=msg->msg_name;
 	u32 dst_pid;
 	u32 dst_groups;
@@ -965,7 +963,7 @@ static int netlink_recvmsg(struct kiocb *kiocb, struct socket *sock,
 	struct sock_iocb *siocb = kiocb_to_siocb(kiocb);
 	struct scm_cookie scm;
 	struct sock *sk = sock->sk;
-	struct netlink_opt *nlk = nlk_sk(sk);
+	struct netlink_sock *nlk = nlk_sk(sk);
 	int noblock = flags&MSG_DONTWAIT;
 	size_t copied;
 	struct sk_buff *skb;
@@ -1019,7 +1017,7 @@ out:
 
 static void netlink_data_ready(struct sock *sk, int len)
 {
-	struct netlink_opt *nlk = nlk_sk(sk);
+	struct netlink_sock *nlk = nlk_sk(sk);
 
 	if (nlk->data_ready)
 		nlk->data_ready(sk, len);
@@ -1083,7 +1081,7 @@ static void netlink_destroy_callback(struct netlink_callback *cb)
 
 static int netlink_dump(struct sock *sk)
 {
-	struct netlink_opt *nlk = nlk_sk(sk);
+	struct netlink_sock *nlk = nlk_sk(sk);
 	struct netlink_callback *cb;
 	struct sk_buff *skb;
 	struct nlmsghdr *nlh;
@@ -1133,7 +1131,7 @@ int netlink_dump_start(struct sock *ssk, struct sk_buff *skb,
 {
 	struct netlink_callback *cb;
 	struct sock *sk;
-	struct netlink_opt *nlk;
+	struct netlink_sock *nlk;
 
 	cb = kmalloc(sizeof(*cb), GFP_KERNEL);
 	if (cb == NULL)
@@ -1290,7 +1288,7 @@ static int netlink_seq_show(struct seq_file *seq, void *v)
 			 "Rmem     Wmem     Dump     Locks\n");
 	else {
 		struct sock *s = v;
-		struct netlink_opt *nlk = nlk_sk(s);
+		struct netlink_sock *nlk = nlk_sk(s);
 
 		seq_printf(seq, "%p %-3d %-6d %08x %-8d %-8d %p %d\n",
 			   s,
