@@ -992,10 +992,6 @@ oktosend:
 		
 	}
 	tmpcip += 4;
-#ifdef ED_DBGP	
-	printk("send_s870: prdaddr_1 0x%8x\n", dev->id[c][target_id].prdaddr);
-#endif
-	dev->id[c][target_id].prdaddr = virt_to_bus(dev->id[c][target_id].prd_table);
 #ifdef ED_DBGP		
 	printk("send_s870: prdaddr_2 0x%8x tmpcip %x target_id %d\n", dev->id[c][target_id].prdaddr,tmpcip,target_id);
 #endif	
