@@ -1059,7 +1059,7 @@ static snd_pcm_uframes_t snd_intel8x0_pcm_pointer(snd_pcm_substream_t * substrea
 	intel8x0_t *chip = snd_pcm_substream_chip(substream);
 	ichdev_t *ichdev = get_ichdev(substream);
 	size_t ptr1, ptr;
-	int civ, timeout = 10;
+	int civ, timeout = 100;
 	unsigned int position;
 
 	spin_lock(&chip->reg_lock);
@@ -1067,8 +1067,10 @@ static snd_pcm_uframes_t snd_intel8x0_pcm_pointer(snd_pcm_substream_t * substrea
 		civ = igetbyte(chip, ichdev->reg_offset + ICH_REG_OFF_CIV);
 		ptr1 = igetword(chip, ichdev->reg_offset + ichdev->roff_picb);
 		position = ichdev->position;
-		if (ptr1 == 0)
-			udelay(1);
+		if (ptr1 == 0) {
+			udelay(10);
+			continue;
+		}
 		if (civ == igetbyte(chip, ichdev->reg_offset + ICH_REG_OFF_CIV) &&
 		    ptr1 == igetword(chip, ichdev->reg_offset + ichdev->roff_picb))
 			break;
