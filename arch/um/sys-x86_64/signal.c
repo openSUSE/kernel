@@ -237,7 +237,7 @@ int setup_signal_stack_si(unsigned long stack_top, int sig,
 
 long sys_rt_sigreturn(struct pt_regs *regs)
 {
-	unsigned long __user sp = PT_REGS_SP(&current->thread.regs);
+	unsigned long sp = PT_REGS_SP(&current->thread.regs);
 	struct rt_sigframe __user *frame =
 		(struct rt_sigframe __user *)(sp - 8);
 	struct ucontext __user *uc = &frame->uc;
