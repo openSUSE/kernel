@@ -687,21 +687,21 @@ void __init sa1100_register_uart(int idx, int port)
 
 	switch (port) {
 	case 1:
-		sa1100_ports[idx].port.membase = (void *)&Ser1UTCR0;
+		sa1100_ports[idx].port.membase = (void __iomem *)&Ser1UTCR0;
 		sa1100_ports[idx].port.mapbase = _Ser1UTCR0;
 		sa1100_ports[idx].port.irq     = IRQ_Ser1UART;
 		sa1100_ports[idx].port.flags   = ASYNC_BOOT_AUTOCONF;
 		break;
 
 	case 2:
-		sa1100_ports[idx].port.membase = (void *)&Ser2UTCR0;
+		sa1100_ports[idx].port.membase = (void __iomem *)&Ser2UTCR0;
 		sa1100_ports[idx].port.mapbase = _Ser2UTCR0;
 		sa1100_ports[idx].port.irq     = IRQ_Ser2ICP;
 		sa1100_ports[idx].port.flags   = ASYNC_BOOT_AUTOCONF;
 		break;
 
 	case 3:
-		sa1100_ports[idx].port.membase = (void *)&Ser3UTCR0;
+		sa1100_ports[idx].port.membase = (void __iomem *)&Ser3UTCR0;
 		sa1100_ports[idx].port.mapbase = _Ser3UTCR0;
 		sa1100_ports[idx].port.irq     = IRQ_Ser3UART;
 		sa1100_ports[idx].port.flags   = ASYNC_BOOT_AUTOCONF;
