@@ -44,7 +44,6 @@ static struct pci_driver scx200_pci_driver = {
 	.probe = scx200_probe,
 };
 
-DEFINE_SPINLOCK(scx200_gpio_lock);
 static DEFINE_SPINLOCK(scx200_gpio_config_lock);
 
 static int __devinit scx200_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
@@ -105,6 +104,7 @@ u32 scx200_gpio_configure(int index, u32 mask, u32 bits)
 	return config;
 }
 
+#if 0
 void scx200_gpio_dump(unsigned index)
 {
 	u32 config = scx200_gpio_configure(index, ~0, 0);
@@ -136,15 +136,16 @@ void scx200_gpio_dump(unsigned index)
 		printk(" DEBOUNCE"); /* debounce */
 	printk("\n");
 }
+#endif  /*  0  */
 
-int __init scx200_init(void)
+static int __init scx200_init(void)
 {
 	printk(KERN_INFO NAME ": NatSemi SCx200 Driver\n");
 
 	return pci_module_init(&scx200_pci_driver);
 }
 
-void __exit scx200_cleanup(void)
+static void __exit scx200_cleanup(void)
 {
 	pci_unregister_driver(&scx200_pci_driver);
 	release_region(scx200_gpio_base, SCx200_GPIO_SIZE);
@@ -155,9 +156,7 @@ module_exit(scx200_cleanup);
 
 EXPORT_SYMBOL(scx200_gpio_base);
 EXPORT_SYMBOL(scx200_gpio_shadow);
-EXPORT_SYMBOL(scx200_gpio_lock);
 EXPORT_SYMBOL(scx200_gpio_configure);
-EXPORT_SYMBOL(scx200_gpio_dump);
 EXPORT_SYMBOL(scx200_cb_base);
 
 /*
