@@ -148,6 +148,17 @@ static void ohci_stop (struct usb_hcd *hcd);
 #include "ohci-q.c"
 
 
+/*
+ * On architectures with edge-triggered interrupts we must never return
+ * IRQ_NONE.
+ */
+#if defined(CONFIG_SA1111)  /* ... or other edge-triggered systems */
+#define IRQ_NOTMINE	IRQ_HANDLED
+#else
+#define IRQ_NOTMINE	IRQ_NONE
+#endif
+
+
 /* Some boards misreport power switching/overcurrent */
 static int distrust_firmware = 1;
 module_param (distrust_firmware, bool, 0);
@@ -703,7 +714,7 @@ static irqreturn_t ohci_irq (struct usb_hcd *hcd, struct pt_regs *ptregs)
 
 	/* interrupt for some other device? */
 	} else if ((ints &= ohci_readl (ohci, &regs->intrenable)) == 0) {
-		return IRQ_NONE;
+		return IRQ_NOTMINE;
 	} 
 
 	if (ints & OHCI_INTR_UE) {
