@@ -28,7 +28,6 @@
  *    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
-static int __init intelfb_setup(char *options);
 static void __devinit get_initial_mode(struct intelfb_info *dinfo);
 static void update_dinfo(struct intelfb_info *dinfo,
 			 struct fb_var_screeninfo *var);
