@@ -26,6 +26,7 @@
 #include <asm/semaphore.h>		/* struct semaphore */
 #include <linux/rwsem.h>		/* struct rw_semaphore */
 #include <linux/workqueue.h>		/* struct workqueue_struct */
+#include <linux/pm.h>			/* pm_message_t */
 
 /* Typedef's */
 typedef struct timespec snd_timestamp_t;
