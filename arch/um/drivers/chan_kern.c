@@ -218,7 +218,6 @@ void enable_chan(struct list_head *chans, struct tty_struct *tty)
 
 void close_chan(struct list_head *chans)
 {
-	struct list_head *ele;
 	struct chan *chan;
 
 	/* Close in reverse order as open in case more than one of them
@@ -226,8 +225,7 @@ void close_chan(struct list_head *chans)
 	 * state.  Then, the first one opened will have the original state,
 	 * so it must be the last closed.
 	 */
-        for(ele = chans->prev; ele != chans; ele = ele->prev){
-                chan = list_entry(ele, struct chan, list);
+	list_for_each_entry_reverse(chan, chans, list) {
 		if(!chan->opened) continue;
 		if(chan->ops->close != NULL)
 			(*chan->ops->close)(chan->fd, chan->data);
