@@ -36,8 +36,10 @@
 #include <linux/input.h>
 #include <linux/gameport.h>
 
+#define DRIVER_DESC	"Genius Flight 2000 joystick driver"
+
 MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
-MODULE_DESCRIPTION("Genius Flight 2000 joystick driver");
+MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
 #define GF2K_START		400	/* The time we wait for the first bit [400 us] */
@@ -238,24 +240,24 @@ static void gf2k_close(struct input_dev *dev)
  * gf2k_connect() probes for Genius id joysticks.
  */
 
-static void gf2k_connect(struct gameport *gameport, struct gameport_dev *dev)
+static int gf2k_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct gf2k *gf2k;
 	unsigned char data[GF2K_LENGTH];
-	int i;
+	int i, err;
 
-	if (!(gf2k = kmalloc(sizeof(struct gf2k), GFP_KERNEL)))
-		return;
-	memset(gf2k, 0, sizeof(struct gf2k));
-
-	gameport->private = gf2k;
+	if (!(gf2k = kcalloc(1, sizeof(struct gf2k), GFP_KERNEL)))
+		return -ENOMEM;
 
 	gf2k->gameport = gameport;
 	init_timer(&gf2k->timer);
 	gf2k->timer.data = (long) gf2k;
 	gf2k->timer.function = gf2k_timer;
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW))
+	gameport_set_drvdata(gameport, gf2k);
+
+	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
+	if (err)
 		goto fail1;
 
 	gf2k_trigger_seq(gameport, gf2k_seq_reset);
@@ -266,16 +268,22 @@ static void gf2k_connect(struct gameport *gameport, struct gameport_dev *dev)
 
 	msleep(GF2K_TIMEOUT);
 
-	if (gf2k_read_packet(gameport, GF2K_LENGTH, data) < 12)
+	if (gf2k_read_packet(gameport, GF2K_LENGTH, data) < 12) {
+		err = -ENODEV;
 		goto fail2;
+	}
 
-	if (!(gf2k->id = GB(7,2,0) | GB(3,3,2) | GB(0,3,5)))
+	if (!(gf2k->id = GB(7,2,0) | GB(3,3,2) | GB(0,3,5))) {
+		err = -ENODEV;
 		goto fail2;
+	}
 
 #ifdef RESET_WORKS
 	if ((gf2k->id != (GB(19,2,0) | GB(15,3,2) | GB(12,3,5))) ||
-	    (gf2k->id != (GB(31,2,0) | GB(27,3,2) | GB(24,3,5))))
+	    (gf2k->id != (GB(31,2,0) | GB(27,3,2) | GB(24,3,5)))) {
+		err = -ENODEV;
 		goto fail2;
+	}
 #else
 	gf2k->id = 6;
 #endif
@@ -283,6 +291,7 @@ static void gf2k_connect(struct gameport *gameport, struct gameport_dev *dev)
 	if (gf2k->id > GF2K_ID_MAX || !gf2k_axes[gf2k->id]) {
 		printk(KERN_WARNING "gf2k.c: Not yet supported joystick on %s. [id: %d type:%s]\n",
 			gameport->phys, gf2k->id, gf2k->id > GF2K_ID_MAX ? "Unknown" : gf2k_names[gf2k->id]);
+		err = -ENODEV;
 		goto fail2;
 	}
 
@@ -333,33 +342,42 @@ static void gf2k_connect(struct gameport *gameport, struct gameport_dev *dev)
 	input_register_device(&gf2k->dev);
 	printk(KERN_INFO "input: %s on %s\n", gf2k_names[gf2k->id], gameport->phys);
 
-	return;
+	return 0;
+
 fail2:	gameport_close(gameport);
-fail1:	kfree(gf2k);
+fail1:	gameport_set_drvdata(gameport, NULL);
+	kfree(gf2k);
+	return err;
 }
 
 static void gf2k_disconnect(struct gameport *gameport)
 {
-	struct gf2k *gf2k = gameport->private;
+	struct gf2k *gf2k = gameport_get_drvdata(gameport);
+
 	input_unregister_device(&gf2k->dev);
 	gameport_close(gameport);
+	gameport_set_drvdata(gameport, NULL);
 	kfree(gf2k);
 }
 
-static struct gameport_dev gf2k_dev = {
-	.connect =	gf2k_connect,
-	.disconnect =	gf2k_disconnect,
+static struct gameport_driver gf2k_drv = {
+	.driver		= {
+		.name	= "gf2k",
+	},
+	.description	= DRIVER_DESC,
+	.connect	= gf2k_connect,
+	.disconnect	= gf2k_disconnect,
 };
 
 static int __init gf2k_init(void)
 {
-	gameport_register_device(&gf2k_dev);
+	gameport_register_driver(&gf2k_drv);
 	return 0;
 }
 
 static void __exit gf2k_exit(void)
 {
-	gameport_unregister_device(&gf2k_dev);
+	gameport_unregister_driver(&gf2k_drv);
 }
 
 module_init(gf2k_init);

@@ -39,8 +39,10 @@
 #include <linux/gameport.h>
 #include <linux/input.h>
 
+#define DRIVER_DESC	"ThrustMaster DirectConnect joystick driver"
+
 MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
-MODULE_DESCRIPTION("ThrustMaster DirectConnect joystick driver");
+MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
 #define TMDC_MAX_START		400	/* 400 us */
@@ -242,9 +244,9 @@ static void tmdc_close(struct input_dev *dev)
  * tmdc_probe() probes for ThrustMaster type joysticks.
  */
 
-static void tmdc_connect(struct gameport *gameport, struct gameport_dev *dev)
+static int tmdc_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
-	struct models {
+	static struct models {
 		unsigned char id;
 		char *name;
 		char abs;
@@ -263,23 +265,26 @@ static void tmdc_connect(struct gameport *gameport, struct gameport_dev *dev)
 	unsigned char data[2][TMDC_MAX_LENGTH];
 	struct tmdc *tmdc;
 	int i, j, k, l, m;
+	int err;
 
-	if (!(tmdc = kmalloc(sizeof(struct tmdc), GFP_KERNEL)))
-		return;
-	memset(tmdc, 0, sizeof(struct tmdc));
-
-	gameport->private = tmdc;
+	if (!(tmdc = kcalloc(1, sizeof(struct tmdc), GFP_KERNEL)))
+		return -ENOMEM;
 
 	tmdc->gameport = gameport;
 	init_timer(&tmdc->timer);
 	tmdc->timer.data = (long) tmdc;
 	tmdc->timer.function = tmdc_timer;
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW))
+	gameport_set_drvdata(gameport, tmdc);
+
+	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
+	if (err)
 		goto fail1;
 
-	if (!(tmdc->exists = tmdc_read_packet(gameport, data)))
+	if (!(tmdc->exists = tmdc_read_packet(gameport, data))) {
+		err = -ENODEV;
 		goto fail2;
+	}
 
 	for (j = 0; j < 2; j++)
 		if (tmdc->exists & (1 << j)) {
@@ -321,20 +326,13 @@ static void tmdc_connect(struct gameport *gameport, struct gameport_dev *dev)
 
 			tmdc->dev[j].evbit[0] = BIT(EV_KEY) | BIT(EV_ABS);
 
-			for (i = 0; i < models[m].abs && i < TMDC_ABS; i++) {
-				if (tmdc->abs[j][i] < 0) continue;
-				set_bit(tmdc->abs[j][i], tmdc->dev[j].absbit);
-				tmdc->dev[j].absmin[tmdc->abs[j][i]] = 8;
-				tmdc->dev[j].absmax[tmdc->abs[j][i]] = 248;
-				tmdc->dev[j].absfuzz[tmdc->abs[j][i]] = 2;
-				tmdc->dev[j].absflat[tmdc->abs[j][i]] = 4;
-			}
+			for (i = 0; i < models[m].abs && i < TMDC_ABS; i++)
+				if (tmdc->abs[j][i] >= 0)
+					input_set_abs_params(&tmdc->dev[j], tmdc->abs[j][i], 8, 248, 2, 4);
 
-			for (i = 0; i < models[m].hats && i < TMDC_ABS_HAT; i++) {
-				set_bit(tmdc_abs_hat[i], tmdc->dev[j].absbit);
-				tmdc->dev[j].absmin[tmdc_abs_hat[i]] = -1;
-				tmdc->dev[j].absmax[tmdc_abs_hat[i]] = 1;
-			}
+			for (i = 0; i < models[m].hats && i < TMDC_ABS_HAT; i++)
+				input_set_abs_params(&tmdc->dev[j], tmdc_abs_hat[i], -1, 1, 0, 0);
+
 
 			for (k = l = 0; k < 4; k++) {
 				for (i = 0; i < models[m].btnc[k] && i < TMDC_BTN; i++)
@@ -346,36 +344,45 @@ static void tmdc_connect(struct gameport *gameport, struct gameport_dev *dev)
 			printk(KERN_INFO "input: %s on %s\n", tmdc->name[j], gameport->phys);
 		}
 
-	return;
+	return 0;
+
 fail2:	gameport_close(gameport);
-fail1:	kfree(tmdc);
+fail1:	gameport_set_drvdata(gameport, NULL);
+	kfree(tmdc);
+	return err;
 }
 
 static void tmdc_disconnect(struct gameport *gameport)
 {
-	struct tmdc *tmdc = gameport->private;
+	struct tmdc *tmdc = gameport_get_drvdata(gameport);
 	int i;
+
 	for (i = 0; i < 2; i++)
 		if (tmdc->exists & (1 << i))
 			input_unregister_device(tmdc->dev + i);
 	gameport_close(gameport);
+	gameport_set_drvdata(gameport, NULL);
 	kfree(tmdc);
 }
 
-static struct gameport_dev tmdc_dev = {
-	.connect =	tmdc_connect,
-	.disconnect =	tmdc_disconnect,
+static struct gameport_driver tmdc_drv = {
+	.driver		= {
+		.name	= "tmdc",
+	},
+	.description	= DRIVER_DESC,
+	.connect	= tmdc_connect,
+	.disconnect	= tmdc_disconnect,
 };
 
 static int __init tmdc_init(void)
 {
-	gameport_register_device(&tmdc_dev);
+	gameport_register_driver(&tmdc_drv);
 	return 0;
 }
 
 static void __exit tmdc_exit(void)
 {
-	gameport_unregister_device(&tmdc_dev);
+	gameport_unregister_driver(&tmdc_drv);
 }
 
 module_init(tmdc_init);

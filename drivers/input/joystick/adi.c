@@ -37,8 +37,10 @@
 #include <linux/gameport.h>
 #include <linux/init.h>
 
+#define DRIVER_DESC	"Logitech ADI joystick family driver"
+
 MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
-MODULE_DESCRIPTION("Logitech ADI joystick family driver");
+MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
 /*
@@ -439,35 +441,23 @@ static void adi_init_center(struct adi *adi)
 {
 	int i, t, x;
 
-	if (!adi->length) return;
+	if (!adi->length)
+		return;
 
 	for (i = 0; i < adi->axes10 + adi->axes8 + (adi->hats + (adi->pad != -1)) * 2; i++) {
 
 		t = adi->abs[i];
 		x = adi->dev.abs[t];
 
-		if (t == ABS_THROTTLE || t == ABS_RUDDER || adi->id == ADI_ID_WGPE) {
-			if (i < adi->axes10) x = 512; else x = 128;
-		}
+		if (t == ABS_THROTTLE || t == ABS_RUDDER || adi->id == ADI_ID_WGPE)
+			x = i < adi->axes10 ? 512 : 128;
 
-		if (i < adi->axes10) {
-			adi->dev.absmax[t] = x * 2 - 64;
-			adi->dev.absmin[t] = 64;
-			adi->dev.absfuzz[t] = 2;
-			adi->dev.absflat[t] = 16;
-			continue;
-		}
-
-		if (i < adi->axes10 + adi->axes8) {
-			adi->dev.absmax[t] = x * 2 - 48;
-			adi->dev.absmin[t] = 48;
-			adi->dev.absfuzz[t] = 1;
-			adi->dev.absflat[t] = 16;
-			continue;
-		}
-
-		adi->dev.absmax[t] = 1;
-		adi->dev.absmin[t] = -1;
+		if (i < adi->axes10)
+			input_set_abs_params(&adi->dev, t, 64, x * 2 - 64, 2, 16);
+		else if (i < adi->axes10 + adi->axes8)
+			input_set_abs_params(&adi->dev, t, 48, x * 2 - 48, 1, 16);
+		else
+			input_set_abs_params(&adi->dev, t, -1, 1, 0, 0);
 	}
 }
 
@@ -475,25 +465,26 @@ static void adi_init_center(struct adi *adi)
  * adi_connect() probes for Logitech ADI joysticks.
  */
 
-static void adi_connect(struct gameport *gameport, struct gameport_dev *dev)
+static int adi_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct adi_port *port;
 	int i;
+	int err;
 
-	if (!(port = kmalloc(sizeof(struct adi_port), GFP_KERNEL)))
-		return;
-	memset(port, 0, sizeof(struct adi_port));
-
-	gameport->private = port;
+	if (!(port = kcalloc(1, sizeof(struct adi_port), GFP_KERNEL)))
+		return -ENOMEM;
 
 	port->gameport = gameport;
 	init_timer(&port->timer);
 	port->timer.data = (long) port;
 	port->timer.function = adi_timer;
 
-	if (gameport_open(gameport, dev, GAMEPORT_MODE_RAW)) {
+	gameport_set_drvdata(gameport, port);
+
+	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
+	if (err) {
 		kfree(port);
-		return;
+		return err;
 	}
 
 	adi_init_digital(gameport);
@@ -510,7 +501,7 @@ static void adi_connect(struct gameport *gameport, struct gameport_dev *dev)
 	if (!port->adi[0].length && !port->adi[1].length) {
 		gameport_close(gameport);
 		kfree(port);
-		return;
+		return -ENODEV;
 	}
 
 	msleep(ADI_INIT_DELAY);
@@ -526,17 +517,20 @@ static void adi_connect(struct gameport *gameport, struct gameport_dev *dev)
 			printk(KERN_INFO "input: %s [%s] on %s\n",
 				port->adi[i].name, port->adi[i].cname, gameport->phys);
 		}
+
+	return 0;
 }
 
 static void adi_disconnect(struct gameport *gameport)
 {
 	int i;
+	struct adi_port *port = gameport_get_drvdata(gameport);
 
-	struct adi_port *port = gameport->private;
 	for (i = 0; i < 2; i++)
 		if (port->adi[i].length > 0)
 			input_unregister_device(&port->adi[i].dev);
 	gameport_close(gameport);
+	gameport_set_drvdata(gameport, NULL);
 	kfree(port);
 }
 
@@ -544,20 +538,24 @@ static void adi_disconnect(struct gameport *gameport)
  * The gameport device structure.
  */
 
-static struct gameport_dev adi_dev = {
-	.connect =	adi_connect,
-	.disconnect =	adi_disconnect,
+static struct gameport_driver adi_drv = {
+	.driver		= {
+		.name	= "adi",
+	},
+	.description	= DRIVER_DESC,
+	.connect	= adi_connect,
+	.disconnect	= adi_disconnect,
 };
 
 static int __init adi_init(void)
 {
-	gameport_register_device(&adi_dev);
+	gameport_register_driver(&adi_drv);
 	return 0;
 }
 
 static void __exit adi_exit(void)
 {
-	gameport_unregister_device(&adi_dev);
+	gameport_unregister_driver(&adi_drv);
 }
 
 module_init(adi_init);
