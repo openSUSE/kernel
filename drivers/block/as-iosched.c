@@ -25,7 +25,7 @@
 #define REQ_ASYNC	0
 
 /*
- * See Documentation/as-iosched.txt
+ * See Documentation/block/as-iosched.txt
  */
 
 /*
