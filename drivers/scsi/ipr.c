@@ -1922,6 +1922,7 @@ restart:
 	}
 
 	spin_unlock_irqrestore(ioa_cfg->host->host_lock, lock_flags);
+	kobject_uevent(&ioa_cfg->host->shost_classdev.kobj, KOBJ_CHANGE, NULL);
 	LEAVE;
 }
 
@@ -4052,10 +4053,10 @@ static int ipr_ioa_reset_done(struct ipr_cmnd *ipr_cmd)
 	list_for_each_entry(res, &ioa_cfg->used_res_q, queue) {
 		if (ioa_cfg->allow_ml_add_del && (res->add_to_ml || res->del_from_ml)) {
 			ipr_trace;
-			schedule_work(&ioa_cfg->work_q);
 			break;
 		}
 	}
+	schedule_work(&ioa_cfg->work_q);
 
 	list_for_each_entry_safe(hostrcb, temp, &ioa_cfg->hostrcb_free_q, queue) {
 		list_del(&hostrcb->queue);
