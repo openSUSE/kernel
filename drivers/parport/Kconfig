@@ -46,15 +46,9 @@ config PARPORT_PC
 
 	  If unsure, say Y.
 
-config PARPORT_PC_CML1
-	tristate
-	depends on PARPORT!=n && PARPORT_PC!=n
-	default PARPORT_PC if SERIAL_8250=y
-	default m if SERIAL_8250=m
-
 config PARPORT_SERIAL
 	tristate "Multi-IO cards (parallel and serial)"
-	depends on SERIAL_8250!=n && PARPORT_PC_CML1 && PCI
+	depends on SERIAL_8250 && PARPORT_PC && PCI
 	help
 	  This adds support for multi-IO PCI cards that have parallel and
 	  serial ports.  You should say Y or M here.  If you say M, the module
@@ -118,8 +112,8 @@ config PARPORT_ATARI
 
 config PARPORT_GSC
 	tristate
-	depends on GSC
-	default PARPORT
+	default GSC
+	depends on PARPORT
 
 config PARPORT_SUNBPP
 	tristate "Sparc hardware (EXPERIMENTAL)"

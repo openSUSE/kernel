@@ -11,7 +11,6 @@
 #endif
 
 #include "lkc.h"
-#include "images.c"
 
 #include <glade/glade.h>
 #include <gtk/gtk.h>
@@ -222,15 +221,15 @@ void init_main_window(const gchar * glade_file)
 	switch (view_mode) {
 	case SINGLE_VIEW:
 		widget = glade_xml_get_widget(xml, "button4");
-		gtk_button_clicked(GTK_BUTTON(widget));
+		g_signal_emit_by_name(widget, "clicked");
 		break;
 	case SPLIT_VIEW:
 		widget = glade_xml_get_widget(xml, "button5");
-		gtk_button_clicked(GTK_BUTTON(widget));
+		g_signal_emit_by_name(widget, "clicked");
 		break;
 	case FULL_VIEW:
 		widget = glade_xml_get_widget(xml, "button6");
-		gtk_button_clicked(GTK_BUTTON(widget));
+		g_signal_emit_by_name(widget, "clicked");
 		break;
 	}
 
@@ -1142,6 +1141,39 @@ on_treeview1_button_press_event(GtkWidget * widget,
 
 /* Conf management */
 
+static const char *xpm_menu[] = {
+"12 12 2 1",
+"  c white",
+". c black",
+"            ",
+"            ",
+"  .         ",
+"  ..        ",
+"  ...       ",
+"  ....      ",
+"  .....     ",
+"  ....      ",
+"  ...       ",
+"  ..        ",
+"  .         ",
+"            "};
+
+static const char *xpm_void[] = {
+"12 12 2 1",
+"  c white",
+". c black",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            ",
+"            "};
 
 /* Fill a row of strings */
 static gchar **fill_row(struct menu *menu)
