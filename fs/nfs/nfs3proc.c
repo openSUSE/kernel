@@ -639,23 +639,24 @@ nfs3_proc_readdir(struct dentry *dentry, struct rpc_cred *cred,
 }
 
 static int
-nfs3_proc_mknod(struct inode *dir, struct qstr *name, struct iattr *sattr,
-		dev_t rdev, struct nfs_fh *fh, struct nfs_fattr *fattr)
+nfs3_proc_mknod(struct inode *dir, struct dentry *dentry, struct iattr *sattr,
+		dev_t rdev)
 {
-	struct nfs_fattr	dir_attr;
+	struct nfs_fh fh;
+	struct nfs_fattr fattr, dir_attr;
 	struct nfs3_mknodargs	arg = {
 		.fh		= NFS_FH(dir),
-		.name		= name->name,
-		.len		= name->len,
+		.name		= dentry->d_name.name,
+		.len		= dentry->d_name.len,
 		.sattr		= sattr,
 		.rdev		= rdev
 	};
 	struct nfs3_diropres	res = {
 		.dir_attr	= &dir_attr,
-		.fh		= fh,
-		.fattr		= fattr
+		.fh		= &fh,
+		.fattr		= &fattr
 	};
-	int			status;
+	int status;
 
 	switch (sattr->ia_mode & S_IFMT) {
 	case S_IFBLK:	arg.type = NF3BLK;  break;
@@ -665,12 +666,14 @@ nfs3_proc_mknod(struct inode *dir, struct qstr *name, struct iattr *sattr,
 	default:	return -EINVAL;
 	}
 
-	dprintk("NFS call  mknod %s %u:%u\n", name->name,
+	dprintk("NFS call  mknod %s %u:%u\n", dentry->d_name.name,
 			MAJOR(rdev), MINOR(rdev));
 	dir_attr.valid = 0;
-	fattr->valid = 0;
+	fattr.valid = 0;
 	status = rpc_call(NFS_CLIENT(dir), NFS3PROC_MKNOD, &arg, &res, 0);
 	nfs_refresh_inode(dir, &dir_attr);
+	if (status == 0)
+		status = nfs_instantiate(dentry, &fh, &fattr);
 	dprintk("NFS reply mknod: %d\n", status);
 	return status;
 }

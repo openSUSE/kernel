@@ -345,6 +345,8 @@ extern struct inode_operations nfs_dir_inode_operations;
 extern struct file_operations nfs_dir_operations;
 extern struct dentry_operations nfs_dentry_operations;
 
+extern int nfs_instantiate(struct dentry *dentry, struct nfs_fh *fh, struct nfs_fattr *fattr);
+
 /*
  * linux/fs/nfs/symlink.c
  */

@@ -248,22 +248,24 @@ nfs_proc_create(struct inode *dir, struct dentry *dentry, struct iattr *sattr,
  * In NFSv2, mknod is grafted onto the create call.
  */
 static int
-nfs_proc_mknod(struct inode *dir, struct qstr *name, struct iattr *sattr,
-	       dev_t rdev, struct nfs_fh *fhandle, struct nfs_fattr *fattr)
+nfs_proc_mknod(struct inode *dir, struct dentry *dentry, struct iattr *sattr,
+	       dev_t rdev)
 {
+	struct nfs_fh fhandle;
+	struct nfs_fattr fattr;
 	struct nfs_createargs	arg = {
 		.fh		= NFS_FH(dir),
-		.name		= name->name,
-		.len		= name->len,
+		.name		= dentry->d_name.name,
+		.len		= dentry->d_name.len,
 		.sattr		= sattr
 	};
 	struct nfs_diropok	res = {
-		.fh		= fhandle,
-		.fattr		= fattr
+		.fh		= &fhandle,
+		.fattr		= &fattr
 	};
-	int			status, mode;
+	int status, mode;
 
-	dprintk("NFS call  mknod %s\n", name->name);
+	dprintk("NFS call  mknod %s\n", dentry->d_name.name);
 
 	mode = sattr->ia_mode;
 	if (S_ISFIFO(mode)) {
@@ -274,14 +276,16 @@ nfs_proc_mknod(struct inode *dir, struct qstr *name, struct iattr *sattr,
 		sattr->ia_size = new_encode_dev(rdev);/* get out your barf bag */
 	}
 
-	fattr->valid = 0;
+	fattr.valid = 0;
 	status = rpc_call(NFS_CLIENT(dir), NFSPROC_CREATE, &arg, &res, 0);
 
 	if (status == -EINVAL && S_ISFIFO(mode)) {
 		sattr->ia_mode = mode;
-		fattr->valid = 0;
+		fattr.valid = 0;
 		status = rpc_call(NFS_CLIENT(dir), NFSPROC_CREATE, &arg, &res, 0);
 	}
+	if (status == 0)
+		status = nfs_instantiate(dentry, &fhandle, &fattr);
 	dprintk("NFS reply mknod: %d\n", status);
 	return status;
 }

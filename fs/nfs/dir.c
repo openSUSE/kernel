@@ -955,7 +955,7 @@ static struct dentry *nfs_readdir_lookup(nfs_readdir_descriptor_t *desc)
 /*
  * Code common to create, mkdir, and mknod.
  */
-static int nfs_instantiate(struct dentry *dentry, struct nfs_fh *fhandle,
+int nfs_instantiate(struct dentry *dentry, struct nfs_fh *fhandle,
 				struct nfs_fattr *fattr)
 {
 	struct inode *inode;
@@ -976,14 +976,12 @@ static int nfs_instantiate(struct dentry *dentry, struct nfs_fh *fhandle,
 		if (error < 0)
 			goto out_err;
 	}
-	inode = nfs_fhget(dentry->d_sb, fhandle, fattr);
-	if (inode) {
-		d_instantiate(dentry, inode);
-		nfs_renew_times(dentry);
-		nfs_set_verifier(dentry, nfs_save_change_attribute(dentry->d_parent->d_inode));
-		return 0;
-	}
 	error = -ENOMEM;
+	inode = nfs_fhget(dentry->d_sb, fhandle, fattr);
+	if (inode == NULL)
+		goto out_err;
+	d_instantiate(dentry, inode);
+	return 0;
 out_err:
 	d_drop(dentry);
 	return error;
@@ -1036,9 +1034,7 @@ static int
 nfs_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t rdev)
 {
 	struct iattr attr;
-	struct nfs_fattr fattr;
-	struct nfs_fh fhandle;
-	int error;
+	int status;
 
 	dfprintk(VFS, "NFS: mknod(%s/%ld, %s\n", dir->i_sb->s_id,
 		dir->i_ino, dentry->d_name.name);
@@ -1051,15 +1047,18 @@ nfs_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t rdev)
 
 	lock_kernel();
 	nfs_begin_data_update(dir);
-	error = NFS_PROTO(dir)->mknod(dir, &dentry->d_name, &attr, rdev,
-					&fhandle, &fattr);
+	status = NFS_PROTO(dir)->mknod(dir, dentry, &attr, rdev);
 	nfs_end_data_update(dir);
-	if (!error)
-		error = nfs_instantiate(dentry, &fhandle, &fattr);
-	else
-		d_drop(dentry);
+	if (status != 0)
+		goto out_err;
+	nfs_renew_times(dentry);
+	nfs_set_verifier(dentry, nfs_save_change_attribute(dir));
 	unlock_kernel();
-	return error;
+	return 0;
+out_err:
+	unlock_kernel();
+	d_drop(dentry);
+	return status;
 }
 
 /*
@@ -1094,8 +1093,14 @@ static int nfs_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	nfs_end_data_update(dir);
 	if (!error)
 		error = nfs_instantiate(dentry, &fhandle, &fattr);
-	else
-		d_drop(dentry);
+	if (error != 0)
+		goto out_err;
+	nfs_renew_times(dentry);
+	nfs_set_verifier(dentry, nfs_save_change_attribute(dir));
+	unlock_kernel();
+	return 0;
+out_err:
+	d_drop(dentry);
 	unlock_kernel();
 	return error;
 }
