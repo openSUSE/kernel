@@ -33,6 +33,7 @@
  */
 
 #include <linux/init.h>
+#include <linux/hardirq.h>
 
 #include <ib_pack.h>
 
@@ -181,11 +182,7 @@ void mthca_cq_event(struct mthca_dev *dev, u32 cqn)
 {
 	struct mthca_cq *cq;
 
-	spin_lock(&dev->cq_table.lock);
 	cq = mthca_array_get(&dev->cq_table.cq, cqn & (dev->limits.num_cqs - 1));
-	if (cq)
-		atomic_inc(&cq->refcount);
-	spin_unlock(&dev->cq_table.lock);
 
 	if (!cq) {
 		mthca_warn(dev, "Completion event for bogus CQ %08x\n", cqn);
@@ -193,9 +190,6 @@ void mthca_cq_event(struct mthca_dev *dev, u32 cqn)
 	}
 
 	cq->ibcq.comp_handler(&cq->ibcq, cq->ibcq.cq_context);
-
-	if (atomic_dec_and_test(&cq->refcount))
-		wake_up(&cq->wait);
 }
 
 void mthca_cq_clean(struct mthca_dev *dev, u32 cqn, u32 qpn)
@@ -782,6 +776,11 @@ void mthca_free_cq(struct mthca_dev *dev,
 	mthca_array_clear(&dev->cq_table.cq,
 			  cq->cqn & (dev->limits.num_cqs - 1));
 	spin_unlock_irq(&dev->cq_table.lock);
+
+	if (dev->mthca_flags & MTHCA_FLAG_MSI_X)
+		synchronize_irq(dev->eq_table.eq[MTHCA_EQ_COMP].msi_x_vector);
+	else
+		synchronize_irq(dev->pdev->irq);
 
 	atomic_dec(&cq->refcount);
 	wait_event(cq->wait, !atomic_read(&cq->refcount));
