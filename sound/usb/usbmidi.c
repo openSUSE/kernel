@@ -589,6 +589,10 @@ static void snd_usbmidi_emagic_finish_out(snd_usb_midi_out_endpoint_t* ep)
 static void snd_usbmidi_emagic_input(snd_usb_midi_in_endpoint_t* ep,
 				     uint8_t* buffer, int buffer_length)
 {
+	/* ignore padding bytes at end of buffer */
+	while (buffer_length > 0 && buffer[buffer_length - 1] == 0xff)
+		--buffer_length;
+
 	/* handle F5 at end of last buffer */
 	if (ep->seen_f5)
 		goto switch_port;
