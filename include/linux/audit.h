@@ -150,6 +150,7 @@ extern void audit_get_stamp(struct audit_context *ctx,
 			    struct timespec *t, int *serial);
 extern int  audit_set_loginuid(struct audit_context *ctx, uid_t loginuid);
 extern uid_t audit_get_loginuid(struct audit_context *ctx);
+extern int audit_ipc_perms(unsigned long qbytes, uid_t uid, gid_t gid, mode_t mode);
 #else
 #define audit_alloc(t) ({ 0; })
 #define audit_free(t) do { ; } while (0)
@@ -159,6 +160,7 @@ extern uid_t audit_get_loginuid(struct audit_context *ctx);
 #define audit_putname(n) do { ; } while (0)
 #define audit_inode(n,i,d) do { ; } while (0)
 #define audit_get_loginuid(c) ({ -1; })
+#define audit_ipc_perms(q,u,g,m) ({ 0; })
 #endif
 
 #ifdef CONFIG_AUDIT
