@@ -560,12 +560,6 @@ static void __init set_max_mapnr_init(void)
 #endif
 }
 
-#ifndef CONFIG_DISCONTIGMEM
-#define __free_all_bootmem() free_all_bootmem()
-#else
-#define __free_all_bootmem() free_all_bootmem_node(NODE_DATA(0))
-#endif /* !CONFIG_DISCONTIGMEM */
-
 static struct kcore_list kcore_mem, kcore_vmalloc; 
 
 void __init mem_init(void)
@@ -601,7 +595,7 @@ void __init mem_init(void)
 #endif
 
 	/* this will put all low memory onto the freelists */
-	totalram_pages += __free_all_bootmem();
+	totalram_pages += free_all_bootmem();
 
 	reservedpages = 0;
 	for (tmp = 0; tmp < max_low_pfn; tmp++)
