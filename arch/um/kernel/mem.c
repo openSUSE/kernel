@@ -138,7 +138,7 @@ pgprot_t kmap_prot;
 	pte_offset_kernel(pmd_offset(pud_offset(pgd_offset_k(vaddr), (vaddr)),\
  			  (vaddr)), (vaddr))
 
-void __init kmap_init(void)
+static void __init kmap_init(void)
 {
 	unsigned long kmap_vstart;
 

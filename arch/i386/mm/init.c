@@ -239,7 +239,7 @@ EXPORT_SYMBOL(kmap_pte);
 #define kmap_get_fixmap_pte(vaddr)					\
 	pte_offset_kernel(pmd_offset(pud_offset(pgd_offset_k(vaddr), vaddr), (vaddr)), (vaddr))
 
-void __init kmap_init(void)
+static void __init kmap_init(void)
 {
 	unsigned long kmap_vstart;
 
@@ -250,7 +250,7 @@ void __init kmap_init(void)
 	kmap_prot = PAGE_KERNEL;
 }
 
-void __init permanent_kmaps_init(pgd_t *pgd_base)
+static void __init permanent_kmaps_init(pgd_t *pgd_base)
 {
 	pgd_t *pgd;
 	pud_t *pud;
@@ -281,7 +281,7 @@ void __init one_highpage_init(struct page *page, int pfn, int bad_ppro)
 }
 
 #ifndef CONFIG_DISCONTIGMEM
-void __init set_highmem_pages_init(int bad_ppro) 
+static void __init set_highmem_pages_init(int bad_ppro)
 {
 	int pfn;
 	for (pfn = highstart_pfn; pfn < highend_pfn; pfn++)
@@ -503,7 +503,7 @@ void __init paging_init(void)
  * but fortunately the switch to using exceptions got rid of all that.
  */
 
-void __init test_wp_bit(void)
+static void __init test_wp_bit(void)
 {
 	printk("Checking if this processor honours the WP bit even in supervisor mode... ");
 
