@@ -36,6 +36,8 @@ static char *verstr = "20050312";
 #include <linux/moduleparam.h>
 #include <linux/devfs_fs_kernel.h>
 #include <linux/cdev.h>
+#include <linux/delay.h>
+
 #include <asm/uaccess.h>
 #include <asm/dma.h>
 #include <asm/system.h>
