@@ -15,7 +15,6 @@
 
 struct gameport {
 
-	void *private;		/* Private pointer for joystick drivers */
 	void *port_data;	/* Private pointer for gameport drivers */
 	char name[32];
 	char phys[32];
@@ -89,6 +88,20 @@ static inline void gameport_set_name(struct gameport *gameport, const char *name
 
 void gameport_set_phys(struct gameport *gameport, const char *fmt, ...)
 	__attribute__ ((format (printf, 2, 3)));
+
+/*
+ * Use the following fucntions to manipulate gameport's per-port
+ * driver-specific data.
+ */
+static inline void *gameport_get_drvdata(struct gameport *gameport)
+{
+	return dev_get_drvdata(&gameport->dev);
+}
+
+static inline void gameport_set_drvdata(struct gameport *gameport, void *data)
+{
+	dev_set_drvdata(&gameport->dev, data);
+}
 
 /*
  * Use the following fucntions to pin gameport's driver in process context

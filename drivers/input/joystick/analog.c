@@ -593,11 +593,12 @@ static int analog_init_port(struct gameport *gameport, struct gameport_driver *d
 {
 	int i, t, u, v;
 
-	gameport->private = port;
 	port->gameport = gameport;
 	init_timer(&port->timer);
 	port->timer.data = (long) port;
 	port->timer.function = analog_timer;
+
+	gameport_set_drvdata(gameport, port);
 
 	if (!gameport_open(gameport, drv, GAMEPORT_MODE_RAW)) {
 
@@ -672,6 +673,7 @@ static int analog_connect(struct gameport *gameport, struct gameport_driver *drv
 	err = analog_init_masks(port);
 	if (err) {
 		gameport_close(gameport);
+		gameport_set_drvdata(gameport, NULL);
 		kfree(port);
 		return err;
 	}
@@ -686,12 +688,13 @@ static int analog_connect(struct gameport *gameport, struct gameport_driver *drv
 static void analog_disconnect(struct gameport *gameport)
 {
 	int i;
-	struct analog_port *port = gameport->private;
+	struct analog_port *port = gameport_get_drvdata(gameport);
 
 	for (i = 0; i < 2; i++)
 		if (port->analog[i].mask)
 			input_unregister_device(&port->analog[i].dev);
 	gameport_close(gameport);
+	gameport_set_drvdata(gameport, NULL);
 	printk(KERN_INFO "analog.c: %d out of %d reads (%d%%) on %s failed\n",
 		port->bads, port->reads, port->reads ? (port->bads * 100 / port->reads) : 0,
 		port->gameport->phys);

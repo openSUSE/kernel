@@ -270,12 +270,12 @@ static int tmdc_connect(struct gameport *gameport, struct gameport_driver *drv)
 	if (!(tmdc = kcalloc(1, sizeof(struct tmdc), GFP_KERNEL)))
 		return -ENOMEM;
 
-	gameport->private = tmdc;
-
 	tmdc->gameport = gameport;
 	init_timer(&tmdc->timer);
 	tmdc->timer.data = (long) tmdc;
 	tmdc->timer.function = tmdc_timer;
+
+	gameport_set_drvdata(gameport, tmdc);
 
 	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
 	if (err)
@@ -347,19 +347,21 @@ static int tmdc_connect(struct gameport *gameport, struct gameport_driver *drv)
 	return 0;
 
 fail2:	gameport_close(gameport);
-fail1:	kfree(tmdc);
+fail1:	gameport_set_drvdata(gameport, NULL);
+	kfree(tmdc);
 	return err;
 }
 
 static void tmdc_disconnect(struct gameport *gameport)
 {
-	struct tmdc *tmdc = gameport->private;
+	struct tmdc *tmdc = gameport_get_drvdata(gameport);
 	int i;
 
 	for (i = 0; i < 2; i++)
 		if (tmdc->exists & (1 << i))
 			input_unregister_device(tmdc->dev + i);
 	gameport_close(gameport);
+	gameport_set_drvdata(gameport, NULL);
 	kfree(tmdc);
 }
 

@@ -277,12 +277,12 @@ static int a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
 	if (!(a3d = kcalloc(1, sizeof(struct a3d), GFP_KERNEL)))
 		return -ENOMEM;
 
-	gameport->private = a3d;
-
 	a3d->gameport = gameport;
 	init_timer(&a3d->timer);
 	a3d->timer.data = (long) a3d;
 	a3d->timer.function = a3d_timer;
+
+	gameport_set_drvdata(gameport, a3d);
 
 	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
 	if (err)
@@ -379,13 +379,14 @@ static int a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
 	return 0;
 
 fail2:	gameport_close(gameport);
-fail1:  kfree(a3d);
+fail1:  gameport_set_drvdata(gameport, NULL);
+	kfree(a3d);
 	return err;
 }
 
 static void a3d_disconnect(struct gameport *gameport)
 {
-	struct a3d *a3d = gameport->private;
+	struct a3d *a3d = gameport_get_drvdata(gameport);
 
 	input_unregister_device(&a3d->dev);
 	if (a3d->adc) {
@@ -393,6 +394,7 @@ static void a3d_disconnect(struct gameport *gameport)
 		a3d->adc = NULL;
 	}
 	gameport_close(gameport);
+	gameport_set_drvdata(gameport, NULL);
 	kfree(a3d);
 }
 

@@ -249,12 +249,12 @@ static int gf2k_connect(struct gameport *gameport, struct gameport_driver *drv)
 	if (!(gf2k = kcalloc(1, sizeof(struct gf2k), GFP_KERNEL)))
 		return -ENOMEM;
 
-	gameport->private = gf2k;
-
 	gf2k->gameport = gameport;
 	init_timer(&gf2k->timer);
 	gf2k->timer.data = (long) gf2k;
 	gf2k->timer.function = gf2k_timer;
+
+	gameport_set_drvdata(gameport, gf2k);
 
 	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
 	if (err)
@@ -345,16 +345,18 @@ static int gf2k_connect(struct gameport *gameport, struct gameport_driver *drv)
 	return 0;
 
 fail2:	gameport_close(gameport);
-fail1:	kfree(gf2k);
+fail1:	gameport_set_drvdata(gameport, NULL);
+	kfree(gf2k);
 	return err;
 }
 
 static void gf2k_disconnect(struct gameport *gameport)
 {
-	struct gf2k *gf2k = gameport->private;
+	struct gf2k *gf2k = gameport_get_drvdata(gameport);
 
 	input_unregister_device(&gf2k->dev);
 	gameport_close(gameport);
+	gameport_set_drvdata(gameport, NULL);
 	kfree(gf2k);
 }
 

@@ -170,12 +170,12 @@ static int cobra_connect(struct gameport *gameport, struct gameport_driver *drv)
 	if (!(cobra = kcalloc(1, sizeof(struct cobra), GFP_KERNEL)))
 		return -ENOMEM;
 
-	gameport->private = cobra;
-
 	cobra->gameport = gameport;
 	init_timer(&cobra->timer);
 	cobra->timer.data = (long) cobra;
 	cobra->timer.function = cobra_timer;
+
+	gameport_set_drvdata(gameport, cobra);
 
 	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
 	if (err)
@@ -226,19 +226,21 @@ static int cobra_connect(struct gameport *gameport, struct gameport_driver *drv)
 	return 0;
 
 fail2:	gameport_close(gameport);
-fail1:	kfree(cobra);
+fail1:	gameport_set_drvdata(gameport, NULL);
+	kfree(cobra);
 	return err;
 }
 
 static void cobra_disconnect(struct gameport *gameport)
 {
+	struct cobra *cobra = gameport_get_drvdata(gameport);
 	int i;
-	struct cobra *cobra = gameport->private;
 
 	for (i = 0; i < 2; i++)
 		if ((cobra->exists >> i) & 1)
 			input_unregister_device(cobra->dev + i);
 	gameport_close(gameport);
+	gameport_set_drvdata(gameport, NULL);
 	kfree(cobra);
 }
 

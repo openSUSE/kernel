@@ -193,12 +193,12 @@ static int guillemot_connect(struct gameport *gameport, struct gameport_driver *
 	if (!(guillemot = kcalloc(1, sizeof(struct guillemot), GFP_KERNEL)))
 		return -ENOMEM;
 
-	gameport->private = guillemot;
-
 	guillemot->gameport = gameport;
 	init_timer(&guillemot->timer);
 	guillemot->timer.data = (long) guillemot;
 	guillemot->timer.function = guillemot_timer;
+
+	gameport_set_drvdata(gameport, guillemot);
 
 	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
 	if (err)
@@ -257,13 +257,14 @@ static int guillemot_connect(struct gameport *gameport, struct gameport_driver *
 	return 0;
 
 fail2:	gameport_close(gameport);
-fail1:  kfree(guillemot);
+fail1:  gameport_set_drvdata(gameport, NULL);
+	kfree(guillemot);
 	return err;
 }
 
 static void guillemot_disconnect(struct gameport *gameport)
 {
-	struct guillemot *guillemot = gameport->private;
+	struct guillemot *guillemot = gameport_get_drvdata(gameport);
 
 	printk(KERN_INFO "guillemot.c: Failed %d reads out of %d on %s\n", guillemot->reads, guillemot->bads, guillemot->phys);
 	input_unregister_device(&guillemot->dev);

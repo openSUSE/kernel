@@ -626,11 +626,12 @@ static int grip_connect(struct gameport *gameport, struct gameport_driver *drv)
 	if (!(grip = kcalloc(1, sizeof(struct grip_mp), GFP_KERNEL)))
 		return -ENOMEM;
 
-	gameport->private = grip;
 	grip->gameport = gameport;
 	init_timer(&grip->timer);
 	grip->timer.data = (long) grip;
 	grip->timer.function = grip_timer;
+
+	gameport_set_drvdata(gameport, grip);
 
 	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
 	if (err)
@@ -650,19 +651,21 @@ static int grip_connect(struct gameport *gameport, struct gameport_driver *drv)
 	return 0;
 
 fail2:	gameport_close(gameport);
-fail1:	kfree(grip);
+fail1:	gameport_set_drvdata(gameport, NULL);
+	kfree(grip);
 	return err;
 }
 
 static void grip_disconnect(struct gameport *gameport)
 {
+	struct grip_mp *grip = gameport_get_drvdata(gameport);
 	int i;
-	struct grip_mp *grip = gameport->private;
 
 	for (i = 0; i < 4; i++)
 		if (grip->registered[i])
 			input_unregister_device(grip->dev + i);
 	gameport_close(gameport);
+	gameport_set_drvdata(gameport, NULL);
 	kfree(grip);
 }
 

@@ -474,12 +474,12 @@ static int adi_connect(struct gameport *gameport, struct gameport_driver *drv)
 	if (!(port = kcalloc(1, sizeof(struct adi_port), GFP_KERNEL)))
 		return -ENOMEM;
 
-	gameport->private = port;
-
 	port->gameport = gameport;
 	init_timer(&port->timer);
 	port->timer.data = (long) port;
 	port->timer.function = adi_timer;
+
+	gameport_set_drvdata(gameport, port);
 
 	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
 	if (err) {
@@ -524,12 +524,13 @@ static int adi_connect(struct gameport *gameport, struct gameport_driver *drv)
 static void adi_disconnect(struct gameport *gameport)
 {
 	int i;
-	struct adi_port *port = gameport->private;
+	struct adi_port *port = gameport_get_drvdata(gameport);
 
 	for (i = 0; i < 2; i++)
 		if (port->adi[i].length > 0)
 			input_unregister_device(&port->adi[i].dev);
 	gameport_close(gameport);
+	gameport_set_drvdata(gameport, NULL);
 	kfree(port);
 }
 

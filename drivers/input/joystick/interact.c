@@ -223,12 +223,12 @@ static int interact_connect(struct gameport *gameport, struct gameport_driver *d
 	if (!(interact = kcalloc(1, sizeof(struct interact), GFP_KERNEL)))
 		return -ENOMEM;
 
-	gameport->private = interact;
-
 	interact->gameport = gameport;
 	init_timer(&interact->timer);
 	interact->timer.data = (long) interact;
 	interact->timer.function = interact_timer;
+
+	gameport_set_drvdata(gameport, interact);
 
 	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
 	if (err)
@@ -291,16 +291,18 @@ static int interact_connect(struct gameport *gameport, struct gameport_driver *d
 	return 0;
 
 fail2:	gameport_close(gameport);
-fail1:  kfree(interact);
+fail1:  gameport_set_drvdata(gameport, NULL);
+	kfree(interact);
 	return err;
 }
 
 static void interact_disconnect(struct gameport *gameport)
 {
-	struct interact *interact = gameport->private;
+	struct interact *interact = gameport_get_drvdata(gameport);
 
 	input_unregister_device(&interact->dev);
 	gameport_close(gameport);
+	gameport_set_drvdata(gameport, NULL);
 	kfree(interact);
 }
 

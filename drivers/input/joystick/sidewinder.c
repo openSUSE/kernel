@@ -605,12 +605,12 @@ static int sw_connect(struct gameport *gameport, struct gameport_driver *drv)
 		goto fail1;
 	}
 
-	gameport->private = sw;
-
 	sw->gameport = gameport;
 	init_timer(&sw->timer);
 	sw->timer.data = (long) sw;
 	sw->timer.function = sw_timer;
+
+	gameport_set_drvdata(gameport, sw);
 
 	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
 	if (err)
@@ -770,7 +770,8 @@ static int sw_connect(struct gameport *gameport, struct gameport_driver *drv)
 	return 0;
 
 fail2:	gameport_close(gameport);
-fail1:	kfree(sw);
+fail1:	gameport_set_drvdata(gameport, NULL);
+	kfree(sw);
 	kfree(buf);
 	kfree(idbuf);
 	return err;
@@ -778,12 +779,13 @@ fail1:	kfree(sw);
 
 static void sw_disconnect(struct gameport *gameport)
 {
+	struct sw *sw = gameport_get_drvdata(gameport);
 	int i;
 
-	struct sw *sw = gameport->private;
 	for (i = 0; i < sw->number; i++)
 		input_unregister_device(sw->dev + i);
 	gameport_close(gameport);
+	gameport_set_drvdata(gameport, NULL);
 	kfree(sw);
 }
 
