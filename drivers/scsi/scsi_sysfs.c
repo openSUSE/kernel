@@ -411,7 +411,7 @@ static DEVICE_ATTR(queue_type, S_IRUGO, show_queue_type_field, NULL);
 static ssize_t
 show_iostat_counterbits(struct device *dev, char *buf)
 {
-	return snprintf(buf, 20, "%d\n", sizeof(atomic_t) * 8);
+	return snprintf(buf, 20, "%d\n", (int)sizeof(atomic_t) * 8);
 }
 
 static DEVICE_ATTR(iocounterbits, S_IRUGO, show_iostat_counterbits, NULL);
@@ -421,7 +421,7 @@ static ssize_t								\
 show_iostat_##field(struct device *dev, char *buf)			\
 {									\
 	struct scsi_device *sdev = to_scsi_device(dev);			\
-	u64 count = (u64)atomic_read(&sdev->field);			\
+	unsigned long long count = atomic_read(&sdev->field);		\
 	return snprintf(buf, 20, "0x%llx\n", count);			\
 }									\
 static DEVICE_ATTR(field, S_IRUGO, show_iostat_##field, NULL)
