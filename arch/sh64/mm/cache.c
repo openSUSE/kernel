@@ -114,6 +114,16 @@ int __init sh64_cache_init(void)
 	return 0;
 }
 
+#ifdef CONFIG_DCACHE_DISABLED
+#define sh64_dcache_purge_all()					do { } while (0)
+#define sh64_dcache_purge_coloured_phy_page(paddr, eaddr)	do { } while (0)
+#define sh64_dcache_purge_user_range(mm, start, end)		do { } while (0)
+#define sh64_dcache_purge_phy_page(paddr)			do { } while (0)
+#define sh64_dcache_purge_virt_page(mm, eaddr)			do { } while (0)
+#define sh64_dcache_purge_kernel_range(start, end)		do { } while (0)
+#define sh64_dcache_wback_current_user_range(start, end)	do { } while (0)
+#endif
+
 /*##########################################################################*/
 
 /* From here onwards, a rewrite of the implementation,
@@ -436,6 +446,7 @@ static void __inline__ sh64_dcache_purge_sets(int sets_to_purge_base, int n_sets
 		eaddr1 = eaddr0 + cpu_data->dcache.way_ofs * cpu_data->dcache.ways;
 		for (eaddr=eaddr0; eaddr<eaddr1; eaddr+=cpu_data->dcache.way_ofs) {
 			asm __volatile__ ("alloco %0, 0" : : "r" (eaddr));
+			asm __volatile__ ("synco"); /* TAKum03020 */
 		}
 
 		eaddr1 = eaddr0 + cpu_data->dcache.way_ofs * cpu_data->dcache.ways;
@@ -741,8 +752,6 @@ static void sh64_dcache_wback_current_user_range(unsigned long start, unsigned l
 	}
 }
 
-#endif /* !CONFIG_DCACHE_DISABLED */
-
 /****************************************************************************/
 
 /* These *MUST* lie in an area of virtual address space that's otherwise unused. */
@@ -804,6 +813,8 @@ static void sh64_clear_user_page_coloured(void *to, unsigned long address)
 
 	sh64_teardown_dtlb_cache_slot();
 }
+
+#endif /* !CONFIG_DCACHE_DISABLED */
 
 /****************************************************************************/
 
