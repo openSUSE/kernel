@@ -48,7 +48,8 @@ struct joydump {
 
 static void __devinit joydump_connect(struct gameport *gameport, struct gameport_dev *dev)
 {
-	struct joydump buf[BUF_SIZE];
+	struct joydump *buf;	/* all entries */
+	struct joydump *dump, *prev;	/* one entry each */
 	int axes[4], buttons;
 	int i, j, t, timeout;
 	unsigned long flags;
@@ -78,6 +79,13 @@ static void __devinit joydump_connect(struct gameport *gameport, struct gameport
 	}
 
 	timeout = gameport_time(gameport, 10000); /* 10 ms */
+
+	buf = kmalloc(BUF_SIZE * sizeof(struct joydump), GFP_KERNEL);
+	if (!buf) {
+		printk(KERN_INFO "joydump: no memory for testing\n");
+		goto jd_end;
+	}
+	dump = buf;
 	t = 0;
 	i = 1;
 
@@ -85,19 +93,21 @@ static void __devinit joydump_connect(struct gameport *gameport, struct gameport
 
 	u = gameport_read(gameport);
 
-	buf[0].data = u;
-	buf[0].time = t;
+	dump->data = u;
+	dump->time = t;
+	dump++;
 
 	gameport_trigger(gameport);
 
 	while (i < BUF_SIZE && t < timeout) {
 
-		buf[i].data = gameport_read(gameport);
+		dump->data = gameport_read(gameport);
 
-		if (buf[i].data ^ u) {
-			u = buf[i].data;
-			buf[i].time = t;
+		if (dump->data ^ u) {
+			u = dump->data;
+			dump->time = t;
 			i++;
+			dump++;
 		}
 		t++;
 	}
@@ -109,20 +119,26 @@ static void __devinit joydump_connect(struct gameport *gameport, struct gameport
  */
 
 	t = i;
+	dump = buf;
+	prev = dump;
 
 	printk(KERN_INFO "joydump: >------------------- DATA -------------------<\n");
 	printk(KERN_INFO "joydump: | index: %3d delta: %3d.%02d us data: ", 0, 0, 0);
 	for (j = 7; j >= 0; j--)
-		printk("%d",(buf[0].data >> j) & 1);
+		printk("%d", (dump->data >> j) & 1);
 	printk(" |\n");
-	for (i = 1; i < t; i++) {
+	dump++;
+
+	for (i = 1; i < t; i++, dump++, prev++) {
 		printk(KERN_INFO "joydump: | index: %3d delta: %3d us data: ",
-			i, buf[i].time - buf[i-1].time);
+			i, dump->time - prev->time);
 		for (j = 7; j >= 0; j--)
-			printk("%d",(buf[i].data >> j) & 1);
+			printk("%d", (dump->data >> j) & 1);
 		printk("    |\n");
 	}
+	kfree(buf);
 
+jd_end:
 	printk(KERN_INFO "joydump: `-------------------- END -------------------'\n");
 }
 
