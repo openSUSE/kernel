@@ -85,6 +85,12 @@ static inline int snd_rawmidi_ready_append(snd_rawmidi_substream_t * substream, 
 	       (!substream->append || runtime->avail >= count);
 }
 
+static void snd_rawmidi_event_tasklet(unsigned long data)
+{
+	snd_rawmidi_substream_t *substream = (snd_rawmidi_substream_t *)data;
+	substream->runtime->event(substream);
+}
+
 static int snd_rawmidi_runtime_create(snd_rawmidi_substream_t * substream)
 {
 	snd_rawmidi_runtime_t *runtime;
@@ -93,6 +99,8 @@ static int snd_rawmidi_runtime_create(snd_rawmidi_substream_t * substream)
 		return -ENOMEM;
 	spin_lock_init(&runtime->lock);
 	init_waitqueue_head(&runtime->sleep);
+	tasklet_init(&runtime->event_tasklet, snd_rawmidi_event_tasklet,
+		     (unsigned long)substream);
 	runtime->event = NULL;
 	runtime->buffer_size = PAGE_SIZE;
 	runtime->avail_min = 1;
@@ -119,11 +127,18 @@ static int snd_rawmidi_runtime_free(snd_rawmidi_substream_t * substream)
 	return 0;
 }
 
+static void snd_rawmidi_trigger(snd_rawmidi_substream_t * substream, int up)
+{
+	substream->ops->trigger(substream, up);
+	if (!up && substream->runtime->event)
+		tasklet_kill(&substream->runtime->event_tasklet);
+}
+
 int snd_rawmidi_drop_output(snd_rawmidi_substream_t * substream)
 {
 	snd_rawmidi_runtime_t *runtime = substream->runtime;
 
-	substream->ops->trigger(substream, 0);
+	snd_rawmidi_trigger(substream, 0);
 	runtime->drain = 0;
 	/* interrupts are not enabled at this moment,
 	   so spinlock is not required */
@@ -165,7 +180,7 @@ int snd_rawmidi_drain_input(snd_rawmidi_substream_t * substream)
 {
 	snd_rawmidi_runtime_t *runtime = substream->runtime;
 
-	substream->ops->trigger(substream, 0);
+	snd_rawmidi_trigger(substream, 0);
 	runtime->drain = 0;
 	/* interrupts aren't enabled at this moment, so spinlock isn't needed */
 	runtime->appl_ptr = runtime->hw_ptr = 0;
@@ -443,7 +458,7 @@ int snd_rawmidi_kernel_release(snd_rawmidi_file_t * rfile)
 		substream = rfile->input;
 		rfile->input = NULL;
 		runtime = substream->runtime;
-		substream->ops->trigger(substream, 0);
+		snd_rawmidi_trigger(substream, 0);
 		substream->ops->close(substream);
 		if (runtime->private_free != NULL)
 			runtime->private_free(substream);
@@ -462,7 +477,7 @@ int snd_rawmidi_kernel_release(snd_rawmidi_file_t * rfile)
 				snd_rawmidi_kernel_write(substream, &buf, 1);
 			}
 			if (snd_rawmidi_drain_output(substream) == -ERESTARTSYS)
-				substream->ops->trigger(substream, 0);
+				snd_rawmidi_trigger(substream, 0);
 			substream->ops->close(substream);
 			if (runtime->private_free != NULL)
 				runtime->private_free(substream);
@@ -858,13 +873,13 @@ int snd_rawmidi_receive(snd_rawmidi_substream_t * substream, const unsigned char
 			}
 		}
 	}
-	if (result > 0 && runtime->event == NULL) {
-		if (snd_rawmidi_ready(substream))
+	if (result > 0) {
+		if (runtime->event)
+			tasklet_hi_schedule(&runtime->event_tasklet);
+		else if (snd_rawmidi_ready(substream))
 			wake_up(&runtime->sleep);
 	}
 	spin_unlock_irqrestore(&runtime->lock, flags);
-	if (result > 0 && runtime->event)
-		runtime->event(substream);
 	return result;
 }
 
@@ -904,7 +919,7 @@ static long snd_rawmidi_kernel_read1(snd_rawmidi_substream_t *substream,
 
 long snd_rawmidi_kernel_read(snd_rawmidi_substream_t *substream, unsigned char *buf, long count)
 {
-	substream->ops->trigger(substream, 1);
+	snd_rawmidi_trigger(substream, 1);
 	return snd_rawmidi_kernel_read1(substream, buf, count, 1);
 }
 
@@ -921,7 +936,7 @@ static ssize_t snd_rawmidi_read(struct file *file, char __user *buf, size_t coun
 	if (substream == NULL)
 		return -EIO;
 	runtime = substream->runtime;
-	substream->ops->trigger(substream, 1);
+	snd_rawmidi_trigger(substream, 1);
 	result = 0;
 	while (count > 0) {
 		spin_lock_irq(&runtime->lock);
@@ -1056,15 +1071,14 @@ int snd_rawmidi_transmit_ack(snd_rawmidi_substream_t * substream, int count)
 	runtime->hw_ptr %= runtime->buffer_size;
 	runtime->avail += count;
 	substream->bytes += count;
-	if (runtime->drain)
-		wake_up(&runtime->sleep);
-	else
-		if (count > 0 && runtime->event == NULL)
-			if (snd_rawmidi_ready(substream))
-				wake_up(&runtime->sleep);
+	if (count > 0) {
+		if (runtime->drain ||
+		    (runtime->event == NULL && snd_rawmidi_ready(substream)))
+			wake_up(&runtime->sleep);
+		if (runtime->event)
+			tasklet_hi_schedule(&runtime->event_tasklet);
+	}
 	spin_unlock_irqrestore(&runtime->lock, flags);
-	if (count > 0 && runtime->event)
-		runtime->event(substream);
 	return count;
 }
 
@@ -1132,7 +1146,7 @@ static long snd_rawmidi_kernel_write1(snd_rawmidi_substream_t * substream, const
 	count1 = runtime->avail < runtime->buffer_size;
 	spin_unlock_irqrestore(&runtime->lock, flags);
 	if (count1)
-		substream->ops->trigger(substream, 1);
+		snd_rawmidi_trigger(substream, 1);
 	return result;
 }
 
@@ -1217,7 +1231,7 @@ static unsigned int snd_rawmidi_poll(struct file *file, poll_table * wait)
 	rfile = file->private_data;
 	if (rfile->input != NULL) {
 		runtime = rfile->input->runtime;
-		rfile->input->ops->trigger(rfile->input, 1);
+		snd_rawmidi_trigger(rfile->input, 1);
 		poll_wait(file, &runtime->sleep, wait);
 	}
 	if (rfile->output != NULL) {
