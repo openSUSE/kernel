@@ -531,7 +531,7 @@ typedef struct scc_uart {
 #define SCU_PSMR_RPM		((ushort)0x000c)
 #define SCU_PSMR_REVP		((ushort)0x0008)
 #define SCU_PSMR_TPM		((ushort)0x0003)
-#define SCU_PSMR_TEVP		((ushort)0x0003)
+#define SCU_PSMR_TEVP		((ushort)0x0002)
 
 /* CPM Transparent mode SCC.
  */
