@@ -35,6 +35,8 @@ typedef struct pbe {
 
 
 #define SUSPEND_PD_PAGES(x)     (((x)*sizeof(struct pbe))/PAGE_SIZE+1)
+
+extern dev_t swsusp_resume_device;
    
 /* mm/vmscan.c */
 extern int shrink_mem(void);

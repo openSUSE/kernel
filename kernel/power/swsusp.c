@@ -79,7 +79,7 @@ extern const void __nosave_begin, __nosave_end;
 static int nr_copy_pages_check;
 
 extern char resume_file[];
-static dev_t resume_device;
+
 /* Local variables that should not be affected by save */
 unsigned int nr_copy_pages __nosavedata = 0;
 
@@ -169,7 +169,7 @@ static int is_resume_device(const struct swap_info_struct *swap_info)
 	struct inode *inode = file->f_dentry->d_inode;
 
 	return S_ISBLK(inode->i_mode) &&
-		resume_device == MKDEV(imajor(inode), iminor(inode));
+		swsusp_resume_device == MKDEV(imajor(inode), iminor(inode));
 }
 
 static int swsusp_swap_check(void) /* This is called before saving image */
@@ -940,7 +940,7 @@ int swsusp_resume(void)
 /*
  * Returns true if given address/order collides with any orig_address 
  */
-static int __init does_collide_order(unsigned long addr, int order)
+static int does_collide_order(unsigned long addr, int order)
 {
 	int i;
 	
@@ -974,7 +974,7 @@ static inline void eat_page(void *page)
 	*eaten_memory = c;
 }
 
-static unsigned long __init get_usable_page(unsigned gfp_mask)
+static unsigned long get_usable_page(unsigned gfp_mask)
 {
 	unsigned long m;
 
@@ -988,7 +988,7 @@ static unsigned long __init get_usable_page(unsigned gfp_mask)
 	return m;
 }
 
-static void __init free_eaten_memory(void)
+static void free_eaten_memory(void)
 {
 	unsigned long m;
 	void **c;
@@ -1011,7 +1011,7 @@ static void __init free_eaten_memory(void)
  *	pages later
  */
 
-static int __init check_pagedir(struct pbe *pblist)
+static int check_pagedir(struct pbe *pblist)
 {
 	struct pbe *p;
 
@@ -1035,7 +1035,7 @@ static int __init check_pagedir(struct pbe *pblist)
  *	restore from the loaded pages later.  We relocate them here.
  */
 
-static struct pbe * __init swsusp_pagedir_relocate(struct pbe *pblist)
+static struct pbe * swsusp_pagedir_relocate(struct pbe *pblist)
 {
 	struct zone *zone;
 	unsigned long zone_pfn;
@@ -1184,7 +1184,7 @@ static int bio_write_page(pgoff_t page_off, void * page)
  * I really don't think that it's foolproof but more than nothing..
  */
 
-static const char * __init sanity_check(void)
+static const char * sanity_check(void)
 {
 	dump_info();
 	if(swsusp_info.version_code != LINUX_VERSION_CODE)
@@ -1205,7 +1205,7 @@ static const char * __init sanity_check(void)
 }
 
 
-static int __init check_header(void)
+static int check_header(void)
 {
 	const char * reason = NULL;
 	int error;
@@ -1223,7 +1223,7 @@ static int __init check_header(void)
 	return error;
 }
 
-static int __init check_sig(void)
+static int check_sig(void)
 {
 	int error;
 
@@ -1253,7 +1253,7 @@ static int __init check_sig(void)
  *	already did that.
  */
 
-static int __init data_read(struct pbe *pblist)
+static int data_read(struct pbe *pblist)
 {
 	struct pbe * p;
 	int error = 0;
@@ -1281,13 +1281,13 @@ static int __init data_read(struct pbe *pblist)
 	return error;
 }
 
-extern dev_t __init name_to_dev_t(const char *line);
+extern dev_t name_to_dev_t(const char *line);
 
 /**
  *	read_pagedir - Read page backup list pages from swap
  */
 
-static int __init read_pagedir(struct pbe *pblist)
+static int read_pagedir(struct pbe *pblist)
 {
 	struct pbe *pbpage, *p;
 	unsigned i = 0;
@@ -1321,16 +1321,23 @@ static int __init read_pagedir(struct pbe *pblist)
 }
 
 
-static int __init read_suspend_image(void)
+static int check_suspend_image(void)
 {
 	int error = 0;
-	struct pbe *p;
 
 	if ((error = check_sig()))
 		return error;
 
 	if ((error = check_header()))
 		return error;
+
+	return 0;
+}
+
+static int read_suspend_image(void)
+{
+	int error = 0;
+	struct pbe *p;
 
 	if (!(p = alloc_pagedir(nr_copy_pages)))
 		return -ENOMEM;
@@ -1362,30 +1369,72 @@ static int __init read_suspend_image(void)
 }
 
 /**
- *	swsusp_read - Read saved image from swap.
+ *      swsusp_check - Check for saved image in swap
  */
 
-int __init swsusp_read(void)
+int swsusp_check(void)
 {
 	int error;
 
-	if (!strlen(resume_file))
-		return -ENOENT;
+	if (!swsusp_resume_device) {
+		if (!strlen(resume_file))
+			return -ENOENT;
+		swsusp_resume_device = name_to_dev_t(resume_file);
+		pr_debug("swsusp: Resume From Partition %s\n", resume_file);
+	} else {
+		pr_debug("swsusp: Resume From Partition %d:%d\n",
+			 MAJOR(swsusp_resume_device), MINOR(swsusp_resume_device));
+	}
 
-	resume_device = name_to_dev_t(resume_file);
-	pr_debug("swsusp: Resume From Partition: %s\n", resume_file);
-
-	resume_bdev = open_by_devnum(resume_device, FMODE_READ);
+	resume_bdev = open_by_devnum(swsusp_resume_device, FMODE_READ);
 	if (!IS_ERR(resume_bdev)) {
 		set_blocksize(resume_bdev, PAGE_SIZE);
-		error = read_suspend_image();
-		blkdev_put(resume_bdev);
+		error = check_suspend_image();
+		if (error)
+		    blkdev_put(resume_bdev);
 	} else
 		error = PTR_ERR(resume_bdev);
 
 	if (!error)
-		pr_debug("Reading resume file was successful\n");
+		pr_debug("swsusp: resume file found\n");
+	else
+		pr_debug("swsusp: Error %d check for resume file\n", error);
+	return error;
+}
+
+/**
+ *	swsusp_read - Read saved image from swap.
+ */
+
+int swsusp_read(void)
+{
+	int error;
+
+	if (IS_ERR(resume_bdev)) {
+		pr_debug("swsusp: block device not initialised\n");
+		return PTR_ERR(resume_bdev);
+	}
+
+	error = read_suspend_image();
+	blkdev_put(resume_bdev);
+
+	if (!error)
+		pr_debug("swsusp: Reading resume file was successful\n");
 	else
 		pr_debug("swsusp: Error %d resuming\n", error);
 	return error;
+}
+
+/**
+ *	swsusp_close - close swap device.
+ */
+
+void swsusp_close(void)
+{
+	if (IS_ERR(resume_bdev)) {
+		pr_debug("swsusp: block device not initialised\n");
+		return;
+	}
+
+	blkdev_put(resume_bdev);
 }
