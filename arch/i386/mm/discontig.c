@@ -154,7 +154,7 @@ static void __init find_max_pfn_node(int nid)
  */
 static void __init allocate_pgdat(int nid)
 {
-	if (nid)
+	if (nid && node_has_online_mem(nid))
 		NODE_DATA(nid) = (pg_data_t *)node_remap_start_vaddr[nid];
 	else {
 		NODE_DATA(nid) = (pg_data_t *)(__va(min_low_pfn << PAGE_SHIFT));
@@ -188,6 +188,9 @@ static unsigned long calculate_numa_remap_pages(void)
 	for_each_online_node(nid) {
 		if (nid == 0)
 			continue;
+		if (!node_remap_size[nid])
+			continue;
+
 		/*
 		 * The acpi/srat node info can show hot-add memroy zones
 		 * where memory could be added but not currently present.
@@ -307,24 +310,27 @@ void __init zone_sizes_init(void)
 
 		max_dma = virt_to_phys((char *)MAX_DMA_ADDRESS) >> PAGE_SHIFT;
 
-		if (start > low) {
+		if (node_has_online_mem(nid)){
+			if (start > low) {
 #ifdef CONFIG_HIGHMEM
-			BUG_ON(start > high);
-			zones_size[ZONE_HIGHMEM] = high - start;
+				BUG_ON(start > high);
+				zones_size[ZONE_HIGHMEM] = high - start;
 #endif
-		} else {
-			if (low < max_dma)
-				zones_size[ZONE_DMA] = low;
-			else {
-				BUG_ON(max_dma > low);
-				BUG_ON(low > high);
-				zones_size[ZONE_DMA] = max_dma;
-				zones_size[ZONE_NORMAL] = low - max_dma;
+			} else {
+				if (low < max_dma)
+					zones_size[ZONE_DMA] = low;
+				else {
+					BUG_ON(max_dma > low);
+					BUG_ON(low > high);
+					zones_size[ZONE_DMA] = max_dma;
+					zones_size[ZONE_NORMAL] = low - max_dma;
 #ifdef CONFIG_HIGHMEM
-				zones_size[ZONE_HIGHMEM] = high - low;
+					zones_size[ZONE_HIGHMEM] = high - low;
 #endif
+				}
 			}
 		}
+
 		zholes_size = get_zholes_size(nid);
 		/*
 		 * We let the lmem_map for node 0 be allocated from the

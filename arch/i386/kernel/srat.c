@@ -30,6 +30,7 @@
 #include <linux/acpi.h>
 #include <linux/nodemask.h>
 #include <asm/srat.h>
+#include <asm/topology.h>
 
 /*
  * proximity macros and definitions
@@ -57,8 +58,6 @@ static struct node_memory_chunk_s node_memory_chunk[MAXCHUNKS];
 static int num_memory_chunks;		/* total number of memory chunks */
 static int zholes_size_init;
 static unsigned long zholes_size[MAX_NUMNODES * MAX_NR_ZONES];
-
-extern unsigned long node_start_pfn[], node_end_pfn[], node_remap_size[];
 
 extern void * boot_ioremap(unsigned long, unsigned long);
 
@@ -273,6 +272,17 @@ static int __init acpi20_parse_srat(struct acpi_table_srat *sratp)
 		int been_here_before = 0;
 
 		for (j = 0; j < num_memory_chunks; j++){
+			/*
+			 * Only add present memroy to node_end/start_pfn
+			 * There is no guarantee from the srat that the memory
+			 * is present at boot time.
+			 */
+			if (node_memory_chunk[j].start_pfn >= max_pfn) {
+				printk (KERN_INFO "Ignoring chunk of memory reported in the SRAT (could be hot-add zone?)\n");
+				printk (KERN_INFO "chunk is reported from pfn %04x to %04x\n",
+					node_memory_chunk[j].start_pfn, node_memory_chunk[j].end_pfn);
+				continue;
+			}
 			if (node_memory_chunk[j].nid == nid) {
 				if (been_here_before == 0) {
 					node_start_pfn[nid] = node_memory_chunk[j].start_pfn;

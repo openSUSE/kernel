@@ -30,9 +30,7 @@
 #include <linux/module.h>
 #include <linux/nodemask.h>
 #include <asm/numaq.h>
-
-/* These are needed before the pgdat's are created */
-extern long node_start_pfn[], node_end_pfn[], node_remap_size[];
+#include <asm/topology.h>
 
 #define	MB_TO_PAGES(addr) ((addr) << (20 - PAGE_SHIFT))
 
