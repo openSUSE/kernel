@@ -117,7 +117,6 @@ int snd_rawmidi_drop_output(snd_rawmidi_substream_t * substream)
 	snd_rawmidi_runtime_t *runtime = substream->runtime;
 
 	substream->ops->trigger(substream, 0);
-	runtime->trigger = 0;
 	runtime->drain = 0;
 	/* interrupts are not enabled at this moment,
 	   so spinlock is not required */
@@ -160,7 +159,6 @@ int snd_rawmidi_drain_input(snd_rawmidi_substream_t * substream)
 	snd_rawmidi_runtime_t *runtime = substream->runtime;
 
 	substream->ops->trigger(substream, 0);
-	runtime->trigger = 0;
 	runtime->drain = 0;
 	/* interrupts aren't enabled at this moment, so spinlock isn't needed */
 	runtime->appl_ptr = runtime->hw_ptr = 0;
@@ -462,7 +460,6 @@ int snd_rawmidi_kernel_release(snd_rawmidi_file_t * rfile)
 		substream = rfile->input;
 		rfile->input = NULL;
 		runtime = substream->runtime;
-		runtime->trigger = 0;
 		substream->ops->trigger(substream, 0);
 		substream->ops->close(substream);
 		snd_rawmidi_done_buffer(runtime);
@@ -928,7 +925,6 @@ static long snd_rawmidi_kernel_read1(snd_rawmidi_substream_t *substream,
 
 long snd_rawmidi_kernel_read(snd_rawmidi_substream_t *substream, unsigned char *buf, long count)
 {
-	substream->runtime->trigger = 1;
 	substream->ops->trigger(substream, 1);
 	return snd_rawmidi_kernel_read1(substream, buf, count, 1);
 }
@@ -946,7 +942,6 @@ static ssize_t snd_rawmidi_read(struct file *file, char __user *buf, size_t coun
 	if (substream == NULL)
 		return -EIO;
 	runtime = substream->runtime;
-	runtime->trigger = 1;
 	substream->ops->trigger(substream, 1);
 	result = 0;
 	while (count > 0) {
@@ -998,8 +993,6 @@ int snd_rawmidi_transmit_empty(snd_rawmidi_substream_t * substream)
 	}
 	spin_lock_irqsave(&runtime->lock, flags);
 	result = runtime->avail >= runtime->buffer_size;
-	if (result)
-		runtime->trigger = 1;
 	spin_unlock_irqrestore(&runtime->lock, flags);
 	return result;		
 }
@@ -1032,7 +1025,6 @@ int snd_rawmidi_transmit_peek(snd_rawmidi_substream_t * substream, unsigned char
 	spin_lock_irqsave(&runtime->lock, flags);
 	if (runtime->avail >= runtime->buffer_size) {
 		/* warning: lowlevel layer MUST trigger down the hardware */
-		runtime->trigger = 0;
 		goto __skip;
 	}
 	if (count == 1) {	/* special case, faster code */
@@ -1158,8 +1150,6 @@ static long snd_rawmidi_kernel_write1(snd_rawmidi_substream_t * substream, const
 		count -= count1;
 	}
       __end:
-	if (result > 0)
-		runtime->trigger = 1;
 	count1 = runtime->avail < runtime->buffer_size;
 	spin_unlock_irqrestore(&runtime->lock, flags);
 	if (count1)
@@ -1248,7 +1238,6 @@ static unsigned int snd_rawmidi_poll(struct file *file, poll_table * wait)
 	rfile = file->private_data;
 	if (rfile->input != NULL) {
 		runtime = rfile->input->runtime;
-		runtime->trigger = 1;
 		rfile->input->ops->trigger(rfile->input, 1);
 		poll_wait(file, &runtime->sleep, wait);
 	}
