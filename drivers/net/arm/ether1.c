@@ -86,8 +86,8 @@ static char version[] __initdata = "ether1 ethernet driver (c) 2000 Russell King
 #define DISABLEIRQS 1
 #define NORMALIRQS  0
 
-#define ether1_inw(dev, addr, type, offset, svflgs) ether1_inw_p (dev, addr + (int)(&((type *)0)->offset), svflgs)
-#define ether1_outw(dev, val, addr, type, offset, svflgs) ether1_outw_p (dev, val, addr + (int)(&((type *)0)->offset), svflgs)
+#define ether1_readw(dev, addr, type, offset, svflgs) ether1_inw_p (dev, addr + (int)(&((type *)0)->offset), svflgs)
+#define ether1_writew(dev, val, addr, type, offset, svflgs) ether1_outw_p (dev, val, addr + (int)(&((type *)0)->offset), svflgs)
 
 static inline unsigned short
 ether1_inw_p (struct net_device *dev, int addr, int svflgs)
@@ -98,8 +98,8 @@ ether1_inw_p (struct net_device *dev, int addr, int svflgs)
 	if (svflgs)
 		local_irq_save (flags);
 
-	outb (addr >> 12, REG_PAGE);
-	ret = inw (ETHER1_RAM + ((addr & 4095) >> 1));
+	writeb(addr >> 12, REG_PAGE);
+	ret = readw(ETHER1_RAM + ((addr & 4095) << 1));
 	if (svflgs)
 		local_irq_restore (flags);
 	return ret;
@@ -113,8 +113,8 @@ ether1_outw_p (struct net_device *dev, unsigned short val, int addr, int svflgs)
 	if (svflgs)
 		local_irq_save (flags);
 
-	outb (addr >> 12, REG_PAGE);
-	outw (val, ETHER1_RAM + ((addr & 4095) >> 1));
+	writeb(addr >> 12, REG_PAGE);
+	writew(val, ETHER1_RAM + ((addr & 4095) << 1));
 	if (svflgs)
 		local_irq_restore (flags);
 }
@@ -131,11 +131,12 @@ ether1_outw_p (struct net_device *dev, unsigned short val, int addr, int svflgs)
 static void
 ether1_writebuffer (struct net_device *dev, void *data, unsigned int start, unsigned int length)
 {
-	unsigned int page, thislen, offset, addr;
+	unsigned int page, thislen, offset;
+	void __iomem *addr;
 
 	offset = start & 4095;
 	page = start >> 12;
-	addr = ioaddr(ETHER1_RAM + (offset >> 1));
+	addr = ETHER1_RAM + (offset << 1);
 
 	if (offset + length > 4096)
 		thislen = 4096 - offset;
@@ -145,7 +146,7 @@ ether1_writebuffer (struct net_device *dev, void *data, unsigned int start, unsi
 	do {
 		int used;
 
-		outb(page, REG_PAGE);
+		writeb(page, REG_PAGE);
 		length -= thislen;
 
 		__asm__ __volatile__(
@@ -181,7 +182,7 @@ ether1_writebuffer (struct net_device *dev, void *data, unsigned int start, unsi
 		: "=&r" (used), "=&r" (data)
 		: "r"  (addr), "r" (thislen), "1" (data));
 
-		addr = ioaddr(ETHER1_RAM);
+		addr = ETHER1_RAM;
 
 		thislen = length;
 		if (thislen > 4096)
@@ -193,11 +194,12 @@ ether1_writebuffer (struct net_device *dev, void *data, unsigned int start, unsi
 static void
 ether1_readbuffer (struct net_device *dev, void *data, unsigned int start, unsigned int length)
 {
-	unsigned int page, thislen, offset, addr;
+	unsigned int page, thislen, offset;
+	void __iomem *addr;
 
 	offset = start & 4095;
 	page = start >> 12;
-	addr = ioaddr(ETHER1_RAM + (offset >> 1));
+	addr = ETHER1_RAM + (offset << 1);
 
 	if (offset + length > 4096)
 		thislen = 4096 - offset;
@@ -207,7 +209,7 @@ ether1_readbuffer (struct net_device *dev, void *data, unsigned int start, unsig
 	do {
 		int used;
 
-		outb(page, REG_PAGE);
+		writeb(page, REG_PAGE);
 		length -= thislen;
 
 		__asm__ __volatile__(
@@ -243,7 +245,7 @@ ether1_readbuffer (struct net_device *dev, void *data, unsigned int start, unsig
 		: "=&r" (used), "=&r" (data)
 		: "r"  (addr), "r" (thislen), "1" (data));
 
-		addr = ioaddr(ETHER1_RAM);
+		addr = ETHER1_RAM;
 
 		thislen = length;
 		if (thislen > 4096)
@@ -302,7 +304,7 @@ ether1_ramtest(struct net_device *dev, unsigned char byte)
 static int
 ether1_reset (struct net_device *dev)
 {
-	outb (CTRL_RST|CTRL_ACK, REG_CONTROL);
+	writeb(CTRL_RST|CTRL_ACK, REG_CONTROL);
 	return BUS_16;
 }
 
@@ -451,7 +453,7 @@ ether1_init_for_open (struct net_device *dev)
 	int failures = 0;
 	unsigned long timeout;
 
-	outb (CTRL_RST|CTRL_ACK, REG_CONTROL);
+	writeb(CTRL_RST|CTRL_ACK, REG_CONTROL);
 
 	for (i = 0; i < 6; i++)
 		init_sa.sa_addr[i] = dev->dev_addr[i];
@@ -466,7 +468,7 @@ ether1_init_for_open (struct net_device *dev)
 	ether1_writebuffer (dev, &init_tdr,  TDR_ADDR,  TDR_SIZE);
 	ether1_writebuffer (dev, &init_nop,  NOP_ADDR,  NOP_SIZE);
 
-	if (ether1_inw (dev, CFG_ADDR, cfg_t, cfg_command, NORMALIRQS) != CMD_CONFIG) {
+	if (ether1_readw(dev, CFG_ADDR, cfg_t, cfg_command, NORMALIRQS) != CMD_CONFIG) {
 		printk (KERN_ERR "%s: detected either RAM fault or compiler bug\n",
 			dev->name);
 		return 1;
@@ -510,13 +512,13 @@ ether1_init_for_open (struct net_device *dev)
 	/* release reset & give 586 a prod */
 	priv(dev)->resetting = 1;
 	priv(dev)->initialising = 1;
-	outb (CTRL_RST, REG_CONTROL);
-	outb (0, REG_CONTROL);
-	outb (CTRL_CA, REG_CONTROL);
+	writeb(CTRL_RST, REG_CONTROL);
+	writeb(0, REG_CONTROL);
+	writeb(CTRL_CA, REG_CONTROL);
 
 	/* 586 should now unset iscp.busy */
 	timeout = jiffies + HZ/2;
-	while (ether1_inw (dev, ISCP_ADDR, iscp_t, iscp_busy, DISABLEIRQS) == 1) {
+	while (ether1_readw(dev, ISCP_ADDR, iscp_t, iscp_busy, DISABLEIRQS) == 1) {
 		if (time_after(jiffies, timeout)) {
 			printk (KERN_WARNING "%s: can't initialise 82586: iscp is busy\n", dev->name);
 			return 1;
@@ -525,7 +527,7 @@ ether1_init_for_open (struct net_device *dev)
 
 	/* check status of commands that we issued */
 	timeout += HZ/10;
-	while (((status = ether1_inw (dev, CFG_ADDR, cfg_t, cfg_status, DISABLEIRQS))
+	while (((status = ether1_readw(dev, CFG_ADDR, cfg_t, cfg_status, DISABLEIRQS))
 			& STAT_COMPLETE) == 0) {
 		if (time_after(jiffies, timeout))
 			break;
@@ -534,15 +536,15 @@ ether1_init_for_open (struct net_device *dev)
 	if ((status & (STAT_COMPLETE | STAT_OK)) != (STAT_COMPLETE | STAT_OK)) {
 		printk (KERN_WARNING "%s: can't initialise 82586: config status %04X\n", dev->name, status);
 		printk (KERN_DEBUG "%s: SCB=[STS=%04X CMD=%04X CBL=%04X RFA=%04X]\n", dev->name,
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS),
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_command, NORMALIRQS),
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS),
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_rfa_offset, NORMALIRQS));
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS),
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_command, NORMALIRQS),
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS),
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_rfa_offset, NORMALIRQS));
 		failures += 1;
 	}
 
 	timeout += HZ/10;
-	while (((status = ether1_inw (dev, SA_ADDR, sa_t, sa_status, DISABLEIRQS))
+	while (((status = ether1_readw(dev, SA_ADDR, sa_t, sa_status, DISABLEIRQS))
 			& STAT_COMPLETE) == 0) {
 		if (time_after(jiffies, timeout))
 			break;
@@ -551,15 +553,15 @@ ether1_init_for_open (struct net_device *dev)
 	if ((status & (STAT_COMPLETE | STAT_OK)) != (STAT_COMPLETE | STAT_OK)) {
 		printk (KERN_WARNING "%s: can't initialise 82586: set address status %04X\n", dev->name, status);
 		printk (KERN_DEBUG "%s: SCB=[STS=%04X CMD=%04X CBL=%04X RFA=%04X]\n", dev->name,
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS),
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_command, NORMALIRQS),
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS),
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_rfa_offset, NORMALIRQS));
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS),
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_command, NORMALIRQS),
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS),
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_rfa_offset, NORMALIRQS));
 		failures += 1;
 	}
 
 	timeout += HZ/10;
-	while (((status = ether1_inw (dev, MC_ADDR, mc_t, mc_status, DISABLEIRQS))
+	while (((status = ether1_readw(dev, MC_ADDR, mc_t, mc_status, DISABLEIRQS))
 			& STAT_COMPLETE) == 0) {
 		if (time_after(jiffies, timeout))
 			break;
@@ -568,15 +570,15 @@ ether1_init_for_open (struct net_device *dev)
 	if ((status & (STAT_COMPLETE | STAT_OK)) != (STAT_COMPLETE | STAT_OK)) {
 		printk (KERN_WARNING "%s: can't initialise 82586: set multicast status %04X\n", dev->name, status);
 		printk (KERN_DEBUG "%s: SCB=[STS=%04X CMD=%04X CBL=%04X RFA=%04X]\n", dev->name,
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS),
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_command, NORMALIRQS),
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS),
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_rfa_offset, NORMALIRQS));
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS),
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_command, NORMALIRQS),
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS),
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_rfa_offset, NORMALIRQS));
 		failures += 1;
 	}
 
 	timeout += HZ;
-	while (((status = ether1_inw (dev, TDR_ADDR, tdr_t, tdr_status, DISABLEIRQS))
+	while (((status = ether1_readw(dev, TDR_ADDR, tdr_t, tdr_status, DISABLEIRQS))
 			& STAT_COMPLETE) == 0) {
 		if (time_after(jiffies, timeout))
 			break;
@@ -585,12 +587,12 @@ ether1_init_for_open (struct net_device *dev)
 	if ((status & (STAT_COMPLETE | STAT_OK)) != (STAT_COMPLETE | STAT_OK)) {
 		printk (KERN_WARNING "%s: can't tdr (ignored)\n", dev->name);
 		printk (KERN_DEBUG "%s: SCB=[STS=%04X CMD=%04X CBL=%04X RFA=%04X]\n", dev->name,
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS),
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_command, NORMALIRQS),
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS),
-			ether1_inw (dev, SCB_ADDR, scb_t, scb_rfa_offset, NORMALIRQS));
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS),
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_command, NORMALIRQS),
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS),
+			ether1_readw(dev, SCB_ADDR, scb_t, scb_rfa_offset, NORMALIRQS));
 	} else {
-		status = ether1_inw (dev, TDR_ADDR, tdr_t, tdr_result, DISABLEIRQS);
+		status = ether1_readw(dev, TDR_ADDR, tdr_t, tdr_result, DISABLEIRQS);
 		if (status & TDR_XCVRPROB)
 			printk (KERN_WARNING "%s: i/f failed tdr: transceiver problem\n", dev->name);
 		else if ((status & (TDR_SHORT|TDR_OPEN)) && (status & TDR_TIME)) {
@@ -732,7 +734,7 @@ ether1_sendpacket (struct sk_buff *skb, struct net_device *dev)
 	priv(dev)->tx_link = nopaddr;
 
 	/* now reset the previous nop pointer */
-	ether1_outw (dev, txaddr, tmp, nop_t, nop_link, NORMALIRQS);
+	ether1_writew(dev, txaddr, tmp, nop_t, nop_link, NORMALIRQS);
 
 	local_irq_restore(flags);
 
@@ -766,11 +768,11 @@ again:
 	switch (nop.nop_command & CMD_MASK) {
 	case CMD_TDR:
 		/* special case */
-		if (ether1_inw (dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS)
+		if (ether1_readw(dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS)
 				!= (unsigned short)I82586_NULL) {
 			ether1_outw(dev, SCB_CMDCUCSTART | SCB_CMDRXSTART, SCB_ADDR, scb_t,
 				    scb_command, NORMALIRQS);
-			outb (CTRL_CA, REG_CONTROL);
+			writeb(CTRL_CA, REG_CONTROL);
 		}
 		priv(dev)->tx_tail = NOP_ADDR;
 		return;
@@ -860,11 +862,11 @@ ether1_recv_done (struct net_device *dev)
 	rbd_t rbd;
 
 	do {
-		status = ether1_inw (dev, priv(dev)->rx_head, rfd_t, rfd_status, NORMALIRQS);
+		status = ether1_readw(dev, priv(dev)->rx_head, rfd_t, rfd_status, NORMALIRQS);
 		if ((status & RFD_COMPLETE) == 0)
 			break;
 
-		rbdaddr = ether1_inw (dev, priv(dev)->rx_head, rfd_t, rfd_rbdoffset, NORMALIRQS);
+		rbdaddr = ether1_readw(dev, priv(dev)->rx_head, rfd_t, rfd_rbdoffset, NORMALIRQS);
 		ether1_readbuffer (dev, &rbd, rbdaddr, RBD_SIZE);
 
 		if ((rbd.rbd_status & (RBD_EOF | RBD_ACNTVALID)) == (RBD_EOF | RBD_ACNTVALID)) {
@@ -891,18 +893,18 @@ ether1_recv_done (struct net_device *dev)
 			priv(dev)->stats.rx_dropped ++;
 		}
 
-		nexttail = ether1_inw (dev, priv(dev)->rx_tail, rfd_t, rfd_link, NORMALIRQS);
+		nexttail = ether1_readw(dev, priv(dev)->rx_tail, rfd_t, rfd_link, NORMALIRQS);
 		/* nexttail should be rx_head */
 		if (nexttail != priv(dev)->rx_head)
 			printk(KERN_ERR "%s: receiver buffer chaining error (%04X != %04X)\n",
 				dev->name, nexttail, priv(dev)->rx_head);
-		ether1_outw (dev, RFD_CMDEL | RFD_CMDSUSPEND, nexttail, rfd_t, rfd_command, NORMALIRQS);
-		ether1_outw (dev, 0, priv(dev)->rx_tail, rfd_t, rfd_command, NORMALIRQS);
-		ether1_outw (dev, 0, priv(dev)->rx_tail, rfd_t, rfd_status, NORMALIRQS);
-		ether1_outw (dev, 0, priv(dev)->rx_tail, rfd_t, rfd_rbdoffset, NORMALIRQS);
+		ether1_writew(dev, RFD_CMDEL | RFD_CMDSUSPEND, nexttail, rfd_t, rfd_command, NORMALIRQS);
+		ether1_writew(dev, 0, priv(dev)->rx_tail, rfd_t, rfd_command, NORMALIRQS);
+		ether1_writew(dev, 0, priv(dev)->rx_tail, rfd_t, rfd_status, NORMALIRQS);
+		ether1_writew(dev, 0, priv(dev)->rx_tail, rfd_t, rfd_rbdoffset, NORMALIRQS);
 	
 		priv(dev)->rx_tail = nexttail;
-		priv(dev)->rx_head = ether1_inw (dev, priv(dev)->rx_head, rfd_t, rfd_link, NORMALIRQS);
+		priv(dev)->rx_head = ether1_readw(dev, priv(dev)->rx_head, rfd_t, rfd_link, NORMALIRQS);
 	} while (1);
 }
 
@@ -912,12 +914,12 @@ ether1_interrupt (int irq, void *dev_id, struct pt_regs *regs)
 	struct net_device *dev = (struct net_device *)dev_id;
 	int status;
 
-	status = ether1_inw (dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS);
+	status = ether1_readw(dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS);
 
 	if (status) {
 		ether1_outw(dev, status & (SCB_STRNR | SCB_STCNA | SCB_STFR | SCB_STCX),
 			    SCB_ADDR, scb_t, scb_command, NORMALIRQS);
-		outb (CTRL_CA | CTRL_ACK, REG_CONTROL);
+		writeb(CTRL_CA | CTRL_ACK, REG_CONTROL);
 		if (status & SCB_STCX) {
 			ether1_xmit_done (dev);
 		}
@@ -926,10 +928,10 @@ ether1_interrupt (int irq, void *dev_id, struct pt_regs *regs)
 				printk (KERN_WARNING "%s: CU went not ready ???\n", dev->name);
 			else
 				priv(dev)->resetting += 1;
-			if (ether1_inw (dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS)
+			if (ether1_readw(dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS)
 					!= (unsigned short)I82586_NULL) {
-				ether1_outw (dev, SCB_CMDCUCSTART, SCB_ADDR, scb_t, scb_command, NORMALIRQS);
-				outb (CTRL_CA, REG_CONTROL);
+				ether1_writew(dev, SCB_CMDCUCSTART, SCB_ADDR, scb_t, scb_command, NORMALIRQS);
+				writeb(CTRL_CA, REG_CONTROL);
 			}
 			if (priv(dev)->resetting == 2)
 				priv(dev)->resetting = 0;
@@ -938,19 +940,19 @@ ether1_interrupt (int irq, void *dev_id, struct pt_regs *regs)
 			ether1_recv_done (dev);
 		}
 		if (status & SCB_STRNR) {
-			if (ether1_inw (dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS) & SCB_STRXSUSP) {
+			if (ether1_readw(dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS) & SCB_STRXSUSP) {
 				printk (KERN_WARNING "%s: RU went not ready: RU suspended\n", dev->name);
-				ether1_outw (dev, SCB_CMDRXRESUME, SCB_ADDR, scb_t, scb_command, NORMALIRQS);
-				outb (CTRL_CA, REG_CONTROL);
+				ether1_writew(dev, SCB_CMDRXRESUME, SCB_ADDR, scb_t, scb_command, NORMALIRQS);
+				writeb(CTRL_CA, REG_CONTROL);
 				priv(dev)->stats.rx_dropped ++;	/* we suspended due to lack of buffer space */
 			} else
 				printk(KERN_WARNING "%s: RU went not ready: %04X\n", dev->name,
-					ether1_inw (dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS));
-			printk (KERN_WARNING "RU ptr = %04X\n", ether1_inw (dev, SCB_ADDR, scb_t, scb_rfa_offset,
+					ether1_readw(dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS));
+			printk (KERN_WARNING "RU ptr = %04X\n", ether1_readw(dev, SCB_ADDR, scb_t, scb_rfa_offset,
 						NORMALIRQS));
 		}
 	} else
-		outb (CTRL_ACK, REG_CONTROL);
+		writeb(CTRL_ACK, REG_CONTROL);
 
 	return IRQ_HANDLED;
 }
@@ -1012,9 +1014,15 @@ ether1_probe(struct expansion_card *ec, const struct ecard_id *id)
 	}
 
 	SET_MODULE_OWNER(dev);
+	SET_NETDEV_DEV(dev, &ec->dev);
 
-	dev->base_addr	= ecard_address(ec, ECARD_IOC, ECARD_FAST);
-	dev->irq	= ec->irq;
+	dev->irq = ec->irq;
+	priv(dev)->base = ioremap(ecard_resource_start(ec, ECARD_RES_IOCFAST),
+				  ecard_resource_len(ec, ECARD_RES_IOCFAST));
+	if (!priv(dev)->base) {
+		ret = -ENOMEM;
+		goto free;
+	}
 
 	if ((priv(dev)->bus_type = ether1_reset(dev)) == 0) {
 		ret = -ENODEV;
@@ -1022,7 +1030,7 @@ ether1_probe(struct expansion_card *ec, const struct ecard_id *id)
 	}
 
 	for (i = 0; i < 6; i++)
-		dev->dev_addr[i] = inb(IDPROM_ADDRESS + i);
+		dev->dev_addr[i] = readb(IDPROM_ADDRESS + (i << 2));
 
 	if (ether1_init_2(dev)) {
 		ret = -ENODEV;
@@ -1051,6 +1059,8 @@ ether1_probe(struct expansion_card *ec, const struct ecard_id *id)
 	return 0;
 
  free:
+	if (priv(dev)->base)
+		iounmap(priv(dev)->base);
 	free_netdev(dev);
  release:
 	ecard_release_resources(ec);
@@ -1065,6 +1075,7 @@ static void __devexit ether1_remove(struct expansion_card *ec)
 	ecard_set_drvdata(ec, NULL);	
 
 	unregister_netdev(dev);
+	iounmap(priv(dev)->base);
 	free_netdev(dev);
 	ecard_release_resources(ec);
 }

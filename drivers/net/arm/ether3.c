@@ -104,19 +104,19 @@ typedef enum {
  * The SEEQ8005 doesn't like us writing to its registers
  * too quickly.
  */
-static inline void ether3_outb(int v, const int r)
+static inline void ether3_outb(int v, const void __iomem *r)
 {
-	outb(v, r);
+	writeb(v, r);
 	udelay(1);
 }
 
-static inline void ether3_outw(int v, const int r)
+static inline void ether3_outw(int v, const void __iomem *r)
 {
-	outw(v, r);
+	writew(v, r);
 	udelay(1);
 }
-#define ether3_inb(r)		({ unsigned int __v = inb((r)); udelay(1); __v; })
-#define ether3_inw(r)		({ unsigned int __v = inw((r)); udelay(1); __v; })
+#define ether3_inb(r)		({ unsigned int __v = readb((r)); udelay(1); __v; })
+#define ether3_inw(r)		({ unsigned int __v = readw((r)); udelay(1); __v; })
 
 static int
 ether3_setbuffer(struct net_device *dev, buffer_rw_t read, int start)
@@ -149,28 +149,28 @@ ether3_setbuffer(struct net_device *dev, buffer_rw_t read, int start)
  * write data to the buffer memory
  */
 #define ether3_writebuffer(dev,data,length)			\
-	outsw(REG_BUFWIN, (data), (length) >> 1)
+	writesw(REG_BUFWIN, (data), (length) >> 1)
 
 #define ether3_writeword(dev,data)				\
-	outw((data), REG_BUFWIN)
+	writew((data), REG_BUFWIN)
 
 #define ether3_writelong(dev,data)	{			\
-	unsigned long reg_bufwin = REG_BUFWIN;			\
-	outw((data), reg_bufwin);				\
-	outw((data) >> 16, reg_bufwin);				\
+	void __iomem *reg_bufwin = REG_BUFWIN;			\
+	writew((data), reg_bufwin);				\
+	writew((data) >> 16, reg_bufwin);			\
 }
 
 /*
  * read data from the buffer memory
  */
 #define ether3_readbuffer(dev,data,length)			\
-	insw(REG_BUFWIN, (data), (length) >> 1)
+	readsw(REG_BUFWIN, (data), (length) >> 1)
 
 #define ether3_readword(dev)					\
-	inw(REG_BUFWIN)
+	readw(REG_BUFWIN)
 
 #define ether3_readlong(dev)	 				\
-	inw(REG_BUFWIN) | (inw(REG_BUFWIN) << 16)
+	readw(REG_BUFWIN) | (readw(REG_BUFWIN) << 16)
 
 /*
  * Switch LED off...
@@ -371,10 +371,10 @@ ether3_probe_bus_8(struct net_device *dev, int val)
 	printk(KERN_DEBUG "ether3_probe: write8 [%02X:%02X]", write_high, write_low);
 
 	ether3_outb(write_low, REG_RECVPTR);
-	ether3_outb(write_high, REG_RECVPTR + 1);
+	ether3_outb(write_high, REG_RECVPTR + 4);
 
 	read_low = ether3_inb(REG_RECVPTR);
-	read_high = ether3_inb(REG_RECVPTR + 1);
+	read_high = ether3_inb(REG_RECVPTR + 4);
 
 	printk(", read8 [%02X:%02X]\n", read_high, read_low);
 
@@ -434,7 +434,7 @@ ether3_close(struct net_device *dev)
 	ether3_outw(CMD_RXOFF|CMD_TXOFF, REG_COMMAND);
 	priv(dev)->regs.command = 0;
 	while (ether3_inw(REG_STATUS) & (STAT_RXON|STAT_TXON));
-	ether3_outb(0x80, REG_CONFIG2 + 1);
+	ether3_outb(0x80, REG_CONFIG2 + 4);
 	ether3_outw(0, REG_COMMAND);
 
 	free_irq(dev->irq, dev);
@@ -778,16 +778,16 @@ ether3_get_dev(struct net_device *dev, struct expansion_card *ec)
 {
 	const char *name = "ether3";
 
-	dev->base_addr = ecard_address(ec, ECARD_MEMC, 0);
 	dev->irq = ec->irq;
+	priv(dev)->seeq = priv(dev)->base;
 
 	if (ec->cid.manufacturer == MANU_ANT &&
 	    ec->cid.product == PROD_ANT_ETHERB) {
-		dev->base_addr += 0x200;
+		priv(dev)->seeq = priv(dev)->base + 0x800;
 		name = "etherb";
 	}
 
-	ec->irqaddr = (volatile unsigned char *)ioaddr(dev->base_addr);
+	ec->irqaddr = priv(dev)->seeq;
 	ec->irqmask = 0xf0;
 
 	ether3_addr(dev->dev_addr, ec);
@@ -815,6 +815,14 @@ ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 	}
 
 	SET_MODULE_OWNER(dev);
+	SET_NETDEV_DEV(dev, &ec->dev);
+
+	priv(dev)->base = ioremap(ecard_resource_start(ec, ECARD_RES_MEMC),
+				  ecard_resource_len(ec, ECARD_RES_MEMC));
+	if (!priv(dev)->base) {
+		ret = -ENOMEM;
+		goto free;
+	}
 
 	name = ether3_get_dev(dev, ec);
 	if (!name) {
@@ -826,7 +834,7 @@ ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 
 	/* Reset card...
 	 */
-	ether3_outb(0x80, REG_CONFIG2 + 1);
+	ether3_outb(0x80, REG_CONFIG2 + 4);
 	bus_type = BUS_UNKNOWN;
 	udelay(4);
 
@@ -883,6 +891,8 @@ ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 	return 0;
 
  free:
+	if (priv(dev)->base)
+		iounmap(priv(dev)->base);
 	free_netdev(dev);
  release:
 	ecard_release_resources(ec);
@@ -897,6 +907,7 @@ static void __devexit ether3_remove(struct expansion_card *ec)
 	ecard_set_drvdata(ec, NULL);
 
 	unregister_netdev(dev);
+	iounmap(priv(dev)->base);
 	free_netdev(dev);
 	ecard_release_resources(ec);
 }
