@@ -19,6 +19,7 @@
 #include <linux/times.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
+#include <linux/jhash.h>
 #include <asm/atomic.h>
 #include "br_private.h"
 
@@ -57,18 +58,7 @@ static __inline__ int has_expired(const struct net_bridge *br,
 
 static __inline__ int br_mac_hash(const unsigned char *mac)
 {
-	unsigned long x;
-
-	x = mac[0];
-	x = (x << 2) ^ mac[1];
-	x = (x << 2) ^ mac[2];
-	x = (x << 2) ^ mac[3];
-	x = (x << 2) ^ mac[4];
-	x = (x << 2) ^ mac[5];
-
-	x ^= x >> 8;
-
-	return x & (BR_HASH_SIZE - 1);
+	return jhash(mac, ETH_ALEN, 0) & (BR_HASH_SIZE - 1);
 }
 
 static __inline__ void fdb_delete(struct net_bridge_fdb_entry *f)
