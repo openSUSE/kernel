@@ -219,7 +219,7 @@ static ssize_t show_pcrs(struct device *dev, char *buf)
 	int i, j, index, num_pcrs;
 	char *str = buf;
 
-	struct tpm_chp *chip =
+	struct tpm_chip *chip =
 	    pci_get_drvdata(container_of(dev, struct pci_dev, dev));
 	if (chip == NULL)
 		return -ENODEV;
