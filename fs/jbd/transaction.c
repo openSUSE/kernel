@@ -1187,6 +1187,7 @@ int journal_forget (handle_t *handle, struct buffer_head *bh)
 	transaction_t *transaction = handle->h_transaction;
 	journal_t *journal = transaction->t_journal;
 	struct journal_head *jh;
+	int drop_reserve = 0;
 	int err = 0;
 
 	BUFFER_TRACE(bh, "entry");
@@ -1224,6 +1225,7 @@ int journal_forget (handle_t *handle, struct buffer_head *bh)
 		JBUFFER_TRACE(jh, "belongs to current transaction: unfile");
 
 		__journal_unfile_buffer(jh);
+		drop_reserve = 1;
 
 		/* 
 		 * We are no longer going to journal this buffer.
@@ -1246,7 +1248,7 @@ int journal_forget (handle_t *handle, struct buffer_head *bh)
 				spin_unlock(&journal->j_list_lock);
 				jbd_unlock_bh_state(bh);
 				__bforget(bh);
-				return 0;
+				goto drop;
 			}
 		}
 	} else if (jh->b_transaction) {
@@ -1261,6 +1263,7 @@ int journal_forget (handle_t *handle, struct buffer_head *bh)
 		if (jh->b_next_transaction) {
 			J_ASSERT(jh->b_next_transaction == transaction);
 			jh->b_next_transaction = NULL;
+			drop_reserve = 1;
 		}
 	}
 
@@ -1268,6 +1271,11 @@ not_jbd:
 	spin_unlock(&journal->j_list_lock);
 	jbd_unlock_bh_state(bh);
 	__brelse(bh);
+drop:
+	if (drop_reserve) {
+		/* no need to reserve log space for this block -bzzz */
+		handle->h_buffer_credits++;
+	}
 	return err;
 }
 
