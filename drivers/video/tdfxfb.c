@@ -89,7 +89,7 @@
 #define VOODOO3_MAX_PIXCLOCK 300000
 #define VOODOO5_MAX_PIXCLOCK 350000
 
-static struct fb_fix_screeninfo tdfx_fix __initdata = {
+static struct fb_fix_screeninfo tdfx_fix __devinitdata = {
 	.id =		"3Dfx",
 	.type =		FB_TYPE_PACKED_PIXELS,
 	.visual =	FB_VISUAL_PSEUDOCOLOR, 
@@ -98,7 +98,7 @@ static struct fb_fix_screeninfo tdfx_fix __initdata = {
 	.accel =	FB_ACCEL_3DFX_BANSHEE
 };
 
-static struct fb_var_screeninfo tdfx_var __initdata = {
+static struct fb_var_screeninfo tdfx_var __devinitdata = {
 	/* "640x480, 8 bpp @ 60 Hz */
 	.xres =		640,
 	.yres =		480,
@@ -199,7 +199,7 @@ static unsigned long do_lfb_size(struct tdfx_par *par, unsigned short);
  */
 static int  nopan   = 0;
 static int  nowrap  = 1;      // not implemented (yet)
-static char *mode_option __initdata = NULL;
+static char *mode_option __devinitdata = NULL;
 
 /* ------------------------------------------------------------------------- 
  *                      Hardware-specific funcions
