@@ -196,33 +196,6 @@ void class_device_remove_bin_file(struct class_device *class_dev,
 		sysfs_remove_bin_file(&class_dev->kobj, attr);
 }
 
-static int class_device_dev_link(struct class_device * class_dev)
-{
-	if (class_dev->dev)
-		return sysfs_create_link(&class_dev->kobj,
-					 &class_dev->dev->kobj, "device");
-	return 0;
-}
-
-static void class_device_dev_unlink(struct class_device * class_dev)
-{
-	sysfs_remove_link(&class_dev->kobj, "device");
-}
-
-static int class_device_driver_link(struct class_device * class_dev)
-{
-	if ((class_dev->dev) && (class_dev->dev->driver))
-		return sysfs_create_link(&class_dev->kobj,
-					 &class_dev->dev->driver->kobj, "driver");
-	return 0;
-}
-
-static void class_device_driver_unlink(struct class_device * class_dev)
-{
-	sysfs_remove_link(&class_dev->kobj, "driver");
-}
-
-
 static ssize_t
 class_device_attr_show(struct kobject * kobj, struct attribute * attr,
 		       char * buf)
@@ -452,8 +425,9 @@ int class_device_add(struct class_device *class_dev)
 		class_device_create_file(class_dev, &class_device_attr_dev);
 
 	class_device_add_attrs(class_dev);
-	class_device_dev_link(class_dev);
-	class_device_driver_link(class_dev);
+	if (class_dev->dev)
+		sysfs_create_link(&class_dev->kobj,
+				  &class_dev->dev->kobj, "device");
 
  register_done:
 	if (error && parent)
@@ -482,8 +456,8 @@ void class_device_del(struct class_device *class_dev)
 		up_write(&parent->subsys.rwsem);
 	}
 
-	class_device_dev_unlink(class_dev);
-	class_device_driver_unlink(class_dev);
+	if (class_dev->dev)
+		sysfs_remove_link(&class_dev->kobj, "device");
 	class_device_remove_attrs(class_dev);
 
 	kobject_del(&class_dev->kobj);
