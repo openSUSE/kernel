@@ -241,10 +241,12 @@ u64 mthca_make_profile(struct mthca_dev *dev,
 		case MTHCA_RES_UDAV:
 			dev->av_table.ddr_av_base = profile[i].start;
 			dev->av_table.num_ddr_avs = profile[i].num;
+			break;
 		case MTHCA_RES_UARC:
 			init_hca->uarc_base   = profile[i].start;
 			init_hca->log_uarc_sz = ffs(request->uarc_size) - 13;
 			init_hca->log_uar_sz  = ffs(request->num_uar) - 1;
+			break;
 		default:
 			break;
 		}
