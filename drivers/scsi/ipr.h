@@ -782,6 +782,12 @@ struct ipr_chip_cfg_t {
 	struct ipr_interrupt_offsets regs;
 };
 
+struct ipr_chip_t {
+	u16 vendor;
+	u16 device;
+	const struct ipr_chip_cfg_t *cfg;
+};
+
 enum ipr_shutdown_type {
 	IPR_SHUTDOWN_NORMAL = 0x00,
 	IPR_SHUTDOWN_PREPARE_FOR_NORMAL = 0x40,

@@ -125,6 +125,13 @@ static const struct ipr_chip_cfg_t ipr_chip_cfg[] = {
 	},
 };
 
+static const struct ipr_chip_t ipr_chip[] = {
+	{ PCI_VENDOR_ID_MYLEX, PCI_DEVICE_ID_IBM_GEMSTONE, &ipr_chip_cfg[0] },
+	{ PCI_VENDOR_ID_IBM, PCI_DEVICE_ID_IBM_CITRINE, &ipr_chip_cfg[0] },
+	{ PCI_VENDOR_ID_IBM, PCI_DEVICE_ID_IBM_SNIPE, &ipr_chip_cfg[1] },
+	{ PCI_VENDOR_ID_ADAPTEC2, PCI_DEVICE_ID_ADAPTEC2_SCAMP, &ipr_chip_cfg[1] }
+};
+
 static int ipr_max_bus_speeds [] = {
 	IPR_80MBs_SCSI_RATE, IPR_U160_SCSI_RATE, IPR_U320_SCSI_RATE
 };
@@ -5667,6 +5674,28 @@ static void __devinit ipr_init_ioa_cfg(struct ipr_ioa_cfg *ioa_cfg,
 }
 
 /**
+ * ipr_get_chip_cfg - Find adapter chip configuration
+ * @dev_id:		PCI device id struct
+ *
+ * Return value:
+ * 	ptr to chip config on success / NULL on failure
+ **/
+static const struct ipr_chip_cfg_t * __devinit
+ipr_get_chip_cfg(const struct pci_device_id *dev_id)
+{
+	int i;
+
+	if (dev_id->driver_data)
+		return (const struct ipr_chip_cfg_t *)dev_id->driver_data;
+
+	for (i = 0; i < ARRAY_SIZE(ipr_chip); i++)
+		if (ipr_chip[i].vendor == dev_id->vendor &&
+		    ipr_chip[i].device == dev_id->device)
+			return ipr_chip[i].cfg;
+	return NULL;
+}
+
+/**
  * ipr_probe_ioa - Allocates memory and does first stage of initialization
  * @pdev:		PCI device struct
  * @dev_id:		PCI device id struct
@@ -5703,7 +5732,13 @@ static int __devinit ipr_probe_ioa(struct pci_dev *pdev,
 	ioa_cfg = (struct ipr_ioa_cfg *)host->hostdata;
 	memset(ioa_cfg, 0, sizeof(struct ipr_ioa_cfg));
 
-	ioa_cfg->chip_cfg = (const struct ipr_chip_cfg_t *)dev_id->driver_data;
+	ioa_cfg->chip_cfg = ipr_get_chip_cfg(dev_id);
+
+	if (!ioa_cfg->chip_cfg) {
+		dev_err(&pdev->dev, "Unknown adapter chipset 0x%04X 0x%04X\n",
+			dev_id->vendor, dev_id->device);
+		goto out_scsi_host_put;
+	}
 
 	ipr_regs_pci = pci_resource_start(pdev, 0);
 
