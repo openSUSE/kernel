@@ -328,9 +328,7 @@ struct net_device
 	unsigned short		flags;	/* interface flags (a la BSD)	*/
 	unsigned short		gflags;
         unsigned short          priv_flags; /* Like 'flags' but invisible to userspace. */
-        unsigned short          unused_alignment_fixer; /* Because we need priv_flags,
-                                                         * and we want to be 32-bit aligned.
-                                                         */
+	unsigned short		padded;	/* How much padding added by alloc_netdev() */
 
 	unsigned		mtu;	/* interface MTU value		*/
 	unsigned short		type;	/* interface hardware type	*/
@@ -486,8 +484,6 @@ struct net_device
 
 	/* class/net/name entry */
 	struct class_device	class_dev;
-	/* how much padding had been added by alloc_netdev() */
-	int padded;
 };
 
 #define	NETDEV_ALIGN		32
