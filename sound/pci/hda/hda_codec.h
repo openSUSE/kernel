@@ -447,8 +447,8 @@ struct hda_codec_ops {
 	void (*free)(struct hda_codec *codec);
 	void (*unsol_event)(struct hda_codec *codec, unsigned int res);
 #ifdef CONFIG_PM
-	int (*suspend)(struct hda_codec *codec, unsigned int state);
-	int (*resume)(struct hda_codec *codec, unsigned int state);
+	int (*suspend)(struct hda_codec *codec, pm_message_t state);
+	int (*resume)(struct hda_codec *codec);
 #endif
 };
 
@@ -595,8 +595,8 @@ void snd_hda_get_codec_name(struct hda_codec *codec, char *name, int namelen);
  * power management
  */
 #ifdef CONFIG_PM
-int snd_hda_suspend(struct hda_bus *bus, unsigned int state);
-int snd_hda_resume(struct hda_bus *bus, unsigned int state);
+int snd_hda_suspend(struct hda_bus *bus, pm_message_t state);
+int snd_hda_resume(struct hda_bus *bus);
 #endif
 
 #endif /* __SOUND_HDA_CODEC_H */

@@ -721,7 +721,7 @@ int snd_vx_dsp_load(vx_core_t *chip, const struct firmware *dsp)
 /*
  * suspend
  */
-static int snd_vx_suspend(snd_card_t *card, unsigned int state)
+static int snd_vx_suspend(snd_card_t *card, pm_message_t state)
 {
 	vx_core_t *chip = card->pm_private_data;
 	unsigned int i;
@@ -738,7 +738,7 @@ static int snd_vx_suspend(snd_card_t *card, unsigned int state)
 /*
  * resume
  */
-static int snd_vx_resume(snd_card_t *card, unsigned int state)
+static int snd_vx_resume(snd_card_t *card)
 {
 	vx_core_t *chip = card->pm_private_data;
 	int i, err;

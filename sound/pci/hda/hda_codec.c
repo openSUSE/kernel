@@ -1613,7 +1613,7 @@ int snd_hda_multi_out_analog_cleanup(struct hda_codec *codec, struct hda_multi_o
  *
  * Returns 0 if successful.
  */
-int snd_hda_suspend(struct hda_bus *bus, unsigned int state)
+int snd_hda_suspend(struct hda_bus *bus, pm_message_t state)
 {
 	struct list_head *p;
 
@@ -1633,14 +1633,14 @@ int snd_hda_suspend(struct hda_bus *bus, unsigned int state)
  *
  * Returns 0 if successful.
  */
-int snd_hda_resume(struct hda_bus *bus, unsigned int state)
+int snd_hda_resume(struct hda_bus *bus)
 {
 	struct list_head *p;
 
 	list_for_each(p, &bus->codec_list) {
 		struct hda_codec *codec = list_entry(p, struct hda_codec, list);
 		if (codec->patch_ops.resume)
-			codec->patch_ops.resume(codec, state);
+			codec->patch_ops.resume(codec);
 	}
 	return 0;
 }

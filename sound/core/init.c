@@ -720,8 +720,8 @@ int snd_power_wait(snd_card_t *card, unsigned int power_state, struct file *file
  * handler and from the control API.
  */
 int snd_card_set_pm_callback(snd_card_t *card,
-			     int (*suspend)(snd_card_t *, unsigned int),
-			     int (*resume)(snd_card_t *, unsigned int),
+			     int (*suspend)(snd_card_t *, pm_message_t),
+			     int (*resume)(snd_card_t *),
 			     void *private_data)
 {
 	card->pm_suspend = suspend;
@@ -810,8 +810,7 @@ static int snd_generic_suspend(struct device *dev, u32 state, u32 level)
 	card = get_snd_generic_card(dev);
 	if (card->power_state == SNDRV_CTL_POWER_D3hot)
 		return 0;
-	/* FIXME: the correct state value? */
-	card->pm_suspend(card, 0);
+	card->pm_suspend(card, PMSG_SUSPEND);
 	snd_power_change_state(card, SNDRV_CTL_POWER_D3hot);
 	return 0;
 }
@@ -826,8 +825,7 @@ static int snd_generic_resume(struct device *dev, u32 level)
 	card = get_snd_generic_card(dev);
 	if (card->power_state == SNDRV_CTL_POWER_D0)
 		return 0;
-	/* FIXME: the correct state value? */
-	card->pm_resume(card, 0);
+	card->pm_resume(card);
 	snd_power_change_state(card, SNDRV_CTL_POWER_D0);
 	return 0;
 }
@@ -857,7 +855,7 @@ int snd_card_set_generic_pm_callback(snd_card_t *card,
 #endif /* CONFIG_SND_GENERIC_PM */
 
 #ifdef CONFIG_PCI
-int snd_card_pci_suspend(struct pci_dev *dev, u32 state)
+int snd_card_pci_suspend(struct pci_dev *dev, pm_message_t state)
 {
 	snd_card_t *card = pci_get_drvdata(dev);
 	int err;
@@ -865,8 +863,7 @@ int snd_card_pci_suspend(struct pci_dev *dev, u32 state)
 		return 0;
 	if (card->power_state == SNDRV_CTL_POWER_D3hot)
 		return 0;
-	/* FIXME: correct state value? */
-	err = card->pm_suspend(card, 0);
+	err = card->pm_suspend(card, PMSG_SUSPEND);
 	pci_save_state(dev);
 	snd_power_change_state(card, SNDRV_CTL_POWER_D3hot);
 	return err;
@@ -881,8 +878,7 @@ int snd_card_pci_resume(struct pci_dev *dev)
 		return 0;
 	/* restore the PCI config space */
 	pci_restore_state(dev);
-	/* FIXME: correct state value? */
-	card->pm_resume(card, 0);
+	card->pm_resume(card);
 	snd_power_change_state(card, SNDRV_CTL_POWER_D0);
 	return 0;
 }

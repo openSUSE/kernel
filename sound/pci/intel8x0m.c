@@ -1078,7 +1078,7 @@ static int snd_intel8x0_free(intel8x0_t *chip)
 /*
  * power management
  */
-static int intel8x0m_suspend(snd_card_t *card, unsigned int state)
+static int intel8x0m_suspend(snd_card_t *card, pm_message_t state)
 {
 	intel8x0_t *chip = card->pm_private_data;
 	int i;
@@ -1091,7 +1091,7 @@ static int intel8x0m_suspend(snd_card_t *card, unsigned int state)
 	return 0;
 }
 
-static int intel8x0m_resume(snd_card_t *card, unsigned int state)
+static int intel8x0m_resume(snd_card_t *card)
 {
 	intel8x0_t *chip = card->pm_private_data;
 	pci_enable_device(chip->pci);

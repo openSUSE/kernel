@@ -1174,7 +1174,7 @@ static int __devinit azx_init_stream(azx_t *chip)
 /*
  * power management
  */
-static int azx_suspend(snd_card_t *card, unsigned int state)
+static int azx_suspend(snd_card_t *card, pm_message_t state)
 {
 	azx_t *chip = card->pm_private_data;
 	int i;
@@ -1188,14 +1188,14 @@ static int azx_suspend(snd_card_t *card, unsigned int state)
 	return 0;
 }
 
-static int azx_resume(snd_card_t *card, unsigned int state)
+static int azx_resume(snd_card_t *card)
 {
 	azx_t *chip = card->pm_private_data;
 
 	pci_enable_device(chip->pci);
 	pci_set_master(chip->pci);
 	azx_init_chip(chip);
-	snd_hda_resume(chip->bus, state);
+	snd_hda_resume(chip->bus);
 	return 0;
 }
 #endif /* CONFIG_PM */

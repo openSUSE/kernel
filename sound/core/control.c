@@ -1007,15 +1007,13 @@ static int snd_ctl_set_power_state(snd_card_t *card, unsigned int power_state)
 	switch (power_state) {
 	case SNDRV_CTL_POWER_D0:
 		if (card->power_state != power_state) {
-			/* FIXME: pass the correct state value */
-			card->pm_resume(card, 0);
+			card->pm_resume(card);
 			snd_power_change_state(card, power_state);
 		}
 		break;
 	case SNDRV_CTL_POWER_D3hot:
 		if (card->power_state != power_state) {
-			/* FIXME: pass the correct state value */
-			card->pm_suspend(card, 0);
+			card->pm_suspend(card, PMSG_SUSPEND);
 			snd_power_change_state(card, power_state);
 		}
 		break;
