@@ -329,7 +329,7 @@ static int sound_mixer_ioctl(int mixdev, unsigned int cmd, void __user *arg)
 static int sound_ioctl(struct inode *inode, struct file *file,
 		       unsigned int cmd, unsigned long arg)
 {
-	int err, len = 0, dtype;
+	int len = 0, dtype;
 	int dev = iminor(inode);
 	void __user *p = (void __user *)arg;
 
