@@ -483,7 +483,7 @@ void hidinput_report_event(struct hid_device *hid, struct hid_report *report)
 	}
 }
 
-static int hid_find_field(struct hid_device *hid, unsigned int type, unsigned int code, struct hid_field **field)
+static int hidinput_find_field(struct hid_device *hid, unsigned int type, unsigned int code, struct hid_field **field)
 {
 	struct hid_report *report;
 	int i, j;
@@ -511,7 +511,7 @@ static int hidinput_input_event(struct input_dev *dev, unsigned int type, unsign
 	if (type != EV_LED)
 		return -1;
 
-	if ((offset = hid_find_field(hid, type, code, &field)) == -1) {
+	if ((offset = hidinput_find_field(hid, type, code, &field)) == -1) {
 		warn("event field not found");
 		return -1;
 	}
