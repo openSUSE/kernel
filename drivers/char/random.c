@@ -255,6 +255,7 @@
 #define INPUT_POOL_WORDS 128
 #define OUTPUT_POOL_WORDS 32
 #define BATCH_ENTROPY_SIZE 256
+#define SEC_XFER_SIZE 512
 
 /*
  * The minimum number of bits of entropy before we wake up a read on
@@ -813,6 +814,7 @@ EXPORT_SYMBOL(add_disk_randomness);
  */
 
 #define HASH_BUFFER_SIZE 5
+#define EXTRACT_SIZE 10
 #define HASH_EXTRA_SIZE 80
 
 /* Various size/speed tradeoffs are available.  Choose 0..3. */
@@ -1048,9 +1050,6 @@ static void sha_transform(__u32 digest[85], __u32 const data[16])
  *
  *********************************************************************/
 
-#define TMP_BUF_SIZE			(HASH_BUFFER_SIZE + HASH_EXTRA_SIZE)
-#define SEC_XFER_SIZE			(TMP_BUF_SIZE*4)
-
 static ssize_t extract_entropy(struct entropy_store *r, void * buf,
 			       size_t nbytes, int min, int rsvd);
 
@@ -1059,13 +1058,14 @@ static ssize_t extract_entropy(struct entropy_store *r, void * buf,
  * from the primary pool to the secondary extraction pool. We make
  * sure we pull enough for a 'catastrophic reseed'.
  */
-static void xfer_secondary_pool(struct entropy_store *r,
-				       size_t nbytes, __u32 *tmp)
+static void xfer_secondary_pool(struct entropy_store *r, size_t nbytes)
 {
+	__u32 tmp[OUTPUT_POOL_WORDS];
+
 	if (r->pull && r->entropy_count < nbytes * 8 &&
 	    r->entropy_count < r->poolinfo->POOLBITS) {
 		int bytes = max_t(int, random_read_wakeup_thresh / 8,
-				min_t(int, nbytes, TMP_BUF_SIZE));
+				min_t(int, nbytes, sizeof(tmp)));
 		int rsvd = r->limit ? 0 : random_read_wakeup_thresh/4;
 
 		DEBUG_ENT("going to reseed %s with %d bits "
@@ -1129,10 +1129,10 @@ static size_t account(struct entropy_store *r, size_t nbytes, int min,
 	return nbytes;
 }
 
-static void extract_buf(struct entropy_store *r, __u32 *buf)
+static void extract_buf(struct entropy_store *r, __u8 *out)
 {
 	int i, x;
-	__u32 data[16];
+	__u32 data[16], buf[85];
 
 	/* Hash the pool to get the output */
 	buf[0] = 0x67452301;
@@ -1151,7 +1151,7 @@ static void extract_buf(struct entropy_store *r, __u32 *buf)
 	 */
 	for (i = 0, x = 0; i < r->poolinfo->poolwords; i += 16, x+=2) {
 		sha_transform(buf, r->pool+i);
-		add_entropy_words(r, &buf[x%HASH_BUFFER_SIZE], 1);
+		add_entropy_words(r, &buf[x % 5], 1);
 	}
 
 	/*
@@ -1159,7 +1159,7 @@ static void extract_buf(struct entropy_store *r, __u32 *buf)
 	 * portion of the pool while mixing, and hash one
 	 * final time.
 	 */
-	__add_entropy_words(r, &buf[x%HASH_BUFFER_SIZE], 1, data);
+	__add_entropy_words(r, &buf[x % 5], 1, data);
 	sha_transform(buf, data);
 
 	/*
@@ -1170,21 +1170,23 @@ static void extract_buf(struct entropy_store *r, __u32 *buf)
 	buf[0] ^= buf[3];
 	buf[1] ^= buf[4];
 	buf[0] ^= rol32(buf[3], 16);
+	memcpy(out, buf, EXTRACT_SIZE);
+	memset(buf, 0, sizeof(buf));
 }
 
 static ssize_t extract_entropy(struct entropy_store *r, void * buf,
 			       size_t nbytes, int min, int reserved)
 {
 	ssize_t ret = 0, i;
-	__u32 tmp[TMP_BUF_SIZE];
+	__u8 tmp[EXTRACT_SIZE];
 
-	xfer_secondary_pool(r, nbytes, tmp);
+	xfer_secondary_pool(r, nbytes);
 	nbytes = account(r, nbytes, min, reserved);
 
 	while (nbytes) {
 		extract_buf(r, tmp);
-		i = min(nbytes, HASH_BUFFER_SIZE * sizeof(__u32) / 2);
-		memcpy(buf, (__u8 const *)tmp, i);
+		i = min_t(int, nbytes, EXTRACT_SIZE);
+		memcpy(buf, tmp, i);
 		nbytes -= i;
 		buf += i;
 		ret += i;
@@ -1200,9 +1202,9 @@ static ssize_t extract_entropy_user(struct entropy_store *r, void __user *buf,
 				    size_t nbytes)
 {
 	ssize_t ret = 0, i;
-	__u32 tmp[TMP_BUF_SIZE];
+	__u8 tmp[EXTRACT_SIZE];
 
-	xfer_secondary_pool(r, nbytes, tmp);
+	xfer_secondary_pool(r, nbytes);
 	nbytes = account(r, nbytes, 0, 0);
 
 	while (nbytes) {
@@ -1216,7 +1218,7 @@ static ssize_t extract_entropy_user(struct entropy_store *r, void __user *buf,
 		}
 
 		extract_buf(r, tmp);
-		i = min(nbytes, HASH_BUFFER_SIZE * sizeof(__u32) / 2);
+		i = min_t(int, nbytes, EXTRACT_SIZE);
 		if (copy_to_user(buf, tmp, i)) {
 			ret = -EFAULT;
 			break;
