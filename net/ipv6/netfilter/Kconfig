@@ -2,8 +2,8 @@
 # IP netfilter configuration
 #
 
-menu "IPv6: Netfilter Configuration"
-	depends on INET && IPV6 && NETFILTER
+menu "IPv6: Netfilter Configuration (EXPERIMENTAL)"
+	depends on INET && IPV6 && NETFILTER && EXPERIMENTAL
 
 #tristate 'Connection tracking (required for masq/NAT)' CONFIG_IP6_NF_CONNTRACK
 #if [ "$CONFIG_IP6_NF_CONNTRACK" != "n" ]; then
