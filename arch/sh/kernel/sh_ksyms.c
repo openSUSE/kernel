@@ -65,13 +65,6 @@ EXPORT_SYMBOL(memmove);
 EXPORT_SYMBOL(memcmp);
 EXPORT_SYMBOL(memscan);
 EXPORT_SYMBOL(__copy_user);
-
-#ifdef CONFIG_VT
-/* XXX: MRB-remove - what was screen_info changed to?
-EXPORT_SYMBOL(screen_info);
-*/
-#endif
-
 EXPORT_SYMBOL(boot_cpu_data);
 
 #ifdef CONFIG_MMU
