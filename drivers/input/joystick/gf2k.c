@@ -351,13 +351,13 @@ static struct gameport_dev gf2k_dev = {
 	.disconnect =	gf2k_disconnect,
 };
 
-int __init gf2k_init(void)
+static int __init gf2k_init(void)
 {
 	gameport_register_device(&gf2k_dev);
 	return 0;
 }
 
-void __exit gf2k_exit(void)
+static void __exit gf2k_exit(void)
 {
 	gameport_unregister_device(&gf2k_dev);
 }

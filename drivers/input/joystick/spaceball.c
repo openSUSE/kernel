@@ -304,13 +304,13 @@ static struct serio_driver spaceball_drv = {
  * The functions for inserting/removing us as a module.
  */
 
-int __init spaceball_init(void)
+static int __init spaceball_init(void)
 {
 	serio_register_driver(&spaceball_drv);
 	return 0;
 }
 
-void __exit spaceball_exit(void)
+static void __exit spaceball_exit(void)
 {
 	serio_unregister_driver(&spaceball_drv);
 }

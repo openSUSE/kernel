@@ -233,13 +233,13 @@ static struct serio_driver warrior_drv = {
  * The functions for inserting/removing us as a module.
  */
 
-int __init warrior_init(void)
+static int __init warrior_init(void)
 {
 	serio_register_driver(&warrior_drv);
 	return 0;
 }
 
-void __exit warrior_exit(void)
+static void __exit warrior_exit(void)
 {
 	serio_unregister_driver(&warrior_drv);
 }

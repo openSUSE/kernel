@@ -665,7 +665,7 @@ static struct gc __init *gc_probe(int *config, int nargs)
 	return gc;
 }
 
-int __init gc_init(void)
+static int __init gc_init(void)
 {
 	gc_base[0] = gc_probe(gc, gc_nargs);
 	gc_base[1] = gc_probe(gc_2, gc_nargs_2);
@@ -677,7 +677,7 @@ int __init gc_init(void)
 	return -ENODEV;
 }
 
-void __exit gc_exit(void)
+static void __exit gc_exit(void)
 {
 	int i, j;
 

@@ -30,7 +30,7 @@
 #define ALPS_MODEL_GLIDEPOINT	1
 #define ALPS_MODEL_DUALPOINT	2
 
-struct alps_model_info {
+static struct alps_model_info {
 	unsigned char signature[3];
 	unsigned char model;
 } alps_model_data[] = {
@@ -187,7 +187,7 @@ static psmouse_ret_t alps_process_byte(struct psmouse *psmouse, struct pt_regs *
 	return PSMOUSE_GOOD_DATA;
 }
 
-int alps_get_model(struct psmouse *psmouse)
+static int alps_get_model(struct psmouse *psmouse)
 {
 	struct ps2dev *ps2dev = &psmouse->ps2dev;
 	unsigned char param[4];

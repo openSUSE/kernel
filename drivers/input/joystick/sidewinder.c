@@ -765,13 +765,13 @@ static struct gameport_dev sw_dev = {
 	.disconnect =	sw_disconnect,
 };
 
-int __init sw_init(void)
+static int __init sw_init(void)
 {
 	gameport_register_device(&sw_dev);
 	return 0;
 }
 
-void __exit sw_exit(void)
+static void __exit sw_exit(void)
 {
 	gameport_unregister_device(&sw_dev);
 }

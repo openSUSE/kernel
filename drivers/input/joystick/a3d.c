@@ -50,7 +50,7 @@ MODULE_LICENSE("GPL");
 #define A3D_MODE_OEM		3	/* Panther OEM version */
 #define A3D_MODE_PXL		4	/* Panther XL */
 
-char *a3d_names[] = { NULL, "FP-Gaming Assassin 3D", "MadCatz Panther", "OEM Panther",
+static char *a3d_names[] = { NULL, "FP-Gaming Assassin 3D", "MadCatz Panther", "OEM Panther",
 			"MadCatz Panther XL", "MadCatz Panther XL w/ rudder" };
 
 struct a3d {
@@ -195,7 +195,7 @@ static void a3d_timer(unsigned long private)
  * call this more than 50 times a second, which would use too much CPU.
  */
 
-int a3d_adc_cooked_read(struct gameport *gameport, int *axes, int *buttons)
+static int a3d_adc_cooked_read(struct gameport *gameport, int *axes, int *buttons)
 {
 	struct a3d *a3d = gameport->driver;
 	int i;
@@ -210,7 +210,7 @@ int a3d_adc_cooked_read(struct gameport *gameport, int *axes, int *buttons)
  * any but cooked data.
  */
 
-int a3d_adc_open(struct gameport *gameport, int mode)
+static int a3d_adc_open(struct gameport *gameport, int mode)
 {
 	struct a3d *a3d = gameport->driver;
 	if (mode != GAMEPORT_MODE_COOKED)
@@ -390,13 +390,13 @@ static struct gameport_dev a3d_dev = {
 	.disconnect =	a3d_disconnect,
 };
 
-int __init a3d_init(void)
+static int __init a3d_init(void)
 {
 	gameport_register_device(&a3d_dev);
 	return 0;
 }
 
-void __exit a3d_exit(void)
+static void __exit a3d_exit(void)
 {
 	gameport_unregister_device(&a3d_dev);
 }

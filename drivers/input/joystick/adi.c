@@ -549,13 +549,13 @@ static struct gameport_dev adi_dev = {
 	.disconnect =	adi_disconnect,
 };
 
-int __init adi_init(void)
+static int __init adi_init(void)
 {
 	gameport_register_device(&adi_dev);
 	return 0;
 }
 
-void __exit adi_exit(void)
+static void __exit adi_exit(void)
 {
 	gameport_unregister_device(&adi_dev);
 }

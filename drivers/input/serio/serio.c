@@ -59,7 +59,7 @@ static DECLARE_MUTEX(serio_sem);
 
 static LIST_HEAD(serio_list);
 
-struct bus_type serio_bus = {
+static struct bus_type serio_bus = {
 	.name =	"serio",
 };
 

@@ -221,13 +221,13 @@ static struct serio_driver stinger_drv = {
  * The functions for inserting/removing us as a module.
  */
 
-int __init stinger_init(void)
+static int __init stinger_init(void)
 {
 	serio_register_driver(&stinger_drv);
 	return 0;
 }
 
-void __exit stinger_exit(void)
+static void __exit stinger_exit(void)
 {
 	serio_unregister_driver(&stinger_drv);
 }

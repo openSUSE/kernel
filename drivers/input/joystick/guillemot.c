@@ -271,13 +271,13 @@ static struct gameport_dev guillemot_dev = {
 	.disconnect =	guillemot_disconnect,
 };
 
-int __init guillemot_init(void)
+static int __init guillemot_init(void)
 {
 	gameport_register_device(&guillemot_dev);
 	return 0;
 }
 
-void __exit guillemot_exit(void)
+static void __exit guillemot_exit(void)
 {
 	gameport_unregister_device(&guillemot_dev);
 }

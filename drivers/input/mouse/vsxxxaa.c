@@ -573,14 +573,14 @@ static struct serio_driver vsxxxaa_drv = {
 	.disconnect	= vsxxxaa_disconnect,
 };
 
-int __init
+static int __init
 vsxxxaa_init (void)
 {
 	serio_register_driver(&vsxxxaa_drv);
 	return 0;
 }
 
-void __exit
+static void __exit
 vsxxxaa_exit (void)
 {
 	serio_unregister_driver(&vsxxxaa_drv);

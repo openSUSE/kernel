@@ -50,7 +50,7 @@ static struct input_handler *input_table[8];
 
 #ifdef CONFIG_PROC_FS
 static struct proc_dir_entry *proc_bus_input_dir;
-DECLARE_WAIT_QUEUE_HEAD(input_devices_poll_wait);
+static DECLARE_WAIT_QUEUE_HEAD(input_devices_poll_wait);
 static int input_devices_state;
 #endif
 

@@ -696,7 +696,7 @@ struct analog_types {
 	int value;
 };
 
-struct analog_types analog_types[] = {
+static struct analog_types analog_types[] = {
 	{ "none",	0x00000000 },
 	{ "auto",	0x000000ff },
 	{ "2btn",	0x0000003f },
@@ -746,14 +746,14 @@ static struct gameport_dev analog_dev = {
 	.disconnect =	analog_disconnect,
 };
 
-int __init analog_init(void)
+static int __init analog_init(void)
 {
 	analog_parse_options();
 	gameport_register_device(&analog_dev);
 	return 0;
 }
 
-void __exit analog_exit(void)
+static void __exit analog_exit(void)
 {
 	gameport_unregister_device(&analog_dev);
 }

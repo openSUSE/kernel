@@ -53,13 +53,13 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
 MODULE_DESCRIPTION("PDPI Lightning 4 gamecard driver");
 MODULE_LICENSE("GPL");
 
-struct l4 {
+static struct l4 {
 	struct gameport gameport;
 	unsigned char port;
 	char phys[32];
 } *l4_port[8];
 
-char l4_name[] = "PDPI Lightning 4";
+static char l4_name[] = "PDPI Lightning 4";
 
 /*
  * l4_wait_ready() waits for the L4 to become ready.

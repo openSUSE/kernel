@@ -590,7 +590,7 @@ static unsigned int mousedev_poll(struct file *file, poll_table *wait)
 	return 0;
 }
 
-struct file_operations mousedev_fops = {
+static struct file_operations mousedev_fops = {
 	.owner =	THIS_MODULE,
 	.read =		mousedev_read,
 	.write =	mousedev_write,

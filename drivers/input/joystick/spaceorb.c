@@ -248,13 +248,13 @@ static struct serio_driver spaceorb_drv = {
  * The functions for inserting/removing us as a module.
  */
 
-int __init spaceorb_init(void)
+static int __init spaceorb_init(void)
 {
 	serio_register_driver(&spaceorb_drv);
 	return 0;
 }
 
-void __exit spaceorb_exit(void)
+static void __exit spaceorb_exit(void)
 {
 	serio_unregister_driver(&spaceorb_drv);
 }

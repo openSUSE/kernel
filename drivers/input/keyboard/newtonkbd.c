@@ -66,7 +66,7 @@ struct nkbd {
 	char phys[32];
 };
 
-irqreturn_t nkbd_interrupt(struct serio *serio,
+static irqreturn_t nkbd_interrupt(struct serio *serio,
 		unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
 	struct nkbd *nkbd = serio_get_drvdata(serio);
@@ -84,7 +84,7 @@ irqreturn_t nkbd_interrupt(struct serio *serio,
 
 }
 
-int nkbd_connect(struct serio *serio, struct serio_driver *drv)
+static int nkbd_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct nkbd *nkbd;
 	int i;
@@ -136,7 +136,7 @@ int nkbd_connect(struct serio *serio, struct serio_driver *drv)
 	return 0;
 }
 
-void nkbd_disconnect(struct serio *serio)
+static void nkbd_disconnect(struct serio *serio)
 {
 	struct nkbd *nkbd = serio_get_drvdata(serio);
 
@@ -158,7 +158,7 @@ static struct serio_device_id nkbd_serio_ids[] = {
 
 MODULE_DEVICE_TABLE(serio, nkbd_serio_ids);
 
-struct serio_driver nkbd_drv = {
+static struct serio_driver nkbd_drv = {
 	.driver		= {
 		.name	= "newtonkbd",
 	},
@@ -169,13 +169,13 @@ struct serio_driver nkbd_drv = {
 	.disconnect	= nkbd_disconnect,
 };
 
-int __init nkbd_init(void)
+static int __init nkbd_init(void)
 {
 	serio_register_driver(&nkbd_drv);
 	return 0;
 }
 
-void __exit nkbd_exit(void)
+static void __exit nkbd_exit(void)
 {
 	serio_unregister_driver(&nkbd_drv);
 }

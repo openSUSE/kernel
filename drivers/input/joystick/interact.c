@@ -299,13 +299,13 @@ static struct gameport_dev interact_dev = {
 	.disconnect =	interact_disconnect,
 };
 
-int __init interact_init(void)
+static int __init interact_init(void)
 {
 	gameport_register_device(&interact_dev);
 	return 0;
 }
 
-void __exit interact_exit(void)
+static void __exit interact_exit(void)
 {
 	gameport_unregister_device(&interact_dev);
 }

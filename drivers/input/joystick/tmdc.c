@@ -367,13 +367,13 @@ static struct gameport_dev tmdc_dev = {
 	.disconnect =	tmdc_disconnect,
 };
 
-int __init tmdc_init(void)
+static int __init tmdc_init(void)
 {
 	gameport_register_device(&tmdc_dev);
 	return 0;
 }
 
-void __exit tmdc_exit(void)
+static void __exit tmdc_exit(void)
 {
 	gameport_unregister_device(&tmdc_dev);
 }

@@ -143,12 +143,12 @@ static struct pci_driver fm801_gp_driver = {
 	.remove =	__devexit_p(fm801_gp_remove),
 };
 
-int __init fm801_gp_init(void)
+static int __init fm801_gp_init(void)
 {
 	return pci_module_init(&fm801_gp_driver);
 }
 
-void __exit fm801_gp_exit(void)
+static void __exit fm801_gp_exit(void)
 {
 	pci_unregister_driver(&fm801_gp_driver);
 }

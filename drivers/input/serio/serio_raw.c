@@ -235,7 +235,7 @@ static unsigned int serio_raw_poll(struct file *file, poll_table *wait)
 	return 0;
 }
 
-struct file_operations serio_raw_fops = {
+static struct file_operations serio_raw_fops = {
 	.owner =	THIS_MODULE,
 	.open =		serio_raw_open,
 	.release =	serio_raw_release,
@@ -388,13 +388,13 @@ static struct serio_driver serio_raw_drv = {
 	.manual_bind	= 1,
 };
 
-int __init serio_raw_init(void)
+static int __init serio_raw_init(void)
 {
 	serio_register_driver(&serio_raw_drv);
 	return 0;
 }
 
-void __exit serio_raw_exit(void)
+static void __exit serio_raw_exit(void)
 {
 	serio_unregister_driver(&serio_raw_drv);
 }

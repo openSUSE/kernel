@@ -1121,13 +1121,13 @@ static ssize_t atkbd_set_softraw(struct atkbd *atkbd, const char *buf, size_t co
 }
 
 
-int __init atkbd_init(void)
+static int __init atkbd_init(void)
 {
 	serio_register_driver(&atkbd_drv);
 	return 0;
 }
 
-void __exit atkbd_exit(void)
+static void __exit atkbd_exit(void)
 {
 	serio_unregister_driver(&atkbd_drv);
 }

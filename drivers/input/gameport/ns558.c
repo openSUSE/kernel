@@ -261,7 +261,7 @@ static struct pnp_driver ns558_pnp_driver;
 
 #endif
 
-int __init ns558_init(void)
+static int __init ns558_init(void)
 {
 	int i = 0;
 
@@ -276,7 +276,7 @@ int __init ns558_init(void)
 	return list_empty(&ns558_list) ? -ENODEV : 0;
 }
 
-void __exit ns558_exit(void)
+static void __exit ns558_exit(void)
 {
 	struct ns558 *port;
 

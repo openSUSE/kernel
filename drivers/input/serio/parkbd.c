@@ -167,7 +167,7 @@ static struct serio * __init parkbd_allocate_serio(void)
 	return serio;
 }
 
-int __init parkbd_init(void)
+static int __init parkbd_init(void)
 {
 	int err;
 
@@ -191,7 +191,7 @@ int __init parkbd_init(void)
 	return 0;
 }
 
-void __exit parkbd_exit(void)
+static void __exit parkbd_exit(void)
 {
 	parport_release(parkbd_dev);
 	serio_unregister_port(parkbd_port);

@@ -734,14 +734,14 @@ static struct serio_driver lkkbd_drv = {
 /*
  * The functions for insering/removing us as a module.
  */
-int __init
+static int __init
 lkkbd_init (void)
 {
 	serio_register_driver(&lkkbd_drv);
 	return 0;
 }
 
-void __exit
+static void __exit
 lkkbd_exit (void)
 {
 	serio_unregister_driver(&lkkbd_drv);

@@ -232,13 +232,13 @@ static struct serio_driver magellan_drv = {
  * The functions for inserting/removing us as a module.
  */
 
-int __init magellan_init(void)
+static int __init magellan_init(void)
 {
 	serio_register_driver(&magellan_drv);
 	return 0;
 }
 
-void __exit magellan_exit(void)
+static void __exit magellan_exit(void)
 {
 	serio_unregister_driver(&magellan_drv);
 }

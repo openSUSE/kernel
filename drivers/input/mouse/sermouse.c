@@ -355,13 +355,13 @@ static struct serio_driver sermouse_drv = {
 	.disconnect	= sermouse_disconnect,
 };
 
-int __init sermouse_init(void)
+static int __init sermouse_init(void)
 {
 	serio_register_driver(&sermouse_drv);
 	return 0;
 }
 
-void __exit sermouse_exit(void)
+static void __exit sermouse_exit(void)
 {
 	serio_unregister_driver(&sermouse_drv);
 }

@@ -396,7 +396,7 @@ static int uinput_ioctl(struct inode *inode, struct file *file, unsigned int cmd
 	return retval;
 }
 
-struct file_operations uinput_fops = {
+static struct file_operations uinput_fops = {
 	.owner =	THIS_MODULE,
 	.open =		uinput_open,
 	.release =	uinput_close,

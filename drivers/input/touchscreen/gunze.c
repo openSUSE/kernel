@@ -190,13 +190,13 @@ static struct serio_driver gunze_drv = {
  * The functions for inserting/removing us as a module.
  */
 
-int __init gunze_init(void)
+static int __init gunze_init(void)
 {
 	serio_register_driver(&gunze_drv);
 	return 0;
 }
 
-void __exit gunze_exit(void)
+static void __exit gunze_exit(void)
 {
 	serio_unregister_driver(&gunze_drv);
 }

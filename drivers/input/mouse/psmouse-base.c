@@ -973,14 +973,14 @@ static inline void psmouse_parse_proto(void)
 	}
 }
 
-int __init psmouse_init(void)
+static int __init psmouse_init(void)
 {
 	psmouse_parse_proto();
 	serio_register_driver(&psmouse_drv);
 	return 0;
 }
 
-void __exit psmouse_exit(void)
+static void __exit psmouse_exit(void)
 {
 	serio_unregister_driver(&psmouse_drv);
 }

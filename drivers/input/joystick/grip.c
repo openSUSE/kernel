@@ -414,13 +414,13 @@ static struct gameport_dev grip_dev = {
 	.disconnect =	grip_disconnect,
 };
 
-int __init grip_init(void)
+static int __init grip_init(void)
 {
 	gameport_register_device(&grip_dev);
 	return 0;
 }
 
-void __exit grip_exit(void)
+static void __exit grip_exit(void)
 {
 	gameport_unregister_device(&grip_dev);
 }

@@ -81,7 +81,7 @@ __obsolete_setup("i8042_dumbkbd");
 
 #include "i8042.h"
 
-DEFINE_SPINLOCK(i8042_lock);
+static DEFINE_SPINLOCK(i8042_lock);
 
 struct i8042_port {
 	struct serio *serio;
@@ -796,7 +796,7 @@ static int i8042_controller_init(void)
 /*
  * Reset the controller.
  */
-void i8042_controller_reset(void)
+static void i8042_controller_reset(void)
 {
 	unsigned char param;
 
@@ -831,7 +831,7 @@ void i8042_controller_reset(void)
  * able to talk to the hardware when rebooting.
  */
 
-void i8042_controller_cleanup(void)
+static void i8042_controller_cleanup(void)
 {
 	int i;
 
@@ -1039,7 +1039,7 @@ static void __init i8042_create_mux_port(int index)
 	}
 }
 
-int __init i8042_init(void)
+static int __init i8042_init(void)
 {
 	int i;
 	int err;
@@ -1083,7 +1083,7 @@ int __init i8042_init(void)
 	return 0;
 }
 
-void __exit i8042_exit(void)
+static void __exit i8042_exit(void)
 {
 	int i;
 

@@ -193,7 +193,7 @@ static struct serio * __init ct82c710_allocate_port(void)
 	return serio;
 }
 
-int __init ct82c710_init(void)
+static int __init ct82c710_init(void)
 {
 	if (ct82c710_probe())
 		return -ENODEV;
@@ -215,7 +215,7 @@ int __init ct82c710_init(void)
 	return 0;
 }
 
-void __exit ct82c710_exit(void)
+static void __exit ct82c710_exit(void)
 {
 	serio_unregister_port(ct82c710_port);
 	platform_device_unregister(ct82c710_device);

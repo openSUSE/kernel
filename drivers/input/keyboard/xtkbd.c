@@ -65,7 +65,7 @@ struct xtkbd {
 	char phys[32];
 };
 
-irqreturn_t xtkbd_interrupt(struct serio *serio,
+static irqreturn_t xtkbd_interrupt(struct serio *serio,
 	unsigned char data, unsigned int flags, struct pt_regs *regs)
 {
 	struct xtkbd *xtkbd = serio_get_drvdata(serio);
@@ -88,7 +88,7 @@ irqreturn_t xtkbd_interrupt(struct serio *serio,
 	return IRQ_HANDLED;
 }
 
-int xtkbd_connect(struct serio *serio, struct serio_driver *drv)
+static int xtkbd_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct xtkbd *xtkbd;
 	int i;
@@ -140,7 +140,7 @@ int xtkbd_connect(struct serio *serio, struct serio_driver *drv)
 	return 0;
 }
 
-void xtkbd_disconnect(struct serio *serio)
+static void xtkbd_disconnect(struct serio *serio)
 {
 	struct xtkbd *xtkbd = serio_get_drvdata(serio);
 
@@ -162,7 +162,7 @@ static struct serio_device_id xtkbd_serio_ids[] = {
 
 MODULE_DEVICE_TABLE(serio, xtkbd_serio_ids);
 
-struct serio_driver xtkbd_drv = {
+static struct serio_driver xtkbd_drv = {
 	.driver		= {
 		.name	= "xtkbd",
 	},
@@ -173,13 +173,13 @@ struct serio_driver xtkbd_drv = {
 	.disconnect	= xtkbd_disconnect,
 };
 
-int __init xtkbd_init(void)
+static int __init xtkbd_init(void)
 {
 	serio_register_driver(&xtkbd_drv);
 	return 0;
 }
 
-void __exit xtkbd_exit(void)
+static void __exit xtkbd_exit(void)
 {
 	serio_unregister_driver(&xtkbd_drv);
 }

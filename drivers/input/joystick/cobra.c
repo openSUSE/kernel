@@ -241,13 +241,13 @@ static struct gameport_dev cobra_dev = {
 	.disconnect =	cobra_disconnect,
 };
 
-int __init cobra_init(void)
+static int __init cobra_init(void)
 {
 	gameport_register_device(&cobra_dev);
 	return 0;
 }
 
-void __exit cobra_exit(void)
+static void __exit cobra_exit(void)
 {
 	gameport_unregister_device(&cobra_dev);
 }

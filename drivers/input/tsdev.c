@@ -265,7 +265,7 @@ static int tsdev_ioctl(struct inode *inode, struct file *file,
 	return retval;
 }
 
-struct file_operations tsdev_fops = {
+static struct file_operations tsdev_fops = {
 	.owner =	THIS_MODULE,
 	.open =		tsdev_open,
 	.release =	tsdev_release,
