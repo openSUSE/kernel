@@ -1624,6 +1624,15 @@ sub process_state3_type($$) {
     }
 }
 
+# replace <, >, and &
+sub xml_escape($) {
+	shift;
+	s/\&/\\\\\\amp;/g;
+	s/\</\\\\\\lt;/g;
+	s/\>/\\\\\\gt;/g;
+	return $_;
+}
+
 sub process_file($) {
     my ($file) = "$ENV{'SRCTREE'}@_";
     my $identifier;
@@ -1695,10 +1704,7 @@ sub process_file($) {
 		$newcontents = $2;
 
 		if ($contents ne "") {
-		    $contents =~ s/\&/\\\\\\amp;/g;
-		    $contents =~ s/\</\\\\\\lt;/g;
-		    $contents =~ s/\>/\\\\\\gt;/g;
-		    dump_section($section, $contents);
+		    dump_section($section, xml_escape($contents));
 		    $section = $section_default;
 		}
 
@@ -1710,10 +1716,7 @@ sub process_file($) {
 	    } elsif (/$doc_end/) {
 
 		if ($contents ne "") {
-		    $contents =~ s/\&/\\\\\\amp;/g;
-		    $contents =~ s/\</\\\\\\lt;/g;
-		    $contents =~ s/\>/\\\\\\gt;/g;
-		    dump_section($section, $contents);
+		    dump_section($section, xml_escape($contents));
 		    $section = $section_default;
 		    $contents = "";
 		}
@@ -1727,10 +1730,7 @@ sub process_file($) {
 		# @parameter line to signify start of description
 		if ($1 eq "" && 
 			($section =~ m/^@/ || $section eq $section_context)) {
-		    $contents =~ s/\&/\\\\\\amp;/g;
-		    $contents =~ s/\</\\\\\\lt;/g;
-		    $contents =~ s/\>/\\\\\\gt;/g;
-		    dump_section($section, $contents);
+		    dump_section($section, xml_escape($contents));
 		    $section = $section_default;
 		    $contents = "";
 		} else {
