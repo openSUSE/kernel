@@ -1578,13 +1578,13 @@ sub process_state3_function($$) {
     my $x = shift;
     my $file = shift;
 
-    if ($x =~ m#\s*/\*\s+MACDOC\s*#io) {
+    if ($x =~ m#\s*/\*\s+MACDOC\s*#io || ($x =~ /^#/ && $x !~ /^#define/)) {
 	# do nothing
     }
     elsif ($x =~ /([^\{]*)/) {
         $prototype .= $1;
     }
-    if (($x =~ /\{/) || ($x =~ /\#/) || ($x =~ /;/)) {
+    if (($x =~ /\{/) || ($x =~ /\#define/) || ($x =~ /;/)) {
         $prototype =~ s@/\*.*?\*/@@gos;	# strip comments.
 	$prototype =~ s@[\r\n]+@ @gos; # strip newlines/cr's.
 	$prototype =~ s@^\s+@@gos; # strip leading spaces
