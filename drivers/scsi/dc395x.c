@@ -56,6 +56,7 @@
 #include <linux/spinlock.h>
 #include <linux/pci.h>
 #include <linux/list.h>
+#include <linux/vmalloc.h>
 #include <asm/io.h>
 
 #include <scsi/scsi.h>
