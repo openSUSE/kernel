@@ -1863,9 +1863,8 @@ static void snd_pcm_system_tick_set(snd_pcm_substream_t *substream,
 	if (ticks == 0)
 		del_timer(&runtime->tick_timer);
 	else {
+		ticks += (1000000 / HZ) - 1;
 		ticks /= (1000000 / HZ);
-		if (ticks % (1000000 / HZ))
-			ticks++;
 		mod_timer(&runtime->tick_timer, jiffies + ticks);
 	}
 }
