@@ -1868,7 +1868,7 @@ static inline unsigned int dn_current_mss(struct sock *sk, int flags)
 
 	/* This works out the maximum size of segment we can send out */
 	if (dst) {
-		u32 mtu = dst_pmtu(dst);
+		u32 mtu = dst_mtu(dst);
 		mss_now = min_t(int, dn_mss_from_pmtu(dst->dev, mtu), mss_now);
 	}
 
