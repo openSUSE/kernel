@@ -34,6 +34,11 @@ struct scsi_transport_template {
 	int	device_size;
 	int	target_size;
 	int	host_size;
+
+	/*
+	 * True if the transport wants to use a host-based work-queue
+	 */
+	unsigned int create_work_queue : 1;
 };
 
 #define transport_class_to_shost(tc) \

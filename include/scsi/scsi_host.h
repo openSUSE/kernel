@@ -4,6 +4,7 @@
 #include <linux/device.h>
 #include <linux/list.h>
 #include <linux/types.h>
+#include <linux/workqueue.h>
 
 struct block_device;
 struct module;
@@ -520,6 +521,12 @@ struct Scsi_Host {
 	unsigned ordered_tag:1;
 
 	/*
+	 * Optional work queue to be utilized by the transport
+	 */
+	char work_q_name[KOBJ_NAME_LEN];
+	struct workqueue_struct *work_q;
+
+	/*
 	 * Host has rejected a command because it was busy.
 	 */
 	unsigned int host_blocked;
@@ -581,6 +588,8 @@ static inline struct Scsi_Host *dev_to_shost(struct device *dev)
 	}
 	return container_of(dev, struct Scsi_Host, shost_gendev);
 }
+
+extern int scsi_queue_work(struct Scsi_Host *, struct work_struct *);
 
 extern struct Scsi_Host *scsi_host_alloc(struct scsi_host_template *, int);
 extern int __must_check scsi_add_host(struct Scsi_Host *, struct device *);
