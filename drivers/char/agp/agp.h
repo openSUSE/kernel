@@ -1,5 +1,6 @@
 /*
  * AGPGART
+ * Copyright (C) 2004 Silicon Graphics, Inc.
  * Copyright (C) 2002-2004 Dave Jones
  * Copyright (C) 1999 Jeff Hartmann
  * Copyright (C) 1999 Precision Insight, Inc.
@@ -140,6 +141,7 @@ struct agp_bridge_data {
 	int flags;
 	char major_version;
 	char minor_version;
+	struct list_head list;
 };
 
 #define KB(x)	((x) * 1024)
@@ -262,6 +264,7 @@ int agp_3_5_enable(struct agp_bridge_data *bridge);
 void global_cache_flush(void);
 void get_agp_version(struct agp_bridge_data *bridge);
 unsigned long agp_generic_mask_memory(unsigned long addr, int type);
+struct agp_bridge_data *agp_generic_find_bridge(struct pci_dev *pdev);
 
 /* generic routines for agp>=3 */
 int agp3_generic_fetch_size(void);

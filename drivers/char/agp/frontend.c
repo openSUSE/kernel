@@ -1,5 +1,6 @@
 /*
  * AGPGART driver frontend
+ * Copyright (C) 2004 Silicon Graphics, Inc.
  * Copyright (C) 2002-2003 Dave Jones
  * Copyright (C) 1999 Jeff Hartmann
  * Copyright (C) 1999 Precision Insight, Inc.
@@ -299,7 +300,7 @@ static struct agp_memory *agp_allocate_memory_wrap(size_t pg_count, u32 type)
 {
 	struct agp_memory *memory;
 
-	memory = agp_allocate_memory(pg_count, type);
+	memory = agp_allocate_memory(agp_bridge, pg_count, type);
 	if (memory == NULL)
 		return NULL;
 
@@ -420,7 +421,7 @@ static int agp_remove_controller(struct agp_controller *controller)
 	if (agp_fe.current_controller == controller) {
 		agp_fe.current_controller = NULL;
 		agp_fe.backend_acquired = FALSE;
-		agp_backend_release();
+		agp_backend_release(agp_bridge);
 	}
 	kfree(controller);
 	return 0;
@@ -468,7 +469,7 @@ static void agp_controller_release_current(struct agp_controller *controller,
 
 	agp_fe.current_controller = NULL;
 	agp_fe.used_by_controller = FALSE;
-	agp_backend_release();
+	agp_backend_release(agp_bridge);
 }
 
 /*
@@ -605,7 +606,7 @@ static int agp_mmap(struct file *file, struct vm_area_struct *vma)
 	if (!(test_bit(AGP_FF_IS_VALID, &priv->access_flags)))
 		goto out_eperm;
 
-	agp_copy_info(&kerninfo);
+	agp_copy_info(agp_bridge, &kerninfo);
 	size = vma->vm_end - vma->vm_start;
 	current_size = kerninfo.aper_size;
 	current_size = current_size * 0x100000;
@@ -757,7 +758,7 @@ static int agpioc_info_wrap(struct agp_file_private *priv, void __user *arg)
 	struct agp_info userinfo;
 	struct agp_kern_info kerninfo;
 
-	agp_copy_info(&kerninfo);
+	agp_copy_info(agp_bridge, &kerninfo);
 
 	userinfo.version.major = kerninfo.version.major;
 	userinfo.version.minor = kerninfo.version.minor;
@@ -777,7 +778,6 @@ static int agpioc_info_wrap(struct agp_file_private *priv, void __user *arg)
 
 static int agpioc_acquire_wrap(struct agp_file_private *priv)
 {
-	int ret;
 	struct agp_controller *controller;
 
 	DBG("");
@@ -788,11 +788,15 @@ static int agpioc_acquire_wrap(struct agp_file_private *priv)
 	if (agp_fe.current_controller != NULL)
 		return -EBUSY;
 
-	ret = agp_backend_acquire();
-	if (ret == 0)
-		agp_fe.backend_acquired = TRUE;
-	else
-		return ret;
+	if(!agp_bridge)
+		return -ENODEV;
+
+        if (atomic_read(&agp_bridge->agp_in_use))
+                return -EBUSY;
+
+	atomic_inc(&agp_bridge->agp_in_use);
+
+	agp_fe.backend_acquired = TRUE;
 
 	controller = agp_find_controller_by_pid(priv->my_pid);
 
@@ -803,7 +807,7 @@ static int agpioc_acquire_wrap(struct agp_file_private *priv)
 
 		if (controller == NULL) {
 			agp_fe.backend_acquired = FALSE;
-			agp_backend_release();
+			agp_backend_release(agp_bridge);
 			return -ENOMEM;
 		}
 		agp_insert_controller(controller);
@@ -830,7 +834,7 @@ static int agpioc_setup_wrap(struct agp_file_private *priv, void __user *arg)
 	if (copy_from_user(&mode, arg, sizeof(struct agp_setup)))
 		return -EFAULT;
 
-	agp_enable(mode.agp_mode);
+	agp_enable(agp_bridge, mode.agp_mode);
 	return 0;
 }
 

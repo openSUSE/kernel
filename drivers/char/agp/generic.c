@@ -1,5 +1,6 @@
 /*
  * AGPGART driver.
+ * Copyright (C) 2004 Silicon Graphics, Inc.
  * Copyright (C) 2002-2005 Dave Jones.
  * Copyright (C) 1999 Jeff Hartmann.
  * Copyright (C) 1999 Precision Insight, Inc.
@@ -139,19 +140,19 @@ void agp_free_memory(struct agp_memory *curr)
 {
 	size_t i;
 
-	if ((agp_bridge->type == NOT_SUPPORTED) || (curr == NULL))
+	if (curr == NULL)
 		return;
 
 	if (curr->is_bound == TRUE)
 		agp_unbind_memory(curr);
 
 	if (curr->type != 0) {
-		agp_bridge->driver->free_by_type(curr);
+		curr->bridge->driver->free_by_type(curr);
 		return;
 	}
 	if (curr->page_count != 0) {
 		for (i = 0; i < curr->page_count; i++) {
-			agp_bridge->driver->agp_destroy_page(phys_to_virt(curr->memory[i]));
+			curr->bridge->driver->agp_destroy_page(phys_to_virt(curr->memory[i]));
 		}
 	}
 	agp_free_key(curr->key);
@@ -173,20 +174,23 @@ EXPORT_SYMBOL(agp_free_memory);
  *
  *	It returns NULL whenever memory is unavailable.
  */
-struct agp_memory *agp_allocate_memory(size_t page_count, u32 type)
+struct agp_memory *agp_allocate_memory(struct agp_bridge_data *bridge,
+					size_t page_count, u32 type)
 {
 	int scratch_pages;
 	struct agp_memory *new;
 	size_t i;
 
-	if (agp_bridge->type == NOT_SUPPORTED)
+	if (!bridge)
 		return NULL;
 
-	if ((atomic_read(&agp_bridge->current_memory_agp) + page_count) > agp_bridge->max_memory_agp)
+	if ((atomic_read(&bridge->current_memory_agp) + page_count) > bridge->max_memory_agp)
 		return NULL;
 
 	if (type != 0) {
-		new = agp_bridge->driver->alloc_by_type(page_count, type);
+		new = bridge->driver->alloc_by_type(page_count, type);
+		if (new)
+			new->bridge = bridge;
 		return new;
 	}
 
@@ -198,7 +202,7 @@ struct agp_memory *agp_allocate_memory(size_t page_count, u32 type)
 		return NULL;
 
 	for (i = 0; i < page_count; i++) {
-		void *addr = agp_bridge->driver->agp_alloc_page();
+		void *addr = bridge->driver->agp_alloc_page();
 
 		if (addr == NULL) {
 			agp_free_memory(new);
@@ -207,6 +211,7 @@ struct agp_memory *agp_allocate_memory(size_t page_count, u32 type)
 		new->memory[i] = virt_to_phys(addr);
 		new->page_count++;
 	}
+       new->bridge = bridge;
 
 	flush_agp_mappings();
 
@@ -310,37 +315,35 @@ static int check_bridge_mode(struct pci_dev *dev)
  *	This function copies information about the agp bridge device and the state of
  *	the agp backend into an agp_kern_info pointer.
  */
-int agp_copy_info(struct agp_kern_info *info)
+int agp_copy_info(struct agp_bridge_data *bridge, struct agp_kern_info *info)
 {
 	memset(info, 0, sizeof(struct agp_kern_info));
-	if (!agp_bridge || agp_bridge->type == NOT_SUPPORTED ||
-	    !agp_bridge->version) {
+	if (!bridge) {
 		info->chipset = NOT_SUPPORTED;
 		return -EIO;
 	}
 
-	info->version.major = agp_bridge->version->major;
-	info->version.minor = agp_bridge->version->minor;
-	info->chipset = agp_bridge->type;
-	info->device = agp_bridge->dev;
-	if (check_bridge_mode(agp_bridge->dev))
-		info->mode = agp_bridge->mode & ~AGP3_RESERVED_MASK;
+	info->version.major = bridge->version->major;
+	info->version.minor = bridge->version->minor;
+	info->chipset = SUPPORTED;
+	info->device = bridge->dev;
+	if (check_bridge_mode(bridge->dev))
+		info->mode = bridge->mode & ~AGP3_RESERVED_MASK;
 	else
-		info->mode = agp_bridge->mode & ~AGP2_RESERVED_MASK;
-	info->aper_base = agp_bridge->gart_bus_addr;
+		info->mode = bridge->mode & ~AGP2_RESERVED_MASK;
+	info->mode = bridge->mode;
+	info->aper_base = bridge->gart_bus_addr;
 	info->aper_size = agp_return_size();
-	info->max_memory = agp_bridge->max_memory_agp;
-	info->current_memory = atomic_read(&agp_bridge->current_memory_agp);
-	info->cant_use_aperture = agp_bridge->driver->cant_use_aperture;
-	info->vm_ops = agp_bridge->vm_ops;
+	info->max_memory = bridge->max_memory_agp;
+	info->current_memory = atomic_read(&bridge->current_memory_agp);
+	info->cant_use_aperture = bridge->driver->cant_use_aperture;
+	info->vm_ops = bridge->vm_ops;
 	info->page_mask = ~0UL;
 	return 0;
 }
 EXPORT_SYMBOL(agp_copy_info);
 
-
 /* End - Routine to copy over information structure */
-
 
 /*
  * Routines for handling swapping of agp_memory into the GATT -
@@ -361,7 +364,7 @@ int agp_bind_memory(struct agp_memory *curr, off_t pg_start)
 {
 	int ret_val;
 
-	if ((agp_bridge->type == NOT_SUPPORTED) || (curr == NULL))
+	if (curr == NULL)
 		return -EINVAL;
 
 	if (curr->is_bound == TRUE) {
@@ -369,10 +372,10 @@ int agp_bind_memory(struct agp_memory *curr, off_t pg_start)
 		return -EINVAL;
 	}
 	if (curr->is_flushed == FALSE) {
-		agp_bridge->driver->cache_flush();
+		curr->bridge->driver->cache_flush();
 		curr->is_flushed = TRUE;
 	}
-	ret_val = agp_bridge->driver->insert_memory(curr, pg_start, curr->type);
+	ret_val = curr->bridge->driver->insert_memory(curr, pg_start, curr->type);
 
 	if (ret_val != 0)
 		return ret_val;
@@ -396,7 +399,7 @@ int agp_unbind_memory(struct agp_memory *curr)
 {
 	int ret_val;
 
-	if ((agp_bridge->type == NOT_SUPPORTED) || (curr == NULL))
+	if (curr == NULL)
 		return -EINVAL;
 
 	if (curr->is_bound != TRUE) {
@@ -404,7 +407,7 @@ int agp_unbind_memory(struct agp_memory *curr)
 		return -EINVAL;
 	}
 
-	ret_val = agp_bridge->driver->remove_memory(curr, curr->pg_start, curr->type);
+	ret_val = curr->bridge->driver->remove_memory(curr, curr->pg_start, curr->type);
 
 	if (ret_val != 0)
 		return ret_val;
@@ -707,12 +710,12 @@ void get_agp_version(struct agp_bridge_data *bridge)
 	u32 ncapid;
 
 	/* Exit early if already set by errata workarounds. */
-	if (agp_bridge->major_version != 0)
+	if (bridge->major_version != 0)
 		return;
 
-	pci_read_config_dword(agp_bridge->dev, agp_bridge->capndx, &ncapid);
-	agp_bridge->major_version = (ncapid >> AGP_MAJOR_VERSION_SHIFT) & 0xf;
-	agp_bridge->minor_version = (ncapid >> AGP_MINOR_VERSION_SHIFT) & 0xf;
+	pci_read_config_dword(bridge->dev, bridge->capndx, &ncapid);
+	bridge->major_version = (ncapid >> AGP_MAJOR_VERSION_SHIFT) & 0xf;
+	bridge->minor_version = (ncapid >> AGP_MINOR_VERSION_SHIFT) & 0xf;
 }
 EXPORT_SYMBOL(get_agp_version);
 
@@ -943,10 +946,15 @@ int agp_generic_insert_memory(struct agp_memory * mem, off_t pg_start, int type)
 	size_t i;
 	off_t j;
 	void *temp;
+	struct agp_bridge_data *bridge;
 
-	temp = agp_bridge->current_size;
+	bridge = mem->bridge;
+	if (!bridge)
+		return -EINVAL;
 
-	switch (agp_bridge->driver->size_type) {
+	temp = bridge->current_size;
+
+	switch (bridge->driver->size_type) {
 	case U8_APER_SIZE:
 		num_entries = A_SIZE_8(temp)->num_entries;
 		break;
@@ -983,22 +991,22 @@ int agp_generic_insert_memory(struct agp_memory * mem, off_t pg_start, int type)
 	j = pg_start;
 
 	while (j < (pg_start + mem->page_count)) {
-		if (!PGE_EMPTY(agp_bridge, readl(agp_bridge->gatt_table+j)))
+		if (!PGE_EMPTY(bridge, readl(bridge->gatt_table+j)))
 			return -EBUSY;
 		j++;
 	}
 
 	if (mem->is_flushed == FALSE) {
-		agp_bridge->driver->cache_flush();
+		bridge->driver->cache_flush();
 		mem->is_flushed = TRUE;
 	}
 
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
-		writel(agp_bridge->driver->mask_memory(mem->memory[i], mem->type), agp_bridge->gatt_table+j);
-		readl(agp_bridge->gatt_table+j);	/* PCI Posting. */
+		writel(bridge->driver->mask_memory(mem->memory[i], mem->type), bridge->gatt_table+j);
+		readl(bridge->gatt_table+j);	/* PCI Posting. */
 	}
 
-	agp_bridge->driver->tlb_flush(mem);
+	bridge->driver->tlb_flush(mem);
 	return 0;
 }
 EXPORT_SYMBOL(agp_generic_insert_memory);
@@ -1007,6 +1015,11 @@ EXPORT_SYMBOL(agp_generic_insert_memory);
 int agp_generic_remove_memory(struct agp_memory *mem, off_t pg_start, int type)
 {
 	size_t i;
+	struct agp_bridge_data *bridge;
+
+	bridge = mem->bridge;
+	if (!bridge)
+		return -EINVAL;
 
 	if (type != 0 || mem->type != 0) {
 		/* The generic routines know nothing of memory types */
@@ -1015,12 +1028,12 @@ int agp_generic_remove_memory(struct agp_memory *mem, off_t pg_start, int type)
 
 	/* AK: bogus, should encode addresses > 4GB */
 	for (i = pg_start; i < (mem->page_count + pg_start); i++) {
-		writel(agp_bridge->scratch_page, agp_bridge->gatt_table+i);
-		readl(agp_bridge->gatt_table+i);	/* PCI Posting. */
+		writel(bridge->scratch_page, bridge->gatt_table+i);
+		readl(bridge->gatt_table+i);	/* PCI Posting. */
 	}
 
 	global_cache_flush();
-	agp_bridge->driver->tlb_flush(mem);
+	bridge->driver->tlb_flush(mem);
 	return 0;
 }
 EXPORT_SYMBOL(agp_generic_remove_memory);
@@ -1093,14 +1106,25 @@ EXPORT_SYMBOL(agp_generic_destroy_page);
  *
  * @mode:	agp mode register value to configure with.
  */
-void agp_enable(u32 mode)
+void agp_enable(struct agp_bridge_data *bridge, u32 mode)
 {
-	if (agp_bridge->type == NOT_SUPPORTED)
+	if (!bridge)
 		return;
-	agp_bridge->driver->agp_enable(mode);
+	bridge->driver->agp_enable(mode);
 }
 EXPORT_SYMBOL(agp_enable);
 
+/* When we remove the global variable agp_bridge from all drivers
+ * then agp_alloc_bridge and agp_generic_find_bridge need to be updated
+ */
+
+struct agp_bridge_data *agp_generic_find_bridge(struct pci_dev *pdev)
+{
+	if (list_empty(&agp_bridges))
+		return NULL;
+
+	return agp_bridge;
+}
 
 static void ipi_handler(void *null)
 {
