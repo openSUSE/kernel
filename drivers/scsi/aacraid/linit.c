@@ -573,10 +573,9 @@ static int __devinit aac_probe_one(struct pci_dev *pdev,
 	int unique_id = 0;
 
 	list_for_each_entry(aac, &aac_devices, entry) {
-		if (aac->id > unique_id) {
-			insert = &aac->entry;
+		if (aac->id > unique_id)
 			break;
-		}
+		insert = &aac->entry;
 		unique_id++;
 	}
 
