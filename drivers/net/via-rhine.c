@@ -1197,8 +1197,7 @@ static int rhine_open(struct net_device *dev)
 		       dev->name, rp->pdev->irq);
 
 	rc = alloc_ring(dev);
-	if (rc)
-	{
+	if (rc) {
 		free_irq(rp->pdev->irq, dev);
 		return rc;
 	}
