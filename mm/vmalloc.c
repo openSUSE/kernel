@@ -84,7 +84,7 @@ void unmap_vm_area(struct vm_struct *area)
 }
 
 static int vmap_pte_range(pmd_t *pmd, unsigned long addr,
-			unsigned long end, pgprot_t prot, struct list_head **pages)
+			unsigned long end, pgprot_t prot, struct page ***pages)
 {
 	pte_t *pte;
 
@@ -92,20 +92,18 @@ static int vmap_pte_range(pmd_t *pmd, unsigned long addr,
 	if (!pte)
 		return -ENOMEM;
 	do {
-		struct page *page;
-
+		struct page *page = **pages;
 		WARN_ON(!pte_none(*pte));
-
-		*pages = (*pages)->next;
-		page = list_entry(*pages, struct page, lru);
+		if (!page)
+			return -ENOMEM;
 		set_pte_at(&init_mm, addr, pte, mk_pte(page, prot));
-
+		(*pages)++;
 	} while (pte++, addr += PAGE_SIZE, addr != end);
 	return 0;
 }
 
 static inline int vmap_pmd_range(pud_t *pud, unsigned long addr,
-			unsigned long end, pgprot_t prot, struct list_head **pages)
+			unsigned long end, pgprot_t prot, struct page ***pages)
 {
 	pmd_t *pmd;
 	unsigned long next;
@@ -122,7 +120,7 @@ static inline int vmap_pmd_range(pud_t *pud, unsigned long addr,
 }
 
 static inline int vmap_pud_range(pgd_t *pgd, unsigned long addr,
-			unsigned long end, pgprot_t prot, struct list_head **pages)
+			unsigned long end, pgprot_t prot, struct page ***pages)
 {
 	pud_t *pud;
 	unsigned long next;
@@ -138,13 +136,12 @@ static inline int vmap_pud_range(pgd_t *pgd, unsigned long addr,
 	return 0;
 }
 
-int map_vm_area(struct vm_struct *area, pgprot_t prot)
+int map_vm_area(struct vm_struct *area, pgprot_t prot, struct page ***pages)
 {
 	pgd_t *pgd;
 	unsigned long next;
 	unsigned long addr = (unsigned long) area->addr;
 	unsigned long end = addr + area->size - PAGE_SIZE;
-	struct list_head *pages = &area->page_list;
 	int err;
 
 	BUG_ON(addr >= end);
@@ -152,7 +149,7 @@ int map_vm_area(struct vm_struct *area, pgprot_t prot)
 	spin_lock(&init_mm.page_table_lock);
 	do {
 		next = pgd_addr_end(addr, end);
-		err = vmap_pud_range(pgd, addr, next, prot, &pages);
+		err = vmap_pud_range(pgd, addr, next, prot, pages);
 		if (err)
 			break;
 	} while (pgd++, addr = next, addr != end);
@@ -221,7 +218,8 @@ found:
 	area->flags = flags;
 	area->addr = (void *)addr;
 	area->size = size;
-	INIT_LIST_HEAD(&area->page_list);
+	area->pages = NULL;
+	area->nr_pages = 0;
 	area->phys_addr = 0;
 	write_unlock(&vmlist_lock);
 
@@ -305,9 +303,18 @@ void __vunmap(void *addr, int deallocate_pages)
 	}
 
 	if (deallocate_pages) {
-		struct page *page, *tmp;
-		list_for_each_entry_safe(page, tmp, &area->page_list, lru)
-			__free_page(page);
+		int i;
+
+		for (i = 0; i < area->nr_pages; i++) {
+			if (unlikely(!area->pages[i]))
+				BUG();
+			__free_page(area->pages[i]);
+		}
+
+		if (area->nr_pages > PAGE_SIZE/sizeof(struct page *))
+			vfree(area->pages);
+		else
+			kfree(area->pages);
 	}
 
 	kfree(area);
@@ -366,17 +373,13 @@ void *vmap(struct page **pages, unsigned int count,
 {
 	struct vm_struct *area;
 
+	if (count > num_physpages)
+		return NULL;
+
 	area = get_vm_area((count << PAGE_SHIFT), flags);
 	if (!area)
 		return NULL;
-
-	while (count--) {
-		struct page *page = *pages++;
-		BUG_ON(!page);
-		list_add_tail(&page->lru, &area->page_list);
-	}
-
-	if (map_vm_area(area, prot)) {
+	if (map_vm_area(area, prot, &pages)) {
 		vunmap(area->addr);
 		return NULL;
 	}
@@ -388,21 +391,39 @@ EXPORT_SYMBOL(vmap);
 
 void *__vmalloc_area(struct vm_struct *area, int gfp_mask, pgprot_t prot)
 {
-	unsigned int nr_pages;
+	struct page **pages;
+	unsigned int nr_pages, array_size, i;
 
 	nr_pages = (area->size - PAGE_SIZE) >> PAGE_SHIFT;
+	array_size = (nr_pages * sizeof(struct page *));
 
-	while (nr_pages--) {
-		struct page *page = alloc_page(gfp_mask);
-		if (!page)
+	area->nr_pages = nr_pages;
+	/* Please note that the recursion is strictly bounded. */
+	if (array_size > PAGE_SIZE)
+		pages = __vmalloc(array_size, gfp_mask, PAGE_KERNEL);
+	else
+		pages = kmalloc(array_size, (gfp_mask & ~__GFP_HIGHMEM));
+	area->pages = pages;
+	if (!area->pages) {
+		remove_vm_area(area->addr);
+		kfree(area);
+		return NULL;
+	}
+	memset(area->pages, 0, array_size);
+
+	for (i = 0; i < area->nr_pages; i++) {
+		area->pages[i] = alloc_page(gfp_mask);
+		if (unlikely(!area->pages[i])) {
+			/* Successfully allocated i pages, free them in __vunmap() */
+			area->nr_pages = i;
 			goto fail;
-		list_add_tail(&page->lru, &area->page_list);
+		}
 	}
 
-	if (map_vm_area(area, prot))
+	if (map_vm_area(area, prot, &pages))
 		goto fail;
-
 	return area->addr;
+
 fail:
 	vfree(area->addr);
 	return NULL;
