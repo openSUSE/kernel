@@ -167,7 +167,17 @@ static ssize_t pccard_store_resource(struct class_device *dev, const char *buf, 
 		s->resource_setup_done = 1;
 		spin_unlock_irqrestore(&s->lock, flags);
 
-		/* later on, a call which starts PCMCIA device registration will be added here */
+		down(&s->skt_sem);
+		if ((s->callback) &&
+		    (s->state & SOCKET_PRESENT) &&
+		    !(s->state & SOCKET_CARDBUS)) {
+			if (try_module_get(s->callback->owner)) {
+				s->callback->resources_done(s);
+				module_put(s->callback->owner);
+			}
+		}
+		up(&s->skt_sem);
+
 		return count;
 	}
 	spin_unlock_irqrestore(&s->lock, flags);

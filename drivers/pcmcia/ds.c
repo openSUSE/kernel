@@ -497,6 +497,37 @@ static struct pcmcia_device * pcmcia_device_add(struct pcmcia_bus_socket *s, uns
 }
 
 
+static int pcmcia_card_add(struct pcmcia_socket *s)
+{
+	cisinfo_t cisinfo;
+	cistpl_longlink_mfc_t mfc;
+	unsigned int no_funcs, i;
+	int ret = 0;
+
+	if (!(s->resource_setup_done))
+		return -EAGAIN; /* try again, but later... */
+
+	pcmcia_validate_mem(s);
+	ret = pccard_validate_cis(s, BIND_FN_ALL, &cisinfo);
+	if (ret || !cisinfo.Chains) {
+		ds_dbg(0, "invalid CIS or invalid resources\n");
+		return -ENODEV;
+	}
+
+	if (!pccard_read_tuple(s, BIND_FN_ALL, CISTPL_LONGLINK_MFC, &mfc))
+		no_funcs = mfc.nfn;
+	else
+		no_funcs = 1;
+
+	/* this doesn't handle multifunction devices on one pcmcia function
+	 * yet. */
+	for (i=0; i < no_funcs; i++)
+		pcmcia_device_add(s->pcmcia, i);
+
+	return (ret);
+}
+
+
 static int pcmcia_bus_match(struct device * dev, struct device_driver * drv) {
 	struct pcmcia_device * p_dev = to_pcmcia_dev(dev);
 	struct pcmcia_driver * p_drv = to_pcmcia_drv(drv);
@@ -630,8 +661,8 @@ static int ds_event(struct pcmcia_socket *skt, event_t event, int priority)
 	
 	case CS_EVENT_CARD_INSERTION:
 		s->state |= DS_SOCKET_PRESENT;
+		pcmcia_card_add(skt);
 		handle_event(s, event);
-		send_event(skt, event, priority);
 		break;
 
 	case CS_EVENT_EJECTION_REQUEST:
@@ -699,18 +730,35 @@ static int bind_request(struct pcmcia_bus_socket *s, bind_info_t *bind_info)
 		goto err_put_driver;
 	}
 
- 	/* if there's already a device registered, and it was registered
-	 * by userspace before, we need to return the "instance". Therefore,
-	 * we need to set the cardmgr flag */
 	spin_lock_irqsave(&pcmcia_dev_list_lock, flags);
-	list_for_each_entry(p_dev, &s->devices_list, socket_device_list) {
-		if ((p_dev->func == bind_info->function) &&
-		    (p_dev->dev.driver == &p_drv->drv) &&
-		    (p_dev->cardmgr)) {
-			spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
-			bind_info->instance = p_dev->instance;
-			ret = -EBUSY;
-			goto err_put_module;
+        list_for_each_entry(p_dev, &s->devices_list, socket_device_list) {
+		if (p_dev->func == bind_info->function) {
+			if ((p_dev->dev.driver == &p_drv->drv)) {
+				if (p_dev->cardmgr) {
+					/* if there's already a device
+					 * registered, and it was registered
+					 * by userspace before, we need to
+					 * return the "instance". */
+					spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
+					bind_info->instance = p_dev->instance;
+					ret = -EBUSY;
+					goto err_put_module;
+				} else {
+					/* the correct driver managed to bind
+					 * itself magically to the correct
+					 * device. */
+					spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
+					p_dev->cardmgr = p_drv;
+					ret = 0;
+					goto err_put_module;
+				}
+			} else if (!p_dev->dev.driver) {
+				/* there's already a device available where
+				 * no device has been bound to yet. So we don't
+				 * need to register a device! */
+				spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
+				goto rescan;
+			}
 		}
 	}
 	spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
@@ -720,9 +768,16 @@ static int bind_request(struct pcmcia_bus_socket *s, bind_info_t *bind_info)
 		ret = -EIO;
 		goto err_put_module;
 	}
+
+rescan:
 	p_dev->cardmgr = p_drv;
 
+	/*
+	 * Prevent this racing with a card insertion.
+	 */
+	down(&s->parent->skt_sem);
 	bus_rescan_devices(&pcmcia_bus_type);
+	up(&s->parent->skt_sem);
 
 	/* check whether the driver indeed matched. I don't care if this
 	 * is racy or not, because it can only happen on cardmgr access
@@ -792,10 +847,6 @@ int pcmcia_register_client(client_handle_t *handle, client_reg_t *req)
 
 	pcmcia_put_bus_socket(skt); /* safe, as we already hold a reference from bind_device */
 
-	/*
-	 * Prevent this racing with a card insertion.
-	 */
-	down(&s->skt_sem);
 	*handle = client;
 	client->state &= ~CLIENT_UNBOUND;
 	client->Socket = s;
@@ -832,11 +883,9 @@ int pcmcia_register_client(client_handle_t *handle, client_reg_t *req)
 			EVENT(client, CS_EVENT_CARD_INSERTION, CS_EVENT_PRI_LOW);
 	}
 
-	up(&s->skt_sem);
 	return CS_SUCCESS;
 
  out_no_resource:
-	up(&s->skt_sem);
 	pcmcia_put_dev(p_dev);
 	return CS_OUT_OF_RESOURCE;
 } /* register_client */
@@ -1418,6 +1467,7 @@ static int __devinit pcmcia_bus_add_socket(struct class_device *class_dev)
 	/* Set up hotline to Card Services */
 	s->callback.owner = THIS_MODULE;
 	s->callback.event = &ds_event;
+	s->callback.resources_done = &pcmcia_card_add;
 	socket->pcmcia = s;
 
 	ret = pccard_register_pcmcia(socket, &s->callback);
