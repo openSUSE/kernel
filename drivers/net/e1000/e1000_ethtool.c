@@ -1310,7 +1310,7 @@ e1000_run_loopback_test(struct e1000_adapter *adapter)
 	struct e1000_desc_ring *txdr = &adapter->test_tx_ring;
 	struct e1000_desc_ring *rxdr = &adapter->test_rx_ring;
 	struct pci_dev *pdev = adapter->pdev;
-	int i;
+	int i, ret_val;
 
 	E1000_WRITE_REG(&adapter->hw, RDT, rxdr->count - 1);
 
@@ -1330,11 +1330,12 @@ e1000_run_loopback_test(struct e1000_adapter *adapter)
 					    rxdr->buffer_info[i].length,
 					    PCI_DMA_FROMDEVICE);
 
-		if (!e1000_check_lbtest_frame(rxdr->buffer_info[i++].skb, 1024))
-			return 0;
-	} while (i < 64);
+		ret_val = e1000_check_lbtest_frame(rxdr->buffer_info[i].skb,
+						   1024);
+		i++;
+	} while (ret_val != 0 && i < 64);
 
-	return 13;
+	return ret_val;
 }
 
 static int
