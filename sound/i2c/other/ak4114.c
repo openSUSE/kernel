@@ -105,6 +105,13 @@ int snd_ak4114_create(snd_card_t *card,
 		chip->regmap[reg] = pgm[reg];
 	for (reg = 0; reg < 5; reg++)
 		chip->txcsb[reg] = txcsb[reg];
+
+	chip->workqueue = create_workqueue("snd-ak4114");
+	if (chip->workqueue == NULL) {
+		kfree(chip);
+		return -ENOMEM;
+	}
+
 	snd_ak4114_reinit(chip);
 
 	chip->rcs0 = reg_read(chip, AK4114_REG_RCS0) & ~(AK4114_QINT | AK4114_CINT);
@@ -112,12 +119,6 @@ int snd_ak4114_create(snd_card_t *card,
 
 	if ((err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, chip, &ops)) < 0)
 		goto __fail;
-
-	chip->workqueue = create_workqueue("snd-ak4114");
-	if (chip->workqueue == NULL) {
-		err = -ENOMEM;
-		goto __fail;
-	}
 
 	if (r_ak4114)
 		*r_ak4114 = chip;
@@ -501,8 +502,6 @@ int snd_ak4114_check_rate_and_errors(ak4114_t *ak4114, unsigned int flags)
 	if (flags & AK4114_CHECK_NO_STAT)
 		goto __rate;
 	rcs0 = reg_read(ak4114, AK4114_REG_RCS0);
-	printk("AK4114 IRQ: rcs0 = 0x%x, rcs1 = 0x%x\n", rcs0, rcs1);
-	return 0;
 	spin_lock_irqsave(&ak4114->lock, _flags);
 	if (rcs0 & AK4114_PAR)
 		ak4114->parity_errors++;
