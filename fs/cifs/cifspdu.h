@@ -568,7 +568,6 @@ typedef struct smb_com_tconx_rsp {
 #define SMB_SHARE_IS_IN_DFS     0x0002
 
 typedef struct smb_com_logoff_andx_req {
-
 	struct smb_hdr hdr;	/* wct = 2 */
 	__u8 AndXCommand;
 	__u8 AndXReserved;
@@ -695,7 +694,8 @@ typedef struct smb_com_write_rsp {
 	__le16 AndXOffset;
 	__le16 Count;
 	__le16 Remaining;
-	__le32 Reserved;
+	__le16 CountHigh;
+	__u16  Reserved;
 	__u16 ByteCount;
 } WRITE_RSP;
 

@@ -1414,10 +1414,10 @@ cifs_mount(struct super_block *sb, struct cifs_sb_info *cifs_sb,
 			cifs_sb->rsize = volume_info.rsize;
 		else
 			cifs_sb->rsize = srvTcp->maxBuf - MAX_CIFS_HDR_SIZE; /* default */
-		if((volume_info.wsize) && (volume_info.wsize + MAX_CIFS_HDR_SIZE < srvTcp->maxBuf))
+		if((volume_info.wsize) && (volume_info.wsize <= CIFSMaxBufSize))
 			cifs_sb->wsize = volume_info.wsize;
 		else
-			cifs_sb->wsize = srvTcp->maxBuf - MAX_CIFS_HDR_SIZE; /* default */
+			cifs_sb->wsize = CIFSMaxBufSize; /* default */
 		if(cifs_sb->rsize < PAGE_CACHE_SIZE) {
 			cifs_sb->rsize = PAGE_CACHE_SIZE;
 			cERROR(1,("Attempt to set readsize for mount to less than one page (4096)"));
