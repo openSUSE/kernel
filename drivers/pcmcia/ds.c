@@ -285,13 +285,17 @@ static struct pcmcia_bus_socket *pcmcia_get_bus_socket(struct pcmcia_bus_socket 
  *
  * Registers a PCMCIA driver with the PCMCIA bus core.
  */
+static int pcmcia_device_probe(struct device *dev);
+
 int pcmcia_register_driver(struct pcmcia_driver *driver)
 {
 	if (!driver)
 		return -EINVAL;
 
+	/* initialize common fields */
 	driver->drv.bus = &pcmcia_bus_type;
 	driver->drv.owner = driver->owner;
+	driver->drv.probe = pcmcia_device_probe;
 
 	return driver_register(&driver->drv);
 }
@@ -361,6 +365,42 @@ static void pcmcia_release_dev(struct device *dev)
 	ds_dbg(1, "releasing dev %p\n", p_dev);
 	pcmcia_put_bus_socket(p_dev->socket->pcmcia);
 	kfree(p_dev);
+}
+
+
+static int pcmcia_device_probe(struct device * dev)
+{
+	struct pcmcia_device *p_dev;
+	struct pcmcia_driver *p_drv;
+	int ret = 0;
+
+	dev = get_device(dev);
+	if (!dev)
+		return -ENODEV;
+
+	p_dev = to_pcmcia_dev(dev);
+	p_drv = to_pcmcia_drv(dev->driver);
+
+	if (!try_module_get(p_drv->owner)) {
+		ret = -EINVAL;
+		goto put_dev;
+	}
+
+	if (p_drv->attach) {
+		p_dev->instance = p_drv->attach();
+		if ((!p_dev->instance) || (p_dev->client.state & CLIENT_UNBOUND)) {
+			printk(KERN_NOTICE "ds: unable to create instance "
+			       "of '%s'!\n", p_drv->drv.name);
+			ret = -EINVAL;
+		}
+	}
+
+	if (ret)
+		module_put(p_drv->owner);
+ put_dev:
+	if ((ret) || !(p_drv->attach))
+		put_device(dev);
+	return (ret);
 }
 
 
@@ -583,12 +623,6 @@ static int bind_request(struct pcmcia_bus_socket *s, bind_info_t *bind_info)
 	p_dev->client.Function = bind_info->function;
 	p_dev->client.state = CLIENT_UNBOUND;
 
-	ret = device_register(&p_dev->dev);
-	if (ret) {
-		kfree(p_dev);
-		goto err_put_module;
-	}
-
 	/* Add to the list in pcmcia_bus_socket, but only if no device
 	 * with the same func _and_ driver exists */
 	spin_lock_irqsave(&pcmcia_dev_list_lock, flags);
@@ -598,22 +632,21 @@ static int bind_request(struct pcmcia_bus_socket *s, bind_info_t *bind_info)
 			spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
 			bind_info->instance = tmp_dev->instance;
 			ret = -EBUSY;
-			goto err_unregister;
+			goto err_free;
 		}
 	}
 	list_add_tail(&p_dev->socket_device_list, &s->devices_list);
 	spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
 
-	if (p_drv->attach) {
-		p_dev->instance = p_drv->attach();
-		if ((!p_dev->instance) || (p_dev->client.state & CLIENT_UNBOUND)) {
-			printk(KERN_NOTICE "ds: unable to create instance "
-			       "of '%s'!\n", (char *)bind_info->dev_info);
-			ret = -ENODEV;
-			goto err_unregister;
-		}
-	}
+	ret = device_register(&p_dev->dev);
+	if (ret)
+		goto err_free;
 
+	ret = pcmcia_device_probe(&p_dev->dev);
+	if (ret)
+		goto err_unregister;
+
+	module_put(p_drv->owner);
 	put_driver(&p_drv->drv);
 
 	return 0;
@@ -624,6 +657,8 @@ static int bind_request(struct pcmcia_bus_socket *s, bind_info_t *bind_info)
 	put_driver(&p_drv->drv);
 	return (ret);
 
+ err_free:
+	kfree(p_dev);
  err_put_module:
 	module_put(p_drv->owner);
  err_put_driver:
@@ -853,8 +888,11 @@ static int unbind_request(struct pcmcia_bus_socket *s)
 		/* detach the "instance" */
 		p_drv = to_pcmcia_drv(p_dev->dev.driver);
 		if (p_drv) {
-			if ((p_drv->detach) && (p_dev->instance))
+			if ((p_drv->detach) && (p_dev->instance)) {
 				p_drv->detach(p_dev->instance);
+				/* from pcmcia_probe_device */
+				put_device(&p_dev->dev);
+			}
 			module_put(p_drv->owner);
 		}
 
