@@ -1260,9 +1260,10 @@ static int ofonly;
 
 /**
  * fb_get_options - get kernel boot parameters
- * @name - framebuffer name as it would appear in
- *         the boot parameter line
- *         (video=<name>:<options>)
+ * @name:   framebuffer name as it would appear in
+ *          the boot parameter line
+ *          (video=<name>:<options>)
+ * @option: the option will be stored here
  *
  * NOTE: Needed to maintain backwards compatibility
  */
