@@ -306,7 +306,6 @@ arxescsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 	}
 
 	host->base = (unsigned long)base;
-	host->dma_channel = NO_DMA;
 
 	info = (struct arxescsi_info *)host->hostdata;
 	info->ec = ec;
@@ -314,6 +313,7 @@ arxescsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 
 	info->info.scsi.io_base		= base + 0x2000;
 	info->info.scsi.irq		= NO_IRQ;
+	info->info.scsi.dma		= NO_DMA;
 	info->info.scsi.io_shift	= 5;
 	info->info.ifcfg.clockrate	= 24; /* MHz */
 	info->info.ifcfg.select_timeout = 255;

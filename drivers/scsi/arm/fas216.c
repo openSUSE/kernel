@@ -2971,7 +2971,7 @@ int fas216_print_host(FAS216_Info *info, char *buffer)
 			" IRQ    : %d\n"
 			" DMA    : %d\n",
 			info->scsi.type, info->host->io_port,
-			info->scsi.irq, info->host->dma_channel);
+			info->scsi.irq, info->scsi.dma);
 }
 
 int fas216_print_stats(FAS216_Info *info, char *buffer)

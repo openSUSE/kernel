@@ -242,6 +242,7 @@ typedef struct {
 		unsigned char	cfg[4];			/* configuration registers		*/
 		const char	*type;			/* chip type				*/
 		unsigned int	irq;			/* interrupt				*/
+		int		dma;			/* dma channel				*/
 
 		Scsi_Pointer	SCp;			/* current commands data pointer	*/
 

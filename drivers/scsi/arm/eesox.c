@@ -163,7 +163,7 @@ eesoxscsi_dma_setup(struct Scsi_Host *host, Scsi_Pointer *SCp,
 {
 	struct eesoxscsi_info *info = (struct eesoxscsi_info *)host->hostdata;
 	struct device *dev = scsi_get_device(host);
-	int dmach = host->dma_channel;
+	int dmach = info->info.scsi.dma;
 
 	if (dmach != NO_DMA &&
 	    (min_type == fasdma_real_all || SCp->this_residual >= 512)) {
@@ -372,8 +372,9 @@ eesoxscsi_dma_pseudo(struct Scsi_Host *host, Scsi_Pointer *SCp,
 static void
 eesoxscsi_dma_stop(struct Scsi_Host *host, Scsi_Pointer *SCp)
 {
-	if (host->dma_channel != NO_DMA)
-		disable_dma(host->dma_channel);
+	struct eesoxscsi_info *info = (struct eesoxscsi_info *)host->hostdata;
+	if (info->info.scsi.dma != NO_DMA)
+		disable_dma(info->info.scsi.dma);
 }
 
 /* Prototype: const char *eesoxscsi_info(struct Scsi_Host * host)
@@ -545,7 +546,6 @@ eesoxscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 	}
 
 	host->base	  = (unsigned long)base;
-	host->dma_channel = ec->dma;
 
 	ecard_set_drvdata(ec, host);
 
@@ -559,6 +559,7 @@ eesoxscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 	info->info.scsi.io_base		= base + EESOX_FAS216_OFFSET;
 	info->info.scsi.io_shift	= EESOX_FAS216_SHIFT;
 	info->info.scsi.irq		= ec->irq;
+	info->info.scsi.dma		= ec->dma;
 	info->info.ifcfg.clockrate	= 40; /* MHz */
 	info->info.ifcfg.select_timeout	= 255;
 	info->info.ifcfg.asyncperiod	= 200; /* ns */
@@ -589,13 +590,13 @@ eesoxscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 		goto out_remove;
 	}
 
-	if (host->dma_channel != NO_DMA) {
-		if (request_dma(host->dma_channel, "eesox")) {
+	if (info->info.scsi.dma != NO_DMA) {
+		if (request_dma(info->info.scsi.dma, "eesox")) {
 			printk("scsi%d: DMA%d not free, DMA disabled\n",
-			       host->host_no, host->dma_channel);
-			host->dma_channel = NO_DMA;
+			       host->host_no, info->info.scsi.dma);
+			info->info.scsi.dma = NO_DMA;
 		} else {
-			set_dma_speed(host->dma_channel, 180);
+			set_dma_speed(info->info.scsi.dma, 180);
 			info->info.ifcfg.capabilities |= FASCAP_DMA;
 			info->info.ifcfg.cntl3 |= CNTL3_BS8;
 		}
@@ -605,8 +606,8 @@ eesoxscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 	if (ret == 0)
 		goto out;
 
-	if (host->dma_channel != NO_DMA)
-		free_dma(host->dma_channel);
+	if (info->info.scsi.dma != NO_DMA)
+		free_dma(info->info.scsi.dma);
 	free_irq(ec->irq, host);
 
  out_remove:
@@ -634,8 +635,8 @@ static void __devexit eesoxscsi_remove(struct expansion_card *ec)
 	ecard_set_drvdata(ec, NULL);
 	fas216_remove(host);
 
-	if (host->dma_channel != NO_DMA)
-		free_dma(host->dma_channel);
+	if (info->info.scsi.dma != NO_DMA)
+		free_dma(info->info.scsi.dma);
 	free_irq(ec->irq, info);
 
 	device_remove_file(&ec->dev, &dev_attr_bus_term);
