@@ -418,6 +418,16 @@ config NET_EMATCH_NBYTE
 	  To compile this code as a module, choose M here: the
 	  module will be called em_nbyte.
 
+config NET_EMATCH_U32
+	tristate "U32 hashing key"
+	depends on NET_EMATCH
+	---help---
+	  Say Y here if you want to be able to classify packets using
+	  the famous u32 key in combination with logic relations.
+
+	  To compile this code as a module, choose M here: the
+	  module will be called em_u32.
+
 config NET_CLS_ACT
 	bool "Packet ACTION"
 	depends on EXPERIMENTAL && NET_CLS && NET_QOS

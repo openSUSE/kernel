@@ -153,6 +153,8 @@ extern int tcf_exts_dump_stats(struct sk_buff *skb, struct tcf_exts *exts,
  */
 struct tcf_pkt_info
 {
+	unsigned char *		ptr;
+	int			nexthdr;
 };
 
 #ifdef CONFIG_NET_EMATCH
