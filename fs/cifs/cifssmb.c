@@ -2014,7 +2014,7 @@ setAclRetry:
                       (void **) &pSMBr);
 	if (rc)
 		return rc;
-                                                                                                               	if (pSMB->hdr.Flags2 & SMBFLG2_UNICODE) {
+	if (pSMB->hdr.Flags2 & SMBFLG2_UNICODE) {
 		name_len =
 			cifs_strtoUCS((wchar_t *) pSMB->FileName, fileName, PATH_MAX
 				, nls_codepage);
@@ -2068,9 +2068,9 @@ setAclRetry:
 setACLerrorExit:
 	if (pSMB)
 		cifs_buf_release(pSMB);
-                                                                                                            	if (rc == -EAGAIN)
+	if (rc == -EAGAIN)
 		goto setAclRetry;
-                                                                                                           	return rc;
+	return rc;
 }
 
 #endif
