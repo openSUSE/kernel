@@ -471,8 +471,9 @@ add_to_unconfirmed(struct nfs4_client *clp, unsigned int strhashval)
 }
 
 void
-move_to_confirmed(struct nfs4_client *clp, unsigned int idhashval)
+move_to_confirmed(struct nfs4_client *clp)
 {
+	unsigned int idhashval = clientid_hashval(clp->cl_clientid.cl_id);
 	unsigned int strhashval;
 
 	dprintk("NFSD: move_to_confirm nfs4_client %p\n", clp);
@@ -485,6 +486,31 @@ move_to_confirmed(struct nfs4_client *clp, unsigned int idhashval)
 	renew_client(clp);
 }
 
+static struct nfs4_client *
+find_confirmed_client(clientid_t *clid)
+{
+	struct nfs4_client *clp;
+	unsigned int idhashval = clientid_hashval(clid->cl_id);
+
+	list_for_each_entry(clp, &conf_id_hashtbl[idhashval], cl_idhash) {
+		if (cmp_clid(&clp->cl_clientid, clid))
+			return clp;
+	}
+	return NULL;
+}
+
+static struct nfs4_client *
+find_unconfirmed_client(clientid_t *clid)
+{
+	struct nfs4_client *clp;
+	unsigned int idhashval = clientid_hashval(clid->cl_id);
+
+	list_for_each_entry(clp, &unconf_id_hashtbl[idhashval], cl_idhash) {
+		if (cmp_clid(&clp->cl_clientid, clid))
+			return clp;
+	}
+	return NULL;
+}
 
 /* a helper function for parse_callback */
 static int
@@ -793,7 +819,6 @@ int
 nfsd4_setclientid_confirm(struct svc_rqst *rqstp, struct nfsd4_setclientid_confirm *setclientid_confirm)
 {
 	u32 ip_addr = rqstp->rq_addr.sin_addr.s_addr;
-	unsigned int idhashval;
 	struct nfs4_client *clp, *conf = NULL, *unconf = NULL;
 	nfs4_verifier confirm = setclientid_confirm->sc_confirm; 
 	clientid_t * clid = &setclientid_confirm->sc_clientid;
@@ -806,12 +831,9 @@ nfsd4_setclientid_confirm(struct svc_rqst *rqstp, struct nfsd4_setclientid_confi
 	 * We get here on a DRC miss.
 	 */
 
-	idhashval = clientid_hashval(clid->cl_id);
 	nfs4_lock_state();
-	list_for_each_entry(clp, &conf_id_hashtbl[idhashval], cl_idhash) {
-		if (!cmp_clid(&clp->cl_clientid, clid))
-			continue;
-
+	clp = find_confirmed_client(clid);
+	if (clp) {
 		status = nfserr_inval;
 		/* 
 		 * Found a record for this clientid. If the IP addresses
@@ -825,11 +847,9 @@ nfsd4_setclientid_confirm(struct svc_rqst *rqstp, struct nfsd4_setclientid_confi
 			goto out;
 		}
 		conf = clp;
-		break;
 	}
-	list_for_each_entry(clp, &unconf_id_hashtbl[idhashval], cl_idhash) {
-		if (!cmp_clid(&clp->cl_clientid, clid))
-			continue;
+	clp = find_unconfirmed_client(clid);
+	if (clp) {
 		status = nfserr_inval;
 		if (clp->cl_addr != ip_addr) { 
 			printk("NFSD: setclientid: string in use by client"
@@ -838,7 +858,6 @@ nfsd4_setclientid_confirm(struct svc_rqst *rqstp, struct nfsd4_setclientid_confi
 			goto out;
 		}
 		unconf = clp;
-		break;
 	}
 	/* CASE 1: 
 	* unconf record that matches input clientid and input confirm.
@@ -855,7 +874,7 @@ nfsd4_setclientid_confirm(struct svc_rqst *rqstp, struct nfsd4_setclientid_confi
 		else {
 			expire_client(conf);
 			clp = unconf;
-			move_to_confirmed(unconf, idhashval);
+			move_to_confirmed(unconf);
 			status = nfs_ok;
 		}
 		goto out;
@@ -888,7 +907,7 @@ nfsd4_setclientid_confirm(struct svc_rqst *rqstp, struct nfsd4_setclientid_confi
 		} else {
 			status = nfs_ok;
 			clp = unconf;
-			move_to_confirmed(unconf, idhashval);
+			move_to_confirmed(unconf);
 		}
 		goto out;
 	}
@@ -1233,11 +1252,9 @@ static int
 verify_clientid(struct nfs4_client **client, clientid_t *clid) {
 
 	struct nfs4_client *clp;
-	unsigned int idhashval = clientid_hashval(clid->cl_id);
 
-	list_for_each_entry(clp, &conf_id_hashtbl[idhashval], cl_idhash) {
-		if (!cmp_clid(&clp->cl_clientid, clid))
-			continue;
+	clp = find_confirmed_client(clid);
+	if (clp) {
 		*client = clp;
 		return 1;
 	}
@@ -1798,7 +1815,6 @@ int
 nfsd4_renew(clientid_t *clid)
 {
 	struct nfs4_client *clp;
-	unsigned int idhashval;
 	int status;
 
 	nfs4_lock_state();
@@ -1808,18 +1824,15 @@ nfsd4_renew(clientid_t *clid)
 	if (STALE_CLIENTID(clid))
 		goto out;
 	status = nfs_ok;
-	idhashval = clientid_hashval(clid->cl_id);
-	list_for_each_entry(clp, &conf_id_hashtbl[idhashval], cl_idhash) {
-		if (!cmp_clid(&clp->cl_clientid, clid))
-			continue;
+	clp = find_confirmed_client(clid);
+	if (clp) {
 		renew_client(clp);
 		goto out;
 	}
-	list_for_each_entry(clp, &unconf_id_hashtbl[idhashval], cl_idhash) {
-		if (!cmp_clid(&clp->cl_clientid, clid))
-			continue;
+	clp = find_unconfirmed_client(clid);
+	if (clp) {
 		renew_client(clp);
-	goto out;
+		goto out;
 	}
 	/*
 	* Couldn't find an nfs4_client for this clientid.  
@@ -3100,30 +3113,23 @@ nfs4_release_reclaim(void)
 struct nfs4_client_reclaim *
 nfs4_find_reclaim_client(clientid_t *clid)
 {
-	unsigned int idhashval = clientid_hashval(clid->cl_id);
 	unsigned int strhashval;
-	struct nfs4_client *clp, *client = NULL;
+	struct nfs4_client *clp;
 	struct nfs4_client_reclaim *crp = NULL;
 
 
 	/* find clientid in conf_id_hashtbl */
-	list_for_each_entry(clp, &conf_id_hashtbl[idhashval], cl_idhash) {
-		if (cmp_clid(&clp->cl_clientid, clid)) {
-			client = clp;
-			break;
-		}
-	}
-	if (!client)
+	clp = find_confirmed_client(clid);
+	if (clp == NULL)
 		return NULL;
 
 	dprintk("NFSD: nfs4_find_reclaim_client for %.*s\n",
 		            clp->cl_name.len, clp->cl_name.data);
 
 	/* find clp->cl_name in reclaim_str_hashtbl */
-	strhashval = clientstr_hashval(client->cl_name.data,
-	                              client->cl_name.len);
+	strhashval = clientstr_hashval(clp->cl_name.data, clp->cl_name.len);
 	list_for_each_entry(crp, &reclaim_str_hashtbl[strhashval], cr_strhash) {
-		if (cmp_name(&crp->cr_name, &client->cl_name)) {
+		if (cmp_name(&crp->cr_name, &clp->cl_name)) {
 			return crp;
 		}
 	}
