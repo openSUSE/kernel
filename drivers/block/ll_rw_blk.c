@@ -816,6 +816,7 @@ fail:
  * blk_queue_init_tags - initialize the queue tag info
  * @q:  the request queue for the device
  * @depth:  the maximum queue depth supported
+ * @tags: the tag to use
  **/
 int blk_queue_init_tags(request_queue_t *q, int depth,
 			struct blk_queue_tag *tags)
@@ -2150,7 +2151,7 @@ EXPORT_SYMBOL(blk_rq_map_user);
 /**
  * blk_rq_unmap_user - unmap a request with user data
  * @rq:		request to be unmapped
- * @ubuf:	user buffer
+ * @bio:	bio for the request
  * @ulen:	length of user buffer
  *
  * Description:
