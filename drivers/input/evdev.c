@@ -199,9 +199,8 @@ static unsigned int evdev_poll(struct file *file, poll_table *wait)
 {
 	struct evdev_list *list = file->private_data;
 	poll_wait(file, &list->evdev->wait, wait);
-	if (list->head != list->tail)
-		return POLLIN | POLLRDNORM;
-	return 0;
+	return ((list->head == list->tail) ? 0 : (POLLIN | POLLRDNORM)) |
+		(list->evdev->exist ? 0 : (POLLHUP | POLLERR));
 }
 
 static int evdev_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg)

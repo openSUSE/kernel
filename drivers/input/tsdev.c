@@ -232,11 +232,9 @@ static ssize_t tsdev_read(struct file *file, char __user *buffer, size_t count,
 static unsigned int tsdev_poll(struct file *file, poll_table * wait)
 {
 	struct tsdev_list *list = file->private_data;
-
 	poll_wait(file, &list->tsdev->wait, wait);
-	if (list->head != list->tail)
-		return POLLIN | POLLRDNORM;
-	return 0;
+	return ((list->head == list->tail) ? 0 : (POLLIN | POLLRDNORM)) |
+		(list->tsdev->exist ? 0 : (POLLHUP | POLLERR));
 }
 
 static int tsdev_ioctl(struct inode *inode, struct file *file,

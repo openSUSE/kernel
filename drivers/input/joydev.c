@@ -281,9 +281,8 @@ static unsigned int joydev_poll(struct file *file, poll_table *wait)
 {
 	struct joydev_list *list = file->private_data;
 	poll_wait(file, &list->joydev->wait, wait);
-	if (list->head != list->tail || list->startup < list->joydev->nabs + list->joydev->nkey)
-		return POLLIN | POLLRDNORM;
-	return 0;
+	return ((list->head != list->tail || list->startup < list->joydev->nabs + list->joydev->nkey) ? 
+		(POLLIN | POLLRDNORM) : 0) | (list->joydev->exist ? 0 : (POLLHUP | POLLERR));
 }
 
 static int joydev_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg)
@@ -468,9 +467,10 @@ static void joydev_disconnect(struct input_handle *handle)
 	devfs_remove("input/js%d", joydev->minor);
 	joydev->exist = 0;
 
-	if (joydev->open)
+	if (joydev->open) {
 		input_close_device(handle);
-	else
+		wake_up_interruptible(&joydev->wait);
+	} else
 		joydev_free(joydev);
 }
 
