@@ -338,4 +338,6 @@ void enable_hlt(void);
 #define HAVE_EAT_KEY
 void eat_key(void);
 
+extern unsigned long arch_align_stack(unsigned long sp);
+
 #endif

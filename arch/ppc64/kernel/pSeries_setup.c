@@ -320,8 +320,9 @@ static  void __init pSeries_discover_pic(void)
 	}
 }
 
-static void pSeries_cpu_die(void)
+static void pSeries_mach_cpu_die(void)
 {
+	idle_task_exit();
 	local_irq_disable();
 	/* Some hardware requires clearing the CPPR, while other hardware does not
 	 * it is safe either way
@@ -599,7 +600,7 @@ struct machdep_calls __initdata pSeries_md = {
 	.power_off		= rtas_power_off,
 	.halt			= rtas_halt,
 	.panic			= rtas_os_term,
-	.cpu_die		= pSeries_cpu_die,
+	.cpu_die		= pSeries_mach_cpu_die,
 	.get_boot_time		= pSeries_get_boot_time,
 	.get_rtc_time		= pSeries_get_rtc_time,
 	.set_rtc_time		= pSeries_set_rtc_time,

@@ -30,6 +30,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 
@@ -115,12 +116,6 @@ struct max1619_data {
 	u8 temp_hyst2;
 	u8 alarms; 
 };
-
-/*
- * Internal variables
- */
-
-static int max1619_id;
 
 /*
  * Sysfs stuff
@@ -267,7 +262,6 @@ static int max1619_detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* We can fill in the remaining client fields */
 	strlcpy(new_client->name, name, I2C_NAME_SIZE);
-	new_client->id = max1619_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 
@@ -331,10 +325,7 @@ static struct max1619_data *max1619_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-	if ((jiffies - data->last_updated > HZ * 2) ||
-	    (jiffies < data->last_updated) ||
-	    !data->valid) {
-		
+	if (time_after(jiffies, data->last_updated + HZ * 2) || !data->valid) {
 		dev_dbg(&client->dev, "Updating max1619 data.\n");
 		data->temp_input1 = i2c_smbus_read_byte_data(client,
 					MAX1619_REG_R_LOCAL_TEMP);

@@ -16,8 +16,6 @@
 #include <linux/init.h>
 #include <asm/prom.h>
 
-extern unsigned long reloc_offset(void);
-
 #define MAX_LMB_REGIONS 128
 
 #define LMB_ALLOC_ANYWHERE	0

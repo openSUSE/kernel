@@ -39,6 +39,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 #include <linux/i2c-vid.h>
@@ -1562,11 +1563,28 @@ w83781d_init_client(struct i2c_client *client)
 	}
 #endif				/* W83781D_RT */
 
-	if (init) {
-		if (type != w83783s && type != w83697hf) {
-			w83781d_write_value(client, W83781D_REG_TEMP3_CONFIG,
-					    0x00);
+	if (init && type != as99127f) {
+		/* Enable temp2 */
+		tmp = w83781d_read_value(client, W83781D_REG_TEMP2_CONFIG);
+		if (tmp & 0x01) {
+			dev_warn(&client->dev, "Enabling temp2, readings "
+				 "might not make sense\n");
+			w83781d_write_value(client, W83781D_REG_TEMP2_CONFIG,
+				tmp & 0xfe);
 		}
+
+		/* Enable temp3 */
+		if (type != w83783s && type != w83697hf) {
+			tmp = w83781d_read_value(client,
+				W83781D_REG_TEMP3_CONFIG);
+			if (tmp & 0x01) {
+				dev_warn(&client->dev, "Enabling temp3, "
+					 "readings might not make sense\n");
+				w83781d_write_value(client,
+					W83781D_REG_TEMP3_CONFIG, tmp & 0xfe);
+			}
+		}
+
 		if (type != w83781d) {
 			/* enable comparator mode for temp2 and temp3 so
 			   alarm indication will work correctly */
@@ -1592,9 +1610,8 @@ static struct w83781d_data *w83781d_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-	if (time_after
-	    (jiffies - data->last_updated, (unsigned long) (HZ + HZ / 2))
-	    || time_before(jiffies, data->last_updated) || !data->valid) {
+	if (time_after(jiffies, data->last_updated + HZ + HZ / 2)
+	    || !data->valid) {
 		dev_dbg(dev, "Starting device update\n");
 
 		for (i = 0; i <= 8; i++) {

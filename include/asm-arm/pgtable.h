@@ -106,6 +106,13 @@ extern void __pgd_error(const char *file, int line, unsigned long val);
 #define USER_PTRS_PER_PGD	((TASK_SIZE/PGDIR_SIZE) - FIRST_USER_PGD_NR)
 
 /*
+ * ARMv6 supersection address mask and size definitions.
+ */
+#define SUPERSECTION_SHIFT	24
+#define SUPERSECTION_SIZE	(1UL << SUPERSECTION_SHIFT)
+#define SUPERSECTION_MASK	(~(SUPERSECTION_SIZE-1))
+
+/*
  * Hardware page table definitions.
  *
  * + Level 1 descriptor (PMD)
@@ -129,6 +136,7 @@ extern void __pgd_error(const char *file, int line, unsigned long val);
 #define PMD_SECT_APX		(1 << 15)	/* v6 */
 #define PMD_SECT_S		(1 << 16)	/* v6 */
 #define PMD_SECT_nG		(1 << 17)	/* v6 */
+#define PMD_SECT_SUPER		(1 << 18)	/* v6 */
 
 #define PMD_SECT_UNCACHED	(0)
 #define PMD_SECT_BUFFERED	(PMD_SECT_BUFFERABLE)
@@ -254,7 +262,7 @@ extern struct page *empty_zero_page;
 #define pfn_pte(pfn,prot)	(__pte(((pfn) << PAGE_SHIFT) | pgprot_val(prot)))
 
 #define pte_none(pte)		(!pte_val(pte))
-#define pte_clear(ptep)		set_pte((ptep), __pte(0))
+#define pte_clear(mm,addr,ptep)	set_pte_at((mm),(addr),(ptep), __pte(0))
 #define pte_page(pte)		(pfn_to_page(pte_pfn(pte)))
 #define pte_offset_kernel(dir,addr)	(pmd_page_kernel(*(dir)) + __pte_index(addr))
 #define pte_offset_map(dir,addr)	(pmd_page_kernel(*(dir)) + __pte_index(addr))
@@ -263,6 +271,7 @@ extern struct page *empty_zero_page;
 #define pte_unmap_nested(pte)	do { } while (0)
 
 #define set_pte(ptep, pte)	cpu_set_pte(ptep,pte)
+#define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
 
 /*
  * The following only work if pte_present() is true.

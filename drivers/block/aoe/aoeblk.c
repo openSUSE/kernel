@@ -28,7 +28,8 @@ static ssize_t aoedisk_show_mac(struct gendisk * disk, char *page)
 {
 	struct aoedev *d = disk->private_data;
 
-	return snprintf(page, PAGE_SIZE, "%012llx\n", mac_addr(d->addr));
+	return snprintf(page, PAGE_SIZE, "%012llx\n",
+			(unsigned long long)mac_addr(d->addr));
 }
 static ssize_t aoedisk_show_netif(struct gendisk * disk, char *page)
 {
@@ -241,7 +242,8 @@ aoeblk_gdalloc(void *vp)
 	aoedisk_add_sysfs(d);
 	
 	printk(KERN_INFO "aoe: %012llx e%lu.%lu v%04x has %llu "
-		"sectors\n", mac_addr(d->addr), d->aoemajor, d->aoeminor,
+		"sectors\n", (unsigned long long)mac_addr(d->addr),
+		d->aoemajor, d->aoeminor,
 		d->fw_ver, (long long)d->ssize);
 }
 

@@ -63,6 +63,8 @@ struct atalk_iface {
 };
 	
 struct atalk_sock {
+	/* struct sock has to be the first member of atalk_sock */
+	struct sock	sk;
 	unsigned short	dest_net;
 	unsigned short	src_net;
 	unsigned char	dest_node;
@@ -70,6 +72,11 @@ struct atalk_sock {
 	unsigned char	dest_port;
 	unsigned char	src_port;
 };
+
+static inline struct atalk_sock *at_sk(struct sock *sk)
+{
+	return (struct atalk_sock *)sk;
+}
 
 #ifdef __KERNEL__
 
@@ -196,8 +203,6 @@ extern void		 aarp_proxy_remove(struct net_device *dev,
 					   struct atalk_addr *sa);
 
 extern void		aarp_cleanup_module(void);
-
-#define at_sk(__sk) ((struct atalk_sock *)(__sk)->sk_protinfo)
 
 extern struct hlist_head atalk_sockets;
 extern rwlock_t atalk_sockets_lock;

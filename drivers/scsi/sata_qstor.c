@@ -38,7 +38,7 @@
 #include <linux/libata.h>
 
 #define DRV_NAME	"sata_qstor"
-#define DRV_VERSION	"0.03"
+#define DRV_VERSION	"0.04"
 
 enum {
 	QS_PORTS		= 4,
@@ -120,6 +120,7 @@ static int qs_check_atapi_dma(struct ata_queued_cmd *qc);
 static void qs_bmdma_stop(struct ata_port *ap);
 static u8 qs_bmdma_status(struct ata_port *ap);
 static void qs_irq_clear(struct ata_port *ap);
+static void qs_eng_timeout(struct ata_port *ap);
 
 static Scsi_Host_Template qs_ata_sht = {
 	.module			= THIS_MODULE,
@@ -152,7 +153,7 @@ static struct ata_port_operations qs_ata_ops = {
 	.phy_reset		= qs_phy_reset,
 	.qc_prep		= qs_qc_prep,
 	.qc_issue		= qs_qc_issue,
-	.eng_timeout		= ata_eng_timeout,
+	.eng_timeout		= qs_eng_timeout,
 	.irq_handler		= qs_intr,
 	.irq_clear		= qs_irq_clear,
 	.scr_read		= qs_scr_read,
@@ -212,7 +213,7 @@ static void qs_irq_clear(struct ata_port *ap)
 	/* nothing */
 }
 
-static void qs_enter_reg_mode(struct ata_port *ap)
+static inline void qs_enter_reg_mode(struct ata_port *ap)
 {
 	u8 __iomem *chan = ap->host_set->mmio_base + (ap->port_no * 0x4000);
 
@@ -220,15 +221,32 @@ static void qs_enter_reg_mode(struct ata_port *ap)
 	readb(chan + QS_CCT_CTR0);        /* flush */
 }
 
-static void qs_phy_reset(struct ata_port *ap)
+static inline void qs_reset_channel_logic(struct ata_port *ap)
 {
 	u8 __iomem *chan = ap->host_set->mmio_base + (ap->port_no * 0x4000);
+
+	writeb(QS_CTR1_RCHN, chan + QS_CCT_CTR1);
+	readb(chan + QS_CCT_CTR0);        /* flush */
+	qs_enter_reg_mode(ap);
+}
+
+static void qs_phy_reset(struct ata_port *ap)
+{
 	struct qs_port_priv *pp = ap->private_data;
 
 	pp->state = qs_state_idle;
-	writeb(QS_CTR1_RCHN, chan + QS_CCT_CTR1);
-	qs_enter_reg_mode(ap);
+	qs_reset_channel_logic(ap);
 	sata_phy_reset(ap);
+}
+
+static void qs_eng_timeout(struct ata_port *ap)
+{
+	struct qs_port_priv *pp = ap->private_data;
+
+	if (pp->state != qs_state_idle) /* healthy paranoia */
+		pp->state = qs_state_mmio;
+	qs_reset_channel_logic(ap);
+	ata_eng_timeout(ap);
 }
 
 static u32 qs_scr_read (struct ata_port *ap, unsigned int sc_reg)
@@ -261,11 +279,11 @@ static void qs_fill_sg(struct ata_queued_cmd *qc)
 		u32 len;
 
 		addr = sg_dma_address(sg);
-		*(u64 *)prd = cpu_to_le64(addr);
+		*(__le64 *)prd = cpu_to_le64(addr);
 		prd += sizeof(u64);
 
 		len = sg_dma_len(sg);
-		*(u32 *)prd = cpu_to_le32(len);
+		*(__le32 *)prd = cpu_to_le32(len);
 		prd += sizeof(u64);
 
 		VPRINTK("PRD[%u] = (0x%llX, 0x%X)\n", nelem,
@@ -298,10 +316,10 @@ static void qs_qc_prep(struct ata_queued_cmd *qc)
 	/* host control block (HCB) */
 	buf[ 0] = QS_HCB_HDR;
 	buf[ 1] = hflags;
-	*(u32 *)(&buf[ 4]) = cpu_to_le32(qc->nsect * ATA_SECT_SIZE);
-	*(u32 *)(&buf[ 8]) = cpu_to_le32(qc->n_elem);
+	*(__le32 *)(&buf[ 4]) = cpu_to_le32(qc->nsect * ATA_SECT_SIZE);
+	*(__le32 *)(&buf[ 8]) = cpu_to_le32(qc->n_elem);
 	addr = ((u64)pp->pkt_dma) + QS_CPB_BYTES;
-	*(u64 *)(&buf[16]) = cpu_to_le64(addr);
+	*(__le64 *)(&buf[16]) = cpu_to_le64(addr);
 
 	/* device control block (DCB) */
 	buf[24] = QS_DCB_HDR;
@@ -566,10 +584,10 @@ static int qs_set_dma_masks(struct pci_dev *pdev, void __iomem *mmio_base)
 	int rc, have_64bit_bus = (bus_info & QS_HPHY_64BIT);
 
 	if (have_64bit_bus &&
-	    !pci_set_dma_mask(pdev, 0xffffffffffffffffULL)) {
-		rc = pci_set_consistent_dma_mask(pdev, 0xffffffffffffffffULL);
+	    !pci_set_dma_mask(pdev, DMA_64BIT_MASK)) {
+		rc = pci_set_consistent_dma_mask(pdev, DMA_64BIT_MASK);
 		if (rc) {
-			rc = pci_set_consistent_dma_mask(pdev, 0xffffffffULL);
+			rc = pci_set_consistent_dma_mask(pdev, DMA_32BIT_MASK);
 			if (rc) {
 				printk(KERN_ERR DRV_NAME
 					"(%s): 64-bit DMA enable failed\n",
@@ -578,14 +596,14 @@ static int qs_set_dma_masks(struct pci_dev *pdev, void __iomem *mmio_base)
 			}
 		}
 	} else {
-		rc = pci_set_dma_mask(pdev, 0xffffffffULL);
+		rc = pci_set_dma_mask(pdev, DMA_32BIT_MASK);
 		if (rc) {
 			printk(KERN_ERR DRV_NAME
 				"(%s): 32-bit DMA enable failed\n",
 				pci_name(pdev));
 			return rc;
 		}
-		rc = pci_set_consistent_dma_mask(pdev, 0xffffffffULL);
+		rc = pci_set_consistent_dma_mask(pdev, DMA_32BIT_MASK);
 		if (rc) {
 			printk(KERN_ERR DRV_NAME
 				"(%s): 32-bit consistent DMA enable failed\n",

@@ -38,6 +38,7 @@
 #include <linux/highmem.h>
 #include <linux/idr.h>
 #include <linux/nodemask.h>
+#include <linux/module.h>
 
 #include <asm/pgalloc.h>
 #include <asm/page.h>
@@ -62,6 +63,7 @@
 #include <asm/system.h>
 #include <asm/iommu.h>
 #include <asm/abs_addr.h>
+#include <asm/vdso.h>
 
 int mem_init_done;
 unsigned long ioremap_bot = IMALLOC_BASE;
@@ -153,7 +155,7 @@ static void map_io_page(unsigned long ea, unsigned long pa, int flags)
 		ptep = pte_alloc_kernel(&ioremap_mm, pmdp, ea);
 
 		pa = abs_to_phys(pa);
-		set_pte(ptep, pfn_pte(pa >> PAGE_SHIFT, __pgprot(flags)));
+		set_pte_at(&ioremap_mm, ea, ptep, pfn_pte(pa >> PAGE_SHIFT, __pgprot(flags)));
 		spin_unlock(&ioremap_mm.page_table_lock);
 	} else {
 		unsigned long va, vpn, hash, hpteg;
@@ -305,7 +307,7 @@ static void unmap_im_area_pte(pmd_t *pmd, unsigned long address,
 
 	do {
 		pte_t page;
-		page = ptep_get_and_clear(pte);
+		page = ptep_get_and_clear(&ioremap_mm, address, pte);
 		address += PAGE_SIZE;
 		pte++;
 		if (pte_none(page))
@@ -440,6 +442,10 @@ int iounmap_explicit(volatile void __iomem *start, unsigned long size)
 }
 
 #endif
+
+EXPORT_SYMBOL(ioremap);
+EXPORT_SYMBOL(__ioremap);
+EXPORT_SYMBOL(iounmap);
 
 void free_initmem(void)
 {
@@ -743,6 +749,8 @@ void __init mem_init(void)
 #ifdef CONFIG_PPC_ISERIES
 	iommu_vio_init();
 #endif
+	/* Initialize the vDSO */
+	vdso_init();
 }
 
 /*
@@ -752,18 +760,19 @@ void __init mem_init(void)
  */
 void flush_dcache_page(struct page *page)
 {
-	if (cur_cpu_spec->cpu_features & CPU_FTR_COHERENT_ICACHE)
+	if (cpu_has_feature(CPU_FTR_COHERENT_ICACHE))
 		return;
 	/* avoid an atomic op if possible */
 	if (test_bit(PG_arch_1, &page->flags))
 		clear_bit(PG_arch_1, &page->flags);
 }
+EXPORT_SYMBOL(flush_dcache_page);
 
 void clear_user_page(void *page, unsigned long vaddr, struct page *pg)
 {
 	clear_page(page);
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_COHERENT_ICACHE)
+	if (cpu_has_feature(CPU_FTR_COHERENT_ICACHE))
 		return;
 	/*
 	 * We shouldnt have to do this, but some versions of glibc
@@ -775,6 +784,7 @@ void clear_user_page(void *page, unsigned long vaddr, struct page *pg)
 	if (test_bit(PG_arch_1, &pg->flags))
 		clear_bit(PG_arch_1, &pg->flags);
 }
+EXPORT_SYMBOL(clear_user_page);
 
 void copy_user_page(void *vto, void *vfrom, unsigned long vaddr,
 		    struct page *pg)
@@ -796,7 +806,7 @@ void copy_user_page(void *vto, void *vfrom, unsigned long vaddr,
 		return;
 #endif
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_COHERENT_ICACHE)
+	if (cpu_has_feature(CPU_FTR_COHERENT_ICACHE))
 		return;
 
 	/* avoid an atomic op if possible */
@@ -812,6 +822,7 @@ void flush_icache_user_range(struct vm_area_struct *vma, struct page *page,
 	maddr = (unsigned long)page_address(page) + (addr & ~PAGE_MASK);
 	flush_icache_range(maddr, maddr + len);
 }
+EXPORT_SYMBOL(flush_icache_user_range);
 
 /*
  * This is called at the end of handling a user page fault, when the
@@ -832,8 +843,8 @@ void update_mmu_cache(struct vm_area_struct *vma, unsigned long ea,
 	unsigned long flags;
 
 	/* handle i-cache coherency */
-	if (!(cur_cpu_spec->cpu_features & CPU_FTR_COHERENT_ICACHE) &&
-	    !(cur_cpu_spec->cpu_features & CPU_FTR_NOEXECUTE)) {
+	if (!cpu_has_feature(CPU_FTR_COHERENT_ICACHE) &&
+	    !cpu_has_feature(CPU_FTR_NOEXECUTE)) {
 		unsigned long pfn = pte_pfn(pte);
 		if (pfn_valid(pfn)) {
 			struct page *page = pfn_to_page(pfn);

@@ -1,9 +1,10 @@
 /*
  * arch/ppc/platforms/katana.c
  *
- * Board setup routines for the Artesyn Katana 750 based boards.
+ * Board setup routines for the Artesyn Katana cPCI boards.
  *
- * Tim Montgomery <timm@artesyncp.com>
+ * Athor: Tim Montgomery <timm@artesyncp.com>
+ * Maintained by: Mark A. Greer <mgreer@mvista.com>
  *
  * Based on code done by Rabeeh Khoury - rabeeh@galileo.co.il
  * Based on code done by - Mark A. Greer <mgreer@mvista.com>
@@ -26,7 +27,8 @@
 #include <linux/root_dev.h>
 #include <linux/delay.h>
 #include <linux/seq_file.h>
-#include <linux/smp.h>
+#include <linux/bootmem.h>
+#include <linux/mtd/physmap.h>
 #include <linux/mv643xx.h>
 #ifdef CONFIG_BOOTIMG
 #include <linux/bootimg.h>
@@ -36,13 +38,19 @@
 #include <asm/smp.h>
 #include <asm/todc.h>
 #include <asm/bootinfo.h>
+#include <asm/ppcboot.h>
 #include <asm/mv64x60.h>
 #include <platforms/katana.h>
 
 static struct		mv64x60_handle bh;
 static katana_id_t	katana_id;
-static u32		cpld_base;
-static u32		sram_base;
+static void __iomem	*cpld_base;
+static void __iomem	*sram_base;
+
+static u32		katana_flash_size_0;
+static u32		katana_flash_size_1;
+
+unsigned char	__res[sizeof(bd_t)];
 
 /* PCI Interrupt routing */
 static int __init
@@ -105,7 +113,7 @@ katana_map_irq(struct pci_dev *dev, unsigned char idsel, unsigned char pin)
 void __init
 katana_get_board_id(void)
 {
-	switch (in_8((volatile char *)(cpld_base + KATANA_CPLD_PRODUCT_ID))) {
+	switch (in_8(cpld_base + KATANA_CPLD_PRODUCT_ID)) {
 	case KATANA_PRODUCT_ID_3750:
 		katana_id = KATANA_ID_3750;
 		break;
@@ -170,7 +178,7 @@ katana_get_proc_num(void)
 static inline int
 katana_is_monarch(void)
 {
-	return in_8((volatile char *)(cpld_base + KATANA_CPLD_BD_CFG_3)) &
+	return in_8(cpld_base + KATANA_CPLD_BD_CFG_3) &
 		KATANA_CPLD_BD_CFG_3_MONARCH;
 }
 
@@ -180,18 +188,17 @@ katana_enable_ipmi(void)
 	u8 reset_out;
 
 	/* Enable access to IPMI ctlr by clearing IPMI PORTSEL bit in CPLD */
-	reset_out = in_8((volatile char *)(cpld_base + KATANA_CPLD_RESET_OUT));
+	reset_out = in_8(cpld_base + KATANA_CPLD_RESET_OUT);
 	reset_out &= ~KATANA_CPLD_RESET_OUT_PORTSEL;
-	out_8((volatile void *)(cpld_base + KATANA_CPLD_RESET_OUT), reset_out);
-	return;
+	out_8(cpld_base + KATANA_CPLD_RESET_OUT, reset_out);
 }
 
-static unsigned long
+static u32
 katana_bus_freq(void)
 {
 	u8 bd_cfg_0;
 
-	bd_cfg_0 = in_8((volatile char *)(cpld_base + KATANA_CPLD_BD_CFG_0));
+	bd_cfg_0 = in_8(cpld_base + KATANA_CPLD_BD_CFG_0);
 
 	switch (bd_cfg_0 & KATANA_CPLD_BD_CFG_0_SYSCLK_MASK) {
 	case KATANA_CPLD_BD_CFG_0_SYSCLK_200:
@@ -263,13 +270,12 @@ katana_intr_setup(void)
 	 * BIT25 summarizes GPP interrupts 8-15
 	 */
 	mv64x60_set_bits(&bh, MV64360_IC_CPU0_INTR_MASK_HI, (1<<25));
-	return;
 }
 
 void __init
 katana_setup_peripherals(void)
 {
-	u32 base, size_0, size_1;
+	u32 base;
 
 	/* Set up windows for boot CS, soldered & socketed flash, and CPLD */
 	mv64x60_set_32bit_window(&bh, MV64x60_CPU2BOOT_WIN,
@@ -277,19 +283,22 @@ katana_setup_peripherals(void)
 	bh.ci->enable_window_32bit(&bh, MV64x60_CPU2BOOT_WIN);
 
 	/* Assume firmware set up window sizes correctly for dev 0 & 1 */
-	mv64x60_get_32bit_window(&bh, MV64x60_CPU2DEV_0_WIN, &base, &size_0);
+	mv64x60_get_32bit_window(&bh, MV64x60_CPU2DEV_0_WIN, &base,
+		&katana_flash_size_0);
 
-	if (size_0 > 0) {
+	if (katana_flash_size_0 > 0) {
 		mv64x60_set_32bit_window(&bh, MV64x60_CPU2DEV_0_WIN,
-			 KATANA_SOLDERED_FLASH_BASE, size_0, 0);
+			 KATANA_SOLDERED_FLASH_BASE, katana_flash_size_0, 0);
 		bh.ci->enable_window_32bit(&bh, MV64x60_CPU2DEV_0_WIN);
 	}
 
-	mv64x60_get_32bit_window(&bh, MV64x60_CPU2DEV_1_WIN, &base, &size_1);
+	mv64x60_get_32bit_window(&bh, MV64x60_CPU2DEV_1_WIN, &base,
+		&katana_flash_size_1);
 
-	if (size_1 > 0) {
+	if (katana_flash_size_1 > 0) {
 		mv64x60_set_32bit_window(&bh, MV64x60_CPU2DEV_1_WIN,
-			 (KATANA_SOLDERED_FLASH_BASE + size_0), size_1, 0);
+			 (KATANA_SOLDERED_FLASH_BASE + katana_flash_size_0),
+			 katana_flash_size_1, 0);
 		bh.ci->enable_window_32bit(&bh, MV64x60_CPU2DEV_1_WIN);
 	}
 
@@ -300,12 +309,12 @@ katana_setup_peripherals(void)
 	mv64x60_set_32bit_window(&bh, MV64x60_CPU2DEV_3_WIN,
 		 KATANA_CPLD_BASE, KATANA_CPLD_SIZE, 0);
 	bh.ci->enable_window_32bit(&bh, MV64x60_CPU2DEV_3_WIN);
-	cpld_base = (u32)ioremap(KATANA_CPLD_BASE, KATANA_CPLD_SIZE);
+	cpld_base = ioremap(KATANA_CPLD_BASE, KATANA_CPLD_SIZE);
 
 	mv64x60_set_32bit_window(&bh, MV64x60_CPU2SRAM_WIN,
 		 KATANA_INTERNAL_SRAM_BASE, MV64360_SRAM_SIZE, 0);
 	bh.ci->enable_window_32bit(&bh, MV64x60_CPU2SRAM_WIN);
-	sram_base = (u32)ioremap(KATANA_INTERNAL_SRAM_BASE, MV64360_SRAM_SIZE);
+	sram_base = ioremap(KATANA_INTERNAL_SRAM_BASE, MV64360_SRAM_SIZE);
 
 	/* Set up Enet->SRAM window */
 	mv64x60_set_32bit_window(&bh, MV64x60_ENET2MEM_4_WIN,
@@ -339,13 +348,11 @@ katana_setup_peripherals(void)
 	 * internal data path in SRAM since it's first time accessing it
 	 * while after reset it's not configured.
 	 */
-	memset((void *)sram_base, 0, MV64360_SRAM_SIZE);
+	memset(sram_base, 0, MV64360_SRAM_SIZE);
 
 	/* Only processor zero [on 3750] is an PCI interrupt controller */
 	if (katana_get_proc_num() == 0)
 		katana_intr_setup();
-
-	return;
 }
 
 static void __init
@@ -356,7 +363,7 @@ katana_setup_bridge(void)
 
 	memset(&si, 0, sizeof(si));
 
-	si.phys_reg_base = KATANA_BRIDGE_REG_BASE;
+	si.phys_reg_base = CONFIG_MV64X60_NEW_BASE;
 
 	si.pci_1.enable_bus = 1;
 	si.pci_1.pci_io.cpu_base = KATANA_PCI1_IO_START_PROC_ADDR;
@@ -410,9 +417,76 @@ katana_setup_bridge(void)
 	mv64x60_set_bus(&bh, 1, 0);
 	bh.hose_b->first_busno = 0;
 	bh.hose_b->last_busno = 0xff;
-
-	return;
 }
+
+#ifdef CONFIG_MTD_PHYSMAP
+
+#ifndef MB
+#define MB	(1 << 20)
+#endif
+
+/*
+ * MTD Layout depends on amount of soldered FLASH in system. Sizes in MB.
+ *
+ * FLASH Amount:	128	64	32	16
+ * -------------	---	--	--	--
+ * Monitor:		1	1	1	1
+ * Primary Kernel:	1.5	1.5	1.5	1.5
+ * Primary fs:		30	30	<end>	<end>
+ * Secondary Kernel:	1.5	1.5	N/A	N/A
+ * Secondary fs:	<end>	<end>	N/A	N/A
+ * User: 		<overlays entire FLASH except for "Monitor" section>
+ */
+static int __init
+katana_setup_mtd(void)
+{
+	u32	size;
+	int	ptbl_entries;
+	static struct mtd_partition	*ptbl;
+
+	size = katana_flash_size_0 + katana_flash_size_1;
+	if (!size)
+		return -ENOMEM;
+
+	ptbl_entries = (size >= (64*MB)) ? 6 : 4;
+
+	if ((ptbl = kmalloc(ptbl_entries * sizeof(struct mtd_partition),
+		GFP_KERNEL)) == NULL) {
+
+		printk(KERN_WARNING "Can't alloc MTD partition table\n");
+		return -ENOMEM;
+	}
+	memset(ptbl, 0, ptbl_entries * sizeof(struct mtd_partition));
+
+	ptbl[0].name = "Monitor";
+	ptbl[0].size = KATANA_MTD_MONITOR_SIZE;
+	ptbl[1].name = "Primary Kernel";
+	ptbl[1].offset = MTDPART_OFS_NXTBLK;
+	ptbl[1].size = 0x00180000; /* 1.5 MB */
+	ptbl[2].name = "Primary Filesystem";
+	ptbl[2].offset = MTDPART_OFS_APPEND;
+	ptbl[2].size = MTDPART_SIZ_FULL; /* Correct for 16 & 32 MB */
+	ptbl[ptbl_entries-1].name = "User FLASH";
+	ptbl[ptbl_entries-1].offset = KATANA_MTD_MONITOR_SIZE;
+	ptbl[ptbl_entries-1].size = MTDPART_SIZ_FULL;
+
+	if (size >= (64*MB)) {
+		ptbl[2].size = 30*MB;
+		ptbl[3].name = "Secondary Kernel";
+		ptbl[3].offset = MTDPART_OFS_NXTBLK;
+		ptbl[3].size = 0x00180000; /* 1.5 MB */
+		ptbl[4].name = "Secondary Filesystem";
+		ptbl[4].offset = MTDPART_OFS_APPEND;
+		ptbl[4].size = MTDPART_SIZ_FULL;
+	}
+
+	physmap_map.size = size;
+	physmap_set_partitions(ptbl, ptbl_entries);
+	return 0;
+}
+
+arch_initcall(katana_setup_mtd);
+#endif
 
 static void __init
 katana_setup_arch(void)
@@ -444,8 +518,7 @@ katana_setup_arch(void)
 		printk(KERN_INFO "DD2.0 detected. Setting L2 cache"
 			"to Writethrough mode\n");
 		_set_L2CR(L2CR_L2E | L2CR_L2PE | L2CR_L2WT);
-	}
-	else
+	} else
 		_set_L2CR(L2CR_L2E | L2CR_L2PE);
 
 	if (ppc_md.progress)
@@ -458,7 +531,6 @@ katana_setup_arch(void)
 	printk(KERN_INFO "Artesyn Communication Products, LLC - Katana(TM)\n");
 	if (ppc_md.progress)
 		ppc_md.progress("katana_setup_arch: exit", 0);
-	return;
 }
 
 /* Platform device data fixup routines. */
@@ -473,9 +545,12 @@ katana_fixup_mpsc_pdata(struct platform_device *pdev)
 	pdata->max_idle = 40;
 	pdata->default_baud = KATANA_DEFAULT_BAUD;
 	pdata->brg_clk_src = KATANA_MPSC_CLK_SRC;
-	pdata->brg_clk_freq = KATANA_MPSC_CLK_FREQ;
-
-	return;
+	/*
+	 * TCLK (not SysCLk) is routed to BRG, then to the MPSC.  On most parts,
+	 * TCLK == SysCLK but on 64460, they are separate pins.
+	 * SysCLK can go up to 200 MHz but TCLK can only go up to 133 MHz.
+	 */
+	pdata->brg_clk_freq = min(katana_bus_freq(), MV64x60_TCLK_FREQ_MAX);
 }
 #endif
 
@@ -483,32 +558,18 @@ katana_fixup_mpsc_pdata(struct platform_device *pdev)
 static void __init
 katana_fixup_eth_pdata(struct platform_device *pdev)
 {
-	struct mv64xxx_eth_platform_data *eth_pd;
+	struct mv643xx_eth_platform_data *eth_pd;
 	static u16 phy_addr[] = {
 		KATANA_ETH0_PHY_ADDR,
 		KATANA_ETH1_PHY_ADDR,
 		KATANA_ETH2_PHY_ADDR,
 	};
-	int	rx_size = KATANA_ETH_RX_QUEUE_SIZE * MV64340_ETH_DESC_SIZE;
-	int	tx_size = KATANA_ETH_TX_QUEUE_SIZE * MV64340_ETH_DESC_SIZE;
 
 	eth_pd = pdev->dev.platform_data;
 	eth_pd->force_phy_addr = 1;
 	eth_pd->phy_addr = phy_addr[pdev->id];
 	eth_pd->tx_queue_size = KATANA_ETH_TX_QUEUE_SIZE;
 	eth_pd->rx_queue_size = KATANA_ETH_RX_QUEUE_SIZE;
-	eth_pd->tx_sram_addr = mv643xx_sram_alloc(tx_size);
-
-	if (eth_pd->tx_sram_addr)
-		eth_pd->tx_sram_size = tx_size;
-	else
-		printk(KERN_ERR "mv643xx_sram_alloc failed\n");
-
-	eth_pd->rx_sram_addr = mv643xx_sram_alloc(rx_size);
-	if (eth_pd->rx_sram_addr)
-		eth_pd->rx_sram_size = rx_size;
-	else
-		printk(KERN_ERR "mv643xx_sram_alloc failed\n");
 }
 #endif
 
@@ -524,9 +585,9 @@ katana_platform_notify(struct device *dev)
 		{ MPSC_CTLR_NAME "1", katana_fixup_mpsc_pdata },
 #endif
 #if defined(CONFIG_MV643XX_ETH)
-		{ MV64XXX_ETH_NAME "0", katana_fixup_eth_pdata },
-		{ MV64XXX_ETH_NAME "1", katana_fixup_eth_pdata },
-		{ MV64XXX_ETH_NAME "2", katana_fixup_eth_pdata },
+		{ MV643XX_ETH_NAME "0", katana_fixup_eth_pdata },
+		{ MV643XX_ETH_NAME "1", katana_fixup_eth_pdata },
+		{ MV643XX_ETH_NAME "2", katana_fixup_eth_pdata },
 #endif
 	};
 	struct platform_device	*pdev;
@@ -548,11 +609,10 @@ katana_platform_notify(struct device *dev)
 static void
 katana_restart(char *cmd)
 {
-	volatile ulong i = 10000000;
+	ulong	i = 10000000;
 
 	/* issue hard reset to the reset command register */
-	out_8((volatile char *)(cpld_base + KATANA_CPLD_RST_CMD),
-		KATANA_CPLD_RST_CMD_HR);
+	out_8(cpld_base + KATANA_CPLD_RST_CMD, KATANA_CPLD_RST_CMD_HR);
 
 	while (i-- > 0) ;
 	panic("restart failed\n");
@@ -561,6 +621,14 @@ katana_restart(char *cmd)
 static void
 katana_halt(void)
 {
+	u8	v;
+
+	if (katana_id == KATANA_ID_752I) {
+		   v = in_8(cpld_base + HSL_PLD_BASE + HSL_PLD_HOT_SWAP_OFF);
+		   v |= HSL_PLD_HOT_SWAP_LED_BIT;
+		   out_8(cpld_base + HSL_PLD_BASE + HSL_PLD_HOT_SWAP_OFF, v);
+	}
+
 	while (1) ;
 	/* NOTREACHED */
 }
@@ -598,12 +666,13 @@ katana_show_cpuinfo(struct seq_file *m)
 	}
 
 	seq_printf(m, "product ID\t: 0x%x\n",
-		   in_8((volatile char *)(cpld_base + KATANA_CPLD_PRODUCT_ID)));
+		   in_8(cpld_base + KATANA_CPLD_PRODUCT_ID));
 	seq_printf(m, "hardware rev\t: 0x%x\n",
-		   in_8((volatile char *)(cpld_base+KATANA_CPLD_HARDWARE_VER)));
+		   in_8(cpld_base+KATANA_CPLD_HARDWARE_VER));
 	seq_printf(m, "PLD rev\t\t: 0x%x\n",
-		   in_8((volatile char *)(cpld_base + KATANA_CPLD_PLD_VER)));
-	seq_printf(m, "PLB freq\t: %ldMhz\n", katana_bus_freq() / 1000000);
+		   in_8(cpld_base + KATANA_CPLD_PLD_VER));
+	seq_printf(m, "PLB freq\t: %ldMhz\n",
+		(long)katana_bus_freq() / 1000000);
 	seq_printf(m, "PCI\t\t: %sMonarch\n", katana_is_monarch()? "" : "Non-");
 
 	return 0;
@@ -612,23 +681,21 @@ katana_show_cpuinfo(struct seq_file *m)
 static void __init
 katana_calibrate_decr(void)
 {
-	ulong freq;
+	u32 freq;
 
 	freq = katana_bus_freq() / 4;
 
 	printk(KERN_INFO "time_init: decrementer frequency = %lu.%.6lu MHz\n",
-	       freq / 1000000, freq % 1000000);
+	       (long)freq / 1000000, (long)freq % 1000000);
 
 	tb_ticks_per_jiffy = freq / HZ;
 	tb_to_us = mulhwu_scale_factor(freq, 1000000);
-
-	return;
 }
 
 unsigned long __init
 katana_find_end_of_memory(void)
 {
-	return mv64x60_get_mem_size(KATANA_BRIDGE_REG_BASE,
+	return mv64x60_get_mem_size(CONFIG_MV64X60_NEW_BASE,
 		MV64x60_TYPE_MV64360);
 }
 
@@ -639,8 +706,6 @@ katana_set_bat(void)
 	mtspr(DBAT2U, 0xf0001ffe);
 	mtspr(DBAT2L, 0xf000002a);
 	mb();
-
-	return;
 }
 
 #if defined(CONFIG_SERIAL_TEXT_DEBUG) && defined(CONFIG_SERIAL_MPSC_CONSOLE)
@@ -657,6 +722,23 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 {
 	parse_bootinfo(find_bootinfo());
 
+	/* ASSUMPTION:  If both r3 (bd_t pointer) and r6 (cmdline pointer)
+	 * are non-zero, then we should use the board info from the bd_t
+	 * structure and the cmdline pointed to by r6 instead of the
+	 * information from birecs, if any.  Otherwise, use the information
+	 * from birecs as discovered by the preceeding call to
+	 * parse_bootinfo().  This rule should work with both PPCBoot, which
+	 * uses a bd_t board info structure, and the kernel boot wrapper,
+	 * which uses birecs.
+	 */
+	if (r3 && r6) {
+		/* copy board info structure */
+		memcpy( (void *)__res,(void *)(r3+KERNELBASE), sizeof(bd_t) );
+		/* copy command line */
+		*(char *)(r7+KERNELBASE) = 0;
+		strcpy(cmd_line, (char *)(r6+KERNELBASE));
+	}
+
 	isa_mem_base = 0;
 
 	ppc_md.setup_arch = katana_setup_arch;
@@ -672,7 +754,7 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 #if defined(CONFIG_SERIAL_TEXT_DEBUG) && defined(CONFIG_SERIAL_MPSC_CONSOLE)
 	ppc_md.setup_io_mappings = katana_map_io;
 	ppc_md.progress = mv64x60_mpsc_progress;
-	mv64x60_progress_init(KATANA_BRIDGE_REG_BASE);
+	mv64x60_progress_init(CONFIG_MV64X60_NEW_BASE);
 #endif
 
 #if defined(CONFIG_SERIAL_MPSC) || defined(CONFIG_MV643XX_ETH)
@@ -680,5 +762,4 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 #endif
 
 	katana_set_bat(); /* Need for katana_find_end_of_memory and progress */
-	return;
 }

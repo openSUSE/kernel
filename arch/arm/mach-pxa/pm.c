@@ -47,12 +47,18 @@ extern void pxa_cpu_resume(void);
  */
 enum {	SLEEP_SAVE_START = 0,
 
-	SLEEP_SAVE_GPLR0, SLEEP_SAVE_GPLR1, SLEEP_SAVE_GPLR2,
-	SLEEP_SAVE_GPDR0, SLEEP_SAVE_GPDR1, SLEEP_SAVE_GPDR2,
-	SLEEP_SAVE_GRER0, SLEEP_SAVE_GRER1, SLEEP_SAVE_GRER2,
-	SLEEP_SAVE_GFER0, SLEEP_SAVE_GFER1, SLEEP_SAVE_GFER2,
-	SLEEP_SAVE_GAFR0_L, SLEEP_SAVE_GAFR1_L, SLEEP_SAVE_GAFR2_L,
-	SLEEP_SAVE_GAFR0_U, SLEEP_SAVE_GAFR1_U, SLEEP_SAVE_GAFR2_U,
+	SLEEP_SAVE_GPLR0, SLEEP_SAVE_GPLR1, SLEEP_SAVE_GPLR2, SLEEP_SAVE_GPLR3,
+	SLEEP_SAVE_GPDR0, SLEEP_SAVE_GPDR1, SLEEP_SAVE_GPDR2, SLEEP_SAVE_GPDR3,
+	SLEEP_SAVE_GRER0, SLEEP_SAVE_GRER1, SLEEP_SAVE_GRER2, SLEEP_SAVE_GRER3,
+	SLEEP_SAVE_GFER0, SLEEP_SAVE_GFER1, SLEEP_SAVE_GFER2, SLEEP_SAVE_GFER3,
+	SLEEP_SAVE_PGSR0, SLEEP_SAVE_PGSR1, SLEEP_SAVE_PGSR2, SLEEP_SAVE_PGSR3,
+
+	SLEEP_SAVE_GAFR0_L, SLEEP_SAVE_GAFR0_U,
+	SLEEP_SAVE_GAFR1_L, SLEEP_SAVE_GAFR1_U,
+	SLEEP_SAVE_GAFR2_L, SLEEP_SAVE_GAFR2_U,
+	SLEEP_SAVE_GAFR3_L, SLEEP_SAVE_GAFR3_U,
+
+	SLEEP_SAVE_PSTR,
 
 	SLEEP_SAVE_ICMR,
 	SLEEP_SAVE_CKEN,
@@ -73,6 +79,11 @@ static int pxa_pm_enter(suspend_state_t state)
 	if (state != PM_SUSPEND_MEM)
 		return -EINVAL;
 
+#ifdef CONFIG_IWMMXT
+	/* force any iWMMXt context to ram **/
+	iwmmxt_task_disable(NULL);
+#endif
+
 	/* preserve current time */
 	rtc.tv_sec = RCNR;
 	rtc.tv_nsec = 0;
@@ -82,9 +93,16 @@ static int pxa_pm_enter(suspend_state_t state)
 	SAVE(GPDR0); SAVE(GPDR1); SAVE(GPDR2);
 	SAVE(GRER0); SAVE(GRER1); SAVE(GRER2);
 	SAVE(GFER0); SAVE(GFER1); SAVE(GFER2);
+	SAVE(PGSR0); SAVE(PGSR1); SAVE(PGSR2);
+
 	SAVE(GAFR0_L); SAVE(GAFR0_U);
 	SAVE(GAFR1_L); SAVE(GAFR1_U);
 	SAVE(GAFR2_L); SAVE(GAFR2_U);
+
+#ifdef CONFIG_PXA27x
+	SAVE(GPLR3); SAVE(GPDR3); SAVE(GRER3); SAVE(GFER3); SAVE(PGSR3);
+	SAVE(GAFR3_L); SAVE(GAFR3_U);
+#endif
 
 	SAVE(ICMR);
 	ICMR = 0;
@@ -92,10 +110,15 @@ static int pxa_pm_enter(suspend_state_t state)
 	SAVE(CKEN);
 	CKEN = 0;
 
+	SAVE(PSTR);
+
 	/* Note: wake up source are set up in each machine specific files */
 
 	/* clear GPIO transition detect  bits */
 	GEDR0 = GEDR0; GEDR1 = GEDR1; GEDR2 = GEDR2;
+#ifdef CONFIG_PXA27x
+	GEDR3 = GEDR3;
+#endif
 
 	/* Clear sleep reset status */
 	RCSR = RCSR_SMR;
@@ -121,7 +144,8 @@ static int pxa_pm_enter(suspend_state_t state)
 #ifdef CONFIG_ARCH_LUBBOCK
 		LUB_HEXLED = 0xbadbadc5;
 #endif
-		while (1);
+		while (1)
+			pxa_cpu_suspend();
 	}
 
 	/* ensure not to come back here if it wasn't intended */
@@ -135,6 +159,12 @@ static int pxa_pm_enter(suspend_state_t state)
 	RESTORE(GPDR0); RESTORE(GPDR1); RESTORE(GPDR2);
 	RESTORE(GRER0); RESTORE(GRER1); RESTORE(GRER2);
 	RESTORE(GFER0); RESTORE(GFER1); RESTORE(GFER2);
+	RESTORE(PGSR0); RESTORE(PGSR1); RESTORE(PGSR2);
+
+#ifdef CONFIG_PXA27x
+	RESTORE(GAFR3_L); RESTORE(GAFR3_U); RESTORE_GPLEVEL(3);
+	RESTORE(GPDR3); RESTORE(GRER3); RESTORE(GFER3); RESTORE(PGSR3);
+#endif
 
 	PSSR = PSSR_RDH | PSSR_PH;
 
@@ -143,6 +173,8 @@ static int pxa_pm_enter(suspend_state_t state)
 	ICLR = 0;
 	ICCR = 1;
 	RESTORE(ICMR);
+
+	RESTORE(PSTR);
 
 	/* restore current time */
 	rtc.tv_sec = RCNR;

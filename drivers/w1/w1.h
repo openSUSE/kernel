@@ -115,7 +115,6 @@ struct w1_master
 
 	int			need_exit;
 	pid_t			kpid;
-	wait_queue_head_t 	kwait;
 	struct semaphore 	mutex;
 
 	struct device_driver	*driver;

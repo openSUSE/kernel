@@ -1,7 +1,7 @@
 /*******************************************************************************
 
   
-  Copyright(c) 1999 - 2004 Intel Corporation. All rights reserved.
+  Copyright(c) 1999 - 2005 Intel Corporation. All rights reserved.
   
   This program is free software; you can redistribute it and/or modify it 
   under the terms of the GNU General Public License as published by the Free 
@@ -29,6 +29,9 @@
 #include "ixgb.h"
 
 /* Change Log
+ * 1.0.88 01/05/05
+ * - include fix to the condition that determines when to quit NAPI - Robert Olsson
+ * - use netif_poll_{disable/enable} to synchronize between NAPI and i/f up/down
  * 1.0.84 10/26/04
  * - reset buffer_info->dma in Tx resource cleanup logic
  * 1.0.83 10/12/04
@@ -38,13 +41,14 @@
 
 char ixgb_driver_name[] = "ixgb";
 char ixgb_driver_string[] = "Intel(R) PRO/10GbE Network Driver";
+
 #ifndef CONFIG_IXGB_NAPI
 #define DRIVERNAPI
 #else
 #define DRIVERNAPI "-NAPI"
 #endif
-char ixgb_driver_version[] = "1.0.87-k2"DRIVERNAPI;
-char ixgb_copyright[] = "Copyright (c) 1999-2004 Intel Corporation.";
+char ixgb_driver_version[] = "1.0.90-k2"DRIVERNAPI;
+char ixgb_copyright[] = "Copyright (c) 1999-2005 Intel Corporation.";
 
 /* ixgb_pci_tbl - PCI Device ID Table
  *
@@ -292,6 +296,9 @@ ixgb_up(struct ixgb_adapter *adapter)
 	mod_timer(&adapter->watchdog_timer, jiffies);
 	ixgb_irq_enable(adapter);
 
+#ifdef CONFIG_IXGB_NAPI
+	netif_poll_enable(netdev);
+#endif
 	return 0;
 }
 
@@ -309,6 +316,9 @@ ixgb_down(struct ixgb_adapter *adapter, boolean_t kill_watchdog)
 #endif
 	if(kill_watchdog)
 		del_timer_sync(&adapter->watchdog_timer);
+#ifdef CONFIG_IXGB_NAPI
+	netif_poll_disable(netdev);
+#endif
 	adapter->link_speed = 0;
 	adapter->link_duplex = 0;
 	netif_carrier_off(netdev);
@@ -709,14 +719,8 @@ ixgb_configure_tx(struct ixgb_adapter *adapter)
 	IXGB_WRITE_REG(hw, TDH, 0);
 	IXGB_WRITE_REG(hw, TDT, 0);
 
-	/* don't set up txdctl, it induces performance problems if
-	 * configured incorrectly
-	 txdctl  = TXDCTL_PTHRESH_DEFAULT; // prefetch txds below this threshold
-	 txdctl |= (TXDCTL_HTHRESH_DEFAULT // only prefetch if there are this many ready
-	 << IXGB_TXDCTL_HTHRESH_SHIFT);
-	 IXGB_WRITE_REG (hw, TXDCTL, txdctl);
-	 */
-
+	/* don't set up txdctl, it induces performance problems if configured
+	 * incorrectly */
 	/* Set the Tx Interrupt Delay register */
 
 	IXGB_WRITE_REG(hw, TIDV, adapter->tx_int_delay);
@@ -849,10 +853,17 @@ ixgb_configure_rx(struct ixgb_adapter *adapter)
 	IXGB_WRITE_REG(hw, RDH, 0);
 	IXGB_WRITE_REG(hw, RDT, 0);
 
-						/* burst 16 or burst when RXT0*/
-	rxdctl =  RXDCTL_WTHRESH_DEFAULT << IXGB_RXDCTL_WTHRESH_SHIFT 
-			| RXDCTL_HTHRESH_DEFAULT << IXGB_RXDCTL_HTHRESH_SHIFT 
-			| RXDCTL_PTHRESH_DEFAULT << IXGB_RXDCTL_PTHRESH_SHIFT;
+	/* set up pre-fetching of receive buffers so we get some before we
+	 * run out (default hardware behavior is to run out before fetching
+	 * more).  This sets up to fetch if HTHRESH rx descriptors are avail
+	 * and the descriptors in hw cache are below PTHRESH.  This avoids
+	 * the hardware behavior of fetching <=512 descriptors in a single
+	 * burst that pre-empts all other activity, usually causing fifo
+	 * overflows. */
+	/* use WTHRESH to burst write 16 descriptors or burst when RXT0 */
+	rxdctl = RXDCTL_WTHRESH_DEFAULT << IXGB_RXDCTL_WTHRESH_SHIFT |
+	         RXDCTL_HTHRESH_DEFAULT << IXGB_RXDCTL_HTHRESH_SHIFT |
+	         RXDCTL_PTHRESH_DEFAULT << IXGB_RXDCTL_PTHRESH_SHIFT;
 	IXGB_WRITE_REG(hw, RXDCTL, rxdctl);
 
 	/* Enable Receive Checksum Offload for TCP and UDP */
@@ -1094,7 +1105,6 @@ ixgb_watchdog(unsigned long data)
 	struct ixgb_adapter *adapter = (struct ixgb_adapter *)data;
 	struct net_device *netdev = adapter->netdev;
 	struct ixgb_desc_ring *txdr = &adapter->tx_ring;
-	unsigned int i;
 
 	ixgb_check_for_link(&adapter->hw);
 
@@ -1137,12 +1147,8 @@ ixgb_watchdog(unsigned long data)
 		}
 	}
 
-	/* Early detection of hung controller */
-	i = txdr->next_to_clean;
-	if(txdr->buffer_info[i].dma &&
-	   time_after(jiffies, txdr->buffer_info[i].time_stamp + HZ) &&
-	   !(IXGB_READ_REG(&adapter->hw, STATUS) & IXGB_STATUS_TXOFF))
-		netif_stop_queue(netdev);
+	/* Force detection of hung controller every watchdog period */
+	adapter->detect_tx_hung = TRUE;
 
 	/* generate an interrupt to force clean up of any stragglers */
 	IXGB_WRITE_REG(&adapter->hw, ICS, IXGB_INT_TXDW);
@@ -1155,7 +1161,7 @@ ixgb_watchdog(unsigned long data)
 #define IXGB_TX_FLAGS_VLAN		0x00000002
 #define IXGB_TX_FLAGS_TSO		0x00000004
 
-static inline boolean_t
+static inline int
 ixgb_tso(struct ixgb_adapter *adapter, struct sk_buff *skb)
 {
 #ifdef NETIF_F_TSO
@@ -1163,8 +1169,15 @@ ixgb_tso(struct ixgb_adapter *adapter, struct sk_buff *skb)
 	unsigned int i;
 	uint8_t ipcss, ipcso, tucss, tucso, hdr_len;
 	uint16_t ipcse, tucse, mss;
+	int err;
 
 	if(likely(skb_shinfo(skb)->tso_size)) {
+		if (skb_header_cloned(skb)) {
+			err = pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
+			if (err)
+				return err;
+		}
+
 		hdr_len = ((skb->h.raw - skb->data) + (skb->h.th->doff << 2));
 		mss = skb_shinfo(skb)->tso_size;
 		skb->nh.iph->tot_len = 0;
@@ -1203,11 +1216,11 @@ ixgb_tso(struct ixgb_adapter *adapter, struct sk_buff *skb)
 		if(++i == adapter->tx_ring.count) i = 0;
 		adapter->tx_ring.next_to_use = i;
 
-		return TRUE;
+		return 1;
 	}
 #endif
 
-	return FALSE;
+	return 0;
 }
 
 static inline boolean_t
@@ -1378,6 +1391,7 @@ ixgb_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 	unsigned int tx_flags = 0;
 	unsigned long flags;
 	int vlan_id = 0;
+	int tso;
 
 	if(skb->len <= 0) {
 		dev_kfree_skb_any(skb);
@@ -1399,7 +1413,13 @@ ixgb_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 
 	first = adapter->tx_ring.next_to_use;
 	
-	if(ixgb_tso(adapter, skb))
+	tso = ixgb_tso(adapter, skb);
+	if (tso < 0) {
+		dev_kfree_skb_any(skb);
+		return NETDEV_TX_OK;
+	}
+
+	if (tso)
 		tx_flags |= IXGB_TX_FLAGS_TSO;
 	else if(ixgb_tx_csum(adapter, skb))
 		tx_flags |= IXGB_TX_FLAGS_CSUM;
@@ -1668,20 +1688,16 @@ ixgb_clean(struct net_device *netdev, int *budget)
 	int work_to_do = min(*budget, netdev->quota);
 	int tx_cleaned;
 	int work_done = 0;
-	
-	if (!netif_carrier_ok(netdev))
-		goto quit_polling;
 
 	tx_cleaned = ixgb_clean_tx_irq(adapter);
 	ixgb_clean_rx_irq(adapter, &work_done, work_to_do);
 
 	*budget -= work_done;
 	netdev->quota -= work_done;
-	
-	/* if no Tx cleanup and not enough Rx work done, exit the polling mode */
-	if((!tx_cleaned && (work_done < work_to_do)) || 
-				!netif_running(netdev)) {
-quit_polling:	netif_rx_complete(netdev);
+
+	/* if no Tx and not enough Rx work done, exit the polling mode */
+	if((!tx_cleaned && (work_done == 0)) || !netif_running(netdev)) {
+		netif_rx_complete(netdev);
 		ixgb_irq_enable(adapter);
 		return 0;
 	}
@@ -1741,6 +1757,17 @@ ixgb_clean_tx_irq(struct ixgb_adapter *adapter)
 		netif_wake_queue(netdev);
 	}
 	spin_unlock(&adapter->tx_lock);
+
+	if(adapter->detect_tx_hung) {
+		/* detect a transmit hang in hardware, this serializes the
+		 * check with the clearing of time_stamp and movement of i */
+		adapter->detect_tx_hung = FALSE;
+		if(tx_ring->buffer_info[i].dma &&
+		   time_after(jiffies, tx_ring->buffer_info[i].time_stamp + HZ)
+		   && !(IXGB_READ_REG(&adapter->hw, STATUS) &
+			IXGB_STATUS_TXOFF))
+			netif_stop_queue(netdev);
+	}
 
 	return cleaned;
 }

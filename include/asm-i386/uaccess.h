@@ -185,6 +185,21 @@ extern void __get_user_4(void);
 
 extern void __put_user_bad(void);
 
+/*
+ * Strange magic calling convention: pointer in %ecx,
+ * value in %eax(:%edx), return value in %eax, no clobbers.
+ */
+extern void __put_user_1(void);
+extern void __put_user_2(void);
+extern void __put_user_4(void);
+extern void __put_user_8(void);
+
+#define __put_user_1(x, ptr) __asm__ __volatile__("call __put_user_1":"=a" (__ret_pu):"0" ((typeof(*(ptr)))(x)), "c" (ptr))
+#define __put_user_2(x, ptr) __asm__ __volatile__("call __put_user_2":"=a" (__ret_pu):"0" ((typeof(*(ptr)))(x)), "c" (ptr))
+#define __put_user_4(x, ptr) __asm__ __volatile__("call __put_user_4":"=a" (__ret_pu):"0" ((typeof(*(ptr)))(x)), "c" (ptr))
+#define __put_user_8(x, ptr) __asm__ __volatile__("call __put_user_8":"=a" (__ret_pu):"A" ((typeof(*(ptr)))(x)), "c" (ptr))
+#define __put_user_X(x, ptr) __asm__ __volatile__("call __put_user_X":"=a" (__ret_pu):"c" (ptr))
+
 /**
  * put_user: - Write a simple value into user space.
  * @x:   Value to copy to user space.
@@ -201,9 +216,18 @@ extern void __put_user_bad(void);
  *
  * Returns zero on success, or -EFAULT on error.
  */
-#define put_user(x,ptr)							\
-  __put_user_check((__typeof__(*(ptr)))(x),(ptr),sizeof(*(ptr)))
-
+#define put_user(x,ptr)						\
+({	int __ret_pu;						\
+	__chk_user_ptr(ptr);					\
+	switch(sizeof(*(ptr))) {				\
+	case 1: __put_user_1(x, ptr); break;			\
+	case 2: __put_user_2(x, ptr); break;			\
+	case 4: __put_user_4(x, ptr); break;			\
+	case 8: __put_user_8(x, ptr); break;			\
+	default:__put_user_X(x, ptr); break;			\
+	}							\
+	__ret_pu;						\
+})
 
 /**
  * __get_user: - Get a simple variable from user space, with less checking.
@@ -258,16 +282,6 @@ extern void __put_user_bad(void);
 	__pu_err;						\
 })
 
-
-#define __put_user_check(x,ptr,size)					\
-({									\
-	long __pu_err = -EFAULT;					\
-	__typeof__(*(ptr)) __user *__pu_addr = (ptr);			\
-	might_sleep();						\
-	if (access_ok(VERIFY_WRITE,__pu_addr,size))			\
-		__put_user_size((x),__pu_addr,(size),__pu_err,-EFAULT);	\
-	__pu_err;							\
-})							
 
 #define __put_user_u64(x, addr, err)				\
 	__asm__ __volatile__(					\

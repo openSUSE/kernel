@@ -35,6 +35,14 @@
  * - More errlogging support from Jon Mason <jonmason@us.ibm.com>
  * - Fix TSO issues on PPC64 machines -- Jon Mason <jonmason@us.ibm.com>
  *
+ * 5.7.1	12/16/04
+ * - Resurrect 82547EI/GI related fix in e1000_intr to avoid deadlocks. This
+ *   fix was removed as it caused system instability. The suspected cause of 
+ *   this is the called to e1000_irq_disable in e1000_intr. Inlined the 
+ *   required piece of e1000_irq_disable into e1000_intr - Anton Blanchard
+ * 5.7.0	12/10/04
+ * - include fix to the condition that determines when to quit NAPI - Robert Olsson
+ * - use netif_poll_{disable/enable} to synchronize between NAPI and i/f up/down
  * 5.6.5 	11/01/04
  * - Enabling NETIF_F_SG without checksum offload is illegal - 
      John Mason <jdmason@us.ibm.com>
@@ -57,7 +65,7 @@ char e1000_driver_string[] = "Intel(R) PRO/1000 Network Driver";
 #else
 #define DRIVERNAPI "-NAPI"
 #endif
-char e1000_driver_version[] = "5.6.10.1-k2"DRIVERNAPI;
+char e1000_driver_version[] = "5.7.6-k2"DRIVERNAPI;
 char e1000_copyright[] = "Copyright (c) 1999-2004 Intel Corporation.";
 
 /* e1000_pci_tbl - PCI Device ID Table
@@ -81,6 +89,7 @@ static struct pci_device_id e1000_pci_tbl[] = {
 	INTEL_E1000_ETHERNET_DEVICE(0x1011),
 	INTEL_E1000_ETHERNET_DEVICE(0x1012),
 	INTEL_E1000_ETHERNET_DEVICE(0x1013),
+	INTEL_E1000_ETHERNET_DEVICE(0x1014),
 	INTEL_E1000_ETHERNET_DEVICE(0x1015),
 	INTEL_E1000_ETHERNET_DEVICE(0x1016),
 	INTEL_E1000_ETHERNET_DEVICE(0x1017),
@@ -308,6 +317,9 @@ e1000_up(struct e1000_adapter *adapter)
 	mod_timer(&adapter->watchdog_timer, jiffies);
 	e1000_irq_enable(adapter);
 
+#ifdef CONFIG_E1000_NAPI
+	netif_poll_enable(netdev);
+#endif
 	return 0;
 }
 
@@ -321,6 +333,10 @@ e1000_down(struct e1000_adapter *adapter)
 	del_timer_sync(&adapter->tx_fifo_stall_timer);
 	del_timer_sync(&adapter->watchdog_timer);
 	del_timer_sync(&adapter->phy_info_timer);
+
+#ifdef CONFIG_E1000_NAPI
+	netif_poll_disable(netdev);
+#endif
 	adapter->link_speed = 0;
 	adapter->link_duplex = 0;
 	netif_carrier_off(netdev);
@@ -414,6 +430,7 @@ e1000_probe(struct pci_dev *pdev,
 	int i;
 	int err;
 	uint16_t eeprom_data;
+	uint16_t eeprom_apme_mask = E1000_EEPROM_APME;
 
 	if((err = pci_enable_device(pdev)))
 		return err;
@@ -510,9 +527,6 @@ e1000_probe(struct pci_dev *pdev,
 	}
 
 #ifdef NETIF_F_TSO
-	/* Disbaled for now until root-cause is found for
-	 * hangs reported against non-IA archs.  TSO can be
-	 * enabled using ethtool -K eth<x> tso on */
 	if((adapter->hw.mac_type >= e1000_82544) &&
 	   (adapter->hw.mac_type != e1000_82547))
 		netdev->features |= NETIF_F_TSO;
@@ -584,6 +598,11 @@ e1000_probe(struct pci_dev *pdev,
 	case e1000_82542_rev2_1:
 	case e1000_82543:
 		break;
+	case e1000_82544:
+		e1000_read_eeprom(&adapter->hw,
+			EEPROM_INIT_CONTROL2_REG, 1, &eeprom_data);
+		eeprom_apme_mask = E1000_EEPROM_82544_APM;
+		break;
 	case e1000_82546:
 	case e1000_82546_rev_3:
 		if((E1000_READ_REG(&adapter->hw, STATUS) & E1000_STATUS_FUNC_1)
@@ -598,7 +617,7 @@ e1000_probe(struct pci_dev *pdev,
 			EEPROM_INIT_CONTROL3_PORT_A, 1, &eeprom_data);
 		break;
 	}
-	if(eeprom_data & E1000_EEPROM_APME)
+	if(eeprom_data & eeprom_apme_mask)
 		adapter->wol |= E1000_WUFC_MAG;
 
 	/* reset the hardware with the new settings */
@@ -807,6 +826,31 @@ e1000_close(struct net_device *netdev)
 }
 
 /**
+ * e1000_check_64k_bound - check that memory doesn't cross 64kB boundary
+ * @adapter: address of board private structure
+ * @begin: address of beginning of memory
+ * @end: address of end of memory
+ **/
+static inline boolean_t
+e1000_check_64k_bound(struct e1000_adapter *adapter,
+		      void *start, unsigned long len)
+{
+	unsigned long begin = (unsigned long) start;
+	unsigned long end = begin + len;
+
+	/* first rev 82545 and 82546 need to not allow any memory
+	 * write location to cross a 64k boundary due to errata 23 */
+	if (adapter->hw.mac_type == e1000_82545 ||
+	    adapter->hw.mac_type == e1000_82546 ) {
+
+		/* check buffer doesn't cross 64kB */
+		return ((begin ^ (end - 1)) >> 16) != 0 ? FALSE : TRUE;
+	}
+
+	return TRUE;
+}
+
+/**
  * e1000_setup_tx_resources - allocate Tx resources (Descriptors)
  * @adapter: board private structure
  *
@@ -824,7 +868,7 @@ e1000_setup_tx_resources(struct e1000_adapter *adapter)
 	txdr->buffer_info = vmalloc(size);
 	if(!txdr->buffer_info) {
 		DPRINTK(PROBE, ERR, 
-		"Unble to Allocate Memory for the Transmit descriptor ring\n");
+		"Unable to Allocate Memory for the Transmit descriptor ring\n");
 		return -ENOMEM;
 	}
 	memset(txdr->buffer_info, 0, size);
@@ -836,10 +880,41 @@ e1000_setup_tx_resources(struct e1000_adapter *adapter)
 
 	txdr->desc = pci_alloc_consistent(pdev, txdr->size, &txdr->dma);
 	if(!txdr->desc) {
+setup_tx_desc_die:
 		DPRINTK(PROBE, ERR, 
-		"Unble to Allocate Memory for the Transmit descriptor ring\n");
+		"Unable to Allocate Memory for the Transmit descriptor ring\n");
 		vfree(txdr->buffer_info);
 		return -ENOMEM;
+	}
+
+	/* fix for errata 23, cant cross 64kB boundary */
+	if (!e1000_check_64k_bound(adapter, txdr->desc, txdr->size)) {
+		void *olddesc = txdr->desc;
+		dma_addr_t olddma = txdr->dma;
+		DPRINTK(TX_ERR,ERR,"txdr align check failed: %u bytes at %p\n",
+		        txdr->size, txdr->desc);
+		/* try again, without freeing the previous */
+		txdr->desc = pci_alloc_consistent(pdev, txdr->size, &txdr->dma);
+		/* failed allocation, critial failure */
+		if(!txdr->desc) {
+			pci_free_consistent(pdev, txdr->size, olddesc, olddma);
+			goto setup_tx_desc_die;
+		}
+
+		if (!e1000_check_64k_bound(adapter, txdr->desc, txdr->size)) {
+			/* give up */
+			pci_free_consistent(pdev, txdr->size,
+			     txdr->desc, txdr->dma);
+			pci_free_consistent(pdev, txdr->size, olddesc, olddma);
+			DPRINTK(PROBE, ERR,
+			 "Unable to Allocate aligned Memory for the Transmit"
+		         " descriptor ring\n");
+			vfree(txdr->buffer_info);
+			return -ENOMEM;
+		} else {
+			/* free old, move on with the new one since its okay */
+			pci_free_consistent(pdev, txdr->size, olddesc, olddma);
+		}
 	}
 	memset(txdr->desc, 0, txdr->size);
 
@@ -945,7 +1020,7 @@ e1000_setup_rx_resources(struct e1000_adapter *adapter)
 	rxdr->buffer_info = vmalloc(size);
 	if(!rxdr->buffer_info) {
 		DPRINTK(PROBE, ERR, 
-		"Unble to Allocate Memory for the Recieve descriptor ring\n");
+		"Unable to Allocate Memory for the Recieve descriptor ring\n");
 		return -ENOMEM;
 	}
 	memset(rxdr->buffer_info, 0, size);
@@ -958,10 +1033,42 @@ e1000_setup_rx_resources(struct e1000_adapter *adapter)
 	rxdr->desc = pci_alloc_consistent(pdev, rxdr->size, &rxdr->dma);
 
 	if(!rxdr->desc) {
+setup_rx_desc_die:
 		DPRINTK(PROBE, ERR, 
 		"Unble to Allocate Memory for the Recieve descriptor ring\n");
 		vfree(rxdr->buffer_info);
 		return -ENOMEM;
+	}
+
+	/* fix for errata 23, cant cross 64kB boundary */
+	if (!e1000_check_64k_bound(adapter, rxdr->desc, rxdr->size)) {
+		void *olddesc = rxdr->desc;
+		dma_addr_t olddma = rxdr->dma;
+		DPRINTK(RX_ERR,ERR,
+			"rxdr align check failed: %u bytes at %p\n",
+			rxdr->size, rxdr->desc);
+		/* try again, without freeing the previous */
+		rxdr->desc = pci_alloc_consistent(pdev, rxdr->size, &rxdr->dma);
+		/* failed allocation, critial failure */
+		if(!rxdr->desc) {
+			pci_free_consistent(pdev, rxdr->size, olddesc, olddma);
+			goto setup_rx_desc_die;
+		}
+
+		if (!e1000_check_64k_bound(adapter, rxdr->desc, rxdr->size)) {
+			/* give up */
+			pci_free_consistent(pdev, rxdr->size,
+			     rxdr->desc, rxdr->dma);
+			pci_free_consistent(pdev, rxdr->size, olddesc, olddma);
+			DPRINTK(PROBE, ERR, 
+				"Unable to Allocate aligned Memory for the"
+				" Receive descriptor ring\n");
+			vfree(rxdr->buffer_info);
+			return -ENOMEM;
+		} else {
+			/* free old, move on with the new one since its okay */
+			pci_free_consistent(pdev, rxdr->size, olddesc, olddma);
+		}
 	}
 	memset(rxdr->desc, 0, rxdr->size);
 
@@ -1096,6 +1203,7 @@ e1000_unmap_and_free_tx_resource(struct e1000_adapter *adapter,
 			struct e1000_buffer *buffer_info)
 {
 	struct pci_dev *pdev = adapter->pdev;
+
 	if(buffer_info->dma) {
 		pci_unmap_page(pdev,
 			       buffer_info->dma,
@@ -1123,6 +1231,11 @@ e1000_clean_tx_ring(struct e1000_adapter *adapter)
 	unsigned int i;
 
 	/* Free all the Tx ring sk_buffs */
+
+	if (likely(adapter->previous_buffer_info.skb != NULL)) {
+		e1000_unmap_and_free_tx_resource(adapter, 
+				&adapter->previous_buffer_info);
+	}
 
 	for(i = 0; i < tx_ring->count; i++) {
 		buffer_info = &tx_ring->buffer_info[i];
@@ -1425,7 +1538,6 @@ e1000_watchdog(unsigned long data)
 	struct e1000_adapter *adapter = (struct e1000_adapter *) data;
 	struct net_device *netdev = adapter->netdev;
 	struct e1000_desc_ring *txdr = &adapter->tx_ring;
-	unsigned int i;
 	uint32_t link;
 
 	e1000_check_for_link(&adapter->hw);
@@ -1505,12 +1617,8 @@ e1000_watchdog(unsigned long data)
 	/* Cause software interrupt to ensure rx ring is cleaned */
 	E1000_WRITE_REG(&adapter->hw, ICS, E1000_ICS_RXDMT0);
 
-	/* Early detection of hung controller */
-	i = txdr->next_to_clean;
-	if(txdr->buffer_info[i].dma &&
-	   time_after(jiffies, txdr->buffer_info[i].time_stamp + HZ) &&
-	   !(E1000_READ_REG(&adapter->hw, STATUS) & E1000_STATUS_TXOFF))
-		netif_stop_queue(netdev);
+	/* Force detection of hung controller every watchdog period*/
+	adapter->detect_tx_hung = TRUE;
 
 	/* Reset the timer */
 	mod_timer(&adapter->watchdog_timer, jiffies + 2 * HZ);
@@ -1522,7 +1630,7 @@ e1000_watchdog(unsigned long data)
 #define E1000_TX_FLAGS_VLAN_MASK	0xffff0000
 #define E1000_TX_FLAGS_VLAN_SHIFT	16
 
-static inline boolean_t
+static inline int
 e1000_tso(struct e1000_adapter *adapter, struct sk_buff *skb)
 {
 #ifdef NETIF_F_TSO
@@ -1531,8 +1639,15 @@ e1000_tso(struct e1000_adapter *adapter, struct sk_buff *skb)
 	uint32_t cmd_length = 0;
 	uint16_t ipcse, tucse, mss;
 	uint8_t ipcss, ipcso, tucss, tucso, hdr_len;
+	int err;
 
 	if(skb_shinfo(skb)->tso_size) {
+		if (skb_header_cloned(skb)) {
+			err = pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
+			if (err)
+				return err;
+		}
+
 		hdr_len = ((skb->h.raw - skb->data) + (skb->h.th->doff << 2));
 		mss = skb_shinfo(skb)->tso_size;
 		skb->nh.iph->tot_len = 0;
@@ -1569,11 +1684,11 @@ e1000_tso(struct e1000_adapter *adapter, struct sk_buff *skb)
 		if(++i == adapter->tx_ring.count) i = 0;
 		adapter->tx_ring.next_to_use = i;
 
-		return TRUE;
+		return 1;
 	}
 #endif
 
-	return FALSE;
+	return 0;
 }
 
 static inline boolean_t
@@ -1798,6 +1913,7 @@ e1000_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 	unsigned int nr_frags = 0;
 	unsigned int mss = 0;
 	int count = 0;
+	int tso;
 	unsigned int f;
 	len -= skb->data_len;
 
@@ -1869,7 +1985,13 @@ e1000_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 
 	first = adapter->tx_ring.next_to_use;
 	
-	if(likely(e1000_tso(adapter, skb)))
+	tso = e1000_tso(adapter, skb);
+	if (tso < 0) {
+		dev_kfree_skb_any(skb);
+		return NETDEV_TX_OK;
+	}
+
+	if (likely(tso))
 		tx_flags |= E1000_TX_FLAGS_TSO;
 	else if(likely(e1000_tx_csum(adapter, skb)))
 		tx_flags |= E1000_TX_FLAGS_CSUM;
@@ -2151,10 +2273,28 @@ e1000_intr(int irq, void *data, struct pt_regs *regs)
 		__netif_rx_schedule(netdev);
 	}
 #else
+	/* Writing IMC and IMS is needed for 82547.
+	   Due to Hub Link bus being occupied, an interrupt
+	   de-assertion message is not able to be sent.
+	   When an interrupt assertion message is generated later,
+	   two messages are re-ordered and sent out.
+	   That causes APIC to think 82547 is in de-assertion
+	   state, while 82547 is in assertion state, resulting
+	   in dead lock. Writing IMC forces 82547 into
+	   de-assertion state.
+	*/
+	if(hw->mac_type == e1000_82547 || hw->mac_type == e1000_82547_rev_2){
+		atomic_inc(&adapter->irq_sem);
+		E1000_WRITE_REG(&adapter->hw, IMC, ~0);
+	}
+
 	for(i = 0; i < E1000_MAX_INTR; i++)
 		if(unlikely(!e1000_clean_rx_irq(adapter) &
 		   !e1000_clean_tx_irq(adapter)))
 			break;
+
+	if(hw->mac_type == e1000_82547 || hw->mac_type == e1000_82547_rev_2)
+		e1000_irq_enable(adapter);
 #endif
 
 	return IRQ_HANDLED;
@@ -2174,24 +2314,21 @@ e1000_clean(struct net_device *netdev, int *budget)
 	int tx_cleaned;
 	int work_done = 0;
 	
-	if (!netif_carrier_ok(netdev))
-		goto quit_polling;
-
 	tx_cleaned = e1000_clean_tx_irq(adapter);
 	e1000_clean_rx_irq(adapter, &work_done, work_to_do);
 
 	*budget -= work_done;
 	netdev->quota -= work_done;
 	
-	/* if no Rx and Tx cleanup work was done, exit the polling mode */
-	if(!tx_cleaned || (work_done < work_to_do) || 
+	/* if no Tx and not enough Rx work done, exit the polling mode */
+	if((!tx_cleaned && (work_done < work_to_do)) || 
 				!netif_running(netdev)) {
-quit_polling:	netif_rx_complete(netdev);
+		netif_rx_complete(netdev);
 		e1000_irq_enable(adapter);
 		return 0;
 	}
 
-	return (work_done >= work_to_do);
+	return 1;
 }
 
 #endif
@@ -2215,11 +2352,34 @@ e1000_clean_tx_irq(struct e1000_adapter *adapter)
 	eop_desc = E1000_TX_DESC(*tx_ring, eop);
 
 	while(eop_desc->upper.data & cpu_to_le32(E1000_TXD_STAT_DD)) {
+		/* pre-mature writeback of Tx descriptors     */
+		/* clear (free buffers and unmap pci_mapping) */
+		/* previous_buffer_info                       */
+		if (likely(adapter->previous_buffer_info.skb != NULL)) {
+			e1000_unmap_and_free_tx_resource(adapter, 
+					&adapter->previous_buffer_info);
+		}
+
 		for(cleaned = FALSE; !cleaned; ) {
 			tx_desc = E1000_TX_DESC(*tx_ring, i);
 			buffer_info = &tx_ring->buffer_info[i];
+			cleaned = (i == eop);
 
-			e1000_unmap_and_free_tx_resource(adapter, buffer_info);
+			/* pre-mature writeback of Tx descriptors */
+			/* save the cleaning of the this for the  */
+			/* next iteration                         */
+			if (cleaned) {
+				memcpy(&adapter->previous_buffer_info,
+					buffer_info,
+					sizeof(struct e1000_buffer));
+				memset(buffer_info,
+					0,
+					sizeof(struct e1000_buffer));
+			} else {
+				e1000_unmap_and_free_tx_resource(adapter, 
+							buffer_info);
+			}
+
 			tx_desc->buffer_addr = 0;
 			tx_desc->lower.data = 0;
 			tx_desc->upper.data = 0;
@@ -2241,6 +2401,16 @@ e1000_clean_tx_irq(struct e1000_adapter *adapter)
 		netif_wake_queue(netdev);
 
 	spin_unlock(&adapter->tx_lock);
+ 
+	if(adapter->detect_tx_hung) {
+		/* detect a transmit hang in hardware, this serializes the
+		 * check with the clearing of time_stamp and movement of i */
+		adapter->detect_tx_hung = FALSE;
+		if(tx_ring->buffer_info[i].dma &&
+		   time_after(jiffies, tx_ring->buffer_info[i].time_stamp + HZ) &&
+		   !(E1000_READ_REG(&adapter->hw, STATUS) & E1000_STATUS_TXOFF))
+			netif_stop_queue(netdev);
+	}
 
 	return cleaned;
 }
@@ -2407,17 +2577,41 @@ e1000_alloc_rx_buffers(struct e1000_adapter *adapter)
 	struct e1000_rx_desc *rx_desc;
 	struct e1000_buffer *buffer_info;
 	struct sk_buff *skb;
-	unsigned int i;
+	unsigned int i, bufsz;
 
 	i = rx_ring->next_to_use;
 	buffer_info = &rx_ring->buffer_info[i];
 
 	while(!buffer_info->skb) {
-		skb = dev_alloc_skb(adapter->rx_buffer_len + NET_IP_ALIGN);
+		bufsz = adapter->rx_buffer_len + NET_IP_ALIGN;
 
+		skb = dev_alloc_skb(bufsz);
 		if(unlikely(!skb)) {
 			/* Better luck next round */
 			break;
+		}
+
+		/* fix for errata 23, cant cross 64kB boundary */
+		if (!e1000_check_64k_bound(adapter, skb->data, bufsz)) {
+			struct sk_buff *oldskb = skb;
+			DPRINTK(RX_ERR,ERR,
+				"skb align check failed: %u bytes at %p\n",
+				bufsz, skb->data);
+			/* try again, without freeing the previous */
+			skb = dev_alloc_skb(bufsz);
+			if (!skb) {
+				dev_kfree_skb(oldskb);
+				break;
+			}
+			if (!e1000_check_64k_bound(adapter, skb->data, bufsz)) {
+				/* give up */
+				dev_kfree_skb(skb);
+				dev_kfree_skb(oldskb);
+				break; /* while !buffer_info->skb */
+			} else {
+				/* move on with the new one */
+				dev_kfree_skb(oldskb);
+			}
 		}
 
 		/* Make buffer alignment 2 beyond a 16 byte boundary
@@ -2434,6 +2628,25 @@ e1000_alloc_rx_buffers(struct e1000_adapter *adapter)
 						  skb->data,
 						  adapter->rx_buffer_len,
 						  PCI_DMA_FROMDEVICE);
+
+		/* fix for errata 23, cant cross 64kB boundary */
+		if(!e1000_check_64k_bound(adapter,
+			                       (void *)(unsigned long)buffer_info->dma,
+			                       adapter->rx_buffer_len)) {
+			DPRINTK(RX_ERR,ERR,
+				"dma align check failed: %u bytes at %ld\n",
+				adapter->rx_buffer_len, (unsigned long)buffer_info->dma);
+
+			dev_kfree_skb(skb);
+			buffer_info->skb = NULL;
+
+			pci_unmap_single(pdev,
+					 buffer_info->dma,
+					 adapter->rx_buffer_len,
+					 PCI_DMA_FROMDEVICE);
+
+			break; /* while !buffer_info->skb */
+		}
 
 		rx_desc = E1000_RX_DESC(*rx_ring, i);
 		rx_desc->buffer_addr = cpu_to_le64(buffer_info->dma);

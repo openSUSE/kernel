@@ -1022,7 +1022,6 @@ static unsigned short atalk_checksum(const struct sk_buff *skb, int len)
 static int atalk_create(struct socket *sock, int protocol)
 {
 	struct sock *sk;
-	struct atalk_sock *at;
 	int rc = -ESOCKTNOSUPPORT;
 
 	/*
@@ -1032,13 +1031,10 @@ static int atalk_create(struct socket *sock, int protocol)
 	if (sock->type != SOCK_RAW && sock->type != SOCK_DGRAM)
 		goto out;
 	rc = -ENOMEM;
-	sk = sk_alloc(PF_APPLETALK, GFP_KERNEL, 1, NULL);
+	sk = sk_alloc(PF_APPLETALK, GFP_KERNEL,
+		      sizeof(struct atalk_sock), NULL);
 	if (!sk)
 		goto out;
-	at = sk->sk_protinfo = kmalloc(sizeof(*at), GFP_KERNEL);
-	if (!at)
-		goto outsk;
-	memset(at, 0, sizeof(*at));
 	rc = 0;
 	sock->ops = &atalk_dgram_ops;
 	sock_init_data(sock, sk);
@@ -1048,9 +1044,6 @@ static int atalk_create(struct socket *sock, int protocol)
 	sk->sk_zapped = 1;
 out:
 	return rc;
-outsk:
-	sk_free(sk);
-	goto out;
 }
 
 /* Free a socket. No work needed */
