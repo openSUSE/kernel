@@ -89,6 +89,7 @@ comment "USB port drivers"
 config USB_USS720
 	tristate "USS720 parport driver"
 	depends on USB && PARPORT
+	select PARPORT_NOT_PC
 	---help---
 	  This driver is for USB parallel port adapters that use the Lucent
 	  Technologies USS-720 chip. These cables are plugged into your USB
