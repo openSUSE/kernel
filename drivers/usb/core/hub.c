@@ -1125,6 +1125,8 @@ static void get_string(struct usb_device *udev, char **string, int index)
 		return;
 	if (usb_string(udev, index, buf, 256) > 0)
 		*string = buf;
+	else
+		kfree(buf);
 }
 
 
