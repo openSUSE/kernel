@@ -1247,21 +1247,6 @@ find_openstateowner_str(unsigned int hashval, struct nfsd4_open *open, struct nf
 	return 0;
 }
 
-/* see if clientid is in confirmed hash table */
-static int
-verify_clientid(struct nfs4_client **client, clientid_t *clid) {
-
-	struct nfs4_client *clp;
-
-	clp = find_confirmed_client(clid);
-	if (clp) {
-		*client = clp;
-		return 1;
-	}
-	*client = NULL;
-	return 0;
-}
-
 /* search file_hashtbl[] for file */
 static int
 find_file(unsigned int hashval, struct inode *ino, struct nfs4_file **fp) {
@@ -1514,7 +1499,8 @@ nfsd4_process_open1(struct nfsd4_open *open)
 		 * client's lease expiring.
 		 */
 		status = nfserr_expired;
-		if (!verify_clientid(&clp, clientid))
+		clp = find_confirmed_client(clientid);
+		if (clp == NULL)
 			goto out;
 	}
 	status = nfserr_resource;
