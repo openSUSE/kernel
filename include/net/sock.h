@@ -134,7 +134,6 @@ struct sock_common {
   *	@sk_sndbuf - size of send buffer in bytes
   *	@sk_flags - %SO_LINGER (l_onoff), %SO_BROADCAST, %SO_KEEPALIVE, %SO_OOBINLINE settings
   *	@sk_no_check - %SO_NO_CHECK setting, wether or not checkup packets
-  *	@sk_no_largesend - whether to sent large segments or not
   *	@sk_route_caps - route capabilities (e.g. %NETIF_F_TSO)
   *	@sk_lingertime - %SO_LINGER l_linger setting
   *	@sk_hashent - hash entry in several tables (e.g. tcp_ehash)
@@ -206,7 +205,6 @@ struct sock {
 	int			sk_sndbuf;
 	unsigned long 		sk_flags;
 	char		 	sk_no_check;
-	unsigned char		sk_no_largesend;
 	int			sk_route_caps;
 	unsigned long	        sk_lingertime;
 	int			sk_hashent;
@@ -387,6 +385,7 @@ enum sock_flags {
 	SOCK_USE_WRITE_QUEUE, /* whether to call sk->sk_write_space in sock_wfree */
 	SOCK_DBG, /* %SO_DEBUG setting */
 	SOCK_RCVTSTAMP, /* %SO_TIMESTAMP setting */
+	SOCK_NO_LARGESEND, /* whether to sent large segments or not */
 };
 
 static inline void sock_set_flag(struct sock *sk, enum sock_flags flag)
