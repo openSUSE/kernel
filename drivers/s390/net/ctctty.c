@@ -778,11 +778,10 @@ ctc_tty_ioctl(struct tty_struct *tty, struct file *file,
 			printk(KERN_DEBUG "%s%d ioctl TIOCSERGETLSR\n", CTC_TTY_NAME,
 			       info->line);
 #endif
-			error = verify_area(VERIFY_WRITE, (void __user *) arg, sizeof(uint));
-			if (error)
-				return error;
-			else
+			if (access_ok(VERIFY_WRITE, (void __user *) arg, sizeof(uint)))
 				return ctc_tty_get_lsr_info(info, (uint __user *) arg);
+			else
+				return -EFAULT;
 		default:
 #ifdef CTC_DEBUG_MODEM_IOCTL
 			printk(KERN_DEBUG "UNKNOWN ioctl 0x%08x on %s%d\n", cmd,

@@ -752,7 +752,7 @@ int cpqfcTS_ioctl( struct scsi_device *ScsiDev, int Cmnd, void *arg)
 		result = -ENXIO;
 		break;
 	}
-	result = verify_area(VERIFY_WRITE, arg, sizeof(Scsi_FCTargAddress));
+	result = access_ok(VERIFY_WRITE, arg, sizeof(Scsi_FCTargAddress)) ? 0 : -EFAULT;
 	if (result) break;
  
       put_user(pLoggedInPort->port_id,

@@ -2649,9 +2649,8 @@ static int orinoco_ioctl_getiwrange(struct net_device *dev, struct iw_point *rrq
 
 	TRACE_ENTER(dev->name);
 
-	err = verify_area(VERIFY_WRITE, rrq->pointer, sizeof(range));
-	if (err)
-		return err;
+	if (!access_ok(VERIFY_WRITE, rrq->pointer, sizeof(range)))
+		return -EFAULT;
 
 	rrq->length = sizeof(range);
 

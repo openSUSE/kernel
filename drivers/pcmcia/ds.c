@@ -1351,17 +1351,15 @@ static int ds_ioctl(struct inode * inode, struct file * file,
 	return -EPERM;
 	
     if (cmd & IOC_IN) {
-	err = verify_area(VERIFY_READ, uarg, size);
-	if (err) {
-	    ds_dbg(3, "ds_ioctl(): verify_read = %d\n", err);
-	    return err;
+	if (!access_ok(VERIFY_READ, uarg, size)) {
+	    ds_dbg(3, "ds_ioctl(): verify_read = %d\n", -EFAULT);
+	    return -EFAULT;
 	}
     }
     if (cmd & IOC_OUT) {
-	err = verify_area(VERIFY_WRITE, uarg, size);
-	if (err) {
-	    ds_dbg(3, "ds_ioctl(): verify_write = %d\n", err);
-	    return err;
+	if (!access_ok(VERIFY_WRITE, uarg, size)) {
+	    ds_dbg(3, "ds_ioctl(): verify_write = %d\n", -EFAULT);
+	    return -EFAULT;
 	}
     }
     buf = kmalloc(sizeof(ds_ioctl_arg_t), GFP_KERNEL);

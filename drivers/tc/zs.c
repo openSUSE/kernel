@@ -1240,28 +1240,24 @@ static int rs_ioctl(struct tty_struct *tty, struct file * file,
 
 	switch (cmd) {
 	case TIOCGSERIAL:
-		error = verify_area(VERIFY_WRITE, (void *)arg,
-				    sizeof(struct serial_struct));
-		if (error)
-			return error;
+		if (!access_ok(VERIFY_WRITE, (void *)arg,
+			       sizeof(struct serial_struct)))
+			return -EFAULT;
 		return get_serial_info(info, (struct serial_struct *)arg);
 
 	case TIOCSSERIAL:
 		return set_serial_info(info, (struct serial_struct *)arg);
 
 	case TIOCSERGETLSR:			/* Get line status register */
-		error = verify_area(VERIFY_WRITE, (void *)arg,
-				    sizeof(unsigned int));
-		if (error)
-			return error;
-		else
-			return get_lsr_info(info, (unsigned int *)arg);
+		if (!access_ok(VERIFY_WRITE, (void *)arg,
+			       sizeof(unsigned int)))
+			return -EFAULT;
+		return get_lsr_info(info, (unsigned int *)arg);
 
 	case TIOCSERGSTRUCT:
-		error = verify_area(VERIFY_WRITE, (void *)arg,
-				    sizeof(struct dec_serial));
-		if (error)
-			return error;
+		if (!access_ok(VERIFY_WRITE, (void *)arg,
+			       sizeof(struct dec_serial)))
+			return -EFAULT;
 		copy_from_user((struct dec_serial *)arg, info,
 			       sizeof(struct dec_serial));
 		return 0;

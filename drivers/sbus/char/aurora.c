@@ -1887,14 +1887,12 @@ extern int aurora_get_serial_info(struct Aurora_port * port,
 {
 	struct serial_struct tmp;
 	struct Aurora_board *bp = port_Board(port);
-	int error;
 	
 #ifdef AURORA_DEBUG
 	printk("aurora_get_serial_info: start\n");
 #endif
-	error = verify_area(VERIFY_WRITE, (void *) retinfo, sizeof(tmp));
-	if (error)
-		return error;
+	if (!access_ok(VERIFY_WRITE, (void *) retinfo, sizeof(tmp)))
+		return -EFAULT;
 	
 	memset(&tmp, 0, sizeof(tmp));
 	tmp.type = PORT_CIRRUS;

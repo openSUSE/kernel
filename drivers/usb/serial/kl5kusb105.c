@@ -925,45 +925,34 @@ static int klsi_105_ioctl (struct usb_serial_port *port, struct file * file,
 		/* TODO */
 		dbg("%s - TIOCMIWAIT not handled", __FUNCTION__);
 		return -ENOIOCTLCMD;
-
 	case TIOCGICOUNT:
 		/* return count of modemline transitions */
 		/* TODO */
 		dbg("%s - TIOCGICOUNT not handled", __FUNCTION__);
 		return -ENOIOCTLCMD;
-	case TCGETS: {
-	     /* return current info to caller */
-	     int retval;
+	case TCGETS:
+		/* return current info to caller */
+		dbg("%s - TCGETS data faked/incomplete", __FUNCTION__);
 
-	     dbg("%s - TCGETS data faked/incomplete", __FUNCTION__);
+		if (!access_ok(VERIFY_WRITE, user_arg, sizeof(struct termios)))
+			return -EFAULT;
 
-	     retval = verify_area(VERIFY_WRITE, user_arg,
-				  sizeof(struct termios));
-	     if (retval)
-			 return retval;
-
-	     if (kernel_termios_to_user_termios((struct termios __user *)arg,
-						&priv->termios))
-		     return -EFAULT;
-	     return(0);
-	     }
-	case TCSETS: {
+		if (kernel_termios_to_user_termios((struct termios __user *)arg,
+						   &priv->termios))
+			return -EFAULT;
+		return 0;
+	case TCSETS:
 		/* set port termios to the one given by the user */
-		int retval;
-
 		dbg("%s - TCSETS not handled", __FUNCTION__);
 
-		retval = verify_area(VERIFY_READ, user_arg,
-				     sizeof(struct termios));
-		if (retval)
-			    return retval;
+		if (!access_ok(VERIFY_READ, user_arg, sizeof(struct termios)))
+			return -EFAULT;
 
 		if (user_termios_to_kernel_termios(&priv->termios,
-						  (struct termios __user *)arg))
+						   (struct termios __user *)arg))
 			return -EFAULT;
 		klsi_105_set_termios(port, &priv->termios);
-		return(0);
-	     }
+		return 0;
 	case TCSETSW: {
 		/* set port termios and try to wait for completion of last
 		 * write operation */

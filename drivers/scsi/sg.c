@@ -330,7 +330,7 @@ sg_release(struct inode *inode, struct file *filp)
 static ssize_t
 sg_read(struct file *filp, char __user *buf, size_t count, loff_t * ppos)
 {
-	int k, res;
+	int res;
 	Sg_device *sdp;
 	Sg_fd *sfp;
 	Sg_request *srp;
@@ -343,8 +343,8 @@ sg_read(struct file *filp, char __user *buf, size_t count, loff_t * ppos)
 		return -ENXIO;
 	SCSI_LOG_TIMEOUT(3, printk("sg_read: %s, count=%d\n",
 				   sdp->disk->disk_name, (int) count));
-	if ((k = verify_area(VERIFY_WRITE, buf, count)))
-		return k;
+	if (!access_ok(VERIFY_WRITE, buf, count))
+		return -EFAULT;
 	if (sfp->force_packid && (count >= SZ_SG_HEADER)) {
 		if (__copy_from_user(&old_hdr, buf, SZ_SG_HEADER))
 			return -EFAULT;
@@ -501,8 +501,8 @@ sg_write(struct file *filp, const char __user *buf, size_t count, loff_t * ppos)
 	      scsi_block_when_processing_errors(sdp->device)))
 		return -ENXIO;
 
-	if ((k = verify_area(VERIFY_READ, buf, count)))
-		return k;	/* protects following copy_from_user()s + get_user()s */
+	if (!access_ok(VERIFY_READ, buf, count))
+		return -EFAULT;	/* protects following copy_from_user()s + get_user()s */
 	if (count < SZ_SG_HEADER)
 		return -EIO;
 	if (__copy_from_user(&old_hdr, buf, SZ_SG_HEADER))
@@ -594,8 +594,8 @@ sg_new_write(Sg_fd * sfp, const char __user *buf, size_t count,
 
 	if (count < SZ_SG_IO_HDR)
 		return -EINVAL;
-	if ((k = verify_area(VERIFY_READ, buf, count)))
-		return k; /* protects following copy_from_user()s + get_user()s */
+	if (!access_ok(VERIFY_READ, buf, count))
+		return -EFAULT; /* protects following copy_from_user()s + get_user()s */
 
 	sfp->cmd_q = 1;	/* when sg_io_hdr seen, set command queuing on */
 	if (!(srp = sg_add_request(sfp))) {
@@ -631,9 +631,9 @@ sg_new_write(Sg_fd * sfp, const char __user *buf, size_t count,
 		sg_remove_request(sfp, srp);
 		return -EMSGSIZE;
 	}
-	if ((k = verify_area(VERIFY_READ, hp->cmdp, hp->cmd_len))) {
+	if (!access_ok(VERIFY_READ, hp->cmdp, hp->cmd_len)) {
 		sg_remove_request(sfp, srp);
-		return k;	/* protects following copy_from_user()s + get_user()s */
+		return -EFAULT;	/* protects following copy_from_user()s + get_user()s */
 	}
 	if (__copy_from_user(cmnd, hp->cmdp, hp->cmd_len)) {
 		sg_remove_request(sfp, srp);
@@ -773,9 +773,8 @@ sg_ioctl(struct inode *inode, struct file *filp,
 				return -ENODEV;
 			if (!scsi_block_when_processing_errors(sdp->device))
 				return -ENXIO;
-			result = verify_area(VERIFY_WRITE, p, SZ_SG_IO_HDR);
-			if (result)
-				return result;
+			if (!access_ok(VERIFY_WRITE, p, SZ_SG_IO_HDR))
+				return -EFAULT;
 			result =
 			    sg_new_write(sfp, p, SZ_SG_IO_HDR,
 					 blocking, read_only, &srp);
@@ -837,10 +836,8 @@ sg_ioctl(struct inode *inode, struct file *filp,
 	case SG_GET_LOW_DMA:
 		return put_user((int) sfp->low_dma, ip);
 	case SG_GET_SCSI_ID:
-		result =
-		    verify_area(VERIFY_WRITE, p, sizeof (sg_scsi_id_t));
-		if (result)
-			return result;
+		if (!access_ok(VERIFY_WRITE, p, sizeof (sg_scsi_id_t)))
+			return -EFAULT;
 		else {
 			sg_scsi_id_t __user *sg_idp = p;
 
@@ -868,9 +865,8 @@ sg_ioctl(struct inode *inode, struct file *filp,
 		sfp->force_packid = val ? 1 : 0;
 		return 0;
 	case SG_GET_PACK_ID:
-		result = verify_area(VERIFY_WRITE, ip, sizeof (int));
-		if (result)
-			return result;
+		if (!access_ok(VERIFY_WRITE, ip, sizeof (int)))
+			return -EFAULT;
 		read_lock_irqsave(&sfp->rq_list_lock, iflags);
 		for (srp = sfp->headrp; srp; srp = srp->nextrp) {
 			if ((1 == srp->done) && (!srp->sg_io_owned)) {
@@ -938,10 +934,8 @@ sg_ioctl(struct inode *inode, struct file *filp,
 		val = (sdp->device ? 1 : 0);
 		return put_user(val, ip);
 	case SG_GET_REQUEST_TABLE:
-		result = verify_area(VERIFY_WRITE, p,
-				     SZ_SG_REQ_INFO * SG_MAX_QUEUE);
-		if (result)
-			return result;
+		if (!access_ok(VERIFY_WRITE, p, SZ_SG_REQ_INFO * SG_MAX_QUEUE))
+			return -EFAULT;
 		else {
 			sg_req_info_t rinfo[SG_MAX_QUEUE];
 			Sg_request *srp;
@@ -1959,9 +1953,8 @@ sg_write_xfer(Sg_request * srp)
 			  num_xfer, iovec_count, schp->k_use_sg));
 	if (iovec_count) {
 		onum = iovec_count;
-		if ((k = verify_area(VERIFY_READ, hp->dxferp,
-				     SZ_SG_IOVEC * onum)))
-			return k;
+		if (!access_ok(VERIFY_READ, hp->dxferp, SZ_SG_IOVEC * onum))
+			return -EFAULT;
 	} else
 		onum = 1;
 
@@ -2031,7 +2024,7 @@ sg_u_iovec(sg_io_hdr_t * hp, int sg_num, int ind,
 {
 	int num_xfer = (int) hp->dxfer_len;
 	unsigned char __user *p = hp->dxferp;
-	int count, k;
+	int count;
 
 	if (0 == sg_num) {
 		if (wr_xf && ('\0' == hp->interface_id))
@@ -2045,8 +2038,8 @@ sg_u_iovec(sg_io_hdr_t * hp, int sg_num, int ind,
 		p = iovec.iov_base;
 		count = (int) iovec.iov_len;
 	}
-	if ((k = verify_area(wr_xf ? VERIFY_READ : VERIFY_WRITE, p, count)))
-		return k;
+	if (!access_ok(wr_xf ? VERIFY_READ : VERIFY_WRITE, p, count))
+		return -EFAULT;
 	if (up)
 		*up = p;
 	if (countp)
@@ -2113,9 +2106,8 @@ sg_read_xfer(Sg_request * srp)
 			  num_xfer, iovec_count, schp->k_use_sg));
 	if (iovec_count) {
 		onum = iovec_count;
-		if ((k = verify_area(VERIFY_READ, hp->dxferp,
-				     SZ_SG_IOVEC * onum)))
-			return k;
+		if (!access_ok(VERIFY_READ, hp->dxferp, SZ_SG_IOVEC * onum))
+			return -EFAULT;
 	} else
 		onum = 1;
 
