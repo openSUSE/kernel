@@ -87,6 +87,7 @@ static void pad_len_spaces(struct seq_file *m, int len)
 
 static int show_map(struct seq_file *m, void *v)
 {
+	struct task_struct *task = m->private;
 	struct vm_area_struct *map = v;
 	struct mm_struct *mm = map->vm_mm;
 	struct file *file = map->vm_file;
@@ -138,30 +139,66 @@ static int show_map(struct seq_file *m, void *v)
 		}
 	}
 	seq_putc(m, '\n');
+	if (m->count < m->size)  /* map is copied successfully */
+		m->version = (map != get_gate_vma(task))? map->vm_start: 0;
 	return 0;
 }
 
 static void *m_start(struct seq_file *m, loff_t *pos)
 {
 	struct task_struct *task = m->private;
-	struct mm_struct *mm = get_task_mm(task);
-	struct vm_area_struct * map;
+	unsigned long last_addr = m->version;
+	struct mm_struct *mm;
+	struct vm_area_struct *map, *tail_map;
 	loff_t l = *pos;
 
+	/*
+	 * We remember last_addr rather than next_addr to hit with
+	 * mmap_cache most of the time. We have zero last_addr at
+	 * the begining and also after lseek. We will have -1 last_addr
+	 * after the end of the maps.
+	 */
+
+	if (last_addr == -1UL)
+		return NULL;
+
+	mm = get_task_mm(task);
 	if (!mm)
 		return NULL;
 
+	tail_map = get_gate_vma(task);
 	down_read(&mm->mmap_sem);
-	map = mm->mmap;
-	while (l-- && map)
+
+	/* Start with last addr hint */
+	if (last_addr && (map = find_vma(mm, last_addr))) {
 		map = map->vm_next;
-	if (!map) {
-		up_read(&mm->mmap_sem);
-		mmput(mm);
-		if (l == -1)
-			map = get_gate_vma(task);
+		goto out;
 	}
-	return map;
+
+	/*
+	 * Check the map index is within the range and do
+	 * sequential scan until m_index.
+	 */
+	map = NULL;
+	if ((unsigned long)l < mm->map_count) {
+		map = mm->mmap;
+		while (l-- && map)
+			map = map->vm_next;
+		goto out;
+	}
+
+	if (l != mm->map_count)
+		tail_map = NULL; /* After gate map */
+
+out:
+	if (map)
+		return map;
+
+	/* End of maps has reached */
+	m->version = (tail_map != NULL)? 0: -1UL;
+	up_read(&mm->mmap_sem);
+	mmput(mm);
+	return tail_map;
 }
 
 static void m_stop(struct seq_file *m, void *v)
@@ -179,13 +216,13 @@ static void *m_next(struct seq_file *m, void *v, loff_t *pos)
 {
 	struct task_struct *task = m->private;
 	struct vm_area_struct *map = v;
+	struct vm_area_struct *tail_map = get_gate_vma(task);
+
 	(*pos)++;
-	if (map->vm_next)
+	if (map && (map != tail_map) && map->vm_next)
 		return map->vm_next;
 	m_stop(m, v);
-	if (map != get_gate_vma(task))
-		return get_gate_vma(task);
-	return NULL;
+	return (map != tail_map)? tail_map: NULL;
 }
 
 struct seq_operations proc_pid_maps_op = {
