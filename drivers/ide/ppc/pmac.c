@@ -1208,15 +1208,16 @@ pmac_ide_do_suspend(ide_hwif_t *hwif)
 	if (pmif->mediabay)
 		return 0;
 	
-	/* Disable the bus */
-	ppc_md.feature_call(PMAC_FTR_IDE_ENABLE, pmif->node, pmif->aapl_bus_id, 0);
-
-	/* Kauai has it different */
+	/* Kauai has bus control FCRs directly here */
 	if (pmif->kauai_fcr) {
 		u32 fcr = readl(pmif->kauai_fcr);
 		fcr &= ~(KAUAI_FCR_UATA_RESET_N | KAUAI_FCR_UATA_ENABLE);
 		writel(fcr, pmif->kauai_fcr);
 	}
+
+	/* Disable the bus on older machines and the cell on kauai */
+	ppc_md.feature_call(PMAC_FTR_IDE_ENABLE, pmif->node, pmif->aapl_bus_id,
+			    0);
 
 	return 0;
 }
