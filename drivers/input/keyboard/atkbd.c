@@ -380,7 +380,7 @@ static irqreturn_t atkbd_interrupt(struct serio *serio, unsigned char data,
 					break;
 				case 1:
 					atkbd->last = code;
-					atkbd->time = jiffies + (atkbd->dev.rep[REP_DELAY] * HZ + 500) / 1000 / 2;
+					atkbd->time = jiffies + msecs_to_jiffies(atkbd->dev.rep[REP_DELAY]) / 2;
 					break;
 				case 2:
 					if (!time_after(jiffies, atkbd->time) && atkbd->last == code)
