@@ -152,9 +152,9 @@ extern inline void * xchg_ptr(void * m, void * val)
 #define __HAVE_ARCH_CMPXCHG	1
 
 static __inline__ unsigned long
-__cmpxchg_u32(volatile int *p, int old, int new)
+__cmpxchg_u32(volatile unsigned int *p, unsigned int old, unsigned int new)
 {
-	int prev;
+	unsigned int prev;
 
 	__asm__ __volatile__ ("\n\
 1:	lwarx	%0,0,%2 \n\
