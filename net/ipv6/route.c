@@ -771,7 +771,7 @@ static int ipv6_get_mtu(struct net_device *dev)
 	return mtu;
 }
 
-static int ipv6_get_hoplimit(struct net_device *dev)
+int ipv6_get_hoplimit(struct net_device *dev)
 {
 	int hoplimit = ipv6_devconf.hop_limit;
 	struct inet6_dev *idev;
@@ -967,15 +967,8 @@ install_route:
 		}
 	}
 
-	if (rt->u.dst.metrics[RTAX_HOPLIMIT-1] == 0) {
-		if (ipv6_addr_is_multicast(&rt->rt6i_dst.addr))
-			rt->u.dst.metrics[RTAX_HOPLIMIT-1] =
-				IPV6_DEFAULT_MCASTHOPS;
-		else
-			rt->u.dst.metrics[RTAX_HOPLIMIT-1] =
-				ipv6_get_hoplimit(dev);
-	}
-
+	if (rt->u.dst.metrics[RTAX_HOPLIMIT-1] == 0)
+		rt->u.dst.metrics[RTAX_HOPLIMIT-1] = -1;
 	if (!rt->u.dst.metrics[RTAX_MTU-1])
 		rt->u.dst.metrics[RTAX_MTU-1] = ipv6_get_mtu(dev);
 	if (!rt->u.dst.metrics[RTAX_ADVMSS-1])
@@ -1414,7 +1407,7 @@ struct rt6_info *addrconf_dst_alloc(struct inet6_dev *idev,
 	rt->rt6i_idev = idev;
 	rt->u.dst.metrics[RTAX_MTU-1] = ipv6_get_mtu(rt->rt6i_dev);
 	rt->u.dst.metrics[RTAX_ADVMSS-1] = ipv6_advmss(dst_pmtu(&rt->u.dst));
-	rt->u.dst.metrics[RTAX_HOPLIMIT-1] = ipv6_get_hoplimit(rt->rt6i_dev);
+	rt->u.dst.metrics[RTAX_HOPLIMIT-1] = -1;
 	rt->u.dst.obsolete = -1;
 
 	rt->rt6i_flags = RTF_UP | RTF_NONEXTHOP;

@@ -756,6 +756,8 @@ static int rawv6_sendmsg(struct kiocb *iocb, struct sock *sk,
 			hlimit = np->hop_limit;
 		if (hlimit < 0)
 			hlimit = dst_metric(dst, RTAX_HOPLIMIT);
+		if (hlimit < 0)
+			hlimit = ipv6_get_hoplimit(dst->dev);
 	}
 
 	if (msg->msg_flags&MSG_CONFIRM)
