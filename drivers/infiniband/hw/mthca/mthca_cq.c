@@ -150,9 +150,8 @@ static inline struct mthca_cqe *get_cqe(struct mthca_cq *cq, int entry)
 
 static inline struct mthca_cqe *cqe_sw(struct mthca_cq *cq, int i)
 {
-	struct mthca_cqe *cqe;
-	cqe = get_cqe(cq, i);
-	return (MTHCA_CQ_ENTRY_OWNER_HW & cqe->owner) ? NULL : cqe;
+	struct mthca_cqe *cqe = get_cqe(cq, i);
+	return MTHCA_CQ_ENTRY_OWNER_HW & cqe->owner ? NULL : cqe;
 }
 
 static inline struct mthca_cqe *next_cqe_sw(struct mthca_cq *cq)
@@ -378,7 +377,7 @@ static inline int mthca_poll_one(struct mthca_dev *dev,
 	struct mthca_wq *wq;
 	struct mthca_cqe *cqe;
 	int wqe_index;
-	int is_error = 0;
+	int is_error;
 	int is_send;
 	int free_cqe = 1;
 	int err = 0;
@@ -401,12 +400,9 @@ static inline int mthca_poll_one(struct mthca_dev *dev,
 		dump_cqe(cqe);
 	}
 
-	if ((cqe->opcode & MTHCA_ERROR_CQE_OPCODE_MASK) ==
-	    MTHCA_ERROR_CQE_OPCODE_MASK) {
-		is_error = 1;
-		is_send = cqe->opcode & 1;
-	} else
-		is_send = cqe->is_send & 0x80;
+	is_error = (cqe->opcode & MTHCA_ERROR_CQE_OPCODE_MASK) ==
+		MTHCA_ERROR_CQE_OPCODE_MASK;
+	is_send  = is_error ? cqe->opcode & 0x01 : cqe->is_send & 0x80;
 
 	if (!*cur_qp || be32_to_cpu(cqe->my_qpn) != (*cur_qp)->qpn) {
 		if (*cur_qp) {
