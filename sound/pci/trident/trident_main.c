@@ -3122,7 +3122,7 @@ static void snd_trident_gameport_trigger(struct gameport *gameport)
 {
 	trident_t *chip = gameport->port_data;
 
-	snd_assert(chip, return 0);
+	snd_assert(chip, return);
 	outb(0xff, TRID_REG(chip, GAMEPORT_LEGACY));
 }
 
