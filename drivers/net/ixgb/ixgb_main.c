@@ -292,6 +292,9 @@ ixgb_up(struct ixgb_adapter *adapter)
 	mod_timer(&adapter->watchdog_timer, jiffies);
 	ixgb_irq_enable(adapter);
 
+#ifdef CONFIG_IXGB_NAPI
+	netif_poll_enable(netdev);
+#endif
 	return 0;
 }
 
@@ -309,6 +312,9 @@ ixgb_down(struct ixgb_adapter *adapter, boolean_t kill_watchdog)
 #endif
 	if(kill_watchdog)
 		del_timer_sync(&adapter->watchdog_timer);
+#ifdef CONFIG_IXGB_NAPI
+	netif_poll_disable(netdev);
+#endif
 	adapter->link_speed = 0;
 	adapter->link_duplex = 0;
 	netif_carrier_off(netdev);
