@@ -421,6 +421,24 @@ static int __devinit agp_amdk7_probe(struct pci_dev *pdev,
 	bridge->dev = pdev;
 	bridge->capndx = cap_ptr;
 
+	/* 761 Errata (23613_F.pdf)
+	 * Revisions B0/B1 were a disaster.
+	 * erratum 44: SYSCLK/AGPCLK skew causes 2X failures -- Force mode to 1X
+	 * erratum 45: Timing problem prevents fast writes -- Disable fast write.
+	 * erratum 46: Setup violation on AGP SBA pins - Disable side band addressing.
+	 * With this lot disabled, we should prevent lockups. */
+	if (agp_bridge->dev->vendor == PCI_VENDOR_ID_AMD &&
+		agp_bridge->dev->device == PCI_DEVICE_ID_AMD_FE_GATE_700E) {
+		u8 revision=0;
+		pci_read_config_byte(pdev, PCI_REVISION_ID, &revision);
+		if (revision == 0x10 || revision == 0x11) {
+			agp_bridge->flags = AGP_ERRATA_FASTWRITES;
+			agp_bridge->flags |= AGP_ERRATA_SBA;
+			agp_bridge->flags |= AGP_ERRATA_1X;
+			printk (KERN_INFO PFX "AMD 761 chipset with errata detected - disabling AGP fast writes & SBA and forcing to 1X.\n");
+		}
+	}
+
 	/* Fill in the mode register */
 	pci_read_config_dword(pdev,
 			bridge->capndx+PCI_AGP_STATUS,
