@@ -524,7 +524,6 @@ void subsys_remove_file(struct subsystem * s, struct subsys_attribute * a)
 	}
 }
 
-EXPORT_SYMBOL(kobject_get_path);
 EXPORT_SYMBOL(kobject_init);
 EXPORT_SYMBOL(kobject_register);
 EXPORT_SYMBOL(kobject_unregister);
@@ -532,7 +531,6 @@ EXPORT_SYMBOL(kobject_get);
 EXPORT_SYMBOL(kobject_put);
 EXPORT_SYMBOL(kobject_add);
 EXPORT_SYMBOL(kobject_del);
-EXPORT_SYMBOL(kobject_rename);
 
 EXPORT_SYMBOL(kset_register);
 EXPORT_SYMBOL(kset_unregister);
