@@ -18,7 +18,7 @@
 #include <asm/systemcfg.h>
 #include <asm/paca.h>
 #include <asm/lppaca.h>
-
+#include <asm/machdep.h>
 
 static DEFINE_PER_CPU(struct cpu, cpu_devices);
 
@@ -413,9 +413,7 @@ static int __init topology_init(void)
 		 * CPU.  For instance, the boot cpu might never be valid
 		 * for hotplugging.
 		 */
-#ifdef CONFIG_HOTPLUG_CPU
-		if (systemcfg->platform != PLATFORM_PSERIES_LPAR)
-#endif
+		if (!ppc_md.cpu_die)
 			c->no_control = 1;
 
 		if (cpu_online(cpu) || (c->no_control == 0)) {

@@ -116,6 +116,35 @@ skip:
 	return 0;
 }
 
+#ifdef CONFIG_HOTPLUG_CPU
+void fixup_irqs(cpumask_t map)
+{
+	unsigned int irq;
+	static int warned;
+
+	for_each_irq(irq) {
+		cpumask_t mask;
+
+		if (irq_desc[irq].status & IRQ_PER_CPU)
+			continue;
+
+		cpus_and(mask, irq_affinity[irq], map);
+		if (any_online_cpu(mask) == NR_CPUS) {
+			printk("Breaking affinity for irq %i\n", irq);
+			mask = map;
+		}
+		if (irq_desc[irq].handler->set_affinity)
+			irq_desc[irq].handler->set_affinity(irq, mask);
+		else if (irq_desc[irq].action && !(warned++))
+			printk("Cannot set affinity for irq %i\n", irq);
+	}
+
+	local_irq_enable();
+	mdelay(1);
+	local_irq_disable();
+}
+#endif
+
 extern int noirqdebug;
 
 /*
