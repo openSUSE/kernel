@@ -248,7 +248,7 @@ fix_alignment(struct pt_regs *regs)
 		 */
 		p = (long __user *) (regs->dar & -L1_CACHE_BYTES);
 		if (user_mode(regs)
-		    && verify_area(VERIFY_WRITE, p, L1_CACHE_BYTES))
+		    && !access_ok(VERIFY_WRITE, p, L1_CACHE_BYTES))
 			return -EFAULT;
 		for (i = 0; i < L1_CACHE_BYTES / sizeof(long); ++i)
 			if (__put_user(0, p+i))
@@ -328,7 +328,7 @@ fix_alignment(struct pt_regs *regs)
 
 	/* Verify the address of the operand */
 	if (user_mode(regs)) {
-		if (verify_area((flags & ST? VERIFY_WRITE: VERIFY_READ), addr, nb))
+		if (!access_ok((flags & ST? VERIFY_WRITE: VERIFY_READ), addr, nb))
 			return -EFAULT;	/* bad address */
 	}
 

@@ -89,7 +89,7 @@ static ssize_t dev_nvram_read(struct file *file, char __user *buf,
 		return -ENODEV;
 	size = ppc_md.nvram_size();
 
-	if (verify_area(VERIFY_WRITE, buf, count))
+	if (!access_ok(VERIFY_WRITE, buf, count))
 		return -EFAULT;
 	if (*ppos >= size)
 		return 0;
@@ -129,7 +129,7 @@ static ssize_t dev_nvram_write(struct file *file, const char __user *buf,
 		return -ENODEV;
 	size = ppc_md.nvram_size();
 
-	if (verify_area(VERIFY_READ, buf, count))
+	if (!access_ok(VERIFY_READ, buf, count))
 		return -EFAULT;
 	if (*ppos >= size)
 		return 0;

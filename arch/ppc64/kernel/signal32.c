@@ -638,7 +638,7 @@ static int handle_rt_signal32(unsigned long sig, struct k_sigaction *ka,
 	/* create a stack frame for the caller of the handler */
 	newsp -= __SIGNAL_FRAMESIZE32 + 16;
 
-	if (verify_area(VERIFY_WRITE, (void __user *)newsp, origsp - newsp))
+	if (!access_ok(VERIFY_WRITE, (void __user *)newsp, origsp - newsp))
 		goto badframe;
 
 	compat_from_sigset(&c_oldset, oldset);
@@ -728,7 +728,7 @@ long sys32_swapcontext(struct ucontext32 __user *old_ctx,
 
 	if (old_ctx != NULL) {
 		compat_from_sigset(&c_set, &current->blocked);
-		if (verify_area(VERIFY_WRITE, old_ctx, sizeof(*old_ctx))
+		if (!access_ok(VERIFY_WRITE, old_ctx, sizeof(*old_ctx))
 		    || save_user_regs(regs, &old_ctx->uc_mcontext, 0)
 		    || __copy_to_user(&old_ctx->uc_sigmask, &c_set, sizeof(c_set))
 		    || __put_user((u32)(u64)&old_ctx->uc_mcontext, &old_ctx->uc_regs))
@@ -736,7 +736,7 @@ long sys32_swapcontext(struct ucontext32 __user *old_ctx,
 	}
 	if (new_ctx == NULL)
 		return 0;
-	if (verify_area(VERIFY_READ, new_ctx, sizeof(*new_ctx))
+	if (!access_ok(VERIFY_READ, new_ctx, sizeof(*new_ctx))
 	    || __get_user(tmp, (u8 __user *) new_ctx)
 	    || __get_user(tmp, (u8 __user *) (new_ctx + 1) - 1))
 		return -EFAULT;
@@ -746,7 +746,7 @@ long sys32_swapcontext(struct ucontext32 __user *old_ctx,
 	 * image of the user's registers, we can't just return -EFAULT
 	 * because the user's registers will be corrupted.  For instance
 	 * the NIP value may have been updated but not some of the
-	 * other registers.  Given that we have done the verify_area
+	 * other registers.  Given that we have done the access_ok
 	 * and successfully read the first and last bytes of the region
 	 * above, this should only happen in an out-of-memory situation
 	 * or if another thread unmaps the region containing the context.
@@ -770,7 +770,7 @@ long sys32_rt_sigreturn(int r3, int r4, int r5, int r6, int r7, int r8,
 
 	rt_sf = (struct rt_sigframe32 __user *)
 		(regs->gpr[1] + __SIGNAL_FRAMESIZE32 + 16);
-	if (verify_area(VERIFY_READ, rt_sf, sizeof(*rt_sf)))
+	if (!access_ok(VERIFY_READ, rt_sf, sizeof(*rt_sf)))
 		goto bad;
 	if (do_setcontext32(&rt_sf->uc, regs, 1))
 		goto bad;
@@ -819,7 +819,7 @@ static int handle_signal32(unsigned long sig, struct k_sigaction *ka,
 	/* create a stack frame for the caller of the handler */
 	newsp -= __SIGNAL_FRAMESIZE32;
 
-	if (verify_area(VERIFY_WRITE, (void __user *) newsp, origsp - newsp))
+	if (!access_ok(VERIFY_WRITE, (void __user *) newsp, origsp - newsp))
 		goto badframe;
 
 #if _NSIG != 64
@@ -892,7 +892,7 @@ long sys32_sigreturn(int r3, int r4, int r5, int r6, int r7, int r8,
 	restore_sigmask(&set);
 
 	sr = (struct mcontext32 __user *)(u64)sigctx.regs;
-	if (verify_area(VERIFY_READ, sr, sizeof(*sr))
+	if (!access_ok(VERIFY_READ, sr, sizeof(*sr))
 	    || restore_user_regs(regs, sr, 1))
 		goto badframe;
 

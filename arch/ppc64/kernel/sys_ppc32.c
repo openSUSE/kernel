@@ -241,7 +241,7 @@ int cp_compat_stat(struct kstat *stat, struct compat_stat __user *statbuf)
 	    !new_valid_dev(stat->rdev))
 		return -EOVERFLOW;
 
-	err  = verify_area(VERIFY_WRITE, statbuf, sizeof(*statbuf));
+	err  = access_ok(VERIFY_WRITE, statbuf, sizeof(*statbuf)) ? 0 : -EFAULT;
 	err |= __put_user(new_encode_dev(stat->dev), &statbuf->st_dev);
 	err |= __put_user(stat->ino, &statbuf->st_ino);
 	err |= __put_user(stat->mode, &statbuf->st_mode);
@@ -1195,7 +1195,7 @@ unsigned long sys32_mmap2(unsigned long addr, size_t len,
 
 int get_compat_timeval(struct timeval *tv, struct compat_timeval __user *ctv)
 {
-	return (verify_area(VERIFY_READ, ctv, sizeof(*ctv)) ||
+	return (!access_ok(VERIFY_READ, ctv, sizeof(*ctv)) ||
 		__get_user(tv->tv_sec, &ctv->tv_sec) ||
 		__get_user(tv->tv_usec, &ctv->tv_usec)) ? -EFAULT : 0;
 }

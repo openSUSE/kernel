@@ -73,7 +73,7 @@ static ssize_t scanlog_read(struct file *file, char *buf,
 		return -EINVAL;
 	}
 
-	if (verify_area(VERIFY_WRITE, buf, count))
+	if (!access_ok(VERIFY_WRITE, buf, count))
 		return -EFAULT;
 
 	for (;;) {
