@@ -613,12 +613,12 @@ static int snd_usbmidi_in_endpoint_create(snd_usb_midi_t* umidi,
 	return 0;
 }
 
-static int snd_usbmidi_count_bits(uint16_t x)
+static unsigned int snd_usbmidi_count_bits(unsigned int x)
 {
-	int i, bits = 0;
+	unsigned int bits = 0;
 
-	for (i = 0; i < 16; ++i)
-		bits += (x & (1 << i)) != 0;
+	for (; x; x >>= 1)
+		bits += x & 1;
 	return bits;
 }
 
