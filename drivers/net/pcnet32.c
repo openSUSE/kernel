@@ -1429,25 +1429,36 @@ pcnet32_open(struct net_device *dev)
 	val |= 0x10;
     lp->a.write_csr (ioaddr, 124, val);
 
-    /* 24 Jun 2004 according AMD, in order to change the PHY,
-     * DANAS (or DISPM for 79C976) must be set; then select the speed,
-     * duplex, and/or enable auto negotiation, and clear DANAS */
-    if (lp->mii && !(lp->options & PCNET32_PORT_ASEL)) {
-	lp->a.write_bcr(ioaddr, 32, lp->a.read_bcr(ioaddr, 32) | 0x0080);
-	/* disable Auto Negotiation, set 10Mpbs, HD */
-	val = lp->a.read_bcr(ioaddr, 32) & ~0xb8;
-	if (lp->options & PCNET32_PORT_FD)
-	    val |= 0x10;
-	if (lp->options & PCNET32_PORT_100)
-	    val |= 0x08;
-	lp->a.write_bcr (ioaddr, 32, val);
+    /* Allied Telesyn AT 2700/2701 FX looses the link, so skip that */
+    if (lp->pci_dev->subsystem_vendor == PCI_VENDOR_ID_AT &&
+        (lp->pci_dev->subsystem_device == PCI_SUBDEVICE_ID_AT_2700FX ||
+	 lp->pci_dev->subsystem_device == PCI_SUBDEVICE_ID_AT_2701FX)) {
+	printk(KERN_DEBUG "%s: Skipping PHY selection.\n", dev->name);
     } else {
-	if (lp->options & PCNET32_PORT_ASEL) {
-	    lp->a.write_bcr(ioaddr, 32, lp->a.read_bcr(ioaddr, 32) | 0x0080);
-	    /* enable auto negotiate, setup, disable fd */
-	    val = lp->a.read_bcr(ioaddr, 32) & ~0x98;
-	    val |= 0x20;
-	    lp->a.write_bcr(ioaddr, 32, val);
+	/*
+	 * 24 Jun 2004 according AMD, in order to change the PHY,
+	 * DANAS (or DISPM for 79C976) must be set; then select the speed,
+	 * duplex, and/or enable auto negotiation, and clear DANAS
+	 */
+	if (lp->mii && !(lp->options & PCNET32_PORT_ASEL)) {
+	    lp->a.write_bcr(ioaddr, 32,
+				lp->a.read_bcr(ioaddr, 32) | 0x0080);
+	    /* disable Auto Negotiation, set 10Mpbs, HD */
+	    val = lp->a.read_bcr(ioaddr, 32) & ~0xb8;
+	    if (lp->options & PCNET32_PORT_FD)
+		val |= 0x10;
+	    if (lp->options & PCNET32_PORT_100)
+		val |= 0x08;
+	    lp->a.write_bcr (ioaddr, 32, val);
+	} else {
+	    if (lp->options & PCNET32_PORT_ASEL) {
+		lp->a.write_bcr(ioaddr, 32,
+			lp->a.read_bcr(ioaddr, 32) | 0x0080);
+		/* enable auto negotiate, setup, disable fd */
+		val = lp->a.read_bcr(ioaddr, 32) & ~0x98;
+		val |= 0x20;
+		lp->a.write_bcr(ioaddr, 32, val);
+	    }
 	}
     }
 
