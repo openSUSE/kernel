@@ -936,12 +936,9 @@ EXPORT_SYMBOL(scsi_finish_command);
  * 		the right thing depending on whether or not the device is
  * 		currently active and whether or not it even has the
  * 		command blocks built yet.
- *
- * XXX(hch):	What exactly is device_request_lock trying to protect?
  */
 void scsi_adjust_queue_depth(struct scsi_device *sdev, int tagged, int tags)
 {
-	static DEFINE_SPINLOCK(device_request_lock);
 	unsigned long flags;
 
 	/*
@@ -950,8 +947,7 @@ void scsi_adjust_queue_depth(struct scsi_device *sdev, int tagged, int tags)
 	if (tags <= 0)
 		return;
 
-	spin_lock_irqsave(&device_request_lock, flags);
-	spin_lock(sdev->request_queue->queue_lock);
+	spin_lock_irqsave(sdev->request_queue->queue_lock, flags);
 
 	/* Check to see if the queue is managed by the block layer
 	 * if it is, and we fail to adjust the depth, exit */
@@ -980,8 +976,7 @@ void scsi_adjust_queue_depth(struct scsi_device *sdev, int tagged, int tags)
 			break;
 	}
  out:
-	spin_unlock(sdev->request_queue->queue_lock);
-	spin_unlock_irqrestore(&device_request_lock, flags);
+	spin_unlock_irqrestore(sdev->request_queue->queue_lock, flags);
 }
 EXPORT_SYMBOL(scsi_adjust_queue_depth);
 
