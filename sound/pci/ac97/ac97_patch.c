@@ -2094,6 +2094,34 @@ int patch_cm9761(ac97_t *ac97)
 	return 0;
 }
        
+/* CM9761-A is incompatible with CM9761 */
+int patch_cm9761a(ac97_t *ac97)
+{
+	unsigned short val;
+
+	ac97->build_ops = &patch_cm9761_ops;
+
+#if 0
+	/* enable spdif */
+	/* force the SPDIF bit in ext_id - codec doesn't set this bit! */
+        ac97->ext_id |= AC97_EI_SPDIF;
+	/* to be sure: we overwrite the ext status bits */
+	snd_ac97_write_cache(ac97, AC97_EXTENDED_STATUS, 0x05c0);
+	snd_ac97_write_cache(ac97, AC97_CM9761_SPDIF_CTRL, 0x0209);
+	ac97->rates[AC97_RATES_SPDIF] = SNDRV_PCM_RATE_48000; /* 48k only */
+#endif
+	/* set-up multi channel */
+	val = snd_ac97_read(ac97, AC97_CM9761_MULTI_CHAN);
+	val |= (1 << 4);
+	snd_ac97_write_cache(ac97, AC97_CM9761_MULTI_CHAN, val);
+
+	/* FIXME: set up GPIO */
+	snd_ac97_write_cache(ac97, 0x70, 0x0100);
+	snd_ac97_write_cache(ac97, 0x72, 0x0020);
+
+	return 0;
+}
+       
 
 /*
  * VIA VT1616 codec
