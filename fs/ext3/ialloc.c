@@ -474,11 +474,9 @@ repeat_in_this_group:
 		ino = ext3_find_next_zero_bit((unsigned long *)
 				bitmap_bh->b_data, EXT3_INODES_PER_GROUP(sb), ino);
 		if (ino < EXT3_INODES_PER_GROUP(sb)) {
-			int credits = 0;
 
 			BUFFER_TRACE(bitmap_bh, "get_write_access");
-			err = ext3_journal_get_write_access_credits(handle,
-							bitmap_bh, &credits);
+			err = ext3_journal_get_write_access(handle, bitmap_bh);
 			if (err)
 				goto fail;
 
@@ -494,7 +492,7 @@ repeat_in_this_group:
 				goto got;
 			}
 			/* we lost it */
-			journal_release_buffer(handle, bitmap_bh, credits);
+			journal_release_buffer(handle, bitmap_bh);
 
 			if (++ino < EXT3_INODES_PER_GROUP(sb))
 				goto repeat_in_this_group;

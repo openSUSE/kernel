@@ -342,7 +342,7 @@ do_more:
 	 */
 	/* @@@ check errors */
 	BUFFER_TRACE(bitmap_bh, "getting undo access");
-	err = ext3_journal_get_undo_access(handle, bitmap_bh, NULL);
+	err = ext3_journal_get_undo_access(handle, bitmap_bh);
 	if (err)
 		goto error_return;
 
@@ -991,7 +991,6 @@ ext3_try_to_allocate_with_rsv(struct super_block *sb, handle_t *handle,
 	unsigned long group_first_block;
 	int ret = 0;
 	int fatal;
-	int credits = 0;
 
 	*errp = 0;
 
@@ -1001,7 +1000,7 @@ ext3_try_to_allocate_with_rsv(struct super_block *sb, handle_t *handle,
 	 * if the buffer is in BJ_Forget state in the committing transaction.
 	 */
 	BUFFER_TRACE(bitmap_bh, "get undo access for new block");
-	fatal = ext3_journal_get_undo_access(handle, bitmap_bh, &credits);
+	fatal = ext3_journal_get_undo_access(handle, bitmap_bh);
 	if (fatal) {
 		*errp = fatal;
 		return -1;
@@ -1092,7 +1091,7 @@ out:
 	}
 
 	BUFFER_TRACE(bitmap_bh, "journal_release_buffer");
-	ext3_journal_release_buffer(handle, bitmap_bh, credits);
+	ext3_journal_release_buffer(handle, bitmap_bh);
 	return ret;
 }
 
