@@ -427,8 +427,6 @@ cumanascsi2_probe(struct expansion_card *ec, const struct ecard_id *id)
 		goto out_unmap;
 	}
 
-	host->base	  = (unsigned long)base;
-
 	ecard_set_drvdata(ec, host);
 
 	info = (struct cumanascsi2_info *)host->hostdata;

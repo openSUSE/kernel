@@ -305,8 +305,6 @@ arxescsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 		goto out_unmap;
 	}
 
-	host->base = (unsigned long)base;
-
 	info = (struct arxescsi_info *)host->hostdata;
 	info->ec = ec;
 	info->base = base;
