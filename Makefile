@@ -67,7 +67,7 @@ endif
 
 
 # kbuild supports saving output files in a separate directory.
-# To locate output files in a separate directory two syntax'es are supported.
+# To locate output files in a separate directory two syntaxes are supported.
 # In both cases the working directory must be the root of the kernel src.
 # 1) O=
 # Use "make O=dir/to/store/output/files/"
@@ -78,7 +78,8 @@ endif
 # export KBUILD_OUTPUT=dir/to/store/output/files/
 # make
 #
-# The O= assigment takes precedence over the KBUILD_OUTPUT environment variable.
+# The O= assignment takes precedence over the KBUILD_OUTPUT environment
+# variable.
 
 
 # KBUILD_SRC is set on invocation of make in OBJ directory
@@ -536,13 +537,10 @@ CFLAGS += $(call cc-option,-Wdeclaration-after-statement,)
 # disable pointer signedness warnings in gcc 4.0
 CFLAGS += $(call cc-option,-Wno-pointer-sign,)
 
-# disable pointer signedness warnings in gcc 4.0
-CFLAGS += $(call cc-option,-Wno-pointer-sign,)
-
 # Default kernel image to build when no specific target is given.
 # KBUILD_IMAGE may be overruled on the commandline or
 # set in the environment
-# Also any assingments in arch/$(ARCH)/Makefiel take precedence over
+# Also any assignments in arch/$(ARCH)/Makefile take precedence over
 # this default value
 export KBUILD_IMAGE ?= vmlinux
 
