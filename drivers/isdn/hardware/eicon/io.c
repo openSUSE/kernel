@@ -36,7 +36,7 @@
 extern ADAPTER * adapter[MAX_ADAPTER];
 extern PISDN_ADAPTER IoAdapters[MAX_ADAPTER];
 void request (PISDN_ADAPTER, ENTITY *);
-void pcm_req (PISDN_ADAPTER, ENTITY *);
+static void pcm_req (PISDN_ADAPTER, ENTITY *);
 /* --------------------------------------------------------------------------
   local functions
   -------------------------------------------------------------------------- */
@@ -118,7 +118,8 @@ dump_xlog_buffer (PISDN_ADAPTER IoAdapter, Xdesc *xlogDesc)
           &IoAdapter->Name[0]))
 }
 /*****************************************************************************/
-char *(ExceptionCauseTable[]) =
+#if defined(XDI_USE_XLOG)
+static char *(ExceptionCauseTable[]) =
 {
  "Interrupt",
  "TLB mod /IBOUND",
@@ -153,6 +154,7 @@ char *(ExceptionCauseTable[]) =
  "Reserved 30",
  "VCED"
 } ;
+#endif
 void
 dump_trap_frame (PISDN_ADAPTER IoAdapter, byte __iomem *exceptionFrame)
 {
@@ -227,10 +229,6 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY * e)
         if (pI->descriptor_number >= 0) {
           dword dma_magic;
           void* local_addr;
-#if 0
-          DBG_TRC(("A(%d) dma_alloc(%d)",
-                   IoAdapter->ANum, pI->descriptor_number))
-#endif
           diva_get_dma_map_entry (\
                                (struct _diva_dma_map_entry*)IoAdapter->dma_map,
                                pI->descriptor_number,
@@ -243,9 +241,6 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY * e)
         }
       } else if ((pI->operation == IDI_SYNC_REQ_DMA_DESCRIPTOR_FREE) &&
                  (pI->descriptor_number >= 0)) {
-#if 0
-        DBG_TRC(("A(%d) dma_free(%d)", IoAdapter->ANum, pI->descriptor_number))
-#endif
         diva_free_dma_map_entry((struct _diva_dma_map_entry*)IoAdapter->dma_map,
                                 pI->descriptor_number);
         pI->descriptor_number = -1;
@@ -369,9 +364,6 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY * e)
   }
   if ( IoAdapter )
   {
-#if 0
-   DBG_FTL(("xdi: unknown Req 0 / Rc %d !", e->Rc))
-#endif
    return ;
   }
  }
@@ -506,7 +498,7 @@ void DIDpcRoutine (struct _diva_os_soft_isr* psoft_isr, void* Context) {
 /* --------------------------------------------------------------------------
   XLOG interface
   -------------------------------------------------------------------------- */
-void
+static void
 pcm_req (PISDN_ADAPTER IoAdapter, ENTITY *e)
 {
  diva_os_spin_lock_magic_t OldIrql ;
@@ -857,27 +849,4 @@ void CALLBACK(ADAPTER * a, ENTITY * e)
 {
  if ( e && e->callback )
   e->callback (e) ;
-}
-/* --------------------------------------------------------------------------
-  routines for aligned reading and writing on RISC
-  -------------------------------------------------------------------------- */
-void outp_words_from_buffer (word __iomem * adr, byte* P, dword len)
-{
-  dword i = 0;
-  word w;
-  while (i < (len & 0xfffffffe)) {
-    w = P[i++];
-    w += (P[i++])<<8;
-    outppw (adr, w);
-  }
-}
-void inp_words_to_buffer (word __iomem * adr, byte* P, dword len)
-{
-  dword i = 0;
-  word w;
-  while (i < (len & 0xfffffffe)) {
-    w = inppw (adr);
-    P[i++] = (byte)(w);
-    P[i++] = (byte)(w>>8);
-  }
 }

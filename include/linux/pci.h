@@ -549,8 +549,6 @@ struct pci_dev {
 	unsigned int	irq;
 	struct resource resource[DEVICE_COUNT_RESOURCE]; /* I/O and memory regions + expansion ROMs */
 
-	char *		slot_name;	/* pointer to dev.bus_id */
-
 	/* These fields are used by common fixups */
 	unsigned int	transparent:1;	/* Transparent PCI bridge */
 	unsigned int	multifunction:1;/* Part of multi-function device */
@@ -642,8 +640,10 @@ struct pci_ops {
 };
 
 struct pci_raw_ops {
-	int (*read)(int dom, int bus, int devfn, int reg, int len, u32 *val);
-	int (*write)(int dom, int bus, int devfn, int reg, int len, u32 val);
+	int (*read)(unsigned int domain, unsigned int bus, unsigned int devfn,
+		    int reg, int len, u32 *val);
+	int (*write)(unsigned int domain, unsigned int bus, unsigned int devfn,
+		     int reg, int len, u32 val);
 };
 
 extern struct pci_raw_ops *raw_pci_ops;
@@ -966,9 +966,8 @@ static inline int pci_enable_wake(struct pci_dev *dev, pci_power_t state, int en
  */
 #ifndef CONFIG_PCI_DOMAINS
 static inline int pci_domain_nr(struct pci_bus *bus) { return 0; }
-static inline int pci_name_bus(char *name, struct pci_bus *bus)
+static inline int pci_proc_domain(struct pci_bus *bus)
 {
-	sprintf(name, "%02x", bus->number);
 	return 0;
 }
 #endif

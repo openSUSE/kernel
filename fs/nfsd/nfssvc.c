@@ -60,7 +60,7 @@ struct nfsd_list {
 	struct list_head 	list;
 	struct task_struct	*task;
 };
-struct list_head nfsd_list = LIST_HEAD_INIT(nfsd_list);
+static struct list_head nfsd_list = LIST_HEAD_INIT(nfsd_list);
 
 /*
  * Maximum number of nfsd processes
@@ -378,4 +378,6 @@ struct svc_program		nfsd_program = {
 	.pg_name		= "nfsd",		/* program name */
 	.pg_class		= "nfsd",		/* authentication class */
 	.pg_stats		= &nfsd_svcstats,	/* version table */
+	.pg_authenticate	= &svc_set_client,	/* export authentication */
+
 };

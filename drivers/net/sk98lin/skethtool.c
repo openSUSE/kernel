@@ -257,7 +257,7 @@ static void getDriverInfo(struct net_device *dev, struct ethtool_drvinfo *info)
 	strlcpy(info->driver, DRIVER_FILE_NAME, sizeof(info->driver));
 	strcpy(info->version, vers);
 	strcpy(info->fw_version, "N/A");
-	strlcpy(info->bus_info, pAC->PciDev->slot_name, ETHTOOL_BUSINFO_LEN);
+	strlcpy(info->bus_info, pci_name(pAC->PciDev), ETHTOOL_BUSINFO_LEN);
 }
 
 /*

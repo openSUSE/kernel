@@ -730,6 +730,19 @@ struct gss_svc_data {
 	struct rsc			*rsci;
 };
 
+static int
+svcauth_gss_set_client(struct svc_rqst *rqstp)
+{
+	struct gss_svc_data *svcdata = rqstp->rq_auth_data;
+	struct rsc *rsci = svcdata->rsci;
+	struct rpc_gss_wire_cred *gc = &svcdata->clcred;
+
+	rqstp->rq_client = find_gss_auth_domain(rsci->mechctx, gc->gc_svc);
+	if (rqstp->rq_client == NULL)
+		return SVC_DENIED;
+	return SVC_OK;
+}
+
 /*
  * Accept an rpcsec packet.
  * If context establishment, punt to user space
@@ -893,11 +906,6 @@ svcauth_gss_accept(struct svc_rqst *rqstp, u32 *authp)
 		svc_putu32(resv, rpc_success);
 		goto complete;
 	case RPC_GSS_PROC_DATA:
-		*authp = rpc_autherr_badcred;
-		rqstp->rq_client =
-			find_gss_auth_domain(rsci->mechctx, gc->gc_svc);
-		if (rqstp->rq_client == NULL)
-			goto auth_err;
 		*authp = rpcsec_gsserr_ctxproblem;
 		if (gss_write_verf(rqstp, rsci->mechctx, gc->gc_seq))
 			goto auth_err;
@@ -911,8 +919,6 @@ svcauth_gss_accept(struct svc_rqst *rqstp, u32 *authp)
 			if (unwrap_integ_data(&rqstp->rq_arg,
 					gc->gc_seq, rsci->mechctx))
 				goto auth_err;
-			svcdata->rsci = rsci;
-			cache_get(&rsci->h);
 			/* placeholders for length and seq. number: */
 			svcdata->body_start = resv->iov_base + resv->iov_len;
 			svc_putu32(resv, 0);
@@ -923,6 +929,8 @@ svcauth_gss_accept(struct svc_rqst *rqstp, u32 *authp)
 		default:
 			goto auth_err;
 		}
+		svcdata->rsci = rsci;
+		cache_get(&rsci->h);
 		ret = SVC_OK;
 		goto out;
 	}
@@ -1052,6 +1060,7 @@ static struct auth_ops svcauthops_gss = {
 	.accept		= svcauth_gss_accept,
 	.release	= svcauth_gss_release,
 	.domain_release = svcauth_gss_domain_release,
+	.set_client	= svcauth_gss_set_client,
 };
 
 int

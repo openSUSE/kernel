@@ -238,7 +238,7 @@ fix_alignment(struct pt_regs *regs)
 
 	dsisr = regs->dsisr;
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_NODSISRALIGN) {
+	if (cpu_has_feature(CPU_FTR_NODSISRALIGN)) {
 	    unsigned int real_instr;
 	    if (__get_user(real_instr, (unsigned int __user *)regs->nip))
 		return 0;

@@ -6,7 +6,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2004, R. Byron Moore
+ * Copyright (C) 2000 - 2005, R. Byron Moore
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -576,6 +576,13 @@ acpi_ds_exec_end_op (
 
 				status = acpi_ds_eval_data_object_operands (walk_state, op, NULL);
 				break;
+			}
+
+			/* Done with this result state (Now that operand stack is built) */
+
+			status = acpi_ds_result_stack_pop (walk_state);
+			if (ACPI_FAILURE (status)) {
+				goto cleanup;
 			}
 
 			/*

@@ -104,6 +104,8 @@
  * Corrections from Nikolai Malykh (nmalykh@bilim.com) 
  * Removed unused flags F_SET_SRCMAC & F_SET_SRCIP 041230
  *
+ * interruptible_sleep_on_timeout() replaced Nishanth Aravamudan <nacc@us.ibm.com> 
+ * 050103
  */
 #include <linux/sys.h>
 #include <linux/types.h>
@@ -135,6 +137,7 @@
 #include <linux/ipv6.h>
 #include <linux/udp.h>
 #include <linux/proc_fs.h>
+#include <linux/wait.h>
 #include <net/checksum.h>
 #include <net/ipv6.h>
 #include <net/addrconf.h>
@@ -148,7 +151,7 @@
 #include <asm/timex.h>
 
 
-#define VERSION  "pktgen v2.54: Packet Generator for packet performance testing.\n"
+#define VERSION  "pktgen v2.58: Packet Generator for packet performance testing.\n"
 
 /* #define PG_DEBUG(a) a */
 #define PG_DEBUG(a) 
@@ -166,9 +169,6 @@
 #define F_MACDST_RND  (1<<5)  /* MAC-Dst Random */
 #define F_TXSIZE_RND  (1<<6)  /* Transmit size is random */
 #define F_IPV6        (1<<7)  /* Interface in IPV6 Mode */
-
-#define L_PUSH(t, i)              {i->next = t; t=i;}
-#define L_POP(t, i)               {i=t; if(i) t = i->next;}
 
 /* Thread control flag bits */
 #define T_TERMINATE   (1<<0)  
@@ -473,13 +473,13 @@ static inline __u64 tv_diff(const struct timeval* a, const struct timeval* b)
 
 static char version[] __initdata = VERSION;
 
-static ssize_t proc_pgctrl_read(struct file* file, char * buf, size_t count, loff_t *ppos);
-static ssize_t proc_pgctrl_write(struct file* file, const char * buf, size_t count, loff_t *ppos);
+static ssize_t proc_pgctrl_read(struct file* file, char __user * buf, size_t count, loff_t *ppos);
+static ssize_t proc_pgctrl_write(struct file* file, const char __user * buf, size_t count, loff_t *ppos);
 static int proc_if_read(char *buf , char **start, off_t offset, int len, int *eof, void *data);
 
 static int proc_thread_read(char *buf , char **start, off_t offset, int len, int *eof, void *data);
-static int proc_if_write(struct file *file, const char *user_buffer, unsigned long count, void *data);
-static int proc_thread_write(struct file *file, const char *user_buffer, unsigned long count, void *data);
+static int proc_if_write(struct file *file, const char __user *user_buffer, unsigned long count, void *data);
+static int proc_thread_write(struct file *file, const char __user *user_buffer, unsigned long count, void *data);
 static int create_proc_dir(void);
 static int remove_proc_dir(void);
 
@@ -510,7 +510,7 @@ static char module_fname[128];
 static struct proc_dir_entry *module_proc_ent = NULL;
 
 static struct notifier_block pktgen_notifier_block = {
-	notifier_call: pktgen_device_event,
+	.notifier_call = pktgen_device_event,
 };
 
 static struct file_operations pktgen_fops = {
@@ -527,7 +527,7 @@ static struct file_operations pktgen_fops = {
 static struct proc_dir_entry *pg_proc_dir = NULL;
 static int proc_pgctrl_read_eof=0;
 
-static ssize_t proc_pgctrl_read(struct file* file, char * buf,
+static ssize_t proc_pgctrl_read(struct file* file, char __user * buf,
                                  size_t count, loff_t *ppos)
 { 
 	char data[200];
@@ -560,7 +560,7 @@ static ssize_t proc_pgctrl_read(struct file* file, char * buf,
 	return len;
 }
 
-static ssize_t proc_pgctrl_write(struct file* file,const char * buf,
+static ssize_t proc_pgctrl_write(struct file* file,const char __user * buf,
 				 size_t count, loff_t *ppos)
 {
 	char *data = NULL;
@@ -734,7 +734,7 @@ static int proc_if_read(char *buf , char **start, off_t offset,
 }
 
 
-static int count_trail_chars(const char *user_buffer, unsigned int maxlen)
+static int count_trail_chars(const char __user *user_buffer, unsigned int maxlen)
 {
 	int i;
 
@@ -758,7 +758,7 @@ done:
 	return i;
 }
 
-static unsigned long num_arg(const char *user_buffer, unsigned long maxlen, 
+static unsigned long num_arg(const char __user *user_buffer, unsigned long maxlen, 
 			     unsigned long *num)
 {
 	int i = 0;
@@ -777,7 +777,7 @@ static unsigned long num_arg(const char *user_buffer, unsigned long maxlen,
 	return i;
 }
 
-static int strn_len(const char *user_buffer, unsigned int maxlen)
+static int strn_len(const char __user *user_buffer, unsigned int maxlen)
 {
 	int i = 0;
 
@@ -802,7 +802,7 @@ done_str:
 	return i;
 }
 
-static int proc_if_write(struct file *file, const char *user_buffer,
+static int proc_if_write(struct file *file, const char __user *user_buffer,
                             unsigned long count, void *data)
 {
 	int i = 0, max, len;
@@ -811,6 +811,7 @@ static int proc_if_write(struct file *file, const char *user_buffer,
         struct pktgen_dev *pkt_dev = (struct pktgen_dev*)(data);
         char* pg_result = NULL;
         int tmp = 0;
+	char buf[128];
         
         pg_result = &(pkt_dev->result[0]);
         
@@ -1071,7 +1072,6 @@ static int proc_if_write(struct file *file, const char *user_buffer,
 		return count;
 	}
 	if (!strcmp(name, "dst_min") || !strcmp(name, "dst")) {
-                char buf[IP_NAME_SZ];
 		len = strn_len(&user_buffer[i], sizeof(pkt_dev->dst_min) - 1);
                 if (len < 0) { return len; }
 
@@ -1091,7 +1091,6 @@ static int proc_if_write(struct file *file, const char *user_buffer,
 		return count;
 	}
 	if (!strcmp(name, "dst_max")) {
-                char buf[IP_NAME_SZ];
 		len = strn_len(&user_buffer[i], sizeof(pkt_dev->dst_max) - 1);
                 if (len < 0) { return len; }
 
@@ -1112,9 +1111,7 @@ static int proc_if_write(struct file *file, const char *user_buffer,
 		return count;
 	}
 	if (!strcmp(name, "dst6")) {
-                char buf[128];
-
-		len = strn_len(&user_buffer[i], 128 - 1);
+		len = strn_len(&user_buffer[i], sizeof(buf) - 1);
                 if (len < 0) return len; 
 
 		pkt_dev->flags |= F_IPV6;
@@ -1136,9 +1133,7 @@ static int proc_if_write(struct file *file, const char *user_buffer,
 		return count;
 	}
 	if (!strcmp(name, "dst6_min")) {
-                char buf[128];
-
-		len = strn_len(&user_buffer[i], 128 - 1);
+		len = strn_len(&user_buffer[i], sizeof(buf) - 1);
                 if (len < 0) return len; 
 
 		pkt_dev->flags |= F_IPV6;
@@ -1159,9 +1154,7 @@ static int proc_if_write(struct file *file, const char *user_buffer,
 		return count;
 	}
 	if (!strcmp(name, "dst6_max")) {
-                char buf[128];
-
-		len = strn_len(&user_buffer[i], 128 - 1);
+		len = strn_len(&user_buffer[i], sizeof(buf) - 1);
                 if (len < 0) return len; 
 
 		pkt_dev->flags |= F_IPV6;
@@ -1181,9 +1174,7 @@ static int proc_if_write(struct file *file, const char *user_buffer,
 		return count;
 	}
 	if (!strcmp(name, "src6")) {
-                char buf[128];
-
-		len = strn_len(&user_buffer[i], 128 - 1);
+		len = strn_len(&user_buffer[i], sizeof(buf) - 1);
                 if (len < 0) return len; 
 
 		pkt_dev->flags |= F_IPV6;
@@ -1205,7 +1196,6 @@ static int proc_if_write(struct file *file, const char *user_buffer,
 		return count;
 	}
 	if (!strcmp(name, "src_min")) {
-                char buf[IP_NAME_SZ];
 		len = strn_len(&user_buffer[i], sizeof(pkt_dev->src_min) - 1);
                 if (len < 0) { return len; }
                 if (copy_from_user(buf, &user_buffer[i], len))
@@ -1224,7 +1214,6 @@ static int proc_if_write(struct file *file, const char *user_buffer,
 		return count;
 	}
 	if (!strcmp(name, "src_max")) {
-                char buf[IP_NAME_SZ];
 		len = strn_len(&user_buffer[i], sizeof(pkt_dev->src_max) - 1);
                 if (len < 0) { return len; }
                 if (copy_from_user(buf, &user_buffer[i], len))
@@ -1366,19 +1355,15 @@ static int proc_thread_read(char *buf , char **start, off_t offset,
         p += sprintf(p, "Running: ");
         
         if_lock(t);
-        pkt_dev = t->if_list;
-        while (pkt_dev && pkt_dev->running) {
-                p += sprintf(p, "%s ", pkt_dev->ifname);
-                pkt_dev = pkt_dev->next;
-        }
+        for(pkt_dev = t->if_list;pkt_dev; pkt_dev = pkt_dev->next) 
+		if(pkt_dev->running)
+			p += sprintf(p, "%s ", pkt_dev->ifname);
+        
         p += sprintf(p, "\nStopped: ");
 
-        pkt_dev = t->if_list;
-        while (pkt_dev && !pkt_dev->running) {
-                p += sprintf(p, "%s ", pkt_dev->ifname);
-                pkt_dev = pkt_dev->next;
-        }
-
+        for(pkt_dev = t->if_list;pkt_dev; pkt_dev = pkt_dev->next) 
+		if(!pkt_dev->running)
+			p += sprintf(p, "%s ", pkt_dev->ifname);
 
 	if (t->result[0])
 		p += sprintf(p, "\nResult: %s\n", t->result);
@@ -1392,7 +1377,7 @@ static int proc_thread_read(char *buf , char **start, off_t offset,
 	return p - buf;
 }
 
-static int proc_thread_write(struct file *file, const char *user_buffer,
+static int proc_thread_write(struct file *file, const char __user *user_buffer,
                                 unsigned long count, void *data)
 {
 	int i = 0, max, len, ret;
@@ -2393,7 +2378,7 @@ static void pktgen_stop_all_threads_ifs(void)
        thread_unlock();
 }
 
-static int running(struct pktgen_thread *t )
+static int thread_is_running(struct pktgen_thread *t )
 {
         struct pktgen_dev *next;
         int res = 0;
@@ -2409,16 +2394,14 @@ static int running(struct pktgen_thread *t )
 
 static int pktgen_wait_thread_run(struct pktgen_thread *t )
 {
-        wait_queue_head_t queue;
-        
-        init_waitqueue_head(&queue);
-        
         if_lock(t);
 
-        while(running(t)) {
+        while(thread_is_running(t)) {
+
                 if_unlock(t);
-        
-                interruptible_sleep_on_timeout(&queue, HZ/10);
+
+		msleep_interruptible(100); 
+
                 if (signal_pending(current)) 
                         goto signal;
                 if_lock(t);
@@ -2520,13 +2503,15 @@ static int pktgen_stop_device(struct pktgen_dev *pkt_dev)
                 return -EINVAL;
         }
 
-	if (pkt_dev->skb) 
-		kfree_skb(pkt_dev->skb);
-
         pkt_dev->stopped_at = getCurUs();
         pkt_dev->running = 0;
 
 	show_results(pkt_dev, skb_shinfo(pkt_dev->skb)->nr_frags);
+
+	if (pkt_dev->skb) 
+		kfree_skb(pkt_dev->skb);
+
+	pkt_dev->skb = NULL;
 	
         return 0;
 }
@@ -2743,6 +2728,7 @@ retry_now:
 
 static void pktgen_thread_worker(struct pktgen_thread *t) 
 {
+	DEFINE_WAIT(wait);
         struct pktgen_dev *pkt_dev = NULL;
 	int cpu = t->cpu;
 	sigset_t tmpsig;
@@ -2810,9 +2796,11 @@ static void pktgen_thread_worker(struct pktgen_thread *t)
 					do_softirq();
 				tx_since_softirq = 0;
 			}
+		} else {
+			prepare_to_wait(&(t->queue), &wait, TASK_INTERRUPTIBLE);
+			schedule_timeout(HZ/10);
+			finish_wait(&(t->queue), &wait);
 		}
-                else 
-                        interruptible_sleep_on_timeout(&(t->queue), HZ/10);
 
                 /* 
 		 * Back from sleep, either due to the timeout or signal.
@@ -2860,10 +2848,10 @@ static struct pktgen_dev *pktgen_find_dev(struct pktgen_thread *t, const char* i
 
         for(pkt_dev=t->if_list; pkt_dev; pkt_dev = pkt_dev->next ) {
                 if (strcmp(pkt_dev->ifname, ifname) == 0) {
-                        goto out;
+                        break;
                 }
         }
- out:
+
         if_unlock(t);
 	PG_DEBUG(printk("pktgen: find_dev(%s) returning %p\n", ifname,pkt_dev));
         return pkt_dev;
@@ -2884,8 +2872,7 @@ static int add_dev_to_thread(struct pktgen_thread *t, struct pktgen_dev *pkt_dev
                 rv = -EBUSY;
                 goto out;
         }
-
-	L_PUSH(t->if_list, pkt_dev);
+	pkt_dev->next =t->if_list; t->if_list=pkt_dev;
         pkt_dev->pg_thread = t;
 	pkt_dev->running = 0;
 
@@ -2941,7 +2928,7 @@ static int pktgen_add_device(struct pktgen_thread *t, const char* ifname)
                         return -ENODEV;
                 }
 
-                pkt_dev->proc_ent = create_proc_entry(pkt_dev->fname, 0600, 0);
+                pkt_dev->proc_ent = create_proc_entry(pkt_dev->fname, 0600, NULL);
                 if (!pkt_dev->proc_ent) {
                         printk("pktgen: cannot create %s procfs entry.\n", pkt_dev->fname);
 			if (pkt_dev->flows)
@@ -3005,7 +2992,7 @@ static int pktgen_create_thread(const char* name, int cpu)
 	t->cpu = cpu;
         
         sprintf(t->fname, "net/%s/%s", PG_PROC_DIR, t->name);
-        t->proc_ent = create_proc_entry(t->fname, 0600, 0);
+        t->proc_ent = create_proc_entry(t->fname, 0600, NULL);
         if (!t->proc_ent) {
                 printk("pktgen: cannot create %s procfs entry.\n", t->fname);
                 kfree(t);
@@ -3088,7 +3075,7 @@ static int __init pg_init(void)
 	create_proc_dir();
 
         sprintf(module_fname, "net/%s/pgctrl", PG_PROC_DIR);
-        module_proc_ent = create_proc_entry(module_fname, 0600, 0);
+        module_proc_ent = create_proc_entry(module_fname, 0600, NULL);
         if (!module_proc_ent) {
                 printk("pktgen: ERROR: cannot create %s procfs entry.\n", module_fname);
                 return -EINVAL;
@@ -3123,8 +3110,7 @@ static void __exit pg_cleanup(void)
                 struct pktgen_thread *t = pktgen_threads;
                 pktgen_threads->control |= (T_TERMINATE);
 
-                while( t == pktgen_threads) 
-                        interruptible_sleep_on_timeout(&queue, HZ);
+		wait_event_interruptible_timeout(queue, (t != pktgen_threads), HZ);
         }
 
         /* Un-register us from receiving netdevice events */

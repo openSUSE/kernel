@@ -231,7 +231,7 @@ config SA1111
 
 config SHARP_LOCOMO
 	bool
-	depends on SA1100_COLLIE
+	depends on SA1100_COLLIE || MACH_POODLE
 	default y
 
 config SHARP_SCOOP

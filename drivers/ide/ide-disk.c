@@ -119,9 +119,8 @@ static int lba_capacity_is_ok (struct hd_driveid *id)
 /*
  * __ide_do_rw_disk() issues READ and WRITE commands to a disk,
  * using LBA if supported, or CHS otherwise, to address sectors.
- * It also takes care of issuing special DRIVE_CMDs.
  */
-ide_startstop_t __ide_do_rw_disk (ide_drive_t *drive, struct request *rq, sector_t block)
+static ide_startstop_t __ide_do_rw_disk(ide_drive_t *drive, struct request *rq, sector_t block)
 {
 	ide_hwif_t *hwif	= HWIF(drive);
 	unsigned int dma	= drive->using_dma;
@@ -132,7 +131,7 @@ ide_startstop_t __ide_do_rw_disk (ide_drive_t *drive, struct request *rq, sector
 	nsectors.all		= (u16) rq->nr_sectors;
 
 	if (hwif->no_lba48_dma && lba48 && dma) {
-		if (rq->sector + rq->nr_sectors > 1ULL << 28)
+		if (block + rq->nr_sectors > 1ULL << 28)
 			dma = 0;
 	}
 
@@ -253,11 +252,9 @@ ide_startstop_t __ide_do_rw_disk (ide_drive_t *drive, struct request *rq, sector
 		/* FIXME: ->OUTBSYNC ? */
 		hwif->OUTB(command, IDE_COMMAND_REG);
 
-		pre_task_out_intr(drive, rq);
-		return ide_started;
+		return pre_task_out_intr(drive, rq);
 	}
 }
-EXPORT_SYMBOL_GPL(__ide_do_rw_disk);
 
 /*
  * 268435455  == 137439 MB or 28bit limit
@@ -282,9 +279,9 @@ static ide_startstop_t ide_do_rw_disk (ide_drive_t *drive, struct request *rq, s
 		 block, rq->nr_sectors, (unsigned long)rq->buffer);
 
 	if (hwif->rw_disk)
-		return hwif->rw_disk(drive, rq, block);
-	else
-		return __ide_do_rw_disk(drive, rq, block);
+		hwif->rw_disk(drive, rq);
+
+	return __ide_do_rw_disk(drive, rq, block);
 }
 
 /*

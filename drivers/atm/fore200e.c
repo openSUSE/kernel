@@ -39,6 +39,7 @@
 #include <linux/sonet.h>
 #include <linux/atm_suni.h>
 #include <linux/dma-mapping.h>
+#include <linux/delay.h>
 #include <asm/io.h>
 #include <asm/string.h>
 #include <asm/page.h>
@@ -1779,7 +1780,7 @@ fore200e_send(struct atm_vcc *vcc, struct sk_buff *skb)
 
 	    /* retry once again? */
 	    if (--retry > 0) {
-		schedule();
+		udelay(50);
 		goto retry_here;
 	    }
 

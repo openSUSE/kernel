@@ -29,12 +29,13 @@
 #include <asm/mach/map.h>
 #include <asm/mach/irq.h>
 
+#include <asm/hardware/sa1111.h>
+
 #include <asm/arch/pxa-regs.h>
 #include <asm/arch/lubbock.h>
 #include <asm/arch/udc.h>
 #include <asm/arch/pxafb.h>
 #include <asm/arch/mmc.h>
-#include <asm/hardware/sa1111.h>
 
 #include "generic.h"
 
@@ -137,6 +138,7 @@ static struct platform_device sa1111_device = {
 
 static struct resource smc91x_resources[] = {
 	[0] = {
+		.name	= "smc91x-regs",
 		.start	= 0x0c000000,
 		.end	= 0x0c0fffff,
 		.flags	= IORESOURCE_MEM,
@@ -147,6 +149,7 @@ static struct resource smc91x_resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
+		.name	= "smc91x-attrib",
 		.start	= 0x0e000000,
 		.end	= 0x0e0fffff,
 		.flags	= IORESOURCE_MEM,

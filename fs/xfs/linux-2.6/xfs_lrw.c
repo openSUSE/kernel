@@ -317,7 +317,7 @@ xfs_read(
 	xfs_rw_enter_trace(XFS_READ_ENTER, &ip->i_iocore,
 				(void *)iovp, segs, *offset, ioflags);
 	ret = __generic_file_aio_read(iocb, iovp, segs, offset);
-	if (ret == -EIOCBQUEUED)
+	if (ret == -EIOCBQUEUED && !(ioflags & IO_ISAIO))
 		ret = wait_on_sync_kiocb(iocb);
 	if (ret > 0)
 		XFS_STATS_ADD(xs_read_bytes, ret);
@@ -676,6 +676,8 @@ xfs_write(
 	if (XFS_FORCED_SHUTDOWN(mp))
 		return -EIO;
 
+	fs_check_frozen(vp->v_vfsp, SB_FREEZE_WRITE);
+
 	if (ioflags & IO_ISDIRECT) {
 		xfs_buftarg_t	*target =
 			(xip->i_d.di_flags & XFS_DIFLAG_REALTIME) ?
@@ -854,7 +856,7 @@ retry:
 
 	current->backing_dev_info = NULL;
 
-	if (ret == -EIOCBQUEUED)
+	if (ret == -EIOCBQUEUED && !(ioflags & IO_ISAIO))
 		ret = wait_on_sync_kiocb(iocb);
 
 	if ((ret == -ENOSPC) &&
@@ -960,9 +962,9 @@ retry:
 				xfs_trans_set_sync(tp);
 				error = xfs_trans_commit(tp, 0, NULL);
 				xfs_iunlock(xip, XFS_ILOCK_EXCL);
-				if (error)
-					goto out_unlock_internal;
 			}
+			if (error)
+				goto out_unlock_internal;
 		}
 	
 		xfs_rwunlock(bdp, locktype);

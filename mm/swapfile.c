@@ -24,7 +24,6 @@
 #include <linux/module.h>
 #include <linux/rmap.h>
 #include <linux/security.h>
-#include <linux/acct.h>
 #include <linux/backing-dev.h>
 #include <linux/syscalls.h>
 
@@ -292,10 +291,10 @@ static int exclusive_swap_page(struct page *page)
 		/* Is the only swap cache user the cache itself? */
 		if (p->swap_map[swp_offset(entry)] == 1) {
 			/* Recheck the page count with the swapcache lock held.. */
-			spin_lock_irq(&swapper_space.tree_lock);
+			write_lock_irq(&swapper_space.tree_lock);
 			if (page_count(page) == 2)
 				retval = 1;
-			spin_unlock_irq(&swapper_space.tree_lock);
+			write_unlock_irq(&swapper_space.tree_lock);
 		}
 		swap_info_put(p);
 	}
@@ -363,13 +362,13 @@ int remove_exclusive_swap_page(struct page *page)
 	retval = 0;
 	if (p->swap_map[swp_offset(entry)] == 1) {
 		/* Recheck the page count with the swapcache lock held.. */
-		spin_lock_irq(&swapper_space.tree_lock);
+		write_lock_irq(&swapper_space.tree_lock);
 		if ((page_count(page) == 2) && !PageWriteback(page)) {
 			__delete_from_swap_cache(page);
 			SetPageDirty(page);
 			retval = 1;
 		}
-		spin_unlock_irq(&swapper_space.tree_lock);
+		write_unlock_irq(&swapper_space.tree_lock);
 	}
 	swap_info_put(p);
 
@@ -393,12 +392,12 @@ void free_swap_and_cache(swp_entry_t entry)
 	p = swap_info_get(entry);
 	if (p) {
 		if (swap_entry_free(p, swp_offset(entry)) == 1) {
-			spin_lock_irq(&swapper_space.tree_lock);
+			read_lock_irq(&swapper_space.tree_lock);
 			page = radix_tree_lookup(&swapper_space.page_tree,
 				entry.val);
 			if (page && TestSetPageLocked(page))
 				page = NULL;
-			spin_unlock_irq(&swapper_space.tree_lock);
+			read_unlock_irq(&swapper_space.tree_lock);
 		}
 		swap_info_put(p);
 	}
@@ -437,8 +436,6 @@ unuse_pte(struct vm_area_struct *vma, unsigned long address, pte_t *dir,
 	set_pte(dir, pte_mkold(mk_pte(page, vma->vm_page_prot)));
 	page_add_anon_rmap(page, vma, address);
 	swap_free(entry);
-	acct_update_integrals();
-	update_mem_hiwater();
 }
 
 /* vma->vm_mm->page_table_lock is held */

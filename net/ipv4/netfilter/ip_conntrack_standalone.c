@@ -384,14 +384,19 @@ static unsigned int ip_conntrack_defrag(unsigned int hooknum,
 				        const struct net_device *out,
 				        int (*okfn)(struct sk_buff *))
 {
+#if !defined(CONFIG_IP_NF_NAT) && !defined(CONFIG_IP_NF_NAT_MODULE)
 	/* Previously seen (loopback)?  Ignore.  Do this before
            fragment check. */
 	if ((*pskb)->nfct)
 		return NF_ACCEPT;
+#endif
 
 	/* Gather fragments. */
 	if ((*pskb)->nh.iph->frag_off & htons(IP_MF|IP_OFFSET)) {
-		*pskb = ip_ct_gather_frags(*pskb);
+		*pskb = ip_ct_gather_frags(*pskb,
+		                           hooknum == NF_IP_PRE_ROUTING ? 
+					   IP_DEFRAG_CONNTRACK_IN :
+					   IP_DEFRAG_CONNTRACK_OUT);
 		if (!*pskb)
 			return NF_STOLEN;
 	}
@@ -823,12 +828,6 @@ static int init_or_cleanup(int init)
  cleanup_defraglocalops:
 	nf_unregister_hook(&ip_conntrack_defrag_local_out_ops);
  cleanup_defragops:
-	/* Frag queues may hold fragments with skb->dst == NULL */
-	ip_ct_no_defrag = 1;
-	synchronize_net();
-	local_bh_disable();
-	ipfrag_flush();
-	local_bh_enable();
 	nf_unregister_hook(&ip_conntrack_defrag_ops);
  cleanup_proc_stat:
 #ifdef CONFIG_PROC_FS

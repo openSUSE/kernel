@@ -53,7 +53,8 @@ struct mthca_mpt_entry {
 	u32 window_count;
 	u32 window_count_limit;
 	u64 mtt_seg;
-	u32 reserved[3];
+	u32 mtt_sz;		/* Arbel only */
+	u32 reserved[2];
 } __attribute__((packed));
 
 #define MTHCA_MPT_FLAG_SW_OWNS       (0xfUL << 28)
@@ -121,21 +122,38 @@ static void mthca_free_mtt(struct mthca_dev *dev, u32 seg, int order)
 	spin_unlock(&dev->mr_table.mpt_alloc.lock);
 }
 
+static inline u32 hw_index_to_key(struct mthca_dev *dev, u32 ind)
+{
+	if (dev->hca_type == ARBEL_NATIVE)
+		return (ind >> 24) | (ind << 8);
+	else
+		return ind;
+}
+
+static inline u32 key_to_hw_index(struct mthca_dev *dev, u32 key)
+{
+	if (dev->hca_type == ARBEL_NATIVE)
+		return (key << 24) | (key >> 8);
+	else
+		return key;
+}
+
 int mthca_mr_alloc_notrans(struct mthca_dev *dev, u32 pd,
 			   u32 access, struct mthca_mr *mr)
 {
 	void *mailbox;
 	struct mthca_mpt_entry *mpt_entry;
+	u32 key;
 	int err;
 	u8 status;
 
 	might_sleep();
 
 	mr->order = -1;
-	mr->ibmr.lkey = mthca_alloc(&dev->mr_table.mpt_alloc);
-	if (mr->ibmr.lkey == -1)
+	key = mthca_alloc(&dev->mr_table.mpt_alloc);
+	if (key == -1)
 		return -ENOMEM;
-	mr->ibmr.rkey = mr->ibmr.lkey;
+	mr->ibmr.rkey = mr->ibmr.lkey = hw_index_to_key(dev, key);
 
 	mailbox = kmalloc(sizeof *mpt_entry + MTHCA_CMD_MAILBOX_EXTRA,
 			  GFP_KERNEL);
@@ -151,7 +169,7 @@ int mthca_mr_alloc_notrans(struct mthca_dev *dev, u32 pd,
 				       MTHCA_MPT_FLAG_REGION      |
 				       access);
 	mpt_entry->page_size = 0;
-	mpt_entry->key       = cpu_to_be32(mr->ibmr.lkey);
+	mpt_entry->key       = cpu_to_be32(key);
 	mpt_entry->pd        = cpu_to_be32(pd);
 	mpt_entry->start     = 0;
 	mpt_entry->length    = ~0ULL;
@@ -160,7 +178,7 @@ int mthca_mr_alloc_notrans(struct mthca_dev *dev, u32 pd,
 	       sizeof *mpt_entry - offsetof(struct mthca_mpt_entry, lkey));
 
 	err = mthca_SW2HW_MPT(dev, mpt_entry,
-			      mr->ibmr.lkey & (dev->limits.num_mpts - 1),
+			      key & (dev->limits.num_mpts - 1),
 			      &status);
 	if (err)
 		mthca_warn(dev, "SW2HW_MPT failed (%d)\n", err);
@@ -182,6 +200,7 @@ int mthca_mr_alloc_phys(struct mthca_dev *dev, u32 pd,
 	void *mailbox;
 	u64 *mtt_entry;
 	struct mthca_mpt_entry *mpt_entry;
+	u32 key;
 	int err = -ENOMEM;
 	u8 status;
 	int i;
@@ -189,10 +208,10 @@ int mthca_mr_alloc_phys(struct mthca_dev *dev, u32 pd,
 	might_sleep();
 	WARN_ON(buffer_size_shift >= 32);
 
-	mr->ibmr.lkey = mthca_alloc(&dev->mr_table.mpt_alloc);
-	if (mr->ibmr.lkey == -1)
+	key = mthca_alloc(&dev->mr_table.mpt_alloc);
+	if (key == -1)
 		return -ENOMEM;
-	mr->ibmr.rkey = mr->ibmr.lkey;
+	mr->ibmr.rkey = mr->ibmr.lkey = hw_index_to_key(dev, key);
 
 	for (i = dev->limits.mtt_seg_size / 8, mr->order = 0;
 	     i < list_len;
@@ -254,7 +273,7 @@ int mthca_mr_alloc_phys(struct mthca_dev *dev, u32 pd,
 				       access);
 
 	mpt_entry->page_size = cpu_to_be32(buffer_size_shift - 12);
-	mpt_entry->key       = cpu_to_be32(mr->ibmr.lkey);
+	mpt_entry->key       = cpu_to_be32(key);
 	mpt_entry->pd        = cpu_to_be32(pd);
 	mpt_entry->start     = cpu_to_be64(iova);
 	mpt_entry->length    = cpu_to_be64(total_size);
@@ -275,7 +294,7 @@ int mthca_mr_alloc_phys(struct mthca_dev *dev, u32 pd,
 	}
 
 	err = mthca_SW2HW_MPT(dev, mpt_entry,
-			      mr->ibmr.lkey & (dev->limits.num_mpts - 1),
+			      key & (dev->limits.num_mpts - 1),
 			      &status);
 	if (err)
 		mthca_warn(dev, "SW2HW_MPT failed (%d)\n", err);
@@ -307,7 +326,8 @@ void mthca_free_mr(struct mthca_dev *dev, struct mthca_mr *mr)
 	might_sleep();
 
 	err = mthca_HW2SW_MPT(dev, NULL,
-			      mr->ibmr.lkey & (dev->limits.num_mpts - 1),
+			      key_to_hw_index(dev, mr->ibmr.lkey) &
+			      (dev->limits.num_mpts - 1),
 			      &status);
 	if (err)
 		mthca_warn(dev, "HW2SW_MPT failed (%d)\n", err);
@@ -318,7 +338,7 @@ void mthca_free_mr(struct mthca_dev *dev, struct mthca_mr *mr)
 	if (mr->order >= 0)
 		mthca_free_mtt(dev, mr->first_seg, mr->order);
 
-	mthca_free(&dev->mr_table.mpt_alloc, mr->ibmr.lkey);
+	mthca_free(&dev->mr_table.mpt_alloc, key_to_hw_index(dev, mr->ibmr.lkey));
 }
 
 int __devinit mthca_init_mr_table(struct mthca_dev *dev)

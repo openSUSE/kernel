@@ -133,11 +133,12 @@ static struct bit_map srmmu_nocache_map;
 static unsigned long srmmu_pte_pfn(pte_t pte)
 {
 	if (srmmu_device_memory(pte_val(pte))) {
-		/* XXX Anton obviously had something in mind when he did this.
-		 * But what?
+		/* Just return something that will cause
+		 * pfn_valid() to return false.  This makes
+		 * copy_one_pte() to just directly copy to
+		 * PTE over.
 		 */
-		/* return (struct page *)~0; */
-		BUG();
+		return ~0UL;
 	}
 	return (pte_val(pte) & SRMMU_PTE_PMASK) >> (PAGE_SHIFT-4);
 }
@@ -2197,6 +2198,7 @@ void __init ld_mmu_srmmu(void)
 	BTFIXUPSET_CALL(free_pgd_fast, srmmu_free_pgd_fast, BTFIXUPCALL_NORM);
 	BTFIXUPSET_CALL(get_pgd_fast, srmmu_get_pgd_fast, BTFIXUPCALL_NORM);
 
+	BTFIXUPSET_HALF(pte_readi, SRMMU_NOREAD);
 	BTFIXUPSET_HALF(pte_writei, SRMMU_WRITE);
 	BTFIXUPSET_HALF(pte_dirtyi, SRMMU_DIRTY);
 	BTFIXUPSET_HALF(pte_youngi, SRMMU_REF);

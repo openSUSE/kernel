@@ -190,6 +190,7 @@ EXPORT_SYMBOL(flush_icache_user_range);
 EXPORT_SYMBOL(flush_dcache_page);
 EXPORT_SYMBOL(flush_tlb_kernel_range);
 EXPORT_SYMBOL(flush_tlb_page);
+EXPORT_SYMBOL(_tlbie);
 #ifdef CONFIG_ALTIVEC
 EXPORT_SYMBOL(last_task_used_altivec);
 EXPORT_SYMBOL(giveup_altivec);
@@ -318,7 +319,8 @@ EXPORT_SYMBOL(debugger_fault_handler);
 EXPORT_SYMBOL(cpm_install_handler);
 EXPORT_SYMBOL(cpm_free_handler);
 #endif /* CONFIG_8xx */
-#if defined(CONFIG_8xx) || defined(CONFIG_40x) || defined(CONFIG_85xx)
+#if defined(CONFIG_8xx) || defined(CONFIG_40x) || defined(CONFIG_85xx) ||\
+	defined(CONFIG_83xx)
 EXPORT_SYMBOL(__res);
 #endif
 

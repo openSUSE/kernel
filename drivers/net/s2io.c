@@ -3026,6 +3026,8 @@ static void s2io_set_multicast(struct net_device *dev)
 		for (i = 0; i < prev_cnt; i++) {
 			writeq(RMAC_ADDR_DATA0_MEM_ADDR(dis_addr),
 			       &bar0->rmac_addr_data0_mem);
+			writeq(RMAC_ADDR_DATA1_MEM_MASK(0ULL),
+		       		&bar0->rmac_addr_data1_mem);
 			val64 = RMAC_ADDR_CMD_MEM_WE |
 			    RMAC_ADDR_CMD_MEM_STROBE_NEW_CMD |
 			    RMAC_ADDR_CMD_MEM_OFFSET
@@ -3050,8 +3052,11 @@ static void s2io_set_multicast(struct net_device *dev)
 				mac_addr |= mclist->dmi_addr[j];
 				mac_addr <<= 8;
 			}
+			mac_addr >>= 8;
 			writeq(RMAC_ADDR_DATA0_MEM_ADDR(mac_addr),
 			       &bar0->rmac_addr_data0_mem);
+			writeq(RMAC_ADDR_DATA1_MEM_MASK(0ULL),
+		       		&bar0->rmac_addr_data1_mem);
 
 			val64 = RMAC_ADDR_CMD_MEM_WE |
 			    RMAC_ADDR_CMD_MEM_STROBE_NEW_CMD |
@@ -3193,7 +3198,7 @@ static void s2io_ethtool_gdrvinfo(struct net_device *dev,
 	strncpy(info->version, s2io_driver_version,
 		sizeof(s2io_driver_version));
 	strncpy(info->fw_version, "", 32);
-	strncpy(info->bus_info, sp->pdev->slot_name, 32);
+	strncpy(info->bus_info, pci_name(sp->pdev), 32);
 	info->regdump_len = XENA_REG_SPACE;
 	info->eedump_len = XENA_EEPROM_SPACE;
 	info->testinfo_len = S2IO_TEST_LEN;

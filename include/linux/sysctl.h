@@ -135,6 +135,7 @@ enum
 	KERN_HZ_TIMER=65,	/* int: hz timer on or off */
 	KERN_UNKNOWN_NMI_PANIC=66, /* int: unknown nmi panic flag */
 	KERN_BOOTLOADER_TYPE=67, /* int: boot loader type */
+	KERN_RANDOMIZE=68, /* int: randomize virtual address space */
 };
 
 
@@ -160,7 +161,7 @@ enum
 	VM_PAGEBUF=17,		/* struct: Control pagebuf parameters */
 	VM_HUGETLB_PAGES=18,	/* int: Number of available Huge Pages */
 	VM_SWAPPINESS=19,	/* Tendency to steal mapped memory */
-	VM_LOWER_ZONE_PROTECTION=20,/* Amount of protection of lower zones */
+	VM_LOWMEM_RESERVE_RATIO=20,/* reservation ratio for lower memory zones */
 	VM_MIN_FREE_KBYTES=21,	/* Minimum free kilobytes to maintain */
 	VM_MAX_MAP_COUNT=22,	/* int: Maximum number of mmaps/address-space */
 	VM_LAPTOP_MODE=23,	/* vm laptop mode */
@@ -344,6 +345,7 @@ enum
 	NET_TCP_DEFAULT_WIN_SCALE=105,
 	NET_TCP_MODERATE_RCVBUF=106,
 	NET_TCP_TSO_WIN_DIVISOR=107,
+	NET_TCP_BIC_BETA=108,
 };
 
 enum {
@@ -365,6 +367,7 @@ enum {
 	NET_IPV4_ROUTE_MIN_PMTU=16,
 	NET_IPV4_ROUTE_MIN_ADVMSS=17,
 	NET_IPV4_ROUTE_SECRET_INTERVAL=18,
+	NET_IPV4_ROUTE_GC_MIN_INTERVAL_MS=19,
 };
 
 enum
@@ -795,6 +798,8 @@ extern int proc_dointvec_jiffies(ctl_table *, int, struct file *,
 				 void __user *, size_t *, loff_t *);
 extern int proc_dointvec_userhz_jiffies(ctl_table *, int, struct file *,
 					void __user *, size_t *, loff_t *);
+extern int proc_dointvec_ms_jiffies(ctl_table *, int, struct file *,
+				    void __user *, size_t *, loff_t *);
 extern int proc_doulongvec_minmax(ctl_table *, int, struct file *,
 				  void __user *, size_t *, loff_t *);
 extern int proc_doulongvec_ms_jiffies_minmax(ctl_table *table, int,
@@ -812,6 +817,7 @@ extern int do_sysctl_strategy (ctl_table *table,
 extern ctl_handler sysctl_string;
 extern ctl_handler sysctl_intvec;
 extern ctl_handler sysctl_jiffies;
+extern ctl_handler sysctl_ms_jiffies;
 
 
 /*

@@ -61,6 +61,7 @@
 #include <linux/spinlock.h>
 #include <linux/dmi.h>
 #include <linux/delay.h>
+#include <linux/acpi.h>
 
 #include <asm/page.h>
 #include <asm/desc.h>
@@ -538,10 +539,10 @@ int __init pnpbios_init(void)
 		return -ENODEV;
 	}
 
-#ifdef CONFIG_ACPI
-	if (!acpi_disabled) {
+#ifdef CONFIG_PNPACPI
+	if (!acpi_disabled && !pnpacpi_disabled) {
 		pnpbios_disabled = 1;
-		printk(KERN_INFO "PnPBIOS: Disabled by ACPI\n");
+		printk(KERN_INFO "PnPBIOS: Disabled by ACPI PNP\n");
 		return -ENODEV;
 	}
 #endif /* CONFIG_ACPI */

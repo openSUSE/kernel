@@ -200,7 +200,7 @@ void start(unsigned long a1, unsigned long a2, void *promptr)
 	vmlinux.addr += (unsigned long)elf64ph->p_offset;
 	vmlinux.size -= (unsigned long)elf64ph->p_offset;
 
-	flush_cache((void *)vmlinux.addr, vmlinux.memsize);
+	flush_cache((void *)vmlinux.addr, vmlinux.size);
 
 	if (a1)
 		printf("initrd head: 0x%lx\n\r", *((u32 *)initrd.addr));

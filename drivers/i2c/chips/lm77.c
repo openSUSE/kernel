@@ -29,6 +29,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 
@@ -80,8 +81,6 @@ static struct i2c_driver lm77_driver = {
 	.attach_adapter = lm77_attach_adapter,
 	.detach_client	= lm77_detach_client,
 };
-
-static int lm77_id;
 
 /* straight from the datasheet */
 #define LM77_TEMP_MIN (-55000)
@@ -295,8 +294,6 @@ static int lm77_detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* Fill in the remaining client fields and put it into the global list */
 	strlcpy(new_client->name, name, I2C_NAME_SIZE);
-
-	new_client->id = lm77_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 
@@ -364,8 +361,8 @@ static struct lm77_data *lm77_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-	if ((jiffies - data->last_updated > HZ + HZ / 2) ||
-	    (jiffies < data->last_updated) || !data->valid) {
+	if (time_after(jiffies, data->last_updated + HZ + HZ / 2)
+	    || !data->valid) {
 		dev_dbg(&client->dev, "Starting lm77 update\n");
 		data->temp_input =
 			LM77_TEMP_FROM_REG(lm77_read_value(client,

@@ -23,6 +23,7 @@
  *     04-Jan-2005 BJD  New uart init call
  *     10-Jan-2005 BJD  Removed include of s3c2410.h
  *     14-Jan-2005 BJD  Add support for muitlple NAND devices
+ *     03-Mar-2005 BJD  Ensured that bast-cpld.h is included
 */
 
 #include <linux/kernel.h>
@@ -39,6 +40,7 @@
 
 #include <asm/arch/bast-map.h>
 #include <asm/arch/bast-irq.h>
+#include <asm/arch/bast-cpld.h>
 
 #include <asm/hardware.h>
 #include <asm/io.h>

@@ -517,7 +517,6 @@ static struct i2c_client_address_data addr_data = {
 	.force			= force
 };
 
-static int bt819_i2c_id = 0;
 static struct i2c_driver i2c_driver_bt819;
 
 static int
@@ -546,7 +545,6 @@ bt819_detect_client (struct i2c_adapter *adapter,
 	client->adapter = adapter;
 	client->driver = &i2c_driver_bt819;
 	client->flags = I2C_CLIENT_ALLOW_USE;
-	client->id = bt819_i2c_id++;
 
 	decoder = kmalloc(sizeof(struct bt819), GFP_KERNEL);
 	if (decoder == NULL) {
@@ -568,16 +566,13 @@ bt819_detect_client (struct i2c_adapter *adapter,
 	id = bt819_read(client, 0x17);
 	switch (id & 0xf0) {
 	case 0x70:
-	        snprintf(I2C_NAME(client), sizeof(I2C_NAME(client)) - 1,
-			 "bt819a[%d]", client->id);
+		strlcpy(I2C_NAME(client), "bt819a", sizeof(I2C_NAME(client)));
 		break;
 	case 0x60:
-		snprintf(I2C_NAME(client), sizeof(I2C_NAME(client)) - 1,
-			 "bt817a[%d]", client->id);
+		strlcpy(I2C_NAME(client), "bt817a", sizeof(I2C_NAME(client)));
 		break;
 	case 0x20:
-		snprintf(I2C_NAME(client), sizeof(I2C_NAME(client)) - 1,
-			 "bt815a[%d]", client->id);
+		strlcpy(I2C_NAME(client), "bt815a", sizeof(I2C_NAME(client)));
 		break;
 	default:
 		dprintk(1,

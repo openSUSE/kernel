@@ -213,7 +213,7 @@ unsigned long pdma_size;
 volatile int doing_pdma = 0;
 
 /* This is software state */
-char *pdma_base = 0;
+char *pdma_base = NULL;
 unsigned long pdma_areasize;
 
 /* Common routines to all controller types on the Sparc. */
@@ -312,8 +312,8 @@ static int sun_floppy_init(void)
 	}
 
 	/* The sun4m lets us know if the controller is actually usable. */
-	if(sparc_cpu_model == sun4m) {
-		prom_getproperty(fd_node, "status", state, sizeof(state));
+	if(sparc_cpu_model == sun4m &&
+	   prom_getproperty(fd_node, "status", state, sizeof(state)) != -1) {
 		if(!strcmp(state, "disabled")) {
 			goto no_sun_fdc;
 		}

@@ -859,7 +859,7 @@ qla2x00_queuecommand(struct scsi_cmnd *cmd, void (*fn)(struct scsi_cmnd *))
 	 * In all other cases we'll let an irq pick up our IO and submit it
 	 * to the controller to improve affinity.
 	 */
-	if (smp_processor_id() == ha->last_irq_cpu || was_empty)
+	if (_smp_processor_id() == ha->last_irq_cpu || was_empty)
 		qla2x00_next(ha);
 
 	spin_lock_irq(ha->host->host_lock);
@@ -1847,13 +1847,13 @@ qla2x00_iospace_config(scsi_qla_host_t *ha)
 		if (pio_len < MIN_IOBASE_LEN) {
 			qla_printk(KERN_WARNING, ha,
 			    "Invalid PCI I/O region size (%s)...\n",
-			    ha->pdev->slot_name);
+				pci_name(ha->pdev));
 			pio = 0;
 		}
 	} else {
 		qla_printk(KERN_WARNING, ha,
 		    "region #0 not a PIO resource (%s)...\n",
-		    ha->pdev->slot_name);
+		    pci_name(ha->pdev));
 		pio = 0;
 	}
 
@@ -1865,20 +1865,20 @@ qla2x00_iospace_config(scsi_qla_host_t *ha)
 	if (!(mmio_flags & IORESOURCE_MEM)) {
 		qla_printk(KERN_ERR, ha,
 		    "region #0 not an MMIO resource (%s), aborting\n",
-		    ha->pdev->slot_name);
+		    pci_name(ha->pdev));
 		goto iospace_error_exit;
 	}
 	if (mmio_len < MIN_IOBASE_LEN) {
 		qla_printk(KERN_ERR, ha,
 		    "Invalid PCI mem region size (%s), aborting\n",
-		    ha->pdev->slot_name);
+			pci_name(ha->pdev));
 		goto iospace_error_exit;
 	}
 
 	if (pci_request_regions(ha->pdev, ha->brd_info->drv_name)) {
 		qla_printk(KERN_WARNING, ha,
-		    "Failed to reserve PIO/MMIO regions (%s)\n", 
-		    ha->pdev->slot_name);
+		    "Failed to reserve PIO/MMIO regions (%s)\n",
+		    pci_name(ha->pdev));
 
 		goto iospace_error_exit;
 	}
@@ -1888,7 +1888,7 @@ qla2x00_iospace_config(scsi_qla_host_t *ha)
 	ha->iobase = ioremap(mmio, MIN_IOBASE_LEN);
 	if (!ha->iobase) {
 		qla_printk(KERN_ERR, ha,
-		    "cannot remap MMIO (%s), aborting\n", ha->pdev->slot_name);
+		    "cannot remap MMIO (%s), aborting\n", pci_name(ha->pdev));
 
 		goto iospace_error_exit;
 	}

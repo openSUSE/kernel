@@ -230,6 +230,18 @@ asmlinkage int sys_ipc(uint call, int first, int second, int third,
 	}
 }
 
+asmlinkage long sys_shmat(int shmid, char __user *shmaddr, int shmflg,
+			  unsigned long __user *addr)
+{
+	unsigned long ret;
+	long err;
+
+	err = do_shmat(shmid, shmaddr, shmflg, &ret);
+	if (err == 0)
+		err = put_user(ret, addr);
+	return err;
+}
+
 /* Fork a new task - this creates a new program thread.
  * This is called indirectly via a small wrapper
  */
@@ -241,18 +253,14 @@ asmlinkage int sys_fork(struct pt_regs *regs)
 /* Clone a task - this clones the calling program thread.
  * This is called indirectly via a small wrapper
  */
-asmlinkage int sys_clone(unsigned long clone_flags, unsigned long newsp, struct pt_regs *regs)
+asmlinkage int sys_clone(unsigned long clone_flags, unsigned long newsp,
+			 int __user *parent_tidptr, int tls_val,
+			 int __user *child_tidptr, struct pt_regs *regs)
 {
-	/*
-	 * We don't support SETTID / CLEARTID
-	 */
-	if (clone_flags & (CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID))
-		return -EINVAL;
-
 	if (!newsp)
 		newsp = regs->ARM_sp;
 
-	return do_fork(clone_flags, newsp, regs, 0, NULL, NULL);
+	return do_fork(clone_flags, newsp, regs, 0, parent_tidptr, child_tidptr);
 }
 
 asmlinkage int sys_vfork(struct pt_regs *regs)

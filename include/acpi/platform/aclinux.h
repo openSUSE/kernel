@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2004, R. Byron Moore
+ * Copyright (C) 2000 - 2005, R. Byron Moore
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -81,6 +81,8 @@
 #define ACPI_USE_NATIVE_DIVIDE
 #endif
 
+#define __cdecl
+#define ACPI_FLUSH_CPU_CACHE()
 #endif /* __KERNEL__ */
 
 /* Linux uses GCC */

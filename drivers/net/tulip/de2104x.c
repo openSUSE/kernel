@@ -1927,7 +1927,7 @@ bad_srom:
 	goto fill_defaults;
 }
 
-static int __devinit de_init_one (struct pci_dev *pdev,
+static int __init de_init_one (struct pci_dev *pdev,
 				  const struct pci_device_id *ent)
 {
 	struct net_device *dev;
@@ -1959,8 +1959,6 @@ static int __devinit de_init_one (struct pci_dev *pdev,
 	dev->ethtool_ops = &de_ethtool_ops;
 	dev->tx_timeout = de_tx_timeout;
 	dev->watchdog_timeo = TX_TIMEOUT;
-
-	dev->irq = pdev->irq;
 
 	de = dev->priv;
 	de->de21040 = ent->driver_data == 0 ? 1 : 0;
@@ -1996,6 +1994,8 @@ static int __devinit de_init_one (struct pci_dev *pdev,
 		       pdev->irq, pci_name(pdev));
 		goto err_out_res;
 	}
+
+	dev->irq = pdev->irq;
 
 	/* obtain and check validity of PCI I/O address */
 	pciaddr = pci_resource_start(pdev, 1);

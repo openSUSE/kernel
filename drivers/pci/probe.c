@@ -64,9 +64,11 @@ static void pci_create_legacy_files(struct pci_bus *b)
 
 void pci_remove_legacy_files(struct pci_bus *b)
 {
-	class_device_remove_bin_file(&b->class_dev, b->legacy_io);
-	class_device_remove_bin_file(&b->class_dev, b->legacy_mem);
-	kfree(b->legacy_io); /* both are allocated here */
+	if (b->legacy_io) {
+		class_device_remove_bin_file(&b->class_dev, b->legacy_io);
+		class_device_remove_bin_file(&b->class_dev, b->legacy_mem);
+		kfree(b->legacy_io); /* both are allocated here */
+	}
 }
 #else /* !HAVE_PCI_LEGACY */
 static inline void pci_create_legacy_files(struct pci_bus *bus) { return; }
@@ -549,7 +551,6 @@ static int pci_setup_device(struct pci_dev * dev)
 {
 	u32 class;
 
-	dev->slot_name = dev->dev.bus_id;
 	sprintf(pci_name(dev), "%04x:%02x:%02x.%d", pci_domain_nr(dev->bus),
 		dev->bus->number, PCI_SLOT(dev->devfn), PCI_FUNC(dev->devfn));
 
@@ -879,7 +880,7 @@ struct pci_bus * __devinit pci_scan_bus_parented(struct device *parent, int bus,
 
 	if (pci_find_bus(pci_domain_nr(b), bus)) {
 		/* If we already got to this bus through a different bridge, ignore it */
-		DBG("PCI: Bus %04:%02x already known\n", pci_domain_nr(b), bus);
+		DBG("PCI: Bus %04x:%02x already known\n", pci_domain_nr(b), bus);
 		goto err_out;
 	}
 	list_add_tail(&b->node, &pci_root_buses);

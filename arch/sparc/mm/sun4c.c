@@ -511,7 +511,8 @@ void __init sun4c_probe_memerr_reg(void)
 		node = prom_searchsiblings(prom_root_node, "memory-error");
 		if (!node)
 			return;
-		prom_getproperty(node, "reg", (char *)regs, sizeof(regs));
+		if (prom_getproperty(node, "reg", (char *)regs, sizeof(regs)) <= 0)
+			return;
 		/* hmm I think regs[0].which_io is zero here anyways */
 		sun4c_memerr_reg = ioremap(regs[0].phys_addr, regs[0].reg_size);
 	}
@@ -2225,6 +2226,7 @@ void __init ld_mmu_sun4c(void)
 	BTFIXUPSET_CALL(free_pgd_fast, sun4c_free_pgd_fast, BTFIXUPCALL_NORM);
 	BTFIXUPSET_CALL(get_pgd_fast, sun4c_get_pgd_fast, BTFIXUPCALL_NORM);
 
+	BTFIXUPSET_HALF(pte_readi, _SUN4C_PAGE_READ);
 	BTFIXUPSET_HALF(pte_writei, _SUN4C_PAGE_WRITE);
 	BTFIXUPSET_HALF(pte_dirtyi, _SUN4C_PAGE_MODIFIED);
 	BTFIXUPSET_HALF(pte_youngi, _SUN4C_PAGE_ACCESSED);

@@ -151,7 +151,6 @@ typedef u32 cell_t;
 
 extern void __start(unsigned long r3, unsigned long r4, unsigned long r5);
 
-extern unsigned long reloc_offset(void);
 extern void enter_prom(struct prom_args *args, unsigned long entry);
 extern void copy_and_flush(unsigned long dest, unsigned long src,
 			   unsigned long size, unsigned long offset);
@@ -679,8 +678,7 @@ static void __init prom_init_mem(void)
 	 * point to after it
 	 */
 	if (RELOC(prom_initrd_start)) {
-		if ((RELOC(prom_initrd_start) + RELOC(prom_initrd_end))
-		    > RELOC(alloc_bottom))
+		if (RELOC(prom_initrd_end) > RELOC(alloc_bottom))
 			RELOC(alloc_bottom) = PAGE_ALIGN(RELOC(prom_initrd_end));
 	}
 
@@ -845,7 +843,7 @@ static void __init prom_initialize_tce_table(void)
 
 		prom_debug("TCE table: %s\n", path);
 		prom_debug("\tnode = 0x%x\n", node);
-		prom_debug("\tbase = 0x%x\n", vbase);
+		prom_debug("\tbase = 0x%x\n", base);
 		prom_debug("\tsize = 0x%x\n", minsize);
 
 		/* Initialize the table to have a one-to-one mapping

@@ -7,26 +7,8 @@
  */
 
 #include <linux/config.h>
-#include <linux/linkage.h>
 #include <linux/limits.h>
-#include <linux/wait.h>
-#include <linux/types.h>
-#include <linux/kdev_t.h>
 #include <linux/ioctl.h>
-#include <linux/dcache.h>
-#include <linux/stat.h>
-#include <linux/cache.h>
-#include <linux/prio_tree.h>
-#include <linux/kobject.h>
-#include <asm/atomic.h>
-
-struct iovec;
-struct nameidata;
-struct pipe_inode_info;
-struct poll_table_struct;
-struct kstatfs;
-struct vm_area_struct;
-struct vfsmount;
 
 /*
  * It's silly to have NR_OPEN bigger than NR_FILE, but you can change
@@ -217,12 +199,31 @@ extern int dir_notify_enable;
 
 #ifdef __KERNEL__
 
+#include <linux/linkage.h>
+#include <linux/wait.h>
+#include <linux/types.h>
+#include <linux/kdev_t.h>
+#include <linux/dcache.h>
+#include <linux/stat.h>
+#include <linux/cache.h>
+#include <linux/kobject.h>
 #include <linux/list.h>
 #include <linux/radix-tree.h>
+#include <linux/prio_tree.h>
 #include <linux/audit.h>
 #include <linux/init.h>
+
+#include <asm/atomic.h>
 #include <asm/semaphore.h>
 #include <asm/byteorder.h>
+
+struct iovec;
+struct nameidata;
+struct pipe_inode_info;
+struct poll_table_struct;
+struct kstatfs;
+struct vm_area_struct;
+struct vfsmount;
 
 /* Used to be a macro which just called the function, now just a function */
 extern void update_atime (struct inode *);
@@ -334,7 +335,7 @@ struct backing_dev_info;
 struct address_space {
 	struct inode		*host;		/* owner: inode, block_device */
 	struct radix_tree_root	page_tree;	/* radix tree of all pages */
-	spinlock_t		tree_lock;	/* and spinlock protecting it */
+	rwlock_t		tree_lock;	/* and rwlock protecting it */
 	unsigned int		i_mmap_writable;/* count VM_SHARED mappings */
 	struct prio_tree_root	i_mmap;		/* tree of private and shared mappings */
 	struct list_head	i_mmap_nonlinear;/*list VM_NONLINEAR mappings */
@@ -1151,6 +1152,10 @@ struct export_operations {
 
 };
 
+extern struct dentry *
+find_exported_dentry(struct super_block *sb, void *obj, void *parent,
+		     int (*acceptable)(void *context, struct dentry *de),
+		     void *context);
 
 struct file_system_type {
 	const char *name;
@@ -1348,11 +1353,15 @@ static inline void invalidate_remote_inode(struct inode *inode)
 		invalidate_inode_pages(inode->i_mapping);
 }
 extern int invalidate_inode_pages2(struct address_space *mapping);
+extern int invalidate_inode_pages2_range(struct address_space *mapping,
+					 pgoff_t start, pgoff_t end);
 extern int write_inode_now(struct inode *, int);
 extern int filemap_fdatawrite(struct address_space *);
 extern int filemap_flush(struct address_space *);
 extern int filemap_fdatawait(struct address_space *);
 extern int filemap_write_and_wait(struct address_space *mapping);
+extern int filemap_write_and_wait_range(struct address_space *mapping,
+				        loff_t lstart, loff_t lend);
 extern void sync_supers(void);
 extern void sync_filesystems(int wait);
 extern void emergency_sync(void);

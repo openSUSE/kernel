@@ -183,9 +183,21 @@ static void hci_reset_req(struct hci_dev *hdev, unsigned long opt)
 
 static void hci_init_req(struct hci_dev *hdev, unsigned long opt)
 {
+	struct sk_buff *skb;
 	__u16 param;
 
 	BT_DBG("%s %ld", hdev->name, opt);
+
+	/* Driver initialization */
+
+	/* Special commands */
+	while ((skb = skb_dequeue(&hdev->driver_init))) {
+		skb->pkt_type = HCI_COMMAND_PKT;
+		skb->dev = (void *) hdev;
+		skb_queue_tail(&hdev->cmd_q, skb);
+		hci_sched_cmd(hdev);
+	}
+	skb_queue_purge(&hdev->driver_init);
 
 	/* Mandatory initialization */
 
@@ -457,6 +469,9 @@ int hci_dev_open(__u16 dev)
 		goto done;
 	}
 
+	if (test_bit(HCI_QUIRK_RAW_DEVICE, &hdev->quirks))
+		set_bit(HCI_RAW, &hdev->flags);
+
 	if (hdev->open(hdev)) {
 		ret = -EIO;
 		goto done;
@@ -532,9 +547,11 @@ static int hci_dev_do_close(struct hci_dev *hdev)
 	/* Reset device */
 	skb_queue_purge(&hdev->cmd_q);
 	atomic_set(&hdev->cmd_cnt, 1);
-	set_bit(HCI_INIT, &hdev->flags);
-	__hci_request(hdev, hci_reset_req, 0, HZ/4);
-	clear_bit(HCI_INIT, &hdev->flags);
+	if (!test_bit(HCI_RAW, &hdev->flags)) {
+		set_bit(HCI_INIT, &hdev->flags);
+		__hci_request(hdev, hci_reset_req, 0, HZ/4);
+		clear_bit(HCI_INIT, &hdev->flags);
+	}
 
 	/* Kill cmd task */
 	tasklet_kill(&hdev->cmd_task);
@@ -604,7 +621,8 @@ int hci_dev_reset(__u16 dev)
 	atomic_set(&hdev->cmd_cnt, 1); 
 	hdev->acl_cnt = 0; hdev->sco_cnt = 0;
 
-	ret = __hci_request(hdev, hci_reset_req, 0, HCI_INIT_TIMEOUT);
+	if (!test_bit(HCI_RAW, &hdev->flags))
+		ret = __hci_request(hdev, hci_reset_req, 0, HCI_INIT_TIMEOUT);
 
 done:
 	tasklet_enable(&hdev->tx_task);
@@ -786,6 +804,8 @@ struct hci_dev *hci_alloc_dev(void)
 
 	memset(hdev, 0, sizeof(struct hci_dev));
 
+	skb_queue_head_init(&hdev->driver_init);
+
 	return hdev;
 }
 EXPORT_SYMBOL(hci_alloc_dev);
@@ -793,6 +813,8 @@ EXPORT_SYMBOL(hci_alloc_dev);
 /* Free HCI device */
 void hci_free_dev(struct hci_dev *hdev)
 {
+	skb_queue_purge(&hdev->driver_init);
+
 	/* will free via class release */
 	class_device_put(&hdev->class_dev);
 }
@@ -1192,10 +1214,12 @@ static inline void hci_sched_acl(struct hci_dev *hdev)
 
 	BT_DBG("%s", hdev->name);
 
-	/* ACL tx timeout must be longer than maximum
-	 * link supervision timeout (40.9 seconds) */
-	if (!hdev->acl_cnt && (jiffies - hdev->acl_last_tx) > (HZ * 45))
-		hci_acl_tx_to(hdev);
+	if (!test_bit(HCI_RAW, &hdev->flags)) {
+		/* ACL tx timeout must be longer than maximum
+		 * link supervision timeout (40.9 seconds) */
+		if (!hdev->acl_cnt && (jiffies - hdev->acl_last_tx) > (HZ * 45))
+			hci_acl_tx_to(hdev);
+	}
 
 	while (hdev->acl_cnt && (conn = hci_low_sent(hdev, ACL_LINK, &quote))) {
 		while (quote-- && (skb = skb_dequeue(&conn->data_q))) {

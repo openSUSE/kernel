@@ -20,6 +20,10 @@
  *  If you do not delete the provisions above, a recipient may use your
  *  version of this file under either the OSL or the GPL.
  *
+ *  0.06
+ *     - Added generic SATA support by using a pci_device_id that filters on
+ *       the IDE storage class code.
+ *
  *  0.03
  *     - Fixed a bug where the hotplug handlers for non-CK804/MCP04 were using
  *       mmio_base, which is only set for the CK804/MCP04 case.
@@ -44,7 +48,7 @@
 #include <linux/libata.h>
 
 #define DRV_NAME			"sata_nv"
-#define DRV_VERSION			"0.5"
+#define DRV_VERSION			"0.6"
 
 #define NV_PORTS			2
 #define NV_PIO_MASK			0x1f
@@ -108,6 +112,7 @@ static void nv_check_hotplug_ck804(struct ata_host_set *host_set);
 
 enum nv_host_type
 {
+	GENERIC,
 	NFORCE2,
 	NFORCE3,
 	CK804
@@ -128,6 +133,9 @@ static struct pci_device_id nv_pci_tbl[] = {
 		PCI_ANY_ID, PCI_ANY_ID, 0, 0, CK804 },
 	{ PCI_VENDOR_ID_NVIDIA, PCI_DEVICE_ID_NVIDIA_NFORCE_MCP04_SATA2,
 		PCI_ANY_ID, PCI_ANY_ID, 0, 0, CK804 },
+	{ PCI_VENDOR_ID_NVIDIA, PCI_ANY_ID,
+		PCI_ANY_ID, PCI_ANY_ID,
+		PCI_CLASS_STORAGE_IDE<<8, 0xffff00, GENERIC },
 	{ 0, } /* terminate list */
 };
 
@@ -136,7 +144,6 @@ static struct pci_device_id nv_pci_tbl[] = {
 struct nv_host_desc
 {
 	enum nv_host_type	host_type;
-	unsigned long		host_flags;
 	void			(*enable_hotplug)(struct ata_probe_ent *probe_ent);
 	void			(*disable_hotplug)(struct ata_host_set *host_set);
 	void			(*check_hotplug)(struct ata_host_set *host_set);
@@ -144,21 +151,24 @@ struct nv_host_desc
 };
 static struct nv_host_desc nv_device_tbl[] = {
 	{
+		.host_type	= GENERIC,
+		.enable_hotplug	= NULL,
+		.disable_hotplug= NULL,
+		.check_hotplug	= NULL,
+	},
+	{
 		.host_type	= NFORCE2,
-		.host_flags	= 0x00000000,
 		.enable_hotplug	= nv_enable_hotplug,
 		.disable_hotplug= nv_disable_hotplug,
 		.check_hotplug	= nv_check_hotplug,
 	},
 	{
 		.host_type	= NFORCE3,
-		.host_flags	= 0x00000000,
 		.enable_hotplug	= nv_enable_hotplug,
 		.disable_hotplug= nv_disable_hotplug,
 		.check_hotplug	= nv_check_hotplug,
 	},
 	{	.host_type	= CK804,
-		.host_flags	= NV_HOST_FLAGS_SCR_MMIO,
 		.enable_hotplug	= nv_enable_hotplug_ck804,
 		.disable_hotplug= nv_disable_hotplug_ck804,
 		.check_hotplug	= nv_check_hotplug_ck804,
@@ -168,6 +178,7 @@ static struct nv_host_desc nv_device_tbl[] = {
 struct nv_host
 {
 	struct nv_host_desc	*host_desc;
+	unsigned long		host_flags;
 };
 
 static struct pci_driver nv_pci_driver = {
@@ -206,6 +217,8 @@ static struct ata_port_operations nv_ops = {
 	.phy_reset		= sata_phy_reset,
 	.bmdma_setup		= ata_bmdma_setup,
 	.bmdma_start		= ata_bmdma_start,
+	.bmdma_stop		= ata_bmdma_stop,
+	.bmdma_status		= ata_bmdma_status,
 	.qc_prep		= ata_qc_prep,
 	.qc_issue		= ata_qc_issue_prot,
 	.eng_timeout		= ata_eng_timeout,
@@ -284,8 +297,8 @@ static u32 nv_scr_read (struct ata_port *ap, unsigned int sc_reg)
 	if (sc_reg > SCR_CONTROL)
 		return 0xffffffffU;
 
-	if (host->host_desc->host_flags & NV_HOST_FLAGS_SCR_MMIO)
-		return readl(ap->ioaddr.scr_addr + (sc_reg * 4));
+	if (host->host_flags & NV_HOST_FLAGS_SCR_MMIO)
+		return readl((void*)ap->ioaddr.scr_addr + (sc_reg * 4));
 	else
 		return inl(ap->ioaddr.scr_addr + (sc_reg * 4));
 }
@@ -298,8 +311,8 @@ static void nv_scr_write (struct ata_port *ap, unsigned int sc_reg, u32 val)
 	if (sc_reg > SCR_CONTROL)
 		return;
 
-	if (host->host_desc->host_flags & NV_HOST_FLAGS_SCR_MMIO)
-		writel(val, ap->ioaddr.scr_addr + (sc_reg * 4));
+	if (host->host_flags & NV_HOST_FLAGS_SCR_MMIO)
+		writel(val, (void*)ap->ioaddr.scr_addr + (sc_reg * 4));
 	else
 		outl(val, ap->ioaddr.scr_addr + (sc_reg * 4));
 }
@@ -321,7 +334,16 @@ static int nv_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 	struct nv_host *host;
 	struct ata_port_info *ppi;
 	struct ata_probe_ent *probe_ent;
+	int pci_dev_busy = 0;
 	int rc;
+	u32 bar;
+
+        // Make sure this is a SATA controller by counting the number of bars
+        // (NVIDIA SATA controllers will always have six bars).  Otherwise,
+        // it's an IDE controller and we ignore it.
+	for (bar=0; bar<6; bar++)
+		if (pci_resource_start(pdev, bar) == 0)
+			return -ENODEV;
 
 	if (!printed_version++)
 		printk(KERN_DEBUG DRV_NAME " version " DRV_VERSION "\n");
@@ -331,8 +353,10 @@ static int nv_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto err_out;
 
 	rc = pci_request_regions(pdev, DRV_NAME);
-	if (rc)
+	if (rc) {
+		pci_dev_busy = 1;
 		goto err_out_disable;
+	}
 
 	rc = pci_set_dma_mask(pdev, ATA_DMA_MASK);
 	if (rc)
@@ -352,11 +376,15 @@ static int nv_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (!host)
 		goto err_out_free_ent;
 
+	memset(host, 0, sizeof(struct nv_host));
 	host->host_desc = &nv_device_tbl[ent->driver_data];
 
 	probe_ent->private_data = host;
 
-	if (host->host_desc->host_flags & NV_HOST_FLAGS_SCR_MMIO) {
+	if (pci_resource_flags(pdev, 5) & IORESOURCE_MEM)
+		host->host_flags |= NV_HOST_FLAGS_SCR_MMIO;
+
+	if (host->host_flags & NV_HOST_FLAGS_SCR_MMIO) {
 		unsigned long base;
 
 		probe_ent->mmio_base = ioremap(pci_resource_start(pdev, 5),
@@ -395,7 +423,7 @@ static int nv_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 	return 0;
 
 err_out_iounmap:
-	if (host->host_desc->host_flags & NV_HOST_FLAGS_SCR_MMIO)
+	if (host->host_flags & NV_HOST_FLAGS_SCR_MMIO)
 		iounmap(probe_ent->mmio_base);
 err_out_free_host:
 	kfree(host);
@@ -404,7 +432,8 @@ err_out_free_ent:
 err_out_regions:
 	pci_release_regions(pdev);
 err_out_disable:
-	pci_disable_device(pdev);
+	if (!pci_dev_busy)
+		pci_disable_device(pdev);
 err_out:
 	return rc;
 }

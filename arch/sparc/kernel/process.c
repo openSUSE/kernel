@@ -549,6 +549,11 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long sp,
 		}
 	}
 
+#ifdef CONFIG_SMP
+	/* FPU must be disabled on SMP. */
+	childregs->psr &= ~PSR_EF;
+#endif
+
 	/* Set the return value for the child. */
 	childregs->u_regs[UREG_I0] = current->pid;
 	childregs->u_regs[UREG_I1] = 1;
@@ -599,7 +604,7 @@ void dump_thread(struct pt_regs * regs, struct user * dump)
  */
 int dump_fpu (struct pt_regs * regs, elf_fpregset_t * fpregs)
 {
-	if (current->used_math == 0) {
+	if (used_math()) {
 		memset(fpregs, 0, sizeof(*fpregs));
 		fpregs->pr_q_entrysize = 8;
 		return 1;

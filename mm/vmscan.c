@@ -475,7 +475,7 @@ static int shrink_list(struct list_head *page_list, struct scan_control *sc)
 		if (!mapping)
 			goto keep_locked;	/* truncate got there first */
 
-		spin_lock_irq(&mapping->tree_lock);
+		write_lock_irq(&mapping->tree_lock);
 
 		/*
 		 * The non-racy check for busy page.  It is critical to check
@@ -483,7 +483,7 @@ static int shrink_list(struct list_head *page_list, struct scan_control *sc)
 		 * not in use by anybody. 	(pagecache + us == 2)
 		 */
 		if (page_count(page) != 2 || PageDirty(page)) {
-			spin_unlock_irq(&mapping->tree_lock);
+			write_unlock_irq(&mapping->tree_lock);
 			goto keep_locked;
 		}
 
@@ -491,7 +491,7 @@ static int shrink_list(struct list_head *page_list, struct scan_control *sc)
 		if (PageSwapCache(page)) {
 			swp_entry_t swap = { .val = page->private };
 			__delete_from_swap_cache(page);
-			spin_unlock_irq(&mapping->tree_lock);
+			write_unlock_irq(&mapping->tree_lock);
 			swap_free(swap);
 			__put_page(page);	/* The pagecache ref */
 			goto free_it;
@@ -499,7 +499,7 @@ static int shrink_list(struct list_head *page_list, struct scan_control *sc)
 #endif /* CONFIG_SWAP */
 
 		__remove_from_page_cache(page);
-		spin_unlock_irq(&mapping->tree_lock);
+		write_unlock_irq(&mapping->tree_lock);
 		__put_page(page);
 
 free_it:
@@ -575,6 +575,7 @@ static void shrink_cache(struct zone *zone, struct scan_control *sc)
 			nr_taken++;
 		}
 		zone->nr_inactive -= nr_taken;
+		zone->pages_scanned += nr_scan;
 		spin_unlock_irq(&zone->lru_lock);
 
 		if (nr_taken == 0)
@@ -937,8 +938,6 @@ int try_to_free_pages(struct zone **zones,
 		if (sc.nr_scanned && priority < DEF_PRIORITY - 2)
 			blk_congestion_wait(WRITE, HZ/10);
 	}
-	if ((gfp_mask & __GFP_FS) && !(gfp_mask & __GFP_NORETRY))
-		out_of_memory(gfp_mask);
 out:
 	for (i = 0; zones[i] != 0; i++)
 		zones[i]->prev_priority = zones[i]->temp_priority;

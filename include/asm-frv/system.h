@@ -26,13 +26,16 @@ struct thread_struct;
  * The `mb' is to tell GCC not to cache `current' across this call.
  */
 extern asmlinkage
-void __switch_to(struct thread_struct *prev, struct thread_struct *next);
+struct task_struct *__switch_to(struct thread_struct *prev_thread,
+				struct thread_struct *next_thread,
+				struct task_struct *prev);
 
-#define switch_to(prev, next, last)						\
-do {										\
-	prev->thread.sched_lr = (unsigned long) __builtin_return_address(0);	\
-	__switch_to(&prev->thread, &next->thread);				\
-	mb();									\
+#define switch_to(prev, next, last)					\
+do {									\
+	(prev)->thread.sched_lr =					\
+		(unsigned long) __builtin_return_address(0);		\
+	(last) = __switch_to(&(prev)->thread, &(next)->thread, (prev));	\
+	mb();								\
 } while(0)
 
 /*
@@ -119,5 +122,7 @@ do {						\
 
 extern void die_if_kernel(const char *, ...) __attribute__((format(printf, 1, 2)));
 extern void free_initmem(void);
+
+#define arch_align_stack(x) (x)
 
 #endif /* _ASM_SYSTEM_H */

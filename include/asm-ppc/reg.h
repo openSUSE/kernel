@@ -244,6 +244,10 @@
 #define L2CR_L2DF		0x00004000	/* L2 differential clock */
 #define L2CR_L2BYP		0x00002000	/* L2 DLL bypass */
 #define L2CR_L2IP		0x00000001	/* L2 GI in progress */
+#define L2CR_L2IO_745x		0x00100000	/* L2 instr. only (745x) */
+#define L2CR_L2DO_745x		0x00010000	/* L2 data only (745x) */
+#define L2CR_L2REP_745x		0x00001000	/* L2 repl. algorithm (745x) */
+#define L2CR_L2HWF_745x		0x00000800	/* L2 hardware flush (745x) */
 #define SPRN_L3CR		0x3FA	/* Level 3 Cache Control Regsiter */
 #define L3CR_L3E		0x80000000	/* L3 enable */
 #define L3CR_L3PE		0x40000000	/* L3 data parity enable */
@@ -329,7 +333,7 @@
 #define MMCR0_PMC2_CYCLES	0x1
 #define MMCR0_PMC2_ITLB		0x7
 #define MMCR0_PMC2_LOADMISSTIME	0x5
-#define MMCR0_PMXE		(1 << 26)
+#define MMCR0_PMXE	(1 << 26)
 
 /* Short-hand versions for a number of the above SPRNs */
 #define CTR	SPRN_CTR	/* Counter Register */
@@ -483,12 +487,6 @@
 #define PVR_8240	0x00810100
 #define PVR_8245	0x80811014
 #define PVR_8260	PVR_8240
-
-/* System Version Numbers */
-#define SVR_8540	0x80300000
-#define SVR_8541E	0x807A0000
-#define SVR_8555E	0x80790000
-#define SVR_8560	0x80700000
 
 #if 0
 /* Segment Registers */

@@ -70,7 +70,7 @@ static int __init init_driverfs(void)
 }
 
 
-static void __exit exit_driverfs(void)
+static void exit_driverfs(void)
 {
 	sysdev_unregister(&device_oprofile);
 	sysdev_class_unregister(&oprofile_sysclass);
@@ -304,7 +304,7 @@ static int __init p4_init(char ** cpu_type)
 {
 	__u8 cpu_model = boot_cpu_data.x86_model;
 
-	if (cpu_model > 3)
+	if (cpu_model > 4)
 		return 0;
 
 #ifndef CONFIG_SMP
@@ -420,7 +420,7 @@ int __init nmi_init(struct oprofile_operations *ops)
 }
 
 
-void __exit nmi_exit(void)
+void nmi_exit(void)
 {
 	if (using_nmi)
 		exit_driverfs();

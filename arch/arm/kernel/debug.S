@@ -1,5 +1,5 @@
 /*
- *  linux/arch/arm/kernel/debug-armv.S
+ *  linux/arch/arm/kernel/debug.S
  *
  *  Copyright (C) 1994-1999 Russell King
  *
@@ -50,29 +50,6 @@
 		.endm
 #else
 #include <asm/arch/debug-macro.S>
-#endif
-
-#if 0
-// #elif defined(CONFIG_ARCH_FTVPCI)
-		.macro	addruart,rx
-		mrc	p15, 0, \rx, c1, c0
-		tst	\rx, #1			@ MMU enabled?
-		movne	\rx, #0xe0000000
-		moveq	\rx, #0x10000000
-		.endm
-
-		.macro	senduart,rd,rx
-		str	\rd, [\rx, #0xc]
-		.endm
-
-		.macro	busyuart,rd,rx
-1001:		ldr	\rd, [\rx, #0x4]
-		tst	\rd, #1 << 2
-		beq	1001b
-		.endm
-
-		.macro	waituart,rd,rx
-		.endm
 #endif
 
 /*

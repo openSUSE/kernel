@@ -261,18 +261,24 @@ static void acm_softint(void *private)
 
 static int acm_tty_open(struct tty_struct *tty, struct file *filp)
 {
-	struct acm *acm = acm_table[tty->index];
+	struct acm *acm;
+	int rv = -EINVAL;
 	dbg("Entering acm_tty_open.\n");
+	
+	down(&open_sem);
 
+	acm = acm_table[tty->index];
 	if (!acm || !acm->dev)
-		return -EINVAL;
+		goto err_out;
+	else
+		rv = 0;
 
 	tty->driver_data = acm;
 	acm->tty = tty;
 
-        down(&open_sem);
 
-	if (acm->used) {
+
+	if (acm->used++) {
 		goto done;
         }
 
@@ -296,15 +302,16 @@ static int acm_tty_open(struct tty_struct *tty, struct file *filp)
 	tty->low_latency = 1;
 
 done:
-	acm->used++;
+err_out:
 	up(&open_sem);
-	return 0;
+	return rv;
 
 full_bailout:
 	usb_kill_urb(acm->readurb);
 bail_out_and_unlink:
 	usb_kill_urb(acm->ctrlurb);
 bail_out:
+	acm->used--;
 	up(&open_sem);
 	return -EIO;
 }

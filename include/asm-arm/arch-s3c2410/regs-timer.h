@@ -13,6 +13,7 @@
  *    05-06-2003     BJD     Created file
  *    26-06-2003     BJD     Added more timer definitions to mux / control
  *    12-03-2004     BJD     Updated include protection
+ *    10-02-2005     BJD     Added S3C2410_TCFG1_MUX4_SHIFT (Guillaume Gourat)
 */
 
 
@@ -38,6 +39,7 @@
 #define S3C2410_TCFG1_MUX4_DIV16  (3<<16)
 #define S3C2410_TCFG1_MUX4_TCLK1  (4<<16)
 #define S3C2410_TCFG1_MUX4_MASK	  (15<<16)
+#define S3C2410_TCFG1_MUX4_SHIFT  (16)
 
 #define S3C2410_TCFG1_MUX3_DIV2	  (0<<12)
 #define S3C2410_TCFG1_MUX3_DIV4	  (1<<12)

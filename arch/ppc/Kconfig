@@ -52,17 +52,17 @@ choice
 	default 6xx
 
 config 6xx
-	bool "6xx/7xx/74xx/52xx/8260"
+	bool "6xx/7xx/74xx/52xx/82xx/83xx"
 	help
 	  There are four types of PowerPC chips supported.  The more common
 	  types (601, 603, 604, 740, 750, 7400), the Motorola embedded
-	  versions (821, 823, 850, 855, 860, 52xx, 8260), the IBM embedded
+	  versions (821, 823, 850, 855, 860, 52xx, 82xx, 83xx), the IBM embedded
 	  versions (403 and 405) and the high end 64 bit Power processors
 	  (POWER 3, POWER4, and IBM 970 also known as G5)
 	  Unless you are building a kernel for one of the embedded processor
 	  systems, 64 bit IBM RS/6000 or an Apple G5, choose 6xx.
 	  Note that the kernel runs in 32-bit mode even on 64-bit chips.
-	  Also note that because the 52xx & 82xx family has a 603e core,
+	  Also note that because the 52xx, 82xx, & 83xx family has a 603e core,
 	  specific support for that chipset is asked later on.
 
 config 40x
@@ -109,7 +109,7 @@ config PHYS_64BIT
 config ALTIVEC
 	bool "AltiVec Support"
 	depends on 6xx || POWER4
-	depends on !8260
+	depends on !8260 && !83xx
 	---help---
 	  This option enables kernel support for the Altivec extensions to the
 	  PowerPC processor. The kernel currently supports saving and restoring
@@ -140,7 +140,7 @@ config SPE
 
 config TAU
 	bool "Thermal Management Support"
-	depends on 6xx && !8260
+	depends on 6xx && !8260 && !83xx
 	help
 	  G3 and G4 processors have an on-chip temperature sensor called the
 	  'Thermal Assist Unit (TAU)', which, in theory, can measure the on-die
@@ -228,6 +228,7 @@ config PPC601_SYNC_FIX
 	  If in doubt, say Y here.
 
 source arch/ppc/platforms/4xx/Kconfig
+source arch/ppc/platforms/83xx/Kconfig
 source arch/ppc/platforms/85xx/Kconfig
 
 config PPC64BRIDGE
@@ -475,7 +476,7 @@ endchoice
 
 choice
 	prompt "Machine Type"
-	depends on 6xx || POWER3 || POWER4
+	depends on (6xx && !83xx) || POWER3 || POWER4
 	default PPC_MULTIPLATFORM
 	---help---
 	  Linux currently supports several different kinds of PowerPC-based
@@ -660,7 +661,7 @@ config PPC_MPC52xx
 
 config 8260
 	bool "CPM2 Support" if WILLOW
-	depends on 6xx
+	depends on 6xx && !83xx
 	default y if TQM8260 || RPX8260 || EST8260 || SBS8260 || SBC82xx || PQ2FADS
 	help
 	  The MPC8260 is a typical embedded CPU made by Motorola.  Selecting
@@ -1079,8 +1080,8 @@ config MCA
 	bool
 
 config PCI
-	bool "PCI support" if 40x || CPM2 || 85xx
-	default y if !40x && !CPM2 && !8xx && !APUS && !85xx
+	bool "PCI support" if 40x || CPM2 || 83xx || 85xx
+	default y if !40x && !CPM2 && !8xx && !APUS && !83xx && !85xx
 	default PCI_PERMEDIA if !4xx && !CPM2 && !8xx && APUS
 	default PCI_QSPAN if !4xx && !CPM2 && 8xx
 	help

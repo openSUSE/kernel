@@ -21,7 +21,7 @@ struct stripe_c {
 	uint32_t stripes;
 
 	/* The size of this target / num. stripes */
-	uint32_t stripe_width;
+	sector_t stripe_width;
 
 	/* stripe chunk size */
 	uint32_t chunk_shift;
@@ -174,7 +174,7 @@ static int stripe_map(struct dm_target *ti, struct bio *bio,
 
 	sector_t offset = bio->bi_sector - ti->begin;
 	sector_t chunk = offset >> sc->chunk_shift;
-	uint32_t stripe = do_div(chunk, sc->stripes);
+	uint32_t stripe = sector_div(chunk, sc->stripes);
 
 	bio->bi_bdev = sc->stripe[stripe].dev->bdev;
 	bio->bi_sector = sc->stripe[stripe].physical_start +

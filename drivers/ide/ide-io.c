@@ -238,9 +238,10 @@ u64 ide_get_error_location(ide_drive_t *drive, char *args)
 		high = ide_read_24(drive);
 	} else {
 		u8 cur = HWIF(drive)->INB(IDE_SELECT_REG);
-		if (cur & 0x40)
+		if (cur & 0x40) {
+			high = cur & 0xf;
 			low = (hcyl << 16) | (lcyl << 8) | sect;
-		else {
+		} else {
 			low = hcyl * drive->head * drive->sect;
 			low += lcyl * drive->sect;
 			low += sect - 1;
@@ -555,7 +556,7 @@ ide_startstop_t ide_error (ide_drive_t *drive, const char *msg, u8 stat)
 
 	err = ide_dump_status(drive, msg, stat);
 
-	if (drive == NULL || (rq = HWGROUP(drive)->rq) == NULL)
+	if ((rq = HWGROUP(drive)->rq) == NULL)
 		return ide_stopped;
 
 	/* retry only "normal" I/O: */
@@ -933,6 +934,7 @@ void ide_stall_queue (ide_drive_t *drive, unsigned long timeout)
 	if (timeout > WAIT_WORSTCASE)
 		timeout = WAIT_WORSTCASE;
 	drive->sleep = timeout + jiffies;
+	drive->sleeping = 1;
 }
 
 EXPORT_SYMBOL(ide_stall_queue);
@@ -972,18 +974,18 @@ repeat:
 	}
 
 	do {
-		if ((!drive->sleep || time_after_eq(jiffies, drive->sleep))
+		if ((!drive->sleeping || time_after_eq(jiffies, drive->sleep))
 		    && !elv_queue_empty(drive->queue)) {
 			if (!best
-			 || (drive->sleep && (!best->sleep || 0 < (signed long)(best->sleep - drive->sleep)))
-			 || (!best->sleep && 0 < (signed long)(WAKEUP(best) - WAKEUP(drive))))
+			 || (drive->sleeping && (!best->sleeping || time_before(drive->sleep, best->sleep)))
+			 || (!best->sleeping && time_before(WAKEUP(drive), WAKEUP(best))))
 			{
 				if (!blk_queue_plugged(drive->queue))
 					best = drive;
 			}
 		}
 	} while ((drive = drive->next) != hwgroup->drive);
-	if (best && best->nice1 && !best->sleep && best != hwgroup->drive && best->service_time > WAIT_MIN_SLEEP) {
+	if (best && best->nice1 && !best->sleeping && best != hwgroup->drive && best->service_time > WAIT_MIN_SLEEP) {
 		long t = (signed long)(WAKEUP(best) - jiffies);
 		if (t >= WAIT_MIN_SLEEP) {
 		/*
@@ -992,10 +994,9 @@ repeat:
 		 */
 			drive = best->next;
 			do {
-				if (!drive->sleep
-				/* FIXME: use time_before */
-				 && 0 < (signed long)(WAKEUP(drive) - (jiffies - best->service_time))
-				 && 0 < (signed long)((jiffies + t) - WAKEUP(drive)))
+				if (!drive->sleeping
+				 && time_before(jiffies - best->service_time, WAKEUP(drive))
+				 && time_before(WAKEUP(drive), jiffies + t))
 				{
 					ide_stall_queue(best, min_t(long, t, 10 * WAIT_MIN_SLEEP));
 					goto repeat;
@@ -1058,14 +1059,17 @@ static void ide_do_request (ide_hwgroup_t *hwgroup, int masked_irq)
 		hwgroup->busy = 1;
 		drive = choose_drive(hwgroup);
 		if (drive == NULL) {
-			unsigned long sleep = 0;
+			int sleeping = 0;
+			unsigned long sleep = 0; /* shut up, gcc */
 			hwgroup->rq = NULL;
 			drive = hwgroup->drive;
 			do {
-				if (drive->sleep && (!sleep || 0 < (signed long)(sleep - drive->sleep)))
+				if (drive->sleeping && (!sleeping || time_before(drive->sleep, sleep))) {
+					sleeping = 1;
 					sleep = drive->sleep;
+				}
 			} while ((drive = drive->next) != hwgroup->drive);
-			if (sleep) {
+			if (sleeping) {
 		/*
 		 * Take a short snooze, and then wake up this hwgroup again.
 		 * This gives other hwgroups on the same a chance to
@@ -1105,7 +1109,7 @@ static void ide_do_request (ide_hwgroup_t *hwgroup, int masked_irq)
 		}
 		hwgroup->hwif = hwif;
 		hwgroup->drive = drive;
-		drive->sleep = 0;
+		drive->sleeping = 0;
 		drive->service_start = jiffies;
 
 		if (blk_queue_plugged(drive->queue)) {
@@ -1159,14 +1163,14 @@ static void ide_do_request (ide_hwgroup_t *hwgroup, int masked_irq)
 		 * happens anyway when any interrupt comes in, IDE or otherwise
 		 *  -- the kernel masks the IRQ while it is being handled.
 		 */
-		if (hwif->irq != masked_irq)
+		if (masked_irq != IDE_NO_IRQ && hwif->irq != masked_irq)
 			disable_irq_nosync(hwif->irq);
 		spin_unlock(&ide_lock);
 		local_irq_enable();
 			/* allow other IRQs while we start this request */
 		startstop = start_request(drive, rq);
 		spin_lock_irq(&ide_lock);
-		if (hwif->irq != masked_irq)
+		if (masked_irq != IDE_NO_IRQ && hwif->irq != masked_irq)
 			enable_irq(hwif->irq);
 		if (startstop == ide_stopped)
 			hwgroup->busy = 0;
@@ -1311,7 +1315,7 @@ void ide_timer_expiry (unsigned long data)
 			/* local CPU only,
 			 * as if we were handling an interrupt */
 			local_irq_disable();
-			if (hwgroup->poll_timeout != 0) {
+			if (hwgroup->polling) {
 				startstop = handler(drive);
 			} else if (drive_is_ready(drive)) {
 				if (drive->waiting_for_dma)
@@ -1439,8 +1443,7 @@ irqreturn_t ide_intr (int irq, void *dev_id, struct pt_regs *regs)
 		return IRQ_NONE;
 	}
 
-	if ((handler = hwgroup->handler) == NULL ||
-	    hwgroup->poll_timeout != 0) {
+	if ((handler = hwgroup->handler) == NULL || hwgroup->polling) {
 		/*
 		 * Not expecting an interrupt from this drive.
 		 * That means this could be:

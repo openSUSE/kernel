@@ -656,12 +656,15 @@ nfsd_open(struct svc_rqst *rqstp, struct svc_fh *fhp, int type,
 	dentry = fhp->fh_dentry;
 	inode = dentry->d_inode;
 
-	/* Disallow access to files with the append-only bit set or
-	 * with mandatory locking enabled
+	/* Disallow write access to files with the append-only bit set
+	 * or any access when mandatory locking enabled
 	 */
 	err = nfserr_perm;
-	if (IS_APPEND(inode) || IS_ISMNDLK(inode))
+	if (IS_APPEND(inode) && (access & MAY_WRITE))
 		goto out;
+	if (IS_ISMNDLK(inode))
+		goto out;
+
 	if (!inode->i_fop)
 		goto out;
 
@@ -704,8 +707,8 @@ nfsd_close(struct file *filp)
  * As this calls fsync (not fdatasync) there is no need for a write_inode
  * after it.
  */
-inline void nfsd_dosync(struct file *filp, struct dentry *dp, 
-			struct file_operations *fop)
+static inline void nfsd_dosync(struct file *filp, struct dentry *dp,
+			       struct file_operations *fop)
 {
 	struct inode *inode = dp->d_inode;
 	int (*fsync) (struct file *, struct dentry *, int);
@@ -717,7 +720,7 @@ inline void nfsd_dosync(struct file *filp, struct dentry *dp,
 }
 	
 
-void
+static void
 nfsd_sync(struct file *filp)
 {
 	struct inode *inode = filp->f_dentry->d_inode;
@@ -727,7 +730,7 @@ nfsd_sync(struct file *filp)
 	up(&inode->i_sem);
 }
 
-void
+static void
 nfsd_sync_dir(struct dentry *dp)
 {
 	nfsd_dosync(NULL, dp, dp->d_inode->i_fop);

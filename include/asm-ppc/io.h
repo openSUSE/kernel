@@ -30,6 +30,8 @@
 #include <asm/mpc8xx.h>
 #elif defined(CONFIG_8260)
 #include <asm/mpc8260.h>
+#elif defined(CONFIG_83xx)
+#include <asm/mpc83xx.h>
 #elif defined(CONFIG_85xx)
 #include <asm/mpc85xx.h>
 #elif defined(CONFIG_APUS)
@@ -133,7 +135,10 @@ extern inline void out_be32(volatile unsigned __iomem *addr, int val)
 {
 	__asm__ __volatile__("stw%U0%X0 %1,%0; eieio" : "=m" (*addr) : "r" (val));
 }
-
+#if defined (CONFIG_8260_PCI9)
+#define readb(addr) in_8((volatile u8 *)(addr))
+#define writeb(b,addr) out_8((volatile u8 *)(addr), (b))
+#else
 static inline __u8 readb(volatile void __iomem *addr)
 {
 	return in_8(addr);
@@ -142,6 +147,8 @@ static inline void writeb(__u8 b, volatile void __iomem *addr)
 {
 	out_8(addr, b);
 }
+#endif
+
 #if defined(CONFIG_APUS)
 static inline __u16 readw(volatile void __iomem *addr)
 {
@@ -159,6 +166,12 @@ static inline void writel(__u32 b, volatile void __iomem *addr)
 {
 	*(__force volatile __u32 *)(addr) = b;
 }
+#elif defined (CONFIG_8260_PCI9)
+/* Use macros if PCI9 workaround enabled */
+#define readw(addr) in_le16((volatile u16 *)(addr))
+#define readl(addr) in_le32((volatile u32 *)(addr))
+#define writew(b,addr) out_le16((volatile u16 *)(addr),(b))
+#define writel(b,addr) out_le32((volatile u32 *)(addr),(b))
 #else
 static inline __u16 readw(volatile void __iomem *addr)
 {
@@ -332,6 +345,11 @@ extern void _outsl_ns(volatile u32 __iomem *port, const void *buf, int nl);
 
 #define IO_SPACE_LIMIT ~0
 
+#if defined (CONFIG_8260_PCI9)
+#define memset_io(a,b,c)       memset((void *)(a),(b),(c))
+#define memcpy_fromio(a,b,c)   memcpy((a),(void *)(b),(c))
+#define memcpy_toio(a,b,c)     memcpy((void *)(a),(b),(c))
+#else
 static inline void memset_io(volatile void __iomem *addr, unsigned char val, int count)
 {
 	memset((void __force *)addr, val, count);
@@ -344,6 +362,7 @@ static inline void memcpy_toio(volatile void __iomem *dst, const void *src, int 
 {
 	memcpy((void __force *) dst, src, count);
 }
+#endif
 
 #define eth_io_copy_and_sum(a,b,c,d)		eth_copy_and_sum((a),(void __force *)(void __iomem *)(b),(c),(d))
 

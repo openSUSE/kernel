@@ -1322,7 +1322,7 @@ static inline void xfer_secondary_pool(struct entropy_store *r,
 
 		bytes=extract_entropy(random_state, tmp, bytes,
 				      EXTRACT_ENTROPY_LIMIT);
-		add_entropy_words(r, tmp, bytes);
+		add_entropy_words(r, tmp, (bytes + 3) / 4);
 		credit_entropy_store(r, bytes*8);
 	}
 }
@@ -1965,7 +1965,6 @@ static void sysctl_init_random(struct entropy_store *random_state)
  *
  ********************************************************************/
 
-#ifdef CONFIG_INET
 /*
  * TCP initial sequence number picking.  This uses the random number
  * generator to pick an initial secret value.  This value is hashed
@@ -2202,6 +2201,31 @@ __u32 secure_tcpv6_sequence_number(__u32 *saddr, __u32 *daddr,
 EXPORT_SYMBOL(secure_tcpv6_sequence_number);
 #endif
 
+/*  The code below is shamelessly stolen from secure_tcp_sequence_number().
+ *  All blames to Andrey V. Savochkin <saw@msu.ru>.
+ */
+__u32 secure_ip_id(__u32 daddr)
+{
+	struct keydata *keyptr;
+	__u32 hash[4];
+
+	keyptr = get_keyptr();
+
+	/*
+	 *  Pick a unique starting offset for each IP destination.
+	 *  The dest ip address is placed in the starting vector,
+	 *  which is then hashed with random data.
+	 */
+	hash[0] = daddr;
+	hash[1] = keyptr->secret[9];
+	hash[2] = keyptr->secret[10];
+	hash[3] = keyptr->secret[11];
+
+	return halfMD4Transform(hash, keyptr->secret);
+}
+
+#ifdef CONFIG_INET
+
 __u32 secure_tcp_sequence_number(__u32 saddr, __u32 daddr,
 				 __u16 sport, __u16 dport)
 {
@@ -2242,28 +2266,7 @@ __u32 secure_tcp_sequence_number(__u32 saddr, __u32 daddr,
 
 EXPORT_SYMBOL(secure_tcp_sequence_number);
 
-/*  The code below is shamelessly stolen from secure_tcp_sequence_number().
- *  All blames to Andrey V. Savochkin <saw@msu.ru>.
- */
-__u32 secure_ip_id(__u32 daddr)
-{
-	struct keydata *keyptr;
-	__u32 hash[4];
 
-	keyptr = get_keyptr();
-
-	/*
-	 *  Pick a unique starting offset for each IP destination.
-	 *  The dest ip address is placed in the starting vector,
-	 *  which is then hashed with random data.
-	 */
-	hash[0] = daddr;
-	hash[1] = keyptr->secret[9];
-	hash[2] = keyptr->secret[10];
-	hash[3] = keyptr->secret[11];
-
-	return halfMD4Transform(hash, keyptr->secret);
-}
 
 /* Generate secure starting point for ephemeral TCP port search */
 u32 secure_tcp_port_ephemeral(__u32 saddr, __u32 daddr, __u16 dport)
@@ -2383,3 +2386,40 @@ __u32 check_tcp_syn_cookie(__u32 cookie, __u32 saddr, __u32 daddr, __u16 sport,
 }
 #endif
 #endif /* CONFIG_INET */
+
+
+/*
+ * Get a random word for internal kernel use only. Similar to urandom but
+ * with the goal of minimal entropy pool depletion. As a result, the random
+ * value is not cryptographically secure but for several uses the cost of
+ * depleting entropy is too high
+ */
+unsigned int get_random_int(void)
+{
+	/*
+	 * Use IP's RNG. It suits our purpose perfectly: it re-keys itself
+	 * every second, from the entropy pool (and thus creates a limited
+	 * drain on it), and uses halfMD4Transform within the second. We
+	 * also mix it with jiffies and the PID:
+	 */
+	return secure_ip_id(current->pid + jiffies);
+}
+
+/*
+ * randomize_range() returns a start address such that
+ *
+ *    [...... <range> .....]
+ *  start                  end
+ *
+ * a <range> with size "len" starting at the return value is inside in the
+ * area defined by [start, end], but is otherwise randomized.
+ */
+unsigned long
+randomize_range(unsigned long start, unsigned long end, unsigned long len)
+{
+	unsigned long range = end - len - start;
+
+	if (end <= start + len)
+		return 0;
+	return PAGE_ALIGN(get_random_int() % range + start);
+}

@@ -56,6 +56,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 #include <linux/i2c-vid.h>
@@ -201,12 +202,6 @@ struct lm87_data {
 	u8 vid;			/* register values, combined */
 	u8 vrm;
 };
-
-/*
- * Internal variables
- */
-
-static int lm87_id;
 
 /*
  * Sysfs stuff
@@ -569,7 +564,6 @@ static int lm87_detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* We can fill in the remaining client fields */
 	strlcpy(new_client->name, "lm87", I2C_NAME_SIZE);
-	new_client->id = lm87_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 
@@ -720,9 +714,7 @@ static struct lm87_data *lm87_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-	if (jiffies - data->last_updated > HZ
-	  || jiffies < data->last_updated
-	  || !data->valid) {
+	if (time_after(jiffies, data->last_updated + HZ) || !data->valid) {
 		int i, j;
 
 		dev_dbg(&client->dev, "Updating data.\n");

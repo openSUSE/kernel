@@ -669,7 +669,8 @@ sgiioc4_ide_setup_pci_device(struct pci_dev *dev, ide_pci_device_t * d)
 		printk(KERN_INFO "%s: %s Bus-Master DMA disabled\n",
 		       hwif->name, d->name);
 
-	probe_hwif_init(hwif);
+	if (probe_hwif_init(hwif))
+		return -EIO;
 
 	/* Create /proc/ide entries */
 	create_proc_ide_interfaces(); 
@@ -687,7 +688,7 @@ pci_init_sgiioc4(struct pci_dev *dev, ide_pci_device_t * d)
 	if (ret < 0) {
 		printk(KERN_ERR
 		       "Failed to enable device %s at slot %s\n",
-		       d->name, dev->slot_name);
+		       d->name, pci_name(dev));
 		goto out;
 	}
 	pci_set_master(dev);
@@ -695,11 +696,11 @@ pci_init_sgiioc4(struct pci_dev *dev, ide_pci_device_t * d)
 	pci_read_config_dword(dev, PCI_CLASS_REVISION, &class_rev);
 	class_rev &= 0xff;
 	printk(KERN_INFO "%s: IDE controller at PCI slot %s, revision %d\n",
-			d->name, dev->slot_name, class_rev);
+			d->name, pci_name(dev), class_rev);
 	if (class_rev < IOC4_SUPPORTED_FIRMWARE_REV) {
 		printk(KERN_ERR "Skipping %s IDE controller in slot %s: "
 			"firmware is obsolete - please upgrade to revision"
-			"46 or higher\n", d->name, dev->slot_name);
+			"46 or higher\n", d->name, pci_name(dev));
 		ret = -EAGAIN;
 		goto out;
 	}

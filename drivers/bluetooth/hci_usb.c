@@ -73,7 +73,7 @@ static int reset = 0;
 static int isoc = 2;
 #endif
 
-#define VERSION "2.7"
+#define VERSION "2.8"
 
 static struct usb_driver hci_usb_driver; 
 
@@ -104,21 +104,24 @@ static struct usb_device_id blacklist_ids[] = {
 	{ USB_DEVICE(0x0a5c, 0x2033), .driver_info = HCI_IGNORE },
 
 	/* Broadcom BCM2035 */
-	{ USB_DEVICE(0x0a5c, 0x2009), .driver_info = HCI_RESET | HCI_BROKEN_ISOC },
 	{ USB_DEVICE(0x0a5c, 0x200a), .driver_info = HCI_RESET | HCI_BROKEN_ISOC },
+	{ USB_DEVICE(0x0a5c, 0x2009), .driver_info = HCI_BCM92035 },
 
 	/* Microsoft Wireless Transceiver for Bluetooth 2.0 */
-	{ USB_DEVICE(0x045e, 0x009c), .driver_info = HCI_RESET | HCI_BROKEN_ISOC },
+	{ USB_DEVICE(0x045e, 0x009c), .driver_info = HCI_RESET },
 
 	/* ISSC Bluetooth Adapter v3.1 */
 	{ USB_DEVICE(0x1131, 0x1001), .driver_info = HCI_RESET },
+
+	/* RTX Telecom based adapter with buggy SCO support */
+	{ USB_DEVICE(0x0400, 0x0807), .driver_info = HCI_BROKEN_ISOC },
 
 	/* Digianswer devices */
 	{ USB_DEVICE(0x08fd, 0x0001), .driver_info = HCI_DIGIANSWER },
 	{ USB_DEVICE(0x08fd, 0x0002), .driver_info = HCI_IGNORE },
 
-	/* RTX Telecom based adapter with buggy SCO support */
-	{ USB_DEVICE(0x0400, 0x0807), .driver_info = HCI_BROKEN_ISOC },
+	/* CSR BlueCore Bluetooth Sniffer */
+	{ USB_DEVICE(0x0a12, 0x0002), .driver_info = HCI_SNIFFER },
 
 	{ }	/* Terminating entry */
 };
@@ -968,6 +971,22 @@ static int hci_usb_probe(struct usb_interface *intf, const struct usb_device_id 
 
 	if (reset || id->driver_info & HCI_RESET)
 		set_bit(HCI_QUIRK_RESET_ON_INIT, &hdev->quirks);
+
+	if (id->driver_info & HCI_SNIFFER) {
+		if (le16_to_cpu(udev->descriptor.bcdDevice) > 0x997)
+			set_bit(HCI_QUIRK_RAW_DEVICE, &hdev->quirks);
+	}
+
+	if (id->driver_info & HCI_BCM92035) {
+		unsigned char cmd[] = { 0x3b, 0xfc, 0x01, 0x00 };
+		struct sk_buff *skb;
+
+		skb = bt_skb_alloc(sizeof(cmd), GFP_KERNEL);
+		if (skb) {
+			memcpy(skb_put(skb, sizeof(cmd)), cmd, sizeof(cmd));
+			skb_queue_tail(&hdev->driver_init, skb);
+		}
+	}
 
 	if (hci_register_dev(hdev) < 0) {
 		BT_ERR("Can't register HCI device");

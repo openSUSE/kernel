@@ -977,12 +977,9 @@
 /* I2C Registers                        */
 /****************************************/
 
-#define MV64340_I2C_SLAVE_ADDR                                      0xc000
-#define MV64340_I2C_EXTENDED_SLAVE_ADDR                             0xc010
-#define MV64340_I2C_DATA                                            0xc004
-#define MV64340_I2C_CONTROL                                         0xc008
-#define MV64340_I2C_STATUS_BAUDE_RATE                               0xc00C
-#define MV64340_I2C_SOFT_RESET                                      0xc01c
+#define MV64XXX_I2C_CTLR_NAME					"mv64xxx i2c"
+#define MV64XXX_I2C_OFFSET                                          0xc000
+#define MV64XXX_I2C_REG_BLOCK_SIZE                                  0x0020
 
 /****************************************/
 /* GPP Interface Registers              */
@@ -1048,7 +1045,7 @@ extern void mv64340_irq_init(unsigned int base);
 #define MPSC_ROUTING_REG_BLOCK_SIZE	0x000c
 #define MPSC_SDMA_INTR_REG_BLOCK_SIZE	0x0084
 
-struct mpsc_shared_pd_dd {
+struct mpsc_shared_pdata {
 	u32	mrr_val;
 	u32	rcrr_val;
 	u32	tcrr_val;
@@ -1067,7 +1064,7 @@ struct mpsc_shared_pd_dd {
 #define MPSC_SDMA_REG_BLOCK_SIZE	0x0c18
 #define MPSC_BRG_REG_BLOCK_SIZE		0x0008
 
-struct mpsc_pd_dd {
+struct mpsc_pdata {
 	u8	mirror_regs;
 	u8	cache_mgmt;
 	u8	max_idle;
@@ -1083,6 +1080,14 @@ struct mpsc_pd_dd {
 	u8	brg_can_tune;
 	u8	brg_clk_src;
 	u32	brg_clk_freq;
+};
+
+/* i2c Platform Device, Driver Data */
+struct mv64xxx_i2c_pdata {
+	u32	freq_m;
+	u32	freq_n;
+	u32	timeout;	/* In milliseconds */
+	u32	retries;
 };
 
 #endif /* __ASM_MV64340_H */

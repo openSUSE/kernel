@@ -20,7 +20,6 @@ obj-$(CONFIG_ESPSERIAL)		+= esp.o
 obj-$(CONFIG_MVME147_SCC)	+= generic_serial.o vme_scc.o
 obj-$(CONFIG_MVME162_SCC)	+= generic_serial.o vme_scc.o
 obj-$(CONFIG_BVME6000_SCC)	+= generic_serial.o vme_scc.o
-obj-$(CONFIG_SERIAL_TX3912)	+= generic_serial.o serial_tx3912.o
 obj-$(CONFIG_ROCKETPORT)	+= rocket.o
 obj-$(CONFIG_SERIAL167)		+= serial167.o
 obj-$(CONFIG_CYCLADES)		+= cyclades.o
@@ -81,6 +80,7 @@ obj-$(CONFIG_PPDEV) += ppdev.o
 obj-$(CONFIG_NWBUTTON) += nwbutton.o
 obj-$(CONFIG_NWFLASH) += nwflash.o
 obj-$(CONFIG_SCx200_GPIO) += scx200_gpio.o
+obj-$(CONFIG_TANBAC_TB0219) += tb0219.o
 
 obj-$(CONFIG_WATCHDOG)	+= watchdog/
 obj-$(CONFIG_MWAVE) += mwave/

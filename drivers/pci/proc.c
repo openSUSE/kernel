@@ -384,26 +384,32 @@ static struct proc_dir_entry *proc_bus_pci_dir;
 int pci_proc_attach_device(struct pci_dev *dev)
 {
 	struct pci_bus *bus = dev->bus;
-	struct proc_dir_entry *de, *e;
+	struct proc_dir_entry *e;
 	char name[16];
 
 	if (!proc_initialized)
 		return -EACCES;
 
-	if (!(de = bus->procdir)) {
-		if (pci_name_bus(name, bus))
-			return -EEXIST;
-		de = bus->procdir = proc_mkdir(name, proc_bus_pci_dir);
-		if (!de)
+	if (!bus->procdir) {
+		if (pci_proc_domain(bus)) {
+			sprintf(name, "%04x:%02x", pci_domain_nr(bus),
+					bus->number);
+		} else {
+			sprintf(name, "%02x", bus->number);
+		}
+		bus->procdir = proc_mkdir(name, proc_bus_pci_dir);
+		if (!bus->procdir)
 			return -ENOMEM;
 	}
+
 	sprintf(name, "%02x.%x", PCI_SLOT(dev->devfn), PCI_FUNC(dev->devfn));
-	e = dev->procent = create_proc_entry(name, S_IFREG | S_IRUGO | S_IWUSR, de);
+	e = create_proc_entry(name, S_IFREG | S_IRUGO | S_IWUSR, bus->procdir);
 	if (!e)
 		return -ENOMEM;
 	e->proc_fops = &proc_bus_pci_operations;
 	e->data = dev;
 	e->size = dev->cfg_size;
+	dev->procent = e;
 
 	return 0;
 }

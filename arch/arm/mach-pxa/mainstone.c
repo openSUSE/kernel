@@ -295,6 +295,15 @@ static void __init mainstone_map_io(void)
 {
 	pxa_map_io();
 	iotable_init(mainstone_io_desc, ARRAY_SIZE(mainstone_io_desc));
+
+	/* initialize sleep mode regs (wake-up sources, etc) */
+	PGSR0 = 0x00008800;
+	PGSR1 = 0x00000002;
+	PGSR2 = 0x0001FC00;
+	PGSR3 = 0x00001F81;
+	PWER  = 0xC0000002;
+	PRER  = 0x00000002;
+	PFER  = 0x00000002;
 }
 
 MACHINE_START(MAINSTONE, "Intel HCDDBBVA0 Development Platform (aka Mainstone)")

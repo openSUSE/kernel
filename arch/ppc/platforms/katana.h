@@ -8,9 +8,9 @@
  * Based on code done by Rabeeh Khoury - rabeeh@galileo.co.il
  * Based on code done by Mark A. Greer <mgreer@mvista.com>
  *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
  * option) any later version.
  */
 
@@ -19,18 +19,17 @@
  * PCI I/O space and 4 windows from the CPU bus to PCI MEM space.
  * We'll only use one PCI MEM window on each PCI bus.
  *
- * This is the CPU physical memory map (windows must be at least 1MB and start
+ * This is the CPU physical memory map (windows must be at least 64 KB and start
  * on a boundary that is a multiple of the window size):
  *
  *    0xff800000-0xffffffff      - Boot window
  *    0xf8400000-0xf85fffff      - Internal SRAM
- *    0xf8200000-0xf823ffff      - CPLD
- *    0xf8100000-0xf810ffff      - MV64360 Registers
- *    0xf8000000-0xf80fffff      - PLCC socket
- *    0xf0000000-0xf01fffff	 - Consistent memory pool
- *    0xe8000000-0xefffffff      - soldered flash
- *    0xc0000000-0xc0ffffff      - PCI I/O
- *    0x80000000-0xbfffffff      - PCI MEM
+ *    0xf8200000-0xf83fffff      - CPLD
+ *    0xf8100000-0xf810ffff      - MV64360 Registers (CONFIG_MV64X60_NEW_BASE)
+ *    0xf8000000-0xf80fffff      - Socketed FLASH
+ *    0xe0000000-0xefffffff      - Soldered FLASH
+ *    0xc0000000-0xc3ffffff      - PCI I/O (second hose)
+ *    0x80000000-0xbfffffff      - PCI MEM (second hose)
  */
 
 #ifndef __PPC_PLATFORMS_KATANA_H
@@ -38,33 +37,22 @@
 
 /* CPU Physical Memory Map setup. */
 #define KATANA_BOOT_WINDOW_BASE			0xff800000
+#define KATANA_BOOT_WINDOW_SIZE			0x00800000 /* 8 MB */
 #define KATANA_INTERNAL_SRAM_BASE		0xf8400000
 #define KATANA_CPLD_BASE			0xf8200000
-#define KATANA_BRIDGE_REG_BASE			0xf8100000
+#define KATANA_CPLD_SIZE			0x00200000 /* 2 MB */
 #define KATANA_SOCKET_BASE			0xf8000000
-#define KATANA_SOLDERED_FLASH_BASE		0xe8000000
-
-#define KATANA_BOOT_WINDOW_SIZE_ACTUAL		0x00800000 /* 8MB */
-#define KATANA_CPLD_SIZE_ACTUAL			0x00020000 /* 128KB */
-#define KATANA_SOCKETED_FLASH_SIZE_ACTUAL	0x00080000 /* 512KB */
-#define KATANA_SOLDERED_FLASH_SIZE_ACTUAL	0x02000000 /* 32MB */
-
-#define KATANA_BOOT_WINDOW_SIZE		max(MV64360_WINDOW_SIZE_MIN,	\
-		KATANA_BOOT_WINDOW_SIZE_ACTUAL)
-#define KATANA_CPLD_SIZE		max(MV64360_WINDOW_SIZE_MIN,	\
-		KATANA_CPLD_SIZE_ACTUAL)
-#define KATANA_SOCKETED_FLASH_SIZE	max(MV64360_WINDOW_SIZE_MIN,	\
-		KATANA_SOCKETED_FLASH_SIZE_ACTUAL)
-#define KATANA_SOLDERED_FLASH_SIZE	max(MV64360_WINDOW_SIZE_MIN,	\
-		KATANA_SOLDERED_FLASH_SIZE_ACTUAL)
+#define KATANA_SOCKETED_FLASH_SIZE		0x00100000 /* 1 MB */
+#define KATANA_SOLDERED_FLASH_BASE		0xe0000000
+#define KATANA_SOLDERED_FLASH_SIZE		0x10000000 /* 256 MB */
 
 #define KATANA_PCI1_MEM_START_PROC_ADDR         0x80000000
 #define KATANA_PCI1_MEM_START_PCI_HI_ADDR       0x00000000
 #define KATANA_PCI1_MEM_START_PCI_LO_ADDR       0x80000000
-#define KATANA_PCI1_MEM_SIZE                    0x40000000
+#define KATANA_PCI1_MEM_SIZE                    0x40000000 /* 1 GB */
 #define KATANA_PCI1_IO_START_PROC_ADDR          0xc0000000
 #define KATANA_PCI1_IO_START_PCI_ADDR           0x00000000
-#define KATANA_PCI1_IO_SIZE                     0x01000000
+#define KATANA_PCI1_IO_SIZE                     0x04000000 /* 64 MB */
 
 /* Board-specific IRQ info */
 #define  KATANA_PCI_INTA_IRQ_3750		64+8
@@ -107,6 +95,8 @@
 #define KATANA_CPLD_RST_CMD_HR			0x01
 
 #define KATANA_CPLD_BD_CFG_0_SYSCLK_MASK	0xc0
+#define KATANA_CPLD_BD_CFG_0_SYSCLK_200		0x00
+#define KATANA_CPLD_BD_CFG_0_SYSCLK_166		0x80
 #define KATANA_CPLD_BD_CFG_0_SYSCLK_133		0xc0
 #define KATANA_CPLD_BD_CFG_0_SYSCLK_100		0x40
 
@@ -136,6 +126,8 @@
 #define HSL_PLD_J4SGA_REG_OFF			0
 #define HSL_PLD_J4GA_REG_OFF			1
 #define HSL_PLD_J2GA_REG_OFF			2
+#define HSL_PLD_HOT_SWAP_OFF			6
+#define HSL_PLD_HOT_SWAP_LED_BIT		0x1
 #define GA_MASK					0x1f
 #define HSL_PLD_SIZE				0x1000
 #define K3750_GPP_GEO_ADDR_PINS			0xf8000000
@@ -160,7 +152,8 @@
 
 #define	KATANA_DEFAULT_BAUD			9600
 #define	KATANA_MPSC_CLK_SRC			8	  /* TCLK */
-#define	KATANA_MPSC_CLK_FREQ			133333333 /* 133.3333... MHz */
+
+#define	KATANA_MTD_MONITOR_SIZE			(1 << 20) /* 1 MB */
 
 #define	KATANA_ETH0_PHY_ADDR			12
 #define	KATANA_ETH1_PHY_ADDR			11
@@ -170,8 +163,8 @@
 #define KATANA_PRODUCT_ID_750i			0x02
 #define KATANA_PRODUCT_ID_752i			0x04
 
-#define KATANA_ETH_TX_QUEUE_SIZE		1050
-#define KATANA_ETH_RX_QUEUE_SIZE		450
+#define KATANA_ETH_TX_QUEUE_SIZE		800
+#define KATANA_ETH_RX_QUEUE_SIZE		400
 
 #define	KATANA_ETH_PORT_CONFIG_VALUE			\
 	ETH_UNICAST_NORMAL_MODE			|	\

@@ -46,7 +46,6 @@
 #include <linux/highmem.h>
 #include <linux/pagemap.h>
 #include <linux/rmap.h>
-#include <linux/acct.h>
 #include <linux/module.h>
 #include <linux/init.h>
 
@@ -84,20 +83,6 @@ EXPORT_SYMBOL(high_memory);
 EXPORT_SYMBOL(vmalloc_earlyreserve);
 
 /*
- * We special-case the C-O-W ZERO_PAGE, because it's such
- * a common occurrence (no need to read the page to know
- * that it's zero - better for the cache and memory subsystem).
- */
-static inline void copy_cow_page(struct page * from, struct page * to, unsigned long address)
-{
-	if (from == ZERO_PAGE(address)) {
-		clear_user_highpage(to, address);
-		return;
-	}
-	copy_user_highpage(to, from, address);
-}
-
-/*
  * Note: this doesn't free the actual pages themselves. That
  * has been handled earlier when unmapping all the memory regions.
  */
@@ -112,7 +97,8 @@ static inline void clear_pmd_range(struct mmu_gather *tlb, pmd_t *pmd, unsigned 
 		pmd_clear(pmd);
 		return;
 	}
-	if (!(start & ~PMD_MASK) && !(end & ~PMD_MASK)) {
+	if (!((start | end) & ~PMD_MASK)) {
+		/* Only clear full, aligned ranges */
 		page = pmd_page(*pmd);
 		pmd_clear(pmd);
 		dec_page_state(nr_page_table_pages);
@@ -145,7 +131,8 @@ static inline void clear_pud_range(struct mmu_gather *tlb, pud_t *pud, unsigned 
 		addr = next;
 	} while (addr && (addr < end));
 
-	if (!(start & ~PUD_MASK) && !(end & ~PUD_MASK)) {
+	if (!((start | end) & ~PUD_MASK)) {
+		/* Only clear full, aligned ranges */
 		pud_clear(pud);
 		pmd_free_tlb(tlb, __pmd);
 	}
@@ -176,7 +163,8 @@ static inline void clear_pgd_range(struct mmu_gather *tlb, pgd_t *pgd, unsigned 
 		addr = next;
 	} while (addr && (addr < end));
 
-	if (!(start & ~PGDIR_MASK) && !(end & ~PGDIR_MASK)) {
+	if (!((start | end) & ~PGDIR_MASK)) {
+		/* Only clear full, aligned ranges */
 		pgd_clear(pgd);
 		pud_free_tlb(tlb, __pud);
 	}
@@ -372,7 +360,7 @@ static int copy_pmd_range(struct mm_struct *dst_mm,  struct mm_struct *src_mm,
 
 	for (; addr < end; addr = next, src_pmd++, dst_pmd++) {
 		next = (addr + PMD_SIZE) & PMD_MASK;
-		if (next > end)
+		if (next > end || next <= addr)
 			next = end;
 		if (pmd_none(*src_pmd))
 			continue;
@@ -404,7 +392,7 @@ static int copy_pud_range(struct mm_struct *dst_mm,  struct mm_struct *src_mm,
 
 	for (; addr < end; addr = next, src_pud++, dst_pud++) {
 		next = (addr + PUD_SIZE) & PUD_MASK;
-		if (next > end)
+		if (next > end || next <= addr)
 			next = end;
 		if (pud_none(*src_pud))
 			continue;
@@ -746,7 +734,6 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long address,
 	tlb = tlb_gather_mmu(mm, 0);
 	unmap_vmas(&tlb, mm, vma, address, end, &nr_accounted, details);
 	tlb_finish_mmu(tlb, address, end);
-	acct_update_integrals();
 	spin_unlock(&mm->page_table_lock);
 }
 
@@ -1055,7 +1042,8 @@ static inline int zeromap_pud_range(struct mm_struct *mm, pud_t * pud,
 		error = -ENOMEM;
 		if (!pmd)
 			break;
-		error = zeromap_pmd_range(mm, pmd, address, end - address, prot);
+		error = zeromap_pmd_range(mm, pmd, base + address,
+					  end - address, prot);
 		if (error)
 			break;
 		address = (address + PUD_SIZE) & PUD_MASK;
@@ -1330,11 +1318,16 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct * vma,
 
 	if (unlikely(anon_vma_prepare(vma)))
 		goto no_new_page;
-	new_page = alloc_page_vma(GFP_HIGHUSER, vma, address);
-	if (!new_page)
-		goto no_new_page;
-	copy_cow_page(old_page,new_page,address);
-
+	if (old_page == ZERO_PAGE(address)) {
+		new_page = alloc_zeroed_user_highpage(vma, address);
+		if (!new_page)
+			goto no_new_page;
+	} else {
+		new_page = alloc_page_vma(GFP_HIGHUSER, vma, address);
+		if (!new_page)
+			goto no_new_page;
+		copy_user_highpage(new_page, old_page, address);
+	}
 	/*
 	 * Re-check the pte - we dropped the lock
 	 */
@@ -1343,11 +1336,9 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct * vma,
 	if (likely(pte_same(*page_table, pte))) {
 		if (PageAnon(old_page))
 			mm->anon_rss--;
-		if (PageReserved(old_page)) {
+		if (PageReserved(old_page))
 			++mm->rss;
-			acct_update_integrals();
-			update_mem_hiwater();
-		} else
+		else
 			page_remove_rmap(old_page);
 		break_cow(vma, new_page, address, page_table);
 		lru_cache_add_active(new_page);
@@ -1752,9 +1743,6 @@ static int do_swap_page(struct mm_struct * mm,
 		remove_exclusive_swap_page(page);
 
 	mm->rss++;
-	acct_update_integrals();
-	update_mem_hiwater();
-
 	pte = mk_pte(page, vma->vm_page_prot);
 	if (write_access && can_share_swap_page(page)) {
 		pte = maybe_mkwrite(pte_mkdirty(pte), vma);
@@ -1805,10 +1793,9 @@ do_anonymous_page(struct mm_struct *mm, struct vm_area_struct *vma,
 
 		if (unlikely(anon_vma_prepare(vma)))
 			goto no_mem;
-		page = alloc_page_vma(GFP_HIGHUSER, vma, addr);
+		page = alloc_zeroed_user_highpage(vma, addr);
 		if (!page)
 			goto no_mem;
-		clear_user_highpage(page, addr);
 
 		spin_lock(&mm->page_table_lock);
 		page_table = pte_offset_map(pmd, addr);
@@ -1820,8 +1807,6 @@ do_anonymous_page(struct mm_struct *mm, struct vm_area_struct *vma,
 			goto out;
 		}
 		mm->rss++;
-		acct_update_integrals();
-		update_mem_hiwater();
 		entry = maybe_mkwrite(pte_mkdirty(mk_pte(page,
 							 vma->vm_page_prot)),
 				      vma);
@@ -1938,8 +1923,6 @@ retry:
 	if (pte_none(*page_table)) {
 		if (!PageReserved(new_page))
 			++mm->rss;
-		acct_update_integrals();
-		update_mem_hiwater();
 
 		flush_icache_page(vma, new_page);
 		entry = mk_pte(new_page, vma->vm_page_prot);
@@ -2106,7 +2089,6 @@ int handle_mm_fault(struct mm_struct *mm, struct vm_area_struct * vma,
 }
 
 #ifndef __ARCH_HAS_4LEVEL_HACK
-#if (PTRS_PER_PUD > 1)
 /*
  * Allocate page upper directory.
  *
@@ -2135,12 +2117,10 @@ pud_t fastcall *__pud_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long addr
 		goto out;
 	}
 	pgd_populate(mm, pgd, new);
-out:
+ out:
 	return pud_offset(pgd, address);
 }
-#endif
 
-#if (PTRS_PER_PMD > 1)
 /*
  * Allocate page middle directory.
  *
@@ -2169,10 +2149,9 @@ pmd_t fastcall *__pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long addr
 		goto out;
 	}
 	pud_populate(mm, pud, new);
-out:
+ out:
 	return pmd_offset(pud, address);
 }
-#endif
 #else
 pmd_t fastcall *__pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
 {
@@ -2263,10 +2242,8 @@ EXPORT_SYMBOL(vmalloc_to_pfn);
  * update_mem_hiwater
  *	- update per process rss and vm high water data
  */
-void update_mem_hiwater(void)
+void update_mem_hiwater(struct task_struct *tsk)
 {
-	struct task_struct *tsk = current;
-
 	if (tsk->mm) {
 		if (tsk->mm->hiwater_rss < tsk->mm->rss)
 			tsk->mm->hiwater_rss = tsk->mm->rss;
