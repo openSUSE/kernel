@@ -47,10 +47,11 @@
  */
 
 /* Checksum offload for Tx works */
-#define  MV64340_CHECKSUM_OFFLOAD_TX
-#define	 MV64340_NAPI
-#define	 MV64340_TX_FAST_REFILL
-#undef	 MV64340_COAL
+#define	MV64340_CHECKSUM_OFFLOAD_TX
+#define	MV64340_NAPI
+#define	MV64340_TX_FAST_REFILL
+#undef	MV64340_RX_QUEUE_FILL_ON_TASK		/* Does not work, yet */
+#undef	MV64340_COAL
 
 /* 
  * Number of RX / TX descriptors on RX / TX rings.

@@ -13,6 +13,9 @@
  * Copyright (C) 2004-2005 MontaVista Software, Inc.
  *                    Dale Farnsworth <dale@farnsworth.org>
  *
+ * Copyright (C) 2004 Steven J. Hill <sjhill1@rockwellcollins.com>
+ *                                   <sjhill@realitydiluted.com>
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -46,16 +49,13 @@
  * The first part is the high level driver of the gigE ethernet ports. 
  */
 
-/* Definition for configuring driver */
-#undef MV64340_RX_QUEUE_FILL_ON_TASK
-
 /* Constants */
 #define EXTRA_BYTES 32
 #define WRAP       ETH_HLEN + 2 + 4 + 16
 #define BUFFER_MTU dev->mtu + WRAP
 #define INT_CAUSE_UNMASK_ALL		0x0007ffff
 #define INT_CAUSE_UNMASK_ALL_EXT	0x0011ffff
-#ifdef MV64340_RX_FILL_ON_TASK
+#ifdef MV64340_RX_QUEUE_FILL_ON_TASK
 #define INT_CAUSE_MASK_ALL		0x00000000
 #define INT_CAUSE_CHECK_BITS		INT_CAUSE_UNMASK_ALL
 #define INT_CAUSE_CHECK_BITS_EXT	INT_CAUSE_UNMASK_ALL_EXT
@@ -194,7 +194,7 @@ static void mv64340_eth_rx_task(void *data)
 		add_timer(&mp->timeout);
 		mp->rx_timer_flag = 1;
 	}
-#if MV64340_RX_QUEUE_FILL_ON_TASK
+#ifdef MV64340_RX_QUEUE_FILL_ON_TASK
 	else {
 		/* Return interrupts */
 		MV_WRITE(MV64340_ETH_INTERRUPT_MASK_REG(mp->port_num),
@@ -533,7 +533,7 @@ static irqreturn_t mv64340_eth_int_handler(int irq, void *dev_id,
 		 * in an interrupts enabled context that refills the RX ring
 		 * with skb's.
 		 */
-#if MV64340_RX_QUEUE_FILL_ON_TASK
+#ifdef MV64340_RX_QUEUE_FILL_ON_TASK
 		/* Unmask all interrupts on ethernet port */
 		MV_WRITE(MV64340_ETH_INTERRUPT_MASK_REG(port_num),
 		         INT_CAUSE_MASK_ALL);
