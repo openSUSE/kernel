@@ -29,7 +29,7 @@ static struct kobj_map *cdev_map;
 /* degrade to linked list for small systems */
 #define MAX_PROBE_HASH (CONFIG_BASE_SMALL ? 1 : 255)
 
-static DEFINE_RWLOCK(chrdevs_lock);
+static DECLARE_MUTEX(chrdevs_lock);
 
 static struct char_device_struct {
 	struct char_device_struct *next;
@@ -55,13 +55,13 @@ int get_chrdev_list(char *page)
 
 	len = sprintf(page, "Character devices:\n");
 
-	read_lock(&chrdevs_lock);
+	down(&chrdevs_lock);
 	for (i = 0; i < ARRAY_SIZE(chrdevs) ; i++) {
 		for (cd = chrdevs[i]; cd; cd = cd->next)
 			len += sprintf(page+len, "%3d %s\n",
 				       cd->major, cd->name);
 	}
-	read_unlock(&chrdevs_lock);
+	up(&chrdevs_lock);
 
 	return len;
 }
@@ -91,7 +91,7 @@ __register_chrdev_region(unsigned int major, unsigned int baseminor,
 
 	memset(cd, 0, sizeof(struct char_device_struct));
 
-	write_lock_irq(&chrdevs_lock);
+	down(&chrdevs_lock);
 
 	/* temporary */
 	if (major == 0) {
@@ -126,10 +126,10 @@ __register_chrdev_region(unsigned int major, unsigned int baseminor,
 	}
 	cd->next = *cp;
 	*cp = cd;
-	write_unlock_irq(&chrdevs_lock);
+	up(&chrdevs_lock);
 	return cd;
 out:
-	write_unlock_irq(&chrdevs_lock);
+	up(&chrdevs_lock);
 	kfree(cd);
 	return ERR_PTR(ret);
 }
@@ -140,7 +140,7 @@ __unregister_chrdev_region(unsigned major, unsigned baseminor, int minorct)
 	struct char_device_struct *cd = NULL, **cp;
 	int i = major_to_index(major);
 
-	write_lock_irq(&chrdevs_lock);
+	up(&chrdevs_lock);
 	for (cp = &chrdevs[i]; *cp; cp = &(*cp)->next)
 		if ((*cp)->major == major &&
 		    (*cp)->baseminor == baseminor &&
@@ -150,7 +150,7 @@ __unregister_chrdev_region(unsigned major, unsigned baseminor, int minorct)
 		cd = *cp;
 		*cp = cd->next;
 	}
-	write_unlock_irq(&chrdevs_lock);
+	up(&chrdevs_lock);
 	return cd;
 }
 
@@ -381,8 +381,6 @@ void cdev_del(struct cdev *p)
 }
 
 
-static decl_subsys(cdev, NULL, NULL);
-
 static void cdev_default_release(struct kobject *kobj)
 {
 	struct cdev *p = container_of(kobj, struct cdev, kobj);
@@ -435,13 +433,7 @@ static struct kobject *base_probe(dev_t dev, int *part, void *data)
 
 void __init chrdev_init(void)
 {
-/*
- * Keep cdev_subsys around because (and only because) the kobj_map code
- * depends on the rwsem it contains.  We don't make it public in sysfs,
- * however.
- */
-	subsystem_init(&cdev_subsys);
-	cdev_map = kobj_map_init(base_probe, &cdev_subsys);
+	cdev_map = kobj_map_init(base_probe, &chrdevs_lock);
 }
 
 
