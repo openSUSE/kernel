@@ -288,6 +288,7 @@ extern void put_nfs4_client(struct nfs4_client *clp);
 extern void nfs4_free_stateowner(struct kref *kref);
 extern void nfsd4_probe_callback(struct nfs4_client *clp);
 extern void nfsd4_cb_recall(struct nfs4_delegation *dp);
+extern void nfs4_put_delegation(struct nfs4_delegation *dp);
 
 static inline void
 nfs4_put_stateowner(struct nfs4_stateowner *so)

@@ -167,17 +167,14 @@ alloc_init_deleg(struct nfs4_client *clp, struct nfs4_stateid *stp, struct svc_f
 	return dp;
 }
 
-/*
- * Free the delegation structure.
- * Called with the recall_lock held.
- */
-static void
-nfs4_free_delegation(struct nfs4_delegation *dp)
+void
+nfs4_put_delegation(struct nfs4_delegation *dp)
 {
-	dprintk("NFSD: nfs4_free_delegation freeing dp %p\n",dp);
-	list_del(&dp->dl_recall_lru);
-	kfree(dp);
-	free_delegation++;
+	if (atomic_dec_and_test(&dp->dl_count)) {
+		dprintk("NFSD: freeing dp %p\n",dp);
+		kfree(dp);
+		free_delegation++;
+	}
 }
 
 /* release_delegation:
@@ -219,12 +216,8 @@ release_delegation(struct nfs4_delegation *dp)
 		remove_lease(dp->dl_flock);
 		list_del_init(&dp->dl_del_perfile);
 		list_del_init(&dp->dl_del_perclnt);
-		/* dl_count > 0 => outstanding recall rpc */
-		dprintk("NFSD: release_delegation free deleg dl_count %d\n",
-			           atomic_read(&dp->dl_count));
-		if ((atomic_read(&dp->dl_state) == NFS4_REAP_DELEG)
-		     || atomic_dec_and_test(&dp->dl_count))
-			nfs4_free_delegation(dp);
+		list_del_init(&dp->dl_recall_lru);
+		nfs4_put_delegation(dp);
 	}
 }
 
@@ -1692,7 +1685,7 @@ nfs4_open_delegation(struct svc_fh *fh, struct nfsd4_open *open, struct nfs4_sta
 		dprintk("NFSD: setlease failed [%d], no delegation\n", status);
 		list_del(&dp->dl_del_perfile);
 		list_del(&dp->dl_del_perclnt);
-		kfree(dp);
+		nfs4_put_delegation(dp);
 		free_delegation++;
 		*flag = NFS4_OPEN_DELEGATE_NONE;
 		return;
