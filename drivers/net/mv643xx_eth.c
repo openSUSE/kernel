@@ -50,9 +50,8 @@
  */
 
 /* Constants */
-#define EXTRA_BYTES 32
-#define WRAP       ETH_HLEN + 2 + 4 + 16
-#define BUFFER_MTU dev->mtu + WRAP
+#define WRAP				ETH_HLEN + 2 + 4
+#define RX_SKB_SIZE			((dev->mtu + WRAP + 7) & ~0x7)
 #define INT_CAUSE_UNMASK_ALL		0x0007ffff
 #define INT_CAUSE_UNMASK_ALL_EXT	0x0011ffff
 #ifdef MV64340_RX_QUEUE_FILL_ON_TASK
@@ -156,24 +155,14 @@ static void mv64340_eth_rx_task(void *data)
 		panic("%s: Error in test_set_bit / clear_bit", dev->name);
 
 	while (mp->rx_ring_skbs < (mp->rx_ring_size - 5)) {
-		/* The +8 for buffer allignment and another 32 byte extra */
-
-		skb = dev_alloc_skb(BUFFER_MTU + 8 + EXTRA_BYTES);
+		skb = dev_alloc_skb(RX_SKB_SIZE);
 		if (!skb)
-			/* Better luck next time */
 			break;
 		mp->rx_ring_skbs++;
 		pkt_info.cmd_sts = ETH_RX_ENABLE_INTERRUPT;
-		pkt_info.byte_cnt = dev->mtu + ETH_HLEN + 4 + 2 + EXTRA_BYTES;
-		/* Allign buffer to 8 bytes */
-		if (pkt_info.byte_cnt & ~0x7) {
-			pkt_info.byte_cnt &= ~0x7;
-			pkt_info.byte_cnt += 8;
-		}
-		pkt_info.buf_ptr =
-		    dma_map_single(NULL, skb->data,
-				   dev->mtu + ETH_HLEN + 4 + 2 + EXTRA_BYTES,
-				   DMA_FROM_DEVICE);
+		pkt_info.byte_cnt = RX_SKB_SIZE;
+		pkt_info.buf_ptr = dma_map_single(NULL, skb->data, RX_SKB_SIZE,
+				    			DMA_FROM_DEVICE);
 		pkt_info.return_info = skb;
 		if (eth_rx_return_buff(mp, &pkt_info) != ETH_OK) {
 			printk(KERN_ERR
