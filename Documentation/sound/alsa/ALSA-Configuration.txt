@@ -1297,10 +1297,6 @@ Module parameters
 
     Module for Digigram VX-Pocket VX2 PCMCIA card.
 
-    irq_mask - IRQ bitmask, specifies the available IRQs as bits
-               (default = 0xffff, all available)
-    irq_list - List of available interrupts (default = -1, not specified)
-               4 numbers must be given (if specified).
     ibl      - Capture IBL size. (default = 0, minimum size)
 
     Module supports up to 8 cards.  The module is compiled only when
@@ -1315,9 +1311,6 @@ Module parameters
     When no hotplug fw loader is available, you need to load the
     firmware via vxloader utility in alsa-tools package.
 
-    The irq_mask and irq_list are provided to avoid allocation of
-    specific IRQs.  Usually you don't need to specify them.
-
     About capture IBL, see the description of snd-vx222 module.
 
     Note: the driver is build only when CONFIG_ISA is set.
@@ -1327,9 +1320,6 @@ Module parameters
 
     Module for Digigram VX-Pocket 440 PCMCIA card.
 
-    irq_mask - IRQ bitmask, specifies the available IRQs as bits
-    irq_list - List of available interrupts (default = -1, not specified)
-               4 numbers must be given (if specified).
     ibl      - Capture IBL size. (default = 0, minimum size)
 
     Module supports up to 8 cards.  The module is compiled only when
@@ -1343,9 +1333,6 @@ Module parameters
     Install the necessary firmware files in alsa-firmware package.
     When no hotplug fw loader is available, you need to load the
     firmware via vxloader utility in alsa-tools package.
-
-    The irq_mask and irq_list are provided to avoid allocation of
-    specific IRQs.  Usually you don't need to specify them.
 
     About capture IBL, see the description of snd-vx222 module.
 
@@ -1372,9 +1359,6 @@ Module parameters
   --------------------
 
     Module for Sound Core PDAudioCF soundcard.
-
-    irq_mask	  - IRQ mask (PCMCIA type)
-    irq_list	  - List of available interrupts for this soundcard
 
     Note: the driver is build only when CONFIG_ISA is set.
 
