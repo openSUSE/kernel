@@ -55,7 +55,7 @@ static char *a3d_names[] = { NULL, "FP-Gaming Assassin 3D", "MadCatz Panther", "
 
 struct a3d {
 	struct gameport *gameport;
-	struct gameport adc;
+	struct gameport *adc;
 	struct input_dev dev;
 	struct timer_list timer;
 	int axes[4];
@@ -66,7 +66,6 @@ struct a3d {
 	int reads;
 	int bads;
 	char phys[32];
-	char adcphys[32];
 };
 
 /*
@@ -261,6 +260,7 @@ static void a3d_close(struct input_dev *dev)
 static void a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct a3d *a3d;
+	struct gameport *adc;
 	unsigned char data[A3D_MAX_LENGTH];
 	int i;
 
@@ -292,7 +292,6 @@ static void a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
 	}
 
 	sprintf(a3d->phys, "%s/input0", gameport->phys);
-	sprintf(a3d->adcphys, "%s/gameport0", gameport->phys);
 
 	if (a3d->mode == A3D_MODE_PXL) {
 
@@ -315,16 +314,11 @@ static void a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
 		a3d_read(a3d, data);
 
 		for (i = 0; i < 4; i++) {
-			if (i < 2) {
-				a3d->dev.absmin[axes[i]] = 48;
-				a3d->dev.absmax[axes[i]] = a3d->dev.abs[axes[i]] * 2 - 48;
-				a3d->dev.absflat[axes[i]] = 8;
-			} else {
-				a3d->dev.absmin[axes[i]] = 2;
-				a3d->dev.absmax[axes[i]] = 253;
-			}
-			a3d->dev.absmin[ABS_HAT0X + i] = -1;
-			a3d->dev.absmax[ABS_HAT0X + i] = 1;
+			if (i < 2)
+				input_set_abs_params(&a3d->dev, axes[i], 48, a3d->dev.abs[axes[i]] * 2 - 48, 0, 8);
+			else
+				input_set_abs_params(&a3d->dev, axes[i], 2, 253, 0, 0);
+			input_set_abs_params(&a3d->dev, ABS_HAT0X + i, -1, 1, 0, 0);
 		}
 
 	} else {
@@ -336,23 +330,23 @@ static void a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
 		a3d->dev.relbit[0] |= BIT(REL_X) | BIT(REL_Y);
 		a3d->dev.keybit[LONG(BTN_MOUSE)] |= BIT(BTN_RIGHT) | BIT(BTN_LEFT) | BIT(BTN_MIDDLE);
 
-		a3d->adc.port_data = a3d;
-		a3d->adc.open = a3d_adc_open;
-		a3d->adc.close = a3d_adc_close;
-		a3d->adc.cooked_read = a3d_adc_cooked_read;
-		a3d->adc.fuzz = 1;
-
-		a3d->adc.name = a3d_names[a3d->mode];
-		a3d->adc.phys = a3d->adcphys;
-		a3d->adc.id.bustype = BUS_GAMEPORT;
-		a3d->adc.id.vendor = GAMEPORT_ID_VENDOR_MADCATZ;
-		a3d->adc.id.product = a3d->mode;
-		a3d->adc.id.version = 0x0100;
-
 		a3d_read(a3d, data);
 
-		gameport_register_port(&a3d->adc);
-		printk(KERN_INFO "gameport: %s on %s\n", a3d_names[a3d->mode], gameport->phys);
+		if (!(a3d->adc = adc = gameport_allocate_port()))
+			printk(KERN_ERR "a3d: Not enough memory for ADC port\n");
+		else {
+			adc->port_data = a3d;
+			adc->open = a3d_adc_open;
+			adc->close = a3d_adc_close;
+			adc->cooked_read = a3d_adc_cooked_read;
+			adc->fuzz = 1;
+
+			gameport_set_name(adc, a3d_names[a3d->mode]);
+			gameport_set_phys(adc, "%s/gameport0", gameport->phys);
+			adc->dev.parent = &gameport->dev;
+
+			gameport_register_port(adc);
+		}
 	}
 
 	a3d->dev.private = a3d;
@@ -370,17 +364,20 @@ static void a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
 	printk(KERN_INFO "input: %s on %s\n", a3d_names[a3d->mode], a3d->phys);
 
 	return;
+
 fail2:	gameport_close(gameport);
 fail1:  kfree(a3d);
 }
 
 static void a3d_disconnect(struct gameport *gameport)
 {
-
 	struct a3d *a3d = gameport->private;
+
 	input_unregister_device(&a3d->dev);
-	if (a3d->mode < A3D_MODE_PXL)
-		gameport_unregister_port(&a3d->adc);
+	if (a3d->adc) {
+		gameport_unregister_port(a3d->adc);
+		a3d->adc = NULL;
+	}
 	gameport_close(gameport);
 	kfree(a3d);
 }

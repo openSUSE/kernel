@@ -10,7 +10,6 @@
  */
 
 #include <asm/io.h>
-#include <linux/input.h>
 #include <linux/list.h>
 #include <linux/device.h>
 
@@ -22,8 +21,6 @@ struct gameport {
 	char name_buf[32];
 	char *phys;
 	char phys_buf[32];
-
-	struct input_id id;
 
 	int io;
 	int speed;
