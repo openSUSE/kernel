@@ -536,8 +536,10 @@ static irqreturn_t mv64340_eth_int_handler(int irq, void *dev_id,
 		/* Check Link status on ethernet port */
 		eth_port_read_smi_reg(port_num, 1, &phy_reg_data);
 		if (!(phy_reg_data & 0x20)) {
+			netif_carrier_off(dev);
 			netif_stop_queue(dev);
 		} else {
+			netif_carrier_on(dev);
 			netif_wake_queue(dev);
 
 			/*
