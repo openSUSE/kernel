@@ -1791,7 +1791,7 @@ nfsd4_process_open2(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nf
 	            stp->st_stateid.si_fileid, stp->st_stateid.si_generation);
 out:
 	/* take the opportunity to clean up unused state */
-	if (fp && list_empty(&fp->fi_perfile))
+	if (fp && list_empty(&fp->fi_perfile) && list_empty(&fp->fi_del_perfile))
 		release_file(fp);
 
 	/* CLAIM_PREVIOUS has different error returns */
