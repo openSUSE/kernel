@@ -328,6 +328,7 @@ static int copy_pte_range(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 {
 	pte_t *src_pte, *dst_pte;
 	unsigned long vm_flags = vma->vm_flags;
+	int progress;
 
 again:
 	dst_pte = pte_alloc_map(dst_mm, dst_pmd, addr);
@@ -335,19 +336,23 @@ again:
 		return -ENOMEM;
 	src_pte = pte_offset_map_nested(src_pmd, addr);
 
+	progress = 0;
 	spin_lock(&src_mm->page_table_lock);
 	do {
 		/*
 		 * We are holding two locks at this point - either of them
 		 * could generate latencies in another task on another CPU.
 		 */
-		if (need_resched() ||
+		if (progress >= 32 && (need_resched() ||
 		    need_lockbreak(&src_mm->page_table_lock) ||
-		    need_lockbreak(&dst_mm->page_table_lock))
+		    need_lockbreak(&dst_mm->page_table_lock)))
 			break;
-		if (pte_none(*src_pte))
+		if (pte_none(*src_pte)) {
+			progress++;
 			continue;
+		}
 		copy_one_pte(dst_mm, src_mm, dst_pte, src_pte, vm_flags, addr);
+		progress += 8;
 	} while (dst_pte++, src_pte++, addr += PAGE_SIZE, addr != end);
 	spin_unlock(&src_mm->page_table_lock);
 
