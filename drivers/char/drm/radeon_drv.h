@@ -78,9 +78,11 @@
  *     - Add hyperz support, add hyperz flags to clear ioctl.
  * 1.14- Add support for color tiling
  *     - Add R100/R200 surface allocation/free support
+ * 1.15- Add support for texture micro tiling
+ *     - Add support for r100 cube maps
  */
 #define DRIVER_MAJOR		1
-#define DRIVER_MINOR		14
+#define DRIVER_MINOR		15
 #define DRIVER_PATCHLEVEL	0
 
 #define GET_RING_HEAD(dev_priv)		DRM_READ32(  (dev_priv)->ring_rptr, 0 )
@@ -795,6 +797,12 @@ extern int radeon_postcleanup( struct drm_device *dev );
 #define RADEON_PP_TEX_SIZE_1                0x1d0c
 #define RADEON_PP_TEX_SIZE_2                0x1d14
 
+#define RADEON_PP_CUBIC_FACES_0             0x1d24
+#define RADEON_PP_CUBIC_FACES_1             0x1d28
+#define RADEON_PP_CUBIC_FACES_2             0x1d2c
+#define RADEON_PP_CUBIC_OFFSET_T0_0         0x1dd0	/* bits [31:5] */
+#define RADEON_PP_CUBIC_OFFSET_T1_0         0x1e00
+#define RADEON_PP_CUBIC_OFFSET_T2_0         0x1e14
 
 #define SE_VAP_CNTL__TCL_ENA_MASK                          0x00000001
 #define SE_VAP_CNTL__FORCE_W_TO_ONE_MASK                   0x00010000
