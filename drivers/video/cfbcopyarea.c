@@ -1,7 +1,7 @@
 /*
  *  Generic function for frame buffer with packed pixels of any depth.
  *
- *      Copyright (C)  June 1999 James Simmons
+ *      Copyright (C)  1999-2005 James Simmons <jsimmons@www.infradead.org>
  *
  *  This file is subject to the terms and conditions of the GNU General Public
  *  License.  See the file COPYING in the main directory of this archive for
@@ -33,18 +33,12 @@
 #include <asm/types.h>
 #include <asm/io.h>
 
-#define LONG_MASK  (BITS_PER_LONG - 1)
-
 #if BITS_PER_LONG == 32
 #  define FB_WRITEL fb_writel
 #  define FB_READL  fb_readl
-#  define SHIFT_PER_LONG 5
-#  define BYTES_PER_LONG 4
 #else
 #  define FB_WRITEL fb_writeq
 #  define FB_READL  fb_readq
-#  define SHIFT_PER_LONG 6
-#  define BYTES_PER_LONG 8
 #endif
 
     /*
@@ -63,21 +57,20 @@ comp(unsigned long a, unsigned long b, unsigned long mask)
      */
 
 static void
-bitcpy(unsigned long __iomem *dst, int dst_idx,
-       const unsigned long __iomem *src, int src_idx,
-       unsigned n)
+bitcpy(unsigned long __iomem *dst, int dst_idx, const unsigned long __iomem *src,
+	int src_idx, int bits, unsigned n)
 {
 	unsigned long first, last;
 	int const shift = dst_idx-src_idx;
 	int left, right;
 
 	first = ~0UL >> dst_idx;
-	last = ~(~0UL >> ((dst_idx+n) % BITS_PER_LONG));
+	last = ~(~0UL >> ((dst_idx+n) % bits));
 
 	if (!shift) {
 		// Same alignment for source and dest
 
-		if (dst_idx+n <= BITS_PER_LONG) {
+		if (dst_idx+n <= bits) {
 			// Single word
 			if (last)
 				first &= last;
@@ -90,11 +83,11 @@ bitcpy(unsigned long __iomem *dst, int dst_idx,
 				FB_WRITEL( comp( FB_READL(src), FB_READL(dst), first), dst);
 				dst++;
 				src++;
-				n -= BITS_PER_LONG-dst_idx;
+				n -= bits - dst_idx;
 			}
 
 			// Main chunk
-			n /= BITS_PER_LONG;
+			n /= bits;
 			while (n >= 8) {
 				FB_WRITEL(FB_READL(src++), dst++);
 				FB_WRITEL(FB_READL(src++), dst++);
@@ -118,17 +111,17 @@ bitcpy(unsigned long __iomem *dst, int dst_idx,
 		int m;
 		// Different alignment for source and dest
 
-		right = shift & (BITS_PER_LONG-1);
-		left = -shift & (BITS_PER_LONG-1);
+		right = shift & (bits - 1);
+		left = -shift & (bits - 1);
 
-		if (dst_idx+n <= BITS_PER_LONG) {
+		if (dst_idx+n <= bits) {
 			// Single destination word
 			if (last)
 				first &= last;
 			if (shift > 0) {
 				// Single source word
 				FB_WRITEL( comp( FB_READL(src) >> right, FB_READL(dst), first), dst);
-			} else if (src_idx+n <= BITS_PER_LONG) {
+			} else if (src_idx+n <= bits) {
 				// Single source word
 				FB_WRITEL( comp(FB_READL(src) << left, FB_READL(dst), first), dst);
 			} else {
@@ -150,19 +143,19 @@ bitcpy(unsigned long __iomem *dst, int dst_idx,
 				// Single source word
 				FB_WRITEL( comp(d0 >> right, FB_READL(dst), first), dst);
 				dst++;
-				n -= BITS_PER_LONG-dst_idx;
+				n -= bits - dst_idx;
 			} else {
 				// 2 source words
 				d1 = FB_READL(src++);
 				FB_WRITEL( comp(d0<<left | d1>>right, FB_READL(dst), first), dst);
 				d0 = d1;
 				dst++;
-				n -= BITS_PER_LONG-dst_idx;
+				n -= bits - dst_idx;
 			}
 
 			// Main chunk
-			m = n % BITS_PER_LONG;
-			n /= BITS_PER_LONG;
+			m = n % bits;
+			n /= bits;
 			while (n >= 4) {
 				d1 = FB_READL(src++);
 				FB_WRITEL(d0 << left | d1 >> right, dst++);
@@ -204,28 +197,27 @@ bitcpy(unsigned long __iomem *dst, int dst_idx,
      */
 
 static void
-bitcpy_rev(unsigned long __iomem *dst, int dst_idx,
-           const unsigned long __iomem *src, int src_idx,
-           unsigned n)
+bitcpy_rev(unsigned long __iomem *dst, int dst_idx, const unsigned long __iomem *src,
+		int src_idx, int bits, unsigned n)
 {
 	unsigned long first, last;
 	int shift;
 
-	dst += (n-1)/BITS_PER_LONG;
-	src += (n-1)/BITS_PER_LONG;
-	if ((n-1) % BITS_PER_LONG) {
-		dst_idx += (n-1) % BITS_PER_LONG;
-		dst += dst_idx >> SHIFT_PER_LONG;
-		dst_idx &= BITS_PER_LONG-1;
-		src_idx += (n-1) % BITS_PER_LONG;
-		src += src_idx >> SHIFT_PER_LONG;
-		src_idx &= BITS_PER_LONG-1;
+	dst += (n-1)/bits;
+	src += (n-1)/bits;
+	if ((n-1) % bits) {
+		dst_idx += (n-1) % bits;
+		dst += dst_idx >> (ffs(bits) - 1);
+		dst_idx &= bits - 1;
+		src_idx += (n-1) % bits;
+		src += src_idx >> (ffs(bits) - 1);
+		src_idx &= bits - 1;
 	}
 
 	shift = dst_idx-src_idx;
 
-	first = ~0UL << (BITS_PER_LONG-1-dst_idx);
-	last = ~(~0UL << (BITS_PER_LONG-1-((dst_idx-n) % BITS_PER_LONG)));
+	first = ~0UL << (bits - 1 - dst_idx);
+	last = ~(~0UL << (bits - 1 - ((dst_idx-n) % bits)));
 
 	if (!shift) {
 		// Same alignment for source and dest
@@ -247,7 +239,7 @@ bitcpy_rev(unsigned long __iomem *dst, int dst_idx,
 			}
 
 			// Main chunk
-			n /= BITS_PER_LONG;
+			n /= bits;
 			while (n >= 8) {
 				FB_WRITEL(FB_READL(src--), dst--);
 				FB_WRITEL(FB_READL(src--), dst--);
@@ -269,8 +261,8 @@ bitcpy_rev(unsigned long __iomem *dst, int dst_idx,
 	} else {
 		// Different alignment for source and dest
 
-		int const left = -shift & (BITS_PER_LONG-1);
-		int const right = shift & (BITS_PER_LONG-1);
+		int const left = -shift & (bits-1);
+		int const right = shift & (bits-1);
 
 		if ((unsigned long)dst_idx+1 >= n) {
 			// Single destination word
@@ -311,8 +303,8 @@ bitcpy_rev(unsigned long __iomem *dst, int dst_idx,
 			n -= dst_idx+1;
 
 			// Main chunk
-			m = n % BITS_PER_LONG;
-			n /= BITS_PER_LONG;
+			m = n % bits;
+			n /= bits;
 			while (n >= 4) {
 				d1 = FB_READL(src--);
 				FB_WRITEL(d0 >> right | d1 << left, dst--);
@@ -353,10 +345,11 @@ void cfb_copyarea(struct fb_info *p, const struct fb_copyarea *area)
 {
 	u32 dx = area->dx, dy = area->dy, sx = area->sx, sy = area->sy;
 	u32 height = area->height, width = area->width;
-	int x2, y2, vxres, vyres;
 	unsigned long const bits_per_line = p->fix.line_length*8u;
-	int dst_idx = 0, src_idx = 0, rev_copy = 0;
 	unsigned long __iomem *dst = NULL, *src = NULL;
+	int bits = BITS_PER_LONG, bytes = bits >> 3;
+	int dst_idx = 0, src_idx = 0, rev_copy = 0;
+	int x2, y2, vxres, vyres;
 
 	if (p->state != FBINFO_STATE_RUNNING)
 		return;
@@ -385,8 +378,7 @@ void cfb_copyarea(struct fb_info *p, const struct fb_copyarea *area)
 	width = x2 - dx;
 	height = y2 - dy;
 
-	if ((width==0)
-	  ||(height==0))
+	if ((width==0) ||(height==0))
 		return;
 
 	/* update sx1,sy1 */
@@ -394,15 +386,12 @@ void cfb_copyarea(struct fb_info *p, const struct fb_copyarea *area)
 	sy += (dy - area->dy);
 
 	/* the source must be completely inside the virtual screen */
-	if (sx < 0 || sy < 0 ||
-	    (sx + width) > vxres ||
-	    (sy + height) > vyres)
+	if (sx < 0 || sy < 0 || (sx + width) > vxres || (sy + height) > vyres)
 		return;
 
 	/* if the beginning of the target area might overlap with the end of
 	the source area, be have to copy the area reverse. */
-	if ((dy == sy && dx > sx) ||
-	    (dy > sy)) {
+	if ((dy == sy && dx > sx) || (dy > sy)) {
 		dy += height;
 		sy += height;
 		rev_copy = 1;
@@ -410,9 +399,8 @@ void cfb_copyarea(struct fb_info *p, const struct fb_copyarea *area)
 
 	// split the base of the framebuffer into a long-aligned address and the
 	// index of the first bit
-	dst = src = (unsigned long __iomem *)((unsigned long)p->screen_base &
-				      ~(BYTES_PER_LONG-1));
-	dst_idx = src_idx = 8*((unsigned long)p->screen_base & (BYTES_PER_LONG-1));
+	dst = src = (unsigned long __iomem *)((unsigned long)p->screen_base & ~(bytes-1));
+	dst_idx = src_idx = 8*((unsigned long)p->screen_base & (bytes-1));
 	// add offset of source and target area
 	dst_idx += dy*bits_per_line + dx*p->var.bits_per_pixel;
 	src_idx += sy*bits_per_line + sx*p->var.bits_per_pixel;
@@ -424,93 +412,26 @@ void cfb_copyarea(struct fb_info *p, const struct fb_copyarea *area)
 		while (height--) {
 			dst_idx -= bits_per_line;
 			src_idx -= bits_per_line;
-			dst += dst_idx >> SHIFT_PER_LONG;
-			dst_idx &= LONG_MASK;
-			src += src_idx >> SHIFT_PER_LONG;
-			src_idx &= LONG_MASK;
-			bitcpy_rev(dst, dst_idx, src, src_idx,
-				   width*p->var.bits_per_pixel);
+			dst += dst_idx >> (ffs(bits) - 1);
+			dst_idx &= (bytes - 1);
+			src += src_idx >> (ffs(bits) - 1);
+			src_idx &= (bytes - 1);
+			bitcpy_rev(dst, dst_idx, src, src_idx, bits,
+				width*p->var.bits_per_pixel);
 		}
 	} else {
 		while (height--) {
-			dst += dst_idx >> SHIFT_PER_LONG;
-			dst_idx &= LONG_MASK;
-			src += src_idx >> SHIFT_PER_LONG;
-			src_idx &= LONG_MASK;
-			bitcpy(dst, dst_idx, src, src_idx,
-			       width*p->var.bits_per_pixel);
+			dst += dst_idx >> (ffs(bits) - 1);
+			dst_idx &= (bytes - 1);
+			src += src_idx >> (ffs(bits) - 1);
+			src_idx &= (bytes - 1);
+			bitcpy(dst, dst_idx, src, src_idx, bits,
+				width*p->var.bits_per_pixel);
 			dst_idx += bits_per_line;
 			src_idx += bits_per_line;
 		}
 	}
 }
-#undef CFB_DEBUG
-#ifdef CFB_DEBUG
-/** all this init-function does is to perform a few unittests.
-The idea it always to invoke the function to test on a predefined bitmap and
-compare the results to the expected output.
-TODO:
- - this currently only tests bitcpy_rev, as that was the only one giving me trouble
- - this assumes 32 bit longs
- - not sure about endianess, I only tested this on a 32 bit MIPS little endian system
- - could reuse testcases to test forward copying, too, just reverse the operation
-*/
-int __init cfb_copyarea_init(void)
-{
-	char const* comment = 0;
-	printk( KERN_INFO "cfb_copyarea_init()\n");
-	{
-		comment = "copy a single u32, source and target u32-aligned";
-		u32 tmp[] =          { 0xaaaaaaaau, 0x55555555u, 0xffffffffu, 0x00000000u };
-		u32 const expect[] = { 0xaaaaaaaau, 0xaaaaaaaau, 0xffffffffu, 0x00000000u };
-
-		bitcpy_rev( tmp, 0, tmp+1, 0, 32);
-
-		if( 0!=memcmp( expect, tmp, sizeof tmp))
-			goto error;
-	}
-
-	{
-		comment = "copy a single u32, source u32-aligned";
-		u32 tmp[] =          { 0x11112222u, 0x33334444u, 0x55556666u, 0x77778888u };
-		u32 const expect[] = { 0x11112222u, 0x22224444u, 0x55551111u, 0x77778888u };
-
-		bitcpy_rev( tmp, 0, tmp+1, 16, 32);
-
-		if( 0!=memcmp( expect, tmp, sizeof tmp))
-			goto error;
-	}
-
-	{
-		comment = "copy a single u32, target u32-aligned";
-		u32 tmp[] =          { 0x11112222u, 0x33334444u, 0x55556666u, 0x77778888u };
-		u32 const expect[] = { 0x11112222u, 0x33334444u, 0x44441111u, 0x77778888u };
-
-		bitcpy_rev( tmp, 16, tmp+2, 0, 32);
-
-		if( 0!=memcmp( expect, tmp, sizeof tmp))
-			goto error;
-	}
-
-	{
-		comment = "copy two u32, source and target u32-aligned";
-		u32 tmp[] =          { 0xaaaaaaaau, 0x55555555u, 0xffffffffu, 0x00000000u };
-		u32 const expect[] = { 0xaaaaaaaau, 0xaaaaaaaau, 0x55555555u, 0x00000000u };
-
-		bitcpy_rev( tmp, 0, tmp+1, 0, 64);
-
-		if( 0!=memcmp( expect, tmp, sizeof tmp))
-			goto error;
-	}
-
-	return 0;
-
-error:
-	printk( KERN_ERR " framebuffer self-test(%s) failed\n", comment);
-	return -1;
-}
-module_init(cfb_copyarea_init);
-#endif
 
 EXPORT_SYMBOL(cfb_copyarea);
 
