@@ -1041,7 +1041,7 @@ static int emac_adjust_to_link(struct ocp_enet_private *fep)
 	/* set speed (default is 10Mb) */
 	switch (speed) {
 	case SPEED_1000:
-		mode_reg |= EMAC_M1_JUMBO_ENABLE | EMAC_M1_RFS_16K;
+		mode_reg |= EMAC_M1_RFS_16K;
 		if (fep->rgmii_dev) {
 			struct ibm_ocp_rgmii *rgmii = RGMII_PRIV(fep->rgmii_dev);
 
@@ -1118,6 +1118,7 @@ static int emac_change_mtu(struct net_device *dev, int new_mtu)
 {
 	struct ocp_enet_private *fep = dev->priv;
 	int old_mtu = dev->mtu;
+	unsigned long mode_reg;
 	emac_t *emacp = fep->emacp;
 	u32 em0mr0;
 	int i, full;
@@ -1160,10 +1161,17 @@ static int emac_change_mtu(struct net_device *dev, int new_mtu)
 			fep->rx_skb[i] = NULL;
 		}
 
-		/* Set new rx_buffer_size and advertise new mtu */
-		fep->rx_buffer_size =
-		    new_mtu + ENET_HEADER_SIZE + ENET_FCS_SIZE;
+		/* Set new rx_buffer_size, jumbo cap, and advertise new mtu */
+		mode_reg = in_be32(&emacp->em0mr1);
+		if (new_mtu > ENET_DEF_MTU_SIZE) {
+			mode_reg |= EMAC_M1_JUMBO_ENABLE;
+			fep->rx_buffer_size = EMAC_MAX_FRAME;
+		} else {
+			mode_reg &= ~EMAC_M1_JUMBO_ENABLE;
+			fep->rx_buffer_size = ENET_DEF_BUF_SIZE;
+		}
 		dev->mtu = new_mtu;
+		out_be32(&emacp->em0mr1, mode_reg);
 
 		/* Re-init rx skbs */
 		fep->rx_slot = 0;
