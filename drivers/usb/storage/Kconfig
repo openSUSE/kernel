@@ -90,7 +90,7 @@ config USB_STORAGE_DPCM
 	  There is a web page at <http://www.ziocorp.com/products/>.
 
 config USB_STORAGE_USBAT
-	bool "USBAT-based storage support (EXPERIMENTAL)"
+	bool "USBAT/USBAT02-based storage support (EXPERIMENTAL)"
 	depends on USB_STORAGE && EXPERIMENTAL
 	help
 	  Say Y here to include additional code to support storage devices

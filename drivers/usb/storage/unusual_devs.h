@@ -268,6 +268,14 @@ UNUSUAL_DEV(  0x04fc, 0x80c2, 0x0100, 0x0100,
 		US_SC_DEVICE, US_PR_DEVICE, NULL,
 		US_FL_BULK32),
 
+#ifdef CONFIG_USB_STORAGE_USBAT
+UNUSUAL_DEV(  0x04e6, 0x1010, 0x0000, 0x9999,
+		"SCM",
+		"SCM USBAT-02",
+		US_SC_SCSI, US_PR_SCM_ATAPI, init_usbat_hp8200e,
+		US_FL_SINGLE_LUN),
+#endif
+
 /* Reported by Bob Sass <rls@vectordb.com> -- only rev 1.33 tested */
 UNUSUAL_DEV(  0x050d, 0x0115, 0x0133, 0x0133,
 		"Belkin",
