@@ -262,6 +262,7 @@ orinoco_cs_config(dev_link_t *link)
 	cisinfo_t info;
 	tuple_t tuple;
 	cisparse_t parse;
+	void __iomem *mem;
 
 	CS_CHECK(ValidateCIS, pcmcia_validate_cis(handle, &info));
 
@@ -413,8 +414,11 @@ orinoco_cs_config(dev_link_t *link)
 	/* We initialize the hermes structure before completing PCMCIA
 	 * configuration just in case the interrupt handler gets
 	 * called. */
-	hermes_struct_init(hw, link->io.BasePort1,
-				HERMES_IO, HERMES_16BIT_REGSPACING);
+	mem = ioport_map(link->io.BasePort1, link->io.NumPorts1);
+	if (!mem)
+		goto cs_failed;
+
+	hermes_struct_init(hw, mem, HERMES_16BIT_REGSPACING);
 
 	/*
 	 * This actually configures the PCMCIA socket -- setting up
@@ -498,6 +502,8 @@ orinoco_cs_release(dev_link_t *link)
 	if (link->irq.AssignedIRQ)
 		pcmcia_release_irq(link->handle, &link->irq);
 	link->state &= ~DEV_CONFIG;
+	if (priv->hw.iobase)
+		ioport_unmap(priv->hw.iobase);
 }				/* orinoco_cs_release */
 
 /*

@@ -45,7 +45,7 @@
 
 struct airport {
 	struct macio_dev *mdev;
-	void *vaddr;
+	void __iomem *vaddr;
 	int irq_requested;
 	int ndev_registered;
 };
@@ -232,8 +232,7 @@ airport_attach(struct macio_dev *mdev, const struct of_match *match)
 		goto failed;
 	}
 
-	hermes_struct_init(hw, (ulong)card->vaddr,
-			HERMES_MEM, HERMES_16BIT_REGSPACING);
+	hermes_struct_init(hw, card->vaddr, HERMES_16BIT_REGSPACING);
 		
 	/* Power up card */
 	pmac_call_feature(PMAC_FTR_AIRPORT_ENABLE, macio_get_of_node(mdev), 0, 1);
