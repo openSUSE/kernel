@@ -31,25 +31,30 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@suse.cz>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
-static char *psmouse_proto;
 static unsigned int psmouse_max_proto = -1U;
-module_param_named(proto, psmouse_proto, charp, 0);
-MODULE_PARM_DESC(proto, "Highest protocol extension to probe (bare, imps, exps). Useful for KVM switches.");
+static int psmouse_set_maxproto(const char *val, struct kernel_param *kp);
+static int psmouse_get_maxproto(char *buffer, struct kernel_param *kp);
+static char *psmouse_proto_abbrev[] = { NULL, "bare", NULL, NULL, NULL, "imps", "exps", NULL, NULL, NULL };
+#define param_check_proto_abbrev(name, p)	__param_check(name, p, unsigned int)
+#define param_set_proto_abbrev			psmouse_set_maxproto
+#define param_get_proto_abbrev			psmouse_get_maxproto
+module_param_named(proto, psmouse_max_proto, proto_abbrev, 0644);
+MODULE_PARM_DESC(proto, "Highest protocol extension to probe (bare, imps, exps, any). Useful for KVM switches.");
 
 static unsigned int psmouse_resolution = 200;
-module_param_named(resolution, psmouse_resolution, uint, 0);
+module_param_named(resolution, psmouse_resolution, uint, 0644);
 MODULE_PARM_DESC(resolution, "Resolution, in dpi.");
 
 static unsigned int psmouse_rate = 100;
-module_param_named(rate, psmouse_rate, uint, 0);
+module_param_named(rate, psmouse_rate, uint, 0644);
 MODULE_PARM_DESC(rate, "Report rate, in reports per second.");
 
 static unsigned int psmouse_smartscroll = 1;
-module_param_named(smartscroll, psmouse_smartscroll, bool, 0);
+module_param_named(smartscroll, psmouse_smartscroll, bool, 0644);
 MODULE_PARM_DESC(smartscroll, "Logitech Smartscroll autorepeat, 1 = enabled (default), 0 = disabled.");
 
 static unsigned int psmouse_resetafter;
-module_param_named(resetafter, psmouse_resetafter, uint, 0);
+module_param_named(resetafter, psmouse_resetafter, uint, 0644);
 MODULE_PARM_DESC(resetafter, "Reset device after so many bad packets (0 = never).");
 
 PSMOUSE_DEFINE_ATTR(rate);
@@ -959,23 +964,40 @@ static ssize_t psmouse_attr_set_resetafter(struct psmouse *psmouse, const char *
 	return count;
 }
 
-static inline void psmouse_parse_proto(void)
+static int psmouse_set_maxproto(const char *val, struct kernel_param *kp)
 {
-	if (psmouse_proto) {
-		if (!strcmp(psmouse_proto, "bare"))
-			psmouse_max_proto = PSMOUSE_PS2;
-		else if (!strcmp(psmouse_proto, "imps"))
-			psmouse_max_proto = PSMOUSE_IMPS;
-		else if (!strcmp(psmouse_proto, "exps"))
-			psmouse_max_proto = PSMOUSE_IMEX;
-		else
-			printk(KERN_ERR "psmouse: unknown protocol type '%s'\n", psmouse_proto);
+	int i;
+
+	if (!val)
+		return -EINVAL;
+
+	if (!strncmp(val, "any", 3)) {
+		*((unsigned int *)kp->arg) = -1UL;
+		return 0;
 	}
+
+	for (i = 0; i < ARRAY_SIZE(psmouse_proto_abbrev); i++) {
+		if (!psmouse_proto_abbrev[i])
+			continue;
+
+		if (!strncmp(val, psmouse_proto_abbrev[i], strlen(psmouse_proto_abbrev[i]))) {
+			*((unsigned int *)kp->arg) = i;
+			return 0;
+		}
+	}
+
+	return -EINVAL;					\
+}
+
+static int psmouse_get_maxproto(char *buffer, struct kernel_param *kp)
+{
+	return sprintf(buffer, "%s\n",
+			psmouse_max_proto < ARRAY_SIZE(psmouse_proto_abbrev) ?
+				psmouse_proto_abbrev[psmouse_max_proto] : "any");
 }
 
 static int __init psmouse_init(void)
 {
-	psmouse_parse_proto();
 	serio_register_driver(&psmouse_drv);
 	return 0;
 }
