@@ -562,7 +562,9 @@ struct thread_struct {
 	double		fpr[32];	/* Complete floating point set */
 	unsigned long	fpscr;		/* Floating point status (plus pad) */
 	unsigned long	fpexc_mode;	/* Floating-point exception mode */
-	unsigned long	pad[3];		/* was saved_msr, saved_softe */
+	unsigned long	start_tb;	/* Start purr when proc switched in */
+	unsigned long	accum_tb;	/* Total accumilated purr for process */
+	unsigned long	pad;		/* was saved_msr, saved_softe */
 #ifdef CONFIG_ALTIVEC
 	/* Complete AltiVec register set */
 	vector128	vr[32] __attribute((aligned(16)));

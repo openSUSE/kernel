@@ -334,6 +334,14 @@ int timer_interrupt(struct pt_regs * regs)
 	}
 #endif
 
+/* collect purr register values often, for accurate calculations */
+#if defined(CONFIG_PPC_PSERIES)
+	if (cur_cpu_spec->firmware_features & FW_FEATURE_SPLPAR) {
+		struct cpu_usage *cu = &__get_cpu_var(cpu_usage_array);
+		cu->current_tb = mfspr(SPRN_PURR);
+	}
+#endif
+
 	irq_exit();
 
 	return 1;
