@@ -106,7 +106,7 @@
 #include "53c700.h"
 #include "NCR_D700.h"
 
-char *NCR_D700;			/* command line from insmod */
+static char *NCR_D700;		/* command line from insmod */
 
 MODULE_AUTHOR("James Bottomley");
 MODULE_DESCRIPTION("NCR Dual700 SCSI Driver");
@@ -352,7 +352,7 @@ NCR_D700_remove(struct device *dev)
 
 static short NCR_D700_id_table[] = { NCR_D700_MCA_ID, 0 };
 
-struct mca_driver NCR_D700_driver = {
+static struct mca_driver NCR_D700_driver = {
 	.id_table = NCR_D700_id_table,
 	.driver = {
 		.name		= "NCR_D700",
