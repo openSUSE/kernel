@@ -346,8 +346,9 @@ static struct ipoib_path *path_rec_create(struct net_device *dev,
 	if (!path)
 		return NULL;
 
-	path->dev = dev;
+	path->dev          = dev;
 	path->pathrec.dlid = 0;
+	path->ah           = NULL;
 
 	skb_queue_head_init(&path->queue);
 
@@ -450,8 +451,8 @@ static void neigh_add_path(struct sk_buff *skb, struct net_device *dev)
 err:
 	*to_ipoib_neigh(skb->dst->neighbour) = NULL;
 	list_del(&neigh->list);
-	kfree(neigh);
 	neigh->neighbour->ops->destructor = NULL;
+	kfree(neigh);
 
 	++priv->stats.tx_dropped;
 	dev_kfree_skb_any(skb);
