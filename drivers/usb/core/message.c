@@ -988,6 +988,8 @@ void usb_disable_device(struct usb_device *dev, int skip_ep0)
 			dev_dbg (&dev->dev, "unregistering interface %s\n",
 				interface->dev.bus_id);
 			usb_remove_sysfs_intf_files(interface);
+			kfree(interface->cur_altsetting->string);
+			interface->cur_altsetting->string = NULL;
 			device_del (&interface->dev);
 		}
 
@@ -1433,6 +1435,13 @@ free_interfaces:
 					intf->dev.bus_id,
 					ret);
 				continue;
+			}
+			if ((intf->cur_altsetting->desc.iInterface) &&
+			    (intf->cur_altsetting->string == NULL)) {
+				intf->cur_altsetting->string = kmalloc(256, GFP_KERNEL);
+				if (intf->cur_altsetting->string)
+					usb_string(dev, intf->cur_altsetting->desc.iInterface,
+						   intf->cur_altsetting->string, 256);
 			}
 			usb_create_sysfs_intf_files (intf);
 		}

@@ -70,6 +70,7 @@ struct usb_host_interface {
 	 */
 	struct usb_host_endpoint *endpoint;
 
+	char *string;		/* iInterface string, if present */
 	unsigned char *extra;   /* Extra descriptors */
 	int extralen;
 };

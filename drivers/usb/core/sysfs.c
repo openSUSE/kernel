@@ -272,25 +272,22 @@ usb_intf_attr (bInterfaceClass, "%02x\n")
 usb_intf_attr (bInterfaceSubClass, "%02x\n")
 usb_intf_attr (bInterfaceProtocol, "%02x\n")
 
-#define usb_intf_str(name, field)					\
-static ssize_t  show_##name(struct device *dev, char *buf)		\
-{									\
-	struct usb_interface *intf;					\
-	struct usb_device *udev;					\
-	int len;							\
-									\
-	intf = to_usb_interface (dev);					\
-	udev = interface_to_usbdev (intf);				\
-	len = usb_string(udev, intf->cur_altsetting->desc.field, buf, PAGE_SIZE);\
-	if (len < 0)							\
-		return 0;						\
-	buf[len] = '\n';						\
-	buf[len+1] = 0;							\
-	return len+1;							\
-}									\
-static DEVICE_ATTR(name, S_IRUGO, show_##name, NULL);
+static ssize_t show_interface_string(struct device *dev, char *buf)
+{
+	struct usb_interface *intf;
+	struct usb_device *udev;
+	int len;
 
-usb_intf_str (interface, iInterface);
+	intf = to_usb_interface (dev);
+	udev = interface_to_usbdev (intf);
+	len = snprintf(buf, 256, "%s", intf->cur_altsetting->string);
+	if (len < 0)
+		return 0;
+	buf[len] = '\n';
+	buf[len+1] = 0;
+	return len+1;
+}
+static DEVICE_ATTR(interface, S_IRUGO, show_interface_string, NULL);
 
 static struct attribute *intf_attrs[] = {
 	&dev_attr_bInterfaceNumber.attr,
@@ -309,7 +306,7 @@ void usb_create_sysfs_intf_files (struct usb_interface *intf)
 {
 	sysfs_create_group(&intf->dev.kobj, &intf_attr_grp);
 
-	if (intf->cur_altsetting->desc.iInterface)
+	if (intf->cur_altsetting->string)
 		device_create_file(&intf->dev, &dev_attr_interface);
 		
 }
@@ -318,7 +315,7 @@ void usb_remove_sysfs_intf_files (struct usb_interface *intf)
 {
 	sysfs_remove_group(&intf->dev.kobj, &intf_attr_grp);
 
-	if (intf->cur_altsetting->desc.iInterface)
+	if (intf->cur_altsetting->string)
 		device_remove_file(&intf->dev, &dev_attr_interface);
 
 }
