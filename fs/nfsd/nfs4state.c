@@ -145,7 +145,8 @@ alloc_init_deleg(struct nfs4_client *clp, struct nfs4_stateid *stp, struct svc_f
 	dp->dl_client = clp;
 	dp->dl_file = fp;
 	dp->dl_flock = NULL;
-	dp->dl_vfs_file = NULL;
+	get_file(stp->st_vfs_file);
+	dp->dl_vfs_file = stp->st_vfs_file;
 	dp->dl_type = type;
 	dp->dl_recall.cbr_dp = NULL;
 	dp->dl_recall.cbr_ident = cb->cb_ident;
@@ -183,16 +184,6 @@ nfs4_put_delegation(struct nfs4_delegation *dp)
  * the i_flock list, eventually calling nfsd's lock_manager
  * fl_release_callback.
  *
- * call either:
- *   nfsd_close : if last close, locks_remove_flock calls lease_modify.
- *                otherwise, recalled state set to NFS4_RECALL_COMPLETE
- *                so that it will be reaped by the laundromat service.
- * or
- *   remove_lease (calls time_out_lease which calls lease_modify).
- *   and nfs4_free_delegation.
- *
- * Called with nfs_lock_state() held.
- * Called with the recall_lock held.
  */
 
 static void
@@ -203,6 +194,9 @@ nfs4_close_delegation(struct nfs4_delegation *dp)
 	dprintk("NFSD: close_delegation dp %p\n",dp);
 	dp->dl_vfs_file = NULL;
 	atomic_set(&dp->dl_state, NFS4_RECALL_COMPLETE);
+	/* The following nfsd_close may not actually close the file,
+	 * but we want to remove the lease in any case. */
+	remove_lease(dp->dl_flock);
 	nfsd_close(filp);
 	vfsclose++;
 }
@@ -211,18 +205,11 @@ nfs4_close_delegation(struct nfs4_delegation *dp)
 static void
 release_delegation(struct nfs4_delegation *dp)
 {
-	/* delayed nfsd_close */
-	if (dp->dl_vfs_file)
-		nfs4_close_delegation(dp);
-	else {
-		dprintk("NFSD: release_delegation remove lease dl_flock %p\n",
-			dp->dl_flock);
-		remove_lease(dp->dl_flock);
-		list_del_init(&dp->dl_del_perfile);
-		list_del_init(&dp->dl_del_perclnt);
-		list_del_init(&dp->dl_recall_lru);
-		nfs4_put_delegation(dp);
-	}
+	list_del_init(&dp->dl_del_perfile);
+	list_del_init(&dp->dl_del_perclnt);
+	list_del_init(&dp->dl_recall_lru);
+	nfs4_close_delegation(dp);
+	nfs4_put_delegation(dp);
 }
 
 /* 
@@ -1153,38 +1140,22 @@ init_stateid(struct nfs4_stateid *stp, struct nfs4_file *fp, struct nfs4_stateow
 	__set_bit(open->op_share_deny, &stp->st_deny_bmap);
 }
 
-/*
-* Because nfsd_close() can call locks_remove_flock() which removes leases,
-* delay nfsd_close() for delegations from the nfsd_open() clientid
-* until the delegation is reaped.
-*/
 static void
 release_stateid(struct nfs4_stateid *stp, int flags)
 {
-	struct nfs4_delegation *dp;
-	struct nfs4_file *fp = stp->st_file;
+	struct file *filp = stp->st_vfs_file;
 
 	list_del(&stp->st_hash);
 	list_del_perfile++;
 	list_del(&stp->st_perfile);
 	list_del(&stp->st_perfilestate);
 	if (flags & OPEN_STATE) {
-		list_for_each_entry(dp, &fp->fi_del_perfile, dl_del_perfile) {
-			if(cmp_clid(&dp->dl_client->cl_clientid,
-			    &stp->st_stateowner->so_client->cl_clientid)) {
-				dp->dl_vfs_file = stp->st_vfs_file;
-				release_stateid_lockowners(stp);
-				return;
-			}
-		}
 		release_stateid_lockowners(stp);
-		nfsd_close(stp->st_vfs_file);
+		stp->st_vfs_file = NULL;
+		nfsd_close(filp);
 		vfsclose++;
-	} else if (flags & LOCK_STATE) {
-		struct file *filp = stp->st_vfs_file;
-
+	} else if (flags & LOCK_STATE)
 		locks_remove_posix(filp, (fl_owner_t) stp->st_stateowner);
-	}
 	kfree(stp);
 	stp = NULL;
 }
