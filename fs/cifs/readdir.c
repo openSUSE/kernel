@@ -29,13 +29,7 @@
 #include "cifs_unicode.h"
 #include "cifs_debug.h"
 #include "cifs_fs_sb.h"
-
-extern int CIFSFindFirst2(const int xid, struct cifsTconInfo *tcon,
-            const char *searchName, const struct nls_table *nls_codepage,
-            __u16 *searchHandle, struct cifs_search_info * psrch_inf);
-
-extern int CIFSFindNext2(const int xid, struct cifsTconInfo *tcon,
-            __u16 searchHandle, struct cifs_search_info * psrch_inf);
+#include "cifsfs.h"
 
 extern int construct_dentry(struct qstr *qstring, struct file *file,
 		 struct inode **ptmp_inode, struct dentry **pnew_dentry);
@@ -70,6 +64,57 @@ extern void unix_fill_in_inode(struct inode *tmp_inode,
 		
 	}
 } */
+
+/* Returns one if new inode created (which therefore needs to be hashed) */
+/* Might check in the future if inode number changed so we can rehash inode */
+int
+construct_dentry(struct qstr *qstring, struct file *file,
+                 struct inode **ptmp_inode, struct dentry **pnew_dentry)
+{
+        struct dentry *tmp_dentry;
+        struct cifs_sb_info *cifs_sb;
+        struct cifsTconInfo *pTcon;
+        int rc = 0;
+
+        cFYI(1, ("For %s ", qstring->name));
+        cifs_sb = CIFS_SB(file->f_dentry->d_sb);
+        pTcon = cifs_sb->tcon;
+
+        qstring->hash = full_name_hash(qstring->name, qstring->len);
+        tmp_dentry = d_lookup(file->f_dentry, qstring);
+        if (tmp_dentry) {
+                cFYI(0, (" existing dentry with inode 0x%p", tmp_dentry->d_inode));
+                *ptmp_inode = tmp_dentry->d_inode;
+                /* BB overwrite the old name? i.e. tmp_dentry->d_name and tmp_dentry->d_name.len ?? */
+                if(*ptmp_inode == NULL) {
+                        *ptmp_inode = new_inode(file->f_dentry->d_sb);
+                        if(*ptmp_inode == NULL)
+                                return rc;
+                        rc = 1;
+                        d_instantiate(tmp_dentry, *ptmp_inode);
+                }
+        } else {
+                tmp_dentry = d_alloc(file->f_dentry, qstring);
+                if(tmp_dentry == NULL) {
+                        cERROR(1,("Failed allocating dentry"));
+                        *ptmp_inode = NULL;
+                        return rc;
+                }
+
+                *ptmp_inode = new_inode(file->f_dentry->d_sb);
+                tmp_dentry->d_op = &cifs_dentry_ops;
+                if(*ptmp_inode == NULL)
+                        return rc;
+                rc = 1;
+                d_instantiate(tmp_dentry, *ptmp_inode);
+                d_rehash(tmp_dentry);
+        }
+
+        tmp_dentry->d_time = jiffies;
+        *pnew_dentry = tmp_dentry;
+        return rc;
+}
+
 
 static int initiate_cifs_search(const int xid, struct file * file)
 {
@@ -123,7 +168,7 @@ static int initiate_cifs_search(const int xid, struct file * file)
 		cifsFile->srch_inf.info_level = SMB_FIND_FILE_DIRECTORY_INFO;
 	}
 
-	rc = CIFSFindFirst2(xid, pTcon,full_path,cifs_sb->local_nls, 
+	rc = CIFSFindFirst(xid, pTcon,full_path,cifs_sb->local_nls, 
 		&cifsFile->netfid, &cifsFile->srch_inf); 
 	if(rc == 0)
 		cifsFile->invalidHandle = FALSE;
@@ -279,7 +324,7 @@ static int find_cifs_entry(const int xid, struct cifsTconInfo * pTcon,
 	while((index_to_find >= cifsFile->srch_inf.index_of_last_entry) && 
 	      (rc == 0) && (cifsFile->srch_inf.endOfSearch == FALSE)){
 	 	cFYI(1,("calling findnext2"));
-		rc = CIFSFindNext2(xid,pTcon,cifsFile->netfid, &cifsFile->srch_inf);
+		rc = CIFSFindNext(xid,pTcon,cifsFile->netfid, &cifsFile->srch_inf);
 		if(rc)
 			return -ENOENT;
 	}
@@ -394,7 +439,7 @@ static int cifs_get_name_from_search_buf(struct qstr * pqst,char * current_entry
 
 
 static int
-cifs_filldir2(char * pfindEntry, struct file *file, 
+cifs_filldir(char * pfindEntry, struct file *file, 
 			  filldir_t filldir, void *direntry,char * scratch_buf)
 {
 	int rc = 0;
@@ -459,7 +504,7 @@ cifs_filldir2(char * pfindEntry, struct file *file,
 	return rc;
 }
 
-int cifs_save_resume_key(const char * current_entry,struct cifsFileInfo * cifsFile)
+static int cifs_save_resume_key(const char * current_entry,struct cifsFileInfo * cifsFile)
 {
 	int rc = 0;
 	unsigned int len = 0;
@@ -515,7 +560,7 @@ int cifs_save_resume_key(const char * current_entry,struct cifsFileInfo * cifsFi
 	return rc;
 }
 
-int cifs_readdir2(struct file *file, void *direntry, filldir_t filldir)
+int cifs_readdir(struct file *file, void *direntry, filldir_t filldir)
 {
 	int rc = 0;
 	int xid,i;
@@ -625,7 +670,7 @@ int cifs_readdir2(struct file *file, void *direntry, filldir_t filldir)
 				fill in inode new_inode (which makes number locally)
 			}
 			also create local inode for per reasons unless new mount parm says otherwise */
-			rc = cifs_filldir2(current_entry, file, 
+			rc = cifs_filldir(current_entry, file, 
 					filldir, direntry,tmp_buf);
 			file->f_pos++;
 			if(file->f_pos == cifsFile->srch_inf.index_of_last_entry) {

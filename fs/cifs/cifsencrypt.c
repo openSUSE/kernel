@@ -25,6 +25,7 @@
 #include "cifs_debug.h"
 #include "md5.h"
 #include "cifs_unicode.h"
+#include "cifsproto.h"
 
 /* Calculate and return the CIFS signature based on the mac key and the smb pdu */
 /* the 16 byte signature must be allocated by the caller  */

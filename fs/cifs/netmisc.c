@@ -43,7 +43,7 @@ struct smb_to_posix_error {
 	int posix_code;
 };
 
-const struct smb_to_posix_error mapping_table_ERRDOS[] = {
+static const struct smb_to_posix_error mapping_table_ERRDOS[] = {
 	{ERRbadfunc, -EINVAL},
 	{ERRbadfile, -ENOENT},
 	{ERRbadpath, -ENOTDIR},
@@ -81,7 +81,7 @@ const struct smb_to_posix_error mapping_table_ERRDOS[] = {
 	{0, 0}
 };
 
-const struct smb_to_posix_error mapping_table_ERRSRV[] = {
+static const struct smb_to_posix_error mapping_table_ERRSRV[] = {
 	{ERRerror, -EIO},
 	{ERRbadpw, -EPERM},
 	{ERRbadtype, -EREMOTE},
@@ -120,7 +120,7 @@ const struct smb_to_posix_error mapping_table_ERRSRV[] = {
 	{0, 0}
 };
 
-const struct smb_to_posix_error mapping_table_ERRHRD[] = {
+static const struct smb_to_posix_error mapping_table_ERRHRD[] = {
 	{0, 0}
 };
 
