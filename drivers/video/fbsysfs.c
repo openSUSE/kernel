@@ -151,13 +151,23 @@ static ssize_t store_modes(struct class_device *class_device, const char * buf,
 {
 	struct fb_info *fb_info =
 		(struct fb_info *)class_get_devdata(class_device);
+	LIST_HEAD(old_list);
 	int i = count / sizeof(struct fb_videomode);
+
 	if (i * sizeof(struct fb_videomode) != count)
 		return -EINVAL;
 
-	fb_destroy_modelist(&fb_info->modelist);
+	acquire_console_sem();
+	list_splice(&fb_info->modelist, &old_list);
 	fb_videomode_to_modelist((struct fb_videomode *)buf, i,
 				 &fb_info->modelist);
+	if (fb_new_modelist(fb_info)) {
+		fb_destroy_modelist(&fb_info->modelist);
+		list_splice(&old_list, &fb_info->modelist);
+	} else
+		fb_destroy_modelist(&old_list);
+
+	release_console_sem();
 
 	return 0;
 }

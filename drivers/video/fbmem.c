@@ -62,10 +62,8 @@ int num_registered_fb;
  * Helpers
  */
 
-int fb_get_color_depth(struct fb_info *info)
+int fb_get_color_depth(struct fb_var_screeninfo *var)
 {
-	struct fb_var_screeninfo *var = &info->var;
-
 	if (var->green.length == var->blue.length &&
 	    var->green.length == var->red.length &&
 	    !var->green.offset && !var->blue.offset &&
@@ -300,7 +298,7 @@ static void fb_set_logo(struct fb_info *info,
 	const u8 *src = logo->data;
 	u8 d, xor = (info->fix.visual == FB_VISUAL_MONO01) ? 0xff : 0;
 
-	if (fb_get_color_depth(info) == 3)
+	if (fb_get_color_depth(&info->var) == 3)
 		fg = 7;
 
 	switch (depth) {
@@ -365,7 +363,7 @@ static struct logo_data {
 
 int fb_prepare_logo(struct fb_info *info)
 {
-	int depth = fb_get_color_depth(info);
+	int depth = fb_get_color_depth(&info->var);
 
 	memset(&fb_logo, 0, sizeof(struct logo_data));
 
@@ -1209,6 +1207,40 @@ fbmem_init(void)
 }
 subsys_initcall(fbmem_init);
 
+int fb_new_modelist(struct fb_info *info)
+{
+	struct fb_event event;
+	struct fb_var_screeninfo var = info->var;
+	struct list_head *pos, *n;
+	struct fb_modelist *modelist;
+	struct fb_videomode *m, mode;
+	int err = 1;
+
+	list_for_each_safe(pos, n, &info->modelist) {
+		modelist = list_entry(pos, struct fb_modelist, list);
+		m = &modelist->mode;
+		fb_videomode_to_var(&var, m);
+		var.activate = FB_ACTIVATE_TEST;
+		err = fb_set_var(info, &var);
+		fb_var_to_videomode(&mode, &var);
+		if (err || !fb_mode_is_equal(m, &mode)) {
+			list_del(pos);
+			kfree(pos);
+		}
+	}
+
+	err = 1;
+
+	if (!list_empty(&info->modelist)) {
+		event.info = info;
+		err = notifier_call_chain(&fb_notifier_list,
+					   FB_EVENT_NEW_MODELIST,
+					   &event);
+	}
+
+	return err;
+}
+
 static char *video_options[FB_MAX];
 static int ofonly;
 
@@ -1320,5 +1352,6 @@ EXPORT_SYMBOL(fb_set_suspend);
 EXPORT_SYMBOL(fb_register_client);
 EXPORT_SYMBOL(fb_unregister_client);
 EXPORT_SYMBOL(fb_get_options);
+EXPORT_SYMBOL(fb_new_modelist);
 
 MODULE_LICENSE("GPL");

@@ -493,6 +493,8 @@ struct fb_cursor_user {
 #define FB_EVENT_SET_CONSOLE_MAP        0x07
 /*      A display blank is requested       */
 #define FB_EVENT_BLANK                  0x08
+/*      Private modelist is to be replaced */
+#define FB_EVENT_NEW_MODELIST           0x09
 
 struct fb_event {
 	struct fb_info *info;
@@ -826,8 +828,9 @@ extern void fb_sysmove_buf_aligned(struct fb_info *info, struct fb_pixmap *buf,
 				u8 *dst, u32 d_pitch, u8 *src, u32 s_pitch,
 				u32 height);
 extern void fb_set_suspend(struct fb_info *info, int state);
-extern int fb_get_color_depth(struct fb_info *info);
+extern int fb_get_color_depth(struct fb_var_screeninfo *var);
 extern int fb_get_options(char *name, char **option);
+extern int fb_new_modelist(struct fb_info *info);
 
 extern struct fb_info *registered_fb[FB_MAX];
 extern int num_registered_fb;
@@ -882,6 +885,8 @@ extern struct fb_videomode *fb_match_mode(struct fb_var_screeninfo *var,
 					  struct list_head *head);
 extern struct fb_videomode *fb_find_best_mode(struct fb_var_screeninfo *var,
 					      struct list_head *head);
+extern struct fb_videomode *fb_find_nearest_mode(struct fb_var_screeninfo *var,
+						 struct list_head *head);
 extern void fb_destroy_modelist(struct list_head *head);
 extern void fb_videomode_to_modelist(struct fb_videomode *modedb, int num,
 				     struct list_head *head);
