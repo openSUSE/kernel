@@ -3096,7 +3096,7 @@ static void velocity_restore_context(struct velocity_info *vptr, struct velocity
  *	we are interested in.
  */
 
-u16 wol_calc_crc(int size, u8 * pattern, u8 *mask_pattern)
+static u16 wol_calc_crc(int size, u8 * pattern, u8 *mask_pattern)
 {
 	u16 crc = 0xFFFF;
 	u8 mask;
