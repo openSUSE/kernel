@@ -17,6 +17,7 @@
  *	04-Jan-2005 BJD   Fixes for pre-release
  *	22-Feb-2005 BJD   Updated for 2.6.11-rc5 relesa
  *	10-Mar-2005 LCVR  Replaced S3C2410_VA by S3C24XX_VA
+ *	14-Mar-2005 BJD	  void __iomem fixes
 */
 
 #include <linux/kernel.h>
@@ -51,8 +52,8 @@
 static struct map_desc smdk2440_iodesc[] __initdata = {
 	/* ISA IO Space map (memory space selected by A24) */
 
-	{ S3C24XX_VA_ISA_WORD, S3C2410_CS2, SZ_16M, MT_DEVICE },
-	{ S3C24XX_VA_ISA_BYTE, S3C2410_CS2, SZ_16M, MT_DEVICE },
+	{ (u32)S3C24XX_VA_ISA_WORD, S3C2410_CS2, SZ_16M, MT_DEVICE },
+	{ (u32)S3C24XX_VA_ISA_BYTE, S3C2410_CS2, SZ_16M, MT_DEVICE },
 };
 
 #define UCON S3C2410_UCON_DEFAULT | S3C2410_UCON_UCLK
@@ -124,7 +125,7 @@ void __init smdk2440_machine_init(void)
 
 MACHINE_START(S3C2440, "SMDK2440")
 	MAINTAINER("Ben Dooks <ben@fluff.org>")
-	BOOT_MEM(S3C2410_SDRAM_PA, S3C2410_PA_UART, S3C24XX_VA_UART)
+	BOOT_MEM(S3C2410_SDRAM_PA, S3C2410_PA_UART, (u32)S3C24XX_VA_UART)
 	BOOT_PARAMS(S3C2410_SDRAM_PA + 0x100)
 
 	.init_irq	= s3c24xx_init_irq,

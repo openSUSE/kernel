@@ -262,8 +262,8 @@ s3c_irqext_unmask(unsigned int irqno)
 static int
 s3c_irqext_type(unsigned int irq, unsigned int type)
 {
-	unsigned long extint_reg;
-	unsigned long gpcon_reg;
+	void __iomem *extint_reg;
+	void __iomem *gpcon_reg;
 	unsigned long gpcon_offset, extint_offset;
 	unsigned long newvalue = 0, value;
 
