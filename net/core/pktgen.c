@@ -151,7 +151,7 @@
 #include <asm/timex.h>
 
 
-#define VERSION  "pktgen v2.60: Packet Generator for packet performance testing.\n"
+#define VERSION  "pktgen v2.61: Packet Generator for packet performance testing.\n"
 
 /* #define PG_DEBUG(a) a */
 #define PG_DEBUG(a) 
@@ -2590,7 +2590,7 @@ static void pktgen_rem_thread(struct pktgen_thread *t)
         thread_unlock();
 }
 
-__inline__ void pktgen_xmit(struct pktgen_dev *pkt_dev)
+static __inline__ void pktgen_xmit(struct pktgen_dev *pkt_dev)
 {
 	struct net_device *odev = NULL;
 	__u64 idle_start = 0;
@@ -2654,7 +2654,6 @@ __inline__ void pktgen_xmit(struct pktgen_dev *pkt_dev)
 	
 	spin_lock_bh(&odev->xmit_lock);
 	if (!netif_queue_stopped(odev)) {
-		u64 now;
 
 		atomic_inc(&(pkt_dev->skb->users));
 retry_now:
@@ -2678,23 +2677,17 @@ retry_now:
 			
 			pkt_dev->errors++;
 			pkt_dev->last_ok = 0;
-			pkt_dev->next_tx_us = getCurUs(); /* TODO */
-			pkt_dev->next_tx_ns = 0;
 		}
+
+		pkt_dev->next_tx_us = getCurUs();
+		pkt_dev->next_tx_ns = 0;
 
 		pkt_dev->next_tx_us += pkt_dev->delay_us;
 		pkt_dev->next_tx_ns += pkt_dev->delay_ns;
+
 		if (pkt_dev->next_tx_ns > 1000) {
 			pkt_dev->next_tx_us++;
 			pkt_dev->next_tx_ns -= 1000;
-		}
-
-		now = getCurUs();
-		if (now > pkt_dev->next_tx_us) {
-			/* TODO: this code is slightly wonky.  */
-			pkt_dev->errors++;
-			pkt_dev->next_tx_us = now - pkt_dev->delay_us;
-			pkt_dev->next_tx_ns = 0;
 		}
 	} 
 
