@@ -223,7 +223,14 @@ static __inline__ int sigfindinword(unsigned long word)
 
 struct pt_regs;
 extern int FASTCALL(do_signal(struct pt_regs *regs, sigset_t *oldset));
-#define ptrace_signal_deliver(regs, cookie) do { } while (0)
+
+#define ptrace_signal_deliver(regs, cookie)		\
+	do {						\
+		if (current->ptrace & PT_DTRACE) {	\
+			current->ptrace &= ~PT_DTRACE;	\
+			(regs)->eflags &= ~TF_MASK;	\
+		}					\
+	} while (0)
 
 #endif /* __KERNEL__ */
 
