@@ -197,11 +197,7 @@ struct fc_host_attrs {
 	char symbolic_name[FC_SYMBOLIC_NAME_SIZE];
 	u32 supported_speeds;
 	u32 maxframe_size;
-	char hardware_version[FC_VERSION_STRING_SIZE];
-	char firmware_version[FC_VERSION_STRING_SIZE];
 	char serial_number[FC_SERIAL_NUMBER_SIZE];
-	char opt_rom_version[FC_VERSION_STRING_SIZE];
-	char driver_version[FC_VERSION_STRING_SIZE];
 
 	/* Dynamic Attributes */
 	u32 port_id;
