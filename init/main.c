@@ -634,6 +634,10 @@ static int init(void * unused)
 {
 	lock_kernel();
 	/*
+	 * init can run on any cpu.
+	 */
+	set_cpus_allowed(current, CPU_MASK_ALL);
+	/*
 	 * Tell the world that we're going to be the grim
 	 * reaper of innocent orphaned children.
 	 *
