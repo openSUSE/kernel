@@ -70,6 +70,7 @@
 #include <asm/time.h>
 #include <asm/of_device.h>
 #include <asm/lmb.h>
+#include <asm/smu.h>
 
 #include "pmac.h"
 #include "mpic.h"
@@ -80,12 +81,19 @@
 #define DBG(fmt...)
 #endif
 
-
 static int current_root_goodness = -1;
 #define DEFAULT_ROOT_DEVICE Root_SDA1	/* sda1 - slightly silly choice */
 
 extern  int powersave_nap;
 int sccdbg;
+
+sys_ctrler_t sys_ctrler;
+EXPORT_SYMBOL(sys_ctrler);
+
+#ifdef CONFIG_PMAC_SMU
+unsigned long smu_cmdbuf_abs;
+EXPORT_SYMBOL(smu_cmdbuf_abs);
+#endif
 
 extern void udbg_init_scc(struct device_node *np);
 
@@ -155,8 +163,14 @@ void __init pmac_setup_arch(void)
 	/* We can NAP */
 	powersave_nap = 1;
 
-	/* Initialize the PMU */
+#ifdef CONFIG_ADB_PMU
+	/* Initialize the PMU if any */
 	find_via_pmu();
+#endif
+#ifdef CONFIG_PMAC_SMU
+	/* Initialize the SMU if any */
+	smu_init();
+#endif
 
 	/* Init NVRAM access */
 	pmac_nvram_init();
@@ -216,12 +230,39 @@ void __pmac note_bootable_part(dev_t dev, int part, int goodness)
 
 void __pmac pmac_restart(char *cmd)
 {
-	pmu_restart();
+	switch(sys_ctrler) {
+#ifdef CONFIG_ADB_PMU
+	case SYS_CTRLER_PMU:
+		pmu_restart();
+		break;
+#endif
+
+#ifdef CONFIG_PMAC_SMU
+	case SYS_CTRLER_SMU:
+		smu_restart();
+		break;
+#endif
+	default:
+		;
+	}
 }
 
 void __pmac pmac_power_off(void)
 {
-	pmu_shutdown();
+	switch(sys_ctrler) {
+#ifdef CONFIG_ADB_PMU
+	case SYS_CTRLER_PMU:
+		pmu_shutdown();
+		break;
+#endif
+#ifdef CONFIG_PMAC_SMU
+	case SYS_CTRLER_SMU:
+		smu_shutdown();
+		break;
+#endif
+	default:
+		;
+	}
 }
 
 void __pmac pmac_halt(void)
@@ -426,7 +467,6 @@ static int __init pmac_probe(int platform)
 {
 	if (platform != PLATFORM_POWERMAC)
 		return 0;
-
 	/*
 	 * On U3, the DART (iommu) must be allocated now since it
 	 * has an impact on htab_initialize (due to the large page it
@@ -434,6 +474,15 @@ static int __init pmac_probe(int platform)
 	 * part of the cacheable linar mapping
 	 */
 	alloc_u3_dart_table();
+
+#ifdef CONFIG_PMAC_SMU
+	/*
+	 * SMU based G5s need some memory below 2Gb, at least the current
+	 * driver needs that. We have to allocate it now. We allocate 4k
+	 * (1 small page) for now.
+	 */
+	smu_cmdbuf_abs = lmb_alloc_base(4096, 4096, 0x80000000UL);
+#endif /* CONFIG_PMAC_SMU */
 
 	return 1;
 }

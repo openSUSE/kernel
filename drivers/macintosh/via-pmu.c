@@ -367,9 +367,7 @@ find_via_pmu(void)
 	printk(KERN_INFO "PMU driver %d initialized for %s, firmware: %02x\n",
 	       PMU_DRIVER_VERSION, pbook_type[pmu_kind], pmu_version);
 	       
-#ifndef CONFIG_PPC64
 	sys_ctrler = SYS_CTRLER_PMU;
-#endif
 	
 	return 1;
 }
@@ -1745,6 +1743,9 @@ pmu_restart(void)
 {
 	struct adb_request req;
 
+	if (via == NULL)
+		return;
+
 	local_irq_disable();
 
 	drop_interrupts = 1;
@@ -1766,6 +1767,9 @@ void __pmac
 pmu_shutdown(void)
 {
 	struct adb_request req;
+
+	if (via == NULL)
+		return;
 
 	local_irq_disable();
 
