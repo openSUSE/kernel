@@ -70,7 +70,7 @@ config USB_EHCI_ROOT_HUB_TT
 	  controller is needed.  It's safe to say "y" even if your
 	  controller doesn't support this feature.
 
-	  This supports the EHCI implementation from ARC International.
+	  This supports the EHCI implementation from TransDimension Inc.
 
 config USB_OHCI_HCD
 	tristate "OHCI HCD support"

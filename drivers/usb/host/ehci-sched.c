@@ -650,6 +650,7 @@ iso_stream_alloc (int mem_flags)
 
 static void
 iso_stream_init (
+	struct ehci_hcd		*ehci,
 	struct ehci_iso_stream	*stream,
 	struct usb_device	*dev,
 	int			pipe,
@@ -701,7 +702,10 @@ iso_stream_init (
 		u32		addr;
 
 		addr = dev->ttport << 24;
-		addr |= dev->tt->hub->devnum << 16;
+		if (!ehci_is_TDI(ehci)
+				|| (dev->tt->hub !=
+					ehci_to_hcd(ehci)->self.root_hub))
+			addr |= dev->tt->hub->devnum << 16;
 		addr |= epnum << 8;
 		addr |= dev->devnum;
 		stream->usecs = HS_USECS_ISO (maxp);
@@ -819,7 +823,7 @@ iso_stream_find (struct ehci_hcd *ehci, struct urb *urb)
 			/* dev->ep owns the initial refcount */
 			ep->hcpriv = stream;
 			stream->ep = ep;
-			iso_stream_init(stream, urb->dev, urb->pipe,
+			iso_stream_init(ehci, stream, urb->dev, urb->pipe,
 					urb->interval);
 		}
 
