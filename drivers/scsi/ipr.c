@@ -1012,9 +1012,7 @@ static void ipr_log_array_error(struct ipr_ioa_cfg *ioa_cfg,
 	int i;
 	struct ipr_hostrcb_type_04_error *error;
 	struct ipr_hostrcb_array_data_entry *array_entry;
-	u8 zero_sn[IPR_SERIAL_NUM_LEN];
-
-	memset(zero_sn, '0', IPR_SERIAL_NUM_LEN);
+	const u8 zero_sn[IPR_SERIAL_NUM_LEN] = { [0 ... IPR_SERIAL_NUM_LEN-1] = '0' };
 
 	error = &hostrcb->hcam.u.error.u.type_04_error;
 
@@ -1035,7 +1033,7 @@ static void ipr_log_array_error(struct ipr_ioa_cfg *ioa_cfg,
 		if (!memcmp(array_entry->serial_num, zero_sn, IPR_SERIAL_NUM_LEN))
 			continue;
 
-		if (error->exposed_mode_adn == i) {
+		if (be32_to_cpu(error->exposed_mode_adn) == i) {
 			ipr_err("Exposed Array Member %d:\n", i);
 		} else {
 			ipr_err("Array Member %d:\n", i);
@@ -1436,7 +1434,7 @@ static int ipr_wait_iodbg_ack(struct ipr_ioa_cfg *ioa_cfg, int max_delay)
  **/
 static int ipr_get_ldump_data_section(struct ipr_ioa_cfg *ioa_cfg,
 				      u32 start_addr,
-				      u32 *dest, u32 length_in_words)
+				      __be32 *dest, u32 length_in_words)
 {
 	volatile u32 temp_pcii_reg;
 	int i, delay = 0;
@@ -1528,7 +1526,7 @@ static int ipr_sdt_copy(struct ipr_ioa_cfg *ioa_cfg,
 {
 	int bytes_copied = 0;
 	int cur_len, rc, rem_len, rem_page_len;
-	u32 *page;
+	__be32 *page;
 	unsigned long lock_flags = 0;
 	struct ipr_ioa_dump *ioa_dump = &ioa_cfg->dump->ioa_dump;
 
@@ -1536,7 +1534,7 @@ static int ipr_sdt_copy(struct ipr_ioa_cfg *ioa_cfg,
 	       (ioa_dump->hdr.len + bytes_copied) < IPR_MAX_IOA_DUMP_SIZE) {
 		if (ioa_dump->page_offset >= PAGE_SIZE ||
 		    ioa_dump->page_offset == 0) {
-			page = (u32 *)__get_free_page(GFP_ATOMIC);
+			page = (__be32 *)__get_free_page(GFP_ATOMIC);
 
 			if (!page) {
 				ipr_trace;
@@ -1751,8 +1749,8 @@ static void ipr_get_ioa_dump(struct ipr_ioa_cfg *ioa_cfg, struct ipr_dump *dump)
 	 on entries in this table */
 	sdt = &ioa_dump->sdt;
 
-	rc = ipr_get_ldump_data_section(ioa_cfg, start_addr, (u32 *)sdt,
-					sizeof(struct ipr_sdt) / sizeof(u32));
+	rc = ipr_get_ldump_data_section(ioa_cfg, start_addr, (__be32 *)sdt,
+					sizeof(struct ipr_sdt) / sizeof(__be32));
 
 	/* Smart Dump table is ready to use and the first entry is valid */
 	if (rc || (be32_to_cpu(sdt->hdr.state) != IPR_FMT2_SDT_READY_TO_USE)) {
@@ -3541,7 +3539,7 @@ static void ipr_dump_ioasa(struct ipr_ioa_cfg *ioa_cfg,
 	u16 data_len;
 	u32 ioasc;
 	struct ipr_ioasa *ioasa = &ipr_cmd->ioasa;
-	u32 *ioasa_data = (u32 *)ioasa;
+	__be32 *ioasa_data = (__be32 *)ioasa;
 	int error_index;
 
 	ioasc = be32_to_cpu(ioasa->ioasc) & IPR_IOASC_IOASC_MASK;
@@ -4313,7 +4311,7 @@ static void ipr_modify_ioafp_mode_page_28(struct ipr_ioa_cfg *ioa_cfg,
  * 	none
  **/
 static void ipr_build_mode_select(struct ipr_cmnd *ipr_cmd,
-				  u32 res_handle, u8 parm, u32 dma_addr,
+				  __be32 res_handle, u8 parm, u32 dma_addr,
 				  u8 xfer_len)
 {
 	struct ipr_ioadl_desc *ioadl = ipr_cmd->ioadl;
@@ -4388,7 +4386,7 @@ static int ipr_ioafp_mode_select_page28(struct ipr_cmnd *ipr_cmd)
  * 	none
  **/
 static void ipr_build_mode_sense(struct ipr_cmnd *ipr_cmd,
-				 u32 res_handle,
+				 __be32 res_handle,
 				 u8 parm, u32 dma_addr, u8 xfer_len)
 {
 	struct ipr_ioadl_desc *ioadl = ipr_cmd->ioadl;
@@ -4873,8 +4871,8 @@ static void ipr_get_unit_check_buffer(struct ipr_ioa_cfg *ioa_cfg)
 	}
 
 	memset(&sdt, 0, sizeof(struct ipr_uc_sdt));
-	rc = ipr_get_ldump_data_section(ioa_cfg, mailbox, (u32 *) &sdt,
-					(sizeof(struct ipr_uc_sdt)) / sizeof(u32));
+	rc = ipr_get_ldump_data_section(ioa_cfg, mailbox, (__be32 *) &sdt,
+					(sizeof(struct ipr_uc_sdt)) / sizeof(__be32));
 
 	if (rc || (be32_to_cpu(sdt.hdr.state) != IPR_FMT2_SDT_READY_TO_USE) ||
 	    !(sdt.entry[0].flags & IPR_SDT_VALID_ENTRY)) {
@@ -4893,8 +4891,8 @@ static void ipr_get_unit_check_buffer(struct ipr_ioa_cfg *ioa_cfg)
 
 	rc = ipr_get_ldump_data_section(ioa_cfg,
 					be32_to_cpu(sdt.entry[0].bar_str_offset),
-					(u32 *)&hostrcb->hcam,
-					min(length, (int)sizeof(hostrcb->hcam)) / sizeof(u32));
+					(__be32 *)&hostrcb->hcam,
+					min(length, (int)sizeof(hostrcb->hcam)) / sizeof(__be32));
 
 	if (!rc)
 		ipr_handle_log_data(ioa_cfg, hostrcb);
