@@ -2007,6 +2007,22 @@ out:
 	return status;
 }
 
+static inline int
+check_special_stateids(svc_fh *current_fh, stateid_t *stateid, int flags)
+{
+	/* Trying to call delegreturn with a special stateid? Yuch: */
+	if (!(flags & (RD_STATE | WR_STATE)))
+		return nfserr_bad_stateid;
+	else if (ONE_STATEID(stateid) && (flags & RD_STATE))
+		return nfs_ok;
+	else if (flags & WR_STATE)
+		return nfs4_share_conflict(current_fh,
+				NFS4_SHARE_DENY_WRITE);
+	else /* (flags & RD_STATE) && ZERO_STATEID(stateid) */
+		return nfs4_share_conflict(current_fh,
+				NFS4_SHARE_DENY_READ);
+}
+
 /*
 * Checks for stateid operations
 */
@@ -2021,6 +2037,9 @@ nfs4_preprocess_stateid_op(struct svc_fh *current_fh, stateid_t *stateid, int fl
 	dprintk("NFSD: preprocess_stateid_op: stateid = (%08x/%08x/%08x/%08x)\n",
 		stateid->si_boot, stateid->si_stateownerid, 
 		stateid->si_fileid, stateid->si_generation); 
+
+	if (ZERO_STATEID(stateid) || ONE_STATEID(stateid))
+		return check_special_stateids(current_fh, stateid, flags);
 
 	/* STALE STATEID */
 	status = nfserr_stale_stateid;

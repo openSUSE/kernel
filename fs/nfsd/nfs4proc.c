@@ -473,25 +473,6 @@ nfsd4_read(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_read 
 		return nfserr_inval;
 
 	nfs4_lock_state();
-	status = nfs_ok;
-	/* For stateid -1, we don't check share reservations.  */
-	if (ONE_STATEID(&read->rd_stateid)) {
-		dprintk("NFSD: nfsd4_read: -1 stateid...\n");
-		goto out;
-	}
-	/*
-	* For stateid 0, the client doesn't have to have the file open, but
-	* we still check for share reservation conflicts. 
-	*/
-	if (ZERO_STATEID(&read->rd_stateid)) {
-		dprintk("NFSD: nfsd4_read: zero stateid...\n");
-		if ((status = nfs4_share_conflict(current_fh, NFS4_SHARE_DENY_READ))) {
-			dprintk("NFSD: nfsd4_read: conflicting share reservation!\n");
-			goto out;
-		}
-		status = nfs_ok;
-		goto out;
-	}
 	/* check stateid */
 	if ((status = nfs4_preprocess_stateid_op(current_fh, &read->rd_stateid, 
 					CHECK_FH | RD_STATE))) {
@@ -595,13 +576,6 @@ nfsd4_setattr(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_se
 
 	status = nfs_ok;
 	if (setattr->sa_iattr.ia_valid & ATTR_SIZE) {
-
-		status = nfserr_bad_stateid;
-		if (ZERO_STATEID(&setattr->sa_stateid) || ONE_STATEID(&setattr->sa_stateid)) {
-			dprintk("NFSD: nfsd4_setattr: magic stateid!\n");
-			goto out;
-		}
-
 		nfs4_lock_state();
 		if ((status = nfs4_preprocess_stateid_op(current_fh, 
 						&setattr->sa_stateid, 
@@ -641,23 +615,13 @@ nfsd4_write(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_writ
 		return nfserr_inval;
 
 	nfs4_lock_state();
-	if (ZERO_STATEID(stateid) || ONE_STATEID(stateid)) {
-		dprintk("NFSD: nfsd4_write: zero stateid...\n");
-		if ((status = nfs4_share_conflict(current_fh, NFS4_SHARE_DENY_WRITE))) {
-			dprintk("NFSD: nfsd4_write: conflicting share reservation!\n");
-			goto out;
-		}
-		goto zero_stateid;
-	}
 	if ((status = nfs4_preprocess_stateid_op(current_fh, stateid, 
 					CHECK_FH | WR_STATE))) {
 		dprintk("NFSD: nfsd4_write: couldn't process stateid!\n");
 		goto out;
 	}
-
-zero_stateid:
-
 	nfs4_unlock_state();
+
 	write->wr_bytes_written = write->wr_buflen;
 	write->wr_how_written = write->wr_stable_how;
 	p = (u32 *)write->wr_verifier.data;
