@@ -460,9 +460,12 @@ struct inode *ext3_new_inode(handle_t *handle, struct inode * dir, int mode)
 		goto out;
 
 	for (i = 0; i < sbi->s_groups_count; i++) {
-		gdp = ext3_get_group_desc(sb, group, &bh2);
-
 		err = -EIO;
+
+		gdp = ext3_get_group_desc(sb, group, &bh2);
+		if (!gdp)
+			goto fail;
+
 		brelse(bitmap_bh);
 		bitmap_bh = read_inode_bitmap(sb, group);
 		if (!bitmap_bh)
