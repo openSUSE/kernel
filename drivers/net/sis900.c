@@ -195,6 +195,7 @@ MODULE_PARM_DESC(multicast_filter_limit, "SiS 900/7016 maximum number of filtere
 MODULE_PARM_DESC(max_interrupt_work, "SiS 900/7016 maximum events handled per interrupt");
 MODULE_PARM_DESC(sis900_debug, "SiS 900/7016 bitmapped debugging message level");
 
+static void sis900_poll(struct net_device *dev);
 static int sis900_open(struct net_device *net_dev);
 static int sis900_mii_probe (struct net_device * net_dev);
 static void sis900_init_rxfilter (struct net_device * net_dev);
@@ -464,11 +465,15 @@ static int __devinit sis900_probe(struct pci_dev *pci_dev,
 	net_dev->watchdog_timeo = TX_TIMEOUT;
 	net_dev->ethtool_ops = &sis900_ethtool_ops;
 
+#ifdef CONFIG_NET_POLL_CONTROLLER
+        net_dev->poll_controller = &sis900_poll;
+#endif
+
 	if (sis900_debug > 0)
 		sis_priv->msg_enable = sis900_debug;
 	else
 		sis_priv->msg_enable = SIS900_DEF_MSG;
-	
+
 	ret = register_netdev(net_dev);
 	if (ret)
 		goto err_unmap_rx;
@@ -951,6 +956,20 @@ static u16 sis900_reset_phy(struct net_device *net_dev, int phy_addr)
 	
 	return status;
 }
+
+#ifdef CONFIG_NET_POLL_CONTROLLER
+/*
+ * Polling 'interrupt' - used by things like netconsole to send skbs
+ * without having to re-enable interrupts. It's not called while
+ * the interrupt routine is executing.
+*/
+static void sis900_poll(struct net_device *dev)
+{
+	disable_irq(dev->irq);
+	sis900_interrupt(dev->irq, dev, NULL);
+	enable_irq(dev->irq);
+}
+#endif
 
 /**
  *	sis900_open - open sis900 device
