@@ -658,11 +658,11 @@ out_free:
 }
 
 static int vfat_add_entry(struct inode *dir, struct qstr *qname, int is_dir,
+			  struct timespec *ts,
 			  struct fat_slot_info *sinfo)
 {
 	struct super_block *sb = dir->i_sb;
 	struct msdos_dir_slot *slots;
-	struct timespec ts;
 	unsigned int len;
 	int err, i, nr_slots;
 	loff_t offset;
@@ -678,8 +678,7 @@ static int vfat_add_entry(struct inode *dir, struct qstr *qname, int is_dir,
 	if (slots == NULL)
 		return -ENOMEM;
 
-	ts = CURRENT_TIME_SEC;
-	err = vfat_build_slots(dir, qname->name, len, is_dir, 0, &ts,
+	err = vfat_build_slots(dir, qname->name, len, is_dir, 0, ts,
 			       slots, &nr_slots);
 	if (err)
 		goto cleanup;
@@ -707,7 +706,7 @@ static int vfat_add_entry(struct inode *dir, struct qstr *qname, int is_dir,
 	}
 
 	/* update timestamp */
-	dir->i_ctime = dir->i_mtime = dir->i_atime = ts;
+	dir->i_ctime = dir->i_mtime = dir->i_atime = *ts;
 	mark_inode_dirty(dir);
 
 	/* slots can't be less than 1 */
@@ -780,33 +779,33 @@ static int vfat_create(struct inode *dir, struct dentry *dentry, int mode,
 		       struct nameidata *nd)
 {
 	struct super_block *sb = dir->i_sb;
-	struct inode *inode = NULL;
+	struct inode *inode;
 	struct fat_slot_info sinfo;
-	int res;
+	struct timespec ts;
+	int err;
 
 	lock_kernel();
-	res = vfat_add_entry(dir, &dentry->d_name, 0, &sinfo);
-	if (res < 0)
+
+	ts = CURRENT_TIME_SEC;
+	err = vfat_add_entry(dir, &dentry->d_name, 0, &ts, &sinfo);
+	if (err)
 		goto out;
 	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos);
 	brelse(sinfo.bh);
 	if (IS_ERR(inode)) {
-		res = PTR_ERR(inode);
+		err = PTR_ERR(inode);
 		goto out;
 	}
-	res = 0;
 	inode->i_version++;
-	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME_SEC;
-	mark_inode_dirty(inode);
-	if (IS_SYNC(inode))
-		fat_sync_inode(inode);
+	inode->i_mtime = inode->i_atime = inode->i_ctime = ts;
+	/* timestamp is already written, so mark_inode_dirty() is unneeded. */
 
 	dir->i_version++;
 	dentry->d_time = dentry->d_parent->d_inode->i_version;
 	d_instantiate(dentry, inode);
 out:
 	unlock_kernel();
-	return res;
+	return err;
 }
 
 static int vfat_rmdir(struct inode *dir, struct dentry *dentry)
@@ -869,37 +868,42 @@ static int vfat_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	struct super_block *sb = dir->i_sb;
 	struct inode *inode = NULL;
 	struct fat_slot_info sinfo;
-	int res;
+	struct timespec ts;
+	int err;
 
 	lock_kernel();
-	res = vfat_add_entry(dir, &dentry->d_name, 1, &sinfo);
-	if (res < 0)
+
+	ts = CURRENT_TIME_SEC;
+	err = vfat_add_entry(dir, &dentry->d_name, 1, &ts, &sinfo);
+	if (err)
 		goto out;
 	inode = fat_build_inode(sb, sinfo.de, sinfo.i_pos);
 	if (IS_ERR(inode)) {
-		res = PTR_ERR(inode);
+		err = PTR_ERR(inode);
 		goto out_brelse;
 	}
-	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME_SEC;
-	mark_inode_dirty(inode);
 	inode->i_version++;
+	inode->i_mtime = inode->i_atime = inode->i_ctime = ts;
+	/* timestamp is already written, so mark_inode_dirty() is unneeded. */
+
 	dir->i_version++;
 	dir->i_nlink++;
 	inode->i_nlink = 2;	/* no need to mark them dirty */
-	res = fat_new_dir(inode, dir, 1);
-	if (res < 0)
+	err = fat_new_dir(inode, dir, 1);
+	if (err)
 		goto mkdir_failed;
+
 	dentry->d_time = dentry->d_parent->d_inode->i_version;
 	d_instantiate(dentry, inode);
 out_brelse:
 	brelse(sinfo.bh);
 out:
 	unlock_kernel();
-	return res;
+	return err;
 
 mkdir_failed:
 	inode->i_nlink = 0;
-	inode->i_mtime = inode->i_atime = CURRENT_TIME_SEC;
+	inode->i_mtime = inode->i_atime = ts;
 	fat_detach(inode);
 	mark_inode_dirty(inode);
 	fat_remove_entries(dir, &sinfo);	/* and releases bh */
@@ -917,6 +921,7 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 	struct inode *old_inode, *new_inode;
 	int err, is_dir;
 	struct fat_slot_info old_sinfo, sinfo;
+	struct timespec ts;
 
 	old_sinfo.bh = dotdot_bh = NULL;
 	old_inode = old_dentry->d_inode;
@@ -935,6 +940,7 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 		}
 	}
 
+	ts = CURRENT_TIME_SEC;
 	if (new_dentry->d_inode) {
 		err = vfat_find(new_dir, &new_dentry->d_name, &sinfo);
 		if (err)
@@ -953,7 +959,7 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 		}
 		fat_detach(new_inode);
 	} else {
-		err = vfat_add_entry(new_dir, &new_dentry->d_name, is_dir,
+		err = vfat_add_entry(new_dir, &new_dentry->d_name, is_dir, &ts,
 				     &sinfo);
 		if (err)
 			goto out;
@@ -972,11 +978,12 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 	mark_inode_dirty(old_inode);
 
 	old_dir->i_version++;
-	old_dir->i_ctime = old_dir->i_mtime = CURRENT_TIME_SEC;
+	old_dir->i_ctime = old_dir->i_mtime = ts;
 	mark_inode_dirty(old_dir);
+
 	if (new_inode) {
 		new_inode->i_nlink--;
-		new_inode->i_ctime = CURRENT_TIME_SEC;
+		new_inode->i_ctime = ts;
 	}
 
 	if (is_dir) {
