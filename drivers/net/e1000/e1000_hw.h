@@ -369,6 +369,7 @@ int32_t e1000_set_d3_lplu_state(struct e1000_hw *hw, boolean_t active);
 #define E1000_DEV_ID_82546GB_SERDES      0x107B
 #define E1000_DEV_ID_82546GB_PCIE        0x108A
 #define E1000_DEV_ID_82547EI             0x1019
+
 #define NODE_ADDRESS_SIZE 6
 #define ETH_LENGTH_OF_ADDRESS 6
 
@@ -1734,6 +1735,9 @@ struct e1000_hw {
 #define PHY_1000T_STATUS 0x0A /* 1000Base-T Status Reg */
 #define PHY_EXT_STATUS   0x0F /* Extended Status Reg */
 
+#define MAX_PHY_REG_ADDRESS        0x1F  /* 5 bit address bus (0-0x1F) */
+#define MAX_PHY_MULTI_PAGE_REG     0xF   /* Registers equal on all pages */
+
 /* M88E1000 Specific Registers */
 #define M88E1000_PHY_SPEC_CTRL     0x10  /* PHY Specific Control Register */
 #define M88E1000_PHY_SPEC_STATUS   0x11  /* PHY Specific Status Register */
@@ -1794,8 +1798,7 @@ struct e1000_hw {
 
 #define IGP01E1000_ANALOG_REGS_PAGE  0x20C0
 
-#define MAX_PHY_REG_ADDRESS 0x1F        /* 5 bit address bus (0-0x1F) */
-#define MAX_PHY_MULTI_PAGE_REG  0xF     /*Registers that are equal on all pages*/
+
 /* PHY Control Register */
 #define MII_CR_SPEED_SELECT_MSB 0x0040  /* bits 6,13: 10=1000, 01=100, 00=10 */
 #define MII_CR_COLL_TEST_ENABLE 0x0080  /* Collision test enable */
@@ -2098,7 +2101,11 @@ struct e1000_hw {
 #define IGP01E1000_ANALOG_FUSE_FINE_1               0x0080
 #define IGP01E1000_ANALOG_FUSE_FINE_10              0x0500
 
+
 /* Bit definitions for valid PHY IDs. */
+/* I = Integrated
+ * E = External
+ */
 #define M88E1000_E_PHY_ID  0x01410C50
 #define M88E1000_I_PHY_ID  0x01410C30
 #define M88E1011_I_PHY_ID  0x01410C20

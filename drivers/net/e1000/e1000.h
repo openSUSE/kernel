@@ -138,6 +138,7 @@ struct e1000_adapter;
 #define E1000_RX_BUFFER_WRITE	16	/* Must be power of 2 */
 
 #define AUTO_ALL_MODES       0
+#define E1000_EEPROM_82544_APM 0x0004
 #define E1000_EEPROM_APME    0x0400
 
 #ifndef E1000_MASTER_SLAVE
@@ -209,6 +210,7 @@ struct e1000_adapter {
 
 	/* TX */
 	struct e1000_desc_ring tx_ring;
+	struct e1000_buffer previous_buffer_info;
 	spinlock_t tx_lock;
 	uint32_t txd_cmd;
 	uint32_t tx_int_delay;
@@ -222,6 +224,7 @@ struct e1000_adapter {
 	uint32_t tx_fifo_size;
 	atomic_t tx_fifo_stall;
 	boolean_t pcix_82544;
+	boolean_t detect_tx_hung;
 
 	/* RX */
 	struct e1000_desc_ring rx_ring;
