@@ -222,12 +222,11 @@ static int uinput_validate_absbits(struct input_dev *dev)
 	unsigned int cnt;
 	int retval = 0;
 
-	for (cnt = 0; cnt < ABS_MAX; cnt++) {
+	for (cnt = 0; cnt < ABS_MAX + 1; cnt++) {
 		if (!test_bit(cnt, dev->absbit))
 			continue;
 
-		if (/*!dev->absmin[cnt] || !dev->absmax[cnt] || */
-		    (dev->absmax[cnt] <= dev->absmin[cnt])) {
+		if ((dev->absmax[cnt] <= dev->absmin[cnt])) {
 			printk(KERN_DEBUG
 				"%s: invalid abs[%02x] min:%d max:%d\n",
 				UINPUT_NAME, cnt,
@@ -236,8 +235,7 @@ static int uinput_validate_absbits(struct input_dev *dev)
 			break;
 		}
 
-		if ((dev->absflat[cnt] < dev->absmin[cnt]) ||
-		    (dev->absflat[cnt] > dev->absmax[cnt])) {
+		if (dev->absflat[cnt] > (dev->absmax[cnt] - dev->absmin[cnt])) {
 			printk(KERN_DEBUG
 				"%s: absflat[%02x] out of range: %d "
 				"(min:%d/max:%d)\n",

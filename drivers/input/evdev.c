@@ -225,14 +225,15 @@ static int evdev_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 
 		case EVIOCGKEYCODE:
 			if (get_user(t, ip)) return -EFAULT;
-			if (t < 0 || t > dev->keycodemax || !dev->keycodesize) return -EINVAL;
+			if (t < 0 || t >= dev->keycodemax || !dev->keycodesize) return -EINVAL;
 			if (put_user(INPUT_KEYCODE(dev, t), ip + 1)) return -EFAULT;
 			return 0;
 
 		case EVIOCSKEYCODE:
 			if (get_user(t, ip)) return -EFAULT;
-			if (t < 0 || t > dev->keycodemax || !dev->keycodesize) return -EINVAL;
+			if (t < 0 || t >= dev->keycodemax || !dev->keycodesize) return -EINVAL;
 			if (get_user(v, ip + 1)) return -EFAULT;
+			if (v < 0 || v > KEY_MAX) return -EINVAL;
 			u = SET_INPUT_KEYCODE(dev, t, v);
 			clear_bit(u, dev->keybit);
 			set_bit(v, dev->keybit);
