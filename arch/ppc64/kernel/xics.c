@@ -704,15 +704,8 @@ void xics_migrate_irqs_away(void)
 		       virq, cpu);
 
 		/* Reset affinity to all cpus */
-		xics_status[0] = default_distrib_server;
-
-		status = rtas_call(ibm_set_xive, 3, 1, NULL, irq,
-				xics_status[0], xics_status[1]);
-		if (status)
-			printk(KERN_ERR "migrate_irqs_away: irq=%d "
-					"ibm,set-xive returns %d\n",
-					virq, status);
-
+		desc->handler->set_affinity(virq, CPU_MASK_ALL);
+		irq_affinity[virq] = CPU_MASK_ALL;
 unlock:
 		spin_unlock_irqrestore(&desc->lock, flags);
 	}
