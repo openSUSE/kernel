@@ -121,18 +121,18 @@ struct inet_sock {
 	__u16			dport;		/* Destination port */
 	__u16			num;		/* Local port */
 	__u32			saddr;		/* Sending source */
-	int			uc_ttl;		/* Unicast TTL */
-	int			tos;		/* TOS */
-	unsigned	   	cmsg_flags;
+	__s16			uc_ttl;		/* Unicast TTL */
+	__u16			cmsg_flags;
 	struct ip_options	*opt;
 	__u16			sport;		/* Source port */
-	unsigned char		hdrincl;	/* Include headers ? */
-	__u8			mc_ttl;		/* Multicasting TTL */
-	__u8			mc_loop;	/* Loopback */
-	__u8			pmtudisc;
 	__u16			id;		/* ID counter for DF pkts */
+	__u8			tos;		/* TOS */
+	__u8			mc_ttl;		/* Multicasting TTL */
+	__u8			pmtudisc;
 	unsigned		recverr : 1,
-				freebind : 1;
+				freebind : 1,
+				hdrincl : 1,
+				mc_loop : 1;
 	int			mc_index;	/* Multicast device index */
 	__u32			mc_addr;
 	struct ip_mc_socklist	*mc_list;	/* Group array */
