@@ -37,8 +37,8 @@
 #include "seq_info.h"
 #include "seq_system.h"
 #include <sound/seq_device.h>
-#if defined(CONFIG_SND_BIT32_EMUL) || defined(CONFIG_SND_BIT32_EMUL_MODULE)
-#include "../ioctl32/ioctl32.h"
+#ifdef CONFIG_COMPAT
+#include <linux/compat.h>
 #endif
 
 /* Client Manager
