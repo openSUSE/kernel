@@ -134,7 +134,6 @@ struct sock_common {
   *	@sk_sndbuf - size of send buffer in bytes
   *	@sk_flags - %SO_LINGER (l_onoff), %SO_BROADCAST, %SO_KEEPALIVE, %SO_OOBINLINE settings
   *	@sk_no_check - %SO_NO_CHECK setting, wether or not checkup packets
-  *	@sk_rcvtstamp - %SO_TIMESTAMP setting
   *	@sk_no_largesend - whether to sent large segments or not
   *	@sk_route_caps - route capabilities (e.g. %NETIF_F_TSO)
   *	@sk_lingertime - %SO_LINGER l_linger setting
@@ -207,7 +206,6 @@ struct sock {
 	int			sk_sndbuf;
 	unsigned long 		sk_flags;
 	char		 	sk_no_check;
-	unsigned char		sk_rcvtstamp;
 	unsigned char		sk_no_largesend;
 	int			sk_route_caps;
 	unsigned long	        sk_lingertime;
@@ -388,6 +386,7 @@ enum sock_flags {
 	SOCK_ZAPPED,
 	SOCK_USE_WRITE_QUEUE, /* whether to call sk->sk_write_space in sock_wfree */
 	SOCK_DBG, /* %SO_DEBUG setting */
+	SOCK_RCVTSTAMP, /* %SO_TIMESTAMP setting */
 };
 
 static inline void sock_set_flag(struct sock *sk, enum sock_flags flag)
@@ -1239,7 +1238,7 @@ static __inline__ void
 sock_recv_timestamp(struct msghdr *msg, struct sock *sk, struct sk_buff *skb)
 {
 	struct timeval *stamp = &skb->stamp;
-	if (sk->sk_rcvtstamp) { 
+	if (sock_flag(sk, SOCK_RCVTSTAMP)) {
 		/* Race occurred between timestamp enabling and packet
 		   receiving.  Fill in the current time for now. */
 		if (stamp->tv_sec == 0)

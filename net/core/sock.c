@@ -342,9 +342,11 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 			break;
 
 		case SO_TIMESTAMP:
-			sk->sk_rcvtstamp = valbool;
-			if (valbool) 
+			if (valbool)  {
+				sock_set_flag(sk, SOCK_RCVTSTAMP);
 				sock_enable_timestamp(sk);
+			} else
+				sock_reset_flag(sk, SOCK_RCVTSTAMP);
 			break;
 
 		case SO_RCVLOWAT:
@@ -528,7 +530,7 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
 			break;
 
 		case SO_TIMESTAMP:
-			v.val = sk->sk_rcvtstamp;
+			v.val = sock_flag(sk, SOCK_RCVTSTAMP);
 			break;
 
 		case SO_RCVTIMEO:
