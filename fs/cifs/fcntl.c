@@ -27,8 +27,9 @@
 #include "cifsproto.h"
 #include "cifs_unicode.h"
 #include "cifs_debug.h"
+#include "cifsfs.h"
 
-__u32 convert_to_cifs_notify_flags(unsigned long fcntl_notify_flags)
+static __u32 convert_to_cifs_notify_flags(unsigned long fcntl_notify_flags)
 {
 	__u32 cifs_ntfy_flags = 0;
 
