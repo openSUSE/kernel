@@ -51,8 +51,11 @@
  */
 
 /* Constants */
-#define WRAP				ETH_HLEN + 2 + 4
-#define RX_SKB_SIZE			((dev->mtu + WRAP + 7) & ~0x7)
+#define VLAN_HLEN		4
+#define FCS_LEN			4
+#define WRAP			NET_IP_ALIGN + ETH_HLEN + VLAN_HLEN + FCS_LEN
+#define RX_SKB_SIZE		((dev->mtu + WRAP + 7) & ~0x7)
+
 #define INT_CAUSE_UNMASK_ALL		0x0007ffff
 #define INT_CAUSE_UNMASK_ALL_EXT	0x0011ffff
 #ifdef MV643XX_RX_QUEUE_FILL_ON_TASK
@@ -60,6 +63,7 @@
 #define INT_CAUSE_CHECK_BITS		INT_CAUSE_UNMASK_ALL
 #define INT_CAUSE_CHECK_BITS_EXT	INT_CAUSE_UNMASK_ALL_EXT
 #endif
+
 #ifdef MV643XX_CHECKSUM_OFFLOAD_TX
 #define MAX_DESCS_PER_SKB	(MAX_SKB_FRAGS + 1)
 #else
