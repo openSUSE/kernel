@@ -803,7 +803,6 @@ static int vfat_rmdir(struct inode *dir, struct dentry *dentry)
 	inode->i_nlink = 0;
 	inode->i_mtime = inode->i_atime = CURRENT_TIME_SEC;
 	fat_detach(inode);
-	mark_inode_dirty(inode);
 out:
 	unlock_kernel();
 
@@ -828,7 +827,6 @@ static int vfat_unlink(struct inode *dir, struct dentry *dentry)
 	inode->i_nlink = 0;
 	inode->i_mtime = inode->i_atime = CURRENT_TIME_SEC;
 	fat_detach(inode);
-	mark_inode_dirty(inode);
 out:
 	unlock_kernel();
 
@@ -865,7 +863,7 @@ static int vfat_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 		goto out;
 	}
 	inode->i_version++;
-	inode->i_nlink = 2;	/* no need to mark them dirty */
+	inode->i_nlink = 2;
 	inode->i_mtime = inode->i_atime = inode->i_ctime = ts;
 	/* timestamp is already written, so mark_inode_dirty() is unneeded. */
 
@@ -964,12 +962,10 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 		if (new_dir->i_sb->s_flags & MS_SYNCHRONOUS)
 			sync_dirty_buffer(dotdot_bh);
 
-		if (new_inode) {
+		if (new_inode)
 			new_inode->i_nlink--;
-		} else {
+		else
 			new_dir->i_nlink++;
-			mark_inode_dirty(new_dir);
-		}
 	}
 out:
 	brelse(dotdot_bh);
