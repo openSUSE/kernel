@@ -661,6 +661,7 @@ static void ipoib_neigh_destructor(struct neighbour *n)
 	struct ipoib_neigh *neigh = *to_ipoib_neigh(n);
 	struct ipoib_dev_priv *priv = netdev_priv(n->dev);
 	unsigned long flags;
+	struct ipoib_ah *ah = NULL;
 
 	ipoib_dbg(priv,
 		  "neigh_destructor for %06x " IPOIB_GID_FMT "\n",
@@ -671,13 +672,16 @@ static void ipoib_neigh_destructor(struct neighbour *n)
 
 	if (neigh) {
 		if (neigh->ah)
-			ipoib_put_ah(neigh->ah);
+			ah = neigh->ah;
 		list_del(&neigh->list);
 		*to_ipoib_neigh(n) = NULL;
 		kfree(neigh);
 	}
 
 	spin_unlock_irqrestore(&priv->lock, flags);
+
+	if (ah)
+		ipoib_put_ah(ah);
 }
 
 static int ipoib_neigh_setup(struct neighbour *neigh)
