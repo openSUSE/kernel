@@ -181,6 +181,7 @@ struct sis900_private {
 
 	unsigned int tx_full; /* The Tx queue is full. */
 	u8 host_bridge_rev;
+	u8 chipset_rev;
 };
 
 MODULE_AUTHOR("Jim Huang <cmhuang@sis.com.tw>, Ollie Lho <ollie@sis.com.tw>");
@@ -393,7 +394,6 @@ static int __devinit sis900_probe(struct pci_dev *pci_dev,
 	void *ring_space;
 	long ioaddr;
 	int i, ret;
-	u8 revision;
 	char *card_name = card_names[pci_id->driver_data];
 
 /* when built into the kernel, we only print version if device is found */
@@ -474,19 +474,18 @@ static int __devinit sis900_probe(struct pci_dev *pci_dev,
 		goto err_unmap_rx;
 		
 	/* Get Mac address according to the chip revision */
-	pci_read_config_byte(pci_dev, PCI_CLASS_REVISION, &revision);
-
+	pci_read_config_byte(pci_dev, PCI_CLASS_REVISION, &(sis_priv->chipset_rev));
 	if(netif_msg_probe(sis_priv))
 		printk(KERN_DEBUG "%s: detected revision %2.2x, "
 				"trying to get MAC address...\n",
-				net_dev->name, revision);
+				net_dev->name, sis_priv->chipset_rev);
 	
 	ret = 0;
-	if (revision == SIS630E_900_REV)
+	if (sis_priv->chipset_rev == SIS630E_900_REV)
 		ret = sis630e_get_mac_addr(pci_dev, net_dev);
-	else if ((revision > 0x81) && (revision <= 0x90) )
+	else if ((sis_priv->chipset_rev > 0x81) && (sis_priv->chipset_rev <= 0x90) )
 		ret = sis635_get_mac_addr(pci_dev, net_dev);
-	else if (revision == SIS96x_900_REV)
+	else if (sis_priv->chipset_rev == SIS96x_900_REV)
 		ret = sis96x_get_mac_addr(pci_dev, net_dev);
 	else
 		ret = sis900_get_mac_addr(pci_dev, net_dev);
@@ -498,7 +497,7 @@ static int __devinit sis900_probe(struct pci_dev *pci_dev,
 	}
 	
 	/* 630ET : set the mii access mode as software-mode */
-	if (revision == SIS630ET_900_REV)
+	if (sis_priv->chipset_rev == SIS630ET_900_REV)
 		outl(ACCESSMODE | inl(ioaddr + cr), ioaddr + cr);
 
 	/* probe for mii transceiver */
@@ -555,7 +554,6 @@ static int __init sis900_mii_probe(struct net_device * net_dev)
 	u16 poll_bit = MII_STAT_LINK, status = 0;
 	unsigned long timeout = jiffies + 5 * HZ;
 	int phy_addr;
-	u8 revision;
 
 	sis_priv->mii = NULL;
 
@@ -652,8 +650,7 @@ static int __init sis900_mii_probe(struct net_device * net_dev)
 		}
 	}
 
-	pci_read_config_byte(sis_priv->pci_dev, PCI_CLASS_REVISION, &revision);
-	if (revision == SIS630E_900_REV) {
+	if (sis_priv->chipset_rev == SIS630E_900_REV) {
 		/* SiS 630E has some bugs on default value of PHY registers */
 		mdio_write(net_dev, sis_priv->cur_phy, MII_ANADV, 0x05e1);
 		mdio_write(net_dev, sis_priv->cur_phy, MII_CONFIG1, 0x22);
@@ -968,15 +965,13 @@ sis900_open(struct net_device *net_dev)
 {
 	struct sis900_private *sis_priv = net_dev->priv;
 	long ioaddr = net_dev->base_addr;
-	u8 revision;
 	int ret;
 
 	/* Soft reset the chip. */
 	sis900_reset(net_dev);
 
 	/* Equalizer workaround Rule */
-	pci_read_config_byte(sis_priv->pci_dev, PCI_CLASS_REVISION, &revision);
-	sis630_set_eq(net_dev, revision);
+	sis630_set_eq(net_dev, sis_priv->chipset_rev);
 
 	ret = request_irq(net_dev->irq, &sis900_interrupt, SA_SHIRQ,
 						net_dev->name, net_dev);
@@ -1245,7 +1240,6 @@ static void sis900_timer(unsigned long data)
 	struct mii_phy *mii_phy = sis_priv->mii;
 	static int next_tick = 5*HZ;
 	u16 status;
-	u8 revision;
 
 	if (!sis_priv->autong_complete){
 		int speed, duplex = 0;
@@ -1253,9 +1247,7 @@ static void sis900_timer(unsigned long data)
 		sis900_read_mode(net_dev, &speed, &duplex);
 		if (duplex){
 			sis900_set_mode(net_dev->base_addr, speed, duplex);
-			pci_read_config_byte(sis_priv->pci_dev,
-						PCI_CLASS_REVISION, &revision);
-			sis630_set_eq(net_dev, revision);
+			sis630_set_eq(net_dev, sis_priv->chipset_rev);
 			netif_start_queue(net_dev);
 		}
 
@@ -1290,9 +1282,7 @@ static void sis900_timer(unsigned long data)
 			    ((mii_phy->phy_id1 & 0xFFF0) == 0x8000))
                			sis900_reset_phy(net_dev,  sis_priv->cur_phy);
   
-                	pci_read_config_byte(sis_priv->pci_dev,
-					PCI_CLASS_REVISION, &revision);
-			sis630_set_eq(net_dev, revision);
+			sis630_set_eq(net_dev, sis_priv->chipset_rev);
   
                 	goto LookForLink;
                 }
@@ -2146,11 +2136,10 @@ static void set_rx_mode(struct net_device *net_dev)
 	u16 mc_filter[16] = {0};	/* 256/128 bits multicast hash table */
 	int i, table_entries;
 	u32 rx_mode;
-	u8 revision;
 
 	/* 635 Hash Table entires = 256(2^16) */
-	pci_read_config_byte(sis_priv->pci_dev, PCI_CLASS_REVISION, &revision);
-	if((revision >= SIS635A_900_REV) || (revision == SIS900B_900_REV))
+	if((sis_priv->chipset_rev >= SIS635A_900_REV) ||
+			(sis_priv->chipset_rev == SIS900B_900_REV))
 		table_entries = 16;
 	else
 		table_entries = 8;
@@ -2176,7 +2165,7 @@ static void set_rx_mode(struct net_device *net_dev)
 			mclist && i < net_dev->mc_count;
 			i++, mclist = mclist->next) {
 			unsigned int bit_nr =
-				sis900_mcast_bitnr(mclist->dmi_addr, revision);
+				sis900_mcast_bitnr(mclist->dmi_addr, sis_priv->chipset_rev);
 			mc_filter[bit_nr >> 4] |= (1 << (bit_nr & 0xf));
 		}
 	}
@@ -2222,7 +2211,6 @@ static void sis900_reset(struct net_device *net_dev)
 	long ioaddr = net_dev->base_addr;
 	int i = 0;
 	u32 status = TxRCMP | RxRCMP;
-	u8  revision;
 
 	outl(0, ioaddr + ier);
 	outl(0, ioaddr + imr);
@@ -2235,8 +2223,8 @@ static void sis900_reset(struct net_device *net_dev)
 		status ^= (inl(isr + ioaddr) & status);
 	}
 
-	pci_read_config_byte(sis_priv->pci_dev, PCI_CLASS_REVISION, &revision);
-	if( (revision >= SIS635A_900_REV) || (revision == SIS900B_900_REV) )
+	if( (sis_priv->chipset_rev >= SIS635A_900_REV) ||
+			(sis_priv->chipset_rev == SIS900B_900_REV) )
 		outl(PESEL | RND_CNT, ioaddr + cfg);
 	else
 		outl(PESEL, ioaddr + cfg);
