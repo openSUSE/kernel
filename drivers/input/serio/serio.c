@@ -44,7 +44,7 @@ EXPORT_SYMBOL(serio_interrupt);
 EXPORT_SYMBOL(__serio_register_port);
 EXPORT_SYMBOL(serio_unregister_port);
 EXPORT_SYMBOL(__serio_unregister_port_delayed);
-EXPORT_SYMBOL(serio_register_driver);
+EXPORT_SYMBOL(__serio_register_driver);
 EXPORT_SYMBOL(serio_unregister_driver);
 EXPORT_SYMBOL(serio_open);
 EXPORT_SYMBOL(serio_close);
@@ -120,18 +120,19 @@ static void serio_find_driver(struct serio *serio)
  * Serio event processing.
  */
 
-struct serio_event {
-	int type;
-	struct serio *serio;
-	struct module *owner;
-	struct list_head node;
-};
-
 enum serio_event_type {
 	SERIO_RESCAN,
 	SERIO_RECONNECT,
 	SERIO_REGISTER_PORT,
 	SERIO_UNREGISTER_PORT,
+	SERIO_REGISTER_DRIVER,
+};
+
+struct serio_event {
+	enum serio_event_type type;
+	void *object;
+	struct module *owner;
+	struct list_head node;
 };
 
 static DEFINE_SPINLOCK(serio_event_lock);	/* protects serio_event_list */
@@ -140,7 +141,7 @@ static DECLARE_WAIT_QUEUE_HEAD(serio_wait);
 static DECLARE_COMPLETION(serio_exited);
 static int serio_pid;
 
-static void serio_queue_event(struct serio *serio, struct module *owner,
+static void serio_queue_event(void *object, struct module *owner,
 			      enum serio_event_type event_type)
 {
 	unsigned long flags;
@@ -156,7 +157,7 @@ static void serio_queue_event(struct serio *serio, struct module *owner,
 	 * we need to preseve sequence of distinct events.
  	 */
 	list_for_each_entry_reverse(event, &serio_event_list, node) {
-		if (event->serio == serio) {
+		if (event->object == object) {
 			if (event->type == event_type)
 				goto out;
 			break;
@@ -170,7 +171,7 @@ static void serio_queue_event(struct serio *serio, struct module *owner,
 		}
 
 		event->type = event_type;
-		event->serio = serio;
+		event->object = object;
 		event->owner = owner;
 
 		list_add_tail(&event->node, &serio_event_list);
@@ -198,7 +199,7 @@ static void serio_remove_duplicate_events(struct serio_event *event)
 
 	list_for_each_safe(node, next, &serio_event_list) {
 		e = list_entry(node, struct serio_event, node);
-		if (event->serio == e->serio) {
+		if (event->object == e->object) {
 			/*
 			 * If this event is of different type we should not
 			 * look further - we only suppress duplicate events
@@ -241,6 +242,7 @@ static struct serio_event *serio_get_event(void)
 static void serio_handle_events(void)
 {
 	struct serio_event *event;
+	struct serio_driver *serio_drv;
 
 	down(&serio_sem);
 
@@ -248,21 +250,26 @@ static void serio_handle_events(void)
 
 		switch (event->type) {
 			case SERIO_REGISTER_PORT:
-				serio_add_port(event->serio);
+				serio_add_port(event->object);
 				break;
 
 			case SERIO_UNREGISTER_PORT:
-				serio_disconnect_port(event->serio);
-				serio_destroy_port(event->serio);
+				serio_disconnect_port(event->object);
+				serio_destroy_port(event->object);
 				break;
 
 			case SERIO_RECONNECT:
-				serio_reconnect_port(event->serio);
+				serio_reconnect_port(event->object);
 				break;
 
 			case SERIO_RESCAN:
-				serio_disconnect_port(event->serio);
-				serio_find_driver(event->serio);
+				serio_disconnect_port(event->object);
+				serio_find_driver(event->object);
+				break;
+
+			case SERIO_REGISTER_DRIVER:
+				serio_drv = event->object;
+				driver_register(&serio_drv->driver);
 				break;
 
 			default:
@@ -289,7 +296,7 @@ static void serio_remove_pending_events(struct serio *serio)
 
 	list_for_each_safe(node, next, &serio_event_list) {
 		event = list_entry(node, struct serio_event, node);
-		if (event->serio == serio) {
+		if (event->object == serio) {
 			list_del_init(node);
 			serio_free_event(event);
 		}
@@ -309,20 +316,23 @@ static void serio_remove_pending_events(struct serio *serio)
 static struct serio *serio_get_pending_child(struct serio *parent)
 {
 	struct serio_event *event;
-	struct serio *serio = NULL;
+	struct serio *serio, *child = NULL;
 	unsigned long flags;
 
 	spin_lock_irqsave(&serio_event_lock, flags);
 
 	list_for_each_entry(event, &serio_event_list, node) {
-		if (event->type == SERIO_REGISTER_PORT && event->serio->parent == parent) {
-			serio = event->serio;
-			break;
+		if (event->type == SERIO_REGISTER_PORT) {
+			serio = event->object;
+			if (serio->parent == parent) {
+				child = serio;
+				break;
+			}
 		}
 	}
 
 	spin_unlock_irqrestore(&serio_event_lock, flags);
-	return serio;
+	return child;
 }
 
 static int serio_thread(void *nothing)
@@ -672,16 +682,13 @@ static int serio_driver_remove(struct device *dev)
 	return 0;
 }
 
-void serio_register_driver(struct serio_driver *drv)
+void __serio_register_driver(struct serio_driver *drv, struct module *owner)
 {
-	down(&serio_sem);
-
 	drv->driver.bus = &serio_bus;
 	drv->driver.probe = serio_driver_probe;
 	drv->driver.remove = serio_driver_remove;
-	driver_register(&drv->driver);
 
-	up(&serio_sem);
+	serio_queue_event(drv, owner, SERIO_REGISTER_DRIVER);
 }
 
 void serio_unregister_driver(struct serio_driver *drv)

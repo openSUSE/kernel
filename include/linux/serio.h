@@ -95,10 +95,15 @@ static inline void serio_unregister_port_delayed(struct serio *serio)
 	__serio_unregister_port_delayed(serio, THIS_MODULE);
 }
 
-void serio_register_driver(struct serio_driver *drv);
+void __serio_register_driver(struct serio_driver *drv, struct module *owner);
+static inline void serio_register_driver(struct serio_driver *drv)
+{
+	__serio_register_driver(drv, THIS_MODULE);
+}
+
 void serio_unregister_driver(struct serio_driver *drv);
 
-static __inline__ int serio_write(struct serio *serio, unsigned char data)
+static inline int serio_write(struct serio *serio, unsigned char data)
 {
 	if (serio->write)
 		return serio->write(serio, data);
@@ -106,13 +111,13 @@ static __inline__ int serio_write(struct serio *serio, unsigned char data)
 		return -1;
 }
 
-static __inline__ void serio_drv_write_wakeup(struct serio *serio)
+static inline void serio_drv_write_wakeup(struct serio *serio)
 {
 	if (serio->drv && serio->drv->write_wakeup)
 		serio->drv->write_wakeup(serio);
 }
 
-static __inline__ void serio_cleanup(struct serio *serio)
+static inline void serio_cleanup(struct serio *serio)
 {
 	if (serio->drv && serio->drv->cleanup)
 		serio->drv->cleanup(serio);
@@ -122,12 +127,12 @@ static __inline__ void serio_cleanup(struct serio *serio)
  * Use the following fucntions to manipulate serio's per-port
  * driver-specific data.
  */
-static __inline__ void *serio_get_drvdata(struct serio *serio)
+static inline void *serio_get_drvdata(struct serio *serio)
 {
 	return dev_get_drvdata(&serio->dev);
 }
 
-static __inline__ void serio_set_drvdata(struct serio *serio, void *data)
+static inline void serio_set_drvdata(struct serio *serio, void *data)
 {
 	dev_set_drvdata(&serio->dev, data);
 }
@@ -136,12 +141,12 @@ static __inline__ void serio_set_drvdata(struct serio *serio, void *data)
  * Use the following fucntions to protect critical sections in
  * driver code from port's interrupt handler
  */
-static __inline__ void serio_pause_rx(struct serio *serio)
+static inline void serio_pause_rx(struct serio *serio)
 {
 	spin_lock_irq(&serio->lock);
 }
 
-static __inline__ void serio_continue_rx(struct serio *serio)
+static inline void serio_continue_rx(struct serio *serio)
 {
 	spin_unlock_irq(&serio->lock);
 }
@@ -149,12 +154,12 @@ static __inline__ void serio_continue_rx(struct serio *serio)
 /*
  * Use the following fucntions to pin serio's driver in process context
  */
-static __inline__ int serio_pin_driver(struct serio *serio)
+static inline int serio_pin_driver(struct serio *serio)
 {
 	return down_interruptible(&serio->drv_sem);
 }
 
-static __inline__ void serio_unpin_driver(struct serio *serio)
+static inline void serio_unpin_driver(struct serio *serio)
 {
 	up(&serio->drv_sem);
 }
