@@ -623,14 +623,16 @@ lkkbd_reinit (void *data)
 /*
  * lkkbd_connect() probes for a LK keyboard and fills the necessary structures.
  */
-static void
+static int
 lkkbd_connect (struct serio *serio, struct serio_driver *drv)
 {
 	struct lkkbd *lk;
 	int i;
+	int err;
 
 	if (!(lk = kmalloc (sizeof (struct lkkbd), GFP_KERNEL)))
-		return;
+		return -ENOMEM;
+
 	memset (lk, 0, sizeof (struct lkkbd));
 
 	init_input_dev (&lk->dev);
@@ -662,10 +664,11 @@ lkkbd_connect (struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata (serio, lk);
 
-	if (serio_open (serio, drv)) {
+	err = serio_open (serio, drv);
+	if (err) {
 		serio_set_drvdata (serio, NULL);
 		kfree (lk);
-		return;
+		return err;
 	}
 
 	sprintf (lk->name, "DEC LK keyboard");
@@ -687,6 +690,8 @@ lkkbd_connect (struct serio *serio, struct serio_driver *drv)
 
 	printk (KERN_INFO "input: %s on %s, initiating reset\n", lk->name, serio->phys);
 	lk->serio->write (lk->serio, LK_CMD_POWERCYCLE_RESET);
+
+	return 0;
 }
 
 /*

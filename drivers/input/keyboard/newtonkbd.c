@@ -84,13 +84,14 @@ irqreturn_t nkbd_interrupt(struct serio *serio,
 
 }
 
-void nkbd_connect(struct serio *serio, struct serio_driver *drv)
+int nkbd_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct nkbd *nkbd;
 	int i;
+	int err;
 
 	if (!(nkbd = kmalloc(sizeof(struct nkbd), GFP_KERNEL)))
-		return;
+		return -ENOMEM;
 
 	memset(nkbd, 0, sizeof(struct nkbd));
 
@@ -106,10 +107,11 @@ void nkbd_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, nkbd);
 
-	if (serio_open(serio, drv)) {
+	err = serio_open(serio, drv);
+	if (err) {
 		serio_set_drvdata(serio, NULL);
 		kfree(nkbd);
-		return;
+		return err;
 	}
 
 	memcpy(nkbd->keycode, nkbd_keycode, sizeof(nkbd->keycode));
@@ -130,6 +132,8 @@ void nkbd_connect(struct serio *serio, struct serio_driver *drv)
 	input_register_device(&nkbd->dev);
 
 	printk(KERN_INFO "input: %s on %s\n", nkbd_name, serio->phys);
+
+	return 0;
 }
 
 void nkbd_disconnect(struct serio *serio)

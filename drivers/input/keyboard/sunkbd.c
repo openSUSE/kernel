@@ -223,13 +223,14 @@ static void sunkbd_reinit(void *data)
  * sunkbd_connect() probes for a Sun keyboard and fills the necessary structures.
  */
 
-static void sunkbd_connect(struct serio *serio, struct serio_driver *drv)
+static int sunkbd_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct sunkbd *sunkbd;
 	int i;
+	int err;
 
 	if (!(sunkbd = kmalloc(sizeof(struct sunkbd), GFP_KERNEL)))
-		return;
+		return -ENOMEM;
 
 	memset(sunkbd, 0, sizeof(struct sunkbd));
 
@@ -253,17 +254,18 @@ static void sunkbd_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, sunkbd);
 
-	if (serio_open(serio, drv)) {
+	err = serio_open(serio, drv);
+	if (err) {
 		serio_set_drvdata(serio, NULL);
 		kfree(sunkbd);
-		return;
+		return err;
 	}
 
 	if (sunkbd_initialize(sunkbd) < 0) {
 		serio_close(serio);
 		serio_set_drvdata(serio, NULL);
 		kfree(sunkbd);
-		return;
+		return -ENODEV;
 	}
 
 	sprintf(sunkbd->name, "Sun Type %d keyboard", sunkbd->type);
@@ -286,6 +288,8 @@ static void sunkbd_connect(struct serio *serio, struct serio_driver *drv)
 	input_register_device(&sunkbd->dev);
 
 	printk(KERN_INFO "input: %s on %s\n", sunkbd->name, serio->phys);
+
+	return 0;
 }
 
 /*

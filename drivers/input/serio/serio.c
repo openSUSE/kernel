@@ -91,8 +91,7 @@ static void serio_bind_driver(struct serio *serio, struct serio_driver *drv)
 
 	if (serio_match_port(drv->id_table, serio)) {
 		serio->dev.driver = &drv->driver;
-		drv->connect(serio, drv);
-		if (!serio->drv) {
+		if (drv->connect(serio, drv)) {
 			serio->dev.driver = NULL;
 			goto out;
 		}
@@ -633,8 +632,7 @@ static int serio_driver_probe(struct device *dev)
 	struct serio *serio = to_serio_port(dev);
 	struct serio_driver *drv = to_serio_driver(dev->driver);
 
-	drv->connect(serio, drv);
-	return serio->drv ? 0 : -ENODEV;
+	return drv->connect(serio, drv);
 }
 
 static int serio_driver_remove(struct device *dev)

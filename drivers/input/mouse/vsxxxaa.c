@@ -489,13 +489,14 @@ vsxxxaa_disconnect (struct serio *serio)
 	kfree (mouse);
 }
 
-static void
+static int
 vsxxxaa_connect (struct serio *serio, struct serio_driver *drv)
 {
 	struct vsxxxaa *mouse;
+	int err;
 
 	if (!(mouse = kmalloc (sizeof (struct vsxxxaa), GFP_KERNEL)))
-		return;
+		return -ENOMEM;
 
 	memset (mouse, 0, sizeof (struct vsxxxaa));
 
@@ -529,10 +530,11 @@ vsxxxaa_connect (struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata (serio, mouse);
 
-	if (serio_open (serio, drv)) {
+	err = serio_open (serio, drv);
+	if (err) {
 		serio_set_drvdata (serio, NULL);
 		kfree (mouse);
-		return;
+		return err;
 	}
 
 	/*
@@ -544,6 +546,8 @@ vsxxxaa_connect (struct serio *serio, struct serio_driver *drv)
 	input_register_device (&mouse->dev);
 
 	printk (KERN_INFO "input: %s on %s\n", mouse->name, mouse->phys);
+
+	return 0;
 }
 
 static struct serio_device_id vsxxaa_serio_ids[] = {

@@ -270,14 +270,14 @@ static irqreturn_t serio_raw_interrupt(struct serio *serio, unsigned char data,
 	return IRQ_HANDLED;
 }
 
-static void serio_raw_connect(struct serio *serio, struct serio_driver *drv)
+static int serio_raw_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct serio_raw *serio_raw;
 	int err;
 
 	if (!(serio_raw = kmalloc(sizeof(struct serio_raw), GFP_KERNEL))) {
 		printk(KERN_ERR "serio_raw.c: can't allocate memory for a device\n");
-		return;
+		return -ENOMEM;
 	}
 
 	down(&serio_raw_sem);
@@ -290,7 +290,9 @@ static void serio_raw_connect(struct serio *serio, struct serio_driver *drv)
 	init_waitqueue_head(&serio_raw->wait);
 
 	serio_set_drvdata(serio, serio_raw);
-	if (serio_open(serio, drv))
+
+	err = serio_open(serio, drv);
+	if (err)
 		goto out_free;
 
 	list_add_tail(&serio_raw->node, &serio_raw_list);
@@ -323,6 +325,7 @@ out_free:
 	kfree(serio_raw);
 out:
 	up(&serio_raw_sem);
+	return err;
 }
 
 static int serio_raw_reconnect(struct serio *serio)

@@ -675,9 +675,10 @@ static void psmouse_disconnect(struct serio *serio)
  * psmouse_connect() is a callback from the serio module when
  * an unhandled serio port is found.
  */
-static void psmouse_connect(struct serio *serio, struct serio_driver *drv)
+static int psmouse_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct psmouse *psmouse, *parent = NULL;
+	int retval;
 
 	/*
 	 * If this is a pass-through port deactivate parent so the device
@@ -688,8 +689,10 @@ static void psmouse_connect(struct serio *serio, struct serio_driver *drv)
 		psmouse_deactivate(parent);
 	}
 
-	if (!(psmouse = kmalloc(sizeof(struct psmouse), GFP_KERNEL)))
+	if (!(psmouse = kmalloc(sizeof(struct psmouse), GFP_KERNEL))) {
+		retval = -ENOMEM;
 		goto out;
+	}
 
 	memset(psmouse, 0, sizeof(struct psmouse));
 
@@ -704,7 +707,8 @@ static void psmouse_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, psmouse);
 
-	if (serio_open(serio, drv)) {
+	retval = serio_open(serio, drv);
+	if (retval) {
 		serio_set_drvdata(serio, NULL);
 		kfree(psmouse);
 		goto out;
@@ -714,6 +718,7 @@ static void psmouse_connect(struct serio *serio, struct serio_driver *drv)
 		serio_close(serio);
 		serio_set_drvdata(serio, NULL);
 		kfree(psmouse);
+		retval = -ENODEV;
 		goto out;
 	}
 
@@ -755,10 +760,14 @@ static void psmouse_connect(struct serio *serio, struct serio_driver *drv)
 
 	psmouse_activate(psmouse);
 
+	retval = 0;
+
 out:
 	/* If this is a pass-through port the parent awaits to be activated */
 	if (parent)
 		psmouse_activate(parent);
+
+	return retval;
 }
 
 

@@ -150,13 +150,14 @@ static void magellan_disconnect(struct serio *serio)
  * an input device.
  */
 
-static void magellan_connect(struct serio *serio, struct serio_driver *drv)
+static int magellan_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct magellan *magellan;
 	int i, t;
+	int err;
 
 	if (!(magellan = kmalloc(sizeof(struct magellan), GFP_KERNEL)))
-		return;
+		return -ENOMEM;
 
 	memset(magellan, 0, sizeof(struct magellan));
 
@@ -186,16 +187,18 @@ static void magellan_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, magellan);
 
-	if (serio_open(serio, drv)) {
+	err = serio_open(serio, drv);
+	if (err) {
 		serio_set_drvdata(serio, NULL);
 		kfree(magellan);
-		return;
+		return err;
 	}
 
 	input_register_device(&magellan->dev);
 
 	printk(KERN_INFO "input: %s on %s\n", magellan_name, serio->phys);
 
+	return 0;
 }
 
 /*

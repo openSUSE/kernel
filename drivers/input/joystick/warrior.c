@@ -143,13 +143,14 @@ static void warrior_disconnect(struct serio *serio)
  * it as an input device.
  */
 
-static void warrior_connect(struct serio *serio, struct serio_driver *drv)
+static int warrior_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct warrior *warrior;
 	int i;
+	int err;
 
 	if (!(warrior = kmalloc(sizeof(struct warrior), GFP_KERNEL)))
-		return;
+		return -ENOMEM;
 
 	memset(warrior, 0, sizeof(struct warrior));
 
@@ -187,15 +188,18 @@ static void warrior_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, warrior);
 
-	if (serio_open(serio, drv)) {
+	err = serio_open(serio, drv);
+	if (err) {
 		serio_set_drvdata(serio, NULL);
 		kfree(warrior);
-		return;
+		return err;
 	}
 
 	input_register_device(&warrior->dev);
 
 	printk(KERN_INFO "input: Logitech WingMan Warrior on %s\n", serio->phys);
+
+	return 0;
 }
 
 /*

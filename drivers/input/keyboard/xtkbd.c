@@ -88,13 +88,14 @@ irqreturn_t xtkbd_interrupt(struct serio *serio,
 	return IRQ_HANDLED;
 }
 
-void xtkbd_connect(struct serio *serio, struct serio_driver *drv)
+int xtkbd_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct xtkbd *xtkbd;
 	int i;
+	int err;
 
 	if (!(xtkbd = kmalloc(sizeof(struct xtkbd), GFP_KERNEL)))
-		return;
+		return -ENOMEM;
 
 	memset(xtkbd, 0, sizeof(struct xtkbd));
 
@@ -110,10 +111,11 @@ void xtkbd_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, xtkbd);
 
-	if (serio_open(serio, drv)) {
+	err = serio_open(serio, drv);
+	if (err) {
 		serio_set_drvdata(serio, NULL);
 		kfree(xtkbd);
-		return;
+		return err;
 	}
 
 	memcpy(xtkbd->keycode, xtkbd_keycode, sizeof(xtkbd->keycode));
@@ -134,6 +136,8 @@ void xtkbd_connect(struct serio *serio, struct serio_driver *drv)
 	input_register_device(&xtkbd->dev);
 
 	printk(KERN_INFO "input: %s on %s\n", xtkbd_name, serio->phys);
+
+	return 0;
 }
 
 void xtkbd_disconnect(struct serio *serio)

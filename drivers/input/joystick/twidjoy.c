@@ -189,14 +189,15 @@ static void twidjoy_disconnect(struct serio *serio)
  * it as an input device.
  */
 
-static void twidjoy_connect(struct serio *serio, struct serio_driver *drv)
+static int twidjoy_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct twidjoy_button_spec *bp;
 	struct twidjoy *twidjoy;
 	int i;
+	int err;
 
 	if (!(twidjoy = kmalloc(sizeof(struct twidjoy), GFP_KERNEL)))
-		return;
+		return -ENOMEM;
 
 	memset(twidjoy, 0, sizeof(struct twidjoy));
 
@@ -233,15 +234,18 @@ static void twidjoy_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, twidjoy);
 
-	if (serio_open(serio, drv)) {
+	err = serio_open(serio, drv);
+	if (err) {
 		serio_set_drvdata(serio, NULL);
 		kfree(twidjoy);
-		return;
+		return err;
 	}
 
 	input_register_device(&twidjoy->dev);
 
 	printk(KERN_INFO "input: %s on %s\n", twidjoy_name, serio->phys);
+
+	return 0;
 }
 
 /*

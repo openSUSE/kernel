@@ -138,13 +138,14 @@ static void stinger_disconnect(struct serio *serio)
  * an input device.
  */
 
-static void stinger_connect(struct serio *serio, struct serio_driver *drv)
+static int stinger_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct stinger *stinger;
 	int i;
+	int err;
 
 	if (!(stinger = kmalloc(sizeof(struct stinger), GFP_KERNEL)))
-		return;
+		return -ENOMEM;
 
 	memset(stinger, 0, sizeof(struct stinger));
 
@@ -175,16 +176,18 @@ static void stinger_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, stinger);
 
-	if (serio_open(serio, drv)) {
+	err = serio_open(serio, drv);
+	if (err) {
 		serio_set_drvdata(serio, NULL);
 		kfree(stinger);
-		return;
+		return err;
 	}
 
 	input_register_device(&stinger->dev);
 
 	printk(KERN_INFO "input: %s on %s\n",  stinger_name, serio->phys);
 
+	return 0;
 }
 
 /*

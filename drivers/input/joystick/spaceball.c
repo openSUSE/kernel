@@ -205,16 +205,18 @@ static void spaceball_disconnect(struct serio *serio)
  * an input device.
  */
 
-static void spaceball_connect(struct serio *serio, struct serio_driver *drv)
+static int spaceball_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct spaceball *spaceball;
 	int i, t, id;
+	int err;
 
 	if ((id = serio->id.id) > SPACEBALL_MAX_ID)
-		return;
+		return -ENODEV;
 
 	if (!(spaceball = kmalloc(sizeof(struct spaceball), GFP_KERNEL)))
-		return;
+		return - ENOMEM;
+
 	memset(spaceball, 0, sizeof(struct spaceball));
 
 	spaceball->dev.evbit[0] = BIT(EV_KEY) | BIT(EV_ABS);
@@ -256,16 +258,19 @@ static void spaceball_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, spaceball);
 
-	if (serio_open(serio, drv)) {
+	err = serio_open(serio, drv);
+	if (err) {
 		serio_set_drvdata(serio, NULL);
 		kfree(spaceball);
-		return;
+		return err;
 	}
 
 	input_register_device(&spaceball->dev);
 
 	printk(KERN_INFO "input: %s on serio%s\n",
 		spaceball_names[id], serio->phys);
+
+	return 0;
 }
 
 /*

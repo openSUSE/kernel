@@ -775,12 +775,14 @@ static void atkbd_set_device_attrs(struct atkbd *atkbd)
  * to the input module.
  */
 
-static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
+static int atkbd_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct atkbd *atkbd;
+	int err;
 
 	if (!(atkbd = kmalloc(sizeof(struct atkbd), GFP_KERNEL)))
-		return;
+		return - ENOMEM;
+
 	memset(atkbd, 0, sizeof(struct atkbd));
 
 	ps2_init(&atkbd->ps2dev, serio);
@@ -807,10 +809,11 @@ static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, atkbd);
 
-	if (serio_open(serio, drv)) {
+	err = serio_open(serio, drv);
+	if (err) {
 		serio_set_drvdata(serio, NULL);
 		kfree(atkbd);
-		return;
+		return err;
 	}
 
 	if (atkbd->write) {
@@ -819,7 +822,7 @@ static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
 			serio_close(serio);
 			serio_set_drvdata(serio, NULL);
 			kfree(atkbd);
-			return;
+			return -ENODEV;
 		}
 
 		atkbd->set = atkbd_select_set(atkbd, atkbd_set, atkbd_extra);
@@ -852,6 +855,8 @@ static void atkbd_connect(struct serio *serio, struct serio_driver *drv)
 	atkbd_enable(atkbd);
 
 	printk(KERN_INFO "input: %s on %s\n", atkbd->name, serio->phys);
+
+	return 0;
 }
 
 /*

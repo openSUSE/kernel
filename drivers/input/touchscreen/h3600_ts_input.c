@@ -377,12 +377,13 @@ static irqreturn_t h3600ts_interrupt(struct serio *serio, unsigned char data,
  * new serio device that supports H3600 protocol and registers it as
  * an input device.
  */
-static void h3600ts_connect(struct serio *serio, struct serio_driver *drv)
+static int h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct h3600_dev *ts;
+	int err;
 
 	if (!(ts = kmalloc(sizeof(struct h3600_dev), GFP_KERNEL)))
-		return;
+		return -ENOMEM;
 
 	memset(ts, 0, sizeof(struct h3600_dev));
 
@@ -397,7 +398,7 @@ static void h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 			"h3600_action", &ts->dev)) {
 		printk(KERN_ERR "h3600ts.c: Could not allocate Action Button IRQ!\n");
 		kfree(ts);
-		return;
+		return -EBUSY;
 	}
 
         if (request_irq(IRQ_GPIO_BITSY_NPOWER_BUTTON, npower_button_handler,
@@ -406,7 +407,7 @@ static void h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 		free_irq(IRQ_GPIO_BITSY_ACTION_BUTTON, &ts->dev);
 		printk(KERN_ERR "h3600ts.c: Could not allocate Power Button IRQ!\n");
 		kfree(ts);
-		return;
+		return -EBUSY;
 	}
 
 	/* Now we have things going we setup our input device */
@@ -443,12 +444,13 @@ static void h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, ts);
 
-	if (serio_open(serio, drv)) {
+	err = serio_open(serio, drv);
+	if (err) {
         	free_irq(IRQ_GPIO_BITSY_ACTION_BUTTON, ts);
         	free_irq(IRQ_GPIO_BITSY_NPOWER_BUTTON, ts);
 		serio_set_drvdata(serio, NULL);
 		kfree(ts);
-		return;
+		return err;
 	}
 
 	//h3600_flite_control(1, 25);     /* default brightness */
@@ -460,6 +462,8 @@ static void h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 	input_register_device(&ts->dev);
 
 	printk(KERN_INFO "input: %s on %s\n", h3600_name, serio->phys);
+
+	return 0;
 }
 
 /*

@@ -115,12 +115,13 @@ static void gunze_disconnect(struct serio *serio)
  * an input device.
  */
 
-static void gunze_connect(struct serio *serio, struct serio_driver *drv)
+static int gunze_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct gunze *gunze;
+	int err;
 
 	if (!(gunze = kmalloc(sizeof(struct gunze), GFP_KERNEL)))
-		return;
+		return -ENOMEM;
 
 	memset(gunze, 0, sizeof(struct gunze));
 
@@ -144,15 +145,18 @@ static void gunze_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, gunze);
 
-	if (serio_open(serio, drv)) {
+	err = serio_open(serio, drv);
+	if (err) {
 		serio_set_drvdata(serio, NULL);
 		kfree(gunze);
-		return;
+		return err;
 	}
 
 	input_register_device(&gunze->dev);
 
 	printk(KERN_INFO "input: %s on %s\n", gunze_name, serio->phys);
+
+	return 0;
 }
 
 /*

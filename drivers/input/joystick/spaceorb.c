@@ -166,13 +166,15 @@ static void spaceorb_disconnect(struct serio *serio)
  * it as an input device.
  */
 
-static void spaceorb_connect(struct serio *serio, struct serio_driver *drv)
+static int spaceorb_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct spaceorb *spaceorb;
 	int i, t;
+	int err;
 
 	if (!(spaceorb = kmalloc(sizeof(struct spaceorb), GFP_KERNEL)))
-		return;
+		return -ENOMEM;
+
 	memset(spaceorb, 0, sizeof(struct spaceorb));
 
 	spaceorb->dev.evbit[0] = BIT(EV_KEY) | BIT(EV_ABS);
@@ -203,13 +205,16 @@ static void spaceorb_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, spaceorb);
 
-	if (serio_open(serio, drv)) {
+	err = serio_open(serio, drv);
+	if (err) {
 		serio_set_drvdata(serio, NULL);
 		kfree(spaceorb);
-		return;
+		return err;
 	}
 
 	input_register_device(&spaceorb->dev);
+
+	return 0;
 }
 
 /*
