@@ -2832,8 +2832,10 @@ static int ipr_slave_configure(struct scsi_device *sdev)
 			sdev->type = TYPE_RAID;
 		if (ipr_is_af_dasd_device(res) || ipr_is_ioa_resource(res))
 			sdev->scsi_level = 4;
-		if (ipr_is_vset_device(res))
+		if (ipr_is_vset_device(res)) {
 			sdev->timeout = IPR_VSET_RW_TIMEOUT;
+			blk_queue_max_sectors(sdev->request_queue, IPR_VSET_MAX_SECTORS);
+		}
 		if (IPR_IS_DASD_DEVICE(res->cfgte.std_inq_data))
 			sdev->allow_restart = 1;
 		scsi_adjust_queue_depth(sdev, 0, res->qdepth);
@@ -3951,7 +3953,7 @@ static struct scsi_host_template driver_template = {
 	.can_queue = IPR_MAX_COMMANDS,
 	.this_id = -1,
 	.sg_tablesize = IPR_MAX_SGLIST,
-	.max_sectors = IPR_MAX_SECTORS,
+	.max_sectors = IPR_IOA_MAX_SECTORS,
 	.cmd_per_lun = IPR_MAX_CMD_PER_LUN,
 	.use_clustering = ENABLE_CLUSTERING,
 	.shost_attrs = ipr_ioa_attrs,

@@ -130,7 +130,8 @@
 #define IPR_MAX_PHYSICAL_DEVS				192
 
 #define IPR_MAX_SGLIST					64
-#define IPR_MAX_SECTORS					512
+#define IPR_IOA_MAX_SECTORS				32767
+#define IPR_VSET_MAX_SECTORS				512
 #define IPR_MAX_CDB_LEN					16
 
 #define IPR_DEFAULT_BUS_WIDTH				16
