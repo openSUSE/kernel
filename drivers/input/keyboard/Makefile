@@ -10,5 +10,10 @@ obj-$(CONFIG_KEYBOARD_SUNKBD)		+= sunkbd.o
 obj-$(CONFIG_KEYBOARD_LKKBD)		+= lkkbd.o
 obj-$(CONFIG_KEYBOARD_XTKBD)		+= xtkbd.o
 obj-$(CONFIG_KEYBOARD_AMIGA)		+= amikbd.o
+obj-$(CONFIG_KEYBOARD_LOCOMO)		+= locomokbd.o
 obj-$(CONFIG_KEYBOARD_NEWTON)		+= newtonkbd.o
 obj-$(CONFIG_KEYBOARD_98KBD)		+= 98kbd.o
+obj-$(CONFIG_KEYBOARD_CORGI)		+= corgikbd.o
+obj-$(CONFIG_KEYBOARD_HIL)		+= hil_kbd.o
+obj-$(CONFIG_KEYBOARD_HIL_OLD)		+= hilkbd.o
+
