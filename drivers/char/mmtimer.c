@@ -71,11 +71,6 @@ static struct file_operations mmtimer_fops = {
 };
 
 /*
- * Comparators and their associated info.  Shub has
- * three comparison registers.
- */
-
-/*
  * We only have comparison registers RTC1-4 currently available per
  * node.  RTC0 is used by SAL.
  */
@@ -174,13 +169,9 @@ static void inline mmtimer_setup_int_2(u64 expires)
  * This function must be called with interrupts disabled and preemption off
  * in order to insure that the setup succeeds in a deterministic time frame.
  * It will check if the interrupt setup succeeded.
- * mmtimer_setup will return the cycles that we were too late if the
- * initialization failed.
  */
 static int inline mmtimer_setup(int comparator, unsigned long expires)
 {
-
-	long diff;
 
 	switch (comparator) {
 	case 0:
@@ -194,17 +185,14 @@ static int inline mmtimer_setup(int comparator, unsigned long expires)
 		break;
 	}
 	/* We might've missed our expiration time */
-        diff = rtc_time() - expires;
-	if (diff > 0) {
-		if (mmtimer_int_pending(comparator)) {
-			/* We'll get an interrupt for this once we're done */
-                        return 0;
-		}
-		/* Looks like we missed it */
-		return diff;
-        }
+	if (rtc_time() < expires)
+		return 1;
 
-	return 0;
+	/*
+	 * If an interrupt is already pending then its okay
+	 * if not then we failed
+	 */
+	return mmtimer_int_pending(comparator);
 }
 
 static int inline mmtimer_disable_int(long nasid, int comparator)
@@ -430,7 +418,7 @@ static int inline reschedule_periodic_timer(mmtimer_t *x)
 		if (n > 20)
 			return 1;
 
-	} while (mmtimer_setup(x->i, t->it.mmtimer.expires));
+	} while (!mmtimer_setup(x->i, t->it.mmtimer.expires));
 
 	return 0;
 }
@@ -594,9 +582,15 @@ static int sgi_timer_set(struct k_itimer *timr, int flags,
 
 	if (flags & TIMER_ABSTIME) {
 		struct timespec n;
+		unsigned long now;
 
 		getnstimeofday(&n);
-		when -= timespec_to_ns(n);
+		now = timespec_to_ns(n);
+		if (when > now)
+			when -= now;
+		else
+			/* Fire the timer immediately */
+			when = 0;
 	}
 
 	/*
@@ -644,7 +638,7 @@ retry:
 	timr->it.mmtimer.expires = when;
 
 	if (period == 0) {
-		if (mmtimer_setup(i, when)) {
+		if (!mmtimer_setup(i, when)) {
 			mmtimer_disable_int(-1, i);
 			posix_timer_event(timr, 0);
 			timr->it.mmtimer.expires = 0;
