@@ -968,8 +968,11 @@ static struct list_head stateid_hashtbl[STATEID_HASH_SIZE];
 
 /* OPEN Share state helper functions */
 static inline struct nfs4_file *
-alloc_init_file(unsigned int hashval, struct inode *ino) {
+alloc_init_file(struct inode *ino)
+{
 	struct nfs4_file *fp;
+	unsigned int hashval = file_hashval(ino);
+
 	if ((fp = kmalloc(sizeof(struct nfs4_file),GFP_KERNEL))) {
 		INIT_LIST_HEAD(&fp->fi_hash);
 		INIT_LIST_HEAD(&fp->fi_perfile);
@@ -1246,17 +1249,17 @@ find_openstateowner_str(unsigned int hashval, struct nfsd4_open *open)
 }
 
 /* search file_hashtbl[] for file */
-static int
-find_file(unsigned int hashval, struct inode *ino, struct nfs4_file **fp) {
-	struct nfs4_file *local = NULL;
+static struct nfs4_file *
+find_file(struct inode *ino)
+{
+	unsigned int hashval = file_hashval(ino);
+	struct nfs4_file *fp;
 
-	list_for_each_entry(local, &file_hashtbl[hashval], fi_hash) {
-		if (local->fi_inode == ino) {
-			*fp = local;
-			return(1);
-		}
+	list_for_each_entry(fp, &file_hashtbl[hashval], fi_hash) {
+		if (fp->fi_inode == ino)
+			return fp;
 	}
-	return 0;
+	return NULL;
 }
 
 #define TEST_ACCESS(x) ((x > 0 || x < 4)?1:0)
@@ -1303,14 +1306,13 @@ int
 nfs4_share_conflict(struct svc_fh *current_fh, unsigned int deny_type)
 {
 	struct inode *ino = current_fh->fh_dentry->d_inode;
-	unsigned int fi_hashval;
 	struct nfs4_file *fp;
 	struct nfs4_stateid *stp;
 
 	dprintk("NFSD: nfs4_share_conflict\n");
 
-	fi_hashval = file_hashval(ino);
-	if (find_file(fi_hashval, ino, &fp)) {
+	fp = find_file(ino);
+	if (fp) {
 	/* Search for conflicting share reservations */
 		list_for_each_entry(stp, &fp->fi_perfile, st_perfile) {
 			if (test_bit(deny_type, &stp->st_deny_bmap) ||
@@ -1706,7 +1708,6 @@ nfsd4_process_open2(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nf
 	struct nfs4_stateowner *sop = open->op_stateowner;
 	struct nfs4_file *fp = NULL;
 	struct inode *ino = current_fh->fh_dentry->d_inode;
-	unsigned int fi_hashval;
 	struct nfs4_stateid *stp = NULL;
 	int status, delegflag = -1;
 
@@ -1718,15 +1719,16 @@ nfsd4_process_open2(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nf
 	 * and check for delegations in the process of being recalled.
 	 * If not found, create the nfs4_file struct
 	 */
-	fi_hashval = file_hashval(ino);
-	if (find_file(fi_hashval, ino, &fp)) {
+	fp = find_file(ino);
+	if (fp) {
 		if ((status = nfs4_check_open(fp, sop, open, &stp)))
 			goto out;
 		if ((status = nfs4_check_deleg_recall(fp, open, &delegflag)))
 			goto out;
 	} else {
 		status = nfserr_resource;
-		if ((fp = alloc_init_file(fi_hashval, ino)) == NULL)
+		fp = alloc_init_file(ino);
+		if (fp == NULL)
 			goto out;
 	}
 
@@ -2391,8 +2393,15 @@ out:
 
 #define lockownerid_hashval(id) \
         ((id) & LOCK_HASH_MASK)
-#define lock_ownerstr_hashval(x, clientid, ownername) \
-        ((file_hashval(x) + (clientid) + opaque_hashval((ownername.data), (ownername.len))) & LOCK_HASH_MASK)
+
+static inline unsigned int
+lock_ownerstr_hashval(struct inode *inode, u32 cl_id,
+		struct xdr_netobj *ownername)
+{
+	return (file_hashval(inode) + cl_id
+			+ opaque_hashval(ownername->data, ownername->len))
+		& LOCK_HASH_MASK;
+}
 
 static struct list_head lock_ownerid_hashtbl[LOCK_HASH_SIZE];
 static struct list_head	lock_ownerstr_hashtbl[LOCK_HASH_SIZE];
@@ -2433,15 +2442,14 @@ find_delegation_stateid(struct inode *ino, stateid_t *stid)
 	struct nfs4_delegation *dp = NULL;
 	struct nfs4_file *fp = NULL;
 	u32 st_id;
-	unsigned int fi_hashval;
 
 	dprintk("NFSD:find_delegation_stateid stateid=(%08x/%08x/%08x/%08x)\n",
                     stid->si_boot, stid->si_stateownerid,
                     stid->si_fileid, stid->si_generation);
 
 	st_id = stid->si_stateownerid;
-	fi_hashval = file_hashval(ino);
-	if (find_file(fi_hashval, ino, &fp)) {
+	fp = find_file(ino);
+	if (fp) {
 		list_for_each_entry(dp, &fp->fi_del_perfile, dl_del_perfile) {
 			if(dp->dl_stateid.si_stateownerid == st_id) {
 				dprintk("NFSD: find_delegation dp %p\n",dp);
@@ -2525,18 +2533,18 @@ find_lockstateowner(struct xdr_netobj *owner, clientid_t *clid)
 	return NULL;
 }
 
-static int
-find_lockstateowner_str(unsigned int hashval, struct xdr_netobj *owner, clientid_t *clid, struct nfs4_stateowner **op) {
-	struct nfs4_stateowner *local = NULL;
+static struct nfs4_stateowner *
+find_lockstateowner_str(struct inode *inode, clientid_t *clid,
+		struct xdr_netobj *owner)
+{
+	unsigned int hashval = lock_ownerstr_hashval(inode, clid->cl_id, owner);
+	struct nfs4_stateowner *op;
 
-	list_for_each_entry(local, &lock_ownerstr_hashtbl[hashval], so_strhash) {
-		if (!cmp_owner_str(local, owner, clid))
-			continue;
-		*op = local;
-		return(1);
+	list_for_each_entry(op, &lock_ownerstr_hashtbl[hashval], so_strhash) {
+		if (cmp_owner_str(op, owner, clid))
+			return op;
 	}
-	*op = NULL;
-	return 0;
+	return NULL;
 }
 
 /*
@@ -2684,7 +2692,7 @@ nfsd4_lock(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_lock 
 		fp = open_stp->st_file;
 		strhashval = lock_ownerstr_hashval(fp->fi_inode, 
 				open_sop->so_client->cl_clientid.cl_id, 
-				lock->v.new.owner);
+				&lock->v.new.owner);
 		/* 
 		 * If we already have this lock owner, the client is in 
 		 * error (or our bookeeping is wrong!) 
@@ -2816,7 +2824,6 @@ nfsd4_lockt(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_lock
 	struct file file;
 	struct file_lock file_lock;
 	struct file_lock *conflicting_lock;
-	unsigned int strhashval;
 	int status;
 
 	if (nfs4_in_grace())
@@ -2858,12 +2865,8 @@ nfsd4_lockt(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_lock
 		goto out;
 	}
 
-	strhashval = lock_ownerstr_hashval(inode, 
-			lockt->lt_clientid.cl_id, lockt->lt_owner);
-
-	find_lockstateowner_str(strhashval, &lockt->lt_owner,
-					&lockt->lt_clientid, 
-					&lockt->lt_stateowner);
+	lockt->lt_stateowner = find_lockstateowner_str(inode,
+			&lockt->lt_clientid, &lockt->lt_owner);
 	if (lockt->lt_stateowner)
 		file_lock.fl_owner = (fl_owner_t)lockt->lt_stateowner;
 	file_lock.fl_pid = current->tgid;
