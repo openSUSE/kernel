@@ -1,5 +1,5 @@
 /*
-    $Id: bttvp.h,v 1.16 2005/01/24 17:37:23 kraxel Exp $
+    $Id: bttvp.h,v 1.17 2005/02/16 12:14:10 kraxel Exp $
 
     bttv - Bt848 frame grabber driver
 
@@ -209,7 +209,6 @@ extern struct bus_type bttv_sub_bus_type;
 int bttv_sub_add_device(struct bttv_core *core, char *name);
 int bttv_sub_del_devices(struct bttv_core *core);
 void bttv_gpio_irq(struct bttv_core *core);
-void bttv_i2c_info(struct bttv_core *core, struct i2c_client *client, int attach);
 
 
 /* ---------------------------------------------------------- */
