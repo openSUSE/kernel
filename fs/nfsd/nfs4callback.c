@@ -38,6 +38,7 @@
 #include <linux/list.h>
 #include <linux/inet.h>
 #include <linux/errno.h>
+#include <linux/delay.h>
 #include <linux/sunrpc/xdr.h>
 #include <linux/sunrpc/svc.h>
 #include <linux/sunrpc/clnt.h>
@@ -492,53 +493,6 @@ out:
 }
 
 /*
- *  Called with dp->dl_count incremented
- */
-static void
-nfs4_cb_recall_done(struct nfs4_cb_recall *cbr, int status)
-{
-	struct nfs4_delegation *dp = cbr->cbr_dp;
-
-	/* all is well... */
-	if (status == 0)
-		goto out;
-
-	/* network partition, retry nfsd4_cb_recall once.  */
-	if (status == -EIO) {
-		if (atomic_read(&dp->dl_recall_cnt) == 0)
-			goto retry;
-		else
-			/* callback channel no longer available */
-			atomic_set(&dp->dl_client->cl_callback.cb_set, 0);
-	}
-
-	/* Race: a recall occurred miliseconds after a delegation was granted.
-	* Client may have received recall prior to delegation. retry recall
-	* once.
-	*/
-	if ((status == -EBADHANDLE) || (status == -NFS4ERR_BAD_STATEID)){
-		if (atomic_read(&dp->dl_recall_cnt) == 0)
-			goto retry;
-	}
-	atomic_set(&dp->dl_state, NFS4_RECALL_COMPLETE);
-
-out:
-	if (atomic_dec_and_test(&dp->dl_count))
-		atomic_set(&dp->dl_state, NFS4_REAP_DELEG);
-	BUG_ON(atomic_read(&dp->dl_count) < 0);
-	dprintk("NFSD: nfs4_cb_recall_done: dp %p dl_flock %p dl_count %d\n",dp, dp->dl_flock, atomic_read(&dp->dl_count));
-	return;
-
-retry:
-	dprintk("NFSD: nfs4_cb_recall_done RETRY\n");
-	atomic_inc(&dp->dl_recall_cnt);
-	/* sleep 2 seconds before retrying recall */
-	set_current_state(TASK_UNINTERRUPTIBLE);
-	schedule_timeout(2*HZ);
-	nfsd4_cb_recall(dp);
-}
-
-/*
  * called with dp->dl_count inc'ed.
  * nfs4_lock_state() may or may not have been called.
  */
@@ -551,25 +505,49 @@ nfsd4_cb_recall(struct nfs4_delegation *dp)
 	struct rpc_message msg = {
 		.rpc_proc = &nfs4_cb_procedures[NFSPROC4_CLNT_CB_RECALL],
 		.rpc_argp = cbr,
-		.rpc_resp = cbr,
 	};
-	int status;
+	int retries = 1;
+	int status = 0;
 
 	if ((!atomic_read(&clp->cl_callback.cb_set)) || !clnt)
 		return;
 
 	msg.rpc_cred = nfsd4_lookupcred(clp, 0);
 	if (IS_ERR(msg.rpc_cred))
-		return;
+		goto out;
 
 	cbr->cbr_trunc = 0; /* XXX need to implement truncate optimization */
 	cbr->cbr_dp = dp;
 
 	status = rpc_call_sync(clnt, &msg, RPC_TASK_SOFT);
-	if (status)
-		dprintk("NFSD: recall_delegation: rpc_call_async failed %d\n",
-			status);
-	nfs4_cb_recall_done(cbr, status);
+	while (retries--) {
+		switch (status) {
+			case -EIO:
+				/* Network partition? */
+			case -EBADHANDLE:
+			case -NFS4ERR_BAD_STATEID:
+				/* Race: client probably got cb_recall
+				 * before open reply granting delegation */
+				break;
+			default:
+				goto out;
+		}
+		ssleep(2);
+		status = rpc_call_sync(clnt, &msg, RPC_TASK_SOFT);
+	}
+
+ out:
+	if (status == -EIO)
+		atomic_set(&clp->cl_callback.cb_set, 0);
+	/* Success or failure, now we're either waiting for lease expiration
+	 * or deleg_return. */
+	atomic_set(&dp->dl_state, NFS4_RECALL_COMPLETE);
+
+	if (atomic_dec_and_test(&dp->dl_count))
+		atomic_set(&dp->dl_state, NFS4_REAP_DELEG);
+	BUG_ON(atomic_read(&dp->dl_count) < 0);
+
+	dprintk("NFSD: nfs4_cb_recall: dp %p dl_flock %p dl_count %d\n",dp, dp->dl_flock, atomic_read(&dp->dl_count));
 	put_rpccred(msg.rpc_cred);
 	return;
 }
