@@ -306,9 +306,7 @@ void ax25_destroy_socket(ax25_cb *ax25)
 
 			kfree_skb(skb);
 		}
-		while ((skb = skb_dequeue(&ax25->sk->sk_write_queue)) != NULL) {
-			kfree_skb(skb);
-		}
+		skb_queue_purge(&ax25->sk->sk_write_queue);
 	}
 
 	if (ax25->sk != NULL) {
