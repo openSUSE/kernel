@@ -84,6 +84,11 @@ struct ctlr_info
 	int			nr_frees; 
 	int			busy_configuring;
 
+	/* This element holds the zero based queue number of the last
+	 * queue to be started.  It is used for fairness.
+	*/
+	int			next_to_run;
+
 	// Disk structures we need to pass back
 	struct gendisk   *gendisk[NWD];
 #ifdef CONFIG_CISS_SCSI_TAPE

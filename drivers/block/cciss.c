@@ -2090,6 +2090,9 @@ static void do_cciss_request(request_queue_t *q)
 	drive_info_struct *drv;
 	int i, dir;
 
+	/* We call start_io here in case there is a command waiting on the
+	 * queue that has not been sent.
+	*/
 	if (blk_queue_plugged(q))
 		goto startio;
 
@@ -2178,6 +2181,9 @@ queue:
 full:
 	blk_stop_queue(q);
 startio:
+	/* We will already have the driver lock here so not need
+	 * to lock it.
+	*/
 	start_io(h);
 }
 
@@ -2187,7 +2193,8 @@ static irqreturn_t do_cciss_intr(int irq, void *dev_id, struct pt_regs *regs)
 	CommandList_struct *c;
 	unsigned long flags;
 	__u32 a, a1;
-
+	int j;
+	int start_queue = h->next_to_run;
 
 	/* Is this interrupt for us? */
 	if (( h->access.intr_pending(h) == 0) || (h->interrupts_enabled == 0))
@@ -2234,13 +2241,50 @@ static irqreturn_t do_cciss_intr(int irq, void *dev_id, struct pt_regs *regs)
 		}
 	}
 
-	/*
-	 * See if we can queue up some more IO
+ 	/* check to see if we have maxed out the number of commands that can
+ 	 * be placed on the queue.  If so then exit.  We do this check here
+ 	 * in case the interrupt we serviced was from an ioctl and did not
+ 	 * free any new commands.
 	 */
-	blk_start_queue(h->queue);
+ 	if ((find_first_zero_bit(h->cmd_pool_bits, NR_CMDS)) == NR_CMDS)
+ 		goto cleanup;
+
+ 	/* We have room on the queue for more commands.  Now we need to queue
+ 	 * them up.  We will also keep track of the next queue to run so
+ 	 * that every queue gets a chance to be started first.
+ 	*/
+ 	for (j=0; j < NWD; j++){
+ 		int curr_queue = (start_queue + j) % NWD;
+ 		/* make sure the disk has been added and the drive is real
+ 		 * because this can be called from the middle of init_one.
+ 		*/
+ 		if(!(h->gendisk[curr_queue]->queue) ||
+		 		   !(h->drv[curr_queue].heads))
+ 			continue;
+ 		blk_start_queue(h->gendisk[curr_queue]->queue);
+
+ 		/* check to see if we have maxed out the number of commands
+ 		 * that can be placed on the queue.
+ 		*/
+ 		if ((find_first_zero_bit(h->cmd_pool_bits, NR_CMDS)) == NR_CMDS)
+ 		{
+ 			if (curr_queue == start_queue){
+ 				h->next_to_run = (start_queue + 1) % NWD;
+ 				goto cleanup;
+ 			} else {
+ 				h->next_to_run = curr_queue;
+ 				goto cleanup;
+ 	}
+ 		} else {
+ 			curr_queue = (curr_queue + 1) % NWD;
+ 		}
+ 	}
+
+cleanup:
 	spin_unlock_irqrestore(CCISS_LOCK(h->ctlr), flags);
 	return IRQ_HANDLED;
 }
+
 /* 
  *  We cannot read the structure directly, for portablity we must use 
  *   the io functions.
