@@ -40,6 +40,7 @@
 
 #include <asm/intrinsics.h>
 #include <asm/pgtable.h>
+#include <asm/io.h>
 
 /*
  * For historical reasons, the following macros are grossly misnamed:
