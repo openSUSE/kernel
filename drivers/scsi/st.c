@@ -2727,6 +2727,8 @@ static int st_int_ioctl(struct scsi_tape *STp, unsigned int cmd_in, unsigned lon
 		else if (chg_eof)
 			STps->eof = ST_NOEOF;
 
+		if (cmd_in == MTWEOF)
+			STps->rw = ST_IDLE;
 	} else { /* SCSI command was not completely successful. Don't return
                     from this block without releasing the SCSI command block! */
 		struct st_cmdstatus *cmdstatp = &STp->buffer->cmdstat;
@@ -3235,6 +3237,17 @@ static int st_ioctl(struct inode *inode, struct file *file,
 				retval = i;
 				goto out;
 			}
+			if (STps->rw == ST_WRITING &&
+			    (mtc.mt_op == MTREW || mtc.mt_op == MTOFFL ||
+			     mtc.mt_op == MTSEEK)) {
+				i = st_int_ioctl(STp, MTWEOF, 1);
+				if (i < 0) {
+					retval = i;
+					goto out;
+				}
+				STps->rw = ST_IDLE;
+			     }
+
 		} else {
 			/*
 			 * If there was a bus reset, block further access
