@@ -410,10 +410,9 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
 		 * is IP we can trim to the true length of the frame.
 		 * Note this now means skb->len holds ntohs(iph->tot_len).
 		 */
-		if (skb->len > len) {
-			__pskb_trim(skb, len);
-			if (skb->ip_summed == CHECKSUM_HW)
-				skb->ip_summed = CHECKSUM_NONE;
+		if (pskb_trim_rcsum(skb, len)) {
+			IP_INC_STATS_BH(IPSTATS_MIB_INDISCARDS);
+			goto drop;
 		}
 	}
 

@@ -618,10 +618,8 @@ static int ipgre_rcv(struct sk_buff *skb)
 
 		skb->mac.raw = skb->nh.raw;
 		skb->nh.raw = __pskb_pull(skb, offset);
+		skb_postpull_rcsum(skb, skb->mac.raw, offset);
 		memset(&(IPCB(skb)->opt), 0, sizeof(struct ip_options));
-		if (skb->ip_summed == CHECKSUM_HW)
-			skb->csum = csum_sub(skb->csum,
-					     csum_partial(skb->mac.raw, skb->nh.raw-skb->mac.raw, 0));
 		skb->pkt_type = PACKET_HOST;
 #ifdef CONFIG_NET_IPGRE_BROADCAST
 		if (MULTICAST(iph->daddr)) {

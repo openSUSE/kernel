@@ -1105,6 +1105,42 @@ static inline int skb_linearize(struct sk_buff *skb, int gfp)
 	return __skb_linearize(skb, gfp);
 }
 
+/**
+ *	skb_postpull_rcsum - update checksum for received skb after pull
+ *	@skb: buffer to update
+ *	@start: start of data before pull
+ *	@len: length of data pulled
+ *
+ *	After doing a pull on a received packet, you need to call this to
+ *	update the CHECKSUM_HW checksum, or set ip_summed to CHECKSUM_NONE
+ *	so that it can be recomputed from scratch.
+ */
+
+static inline void skb_postpull_rcsum(struct sk_buff *skb,
+					 const void *start, int len)
+{
+	if (skb->ip_summed == CHECKSUM_HW)
+		skb->csum = csum_sub(skb->csum, csum_partial(start, len, 0));
+}
+
+/**
+ *	pskb_trim_rcsum - trim received skb and update checksum
+ *	@skb: buffer to trim
+ *	@len: new length
+ *
+ *	This is exactly the same as pskb_trim except that it ensures the
+ *	checksum of received packets are still valid after the operation.
+ */
+
+static inline int pskb_trim_rcsum(struct sk_buff *skb, unsigned int len)
+{
+	if (len >= skb->len)
+		return 0;
+	if (skb->ip_summed == CHECKSUM_HW)
+		skb->ip_summed = CHECKSUM_NONE;
+	return __pskb_trim(skb, len);
+}
+
 static inline void *kmap_skb_frag(const skb_frag_t *frag)
 {
 #ifdef CONFIG_HIGHMEM
