@@ -134,6 +134,15 @@ static inline u32 dst_mtu(const struct dst_entry *dst)
 	return mtu;
 }
 
+static inline u32
+dst_allfrag(const struct dst_entry *dst)
+{
+	int ret = dst_path_metric(dst, RTAX_FEATURES) & RTAX_FEATURE_ALLFRAG;
+	/* Yes, _exactly_. This is paranoia. */
+	barrier();
+	return ret;
+}
+
 static inline int
 dst_metric_locked(struct dst_entry *dst, int metric)
 {
