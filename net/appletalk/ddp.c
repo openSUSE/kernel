@@ -1041,7 +1041,7 @@ static int atalk_create(struct socket *sock, int protocol)
 	sk_set_owner(sk, THIS_MODULE);
 
 	/* Checksums on by default */
-	sk->sk_zapped = 1;
+	sock_set_flag(sk, SOCK_ZAPPED);
 out:
 	return rc;
 }
@@ -1120,7 +1120,7 @@ static int atalk_autobind(struct sock *sk)
 
 	n = atalk_pick_and_bind_port(sk, &sat);
 	if (!n)
-		sk->sk_zapped = 0;
+		sock_reset_flag(sk, SOCK_ZAPPED);
 out:
 	return n;
 }
@@ -1132,7 +1132,8 @@ static int atalk_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	struct sock *sk = sock->sk;
 	struct atalk_sock *at = at_sk(sk);
 
-	if (!sk->sk_zapped || addr_len != sizeof(struct sockaddr_at))
+	if (!sock_flag(sk, SOCK_ZAPPED) ||
+	    addr_len != sizeof(struct sockaddr_at))
 		return -EINVAL;
 
 	if (addr->sat_family != AF_APPLETALK)
@@ -1167,7 +1168,7 @@ static int atalk_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 			return -EADDRINUSE;
 	}
 
-	sk->sk_zapped = 0;
+	sock_reset_flag(sk, SOCK_ZAPPED);
 	return 0;
 }
 
@@ -1202,7 +1203,7 @@ static int atalk_connect(struct socket *sock, struct sockaddr *uaddr,
 #endif			
 	}
 
-	if (sk->sk_zapped)
+	if (sock_flag(sk, SOCK_ZAPPED))
 		if (atalk_autobind(sk) < 0)
 			return -EBUSY;
 
@@ -1229,7 +1230,7 @@ static int atalk_getname(struct socket *sock, struct sockaddr *uaddr,
 	struct sock *sk = sock->sk;
 	struct atalk_sock *at = at_sk(sk);
 
-	if (sk->sk_zapped)
+	if (sock_flag(sk, SOCK_ZAPPED))
 		if (atalk_autobind(sk) < 0)
 			return -ENOBUFS;
 
@@ -1551,7 +1552,7 @@ static int atalk_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr 
 		return -EMSGSIZE;
 
 	if (usat) {
-		if (sk->sk_zapped)
+		if (sock_flag(sk, SOCK_ZAPPED))
 			if (atalk_autobind(sk) < 0)
 				return -EBUSY;
 

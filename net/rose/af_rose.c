@@ -575,7 +575,9 @@ static struct sock *rose_make_new(struct sock *osk)
 	sk->sk_debug    = osk->sk_debug;
 	sk->sk_state    = TCP_ESTABLISHED;
 	sk->sk_sleep    = osk->sk_sleep;
-	sk->sk_zapped   = osk->sk_zapped;
+
+	if (sock_flag(osk, SOCK_ZAPPED))
+		sock_set_flag(sk, SOCK_ZAPPED);
 
 	init_timer(&rose->timer);
 	init_timer(&rose->idletimer);
@@ -648,7 +650,7 @@ static int rose_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	ax25_address *user, *source;
 	int n;
 
-	if (!sk->sk_zapped)
+	if (!sock_flag(sk, SOCK_ZAPPED))
 		return -EINVAL;
 
 	if (addr_len != sizeof(struct sockaddr_rose) && addr_len != sizeof(struct full_sockaddr_rose))
@@ -693,7 +695,7 @@ static int rose_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 
 	rose_insert_socket(sk);
 
-	sk->sk_zapped = 0;
+	sock_reset_flag(sk, SOCK_ZAPPED);
 	SOCK_DEBUG(sk, "ROSE: socket is bound\n");
 	return 0;
 }
@@ -749,8 +751,8 @@ static int rose_connect(struct socket *sock, struct sockaddr *uaddr, int addr_le
 	if (!rose->lci)
 		return -ENETUNREACH;
 
-	if (sk->sk_zapped) {	/* Must bind first - autobinding in this may or may not work */
-		sk->sk_zapped = 0;
+	if (sock_flag(sk, SOCK_ZAPPED)) {	/* Must bind first - autobinding in this may or may not work */
+		sock_reset_flag(sk, SOCK_ZAPPED);
 
 		if ((dev = rose_dev_first()) == NULL)
 			return -ENETUNREACH;
@@ -1023,7 +1025,7 @@ static int rose_sendmsg(struct kiocb *iocb, struct socket *sock,
 	if (msg->msg_flags & ~(MSG_DONTWAIT|MSG_EOR|MSG_CMSG_COMPAT))
 		return -EINVAL;
 
-	if (sk->sk_zapped)
+	if (sock_flag(sk, SOCK_ZAPPED))
 		return -EADDRNOTAVAIL;
 
 	if (sk->sk_shutdown & SEND_SHUTDOWN) {

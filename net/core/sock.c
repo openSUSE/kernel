@@ -1189,8 +1189,9 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 	sk->sk_rcvbuf		=	sysctl_rmem_default;
 	sk->sk_sndbuf		=	sysctl_wmem_default;
 	sk->sk_state		=	TCP_CLOSE;
-	sk->sk_zapped		=	1;
 	sk->sk_socket		=	sock;
+
+	sock_set_flag(sk, SOCK_ZAPPED);
 
 	if(sock)
 	{

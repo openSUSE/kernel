@@ -1044,7 +1044,8 @@ tcp_state_change(struct sock *sk)
 	dprintk("RPC:      tcp_state_change client %p...\n", xprt);
 	dprintk("RPC:      state %x conn %d dead %d zapped %d\n",
 				sk->sk_state, xprt_connected(xprt),
-				sock_flag(sk, SOCK_DEAD), sk->sk_zapped);
+				sock_flag(sk, SOCK_DEAD),
+				sock_flag(sk, SOCK_ZAPPED));
 
 	switch (sk->sk_state) {
 	case TCP_ESTABLISHED:
