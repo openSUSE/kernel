@@ -120,7 +120,11 @@ static struct board_type products[] = {
 
 #define READ_AHEAD 	 1024
 #define NR_CMDS		 384 /* #commands that can be outstanding */
-#define MAX_CTLR 8
+#define MAX_CTLR	32
+
+/* Originally cciss driver only supports 8 major numbers */
+#define MAX_CTLR_ORIG 	8
+
 
 #define CCISS_DMA_MASK	0xFFFFFFFF	/* 32 bit DMA */
 
@@ -2650,7 +2654,7 @@ static int alloc_cciss_hba(void)
 		}
 	}
 	printk(KERN_WARNING "cciss: This driver supports a maximum"
-		" of 8 controllers.\n");
+		" of %d controllers.\n", MAX_CTLR);
 	goto out;
 Enomem:
 	printk(KERN_ERR "cciss: out of memory.\n");
@@ -2682,13 +2686,14 @@ static int __devinit cciss_init_one(struct pci_dev *pdev,
 	request_queue_t *q;
 	int i;
 	int j;
+	int rc;
 
 	printk(KERN_DEBUG "cciss: Device 0x%x has been found at"
 			" bus %d dev %d func %d\n",
 		pdev->device, pdev->bus->number, PCI_SLOT(pdev->devfn),
 			PCI_FUNC(pdev->devfn));
 	i = alloc_cciss_hba();
-	if( i < 0 ) 
+	if(i < 0)
 		return (-1);
 	if (cciss_pci_init(hba[i], pdev) != 0)
 		goto clean1;
@@ -2707,10 +2712,23 @@ static int __devinit cciss_init_one(struct pci_dev *pdev,
 		goto clean1;
 	}
 
-	if (register_blkdev(COMPAQ_CISS_MAJOR+i, hba[i]->devname)) {
-		printk(KERN_ERR "cciss: Unable to register device %s\n",
-				hba[i]->devname);
+	/*
+	 * register with the major number, or get a dynamic major number
+	 * by passing 0 as argument.  This is done for greater than
+	 * 8 controller support.
+	 */
+	if (i < MAX_CTLR_ORIG)
+		hba[i]->major = MAJOR_NR + i;
+	rc = register_blkdev(hba[i]->major, hba[i]->devname);
+	if(rc == -EBUSY || rc == -EINVAL) {
+		printk(KERN_ERR
+			"cciss:  Unable to get major number %d for %s "
+			"on hba %d\n", hba[i]->major, hba[i]->devname, i);
 		goto clean1;
+	}
+	else {
+		if (i >= MAX_CTLR_ORIG)
+			hba[i]->major = rc;
 	}
 
 	/* make sure the board interrupts are off */
@@ -2782,7 +2800,7 @@ static int __devinit cciss_init_one(struct pci_dev *pdev,
 
 		sprintf(disk->disk_name, "cciss/c%dd%d", i, j);
 		sprintf(disk->devfs_name, "cciss/host%d/target%d", i, j);
-		disk->major = COMPAQ_CISS_MAJOR + i;
+		disk->major = hba[i]->major;
 		disk->first_minor = j << NWD_SHIFT;
 		disk->fops = &cciss_fops;
 		disk->queue = hba[i]->queue;
@@ -2811,7 +2829,7 @@ clean4:
 			hba[i]->errinfo_pool_dhandle);
 	free_irq(hba[i]->intr, hba[i]);
 clean2:
-	unregister_blkdev(COMPAQ_CISS_MAJOR+i, hba[i]->devname);
+	unregister_blkdev(hba[i]->major, hba[i]->devname);
 clean1:
 	release_io_mem(hba[i]);
 	free_hba(i);
@@ -2853,7 +2871,7 @@ static void __devexit cciss_remove_one (struct pci_dev *pdev)
 	pci_set_drvdata(pdev, NULL);
 	iounmap(hba[i]->vaddr);
 	cciss_unregister_scsi(i);  /* unhook from SCSI subsystem */
-	unregister_blkdev(COMPAQ_CISS_MAJOR+i, hba[i]->devname);
+	unregister_blkdev(hba[i]->major, hba[i]->devname);
 	remove_proc_entry(hba[i]->devname, proc_cciss);	
 	
 	/* remove it from the disk list */
