@@ -63,7 +63,6 @@ static HLIST_HEAD(nr_list);
 static DEFINE_SPINLOCK(nr_list_lock);
 
 static struct proto_ops nr_proto_ops;
-void nr_init_timers(struct sock *sk);
 
 static struct sock *nr_alloc_sock(void)
 {

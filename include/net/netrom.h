@@ -221,6 +221,7 @@ extern void nr_transmit_refusal(struct sk_buff *, int);
 extern void nr_disconnect(struct sock *, int);
 
 /* nr_timer.c */
+extern void nr_init_timers(struct sock *sk);
 extern void nr_start_heartbeat(struct sock *);
 extern void nr_start_t1timer(struct sock *);
 extern void nr_start_t2timer(struct sock *);
