@@ -54,6 +54,10 @@ static unsigned int i8042_noloop;
 module_param_named(noloop, i8042_noloop, bool, 0);
 MODULE_PARM_DESC(dumbkbd, "Disable the AUX Loopback command while probing for the AUX port");
 
+static unsigned int i8042_blink_frequency = 500;
+module_param_named(panicblink, i8042_blink_frequency, uint, 0600);
+MODULE_PARM_DESC(panicblink, "Frequency with which keyboard LEDs should blink when kernel panics");
+
 #ifdef CONFIG_ACPI
 static int i8042_noacpi;
 module_param_named(noacpi, i8042_noacpi, bool, 0);
@@ -830,25 +834,33 @@ void i8042_controller_cleanup(void)
 }
 
 
-static int blink_frequency = 500;
-module_param_named(panicblink, blink_frequency, int, 0600);
+/*
+ * i8042_panic_blink() will flash the keyboard LEDs and is called when
+ * kernel panics. Flashing LEDs is useful for users running X who may
+ * not see the console and will help distingushing panics from "real"
+ * lockups.
+ *
+ * Note that DELAY has a limit of 10ms so we will not get stuck here
+ * waiting for KBC to free up even if KBD interrupt is off
+ */
 
-/* Catch the case when the kbd interrupt is off */
 #define DELAY do { mdelay(1); if (++delay > 10) return delay; } while(0)
 
-/* Tell the user who may be running in X and not see the console that we have
-   panic'ed. This is to distingush panics from "real" lockups.  */
 static long i8042_panic_blink(long count)
 {
 	long delay = 0;
 	static long last_blink;
 	static char led;
-	/* Roughly 1/2s frequency. KDB uses about 1s. Make sure it is
-	   different. */
-	if (!blink_frequency)
+
+	/*
+	 * We expect frequency to be about 1/2s. KDB uses about 1s.
+	 * Make sure they are different.
+	 */
+	if (!i8042_blink_frequency)
 		return 0;
-	if (count - last_blink < blink_frequency)
+	if (count - last_blink < i8042_blink_frequency)
 		return 0;
+
 	led ^= 0x01 | 0x04;
 	while (i8042_read_status() & I8042_STR_IBF)
 		DELAY;
