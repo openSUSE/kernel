@@ -88,8 +88,10 @@ static struct dmi_system_id __initdata i8042_dmi_table[] = {
 };
 #endif
 
+
 #ifdef CONFIG_PNP
 #include <linux/pnp.h>
+#include <linux/acpi.h>
 
 static int i8042_pnp_kbd_registered;
 static int i8042_pnp_aux_registered;
@@ -98,9 +100,9 @@ static int i8042_pnp_aux_registered;
 static int i8042_pnp_kbd_probe(struct pnp_dev *dev, const struct pnp_device_id *did)
 {
 	if (pnp_port_valid(dev, 0) && pnp_port_len(dev, 0) == 1) {
-		if ((pnp_port_start(dev,1) & ~0xf) == 0x60 && pnp_port_start(dev,1) != 0x60)
+		if ((pnp_port_start(dev,0) & ~0xf) == 0x60 && pnp_port_start(dev,0) != 0x60)
 			printk(KERN_WARNING "PNP: [%s] has invalid data port %#lx; default is %#x\n",
-	                        pnp_dev_name(dev), pnp_port_start(dev,1), i8042_data_reg);
+	                        pnp_dev_name(dev), pnp_port_start(dev,0), i8042_data_reg);
 		else
 			i8042_data_reg = pnp_port_start(dev,0);
 	} else
@@ -123,7 +125,7 @@ static int i8042_pnp_kbd_probe(struct pnp_dev *dev, const struct pnp_device_id *
 		printk(KERN_WARNING "PNP: [%s] has no IRQ; default is %d\n",
 			pnp_dev_name(dev), i8042_kbd_irq);
 
-	printk(KERN_INFO "PNP: %s [%s,%s] at 0x%x,0x%x irq %d\n",
+	printk(KERN_INFO "PNP: %s [%s,%s] at %#x,%#x irq %d\n",
 		"PS/2 Keyboard Controller", did->id, pnp_dev_name(dev),
 		i8042_data_reg, i8042_command_reg, i8042_kbd_irq);
 
@@ -132,14 +134,35 @@ static int i8042_pnp_kbd_probe(struct pnp_dev *dev, const struct pnp_device_id *
 
 static int i8042_pnp_aux_probe(struct pnp_dev *dev, const struct pnp_device_id *did)
 {
+	if (pnp_port_valid(dev, 0) && pnp_port_len(dev, 0) == 1) {
+		if ((pnp_port_start(dev,0) & ~0xf) == 0x60 && pnp_port_start(dev,0) != 0x60)
+			printk(KERN_WARNING "PNP: [%s] has invalid data port %#lx; default is %#x\n",
+	                        pnp_dev_name(dev), pnp_port_start(dev,0), i8042_data_reg);
+		else
+			i8042_data_reg = pnp_port_start(dev,0);
+	} else
+		printk(KERN_WARNING "PNP: [%s] has no data port; default is 0x%x\n",
+			pnp_dev_name(dev), i8042_data_reg);
+
+	if (pnp_port_valid(dev, 1) && pnp_port_len(dev, 1) == 1) {
+		if ((pnp_port_start(dev,1) & ~0xf) == 0x60 && pnp_port_start(dev,1) != 0x64)
+			printk(KERN_WARNING "PNP: [%s] has invalid command port %#lx; default is %#x\n",
+	                        pnp_dev_name(dev), pnp_port_start(dev,1), i8042_command_reg);
+		else
+			i8042_command_reg = pnp_port_start(dev,1);
+	} else
+		printk(KERN_WARNING "PNP: [%s] has no command port; default is 0x%x\n",
+			pnp_dev_name(dev), i8042_command_reg);
+
 	if (pnp_irq_valid(dev,0))
 		i8042_aux_irq = pnp_irq(dev,0);
 	else
 		printk(KERN_WARNING "PNP: [%s] has no IRQ; default is %d\n",
 			pnp_dev_name(dev), i8042_aux_irq);
 
-	printk(KERN_INFO "PNP: %s [%s,%s] irq %d\n",
-		"PS/2 Mouse Controller", did->id, pnp_dev_name(dev), i8042_aux_irq);
+	printk(KERN_INFO "PNP: %s [%s,%s] at %#x,%#x irq %d\n",
+		"PS/2 Mouse Controller", did->id, pnp_dev_name(dev),
+		i8042_data_reg, i8042_command_reg, i8042_aux_irq);
 
 	return 0;
 }
@@ -168,34 +191,6 @@ static struct pnp_driver i8042_pnp_aux_driver = {
 	.probe          = i8042_pnp_aux_probe,
 };
 
-static int i8042_pnp_init(void)
-{
-	int result;
-
-	if (i8042_nopnp) {
-		printk("i8042: PNP detection disabled\n");
-		return 0;
-	}
-
-	result = pnp_register_driver(&i8042_pnp_kbd_driver);
-	if (result < 0)
-		return result;
-
-	if (result == 0) {
-		pnp_unregister_driver(&i8042_pnp_kbd_driver);
-		return -ENODEV;
-	}
-	i8042_pnp_kbd_registered = 1;
-
-	result = pnp_register_driver(&i8042_pnp_aux_driver);
-	if (result >= 0)
-		i8042_pnp_aux_registered = 1;
-	if (result == 0)
-		i8042_noaux = 1;
-
-	return 0;
-}
-
 static void i8042_pnp_exit(void)
 {
 	if (i8042_pnp_kbd_registered)
@@ -204,6 +199,40 @@ static void i8042_pnp_exit(void)
 	if (i8042_pnp_aux_registered)
 		pnp_unregister_driver(&i8042_pnp_aux_driver);
 }
+
+static int i8042_pnp_init(void)
+{
+	int result_kbd, result_aux;
+
+	if (i8042_nopnp) {
+		printk("i8042: PNP detection disabled\n");
+		return 0;
+	}
+
+	if ((result_kbd = pnp_register_driver(&i8042_pnp_kbd_driver)) >= 0)
+		i8042_pnp_kbd_registered = 1;
+	if ((result_aux = pnp_register_driver(&i8042_pnp_aux_driver)) >= 0)
+		i8042_pnp_aux_registered = 1;
+
+/*
+ * Only fail if we're rather sure there is
+ * no AUX/KBD controller.
+ */
+
+#ifdef CONFIG_PNPACPI
+	if (!acpi_disabled) {
+		if (result_aux <= 0)
+			i8042_noaux = 1;
+		if (result_kbd <= 0 && result_aux <= 0) {
+			i8042_pnp_exit();
+			return -ENODEV;
+		}
+	}
+#endif
+	
+	return 0;
+}
+
 #endif
 
 static inline int i8042_platform_init(void)
