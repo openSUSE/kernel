@@ -30,6 +30,7 @@
 #include <linux/init.h>
 #include <linux/pci.h>
 #include <linux/tcp.h>
+#include <linux/udp.h>
 #include <linux/etherdevice.h>
 
 #include <linux/bitops.h>
@@ -58,6 +59,11 @@
 #define INT_CAUSE_MASK_ALL		0x00000000
 #define INT_CAUSE_CHECK_BITS		INT_CAUSE_UNMASK_ALL
 #define INT_CAUSE_CHECK_BITS_EXT	INT_CAUSE_UNMASK_ALL_EXT
+#endif
+#ifdef MV64340_CHECKSUM_OFFLOAD_TX
+#define MAX_DESCS_PER_SKB	(MAX_SKB_FRAGS + 1)
+#else
+#define MAX_DESCS_PER_SKB	1
 #endif
 
 #define PHY_WAIT_ITERATIONS	1000	/* 1000 iterations * 10uS = 10mS max */
@@ -339,25 +345,27 @@ static int mv64340_eth_free_tx_queue(struct net_device *dev,
 		 * last skb releases the whole chain.
 		 */
 		if (pkt_info.return_info) {
-			dev_kfree_skb_irq(pkt_info.return_info);
-			released = 0;
 			if (skb_shinfo(pkt_info.return_info)->nr_frags)
 				pci_unmap_page(NULL, pkt_info.buf_ptr,
 					pkt_info.byte_cnt, PCI_DMA_TODEVICE);
+			else
+				pci_unmap_single(NULL, pkt_info.buf_ptr,
+					pkt_info.byte_cnt, PCI_DMA_TODEVICE);
 
-			if (mp->tx_ring_skbs != 1)
-				mp->tx_ring_skbs--;
+			dev_kfree_skb_irq(pkt_info.return_info);
+			released = 0;
+
+			/* 
+			 * Decrement the number of outstanding skbs counter on
+			 * the TX queue.
+			 */
+			if (mp->tx_ring_skbs == 0)
+				panic("ERROR - TX outstanding SKBs"
+						" counter is corrupted");
+			mp->tx_ring_skbs--;
 		} else 
 			pci_unmap_page(NULL, pkt_info.buf_ptr,
 					pkt_info.byte_cnt, PCI_DMA_TODEVICE);
-
-		/* 
-		 * Decrement the number of outstanding skbs counter on
-		 * the TX queue.
-		 */
-		if (mp->tx_ring_skbs == 0)
-			panic("ERROR - TX outstanding SKBs counter is corrupted");
-
 	}
 
 	spin_unlock(&mp->lock);
@@ -494,7 +502,8 @@ static irqreturn_t mv64340_eth_int_handler(int irq, void *dev_id,
 		/* UDP change : We may need this */
 		if ((eth_int_cause_ext & 0x0000ffff) &&
 		    (mv64340_eth_free_tx_queue(dev, eth_int_cause_ext) == 0) &&
-		    (MV64340_TX_QUEUE_SIZE > mp->tx_ring_skbs + 1))
+		    (MV64340_TX_QUEUE_SIZE >
+					mp->tx_ring_skbs + MAX_DESCS_PER_SKB))
                                          netif_wake_queue(dev);
 #ifdef MV64340_NAPI
 	} else {
@@ -908,7 +917,7 @@ static void mv64340_eth_free_tx_rings(struct net_device *dev)
 			mp->tx_ring_skbs--;
 		}
 	}
-	if (mp->tx_ring_skbs != 0)
+	if (mp->tx_ring_skbs)
 		printk("%s: Error on Tx descriptor free - could not free %d"
 		     " descriptors\n", dev->name,
 		     mp->tx_ring_skbs);
@@ -937,7 +946,7 @@ static void mv64340_eth_free_rx_rings(struct net_device *dev)
 		}
 	}
 
-	if (mp->rx_ring_skbs != 0)
+	if (mp->rx_ring_skbs)
 		printk(KERN_ERR
 		       "%s: Error in freeing Rx Ring. %d skb's still"
 		       " stuck in RX Ring - ignoring them\n", dev->name,
@@ -1006,21 +1015,25 @@ static void mv64340_tx(struct net_device *dev)
 
 	while (eth_tx_return_desc(mp, &pkt_info) == ETH_OK) {
 		if (pkt_info.return_info) {
-			dev_kfree_skb_irq(pkt_info.return_info);
 			if (skb_shinfo(pkt_info.return_info)->nr_frags) 
                                  pci_unmap_page(NULL, pkt_info.buf_ptr,
                                              pkt_info.byte_cnt,
                                              PCI_DMA_TODEVICE);
+			else
+                                 pci_unmap_single(NULL, pkt_info.buf_ptr,
+                                             pkt_info.byte_cnt,
+                                             PCI_DMA_TODEVICE);
+			dev_kfree_skb_irq(pkt_info.return_info);
 
-                         if (mp->tx_ring_skbs != 1)
-                                  mp->tx_ring_skbs--;
+			if (mp->tx_ring_skbs)
+				mp->tx_ring_skbs--;
                 } else 
                        pci_unmap_page(NULL, pkt_info.buf_ptr, pkt_info.byte_cnt,
                                       PCI_DMA_TODEVICE);
 	}
 
 	if (netif_queue_stopped(dev) &&
-            MV64340_TX_QUEUE_SIZE > mp->tx_ring_skbs + 1)
+            MV64340_TX_QUEUE_SIZE > mp->tx_ring_skbs + MAX_DESCS_PER_SKB)
                        netif_wake_queue(dev);
 }
 
@@ -1119,39 +1132,85 @@ static int mv64340_eth_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	/* Update packet info data structure -- DMA owned, first last */
 #ifdef MV64340_CHECKSUM_OFFLOAD_TX
-	if (!skb_shinfo(skb)->nr_frags || (skb_shinfo(skb)->nr_frags > 3)) {
-#endif
-		pkt_info.cmd_sts = ETH_TX_ENABLE_INTERRUPT |
-	    	                   ETH_TX_FIRST_DESC | ETH_TX_LAST_DESC;
+	if (!skb_shinfo(skb)->nr_frags) {
+linear:
+		if (skb->ip_summed != CHECKSUM_HW)
+			pkt_info.cmd_sts = ETH_TX_ENABLE_INTERRUPT |
+							   ETH_TX_FIRST_DESC |
+							   ETH_TX_LAST_DESC;
+		else {
+			u32		ipheader = skb->nh.iph->ihl << 11;
 
+			pkt_info.cmd_sts = ETH_TX_ENABLE_INTERRUPT |
+					ETH_TX_FIRST_DESC | ETH_TX_LAST_DESC |
+					ETH_GEN_TCP_UDP_CHECKSUM |
+					ETH_GEN_IP_V_4_CHECKSUM |
+					ipheader;
+			/* CPU already calculated pseudo header checksum. */
+			if (skb->nh.iph->protocol == IPPROTO_UDP) {
+				pkt_info.cmd_sts |= ETH_UDP_FRAME;
+				pkt_info.l4i_chk = skb->h.uh->check;
+			}
+			else if (skb->nh.iph->protocol == IPPROTO_TCP)
+				pkt_info.l4i_chk = skb->h.th->check;
+			else {
+				printk(KERN_ERR
+				       "%s: chksum proto != TCP or UDP\n",
+				       dev->name);
+				spin_unlock_irqrestore(&mp->lock, flags);
+				return 1;
+			}
+		}
 		pkt_info.byte_cnt = skb->len;
 		pkt_info.buf_ptr = pci_map_single(0, skb->data, skb->len,
 		                                  PCI_DMA_TODEVICE);
-
-
 		pkt_info.return_info = skb;
 		status = eth_port_send(mp, &pkt_info);
 		if ((status == ETH_ERROR) || (status == ETH_QUEUE_FULL))
 			printk(KERN_ERR "%s: Error on transmitting packet\n",
 				       dev->name);
 		mp->tx_ring_skbs++;
-#ifdef MV64340_CHECKSUM_OFFLOAD_TX
 	} else {
 		unsigned int    frag;
 		u32		ipheader;
+		skb_frag_t	*last_frag;
+
+		frag = skb_shinfo(skb)->nr_frags - 1;
+		last_frag = &skb_shinfo(skb)->frags[frag];
+		if (last_frag->size <= 8 && last_frag->page_offset & 0x7) {
+			skb_linearize(skb, GFP_ATOMIC);
+			goto linear;
+		}
 
                 /* first frag which is skb header */
                 pkt_info.byte_cnt = skb_headlen(skb);
                 pkt_info.buf_ptr = pci_map_single(0, skb->data,
                                         skb_headlen(skb), PCI_DMA_TODEVICE);
                 pkt_info.return_info = 0;
-                ipheader = skb->nh.iph->ihl << 11;
-                pkt_info.cmd_sts = ETH_TX_FIRST_DESC | 
-					ETH_GEN_TCP_UDP_CHECKSUM |
+                pkt_info.cmd_sts = ETH_TX_FIRST_DESC;
+
+		if (skb->ip_summed == CHECKSUM_HW) {
+			/* CPU already calculated pseudo header checksum. */
+			ipheader = skb->nh.iph->ihl << 11;
+			pkt_info.cmd_sts |= ETH_GEN_TCP_UDP_CHECKSUM |
 					ETH_GEN_IP_V_4_CHECKSUM |
-                                        ipheader;
-		/* CPU already calculated pseudo header checksum. So, use it */
-                pkt_info.l4i_chk = skb->h.th->check;
+					ipheader;
+			/* CPU already calculated pseudo header checksum. */
+			if (skb->nh.iph->protocol == IPPROTO_UDP) {
+				pkt_info.cmd_sts |= ETH_UDP_FRAME;
+				pkt_info.l4i_chk = skb->h.uh->check;
+			}
+			else if (skb->nh.iph->protocol == IPPROTO_TCP)
+				pkt_info.l4i_chk = skb->h.th->check;
+			else {
+				printk(KERN_ERR
+				       "%s: chksum proto != TCP or UDP\n",
+				       dev->name);
+				spin_unlock_irqrestore(&mp->lock, flags);
+				return 1;
+			}
+		}
+
                 status = eth_port_send(mp, &pkt_info);
 		if (status != ETH_OK) {
 	                if ((status == ETH_ERROR))
@@ -1179,8 +1238,6 @@ static int mv64340_eth_start_xmit(struct sk_buff *skb, struct net_device *dev)
                                 pkt_info.return_info = 0;
                         }
                         pkt_info.byte_cnt = this_frag->size;
-                        if (this_frag->size < 8)
-                                printk("%d : \n", skb_shinfo(skb)->nr_frags);
 
                         pkt_info.buf_ptr = pci_map_page(NULL, this_frag->page,
                                         this_frag->page_offset,
@@ -1200,12 +1257,24 @@ static int mv64340_eth_start_xmit(struct sk_buff *skb, struct net_device *dev)
 			}
                 }
         }
+#else
+	pkt_info.cmd_sts = ETH_TX_ENABLE_INTERRUPT | ETH_TX_FIRST_DESC |
+							ETH_TX_LAST_DESC;
+	pkt_info.byte_cnt = skb->len;
+	pkt_info.buf_ptr = pci_map_single(0, skb->data, skb->len,
+							PCI_DMA_TODEVICE);
+	pkt_info.return_info = skb;
+	status = eth_port_send(mp, &pkt_info);
+	if ((status == ETH_ERROR) || (status == ETH_QUEUE_FULL))
+		printk(KERN_ERR "%s: Error on transmitting packet\n",
+			       dev->name);
+	mp->tx_ring_skbs++;
 #endif
 
 	/* Check if TX queue can handle another skb. If not, then
 	 * signal higher layers to stop requesting TX
 	 */
-	if (MV64340_TX_QUEUE_SIZE <= (mp->tx_ring_skbs + 1))
+	if (MV64340_TX_QUEUE_SIZE <= (mp->tx_ring_skbs + MAX_DESCS_PER_SKB))
 		/* 
 		 * Stop getting skb's from upper layers.
 		 * Getting skb's from upper layers will be enabled again after
@@ -2178,84 +2247,60 @@ static ETH_FUNC_RET_STATUS eth_port_send(struct mv64340_private * mp,
                                          struct pkt_info * p_pkt_info)
 {
 	int tx_desc_curr, tx_desc_used, tx_first_desc, tx_next_desc;
-	volatile struct eth_tx_desc *current_descriptor;
-	volatile struct eth_tx_desc *first_descriptor;
-	u32 command_status, first_chip_ptr;
+	struct eth_tx_desc *current_descriptor;
+	struct eth_tx_desc *first_descriptor;
+	u32 command;
 
 	/* Do not process Tx ring in case of Tx ring resource error */
 	if (mp->tx_resource_err)
 		return ETH_QUEUE_FULL;
+
+	/*
+	 * The hardware requires that each buffer that is <= 8 bytes
+	 * in length must be aligned on an 8 byte boundary.
+	 */
+        if (p_pkt_info->byte_cnt <= 8 && p_pkt_info->buf_ptr & 0x7) {
+                printk(KERN_ERR
+			"mv64340_eth port %d: packet size <= 8 problem\n",
+			mp->port_num);
+                return ETH_ERROR;
+        }
 
 	/* Get the Tx Desc ring indexes */
 	tx_desc_curr = mp->tx_curr_desc_q;
 	tx_desc_used = mp->tx_used_desc_q;
 
 	current_descriptor = &mp->p_tx_desc_area[tx_desc_curr];
-	if (current_descriptor == NULL)
-		return ETH_ERROR;
 
 	tx_next_desc = (tx_desc_curr + 1) % MV64340_TX_QUEUE_SIZE;
-	command_status = p_pkt_info->cmd_sts | ETH_ZERO_PADDING | ETH_GEN_CRC;
-
-	if (command_status & ETH_TX_FIRST_DESC) {
-		tx_first_desc = tx_desc_curr;
-		mp->tx_first_desc_q = tx_first_desc;
-
-                /* fill first descriptor */
-                first_descriptor = &mp->p_tx_desc_area[tx_desc_curr];
-                first_descriptor->l4i_chk = p_pkt_info->l4i_chk;
-                first_descriptor->cmd_sts = command_status;
-                first_descriptor->byte_cnt = p_pkt_info->byte_cnt;
-                first_descriptor->buf_ptr = p_pkt_info->buf_ptr;
-                first_descriptor->next_desc_ptr = mp->tx_desc_dma +
-			tx_next_desc * sizeof(struct eth_tx_desc);
-		wmb();
-        } else {
-                tx_first_desc = mp->tx_first_desc_q;
-                first_descriptor = &mp->p_tx_desc_area[tx_first_desc];
-                if (first_descriptor == NULL) {
-                        printk("First desc is NULL !!\n");
-                        return ETH_ERROR;
-                }
-                if (command_status & ETH_TX_LAST_DESC)
-                        current_descriptor->next_desc_ptr = 0x00000000;
-                else {
-                        command_status |= ETH_BUFFER_OWNED_BY_DMA;
-                        current_descriptor->next_desc_ptr = mp->tx_desc_dma +
-				tx_next_desc * sizeof(struct eth_tx_desc);
-                }
-        }
-
-        if (p_pkt_info->byte_cnt < 8) {
-                printk(" < 8 problem \n");
-                return ETH_ERROR;
-        }
 
         current_descriptor->buf_ptr = p_pkt_info->buf_ptr;
         current_descriptor->byte_cnt = p_pkt_info->byte_cnt;
         current_descriptor->l4i_chk = p_pkt_info->l4i_chk;
-        current_descriptor->cmd_sts = command_status;
-
         mp->tx_skb[tx_desc_curr] = p_pkt_info->return_info;
 
-        wmb();
+	command = p_pkt_info->cmd_sts | ETH_ZERO_PADDING | ETH_GEN_CRC |
+							ETH_BUFFER_OWNED_BY_DMA;
+	if (command & ETH_TX_LAST_DESC)
+		command |= ETH_TX_ENABLE_INTERRUPT;
 
-        /* Set last desc with DMA ownership and interrupt enable. */
-        if (command_status & ETH_TX_LAST_DESC) {
-                current_descriptor->cmd_sts = command_status |
-                                        ETH_TX_ENABLE_INTERRUPT |
-                                        ETH_BUFFER_OWNED_BY_DMA;
+	if (command & ETH_TX_FIRST_DESC) {
+		tx_first_desc = tx_desc_curr;
+		mp->tx_first_desc_q = tx_first_desc;
+                first_descriptor = current_descriptor;
+		mp->tx_first_command = command;
+        } else {
+                tx_first_desc = mp->tx_first_desc_q;
+                first_descriptor = &mp->p_tx_desc_area[tx_first_desc];
+		BUG_ON(first_descriptor == NULL);
+		current_descriptor->cmd_sts = command;
+        }
 
-		if (!(command_status & ETH_TX_FIRST_DESC))
-			first_descriptor->cmd_sts |= ETH_BUFFER_OWNED_BY_DMA;
+        if (command & ETH_TX_LAST_DESC) {
 		wmb();
-
-		first_chip_ptr = MV_READ(MV64340_ETH_CURRENT_SERVED_TX_DESC_PTR(mp->port_num));
-
-		/* Apply send command */
-		if (first_chip_ptr == 0x00000000)
-			MV_WRITE(MV64340_ETH_TX_CURRENT_QUEUE_DESC_PTR_0(mp->port_num), (struct eth_tx_desc *) mp->tx_desc_dma + tx_first_desc);
-
+		first_descriptor->cmd_sts = mp->tx_first_command;
+ 
+		wmb();
                 ETH_ENABLE_TX_QUEUE(mp->port_num);
 
 		/*
@@ -2263,11 +2308,6 @@ static ETH_FUNC_RET_STATUS eth_port_send(struct mv64340_private * mp,
 		 * error */
                 tx_first_desc = tx_next_desc;
                 mp->tx_first_desc_q = tx_first_desc;
-	} else {
-		if (! (command_status & ETH_TX_FIRST_DESC) ) {
-			current_descriptor->cmd_sts = command_status;
-			wmb();
-		}
 	}
 
         /* Check for ring index overlap in the Tx desc ring */
@@ -2279,7 +2319,6 @@ static ETH_FUNC_RET_STATUS eth_port_send(struct mv64340_private * mp,
 	}
 
         mp->tx_curr_desc_q = tx_next_desc;
-        wmb();
 
         return ETH_OK;
 }
@@ -2289,7 +2328,7 @@ static ETH_FUNC_RET_STATUS eth_port_send(struct mv64340_private * mp,
 {
 	int tx_desc_curr;
 	int tx_desc_used;
-	volatile struct eth_tx_desc* current_descriptor;
+	struct eth_tx_desc *current_descriptor;
 	unsigned int command_status;
 
 	/* Do not process Tx ring in case of Tx ring resource error */
@@ -2301,32 +2340,17 @@ static ETH_FUNC_RET_STATUS eth_port_send(struct mv64340_private * mp,
 	tx_desc_used = mp->tx_used_desc_q;
 	current_descriptor = &mp->p_tx_desc_area[tx_desc_curr];
 
-	if (current_descriptor == NULL)
-		return ETH_ERROR;
-
 	command_status = p_pkt_info->cmd_sts | ETH_ZERO_PADDING | ETH_GEN_CRC;
-
-/* XXX Is this for real ?!?!? */
-	/* Buffers with a payload smaller than 8 bytes must be aligned to a
-	 * 64-bit boundary. We use the memory allocated for Tx descriptor.
-	 * This memory is located in TX_BUF_OFFSET_IN_DESC offset within the
-	 * Tx descriptor. */
-	if (p_pkt_info->byte_cnt <= 8) {
-		printk(KERN_ERR
-		       "You have failed in the < 8 bytes errata - fixme\n");
-		return ETH_ERROR;
-	}
 	current_descriptor->buf_ptr = p_pkt_info->buf_ptr;
 	current_descriptor->byte_cnt = p_pkt_info->byte_cnt;
 	mp->tx_skb[tx_desc_curr] = p_pkt_info->return_info;
 
-	mb();
-
 	/* Set last desc with DMA ownership and interrupt enable. */
+	wmb();
 	current_descriptor->cmd_sts = command_status |
 			ETH_BUFFER_OWNED_BY_DMA | ETH_TX_ENABLE_INTERRUPT;
 
-	/* Apply send command */
+	wmb();
 	ETH_ENABLE_TX_QUEUE(mp->port_num);
 
 	/* Finish Tx packet. Update first desc in case of Tx resource error */
@@ -2372,40 +2396,33 @@ static ETH_FUNC_RET_STATUS eth_port_send(struct mv64340_private * mp,
 static ETH_FUNC_RET_STATUS eth_tx_return_desc(struct mv64340_private * mp,
 					      struct pkt_info * p_pkt_info)
 {
-	int tx_desc_used, tx_desc_curr;
+	int tx_desc_used;
 #ifdef MV64340_CHECKSUM_OFFLOAD_TX
-        int tx_first_desc;
+        int tx_busy_desc = mp->tx_first_desc_q;
+#else
+	int tx_busy_desc = mp->tx_curr_desc_q;
 #endif
-	volatile struct eth_tx_desc *p_tx_desc_used;
+	struct eth_tx_desc *p_tx_desc_used;
 	unsigned int command_status;
 
 	/* Get the Tx Desc ring indexes */
-	tx_desc_curr = mp->tx_curr_desc_q;
 	tx_desc_used = mp->tx_used_desc_q;
-#ifdef MV64340_CHECKSUM_OFFLOAD_TX
-        tx_first_desc = mp->tx_first_desc_q;
-#endif
+
 	p_tx_desc_used = &mp->p_tx_desc_area[tx_desc_used];
 
-	/* XXX Sanity check */
+	/* Sanity check */
 	if (p_tx_desc_used == NULL)
 		return ETH_ERROR;
+
+	/* Stop release. About to overlap the current available Tx descriptor */
+	if (tx_desc_used == tx_busy_desc && !mp->tx_resource_err)
+		return ETH_END_OF_JOB;
 
 	command_status = p_tx_desc_used->cmd_sts;
 
 	/* Still transmitting... */
-#ifndef MV64340_CHECKSUM_OFFLOAD_TX
 	if (command_status & (ETH_BUFFER_OWNED_BY_DMA))
 		return ETH_RETRY;
-#endif
-	/* Stop release. About to overlap the current available Tx descriptor */
-#ifdef MV64340_CHECKSUM_OFFLOAD_TX
-	if (tx_desc_used == tx_first_desc && !mp->tx_resource_err)
-		return ETH_END_OF_JOB;
-#else
-	if (tx_desc_used == tx_desc_curr && !mp->tx_resource_err)
-		return ETH_END_OF_JOB;
-#endif
 
 	/* Pass the packet information to the caller */
 	p_pkt_info->cmd_sts = command_status;
@@ -2463,6 +2480,7 @@ static ETH_FUNC_RET_STATUS eth_port_receive(struct mv64340_private * mp,
 
 	/* The following parameters are used to save readings from memory */
 	command_status = p_rx_desc->cmd_sts;
+	rmb();
 
 	/* Nothing to receive... */
 	if (command_status & (ETH_BUFFER_OWNED_BY_DMA))
@@ -2486,7 +2504,6 @@ static ETH_FUNC_RET_STATUS eth_port_receive(struct mv64340_private * mp,
 	if (rx_next_curr_desc == rx_used_desc)
 		mp->rx_resource_err = 1;
 
-	mb();
 	return ETH_OK;
 }
 
@@ -2525,14 +2542,12 @@ static ETH_FUNC_RET_STATUS eth_rx_return_buff(struct mv64340_private * mp,
 	mp->rx_skb[used_rx_desc] = p_pkt_info->return_info;
 
 	/* Flush the write pipe */
-	mb();
 
 	/* Return the descriptor to DMA ownership */
+	wmb();
 	p_used_rx_desc->cmd_sts =
 		ETH_BUFFER_OWNED_BY_DMA | ETH_RX_ENABLE_INTERRUPT;
-
-	/* Flush descriptor and CPU pipe */
-	mb();
+	wmb();
 
 	/* Move the used descriptor pointer to the next descriptor */
 	mp->rx_used_desc_q = (used_rx_desc + 1) % MV64340_RX_QUEUE_SIZE;

@@ -511,18 +511,19 @@ struct mv64340_private {
 	int tx_curr_desc_q, tx_used_desc_q;
 #ifdef MV64340_CHECKSUM_OFFLOAD_TX
         int tx_first_desc_q;
+	u32 tx_first_command;
 #endif
 
 #ifdef MV64340_TX_FAST_REFILL
 	u32	tx_clean_threshold;
 #endif
 
-	volatile struct eth_rx_desc	* p_rx_desc_area;
+	struct eth_rx_desc		* p_rx_desc_area;
 	dma_addr_t			rx_desc_dma;
 	unsigned int			rx_desc_area_size;
 	struct sk_buff			* rx_skb[MV64340_RX_QUEUE_SIZE];
 
-	volatile struct eth_tx_desc	* p_tx_desc_area;
+	struct eth_tx_desc		* p_tx_desc_area;
 	dma_addr_t			tx_desc_dma;
 	unsigned int			tx_desc_area_size;
 	struct sk_buff			* tx_skb[MV64340_TX_QUEUE_SIZE];
