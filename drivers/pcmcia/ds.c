@@ -429,6 +429,69 @@ static int pcmcia_device_remove(struct device * dev)
 }
 
 
+
+/*
+ * pcmcia_device_query -- determine information about a pcmcia device
+ */
+static int pcmcia_device_query(struct pcmcia_device *p_dev)
+{
+	cistpl_manfid_t manf_id;
+	cistpl_funcid_t func_id;
+	cistpl_vers_1_t	vers1;
+	unsigned int i;
+
+	if (!pccard_read_tuple(p_dev->socket, p_dev->func,
+			       CISTPL_MANFID, &manf_id)) {
+		p_dev->manf_id = manf_id.manf;
+		p_dev->card_id = manf_id.card;
+		p_dev->has_manf_id = 1;
+		p_dev->has_card_id = 1;
+	}
+
+	if (!pccard_read_tuple(p_dev->socket, p_dev->func,
+			       CISTPL_FUNCID, &func_id)) {
+		p_dev->func_id = func_id.func;
+		p_dev->has_func_id = 1;
+	} else {
+		/* rule of thumb: cards with no FUNCID, but with
+		 * common memory device geometry information, are
+		 * probably memory cards (from pcmcia-cs) */
+		cistpl_device_geo_t devgeo;
+		if (!pccard_read_tuple(p_dev->socket, p_dev->func,
+				      CISTPL_DEVICE_GEO, &devgeo)) {
+			ds_dbg(0, "mem device geometry probably means "
+			       "FUNCID_MEMORY\n");
+			p_dev->func_id = CISTPL_FUNCID_MEMORY;
+			p_dev->has_func_id = 1;
+		}
+	}
+
+	if (!pccard_read_tuple(p_dev->socket, p_dev->func, CISTPL_VERS_1,
+			       &vers1)) {
+		for (i=0; i < vers1.ns; i++) {
+			char *tmp;
+			unsigned int length;
+
+			tmp = vers1.str + vers1.ofs[i];
+
+			length = strlen(tmp) + 1;
+			if ((length < 3) || (length > 255))
+				continue;
+
+			p_dev->prod_id[i] = kmalloc(sizeof(char) * length,
+						    GFP_KERNEL);
+			if (!p_dev->prod_id[i])
+				continue;
+
+			p_dev->prod_id[i] = strncpy(p_dev->prod_id[i],
+						    tmp, length);
+		}
+	}
+
+	return 0;
+}
+
+
 /* device_add_lock is needed to avoid double registration by cardmgr and kernel.
  * Serializes pcmcia_device_add; will most likely be removed in future.
  *
@@ -771,6 +834,8 @@ static int bind_request(struct pcmcia_bus_socket *s, bind_info_t *bind_info)
 
 rescan:
 	p_dev->cardmgr = p_drv;
+
+	pcmcia_device_query(p_dev);
 
 	/*
 	 * Prevent this racing with a card insertion.
