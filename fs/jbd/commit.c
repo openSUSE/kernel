@@ -103,7 +103,7 @@ void journal_commit_transaction(journal_t *journal)
 {
 	transaction_t *commit_transaction;
 	struct journal_head *jh, *new_jh, *descriptor;
-	struct buffer_head *wbuf[64];
+	struct buffer_head **wbuf = journal->j_wbuf;
 	int bufs;
 	int flags;
 	int err;
@@ -287,7 +287,7 @@ write_out_data:
 				BUFFER_TRACE(bh, "start journal writeout");
 				get_bh(bh);
 				wbuf[bufs++] = bh;
-				if (bufs == ARRAY_SIZE(wbuf)) {
+				if (bufs == journal->j_wbufsize) {
 					jbd_debug(2, "submit %d writes\n",
 							bufs);
 					spin_unlock(&journal->j_list_lock);
@@ -503,7 +503,7 @@ write_out_data:
 		/* If there's no more to do, or if the descriptor is full,
 		   let the IO rip! */
 
-		if (bufs == ARRAY_SIZE(wbuf) ||
+		if (bufs == journal->j_wbufsize ||
 		    commit_transaction->t_buffers == NULL ||
 		    space_left < sizeof(journal_block_tag_t) + 16) {
 

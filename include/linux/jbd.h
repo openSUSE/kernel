@@ -789,6 +789,12 @@ struct journal_s
 	struct jbd_revoke_table_s *j_revoke_table[2];
 
 	/*
+	 * array of bhs for journal_commit_transaction
+	 */
+	struct buffer_head	**j_wbuf;
+	int			j_wbufsize;
+
+	/*
 	 * An opaque pointer to fs-private information.  ext3 puts its
 	 * superblock pointer here
 	 */
