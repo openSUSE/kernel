@@ -123,6 +123,8 @@ extern int CIFSSMBQFSDeviceInfo(const int xid, struct cifsTconInfo *tcon,
 			const struct nls_table *nls_codepage);
 extern int CIFSSMBQFSUnixInfo(const int xid, struct cifsTconInfo *tcon,
 			const struct nls_table *nls_codepage);
+extern int CIFSSMBQFSPosixInfo(const int xid, struct cifsTconInfo *tcon,
+			struct kstatfs *FSData, const struct nls_table *nls_codepage);
 
 extern int CIFSSMBSetTimes(const int xid, struct cifsTconInfo *tcon,
 			const char *fileName, const FILE_BASIC_INFO * data,

@@ -3110,7 +3110,7 @@ QFSUnixRetry:
 
 int
 CIFSSMBQFSPosixInfo(const int xid, struct cifsTconInfo *tcon,
-		   const struct nls_table *nls_codepage)
+		   struct kstatfs *FSData, const struct nls_table *nls_codepage)
 {
 /* level 0x201  SMB_QUERY_CIFS_POSIX_INFO */
 	TRANSACTION2_QFSI_REQ *pSMB = NULL;
@@ -3165,8 +3165,16 @@ QFSPosixRetry:
 			    (FILE_SYSTEM_POSIX_INFO
 			     *) (((char *) &pSMBr->hdr.Protocol) +
 				 data_offset);
-			memcpy(&tcon->fsUnixInfo, response_data,
-			       sizeof (FILE_SYSTEM_POSIX_INFO));
+			FSData->f_blocks =
+					le64_to_cpu(response_data->TotalBlocks);
+			FSData->f_bfree =
+			    le64_to_cpu(response_data->BlocksAvail);
+			FSData->f_avail =
+					le64_to_cpu(response_data->UserBlocksAvail);
+			FSData->f_files =
+					le64_to_cpu(response_data->TotalFileNodes);
+			FSData->f_ffree =
+					le64_to_cpu(response_data->FreeFileNodes);
 		}
 	}
 	if (pSMB)

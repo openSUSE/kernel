@@ -3,6 +3,7 @@ Version 1.30
 Allow new nouser_xattr mount parm to disable xattr support for user namespace.
 Do not flag user_xattr mount parm in dmesg.  Retry failures setting file time  
 (mostly affects NT4 servers) by retry with handle based network operation. 
+Add new POSIX Query FS Info for returning statfs info more accurately.
 
 Version 1.29
 ------------
