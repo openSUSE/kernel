@@ -115,8 +115,8 @@ static int i8042_pnp_kbd_probe(struct pnp_dev *dev, const struct pnp_device_id *
 		printk(KERN_WARNING "PNP: [%s] has no IRQ; default is %d\n",
 			pnp_dev_name(dev), i8042_kbd_irq);
 
-	printk("PNP: %s [%s] at I/O 0x%x, 0x%x, irq %d\n",
-		"PS/2 Keyboard Controller", pnp_dev_name(dev),
+	printk(KERN_INFO "PNP: %s [%s,%s] at 0x%x,0x%x irq %d\n",
+		"PS/2 Keyboard Controller", did->id, pnp_dev_name(dev),
 		i8042_data_reg, i8042_command_reg, i8042_kbd_irq);
 
 	return 0;
@@ -130,8 +130,8 @@ static int i8042_pnp_aux_probe(struct pnp_dev *dev, const struct pnp_device_id *
 		printk(KERN_WARNING "PNP: [%s] has no IRQ; default is %d\n",
 			pnp_dev_name(dev), i8042_aux_irq);
 
-	printk("PNP: %s [%s] at irq %d\n",
-		"PS/2 Mouse Controller", pnp_dev_name(dev), i8042_aux_irq);
+	printk(KERN_INFO "PNP: %s [%s,%s] irq %d\n",
+		"PS/2 Mouse Controller", did->id, pnp_dev_name(dev), i8042_aux_irq);
 
 	return 0;
 }
@@ -143,7 +143,7 @@ static struct pnp_device_id pnp_kbd_devids[] = {
 };
 
 static struct pnp_driver i8042_pnp_kbd_driver = {
-	.name           = "i8042 kdb",
+	.name           = "i8042 kbd",
 	.id_table       = pnp_kbd_devids,
 	.probe          = i8042_pnp_kbd_probe,
 };
