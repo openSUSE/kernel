@@ -324,9 +324,9 @@ int agp_copy_info(struct agp_kern_info *info)
 	info->chipset = agp_bridge->type;
 	info->device = agp_bridge->dev;
 	if (check_bridge_mode(agp_bridge->dev))
-		info->mode = agp_bridge->mode & AGP3_RESERVED_MASK;
+		info->mode = agp_bridge->mode & ~AGP3_RESERVED_MASK;
 	else
-		info->mode = agp_bridge->mode & AGP2_RESERVED_MASK;
+		info->mode = agp_bridge->mode & ~AGP2_RESERVED_MASK;
 	info->aper_base = agp_bridge->gart_bus_addr;
 	info->aper_size = agp_return_size();
 	info->max_memory = agp_bridge->max_memory_agp;
