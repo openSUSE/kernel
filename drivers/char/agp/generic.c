@@ -405,9 +405,26 @@ EXPORT_SYMBOL(agp_unbind_memory);
 /* Generic Agp routines - Start */
 static void agp_v2_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_agpstat)
 {
+	u32 tmp;
+
 	if (*requested_mode & AGP2_RESERVED_MASK) {
 		printk (KERN_INFO PFX "reserved bits set in mode 0x%x. Fixed.\n", *requested_mode);
 		*requested_mode &= ~AGP2_RESERVED_MASK;
+	}
+
+	/* Check the speed bits make sense. Only one should be set. */
+	tmp = *requested_mode & 7;
+	if (tmp == 0) {
+		printk (KERN_INFO PFX "Userspace tried to set rate=x0. Setting to x1 mode.\n");
+		*requested_mode |= AGPSTAT2_1X;
+	}
+	if (tmp == 3) {
+		printk (KERN_INFO PFX "Userspace tried to set rate=x3. Setting to x2 mode.\n");
+		*requested_mode |= AGPSTAT2_2X;
+	}
+	if (tmp >4) {
+		printk (KERN_INFO PFX "Userspace tried to set rate=x%d. Setting to x4 mode.\n", tmp);
+		*requested_mode |= AGPSTAT2_4X;
 	}
 
 	/* disable SBA if it's not supported */
@@ -443,10 +460,26 @@ static void agp_v2_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 static void agp_v3_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_agpstat)
 {
 	u32 origbridge=*bridge_agpstat, origvga=*vga_agpstat;
+	u32 tmp;
 
 	if (*requested_mode & AGP3_RESERVED_MASK) {
 		printk (KERN_INFO PFX "reserved bits set in mode 0x%x. Fixed.\n", *requested_mode);
 		*requested_mode &= ~AGP3_RESERVED_MASK;
+	}
+
+	/* Check the speed bits make sense. */
+	tmp = *requested_mode & 7;
+	if (tmp == 0) {
+		printk (KERN_INFO PFX "Userspace tried to set rate=x0. Setting to AGP3 x4 mode.\n");
+		*requested_mode |= AGPSTAT3_4X;
+	}
+	if (tmp == 3) {
+		printk (KERN_INFO PFX "Userspace tried to set rate=x3. Setting to AGP3 x4 mode.\n");
+		*requested_mode |= AGPSTAT3_4X;
+	}
+	if (tmp >3) {
+		printk (KERN_INFO PFX "Userspace tried to set rate=x%d. Setting to AGP3 x8 mode.\n", tmp);
+		*requested_mode |= AGPSTAT3_8X;
 	}
 
 	/* ARQSZ - Set the value to the maximum one.
