@@ -1137,7 +1137,7 @@ static int ibmcam_veio(
 			index,
 			cp,
 			sizeof(cp),
-			HZ);
+			1000);
 #if 0
 		info("USB => %02x%02x%02x%02x%02x%02x%02x%02x "
 		       "(req=$%02x val=$%04x ind=$%04x)",
@@ -1154,7 +1154,7 @@ static int ibmcam_veio(
 			index,
 			NULL,
 			0,
-			HZ);
+			1000);
 	}
 	if (i < 0) {
 		err("%s: ERROR=%d. Camera stopped; Reconnect or reload driver.",

@@ -75,6 +75,8 @@ struct us_unusual_dev {
 #define US_FL_FIX_CAPACITY    0x00000080 /* READ CAPACITY response too big  */
 #define US_FL_IGNORE_RESIDUE  0x00000100 /* reported residue is wrong	    */
 #define US_FL_BULK32          0x00000200 /* Uses 32-byte CBW length         */
+#define US_FL_NOT_LOCKABLE    0x00000400 /* PREVENT/ALLOW not supported     */
+#define US_FL_GO_SLOW         0x00000800 /* Need delay after Command phase  */
 
 /* Dynamic flag definitions: used in set_bit() etc. */
 #define US_FLIDX_URB_ACTIVE	18  /* 0x00040000  current_urb is in use  */
@@ -121,11 +123,9 @@ struct us_data {
 	unsigned int		recv_intr_pipe;
 
 	/* information about the device */
-	char			vendor[USB_STOR_STRING_LEN];
-	char			product[USB_STOR_STRING_LEN];
-	char			serial[USB_STOR_STRING_LEN];
 	char			*transport_name;
 	char			*protocol_name;
+	__le32			bcs_signature;
 	u8			subclass;
 	u8			protocol;
 	u8			max_lun;

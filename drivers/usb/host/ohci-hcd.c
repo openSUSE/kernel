@@ -148,10 +148,22 @@ static void ohci_stop (struct usb_hcd *hcd);
 #include "ohci-q.c"
 
 
-/* Some boards don't support per-port power switching */
-static int power_switching = 0;
-module_param (power_switching, bool, 0);
-MODULE_PARM_DESC (power_switching, "true (not default) to switch port power");
+/*
+ * On architectures with edge-triggered interrupts we must never return
+ * IRQ_NONE.
+ */
+#if defined(CONFIG_SA1111)  /* ... or other edge-triggered systems */
+#define IRQ_NOTMINE	IRQ_HANDLED
+#else
+#define IRQ_NOTMINE	IRQ_NONE
+#endif
+
+
+/* Some boards misreport power switching/overcurrent */
+static int distrust_firmware = 1;
+module_param (distrust_firmware, bool, 0);
+MODULE_PARM_DESC (distrust_firmware,
+	"true to distrust firmware power/overcurrent setup");
 
 /* Some boards leave IR set wrongly, since they fail BIOS/SMM handshakes */
 static int no_handshake = 0;
@@ -532,8 +544,9 @@ static int ohci_run (struct ohci_hcd *ohci)
 	// flush the writes
 	(void) ohci_readl (ohci, &ohci->regs->control);
 	msleep(temp);
-	if (power_switching) {
-		unsigned ports = roothub_a (ohci) & RH_A_NDP; 
+	temp = roothub_a (ohci);
+	if (!(temp & RH_A_NPS)) {
+		unsigned ports = temp & RH_A_NDP; 
 
 		/* power down each port */
 		for (temp = 0; temp < ports; temp++)
@@ -624,21 +637,16 @@ retry:
 		/* NSC 87560 and maybe others */
 		temp |= RH_A_NOCP;
 		temp &= ~(RH_A_POTPGT | RH_A_NPS);
-	} else if (power_switching) {
-		/* act like most external hubs:  use per-port power
-		 * switching and overcurrent reporting.
-		 */
-		temp &= ~(RH_A_NPS | RH_A_NOCP);
-		temp |= RH_A_PSM | RH_A_OCPM;
-	} else {
+		ohci_writel (ohci, temp, &ohci->regs->roothub.a);
+	} else if ((ohci->flags & OHCI_QUIRK_AMD756) || distrust_firmware) {
 		/* hub power always on; required for AMD-756 and some
 		 * Mac platforms.  ganged overcurrent reporting, if any.
 		 */
 		temp |= RH_A_NPS;
+		ohci_writel (ohci, temp, &ohci->regs->roothub.a);
 	}
-	ohci_writel (ohci, temp, &ohci->regs->roothub.a);
 	ohci_writel (ohci, RH_HS_LPSC, &ohci->regs->roothub.status);
-	ohci_writel (ohci, power_switching ? RH_B_PPCM : 0,
+	ohci_writel (ohci, (temp & RH_A_NPS) ? 0 : RH_B_PPCM,
 						&ohci->regs->roothub.b);
 	// flush those writes
 	(void) ohci_readl (ohci, &ohci->regs->control);
@@ -646,7 +654,7 @@ retry:
 	spin_unlock_irq (&ohci->lock);
 
 	// POTPGT delay is bits 24-31, in 2 ms units.
-	mdelay ((roothub_a (ohci) >> 23) & 0x1fe);
+	mdelay ((temp >> 23) & 0x1fe);
 	bus = &ohci_to_hcd(ohci)->self;
 	ohci_to_hcd(ohci)->state = USB_STATE_RUNNING;
 
@@ -706,7 +714,7 @@ static irqreturn_t ohci_irq (struct usb_hcd *hcd, struct pt_regs *ptregs)
 
 	/* interrupt for some other device? */
 	} else if ((ints &= ohci_readl (ohci, &regs->intrenable)) == 0) {
-		return IRQ_NONE;
+		return IRQ_NOTMINE;
 	} 
 
 	if (ints & OHCI_INTR_UE) {
@@ -901,12 +909,17 @@ MODULE_LICENSE ("GPL");
 #include "ohci-au1xxx.c"
 #endif
 
+#ifdef CONFIG_USB_OHCI_HCD_PPC_SOC
+#include "ohci-ppc-soc.c"
+#endif
+
 #if !(defined(CONFIG_PCI) \
       || defined(CONFIG_SA1111) \
       || defined(CONFIG_ARCH_OMAP) \
       || defined (CONFIG_ARCH_LH7A404) \
       || defined (CONFIG_PXA27x) \
       || defined (CONFIG_SOC_AU1X00) \
+      || defined (CONFIG_USB_OHCI_HCD_PPC_SOC) \
 	)
 #error "missing bus glue for ohci-hcd"
 #endif

@@ -162,7 +162,7 @@ static int ttusb_cmd(struct ttusb *ttusb,
 		return -EAGAIN;
 
 	err = usb_bulk_msg(ttusb->dev, ttusb->bulk_out_pipe,
-			   (u8 *) data, len, &actual_len, HZ);
+			   (u8 *) data, len, &actual_len, 1000);
 	if (err != 0) {
 		dprintk("%s: usb_bulk_msg(send) failed, err == %i!\n",
 			__FUNCTION__, err);
@@ -177,7 +177,7 @@ static int ttusb_cmd(struct ttusb *ttusb,
 	}
 
 	err = usb_bulk_msg(ttusb->dev, ttusb->bulk_in_pipe,
-			   ttusb->last_result, 32, &actual_len, HZ);
+			   ttusb->last_result, 32, &actual_len, 1000);
 
 	if (err != 0) {
 		printk("%s: failed, receive error %d\n", __FUNCTION__,

@@ -89,12 +89,26 @@ config USB_STORAGE_DPCM
 	  Say Y here to support the Microtech/ZiO! CompactFlash reader.
 	  There is a web page at <http://www.ziocorp.com/products/>.
 
-config USB_STORAGE_HP8200e
-	bool "HP CD-Writer 82xx support (EXPERIMENTAL)"
+config USB_STORAGE_USBAT
+	bool "USBAT/USBAT02-based storage support (EXPERIMENTAL)"
 	depends on USB_STORAGE && EXPERIMENTAL
 	help
-	  Say Y here to include additional code to support Hewlett-Packard
-	  8200e/8210e/8230e CD-Writer Plus drives.
+	  Say Y here to include additional code to support storage devices
+	  based on the SCM/Shuttle USBAT/USBAT02 processors.
+
+	  Devices reported to work with this driver include:
+	  - CompactFlash reader included with Kodak DC3800 camera
+	  - Dane-Elec Zmate CompactFlash reader
+	  - Delkin Efilm reader2
+	  - HP 8200e/8210e/8230e CD-Writer Plus drives
+	  - I-JAM JS-50U
+	  - Jessops CompactFlash JESDCFRU BLACK
+	  - Kingston Technology PCREAD-USB/CF
+	  - Maxell UA4 CompactFlash reader
+	  - Memorex UCF-100
+	  - Microtech ZiO! ICS-45 CF2
+	  - RCA LYRA MP3 portable
+	  - Sandisk ImageMate SDDR-05b
 
 config USB_STORAGE_SDDR09
 	bool "SanDisk SDDR-09 (and other SmartMedia) support (EXPERIMENTAL)"

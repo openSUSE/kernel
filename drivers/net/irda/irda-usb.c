@@ -1308,7 +1308,7 @@ static inline struct irda_class_desc *irda_usb_find_class_desc(struct usb_interf
 		IU_REQ_GET_CLASS_DESC,
 		USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
 		0, intf->altsetting->desc.bInterfaceNumber, desc,
-		sizeof(*desc), msecs_to_jiffies(500));
+		sizeof(*desc), 500);
 	
 	IRDA_DEBUG(1, "%s(), ret=%d\n", __FUNCTION__, ret);
 	if (ret < sizeof(*desc)) {

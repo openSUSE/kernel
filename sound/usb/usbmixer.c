@@ -305,7 +305,7 @@ static int get_ctl_value(usb_mixer_elem_info_t *cval, int request, int validx, i
 				    request,
 				    USB_RECIP_INTERFACE | USB_TYPE_CLASS | USB_DIR_IN,
 				    validx, cval->ctrlif | (cval->id << 8),
-				    buf, val_len, HZ / 10) >= 0) {
+				    buf, val_len, 100) >= 0) {
 			*value_ret = convert_signed_value(cval, snd_usb_combine_bytes(buf, val_len));
 			return 0;
 		}
@@ -343,7 +343,7 @@ static int set_ctl_value(usb_mixer_elem_info_t *cval, int request, int validx, i
 				    request,
 				    USB_RECIP_INTERFACE | USB_TYPE_CLASS | USB_DIR_OUT,
 				    validx, cval->ctrlif | (cval->id << 8),
-				    buf, val_len, HZ / 10) >= 0)
+				    buf, val_len, 100) >= 0)
 			return 0;
 	snd_printdd(KERN_ERR "cannot set ctl value: req = 0x%x, wValue = 0x%x, wIndex = 0x%x, type = %d, data = 0x%x/0x%x\n", request, validx, cval->ctrlif | (cval->id << 8), cval->val_type, buf[0], buf[1]);
 	return -EINVAL;

@@ -52,7 +52,7 @@ struct scsi_cmnd;
 #define US_PR_CBI	0x00		/* Control/Bulk/Interrupt */
 #define US_PR_CB	0x01		/* Control/Bulk w/o interrupt */
 #define US_PR_BULK	0x50		/* bulk only */
-#ifdef CONFIG_USB_STORAGE_HP8200e
+#ifdef CONFIG_USB_STORAGE_USBAT
 #define US_PR_SCM_ATAPI	0x80		/* SCM-ATAPI bridge */
 #endif
 #ifdef CONFIG_USB_STORAGE_SDDR09
@@ -108,8 +108,6 @@ struct bulk_cs_wrap {
 
 #define US_BULK_CS_WRAP_LEN	13
 #define US_BULK_CS_SIGN		0x53425355	/* spells out 'USBS' */
-/* This is for Olympus Camedia digital cameras */
-#define US_BULK_CS_OLYMPUS_SIGN		0x55425355	/* spells out 'USBU' */
 #define US_BULK_STAT_OK		0
 #define US_BULK_STAT_FAIL	1
 #define US_BULK_STAT_PHASE	2

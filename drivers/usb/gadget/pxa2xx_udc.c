@@ -943,6 +943,7 @@ pxa2xx_ep_queue(struct usb_ep *_ep, struct usb_request *_req, int gfp_flags)
 						UDCCFR = UDCCFR_AREN|UDCCFR_ACM;
 					done(ep, req, 0);
 					dev->ep0state = EP0_END_XFER;
+					local_irq_restore (flags);
 					return 0;
 				}
 				if (dev->req_pending)

@@ -730,7 +730,7 @@ static int gen_ndis_set_resp (u8 configNr, u32 OID, u8 *buf, u32 buf_len,
 
 		/* FIXME use these NDIS_PACKET_TYPE_* bitflags to
 		 * filter packets in hard_start_xmit()
-		 * NDIS_PACKET_TYPE_x == CDC_PACKET_TYPE_x for x in:
+		 * NDIS_PACKET_TYPE_x == USB_CDC_PACKET_TYPE_x for x in:
 		 *	PROMISCUOUS, DIRECTED,
 		 *	MULTICAST, ALL_MULTICAST, BROADCAST
 		 */
