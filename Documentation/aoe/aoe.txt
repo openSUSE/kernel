@@ -6,9 +6,16 @@ The EtherDrive (R) HOWTO for users of 2.6 kernels is found at ...
 
 CREATING DEVICE NODES
 
-  Users of udev should find device nodes created automatically.  Two
-  scripts are provided in Documentation/aoe as examples of static
-  device node creation for using the aoe driver.
+  Users of udev should find the block device nodes created
+  automatically, but to create all the necessary device nodes, use the
+  udev configuration rules provided in udev.txt (in this directory).
+
+  There is a udev-install.sh script that shows how to install these
+  rules on your system.
+
+  If you are not using udev, two scripts are provided in
+  Documentation/aoe as examples of static device node creation for
+  using the aoe driver.
 
     rm -rf /dev/etherd
     sh Documentation/aoe/mkdevs.sh /dev/etherd

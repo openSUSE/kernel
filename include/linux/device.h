@@ -15,7 +15,6 @@
 #include <linux/ioport.h>
 #include <linux/kobject.h>
 #include <linux/list.h>
-#include <linux/spinlock.h>
 #include <linux/types.h>
 #include <linux/module.h>
 #include <linux/pm.h>
@@ -102,7 +101,7 @@ struct device_driver {
 	char			* name;
 	struct bus_type		* bus;
 
-	struct semaphore	unload_sem;
+	struct completion	unloaded;
 	struct kobject		kobj;
 	struct list_head	devices;
 
@@ -148,6 +147,7 @@ struct class {
 	struct subsystem	subsys;
 	struct list_head	children;
 	struct list_head	interfaces;
+	struct semaphore	sem;	/* locks both the children and interfaces lists */
 
 	struct class_attribute		* class_attrs;
 	struct class_device_attribute	* class_dev_attrs;
@@ -184,6 +184,7 @@ struct class_device {
 
 	struct kobject		kobj;
 	struct class		* class;	/* required */
+	dev_t			devt;		/* dev_t, creates the sysfs "dev" */
 	struct device		* dev;		/* not necessary, but nice to have */
 	void			* class_data;	/* class-specific data */
 

@@ -995,5 +995,7 @@ config MMTIMER
 	  The mmtimer device allows direct userspace access to the
 	  Altix system timer.
 
+source "drivers/char/tpm/Kconfig"
+
 endmenu
 
