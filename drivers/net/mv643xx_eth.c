@@ -791,7 +791,6 @@ static int mv643xx_eth_real_open(struct net_device *dev)
 	unsigned int port_num = mp->port_num;
 	unsigned int size;
 	int i;
-	u32 port_serial_control_reg;
 
 	/* Stop RX Queues */
 	mv_write(MV643XX_ETH_RECEIVE_QUEUE_COMMAND_REG(port_num), 0x0000ff00);
@@ -908,13 +907,6 @@ static int mv643xx_eth_real_open(struct net_device *dev)
 
 	mp->tx_int_coal =
 		eth_port_set_tx_coal(port_num, 133000000, MV643XX_TX_COAL);
-
-	/* Increase the Rx side buffer size if supporting GigE */
-	port_serial_control_reg =
-		mv_read(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(port_num));
-	if (port_serial_control_reg & MV643XX_ETH_SET_GMII_SPEED_TO_1000)
-		mv_write(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(port_num),
-			(port_serial_control_reg & 0xfff1ffff) | (0x5 << 17));
 
 	/* wait up to 1 second for link to come up */
 	for (i = 0; i < 10 && !eth_port_link_is_up(port_num); i++)
@@ -1845,41 +1837,47 @@ static void eth_port_init(struct mv643xx_private *mp)
  */
 static void eth_port_start(struct mv643xx_private *mp)
 {
-	unsigned int eth_port_num = mp->port_num;
+	unsigned int port_num = mp->port_num;
 	int tx_curr_desc, rx_curr_desc;
 
 	/* Assignment of Tx CTRP of given queue */
 	tx_curr_desc = mp->tx_curr_desc_q;
-	mv_write(MV643XX_ETH_TX_CURRENT_QUEUE_DESC_PTR_0(eth_port_num),
+	mv_write(MV643XX_ETH_TX_CURRENT_QUEUE_DESC_PTR_0(port_num),
 		(u32)((struct eth_tx_desc *)mp->tx_desc_dma + tx_curr_desc));
 
 	/* Assignment of Rx CRDP of given queue */
 	rx_curr_desc = mp->rx_curr_desc_q;
-	mv_write(MV643XX_ETH_RX_CURRENT_QUEUE_DESC_PTR_0(eth_port_num),
+	mv_write(MV643XX_ETH_RX_CURRENT_QUEUE_DESC_PTR_0(port_num),
 		(u32)((struct eth_rx_desc *)mp->rx_desc_dma + rx_curr_desc));
 
 	/* Add the assigned Ethernet address to the port's address table */
-	eth_port_uc_addr_set(mp->port_num, mp->port_mac_addr);
+	eth_port_uc_addr_set(port_num, mp->port_mac_addr);
 
 	/* Assign port configuration and command. */
-	mv_write(MV643XX_ETH_PORT_CONFIG_REG(eth_port_num), mp->port_config);
+	mv_write(MV643XX_ETH_PORT_CONFIG_REG(port_num), mp->port_config);
 
-	mv_write(MV643XX_ETH_PORT_CONFIG_EXTEND_REG(eth_port_num),
+	mv_write(MV643XX_ETH_PORT_CONFIG_EXTEND_REG(port_num),
 						mp->port_config_extend);
 
-	mv_write(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(eth_port_num),
+
+	/* Increase the Rx side buffer size if supporting GigE */
+	if (mp->port_serial_control & MV643XX_ETH_SET_GMII_SPEED_TO_1000)
+		mv_write(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(port_num),
+			(mp->port_serial_control & 0xfff1ffff) | (0x5 << 17));
+	else
+		mv_write(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(port_num),
 						mp->port_serial_control);
 
-	mv_write(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(eth_port_num),
-		mv_read(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(eth_port_num)) |
+	mv_write(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(port_num),
+		mv_read(MV643XX_ETH_PORT_SERIAL_CONTROL_REG(port_num)) |
 						MV643XX_ETH_SERIAL_PORT_ENABLE);
 
 	/* Assign port SDMA configuration */
-	mv_write(MV643XX_ETH_SDMA_CONFIG_REG(eth_port_num),
+	mv_write(MV643XX_ETH_SDMA_CONFIG_REG(port_num),
 							mp->port_sdma_config);
 
 	/* Enable port Rx. */
-	mv_write(MV643XX_ETH_RECEIVE_QUEUE_COMMAND_REG(eth_port_num),
+	mv_write(MV643XX_ETH_RECEIVE_QUEUE_COMMAND_REG(port_num),
 						mp->port_rx_queue_command);
 }
 
