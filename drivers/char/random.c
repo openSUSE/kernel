@@ -1587,7 +1587,6 @@ void rand_initialize_disk(struct gendisk *disk)
 static ssize_t
 random_read(struct file * file, char __user * buf, size_t nbytes, loff_t *ppos)
 {
-	DECLARE_WAITQUEUE(wait, current);
 	ssize_t n, retval = 0, count = 0;
 
 	if (nbytes == 0)
@@ -1613,19 +1612,19 @@ random_read(struct file * file, char __user * buf, size_t nbytes, loff_t *ppos)
 				retval = -EAGAIN;
 				break;
 			}
+
+			DEBUG_ENT("sleeping?\n");
+
+			wait_event_interruptible(random_read_wait,
+				random_state->entropy_count >=
+						 random_read_wakeup_thresh);
+
+			DEBUG_ENT("awake\n");
+
 			if (signal_pending(current)) {
 				retval = -ERESTARTSYS;
 				break;
 			}
-
-			set_current_state(TASK_INTERRUPTIBLE);
-			add_wait_queue(&random_read_wait, &wait);
-
-			if (sec_random_state->entropy_count / 8 == 0)
-				schedule();
-
-			set_current_state(TASK_RUNNING);
-			remove_wait_queue(&random_read_wait, &wait);
 
 			continue;
 		}
