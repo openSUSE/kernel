@@ -22,6 +22,7 @@
 
 #include <sound/driver.h>
 #include <linux/delay.h>
+#include <linux/device.h>
 #include <linux/firmware.h>
 #include <sound/core.h>
 #include <asm/io.h>
