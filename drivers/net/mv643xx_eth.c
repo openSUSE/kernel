@@ -80,6 +80,7 @@ static void eth_port_init_mac_tables(unsigned int eth_port_num);
 #ifdef MV64340_NAPI
 static int mv64340_poll(struct net_device *dev, int *budget);
 #endif
+static void ethernet_phy_set(unsigned int eth_port_num, int phy_addr);
 
 static void __iomem *mv64x60_eth_shared_base;
 
@@ -256,12 +257,12 @@ static void mv64340_eth_set_rx_mode(struct net_device *dev)
 		ethernet_set_config_reg
 		    (mp->port_num,
 		     ethernet_get_config_reg(mp->port_num) |
-		     ETH_UNICAST_PROMISCUOUS_MODE);
+		     MV64340_ETH_UNICAST_PROMISCUOUS_MODE);
 	} else {
 		ethernet_set_config_reg
 		    (mp->port_num,
 		     ethernet_get_config_reg(mp->port_num) &
-		     ~(unsigned int) ETH_UNICAST_PROMISCUOUS_MODE);
+		     ~(unsigned int) MV64340_ETH_UNICAST_PROMISCUOUS_MODE);
 	}
 }
 
@@ -512,8 +513,7 @@ static irqreturn_t mv64340_eth_int_handler(int irq, void *dev_id,
 		/* UDP change : We may need this */
 		if ((eth_int_cause_ext & 0x0000ffff) &&
 		    (mv64340_eth_free_tx_queue(dev, eth_int_cause_ext) == 0) &&
-		    (MV64340_TX_QUEUE_SIZE >
-					mp->tx_ring_skbs + MAX_DESCS_PER_SKB))
+		    (mp->tx_ring_size > mp->tx_ring_skbs + MAX_DESCS_PER_SKB))
                                          netif_wake_queue(dev);
 #ifdef MV64340_NAPI
 	} else {
@@ -833,47 +833,72 @@ static int mv64340_eth_real_open(struct net_device *dev)
 	mp->rx_task_busy = 0;
 	mp->rx_timer_flag = 0;
 
+	/* Allocate RX and TX skb rings */
+	mp->rx_skb = kmalloc(sizeof(*mp->rx_skb)*mp->rx_ring_size, GFP_KERNEL);
+	if (!mp->rx_skb) {
+		printk(KERN_ERR "%s: Cannot allocate Rx skb ring\n", dev->name);
+		return -ENOMEM;
+	}
+	mp->tx_skb = kmalloc(sizeof(*mp->tx_skb)*mp->tx_ring_size, GFP_KERNEL);
+	if (!mp->tx_skb) {
+		printk(KERN_ERR "%s: Cannot allocate Tx skb ring\n", dev->name);
+		kfree(mp->rx_skb);
+		return -ENOMEM;
+	}
+
 	/* Allocate TX ring */
 	mp->tx_ring_skbs = 0;
-	mp->tx_ring_size = MV64340_TX_QUEUE_SIZE;
 	size = mp->tx_ring_size * sizeof(struct eth_tx_desc);
 	mp->tx_desc_area_size = size;
 
-	/* Assumes allocated ring is 16 bytes alligned */
-	mp->p_tx_desc_area = dma_alloc_coherent(NULL, size, &mp->tx_desc_dma,
-								GFP_KERNEL);
+	if (mp->tx_sram_size) {
+		mp->p_tx_desc_area = ioremap(mp->tx_sram_addr,
+							mp->tx_sram_size);
+		mp->tx_desc_dma = mp->tx_sram_addr;
+	} else
+		mp->p_tx_desc_area = dma_alloc_coherent(NULL, size,
+						&mp->tx_desc_dma, GFP_KERNEL);
+
 	if (!mp->p_tx_desc_area) {
 		printk(KERN_ERR "%s: Cannot allocate Tx Ring (size %d bytes)\n",
 		       dev->name, size);
+		kfree(mp->rx_skb);
+		kfree(mp->tx_skb);
 		return -ENOMEM;
 	}
+	BUG_ON((u32)mp->p_tx_desc_area & 0xf);	/* check 16-byte alignment */
 	memset((void *) mp->p_tx_desc_area, 0, mp->tx_desc_area_size);
 
-	/* Dummy will be replaced upon real tx */
 	ether_init_tx_desc_ring(mp);
 
 	/* Allocate RX ring */
-	/* Meantime RX Ring are fixed - but must be configurable by user */
-	mp->rx_ring_size = MV64340_RX_QUEUE_SIZE;
 	mp->rx_ring_skbs = 0;
 	size = mp->rx_ring_size * sizeof(struct eth_rx_desc);
 	mp->rx_desc_area_size = size;
 
-	/* Assumes allocated ring is 16 bytes aligned */
-
-	mp->p_rx_desc_area = dma_alloc_coherent(NULL, size, &mp->rx_desc_dma,
-								GFP_KERNEL);
+	if (mp->rx_sram_size) {
+		mp->p_rx_desc_area = ioremap(mp->rx_sram_addr,
+							mp->rx_sram_size);
+		mp->rx_desc_dma = mp->rx_sram_addr;
+	} else
+		mp->p_rx_desc_area = dma_alloc_coherent(NULL, size,
+						&mp->rx_desc_dma, GFP_KERNEL);
 
 	if (!mp->p_rx_desc_area) {
 		printk(KERN_ERR "%s: Cannot allocate Rx ring (size %d bytes)\n",
 		       dev->name, size);
 		printk(KERN_ERR "%s: Freeing previously allocated TX queues...",
 		       dev->name);
-		dma_free_coherent(NULL, mp->tx_desc_area_size,
+		if (mp->rx_sram_size)
+			iounmap(mp->p_rx_desc_area);
+		else
+			dma_free_coherent(NULL, mp->tx_desc_area_size,
 				    mp->p_tx_desc_area, mp->tx_desc_dma);
+		kfree(mp->rx_skb);
+		kfree(mp->tx_skb);
 		return -ENOMEM;
 	}
-	memset(mp->p_rx_desc_area, 0, size);
+	memset((void *)mp->p_rx_desc_area, 0, size);
 
 	ether_init_rx_desc_ring(mp);
 
@@ -918,11 +943,9 @@ static void mv64340_eth_free_tx_rings(struct net_device *dev)
 	MV_WRITE(MV64340_ETH_TRANSMIT_QUEUE_COMMAND_REG(port_num),
 		 0x0000ff00);
 
-	/* Free TX rings */
+
 	/* Free outstanding skb's on TX rings */
-	for (curr = 0;
-	     (mp->tx_ring_skbs) && (curr < MV64340_TX_QUEUE_SIZE);
-	     curr++) {
+	for (curr = 0; mp->tx_ring_skbs && curr < mp->tx_ring_size; curr++) {
 		if (mp->tx_skb[curr]) {
 			dev_kfree_skb(mp->tx_skb[curr]);
 			mp->tx_ring_skbs--;
@@ -932,7 +955,12 @@ static void mv64340_eth_free_tx_rings(struct net_device *dev)
 		printk("%s: Error on Tx descriptor free - could not free %d"
 		     " descriptors\n", dev->name,
 		     mp->tx_ring_skbs);
-	dma_free_coherent(0, mp->tx_desc_area_size,
+
+	/* Free TX ring */
+	if (mp->tx_sram_size)
+		iounmap(mp->p_tx_desc_area);
+	else
+		dma_free_coherent(NULL, mp->tx_desc_area_size,
 			    mp->p_tx_desc_area, mp->tx_desc_dma);
 }
 
@@ -946,11 +974,8 @@ static void mv64340_eth_free_rx_rings(struct net_device *dev)
 	MV_WRITE(MV64340_ETH_RECEIVE_QUEUE_COMMAND_REG(port_num),
 		 0x0000ff00);
 
-	/* Free RX rings */
 	/* Free preallocated skb's on RX rings */
-	for (curr = 0;
-		mp->rx_ring_skbs && (curr < MV64340_RX_QUEUE_SIZE);
-		curr++) {
+	for (curr = 0; mp->rx_ring_skbs && curr < mp->rx_ring_size; curr++) {
 		if (mp->rx_skb[curr]) {
 			dev_kfree_skb(mp->rx_skb[curr]);
 			mp->rx_ring_skbs--;
@@ -962,7 +987,11 @@ static void mv64340_eth_free_rx_rings(struct net_device *dev)
 		       "%s: Error in freeing Rx Ring. %d skb's still"
 		       " stuck in RX Ring - ignoring them\n", dev->name,
 		       mp->rx_ring_skbs);
-	dma_free_coherent(NULL, mp->rx_desc_area_size,
+	/* Free RX ring */
+	if (mp->rx_sram_size)
+		iounmap(mp->p_rx_desc_area);
+	else
+		dma_free_coherent(NULL, mp->rx_desc_area_size,
 			    mp->p_rx_desc_area, mp->rx_desc_dma);
 }
 
@@ -1042,8 +1071,8 @@ static void mv64340_tx(struct net_device *dev)
 	}
 
 	if (netif_queue_stopped(dev) &&
-            MV64340_TX_QUEUE_SIZE > mp->tx_ring_skbs + MAX_DESCS_PER_SKB)
-                       netif_wake_queue(dev);
+			mp->tx_ring_size > mp->tx_ring_skbs + MAX_DESCS_PER_SKB)
+		netif_wake_queue(dev);
 }
 
 /*
@@ -1122,8 +1151,8 @@ static int mv64340_eth_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	/* This is a hard error, log it. */
-	if ((MV64340_TX_QUEUE_SIZE - mp->tx_ring_skbs) <=
-	    (skb_shinfo(skb)->nr_frags + 1)) {
+	if ((mp->tx_ring_size - mp->tx_ring_skbs) <=
+					(skb_shinfo(skb)->nr_frags + 1)) {
 		netif_stop_queue(dev);
 		printk(KERN_ERR
 		       "%s: Bug in mv64340_eth - Trying to transmit when"
@@ -1134,6 +1163,7 @@ static int mv64340_eth_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	/* Paranoid check - this shouldn't happen */
 	if (skb == NULL) {
 		stats->tx_dropped++;
+		printk(KERN_ERR "mv64320_eth paranoid check failed\n");
 		return 1;
 	}
 
@@ -1283,7 +1313,7 @@ linear:
 	/* Check if TX queue can handle another skb. If not, then
 	 * signal higher layers to stop requesting TX
 	 */
-	if (MV64340_TX_QUEUE_SIZE <= (mp->tx_ring_skbs + MAX_DESCS_PER_SKB))
+	if (mp->tx_ring_size <= (mp->tx_ring_skbs + MAX_DESCS_PER_SKB))
 		/* 
 		 * Stop getting skb's from upper layers.
 		 * Getting skb's from upper layers will be enabled again after
@@ -1327,7 +1357,7 @@ static struct net_device_stats *mv64340_eth_get_stats(struct net_device *dev)
  * and set the MAC address of the interface
  *
  * Input : struct device *
- * Output : -ENOMEM or -ENODEV if failed , 0 if success
+ * Output : -ENOMEM if failed , 0 if success
  */
 static int mv64340_eth_probe(struct device *ddev)
 {
@@ -1348,12 +1378,9 @@ static int mv64340_eth_probe(struct device *ddev)
 
 	mp = netdev_priv(dev);
 
-	if ((res = platform_get_resource(pdev, IORESOURCE_IRQ, 0)))
-		dev->irq = res->start;
-	else {
-		err = -ENODEV;
-		goto out;
-	}
+	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
+	BUG_ON(!res);
+	dev->irq = res->start;
 
 	mp->port_num = port_num;
 
@@ -1372,7 +1399,7 @@ static int mv64340_eth_probe(struct device *ddev)
 #endif
 
 	dev->watchdog_timeo = 2 * HZ;
-	dev->tx_queue_len = MV64340_TX_QUEUE_SIZE;
+	dev->tx_queue_len = mp->tx_ring_size;
 	dev->base_addr = 0;
 	dev->change_mtu = mv64340_eth_change_mtu;
 
@@ -1397,10 +1424,48 @@ static int mv64340_eth_probe(struct device *ddev)
 	
 	/* set default config values */
 	eth_port_uc_addr_get(dev, dev->dev_addr);
+	mp->port_config = MV64340_ETH_PORT_CONFIG_DEFAULT_VALUE;
+	mp->port_config_extend = MV64340_ETH_PORT_CONFIG_EXTEND_DEFAULT_VALUE;
+	mp->port_sdma_config = MV64340_ETH_PORT_SDMA_CONFIG_DEFAULT_VALUE;
+	mp->port_serial_control = MV64340_ETH_PORT_SERIAL_CONTROL_DEFAULT_VALUE;
+	mp->rx_ring_size = MV64340_ETH_PORT_DEFAULT_RECEIVE_QUEUE_SIZE;
+	mp->tx_ring_size = MV64340_ETH_PORT_DEFAULT_TRANSMIT_QUEUE_SIZE;
+
 	pd = pdev->dev.platform_data;
 	if (pd) {
 		if (pd->mac_addr != NULL)
 			memcpy(dev->dev_addr, pd->mac_addr, 6);
+
+		if (pd->phy_addr || pd->force_phy_addr)
+			ethernet_phy_set(port_num, pd->phy_addr);
+
+		if (pd->port_config || pd->force_port_config)
+			mp->port_config = pd->port_config;
+
+		if (pd->port_config_extend || pd->force_port_config_extend)
+			mp->port_config_extend = pd->port_config_extend;
+
+		if (pd->port_sdma_config || pd->force_port_sdma_config)
+			mp->port_sdma_config = pd->port_sdma_config;
+
+		if (pd->port_serial_control || pd->force_port_serial_control)
+			mp->port_serial_control = pd->port_serial_control;
+
+		if (pd->rx_queue_size)
+			mp->rx_ring_size = pd->rx_queue_size;
+
+		if (pd->tx_queue_size)
+			mp->tx_ring_size = pd->tx_queue_size;
+
+		if (pd->tx_sram_size) {
+			mp->tx_sram_size = pd->tx_sram_size;
+			mp->tx_sram_addr = pd->tx_sram_addr;
+		}
+
+		if (pd->rx_sram_size) {
+			mp->rx_sram_size = pd->rx_sram_size;
+			mp->rx_sram_addr = pd->rx_sram_addr;
+		}
 	}
 
 	err = register_netdev(dev);
@@ -1413,7 +1478,7 @@ static int mv64340_eth_probe(struct device *ddev)
 		dev->name, port_num, p[0], p[1], p[2], p[3], p[4], p[5]);
 
 	if (dev->features & NETIF_F_SG)
-		printk(KERN_NOTICE "%s: Scatter Gather Enabled", dev->name);
+		printk(KERN_NOTICE "%s: Scatter Gather Enabled\n", dev->name);
 
 	if (dev->features & NETIF_F_IP_CSUM)
 		printk(KERN_NOTICE "%s: TX TCP/IP Checksumming Supported\n",
@@ -1667,12 +1732,6 @@ MODULE_DESCRIPTION("Ethernet driver for Marvell MV64340");
  *       port_sdma_config      User port SDMA config value.
  *       port_serial_control   User port serial control value.
  *
- *       This driver introduce a set of default values:
- *       PORT_CONFIG_VALUE           Default port configuration value
- *       PORT_CONFIG_EXTEND_VALUE    Default port extend configuration value
- *       PORT_SDMA_CONFIG_VALUE      Default sdma control value
- *       PORT_SERIAL_CONTROL_VALUE   Default port serial control value
- *
  *		This driver data flow is done using the struct pkt_info which
  *              is a unified struct for Rx and Tx operations:
  *
@@ -1693,6 +1752,7 @@ MODULE_DESCRIPTION("Ethernet driver for Marvell MV64340");
 
 /* PHY routines */
 static int ethernet_phy_get(unsigned int eth_port_num);
+static void ethernet_phy_set(unsigned int eth_port_num, int phy_addr);
 
 /* Ethernet Port routines */
 static int eth_port_uc_addr(unsigned int eth_port_num, unsigned char uc_nibble,
@@ -1724,18 +1784,6 @@ static int eth_port_uc_addr(unsigned int eth_port_num, unsigned char uc_nibble,
  */
 static void eth_port_init(struct mv64340_private * mp)
 {
-	mp->port_config = PORT_CONFIG_VALUE;
-	mp->port_config_extend = PORT_CONFIG_EXTEND_VALUE;
-#if defined(__BIG_ENDIAN)
-	mp->port_sdma_config = PORT_SDMA_CONFIG_VALUE;
-#elif defined(__LITTLE_ENDIAN)
-	mp->port_sdma_config = PORT_SDMA_CONFIG_VALUE |
-		ETH_BLM_RX_NO_SWAP | ETH_BLM_TX_NO_SWAP;
-#else
-#error One of __LITTLE_ENDIAN or __BIG_ENDIAN must be defined!
-#endif
-	mp->port_serial_control = PORT_SERIAL_CONTROL_VALUE;
-
 	mp->port_rx_queue_command = 0;
 	mp->port_tx_queue_command = 0;
 
@@ -1808,7 +1856,7 @@ static int eth_port_start(struct mv64340_private *mp)
 
 	MV_WRITE(MV64340_ETH_PORT_SERIAL_CONTROL_REG(eth_port_num),
 		MV_READ(MV64340_ETH_PORT_SERIAL_CONTROL_REG(eth_port_num)) |
-						ETH_SERIAL_PORT_ENABLE);
+						MV64340_ETH_SERIAL_PORT_ENABLE);
 
 	/* Assign port SDMA configuration */
 	MV_WRITE(MV64340_ETH_SDMA_CONFIG_REG(eth_port_num),
@@ -2058,6 +2106,34 @@ static int ethernet_phy_get(unsigned int eth_port_num)
 }
 
 /*
+ * ethernet_phy_set - Set the ethernet port PHY address.
+ *
+ * DESCRIPTION:
+ *       This routine sets the given ethernet port PHY address.
+ *
+ * INPUT:
+ *	unsigned int	eth_port_num	Ethernet Port number.
+ *	int		phy_addr	PHY address.
+ *
+ * OUTPUT:
+ *       None.
+ *
+ * RETURN:
+ *       None.
+ *
+ */
+static void ethernet_phy_set(unsigned int eth_port_num, int phy_addr)
+{
+	u32 reg_data;
+	int addr_shift = 5 * eth_port_num;
+
+	reg_data = MV_READ(MV64340_ETH_PHY_ADDR_REG);
+	reg_data &= ~(0x1f << addr_shift);
+	reg_data |= (phy_addr & 0x1f) << addr_shift;
+	MV_WRITE(MV64340_ETH_PHY_ADDR_REG, reg_data);
+}
+
+/*
  * ethernet_phy_reset - Reset Ethernet port PHY.
  *
  * DESCRIPTION:
@@ -2141,7 +2217,7 @@ static void eth_port_reset(unsigned int port_num)
 
 	/* Reset the Enable bit in the Configuration Register */
 	reg_data = MV_READ(MV64340_ETH_PORT_SERIAL_CONTROL_REG(port_num));
-	reg_data &= ~ETH_SERIAL_PORT_ENABLE;
+	reg_data &= ~MV64340_ETH_SERIAL_PORT_ENABLE;
 	MV_WRITE(MV64340_ETH_PORT_SERIAL_CONTROL_REG(port_num), reg_data);
 }
 
@@ -2366,7 +2442,7 @@ static ETH_FUNC_RET_STATUS eth_port_send(struct mv64340_private * mp,
 
 	current_descriptor = &mp->p_tx_desc_area[tx_desc_curr];
 
-	tx_next_desc = (tx_desc_curr + 1) % MV64340_TX_QUEUE_SIZE;
+	tx_next_desc = (tx_desc_curr + 1) % mp->tx_ring_size;
 
         current_descriptor->buf_ptr = p_pkt_info->buf_ptr;
         current_descriptor->byte_cnt = p_pkt_info->byte_cnt;
@@ -2448,7 +2524,7 @@ static ETH_FUNC_RET_STATUS eth_port_send(struct mv64340_private * mp,
 	ETH_ENABLE_TX_QUEUE(mp->port_num);
 
 	/* Finish Tx packet. Update first desc in case of Tx resource error */
-	tx_desc_curr = (tx_desc_curr + 1) % MV64340_TX_QUEUE_SIZE;
+	tx_desc_curr = (tx_desc_curr + 1) % mp->tx_ring_size;
 
 	/* Update the current descriptor */
  	mp->tx_curr_desc_q = tx_desc_curr;
@@ -2524,7 +2600,7 @@ static ETH_FUNC_RET_STATUS eth_tx_return_desc(struct mv64340_private * mp,
 	mp->tx_skb[tx_desc_used] = NULL;
 
 	/* Update the next descriptor to release. */
-	mp->tx_used_desc_q = (tx_desc_used + 1) % MV64340_TX_QUEUE_SIZE;
+	mp->tx_used_desc_q = (tx_desc_used + 1) % mp->tx_ring_size;
 
 	/* Any Tx return cancels the Tx resource error status */
 	mp->tx_resource_err = 0;
@@ -2591,7 +2667,7 @@ static ETH_FUNC_RET_STATUS eth_port_receive(struct mv64340_private * mp,
 	mp->rx_skb[rx_curr_desc] = NULL;
 
 	/* Update current index in data structure */
-	rx_next_curr_desc = (rx_curr_desc + 1) % MV64340_RX_QUEUE_SIZE;
+	rx_next_curr_desc = (rx_curr_desc + 1) % mp->rx_ring_size;
 	mp->rx_curr_desc_q = rx_next_curr_desc;
 
 	/* Rx descriptors exhausted. Set the Rx ring resource error flag */
@@ -2644,7 +2720,7 @@ static ETH_FUNC_RET_STATUS eth_rx_return_buff(struct mv64340_private * mp,
 	wmb();
 
 	/* Move the used descriptor pointer to the next descriptor */
-	mp->rx_used_desc_q = (used_rx_desc + 1) % MV64340_RX_QUEUE_SIZE;
+	mp->rx_used_desc_q = (used_rx_desc + 1) % mp->rx_ring_size;
 
 	/* Any Rx return cancels the Rx resource error status */
 	mp->rx_resource_err = 0;
