@@ -161,7 +161,7 @@ static void mk712_close(struct input_dev *dev)
 
 static struct input_dev mk712_dev = {
 	.evbit   = { BIT(EV_KEY) | BIT(EV_ABS) },
-	.keybit  = { [LONG(BTN_LEFT)] = BIT(BTN_TOUCH) },
+	.keybit  = { [LONG(BTN_TOUCH)] = BIT(BTN_TOUCH) },
 	.absbit  = { BIT(ABS_X) | BIT(ABS_Y) },
 	.open    = mk712_open,
 	.close   = mk712_close,
