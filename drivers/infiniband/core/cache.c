@@ -114,7 +114,7 @@ int ib_find_cached_gid(struct ib_device *device,
 		cache = device->cache.gid_cache[p];
 		for (i = 0; i < cache->table_len; ++i) {
 			if (!memcmp(gid, &cache->table[i], sizeof *gid)) {
-				*port_num = p;
+				*port_num = p + start_port(device);
 				if (index)
 					*index = i;
 				ret = 0;
