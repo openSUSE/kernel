@@ -47,6 +47,15 @@ static inline void eth_copy_and_sum (struct sk_buff *dest,
 }
 
 /**
+ * is_zero_ether_addr - Determine if give Ethernet address is all
+ * zeros.
+ */
+static inline int is_zero_ether_addr(const u8 *addr)
+{
+	return !(addr[0] | addr[1] | addr[2] | addr[3] | addr[4] | addr[5]);
+}
+
+/**
  * is_valid_ether_addr - Determine if the given Ethernet address is valid
  * @addr: Pointer to a six-byte array containing the Ethernet address
  *
@@ -56,11 +65,9 @@ static inline void eth_copy_and_sum (struct sk_buff *dest,
  *
  * Return true if the address is valid.
  */
-static inline int is_valid_ether_addr( const u8 *addr )
+static inline int is_valid_ether_addr(const u8 *addr)
 {
-	const char zaddr[6] = {0,};
-
-	return !(addr[0]&1) && memcmp( addr, zaddr, 6);
+	return !(addr[0]&1) && !is_zero_ether_addr(addr);
 }
 
 /**
