@@ -393,6 +393,29 @@
  *	  in the rx_dropped statistics.
  *	o Provided a module parameter to suppress linkstatus messages.
  *
+ * v0.13e -> v0.14alpha1 - 30 Sep 2003 - David Gibson
+ *	o Replaced priv->connected logic with netif_carrier_on/off()
+ *	  calls.
+ *	o Remove has_ibss_any and never set the CREATEIBSS RID when
+ *	  the ESSID is empty.  Too many firmwares break if we do.
+ *	o 2.6 merges: Replace pdev->slot_name with pci_name(), remove
+ *	  __devinitdata from PCI ID tables, use free_netdev().
+ *	o Enabled shared-key authentication for Agere firmware (from
+ *	  Robert J. Moore <Robert.J.Moore AT allanbank.com>
+ *	o Move netif_wake_queue() (back) to the Tx completion from the
+ *	  ALLOC event.  This seems to prevent/mitigate the rolling
+ *	  error -110 problems at least on some Intersil firmwares.
+ *	  Theoretically reduces performance, but I can't measure it.
+ *	  Patch from Andrew Tridgell <tridge AT samba.org>
+ *
+ * v0.14alpha1 -> v0.14alpha2 - 20 Oct 2003 - David Gibson
+ *	o Correctly turn off shared-key authentication when requested
+ *	  (bugfix from Robert J. Moore).
+ *	o Correct airport sleep interfaces for current 2.6 kernels.
+ *	o Add code for key change without disabling/enabling the MAC
+ *	  port.  This is supposed to allow 802.1x to work sanely, but
+ *	  doesn't seem to yet.
+ *
  * TODO
  *	o New wireless extensions API (patch from Moustafa
  *	  Youssef, updated by Jim Carter and Pavel Roskin).
