@@ -463,18 +463,20 @@ static int fat_write_inode(struct inode *inode, int wait)
 	struct buffer_head *bh;
 	struct msdos_dir_entry *raw_entry;
 	loff_t i_pos;
+	int err = 0;
 
 retry:
 	i_pos = MSDOS_I(inode)->i_pos;
-	if (inode->i_ino == MSDOS_ROOT_INO || !i_pos) {
+	if (inode->i_ino == MSDOS_ROOT_INO || !i_pos)
 		return 0;
-	}
+
 	lock_kernel();
-	if (!(bh = sb_bread(sb, i_pos >> sbi->dir_per_block_bits))) {
+	bh = sb_bread(sb, i_pos >> sbi->dir_per_block_bits);
+	if (!bh) {
 		printk(KERN_ERR "FAT: unable to read inode block "
 		       "for updating (i_pos %lld)\n", i_pos);
-		unlock_kernel();
-		return -EIO;
+		err = -EIO;
+		goto out;
 	}
 	spin_lock(&sbi->inode_hash_lock);
 	if (i_pos != MSDOS_I(inode)->i_pos) {
@@ -502,11 +504,11 @@ retry:
 	spin_unlock(&sbi->inode_hash_lock);
 	mark_buffer_dirty(bh);
 	if (wait)
-		sync_dirty_buffer(bh);
+		err = sync_dirty_buffer(bh);
 	brelse(bh);
+out:
 	unlock_kernel();
-
-	return 0;
+	return err;
 }
 
 int fat_sync_inode(struct inode *inode)
