@@ -1580,21 +1580,26 @@ static int __orinoco_program_rids(struct net_device *dev)
 	}
 
 	if (priv->has_ibss) {
-		err = hermes_write_wordrec(hw, USER_BAP,
-					   HERMES_RID_CNFCREATEIBSS,
-					   priv->createibss);
-		if (err) {
-			printk(KERN_ERR "%s: Error %d setting CREATEIBSS\n", dev->name, err);
-			return err;
-		}
+		u16 createibss;
 
-		if ((strlen(priv->desired_essid) == 0) && (priv->createibss)
-		   && (!priv->has_ibss_any)) {
+		if ((strlen(priv->desired_essid) == 0) && (priv->createibss)) {
 			printk(KERN_WARNING "%s: This firmware requires an "
 			       "ESSID in IBSS-Ad-Hoc mode.\n", dev->name);
 			/* With wvlan_cs, in this case, we would crash.
 			 * hopefully, this driver will behave better...
 			 * Jean II */
+			createibss = 0;
+		} else {
+			createibss = priv->createibss;
+		}
+		
+		err = hermes_write_wordrec(hw, USER_BAP,
+					   HERMES_RID_CNFCREATEIBSS,
+					   createibss);
+		if (err) {
+			printk(KERN_ERR "%s: Error %d setting CREATEIBSS\n",
+			       dev->name, err);
+			return err;
 		}
 	}
 
@@ -2073,7 +2078,6 @@ static void determine_firmware(struct net_device *dev)
 	priv->has_preamble = 0;
 	priv->has_port3 = 1;
 	priv->has_ibss = 1;
-	priv->has_ibss_any = 0;
 	priv->has_wep = 0;
 	priv->has_big_wep = 0;
 
@@ -2089,7 +2093,6 @@ static void determine_firmware(struct net_device *dev)
 		firmver = ((unsigned long)sta_id.major << 16) | sta_id.minor;
 
 		priv->has_ibss = (firmver >= 0x60006);
-		priv->has_ibss_any = (firmver >= 0x60010);
 		priv->has_wep = (firmver >= 0x40020);
 		priv->has_big_wep = 1; /* FIXME: this is wrong - how do we tell
 					  Gold cards from the others? */

@@ -57,7 +57,7 @@ struct orinoco_private {
 #define FIRMWARE_TYPE_AGERE 1
 #define FIRMWARE_TYPE_INTERSIL 2
 #define FIRMWARE_TYPE_SYMBOL 3
-	int has_ibss, has_port3, has_ibss_any, ibss_port;
+	int has_ibss, has_port3, ibss_port;
 	int has_wep, has_big_wep;
 	int has_mwo;
 	int has_pm;
