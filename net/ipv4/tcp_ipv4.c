@@ -1866,7 +1866,7 @@ static int tcp_v4_reselect_saddr(struct sock *sk)
 
 	/* Query new route. */
 	err = ip_route_connect(&rt, daddr, 0,
-			       RT_TOS(inet->tos) | sk->sk_localroute,
+			       RT_CONN_FLAGS(sk),
 			       sk->sk_bound_dev_if,
 			       IPPROTO_TCP,
 			       inet->sport, inet->dport, sk);

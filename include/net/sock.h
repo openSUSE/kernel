@@ -147,7 +147,6 @@ struct sock_common {
   *	@sk_max_ack_backlog - listen backlog set in listen()
   *	@sk_priority - %SO_PRIORITY setting
   *	@sk_type - socket type (%SOCK_STREAM, etc)
-  *	@sk_localroute - route locally only, %SO_DONTROUTE setting
   *	@sk_protocol - which protocol this socket belongs in this network family
   *	@sk_peercred - %SO_PEERCRED setting
   *	@sk_rcvlowat - %SO_RCVLOWAT setting
@@ -226,7 +225,6 @@ struct sock {
 	unsigned short		sk_max_ack_backlog;
 	__u32			sk_priority;
 	unsigned short		sk_type;
-	unsigned char		sk_localroute;
 	unsigned char		sk_protocol;
 	struct ucred		sk_peercred;
 	int			sk_rcvlowat;
@@ -386,6 +384,7 @@ enum sock_flags {
 	SOCK_DBG, /* %SO_DEBUG setting */
 	SOCK_RCVTSTAMP, /* %SO_TIMESTAMP setting */
 	SOCK_NO_LARGESEND, /* whether to sent large segments or not */
+	SOCK_LOCALROUTE, /* route locally only, %SO_DONTROUTE setting */
 };
 
 static inline void sock_set_flag(struct sock *sk, enum sock_flags flag)

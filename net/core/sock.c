@@ -241,7 +241,10 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 			ret = -ENOPROTOOPT;
 		  	break;
 		case SO_DONTROUTE:
-			sk->sk_localroute = valbool;
+			if (valbool)
+				sock_set_flag(sk, SOCK_LOCALROUTE);
+			else
+				sock_reset_flag(sk, SOCK_LOCALROUTE);
 			break;
 		case SO_BROADCAST:
 			sock_valbool_flag(sk, SOCK_BROADCAST, valbool);
@@ -474,7 +477,7 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
 			break;
 		
 		case SO_DONTROUTE:
-			v.val = sk->sk_localroute;
+			v.val = sock_flag(sk, SOCK_LOCALROUTE);
 			break;
 		
 		case SO_BROADCAST:
