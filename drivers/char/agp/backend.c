@@ -50,6 +50,9 @@ static struct agp_version agp_current_version =
 	.minor = AGPGART_VERSION_MINOR,
 };
 
+struct agp_bridge_data *(*agp_find_bridge)(struct pci_dev *) =
+	&agp_generic_find_bridge;
+
 struct agp_bridge_data *agp_bridge;
 LIST_HEAD(agp_bridges);
 EXPORT_SYMBOL(agp_bridge);
@@ -63,7 +66,7 @@ struct agp_bridge_data *agp_backend_acquire(struct pci_dev *pdev)
 {
 	struct agp_bridge_data *bridge;
 
-	bridge = agp_generic_find_bridge(pdev);
+	bridge = agp_find_bridge(pdev);
 
 	if (!bridge)
 		return NULL;

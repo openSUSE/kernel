@@ -94,6 +94,8 @@ struct agp_memory {
 extern struct agp_bridge_data *agp_bridge;
 extern struct list_head agp_bridges;
 
+extern struct agp_bridge_data *(*agp_find_bridge)(struct pci_dev *);
+
 extern void agp_free_memory(struct agp_memory *);
 extern struct agp_memory *agp_allocate_memory(struct agp_bridge_data *, size_t, u32);
 extern int agp_copy_info(struct agp_bridge_data *, struct agp_kern_info *);
