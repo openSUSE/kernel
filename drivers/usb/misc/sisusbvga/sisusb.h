@@ -54,7 +54,7 @@
 
 /* USB related */
 
-#define SISUSB_MINOR	64		/* FIXME */
+#define SISUSB_MINOR	133		/* FIXME */
 
 /* Size of the sisusb input/output buffers */
 #define SISUSB_IBUF_SIZE  0x01000
