@@ -1,7 +1,7 @@
 /*
  * intelfb
  *
- * Linux framebuffer driver for Intel(R) 830M/845G/852GM/855GM/865G
+ * Linux framebuffer driver for Intel(R) 830M/845G/852GM/855GM/865G/915G
  * integrated graphics chips.
  *
  * Copyright © 2002, 2003 David Dawes <dawes@xfree86.org>
@@ -153,6 +153,7 @@ static struct pci_device_id intelfb_pci_table[] __devinitdata = {
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_845G, PCI_ANY_ID, PCI_ANY_ID, PCI_CLASS_DISPLAY_VGA << 8, INTELFB_CLASS_MASK, INTEL_845G },
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_85XGM, PCI_ANY_ID, PCI_ANY_ID, PCI_CLASS_DISPLAY_VGA << 8, INTELFB_CLASS_MASK, INTEL_85XGM },
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_865G, PCI_ANY_ID, PCI_ANY_ID, PCI_CLASS_DISPLAY_VGA << 8, INTELFB_CLASS_MASK, INTEL_865G },
+	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_915G, PCI_ANY_ID, PCI_ANY_ID, PCI_CLASS_DISPLAY_VGA << 8, INTELFB_CLASS_MASK, INTEL_915G },
 	{ 0, }
 };
 
@@ -471,6 +472,8 @@ intelfb_pci_register(struct pci_dev *pdev, const struct pci_device_id *ent)
 	int agp_memtype;
 	const char *s;
 	struct agp_bridge_data *bridge;
+ 	int aperture_bar = 0;
+ 	int mmio_bar = 1;
 
 	DBG_MSG("intelfb_pci_register\n");
 
@@ -517,13 +520,20 @@ intelfb_pci_register(struct pci_dev *pdev, const struct pci_device_id *ent)
 	}
 
 	/* Set base addresses. */
-	dinfo->aperture.physical = pci_resource_start(pdev, 0);
-	dinfo->aperture.size     = pci_resource_len(pdev, 0);
-	dinfo->mmio_base_phys    = pci_resource_start(pdev, 1);
-
-	DBG_MSG("fb aperture: 0x%lx/0x%lx, MMIO region: 0x%lx/0x%lx\n",
-		pci_resource_start(pdev, 0), pci_resource_len(pdev, 0),
-		pci_resource_start(pdev, 1), pci_resource_len(pdev, 1));
+	if (ent->device == PCI_DEVICE_ID_INTEL_915G) {
+		aperture_bar = 2;
+		mmio_bar = 0;
+		/* Disable HW cursor on 915G (not implemented yet) */
+		hwcursor = 0;
+	}
+	dinfo->aperture.physical = pci_resource_start(pdev, aperture_bar);
+	dinfo->aperture.size     = pci_resource_len(pdev, aperture_bar);
+	dinfo->mmio_base_phys    = pci_resource_start(pdev, mmio_bar);
+	DBG_MSG("fb aperture: 0x%llx/0x%llx, MMIO region: 0x%llx/0x%llx\n",
+		(unsigned long long)pci_resource_start(pdev, aperture_bar),
+		(unsigned long long)pci_resource_len(pdev, aperture_bar),
+		(unsigned long long)pci_resource_start(pdev, mmio_bar),
+		(unsigned long long)pci_resource_len(pdev, mmio_bar));
 
 	/* Reserve the fb and MMIO regions */
 	if (!request_mem_region(dinfo->aperture.physical, dinfo->aperture.size,
@@ -990,13 +1000,15 @@ intelfb_init_var(struct intelfb_info *dinfo)
 	} else {
 		if (mode) {
 			msrc = fb_find_mode(var, dinfo->info, mode,
-					    NULL, 0, NULL, 0);
+					    vesa_modes, VESA_MODEDB_SIZE,
+					    NULL, 0);
 			if (msrc)
 				msrc |= 8;
 		}
 		if (!msrc) {
 			msrc = fb_find_mode(var, dinfo->info, PREFERRED_MODE,
-					    NULL, 0, NULL, 0);
+					    vesa_modes, VESA_MODEDB_SIZE,
+					    NULL, 0);
 		}
 	}
 
