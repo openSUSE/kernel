@@ -740,6 +740,11 @@ static inline int copy_signal(unsigned long clone_flags, struct task_struct * ts
 	init_sigpending(&sig->shared_pending);
 	INIT_LIST_HEAD(&sig->posix_timers);
 
+	sig->it_real_value = sig->it_real_incr = 0;
+	sig->real_timer.function = it_real_fn;
+	sig->real_timer.data = (unsigned long) tsk;
+	init_timer(&sig->real_timer);
+
 	sig->tty = current->signal->tty;
 	sig->pgrp = process_group(current);
 	sig->session = current->signal->session;
@@ -870,14 +875,10 @@ static task_t *copy_process(unsigned long clone_flags,
 	clear_tsk_thread_flag(p, TIF_SIGPENDING);
 	init_sigpending(&p->pending);
 
-	p->it_real_value = 0;
-	p->it_real_incr = 0;
 	p->it_virt_value = cputime_zero;
 	p->it_virt_incr = cputime_zero;
 	p->it_prof_value = cputime_zero;
 	p->it_prof_incr = cputime_zero;
-	init_timer(&p->real_timer);
-	p->real_timer.data = (unsigned long) p;
 
 	p->utime = cputime_zero;
 	p->stime = cputime_zero;
