@@ -92,8 +92,10 @@ static int orinoco_tmd_init_one(struct pci_dev *pdev,
 	void __iomem *mem;
 
 	err = pci_enable_device(pdev);
-	if (err)
+	if (err) {
+		printk(KERN_ERR PFX "Cannot enable PCI device\n");
 		return -EIO;
+	}
 
 	printk(KERN_DEBUG PFX "TMD setup\n");
 	pccard_ioaddr = pci_resource_start(pdev, 2);
@@ -117,6 +119,7 @@ static int orinoco_tmd_init_one(struct pci_dev *pdev,
 	/* Allocate network device */
 	dev = alloc_orinocodev(0, NULL);
 	if (! dev) {
+		printk(KERN_ERR PFX "Cannot allocate network device\n");
 		err = -ENOMEM;
 		goto out2;
 	}
@@ -132,26 +135,27 @@ static int orinoco_tmd_init_one(struct pci_dev *pdev,
 	SET_MODULE_OWNER(dev);
 	SET_NETDEV_DEV(dev, &pdev->dev);
 
+	hermes_struct_init(&priv->hw, mem, HERMES_16BIT_REGSPACING);
+	pci_set_drvdata(pdev, dev);
+
 	printk(KERN_DEBUG PFX "Detected Orinoco/Prism2 TMD device "
 	       "at %s irq:%d, io addr:0x%lx\n", pci_name(pdev), pdev->irq,
 	       pccard_ioaddr);
 
-	hermes_struct_init(&(priv->hw), mem, HERMES_16BIT_REGSPACING);
-	pci_set_drvdata(pdev, dev);
-
 	err = request_irq(pdev->irq, orinoco_interrupt, SA_SHIRQ,
 			  dev->name, dev);
 	if (err) {
-		printk(KERN_ERR PFX "Error allocating IRQ %d.\n",
-		       pdev->irq);
+		printk(KERN_ERR PFX "Cannot allocate IRQ %d\n", pdev->irq);
 		err = -EBUSY;
 		goto out4;
 	}
 	dev->irq = pdev->irq;
 
 	err = register_netdev(dev);
-	if (err)
+	if (err) {
+		printk(KERN_ERR PFX "Cannot register network device\n");
 		goto out5;
+	}
 
 	return 0;
 

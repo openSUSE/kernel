@@ -48,6 +48,7 @@
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/net.h>
 #include <asm/errno.h>
 
 #include "hermes.h"
@@ -232,13 +233,16 @@ int hermes_docmd_wait(hermes_t *hw, u16 cmd, u16 parm0,
 	err = hermes_issue_cmd(hw, cmd, parm0);
 	if (err) {
 		if (! hermes_present(hw)) {
-			printk(KERN_WARNING "hermes @ %p: "
-			       "Card removed while issuing command.\n",
-			       hw->iobase);
+			if (net_ratelimit())
+				printk(KERN_WARNING "hermes @ %p: "
+				       "Card removed while issuing command "
+				       "0x%04x.\n", hw->iobase, cmd);
 			err = -ENODEV;
 		} else 
-			printk(KERN_ERR "hermes @ %p: Error %d issuing command.\n",
-			       hw->iobase, err);
+			if (net_ratelimit())
+				printk(KERN_ERR "hermes @ %p: "
+				       "Error %d issuing command 0x%04x.\n",
+				       hw->iobase, err, cmd);
 		goto out;
 	}
 
@@ -251,17 +255,16 @@ int hermes_docmd_wait(hermes_t *hw, u16 cmd, u16 parm0,
 	}
 
 	if (! hermes_present(hw)) {
-		printk(KERN_WARNING "hermes @ %p: "
-		       "Card removed while waiting for command completion.\n",
-		       hw->iobase);
+		printk(KERN_WARNING "hermes @ %p: Card removed "
+		       "while waiting for command 0x%04x completion.\n",
+		       hw->iobase, cmd);
 		err = -ENODEV;
 		goto out;
 	}
 		
 	if (! (reg & HERMES_EV_CMD)) {
-		printk(KERN_ERR "hermes @ %p: "
-		       "Timeout waiting for command completion.\n",
-		       hw->iobase);
+		printk(KERN_ERR "hermes @ %p: Timeout waiting for "
+		       "command 0x%04x completion.\n", hw->iobase, cmd);
 		err = -ETIMEDOUT;
 		goto out;
 	}
@@ -481,14 +484,13 @@ int hermes_read_ltv(hermes_t *hw, int bap, u16 rid, unsigned bufsize,
 		*length = rlength;
 
 	if (rtype != rid)
-		printk(KERN_WARNING "hermes @ %p: "
-		       "hermes_read_ltv(): rid  (0x%04x) does not match type (0x%04x)\n",
-		       hw->iobase, rid, rtype);
+		printk(KERN_WARNING "hermes @ %p: %s(): "
+		       "rid (0x%04x) does not match type (0x%04x)\n",
+		       hw->iobase, __FUNCTION__, rid, rtype);
 	if (HERMES_RECLEN_TO_BYTES(rlength) > bufsize)
 		printk(KERN_WARNING "hermes @ %p: "
 		       "Truncating LTV record from %d to %d bytes. "
-		       "(rid=0x%04x, len=0x%04x)\n",
-		       hw->iobase,
+		       "(rid=0x%04x, len=0x%04x)\n", hw->iobase,
 		       HERMES_RECLEN_TO_BYTES(rlength), bufsize, rid, rlength);
 
 	nwords = min((unsigned)rlength - 1, bufsize / 2);

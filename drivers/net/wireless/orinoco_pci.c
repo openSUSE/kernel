@@ -151,24 +151,18 @@ orinoco_pci_cor_reset(struct orinoco_private *priv)
 
 	/* Assert the reset until the card notice */
 	hermes_write_regn(hw, PCI_COR, HERMES_PCI_COR_MASK);
-	printk(KERN_NOTICE "Reset done");
 	timeout = jiffies + (HERMES_PCI_COR_ONT * HZ / 1000);
 	while(time_before(jiffies, timeout)) {
-		printk(".");
 		mdelay(1);
 	}
-	printk(";\n");
 	//mdelay(HERMES_PCI_COR_ONT);
 
 	/* Give time for the card to recover from this hard effort */
 	hermes_write_regn(hw, PCI_COR, 0x0000);
-	printk(KERN_NOTICE "Clear Reset");
 	timeout = jiffies + (HERMES_PCI_COR_OFFT * HZ / 1000);
 	while(time_before(jiffies, timeout)) {
-		printk(".");
 		mdelay(1);
 	}
-	printk(";\n");
 	//mdelay(HERMES_PCI_COR_OFFT);
 
 	/* The card is ready when it's no longer busy */
@@ -183,7 +177,6 @@ orinoco_pci_cor_reset(struct orinoco_private *priv)
 		printk(KERN_ERR PFX "Busy timeout\n");
 		return -ETIMEDOUT;
 	}
-	printk(KERN_NOTICE "pci_cor : reg = 0x%X - %lX - %lX\n", reg, timeout, jiffies);
 
 	return 0;
 }
@@ -202,15 +195,19 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 	struct net_device *dev = NULL;
 
 	err = pci_enable_device(pdev);
-	if (err)
-		return -EIO;
+	if (err) {
+		printk(KERN_ERR PFX "Cannot enable PCI device\n");
+		return err;
+	}
 
 	/* Resource 0 is mapped to the hermes registers */
 	pci_iorange = pci_resource_start(pdev, 0);
 	pci_iolen = pci_resource_len(pdev, 0);
 	pci_ioaddr = ioremap(pci_iorange, pci_iolen);
-	if (! pci_iorange)
+	if (! pci_iorange) {
+		printk(KERN_ERR PFX "Cannot remap hardware registers\n");
 		goto fail;
+	}
 
 	/* Allocate network device */
 	dev = alloc_orinocodev(0, NULL);
@@ -226,18 +223,16 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 	SET_MODULE_OWNER(dev);
 	SET_NETDEV_DEV(dev, &pdev->dev);
 
-	printk(KERN_DEBUG PFX
-	       "Detected Orinoco/Prism2 PCI device at %s, mem:0x%lX to 0x%lX -> 0x%p, irq:%d\n",
-	       pci_name(pdev), dev->mem_start, dev->mem_end, pci_ioaddr, pdev->irq);
-
 	hermes_struct_init(&priv->hw, pci_ioaddr, HERMES_32BIT_REGSPACING);
 	pci_set_drvdata(pdev, dev);
+
+	printk(KERN_DEBUG PFX "Detected device %s, mem:0x%lx-0x%lx, irq %d\n",
+	       pci_name(pdev), dev->mem_start, dev->mem_end, pdev->irq);
 
 	err = request_irq(pdev->irq, orinoco_interrupt, SA_SHIRQ,
 			  dev->name, dev);
 	if (err) {
-		printk(KERN_ERR PFX "Error allocating IRQ %d.\n",
-		       pdev->irq);
+		printk(KERN_ERR PFX "Cannot allocate IRQ %d\n", pdev->irq);
 		err = -EBUSY;
 		goto fail;
 	}
@@ -245,7 +240,7 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 
 	/* Perform a COR reset to start the card */
 	if(orinoco_pci_cor_reset(priv) != 0) {
-		printk(KERN_ERR "%s: Failed to start the card\n", dev->name);
+		printk(KERN_ERR PFX "Initial reset failed\n");
 		err = -ETIMEDOUT;
 		goto fail;
 	}
@@ -256,7 +251,7 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 
 	err = register_netdev(dev);
 	if (err) {
-		printk(KERN_ERR "%s: Failed to register net device\n", dev->name);
+		printk(KERN_ERR PFX "Failed to register net device\n");
 		goto fail;
 	}
 

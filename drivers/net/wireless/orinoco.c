@@ -805,8 +805,9 @@ static int orinoco_xmit(struct sk_buff *skb, struct net_device *dev)
  	desc.tx_control = cpu_to_le16(HERMES_TXCTRL_TX_OK | HERMES_TXCTRL_TX_EX);
 	err = hermes_bap_pwrite(hw, USER_BAP, &desc, sizeof(desc), txfid, 0);
 	if (err) {
-		printk(KERN_ERR "%s: Error %d writing Tx descriptor to BAP\n",
-		       dev->name, err);
+		if (net_ratelimit())
+			printk(KERN_ERR "%s: Error %d writing Tx descriptor "
+			       "to BAP\n", dev->name, err);
 		stats->tx_errors++;
 		goto fail;
 	}
@@ -836,8 +837,9 @@ static int orinoco_xmit(struct sk_buff *skb, struct net_device *dev)
 		err  = hermes_bap_pwrite(hw, USER_BAP, &hdr, sizeof(hdr),
 					 txfid, HERMES_802_3_OFFSET);
 		if (err) {
-			printk(KERN_ERR "%s: Error %d writing packet header to BAP\n",
-			       dev->name, err);
+			if (net_ratelimit())
+				printk(KERN_ERR "%s: Error %d writing packet "
+				       "header to BAP\n", dev->name, err);
 			stats->tx_errors++;
 			goto fail;
 		}
@@ -1297,8 +1299,8 @@ static void __orinoco_ev_info(struct net_device *dev, hermes_t *hw)
 	}
 	break;
 	default:
-		printk(KERN_DEBUG "%s: Unknown information frame received "
-		       "(type %04x).\n", dev->name, type);
+		printk(KERN_DEBUG "%s: Unknown information frame received: "
+		       "type 0x%04x, length %d\n", dev->name, type, len);
 		/* We don't actually do anything about it */
 		break;
 	}
@@ -1307,7 +1309,7 @@ static void __orinoco_ev_info(struct net_device *dev, hermes_t *hw)
 static void __orinoco_ev_infdrop(struct net_device *dev, hermes_t *hw)
 {
 	if (net_ratelimit())
-		printk(KERN_WARNING "%s: Information frame lost.\n", dev->name);
+		printk(KERN_DEBUG "%s: Information frame lost.\n", dev->name);
 }
 
 /********************************************************************/
@@ -1785,7 +1787,8 @@ __orinoco_set_multicast_list(struct net_device *dev)
 		}
 		
 		if (p)
-			printk(KERN_WARNING "Multicast list is longer than mc_count\n");
+			printk(KERN_WARNING "%s: Multicast list is "
+			       "longer than mc_count\n", dev->name);
 
 		err = hermes_write_ltv(hw, USER_BAP, HERMES_RID_CNFGROUPADDRESSES,
 				       HERMES_BYTES_TO_RECLEN(priv->mc_count * ETH_ALEN),
@@ -2053,7 +2056,7 @@ static void determine_firmware(struct net_device *dev)
 	le16_to_cpus(&sta_id.variant);
 	le16_to_cpus(&sta_id.major);
 	le16_to_cpus(&sta_id.minor);
-	printk(KERN_DEBUG "%s: Station identity %04x:%04x:%04x:%04x\n",
+	printk(KERN_DEBUG "%s: Station identity  %04x:%04x:%04x:%04x\n",
 	       dev->name, sta_id.id, sta_id.variant,
 	       sta_id.major, sta_id.minor);
 
@@ -3045,8 +3048,9 @@ static int orinoco_ioctl_setfrag(struct net_device *dev, struct iw_param *frq)
 			priv->mwo_robust = 0;
 		else {
 			if (frq->fixed)
-				printk(KERN_WARNING "%s: Fixed fragmentation not \
-supported on this firmware. Using MWO robust instead.\n", dev->name);
+				printk(KERN_WARNING "%s: Fixed fragmentation is "
+				       "not supported on this firmware. "
+				       "Using MWO robust instead.\n", dev->name);
 			priv->mwo_robust = 1;
 		}
 	} else {
@@ -3518,7 +3522,7 @@ static int orinoco_ioctl_getspy(struct net_device *dev, struct iw_point *srq)
 		}
 		/* Copy stats */
 		/* In theory, we should disable irqs while copying the stats
-		 * because the rx path migh update it in the middle...
+		 * because the rx path might update it in the middle...
 		 * Bah, who care ? - Jean II */
 		memcpy(&spy_stat, priv->spy_stat,
 		       sizeof(struct iw_quality) * IW_MAX_SPY);
