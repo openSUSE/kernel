@@ -139,17 +139,20 @@ void userspace(union uml_pt_regs *regs)
 	int err, status, op, pid = userspace_pid[0];
 	int local_using_sysemu; /*To prevent races if using_sysemu changes under us.*/
 
-	restore_registers(pid, regs);
-		
-	local_using_sysemu = get_using_sysemu();
-
-	op = local_using_sysemu ? PTRACE_SYSEMU : PTRACE_SYSCALL;
-	err = ptrace(op, pid, 0, 0);
-
-	if(err)
-		panic("userspace - PTRACE_%s failed, errno = %d\n",
-		       local_using_sysemu ? "SYSEMU" : "SYSCALL", errno);
 	while(1){
+		restore_registers(pid, regs);
+
+		/* Now we set local_using_sysemu to be used for one loop */
+		local_using_sysemu = get_using_sysemu();
+
+		op = SELECT_PTRACE_OPERATION(local_using_sysemu, singlestepping(NULL));
+
+		err = ptrace(op, pid, 0, 0);
+		if(err)
+			panic("userspace - could not resume userspace process, "
+			      "pid=%d, ptrace operation = %d, errno = %d\n",
+			      op, errno);
+
 		CATCH_EINTR(err = waitpid(pid, &status, WUNTRACED));
 		if(err < 0)
 			panic("userspace - waitpid failed, errno = %d\n", 
@@ -187,19 +190,6 @@ void userspace(union uml_pt_regs *regs)
 			/* Avoid -ERESTARTSYS handling in host */
 			PT_SYSCALL_NR(regs->skas.regs) = -1;
 		}
-
-		restore_registers(pid, regs);
-
-		/*Now we ended the syscall, so re-read local_using_sysemu.*/
-		local_using_sysemu = get_using_sysemu();
-
-		op = SELECT_PTRACE_OPERATION(local_using_sysemu, singlestepping(NULL));
-
-		err = ptrace(op, pid, 0, 0);
-		if(err)
-			panic("userspace - PTRACE_%s failed, "
-			      "errno = %d\n",
-			      local_using_sysemu ? "SYSEMU" : "SYSCALL", errno);
 	}
 }
 
