@@ -34,7 +34,12 @@ extern int __get_user_bad(void);
 extern int __put_kernel_bad(void);
 extern int __put_user_bad(void);
 
-#define access_ok(type,addr,size)   (1)
+static inline long access_ok(int type, const void __user * addr,
+		unsigned long size)
+{
+	return 1;
+}
+
 #define verify_area(type,addr,size) (0)
 
 #define put_user __put_user
