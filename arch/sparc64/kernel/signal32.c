@@ -351,7 +351,7 @@ void do_new_sigreturn32(struct pt_regs *regs)
 	sf = (struct new_signal_frame32 __user *) regs->u_regs[UREG_FP];
 
 	/* 1. Make sure we are not getting garbage from the user */
-	if (verify_area(VERIFY_READ, sf, sizeof(*sf))	||
+	if (!access_ok(VERIFY_READ, sf, sizeof(*sf)) ||
 	    (((unsigned long) sf) & 3))
 		goto segv;
 
@@ -436,7 +436,7 @@ asmlinkage void do_sigreturn32(struct pt_regs *regs)
 	scptr = (struct sigcontext32 __user *)
 		(regs->u_regs[UREG_I0] & 0x00000000ffffffffUL);
 	/* Check sanity of the user arg. */
-	if (verify_area(VERIFY_READ, scptr, sizeof(struct sigcontext32)) ||
+	if (!access_ok(VERIFY_READ, scptr, sizeof(struct sigcontext32)) ||
 	    (((unsigned long) scptr) & 3))
 		goto segv;
 
@@ -504,7 +504,7 @@ asmlinkage void do_rt_sigreturn32(struct pt_regs *regs)
 	sf = (struct rt_signal_frame32 __user *) regs->u_regs[UREG_FP];
 
 	/* 1. Make sure we are not getting garbage from the user */
-	if (verify_area(VERIFY_READ, sf, sizeof(*sf))	||
+	if (!access_ok(VERIFY_READ, sf, sizeof(*sf)) ||
 	    (((unsigned long) sf) & 3))
 		goto segv;
 

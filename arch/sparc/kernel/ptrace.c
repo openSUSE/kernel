@@ -374,8 +374,8 @@ asmlinkage void do_ptrace(struct pt_regs *regs)
 		struct pt_regs *cregs = child->thread.kregs;
 		int rval;
 
-		rval = verify_area(VERIFY_WRITE, pregs, sizeof(struct pt_regs));
-		if(rval) {
+		if (!access_ok(VERIFY_WRITE, pregs, sizeof(struct pt_regs))) {
+			rval = -EFAULT;
 			pt_error_return(regs, -rval);
 			goto out_tsk;
 		}
@@ -401,8 +401,8 @@ asmlinkage void do_ptrace(struct pt_regs *regs)
 		/* Must be careful, tracing process can only set certain
 		 * bits in the psr.
 		 */
-		i = verify_area(VERIFY_READ, pregs, sizeof(struct pt_regs));
-		if(i) {
+		if (!access_ok(VERIFY_READ, pregs, sizeof(struct pt_regs))) {
+			i = -EFAULT;
 			pt_error_return(regs, -i);
 			goto out_tsk;
 		}
@@ -439,8 +439,8 @@ asmlinkage void do_ptrace(struct pt_regs *regs)
 		struct fps __user *fps = (struct fps __user *) addr;
 		int i;
 
-		i = verify_area(VERIFY_WRITE, fps, sizeof(struct fps));
-		if(i) {
+		if (!access_ok(VERIFY_WRITE, fps, sizeof(struct fps))) {
+			i = -EFAULT;
 			pt_error_return(regs, -i);
 			goto out_tsk;
 		}
@@ -474,8 +474,8 @@ asmlinkage void do_ptrace(struct pt_regs *regs)
 		struct fps __user *fps = (struct fps __user *) addr;
 		int i;
 
-		i = verify_area(VERIFY_READ, fps, sizeof(struct fps));
-		if(i) {
+		if (!access_ok(VERIFY_READ, fps, sizeof(struct fps))) {
+			i = -EFAULT;
 			pt_error_return(regs, -i);
 			goto out_tsk;
 		}
