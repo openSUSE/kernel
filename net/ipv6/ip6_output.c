@@ -61,7 +61,7 @@ static int ip6_fragment(struct sk_buff *skb, int (*output)(struct sk_buff *));
 static __inline__ void ipv6_select_ident(struct sk_buff *skb, struct frag_hdr *fhdr)
 {
 	static u32 ipv6_fragmentation_id = 1;
-	static spinlock_t ip6_id_lock = SPIN_LOCK_UNLOCKED;
+	static DEFINE_SPINLOCK(ip6_id_lock);
 
 	spin_lock_bh(&ip6_id_lock);
 	fhdr->identification = htonl(ipv6_fragmentation_id);
@@ -311,7 +311,7 @@ int ip6_nd_hdr(struct sock *sk, struct sk_buff *skb, struct net_device *dev,
 	return 0;
 }
 
-int ip6_call_ra_chain(struct sk_buff *skb, int sel)
+static int ip6_call_ra_chain(struct sk_buff *skb, int sel)
 {
 	struct ip6_ra_chain *ra;
 	struct sock *last = NULL;
