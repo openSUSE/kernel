@@ -22,11 +22,6 @@
 
 #include <video/radeon.h>
 
-/* Some weird black magic use by Apple driver that we don't use for
- * now --BenH
- */
-#undef HAS_PLL_M9_GPIO_MAGIC
-
 /***************************************************************
  * Most of the definitions here are adapted right from XFree86 *
  ***************************************************************/
@@ -311,7 +306,6 @@ struct radeonfb_info {
 	int			is_mobility;
 	int			is_IGP;
 	int			R300_cg_workaround;
-	int			m9p_workaround;
 	int			reversed_DAC;
 	int			reversed_TMDS;
 	struct panel_info	panel_info;
@@ -396,6 +390,11 @@ static inline void _OUTREGP(struct radeonfb_info *rinfo, u32 addr,
 
 #define OUTREGP(addr,val,mask)	_OUTREGP(rinfo, addr, val,mask)
 
+/* This function is required to workaround a hardware bug in some (all?)
+ * revisions of the R300.  This workaround should be called after every
+ * CLOCK_CNTL_INDEX register access.  If not, register reads afterward
+ * may not be correct.
+ */
 static inline void R300_cg_workardound(struct radeonfb_info *rinfo)
 {
 	u32 save, tmp;
@@ -406,35 +405,36 @@ static inline void R300_cg_workardound(struct radeonfb_info *rinfo)
 	OUTREG(CLOCK_CNTL_INDEX, save);
 }
 
+/*
+ * PLL accesses suffer from various HW issues on the different chip
+ * families. Some R300's need the above workaround, rv200 & friends
+ * need a couple of dummy reads after any write of CLOCK_CNTL_INDEX,
+ * and some RS100/200 need a dummy read before writing to
+ * CLOCK_CNTL_INDEX as well. Instead of testing every chip revision,
+ * we just unconditionally do  the workarounds at once since PLL
+ * accesses are far from beeing performance critical. Except for R300
+ * one which stays separate for now
+ */
+
+static inline void radeon_pll_workaround_before(struct radeonfb_info *rinfo)
+{
+	(void)INREG(CRTC_GEN_CNTL);
+}
+
+static inline void radeon_pll_workaround_after(struct radeonfb_info *rinfo)
+{
+	(void)INREG(CLOCK_CNTL_DATA);
+	(void)INREG(CRTC_GEN_CNTL);
+}
 
 static inline u32 __INPLL(struct radeonfb_info *rinfo, u32 addr)
 {
 	u32 data;
-#ifdef HAS_PLL_M9_GPIO_MAGIC
-	u32 sv[3];
 
-	if (rinfo->m9p_workaround) {
-		sv[0] = INREG(0x19c);
-		sv[1] = INREG(0x1a0);
-		sv[2] = INREG(0x198);
-		OUTREG(0x198, 0);
-		OUTREG(0x1a0, 0);
-		OUTREG(0x19c, 0);
-	}
-#endif /* HAS_PLL_M9_GPIO_MAGIC */
-
+	radeon_pll_workaround_before(rinfo);
 	OUTREG8(CLOCK_CNTL_INDEX, addr & 0x0000003f);
-	data = (INREG(CLOCK_CNTL_DATA));
-
-#ifdef HAS_PLL_M9_GPIO_MAGIC
-	if (rinfo->m9p_workaround) {
-		(void)INREG(CRTC_GEN_CNTL);
-		data = INREG(CLOCK_CNTL_DATA);
-		OUTREG(0x19c, sv[0]);
-		OUTREG(0x1a0, sv[1]);
-		OUTREG(0x198, sv[2]);
-	}
-#endif /* HAS_PLL_M9_GPIO_MAGIC */
+	radeon_pll_workaround_after(rinfo);
+	data = INREG(CLOCK_CNTL_DATA);
 	if (rinfo->R300_cg_workaround)
 		R300_cg_workardound(rinfo);
 	return data;
@@ -454,32 +454,16 @@ static inline u32 _INPLL(struct radeonfb_info *rinfo, u32 addr)
 #define INPLL(addr)		_INPLL(rinfo, addr)
 
 
-static inline void __OUTPLL(struct radeonfb_info *rinfo, unsigned int index, u32 val)
+static inline void __OUTPLL(struct radeonfb_info *rinfo, unsigned int index,
+			    u32 val)
 {
-#ifdef HAS_PLL_M9_GPIO_MAGIC
-	u32 sv[3];
 
-	if (rinfo->m9p_workaround) {
-		sv[0] = INREG(0x19c);
-		sv[1] = INREG(0x1a0);
-		sv[2] = INREG(0x198);
-		OUTREG(0x198, 0);
-		OUTREG(0x1a0, 0);
-		OUTREG(0x19c, 0);
-		mdelay(1);
-	}
-#endif /* HAS_PLL_M9_GPIO_MAGIC */
-
+	radeon_pll_workaround_before(rinfo);
 	OUTREG8(CLOCK_CNTL_INDEX, (index & 0x0000003f) | 0x00000080);
+	radeon_pll_workaround_after(rinfo);
 	OUTREG(CLOCK_CNTL_DATA, val);
-
-#ifdef HAS_PLL_M9_GPIO_MAGIC
-	if (rinfo->m9p_workaround) {
-		OUTREG(0x19c, sv[0]);
-		OUTREG(0x1a0, sv[1]);
-		OUTREG(0x198, sv[2]);
-	}
-#endif /* HAS_PLL_M9_GPIO_MAGIC */
+	if (rinfo->R300_cg_workaround)
+		R300_cg_workardound(rinfo);
 }
 
 static inline void _OUTPLL(struct radeonfb_info *rinfo, unsigned int index, u32 val)

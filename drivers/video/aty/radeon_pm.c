@@ -1372,8 +1372,12 @@ static void radeon_pm_start_mclk_sclk(struct radeonfb_info *rinfo)
 
 	/* Reconfigure SPLL charge pump, VCO gain, duty cycle */
 	tmp = INPLL(pllSPLL_CNTL);
+	radeon_pll_workaround_before(rinfo);
 	OUTREG8(CLOCK_CNTL_INDEX, pllSPLL_CNTL + PLL_WR_EN);
+	radeon_pll_workaround_after(rinfo);
 	OUTREG8(CLOCK_CNTL_DATA + 1, (tmp >> 8) & 0xff);
+	if (rinfo->R300_cg_workaround)
+		R300_cg_workardound(rinfo);
 
 	/* Set SPLL feedback divider */
 	tmp = INPLL(pllM_SPLL_REF_FB_DIV);
@@ -1405,8 +1409,12 @@ static void radeon_pm_start_mclk_sclk(struct radeonfb_info *rinfo)
 
 	/* Reconfigure MPLL charge pump, VCO gain, duty cycle */
 	tmp = INPLL(pllMPLL_CNTL);
+	radeon_pll_workaround_before(rinfo);
 	OUTREG8(CLOCK_CNTL_INDEX, pllMPLL_CNTL + PLL_WR_EN);
+	radeon_pll_workaround_after(rinfo);
 	OUTREG8(CLOCK_CNTL_DATA + 1, (tmp >> 8) & 0xff);
+	if (rinfo->R300_cg_workaround)
+		R300_cg_workardound(rinfo);
 
 	/* Set MPLL feedback divider */
 	tmp = INPLL(pllM_SPLL_REF_FB_DIV);
@@ -1524,8 +1532,12 @@ static void radeon_pm_restore_pixel_pll(struct radeonfb_info *rinfo)
 {
 	u32 tmp;
 
+	radeon_pll_workaround_before(rinfo);
 	OUTREG8(CLOCK_CNTL_INDEX, pllHTOTAL_CNTL + PLL_WR_EN);
+	radeon_pll_workaround_after(rinfo);
 	OUTREG8(CLOCK_CNTL_DATA, 0);
+	if (rinfo->R300_cg_workaround)
+		R300_cg_workardound(rinfo);
 
 	tmp = INPLL(pllVCLK_ECP_CNTL);
 	OUTPLL(pllVCLK_ECP_CNTL, tmp | 0x80);
@@ -1540,12 +1552,12 @@ static void radeon_pm_restore_pixel_pll(struct radeonfb_info *rinfo)
 	 * probably useless since we already did it ...
 	 */
 	tmp = INPLL(pllPPLL_CNTL);
+	radeon_pll_workaround_before(rinfo);
 	OUTREG8(CLOCK_CNTL_INDEX, pllSPLL_CNTL + PLL_WR_EN);
+	radeon_pll_workaround_after(rinfo);
 	OUTREG8(CLOCK_CNTL_DATA + 1, (tmp >> 8) & 0xff);
-
-	/* Not sure what was intended here ... */
-	tmp = INREG(CLOCK_CNTL_INDEX);
-	OUTREG(CLOCK_CNTL_INDEX, tmp);
+	if (rinfo->R300_cg_workaround)
+		R300_cg_workardound(rinfo);
 
 	/* Restore our "reference" PPLL divider set by firmware
 	 * according to proper spread spectrum calculations
@@ -1569,7 +1581,11 @@ static void radeon_pm_restore_pixel_pll(struct radeonfb_info *rinfo)
 	mdelay(5);
 
 	/* Switch pixel clock to firmware default div 0 */
+	radeon_pll_workaround_before(rinfo);
 	OUTREG8(CLOCK_CNTL_INDEX+1, 0);
+	radeon_pll_workaround_after(rinfo);
+	if (rinfo->R300_cg_workaround)
+		R300_cg_workardound(rinfo);
 }
 
 static void radeon_pm_m10_reconfigure_mc(struct radeonfb_info *rinfo)
@@ -2752,8 +2768,6 @@ void radeonfb_pm_init(struct radeonfb_info *rinfo, int dynclk)
 		if (!strcmp(rinfo->of_node->name, "ATY,ViaParent")) {
 			rinfo->reinit_func = radeon_reinitialize_M9P;
 			rinfo->pm_mode |= radeon_pm_off;
-			/* Workaround not used for now */
-			rinfo->m9p_workaround = 1;
 		}
 
 		/* If any of the above is set, we assume the machine can sleep/resume.
