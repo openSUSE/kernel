@@ -508,12 +508,12 @@ static int i460_remove_memory (struct agp_memory *mem,
  * Let's just hope nobody counts on the allocated AGP memory being there before bind time
  * (I don't think current drivers do)...
  */
-static void *i460_alloc_page (void)
+static void *i460_alloc_page (struct agp_bridge_data *bridge)
 {
 	void *page;
 
 	if (I460_IO_PAGE_SHIFT <= PAGE_SHIFT)
-		page = agp_generic_alloc_page();
+		page = agp_generic_alloc_page(agp_bridge);
 	else
 		/* Returning NULL would cause problems */
 		/* AK: really dubious code. */

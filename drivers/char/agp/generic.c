@@ -202,7 +202,7 @@ struct agp_memory *agp_allocate_memory(struct agp_bridge_data *bridge,
 		return NULL;
 
 	for (i = 0; i < page_count; i++) {
-		void *addr = bridge->driver->agp_alloc_page();
+		void *addr = bridge->driver->agp_alloc_page(bridge);
 
 		if (addr == NULL) {
 			agp_free_memory(new);
@@ -1064,7 +1064,7 @@ EXPORT_SYMBOL(agp_generic_free_by_type);
  * against a maximum value.
  */
 
-void *agp_generic_alloc_page(void)
+void *agp_generic_alloc_page(struct agp_bridge_data *bridge)
 {
 	struct page * page;
 

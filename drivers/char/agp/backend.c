@@ -140,7 +140,7 @@ static int agp_backend_initialize(struct agp_bridge_data *bridge)
 	bridge->version = &agp_current_version;
 
 	if (bridge->driver->needs_scratch_page) {
-		void *addr = bridge->driver->agp_alloc_page();
+		void *addr = bridge->driver->agp_alloc_page(bridge);
 
 		if (!addr) {
 			printk(KERN_ERR PFX "unable to get memory for scratch page.\n");

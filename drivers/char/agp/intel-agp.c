@@ -268,7 +268,7 @@ static struct agp_memory *alloc_agpphysmem_i8xx(size_t pg_count, int type)
 		return NULL;
 
 	switch (pg_count) {
-	case 1: addr = agp_bridge->driver->agp_alloc_page();
+	case 1: addr = agp_bridge->driver->agp_alloc_page(agp_bridge);
 		break;
 	case 4:
 		/* kludge to get 4 physical pages for ARGB cursor */
