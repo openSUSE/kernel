@@ -45,6 +45,7 @@
 #define TMU_TOCR_INIT	0x00
 #define TMU0_TCR_INIT	0x0020
 #define TMU_TSTR_INIT	1
+#define TMU_TSTR_OFF	0
 
 /* RCR1 Bits */
 #define RCR1_CF		0x80	/* Carry Flag             */
@@ -561,6 +562,7 @@ void __init time_init(void)
 	current_cpu_data.module_clock = module_clock;
 
 	/* Start TMU0 */
+	ctrl_outb(TMU_TSTR_OFF, TMU_TSTR);
 	ctrl_outb(TMU_TOCR_INIT, TMU_TOCR);
 	ctrl_outw(TMU0_TCR_INIT, TMU0_TCR);
 	ctrl_outl(interval, TMU0_TCOR);
