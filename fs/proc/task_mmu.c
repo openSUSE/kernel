@@ -77,9 +77,18 @@ out:
 	return result;
 }
 
+static void pad_len_spaces(struct seq_file *m, int len)
+{
+	len = 25 + sizeof(void*) * 6 - len;
+	if (len < 1)
+		len = 1;
+	seq_printf(m, "%*c", len, ' ');
+}
+
 static int show_map(struct seq_file *m, void *v)
 {
 	struct vm_area_struct *map = v;
+	struct mm_struct *mm = map->vm_mm;
 	struct file *file = map->vm_file;
 	int flags = map->vm_flags;
 	unsigned long ino = 0;
@@ -102,12 +111,31 @@ static int show_map(struct seq_file *m, void *v)
 			map->vm_pgoff << PAGE_SHIFT,
 			MAJOR(dev), MINOR(dev), ino, &len);
 
+	/*
+	 * Print the dentry name for named mappings, and a
+	 * special [heap] marker for the heap:
+	 */
 	if (map->vm_file) {
-		len = 25 + sizeof(void*) * 6 - len;
-		if (len < 1)
-			len = 1;
-		seq_printf(m, "%*c", len, ' ');
+		pad_len_spaces(m, len);
 		seq_path(m, file->f_vfsmnt, file->f_dentry, "");
+	} else {
+		if (mm) {
+			if (map->vm_start <= mm->start_brk &&
+						map->vm_end >= mm->brk) {
+				pad_len_spaces(m, len);
+				seq_puts(m, "[heap]");
+			} else {
+				if (map->vm_start <= mm->start_stack &&
+					map->vm_end >= mm->start_stack) {
+
+					pad_len_spaces(m, len);
+					seq_puts(m, "[stack]");
+				}
+			}
+		} else {
+			pad_len_spaces(m, len);
+			seq_puts(m, "[vdso]");
+		}
 	}
 	seq_putc(m, '\n');
 	return 0;
