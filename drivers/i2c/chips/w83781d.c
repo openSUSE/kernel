@@ -1562,11 +1562,28 @@ w83781d_init_client(struct i2c_client *client)
 	}
 #endif				/* W83781D_RT */
 
-	if (init) {
-		if (type != w83783s && type != w83697hf) {
-			w83781d_write_value(client, W83781D_REG_TEMP3_CONFIG,
-					    0x00);
+	if (init && type != as99127f) {
+		/* Enable temp2 */
+		tmp = w83781d_read_value(client, W83781D_REG_TEMP2_CONFIG);
+		if (tmp & 0x01) {
+			dev_warn(&client->dev, "Enabling temp2, readings "
+				 "might not make sense\n");
+			w83781d_write_value(client, W83781D_REG_TEMP2_CONFIG,
+				tmp & 0xfe);
 		}
+
+		/* Enable temp3 */
+		if (type != w83783s && type != w83697hf) {
+			tmp = w83781d_read_value(client,
+				W83781D_REG_TEMP3_CONFIG);
+			if (tmp & 0x01) {
+				dev_warn(&client->dev, "Enabling temp3, "
+					 "readings might not make sense\n");
+				w83781d_write_value(client,
+					W83781D_REG_TEMP3_CONFIG, tmp & 0xfe);
+			}
+		}
+
 		if (type != w83781d) {
 			/* enable comparator mode for temp2 and temp3 so
 			   alarm indication will work correctly */
