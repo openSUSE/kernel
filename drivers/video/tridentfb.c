@@ -1216,27 +1216,6 @@ static struct pci_driver tridentfb_pci_driver = {
 	.remove		= __devexit_p(trident_pci_remove)
 };
 
-static int tridentfb_setup(char *options);
-
-static int __init tridentfb_init(void)
-{
-#ifndef MODULE
-	char *option = NULL;
-
-	if (fb_get_options("tridentfb", &option))
-		return -ENODEV;
-	tridentfb_setup(option);
-#endif
-	output("Trident framebuffer %s initializing\n", VERSION);
-	return pci_module_init(&tridentfb_pci_driver);
-}
-
-static void __exit tridentfb_exit(void)
-{
-	pci_unregister_driver(&tridentfb_pci_driver);
-}
-
-
 /*
  * Parse user specified options (`video=trident:')
  * example:
@@ -1274,6 +1253,24 @@ static int tridentfb_setup(char *options)
 	return 0;
 }
 #endif
+
+static int __init tridentfb_init(void)
+{
+#ifndef MODULE
+	char *option = NULL;
+
+	if (fb_get_options("tridentfb", &option))
+		return -ENODEV;
+	tridentfb_setup(option);
+#endif
+	output("Trident framebuffer %s initializing\n", VERSION);
+	return pci_module_init(&tridentfb_pci_driver);
+}
+
+static void __exit tridentfb_exit(void)
+{
+	pci_unregister_driver(&tridentfb_pci_driver);
+}
 
 static struct fb_ops tridentfb_ops = {
 	.owner	= THIS_MODULE,
