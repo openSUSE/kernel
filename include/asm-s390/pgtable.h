@@ -752,11 +752,17 @@ extern inline pmd_t * pmd_offset(pgd_t * dir, unsigned long address)
  *  0000000000111111111122222222223333333333444444444455 5555 5 55566 66
  *  0123456789012345678901234567890123456789012345678901 2345 6 78901 23
  */
+#ifndef __s390x__
+#define __SWP_OFFSET_MASK (~0UL >> 12)
+#else
+#define __SWP_OFFSET_MASK (~0UL >> 11)
+#endif
 extern inline pte_t mk_swap_pte(unsigned long type, unsigned long offset)
 {
 	pte_t pte;
+	offset &= __SWP_OFFSET_MASK;
 	pte_val(pte) = _PAGE_INVALID_SWAP | ((type & 0x1f) << 2) |
-		((offset & 1) << 7) | ((offset & 0xffffe) << 11);
+		((offset & 1UL) << 7) | ((offset & ~1UL) << 11);
 	return pte;
 }
 
