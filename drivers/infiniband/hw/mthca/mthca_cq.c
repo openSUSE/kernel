@@ -147,20 +147,21 @@ static inline struct mthca_cqe *get_cqe(struct mthca_cq *cq, int entry)
 			+ (entry * MTHCA_CQ_ENTRY_SIZE) % PAGE_SIZE;
 }
 
-static inline int cqe_sw(struct mthca_cq *cq, int i)
+static inline struct mthca_cqe *cqe_sw(struct mthca_cq *cq, int i)
 {
-	return !(MTHCA_CQ_ENTRY_OWNER_HW &
-		 get_cqe(cq, i)->owner);
+	struct mthca_cqe *cqe;
+	cqe = get_cqe(cq, i);
+	return (MTHCA_CQ_ENTRY_OWNER_HW & cqe->owner) ? NULL : cqe;
 }
 
-static inline int next_cqe_sw(struct mthca_cq *cq)
+static inline struct mthca_cqe *next_cqe_sw(struct mthca_cq *cq)
 {
 	return cqe_sw(cq, cq->cons_index);
 }
 
-static inline void set_cqe_hw(struct mthca_cq *cq, int entry)
+static inline void set_cqe_hw(struct mthca_cqe *cqe)
 {
-	get_cqe(cq, entry)->owner = MTHCA_CQ_ENTRY_OWNER_HW;
+	cqe->owner = MTHCA_CQ_ENTRY_OWNER_HW;
 }
 
 static inline void inc_cons_index(struct mthca_dev *dev, struct mthca_cq *cq,
@@ -388,7 +389,8 @@ static inline int mthca_poll_one(struct mthca_dev *dev,
 	int free_cqe = 1;
 	int err = 0;
 
-	if (!next_cqe_sw(cq))
+	cqe = next_cqe_sw(cq);
+	if (!cqe)
 		return -EAGAIN;
 
 	/*
@@ -396,8 +398,6 @@ static inline int mthca_poll_one(struct mthca_dev *dev,
 	 * ownership bit.
 	 */
 	rmb();
-
-	cqe = get_cqe(cq, cq->cons_index);
 
 	if (0) {
 		mthca_dbg(dev, "%x/%d: CQE -> QPN %06x, WQE @ %08x\n",
@@ -509,8 +509,8 @@ static inline int mthca_poll_one(struct mthca_dev *dev,
 	entry->status = IB_WC_SUCCESS;
 
  out:
-	if (free_cqe) {
-		set_cqe_hw(cq, cq->cons_index);
+	if (likely(free_cqe)) {
+		set_cqe_hw(cqe);
 		++(*freed);
 		cq->cons_index = (cq->cons_index + 1) & cq->ibcq.cqe;
 	}
@@ -655,7 +655,7 @@ int mthca_init_cq(struct mthca_dev *dev, int nent,
 	}
 
 	for (i = 0; i < nent; ++i)
-		set_cqe_hw(cq, i);
+		set_cqe_hw(get_cqe(cq, i));
 
 	cq->cqn = mthca_alloc(&dev->cq_table.alloc);
 	if (cq->cqn == -1)
@@ -773,7 +773,7 @@ void mthca_free_cq(struct mthca_dev *dev,
 		int j;
 
 		printk(KERN_ERR "context for CQN %x (cons index %x, next sw %d)\n",
-		       cq->cqn, cq->cons_index, next_cqe_sw(cq));
+		       cq->cqn, cq->cons_index, !!next_cqe_sw(cq));
 		for (j = 0; j < 16; ++j)
 			printk(KERN_ERR "[%2x] %08x\n", j * 4, be32_to_cpu(ctx[j]));
 	}
