@@ -495,17 +495,16 @@ out:
  *  Called with dp->dl_count incremented
  */
 static void
-nfs4_cb_recall_done(struct rpc_task *task)
+nfs4_cb_recall_done(struct nfs4_cb_recall *cbr, int status)
 {
-	struct nfs4_cb_recall *cbr = (struct nfs4_cb_recall *)task->tk_calldata;
 	struct nfs4_delegation *dp = cbr->cbr_dp;
 
 	/* all is well... */
-	if (task->tk_status == 0)
+	if (status == 0)
 		goto out;
 
 	/* network partition, retry nfsd4_cb_recall once.  */
-	if (task->tk_status == -EIO) {
+	if (status == -EIO) {
 		if (atomic_read(&dp->dl_recall_cnt) == 0)
 			goto retry;
 		else
@@ -517,7 +516,7 @@ nfs4_cb_recall_done(struct rpc_task *task)
 	* Client may have received recall prior to delegation. retry recall
 	* once.
 	*/
-	if ((task->tk_status == -EBADHANDLE) || (task->tk_status == -NFS4ERR_BAD_STATEID)){
+	if ((status == -EBADHANDLE) || (status == -NFS4ERR_BAD_STATEID)){
 		if (atomic_read(&dp->dl_recall_cnt) == 0)
 			goto retry;
 	}
@@ -570,10 +569,11 @@ nfsd4_cb_recall(struct nfs4_delegation *dp)
 	cbr->cbr_trunc = 0; /* XXX need to implement truncate optimization */
 	cbr->cbr_dp = dp;
 
-	if ((status = rpc_call_async(clnt, &msg, RPC_TASK_SOFT,
-		nfs4_cb_recall_done, cbr )))
+	status = rpc_call_sync(clnt, &msg, RPC_TASK_SOFT);
+	if (status)
 		dprintk("NFSD: recall_delegation: rpc_call_async failed %d\n",
 			status);
+	nfs4_cb_recall_done(cbr, status);
 	put_rpccred(msg.rpc_cred);
 	return;
 }
