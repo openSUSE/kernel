@@ -760,6 +760,8 @@ static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	if (elf_read_implies_exec(loc->elf_ex, executable_stack))
 		current->personality |= READ_IMPLIES_EXEC;
 
+	if (executable_stack == EXSTACK_DISABLE_X && randomize_va_space)
+		current->flags |= PF_RANDOMIZE;
 	arch_pick_mmap_layout(current->mm);
 
 	/* Do this so that we can load the interpreter, if need be.  We will
