@@ -511,6 +511,7 @@ struct xfrm_dst
 		struct rtable		rt;
 		struct rt6_info		rt6;
 	} u;
+	struct dst_entry *route;
 };
 
 /* Decapsulation state, used by the input to store data during

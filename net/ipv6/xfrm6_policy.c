@@ -72,18 +72,29 @@ __xfrm6_bundle_create(struct xfrm_policy *policy, struct xfrm_state **xfrm, int 
 	struct rt6_info *rt  = rt0;
 	struct in6_addr *remote = &fl->fl6_dst;
 	struct in6_addr *local  = &fl->fl6_src;
+	struct flowi fl_tunnel = {
+		.nl_u = {
+			.ip6_u = {
+				.saddr = *local,
+				.daddr = *remote
+			}
+		}
+	};
 	int i;
 	int err = 0;
 	int header_len = 0;
 	int trailer_len = 0;
 
 	dst = dst_prev = NULL;
+	dst_hold(&rt->u.dst);
 
 	for (i = 0; i < nx; i++) {
 		struct dst_entry *dst1 = dst_alloc(&xfrm6_dst_ops);
+		struct xfrm_dst *xdst;
 
 		if (unlikely(dst1 == NULL)) {
 			err = -ENOBUFS;
+			dst_release(&rt->u.dst);
 			goto error;
 		}
 
@@ -94,6 +105,11 @@ __xfrm6_bundle_create(struct xfrm_policy *policy, struct xfrm_state **xfrm, int 
 			dst1->flags |= DST_NOHASH;
 			dst_clone(dst1);
 		}
+
+		xdst = (struct xfrm_dst *)dst1;
+		xdst->route = &rt->u.dst;
+
+		dst1->next = dst_prev;
 		dst_prev = dst1;
 		if (xfrm[i]->props.mode) {
 			remote = (struct in6_addr*)&xfrm[i]->id.daddr;
@@ -101,25 +117,27 @@ __xfrm6_bundle_create(struct xfrm_policy *policy, struct xfrm_state **xfrm, int 
 		}
 		header_len += xfrm[i]->props.header_len;
 		trailer_len += xfrm[i]->props.trailer_len;
+
+		if (!ipv6_addr_equal(remote, &fl_tunnel.fl6_dst)) {
+			ipv6_addr_copy(&fl_tunnel.fl6_dst, remote);
+			ipv6_addr_copy(&fl_tunnel.fl6_src, local);
+			err = xfrm_dst_lookup((struct xfrm_dst **) &rt,
+					      &fl_tunnel, AF_INET6);
+			if (err)
+				goto error;
+		} else
+			dst_hold(&rt->u.dst);
 	}
 
-	if (!ipv6_addr_equal(remote, &fl->fl6_dst)) {
-		struct flowi fl_tunnel;
-
-		memset(&fl_tunnel, 0, sizeof(fl_tunnel));
-		ipv6_addr_copy(&fl_tunnel.fl6_dst, remote);
-		ipv6_addr_copy(&fl_tunnel.fl6_src, local);
-
-		err = xfrm_dst_lookup((struct xfrm_dst **) &rt,
-				      &fl_tunnel, AF_INET6);
-		if (err)
-			goto error;
-	} else {
-		dst_hold(&rt->u.dst);
-	}
 	dst_prev->child = &rt->u.dst;
+	dst->path = &rt->u.dst;
+
+	*dst_p = dst;
+	dst = dst_prev;
+
+	dst_prev = *dst_p;
 	i = 0;
-	for (dst_prev = dst; dst_prev != &rt->u.dst; dst_prev = dst_prev->child) {
+	for (; dst_prev != &rt->u.dst; dst_prev = dst_prev->child) {
 		struct xfrm_dst *x = (struct xfrm_dst*)dst_prev;
 
 		dst_prev->xfrm = xfrm[i++];
@@ -132,7 +150,6 @@ __xfrm6_bundle_create(struct xfrm_policy *policy, struct xfrm_state **xfrm, int 
 		dst_prev->header_len	= header_len;
 		dst_prev->trailer_len	= trailer_len;
 		memcpy(&dst_prev->metrics, &rt->u.dst.metrics, sizeof(dst_prev->metrics));
-		dst_prev->path		= &rt->u.dst;
 
 		/* Copy neighbour for reachability confirmation */
 		dst_prev->neighbour	= neigh_clone(rt->u.dst.neighbour);
@@ -150,7 +167,6 @@ __xfrm6_bundle_create(struct xfrm_policy *policy, struct xfrm_state **xfrm, int 
 		header_len -= x->u.dst.xfrm->props.header_len;
 		trailer_len -= x->u.dst.xfrm->props.trailer_len;
 	}
-	*dst_p = dst;
 	return 0;
 
 error:
