@@ -187,31 +187,12 @@ static inline void unlock_timer(struct k_itimer *timr, unsigned long flags)
 }
 
 /*
- * Define this to initialize every k_clock function table so all its
- * function pointers are non-null, and always do indirect calls through the
- * table.  Leave it undefined to instead leave null function pointers and
- * decide at the call sites between a direct call (maybe inlined) to the
- * default function and an indirect call through the table when it's filled
- * in.  Which style is preferable is whichever performs better in the
- * common case of using the default functions.
- *
-#define CLOCK_DISPATCH_DIRECT
+ * Call the k_clock hook function if non-null, or the default function.
  */
-
-#ifdef CLOCK_DISPATCH_DIRECT
 #define CLOCK_DISPATCH(clock, call, arglist) \
-	((clock) < 0 ? posix_cpu_##call arglist : \
-	 (*posix_clocks[clock].call) arglist)
-#define DEFHOOK(name)	if (clock->name == NULL) clock->name = common_##name
-#define COMMONDEFN	static
-#else
-#define CLOCK_DISPATCH(clock, call, arglist) \
-	((clock) < 0 ? posix_cpu_##call arglist : \
-	 (posix_clocks[clock].call != NULL \
-	  ? (*posix_clocks[clock].call) arglist : common_##call arglist))
-#define DEFHOOK(name)		(void) 0 /* Nothing here.  */
-#define COMMONDEFN	static inline
-#endif
+ 	((clock) < 0 ? posix_cpu_##call arglist : \
+ 	 (posix_clocks[clock].call != NULL \
+ 	  ? (*posix_clocks[clock].call) arglist : common_##call arglist))
 
 /*
  * Default clock hook functions when the struct k_clock passed
@@ -221,25 +202,26 @@ static inline void unlock_timer(struct k_itimer *timr, unsigned long flags)
  * the function pointer CALL in struct k_clock.
  */
 
-COMMONDEFN int common_clock_getres(clockid_t which_clock, struct timespec *tp)
+static inline int common_clock_getres(clockid_t which_clock,
+				      struct timespec *tp)
 {
 	tp->tv_sec = 0;
 	tp->tv_nsec = posix_clocks[which_clock].res;
 	return 0;
 }
 
-COMMONDEFN int common_clock_get(clockid_t which_clock, struct timespec *tp)
+static inline int common_clock_get(clockid_t which_clock, struct timespec *tp)
 {
 	getnstimeofday(tp);
 	return 0;
 }
 
-COMMONDEFN int common_clock_set(clockid_t which_clock, struct timespec *tp)
+static inline int common_clock_set(clockid_t which_clock, struct timespec *tp)
 {
 	return do_sys_settimeofday(tp, NULL);
 }
 
-COMMONDEFN int common_timer_create(struct k_itimer *new_timer)
+static inline int common_timer_create(struct k_itimer *new_timer)
 {
 	init_timer(&new_timer->it_timer);
 	new_timer->it_timer.expires = 0;
@@ -257,22 +239,6 @@ static void common_timer_get(struct k_itimer *, struct itimerspec *);
 static int common_timer_set(struct k_itimer *, int,
 			    struct itimerspec *, struct itimerspec *);
 static int common_timer_del(struct k_itimer *timer);
-
-/*
- * Install default functions for hooks not filled in.
- */
-static inline void common_default_hooks(struct k_clock *clock)
-{
-	DEFHOOK(clock_getres);
-	DEFHOOK(clock_get);
-	DEFHOOK(clock_set);
-	DEFHOOK(timer_create);
-	DEFHOOK(timer_set);
-	DEFHOOK(timer_get);
-	DEFHOOK(timer_del);
-	DEFHOOK(nsleep);
-}
-#undef	DEFHOOK
 
 /*
  * Return nonzero iff we know a priori this clockid_t value is bogus.
@@ -587,7 +553,6 @@ void register_posix_clock(clockid_t clock_id, struct k_clock *new_clock)
 	}
 
 	posix_clocks[clock_id] = *new_clock;
-	common_default_hooks(&posix_clocks[clock_id]);
 }
 
 static struct k_itimer * alloc_posix_timer(void)
@@ -996,7 +961,7 @@ static int adjust_abs_time(struct k_clock *clock, struct timespec *tp,
 
 /* Set a POSIX.1b interval timer. */
 /* timr->it_lock is taken. */
-COMMONDEFN int
+static inline int
 common_timer_set(struct k_itimer *timr, int flags,
 		 struct itimerspec *new_setting, struct itimerspec *old_setting)
 {
@@ -1109,7 +1074,7 @@ retry:
 	return error;
 }
 
-COMMONDEFN int common_timer_del(struct k_itimer *timer)
+static inline int common_timer_del(struct k_itimer *timer)
 {
 	timer->it_incr = 0;
 #ifdef CONFIG_SMP
