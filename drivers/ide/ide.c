@@ -417,11 +417,6 @@ struct seq_operations ide_drivers_op = {
 
 #ifdef CONFIG_PROC_FS
 struct proc_dir_entry *proc_ide_root;
-
-static ide_proc_entry_t generic_subdriver_entries[] = {
-	{ "capacity",	S_IFREG|S_IRUGO,	proc_ide_read_capacity,	NULL },
-	{ NULL, 0, NULL, NULL }
-};
 #endif
 
 static struct resource* hwif_request_region(ide_hwif_t *hwif,
@@ -2042,11 +2037,6 @@ default_error(ide_drive_t *drive, struct request *rq, u8 stat, u8 err)
 	return __ide_error(drive, rq, stat, err);
 }
 
-static sector_t default_capacity (ide_drive_t *drive)
-{
-	return 0x7fffffff;
-}
-
 static ide_startstop_t default_abort(ide_drive_t *drive, struct request *rq)
 {
 	return __ide_abort(drive, rq);
@@ -2060,7 +2050,6 @@ static void setup_driver_defaults (ide_driver_t *d)
 	if (d->end_request == NULL)	d->end_request = default_end_request;
 	if (d->error == NULL)		d->error = default_error;
 	if (d->abort == NULL)		d->abort = default_abort;
-	if (d->capacity == NULL)	d->capacity = default_capacity;
 }
 
 int ide_register_subdriver(ide_drive_t *drive, ide_driver_t *driver)
@@ -2088,10 +2077,8 @@ int ide_register_subdriver(ide_drive_t *drive, ide_driver_t *driver)
 		drive->nice1 = 1;
 	}
 #ifdef CONFIG_PROC_FS
-	if (drive->driver != &idedefault_driver) {
-		ide_add_proc_entries(drive->proc, generic_subdriver_entries, drive);
+	if (drive->driver != &idedefault_driver)
 		ide_add_proc_entries(drive->proc, driver->proc, drive);
-	}
 #endif
 	return 0;
 }
@@ -2125,7 +2112,6 @@ int ide_unregister_subdriver (ide_drive_t *drive)
 	}
 #ifdef CONFIG_PROC_FS
 	ide_remove_proc_entries(drive->proc, DRIVER(drive)->proc);
-	ide_remove_proc_entries(drive->proc, generic_subdriver_entries);
 #endif
 	auto_remove_settings(drive);
 	drive->driver = &idedefault_driver;

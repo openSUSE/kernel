@@ -4667,6 +4667,7 @@ static int proc_idetape_read_name
 }
 
 static ide_proc_entry_t idetape_proc[] = {
+	{ "capacity",	S_IFREG|S_IRUGO,	proc_ide_read_capacity, NULL },
 	{ "name",	S_IFREG|S_IRUGO,	proc_idetape_read_name,	NULL },
 	{ NULL, 0, NULL, NULL }
 };

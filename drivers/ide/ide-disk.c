@@ -579,6 +579,16 @@ static int proc_idedisk_read_cache
 	PROC_IDE_READ_RETURN(page,start,off,count,eof,len);
 }
 
+static int proc_idedisk_read_capacity
+	(char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+	ide_drive_t*drive = (ide_drive_t *)data;
+	int len;
+
+	len = sprintf(page,"%llu\n", (long long)idedisk_capacity(drive));
+	PROC_IDE_READ_RETURN(page,start,off,count,eof,len);
+}
+
 static int proc_idedisk_read_smart_thresholds
 	(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
@@ -619,6 +629,7 @@ static int proc_idedisk_read_smart_values
 
 static ide_proc_entry_t idedisk_proc[] = {
 	{ "cache",		S_IFREG|S_IRUGO,	proc_idedisk_read_cache,		NULL },
+	{ "capacity",		S_IFREG|S_IRUGO,	proc_idedisk_read_capacity,		NULL },
 	{ "geometry",		S_IFREG|S_IRUGO,	proc_ide_read_geometry,			NULL },
 	{ "smart_values",	S_IFREG|S_IRUSR,	proc_idedisk_read_smart_values,		NULL },
 	{ "smart_thresholds",	S_IFREG|S_IRUSR,	proc_idedisk_read_smart_thresholds,	NULL },
@@ -1035,7 +1046,6 @@ static ide_driver_t idedisk_driver = {
 	.supports_dsc_overlap	= 0,
 	.cleanup		= idedisk_cleanup,
 	.do_request		= ide_do_rw_disk,
-	.capacity		= idedisk_capacity,
 	.proc			= idedisk_proc,
 	.attach			= idedisk_attach,
 	.drives			= LIST_HEAD_INIT(idedisk_driver.drives),

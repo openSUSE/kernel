@@ -708,6 +708,15 @@ static int idescsi_cleanup (ide_drive_t *drive)
 
 static int idescsi_attach(ide_drive_t *drive);
 
+#ifdef CONFIG_PROC_FS
+static ide_proc_entry_t idescsi_proc[] = {
+	{ "capacity", S_IFREG|S_IRUGO, proc_ide_read_capacity, NULL },
+	{ NULL, 0, NULL, NULL }
+};
+#else
+# define idescsi_proc	NULL
+#endif
+
 /*
  *	IDE subdriver functions, registered with ide.c
  */
@@ -718,6 +727,7 @@ static ide_driver_t idescsi_driver = {
 	.media			= ide_scsi,
 	.busy			= 0,
 	.supports_dsc_overlap	= 0,
+	.proc			= idescsi_proc,
 	.attach			= idescsi_attach,
 	.cleanup		= idescsi_cleanup,
 	.do_request		= idescsi_do_request,
