@@ -476,7 +476,7 @@ static int uhci_reset(struct usb_hcd *hcd)
 {
 	struct uhci_hcd *uhci = hcd_to_uhci(hcd);
 
-	uhci->io_addr = (unsigned long) hcd->regs;
+	uhci->io_addr = (unsigned long) hcd->rsrc_start;
 
 	/* Kick BIOS off this hardware and reset, so we won't get
 	 * interrupts from any previous setup.
@@ -511,7 +511,7 @@ static int uhci_start(struct usb_hcd *hcd)
 	struct usb_device *udev;
 	struct dentry *dentry;
 
-	io_size = pci_resource_len(to_pci_dev(uhci_dev(uhci)), hcd->region);
+	io_size = (unsigned) hcd->rsrc_len;
 
 	dentry = debugfs_create_file(hcd->self.bus_name, S_IFREG|S_IRUGO|S_IWUSR, uhci_debugfs_root, uhci, &uhci_debug_operations);
 	if (!dentry) {

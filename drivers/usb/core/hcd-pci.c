@@ -56,11 +56,8 @@
 int usb_hcd_pci_probe (struct pci_dev *dev, const struct pci_device_id *id)
 {
 	struct hc_driver	*driver;
-	unsigned long		resource, len;
-	void __iomem		*base;
 	struct usb_hcd		*hcd;
-	int			retval, region;
-	char			buf [8], *bufp = buf;
+	int			retval;
 
 	if (usb_disabled())
 		return -ENODEV;
@@ -78,122 +75,75 @@ int usb_hcd_pci_probe (struct pci_dev *dev, const struct pci_device_id *id)
 			"Found HC with no IRQ.  Check BIOS/PCI %s setup!\n",
 			pci_name(dev));
    	        retval = -ENODEV;
-		goto done;
+		goto err1;
         }
-	
+
+	hcd = usb_create_hcd (driver, &dev->dev, pci_name(dev));
+	if (!hcd) {
+		retval = -ENOMEM;
+		goto err1;
+	}
+
 	if (driver->flags & HCD_MEMORY) {	// EHCI, OHCI
-		region = 0;
-		resource = pci_resource_start (dev, 0);
-		len = pci_resource_len (dev, 0);
-		if (!request_mem_region (resource, len, driver->description)) {
+		hcd->rsrc_start = pci_resource_start (dev, 0);
+		hcd->rsrc_len = pci_resource_len (dev, 0);
+		if (!request_mem_region (hcd->rsrc_start, hcd->rsrc_len,
+				driver->description)) {
 			dev_dbg (&dev->dev, "controller already in use\n");
 			retval = -EBUSY;
-			goto done;
+			goto err2;
 		}
-		base = ioremap_nocache (resource, len);
-		if (base == NULL) {
+		hcd->regs = ioremap_nocache (hcd->rsrc_start, hcd->rsrc_len);
+		if (hcd->regs == NULL) {
 			dev_dbg (&dev->dev, "error mapping memory\n");
 			retval = -EFAULT;
-clean_1:
-			release_mem_region (resource, len);
-			dev_err (&dev->dev, "init %s fail, %d\n",
-				pci_name(dev), retval);
-			goto done;
+			goto err3;
 		}
 
 	} else { 				// UHCI
-		resource = len = 0;
+		int	region;
+
 		for (region = 0; region < PCI_ROM_RESOURCE; region++) {
-			if (!(pci_resource_flags (dev, region) & IORESOURCE_IO))
+			if (!(pci_resource_flags (dev, region) &
+					IORESOURCE_IO))
 				continue;
 
-			resource = pci_resource_start (dev, region);
-			len = pci_resource_len (dev, region);
-			if (request_region (resource, len,
+			hcd->rsrc_start = pci_resource_start (dev, region);
+			hcd->rsrc_len = pci_resource_len (dev, region);
+			if (request_region (hcd->rsrc_start, hcd->rsrc_len,
 					driver->description))
 				break;
 		}
 		if (region == PCI_ROM_RESOURCE) {
 			dev_dbg (&dev->dev, "no i/o regions available\n");
 			retval = -EBUSY;
-			goto done;
-		}
-		base = (void __iomem *) resource;
-	}
-
-	// driver->reset(), later on, will transfer device from
-	// control by SMM/BIOS to control by Linux (if needed)
-
-	hcd = usb_create_hcd (driver);
-	if (hcd == NULL){
-		dev_dbg (&dev->dev, "hcd alloc fail\n");
-		retval = -ENOMEM;
-clean_2:
-		if (driver->flags & HCD_MEMORY) {
-			iounmap (base);
-			goto clean_1;
-		} else {
-			release_region (resource, len);
-			dev_err (&dev->dev, "init %s fail, %d\n",
-				pci_name(dev), retval);
-			goto done;
+			goto err1;
 		}
 	}
-	// hcd zeroed everything
-	hcd->regs = base;
-	hcd->region = region;
 
-	pci_set_drvdata (dev, hcd);
-	hcd->self.bus_name = pci_name(dev);
 #ifdef CONFIG_PCI_NAMES
 	hcd->product_desc = dev->pretty_name;
 #endif
-	hcd->self.controller = &dev->dev;
-
-	if ((retval = hcd_buffer_create (hcd)) != 0) {
-clean_3:
-		pci_set_drvdata (dev, NULL);
-		usb_put_hcd (hcd);
-		goto clean_2;
-	}
-
-	dev_info (hcd->self.controller, "%s\n", hcd->product_desc);
-
-	/* till now HC has been in an indeterminate state ... */
-	if (driver->reset && (retval = driver->reset (hcd)) < 0) {
-		dev_err (hcd->self.controller, "can't reset\n");
-		goto clean_3;
-	}
 
 	pci_set_master (dev);
-#ifndef __sparc__
-	sprintf (buf, "%d", dev->irq);
-#else
-	bufp = __irq_itoa(dev->irq);
-#endif
-	retval = request_irq (dev->irq, usb_hcd_irq, SA_SHIRQ,
-				hcd->driver->description, hcd);
-	if (retval != 0) {
-		dev_err (hcd->self.controller,
-				"request interrupt %s failed\n", bufp);
-		goto clean_3;
-	}
-	hcd->irq = dev->irq;
 
-	dev_info (hcd->self.controller, "irq %s, %s 0x%lx\n", bufp,
-		(driver->flags & HCD_MEMORY) ? "pci mem" : "io base",
-		resource);
-
-	usb_register_bus (&hcd->self);
-
-	if ((retval = driver->start (hcd)) < 0) {
-		dev_err (hcd->self.controller, "init error %d\n", retval);
-		usb_hcd_pci_remove (dev);
-	}
-
-done:
+	retval = usb_add_hcd (hcd, dev->irq, SA_SHIRQ);
 	if (retval != 0)
-		pci_disable_device (dev);
+		goto err4;
+	return retval;
+
+ err4:
+	if (driver->flags & HCD_MEMORY) {
+		iounmap (hcd->regs);
+ err3:
+		release_mem_region (hcd->rsrc_start, hcd->rsrc_len);
+	} else
+		release_region (hcd->rsrc_start, hcd->rsrc_len);
+ err2:
+	usb_put_hcd (hcd);
+ err1:
+	pci_disable_device (dev);
+	dev_err (&dev->dev, "init %s fail, %d\n", pci_name(dev), retval);
 	return retval;
 } 
 EXPORT_SYMBOL (usb_hcd_pci_probe);
@@ -220,34 +170,15 @@ void usb_hcd_pci_remove (struct pci_dev *dev)
 	hcd = pci_get_drvdata(dev);
 	if (!hcd)
 		return;
-	dev_info (hcd->self.controller, "remove, state %x\n", hcd->state);
 
-	if (in_interrupt ())
-		BUG ();
-
-	if (HCD_IS_RUNNING (hcd->state))
-		hcd->state = USB_STATE_QUIESCING;
-
-	dev_dbg (hcd->self.controller, "roothub graceful disconnect\n");
-	usb_disconnect (&hcd->self.root_hub);
-
-	hcd->driver->stop (hcd);
-	hcd_buffer_destroy (hcd);
-	hcd->state = USB_STATE_HALT;
-	pci_set_drvdata(dev, NULL);
-
-	free_irq (hcd->irq, hcd);
+	usb_remove_hcd (hcd);
 	if (hcd->driver->flags & HCD_MEMORY) {
 		iounmap (hcd->regs);
-		release_mem_region (pci_resource_start (dev, 0),
-			pci_resource_len (dev, 0));
+		release_mem_region (hcd->rsrc_start, hcd->rsrc_len);
 	} else {
-		release_region (pci_resource_start (dev, hcd->region),
-			pci_resource_len (dev, hcd->region));
+		release_region (hcd->rsrc_start, hcd->rsrc_len);
 	}
-
-	usb_deregister_bus (&hcd->self);
-
+	usb_put_hcd (hcd);
 	pci_disable_device(dev);
 }
 EXPORT_SYMBOL (usb_hcd_pci_remove);
