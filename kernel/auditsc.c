@@ -89,6 +89,10 @@ enum audit_state {
 struct audit_names {
 	const char	*name;
 	unsigned long	ino;
+	dev_t		dev;
+	umode_t		mode;
+	uid_t		uid;
+	gid_t		gid;
 	dev_t		rdev;
 };
 
@@ -356,7 +360,7 @@ static int audit_filter_rules(struct task_struct *tsk,
 		case AUDIT_DEVMAJOR:
 			if (ctx) {
 				for (j = 0; j < ctx->name_count; j++) {
-					if (MAJOR(ctx->names[j].rdev)==value) {
+					if (MAJOR(ctx->names[j].dev)==value) {
 						++result;
 						break;
 					}
@@ -366,7 +370,7 @@ static int audit_filter_rules(struct task_struct *tsk,
 		case AUDIT_DEVMINOR:
 			if (ctx) {
 				for (j = 0; j < ctx->name_count; j++) {
-					if (MINOR(ctx->names[j].rdev)==value) {
+					if (MINOR(ctx->names[j].dev)==value) {
 						++result;
 						break;
 					}
@@ -668,12 +672,14 @@ static void audit_log_exit(struct audit_context *context)
 			audit_log_format(ab, " name=%s",
 					 context->names[i].name);
 		if (context->names[i].ino != (unsigned long)-1)
-			audit_log_format(ab, " inode=%lu",
-					 context->names[i].ino);
-		/* FIXME: should use format_dev_t, but ab structure is
-		 * opaque. */
-		if (context->names[i].rdev != -1)
-			audit_log_format(ab, " dev=%02x:%02x",
+			audit_log_format(ab, " inode=%lu dev=%02x:%02x mode=%#o"
+					     " uid=%d gid=%d rdev=%02x:%02x",
+					 context->names[i].ino,
+					 MAJOR(context->names[i].dev),
+					 MINOR(context->names[i].dev),
+					 context->names[i].mode,
+					 context->names[i].uid,
+					 context->names[i].gid,
 					 MAJOR(context->names[i].rdev),
 					 MINOR(context->names[i].rdev));
 		audit_log_end(ab);
@@ -867,7 +873,6 @@ void audit_getname(const char *name)
 	BUG_ON(context->name_count >= AUDIT_NAMES);
 	context->names[context->name_count].name = name;
 	context->names[context->name_count].ino  = (unsigned long)-1;
-	context->names[context->name_count].rdev = -1;
 	++context->name_count;
 }
 
@@ -913,7 +918,7 @@ void audit_putname(const char *name)
 
 /* Store the inode and device from a lookup.  Called from
  * fs/namei.c:path_lookup(). */
-void audit_inode(const char *name, unsigned long ino, dev_t rdev)
+void audit_inode(const char *name, const struct inode *inode)
 {
 	int idx;
 	struct audit_context *context = current->audit_context;
@@ -939,8 +944,12 @@ void audit_inode(const char *name, unsigned long ino, dev_t rdev)
 		++context->ino_count;
 #endif
 	}
-	context->names[idx].ino  = ino;
-	context->names[idx].rdev = rdev;
+	context->names[idx].ino  = inode->i_ino;
+	context->names[idx].dev	 = inode->i_sb->s_dev;
+	context->names[idx].mode = inode->i_mode;
+	context->names[idx].uid  = inode->i_uid;
+	context->names[idx].gid  = inode->i_gid;
+	context->names[idx].rdev = inode->i_rdev;
 }
 
 void audit_get_stamp(struct audit_context *ctx,

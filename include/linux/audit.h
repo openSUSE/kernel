@@ -131,6 +131,9 @@ struct audit_context;
 #endif
 
 #ifdef CONFIG_AUDITSYSCALL
+/* forward decl for audit_inode */
+struct inode;
+
 /* These are defined in auditsc.c */
 				/* Public API */
 extern int  audit_alloc(struct task_struct *task);
@@ -141,7 +144,7 @@ extern void audit_syscall_entry(struct task_struct *task,
 extern void audit_syscall_exit(struct task_struct *task, int return_code);
 extern void audit_getname(const char *name);
 extern void audit_putname(const char *name);
-extern void audit_inode(const char *name, unsigned long ino, dev_t rdev);
+extern void audit_inode(const char *name, const struct inode *inode);
 
 				/* Private API (for audit.c only) */
 extern int  audit_receive_filter(int type, int pid, int uid, int seq,
@@ -158,7 +161,7 @@ extern int audit_ipc_perms(unsigned long qbytes, uid_t uid, gid_t gid, mode_t mo
 #define audit_syscall_exit(t,r) do { ; } while (0)
 #define audit_getname(n) do { ; } while (0)
 #define audit_putname(n) do { ; } while (0)
-#define audit_inode(n,i,d) do { ; } while (0)
+#define audit_inode(n,i) do { ; } while (0)
 #define audit_get_loginuid(c) ({ -1; })
 #define audit_ipc_perms(q,u,g,m) ({ 0; })
 #endif

@@ -992,9 +992,7 @@ int fastcall path_lookup(const char *name, unsigned int flags, struct nameidata 
 	retval = link_path_walk(name, nd);
 	if (unlikely(current->audit_context
 		     && nd && nd->dentry && nd->dentry->d_inode))
-		audit_inode(name,
-			    nd->dentry->d_inode->i_ino,
-			    nd->dentry->d_inode->i_rdev);
+		audit_inode(name, nd->dentry->d_inode);
 	return retval;
 }
 
