@@ -81,9 +81,10 @@ static int hpet_timer_stop_set_go(unsigned long tick)
 	cfg |= HPET_TN_ENABLE | HPET_TN_PERIODIC |
 	       HPET_TN_SETVAL | HPET_TN_32BIT;
 	hpet_writel(cfg, HPET_T0_CFG);
+
 	/*
-	 * Some systems seems to need two writes to HPET_T0_CMP,
-	 * to get interrupts working
+	 * The first write after writing TN_SETVAL to the config register sets
+	 * the counter value, the second write sets the threshold.
 	 */
 	hpet_writel(tick, HPET_T0_CMP);
 	hpet_writel(tick, HPET_T0_CMP);
