@@ -85,14 +85,16 @@ static unsigned long get_init_ra_size(unsigned long size, unsigned long max)
  * not for each call to readahead.  If a cache miss occured, reduce next I/O
  * size, else increase depending on how close to max we are.
  */
-static unsigned long get_next_ra_size(unsigned long cur, unsigned long max,
-				unsigned long min, unsigned long * flags)
+static unsigned long get_next_ra_size(struct file_ra_state *ra)
 {
+	unsigned long max = get_max_readahead(ra);
+	unsigned long min = get_min_readahead(ra);
+	unsigned long cur = ra->size;
 	unsigned long newsize;
 
-	if (*flags & RA_FLAG_MISS) {
+	if (ra->flags & RA_FLAG_MISS) {
+		ra->flags &= ~RA_FLAG_MISS;
 		newsize = max((cur - 2), min);
-		*flags &= ~RA_FLAG_MISS;
 	} else if (cur < max / 16) {
 		newsize = 4 * cur;
 	} else {
@@ -413,7 +415,7 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 		     struct file *filp, unsigned long offset,
 		     unsigned long req_size)
 {
-	unsigned long max, min;
+	unsigned long max;
 	unsigned long newsize = req_size;
 	unsigned long block;
 
@@ -427,7 +429,6 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 		goto out;
 
 	max = get_max_readahead(ra);
-	min = get_min_readahead(ra);
 	newsize = min(req_size, max);
 
 	if (newsize == 0 || (ra->flags & RA_FLAG_INCACHE)) {
@@ -457,8 +458,7 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 		 * immediately.
 		 */
 		if (req_size >= max) {
-			ra->ahead_size = get_next_ra_size(ra->size, max, min,
-							  &ra->flags);
+			ra->ahead_size = get_next_ra_size(ra);
 			ra->ahead_start = ra->start + ra->size;
 			blockable_page_cache_readahead(mapping, filp,
 				 ra->ahead_start, ra->ahead_size, ra, 1);
@@ -484,8 +484,7 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 	 */
 
 	if (ra->ahead_start == 0) {	 /* no ahead window yet */
-		ra->ahead_size = get_next_ra_size(ra->size, max, min,
-						  &ra->flags);
+		ra->ahead_size = get_next_ra_size(ra);
 		ra->ahead_start = ra->start + ra->size;
 		block = ((offset + newsize -1) >= ra->ahead_start);
 		if (!blockable_page_cache_readahead(mapping, filp,
@@ -517,9 +516,8 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 	if ((offset + newsize - 1) >= ra->ahead_start) {
 		ra->start = ra->ahead_start;
 		ra->size = ra->ahead_size;
-		ra->ahead_start = ra->ahead_start + ra->ahead_size;
-		ra->ahead_size = get_next_ra_size(ra->ahead_size,
-						  max, min, &ra->flags);
+		ra->ahead_start = ra->start + ra->size;
+		ra->ahead_size = get_next_ra_size(ra);
 		block = ((offset + newsize - 1) >= ra->ahead_start);
 		if (!blockable_page_cache_readahead(mapping, filp,
 			ra->ahead_start, ra->ahead_size, ra, block)) {
