@@ -140,6 +140,7 @@ int class_register(struct class * cls)
 
 	INIT_LIST_HEAD(&cls->children);
 	INIT_LIST_HEAD(&cls->interfaces);
+	init_MUTEX(&cls->sem);
 	error = kobject_set_name(&cls->subsys.kset.kobj, "%s", cls->name);
 	if (error)
 		return error;
@@ -413,12 +414,12 @@ int class_device_add(struct class_device *class_dev)
 
 	/* now take care of our own registration */
 	if (parent) {
-		down_write(&parent->subsys.rwsem);
+		down(&parent->sem);
 		list_add_tail(&class_dev->node, &parent->children);
 		list_for_each_entry(class_intf, &parent->interfaces, node)
 			if (class_intf->add)
 				class_intf->add(class_dev);
-		up_write(&parent->subsys.rwsem);
+		up(&parent->sem);
 	}
 
 	if (MAJOR(class_dev->devt))
@@ -448,12 +449,12 @@ void class_device_del(struct class_device *class_dev)
 	struct class_interface * class_intf;
 
 	if (parent) {
-		down_write(&parent->subsys.rwsem);
+		down(&parent->sem);
 		list_del_init(&class_dev->node);
 		list_for_each_entry(class_intf, &parent->interfaces, node)
 			if (class_intf->remove)
 				class_intf->remove(class_dev);
-		up_write(&parent->subsys.rwsem);
+		up(&parent->sem);
 	}
 
 	if (class_dev->dev)
@@ -509,8 +510,8 @@ void class_device_put(struct class_device *class_dev)
 
 int class_interface_register(struct class_interface *class_intf)
 {
-	struct class * parent;
-	struct class_device * class_dev;
+	struct class *parent;
+	struct class_device *class_dev;
 
 	if (!class_intf || !class_intf->class)
 		return -ENODEV;
@@ -519,14 +520,13 @@ int class_interface_register(struct class_interface *class_intf)
 	if (!parent)
 		return -EINVAL;
 
-	down_write(&parent->subsys.rwsem);
+	down(&parent->sem);
 	list_add_tail(&class_intf->node, &parent->interfaces);
-
 	if (class_intf->add) {
 		list_for_each_entry(class_dev, &parent->children, node)
 			class_intf->add(class_dev);
 	}
-	up_write(&parent->subsys.rwsem);
+	up(&parent->sem);
 
 	return 0;
 }
@@ -539,14 +539,13 @@ void class_interface_unregister(struct class_interface *class_intf)
 	if (!parent)
 		return;
 
-	down_write(&parent->subsys.rwsem);
+	down(&parent->sem);
 	list_del_init(&class_intf->node);
-
 	if (class_intf->remove) {
 		list_for_each_entry(class_dev, &parent->children, node)
 			class_intf->remove(class_dev);
 	}
-	up_write(&parent->subsys.rwsem);
+	up(&parent->sem);
 
 	class_put(parent);
 }

@@ -15,7 +15,6 @@
 #include <linux/ioport.h>
 #include <linux/kobject.h>
 #include <linux/list.h>
-#include <linux/spinlock.h>
 #include <linux/types.h>
 #include <linux/module.h>
 #include <linux/pm.h>
@@ -148,6 +147,7 @@ struct class {
 	struct subsystem	subsys;
 	struct list_head	children;
 	struct list_head	interfaces;
+	struct semaphore	sem;	/* locks both the children and interfaces lists */
 
 	struct class_attribute		* class_attrs;
 	struct class_device_attribute	* class_dev_attrs;
