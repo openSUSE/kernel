@@ -478,6 +478,10 @@ static void agp_v2_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 		*bridge_agpstat &= ~(AGPSTAT2_2X | AGPSTAT2_4X);
 		*bridge_agpstat |= AGPSTAT2_1X;
 	}
+
+	/* If we've dropped down to 1X, disable fast writes. */
+	if (*bridge_agpstat & AGPSTAT2_1X)
+		*bridge_agpstat &= ~AGPSTAT_FW;
 }
 
 /*
