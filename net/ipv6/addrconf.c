@@ -2923,12 +2923,8 @@ static int inet6_fill_ifinfo(struct sk_buff *skb, struct inet6_dev *idev,
 	r->ifi_family = AF_INET6;
 	r->ifi_type = dev->type;
 	r->ifi_index = dev->ifindex;
-	r->ifi_flags = dev->flags;
+	r->ifi_flags = dev_get_flags(dev);
 	r->ifi_change = 0;
-	if (!netif_running(dev) || !netif_carrier_ok(dev))
-		r->ifi_flags &= ~IFF_RUNNING;
-	else
-		r->ifi_flags |= IFF_RUNNING;
 
 	RTA_PUT(skb, IFLA_IFNAME, strlen(dev->name)+1, dev->name);
 

@@ -180,8 +180,7 @@ struct sock *ax25_get_socket(ax25_address *my_addr, ax25_address *dest_addr,
 		    !ax25cmp(&s->dest_addr, dest_addr) &&
 		    s->sk->sk_type == type) {
 			sk = s->sk;
-			/* XXX Sleeps with spinlock held, use refcounts instead. XXX */
-			lock_sock(sk);
+			sock_hold(sk);
 			break;
 		}
 	}
