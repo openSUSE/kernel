@@ -315,8 +315,8 @@ cifs_demultiplex_thread(struct TCP_Server_Info *server)
 				csocket = server->ssocket;
 				continue;
 			} else {
-				if((pdu_length > CIFSMaxBufSize + MAX_CIFS_HDR_SIZE)
-				    || (pdu_length < sizeof (struct smb_hdr) - 1)) {
+				if((pdu_length > CIFSMaxBufSize + MAX_CIFS_HDR_SIZE - 4)
+				    || (pdu_length < sizeof (struct smb_hdr) - 1 - 4)) {
 					cERROR(1,
 					    ("Invalid size SMB length %d and pdu_length %d",
 						length, pdu_length+4));
@@ -331,7 +331,6 @@ cifs_demultiplex_thread(struct TCP_Server_Info *server)
 					for (total_read = 0; 
 					     total_read < pdu_length;
 					     total_read += length) {
-						cERROR(1,("trying to read %d bytes",pdu_length-total_read)); /* BB removeme BB */
 						length = kernel_recvmsg(csocket, &smb_msg, 
 							&iov, 1,
 							pdu_length - total_read, 0);
@@ -344,7 +343,6 @@ cifs_demultiplex_thread(struct TCP_Server_Info *server)
 							wake_up(&server->response_q);
 							continue;
 						}
-						cERROR(1,("received rest of smb (length 0x%x",length)); /* BB removeme BB */
 					}
 					length += 4; /* account for rfc1002 hdr */
 				}
