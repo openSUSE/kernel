@@ -212,7 +212,7 @@ EXPORT_SYMBOL(fat_notify_change);
 static int fat_free(struct inode *inode, int skip)
 {
 	struct super_block *sb = inode->i_sb;
-	int ret, wait;
+	int err, wait, free_start, i_start, i_logstart;
 
 	if (MSDOS_I(inode)->i_start == 0)
 		return 0;
@@ -223,7 +223,7 @@ static int fat_free(struct inode *inode, int skip)
 	wait = IS_DIRSYNC(inode);
 	if (skip) {
 		struct fat_entry fatent;
-		int fclus, dclus;
+		int ret, fclus, dclus;
 
 		ret = fat_get_cluster(inode, skip - 1, &fclus, &dclus);
 		if (ret < 0)
@@ -242,8 +242,7 @@ static int fat_free(struct inode *inode, int skip)
 				     __FUNCTION__, MSDOS_I(inode)->i_pos);
 			ret = -EIO;
 		} else if (ret > 0) {
-			int err = fat_ent_write(inode, &fatent, FAT_ENT_EOF,
-						wait);
+			err = fat_ent_write(inode, &fatent, FAT_ENT_EOF, wait);
 			if (err)
 				ret = err;
 		}
@@ -251,24 +250,36 @@ static int fat_free(struct inode *inode, int skip)
 		if (ret < 0)
 			return ret;
 
+		free_start = ret;
+		i_start = i_logstart = 0;
 		fat_cache_inval_inode(inode);
 	} else {
 		fat_cache_inval_inode(inode);
 
-		ret = MSDOS_I(inode)->i_start;
+		i_start = free_start = MSDOS_I(inode)->i_start;
+		i_logstart = MSDOS_I(inode)->i_logstart;
 		MSDOS_I(inode)->i_start = 0;
 		MSDOS_I(inode)->i_logstart = 0;
-		if (wait) {
-			int err = fat_sync_inode(inode);
-			if (err)
-				return err;
-		} else
-			mark_inode_dirty(inode);
 	}
+	MSDOS_I(inode)->i_attrs |= ATTR_ARCH;
+	inode->i_ctime = inode->i_mtime = CURRENT_TIME_SEC;
+	if (wait) {
+		err = fat_sync_inode(inode);
+		if (err)
+			goto error;
+	} else
+		mark_inode_dirty(inode);
 	inode->i_blocks = skip << (MSDOS_SB(sb)->cluster_bits - 9);
 
 	/* Freeing the remained cluster chain */
-	return fat_free_clusters(inode, ret);
+	return fat_free_clusters(inode, free_start);
+
+error:
+	if (i_start) {
+		MSDOS_I(inode)->i_start = i_start;
+		MSDOS_I(inode)->i_logstart = i_logstart;
+	}
+	return err;
 }
 
 void fat_truncate(struct inode *inode)
@@ -288,12 +299,7 @@ void fat_truncate(struct inode *inode)
 
 	lock_kernel();
 	fat_free(inode, nr_clusters);
-	MSDOS_I(inode)->i_attrs |= ATTR_ARCH;
 	unlock_kernel();
-	inode->i_ctime = inode->i_mtime = CURRENT_TIME_SEC;
-	mark_inode_dirty(inode);
-	if (IS_SYNC(inode))
-		fat_sync_inode(inode);
 }
 
 struct inode_operations fat_file_inode_operations = {
