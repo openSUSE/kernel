@@ -128,7 +128,7 @@ static struct tpm_vendor_specific tpm_atmel = {
 	.req_complete_mask = ATML_STATUS_BUSY | ATML_STATUS_DATA_AVAIL,
 	.req_complete_val = ATML_STATUS_DATA_AVAIL,
 	.base = TPM_ATML_BASE,
-	.miscdev.fops = &atmel_ops,
+	.miscdev = { .fops = &atmel_ops, },
 };
 
 static int __devinit tpm_atml_init(struct pci_dev *pci_dev,
