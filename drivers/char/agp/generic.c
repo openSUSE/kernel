@@ -636,6 +636,11 @@ u32 agp_collect_device_status(struct agp_bridge_data *bridge, u32 requested_mode
 			pci_dev_put(device);
 			continue;
 		}
+		if ((device->bus->self->vendor != bridge->dev->vendor) &&
+			(device->bus->self->device != bridge->dev->device)) {
+			pci_dev_put(device);
+			continue;
+		}
 	}
 
 	/*
