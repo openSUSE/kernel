@@ -470,6 +470,7 @@ intelfb_pci_register(struct pci_dev *pdev, const struct pci_device_id *ent)
 	struct agp_kern_info gtt_info;
 	int agp_memtype;
 	const char *s;
+	struct agp_bridge_data *bridge;
 
 	DBG_MSG("intelfb_pci_register\n");
 
@@ -605,16 +606,16 @@ intelfb_pci_register(struct pci_dev *pdev, const struct pci_device_id *ent)
 	}
 
 	/* Use agpgart to manage the GATT */
-	if (agp_backend_acquire()) {
+	if (!(bridge = agp_backend_acquire(pdev))) {
 		ERR_MSG("cannot acquire agp\n");
 		cleanup(dinfo);
 		return -ENODEV;
 	}
 
 	/* get the current gatt info */
-	if (agp_copy_info(&gtt_info)) {
+	if (agp_copy_info(bridge, &gtt_info)) {
 		ERR_MSG("cannot get agp info\n");
-		agp_backend_release();
+		agp_backend_release(bridge);
 		cleanup(dinfo);
 		return -ENODEV;
 	}
@@ -637,17 +638,17 @@ intelfb_pci_register(struct pci_dev *pdev, const struct pci_device_id *ent)
 	/* Allocate memories (which aren't stolen) */
 	if (dinfo->accel) {
 		if (!(dinfo->gtt_ring_mem =
-		      agp_allocate_memory(dinfo->ring.size >> 12,
+		      agp_allocate_memory(bridge, dinfo->ring.size >> 12,
 					  AGP_NORMAL_MEMORY))) {
 			ERR_MSG("cannot allocate ring buffer memory\n");
-			agp_backend_release();
+			agp_backend_release(bridge);
 			cleanup(dinfo);
 			return -ENOMEM;
 		}
 		if (agp_bind_memory(dinfo->gtt_ring_mem,
 				    dinfo->ring.offset)) {
 			ERR_MSG("cannot bind ring buffer memory\n");
-			agp_backend_release();
+			agp_backend_release(bridge);
 			cleanup(dinfo);
 			return -EBUSY;
 		}
@@ -661,17 +662,17 @@ intelfb_pci_register(struct pci_dev *pdev, const struct pci_device_id *ent)
 		agp_memtype = dinfo->mobile ? AGP_PHYSICAL_MEMORY
 			: AGP_NORMAL_MEMORY;
 		if (!(dinfo->gtt_cursor_mem =
-		      agp_allocate_memory(dinfo->cursor.size >> 12,
+		      agp_allocate_memory(bridge, dinfo->cursor.size >> 12,
 					  agp_memtype))) {
 			ERR_MSG("cannot allocate cursor memory\n");
-			agp_backend_release();
+			agp_backend_release(bridge);
 			cleanup(dinfo);
 			return -ENOMEM;
 		}
 		if (agp_bind_memory(dinfo->gtt_cursor_mem,
 				    dinfo->cursor.offset)) {
 			ERR_MSG("cannot bind cursor memory\n");
-			agp_backend_release();
+			agp_backend_release(bridge);
 			cleanup(dinfo);
 			return -EBUSY;
 		}
@@ -686,7 +687,7 @@ intelfb_pci_register(struct pci_dev *pdev, const struct pci_device_id *ent)
 	}
 	if (dinfo->fbmem_gart) {
 		if (!(dinfo->gtt_fb_mem =
-		      agp_allocate_memory(dinfo->fb.size >> 12,
+		      agp_allocate_memory(bridge, dinfo->fb.size >> 12,
 					  AGP_NORMAL_MEMORY))) {
 			WRN_MSG("cannot allocate framebuffer memory - use "
 				"the stolen one\n");
@@ -709,7 +710,7 @@ intelfb_pci_register(struct pci_dev *pdev, const struct pci_device_id *ent)
 	dinfo->fb_start = dinfo->fb.offset << 12;
 
 	/* release agpgart */
-	agp_backend_release();
+	agp_backend_release(bridge);
 
 	if (mtrr)
 		set_mtrr(dinfo);
