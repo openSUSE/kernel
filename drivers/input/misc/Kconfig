@@ -49,4 +49,12 @@ config INPUT_UINPUT
 	  To compile this driver as a module, choose M here: the
 	  module will be called uinput.
 
+config HP_SDC_RTC
+	tristate "HP SDC Real Time Clock"       
+	depends on GSC
+	select HP_SDC
+	help
+	  Say Y here if you want to support the built-in real time clock
+	  of the HP SDC controller.
+
 endif

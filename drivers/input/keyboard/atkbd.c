@@ -71,12 +71,15 @@ __obsolete_setup("atkbd_softrepeat=");
  * are loadable via an userland utility.
  */
 
-#if defined(__hppa__)
-#include "hpps2atkbd.h"
-#else
-
 static unsigned char atkbd_set2_keycode[512] = {
 
+#ifdef CONFIG_KEYBOARD_ATKBD_HP_KEYCODES
+
+/* XXX: need a more general approach */
+
+#include "hpps2atkbd.h"	/* include the keyboard scancodes */
+
+#else
 	  0, 67, 65, 63, 61, 59, 60, 88,  0, 68, 66, 64, 62, 15, 41,117,
 	  0, 56, 42, 93, 29, 16,  2,  0,  0,  0, 44, 31, 30, 17,  3,  0,
 	  0, 46, 45, 32, 18,  5,  4, 95,  0, 57, 47, 33, 20, 19,  6,183,
@@ -96,9 +99,8 @@ static unsigned char atkbd_set2_keycode[512] = {
 	110,111,108,112,106,103,  0,119,  0,118,109,  0, 99,104,119,  0,
 
 	  0,  0,  0, 65, 99,
-};
-
 #endif
+};
 
 static unsigned char atkbd_set3_keycode[512] = {
 

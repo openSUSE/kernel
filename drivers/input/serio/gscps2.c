@@ -38,7 +38,7 @@
 #include <asm/parisc-device.h>
 
 MODULE_AUTHOR("Laurent Canet <canetl@esiee.fr>, Thibaut Varene <varenet@esiee.fr>, Helge Deller <deller@gmx.de>");
-MODULE_DESCRIPTION("HP GSC PS/2 port driver");
+MODULE_DESCRIPTION("HP GSC PS2 port driver");
 MODULE_LICENSE("GPL");
 MODULE_DEVICE_TABLE(parisc, gscps2_device_tbl);
 
@@ -444,7 +444,7 @@ static struct parisc_device_id gscps2_device_tbl[] = {
 };
 
 static struct parisc_driver parisc_ps2_driver = {
-	.name		= "GSC PS/2",
+	.name		= "GSC PS2",
 	.id_table	= gscps2_device_tbl,
 	.probe		= gscps2_probe,
 	.remove		= gscps2_remove,

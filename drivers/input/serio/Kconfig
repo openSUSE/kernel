@@ -48,7 +48,7 @@ config SERIO_SERPORT
 
 config SERIO_CT82C710
 	tristate "ct82c710 Aux port controller"
-	depends on !PARISC
+	depends on X86
 	---help---
 	  Say Y here if you have a Texas Instruments TravelMate notebook
 	  equipped with the ct82c710 chip and want to use a mouse connected
@@ -109,6 +109,32 @@ config SERIO_GSCPS2
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called gscps2.
+
+config HP_SDC
+	tristate "HP System Device Controller i8042 Support"
+	depends on GSC && SERIO
+	default y
+	---help---
+	  This option enables supports for the the "System Device
+	  Controller", an i8042 carrying microcode to manage a
+	  few miscellanous devices on some Hewlett Packard systems.
+	  The SDC itself contains a 10ms resolution timer/clock capable
+	  of delivering interrupts on a periodic and one-shot basis.
+	  The SDC may also be connected to a battery-backed real-time
+	  clock, a basic audio waveform generator, and an HP-HIL Master
+	  Link Controller serving up to seven input devices.
+
+	  By itself this option is rather useless, but enabling it will
+	  enable selection of drivers for the abovementioned devices.
+	  It is, however, incompatible with the old, reliable HIL keyboard
+	  driver, and the new HIL driver is experimental, so if you plan
+	  to use a HIL keyboard as your primary keyboard, you may wish
+	  to keep using that driver until the new HIL drivers have had
+	  more testing.
+
+config HIL_MLC
+	tristate "HIL MLC Support (needed for HIL input devices)"
+	depends on HP_SDC
 
 config SERIO_PCIPS2
 	tristate "PCI PS/2 keyboard and PS/2 mouse controller"
