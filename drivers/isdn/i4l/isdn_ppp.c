@@ -1577,7 +1577,7 @@ static int isdn_ppp_mp_init( isdn_net_local * lp, ippp_bundle * add_to )
 		lp->next = lp->last = lp;	/* nobody else in a queue */
 		lp->netdev->pb->frags = NULL;
 		lp->netdev->pb->frames = 0;
-		lp->netdev->pb->seq = LONG_MAX;
+		lp->netdev->pb->seq = UINT_MAX;
 	}
 	lp->netdev->pb->ref_ct++;
 	
