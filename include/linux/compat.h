@@ -101,12 +101,14 @@ typedef union compat_sigval {
 	compat_uptr_t	sival_ptr;
 } compat_sigval_t;
 
+#define COMPAT_SIGEV_PAD_SIZE	((SIGEV_MAX_SIZE/sizeof(int)) - 3)
+
 typedef struct compat_sigevent {
 	compat_sigval_t sigev_value;
 	compat_int_t sigev_signo;
 	compat_int_t sigev_notify;
 	union {
-		compat_int_t _pad[SIGEV_PAD_SIZE];
+		compat_int_t _pad[COMPAT_SIGEV_PAD_SIZE];
 		compat_int_t _tid;
 
 		struct {

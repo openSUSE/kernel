@@ -199,7 +199,6 @@ struct ucontext32 {
 	compat_sigset_t		uc_sigmask;	/* mask last for extensibility */
 };
 
-#define SIGEV_PAD_SIZE32 ((SIGEV_MAX_SIZE/sizeof(int)) - 3)
 struct sigevent32 {
 	union {
 		int sival_int;
@@ -208,7 +207,7 @@ struct sigevent32 {
 	int sigev_signo;
 	int sigev_notify;
 	union {
-		int _pad[SIGEV_PAD_SIZE32];
+		int _pad[COMPAT_SIGEV_PAD_SIZE];
 		int _tid;
 		struct {
 			u32 *_function;

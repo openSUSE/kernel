@@ -230,8 +230,6 @@ typedef union sigval32 {
 	unsigned int sival_ptr;
 } sigval_t32;
 
-#define SIGEV_PAD_SIZE32 ((SIGEV_MAX_SIZE/sizeof(int)) - 3)
-
 typedef struct compat_siginfo {
 	int si_signo;
 	int si_errno;
@@ -289,7 +287,7 @@ typedef struct sigevent32 {
 	int sigev_signo;
 	int sigev_notify;
 	union {
-		int _pad[SIGEV_PAD_SIZE32];
+		int _pad[COMPAT_SIGEV_PAD_SIZE];
 		struct {
 			u32 _function;
 			u32 _attribute; /* really pthread_attr_t */

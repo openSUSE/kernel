@@ -4,7 +4,6 @@
 #define SI_PAD_SIZE32	((SI_MAX_SIZE/sizeof(int)) - 3)
 
 #define SIGEV_PAD_SIZE	((SIGEV_MAX_SIZE/sizeof(int)) - 4)
-#define SIGEV_PAD_SIZE32 ((SIGEV_MAX_SIZE/sizeof(int)) - 3)
 
 #define __ARCH_SI_PREAMBLE_SIZE	(4 * sizeof(int))
 #define __ARCH_SI_TRAPNO
@@ -47,7 +46,7 @@ typedef struct sigevent32 {
 	int sigev_signo;
 	int sigev_notify;
 	union {
-		int _pad[SIGEV_PAD_SIZE32];
+		int _pad[COMPAT_SIGEV_PAD_SIZE];
 
 		struct {
 			u32 _function;
