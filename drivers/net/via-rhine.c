@@ -1198,7 +1198,10 @@ static int rhine_open(struct net_device *dev)
 
 	rc = alloc_ring(dev);
 	if (rc)
+	{
+		free_irq(rp->pdev->irq, dev);
 		return rc;
+	}
 	alloc_rbufs(dev);
 	alloc_tbufs(dev);
 	rhine_chip_reset(dev);
