@@ -26,9 +26,6 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
-#ifdef CONFIG_MCA
-#include <linux/mca.h>
-#endif /* CONFIG_MCA */
 #include "sound_config.h"
 #include "sb_mixer.h"
 #include "sb.h"
