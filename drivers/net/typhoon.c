@@ -1874,7 +1874,7 @@ typhoon_free_rx_rings(struct typhoon *tp)
 }
 
 static int
-typhoon_sleep(struct typhoon *tp, int state, u16 events)
+typhoon_sleep(struct typhoon *tp, pci_power_t state, u16 events)
 {
 	struct pci_dev *pdev = tp->pdev;
 	void __iomem *ioaddr = tp->ioaddr;
@@ -2155,7 +2155,7 @@ out_sleep:
 		goto out;
 	}
 
-	if(typhoon_sleep(tp, 3, 0) < 0) 
+	if(typhoon_sleep(tp, PCI_D3hot, 0) < 0) 
 		printk(KERN_ERR "%s: unable to go back to sleep\n", dev->name);
 
 out:
@@ -2182,7 +2182,7 @@ typhoon_close(struct net_device *dev)
 	if(typhoon_boot_3XP(tp, TYPHOON_STATUS_WAITING_FOR_HOST) < 0)
 		printk(KERN_ERR "%s: unable to boot sleep image\n", dev->name);
 
-	if(typhoon_sleep(tp, 3, 0) < 0)
+	if(typhoon_sleep(tp, PCI_D3hot, 0) < 0)
 		printk(KERN_ERR "%s: unable to put card to sleep\n", dev->name);
 
 	return 0;
@@ -2222,7 +2222,7 @@ reset:
 }
 
 static int
-typhoon_suspend(struct pci_dev *pdev, u32 state)
+typhoon_suspend(struct pci_dev *pdev, pm_message_t state)
 {
 	struct net_device *dev = pci_get_drvdata(pdev);
 	struct typhoon *tp = netdev_priv(dev);
@@ -2532,7 +2532,7 @@ typhoon_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if(xp_resp[0].numDesc != 0)
 		tp->capabilities |= TYPHOON_WAKEUP_NEEDS_RESET;
 
-	if(typhoon_sleep(tp, 3, 0) < 0) {
+	if(typhoon_sleep(tp, PCI_D3hot, 0) < 0) {
 		printk(ERR_PFX "%s: cannot put adapter to sleep\n",
 		       pci_name(pdev));
 		err = -EIO;
