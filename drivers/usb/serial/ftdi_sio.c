@@ -855,7 +855,7 @@ static struct usb_serial_device_type ftdi_HE_TIRA1_device = {
 
 
 
-#define WDR_TIMEOUT (HZ * 5 ) /* default urb timeout */
+#define WDR_TIMEOUT 5000 /* default urb timeout */
 
 /* High and low are for DTR, RTS etc etc */
 #define HIGH 1
