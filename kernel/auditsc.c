@@ -853,7 +853,9 @@ void audit_getname(const char *name)
 {
 	struct audit_context *context = current->audit_context;
 
-	BUG_ON(!context);
+	if (!context || IS_ERR(name) || !name)
+		return;
+
 	if (!context->in_syscall) {
 #if AUDIT_DEBUG == 2
 		printk(KERN_ERR "%s:%d(:%d): ignoring getname(%p)\n",
@@ -908,7 +910,6 @@ void audit_putname(const char *name)
 	}
 #endif
 }
-EXPORT_SYMBOL(audit_putname);
 
 /* Store the inode and device from a lookup.  Called from
  * fs/namei.c:path_lookup(). */
