@@ -138,6 +138,9 @@ static int initiate_cifs_search(const int xid, struct file * file)
 	cifsFile->invalidHandle = TRUE;
 	cifsFile->srch_inf.endOfSearch = FALSE;
 
+	if(file->f_dentry == NULL)
+		return -ENOENT;
+
 	cifs_sb = CIFS_SB(file->f_dentry->d_sb);
 	if(cifs_sb == NULL)
 		return -EINVAL;
@@ -145,9 +148,6 @@ static int initiate_cifs_search(const int xid, struct file * file)
 	pTcon = cifs_sb->tcon;
 	if(pTcon == NULL)
 		return -EINVAL;
-
-	if(file->f_dentry == NULL)
-		return -ENOENT;
 
 	down(&file->f_dentry->d_sb->s_vfs_rename_sem);
 	full_path = build_wildcard_path_from_dentry(file->f_dentry);

@@ -78,6 +78,7 @@ static void mark_open_files_invalid(struct cifsTconInfo * pTcon)
 	/* BB Add call to invalidate_inodes(sb) for all superblocks mounted to this tcon */
 }
 
+/* If the return code is zero, this function must fill in request_buf pointer */
 static int
 small_smb_init(int smb_command, int wct, struct cifsTconInfo *tcon,
 	 void **request_buf /* returned */)
@@ -169,6 +170,7 @@ small_smb_init(int smb_command, int wct, struct cifsTconInfo *tcon,
 	return rc;
 }  
 
+/* If the return code is zero, this function must fill in request_buf pointer */
 static int
 smb_init(int smb_command, int wct, struct cifsTconInfo *tcon,
 	 void **request_buf /* returned */ ,
@@ -496,17 +498,17 @@ CIFSSMBLogoff(const int xid, struct cifsSesInfo *ses)
 		return -EBUSY;
 	}
 	rc = small_smb_init(SMB_COM_LOGOFF_ANDX, 2, NULL, (void **)&pSMB);
+	if (rc) {
+		up(&ses->sesSem);
+		return rc;
+	}
+
 	smb_buffer_response = (struct smb_hdr *)pSMB; /* BB removeme BB */
 	
 	if(ses->server) {
 		if(ses->server->secMode & 
 		   (SECMODE_SIGN_REQUIRED | SECMODE_SIGN_ENABLED))
 			pSMB->hdr.Flags2 |= SMBFLG2_SECURITY_SIGNATURE;
-	}
-
-	if (rc) {
-		up(&ses->sesSem);
-		return rc;
 	}
 
 	pSMB->hdr.Uid = ses->Suid;
@@ -579,8 +581,7 @@ DelFileRetry:
         }
 #endif
 
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 	if (rc == -EAGAIN)
 		goto DelFileRetry;
 
@@ -630,8 +631,7 @@ RmDirRetry:
         }
 #endif
 
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 	if (rc == -EAGAIN)
 		goto RmDirRetry;
 	return rc;
@@ -679,8 +679,7 @@ MkDirRetry:
 		atomic_inc(&tcon->num_mkdirs);
         }
 #endif
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 	if (rc == -EAGAIN)
 		goto MkDirRetry;
 	return rc;
@@ -780,8 +779,7 @@ openRetry:
 		atomic_inc(&tcon->num_opens);
 #endif
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 	if (rc == -EAGAIN)
 		goto openRetry;
 	return rc;
@@ -851,12 +849,10 @@ CIFSSMBRead(const int xid, struct cifsTconInfo *tcon,
 			    memcpy(*buf,pReadData,data_length);
 		}
 	}
-	if (pSMB) {
-		if(*buf)
-			cifs_buf_release(pSMB);
-		else
-			*buf = (char *)pSMB;
-	}
+	if(*buf)
+		cifs_buf_release(pSMB);
+	else
+		*buf = (char *)pSMB;
 
 	/* Note: On -EAGAIN error only caller can retry on handle based calls 
 		since file handle passed in no longer valid */
@@ -912,14 +908,12 @@ CIFSSMBWrite(const int xid, struct cifsTconInfo *tcon,
 	    memcpy(pSMB->Data,buf,bytes_sent);
 	else if(ubuf) {
 		if(copy_from_user(pSMB->Data,ubuf,bytes_sent)) {
-			if(pSMB)
-				cifs_buf_release(pSMB);
+			cifs_buf_release(pSMB);
 			return -EFAULT;
 		}
 	} else {
 		/* No buffer */
-		if(pSMB)
-			cifs_buf_release(pSMB);
+		cifs_buf_release(pSMB);
 		return -EINVAL;
 	}
 
@@ -940,8 +934,7 @@ CIFSSMBWrite(const int xid, struct cifsTconInfo *tcon,
 		*nbytes += le16_to_cpu(pSMBr->Count);
 	}
 
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	/* Note: On -EAGAIN error only caller can retry on handle based calls 
 		since file handle passed in no longer valid */
@@ -963,10 +956,12 @@ int CIFSSMBWrite2(const int xid, struct cifsTconInfo *tcon,
 	__u16 byte_count;
 
 	rc = small_smb_init(SMB_COM_WRITE_ANDX, 14, tcon, (void **) &pSMB);
-	pSMBr = (WRITE_RSP *)pSMB; /* BB removeme BB */
     
-    if (rc)
+	if (rc)
 		return rc;
+	
+	pSMBr = (WRITE_RSP *)pSMB; /* BB removeme BB */
+
 	/* tcon and ses pointer are checked in smb_init */
 	if (tcon->ses->server == NULL)
 		return -ECONNABORTED;
@@ -999,8 +994,7 @@ int CIFSSMBWrite2(const int xid, struct cifsTconInfo *tcon,
 	} else
 		*nbytes = le16_to_cpu(pSMBr->Count);
 
-	if (pSMB)
-		cifs_small_buf_release(pSMB);
+	cifs_small_buf_release(pSMB);
 
 	/* Note: On -EAGAIN error only caller can retry on handle based calls 
 		since file handle passed in no longer valid */
@@ -1065,8 +1059,7 @@ CIFSSMBLock(const int xid, struct cifsTconInfo *tcon,
 	if (rc) {
 		cFYI(1, ("Send error in Lock = %d", rc));
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	/* Note: On -EAGAIN error only caller can retry on handle based calls 
 	since file handle passed in no longer valid */
@@ -1084,11 +1077,12 @@ CIFSSMBClose(const int xid, struct cifsTconInfo *tcon, int smb_file_id)
 
 /* do not retry on dead session on close */
 	rc = small_smb_init(SMB_COM_CLOSE, 3, tcon, (void **) &pSMB);
-	pSMBr = (CLOSE_RSP *)pSMB; /* BB removeme BB */
 	if(rc == -EAGAIN)
 		return 0;
 	if (rc)
 		return rc;
+
+	pSMBr = (CLOSE_RSP *)pSMB; /* BB removeme BB */
 
 	pSMB->FileID = (__u16) smb_file_id;
 	pSMB->LastWriteTime = 0;
@@ -1102,8 +1096,7 @@ CIFSSMBClose(const int xid, struct cifsTconInfo *tcon, int smb_file_id)
 		}
 	}
 
-	if (pSMB)
-		cifs_small_buf_release(pSMB);
+	cifs_small_buf_release(pSMB);
 
 	/* Since session is dead, file will be closed on server already */
 	if(rc == -EAGAIN)
@@ -1180,8 +1173,7 @@ renameRetry:
 	}
 #endif
 
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	if (rc == -EAGAIN)
 		goto renameRetry;
@@ -1260,8 +1252,7 @@ int CIFSSMBRenameOpenFile(const int xid,struct cifsTconInfo *pTcon,
 		atomic_inc(&pTcon->num_t2renames);
 	}
 #endif
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	/* Note: On -EAGAIN error only caller can retry on handle based calls
 		since file handle passed in no longer valid */
@@ -1511,8 +1502,7 @@ createHardLinkRetry:
 		cFYI(1, ("Send error in SetPathInfo (hard link) = %d", rc));
 	}
 
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 	if (rc == -EAGAIN)
 		goto createHardLinkRetry;
 
@@ -1583,8 +1573,7 @@ winCreateHardLinkRetry:
 	if (rc) {
 		cFYI(1, ("Send error in hard link (NT rename) = %d", rc));
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 	if (rc == -EAGAIN)
 		goto winCreateHardLinkRetry;
 
@@ -1684,8 +1673,7 @@ querySymLinkRetry:
 	/* just in case so calling code does not go off the end of buffer */
 		}
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 	if (rc == -EAGAIN)
 		goto querySymLinkRetry;
 	return rc;
@@ -1740,9 +1728,23 @@ CIFSSMBQueryReparseLinkInfo(const int xid, struct cifsTconInfo *tcon,
 			rc = -EIO;	/* bad smb */
 		else {
 			if(data_count && (data_count < 2048)) {
-		/* could also validate reparse tag && better check name length */
+				char * end_of_smb = pSMBr->ByteCount + (char *)&pSMBr->ByteCount;
+
 				struct reparse_data * reparse_buf = (struct reparse_data *)
 					((char *)&pSMBr->hdr.Protocol + data_offset);
+				if((char*)reparse_buf >= end_of_smb) {
+					rc = -EIO;
+					goto qreparse_out;
+				}
+				if((reparse_buf->LinkNamesBuf + 
+					reparse_buf->TargetNameOffset +
+					reparse_buf->TargetNameLen) >
+						end_of_smb) {
+					cFYI(1,("reparse buf extended beyond SMB"));
+					rc = -EIO;
+					goto qreparse_out;
+				}
+				
 				if (pSMBr->hdr.Flags2 & SMBFLG2_UNICODE) {
 					name_len = UniStrnlen((wchar_t *)
 							(reparse_buf->LinkNamesBuf + 
@@ -1766,6 +1768,7 @@ CIFSSMBQueryReparseLinkInfo(const int xid, struct cifsTconInfo *tcon,
 			cFYI(1,("readlink result - %s ",symlinkinfo));
 		}
 	}
+qreparse_out:
 	if (pSMB)
 		cifs_buf_release(pSMB);
 
@@ -1985,8 +1988,7 @@ queryAclRetry:
 				buflen,acl_type,count);
 		}
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 	if (rc == -EAGAIN)
 		goto queryAclRetry;
 	return rc;
@@ -2064,8 +2066,7 @@ setAclRetry:
 	}
 
 setACLerrorExit:
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 	if (rc == -EAGAIN)
 		goto setAclRetry;
 	return rc;
@@ -2148,8 +2149,7 @@ QPathInfoRetry:
 		} else
 		    rc = -ENOMEM;
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 	if (rc == -EAGAIN)
 		goto QPathInfoRetry;
 
@@ -2232,8 +2232,7 @@ UnixQPathInfoRetry:
 			       sizeof (FILE_UNIX_BASIC_INFO));
 		}
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 	if (rc == -EAGAIN)
 		goto UnixQPathInfoRetry;
 
@@ -2312,8 +2311,8 @@ findUniqueRetry:
 
 		/* BB fill in */
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
+
+	cifs_buf_release(pSMB);
 	if (rc == -EAGAIN)
 		goto findUniqueRetry;
 
@@ -2338,9 +2337,9 @@ CIFSFindFirst(const int xid, struct cifsTconInfo *tcon,
 	int name_len;
 	__u16 params, byte_count;
 
-	cFYI(1, ("In FindFirst2"));
+	cFYI(1, ("In FindFirst"));
 
-findFirst2Retry:
+findFirstRetry:
 	rc = smb_init(SMB_COM_TRANSACTION2, 15, tcon, (void **) &pSMB,
 		      (void **) &pSMBr);
 	if (rc)
@@ -2410,7 +2409,7 @@ findFirst2Retry:
 		/* BB eventually could optimize out free and realloc of buf */
 		/*    for this case */
 		if (rc == -EAGAIN)
-			goto findFirst2Retry;
+			goto findFirstRetry;
 	} else { /* decode response */
 		/* BB remember to free buffer if error BB */
 		rc = validate_t2((struct smb_t2_rsp *)pSMBr);
@@ -2439,8 +2438,7 @@ findFirst2Retry:
 /*cFYI(1,("entries in buf %d index_of_last %d",psrch_inf->entries_in_buffer,psrch_inf->index_of_last_entry));  */
 			*pnetfid = parms->SearchHandle;
 		} else {
-			if(pSMB)
-				cifs_buf_release(pSMB);
+			cifs_buf_release(pSMB);
 		}
 	}
 
@@ -2458,7 +2456,7 @@ int CIFSFindNext(const int xid, struct cifsTconInfo *tcon,
 	int bytes_returned, name_len;
 	__u16 params, byte_count;
 
-	cFYI(1, ("In FindNext2"));
+	cFYI(1, ("In FindNext"));
 
 	if(psrch_inf->endOfSearch == TRUE)
 		return -ENOENT;
@@ -2565,7 +2563,7 @@ int CIFSFindNext(const int xid, struct cifsTconInfo *tcon,
 	/* Note: On -EAGAIN error only caller can retry on handle based calls
 	since file handle passed in no longer valid */
 FNext2_err_exit:
-	if ((rc != 0) && pSMB)
+	if (rc != 0)
 		cifs_buf_release(pSMB);
                                                                                               
 	return rc;
@@ -2581,14 +2579,15 @@ CIFSFindClose(const int xid, struct cifsTconInfo *tcon, const __u16 searchHandle
 
 	cFYI(1, ("In CIFSSMBFindClose"));
 	rc = small_smb_init(SMB_COM_FIND_CLOSE2, 1, tcon, (void **)&pSMB);
-	pSMBr = (CLOSE_RSP *)pSMB;  /* BB removeme BB */
+
 	/* no sense returning error if session restarted
-		file handle has been closed */
+		as file handle has been closed */
 	if(rc == -EAGAIN)
 		return 0;
 	if (rc)
 		return rc;
 
+	pSMBr = (CLOSE_RSP *)pSMB;  /* BB removeme BB */
 	pSMB->FileID = searchHandle;
 	pSMB->ByteCount = 0;
 	rc = SendReceive(xid, tcon->ses, (struct smb_hdr *) pSMB,
@@ -2596,8 +2595,7 @@ CIFSFindClose(const int xid, struct cifsTconInfo *tcon, const __u16 searchHandle
 	if (rc) {
 		cERROR(1, ("Send error in FindClose = %d", rc));
 	}
-	if (pSMB)
-		cifs_small_buf_release(pSMB);
+	cifs_small_buf_release(pSMB);
 
 	/* Since session is dead, search handle closed on server already */
 	if (rc == -EAGAIN)
@@ -2886,8 +2884,7 @@ QFSInfoRetry:
 			      FSData->f_bsize));
 		}
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	if (rc == -EAGAIN)
 		goto QFSInfoRetry;
@@ -2956,8 +2953,7 @@ QFSAttributeRetry:
 			       sizeof (FILE_SYSTEM_ATTRIBUTE_INFO));
 		}
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	if (rc == -EAGAIN)
 		goto QFSAttributeRetry;
@@ -3027,8 +3023,7 @@ QFSDeviceRetry:
 			       sizeof (FILE_SYSTEM_DEVICE_INFO));
 		}
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	if (rc == -EAGAIN)
 		goto QFSDeviceRetry;
@@ -3097,8 +3092,7 @@ QFSUnixRetry:
 			       sizeof (FILE_SYSTEM_UNIX_INFO));
 		}
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	if (rc == -EAGAIN)
 		goto QFSUnixRetry;
@@ -3177,8 +3171,7 @@ QFSPosixRetry:
 					le64_to_cpu(response_data->FreeFileNodes);
 		}
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	if (rc == -EAGAIN)
 		goto QFSPosixRetry;
@@ -3275,8 +3268,7 @@ SetEOFRetry:
 		cFYI(1, ("SetPathInfo (file size) returned %d", rc));
 	}
 
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	if (rc == -EAGAIN)
 		goto SetEOFRetry;
@@ -3438,8 +3430,7 @@ CIFSSMBSetFileTimes(const int xid, struct cifsTconInfo *tcon, const FILE_BASIC_I
 		cFYI(1,("Send error in Set Time (SetFileInfo) = %d",rc));
 	}
 
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	/* Note: On -EAGAIN error only caller can retry on handle based calls 
 		since file handle passed in no longer valid */
@@ -3520,8 +3511,7 @@ SetTimesRetry:
 		cFYI(1, ("SetPathInfo (times) returned %d", rc));
 	}
 
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	if (rc == -EAGAIN)
 		goto SetTimesRetry;
@@ -3601,8 +3591,7 @@ SetTimesRetryLegacy:
 		cFYI(1, ("SetPathInfo (times legacy) returned %d", rc));
 	}
 
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	if (rc == -EAGAIN)
 		goto SetTimesRetryLegacy;
@@ -3749,10 +3738,7 @@ int CIFSSMBNotify(const int xid, struct cifsTconInfo *tcon,
 	if (rc) {
 		cFYI(1, ("Error in Notify = %d", rc));
 	}
-	if (pSMB)
-		cifs_buf_release(pSMB);
-/*		if (rc == -EAGAIN)
-			goto NotifyRetry; */
+	cifs_buf_release(pSMB);
 	return rc;	
 }
 #ifdef CONFIG_CIFS_XATTR
@@ -4122,7 +4108,8 @@ SetEARetry:
 	/* we checked above that name len is less than 255 */
 	parm_data->list[0].name_len = (__u8)name_len;;
 	/* EA names are always ASCII */
-	strncpy(parm_data->list[0].name,ea_name,name_len);
+	if(ea_name)
+		strncpy(parm_data->list[0].name,ea_name,name_len);
 	parm_data->list[0].name[name_len] = 0;
 	parm_data->list[0].value_len = cpu_to_le16(ea_value_len);
 	/* caller ensures that ea_value_len is less than 64K but
@@ -4145,8 +4132,7 @@ SetEARetry:
 		cFYI(1, ("SetPathInfo (EA) returned %d", rc));
 	}
 
-	if (pSMB)
-		cifs_buf_release(pSMB);
+	cifs_buf_release(pSMB);
 
 	if (rc == -EAGAIN)
 		goto SetEARetry;

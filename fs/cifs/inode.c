@@ -778,7 +778,8 @@ cifs_revalidate(struct dentry *direntry)
 		filemap_fdatawrite(direntry->d_inode->i_mapping);
 	}
 	if(invalidate_inode) {
-		filemap_fdatawait(direntry->d_inode->i_mapping);
+		if(direntry->d_inode->i_mapping)
+			filemap_fdatawait(direntry->d_inode->i_mapping);
 		/* may eventually have to do this for open files too */
 		if(list_empty(&(cifsInode->openFileList))) {
 			/* Has changed on server - flush read ahead pages */

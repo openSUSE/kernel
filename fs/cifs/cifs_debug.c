@@ -89,12 +89,13 @@ cifs_debug_data_read(char *buf, char **beginBuffer, off_t offset,
 		ses = list_entry(tmp, struct cifsSesInfo, cifsSessionList);
 		length =
 		    sprintf(buf,
-			    "\n%d) Name: %s  Domain: %s Mounts: %d ServerOS: %s  \n\tServerNOS: %s\tCapabilities: 0x%x\n\tSMB session status: %d\tTCP status: %d",
+			    "\n%d) Name: %s  Domain: %s Mounts: %d ServerOS: %s  \n\tServerNOS: %s\tCapabilities: 0x%x\n\tSMB session status: %d\t",
 				i, ses->serverName, ses->serverDomain, atomic_read(&ses->inUse),
 				ses->serverOS, ses->serverNOS, ses->capabilities,ses->status,ses->server->tcpStatus);
 		buf += length;
 		if(ses->server) {
-			buf += sprintf(buf, "\n\tLocal Users To Server: %d SecMode: 0x%x Req Active: %d",
+			buf += sprintf(buf, "TCP status: %d\n\tLocal Users To Server: %d SecMode: 0x%x Req Active: %d",
+				ses->server->tcpStatus,
 				atomic_read(&ses->server->socketUseCount),
 				ses->server->secMode,
 				atomic_read(&ses->server->inFlight));
