@@ -499,6 +499,7 @@ static void sn9c102_urb_complete(struct urb *urb, struct pt_regs* regs)
 {
 	struct sn9c102_device* cam = urb->context;
 	struct sn9c102_frame_t** f;
+	size_t imagesize;
 	unsigned long lock_flags;
 	u8 i;
 	int err = 0;
@@ -530,6 +531,10 @@ static void sn9c102_urb_complete(struct urb *urb, struct pt_regs* regs)
 	if (!(*f))
 		(*f) = list_entry(cam->inqueue.next, struct sn9c102_frame_t,
 		                  frame);
+
+	imagesize = (cam->sensor->pix_format.width *
+	             cam->sensor->pix_format.height *
+	             cam->sensor->pix_format.priv) / 8;
 
 	for (i = 0; i < urb->number_of_packets; i++) {
 		unsigned int img, len, status;
@@ -565,11 +570,10 @@ end_of_frame:
 				if (eof)
 					img = (eof > pos) ? eof - pos - 1 : 0;
 
-				if ((*f)->buf.bytesused+img>(*f)->buf.length) {
+				if ((*f)->buf.bytesused+img > imagesize) {
 					u32 b = (*f)->buf.bytesused + img -
-					        (*f)->buf.length;
-					img = (*f)->buf.length - 
-					      (*f)->buf.bytesused;
+					        imagesize;
+					img = imagesize - (*f)->buf.bytesused;
 					DBG(3, "Expected EOF not found: "
 					       "video frame cut")
 					if (eof)
@@ -585,7 +589,7 @@ end_of_frame:
 
 				(*f)->buf.bytesused += img;
 
-				if ((*f)->buf.bytesused == (*f)->buf.length ||
+				if ((*f)->buf.bytesused == imagesize ||
 				    (cam->sensor->pix_format.pixelformat ==
 				                V4L2_PIX_FMT_SN9C10X && eof)) {
 					u32 b = (*f)->buf.bytesused;
