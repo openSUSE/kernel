@@ -14,7 +14,7 @@ struct dvb_pll_desc {
 		u32 stepsize;
 		u8  cb1;
 		u8  cb2;
-	} entries[0];
+	} entries[9];
 };
 
 extern struct dvb_pll_desc dvb_pll_thomson_dtt7579;
