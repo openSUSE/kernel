@@ -74,6 +74,7 @@ struct gss_cl_ctx {
 	struct gss_ctx		*gc_gss_ctx;
 	struct xdr_netobj	gc_wire_ctx;
 	u32			gc_win;
+	unsigned long		gc_expiry;
 };
 
 struct gss_cred {

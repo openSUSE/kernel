@@ -235,6 +235,7 @@ gss_alloc_context(void)
 	return ctx;
 }
 
+#define GSSD_MIN_TIMEOUT (60 * 60)
 static const void *
 gss_fill_context(const void *p, const void *end, struct gss_cl_ctx *ctx, struct gss_api_mech *gm)
 {
@@ -248,6 +249,9 @@ gss_fill_context(const void *p, const void *end, struct gss_cl_ctx *ctx, struct 
 	p = simple_get_bytes(p, end, &timeout, sizeof(timeout));
 	if (IS_ERR(p))
 		goto err;
+	if (timeout == 0)
+		timeout = GSSD_MIN_TIMEOUT;
+	ctx->gc_expiry = jiffies + (unsigned long)timeout * HZ * 3 / 4;
 	/* Sequence number window. Determines the maximum number of simultaneous requests */
 	p = simple_get_bytes(p, end, &window_size, sizeof(window_size));
 	if (IS_ERR(p))
@@ -700,6 +704,11 @@ out_err:
 static int
 gss_match(struct auth_cred *acred, struct rpc_cred *rc, int taskflags)
 {
+	struct gss_cred *gss_cred = container_of(rc, struct gss_cred, gc_base);
+
+	/* Don't match with creds that have expired. */
+	if (gss_cred->gc_ctx && time_after(jiffies, gss_cred->gc_ctx->gc_expiry))
+		return 0;
 	return (rc->cr_uid == acred->uid);
 }
 
