@@ -498,6 +498,7 @@ static void gameport_init_port(struct gameport *gameport)
 	device_initialize(&gameport->dev);
 	snprintf(gameport->dev.bus_id, sizeof(gameport->dev.bus_id),
 		 "gameport%lu", (unsigned long)atomic_inc_return(&gameport_no) - 1);
+	gameport->dev.bus = &gameport_bus;
 	gameport->dev.release = gameport_release_port;
 	if (gameport->parent)
 		gameport->dev.parent = &gameport->parent->dev;
