@@ -48,8 +48,9 @@ static void time_interpolator_update(long delta_nsec);
 /*
  * per-CPU timer vector definitions:
  */
-#define TVN_BITS 6
-#define TVR_BITS 8
+
+#define TVN_BITS (CONFIG_BASE_SMALL ? 4 : 6)
+#define TVR_BITS (CONFIG_BASE_SMALL ? 6 : 8)
 #define TVN_SIZE (1 << TVN_BITS)
 #define TVR_SIZE (1 << TVR_BITS)
 #define TVN_MASK (TVN_SIZE - 1)
