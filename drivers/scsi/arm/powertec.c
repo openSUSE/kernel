@@ -1,7 +1,7 @@
 /*
  *  linux/drivers/acorn/scsi/powertec.c
  *
- *  Copyright (C) 1997-2003 Russell King
+ *  Copyright (C) 1997-2005 Russell King
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -61,7 +61,7 @@ static int term[MAX_ECARDS] = { 1, 1, 1, 1, 1, 1, 1, 1 };
 struct powertec_info {
 	FAS216_Info		info;
 	struct expansion_card	*ec;
-	void			*term_port;
+	void __iomem		*base;
 	unsigned int		term_ctl;
 	struct scatterlist	sg[NR_SG];
 };
@@ -74,7 +74,8 @@ struct powertec_info {
 static void
 powertecscsi_irqenable(struct expansion_card *ec, int irqnr)
 {
-	writeb(POWERTEC_INTR_ENABLE, ec->irq_data);
+	struct powertec_info *info = ec->irq_data;
+	writeb(POWERTEC_INTR_ENABLE, info->base + POWERTEC_INTR_CONTROL);
 }
 
 /* Prototype: void powertecscsi_irqdisable(ec, irqnr)
@@ -85,7 +86,8 @@ powertecscsi_irqenable(struct expansion_card *ec, int irqnr)
 static void
 powertecscsi_irqdisable(struct expansion_card *ec, int irqnr)
 {
-	writeb(POWERTEC_INTR_DISABLE, ec->irq_data);
+	struct powertec_info *info = ec->irq_data;
+	writeb(POWERTEC_INTR_DISABLE, info->base + POWERTEC_INTR_CONTROL);
 }
 
 static const expansioncard_ops_t powertecscsi_ops = {
@@ -104,7 +106,7 @@ powertecscsi_terminator_ctl(struct Scsi_Host *host, int on_off)
 	struct powertec_info *info = (struct powertec_info *)host->hostdata;
 
 	info->term_ctl = on_off ? POWERTEC_TERM_ENABLE : 0;
-	writeb(info->term_ctl, info->term_port);
+	writeb(info->term_ctl, info->base + POWERTEC_TERM_CONTROL);
 }
 
 /* Prototype: void powertecscsi_intr(irq, *dev_id, *regs)
@@ -315,7 +317,7 @@ powertecscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 	struct Scsi_Host *host;
 	struct powertec_info *info;
 	unsigned long resbase, reslen;
-	unsigned char *base;
+	void __iomem *base;
 	int ret;
 
 	ret = ecard_request_resources(ec);
@@ -341,18 +343,11 @@ powertecscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 	host->irq	  = ec->irq;
 	host->dma_channel = ec->dma;
 
-	ec->irqaddr	= base + POWERTEC_INTR_STATUS;
-	ec->irqmask	= POWERTEC_INTR_BIT;
-	ec->irq_data	= base + POWERTEC_INTR_CONTROL;
-	ec->ops		= &powertecscsi_ops;
-
 	ecard_set_drvdata(ec, host);
 
 	info = (struct powertec_info *)host->hostdata;
-	info->term_port = base + POWERTEC_TERM_CONTROL;
+	info->base = base;
 	powertecscsi_terminator_ctl(host, term[ec->slot_no]);
-
-	device_create_file(&ec->dev, &dev_attr_bus_term);
 
 	info->info.scsi.io_base		= base + POWERTEC_FAS216_OFFSET;
 	info->info.scsi.io_shift	= POWERTEC_FAS216_SHIFT;
@@ -368,6 +363,13 @@ powertecscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 	info->info.dma.setup		= powertecscsi_dma_setup;
 	info->info.dma.pseudo		= NULL;
 	info->info.dma.stop		= powertecscsi_dma_stop;
+
+	ec->irqaddr	= base + POWERTEC_INTR_STATUS;
+	ec->irqmask	= POWERTEC_INTR_BIT;
+	ec->irq_data	= info;
+	ec->ops		= &powertecscsi_ops;
+
+	device_create_file(&ec->dev, &dev_attr_bus_term);
 
 	ret = fas216_init(host);
 	if (ret)
@@ -420,7 +422,7 @@ powertecscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 static void __devexit powertecscsi_remove(struct expansion_card *ec)
 {
 	struct Scsi_Host *host = ecard_get_drvdata(ec);
-	struct powertecscsi_info *info = (struct powertecscsi_info *)host->hostdata;
+	struct powertec_info *info = (struct powertec_info *)host->hostdata;
 
 	ecard_set_drvdata(ec, NULL);
 	fas216_remove(host);
@@ -431,7 +433,7 @@ static void __devexit powertecscsi_remove(struct expansion_card *ec)
 		free_dma(host->dma_channel);
 	free_irq(host->irq, info);
 
-	iounmap((void *)host->base);
+	iounmap(info->base);
 
 	fas216_release(host);
 	scsi_host_put(host);

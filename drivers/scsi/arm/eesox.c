@@ -1,7 +1,7 @@
 /*
  *  linux/drivers/acorn/scsi/eesox.c
  *
- *  Copyright (C) 1997-2003 Russell King
+ *  Copyright (C) 1997-2005 Russell King
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -73,8 +73,8 @@ static int term[MAX_ECARDS] = { 1, 1, 1, 1, 1, 1, 1, 1 };
 struct eesoxscsi_info {
 	FAS216_Info		info;
 	struct expansion_card	*ec;
-
-	void			*ctl_port;
+	void __iomem		*base;
+	void __iomem		*ctl_port;
 	unsigned int		control;
 	struct scatterlist	sg[NR_SG];	/* Scatter DMA list	*/
 };
@@ -194,11 +194,11 @@ eesoxscsi_dma_setup(struct Scsi_Host *host, Scsi_Pointer *SCp,
 	return fasdma_pseudo;
 }
 
-static void eesoxscsi_buffer_in(void *buf, int length, void *base)
+static void eesoxscsi_buffer_in(void *buf, int length, void __iomem *base)
 {
-	const void *reg_fas = base + EESOX_FAS216_OFFSET;
-	const void *reg_dmastat = base + EESOX_DMASTAT;
-	const void *reg_dmadata = base + EESOX_DMADATA;
+	const void __iomem *reg_fas = base + EESOX_FAS216_OFFSET;
+	const void __iomem *reg_dmastat = base + EESOX_DMASTAT;
+	const void __iomem *reg_dmadata = base + EESOX_DMADATA;
 	const register unsigned long mask = 0xffff;
 
 	do {
@@ -272,11 +272,11 @@ static void eesoxscsi_buffer_in(void *buf, int length, void *base)
 	} while (length);
 }
 
-static void eesoxscsi_buffer_out(void *buf, int length, void *base)
+static void eesoxscsi_buffer_out(void *buf, int length, void __iomem *base)
 {
-	const void *reg_fas = base + EESOX_FAS216_OFFSET;
-	const void *reg_dmastat = base + EESOX_DMASTAT;
-	const void *reg_dmadata = base + EESOX_DMADATA;
+	const void __iomem *reg_fas = base + EESOX_FAS216_OFFSET;
+	const void __iomem *reg_dmastat = base + EESOX_DMASTAT;
+	const void __iomem *reg_dmadata = base + EESOX_DMADATA;
 
 	do {
 		unsigned int status;
@@ -356,11 +356,11 @@ static void
 eesoxscsi_dma_pseudo(struct Scsi_Host *host, Scsi_Pointer *SCp,
 		     fasdmadir_t dir, int transfer_size)
 {
-	void *base = (void *)host->base;
+	struct eesoxscsi_info *info = (struct eesoxscsi_info *)host->hostdata;
 	if (dir == DMA_IN) {
-		eesoxscsi_buffer_in(SCp->ptr, SCp->this_residual, base);
+		eesoxscsi_buffer_in(SCp->ptr, SCp->this_residual, info->base);
 	} else {
-		eesoxscsi_buffer_out(SCp->ptr, SCp->this_residual, base);
+		eesoxscsi_buffer_out(SCp->ptr, SCp->this_residual, info->base);
 	}
 }
 
@@ -522,7 +522,7 @@ eesoxscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 	struct Scsi_Host *host;
 	struct eesoxscsi_info *info;
 	unsigned long resbase, reslen;
-	unsigned char *base;
+	void __iomem *base;
 	int ret;
 
 	ret = ecard_request_resources(ec);
@@ -552,14 +552,10 @@ eesoxscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 
 	info = (struct eesoxscsi_info *)host->hostdata;
 	info->ec	= ec;
+	info->base	= base;
 	info->ctl_port	= base + EESOX_CONTROL;
 	info->control	= term[ec->slot_no] ? EESOX_TERM_ENABLE : 0;
 	writeb(info->control, info->ctl_port);
-
-	ec->irqaddr	= base + EESOX_DMASTAT;
-	ec->irqmask	= EESOX_STAT_INTR;
-	ec->irq_data	= info;
-	ec->ops		= &eesoxscsi_ops;
 
 	info->info.scsi.io_base		= base + EESOX_FAS216_OFFSET;
 	info->info.scsi.io_shift	= EESOX_FAS216_SHIFT;
@@ -575,6 +571,11 @@ eesoxscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 	info->info.dma.setup		= eesoxscsi_dma_setup;
 	info->info.dma.pseudo		= eesoxscsi_dma_pseudo;
 	info->info.dma.stop		= eesoxscsi_dma_stop;
+
+	ec->irqaddr	= base + EESOX_DMASTAT;
+	ec->irqmask	= EESOX_STAT_INTR;
+	ec->irq_data	= info;
+	ec->ops		= &eesoxscsi_ops;
 
 	device_create_file(&ec->dev, &dev_attr_bus_term);
 
@@ -640,7 +641,7 @@ static void __devexit eesoxscsi_remove(struct expansion_card *ec)
 
 	device_remove_file(&ec->dev, &dev_attr_bus_term);
 
-	iounmap((void *)host->base);
+	iounmap(info->base);
 
 	fas216_release(host);
 	scsi_host_put(host);
@@ -679,4 +680,3 @@ MODULE_DESCRIPTION("EESOX 'Fast' SCSI driver for Acorn machines");
 MODULE_PARM(term, "1-8i");
 MODULE_PARM_DESC(term, "SCSI bus termination");
 MODULE_LICENSE("GPL");
-
