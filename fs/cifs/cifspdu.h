@@ -1509,12 +1509,20 @@ typedef struct {
 #define CIFS_UNIX_XATTR_CAP             0x00000004 /*support for new namespace*/
 
 typedef struct {
-	/* For undefined values return -1 in that field */
+	/* For undefined recommended transfer size return -1 in that field */
 	__le32 OptimalTransferSize;  /* bsize on some os, iosize on other os */
 	__le32 BlockSize; 
-	__le64 TotalBlocks;  /* redundant but easy to return */
-	__le64 BlocksAvail;  /* redundant but easy to return */
-	__le64 UserBlocksAvail;      /* bavail */
+    /* The next three fields are in terms of the block size.
+	(above). If block size is unknown, 4096 would be a
+	reasonable block size for a server to report. 
+	Note that returning the blocks/blocksavail removes need
+	to make a second call (to QFSInfo level 0x103 to get this info.
+	UserBlockAvail is typically less than or equal to BlocksAvail,
+	if no distinction is made return the same value in each */
+	__le64 TotalBlocks;
+	__le64 BlocksAvail;       /* bfree */
+	__le64 UserBlocksAvail;   /* bavail */
+    /* For undefined Node fields or FSID return -1 */
 	__le64 TotalFileNodes;
 	__le64 FreeFileNodes;
 	__le64 FileSysIdentifier;   /* fsid */

@@ -3159,15 +3159,23 @@ QFSPosixRetry:
 			    (FILE_SYSTEM_POSIX_INFO
 			     *) (((char *) &pSMBr->hdr.Protocol) +
 				 data_offset);
+			FSData->f_bsize =
+					le32_to_cpu(response_data->BlockSize);
 			FSData->f_blocks =
 					le64_to_cpu(response_data->TotalBlocks);
 			FSData->f_bfree =
 			    le64_to_cpu(response_data->BlocksAvail);
-			FSData->f_bavail =
+			if(response_data->UserBlocksAvail == -1) {
+				FSData->f_bavail = FSData->f_bfree;
+			} else {
+				FSData->f_bavail =
 					le64_to_cpu(response_data->UserBlocksAvail);
-			FSData->f_files =
+			}
+			if(response_data->TotalFileNodes != -1)
+				FSData->f_files =
 					le64_to_cpu(response_data->TotalFileNodes);
-			FSData->f_ffree =
+			if(response_data->FreeFileNodes != -1)
+				FSData->f_ffree =
 					le64_to_cpu(response_data->FreeFileNodes);
 		}
 	}

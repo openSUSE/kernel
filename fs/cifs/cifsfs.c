@@ -170,7 +170,7 @@ cifs_put_super(struct super_block *sb)
 static int
 cifs_statfs(struct super_block *sb, struct kstatfs *buf)
 {
-	int xid, rc;
+	int xid, rc = 0;
 	struct cifs_sb_info *cifs_sb;
 	struct cifsTconInfo *pTcon;
 
@@ -189,6 +189,15 @@ cifs_statfs(struct super_block *sb, struct kstatfs *buf)
 	buf->f_files = 0;	/* undefined */
 	buf->f_ffree = 0;	/* unlimited */
 
+#ifdef CONFIG_CIFS_EXPERIMENTAL
+/* BB we could add a second check for a QFS Unix capability bit */
+    if (pTcon->ses->capabilities & CAP_UNIX)
+	    rc = CIFSSMBQFSPosixInfo(xid, pTcon, buf, cifs_sb->local_nls);
+
+    /* Only need to call the old QFSInfo if failed
+    on newer one */
+    if(rc)
+#endif /* CIFS_EXPERIMENTAL */
 	rc = CIFSSMBQFSInfo(xid, pTcon, buf, cifs_sb->local_nls);
 
 	/*     
