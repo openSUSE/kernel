@@ -7,4 +7,6 @@
 void sha_init(__u32 *buf);
 void sha_transform(__u32 *digest, const char *data, __u32 *W);
 
+__u32 half_md4_transform(__u32 const buf[4], __u32 const in[8]);
+
 #endif

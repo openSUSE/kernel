@@ -1324,47 +1324,6 @@ ctl_table random_table[] = {
 #define K2 013240474631UL
 #define K3 015666365641UL
 
-/*
- * Basic cut-down MD4 transform.  Returns only 32 bits of result.
- */
-static __u32 halfMD4Transform (__u32 const buf[4], __u32 const in[8])
-{
-	__u32 a = buf[0], b = buf[1], c = buf[2], d = buf[3];
-
-	/* Round 1 */
-	ROUND(F, a, b, c, d, in[0] + K1,  3);
-	ROUND(F, d, a, b, c, in[1] + K1,  7);
-	ROUND(F, c, d, a, b, in[2] + K1, 11);
-	ROUND(F, b, c, d, a, in[3] + K1, 19);
-	ROUND(F, a, b, c, d, in[4] + K1,  3);
-	ROUND(F, d, a, b, c, in[5] + K1,  7);
-	ROUND(F, c, d, a, b, in[6] + K1, 11);
-	ROUND(F, b, c, d, a, in[7] + K1, 19);
-
-	/* Round 2 */
-	ROUND(G, a, b, c, d, in[1] + K2,  3);
-	ROUND(G, d, a, b, c, in[3] + K2,  5);
-	ROUND(G, c, d, a, b, in[5] + K2,  9);
-	ROUND(G, b, c, d, a, in[7] + K2, 13);
-	ROUND(G, a, b, c, d, in[0] + K2,  3);
-	ROUND(G, d, a, b, c, in[2] + K2,  5);
-	ROUND(G, c, d, a, b, in[4] + K2,  9);
-	ROUND(G, b, c, d, a, in[6] + K2, 13);
-
-	/* Round 3 */
-	ROUND(H, a, b, c, d, in[3] + K3,  3);
-	ROUND(H, d, a, b, c, in[7] + K3,  9);
-	ROUND(H, c, d, a, b, in[2] + K3, 11);
-	ROUND(H, b, c, d, a, in[6] + K3, 15);
-	ROUND(H, a, b, c, d, in[1] + K3,  3);
-	ROUND(H, d, a, b, c, in[5] + K3,  9);
-	ROUND(H, c, d, a, b, in[0] + K3, 11);
-	ROUND(H, b, c, d, a, in[4] + K3, 15);
-
-	return buf[1] + b;	/* "most hashed" word */
-	/* Alternative: return sum of all words? */
-}
-
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
 
 static __u32 twothirdsMD4Transform (__u32 const buf[4], __u32 const in[12])
@@ -1550,7 +1509,7 @@ __u32 secure_ip_id(__u32 daddr)
 	hash[2] = keyptr->secret[10];
 	hash[3] = keyptr->secret[11];
 
-	return halfMD4Transform(hash, keyptr->secret);
+	return half_md4_transform(hash, keyptr->secret);
 }
 
 #ifdef CONFIG_INET
@@ -1574,7 +1533,7 @@ __u32 secure_tcp_sequence_number(__u32 saddr, __u32 daddr,
 	hash[2]=(sport << 16) + dport;
 	hash[3]=keyptr->secret[11];
 
-	seq = halfMD4Transform(hash, keyptr->secret) & HASH_MASK;
+	seq = half_md4_transform(hash, keyptr->secret) & HASH_MASK;
 	seq += keyptr->count;
 	/*
 	 *	As close as possible to RFC 793, which
@@ -1612,7 +1571,7 @@ u32 secure_tcp_port_ephemeral(__u32 saddr, __u32 daddr, __u16 dport)
 	hash[2] = dport ^ keyptr->secret[10];
 	hash[3] = keyptr->secret[11];
 
-	return halfMD4Transform(hash, keyptr->secret);
+	return half_md4_transform(hash, keyptr->secret);
 }
 
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
