@@ -1749,10 +1749,6 @@ random_ioctl(struct inode * inode, struct file * file,
 			wake_up_interruptible(&random_read_wait);
 		return 0;
 	case RNDZAPENTCNT:
-		if (!capable(CAP_SYS_ADMIN))
-			return -EPERM;
-		random_state->entropy_count = 0;
-		return 0;
 	case RNDCLEARPOOL:
 		/* Clear the entropy pool counters. */
 		if (!capable(CAP_SYS_ADMIN))
