@@ -421,6 +421,7 @@ e1000_probe(struct pci_dev *pdev,
 	int i;
 	int err;
 	uint16_t eeprom_data;
+	uint16_t eeprom_apme_mask = E1000_EEPROM_APME;
 
 	if((err = pci_enable_device(pdev)))
 		return err;
@@ -591,6 +592,11 @@ e1000_probe(struct pci_dev *pdev,
 	case e1000_82542_rev2_1:
 	case e1000_82543:
 		break;
+	case e1000_82544:
+		e1000_read_eeprom(&adapter->hw,
+			EEPROM_INIT_CONTROL2_REG, 1, &eeprom_data);
+		eeprom_apme_mask = E1000_EEPROM_82544_APM;
+		break;
 	case e1000_82546:
 	case e1000_82546_rev_3:
 		if((E1000_READ_REG(&adapter->hw, STATUS) & E1000_STATUS_FUNC_1)
@@ -605,7 +611,7 @@ e1000_probe(struct pci_dev *pdev,
 			EEPROM_INIT_CONTROL3_PORT_A, 1, &eeprom_data);
 		break;
 	}
-	if(eeprom_data & E1000_EEPROM_APME)
+	if(eeprom_data & eeprom_apme_mask)
 		adapter->wol |= E1000_WUFC_MAG;
 
 	/* reset the hardware with the new settings */
