@@ -84,7 +84,7 @@ extern void vr41xx_mask_clock(vr41xx_clock_t clock);
 #define INT2_CASCADE_IRQ	MIPS_CPU_IRQ(4)
 #define INT3_CASCADE_IRQ	MIPS_CPU_IRQ(5)
 #define INT4_CASCADE_IRQ	MIPS_CPU_IRQ(6)
-#define MIPS_COUNTER_IRQ	MIPS_CPU_IRQ(7)
+#define TIMER_IRQ		MIPS_CPU_IRQ(7)
 
 /* SYINT1 Interrupt Numbers */
 #define SYSINT1_IRQ_BASE	8
