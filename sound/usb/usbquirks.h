@@ -1052,6 +1052,47 @@ YAMAHA_DEVICE(0x7010, "UB99"),
 	
 },
 
+/* Emagic devices */
+{
+	USB_DEVICE(0x086a, 0x0001),
+	.driver_info = (unsigned long) & (const snd_usb_audio_quirk_t) {
+		.vendor_name = "Emagic",
+		/* .product_name = "Unitor8", */
+		.ifnum = 2,
+		.type = QUIRK_MIDI_EMAGIC,
+		.data = & (const snd_usb_midi_endpoint_info_t) {
+			.out_cables = 0x80ff,
+			.in_cables  = 0x80ff
+		}
+	}
+},
+{
+	USB_DEVICE(0x086a, 0x0002),
+	.driver_info = (unsigned long) & (const snd_usb_audio_quirk_t) {
+		.vendor_name = "Emagic",
+		/* .product_name = "AMT8", */
+		.ifnum = 2,
+		.type = QUIRK_MIDI_EMAGIC,
+		.data = & (const snd_usb_midi_endpoint_info_t) {
+			.out_cables = 0x80ff,
+			.in_cables  = 0x80ff
+		}
+	}
+},
+{
+	USB_DEVICE(0x086a, 0x0003),
+	.driver_info = (unsigned long) & (const snd_usb_audio_quirk_t) {
+		.vendor_name = "Emagic",
+		/* .product_name = "MT4", */
+		.ifnum = 2,
+		.type = QUIRK_MIDI_EMAGIC,
+		.data = & (const snd_usb_midi_endpoint_info_t) {
+			.out_cables = 0x800f,
+			.in_cables  = 0x8003
+		}
+	}
+},
+
 {
 	USB_DEVICE_VENDOR_SPEC(0x0ccd, 0x0013),
 	.driver_info = (unsigned long) & (const snd_usb_audio_quirk_t) {
