@@ -1499,8 +1499,6 @@ static void init_std_data(struct entropy_store *r)
 
 static int __init rand_initialize(void)
 {
-	int i;
-
 	if (create_entropy_store(DEFAULT_POOL_SIZE, "primary", &random_state))
 		goto err;
 	if (batch_entropy_init(BATCH_ENTROPY_SIZE, random_state))
@@ -1517,10 +1515,6 @@ static int __init rand_initialize(void)
 #ifdef CONFIG_SYSCTL
 	sysctl_init_random(random_state);
 #endif
-	for (i = 0; i < NR_IRQS; i++)
-		irq_timer_state[i] = NULL;
-	memset(&input_timer_state, 0, sizeof(struct timer_rand_state));
-	memset(&extract_timer_state, 0, sizeof(struct timer_rand_state));
 	extract_timer_state.dont_count_entropy = 1;
 	return 0;
 err:
