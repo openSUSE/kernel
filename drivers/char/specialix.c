@@ -315,7 +315,7 @@ static inline void sx_long_delay(unsigned long delay)
 
 
 /* Set the IRQ using the RTS lines that run to the PAL on the board.... */
-int sx_set_irq ( struct specialix_board *bp)
+static int sx_set_irq ( struct specialix_board *bp)
 {
 	int virq;
 	int i;
@@ -379,7 +379,7 @@ static int sx_init_CD186x(struct specialix_board  * bp)
 }
 
 
-int read_cross_byte (struct specialix_board *bp, int reg, int bit)
+static int read_cross_byte (struct specialix_board *bp, int reg, int bit)
 {
 	int i;
 	int t;
@@ -878,7 +878,7 @@ static irqreturn_t sx_interrupt(int irq, void *dev_id, struct pt_regs *regs)
  *  Routines for open & close processing.
  */
 
-void turn_ints_off (struct specialix_board *bp)
+static void turn_ints_off (struct specialix_board *bp)
 {
 	if (bp->flags & SX_BOARD_IS_PCI) {
 		/* This was intended for enabeling the interrupt on the
@@ -889,7 +889,7 @@ void turn_ints_off (struct specialix_board *bp)
 	(void) sx_in_off (bp, 0); /* Turn off interrupts. */
 }
 
-void turn_ints_on (struct specialix_board *bp)
+static void turn_ints_on (struct specialix_board *bp)
 {
 	if (bp->flags & SX_BOARD_IS_PCI) {
 		/* play with the PCI chip. See comment above. */
@@ -2085,41 +2085,12 @@ static int sx_init_drivers(void)
 	return 0;
 }
 
-
 static void sx_release_drivers(void)
 {
 	free_page((unsigned long)tmp_buf);
 	tty_unregister_driver(specialix_driver);
 	put_tty_driver(specialix_driver);
 }
-
-
-#ifndef MODULE
-/*
- * Called at boot time.
- * 
- * You can specify IO base for up to SX_NBOARD cards,
- * using line "specialix=0xiobase1,0xiobase2,.." at LILO prompt.
- * Note that there will be no probing at default
- * addresses in this case.
- *
- */ 
-void specialix_setup(char *str, int * ints)
-{
-	int i;
-        
-	for (i=0;i<SX_NBOARD;i++) {
-		sx_board[i].base = 0;
-	}
-
-	for (i = 1; i <= ints[0]; i++) {
-		if (i&1)
-			sx_board[i/2].base = ints[i];
-		else
-			sx_board[i/2 -1].irq = ints[i];
-	}
-}
-#endif
 
 /* 
  * This routine must be called by kernel at boot time 
@@ -2182,9 +2153,9 @@ static int __init specialix_init(void)
 	return 0;
 }
 
-int iobase[SX_NBOARD]  = {0,};
+static int iobase[SX_NBOARD]  = {0,};
 
-int irq [SX_NBOARD] = {0,};
+static int irq [SX_NBOARD] = {0,};
 
 module_param_array(iobase, int, NULL, 0);
 module_param_array(irq, int, NULL, 0);
