@@ -470,7 +470,7 @@ static void pSeries_lpar_hpte_updateboltedpp(unsigned long newpp,
 	slot = pSeries_lpar_hpte_find(vpn);
 	BUG_ON(slot == -1);
 
-	flags = newpp & 3;
+	flags = newpp & 7;
 	lpar_rc = plpar_pte_protect(flags, slot, 0);
 
 	BUG_ON(lpar_rc != H_Success);

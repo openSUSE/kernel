@@ -82,14 +82,14 @@
 #define _PAGE_PRESENT	0x0001 /* software: pte contains a translation */
 #define _PAGE_USER	0x0002 /* matches one of the PP bits */
 #define _PAGE_FILE	0x0002 /* (!present only) software: pte holds file offset */
-#define _PAGE_RW	0x0004 /* software: user write access allowed */
+#define _PAGE_EXEC	0x0004 /* No execute on POWER4 and newer (we invert) */
 #define _PAGE_GUARDED	0x0008
 #define _PAGE_COHERENT	0x0010 /* M: enforce memory coherence (SMP systems) */
 #define _PAGE_NO_CACHE	0x0020 /* I: cache inhibit */
 #define _PAGE_WRITETHRU	0x0040 /* W: cache write-through */
 #define _PAGE_DIRTY	0x0080 /* C: page changed */
 #define _PAGE_ACCESSED	0x0100 /* R: page referenced */
-#define _PAGE_EXEC	0x0200 /* software: i-cache coherence required */
+#define _PAGE_RW	0x0200 /* software: user write access allowed */
 #define _PAGE_HASHPTE	0x0400 /* software: pte has an associated HPTE */
 #define _PAGE_BUSY	0x0800 /* software: PTE & hash are busy */ 
 #define _PAGE_SECONDARY 0x8000 /* software: HPTE is in secondary group */
@@ -118,29 +118,38 @@
 #define PAGE_KERNEL	__pgprot(_PAGE_BASE | _PAGE_WRENABLE)
 #define PAGE_KERNEL_CI	__pgprot(_PAGE_PRESENT | _PAGE_ACCESSED | \
 			       _PAGE_WRENABLE | _PAGE_NO_CACHE | _PAGE_GUARDED)
+#define PAGE_KERNEL_EXEC __pgprot(_PAGE_BASE | _PAGE_WRENABLE | _PAGE_EXEC)
 
 /*
- * The PowerPC can only do execute protection on a segment (256MB) basis,
- * not on a page basis.  So we consider execute permission the same as read.
+ * This bit in a hardware PTE indicates that the page is *not* executable.
+ */
+#define HW_NO_EXEC	_PAGE_EXEC
+
+/*
+ * POWER4 and newer have per page execute protection, older chips can only
+ * do this on a segment (256MB) basis.
+ *
  * Also, write permissions imply read permissions.
  * This is the closest we can get..
+ *
+ * Note due to the way vm flags are laid out, the bits are XWR
  */
 #define __P000	PAGE_NONE
-#define __P001	PAGE_READONLY_X
+#define __P001	PAGE_READONLY
 #define __P010	PAGE_COPY
-#define __P011	PAGE_COPY_X
-#define __P100	PAGE_READONLY
+#define __P011	PAGE_COPY
+#define __P100	PAGE_READONLY_X
 #define __P101	PAGE_READONLY_X
-#define __P110	PAGE_COPY
+#define __P110	PAGE_COPY_X
 #define __P111	PAGE_COPY_X
 
 #define __S000	PAGE_NONE
-#define __S001	PAGE_READONLY_X
+#define __S001	PAGE_READONLY
 #define __S010	PAGE_SHARED
-#define __S011	PAGE_SHARED_X
-#define __S100	PAGE_READONLY
+#define __S011	PAGE_SHARED
+#define __S100	PAGE_READONLY_X
 #define __S101	PAGE_READONLY_X
-#define __S110	PAGE_SHARED
+#define __S110	PAGE_SHARED_X
 #define __S111	PAGE_SHARED_X
 
 #ifndef __ASSEMBLY__
@@ -438,7 +447,7 @@ static inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
 static inline void __ptep_set_access_flags(pte_t *ptep, pte_t entry, int dirty)
 {
 	unsigned long bits = pte_val(entry) &
-		(_PAGE_DIRTY | _PAGE_ACCESSED | _PAGE_RW);
+		(_PAGE_DIRTY | _PAGE_ACCESSED | _PAGE_RW | _PAGE_EXEC);
 	unsigned long old, tmp;
 
 	__asm__ __volatile__(

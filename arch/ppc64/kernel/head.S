@@ -950,11 +950,12 @@ END_FTR_SECTION_IFCLR(CPU_FTR_SLB)
 	 * accessing a userspace segment (even from the kernel). We assume
 	 * kernel addresses always have the high bit set.
 	 */
-	rlwinm	r4,r4,32-23,29,29	/* DSISR_STORE -> _PAGE_RW */
+	rlwinm	r4,r4,32-25+9,31-9,31-9	/* DSISR_STORE -> _PAGE_RW */
 	rotldi	r0,r3,15		/* Move high bit into MSR_PR posn */
 	orc	r0,r12,r0		/* MSR_PR | ~high_bit */
 	rlwimi	r4,r0,32-13,30,30	/* becomes _PAGE_USER access bit */
 	ori	r4,r4,1			/* add _PAGE_PRESENT */
+	rlwimi	r4,r5,22+2,31-2,31-2	/* Set _PAGE_EXEC if trap is 0x400 */
 
 	/*
 	 * On iSeries, we soft-disable interrupts here, then

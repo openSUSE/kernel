@@ -782,7 +782,6 @@ int hash_huge_page(struct mm_struct *mm, unsigned long access,
 {
 	pte_t *ptep;
 	unsigned long va, vpn;
-	int is_write;
 	pte_t old_pte, new_pte;
 	unsigned long hpteflags, prpn;
 	long slot;
@@ -809,8 +808,7 @@ int hash_huge_page(struct mm_struct *mm, unsigned long access,
 	 * Check the user's access rights to the page.  If access should be
 	 * prevented then send the problem up to do_page_fault.
 	 */
-	is_write = access & _PAGE_RW;
-	if (unlikely(is_write && !(pte_val(*ptep) & _PAGE_RW)))
+	if (unlikely(access & ~pte_val(*ptep)))
 		goto out;
 	/*
 	 * At this point, we have a pte (old_pte) which can be used to build
@@ -829,6 +827,8 @@ int hash_huge_page(struct mm_struct *mm, unsigned long access,
 	new_pte = old_pte;
 
 	hpteflags = 0x2 | (! (pte_val(new_pte) & _PAGE_RW));
+ 	/* _PAGE_EXEC -> HW_NO_EXEC since it's inverted */
+	hpteflags |= ((pte_val(new_pte) & _PAGE_EXEC) ? 0 : HW_NO_EXEC);
 
 	/* Check if pte already has an hpte (case 2) */
 	if (unlikely(pte_val(old_pte) & _PAGE_HASHPTE)) {

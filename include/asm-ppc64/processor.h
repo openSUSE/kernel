@@ -173,6 +173,11 @@
 #define	SPRN_DEC	0x016	/* Decrement Register */
 #define	SPRN_DMISS	0x3D0	/* Data TLB Miss Register */
 #define	SPRN_DSISR	0x012	/* Data Storage Interrupt Status Register */
+#define   DSISR_NOHPTE		0x40000000	/* no translation found */
+#define   DSISR_PROTFAULT	0x08000000	/* protection fault */
+#define   DSISR_ISSTORE		0x02000000	/* access was a store */
+#define   DSISR_DABRMATCH	0x00400000	/* hit data breakpoint */
+#define   DSISR_NOSEGMENT	0x00200000	/* STAB/SLB miss */
 #define	SPRN_EAR	0x11A	/* External Address Register */
 #define	SPRN_ESR	0x3D4	/* Exception Syndrome Register */
 #define	  ESR_IMCP	0x80000000	/* Instr. Machine Check - Protection */

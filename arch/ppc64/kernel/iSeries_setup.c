@@ -633,6 +633,10 @@ static void __init iSeries_bolt_kernel(unsigned long saddr, unsigned long eaddr)
 		unsigned long vpn = va >> PAGE_SHIFT;
 		unsigned long slot = HvCallHpt_findValid(&hpte, vpn);
 
+		/* Make non-kernel text non-executable */
+		if (!in_kernel_text(ea))
+			mode_rw |= HW_NO_EXEC;
+
 		if (hpte.dw0.dw0.v) {
 			/* HPTE exists, so just bolt it */
 			HvCallHpt_setSwBits(slot, 0x10, 0);

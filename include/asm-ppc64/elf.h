@@ -226,6 +226,13 @@ do {								\
 	else if (current->personality != PER_LINUX32)		\
 		set_personality(PER_LINUX);			\
 } while (0)
+
+/*
+ * An executable for which elf_read_implies_exec() returns TRUE will
+ * have the READ_IMPLIES_EXEC personality flag set automatically.
+ */
+#define elf_read_implies_exec(ex, exec_stk)	(exec_stk != EXSTACK_DISABLE_X)
+
 #endif
 
 /*

@@ -235,7 +235,26 @@ extern u64 ppc64_pft_size;		/* Log 2 of page table size */
 
 #define virt_addr_valid(kaddr)	pfn_valid(__pa(kaddr) >> PAGE_SHIFT)
 
-#define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | VM_EXEC | \
+/*
+ * Unfortunately the PLT is in the BSS in the PPC32 ELF ABI,
+ * and needs to be executable.  This means the whole heap ends
+ * up being executable.
+ */
+#define VM_DATA_DEFAULT_FLAGS32	(VM_READ | VM_WRITE | VM_EXEC | \
+				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
+
+#define VM_DATA_DEFAULT_FLAGS64	(VM_READ | VM_WRITE | \
+				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
+
+#define VM_DATA_DEFAULT_FLAGS \
+	(test_thread_flag(TIF_32BIT) ? \
+	 VM_DATA_DEFAULT_FLAGS32 : VM_DATA_DEFAULT_FLAGS64)
+
+/*
+ * This is the default if a program doesn't have a PT_GNU_STACK
+ * program header entry.
+ */
+#define VM_STACK_DEFAULT_FLAGS	(VM_READ | VM_WRITE | VM_EXEC | \
 				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
 
 #endif /* __KERNEL__ */

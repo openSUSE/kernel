@@ -51,6 +51,7 @@
 #include <asm/cacheflush.h>
 #include <asm/cputable.h>
 #include <asm/abs_addr.h>
+#include <asm/sections.h>
 
 #ifdef DEBUG
 #define DBG(fmt...) udbg_printf(fmt)
@@ -95,6 +96,7 @@ static inline void create_pte_mapping(unsigned long start, unsigned long end,
 {
 	unsigned long addr;
 	unsigned int step;
+	unsigned long tmp_mode;
 
 	if (large)
 		step = 16*MB;
@@ -112,6 +114,13 @@ static inline void create_pte_mapping(unsigned long start, unsigned long end,
 		else
 			vpn = va >> PAGE_SHIFT;
 
+
+		tmp_mode = mode;
+		
+		/* Make non-kernel text non-executable */
+		if (!in_kernel_text(addr))
+			tmp_mode = mode | HW_NO_EXEC;
+
 		hash = hpt_hash(vpn, large);
 
 		hpteg = ((hash & htab_hash_mask) * HPTES_PER_GROUP);
@@ -120,12 +129,12 @@ static inline void create_pte_mapping(unsigned long start, unsigned long end,
 		if (systemcfg->platform & PLATFORM_LPAR)
 			ret = pSeries_lpar_hpte_insert(hpteg, va,
 				virt_to_abs(addr) >> PAGE_SHIFT,
-				0, mode, 1, large);
+				0, tmp_mode, 1, large);
 		else
 #endif /* CONFIG_PPC_PSERIES */
 			ret = native_hpte_insert(hpteg, va,
 				virt_to_abs(addr) >> PAGE_SHIFT,
-				0, mode, 1, large);
+				0, tmp_mode, 1, large);
 
 		if (ret == -1) {
 			ppc64_terminate_msg(0x20, "create_pte_mapping");
@@ -238,8 +247,6 @@ unsigned int hash_page_do_lazy_icache(unsigned int pp, pte_t pte, int trap)
 {
 	struct page *page;
 
-#define PPC64_HWNOEXEC (1 << 2)
-
 	if (!pfn_valid(pte_pfn(pte)))
 		return pp;
 
@@ -251,7 +258,7 @@ unsigned int hash_page_do_lazy_icache(unsigned int pp, pte_t pte, int trap)
 			__flush_dcache_icache(page_address(page));
 			set_bit(PG_arch_1, &page->flags);
 		} else
-			pp |= PPC64_HWNOEXEC;
+			pp |= HW_NO_EXEC;
 	}
 	return pp;
 }
