@@ -103,7 +103,6 @@ EXPORT_SYMBOL(pci_free_consistent);
 #endif
 
 #ifdef CONFIG_PCI
-EXPORT_SYMBOL(pcibios_penalize_isa_irq);
 EXPORT_SYMBOL(pci_mem_start);
 #endif
 

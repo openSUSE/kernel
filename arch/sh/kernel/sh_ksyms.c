@@ -51,7 +51,6 @@ EXPORT_SYMBOL(strncat);
 #ifdef CONFIG_PCI
 EXPORT_SYMBOL(pci_alloc_consistent);
 EXPORT_SYMBOL(pci_free_consistent);
-EXPORT_SYMBOL(pcibios_penalize_isa_irq);
 #endif
 
 /* mem exports */

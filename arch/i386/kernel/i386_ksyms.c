@@ -117,7 +117,6 @@ EXPORT_SYMBOL(dma_alloc_coherent);
 EXPORT_SYMBOL(dma_free_coherent);
 
 #ifdef CONFIG_PCI
-EXPORT_SYMBOL(pcibios_penalize_isa_irq);
 EXPORT_SYMBOL(pci_mem_start);
 #endif
 
