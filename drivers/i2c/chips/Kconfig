@@ -106,6 +106,17 @@ config SENSORS_GL518SM
 	  This driver can also be built as a module.  If so, the module
 	  will be called gl518sm.
 
+config SENSORS_GL520SM
+	tristate "Genesys Logic GL520SM"
+	depends on I2C && EXPERIMENTAL
+	select I2C_SENSOR
+	help
+	  If you say yes here you get support for Genesys Logic GL520SM
+	  sensor chips.
+
+	  This driver can also be built as a module.  If so, the module
+	  will be called gl520sm.
+
 config SENSORS_IT87
 	tristate "ITE IT87xx and compatibles"
 	depends on I2C && EXPERIMENTAL
