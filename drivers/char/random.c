@@ -546,15 +546,6 @@ static int create_entropy_store(int size, const char *name,
 	return 0;
 }
 
-/* Clear the entropy pool and associated counters. */
-static void clear_entropy_store(struct entropy_store *r)
-{
-	r->add_ptr = 0;
-	r->entropy_count = 0;
-	r->input_rotate = 0;
-	memset(r->pool, 0, r->poolinfo.POOLBYTES);
-}
-
 /*
  * This function adds a byte into the entropy "pool".  It does not
  * update the entropy estimate.  The caller should call
@@ -1531,9 +1522,6 @@ static int __init rand_initialize(void)
 	if (create_entropy_store(SECONDARY_POOL_SIZE, "urandom",
 				 &urandom_state))
 		goto err;
-	clear_entropy_store(random_state);
-	clear_entropy_store(sec_random_state);
-	clear_entropy_store(urandom_state);
 	init_std_data(random_state);
 	init_std_data(sec_random_state);
 	init_std_data(urandom_state);
@@ -1766,10 +1754,10 @@ random_ioctl(struct inode * inode, struct file * file,
 		random_state->entropy_count = 0;
 		return 0;
 	case RNDCLEARPOOL:
-		/* Clear the entropy pool and associated counters. */
+		/* Clear the entropy pool counters. */
 		if (!capable(CAP_SYS_ADMIN))
 			return -EPERM;
-		clear_entropy_store(random_state);
+		random_state->entropy_count = 0;
 		init_std_data(random_state);
 		return 0;
 	default:
