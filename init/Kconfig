@@ -283,11 +283,6 @@ config BASE_FULL
 	  Disabling this option reduces the size of miscellaneous core
 	  kernel data structures.
 
-config BASE_SMALL
-	int
-	default 0 if BASE_FULL
-	default 1 if !BASE_FULL
-
 config FUTEX
 	bool "Enable futex support" if EMBEDDED
 	default y
@@ -369,6 +364,11 @@ endmenu		# General setup
 config TINY_SHMEM
 	default !SHMEM
 	bool
+
+config BASE_SMALL
+	int
+	default 0 if BASE_FULL
+	default 1 if !BASE_FULL
 
 menu "Loadable module support"
 
