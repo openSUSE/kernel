@@ -51,9 +51,9 @@ MODULE_DESCRIPTION("IP-over-InfiniBand net driver");
 MODULE_LICENSE("Dual BSD/GPL");
 
 #ifdef CONFIG_INFINIBAND_IPOIB_DEBUG
-int debug_level;
+int ipoib_debug_level;
 
-module_param(debug_level, int, 0644);
+module_param_named(debug_level, ipoib_debug_level, int, 0644);
 MODULE_PARM_DESC(debug_level, "Enable debug tracing if > 0");
 #endif
 

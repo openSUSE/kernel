@@ -40,7 +40,7 @@
 #include "ipoib.h"
 
 #ifdef CONFIG_INFINIBAND_IPOIB_DEBUG_DATA
-int data_debug_level;
+static int data_debug_level;
 
 module_param(data_debug_level, int, 0644);
 MODULE_PARM_DESC(data_debug_level,
