@@ -548,7 +548,6 @@ static void process_txrx_fifo(struct mxser_struct *info)
 static int mxser_initbrd(int board, struct mxser_hwconf *hwconf)
 {
 	struct mxser_struct *info;
-	unsigned long flags;
 	int retval;
 	int i, n;
 
