@@ -920,6 +920,13 @@ M:	khc@pm.waw.pl
 W:	http://www.kernel.org/pub/linux/utils/net/hdlc/
 S:	Maintained
 
+HARMONY SOUND DRIVER
+P:	Kyle McMartin
+M:	kyle@parisc-linux.org
+W:	http://www.parisc-linux.org/~kyle/harmony/
+L:	parisc-linux@lists.parisc-linux.org
+S:	Maintained
+
 HAYES ESP SERIAL DRIVER
 P:	Andrew J. Robinson
 M:	arobinso@nyx.net
