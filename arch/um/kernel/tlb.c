@@ -15,6 +15,8 @@
 #include "mem_user.h"
 #include "os.h"
 
+#define ADD_ROUND(n, inc) (((n) + (inc)) & ~((inc) - 1))
+
 void fix_range_common(struct mm_struct *mm, unsigned long start_addr,
                       unsigned long end_addr, int force, int data,
                       void (*do_ops)(int, struct host_vm_op *, int))
@@ -33,46 +35,46 @@ void fix_range_common(struct mm_struct *mm, unsigned long start_addr,
         for(addr = start_addr; addr < end_addr;){
                 npgd = pgd_offset(mm, addr);
                 if(!pgd_present(*npgd)){
+                        end = ADD_ROUND(addr, PGDIR_SIZE);
+                        if(end > end_addr)
+                                end = end_addr;
                         if(force || pgd_newpage(*npgd)){
-                                end = addr + PGDIR_SIZE;
-                                if(end > end_addr)
-                                        end = end_addr;
                                 op_index = add_munmap(addr, end - addr, ops,
                                                       op_index, last_op, data,
                                                       do_ops);
                                 pgd_mkuptodate(*npgd);
                         }
-                        addr += PGDIR_SIZE;
+                        addr = end;
                         continue;
                 }
 
                 npud = pud_offset(npgd, addr);
                 if(!pud_present(*npud)){
+                        end = ADD_ROUND(addr, PUD_SIZE);
+                        if(end > end_addr)
+                                end = end_addr;
                         if(force || pud_newpage(*npud)){
-                                end = addr + PUD_SIZE;
-                                if(end > end_addr)
-                                        end = end_addr;
                                 op_index = add_munmap(addr, end - addr, ops,
                                                       op_index, last_op, data,
                                                       do_ops);
                                 pud_mkuptodate(*npud);
                         }
-                        addr += PUD_SIZE;
+                        addr = end;
                         continue;
                 }
 
                 npmd = pmd_offset(npud, addr);
                 if(!pmd_present(*npmd)){
+                        end = ADD_ROUND(addr, PMD_SIZE);
+                        if(end > end_addr)
+                                end = end_addr;
                         if(force || pmd_newpage(*npmd)){
-                                end = addr + PMD_SIZE;
-                                if(end > end_addr)
-                                        end = end_addr;
                                 op_index = add_munmap(addr, end - addr, ops,
                                                       op_index, last_op, data,
                                                       do_ops);
                                 pmd_mkuptodate(*npmd);
                         }
-                        addr += PMD_SIZE;
+                        addr = end;
                         continue;
                 }
 
@@ -122,52 +124,52 @@ int flush_tlb_kernel_range_common(unsigned long start, unsigned long end)
         for(addr = start; addr < end;){
                 pgd = pgd_offset(mm, addr);
                 if(!pgd_present(*pgd)){
+                        last = ADD_ROUND(addr, PGDIR_SIZE);
+                        if(last > end)
+                                last = end;
                         if(pgd_newpage(*pgd)){
                                 updated = 1;
-                                last = addr + PGDIR_SIZE;
-                                if(last > end)
-                                        last = end;
                                 err = os_unmap_memory((void *) addr,
                                                       last - addr);
                                 if(err < 0)
                                         panic("munmap failed, errno = %d\n",
                                               -err);
                         }
-                        addr += PGDIR_SIZE;
+                        addr = last;
                         continue;
                 }
 
                 pud = pud_offset(pgd, addr);
                 if(!pud_present(*pud)){
+                        last = ADD_ROUND(addr, PUD_SIZE);
+                        if(last > end)
+                                last = end;
                         if(pud_newpage(*pud)){
                                 updated = 1;
-                                last = addr + PUD_SIZE;
-                                if(last > end)
-                                        last = end;
                                 err = os_unmap_memory((void *) addr,
                                                       last - addr);
                                 if(err < 0)
                                         panic("munmap failed, errno = %d\n",
                                               -err);
                         }
-                        addr += PUD_SIZE;
+                        addr = last;
                         continue;
                 }
 
                 pmd = pmd_offset(pud, addr);
                 if(!pmd_present(*pmd)){
+                        last = ADD_ROUND(addr, PMD_SIZE);
+                        if(last > end)
+                                last = end;
                         if(pmd_newpage(*pmd)){
                                 updated = 1;
-                                last = addr + PMD_SIZE;
-                                if(last > end)
-                                        last = end;
                                 err = os_unmap_memory((void *) addr,
                                                       last - addr);
                                 if(err < 0)
                                         panic("munmap failed, errno = %d\n",
                                               -err);
                         }
-                        addr += PMD_SIZE;
+                        addr = last;
                         continue;
                 }
 
