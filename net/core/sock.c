@@ -333,7 +333,10 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 			break;
 
 		case SO_PASSCRED:
-			sock->passcred = valbool;
+			if (valbool)
+				set_bit(SOCK_PASSCRED, &sock->flags);
+			else
+				clear_bit(SOCK_PASSCRED, &sock->flags);
 			break;
 
 		case SO_TIMESTAMP:
@@ -557,7 +560,7 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
 			break; 
 
 		case SO_PASSCRED:
-			v.val = sock->passcred;
+			v.val = test_bit(SOCK_PASSCRED, &sock->flags) ? 1 : 0;
 			break;
 
 		case SO_PEERCRED:
