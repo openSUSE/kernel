@@ -459,6 +459,7 @@ static void hub_activate(struct usb_hub *hub)
 	int	status;
 
 	hub->quiescing = 0;
+	hub->activating = 1;
 	status = usb_submit_urb(hub->urb, GFP_NOIO);
 	if (status < 0)
 		dev_err(hub->intfdev, "activate --> %d\n", status);
@@ -466,7 +467,6 @@ static void hub_activate(struct usb_hub *hub)
 		schedule_delayed_work(&hub->leds, LED_CYCLE_PERIOD);
 
 	/* scan all ports ASAP */
-	hub->event_bits[0] = (1UL << (hub->descriptor->bNbrPorts + 1)) - 1;
 	kick_khubd(hub);
 }
 
@@ -689,7 +689,6 @@ static int hub_configure(struct usb_hub *hub,
 		hub->indicator [0] = INDICATOR_CYCLE;
 
 	hub_power_on(hub);
-	hub->change_bits[0] = (1UL << (hub->descriptor->bNbrPorts + 1)) - 2;
 	hub_activate(hub);
 	return 0;
 
@@ -2638,13 +2637,18 @@ static void hub_events(void)
 		for (i = 1; i <= hub->descriptor->bNbrPorts; i++) {
 			connect_change = test_bit(i, hub->change_bits);
 			if (!test_and_clear_bit(i, hub->event_bits) &&
-					!connect_change)
+					!connect_change && !hub->activating)
 				continue;
 
 			ret = hub_port_status(hub, i,
 					&portstatus, &portchange);
 			if (ret < 0)
 				continue;
+
+			if (hub->activating && !hdev->children[i-1] &&
+					(portstatus &
+						USB_PORT_STAT_CONNECTION))
+				connect_change = 1;
 
 			if (portchange & USB_PORT_STAT_C_CONNECTION) {
 				clear_port_feature(hdev, i,
@@ -2735,6 +2739,8 @@ static void hub_events(void)
                         	hub_power_on(hub);
 			}
 		}
+
+		hub->activating = 0;
 
 loop:
 		usb_unlock_device(hdev);
