@@ -1203,9 +1203,6 @@ running once the system is up.
 
 	serialnumber	[BUGS=IA-32]
 
-	sf16fm=		[HW] SF16FMI radio driver for Linux
-			Format: <io>
-
 	sg_def_reserved_size=
 			[SCSI]
  
