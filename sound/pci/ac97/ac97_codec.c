@@ -1595,6 +1595,7 @@ static int snd_ac97_test_rate(ac97_t *ac97, int reg, int shadow_reg, int rate)
 static void snd_ac97_determine_rates(ac97_t *ac97, int reg, int shadow_reg, unsigned int *r_result)
 {
 	unsigned int result = 0;
+	unsigned short saved;
 
 	if (ac97->bus->no_vra) {
 		*r_result = SNDRV_PCM_RATE_48000;
@@ -1604,6 +1605,7 @@ static void snd_ac97_determine_rates(ac97_t *ac97, int reg, int shadow_reg, unsi
 		return;
 	}
 
+	saved = snd_ac97_read(ac97, reg);
 	if ((ac97->ext_id & AC97_EI_DRA) && reg == AC97_PCM_FRONT_DAC_RATE)
 		snd_ac97_update_bits(ac97, AC97_EXTENDED_STATUS,
 				     AC97_EA_DRA, 0);
@@ -1642,6 +1644,10 @@ static void snd_ac97_determine_rates(ac97_t *ac97, int reg, int shadow_reg, unsi
 		snd_ac97_update_bits(ac97, AC97_EXTENDED_STATUS,
 				     AC97_EA_DRA, 0);
 	}
+	/* restore the default value */
+	snd_ac97_write_cache(ac97, reg, saved);
+	if (shadow_reg)
+		snd_ac97_write_cache(ac97, shadow_reg, saved);
 	*r_result = result;
 }
 
