@@ -1104,8 +1104,6 @@ typedef struct ide_driver_s {
 	int		(*attach)(ide_drive_t *);
 	void		(*ata_prebuilder)(ide_drive_t *);
 	void		(*atapi_prebuilder)(ide_drive_t *);
-	ide_startstop_t	(*start_power_step)(ide_drive_t *, struct request *);
-	void		(*complete_power_step)(ide_drive_t *, struct request *, u8, u8);
 	struct device_driver	gen_driver;
 	struct list_head drives;
 	struct list_head drivers;

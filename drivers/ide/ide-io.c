@@ -129,6 +129,99 @@ int ide_end_request (ide_drive_t *drive, int uptodate, int nr_sectors)
 }
 EXPORT_SYMBOL(ide_end_request);
 
+/*
+ * Power Management state machine. This one is rather trivial for now,
+ * we should probably add more, like switching back to PIO on suspend
+ * to help some BIOSes, re-do the door locking on resume, etc...
+ */
+
+enum {
+	ide_pm_flush_cache	= ide_pm_state_start_suspend,
+	idedisk_pm_standby,
+
+	idedisk_pm_idle		= ide_pm_state_start_resume,
+	ide_pm_restore_dma,
+};
+
+static void ide_complete_power_step(ide_drive_t *drive, struct request *rq, u8 stat, u8 error)
+{
+	if (drive->media != ide_disk)
+		return;
+
+	switch (rq->pm->pm_step) {
+	case ide_pm_flush_cache:	/* Suspend step 1 (flush cache) complete */
+		if (rq->pm->pm_state == 4)
+			rq->pm->pm_step = ide_pm_state_completed;
+		else
+			rq->pm->pm_step = idedisk_pm_standby;
+		break;
+	case idedisk_pm_standby:	/* Suspend step 2 (standby) complete */
+		rq->pm->pm_step = ide_pm_state_completed;
+		break;
+	case idedisk_pm_idle:		/* Resume step 1 (idle) complete */
+		rq->pm->pm_step = ide_pm_restore_dma;
+		break;
+	}
+}
+
+static ide_startstop_t ide_start_power_step(ide_drive_t *drive, struct request *rq)
+{
+	ide_task_t *args = rq->special;
+
+	memset(args, 0, sizeof(*args));
+
+	if (drive->media != ide_disk) {
+		/* skip idedisk_pm_idle for ATAPI devices */
+		if (rq->pm->pm_step == idedisk_pm_idle)
+			rq->pm->pm_step = ide_pm_restore_dma;
+	}
+
+	switch (rq->pm->pm_step) {
+	case ide_pm_flush_cache:	/* Suspend step 1 (flush cache) */
+		if (drive->media != ide_disk)
+			break;
+		/* Not supported? Switch to next step now. */
+		if (!drive->wcache || !ide_id_has_flush_cache(drive->id)) {
+			ide_complete_power_step(drive, rq, 0, 0);
+			return ide_stopped;
+		}
+		if (ide_id_has_flush_cache_ext(drive->id))
+			args->tfRegister[IDE_COMMAND_OFFSET] = WIN_FLUSH_CACHE_EXT;
+		else
+			args->tfRegister[IDE_COMMAND_OFFSET] = WIN_FLUSH_CACHE;
+		args->command_type = IDE_DRIVE_TASK_NO_DATA;
+		args->handler	   = &task_no_data_intr;
+		return do_rw_taskfile(drive, args);
+
+	case idedisk_pm_standby:	/* Suspend step 2 (standby) */
+		args->tfRegister[IDE_COMMAND_OFFSET] = WIN_STANDBYNOW1;
+		args->command_type = IDE_DRIVE_TASK_NO_DATA;
+		args->handler	   = &task_no_data_intr;
+		return do_rw_taskfile(drive, args);
+
+	case idedisk_pm_idle:		/* Resume step 1 (idle) */
+		args->tfRegister[IDE_COMMAND_OFFSET] = WIN_IDLEIMMEDIATE;
+		args->command_type = IDE_DRIVE_TASK_NO_DATA;
+		args->handler = task_no_data_intr;
+		return do_rw_taskfile(drive, args);
+
+	case ide_pm_restore_dma:	/* Resume step 2 (restore DMA) */
+		/*
+		 * Right now, all we do is call hwif->ide_dma_check(drive),
+		 * we could be smarter and check for current xfer_speed
+		 * in struct drive etc...
+		 */
+		if ((drive->id->capability & 1) == 0)
+			break;
+		if (drive->hwif->ide_dma_check == NULL)
+			break;
+		drive->hwif->ide_dma_check(drive);
+		break;
+	}
+	rq->pm->pm_step = ide_pm_state_completed;
+	return ide_stopped;
+}
+
 /**
  *	ide_complete_pm_request - end the current Power Management request
  *	@drive: target drive
@@ -276,7 +369,7 @@ void ide_end_drive_cmd (ide_drive_t *drive, u8 stat, u8 err)
 		printk("%s: complete_power_step(step: %d, stat: %x, err: %x)\n",
 			drive->name, rq->pm->pm_step, stat, err);
 #endif
-		DRIVER(drive)->complete_power_step(drive, rq, stat, err);
+		ide_complete_power_step(drive, rq, stat, err);
 		if (rq->pm->pm_step == ide_pm_state_completed)
 			ide_complete_pm_request(drive, rq);
 		return;
@@ -770,7 +863,7 @@ static ide_startstop_t start_request (ide_drive_t *drive, struct request *rq)
 			printk("%s: start_power_step(step: %d)\n",
 				drive->name, rq->pm->pm_step);
 #endif
-			startstop = DRIVER(drive)->start_power_step(drive, rq);
+			startstop = ide_start_power_step(drive, rq);
 			if (startstop == ide_stopped &&
 			    rq->pm->pm_step == ide_pm_state_completed)
 				ide_complete_pm_request(drive, rq);

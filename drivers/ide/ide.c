@@ -2065,13 +2065,6 @@ static ide_startstop_t default_abort(ide_drive_t *drive, struct request *rq)
 	return __ide_abort(drive, rq);
 }
 
-static ide_startstop_t default_start_power_step(ide_drive_t *drive,
-						struct request *rq)
-{
-	rq->pm->pm_step = ide_pm_state_completed;
-	return ide_stopped;
-}
-
 static void setup_driver_defaults (ide_driver_t *d)
 {
 	BUG_ON(d->attach == NULL || d->cleanup == NULL);
@@ -2083,8 +2076,6 @@ static void setup_driver_defaults (ide_driver_t *d)
 	if (d->pre_reset == NULL)	d->pre_reset = default_pre_reset;
 	if (d->capacity == NULL)	d->capacity = default_capacity;
 	if (d->special == NULL)		d->special = default_special;
-	if (d->start_power_step == NULL)
-		d->start_power_step = default_start_power_step;
 }
 
 int ide_register_subdriver(ide_drive_t *drive, ide_driver_t *driver)
