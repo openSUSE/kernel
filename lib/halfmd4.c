@@ -22,7 +22,7 @@
 /*
  * Basic cut-down MD4 transform.  Returns only 32 bits of result.
  */
-__u32 half_md4_transform(__u32 const buf[4], __u32 const in[8])
+__u32 half_md4_transform(__u32 buf[4], __u32 const in[8])
 {
 	__u32 a = buf[0], b = buf[1], c = buf[2], d = buf[3];
 
@@ -56,7 +56,11 @@ __u32 half_md4_transform(__u32 const buf[4], __u32 const in[8])
 	ROUND(H, c, d, a, b, in[0] + K3, 11);
 	ROUND(H, b, c, d, a, in[4] + K3, 15);
 
-	return buf[1] + b;	/* "most hashed" word */
-	/* Alternative: return sum of all words? */
+	buf[0] += a;
+	buf[1] += b;
+	buf[2] += c;
+	buf[3] += d;
+
+	return buf[1]; /* "most hashed" word */
 }
 EXPORT_SYMBOL(half_md4_transform);
