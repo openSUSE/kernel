@@ -89,7 +89,7 @@
 #define TRACE() printk(KERN_ERR "%s:%s[%d] ---- TRACE\n", driver_name, __FUNCTION__, __LINE__)
 
 static char version[] __devinitdata =
-	"$Rev: 1224 $ Ben Collins <bcollins@debian.org>";
+	"$Rev: 1247 $ Ben Collins <bcollins@debian.org>";
 
 struct fragment_info {
 	struct list_head list;
@@ -1770,7 +1770,7 @@ fail:
 static void ether1394_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 {
 	strcpy (info->driver, driver_name);
-	strcpy (info->version, "$Rev: 1224 $");
+	strcpy (info->version, "$Rev: 1247 $");
 	/* FIXME XXX provide sane businfo */
 	strcpy (info->bus_info, "ieee1394");
 }
