@@ -327,21 +327,33 @@ static int copy_pte_range(struct mm_struct *dst_mm,  struct mm_struct *src_mm,
 	pte_t *s, *d;
 	unsigned long vm_flags = vma->vm_flags;
 
+again:
 	d = dst_pte = pte_alloc_map(dst_mm, dst_pmd, addr);
 	if (!dst_pte)
 		return -ENOMEM;
 
 	spin_lock(&src_mm->page_table_lock);
 	s = src_pte = pte_offset_map_nested(src_pmd, addr);
-	for (; addr < end; addr += PAGE_SIZE, s++, d++) {
-		if (pte_none(*s))
-			continue;
-		copy_one_pte(dst_mm, src_mm, d, s, vm_flags, addr);
+	for (; addr < end; s++, d++) {
+		if (!pte_none(*s))
+			copy_one_pte(dst_mm, src_mm, d, s, vm_flags, addr);
+		addr += PAGE_SIZE;
+		/*
+		 * We are holding two locks at this point - either of them
+		 * could generate latencies in another task on another CPU.
+		 */
+		if (need_resched() ||
+		    need_lockbreak(&src_mm->page_table_lock) ||
+		    need_lockbreak(&dst_mm->page_table_lock))
+			break;
 	}
 	pte_unmap_nested(src_pte);
 	pte_unmap(dst_pte);
 	spin_unlock(&src_mm->page_table_lock);
+
 	cond_resched_lock(&dst_mm->page_table_lock);
+	if (addr < end)
+		goto again;
 	return 0;
 }
 
