@@ -18,12 +18,12 @@
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * JEFF HARTMANN, DAVE JONES, OR ANY OTHER CONTRIBUTORS BE LIABLE FOR ANY CLAIM, 
- * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR 
- * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE 
+ * JEFF HARTMANN, DAVE JONES, OR ANY OTHER CONTRIBUTORS BE LIABLE FOR ANY CLAIM,
+ * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
- * TODO: 
+ * TODO:
  * - Allocate more than order 0 pages to avoid too much linear map splitting.
  */
 #include <linux/module.h>
@@ -160,7 +160,7 @@ static int agp_backend_initialize(struct agp_bridge_data *bridge)
 		goto err_out;
 	}
 	got_gatt = 1;
-	
+
 	bridge->key_list = vmalloc(PAGE_SIZE * 4);
 	if (bridge->key_list == NULL) {
 		printk(KERN_ERR PFX "error allocating memory for key lists.\n");
@@ -168,7 +168,7 @@ static int agp_backend_initialize(struct agp_bridge_data *bridge)
 		goto err_out;
 	}
 	got_keylist = 1;
-	
+
 	/* FIXME vmalloc'd memory not guaranteed contiguous */
 	memset(bridge->key_list, 0, PAGE_SIZE * 4);
 
