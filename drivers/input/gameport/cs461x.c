@@ -16,7 +16,7 @@
 #include <linux/slab.h>
 #include <linux/pci.h>
 
-MODULE_AUTHOR("Victor Krapivin <vik@belcaf.minsk.by>");
+MODULE_AUTHOR("Victor Krapivin");
 MODULE_LICENSE("GPL");
 
 /*
