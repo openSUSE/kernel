@@ -18,6 +18,9 @@
 #include "hfs_fs.h"
 #include "btree.h"
 
+static struct file_operations hfs_file_operations;
+static struct inode_operations hfs_file_inode_operations;
+
 /*================ Variable-like macros ================*/
 
 #define HFS_VALID_MODE_BITS  (S_IFREG | S_IFDIR | S_IRWXUGO)
@@ -43,7 +46,7 @@ static sector_t hfs_bmap(struct address_space *mapping, sector_t block)
 	return generic_block_bmap(mapping, block, hfs_get_block);
 }
 
-int hfs_releasepage(struct page *page, int mask)
+static int hfs_releasepage(struct page *page, int mask)
 {
 	struct inode *inode = page->mapping->host;
 	struct super_block *sb = inode->i_sb;
@@ -259,7 +262,7 @@ struct hfs_iget_data {
 	hfs_cat_rec *rec;
 };
 
-int hfs_test_inode(struct inode *inode, void *data)
+static int hfs_test_inode(struct inode *inode, void *data)
 {
 	struct hfs_iget_data *idata = data;
 	hfs_cat_rec *rec;
@@ -279,7 +282,7 @@ int hfs_test_inode(struct inode *inode, void *data)
 /*
  * hfs_read_inode
  */
-int hfs_read_inode(struct inode *inode, void *data)
+static int hfs_read_inode(struct inode *inode, void *data)
 {
 	struct hfs_iget_data *idata = data;
 	struct hfs_sb_info *hsb = HFS_SB(inode->i_sb);
@@ -611,7 +614,7 @@ int hfs_inode_setattr(struct dentry *dentry, struct iattr * attr)
 }
 
 
-struct file_operations hfs_file_operations = {
+static struct file_operations hfs_file_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= generic_file_read,
 	.write		= generic_file_write,
@@ -622,7 +625,7 @@ struct file_operations hfs_file_operations = {
 	.release	= hfs_file_release,
 };
 
-struct inode_operations hfs_file_inode_operations = {
+static struct inode_operations hfs_file_inode_operations = {
 	.lookup		= hfs_file_lookup,
 	.truncate	= hfs_file_truncate,
 	.setattr	= hfs_inode_setattr,

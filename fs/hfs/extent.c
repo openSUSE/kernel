@@ -231,8 +231,8 @@ static int hfs_add_extent(struct hfs_extent *extent, u16 offset,
 	return -EIO;
 }
 
-int hfs_free_extents(struct super_block *sb, struct hfs_extent *extent,
-		     u16 offset, u16 block_nr)
+static int hfs_free_extents(struct super_block *sb, struct hfs_extent *extent,
+			    u16 offset, u16 block_nr)
 {
 	u16 count, start;
 	int i;

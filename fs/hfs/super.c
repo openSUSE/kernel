@@ -21,8 +21,6 @@
 #include "hfs_fs.h"
 #include "btree.h"
 
-const char hfs_version[]="0.96";
-
 static kmem_cache_t *hfs_inode_cachep;
 
 MODULE_LICENSE("GPL");
@@ -92,7 +90,7 @@ static int hfs_statfs(struct super_block *sb, struct kstatfs *buf)
 	return 0;
 }
 
-int hfs_remount(struct super_block *sb, int *flags, char *data)
+static int hfs_remount(struct super_block *sb, int *flags, char *data)
 {
 	*flags |= MS_NODIRATIME;
 	if ((*flags & MS_RDONLY) == (sb->s_flags & MS_RDONLY))
