@@ -1349,13 +1349,11 @@ static struct net_device *mv64340_eth_init(int port_num)
 
 #ifdef MV64340_CHECKSUM_OFFLOAD_TX
 #ifdef MAX_SKB_FRAGS
-#ifndef CONFIG_JAGUAR_DMALOW
         /*
          * Zero copy can only work if we use Discovery II memory. Else, we will
          * have to map the buffers to ISA memory which is only 16 MB
          */
         dev->features = NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_HW_CSUM;
-#endif
 #endif
 #endif
 
