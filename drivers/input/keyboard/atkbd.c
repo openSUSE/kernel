@@ -54,7 +54,7 @@ static int atkbd_softraw = 1;
 module_param_named(softraw, atkbd_softraw, bool, 0);
 MODULE_PARM_DESC(softraw, "Use software generated rawmode");
 
-static int atkbd_scroll;
+static int atkbd_scroll = 1;
 module_param_named(scroll, atkbd_scroll, bool, 0);
 MODULE_PARM_DESC(scroll, "Enable scroll-wheel on MS Office and similar keyboards");
 
@@ -143,7 +143,6 @@ static unsigned char atkbd_unxlate_table[128] = {
 #define ATKBD_CMD_EX_SETLEDS	0x20eb
 #define ATKBD_CMD_OK_GETID	0x02e8
 
-
 #define ATKBD_RET_ACK		0xfa
 #define ATKBD_RET_NAK		0xfe
 #define ATKBD_RET_BAT		0xaa
@@ -162,15 +161,22 @@ static unsigned char atkbd_unxlate_table[128] = {
 #define ATKBD_SCR_4		252
 #define ATKBD_SCR_8		251
 #define ATKBD_SCR_CLICK		250
+#define ATKBD_SCR_LEFT		249
+#define ATKBD_SCR_RIGHT		248
 
-#define ATKBD_SPECIAL		250
+#define ATKBD_SPECIAL		248
 
-static unsigned char atkbd_scroll_keys[5][2] = {
-	{ ATKBD_SCR_1,     0x45 },
-	{ ATKBD_SCR_2,     0x29 },
-	{ ATKBD_SCR_4,     0x36 },
-	{ ATKBD_SCR_8,     0x27 },
-	{ ATKBD_SCR_CLICK, 0x60 },
+static struct {
+	unsigned char keycode;
+	unsigned char set2;
+} atkbd_scroll_keys[] = {
+	{ ATKBD_SCR_1,     0xc5 },
+	{ ATKBD_SCR_2,     0xa9 },
+	{ ATKBD_SCR_4,     0xb6 },
+	{ ATKBD_SCR_8,     0xa7 },
+	{ ATKBD_SCR_CLICK, 0xe0 },
+	{ ATKBD_SCR_LEFT,  0xcb },
+	{ ATKBD_SCR_RIGHT, 0xd2 },
 };
 
 /*
@@ -253,7 +259,7 @@ static irqreturn_t atkbd_interrupt(struct serio *serio, unsigned char data,
 {
 	struct atkbd *atkbd = serio_get_drvdata(serio);
 	unsigned int code = data;
-	int scroll = 0, click = -1;
+	int scroll = 0, hscroll = 0, click = -1;
 	int value;
 
 #ifdef ATKBD_DEBUG
@@ -372,6 +378,12 @@ static irqreturn_t atkbd_interrupt(struct serio *serio, unsigned char data,
 		case ATKBD_SCR_CLICK:
 			click = !atkbd->release;
 			break;
+		case ATKBD_SCR_LEFT:
+			hscroll = -1;
+			break;
+		case ATKBD_SCR_RIGHT:
+			hscroll = 1;
+			break;
 		default:
 			value = atkbd->release ? 0 :
 				(1 + (!atkbd->softrepeat && test_bit(atkbd->keycode[code], atkbd->dev.key)));
@@ -393,10 +405,12 @@ static irqreturn_t atkbd_interrupt(struct serio *serio, unsigned char data,
 			atkbd_report_key(&atkbd->dev, regs, atkbd->keycode[code], value);
 	}
 
-	if (scroll || click != -1) {
+	if (atkbd_scroll) {
 		input_regs(&atkbd->dev, regs);
-		input_report_key(&atkbd->dev, BTN_MIDDLE, click);
+		if (click != -1)
+			input_report_key(&atkbd->dev, BTN_MIDDLE, click);
 		input_report_rel(&atkbd->dev, REL_WHEEL, scroll);
+		input_report_rel(&atkbd->dev, REL_HWHEEL, hscroll);
 		input_sync(&atkbd->dev);
 	}
 
@@ -404,7 +418,6 @@ static irqreturn_t atkbd_interrupt(struct serio *serio, unsigned char data,
 out:
 	return IRQ_HANDLED;
 }
-
 
 /*
  * Event callback from the input module. Events that change the state of
@@ -697,12 +710,9 @@ static void atkbd_set_keycode_table(struct atkbd *atkbd)
 			atkbd->keycode[i] = atkbd_set2_keycode[atkbd_unxlate_table[i]];
 			atkbd->keycode[i | 0x80] = atkbd_set2_keycode[atkbd_unxlate_table[i] | 0x80];
 			if (atkbd->scroll)
-				for (j = 0; i < 5; i++) {
-					if (atkbd_unxlate_table[i] == atkbd_scroll_keys[j][1])
-						atkbd->keycode[i] = atkbd_scroll_keys[j][0];
-					if ((atkbd_unxlate_table[i] | 0x80) == atkbd_scroll_keys[j][1])
-						atkbd->keycode[i | 0x80] = atkbd_scroll_keys[j][0];
-				}
+				for (j = 0; j < ARRAY_SIZE(atkbd_scroll_keys); j++)
+					if ((atkbd_unxlate_table[i] | 0x80) == atkbd_scroll_keys[j].set2)
+						atkbd->keycode[i | 0x80] = atkbd_scroll_keys[j].keycode;
 		}
 	} else if (atkbd->set == 3) {
 		memcpy(atkbd->keycode, atkbd_set3_keycode, sizeof(atkbd->keycode));
@@ -710,8 +720,8 @@ static void atkbd_set_keycode_table(struct atkbd *atkbd)
 		memcpy(atkbd->keycode, atkbd_set2_keycode, sizeof(atkbd->keycode));
 
 		if (atkbd->scroll)
-			for (i = 0; i < 5; i++)
-				atkbd->keycode[atkbd_scroll_keys[i][1]] = atkbd_scroll_keys[i][0];
+			for (i = 0; i < ARRAY_SIZE(atkbd_scroll_keys); i++)
+				atkbd->keycode[atkbd_scroll_keys[i].set2] = atkbd_scroll_keys[i].keycode;
 	}
 }
 
@@ -757,7 +767,7 @@ static void atkbd_set_device_attrs(struct atkbd *atkbd)
 
 	if (atkbd->scroll) {
 		atkbd->dev.evbit[0] |= BIT(EV_REL);
-		atkbd->dev.relbit[0] = BIT(REL_WHEEL);
+		atkbd->dev.relbit[0] = BIT(REL_WHEEL) | BIT(REL_HWHEEL);
 		set_bit(BTN_MIDDLE, atkbd->dev.keybit);
 	}
 
