@@ -92,6 +92,23 @@ struct audit_names {
 	dev_t		rdev;
 };
 
+struct audit_aux_data {
+	struct audit_aux_data	*next;
+	int			type;
+};
+
+#define AUDIT_AUX_IPCPERM	0
+
+struct audit_aux_data_ipcctl {
+	struct audit_aux_data	d;
+	struct ipc_perm		p;
+	unsigned long		qbytes;
+	uid_t			uid;
+	gid_t			gid;
+	mode_t			mode;
+};
+
+
 /* The per-task audit context. */
 struct audit_context {
 	int		    in_syscall;	/* 1 if task is in a syscall */
@@ -107,6 +124,7 @@ struct audit_context {
 	int		    name_count;
 	struct audit_names  names[AUDIT_NAMES];
 	struct audit_context *previous; /* For nested syscalls */
+	struct audit_aux_data *aux;
 
 				/* Save things to print about task_struct */
 	pid_t		    pid;
@@ -504,6 +522,16 @@ static inline void audit_free_names(struct audit_context *context)
 	context->name_count = 0;
 }
 
+static inline void audit_free_aux(struct audit_context *context)
+{
+	struct audit_aux_data *aux;
+
+	while ((aux = context->aux)) {
+		context->aux = aux->next;
+		kfree(aux);
+	}
+}
+
 static inline void audit_zero_context(struct audit_context *context,
 				      enum audit_state state)
 {
@@ -570,6 +598,7 @@ static inline void audit_free_context(struct audit_context *context)
 			       context->name_count, count);
 		}
 		audit_free_names(context);
+		audit_free_aux(context);
 		kfree(context);
 		context  = previous;
 	} while (context);
@@ -607,6 +636,29 @@ static void audit_log_exit(struct audit_context *context)
 		  context->euid, context->suid, context->fsuid,
 		  context->egid, context->sgid, context->fsgid);
 	audit_log_end(ab);
+	while (context->aux) {
+		struct audit_aux_data *aux;
+
+		ab = audit_log_start(context);
+		if (!ab)
+			continue; /* audit_panic has been called */
+
+		aux = context->aux;
+		context->aux = aux->next;
+
+		audit_log_format(ab, "auxitem=%d", aux->type);
+		switch (aux->type) {
+		case AUDIT_AUX_IPCPERM: {
+			struct audit_aux_data_ipcctl *axi = (void *)aux;
+			audit_log_format(ab, 
+					 " qbytes=%lx uid=%d gid=%d mode=%x",
+					 axi->qbytes, axi->uid, axi->gid, axi->mode);
+			}
+		}
+		audit_log_end(ab);
+		kfree(aux);
+	}
+
 	for (i = 0; i < context->name_count; i++) {
 		ab = audit_log_start(context);
 		if (!ab)
@@ -789,6 +841,7 @@ void audit_syscall_exit(struct task_struct *tsk, int return_code)
 		tsk->audit_context = new_context;
 	} else {
 		audit_free_names(context);
+		audit_free_aux(context);
 		audit_zero_context(context, context->state);
 		tsk->audit_context = context;
 	}
@@ -926,4 +979,27 @@ int audit_set_loginuid(struct audit_context *ctx, uid_t loginuid)
 uid_t audit_get_loginuid(struct audit_context *ctx)
 {
 	return ctx ? ctx->loginuid : -1;
+}
+
+int audit_ipc_perms(unsigned long qbytes, uid_t uid, gid_t gid, mode_t mode)
+{
+	struct audit_aux_data_ipcctl *ax;
+	struct audit_context *context = current->audit_context;
+
+	if (likely(!context))
+		return 0;
+
+	ax = kmalloc(sizeof(*ax), GFP_KERNEL);
+	if (!ax)
+		return -ENOMEM;
+
+	ax->qbytes = qbytes;
+	ax->uid = uid;
+	ax->gid = gid;
+	ax->mode = mode;
+
+	ax->d.type = AUDIT_AUX_IPCPERM;
+	ax->d.next = context->aux;
+	context->aux = (void *)ax;
+	return 0;
 }
