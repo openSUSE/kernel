@@ -397,6 +397,7 @@ int ip6_forward(struct sk_buff *skb)
 		IP6_INC_STATS(IPSTATS_MIB_INDISCARDS);
 		goto drop;
 	}
+	dst = skb->dst;
 
 	/* IPv6 specs say nothing about it, but it is clear that we cannot
 	   send redirects to source routed frames.
