@@ -115,11 +115,12 @@ static int ct_seq_real_show(const struct ip_conntrack_tuple_hash *hash,
 			       .tuple.dst.protonum);
 	IP_NF_ASSERT(proto);
 
-	if (seq_printf(s, "%-8s %u %lu ",
+	if (seq_printf(s, "%-8s %u %ld ",
 		      proto->name,
 		      conntrack->tuplehash[IP_CT_DIR_ORIGINAL].tuple.dst.protonum,
 		      timer_pending(&conntrack->timeout)
-		      ? (conntrack->timeout.expires - jiffies)/HZ : 0) != 0)
+		      ? (long)(conntrack->timeout.expires - jiffies)/HZ
+		      : 0) != 0)
 		return 1;
 
 	if (proto->print_conntrack(s, conntrack))
@@ -148,7 +149,7 @@ static int ct_seq_real_show(const struct ip_conntrack_tuple_hash *hash,
 			return 1;
 
 #if defined(CONFIG_IP_NF_CONNTRACK_MARK)
-	if (seq_printf(s, "mark=%ld ", conntrack->mark))
+	if (seq_printf(s, "mark=%lu ", conntrack->mark))
 		return 1;
 #endif
 
@@ -235,8 +236,8 @@ static int exp_seq_show(struct seq_file *s, void *v)
 	struct ip_conntrack_expect *expect = v;
 
 	if (expect->timeout.function)
-		seq_printf(s, "%lu ", timer_pending(&expect->timeout)
-			   ? (expect->timeout.expires - jiffies)/HZ : 0);
+		seq_printf(s, "%ld ", timer_pending(&expect->timeout)
+			   ? (long)(expect->timeout.expires - jiffies)/HZ : 0);
 	else
 		seq_printf(s, "- ");
 
