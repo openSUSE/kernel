@@ -89,6 +89,8 @@ static int __init pcspkr_init(void)
 static void __exit pcspkr_exit(void)
 {
         input_unregister_device(&pcspkr_dev);
+	/* turn off the speaker */
+	pcspkr_event(NULL, EV_SND, SND_BELL, 0);
 }
 
 module_init(pcspkr_init);
