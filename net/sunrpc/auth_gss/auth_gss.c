@@ -469,7 +469,6 @@ gss_pipe_downcall(struct file *filp, const char __user *src, size_t mlen)
 		goto out;
 	}
 	clnt = rpci->private;
-	atomic_inc(&clnt->cl_users);
 	auth = clnt->cl_auth;
 	gss_auth = container_of(auth, struct gss_auth, rpc_auth);
 	mech = gss_auth->mech;
@@ -493,14 +492,12 @@ gss_pipe_downcall(struct file *filp, const char __user *src, size_t mlen)
 		gss_release_msg(gss_msg);
 	} else
 		spin_unlock(&gss_auth->lock);
-	rpc_release_client(clnt);
 	kfree(obj.data);
 	dprintk("RPC:      gss_pipe_downcall returning length %Zu\n", mlen);
 	return mlen;
 err:
 	if (ctx)
 		gss_destroy_ctx(ctx);
-	rpc_release_client(clnt);
 out:
 	kfree(obj.data);
 	dprintk("RPC:      gss_pipe_downcall returning %d\n", err);
