@@ -404,7 +404,6 @@ void hidinput_hid_event(struct hid_device *hid, struct hid_field *field, struct 
 		return;
 
 	input_regs(input, regs);
-	input_event(input, EV_MSC, MSC_SCAN, usage->hid);
 
 	if (!usage->type)
 		return;
@@ -587,9 +586,6 @@ int hidinput_connect(struct hid_device *hid)
 				hidinput->input.id.product = le16_to_cpu(dev->descriptor.idProduct);
 				hidinput->input.id.version = le16_to_cpu(dev->descriptor.bcdDevice);
 				hidinput->input.dev = &hid->intf->dev;
-
-				set_bit(EV_MSC, hidinput->input.evbit);
-				set_bit(MSC_SCAN, hidinput->input.mscbit);
 			}
 
 			for (i = 0; i < report->maxfield; i++)
