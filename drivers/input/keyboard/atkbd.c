@@ -771,7 +771,7 @@ static void atkbd_set_device_attrs(struct atkbd *atkbd)
 }
 
 /*
- * atkbd_connect() is called when the serio module finds and interface
+ * atkbd_connect() is called when the serio module finds an interface
  * that isn't handled yet by an appropriate device driver. We check if
  * there is an AT keyboard out there and if yes, we register ourselves
  * to the input module.
