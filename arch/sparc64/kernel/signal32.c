@@ -1102,7 +1102,7 @@ asmlinkage int svr4_setcontext(svr4_ucontext_t __user *c, struct pt_regs *regs)
 		goto sigsegv;
 	}
 
-	if (!__access_ok((unsigned long)c, sizeof(*c))) {
+	if (!__access_ok(c, sizeof(*c))) {
 		/* Miguel, add nice debugging msg _here_. ;-) */
 		goto sigsegv;
 	}
