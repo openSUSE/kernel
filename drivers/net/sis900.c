@@ -242,7 +242,7 @@ static int __devinit sis900_get_mac_addr(struct pci_dev * pci_dev, struct net_de
 	/* check to see if we have sane EEPROM */
 	signature = (u16) read_eeprom(ioaddr, EEPROMSignature);    
 	if (signature == 0xffff || signature == 0x0000) {
-		printk (KERN_INFO "%s: Error EERPOM read %x\n", 
+		printk (KERN_WARNING "%s: Error EERPOM read %x\n", 
 			net_dev->name, signature);
 		return 0;
 	}
@@ -275,7 +275,7 @@ static int __devinit sis630e_get_mac_addr(struct pci_dev * pci_dev,
 	if (!isa_bridge)
 		isa_bridge = pci_get_device(PCI_VENDOR_ID_SI, 0x0018, isa_bridge);
 	if (!isa_bridge) {
-		printk("%s: Can not find ISA bridge\n", net_dev->name);
+		printk(KERN_WARNING "%s: Can not find ISA bridge\n", net_dev->name);
 		return 0;
 	}
 	pci_read_config_byte(isa_bridge, 0x48, &reg);
@@ -567,7 +567,7 @@ static int __init sis900_mii_probe(struct net_device * net_dev)
 			continue;
 		
 		if ((mii_phy = kmalloc(sizeof(struct mii_phy), GFP_KERNEL)) == NULL) {
-			printk(KERN_INFO "Cannot allocate mem for struct mii_phy\n");
+			printk(KERN_WARNING "Cannot allocate mem for struct mii_phy\n");
 			mii_phy = sis_priv->first_mii;
 			while (mii_phy) {
 				struct mii_phy *phy;
@@ -1029,7 +1029,7 @@ sis900_init_rxfilter (struct net_device * net_dev)
 		outl(w, ioaddr + rfdr);
 
 		if (sis900_debug > 2) {
-			printk(KERN_INFO "%s: Receive Filter Addrss[%d]=%x\n",
+			printk(KERN_DEBUG "%s: Receive Filter Addrss[%d]=%x\n",
 			       net_dev->name, i, inl(ioaddr + rfdr));
 		}
 	}
@@ -1067,7 +1067,7 @@ sis900_init_tx_ring(struct net_device *net_dev)
 	/* load Transmit Descriptor Register */
 	outl(sis_priv->tx_ring_dma, ioaddr + txdp);
 	if (sis900_debug > 2)
-		printk(KERN_INFO "%s: TX descriptor register loaded with: %8.8x\n",
+		printk(KERN_DEBUG "%s: TX descriptor register loaded with: %8.8x\n",
 		       net_dev->name, inl(ioaddr + txdp));
 }
 
@@ -1121,7 +1121,7 @@ sis900_init_rx_ring(struct net_device *net_dev)
 	/* load Receive Descriptor Register */
 	outl(sis_priv->rx_ring_dma, ioaddr + rxdp);
 	if (sis900_debug > 2)
-		printk(KERN_INFO "%s: RX descriptor register loaded with: %8.8x\n",
+		printk(KERN_DEBUG "%s: RX descriptor register loaded with: %8.8x\n",
 		       net_dev->name, inl(ioaddr + rxdp));
 }
 
@@ -1571,7 +1571,7 @@ sis900_start_xmit(struct sk_buff *skb, struct net_device *net_dev)
 	net_dev->trans_start = jiffies;
 
 	if (sis900_debug > 3)
-		printk(KERN_INFO "%s: Queued Tx packet at %p size %d "
+		printk(KERN_DEBUG "%s: Queued Tx packet at %p size %d "
 		       "to slot %d.\n",
 		       net_dev->name, skb->data, (int)skb->len, entry);
 
@@ -1631,7 +1631,7 @@ static irqreturn_t sis900_interrupt(int irq, void *dev_instance, struct pt_regs 
 	} while (1);
 
 	if (sis900_debug > 3)
-		printk(KERN_INFO "%s: exiting interrupt, "
+		printk(KERN_DEBUG "%s: exiting interrupt, "
 		       "interrupt status = 0x%#8.8x.\n",
 		       net_dev->name, inl(ioaddr + isr));
 	
@@ -1657,7 +1657,7 @@ static int sis900_rx(struct net_device *net_dev)
 	u32 rx_status = sis_priv->rx_ring[entry].cmdsts;
 
 	if (sis900_debug > 3)
-		printk(KERN_INFO "sis900_rx, cur_rx:%4.4d, dirty_rx:%4.4d "
+		printk(KERN_DEBUG "sis900_rx, cur_rx:%4.4d, dirty_rx:%4.4d "
 		       "status:0x%8.8x\n",
 		       sis_priv->cur_rx, sis_priv->dirty_rx, rx_status);
 
@@ -1669,7 +1669,7 @@ static int sis900_rx(struct net_device *net_dev)
 		if (rx_status & (ABORT|OVERRUN|TOOLONG|RUNT|RXISERR|CRCERR|FAERR)) {
 			/* corrupted packet received */
 			if (sis900_debug > 3)
-				printk(KERN_INFO "%s: Corrupted packet "
+				printk(KERN_DEBUG "%s: Corrupted packet "
 				       "received, buffer status = 0x%8.8x.\n",
 				       net_dev->name, rx_status);
 			sis_priv->stats.rx_errors++;
@@ -1807,7 +1807,7 @@ static void sis900_finish_xmit (struct net_device *net_dev)
 		if (tx_status & (ABORT | UNDERRUN | OWCOLL)) {
 			/* packet unsuccessfully transmitted */
 			if (sis900_debug > 3)
-				printk(KERN_INFO "%s: Transmit "
+				printk(KERN_DEBUG "%s: Transmit "
 				       "error, Tx status %8.8x.\n",
 				       net_dev->name, tx_status);
 			sis_priv->stats.tx_errors++;
@@ -2074,12 +2074,10 @@ static int sis900_set_config(struct net_device *dev, struct ifmap *map)
 		case IF_PORT_AUI: /* AUI */
 		case IF_PORT_100BASEFX: /* 100BaseFx */
                 	/* These Modes are not supported (are they?)*/
-			printk(KERN_INFO "Not supported");
 			return -EOPNOTSUPP;
 			break;
             
 		default:
-			printk(KERN_INFO "Invalid");
 			return -EINVAL;
 		}
 	}
