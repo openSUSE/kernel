@@ -2409,6 +2409,12 @@ L:	linux-usb-devel@lists.sourceforge.net
 W:	http://www.chello.nl/~j.vreeken/se401/
 S:	Maintained
 
+USB SERIAL CYBERJACK DRIVER
+P:	Matthias Bruestle and Harald Welte
+M:	support@reiner-sct.com
+W:	http://www.reiner-sct.de/support/treiber_cyberjack.php
+S:	Maintained
+
 USB SERIAL DIGI ACCELEPORT DRIVER
 P:	Peter Berger and Al Borchers
 M:	pberger@brimson.com
