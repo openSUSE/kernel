@@ -166,14 +166,14 @@
  *         If an APM idle fails log it and idle sensibly
  *   1.15: Don't queue events to clients who open the device O_WRONLY.
  *         Don't expect replies from clients who open the device O_RDONLY.
- *         (Idea from Thomas Hood <jdthood@mail.com>)
+ *         (Idea from Thomas Hood)
  *         Minor waitqueue cleanups. (John Fremlin <chief@bandits.org>)
  *   1.16: Fix idle calling. (Andreas Steinmetz <ast@domdv.de> et al.)
  *         Notify listeners of standby or suspend events before notifying
  *         drivers. Return EBUSY to ioctl() if suspend is rejected.
  *         (Russell King <rmk@arm.linux.org.uk> and Thomas Hood)
  *         Ignore first resume after we generate our own resume event
- *         after a suspend (Thomas Hood <jdthood@mail.com>)
+ *         after a suspend (Thomas Hood)
  *         Daemonize now gets rid of our controlling terminal (sfr).
  *         CONFIG_APM_CPU_IDLE now just affects the default value of
  *         idle_threshold (sfr).

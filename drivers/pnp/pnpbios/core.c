@@ -12,7 +12,7 @@
  * Minor reorganizations by David Hinds <dahinds@users.sourceforge.net>
  * Further modifications (C) 2001, 2002 by:
  *   Alan Cox <alan@redhat.com>
- *   Thomas Hood <jdthood@mail.com>
+ *   Thomas Hood
  *   Brian Gerst <bgerst@didntduck.org>
  *
  * Ported to the PnP Layer and several additional improvements (C) 2002
