@@ -98,7 +98,12 @@ config BIG_ENDIAN
 
 endchoice
 
+config SH_FPU
+	bool "FPU support"
+	default y
+
 config SH64_FPU_DENORM_FLUSH
+	depends on SH_FPU
 	bool "Flush floating point denorms to zero"
 
 choice
