@@ -448,7 +448,7 @@ static int eth1394_update(struct unit_directory *ud)
 		if (!node_info) {
 			kfree(node);
 			return -ENOMEM;
-                }
+		}
 
 		spin_lock_init(&node_info->pdg.lock);
 		INIT_LIST_HEAD(&node_info->pdg.list);
@@ -1582,7 +1582,7 @@ static inline void ether1394_dg_complete(struct packet_task *ptask, int fail)
 	struct sk_buff *skb = ptask->skb;
 	struct net_device *dev = skb->dev;
 	struct eth1394_priv *priv = netdev_priv(dev);
-        unsigned long flags;
+	unsigned long flags;
 
 	/* Statistics */
 	spin_lock_irqsave(&priv->lock, flags);
