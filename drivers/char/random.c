@@ -777,7 +777,6 @@ struct timer_rand_state {
 };
 
 static struct timer_rand_state input_timer_state;
-static struct timer_rand_state extract_timer_state;
 static struct timer_rand_state *irq_timer_state[NR_IRQS];
 
 /*
@@ -1515,7 +1514,6 @@ static int __init rand_initialize(void)
 #ifdef CONFIG_SYSCTL
 	sysctl_init_random(random_state);
 #endif
-	extract_timer_state.dont_count_entropy = 1;
 	return 0;
 err:
 	return -1;
