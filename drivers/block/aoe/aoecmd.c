@@ -416,7 +416,9 @@ aoecmd_ata_rsp(struct sk_buff *skb)
 
 	if (ahin->cmdstat & 0xa9) {	/* these bits cleared on success */
 		printk(KERN_CRIT "aoe: aoecmd_ata_rsp: ata error cmd=%2.2Xh "
-			"stat=%2.2Xh\n", ahout->cmdstat, ahin->cmdstat);
+			"stat=%2.2Xh from e%ld.%ld\n", 
+			ahout->cmdstat, ahin->cmdstat,
+			d->aoemajor, d->aoeminor);
 		if (buf)
 			buf->flags |= BUFFL_FAIL;
 	} else {
@@ -458,8 +460,8 @@ aoecmd_ata_rsp(struct sk_buff *skb)
 	if (buf) {
 		buf->nframesout -= 1;
 		if (buf->nframesout == 0 && buf->resid == 0) {
-			n = !(buf->flags & BUFFL_FAIL);
-			bio_endio(buf->bio, buf->bio->bi_size, 0);
+			n = (buf->flags & BUFFL_FAIL) ? -EIO : 0;
+			bio_endio(buf->bio, buf->bio->bi_size, n);
 			mempool_free(buf, d->bufpool);
 		}
 	}
