@@ -100,8 +100,8 @@ static const int multicast_filter_limit = 32;
 #define PKT_BUF_SZ		1536
 
 #define DRV_MODULE_NAME		"typhoon"
-#define DRV_MODULE_VERSION 	"1.5.4"
-#define DRV_MODULE_RELDATE	"04/09/09"
+#define DRV_MODULE_VERSION 	"1.5.7"
+#define DRV_MODULE_RELDATE	"05/01/07"
 #define PFX			DRV_MODULE_NAME ": "
 #define ERR_PFX			KERN_ERR PFX
 
