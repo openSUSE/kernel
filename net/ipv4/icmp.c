@@ -518,14 +518,6 @@ void icmp_send(struct sk_buff *skb_in, int type, int code, u32 info)
 					   IPTOS_PREC_INTERNETCONTROL) :
 					  iph->tos;
 
-	{
-		struct flowi fl = { .nl_u = { .ip4_u = { .daddr = iph->saddr,
-							 .saddr = saddr,
-							 .tos = RT_TOS(tos) } },
-				    .proto = IPPROTO_ICMP };
-		if (ip_route_output_key(&rt, &fl))
-		    goto out_unlock;
-	}
 	if (ip_options_echo(&icmp_param.replyopts, skb_in))
 		goto ende;
 
@@ -544,13 +536,26 @@ void icmp_send(struct sk_buff *skb_in, int type, int code, u32 info)
 	inet_sk(icmp_socket->sk)->tos = tos;
 	ipc.addr = iph->saddr;
 	ipc.opt = &icmp_param.replyopts;
-	if (icmp_param.replyopts.srr) {
-		struct flowi fl = { .nl_u = { .ip4_u =
-					      { .daddr = icmp_param.replyopts.faddr,
-						.saddr = saddr,
-						.tos = RT_TOS(tos) } },
-				    .proto = IPPROTO_ICMP };
-		ip_rt_put(rt);
+
+	{
+		struct flowi fl = {
+			.nl_u = {
+				.ip4_u = {
+					.daddr = icmp_param.replyopts.srr ?
+						icmp_param.replyopts.faddr :
+						iph->saddr,
+					.saddr = saddr,
+					.tos = RT_TOS(tos)
+				}
+			},
+			.proto = IPPROTO_ICMP,
+			.uli_u = {
+				.icmpt = {
+					.type = type,
+					.code = code
+				}
+			}
+		};
 		if (ip_route_output_key(&rt, &fl))
 			goto out_unlock;
 	}

@@ -570,10 +570,10 @@ static struct sock *sctp_v4_create_accept_sk(struct sock *sk,
 	newsk->sk_shutdown = sk->sk_shutdown;
 
 	newsk->sk_destruct = inet_sock_destruct;
-	newsk->sk_zapped = 0;
 	newsk->sk_family = PF_INET;
 	newsk->sk_protocol = IPPROTO_SCTP;
 	newsk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
+	sock_reset_flag(newsk, SOCK_ZAPPED);
 
 	newinet = inet_sk(newsk);
 

@@ -280,7 +280,7 @@ static void l2cap_sock_cleanup_listen(struct sock *parent)
 		l2cap_sock_close(sk);
 
 	parent->sk_state  = BT_CLOSED;
-	parent->sk_zapped = 1;
+	sock_set_flag(parent, SOCK_ZAPPED);
 }
 
 /* Kill socket (only if zapped and orphan)
@@ -288,7 +288,7 @@ static void l2cap_sock_cleanup_listen(struct sock *parent)
  */
 static void l2cap_sock_kill(struct sock *sk)
 {
-	if (!sk->sk_zapped || sk->sk_socket)
+	if (!sock_flag(sk, SOCK_ZAPPED) || sk->sk_socket)
 		return;
 
 	BT_DBG("sk %p state %d", sk, sk->sk_state);
@@ -333,7 +333,7 @@ static void __l2cap_sock_close(struct sock *sk, int reason)
 		break;
 
 	default:
-		sk->sk_zapped = 1;
+		sock_set_flag(sk, SOCK_ZAPPED);
 		break;
 	}
 }
@@ -1062,7 +1062,7 @@ static void l2cap_chan_del(struct sock *sk, int err)
 	}
 
 	sk->sk_state  = BT_CLOSED;
-	sk->sk_zapped = 1;
+	sock_set_flag(sk, SOCK_ZAPPED);
 
 	if (err)
 		sk->sk_err = err;
@@ -1424,7 +1424,7 @@ static inline int l2cap_connect_req(struct l2cap_conn *conn, struct l2cap_cmd_hd
 	/* Check if we already have channel with that dcid */
 	if (__l2cap_get_chan_by_dcid(list, scid)) {
 		write_unlock(&list->lock);
-		sk->sk_zapped = 1;
+		sock_set_flag(sk, SOCK_ZAPPED);
 		l2cap_sock_kill(sk);
 		goto response;
 	}

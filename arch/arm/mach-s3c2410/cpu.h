@@ -15,10 +15,13 @@
  *     04-Jan-2005 BJD  New uart initialisation
  *     10-Jan-2005 BJD  Moved generic init here, specific to cpu headers
  *     14-Jan-2005 BJD  Added s3c24xx_init_clocks() call
- *     10-Mar-2005 LCVR Changed S3C2410_{VA,SZ} to S3C24XX_{VA,SZ} on IODESC_ENT
+ *     10-Mar-2005 LCVR Changed S3C2410_{VA,SZ} to S3C24XX_{VA,SZ} & IODESC_ENT
+ *     14-Mar-2005 BJD  Updated for __iomem
 */
 
-#define IODESC_ENT(x) { S3C24XX_VA_##x, S3C2410_PA_##x, S3C24XX_SZ_##x, MT_DEVICE }
+/* todo - fix when rmk changes iodescs to use `void __iomem *` */
+
+#define IODESC_ENT(x) { (unsigned long)S3C24XX_VA_##x, S3C2410_PA_##x, S3C24XX_SZ_##x, MT_DEVICE }
 
 #ifndef MHZ
 #define MHZ (1000*1000)

@@ -719,6 +719,7 @@ int ip_append_data(struct sock *sk,
 
 	struct ip_options *opt = NULL;
 	int hh_len;
+	int exthdrlen;
 	int mtu;
 	int copy;
 	int err;
@@ -745,17 +746,22 @@ int ip_append_data(struct sock *sk,
 			inet->cork.addr = ipc->addr;
 		}
 		dst_hold(&rt->u.dst);
-		inet->cork.fragsize = mtu = dst_mtu(&rt->u.dst);
+		inet->cork.fragsize = mtu = dst_pmtu(&rt->u.dst);
 		inet->cork.rt = rt;
 		inet->cork.length = 0;
 		sk->sk_sndmsg_page = NULL;
 		sk->sk_sndmsg_off = 0;
+		if ((exthdrlen = rt->u.dst.header_len) != 0) {
+			length += exthdrlen;
+			transhdrlen += exthdrlen;
+		}
 	} else {
 		rt = inet->cork.rt;
 		if (inet->cork.flags & IPCORK_OPT)
 			opt = inet->cork.opt;
 
 		transhdrlen = 0;
+		exthdrlen = 0;
 		mtu = inet->cork.fragsize;
 	}
 	hh_len = LL_RESERVED_SPACE(rt->u.dst.dev);
@@ -764,7 +770,7 @@ int ip_append_data(struct sock *sk,
 	maxfraglen = ((mtu - fragheaderlen) & ~7) + fragheaderlen;
 
 	if (inet->cork.length + length > 0xFFFF - fragheaderlen) {
-		ip_local_error(sk, EMSGSIZE, rt->rt_dst, inet->dport, mtu);
+		ip_local_error(sk, EMSGSIZE, rt->rt_dst, inet->dport, mtu-exthdrlen);
 		return -EMSGSIZE;
 	}
 
@@ -775,7 +781,7 @@ int ip_append_data(struct sock *sk,
 	if (transhdrlen &&
 	    length + fragheaderlen <= mtu &&
 	    rt->u.dst.dev->features&(NETIF_F_IP_CSUM|NETIF_F_NO_CSUM|NETIF_F_HW_CSUM) &&
-	    !rt->u.dst.header_len)
+	    !exthdrlen)
 		csummode = CHECKSUM_HW;
 
 	inet->cork.length += length;
@@ -860,9 +866,9 @@ alloc_new_skb:
 			 *	Find where to start putting bytes.
 			 */
 			data = skb_put(skb, fraglen);
-			skb->nh.raw = data;
+			skb->nh.raw = data + exthdrlen;
 			data += fragheaderlen;
-			skb->h.raw = data;
+			skb->h.raw = data + exthdrlen;
 
 			if (fraggap) {
 				skb->csum = skb_copy_and_csum_bits(
@@ -884,6 +890,7 @@ alloc_new_skb:
 			offset += copy;
 			length -= datalen - fraggap;
 			transhdrlen = 0;
+			exthdrlen = 0;
 			csummode = CHECKSUM_NONE;
 
 			/*

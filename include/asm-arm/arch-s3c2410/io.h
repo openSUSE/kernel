@@ -66,9 +66,9 @@ static inline unsigned sz __in##fnsuffix (unsigned int port)		\
 	return (unsigned sz)value;					\
 }
 
-static inline void __iomem *__ioaddr (unsigned int port)
+static inline void __iomem *__ioaddr (unsigned long port)
 {
-	return (void __iomem *)(__PORT_PCIO(port) ? PCIO_BASE + port : port);
+	return __PORT_PCIO(port) ? (PCIO_BASE + port) : (void __iomem *)port;
 }
 
 #define DECLARE_IO(sz,fnsuffix,instr)	\
@@ -168,7 +168,7 @@ DECLARE_IO(int,l,"")
 	result;								\
 })
 
-#define __ioaddrc(port)	((void __iomem *)(__PORT_PCIO(port) ? PCIO_BASE + (port) : (port)))
+#define __ioaddrc(port)	((__PORT_PCIO(port) ? PCIO_BASE + (port) : (void __iomem *)(port)))
 
 #define inb(p)		(__builtin_constant_p((p)) ? __inbc(p)	   : __inb(p))
 #define inw(p)		(__builtin_constant_p((p)) ? __inwc(p)	   : __inw(p))
@@ -178,7 +178,7 @@ DECLARE_IO(int,l,"")
 #define outl(v,p)	(__builtin_constant_p((p)) ? __outlc(v,p) : __outl(v,p))
 #define __ioaddr(p)	(__builtin_constant_p((p)) ? __ioaddr(p)  : __ioaddrc(p))
 /* the following macro is deprecated */
-#define ioaddr(port)			__ioaddr((port))
+#define ioaddr(port)	__ioaddr((port))
 
 #define insb(p,d,l)	__raw_readsb(__ioaddr(p),d,l)
 #define insw(p,d,l)	__raw_readsw(__ioaddr(p),d,l)

@@ -352,7 +352,7 @@ static void sco_sock_cleanup_listen(struct sock *parent)
 	}
 
 	parent->sk_state  = BT_CLOSED;
-	parent->sk_zapped = 1;
+	sock_set_flag(sk, SOCK_ZAPPED);
 }
 
 /* Kill socket (only if zapped and orphan)
@@ -360,7 +360,7 @@ static void sco_sock_cleanup_listen(struct sock *parent)
  */
 static void sco_sock_kill(struct sock *sk)
 {
-	if (!sk->sk_zapped || sk->sk_socket)
+	if (!sock_flag(sk, SOCK_ZAPPED) || sk->sk_socket)
 		return;
 
 	BT_DBG("sk %p state %d", sk, sk->sk_state);
@@ -399,7 +399,7 @@ static void sco_sock_close(struct sock *sk)
 		break;
 
 	default:
-		sk->sk_zapped = 1;
+		sock_set_flag(sk, SOCK_ZAPPED);
 		break;
 	};
 
@@ -778,7 +778,7 @@ static void sco_chan_del(struct sock *sk, int err)
 	sk->sk_err   = err;
 	sk->sk_state_change(sk);
 
-	sk->sk_zapped = 1;
+	sock_set_flag(sk, SOCK_ZAPPED);
 }
 
 static void sco_conn_ready(struct sco_conn *conn)

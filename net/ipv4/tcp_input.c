@@ -71,6 +71,7 @@
 #include <net/tcp.h>
 #include <net/inet_common.h>
 #include <linux/ipsec.h>
+#include <asm/unaligned.h>
 
 int sysctl_tcp_timestamps = 1;
 int sysctl_tcp_window_scaling = 1;
@@ -977,7 +978,7 @@ tcp_sacktag_write_queue(struct sock *sk, struct sk_buff *ack_skb, u32 prior_snd_
 	 * Not good, but alternative is to resegment the queue. */
 	if (sk->sk_route_caps & NETIF_F_TSO) {
 		sk->sk_route_caps &= ~NETIF_F_TSO;
-		sk->sk_no_largesend = 1;
+		sock_set_flag(sk, SOCK_NO_LARGESEND);
 		tp->mss_cache = tp->mss_cache_std;
 	}
 
@@ -3007,7 +3008,7 @@ void tcp_parse_options(struct sk_buff *skb, struct tcp_options_received *opt_rx,
 	  			switch(opcode) {
 				case TCPOPT_MSS:
 					if(opsize==TCPOLEN_MSS && th->syn && !estab) {
-						u16 in_mss = ntohs(*(__u16 *)ptr);
+						u16 in_mss = ntohs(get_unaligned((__u16 *)ptr));
 						if (in_mss) {
 							if (opt_rx->user_mss && opt_rx->user_mss < in_mss)
 								in_mss = opt_rx->user_mss;
@@ -3018,15 +3019,16 @@ void tcp_parse_options(struct sk_buff *skb, struct tcp_options_received *opt_rx,
 				case TCPOPT_WINDOW:
 					if(opsize==TCPOLEN_WINDOW && th->syn && !estab)
 						if (sysctl_tcp_window_scaling) {
+							__u8 snd_wscale = *(__u8 *) ptr;
 							opt_rx->wscale_ok = 1;
-							opt_rx->snd_wscale = *(__u8 *)ptr;
-							if(opt_rx->snd_wscale > 14) {
+							if (snd_wscale > 14) {
 								if(net_ratelimit())
 									printk(KERN_INFO "tcp_parse_options: Illegal window "
 									       "scaling value %d >14 received.\n",
-									       opt_rx->snd_wscale);
-								opt_rx->snd_wscale = 14;
+									       snd_wscale);
+								snd_wscale = 14;
 							}
+							opt_rx->snd_wscale = snd_wscale;
 						}
 					break;
 				case TCPOPT_TIMESTAMP:
@@ -3034,8 +3036,8 @@ void tcp_parse_options(struct sk_buff *skb, struct tcp_options_received *opt_rx,
 						if ((estab && opt_rx->tstamp_ok) ||
 						    (!estab && sysctl_tcp_timestamps)) {
 							opt_rx->saw_tstamp = 1;
-							opt_rx->rcv_tsval = ntohl(*(__u32 *)ptr);
-							opt_rx->rcv_tsecr = ntohl(*(__u32 *)(ptr+4));
+							opt_rx->rcv_tsval = ntohl(get_unaligned((__u32 *)ptr));
+							opt_rx->rcv_tsecr = ntohl(get_unaligned((__u32 *)(ptr+4)));
 						}
 					}
 					break;
@@ -3935,7 +3937,7 @@ void tcp_cwnd_application_limited(struct sock *sk)
 
 
 /* When incoming ACK allowed to free some skb from write_queue,
- * we remember this event in flag sk->sk_queue_shrunk and wake up socket
+ * we remember this event in flag SOCK_QUEUE_SHRUNK and wake up socket
  * on the exit from tcp input handler.
  *
  * PROBLEM: sndbuf expansion does not work well with largesend.
@@ -3963,8 +3965,8 @@ static void tcp_new_space(struct sock *sk)
 
 static inline void tcp_check_space(struct sock *sk)
 {
-	if (sk->sk_queue_shrunk) {
-		sk->sk_queue_shrunk = 0;
+	if (sock_flag(sk, SOCK_QUEUE_SHRUNK)) {
+		sock_reset_flag(sk, SOCK_QUEUE_SHRUNK);
 		if (sk->sk_socket &&
 		    test_bit(SOCK_NOSPACE, &sk->sk_socket->flags))
 			tcp_new_space(sk);
@@ -4507,7 +4509,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 
 		TCP_ECN_rcv_synack(tp, th);
 		if (tp->ecn_flags&TCP_ECN_OK)
-			sk->sk_no_largesend = 1;
+			sock_set_flag(sk, SOCK_NO_LARGESEND);
 
 		tp->snd_wl1 = TCP_SKB_CB(skb)->seq;
 		tcp_ack(sk, skb, FLAG_SLOWPATH);
@@ -4645,7 +4647,7 @@ discard:
 
 		TCP_ECN_rcv_syn(tp, th);
 		if (tp->ecn_flags&TCP_ECN_OK)
-			sk->sk_no_largesend = 1;
+			sock_set_flag(sk, SOCK_NO_LARGESEND);
 
 		tcp_sync_mss(sk, tp->pmtu_cookie);
 		tcp_initialize_rcv_mss(sk);

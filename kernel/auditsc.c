@@ -89,8 +89,29 @@ enum audit_state {
 struct audit_names {
 	const char	*name;
 	unsigned long	ino;
+	dev_t		dev;
+	umode_t		mode;
+	uid_t		uid;
+	gid_t		gid;
 	dev_t		rdev;
 };
+
+struct audit_aux_data {
+	struct audit_aux_data	*next;
+	int			type;
+};
+
+#define AUDIT_AUX_IPCPERM	0
+
+struct audit_aux_data_ipcctl {
+	struct audit_aux_data	d;
+	struct ipc_perm		p;
+	unsigned long		qbytes;
+	uid_t			uid;
+	gid_t			gid;
+	mode_t			mode;
+};
+
 
 /* The per-task audit context. */
 struct audit_context {
@@ -107,6 +128,7 @@ struct audit_context {
 	int		    name_count;
 	struct audit_names  names[AUDIT_NAMES];
 	struct audit_context *previous; /* For nested syscalls */
+	struct audit_aux_data *aux;
 
 				/* Save things to print about task_struct */
 	pid_t		    pid;
@@ -338,7 +360,7 @@ static int audit_filter_rules(struct task_struct *tsk,
 		case AUDIT_DEVMAJOR:
 			if (ctx) {
 				for (j = 0; j < ctx->name_count; j++) {
-					if (MAJOR(ctx->names[j].rdev)==value) {
+					if (MAJOR(ctx->names[j].dev)==value) {
 						++result;
 						break;
 					}
@@ -348,7 +370,7 @@ static int audit_filter_rules(struct task_struct *tsk,
 		case AUDIT_DEVMINOR:
 			if (ctx) {
 				for (j = 0; j < ctx->name_count; j++) {
-					if (MINOR(ctx->names[j].rdev)==value) {
+					if (MINOR(ctx->names[j].dev)==value) {
 						++result;
 						break;
 					}
@@ -504,6 +526,16 @@ static inline void audit_free_names(struct audit_context *context)
 	context->name_count = 0;
 }
 
+static inline void audit_free_aux(struct audit_context *context)
+{
+	struct audit_aux_data *aux;
+
+	while ((aux = context->aux)) {
+		context->aux = aux->next;
+		kfree(aux);
+	}
+}
+
 static inline void audit_zero_context(struct audit_context *context,
 				      enum audit_state state)
 {
@@ -570,6 +602,7 @@ static inline void audit_free_context(struct audit_context *context)
 			       context->name_count, count);
 		}
 		audit_free_names(context);
+		audit_free_aux(context);
 		kfree(context);
 		context  = previous;
 	} while (context);
@@ -607,6 +640,29 @@ static void audit_log_exit(struct audit_context *context)
 		  context->euid, context->suid, context->fsuid,
 		  context->egid, context->sgid, context->fsgid);
 	audit_log_end(ab);
+	while (context->aux) {
+		struct audit_aux_data *aux;
+
+		ab = audit_log_start(context);
+		if (!ab)
+			continue; /* audit_panic has been called */
+
+		aux = context->aux;
+		context->aux = aux->next;
+
+		audit_log_format(ab, "auxitem=%d", aux->type);
+		switch (aux->type) {
+		case AUDIT_AUX_IPCPERM: {
+			struct audit_aux_data_ipcctl *axi = (void *)aux;
+			audit_log_format(ab, 
+					 " qbytes=%lx uid=%d gid=%d mode=%x",
+					 axi->qbytes, axi->uid, axi->gid, axi->mode);
+			}
+		}
+		audit_log_end(ab);
+		kfree(aux);
+	}
+
 	for (i = 0; i < context->name_count; i++) {
 		ab = audit_log_start(context);
 		if (!ab)
@@ -616,12 +672,14 @@ static void audit_log_exit(struct audit_context *context)
 			audit_log_format(ab, " name=%s",
 					 context->names[i].name);
 		if (context->names[i].ino != (unsigned long)-1)
-			audit_log_format(ab, " inode=%lu",
-					 context->names[i].ino);
-		/* FIXME: should use format_dev_t, but ab structure is
-		 * opaque. */
-		if (context->names[i].rdev != -1)
-			audit_log_format(ab, " dev=%02x:%02x",
+			audit_log_format(ab, " inode=%lu dev=%02x:%02x mode=%#o"
+					     " uid=%d gid=%d rdev=%02x:%02x",
+					 context->names[i].ino,
+					 MAJOR(context->names[i].dev),
+					 MINOR(context->names[i].dev),
+					 context->names[i].mode,
+					 context->names[i].uid,
+					 context->names[i].gid,
 					 MAJOR(context->names[i].rdev),
 					 MINOR(context->names[i].rdev));
 		audit_log_end(ab);
@@ -789,6 +847,7 @@ void audit_syscall_exit(struct task_struct *tsk, int return_code)
 		tsk->audit_context = new_context;
 	} else {
 		audit_free_names(context);
+		audit_free_aux(context);
 		audit_zero_context(context, context->state);
 		tsk->audit_context = context;
 	}
@@ -800,7 +859,9 @@ void audit_getname(const char *name)
 {
 	struct audit_context *context = current->audit_context;
 
-	BUG_ON(!context);
+	if (!context || IS_ERR(name) || !name)
+		return;
+
 	if (!context->in_syscall) {
 #if AUDIT_DEBUG == 2
 		printk(KERN_ERR "%s:%d(:%d): ignoring getname(%p)\n",
@@ -812,7 +873,6 @@ void audit_getname(const char *name)
 	BUG_ON(context->name_count >= AUDIT_NAMES);
 	context->names[context->name_count].name = name;
 	context->names[context->name_count].ino  = (unsigned long)-1;
-	context->names[context->name_count].rdev = -1;
 	++context->name_count;
 }
 
@@ -855,11 +915,10 @@ void audit_putname(const char *name)
 	}
 #endif
 }
-EXPORT_SYMBOL(audit_putname);
 
 /* Store the inode and device from a lookup.  Called from
  * fs/namei.c:path_lookup(). */
-void audit_inode(const char *name, unsigned long ino, dev_t rdev)
+void audit_inode(const char *name, const struct inode *inode)
 {
 	int idx;
 	struct audit_context *context = current->audit_context;
@@ -885,8 +944,12 @@ void audit_inode(const char *name, unsigned long ino, dev_t rdev)
 		++context->ino_count;
 #endif
 	}
-	context->names[idx].ino  = ino;
-	context->names[idx].rdev = rdev;
+	context->names[idx].ino  = inode->i_ino;
+	context->names[idx].dev	 = inode->i_sb->s_dev;
+	context->names[idx].mode = inode->i_mode;
+	context->names[idx].uid  = inode->i_uid;
+	context->names[idx].gid  = inode->i_gid;
+	context->names[idx].rdev = inode->i_rdev;
 }
 
 void audit_get_stamp(struct audit_context *ctx,
@@ -926,4 +989,27 @@ int audit_set_loginuid(struct audit_context *ctx, uid_t loginuid)
 uid_t audit_get_loginuid(struct audit_context *ctx)
 {
 	return ctx ? ctx->loginuid : -1;
+}
+
+int audit_ipc_perms(unsigned long qbytes, uid_t uid, gid_t gid, mode_t mode)
+{
+	struct audit_aux_data_ipcctl *ax;
+	struct audit_context *context = current->audit_context;
+
+	if (likely(!context))
+		return 0;
+
+	ax = kmalloc(sizeof(*ax), GFP_KERNEL);
+	if (!ax)
+		return -ENOMEM;
+
+	ax->qbytes = qbytes;
+	ax->uid = uid;
+	ax->gid = gid;
+	ax->mode = mode;
+
+	ax->d.type = AUDIT_AUX_IPCPERM;
+	ax->d.next = context->aux;
+	context->aux = (void *)ax;
+	return 0;
 }

@@ -61,10 +61,10 @@
  * the other protocols.
  */
 
-/* Define this to get the sk->sk_debug debugging facility. */
+/* Define this to get the SOCK_DBG debugging facility. */
 #define SOCK_DEBUGGING
 #ifdef SOCK_DEBUGGING
-#define SOCK_DEBUG(sk, msg...) do { if ((sk) && ((sk)->sk_debug)) \
+#define SOCK_DEBUG(sk, msg...) do { if ((sk) && sock_flag((sk), SOCK_DBG)) \
 					printk(KERN_DEBUG msg); } while (0)
 #else
 #define SOCK_DEBUG(sk, msg...) do { } while (0)
@@ -115,9 +115,7 @@ struct sock_common {
 /**
   *	struct sock - network layer representation of sockets
   *	@__sk_common - shared layout with tcp_tw_bucket
-  *	@sk_zapped - ax25 & ipx means !linked
   *	@sk_shutdown - mask of %SEND_SHUTDOWN and/or %RCV_SHUTDOWN
-  *	@sk_use_write_queue - wheter to call sk->sk_write_space in sock_wfree
   *	@sk_userlocks - %SO_SNDBUF and %SO_RCVBUF settings
   *	@sk_lock -	synchronizer
   *	@sk_rcvbuf - size of receive buffer in bytes
@@ -136,9 +134,6 @@ struct sock_common {
   *	@sk_sndbuf - size of send buffer in bytes
   *	@sk_flags - %SO_LINGER (l_onoff), %SO_BROADCAST, %SO_KEEPALIVE, %SO_OOBINLINE settings
   *	@sk_no_check - %SO_NO_CHECK setting, wether or not checkup packets
-  *	@sk_debug - %SO_DEBUG setting
-  *	@sk_rcvtstamp - %SO_TIMESTAMP setting
-  *	@sk_no_largesend - whether to sent large segments or not
   *	@sk_route_caps - route capabilities (e.g. %NETIF_F_TSO)
   *	@sk_lingertime - %SO_LINGER l_linger setting
   *	@sk_hashent - hash entry in several tables (e.g. tcp_ehash)
@@ -152,7 +147,6 @@ struct sock_common {
   *	@sk_max_ack_backlog - listen backlog set in listen()
   *	@sk_priority - %SO_PRIORITY setting
   *	@sk_type - socket type (%SOCK_STREAM, etc)
-  *	@sk_localroute - route locally only, %SO_DONTROUTE setting
   *	@sk_protocol - which protocol this socket belongs in this network family
   *	@sk_peercred - %SO_PEERCRED setting
   *	@sk_rcvlowat - %SO_RCVLOWAT setting
@@ -170,7 +164,6 @@ struct sock_common {
   *	@sk_sndmsg_off - cached offset for sendmsg
   *	@sk_send_head - front of stuff to transmit
   *	@sk_write_pending - a write to stream socket waits to start
-  *	@sk_queue_shrunk - write queue has been shrunk recently
   *	@sk_state_change - callback to indicate change in the state of the sock
   *	@sk_data_ready - callback to indicate there is data to be processed
   *	@sk_write_space - callback to indicate there is bf sending space available
@@ -191,33 +184,30 @@ struct sock {
 #define sk_node			__sk_common.skc_node
 #define sk_bind_node		__sk_common.skc_bind_node
 #define sk_refcnt		__sk_common.skc_refcnt
-	volatile unsigned char	sk_zapped;
-	unsigned char		sk_shutdown;
-	unsigned char		sk_use_write_queue;
-	unsigned char		sk_userlocks;
-	socket_lock_t		sk_lock;
+	unsigned char		sk_shutdown : 2,
+				sk_no_check : 2,
+				sk_userlocks : 4;
+	unsigned char		sk_protocol;
+	unsigned short		sk_type;
 	int			sk_rcvbuf;
+	socket_lock_t		sk_lock;
 	wait_queue_head_t	*sk_sleep;
 	struct dst_entry	*sk_dst_cache;
-	rwlock_t		sk_dst_lock;
 	struct xfrm_policy	*sk_policy[2];
+	rwlock_t		sk_dst_lock;
 	atomic_t		sk_rmem_alloc;
-	struct sk_buff_head	sk_receive_queue;
 	atomic_t		sk_wmem_alloc;
-	struct sk_buff_head	sk_write_queue;
 	atomic_t		sk_omem_alloc;
+	struct sk_buff_head	sk_receive_queue;
+	struct sk_buff_head	sk_write_queue;
 	int			sk_wmem_queued;
 	int			sk_forward_alloc;
 	unsigned int		sk_allocation;
 	int			sk_sndbuf;
-	unsigned long 		sk_flags;
-	char		 	sk_no_check;
-	unsigned char		sk_debug;
-	unsigned char		sk_rcvtstamp;
-	unsigned char		sk_no_largesend;
 	int			sk_route_caps;
-	unsigned long	        sk_lingertime;
 	int			sk_hashent;
+	unsigned long 		sk_flags;
+	unsigned long	        sk_lingertime;
 	/*
 	 * The backlog queue is special, it is always used with
 	 * the per-socket spinlock held and requires low latency
@@ -227,17 +217,14 @@ struct sock {
 		struct sk_buff *head;
 		struct sk_buff *tail;
 	} sk_backlog;
-	rwlock_t		sk_callback_lock;
 	struct sk_buff_head	sk_error_queue;
 	struct proto		*sk_prot;
+	rwlock_t		sk_callback_lock;
 	int			sk_err,
 				sk_err_soft;
 	unsigned short		sk_ack_backlog;
 	unsigned short		sk_max_ack_backlog;
 	__u32			sk_priority;
-	unsigned short		sk_type;
-	unsigned char		sk_localroute;
-	unsigned char		sk_protocol;
 	struct ucred		sk_peercred;
 	int			sk_rcvlowat;
 	long			sk_rcvtimeo;
@@ -251,12 +238,10 @@ struct sock {
 	void			*sk_user_data;
 	struct module		*sk_owner;
 	struct page		*sk_sndmsg_page;
-	__u32			sk_sndmsg_off;
 	struct sk_buff		*sk_send_head;
+	__u32			sk_sndmsg_off;
 	int			sk_write_pending;
 	void			*sk_security;
-	__u8			sk_queue_shrunk;
-	/* three bytes hole, try to pack */
 	void			(*sk_state_change)(struct sock *sk);
 	void			(*sk_data_ready)(struct sock *sk, int bytes);
 	void			(*sk_write_space)(struct sock *sk);
@@ -391,6 +376,13 @@ enum sock_flags {
 	SOCK_DESTROY,
 	SOCK_BROADCAST,
 	SOCK_TIMESTAMP,
+	SOCK_ZAPPED,
+	SOCK_USE_WRITE_QUEUE, /* whether to call sk->sk_write_space in sock_wfree */
+	SOCK_DBG, /* %SO_DEBUG setting */
+	SOCK_RCVTSTAMP, /* %SO_TIMESTAMP setting */
+	SOCK_NO_LARGESEND, /* whether to sent large segments or not */
+	SOCK_LOCALROUTE, /* route locally only, %SO_DONTROUTE setting */
+	SOCK_QUEUE_SHRUNK, /* write queue has been shrunk recently */
 };
 
 static inline void sock_set_flag(struct sock *sk, enum sock_flags flag)
@@ -455,7 +447,7 @@ static inline void sk_stream_set_owner_r(struct sk_buff *skb, struct sock *sk)
 
 static inline void sk_stream_free_skb(struct sock *sk, struct sk_buff *skb)
 {
-	sk->sk_queue_shrunk   = 1;
+	sock_set_flag(sk, SOCK_QUEUE_SHRUNK);
 	sk->sk_wmem_queued   -= skb->truesize;
 	sk->sk_forward_alloc += skb->truesize;
 	__kfree_skb(skb);
@@ -1242,7 +1234,7 @@ static __inline__ void
 sock_recv_timestamp(struct msghdr *msg, struct sock *sk, struct sk_buff *skb)
 {
 	struct timeval *stamp = &skb->stamp;
-	if (sk->sk_rcvtstamp) { 
+	if (sock_flag(sk, SOCK_RCVTSTAMP)) {
 		/* Race occurred between timestamp enabling and packet
 		   receiving.  Fill in the current time for now. */
 		if (stamp->tv_sec == 0)

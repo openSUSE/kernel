@@ -850,13 +850,13 @@ int ip6_append_data(struct sock *sk, int getfrag(void *from, char *to, int offse
 		np->cork.rt = rt;
 		inet->cork.fl = *fl;
 		np->cork.hop_limit = hlimit;
-		inet->cork.fragsize = mtu = dst_mtu(&rt->u.dst);
+		inet->cork.fragsize = mtu = dst_pmtu(&rt->u.dst);
 		if (dst_allfrag(&rt->u.dst))
 			inet->cork.flags |= IPCORK_ALLFRAG;
 		inet->cork.length = 0;
 		sk->sk_sndmsg_page = NULL;
 		sk->sk_sndmsg_off = 0;
-		exthdrlen = opt ? opt->opt_flen : 0;
+		exthdrlen = rt->u.dst.header_len + (opt ? opt->opt_flen : 0);
 		length += exthdrlen;
 		transhdrlen += exthdrlen;
 	} else {

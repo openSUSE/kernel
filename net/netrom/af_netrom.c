@@ -475,10 +475,14 @@ static struct sock *nr_make_new(struct sock *osk)
 	sk->sk_protocol = osk->sk_protocol;
 	sk->sk_rcvbuf   = osk->sk_rcvbuf;
 	sk->sk_sndbuf   = osk->sk_sndbuf;
-	sk->sk_debug    = osk->sk_debug;
 	sk->sk_state    = TCP_ESTABLISHED;
 	sk->sk_sleep    = osk->sk_sleep;
-	sk->sk_zapped   = osk->sk_zapped;
+
+	if (sock_flag(osk, SOCK_ZAPPED))
+		sock_set_flag(sk, SOCK_ZAPPED);
+
+	if (sock_flag(osk, SOCK_DBG))
+		sock_set_flag(sk, SOCK_DBG);
 
 	skb_queue_head_init(&nr->ack_queue);
 	skb_queue_head_init(&nr->reseq_queue);
@@ -558,7 +562,7 @@ static int nr_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	ax25_address *user, *source;
 
 	lock_sock(sk);
-	if (!sk->sk_zapped) {
+	if (!sock_flag(sk, SOCK_ZAPPED)) {
 		release_sock(sk);
 		return -EINVAL;
 	}
@@ -610,7 +614,7 @@ static int nr_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	nr->device = dev;
 	nr_insert_socket(sk);
 
-	sk->sk_zapped = 0;
+	sock_reset_flag(sk, SOCK_ZAPPED);
 	dev_put(dev);
 	release_sock(sk);
 	SOCK_DEBUG(sk, "NET/ROM: socket is bound\n");
@@ -655,8 +659,8 @@ static int nr_connect(struct socket *sock, struct sockaddr *uaddr,
 		release_sock(sk);
 		return -EINVAL;
 	}
-	if (sk->sk_zapped) {	/* Must bind first - autobinding in this may or may not work */
-		sk->sk_zapped = 0;
+	if (sock_flag(sk, SOCK_ZAPPED)) {	/* Must bind first - autobinding in this may or may not work */
+		sock_reset_flag(sk, SOCK_ZAPPED);
 
 		if ((dev = nr_dev_first()) == NULL) {
 			release_sock(sk);
@@ -1023,7 +1027,7 @@ static int nr_sendmsg(struct kiocb *iocb, struct socket *sock,
 		return -EINVAL;
 
 	lock_sock(sk);
-	if (sk->sk_zapped) {
+	if (sock_flag(sk, SOCK_ZAPPED)) {
 		err = -EADDRNOTAVAIL;
 		goto out;
 	}

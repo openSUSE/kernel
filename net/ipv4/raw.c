@@ -457,7 +457,7 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 			daddr = ipc.opt->faddr;
 		}
 	}
-	tos = RT_TOS(inet->tos) | sk->sk_localroute;
+	tos = RT_CONN_FLAGS(sk);
 	if (msg->msg_flags & MSG_DONTROUTE)
 		tos |= RTO_ONLINK;
 

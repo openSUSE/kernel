@@ -306,9 +306,7 @@ void ax25_destroy_socket(ax25_cb *ax25)
 
 			kfree_skb(skb);
 		}
-		while ((skb = skb_dequeue(&ax25->sk->sk_write_queue)) != NULL) {
-			kfree_skb(skb);
-		}
+		skb_queue_purge(&ax25->sk->sk_write_queue);
 	}
 
 	if (ax25->sk != NULL) {
@@ -867,10 +865,14 @@ struct sock *ax25_make_new(struct sock *osk, struct ax25_dev *ax25_dev)
 	sk->sk_protocol = osk->sk_protocol;
 	sk->sk_rcvbuf   = osk->sk_rcvbuf;
 	sk->sk_sndbuf   = osk->sk_sndbuf;
-	sk->sk_debug    = osk->sk_debug;
 	sk->sk_state    = TCP_ESTABLISHED;
 	sk->sk_sleep    = osk->sk_sleep;
-	sk->sk_zapped   = osk->sk_zapped;
+
+	if (sock_flag(osk, SOCK_DBG))
+		sock_set_flag(sk, SOCK_DBG);
+
+	if (sock_flag(osk, SOCK_ZAPPED))
+		sock_set_flag(sk, SOCK_ZAPPED);
 
 	oax25 = ax25_sk(osk);
 
@@ -1024,7 +1026,7 @@ static int ax25_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	lock_sock(sk);
 
 	ax25 = ax25_sk(sk);
-	if (!sk->sk_zapped) {
+	if (!sock_flag(sk, SOCK_ZAPPED)) {
 		err = -EINVAL;
 		goto out;
 	}
@@ -1058,7 +1060,7 @@ static int ax25_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 
 done:
 	ax25_cb_add(ax25);
-	sk->sk_zapped = 0;
+	sock_reset_flag(sk, SOCK_ZAPPED);
 
 out:
 	release_sock(sk);
@@ -1171,7 +1173,7 @@ static int ax25_connect(struct socket *sock, struct sockaddr *uaddr,
 	 *	the socket is already bound, check to see if the device has
 	 *	been filled in, error if it hasn't.
 	 */
-	if (sk->sk_zapped) {
+	if (sock_flag(sk, SOCK_ZAPPED)) {
 		/* check if we can remove this feature. It is broken. */
 		printk(KERN_WARNING "ax25_connect(): %s uses autobind, please contact jreuter@yaina.de\n",
 			current->comm);
@@ -1419,7 +1421,7 @@ static int ax25_sendmsg(struct kiocb *iocb, struct socket *sock,
 	lock_sock(sk);
 	ax25 = ax25_sk(sk);
 
-	if (sk->sk_zapped) {
+	if (sock_flag(sk, SOCK_ZAPPED)) {
 		err = -EADDRNOTAVAIL;
 		goto out;
 	}

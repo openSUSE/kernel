@@ -125,10 +125,9 @@ struct audit_rule {		/* for AUDIT_LIST, AUDIT_ADD, and AUDIT_DEL */
 
 #ifdef __KERNEL__
 
-#ifdef CONFIG_AUDIT
 struct audit_buffer;
 struct audit_context;
-#endif
+struct inode;
 
 #ifdef CONFIG_AUDITSYSCALL
 /* These are defined in auditsc.c */
@@ -141,7 +140,7 @@ extern void audit_syscall_entry(struct task_struct *task,
 extern void audit_syscall_exit(struct task_struct *task, int return_code);
 extern void audit_getname(const char *name);
 extern void audit_putname(const char *name);
-extern void audit_inode(const char *name, unsigned long ino, dev_t rdev);
+extern void audit_inode(const char *name, const struct inode *inode);
 
 				/* Private API (for audit.c only) */
 extern int  audit_receive_filter(int type, int pid, int uid, int seq,
@@ -150,6 +149,7 @@ extern void audit_get_stamp(struct audit_context *ctx,
 			    struct timespec *t, int *serial);
 extern int  audit_set_loginuid(struct audit_context *ctx, uid_t loginuid);
 extern uid_t audit_get_loginuid(struct audit_context *ctx);
+extern int audit_ipc_perms(unsigned long qbytes, uid_t uid, gid_t gid, mode_t mode);
 #else
 #define audit_alloc(t) ({ 0; })
 #define audit_free(t) do { ; } while (0)
@@ -157,8 +157,9 @@ extern uid_t audit_get_loginuid(struct audit_context *ctx);
 #define audit_syscall_exit(t,r) do { ; } while (0)
 #define audit_getname(n) do { ; } while (0)
 #define audit_putname(n) do { ; } while (0)
-#define audit_inode(n,i,d) do { ; } while (0)
+#define audit_inode(n,i) do { ; } while (0)
 #define audit_get_loginuid(c) ({ -1; })
+#define audit_ipc_perms(q,u,g,m) ({ 0; })
 #endif
 
 #ifdef CONFIG_AUDIT

@@ -126,7 +126,7 @@ static struct sctp_endpoint *sctp_endpoint_init(struct sctp_endpoint *ep,
 
 	/* Use SCTP specific send buffer space queues.  */
 	sk->sk_write_space = sctp_write_space;
-	sk->sk_use_write_queue = 1;
+	sock_set_flag(sk, SOCK_USE_WRITE_QUEUE);
 
 	/* Initialize the secret key used with cookie. */
 	get_random_bytes(&ep->secret_key[0], SCTP_SECRET_SIZE);

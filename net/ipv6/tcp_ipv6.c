@@ -2027,7 +2027,7 @@ static int tcp_v6_init_sock(struct sock *sk)
 	tp->af_specific = &ipv6_specific;
 
 	sk->sk_write_space = sk_stream_write_space;
-	sk->sk_use_write_queue = 1;
+	sock_set_flag(sk, SOCK_USE_WRITE_QUEUE);
 
 	sk->sk_sndbuf = sysctl_tcp_wmem[1];
 	sk->sk_rcvbuf = sysctl_tcp_rmem[1];

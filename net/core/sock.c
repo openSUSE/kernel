@@ -228,8 +228,10 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 			{
 				ret = -EACCES;
 			}
+			else if (valbool)
+				sock_set_flag(sk, SOCK_DBG);
 			else
-				sk->sk_debug = valbool;
+				sock_reset_flag(sk, SOCK_DBG);
 			break;
 		case SO_REUSEADDR:
 			sk->sk_reuse = valbool;
@@ -239,7 +241,10 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 			ret = -ENOPROTOOPT;
 		  	break;
 		case SO_DONTROUTE:
-			sk->sk_localroute = valbool;
+			if (valbool)
+				sock_set_flag(sk, SOCK_LOCALROUTE);
+			else
+				sock_reset_flag(sk, SOCK_LOCALROUTE);
 			break;
 		case SO_BROADCAST:
 			sock_valbool_flag(sk, SOCK_BROADCAST, valbool);
@@ -340,9 +345,11 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 			break;
 
 		case SO_TIMESTAMP:
-			sk->sk_rcvtstamp = valbool;
-			if (valbool) 
+			if (valbool)  {
+				sock_set_flag(sk, SOCK_RCVTSTAMP);
 				sock_enable_timestamp(sk);
+			} else
+				sock_reset_flag(sk, SOCK_RCVTSTAMP);
 			break;
 
 		case SO_RCVLOWAT:
@@ -466,11 +473,11 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
   	switch(optname) 
   	{
 		case SO_DEBUG:		
-			v.val = sk->sk_debug;
+			v.val = sock_flag(sk, SOCK_DBG);
 			break;
 		
 		case SO_DONTROUTE:
-			v.val = sk->sk_localroute;
+			v.val = sock_flag(sk, SOCK_LOCALROUTE);
 			break;
 		
 		case SO_BROADCAST:
@@ -526,7 +533,7 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
 			break;
 
 		case SO_TIMESTAMP:
-			v.val = sk->sk_rcvtstamp;
+			v.val = sock_flag(sk, SOCK_RCVTSTAMP);
 			break;
 
 		case SO_RCVTIMEO:
@@ -712,7 +719,7 @@ void sock_wfree(struct sk_buff *skb)
 
 	/* In case it might be waiting for more memory. */
 	atomic_sub(skb->truesize, &sk->sk_wmem_alloc);
-	if (!sk->sk_use_write_queue)
+	if (!sock_flag(sk, SOCK_USE_WRITE_QUEUE))
 		sk->sk_write_space(sk);
 	sock_put(sk);
 }
@@ -1189,8 +1196,9 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 	sk->sk_rcvbuf		=	sysctl_rmem_default;
 	sk->sk_sndbuf		=	sysctl_wmem_default;
 	sk->sk_state		=	TCP_CLOSE;
-	sk->sk_zapped		=	1;
 	sk->sk_socket		=	sock;
+
+	sock_set_flag(sk, SOCK_ZAPPED);
 
 	if(sock)
 	{

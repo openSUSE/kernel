@@ -841,7 +841,7 @@ struct sock *tcp_create_openreq_child(struct sock *sk, struct open_request *req,
 		newtp->rx_opt.mss_clamp = req->mss;
 		TCP_ECN_openreq_child(newtp, req);
 		if (newtp->ecn_flags&TCP_ECN_OK)
-			newsk->sk_no_largesend = 1;
+			sock_set_flag(newsk, SOCK_NO_LARGESEND);
 
 		tcp_ca_init(newtp);
 

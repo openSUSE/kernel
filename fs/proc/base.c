@@ -34,6 +34,7 @@
 #include <linux/ptrace.h>
 #include <linux/seccomp.h>
 #include <linux/cpuset.h>
+#include <linux/audit.h>
 #include "internal.h"
 
 /*

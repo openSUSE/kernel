@@ -212,7 +212,6 @@ extern int dir_notify_enable;
 #include <linux/list.h>
 #include <linux/radix-tree.h>
 #include <linux/prio_tree.h>
-#include <linux/audit.h>
 #include <linux/init.h>
 
 #include <asm/atomic.h>
@@ -1272,13 +1271,7 @@ extern void __init vfs_caches_init(unsigned long);
 #ifndef CONFIG_AUDITSYSCALL
 #define putname(name)   __putname(name)
 #else
-#define putname(name)							\
-	do {								\
-		if (unlikely(current->audit_context))			\
-			audit_putname(name);				\
-		else							\
-			__putname(name);				\
-	} while (0)
+extern void putname(const char *name);
 #endif
 
 extern int register_blkdev(unsigned int, const char *);

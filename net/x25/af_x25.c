@@ -525,11 +525,15 @@ static struct sock *x25_make_new(struct sock *osk)
 	sk->sk_protocol    = osk->sk_protocol;
 	sk->sk_rcvbuf      = osk->sk_rcvbuf;
 	sk->sk_sndbuf      = osk->sk_sndbuf;
-	sk->sk_debug       = osk->sk_debug;
 	sk->sk_state       = TCP_ESTABLISHED;
 	sk->sk_sleep       = osk->sk_sleep;
-	sk->sk_zapped      = osk->sk_zapped;
 	sk->sk_backlog_rcv = osk->sk_backlog_rcv;
+
+	if (sock_flag(osk, SOCK_ZAPPED))
+		sock_set_flag(sk, SOCK_ZAPPED);
+	
+	if (sock_flag(osk, SOCK_DBG))
+		sock_set_flag(sk, SOCK_DBG);
 
 	ox25 = x25_sk(osk);
 	x25->t21        = ox25->t21;
@@ -588,14 +592,14 @@ static int x25_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	struct sock *sk = sock->sk;
 	struct sockaddr_x25 *addr = (struct sockaddr_x25 *)uaddr;
 
-	if (!sk->sk_zapped ||
+	if (!sock_flag(sk, SOCK_ZAPPED) ||
 	    addr_len != sizeof(struct sockaddr_x25) ||
 	    addr->sx25_family != AF_X25)
 		return -EINVAL;
 
 	x25_sk(sk)->source_addr = addr->sx25_addr;
 	x25_insert_socket(sk);
-	sk->sk_zapped = 0;
+	sock_reset_flag(sk, SOCK_ZAPPED);
 	SOCK_DEBUG(sk, "x25_bind: socket is bound\n");
 
 	return 0;
@@ -679,7 +683,7 @@ static int x25_connect(struct socket *sock, struct sockaddr *uaddr,
 		goto out_put_neigh;
 
 	rc = -EINVAL;
-	if (sk->sk_zapped) /* Must bind first - autobinding does not work */
+	if (sock_flag(sk, SOCK_ZAPPED)) /* Must bind first - autobinding does not work */
 		goto out_put_neigh;
 
 	if (!strcmp(x25->source_addr.x25_addr, null_x25_address.x25_addr))
@@ -942,7 +946,7 @@ static int x25_sendmsg(struct kiocb *iocb, struct socket *sock,
 		goto out;
 
 	rc = -EADDRNOTAVAIL;
-	if (sk->sk_zapped)
+	if (sock_flag(sk, SOCK_ZAPPED))
 		goto out;
 
 	rc = -EPIPE;

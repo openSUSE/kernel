@@ -593,9 +593,9 @@ int tcp_trim_head(struct sock *sk, struct sk_buff *skb, u32 len)
 	skb->ip_summed = CHECKSUM_HW;
 
 	skb->truesize	     -= len;
-	sk->sk_queue_shrunk   = 1;
 	sk->sk_wmem_queued   -= len;
 	sk->sk_forward_alloc += len;
+	sock_set_flag(sk, SOCK_QUEUE_SHRUNK);
 
 	/* Any change of skb->len requires recalculation of tso
 	 * factor and mss.
@@ -1040,7 +1040,7 @@ int tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb)
 
 		if (sk->sk_route_caps & NETIF_F_TSO) {
 			sk->sk_route_caps &= ~NETIF_F_TSO;
-			sk->sk_no_largesend = 1;
+			sock_set_flag(sk, SOCK_NO_LARGESEND);
 			tp->mss_cache = tp->mss_cache_std;
 		}
 
@@ -1427,6 +1427,7 @@ static inline void tcp_connect_init(struct sock *sk)
 {
 	struct dst_entry *dst = __sk_dst_get(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
+	__u8 rcv_wscale;
 
 	/* We'll fix this up when we get a response from the other end.
 	 * See tcp_input.c:tcp_rcv_state_process case TCP_SYN_SENT.
@@ -1451,8 +1452,9 @@ static inline void tcp_connect_init(struct sock *sk)
 				  &tp->rcv_wnd,
 				  &tp->window_clamp,
 				  sysctl_tcp_window_scaling,
-				  &tp->rx_opt.rcv_wscale);
+				  &rcv_wscale);
 
+	tp->rx_opt.rcv_wscale = rcv_wscale;
 	tp->rcv_ssthresh = tp->rcv_wnd;
 
 	sk->sk_err = 0;
@@ -1669,7 +1671,7 @@ int tcp_write_wakeup(struct sock *sk)
 				/* SWS override triggered forced fragmentation.
 				 * Disable TSO, the connection is too sick. */
 				if (sk->sk_route_caps & NETIF_F_TSO) {
-					sk->sk_no_largesend = 1;
+					sock_set_flag(sk, SOCK_NO_LARGESEND);
 					sk->sk_route_caps &= ~NETIF_F_TSO;
 					tp->mss_cache = tp->mss_cache_std;
 				}

@@ -7,6 +7,7 @@
 #include <linux/netdevice.h>
 #include <linux/rcupdate.h>
 #include <linux/timer.h>
+#include <linux/rtnetlink.h>
 
 struct ipv4_devconf
 {
@@ -129,6 +130,25 @@ static __inline__ int bad_mask(u32 mask, u32 addr)
 	if (mask & (mask+1))
 		return 1;
 	return 0;
+}
+
+static inline int inet_ifa_match_local_prefixlen(struct ifaddrmsg *ifm,
+						 struct in_ifaddr *ifa)
+{
+	int real_prefixlen = IFA_REAL_DEL_PREFIX(ifm->ifa_prefixlen);
+
+	/*
+	 * Since the prefix length hasn't been taken into account in
+	 * previous kernel versions, parts of the userspace rely on the fact
+	 * that the deletion of an address without specifying a prefix works.
+	 * We cannot break this and thus a prefix length of 32 still represents
+	 * a wildcard if no exact match is requested.
+	 */
+	if (real_prefixlen != 32 || ifm->ifa_prefixlen & IFA_PREFIX_EXACT_DEL)
+		if (real_prefixlen != ifa->ifa_prefixlen)
+			return 0;
+
+	return 1;
 }
 
 #define for_primary_ifa(in_dev)	{ struct in_ifaddr *ifa; \

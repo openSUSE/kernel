@@ -397,6 +397,19 @@ enum
 
 #define IFA_MAX (__IFA_MAX - 1)
 
+/*
+ * Quirk for IPv4 address deletion to allow exact deletion of equal
+ * addresses varying only in prefix length. A explicit exact comparison
+ * of the prefix length will only be done if IFA_PREFIX_EXACT_DEL is
+ * ORed to ifa_prefixlen.
+ *
+ * Note: This special treatment is only understood while deleting
+ *       addresses and will lead to unexpected behaviour if used
+ *       otherwise.
+ */
+#define IFA_PREFIX_EXACT_DEL	0x40
+#define IFA_REAL_DEL_PREFIX(l)	((l) & 0x3f)
+
 /* ifa_flags */
 
 #define IFA_F_SECONDARY		0x01

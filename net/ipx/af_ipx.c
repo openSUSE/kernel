@@ -310,7 +310,7 @@ static void __ipxitf_down(struct ipx_interface *intrfc)
 		s->sk_error_report(s);
 		ipxs->intrfc = NULL;
 		ipxs->port   = 0;
-		s->sk_zapped = 1;	/* Indicates it is no longer bound */
+		sock_set_flag(s, SOCK_ZAPPED); /* Indicates it is no longer bound */
 		sk_del_node_init(s);
 	}
 	INIT_HLIST_HEAD(&intrfc->if_sklist);
@@ -1427,7 +1427,7 @@ static int ipx_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	struct sockaddr_ipx *addr = (struct sockaddr_ipx *)uaddr;
 	int rc = -EINVAL;
 
-	if (!sk->sk_zapped || addr_len != sizeof(struct sockaddr_ipx))
+	if (!sock_flag(sk, SOCK_ZAPPED) || addr_len != sizeof(struct sockaddr_ipx))
 		goto out;
 
 	intrfc = ipxitf_find_using_net(addr->sipx_network);
@@ -1505,7 +1505,7 @@ static int ipx_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 #endif	/* CONFIG_IPX_INTERN */
 
 	ipxitf_insert_socket(intrfc, sk);
-	sk->sk_zapped = 0;
+	sock_reset_flag(sk, SOCK_ZAPPED);
 
 	rc = 0;
 out_put:
@@ -1774,7 +1774,7 @@ static int ipx_recvmsg(struct kiocb *iocb, struct socket *sock,
 	}
 	
 	rc = -ENOTCONN;
-	if (sk->sk_zapped)
+	if (sock_flag(sk, SOCK_ZAPPED))
 		goto out;
 
 	skb = skb_recv_datagram(sk, flags & ~MSG_DONTWAIT,

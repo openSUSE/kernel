@@ -345,6 +345,10 @@
 #define __NR_request_key		(__NR_SYSCALL_BASE+310)
 #define __NR_keyctl			(__NR_SYSCALL_BASE+311)
 
+#if 0 /* reserved for un-muxing ipc */
+#define __NR_semtimedop			(__NR_SYSCALL_BASE+312)
+#endif
+
 /*
  * The following SWIs are ARM private.
  */
