@@ -1055,16 +1055,21 @@ static int __init i8042_init(void)
 	i8042_ports[I8042_AUX_PORT_NO].irq = I8042_AUX_IRQ;
 	i8042_ports[I8042_KBD_PORT_NO].irq = I8042_KBD_IRQ;
 
-	if (i8042_controller_init())
+	if (i8042_controller_init()) {
+		i8042_platform_exit();
 		return -ENODEV;
+	}
 
 	err = driver_register(&i8042_driver);
-	if (err)
+	if (err) {
+		i8042_platform_exit();
 		return err;
+	}
 
 	i8042_platform_device = platform_device_register_simple("i8042", -1, NULL, 0);
 	if (IS_ERR(i8042_platform_device)) {
 		driver_unregister(&i8042_driver);
+		i8042_platform_exit();
 		return PTR_ERR(i8042_platform_device);
 	}
 
