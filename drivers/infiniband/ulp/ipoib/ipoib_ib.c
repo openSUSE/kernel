@@ -137,6 +137,9 @@ static int ipoib_ib_post_receive(struct net_device *dev, int id)
 	if (ret) {
 		ipoib_warn(priv, "ipoib_ib_receive failed for buf %d (%d)\n",
 			   id, ret);
+		dma_unmap_single(priv->ca->dma_device, addr,
+				 IPOIB_BUF_SIZE, DMA_FROM_DEVICE);
+		dev_kfree_skb_any(skb);
 		priv->rx_ring[id].skb = NULL;
 	}
 
