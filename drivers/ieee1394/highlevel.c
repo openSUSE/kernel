@@ -384,7 +384,7 @@ int hpsb_register_addrspace(struct hpsb_highlevel *hl, struct hpsb_host *host,
         }
 
         as = (struct hpsb_address_serve *)
-                kmalloc(sizeof(struct hpsb_address_serve), GFP_KERNEL);
+                kmalloc(sizeof(struct hpsb_address_serve), GFP_ATOMIC);
         if (as == NULL) {
                 return 0;
         }
