@@ -257,7 +257,7 @@ release_delegation(struct nfs4_delegation *dp)
  * for last close replay.
  */
 static struct list_head	reclaim_str_hashtbl[CLIENT_HASH_SIZE];
-static int reclaim_str_hashtbl_size;
+static int reclaim_str_hashtbl_size = 0;
 static struct list_head	conf_id_hashtbl[CLIENT_HASH_SIZE];
 static struct list_head	conf_str_hashtbl[CLIENT_HASH_SIZE];
 static struct list_head	unconf_str_hashtbl[CLIENT_HASH_SIZE];
@@ -2207,17 +2207,6 @@ check_replay:
 	goto out;
 }
 
-/*
- * eventually, this will perform an upcall to the 'state daemon' as well as
- * set the cl_first_state field.
- */
-void
-first_state(struct nfs4_client *clp)
-{
-	if (!clp->cl_first_state)
-		clp->cl_first_state = get_seconds();
-}
-
 int
 nfsd4_open_confirm(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_open_confirm *oc)
 {
@@ -2250,8 +2239,6 @@ nfsd4_open_confirm(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfs
 		         stp->st_stateid.si_stateownerid,
 		         stp->st_stateid.si_fileid,
 		         stp->st_stateid.si_generation);
-	status = nfs_ok;
-	first_state(sop->so_client);
 out:
 	if (oc->oc_stateowner)
 		nfs4_get_stateowner(oc->oc_stateowner);
@@ -3057,21 +3044,21 @@ alloc_reclaim(int namelen)
  * failure => all reset bets are off, nfserr_no_grace...
  */
 static int
-nfs4_client_to_reclaim(struct nfs4_client *clp)
+nfs4_client_to_reclaim(char *name, int namlen)
 {
 	unsigned int strhashval;
 	struct nfs4_client_reclaim *crp = NULL;
 
-	crp = alloc_reclaim(clp->cl_name.len);
+	dprintk("NFSD nfs4_client_to_reclaim NAME: %.*s\n", namlen, name);
+	crp = alloc_reclaim(namlen);
 	if (!crp)
 		return 0;
-	strhashval = clientstr_hashval(clp->cl_name.data, clp->cl_name.len);
+	strhashval = clientstr_hashval(name, namlen);
 	INIT_LIST_HEAD(&crp->cr_strhash);
 	list_add(&crp->cr_strhash, &reclaim_str_hashtbl[strhashval]);
-	memcpy(crp->cr_name.data, clp->cl_name.data, clp->cl_name.len);
-	crp->cr_name.len = clp->cl_name.len;
-	crp->cr_first_state = clp->cl_first_state;
-	crp->cr_expired = 0;
+	memcpy(crp->cr_name.data, name, namlen);
+	crp->cr_name.len = namlen;
+	reclaim_str_hashtbl_size++;
 	return 1;
 }
 
@@ -3116,6 +3103,9 @@ nfs4_find_reclaim_client(clientid_t *clid)
 	if (!client)
 		return NULL;
 
+	dprintk("NFSD: nfs4_find_reclaim_client for %.*s\n",
+		            clp->cl_name.len, clp->cl_name.data);
+
 	/* find clp->cl_name in reclaim_str_hashtbl */
 	strhashval = clientstr_hashval(client->cl_name.data,
 	                              client->cl_name.len);
@@ -3137,8 +3127,6 @@ nfs4_check_open_reclaim(clientid_t *clid)
 
 	if ((crp = nfs4_find_reclaim_client(clid)) == NULL)
 		return nfserr_reclaim_bad;
-	if (crp->cr_expired)
-		return nfserr_no_grace;
 	return nfs_ok;
 }
 
@@ -3332,11 +3320,11 @@ nfs4_reset_lease(time_t leasetime)
 	/* populate reclaim_str_hashtbl with current confirmed nfs4_clientid */
 	for (i = 0; i < CLIENT_HASH_SIZE; i++) {
 		list_for_each_entry(clp, &conf_id_hashtbl[i], cl_idhash) {
-			if (!nfs4_client_to_reclaim(clp)) {
+			if (!nfs4_client_to_reclaim(clp->cl_name.data,
+						clp->cl_name.len)) {
 				nfs4_release_reclaim();
 				goto init_state;
 			}
-			reclaim_str_hashtbl_size++;
 		}
 	}
 init_state:
