@@ -3678,7 +3678,7 @@ static irqreturn_t snd_hdsp_interrupt(int irq, void *dev_id, struct pt_regs *reg
 			hdsp->midi[1].pending = 1;
 			schedule = 1;
 		} else {
-			snd_hdsp_midi_input_read (&hdsp->midi[0]);
+			snd_hdsp_midi_input_read (&hdsp->midi[1]);
 		}
 	}
 	if (hdsp->use_midi_tasklet && schedule)
