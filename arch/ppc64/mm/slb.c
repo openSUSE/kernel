@@ -51,7 +51,7 @@ static void slb_flush_and_rebolt(void)
 
 	WARN_ON(!irqs_disabled());
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_16M_PAGE)
+	if (cpu_has_feature(CPU_FTR_16M_PAGE))
 		ksp_flags |= SLB_VSID_L;
 
 	ksp_esid_data = mk_esid_data(get_paca()->kstack, 2);
@@ -139,7 +139,7 @@ void slb_initialize(void)
 	unsigned long flags = SLB_VSID_KERNEL;
 
  	/* Invalidate the entire SLB (even slot 0) & all the ERATS */
- 	if (cur_cpu_spec->cpu_features & CPU_FTR_16M_PAGE)
+ 	if (cpu_has_feature(CPU_FTR_16M_PAGE))
  		flags |= SLB_VSID_L;
 
  	asm volatile("isync":::"memory");

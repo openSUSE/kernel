@@ -752,7 +752,7 @@ void __init mem_init(void)
  */
 void flush_dcache_page(struct page *page)
 {
-	if (cur_cpu_spec->cpu_features & CPU_FTR_COHERENT_ICACHE)
+	if (cpu_has_feature(CPU_FTR_COHERENT_ICACHE))
 		return;
 	/* avoid an atomic op if possible */
 	if (test_bit(PG_arch_1, &page->flags))
@@ -763,7 +763,7 @@ void clear_user_page(void *page, unsigned long vaddr, struct page *pg)
 {
 	clear_page(page);
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_COHERENT_ICACHE)
+	if (cpu_has_feature(CPU_FTR_COHERENT_ICACHE))
 		return;
 	/*
 	 * We shouldnt have to do this, but some versions of glibc
@@ -796,7 +796,7 @@ void copy_user_page(void *vto, void *vfrom, unsigned long vaddr,
 		return;
 #endif
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_COHERENT_ICACHE)
+	if (cpu_has_feature(CPU_FTR_COHERENT_ICACHE))
 		return;
 
 	/* avoid an atomic op if possible */
@@ -832,8 +832,8 @@ void update_mmu_cache(struct vm_area_struct *vma, unsigned long ea,
 	unsigned long flags;
 
 	/* handle i-cache coherency */
-	if (!(cur_cpu_spec->cpu_features & CPU_FTR_COHERENT_ICACHE) &&
-	    !(cur_cpu_spec->cpu_features & CPU_FTR_NOEXECUTE)) {
+	if (!cpu_has_feature(CPU_FTR_COHERENT_ICACHE) &&
+	    !cpu_has_feature(CPU_FTR_NOEXECUTE)) {
 		unsigned long pfn = pte_pfn(pte);
 		if (pfn_valid(pfn)) {
 			struct page *page = pfn_to_page(pfn);

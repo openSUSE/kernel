@@ -61,6 +61,11 @@ struct cpu_spec {
 extern struct cpu_spec		cpu_specs[];
 extern struct cpu_spec		*cur_cpu_spec[];
 
+static inline unsigned int cpu_has_feature(unsigned int feature)
+{
+	return cur_cpu_spec[0]->cpu_features & feature;
+}
+
 #endif /* __ASSEMBLY__ */
 
 /* CPU kernel features */

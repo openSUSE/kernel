@@ -619,7 +619,7 @@ machine_init(unsigned long r3, unsigned long r4, unsigned long r5,
 /* Checks "l2cr=xxxx" command-line option */
 int __init ppc_setup_l2cr(char *str)
 {
-	if (cur_cpu_spec[0]->cpu_features & CPU_FTR_L2CR) {
+	if (cpu_has_feature(CPU_FTR_L2CR)) {
 		unsigned long val = simple_strtoul(str, NULL, 0);
 		printk(KERN_INFO "l2cr set to %lx\n", val);
 		_set_L2CR(0);		/* force invalidate by disable cache */
@@ -720,7 +720,7 @@ void __init setup_arch(char **cmdline_p)
 	 * Systems with OF can look in the properties on the cpu node(s)
 	 * for a possibly more accurate value.
 	 */
-	if (cur_cpu_spec[0]->cpu_features & CPU_FTR_SPLIT_ID_CACHE) {
+	if (cpu_has_feature(CPU_FTR_SPLIT_ID_CACHE)) {
 		dcache_bsize = cur_cpu_spec[0]->dcache_bsize;
 		icache_bsize = cur_cpu_spec[0]->icache_bsize;
 		ucache_bsize = 0;

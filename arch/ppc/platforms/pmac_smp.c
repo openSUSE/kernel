@@ -119,7 +119,7 @@ static volatile int sec_tb_reset = 0;
 
 static void __init core99_init_caches(int cpu)
 {
-	if (!(cur_cpu_spec[0]->cpu_features & CPU_FTR_L2CR))
+	if (!cpu_has_feature(CPU_FTR_L2CR))
 		return;
 
 	if (cpu == 0) {
@@ -132,7 +132,7 @@ static void __init core99_init_caches(int cpu)
 		printk("CPU%d: L2CR set to %lx\n", cpu, core99_l2_cache);
 	}
 
-	if (!(cur_cpu_spec[0]->cpu_features & CPU_FTR_L3CR))
+	if (!cpu_has_feature(CPU_FTR_L3CR))
 		return;
 
 	if (cpu == 0){

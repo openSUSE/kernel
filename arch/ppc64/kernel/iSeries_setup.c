@@ -267,7 +267,7 @@ unsigned long iSeries_process_mainstore_vpd(struct MemoryBlock *mb_array,
 	unsigned long i;
 	unsigned long mem_blocks = 0;
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_SLB)
+	if (cpu_has_feature(CPU_FTR_SLB))
 		mem_blocks = iSeries_process_Regatta_mainstore_vpd(mb_array,
 				max_entries);
 	else

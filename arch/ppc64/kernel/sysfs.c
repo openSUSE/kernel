@@ -63,7 +63,7 @@ static int __init smt_setup(void)
 	unsigned int *val;
 	unsigned int cpu;
 
-	if (!cur_cpu_spec->cpu_features & CPU_FTR_SMT)
+	if (!cpu_has_feature(CPU_FTR_SMT))
 		return 1;
 
 	options = find_path_device("/options");
@@ -86,7 +86,7 @@ static int __init setup_smt_snooze_delay(char *str)
 	unsigned int cpu;
 	int snooze;
 
-	if (!cur_cpu_spec->cpu_features & CPU_FTR_SMT)
+	if (!cpu_has_feature(CPU_FTR_SMT))
 		return 1;
 
 	smt_snooze_cmdline = 1;
@@ -167,7 +167,7 @@ void ppc64_enable_pmcs(void)
 	 * On SMT machines we have to set the run latch in the ctrl register
 	 * in order to make PMC6 spin.
 	 */
-	if (cur_cpu_spec->cpu_features & CPU_FTR_SMT) {
+	if (cpu_has_feature(CPU_FTR_SMT)) {
 		ctrl = mfspr(CTRLF);
 		ctrl |= RUNLATCH;
 		mtspr(CTRLT, ctrl);
@@ -266,7 +266,7 @@ static void register_cpu_online(unsigned int cpu)
 	struct sys_device *s = &c->sysdev;
 
 #ifndef CONFIG_PPC_ISERIES
-	if (cur_cpu_spec->cpu_features & CPU_FTR_SMT)
+	if (cpu_has_feature(CPU_FTR_SMT))
 		sysdev_create_file(s, &attr_smt_snooze_delay);
 #endif
 
@@ -275,7 +275,7 @@ static void register_cpu_online(unsigned int cpu)
 	sysdev_create_file(s, &attr_mmcr0);
 	sysdev_create_file(s, &attr_mmcr1);
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_MMCRA)
+	if (cpu_has_feature(CPU_FTR_MMCRA))
 		sysdev_create_file(s, &attr_mmcra);
 
 	sysdev_create_file(s, &attr_pmc1);
@@ -285,12 +285,12 @@ static void register_cpu_online(unsigned int cpu)
 	sysdev_create_file(s, &attr_pmc5);
 	sysdev_create_file(s, &attr_pmc6);
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_PMC8) {
+	if (cpu_has_feature(CPU_FTR_PMC8)) {
 		sysdev_create_file(s, &attr_pmc7);
 		sysdev_create_file(s, &attr_pmc8);
 	}
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_SMT)
+	if (cpu_has_feature(CPU_FTR_SMT))
 		sysdev_create_file(s, &attr_purr);
 }
 
@@ -303,7 +303,7 @@ static void unregister_cpu_online(unsigned int cpu)
 	BUG_ON(c->no_control);
 
 #ifndef CONFIG_PPC_ISERIES
-	if (cur_cpu_spec->cpu_features & CPU_FTR_SMT)
+	if (cpu_has_feature(CPU_FTR_SMT))
 		sysdev_remove_file(s, &attr_smt_snooze_delay);
 #endif
 
@@ -312,7 +312,7 @@ static void unregister_cpu_online(unsigned int cpu)
 	sysdev_remove_file(s, &attr_mmcr0);
 	sysdev_remove_file(s, &attr_mmcr1);
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_MMCRA)
+	if (cpu_has_feature(CPU_FTR_MMCRA))
 		sysdev_remove_file(s, &attr_mmcra);
 
 	sysdev_remove_file(s, &attr_pmc1);
@@ -322,12 +322,12 @@ static void unregister_cpu_online(unsigned int cpu)
 	sysdev_remove_file(s, &attr_pmc5);
 	sysdev_remove_file(s, &attr_pmc6);
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_PMC8) {
+	if (cpu_has_feature(CPU_FTR_PMC8)) {
 		sysdev_remove_file(s, &attr_pmc7);
 		sysdev_remove_file(s, &attr_pmc8);
 	}
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_SMT)
+	if (cpu_has_feature(CPU_FTR_SMT))
 		sysdev_remove_file(s, &attr_purr);
 }
 #endif /* CONFIG_HOTPLUG_CPU */

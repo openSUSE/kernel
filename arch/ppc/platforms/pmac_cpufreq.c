@@ -230,7 +230,7 @@ static int __pmac pmu_set_cpu_speed(int low_speed)
 	enable_kernel_fp();
 
 #ifdef CONFIG_ALTIVEC
-	if (cur_cpu_spec[0]->cpu_features & CPU_FTR_ALTIVEC)
+	if (cpu_has_feature(CPU_FTR_ALTIVEC))
 		enable_kernel_altivec();
 #endif /* CONFIG_ALTIVEC */
 

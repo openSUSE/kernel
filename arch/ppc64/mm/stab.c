@@ -227,7 +227,7 @@ void stab_initialize(unsigned long stab)
 {
 	unsigned long vsid = get_kernel_vsid(KERNELBASE);
 
-	if (cur_cpu_spec->cpu_features & CPU_FTR_SLB) {
+	if (cpu_has_feature(CPU_FTR_SLB)) {
 		slb_initialize();
 	} else {
 		asm volatile("isync; slbia; isync":::"memory");

@@ -416,7 +416,7 @@ int __devinit __cpu_up(unsigned int cpu)
 
 	paca[cpu].default_decr = tb_ticks_per_jiffy / decr_overclock;
 
-	if (!(cur_cpu_spec->cpu_features & CPU_FTR_SLB)) {
+	if (!cpu_has_feature(CPU_FTR_SLB)) {
 		void *tmp;
 
 		/* maximum of 48 CPUs on machines with a segment table */

@@ -67,7 +67,7 @@
 #define HAVE_ARCH_HUGETLB_UNMAPPED_AREA
 
 #define in_hugepage_area(context, addr) \
-	((cur_cpu_spec->cpu_features & CPU_FTR_16M_PAGE) && \
+	(cpu_has_feature(CPU_FTR_16M_PAGE) && \
 	 ( (((addr) >= TASK_HPAGE_BASE) && ((addr) < TASK_HPAGE_END)) || \
 	   ( ((addr) < 0x100000000L) && \
 	     ((1 << GET_ESID(addr)) & (context).htlb_segs) ) ) )

@@ -315,7 +315,7 @@ static void __init setup_cpu_maps(void)
 		maxcpus = ireg[num_addr_cell + num_size_cell];
 
 		/* Double maxcpus for processors which have SMT capability */
-		if (cur_cpu_spec->cpu_features & CPU_FTR_SMT)
+		if (cpu_has_feature(CPU_FTR_SMT))
 			maxcpus *= 2;
 
 		if (maxcpus > NR_CPUS) {
@@ -339,7 +339,7 @@ static void __init setup_cpu_maps(void)
 	 */
 	for_each_cpu(cpu) {
 		cpu_set(cpu, cpu_sibling_map[cpu]);
-		if (cur_cpu_spec->cpu_features & CPU_FTR_SMT)
+		if (cpu_has_feature(CPU_FTR_SMT))
 			cpu_set(cpu ^ 0x1, cpu_sibling_map[cpu]);
 	}
 
@@ -767,7 +767,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		seq_printf(m, "unknown (%08x)", pvr);
 
 #ifdef CONFIG_ALTIVEC
-	if (cur_cpu_spec->cpu_features & CPU_FTR_ALTIVEC)
+	if (cpu_has_feature(CPU_FTR_ALTIVEC))
 		seq_printf(m, ", altivec supported");
 #endif /* CONFIG_ALTIVEC */
 
