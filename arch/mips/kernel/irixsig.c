@@ -840,20 +840,14 @@ struct irix_procset {
 
 asmlinkage int irix_sigsendset(struct irix_procset *pset, int sig)
 {
-	int error;
+	if (!access_ok(VERIFY_READ, pset, sizeof(*pset)))
+		return -EFAULT;
 
-	if (!access_ok(VERIFY_READ, pset, sizeof(*pset))) {
-		error = -EFAULT;
-		goto out;
-	}
 #ifdef DEBUG_SIG
 	printk("[%s:%d] irix_sigsendset([%d,%d,%d,%d,%d],%d)\n",
 	       current->comm, current->pid,
 	       pset->cmd, pset->ltype, pset->lid, pset->rtype, pset->rid,
 	       sig);
 #endif
-	error = -EINVAL;
-
-out:
-	return error;
+	return -EINVAL;
 }
