@@ -430,17 +430,24 @@ static void agp_v2_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 
 	/* Check the speed bits make sense. Only one should be set. */
 	tmp = *requested_mode & 7;
-	if (tmp == 0) {
-		printk (KERN_INFO PFX "%s tried to set rate=x0. Setting to x1 mode.\n", current->comm);
-		*requested_mode |= AGPSTAT2_1X;
-	}
-	if (tmp == 3) {
-		printk (KERN_INFO PFX "%s tried to set rate=x3. Setting to x2 mode.\n", current->comm);
-		*requested_mode |= AGPSTAT2_2X;
-	}
-	if (tmp >4) {
-		printk (KERN_INFO PFX "%s tried to set rate=x%d. Setting to x4 mode.\n", current->comm, tmp);
-		*requested_mode |= AGPSTAT2_4X;
+	switch (tmp) {
+		case 0:
+			printk (KERN_INFO PFX "%s tried to set rate=x0. Setting to x1 mode.\n", current->comm);
+			*requested_mode |= AGPSTAT2_1X;
+			break;
+		case 1:
+		case 2:
+			break;
+		case 3:
+			*requested_mode &= ~(AGPSTAT2_1X);	/* rate=2 */
+			break;
+		case 4:
+			break;
+		case 5:
+		case 6:
+		case 7:
+			*requested_mode &= ~(AGPSTAT2_1X|AGPSTAT2_2X); /* rate=4*/
+			break;
 	}
 
 	/* disable SBA if it's not supported */
