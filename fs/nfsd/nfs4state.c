@@ -1464,7 +1464,9 @@ nfsd4_process_open1(struct nfsd4_open *open)
 		open->op_stateowner = sop;
 		/* check for replay */
 		if (open->op_seqid == sop->so_seqid){
-			if (!sop->so_replay.rp_buflen) {
+			if (sop->so_replay.rp_buflen)
+				return NFSERR_REPLAY_ME;
+			else {
 				/* The original OPEN failed so spectacularly
 				 * that we don't even have replay data saved!
 				 * Therefore, we have no choice but to continue
@@ -1476,37 +1478,32 @@ nfsd4_process_open1(struct nfsd4_open *open)
 				status = NFS_OK;
 				goto renew;
 			}
-			status = NFSERR_REPLAY_ME;
-			return status;
-		}
-		if (sop->so_confirmed) {
+		} else if (sop->so_confirmed) {
 			if (open->op_seqid == sop->so_seqid + 1) { 
 				status = nfs_ok;
 				goto renew;
 			} 
 			status = nfserr_bad_seqid;
 			goto out;
+		} else {
+			/* If we get here, we received an OPEN for an
+			 * unconfirmed nfs4_stateowner. Since the seqid's are
+			 * different, purge the existing nfs4_stateowner, and
+			 * instantiate a new one.
+			 */
+			clp = sop->so_client;
+			release_stateowner(sop);
 		}
-		/* If we get here, we received an OPEN for an unconfirmed
-		 * nfs4_stateowner. 
-		 * Since the sequid's are different, purge the 
-		 * existing nfs4_stateowner, and instantiate a new one.
+	} else {
+		/* nfs4_stateowner not found.
+		 * Verify clientid and instantiate new nfs4_stateowner.
+		 * If verify fails this is presumably the result of the
+		 * client's lease expiring.
 		 */
-		clp = sop->so_client;
-		release_stateowner(sop);
-		goto instantiate_new_owner;
-	} 
-	/* nfs4_stateowner not found. 
-	* verify clientid and instantiate new nfs4_stateowner
-	* if verify fails this is presumably the result of the 
-	* client's lease expiring.
-	*
-	* XXX compare clp->cl_addr with rqstp addr? 
-	*/
-	status = nfserr_expired;
-	if (!verify_clientid(&clp, clientid))
-		goto out;
-instantiate_new_owner:
+		status = nfserr_expired;
+		if (!verify_clientid(&clp, clientid))
+			goto out;
+	}
 	status = nfserr_resource;
 	if (!(sop = alloc_init_open_stateowner(strhashval, clp, open))) 
 		goto out;
