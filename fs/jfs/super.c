@@ -235,7 +235,7 @@ static match_table_t tokens = {
 static int parse_options(char *options, struct super_block *sb, s64 *newLVSize,
 			 int *flag)
 {
-	void *nls_map = NULL;
+	void *nls_map = (void *)-1;	/* -1: no change;  NULL: none */
 	char *p;
 	struct jfs_sb_info *sbi = JFS_SBI(sb);
 
@@ -263,12 +263,17 @@ static int parse_options(char *options, struct super_block *sb, s64 *newLVSize,
 			/* Don't do anything ;-) */
 			break;
 		case Opt_iocharset:
-			if (nls_map)	/* specified iocharset twice! */
+			if (nls_map && nls_map != (void *) -1)
 				unload_nls(nls_map);
-			nls_map = load_nls(args[0].from);
-			if (!nls_map) {
-				printk(KERN_ERR "JFS: charset not found\n");
-				goto cleanup;
+			if (!strcmp(args[0].from, "none"))
+				nls_map = NULL;
+			else {
+				nls_map = load_nls(args[0].from);
+				if (!nls_map) {
+					printk(KERN_ERR
+					       "JFS: charset not found\n");
+					goto cleanup;
+				}
 			}
 			break;
 		case Opt_resize:
@@ -318,7 +323,7 @@ static int parse_options(char *options, struct super_block *sb, s64 *newLVSize,
 		}
 	}
 
-	if (nls_map) {
+	if (nls_map != (void *) -1) {
 		/* Discard old (if remount) */
 		if (sbi->nls_tab)
 			unload_nls(sbi->nls_tab);
@@ -327,7 +332,7 @@ static int parse_options(char *options, struct super_block *sb, s64 *newLVSize,
 	return 1;
 
 cleanup:
-	if (nls_map)
+	if (nls_map && nls_map != (void *) -1)
 		unload_nls(nls_map);
 	return 0;
 }
