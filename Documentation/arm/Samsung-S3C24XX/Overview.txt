@@ -36,6 +36,10 @@ Machines
 
     Samsung's own development board, geared for PDA work.
 
+  Samsung/Meritech SMDK2440
+
+    The S3C2440 compatible version of the SMDK2440
+
   Thorcom VR1000
 
     Custom embedded board
@@ -110,6 +114,7 @@ Document Changes
   25 Oct 2004 - BJD - Updated the MTD from the 2.6.9 merge
   21 Jan 2005 - BJD - Added rx3715, added Shannon to contributors
   10 Feb 2005 - BJD - Added Guillaume Gourat to contributors
+  02 Mar 2005 - BJD - Added SMDK2440 to list of machines
 
 Document Author
 ---------------
