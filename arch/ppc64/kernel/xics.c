@@ -654,7 +654,7 @@ void xics_migrate_irqs_away(void)
 	/* remove ourselves from the global interrupt queue */
 	status = rtas_set_indicator(GLOBAL_INTERRUPT_QUEUE,
 		(1UL << interrupt_server_size) - 1 - default_distrib_server, 0);
-	WARN_ON(status != 0);
+	WARN_ON(status < 0);
 
 	/* Allow IPIs again... */
 	ops->cppr_info(cpu, DEFAULT_PRIORITY);

@@ -347,7 +347,7 @@ static int enable_surveillance(int timeout)
 	if (error == 0)
 		return 0;
 
-	if (error == RTAS_NO_SUCH_INDICATOR) {
+	if (error == -EINVAL) {
 		printk(KERN_INFO "rtasd: surveillance not supported\n");
 		return 0;
 	}
