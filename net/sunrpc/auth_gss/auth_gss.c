@@ -584,6 +584,7 @@ gss_create(struct rpc_clnt *clnt, rpc_authflavor_t flavor)
 	auth->au_expire = GSS_CRED_EXPIRE;
 	auth->au_ops = &authgss_ops;
 	auth->au_flavor = flavor;
+	atomic_set(&auth->au_count, 1);
 
 	rpcauth_init_credcache(auth);
 
@@ -617,6 +618,7 @@ gss_destroy(struct rpc_auth *auth)
 	gss_mech_put(gss_auth->mech);
 
 	rpcauth_free_credcache(auth);
+	kfree(gss_auth);
 	module_put(THIS_MODULE);
 }
 

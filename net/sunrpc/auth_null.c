@@ -32,6 +32,7 @@ nul_create(struct rpc_clnt *clnt, rpc_authflavor_t flavor)
 	auth->au_rslack = 2;
 	auth->au_ops = &authnull_ops;
 	auth->au_expire = 1800 * HZ;
+	atomic_set(&auth->au_count, 1);
 	rpcauth_init_credcache(auth);
 
 	return (struct rpc_auth *) auth;
@@ -42,6 +43,7 @@ nul_destroy(struct rpc_auth *auth)
 {
 	dprintk("RPC: destroying NULL authenticator %p\n", auth);
 	rpcauth_free_credcache(auth);
+	kfree(auth);
 }
 
 /*

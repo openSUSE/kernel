@@ -50,6 +50,7 @@ unx_create(struct rpc_clnt *clnt, rpc_authflavor_t flavor)
 	auth->au_rslack = 2;	/* assume AUTH_NULL verf */
 	auth->au_expire = UNX_CRED_EXPIRE;
 	auth->au_ops = &authunix_ops;
+	atomic_set(&auth->au_count, 1);
 
 	rpcauth_init_credcache(auth);
 
@@ -61,6 +62,7 @@ unx_destroy(struct rpc_auth *auth)
 {
 	dprintk("RPC: destroying UNIX authenticator %p\n", auth);
 	rpcauth_free_credcache(auth);
+	kfree(auth);
 }
 
 static struct rpc_cred *
