@@ -235,7 +235,8 @@ static struct tpm_vendor_specific tpm_nsc = {
 	.req_complete_mask = NSC_STATUS_OBF,
 	.req_complete_val = NSC_STATUS_OBF,
 	.base = TPM_NSC_BASE,
-	.miscdev.fops = &nsc_ops,
+	.miscdev = { .fops = &nsc_ops, },
+	
 };
 
 static int __devinit tpm_nsc_init(struct pci_dev *pci_dev,
