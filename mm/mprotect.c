@@ -188,16 +188,13 @@ mprotect_fixup(struct vm_area_struct *vma, struct vm_area_struct **pprev,
 		goto success;
 	}
 
+	*pprev = vma;
+
 	if (start != vma->vm_start) {
 		error = split_vma(mm, vma, start, 1);
 		if (error)
 			goto fail;
 	}
-	/*
-	 * Unless it returns an error, this function always sets *pprev to
-	 * the first vma for which vma->vm_end >= end.
-	 */
-	*pprev = vma;
 
 	if (end != vma->vm_end) {
 		error = split_vma(mm, vma, end, 0);
