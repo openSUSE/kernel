@@ -395,53 +395,10 @@ static DECLARE_WAIT_QUEUE_HEAD(random_write_wait);
 static void sysctl_init_random(struct entropy_store *random_state);
 #endif
 
-/*****************************************************************
- *
- * Utility functions, with some ASM defined functions for speed
- * purposes
- *
- *****************************************************************/
 static inline __u32 rol32(__u32 word, int shift)
 {
 	return (word << shift) | (word >> (32 - shift));
 }
-
-/*
- * More asm magic....
- *
- * For entropy estimation, we need to do an integral base 2
- * logarithm.
- *
- * Note the "12bits" suffix - this is used for numbers between
- * 0 and 4095 only.  This allows a few shortcuts.
- */
-#if 0	/* Slow but clear version */
-static inline __u32 int_ln_12bits(__u32 word)
-{
-	__u32 nbits = 0;
-
-	while (word >>= 1)
-		nbits++;
-	return nbits;
-}
-#else	/* Faster (more clever) version, courtesy Colin Plumb */
-static inline __u32 int_ln_12bits(__u32 word)
-{
-	/* Smear msbit right to make an n-bit mask */
-	word |= word >> 8;
-	word |= word >> 4;
-	word |= word >> 2;
-	word |= word >> 1;
-	/* Remove one bit to make this a logarithm */
-	word >>= 1;
-	/* Count the bits set in the word */
-	word -= (word >> 1) & 0x555;
-	word = (word & 0x333) + ((word >> 2) & 0x333);
-	word += (word >> 4);
-	word += (word >> 8);
-	return word & 15;
-}
-#endif
 
 #if 0
 static int debug = 0;
@@ -808,10 +765,7 @@ static void add_timer_randomness(struct timer_rand_state *state, unsigned num)
 		 * Round down by 1 bit on general principles,
 		 * and limit entropy entimate to 12 bits.
 		 */
-		delta >>= 1;
-		delta &= (1 << 12) - 1;
-
-		entropy = int_ln_12bits(delta);
+		entropy = min_t(int, fls(delta>>1), 11);
 	}
 
 	/*
