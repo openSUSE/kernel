@@ -844,6 +844,8 @@ static unsigned long count_active_tasks(void)
  */
 unsigned long avenrun[3];
 
+EXPORT_SYMBOL(avenrun);
+
 /*
  * calc_load - given tick count, update the avenrun load estimates.
  * This is called while holding a write_lock on xtime_lock.

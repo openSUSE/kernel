@@ -120,17 +120,17 @@ static int hash_item(unsigned long sid, unsigned char *addr)
 }
 
 /* zeroed because its in .bss */
-static struct pppox_opt *item_hash_table[PPPOE_HASH_SIZE];
+static struct pppox_sock *item_hash_table[PPPOE_HASH_SIZE];
 
 /**********************************************************************
  *
  *  Set/get/delete/rehash items  (internal versions)
  *
  **********************************************************************/
-static struct pppox_opt *__get_item(unsigned long sid, unsigned char *addr)
+static struct pppox_sock *__get_item(unsigned long sid, unsigned char *addr)
 {
 	int hash = hash_item(sid, addr);
-	struct pppox_opt *ret;
+	struct pppox_sock *ret;
 
 	ret = item_hash_table[hash];
 
@@ -140,10 +140,10 @@ static struct pppox_opt *__get_item(unsigned long sid, unsigned char *addr)
 	return ret;
 }
 
-static int __set_item(struct pppox_opt *po)
+static int __set_item(struct pppox_sock *po)
 {
 	int hash = hash_item(po->pppoe_pa.sid, po->pppoe_pa.remote);
-	struct pppox_opt *ret;
+	struct pppox_sock *ret;
 
 	ret = item_hash_table[hash];
 	while (ret) {
@@ -161,10 +161,10 @@ static int __set_item(struct pppox_opt *po)
 	return 0;
 }
 
-static struct pppox_opt *__delete_item(unsigned long sid, char *addr)
+static struct pppox_sock *__delete_item(unsigned long sid, char *addr)
 {
 	int hash = hash_item(sid, addr);
-	struct pppox_opt *ret, **src;
+	struct pppox_sock *ret, **src;
 
 	ret = item_hash_table[hash];
 	src = &item_hash_table[hash];
@@ -187,26 +187,26 @@ static struct pppox_opt *__delete_item(unsigned long sid, char *addr)
  *  Set/get/delete/rehash items
  *
  **********************************************************************/
-static inline struct pppox_opt *get_item(unsigned long sid,
+static inline struct pppox_sock *get_item(unsigned long sid,
 					 unsigned char *addr)
 {
-	struct pppox_opt *po;
+	struct pppox_sock *po;
 
 	read_lock_bh(&pppoe_hash_lock);
 	po = __get_item(sid, addr);
 	if (po)
-		sock_hold(po->sk);
+		sock_hold(sk_pppox(po));
 	read_unlock_bh(&pppoe_hash_lock);
 
 	return po;
 }
 
-static inline struct pppox_opt *get_item_by_addr(struct sockaddr_pppox *sp)
+static inline struct pppox_sock *get_item_by_addr(struct sockaddr_pppox *sp)
 {
 	return get_item(sp->sa_addr.pppoe.sid, sp->sa_addr.pppoe.remote);
 }
 
-static inline int set_item(struct pppox_opt *po)
+static inline int set_item(struct pppox_sock *po)
 {
 	int i;
 
@@ -220,9 +220,9 @@ static inline int set_item(struct pppox_opt *po)
 	return i;
 }
 
-static inline struct pppox_opt *delete_item(unsigned long sid, char *addr)
+static inline struct pppox_sock *delete_item(unsigned long sid, char *addr)
 {
-	struct pppox_opt *ret;
+	struct pppox_sock *ret;
 
 	write_lock_bh(&pppoe_hash_lock);
 	ret = __delete_item(sid, addr);
@@ -248,11 +248,11 @@ static void pppoe_flush_dev(struct net_device *dev)
 
 	read_lock_bh(&pppoe_hash_lock);
 	for (hash = 0; hash < PPPOE_HASH_SIZE; hash++) {
-		struct pppox_opt *po = item_hash_table[hash];
+		struct pppox_sock *po = item_hash_table[hash];
 
 		while (po != NULL) {
 			if (po->pppoe_dev == dev) {
-				struct sock *sk = po->sk;
+				struct sock *sk = sk_pppox(po);
 
 				sock_hold(sk);
 				po->pppoe_dev = NULL;
@@ -331,8 +331,8 @@ static struct notifier_block pppoe_notifier = {
  ***********************************************************************/
 static int pppoe_rcv_core(struct sock *sk, struct sk_buff *skb)
 {
-	struct pppox_opt *po = pppox_sk(sk);
-	struct pppox_opt *relay_po = NULL;
+	struct pppox_sock *po = pppox_sk(sk);
+	struct pppox_sock *relay_po = NULL;
 
 	if (sk->sk_state & PPPOX_BOUND) {
 		struct pppoe_hdr *ph = (struct pppoe_hdr *) skb->nh.raw;
@@ -347,11 +347,11 @@ static int pppoe_rcv_core(struct sock *sk, struct sk_buff *skb)
 		if (relay_po == NULL)
 			goto abort_kfree;
 
-		if ((relay_po->sk->sk_state & PPPOX_CONNECTED) == 0)
+		if ((sk_pppox(relay_po)->sk_state & PPPOX_CONNECTED) == 0)
 			goto abort_put;
 
 		skb_pull(skb, sizeof(struct pppoe_hdr));
-		if (!__pppoe_xmit( relay_po->sk, skb))
+		if (!__pppoe_xmit(sk_pppox(relay_po), skb))
 			goto abort_put;
 	} else {
 		if (sock_queue_rcv_skb(sk, skb))
@@ -361,7 +361,7 @@ static int pppoe_rcv_core(struct sock *sk, struct sk_buff *skb)
 	return NET_RX_SUCCESS;
 
 abort_put:
-	sock_put(relay_po->sk);
+	sock_put(sk_pppox(relay_po));
 
 abort_kfree:
 	kfree_skb(skb);
@@ -379,7 +379,7 @@ static int pppoe_rcv(struct sk_buff *skb,
 
 {
 	struct pppoe_hdr *ph;
-	struct pppox_opt *po;
+	struct pppox_sock *po;
 	struct sock *sk;
 	int ret;
 
@@ -395,7 +395,7 @@ static int pppoe_rcv(struct sk_buff *skb,
 	if (!po) 
 		goto drop;
 
-	sk = po->sk;
+	sk = sk_pppox(po);
 	bh_lock_sock(sk);
 
 	/* Socket state is unknown, must put skb into backlog. */
@@ -428,7 +428,7 @@ static int pppoe_disc_rcv(struct sk_buff *skb,
 
 {
 	struct pppoe_hdr *ph;
-	struct pppox_opt *po;
+	struct pppox_sock *po;
 
 	if (!pskb_may_pull(skb, sizeof(struct pppoe_hdr)))
 		goto abort;
@@ -442,7 +442,7 @@ static int pppoe_disc_rcv(struct sk_buff *skb,
 
 	po = get_item((unsigned long) ph->sid, eth_hdr(skb)->h_source);
 	if (po) {
-		struct sock *sk = po->sk;
+		struct sock *sk = sk_pppox(po);
 
 		bh_lock_sock(sk);
 
@@ -480,20 +480,6 @@ static struct packet_type pppoed_ptype = {
 
 /***********************************************************************
  *
- * Really kill the socket. (Called from pppox_sk_free if refcnt == 0.)
- *
- **********************************************************************/
-static void pppoe_sk_free(struct sock *sk)
-{
-	struct pppox_opt *po = pppox_sk(sk);
-
-	if (po)
-		kfree(po);
-}
-
-
-/***********************************************************************
- *
  * Initialize a new struct sock.
  *
  **********************************************************************/
@@ -501,9 +487,8 @@ static int pppoe_create(struct socket *sock)
 {
 	int error = -ENOMEM;
 	struct sock *sk;
-	struct pppox_opt *po;
 
-	sk = sk_alloc(PF_PPPOX, GFP_KERNEL, 1, NULL);
+	sk = sk_alloc(PF_PPPOX, GFP_KERNEL, sizeof(struct pppox_sock), NULL);
 	if (!sk)
 		goto out;
 
@@ -517,23 +502,15 @@ static int pppoe_create(struct socket *sock)
 	sk->sk_type	   = SOCK_STREAM;
 	sk->sk_family	   = PF_PPPOX;
 	sk->sk_protocol	   = PX_PROTO_OE;
-	sk->sk_destruct	   = pppoe_sk_free;
 
-	po = sk->sk_protinfo = kmalloc(sizeof(*po), GFP_KERNEL);
-	if (!po)
-		goto frees;
-	memset(po, 0, sizeof(*po));
-	po->sk = sk;
 	error = 0;
 out:	return error;
-frees:	sk_free(sk);
-	goto out;
 }
 
 static int pppoe_release(struct socket *sock)
 {
 	struct sock *sk = sock->sk;
-	struct pppox_opt *po;
+	struct pppox_sock *po;
 	int error = 0;
 
 	if (!sk)
@@ -573,7 +550,7 @@ static int pppoe_connect(struct socket *sock, struct sockaddr *uservaddr,
 	struct sock *sk = sock->sk;
 	struct net_device *dev = NULL;
 	struct sockaddr_pppox *sp = (struct sockaddr_pppox *) uservaddr;
-	struct pppox_opt *po = pppox_sk(sk);
+	struct pppox_sock *po = pppox_sk(sk);
 	int error;
 
 	lock_sock(sk);
@@ -602,8 +579,8 @@ static int pppoe_connect(struct socket *sock, struct sockaddr *uservaddr,
 		if(po->pppoe_dev)
 			dev_put(po->pppoe_dev);
 
-		memset(po, 0, sizeof(struct pppox_opt));
-		po->sk = sk;
+		memset(sk_pppox(po) + 1, 0,
+		       sizeof(struct pppox_sock) - sizeof(struct sock));
 
 		sk->sk_state = PPPOX_NONE;
 	}
@@ -679,7 +656,7 @@ static int pppoe_ioctl(struct socket *sock, unsigned int cmd,
 		unsigned long arg)
 {
 	struct sock *sk = sock->sk;
-	struct pppox_opt *po = pppox_sk(sk);
+	struct pppox_sock *po = pppox_sk(sk);
 	int val = 0;
 	int err = 0;
 
@@ -725,7 +702,7 @@ static int pppoe_ioctl(struct socket *sock, unsigned int cmd,
 
 	case PPPOEIOCSFWD:
 	{
-		struct pppox_opt *relay_po;
+		struct pppox_sock *relay_po;
 
 		err = -EBUSY;
 		if (sk->sk_state & (PPPOX_BOUND | PPPOX_ZOMBIE | PPPOX_DEAD))
@@ -755,7 +732,7 @@ static int pppoe_ioctl(struct socket *sock, unsigned int cmd,
 		if (!relay_po)
 			break;
 
-		sock_put(relay_po->sk);
+		sock_put(sk_pppox(relay_po));
 		sk->sk_state |= PPPOX_RELAY;
 		err = 0;
 		break;
@@ -782,7 +759,7 @@ static int pppoe_sendmsg(struct kiocb *iocb, struct socket *sock,
 {
 	struct sk_buff *skb = NULL;
 	struct sock *sk = sock->sk;
-	struct pppox_opt *po = pppox_sk(sk);
+	struct pppox_sock *po = pppox_sk(sk);
 	int error = 0;
 	struct pppoe_hdr hdr;
 	struct pppoe_hdr *ph;
@@ -857,7 +834,7 @@ end:
  ***********************************************************************/
 static int __pppoe_xmit(struct sock *sk, struct sk_buff *skb)
 {
-	struct pppox_opt *po = pppox_sk(sk);
+	struct pppox_sock *po = pppox_sk(sk);
 	struct net_device *dev = po->pppoe_dev;
 	struct pppoe_hdr hdr;
 	struct pppoe_hdr *ph;
@@ -984,7 +961,7 @@ end:
 #ifdef CONFIG_PROC_FS
 static int pppoe_seq_show(struct seq_file *seq, void *v)
 {
-	struct pppox_opt *po;
+	struct pppox_sock *po;
 	char *dev_name;
 
 	if (v == SEQ_START_TOKEN) {
@@ -1004,9 +981,9 @@ out:
 	return 0;
 }
 
-static __inline__ struct pppox_opt *pppoe_get_idx(loff_t pos)
+static __inline__ struct pppox_sock *pppoe_get_idx(loff_t pos)
 {
-	struct pppox_opt *po = NULL;
+	struct pppox_sock *po = NULL;
 	int i = 0;
 
 	for (; i < PPPOE_HASH_SIZE; i++) {
@@ -1031,7 +1008,7 @@ static void *pppoe_seq_start(struct seq_file *seq, loff_t *pos)
 
 static void *pppoe_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 {
-	struct pppox_opt *po;
+	struct pppox_sock *po;
 
 	++*pos;
 	if (v == SEQ_START_TOKEN) {

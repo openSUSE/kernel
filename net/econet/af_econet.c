@@ -184,7 +184,7 @@ static int econet_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len
 {
 	struct sockaddr_ec *sec = (struct sockaddr_ec *)uaddr;
 	struct sock *sk=sock->sk;
-	struct econet_opt *eo = ec_sk(sk);
+	struct econet_sock *eo = ec_sk(sk);
 	
 	/*
 	 *	Check legality
@@ -284,7 +284,7 @@ static int econet_sendmsg(struct kiocb *iocb, struct socket *sock,
 	 */
 	 
 	if (saddr == NULL) {
-		struct econet_opt *eo = ec_sk(sk);
+		struct econet_sock *eo = ec_sk(sk);
 
 		addr.station = eo->station;
 		addr.net     = eo->net;
@@ -485,7 +485,7 @@ static int econet_getname(struct socket *sock, struct sockaddr *uaddr,
 			  int *uaddr_len, int peer)
 {
 	struct sock *sk = sock->sk;
-	struct econet_opt *eo = ec_sk(sk);
+	struct econet_sock *eo = ec_sk(sk);
 	struct sockaddr_ec *sec = (struct sockaddr_ec *)uaddr;
 
 	if (peer)
@@ -562,7 +562,7 @@ static int econet_release(struct socket *sock)
 static int econet_create(struct socket *sock, int protocol)
 {
 	struct sock *sk;
-	struct econet_opt *eo;
+	struct econet_sock *eo;
 	int err;
 
 	/* Econet only provides datagram services. */
@@ -572,7 +572,8 @@ static int econet_create(struct socket *sock, int protocol)
 	sock->state = SS_UNCONNECTED;
 
 	err = -ENOBUFS;
-	sk = sk_alloc(PF_ECONET, GFP_KERNEL, 1, NULL);
+	sk = sk_alloc(PF_ECONET, GFP_KERNEL,
+		      sizeof(struct econet_sock), NULL);
 	if (sk == NULL)
 		goto out;
 
@@ -581,19 +582,13 @@ static int econet_create(struct socket *sock, int protocol)
 	sock_init_data(sock,sk);
 	sk_set_owner(sk, THIS_MODULE);
 
-	eo = sk->sk_protinfo = kmalloc(sizeof(*eo), GFP_KERNEL);
-	if (!eo)
-		goto out_free;
-	memset(eo, 0, sizeof(*eo));
+	eo = ec_sk(sk);
 	sk->sk_zapped = 0;
 	sk->sk_family = PF_ECONET;
 	eo->num = protocol;
 
 	econet_insert_socket(&econet_sklist, sk);
 	return(0);
-
-out_free:
-	sk_free(sk);
 out:
 	return err;
 }
@@ -735,7 +730,7 @@ static struct sock *ec_listening_socket(unsigned char port, unsigned char
 	struct hlist_node *node;
 
 	sk_for_each(sk, node, &econet_sklist) {
-		struct econet_opt *opt = ec_sk(sk);
+		struct econet_sock *opt = ec_sk(sk);
 		if ((opt->port == port || opt->port == 0) && 
 		    (opt->station == station || opt->station == 0) &&
 		    (opt->net == net || opt->net == 0))
