@@ -134,7 +134,7 @@ static LIST_HEAD(bpq_devices);
  */
 static inline struct net_device *bpq_get_ether_dev(struct net_device *dev)
 {
-	struct bpqdev *bpq = (struct bpqdev *) dev->priv;
+	struct bpqdev *bpq = netdev_priv(dev);
 
 	return bpq ? bpq->ethdev : NULL;
 }
@@ -191,7 +191,7 @@ static int bpq_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_ty
 	 * we check the source address of the sender.
 	 */
 
-	bpq = (struct bpqdev *)dev->priv;
+	bpq = netdev_priv(dev);
 
 	eth = eth_hdr(skb);
 
@@ -281,7 +281,7 @@ static int bpq_xmit(struct sk_buff *skb, struct net_device *dev)
 	*ptr++ = (size + 5) % 256;
 	*ptr++ = (size + 5) / 256;
 
-	bpq = (struct bpqdev *)dev->priv;
+	bpq = netdev_priv(dev);
 
 	if ((dev = bpq_get_ether_dev(dev)) == NULL) {
 		bpq->stats.tx_dropped++;
@@ -305,7 +305,7 @@ static int bpq_xmit(struct sk_buff *skb, struct net_device *dev)
  */
 static struct net_device_stats *bpq_get_stats(struct net_device *dev)
 {
-	struct bpqdev *bpq = (struct bpqdev *) dev->priv;
+	struct bpqdev *bpq = netdev_priv(dev);
 
 	return &bpq->stats;
 }
@@ -332,14 +332,11 @@ static int bpq_set_mac_address(struct net_device *dev, void *addr)
 static int bpq_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	struct bpq_ethaddr __user *ethaddr = ifr->ifr_data;
-	struct bpqdev *bpq = dev->priv;
+	struct bpqdev *bpq = netdev_priv(dev);
 	struct bpq_req req;
 
 	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;
-
-	if (bpq == NULL)		/* woops! */
-		return -ENODEV;
 
 	switch (cmd) {
 		case SIOCSBPQETHOPT:
@@ -525,7 +522,7 @@ static int bpq_new_device(struct net_device *edev)
 		return -ENOMEM;
 
 		
-	bpq = ndev->priv;
+	bpq = netdev_priv(ndev);
 	dev_hold(edev);
 	bpq->ethdev = edev;
 	bpq->axdev = ndev;
@@ -554,7 +551,7 @@ static int bpq_new_device(struct net_device *edev)
 
 static void bpq_free_device(struct net_device *ndev)
 {
-	struct bpqdev *bpq = ndev->priv;
+	struct bpqdev *bpq = netdev_priv(ndev);
 
 	dev_put(bpq->ethdev);
 	list_del_rcu(&bpq->bpq_list);
