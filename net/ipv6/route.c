@@ -1993,9 +1993,7 @@ int ipv6_sysctl_rtcache_flush(ctl_table *ctl, int write, struct file * filp,
 {
 	if (write) {
 		proc_dointvec(ctl, write, filp, buffer, lenp, ppos);
-		if (flush_delay < 0)
-			flush_delay = 0;
-		fib6_run_gc((unsigned long)flush_delay);
+		fib6_run_gc(flush_delay <= 0 ? ~0UL : (unsigned long)flush_delay);
 		return 0;
 	} else
 		return -EINVAL;

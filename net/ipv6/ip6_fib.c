@@ -1211,7 +1211,7 @@ void fib6_run_gc(unsigned long dummy)
 {
 	if (dummy != ~0UL) {
 		spin_lock_bh(&fib6_gc_lock);
-		gc_args.timeout = (int)dummy;
+		gc_args.timeout = dummy ? (int)dummy : ip6_rt_gc_interval;
 	} else {
 		local_bh_disable();
 		if (!spin_trylock(&fib6_gc_lock)) {
