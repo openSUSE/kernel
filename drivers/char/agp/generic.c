@@ -515,13 +515,9 @@ static void agp_v3_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 		printk (KERN_INFO PFX "%s tried to set rate=x0. Setting to AGP3 x4 mode.\n", current->comm);
 		*requested_mode |= AGPSTAT3_4X;
 	}
-	if (tmp == 3) {
-		printk (KERN_INFO PFX "%s tried to set rate=x3. Setting to AGP3 x4 mode.\n", current->comm);
-		*requested_mode |= AGPSTAT3_4X;
-	}
-	if (tmp >3) {
-		printk (KERN_INFO PFX "%s tried to set rate=x%d. Setting to AGP3 x8 mode.\n", current->comm, tmp);
-		*requested_mode |= AGPSTAT3_8X;
+	if (tmp >= 3) {
+		printk (KERN_INFO PFX "%s tried to set rate=x%d. Setting to AGP3 x8 mode.\n", current->comm, tmp * 4);
+		*requested_mode = (*requested_mode & ~7) | AGPSTAT3_8X;
 	}
 
 	/* ARQSZ - Set the value to the maximum one.
