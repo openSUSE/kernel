@@ -358,7 +358,8 @@ static struct pcmcia_device * pcmcia_get_dev(struct pcmcia_device *p_dev)
 
 static void pcmcia_put_dev(struct pcmcia_device *p_dev)
 {
-	put_device(&p_dev->dev);
+	if (p_dev)
+		put_device(&p_dev->dev);
 }
 
 static void pcmcia_release_dev(struct device *dev)
@@ -427,6 +428,86 @@ static int pcmcia_device_remove(struct device * dev)
 	return 0;
 }
 
+
+/* device_add_lock is needed to avoid double registration by cardmgr and kernel.
+ * Serializes pcmcia_device_add; will most likely be removed in future.
+ *
+ * While it has the caveat that adding new PCMCIA devices inside(!) device_register()
+ * won't work, this doesn't matter much at the moment: the driver core doesn't
+ * support it either.
+ */
+static DECLARE_MUTEX(device_add_lock);
+
+static struct pcmcia_device * pcmcia_device_add(struct pcmcia_bus_socket *s, unsigned int function, struct pcmcia_driver *p_drv)
+{
+	struct pcmcia_device *p_dev, *tmp_dev;
+	unsigned long flags;
+
+	s = pcmcia_get_bus_socket(s);
+	if (!s)
+		return NULL;
+
+	down(&device_add_lock);
+
+	p_dev = kmalloc(sizeof(struct pcmcia_device), GFP_KERNEL);
+	if (!p_dev)
+		goto err_put;
+	memset(p_dev, 0, sizeof(struct pcmcia_device));
+
+	p_dev->socket = s->parent;
+	p_dev->device_no = (s->device_count++);
+	p_dev->func   = function;
+
+	p_dev->dev.bus = &pcmcia_bus_type;
+	p_dev->dev.parent = s->parent->dev.dev;
+	p_dev->dev.release = pcmcia_release_dev;
+	sprintf (p_dev->dev.bus_id, "%d.%d", p_dev->socket->sock, p_dev->device_no);
+
+	/* temporary workaround */
+	p_dev->dev.driver = &p_drv->drv;
+
+	/* compat */
+	p_dev->client.client_magic = CLIENT_MAGIC;
+	p_dev->client.Socket = s->parent;
+	p_dev->client.Function = function;
+	p_dev->client.state = CLIENT_UNBOUND;
+
+	/* Add to the list in pcmcia_bus_socket, but only if no device
+	 * with the same func _and_ driver exists */
+	spin_lock_irqsave(&pcmcia_dev_list_lock, flags);
+	list_for_each_entry(tmp_dev, &s->devices_list, socket_device_list) {
+		if ((tmp_dev->func == function) &&
+		    (tmp_dev->dev.driver == p_dev->dev.driver)){
+			spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
+			goto err_free;
+		}
+	}
+	list_add_tail(&p_dev->socket_device_list, &s->devices_list);
+	spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
+
+	if (device_register(&p_dev->dev)) {
+		spin_lock_irqsave(&pcmcia_dev_list_lock, flags);
+		list_del(&p_dev->socket_device_list);
+		spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
+
+		goto err_free;
+       }
+
+	pcmcia_device_probe(&p_dev->dev);
+
+	up(&device_add_lock);
+
+	return p_dev;
+
+ err_free:
+	kfree(p_dev);
+	s->device_count--;
+ err_put:
+	up(&device_add_lock);
+	pcmcia_put_bus_socket(s);
+
+	return NULL;
+}
 
 /*======================================================================
 
@@ -597,9 +678,9 @@ static int ds_event(struct pcmcia_socket *skt, event_t event, int priority)
 static int bind_request(struct pcmcia_bus_socket *s, bind_info_t *bind_info)
 {
 	struct pcmcia_driver *p_drv;
-	struct pcmcia_device *p_dev, *tmp_dev;
-	unsigned long flags;
+	struct pcmcia_device *p_dev;
 	int ret = 0;
+	unsigned long flags;
 
 	s = pcmcia_get_bus_socket(s);
 	if (!s)
@@ -619,78 +700,39 @@ static int bind_request(struct pcmcia_bus_socket *s, bind_info_t *bind_info)
 		goto err_put_driver;
 	}
 
-	/* Currently, the userspace pcmcia cardmgr detects pcmcia devices.
-	 * Here this information is translated into a kernel
-	 * struct pcmcia_device.
-	 */
-
-	p_dev = kmalloc(sizeof(struct pcmcia_device), GFP_KERNEL);
-	if (!p_dev) {
-		ret = -ENOMEM;
-		goto err_put_module;
-	}
-	memset(p_dev, 0, sizeof(struct pcmcia_device));
-
-	p_dev->socket = s->parent;
-	p_dev->device_no = (s->device_count++);
-	p_dev->func   = bind_info->function;
-
-	p_dev->dev.bus = &pcmcia_bus_type;
-	p_dev->dev.parent = s->parent->dev.dev;
-	p_dev->dev.release = pcmcia_release_dev;
-	sprintf (p_dev->dev.bus_id, "%d.%d", p_dev->socket->sock, p_dev->device_no);
-	p_dev->dev.driver = &p_drv->drv;
-
-	/* compat */
-	p_dev->client.client_magic = CLIENT_MAGIC;
-	p_dev->client.Socket = s->parent;
-	p_dev->client.Function = bind_info->function;
-	p_dev->client.state = CLIENT_UNBOUND;
-
-	/* Add to the list in pcmcia_bus_socket, but only if no device
-	 * with the same func _and_ driver exists */
+ 	/* if there's already a device registered, and it was registered
+	 * by userspace before, we need to return the "instance". Therefore,
+	 * we need to set the cardmgr flag */
 	spin_lock_irqsave(&pcmcia_dev_list_lock, flags);
-	list_for_each_entry(tmp_dev, &s->devices_list, socket_device_list) {
-		if ((tmp_dev->func == bind_info->function) &&
-		    (tmp_dev->dev.driver == p_dev->dev.driver)){
+	list_for_each_entry(p_dev, &s->devices_list, socket_device_list) {
+		if ((p_dev->func == bind_info->function) &&
+		    (p_dev->dev.driver == &p_drv->drv) &&
+		    (p_dev->cardmgr)) {
 			spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
-			bind_info->instance = tmp_dev->instance;
+			bind_info->instance = p_dev->instance;
 			ret = -EBUSY;
-			goto err_free;
+			goto err_put_module;
 		}
 	}
-	list_add_tail(&p_dev->socket_device_list, &s->devices_list);
 	spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
 
-	ret = device_register(&p_dev->dev);
-	if (ret)
-		goto err_free;
+	p_dev = pcmcia_device_add(s, bind_info->function, p_drv);
+	if (!p_dev) {
+		ret = -EIO;
+		goto err_put_module;
+	}
+	p_dev->cardmgr++;
 
-	ret = pcmcia_device_probe(&p_dev->dev);
-	if (ret)
-		goto err_unregister;
-
-	module_put(p_drv->owner);
-	put_driver(&p_drv->drv);
-
-	return 0;
-
- err_unregister:
-	device_unregister(&p_dev->dev);
-	module_put(p_drv->owner);
-	put_driver(&p_drv->drv);
-	return (ret);
-
- err_free:
-	kfree(p_dev);
  err_put_module:
 	module_put(p_drv->owner);
  err_put_driver:
 	put_driver(&p_drv->drv);
  err_put:
 	pcmcia_put_bus_socket(s);
+
 	return (ret);
 } /* bind_request */
+
 
 int pcmcia_register_client(client_handle_t *handle, client_reg_t *req)
 {

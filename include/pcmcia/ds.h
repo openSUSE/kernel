@@ -169,6 +169,9 @@ struct pcmcia_device {
 		event_callback_args_t 	event_callback_args;
 	}			client;
 
+	/* registration by cardmgr done? */
+	unsigned int		cardmgr;
+
 	struct device		dev;
 };
 
