@@ -202,6 +202,9 @@ static struct ps2pp_info *get_model_info(unsigned char model)
 	static struct ps2pp_info ps2pp_list[] = {
 		{ 12,	0,			PS2PP_SIDE_BTN},
 		{ 13,	0,			0 },
+		{ 15,	PS2PP_KIND_MX,					/* MX1000 */
+				PS2PP_WHEEL | PS2PP_SIDE_BTN | PS2PP_TASK_BTN |
+				PS2PP_EXTRA_BTN | PS2PP_NAV_BTN | PS2PP_HWHEEL },
 		{ 40,	0,			PS2PP_SIDE_BTN },
 		{ 41,	0,			PS2PP_SIDE_BTN },
 		{ 42,	0,			PS2PP_SIDE_BTN },
@@ -240,6 +243,8 @@ static struct ps2pp_info *get_model_info(unsigned char model)
 	for (i = 0; ps2pp_list[i].model; i++)
 		if (model == ps2pp_list[i].model)
 			return &ps2pp_list[i];
+
+	printk(KERN_WARNING "logips2pp: Detected unknown logitech mouse model %d\n", model);
 	return NULL;
 }
 
