@@ -2501,7 +2501,7 @@ static int apply_quirk_str(ac97_t *ac97, const char *typestr)
 	}
 	/* for compatibility, accept the numbers, too */
 	if (*typestr >= '0' && *typestr <= '9')
-		return apply_quirk(ac97, (int)simple_strtol(typestr, NULL, 10));
+		return apply_quirk(ac97, (int)simple_strtoul(typestr, NULL, 10));
 	return -EINVAL;
 }
 
