@@ -3246,8 +3246,8 @@ static void __devexit ia_remove_one(struct pci_dev *pdev)
 	iadev_count--;
 	ia_dev[iadev_count] = NULL;
 	_ia_dev[iadev_count] = NULL;
+	IF_EVENT(printk("deregistering iav at (itf:%d)\n", dev->number);)
 	atm_dev_deregister(dev);
-	IF_EVENT(printk("iav deregistered at (itf:%d)\n", dev->number);)
 
       	iounmap(iadev->base);  
 	pci_disable_device(pdev);
