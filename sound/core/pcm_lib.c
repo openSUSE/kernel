@@ -2141,11 +2141,9 @@ static snd_pcm_sframes_t snd_pcm_lib_write1(snd_pcm_substream_t *substream,
 			break;
 		}
 		appl_ptr += frames;
-		if (appl_ptr >= runtime->boundary) {
-			runtime->control->appl_ptr = 0;
-		} else {
-			runtime->control->appl_ptr = appl_ptr;
-		}
+		if (appl_ptr >= runtime->boundary)
+			appl_ptr -= runtime->boundary;
+		runtime->control->appl_ptr = appl_ptr;
 		if (substream->ops->ack)
 			substream->ops->ack(substream);
 
@@ -2440,11 +2438,9 @@ static snd_pcm_sframes_t snd_pcm_lib_read1(snd_pcm_substream_t *substream,
 			break;
 		}
 		appl_ptr += frames;
-		if (appl_ptr >= runtime->boundary) {
-			runtime->control->appl_ptr = 0;
-		} else {
-			runtime->control->appl_ptr = appl_ptr;
-		}
+		if (appl_ptr >= runtime->boundary)
+			appl_ptr -= runtime->boundary;
+		runtime->control->appl_ptr = appl_ptr;
 		if (substream->ops->ack)
 			substream->ops->ack(substream);
 
