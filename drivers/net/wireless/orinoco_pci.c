@@ -254,7 +254,7 @@ static int orinoco_pci_init_one(struct pci_dev *pdev,
 		if (dev->irq)
 			free_irq(dev->irq, dev);
 
-		free_netdev(dev);
+		free_orinocodev(dev);
 	}
 
 	if (pci_ioaddr)
@@ -279,7 +279,7 @@ static void __devexit orinoco_pci_remove_one(struct pci_dev *pdev)
 		iounmap(priv->hw.iobase);
 
 	pci_set_drvdata(pdev, NULL);
-	free_netdev(dev);
+	free_orinocodev(dev);
 
 	pci_disable_device(pdev);
 }

@@ -149,7 +149,7 @@ airport_detach(struct macio_dev *mdev)
 	ssleep(1);
 
 	macio_set_drvdata(mdev, NULL);
-	free_netdev(dev);
+	free_orinocodev(dev);
 
 	return 0;
 }
@@ -211,7 +211,7 @@ airport_attach(struct macio_dev *mdev, const struct of_match *match)
 
 	if (macio_request_resource(mdev, 0, "airport")) {
 		printk(KERN_ERR PFX "can't request IO resource !\n");
-		free_netdev(dev);
+		free_orinocodev(dev);
 		return -EBUSY;
 	}
 

@@ -2398,6 +2398,11 @@ struct net_device *alloc_orinocodev(int sizeof_card,
 
 }
 
+void free_orinocodev(struct net_device *dev)
+{
+	free_netdev(dev);
+}
+
 /********************************************************************/
 /* Wireless extensions                                              */
 /********************************************************************/
@@ -4131,6 +4136,7 @@ static void show_rx_frame(struct orinoco_rxframe_hdr *frame)
 /********************************************************************/
 
 EXPORT_SYMBOL(alloc_orinocodev);
+EXPORT_SYMBOL(free_orinocodev);
 
 EXPORT_SYMBOL(__orinoco_up);
 EXPORT_SYMBOL(__orinoco_down);

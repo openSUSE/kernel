@@ -235,7 +235,7 @@ static void orinoco_cs_detach(dev_link_t *link)
 		      dev);
 		unregister_netdev(dev);
 	}
-	free_netdev(dev);
+	free_orinocodev(dev);
 }				/* orinoco_cs_detach */
 
 /*

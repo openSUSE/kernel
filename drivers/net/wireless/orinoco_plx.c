@@ -279,7 +279,7 @@ static int orinoco_plx_init_one(struct pci_dev *pdev,
  fail:
 	free_irq(dev->irq, dev);
  fail_irq:
-	free_netdev(dev);
+	free_orinocodev(dev);
  fail_alloc:
 	pci_iounmap(pdev, mem);
  fail_map:
@@ -304,7 +304,7 @@ static void __devexit orinoco_plx_remove_one(struct pci_dev *pdev)
 		
 	pci_set_drvdata(pdev, NULL);
 
-	free_netdev(dev);
+	free_orinocodev(dev);
 
 	release_region(pci_resource_start(pdev, 3), pci_resource_len(pdev, 3));
 
