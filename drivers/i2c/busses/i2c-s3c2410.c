@@ -569,6 +569,7 @@ static struct s3c24xx_i2c s3c24xx_i2c = {
 		.name			= "s3c2410-i2c",
 		.algo			= &s3c24xx_i2c_algorithm,
 		.retries		= 2,
+		.class			= I2C_CLASS_HWMON,
 	},
 };
 
