@@ -79,7 +79,7 @@ typedef struct __wait_queue_head wait_queue_head_t;
 
 static inline void init_waitqueue_head(wait_queue_head_t *q)
 {
-	q->lock = SPIN_LOCK_UNLOCKED;
+	spin_lock_init(&q->lock);
 	INIT_LIST_HEAD(&q->task_list);
 }
 
