@@ -48,12 +48,15 @@ Machines
 
     Handheld (IPAQ), available in several varieties
 
-
   HP iPAQ rx3715
 
     S3C2440 based IPAQ, with a number of variations depending on
     features shipped.
 
+  Acer N30
+
+    A S3C2410 based PDA from Acer.  There is a Wiki page at
+    http://handhelds.org/moin/moin.cgi/AcerN30Documentation .
 
 NAND
 ----
@@ -103,7 +106,7 @@ Port Contributors
   Dimitry Andric
   Shannon Holland
   Guillaume Gourat (NexVision)
-
+  Christer Weinigel (wingel) (Acer N30)
 
 Document Changes
 ----------------
@@ -115,6 +118,7 @@ Document Changes
   21 Jan 2005 - BJD - Added rx3715, added Shannon to contributors
   10 Feb 2005 - BJD - Added Guillaume Gourat to contributors
   02 Mar 2005 - BJD - Added SMDK2440 to list of machines
+  06 Mar 2005 - BJD - Added Christer Weinigel
 
 Document Author
 ---------------
