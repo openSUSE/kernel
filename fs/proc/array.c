@@ -239,6 +239,8 @@ static inline char * task_sig(struct task_struct *p, char *buffer)
 {
 	sigset_t pending, shpending, blocked, ignored, caught;
 	int num_threads = 0;
+	unsigned long qsize = 0;
+	unsigned long qlim = 0;
 
 	sigemptyset(&pending);
 	sigemptyset(&shpending);
@@ -255,11 +257,14 @@ static inline char * task_sig(struct task_struct *p, char *buffer)
 		blocked = p->blocked;
 		collect_sigign_sigcatch(p, &ignored, &caught);
 		num_threads = atomic_read(&p->signal->count);
+		qsize = atomic_read(&p->user->sigpending);
+		qlim = p->signal->rlim[RLIMIT_SIGPENDING].rlim_cur;
 		spin_unlock_irq(&p->sighand->siglock);
 	}
 	read_unlock(&tasklist_lock);
 
 	buffer += sprintf(buffer, "Threads:\t%d\n", num_threads);
+	buffer += sprintf(buffer, "SigQ:\t%lu/%lu\n", qsize, qlim);
 
 	/* render them all */
 	buffer = render_sigset_t("SigPnd:\t", &pending, buffer);
