@@ -1809,19 +1809,19 @@ nfsd4_renew(clientid_t *clid)
 	status = nfserr_stale_clientid;
 	if (STALE_CLIENTID(clid))
 		goto out;
-	status = nfs_ok;
 	clp = find_confirmed_client(clid);
-	if (clp) {
-		renew_client(clp);
+	status = nfserr_expired;
+	if (clp == NULL) {
+		/* We assume the client took too long to RENEW. */
+		dprintk("nfsd4_renew: clientid not found!\n");
 		goto out;
 	}
-	/*
-	* Couldn't find an nfs4_client for this clientid.  
-	* Presumably this is because the client took too long to 
-	* RENEW, so return NFS4ERR_EXPIRED.
-	*/
-	dprintk("nfsd4_renew: clientid not found!\n");
-	status = nfserr_expired;
+	renew_client(clp);
+	status = nfserr_cb_path_down;
+	if (!list_empty(&clp->cl_del_perclnt)
+			&& !atomic_read(&clp->cl_callback.cb_set))
+		goto out;
+	status = nfs_ok;
 out:
 	nfs4_unlock_state();
 	return status;
