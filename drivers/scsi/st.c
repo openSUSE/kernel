@@ -17,7 +17,7 @@
    Last modified: 18-JAN-1998 Richard Gooch <rgooch@atnf.csiro.au> Devfs support
  */
 
-static char *verstr = "20050307";
+static char *verstr = "20050312";
 
 #include <linux/module.h>
 
@@ -268,10 +268,11 @@ static void st_analyze_sense(struct scsi_request *SRpnt, struct st_cmdstatus *s)
 	const u8 *ucp;
 	const u8 *sense = SRpnt->sr_sense_buffer;
 
-	memset(s, 0, sizeof(struct st_cmdstatus));
 	s->have_sense = scsi_request_normalize_sense(SRpnt, &s->sense_hdr);
+	s->flags = 0;
 
 	if (s->have_sense) {
+		s->deferred = 0;
 		s->remainder_valid =
 			scsi_get_sense_info_fld(sense, SCSI_SENSE_BUFFERSIZE, &s->uremainder64);
 		switch (sense[0] & 0x7f) {
