@@ -362,7 +362,7 @@ smc_pxa_dma_irq(int dma, void *dummy, struct pt_regs *regs)
 #define SMC_IO_SHIFT	0
 #endif
 #define SMC_IO_EXTENT	(16 << SMC_IO_SHIFT)
-
+#define SMC_DATA_EXTENT (4)
 
 /*
  . Bank Select Register:
@@ -883,7 +883,7 @@ static const char * chip_ids[ 16 ] =  {
 #endif
 
 #if SMC_CAN_USE_32BIT
-#define SMC_PUSH_DATA(p, l)						\
+#define _SMC_PUSH_DATA(p, l)						\
 	do {								\
 		char *__ptr = (p);					\
 		int __len = (l);					\
@@ -898,7 +898,7 @@ static const char * chip_ids[ 16 ] =  {
 			SMC_outw( *((u16 *)__ptr), ioaddr, DATA_REG );	\
 		}							\
 	} while (0)
-#define SMC_PULL_DATA(p, l)						\
+#define _SMC_PULL_DATA(p, l)						\
 	do {								\
 		char *__ptr = (p);					\
 		int __len = (l);					\
@@ -918,11 +918,11 @@ static const char * chip_ids[ 16 ] =  {
 		SMC_insl( ioaddr, DATA_REG, __ptr, __len >> 2);		\
 	} while (0)
 #elif SMC_CAN_USE_16BIT
-#define SMC_PUSH_DATA(p, l)	SMC_outsw( ioaddr, DATA_REG, p, (l) >> 1 )
-#define SMC_PULL_DATA(p, l)	SMC_insw ( ioaddr, DATA_REG, p, (l) >> 1 )
+#define _SMC_PUSH_DATA(p, l)	SMC_outsw( ioaddr, DATA_REG, p, (l) >> 1 )
+#define _SMC_PULL_DATA(p, l)	SMC_insw ( ioaddr, DATA_REG, p, (l) >> 1 )
 #elif SMC_CAN_USE_8BIT
-#define SMC_PUSH_DATA(p, l)	SMC_outsb( ioaddr, DATA_REG, p, l )
-#define SMC_PULL_DATA(p, l)	SMC_insb ( ioaddr, DATA_REG, p, l )
+#define _SMC_PUSH_DATA(p, l)	SMC_outsb( ioaddr, DATA_REG, p, l )
+#define _SMC_PULL_DATA(p, l)	SMC_insb ( ioaddr, DATA_REG, p, l )
 #endif
 
 #if ! SMC_CAN_USE_16BIT
@@ -939,6 +939,51 @@ static const char * chip_ids[ 16 ] =  {
 		__val16 |= SMC_inb( ioaddr, reg + (1 << SMC_IO_SHIFT)) << 8; \
 		__val16;						\
 	})
+#endif
+
+#if SMC_CAN_USE_DATACS
+#define SMC_PUSH_DATA(p, l)						\
+	if ( lp->datacs ) {						\
+		unsigned char *__ptr = (p);				\
+		int __len = (l);					\
+ 		if (__len >= 2 && (unsigned long)__ptr & 2) {		\
+ 			__len -= 2;					\
+ 			SMC_outw( *((u16 *)__ptr), ioaddr, DATA_REG );	\
+ 			__ptr += 2;					\
+ 		}							\
+		outsl(lp->datacs, __ptr, __len >> 2);			\
+ 		if (__len & 2) {					\
+ 			__ptr += (__len & ~3);				\
+ 			SMC_outw( *((u16 *)__ptr), ioaddr, DATA_REG );	\
+ 		}							\
+	} else {							\
+		_SMC_PUSH_DATA(p, l);					\
+	}
+
+#define SMC_PULL_DATA(p, l)						\
+	if ( lp->datacs ) { 						\
+		unsigned char *__ptr = (p);				\
+		int __len = (l);					\
+		if ((unsigned long)__ptr & 2) {			 	\
+			/*						\
+			 * We want 32bit alignment here.		\
+			 * Since some buses perform a full 32bit	\
+			 * fetch even for 16bit data we can't use	\
+			 * SMC_inw() here.  Back both source (on chip	\
+			 * and destination) pointers of 2 bytes.	\
+			 */						\
+			__ptr -= 2;					\
+			__len += 2;					\
+			SMC_SET_PTR( 2|PTR_READ|PTR_RCV|PTR_AUTOINC ); 	\
+		}							\
+		__len += 2;						\
+		insl( lp->datacs, __ptr, __len >> 2);			\
+	} else {							\
+		_SMC_PULL_DATA(p, l);					\
+	}
+#else
+#define SMC_PUSH_DATA(p, l) _SMC_PUSH_DATA(p, l)
+#define SMC_PULL_DATA(p, l) _SMC_PULL_DATA(p, l)
 #endif
 
 #if !defined (SMC_INTERRUPT_PREAMBLE)
