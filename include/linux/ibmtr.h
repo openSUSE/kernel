@@ -192,7 +192,8 @@ struct tok_info {
 	/* Additions by Peter De Schrijver */
 	unsigned char page_mask;          /* mask to select RAM page to Map*/
 	unsigned char mapped_ram_size;    /* size of RAM page */
-	__u32 sram_virt;          /* Shared memory base address */
+	__u32 sram_phys;          /* Shared memory base address */
+	void __iomem *sram_virt;          /* Shared memory base address */
 	void __iomem *init_srb;   /* Initial System Request Block address */
 	void __iomem *srb;                /* System Request Block address */
 	void __iomem *ssb;                /* System Status Block address */
