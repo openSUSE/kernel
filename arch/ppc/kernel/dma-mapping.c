@@ -219,7 +219,8 @@ __dma_alloc_coherent(size_t size, dma_addr_t *handle, int gfp)
 	c = vm_region_alloc(&consistent_head, size,
 			    gfp & ~(__GFP_DMA | __GFP_HIGHMEM));
 	if (c) {
-		pte_t *pte = consistent_pte + CONSISTENT_OFFSET(c->vm_start);
+		unsigned long vaddr = c->vm_start;
+		pte_t *pte = consistent_pte + CONSISTENT_OFFSET(vaddr);
 		struct page *end = page + (1 << order);
 
 		/*
@@ -232,9 +233,11 @@ __dma_alloc_coherent(size_t size, dma_addr_t *handle, int gfp)
 
 			set_page_count(page, 1);
 			SetPageReserved(page);
-			set_pte(pte, mk_pte(page, pgprot_noncached(PAGE_KERNEL)));
+			set_pte_at(&init_mm, vaddr,
+				   pte, mk_pte(page, pgprot_noncached(PAGE_KERNEL)));
 			page++;
 			pte++;
+			vaddr += PAGE_SIZE;
 		} while (size -= PAGE_SIZE);
 
 		/*

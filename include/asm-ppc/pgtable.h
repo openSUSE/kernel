@@ -512,6 +512,17 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 }
 
 /*
+ * When flushing the tlb entry for a page, we also need to flush the hash
+ * table entry.  flush_hash_pages is assembler (for speed) in hashtable.S.
+ */
+extern int flush_hash_pages(unsigned context, unsigned long va,
+			    unsigned long pmdval, int count);
+
+/* Add an HPTE to the hash table */
+extern void add_hash_page(unsigned context, unsigned long va,
+			  unsigned long pmdval);
+
+/*
  * Atomic PTE updates.
  *
  * pte_update clears and sets bit atomically, and returns
@@ -542,7 +553,8 @@ static inline unsigned long pte_update(pte_t *p, unsigned long clr,
  * On machines which use an MMU hash table we avoid changing the
  * _PAGE_HASHPTE bit.
  */
-static inline void set_pte(pte_t *ptep, pte_t pte)
+static inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
+			      pte_t *ptep, pte_t pte)
 {
 #if _PAGE_HASHPTE != 0
 	pte_update(ptep, ~_PAGE_HASHPTE, pte_val(pte) & ~_PAGE_HASHPTE);
@@ -550,36 +562,44 @@ static inline void set_pte(pte_t *ptep, pte_t pte)
 	*ptep = pte;
 #endif
 }
-#define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
-
-extern void flush_hash_one_pte(pte_t *ptep);
 
 /*
  * 2.6 calles this without flushing the TLB entry, this is wrong
  * for our hash-based implementation, we fix that up here
  */
-static inline int ptep_test_and_clear_young(struct vm_area_struct *vma, unsigned long addr, pte_t *ptep)
+#define __HAVE_ARCH_PTEP_TEST_AND_CLEAR_YOUNG
+static inline int __ptep_test_and_clear_young(unsigned int context, unsigned long addr, pte_t *ptep)
 {
 	unsigned long old;
 	old = pte_update(ptep, _PAGE_ACCESSED, 0);
 #if _PAGE_HASHPTE != 0
-	if (old & _PAGE_HASHPTE)
-		flush_hash_one_pte(ptep);
+	if (old & _PAGE_HASHPTE) {
+		unsigned long ptephys = __pa(ptep) & PAGE_MASK;
+		flush_hash_pages(context, addr, ptephys, 1);
+	}
 #endif
 	return (old & _PAGE_ACCESSED) != 0;
 }
+#define ptep_test_and_clear_young(__vma, __addr, __ptep) \
+	__ptep_test_and_clear_young((__vma)->vm_mm->context, __addr, __ptep)
 
-static inline int ptep_test_and_clear_dirty(struct vm_area_struct *vma, unsigned long addr, pte_t *ptep)
+#define __HAVE_ARCH_PTEP_TEST_AND_CLEAR_DIRTY
+static inline int ptep_test_and_clear_dirty(struct vm_area_struct *vma,
+					    unsigned long addr, pte_t *ptep)
 {
 	return (pte_update(ptep, (_PAGE_DIRTY | _PAGE_HWWRITE), 0) & _PAGE_DIRTY) != 0;
 }
 
-static inline pte_t ptep_get_and_clear(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
+#define __HAVE_ARCH_PTEP_GET_AND_CLEAR
+static inline pte_t ptep_get_and_clear(struct mm_struct *mm, unsigned long addr,
+				       pte_t *ptep)
 {
 	return __pte(pte_update(ptep, ~_PAGE_HASHPTE, 0));
 }
 
-static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
+#define __HAVE_ARCH_PTEP_SET_WRPROTECT
+static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addr,
+				      pte_t *ptep)
 {
 	pte_update(ptep, (_PAGE_RW | _PAGE_HWWRITE), 0);
 }
@@ -603,6 +623,7 @@ static inline void __ptep_set_access_flags(pte_t *ptep, pte_t entry, int dirty)
  */
 #define pgprot_noncached(prot)	(__pgprot(pgprot_val(prot) | _PAGE_NO_CACHE | _PAGE_GUARDED))
 
+#define __HAVE_ARCH_PTE_SAME
 #define pte_same(A,B)	(((pte_val(A) ^ pte_val(B)) & ~_PAGE_HASHPTE) == 0)
 
 /*
@@ -653,17 +674,6 @@ static inline pmd_t * pmd_offset(pgd_t * dir, unsigned long address)
 extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 
 extern void paging_init(void);
-
-/*
- * When flushing the tlb entry for a page, we also need to flush the hash
- * table entry.  flush_hash_pages is assembler (for speed) in hashtable.S.
- */
-extern int flush_hash_pages(unsigned context, unsigned long va,
-			    unsigned long pmdval, int count);
-
-/* Add an HPTE to the hash table */
-extern void add_hash_page(unsigned context, unsigned long va,
-			  unsigned long pmdval);
 
 /*
  * Encode and decode a swap entry.
@@ -737,14 +747,9 @@ static inline int io_remap_page_range(struct vm_area_struct *vma,
 
 extern int get_pteptr(struct mm_struct *mm, unsigned long addr, pte_t **ptep);
 
-#endif /* !__ASSEMBLY__ */
-
-#define __HAVE_ARCH_PTEP_TEST_AND_CLEAR_YOUNG
-#define __HAVE_ARCH_PTEP_TEST_AND_CLEAR_DIRTY
-#define __HAVE_ARCH_PTEP_GET_AND_CLEAR
-#define __HAVE_ARCH_PTEP_SET_WRPROTECT
-#define __HAVE_ARCH_PTE_SAME
 #include <asm-generic/pgtable.h>
+
+#endif /* !__ASSEMBLY__ */
 
 #endif /* _PPC_PGTABLE_H */
 #endif /* __KERNEL__ */
