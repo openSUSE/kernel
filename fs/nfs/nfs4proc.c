@@ -263,7 +263,7 @@ static int _nfs4_open_reclaim(struct nfs4_state_owner *sp, struct nfs4_state *st
 	return status;
 }
 
-int nfs4_open_reclaim(struct nfs4_state_owner *sp, struct nfs4_state *state)
+static int nfs4_open_reclaim(struct nfs4_state_owner *sp, struct nfs4_state *state)
 {
 	struct nfs_server *server = NFS_SERVER(state->inode);
 	struct nfs4_exception exception = { };
@@ -2558,7 +2558,7 @@ static int _nfs4_do_setlk(struct nfs4_state *state, int cmd, struct file_lock *r
 	return status;
 }
 
-int nfs4_lock_reclaim(struct nfs4_state *state, struct file_lock *request)
+static int nfs4_lock_reclaim(struct nfs4_state *state, struct file_lock *request)
 {
 	return _nfs4_do_setlk(state, F_SETLK, request, 1);
 }
@@ -2631,6 +2631,11 @@ nfs4_proc_lock(struct file *filp, int cmd, struct file_lock *request)
 
 	return status;
 }
+
+struct nfs4_state_recovery_ops nfs4_reboot_recovery_ops = {
+	.recover_open	= nfs4_open_reclaim,
+	.recover_lock	= nfs4_lock_reclaim,
+};
 
 struct nfs_rpc_ops	nfs_v4_clientops = {
 	.version	= 4,			/* protocol version */

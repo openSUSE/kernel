@@ -765,7 +765,7 @@ nfs4_schedule_state_recovery(struct nfs4_client *clp)
 		schedule_work(&clp->cl_recoverd);
 }
 
-static int nfs4_reclaim_locks(struct nfs4_state *state)
+static int nfs4_reclaim_locks(struct nfs4_state_recovery_ops *ops, struct nfs4_state *state)
 {
 	struct inode *inode = state->inode;
 	struct file_lock *fl;
@@ -776,7 +776,7 @@ static int nfs4_reclaim_locks(struct nfs4_state *state)
 			continue;
 		if (((struct nfs_open_context *)fl->fl_file->private_data)->state != state)
 			continue;
-		status = nfs4_lock_reclaim(state, fl);
+		status = ops->recover_lock(state, fl);
 		if (status >= 0)
 			continue;
 		switch (status) {
@@ -798,7 +798,7 @@ out_err:
 	return status;
 }
 
-static int nfs4_reclaim_open_state(struct nfs4_state_owner *sp)
+static int nfs4_reclaim_open_state(struct nfs4_state_recovery_ops *ops, struct nfs4_state_owner *sp)
 {
 	struct nfs4_state *state;
 	struct nfs4_lock_state *lock;
@@ -815,11 +815,11 @@ static int nfs4_reclaim_open_state(struct nfs4_state_owner *sp)
 	list_for_each_entry(state, &sp->so_states, open_states) {
 		if (state->state == 0)
 			continue;
-		status = nfs4_open_reclaim(sp, state);
+		status = ops->recover_open(sp, state);
 		list_for_each_entry(lock, &state->lock_states, ls_locks)
 			lock->ls_flags &= ~NFS_LOCK_INITIALIZED;
 		if (status >= 0) {
-			status = nfs4_reclaim_locks(state);
+			status = nfs4_reclaim_locks(ops, state);
 			if (status < 0)
 				goto out_err;
 			list_for_each_entry(lock, &state->lock_states, ls_locks) {
@@ -860,6 +860,7 @@ static int reclaimer(void *ptr)
 	struct reclaimer_args *args = (struct reclaimer_args *)ptr;
 	struct nfs4_client *clp = args->clp;
 	struct nfs4_state_owner *sp;
+	struct nfs4_state_recovery_ops *ops;
 	int status = 0;
 
 	daemonize("%u.%u.%u.%u-reclaim", NIPQUAD(clp->cl_addr));
@@ -878,6 +879,7 @@ restart_loop:
 	status = nfs4_proc_renew(clp);
 	if (status == 0 || status == -NFS4ERR_CB_PATH_DOWN)
 		goto out;
+	ops = &nfs4_reboot_recovery_ops;
 	status = __nfs4_init_client(clp);
 	if (status)
 		goto out_error;
@@ -885,7 +887,7 @@ restart_loop:
 	nfs_delegation_mark_reclaim(clp);
 	/* Note: list is protected by exclusive lock on cl->cl_sem */
 	list_for_each_entry(sp, &clp->cl_state_owners, so_list) {
-		status = nfs4_reclaim_open_state(sp);
+		status = nfs4_reclaim_open_state(ops, sp);
 		if (status < 0) {
 			if (status == -NFS4ERR_STALE_CLIENTID)
 				goto restart_loop;

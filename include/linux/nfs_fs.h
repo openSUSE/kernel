@@ -673,6 +673,11 @@ struct nfs4_exception {
 	int retry;
 };
 
+struct nfs4_state_recovery_ops {
+	int (*recover_open)(struct nfs4_state_owner *, struct nfs4_state *);
+	int (*recover_lock)(struct nfs4_state *, struct file_lock *);
+};
+
 extern struct dentry_operations nfs4_dentry_operations;
 extern struct inode_operations nfs4_dir_inode_operations;
 
@@ -680,13 +685,13 @@ extern struct inode_operations nfs4_dir_inode_operations;
 extern int nfs4_map_errors(int err);
 extern int nfs4_proc_setclientid(struct nfs4_client *, u32, unsigned short);
 extern int nfs4_proc_setclientid_confirm(struct nfs4_client *);
-extern int nfs4_open_reclaim(struct nfs4_state_owner *, struct nfs4_state *);
 extern int nfs4_proc_async_renew(struct nfs4_client *);
 extern int nfs4_proc_renew(struct nfs4_client *);
 extern int nfs4_do_close(struct inode *inode, struct nfs4_state *state, mode_t mode);
 extern struct inode *nfs4_atomic_open(struct inode *, struct dentry *, struct nameidata *);
 extern int nfs4_open_revalidate(struct inode *, struct dentry *, int);
-extern int nfs4_lock_reclaim(struct nfs4_state *state, struct file_lock *request);
+
+extern struct nfs4_state_recovery_ops nfs4_reboot_recovery_ops;
 
 /* nfs4renewd.c */
 extern void nfs4_schedule_state_renewal(struct nfs4_client *);
