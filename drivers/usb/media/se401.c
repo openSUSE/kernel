@@ -122,7 +122,7 @@ static int se401_sndctrl(int set, struct usb_se401 *se401, unsigned short req,
                 0,
                 cp,
                 size,
-                HZ
+                1000
         );
 }
 
@@ -142,7 +142,7 @@ static int se401_set_feature(struct usb_se401 *se401, unsigned short selector,
 		selector,
                 NULL,
                 0,
-                HZ
+                1000
         );
 }
 
@@ -162,7 +162,7 @@ static unsigned short se401_get_feature(struct usb_se401 *se401,
                 selector,
                 cp,
                 2,
-                HZ
+                1000
         );
 	return cp[0]+cp[1]*256;
 }
