@@ -1099,7 +1099,6 @@ static int nvidiafb_check_var(struct fb_var_screeninfo *var,
 	var->transp.length = 0;
 
 	var->xres &= ~7;
-	var->xres_virtual &= ~7;
 
 	if (var->bits_per_pixel <= 8)
 		var->bits_per_pixel = 8;
@@ -1179,6 +1178,8 @@ static int nvidiafb_check_var(struct fb_var_screeninfo *var,
 	if (var->xres_virtual < var->xres)
 		var->xres_virtual = var->xres;
 
+	var->xres_virtual = (var->xres_virtual + 63) & ~63;
+
 	vramlen = info->fix.smem_len;
 	pitch = ((var->xres_virtual * var->bits_per_pixel) + 7) / 8;
 	memlen = pitch * var->yres_virtual;
@@ -1212,7 +1213,7 @@ static int nvidiafb_check_var(struct fb_var_screeninfo *var,
 			var->xres_virtual = 0x7fff;
 	}
 
-	var->xres_virtual &= ~8;
+	var->xres_virtual &= ~63;
 
 	NVTRACE_LEAVE();
 
