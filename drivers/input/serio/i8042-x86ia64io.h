@@ -91,7 +91,6 @@ static struct dmi_system_id __initdata i8042_dmi_table[] = {
 
 #ifdef CONFIG_PNP
 #include <linux/pnp.h>
-#include <linux/acpi.h>
 
 static int i8042_pnp_kbd_registered;
 static int i8042_pnp_aux_registered;
@@ -193,14 +192,12 @@ static int i8042_pnp_init(void)
 
 	if (result_kbd <= 0 && result_aux <= 0) {
 		i8042_pnp_exit();
-#ifdef CONFIG_PNPACPI
-		if (!acpi_disabled) {
-			printk(KERN_INFO "PNP: No PS/2 (keyboard/mouse) controller found.\n");
-			return -ENODEV;
-		}
-#endif
+#if defined(__ia64__)
+		return -ENODEV;
+#else
 		printk(KERN_WARNING "PNP: No PS/2 controller found. Probing ports directly.\n");
 		return 0;
+#endif
 	}
 
 	if (((i8042_pnp_data_reg & ~0xf) == (i8042_data_reg & ~0xf) &&
@@ -227,8 +224,10 @@ static int i8042_pnp_init(void)
 		i8042_pnp_aux_irq = i8042_aux_irq;
 	}
 	
+#if defined(__ia64__)
 	if (result_aux <= 0)
 		i8042_noaux = 1;
+#endif
 
 	i8042_data_reg = i8042_pnp_data_reg;
 	i8042_command_reg = i8042_pnp_command_reg;
