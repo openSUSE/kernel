@@ -81,7 +81,7 @@ u32 free_delegation= 0;
 struct nfs4_stateid * find_stateid(stateid_t *stid, int flags);
 static struct nfs4_delegation * find_delegation_stateid(struct inode *ino, stateid_t *stid);
 static void release_delegation(struct nfs4_delegation *dp);
-static void release_stateid_lockowner(struct nfs4_stateid *open_stp);
+static void release_stateid_lockowners(struct nfs4_stateid *open_stp);
 
 /* Locking:
  *
@@ -207,7 +207,7 @@ release_delegation(struct nfs4_delegation *dp)
 		struct file *filp = dp->dl_stp->st_vfs_file;
 
 		dprintk("NFSD: release_delegation CLOSE\n");
-		release_stateid_lockowner(dp->dl_stp);
+		release_stateid_lockowners(dp->dl_stp);
 		kfree(dp->dl_stp);
 		dp->dl_stp = NULL;
 		atomic_set(&dp->dl_state, NFS4_RECALL_COMPLETE);
@@ -1089,7 +1089,7 @@ alloc_init_open_stateowner(unsigned int strhashval, struct nfs4_client *clp, str
 }
 
 static void
-release_stateid_lockowner(struct nfs4_stateid *open_stp)
+release_stateid_lockowners(struct nfs4_stateid *open_stp)
 {
 	struct nfs4_stateowner *lock_sop;
 
@@ -1177,7 +1177,7 @@ release_stateid(struct nfs4_stateid *stp, int flags)
 				return;
 			}
 		}
-		release_stateid_lockowner(stp);
+		release_stateid_lockowners(stp);
 		nfsd_close(stp->st_vfs_file);
 		vfsclose++;
 	} else if ((stp->st_vfs_set) && (flags & LOCK_STATE)) {
