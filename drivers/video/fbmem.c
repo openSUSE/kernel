@@ -876,7 +876,8 @@ fb_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	int fbidx = iminor(file->f_dentry->d_inode);
 	struct fb_info *info = registered_fb[fbidx];
 	struct fb_ops *fb = info->fbops;
-	int ret;
+	long ret;
+
 	if (fb->fb_compat_ioctl == NULL)
 		return -ENOIOCTLCMD;
 	lock_kernel();

@@ -585,7 +585,7 @@ struct fb_ops {
 			unsigned long arg, struct fb_info *info);
 
 	/* Handle 32bit compat ioctl (optional) */
-	int (*fb_compat_ioctl)(struct file *f, unsigned cmd, unsigned long arg,
+	long (*fb_compat_ioctl)(struct file *f, unsigned cmd, unsigned long arg,
 			       struct fb_info *info);
 
 	/* perform fb specific mmap */
