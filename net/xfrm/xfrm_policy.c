@@ -1119,12 +1119,12 @@ void xfrm_init_pmtu(struct dst_entry *dst)
 		struct xfrm_dst *xdst = (struct xfrm_dst *)dst;
 		u32 pmtu, route_mtu_cached;
 
-		pmtu = dst_pmtu(dst->child);
+		pmtu = dst_mtu(dst->child);
 		xdst->child_mtu_cached = pmtu;
 
 		pmtu = xfrm_state_mtu(dst->xfrm, pmtu);
 
-		route_mtu_cached = dst_pmtu(xdst->route);
+		route_mtu_cached = dst_mtu(xdst->route);
 		xdst->route_mtu_cached = route_mtu_cached;
 
 		if (pmtu > route_mtu_cached)
@@ -1160,7 +1160,7 @@ int xfrm_bundle_ok(struct xfrm_dst *first, struct flowi *fl, int family)
 		if (dst->xfrm->km.state != XFRM_STATE_VALID)
 			return 0;
 
-		mtu = dst_pmtu(dst->child);
+		mtu = dst_mtu(dst->child);
 		if (xdst->child_mtu_cached != mtu) {
 			last = xdst;
 			xdst->child_mtu_cached = mtu;
@@ -1168,7 +1168,7 @@ int xfrm_bundle_ok(struct xfrm_dst *first, struct flowi *fl, int family)
 
 		if (!dst_check(xdst->route, 0))
 			return 0;
-		mtu = dst_pmtu(xdst->route);
+		mtu = dst_mtu(xdst->route);
 		if (xdst->route_mtu_cached != mtu) {
 			last = xdst;
 			xdst->route_mtu_cached = mtu;

@@ -147,7 +147,7 @@ static int ip6_output2(struct sk_buff *skb)
 
 int ip6_output(struct sk_buff *skb)
 {
-	if (skb->len > dst_pmtu(skb->dst) || dst_allfrag(skb->dst))
+	if (skb->len > dst_mtu(skb->dst) || dst_allfrag(skb->dst))
 		return ip6_fragment(skb, ip6_output2);
 	else
 		return ip6_output2(skb);
@@ -263,7 +263,7 @@ int ip6_xmit(struct sock *sk, struct sk_buff *skb, struct flowi *fl,
 	ipv6_addr_copy(&hdr->saddr, &fl->fl6_src);
 	ipv6_addr_copy(&hdr->daddr, first_hop);
 
-	mtu = dst_pmtu(dst);
+	mtu = dst_mtu(dst);
 	if ((skb->len <= mtu) || ipfragok) {
 		IP6_INC_STATS(IPSTATS_MIB_OUTREQUESTS);
 		return NF_HOOK(PF_INET6, NF_IP6_LOCAL_OUT, skb, NULL, dst->dev, ip6_maybe_reroute);
@@ -429,10 +429,10 @@ int ip6_forward(struct sk_buff *skb)
 		goto error;
 	}
 
-	if (skb->len > dst_pmtu(dst)) {
+	if (skb->len > dst_mtu(dst)) {
 		/* Again, force OUTPUT device used as source address */
 		skb->dev = dst->dev;
-		icmpv6_send(skb, ICMPV6_PKT_TOOBIG, 0, dst_pmtu(dst), skb->dev);
+		icmpv6_send(skb, ICMPV6_PKT_TOOBIG, 0, dst_mtu(dst), skb->dev);
 		IP6_INC_STATS_BH(IPSTATS_MIB_INTOOBIGERRORS);
 		IP6_INC_STATS_BH(IPSTATS_MIB_FRAGFAILS);
 		kfree_skb(skb);
@@ -535,7 +535,7 @@ static int ip6_fragment(struct sk_buff *skb, int (*output)(struct sk_buff *))
 	hlen = ip6_find_1stfragopt(skb, &prevhdr);
 	nexthdr = *prevhdr;
 
-	mtu = dst_pmtu(&rt->u.dst) - hlen - sizeof(struct frag_hdr);
+	mtu = dst_mtu(&rt->u.dst) - hlen - sizeof(struct frag_hdr);
 
 	if (skb_shinfo(skb)->frag_list) {
 		int first_len = skb_pagelen(skb);

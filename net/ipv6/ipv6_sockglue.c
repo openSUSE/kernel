@@ -607,7 +607,7 @@ int ipv6_getsockopt(struct sock *sk, int level, int optname,
 		lock_sock(sk);
 		dst = sk_dst_get(sk);
 		if (dst) {
-			val = dst_pmtu(dst) - dst->header_len;
+			val = dst_mtu(dst);
 			dst_release(dst);
 		}
 		release_sock(sk);

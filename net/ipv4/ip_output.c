@@ -278,7 +278,7 @@ int ip_mc_output(struct sk_buff *skb)
 				newskb->dev, ip_dev_loopback_xmit);
 	}
 
-	if (skb->len > dst_pmtu(&rt->u.dst))
+	if (skb->len > dst_mtu(&rt->u.dst))
 		return ip_fragment(skb, ip_finish_output);
 	else
 		return ip_finish_output(skb);
@@ -288,7 +288,7 @@ int ip_output(struct sk_buff *skb)
 {
 	IP_INC_STATS(IPSTATS_MIB_OUTREQUESTS);
 
-	if (skb->len > dst_pmtu(skb->dst) && !skb_shinfo(skb)->tso_size)
+	if (skb->len > dst_mtu(skb->dst) && !skb_shinfo(skb)->tso_size)
 		return ip_fragment(skb, ip_finish_output);
 	else
 		return ip_finish_output(skb);
@@ -448,7 +448,7 @@ int ip_fragment(struct sk_buff *skb, int (*output)(struct sk_buff*))
 
 	if (unlikely((iph->frag_off & htons(IP_DF)) && !skb->local_df)) {
 		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED,
-			  htonl(dst_pmtu(&rt->u.dst)));
+			  htonl(dst_mtu(&rt->u.dst)));
 		kfree_skb(skb);
 		return -EMSGSIZE;
 	}
@@ -458,7 +458,7 @@ int ip_fragment(struct sk_buff *skb, int (*output)(struct sk_buff*))
 	 */
 
 	hlen = iph->ihl * 4;
-	mtu = dst_pmtu(&rt->u.dst) - hlen;	/* Size of data space */
+	mtu = dst_mtu(&rt->u.dst) - hlen;	/* Size of data space */
 
 	/* When frag_list is given, use it. First, check its validity:
 	 * some transformers could create wrong frag_list or break existing
