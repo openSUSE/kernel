@@ -98,7 +98,7 @@ int usb_internal_control_msg(struct usb_device *usb_dev, unsigned int pipe,
 	usb_fill_control_urb(urb, usb_dev, pipe, (unsigned char *)cmd, data,
 			     len, usb_api_blocking_completion, NULL);
 
-	retv = usb_start_wait_urb(urb, timeout, &length);
+	retv = usb_start_wait_urb(urb, msecs_to_jiffies(timeout), &length);
 	if (retv < 0)
 		return retv;
 	else
@@ -115,7 +115,7 @@ int usb_internal_control_msg(struct usb_device *usb_dev, unsigned int pipe,
  *	@index: USB message index value
  *	@data: pointer to the data to send
  *	@size: length in bytes of the data to send
- *	@timeout: time in jiffies to wait for the message to complete before
+ *	@timeout: time in msecs to wait for the message to complete before
  *		timing out (if 0 the wait is forever)
  *	Context: !in_interrupt ()
  *
@@ -163,7 +163,7 @@ int usb_control_msg(struct usb_device *dev, unsigned int pipe, __u8 request, __u
  *	@data: pointer to the data to send
  *	@len: length in bytes of the data to send
  *	@actual_length: pointer to a location to put the actual length transferred in bytes
- *	@timeout: time in jiffies to wait for the message to complete before
+ *	@timeout: time in msecs to wait for the message to complete before
  *		timing out (if 0 the wait is forever)
  *	Context: !in_interrupt ()
  *
@@ -196,7 +196,7 @@ int usb_bulk_msg(struct usb_device *usb_dev, unsigned int pipe,
 	usb_fill_bulk_urb(urb, usb_dev, pipe, data, len,
 			  usb_api_blocking_completion, NULL);
 
-	return usb_start_wait_urb(urb,timeout,actual_length);
+	return usb_start_wait_urb(urb,msecs_to_jiffies(timeout),actual_length);
 }
 
 /*-------------------------------------------------------------------*/
