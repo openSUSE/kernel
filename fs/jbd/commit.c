@@ -93,6 +93,73 @@ static int inverted_lock(journal_t *journal, struct buffer_head *bh)
 	return 1;
 }
 
+/* Done it all: now write the commit record.  We should have
+ * cleaned up our previous buffers by now, so if we are in abort
+ * mode we can now just skip the rest of the journal write
+ * entirely.
+ *
+ * Returns 1 if the journal needs to be aborted or 0 on success
+ */
+static int journal_write_commit_record(journal_t *journal,
+					transaction_t *commit_transaction)
+{
+	struct journal_head *descriptor;
+	struct buffer_head *bh;
+	int i, ret;
+	int barrier_done = 0;
+
+	if (is_journal_aborted(journal))
+		return 0;
+
+	descriptor = journal_get_descriptor_buffer(journal);
+	if (!descriptor)
+		return 1;
+
+	bh = jh2bh(descriptor);
+
+	/* AKPM: buglet - add `i' to tmp! */
+	for (i = 0; i < bh->b_size; i += 512) {
+		journal_header_t *tmp = (journal_header_t*)bh->b_data;
+		tmp->h_magic = cpu_to_be32(JFS_MAGIC_NUMBER);
+		tmp->h_blocktype = cpu_to_be32(JFS_COMMIT_BLOCK);
+		tmp->h_sequence = cpu_to_be32(commit_transaction->t_tid);
+	}
+
+	JBUFFER_TRACE(descriptor, "write commit block");
+	set_buffer_dirty(bh);
+	if (journal->j_flags & JFS_BARRIER) {
+		set_buffer_ordered(bh);
+		barrier_done = 1;
+	}
+	ret = sync_dirty_buffer(bh);
+	/* is it possible for another commit to fail at roughly
+	 * the same time as this one?  If so, we don't want to
+	 * trust the barrier flag in the super, but instead want
+	 * to remember if we sent a barrier request
+	 */
+	if (ret == -EOPNOTSUPP && barrier_done) {
+		char b[BDEVNAME_SIZE];
+
+		printk(KERN_WARNING
+			"JBD: barrier-based sync failed on %s - "
+			"disabling barriers\n",
+			bdevname(journal->j_dev, b));
+		spin_lock(&journal->j_state_lock);
+		journal->j_flags &= ~JFS_BARRIER;
+		spin_unlock(&journal->j_state_lock);
+
+		/* And try again, without the barrier */
+		clear_buffer_ordered(bh);
+		set_buffer_uptodate(bh);
+		set_buffer_dirty(bh);
+		ret = sync_dirty_buffer(bh);
+	}
+	put_bh(bh);		/* One for getblk() */
+	journal_put_journal_head(descriptor);
+
+	return (ret == -EIO);
+}
+
 /*
  * journal_commit_transaction
  *
@@ -632,78 +699,16 @@ wait_for_iobuf:
 
 	jbd_debug(3, "JBD: commit phase 6\n");
 
-	if (is_journal_aborted(journal))
-		goto skip_commit;
+	if (journal_write_commit_record(journal, commit_transaction))
+		err = -EIO;
 
-	/* Done it all: now write the commit record.  We should have
-	 * cleaned up our previous buffers by now, so if we are in abort
-	 * mode we can now just skip the rest of the journal write
-	 * entirely. */
-
-	descriptor = journal_get_descriptor_buffer(journal);
-	if (!descriptor) {
+	if (err)
 		__journal_abort_hard(journal);
-		goto skip_commit;
-	}
-
-	/* AKPM: buglet - add `i' to tmp! */
-	for (i = 0; i < jh2bh(descriptor)->b_size; i += 512) {
-		journal_header_t *tmp =
-			(journal_header_t*)jh2bh(descriptor)->b_data;
-		tmp->h_magic = cpu_to_be32(JFS_MAGIC_NUMBER);
-		tmp->h_blocktype = cpu_to_be32(JFS_COMMIT_BLOCK);
-		tmp->h_sequence = cpu_to_be32(commit_transaction->t_tid);
-	}
-
-	JBUFFER_TRACE(descriptor, "write commit block");
-	{
-		struct buffer_head *bh = jh2bh(descriptor);
-		int ret;
-		int barrier_done = 0;
-
-		set_buffer_dirty(bh);
-		if (journal->j_flags & JFS_BARRIER) {
-			set_buffer_ordered(bh);
-			barrier_done = 1;
-		}
-		ret = sync_dirty_buffer(bh);
-		/* is it possible for another commit to fail at roughly
-		 * the same time as this one?  If so, we don't want to
-		 * trust the barrier flag in the super, but instead want
-		 * to remember if we sent a barrier request
-		 */
-		if (ret == -EOPNOTSUPP && barrier_done) {
-			char b[BDEVNAME_SIZE];
-
-			printk(KERN_WARNING
-				"JBD: barrier-based sync failed on %s - "
-				"disabling barriers\n",
-				bdevname(journal->j_dev, b));
-			spin_lock(&journal->j_state_lock);
-			journal->j_flags &= ~JFS_BARRIER;
-			spin_unlock(&journal->j_state_lock);
-
-			/* And try again, without the barrier */
-			clear_buffer_ordered(bh);
-			set_buffer_uptodate(bh);
-			set_buffer_dirty(bh);
-			ret = sync_dirty_buffer(bh);
-		}
-		if (unlikely(ret == -EIO))
-			err = -EIO;
-		put_bh(bh);		/* One for getblk() */
-		journal_put_journal_head(descriptor);
-	}
 
 	/* End of a transaction!  Finally, we can do checkpoint
            processing: any buffers committed as a result of this
            transaction can be removed from any checkpoint list it was on
            before. */
-
-skip_commit: /* The journal should be unlocked by now. */
-
-	if (err)
-		__journal_abort_hard(journal);
 
 	jbd_debug(3, "JBD: commit phase 7\n");
 
