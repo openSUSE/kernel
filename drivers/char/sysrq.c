@@ -40,9 +40,6 @@
 /* Whether we react on sysrq keys or just ignore them */
 int sysrq_enabled = 1;
 
-/* Machine specific power off function */
-void (*sysrq_power_off)(void);
-
 /* Loglevel sysrq handler */
 static void sysrq_handle_loglevel(int key, struct pt_regs *pt_regs,
 				  struct tty_struct *tty) 
