@@ -2714,12 +2714,13 @@ static void rx_submit (struct usbnet *dev, struct urb *urb, int flags)
 #endif
 		size = (sizeof (struct ethhdr) + dev->net->mtu);
 
-	if ((skb = alloc_skb (size, flags)) == NULL) {
+	if ((skb = alloc_skb (size + NET_IP_ALIGN, flags)) == NULL) {
 		devdbg (dev, "no rx skb");
 		defer_kevent (dev, EVENT_RX_MEMORY);
 		usb_free_urb (urb);
 		return;
 	}
+	skb_reserve (skb, NET_IP_ALIGN);
 
 	entry = (struct skb_data *) skb->cb;
 	entry->urb = urb;
