@@ -65,7 +65,6 @@
 struct cpuinfo_x86 boot_cpu_data;
 
 unsigned long mmu_cr4_features;
-EXPORT_SYMBOL_GPL(mmu_cr4_features);
 
 int acpi_disabled;
 EXPORT_SYMBOL(acpi_disabled);
