@@ -308,7 +308,6 @@ extern void __mod_page_state(unsigned offset, unsigned long delta);
 struct page;	/* forward declaration */
 
 int test_clear_page_dirty(struct page *page);
-int __clear_page_dirty(struct page *page);
 int test_clear_page_writeback(struct page *page);
 int test_set_page_writeback(struct page *page);
 
