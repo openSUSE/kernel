@@ -512,6 +512,8 @@ struct xfrm_dst
 		struct rt6_info		rt6;
 	} u;
 	struct dst_entry *route;
+	u32 route_mtu_cached;
+	u32 child_mtu_cached;
 };
 
 /* Decapsulation state, used by the input to store data during
@@ -860,6 +862,7 @@ extern void xfrm_policy_flush(void);
 extern int xfrm_sk_policy_insert(struct sock *sk, int dir, struct xfrm_policy *pol);
 extern int xfrm_flush_bundles(void);
 extern int xfrm_bundle_ok(struct xfrm_dst *xdst, struct flowi *fl, int family);
+extern void xfrm_init_pmtu(struct dst_entry *dst);
 
 extern wait_queue_head_t km_waitq;
 extern int km_new_mapping(struct xfrm_state *x, xfrm_address_t *ipaddr, u16 sport);
