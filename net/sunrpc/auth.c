@@ -94,7 +94,7 @@ rpcauth_init_credcache(struct rpc_auth *auth)
 {
 	int i;
 	for (i = 0; i < RPC_CREDCACHE_NR; i++)
-		INIT_LIST_HEAD(&auth->au_credcache[i]);
+		INIT_HLIST_HEAD(&auth->au_credcache[i]);
 	auth->au_nextgc = jiffies + (auth->au_expire >> 1);
 }
 
@@ -102,13 +102,13 @@ rpcauth_init_credcache(struct rpc_auth *auth)
  * Destroy a list of credentials
  */
 static inline
-void rpcauth_destroy_credlist(struct list_head *head)
+void rpcauth_destroy_credlist(struct hlist_head *head)
 {
 	struct rpc_cred *cred;
 
-	while (!list_empty(head)) {
-		cred = list_entry(head->next, struct rpc_cred, cr_hash);
-		list_del_init(&cred->cr_hash);
+	while (!hlist_empty(head)) {
+		cred = hlist_entry(head->first, struct rpc_cred, cr_hash);
+		hlist_del_init(&cred->cr_hash);
 		put_rpccred(cred);
 	}
 }
@@ -120,16 +120,17 @@ void rpcauth_destroy_credlist(struct list_head *head)
 void
 rpcauth_free_credcache(struct rpc_auth *auth)
 {
-	LIST_HEAD(free);
-	struct list_head *pos, *next;
+	HLIST_HEAD(free);
+	struct hlist_node *pos, *next;
 	struct rpc_cred	*cred;
 	int		i;
 
 	spin_lock(&rpc_credcache_lock);
 	for (i = 0; i < RPC_CREDCACHE_NR; i++) {
-		list_for_each_safe(pos, next, &auth->au_credcache[i]) {
-			cred = list_entry(pos, struct rpc_cred, cr_hash);
-			list_move(&cred->cr_hash, &free);
+		hlist_for_each_safe(pos, next, &auth->au_credcache[i]) {
+			cred = hlist_entry(pos, struct rpc_cred, cr_hash);
+			__hlist_del(&cred->cr_hash);
+			hlist_add_head(&cred->cr_hash, &free);
 		}
 	}
 	spin_unlock(&rpc_credcache_lock);
@@ -137,30 +138,32 @@ rpcauth_free_credcache(struct rpc_auth *auth)
 }
 
 static void
-rpcauth_prune_expired(struct rpc_auth *auth, struct rpc_cred *cred, struct list_head *free)
+rpcauth_prune_expired(struct rpc_auth *auth, struct rpc_cred *cred, struct hlist_head *free)
 {
 	if (atomic_read(&cred->cr_count) != 1)
 	       return;
 	if (time_after(jiffies, cred->cr_expire + auth->au_expire))
 		cred->cr_flags &= ~RPCAUTH_CRED_UPTODATE;
-	if (!(cred->cr_flags & RPCAUTH_CRED_UPTODATE))
-		list_move(&cred->cr_hash, free);
+	if (!(cred->cr_flags & RPCAUTH_CRED_UPTODATE)) {
+		__hlist_del(&cred->cr_hash);
+		hlist_add_head(&cred->cr_hash, free);
+	}
 }
 
 /*
  * Remove stale credentials. Avoid sleeping inside the loop.
  */
 static void
-rpcauth_gc_credcache(struct rpc_auth *auth, struct list_head *free)
+rpcauth_gc_credcache(struct rpc_auth *auth, struct hlist_head *free)
 {
-	struct list_head *pos, *next;
+	struct hlist_node *pos, *next;
 	struct rpc_cred	*cred;
 	int		i;
 
 	dprintk("RPC: gc'ing RPC credentials for auth %p\n", auth);
 	for (i = 0; i < RPC_CREDCACHE_NR; i++) {
-		list_for_each_safe(pos, next, &auth->au_credcache[i]) {
-			cred = list_entry(pos, struct rpc_cred, cr_hash);
+		hlist_for_each_safe(pos, next, &auth->au_credcache[i]) {
+			cred = hlist_entry(pos, struct rpc_cred, cr_hash);
 			rpcauth_prune_expired(auth, cred, free);
 		}
 	}
@@ -174,8 +177,8 @@ struct rpc_cred *
 rpcauth_lookup_credcache(struct rpc_auth *auth, struct auth_cred * acred,
 		int taskflags)
 {
-	LIST_HEAD(free);
-	struct list_head *pos, *next;
+	HLIST_HEAD(free);
+	struct hlist_node *pos, *next;
 	struct rpc_cred	*new = NULL,
 			*cred = NULL;
 	int		nr = 0;
@@ -186,11 +189,11 @@ retry:
 	spin_lock(&rpc_credcache_lock);
 	if (time_before(auth->au_nextgc, jiffies))
 		rpcauth_gc_credcache(auth, &free);
-	list_for_each_safe(pos, next, &auth->au_credcache[nr]) {
+	hlist_for_each_safe(pos, next, &auth->au_credcache[nr]) {
 		struct rpc_cred *entry;
-	       	entry = list_entry(pos, struct rpc_cred, cr_hash);
+	       	entry = hlist_entry(pos, struct rpc_cred, cr_hash);
 		if (entry->cr_ops->crmatch(acred, entry, taskflags)) {
-			list_del(&entry->cr_hash);
+			hlist_del(&entry->cr_hash);
 			cred = entry;
 			break;
 		}
@@ -198,12 +201,12 @@ retry:
 	}
 	if (new) {
 		if (cred)
-			list_add(&new->cr_hash, &free);
+			hlist_add_head(&new->cr_hash, &free);
 		else
 			cred = new;
 	}
 	if (cred) {
-		list_add(&cred->cr_hash, &auth->au_credcache[nr]);
+		hlist_add_head(&cred->cr_hash, &auth->au_credcache[nr]);
 		get_rpccred(cred);
 	}
 	spin_unlock(&rpc_credcache_lock);

@@ -35,7 +35,7 @@ struct auth_cred {
  * Client user credentials
  */
 struct rpc_cred {
-	struct list_head	cr_hash;	/* hash chain */
+	struct hlist_node	cr_hash;	/* hash chain */
 	struct rpc_credops *	cr_ops;
 	unsigned long		cr_expire;	/* when to gc */
 	atomic_t		cr_count;	/* ref count */
@@ -59,7 +59,7 @@ struct rpc_cred {
 #define RPC_CREDCACHE_NR	8
 #define RPC_CREDCACHE_MASK	(RPC_CREDCACHE_NR - 1)
 struct rpc_auth {
-	struct list_head	au_credcache[RPC_CREDCACHE_NR];
+	struct hlist_head	au_credcache[RPC_CREDCACHE_NR];
 	unsigned long		au_expire;	/* cache expiry interval */
 	unsigned long		au_nextgc;	/* next garbage collection */
 	unsigned int		au_cslack;	/* call cred size estimate */
