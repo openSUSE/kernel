@@ -1759,7 +1759,7 @@ static void __devexit pciserial_remove_one(struct pci_dev *dev)
 	}
 }
 
-static int pciserial_suspend_one(struct pci_dev *dev, u32 state)
+static int pciserial_suspend_one(struct pci_dev *dev, pm_message_t state)
 {
 	struct serial_private *priv = pci_get_drvdata(dev);
 
@@ -1769,6 +1769,8 @@ static int pciserial_suspend_one(struct pci_dev *dev, u32 state)
 		for (i = 0; i < priv->nr; i++)
 			serial8250_suspend_port(priv->line[i]);
 	}
+	pci_save_state(dev);
+	pci_set_power_state(dev, pci_choose_state(dev, state));
 	return 0;
 }
 
@@ -1776,8 +1778,16 @@ static int pciserial_resume_one(struct pci_dev *dev)
 {
 	struct serial_private *priv = pci_get_drvdata(dev);
 
+	pci_set_power_state(dev, PCI_D0);
+	pci_restore_state(dev);
+
 	if (priv) {
 		int i;
+
+		/*
+		 * The device may have been disabled.  Re-enable it.
+		 */
+		pci_enable_device(dev);
 
 		/*
 		 * Ensure that the board is correctly configured.
