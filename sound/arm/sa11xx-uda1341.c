@@ -21,7 +21,7 @@
  *                              merged HAL layer (patches from Brian)
  */
 
-/* $Id: sa11xx-uda1341.c,v 1.19 2004/12/15 15:26:10 tiwai Exp $ */
+/* $Id: sa11xx-uda1341.c,v 1.20 2005/01/28 14:49:59 tiwai Exp $ */
 
 /***************************************************************************************************
 *
@@ -938,7 +938,7 @@ static int __init sa11xx_uda1341_init(void)
 	if ((err = snd_card_sa11xx_uda1341_pcm(sa11xx_uda1341, 0)) < 0)
 		goto nodev;
         
-	snd_card_set_dev_pm_callback(card, PM_SYS_DEV,
+	snd_card_set_generic_pm_callback(card,
 				     snd_sa11xx_uda1341_suspend, snd_sa11_uda1341_resume,
 				     sa11xx_uda1341);
 
