@@ -158,13 +158,13 @@ static int spi_host_match(struct attribute_container *cont,
 		return 0;
 
 	shost = dev_to_shost(dev);
-	if (!shost->transportt  || shost->transportt->host_attrs.class
+	if (!shost->transportt  || shost->transportt->host_attrs.ac.class
 	    != &spi_host_class.class)
 		return 0;
 
 	i = to_spi_internal(shost->transportt);
 	
-	return &i->t.host_attrs == cont;
+	return &i->t.host_attrs.ac == cont;
 }
 
 static int spi_device_configure(struct device *dev)
@@ -890,7 +890,7 @@ static int spi_device_match(struct attribute_container *cont,
 
 	sdev = to_scsi_device(dev);
 	shost = sdev->host;
-	if (!shost->transportt  || shost->transportt->host_attrs.class
+	if (!shost->transportt  || shost->transportt->host_attrs.ac.class
 	    != &spi_host_class.class)
 		return 0;
 	/* Note: this class has no device attributes, so it has
@@ -909,13 +909,13 @@ static int spi_target_match(struct attribute_container *cont,
 		return 0;
 
 	shost = dev_to_shost(dev->parent);
-	if (!shost->transportt  || shost->transportt->host_attrs.class
+	if (!shost->transportt  || shost->transportt->host_attrs.ac.class
 	    != &spi_host_class.class)
 		return 0;
 
 	i = to_spi_internal(shost->transportt);
 	
-	return &i->t.target_attrs == cont;
+	return &i->t.target_attrs.ac == cont;
 }
 
 static DECLARE_TRANSPORT_CLASS(spi_transport_class,
@@ -940,15 +940,15 @@ spi_attach_transport(struct spi_function_template *ft)
 	memset(i, 0, sizeof(struct spi_internal));
 
 
-	i->t.target_attrs.class = &spi_transport_class.class;
-	i->t.target_attrs.attrs = &i->attrs[0];
-	i->t.target_attrs.match = spi_target_match;
-	attribute_container_register(&i->t.target_attrs);
+	i->t.target_attrs.ac.class = &spi_transport_class.class;
+	i->t.target_attrs.ac.attrs = &i->attrs[0];
+	i->t.target_attrs.ac.match = spi_target_match;
+	transport_container_register(&i->t.target_attrs);
 	i->t.target_size = sizeof(struct spi_transport_attrs);
-	i->t.host_attrs.class = &spi_host_class.class;
-	i->t.host_attrs.attrs = &i->host_attrs[0];
-	i->t.host_attrs.match = spi_host_match;
-	attribute_container_register(&i->t.host_attrs);
+	i->t.host_attrs.ac.class = &spi_host_class.class;
+	i->t.host_attrs.ac.attrs = &i->host_attrs[0];
+	i->t.host_attrs.ac.match = spi_host_match;
+	transport_container_register(&i->t.host_attrs);
 	i->t.host_size = sizeof(struct spi_host_attrs);
 	i->f = ft;
 
@@ -985,6 +985,9 @@ EXPORT_SYMBOL(spi_attach_transport);
 void spi_release_transport(struct scsi_transport_template *t)
 {
 	struct spi_internal *i = to_spi_internal(t);
+
+	transport_container_unregister(&i->t.target_attrs);
+	transport_container_unregister(&i->t.host_attrs);
 
 	kfree(i);
 }

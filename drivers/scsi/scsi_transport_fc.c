@@ -722,13 +722,13 @@ static int fc_host_match(struct attribute_container *cont,
 		return 0;
 
 	shost = dev_to_shost(dev);
-	if (!shost->transportt  || shost->transportt->host_attrs.class
+	if (!shost->transportt  || shost->transportt->host_attrs.ac.class
 	    != &fc_host_class.class)
 		return 0;
 
 	i = to_fc_internal(shost->transportt);
 	
-	return &i->t.host_attrs == cont;
+	return &i->t.host_attrs.ac == cont;
 }
 
 static int fc_target_match(struct attribute_container *cont,
@@ -741,13 +741,13 @@ static int fc_target_match(struct attribute_container *cont,
 		return 0;
 
 	shost = dev_to_shost(dev->parent);
-	if (!shost->transportt  || shost->transportt->host_attrs.class
+	if (!shost->transportt  || shost->transportt->host_attrs.ac.class
 	    != &fc_host_class.class)
 		return 0;
 
 	i = to_fc_internal(shost->transportt);
 	
-	return &i->t.target_attrs == cont;
+	return &i->t.target_attrs.ac == cont;
 }
 
 
@@ -763,20 +763,21 @@ fc_attach_transport(struct fc_function_template *ft)
 
 	memset(i, 0, sizeof(struct fc_internal));
 
-	i->t.target_attrs.attrs = &i->starget_attrs[0];
-	i->t.target_attrs.class = &fc_transport_class.class;
-	i->t.target_attrs.match = fc_target_match;
-	attribute_container_register(&i->t.target_attrs);
+	i->t.target_attrs.ac.attrs = &i->starget_attrs[0];
+	i->t.target_attrs.ac.class = &fc_transport_class.class;
+	i->t.target_attrs.ac.match = fc_target_match;
+	transport_container_register(&i->t.target_attrs);
 	i->t.target_size = sizeof(struct fc_starget_attrs);
 
-	i->t.host_attrs.attrs = &i->host_attrs[0];
-	i->t.host_attrs.class = &fc_host_class.class;
-	i->t.host_attrs.match = fc_host_match;
-	attribute_container_register(&i->t.host_attrs);
+	i->t.host_attrs.ac.attrs = &i->host_attrs[0];
+	i->t.host_attrs.ac.class = &fc_host_class.class;
+	i->t.host_attrs.ac.match = fc_host_match;
 	i->t.host_size = sizeof(struct fc_host_attrs);
 
 	if (ft->get_fc_host_stats)
-		i->t.host_statistics = &fc_statistics_group;
+		i->t.host_attrs.statistics = &fc_statistics_group;
+
+	transport_container_register(&i->t.host_attrs);
 
 	i->f = ft;
 
@@ -830,6 +831,9 @@ EXPORT_SYMBOL(fc_attach_transport);
 void fc_release_transport(struct scsi_transport_template *t)
 {
 	struct fc_internal *i = to_fc_internal(t);
+
+	transport_container_unregister(&i->t.target_attrs);
+	transport_container_unregister(&i->t.host_attrs);
 
 	kfree(i);
 }
