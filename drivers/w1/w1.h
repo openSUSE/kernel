@@ -24,9 +24,17 @@
 
 struct w1_reg_num
 {
+#if defined(__LITTLE_ENDIAN_BITFIELD)
 	__u64	family:8,
 		id:48,
 		crc:8;
+#elif defined(__BIG_ENDIAN_BITFIELD)
+	__u64	crc:8,
+		id:48,
+		family:8;
+#else
+#error "Please fix <asm/byteorder.h>"
+#endif
 };
 
 #ifdef __KERNEL__
