@@ -353,10 +353,8 @@ nfsd4_lookupcred(struct nfs4_client *clp, int taskflags)
 {
         struct auth_cred acred;
 	struct rpc_clnt *clnt = clp->cl_callback.cb_client;
-        struct rpc_cred *ret = NULL;
+	struct rpc_cred *ret;
 
-	if (!clnt)
-		goto out;
         get_group_info(clp->cl_cred.cr_group_info);
         acred.uid = clp->cl_cred.cr_uid;
         acred.gid = clp->cl_cred.cr_gid;
@@ -366,7 +364,6 @@ nfsd4_lookupcred(struct nfs4_client *clp, int taskflags)
                 clnt->cl_auth->au_ops->au_name);
         ret = rpcauth_lookup_credcache(clnt->cl_auth, &acred, taskflags);
         put_group_info(clp->cl_cred.cr_group_info);
-out:
         return ret;
 }
 
@@ -449,6 +446,8 @@ nfsd4_probe_callback(struct nfs4_client *clp)
 	atomic_inc(&clp->cl_count);
 
 	msg.rpc_cred = nfsd4_lookupcred(clp,0);
+	if (msg.rpc_cred == NULL)
+		goto out_rpciod;
 	status = rpc_call_async(clnt, &msg, RPC_TASK_ASYNC, nfs4_cb_null, NULL);
 	put_rpccred(msg.rpc_cred);
 
@@ -513,7 +512,7 @@ nfsd4_cb_recall(struct nfs4_delegation *dp)
 		return;
 
 	msg.rpc_cred = nfsd4_lookupcred(clp, 0);
-	if (IS_ERR(msg.rpc_cred))
+	if (msg.rpc_cred == NULL)
 		goto out;
 
 	cbr->cbr_trunc = 0; /* XXX need to implement truncate optimization */
@@ -530,19 +529,19 @@ nfsd4_cb_recall(struct nfs4_delegation *dp)
 				 * before open reply granting delegation */
 				break;
 			default:
-				goto out;
+				goto out_put_cred;
 		}
 		ssleep(2);
 		status = rpc_call_sync(clnt, &msg, RPC_TASK_SOFT);
 	}
-
- out:
+out_put_cred:
+	put_rpccred(msg.rpc_cred);
+out:
 	if (status == -EIO)
 		atomic_set(&clp->cl_callback.cb_set, 0);
 	/* Success or failure, now we're either waiting for lease expiration
 	 * or deleg_return. */
 	nfs4_put_delegation(dp);
 	dprintk("NFSD: nfs4_cb_recall: dp %p dl_flock %p dl_count %d\n",dp, dp->dl_flock, atomic_read(&dp->dl_count));
-	put_rpccred(msg.rpc_cred);
 	return;
 }
