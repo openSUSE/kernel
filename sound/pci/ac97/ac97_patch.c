@@ -392,9 +392,36 @@ int patch_sigmatel_stac9700(ac97_t * ac97)
 	return 0;
 }
 
+static int snd_ac97_stac9708_put_bias(snd_kcontrol_t *kcontrol, snd_ctl_elem_value_t *ucontrol)
+{
+	ac97_t *ac97 = snd_kcontrol_chip(kcontrol);
+	int err;
+
+	down(&ac97->page_mutex);
+	snd_ac97_write(ac97, AC97_SIGMATEL_BIAS1, 0xabba);
+	err = snd_ac97_update_bits(ac97, AC97_SIGMATEL_BIAS2, 0x0010,
+				   (ucontrol->value.integer.value[0] & 1) << 4);
+	snd_ac97_write(ac97, AC97_SIGMATEL_BIAS1, 0);
+	up(&ac97->page_mutex);
+	return err;
+}
+
+static const snd_kcontrol_new_t snd_ac97_stac9708_bias_control = {
+	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+	.name = "Sigmatel Output Bias Switch",
+	.info = snd_ac97_info_volsw,
+	.get = snd_ac97_get_volsw,
+	.put = snd_ac97_stac9708_put_bias,
+	.private_value = AC97_SINGLE_VALUE(AC97_SIGMATEL_BIAS2, 4, 1, 0),
+};
+
 static int patch_sigmatel_stac9708_specific(ac97_t *ac97)
 {
+	int err;
+
 	snd_ac97_rename_vol_ctl(ac97, "Headphone Playback", "Sigmatel Surround Playback");
+	if ((err = patch_build_controls(ac97, &snd_ac97_stac9708_bias_control, 1)) < 0)
+		return err;
 	return patch_sigmatel_stac97xx_specific(ac97);
 }
 
