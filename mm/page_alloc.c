@@ -31,6 +31,7 @@
 #include <linux/topology.h>
 #include <linux/sysctl.h>
 #include <linux/cpu.h>
+#include <linux/cpuset.h>
 #include <linux/nodemask.h>
 #include <linux/vmalloc.h>
 
@@ -765,6 +766,9 @@ __alloc_pages(unsigned int gfp_mask, unsigned int order,
 				       classzone_idx, 0, 0))
 			continue;
 
+		if (!cpuset_zone_allowed(z))
+			continue;
+
 		page = buffered_rmqueue(z, order, gfp_mask);
 		if (page)
 			goto got_pg;
@@ -783,6 +787,9 @@ __alloc_pages(unsigned int gfp_mask, unsigned int order,
 				       gfp_mask & __GFP_HIGH))
 			continue;
 
+		if (!cpuset_zone_allowed(z))
+			continue;
+
 		page = buffered_rmqueue(z, order, gfp_mask);
 		if (page)
 			goto got_pg;
@@ -792,6 +799,8 @@ __alloc_pages(unsigned int gfp_mask, unsigned int order,
 	if (((p->flags & PF_MEMALLOC) || unlikely(test_thread_flag(TIF_MEMDIE))) && !in_interrupt()) {
 		/* go through the zonelist yet again, ignoring mins */
 		for (i = 0; (z = zones[i]) != NULL; i++) {
+			if (!cpuset_zone_allowed(z))
+				continue;
 			page = buffered_rmqueue(z, order, gfp_mask);
 			if (page)
 				goto got_pg;
@@ -831,6 +840,9 @@ rebalance:
 					       gfp_mask & __GFP_HIGH))
 				continue;
 
+			if (!cpuset_zone_allowed(z))
+				continue;
+
 			page = buffered_rmqueue(z, order, gfp_mask);
 			if (page)
 				goto got_pg;
@@ -845,6 +857,9 @@ rebalance:
 		for (i = 0; (z = zones[i]) != NULL; i++) {
 			if (!zone_watermark_ok(z, order, z->pages_high,
 					       classzone_idx, 0, 0))
+				continue;
+
+			if (!cpuset_zone_allowed(z))
 				continue;
 
 			page = buffered_rmqueue(z, order, gfp_mask);
@@ -1490,6 +1505,7 @@ void __init build_all_zonelists(void)
 	for_each_online_node(i)
 		build_zonelists(NODE_DATA(i));
 	printk("Built %i zonelists\n", num_online_nodes());
+	cpuset_init_current_mems_allowed();
 }
 
 /*

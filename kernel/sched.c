@@ -40,6 +40,7 @@
 #include <linux/timer.h>
 #include <linux/rcupdate.h>
 #include <linux/cpu.h>
+#include <linux/cpuset.h>
 #include <linux/percpu.h>
 #include <linux/kthread.h>
 #include <linux/seq_file.h>
@@ -3539,6 +3540,7 @@ long sched_setaffinity(pid_t pid, cpumask_t new_mask)
 {
 	task_t *p;
 	int retval;
+	cpumask_t cpus_allowed;
 
 	lock_cpu_hotplug();
 	read_lock(&tasklist_lock);
@@ -3563,6 +3565,8 @@ long sched_setaffinity(pid_t pid, cpumask_t new_mask)
 			!capable(CAP_SYS_NICE))
 		goto out_unlock;
 
+	cpus_allowed = cpuset_cpus_allowed(p);
+	cpus_and(new_mask, new_mask, cpus_allowed);
 	retval = set_cpus_allowed(p, new_mask);
 
 out_unlock:
@@ -4240,7 +4244,7 @@ static void move_task_off_dead_cpu(int dead_cpu, struct task_struct *tsk)
 
 	/* No more Mr. Nice Guy. */
 	if (dest_cpu == NR_CPUS) {
-		cpus_setall(tsk->cpus_allowed);
+		tsk->cpus_allowed = cpuset_cpus_allowed(tsk);
 		dest_cpu = any_online_cpu(tsk->cpus_allowed);
 
 		/*

@@ -14,6 +14,7 @@
 #include <linux/thread_info.h>
 #include <linux/cpumask.h>
 #include <linux/errno.h>
+#include <linux/nodemask.h>
 
 #include <asm/system.h>
 #include <asm/semaphore.h>
@@ -514,6 +515,7 @@ extern void cpu_attach_domain(struct sched_domain *sd, int cpu);
 
 struct io_context;			/* See blkdev.h */
 void exit_io_context(void);
+struct cpuset;
 
 #define NGROUPS_SMALL		32
 #define NGROUPS_PER_BLOCK	((int)(PAGE_SIZE / sizeof(gid_t)))
@@ -711,6 +713,11 @@ struct task_struct {
 #ifdef CONFIG_NUMA
   	struct mempolicy *mempolicy;
 	short il_next;
+#endif
+#ifdef CONFIG_CPUSETS
+	struct cpuset *cpuset;
+	nodemask_t mems_allowed;
+	int cpuset_mems_generation;
 #endif
 };
 

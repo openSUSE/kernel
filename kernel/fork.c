@@ -29,6 +29,7 @@
 #include <linux/mman.h>
 #include <linux/fs.h>
 #include <linux/cpu.h>
+#include <linux/cpuset.h>
 #include <linux/security.h>
 #include <linux/swap.h>
 #include <linux/syscalls.h>
@@ -1068,6 +1069,8 @@ static task_t *copy_process(unsigned long clone_flags,
 	SET_LINKS(p);
 	if (unlikely(p->ptrace & PT_PTRACED))
 		__ptrace_link(p, current->parent);
+
+	cpuset_fork(p);
 
 	attach_pid(p, PIDTYPE_PID, p->pid);
 	attach_pid(p, PIDTYPE_TGID, p->tgid);
