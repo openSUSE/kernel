@@ -782,7 +782,6 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 	tp->ext_header_len = 0;
 	if (np->opt)
 		tp->ext_header_len = np->opt->opt_flen + np->opt->opt_nflen;
-	tp->ext2_header_len = dst->header_len;
 
 	tp->rx_opt.mss_clamp = IPV6_MIN_MTU - sizeof(struct tcphdr) - sizeof(struct ipv6hdr);
 
@@ -894,8 +893,8 @@ static void tcp_v6_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 		} else
 			dst_hold(dst);
 
-		if (tp->pmtu_cookie > dst_pmtu(dst)) {
-			tcp_sync_mss(sk, dst_pmtu(dst));
+		if (tp->pmtu_cookie > dst_mtu(dst)) {
+			tcp_sync_mss(sk, dst_mtu(dst));
 			tcp_simple_retransmit(sk);
 		} /* else let the usual retransmit timer handle it */
 		dst_release(dst);
@@ -1524,9 +1523,8 @@ static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	if (newnp->opt)
 		newtp->ext_header_len = newnp->opt->opt_nflen +
 					newnp->opt->opt_flen;
-	newtp->ext2_header_len = dst->header_len;
 
-	tcp_sync_mss(newsk, dst_pmtu(dst));
+	tcp_sync_mss(newsk, dst_mtu(dst));
 	newtp->advmss = dst_metric(dst, RTAX_ADVMSS);
 	tcp_initialize_rcv_mss(newsk);
 
@@ -1873,7 +1871,6 @@ static int tcp_v6_rebuild_header(struct sock *sk)
 		ip6_dst_store(sk, dst, NULL);
 		sk->sk_route_caps = dst->dev->features &
 			~(NETIF_F_IP_CSUM | NETIF_F_TSO);
-		tcp_sk(sk)->ext2_header_len = dst->header_len;
 	}
 
 	return 0;
@@ -1927,7 +1924,6 @@ static int tcp_v6_xmit(struct sk_buff *skb, int ipfragok)
 		ip6_dst_store(sk, dst, NULL);
 		sk->sk_route_caps = dst->dev->features &
 			~(NETIF_F_IP_CSUM | NETIF_F_TSO);
-		tcp_sk(sk)->ext2_header_len = dst->header_len;
 	}
 
 	skb->dst = dst_clone(dst);

@@ -1026,6 +1026,10 @@ static int stale_bundle(struct dst_entry *dst)
 
 static void xfrm_dst_destroy(struct dst_entry *dst)
 {
+	struct xfrm_dst *xdst = (struct xfrm_dst *)dst;
+
+	dst_release(xdst->route);
+
 	if (!dst->xfrm)
 		return;
 	xfrm_state_put(dst->xfrm);
@@ -1110,25 +1114,88 @@ int xfrm_flush_bundles(void)
 	return 0;
 }
 
+void xfrm_init_pmtu(struct dst_entry *dst)
+{
+	do {
+		struct xfrm_dst *xdst = (struct xfrm_dst *)dst;
+		u32 pmtu, route_mtu_cached;
+
+		pmtu = dst_pmtu(dst->child);
+		xdst->child_mtu_cached = pmtu;
+
+		pmtu = xfrm_state_mtu(dst->xfrm, pmtu);
+
+		route_mtu_cached = dst_pmtu(xdst->route);
+		xdst->route_mtu_cached = route_mtu_cached;
+
+		if (pmtu > route_mtu_cached)
+			pmtu = route_mtu_cached;
+
+		dst->metrics[RTAX_MTU-1] = pmtu;
+	} while ((dst = dst->next));
+}
+
+EXPORT_SYMBOL(xfrm_init_pmtu);
+
 /* Check that the bundle accepts the flow and its components are
  * still valid.
  */
 
-int xfrm_bundle_ok(struct xfrm_dst *xdst, struct flowi *fl, int family)
+int xfrm_bundle_ok(struct xfrm_dst *first, struct flowi *fl, int family)
 {
-	struct dst_entry *dst = &xdst->u.dst;
+	struct dst_entry *dst = &first->u.dst;
+	struct xfrm_dst *last;
+	u32 mtu;
 
-	if (dst->path->obsolete > 0 ||
+	if (!dst_check(dst->path, 0) ||
 	    (dst->dev && !netif_running(dst->dev)))
 		return 0;
 
+	last = NULL;
+
 	do {
+		struct xfrm_dst *xdst = (struct xfrm_dst *)dst;
+
 		if (fl && !xfrm_selector_match(&dst->xfrm->sel, fl, family))
 			return 0;
 		if (dst->xfrm->km.state != XFRM_STATE_VALID)
 			return 0;
+
+		mtu = dst_pmtu(dst->child);
+		if (xdst->child_mtu_cached != mtu) {
+			last = xdst;
+			xdst->child_mtu_cached = mtu;
+		}
+
+		if (!dst_check(xdst->route, 0))
+			return 0;
+		mtu = dst_pmtu(xdst->route);
+		if (xdst->route_mtu_cached != mtu) {
+			last = xdst;
+			xdst->route_mtu_cached = mtu;
+		}
+
 		dst = dst->child;
 	} while (dst->xfrm);
+
+	if (likely(!last))
+		return 1;
+
+	mtu = last->child_mtu_cached;
+	for (;;) {
+		dst = &last->u.dst;
+
+		mtu = xfrm_state_mtu(dst->xfrm, mtu);
+		if (mtu > last->route_mtu_cached)
+			mtu = last->route_mtu_cached;
+		dst->metrics[RTAX_MTU-1] = mtu;
+
+		if (last == first)
+			break;
+
+		last = last->u.next;
+		last->child_mtu_cached = mtu;
+	}
 
 	return 1;
 }

@@ -601,11 +601,10 @@ W:	http://developer.axis.com
 S:	Maintained
 
 CRYPTO API
-P:	James Morris
-M:	jmorris@redhat.com
+P:	Herbert Xu
+M:	herbert@gondor.apana.org.au
 P:	David S. Miller
 M:	davem@davemloft.net
-W	http://samba.org/~jamesm/crypto/
 L:	linux-kernel@vger.kernel.org
 S:	Maintained
 
@@ -921,6 +920,13 @@ M:	khc@pm.waw.pl
 W:	http://www.kernel.org/pub/linux/utils/net/hdlc/
 S:	Maintained
 
+HARMONY SOUND DRIVER
+P:	Kyle McMartin
+M:	kyle@parisc-linux.org
+W:	http://www.parisc-linux.org/~kyle/harmony/
+L:	parisc-linux@lists.parisc-linux.org
+S:	Maintained
+
 HAYES ESP SERIAL DRIVER
 P:	Andrew J. Robinson
 M:	arobinso@nyx.net
@@ -1087,9 +1093,21 @@ M:	Gadi Oxman <gadio@netvision.net.il>
 L:	linux-kernel@vger.kernel.org
 S:	Maintained
 
+IEEE 1394 ETHERNET (eth1394)
+L:	linux1394-devel@lists.sourceforge.net
+W:	http://www.linux1394.org/
+S:	Orphan
+
+IEEE 1394 SBP2
+L:	linux1394-devel@lists.sourceforge.net
+W:	http://www.linux1394.org/
+S:	Orphan
+
 IEEE 1394 SUBSYSTEM
 P:	Ben Collins
 M:	bcollins@debian.org
+P:	Jody McIntyre
+M:	scjody@steamballoon.com
 L:	linux1394-devel@lists.sourceforge.net
 W:	http://www.linux1394.org/
 S:	Maintained
@@ -1097,13 +1115,15 @@ S:	Maintained
 IEEE 1394 OHCI DRIVER
 P:	Ben Collins
 M:	bcollins@debian.org
+P:	Jody McIntyre
+M:	scjody@steamballoon.com
 L:	linux1394-devel@lists.sourceforge.net
 W:	http://www.linux1394.org/
 S:	Maintained
 
 IEEE 1394 PCILYNX DRIVER
-P:	Andreas Bombe
-M:	andreas.bombe@munich.netsurf.de
+P:	Jody McIntyre
+M:	scjody@steamballoon.com
 L:	linux1394-devel@lists.sourceforge.net
 W:	http://www.linux1394.org/
 S:	Maintained
@@ -1111,6 +1131,8 @@ S:	Maintained
 IEEE 1394 RAW I/O DRIVER
 P:	Ben Collins
 M:	bcollins@debian.org
+P:	Dan Dennedy
+M:	dan@dennedy.org
 L:	linux1394-devel@lists.sourceforge.net
 W:	http://www.linux1394.org/
 S:	Maintained

@@ -511,6 +511,9 @@ struct xfrm_dst
 		struct rtable		rt;
 		struct rt6_info		rt6;
 	} u;
+	struct dst_entry *route;
+	u32 route_mtu_cached;
+	u32 child_mtu_cached;
 };
 
 /* Decapsulation state, used by the input to store data during
@@ -807,6 +810,7 @@ extern void xfrm_state_flush(u8 proto);
 extern int xfrm_replay_check(struct xfrm_state *x, u32 seq);
 extern void xfrm_replay_advance(struct xfrm_state *x, u32 seq);
 extern int xfrm_state_check(struct xfrm_state *x, struct sk_buff *skb);
+extern int xfrm_state_mtu(struct xfrm_state *x, int mtu);
 extern int xfrm4_rcv(struct sk_buff *skb);
 extern int xfrm4_output(struct sk_buff *skb);
 extern int xfrm4_tunnel_register(struct xfrm_tunnel *handler);
@@ -858,6 +862,7 @@ extern void xfrm_policy_flush(void);
 extern int xfrm_sk_policy_insert(struct sock *sk, int dir, struct xfrm_policy *pol);
 extern int xfrm_flush_bundles(void);
 extern int xfrm_bundle_ok(struct xfrm_dst *xdst, struct flowi *fl, int family);
+extern void xfrm_init_pmtu(struct dst_entry *dst);
 
 extern wait_queue_head_t km_waitq;
 extern int km_new_mapping(struct xfrm_state *x, xfrm_address_t *ipaddr, u16 sport);

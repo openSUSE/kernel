@@ -284,9 +284,12 @@ struct tcp_sock {
 	__u32	mss_cache;	/* Cached effective mss, not including SACKS */
 	__u16	mss_cache_std;	/* Like mss_cache, but without TSO */
 	__u16	ext_header_len;	/* Network protocol overhead (IP/IPv6 options) */
-	__u16	ext2_header_len;/* Options depending on route */
 	__u8	ca_state;	/* State of fast-retransmit machine 	*/
 	__u8	retransmits;	/* Number of unrecovered RTO timeouts.	*/
+
+	__u16	advmss;		/* Advertised MSS			*/
+	__u32	window_clamp;	/* Maximal window to advertise		*/
+	__u32	rcv_ssthresh;	/* Current window clamp			*/
 
 	__u32	frto_highmark;	/* snd_nxt when RTO occurred */
 	__u8	reordering;	/* Packet reordering metric.		*/
@@ -345,14 +348,9 @@ struct tcp_sock {
 	struct tcp_sack_block duplicate_sack[1]; /* D-SACK block */
 	struct tcp_sack_block selective_acks[4]; /* The SACKS themselves*/
 
-	__u32	window_clamp;	/* Maximal window to advertise		*/
-	__u32	rcv_ssthresh;	/* Current window clamp			*/
-	__u16	advmss;		/* Advertised MSS			*/
-
 	__u8	syn_retries;	/* num of allowed syn retries */
 	__u8	ecn_flags;	/* ECN status bits.			*/
 	__u16	prior_ssthresh; /* ssthresh saved at recovery start	*/
-	__u16	__pad1;
 	__u32	lost_out;	/* Lost packets			*/
 	__u32	sacked_out;	/* SACK'd packets			*/
 	__u32	fackets_out;	/* FACK'd packets			*/

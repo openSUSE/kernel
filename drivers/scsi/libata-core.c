@@ -3884,26 +3884,22 @@ void ata_pci_remove_one (struct pci_dev *pdev)
 		ap = host_set->ports[i];
 
 		ata_scsi_release(ap->host);
-		scsi_host_put(ap->host);
-	}
-
-	pci_release_regions(pdev);
-
-	for (i = 0; i < host_set->n_ports; i++) {
-		struct ata_ioports *ioaddr;
-
-		ap = host_set->ports[i];
-		ioaddr = &ap->ioaddr;
 
 		if ((ap->flags & ATA_FLAG_NO_LEGACY) == 0) {
+			struct ata_ioports *ioaddr = &ap->ioaddr;
+
 			if (ioaddr->cmd_addr == 0x1f0)
 				release_region(0x1f0, 8);
 			else if (ioaddr->cmd_addr == 0x170)
 				release_region(0x170, 8);
 		}
+
+		scsi_host_put(ap->host);
 	}
 
 	kfree(host_set);
+
+	pci_release_regions(pdev);
 	pci_disable_device(pdev);
 	dev_set_drvdata(dev, NULL);
 }

@@ -124,6 +124,16 @@ dst_pmtu(const struct dst_entry *dst)
 	return mtu;
 }
 
+static inline u32 dst_mtu(const struct dst_entry *dst)
+{
+	u32 mtu = dst_metric(dst, RTAX_MTU);
+	/*
+	 * Alexey put it here, so ask him about it :)
+	 */
+	barrier();
+	return mtu;
+}
+
 static inline int
 dst_metric_locked(struct dst_entry *dst, int metric)
 {
@@ -247,6 +257,15 @@ static inline int dst_input(struct sk_buff *skb)
 		if (unlikely(err != NET_XMIT_BYPASS))
 			return err;
 	}
+}
+
+static inline struct dst_entry *dst_check(struct dst_entry *dst, u32 cookie)
+{
+	dst_hold(dst);
+	if (dst->obsolete)
+		dst = dst->ops->check(dst, cookie);
+	dst_release(dst);
+	return dst;
 }
 
 extern void		dst_init(void);

@@ -1719,7 +1719,7 @@ static int bond_enslave(struct net_device *bond_dev, struct net_device *slave_de
 		 */
 		memcpy(addr.sa_data, bond_dev->dev_addr, bond_dev->addr_len);
 		addr.sa_family = slave_dev->type;
-		res = slave_dev->set_mac_address(slave_dev, &addr);
+		res = dev_set_mac_address(slave_dev, &addr);
 		if (res) {
 			dprintk("Error %d calling set_mac_address\n", res);
 			goto err_free;
@@ -1849,8 +1849,8 @@ static int bond_enslave(struct net_device *bond_dev, struct net_device *slave_de
 	if (bond_update_speed_duplex(new_slave) &&
 	    (new_slave->link != BOND_LINK_DOWN)) {
 		printk(KERN_WARNING DRV_NAME
-		       ": Warning: failed to get speed/duplex from %s, speed "
-		       "forced to 100Mbps, duplex forced to Full.\n",
+		       ": Warning: failed to get speed and duplex from %s, "
+		       "assumed to be 100Mb/sec and Full.\n",
 		       new_slave->dev->name);
 
 		if (bond->params.mode == BOND_MODE_8023AD) {
@@ -1991,7 +1991,7 @@ err_close:
 err_restore_mac:
 	memcpy(addr.sa_data, new_slave->perm_hwaddr, ETH_ALEN);
 	addr.sa_family = slave_dev->type;
-	slave_dev->set_mac_address(slave_dev, &addr);
+	dev_set_mac_address(slave_dev, &addr);
 
 err_free:
 	kfree(new_slave);
@@ -2171,7 +2171,7 @@ static int bond_release(struct net_device *bond_dev, struct net_device *slave_de
 		/* restore original ("permanent") mac address */
 		memcpy(addr.sa_data, slave->perm_hwaddr, ETH_ALEN);
 		addr.sa_family = slave_dev->type;
-		slave_dev->set_mac_address(slave_dev, &addr);
+		dev_set_mac_address(slave_dev, &addr);
 	}
 
 	/* restore the original state of the
@@ -2262,7 +2262,7 @@ static int bond_release_all(struct net_device *bond_dev)
 			/* restore original ("permanent") mac address*/
 			memcpy(addr.sa_data, slave->perm_hwaddr, ETH_ALEN);
 			addr.sa_family = slave_dev->type;
-			slave_dev->set_mac_address(slave_dev, &addr);
+			dev_set_mac_address(slave_dev, &addr);
 		}
 
 		/* restore the original state of the IFF_NOARP flag that might have
@@ -3898,12 +3898,7 @@ static int bond_change_mtu(struct net_device *bond_dev, int new_mtu)
 	bond_for_each_slave(bond, slave, i) {
 		dprintk("s %p s->p %p c_m %p\n", slave,
 			slave->prev, slave->dev->change_mtu);
-		if (slave->dev->change_mtu) {
-			res = slave->dev->change_mtu(slave->dev, new_mtu);
-		} else {
-			slave->dev->mtu = new_mtu;
-			res = 0;
-		}
+		res = dev_set_mtu(slave->dev, new_mtu);
 
 		if (res) {
 			/* If we failed to set the slave's mtu to the new value
@@ -3929,14 +3924,10 @@ unwind:
 	bond_for_each_slave_from_to(bond, slave, i, bond->first_slave, stop_at) {
 		int tmp_res;
 
-		if (slave->dev->change_mtu) {
-			tmp_res = slave->dev->change_mtu(slave->dev, bond_dev->mtu);
-			if (tmp_res) {
-				dprintk("unwind err %d dev %s\n", tmp_res,
-					slave->dev->name);
-			}
-		} else {
-			slave->dev->mtu = bond_dev->mtu;
+		tmp_res = dev_set_mtu(slave->dev, bond_dev->mtu);
+		if (tmp_res) {
+			dprintk("unwind err %d dev %s\n", tmp_res,
+				slave->dev->name);
 		}
 	}
 
@@ -3988,7 +3979,7 @@ static int bond_set_mac_address(struct net_device *bond_dev, void *addr)
 			goto unwind;
 		}
 
-		res = slave->dev->set_mac_address(slave->dev, addr);
+		res = dev_set_mac_address(slave->dev, addr);
 		if (res) {
 			/* TODO: consider downing the slave
 			 * and retry ?
@@ -4014,7 +4005,7 @@ unwind:
 	bond_for_each_slave_from_to(bond, slave, i, bond->first_slave, stop_at) {
 		int tmp_res;
 
-		tmp_res = slave->dev->set_mac_address(slave->dev, &tmp_sa);
+		tmp_res = dev_set_mac_address(slave->dev, &tmp_sa);
 		if (tmp_res) {
 			dprintk("unwind err %d dev %s\n", tmp_res,
 				slave->dev->name);
