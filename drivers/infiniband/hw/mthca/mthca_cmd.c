@@ -1305,6 +1305,9 @@ int mthca_MAP_ICM_page(struct mthca_dev *dev, u64 dma_addr, u64 virt, u8 *status
 
 int mthca_UNMAP_ICM(struct mthca_dev *dev, u64 virt, u32 page_count, u8 *status)
 {
+	mthca_dbg(dev, "Unmapping %d pages at %llx from ICM.\n",
+		  page_count, (unsigned long long) virt);
+
 	return mthca_cmd(dev, virt, page_count, 0, CMD_UNMAP_ICM, CMD_TIME_CLASS_B, status);
 }
 
@@ -1538,10 +1541,10 @@ int mthca_MODIFY_QP(struct mthca_dev *dev, int trans, u32 num,
 		if (0) {
 			int i;
 			mthca_dbg(dev, "Dumping QP context:\n");
-			printk(" %08x\n", be32_to_cpup(qp_context));
+			printk("  opt param mask: %08x\n", be32_to_cpup(qp_context));
 			for (i = 0; i < 0x100 / 4; ++i) {
 				if (i % 8 == 0)
-					printk("[%02x] ", i * 4);
+					printk("  [%02x] ", i * 4);
 				printk(" %08x", be32_to_cpu(((u32 *) qp_context)[i + 2]));
 				if ((i + 1) % 8 == 0)
 					printk("\n");
