@@ -590,6 +590,7 @@ nfserrno (int errno)
 		{ nfserr_dropit, -EAGAIN },
 		{ nfserr_dropit, -ENOMEM },
 		{ nfserr_badname, -ESRCH },
+		{ nfserr_io, -ETXTBSY },
 		{ -1, -EIO }
 	};
 	int	i;
