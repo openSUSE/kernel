@@ -33,6 +33,7 @@
 #define ALPS_FW_BK	0x04
 #define ALPS_4BTN	0x08
 #define ALPS_OLDPROTO	0x10
+#define ALPS_PASS	0x20
 
 static struct alps_model_info alps_model_data[] = {
 	{ { 0x33, 0x02, 0x0a },	0x88, 0xf8, ALPS_OLDPROTO },
@@ -44,12 +45,12 @@ static struct alps_model_info alps_model_data[] = {
 	{ { 0x63, 0x02, 0x3c },	0x8f, 0x8f, ALPS_WHEEL },
 	{ { 0x63, 0x02, 0x50 },	0xef, 0xef, ALPS_FW_BK },
 	{ { 0x63, 0x02, 0x64 },	0xf8, 0xf8, 0 },
-	{ { 0x63, 0x03, 0xc8 }, 0xf8, 0xf8, 0 },
+	{ { 0x63, 0x03, 0xc8 }, 0xf8, 0xf8, ALPS_PASS },
 	{ { 0x73, 0x02, 0x0a },	0xf8, 0xf8, 0 },
 	{ { 0x73, 0x02, 0x14 },	0xf8, 0xf8, 0 },
-	{ { 0x20, 0x02, 0x0e },	0xf8, 0xf8, ALPS_DUALPOINT }, /* XXX */
-	{ { 0x22, 0x02, 0x0a },	0xf8, 0xf8, ALPS_DUALPOINT },
-	{ { 0x22, 0x02, 0x14 }, 0xf8, 0xf8, ALPS_DUALPOINT },
+	{ { 0x20, 0x02, 0x0e },	0xf8, 0xf8, ALPS_PASS | ALPS_DUALPOINT }, /* XXX */
+	{ { 0x22, 0x02, 0x0a },	0xf8, 0xf8, ALPS_PASS | ALPS_DUALPOINT },
+	{ { 0x22, 0x02, 0x14 }, 0xf8, 0xf8, ALPS_PASS | ALPS_DUALPOINT },
 };
 
 /*
@@ -350,7 +351,7 @@ static int alps_reconnect(struct psmouse *psmouse)
 	if ((priv->i = alps_get_model(psmouse, &version)) < 0)
 		return -1;
 
-	if (priv->i->flags & ALPS_DUALPOINT && alps_passthrough_mode(psmouse, 1))
+	if (priv->i->flags & ALPS_PASS && alps_passthrough_mode(psmouse, 1))
 		return -1;
 
 	if (alps_get_status(psmouse, param))
@@ -364,7 +365,7 @@ static int alps_reconnect(struct psmouse *psmouse)
 		return -1;
 	}
 
-	if (priv->i->flags == ALPS_DUALPOINT && alps_passthrough_mode(psmouse, 0))
+	if (priv->i->flags == ALPS_PASS && alps_passthrough_mode(psmouse, 0))
 		return -1;
 
 	return 0;
@@ -392,7 +393,7 @@ int alps_init(struct psmouse *psmouse)
 	if ((priv->i = alps_get_model(psmouse, &version)) < 0)
 		goto init_fail;
 
-	if ((priv->i->flags & ALPS_DUALPOINT) && alps_passthrough_mode(psmouse, 1))
+	if ((priv->i->flags & ALPS_PASS) && alps_passthrough_mode(psmouse, 1))
 		goto init_fail;
 
 	if (alps_get_status(psmouse, param)) {
@@ -411,7 +412,7 @@ int alps_init(struct psmouse *psmouse)
 		goto init_fail;
 	}
 
-	if ((priv->i->flags & ALPS_DUALPOINT) && alps_passthrough_mode(psmouse, 0))
+	if ((priv->i->flags & ALPS_PASS) && alps_passthrough_mode(psmouse, 0))
 		goto init_fail;
 
 	psmouse->dev.evbit[LONG(EV_KEY)] |= BIT(EV_KEY);
