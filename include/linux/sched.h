@@ -32,6 +32,7 @@
 #include <linux/pid.h>
 #include <linux/percpu.h>
 #include <linux/topology.h>
+#include <linux/seccomp.h>
 
 struct exec_domain;
 
@@ -643,6 +644,7 @@ struct task_struct {
 	
 	void *security;
 	struct audit_context *audit_context;
+	seccomp_t seccomp;
 
 /* Thread group tracking */
    	u32 parent_exec_id;
