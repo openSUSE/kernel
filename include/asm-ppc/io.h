@@ -552,4 +552,15 @@ extern void pci_iounmap(struct pci_dev *dev, void __iomem *);
 #include <asm/mpc8260_pci9.h>
 #endif
 
+/*
+ * Convert a physical pointer to a virtual kernel pointer for /dev/mem
+ * access
+ */
+#define xlate_dev_mem_ptr(p)	__va(p)
+
+/*
+ * Convert a virtual cached pointer to an uncached pointer
+ */
+#define xlate_dev_kmem_ptr(p)	p
+
 #endif /* __KERNEL__ */

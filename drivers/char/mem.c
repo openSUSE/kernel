@@ -111,39 +111,6 @@ static inline int valid_phys_addr_range(unsigned long addr, size_t *count)
 }
 #endif
 
-static ssize_t do_write_mem(void *p, unsigned long realp,
-			    const char __user * buf, size_t count, loff_t *ppos)
-{
-	ssize_t written;
-	unsigned long copied;
-
-	written = 0;
-#if defined(__sparc__) || (defined(__mc68000__) && defined(CONFIG_MMU))
-	/* we don't have page 0 mapped on sparc and m68k.. */
-	if (realp < PAGE_SIZE) {
-		unsigned long sz = PAGE_SIZE-realp;
-		if (sz > count) sz = count; 
-		/* Hmm. Do something? */
-		buf+=sz;
-		p+=sz;
-		count-=sz;
-		written+=sz;
-	}
-#endif
-	copied = copy_from_user(p, buf, count);
-	if (copied) {
-		ssize_t ret = written + (count - copied);
-
-		if (ret)
-			return ret;
-		return -EFAULT;
-	}
-	written += count;
-	*ppos += written;
-	return written;
-}
-
-
 /*
  * This funcion reads the *physical* memory. The f_pos points directly to the 
  * memory location. 
@@ -152,15 +119,16 @@ static ssize_t read_mem(struct file * file, char __user * buf,
 			size_t count, loff_t *ppos)
 {
 	unsigned long p = *ppos;
-	ssize_t read;
+	ssize_t read, sz;
+	char *ptr;
 
 	if (!valid_phys_addr_range(p, &count))
 		return -EFAULT;
 	read = 0;
-#if defined(__sparc__) || (defined(__mc68000__) && defined(CONFIG_MMU))
+#ifdef __ARCH_HAS_NO_PAGE_ZERO_MAPPED
 	/* we don't have page 0 mapped on sparc and m68k.. */
 	if (p < PAGE_SIZE) {
-		unsigned long sz = PAGE_SIZE-p;
+		sz = PAGE_SIZE - p;
 		if (sz > count) 
 			sz = count; 
 		if (sz > 0) {
@@ -173,9 +141,33 @@ static ssize_t read_mem(struct file * file, char __user * buf,
 		}
 	}
 #endif
-	if (copy_to_user(buf, __va(p), count))
-		return -EFAULT;
-	read += count;
+
+	while (count > 0) {
+		/*
+		 * Handle first page in case it's not aligned
+		 */
+		if (-p & (PAGE_SIZE - 1))
+			sz = -p & (PAGE_SIZE - 1);
+		else
+			sz = PAGE_SIZE;
+
+		sz = min_t(unsigned long, sz, count);
+
+		/*
+		 * On ia64 if a page has been mapped somewhere as
+		 * uncached, then it must also be accessed uncached
+		 * by the kernel or data corruption may occur
+		 */
+		ptr = xlate_dev_mem_ptr(p);
+
+		if (copy_to_user(buf, ptr, sz))
+			return -EFAULT;
+		buf += sz;
+		p += sz;
+		count -= sz;
+		read += sz;
+	}
+
 	*ppos += read;
 	return read;
 }
@@ -184,10 +176,64 @@ static ssize_t write_mem(struct file * file, const char __user * buf,
 			 size_t count, loff_t *ppos)
 {
 	unsigned long p = *ppos;
+	ssize_t written, sz;
+	unsigned long copied;
+	void *ptr;
 
 	if (!valid_phys_addr_range(p, &count))
 		return -EFAULT;
-	return do_write_mem(__va(p), p, buf, count, ppos);
+
+	written = 0;
+
+#ifdef __ARCH_HAS_NO_PAGE_ZERO_MAPPED
+	/* we don't have page 0 mapped on sparc and m68k.. */
+	if (p < PAGE_SIZE) {
+		unsigned long sz = PAGE_SIZE - p;
+		if (sz > count)
+			sz = count;
+		/* Hmm. Do something? */
+		buf += sz;
+		p += sz;
+		count -= sz;
+		written += sz;
+	}
+#endif
+
+	while (count > 0) {
+		/*
+		 * Handle first page in case it's not aligned
+		 */
+		if (-p & (PAGE_SIZE - 1))
+			sz = -p & (PAGE_SIZE - 1);
+		else
+			sz = PAGE_SIZE;
+
+		sz = min_t(unsigned long, sz, count);
+
+		/*
+		 * On ia64 if a page has been mapped somewhere as
+		 * uncached, then it must also be accessed uncached
+		 * by the kernel or data corruption may occur
+		 */
+		ptr = xlate_dev_mem_ptr(p);
+
+		copied = copy_from_user(ptr, buf, sz);
+		if (copied) {
+			ssize_t ret;
+
+			ret = written + (sz - copied);
+			if (ret)
+				return ret;
+			return -EFAULT;
+		}
+		buf += sz;
+		p += sz;
+		count -= sz;
+		written += sz;
+	}
+
+	*ppos += written;
+	return written;
 }
 
 static int mmap_mem(struct file * file, struct vm_area_struct * vma)
@@ -221,16 +267,17 @@ static ssize_t read_kmem(struct file *file, char __user *buf,
 			 size_t count, loff_t *ppos)
 {
 	unsigned long p = *ppos;
-	ssize_t read = 0;
-	ssize_t virtr = 0;
+	ssize_t read, virtr, sz;
 	char * kbuf; /* k-addr because vread() takes vmlist_lock rwlock */
-		
+
+	read = 0;
+	virtr = 0;
 	if (p < (unsigned long) high_memory) {
 		read = count;
 		if (count > (unsigned long) high_memory - p)
 			read = (unsigned long) high_memory - p;
 
-#if defined(__sparc__) || (defined(__mc68000__) && defined(CONFIG_MMU))
+#ifdef __ARCH_HAS_NO_PAGE_ZERO_MAPPED
 		/* we don't have page 0 mapped on sparc and m68k.. */
 		if (p < PAGE_SIZE && read > 0) {
 			size_t tmp = PAGE_SIZE - p;
@@ -243,11 +290,31 @@ static ssize_t read_kmem(struct file *file, char __user *buf,
 			count -= tmp;
 		}
 #endif
-		if (copy_to_user(buf, (char *)p, read))
-			return -EFAULT;
-		p += read;
-		buf += read;
-		count -= read;
+		while (read > 0) {
+			/*
+			 * Handle first page in case it's not aligned
+			 */
+			if (-p & (PAGE_SIZE - 1))
+				sz = -p & (PAGE_SIZE - 1);
+			else
+				sz = PAGE_SIZE;
+
+			sz = min_t(unsigned long, sz, count);
+
+			/*
+			 * On ia64 if a page has been mapped somewhere as
+			 * uncached, then it must also be accessed uncached
+			 * by the kernel or data corruption may occur
+			 */
+			kbuf = xlate_dev_kmem_ptr((char *)p);
+
+			if (copy_to_user(buf, kbuf, sz))
+				return -EFAULT;
+			buf += sz;
+			p += sz;
+			read -= sz;
+			count -= sz;
+		}
 	}
 
 	if (count > 0) {
@@ -277,6 +344,70 @@ static ssize_t read_kmem(struct file *file, char __user *buf,
  	return virtr + read;
 }
 
+
+static inline ssize_t
+do_write_kmem(void *p, unsigned long realp, const char __user * buf,
+	      size_t count, loff_t *ppos)
+{
+	ssize_t written, sz;
+	unsigned long copied;
+
+	written = 0;
+#ifdef __ARCH_HAS_NO_PAGE_ZERO_MAPPED
+	/* we don't have page 0 mapped on sparc and m68k.. */
+	if (realp < PAGE_SIZE) {
+		unsigned long sz = PAGE_SIZE - realp;
+		if (sz > count)
+			sz = count;
+		/* Hmm. Do something? */
+		buf += sz;
+		p += sz;
+		realp += sz;
+		count -= sz;
+		written += sz;
+	}
+#endif
+
+	while (count > 0) {
+		char *ptr;
+		/*
+		 * Handle first page in case it's not aligned
+		 */
+		if (-realp & (PAGE_SIZE - 1))
+			sz = -realp & (PAGE_SIZE - 1);
+		else
+			sz = PAGE_SIZE;
+
+		sz = min_t(unsigned long, sz, count);
+
+		/*
+		 * On ia64 if a page has been mapped somewhere as
+		 * uncached, then it must also be accessed uncached
+		 * by the kernel or data corruption may occur
+		 */
+		ptr = xlate_dev_kmem_ptr(p);
+
+		copied = copy_from_user(ptr, buf, sz);
+		if (copied) {
+			ssize_t ret;
+
+			ret = written + (sz - copied);
+			if (ret)
+				return ret;
+			return -EFAULT;
+		}
+		buf += sz;
+		p += sz;
+		realp += sz;
+		count -= sz;
+		written += sz;
+	}
+
+	*ppos += written;
+	return written;
+}
+
+
 /*
  * This function writes to the *virtual* memory as seen by the kernel.
  */
@@ -295,7 +426,7 @@ static ssize_t write_kmem(struct file * file, const char __user * buf,
 		if (count > (unsigned long) high_memory - p)
 			wrote = (unsigned long) high_memory - p;
 
-		written = do_write_mem((void*)p, p, buf, wrote, ppos);
+		written = do_write_kmem((void*)p, p, buf, wrote, ppos);
 		if (written != wrote)
 			return written;
 		wrote = written;
