@@ -1255,10 +1255,19 @@ static void chroot_fs_refs(struct nameidata *old_nd, struct nameidata *new_nd)
 }
 
 /*
- * Moves the current root to put_root, and sets root/cwd of all processes
- * which had them on the old root to new_root.
+ * pivot_root Semantics:
+ * Moves the root file system of the current process to the directory put_old,
+ * makes new_root as the new root file system of the current process, and sets
+ * root/cwd of all processes which had them on the current root to new_root.
  *
- * Note:
+ * Restrictions:
+ * The new_root and put_old must be directories, and  must not be on the
+ * same file  system as the current process root. The put_old  must  be
+ * underneath new_root,  i.e. adding a non-zero number of /.. to the string
+ * pointed to by put_old must yield the same directory as new_root. No other
+ * file system may be mounted on put_old. After all, new_root is a mountpoint.
+ *
+ * Notes:
  *  - we don't move root/cwd if they are not at the root (reason: if something
  *    cared enough to change them, it's probably wrong to force them elsewhere)
  *  - it's okay to pick a root that isn't the root of a file system, e.g.
@@ -1313,10 +1322,10 @@ asmlinkage long sys_pivot_root(const char __user *new_root, const char __user *p
 		goto out2;
 	error = -EBUSY;
 	if (new_nd.mnt == user_nd.mnt || old_nd.mnt == user_nd.mnt)
-		goto out2; /* loop */
+		goto out2; /* loop, on the same file system  */
 	error = -EINVAL;
 	if (user_nd.mnt->mnt_root != user_nd.dentry)
-		goto out2;
+		goto out2; /* not a mountpoint */
 	if (new_nd.mnt->mnt_root != new_nd.dentry)
 		goto out2; /* not a mountpoint */
 	tmp = old_nd.mnt; /* make sure we can reach put_old from new_root */
@@ -1324,7 +1333,7 @@ asmlinkage long sys_pivot_root(const char __user *new_root, const char __user *p
 	if (tmp != new_nd.mnt) {
 		for (;;) {
 			if (tmp->mnt_parent == tmp)
-				goto out3;
+				goto out3; /* already mounted on put_old */
 			if (tmp->mnt_parent == new_nd.mnt)
 				break;
 			tmp = tmp->mnt_parent;
@@ -1335,8 +1344,8 @@ asmlinkage long sys_pivot_root(const char __user *new_root, const char __user *p
 		goto out3;
 	detach_mnt(new_nd.mnt, &parent_nd);
 	detach_mnt(user_nd.mnt, &root_parent);
-	attach_mnt(user_nd.mnt, &old_nd);
-	attach_mnt(new_nd.mnt, &root_parent);
+	attach_mnt(user_nd.mnt, &old_nd);     /* mount old root on put_old */
+	attach_mnt(new_nd.mnt, &root_parent); /* mount new_root on / */
 	spin_unlock(&vfsmount_lock);
 	chroot_fs_refs(&user_nd, &new_nd);
 	security_sb_post_pivotroot(&user_nd, &new_nd);
