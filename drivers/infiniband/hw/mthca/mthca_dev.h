@@ -237,9 +237,17 @@ struct mthca_dev {
 	struct semaphore cap_mask_mutex;
 
 	void __iomem    *hcr;
-	void __iomem    *ecr_base;
-	void __iomem    *clr_base;
 	void __iomem    *kar;
+	void __iomem    *clr_base;
+	union {
+		struct {
+			void __iomem *ecr_base;
+		} tavor;
+		struct {
+			void __iomem *eq_arm;
+			void __iomem *eq_set_ci_base;
+		} arbel;
+	} eq_regs;
 
 	struct mthca_cmd    cmd;
 	struct mthca_limits limits;

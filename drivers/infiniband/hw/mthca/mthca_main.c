@@ -686,37 +686,18 @@ static int __devinit mthca_request_regions(struct pci_dev *pdev,
 	int err;
 
 	/*
-	 * We request our first BAR in two chunks, since the MSI-X
-	 * vector table is right in the middle.
+	 * We can't just use pci_request_regions() because the MSI-X
+	 * table is right in the middle of the first BAR.  If we did
+	 * pci_request_region and grab all of the first BAR, then
+	 * setting up MSI-X would fail, since the PCI core wants to do
+	 * request_mem_region on the MSI-X vector table.
 	 *
-	 * This is why we can't just use pci_request_regions() -- if
-	 * we did then setting up MSI-X would fail, since the PCI core
-	 * wants to do request_mem_region on the MSI-X vector table.
+	 * So just request what we need right now, and request any
+	 * other regions we need when setting up EQs.
 	 */
-	if (!request_mem_region(pci_resource_start(pdev, 0) +
-				MTHCA_HCR_BASE,
-				MTHCA_HCR_SIZE,
-				DRV_NAME)) {
-		err = -EBUSY;
-		goto err_hcr_failed;
-	}
-
-	if (!request_mem_region(pci_resource_start(pdev, 0) +
-				MTHCA_ECR_BASE,
-				MTHCA_MAP_ECR_SIZE,
-				DRV_NAME)) {
-		err = -EBUSY;
-		goto err_ecr_failed;
-	}
-
-	if (!request_mem_region(pci_resource_start(pdev, 0) +
-				MTHCA_CLR_INT_BASE,
-				MTHCA_CLR_INT_SIZE,
-				DRV_NAME)) {
-		err = -EBUSY;
-		goto err_int_failed;
-	}
-
+	if (!request_mem_region(pci_resource_start(pdev, 0) + MTHCA_HCR_BASE,
+				MTHCA_HCR_SIZE, DRV_NAME))
+		return -EBUSY;
 
 	err = pci_request_region(pdev, 2, DRV_NAME);
 	if (err)
@@ -731,24 +712,11 @@ static int __devinit mthca_request_regions(struct pci_dev *pdev,
 	return 0;
 
 err_bar4_failed:
-
 	pci_release_region(pdev, 2);
+
 err_bar2_failed:
-
-	release_mem_region(pci_resource_start(pdev, 0) +
-			   MTHCA_CLR_INT_BASE,
-			   MTHCA_CLR_INT_SIZE);
-err_int_failed:
-
-	release_mem_region(pci_resource_start(pdev, 0) +
-			   MTHCA_ECR_BASE,
-			   MTHCA_MAP_ECR_SIZE);
-err_ecr_failed:
-
-	release_mem_region(pci_resource_start(pdev, 0) +
-			   MTHCA_HCR_BASE,
+	release_mem_region(pci_resource_start(pdev, 0) + MTHCA_HCR_BASE,
 			   MTHCA_HCR_SIZE);
-err_hcr_failed:
 
 	return err;
 }
@@ -761,16 +729,7 @@ static void mthca_release_regions(struct pci_dev *pdev,
 
 	pci_release_region(pdev, 2);
 
-	release_mem_region(pci_resource_start(pdev, 0) +
-			   MTHCA_CLR_INT_BASE,
-			   MTHCA_CLR_INT_SIZE);
-
-	release_mem_region(pci_resource_start(pdev, 0) +
-			   MTHCA_ECR_BASE,
-			   MTHCA_MAP_ECR_SIZE);
-
-	release_mem_region(pci_resource_start(pdev, 0) +
-			   MTHCA_HCR_BASE,
+	release_mem_region(pci_resource_start(pdev, 0) + MTHCA_HCR_BASE,
 			   MTHCA_HCR_SIZE);
 }
 
@@ -941,31 +900,13 @@ static int __devinit mthca_init_one(struct pci_dev *pdev,
 		goto err_free_dev;
 	}
 
-	mdev->clr_base = ioremap(mthca_base + MTHCA_CLR_INT_BASE,
-				 MTHCA_CLR_INT_SIZE);
-	if (!mdev->clr_base) {
-		mthca_err(mdev, "Couldn't map interrupt clear register, "
-			  "aborting.\n");
-		err = -ENOMEM;
-		goto err_iounmap;
-	}
-
-	mdev->ecr_base = ioremap(mthca_base + MTHCA_ECR_BASE,
-				 MTHCA_ECR_SIZE + MTHCA_ECR_CLR_SIZE);
-	if (!mdev->ecr_base) {
-		mthca_err(mdev, "Couldn't map ecr register, "
-			  "aborting.\n");
-		err = -ENOMEM;
-		goto err_iounmap_clr;
-	}
-
 	mthca_base = pci_resource_start(pdev, 2);
 	mdev->kar = ioremap(mthca_base + PAGE_SIZE * MTHCA_KAR_PAGE, PAGE_SIZE);
 	if (!mdev->kar) {
 		mthca_err(mdev, "Couldn't map kernel access region, "
 			  "aborting.\n");
 		err = -ENOMEM;
-		goto err_iounmap_ecr;
+		goto err_iounmap;
 	}
 
 	err = mthca_tune_pci(mdev);
@@ -1014,12 +955,6 @@ err_close:
 err_iounmap_kar:
 	iounmap(mdev->kar);
 
-err_iounmap_ecr:
-	iounmap(mdev->ecr_base);
-
-err_iounmap_clr:
-	iounmap(mdev->clr_base);
-
 err_iounmap:
 	iounmap(mdev->hcr);
 
@@ -1067,9 +1002,8 @@ static void __devexit mthca_remove_one(struct pci_dev *pdev)
 
 		mthca_close_hca(mdev);
 
+		iounmap(mdev->kar);
 		iounmap(mdev->hcr);
-		iounmap(mdev->ecr_base);
-		iounmap(mdev->clr_base);
 
 		if (mdev->mthca_flags & MTHCA_FLAG_MSI_X)
 			pci_disable_msix(pdev);

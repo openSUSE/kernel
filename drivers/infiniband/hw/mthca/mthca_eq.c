@@ -366,10 +366,10 @@ static irqreturn_t mthca_interrupt(int irq, void *dev_ptr, struct pt_regs *regs)
 	if (dev->eq_table.clr_mask)
 		writel(dev->eq_table.clr_mask, dev->eq_table.clr_int);
 
-	if ((ecr = readl(dev->ecr_base + 4)) != 0) {
+	if ((ecr = readl(dev->eq_regs.tavor.ecr_base + 4)) != 0) {
 		work = 1;
 
-		writel(ecr, dev->ecr_base +
+		writel(ecr, dev->eq_regs.tavor.ecr_base +
 		       MTHCA_ECR_CLR_BASE - MTHCA_ECR_BASE + 4);
 
 		for (i = 0; i < MTHCA_NUM_EQ; ++i)
@@ -578,6 +578,129 @@ static void mthca_free_irqs(struct mthca_dev *dev)
 				 dev->eq_table.eq + i);
 }
 
+static int __devinit mthca_map_reg(struct mthca_dev *dev,
+				   unsigned long offset, unsigned long size,
+				   void __iomem **map)
+{
+	unsigned long base = pci_resource_start(dev->pdev, 0);
+
+	if (!request_mem_region(base + offset, size, DRV_NAME))
+		return -EBUSY;
+
+	*map = ioremap(base + offset, size);
+	if (!*map) {
+		release_mem_region(base + offset, size);
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
+static void mthca_unmap_reg(struct mthca_dev *dev, unsigned long offset,
+			    unsigned long size, void __iomem *map)
+{
+	unsigned long base = pci_resource_start(dev->pdev, 0);
+
+	release_mem_region(base + offset, size);
+	iounmap(map);
+}
+
+static int __devinit mthca_map_eq_regs(struct mthca_dev *dev)
+{
+	unsigned long mthca_base;
+
+	mthca_base = pci_resource_start(dev->pdev, 0);
+
+	if (dev->hca_type == ARBEL_NATIVE) {
+		/*
+		 * We assume that the EQ arm and EQ set CI registers
+		 * fall within the first BAR.  We can't trust the
+		 * values firmware gives us, since those addresses are
+		 * valid on the HCA's side of the PCI bus but not
+		 * necessarily the host side.
+		 */
+		if (mthca_map_reg(dev, (pci_resource_len(dev->pdev, 0) - 1) &
+				  dev->fw.arbel.clr_int_base, MTHCA_CLR_INT_SIZE,
+				  &dev->clr_base)) {
+			mthca_err(dev, "Couldn't map interrupt clear register, "
+				  "aborting.\n");
+			return -ENOMEM;
+		}
+
+		/*
+		 * Add 4 because we limit ourselves to EQs 0 ... 31,
+		 * so we only need the low word of the register.
+		 */
+		if (mthca_map_reg(dev, ((pci_resource_len(dev->pdev, 0) - 1) &
+					dev->fw.arbel.eq_arm_base) + 4, 4,
+				  &dev->eq_regs.arbel.eq_arm)) {
+			mthca_err(dev, "Couldn't map interrupt clear register, "
+				  "aborting.\n");
+			mthca_unmap_reg(dev, (pci_resource_len(dev->pdev, 0) - 1) &
+					dev->fw.arbel.clr_int_base, MTHCA_CLR_INT_SIZE,
+					dev->clr_base);
+			return -ENOMEM;
+		}
+
+		if (mthca_map_reg(dev, (pci_resource_len(dev->pdev, 0) - 1) &
+				  dev->fw.arbel.eq_set_ci_base,
+				  MTHCA_EQ_SET_CI_SIZE,
+				  &dev->eq_regs.arbel.eq_set_ci_base)) {
+			mthca_err(dev, "Couldn't map interrupt clear register, "
+				  "aborting.\n");
+			mthca_unmap_reg(dev, ((pci_resource_len(dev->pdev, 0) - 1) &
+					      dev->fw.arbel.eq_arm_base) + 4, 4,
+					dev->eq_regs.arbel.eq_arm);
+			mthca_unmap_reg(dev, (pci_resource_len(dev->pdev, 0) - 1) &
+					dev->fw.arbel.clr_int_base, MTHCA_CLR_INT_SIZE,
+					dev->clr_base);
+			return -ENOMEM;
+		}
+	} else {
+		if (mthca_map_reg(dev, MTHCA_CLR_INT_BASE, MTHCA_CLR_INT_SIZE,
+				  &dev->clr_base)) {
+			mthca_err(dev, "Couldn't map interrupt clear register, "
+				  "aborting.\n");
+			return -ENOMEM;
+		}
+
+		if (mthca_map_reg(dev, MTHCA_ECR_BASE,
+				  MTHCA_ECR_SIZE + MTHCA_ECR_CLR_SIZE,
+				  &dev->eq_regs.tavor.ecr_base)) {
+			mthca_err(dev, "Couldn't map ecr register, "
+				  "aborting.\n");
+			mthca_unmap_reg(dev, MTHCA_CLR_INT_BASE, MTHCA_CLR_INT_SIZE,
+					dev->clr_base);
+			return -ENOMEM;
+		}
+	}
+
+	return 0;
+
+}
+
+static void __devexit mthca_unmap_eq_regs(struct mthca_dev *dev)
+{
+	if (dev->hca_type == ARBEL_NATIVE) {
+		mthca_unmap_reg(dev, (pci_resource_len(dev->pdev, 0) - 1) &
+				dev->fw.arbel.eq_set_ci_base,
+				MTHCA_EQ_SET_CI_SIZE,
+				dev->eq_regs.arbel.eq_set_ci_base);
+		mthca_unmap_reg(dev, ((pci_resource_len(dev->pdev, 0) - 1) &
+				      dev->fw.arbel.eq_arm_base) + 4, 4,
+				dev->eq_regs.arbel.eq_arm);
+		mthca_unmap_reg(dev, (pci_resource_len(dev->pdev, 0) - 1) &
+				dev->fw.arbel.clr_int_base, MTHCA_CLR_INT_SIZE,
+				dev->clr_base);
+	} else {
+		mthca_unmap_reg(dev, MTHCA_ECR_BASE,
+				MTHCA_ECR_SIZE + MTHCA_ECR_CLR_SIZE,
+				dev->eq_regs.tavor.ecr_base);
+		mthca_unmap_reg(dev, MTHCA_CLR_INT_BASE, MTHCA_CLR_INT_SIZE,
+				dev->clr_base);
+	}
+}
+
 int __devinit mthca_map_eq_icm(struct mthca_dev *dev, u64 icm_virt)
 {
 	int ret;
@@ -636,6 +759,10 @@ int __devinit mthca_init_eq_table(struct mthca_dev *dev)
 	if (err)
 		return err;
 
+	err = mthca_map_eq_regs(dev);
+	if (err)
+		goto err_out_free;
+
 	if (dev->mthca_flags & MTHCA_FLAG_MSI ||
 	    dev->mthca_flags & MTHCA_FLAG_MSI_X) {
 		dev->eq_table.clr_mask = 0;
@@ -653,7 +780,7 @@ int __devinit mthca_init_eq_table(struct mthca_dev *dev)
 			      (dev->mthca_flags & MTHCA_FLAG_MSI_X) ? 128 : intr,
 			      &dev->eq_table.eq[MTHCA_EQ_COMP]);
 	if (err)
-		goto err_out_free;
+		goto err_out_unmap;
 
 	err = mthca_create_eq(dev, MTHCA_NUM_ASYNC_EQE,
 			      (dev->mthca_flags & MTHCA_FLAG_MSI_X) ? 129 : intr,
@@ -720,6 +847,9 @@ err_out_async:
 err_out_comp:
 	mthca_free_eq(dev, &dev->eq_table.eq[MTHCA_EQ_COMP]);
 
+err_out_unmap:
+	mthca_unmap_eq_regs(dev);
+
 err_out_free:
 	mthca_alloc_cleanup(&dev->eq_table.alloc);
 	return err;
@@ -739,6 +869,8 @@ void __devexit mthca_cleanup_eq_table(struct mthca_dev *dev)
 
 	for (i = 0; i < MTHCA_NUM_EQ; ++i)
 		mthca_free_eq(dev, &dev->eq_table.eq[i]);
+
+	mthca_unmap_eq_regs(dev);
 
 	mthca_alloc_cleanup(&dev->eq_table.alloc);
 }
