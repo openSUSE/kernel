@@ -2694,7 +2694,7 @@ zoran_do_ioctl (struct inode *inode,
 		strncpy(cap->card, ZR_DEVNAME(zr), sizeof(cap->card));
 		strncpy(cap->driver, "zoran", sizeof(cap->driver));
 		snprintf(cap->bus_info, sizeof(cap->bus_info), "PCI:%s",
-			 zr->pci_dev->slot_name);
+			 pci_name(zr->pci_dev));
 		cap->version =
 		    KERNEL_VERSION(MAJOR_VERSION, MINOR_VERSION,
 				   RELEASE_VERSION);

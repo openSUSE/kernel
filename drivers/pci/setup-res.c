@@ -86,11 +86,11 @@ pci_update_resource(struct pci_dev *dev, struct resource *res, int resno)
 	}
 	res->flags &= ~IORESOURCE_UNSET;
 	DBGC((KERN_INFO "PCI: moved device %s resource %d (%lx) to %x\n",
-		dev->slot_name, resno, res->flags,
+		pci_name(dev), resno, res->flags,
 		new & ~PCI_REGION_FLAG_MASK));
 }
 
-int __init
+int __devinit
 pci_claim_resource(struct pci_dev *dev, int resource)
 {
 	struct resource *res = &dev->resource[resource];
