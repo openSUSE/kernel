@@ -233,7 +233,6 @@ static int software_resume(void)
 	if ((error = prepare()))
 		goto Free;
 
-	barrier();
 	mb();
 
 	pr_debug("PM: Restoring saved image.\n");
