@@ -170,7 +170,7 @@ void vr41xx_mask_clock(vr41xx_clock_t clock)
 		    current_cpu_data.cputype == CPU_VR4121) {
 			cmuclkmsk &= ~MSKDSIU;
 		} else {
-			if (cmuclkmsk & MSKSIU)
+			if (cmuclkmsk & MSKSSIU)
 				cmuclkmsk &= ~MSKDSIU;
 			else
 				cmuclkmsk &= ~(MSKSIU | MSKDSIU);

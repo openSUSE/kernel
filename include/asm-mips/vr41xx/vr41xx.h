@@ -250,8 +250,6 @@ enum {
 /*
  * Serial Interface Unit
  */
-extern void vr41xx_siu_init(void);
-extern int vr41xx_serial_ports;
 
 /* SIU interfaces */
 typedef enum {
