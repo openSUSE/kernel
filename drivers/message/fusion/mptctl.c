@@ -142,6 +142,10 @@ static int mptctl_hp_targetinfo(unsigned long arg);
 static int  mptctl_probe(struct pci_dev *, const struct pci_device_id *);
 static void mptctl_remove(struct pci_dev *);
 
+#ifdef CONFIG_COMPAT
+static long compat_mpctl_ioctl(struct file *f, unsigned cmd, unsigned long arg);
+#endif
+
 /*
  * Private function calls.
  */
@@ -552,8 +556,8 @@ mptctl_ioc_reset(MPT_ADAPTER *ioc, int reset_phase)
  *  cmd - specify the particular IOCTL command to be issued
  *  arg - data specific to the command. Must not be null.
  */
-static int
-mptctl_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg)
+static long
+__mptctl_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	mpt_ioctl_header __user *uhdr = (void __user *) arg;
 	mpt_ioctl_header	 khdr;
@@ -634,6 +638,16 @@ mptctl_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned 
 
 	up(&iocp->ioctl->sem_ioc);
 
+	return ret;
+}
+
+static long
+mptctl_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	long ret;
+	lock_kernel();
+	ret = __mptctl_ioctl(file, cmd, arg);
+	unlock_kernel();
 	return ret;
 }
 
@@ -2669,7 +2683,10 @@ mptctl_hp_targetinfo(unsigned long arg)
 static struct file_operations mptctl_fops = {
 	.owner =	THIS_MODULE,
 	.llseek =	no_llseek,
-	.ioctl =	mptctl_ioctl,
+	.unlocked_ioctl = mptctl_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = compat_mpctl_ioctl,
+#endif
 };
 
 static struct miscdevice mptctl_miscdev = {
@@ -2691,22 +2708,10 @@ static struct miscdevice mptctl_miscdev = {
  * does contain pointer(s), then the specialized function is used
  * to ensure the structure contents is properly processed by mptctl.
  */
-static int
-compat_mptctl_ioctl(unsigned int fd, unsigned int cmd,
-			unsigned long arg, struct file *filp)
-{
-	int ret;
-
-	lock_kernel();
-	dctlprintk((KERN_INFO MYNAM "::compat_mptctl_ioctl() called\n"));
-	ret = mptctl_ioctl(filp->f_dentry->d_inode, filp, cmd, arg);
-	unlock_kernel();
-	return ret;
-}
  
 static int
-compat_mptfwxfer_ioctl(unsigned int fd, unsigned int cmd,
-			unsigned long arg, struct file *filp)
+compat_mptfwxfer_ioctl(struct file *filp, unsigned int cmd,
+			unsigned long arg)
 {
 	struct mpt_fw_xfer32 kfw32;
 	struct mpt_fw_xfer kfw;
@@ -2744,8 +2749,8 @@ compat_mptfwxfer_ioctl(unsigned int fd, unsigned int cmd,
 }
 
 static int
-compat_mpt_command(unsigned int fd, unsigned int cmd,
-			unsigned long arg, struct file *filp)
+compat_mpt_command(struct file *filp, unsigned int cmd,
+			unsigned long arg)
 {
 	struct mpt_ioctl_command32 karg32;
 	struct mpt_ioctl_command32 __user *uarg = (struct mpt_ioctl_command32 __user *) arg;
@@ -2794,6 +2799,38 @@ compat_mpt_command(unsigned int fd, unsigned int cmd,
 
 	up(&iocp->ioctl->sem_ioc);
 
+	return ret;
+}
+
+static long compat_mpctl_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
+{
+	int ret;
+	lock_kernel();
+	switch (cmd) { 
+	case MPTIOCINFO:
+	case MPTIOCINFO1:
+	case MPTIOCINFO2:
+	case MPTTARGETINFO:
+	case MPTEVENTQUERY:
+	case MPTEVENTENABLE:
+	case MPTEVENTREPORT:
+	case MPTHARDRESET:
+	case HP_GETHOSTINFO:
+	case HP_GETTARGETINFO:
+	case MPTTEST:
+		ret = __mptctl_ioctl(f, cmd, arg);
+		break;
+	case MPTCOMMAND32:
+		ret = compat_mpt_command(f, cmd, arg);
+		break;
+	case MPTFWDOWNLOAD32:
+		ret = compat_mptfwxfer_ioctl(f, cmd, arg);
+		break;
+	default:
+		ret = -ENOIOCTLCMD;
+		break;
+	}
+	unlock_kernel();
 	return ret;
 }
 
@@ -2879,35 +2916,6 @@ static int __init mptctl_init(void)
 		": failed to register dd callbacks\n"));
 	}
 
-#ifdef CONFIG_COMPAT
-	err = register_ioctl32_conversion(MPTIOCINFO, compat_mptctl_ioctl);
-	if (++where && err) goto out_fail;
-	err = register_ioctl32_conversion(MPTIOCINFO1, compat_mptctl_ioctl);
-	if (++where && err) goto out_fail;
-	err = register_ioctl32_conversion(MPTIOCINFO2, compat_mptctl_ioctl);
-	if (++where && err) goto out_fail;
-	err = register_ioctl32_conversion(MPTTARGETINFO, compat_mptctl_ioctl);
-	if (++where && err) goto out_fail;
-	err = register_ioctl32_conversion(MPTTEST, compat_mptctl_ioctl);
-	if (++where && err) goto out_fail;
-	err = register_ioctl32_conversion(MPTEVENTQUERY, compat_mptctl_ioctl);
-	if (++where && err) goto out_fail;
-	err = register_ioctl32_conversion(MPTEVENTENABLE, compat_mptctl_ioctl);
-	if (++where && err) goto out_fail;
-	err = register_ioctl32_conversion(MPTEVENTREPORT, compat_mptctl_ioctl);
-	if (++where && err) goto out_fail;
-	err = register_ioctl32_conversion(MPTHARDRESET, compat_mptctl_ioctl);
-	if (++where && err) goto out_fail;
-	err = register_ioctl32_conversion(MPTCOMMAND32, compat_mpt_command);
-	if (++where && err) goto out_fail;
-	err = register_ioctl32_conversion(MPTFWDOWNLOAD32,
-					  compat_mptfwxfer_ioctl);
-	if (++where && err) goto out_fail;
-	err = register_ioctl32_conversion(HP_GETHOSTINFO, compat_mptctl_ioctl);
-	if (++where && err) goto out_fail;
-	err = register_ioctl32_conversion(HP_GETTARGETINFO, compat_mptctl_ioctl);
-	if (++where && err) goto out_fail;
-#endif
 
 	/* Register this device */
 	err = misc_register(&mptctl_miscdev);
@@ -2940,23 +2948,6 @@ static int __init mptctl_init(void)
 
 out_fail:
 
-#ifdef CONFIG_COMPAT
-	printk(KERN_ERR MYNAM ": ERROR: Failed to register ioctl32_conversion!"
-			" (%d:err=%d)\n", where, err);
-	unregister_ioctl32_conversion(MPTIOCINFO);
-	unregister_ioctl32_conversion(MPTIOCINFO1);
-	unregister_ioctl32_conversion(MPTIOCINFO2);
-	unregister_ioctl32_conversion(MPTTARGETINFO);
-	unregister_ioctl32_conversion(MPTTEST);
-	unregister_ioctl32_conversion(MPTEVENTQUERY);
-	unregister_ioctl32_conversion(MPTEVENTENABLE);
-	unregister_ioctl32_conversion(MPTEVENTREPORT);
-	unregister_ioctl32_conversion(MPTHARDRESET);
-	unregister_ioctl32_conversion(MPTCOMMAND32);
-	unregister_ioctl32_conversion(MPTFWDOWNLOAD32);
-	unregister_ioctl32_conversion(HP_GETHOSTINFO);
-	unregister_ioctl32_conversion(HP_GETTARGETINFO);
-#endif
 
 	mpt_device_driver_deregister(MPTCTL_DRIVER);
 
@@ -2979,22 +2970,6 @@ static void mptctl_exit(void)
 	printk(KERN_INFO MYNAM ": Deregistered from Fusion MPT base driver\n");
 
         mpt_device_driver_deregister(MPTCTL_DRIVER);
-
-#ifdef CONFIG_COMPAT
-	unregister_ioctl32_conversion(MPTIOCINFO);
-	unregister_ioctl32_conversion(MPTIOCINFO1);
-	unregister_ioctl32_conversion(MPTIOCINFO2);
-	unregister_ioctl32_conversion(MPTTARGETINFO);
-	unregister_ioctl32_conversion(MPTTEST);
-	unregister_ioctl32_conversion(MPTEVENTQUERY);
-	unregister_ioctl32_conversion(MPTEVENTENABLE);
-	unregister_ioctl32_conversion(MPTEVENTREPORT);
-	unregister_ioctl32_conversion(MPTHARDRESET);
-	unregister_ioctl32_conversion(MPTCOMMAND32);
-	unregister_ioctl32_conversion(MPTFWDOWNLOAD32);
-	unregister_ioctl32_conversion(HP_GETHOSTINFO);
-	unregister_ioctl32_conversion(HP_GETTARGETINFO);
-#endif
 
 }
 
