@@ -786,6 +786,7 @@ static void __init asus_hides_smbus_hostbridge(struct pci_dev *dev)
 			}
 		if (dev->device == PCI_DEVICE_ID_INTEL_82855PM_HB)
 			switch (dev->subsystem_device) {
+			case 0x184b: /* W1N notebook */
 			case 0x186a: /* M6Ne notebook */
 				asus_hides_smbus = 1;
 			}
