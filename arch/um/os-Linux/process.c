@@ -8,9 +8,9 @@
 #include <errno.h>
 #include <signal.h>
 #include <linux/unistd.h>
-#include <sys/ptrace.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
+#include "ptrace_user.h"
 #include "os.h"
 #include "user.h"
 #include "user_util.h"

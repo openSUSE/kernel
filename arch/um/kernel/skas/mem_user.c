@@ -5,7 +5,6 @@
 
 #include <errno.h>
 #include <sys/mman.h>
-#include <sys/ptrace.h>
 #include "mem_user.h"
 #include "mem.h"
 #include "user.h"

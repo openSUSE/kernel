@@ -10,7 +10,7 @@
 #include "asm/ptrace.h"
 #include "asm/uaccess.h"
 #include "asm/unistd.h"
-#include "ptrace_user.h"
+#include "sysdep/ptrace.h"
 #include "sysdep/sigcontext.h"
 #include "sysdep/sc.h"
 

@@ -11,8 +11,8 @@
 #include "asm/unistd.h"
 #include "frame_kern.h"
 #include "signal_user.h"
-#include "ptrace_user.h"
 #include "sigcontext.h"
+#include "registers.h"
 #include "mode.h"
 
 #ifdef CONFIG_MODE_SKAS
@@ -51,7 +51,7 @@ static int copy_sc_from_user_skas(struct pt_regs *regs,
 	regs->regs.skas.fault_type = FAULT_WRITE(sc.err);
 	regs->regs.skas.trap_type = sc.trapno;
 
-	err = ptrace_setfpregs(userspace_pid[0], fpregs);
+	err = restore_fp_registers(userspace_pid[0], fpregs);
 	if(err < 0){
 	  	printk("copy_sc_from_user_skas - PTRACE_SETFPREGS failed, "
 		       "errno = %d\n", err);
@@ -90,7 +90,7 @@ int copy_sc_to_user_skas(struct sigcontext *to, struct _fpstate *to_fp,
 	sc.err = TO_SC_ERR(fault_type);
 	sc.trapno = regs->regs.skas.trap_type;
 
-	err = ptrace_getfpregs(userspace_pid[0], fpregs);
+	err = save_fp_registers(userspace_pid[0], fpregs);
 	if(err < 0){
 	  	printk("copy_sc_to_user_skas - PTRACE_GETFPREGS failed, "
 		       "errno = %d\n", err);

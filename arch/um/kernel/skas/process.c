@@ -10,8 +10,6 @@
 #include <setjmp.h>
 #include <sched.h>
 #include <sys/wait.h>
-#include <sys/ptrace.h>
-#include <linux/ptrace.h>
 #include <sys/mman.h>
 #include <sys/user.h>
 #include <asm/unistd.h>
@@ -62,7 +60,7 @@ static void handle_trap(int pid, union uml_pt_regs *regs, int local_using_sysemu
 
 	if (!local_using_sysemu)
 	{
-		err = ptrace(PTRACE_POKEUSER, pid, PT_SYSCALL_NR_OFFSET, __NR_getpid);
+		err = ptrace(PTRACE_POKEUSR, pid, PT_SYSCALL_NR_OFFSET, __NR_getpid);
 		if(err < 0)
 			panic("handle_trap - nullifying syscall failed errno = %d\n",
 			      errno);

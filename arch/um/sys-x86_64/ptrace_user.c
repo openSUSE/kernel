@@ -6,9 +6,7 @@
 
 #include <stddef.h>
 #include <errno.h>
-#define __FRAME_OFFSETS
-#include <sys/ptrace.h>
-#include <asm/ptrace.h>
+#include "ptrace_user.h"
 #include "user.h"
 #include "kern_constants.h"
 
@@ -42,12 +40,12 @@ void arch_enter_kernel(void *task, int pid)
 void arch_leave_kernel(void *task, int pid)
 {
 #ifdef UM_USER_CS
-        if(ptrace(PTRACE_POKEUSER, pid, CS, UM_USER_CS) < 0)
+        if(ptrace(PTRACE_POKEUSR, pid, CS, UM_USER_CS) < 0)
                 printk("POKEUSR CS failed");
 #endif
 
-        if(ptrace(PTRACE_POKEUSER, pid, DS, __USER_DS) < 0)
+        if(ptrace(PTRACE_POKEUSR, pid, DS, __USER_DS) < 0)
                 printk("POKEUSR DS failed");
-        if(ptrace(PTRACE_POKEUSER, pid, ES, __USER_DS) < 0)
+        if(ptrace(PTRACE_POKEUSR, pid, ES, __USER_DS) < 0)
                 printk("POKEUSR ES failed");
 }

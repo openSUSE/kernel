@@ -12,11 +12,6 @@
 #include <stdlib.h>
 #include <setjmp.h>
 #include <sys/time.h>
-#include <sys/ptrace.h>
-
-/*Userspace header, must be after sys/ptrace.h, and both must be included. */
-#include <linux/ptrace.h>
-
 #include <sys/wait.h>
 #include <sys/mman.h>
 #include <asm/unistd.h>
@@ -28,7 +23,6 @@
 #include "signal_kern.h"
 #include "signal_user.h"
 #include "sysdep/ptrace.h"
-#include "sysdep/ptrace_user.h"
 #include "sysdep/sigcontext.h"
 #include "irq_user.h"
 #include "ptrace_user.h"
@@ -36,6 +30,7 @@
 #include "init.h"
 #include "os.h"
 #include "uml-config.h"
+#include "ptrace_user.h"
 #include "choose-mode.h"
 #include "mode.h"
 #ifdef UML_CONFIG_MODE_SKAS
@@ -259,7 +254,7 @@ static void __init check_sysemu(void)
 		panic("check_sysemu : expected SIGTRAP, "
 		      "got status = %d", status);
 
-	n = ptrace(PTRACE_POKEUSER, pid, PT_SYSCALL_RET_OFFSET,
+	n = ptrace(PTRACE_POKEUSR, pid, PT_SYSCALL_RET_OFFSET,
 		   os_getpid());
 	if(n < 0)
 		panic("check_sysemu : failed to modify system "
@@ -285,12 +280,12 @@ static void __init check_sysemu(void)
 			panic("check_ptrace : expected (SIGTRAP|SYSCALL_TRAP), "
 			      "got status = %d", status);
 
-		syscall = ptrace(PTRACE_PEEKUSER, pid, PT_SYSCALL_NR_OFFSET,
+		syscall = ptrace(PTRACE_PEEKUSR, pid, PT_SYSCALL_NR_OFFSET,
 				 0);
 		if(syscall == __NR_getpid){
 			if (!count)
 				panic("check_ptrace : SYSEMU_SINGLESTEP doesn't singlestep");
-			n = ptrace(PTRACE_POKEUSER, pid, PT_SYSCALL_RET_OFFSET,
+			n = ptrace(PTRACE_POKEUSR, pid, PT_SYSCALL_RET_OFFSET,
 				   os_getpid());
 			if(n < 0)
 				panic("check_sysemu : failed to modify system "
@@ -336,10 +331,10 @@ void __init check_ptrace(void)
 			panic("check_ptrace : expected SIGTRAP + 0x80, "
 			      "got status = %d", status);
 		
-		syscall = ptrace(PTRACE_PEEKUSER, pid, PT_SYSCALL_NR_OFFSET,
+		syscall = ptrace(PTRACE_PEEKUSR, pid, PT_SYSCALL_NR_OFFSET,
 				 0);
 		if(syscall == __NR_getpid){
-			n = ptrace(PTRACE_POKEUSER, pid, PT_SYSCALL_NR_OFFSET,
+			n = ptrace(PTRACE_POKEUSR, pid, PT_SYSCALL_NR_OFFSET,
 				   __NR_getppid);
 			if(n < 0)
 				panic("check_ptrace : failed to modify system "

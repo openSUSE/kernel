@@ -6,7 +6,6 @@
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
-#include <sys/ptrace.h>
 #include <asm/unistd.h>
 #include "sysdep/ptrace.h"
 #include "sigcontext.h"
@@ -73,7 +72,7 @@ void do_syscall(void *task, int pid, int local_using_sysemu)
 		return;
 
 	/* syscall number -1 in sysemu skips syscall restarting in host */
-	if(ptrace(PTRACE_POKEUSER, pid, PT_SYSCALL_NR_OFFSET, 
+	if(ptrace(PTRACE_POKEUSR, pid, PT_SYSCALL_NR_OFFSET,
 		  local_using_sysemu ? -1 : __NR_getpid) < 0)
 		tracer_panic("do_syscall : Nullifying syscall failed, "
 			     "errno = %d", errno);

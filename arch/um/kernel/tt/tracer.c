@@ -12,7 +12,6 @@
 #include <sched.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <sys/ptrace.h>
 #include <sys/time.h>
 #include <sys/wait.h>
 #include "user.h"
@@ -293,7 +292,7 @@ int tracer(int (*init_proc)(void *), void *sp)
 				signal_index[proc_id] = last_index;
 			signal_record[proc_id][signal_index[proc_id]].pid = pid;
 			gettimeofday(&signal_record[proc_id][signal_index[proc_id]].time, NULL);
-			eip = ptrace(PTRACE_PEEKUSER, pid, PT_IP_OFFSET, 0);
+			eip = ptrace(PTRACE_PEEKUSR, pid, PT_IP_OFFSET, 0);
 			signal_record[proc_id][signal_index[proc_id]].addr = eip;
 			signal_record[proc_id][signal_index[proc_id]++].signal = sig;
 #endif
