@@ -24,6 +24,8 @@
 #include <linux/ioport.h>
 #include <linux/timer.h>
 #include <linux/pci.h>
+#include <linux/device.h>
+
 #include <asm/irq.h>
 #include <asm/io.h>
 
@@ -816,3 +818,108 @@ struct pccard_resource_ops pccard_nonstatic_ops = {
 	.exit = nonstatic_release_resource_db,
 };
 EXPORT_SYMBOL(pccard_nonstatic_ops);
+
+
+/* sysfs interface to the resource database */
+
+static ssize_t show_io_db(struct class_device *class_dev, char *buf)
+{
+	struct pcmcia_socket *s = class_get_devdata(class_dev);
+	struct socket_data *data;
+	struct resource_map *p;
+	ssize_t ret = 0;
+
+	down(&rsrc_sem);
+	data = s->resource_data;
+
+	for (p = data->io_db.next; p != &data->io_db; p = p->next) {
+		if (ret > (PAGE_SIZE - 10))
+			continue;
+		ret += snprintf (&buf[ret], (PAGE_SIZE - ret - 1),
+				 "0x%08lx - 0x%08lx\n",
+				 ((unsigned long) p->base),
+				 ((unsigned long) p->base + p->num - 1));
+	}
+
+	up(&rsrc_sem);
+	return (ret);
+}
+static CLASS_DEVICE_ATTR(available_resources_io, 0400, show_io_db, NULL);
+
+static ssize_t show_mem_db(struct class_device *class_dev, char *buf)
+{
+	struct pcmcia_socket *s = class_get_devdata(class_dev);
+	struct socket_data *data;
+	struct resource_map *p;
+	ssize_t ret = 0;
+
+	down(&rsrc_sem);
+	data = s->resource_data;
+
+	for (p = data->mem_db.next; p != &data->mem_db; p = p->next) {
+		if (ret > (PAGE_SIZE - 10))
+			continue;
+		ret += snprintf (&buf[ret], (PAGE_SIZE - ret - 1),
+				 "0x%08lx - 0x%08lx\n",
+				 ((unsigned long) p->base),
+				 ((unsigned long) p->base + p->num - 1));
+	}
+
+	up(&rsrc_sem);
+	return (ret);
+}
+static CLASS_DEVICE_ATTR(available_resources_mem, 0400, show_mem_db, NULL);
+
+static struct class_device_attribute *pccard_rsrc_attributes[] = {
+	&class_device_attr_available_resources_io,
+	&class_device_attr_available_resources_mem,
+	NULL,
+};
+
+static int __devinit pccard_sysfs_add_rsrc(struct class_device *class_dev)
+{
+	struct pcmcia_socket *s = class_get_devdata(class_dev);
+	struct class_device_attribute **attr;
+	int ret = 0;
+	if (s->resource_ops != &pccard_nonstatic_ops)
+		return 0;
+
+	for (attr = pccard_rsrc_attributes; *attr; attr++) {
+		ret = class_device_create_file(class_dev, *attr);
+		if (ret)
+			break;
+	}
+
+	return ret;
+}
+
+static void __devexit pccard_sysfs_remove_rsrc(struct class_device *class_dev)
+{
+	struct pcmcia_socket *s = class_get_devdata(class_dev);
+	struct class_device_attribute **attr;
+
+	if (s->resource_ops != &pccard_nonstatic_ops)
+		return;
+
+	for (attr = pccard_rsrc_attributes; *attr; attr++)
+		class_device_remove_file(class_dev, *attr);
+}
+
+static struct class_interface pccard_rsrc_interface = {
+	.class = &pcmcia_socket_class,
+	.add = &pccard_sysfs_add_rsrc,
+	.remove = __devexit_p(&pccard_sysfs_remove_rsrc),
+};
+
+static int __init nonstatic_sysfs_init(void)
+{
+	return class_interface_register(&pccard_rsrc_interface);
+}
+
+static void __exit nonstatic_sysfs_exit(void)
+{
+	class_interface_unregister(&pccard_rsrc_interface);
+}
+
+module_init(nonstatic_sysfs_init);
+module_exit(nonstatic_sysfs_exit);
