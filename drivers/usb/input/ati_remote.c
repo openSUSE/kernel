@@ -174,7 +174,6 @@ struct ati_remote {
 	dma_addr_t outbuf_dma;
 
 	int open;                   /* open counter */
-	int present;                /* device plugged in? */
 	
 	unsigned char old_data[2];  /* Detect duplicate events */
 	unsigned long old_jiffies;
@@ -356,19 +355,8 @@ static void ati_remote_close(struct input_dev *inputdev)
 {
 	struct ati_remote *ati_remote = inputdev->private;
 	
-	if (ati_remote == NULL) {
-		err("ati_remote: %s: object is NULL!\n", __FUNCTION__);
-		return;
-	}
-	
-	if (ati_remote->open <= 0)
-		dev_dbg(&ati_remote->interface->dev, "%s: Not open.\n", __FUNCTION__);
-	else
-		--ati_remote->open;
-	
-	/* If still present, disconnect will call delete. */
-	if (!ati_remote->present && !ati_remote->open)
-		ati_remote_delete(ati_remote);
+	if (!--ati_remote->open)
+		usb_kill_urb(ati_remote->irq_urb);
 }
 
 /*
@@ -812,7 +800,6 @@ static int ati_remote_probe(struct usb_interface *interface, const struct usb_de
 		 ati_remote->name, path);
 
 	usb_set_intfdata(interface, ati_remote);
-	ati_remote->present = 1;	
 	
 error:
 	if (buf)
@@ -840,12 +827,7 @@ static void ati_remote_disconnect(struct usb_interface *interface)
 		return;
 	}
 	
-	/* Mark device as unplugged */
-	ati_remote->present = 0;
-
-	/* If device is still open, ati_remote_close will call delete. */
-	if (!ati_remote->open)
-		ati_remote_delete(ati_remote);
+	ati_remote_delete(ati_remote);
 
 	up(&disconnect_sem);
 }
