@@ -133,7 +133,6 @@ static void __init allocate_pgdat(int nid)
 	else {
 		NODE_DATA(nid) = (pg_data_t *)(__va(min_low_pfn << PAGE_SHIFT));
 		min_low_pfn += PFN_UP(sizeof(pg_data_t));
-		memset(NODE_DATA(nid), 0, sizeof(pg_data_t));
 	}
 }
 
@@ -263,6 +262,7 @@ unsigned long __init setup_memory(void)
 	for_each_online_node(nid)
 		find_max_pfn_node(nid);
 
+	memset(NODE_DATA(0), 0, sizeof(struct pglist_data));
 	NODE_DATA(0)->bdata = &node0_bdata;
 	setup_bootmem_allocator();
 	return max_low_pfn;
@@ -280,8 +280,6 @@ void __init zone_sizes_init(void)
 	for (nid = MAX_NUMNODES - 1; nid >= 0; nid--) {
 		if (!node_online(nid))
 			continue;
-		if (nid)
-			memset(NODE_DATA(nid), 0, sizeof(pg_data_t));
 		NODE_DATA(nid)->pgdat_next = pgdat_list;
 		pgdat_list = NODE_DATA(nid);
 	}
