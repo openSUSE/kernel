@@ -692,6 +692,7 @@ extern struct inode *nfs4_atomic_open(struct inode *, struct dentry *, struct na
 extern int nfs4_open_revalidate(struct inode *, struct dentry *, int);
 
 extern struct nfs4_state_recovery_ops nfs4_reboot_recovery_ops;
+extern struct nfs4_state_recovery_ops nfs4_network_partition_recovery_ops;
 
 /* nfs4renewd.c */
 extern void nfs4_schedule_state_renewal(struct nfs4_client *);
@@ -709,6 +710,7 @@ extern u32 nfs4_alloc_lockowner_id(struct nfs4_client *);
 
 extern struct nfs4_state_owner * nfs4_get_state_owner(struct nfs_server *, struct rpc_cred *);
 extern void nfs4_put_state_owner(struct nfs4_state_owner *);
+extern void nfs4_drop_state_owner(struct nfs4_state_owner *);
 extern struct nfs4_state * nfs4_get_open_state(struct inode *, struct nfs4_state_owner *);
 extern void nfs4_put_open_state(struct nfs4_state *);
 extern void nfs4_close_state(struct nfs4_state *, mode_t);

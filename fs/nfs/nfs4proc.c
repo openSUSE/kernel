@@ -436,6 +436,100 @@ out:
 }
 
 /*
+ * OPEN_EXPIRED:
+ * 	reclaim state on the server after a network partition.
+ * 	Assumes caller holds the appropriate lock
+ */
+static int _nfs4_open_expired(struct nfs4_state_owner *sp, struct nfs4_state *state, struct dentry *dentry)
+{
+	struct dentry *parent = dget_parent(dentry);
+	struct inode *dir = parent->d_inode;
+	struct inode *inode = state->inode;
+	struct nfs_server *server = NFS_SERVER(dir);
+	struct nfs_delegation *delegation = NFS_I(inode)->delegation;
+	struct nfs_fattr        f_attr = {
+		.valid = 0,
+	};
+	struct nfs_openargs o_arg = {
+		.fh = NFS_FH(dir),
+		.open_flags = state->state,
+		.name = &dentry->d_name,
+		.bitmask = server->attr_bitmask,
+		.claim = NFS4_OPEN_CLAIM_NULL,
+	};
+	struct nfs_openres o_res = {
+		.f_attr = &f_attr,
+		.server = server,
+	};
+	int status = 0;
+
+	if (delegation != NULL && !(delegation->flags & NFS_DELEGATION_NEED_RECLAIM)) {
+		status = _nfs4_do_access(inode, sp->so_cred, state->state);
+		if (status < 0)
+			goto out;
+		memcpy(&state->stateid, &delegation->stateid, sizeof(state->stateid));
+		set_bit(NFS_DELEGATED_STATE, &state->flags);
+		goto out;
+	}
+	status = _nfs4_proc_open(dir, sp, &o_arg, &o_res);
+	if (status != 0)
+		goto out_nodeleg;
+	/* Check if files differ */
+	if ((f_attr.mode & S_IFMT) != (inode->i_mode & S_IFMT))
+		goto out_stale;
+	/* Has the file handle changed? */
+	if (nfs_compare_fh(&o_res.fh, NFS_FH(inode)) != 0) {
+		/* Verify if the change attributes are the same */
+		if (f_attr.change_attr != NFS_I(inode)->change_attr)
+			goto out_stale;
+		if (nfs_size_to_loff_t(f_attr.size) != inode->i_size)
+			goto out_stale;
+		/* Lets just pretend that this is the same file */
+		nfs_copy_fh(NFS_FH(inode), &o_res.fh);
+		NFS_I(inode)->fileid = f_attr.fileid;
+	}
+	memcpy(&state->stateid, &o_res.stateid, sizeof(state->stateid));
+	if (o_res.delegation_type != 0) {
+		if (!(delegation->flags & NFS_DELEGATION_NEED_RECLAIM))
+			nfs_inode_set_delegation(inode, sp->so_cred, &o_res);
+		else
+			nfs_inode_reclaim_delegation(inode, sp->so_cred, &o_res);
+	}
+out_nodeleg:
+	clear_bit(NFS_DELEGATED_STATE, &state->flags);
+out:
+	dput(parent);
+	return status;
+out_stale:
+	status = -ESTALE;
+	/* Invalidate the state owner so we don't ever use it again */
+	nfs4_drop_state_owner(sp);
+	d_drop(dentry);
+	/* Should we be trying to close that stateid? */
+	goto out_nodeleg;
+}
+
+static int nfs4_open_expired(struct nfs4_state_owner *sp, struct nfs4_state *state)
+{
+	struct nfs_inode *nfsi = NFS_I(state->inode);
+	struct nfs_open_context *ctx;
+	int status;
+
+	spin_lock(&state->inode->i_lock);
+	list_for_each_entry(ctx, &nfsi->open_files, list) {
+		if (ctx->state != state)
+			continue;
+		get_nfs_open_context(ctx);
+		spin_unlock(&state->inode->i_lock);
+		status = _nfs4_open_expired(sp, state, ctx->dentry);
+		put_nfs_open_context(ctx);
+		return status;
+	}
+	spin_unlock(&state->inode->i_lock);
+	return -ENOENT;
+}
+
+/*
  * Returns an nfs4_state + an extra reference to the inode
  */
 static int _nfs4_open_delegated(struct inode *inode, int flags, struct rpc_cred *cred, struct nfs4_state **res)
@@ -2563,6 +2657,11 @@ static int nfs4_lock_reclaim(struct nfs4_state *state, struct file_lock *request
 	return _nfs4_do_setlk(state, F_SETLK, request, 1);
 }
 
+static int nfs4_lock_expired(struct nfs4_state *state, struct file_lock *request)
+{
+	return _nfs4_do_setlk(state, F_SETLK, request, 0);
+}
+
 static int _nfs4_proc_setlk(struct nfs4_state *state, int cmd, struct file_lock *request)
 {
 	struct nfs4_client *clp = state->owner->so_client;
@@ -2635,6 +2734,11 @@ nfs4_proc_lock(struct file *filp, int cmd, struct file_lock *request)
 struct nfs4_state_recovery_ops nfs4_reboot_recovery_ops = {
 	.recover_open	= nfs4_open_reclaim,
 	.recover_lock	= nfs4_lock_reclaim,
+};
+
+struct nfs4_state_recovery_ops nfs4_network_partition_recovery_ops = {
+	.recover_open	= nfs4_open_expired,
+	.recover_lock	= nfs4_lock_expired,
 };
 
 struct nfs_rpc_ops	nfs_v4_clientops = {

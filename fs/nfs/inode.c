@@ -863,6 +863,12 @@ struct nfs_open_context *get_nfs_open_context(struct nfs_open_context *ctx)
 void put_nfs_open_context(struct nfs_open_context *ctx)
 {
 	if (atomic_dec_and_test(&ctx->count)) {
+		if (!list_empty(&ctx->list)) {
+			struct inode *inode = ctx->dentry->d_inode;
+			spin_lock(&inode->i_lock);
+			list_del(&ctx->list);
+			spin_unlock(&inode->i_lock);
+		}
 		if (ctx->state != NULL)
 			nfs4_close_state(ctx->state, ctx->mode);
 		if (ctx->cred != NULL)
@@ -911,7 +917,7 @@ void nfs_file_clear_open_context(struct file *filp)
 	if (ctx) {
 		filp->private_data = NULL;
 		spin_lock(&inode->i_lock);
-		list_del(&ctx->list);
+		list_move_tail(&ctx->list, &NFS_I(inode)->open_files);
 		spin_unlock(&inode->i_lock);
 		put_nfs_open_context(ctx);
 	}

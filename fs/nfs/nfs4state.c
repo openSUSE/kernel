@@ -280,8 +280,8 @@ nfs4_alloc_state_owner(void)
 	return sp;
 }
 
-static void
-nfs4_unhash_state_owner(struct nfs4_state_owner *sp)
+void
+nfs4_drop_state_owner(struct nfs4_state_owner *sp)
 {
 	struct nfs4_client *clp = sp->so_client;
 	spin_lock(&clp->cl_lock);
@@ -720,7 +720,7 @@ void nfs4_increment_seqid(int status, struct nfs4_state_owner *sp)
 		sp->so_seqid++;
 	/* If the server returns BAD_SEQID, unhash state_owner here */
 	if (status == -NFS4ERR_BAD_SEQID)
-		nfs4_unhash_state_owner(sp);
+		nfs4_drop_state_owner(sp);
 }
 
 static int reclaimer(void *);
@@ -833,8 +833,7 @@ static int nfs4_reclaim_open_state(struct nfs4_state_recovery_ops *ops, struct n
 			default:
 				printk(KERN_ERR "%s: unhandled error %d. Zeroing state\n",
 						__FUNCTION__, status);
-			case -NFS4ERR_EXPIRED:
-			case -NFS4ERR_NO_GRACE:
+			case -ENOENT:
 			case -NFS4ERR_RECLAIM_BAD:
 			case -NFS4ERR_RECLAIM_CONFLICT:
 				/*
@@ -846,6 +845,8 @@ static int nfs4_reclaim_open_state(struct nfs4_state_recovery_ops *ops, struct n
 				/* Mark the file as being 'closed' */
 				state->state = 0;
 				break;
+			case -NFS4ERR_EXPIRED:
+			case -NFS4ERR_NO_GRACE:
 			case -NFS4ERR_STALE_CLIENTID:
 				goto out_err;
 		}
@@ -877,21 +878,34 @@ static int reclaimer(void *ptr)
 		goto out;
 restart_loop:
 	status = nfs4_proc_renew(clp);
-	if (status == 0 || status == -NFS4ERR_CB_PATH_DOWN)
-		goto out;
-	ops = &nfs4_reboot_recovery_ops;
+	switch (status) {
+		case 0:
+		case -NFS4ERR_CB_PATH_DOWN:
+			goto out;
+		case -NFS4ERR_STALE_CLIENTID:
+		case -NFS4ERR_LEASE_MOVED:
+			ops = &nfs4_reboot_recovery_ops;
+			break;
+		default:
+			ops = &nfs4_network_partition_recovery_ops;
+	};
 	status = __nfs4_init_client(clp);
 	if (status)
 		goto out_error;
-	/* Mark all delagations for reclaim */
+	/* Mark all delegations for reclaim */
 	nfs_delegation_mark_reclaim(clp);
 	/* Note: list is protected by exclusive lock on cl->cl_sem */
 	list_for_each_entry(sp, &clp->cl_state_owners, so_list) {
 		status = nfs4_reclaim_open_state(ops, sp);
 		if (status < 0) {
+			if (status == -NFS4ERR_NO_GRACE) {
+				ops = &nfs4_network_partition_recovery_ops;
+				status = nfs4_reclaim_open_state(ops, sp);
+			}
 			if (status == -NFS4ERR_STALE_CLIENTID)
 				goto restart_loop;
-			goto out_error;
+			if (status == -NFS4ERR_EXPIRED)
+				goto restart_loop;
 		}
 	}
 	nfs_delegation_reap_unclaimed(clp);
