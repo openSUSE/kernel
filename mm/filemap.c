@@ -2285,22 +2285,26 @@ generic_file_direct_IO(int rw, struct kiocb *iocb, const struct iovec *iov,
 	struct file *file = iocb->ki_filp;
 	struct address_space *mapping = file->f_mapping;
 	ssize_t retval;
+	size_t write_len = 0;
 
 	/*
 	 * If it's a write, unmap all mmappings of the file up-front.  This
 	 * will cause any pte dirty bits to be propagated into the pageframes
 	 * for the subsequent filemap_write_and_wait().
 	 */
-	if (rw == WRITE && mapping_mapped(mapping))
-		unmap_mapping_range(mapping, 0, -1, 0);
+	if (rw == WRITE) {
+		write_len = iov_length(iov, nr_segs);
+	       	if (mapping_mapped(mapping))
+			unmap_mapping_range(mapping, offset, write_len, 0);
+	}
 
 	retval = filemap_write_and_wait(mapping);
 	if (retval == 0) {
 		retval = mapping->a_ops->direct_IO(rw, iocb, iov,
 						offset, nr_segs);
 		if (rw == WRITE && mapping->nrpages) {
-			pgoff_t end = (offset + iov_length(iov, nr_segs) - 1)
-				      >> PAGE_CACHE_SHIFT;
+			pgoff_t end = (offset + write_len - 1)
+						>> PAGE_CACHE_SHIFT;
 			int err = invalidate_inode_pages2_range(mapping,
 					offset >> PAGE_CACHE_SHIFT, end);
 			if (err)
