@@ -23,6 +23,7 @@
 
 #include <asm/system.h>
 
+#include <linux/module.h>
 #include <linux/types.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
@@ -450,6 +451,20 @@ rpc_setbufsize(struct rpc_clnt *clnt, unsigned int sndsize, unsigned int rcvsize
 	if (xprt_connected(xprt))
 		xprt_sock_setbufsize(xprt);
 }
+
+/*
+ * Return size of largest payload RPC client can support, in bytes
+ *
+ * For stream transports, this is one RPC record fragment (see RFC
+ * 1831), as we don't support multi-record requests yet.  For datagram
+ * transports, this is the size of an IP packet minus the IP, UDP, and
+ * RPC header sizes.
+ */
+size_t rpc_max_payload(struct rpc_clnt *clnt)
+{
+	return clnt->cl_xprt->max_payload;
+}
+EXPORT_SYMBOL(rpc_max_payload);
 
 /*
  * Restart an (async) RPC call. Usually called from within the

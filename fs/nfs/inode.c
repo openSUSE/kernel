@@ -249,6 +249,7 @@ nfs_sb_init(struct super_block *sb, rpc_authflavor_t authflavor)
 			.fattr = &fattr,
 	};
 	int no_root_error = 0;
+	unsigned long max_rpc_payload;
 
 	/* We probably want something more informative here */
 	snprintf(sb->s_id, sizeof(sb->s_id), "%x:%x", MAJOR(sb->s_dev), MINOR(sb->s_dev));
@@ -284,6 +285,12 @@ nfs_sb_init(struct super_block *sb, rpc_authflavor_t authflavor)
 		server->rsize = nfs_block_size(fsinfo.rtmax, NULL);
 	if (fsinfo.wtmax >= 512 && server->wsize > fsinfo.wtmax)
 		server->wsize = nfs_block_size(fsinfo.wtmax, NULL);
+
+	max_rpc_payload = nfs_block_size(rpc_max_payload(server->client), NULL);
+	if (server->rsize > max_rpc_payload)
+		server->rsize = max_rpc_payload;
+	if (server->wsize > max_rpc_payload)
+		server->wsize = max_rpc_payload;
 
 	server->rpages = (server->rsize + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
 	if (server->rpages > NFS_READ_MAXIOV) {
