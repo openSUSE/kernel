@@ -753,7 +753,7 @@ static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	if (elf_read_implies_exec(loc->elf_ex, executable_stack))
 		current->personality |= READ_IMPLIES_EXEC;
 
-	if (executable_stack == EXSTACK_DISABLE_X && randomize_va_space)
+	if ( !(current->personality & ADDR_NO_RANDOMIZE) && randomize_va_space)
 		current->flags |= PF_RANDOMIZE;
 	arch_pick_mmap_layout(current->mm);
 
