@@ -333,17 +333,18 @@ static inline pte_t pte_modify(pte_t orig_pte, pgprot_t new_prot)
 #define pte_unmap_nested(pte)		do { } while (0)
 
 /* Actual page table PTE updates.  */
-extern void tlb_batch_add(pte_t *ptep, pte_t orig);
+extern void tlb_batch_add(struct mm_struct *mm, unsigned long addr,
+			  pte_t *ptep, pte_t orig);
 
-static inline void set_pte(pte_t *ptep, pte_t pte)
+static inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
+			      pte_t *ptep, pte_t pte)
 {
 	pte_t orig = *ptep;
 
 	*ptep = pte;
-	if (pte_present(orig))
-		tlb_batch_add(ptep, orig);
+	if (pte_val(orig) & _PAGE_VALID)
+		tlb_batch_add(mm, addr, ptep, orig);
 }
-#define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
 
 #define pte_clear(mm,addr,ptep)		\
 	set_pte_at((mm), (addr), (ptep), __pte(0UL))

@@ -191,25 +191,17 @@ extern pte_t *__pte_alloc_one_kernel(struct mm_struct *mm, unsigned long address
 
 static inline pte_t *pte_alloc_one_kernel(struct mm_struct *mm, unsigned long address)
 {
-	pte_t *pte = __pte_alloc_one_kernel(mm, address);
-	if (pte) {
-		struct page *page = virt_to_page(pte);
-		page->mapping = (void *) mm;
-		page->index = address & PMD_MASK;
-	}
-	return pte;
+	return __pte_alloc_one_kernel(mm, address);
 }
 
 static inline struct page *
 pte_alloc_one(struct mm_struct *mm, unsigned long addr)
 {
 	pte_t *pte = __pte_alloc_one_kernel(mm, addr);
-	if (pte) {
-		struct page *page = virt_to_page(pte);
-		page->mapping = (void *) mm;
-		page->index = addr & PMD_MASK;
-		return page;
-	}
+
+	if (pte)
+		return virt_to_page(pte);
+
 	return NULL;
 }
 
@@ -246,13 +238,11 @@ static __inline__ void free_pte_slow(pte_t *pte)
 
 static inline void pte_free_kernel(pte_t *pte)
 {
-	virt_to_page(pte)->mapping = NULL;
 	free_pte_fast(pte);
 }
 
 static inline void pte_free(struct page *ptepage)
 {
-	ptepage->mapping = NULL;
 	free_pte_fast(page_address(ptepage));
 }
 

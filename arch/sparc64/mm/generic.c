@@ -25,8 +25,11 @@
  * side-effect bit will be turned off.  This is used as a
  * performance improvement on FFB/AFB. -DaveM
  */
-static inline void io_remap_pte_range(pte_t * pte, unsigned long address, unsigned long size,
-	unsigned long offset, pgprot_t prot, int space)
+static inline void io_remap_pte_range(struct mm_struct *mm, pte_t * pte,
+				      unsigned long address,
+				      unsigned long size,
+				      unsigned long offset, pgprot_t prot,
+				      int space)
 {
 	unsigned long end;
 
@@ -67,14 +70,14 @@ static inline void io_remap_pte_range(pte_t * pte, unsigned long address, unsign
 			pte_val(entry) &= ~(_PAGE_E);
 		do {
 			BUG_ON(!pte_none(*pte));
-			set_pte(pte, entry);
+			set_pte_at(mm, address, pte, entry);
 			address += PAGE_SIZE;
 			pte++;
 		} while (address < curend);
 	} while (address < end);
 }
 
-static inline int io_remap_pmd_range(pmd_t * pmd, unsigned long address, unsigned long size,
+static inline int io_remap_pmd_range(struct mm_struct *mm, pmd_t * pmd, unsigned long address, unsigned long size,
 	unsigned long offset, pgprot_t prot, int space)
 {
 	unsigned long end;
@@ -85,10 +88,10 @@ static inline int io_remap_pmd_range(pmd_t * pmd, unsigned long address, unsigne
 		end = PGDIR_SIZE;
 	offset -= address;
 	do {
-		pte_t * pte = pte_alloc_map(current->mm, pmd, address);
+		pte_t * pte = pte_alloc_map(mm, pmd, address);
 		if (!pte)
 			return -ENOMEM;
-		io_remap_pte_range(pte, address, end - address, address + offset, prot, space);
+		io_remap_pte_range(mm, pte, address, end - address, address + offset, prot, space);
 		pte_unmap(pte);
 		address = (address + PMD_SIZE) & PMD_MASK;
 		pmd++;
@@ -96,7 +99,7 @@ static inline int io_remap_pmd_range(pmd_t * pmd, unsigned long address, unsigne
 	return 0;
 }
 
-static inline int io_remap_pud_range(pud_t * pud, unsigned long address, unsigned long size,
+static inline int io_remap_pud_range(struct mm_struct *mm, pud_t * pud, unsigned long address, unsigned long size,
 	unsigned long offset, pgprot_t prot, int space)
 {
 	unsigned long end;
@@ -107,10 +110,10 @@ static inline int io_remap_pud_range(pud_t * pud, unsigned long address, unsigne
 		end = PUD_SIZE;
 	offset -= address;
 	do {
-		pmd_t *pmd = pmd_alloc(current->mm, pud, address);
+		pmd_t *pmd = pmd_alloc(mm, pud, address);
 		if (!pud)
 			return -ENOMEM;
-		io_remap_pmd_range(pmd, address, end - address, address + offset, prot, space);
+		io_remap_pmd_range(mm, pmd, address, end - address, address + offset, prot, space);
 		address = (address + PUD_SIZE) & PUD_MASK;
 		pud++;
 	} while (address < end);
@@ -132,11 +135,11 @@ int io_remap_page_range(struct vm_area_struct *vma, unsigned long from, unsigned
 
 	spin_lock(&mm->page_table_lock);
 	while (from < end) {
-		pud_t *pud = pud_alloc(current->mm, dir, from);
+		pud_t *pud = pud_alloc(mm, dir, from);
 		error = -ENOMEM;
 		if (!pud)
 			break;
-		error = io_remap_pud_range(pud, from, end - from, offset + from, prot, space);
+		error = io_remap_pud_range(mm, pud, from, end - from, offset + from, prot, space);
 		if (error)
 			break;
 		from = (from + PGDIR_SIZE) & PGDIR_MASK;
