@@ -43,34 +43,34 @@ struct ext3_group_desc * ext3_get_group_desc(struct super_block * sb,
 					     struct buffer_head ** bh)
 {
 	unsigned long group_desc;
-	unsigned long desc;
-	struct ext3_group_desc * gdp;
+	unsigned long offset;
+	struct ext3_group_desc * desc;
+	struct ext3_sb_info *sbi = EXT3_SB(sb);
 
-	if (block_group >= EXT3_SB(sb)->s_groups_count) {
+	if (block_group >= sbi->s_groups_count) {
 		ext3_error (sb, "ext3_get_group_desc",
 			    "block_group >= groups_count - "
 			    "block_group = %d, groups_count = %lu",
-			    block_group, EXT3_SB(sb)->s_groups_count);
+			    block_group, sbi->s_groups_count);
 
 		return NULL;
 	}
 	smp_rmb();
 
 	group_desc = block_group >> EXT3_DESC_PER_BLOCK_BITS(sb);
-	desc = block_group & (EXT3_DESC_PER_BLOCK(sb) - 1);
-	if (!EXT3_SB(sb)->s_group_desc[group_desc]) {
+	offset = block_group & (EXT3_DESC_PER_BLOCK(sb) - 1);
+	if (!sbi->s_group_desc[group_desc]) {
 		ext3_error (sb, "ext3_get_group_desc",
 			    "Group descriptor not loaded - "
 			    "block_group = %d, group_desc = %lu, desc = %lu",
-			     block_group, group_desc, desc);
+			     block_group, group_desc, offset);
 		return NULL;
 	}
 
-	gdp = (struct ext3_group_desc *) 
-	      EXT3_SB(sb)->s_group_desc[group_desc]->b_data;
+	desc = (struct ext3_group_desc *) sbi->s_group_desc[group_desc]->b_data;
 	if (bh)
-		*bh = EXT3_SB(sb)->s_group_desc[group_desc];
-	return gdp + desc;
+		*bh = sbi->s_group_desc[group_desc];
+	return desc + offset;
 }
 
 /*
@@ -284,14 +284,14 @@ void ext3_free_blocks_sb(handle_t *handle, struct super_block *sb,
 	unsigned long bit;
 	unsigned long i;
 	unsigned long overflow;
-	struct ext3_group_desc * gdp;
+	struct ext3_group_desc * desc;
 	struct ext3_super_block * es;
 	struct ext3_sb_info *sbi;
 	int err = 0, ret;
 
 	*pdquot_freed_blocks = 0;
 	sbi = EXT3_SB(sb);
-	es = EXT3_SB(sb)->s_es;
+	es = sbi->s_es;
 	if (block < le32_to_cpu(es->s_first_data_block) ||
 	    block + count < block ||
 	    block + count > le32_to_cpu(es->s_blocks_count)) {
@@ -301,7 +301,7 @@ void ext3_free_blocks_sb(handle_t *handle, struct super_block *sb,
 		goto error_return;
 	}
 
-	ext3_debug ("freeing block %lu\n", block);
+	ext3_debug ("freeing block(s) %lu-%lu\n", block, block + count - 1);
 
 do_more:
 	overflow = 0;
@@ -321,16 +321,16 @@ do_more:
 	bitmap_bh = read_block_bitmap(sb, block_group);
 	if (!bitmap_bh)
 		goto error_return;
-	gdp = ext3_get_group_desc (sb, block_group, &gd_bh);
-	if (!gdp)
+	desc = ext3_get_group_desc (sb, block_group, &gd_bh);
+	if (!desc)
 		goto error_return;
 
-	if (in_range (le32_to_cpu(gdp->bg_block_bitmap), block, count) ||
-	    in_range (le32_to_cpu(gdp->bg_inode_bitmap), block, count) ||
-	    in_range (block, le32_to_cpu(gdp->bg_inode_table),
-		      EXT3_SB(sb)->s_itb_per_group) ||
-	    in_range (block + count - 1, le32_to_cpu(gdp->bg_inode_table),
-		      EXT3_SB(sb)->s_itb_per_group))
+	if (in_range (le32_to_cpu(desc->bg_block_bitmap), block, count) ||
+	    in_range (le32_to_cpu(desc->bg_inode_bitmap), block, count) ||
+	    in_range (block, le32_to_cpu(desc->bg_inode_table),
+		      sbi->s_itb_per_group) ||
+	    in_range (block + count - 1, le32_to_cpu(desc->bg_inode_table),
+		      sbi->s_itb_per_group))
 		ext3_error (sb, "ext3_free_blocks",
 			    "Freeing blocks in system zones - "
 			    "Block = %lu, count = %lu",
@@ -1428,9 +1428,8 @@ unsigned long ext3_count_free_blocks(struct super_block *sb)
 #endif
 }
 
-static inline int block_in_use(unsigned long block,
-				struct super_block * sb,
-				unsigned char * map)
+static inline int
+block_in_use(unsigned long block, struct super_block *sb, unsigned char *map)
 {
 	return ext3_test_bit ((block -
 		le32_to_cpu(EXT3_SB(sb)->s_es->s_first_data_block)) %
