@@ -982,13 +982,12 @@ cifs_setattr(struct dentry *direntry, struct iattr *attrs)
 				cifs_sb->local_nls);
 		if(rc == -EOPNOTSUPP) {
 			cFYI(1,("OS2 level of SetPathInfo not implemented"));
-			/* Need to convert time_buf into old format, 
-			but probably better to do that inside the function
-			below rather than here */
-			/* Better to return EOPNOTSUPP until function
-			below is ready */
+			/* For older servers converts time_buf into old DOS style
+			level which uses two second granularity */
+
+			/* return EOPNOTSUPP until function below is ready */
 			/* CIFSSMBSetTimesLegacy(xid, pTcon, full_path,
-        	        FILE_INFO_STANDARD * data, cifs_sb->local_nls); */
+        	        &time_buf, cifs_sb->local_nls); */
 		}
 	}
 
