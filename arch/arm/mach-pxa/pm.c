@@ -79,6 +79,11 @@ static int pxa_pm_enter(suspend_state_t state)
 	if (state != PM_SUSPEND_MEM)
 		return -EINVAL;
 
+#ifdef CONFIG_IWMMXT
+	/* force any iWMMXt context to ram **/
+	iwmmxt_task_disable(NULL);
+#endif
+
 	/* preserve current time */
 	rtc.tv_sec = RCNR;
 	rtc.tv_nsec = 0;
