@@ -170,10 +170,12 @@ struct msdos_dir_slot {
 	__u8    name11_12[4];	/* last 2 characters in name */
 };
 
-struct vfat_slot_info {
-	int long_slots;		/* number of long slots in filename */
-	loff_t longname_offset;	/* dir offset for longname start */
+struct fat_slot_info {
 	loff_t i_pos;		/* on-disk position of directory entry */
+	loff_t slot_off;	/* offset for slot or de start */
+	int nr_slots;		/* number of slots + 1(de) in filename */
+	struct msdos_dir_entry *de;
+	struct buffer_head *bh;
 };
 
 #ifdef __KERNEL__
