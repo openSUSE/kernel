@@ -275,7 +275,7 @@ static struct slave *tlb_get_least_loaded_slave(struct bonding *bond)
 }
 
 /* Caller must hold bond lock for read */
-struct slave *tlb_choose_channel(struct bonding *bond, u32 hash_index, u32 skb_len)
+static struct slave *tlb_choose_channel(struct bonding *bond, u32 hash_index, u32 skb_len)
 {
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 	struct tlb_client_info *hash_table;
@@ -627,7 +627,7 @@ static void rlb_req_update_subnet_clients(struct bonding *bond, u32 src_ip)
 }
 
 /* Caller must hold both bond and ptr locks for read */
-struct slave *rlb_choose_channel(struct sk_buff *skb, struct bonding *bond)
+static struct slave *rlb_choose_channel(struct sk_buff *skb, struct bonding *bond)
 {
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 	struct arp_pkt *arp = (struct arp_pkt *)skb->nh.raw;
