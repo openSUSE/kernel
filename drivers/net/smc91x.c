@@ -210,6 +210,10 @@ struct smc_local {
 
 	spinlock_t lock;
 
+#ifdef SMC_CAN_USE_DATACS
+	u32	*datacs;
+#endif
+
 #ifdef SMC_USE_PXA_DMA
 	/* DMA needs the physical address of the chip */
 	u_long physaddr;
@@ -483,7 +487,19 @@ static inline void  smc_rcv(struct net_device *dev)
 		dev->name, packet_number, status,
 		packet_len, packet_len);
 
-	if (unlikely(status & RS_ERRORS)) {
+	back:
+	if (unlikely(packet_len < 6 || status & RS_ERRORS)) {
+		if (status & RS_TOOLONG && packet_len <= (1514 + 4 + 6)) {
+			/* accept VLAN packets */
+			status &= ~RS_TOOLONG;
+			goto back;
+		}
+		if (packet_len < 6) {
+			/* bloody hardware */
+			printk(KERN_ERR "%s: fubar (rxlen %u status %x\n",
+					dev->name, packet_len, status);
+			status |= RS_TOOSHORT;
+		}
 		SMC_WAIT_MMU_BUSY();
 		SMC_SET_MMU_CMD(MC_RELEASE);
 		lp->stats.rx_errors++;
@@ -508,7 +524,7 @@ static inline void  smc_rcv(struct net_device *dev)
 		 * (2 bytes, possibly containing the payload odd byte).
 		 * Furthermore, we add 2 bytes to allow rounding up to
 		 * multiple of 4 bytes on 32 bit buses.
-		 * Ence packet_len - 6 + 2 + 2 + 2.
+		 * Hence packet_len - 6 + 2 + 2 + 2.
 		 */
 		skb = dev_alloc_skb(packet_len);
 		if (unlikely(skb == NULL)) {
@@ -2012,16 +2028,21 @@ err_out:
 	return retval;
 }
 
-static int smc_enable_device(unsigned long attrib_phys)
+static int smc_enable_device(struct platform_device *pdev)
 {
 	unsigned long flags;
 	unsigned char ecor, ecsr;
 	void *addr;
+	struct resource * res;
+
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "smc91x-attrib");
+	if (!res)
+		return 0;
 
 	/*
 	 * Map the attribute space.  This is overkill, but clean.
 	 */
-	addr = ioremap(attrib_phys, ATTRIB_SIZE);
+	addr = ioremap(res->start, ATTRIB_SIZE);
 	if (!addr)
 		return -ENOMEM;
 
@@ -2069,6 +2090,62 @@ static int smc_enable_device(unsigned long attrib_phys)
 	return 0;
 }
 
+static int smc_request_attrib(struct platform_device *pdev)
+{
+	struct resource * res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "smc91x-attrib");
+
+	if (!res)
+		return 0;
+
+	if (!request_mem_region(res->start, ATTRIB_SIZE, CARDNAME))
+		return -EBUSY;
+
+	return 0;
+}
+
+static void smc_release_attrib(struct platform_device *pdev)
+{
+	struct resource * res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "smc91x-attrib");
+
+	if (res)
+		release_mem_region(res->start, ATTRIB_SIZE);
+}
+
+#ifdef SMC_CAN_USE_DATACS
+static void smc_request_datacs(struct platform_device *pdev, struct net_device *ndev)
+{
+	struct resource * res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "smc91x-data32");
+	struct smc_local *lp = netdev_priv(ndev);
+
+	if (!res)
+		return;
+
+	if(!request_mem_region(res->start, SMC_DATA_EXTENT, CARDNAME)) {
+		printk(KERN_INFO "%s: failed to request datacs memory region.\n", CARDNAME);
+		return;
+	}
+
+	lp->datacs = ioremap(res->start, SMC_DATA_EXTENT);
+}
+
+static void smc_release_datacs(struct platform_device *pdev, struct net_device *ndev)
+{
+	struct smc_local *lp = netdev_priv(ndev);
+	struct resource * res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "smc91x-data32");
+
+	if (lp->datacs)
+		iounmap(lp->datacs);
+
+	lp->datacs = NULL;
+
+	if (res)
+		release_mem_region(res->start, SMC_DATA_EXTENT);
+}
+#else
+static void smc_request_datacs(struct platform_device *pdev, struct net_device *ndev) {}
+static void smc_release_datacs(struct platform_device *pdev, struct net_device *ndev) {}
+#endif
+
 /*
  * smc_init(void)
  *   Input parameters:
@@ -2084,20 +2161,20 @@ static int smc_drv_probe(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct net_device *ndev;
-	struct resource *res, *ext = NULL;
+	struct resource *res;
 	unsigned int *addr;
 	int ret;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "smc91x-regs");
+	if (!res)
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		ret = -ENODEV;
 		goto out;
 	}
 
-	/*
-	 * Request the regions.
-	 */
-	if (!request_mem_region(res->start, SMC_IO_EXTENT, "smc91x")) {
+
+	if (!request_mem_region(res->start, SMC_IO_EXTENT, CARDNAME)) {
 		ret = -EBUSY;
 		goto out;
 	}
@@ -2106,7 +2183,7 @@ static int smc_drv_probe(struct device *dev)
 	if (!ndev) {
 		printk("%s: could not allocate device.\n", CARDNAME);
 		ret = -ENOMEM;
-		goto release_1;
+		goto out_release_io;
 	}
 	SET_MODULE_OWNER(ndev);
 	SET_NETDEV_DEV(ndev, dev);
@@ -2114,48 +2191,48 @@ static int smc_drv_probe(struct device *dev)
 	ndev->dma = (unsigned char)-1;
 	ndev->irq = platform_get_irq(pdev, 0);
 
-	ext = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-	if (ext) {
-		if (!request_mem_region(ext->start, ATTRIB_SIZE, ndev->name)) {
-			ret = -EBUSY;
-			goto release_1;
-		}
-
+	ret = smc_request_attrib(pdev);
+	if (ret)
+		goto out_free_netdev;
 #if defined(CONFIG_SA1100_ASSABET)
-		NCR_0 |= NCR_ENET_OSC_EN;
+	NCR_0 |= NCR_ENET_OSC_EN;
 #endif
-
-		ret = smc_enable_device(ext->start);
-		if (ret)
-			goto release_both;
-	}
+	ret = smc_enable_device(pdev);
+	if (ret)
+		goto out_release_attrib;
 
 	addr = ioremap(res->start, SMC_IO_EXTENT);
 	if (!addr) {
 		ret = -ENOMEM;
-		goto release_both;
+		goto out_release_attrib;
 	}
 
 	dev_set_drvdata(dev, ndev);
 	ret = smc_probe(ndev, (unsigned long)addr);
-	if (ret != 0) {
-		dev_set_drvdata(dev, NULL);
-		iounmap(addr);
- release_both:
-		if (ext)
-			release_mem_region(ext->start, ATTRIB_SIZE);
-		free_netdev(ndev);
- release_1:
-		release_mem_region(res->start, SMC_IO_EXTENT);
- out:
-		printk("%s: not found (%d).\n", CARDNAME, ret);
-	}
+	if (ret != 0)
+		goto out_iounmap;
 #ifdef SMC_USE_PXA_DMA
 	else {
 		struct smc_local *lp = netdev_priv(ndev);
 		lp->physaddr = res->start;
 	}
 #endif
+
+	smc_request_datacs(pdev, ndev);
+
+	return 0;
+
+ out_iounmap:
+	dev_set_drvdata(dev, NULL);
+	iounmap(addr);
+ out_release_attrib:
+	smc_release_attrib(pdev);
+ out_free_netdev:
+	free_netdev(ndev);
+ out_release_io:
+	release_mem_region(res->start, SMC_IO_EXTENT);
+ out:
+	printk("%s: not found (%d).\n", CARDNAME, ret);
 
 	return ret;
 }
@@ -2177,10 +2254,13 @@ static int smc_drv_remove(struct device *dev)
 		pxa_free_dma(ndev->dma);
 #endif
 	iounmap((void *)ndev->base_addr);
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-	if (res)
-		release_mem_region(res->start, ATTRIB_SIZE);
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+
+	smc_release_datacs(pdev,ndev);
+	smc_release_attrib(pdev);
+
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "smc91x-regs");
+	if (!res)
+		platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	release_mem_region(res->start, SMC_IO_EXTENT);
 
 	free_netdev(ndev);
@@ -2208,9 +2288,7 @@ static int smc_drv_resume(struct device *dev, u32 level)
 
 	if (ndev && level == RESUME_ENABLE) {
 		struct smc_local *lp = netdev_priv(ndev);
-
-		if (pdev->num_resources == 3)
-			smc_enable_device(pdev->resource[2].start);
+		smc_enable_device(pdev);
 		if (netif_running(ndev)) {
 			smc_reset(ndev);
 			smc_enable(ndev);
