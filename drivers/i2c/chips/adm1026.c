@@ -27,6 +27,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 #include <linux/i2c-vid.h>
@@ -573,7 +574,7 @@ static struct adm1026_data *adm1026_update_device(struct device *dev)
 
 	down(&data->update_lock);
 	if (!data->valid
-	    || (jiffies - data->last_reading > ADM1026_DATA_INTERVAL)) {
+	    || time_after(jiffies, data->last_reading + ADM1026_DATA_INTERVAL)) {
 		/* Things that change quickly */
 		dev_dbg(&client->dev,"Reading sensor values\n");
 		for (i = 0;i <= 16;++i) {
@@ -620,8 +621,8 @@ static struct adm1026_data *adm1026_update_device(struct device *dev)
 		data->last_reading = jiffies;
 	};  /* last_reading */
 
-	if (!data->valid || (jiffies - data->last_config > 
-		ADM1026_CONFIG_INTERVAL)) {
+	if (!data->valid ||
+	    time_after(jiffies, data->last_config + ADM1026_CONFIG_INTERVAL)) {
 		/* Things that don't change often */
 		dev_dbg(&client->dev, "Reading config values\n");
 		for (i = 0;i <= 16;++i) {

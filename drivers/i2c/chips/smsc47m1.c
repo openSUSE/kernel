@@ -28,6 +28,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/ioport.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 #include <linux/init.h>
@@ -527,8 +528,7 @@ static struct smsc47m1_data *smsc47m1_update_device(struct device *dev,
 
 	down(&data->update_lock);
 
-	if ((jiffies - data->last_updated > HZ + HZ / 2) ||
-	    (jiffies < data->last_updated) || init) {
+	if (time_after(jiffies, data->last_updated + HZ + HZ / 2) || init) {
 		int i;
 
 		for (i = 0; i < 2; i++) {

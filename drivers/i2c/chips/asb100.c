@@ -965,8 +965,8 @@ static struct asb100_data *asb100_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-	if (time_after(jiffies - data->last_updated, (unsigned long)(HZ+HZ/2))
-		|| time_before(jiffies, data->last_updated) || !data->valid) {
+	if (time_after(jiffies, data->last_updated + HZ + HZ / 2)
+		|| !data->valid) {
 
 		dev_dbg(&client->dev, "starting device update...\n");
 

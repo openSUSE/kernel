@@ -39,6 +39,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 #include <linux/i2c-vid.h>
@@ -1609,9 +1610,8 @@ static struct w83781d_data *w83781d_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-	if (time_after
-	    (jiffies - data->last_updated, (unsigned long) (HZ + HZ / 2))
-	    || time_before(jiffies, data->last_updated) || !data->valid) {
+	if (time_after(jiffies, data->last_updated + HZ + HZ / 2)
+	    || !data->valid) {
 		dev_dbg(dev, "Starting device update\n");
 
 		for (i = 0; i <= 8; i++) {

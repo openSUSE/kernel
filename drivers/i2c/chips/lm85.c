@@ -27,6 +27,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 #include <linux/i2c-vid.h>
@@ -1354,7 +1355,7 @@ static struct lm85_data *lm85_update_device(struct device *dev)
 	down(&data->update_lock);
 
 	if ( !data->valid ||
-	     (jiffies - data->last_reading > LM85_DATA_INTERVAL ) ) {
+	     time_after(jiffies, data->last_reading + LM85_DATA_INTERVAL) ) {
 		/* Things that change quickly */
 		dev_dbg(&client->dev, "Reading sensor values\n");
 		
@@ -1408,7 +1409,7 @@ static struct lm85_data *lm85_update_device(struct device *dev)
 	};  /* last_reading */
 
 	if ( !data->valid ||
-	     (jiffies - data->last_config > LM85_CONFIG_INTERVAL) ) {
+	     time_after(jiffies, data->last_config + LM85_CONFIG_INTERVAL) ) {
 		/* Things that don't change often */
 		dev_dbg(&client->dev, "Reading config values\n");
 
