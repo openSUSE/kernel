@@ -671,10 +671,9 @@ static void ircomm_tty_do_softint(void *private_)
  *    accepted for writing. This routine is mandatory.
  */
 static int ircomm_tty_write(struct tty_struct *tty,
-			    const unsigned char *ubuf, int count)
+			    const unsigned char *buf, int count)
 {
 	struct ircomm_tty_cb *self = (struct ircomm_tty_cb *) tty->driver_data;
-	unsigned char *kbuf;		/* Buffer in kernel space */
 	unsigned long flags;
 	struct sk_buff *skb;
 	int tailroom = 0;
@@ -713,9 +712,6 @@ static int ircomm_tty_write(struct tty_struct *tty,
 
 	if (count < 1)
 		return 0;
-
-	/* The buffer is already in kernel space */
-	kbuf = (unsigned char *) ubuf;
 
 	/* Protect our manipulation of self->tx_skb and related */
 	spin_lock_irqsave(&self->spinlock, flags);
@@ -779,7 +775,7 @@ static int ircomm_tty_write(struct tty_struct *tty,
 		}
 
 		/* Copy data */
-		memcpy(skb_put(skb,size), kbuf + len, size);
+		memcpy(skb_put(skb,size), buf + len, size);
 
 		count -= size;
 		len += size;
