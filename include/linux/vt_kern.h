@@ -35,16 +35,11 @@ int vc_cons_allocated(unsigned int console);
 int vc_resize(struct vc_data *vc, unsigned int cols, unsigned int lines);
 void vc_disallocate(unsigned int console);
 void reset_palette(struct vc_data *vc);
-void set_palette(struct vc_data *vc);
 void do_blank_screen(int entering_gfx);
 void do_unblank_screen(int leaving_gfx);
 void unblank_screen(void);
 void poke_blanked_console(void);
 int con_font_op(struct vc_data *vc, struct console_font_op *op);
-int con_font_set(struct vc_data *vc, struct console_font_op *op);
-int con_font_get(struct vc_data *vc, struct console_font_op *op);
-int con_font_default(struct vc_data *vc, struct console_font_op *op);
-int con_font_copy(struct vc_data *vc, struct console_font_op *op);
 int con_set_cmap(unsigned char __user *cmap);
 int con_get_cmap(unsigned char __user *cmap);
 void scrollback(struct vc_data *vc, int lines);
@@ -75,7 +70,6 @@ void con_protect_unimap(struct vc_data *vc, int rdonly);
 int con_copy_unimap(struct vc_data *dst_vc, struct vc_data *src_vc);
 
 /* vt.c */
-void complete_change_console(struct vc_data *vc);
 int vt_waitactive(int vt);
 void change_console(struct vc_data *new_vc);
 void reset_vc(struct vc_data *vc);

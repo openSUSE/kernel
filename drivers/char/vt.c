@@ -144,6 +144,7 @@ static void set_cursor(struct vc_data *vc);
 static void hide_cursor(struct vc_data *vc);
 static void console_callback(void *ignored);
 static void blank_screen_t(unsigned long dummy);
+static void set_palette(struct vc_data *vc);
 
 static int printable;		/* Is console ready for printing? */
 
@@ -732,7 +733,7 @@ int vc_allocate(unsigned int currcons)	/* return 0 on success */
 	return 0;
 }
 
-inline int resize_screen(struct vc_data *vc, int width, int height)
+static inline int resize_screen(struct vc_data *vc, int width, int height)
 {
 	/* Resizes the resolution of the display adapater */
 	int err = 0;
@@ -2138,7 +2139,7 @@ struct tty_driver *console_driver;
  * The console must be locked when we get here.
  */
 
-void vt_console_print(struct console *co, const char *b, unsigned count)
+static void vt_console_print(struct console *co, const char *b, unsigned count)
 {
 	struct vc_data *vc = vc_cons[fg_console].d;
 	unsigned char c;
@@ -2233,7 +2234,7 @@ static struct tty_driver *vt_console_device(struct console *c, int *index)
 	return console_driver;
 }
 
-struct console vt_console_driver = {
+static struct console vt_console_driver = {
 	.name		= "tty",
 	.write		= vt_console_print,
 	.device		= vt_console_device,
@@ -2899,7 +2900,7 @@ void poke_blanked_console(void)
  *	Palettes
  */
 
-void set_palette(struct vc_data *vc)
+static void set_palette(struct vc_data *vc)
 {
 	WARN_CONSOLE_UNLOCKED();
 
@@ -2990,7 +2991,7 @@ void reset_palette(struct vc_data *vc)
 
 #define max_font_size 65536
 
-int con_font_get(struct vc_data *vc, struct console_font_op *op)
+static int con_font_get(struct vc_data *vc, struct console_font_op *op)
 {
 	struct console_font font;
 	int rc = -EINVAL;
@@ -3045,7 +3046,7 @@ out:
 	return rc;
 }
 
-int con_font_set(struct vc_data *vc, struct console_font_op *op)
+static int con_font_set(struct vc_data *vc, struct console_font_op *op)
 {
 	struct console_font font;
 	int rc = -EINVAL;
@@ -3102,7 +3103,7 @@ int con_font_set(struct vc_data *vc, struct console_font_op *op)
 	return rc;
 }
 
-int con_font_default(struct vc_data *vc, struct console_font_op *op)
+static int con_font_default(struct vc_data *vc, struct console_font_op *op)
 {
 	struct console_font font = {.width = op->width, .height = op->height};
 	char name[MAX_FONT_NAME];
@@ -3132,7 +3133,7 @@ int con_font_default(struct vc_data *vc, struct console_font_op *op)
 	return rc;
 }
 
-int con_font_copy(struct vc_data *vc, struct console_font_op *op)
+static int con_font_copy(struct vc_data *vc, struct console_font_op *op)
 {
 	int con = op->height;
 	int rc;

@@ -33,7 +33,7 @@
 #include <linux/kbd_diacr.h>
 #include <linux/selection.h>
 
-char vt_dont_switch;
+static char vt_dont_switch;
 extern struct tty_driver *console_driver;
 
 #define VT_IS_IN_USE(i)	(console_driver->ttys[i] && console_driver->ttys[i]->count)
@@ -52,14 +52,11 @@ extern struct tty_driver *console_driver;
  * to the current console is done by the main ioctl code.
  */
 
-/* Keyboard type: Default is KB_101, but can be set by machine
- * specific code.
- */
-unsigned char keyboard_type = KB_101;
-
 #ifdef CONFIG_X86
 #include <linux/syscalls.h>
 #endif
+
+static void complete_change_console(struct vc_data *vc);
 
 /*
  * these are the valid i/o ports we're allowed to change. they map all the
@@ -414,7 +411,7 @@ int vt_ioctl(struct tty_struct *tty, struct file * file,
 		/*
 		 * this is naive.
 		 */
-		ucval = keyboard_type;
+		ucval = KB_101;
 		goto setchar;
 
 		/*
@@ -1066,7 +1063,7 @@ void reset_vc(struct vc_data *vc)
 /*
  * Performs the back end of a vt switch
  */
-void complete_change_console(struct vc_data *vc)
+static void complete_change_console(struct vc_data *vc)
 {
 	unsigned char old_vc_mode;
 
