@@ -77,8 +77,6 @@ static struct i2c_driver pcf8574_driver = {
 	.detach_client	= pcf8574_detach_client,
 };
 
-static int pcf8574_id;
-
 /* following are the sysfs callback functions */
 static ssize_t show_read(struct device *dev, char *buf)
 {
@@ -159,8 +157,6 @@ int pcf8574_detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* Fill in the remaining client fields and put it into the global list */
 	strlcpy(new_client->name, client_name, I2C_NAME_SIZE);
-
-	new_client->id = pcf8574_id++;
 	init_MUTEX(&data->update_lock);
 
 	/* Tell the I2C layer a new client has arrived */

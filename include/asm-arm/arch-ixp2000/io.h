@@ -27,8 +27,8 @@
  * IXP2000 does not do proper byte-lane conversion for PCI addresses,
  * so we need to override standard functions.
  */
-#define alignb(addr)		(((unsigned long)addr & ~3) + (3 - ((unsigned long)addr & 3)))
-#define alignw(addr)		(((unsigned long)addr & ~2) + (2 - ((unsigned long)addr & 2)))
+#define alignb(addr)		(void __iomem *)(((unsigned long)addr & ~3) + (3 - ((unsigned long)addr & 3)))
+#define alignw(addr)		(void __iomem *)(((unsigned long)addr & ~2) + (2 - ((unsigned long)addr & 2)))
 
 #define outb(v,p)		__raw_writeb(v,alignb(___io(p)))
 #define outw(v,p)		__raw_writew((v),alignw(___io(p)))

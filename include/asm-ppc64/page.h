@@ -67,7 +67,7 @@
 #define HAVE_ARCH_HUGETLB_UNMAPPED_AREA
 
 #define in_hugepage_area(context, addr) \
-	((cur_cpu_spec->cpu_features & CPU_FTR_16M_PAGE) && \
+	(cpu_has_feature(CPU_FTR_16M_PAGE) && \
 	 ( (((addr) >= TASK_HPAGE_BASE) && ((addr) < TASK_HPAGE_END)) || \
 	   ( ((addr) < 0x100000000L) && \
 	     ((1 << GET_ESID(addr)) & (context).htlb_segs) ) ) )
@@ -184,6 +184,9 @@ static inline int get_order(unsigned long size)
 extern int page_is_ram(unsigned long pfn);
 
 extern u64 ppc64_pft_size;		/* Log 2 of page table size */
+
+/* We do define AT_SYSINFO_EHDR but don't use the gate mecanism */
+#define __HAVE_ARCH_GATE_AREA		1
 
 #endif /* __ASSEMBLY__ */
 

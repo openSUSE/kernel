@@ -24,6 +24,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 #include "lm75.h"
@@ -94,8 +95,6 @@ static struct i2c_driver ds1621_driver = {
 	.attach_adapter	= ds1621_attach_adapter,
 	.detach_client	= ds1621_detach_client,
 };
-
-static int ds1621_id;
 
 /* All registers are word-sized, except for the configuration register.
    DS1621 uses a high-byte first convention, which is exactly opposite to
@@ -236,8 +235,6 @@ int ds1621_detect(struct i2c_adapter *adapter, int address,
 
 	/* Fill in remaining client fields and put it into the global list */
 	strlcpy(new_client->name, "ds1621", I2C_NAME_SIZE);
-
-	new_client->id = ds1621_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 
@@ -288,8 +285,8 @@ static struct ds1621_data *ds1621_update_client(struct device *dev)
 
 	down(&data->update_lock);
 
-	if ((jiffies - data->last_updated > HZ + HZ / 2) ||
-	    (jiffies < data->last_updated) || !data->valid) {
+	if (time_after(jiffies, data->last_updated + HZ + HZ / 2)
+	    || !data->valid) {
 
 		dev_dbg(&client->dev, "Starting ds1621 update\n");
 

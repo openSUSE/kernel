@@ -293,6 +293,10 @@ static int native_idle(void)
 			power4_idle();
 		if (need_resched())
 			schedule();
+
+		if (cpu_is_offline(_smp_processor_id()) &&
+		    system_state == SYSTEM_RUNNING)
+			cpu_die();
 	}
 	return 0;
 }

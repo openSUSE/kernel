@@ -30,6 +30,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 
@@ -149,12 +150,6 @@ struct fscher_data {
 	u8 fan_min[3];		/* fan min value for rps */
 	u8 fan_ripple[3];	/* divider for rps */
 };
-
-/*
- * Internal variables
- */
-
-static int fscher_id;
 
 /*
  * Sysfs stuff
@@ -337,7 +332,6 @@ static int fscher_detect(struct i2c_adapter *adapter, int address, int kind)
 	/* Fill in the remaining client fields and put it into the
 	 * global list */
 	strlcpy(new_client->name, "fscher", I2C_NAME_SIZE);
-	new_client->id = fscher_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 
@@ -418,8 +412,7 @@ static struct fscher_data *fscher_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-	if ((jiffies - data->last_updated > 2 * HZ) ||
-	    (jiffies < data->last_updated) || !data->valid) {
+	if (time_after(jiffies, data->last_updated + 2 * HZ) || !data->valid) {
 
 		dev_dbg(&client->dev, "Starting fscher update\n");
 

@@ -707,8 +707,8 @@ nfsd_close(struct file *filp)
  * As this calls fsync (not fdatasync) there is no need for a write_inode
  * after it.
  */
-inline void nfsd_dosync(struct file *filp, struct dentry *dp, 
-			struct file_operations *fop)
+static inline void nfsd_dosync(struct file *filp, struct dentry *dp,
+			       struct file_operations *fop)
 {
 	struct inode *inode = dp->d_inode;
 	int (*fsync) (struct file *, struct dentry *, int);
@@ -720,7 +720,7 @@ inline void nfsd_dosync(struct file *filp, struct dentry *dp,
 }
 	
 
-void
+static void
 nfsd_sync(struct file *filp)
 {
 	struct inode *inode = filp->f_dentry->d_inode;
@@ -730,7 +730,7 @@ nfsd_sync(struct file *filp)
 	up(&inode->i_sem);
 }
 
-void
+static void
 nfsd_sync_dir(struct dentry *dp)
 {
 	nfsd_dosync(NULL, dp, dp->d_inode->i_fop);

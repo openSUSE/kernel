@@ -43,6 +43,8 @@ static int mthca_query_device(struct ib_device *ibdev,
 	struct ib_smp *in_mad  = NULL;
 	struct ib_smp *out_mad = NULL;
 	int err = -ENOMEM;
+	struct mthca_dev* mdev = to_mdev(ibdev);
+
 	u8 status;
 
 	in_mad  = kmalloc(sizeof *in_mad, GFP_KERNEL);
@@ -50,7 +52,7 @@ static int mthca_query_device(struct ib_device *ibdev,
 	if (!in_mad || !out_mad)
 		goto out;
 
-	props->fw_ver        = to_mdev(ibdev)->fw_ver;
+	props->fw_ver              = mdev->fw_ver;
 
 	memset(in_mad, 0, sizeof *in_mad);
 	in_mad->base_version       = 1;
@@ -59,7 +61,7 @@ static int mthca_query_device(struct ib_device *ibdev,
 	in_mad->method         	   = IB_MGMT_METHOD_GET;
 	in_mad->attr_id   	   = IB_SMP_ATTR_NODE_INFO;
 
-	err = mthca_MAD_IFC(to_mdev(ibdev), 1, 1,
+	err = mthca_MAD_IFC(mdev, 1, 1,
 			    1, NULL, NULL, in_mad, out_mad,
 			    &status);
 	if (err)
@@ -69,10 +71,11 @@ static int mthca_query_device(struct ib_device *ibdev,
 		goto out;
 	}
 
-	props->vendor_id      = be32_to_cpup((u32 *) (out_mad->data + 36)) &
+	props->device_cap_flags = mdev->device_cap_flags;
+	props->vendor_id        = be32_to_cpup((u32 *) (out_mad->data + 36)) &
 		0xffffff;
-	props->vendor_part_id = be16_to_cpup((u16 *) (out_mad->data + 30));
-	props->hw_ver         = be16_to_cpup((u16 *) (out_mad->data + 32));
+	props->vendor_part_id   = be16_to_cpup((u16 *) (out_mad->data + 30));
+	props->hw_ver           = be16_to_cpup((u16 *) (out_mad->data + 32));
 	memcpy(&props->sys_image_guid, out_mad->data +  4, 8);
 	memcpy(&props->node_guid,      out_mad->data + 12, 8);
 
@@ -343,7 +346,7 @@ static struct ib_qp *mthca_create_qp(struct ib_pd *pd,
 				     to_mcq(init_attr->send_cq),
 				     to_mcq(init_attr->recv_cq),
 				     init_attr->qp_type, init_attr->sq_sig_type,
-				     init_attr->rq_sig_type, qp);
+				     qp);
 		qp->ibqp.qp_num = qp->qpn;
 		break;
 	}
@@ -364,7 +367,7 @@ static struct ib_qp *mthca_create_qp(struct ib_pd *pd,
 		err = mthca_alloc_sqp(to_mdev(pd->device), to_mpd(pd),
 				      to_mcq(init_attr->send_cq),
 				      to_mcq(init_attr->recv_cq),
-				      init_attr->sq_sig_type, init_attr->rq_sig_type,
+				      init_attr->sq_sig_type,
 				      qp->ibqp.qp_num, init_attr->port_num,
 				      to_msqp(qp));
 		break;
@@ -408,8 +411,7 @@ static struct ib_cq *mthca_create_cq(struct ib_device *ibdev, int entries)
 	if (err) {
 		kfree(cq);
 		cq = ERR_PTR(err);
-	} else
-		cq->ibcq.cqe = nent - 1;
+	}
 
 	return &cq->ibcq;
 }
@@ -419,13 +421,6 @@ static int mthca_destroy_cq(struct ib_cq *cq)
 	mthca_free_cq(to_mdev(cq->device), to_mcq(cq));
 	kfree(cq);
 
-	return 0;
-}
-
-static int mthca_req_notify_cq(struct ib_cq *cq, enum ib_cq_notify notify)
-{
-	mthca_arm_cq(to_mdev(cq->device), to_mcq(cq),
-		     notify == IB_CQ_SOLICITED);
 	return 0;
 }
 
@@ -621,18 +616,25 @@ int mthca_register_device(struct mthca_dev *dev)
 	dev->ib_dev.create_qp            = mthca_create_qp;
 	dev->ib_dev.modify_qp            = mthca_modify_qp;
 	dev->ib_dev.destroy_qp           = mthca_destroy_qp;
-	dev->ib_dev.post_send            = mthca_post_send;
-	dev->ib_dev.post_recv            = mthca_post_receive;
 	dev->ib_dev.create_cq            = mthca_create_cq;
 	dev->ib_dev.destroy_cq           = mthca_destroy_cq;
 	dev->ib_dev.poll_cq              = mthca_poll_cq;
-	dev->ib_dev.req_notify_cq        = mthca_req_notify_cq;
 	dev->ib_dev.get_dma_mr           = mthca_get_dma_mr;
 	dev->ib_dev.reg_phys_mr          = mthca_reg_phys_mr;
 	dev->ib_dev.dereg_mr             = mthca_dereg_mr;
 	dev->ib_dev.attach_mcast         = mthca_multicast_attach;
 	dev->ib_dev.detach_mcast         = mthca_multicast_detach;
 	dev->ib_dev.process_mad          = mthca_process_mad;
+
+	if (dev->hca_type == ARBEL_NATIVE) {
+		dev->ib_dev.req_notify_cq = mthca_arbel_arm_cq;
+		dev->ib_dev.post_send     = mthca_arbel_post_send;
+		dev->ib_dev.post_recv     = mthca_arbel_post_receive;
+	} else {
+		dev->ib_dev.req_notify_cq = mthca_tavor_arm_cq;
+		dev->ib_dev.post_send     = mthca_tavor_post_send;
+		dev->ib_dev.post_recv     = mthca_tavor_post_receive;
+	}
 
 	init_MUTEX(&dev->cap_mask_mutex);
 

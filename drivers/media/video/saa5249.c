@@ -258,7 +258,6 @@ static struct i2c_driver i2c_driver_videotext =
 };
 
 static struct i2c_client client_template = {
-	.id 		= -1,
 	.driver		= &i2c_driver_videotext,
 	.name		= "(unset)",
 };

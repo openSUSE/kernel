@@ -1058,7 +1058,7 @@ do_update_p2p_io_resource(struct pci_bus *bus, int enable_vga)
 		return;
  	res = *(bus->resource[0]);
 
-	DBG("Remapping Bus %d, bridge: %s\n", bus->number, bridge->slot_name);
+	DBG("Remapping Bus %d, bridge: %s\n", bus->number, pci_name(bridge));
 	res.start -= ((unsigned long) hose->io_base_virt - isa_io_base);
 	res.end -= ((unsigned long) hose->io_base_virt - isa_io_base);
 	DBG("  IO window: %08lx-%08lx\n", res.start, res.end);

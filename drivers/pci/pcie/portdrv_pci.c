@@ -106,7 +106,7 @@ static int __init pcie_portdrv_init(void)
 	int retval = 0;
 
 	pcie_port_bus_register();
-	retval = pci_module_init(&pcie_portdrv);
+	retval = pci_register_driver(&pcie_portdrv);
 	if (retval)
 		pcie_port_bus_unregister();
 	return retval;

@@ -194,7 +194,10 @@ config NR_CPUS
 
 config HMT
 	bool "Hardware multithreading"
-	depends on SMP && PPC_PSERIES
+	depends on SMP && PPC_PSERIES && BROKEN
+	help
+	  This option enables hardware multithreading on RS64 cpus.
+	  pSeries systems p620 and p660 have such a cpu type.
 
 config DISCONTIGMEM
 	bool "Discontiguous Memory Support"
@@ -313,7 +316,7 @@ source "drivers/pci/Kconfig"
 
 config HOTPLUG_CPU
 	bool "Support for hot-pluggable CPUs"
-	depends on SMP && EXPERIMENTAL && PPC_PSERIES
+	depends on SMP && EXPERIMENTAL && (PPC_PSERIES || PPC_PMAC)
 	select HOTPLUG
 	---help---
 	  Say Y here to be able to turn CPUs off and on.

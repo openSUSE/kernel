@@ -129,6 +129,7 @@ int ucache_bsize;
 /* The main machine-dep calls structure
  */
 struct machdep_calls ppc_md;
+EXPORT_SYMBOL(ppc_md);
 
 #ifdef CONFIG_MAGIC_SYSRQ
 unsigned long SYSRQ_KEY;
@@ -315,7 +316,7 @@ static void __init setup_cpu_maps(void)
 		maxcpus = ireg[num_addr_cell + num_size_cell];
 
 		/* Double maxcpus for processors which have SMT capability */
-		if (cur_cpu_spec->cpu_features & CPU_FTR_SMT)
+		if (cpu_has_feature(CPU_FTR_SMT))
 			maxcpus *= 2;
 
 		if (maxcpus > NR_CPUS) {
@@ -339,7 +340,7 @@ static void __init setup_cpu_maps(void)
 	 */
 	for_each_cpu(cpu) {
 		cpu_set(cpu, cpu_sibling_map[cpu]);
-		if (cur_cpu_spec->cpu_features & CPU_FTR_SMT)
+		if (cpu_has_feature(CPU_FTR_SMT))
 			cpu_set(cpu ^ 0x1, cpu_sibling_map[cpu]);
 	}
 
@@ -767,7 +768,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		seq_printf(m, "unknown (%08x)", pvr);
 
 #ifdef CONFIG_ALTIVEC
-	if (cur_cpu_spec->cpu_features & CPU_FTR_ALTIVEC)
+	if (cpu_has_feature(CPU_FTR_ALTIVEC))
 		seq_printf(m, ", altivec supported");
 #endif /* CONFIG_ALTIVEC */
 
@@ -990,6 +991,34 @@ static void __init emergency_stack_init(void)
 }
 
 /*
+ * Called from setup_arch to initialize the bitmap of available
+ * syscalls in the systemcfg page
+ */
+void __init setup_syscall_map(void)
+{
+	unsigned int i, count64 = 0, count32 = 0;
+	extern unsigned long *sys_call_table;
+	extern unsigned long *sys_call_table32;
+	extern unsigned long sys_ni_syscall;
+
+
+	for (i = 0; i < __NR_syscalls; i++) {
+		if (sys_call_table[i] == sys_ni_syscall)
+			continue;
+		count64++;
+		systemcfg->syscall_map_64[i >> 5] |= 0x80000000UL >> (i & 0x1f);
+	}
+	for (i = 0; i < __NR_syscalls; i++) {
+		if (sys_call_table32[i] == sys_ni_syscall)
+			continue;
+		count32++;
+		systemcfg->syscall_map_32[i >> 5] |= 0x80000000UL >> (i & 0x1f);
+	}
+	printk(KERN_INFO "Syscall map setup, %d 32 bits and %d 64 bits syscalls\n",
+	       count32, count64);
+}
+
+/*
  * Called into from start_kernel, after lock_kernel has been called.
  * Initializes bootmem, which is unsed to manage page allocation until
  * mem_init is called.
@@ -1026,6 +1055,9 @@ void __init setup_arch(char **cmdline_p)
 
 	/* set up the bootmem stuff with available memory */
 	do_init_bootmem();
+
+	/* initialize the syscall map in systemcfg */
+	setup_syscall_map();
 
 	ppc_md.setup_arch();
 
@@ -1345,9 +1377,6 @@ early_param("xmon", early_xmon);
 
 void cpu_die(void)
 {
-	idle_task_exit();
 	if (ppc_md.cpu_die)
 		ppc_md.cpu_die();
-	local_irq_disable();
-	for (;;);
 }
