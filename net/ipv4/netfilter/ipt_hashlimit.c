@@ -625,7 +625,7 @@ static inline int dl_seq_real_show(struct dsthash_ent *ent, struct seq_file *s)
 	rateinfo_recalc(ent, jiffies);
 
 	return seq_printf(s, "%ld %u.%u.%u.%u:%u->%u.%u.%u.%u:%u %u %u %u\n",
-			(ent->expires - jiffies)/HZ,
+			(long)(ent->expires - jiffies)/HZ,
 			NIPQUAD(ent->dst.src_ip), ntohs(ent->dst.src_port),
 			NIPQUAD(ent->dst.dst_ip), ntohs(ent->dst.dst_port),
 			ent->rateinfo.credit, ent->rateinfo.credit_cap,

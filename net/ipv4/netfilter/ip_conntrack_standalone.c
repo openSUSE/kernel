@@ -77,34 +77,70 @@ seq_print_counters(struct seq_file *s,
 #define seq_print_counters(x, y)	0
 #endif
 
-static void *ct_seq_start(struct seq_file *s, loff_t *pos)
+struct ct_iter_state {
+	unsigned int bucket;
+};
+
+static struct list_head *ct_get_first(struct seq_file *seq)
 {
-	if (*pos >= ip_conntrack_htable_size)
-		return NULL;
-	return &ip_conntrack_hash[*pos];
+	struct ct_iter_state *st = seq->private;
+
+	for (st->bucket = 0;
+	     st->bucket < ip_conntrack_htable_size;
+	     st->bucket++) {
+		if (!list_empty(&ip_conntrack_hash[st->bucket]))
+			return ip_conntrack_hash[st->bucket].next;
+	}
+	return NULL;
 }
-  
-static void ct_seq_stop(struct seq_file *s, void *v)
+
+static struct list_head *ct_get_next(struct seq_file *seq, struct list_head *head)
 {
+	struct ct_iter_state *st = seq->private;
+
+	head = head->next;
+	while (head == &ip_conntrack_hash[st->bucket]) {
+		if (++st->bucket >= ip_conntrack_htable_size)
+			return NULL;
+		head = ip_conntrack_hash[st->bucket].next;
+	}
+	return head;
+}
+
+static struct list_head *ct_get_idx(struct seq_file *seq, loff_t pos)
+{
+	struct list_head *head = ct_get_first(seq);
+
+	if (head)
+		while (pos && (head = ct_get_next(seq, head)))
+			pos--;
+	return pos ? NULL : head;
+}
+
+static void *ct_seq_start(struct seq_file *seq, loff_t *pos)
+{
+	READ_LOCK(&ip_conntrack_lock);
+	return ct_get_idx(seq, *pos);
 }
 
 static void *ct_seq_next(struct seq_file *s, void *v, loff_t *pos)
 {
 	(*pos)++;
-	if (*pos >= ip_conntrack_htable_size)
-		return NULL;
-	return &ip_conntrack_hash[*pos];
+	return ct_get_next(s, v);
 }
   
-/* return 0 on success, 1 in case of error */
-static int ct_seq_real_show(const struct ip_conntrack_tuple_hash *hash,
-			    struct seq_file *s)
+static void ct_seq_stop(struct seq_file *s, void *v)
 {
+	READ_UNLOCK(&ip_conntrack_lock);
+}
+ 
+static int ct_seq_show(struct seq_file *s, void *v)
+{
+	const struct ip_conntrack_tuple_hash *hash = v;
 	const struct ip_conntrack *conntrack = tuplehash_to_ctrack(hash);
 	struct ip_conntrack_protocol *proto;
 
 	MUST_BE_READ_LOCKED(&ip_conntrack_lock);
-
 	IP_NF_ASSERT(conntrack);
 
 	/* we only want to print DIR_ORIGINAL */
@@ -115,63 +151,50 @@ static int ct_seq_real_show(const struct ip_conntrack_tuple_hash *hash,
 			       .tuple.dst.protonum);
 	IP_NF_ASSERT(proto);
 
-	if (seq_printf(s, "%-8s %u %lu ",
+	if (seq_printf(s, "%-8s %u %ld ",
 		      proto->name,
 		      conntrack->tuplehash[IP_CT_DIR_ORIGINAL].tuple.dst.protonum,
 		      timer_pending(&conntrack->timeout)
-		      ? (conntrack->timeout.expires - jiffies)/HZ : 0) != 0)
-		return 1;
+		      ? (long)(conntrack->timeout.expires - jiffies)/HZ
+		      : 0) != 0)
+		return -ENOSPC;
 
 	if (proto->print_conntrack(s, conntrack))
-		return 1;
+		return -ENOSPC;
   
 	if (print_tuple(s, &conntrack->tuplehash[IP_CT_DIR_ORIGINAL].tuple,
 			proto))
-		return 1;
+		return -ENOSPC;
 
  	if (seq_print_counters(s, &conntrack->counters[IP_CT_DIR_ORIGINAL]))
-		return 1;
+		return -ENOSPC;
 
 	if (!(test_bit(IPS_SEEN_REPLY_BIT, &conntrack->status)))
 		if (seq_printf(s, "[UNREPLIED] "))
-			return 1;
+			return -ENOSPC;
 
 	if (print_tuple(s, &conntrack->tuplehash[IP_CT_DIR_REPLY].tuple,
 			proto))
-		return 1;
+		return -ENOSPC;
 
  	if (seq_print_counters(s, &conntrack->counters[IP_CT_DIR_REPLY]))
-		return 1;
+		return -ENOSPC;
 
 	if (test_bit(IPS_ASSURED_BIT, &conntrack->status))
 		if (seq_printf(s, "[ASSURED] "))
-			return 1;
+			return -ENOSPC;
 
 #if defined(CONFIG_IP_NF_CONNTRACK_MARK)
-	if (seq_printf(s, "mark=%ld ", conntrack->mark))
-		return 1;
+	if (seq_printf(s, "mark=%lu ", conntrack->mark))
+		return -ENOSPC;
 #endif
 
 	if (seq_printf(s, "use=%u\n", atomic_read(&conntrack->ct_general.use)))
-		return 1;
+		return -ENOSPC;
 
 	return 0;
 }
 
-static int ct_seq_show(struct seq_file *s, void *v)
-{
-	struct list_head *list = v;
-	int ret = 0;
-
-	/* FIXME: Simply truncates if hash chain too long. */
-	READ_LOCK(&ip_conntrack_lock);
-	if (LIST_FIND(list, ct_seq_real_show,
-		      struct ip_conntrack_tuple_hash *, s))
-		ret = -ENOSPC;
-	READ_UNLOCK(&ip_conntrack_lock);
-	return ret;
-}
-	
 static struct seq_operations ct_seq_ops = {
 	.start = ct_seq_start,
 	.next  = ct_seq_next,
@@ -181,7 +204,23 @@ static struct seq_operations ct_seq_ops = {
   
 static int ct_open(struct inode *inode, struct file *file)
 {
-	return seq_open(file, &ct_seq_ops);
+	struct seq_file *seq;
+	struct ct_iter_state *st;
+	int ret;
+
+	st = kmalloc(sizeof(struct ct_iter_state), GFP_KERNEL);
+	if (st == NULL)
+		return -ENOMEM;
+	ret = seq_open(file, &ct_seq_ops);
+	if (ret)
+		goto out_free;
+	seq          = file->private_data;
+	seq->private = st;
+	memset(st, 0, sizeof(struct ct_iter_state));
+	return ret;
+out_free:
+	kfree(st);
+	return ret;
 }
 
 static struct file_operations ct_file_ops = {
@@ -189,7 +228,7 @@ static struct file_operations ct_file_ops = {
 	.open    = ct_open,
 	.read    = seq_read,
 	.llseek  = seq_lseek,
-	.release = seq_release
+	.release = seq_release_private,
 };
   
 /* expects */
@@ -235,8 +274,8 @@ static int exp_seq_show(struct seq_file *s, void *v)
 	struct ip_conntrack_expect *expect = v;
 
 	if (expect->timeout.function)
-		seq_printf(s, "%lu ", timer_pending(&expect->timeout)
-			   ? (expect->timeout.expires - jiffies)/HZ : 0);
+		seq_printf(s, "%ld ", timer_pending(&expect->timeout)
+			   ? (long)(expect->timeout.expires - jiffies)/HZ : 0);
 	else
 		seq_printf(s, "- ");
 

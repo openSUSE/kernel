@@ -252,10 +252,6 @@ static void send_unreach(struct sk_buff *skb_in, int code)
 	if (iph->frag_off&htons(IP_OFFSET))
 		return;
 
-	/* Ensure we have at least 8 bytes of proto header. */
-	if (skb_in->len < skb_in->nh.iph->ihl*4 + 8)
-		return;
-
 	/* If we send an ICMP error to an ICMP error a mess would result.. */
 	if (iph->protocol == IPPROTO_ICMP) {
 		struct icmphdr ihdr;
