@@ -872,7 +872,7 @@ int snd_rawmidi_receive(snd_rawmidi_substream_t * substream, const unsigned char
 			count1 = count;
 			if (count1 > (int)(runtime->buffer_size - runtime->avail)) {
 				count1 = runtime->buffer_size - runtime->avail;
-				runtime->xruns = count - count1;
+				runtime->xruns += count - count1;
 			}
 			if (count1 > 0) {
 				memcpy(runtime->buffer, buffer, count1);
