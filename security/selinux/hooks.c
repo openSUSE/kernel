@@ -10,6 +10,8 @@
  *
  *  Copyright (C) 2001,2002 Networks Associates Technology, Inc.
  *  Copyright (C) 2003 Red Hat, Inc., James Morris <jmorris@redhat.com>
+ *  Copyright (C) 2004-2005 Trusted Computer Solutions, Inc.
+ *                          <dgoeddel@trustedcs.com>
  *
  *	This program is free software; you can redistribute it and/or modify
  *	it under the terms of the GNU General Public License version 2,
@@ -2208,6 +2210,11 @@ static int selinux_inode_setxattr(struct dentry *dentry, char *name, void *value
 
 	rc = avc_has_perm(tsec->sid, newsid, isec->sclass,
 			  FILE__RELABELTO, &ad);
+	if (rc)
+		return rc;
+
+	rc = security_validate_transition(isec->sid, newsid, tsec->sid,
+	                                  isec->sclass);
 	if (rc)
 		return rc;
 

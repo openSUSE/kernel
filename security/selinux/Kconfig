@@ -76,12 +76,3 @@ config SECURITY_SELINUX_AVC_STATS
 	  /selinux/avc/cache_stats, which may be monitored via
 	  tools such as avcstat.
 
-config SECURITY_SELINUX_MLS
-	bool "NSA SELinux MLS policy (EXPERIMENTAL)"
-	depends on SECURITY_SELINUX && EXPERIMENTAL
-	default n
-	help
-	  This enables the NSA SELinux Multi-Level Security (MLS) policy in
-	  addition to the default RBAC/TE policy.  This policy is
-	  experimental and has not been configured for use.  Unless you
-	  specifically want to experiment with MLS, say N.
