@@ -438,9 +438,10 @@ static int snd_ac97_ad18xx_update_pcm_bits(ac97_t *ac97, int codec, unsigned sho
 }
 
 /*
- *
+ * Controls
  */
 
+/* input mux */
 static int snd_ac97_info_mux(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uinfo)
 {
 	static char *texts[8] = {
@@ -481,6 +482,7 @@ static int snd_ac97_put_mux(snd_kcontrol_t * kcontrol, snd_ctl_elem_value_t * uc
 	return snd_ac97_update(ac97, AC97_REC_SEL, val);
 }
 
+/* standard stereo enums */
 #define AC97_ENUM_DOUBLE(xname, reg, shift, invert) \
 { .iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, .info = snd_ac97_info_enum_double, \
   .get = snd_ac97_get_enum_double, .put = snd_ac97_put_enum_double, \
@@ -543,6 +545,30 @@ static int snd_ac97_put_enum_double(snd_kcontrol_t * kcontrol, snd_ctl_elem_valu
 	return snd_ac97_update_bits(ac97, reg, 1 << shift, val << shift);
 }
 
+/* save/restore ac97 v2.3 paging */
+static int snd_ac97_page_save(ac97_t *ac97, int reg, snd_kcontrol_t *kcontrol)
+{
+	int page_save = -1;
+	if ((kcontrol->private_value & (1<<25)) &&
+	    (ac97->ext_id & AC97_EI_REV_MASK) >= AC97_EI_REV_23 &&
+	    (reg >= 0x60 && reg < 0x70)) {
+		unsigned short page = (kcontrol->private_value >> 26) & 0x0f;
+		down(&ac97->page_mutex); /* lock paging */
+		page_save = snd_ac97_read(ac97, AC97_INT_PAGING) & AC97_PAGE_MASK;
+		snd_ac97_update_bits(ac97, AC97_INT_PAGING, AC97_PAGE_MASK, page);
+	}
+	return page_save;
+}
+
+static void snd_ac97_page_restore(ac97_t *ac97, int page_save)
+{
+	if (page_save >= 0) {
+		snd_ac97_update_bits(ac97, AC97_INT_PAGING, AC97_PAGE_MASK, page_save);
+		up(&ac97->page_mutex); /* unlock paging */
+	}
+}
+
+/* volume and switch controls */
 int snd_ac97_info_volsw(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t * uinfo)
 {
 	int mask = (kcontrol->private_value >> 16) & 0xff;
@@ -564,7 +590,9 @@ int snd_ac97_get_volsw(snd_kcontrol_t * kcontrol, snd_ctl_elem_value_t * ucontro
 	int rshift = (kcontrol->private_value >> 12) & 0x0f;
 	int mask = (kcontrol->private_value >> 16) & 0xff;
 	int invert = (kcontrol->private_value >> 24) & 0x01;
-	
+	int page_save;
+
+	page_save = snd_ac97_page_save(ac97, reg, kcontrol);
 	ucontrol->value.integer.value[0] = (snd_ac97_read_cache(ac97, reg) >> shift) & mask;
 	if (shift != rshift)
 		ucontrol->value.integer.value[1] = (snd_ac97_read_cache(ac97, reg) >> rshift) & mask;
@@ -573,6 +601,7 @@ int snd_ac97_get_volsw(snd_kcontrol_t * kcontrol, snd_ctl_elem_value_t * ucontro
 		if (shift != rshift)
 			ucontrol->value.integer.value[1] = mask - ucontrol->value.integer.value[1];
 	}
+	snd_ac97_page_restore(ac97, page_save);
 	return 0;
 }
 
@@ -584,8 +613,10 @@ int snd_ac97_put_volsw(snd_kcontrol_t * kcontrol, snd_ctl_elem_value_t * ucontro
 	int rshift = (kcontrol->private_value >> 12) & 0x0f;
 	int mask = (kcontrol->private_value >> 16) & 0xff;
 	int invert = (kcontrol->private_value >> 24) & 0x01;
+	int err, page_save;
 	unsigned short val, val2, val_mask;
 	
+	page_save = snd_ac97_page_save(ac97, reg, kcontrol);
 	val = (ucontrol->value.integer.value[0] & mask);
 	if (invert)
 		val = mask - val;
@@ -598,47 +629,15 @@ int snd_ac97_put_volsw(snd_kcontrol_t * kcontrol, snd_ctl_elem_value_t * ucontro
 		val_mask |= mask << rshift;
 		val |= val2 << rshift;
 	}
-	return snd_ac97_update_bits(ac97, reg, val_mask, val);
+	err = snd_ac97_update_bits(ac97, reg, val_mask, val);
+	snd_ac97_page_restore(ac97, page_save);
+	return err;
 }
 
 #define AC97_DOUBLE(xname, reg, shift_left, shift_right, mask, invert) \
 { .iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = (xname), .info = snd_ac97_info_volsw, \
   .get = snd_ac97_get_volsw, .put = snd_ac97_put_volsw, \
   .private_value = (reg) | ((shift_left) << 8) | ((shift_right) << 12) | ((mask) << 16) | ((invert) << 24) }
-
-static int snd_ac97_getput_page(snd_kcontrol_t *kcontrol, snd_ctl_elem_value_t *ucontrol,
-			 int (*func)(snd_kcontrol_t *, snd_ctl_elem_value_t *))
-{
-	ac97_t *ac97 = snd_kcontrol_chip(kcontrol);
-	int reg = kcontrol->private_value & 0xff;
-	int err;
-
-	if ((ac97->ext_id & AC97_EI_REV_MASK) >= AC97_EI_REV_23 &&
-	    (reg >= 0x60 && reg < 0x70)) {
-		unsigned short page_save;
-		unsigned short page = (kcontrol->private_value >> 25) & 0x0f;
-		down(&ac97->page_mutex); /* lock paging */
-		page_save = snd_ac97_read(ac97, AC97_INT_PAGING) & AC97_PAGE_MASK;
-		snd_ac97_update_bits(ac97, AC97_INT_PAGING, AC97_PAGE_MASK, page);
-		err = func(kcontrol, ucontrol);
-		snd_ac97_update_bits(ac97, AC97_INT_PAGING, AC97_PAGE_MASK, page_save);
-		up(&ac97->page_mutex); /* unlock paging */
-	} else
-		err = func(kcontrol, ucontrol);
-	return err;
-}
-
-/* for rev2.3 paging */
-int snd_ac97_page_get_volsw(snd_kcontrol_t *kcontrol, snd_ctl_elem_value_t *ucontrol)
-{
-	return snd_ac97_getput_page(kcontrol, ucontrol, snd_ac97_get_volsw);
-}
-
-/* for rev2.3 paging */
-int snd_ac97_page_put_volsw(snd_kcontrol_t *kcontrol, snd_ctl_elem_value_t *ucontrol)
-{
-	return snd_ac97_getput_page(kcontrol, ucontrol, snd_ac97_put_volsw);
-}
 
 static const snd_kcontrol_new_t snd_ac97_controls_master_mono[2] = {
 AC97_SINGLE("Master Mono Playback Switch", AC97_MASTER_MONO, 15, 1, 1),
@@ -2331,6 +2330,35 @@ int snd_ac97_swap_ctl(ac97_t *ac97, const char *s1, const char *s2, const char *
 	return -ENOENT;
 }
 
+#if 1
+/* bind hp and master controls instead of using only hp control */
+static int bind_hp_volsw_put(snd_kcontrol_t *kcontrol, snd_ctl_elem_value_t *ucontrol)
+{
+	int err = snd_ac97_put_volsw(kcontrol, ucontrol);
+	if (err > 0) {
+		unsigned long priv_saved = kcontrol->private_value;
+		kcontrol->private_value = (kcontrol->private_value & ~0xff) | AC97_HEADPHONE;
+		snd_ac97_put_volsw(kcontrol, ucontrol);
+		kcontrol->private_value = priv_saved;
+	}
+	return err;
+}
+
+/* ac97 tune: bind Master and Headphone controls */
+static int tune_hp_only(ac97_t *ac97)
+{
+	snd_kcontrol_t *msw = ctl_find(ac97, "Master Playback Switch", NULL);
+	snd_kcontrol_t *mvol = ctl_find(ac97, "Master Playback Volume", NULL);
+	if (! msw || ! mvol)
+		return -ENOENT;
+	msw->put = bind_hp_volsw_put;
+	mvol->put = bind_hp_volsw_put;
+	snd_ac97_remove_ctl(ac97, "Headphone Playback", "Switch");
+	snd_ac97_remove_ctl(ac97, "Headphone Playback", "Volume");
+	return 0;
+}
+
+#else
 /* ac97 tune: use Headphone control as master */
 static int tune_hp_only(ac97_t *ac97)
 {
@@ -2341,6 +2369,7 @@ static int tune_hp_only(ac97_t *ac97)
 	snd_ac97_rename_vol_ctl(ac97, "Headphone Playback", "Master Playback");
 	return 0;
 }
+#endif
 
 /* ac97 tune: swap Headphone and Master controls */
 static int tune_swap_hp(ac97_t *ac97)

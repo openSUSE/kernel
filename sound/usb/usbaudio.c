@@ -2968,6 +2968,8 @@ static int snd_usb_create_quirk(snd_usb_audio_t *chip,
 	case QUIRK_MIDI_FIXED_ENDPOINT:
 	case QUIRK_MIDI_YAMAHA:
 	case QUIRK_MIDI_MIDIMAN:
+	case QUIRK_MIDI_NOVATION:
+	case QUIRK_MIDI_MOTU:
 		return snd_usb_create_midi_interface(chip, iface, quirk);
 	case QUIRK_COMPOSITE:
 		return create_composite_quirk(chip, iface, quirk);
@@ -2980,6 +2982,8 @@ static int snd_usb_create_quirk(snd_usb_audio_t *chip,
 		return create_ua700_ua25_quirk(chip, iface);
 	case QUIRK_AUDIO_EDIROL_UA1000:
 		return create_ua1000_quirk(chip, iface);
+	case QUIRK_IGNORE_INTERFACE:
+		return 0;
 	default:
 		snd_printd(KERN_ERR "invalid quirk type %d\n", quirk->type);
 		return -ENXIO;

@@ -25,6 +25,7 @@
 #include <linux/slab.h>
 #include <linux/interrupt.h>
 #include <linux/init.h>
+#include <linux/device.h>
 #include <linux/firmware.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -45,12 +46,10 @@ MODULE_LICENSE("GPL");
  */
 void snd_vx_delay(vx_core_t *chip, int xmsec)
 {
-	if (! in_interrupt() && xmsec >= 1000 / HZ) {
-		set_current_state(TASK_UNINTERRUPTIBLE);
-		schedule_timeout((xmsec * HZ + 999) / 1000);
-	} else {
+	if (! in_interrupt() && xmsec >= 1000 / HZ)
+		msleep(xmsec);
+	else
 		mdelay(xmsec);
-	}
 }
 
 /*
@@ -610,6 +609,10 @@ static void vx_proc_read(snd_info_entry_t *entry, snd_info_buffer_t *buffer)
 	static char *uer_type[] = { "Consumer", "Professional", "Not Present" };
 	
 	snd_iprintf(buffer, "%s\n", chip->card->longname);
+	snd_iprintf(buffer, "Xilinx Firmware: %s\n",
+		    chip->chip_status & VX_STAT_XILINX_LOADED ? "Loaded" : "No");
+	snd_iprintf(buffer, "Device Initialized: %s\n",
+		    chip->chip_status & VX_STAT_DEVICE_INIT ? "Yes" : "No");
 	snd_iprintf(buffer, "DSP audio info:");
 	if (chip->audio_info & VX_AUDIO_INFO_REAL_TIME)
 		snd_iprintf(buffer, " realtime");
@@ -718,7 +721,7 @@ int snd_vx_dsp_load(vx_core_t *chip, const struct firmware *dsp)
 /*
  * suspend
  */
-static int snd_vx_suspend(snd_card_t *card, unsigned int state)
+static int snd_vx_suspend(snd_card_t *card, pm_message_t state)
 {
 	vx_core_t *chip = card->pm_private_data;
 	unsigned int i;
@@ -735,7 +738,7 @@ static int snd_vx_suspend(snd_card_t *card, unsigned int state)
 /*
  * resume
  */
-static int snd_vx_resume(snd_card_t *card, unsigned int state)
+static int snd_vx_resume(snd_card_t *card)
 {
 	vx_core_t *chip = card->pm_private_data;
 	int i, err;

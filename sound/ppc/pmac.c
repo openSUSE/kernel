@@ -40,8 +40,8 @@
 #if defined(CONFIG_PM) && defined(CONFIG_PMAC_PBOOK)
 static int snd_pmac_register_sleep_notifier(pmac_t *chip);
 static int snd_pmac_unregister_sleep_notifier(pmac_t *chip);
-static int snd_pmac_suspend(snd_card_t *card, unsigned int state);
-static int snd_pmac_resume(snd_card_t *card, unsigned int state);
+static int snd_pmac_suspend(snd_card_t *card, pm_message_t state);
+static int snd_pmac_resume(snd_card_t *card);
 #endif
 
 
@@ -1233,7 +1233,7 @@ int __init snd_pmac_new(snd_card_t *card, pmac_t **chip_return)
  * Save state when going to sleep, restore it afterwards.
  */
 
-static int snd_pmac_suspend(snd_card_t *card, unsigned int state)
+static int snd_pmac_suspend(snd_card_t *card, pm_message_t state)
 {
 	pmac_t *chip = card->pm_private_data;
 	unsigned long flags;
@@ -1254,7 +1254,7 @@ static int snd_pmac_suspend(snd_card_t *card, unsigned int state)
 	return 0;
 }
 
-static int snd_pmac_resume(snd_card_t *card, unsigned int state)
+static int snd_pmac_resume(snd_card_t *card)
 {
 	pmac_t *chip = card->pm_private_data;
 
@@ -1294,10 +1294,10 @@ static int snd_pmac_sleep_notify(struct pmu_sleep_notifier *self, int when)
 
 	switch (when) {
 	case PBOOK_SLEEP_NOW:
-		snd_pmac_suspend(chip->card, 0);
+		snd_pmac_suspend(chip->card, PMSG_SUSPEND);
 		break;
 	case PBOOK_WAKE:
-		snd_pmac_resume(chip->card, 0);
+		snd_pmac_resume(chip->card);
 		break;
 	}
 	return PBOOK_SLEEP_OK;
