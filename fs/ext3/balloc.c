@@ -288,6 +288,7 @@ void ext3_free_blocks_sb(handle_t *handle, struct super_block *sb,
 	struct ext3_super_block * es;
 	struct ext3_sb_info *sbi;
 	int err = 0, ret;
+	unsigned group_freed;
 
 	*pdquot_freed_blocks = 0;
 	sbi = EXT3_SB(sb);
@@ -358,7 +359,7 @@ do_more:
 
 	jbd_lock_bh_state(bitmap_bh);
 
-	for (i = 0; i < count; i++) {
+	for (i = 0, group_freed = 0; i < count; i++) {
 		/*
 		 * An HJ special.  This is expensive...
 		 */
@@ -421,15 +422,15 @@ do_more:
 			jbd_lock_bh_state(bitmap_bh);
 			BUFFER_TRACE(bitmap_bh, "bit already cleared");
 		} else {
-			(*pdquot_freed_blocks)++;
+			group_freed++;
 		}
 	}
 	jbd_unlock_bh_state(bitmap_bh);
 
 	spin_lock(sb_bgl_lock(sbi, block_group));
-	gdp->bg_free_blocks_count =
-		cpu_to_le16(le16_to_cpu(gdp->bg_free_blocks_count) +
-			*pdquot_freed_blocks);
+	desc->bg_free_blocks_count =
+		cpu_to_le16(le16_to_cpu(desc->bg_free_blocks_count) +
+			group_freed);
 	spin_unlock(sb_bgl_lock(sbi, block_group));
 	percpu_counter_mod(&sbi->s_freeblocks_counter, count);
 
@@ -441,6 +442,7 @@ do_more:
 	BUFFER_TRACE(gd_bh, "dirtied group descriptor block");
 	ret = ext3_journal_dirty_metadata(handle, gd_bh);
 	if (!err) err = ret;
+	*pdquot_freed_blocks += group_freed;
 
 	if (overflow && !err) {
 		block += count;
