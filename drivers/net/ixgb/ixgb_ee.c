@@ -372,11 +372,11 @@ ixgb_update_eeprom_checksum(struct ixgb_hw *hw)
  *
  *****************************************************************************/
 void
-ixgb_write_eeprom(struct ixgb_hw *hw,
-		   uint16_t offset,
-		   uint16_t data)
+ixgb_write_eeprom(struct ixgb_hw *hw, uint16_t offset, uint16_t data)
 {
-	/*  Prepare the EEPROM for writing  */
+	struct ixgb_ee_map_type *ee_map = (struct ixgb_ee_map_type *)hw->eeprom;
+
+	/* Prepare the EEPROM for writing */
 	ixgb_setup_eeprom(hw);
 
 	/*  Send the 9-bit EWEN (write enable) command to the EEPROM (5-bit opcode
@@ -409,6 +409,9 @@ ixgb_write_eeprom(struct ixgb_hw *hw,
 
 	/*  Done with writing  */
 	ixgb_cleanup_eeprom(hw);
+
+	/* clear the init_ctrl_reg_1 to signify that the cache is invalidated */
+	ee_map->init_ctrl_reg_1 = EEPROM_ICW1_SIGNATURE_CLEAR;
 
 	return;
 }
@@ -478,6 +481,9 @@ ixgb_get_eeprom_data(struct ixgb_hw *hw)
 
 	if (checksum != (uint16_t) EEPROM_SUM) {
 		DEBUGOUT("ixgb_ee: Checksum invalid.\n");
+		/* clear the init_ctrl_reg_1 to signify that the cache is
+		 * invalidated */
+		ee_map->init_ctrl_reg_1 = EEPROM_ICW1_SIGNATURE_CLEAR;
 		return (FALSE);
 	}
 
