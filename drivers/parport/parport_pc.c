@@ -2907,10 +2907,16 @@ static struct pci_device_id parport_pc_pci_tbl[] = {
 };
 MODULE_DEVICE_TABLE(pci,parport_pc_pci_tbl);
 
+struct pci_parport_data {
+	int num;
+	struct parport *ports[2];
+};
+
 static int parport_pc_pci_probe (struct pci_dev *dev,
 					   const struct pci_device_id *id)
 {
 	int err, count, n, i = id->driver_data;
+	struct pci_parport_data *data;
 
 	if (i < last_sio)
 		/* This is an onboard Super-IO and has already been probed */
@@ -2922,9 +2928,15 @@ static int parport_pc_pci_probe (struct pci_dev *dev,
 	if ((err = pci_enable_device (dev)) != 0)
 		return err;
 
+	data = kmalloc(sizeof(struct pci_parport_data), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
 	if (cards[i].preinit_hook &&
-	    cards[i].preinit_hook (dev, PARPORT_IRQ_NONE, PARPORT_DMA_NONE))
+	    cards[i].preinit_hook (dev, PARPORT_IRQ_NONE, PARPORT_DMA_NONE)) {
+		kfree(data);
 		return -ENODEV;
+	}
 
 	for (n = 0; n < cards[i].numports; n++) {
 		int lo = cards[i].addr[n].lo;
@@ -2943,21 +2955,46 @@ static int parport_pc_pci_probe (struct pci_dev *dev,
 			"I/O at %#lx(%#lx)\n",
 			parport_pc_pci_tbl[i + last_sio].vendor,
 			parport_pc_pci_tbl[i + last_sio].device, io_lo, io_hi);
-		if (parport_pc_probe_port (io_lo, io_hi, PARPORT_IRQ_NONE,
-					   PARPORT_DMA_NONE, dev))
+		data->ports[count] =
+			parport_pc_probe_port (io_lo, io_hi, PARPORT_IRQ_NONE,
+					       PARPORT_DMA_NONE, dev);
+		if (data->ports[count])
 			count++;
 	}
+
+	data->num = count;
 
 	if (cards[i].postinit_hook)
 		cards[i].postinit_hook (dev, count == 0);
 
-	return count == 0 ? -ENODEV : 0;
+	if (count) {
+		pci_set_drvdata(dev, data);
+		return 0;
+	}
+
+	kfree(data);
+
+	return -ENODEV;
+}
+
+static void __devexit parport_pc_pci_remove(struct pci_dev *dev)
+{
+	struct pci_parport_data *data = pci_get_drvdata(dev);
+	int i;
+
+	pci_set_drvdata(dev, NULL);
+
+	for (i = data->num - 1; i >= 0; i--)
+		parport_pc_unregister_port(data->ports[i]);
+
+	kfree(data);
 }
 
 static struct pci_driver parport_pc_pci_driver = {
 	.name		= "parport_pc",
 	.id_table	= parport_pc_pci_tbl,
 	.probe		= parport_pc_pci_probe,
+	.remove		= __devexit_p(parport_pc_pci_remove),
 };
 
 static int __init parport_pc_init_superio (int autoirq, int autodma)
