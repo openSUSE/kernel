@@ -4106,6 +4106,7 @@ static int selinux_setprocattr(struct task_struct *p,
 	struct task_security_struct *tsec;
 	u32 sid = 0;
 	int error;
+	char *str = value;
 
 	if (current != p) {
 		/* SELinux only allows a process to change its own
@@ -4130,8 +4131,11 @@ static int selinux_setprocattr(struct task_struct *p,
 		return error;
 
 	/* Obtain a SID for the context, if one was specified. */
-	if (size) {
-		int error;
+	if (size && str[1] && str[1] != '\n') {
+		if (str[size-1] == '\n') {
+			str[size-1] = 0;
+			size--;
+		}
 		error = security_context_to_sid(value, size, &sid);
 		if (error)
 			return error;
