@@ -9,6 +9,7 @@
 #include "linux/smp_lock.h"
 #include "linux/security.h"
 #include "linux/ptrace.h"
+#include "linux/audit.h"
 #ifdef CONFIG_PROC_MM
 #include "linux/proc_mm.h"
 #endif

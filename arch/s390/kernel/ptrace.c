@@ -31,6 +31,7 @@
 #include <linux/ptrace.h>
 #include <linux/user.h>
 #include <linux/security.h>
+#include <linux/audit.h>
 
 #include <asm/segment.h>
 #include <asm/page.h>
