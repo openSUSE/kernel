@@ -48,7 +48,7 @@ void fat_clusters_flush(struct super_block *sb)
 
 	bh = sb_bread(sb, sbi->fsinfo_sector);
 	if (bh == NULL) {
-		printk(KERN_ERR "FAT bread failed in fat_clusters_flush\n");
+		printk(KERN_ERR "FAT: bread failed in fat_clusters_flush\n");
 		return;
 	}
 
