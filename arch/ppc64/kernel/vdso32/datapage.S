@@ -56,7 +56,7 @@ V_FUNCTION_BEGIN(__kernel_get_syscall_map)
   .cfi_register lr,r12
 
 	mr	r4,r3
-	bl	__get_datapage@local
+	bl	__get_datapage
 	mtlr	r12
 	addi	r3,r3,CFG_SYSCALL_MAP32
 	cmpli	cr0,r4,0
