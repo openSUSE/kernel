@@ -1,3 +1,7 @@
+Version 1.30
+------------
+Allow new nouser_xattr mount parm to disable xattr support for user namespace.
+
 Version 1.29
 ------------
 Fix default mode in sysfs of cifs module parms.  Remove old readdir routine.

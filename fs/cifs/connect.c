@@ -69,6 +69,7 @@ struct smb_vol {
 	unsigned setuids:1;
 	unsigned noperm:1;
 	unsigned no_psx_acl:1; /* set if posix acl support should be disabled */
+	unsigned no_xattr:1;   /* set if xattr (EA) support should be disabled*/
 	unsigned server_ino:1; /* use inode numbers from server ie UniqueId */
 	unsigned direct_io:1;
 	unsigned int rsize;
@@ -525,7 +526,12 @@ cifs_parse_mount_options(char *options, const char *devname,struct smb_vol *vol)
 			continue;
 		if ((value = strchr(data, '=')) != NULL)
 			*value++ = '\0';
-		if (strnicmp(data, "user", 4) == 0) {
+
+		if (strnicmp(data, "user_xattr",10) == 0) {/*parse before user*/
+			vol->no_xattr = 0;
+		} else if (strnicmp(data, "nouser_xattr",12) == 0) {
+			vol->no_xattr = 1;
+		} else if (strnicmp(data, "user", 4) == 0) {
 			if (!value || !*value) {
 				printk(KERN_WARNING
 				       "CIFS: invalid or missing username\n");
@@ -1398,6 +1404,8 @@ cifs_mount(struct super_block *sb, struct cifs_sb_info *cifs_sb,
 			cifs_sb->mnt_cifs_flags |= CIFS_MOUNT_SET_UID;
 		if(volume_info.server_ino)
 			cifs_sb->mnt_cifs_flags |= CIFS_MOUNT_SERVER_INUM;
+		if(volume_info.no_xattr)
+			cifs_sb->mnt_cifs_flags |= CIFS_MOUNT_NO_XATTR;
 		if(volume_info.direct_io) {
 			cERROR(1,("mounting share using direct i/o"));
 			cifs_sb->mnt_cifs_flags |= CIFS_MOUNT_DIRECT_IO;

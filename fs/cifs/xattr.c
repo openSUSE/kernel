@@ -71,16 +71,21 @@ int cifs_removexattr(struct dentry * direntry, const char * ea_name)
 	}
 	if(ea_name == NULL) {
 		cFYI(1,("Null xattr names not supported"));
-	} else if(strncmp(ea_name,CIFS_XATTR_USER_PREFIX,5)) {
+	} else if(strncmp(ea_name,CIFS_XATTR_USER_PREFIX,5)
+		&& (strncmp(ea_name,CIFS_XATTR_OS2_PREFIX,4))) {
 		cFYI(1,("illegal xattr namespace %s (only user namespace supported)",ea_name));
 		/* BB what if no namespace prefix? */
 		/* Should we just pass them to server, except for
 		system and perhaps security prefixes? */
 	} else {
+		if(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_NO_XATTR)
+			goto remove_ea_exit;
+
 		ea_name+=5; /* skip past user. prefix */
 		rc = CIFSSMBSetEA(xid,pTcon,full_path,ea_name,NULL,
 			(__u16)0, cifs_sb->local_nls);
 	}
+remove_ea_exit:
 	if (full_path)
 		kfree(full_path);
 	FreeXid(xid);
@@ -135,6 +140,8 @@ int cifs_setxattr(struct dentry * direntry, const char * ea_name,
 	if(ea_name == NULL) {
 		cFYI(1,("Null xattr names not supported"));
 	} else if(strncmp(ea_name,CIFS_XATTR_USER_PREFIX,5) == 0) {
+		if(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_NO_XATTR)
+			goto set_ea_exit;
 		if(strncmp(ea_name,CIFS_XATTR_DOS_ATTRIB,14) == 0) {
 			cFYI(1,("attempt to set cifs inode metadata"));
 		}
@@ -142,6 +149,9 @@ int cifs_setxattr(struct dentry * direntry, const char * ea_name,
 		rc = CIFSSMBSetEA(xid,pTcon,full_path,ea_name,ea_value,
 			(__u16)value_size, cifs_sb->local_nls);
 	} else if(strncmp(ea_name, CIFS_XATTR_OS2_PREFIX,4) == 0) {
+		if(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_NO_XATTR)
+			goto set_ea_exit;
+
 		ea_name += 4; /* skip past os2. prefix */
 		rc = CIFSSMBSetEA(xid,pTcon,full_path,ea_name,ea_value,
 			(__u16)value_size, cifs_sb->local_nls);
@@ -174,7 +184,8 @@ int cifs_setxattr(struct dentry * direntry, const char * ea_name,
 		  system and perhaps security prefixes? */
 		}
 	}
- 
+
+set_ea_exit:
 	if (full_path)
 		kfree(full_path);
 	FreeXid(xid);
@@ -218,6 +229,9 @@ ssize_t cifs_getxattr(struct dentry * direntry, const char * ea_name,
 	if(ea_name == NULL) {
 		cFYI(1,("Null xattr names not supported"));
 	} else if(strncmp(ea_name,CIFS_XATTR_USER_PREFIX,5) == 0) {
+		if(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_NO_XATTR)
+			goto get_ea_exit;
+
 		if(strncmp(ea_name,CIFS_XATTR_DOS_ATTRIB,14) == 0) {
 			cFYI(1,("attempt to query cifs inode metadata"));
 			/* revalidate/getattr then populate from inode */
@@ -226,6 +240,9 @@ ssize_t cifs_getxattr(struct dentry * direntry, const char * ea_name,
 		rc = CIFSSMBQueryEA(xid,pTcon,full_path,ea_name,ea_value,
 			buf_size, cifs_sb->local_nls);
 	} else if(strncmp(ea_name, CIFS_XATTR_OS2_PREFIX,4) == 0) {
+		if(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_NO_XATTR)
+			goto get_ea_exit;
+
 		ea_name += 4; /* skip past os2. prefix */
 		rc = CIFSSMBQueryEA(xid,pTcon,full_path,ea_name,ea_value,
 			buf_size, cifs_sb->local_nls);
@@ -263,6 +280,7 @@ ssize_t cifs_getxattr(struct dentry * direntry, const char * ea_name,
 	if(rc == -EINVAL)
 		rc = -EOPNOTSUPP; 
 
+get_ea_exit:
 	if (full_path)
 		kfree(full_path);
 	FreeXid(xid);
