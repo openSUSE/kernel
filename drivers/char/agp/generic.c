@@ -640,7 +640,6 @@ u32 agp_collect_device_status(struct agp_bridge_data *bridge, u32 requested_mode
 		cap_ptr = pci_find_capability(device, PCI_CAP_ID_AGP);
 		if (cap_ptr)
 			break;
-		pci_dev_put(device);
 	}
 
 	/*
