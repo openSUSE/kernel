@@ -1206,7 +1206,8 @@ __blockdev_direct_IO(int rw, struct kiocb *iocb, struct inode *inode,
 	 */
 	dio->lock_type = dio_lock_type;
 	if (dio_lock_type != DIO_NO_LOCKING) {
-		if (rw == READ) {
+		/* watch out for a 0 len io from a tricksy fs */
+		if (rw == READ && end > offset) {
 			struct address_space *mapping;
 
 			mapping = iocb->ki_filp->f_mapping;
@@ -1214,7 +1215,9 @@ __blockdev_direct_IO(int rw, struct kiocb *iocb, struct inode *inode,
 				down(&inode->i_sem);
 				reader_with_isem = 1;
 			}
-			retval = filemap_write_and_wait(mapping);
+
+			retval = filemap_write_and_wait_range(mapping, offset,
+							      end - 1);
 			if (retval) {
 				kfree(dio);
 				goto out;

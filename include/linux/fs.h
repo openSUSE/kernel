@@ -1360,6 +1360,8 @@ extern int filemap_fdatawrite(struct address_space *);
 extern int filemap_flush(struct address_space *);
 extern int filemap_fdatawait(struct address_space *);
 extern int filemap_write_and_wait(struct address_space *mapping);
+extern int filemap_write_and_wait_range(struct address_space *mapping,
+				        loff_t lstart, loff_t lend);
 extern void sync_supers(void);
 extern void sync_filesystems(int wait);
 extern void emergency_sync(void);

@@ -336,6 +336,22 @@ int filemap_write_and_wait(struct address_space *mapping)
 	return retval;
 }
 
+int filemap_write_and_wait_range(struct address_space *mapping,
+				 loff_t lstart, loff_t lend)
+{
+	int retval = 0;
+
+	if (mapping->nrpages) {
+		retval = __filemap_fdatawrite_range(mapping, lstart, lend,
+						    WB_SYNC_ALL);
+		if (retval == 0)
+			retval = wait_on_page_writeback_range(mapping,
+						    lstart >> PAGE_CACHE_SHIFT,
+						    lend >> PAGE_CACHE_SHIFT);
+	}
+	return retval;
+}
+
 /*
  * This function is used to add newly allocated pagecache pages:
  * the page is new, so we can just run SetPageLocked() against it.
