@@ -92,14 +92,13 @@ static DEFINE_SPINLOCK(idr_lock);
  * inactive.  It could be in the "fire" routine getting a new expire time.
  */
 #define TIMER_INACTIVE 1
-#define TIMER_RETRY 1
 
 #ifdef CONFIG_SMP
 # define timer_active(tmr) \
-		((tmr)->it_timer.entry.prev != (void *)TIMER_INACTIVE)
+		((tmr)->it.real.timer.entry.prev != (void *)TIMER_INACTIVE)
 # define set_timer_inactive(tmr) \
 		do { \
-			(tmr)->it_timer.entry.prev = (void *)TIMER_INACTIVE; \
+			(tmr)->it.real.timer.entry.prev = (void *)TIMER_INACTIVE; \
 		} while (0)
 #else
 # define timer_active(tmr) BARFY	// error to use outside of SMP
@@ -115,7 +114,6 @@ static DEFINE_SPINLOCK(idr_lock);
 #endif
 
 
-#define REQUEUE_PENDING 1
 /*
  * The timer ID is turned into a timer address by idr_find().
  * Verifying a valid ID consists of:
@@ -223,10 +221,10 @@ static inline int common_clock_set(clockid_t which_clock, struct timespec *tp)
 
 static inline int common_timer_create(struct k_itimer *new_timer)
 {
-	init_timer(&new_timer->it_timer);
-	new_timer->it_timer.expires = 0;
-	new_timer->it_timer.data = (unsigned long) new_timer;
-	new_timer->it_timer.function = posix_timer_fn;
+	INIT_LIST_HEAD(&new_timer->it.real.abs_timer_entry);
+	init_timer(&new_timer->it.real.timer);
+	new_timer->it.real.timer.data = (unsigned long) new_timer;
+	new_timer->it.real.timer.function = posix_timer_fn;
 	set_timer_inactive(new_timer);
 	return 0;
 }
@@ -326,9 +324,9 @@ static long add_clockset_delta(struct k_itimer *timr,
 
 	set_normalized_timespec(&delta,
 				new_wall_to->tv_sec -
-				timr->wall_to_prev.tv_sec,
+				timr->it.real.wall_to_prev.tv_sec,
 				new_wall_to->tv_nsec -
-				timr->wall_to_prev.tv_nsec);
+				timr->it.real.wall_to_prev.tv_nsec);
 	if (likely(!(delta.tv_sec | delta.tv_nsec)))
 		return 0;
 	if (delta.tv_sec < 0) {
@@ -339,16 +337,16 @@ static long add_clockset_delta(struct k_itimer *timr,
 		sign++;
 	}
 	tstojiffie(&delta, posix_clocks[timr->it_clock].res, &exp);
-	timr->wall_to_prev = *new_wall_to;
-	timr->it_timer.expires += (sign ? -exp : exp);
+	timr->it.real.wall_to_prev = *new_wall_to;
+	timr->it.real.timer.expires += (sign ? -exp : exp);
 	return 1;
 }
 
 static void remove_from_abslist(struct k_itimer *timr)
 {
-	if (!list_empty(&timr->abs_timer_entry)) {
+	if (!list_empty(&timr->it.real.abs_timer_entry)) {
 		spin_lock(&abs_list.lock);
-		list_del_init(&timr->abs_timer_entry);
+		list_del_init(&timr->it.real.abs_timer_entry);
 		spin_unlock(&abs_list.lock);
 	}
 }
@@ -362,7 +360,7 @@ static void schedule_next_timer(struct k_itimer *timr)
 	/*
 	 * Set up the timer for the next interval (if there is one).
 	 * Note: this code uses the abs_timer_lock to protect
-	 * wall_to_prev and must hold it until exp is set, not exactly
+	 * it.real.wall_to_prev and must hold it until exp is set, not exactly
 	 * obvious...
 
 	 * This function is used for CLOCK_REALTIME* and
@@ -372,7 +370,7 @@ static void schedule_next_timer(struct k_itimer *timr)
 	 * "other" CLOCKs "next timer" code (which, I suppose should
 	 * also be added to the k_clock structure).
 	 */
-	if (!timr->it_incr) 
+	if (!timr->it.real.incr)
 		return;
 
 	do {
@@ -381,7 +379,7 @@ static void schedule_next_timer(struct k_itimer *timr)
 		posix_get_now(&now);
 	} while (read_seqretry(&xtime_lock, seq));
 
-	if (!list_empty(&timr->abs_timer_entry)) {
+	if (!list_empty(&timr->it.real.abs_timer_entry)) {
 		spin_lock(&abs_list.lock);
 		add_clockset_delta(timr, &new_wall_to);
 
@@ -394,7 +392,7 @@ static void schedule_next_timer(struct k_itimer *timr)
 	timr->it_overrun_last = timr->it_overrun;
 	timr->it_overrun = -1;
 	++timr->it_requeue_pending;
-	add_timer(&timr->it_timer);
+	add_timer(&timr->it.real.timer);
 }
 
 /*
@@ -418,7 +416,10 @@ void do_schedule_next_timer(struct siginfo *info)
 	if (!timr || timr->it_requeue_pending != info->si_sys_private)
 		goto exit;
 
-	schedule_next_timer(timr);
+	if (timr->it_clock < 0)	/* CPU clock */
+		posix_cpu_timer_schedule(timr);
+	else
+		schedule_next_timer(timr);
 	info->si_overrun = timr->it_overrun_last;
 exit:
 	if (timr)
@@ -478,7 +479,7 @@ static void posix_timer_fn(unsigned long __data)
 
 	spin_lock_irqsave(&timr->it_lock, flags);
  	set_timer_inactive(timr);
-	if (!list_empty(&timr->abs_timer_entry)) {
+	if (!list_empty(&timr->it.real.abs_timer_entry)) {
 		spin_lock(&abs_list.lock);
 		do {
 			seq = read_seqbegin(&xtime_lock);
@@ -486,9 +487,9 @@ static void posix_timer_fn(unsigned long __data)
 		} while (read_seqretry(&xtime_lock, seq));
 		set_normalized_timespec(&delta,
 					new_wall_to.tv_sec -
-					timr->wall_to_prev.tv_sec,
+					timr->it.real.wall_to_prev.tv_sec,
 					new_wall_to.tv_nsec -
-					timr->wall_to_prev.tv_nsec);
+					timr->it.real.wall_to_prev.tv_nsec);
 		if (likely((delta.tv_sec | delta.tv_nsec ) == 0)) {
 			/* do nothing, timer is on time */
 		} else if (delta.tv_sec < 0) {
@@ -498,9 +499,9 @@ static void posix_timer_fn(unsigned long __data)
 			tstojiffie(&delta,
 				   posix_clocks[timr->it_clock].res,
 				   &exp);
-			timr->wall_to_prev = new_wall_to;
-			timr->it_timer.expires += exp;
-			add_timer(&timr->it_timer);
+			timr->it.real.wall_to_prev = new_wall_to;
+			timr->it.real.timer.expires += exp;
+			add_timer(&timr->it.real.timer);
 			do_notify = 0;
 		}
 		spin_unlock(&abs_list.lock);
@@ -509,7 +510,7 @@ static void posix_timer_fn(unsigned long __data)
 	if (do_notify)  {
 		int si_private=0;
 
-		if (timr->it_incr)
+		if (timr->it.real.incr)
 			si_private = ++timr->it_requeue_pending;
 		else {
 			remove_from_abslist(timr);
@@ -562,7 +563,6 @@ static struct k_itimer * alloc_posix_timer(void)
 	if (!tmr)
 		return tmr;
 	memset(tmr, 0, sizeof (struct k_itimer));
-	INIT_LIST_HEAD(&tmr->abs_timer_entry);
 	if (unlikely(!(tmr->sigq = sigqueue_alloc()))) {
 		kmem_cache_free(posix_timers_cache, tmr);
 		tmr = NULL;
@@ -634,7 +634,6 @@ sys_timer_create(clockid_t which_clock,
 	it_id_set = IT_ID_SET;
 	new_timer->it_id = (timer_t) new_timer_id;
 	new_timer->it_clock = which_clock;
-	new_timer->it_incr = 0;
 	new_timer->it_overrun = -1;
 	error = CLOCK_DISPATCH(which_clock, timer_create, (new_timer));
 	if (error)
@@ -795,30 +794,30 @@ common_timer_get(struct k_itimer *timr, struct itimerspec *cur_setting)
 	struct now_struct now;
 
 	do
-		expires = timr->it_timer.expires;
-	while ((volatile long) (timr->it_timer.expires) != expires);
+		expires = timr->it.real.timer.expires;
+	while ((volatile long) (timr->it.real.timer.expires) != expires);
 
 	posix_get_now(&now);
 
 	if (expires &&
 	    ((timr->it_sigev_notify & ~SIGEV_THREAD_ID) == SIGEV_NONE) &&
-	    !timr->it_incr &&
-	    posix_time_before(&timr->it_timer, &now))
-		timr->it_timer.expires = expires = 0;
+	    !timr->it.real.incr &&
+	    posix_time_before(&timr->it.real.timer, &now))
+		timr->it.real.timer.expires = expires = 0;
 	if (expires) {
 		if (timr->it_requeue_pending & REQUEUE_PENDING ||
 		    (timr->it_sigev_notify & ~SIGEV_THREAD_ID) == SIGEV_NONE) {
 			posix_bump_timer(timr, now);
-			expires = timr->it_timer.expires;
+			expires = timr->it.real.timer.expires;
 		}
 		else
-			if (!timer_pending(&timr->it_timer))
+			if (!timer_pending(&timr->it.real.timer))
 				expires = 0;
 		if (expires)
 			expires -= now.jiffies;
 	}
 	jiffies_to_timespec(expires, &cur_setting->it_value);
-	jiffies_to_timespec(timr->it_incr, &cur_setting->it_interval);
+	jiffies_to_timespec(timr->it.real.incr, &cur_setting->it_interval);
 
 	if (cur_setting->it_value.tv_sec < 0) {
 		cur_setting->it_value.tv_nsec = 1;
@@ -972,13 +971,13 @@ common_timer_set(struct k_itimer *timr, int flags,
 		common_timer_get(timr, old_setting);
 
 	/* disable the timer */
-	timr->it_incr = 0;
+	timr->it.real.incr = 0;
 	/*
 	 * careful here.  If smp we could be in the "fire" routine which will
 	 * be spinning as we hold the lock.  But this is ONLY an SMP issue.
 	 */
 #ifdef CONFIG_SMP
-	if (timer_active(timr) && !del_timer(&timr->it_timer))
+	if (timer_active(timr) && !del_timer(&timr->it.real.timer))
 		/*
 		 * It can only be active if on an other cpu.  Since
 		 * we have cleared the interval stuff above, it should
@@ -991,7 +990,7 @@ common_timer_set(struct k_itimer *timr, int flags,
 
 	set_timer_inactive(timr);
 #else
-	del_timer(&timr->it_timer);
+	del_timer(&timr->it.real.timer);
 #endif
 	remove_from_abslist(timr);
 
@@ -1003,29 +1002,29 @@ common_timer_set(struct k_itimer *timr, int flags,
 	 *switch off the timer when it_value is zero
 	 */
 	if (!new_setting->it_value.tv_sec && !new_setting->it_value.tv_nsec) {
-		timr->it_timer.expires = 0;
+		timr->it.real.timer.expires = 0;
 		return 0;
 	}
 
 	if (adjust_abs_time(clock,
 			    &new_setting->it_value, flags & TIMER_ABSTIME, 
-			    &expire_64, &(timr->wall_to_prev))) {
+			    &expire_64, &(timr->it.real.wall_to_prev))) {
 		return -EINVAL;
 	}
-	timr->it_timer.expires = (unsigned long)expire_64;	
+	timr->it.real.timer.expires = (unsigned long)expire_64;
 	tstojiffie(&new_setting->it_interval, clock->res, &expire_64);
-	timr->it_incr = (unsigned long)expire_64;
+	timr->it.real.incr = (unsigned long)expire_64;
 
 	/*
 	 * We do not even queue SIGEV_NONE timers!  But we do put them
 	 * in the abs list so we can do that right.
 	 */
 	if (((timr->it_sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_NONE))
-		add_timer(&timr->it_timer);
+		add_timer(&timr->it.real.timer);
 
 	if (flags & TIMER_ABSTIME && clock->abs_struct) {
 		spin_lock(&clock->abs_struct->lock);
-		list_add_tail(&(timr->abs_timer_entry),
+		list_add_tail(&(timr->it.real.abs_timer_entry),
 			      &(clock->abs_struct->list));
 		spin_unlock(&clock->abs_struct->lock);
 	}
@@ -1076,9 +1075,9 @@ retry:
 
 static inline int common_timer_del(struct k_itimer *timer)
 {
-	timer->it_incr = 0;
+	timer->it.real.incr = 0;
 #ifdef CONFIG_SMP
-	if (timer_active(timer) && !del_timer(&timer->it_timer))
+	if (timer_active(timer) && !del_timer(&timer->it.real.timer))
 		/*
 		 * It can only be active if on an other cpu.  Since
 		 * we have cleared the interval stuff above, it should
@@ -1089,7 +1088,7 @@ static inline int common_timer_del(struct k_itimer *timer)
 		 */
 		return TIMER_RETRY;
 #else
-	del_timer(&timer->it_timer);
+	del_timer(&timer->it.real.timer);
 #endif
 	remove_from_abslist(timer);
 
@@ -1411,13 +1410,13 @@ void clock_was_set(void)
 			break;
 		}
 		timr = list_entry(cws_list.next, struct k_itimer,
-				   abs_timer_entry);
+				  it.real.abs_timer_entry);
 
-		list_del_init(&timr->abs_timer_entry);
+		list_del_init(&timr->it.real.abs_timer_entry);
 		if (add_clockset_delta(timr, &new_wall_to) &&
-		    del_timer(&timr->it_timer))  /* timer run yet? */
-			add_timer(&timr->it_timer);
-		list_add(&timr->abs_timer_entry, &abs_list.list);
+		    del_timer(&timr->it.real.timer))  /* timer run yet? */
+			add_timer(&timr->it.real.timer);
+		list_add(&timr->it.real.abs_timer_entry, &abs_list.list);
 		spin_unlock_irq(&abs_list.lock);
 	} while (1);
 
@@ -1445,12 +1444,12 @@ sys_clock_nanosleep(clockid_t which_clock, int flags,
 	if ((unsigned) t.tv_nsec >= NSEC_PER_SEC || t.tv_sec < 0)
 		return -EINVAL;
 
-	ret = CLOCK_DISPATCH(which_clock, nsleep, (which_clock, flags, &t));
-
 	/*
-	 * Do this here as common_nsleep does not have the real address
+	 * Do this here as nsleep function does not have the real address.
 	 */
 	restart_block->arg1 = (unsigned long)rmtp;
+
+	ret = CLOCK_DISPATCH(which_clock, nsleep, (which_clock, flags, &t));
 
 	if ((ret == -ERESTART_RESTARTBLOCK) && rmtp &&
 					copy_to_user(rmtp, &t, sizeof (t)))

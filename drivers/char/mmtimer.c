@@ -418,19 +418,19 @@ static int inline reschedule_periodic_timer(mmtimer_t *x)
 	int n;
 	struct k_itimer *t = x->timer;
 
-	t->it_timer.magic = x->i;
+	t->it.mmtimer.clock = x->i;
 	t->it_overrun--;
 
 	n = 0;
 	do {
 
-		t->it_timer.expires += t->it_incr << n;
+		t->it.mmtimer.expires += t->it.mmtimer.incr << n;
 		t->it_overrun += 1 << n;
 		n++;
 		if (n > 20)
 			return 1;
 
-	} while (mmtimer_setup(x->i, t->it_timer.expires));
+	} while (mmtimer_setup(x->i, t->it.mmtimer.expires));
 
 	return 0;
 }
@@ -466,7 +466,7 @@ mmtimer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 		spin_lock(&base[i].lock);
 		if (base[i].cpu == smp_processor_id()) {
 			if (base[i].timer)
-				expires = base[i].timer->it_timer.expires;
+				expires = base[i].timer->it.mmtimer.expires;
 			/* expires test won't work with shared irqs */
 			if ((mmtimer_int_pending(i) > 0) ||
 				(expires && (expires < rtc_time()))) {
@@ -503,7 +503,7 @@ void mmtimer_tasklet(unsigned long data) {
 
 		t->it_overrun++;
 	}
-	if(t->it_incr) {
+	if(t->it.mmtimer.incr) {
 		/* Periodic timer */
 		if (reschedule_periodic_timer(x)) {
 			printk(KERN_WARNING "mmtimer: unable to reschedule\n");
@@ -511,7 +511,7 @@ void mmtimer_tasklet(unsigned long data) {
 		}
 	} else {
 		/* Ensure we don't false trigger in mmtimer_interrupt */
-		t->it_timer.expires = 0;
+		t->it.mmtimer.expires = 0;
 	}
 	t->it_overrun_last = t->it_overrun;
 out:
@@ -522,7 +522,7 @@ out:
 static int sgi_timer_create(struct k_itimer *timer)
 {
 	/* Insure that a newly created timer is off */
-	timer->it_timer.magic = TIMER_OFF;
+	timer->it.mmtimer.clock = TIMER_OFF;
 	return 0;
 }
 
@@ -533,8 +533,8 @@ static int sgi_timer_create(struct k_itimer *timer)
  */
 static int sgi_timer_del(struct k_itimer *timr)
 {
-	int i = timr->it_timer.magic;
-	cnodeid_t nodeid = timr->it_timer.data;
+	int i = timr->it.mmtimer.clock;
+	cnodeid_t nodeid = timr->it.mmtimer.node;
 	mmtimer_t *t = timers + nodeid * NUM_COMPARATORS +i;
 	unsigned long irqflags;
 
@@ -542,8 +542,8 @@ static int sgi_timer_del(struct k_itimer *timr)
 		spin_lock_irqsave(&t->lock, irqflags);
 		mmtimer_disable_int(cnodeid_to_nasid(nodeid),i);
 		t->timer = NULL;
-		timr->it_timer.magic = TIMER_OFF;
-		timr->it_timer.expires = 0;
+		timr->it.mmtimer.clock = TIMER_OFF;
+		timr->it.mmtimer.expires = 0;
 		spin_unlock_irqrestore(&t->lock, irqflags);
 	}
 	return 0;
@@ -556,7 +556,7 @@ static int sgi_timer_del(struct k_itimer *timr)
 static void sgi_timer_get(struct k_itimer *timr, struct itimerspec *cur_setting)
 {
 
-	if (timr->it_timer.magic == TIMER_OFF) {
+	if (timr->it.mmtimer.clock == TIMER_OFF) {
 		cur_setting->it_interval.tv_nsec = 0;
 		cur_setting->it_interval.tv_sec = 0;
 		cur_setting->it_value.tv_nsec = 0;
@@ -564,8 +564,8 @@ static void sgi_timer_get(struct k_itimer *timr, struct itimerspec *cur_setting)
 		return;
 	}
 
-	ns_to_timespec(cur_setting->it_interval, timr->it_incr * sgi_clock_period);
-	ns_to_timespec(cur_setting->it_value, (timr->it_timer.expires - rtc_time())* sgi_clock_period);
+	ns_to_timespec(cur_setting->it_interval, timr->it.mmtimer.incr * sgi_clock_period);
+	ns_to_timespec(cur_setting->it_value, (timr->it.mmtimer.expires - rtc_time())* sgi_clock_period);
 	return;
 }
 
@@ -638,19 +638,19 @@ retry:
 	base[i].timer = timr;
 	base[i].cpu = smp_processor_id();
 
-	timr->it_timer.magic = i;
-	timr->it_timer.data = nodeid;
-	timr->it_incr = period;
-	timr->it_timer.expires = when;
+	timr->it.mmtimer.clock = i;
+	timr->it.mmtimer.node = nodeid;
+	timr->it.mmtimer.incr = period;
+	timr->it.mmtimer.expires = when;
 
 	if (period == 0) {
 		if (mmtimer_setup(i, when)) {
 			mmtimer_disable_int(-1, i);
 			posix_timer_event(timr, 0);
-			timr->it_timer.expires = 0;
+			timr->it.mmtimer.expires = 0;
 		}
 	} else {
-		timr->it_timer.expires -= period;
+		timr->it.mmtimer.expires -= period;
 		if (reschedule_periodic_timer(base+i))
 			err = -EINVAL;
 	}

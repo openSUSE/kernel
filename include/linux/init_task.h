@@ -51,6 +51,7 @@
 		.list = LIST_HEAD_INIT(sig.shared_pending.list),	\
 		.signal =  {{0}}}, \
 	.posix_timers	 = LIST_HEAD_INIT(sig.posix_timers),		\
+	.cpu_timers	= INIT_CPU_TIMERS(sig.cpu_timers),		\
 	.rlim		= INIT_RLIMITS,					\
 }
 
@@ -112,8 +113,16 @@ extern struct group_info init_groups;
 	.proc_lock	= SPIN_LOCK_UNLOCKED,				\
 	.switch_lock	= SPIN_LOCK_UNLOCKED,				\
 	.journal_info	= NULL,						\
+	.cpu_timers	= INIT_CPU_TIMERS(tsk.cpu_timers),		\
 }
 
+
+#define INIT_CPU_TIMERS(cpu_timers)					\
+{									\
+	LIST_HEAD_INIT(cpu_timers[0]),					\
+	LIST_HEAD_INIT(cpu_timers[1]),					\
+	LIST_HEAD_INIT(cpu_timers[2]),					\
+}
 
 
 #endif

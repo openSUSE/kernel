@@ -759,6 +759,9 @@ static void exit_notify(struct task_struct *tsk)
 	 */
 	tsk->it_virt_value = cputime_zero;
 	tsk->it_prof_value = cputime_zero;
+ 	tsk->it_virt_expires = cputime_zero;
+ 	tsk->it_prof_expires = cputime_zero;
+	tsk->it_sched_expires = 0;
 
 	write_unlock_irq(&tasklist_lock);
 

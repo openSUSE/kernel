@@ -338,6 +338,8 @@ struct signal_struct {
 	 * have no need to disable irqs.
 	 */
 	struct rlimit rlim[RLIM_NLIMITS];
+
+	struct list_head cpu_timers[3];
 };
 
 /*
@@ -612,6 +614,11 @@ struct task_struct {
 	struct timespec start_time;
 /* mm fault and swap info: this can arguably be seen as either mm-specific or thread-specific */
 	unsigned long min_flt, maj_flt;
+
+  	cputime_t it_prof_expires, it_virt_expires;
+	unsigned long long it_sched_expires;
+	struct list_head cpu_timers[3];
+
 /* process credentials */
 	uid_t uid,euid,suid,fsuid;
 	gid_t gid,egid,sgid,fsgid;

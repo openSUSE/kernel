@@ -30,6 +30,7 @@
 #include <linux/thread_info.h>
 #include <linux/time.h>
 #include <linux/jiffies.h>
+#include <linux/posix-timers.h>
 #include <linux/cpu.h>
 #include <linux/syscalls.h>
 
@@ -825,6 +826,7 @@ void update_process_times(int user_tick)
 	if (rcu_pending(cpu))
 		rcu_check_callbacks(cpu, user_tick);
 	scheduler_tick();
+ 	run_posix_cpu_timers(p);
 }
 
 /*
