@@ -332,7 +332,7 @@ int br_add_if(struct net_bridge *br, struct net_device *dev)
 	if (IS_ERR(p = new_nbp(br, dev, br_initial_port_cost(dev))))
 		return PTR_ERR(p);
 
- 	if ((err = br_fdb_insert(br, p, dev->dev_addr, 1)))
+ 	if ((err = br_fdb_insert(br, p, dev->dev_addr)))
 		destroy_nbp(p);
  
 	else if ((err = br_sysfs_addif(p)))

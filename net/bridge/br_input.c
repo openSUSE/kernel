@@ -105,12 +105,12 @@ int br_handle_frame(struct net_bridge_port *p, struct sk_buff **pskb)
 	if (p->state == BR_STATE_DISABLED)
 		goto err;
 
-	if (eth_hdr(skb)->h_source[0] & 1)
+	if (!is_valid_ether_addr(eth_hdr(skb)->h_source))
 		goto err;
 
 	if (p->state == BR_STATE_LEARNING ||
 	    p->state == BR_STATE_FORWARDING)
-		br_fdb_insert(p->br, p, eth_hdr(skb)->h_source, 0);
+		br_fdb_update(p->br, p, eth_hdr(skb)->h_source);
 
 	if (p->br->stp_enabled &&
 	    !memcmp(dest, bridge_ula, 5) &&
