@@ -137,7 +137,7 @@ struct shrinker *set_shrinker(int seeks, shrinker_t theshrinker)
 	        shrinker->seeks = seeks;
 	        shrinker->nr = 0;
 	        down_write(&shrinker_rwsem);
-	        list_add(&shrinker->list, &shrinker_list);
+	        list_add_tail(&shrinker->list, &shrinker_list);
 	        up_write(&shrinker_rwsem);
 	}
 	return shrinker;
