@@ -666,7 +666,7 @@ int mthca_init_cq(struct mthca_dev *dev, int nent,
 						  MTHCA_CQ_FLAG_TR);
 	cq_context->start           = cpu_to_be64(0);
 	cq_context->logsize_usrpage = cpu_to_be32((ffs(nent) - 1) << 24 |
-						  MTHCA_KAR_PAGE);
+						  dev->driver_uar.index);
 	cq_context->error_eqn       = cpu_to_be32(dev->eq_table.eq[MTHCA_EQ_ASYNC].eqn);
 	cq_context->comp_eqn        = cpu_to_be32(dev->eq_table.eq[MTHCA_EQ_COMP].eqn);
 	cq_context->pd              = cpu_to_be32(dev->driver_pd.pd_num);

@@ -469,7 +469,7 @@ static int __devinit mthca_create_eq(struct mthca_dev *dev,
 						  MTHCA_EQ_FLAG_TR);
 	eq_context->start           = cpu_to_be64(0);
 	eq_context->logsize_usrpage = cpu_to_be32((ffs(nent) - 1) << 24 |
-						  MTHCA_KAR_PAGE);
+						  dev->driver_uar.index);
 	eq_context->pd              = cpu_to_be32(dev->driver_pd.pd_num);
 	eq_context->intr            = intr;
 	eq_context->lkey            = cpu_to_be32(eq->mr.ibmr.lkey);

@@ -65,7 +65,6 @@ enum {
 };
 
 enum {
-	MTHCA_KAR_PAGE  = 1,
 	MTHCA_MAX_PORTS = 2
 };
 
@@ -108,6 +107,7 @@ struct mthca_limits {
 	int      gid_table_len;
 	int      pkey_table_len;
 	int      local_ca_ack_delay;
+	int      num_uars;
 	int      max_sg;
 	int      num_qps;
 	int      reserved_qps;
@@ -146,6 +146,12 @@ struct mthca_array {
 		void    **page;
 		int       used;
 	} *page_list;
+};
+
+struct mthca_uar_table {
+	struct mthca_alloc alloc;
+	u64                uarc_base;
+	int                uarc_size;
 };
 
 struct mthca_pd_table {
@@ -252,6 +258,7 @@ struct mthca_dev {
 	struct mthca_cmd    cmd;
 	struct mthca_limits limits;
 
+	struct mthca_uar_table uar_table;
 	struct mthca_pd_table  pd_table;
 	struct mthca_mr_table  mr_table;
 	struct mthca_eq_table  eq_table;
@@ -260,6 +267,7 @@ struct mthca_dev {
 	struct mthca_av_table  av_table;
 	struct mthca_mcg_table mcg_table;
 
+	struct mthca_uar      driver_uar;
 	struct mthca_pd       driver_pd;
 	struct mthca_mr       driver_mr;
 
@@ -318,6 +326,7 @@ void mthca_array_clear(struct mthca_array *array, int index);
 int mthca_array_init(struct mthca_array *array, int nent);
 void mthca_array_cleanup(struct mthca_array *array, int nent);
 
+int mthca_init_uar_table(struct mthca_dev *dev);
 int mthca_init_pd_table(struct mthca_dev *dev);
 int mthca_init_mr_table(struct mthca_dev *dev);
 int mthca_init_eq_table(struct mthca_dev *dev);
@@ -326,6 +335,7 @@ int mthca_init_qp_table(struct mthca_dev *dev);
 int mthca_init_av_table(struct mthca_dev *dev);
 int mthca_init_mcg_table(struct mthca_dev *dev);
 
+void mthca_cleanup_uar_table(struct mthca_dev *dev);
 void mthca_cleanup_pd_table(struct mthca_dev *dev);
 void mthca_cleanup_mr_table(struct mthca_dev *dev);
 void mthca_cleanup_eq_table(struct mthca_dev *dev);
@@ -336,6 +346,9 @@ void mthca_cleanup_mcg_table(struct mthca_dev *dev);
 
 int mthca_register_device(struct mthca_dev *dev);
 void mthca_unregister_device(struct mthca_dev *dev);
+
+int mthca_uar_alloc(struct mthca_dev *dev, struct mthca_uar *uar);
+void mthca_uar_free(struct mthca_dev *dev, struct mthca_uar *uar);
 
 int mthca_pd_alloc(struct mthca_dev *dev, struct mthca_pd *pd);
 void mthca_pd_free(struct mthca_dev *dev, struct mthca_pd *pd);

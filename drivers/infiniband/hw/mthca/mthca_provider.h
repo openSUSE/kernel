@@ -49,6 +49,11 @@ struct mthca_buf_list {
 	DECLARE_PCI_UNMAP_ADDR(mapping)
 };
 
+struct mthca_uar {
+	unsigned long pfn;
+	int           index;
+};
+
 struct mthca_mr {
 	struct ib_mr ibmr;
 	int order;

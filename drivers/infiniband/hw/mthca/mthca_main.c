@@ -570,11 +570,33 @@ static int __devinit mthca_setup_hca(struct mthca_dev *dev)
 
 	MTHCA_INIT_DOORBELL_LOCK(&dev->doorbell_lock);
 
-	err = mthca_init_pd_table(dev);
+	err = mthca_init_uar_table(dev);
+	if (err) {
+		mthca_err(dev, "Failed to initialize "
+			  "user access region table, aborting.\n");
+		return err;
+	}
+
+	err = mthca_uar_alloc(dev, &dev->driver_uar);
+	if (err) {
+		mthca_err(dev, "Failed to allocate driver access region, "
+			  "aborting.\n");
+		goto err_uar_table_free;
+	}
+
+	dev->kar = ioremap(dev->driver_uar.pfn << PAGE_SHIFT, PAGE_SIZE);
+	if (!dev->kar) {
+		mthca_err(dev, "Couldn't map kernel access region, "
+			  "aborting.\n");
+		err = -ENOMEM;
+		goto err_uar_free;
+	}
+
+       err = mthca_init_pd_table(dev);
 	if (err) {
 		mthca_err(dev, "Failed to initialize "
 			  "protection domain table, aborting.\n");
-		return err;
+		goto err_kar_unmap;
 	}
 
 	err = mthca_init_mr_table(dev);
@@ -677,7 +699,16 @@ err_mr_table_free:
 
 err_pd_table_free:
 	mthca_cleanup_pd_table(dev);
-	return err;
+
+err_kar_unmap:
+	iounmap(dev->kar);
+
+err_uar_free:
+	mthca_uar_free(dev, &dev->driver_uar);
+
+err_uar_table_free:
+	mthca_cleanup_uar_table(dev);
+       return err;
 }
 
 static int __devinit mthca_request_regions(struct pci_dev *pdev,
@@ -789,7 +820,6 @@ static int __devinit mthca_init_one(struct pci_dev *pdev,
 	static int mthca_version_printed = 0;
 	int ddr_hidden = 0;
 	int err;
-	unsigned long mthca_base;
 	struct mthca_dev *mdev;
 
 	if (!mthca_version_printed) {
@@ -891,8 +921,7 @@ static int __devinit mthca_init_one(struct pci_dev *pdev,
 	sema_init(&mdev->cmd.poll_sem, 1);
 	mdev->cmd.use_events = 0;
 
-	mthca_base = pci_resource_start(pdev, 0);
-	mdev->hcr = ioremap(mthca_base + MTHCA_HCR_BASE, MTHCA_HCR_SIZE);
+	mdev->hcr = ioremap(pci_resource_start(pdev, 0) + MTHCA_HCR_BASE, MTHCA_HCR_SIZE);
 	if (!mdev->hcr) {
 		mthca_err(mdev, "Couldn't map command register, "
 			  "aborting.\n");
@@ -900,22 +929,13 @@ static int __devinit mthca_init_one(struct pci_dev *pdev,
 		goto err_free_dev;
 	}
 
-	mthca_base = pci_resource_start(pdev, 2);
-	mdev->kar = ioremap(mthca_base + PAGE_SIZE * MTHCA_KAR_PAGE, PAGE_SIZE);
-	if (!mdev->kar) {
-		mthca_err(mdev, "Couldn't map kernel access region, "
-			  "aborting.\n");
-		err = -ENOMEM;
-		goto err_iounmap;
-	}
-
 	err = mthca_tune_pci(mdev);
 	if (err)
-		goto err_iounmap_kar;
+		goto err_iounmap;
 
 	err = mthca_init_hca(mdev);
 	if (err)
-		goto err_iounmap_kar;
+		goto err_iounmap;
 
 	err = mthca_setup_hca(mdev);
 	if (err)
@@ -948,12 +968,10 @@ err_cleanup:
 
 	mthca_cleanup_mr_table(mdev);
 	mthca_cleanup_pd_table(mdev);
+	mthca_cleanup_uar_table(mdev);
 
 err_close:
 	mthca_close_hca(mdev);
-
-err_iounmap_kar:
-	iounmap(mdev->kar);
 
 err_iounmap:
 	iounmap(mdev->hcr);
@@ -1000,9 +1018,12 @@ static void __devexit mthca_remove_one(struct pci_dev *pdev)
 		mthca_cleanup_mr_table(mdev);
 		mthca_cleanup_pd_table(mdev);
 
+		iounmap(mdev->kar);
+		mthca_uar_free(mdev, &mdev->driver_uar);
+		mthca_cleanup_uar_table(mdev);
+
 		mthca_close_hca(mdev);
 
-		iounmap(mdev->kar);
 		iounmap(mdev->hcr);
 
 		if (mdev->mthca_flags & MTHCA_FLAG_MSI_X)

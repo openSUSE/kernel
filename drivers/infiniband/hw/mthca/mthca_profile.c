@@ -236,6 +236,7 @@ u64 mthca_make_profile(struct mthca_dev *dev,
 			init_hca->mtt_seg_sz     = ffs(dev_lim->mtt_seg_sz) - 7;
 			break;
 		case MTHCA_RES_UAR:
+			dev->limits.num_uars       = profile[i].num;
 			init_hca->uar_scratch_base = profile[i].start;
 			break;
 		case MTHCA_RES_UDAV:

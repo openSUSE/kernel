@@ -625,7 +625,7 @@ int mthca_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr, int attr_mask)
 		qp_context->mtu_msgmax = cpu_to_be32((attr->path_mtu << 29) |
 						     (31 << 24));
 	}
-	qp_context->usr_page   = cpu_to_be32(MTHCA_KAR_PAGE);
+	qp_context->usr_page   = cpu_to_be32(dev->driver_uar.index);
 	qp_context->local_qpn  = cpu_to_be32(qp->qpn);
 	if (attr_mask & IB_QP_DEST_QPN) {
 		qp_context->remote_qpn = cpu_to_be32(attr->dest_qp_num);
