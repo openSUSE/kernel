@@ -386,6 +386,7 @@ enum
 	TCF_EM_CMP,
 	TCF_EM_NBYTE,
 	TCF_EM_U32,
+	TCF_EM_META,
 	__TCF_EM_MAX
 };
 
