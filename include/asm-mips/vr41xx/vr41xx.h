@@ -84,7 +84,7 @@ extern void vr41xx_mask_clock(vr41xx_clock_t clock);
 #define INT2_CASCADE_IRQ	MIPS_CPU_IRQ(4)
 #define INT3_CASCADE_IRQ	MIPS_CPU_IRQ(5)
 #define INT4_CASCADE_IRQ	MIPS_CPU_IRQ(6)
-#define MIPS_COUNTER_IRQ	MIPS_CPU_IRQ(7)
+#define TIMER_IRQ		MIPS_CPU_IRQ(7)
 
 /* SYINT1 Interrupt Numbers */
 #define SYSINT1_IRQ_BASE	8
@@ -246,34 +246,6 @@ enum {
 	DATA_LOW,
 	DATA_HIGH
 };
-
-/*
- * Serial Interface Unit
- */
-extern void vr41xx_siu_init(void);
-extern int vr41xx_serial_ports;
-
-/* SIU interfaces */
-typedef enum {
-	SIU_RS232C,
-	SIU_IRDA
-} siu_interface_t;
-
-/* IrDA interfaces */
-typedef enum {
-	IRDA_NONE,
-	IRDA_SHARP,
-	IRDA_TEMIC,
-	IRDA_HP
-} irda_module_t;
-
-extern void vr41xx_select_siu_interface(siu_interface_t interface,
-                                        irda_module_t module);
-
-/*
- * Debug Serial Interface Unit
- */
-extern void vr41xx_dsiu_init(void);
 
 /*
  * PCI Control Unit

@@ -73,6 +73,7 @@ struct exception_table_entry
 	unsigned long insn, fixup;
 };
 
+#define ARCH_HAS_SEARCH_EXTABLE
 
 /*
  * These are the main single-value transfer routines.  They automatically

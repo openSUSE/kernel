@@ -209,6 +209,14 @@ static int __init quiet_kernel(char *str)
 __setup("debug", debug_kernel);
 __setup("quiet", quiet_kernel);
 
+static int __init loglevel(char *str)
+{
+	get_option(&str, &console_loglevel);
+	return 1;
+}
+
+__setup("loglevel=", loglevel);
+
 /*
  * Unknown boot options get handed to init, unless they look like
  * failed parameters
@@ -625,6 +633,10 @@ static inline void fixup_cpu_present_map(void)
 static int init(void * unused)
 {
 	lock_kernel();
+	/*
+	 * init can run on any cpu.
+	 */
+	set_cpus_allowed(current, CPU_MASK_ALL);
 	/*
 	 * Tell the world that we're going to be the grim
 	 * reaper of innocent orphaned children.

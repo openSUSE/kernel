@@ -612,6 +612,7 @@ int ipmi_create_user(unsigned int          if_num,
 	unsigned long flags;
 	ipmi_user_t   new_user;
 	int           rv = 0;
+	ipmi_smi_t    intf;
 
 	/* There is no module usecount here, because it's not
            required.  Since this can only be used by and called from
@@ -646,19 +647,29 @@ int ipmi_create_user(unsigned int          if_num,
 		goto out_unlock;
 	}
 
+	intf = ipmi_interfaces[if_num];
+
 	new_user->handler = handler;
 	new_user->handler_data = handler_data;
-	new_user->intf = ipmi_interfaces[if_num];
+	new_user->intf = intf;
 	new_user->gets_events = 0;
 
-	if (!try_module_get(new_user->intf->handlers->owner)) {
+	if (!try_module_get(intf->handlers->owner)) {
 		rv = -ENODEV;
 		goto out_unlock;
 	}
 
-	write_lock_irqsave(&new_user->intf->users_lock, flags);
-	list_add_tail(&new_user->link, &new_user->intf->users);
-	write_unlock_irqrestore(&new_user->intf->users_lock, flags);
+	if (intf->handlers->inc_usecount) {
+		rv = intf->handlers->inc_usecount(intf->send_info);
+		if (rv) {
+			module_put(intf->handlers->owner);
+			goto out_unlock;
+		}
+	}
+
+	write_lock_irqsave(&intf->users_lock, flags);
+	list_add_tail(&new_user->link, &intf->users);
+	write_unlock_irqrestore(&intf->users_lock, flags);
 
  out_unlock:	
 	if (rv) {
@@ -729,8 +740,11 @@ int ipmi_destroy_user(ipmi_user_t user)
 	down_read(&interfaces_sem);
 	write_lock_irqsave(&intf->users_lock, flags);
 	rv = ipmi_destroy_user_nolock(user);
-	if (!rv)
+	if (!rv) {
 		module_put(intf->handlers->owner);
+		if (intf->handlers->dec_usecount)
+			intf->handlers->dec_usecount(intf->send_info);
+	}
 		
 	write_unlock_irqrestore(&intf->users_lock, flags);
 	up_read(&interfaces_sem);
@@ -1629,6 +1643,7 @@ int ipmi_register_smi(struct ipmi_smi_handlers *handlers,
 		      void		       *send_info,
 		      unsigned char            version_major,
 		      unsigned char            version_minor,
+		      unsigned char            slave_addr,
 		      ipmi_smi_t               *intf)
 {
 	int              i, j;
@@ -1664,7 +1679,10 @@ int ipmi_register_smi(struct ipmi_smi_handlers *handlers,
 			new_intf->intf_num = i;
 			new_intf->version_major = version_major;
 			new_intf->version_minor = version_minor;
-			new_intf->my_address = IPMI_BMC_SLAVE_ADDR;
+			if (slave_addr == 0)
+				new_intf->my_address = IPMI_BMC_SLAVE_ADDR;
+			else
+				new_intf->my_address = slave_addr;
 			new_intf->my_lun = 2;  /* the SMS LUN. */
 			rwlock_init(&(new_intf->users_lock));
 			INIT_LIST_HEAD(&(new_intf->users));

@@ -1,5 +1,5 @@
 /*
-    $Id: bttv-driver.c,v 1.34 2005/01/07 13:11:19 kraxel Exp $
+    $Id: bttv-driver.c,v 1.36 2005/02/15 10:51:53 kraxel Exp $
 
     bttv - Bt848 frame grabber driver
 
@@ -3921,7 +3921,7 @@ static void __devexit bttv_remove(struct pci_dev *pci_dev)
         return;
 }
 
-static int bttv_suspend(struct pci_dev *pci_dev, u32 state)
+static int bttv_suspend(struct pci_dev *pci_dev, pm_message_t state)
 {
         struct bttv *btv = pci_get_drvdata(pci_dev);
 	struct bttv_buffer_set idle;

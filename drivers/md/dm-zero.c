@@ -24,23 +24,6 @@ static int zero_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 }
 
 /*
- * Fills the bio pages with zeros
- */
-static void zero_fill_bio(struct bio *bio)
-{
-	unsigned long flags;
-	struct bio_vec *bv;
-	int i;
-
-	bio_for_each_segment(bv, bio, i) {
-		char *data = bvec_kmap_irq(bv, &flags);
-		memset(data, 0, bv->bv_len);
-		flush_dcache_page(bv->bv_page);
-		bvec_kunmap_irq(data, &flags);
-	}
-}
-
-/*
  * Return zeros only on reads
  */
 static int zero_map(struct dm_target *ti, struct bio *bio,

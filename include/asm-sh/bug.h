@@ -8,7 +8,7 @@
  */
 #define BUG() do { \
 	printk("kernel BUG at %s:%d!\n", __FILE__, __LINE__); \
-	asm volatile("nop"); \
+	*(volatile int *)0 = 0; \
 } while (0)
 
 #define HAVE_ARCH_BUG

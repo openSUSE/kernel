@@ -178,8 +178,8 @@ static void __init pci_fixup_ide_bases(struct pci_dev *d)
 		}
 	}
 }
+
 DECLARE_PCI_FIXUP_HEADER(PCI_ANY_ID, PCI_ANY_ID, pci_fixup_ide_bases);
-#endif
 
 /*
  *  Called after each bus is probed, but before its children

@@ -626,6 +626,12 @@ ext2_nobh_prepare_write(struct file *file, struct page *page,
 	return nobh_prepare_write(page,from,to,ext2_get_block);
 }
 
+static int ext2_nobh_writepage(struct page *page,
+			struct writeback_control *wbc)
+{
+	return nobh_writepage(page, ext2_get_block, wbc);
+}
+
 static sector_t ext2_bmap(struct address_space *mapping, sector_t block)
 {
 	return generic_block_bmap(mapping,block,ext2_get_block);
@@ -675,7 +681,7 @@ struct address_space_operations ext2_aops = {
 struct address_space_operations ext2_nobh_aops = {
 	.readpage		= ext2_readpage,
 	.readpages		= ext2_readpages,
-	.writepage		= ext2_writepage,
+	.writepage		= ext2_nobh_writepage,
 	.sync_page		= block_sync_page,
 	.prepare_write		= ext2_nobh_prepare_write,
 	.commit_write		= nobh_commit_write,

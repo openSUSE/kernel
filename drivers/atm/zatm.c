@@ -1090,7 +1090,7 @@ static irqreturn_t zatm_int(int irq,void *dev_id,struct pt_regs *regs)
 /*----------------------------- (E)EPROM access -----------------------------*/
 
 
-static void __init eprom_set(struct zatm_dev *zatm_dev,unsigned long value,
+static void __devinit eprom_set(struct zatm_dev *zatm_dev,unsigned long value,
     unsigned short cmd)
 {
 	int error;
@@ -1101,7 +1101,7 @@ static void __init eprom_set(struct zatm_dev *zatm_dev,unsigned long value,
 }
 
 
-static unsigned long __init eprom_get(struct zatm_dev *zatm_dev,
+static unsigned long __devinit eprom_get(struct zatm_dev *zatm_dev,
     unsigned short cmd)
 {
 	unsigned int value;
@@ -1114,7 +1114,7 @@ static unsigned long __init eprom_get(struct zatm_dev *zatm_dev,
 }
 
 
-static void __init eprom_put_bits(struct zatm_dev *zatm_dev,
+static void __devinit eprom_put_bits(struct zatm_dev *zatm_dev,
     unsigned long data,int bits,unsigned short cmd)
 {
 	unsigned long value;
@@ -1129,7 +1129,7 @@ static void __init eprom_put_bits(struct zatm_dev *zatm_dev,
 }
 
 
-static void __init eprom_get_byte(struct zatm_dev *zatm_dev,
+static void __devinit eprom_get_byte(struct zatm_dev *zatm_dev,
     unsigned char *byte,unsigned short cmd)
 {
 	int i;
@@ -1145,7 +1145,7 @@ static void __init eprom_get_byte(struct zatm_dev *zatm_dev,
 }
 
 
-static unsigned char __init eprom_try_esi(struct atm_dev *dev,
+static unsigned char __devinit eprom_try_esi(struct atm_dev *dev,
     unsigned short cmd,int offset,int swap)
 {
 	unsigned char buf[ZEPROM_SIZE];
@@ -1166,7 +1166,7 @@ static unsigned char __init eprom_try_esi(struct atm_dev *dev,
 }
 
 
-static void __init eprom_get_esi(struct atm_dev *dev)
+static void __devinit eprom_get_esi(struct atm_dev *dev)
 {
 	if (eprom_try_esi(dev,ZEPROM_V1_REG,ZEPROM_V1_ESI_OFF,1)) return;
 	(void) eprom_try_esi(dev,ZEPROM_V2_REG,ZEPROM_V2_ESI_OFF,0);

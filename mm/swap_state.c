@@ -315,13 +315,11 @@ struct page * lookup_swap_cache(swp_entry_t entry)
 {
 	struct page *page;
 
-	read_lock_irq(&swapper_space.tree_lock);
-	page = radix_tree_lookup(&swapper_space.page_tree, entry.val);
-	if (page) {
-		page_cache_get(page);
+	page = find_get_page(&swapper_space, entry.val);
+
+	if (page)
 		INC_CACHE_INFO(find_success);
-	}
-	read_unlock_irq(&swapper_space.tree_lock);
+
 	INC_CACHE_INFO(find_total);
 	return page;
 }
@@ -344,12 +342,7 @@ struct page *read_swap_cache_async(swp_entry_t entry,
 		 * called after lookup_swap_cache() failed, re-calling
 		 * that would confuse statistics.
 		 */
-		read_lock_irq(&swapper_space.tree_lock);
-		found_page = radix_tree_lookup(&swapper_space.page_tree,
-						entry.val);
-		if (found_page)
-			page_cache_get(found_page);
-		read_unlock_irq(&swapper_space.tree_lock);
+		found_page = find_get_page(&swapper_space, entry.val);
 		if (found_page)
 			break;
 

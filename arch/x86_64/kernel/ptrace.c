@@ -17,6 +17,7 @@
 #include <linux/user.h>
 #include <linux/security.h>
 #include <linux/audit.h>
+#include <linux/seccomp.h>
 
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
@@ -521,6 +522,9 @@ static void syscall_trace(struct pt_regs *regs)
 
 asmlinkage void syscall_trace_enter(struct pt_regs *regs)
 {
+	/* do the secure computing check first */
+	secure_computing(regs->orig_rax);
+
 	if (unlikely(current->audit_context))
 		audit_syscall_entry(current, regs->orig_rax,
 				    regs->rdi, regs->rsi,

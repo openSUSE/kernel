@@ -536,12 +536,12 @@ static void fn_send_intr(struct vc_data *vc, struct pt_regs *regs)
 
 static void fn_scroll_forw(struct vc_data *vc, struct pt_regs *regs)
 {
-	scrollfront(0);
+	scrollfront(vc, 0);
 }
 
 static void fn_scroll_back(struct vc_data *vc, struct pt_regs *regs)
 {
-	scrollback(0);
+	scrollback(vc, 0);
 }
 
 static void fn_show_mem(struct vc_data *vc, struct pt_regs *regs)
@@ -581,7 +581,7 @@ static void fn_SAK(struct vc_data *vc, struct pt_regs *regs)
 	 */
 	if (tty)
 		do_SAK(tty);
-	reset_vc(fg_console);
+	reset_vc(vc);
 }
 
 static void fn_null(struct vc_data *vc, struct pt_regs *regs)

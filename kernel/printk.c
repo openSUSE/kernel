@@ -499,6 +499,22 @@ static void zap_locks(void)
 	init_MUTEX(&console_sem);
 }
 
+#if defined(CONFIG_PRINTK_TIME)
+static int printk_time = 1;
+#else
+static int printk_time = 0;
+#endif
+
+static int __init printk_time_setup(char *str)
+{
+	if (*str)
+		return 0;
+	printk_time = 1;
+	return 1;
+}
+
+__setup("time", printk_time_setup);
+
 /*
  * This is printk.  It can be called from any context.  We want it to work.
  * 
@@ -547,10 +563,44 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 	 */
 	for (p = printk_buf; *p; p++) {
 		if (log_level_unknown) {
-			if (p[0] != '<' || p[1] < '0' || p[1] > '7' || p[2] != '>') {
-				emit_log_char('<');
-				emit_log_char(default_message_loglevel + '0');
-				emit_log_char('>');
+                        /* log_level_unknown signals the start of a new line */
+			if (printk_time) {
+				int loglev_char;
+				char tbuf[50], *tp;
+				unsigned tlen;
+				unsigned long long t;
+				unsigned long nanosec_rem;
+
+				/*
+				 * force the log level token to be
+				 * before the time output.
+				 */
+				if (p[0] == '<' && p[1] >='0' &&
+				   p[1] <= '7' && p[2] == '>') {
+					loglev_char = p[1];
+					p += 3;
+				} else {
+					loglev_char = default_message_loglevel
+						+ '0';
+				}
+				t = sched_clock();
+				nanosec_rem = do_div(t, 1000000000);
+				tlen = sprintf(tbuf,
+						"<%c>[%5lu.%06lu] ",
+						loglev_char,
+						(unsigned long)t,
+						nanosec_rem/1000);
+
+				for (tp = tbuf; tp< tbuf + tlen; tp++)
+					emit_log_char (*tp);
+			} else {
+				if (p[0] != '<' || p[1] < '0' ||
+				   p[1] > '7' || p[2] != '>') {
+					emit_log_char('<');
+					emit_log_char(default_message_loglevel
+						+ '0');
+					emit_log_char('>');
+				}
 			}
 			log_level_unknown = 0;
 		}

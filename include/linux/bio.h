@@ -59,6 +59,7 @@ struct bio_vec {
 	unsigned int	bv_offset;
 };
 
+struct bio_set;
 struct bio;
 typedef int (bio_end_io_t) (struct bio *, unsigned int, int);
 typedef void (bio_destructor_t) (struct bio *);
@@ -109,6 +110,7 @@ struct bio {
 	void			*bi_private;
 
 	bio_destructor_t	*bi_destructor;	/* destructor */
+	struct bio_set		*bi_set;	/* memory pools set */
 };
 
 /*
@@ -258,7 +260,11 @@ extern struct bio_pair *bio_split(struct bio *bi, mempool_t *pool,
 extern mempool_t *bio_split_pool;
 extern void bio_pair_release(struct bio_pair *dbio);
 
+extern struct bio_set *bioset_create(int, int, int);
+extern void bioset_free(struct bio_set *);
+
 extern struct bio *bio_alloc(int, int);
+extern struct bio *bio_alloc_bioset(int, int, struct bio_set *);
 extern void bio_put(struct bio *);
 
 extern void bio_endio(struct bio *, unsigned int, int);
@@ -280,6 +286,7 @@ extern void bio_set_pages_dirty(struct bio *bio);
 extern void bio_check_pages_dirty(struct bio *bio);
 extern struct bio *bio_copy_user(struct request_queue *, unsigned long, unsigned int, int);
 extern int bio_uncopy_user(struct bio *);
+void zero_fill_bio(struct bio *bio);
 
 #ifdef CONFIG_HIGHMEM
 /*

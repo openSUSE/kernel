@@ -721,6 +721,7 @@ journal_t * journal_init_dev(struct block_device *bdev,
 {
 	journal_t *journal = journal_init_common();
 	struct buffer_head *bh;
+	int n;
 
 	if (!journal)
 		return NULL;
@@ -735,6 +736,17 @@ journal_t * journal_init_dev(struct block_device *bdev,
 	J_ASSERT(bh != NULL);
 	journal->j_sb_buffer = bh;
 	journal->j_superblock = (journal_superblock_t *)bh->b_data;
+
+	/* journal descriptor can store up to n blocks -bzzz */
+	n = journal->j_blocksize / sizeof(journal_block_tag_t);
+	journal->j_wbufsize = n;
+	journal->j_wbuf = kmalloc(n * sizeof(struct buffer_head*), GFP_KERNEL);
+	if (!journal->j_wbuf) {
+		printk(KERN_ERR "%s: Cant allocate bhs for commit thread\n",
+			__FUNCTION__);
+		kfree(journal);
+		journal = NULL;
+	}
 
 	return journal;
 }
@@ -752,6 +764,7 @@ journal_t * journal_init_inode (struct inode *inode)
 	struct buffer_head *bh;
 	journal_t *journal = journal_init_common();
 	int err;
+	int n;
 	unsigned long blocknr;
 
 	if (!journal)
@@ -767,6 +780,17 @@ journal_t * journal_init_inode (struct inode *inode)
 
 	journal->j_maxlen = inode->i_size >> inode->i_sb->s_blocksize_bits;
 	journal->j_blocksize = inode->i_sb->s_blocksize;
+
+	/* journal descriptor can store up to n blocks -bzzz */
+	n = journal->j_blocksize / sizeof(journal_block_tag_t);
+	journal->j_wbufsize = n;
+	journal->j_wbuf = kmalloc(n * sizeof(struct buffer_head*), GFP_KERNEL);
+	if (!journal->j_wbuf) {
+		printk(KERN_ERR "%s: Cant allocate bhs for commit thread\n",
+			__FUNCTION__);
+		kfree(journal);
+		return NULL;
+	}
 
 	err = journal_bmap(journal, 0, &blocknr);
 	/* If that failed, give up */
@@ -1141,6 +1165,7 @@ void journal_destroy(journal_t *journal)
 		iput(journal->j_inode);
 	if (journal->j_revoke)
 		journal_destroy_revoke(journal);
+	kfree(journal->j_wbuf);
 	kfree(journal);
 }
 

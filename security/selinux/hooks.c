@@ -589,7 +589,8 @@ next_inode:
 		spin_unlock(&sbsec->isec_lock);
 		inode = igrab(inode);
 		if (inode) {
-			inode_doinit(inode);
+			if (!IS_PRIVATE (inode))
+				inode_doinit(inode);
 			iput(inode);
 		}
 		spin_lock(&sbsec->isec_lock);
@@ -1854,6 +1855,13 @@ static void selinux_bprm_post_apply_creds(struct linux_binprm *bprm)
 			rlim = current->signal->rlim + i;
 			initrlim = init_task.signal->rlim+i;
 			rlim->rlim_cur = min(rlim->rlim_max,initrlim->rlim_cur);
+		}
+		if (current->signal->rlim[RLIMIT_CPU].rlim_cur != RLIM_INFINITY) {
+			/*
+			 * This will cause RLIMIT_CPU calculations
+			 * to be refigured.
+			 */
+			current->it_prof_expires = jiffies_to_cputime(1);
 		}
 	}
 

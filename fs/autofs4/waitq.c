@@ -224,6 +224,7 @@ int autofs4_wait(struct autofs_sb_info *sbi, struct dentry *dentry,
 	} else {
 		atomic_inc(&wq->wait_ctr);
 		up(&sbi->wq_sem);
+		kfree(name);
 		DPRINTK("existing wait id = 0x%08lx, name = %.*s, nfy=%d",
 			(unsigned long) wq->wait_queue_token, wq->len, wq->name, notify);
 	}

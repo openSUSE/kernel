@@ -203,6 +203,9 @@ int file_fsync(struct file *, struct dentry *, int);
 int nobh_prepare_write(struct page*, unsigned, unsigned, get_block_t*);
 int nobh_commit_write(struct file *, struct page *, unsigned, unsigned);
 int nobh_truncate_page(struct address_space *, loff_t);
+int nobh_writepage(struct page *page, get_block_t *get_block,
+                        struct writeback_control *wbc);
+
 
 /*
  * inline definitions

@@ -1,5 +1,6 @@
 #ifndef __ASM_SH_CACHEFLUSH_H
 #define __ASM_SH_CACHEFLUSH_H
+#ifdef __KERNEL__
 
 #include <asm/cpu/cacheflush.h>
 
@@ -26,4 +27,5 @@ extern void __flush_invalidate_region(void *start, int size);
 		memcpy(dst, src, len);				\
 	} while (0)
 
+#endif /* __KERNEL__ */
 #endif /* __ASM_SH_CACHEFLUSH_H */

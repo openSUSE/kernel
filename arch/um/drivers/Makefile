@@ -3,8 +3,6 @@
 # Licensed under the GPL
 #
 
-CHAN_OBJS := chan_kern.o chan_user.o line.o 
-
 # pcap is broken in 2.5 because kbuild doesn't allow pcap.a to be linked
 # in to pcap.o
 
@@ -20,7 +18,7 @@ ubd-objs := ubd_kern.o ubd_user.o
 port-objs := port_kern.o port_user.o
 harddog-objs := harddog_kern.o harddog_user.o
 
-obj-y := stdio_console.o fd.o $(CHAN_OBJS)
+obj-y := stdio_console.o fd.o chan_kern.o chan_user.o line.o
 obj-$(CONFIG_SSL) += ssl.o
 obj-$(CONFIG_STDERR_CONSOLE) += stderr_console.o
 

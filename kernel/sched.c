@@ -2242,6 +2242,32 @@ DEFINE_PER_CPU(struct kernel_stat, kstat);
 EXPORT_PER_CPU_SYMBOL(kstat);
 
 /*
+ * This is called on clock ticks and on context switches.
+ * Bank in p->sched_time the ns elapsed since the last tick or switch.
+ */
+static inline void update_cpu_clock(task_t *p, runqueue_t *rq,
+				    unsigned long long now)
+{
+	unsigned long long last = max(p->timestamp, rq->timestamp_last_tick);
+	p->sched_time += now - last;
+}
+
+/*
+ * Return current->sched_time plus any more ns on the sched_clock
+ * that have not yet been banked.
+ */
+unsigned long long current_sched_time(const task_t *tsk)
+{
+	unsigned long long ns;
+	unsigned long flags;
+	local_irq_save(flags);
+	ns = max(tsk->timestamp, task_rq(tsk)->timestamp_last_tick);
+	ns = tsk->sched_time + (sched_clock() - ns);
+	local_irq_restore(flags);
+	return ns;
+}
+
+/*
  * We place interactive tasks back into the active array, if possible.
  *
  * To guarantee that this does not starve expired tasks we ignore the
@@ -2258,70 +2284,6 @@ EXPORT_PER_CPU_SYMBOL(kstat);
 			((rq)->curr->static_prio > (rq)->best_expired_prio))
 
 /*
- * Do the virtual cpu time signal calculations.
- * @p: the process that the cpu time gets accounted to
- * @cputime: the cpu time spent in user space since the last update
- */
-static inline void account_it_virt(struct task_struct * p, cputime_t cputime)
-{
-	cputime_t it_virt = p->it_virt_value;
-
-	if (cputime_gt(it_virt, cputime_zero) &&
-	    cputime_gt(cputime, cputime_zero)) {
-		if (cputime_ge(cputime, it_virt)) {
-			it_virt = cputime_add(it_virt, p->it_virt_incr);
-			send_sig(SIGVTALRM, p, 1);
-		}
-		it_virt = cputime_sub(it_virt, cputime);
-		p->it_virt_value = it_virt;
-	}
-}
-
-/*
- * Do the virtual profiling signal calculations.
- * @p: the process that the cpu time gets accounted to
- * @cputime: the cpu time spent in user and kernel space since the last update
- */
-static void account_it_prof(struct task_struct *p, cputime_t cputime)
-{
-	cputime_t it_prof = p->it_prof_value;
-
-	if (cputime_gt(it_prof, cputime_zero) &&
-	    cputime_gt(cputime, cputime_zero)) {
-		if (cputime_ge(cputime, it_prof)) {
-			it_prof = cputime_add(it_prof, p->it_prof_incr);
-			send_sig(SIGPROF, p, 1);
-		}
-		it_prof = cputime_sub(it_prof, cputime);
-		p->it_prof_value = it_prof;
-	}
-}
-
-/*
- * Check if the process went over its cputime resource limit after
- * some cpu time got added to utime/stime.
- * @p: the process that the cpu time gets accounted to
- * @cputime: the cpu time spent in user and kernel space since the last update
- */
-static void check_rlimit(struct task_struct *p, cputime_t cputime)
-{
-	cputime_t total, tmp;
-	unsigned long secs;
-
-	total = cputime_add(p->utime, p->stime);
-	secs = cputime_to_secs(total);
-	if (unlikely(secs >= p->signal->rlim[RLIMIT_CPU].rlim_cur)) {
-		/* Send SIGXCPU every second. */
-		tmp = cputime_sub(total, cputime);
-		if (cputime_to_secs(tmp) < secs)
-			send_sig(SIGXCPU, p, 1);
-		/* and SIGKILL when we go over max.. */
-		if (secs >= p->signal->rlim[RLIMIT_CPU].rlim_max)
-			send_sig(SIGKILL, p, 1);
-	}
-}
-
-/*
  * Account user cpu time to a process.
  * @p: the process that the cpu time gets accounted to
  * @hardirq_offset: the offset to subtract from hardirq_count()
@@ -2333,11 +2295,6 @@ void account_user_time(struct task_struct *p, cputime_t cputime)
 	cputime64_t tmp;
 
 	p->utime = cputime_add(p->utime, cputime);
-
-	/* Check for signals (SIGVTALRM, SIGPROF, SIGXCPU & SIGKILL). */
-	check_rlimit(p, cputime);
-	account_it_virt(p, cputime);
-	account_it_prof(p, cputime);
 
 	/* Add user time to cpustat. */
 	tmp = cputime_to_cputime64(cputime);
@@ -2361,12 +2318,6 @@ void account_system_time(struct task_struct *p, int hardirq_offset,
 	cputime64_t tmp;
 
 	p->stime = cputime_add(p->stime, cputime);
-
-	/* Check for signals (SIGPROF, SIGXCPU & SIGKILL). */
-	if (likely(p->signal && p->exit_state < EXIT_ZOMBIE)) {
-		check_rlimit(p, cputime);
-		account_it_prof(p, cputime);
-	}
 
 	/* Add system time to cpustat. */
 	tmp = cputime_to_cputime64(cputime);
@@ -2419,8 +2370,11 @@ void scheduler_tick(void)
 	int cpu = smp_processor_id();
 	runqueue_t *rq = this_rq();
 	task_t *p = current;
+	unsigned long long now = sched_clock();
 
-	rq->timestamp_last_tick = sched_clock();
+	update_cpu_clock(p, rq, now);
+
+	rq->timestamp_last_tick = now;
 
 	if (p == rq->idle) {
 		if (wake_priority_sleeper(rq))
@@ -2803,6 +2757,8 @@ switch_tasks:
 	prefetch(next);
 	clear_tsk_need_resched(prev);
 	rcu_qsctr_inc(task_cpu(prev));
+
+	update_cpu_clock(prev, rq, now);
 
 	prev->sleep_avg -= run_time;
 	if ((long)prev->sleep_avg <= 0)
@@ -4063,6 +4019,7 @@ void __devinit init_idle(task_t *idle, int cpu)
 	idle->array = NULL;
 	idle->prio = MAX_PRIO;
 	idle->state = TASK_RUNNING;
+	idle->cpus_allowed = cpumask_of_cpu(cpu);
 	set_task_cpu(idle, cpu);
 
 	spin_lock_irqsave(&rq->lock, flags);

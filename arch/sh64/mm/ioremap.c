@@ -182,8 +182,8 @@ void iounmap(void *addr)
 }
 
 static struct resource shmedia_iomap = {
-        .name	= "shmedia_iomap",
-	.start	= IOBASE_VADDR,
+	.name	= "shmedia_iomap",
+	.start	= IOBASE_VADDR + PAGE_SIZE,
 	.end	= IOBASE_END - 1,
 };
 
