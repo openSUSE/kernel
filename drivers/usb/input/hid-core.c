@@ -1010,10 +1010,10 @@ int hid_set_field(struct hid_field *field, unsigned offset, __s32 value)
 }
 
 /*
- * Find a report with a specified HID usage.
+ * Find a report field with a specified HID usage.
  */
 
-struct hid_report *hid_find_report_by_usage(struct hid_device *hid, __u32 wanted_usage, int type)
+struct hid_field *hid_find_field_by_usage(struct hid_device *hid, __u32 wanted_usage, int type)
 {
 	struct hid_report *report;
 	int i;
@@ -1021,7 +1021,7 @@ struct hid_report *hid_find_report_by_usage(struct hid_device *hid, __u32 wanted
 	list_for_each_entry(report, &hid->report_enum[type].report_list, list)
 		for (i = 0; i < report->maxfield; i++)
 			if (report->field[i]->logical == wanted_usage)
-				return report;
+				return report->field[i];
 	return NULL;
 }
 

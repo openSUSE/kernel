@@ -110,9 +110,8 @@ static void hid_pid_ctrl_playback(struct hid_device *hid,
 static int hid_pid_erase(struct input_dev *dev, int id)
 {
 	struct hid_device *hid = dev->private;
-	struct hid_field* field;
-	struct hid_report* report;
 	struct hid_ff_pid *pid = hid->ff_private;
+	struct hid_field *field;
 	unsigned long flags;
 	int ret;
 
@@ -120,27 +119,20 @@ static int hid_pid_erase(struct input_dev *dev, int id)
 		return -EACCES;
 
 	/* Find report */
-	report = hid_find_report_by_usage(hid,
-		HID_UP_PID | FF_PID_USAGE_BLOCK_FREE, HID_OUTPUT_REPORT);
-	if (!report) {
-		dev_err(&hid->dev->dev, "couldn't find report\n");
-		return ret;
-	}
-
-	/* Find field */
-	field = (struct hid_field *) kmalloc(sizeof(struct hid_field), GFP_KERNEL);
+	field = hid_find_field_by_usage(hid, HID_UP_PID | FF_PID_USAGE_BLOCK_FREE,
+					HID_OUTPUT_REPORT);
 	if (!field) {
-		dev_err(&hid->dev->dev, "couldn't allocate field\n");
-		return -ENOMEM;
+		dev_err(&hid->dev->dev, "couldn't find report\n");
+		return -EIO;
 	}
 
-	ret = hid_set_field(field, ret, pid->effects[id].device_id);
+	ret = hid_set_field(field, 0, pid->effects[id].device_id);
 	if (ret) {
 		dev_err(&hid->dev->dev, "couldn't set field\n");
 		return ret;
 	}
 
-	hid_submit_report(hid, report, USB_DIR_OUT);
+	hid_submit_report(hid, field->report, USB_DIR_OUT);
 
 	spin_lock_irqsave(&pid->lock, flags);
 	hid_pid_ctrl_playback(hid, pid->effects + id, 0);
