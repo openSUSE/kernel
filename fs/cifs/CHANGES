@@ -1,6 +1,7 @@
 Version 1.29
 ------------
-Fix default mode in sysfs of cifs module parms.
+Fix default mode in sysfs of cifs module parms.  Remove old readdir routine.
+Fix capabilities flags for large readx so as to allow reads larger than 64K.
 
 Version 1.28
 ------------
