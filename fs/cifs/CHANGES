@@ -1,3 +1,8 @@
+Version 1.29
+------------
+Fix default mode in sysfs of cifs module parms.  Remove old readdir routine.
+Fix capabilities flags for large readx so as to allow reads larger than 64K.
+
 Version 1.28
 ------------
 Add module init parm for large SMB buffer size (to allow it to be changed
@@ -7,7 +12,8 @@ returning from mount when experimental ExtendedSecurity enabled and
 SpnegoNegotiated returning invalid error. Fix case to retry better when 
 peek returns from 1 to 3 bytes on socket which should have more data.
 Fixed path based calls (such as cifs lookup) to handle path names
-longer than 530 (now can handle PATH_MAX).
+longer than 530 (now can handle PATH_MAX). Fix pass through authentication
+from Samba server to DC (Samba required dummy LM password).
 
 Version 1.27
 ------------
