@@ -1849,8 +1849,8 @@ static int bond_enslave(struct net_device *bond_dev, struct net_device *slave_de
 	if (bond_update_speed_duplex(new_slave) &&
 	    (new_slave->link != BOND_LINK_DOWN)) {
 		printk(KERN_WARNING DRV_NAME
-		       ": Warning: failed to get speed/duplex from %s, speed "
-		       "forced to 100Mbps, duplex forced to Full.\n",
+		       ": Warning: failed to get speed and duplex from %s, "
+		       "assumed to be 100Mb/sec and Full.\n",
 		       new_slave->dev->name);
 
 		if (bond->params.mode == BOND_MODE_8023AD) {
