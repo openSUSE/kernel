@@ -855,7 +855,7 @@ aiptek_set_report(struct aiptek *aiptek,
 			       USB_REQ_SET_REPORT,
 			       USB_TYPE_CLASS | USB_RECIP_INTERFACE |
 			       USB_DIR_OUT, (report_type << 8) + report_id,
-			       aiptek->ifnum, buffer, size, 5 * HZ);
+			       aiptek->ifnum, buffer, size, 5000);
 }
 
 static int
@@ -868,7 +868,7 @@ aiptek_get_report(struct aiptek *aiptek,
 			       USB_REQ_GET_REPORT,
 			       USB_TYPE_CLASS | USB_RECIP_INTERFACE |
 			       USB_DIR_IN, (report_type << 8) + report_id,
-			       aiptek->ifnum, buffer, size, 5 * HZ);
+			       aiptek->ifnum, buffer, size, 5000);
 }
 
 /***********************************************************************
