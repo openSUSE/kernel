@@ -1402,10 +1402,39 @@ void nfsd_copy_lock_deleg_cb(struct file_lock *new, struct file_lock *fl)
 	dp->dl_flock = new;
 }
 
+/*
+ * Called from __setlease() with lock_kernel() held
+ */
+static
+int nfsd_same_client_deleg_cb(struct file_lock *onlist, struct file_lock *try)
+{
+	struct nfs4_delegation *onlistd =
+		(struct nfs4_delegation *)onlist->fl_owner;
+	struct nfs4_delegation *tryd =
+		(struct nfs4_delegation *)try->fl_owner;
+
+	if (onlist->fl_lmops != try->fl_lmops)
+		return 0;
+
+	return onlistd->dl_client == tryd->dl_client;
+}
+
+
+static
+int nfsd_change_deleg_cb(struct file_lock **onlist, int arg)
+{
+	if (arg & F_UNLCK)
+		return lease_modify(onlist, arg);
+	else
+		return -EAGAIN;
+}
+
 struct lock_manager_operations nfsd_lease_mng_ops = {
-        .fl_break = nfsd_break_deleg_cb,
-        .fl_release_private = nfsd_release_deleg_cb,
-        .fl_copy_lock = nfsd_copy_lock_deleg_cb,
+	.fl_break = nfsd_break_deleg_cb,
+	.fl_release_private = nfsd_release_deleg_cb,
+	.fl_copy_lock = nfsd_copy_lock_deleg_cb,
+	.fl_mylease = nfsd_same_client_deleg_cb,
+	.fl_change = nfsd_change_deleg_cb,
 };
 
 
@@ -1497,25 +1526,6 @@ renew:
 out:
 	if (status && open->op_claim_type == NFS4_OPEN_CLAIM_PREVIOUS)
 		status = nfserr_reclaim_bad;
-	return status;
-}
-
-static int
-nfs4_check_deleg_recall(struct nfs4_file *fp, struct nfsd4_open *op, int *flag)
-{
-	struct nfs4_delegation *dp;
-	int status = 0;
-
-	list_for_each_entry(dp, &fp->fi_del_perfile, dl_del_perfile) {
-		if (op->op_share_access & NFS4_SHARE_ACCESS_WRITE
-			|| op->op_stateowner->so_client == dp->dl_client) {
-			*flag = NFS4_OPEN_DELEGATE_NONE;
-			goto out;
-		}
-	}
-out:
-	dprintk("NFSD: nfs4_check_deleg_recall returns %d with flag %d\n",
-		status, *flag);
 	return status;
 }
 
@@ -1623,31 +1633,28 @@ nfs4_set_claim_prev(struct nfsd4_open *open, int *status)
  * Attempt to hand out a delegation.
  */
 static void
-nfs4_open_delegation(struct svc_fh *fh, struct nfsd4_open *open, struct nfs4_stateid *stp, int *flag)
+nfs4_open_delegation(struct svc_fh *fh, struct nfsd4_open *open, struct nfs4_stateid *stp)
 {
 	struct nfs4_delegation *dp;
 	struct nfs4_stateowner *sop = stp->st_stateowner;
 	struct nfs4_callback *cb = &sop->so_client->cl_callback;
 	struct file_lock fl, *flp = &fl;
-	int status;
+	int status, flag = 0;
 
-	if (*flag == NFS4_OPEN_DELEGATE_NONE)
-		return;
-
-	*flag = NFS4_OPEN_DELEGATE_NONE;
+	flag = NFS4_OPEN_DELEGATE_NONE;
 	if (open->op_claim_type != NFS4_OPEN_CLAIM_NULL
 	     || !atomic_read(&cb->cb_set) || !sop->so_confirmed)
-		return;
+		goto out;
 
 	if (open->op_share_access & NFS4_SHARE_ACCESS_WRITE)
-		*flag = NFS4_OPEN_DELEGATE_WRITE;
+		flag = NFS4_OPEN_DELEGATE_WRITE;
 	else
-		*flag = NFS4_OPEN_DELEGATE_READ;
+		flag = NFS4_OPEN_DELEGATE_READ;
 
-	dp = alloc_init_deleg(sop->so_client, stp, fh, *flag);
+	dp = alloc_init_deleg(sop->so_client, stp, fh, flag);
 	if (dp == NULL) {
-		*flag = NFS4_OPEN_DELEGATE_NONE;
-		return;
+		flag = NFS4_OPEN_DELEGATE_NONE;
+		goto out;
 	}
 	locks_init_lock(&fl);
 	fl.fl_lmops = &nfsd_lease_mng_ops;
@@ -1657,15 +1664,18 @@ nfs4_open_delegation(struct svc_fh *fh, struct nfsd4_open *open, struct nfs4_sta
 	fl.fl_file = stp->st_vfs_file;
 	fl.fl_pid = current->tgid;
 
+	/* setlease checks to see if delegation should be handed out.
+	 * the lock_manager callbacks fl_mylease and fl_change are used
+	 */
 	if ((status = setlease(stp->st_vfs_file,
-		*flag == NFS4_OPEN_DELEGATE_READ? F_RDLCK: F_WRLCK, &flp))) {
+		flag == NFS4_OPEN_DELEGATE_READ? F_RDLCK: F_WRLCK, &flp))) {
 		dprintk("NFSD: setlease failed [%d], no delegation\n", status);
 		list_del(&dp->dl_del_perfile);
 		list_del(&dp->dl_del_perclnt);
 		nfs4_put_delegation(dp);
 		free_delegation++;
-		*flag = NFS4_OPEN_DELEGATE_NONE;
-		return;
+		flag = NFS4_OPEN_DELEGATE_NONE;
+		goto out;
 	}
 
 	memcpy(&open->op_delegate_stateid, &dp->dl_stateid, sizeof(dp->dl_stateid));
@@ -1675,6 +1685,8 @@ nfs4_open_delegation(struct svc_fh *fh, struct nfsd4_open *open, struct nfs4_sta
 	             dp->dl_stateid.si_stateownerid,
 	             dp->dl_stateid.si_fileid,
 	             dp->dl_stateid.si_generation);
+out:
+	open->op_delegate_type = flag;
 }
 
 /*
@@ -1687,7 +1699,7 @@ nfsd4_process_open2(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nf
 	struct nfs4_file *fp = NULL;
 	struct inode *ino = current_fh->fh_dentry->d_inode;
 	struct nfs4_stateid *stp = NULL;
-	int status, delegflag = -1;
+	int status;
 
 	status = nfserr_inval;
 	if (!TEST_ACCESS(open->op_share_access) || !TEST_DENY(open->op_share_deny))
@@ -1700,8 +1712,6 @@ nfsd4_process_open2(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nf
 	fp = find_file(ino);
 	if (fp) {
 		if ((status = nfs4_check_open(fp, sop, open, &stp)))
-			goto out;
-		if ((status = nfs4_check_deleg_recall(fp, open, &delegflag)))
 			goto out;
 	} else {
 		status = nfserr_resource;
@@ -1748,8 +1758,7 @@ nfsd4_process_open2(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nf
 	* Attempt to hand out a delegation. No error return, because the
 	* OPEN succeeds even if we fail.
 	*/
-	nfs4_open_delegation(current_fh, open, stp, &delegflag);
-	open->op_delegate_type = delegflag;
+	nfs4_open_delegation(current_fh, open, stp);
 
 	status = nfs_ok;
 

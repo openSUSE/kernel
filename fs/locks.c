@@ -406,9 +406,16 @@ static void lease_release_private_callback(struct file_lock *fl)
 	fl->fl_file->f_owner.signum = 0;
 }
 
+static int lease_mylease_callback(struct file_lock *fl, struct file_lock *try)
+{
+	return fl->fl_file == try->fl_file;
+}
+
 struct lock_manager_operations lease_manager_ops = {
 	.fl_break = lease_break_callback,
 	.fl_release_private = lease_release_private_callback,
+	.fl_mylease = lease_mylease_callback,
+	.fl_change = lease_modify,
 };
 
 /*
@@ -1058,7 +1065,7 @@ int locks_mandatory_area(int read_write, struct inode *inode,
 EXPORT_SYMBOL(locks_mandatory_area);
 
 /* We already had a lease on this file; just change its type */
-static int lease_modify(struct file_lock **before, int arg)
+int lease_modify(struct file_lock **before, int arg)
 {
 	struct file_lock *fl = *before;
 	int error = assign_type(fl, arg);
@@ -1070,6 +1077,8 @@ static int lease_modify(struct file_lock **before, int arg)
 		locks_delete_lock(before);
 	return 0;
 }
+
+EXPORT_SYMBOL(lease_modify);
 
 static void time_out_leases(struct inode *inode)
 {
@@ -1315,7 +1324,7 @@ int __setlease(struct file *filp, long arg, struct file_lock **flp)
 	for (before = &inode->i_flock;
 			((fl = *before) != NULL) && IS_LEASE(fl);
 			before = &fl->fl_next) {
-		if (fl->fl_file == filp)
+		if (lease->fl_lmops->fl_mylease(fl, lease))
 			my_before = before;
 		else if (fl->fl_type == (F_INPROGRESS | F_UNLCK))
 			/*
@@ -1333,7 +1342,7 @@ int __setlease(struct file *filp, long arg, struct file_lock **flp)
 		goto out;
 
 	if (my_before != NULL) {
-		error = lease_modify(my_before, arg);
+		error = lease->fl_lmops->fl_change(my_before, arg);
 		goto out;
 	}
 
