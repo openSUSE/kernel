@@ -51,7 +51,6 @@
 #include <linux/swapops.h>
 #include <linux/slab.h>
 #include <linux/init.h>
-#include <linux/acct.h>
 #include <linux/rmap.h>
 #include <linux/rcupdate.h>
 
@@ -600,7 +599,6 @@ static int try_to_unmap_one(struct page *page, struct vm_area_struct *vma)
 	}
 
 	mm->rss--;
-	acct_update_integrals();
 	page_remove_rmap(page);
 	page_cache_release(page);
 
@@ -705,7 +703,6 @@ static void try_to_unmap_cluster(unsigned long cursor,
 
 		page_remove_rmap(page);
 		page_cache_release(page);
-		acct_update_integrals();
 		mm->rss--;
 		(*mapcount)--;
 	}

@@ -806,8 +806,8 @@ fastcall NORET_TYPE void do_exit(long code)
 				current->comm, current->pid,
 				preempt_count());
 
-	acct_update_integrals();
-	update_mem_hiwater();
+	acct_update_integrals(tsk);
+	update_mem_hiwater(tsk);
 	group_dead = atomic_dec_and_test(&tsk->signal->live);
 	if (group_dead)
 		acct_process(code);
