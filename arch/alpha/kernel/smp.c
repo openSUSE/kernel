@@ -78,8 +78,6 @@ static unsigned long hwrpb_cpu_present_mask __initdata = 0;
 
 int smp_num_probed;		/* Internal processor count */
 int smp_num_cpus = 1;		/* Number that came online.  */
-cycles_t cacheflush_time;
-unsigned long cache_decay_ticks;
 
 extern void calibrate_delay(void);
 
@@ -217,15 +215,6 @@ smp_tune_scheduling (int cpuid)
 	}
 
 	freq = hwrpb->cycle_freq ? : est_cycle_freq;
-
-	cacheflush_time = (freq / 1000000) * (on_chip_cache << 10) / bandwidth;
-	cache_decay_ticks = cacheflush_time / (freq / 1000) * HZ / 1000;
-
-	printk("per-CPU timeslice cutoff: %ld.%02ld usecs.\n",
-	       cacheflush_time/(freq/1000000),
-	       (cacheflush_time*100/(freq/1000000)) % 100);
-	printk("task migration cache decay timeout: %ld msecs.\n",
-	       (cache_decay_ticks + 1) * 1000 / HZ);
 }
 
 /* Wait until hwrpb->txrdy is clear for cpu.  Return -1 on timeout.  */

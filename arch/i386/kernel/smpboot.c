@@ -77,9 +77,6 @@ u8 x86_cpu_to_apicid[NR_CPUS] =
 			{ [0 ... NR_CPUS-1] = 0xff };
 EXPORT_SYMBOL(x86_cpu_to_apicid);
 
-/* Set when the idlers are all forked */
-int smp_threads_ready;
-
 /*
  * Trampoline 80x86 program as an array.
  */
@@ -88,6 +85,8 @@ extern unsigned char trampoline_data [];
 extern unsigned char trampoline_end  [];
 static unsigned char *trampoline_base;
 static int trampoline_exec;
+
+static void map_cpu_to_logical_apicid(void);
 
 /*
  * Currently trivial. Write the real->protected mode
@@ -319,7 +318,7 @@ extern void calibrate_delay(void);
 
 static atomic_t init_deasserted;
 
-void __init smp_callin(void)
+static void __init smp_callin(void)
 {
 	int cpuid, phys_id;
 	unsigned long timeout;
@@ -408,7 +407,7 @@ void __init smp_callin(void)
 		synchronize_tsc_ap();
 }
 
-int cpucount;
+static int cpucount;
 
 /*
  * Activate a secondary processor.
@@ -506,7 +505,7 @@ static inline void unmap_cpu_to_node(int cpu)
 
 u8 cpu_2_logical_apicid[NR_CPUS] = { [0 ... NR_CPUS-1] = BAD_APICID };
 
-void map_cpu_to_logical_apicid(void)
+static void map_cpu_to_logical_apicid(void)
 {
 	int cpu = smp_processor_id();
 	int apicid = logical_smp_processor_id();
@@ -515,7 +514,7 @@ void map_cpu_to_logical_apicid(void)
 	map_cpu_to_node(cpu, apicid_to_node(apicid));
 }
 
-void unmap_cpu_to_logical_apicid(int cpu)
+static void unmap_cpu_to_logical_apicid(int cpu)
 {
 	cpu_2_logical_apicid[cpu] = BAD_APICID;
 	unmap_cpu_to_node(cpu);
@@ -847,9 +846,6 @@ static int __init do_boot_cpu(int apicid)
 	return boot_error;
 }
 
-cycles_t cacheflush_time;
-unsigned long cache_decay_ticks;
-
 static void smp_tune_scheduling (void)
 {
 	unsigned long cachesize;       /* kB   */
@@ -870,7 +866,6 @@ static void smp_tune_scheduling (void)
 		 * this basically disables processor-affinity
 		 * scheduling on SMP without a TSC.
 		 */
-		cacheflush_time = 0;
 		return;
 	} else {
 		cachesize = boot_cpu_data.x86_cache_size;
@@ -878,17 +873,7 @@ static void smp_tune_scheduling (void)
 			cachesize = 16; /* Pentiums, 2x8kB cache */
 			bandwidth = 100;
 		}
-
-		cacheflush_time = (cpu_khz>>10) * (cachesize<<10) / bandwidth;
 	}
-
-	cache_decay_ticks = (long)cacheflush_time/cpu_khz + 1;
-
-	printk("per-CPU timeslice cutoff: %ld.%02ld usecs.\n",
-		(long)cacheflush_time/(cpu_khz/1000),
-		((long)cacheflush_time*100/(cpu_khz/1000)) % 100);
-	printk("task migration cache decay timeout: %ld msecs.\n",
-		cache_decay_ticks);
 }
 
 /*

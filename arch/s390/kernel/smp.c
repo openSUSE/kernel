@@ -50,12 +50,9 @@ extern volatile int __cpu_logical_map[];
  */
 
 struct _lowcore *lowcore_ptr[NR_CPUS];
-cycles_t         cacheflush_time=0;
-int              smp_threads_ready=0;      /* Set when the idlers are all forked. */
 
 cpumask_t cpu_online_map;
 cpumask_t cpu_possible_map;
-unsigned long    cache_decay_ticks = 0;
 
 static struct task_struct *current_set[NR_CPUS];
 

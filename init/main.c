@@ -361,7 +361,6 @@ static void __init smp_init(void)
 #if 0
 	/* Get other processors into their bootup holding patterns. */
 
-	smp_threads_ready=1;
 	smp_commence();
 #endif
 }

@@ -1055,9 +1055,6 @@ void __init smp_tick_init(void)
 	prof_counter(boot_cpu_id) = prof_multiplier(boot_cpu_id) = 1;
 }
 
-cycles_t cacheflush_time;
-unsigned long cache_decay_ticks;
-
 extern unsigned long cheetah_tune_scheduling(void);
 
 static void __init smp_tune_scheduling(void)
@@ -1078,10 +1075,8 @@ static void __init smp_tune_scheduling(void)
 	 * of moving a process from one cpu to another).
 	 */
 	printk("SMP: Calibrating ecache flush... ");
-	if (tlb_type == cheetah || tlb_type == cheetah_plus) {
-		cacheflush_time = cheetah_tune_scheduling();
-		goto report;
-	}
+	if (tlb_type == cheetah || tlb_type == cheetah_plus)
+		return;
 
 	cpu_find_by_instance(0, &cpu_node, NULL);
 	ecache_size = prom_getintdefault(cpu_node,
@@ -1124,24 +1119,8 @@ static void __init smp_tune_scheduling(void)
 
 		raw = (tick2 - tick1);
 
-		/* Dampen it a little, considering two processes
-		 * sharing the cache and fitting.
-		 */
-		cacheflush_time = (raw - (raw >> 2));
-
 		free_pages(orig_flush_base, order);
-	} else {
-		cacheflush_time = ((ecache_size << 2) +
-				   (ecache_size << 1));
 	}
-report:
-	/* Convert ticks/sticks to jiffies. */
-	cache_decay_ticks = cacheflush_time / timer_tick_offset;
-	if (cache_decay_ticks < 1)
-		cache_decay_ticks = 1;
-
-	printk("Using heuristic of %ld cycles, %ld ticks.\n",
-	       cacheflush_time, cache_decay_ticks);
 }
 
 /* /proc/profile writes can call this, don't __init it please. */

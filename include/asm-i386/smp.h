@@ -62,9 +62,6 @@ static inline int num_booting_cpus(void)
 	return cpus_weight(cpu_callout_map);
 }
 
-extern void map_cpu_to_logical_apicid(void);
-extern void unmap_cpu_to_logical_apicid(int cpu);
-
 #ifdef CONFIG_X86_LOCAL_APIC
 
 #ifdef APIC_DEFINITION

@@ -70,9 +70,6 @@ static cpumask_t smp_commenced_mask;
 /* Per CPU bogomips and other parameters */
 struct cpuinfo_x86 cpu_data[NR_CPUS] __cacheline_aligned;
 
-/* Set when the idlers are all forked */
-int smp_threads_ready;
-
 cpumask_t cpu_sibling_map[NR_CPUS] __cacheline_aligned;
 
 /*
@@ -249,7 +246,7 @@ static void __init synchronize_tsc_ap (void)
 
 static atomic_t init_deasserted;
 
-void __init smp_callin(void)
+static void __init smp_callin(void)
 {
 	int cpuid, phys_id;
 	unsigned long timeout;
@@ -338,7 +335,7 @@ void __init smp_callin(void)
 		synchronize_tsc_ap();
 }
 
-int cpucount;
+static int cpucount;
 
 /*
  * Activate a secondary processor.
@@ -661,9 +658,6 @@ static void __init do_boot_cpu (int apicid)
 	}
 }
 
-cycles_t cacheflush_time;
-unsigned long cache_decay_ticks;
-
 static void smp_tune_scheduling (void)
 {
 	int cachesize;       /* kB   */
@@ -680,11 +674,6 @@ static void smp_tune_scheduling (void)
 	 */
 
 	if (!cpu_khz) {
-		/*
-		 * this basically disables processor-affinity
-		 * scheduling on SMP without a TSC.
-		 */
-		cacheflush_time = 0;
 		return;
 	} else {
 		cachesize = boot_cpu_data.x86_cache_size;
@@ -692,17 +681,7 @@ static void smp_tune_scheduling (void)
 			cachesize = 16; /* Pentiums, 2x8kB cache */
 			bandwidth = 100;
 		}
-
-		cacheflush_time = (cpu_khz>>10) * (cachesize<<10) / bandwidth;
 	}
-
-	cache_decay_ticks = (long)cacheflush_time/cpu_khz * HZ / 1000;
-
-	printk(KERN_INFO "per-CPU timeslice cutoff: %ld.%02ld usecs.\n",
-		(long)cacheflush_time/(cpu_khz/1000),
-		((long)cacheflush_time*100/(cpu_khz/1000)) % 100);
-	printk(KERN_INFO "task migration cache decay timeout: %ld msecs.\n",
-		(cache_decay_ticks + 1) * 1000 / HZ);
 }
 
 /*

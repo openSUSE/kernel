@@ -37,10 +37,6 @@ DEFINE_PER_CPU(struct tlb_state, cpu_tlbstate) ____cacheline_aligned = { &init_m
 /* CPU IRQ affinity -- set to all ones initially */
 static unsigned long cpu_irq_affinity[NR_CPUS] __cacheline_aligned = { [0 ... NR_CPUS-1]  = ~0UL };
 
-/* Set when the idlers are all forked - Set in main.c but not actually
- * used by any other parts of the kernel */
-int smp_threads_ready = 0;
-
 /* per CPU data structure (for /proc/cpuinfo et al), visible externally
  * indexed physically */
 struct cpuinfo_x86 cpu_data[NR_CPUS] __cacheline_aligned;
@@ -80,14 +76,6 @@ cpumask_t cpu_online_map = CPU_MASK_NONE;
 /* Bitmask of CPUs present in the system - exported by i386_syms.c, used
  * by scheduler but indexed physically */
 cpumask_t phys_cpu_present_map = CPU_MASK_NONE;
-
-/* estimate of time used to flush the SMP-local cache - used in
- * processor affinity calculations */
-cycles_t cacheflush_time = 0;
-
-/* cache decay ticks for scheduler---a fairly useless quantity for the
-   voyager system with its odd affinity and huge L3 cache */
-unsigned long cache_decay_ticks = 20;
 
 
 /* The internal functions */
