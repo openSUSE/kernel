@@ -83,7 +83,7 @@ static int mv643xx_poll(struct net_device *dev, int *budget);
 static void ethernet_phy_set(unsigned int eth_port_num, int phy_addr);
 static int ethernet_phy_detect(unsigned int eth_port_num);
 
-static void __iomem *mv64x60_eth_shared_base;
+static void __iomem *mv643xx_eth_shared_base;
 
 /* used to protect MV643XX_ETH_SMI_REG, which is shared across ports */
 static spinlock_t mv643xx_eth_phy_lock = SPIN_LOCK_UNLOCKED;
@@ -92,7 +92,7 @@ static inline u32 mv_read(int offset)
 {
 	void *__iomem reg_base;
 
-	reg_base = mv64x60_eth_shared_base - MV643XX_ETH_SHARED_REGS;
+	reg_base = mv643xx_eth_shared_base - MV643XX_ETH_SHARED_REGS;
 
 	return readl(reg_base + offset);
 }
@@ -101,7 +101,7 @@ static inline void mv_write(int offset, u32 data)
 {
 	void * __iomem reg_base;
 
-	reg_base = mv64x60_eth_shared_base - MV643XX_ETH_SHARED_REGS;
+	reg_base = mv643xx_eth_shared_base - MV643XX_ETH_SHARED_REGS;
 	writel(data, reg_base + offset);
 }
 
@@ -1521,9 +1521,9 @@ static int mv643xx_eth_shared_probe(struct device *ddev)
 	if (res == NULL)
 		return -ENODEV;
 
-	mv64x60_eth_shared_base = ioremap(res->start,
+	mv643xx_eth_shared_base = ioremap(res->start,
 						MV643XX_ETH_SHARED_REGS_SIZE);
-	if (mv64x60_eth_shared_base == NULL)
+	if (mv643xx_eth_shared_base == NULL)
 		return -ENOMEM;
 
 	return 0;
@@ -1532,8 +1532,8 @@ static int mv643xx_eth_shared_probe(struct device *ddev)
 
 static int mv643xx_eth_shared_remove(struct device *ddev)
 {
-	iounmap(mv64x60_eth_shared_base);
-	mv64x60_eth_shared_base = NULL;
+	iounmap(mv643xx_eth_shared_base);
+	mv643xx_eth_shared_base = NULL;
 
 	return 0;
 }
