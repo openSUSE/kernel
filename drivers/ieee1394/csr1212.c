@@ -1422,6 +1422,7 @@ int _csr1212_read_keyval(struct csr1212_csr *csr, struct csr1212_keyval *kv)
 
 	if (!cache) {
 		csr1212_quad_t q;
+		u_int32_t cache_size;
 
 		/* Only create a new cache for Extended ROM leaves. */
 		if (kv->key.id != CSR1212_KV_ID_EXTENDED_ROM)
@@ -1435,8 +1436,10 @@ int _csr1212_read_keyval(struct csr1212_csr *csr, struct csr1212_keyval *kv)
 
 		kv->value.leaf.len = CSR1212_BE32_TO_CPU(q) >> 16;
 
-		cache = csr1212_rom_cache_malloc(kv->offset,
-						 quads_to_bytes(kv->value.leaf.len + 1));
+		cache_size = (quads_to_bytes(kv->value.leaf.len + 1) +
+			      (csr->max_rom - 1)) & ~(csr->max_rom - 1);
+
+		cache = csr1212_rom_cache_malloc(kv->offset, cache_size);
 		if (!cache)
 			return CSR1212_ENOMEM;
 
