@@ -51,8 +51,6 @@ SENSORS_INSMOD_1(fscpos);
  * The FSCPOS registers
  */
 
-#define DEBUG
-
 /* chip identification */
 #define FSCPOS_REG_IDENT_0		0x00
 #define FSCPOS_REG_IDENT_1		0x01
@@ -566,10 +564,10 @@ static struct fscpos_data *fscpos_update_device(struct device *dev)
 
 	if ((jiffies - data->last_updated > 2 * HZ) ||
 			(jiffies < data->last_updated) || !data->valid) {
+		int i;
 
 		dev_dbg(&client->dev, "Starting fscpos update\n");
 
-		int i;
 		for (i = 0; i < 3; i++) {
 			data->temp_act[i] = fscpos_read_value(client,
 						FSCPOS_REG_TEMP_ACT[i]);
