@@ -1298,6 +1298,9 @@ int fb_get_options(char *name, char **option)
 	return retval;
 }
 
+
+extern const char *global_mode_option;
+
 /**
  *	video_setup - process command line options
  *	@options: string of options
@@ -1311,9 +1314,6 @@ int fb_get_options(char *name, char **option)
  *	Returns zero.
  *
  */
-
-extern const char *global_mode_option;
-
 int __init video_setup(char *options)
 {
 	int i, global = 0;
