@@ -20,6 +20,7 @@
 #include <linux/device.h>
 #include <linux/key.h>
 #include <linux/times.h>
+#include <linux/posix-timers.h>
 #include <linux/security.h>
 #include <linux/dcookies.h>
 #include <linux/suspend.h>
@@ -1502,6 +1503,20 @@ asmlinkage long sys_setrlimit(unsigned int resource, struct rlimit __user *rlim)
 	task_lock(current->group_leader);
 	*old_rlim = new_rlim;
 	task_unlock(current->group_leader);
+
+	if (resource == RLIMIT_CPU && new_rlim.rlim_cur != RLIM_INFINITY &&
+	    (cputime_eq(current->signal->it_prof_expires, cputime_zero) ||
+	     new_rlim.rlim_cur <= cputime_to_secs(
+		     current->signal->it_prof_expires))) {
+		cputime_t cputime = secs_to_cputime(new_rlim.rlim_cur);
+		read_lock(&tasklist_lock);
+		spin_lock_irq(&current->sighand->siglock);
+		set_process_cpu_timer(current, CPUCLOCK_PROF,
+				      &cputime, NULL);
+		spin_unlock_irq(&current->sighand->siglock);
+		read_unlock(&tasklist_lock);
+	}
+
 	return 0;
 }
 

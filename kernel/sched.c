@@ -2284,30 +2284,6 @@ unsigned long long current_sched_time(const task_t *tsk)
 			((rq)->curr->static_prio > (rq)->best_expired_prio))
 
 /*
- * Check if the process went over its cputime resource limit after
- * some cpu time got added to utime/stime.
- * @p: the process that the cpu time gets accounted to
- * @cputime: the cpu time spent in user and kernel space since the last update
- */
-static void check_rlimit(struct task_struct *p, cputime_t cputime)
-{
-	cputime_t total, tmp;
-	unsigned long secs;
-
-	total = cputime_add(p->utime, p->stime);
-	secs = cputime_to_secs(total);
-	if (unlikely(secs >= p->signal->rlim[RLIMIT_CPU].rlim_cur)) {
-		/* Send SIGXCPU every second. */
-		tmp = cputime_sub(total, cputime);
-		if (cputime_to_secs(tmp) < secs)
-			send_sig(SIGXCPU, p, 1);
-		/* and SIGKILL when we go over max.. */
-		if (secs >= p->signal->rlim[RLIMIT_CPU].rlim_max)
-			send_sig(SIGKILL, p, 1);
-	}
-}
-
-/*
  * Account user cpu time to a process.
  * @p: the process that the cpu time gets accounted to
  * @hardirq_offset: the offset to subtract from hardirq_count()
@@ -2319,9 +2295,6 @@ void account_user_time(struct task_struct *p, cputime_t cputime)
 	cputime64_t tmp;
 
 	p->utime = cputime_add(p->utime, cputime);
-
-	/* Check for signals (SIGXCPU & SIGKILL). */
-	check_rlimit(p, cputime);
 
 	/* Add user time to cpustat. */
 	tmp = cputime_to_cputime64(cputime);
@@ -2345,11 +2318,6 @@ void account_system_time(struct task_struct *p, int hardirq_offset,
 	cputime64_t tmp;
 
 	p->stime = cputime_add(p->stime, cputime);
-
-	/* Check for signals (SIGXCPU & SIGKILL). */
-	if (likely(p->signal && p->exit_state < EXIT_ZOMBIE)) {
-		check_rlimit(p, cputime);
-	}
 
 	/* Add system time to cpustat. */
 	tmp = cputime_to_cputime64(cputime);

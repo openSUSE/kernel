@@ -768,6 +768,15 @@ static inline int copy_signal(unsigned long clone_flags, struct task_struct * ts
 	memcpy(sig->rlim, current->signal->rlim, sizeof sig->rlim);
 	task_unlock(current->group_leader);
 
+	if (sig->rlim[RLIMIT_CPU].rlim_cur != RLIM_INFINITY) {
+		/*
+		 * New sole thread in the process gets an expiry time
+		 * of the whole CPU time limit.
+		 */
+		tsk->it_prof_expires =
+			secs_to_cputime(sig->rlim[RLIMIT_CPU].rlim_cur);
+	}
+
 	return 0;
 }
 
@@ -1032,6 +1041,7 @@ static task_t *copy_process(unsigned long clone_flags,
 				cputime_zero) ||
 		    !cputime_eq(current->signal->it_prof_expires,
 				cputime_zero) ||
+		    current->signal->rlim[RLIMIT_CPU].rlim_cur != RLIM_INFINITY ||
 		    !list_empty(&current->signal->cpu_timers[0]) ||
 		    !list_empty(&current->signal->cpu_timers[1]) ||
 		    !list_empty(&current->signal->cpu_timers[2])) {
