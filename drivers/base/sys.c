@@ -79,7 +79,7 @@ EXPORT_SYMBOL_GPL(sysdev_remove_file);
 /*
  * declare system_subsys
  */
-decl_subsys(system, &ktype_sysdev, NULL);
+static decl_subsys(system, &ktype_sysdev, NULL);
 
 int sysdev_class_register(struct sysdev_class * cls)
 {
