@@ -81,6 +81,7 @@ static void eth_port_init_mac_tables(unsigned int eth_port_num);
 static int mv64340_poll(struct net_device *dev, int *budget);
 #endif
 static void ethernet_phy_set(unsigned int eth_port_num, int phy_addr);
+static int ethernet_phy_detect(unsigned int eth_port_num);
 
 static void __iomem *mv64x60_eth_shared_base;
 
@@ -1441,6 +1442,14 @@ static int mv64340_eth_probe(struct device *ddev)
 		}
 	}
 
+	err = ethernet_phy_detect(port_num);
+	if (err) {
+		pr_debug("MV643xx ethernet port %d: "
+					"No PHY detected at addr %d\n",
+					port_num, ethernet_phy_get(port_num));
+		return err;
+	}
+
 	err = register_netdev(dev);
 	if (err)
 		goto out;
@@ -2040,6 +2049,44 @@ static void eth_clear_mib_counters(unsigned int eth_port_num)
 	/* Perform dummy reads from MIB counters */
 	for (i = ETH_MIB_GOOD_OCTETS_RECEIVED_LOW; i < ETH_MIB_LATE_COLLISION; i += 4)
 		MV_READ(MV64340_ETH_MIB_COUNTERS_BASE(eth_port_num) + i);
+}
+
+
+/*
+ * ethernet_phy_detect - Detect whether a phy is present
+ *
+ * DESCRIPTION:
+ *	This function tests whether there is a PHY present on
+ *	the specified port.
+ *
+ * INPUT:
+ *	unsigned int    eth_port_num   Ethernet Port number.
+ *
+ * OUTPUT:
+ *       None
+ *
+ * RETURN:
+ *       0 on success
+ *       -ENODEV on failure
+ *
+ */
+static int ethernet_phy_detect(unsigned int port_num)
+{
+	unsigned int phy_reg_data0;
+	int auto_neg;
+
+	eth_port_read_smi_reg(port_num, 0, &phy_reg_data0);
+	auto_neg = phy_reg_data0 & 0x1000;
+	phy_reg_data0 ^= 0x1000;			/* invert auto_neg */
+	eth_port_write_smi_reg(port_num, 0, phy_reg_data0);
+
+	eth_port_read_smi_reg(port_num, 0, &phy_reg_data0);
+	if ((phy_reg_data0 & 0x1000) == auto_neg)
+		return -ENODEV;				/* change didn't take */
+
+	phy_reg_data0 ^= 0x1000;
+	eth_port_write_smi_reg(port_num, 0, phy_reg_data0);
+	return 0;
 }
 
 
