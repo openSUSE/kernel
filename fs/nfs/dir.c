@@ -1067,8 +1067,6 @@ out_err:
 static int nfs_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 {
 	struct iattr attr;
-	struct nfs_fattr fattr;
-	struct nfs_fh fhandle;
 	int error;
 
 	dfprintk(VFS, "NFS: mkdir(%s/%ld, %s\n", dir->i_sb->s_id,
@@ -1078,21 +1076,9 @@ static int nfs_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	attr.ia_mode = mode | S_IFDIR;
 
 	lock_kernel();
-#if 0
-	/*
-	 * Always drop the dentry, we can't always depend on
-	 * the fattr returned by the server (AIX seems to be
-	 * broken). We're better off doing another lookup than
-	 * depending on potentially bogus information.
-	 */
-	d_drop(dentry);
-#endif
 	nfs_begin_data_update(dir);
-	error = NFS_PROTO(dir)->mkdir(dir, &dentry->d_name, &attr, &fhandle,
-					&fattr);
+	error = NFS_PROTO(dir)->mkdir(dir, dentry, &attr);
 	nfs_end_data_update(dir);
-	if (!error)
-		error = nfs_instantiate(dentry, &fhandle, &fattr);
 	if (error != 0)
 		goto out_err;
 	nfs_renew_times(dentry);

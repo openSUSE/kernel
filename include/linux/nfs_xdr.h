@@ -694,8 +694,7 @@ struct nfs_rpc_ops {
 	int	(*symlink) (struct inode *, struct qstr *, struct qstr *,
 			    struct iattr *, struct nfs_fh *,
 			    struct nfs_fattr *);
-	int	(*mkdir)   (struct inode *, struct qstr *, struct iattr *,
-			    struct nfs_fh *, struct nfs_fattr *);
+	int	(*mkdir)   (struct inode *, struct dentry *, struct iattr *);
 	int	(*rmdir)   (struct inode *, struct qstr *);
 	int	(*readdir) (struct dentry *, struct rpc_cred *,
 			    u64, struct page *, unsigned int, int);

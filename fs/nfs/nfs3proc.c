@@ -540,28 +540,30 @@ nfs3_proc_symlink(struct inode *dir, struct qstr *name, struct qstr *path,
 }
 
 static int
-nfs3_proc_mkdir(struct inode *dir, struct qstr *name, struct iattr *sattr,
-		struct nfs_fh *fhandle, struct nfs_fattr *fattr)
+nfs3_proc_mkdir(struct inode *dir, struct dentry *dentry, struct iattr *sattr)
 {
-	struct nfs_fattr	dir_attr;
+	struct nfs_fh fhandle;
+	struct nfs_fattr fattr, dir_attr;
 	struct nfs3_mkdirargs	arg = {
 		.fh		= NFS_FH(dir),
-		.name		= name->name,
-		.len		= name->len,
+		.name		= dentry->d_name.name,
+		.len		= dentry->d_name.len,
 		.sattr		= sattr
 	};
 	struct nfs3_diropres	res = {
 		.dir_attr	= &dir_attr,
-		.fh		= fhandle,
-		.fattr		= fattr
+		.fh		= &fhandle,
+		.fattr		= &fattr
 	};
 	int			status;
 
-	dprintk("NFS call  mkdir %s\n", name->name);
+	dprintk("NFS call  mkdir %s\n", dentry->d_name.name);
 	dir_attr.valid = 0;
-	fattr->valid = 0;
+	fattr.valid = 0;
 	status = rpc_call(NFS_CLIENT(dir), NFS3PROC_MKDIR, &arg, &res, 0);
 	nfs_refresh_inode(dir, &dir_attr);
+	if (status == 0)
+		status = nfs_instantiate(dentry, &fhandle, &fattr);
 	dprintk("NFS reply mkdir: %d\n", status);
 	return status;
 }
