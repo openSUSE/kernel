@@ -161,7 +161,7 @@ struct exception_table_entry
 		__put_user_asm(__x, ptr, __pu_err);		\
 		break;						\
 	default:						\
-		__pu_err = __put_user_bad();			\
+		__put_user_bad();				\
 		break;						\
 	 }							\
 	__pu_err;						\
@@ -182,7 +182,7 @@ struct exception_table_entry
 })
 
 
-extern int __put_user_bad(void);
+extern int __put_user_bad(void) __attribute__((noreturn));
 
 #if __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ > 2)
 #define __get_user_asm(x, ptr, err) \
@@ -225,8 +225,7 @@ extern int __put_user_bad(void);
 		__get_user_asm(__x, ptr, __gu_err);		\
 		break;						\
 	default:						\
-		__x = 0;					\
-		__gu_err = __get_user_bad();			\
+		__get_user_bad();				\
 		break;						\
 	}							\
 	(x) = __x;						\
@@ -248,7 +247,7 @@ extern int __put_user_bad(void);
 	__get_user(x, ptr);					\
 })
 
-extern int __get_user_bad(void);
+extern int __get_user_bad(void) __attribute__((noreturn));
 
 #define __put_user_unaligned __put_user
 #define __get_user_unaligned __get_user

@@ -2720,6 +2720,7 @@ static void idetape_wait_for_request (ide_drive_t *drive, struct request *rq)
 	}
 #endif /* IDETAPE_DEBUG_BUGS */
 	rq->waiting = &wait;
+	rq->end_io = blk_end_sync_rq;
 	spin_unlock_irq(&tape->spinlock);
 	wait_for_completion(&wait);
 	/* The stage and its struct request have been deallocated */
@@ -4100,7 +4101,13 @@ static int idetape_chrdev_open (struct inode *inode, struct file *filp)
 	idetape_pc_t pc;
 	int retval;
 
-	nonseekable_open(inode, filp);
+	/*
+	 * We really want to do nonseekable_open(inode, filp); here, but some
+	 * versions of tar incorrectly call lseek on tapes and bail out if that
+	 * fails.  So we disallow pread() and pwrite(), but permit lseeks.
+	 */
+	filp->f_mode &= ~(FMODE_PREAD | FMODE_PWRITE);
+
 #if IDETAPE_DEBUG_LOG
 	printk(KERN_INFO "ide-tape: Reached idetape_chrdev_open\n");
 #endif /* IDETAPE_DEBUG_LOG */

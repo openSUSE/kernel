@@ -105,8 +105,16 @@ static inline int kprobe_handler(struct pt_regs *regs)
 	p = get_kprobe(addr);
 	if (!p) {
 		unlock_kprobes();
-#if 0
 		if (*addr != BREAKPOINT_INSTRUCTION) {
+			/*
+			 * PowerPC has multiple variants of the "trap"
+			 * instruction. If the current instruction is a
+			 * trap variant, it could belong to someone else
+			 */
+			kprobe_opcode_t cur_insn = *addr;
+			if (IS_TW(cur_insn) || IS_TD(cur_insn) ||
+					IS_TWI(cur_insn) || IS_TDI(cur_insn))
+		       		goto no_kprobe;
 			/*
 			 * The breakpoint instruction was removed right
 			 * after we hit it.  Another cpu has removed
@@ -116,7 +124,6 @@ static inline int kprobe_handler(struct pt_regs *regs)
 			 */
 			ret = 1;
 		}
-#endif
 		/* Not one of ours: let kernel handle it */
 		goto no_kprobe;
 	}

@@ -569,6 +569,10 @@ config SANDPOINT
 	  Select SANDPOINT if configuring for a Motorola Sandpoint X3
 	  (any flavor).
 
+config RADSTONE_PPC7D
+	bool "Radstone Technology PPC7D board"
+	select MV64360
+
 config ADIR
 	bool "SBS-Adirondack"
 
@@ -716,7 +720,7 @@ config PPC_GEN550
 	bool
 	depends on SANDPOINT || MCPN765 || SPRUCE || PPLUS || PCORE || \
 		PRPMC750 || K2 || PRPMC800 || LOPEC || \
-		(EV64260 && !SERIAL_MPSC) || CHESTNUT
+		(EV64260 && !SERIAL_MPSC) || CHESTNUT || RADSTONE_PPC7D
 	default y
 
 config FORCE
@@ -731,7 +735,7 @@ config GT64260
 
 config MV64360
 	bool
-	depends on KATANA
+	depends on KATANA || RADSTONE_PPC7D
 	default y
 
 config MV64360

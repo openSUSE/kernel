@@ -1281,35 +1281,9 @@ struct mtpos32 {
 };
 #define MTIOCPOS32	_IOR('m', 3, struct mtpos32)
 
-struct mtconfiginfo32 {
-	compat_long_t	mt_type;
-	compat_long_t	ifc_type;
-	unsigned short	irqnr;
-	unsigned short	dmanr;
-	unsigned short	port;
-	compat_ulong_t	debug;
-	compat_uint_t	have_dens:1;
-	compat_uint_t	have_bsf:1;
-	compat_uint_t	have_fsr:1;
-	compat_uint_t	have_bsr:1;
-	compat_uint_t	have_eod:1;
-	compat_uint_t	have_seek:1;
-	compat_uint_t	have_tell:1;
-	compat_uint_t	have_ras1:1;
-	compat_uint_t	have_ras2:1;
-	compat_uint_t	have_ras3:1;
-	compat_uint_t	have_qfa:1;
-	compat_uint_t	pad1:5;
-	char	reserved[10];
-};
-#define	MTIOCGETCONFIG32	_IOR('m', 4, struct mtconfiginfo32)
-#define	MTIOCSETCONFIG32	_IOW('m', 5, struct mtconfiginfo32)
-
 static int mt_ioctl_trans(unsigned int fd, unsigned int cmd, unsigned long arg)
 {
 	mm_segment_t old_fs = get_fs();
-	struct mtconfiginfo info;
-	struct mtconfiginfo32 __user *uinfo32;
 	struct mtget get;
 	struct mtget32 __user *umget32;
 	struct mtpos pos;
@@ -1326,27 +1300,6 @@ static int mt_ioctl_trans(unsigned int fd, unsigned int cmd, unsigned long arg)
 	case MTIOCGET32:
 		kcmd = MTIOCGET;
 		karg = &get;
-		break;
-	case MTIOCGETCONFIG32:
-		kcmd = MTIOCGETCONFIG;
-		karg = &info;
-		break;
-	case MTIOCSETCONFIG32:
-		kcmd = MTIOCSETCONFIG;
-		karg = &info;
-		uinfo32 = compat_ptr(arg);
-		err = __get_user(info.mt_type, &uinfo32->mt_type);
-		err |= __get_user(info.ifc_type, &uinfo32->ifc_type);
-		err |= __get_user(info.irqnr, &uinfo32->irqnr);
-		err |= __get_user(info.dmanr, &uinfo32->dmanr);
-		err |= __get_user(info.port, &uinfo32->port);
-		err |= __get_user(info.debug, &uinfo32->debug);
-		err |= __copy_from_user((char *)&info.debug
-				     + sizeof(info.debug),
-				     (char __user *)&uinfo32->debug
-				     + sizeof(uinfo32->debug), sizeof(__u32));
-		if (err)
-			return -EFAULT;
 		break;
 	default:
 		do {
@@ -1377,20 +1330,6 @@ static int mt_ioctl_trans(unsigned int fd, unsigned int cmd, unsigned long arg)
 		err |= __put_user(get.mt_erreg, &umget32->mt_erreg);
 		err |= __put_user(get.mt_fileno, &umget32->mt_fileno);
 		err |= __put_user(get.mt_blkno, &umget32->mt_blkno);
-		break;
-	case MTIOCGETCONFIG32:
-		uinfo32 = compat_ptr(arg);
-		err = __put_user(info.mt_type, &uinfo32->mt_type);
-		err |= __put_user(info.ifc_type, &uinfo32->ifc_type);
-		err |= __put_user(info.irqnr, &uinfo32->irqnr);
-		err |= __put_user(info.dmanr, &uinfo32->dmanr);
-		err |= __put_user(info.port, &uinfo32->port);
-		err |= __put_user(info.debug, &uinfo32->debug);
-		err |= __copy_to_user((char __user *)&uinfo32->debug
-			    		   + sizeof(uinfo32->debug),
-					   (char *)&info.debug + sizeof(info.debug), sizeof(__u32));
-		break;
-	case MTIOCSETCONFIG32:
 		break;
 	}
 	return err ? -EFAULT: 0;
@@ -1620,7 +1559,7 @@ static int do_fontx_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg, 
 		    get_user(data, &user_cfd->chardata))
 			return -EFAULT;
 		op.data = compat_ptr(data);
-		return con_font_op(fg_console, &op);
+		return con_font_op(vc_cons[fg_console].d, &op);
 	case GIO_FONTX:
 		op.op = KD_FONT_OP_GET;
 		op.flags = 0;
@@ -1632,7 +1571,7 @@ static int do_fontx_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg, 
 		if (!data)
 			return 0;
 		op.data = compat_ptr(data);
-		i = con_font_op(fg_console, &op);
+		i = con_font_op(vc_cons[fg_console].d, &op);
 		if (i)
 			return i;
 		if (put_user(op.height, &user_cfd->charheight) ||
@@ -1658,7 +1597,7 @@ static int do_kdfontop_ioctl(unsigned int fd, unsigned int cmd, unsigned long ar
 	struct console_font_op op;
 	struct console_font_op32 __user *fontop = compat_ptr(arg);
 	int perm = vt_check(file), i;
-	struct vt_struct *vt;
+	struct vc_data *vc;
 	
 	if (perm < 0) return perm;
 	
@@ -1668,9 +1607,10 @@ static int do_kdfontop_ioctl(unsigned int fd, unsigned int cmd, unsigned long ar
 		return -EPERM;
 	op.data = compat_ptr(((struct console_font_op32 *)&op)->data);
 	op.flags |= KD_FONT_FLAG_OLD;
-	vt = (struct vt_struct *)((struct tty_struct *)file->private_data)->driver_data;
-	i = con_font_op(vt->vc_num, &op);
-	if (i) return i;
+	vc = ((struct tty_struct *)file->private_data)->driver_data;
+	i = con_font_op(vc, &op);
+	if (i)
+		return i;
 	((struct console_font_op32 *)&op)->data = (unsigned long)op.data;
 	if (copy_to_user(fontop, &op, sizeof(struct console_font_op32)))
 		return -EFAULT;
@@ -1694,9 +1634,9 @@ static int do_unimap_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg,
 	switch (cmd) {
 	case PIO_UNIMAP:
 		if (!perm) return -EPERM;
-		return con_set_unimap(fg_console, tmp.entry_ct, compat_ptr(tmp.entries));
+		return con_set_unimap(vc_cons[fg_console].d, tmp.entry_ct, compat_ptr(tmp.entries));
 	case GIO_UNIMAP:
-		return con_get_unimap(fg_console, tmp.entry_ct, &(user_ud->entry_ct), compat_ptr(tmp.entries));
+		return con_get_unimap(vc_cons[fg_console].d, tmp.entry_ct, &(user_ud->entry_ct), compat_ptr(tmp.entries));
 	}
 	return 0;
 }
@@ -3259,8 +3199,6 @@ HANDLE_IOCTL(PPPIOCSPASS32, ppp_sock_fprog_ioctl_trans)
 HANDLE_IOCTL(PPPIOCSACTIVE32, ppp_sock_fprog_ioctl_trans)
 HANDLE_IOCTL(MTIOCGET32, mt_ioctl_trans)
 HANDLE_IOCTL(MTIOCPOS32, mt_ioctl_trans)
-HANDLE_IOCTL(MTIOCGETCONFIG32, mt_ioctl_trans)
-HANDLE_IOCTL(MTIOCSETCONFIG32, mt_ioctl_trans)
 HANDLE_IOCTL(CDROMREADAUDIO, cdrom_ioctl_trans)
 HANDLE_IOCTL(CDROM_SEND_PACKET, cdrom_ioctl_trans)
 HANDLE_IOCTL(LOOP_SET_STATUS, loop_status)

@@ -281,8 +281,6 @@ static inline pmd_t * pmd_offset(pgd_t * dir, unsigned long address)
 
 /* Mask which drops software flags */
 #define _PAGE_FLAGS_HARDWARE_MASK	0xfffffffffffff3dbLL
-/* Flags default: 4KB, Read, Not write, Not execute, Not user */
-#define _PAGE_FLAGS_HARDWARE_DEFAULT	0x0000000000000040LL
 
 /*
  * HugeTLB support

@@ -30,9 +30,9 @@ V_FUNCTION_BEGIN(__kernel_gettimeofday)
 
 	mr	r10,r3			/* r10 saves tv */
 	mr	r11,r4			/* r11 saves tz */
-	bl	__get_datapage		/* get data page */
+	bl	__get_datapage@local	/* get data page */
 	mr	r9, r3			/* datapage ptr in r9 */
-	bl	__do_get_xsec		/* get xsec from tb & kernel */
+	bl	__do_get_xsec@local	/* get xsec from tb & kernel */
 	bne-	2f			/* out of line -> do syscall */
 
 	/* seconds are xsec >> 20 */

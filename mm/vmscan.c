@@ -72,6 +72,12 @@ struct scan_control {
 	unsigned int gfp_mask;
 
 	int may_writepage;
+
+	/* This context's SWAP_CLUSTER_MAX. If freeing memory for
+	 * suspend, we effectively ignore SWAP_CLUSTER_MAX.
+	 * In this context, it doesn't matter that we scan the
+	 * whole list at once. */
+	int swap_cluster_max;
 };
 
 /*
@@ -137,7 +143,7 @@ struct shrinker *set_shrinker(int seeks, shrinker_t theshrinker)
 	        shrinker->seeks = seeks;
 	        shrinker->nr = 0;
 	        down_write(&shrinker_rwsem);
-	        list_add(&shrinker->list, &shrinker_list);
+	        list_add_tail(&shrinker->list, &shrinker_list);
 	        up_write(&shrinker_rwsem);
 	}
 	return shrinker;
@@ -552,7 +558,7 @@ static void shrink_cache(struct zone *zone, struct scan_control *sc)
 		int nr_scan = 0;
 		int nr_freed;
 
-		while (nr_scan++ < SWAP_CLUSTER_MAX &&
+		while (nr_scan++ < sc->swap_cluster_max &&
 				!list_empty(&zone->inactive_list)) {
 			page = lru_to_page(&zone->inactive_list);
 
@@ -797,37 +803,39 @@ shrink_zone(struct zone *zone, struct scan_control *sc)
 	 */
 	zone->nr_scan_active += (zone->nr_active >> sc->priority) + 1;
 	nr_active = zone->nr_scan_active;
-	if (nr_active >= SWAP_CLUSTER_MAX)
+	if (nr_active >= sc->swap_cluster_max)
 		zone->nr_scan_active = 0;
 	else
 		nr_active = 0;
 
 	zone->nr_scan_inactive += (zone->nr_inactive >> sc->priority) + 1;
 	nr_inactive = zone->nr_scan_inactive;
-	if (nr_inactive >= SWAP_CLUSTER_MAX)
+	if (nr_inactive >= sc->swap_cluster_max)
 		zone->nr_scan_inactive = 0;
 	else
 		nr_inactive = 0;
 
-	sc->nr_to_reclaim = SWAP_CLUSTER_MAX;
+	sc->nr_to_reclaim = sc->swap_cluster_max;
 
 	while (nr_active || nr_inactive) {
 		if (nr_active) {
 			sc->nr_to_scan = min(nr_active,
-					(unsigned long)SWAP_CLUSTER_MAX);
+					(unsigned long)sc->swap_cluster_max);
 			nr_active -= sc->nr_to_scan;
 			refill_inactive_zone(zone, sc);
 		}
 
 		if (nr_inactive) {
 			sc->nr_to_scan = min(nr_inactive,
-					(unsigned long)SWAP_CLUSTER_MAX);
+					(unsigned long)sc->swap_cluster_max);
 			nr_inactive -= sc->nr_to_scan;
 			shrink_cache(zone, sc);
 			if (sc->nr_to_reclaim <= 0)
 				break;
 		}
 	}
+
+	throttle_vm_writeout();
 }
 
 /*
@@ -909,18 +917,19 @@ int try_to_free_pages(struct zone **zones,
 		sc.nr_scanned = 0;
 		sc.nr_reclaimed = 0;
 		sc.priority = priority;
+		sc.swap_cluster_max = SWAP_CLUSTER_MAX;
 		shrink_caches(zones, &sc);
 		shrink_slab(sc.nr_scanned, gfp_mask, lru_pages);
 		if (reclaim_state) {
 			sc.nr_reclaimed += reclaim_state->reclaimed_slab;
 			reclaim_state->reclaimed_slab = 0;
 		}
-		if (sc.nr_reclaimed >= SWAP_CLUSTER_MAX) {
+		total_scanned += sc.nr_scanned;
+		total_reclaimed += sc.nr_reclaimed;
+		if (total_reclaimed >= sc.swap_cluster_max) {
 			ret = 1;
 			goto out;
 		}
-		total_scanned += sc.nr_scanned;
-		total_reclaimed += sc.nr_reclaimed;
 
 		/*
 		 * Try to write back as many pages as we just scanned.  This
@@ -929,7 +938,7 @@ int try_to_free_pages(struct zone **zones,
 		 * that's undesirable in laptop mode, where we *want* lumpy
 		 * writeout.  So in laptop mode, write out the whole world.
 		 */
-		if (total_scanned > SWAP_CLUSTER_MAX + SWAP_CLUSTER_MAX/2) {
+		if (total_scanned > sc.swap_cluster_max + sc.swap_cluster_max/2) {
 			wakeup_bdflush(laptop_mode ? 0 : total_scanned);
 			sc.may_writepage = 1;
 		}
@@ -1061,6 +1070,7 @@ scan:
 			sc.nr_scanned = 0;
 			sc.nr_reclaimed = 0;
 			sc.priority = priority;
+			sc.swap_cluster_max = nr_pages? nr_pages : SWAP_CLUSTER_MAX;
 			shrink_zone(zone, &sc);
 			reclaim_state->reclaimed_slab = 0;
 			shrink_slab(sc.nr_scanned, GFP_KERNEL, lru_pages);
@@ -1098,7 +1108,7 @@ scan:
 		 * matches the direct reclaim path behaviour in terms of impact
 		 * on zone->*_priority.
 		 */
-		if (total_reclaimed >= SWAP_CLUSTER_MAX)
+		if ((total_reclaimed >= SWAP_CLUSTER_MAX) && (!nr_pages))
 			break;
 	}
 out:

@@ -460,9 +460,12 @@ struct inode *ext3_new_inode(handle_t *handle, struct inode * dir, int mode)
 		goto out;
 
 	for (i = 0; i < sbi->s_groups_count; i++) {
-		gdp = ext3_get_group_desc(sb, group, &bh2);
-
 		err = -EIO;
+
+		gdp = ext3_get_group_desc(sb, group, &bh2);
+		if (!gdp)
+			goto fail;
+
 		brelse(bitmap_bh);
 		bitmap_bh = read_inode_bitmap(sb, group);
 		if (!bitmap_bh)
@@ -474,11 +477,9 @@ repeat_in_this_group:
 		ino = ext3_find_next_zero_bit((unsigned long *)
 				bitmap_bh->b_data, EXT3_INODES_PER_GROUP(sb), ino);
 		if (ino < EXT3_INODES_PER_GROUP(sb)) {
-			int credits = 0;
 
 			BUFFER_TRACE(bitmap_bh, "get_write_access");
-			err = ext3_journal_get_write_access_credits(handle,
-							bitmap_bh, &credits);
+			err = ext3_journal_get_write_access(handle, bitmap_bh);
 			if (err)
 				goto fail;
 
@@ -494,7 +495,7 @@ repeat_in_this_group:
 				goto got;
 			}
 			/* we lost it */
-			journal_release_buffer(handle, bitmap_bh, credits);
+			journal_release_buffer(handle, bitmap_bh);
 
 			if (++ino < EXT3_INODES_PER_GROUP(sb))
 				goto repeat_in_this_group;

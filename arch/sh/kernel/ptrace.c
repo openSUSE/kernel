@@ -1,5 +1,4 @@
-/* $Id: ptrace.c,v 1.15 2004/05/07 05:32:05 sugioka Exp $
- *
+/*
  * linux/arch/sh/kernel/ptrace.c
  *
  * Original x86 implementation:

@@ -1,6 +1,6 @@
 /*
  *
- * linux/drivers/s390/net/qeth_main.c ($Revision: 1.191 $)
+ * linux/drivers/s390/net/qeth_main.c ($Revision: 1.203 $)
  *
  * Linux on zSeries OSA Express and HiperSockets support
  *
@@ -12,7 +12,7 @@
  *			  Frank Pavlic (pavlic@de.ibm.com) and
  *		 	  Thomas Spatzier <tspat@de.ibm.com>
  *
- *    $Revision: 1.191 $	 $Date: 2005/01/31 13:13:57 $
+ *    $Revision: 1.203 $	 $Date: 2005/03/02 15:53:57 $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -77,7 +77,7 @@ qeth_eyecatcher(void)
 #include "qeth_mpc.h"
 #include "qeth_fs.h"
 
-#define VERSION_QETH_C "$Revision: 1.191 $"
+#define VERSION_QETH_C "$Revision: 1.203 $"
 static const char *version = "qeth S/390 OSA-Express driver";
 
 /**
@@ -1631,10 +1631,7 @@ qeth_check_ipa_data(struct qeth_card *card, struct qeth_cmd_buffer *iob)
 				QETH_DBF_TEXT(trace,3, "irla");
 				break;
 			case IPA_CMD_UNREGISTER_LOCAL_ADDR:
-				PRINT_WARN("probably problem on %s: "
-					   "received IPA command 0x%X\n",
-					   QETH_CARD_IFNAME(card),
-					   cmd->hdr.command);
+				QETH_DBF_TEXT(trace,3, "urla");
 				break;
 			default:
 				PRINT_WARN("Received data is IPA "
@@ -2263,19 +2260,25 @@ qeth_layer2_rebuild_skb(struct qeth_card *card, struct sk_buff *skb,
 			struct qeth_hdr *hdr)
 {
 	unsigned short vlan_id = 0;
+#ifdef CONFIG_QETH_VLAN
+	struct vlan_hdr *vhdr;
+#endif
 
 	skb->pkt_type = PACKET_HOST;
+	skb->protocol = qeth_type_trans(skb, skb->dev);
 	if (card->options.checksum_type == NO_CHECKSUMMING)
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
 	else
 		skb->ip_summed = CHECKSUM_NONE;
 #ifdef CONFIG_QETH_VLAN
 	if (hdr->hdr.l2.flags[2] & (QETH_LAYER2_FLAG_VLAN)) {
+		vhdr = (struct vlan_hdr *) skb->data;
+		skb->protocol =
+			__constant_htons(vhdr->h_vlan_encapsulated_proto);
 		vlan_id = hdr->hdr.l2.vlan_id;
 		skb_pull(skb, VLAN_HLEN);
 	}
 #endif
-	skb->protocol = qeth_type_trans(skb, skb->dev);
 	return vlan_id;
 }
 
@@ -3388,11 +3391,9 @@ qeth_fake_header(struct sk_buff *skb, struct net_device *dev,
 		     unsigned len)
 {
 	struct ethhdr *hdr;
-	struct qeth_card *card;
 
-	card = (struct qeth_card *)dev->priv;
         hdr = (struct ethhdr *)skb_push(skb, QETH_FAKE_LL_LEN);
-	memcpy(hdr->h_source, card->dev->dev_addr, ETH_ALEN);
+	memcpy(hdr->h_source, dev->dev_addr, ETH_ALEN);
         memcpy(hdr->h_dest, "FAKELL", ETH_ALEN);
         if (type != ETH_P_802_3)
                 hdr->h_proto = htons(type);
@@ -3430,14 +3431,6 @@ qeth_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	card->perf_stats.outbound_cnt++;
 	card->perf_stats.outbound_start_time = qeth_get_micros();
 #endif
-	if (dev->hard_header == qeth_fake_header) {
-               if ((skb = qeth_pskb_unshare(skb, GFP_ATOMIC)) == NULL) {
-                        card->stats.tx_dropped++;
-                        dev_kfree_skb_irq(skb);
-                        return 0;
-                }
-                skb_pull(skb, QETH_FAKE_LL_LEN);
-	}
 	/*
 	 * We only call netif_stop_queue in case of errors. Since we've
 	 * got our own synchronization on queues we can keep the stack's
@@ -4060,8 +4053,17 @@ qeth_send_packet(struct qeth_card *card, struct sk_buff *skb)
 
 	QETH_DBF_TEXT(trace, 6, "sendpkt");
 
-	if (!card->options.layer2)
+	if (!card->options.layer2) {
 		ipv = qeth_get_ip_version(skb);
+		if ((card->dev->hard_header == qeth_fake_header) && ipv) {
+               		if ((skb = qeth_pskb_unshare(skb,GFP_ATOMIC)) == NULL) {
+                        	card->stats.tx_dropped++;
+                        	dev_kfree_skb_irq(skb);
+                        	return 0;
+                	}
+                	skb_pull(skb, QETH_FAKE_LL_LEN);
+		}
+	}
 	cast_type = qeth_get_cast_type(card, skb);
 	queue = card->qdio.out_qs
 		[qeth_get_priority_queue(card, skb, ipv, cast_type)];
@@ -5242,7 +5244,8 @@ qeth_add_multicast_ipv6(struct qeth_card *card)
 	struct inet6_dev *in6_dev;
 
 	QETH_DBF_TEXT(trace,4,"chkmcv6");
-	if (!qeth_is_supported(card, IPA_IPV6))
+	if ((card->options.layer2 == 0) &&
+	    (!qeth_is_supported(card, IPA_IPV6)) )
 		return ;
 
 	in6_dev = in6_dev_get(card->dev);
@@ -7117,10 +7120,7 @@ qeth_set_online(struct ccwgroup_device *gdev)
 	}
 /*maybe it was set offline without ifconfig down
  * we can also use this state for recovery purposes*/
-	if (card->options.layer2)
-		qeth_set_allowed_threads(card, QETH_RECOVER_THREAD, 0);
-	else
-		qeth_set_allowed_threads(card, 0xffffffff, 0);
+	qeth_set_allowed_threads(card, 0xffffffff, 0);
 	if (recover_flag == CARD_STATE_RECOVER)
 		qeth_start_again(card);
 	qeth_notify_processes();

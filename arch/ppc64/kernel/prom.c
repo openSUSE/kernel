@@ -335,7 +335,8 @@ static unsigned long __init interpret_pci_props(struct device_node *np,
 		while ((l -= sizeof(struct pci_reg_property)) >= 0) {
 			if (!measure_only) {
 				adr[i].space = pci_addrs[i].addr.a_hi;
-				adr[i].address = pci_addrs[i].addr.a_lo;
+				adr[i].address = pci_addrs[i].addr.a_lo |
+					((u64)pci_addrs[i].addr.a_mid << 32);
 				adr[i].size = pci_addrs[i].size_lo;
 			}
 			++i;
@@ -1721,7 +1722,8 @@ static int of_finish_dynamic_node(struct device_node *node)
 			}
 			while ((l -= sizeof(struct pci_reg_property)) >= 0) {
 				adr[i].space = pci_addrs[i].addr.a_hi;
-				adr[i].address = pci_addrs[i].addr.a_lo;
+				adr[i].address = pci_addrs[i].addr.a_lo |
+					((u64)pci_addrs[i].addr.a_mid << 32);
 				adr[i].size = pci_addrs[i].size_lo;
 				++i;
 			}

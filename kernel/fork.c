@@ -129,6 +129,8 @@ void __init fork_init(unsigned long mempages)
 
 	init_task.signal->rlim[RLIMIT_NPROC].rlim_cur = max_threads/2;
 	init_task.signal->rlim[RLIMIT_NPROC].rlim_max = max_threads/2;
+	init_task.signal->rlim[RLIMIT_SIGPENDING] =
+		init_task.signal->rlim[RLIMIT_NPROC];
 }
 
 static struct task_struct *dup_task_struct(struct task_struct *orig)
@@ -740,6 +742,16 @@ static inline int copy_signal(unsigned long clone_flags, struct task_struct * ts
 	init_sigpending(&sig->shared_pending);
 	INIT_LIST_HEAD(&sig->posix_timers);
 
+	sig->it_real_value = sig->it_real_incr = 0;
+	sig->real_timer.function = it_real_fn;
+	sig->real_timer.data = (unsigned long) tsk;
+	init_timer(&sig->real_timer);
+
+	sig->it_virt_expires = cputime_zero;
+	sig->it_virt_incr = cputime_zero;
+	sig->it_prof_expires = cputime_zero;
+	sig->it_prof_incr = cputime_zero;
+
 	sig->tty = current->signal->tty;
 	sig->pgrp = process_group(current);
 	sig->session = current->signal->session;
@@ -749,10 +761,23 @@ static inline int copy_signal(unsigned long clone_flags, struct task_struct * ts
 	sig->utime = sig->stime = sig->cutime = sig->cstime = cputime_zero;
 	sig->nvcsw = sig->nivcsw = sig->cnvcsw = sig->cnivcsw = 0;
 	sig->min_flt = sig->maj_flt = sig->cmin_flt = sig->cmaj_flt = 0;
+	sig->sched_time = 0;
+	INIT_LIST_HEAD(&sig->cpu_timers[0]);
+	INIT_LIST_HEAD(&sig->cpu_timers[1]);
+	INIT_LIST_HEAD(&sig->cpu_timers[2]);
 
 	task_lock(current->group_leader);
 	memcpy(sig->rlim, current->signal->rlim, sizeof sig->rlim);
 	task_unlock(current->group_leader);
+
+	if (sig->rlim[RLIMIT_CPU].rlim_cur != RLIM_INFINITY) {
+		/*
+		 * New sole thread in the process gets an expiry time
+		 * of the whole CPU time limit.
+		 */
+		tsk->it_prof_expires =
+			secs_to_cputime(sig->rlim[RLIMIT_CPU].rlim_cur);
+	}
 
 	return 0;
 }
@@ -866,22 +891,21 @@ static task_t *copy_process(unsigned long clone_flags,
 	clear_tsk_thread_flag(p, TIF_SIGPENDING);
 	init_sigpending(&p->pending);
 
-	p->it_real_value = 0;
-	p->it_real_incr = 0;
-	p->it_virt_value = cputime_zero;
-	p->it_virt_incr = cputime_zero;
-	p->it_prof_value = cputime_zero;
-	p->it_prof_incr = cputime_zero;
-	init_timer(&p->real_timer);
-	p->real_timer.data = (unsigned long) p;
-
 	p->utime = cputime_zero;
 	p->stime = cputime_zero;
+ 	p->sched_time = 0;
 	p->rchar = 0;		/* I/O counter: bytes read */
 	p->wchar = 0;		/* I/O counter: bytes written */
 	p->syscr = 0;		/* I/O counter: read syscalls */
 	p->syscw = 0;		/* I/O counter: write syscalls */
 	acct_clear_integrals(p);
+
+ 	p->it_virt_expires = cputime_zero;
+	p->it_prof_expires = cputime_zero;
+ 	p->it_sched_expires = 0;
+ 	INIT_LIST_HEAD(&p->cpu_timers[0]);
+ 	INIT_LIST_HEAD(&p->cpu_timers[1]);
+ 	INIT_LIST_HEAD(&p->cpu_timers[2]);
 
 	p->lock_depth = -1;		/* -1 = no lock */
 	do_posix_clock_monotonic_gettime(&p->start_time);
@@ -1013,6 +1037,21 @@ static task_t *copy_process(unsigned long clone_flags,
 			 */
 			current->signal->group_stop_count++;
 			set_tsk_thread_flag(p, TIF_SIGPENDING);
+		}
+
+		if (!cputime_eq(current->signal->it_virt_expires,
+				cputime_zero) ||
+		    !cputime_eq(current->signal->it_prof_expires,
+				cputime_zero) ||
+		    current->signal->rlim[RLIMIT_CPU].rlim_cur != RLIM_INFINITY ||
+		    !list_empty(&current->signal->cpu_timers[0]) ||
+		    !list_empty(&current->signal->cpu_timers[1]) ||
+		    !list_empty(&current->signal->cpu_timers[2])) {
+			/*
+			 * Have child wake up on its first tick to check
+			 * for process CPU timers.
+			 */
+			p->it_prof_expires = jiffies_to_cputime(1);
 		}
 
 		spin_unlock(&current->sighand->siglock);

@@ -707,7 +707,7 @@ void do_generic_mapping_read(struct address_space *mapping,
 	unsigned long index;
 	unsigned long end_index;
 	unsigned long offset;
-	unsigned long req_size;
+	unsigned long last_index;
 	unsigned long next_index;
 	unsigned long prev_index;
 	loff_t isize;
@@ -719,7 +719,7 @@ void do_generic_mapping_read(struct address_space *mapping,
 	index = *ppos >> PAGE_CACHE_SHIFT;
 	next_index = index;
 	prev_index = ra.prev_page;
-	req_size = (desc->count + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
+	last_index = (*ppos + desc->count + PAGE_CACHE_SIZE-1) >> PAGE_CACHE_SHIFT;
 	offset = *ppos & ~PAGE_CACHE_MASK;
 
 	isize = i_size_read(inode);
@@ -729,7 +729,7 @@ void do_generic_mapping_read(struct address_space *mapping,
 	end_index = (isize - 1) >> PAGE_CACHE_SHIFT;
 	for (;;) {
 		struct page *page;
-		unsigned long ret_size, nr, ret;
+		unsigned long nr, ret;
 
 		/* nr is the maximum number of bytes to copy from this page */
 		nr = PAGE_CACHE_SIZE;
@@ -744,12 +744,9 @@ void do_generic_mapping_read(struct address_space *mapping,
 		nr = nr - offset;
 
 		cond_resched();
-		if (index == next_index && req_size) {
-			ret_size = page_cache_readahead(mapping, &ra,
-					filp, index, req_size);
-			next_index += ret_size;
-			req_size -= ret_size;
-		}
+		if (index == next_index)
+			next_index = page_cache_readahead(mapping, &ra, filp,
+					index, last_index - index);
 
 find_page:
 		page = find_get_page(mapping, index);

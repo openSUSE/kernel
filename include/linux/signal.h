@@ -8,8 +8,6 @@
 
 #ifdef __KERNEL__
 
-#define MAX_SIGPENDING	1024
-
 /*
  * Real Time signals may be queued.
  */
@@ -212,6 +210,7 @@ static inline void init_sigpending(struct sigpending *sig)
 }
 
 extern int group_send_sig_info(int sig, struct siginfo *info, struct task_struct *p);
+extern int __group_send_sig_info(int, struct siginfo *, struct task_struct *);
 extern long do_sigpending(void __user *, unsigned long);
 extern int sigprocmask(int, sigset_t *, sigset_t *);
 

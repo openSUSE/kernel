@@ -270,8 +270,11 @@
 #define __NR_mq_notify		275
 #define __NR_mq_getsetattr	276
 /* Number 277 is reserved for new sys_kexec_load */
+#define __NR_add_key		278
+#define __NR_request_key	279
+#define __NR_keyctl		280
 
-#define NR_syscalls 278
+#define NR_syscalls 281
 
 /* 
  * There are some system calls that are not present on 64 bit, some

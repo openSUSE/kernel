@@ -3351,10 +3351,11 @@ S: Santa Clara, CA 95054
 S: USA
 
 N: Matthias Urlichs
-E: urlichs@noris.de
-E: urlichs@smurf.sub.org
+E: smurf@smurf.noris.de
+E: smurf@debian.org
+E: matthias@urlichs.de
 D: Consultant, developer, kernel hacker
-D: Playing with Streams, ISDN, and BSD networking code for Linux
+D: In a previous life, worked on Streams/ISDN/BSD networking code for Linux
 S: Schleiermacherstrasse 12
 S: 90491 Nuernberg
 S: Germany

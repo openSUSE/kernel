@@ -40,7 +40,7 @@
 #include <linux/pagemap.h>
 #include <linux/syscalls.h>
 
-#define FUTEX_HASHBITS 8
+#define FUTEX_HASHBITS (CONFIG_BASE_SMALL ? 4 : 8)
 
 /*
  * Futexes are matched on equal values of this key.

@@ -472,7 +472,7 @@ struct stopref
 };
 
 /* Whole machine is stopped with interrupts off when this runs. */
-static inline int __try_stop_module(void *_sref)
+static int __try_stop_module(void *_sref)
 {
 	struct stopref *sref = _sref;
 
@@ -1072,14 +1072,22 @@ static void mod_kobject_remove(struct module *mod)
 	kobject_unregister(&mod->mkobj.kobj);
 }
 
+/*
+ * unlink the module with the whole machine is stopped with interrupts off
+ * - this defends against kallsyms not taking locks
+ */
+static int __unlink_module(void *_mod)
+{
+	struct module *mod = _mod;
+	list_del(&mod->list);
+	return 0;
+}
+
 /* Free a module, remove from lists, etc (must hold module mutex). */
 static void free_module(struct module *mod)
 {
 	/* Delete from various lists */
-	spin_lock_irq(&modlist_lock);
-	list_del(&mod->list);
-	spin_unlock_irq(&modlist_lock);
-
+	stop_machine_run(__unlink_module, mod, NR_CPUS);
 	remove_sect_attrs(mod);
 	mod_kobject_remove(mod);
 
@@ -1732,6 +1740,17 @@ static struct module *load_module(void __user *umod,
 	goto free_hdr;
 }
 
+/*
+ * link the module with the whole machine is stopped with interrupts off
+ * - this defends against kallsyms not taking locks
+ */
+static int __link_module(void *_mod)
+{
+	struct module *mod = _mod;
+	list_add(&mod->list, &modules);
+	return 0;
+}
+
 /* This is where the real work happens */
 asmlinkage long
 sys_init_module(void __user *umod,
@@ -1766,9 +1785,7 @@ sys_init_module(void __user *umod,
 
 	/* Now sew it into the lists.  They won't access us, since
            strong_try_module_get() will fail. */
-	spin_lock_irq(&modlist_lock);
-	list_add(&mod->list, &modules);
-	spin_unlock_irq(&modlist_lock);
+	stop_machine_run(__link_module, mod, NR_CPUS);
 
 	/* Drop lock so they can recurse */
 	up(&module_mutex);
