@@ -440,7 +440,8 @@ static int look_for_afg_node(struct hda_codec *codec)
 
 	total_nodes = snd_hda_get_sub_nodes(codec, AC_NODE_ROOT, &nid);
 	for (i = 0; i < total_nodes; i++, nid++) {
-		if (snd_hda_param_read(codec, nid, AC_PAR_FUNCTION_TYPE) == AC_GRP_AUDIO_FUNCTION)
+		if ((snd_hda_param_read(codec, nid, AC_PAR_FUNCTION_TYPE) & 0xff) ==
+		    AC_GRP_AUDIO_FUNCTION)
 			return nid;
 	}
 	return 0;
