@@ -137,6 +137,7 @@ struct agp_bridge_data {
 	int max_memory_agp;	/* in number of pages */
 	int aperture_size_idx;
 	int capndx;
+	int flags;
 	char major_version;
 	char minor_version;
 };
@@ -255,7 +256,7 @@ void *agp_generic_alloc_page(void);
 void agp_generic_destroy_page(void *addr);
 void agp_free_key(int key);
 int agp_num_entries(void);
-u32 agp_collect_device_status(u32 mode, u32 command);
+u32 agp_collect_device_status(struct agp_bridge_data *bridge, u32 mode, u32 command);
 void agp_device_command(u32 command, int agp_v3);
 int agp_3_5_enable(struct agp_bridge_data *bridge);
 void global_cache_flush(void);
@@ -314,5 +315,12 @@ extern int agp_try_unsupported_boot;
 
 #define AGPCTRL_APERENB		(1<<8)
 #define AGPCTRL_GTLBEN		(1<<7)
+
+#define AGP2_RESERVED_MASK 0x00fffcc8
+#define AGP3_RESERVED_MASK 0x00ff00cc
+
+#define AGP_ERRATA_FASTWRITES 1<<0
+#define AGP_ERRATA_SBA	 1<<1
+#define AGP_ERRATA_1X 1<<2
 
 #endif	/* _AGP_BACKEND_PRIV_H */

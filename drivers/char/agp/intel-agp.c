@@ -1758,6 +1758,8 @@ static int agp_intel_resume(struct pci_dev *pdev)
 		intel_i915_configure();
 	else if (bridge->driver == &intel_830_driver)
 		intel_i830_configure();
+	else if (bridge->driver == &intel_810_driver)
+		intel_i810_configure();
 
 	return 0;
 }
@@ -1810,7 +1812,9 @@ static struct pci_driver agp_intel_pci_driver = {
 
 static int __init agp_intel_init(void)
 {
-	return pci_module_init(&agp_intel_pci_driver);
+	if (agp_off)
+		return -EINVAL;
+	return pci_register_driver(&agp_intel_pci_driver);
 }
 
 static void __exit agp_intel_cleanup(void)

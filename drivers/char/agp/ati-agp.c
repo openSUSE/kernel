@@ -531,7 +531,7 @@ static int __init agp_ati_init(void)
 {
 	if (agp_off)
 		return -EINVAL;
-	return pci_module_init(&agp_ati_pci_driver);
+	return pci_register_driver(&agp_ati_pci_driver);
 }
 
 static void __exit agp_ati_cleanup(void)

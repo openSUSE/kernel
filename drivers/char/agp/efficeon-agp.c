@@ -448,7 +448,7 @@ static int __init agp_efficeon_init(void)
 		return 0;
 	agp_initialised=1;
 
-	return pci_module_init(&agp_efficeon_pci_driver);
+	return pci_register_driver(&agp_efficeon_pci_driver);
 }
 
 static void __exit agp_efficeon_cleanup(void)
