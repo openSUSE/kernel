@@ -123,6 +123,13 @@ UNUSUAL_DEV(  0x04a4, 0x0004, 0x0001, 0x0001,
 		"DVD-CAM DZ-MV100A Camcorder",
 		US_SC_SCSI, US_PR_CB, NULL, US_FL_SINGLE_LUN),
 
+/* Reported by Andreas Bockhold <andreas@bockionline.de> */
+UNUSUAL_DEV(  0x04b0, 0x0405, 0x0100, 0x0100,
+		"NIKON",
+		"NIKON DSC D70",
+		US_SC_DEVICE, US_PR_DEVICE, NULL,
+		US_FL_FIX_CAPACITY),
+
 /* Reported by Simon Levitt <simon@whattf.com>
  * This entry needs Sub and Proto fields */
 UNUSUAL_DEV(  0x04b8, 0x0601, 0x0100, 0x0100,
