@@ -1332,6 +1332,7 @@ void ndisc_send_redirect(struct sk_buff *skb, struct neighbour *neigh,
 	int rd_len;
 	int err;
 	int hlen;
+	u8 ha_buf[MAX_ADDR_LEN], *ha = NULL;
 
 	dev = skb->dev;
 
@@ -1368,16 +1369,14 @@ void ndisc_send_redirect(struct sk_buff *skb, struct neighbour *neigh,
 	}
 
 	if (dev->addr_len) {
-		if (neigh->nud_state&NUD_VALID) {
-			len  += ndisc_opt_addr_space(dev);
-		} else {
-			/* If nexthop is not valid, do not redirect!
-			   We will make it later, when will be sure,
-			   that it is alive.
-			 */
-			dst_release(dst);
-			return;
-		}
+		read_lock_bh(&neigh->lock);
+		if (neigh->nud_state & NUD_VALID) {
+			memcpy(ha_buf, neigh->ha, dev->addr_len);
+			read_unlock_bh(&neigh->lock);
+			ha = ha_buf;
+			len += ndisc_opt_addr_space(dev);
+		} else
+			read_unlock_bh(&neigh->lock);
 	}
 
 	rd_len = min_t(unsigned int,
@@ -1422,8 +1421,8 @@ void ndisc_send_redirect(struct sk_buff *skb, struct neighbour *neigh,
 	 *	include target_address option
 	 */
 
-	if (dev->addr_len)
-		opt = ndisc_fill_addr_option(opt, ND_OPT_TARGET_LL_ADDR, neigh->ha,
+	if (ha)
+		opt = ndisc_fill_addr_option(opt, ND_OPT_TARGET_LL_ADDR, ha,
 					     dev->addr_len, dev->type);
 
 	/*
