@@ -357,7 +357,6 @@ void flush_cache_range(struct vm_area_struct *vma, unsigned long start,
 void flush_icache_user_range(struct vm_area_struct *vma,
 			     struct page *page, unsigned long addr, int len)
 {
-	__flush_cache_page(vma, addr,
-			   PHYSADDR(page_address(page)) >> PAGE_SHIFT);
+	flush_cache_page(vma, addr, page_to_pfn(page));
 }
 

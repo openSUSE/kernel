@@ -573,11 +573,6 @@ static void sh64_dcache_purge_phy_page(unsigned long paddr)
 	}
 }
 
-static inline void sh64_dcache_purge_virt_page(struct mm_struct *mm, unsigned long eaddr, unsigned long pfn)
-{
-	sh64_dcache_purge_phy_page(pfn << PAGE_SHIFT);
-}
-
 static void sh64_dcache_purge_user_page(struct mm_struct *mm, unsigned long eaddr)
 {
 	pgd_t *pgd;
@@ -895,7 +890,7 @@ void flush_cache_page(struct vm_area_struct *vma, unsigned long eaddr, unsigned 
 	   Note(1), this is called with mm->page_table_lock held.
 	   */
 
-	sh64_dcache_purge_virt_page(vma->vm_mm, eaddr, pfn);
+	sh64_dcache_purge_phy_page(pfn << PAGE_SHIFT);
 
 	if (vma->vm_flags & VM_EXEC) {
 		sh64_icache_inv_user_page(vma, eaddr);
