@@ -210,7 +210,7 @@ cifs_demultiplex_thread(struct TCP_Server_Info *server)
 	current->flags |= PF_MEMALLOC;
 	server->tsk = current;	/* save process info to wake at shutdown */
 	cFYI(1, ("Demultiplex PID: %d", current->pid));
-	write_lock(&GlobalSMBSeslock);
+	write_lock(&GlobalSMBSeslock); 
 	atomic_inc(&tcpSesAllocCount);
 	length = tcpSesAllocCount.counter;
 	write_unlock(&GlobalSMBSeslock);
@@ -233,17 +233,12 @@ cifs_demultiplex_thread(struct TCP_Server_Info *server)
 			continue;
 		}
 		iov.iov_base = smb_buffer;
-		iov.iov_len = sizeof (struct smb_hdr) - 1;	
-        /* 1 byte less above since wct is not always returned in error cases */
+		iov.iov_len = 4;
 		smb_msg.msg_control = NULL;
 		smb_msg.msg_controllen = 0;
-
 		length =
 		    kernel_recvmsg(csocket, &smb_msg,
-				   &iov, 1,
-				   sizeof (struct smb_hdr) -
-				   1 /* RFC1001 header and SMB header */ ,
-				   MSG_PEEK /* flags see socket.h */ );
+				 &iov, 1, 4, 0 /* BB see socket.h flags */);
 
 		if(server->tcpStatus == CifsExiting) {
 			break;
@@ -253,8 +248,7 @@ cifs_demultiplex_thread(struct TCP_Server_Info *server)
 			cFYI(1,("call to reconnect done"));
 			csocket = server->ssocket;
 			continue;
-		} else if ((length == -ERESTARTSYS) || (length == -EAGAIN)
-				|| ((length > 0) && (length <= 3)) ) {
+		} else if ((length == -ERESTARTSYS) || (length == -EAGAIN)) {
 			set_current_state(TASK_INTERRUPTIBLE);
 			schedule_timeout(1); /* minimum sleep to prevent looping
 				allowing socket to clear and app threads to set
@@ -277,26 +271,16 @@ cifs_demultiplex_thread(struct TCP_Server_Info *server)
 			csocket = server->ssocket;
 			wake_up(&server->response_q);
 			continue;
-		}
-
-		pdu_length = 4 + ntohl(smb_buffer->smb_buf_length);
+		} else if (length > 3) {
+			pdu_length = ntohl(smb_buffer->smb_buf_length);
 		/* Only read pdu_length after below checks for too short (due
 		   to e.g. int overflow) and too long ie beyond end of buf */
-		cFYI(1, ("Peek length rcvd: 0x%x beginning 0x%x)", length, pdu_length));
+			cFYI(1,("rfc1002 length(big endian)0x%x)", pdu_length+4));
 
-		temp = (char *) smb_buffer;
-		if (length > 3) {
+			temp = (char *) smb_buffer;
 			if (temp[0] == (char) RFC1002_SESSION_KEEP_ALIVE) {
-				iov.iov_base = smb_buffer;
-				iov.iov_len = 4;
-				length = kernel_recvmsg(csocket, &smb_msg,
-							&iov, 1, 4, 0);
 				cFYI(0,("Received 4 byte keep alive packet"));
 			} else if (temp[0] == (char) RFC1002_POSITIVE_SESSION_RESPONSE) {
-				iov.iov_base = smb_buffer;
-				iov.iov_len = 4;
-				length = kernel_recvmsg(csocket, &smb_msg,
-							&iov, 1, 4, 0);
 					cFYI(1,("Good RFC 1002 session rsp"));
 			} else if ((temp[0] == (char)RFC1002_NEGATIVE_SESSION_RESPONSE)
 				   && (length == 5)) {
@@ -330,38 +314,22 @@ cifs_demultiplex_thread(struct TCP_Server_Info *server)
 				csocket = server->ssocket;
 				continue;
 			} else {
-				if (length < 16) {
-					/* We can not validate the SMB unless 
-					at least this much of SMB available
-					so give the socket time to copy
-					a few more bytes and retry */ 
-					set_current_state(TASK_INTERRUPTIBLE);
-					schedule_timeout(10);
-					continue;
-				} else if( (pdu_length >
-					CIFSMaxBufSize + MAX_CIFS_HDR_SIZE)
-				    || (pdu_length <
-					sizeof (struct smb_hdr) - 1)
-				    || (checkSMBhdr
-				     (smb_buffer, smb_buffer->Mid))) {
+				if((pdu_length > CIFSMaxBufSize + MAX_CIFS_HDR_SIZE - 4)
+				    || (pdu_length < sizeof (struct smb_hdr) - 1 - 4)) {
 					cERROR(1,
-					    ("Invalid size or format for SMB found with length %d and pdu_length %d",
-						length, pdu_length));
-					cifs_dump_mem("Received Data is: ",temp,sizeof(struct smb_hdr)+3);
-					/* could we fix this network corruption by finding next 
-						smb header (instead of killing the session) and
-						restart reading from next valid SMB found? */
+					    ("Invalid size SMB length %d and pdu_length %d",
+						length, pdu_length+4));
 					cifs_reconnect(server);
 					csocket = server->ssocket;
+					wake_up(&server->response_q);
 					continue;
-				} else {	/* length ok */
-
+				} else { /* length ok */
 					length = 0;
-					iov.iov_base = smb_buffer;
+					iov.iov_base = 4 + (char *)smb_buffer;
 					iov.iov_len = pdu_length;
 					for (total_read = 0; 
 					     total_read < pdu_length;
-					     total_read += length) {	
+					     total_read += length) {
 						length = kernel_recvmsg(csocket, &smb_msg, 
 							&iov, 1,
 							pdu_length - total_read, 0);
@@ -371,14 +339,16 @@ cifs_demultiplex_thread(struct TCP_Server_Info *server)
 								pdu_length - total_read));
 							cifs_reconnect(server);
 							csocket = server->ssocket;
+							wake_up(&server->response_q);
 							continue;
 						}
 					}
+					length += 4; /* account for rfc1002 hdr */
 				}
 
 				dump_smb(smb_buffer, length);
 				if (checkSMB
-				    (smb_buffer, smb_buffer->Mid, total_read)) {
+				    (smb_buffer, smb_buffer->Mid, total_read+4)) {
 					cERROR(1, ("Bad SMB Received "));
 					continue;
 				}
@@ -410,17 +380,13 @@ cifs_demultiplex_thread(struct TCP_Server_Info *server)
 				}
 			}
 		} else {
-			cFYI(0,
-			     ("Frame less than four bytes received  %d bytes long.",
+			cFYI(1,
+			    ("Frame less than four bytes received  %d bytes long.",
 			      length));
-			if (length > 0) {
-				length = kernel_recvmsg(csocket, &smb_msg,
-					&iov, 1,
-					length, 0);	/* throw away junk frame */
-				cFYI(1,
-				     (" with junk  0x%x in it ",
-				      *(__u32 *) smb_buffer));
-			}
+			cifs_reconnect(server);
+			csocket = server->ssocket;
+			wake_up(&server->response_q);
+			continue;
 		}
 	}
 	spin_lock(&GlobalMid_Lock);
@@ -845,7 +811,7 @@ cifs_parse_mount_options(char *options, const char *devname,struct smb_vol *vol)
 			return 1;
 		}
 	}
-	if(vol->UNCip == 0)
+	if(vol->UNCip == NULL)
 		vol->UNCip = &vol->UNC[2];
 
 	return 0;
@@ -1409,14 +1375,14 @@ cifs_mount(struct super_block *sb, struct cifs_sb_info *cifs_sb,
     
 	/* search for existing tcon to this server share */
 	if (!rc) {
-		if((volume_info.rsize) && (volume_info.rsize + MAX_CIFS_HDR_SIZE < srvTcp->maxBuf))
+		if((volume_info.rsize) && (volume_info.rsize <= CIFSMaxBufSize))
 			cifs_sb->rsize = volume_info.rsize;
 		else
 			cifs_sb->rsize = srvTcp->maxBuf - MAX_CIFS_HDR_SIZE; /* default */
-		if((volume_info.wsize) && (volume_info.wsize + MAX_CIFS_HDR_SIZE < srvTcp->maxBuf))
+		if((volume_info.wsize) && (volume_info.wsize <= CIFSMaxBufSize))
 			cifs_sb->wsize = volume_info.wsize;
 		else
-			cifs_sb->wsize = srvTcp->maxBuf - MAX_CIFS_HDR_SIZE; /* default */
+			cifs_sb->wsize = CIFSMaxBufSize; /* default */
 		if(cifs_sb->rsize < PAGE_CACHE_SIZE) {
 			cifs_sb->rsize = PAGE_CACHE_SIZE;
 			cERROR(1,("Attempt to set readsize for mount to less than one page (4096)"));
@@ -1504,7 +1470,7 @@ cifs_mount(struct super_block *sb, struct cifs_sb_info *cifs_sb,
 		 /* If find_unc succeeded then rc == 0 so we can not end */
 		if (tcon)  /* up accidently freeing someone elses tcon struct */
 			tconInfoFree(tcon);
-		if (existingCifsSes == 0) {
+		if (existingCifsSes == NULL) {
 			if (pSesInfo) {
 				if ((pSesInfo->server) && 
 				    (pSesInfo->status == CifsGood)) {
@@ -1575,7 +1541,7 @@ CIFSSessSetup(unsigned int xid, struct cifsSesInfo *ses,
 	user = ses->userName;
 	domain = ses->domainName;
 	smb_buffer = cifs_buf_get();
-	if (smb_buffer == 0) {
+	if (smb_buffer == NULL) {
 		return -ENOMEM;
 	}
 	smb_buffer_response = smb_buffer;
@@ -1592,7 +1558,7 @@ CIFSSessSetup(unsigned int xid, struct cifsSesInfo *ses,
 	if(ses->server->secMode & (SECMODE_SIGN_REQUIRED | SECMODE_SIGN_ENABLED))
 		smb_buffer->Flags2 |= SMBFLG2_SECURITY_SIGNATURE;
 
-	capabilities = CAP_LARGE_FILES | CAP_NT_SMBS | CAP_LEVEL_II_OPLOCKS;
+	capabilities = CAP_LARGE_FILES | CAP_NT_SMBS | CAP_LEVEL_II_OPLOCKS | CAP_LARGE_WRITE_X | CAP_LARGE_READ_X;
 	if (ses->capabilities & CAP_UNICODE) {
 		smb_buffer->Flags2 |= SMBFLG2_UNICODE;
 		capabilities |= CAP_UNICODE;
@@ -1828,7 +1794,7 @@ CIFSSpnegoSessSetup(unsigned int xid, struct cifsSesInfo *ses,
 	domain = ses->domainName;
 
 	smb_buffer = cifs_buf_get();
-	if (smb_buffer == 0) {
+	if (smb_buffer == NULL) {
 		return -ENOMEM;
 	}
 	smb_buffer_response = smb_buffer;
@@ -2093,7 +2059,7 @@ CIFSNTLMSSPNegotiateSessSetup(unsigned int xid,
 	domain = ses->domainName;
 	*pNTLMv2_flag = FALSE;
 	smb_buffer = cifs_buf_get();
-	if (smb_buffer == 0) {
+	if (smb_buffer == NULL) {
 		return -ENOMEM;
 	}
 	smb_buffer_response = smb_buffer;
@@ -2435,7 +2401,7 @@ CIFSNTLMSSPAuthSessSetup(unsigned int xid, struct cifsSesInfo *ses,
 	user = ses->userName;
 	domain = ses->domainName;
 	smb_buffer = cifs_buf_get();
-	if (smb_buffer == 0) {
+	if (smb_buffer == NULL) {
 		return -ENOMEM;
 	}
 	smb_buffer_response = smb_buffer;
@@ -2809,7 +2775,7 @@ CIFSTCon(unsigned int xid, struct cifsSesInfo *ses,
 		return -EIO;
 
 	smb_buffer = cifs_buf_get();
-	if (smb_buffer == 0) {
+	if (smb_buffer == NULL) {
 		return -ENOMEM;
 	}
 	smb_buffer_response = smb_buffer;
