@@ -79,9 +79,8 @@ extern unsigned long pci_bus_to_phys(unsigned int ba, int busnr);
 #define pci_domain_nr(bus) ((struct pci_controller *)(bus)->sysdata)->index
 
 /* Set the name of the bus as it appears in /proc/bus/pci */
-static inline int pci_name_bus(char *name, struct pci_bus *bus)
+static inline int pci_proc_domain(struct pci_bus *bus)
 {
-	sprintf(name, "%02x", bus->number);
 	return 0;
 }
 
