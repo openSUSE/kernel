@@ -112,8 +112,6 @@ static struct notifier_block bpq_dev_notifier = {
 };
 
 
-#define MAXBPQDEV 100
-
 struct bpqdev {
 	struct list_head bpq_list;	/* list of bpq devices chain */
 	struct net_device *ethdev;	/* link to ethernet device */
