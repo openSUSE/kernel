@@ -228,8 +228,10 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 			{
 				ret = -EACCES;
 			}
+			else if (valbool)
+				sock_set_flag(sk, SOCK_DBG);
 			else
-				sk->sk_debug = valbool;
+				sock_reset_flag(sk, SOCK_DBG);
 			break;
 		case SO_REUSEADDR:
 			sk->sk_reuse = valbool;
@@ -466,7 +468,7 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
   	switch(optname) 
   	{
 		case SO_DEBUG:		
-			v.val = sk->sk_debug;
+			v.val = sock_flag(sk, SOCK_DBG);
 			break;
 		
 		case SO_DONTROUTE:

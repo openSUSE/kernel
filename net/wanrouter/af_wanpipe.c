@@ -468,9 +468,11 @@ static struct sock *wanpipe_make_new(struct sock *osk)
 	wp_sk(sk)->num	= wp_sk(osk)->num;
 	sk->sk_rcvbuf	= osk->sk_rcvbuf;
 	sk->sk_sndbuf	= osk->sk_sndbuf;
-	sk->sk_debug	= osk->sk_debug;
 	sk->sk_state	= WANSOCK_CONNECTING;
 	sk->sk_sleep	= osk->sk_sleep;
+
+	if (sock_flag(osk, SOCK_DBG))
+		sock_set_flag(sk, SOCK_DBG);
 
 	return sk;
 }

@@ -61,10 +61,10 @@
  * the other protocols.
  */
 
-/* Define this to get the sk->sk_debug debugging facility. */
+/* Define this to get the SOCK_DBG debugging facility. */
 #define SOCK_DEBUGGING
 #ifdef SOCK_DEBUGGING
-#define SOCK_DEBUG(sk, msg...) do { if ((sk) && ((sk)->sk_debug)) \
+#define SOCK_DEBUG(sk, msg...) do { if ((sk) && sock_flag((sk), SOCK_DBG)) \
 					printk(KERN_DEBUG msg); } while (0)
 #else
 #define SOCK_DEBUG(sk, msg...) do { } while (0)
@@ -134,7 +134,6 @@ struct sock_common {
   *	@sk_sndbuf - size of send buffer in bytes
   *	@sk_flags - %SO_LINGER (l_onoff), %SO_BROADCAST, %SO_KEEPALIVE, %SO_OOBINLINE settings
   *	@sk_no_check - %SO_NO_CHECK setting, wether or not checkup packets
-  *	@sk_debug - %SO_DEBUG setting
   *	@sk_rcvtstamp - %SO_TIMESTAMP setting
   *	@sk_no_largesend - whether to sent large segments or not
   *	@sk_route_caps - route capabilities (e.g. %NETIF_F_TSO)
@@ -208,7 +207,6 @@ struct sock {
 	int			sk_sndbuf;
 	unsigned long 		sk_flags;
 	char		 	sk_no_check;
-	unsigned char		sk_debug;
 	unsigned char		sk_rcvtstamp;
 	unsigned char		sk_no_largesend;
 	int			sk_route_caps;
@@ -389,6 +387,7 @@ enum sock_flags {
 	SOCK_TIMESTAMP,
 	SOCK_ZAPPED,
 	SOCK_USE_WRITE_QUEUE, /* whether to call sk->sk_write_space in sock_wfree */
+	SOCK_DBG, /* %SO_DEBUG setting */
 };
 
 static inline void sock_set_flag(struct sock *sk, enum sock_flags flag)
