@@ -83,7 +83,7 @@ static struct via_ircc_cb *dev_self[] = { NULL, NULL, NULL, NULL };
 
 /* Some prototypes */
 static int via_ircc_open(int i, chipio_t * info, unsigned int id);
-static int __exit via_ircc_close(struct via_ircc_cb *self);
+static int via_ircc_close(struct via_ircc_cb *self);
 static int via_ircc_dma_receive(struct via_ircc_cb *self);
 static int via_ircc_dma_receive_complete(struct via_ircc_cb *self,
 					 int iobase);
@@ -111,7 +111,7 @@ static void hwreset(struct via_ircc_cb *self);
 static int via_ircc_dma_xmit(struct via_ircc_cb *self, u16 iobase);
 static int upload_rxdata(struct via_ircc_cb *self, int iobase);
 static int __devinit via_init_one (struct pci_dev *pcidev, const struct pci_device_id *id);
-static void __exit via_remove_one (struct pci_dev *pdev);
+static void __devexit via_remove_one (struct pci_dev *pdev);
 
 /* FIXME : Should use udelay() instead, even if we are x86 only - Jean II */
 static void iodelay(int udelay)
@@ -140,7 +140,7 @@ static struct pci_driver via_driver = {
 	.name		= VIA_MODULE_NAME,
 	.id_table	= via_pci_tbl,
 	.probe		= via_init_one,
-	.remove		= via_remove_one,
+	.remove		= __devexit_p(via_remove_one),
 };
 
 
@@ -273,7 +273,7 @@ static int __devinit via_init_one (struct pci_dev *pcidev, const struct pci_devi
  *    Close all configured chips
  *
  */
-static void __exit via_ircc_clean(void)
+static void via_ircc_clean(void)
 {
 	int i;
 
@@ -285,7 +285,7 @@ static void __exit via_ircc_clean(void)
 	}
 }
 
-static void __exit via_remove_one (struct pci_dev *pdev)
+static void __devexit via_remove_one (struct pci_dev *pdev)
 {
 	IRDA_DEBUG(3, "%s()\n", __FUNCTION__);
 
@@ -468,7 +468,7 @@ static __devinit int via_ircc_open(int i, chipio_t * info, unsigned int id)
  *    Close driver instance
  *
  */
-static int __exit via_ircc_close(struct via_ircc_cb *self)
+static int via_ircc_close(struct via_ircc_cb *self)
 {
 	int iobase;
 
