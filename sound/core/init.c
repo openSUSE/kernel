@@ -842,8 +842,8 @@ static int snd_generic_resume(struct device *dev, u32 level)
  * PM handler and from the control API.
  */
 int snd_card_set_generic_pm_callback(snd_card_t *card,
-				 int (*suspend)(snd_card_t *, unsigned int),
-				 int (*resume)(snd_card_t *, unsigned int),
+				 int (*suspend)(snd_card_t *, pm_message_t),
+				 int (*resume)(snd_card_t *),
 				 void *private_data)
 {
 	card->pm_dev = snd_generic_device_register(card);
