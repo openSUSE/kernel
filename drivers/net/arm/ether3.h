@@ -169,4 +169,9 @@ struct dev_priv {
     int broken;				/* 0 = ok, 1 = something went wrong	 */
 };
 
+struct ether3_data {
+	const char name[8];
+	unsigned long base_offset;
+};
+
 #endif

@@ -334,7 +334,8 @@ ether3_init_for_open(struct net_device *dev)
 
 	priv(dev)->regs.command = 0;
 	ether3_outw(CMD_RXOFF|CMD_TXOFF, REG_COMMAND);
-	while (ether3_inw(REG_STATUS) & (STAT_RXON|STAT_TXON));
+	while (ether3_inw(REG_STATUS) & (STAT_RXON|STAT_TXON))
+		barrier();
 
 	ether3_outw(priv(dev)->regs.config1 | CFG1_BUFSELSTAT0, REG_CONFIG1);
 	for (i = 0; i < 6; i++)
@@ -433,7 +434,8 @@ ether3_close(struct net_device *dev)
 
 	ether3_outw(CMD_RXOFF|CMD_TXOFF, REG_COMMAND);
 	priv(dev)->regs.command = 0;
-	while (ether3_inw(REG_STATUS) & (STAT_RXON|STAT_TXON));
+	while (ether3_inw(REG_STATUS) & (STAT_RXON|STAT_TXON))
+		barrier();
 	ether3_outb(0x80, REG_CONFIG2 + 4);
 	ether3_outw(0, REG_COMMAND);
 
@@ -773,33 +775,11 @@ static void __init ether3_banner(void)
 		printk(KERN_INFO "%s", version);
 }
 
-static const char * __init
-ether3_get_dev(struct net_device *dev, struct expansion_card *ec)
-{
-	const char *name = "ether3";
-
-	dev->irq = ec->irq;
-	priv(dev)->seeq = priv(dev)->base;
-
-	if (ec->cid.manufacturer == MANU_ANT &&
-	    ec->cid.product == PROD_ANT_ETHERB) {
-		priv(dev)->seeq = priv(dev)->base + 0x800;
-		name = "etherb";
-	}
-
-	ec->irqaddr = priv(dev)->seeq;
-	ec->irqmask = 0xf0;
-
-	ether3_addr(dev->dev_addr, ec);
-
-	return name;
-}
-
 static int __devinit
 ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 {
+	const struct ether3_data *data = id->data;
 	struct net_device *dev;
-	const char *name;
 	int i, bus_type, ret;
 
 	ether3_banner();
@@ -824,11 +804,13 @@ ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 		goto free;
 	}
 
-	name = ether3_get_dev(dev, ec);
-	if (!name) {
-		ret = -ENODEV;
-		goto free;
-	}
+	ec->irqaddr = priv(dev)->base + data->base_offset;
+	ec->irqmask = 0xf0;
+
+	priv(dev)->seeq = priv(dev)->base + data->base_offset;
+	dev->irq = ec->irq;
+
+	ether3_addr(dev->dev_addr, ec);
 
 	init_timer(&priv(dev)->timer);
 
@@ -858,7 +840,7 @@ ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 
 	case BUS_8:
 		printk(KERN_ERR "%s: %s found, but is an unsupported "
-			"8-bit card\n", dev->name, name);
+			"8-bit card\n", dev->name, data->name);
 		ret = -ENODEV;
 		goto free;
 
@@ -883,7 +865,7 @@ ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 	if (ret)
 		goto free;
 
-	printk("%s: %s in slot %d, ", dev->name, name, ec->slot_no);
+	printk("%s: %s in slot %d, ", dev->name, data->name, ec->slot_no);
 	for (i = 0; i < 6; i++)
 		printk("%2.2x%c", dev->dev_addr[i], i == 5 ? '\n' : ':');
 
@@ -912,10 +894,20 @@ static void __devexit ether3_remove(struct expansion_card *ec)
 	ecard_release_resources(ec);
 }
 
+static struct ether3_data ether3 = {
+	.name		= "ether3",
+	.base_offset	= 0,
+};
+
+static struct ether3_data etherb = {
+	.name		= "etherb",
+	.base_offset	= 0x800,
+};
+
 static const struct ecard_id ether3_ids[] = {
-	{ MANU_ANT2, PROD_ANT_ETHER3 },
-	{ MANU_ANT,  PROD_ANT_ETHER3 },
-	{ MANU_ANT,  PROD_ANT_ETHERB },
+	{ MANU_ANT2, PROD_ANT_ETHER3, &ether3 },
+	{ MANU_ANT,  PROD_ANT_ETHER3, &ether3 },
+	{ MANU_ANT,  PROD_ANT_ETHERB, &etherb },
 	{ 0xffff, 0xffff }
 };
 
