@@ -1083,9 +1083,21 @@ int mthca_alloc_sqp(struct mthca_dev *dev,
 	return 0;
 
  err_out_free:
-	spin_lock_irq(&dev->qp_table.lock);
+	/*
+	 * Lock CQs here, so that CQ polling code can do QP lookup
+	 * without taking a lock.
+	 */
+	spin_lock_irq(&send_cq->lock);
+	if (send_cq != recv_cq)
+		spin_lock(&recv_cq->lock);
+
+	spin_lock(&dev->qp_table.lock);
 	mthca_array_clear(&dev->qp_table.qp, mqpn);
-	spin_unlock_irq(&dev->qp_table.lock);
+	spin_unlock(&dev->qp_table.lock);
+
+	if (send_cq != recv_cq)
+		spin_unlock(&recv_cq->lock);
+	spin_unlock_irq(&send_cq->lock);
 
  err_out:
 	dma_free_coherent(&dev->pdev->dev, sqp->header_buf_size,
@@ -1100,11 +1112,28 @@ void mthca_free_qp(struct mthca_dev *dev,
 	u8 status;
 	int size;
 	int i;
+	struct mthca_cq *send_cq;
+	struct mthca_cq *recv_cq;
 
-	spin_lock_irq(&dev->qp_table.lock);
+	send_cq = to_mcq(qp->ibqp.send_cq);
+	recv_cq = to_mcq(qp->ibqp.recv_cq);
+
+	/*
+	 * Lock CQs here, so that CQ polling code can do QP lookup
+	 * without taking a lock.
+	 */
+	spin_lock_irq(&send_cq->lock);
+	if (send_cq != recv_cq)
+		spin_lock(&recv_cq->lock);
+
+	spin_lock(&dev->qp_table.lock);
 	mthca_array_clear(&dev->qp_table.qp,
 			  qp->qpn & (dev->limits.num_qps - 1));
-	spin_unlock_irq(&dev->qp_table.lock);
+	spin_unlock(&dev->qp_table.lock);
+
+	if (send_cq != recv_cq)
+		spin_unlock(&recv_cq->lock);
+	spin_unlock_irq(&send_cq->lock);
 
 	atomic_dec(&qp->refcount);
 	wait_event(qp->wait, !atomic_read(&qp->refcount));

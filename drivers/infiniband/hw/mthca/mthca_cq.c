@@ -418,14 +418,14 @@ static inline int mthca_poll_one(struct mthca_dev *dev,
 			spin_unlock(&(*cur_qp)->lock);
 		}
 
-		spin_lock(&dev->qp_table.lock);
+		/*
+		 * We do not have to take the QP table lock here,
+		 * because CQs will be locked while QPs are removed
+		 * from the table.
+		 */
 		*cur_qp = mthca_array_get(&dev->qp_table.qp,
 					  be32_to_cpu(cqe->my_qpn) &
 					  (dev->limits.num_qps - 1));
-		if (*cur_qp)
-			atomic_inc(&(*cur_qp)->refcount);
-		spin_unlock(&dev->qp_table.lock);
-
 		if (!*cur_qp) {
 			mthca_warn(dev, "CQ entry for unknown QP %06x\n",
 				   be32_to_cpu(cqe->my_qpn) & 0xffffff);
@@ -537,12 +537,8 @@ int mthca_poll_cq(struct ib_cq *ibcq, int num_entries,
 		inc_cons_index(dev, cq, freed);
 	}
 
-	if (qp) {
+	if (qp)
 		spin_unlock(&qp->lock);
-		if (atomic_dec_and_test(&qp->refcount))
-			wake_up(&qp->wait);
-	}
-
 
 	spin_unlock_irqrestore(&cq->lock, flags);
 
