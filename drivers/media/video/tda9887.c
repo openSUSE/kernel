@@ -557,7 +557,7 @@ static int tda9887_configure(struct tda9887 *t)
 #if 0
 	/* This as-is breaks some cards, must be fixed in a
 	 * card-specific way, probably using TDA9887_SET_CONFIG to
-	  * turn on/off port2 */
+	 * turn on/off port2 */
 	if (t->std & V4L2_STD_SECAM_L) {
 		/* secam fixup (FIXME: move this to tvnorms array?) */
 		buf[1] &= ~cOutputPort2Inactive;
