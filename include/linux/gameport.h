@@ -45,13 +45,15 @@ struct gameport {
 struct gameport_driver {
 
 	void *private;
-	char *name;
+	char *description;
 
-	void (*connect)(struct gameport *, struct gameport_driver *drv);
+	int (*connect)(struct gameport *, struct gameport_driver *drv);
 	void (*disconnect)(struct gameport *);
 
+	struct device_driver driver;
 	struct list_head node;
 };
+#define to_gameport_driver(d)	container_of(d, struct gameport_driver, driver)
 
 int gameport_open(struct gameport *gameport, struct gameport_driver *drv, int mode);
 void gameport_close(struct gameport *gameport);

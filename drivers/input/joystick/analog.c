@@ -40,8 +40,10 @@
 #include <linux/gameport.h>
 #include <asm/timex.h>
 
+#define DRIVER_DESC	"Analog joystick and gamepad driver"
+
 MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
-MODULE_DESCRIPTION("Analog joystick and gamepad driver");
+MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
 /*
@@ -608,7 +610,8 @@ static int analog_init_port(struct gameport *gameport, struct gameport_driver *d
 		port->fuzz = (port->speed * ANALOG_FUZZ_MAGIC) / port->loop / 1000 + ANALOG_FUZZ_BITS;
 
 		for (i = 0; i < ANALOG_INIT_RETRIES; i++) {
-			if (!analog_cooked_read(port)) break;
+			if (!analog_cooked_read(port))
+				break;
 			msleep(ANALOG_MAX_TIME);
 		}
 
@@ -617,11 +620,13 @@ static int analog_init_port(struct gameport *gameport, struct gameport_driver *d
 		msleep(ANALOG_MAX_TIME);
 		t = gameport_time(gameport, ANALOG_MAX_TIME * 1000);
 		gameport_trigger(gameport);
-		while ((gameport_read(port->gameport) & port->mask) && (u < t)) u++;
+		while ((gameport_read(port->gameport) & port->mask) && (u < t))
+			u++;
 		udelay(ANALOG_SAITEK_DELAY);
 		t = gameport_time(gameport, ANALOG_SAITEK_TIME);
 		gameport_trigger(gameport);
-		while ((gameport_read(port->gameport) & port->mask) && (v < t)) v++;
+		while ((gameport_read(port->gameport) & port->mask) && (v < t))
+			v++;
 
 		if (v < (u >> 1)) { /* FIXME - more than one port */
 			analog_options[0] |= /* FIXME - more than one port */
@@ -638,49 +643,51 @@ static int analog_init_port(struct gameport *gameport, struct gameport_driver *d
 			if (!gameport_cooked_read(gameport, port->axes, &port->buttons))
 				break;
 		for (i = 0; i < 4; i++)
-			if (port->axes[i] != -1) port->mask |= 1 << i;
+			if (port->axes[i] != -1)
+				port->mask |= 1 << i;
 
 		port->fuzz = gameport->fuzz;
 		port->cooked = 1;
 		return 0;
 	}
 
-	if (!gameport_open(gameport, drv, GAMEPORT_MODE_RAW))
-		return 0;
-
-	return -1;
+	return gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
 }
 
-static void analog_connect(struct gameport *gameport, struct gameport_driver *drv)
+static int analog_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct analog_port *port;
 	int i;
+	int err;
 
-	if (!(port = kmalloc(sizeof(struct analog_port), GFP_KERNEL)))
-		return;
-	memset(port, 0, sizeof(struct analog_port));
+	if (!(port = kcalloc(1, sizeof(struct analog_port), GFP_KERNEL)))
+		return - ENOMEM;
 
-	if (analog_init_port(gameport, drv, port)) {
+	err = analog_init_port(gameport, drv, port);
+	if (err) {
 		kfree(port);
-		return;
+		return err;
 	}
 
-	if (analog_init_masks(port)) {
+	err = analog_init_masks(port);
+	if (err) {
 		gameport_close(gameport);
 		kfree(port);
-		return;
+		return err;
 	}
 
 	for (i = 0; i < 2; i++)
 		if (port->analog[i].mask)
 			analog_init_device(port, port->analog + i, i);
+
+	return 0;
 }
 
 static void analog_disconnect(struct gameport *gameport)
 {
 	int i;
-
 	struct analog_port *port = gameport->private;
+
 	for (i = 0; i < 2; i++)
 		if (port->analog[i].mask)
 			input_unregister_device(&port->analog[i].dev);
@@ -742,14 +749,19 @@ static void analog_parse_options(void)
  */
 
 static struct gameport_driver analog_drv = {
-	.connect =	analog_connect,
-	.disconnect =	analog_disconnect,
+	.driver		= {
+		.name	= "analog",
+	},
+	.description	= DRIVER_DESC,
+	.connect	= analog_connect,
+	.disconnect	= analog_disconnect,
 };
 
 static int __init analog_init(void)
 {
 	analog_parse_options();
 	gameport_register_driver(&analog_drv);
+
 	return 0;
 }
 

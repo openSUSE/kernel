@@ -37,6 +37,10 @@ EXPORT_SYMBOL(gameport_set_phys);
 static LIST_HEAD(gameport_list);
 static LIST_HEAD(gameport_driver_list);
 
+static struct bus_type gameport_bus = {
+	.name =	"gameport",
+};
+
 #ifdef __i386__
 
 #define DELTA(x,y)      ((y)-(x)+((y)<(x)?1193182/HZ:0))
@@ -146,6 +150,21 @@ void gameport_register_port(struct gameport *gameport)
 	gameport_find_driver(gameport);
 }
 
+/*
+ * Gameport driver operations
+ */
+
+static ssize_t gameport_driver_show_description(struct device_driver *drv, char *buf)
+{
+	struct gameport_driver *driver = to_gameport_driver(drv);
+	return sprintf(buf, "%s\n", driver->description ? driver->description : "(none)");
+}
+
+static struct driver_attribute gameport_driver_attrs[] = {
+	__ATTR(description, S_IRUGO, gameport_driver_show_description, NULL),
+	__ATTR_NULL
+};
+
 void gameport_unregister_port(struct gameport *gameport)
 {
 	list_del_init(&gameport->node);
@@ -158,6 +177,9 @@ void gameport_unregister_port(struct gameport *gameport)
 void gameport_register_driver(struct gameport_driver *drv)
 {
 	struct gameport *gameport;
+
+	drv->driver.bus = &gameport_bus;
+	driver_register(&drv->driver);
 
 	list_add_tail(&drv->node, &gameport_driver_list);
 	list_for_each_entry(gameport, &gameport_list, node)
@@ -175,6 +197,7 @@ void gameport_unregister_driver(struct gameport_driver *drv)
 			drv->disconnect(gameport);
 		gameport_find_driver(gameport);
 	}
+	driver_unregister(&drv->driver);
 }
 
 int gameport_open(struct gameport *gameport, struct gameport_driver *drv, int mode)
@@ -201,3 +224,19 @@ void gameport_close(struct gameport *gameport)
 	if (gameport->close)
 		gameport->close(gameport);
 }
+
+static int __init gameport_init(void)
+{
+	gameport_bus.drv_attrs = gameport_driver_attrs;
+	bus_register(&gameport_bus);
+
+	return 0;
+}
+
+static void __exit gameport_exit(void)
+{
+	bus_unregister(&gameport_bus);
+}
+
+module_init(gameport_init);
+module_exit(gameport_exit);

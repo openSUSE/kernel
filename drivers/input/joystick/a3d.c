@@ -35,8 +35,10 @@
 #include <linux/gameport.h>
 #include <linux/input.h>
 
+#define DRIVER_DESC	"FP-Gaming Assasin 3D joystick driver"
+
 MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
-MODULE_DESCRIPTION("FP-Gaming Assasin 3D joystick driver");
+MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
 #define A3D_MAX_START		400	/* 400 us */
@@ -108,7 +110,9 @@ static int a3d_read_packet(struct gameport *gameport, int length, char *data)
 static int a3d_csum(char *data, int count)
 {
 	int i, csum = 0;
-	for (i = 0; i < count - 2; i++) csum += data[i];
+
+	for (i = 0; i < count - 2; i++)
+		csum += data[i];
 	return (csum & 0x3f) != ((data[count - 2] << 3) | data[count - 1]);
 }
 
@@ -138,7 +142,7 @@ static void a3d_read(struct a3d *a3d, unsigned char *data)
 
 			a3d->buttons = ((data[3] << 3) | data[4]) & 0xf;
 
-			return;
+			break;
 
 		case A3D_MODE_PXL:
 
@@ -168,7 +172,7 @@ static void a3d_read(struct a3d *a3d, unsigned char *data)
 
 			input_sync(dev);
 
-			return;
+			break;
 	}
 }
 
@@ -181,6 +185,7 @@ static void a3d_timer(unsigned long private)
 {
 	struct a3d *a3d = (void *) private;
 	unsigned char data[A3D_MAX_LENGTH];
+
 	a3d->reads++;
 	if (a3d_read_packet(a3d->gameport, a3d->length, data) != a3d->length
 		|| data[0] != a3d->mode || a3d_csum(data, a3d->length))
@@ -198,6 +203,7 @@ static int a3d_adc_cooked_read(struct gameport *gameport, int *axes, int *button
 {
 	struct a3d *a3d = gameport->port_data;
 	int i;
+
 	for (i = 0; i < 4; i++)
 		axes[i] = (a3d->axes[i] < 254) ? a3d->axes[i] : -1;
 	*buttons = a3d->buttons;
@@ -226,6 +232,7 @@ static int a3d_adc_open(struct gameport *gameport, int mode)
 static void a3d_adc_close(struct gameport *gameport)
 {
 	struct a3d *a3d = gameport->port_data;
+
 	if (!--a3d->used)
 		del_timer(&a3d->timer);
 }
@@ -237,6 +244,7 @@ static void a3d_adc_close(struct gameport *gameport)
 static int a3d_open(struct input_dev *dev)
 {
 	struct a3d *a3d = dev->private;
+
 	if (!a3d->used++)
 		mod_timer(&a3d->timer, jiffies + A3D_REFRESH_TIME);
 	return 0;
@@ -249,6 +257,7 @@ static int a3d_open(struct input_dev *dev)
 static void a3d_close(struct input_dev *dev)
 {
 	struct a3d *a3d = dev->private;
+
 	if (!--a3d->used)
 		del_timer(&a3d->timer);
 }
@@ -257,16 +266,16 @@ static void a3d_close(struct input_dev *dev)
  * a3d_connect() probes for A3D joysticks.
  */
 
-static void a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
+static int a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
 	struct a3d *a3d;
 	struct gameport *adc;
 	unsigned char data[A3D_MAX_LENGTH];
 	int i;
+	int err;
 
-	if (!(a3d = kmalloc(sizeof(struct a3d), GFP_KERNEL)))
-		return;
-	memset(a3d, 0, sizeof(struct a3d));
+	if (!(a3d = kcalloc(1, sizeof(struct a3d), GFP_KERNEL)))
+		return -ENOMEM;
 
 	gameport->private = a3d;
 
@@ -275,19 +284,23 @@ static void a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
 	a3d->timer.data = (long) a3d;
 	a3d->timer.function = a3d_timer;
 
-	if (gameport_open(gameport, drv, GAMEPORT_MODE_RAW))
+	err = gameport_open(gameport, drv, GAMEPORT_MODE_RAW);
+	if (err)
 		goto fail1;
 
 	i = a3d_read_packet(gameport, A3D_MAX_LENGTH, data);
 
-	if (!i || a3d_csum(data, i))
+	if (!i || a3d_csum(data, i)) {
+		err = -ENODEV;
 		goto fail2;
+	}
 
 	a3d->mode = data[0];
 
 	if (!a3d->mode || a3d->mode > 5) {
 		printk(KERN_WARNING "a3d.c: Unknown A3D device detected "
 			"(%s, id=%d), contact <vojtech@ucw.cz>\n", gameport->phys, a3d->mode);
+		err = -ENODEV;
 		goto fail2;
 	}
 
@@ -363,10 +376,11 @@ static void a3d_connect(struct gameport *gameport, struct gameport_driver *drv)
 	input_register_device(&a3d->dev);
 	printk(KERN_INFO "input: %s on %s\n", a3d_names[a3d->mode], a3d->phys);
 
-	return;
+	return 0;
 
 fail2:	gameport_close(gameport);
 fail1:  kfree(a3d);
+	return err;
 }
 
 static void a3d_disconnect(struct gameport *gameport)
@@ -383,8 +397,12 @@ static void a3d_disconnect(struct gameport *gameport)
 }
 
 static struct gameport_driver a3d_drv = {
-	.connect =	a3d_connect,
-	.disconnect =	a3d_disconnect,
+	.driver		= {
+		.name	= "adc",
+	},
+	.description	= DRIVER_DESC,
+	.connect	= a3d_connect,
+	.disconnect	= a3d_disconnect,
 };
 
 static int __init a3d_init(void)
