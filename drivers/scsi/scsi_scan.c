@@ -1399,7 +1399,7 @@ void scsi_forget_host(struct Scsi_Host *shost)
 	spin_lock_irqsave(shost->host_lock, flags);
 	list_for_each_entry_safe(starget, tmp, &shost->__targets, siblings) {
 		spin_unlock_irqrestore(shost->host_lock, flags);
-		scsi_remove_target(starget);
+		scsi_remove_target(&starget->dev);
 		spin_lock_irqsave(shost->host_lock, flags);
 	}
 	spin_unlock_irqrestore(shost->host_lock, flags);

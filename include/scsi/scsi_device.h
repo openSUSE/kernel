@@ -236,7 +236,9 @@ extern void scsi_target_resume(struct scsi_target *);
 extern void scsi_scan_target(struct device *parent, unsigned int channel,
 			     unsigned int id, unsigned int lun, int rescan);
 extern void scsi_target_reap(struct scsi_target *);
-extern void scsi_remove_target(struct scsi_target *);
+extern void scsi_target_block(struct device *);
+extern void scsi_target_unblock(struct device *);
+extern void scsi_remove_target(struct device *);
 extern const char *scsi_device_state_name(enum scsi_device_state);
 extern int scsi_is_sdev_device(const struct device *);
 extern int scsi_is_target_device(const struct device *);

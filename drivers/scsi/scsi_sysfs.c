@@ -652,15 +652,7 @@ out:
 }
 EXPORT_SYMBOL(scsi_remove_device);
 
-/**
- * scsi_remove_target - try to remove a target and all its devices
- * @starget: the target to remove
- *
- * Note: This is slightly racy.  It is possible that if the user
- * requests the addition of another device then the target won't be
- * removed.
- */
-void scsi_remove_target(struct scsi_target *starget)
+void __scsi_remove_target(struct scsi_target *starget)
 {
 	struct Scsi_Host *shost = dev_to_shost(starget->dev.parent);
 	unsigned long flags;
@@ -678,6 +670,31 @@ void scsi_remove_target(struct scsi_target *starget)
 	}
 	spin_unlock_irqrestore(shost->host_lock, flags);
 	scsi_target_reap(starget);
+}
+
+/**
+ * scsi_remove_target - try to remove a target and all its devices
+ * @dev: generic starget or parent of generic stargets to be removed
+ *
+ * Note: This is slightly racy.  It is possible that if the user
+ * requests the addition of another device then the target won't be
+ * removed.
+ */
+void scsi_remove_target(struct device *dev)
+{
+	struct device *rdev, *idev, *next;
+
+	if (scsi_is_target_device(dev)) {
+		__scsi_remove_target(to_scsi_target(dev));
+		return;
+	}
+
+	rdev = get_device(dev);
+	list_for_each_entry_safe(idev, next, &dev->children, node) {
+		if (scsi_is_target_device(idev))
+			__scsi_remove_target(to_scsi_target(idev));
+	}
+	put_device(rdev);
 }
 EXPORT_SYMBOL(scsi_remove_target);
 

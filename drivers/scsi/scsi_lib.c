@@ -1935,3 +1935,55 @@ scsi_internal_device_unblock(struct scsi_device *sdev)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(scsi_internal_device_unblock);
+
+static void
+device_block(struct scsi_device *sdev, void *data)
+{
+	scsi_internal_device_block(sdev);
+}
+
+static int
+target_block(struct device *dev, void *data)
+{
+	if (scsi_is_target_device(dev))
+		starget_for_each_device(to_scsi_target(dev), NULL,
+					device_block);
+	return 0;
+}
+
+void
+scsi_target_block(struct device *dev)
+{
+	if (scsi_is_target_device(dev))
+		starget_for_each_device(to_scsi_target(dev), NULL,
+					device_block);
+	else
+		device_for_each_child(dev, NULL, target_block);
+}
+EXPORT_SYMBOL_GPL(scsi_target_block);
+
+static void
+device_unblock(struct scsi_device *sdev, void *data)
+{
+	scsi_internal_device_unblock(sdev);
+}
+
+static int
+target_unblock(struct device *dev, void *data)
+{
+	if (scsi_is_target_device(dev))
+		starget_for_each_device(to_scsi_target(dev), NULL,
+					device_unblock);
+	return 0;
+}
+
+void
+scsi_target_unblock(struct device *dev)
+{
+	if (scsi_is_target_device(dev))
+		starget_for_each_device(to_scsi_target(dev), NULL,
+					device_unblock);
+	else
+		device_for_each_child(dev, NULL, target_unblock);
+}
+EXPORT_SYMBOL_GPL(scsi_target_unblock);
