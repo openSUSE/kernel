@@ -166,7 +166,7 @@
 #define SCALE_PRIO(x, prio) \
 	max(x * (MAX_PRIO - prio) / (MAX_USER_PRIO/2), MIN_TIMESLICE)
 
-static unsigned int task_timeslice(task_t *p)
+static inline unsigned int task_timeslice(task_t *p)
 {
 	if (p->static_prio < NICE_TO_PRIO(0))
 		return SCALE_PRIO(DEF_TIMESLICE*4, p->static_prio);
@@ -282,7 +282,7 @@ static DEFINE_PER_CPU(struct runqueue, runqueues);
  * interrupts.  Note the ordering: we can safely lookup the task_rq without
  * explicitly disabling preemption.
  */
-static runqueue_t *task_rq_lock(task_t *p, unsigned long *flags)
+static inline runqueue_t *task_rq_lock(task_t *p, unsigned long *flags)
 	__acquires(rq->lock)
 {
 	struct runqueue *rq;
@@ -402,7 +402,7 @@ struct file_operations proc_schedstat_operations = {
 /*
  * rq_lock - lock a given runqueue and disable interrupts.
  */
-static runqueue_t *this_rq_lock(void)
+static inline runqueue_t *this_rq_lock(void)
 	__acquires(rq->lock)
 {
 	runqueue_t *rq;
@@ -1308,7 +1308,7 @@ void fastcall sched_exit(task_t * p)
  * with the lock held can cause deadlocks; see schedule() for
  * details.)
  */
-static void finish_task_switch(task_t *prev)
+static inline void finish_task_switch(task_t *prev)
 	__releases(rq->lock)
 {
 	runqueue_t *rq = this_rq();
