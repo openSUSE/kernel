@@ -58,10 +58,13 @@ struct rpc_cred {
  */
 #define RPC_CREDCACHE_NR	8
 #define RPC_CREDCACHE_MASK	(RPC_CREDCACHE_NR - 1)
+struct rpc_cred_cache {
+	struct hlist_head	hashtable[RPC_CREDCACHE_NR];
+	unsigned long		nextgc;		/* next garbage collection */
+	unsigned long		expire;		/* cache expiry interval */
+};
+
 struct rpc_auth {
-	struct hlist_head	au_credcache[RPC_CREDCACHE_NR];
-	unsigned long		au_expire;	/* cache expiry interval */
-	unsigned long		au_nextgc;	/* next garbage collection */
 	unsigned int		au_cslack;	/* call cred size estimate */
 	unsigned int		au_rslack;	/* reply verf size guess */
 	unsigned int		au_flags;	/* various flags */
@@ -72,6 +75,7 @@ struct rpc_auth {
 						 * case) */
 	atomic_t		au_count;	/* Reference counter */
 
+	struct rpc_cred_cache *	au_credcache;
 	/* per-flavor data */
 };
 #define RPC_AUTH_PROC_CREDS	0x0010		/* process creds (including
@@ -131,7 +135,7 @@ int			rpcauth_unwrap_resp(struct rpc_task *task, kxdrproc_t decode, void *rqstp,
 int			rpcauth_refreshcred(struct rpc_task *);
 void			rpcauth_invalcred(struct rpc_task *);
 int			rpcauth_uptodatecred(struct rpc_task *);
-void			rpcauth_init_credcache(struct rpc_auth *);
+int			rpcauth_init_credcache(struct rpc_auth *, unsigned long);
 void			rpcauth_free_credcache(struct rpc_auth *);
 
 static inline

@@ -89,13 +89,21 @@ static DEFINE_SPINLOCK(rpc_credcache_lock);
 /*
  * Initialize RPC credential cache
  */
-void
-rpcauth_init_credcache(struct rpc_auth *auth)
+int
+rpcauth_init_credcache(struct rpc_auth *auth, unsigned long expire)
 {
+	struct rpc_cred_cache *new;
 	int i;
+
+	new = (struct rpc_cred_cache *)kmalloc(sizeof(*new), GFP_KERNEL);
+	if (!new)
+		return -ENOMEM;
 	for (i = 0; i < RPC_CREDCACHE_NR; i++)
-		INIT_HLIST_HEAD(&auth->au_credcache[i]);
-	auth->au_nextgc = jiffies + (auth->au_expire >> 1);
+		INIT_HLIST_HEAD(&new->hashtable[i]);
+	new->expire = expire;
+	new->nextgc = jiffies + (expire >> 1);
+	auth->au_credcache = new;
+	return 0;
 }
 
 /*
@@ -120,6 +128,7 @@ void rpcauth_destroy_credlist(struct hlist_head *head)
 void
 rpcauth_free_credcache(struct rpc_auth *auth)
 {
+	struct rpc_cred_cache *cache = auth->au_credcache;
 	HLIST_HEAD(free);
 	struct hlist_node *pos, *next;
 	struct rpc_cred	*cred;
@@ -127,7 +136,7 @@ rpcauth_free_credcache(struct rpc_auth *auth)
 
 	spin_lock(&rpc_credcache_lock);
 	for (i = 0; i < RPC_CREDCACHE_NR; i++) {
-		hlist_for_each_safe(pos, next, &auth->au_credcache[i]) {
+		hlist_for_each_safe(pos, next, &cache->hashtable[i]) {
 			cred = hlist_entry(pos, struct rpc_cred, cr_hash);
 			__hlist_del(&cred->cr_hash);
 			hlist_add_head(&cred->cr_hash, &free);
@@ -142,7 +151,7 @@ rpcauth_prune_expired(struct rpc_auth *auth, struct rpc_cred *cred, struct hlist
 {
 	if (atomic_read(&cred->cr_count) != 1)
 	       return;
-	if (time_after(jiffies, cred->cr_expire + auth->au_expire))
+	if (time_after(jiffies, cred->cr_expire + auth->au_credcache->expire))
 		cred->cr_flags &= ~RPCAUTH_CRED_UPTODATE;
 	if (!(cred->cr_flags & RPCAUTH_CRED_UPTODATE)) {
 		__hlist_del(&cred->cr_hash);
@@ -156,18 +165,19 @@ rpcauth_prune_expired(struct rpc_auth *auth, struct rpc_cred *cred, struct hlist
 static void
 rpcauth_gc_credcache(struct rpc_auth *auth, struct hlist_head *free)
 {
+	struct rpc_cred_cache *cache = auth->au_credcache;
 	struct hlist_node *pos, *next;
 	struct rpc_cred	*cred;
 	int		i;
 
 	dprintk("RPC: gc'ing RPC credentials for auth %p\n", auth);
 	for (i = 0; i < RPC_CREDCACHE_NR; i++) {
-		hlist_for_each_safe(pos, next, &auth->au_credcache[i]) {
+		hlist_for_each_safe(pos, next, &cache->hashtable[i]) {
 			cred = hlist_entry(pos, struct rpc_cred, cr_hash);
 			rpcauth_prune_expired(auth, cred, free);
 		}
 	}
-	auth->au_nextgc = jiffies + auth->au_expire;
+	cache->nextgc = jiffies + cache->expire;
 }
 
 /*
@@ -177,6 +187,7 @@ struct rpc_cred *
 rpcauth_lookup_credcache(struct rpc_auth *auth, struct auth_cred * acred,
 		int taskflags)
 {
+	struct rpc_cred_cache *cache = auth->au_credcache;
 	HLIST_HEAD(free);
 	struct hlist_node *pos, *next;
 	struct rpc_cred	*new = NULL,
@@ -187,9 +198,9 @@ rpcauth_lookup_credcache(struct rpc_auth *auth, struct auth_cred * acred,
 		nr = acred->uid & RPC_CREDCACHE_MASK;
 retry:
 	spin_lock(&rpc_credcache_lock);
-	if (time_before(auth->au_nextgc, jiffies))
+	if (time_before(cache->nextgc, jiffies))
 		rpcauth_gc_credcache(auth, &free);
-	hlist_for_each_safe(pos, next, &auth->au_credcache[nr]) {
+	hlist_for_each_safe(pos, next, &cache->hashtable[nr]) {
 		struct rpc_cred *entry;
 	       	entry = hlist_entry(pos, struct rpc_cred, cr_hash);
 		if (entry->cr_ops->crmatch(acred, entry, taskflags)) {
@@ -206,7 +217,7 @@ retry:
 			cred = new;
 	}
 	if (cred) {
-		hlist_add_head(&cred->cr_hash, &auth->au_credcache[nr]);
+		hlist_add_head(&cred->cr_hash, &cache->hashtable[nr]);
 		get_rpccred(cred);
 	}
 	spin_unlock(&rpc_credcache_lock);

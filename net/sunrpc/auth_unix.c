@@ -37,6 +37,7 @@ struct unx_cred {
 #endif
 
 static struct rpc_auth		unix_auth;
+static struct rpc_cred_cache	unix_cred_cache;
 static struct rpc_credops	unix_credops;
 
 static struct rpc_auth *
@@ -44,7 +45,7 @@ unx_create(struct rpc_clnt *clnt, rpc_authflavor_t flavor)
 {
 	dprintk("RPC: creating UNIX authenticator for client %p\n", clnt);
 	if (atomic_inc_return(&unix_auth.au_count) == 0)
-		unix_auth.au_nextgc = jiffies + (unix_auth.au_expire >> 1);
+		unix_cred_cache.nextgc = jiffies + (unix_cred_cache.expire >> 1);
 	return &unix_auth;
 }
 
@@ -229,12 +230,17 @@ struct rpc_authops	authunix_ops = {
 };
 
 static
+struct rpc_cred_cache	unix_cred_cache = {
+	.expire		= UNX_CRED_EXPIRE,
+};
+
+static
 struct rpc_auth		unix_auth = {
 	.au_cslack	= UNX_WRITESLACK,
 	.au_rslack	= 2,			/* assume AUTH_NULL verf */
-	.au_expire	= UNX_CRED_EXPIRE,
 	.au_ops		= &authunix_ops,
 	.au_count	= ATOMIC_INIT(0),
+	.au_credcache	= &unix_cred_cache,
 };
 
 static
