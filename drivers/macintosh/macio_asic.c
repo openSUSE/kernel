@@ -617,7 +617,7 @@ static int __init macio_module_init (void)
 #ifdef CONFIG_PCI
 	int rc;
 
-	rc = pci_module_init(&macio_pci_driver);
+	rc = pci_register_driver(&macio_pci_driver);
 	if (rc)
 		return rc;
 #endif /* CONFIG_PCI */
