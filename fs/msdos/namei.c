@@ -346,16 +346,15 @@ static int msdos_rmdir(struct inode *dir, struct dentry *dentry)
 	if (err)
 		goto out;
 
-	sinfo.de->name[0] = DELETED_FLAG;
-	mark_buffer_dirty(sinfo.bh);
-	brelse(sinfo.bh);
-	fat_detach(inode);
-	inode->i_nlink = 0;
-	inode->i_ctime = dir->i_ctime = dir->i_mtime = CURRENT_TIME_SEC;
-	mark_inode_dirty(inode);
-
+	err = fat_remove_entries(dir, &sinfo);	/* and releases bh */
+	if (err)
+		goto out;
 	dir->i_nlink--;
-	mark_inode_dirty(dir);
+
+	inode->i_nlink = 0;
+	inode->i_ctime = CURRENT_TIME_SEC;
+	fat_detach(inode);
+	mark_inode_dirty(inode);
 out:
 	unlock_kernel();
 
@@ -430,18 +429,16 @@ static int msdos_unlink(struct inode *dir, struct dentry *dentry)
 	lock_kernel();
 	err = msdos_find(dir, dentry->d_name.name, dentry->d_name.len, &sinfo);
 	if (err)
-		goto unlink_done;
+		goto out;
 
-	sinfo.de->name[0] = DELETED_FLAG;
-	mark_buffer_dirty(sinfo.bh);
-	brelse(sinfo.bh);
-	fat_detach(inode);
+	err = fat_remove_entries(dir, &sinfo);	/* and releases bh */
+	if (err)
+		goto out;
 	inode->i_nlink = 0;
-	inode->i_ctime = dir->i_ctime = dir->i_mtime = CURRENT_TIME_SEC;
+	inode->i_ctime = CURRENT_TIME_SEC;
+	fat_detach(inode);
 	mark_inode_dirty(inode);
-
-	mark_inode_dirty(dir);
-unlink_done:
+out:
 	unlock_kernel();
 
 	return err;
@@ -526,10 +523,10 @@ static int do_msdos_rename(struct inode *old_dir, unsigned char *old_name,
 	}
 	new_dir->i_version++;
 
-	old_sinfo.de->name[0] = DELETED_FLAG;
-	mark_buffer_dirty(old_sinfo.bh);
-	brelse(old_sinfo.bh);
+	err = fat_remove_entries(old_dir, &old_sinfo);	/* and releases bh */
 	old_sinfo.bh = NULL;
+	if (err)
+		goto out;
 	if (is_dir)
 		old_dir->i_nlink--;
 	fat_detach(old_inode);
