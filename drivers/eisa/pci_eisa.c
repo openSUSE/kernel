@@ -63,3 +63,4 @@ static int __init pci_eisa_init_module (void)
 }
 
 device_initcall(pci_eisa_init_module);
+MODULE_DEVICE_TABLE(pci, pci_eisa_pci_tbl);

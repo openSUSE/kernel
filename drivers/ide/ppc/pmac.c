@@ -1681,6 +1681,7 @@ static struct pci_driver pmac_ide_pci_driver = {
 	.suspend	= pmac_ide_pci_suspend,
 	.resume		= pmac_ide_pci_resume,
 };
+MODULE_DEVICE_TABLE(pci, pmac_ide_pci_match);
 
 void __init
 pmac_ide_probe(void)

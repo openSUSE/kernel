@@ -620,3 +620,4 @@ static void __devexit vrc4173_cardu_exit(void)
 
 module_init(vrc4173_cardu_init);
 module_exit(vrc4173_cardu_exit);
+MODULE_DEVICE_TABLE(pci, vrc4173_cardu_id_table);

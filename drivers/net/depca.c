@@ -346,6 +346,7 @@ static struct eisa_device_id depca_eisa_ids[] = {
 	{ "DEC4220", de422 },
 	{ "" }
 };
+MODULE_DEVICE_TABLE(eisa, depca_eisa_ids);
 
 static int depca_eisa_probe  (struct device *device);
 
