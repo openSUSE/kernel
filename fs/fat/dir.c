@@ -442,9 +442,13 @@ ParseLong:
 			long_slots = 0;
 	}
 
-	if ((de->attr & ATTR_HIDDEN) && MSDOS_SB(sb)->options.dotsOK) {
-		*ptname++ = '.';
-		dotoffset = 1;
+	if (MSDOS_SB(sb)->options.dotsOK) {
+		ptname = bufname;
+		dotoffset = 0;
+		if (de->attr & ATTR_HIDDEN) {
+			*ptname++ = '.';
+			dotoffset = 1;
+		}
 	}
 
 	memcpy(work, de->name, sizeof(de->name));
