@@ -120,7 +120,7 @@ handle_fpe(struct pt_regs *regs)
 	    si.si_signo = signalcode >> 24;
 	    si.si_errno = 0;
 	    si.si_code = signalcode & 0xffffff;
-	    si.si_addr = (void *) regs->iaoq[0];
+	    si.si_addr = (void __user *) regs->iaoq[0];
 	    force_sig_info(si.si_signo, &si, current);
 	    return -1;
 	}
