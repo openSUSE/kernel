@@ -102,7 +102,7 @@ struct device_driver {
 	char			* name;
 	struct bus_type		* bus;
 
-	struct semaphore	unload_sem;
+	struct completion	unloaded;
 	struct kobject		kobj;
 	struct list_head	devices;
 

@@ -65,7 +65,7 @@ static struct sysfs_ops driver_sysfs_ops = {
 static void driver_release(struct kobject * kobj)
 {
 	struct device_driver * drv = to_driver(kobj);
-	up(&drv->unload_sem);
+	complete(&drv->unloaded);
 }
 
 static struct kobj_type ktype_driver = {
