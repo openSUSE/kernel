@@ -1346,7 +1346,7 @@ static int raid1_reshape(mddev_t *mddev, int raid_disks)
 		if (conf->mirrors[d].rdev)
 			return -EBUSY;
 
-	newpoolinfo = kmalloc(sizeof(newpoolinfo), GFP_KERNEL);
+	newpoolinfo = kmalloc(sizeof(*newpoolinfo), GFP_KERNEL);
 	if (!newpoolinfo)
 		return -ENOMEM;
 	newpoolinfo->mddev = mddev;
