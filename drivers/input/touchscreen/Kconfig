@@ -12,7 +12,7 @@ menuconfig INPUT_TOUCHSCREEN
 if INPUT_TOUCHSCREEN
 
 config TOUCHSCREEN_BITSY
-	tristate "Compaq iPAQ H3600 (Bitsy) touchscreen input driver"
+	tristate "Compaq iPAQ H3600 (Bitsy) touchscreen"
 	depends on SA1100_BITSY
 	select SERIO
 	help
@@ -22,6 +22,19 @@ config TOUCHSCREEN_BITSY
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called h3600_ts_input.
+
+config TOUCHSCREEN_CORGI
+	tristate "Corgi touchscreen (for Sharp SL-C7xx)"
+	depends on PXA_SHARPSL
+	default y	
+	help
+	  Say Y here to enable the driver for the touchscreen on the 
+	  Sharp SL-C7xx series of PDAs.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called ads7846_ts.
 
 config TOUCHSCREEN_GUNZE
 	tristate "Gunze AHL-51S touchscreen"

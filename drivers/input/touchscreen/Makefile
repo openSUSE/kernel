@@ -6,3 +6,4 @@
 
 obj-$(CONFIG_TOUCHSCREEN_BITSY)	+= h3600_ts_input.o
 obj-$(CONFIG_TOUCHSCREEN_GUNZE)	+= gunze.o
+obj-$(CONFIG_TOUCHSCREEN_CORGI)	+= corgi_ts.o
