@@ -323,8 +323,7 @@ extern int fat_bmap(struct inode *inode, sector_t sector, sector_t *phys);
 /* fat/dir.c */
 extern struct file_operations fat_dir_operations;
 extern int fat_search_long(struct inode *inode, const unsigned char *name,
-			   int name_len, int anycase,
-			   loff_t *spos, loff_t *lpos);
+			   int name_len, struct fat_slot_info *sinfo);
 extern int fat_add_entries(struct inode *dir, int slots,
 			   struct buffer_head **bh,
 			   struct msdos_dir_entry **de, loff_t *i_pos);

@@ -136,7 +136,7 @@ fat_shortname2uni(struct nls_table *nls, unsigned char *buf, int buf_size,
  * value is the total amount of slots, including the shortname entry.
  */
 int fat_search_long(struct inode *inode, const unsigned char *name,
-		    int name_len, int anycase, loff_t *spos, loff_t *lpos)
+		    int name_len, struct fat_slot_info *sinfo)
 {
 	struct super_block *sb = inode->i_sb;
 	struct buffer_head *bh = NULL;
@@ -149,12 +149,14 @@ int fat_search_long(struct inode *inode, const unsigned char *name,
 	unsigned char work[8], bufname[260];	/* 256 + 4 */
 	int uni_xlate = MSDOS_SB(sb)->options.unicode_xlate;
 	int utf8 = MSDOS_SB(sb)->options.utf8;
+	int anycase = (MSDOS_SB(sb)->options.name_check != 's');
 	unsigned short opt_shortname = MSDOS_SB(sb)->options.shortname;
-	int chl, i, j, last_u, res = 0;
+	int chl, i, j, last_u, err;
 	loff_t i_pos, cpos = 0;
 
+	err = -ENOENT;
 	while(1) {
-		if (fat_get_entry(inode,&cpos,&bh,&de,&i_pos) == -1)
+		if (fat_get_entry(inode, &cpos, &bh, &de, &i_pos) == -1)
 			goto EODir;
 parse_record:
 		long_slots = 0;
@@ -288,15 +290,17 @@ parse_long:
 	}
 
 Found:
-	res = long_slots + 1;
-	*spos = cpos - sizeof(struct msdos_dir_entry);
-	*lpos = cpos - res*sizeof(struct msdos_dir_entry);
+	sinfo->i_pos = i_pos;
+	sinfo->slot_off = cpos - (long_slots + 1) * sizeof(*de);
+	sinfo->nr_slots = long_slots;
+	sinfo->de = de;
+	sinfo->bh = bh;
+	err = 0;
 EODir:
-	brelse(bh);
-	if (unicode) {
-		free_page((unsigned long) unicode);
-	}
-	return res;
+	if (unicode)
+		free_page((unsigned long)unicode);
+
+	return err;
 }
 
 EXPORT_SYMBOL(fat_search_long);
