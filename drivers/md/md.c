@@ -527,7 +527,7 @@ static int super_90_load(mdk_rdev_t *rdev, mdk_rdev_t *refdev, int minor_version
 	rdev->preferred_minor = sb->md_minor;
 	rdev->data_offset = 0;
 
-	if (sb->level == MULTIPATH)
+	if (sb->level == LEVEL_MULTIPATH)
 		rdev->desc_nr = -1;
 	else
 		rdev->desc_nr = sb->this_disk.number;
