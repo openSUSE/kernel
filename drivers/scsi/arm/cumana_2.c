@@ -428,7 +428,6 @@ cumanascsi2_probe(struct expansion_card *ec, const struct ecard_id *id)
 	}
 
 	host->base	  = (unsigned long)base;
-	host->irq	  = ec->irq;
 	host->dma_channel = ec->dma;
 
 	ecard_set_drvdata(ec, host);
@@ -441,7 +440,7 @@ cumanascsi2_probe(struct expansion_card *ec, const struct ecard_id *id)
 
 	info->info.scsi.io_base		= base + CUMANASCSI2_FAS216_OFFSET;
 	info->info.scsi.io_shift	= CUMANASCSI2_FAS216_SHIFT;
-	info->info.scsi.irq		= host->irq;
+	info->info.scsi.irq		= ec->irq;
 	info->info.ifcfg.clockrate	= 40; /* MHz */
 	info->info.ifcfg.select_timeout	= 255;
 	info->info.ifcfg.asyncperiod	= 200; /* ns */
@@ -463,11 +462,11 @@ cumanascsi2_probe(struct expansion_card *ec, const struct ecard_id *id)
 	if (ret)
 		goto out_free;
 
-	ret = request_irq(host->irq, cumanascsi_2_intr,
+	ret = request_irq(ec->irq, cumanascsi_2_intr,
 			  SA_INTERRUPT, "cumanascsi2", info);
 	if (ret) {
 		printk("scsi%d: IRQ%d not free: %d\n",
-		       host->host_no, host->irq, ret);
+		       host->host_no, ec->irq, ret);
 		goto out_release;
 	}
 
@@ -488,7 +487,7 @@ cumanascsi2_probe(struct expansion_card *ec, const struct ecard_id *id)
 
 	if (host->dma_channel != NO_DMA)
 		free_dma(host->dma_channel);
-	free_irq(host->irq, host);
+	free_irq(ec->irq, host);
 
  out_release:
 	fas216_release(host);
@@ -516,7 +515,7 @@ static void __devexit cumanascsi2_remove(struct expansion_card *ec)
 
 	if (host->dma_channel != NO_DMA)
 		free_dma(host->dma_channel);
-	free_irq(host->irq, info);
+	free_irq(ec->irq, info);
 
 	iounmap(info->base);
 
