@@ -231,7 +231,7 @@ static void ResetBoard(struct net_device *dev)
 
 static void InitDscrs(struct net_device *dev)
 {
-	ibmlana_priv *priv = (ibmlana_priv *) dev->priv;
+	ibmlana_priv *priv = netdev_priv(dev);
 	u32 addr, baddr, raddr;
 	int z;
 	tda_t tda;
@@ -313,7 +313,7 @@ static void InitDscrs(struct net_device *dev)
 
 static int InitSONIC(struct net_device *dev)
 {
-	ibmlana_priv *priv = (ibmlana_priv *) dev->priv;
+	ibmlana_priv *priv = netdev_priv(dev);
 
 	/* set up start & end of resource area */
 
@@ -520,7 +520,7 @@ static void InitBoard(struct net_device *dev)
 
 static void StartTx(struct net_device *dev, int descr)
 {
-	ibmlana_priv *priv = (ibmlana_priv *) dev->priv;
+	ibmlana_priv *priv = netdev_priv(dev);
 	int addr;
 
 	addr = priv->tdastart + (descr * sizeof(tda_t));
@@ -543,7 +543,7 @@ static void StartTx(struct net_device *dev, int descr)
 
 static void irqrbe_handler(struct net_device *dev)
 {
-	ibmlana_priv *priv = (ibmlana_priv *) dev->priv;
+	ibmlana_priv *priv = netdev_priv(dev);
 
 	/* point the SONIC back to the RRA start */
 
@@ -555,7 +555,7 @@ static void irqrbe_handler(struct net_device *dev)
 
 static void irqrx_handler(struct net_device *dev)
 {
-	ibmlana_priv *priv = (ibmlana_priv *) dev->priv;
+	ibmlana_priv *priv = netdev_priv(dev);
 	rda_t rda;
 	u32 rdaaddr, lrdaaddr;
 
@@ -648,7 +648,7 @@ static void irqrx_handler(struct net_device *dev)
 
 static void irqtx_handler(struct net_device *dev)
 {
-	ibmlana_priv *priv = (ibmlana_priv *) dev->priv;
+	ibmlana_priv *priv = netdev_priv(dev);
 	tda_t tda;
 
 	/* fetch descriptor (we forgot the size ;-) */
@@ -672,7 +672,7 @@ static void irqtx_handler(struct net_device *dev)
 
 static void irqtxerr_handler(struct net_device *dev)
 {
-	ibmlana_priv *priv = (ibmlana_priv *) dev->priv;
+	ibmlana_priv *priv = netdev_priv(dev);
 	tda_t tda;
 
 	/* fetch descriptor to check status */
@@ -753,9 +753,7 @@ static int ibmlana_getinfo(char *buf, int slot, void *d)
 
 	if (dev == NULL)
 		return len;
-	if (dev->priv == NULL)
-		return len;
-	priv = (ibmlana_priv *) dev->priv;
+	priv = netdev_priv(dev);
 
 	/* print info */
 
@@ -778,7 +776,7 @@ static int ibmlana_getinfo(char *buf, int slot, void *d)
 static int ibmlana_open(struct net_device *dev)
 {
 	int result;
-	ibmlana_priv *priv = (ibmlana_priv *) dev->priv;
+	ibmlana_priv *priv = netdev_priv(dev);
 
 	/* register resources - only necessary for IRQ */
 
@@ -814,7 +812,7 @@ static int ibmlana_close(struct net_device *dev)
 
 static int ibmlana_tx(struct sk_buff *skb, struct net_device *dev)
 {
-	ibmlana_priv *priv = (ibmlana_priv *) dev->priv;
+	ibmlana_priv *priv = netdev_priv(dev);
 	int retval = 0, tmplen, addr;
 	unsigned long flags;
 	tda_t tda;
@@ -881,7 +879,7 @@ tx_done:
 
 static struct net_device_stats *ibmlana_stats(struct net_device *dev)
 {
-	ibmlana_priv *priv = (ibmlana_priv *) dev->priv;
+	ibmlana_priv *priv = netdev_priv(dev);
 	return &priv->stat;
 }
 
@@ -958,8 +956,7 @@ static int ibmlana_probe(struct net_device *dev)
 
 	mca_mark_as_used(slot);
 
-	/* allocate structure */
-	priv = dev->priv;
+	priv = netdev_priv(dev);
 	priv->slot = slot;
 	priv->realirq = irq;
 	priv->medium = medium;
@@ -1042,7 +1039,7 @@ int init_module(void)
 			break;
 		}
 		if (register_netdev(dev)) {
-			ibmlana_priv *priv = dev->priv;
+			ibmlana_priv *priv = netdev_priv(dev);
 			release_region(dev->base_addr, IBM_LANA_IORANGE);
 			mca_mark_as_unused(priv->slot);
 			mca_set_adapter_name(priv->slot, "");
@@ -1061,7 +1058,7 @@ void cleanup_module(void)
 	for (z = 0; z < DEVMAX; z++) {
 		struct net_device *dev = moddevs[z];
 		if (dev) {
-			ibmlana_priv *priv = (ibmlana_priv *) dev->priv;
+			ibmlana_priv *priv = netdev_priv(dev);
 			unregister_netdev(dev);
 			/*DeinitBoard(dev); */
 			release_region(dev->base_addr, IBM_LANA_IORANGE);
