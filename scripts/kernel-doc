@@ -1673,7 +1673,7 @@ sub process_file($) {
 
 		$state = 2;
 		if (/-(.*)/) {
-		    $declaration_purpose = $1;
+		    $declaration_purpose = xml_escape($1);
 		} else {
 		    $declaration_purpose = "";
 		}
