@@ -256,7 +256,7 @@ ia32_restore_sigcontext(struct pt_regs *regs, struct sigcontext_ia32 __user *sc,
 		err |= __get_user(tmp, &sc->fpstate);
 		buf = compat_ptr(tmp);
 		if (buf) {
-			if (verify_area(VERIFY_READ, buf, sizeof(*buf)))
+			if (!access_ok(VERIFY_READ, buf, sizeof(*buf)))
 				goto badframe;
 			err |= restore_i387_ia32(current, buf, 0);
 		} else {
@@ -285,7 +285,7 @@ asmlinkage long sys32_sigreturn(struct pt_regs *regs)
 	sigset_t set;
 	unsigned int eax;
 
-	if (verify_area(VERIFY_READ, frame, sizeof(*frame)))
+	if (!access_ok(VERIFY_READ, frame, sizeof(*frame)))
 		goto badframe;
 	if (__get_user(set.sig[0], &frame->sc.oldmask)
 	    || (_COMPAT_NSIG_WORDS > 1
@@ -317,7 +317,7 @@ asmlinkage long sys32_rt_sigreturn(struct pt_regs *regs)
 
 	frame = (struct rt_sigframe __user *)(regs->rsp - 4);
 
-	if (verify_area(VERIFY_READ, frame, sizeof(*frame)))
+	if (!access_ok(VERIFY_READ, frame, sizeof(*frame)))
 		goto badframe;
 	if (__copy_from_user(&set, &frame->uc.uc_sigmask, sizeof(set)))
 		goto badframe;

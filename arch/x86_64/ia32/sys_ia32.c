@@ -85,7 +85,7 @@ int cp_compat_stat(struct kstat *kbuf, struct compat_stat __user *ubuf)
 		return -EOVERFLOW;
 	if (kbuf->size >= 0x7fffffff)
 		return -EOVERFLOW;
-	if (verify_area(VERIFY_WRITE, ubuf, sizeof(struct compat_stat)) ||
+	if (!access_ok(VERIFY_WRITE, ubuf, sizeof(struct compat_stat)) ||
 	    __put_user (old_encode_dev(kbuf->dev), &ubuf->st_dev) ||
 	    __put_user (kbuf->ino, &ubuf->st_ino) ||
 	    __put_user (kbuf->mode, &ubuf->st_mode) ||
@@ -128,7 +128,7 @@ cp_stat64(struct stat64 __user *ubuf, struct kstat *stat)
 	typeof(ubuf->st_gid) gid = 0;
 	SET_UID(uid, stat->uid);
 	SET_GID(gid, stat->gid);
-	if (verify_area(VERIFY_WRITE, ubuf, sizeof(struct stat64)) ||
+	if (!access_ok(VERIFY_WRITE, ubuf, sizeof(struct stat64)) ||
 	    __put_user(huge_encode_dev(stat->dev), &ubuf->st_dev) ||
 	    __put_user (stat->ino, &ubuf->__st_ino) ||
 	    __put_user (stat->ino, &ubuf->st_ino) ||
@@ -262,7 +262,7 @@ sys32_rt_sigaction(int sig, struct sigaction32 __user *act,
 	if (act) {
 		compat_uptr_t handler, restorer;
 
-		if (verify_area(VERIFY_READ, act, sizeof(*act)) ||
+		if (!access_ok(VERIFY_READ, act, sizeof(*act)) ||
 		    __get_user(handler, &act->sa_handler) ||
 		    __get_user(new_ka.sa.sa_flags, &act->sa_flags) ||
 		    __get_user(restorer, &act->sa_restorer)||
@@ -301,7 +301,7 @@ sys32_rt_sigaction(int sig, struct sigaction32 __user *act,
 			set32.sig[1] = (old_ka.sa.sa_mask.sig[0] >> 32);
 			set32.sig[0] = old_ka.sa.sa_mask.sig[0];
 		}
-		if (verify_area(VERIFY_WRITE, oact, sizeof(*oact)) ||
+		if (!access_ok(VERIFY_WRITE, oact, sizeof(*oact)) ||
 		    __put_user(ptr_to_compat(old_ka.sa.sa_handler), &oact->sa_handler) ||
 		    __put_user(ptr_to_compat(old_ka.sa.sa_restorer), &oact->sa_restorer) ||
 		    __put_user(old_ka.sa.sa_flags, &oact->sa_flags) ||
@@ -322,7 +322,7 @@ sys32_sigaction (int sig, struct old_sigaction32 __user *act, struct old_sigacti
 		compat_old_sigset_t mask;
 		compat_uptr_t handler, restorer;
 
-		if (verify_area(VERIFY_READ, act, sizeof(*act)) ||
+		if (!access_ok(VERIFY_READ, act, sizeof(*act)) ||
 		    __get_user(handler, &act->sa_handler) ||
 		    __get_user(new_ka.sa.sa_flags, &act->sa_flags) ||
 		    __get_user(restorer, &act->sa_restorer) ||
@@ -338,7 +338,7 @@ sys32_sigaction (int sig, struct old_sigaction32 __user *act, struct old_sigacti
         ret = do_sigaction(sig, act ? &new_ka : NULL, oact ? &old_ka : NULL);
 
 	if (!ret && oact) {
-		if (verify_area(VERIFY_WRITE, oact, sizeof(*oact)) ||
+		if (!access_ok(VERIFY_WRITE, oact, sizeof(*oact)) ||
 		    __put_user(ptr_to_compat(old_ka.sa.sa_handler), &oact->sa_handler) ||
 		    __put_user(ptr_to_compat(old_ka.sa.sa_restorer), &oact->sa_restorer) ||
 		    __put_user(old_ka.sa.sa_flags, &oact->sa_flags) ||
@@ -567,7 +567,7 @@ sys32_sysinfo(struct sysinfo32 __user *info)
 		s.freehigh >>= bitcount;
 	}
 
-	if (verify_area(VERIFY_WRITE, info, sizeof(struct sysinfo32)) ||
+	if (!access_ok(VERIFY_WRITE, info, sizeof(struct sysinfo32)) ||
 	    __put_user (s.uptime, &info->uptime) ||
 	    __put_user (s.loads[0], &info->loads[0]) ||
 	    __put_user (s.loads[1], &info->loads[1]) ||
@@ -782,7 +782,7 @@ sys32_adjtimex(struct timex32 __user *utp)
 
 	memset(&txc, 0, sizeof(struct timex));
 
-	if(verify_area(VERIFY_READ, utp, sizeof(struct timex32)) ||
+	if (!access_ok(VERIFY_READ, utp, sizeof(struct timex32)) ||
 	   __get_user(txc.modes, &utp->modes) ||
 	   __get_user(txc.offset, &utp->offset) ||
 	   __get_user(txc.freq, &utp->freq) ||
@@ -807,7 +807,7 @@ sys32_adjtimex(struct timex32 __user *utp)
 
 	ret = do_adjtimex(&txc);
 
-	if(verify_area(VERIFY_WRITE, utp, sizeof(struct timex32)) ||
+	if (!access_ok(VERIFY_WRITE, utp, sizeof(struct timex32)) ||
 	   __put_user(txc.modes, &utp->modes) ||
 	   __put_user(txc.offset, &utp->offset) ||
 	   __put_user(txc.freq, &utp->freq) ||

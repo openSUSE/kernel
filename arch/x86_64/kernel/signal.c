@@ -121,7 +121,7 @@ restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc, unsigned 
 		err |= __get_user(buf, &sc->fpstate);
 
 		if (buf) {
-			if (verify_area(VERIFY_READ, buf, sizeof(*buf)))
+			if (!access_ok(VERIFY_READ, buf, sizeof(*buf)))
 				goto badframe;
 			err |= restore_i387(buf);
 		} else {
@@ -147,7 +147,7 @@ asmlinkage long sys_rt_sigreturn(struct pt_regs *regs)
 	unsigned long eax;
 
 	frame = (struct rt_sigframe __user *)(regs->rsp - 8);
-	if (verify_area(VERIFY_READ, frame, sizeof(*frame))) { 
+	if (!access_ok(VERIFY_READ, frame, sizeof(*frame))) {
 		goto badframe;
 	} 
 	if (__copy_from_user(&set, &frame->uc.uc_sigmask, sizeof(set))) { 

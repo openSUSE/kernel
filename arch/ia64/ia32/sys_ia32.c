@@ -2402,12 +2402,11 @@ sys32_epoll_ctl(int epfd, int op, int fd, struct epoll_event32 __user *event)
 {
 	mm_segment_t old_fs = get_fs();
 	struct epoll_event event64;
-	int error = -EFAULT;
+	int error;
 	u32 data_halfword;
 
-	if ((error = verify_area(VERIFY_READ, event,
-				 sizeof(struct epoll_event32))))
-		return error;
+	if (!access_ok(VERIFY_READ, event, sizeof(struct epoll_event32)))
+		return -EFAULT;
 
 	__get_user(event64.events, &event->events);
 	__get_user(data_halfword, &event->data[0]);
@@ -2437,9 +2436,8 @@ sys32_epoll_wait(int epfd, struct epoll_event32 __user * events, int maxevents,
 	}
 
 	/* Verify that the area passed by the user is writeable */
-	if ((error = verify_area(VERIFY_WRITE, events,
-				 maxevents * sizeof(struct epoll_event32))))
-		return error;
+	if (!access_ok(VERIFY_WRITE, events, maxevents * sizeof(struct epoll_event32)))
+		return -EFAULT;
 
 	/*
  	 * Allocate space for the intermediate copy.  If the space needed

@@ -1074,15 +1074,12 @@ ptrace_getregs (struct task_struct *child, struct pt_all_user_regs __user *ppr)
 	struct ia64_fpreg fpval;
 	struct switch_stack *sw;
 	struct pt_regs *pt;
-	long ret, retval;
+	long ret, retval = 0;
 	char nat = 0;
 	int i;
 
-	retval = verify_area(VERIFY_WRITE, ppr,
-			     sizeof(struct pt_all_user_regs));
-	if (retval != 0) {
+	if (!access_ok(VERIFY_WRITE, ppr, sizeof(struct pt_all_user_regs)))
 		return -EIO;
-	}
 
 	pt = ia64_task_regs(child);
 	sw = (struct switch_stack *) (child->thread.ksp + 16);
@@ -1104,8 +1101,6 @@ ptrace_getregs (struct task_struct *child, struct pt_all_user_regs __user *ppr)
 	    || access_uarea(child, PT_CFM, &cfm, 0)
 	    || access_uarea(child, PT_NAT_BITS, &nat_bits, 0))
 		return -EIO;
-
-	retval = 0;
 
 	/* control regs */
 
@@ -1223,16 +1218,13 @@ ptrace_setregs (struct task_struct *child, struct pt_all_user_regs __user *ppr)
 	struct switch_stack *sw;
 	struct ia64_fpreg fpval;
 	struct pt_regs *pt;
-	long ret, retval;
+	long ret, retval = 0;
 	int i;
 
 	memset(&fpval, 0, sizeof(fpval));
 
-	retval = verify_area(VERIFY_READ, ppr,
-			     sizeof(struct pt_all_user_regs));
-	if (retval != 0) {
+	if (!access_ok(VERIFY_READ, ppr, sizeof(struct pt_all_user_regs)))
 		return -EIO;
-	}
 
 	pt = ia64_task_regs(child);
 	sw = (struct switch_stack *) (child->thread.ksp + 16);
@@ -1245,8 +1237,6 @@ ptrace_setregs (struct task_struct *child, struct pt_all_user_regs __user *ppr)
 		dprintk("ptrace:unaligned register address %p\n", ppr);
 		return -EIO;
 	}
-
-	retval = 0;
 
 	/* control regs */
 
