@@ -560,7 +560,7 @@ void icmp_send(struct sk_buff *skb_in, int type, int code, u32 info)
 
 	/* RFC says return as much as we can without exceeding 576 bytes. */
 
-	room = dst_pmtu(&rt->u.dst);
+	room = dst_mtu(&rt->u.dst);
 	if (room > 576)
 		room = 576;
 	room -= sizeof(struct iphdr) + icmp_param.replyopts.optlen;
