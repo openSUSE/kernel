@@ -143,7 +143,6 @@ void aoedisk_rm_sysfs(struct aoedev *d);
 int aoechr_init(void);
 void aoechr_exit(void);
 void aoechr_error(char *);
-void aoechr_hdump(char *, int len);
 
 void aoecmd_work(struct aoedev *d);
 void aoecmd_cfg(ushort, unsigned char);
