@@ -30,12 +30,12 @@ struct k_clock_abs {
 };
 struct k_clock {
 	int res;		/* in nano seconds */
+	int (*clock_getres) (clockid_t which_clock, struct timespec *tp);
 	struct k_clock_abs *abs_struct;
-	int (*clock_set) (struct timespec * tp);
-	int (*clock_get) (struct timespec * tp);
+	int (*clock_set) (clockid_t which_clock, struct timespec * tp);
+	int (*clock_get) (clockid_t which_clock, struct timespec * tp);
 	int (*timer_create) (struct k_itimer *timer);
-	int (*nsleep) (int which_clock, int flags,
-		       struct timespec * t);
+	int (*nsleep) (clockid_t which_clock, int flags, struct timespec *);
 	int (*timer_set) (struct k_itimer * timr, int flags,
 			  struct itimerspec * new_setting,
 			  struct itimerspec * old_setting);
@@ -44,12 +44,12 @@ struct k_clock {
 			   struct itimerspec * cur_setting);
 };
 
-void register_posix_clock(int clock_id, struct k_clock *new_clock);
+void register_posix_clock(clockid_t clock_id, struct k_clock *new_clock);
 
 /* Error handlers for timer_create, nanosleep and settime */
 int do_posix_clock_notimer_create(struct k_itimer *timer);
-int do_posix_clock_nonanosleep(int which_clock, int flags, struct timespec * t);
-int do_posix_clock_nosettime(struct timespec *tp);
+int do_posix_clock_nonanosleep(clockid_t, int flags, struct timespec *);
+int do_posix_clock_nosettime(clockid_t, struct timespec *tp);
 
 /* function to call to trigger timer event */
 int posix_timer_event(struct k_itimer *timr, int si_private);

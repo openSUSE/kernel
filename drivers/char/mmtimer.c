@@ -376,7 +376,7 @@ static int sgi_clock_period;
 static struct timespec sgi_clock_offset;
 static int sgi_clock_period;
 
-static int sgi_clock_get(struct timespec *tp)
+static int sgi_clock_get(clockid_t clockid, struct timespec *tp)
 {
 	u64 nsec;
 
@@ -387,7 +387,7 @@ static int sgi_clock_get(struct timespec *tp)
 	return 0;
 };
 
-static int sgi_clock_set(struct timespec *tp)
+static int sgi_clock_set(clockid_t clockid, struct timespec *tp)
 {
 
 	u64 nsec;
