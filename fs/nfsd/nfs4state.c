@@ -1522,8 +1522,6 @@ nfs4_deleg_conflict(u32 share, u32 dtype)
 		dtype == NFS4_OPEN_DELEGATE_WRITE));
 }
 
-#define DONT_DELEGATE  8
-
 /*
  * nfs4_check_deleg_recall()
  *
@@ -1544,7 +1542,7 @@ nfs4_check_deleg_recall(struct nfs4_file *fp, struct nfsd4_open *op, int *flag)
 			if(nfs4_deleg_conflict(op->op_share_access, dp->dl_type))
 				status = nfserr_jukebox;
 			else
-				*flag = DONT_DELEGATE;
+				*flag = NFS4_OPEN_DELEGATE_NONE;
 		}
 	}
 	return status;
@@ -1663,10 +1661,8 @@ nfs4_open_delegation(struct svc_fh *fh, struct nfsd4_open *open, struct nfs4_sta
 	struct file_lock fl, *flp = &fl;
 	int status;
 
-	if (*flag == DONT_DELEGATE) {
-		*flag = NFS4_OPEN_DELEGATE_NONE;
+	if (*flag == NFS4_OPEN_DELEGATE_NONE)
 		return;
-	}
 
 	/* set flag */
 	*flag = NFS4_OPEN_DELEGATE_NONE;
