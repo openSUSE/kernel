@@ -468,19 +468,6 @@ __uml_setup("debugtrace", uml_debugtrace_setup,
 "    the debug switch.\n\n"
 );
 
-static int __init uml_honeypot_setup(char *line, int *add)
-{
-	jail_setup("", add);
-	honeypot = 1;
-	return 0;
-}
-__uml_setup("honeypot", uml_honeypot_setup, 
-"honeypot\n"
-"    This makes UML put process stacks in the same location as they are\n"
-"    on the host, allowing expoits such as stack smashes to work against\n"
-"    UML.  This implies 'jail'.\n\n"
-);
-
 /*
  * Overrides for Emacs so that we follow Linus's tabbing style.
  * Emacs will notice this stuff at the end of the file and automatically

@@ -36,6 +36,11 @@ struct host_vm_op {
 
 extern void mprotect_kernel_vm(int w);
 extern void force_flush_all(void);
+extern void fix_range_common(struct mm_struct *mm, unsigned long start_addr,
+			     unsigned long end_addr, int force, int data,
+			     void (*do_ops)(int, struct host_vm_op *, int));
+extern int flush_tlb_kernel_range_common(unsigned long start,
+					 unsigned long end);
 
 extern int add_mmap(unsigned long virt, unsigned long phys, unsigned long len,
 		    int r, int w, int x, struct host_vm_op *ops, int index,
