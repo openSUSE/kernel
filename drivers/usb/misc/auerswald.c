@@ -1996,7 +1996,7 @@ static int auerswald_probe (struct usb_interface *intf,
                 AUDI_MBCTRANS,                      /* USB message index value */
                 pbuf,                               /* pointer to the receive buffer */
                 2,                                  /* length of the buffer */
-                HZ * 2);                            /* time to wait for the message to complete before timing out */
+                2000);                            /* time to wait for the message to complete before timing out */
         if (ret == 2) {
 	        cp->maxControlLength = le16_to_cpup(pbuf);
                 kfree(pbuf);
