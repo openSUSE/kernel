@@ -501,7 +501,7 @@ static void send_next(struct ti_lynx *lynx, int what)
         pcl.async_error_next = PCL_NEXT_INVALID;
         pcl.pcl_status = 0;
         pcl.buffer[0].control = packet->speed_code << 14 | packet->header_size;
-#ifdef __BIG_ENDIAN
+#ifndef __BIG_ENDIAN
         pcl.buffer[0].control |= PCL_BIGENDIAN;
 #endif
         pcl.buffer[0].pointer = d->header_dma;
@@ -1698,7 +1698,7 @@ static int __devinit add_card(struct pci_dev *dev,
         pcl.async_error_next = PCL_NEXT_INVALID;
 
         pcl.buffer[0].control = PCL_CMD_RCV | 16;
-#ifdef __BIG_ENDIAN
+#ifndef __BIG_ENDIAN
 	pcl.buffer[0].control |= PCL_BIGENDIAN;
 #endif
 	pcl.buffer[1].control = PCL_LAST_BUFF | 4080;
