@@ -365,10 +365,11 @@ static void scsi_single_lun_run(struct scsi_device *current_sdev)
 {
 	struct Scsi_Host *shost = current_sdev->host;
 	struct scsi_device *sdev, *tmp;
+	struct scsi_target *starget = scsi_target(current_sdev);
 	unsigned long flags;
 
 	spin_lock_irqsave(shost->host_lock, flags);
-	scsi_target(current_sdev)->starget_sdev_user = NULL;
+	starget->starget_sdev_user = NULL;
 	spin_unlock_irqrestore(shost->host_lock, flags);
 
 	/*
@@ -380,10 +381,12 @@ static void scsi_single_lun_run(struct scsi_device *current_sdev)
 	blk_run_queue(current_sdev->request_queue);
 
 	spin_lock_irqsave(shost->host_lock, flags);
-	if (scsi_target(current_sdev)->starget_sdev_user)
+	if (starget->starget_sdev_user)
 		goto out;
-	list_for_each_entry_safe(sdev, tmp, &current_sdev->same_target_siblings,
+	list_for_each_entry_safe(sdev, tmp, &starget->devices,
 			same_target_siblings) {
+		if (sdev == current_sdev)
+			continue;
 		if (scsi_device_get(sdev))
 			continue;
 

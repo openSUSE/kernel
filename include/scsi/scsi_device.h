@@ -144,7 +144,10 @@ struct scsi_device {
  */
 struct scsi_target {
 	struct scsi_device	*starget_sdev_user;
+	struct list_head	siblings;
+	struct list_head	devices;
 	struct device		dev;
+	unsigned int		reap_ref; /* protected by the host lock */
 	unsigned int		channel;
 	unsigned int		id; /* target id ... replace
 				     * scsi_device.id eventually */
@@ -173,6 +176,10 @@ extern struct scsi_device *scsi_device_lookup(struct Scsi_Host *,
 					      uint, uint, uint);
 extern struct scsi_device *__scsi_device_lookup(struct Scsi_Host *,
 						uint, uint, uint);
+extern struct scsi_device *scsi_device_lookup_by_target(struct scsi_target *,
+							uint);
+extern struct scsi_device *__scsi_device_lookup_by_target(struct scsi_target *,
+							  uint);
 extern void starget_for_each_device(struct scsi_target *, void *,
 		     void (*fn)(struct scsi_device *, void *));
 
@@ -226,6 +233,10 @@ extern int scsi_device_quiesce(struct scsi_device *sdev);
 extern void scsi_device_resume(struct scsi_device *sdev);
 extern void scsi_target_quiesce(struct scsi_target *);
 extern void scsi_target_resume(struct scsi_target *);
+extern void scsi_scan_target(struct device *parent, unsigned int channel,
+			     unsigned int id, unsigned int lun, int rescan);
+extern void scsi_target_reap(struct scsi_target *);
+extern void scsi_remove_target(struct scsi_target *);
 extern const char *scsi_device_state_name(enum scsi_device_state);
 extern int scsi_is_sdev_device(const struct device *);
 extern int scsi_is_target_device(const struct device *);

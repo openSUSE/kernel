@@ -1116,6 +1116,60 @@ void starget_for_each_device(struct scsi_target *starget, void * data,
 EXPORT_SYMBOL(starget_for_each_device);
 
 /**
+ * __scsi_device_lookup_by_target - find a device given the target (UNLOCKED)
+ * @starget:	SCSI target pointer
+ * @lun:	SCSI Logical Unit Number
+ *
+ * Looks up the scsi_device with the specified @lun for a give
+ * @starget. The returned scsi_device does not have an additional
+ * reference.  You must hold the host's host_lock over this call and
+ * any access to the returned scsi_device.
+ *
+ * Note:  The only reason why drivers would want to use this is because
+ * they're need to access the device list in irq context.  Otherwise you
+ * really want to use scsi_device_lookup_by_target instead.
+ **/
+struct scsi_device *__scsi_device_lookup_by_target(struct scsi_target *starget,
+						   uint lun)
+{
+	struct scsi_device *sdev;
+
+	list_for_each_entry(sdev, &starget->devices, same_target_siblings) {
+		if (sdev->lun ==lun)
+			return sdev;
+	}
+
+	return NULL;
+}
+EXPORT_SYMBOL(__scsi_device_lookup_by_target);
+
+/**
+ * scsi_device_lookup_by_target - find a device given the target
+ * @starget:	SCSI target pointer
+ * @lun:	SCSI Logical Unit Number
+ *
+ * Looks up the scsi_device with the specified @channel, @id, @lun for a
+ * give host.  The returned scsi_device has an additional reference that
+ * needs to be release with scsi_host_put once you're done with it.
+ **/
+struct scsi_device *scsi_device_lookup_by_target(struct scsi_target *starget,
+						 uint lun)
+{
+	struct scsi_device *sdev;
+	struct Scsi_Host *shost = dev_to_shost(starget->dev.parent);
+	unsigned long flags;
+
+	spin_lock_irqsave(shost->host_lock, flags);
+	sdev = __scsi_device_lookup_by_target(starget, lun);
+	if (sdev && scsi_device_get(sdev))
+		sdev = NULL;
+	spin_unlock_irqrestore(shost->host_lock, flags);
+
+	return sdev;
+}
+EXPORT_SYMBOL(scsi_device_lookup_by_target);
+
+/**
  * scsi_device_lookup - find a device given the host (UNLOCKED)
  * @shost:	SCSI host pointer
  * @channel:	SCSI channel (zero if only one channel)

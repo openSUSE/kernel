@@ -416,6 +416,7 @@ struct Scsi_Host {
 	 * access this list directly from a driver.
 	 */
 	struct list_head	__devices;
+	struct list_head	__targets;
 	
 	struct scsi_host_cmd_pool *cmd_pool;
 	spinlock_t		free_list_lock;
@@ -553,11 +554,21 @@ struct Scsi_Host {
 	unsigned long hostdata[0]  /* Used for storage of host specific stuff */
 		__attribute__ ((aligned (sizeof(unsigned long))));
 };
-#define		dev_to_shost(d)		\
-	container_of(d, struct Scsi_Host, shost_gendev)
+
 #define		class_to_shost(d)	\
 	container_of(d, struct Scsi_Host, shost_classdev)
 
+int scsi_is_host_device(const struct device *);
+
+static inline struct Scsi_Host *dev_to_shost(struct device *dev)
+{
+	while (!scsi_is_host_device(dev)) {
+		if (!dev->parent)
+			return NULL;
+		dev = dev->parent;
+	}
+	return container_of(dev, struct Scsi_Host, shost_gendev);
+}
 
 extern struct Scsi_Host *scsi_host_alloc(struct scsi_host_template *, int);
 extern int __must_check scsi_add_host(struct Scsi_Host *, struct device *);
@@ -601,8 +612,6 @@ struct class_container;
  */
 extern void scsi_free_host_dev(struct scsi_device *);
 extern struct scsi_device *scsi_get_host_dev(struct Scsi_Host *);
-int scsi_is_host_device(const struct device *);
-
 
 /* legacy interfaces */
 extern struct Scsi_Host *scsi_register(struct scsi_host_template *, int);
