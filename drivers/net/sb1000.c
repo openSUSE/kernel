@@ -116,15 +116,15 @@ static inline int sb1000_start_get_set_command(const int ioaddr[],
 static inline int sb1000_end_get_set_command(const int ioaddr[],
 	const char* name);
 static inline int sb1000_activate(const int ioaddr[], const char* name);
-static inline int sb1000_get_firmware_version(const int ioaddr[],
+static int sb1000_get_firmware_version(const int ioaddr[],
 	const char* name, unsigned char version[], int do_end);
-static inline int sb1000_get_frequency(const int ioaddr[], const char* name,
+static int sb1000_get_frequency(const int ioaddr[], const char* name,
 	int* frequency);
-static inline int sb1000_set_frequency(const int ioaddr[], const char* name,
+static int sb1000_set_frequency(const int ioaddr[], const char* name,
 	int frequency);
-static inline int sb1000_get_PIDs(const int ioaddr[], const char* name,
+static int sb1000_get_PIDs(const int ioaddr[], const char* name,
 	short PID[]);
-static inline int sb1000_set_PIDs(const int ioaddr[], const char* name,
+static int sb1000_set_PIDs(const int ioaddr[], const char* name,
 	const short PID[]);
 
 /* SB1000 commands for frame rx interrupt */
@@ -552,7 +552,7 @@ sb1000_activate(const int ioaddr[], const char* name)
 }
 
 /* get SB1000 firmware version */
-static inline int
+static int
 sb1000_get_firmware_version(const int ioaddr[], const char* name,
 	unsigned char version[], int do_end)
 {
@@ -575,7 +575,7 @@ sb1000_get_firmware_version(const int ioaddr[], const char* name,
 }
 
 /* get SB1000 frequency */
-static inline int
+static int
 sb1000_get_frequency(const int ioaddr[], const char* name, int* frequency)
 {
 	unsigned char st[7];
@@ -592,7 +592,7 @@ sb1000_get_frequency(const int ioaddr[], const char* name, int* frequency)
 }
 
 /* set SB1000 frequency */
-static inline int
+static int
 sb1000_set_frequency(const int ioaddr[], const char* name, int frequency)
 {
 	unsigned char st[7];
@@ -622,7 +622,7 @@ sb1000_set_frequency(const int ioaddr[], const char* name, int frequency)
 }
 
 /* get SB1000 PIDs */
-static inline int
+static int
 sb1000_get_PIDs(const int ioaddr[], const char* name, short PID[])
 {
 	unsigned char st[7];
@@ -656,7 +656,7 @@ sb1000_get_PIDs(const int ioaddr[], const char* name, short PID[])
 }
 
 /* set SB1000 PIDs */
-static inline int
+static int
 sb1000_set_PIDs(const int ioaddr[], const char* name, const short PID[])
 {
 	unsigned char st[7];
