@@ -458,7 +458,7 @@ struct snd_stru_cmipci {
 	int opened[2];	/* open mode */
 	struct semaphore open_mutex;
 
-	int mixer_insensitive: 1;
+	unsigned int mixer_insensitive: 1;
 	snd_kcontrol_t *mixer_res_ctl[CM_SAVED_MIXERS];
 	int mixer_res_status[CM_SAVED_MIXERS];
 
@@ -2108,8 +2108,8 @@ typedef struct snd_cmipci_switch_args {
 	int reg;		/* register index */
 	unsigned int mask;	/* mask bits */
 	unsigned int mask_on;	/* mask bits to turn on */
-	int is_byte: 1;		/* byte access? */
-	int ac3_sensitive: 1;	/* access forbidden during non-audio operation? */
+	unsigned int is_byte: 1;		/* byte access? */
+	unsigned int ac3_sensitive: 1;	/* access forbidden during non-audio operation? */
 } snd_cmipci_switch_args_t;
 
 static int snd_cmipci_uswitch_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_info_t *uinfo)

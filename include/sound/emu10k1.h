@@ -849,7 +849,7 @@ typedef enum {
 struct _snd_emu10k1_voice {
 	emu10k1_t *emu;
 	int number;
-	int use: 1,
+	unsigned int use: 1,
 	    pcm: 1,
 	    efx: 1,
 	    synth: 1,
@@ -999,7 +999,7 @@ struct _snd_emu10k1 {
 	int irq;
 
 	unsigned long port;			/* I/O port number */
-	int APS: 1,				/* APS flag */
+	unsigned int APS: 1,			/* APS flag */
 	    no_ac97: 1,				/* no AC'97 */
 	    tos_link: 1,			/* tos link detected */
 	    rear_ac97: 1,			/* rear channels are on AC'97 */
