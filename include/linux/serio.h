@@ -51,6 +51,7 @@ struct serio {
 	struct semaphore drv_sem;	/* protects serio->drv so attributes can pin driver */
 
 	struct device dev;
+	unsigned int registered;	/* port has been fully registered with driver core */
 
 	struct list_head node;
 };
@@ -72,8 +73,6 @@ struct serio_driver {
 	void (*cleanup)(struct serio *);
 
 	struct device_driver driver;
-
-	struct list_head node;
 };
 #define to_serio_driver(d)	container_of(d, struct serio_driver, driver)
 
@@ -83,10 +82,18 @@ void serio_rescan(struct serio *serio);
 void serio_reconnect(struct serio *serio);
 irqreturn_t serio_interrupt(struct serio *serio, unsigned char data, unsigned int flags, struct pt_regs *regs);
 
-void serio_register_port(struct serio *serio);
-void serio_register_port_delayed(struct serio *serio);
+void __serio_register_port(struct serio *serio, struct module *owner);
+static inline void serio_register_port(struct serio *serio)
+{
+	__serio_register_port(serio, THIS_MODULE);
+}
+
 void serio_unregister_port(struct serio *serio);
-void serio_unregister_port_delayed(struct serio *serio);
+void __serio_unregister_port_delayed(struct serio *serio, struct module *owner);
+static inline void serio_unregister_port_delayed(struct serio *serio)
+{
+	__serio_unregister_port_delayed(serio, THIS_MODULE);
+}
 
 void serio_register_driver(struct serio_driver *drv);
 void serio_unregister_driver(struct serio_driver *drv);

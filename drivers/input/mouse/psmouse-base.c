@@ -694,6 +694,7 @@ static void psmouse_connect(struct serio *serio, struct serio_driver *drv)
 	memset(psmouse, 0, sizeof(struct psmouse));
 
 	ps2_init(&psmouse->ps2dev, serio);
+	sprintf(psmouse->phys, "%s/input0", serio->phys);
 	psmouse->dev.evbit[0] = BIT(EV_KEY) | BIT(EV_REL);
 	psmouse->dev.keybit[LONG(BTN_MOUSE)] = BIT(BTN_LEFT) | BIT(BTN_MIDDLE) | BIT(BTN_RIGHT);
 	psmouse->dev.relbit[0] = BIT(REL_X) | BIT(REL_Y);
@@ -729,8 +730,6 @@ static void psmouse_connect(struct serio *serio, struct serio_driver *drv)
 
 	sprintf(psmouse->devname, "%s %s %s",
 		psmouse_protocols[psmouse->type], psmouse->vendor, psmouse->name);
-	sprintf(psmouse->phys, "%s/input0",
-		serio->phys);
 
 	psmouse->dev.name = psmouse->devname;
 	psmouse->dev.phys = psmouse->phys;
@@ -753,14 +752,6 @@ static void psmouse_connect(struct serio *serio, struct serio_driver *drv)
 	device_create_file(&serio->dev, &psmouse_attr_rate);
 	device_create_file(&serio->dev, &psmouse_attr_resolution);
 	device_create_file(&serio->dev, &psmouse_attr_resetafter);
-
-	if (serio->child) {
-		/*
-		 * Nothing to be done here, serio core will detect that
-		 * the driver set serio->child and will register it for us.
-		 */
-		printk(KERN_INFO "serio: %s port at %s\n", serio->child->name, psmouse->phys);
-	}
 
 	psmouse_activate(psmouse);
 

@@ -296,7 +296,8 @@ static void synaptics_pt_create(struct psmouse *psmouse)
 
 	psmouse->pt_activate = synaptics_pt_activate;
 
-	psmouse->ps2dev.serio->child = serio;
+	printk(KERN_INFO "serio: %s port at %s\n", serio->name, psmouse->phys);
+	serio_register_port(serio);
 }
 
 /*****************************************************************************
@@ -552,6 +553,7 @@ static void synaptics_disconnect(struct psmouse *psmouse)
 {
 	synaptics_reset(psmouse);
 	kfree(psmouse->private);
+	psmouse->private = NULL;
 }
 
 static int synaptics_reconnect(struct psmouse *psmouse)
@@ -640,9 +642,6 @@ int synaptics_init(struct psmouse *psmouse)
 
 	priv->pkt_type = SYN_MODEL_NEWABS(priv->model_id) ? SYN_NEWABS : SYN_OLDABS;
 
-	if (SYN_CAP_PASS_THROUGH(priv->capabilities))
-		synaptics_pt_create(psmouse);
-
 	print_ident(priv);
 	set_input_params(&psmouse->dev, priv);
 
@@ -651,6 +650,9 @@ int synaptics_init(struct psmouse *psmouse)
 	psmouse->disconnect = synaptics_disconnect;
 	psmouse->reconnect = synaptics_reconnect;
 	psmouse->pktsize = 6;
+
+	if (SYN_CAP_PASS_THROUGH(priv->capabilities))
+		synaptics_pt_create(psmouse);
 
 #if defined(__i386__)
 	/*
