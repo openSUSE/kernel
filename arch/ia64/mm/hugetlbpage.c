@@ -244,7 +244,7 @@ void unmap_hugepage_range(struct vm_area_struct *vma, unsigned long start, unsig
 			continue;
 		page = pte_page(*pte);
 		put_page(page);
-		pte_clear(pte);
+		pte_clear(mm, address, pte);
 	}
 	mm->rss -= (end - start) >> PAGE_SHIFT;
 	flush_tlb_range(vma, start, end);

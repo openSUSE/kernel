@@ -33,11 +33,7 @@
 #include <linux/sctp.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
-
-#define ASSERT_READ_LOCK(x) 
-#define ASSERT_WRITE_LOCK(x) 
-#include <linux/netfilter_ipv4/lockhelp.h>
-#include <linux/netfilter_ipv4/listhelp.h>
+#include <linux/list.h>
 
 #include <linux/netfilter_ipv4/ip_tables.h>
 #include <linux/netfilter_ipv4/ipt_hashlimit.h>
@@ -67,7 +63,7 @@ struct dsthash_dst {
 
 struct dsthash_ent {
 	/* static / read-only parts in the beginning */
-	struct list_head list;
+	struct hlist_node node;
 	struct dsthash_dst dst;
 
 	/* modified structure members in the end */
@@ -80,7 +76,7 @@ struct dsthash_ent {
 };
 
 struct ipt_hashlimit_htable {
-	struct list_head list;		/* global list of all htables */
+	struct hlist_node node;		/* global list of all htables */
 	atomic_t use;
 
 	struct hashlimit_cfg cfg;	/* config */
@@ -94,12 +90,12 @@ struct ipt_hashlimit_htable {
 	/* seq_file stuff */
 	struct proc_dir_entry *pde;
 
-	struct list_head hash[0];	/* hashtable itself */
+	struct hlist_head hash[0];	/* hashtable itself */
 };
 
-static DECLARE_RWLOCK(hashlimit_lock);	/* protects htables list */
+static DECLARE_LOCK(hashlimit_lock);	/* protects htables list */
 static DECLARE_MUTEX(hlimit_mutex);	/* additional checkentry protection */
-static LIST_HEAD(hashlimit_htables);
+static HLIST_HEAD(hashlimit_htables);
 static kmem_cache_t *hashlimit_cachep;
 
 static inline int dst_cmp(const struct dsthash_ent *ent, struct dsthash_dst *b)
@@ -120,9 +116,17 @@ hash_dst(const struct ipt_hashlimit_htable *ht, const struct dsthash_dst *dst)
 static inline struct dsthash_ent *
 __dsthash_find(const struct ipt_hashlimit_htable *ht, struct dsthash_dst *dst)
 {
-	struct dsthash_ent *ent;
+	struct dsthash_ent *ent = NULL;
+	struct hlist_node *pos;
 	u_int32_t hash = hash_dst(ht, dst);
-	ent = LIST_FIND(&ht->hash[hash], dst_cmp, struct dsthash_ent *, dst);
+
+	if (!hlist_empty(&ht->hash[hash]))
+		hlist_for_each_entry(ent, pos, &ht->hash[hash], node) {
+			if (dst_cmp(ent, dst)) {
+				break;
+			}
+		}
+	
 	return ent;
 }
 
@@ -162,7 +166,7 @@ __dsthash_alloc_init(struct ipt_hashlimit_htable *ht, struct dsthash_dst *dst)
 	ent->dst.src_ip = dst->src_ip;
 	ent->dst.src_port = dst->src_port;
 
-	list_add(&ent->list, &ht->hash[hash_dst(ht, dst)]);
+	hlist_add_head(&ent->node, &ht->hash[hash_dst(ht, dst)]);
 
 	return ent;
 }
@@ -170,7 +174,7 @@ __dsthash_alloc_init(struct ipt_hashlimit_htable *ht, struct dsthash_dst *dst)
 static inline void 
 __dsthash_free(struct ipt_hashlimit_htable *ht, struct dsthash_ent *ent)
 {
-	list_del(&ent->list);
+	hlist_del(&ent->node);
 	kmem_cache_free(hashlimit_cachep, ent);
 	atomic_dec(&ht->count);
 }
@@ -210,7 +214,7 @@ static int htable_create(struct ipt_hashlimit_info *minfo)
 		hinfo->cfg.max = hinfo->cfg.size;
 
 	for (i = 0; i < hinfo->cfg.size; i++)
-		INIT_LIST_HEAD(&hinfo->hash[i]);
+		INIT_HLIST_HEAD(&hinfo->hash[i]);
 
 	atomic_set(&hinfo->count, 0);
 	atomic_set(&hinfo->use, 1);
@@ -230,9 +234,9 @@ static int htable_create(struct ipt_hashlimit_info *minfo)
 	hinfo->timer.function = htable_gc;
 	add_timer(&hinfo->timer);
 
-	WRITE_LOCK(&hashlimit_lock);
-	list_add(&hinfo->list, &hashlimit_htables);
-	WRITE_UNLOCK(&hashlimit_lock);
+	LOCK_BH(&hashlimit_lock);
+	hlist_add_head(&hinfo->node, &hashlimit_htables);
+	UNLOCK_BH(&hashlimit_lock);
 
 	return 0;
 }
@@ -258,8 +262,9 @@ static void htable_selective_cleanup(struct ipt_hashlimit_htable *ht,
 	/* lock hash table and iterate over it */
 	spin_lock_bh(&ht->lock);
 	for (i = 0; i < ht->cfg.size; i++) {
-		struct dsthash_ent *dh, *n;
-		list_for_each_entry_safe(dh, n, &ht->hash[i], list) {
+		struct dsthash_ent *dh;
+		struct hlist_node *pos, *n;
+		hlist_for_each_entry_safe(dh, pos, n, &ht->hash[i], node) {
 			if ((*select)(ht, dh))
 				__dsthash_free(ht, dh);
 		}
@@ -295,16 +300,17 @@ static void htable_destroy(struct ipt_hashlimit_htable *hinfo)
 static struct ipt_hashlimit_htable *htable_find_get(char *name)
 {
 	struct ipt_hashlimit_htable *hinfo;
+	struct hlist_node *pos;
 
-	READ_LOCK(&hashlimit_lock);
-	list_for_each_entry(hinfo, &hashlimit_htables, list) {
+	LOCK_BH(&hashlimit_lock);
+	hlist_for_each_entry(hinfo, pos, &hashlimit_htables, node) {
 		if (!strcmp(name, hinfo->pde->name)) {
 			atomic_inc(&hinfo->use);
-			READ_UNLOCK(&hashlimit_lock);
+			UNLOCK_BH(&hashlimit_lock);
 			return hinfo;
 		}
 	}
-	READ_UNLOCK(&hashlimit_lock);
+	UNLOCK_BH(&hashlimit_lock);
 
 	return NULL;
 }
@@ -312,9 +318,9 @@ static struct ipt_hashlimit_htable *htable_find_get(char *name)
 static void htable_put(struct ipt_hashlimit_htable *hinfo)
 {
 	if (atomic_dec_and_test(&hinfo->use)) {
-		WRITE_LOCK(&hashlimit_lock);
-		list_del(&hinfo->list);
-		WRITE_UNLOCK(&hashlimit_lock);
+		LOCK_BH(&hashlimit_lock);
+		hlist_del(&hinfo->node);
+		UNLOCK_BH(&hashlimit_lock);
 		htable_destroy(hinfo);
 	}
 }
@@ -631,12 +637,17 @@ static int dl_seq_show(struct seq_file *s, void *v)
 	struct proc_dir_entry *pde = s->private;
 	struct ipt_hashlimit_htable *htable = pde->data;
 	unsigned int *bucket = (unsigned int *)v;
+	struct dsthash_ent *ent;
+	struct hlist_node *pos;
 
-	if (LIST_FIND_W(&htable->hash[*bucket], dl_seq_real_show,
-		      struct dsthash_ent *, s)) {
-		/* buffer was filled and unable to print that tuple */
-		return 1;
-	}
+	if (!hlist_empty(&htable->hash[*bucket]))
+		hlist_for_each_entry(ent, pos, &htable->hash[*bucket], node) {
+			if (dl_seq_real_show(ent, s)) {
+				/* buffer was filled and unable to print that tuple */
+				return 1;
+			}
+		}
+	
 	return 0;
 }
 

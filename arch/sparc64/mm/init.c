@@ -431,7 +431,8 @@ static void inherit_prom_mappings(void)
 				if (tlb_type == spitfire)
 					val &= ~0x0003fe0000000000UL;
 
-				set_pte (ptep, __pte(val | _PAGE_MODIFIED));
+				set_pte_at(&init_mm, vaddr,
+					   ptep, __pte(val | _PAGE_MODIFIED));
 				trans[i].data += BASE_PAGE_SIZE;
 			}
 		}

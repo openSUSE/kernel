@@ -146,6 +146,20 @@ struct skb_shared_info {
 	skb_frag_t	frags[MAX_SKB_FRAGS];
 };
 
+/* We divide dataref into two halves.  The higher 16 bits hold references
+ * to the payload part of skb->data.  The lower 16 bits hold references to
+ * the entire skb->data.  It is up to the users of the skb to agree on
+ * where the payload starts.
+ *
+ * All users must obey the rule that the skb->data reference count must be
+ * greater than or equal to the payload reference count.
+ *
+ * Holding a reference to the payload part means that the user does not
+ * care about modifications to the header part of skb->data.
+ */
+#define SKB_DATAREF_SHIFT 16
+#define SKB_DATAREF_MASK ((1 << SKB_DATAREF_SHIFT) - 1)
+
 /** 
  *	struct sk_buff - socket buffer
  *	@next: Next buffer in list
@@ -167,6 +181,7 @@ struct skb_shared_info {
  *	@csum: Checksum
  *	@__unused: Dead field, may be reused
  *	@cloned: Head may be cloned (check refcnt to be sure)
+ *	@nohdr: Payload reference only, must not modify header
  *	@pkt_type: Packet class
  *	@ip_summed: Driver fed us an IP checksum
  *	@priority: Packet queueing priority
@@ -238,7 +253,8 @@ struct sk_buff {
 				mac_len,
 				csum;
 	unsigned char		local_df,
-				cloned,
+				cloned:1,
+				nohdr:1,
 				pkt_type,
 				ip_summed;
 	__u32			priority;
@@ -370,7 +386,42 @@ static inline void kfree_skb(struct sk_buff *skb)
  */
 static inline int skb_cloned(const struct sk_buff *skb)
 {
-	return skb->cloned && atomic_read(&skb_shinfo(skb)->dataref) != 1;
+	return skb->cloned &&
+	       (atomic_read(&skb_shinfo(skb)->dataref) & SKB_DATAREF_MASK) != 1;
+}
+
+/**
+ *	skb_header_cloned - is the header a clone
+ *	@skb: buffer to check
+ *
+ *	Returns true if modifying the header part of the buffer requires
+ *	the data to be copied.
+ */
+static inline int skb_header_cloned(const struct sk_buff *skb)
+{
+	int dataref;
+
+	if (!skb->cloned)
+		return 0;
+
+	dataref = atomic_read(&skb_shinfo(skb)->dataref);
+	dataref = (dataref & SKB_DATAREF_MASK) - (dataref >> SKB_DATAREF_SHIFT);
+	return dataref != 1;
+}
+
+/**
+ *	skb_header_release - release reference to header
+ *	@skb: buffer to operate on
+ *
+ *	Drop a reference to the header part of the buffer.  This is done
+ *	by acquiring a payload reference.  You must not read from the header
+ *	part of skb->data after this.
+ */
+static inline void skb_header_release(struct sk_buff *skb)
+{
+	BUG_ON(skb->nohdr);
+	skb->nohdr = 1;
+	atomic_add(1 << SKB_DATAREF_SHIFT, &skb_shinfo(skb)->dataref);
 }
 
 /**

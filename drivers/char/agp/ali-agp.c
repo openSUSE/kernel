@@ -139,9 +139,9 @@ static void m1541_cache_flush(void)
 	}
 }
 
-static void *m1541_alloc_page(void)
+static void *m1541_alloc_page(struct agp_bridge_data *bridge)
 {
-	void *addr = agp_generic_alloc_page();
+	void *addr = agp_generic_alloc_page(agp_bridge);
 	u32 temp;
 
 	if (!addr)
@@ -398,7 +398,7 @@ static int __init agp_ali_init(void)
 {
 	if (agp_off)
 		return -EINVAL;
-	return pci_module_init(&agp_ali_pci_driver);
+	return pci_register_driver(&agp_ali_pci_driver);
 }
 
 static void __exit agp_ali_cleanup(void)

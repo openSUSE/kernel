@@ -262,7 +262,7 @@ extern struct page *empty_zero_page;
 #define pfn_pte(pfn,prot)	(__pte(((pfn) << PAGE_SHIFT) | pgprot_val(prot)))
 
 #define pte_none(pte)		(!pte_val(pte))
-#define pte_clear(ptep)		set_pte((ptep), __pte(0))
+#define pte_clear(mm,addr,ptep)	set_pte_at((mm),(addr),(ptep), __pte(0))
 #define pte_page(pte)		(pfn_to_page(pte_pfn(pte)))
 #define pte_offset_kernel(dir,addr)	(pmd_page_kernel(*(dir)) + __pte_index(addr))
 #define pte_offset_map(dir,addr)	(pmd_page_kernel(*(dir)) + __pte_index(addr))
@@ -271,6 +271,7 @@ extern struct page *empty_zero_page;
 #define pte_unmap_nested(pte)	do { } while (0)
 
 #define set_pte(ptep, pte)	cpu_set_pte(ptep,pte)
+#define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
 
 /*
  * The following only work if pte_present() is true.
@@ -315,12 +316,6 @@ PTE_BIT_FUNC(mkyoung,   |= L_PTE_YOUNG);
 #define pmd_none(pmd)		(!pmd_val(pmd))
 #define pmd_present(pmd)	(pmd_val(pmd))
 #define pmd_bad(pmd)		(pmd_val(pmd) & 2)
-
-#define set_pmd(pmdp,pmd)		\
-	do {				\
-		*(pmdp) = pmd;		\
-		flush_pmd_entry(pmdp);	\
-	} while (0)
 
 #define copy_pmd(pmdpd,pmdps)		\
 	do {				\

@@ -122,6 +122,7 @@ static void lec_handle_bridge(struct sk_buff *skb, struct net_device *dev)
         eth = (struct ethhdr *)skb->data;
         buff = skb->data + skb->dev->hard_header_len;
         if (*buff++ == 0x42 && *buff++ == 0x42 && *buff++ == 0x03) {
+		struct sock *sk;
                 struct sk_buff *skb2;
                 struct atmlec_msg *mesg;
 
@@ -135,8 +136,9 @@ static void lec_handle_bridge(struct sk_buff *skb, struct net_device *dev)
 
                 priv = (struct lec_priv *)dev->priv;
                 atm_force_charge(priv->lecd, skb2->truesize);
-                skb_queue_tail(&priv->lecd->sk->sk_receive_queue, skb2);
-                priv->lecd->sk->sk_data_ready(priv->lecd->sk, skb2->len);
+		sk = sk_atm(priv->lecd);
+                skb_queue_tail(&sk->sk_receive_queue, skb2);
+                sk->sk_data_ready(sk, skb2->len);
         }
 
         return;
@@ -214,7 +216,7 @@ lec_send(struct atm_vcc *vcc, struct sk_buff *skb, struct lec_priv *priv)
 	ATM_SKB(skb)->vcc = vcc;
 	ATM_SKB(skb)->atm_options = vcc->atm_options;
 
-	atomic_add(skb->truesize, &vcc->sk->sk_wmem_alloc);
+	atomic_add(skb->truesize, &sk_atm(vcc)->sk_wmem_alloc);
 	if (vcc->send(vcc, skb) < 0) {
 		priv->stats.tx_dropped++;
 		return;
@@ -430,7 +432,7 @@ lec_atm_send(struct atm_vcc *vcc, struct sk_buff *skb)
         int i;
         char *tmp; /* FIXME */
 
-	atomic_sub(skb->truesize, &vcc->sk->sk_wmem_alloc);
+	atomic_sub(skb->truesize, &sk_atm(vcc)->sk_wmem_alloc);
         mesg = (struct atmlec_msg *)skb->data;
         tmp = skb->data;
         tmp += sizeof(struct atmlec_msg);
@@ -528,6 +530,7 @@ lec_atm_send(struct atm_vcc *vcc, struct sk_buff *skb)
                     f->dst->state == BR_STATE_FORWARDING) {
                                 /* hit from bridge table, send LE_ARP_RESPONSE */
                         struct sk_buff *skb2;
+			struct sock *sk;
 
                         DPRINTK("%s: entry found, responding to zeppelin\n", dev->name);
                         skb2 = alloc_skb(sizeof(struct atmlec_msg), GFP_ATOMIC);
@@ -538,8 +541,9 @@ lec_atm_send(struct atm_vcc *vcc, struct sk_buff *skb)
                         skb2->len = sizeof(struct atmlec_msg);
                         memcpy(skb2->data, mesg, sizeof(struct atmlec_msg));
                         atm_force_charge(priv->lecd, skb2->truesize);
-                        skb_queue_tail(&priv->lecd->sk->sk_receive_queue, skb2);
-                        priv->lecd->sk->sk_data_ready(priv->lecd->sk, skb2->len);
+			sk = sk_atm(priv->lecd);
+                        skb_queue_tail(&sk->sk_receive_queue, skb2);
+                        sk->sk_data_ready(sk, skb2->len);
                 }
                 if (f != NULL) br_fdb_put_hook(f);
 #endif /* defined(CONFIG_BRIDGE) || defined(CONFIG_BRIDGE_MODULE) */
@@ -567,10 +571,10 @@ lec_atm_close(struct atm_vcc *vcc)
         netif_stop_queue(dev);
         lec_arp_destroy(priv);
 
-        if (skb_peek(&vcc->sk->sk_receive_queue))
+        if (skb_peek(&sk_atm(vcc)->sk_receive_queue))
 		printk("%s lec_atm_close: closing with messages pending\n",
                        dev->name);
-        while ((skb = skb_dequeue(&vcc->sk->sk_receive_queue)) != NULL) {
+        while ((skb = skb_dequeue(&sk_atm(vcc)->sk_receive_queue)) != NULL) {
                 atm_return(vcc, skb->truesize);
 		dev_kfree_skb(skb);
         }
@@ -600,6 +604,7 @@ send_to_lecd(struct lec_priv *priv, atmlec_msg_type type,
              unsigned char *mac_addr, unsigned char *atm_addr,
              struct sk_buff *data)
 {
+	struct sock *sk;
 	struct sk_buff *skb;
 	struct atmlec_msg *mesg;
 
@@ -623,14 +628,15 @@ send_to_lecd(struct lec_priv *priv, atmlec_msg_type type,
 		memcpy(&mesg->content.normal.atm_addr, atm_addr, ATM_ESA_LEN);
 
         atm_force_charge(priv->lecd, skb->truesize);
-	skb_queue_tail(&priv->lecd->sk->sk_receive_queue, skb);
-        priv->lecd->sk->sk_data_ready(priv->lecd->sk, skb->len);
+	sk = sk_atm(priv->lecd);
+	skb_queue_tail(&sk->sk_receive_queue, skb);
+        sk->sk_data_ready(sk, skb->len);
 
         if (data != NULL) {
                 DPRINTK("lec: about to send %d bytes of data\n", data->len);
                 atm_force_charge(priv->lecd, data->truesize);
-                skb_queue_tail(&priv->lecd->sk->sk_receive_queue, data);
-                priv->lecd->sk->sk_data_ready(priv->lecd->sk, skb->len);
+                skb_queue_tail(&sk->sk_receive_queue, data);
+                sk->sk_data_ready(sk, skb->len);
         }
 
         return 0;
@@ -711,9 +717,11 @@ lec_push(struct atm_vcc *vcc, struct sk_buff *skb)
                 printk("%s...\n",buf);
 #endif /* DUMP_PACKETS > 0 */
         if (memcmp(skb->data, lec_ctrl_magic, 4) ==0) { /* Control frame, to daemon*/
+		struct sock *sk = sk_atm(vcc);
+
                 DPRINTK("%s: To daemon\n",dev->name);
-                skb_queue_tail(&vcc->sk->sk_receive_queue, skb);
-                vcc->sk->sk_data_ready(vcc->sk, skb->len);
+                skb_queue_tail(&sk->sk_receive_queue, skb);
+                sk->sk_data_ready(sk, skb->len);
         } else { /* Data frame, queue to protocol handlers */
                 unsigned char *dst;
 
@@ -866,7 +874,7 @@ lecd_attach(struct atm_vcc *vcc, int arg)
 	priv->itfnum = i;  /* LANE2 addition */
         priv->lecd = vcc;
         vcc->dev = &lecatm_dev;
-        vcc_insert_socket(vcc->sk);
+        vcc_insert_socket(sk_atm(vcc));
         
         vcc->proto_data = dev_lec[i];
 	set_bit(ATM_VF_META,&vcc->flags);

@@ -789,7 +789,7 @@ static int __init pci_iommu_init(void)
 	/* Add other K8 AGP bridge drivers here */
 	no_agp = no_agp || 
 		(agp_amd64_init() < 0) || 
-		(agp_copy_info(&info) < 0); 
+		(agp_copy_info(agp_bridge, &info) < 0);
 #endif	
 
 	if (swiotlb) { 

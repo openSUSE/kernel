@@ -93,15 +93,15 @@ static struct {
 } TxStat;
 #endif
 
-static int nTxBlock = 512;	/* number of transaction blocks */
+static int nTxBlock = -1;	/* number of transaction blocks */
 module_param(nTxBlock, int, 0);
 MODULE_PARM_DESC(nTxBlock,
-		 "Number of transaction blocks (default:512, max:65536)");
+		 "Number of transaction blocks (max:65536)");
 
-static int nTxLock = 4096;	/* number of transaction locks */
+static int nTxLock = -1;	/* number of transaction locks */
 module_param(nTxLock, int, 0);
 MODULE_PARM_DESC(nTxLock,
-		 "Number of transaction locks (default:4096, max:65536)");
+		 "Number of transaction locks (max:65536)");
 
 struct tblock *TxBlock;	        /* transaction block table */
 static int TxLockLWM;		/* Low water mark for number of txLocks used */
@@ -124,6 +124,7 @@ static DEFINE_SPINLOCK(jfsTxnLock);
 
 DECLARE_WAIT_QUEUE_HEAD(jfs_sync_thread_wait);
 DECLARE_WAIT_QUEUE_HEAD(jfs_commit_thread_wait);
+static int jfs_commit_thread_waking;
 
 /*
  * Retry logic exist outside these macros to protect from spurrious wakeups.
@@ -249,6 +250,25 @@ static void txLockFree(lid_t lid)
 int txInit(void)
 {
 	int k, size;
+	struct sysinfo si;
+
+	/* Set defaults for nTxLock and nTxBlock if unset */
+
+	if (nTxLock == -1) {
+		if (nTxBlock == -1) {
+			/* Base default on memory size */
+			si_meminfo(&si);
+			if (si.totalram > (256 * 1024)) /* 1 GB */
+				nTxLock = 64 * 1024;
+			else
+				nTxLock = si.totalram >> 2;
+		} else if (nTxBlock > (8 * 1024))
+			nTxLock = 64 * 1024;
+		else
+			nTxLock = nTxBlock << 3;
+	}
+	if (nTxBlock == -1)
+		nTxBlock = nTxLock >> 3;
 
 	/* Verify tunable parameters */
 	if (nTxBlock < 16)
@@ -259,6 +279,9 @@ int txInit(void)
 		nTxLock = 256;	/* No one should set it this low */
 	if (nTxLock > 65536)
 		nTxLock = 65536;
+
+	printk(KERN_INFO "JFS: nTxBlock = %d, nTxLock = %d\n",
+	       nTxBlock, nTxLock);
 	/*
 	 * initialize transaction block (tblock) table
 	 *
@@ -266,8 +289,8 @@ int txInit(void)
 	 * tid = 0 is reserved.
 	 */
 	TxLockLWM = (nTxLock * 4) / 10;
-	TxLockHWM = (nTxLock * 8) / 10;
-	TxLockVHWM = (nTxLock * 9) / 10;
+	TxLockHWM = (nTxLock * 7) / 10;
+	TxLockVHWM = (nTxLock * 8) / 10;
 
 	size = sizeof(struct tblock) * nTxBlock;
 	TxBlock = (struct tblock *) vmalloc(size);
@@ -2732,6 +2755,7 @@ int jfs_lazycommit(void *arg)
 
 	do {
 		LAZY_LOCK(flags);
+		jfs_commit_thread_waking = 0;	/* OK to wake another thread */
 		while (!list_empty(&TxAnchor.unlock_queue)) {
 			WorkDone = 0;
 			list_for_each_entry(tblk, &TxAnchor.unlock_queue,
@@ -2804,10 +2828,13 @@ void txLazyUnlock(struct tblock * tblk)
 	list_add_tail(&tblk->cqueue, &TxAnchor.unlock_queue);
 	/*
 	 * Don't wake up a commit thread if there is already one servicing
-	 * this superblock.
+	 * this superblock, or if the last one we woke up hasn't started yet.
 	 */
-	if (!(JFS_SBI(tblk->sb)->commit_state & IN_LAZYCOMMIT))
+	if (!(JFS_SBI(tblk->sb)->commit_state & IN_LAZYCOMMIT) &&
+	    !jfs_commit_thread_waking) {
+		jfs_commit_thread_waking = 1;
 		wake_up(&jfs_commit_thread_wait);
+	}
 	LAZY_UNLOCK(flags);
 }
 

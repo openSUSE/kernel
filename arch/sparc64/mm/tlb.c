@@ -41,24 +41,12 @@ void flush_tlb_pending(void)
 	}
 }
 
-void tlb_batch_add(pte_t *ptep, pte_t orig)
+void tlb_batch_add(struct mm_struct *mm, unsigned long vaddr, pte_t *ptep, pte_t orig)
 {
 	struct mmu_gather *mp = &__get_cpu_var(mmu_gathers);
-	struct page *ptepage;
-	struct mm_struct *mm;
-	unsigned long vaddr, nr;
+	unsigned long nr;
 
-	ptepage = virt_to_page(ptep);
-	mm = (struct mm_struct *) ptepage->mapping;
-
-	/* It is more efficient to let flush_tlb_kernel_range()
-	 * handle these cases.
-	 */
-	if (mm == &init_mm)
-		return;
-
-	vaddr = ptepage->index +
-		(((unsigned long)ptep & ~PAGE_MASK) * PTRS_PER_PTE);
+	vaddr &= PAGE_MASK;
 	if (pte_exec(orig))
 		vaddr |= 0x1UL;
 

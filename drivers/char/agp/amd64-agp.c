@@ -106,7 +106,8 @@ static int amd64_insert_memory(struct agp_memory *mem, off_t pg_start, int type)
 	}
 
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
-		tmp = agp_bridge->driver->mask_memory(mem->memory[i], mem->type);
+		tmp = agp_bridge->driver->mask_memory(agp_bridge,
+			mem->memory[i], mem->type);
 
 		BUG_ON(tmp & 0xffffff0000000ffcULL);
 		pte = (tmp & 0x000000ff00000000ULL) >> 28;
@@ -709,7 +710,7 @@ int __init agp_amd64_init(void)
 
 	if (agp_off)
 		return -EINVAL;
-	if (pci_module_init(&agp_amd64_pci_driver) > 0) {
+	if (pci_register_driver(&agp_amd64_pci_driver) > 0) {
 		struct pci_dev *dev;
 		if (!agp_try_unsupported && !agp_try_unsupported_boot) {
 			printk(KERN_INFO PFX "No supported AGP bridge found.\n");

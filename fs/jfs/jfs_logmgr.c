@@ -67,6 +67,7 @@
 #include <linux/buffer_head.h>		/* for sync_blockdev() */
 #include <linux/bio.h>
 #include <linux/suspend.h>
+#include <linux/delay.h>
 #include "jfs_incore.h"
 #include "jfs_filsys.h"
 #include "jfs_metapage.h"
@@ -1612,8 +1613,7 @@ void jfs_flush_journal(struct jfs_log *log, int wait)
 	 */
 	if ((!list_empty(&log->cqueue)) || !list_empty(&log->synclist)) {
 		for (i = 0; i < 800; i++) {	/* Too much? */
-			current->state = TASK_INTERRUPTIBLE;
-			schedule_timeout(HZ / 4);
+			msleep(250);
 			if (list_empty(&log->cqueue) &&
 			    list_empty(&log->synclist))
 				break;

@@ -573,31 +573,6 @@ static void sh64_dcache_purge_phy_page(unsigned long paddr)
 	}
 }
 
-static void sh64_dcache_purge_virt_page(struct mm_struct *mm, unsigned long eaddr)
-{
-	unsigned long phys;
-	pgd_t *pgd;
-	pmd_t *pmd;
-	pte_t *pte;
-	pte_t entry;
-
-	pgd = pgd_offset(mm, eaddr);
-	pmd = pmd_offset(pgd, eaddr);
-
-	if (pmd_none(*pmd) || pmd_bad(*pmd))
-		return;
-
-	pte = pte_offset_kernel(pmd, eaddr);
-	entry = *pte;
-
-	if (pte_none(entry) || !pte_present(entry))
-		return;
-
-	phys = pte_val(entry) & PAGE_MASK;
-
-	sh64_dcache_purge_phy_page(phys);
-}
-
 static void sh64_dcache_purge_user_page(struct mm_struct *mm, unsigned long eaddr)
 {
 	pgd_t *pgd;
@@ -904,7 +879,7 @@ void flush_cache_range(struct vm_area_struct *vma, unsigned long start,
 
 /****************************************************************************/
 
-void flush_cache_page(struct vm_area_struct *vma, unsigned long eaddr)
+void flush_cache_page(struct vm_area_struct *vma, unsigned long eaddr, unsigned long pfn)
 {
 	/* Invalidate any entries in either cache for the vma within the user
 	   address space vma->vm_mm for the page starting at virtual address
@@ -915,7 +890,7 @@ void flush_cache_page(struct vm_area_struct *vma, unsigned long eaddr)
 	   Note(1), this is called with mm->page_table_lock held.
 	   */
 
-	sh64_dcache_purge_virt_page(vma->vm_mm, eaddr);
+	sh64_dcache_purge_phy_page(pfn << PAGE_SHIFT);
 
 	if (vma->vm_flags & VM_EXEC) {
 		sh64_icache_inv_user_page(vma, eaddr);

@@ -79,6 +79,19 @@ config CRYPTO_WP512
 	  See also:
 	  <http://planeta.terra.com.br/informatica/paulobarreto/WhirlpoolPage.html>
 
+config CRYPTO_TGR192
+	tristate "Tiger digest algorithms"
+	depends on CRYPTO
+	help
+	  Tiger hash algorithm 192, 160 and 128-bit hashes
+
+	  Tiger is a hash function optimized for 64-bit processors while
+	  still having decent performance on 32-bit processors.
+	  Tiger was developed by Ross Anderson and Eli Biham.
+
+	  See also:
+	  <http://www.cs.technion.ac.il/~biham/Reports/Tiger/>.
+
 config CRYPTO_DES
 	tristate "DES and Triple DES EDE cipher algorithms"
 	depends on CRYPTO

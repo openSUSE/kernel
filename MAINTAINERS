@@ -457,6 +457,11 @@ P:	Marcel Holtmann
 M:	marcel@holtmann.org
 S:	Maintained
 
+BLUETOOTH HCI BPA10X DRIVER
+P:	Marcel Holtmann
+M:	marcel@holtmann.org
+S:	Maintained
+
 BLUETOOTH HCI BFUSB DRIVER
 P:	Marcel Holtmann
 M:	marcel@holtmann.org
@@ -1247,8 +1252,8 @@ S:	Maintained
 JFS FILESYSTEM
 P:	Dave Kleikamp
 M:	shaggy@austin.ibm.com
-L:	jfs-discussion@oss.software.ibm.com
-W:	http://oss.software.ibm.com/jfs/
+L:	jfs-discussion@lists.sourceforge.net
+W:	http://jfs.sourceforge.net/
 S:	Supported
 
 KCONFIG
