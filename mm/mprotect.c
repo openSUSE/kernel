@@ -30,7 +30,7 @@ change_pte_range(struct mm_struct *mm, pmd_t *pmd, unsigned long address,
 		unsigned long size, pgprot_t newprot)
 {
 	pte_t * pte;
-	unsigned long end;
+	unsigned long base, end;
 
 	if (pmd_none(*pmd))
 		return;
@@ -40,6 +40,7 @@ change_pte_range(struct mm_struct *mm, pmd_t *pmd, unsigned long address,
 		return;
 	}
 	pte = pte_offset_map(pmd, address);
+	base = address & PMD_MASK;
 	address &= ~PMD_MASK;
 	end = address + size;
 	if (end > PMD_SIZE)
@@ -52,8 +53,8 @@ change_pte_range(struct mm_struct *mm, pmd_t *pmd, unsigned long address,
 			 * bits by wiping the pte and then setting the new pte
 			 * into place.
 			 */
-			entry = ptep_get_and_clear(mm, address, pte);
-			set_pte_at(mm, address, pte, pte_modify(entry, newprot));
+			entry = ptep_get_and_clear(mm, base + address, pte);
+			set_pte_at(mm, base + address, pte, pte_modify(entry, newprot));
 		}
 		address += PAGE_SIZE;
 		pte++;
@@ -66,7 +67,7 @@ change_pmd_range(struct mm_struct *mm, pud_t *pud, unsigned long address,
 		 unsigned long size, pgprot_t newprot)
 {
 	pmd_t * pmd;
-	unsigned long end;
+	unsigned long base, end;
 
 	if (pud_none(*pud))
 		return;
@@ -76,12 +77,13 @@ change_pmd_range(struct mm_struct *mm, pud_t *pud, unsigned long address,
 		return;
 	}
 	pmd = pmd_offset(pud, address);
+	base = address & PUD_MASK;
 	address &= ~PUD_MASK;
 	end = address + size;
 	if (end > PUD_SIZE)
 		end = PUD_SIZE;
 	do {
-		change_pte_range(mm, pmd, address, end - address, newprot);
+		change_pte_range(mm, pmd, base + address, end - address, newprot);
 		address = (address + PMD_SIZE) & PMD_MASK;
 		pmd++;
 	} while (address && (address < end));
@@ -92,7 +94,7 @@ change_pud_range(struct mm_struct *mm, pgd_t *pgd, unsigned long address,
 		 unsigned long size, pgprot_t newprot)
 {
 	pud_t * pud;
-	unsigned long end;
+	unsigned long base, end;
 
 	if (pgd_none(*pgd))
 		return;
@@ -102,12 +104,13 @@ change_pud_range(struct mm_struct *mm, pgd_t *pgd, unsigned long address,
 		return;
 	}
 	pud = pud_offset(pgd, address);
+	base = address & PGDIR_MASK;
 	address &= ~PGDIR_MASK;
 	end = address + size;
 	if (end > PGDIR_SIZE)
 		end = PGDIR_SIZE;
 	do {
-		change_pmd_range(mm, pud, address, end - address, newprot);
+		change_pmd_range(mm, pud, base + address, end - address, newprot);
 		address = (address + PUD_SIZE) & PUD_MASK;
 		pud++;
 	} while (address && (address < end));

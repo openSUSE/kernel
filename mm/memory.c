@@ -992,16 +992,17 @@ static void zeromap_pte_range(struct mm_struct *mm, pte_t * pte,
 			      unsigned long address,
 			      unsigned long size, pgprot_t prot)
 {
-	unsigned long end;
+	unsigned long base, end;
 
+	base = address & PMD_MASK;
 	address &= ~PMD_MASK;
 	end = address + size;
 	if (end > PMD_SIZE)
 		end = PMD_SIZE;
 	do {
-		pte_t zero_pte = pte_wrprotect(mk_pte(ZERO_PAGE(address), prot));
+		pte_t zero_pte = pte_wrprotect(mk_pte(ZERO_PAGE(base+address), prot));
 		BUG_ON(!pte_none(*pte));
-		set_pte_at(mm, address, pte, zero_pte);
+		set_pte_at(mm, base+address, pte, zero_pte);
 		address += PAGE_SIZE;
 		pte++;
 	} while (address && (address < end));
@@ -1106,8 +1107,9 @@ remap_pte_range(struct mm_struct *mm, pte_t * pte,
 		unsigned long address, unsigned long size,
 		unsigned long pfn, pgprot_t prot)
 {
-	unsigned long end;
+	unsigned long base, end;
 
+	base = address & PMD_MASK;
 	address &= ~PMD_MASK;
 	end = address + size;
 	if (end > PMD_SIZE)
@@ -1115,7 +1117,7 @@ remap_pte_range(struct mm_struct *mm, pte_t * pte,
 	do {
 		BUG_ON(!pte_none(*pte));
 		if (!pfn_valid(pfn) || PageReserved(pfn_to_page(pfn)))
-			set_pte_at(mm, address, pte, pfn_pte(pfn, prot));
+			set_pte_at(mm, base+address, pte, pfn_pte(pfn, prot));
 		address += PAGE_SIZE;
 		pfn++;
 		pte++;
