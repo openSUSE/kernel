@@ -124,27 +124,27 @@ static int uninorth_insert_memory(struct agp_memory *mem, off_t pg_start,
 	return 0;
 }
 
-static void uninorth_agp_enable(u32 mode)
+static void uninorth_agp_enable(struct agp_bridge_data *bridge, u32 mode)
 {
 	u32 command, scratch;
 	int timeout;
 
-	pci_read_config_dword(agp_bridge->dev,
-			      agp_bridge->capndx + PCI_AGP_STATUS,
+	pci_read_config_dword(bridge->dev,
+			      bridge->capndx + PCI_AGP_STATUS,
 			      &command);
 
-	command = agp_collect_device_status(mode, command);
+	command = agp_collect_device_status(bridge, mode, command);
 	command |= 0x100;
 
 	uninorth_tlbflush(NULL);
 
 	timeout = 0;
 	do {
-		pci_write_config_dword(agp_bridge->dev,
-				       agp_bridge->capndx + PCI_AGP_COMMAND,
+		pci_write_config_dword(bridge->dev,
+				       bridge->capndx + PCI_AGP_COMMAND,
 				       command);
-		pci_read_config_dword(agp_bridge->dev,
-				       agp_bridge->capndx + PCI_AGP_COMMAND,
+		pci_read_config_dword(bridge->dev,
+				      bridge->capndx + PCI_AGP_COMMAND,
 				       &scratch);
 	} while ((scratch & 0x100) == 0 && ++timeout < 1000);
 	if ((scratch & 0x100) == 0)
@@ -155,7 +155,7 @@ static void uninorth_agp_enable(u32 mode)
 	uninorth_tlbflush(NULL);
 }
 
-static int uninorth_create_gatt_table(void)
+static int uninorth_create_gatt_table(struct agp_bridge_data *bridge)
 {
 	char *table;
 	char *table_end;
@@ -212,7 +212,7 @@ static int uninorth_create_gatt_table(void)
 	return 0;
 }
 
-static int uninorth_free_gatt_table(void)
+static int uninorth_free_gatt_table(struct agp_bridge_data *bridge)
 {
 	int page_order;
 	char *table, *table_end;
@@ -375,7 +375,7 @@ static int __init agp_uninorth_init(void)
 {
 	if (agp_off)
 		return -EINVAL;
-	return pci_module_init(&agp_uninorth_pci_driver);
+	return pci_register_driver(&agp_uninorth_pci_driver);
 }
 
 static void __exit agp_uninorth_cleanup(void)

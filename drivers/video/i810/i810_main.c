@@ -1591,40 +1591,41 @@ static int __devinit i810_alloc_agp_mem(struct fb_info *info)
 {
 	struct i810fb_par *par = (struct i810fb_par *) info->par;
 	int size;
+	struct agp_bridge_data *bridge;
 	
 	i810_fix_offsets(par);
 	size = par->fb.size + par->iring.size;
 
-	if (agp_backend_acquire()) {
+	if (!(bridge = agp_backend_acquire(par->dev))) {
 		printk("i810fb_alloc_fbmem: cannot acquire agpgart\n");
 		return -ENODEV;
 	}
 	if (!(par->i810_gtt.i810_fb_memory = 
-	      agp_allocate_memory(size >> 12, AGP_NORMAL_MEMORY))) {
+	      agp_allocate_memory(bridge, size >> 12, AGP_NORMAL_MEMORY))) {
 		printk("i810fb_alloc_fbmem: can't allocate framebuffer "
 		       "memory\n");
-		agp_backend_release();
+		agp_backend_release(bridge);
 		return -ENOMEM;
 	}
 	if (agp_bind_memory(par->i810_gtt.i810_fb_memory,
 			    par->fb.offset)) {
 		printk("i810fb_alloc_fbmem: can't bind framebuffer memory\n");
-		agp_backend_release();
+		agp_backend_release(bridge);
 		return -EBUSY;
 	}	
 	
 	if (!(par->i810_gtt.i810_cursor_memory = 
-	      agp_allocate_memory(par->cursor_heap.size >> 12,
+	      agp_allocate_memory(bridge, par->cursor_heap.size >> 12,
 				  AGP_PHYSICAL_MEMORY))) {
 		printk("i810fb_alloc_cursormem:  can't allocate" 
 		       "cursor memory\n");
-		agp_backend_release();
+		agp_backend_release(bridge);
 		return -ENOMEM;
 	}
 	if (agp_bind_memory(par->i810_gtt.i810_cursor_memory,
 			    par->cursor_heap.offset)) {
 		printk("i810fb_alloc_cursormem: cannot bind cursor memory\n");
-		agp_backend_release();
+		agp_backend_release(bridge);
 		return -EBUSY;
 	}	
 
@@ -1632,7 +1633,7 @@ static int __devinit i810_alloc_agp_mem(struct fb_info *info)
 
 	i810_fix_pointers(par);
 
-	agp_backend_release();
+	agp_backend_release(bridge);
 
 	return 0;
 }
