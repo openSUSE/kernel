@@ -576,13 +576,13 @@ static void eth_port_uc_addr_set(unsigned int eth_port_num,
 				 unsigned char *p_addr);
 
 /* PHY and MIB routines */
-static int ethernet_phy_reset(unsigned int eth_port_num);
+static void ethernet_phy_reset(unsigned int eth_port_num);
 
-static int eth_port_write_smi_reg(unsigned int eth_port_num,
+static void eth_port_write_smi_reg(unsigned int eth_port_num,
 				   unsigned int phy_reg,
 				   unsigned int value);
 
-static int eth_port_read_smi_reg(unsigned int eth_port_num,
+static void eth_port_read_smi_reg(unsigned int eth_port_num,
 				  unsigned int phy_reg,
 				  unsigned int *value);
 
