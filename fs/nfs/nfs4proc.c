@@ -357,11 +357,16 @@ static int _nfs4_proc_open_confirm(struct rpc_clnt *clnt, const struct nfs_fh *f
 	return status;
 }
 
-static int _nfs4_do_access(struct inode *inode, struct rpc_cred *cred, int mask)
+static int _nfs4_do_access(struct inode *inode, struct rpc_cred *cred, int openflags)
 {
 	struct nfs_access_entry cache;
+	int mask = 0;
 	int status;
 
+	if (openflags & FMODE_READ)
+		mask |= MAY_READ;
+	if (openflags & FMODE_WRITE)
+		mask |= MAY_WRITE;
 	status = nfs_access_get_cached(inode, cred, &cache);
 	if (status == 0)
 		goto out;
@@ -392,7 +397,6 @@ static int _nfs4_open_delegated(struct inode *inode, int flags, struct rpc_cred 
 	struct nfs4_state_owner *sp = NULL;
 	struct nfs4_state *state = NULL;
 	int open_flags = flags & (FMODE_READ|FMODE_WRITE);
-	int mask = 0;
 	int err;
 
 	/* Protect against reboot recovery - NOTE ORDER! */
@@ -426,7 +430,7 @@ static int _nfs4_open_delegated(struct inode *inode, int flags, struct rpc_cred 
 		goto out_err;
 
 	lock_kernel();
-	err = _nfs4_do_access(inode, cred, mask);
+	err = _nfs4_do_access(inode, cred, open_flags);
 	unlock_kernel();
 	if (err != 0)
 		goto out_err;
