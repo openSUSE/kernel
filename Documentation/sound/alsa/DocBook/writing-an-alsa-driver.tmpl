@@ -5162,12 +5162,12 @@ struct _snd_pcm_runtime {
         <programlisting>
 <![CDATA[
   #ifdef CONFIG_PM
-  static int snd_my_suspend(snd_card_t *card, unsigned int state)
+  static int snd_my_suspend(snd_card_t *card, pm_message_t state)
   {
           .... // do things for suspsend
           return 0;
   }
-  static int snd_my_resume(snd_card_t *card, unsigned int state)
+  static int snd_my_resume(snd_card_t *card)
   {
           .... // do things for suspsend
           return 0;
@@ -5196,7 +5196,7 @@ struct _snd_pcm_runtime {
       <informalexample>
         <programlisting>
 <![CDATA[
-  static int mychip_suspend(snd_card_t *card, unsigned int state)
+  static int mychip_suspend(snd_card_t *card, pm_message_t state)
   {
           /* (1) */
           mychip_t *chip = card->pm_private_data;

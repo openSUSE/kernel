@@ -236,8 +236,8 @@ set the codec->patch_ops field.  This is defined as below:
 		void (*free)(struct hda_codec *codec);
 		void (*unsol_event)(struct hda_codec *codec, unsigned int res);
 	#ifdef CONFIG_PM
-		int (*suspend)(struct hda_codec *codec, unsigned int state);
-		int (*resume)(struct hda_codec *codec, unsigned int state);
+		int (*suspend)(struct hda_codec *codec, pm_message_t state);
+		int (*resume)(struct hda_codec *codec);
 	#endif
 	};
 
