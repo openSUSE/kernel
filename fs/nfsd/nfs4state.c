@@ -130,9 +130,11 @@ spinlock_t recall_lock;
 static struct list_head del_recall_lru;
 
 static struct nfs4_delegation *
-alloc_init_deleg(struct nfs4_client *clp, struct nfs4_file *fp, struct svc_fh *current_fh, u32 type)
+alloc_init_deleg(struct nfs4_client *clp, struct nfs4_stateid *stp, struct svc_fh *current_fh, u32 type)
 {
 	struct nfs4_delegation *dp;
+	struct nfs4_file *fp = stp->st_file;
+	struct nfs4_callback *cb = &stp->st_stateowner->so_client->cl_callback;
 
 	dprintk("NFSD alloc_init_deleg\n");
 	if ((dp = kmalloc(sizeof(struct nfs4_delegation),
@@ -147,7 +149,7 @@ alloc_init_deleg(struct nfs4_client *clp, struct nfs4_file *fp, struct svc_fh *c
 	dp->dl_stp = NULL;
 	dp->dl_type = type;
 	dp->dl_recall.cbr_dp = NULL;
-	dp->dl_recall.cbr_ident = 0;
+	dp->dl_recall.cbr_ident = cb->cb_ident;
 	dp->dl_recall.cbr_trunc = 0;
 	dp->dl_stateid.si_boot = boot_time;
 	dp->dl_stateid.si_stateownerid = current_delegid++;
@@ -1666,7 +1668,7 @@ nfs4_open_delegation(struct svc_fh *fh, struct nfsd4_open *open, struct nfs4_sta
 	else
 		*flag = NFS4_OPEN_DELEGATE_READ;
 
-	dp = alloc_init_deleg(sop->so_client, stp->st_file, fh, *flag);
+	dp = alloc_init_deleg(sop->so_client, stp, fh, *flag);
 	if (dp == NULL) {
 		*flag = NFS4_OPEN_DELEGATE_NONE;
 		return;

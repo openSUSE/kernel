@@ -246,6 +246,7 @@ nfs4_xdr_enc_cb_recall(struct rpc_rqst *req, u32 *p, struct nfs4_cb_recall *args
 {
 	struct xdr_stream xdr;
 	struct nfs4_cb_compound_hdr hdr = {
+		.ident = args->cbr_ident,
 		.nops   = 1,
 	};
 
