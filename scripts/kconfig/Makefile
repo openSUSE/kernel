@@ -109,6 +109,10 @@ HOSTCFLAGS_gconf.o	= `pkg-config gtk+-2.0 gmodule-2.0 libglade-2.0 --cflags` \
 
 $(obj)/conf.o $(obj)/mconf.o $(obj)/qconf.o $(obj)/gconf.o: $(obj)/zconf.tab.h
 
+$(obj)/zconf.tab.h: $(src)/zconf.tab.h_shipped
+$(obj)/zconf.tab.c: $(src)/zconf.tab.c_shipped
+$(obj)/lex.zconf.c: $(src)/lex.zconf.c_shipped
+
 $(obj)/qconf.o: $(obj)/.tmp_qtcheck
 
 ifeq ($(qconf-target),1)
