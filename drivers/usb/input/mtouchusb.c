@@ -268,7 +268,7 @@ static int mtouchusb_probe(struct usb_interface *intf, const struct usb_device_i
                                0,
                                NULL,
                                0,
-                               HZ * USB_CTRL_SET_TIMEOUT);
+                               USB_CTRL_SET_TIMEOUT);
         dbg("%s - usb_control_msg - MTOUCHUSB_RESET - bytes|err: %d",
             __FUNCTION__, nRet);
 
@@ -302,7 +302,7 @@ static int mtouchusb_probe(struct usb_interface *intf, const struct usb_device_i
                                1,
                                NULL,
                                0,
-                               HZ * USB_CTRL_SET_TIMEOUT);
+                               USB_CTRL_SET_TIMEOUT);
         dbg("%s - usb_control_msg - MTOUCHUSB_ASYNC_REPORT - bytes|err: %d",
             __FUNCTION__, nRet);
 
