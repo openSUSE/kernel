@@ -4,7 +4,7 @@
  * Interrupt controller driver for PowerPC 4xx-based processors.
  *
  * Eugene Surovegin <eugene.surovegin@zultys.com> or <ebs@ebshome.net>
- * Copyright (c) 2004 Zultys Technologies
+ * Copyright (c) 2004, 2005 Zultys Technologies
  *
  * Based on original code by
  *    Copyright (c) 1999 Grant Erickson <grant@lcse.umn.edu>
@@ -49,6 +49,7 @@ static void ppc4xx_uic##n##_disable(unsigned int irq)			\
 {									\
 	ppc_cached_irq_mask[n] &= ~IRQ_MASK_UIC##n(irq);		\
 	mtdcr(DCRN_UIC_ER(UIC##n), ppc_cached_irq_mask[n]);		\
+	ACK_UIC##n##_PARENT						\
 }									\
 									\
 static void ppc4xx_uic##n##_ack(unsigned int irq)			\
