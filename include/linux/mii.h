@@ -67,6 +67,8 @@
 #define ADVERTISE_100HALF       0x0080  /* Try for 100mbps half-duplex */
 #define ADVERTISE_100FULL       0x0100  /* Try for 100mbps full-duplex */
 #define ADVERTISE_100BASE4      0x0200  /* Try for 100mbps 4k packets  */
+#define ADVERTISE_PAUSE_CAP	0x0400  /* Try for pause               */
+#define ADVERTISE_PAUSE_ASYM	0x0800  /* Try for asymetric pause     */
 #define ADVERTISE_RESV          0x1c00  /* Unused...                   */
 #define ADVERTISE_RFAULT        0x2000  /* Say we can detect faults    */
 #define ADVERTISE_LPACK         0x4000  /* Ack link partners response  */
@@ -84,6 +86,8 @@
 #define LPA_100HALF             0x0080  /* Can do 100mbps half-duplex  */
 #define LPA_100FULL             0x0100  /* Can do 100mbps full-duplex  */
 #define LPA_100BASE4            0x0200  /* Can do 100mbps 4k packets   */
+#define LPA_PAUSE_CAP		0x0400  /* Can pause                   */
+#define LPA_PAUSE_ASYM		0x0800	/* Can pause asymetrically     */
 #define LPA_RESV                0x1c00  /* Unused...                   */
 #define LPA_RFAULT              0x2000  /* Link partner faulted        */
 #define LPA_LPACK               0x4000  /* Link partner acked us       */
