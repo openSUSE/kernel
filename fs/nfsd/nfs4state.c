@@ -1186,8 +1186,7 @@ move_to_close_lru(struct nfs4_stateowner *sop)
 }
 
 void
-release_state_owner(struct nfs4_stateid *stp, struct nfs4_stateowner **sopp,
-		int flag)
+release_state_owner(struct nfs4_stateid *stp, int flag)
 {
 	struct nfs4_stateowner *sop = stp->st_stateowner;
 	struct nfs4_file *fp = stp->st_file;
@@ -2337,7 +2336,7 @@ nfsd4_close(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nfsd4_clos
 	memcpy(&close->cl_stateid, &stp->st_stateid, sizeof(stateid_t));
 
 	/* release_state_owner() calls nfsd_close() if needed */
-	release_state_owner(stp, &close->cl_stateowner, OPEN_STATE);
+	release_state_owner(stp, OPEN_STATE);
 out:
 	if (close->cl_stateowner)
 		nfs4_get_stateowner(close->cl_stateowner);
@@ -2780,7 +2779,7 @@ out_destroy_new_stateid:
 		if (!seqid_mutating_err(status))
 			open_sop->so_seqid--;
 
-		release_state_owner(lock_stp, &lock->lk_stateowner, LOCK_STATE);
+		release_state_owner(lock_stp, LOCK_STATE);
 	}
 out:
 	if (lock->lk_stateowner)
