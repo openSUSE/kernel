@@ -12,6 +12,7 @@
  * Changelog:
  *  12-May-2003 BJD  Created file
  *  06-Jan-2003 BJD  Linux 2.6.0 version, moved bast specifics out
+ *  10-Feb-2005 BJD  Added CAMIF definition from guillaume.gourat@nexvision.tv
 */
 
 #ifndef __ASM_ARCH_MAP_H
@@ -123,6 +124,10 @@
 #define S3C2410_VA_SDI	   S3C2410_ADDR(0x01200000)
 #define S3C2410_PA_SDI	   (0x5A000000)
 #define S3C2410_SZ_SDI	   SZ_1M
+
+/* CAMIF */
+#define S3C2440_PA_CAMIF   (0x4F000000)
+#define S3C2440_SZ_CAMIF   SZ_1M
 
 /* ISA style IO, for each machine to sort out mappings for, if it
  * implements it. We reserve two 16M regions for ISA.

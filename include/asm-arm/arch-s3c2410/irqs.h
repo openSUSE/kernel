@@ -11,6 +11,7 @@
  *  12-May-2003 BJD  Created file
  *  08-Jan-2003 BJD  Linux 2.6.0 version, moved BAST bits out
  *  12-Mar-2004 BJD  Fixed bug in header protection
+ *  10-Feb-2005 BJD  Added camera IRQ from guillaume.gourat@nexvision.tv
  */
 
 
@@ -35,7 +36,8 @@
 #define IRQ_EINT3      S3C2410_IRQ(3)
 #define IRQ_EINT4t7    S3C2410_IRQ(4)	    /* 20 */
 #define IRQ_EINT8t23   S3C2410_IRQ(5)
-#define IRQ_RESERVED6  S3C2410_IRQ(6)
+#define IRQ_RESERVED6  S3C2410_IRQ(6)		/* for s3c2410 */
+#define IRQ_CAM        S3C2410_IRQ(6)		/* for s3c2440 */
 #define IRQ_BATT_FLT   S3C2410_IRQ(7)
 #define IRQ_TICK       S3C2410_IRQ(8)	    /* 24 */
 #define IRQ_WDT	       S3C2410_IRQ(9)
