@@ -3759,7 +3759,7 @@ zoran_do_ioctl (struct inode *inode,
 		v4l2_std_id *std = arg;
 
 		dprintk(3, KERN_DEBUG "%s: VIDIOC_S_STD - norm=0x%llx\n",
-			ZR_DEVNAME(zr), *std);
+			ZR_DEVNAME(zr), (unsigned long long)*std);
 
 		if (*std == V4L2_STD_PAL)
 			norm = VIDEO_MODE_PAL;
@@ -3773,7 +3773,7 @@ zoran_do_ioctl (struct inode *inode,
 			dprintk(1,
 				KERN_ERR
 				"%s: VIDIOC_S_STD - invalid norm 0x%llx\n",
-				ZR_DEVNAME(zr), *std);
+				ZR_DEVNAME(zr), (unsigned long long)*std);
 			return -EINVAL;
 		}
 
@@ -4106,7 +4106,7 @@ zoran_do_ioctl (struct inode *inode,
 
 		dprintk(3,
 			KERN_DEBUG "%s: VIDIOC_QUERY_STD - std=0x%llx\n",
-			ZR_DEVNAME(zr), *std);
+			ZR_DEVNAME(zr), (unsigned long long)*std);
 
 		if (*std == V4L2_STD_ALL || *std == V4L2_STD_NTSC ||
 		    *std == V4L2_STD_PAL || (*std == V4L2_STD_SECAM &&
