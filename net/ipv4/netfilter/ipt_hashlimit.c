@@ -109,7 +109,7 @@ static inline int dst_cmp(const struct dsthash_ent *ent, struct dsthash_dst *b)
 static inline u_int32_t
 hash_dst(const struct ipt_hashlimit_htable *ht, const struct dsthash_dst *dst)
 {
-	return (jhash_3words(dst->dst_ip, (dst->dst_port<<16 & dst->src_port), 
+	return (jhash_3words(dst->dst_ip, (dst->dst_port<<16 | dst->src_port), 
 			     dst->src_ip, ht->rnd) % ht->cfg.size);
 }
 
