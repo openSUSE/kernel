@@ -23,6 +23,9 @@ USB-specific:
 
 -ENODEV		specified USB-device or bus doesn't exist
 
+-ENOENT		specified interface or endpoint does not exist or
+		is not enabled
+
 -ENXIO		host controller driver does not support queuing of this type
 		of urb.  (treat as a host controller bug.)
 

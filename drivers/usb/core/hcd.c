@@ -1091,15 +1091,8 @@ static int hcd_submit_urb (struct urb *urb, int mem_flags)
 	struct usb_host_endpoint *ep;
 	unsigned long		flags;
 
-	ep = (usb_pipein(urb->pipe) ? urb->dev->ep_in : urb->dev->ep_out)
-			[usb_pipeendpoint(urb->pipe)];
-	if (!hcd || !ep)
+	if (!hcd)
 		return -ENODEV;
-
-	/*
-	 * FIXME:  make urb timeouts be generic, keeping the HCD cores
-	 * as simple as possible.
-	 */
 
 	usbmon_urb_submit(&hcd->self, urb);
 
@@ -1112,7 +1105,11 @@ static int hcd_submit_urb (struct urb *urb, int mem_flags)
 	// FIXME:  verify that quiescing hc works right (RH cleans up)
 
 	spin_lock_irqsave (&hcd_data_lock, flags);
-	if (unlikely (urb->reject))
+	ep = (usb_pipein(urb->pipe) ? urb->dev->ep_in : urb->dev->ep_out)
+			[usb_pipeendpoint(urb->pipe)];
+	if (unlikely (!ep))
+		status = -ENOENT;
+	else if (unlikely (urb->reject))
 		status = -EPERM;
 	else switch (hcd->state) {
 	case USB_STATE_RUNNING:
