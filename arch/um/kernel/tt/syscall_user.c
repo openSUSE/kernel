@@ -22,15 +22,14 @@ void syscall_handler_tt(int sig, union uml_pt_regs *regs)
 {
 	void *sc;
 	long result;
-	int index, syscall;
+	int syscall;
 
 	syscall = UPT_SYSCALL_NR(regs);
 	sc = UPT_SC(regs);
 	SC_START_SYSCALL(sc);
 
-	index = record_syscall_start(syscall);
 	syscall_trace(regs, 0);
-	result = execute_syscall(regs);
+	result = execute_syscall_tt(regs);
 
 	/* regs->sc may have changed while the system call ran (there may
 	 * have been an interrupt or segfault), so it needs to be refreshed.
@@ -40,7 +39,6 @@ void syscall_handler_tt(int sig, union uml_pt_regs *regs)
 	SC_SET_SYSCALL_RETURN(sc, result);
 
 	syscall_trace(regs, 1);
-	record_syscall_end(index, result);
 }
 
 void do_sigtrap(void *task)

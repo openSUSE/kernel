@@ -30,6 +30,7 @@ extern int protect(int fd, unsigned long addr, unsigned long len,
 extern void user_signal(int sig, union uml_pt_regs *regs);
 extern int new_mm(int from);
 extern void start_userspace(int cpu);
+extern long execute_syscall_skas(void *r);
 
 #endif
 

@@ -184,9 +184,8 @@ int tracing_pid = -1;
 int tracer(int (*init_proc)(void *), void *sp)
 {
 	void *task = NULL;
-	unsigned long eip = 0;
 	int status, pid = 0, sig = 0, cont_type, tracing = 0, op = 0;
-	int last_index, proc_id = 0, n, err, old_tracing = 0, strace = 0;
+	int proc_id = 0, n, err, old_tracing = 0, strace = 0;
 	int local_using_sysemu = 0;
 
 	signal(SIGPIPE, SIG_IGN);
@@ -279,22 +278,6 @@ int tracer(int (*init_proc)(void *), void *sp)
 		else if(WIFSTOPPED(status)){
 			proc_id = pid_to_processor_id(pid);
 			sig = WSTOPSIG(status);
-			if(signal_index[proc_id] == 1024){
-				signal_index[proc_id] = 0;
-				last_index = 1023;
-			}
-			else last_index = signal_index[proc_id] - 1;
-			if(((sig == SIGPROF) || (sig == SIGVTALRM) || 
-			    (sig == SIGALRM)) &&
-			   (signal_record[proc_id][last_index].signal == sig)&&
-			   (signal_record[proc_id][last_index].pid == pid))
-				signal_index[proc_id] = last_index;
-			signal_record[proc_id][signal_index[proc_id]].pid = pid;
-			gettimeofday(&signal_record[proc_id][signal_index[proc_id]].time, NULL);
-			eip = ptrace(PTRACE_PEEKUSER, pid, PT_IP_OFFSET, 0);
-			signal_record[proc_id][signal_index[proc_id]].addr = eip;
-			signal_record[proc_id][signal_index[proc_id]++].signal = sig;
-			
 			if(proc_id == -1){
 				sleeping_process_signal(pid, sig);
 				continue;

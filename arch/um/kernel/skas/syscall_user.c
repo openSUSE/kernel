@@ -9,22 +9,18 @@
 #include "syscall_user.h"
 #include "sysdep/ptrace.h"
 #include "sysdep/sigcontext.h"
-
+#include "skas.h"
 
 void handle_syscall(union uml_pt_regs *regs)
 {
 	long result;
-	int index;
-
-	index = record_syscall_start(UPT_SYSCALL_NR(regs));
 
 	syscall_trace(regs, 0);
-	result = execute_syscall(regs);
+	result = execute_syscall_skas(regs);
 
 	REGS_SET_SYSCALL_RETURN(regs->skas.regs, result);
 
 	syscall_trace(regs, 1);
-	record_syscall_end(index, result);
 }
 
 /*
