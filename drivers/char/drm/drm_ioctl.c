@@ -328,6 +328,8 @@ int drm_setversion(DRM_IOCTL_ARGS)
 
 	memset(&version, 0, sizeof(version));
 
+	memset(&version, 0, sizeof(version));
+
 	dev->driver->version(&version);
 	retv.drm_di_major = DRM_IF_MAJOR;
 	retv.drm_di_minor = DRM_IF_MINOR;
