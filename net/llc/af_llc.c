@@ -113,7 +113,7 @@ static __inline__ u8 llc_ui_header_len(struct sock *sk,
  */
 static int llc_ui_send_data(struct sock* sk, struct sk_buff *skb, int noblock)
 {
-	struct llc_opt* llc = llc_sk(sk);
+	struct llc_sock* llc = llc_sk(sk);
 	int rc = 0;
 
 	if (llc_data_accept_state(llc->state) || llc->p_flag) {
@@ -169,7 +169,7 @@ static int llc_ui_create(struct socket *sock, int protocol)
 static int llc_ui_release(struct socket *sock)
 {
 	struct sock *sk = sock->sk;
-	struct llc_opt *llc;
+	struct llc_sock *llc;
 
 	if (!sk)
 		goto out;
@@ -244,7 +244,7 @@ out:
 static int llc_ui_autobind(struct socket *sock, struct sockaddr_llc *addr)
 {
 	struct sock *sk = sock->sk;
-	struct llc_opt *llc = llc_sk(sk);
+	struct llc_sock *llc = llc_sk(sk);
 	struct llc_sap *sap;
 	int rc = -EINVAL;
 
@@ -293,7 +293,7 @@ static int llc_ui_bind(struct socket *sock, struct sockaddr *uaddr, int addrlen)
 {
 	struct sockaddr_llc *addr = (struct sockaddr_llc *)uaddr;
 	struct sock *sk = sock->sk;
-	struct llc_opt *llc = llc_sk(sk);
+	struct llc_sock *llc = llc_sk(sk);
 	struct llc_sap *sap;
 	int rc = -EINVAL;
 
@@ -394,7 +394,7 @@ static int llc_ui_connect(struct socket *sock, struct sockaddr *uaddr,
 			  int addrlen, int flags)
 {
 	struct sock *sk = sock->sk;
-	struct llc_opt *llc = llc_sk(sk);
+	struct llc_sock *llc = llc_sk(sk);
 	struct sockaddr_llc *addr = (struct sockaddr_llc *)uaddr;
 	struct net_device *dev;
 	int rc = -EINVAL;
@@ -571,7 +571,7 @@ static int llc_ui_wait_for_data(struct sock *sk, int timeout)
 static int llc_ui_wait_for_busy_core(struct sock *sk, int timeout)
 {
 	DECLARE_WAITQUEUE(wait, current);
-	struct llc_opt *llc = llc_sk(sk);
+	struct llc_sock *llc = llc_sk(sk);
 	int rc;
 
 	add_wait_queue_exclusive(sk->sk_sleep, &wait);
@@ -612,7 +612,7 @@ static int llc_ui_wait_for_busy_core(struct sock *sk, int timeout)
 static int llc_ui_accept(struct socket *sock, struct socket *newsock, int flags)
 {
 	struct sock *sk = sock->sk, *newsk;
-	struct llc_opt *llc, *newllc;
+	struct llc_sock *llc, *newllc;
 	struct sk_buff *skb;
 	int rc = -EOPNOTSUPP;
 
@@ -728,7 +728,7 @@ static int llc_ui_sendmsg(struct kiocb *iocb, struct socket *sock,
 			  struct msghdr *msg, size_t len)
 {
 	struct sock *sk = sock->sk;
-	struct llc_opt *llc = llc_sk(sk);
+	struct llc_sock *llc = llc_sk(sk);
 	struct sockaddr_llc *addr = (struct sockaddr_llc *)msg->msg_name;
 	int flags = msg->msg_flags;
 	int noblock = flags & MSG_DONTWAIT;
@@ -819,7 +819,7 @@ static int llc_ui_getname(struct socket *sock, struct sockaddr *uaddr,
 {
 	struct sockaddr_llc sllc;
 	struct sock *sk = sock->sk;
-	struct llc_opt *llc = llc_sk(sk);
+	struct llc_sock *llc = llc_sk(sk);
 	int rc = 0;
 
 	lock_sock(sk);
@@ -883,7 +883,7 @@ static int llc_ui_setsockopt(struct socket *sock, int level, int optname,
 			     char __user *optval, int optlen)
 {
 	struct sock *sk = sock->sk;
-	struct llc_opt *llc = llc_sk(sk);
+	struct llc_sock *llc = llc_sk(sk);
 	int rc = -EINVAL, opt;
 
 	lock_sock(sk);
@@ -958,7 +958,7 @@ static int llc_ui_getsockopt(struct socket *sock, int level, int optname,
 			     char __user *optval, int __user *optlen)
 {
 	struct sock *sk = sock->sk;
-	struct llc_opt *llc = llc_sk(sk);
+	struct llc_sock *llc = llc_sk(sk);
 	int val = 0, len = 0, rc = -EINVAL;
 
 	lock_sock(sk);

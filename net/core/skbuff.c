@@ -241,7 +241,8 @@ static void skb_clone_fraglist(struct sk_buff *skb)
 void skb_release_data(struct sk_buff *skb)
 {
 	if (!skb->cloned ||
-	    atomic_dec_and_test(&(skb_shinfo(skb)->dataref))) {
+	    !atomic_sub_return(skb->nohdr ? (1 << SKB_DATAREF_SHIFT) + 1 : 1,
+			       &skb_shinfo(skb)->dataref)) {
 		if (skb_shinfo(skb)->nr_frags) {
 			int i;
 			for (i = 0; i < skb_shinfo(skb)->nr_frags; i++)
@@ -353,6 +354,7 @@ struct sk_buff *skb_clone(struct sk_buff *skb, int gfp_mask)
 	C(csum);
 	C(local_df);
 	n->cloned = 1;
+	n->nohdr = 0;
 	C(pkt_type);
 	C(ip_summed);
 	C(priority);
@@ -604,6 +606,7 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail, int gfp_mask)
 	skb->h.raw   += off;
 	skb->nh.raw  += off;
 	skb->cloned   = 0;
+	skb->nohdr    = 0;
 	atomic_set(&skb_shinfo(skb)->dataref, 1);
 	return 0;
 

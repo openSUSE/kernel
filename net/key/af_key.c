@@ -42,11 +42,17 @@ static atomic_t pfkey_table_users = ATOMIC_INIT(0);
 
 static atomic_t pfkey_socks_nr = ATOMIC_INIT(0);
 
-struct pfkey_opt {
-	int	registered;
-	int	promisc;
+struct pfkey_sock {
+	/* struct sock must be the first member of struct pfkey_sock */
+	struct sock	sk;
+	int		registered;
+	int		promisc;
 };
-#define pfkey_sk(__sk) ((struct pfkey_opt *)(__sk)->sk_protinfo)
+
+static inline struct pfkey_sock *pfkey_sk(struct sock *sk)
+{
+	return (struct pfkey_sock *)sk;
+}
 
 static void pfkey_sock_destruct(struct sock *sk)
 {
@@ -59,8 +65,6 @@ static void pfkey_sock_destruct(struct sock *sk)
 
 	BUG_TRAP(!atomic_read(&sk->sk_rmem_alloc));
 	BUG_TRAP(!atomic_read(&sk->sk_wmem_alloc));
-
-	kfree(pfkey_sk(sk));
 
 	atomic_dec(&pfkey_socks_nr);
 }
@@ -128,7 +132,6 @@ static void pfkey_remove(struct sock *sk)
 static int pfkey_create(struct socket *sock, int protocol)
 {
 	struct sock *sk;
-	struct pfkey_opt *pfk;
 	int err;
 
 	if (!capable(CAP_NET_ADMIN))
@@ -139,21 +142,13 @@ static int pfkey_create(struct socket *sock, int protocol)
 		return -EPROTONOSUPPORT;
 
 	err = -ENOMEM;
-	sk = sk_alloc(PF_KEY, GFP_KERNEL, 1, NULL);
+	sk = sk_alloc(PF_KEY, GFP_KERNEL, sizeof(struct pfkey_sock), NULL);
 	if (sk == NULL)
 		goto out;
 	
 	sock->ops = &pfkey_ops;
 	sock_init_data(sock, sk);
 	sk_set_owner(sk, THIS_MODULE);
-
-	err = -ENOMEM;
-	pfk = sk->sk_protinfo = kmalloc(sizeof(*pfk), GFP_KERNEL);
-	if (!pfk) {
-		sk_free(sk);
-		goto out;
-	}
-	memset(pfk, 0, sizeof(*pfk));
 
 	sk->sk_family = PF_KEY;
 	sk->sk_destruct = pfkey_sock_destruct;
@@ -233,7 +228,7 @@ static int pfkey_broadcast(struct sk_buff *skb, int allocation,
 
 	pfkey_lock_table();
 	sk_for_each(sk, node, &pfkey_table) {
-		struct pfkey_opt *pfk = pfkey_sk(sk);
+		struct pfkey_sock *pfk = pfkey_sk(sk);
 		int err2;
 
 		/* Yes, it means that if you are meant to receive this
@@ -1418,7 +1413,7 @@ out_put_algs:
 
 static int pfkey_register(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hdr, void **ext_hdrs)
 {
-	struct pfkey_opt *pfk = pfkey_sk(sk);
+	struct pfkey_sock *pfk = pfkey_sk(sk);
 	struct sk_buff *supp_skb;
 
 	if (hdr->sadb_msg_satype > SADB_SATYPE_MAX)
@@ -1514,7 +1509,7 @@ static int pfkey_dump(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hdr
 
 static int pfkey_promisc(struct sock *sk, struct sk_buff *skb, struct sadb_msg *hdr, void **ext_hdrs)
 {
-	struct pfkey_opt *pfk = pfkey_sk(sk);
+	struct pfkey_sock *pfk = pfkey_sk(sk);
 	int satype = hdr->sadb_msg_satype;
 
 	if (hdr->sadb_msg_len == (sizeof(*hdr) / sizeof(uint64_t))) {

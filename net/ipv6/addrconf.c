@@ -1924,6 +1924,11 @@ static int addrconf_notify(struct notifier_block *this, unsigned long event,
 	struct inet6_dev *idev = __in6_dev_get(dev);
 
 	switch(event) {
+	case NETDEV_REGISTER:
+		if (dev == &loopback_dev && !ipv6_find_idev(dev))
+			panic("addrconf: Failed to create loopback\n");
+		break;
+
 	case NETDEV_UP:
 		switch(dev->type) {
 		case ARPHRD_SIT:
@@ -2007,6 +2012,9 @@ static int addrconf_ifdown(struct net_device *dev, int how)
 	int i;
 
 	ASSERT_RTNL();
+
+	if (dev == &loopback_dev)
+		how = 0;
 
 	rt6_ifdown(dev);
 	neigh_ifdown(&nd_tbl, dev);
@@ -3459,8 +3467,6 @@ void __init addrconf_init(void)
 	 */
 	rtnl_lock();
 	addrconf_notify(&ipv6_dev_notf, NETDEV_REGISTER, &loopback_dev);
-	if (loopback_dev.flags & IFF_UP)
-		addrconf_notify(&ipv6_dev_notf, NETDEV_UP, &loopback_dev);
 	rtnl_unlock();
 
 	register_netdevice_notifier(&ipv6_dev_notf);

@@ -154,11 +154,9 @@ out:
 	return err;
 }
 
-static int ipcomp_output(struct sk_buff *skb)
+static int ipcomp_output(struct xfrm_state *x, struct sk_buff *skb)
 {
 	int err;
-	struct dst_entry *dst = skb->dst;
-	struct xfrm_state *x = dst->xfrm;
 	struct iphdr *iph;
 	struct ip_comp_hdr *ipch;
 	struct ipcomp_data *ipcd = x->data;

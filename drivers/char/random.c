@@ -2286,6 +2286,21 @@ u32 secure_tcp_port_ephemeral(__u32 saddr, __u32 daddr, __u16 dport)
 	return halfMD4Transform(hash, keyptr->secret);
 }
 
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+u32 secure_tcpv6_port_ephemeral(const __u32 *saddr, const __u32 *daddr, __u16 dport)
+{
+	struct keydata *keyptr = get_keyptr();
+	u32 hash[12];
+
+	memcpy(hash, saddr, 16);
+	hash[4] = dport;
+	memcpy(&hash[5],keyptr->secret,sizeof(__u32) * 7);
+
+	return twothirdsMD4Transform(daddr, hash);
+}
+EXPORT_SYMBOL(secure_tcpv6_port_ephemeral);
+#endif
+
 #ifdef CONFIG_SYN_COOKIES
 /*
  * Secure SYN cookie computation. This is the algorithm worked out by

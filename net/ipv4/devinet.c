@@ -187,6 +187,10 @@ static void inetdev_destroy(struct in_device *in_dev)
 
 	ASSERT_RTNL();
 
+	dev = in_dev->dev;
+	if (dev == &loopback_dev)
+		return;
+
 	in_dev->dead = 1;
 
 	ip_mc_destroy_dev(in_dev);
@@ -200,7 +204,6 @@ static void inetdev_destroy(struct in_device *in_dev)
 	devinet_sysctl_unregister(&in_dev->cnf);
 #endif
 
-	dev = in_dev->dev;
 	dev->ip_ptr = NULL;
 
 #ifdef CONFIG_SYSCTL
@@ -943,8 +946,16 @@ static int inetdev_event(struct notifier_block *this, unsigned long event,
 
 	ASSERT_RTNL();
 
-	if (!in_dev)
+	if (!in_dev) {
+		if (event == NETDEV_REGISTER && dev == &loopback_dev) {
+			in_dev = inetdev_init(dev);
+			if (!in_dev)
+				panic("devinet: Failed to create loopback\n");
+			in_dev->cnf.no_xfrm = 1;
+			in_dev->cnf.no_policy = 1;
+		}
 		goto out;
+	}
 
 	switch (event) {
 	case NETDEV_REGISTER:
@@ -967,8 +978,6 @@ static int inetdev_event(struct notifier_block *this, unsigned long event,
 				memcpy(ifa->ifa_label, dev->name, IFNAMSIZ);
 				inet_insert_ifa(ifa);
 			}
-			in_dev->cnf.no_xfrm = 1;
-			in_dev->cnf.no_policy = 1;
 		}
 		ip_mc_up(in_dev);
 		break;

@@ -17,11 +17,9 @@ struct esp_decap_data {
 	__u8		proto;
 };
 
-static int esp_output(struct sk_buff *skb)
+static int esp_output(struct xfrm_state *x, struct sk_buff *skb)
 {
 	int err;
-	struct dst_entry *dst = skb->dst;
-	struct xfrm_state *x  = dst->xfrm;
 	struct iphdr *top_iph;
 	struct ip_esp_hdr *esph;
 	struct crypto_tfm *tfm;
