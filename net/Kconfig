@@ -109,6 +109,7 @@ source "net/ipv4/Kconfig"
 config IPV6
 	tristate "The IPv6 protocol"
 	depends on INET
+	default m
 	select CRYPTO if IPV6_PRIVACY
 	select CRYPTO_MD5 if IPV6_PRIVACY
 	---help---
