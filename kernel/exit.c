@@ -753,15 +753,8 @@ static void exit_notify(struct task_struct *tsk)
 		state = EXIT_DEAD;
 	tsk->exit_state = state;
 
-	/*
-	 * Clear these here so that update_process_times() won't try to deliver
-	 * itimer, profile or rlimit signals to this task while it is in late exit.
-	 */
 	tsk->it_virt_value = cputime_zero;
 	tsk->it_prof_value = cputime_zero;
- 	tsk->it_virt_expires = cputime_zero;
- 	tsk->it_prof_expires = cputime_zero;
-	tsk->it_sched_expires = 0;
 
 	write_unlock_irq(&tasklist_lock);
 
@@ -803,6 +796,14 @@ fastcall NORET_TYPE void do_exit(long code)
 
 	tsk->flags |= PF_EXITING;
 	del_timer_sync(&tsk->real_timer);
+
+	/*
+	 * Make sure we don't try to process any timer firings
+	 * while we are already exiting.
+	 */
+ 	tsk->it_virt_expires = cputime_zero;
+ 	tsk->it_prof_expires = cputime_zero;
+	tsk->it_sched_expires = 0;
 
 	if (unlikely(in_atomic()))
 		printk(KERN_INFO "note: %s[%d] exited with preempt_count %d\n",
