@@ -285,17 +285,17 @@ asmlinkage void do_ptrace(struct pt_regs *regs)
 			       s, (int) request, (int) pid, addr, data, addr2);
 	}
 #endif
-	if(request == PTRACE_TRACEME) {
-		int ret;
+	if (request == PTRACE_TRACEME) {
+		int my_ret;
 
 		/* are we already being traced? */
 		if (current->ptrace & PT_PTRACED) {
 			pt_error_return(regs, EPERM);
 			goto out;
 		}
-		ret = security_ptrace(current->parent, current);
-		if (ret) {
-			pt_error_return(regs, -ret);
+		my_ret = security_ptrace(current->parent, current);
+		if (my_ret) {
+			pt_error_return(regs, -my_ret);
 			goto out;
 		}
 
@@ -305,7 +305,7 @@ asmlinkage void do_ptrace(struct pt_regs *regs)
 		goto out;
 	}
 #ifndef ALLOW_INIT_TRACING
-	if(pid == 1) {
+	if (pid == 1) {
 		/* Can't dork with init. */
 		pt_error_return(regs, EPERM);
 		goto out;
@@ -402,8 +402,7 @@ asmlinkage void do_ptrace(struct pt_regs *regs)
 		 * bits in the psr.
 		 */
 		if (!access_ok(VERIFY_READ, pregs, sizeof(struct pt_regs))) {
-			i = -EFAULT;
-			pt_error_return(regs, -i);
+			pt_error_return(regs, EFAULT);
 			goto out_tsk;
 		}
 		__get_user(psr, (&pregs->psr));
@@ -413,7 +412,7 @@ asmlinkage void do_ptrace(struct pt_regs *regs)
 		psr &= PSR_ICC;
 		cregs->psr &= ~PSR_ICC;
 		cregs->psr |= psr;
-		if(!((pc | npc) & 3)) {
+		if (!((pc | npc) & 3)) {
 			cregs->pc = pc;
 			cregs->npc =npc;
 		}
