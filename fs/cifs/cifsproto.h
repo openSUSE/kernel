@@ -203,6 +203,16 @@ extern int CIFSSMBWrite(const int xid, struct cifsTconInfo *tcon,
 			const __u64 lseek, unsigned int *nbytes,
 			const char *buf, const char __user *ubuf, 
 			const int long_op);
+#ifdef CONFIG_CIFS_EXPERIMENTAL
+extern int CIFSSMBWrite2(const int xid, struct cifsTconInfo *tcon,
+			const int netfid, const unsigned int count,
+			const __u64 offset, unsigned int *nbytes, 
+			const char __user *buf,const int long_op);
+extern int CIFSGetSrvInodeNumber(const int xid, struct cifsTconInfo *tcon,
+			const unsigned char *searchName, __u64 * inode_number,
+			const struct nls_table *nls_codepage);
+#endif /* CONFIG_CIFS_EXPERIMENTAL */
+
 extern int CIFSSMBLock(const int xid, struct cifsTconInfo *tcon,
 			const __u16 netfid, const __u64 len,
 			const __u64 offset, const __u32 numUnlock,

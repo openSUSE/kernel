@@ -2239,9 +2239,8 @@ UnixQPathInfoRetry:
 	return rc;
 }
 
-#ifdef CONFIG_CIFS_EXPERIMENTAL  /* function unused at present */
-int
-CIFSFindSingle(const int xid, struct cifsTconInfo *tcon,
+#if 0  /* function unused at present */
+int CIFSFindSingle(const int xid, struct cifsTconInfo *tcon,
 	       const char *searchName, FILE_ALL_INFO * findData,
 	       const struct nls_table *nls_codepage)
 {
@@ -2318,7 +2317,7 @@ findUniqueRetry:
 
 	return rc;
 }
-#endif /* CIFS_EXPERIMENTAL */
+#endif /* end unused (temporarily) function */
 
 /* xid, tcon, searchName and codepage are input parms, rest are returned */
 int
