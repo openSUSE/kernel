@@ -167,11 +167,8 @@ static struct request *emc_trespass_get(struct emc_handler *h,
 	page22 = (unsigned char *)bio_data(bio);
 	memset(page22, 0, data_size);
 
-	if (h->short_trespass) {
-		memcpy(page22, short_trespass_pg, data_size);
-	} else {
-		memcpy(page22, long_trespass_pg, data_size);
-	}
+	memcpy(page22, h->short_trespass ?
+		short_trespass_pg : long_trespass_pg, data_size);
 
 	/* get request for block layer packet command */
 	rq = get_failover_req(h, bio, path);
@@ -226,9 +223,8 @@ static struct emc_handler *alloc_emc_handler(void)
 {
 	struct emc_handler *h = kmalloc(sizeof(*h), GFP_KERNEL);
 
-	if (h) {
-		h->lock = SPIN_LOCK_UNLOCKED;
-	}
+	if (h)
+		spin_lock_init(&h->lock);
 
 	return h;
 }

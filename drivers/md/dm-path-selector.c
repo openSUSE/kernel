@@ -30,7 +30,7 @@ struct ps_internal *__find_path_selector_type(const char *name)
 {
 	struct ps_internal *psi;
 
-	list_for_each_entry (psi, &_path_selectors, list) {
+	list_for_each_entry(psi, &_path_selectors, list) {
 		if (!strcmp(name, psi->pst.name))
 			return psi;
 	}

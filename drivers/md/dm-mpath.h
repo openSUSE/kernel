@@ -9,7 +9,7 @@
 #ifndef	DM_MPATH_H
 #define	DM_MPATH_H
 
-#include <linux/device-mapper.h>
+struct dm_dev;
 
 struct path {
 	struct dm_dev *dev;	/* Read-only */

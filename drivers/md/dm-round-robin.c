@@ -27,7 +27,7 @@ static void free_paths(struct list_head *paths)
 {
 	struct path_info *pi, *next;
 
-	list_for_each_entry_safe (pi, next, paths, list) {
+	list_for_each_entry_safe(pi, next, paths, list) {
 		list_del(&pi->list);
 		kfree(pi);
 	}

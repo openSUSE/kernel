@@ -144,7 +144,7 @@ static void free_pgpaths(struct list_head *pgpaths, struct dm_target *ti)
 {
 	struct pgpath *pgpath, *tmp;
 
-	list_for_each_entry_safe (pgpath, tmp, pgpaths, list) {
+	list_for_each_entry_safe(pgpath, tmp, pgpaths, list) {
 		list_del(&pgpath->list);
 		dm_put_device(ti, pgpath->path.dev);
 		free_pgpath(pgpath);
@@ -173,7 +173,7 @@ static struct multipath *alloc_multipath(void)
 	if (m) {
 		memset(m, 0, sizeof(*m));
 		INIT_LIST_HEAD(&m->priority_groups);
-		m->lock = SPIN_LOCK_UNLOCKED;
+		spin_lock_init(&m->lock);
 		m->queue_io = 1;
 		INIT_WORK(&m->process_queued_ios, process_queued_ios, m);
 		INIT_WORK(&m->trigger_event, trigger_event, m);
@@ -193,7 +193,7 @@ static void free_multipath(struct multipath *m)
 	struct priority_group *pg, *tmp;
 	struct hw_handler *hwh = &m->hw_handler;
 
-	list_for_each_entry_safe (pg, tmp, &m->priority_groups, list) {
+	list_for_each_entry_safe(pg, tmp, &m->priority_groups, list) {
 		list_del(&pg->list);
 		free_priority_group(pg, m->ti);
 	}
@@ -270,7 +270,7 @@ static void __choose_pgpath(struct multipath *m)
 	 * Second time we only try the ones we skipped.
 	 */
 	do {
-		list_for_each_entry (pg, &m->priority_groups, list) {
+		list_for_each_entry(pg, &m->priority_groups, list) {
 			if (pg->bypassed == bypassed)
 				continue;
 			if (!__choose_path_in_pg(m, pg))
