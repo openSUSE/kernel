@@ -532,6 +532,7 @@ int scsi_dispatch_cmd(struct scsi_cmnd *cmd)
 		 * returns an immediate error upwards, and signals
 		 * that the device is no longer present */
 		cmd->result = DID_NO_CONNECT << 16;
+		atomic_inc(&cmd->device->iorequest_cnt);
 		scsi_done(cmd);
 		/* return 0 (because the command has been processed) */
 		goto out;
@@ -605,6 +606,8 @@ int scsi_dispatch_cmd(struct scsi_cmnd *cmd)
 	cmd->state = SCSI_STATE_QUEUED;
 	cmd->owner = SCSI_OWNER_LOWLEVEL;
 
+	atomic_inc(&cmd->device->iorequest_cnt);
+
 	/*
 	 * Before we queue this command, check if the command
 	 * length exceeds what the host adapter can handle.
@@ -627,6 +630,7 @@ int scsi_dispatch_cmd(struct scsi_cmnd *cmd)
 	}
 	spin_unlock_irqrestore(host->host_lock, flags);
 	if (rtn) {
+		atomic_inc(&cmd->device->iodone_cnt);
 		scsi_queue_insert(cmd,
 				(rtn == SCSI_MLQUEUE_DEVICE_BUSY) ?
 				 rtn : SCSI_MLQUEUE_HOST_BUSY);
@@ -757,6 +761,10 @@ void __scsi_done(struct scsi_cmnd *cmd)
 	cmd->serial_number_at_timeout = 0;
 	cmd->state = SCSI_STATE_BHQUEUE;
 	cmd->owner = SCSI_OWNER_BH_HANDLER;
+
+	atomic_inc(&cmd->device->iodone_cnt);
+	if (cmd->result)
+		atomic_inc(&cmd->device->ioerr_cnt);
 
 	/*
 	 * Next, enqueue the command into the done queue.

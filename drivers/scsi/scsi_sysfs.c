@@ -408,6 +408,28 @@ show_queue_type_field(struct device *dev, char *buf)
 
 static DEVICE_ATTR(queue_type, S_IRUGO, show_queue_type_field, NULL);
 
+static ssize_t
+show_iostat_counterbits(struct device *dev, char *buf)
+{
+	return snprintf(buf, 20, "%d\n", sizeof(atomic_t) * 8);
+}
+
+static DEVICE_ATTR(iocounterbits, S_IRUGO, show_iostat_counterbits, NULL);
+
+#define show_sdev_iostat(field)						\
+static ssize_t								\
+show_iostat_##field(struct device *dev, char *buf)			\
+{									\
+	struct scsi_device *sdev = to_scsi_device(dev);			\
+	u64 count = (u64)atomic_read(&sdev->field);			\
+	return snprintf(buf, 20, "0x%llx\n", count);			\
+}									\
+static DEVICE_ATTR(field, S_IRUGO, show_iostat_##field, NULL)
+
+show_sdev_iostat(iorequest_cnt);
+show_sdev_iostat(iodone_cnt);
+show_sdev_iostat(ioerr_cnt);
+
 
 /* Default template for device attributes.  May NOT be modified */
 static struct device_attribute *scsi_sysfs_sdev_attrs[] = {
@@ -423,6 +445,10 @@ static struct device_attribute *scsi_sysfs_sdev_attrs[] = {
 	&dev_attr_delete,
 	&dev_attr_state,
 	&dev_attr_timeout,
+	&dev_attr_iocounterbits,
+	&dev_attr_iorequest_cnt,
+	&dev_attr_iodone_cnt,
+	&dev_attr_ioerr_cnt,
 	NULL
 };
 

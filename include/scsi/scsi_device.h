@@ -118,6 +118,10 @@ struct scsi_device {
 	unsigned int max_device_blocked; /* what device_blocked counts down from  */
 #define SCSI_DEFAULT_DEVICE_BLOCKED	3
 
+	atomic_t iorequest_cnt;
+	atomic_t iodone_cnt;
+	atomic_t ioerr_cnt;
+
 	int timeout;
 
 	struct device		sdev_gendev;
