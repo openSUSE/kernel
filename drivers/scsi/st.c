@@ -3425,6 +3425,22 @@ static int st_ioctl(struct inode *inode, struct file *file,
 	up(&STp->lock);
 	return retval;
 }
+
+#ifdef CONFIG_COMPAT
+static int st_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	struct scsi_tape *STp = file->private_data;
+	struct scsi_device *sdev = STp->device;
+	int ret = -ENOIOCTLCMD;
+	if (sdev->host->hostt->compat_ioctl) { 
+
+		ret = sdev->host->hostt->compat_ioctl(sdev, cmd, arg);
+
+	}
+	return ret;
+}
+#endif
+
 
 
 /* Try to allocate a new tape buffer. Calling function must not hold
@@ -3716,6 +3732,9 @@ static struct file_operations st_fops =
 	.read =		st_read,
 	.write =	st_write,
 	.ioctl =	st_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = st_compat_ioctl,
+#endif
 	.open =		st_open,
 	.flush =	st_flush,
 	.release =	st_release,
