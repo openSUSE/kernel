@@ -227,7 +227,6 @@ smp_flush_tlb_all (void)
 {
 	on_each_cpu((void (*)(void *))local_flush_tlb_all, NULL, 1, 1);
 }
-EXPORT_SYMBOL(smp_flush_tlb_all);
 
 void
 smp_flush_tlb_mm (struct mm_struct *mm)
