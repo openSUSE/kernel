@@ -85,9 +85,12 @@ static inline int snd_rawmidi_ready_append(snd_rawmidi_substream_t * substream, 
 	       (!substream->append || runtime->avail >= count);
 }
 
-static int snd_rawmidi_init(snd_rawmidi_substream_t *substream)
+static int snd_rawmidi_runtime_create(snd_rawmidi_substream_t * substream)
 {
-	snd_rawmidi_runtime_t *runtime = substream->runtime;
+	snd_rawmidi_runtime_t *runtime;
+
+	if ((runtime = kcalloc(1, sizeof(*runtime), GFP_KERNEL)) == NULL)
+		return -ENOMEM;
 	spin_lock_init(&runtime->lock);
 	init_waitqueue_head(&runtime->sleep);
 	runtime->event = NULL;
@@ -97,18 +100,22 @@ static int snd_rawmidi_init(snd_rawmidi_substream_t *substream)
 		runtime->avail = 0;
 	else
 		runtime->avail = runtime->buffer_size;
-	if ((runtime->buffer = kmalloc(runtime->buffer_size, GFP_KERNEL)) == NULL)
+	if ((runtime->buffer = kmalloc(runtime->buffer_size, GFP_KERNEL)) == NULL) {
+		kfree(runtime);
 		return -ENOMEM;
+	}
 	runtime->appl_ptr = runtime->hw_ptr = 0;
+	substream->runtime = runtime;
 	return 0;
 }
 
-static int snd_rawmidi_done_buffer(snd_rawmidi_runtime_t *runtime)
+static int snd_rawmidi_runtime_free(snd_rawmidi_substream_t * substream)
 {
-	if (runtime->buffer) {
-		kfree(runtime->buffer);
-		runtime->buffer = NULL;
-	}
+	snd_rawmidi_runtime_t *runtime = substream->runtime;
+
+	kfree(runtime->buffer);
+	kfree(runtime);
+	substream->runtime = NULL;
 	return 0;
 }
 
@@ -171,7 +178,7 @@ int snd_rawmidi_kernel_open(int cardnum, int device, int subdevice,
 {
 	snd_rawmidi_t *rmidi;
 	struct list_head *list1, *list2;
-	snd_rawmidi_substream_t *sinput, *soutput;
+	snd_rawmidi_substream_t *sinput = NULL, *soutput = NULL;
 	snd_rawmidi_runtime_t *input = NULL, *output = NULL;
 	int err;
 
@@ -262,20 +269,11 @@ int snd_rawmidi_kernel_open(int cardnum, int device, int subdevice,
 		list2 = list2->next;
 	}
 	if (mode & SNDRV_RAWMIDI_LFLG_INPUT) {
-		input = kcalloc(1, sizeof(*input), GFP_KERNEL);
-		if (input == NULL) {
-			err = -ENOMEM;
+		if ((err = snd_rawmidi_runtime_create(sinput)) < 0)
 			goto __error;
-		}
-		sinput->runtime = input;
-		if (snd_rawmidi_init(sinput) < 0) {
-			err = -ENOMEM;
+		input = sinput->runtime;
+		if ((err = sinput->ops->open(sinput)) < 0)
 			goto __error;
-		}
-		if ((err = sinput->ops->open(sinput)) < 0) {
-			sinput->runtime = NULL;
-			goto __error;
-		}
 		sinput->opened = 1;
 		rmidi->streams[SNDRV_RAWMIDI_STREAM_INPUT].substream_opened++;
 	} else {
@@ -284,26 +282,15 @@ int snd_rawmidi_kernel_open(int cardnum, int device, int subdevice,
 	if (mode & SNDRV_RAWMIDI_LFLG_OUTPUT) {
 		if (soutput->opened)
 			goto __skip_output;
-		output = kcalloc(1, sizeof(*output), GFP_KERNEL);
-		if (output == NULL) {
-			err = -ENOMEM;
-			goto __error;
-		}
-		soutput->runtime = output;
-		if (snd_rawmidi_init(soutput) < 0) {
-			if (mode & SNDRV_RAWMIDI_LFLG_INPUT) {
+		if ((err = snd_rawmidi_runtime_create(soutput)) < 0) {
+			if (mode & SNDRV_RAWMIDI_LFLG_INPUT)
 				sinput->ops->close(sinput);
-				sinput->runtime = NULL;
-			}
-			err = -ENOMEM;
 			goto __error;
 		}
+		output = soutput->runtime;
 		if ((err = soutput->ops->open(soutput)) < 0) {
-			if (mode & SNDRV_RAWMIDI_LFLG_INPUT) {
+			if (mode & SNDRV_RAWMIDI_LFLG_INPUT)
 				sinput->ops->close(sinput);
-				sinput->runtime = NULL;
-			}
-			soutput->runtime = NULL;
 			goto __error;
 		}
 	      __skip_output:
@@ -326,14 +313,10 @@ int snd_rawmidi_kernel_open(int cardnum, int device, int subdevice,
 	return 0;
 
       __error:
-	if (input != NULL) {
-		snd_rawmidi_done_buffer(input);
-		kfree(input);
-	}
-	if (output != NULL) {
-		snd_rawmidi_done_buffer(output);
-		kfree(output);
-	}
+	if (input != NULL)
+		snd_rawmidi_runtime_free(sinput);
+	if (output != NULL)
+		snd_rawmidi_runtime_free(soutput);
 	module_put(rmidi->card->module);
 	if (!(mode & SNDRV_RAWMIDI_LFLG_NOOPENLOCK))
 		up(&rmidi->open_mutex);
@@ -462,11 +445,9 @@ int snd_rawmidi_kernel_release(snd_rawmidi_file_t * rfile)
 		runtime = substream->runtime;
 		substream->ops->trigger(substream, 0);
 		substream->ops->close(substream);
-		snd_rawmidi_done_buffer(runtime);
 		if (runtime->private_free != NULL)
 			runtime->private_free(substream);
-		kfree(runtime);
-		substream->runtime = NULL;
+		snd_rawmidi_runtime_free(substream);
 		substream->opened = 0;
 		rmidi->streams[SNDRV_RAWMIDI_STREAM_INPUT].substream_opened--;
 	}
@@ -483,11 +464,9 @@ int snd_rawmidi_kernel_release(snd_rawmidi_file_t * rfile)
 			if (snd_rawmidi_drain_output(substream) == -ERESTARTSYS)
 				substream->ops->trigger(substream, 0);
 			substream->ops->close(substream);
-			snd_rawmidi_done_buffer(runtime);
 			if (runtime->private_free != NULL)
 				runtime->private_free(substream);
-			kfree(runtime);
-			substream->runtime = NULL;
+			snd_rawmidi_runtime_free(substream);
 			substream->opened = 0;
 			substream->append = 0;
 		}
