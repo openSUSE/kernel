@@ -236,7 +236,7 @@ void dibusb_pid_list_exit(struct usb_dibusb *dib);
 int dibusb_ctrl_pid(struct usb_dibusb *dib, struct dvb_demux_feed *dvbdmxfeed , int onoff);
 
 /* i2c and transfer stuff */
-#define DIBUSB_I2C_TIMEOUT				HZ*5
+#define DIBUSB_I2C_TIMEOUT				5000
 
 /* 
  * protocol of all dibusb related devices

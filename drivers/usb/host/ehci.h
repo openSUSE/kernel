@@ -82,7 +82,7 @@ struct ehci_hcd {			/* one per controller */
 	unsigned long		next_statechange;
 	u32			command;
 
-	unsigned		is_arc_rh_tt:1;	/* ARC roothub with TT */
+	unsigned		is_tdi_rh_tt:1;	/* TDI roothub with TT */
 
 	/* glue to PCI and HCD framework */
 	struct ehci_caps __iomem *caps;
@@ -599,13 +599,13 @@ struct ehci_fstn {
  * needed (mostly in root hub code).
  */
 
-#define	ehci_is_ARC(e)			((e)->is_arc_rh_tt)
+#define	ehci_is_TDI(e)			((e)->is_tdi_rh_tt)
 
 /* Returns the speed of a device attached to a port on the root hub. */
 static inline unsigned int
 ehci_port_speed(struct ehci_hcd *ehci, unsigned int portsc)
 {
-	if (ehci_is_ARC(ehci)) {
+	if (ehci_is_TDI(ehci)) {
 		switch ((portsc>>26)&3) {
 		case 0:
 			return 0;
@@ -621,7 +621,7 @@ ehci_port_speed(struct ehci_hcd *ehci, unsigned int portsc)
 
 #else
 
-#define	ehci_is_ARC(e)			(0)
+#define	ehci_is_TDI(e)			(0)
 
 #define	ehci_port_speed(ehci, portsc)	(1<<USB_PORT_FEAT_HIGHSPEED)
 #endif

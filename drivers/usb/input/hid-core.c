@@ -24,6 +24,7 @@
 #include <asm/unaligned.h>
 #include <asm/byteorder.h>
 #include <linux/input.h>
+#include <linux/wait.h>
 
 #undef DEBUG
 #undef DEBUG_DATA
@@ -1268,22 +1269,9 @@ void hid_submit_report(struct hid_device *hid, struct hid_report *report, unsign
 
 int hid_wait_io(struct hid_device *hid)
 {
-	DECLARE_WAITQUEUE(wait, current);
-	int timeout = 10*HZ;
-
-	set_current_state(TASK_UNINTERRUPTIBLE);
-	add_wait_queue(&hid->wait, &wait);
-
-	while (timeout && (test_bit(HID_CTRL_RUNNING, &hid->iofl) ||
-			   test_bit(HID_OUT_RUNNING, &hid->iofl))) {
-		set_current_state(TASK_UNINTERRUPTIBLE);
-		timeout = schedule_timeout(timeout);
-	}
-
-	set_current_state(TASK_RUNNING);
-	remove_wait_queue(&hid->wait, &wait);
-
-	if (!timeout) {
+	if (!wait_event_timeout(hid->wait, (!test_bit(HID_CTRL_RUNNING, &hid->iofl) &&
+					!test_bit(HID_OUT_RUNNING, &hid->iofl)),
+					10*HZ)) {
 		dbg("timeout waiting for ctrl or out queue to clear");
 		return -1;
 	}
@@ -1301,7 +1289,7 @@ static int hid_get_class_descriptor(struct usb_device *dev, int ifnum,
 	do {
 		result = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
 				USB_REQ_GET_DESCRIPTOR, USB_RECIP_INTERFACE | USB_DIR_IN,
-				(type << 8), ifnum, buf, size, HZ * USB_CTRL_GET_TIMEOUT);
+				(type << 8), ifnum, buf, size, USB_CTRL_GET_TIMEOUT);
 		retries--;
 	} while (result < size && retries);
 	return result;
@@ -1352,7 +1340,7 @@ void hid_init_reports(struct hid_device *hid)
 	 */
 	usb_control_msg(hid->dev, usb_sndctrlpipe(hid->dev, 0),
 			HID_REQ_SET_IDLE, USB_TYPE_CLASS | USB_RECIP_INTERFACE, (1 << 8),
-			hid->ifnum, NULL, 0, HZ * USB_CTRL_SET_TIMEOUT);
+			hid->ifnum, NULL, 0, USB_CTRL_SET_TIMEOUT);
 
 	report_enum = hid->report_enum + HID_INPUT_REPORT;
 	list = report_enum->report_list.next;
@@ -1394,7 +1382,7 @@ void hid_init_reports(struct hid_device *hid)
 		report = (struct hid_report *) list;
 		usb_control_msg(hid->dev, usb_sndctrlpipe(hid->dev, 0),
 			HID_REQ_SET_IDLE, USB_TYPE_CLASS | USB_RECIP_INTERFACE, report->id,
-			hid->ifnum, NULL, 0, HZ * USB_CTRL_SET_TIMEOUT);
+			hid->ifnum, NULL, 0, USB_CTRL_SET_TIMEOUT);
 		list = list->next;
 	}
 }
@@ -1739,12 +1727,12 @@ static struct hid_device *usb_hid_configure(struct usb_interface *intf)
 	if (!(buf = kmalloc(64, GFP_KERNEL)))
 		goto fail;
 
-	if (usb_string(dev, dev->descriptor.iManufacturer, buf, 64) > 0) {
-		strcat(hid->name, buf);
-		if (usb_string(dev, dev->descriptor.iProduct, buf, 64) > 0)
-			snprintf(hid->name, 64, "%s %s", hid->name, buf);
-	} else if (usb_string(dev, dev->descriptor.iProduct, buf, 64) > 0) {
-			snprintf(hid->name, 128, "%s", buf);
+	if (dev->manufacturer) {
+		strcat(hid->name, dev->manufacturer);
+		if (dev->product)
+			snprintf(hid->name, 64, "%s %s", hid->name, dev->product);
+	} else if (dev->product) {
+			snprintf(hid->name, 128, "%s", dev->product);
 	} else
 		snprintf(hid->name, 128, "%04x:%04x", 
 			 le16_to_cpu(dev->descriptor.idVendor),

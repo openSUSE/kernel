@@ -607,10 +607,7 @@ out:
 	return NULL;
 }
 
-/*
- * make sure the service time gets corrected on reissue of this request
- */
-static void cfq_requeue_request(request_queue_t *q, struct request *rq)
+static void cfq_deactivate_request(request_queue_t *q, struct request *rq)
 {
 	struct cfq_rq *crq = RQ_DATA(rq);
 
@@ -627,6 +624,14 @@ static void cfq_requeue_request(request_queue_t *q, struct request *rq)
 			cfqq->cfqd->rq_in_driver--;
 		}
 	}
+}
+
+/*
+ * make sure the service time gets corrected on reissue of this request
+ */
+static void cfq_requeue_request(request_queue_t *q, struct request *rq)
+{
+	cfq_deactivate_request(q, rq);
 	list_add(&rq->queuelist, &q->queue_head);
 }
 
@@ -1804,6 +1809,7 @@ static struct elevator_type iosched_cfq = {
 		.elevator_add_req_fn =		cfq_insert_request,
 		.elevator_remove_req_fn =	cfq_remove_request,
 		.elevator_requeue_req_fn =	cfq_requeue_request,
+		.elevator_deactivate_req_fn =	cfq_deactivate_request,
 		.elevator_queue_empty_fn =	cfq_queue_empty,
 		.elevator_completed_req_fn =	cfq_completed_request,
 		.elevator_former_req_fn =	cfq_former_request,

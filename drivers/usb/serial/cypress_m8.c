@@ -57,9 +57,10 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/spinlock.h>
-#include <asm/uaccess.h>
 #include <linux/usb.h>
 #include <linux/serial.h>
+#include <linux/delay.h>
+#include <asm/uaccess.h>
 
 #include "usb-serial.h"
 #include "cypress_m8.h"
@@ -1013,8 +1014,7 @@ static void cypress_set_termios (struct usb_serial_port *port, struct termios *o
 	cypress_serial_control(port, baud_mask, data_bits, stop_bits, parity_enable,
 			       parity_type, 0, CYPRESS_SET_CONFIG);
 
-	set_current_state(TASK_INTERRUPTIBLE);
-	schedule_timeout(50*HZ/1000); /* give some time between change and read (50ms) */ 
+	msleep(50);			/* give some time between change and read (50ms) */
 
 	/* we perform a CYPRESS_GET_CONFIG so that the current settings are filled into the private structure
          * this should confirm that all is working if it returns what we just set */

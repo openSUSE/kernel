@@ -198,7 +198,7 @@ static void qtd_copy_status (
 				&& urb->dev->tt && !usb_pipeint (urb->pipe)
 				&& ((token & QTD_STS_MMF) != 0
 					|| QTD_CERR(token) == 0)
-				&& (!ehci_is_ARC(ehci)
+				&& (!ehci_is_TDI(ehci)
                 	                || urb->dev->tt->hub !=
 					   ehci_to_hcd(ehci)->self.root_hub)) {
 #ifdef DEBUG
@@ -714,10 +714,10 @@ qh_make (
 		info2 |= (EHCI_TUNE_MULT_TT << 30);
 		info2 |= urb->dev->ttport << 23;
 
-		/* set the address of the TT; for ARC's integrated
+		/* set the address of the TT; for TDI's integrated
 		 * root hub tt, leave it zeroed.
 		 */
-		if (!ehci_is_ARC(ehci)
+		if (!ehci_is_TDI(ehci)
 				|| urb->dev->tt->hub !=
 					ehci_to_hcd(ehci)->self.root_hub)
 			info2 |= urb->dev->tt->hub->devnum << 16;

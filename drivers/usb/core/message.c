@@ -55,7 +55,7 @@ static int usb_start_wait_urb(struct urb *urb, int timeout, int* actual_length)
 	if (status == 0) {
 		if (timeout > 0) {
 			init_timer(&timer);
-			timer.expires = jiffies + timeout;
+			timer.expires = jiffies + msecs_to_jiffies(timeout);
 			timer.data = (unsigned long)urb;
 			timer.function = timeout_kill;
 			/* grr.  timeout _should_ include submit delays. */
@@ -65,12 +65,18 @@ static int usb_start_wait_urb(struct urb *urb, int timeout, int* actual_length)
 		status = urb->status;
 		/* note:  HCDs return ETIMEDOUT for other reasons too */
 		if (status == -ECONNRESET) {
-			dev_warn(&urb->dev->dev,
-				"%s timed out on ep%d%s\n",
+			dev_dbg(&urb->dev->dev,
+				"%s timed out on ep%d%s len=%d/%d\n",
 				current->comm,
 				usb_pipeendpoint(urb->pipe),
-				usb_pipein(urb->pipe) ? "in" : "out");
-			status = -ETIMEDOUT;
+				usb_pipein(urb->pipe) ? "in" : "out",
+				urb->actual_length,
+				urb->transfer_buffer_length
+				);
+			if (urb->actual_length > 0)
+				status = 0;
+			else
+				status = -ETIMEDOUT;
 		}
 		if (timeout > 0)
 			del_timer_sync(&timer);
@@ -115,7 +121,7 @@ int usb_internal_control_msg(struct usb_device *usb_dev, unsigned int pipe,
  *	@index: USB message index value
  *	@data: pointer to the data to send
  *	@size: length in bytes of the data to send
- *	@timeout: time in jiffies to wait for the message to complete before
+ *	@timeout: time in msecs to wait for the message to complete before
  *		timing out (if 0 the wait is forever)
  *	Context: !in_interrupt ()
  *
@@ -163,7 +169,7 @@ int usb_control_msg(struct usb_device *dev, unsigned int pipe, __u8 request, __u
  *	@data: pointer to the data to send
  *	@len: length in bytes of the data to send
  *	@actual_length: pointer to a location to put the actual length transferred in bytes
- *	@timeout: time in jiffies to wait for the message to complete before
+ *	@timeout: time in msecs to wait for the message to complete before
  *		timing out (if 0 the wait is forever)
  *	Context: !in_interrupt ()
  *
@@ -196,7 +202,7 @@ int usb_bulk_msg(struct usb_device *usb_dev, unsigned int pipe,
 	usb_fill_bulk_urb(urb, usb_dev, pipe, data, len,
 			  usb_api_blocking_completion, NULL);
 
-	return usb_start_wait_urb(urb,timeout,actual_length);
+	return usb_start_wait_urb(urb, timeout, actual_length);
 }
 
 /*-------------------------------------------------------------------*/
@@ -579,7 +585,7 @@ int usb_get_descriptor(struct usb_device *dev, unsigned char type, unsigned char
 		result = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
 				USB_REQ_GET_DESCRIPTOR, USB_DIR_IN,
 				(type << 8) + index, 0, buf, size,
-				HZ * USB_CTRL_GET_TIMEOUT);
+				USB_CTRL_GET_TIMEOUT);
 		if (result == 0 || result == -EPIPE)
 			continue;
 		if (result > 1 && ((u8 *)buf)[1] != type) {
@@ -624,7 +630,7 @@ int usb_get_string(struct usb_device *dev, unsigned short langid,
 		result = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
 			USB_REQ_GET_DESCRIPTOR, USB_DIR_IN,
 			(USB_DT_STRING << 8) + index, langid, buf, size,
-			HZ * USB_CTRL_GET_TIMEOUT);
+			USB_CTRL_GET_TIMEOUT);
 		if (!(result == 0 || result == -EPIPE))
 			break;
 	}
@@ -834,7 +840,7 @@ int usb_get_status(struct usb_device *dev, int type, int target, void *data)
 
 	ret = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
 		USB_REQ_GET_STATUS, USB_DIR_IN | type, 0, target, status,
-		sizeof(*status), HZ * USB_CTRL_GET_TIMEOUT);
+		sizeof(*status), USB_CTRL_GET_TIMEOUT);
 
 	*(u16 *)data = *status;
 	kfree(status);
@@ -879,7 +885,7 @@ int usb_clear_halt(struct usb_device *dev, int pipe)
 	result = usb_control_msg(dev, usb_sndctrlpipe(dev, 0),
 		USB_REQ_CLEAR_FEATURE, USB_RECIP_ENDPOINT,
 		USB_ENDPOINT_HALT, endp, NULL, 0,
-		HZ * USB_CTRL_SET_TIMEOUT);
+		USB_CTRL_SET_TIMEOUT);
 
 	/* don't un-halt or force to DATA0 except on success */
 	if (result < 0)
@@ -982,6 +988,8 @@ void usb_disable_device(struct usb_device *dev, int skip_ep0)
 			dev_dbg (&dev->dev, "unregistering interface %s\n",
 				interface->dev.bus_id);
 			usb_remove_sysfs_intf_files(interface);
+			kfree(interface->cur_altsetting->string);
+			interface->cur_altsetting->string = NULL;
 			device_del (&interface->dev);
 		}
 
@@ -1101,7 +1109,7 @@ int usb_set_interface(struct usb_device *dev, int interface, int alternate)
 
 	ret = usb_control_msg(dev, usb_sndctrlpipe(dev, 0),
 				   USB_REQ_SET_INTERFACE, USB_RECIP_INTERFACE,
-				   alternate, interface, NULL, 0, HZ * 5);
+				   alternate, interface, NULL, 0, 5000);
 
 	/* 9.4.10 says devices don't need this and are free to STALL the
 	 * request if the interface only has one alternate setting.
@@ -1123,10 +1131,29 @@ int usb_set_interface(struct usb_device *dev, int interface, int alternate)
 	/* prevent submissions using previous endpoint settings */
 	usb_disable_interface(dev, iface);
 
+	/* 9.1.1.5 says:
+	 *
+	 *	Configuring a device or changing an alternate setting
+	 *	causes all of the status and configuration values
+	 *	associated with endpoints in the affected interfaces to
+	 *	be set to their default values. This includes setting
+	 *	the data toggle of any endpoint using data toggles to
+	 *	the value DATA0.
+	 *
+	 * Some devices take this too literally and don't reset the data
+	 * toggles if the new altsetting is the same as the old one (the
+	 * command isn't "changing" an alternate setting).  We will manually
+	 * reset the toggles when the new and old altsettings are the same.
+	 * Most devices won't need this, but fortunately it doesn't happen
+	 * often.
+	 */
+	if (iface->cur_altsetting == alt)
+		manual = 1;
 	iface->cur_altsetting = alt;
 
 	/* If the interface only has one altsetting and the device didn't
-	 * accept the request, we attempt to carry out the equivalent action
+	 * accept the request (or whenever the old altsetting is the same
+	 * as the new one), we attempt to carry out the equivalent action
 	 * by manually clearing the HALT feature for each endpoint in the
 	 * new altsetting.
 	 */
@@ -1202,7 +1229,7 @@ int usb_reset_configuration(struct usb_device *dev)
 	retval = usb_control_msg(dev, usb_sndctrlpipe(dev, 0),
 			USB_REQ_SET_CONFIGURATION, 0,
 			config->desc.bConfigurationValue, 0,
-			NULL, 0, HZ * USB_CTRL_SET_TIMEOUT);
+			NULL, 0, USB_CTRL_SET_TIMEOUT);
 	if (retval < 0) {
 		usb_set_device_state(dev, USB_STATE_ADDRESS);
 		return retval;
@@ -1337,7 +1364,7 @@ free_interfaces:
 
 	if ((ret = usb_control_msg(dev, usb_sndctrlpipe(dev, 0),
 			USB_REQ_SET_CONFIGURATION, 0, configuration, 0,
-			NULL, 0, HZ * USB_CTRL_SET_TIMEOUT)) < 0)
+			NULL, 0, USB_CTRL_SET_TIMEOUT)) < 0)
 		goto free_interfaces;
 
 	dev->actconfig = cp;
@@ -1386,6 +1413,13 @@ free_interfaces:
 		}
 		kfree(new_interfaces);
 
+		if ((cp->desc.iConfiguration) &&
+		    (cp->string == NULL)) {
+			cp->string = kmalloc(256, GFP_KERNEL);
+			if (cp->string)
+				usb_string(dev, cp->desc.iConfiguration, cp->string, 256);
+		}
+
 		/* Now that all the interfaces are set up, register them
 		 * to trigger binding of drivers to interfaces.  probe()
 		 * routines may install different altsettings and may
@@ -1408,6 +1442,13 @@ free_interfaces:
 					intf->dev.bus_id,
 					ret);
 				continue;
+			}
+			if ((intf->cur_altsetting->desc.iInterface) &&
+			    (intf->cur_altsetting->string == NULL)) {
+				intf->cur_altsetting->string = kmalloc(256, GFP_KERNEL);
+				if (intf->cur_altsetting->string)
+					usb_string(dev, intf->cur_altsetting->desc.iInterface,
+						   intf->cur_altsetting->string, 256);
 			}
 			usb_create_sysfs_intf_files (intf);
 		}

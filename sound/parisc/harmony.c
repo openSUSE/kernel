@@ -368,7 +368,7 @@ snd_harmony_capture_trigger(snd_pcm_substream_t *ss, int cmd)
 }
 
 static int
-snd_harmony_set_data_format(harmony_t *h, int fmt)
+snd_harmony_set_data_format(harmony_t *h, int fmt, int force)
 {
 	int o = h->st.format;
 	int n;
@@ -388,10 +388,10 @@ snd_harmony_set_data_format(harmony_t *h, int fmt)
 		break;
 	}
 
-	if (o != n) {
+	if (force || o != n) {
 		snd_pcm_format_set_silence(fmt, h->sdma.area,
 					   SILENCE_BUFSZ / 
-					   snd_pcm_format_width(fmt));
+					   (snd_pcm_format_physical_width(fmt) / 8));
 	}
 
 	return n;
@@ -412,7 +412,7 @@ snd_harmony_playback_prepare(snd_pcm_substream_t *ss)
 	h->st.playing = 0;
 
 	h->st.rate = snd_harmony_rate_bits(rt->rate);
-	h->st.format = snd_harmony_set_data_format(h, rt->format);
+	h->st.format = snd_harmony_set_data_format(h, rt->format, 0);
 	
 	if (rt->channels == 2)
 		h->st.stereo = HARMONY_SS_STEREO;
@@ -441,7 +441,7 @@ snd_harmony_capture_prepare(snd_pcm_substream_t *ss)
 	h->st.capturing = 0;
 
         h->st.rate = snd_harmony_rate_bits(rt->rate);
-        h->st.format = snd_harmony_set_data_format(h, rt->format);
+        h->st.format = snd_harmony_set_data_format(h, rt->format, 0);
 
         if (rt->channels == 2)
                 h->st.stereo = HARMONY_SS_STEREO;
@@ -665,6 +665,9 @@ snd_harmony_pcm_init(harmony_t *h)
 		printk(KERN_ERR PFX "buffer allocation error: %d\n", err);
 		return err;
 	}
+
+	h->st.format = snd_harmony_set_data_format(h,
+		SNDRV_PCM_FORMAT_S16_BE, 1);
 
 	return 0;
 }

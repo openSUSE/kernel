@@ -356,6 +356,7 @@ static void blk_pre_flush_end_io(struct request *flush_rq)
 	else {
 		q->end_flush_fn(q, flush_rq);
 		clear_bit(QUEUE_FLAG_FLUSH, &q->queue_flags);
+		q->request_fn(q);
 	}
 }
 
@@ -366,15 +367,9 @@ static void blk_post_flush_end_io(struct request *flush_rq)
 
 	rq->flags |= REQ_BAR_POSTFLUSH;
 
-	/*
-	 * called from end_that_request_last(), so we know that the queue
-	 * lock is held
-	 */
-	spin_unlock(q->queue_lock);
 	q->end_flush_fn(q, flush_rq);
-	spin_lock(q->queue_lock);
-
 	clear_bit(QUEUE_FLAG_FLUSH, &q->queue_flags);
+	q->request_fn(q);
 }
 
 struct request *blk_start_pre_flush(request_queue_t *q, struct request *rq)
@@ -383,9 +378,12 @@ struct request *blk_start_pre_flush(request_queue_t *q, struct request *rq)
 
 	BUG_ON(!blk_barrier_rq(rq));
 
+	if (test_and_set_bit(QUEUE_FLAG_FLUSH, &q->queue_flags))
+		return NULL;
+
 	rq_init(q, flush_rq);
 	flush_rq->elevator_private = NULL;
-	flush_rq->flags = 0;
+	flush_rq->flags = REQ_BAR_FLUSH;
 	flush_rq->rq_disk = rq->rq_disk;
 	flush_rq->rl = NULL;
 
@@ -395,10 +393,9 @@ struct request *blk_start_pre_flush(request_queue_t *q, struct request *rq)
 	 */
 	if (!q->prepare_flush_fn(q, flush_rq)) {
 		rq->flags |= REQ_BAR_PREFLUSH | REQ_BAR_POSTFLUSH;
+		clear_bit(QUEUE_FLAG_FLUSH, &q->queue_flags);
 		return rq;
 	}
-
-	set_bit(QUEUE_FLAG_FLUSH, &q->queue_flags);
 
 	/*
 	 * some drivers dequeue requests right away, some only after io
@@ -406,6 +403,8 @@ struct request *blk_start_pre_flush(request_queue_t *q, struct request *rq)
 	 */
 	if (!list_empty(&rq->queuelist))
 		blkdev_dequeue_request(rq);
+
+	elv_deactivate_request(q, rq);
 
 	flush_rq->end_io_data = rq;
 	flush_rq->end_io = blk_pre_flush_end_io;
@@ -422,7 +421,7 @@ static void blk_start_post_flush(request_queue_t *q, struct request *rq)
 
 	rq_init(q, flush_rq);
 	flush_rq->elevator_private = NULL;
-	flush_rq->flags = 0;
+	flush_rq->flags = REQ_BAR_FLUSH;
 	flush_rq->rq_disk = rq->rq_disk;
 	flush_rq->rl = NULL;
 

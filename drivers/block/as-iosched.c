@@ -1463,32 +1463,33 @@ static void as_add_request(struct as_data *ad, struct as_rq *arq)
 	arq->state = AS_RQ_QUEUED;
 }
 
+static void as_deactivate_request(request_queue_t *q, struct request *rq)
+{
+	struct as_data *ad = q->elevator->elevator_data;
+	struct as_rq *arq = RQ_DATA(rq);
+
+	if (arq) {
+		if (arq->state == AS_RQ_REMOVED) {
+			arq->state = AS_RQ_DISPATCHED;
+			if (arq->io_context && arq->io_context->aic)
+				atomic_inc(&arq->io_context->aic->nr_dispatched);
+		}
+	} else
+		WARN_ON(blk_fs_request(rq)
+			&& (!(rq->flags & (REQ_HARDBARRIER|REQ_SOFTBARRIER))) );
+
+	/* Stop anticipating - let this request get through */
+	as_antic_stop(ad);
+}
+
 /*
  * requeue the request. The request has not been completed, nor is it a
  * new request, so don't touch accounting.
  */
 static void as_requeue_request(request_queue_t *q, struct request *rq)
 {
-	struct as_data *ad = q->elevator->elevator_data;
-	struct as_rq *arq = RQ_DATA(rq);
-
-	if (arq) {
-		if (arq->state != AS_RQ_REMOVED) {
-			printk("arq->state %d\n", arq->state);
-			WARN_ON(1);
-		}
-
-		arq->state = AS_RQ_DISPATCHED;
-		if (arq->io_context && arq->io_context->aic)
-			atomic_inc(&arq->io_context->aic->nr_dispatched);
-	} else
-		WARN_ON(blk_fs_request(rq)
-			&& (!(rq->flags & (REQ_HARDBARRIER|REQ_SOFTBARRIER))) );
-
-	list_add(&rq->queuelist, ad->dispatch);
-
-	/* Stop anticipating - let this request get through */
-	as_antic_stop(ad);
+	as_deactivate_request(q, rq);
+	list_add(&rq->queuelist, &q->queue_head);
 }
 
 /*
@@ -2080,6 +2081,7 @@ static struct elevator_type iosched_as = {
 		.elevator_add_req_fn =		as_insert_request,
 		.elevator_remove_req_fn =	as_remove_request,
 		.elevator_requeue_req_fn = 	as_requeue_request,
+		.elevator_deactivate_req_fn = 	as_deactivate_request,
 		.elevator_queue_empty_fn =	as_queue_empty,
 		.elevator_completed_req_fn =	as_completed_request,
 		.elevator_former_req_fn =	as_former_request,

@@ -891,7 +891,7 @@ static int clie_3_5_startup (struct usb_serial *serial)
 	/* get the config number */
 	result = usb_control_msg (serial->dev, usb_rcvctrlpipe(serial->dev, 0),
 				  USB_REQ_GET_CONFIGURATION, USB_DIR_IN,
-				  0, 0, &data, 1, HZ * 3);
+				  0, 0, &data, 1, 3000);
 	if (result < 0) {
 		dev_err(dev, "%s: get config number failed: %d\n", __FUNCTION__, result);
 		return result;
@@ -905,7 +905,7 @@ static int clie_3_5_startup (struct usb_serial *serial)
 	result = usb_control_msg (serial->dev, usb_rcvctrlpipe(serial->dev, 0),
 				  USB_REQ_GET_INTERFACE, 
 				  USB_DIR_IN | USB_RECIP_INTERFACE,
-				  0, 0, &data, 1, HZ * 3);
+				  0, 0, &data, 1, 3000);
 	if (result < 0) {
 		dev_err(dev, "%s: get interface number failed: %d\n", __FUNCTION__, result);
 		return result;

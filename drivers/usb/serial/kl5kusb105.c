@@ -178,7 +178,7 @@ struct klsi_105_private {
  */
 
 
-#define KLSI_TIMEOUT	 (HZ * 5 ) /* default urb timeout */
+#define KLSI_TIMEOUT	 5000 /* default urb timeout */
 
 static int klsi_105_chg_port_settings(struct usb_serial_port *port,
 				      struct klsi_105_port_settings *settings)

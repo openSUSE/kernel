@@ -63,7 +63,7 @@
 #include "debug.h"
 #include "initializers.h"
 
-#ifdef CONFIG_USB_STORAGE_HP8200e
+#ifdef CONFIG_USB_STORAGE_USBAT
 #include "shuttle_usbat.h"
 #endif
 #ifdef CONFIG_USB_STORAGE_SDDR09
@@ -144,9 +144,7 @@ static struct usb_device_id storage_usb_ids [] = {
 	{ USB_INTERFACE_INFO(USB_CLASS_MASS_STORAGE, US_SC_QIC, US_PR_BULK) },
 	{ USB_INTERFACE_INFO(USB_CLASS_MASS_STORAGE, US_SC_UFI, US_PR_BULK) },
 	{ USB_INTERFACE_INFO(USB_CLASS_MASS_STORAGE, US_SC_8070, US_PR_BULK) },
-#if !defined(CONFIG_BLK_DEV_UB) && !defined(CONFIG_BLK_DEV_UB_MODULE)
 	{ USB_INTERFACE_INFO(USB_CLASS_MASS_STORAGE, US_SC_SCSI, US_PR_BULK) },
-#endif
 
 	/* Terminating entry */
 	{ }
@@ -220,10 +218,8 @@ static struct us_unusual_dev us_unusual_dev_list[] = {
 	  .useTransport = US_PR_BULK},
 	{ .useProtocol = US_SC_8070,
 	  .useTransport = US_PR_BULK},
-#if !defined(CONFIG_BLK_DEV_UB) && !defined(CONFIG_BLK_DEV_UB_MODULE)
 	{ .useProtocol = US_SC_SCSI,
 	  .useTransport = US_PR_BULK},
-#endif
 
 	/* Terminating entry */
 	{ NULL }
@@ -483,6 +479,13 @@ static void get_device_info(struct us_data *us, int id_index)
 			unusual_dev->useTransport;
 	us->flags = unusual_dev->flags;
 
+	/*
+	 * This flag is only needed when we're in high-speed, so let's
+	 * disable it if we're in full-speed
+	 */
+	if (dev->speed != USB_SPEED_HIGH)
+		us->flags &= ~US_FL_GO_SLOW;
+
 	/* Log a message if a non-generic unusual_dev entry contains an
 	 * unnecessary subclass or protocol override.  This may stimulate
 	 * reports from users that will help us remove unneeded entries
@@ -515,37 +518,6 @@ static void get_device_info(struct us_data *us, int id_index)
 				idesc->bInterfaceProtocol,
 				msgs[msg]);
 	}
-
-	/* Read the device's string descriptors */
-	if (dev->descriptor.iManufacturer)
-		usb_string(dev, dev->descriptor.iManufacturer, 
-			   us->vendor, sizeof(us->vendor));
-	if (dev->descriptor.iProduct)
-		usb_string(dev, dev->descriptor.iProduct, 
-			   us->product, sizeof(us->product));
-	if (dev->descriptor.iSerialNumber)
-		usb_string(dev, dev->descriptor.iSerialNumber, 
-			   us->serial, sizeof(us->serial));
-
-	/* Use the unusual_dev strings if the device didn't provide them */
-	if (strlen(us->vendor) == 0) {
-		if (unusual_dev->vendorName)
-			strlcpy(us->vendor, unusual_dev->vendorName,
-				sizeof(us->vendor));
-		else
-			strcpy(us->vendor, "Unknown");
-	}
-	if (strlen(us->product) == 0) {
-		if (unusual_dev->productName)
-			strlcpy(us->product, unusual_dev->productName,
-				sizeof(us->product));
-		else
-			strcpy(us->product, "Unknown");
-	}
-	if (strlen(us->serial) == 0)
-		strcpy(us->serial, "None");
-
-	US_DEBUGP("Vendor: %s,  Product: %s\n", us->vendor, us->product);
 }
 
 /* Get the transport settings */
@@ -572,10 +544,10 @@ static int get_transport(struct us_data *us)
 		us->transport_reset = usb_stor_Bulk_reset;
 		break;
 
-#ifdef CONFIG_USB_STORAGE_HP8200e
+#ifdef CONFIG_USB_STORAGE_USBAT
 	case US_PR_SCM_ATAPI:
 		us->transport_name = "SCM/ATAPI";
-		us->transport = hp8200e_transport;
+		us->transport = usbat_transport;
 		us->transport_reset = usb_stor_CB_reset;
 		us->max_lun = 1;
 		break;

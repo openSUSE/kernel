@@ -81,7 +81,7 @@ static int ds_send_control_cmd(struct ds_device *dev, u16 value, u16 index)
 	int err;
 	
 	err = usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, dev->ep[EP_CONTROL]), 
-			CONTROL_CMD, 0x40, value, index, NULL, 0, HZ);
+			CONTROL_CMD, 0x40, value, index, NULL, 0, 1000);
 	if (err < 0) {
 		printk(KERN_ERR "Failed to send command control message %x.%x: err=%d.\n", 
 				value, index, err);
@@ -96,7 +96,7 @@ static int ds_send_control_mode(struct ds_device *dev, u16 value, u16 index)
 	int err;
 	
 	err = usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, dev->ep[EP_CONTROL]), 
-			MODE_CMD, 0x40, value, index, NULL, 0, HZ);
+			MODE_CMD, 0x40, value, index, NULL, 0, 1000);
 	if (err < 0) {
 		printk(KERN_ERR "Failed to send mode control message %x.%x: err=%d.\n", 
 				value, index, err);
@@ -111,7 +111,7 @@ static int ds_send_control(struct ds_device *dev, u16 value, u16 index)
 	int err;
 	
 	err = usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, dev->ep[EP_CONTROL]), 
-			COMM_CMD, 0x40, value, index, NULL, 0, HZ);
+			COMM_CMD, 0x40, value, index, NULL, 0, 1000);
 	if (err < 0) {
 		printk(KERN_ERR "Failed to send control message %x.%x: err=%d.\n", 
 				value, index, err);
@@ -210,7 +210,7 @@ static int ds_recv_data(struct ds_device *dev, unsigned char *buf, int size)
 	
 	count = 0;
 	err = usb_bulk_msg(dev->udev, usb_rcvbulkpipe(dev->udev, dev->ep[EP_DATA_IN]), 
-				buf, size, &count, HZ);
+				buf, size, &count, 1000);
 	if (err < 0) {
 		printk(KERN_INFO "Clearing ep0x%x.\n", dev->ep[EP_DATA_IN]);
 		usb_clear_halt(dev->udev, usb_rcvbulkpipe(dev->udev, dev->ep[EP_DATA_IN]));
@@ -236,7 +236,7 @@ static int ds_send_data(struct ds_device *dev, unsigned char *buf, int len)
 	int count, err;
 	
 	count = 0;
-	err = usb_bulk_msg(dev->udev, usb_sndbulkpipe(dev->udev, dev->ep[EP_DATA_OUT]), buf, len, &count, HZ);
+	err = usb_bulk_msg(dev->udev, usb_sndbulkpipe(dev->udev, dev->ep[EP_DATA_OUT]), buf, len, &count, 1000);
 	if (err < 0) {
 		printk(KERN_ERR "Failed to read 1-wire data from 0x02: err=%d.\n", err);
 		return err;

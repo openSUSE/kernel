@@ -59,7 +59,7 @@ static struct scoop_config corgi_scoop_setup = {
 	.io_out		= CORGI_SCOOP_IO_OUT,
 };
 
-static struct platform_device corgiscoop_device = {
+struct platform_device corgiscoop_device = {
 	.name		= "sharp-scoop",
 	.id		= -1,
 	.dev		= {

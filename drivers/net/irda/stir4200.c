@@ -208,7 +208,7 @@ static int write_reg(struct stir_cb *stir, __u16 reg, __u8 value)
 			       REQ_WRITE_SINGLE,
 			       USB_DIR_OUT|USB_TYPE_VENDOR|USB_RECIP_DEVICE,
 			       value, reg, NULL, 0,
-			       msecs_to_jiffies(CTRL_TIMEOUT));
+			       CTRL_TIMEOUT);
 }
 
 /* Send control message to read multiple registers */
@@ -221,7 +221,7 @@ static inline int read_reg(struct stir_cb *stir, __u16 reg,
 			       REQ_READ_REG,
 			       USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 			       0, reg, data, count,
-			       msecs_to_jiffies(CTRL_TIMEOUT));
+			       CTRL_TIMEOUT);
 }
 
 static inline int isfir(u32 speed)
@@ -740,7 +740,7 @@ static void stir_send(struct stir_cb *stir, struct sk_buff *skb)
 
 	if (usb_bulk_msg(stir->usbdev, usb_sndbulkpipe(stir->usbdev, 1),
 			 stir->io_buf, wraplen,
-			 NULL, msecs_to_jiffies(TRANSMIT_TIMEOUT)))
+			 NULL, TRANSMIT_TIMEOUT))
 		stir->stats.tx_errors++;
 }
 
