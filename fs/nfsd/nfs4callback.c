@@ -561,7 +561,7 @@ nfsd4_cb_recall(struct nfs4_delegation *dp)
 	clnt = clp->cl_callback.cb_client;
 	status = EIO;
 	if ((!atomic_read(&clp->cl_callback.cb_set)) || !clnt)
-		goto out_free;
+		goto out_fail;
 
 	msg.rpc_argp = cbr;
 	msg.rpc_resp = cbr;
@@ -580,7 +580,5 @@ out:
 	return status;
 out_fail:
 	status = nfserrno(status);
-	out_free:
-	kfree(cbr);
 	goto out;
 }
