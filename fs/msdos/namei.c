@@ -278,7 +278,10 @@ static int msdos_add_entry(struct inode *dir, const unsigned char *name,
 		return err;
 
 	dir->i_ctime = dir->i_mtime = *ts;
-	mark_inode_dirty(dir);
+	if (IS_DIRSYNC(dir))
+		(void)fat_sync_inode(dir);
+	else
+		mark_inode_dirty(dir);
 
 	return 0;
 }

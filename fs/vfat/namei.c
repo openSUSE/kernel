@@ -684,7 +684,10 @@ static int vfat_add_entry(struct inode *dir, struct qstr *qname, int is_dir,
 
 	/* update timestamp */
 	dir->i_ctime = dir->i_mtime = dir->i_atime = *ts;
-	mark_inode_dirty(dir);
+	if (IS_DIRSYNC(dir))
+		(void)fat_sync_inode(dir);
+	else
+		mark_inode_dirty(dir);
 cleanup:
 	kfree(slots);
 	return err;
