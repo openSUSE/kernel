@@ -39,6 +39,7 @@
 
 #include "mthca_dev.h"
 #include "mthca_cmd.h"
+#include "mthca_memfree.h"
 
 enum {
 	MTHCA_MAX_DIRECT_CQ_SIZE = 4 * PAGE_SIZE
@@ -55,7 +56,7 @@ struct mthca_cq_context {
 	u32 flags;
 	u64 start;
 	u32 logsize_usrpage;
-	u32 error_eqn;
+	u32 error_eqn;		/* Tavor only */
 	u32 comp_eqn;
 	u32 pd;
 	u32 lkey;
@@ -64,7 +65,9 @@ struct mthca_cq_context {
 	u32 consumer_index;
 	u32 producer_index;
 	u32 cqn;
-	u32 reserved[3];
+	u32 ci_db;		/* Arbel only */
+	u32 state_db;		/* Arbel only */
+	u32 reserved;
 } __attribute__((packed));
 
 #define MTHCA_CQ_STATUS_OK          ( 0 << 28)
@@ -685,10 +688,30 @@ int mthca_init_cq(struct mthca_dev *dev, int nent,
 	if (cq->cqn == -1)
 		return -ENOMEM;
 
+	if (dev->hca_type == ARBEL_NATIVE) {
+		cq->arm_sn = 1;
+
+		err = mthca_table_get(dev, dev->cq_table.table, cq->cqn);
+		if (err)
+			goto err_out;
+
+		err = -ENOMEM;
+
+		cq->set_ci_db_index = mthca_alloc_db(dev, MTHCA_DB_TYPE_CQ_SET_CI,
+						     cq->cqn, &cq->set_ci_db);
+		if (cq->set_ci_db_index < 0)
+			goto err_out_icm;
+
+		cq->arm_db_index = mthca_alloc_db(dev, MTHCA_DB_TYPE_CQ_ARM,
+						  cq->cqn, &cq->arm_db);
+		if (cq->arm_db_index < 0)
+			goto err_out_ci;
+	}
+
 	mailbox = kmalloc(sizeof (struct mthca_cq_context) + MTHCA_CMD_MAILBOX_EXTRA,
 			  GFP_KERNEL);
 	if (!mailbox)
-		goto err_out;
+		goto err_out_mailbox;
 
 	cq_context = MAILBOX_ALIGN(mailbox);
 
@@ -715,6 +738,11 @@ int mthca_init_cq(struct mthca_dev *dev, int nent,
 	cq_context->pd              = cpu_to_be32(dev->driver_pd.pd_num);
 	cq_context->lkey            = cpu_to_be32(cq->mr.ibmr.lkey);
 	cq_context->cqn             = cpu_to_be32(cq->cqn);
+
+	if (dev->hca_type == ARBEL_NATIVE) {
+		cq_context->ci_db    = cpu_to_be32(cq->set_ci_db_index);
+		cq_context->state_db = cpu_to_be32(cq->arm_db_index);
+	}
 
 	err = mthca_SW2HW_CQ(dev, cq_context, cq->cqn, &status);
 	if (err) {
@@ -750,6 +778,14 @@ err_out_free_mr:
 
 err_out_mailbox:
 	kfree(mailbox);
+
+	mthca_free_db(dev, MTHCA_DB_TYPE_CQ_ARM, cq->arm_db_index);
+
+err_out_ci:
+	mthca_free_db(dev, MTHCA_DB_TYPE_CQ_SET_CI, cq->set_ci_db_index);
+
+err_out_icm:
+	mthca_table_put(dev, dev->cq_table.table, cq->cqn);
 
 err_out:
 	mthca_free(&dev->cq_table.alloc, cq->cqn);
@@ -805,6 +841,12 @@ void mthca_free_cq(struct mthca_dev *dev,
 
 	mthca_free_mr(dev, &cq->mr);
 	mthca_free_cq_buf(dev, cq);
+
+	if (dev->hca_type == ARBEL_NATIVE) {
+		mthca_free_db(dev, MTHCA_DB_TYPE_CQ_ARM,    cq->arm_db_index);
+		mthca_free_db(dev, MTHCA_DB_TYPE_CQ_SET_CI, cq->set_ci_db_index);
+		mthca_table_put(dev, dev->cq_table.table, cq->cqn);
+	}
 
 	mthca_free(&dev->cq_table.alloc, cq->cqn);
 	kfree(mailbox);

@@ -143,6 +143,14 @@ struct mthca_cq {
 	int                    cqn;
 	int                    cons_index;
 	int                    is_direct;
+
+	/* Next fields are Arbel only */
+	int                    set_ci_db_index;
+	u32                   *set_ci_db;
+	int                    arm_db_index;
+	u32                   *arm_db;
+	int                    arm_sn;
+
 	union {
 		struct mthca_buf_list direct;
 		struct mthca_buf_list *page_list;
