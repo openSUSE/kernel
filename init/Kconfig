@@ -276,6 +276,18 @@ config KALLSYMS_EXTRA_PASS
 	   reported.  KALLSYMS_EXTRA_PASS is only a temporary workaround while
 	   you wait for kallsyms to be fixed.
 
+config BASE_FULL
+	default y
+	bool "Enable full-sized data structures for core" if EMBEDDED
+	help
+	  Disabling this option reduces the size of miscellaneous core
+	  kernel data structures.
+
+config BASE_SMALL
+	int
+	default 0 if BASE_FULL
+	default 1 if !BASE_FULL
+
 config FUTEX
 	bool "Enable futex support" if EMBEDDED
 	default y
