@@ -133,6 +133,10 @@ struct sharpsl_flash_param_info {
   unsigned int phadadj;
 };
 
+/*
+ * Shared data structures
+ */
+extern struct platform_device corgiscoop_device;
 
 /*
  * External Functions

@@ -1,5 +1,5 @@
 /*
- * linux/include/asm-arm/arch-ixdp2000/io.h
+ * linux/include/asm-arm/arch-ixp2000/io.h
  *
  * Original Author: Naeem M Afzal <naeem.m.afzal@intel.com>
  * Maintainer: Deepak Saxena <dsaxena@plexity.net>

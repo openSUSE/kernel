@@ -51,7 +51,7 @@ static struct scoop_config poodle_scoop_setup = {
 	.io_out		= POODLE_SCOOP_IO_OUT,
 };
 
-static struct platform_device poodle_scoop_device = {
+struct platform_device poodle_scoop_device = {
 	.name		= "sharp-scoop",
 	.id		= -1,
 	.dev		= {
