@@ -281,7 +281,7 @@ extern void BUILD_BUG(void);
 #ifdef CONFIG_SYSCTL
 extern int randomize_va_space;
 #else
-#define randomize_va_space 0
+#define randomize_va_space 1
 #endif
 
 /* Trap pasters of __FUNCTION__ at compile-time */
