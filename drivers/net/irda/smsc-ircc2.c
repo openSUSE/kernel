@@ -203,7 +203,7 @@ static int smsc_ircc_pmproc(struct pm_dev *dev, pm_request_t rqst, void *data);
 
 /* Transceivers for SMSC-ircc */
 
-smsc_transceiver_t smsc_transceivers[]=
+static smsc_transceiver_t smsc_transceivers[]=
 {
 	{ "Toshiba Satellite 1800 (GP data pin select)", smsc_ircc_set_transceiver_toshiba_sat1800, smsc_ircc_probe_transceiver_toshiba_sat1800},
 	{ "Fast pin select", smsc_ircc_set_transceiver_smsc_ircc_fast_pin_select, smsc_ircc_probe_transceiver_smsc_ircc_fast_pin_select},
