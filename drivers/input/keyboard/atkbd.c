@@ -405,7 +405,7 @@ static irqreturn_t atkbd_interrupt(struct serio *serio, unsigned char data,
 			atkbd_report_key(&atkbd->dev, regs, atkbd->keycode[code], value);
 	}
 
-	if (atkbd_scroll) {
+	if (atkbd->scroll) {
 		input_regs(&atkbd->dev, regs);
 		if (click != -1)
 			input_report_key(&atkbd->dev, BTN_MIDDLE, click);
