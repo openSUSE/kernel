@@ -96,73 +96,50 @@ static struct dmi_system_id __initdata i8042_dmi_table[] = {
 static int i8042_pnp_kbd_registered;
 static int i8042_pnp_aux_registered;
 
+static int i8042_pnp_command_reg;
+static int i8042_pnp_data_reg;
+static int i8042_pnp_kbd_irq;
+static int i8042_pnp_aux_irq;
+
+static char i8042_pnp_kbd_name[32];
+static char i8042_pnp_aux_name[32];
 
 static int i8042_pnp_kbd_probe(struct pnp_dev *dev, const struct pnp_device_id *did)
 {
-	if (pnp_port_valid(dev, 0) && pnp_port_len(dev, 0) == 1) {
-		if ((pnp_port_start(dev,0) & ~0xf) == 0x60 && pnp_port_start(dev,0) != 0x60)
-			printk(KERN_WARNING "PNP: [%s] has invalid data port %#lx; default is %#x\n",
-	                        pnp_dev_name(dev), pnp_port_start(dev,0), i8042_data_reg);
-		else
-			i8042_data_reg = pnp_port_start(dev,0);
-	} else
-		printk(KERN_WARNING "PNP: [%s] has no data port; default is 0x%x\n",
-			pnp_dev_name(dev), i8042_data_reg);
+	if (pnp_port_valid(dev, 0) && pnp_port_len(dev, 0) == 1)
+		i8042_pnp_data_reg = pnp_port_start(dev,0);
 
-	if (pnp_port_valid(dev, 1) && pnp_port_len(dev, 1) == 1) {
-		if ((pnp_port_start(dev,1) & ~0xf) == 0x60 && pnp_port_start(dev,1) != 0x64)
-			printk(KERN_WARNING "PNP: [%s] has invalid command port %#lx; default is %#x\n",
-	                        pnp_dev_name(dev), pnp_port_start(dev,1), i8042_command_reg);
-		else
-			i8042_command_reg = pnp_port_start(dev,1);
-	} else
-		printk(KERN_WARNING "PNP: [%s] has no command port; default is 0x%x\n",
-			pnp_dev_name(dev), i8042_command_reg);
+	if (pnp_port_valid(dev, 1) && pnp_port_len(dev, 1) == 1)
+		i8042_pnp_command_reg = pnp_port_start(dev, 1);
 
 	if (pnp_irq_valid(dev,0))
-		i8042_kbd_irq = pnp_irq(dev,0);
-	else
-		printk(KERN_WARNING "PNP: [%s] has no IRQ; default is %d\n",
-			pnp_dev_name(dev), i8042_kbd_irq);
+		i8042_pnp_kbd_irq = pnp_irq(dev, 0);
 
-	printk(KERN_INFO "PNP: %s [%s,%s] at %#x,%#x irq %d\n",
-		"PS/2 Keyboard Controller", did->id, pnp_dev_name(dev),
-		i8042_data_reg, i8042_command_reg, i8042_kbd_irq);
-
+	strncpy(i8042_pnp_kbd_name, did->id, sizeof(i8042_pnp_kbd_name));
+	if (strlen(pnp_dev_name(dev))) {
+		strncat(i8042_pnp_kbd_name, ":", sizeof(i8042_pnp_kbd_name));
+		strncat(i8042_pnp_kbd_name, pnp_dev_name(dev), sizeof(i8042_pnp_kbd_name));
+	}
+	
 	return 0;
 }
 
 static int i8042_pnp_aux_probe(struct pnp_dev *dev, const struct pnp_device_id *did)
 {
-	if (pnp_port_valid(dev, 0) && pnp_port_len(dev, 0) == 1) {
-		if ((pnp_port_start(dev,0) & ~0xf) == 0x60 && pnp_port_start(dev,0) != 0x60)
-			printk(KERN_WARNING "PNP: [%s] has invalid data port %#lx; default is %#x\n",
-	                        pnp_dev_name(dev), pnp_port_start(dev,0), i8042_data_reg);
-		else
-			i8042_data_reg = pnp_port_start(dev,0);
-	} else
-		printk(KERN_WARNING "PNP: [%s] has no data port; default is 0x%x\n",
-			pnp_dev_name(dev), i8042_data_reg);
+	if (pnp_port_valid(dev, 0) && pnp_port_len(dev, 0) == 1)
+		i8042_pnp_data_reg = pnp_port_start(dev,0);
 
-	if (pnp_port_valid(dev, 1) && pnp_port_len(dev, 1) == 1) {
-		if ((pnp_port_start(dev,1) & ~0xf) == 0x60 && pnp_port_start(dev,1) != 0x64)
-			printk(KERN_WARNING "PNP: [%s] has invalid command port %#lx; default is %#x\n",
-	                        pnp_dev_name(dev), pnp_port_start(dev,1), i8042_command_reg);
-		else
-			i8042_command_reg = pnp_port_start(dev,1);
-	} else
-		printk(KERN_WARNING "PNP: [%s] has no command port; default is 0x%x\n",
-			pnp_dev_name(dev), i8042_command_reg);
+	if (pnp_port_valid(dev, 1) && pnp_port_len(dev, 1) == 1)
+		i8042_pnp_command_reg = pnp_port_start(dev, 1);
 
-	if (pnp_irq_valid(dev,0))
-		i8042_aux_irq = pnp_irq(dev,0);
-	else
-		printk(KERN_WARNING "PNP: [%s] has no IRQ; default is %d\n",
-			pnp_dev_name(dev), i8042_aux_irq);
+	if (pnp_irq_valid(dev, 0))
+		i8042_pnp_aux_irq = pnp_irq(dev, 0);
 
-	printk(KERN_INFO "PNP: %s [%s,%s] at %#x,%#x irq %d\n",
-		"PS/2 Mouse Controller", did->id, pnp_dev_name(dev),
-		i8042_data_reg, i8042_command_reg, i8042_aux_irq);
+	strncpy(i8042_pnp_aux_name, did->id, sizeof(i8042_pnp_aux_name));
+	if (strlen(pnp_dev_name(dev))) {
+		strncat(i8042_pnp_aux_name, ":", sizeof(i8042_pnp_aux_name));
+		strncat(i8042_pnp_aux_name, pnp_dev_name(dev), sizeof(i8042_pnp_aux_name));
+	}
 
 	return 0;
 }
@@ -214,22 +191,54 @@ static int i8042_pnp_init(void)
 	if ((result_aux = pnp_register_driver(&i8042_pnp_aux_driver)) >= 0)
 		i8042_pnp_aux_registered = 1;
 
-/*
- * Only fail if we're rather sure there is
- * no AUX/KBD controller.
- */
+	if (result_kbd > 0 || result_aux > 0) {
 
-#ifdef CONFIG_PNPACPI
-	if (!acpi_disabled) {
+		if (((i8042_pnp_data_reg & ~0xf) == (i8042_data_reg & ~0xf) &&
+		      i8042_pnp_data_reg != i8042_data_reg) || !i8042_pnp_data_reg) {
+			printk(KERN_WARNING "PNP: PS/2 controller has invalid data port %#x; using default %#x\n",
+                                i8042_pnp_data_reg, i8042_data_reg);
+			i8042_pnp_data_reg = i8042_data_reg;
+		}
+
+		if (((i8042_pnp_command_reg & ~0xf) == (i8042_command_reg & ~0xf) &&
+		      i8042_pnp_command_reg != i8042_command_reg) || !i8042_pnp_data_reg) {
+			printk(KERN_WARNING "PNP: PS/2 controller has invalid command port %#x; using default %#x\n",
+                                i8042_pnp_command_reg, i8042_command_reg);
+			i8042_pnp_command_reg = i8042_command_reg;
+		}
+
+		if (!i8042_pnp_kbd_irq) {
+			printk(KERN_WARNING "PNP: PS/2 controller doesn't have KBD irq; using default %#x\n", i8042_kbd_irq);
+                        i8042_pnp_kbd_irq = i8042_kbd_irq;
+                }
+
+		if (result_aux > 0 && !i8042_pnp_aux_irq) {
+			printk(KERN_WARNING "PNP: PS/2 controller doesn't have AUX irq; using default %#x\n", i8042_aux_irq);
+                        i8042_pnp_aux_irq = i8042_aux_irq;
+                }
+		
 		if (result_aux <= 0)
 			i8042_noaux = 1;
-		if (result_kbd <= 0 && result_aux <= 0) {
-			i8042_pnp_exit();
+
+		i8042_data_reg = i8042_pnp_data_reg;
+		i8042_command_reg = i8042_pnp_command_reg;
+		i8042_kbd_irq = i8042_pnp_kbd_irq;
+		i8042_aux_irq = i8042_pnp_aux_irq;
+
+		printk(KERN_INFO "PNP: PS/2 Controller [%s%s%s] at %#x,%#x irq %d%s%d\n",
+			i8042_pnp_kbd_name, (result_kbd > 0 || result_aux > 0) ? "," : "", i8042_pnp_aux_name,
+			i8042_data_reg, i8042_command_reg, i8042_kbd_irq,
+			(result_aux > 0) ? "," : "", i8042_aux_irq);
+	} 
+
+	else {
+		i8042_pnp_exit();
+#ifdef CONFIG_PNPACPI
+		if (!acpi_disabled)
 			return -ENODEV;
-		}
-	}
 #endif
-	
+	}
+
 	return 0;
 }
 
