@@ -1840,6 +1840,12 @@ static struct ac97_quirk ac97_quirks[] __devinitdata = {
 		.type = AC97_TUNE_HP_ONLY
 	},
 	{
+		.vendor = 0x10cf,
+		.device = 0x1253,
+		.name = "Fujitsu S6210",	/* STAC9750/51 */
+		.type = AC97_TUNE_HP_ONLY
+	},
+	{
 		.vendor = 0x10f1,
 		.device = 0x2665,
 		.name = "Fujitsu-Siemens Celsius",	/* AD1981? */
