@@ -1038,13 +1038,29 @@ static int smc_phy_reset(struct net_device *dev, int phy)
 /*
  * smc_phy_powerdown - powerdown phy
  * @dev: net device
- * @phy: phy address
  *
  * Power down the specified PHY
  */
-static void smc_phy_powerdown(struct net_device *dev, int phy)
+static void smc_phy_powerdown(struct net_device *dev)
 {
+	struct smc_local *lp = netdev_priv(dev);
 	unsigned int bmcr;
+	int phy = lp->mii.phy_id;
+
+	if (lp->phy_type == 0)
+		return;
+
+	/* We need to ensure that no calls to smc_phy_configure are
+	   pending.
+
+	   flush_scheduled_work() cannot be called because we are
+	   running with the netlink semaphore held (from
+	   devinet_ioctl()) and the pending work queue contains
+	   linkwatch_event() (scheduled by netif_carrier_off()
+	   above). linkwatch_event() also wants the netlink semaphore.
+	*/
+	while(lp->work_pending)
+		schedule();
 
 	bmcr = smc_phy_read(dev, phy, MII_BMCR);
 	smc_phy_write(dev, phy, MII_BMCR, bmcr | BMCR_PDOWN);
@@ -1583,21 +1599,7 @@ static int smc_close(struct net_device *dev)
 	/* clear everything */
 	smc_shutdown(dev);
 
-	if (lp->phy_type != 0) {
-		/* We need to ensure that no calls to
-		   smc_phy_configure are pending.
-
-		   flush_scheduled_work() cannot be called because we
-		   are running with the netlink semaphore held (from
-		   devinet_ioctl()) and the pending work queue
-		   contains linkwatch_event() (scheduled by
-		   netif_carrier_off() above). linkwatch_event() also
-		   wants the netlink semaphore.
-		*/
-		while(lp->work_pending)
-			schedule();
-		smc_phy_powerdown(dev, lp->mii.phy_id);
-	}
+	smc_phy_powerdown(dev);
 
 	if (lp->pending_tx_skb) {
 		dev_kfree_skb(lp->pending_tx_skb);
@@ -2284,6 +2286,7 @@ static int smc_drv_suspend(struct device *dev, u32 state, u32 level)
 		if (netif_running(ndev)) {
 			netif_device_detach(ndev);
 			smc_shutdown(ndev);
+			smc_phy_powerdown(ndev);
 		}
 	}
 	return 0;
