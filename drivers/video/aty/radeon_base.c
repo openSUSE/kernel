@@ -913,7 +913,7 @@ static int radeonfb_ioctl (struct inode *inode, struct file *file, unsigned int 
 
 			OUTREG(CRTC_EXT_CNTL, tmp);
 
-			break;
+			return 0;
 		case FBIO_RADEON_GET_MIRROR:
 			if (!rinfo->is_mobility)
 				return -EINVAL;
