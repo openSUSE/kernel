@@ -431,7 +431,7 @@ static void agp_v2_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 	if (!((*bridge_agpstat & AGPSTAT_SBA) && (*vga_agpstat & AGPSTAT_SBA) && (*requested_mode & AGPSTAT_SBA)))
 		*bridge_agpstat &= ~AGPSTAT_SBA;
 
-	/* Set speed */
+	/* Set rate */
 	if (!((*bridge_agpstat & AGPSTAT2_4X) && (*vga_agpstat & AGPSTAT2_4X) && (*requested_mode & AGPSTAT2_4X)))
 		*bridge_agpstat &= ~AGPSTAT2_4X;
 
@@ -450,6 +450,18 @@ static void agp_v2_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 
 	if (*bridge_agpstat & AGPSTAT2_1X)
 		*bridge_agpstat &= ~(AGPSTAT2_2X | AGPSTAT2_4X);	/* 1X */
+
+	/* Apply any errata. */
+	if (agp_bridge->flags & AGP_ERRATA_FASTWRITES)
+		*bridge_agpstat &= ~AGPSTAT_FW;
+
+	if (agp_bridge->flags & AGP_ERRATA_SBA)
+		*bridge_agpstat &= ~AGPSTAT_SBA;
+
+	if (agp_bridge->flags & AGP_ERRATA_1X) {
+		*bridge_agpstat &= ~(AGPSTAT2_2X | AGPSTAT2_4X);
+		*bridge_agpstat |= AGPSTAT2_1X;
+	}
 }
 
 /*
@@ -502,7 +514,7 @@ static void agp_v3_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 	 */
 	if (*requested_mode & AGPSTAT_MODE_3_0) {
 		/*
-		 * Caller hasn't a clue what its doing. Bridge is in 3.0 mode,
+		 * Caller hasn't a clue what it is doing. Bridge is in 3.0 mode,
 		 * have been passed a 3.0 mode, but with 2.x speed bits set.
 		 * AGP2.x 4x -> AGP3.0 4x.
 		 */
@@ -539,7 +551,7 @@ static void agp_v3_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 		}
 		/* All set, bridge & device can do AGP x8*/
 		*bridge_agpstat &= ~(AGPSTAT3_4X | AGPSTAT3_RSVD);
-		return;
+		goto done;
 
 	} else {
 
@@ -559,7 +571,21 @@ static void agp_v3_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 				printk (KERN_INFO PFX "Bridge couldn't do AGP x4.\n");
 			if (!(*vga_agpstat & AGPSTAT3_4X))
 				printk (KERN_INFO PFX "Graphic card couldn't do AGP x4.\n");
+			return;
 		}
+	}
+
+done:
+	/* Apply any errata. */
+	if (agp_bridge->flags & AGP_ERRATA_FASTWRITES)
+		*bridge_agpstat &= ~AGPSTAT_FW;
+
+	if (agp_bridge->flags & AGP_ERRATA_SBA)
+		*bridge_agpstat &= ~AGPSTAT_SBA;
+
+	if (agp_bridge->flags & AGP_ERRATA_1X) {
+		*bridge_agpstat &= ~(AGPSTAT2_2X | AGPSTAT2_4X);
+		*bridge_agpstat |= AGPSTAT2_1X;
 	}
 }
 

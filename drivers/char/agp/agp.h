@@ -137,6 +137,7 @@ struct agp_bridge_data {
 	int max_memory_agp;	/* in number of pages */
 	int aperture_size_idx;
 	int capndx;
+	int flags;
 	char major_version;
 	char minor_version;
 };
@@ -317,5 +318,9 @@ extern int agp_try_unsupported_boot;
 
 #define AGP2_RESERVED_MASK 0x00fffcc8
 #define AGP3_RESERVED_MASK 0x00ff00cc
+
+#define AGP_ERRATA_FASTWRITES 1<<0
+#define AGP_ERRATA_SBA	 1<<1
+#define AGP_ERRATA_1X 1<<2
 
 #endif	/* _AGP_BACKEND_PRIV_H */
