@@ -307,7 +307,7 @@ enum {
 };
 
 /* Accessors */
-int kyro_dev_video_mode_set(struct fb_info *info)
+static int kyro_dev_video_mode_set(struct fb_info *info)
 {
 	struct kyrofb_info *par = (struct kyrofb_info *)info->par;
 
@@ -339,8 +339,8 @@ int kyro_dev_video_mode_set(struct fb_info *info)
 	return 0;
 }
 
-int kyro_dev_overlay_create(u32 ulWidth,
-			    u32 ulHeight, int bLinear)
+static int kyro_dev_overlay_create(u32 ulWidth,
+				   u32 ulHeight, int bLinear)
 {
 	u32 offset;
 	u32 stride, uvStride;
@@ -376,7 +376,7 @@ int kyro_dev_overlay_create(u32 ulWidth,
 	return 0;
 }
 
-int kyro_dev_overlay_viewport_set(u32 x, u32 y, u32 ulWidth, u32 ulHeight)
+static int kyro_dev_overlay_viewport_set(u32 x, u32 y, u32 ulWidth, u32 ulHeight)
 {
 	if (deviceInfo.ulOverlayOffset == 0)
 		/* probably haven't called CreateOverlay yet */
@@ -558,7 +558,8 @@ static int kyrofb_setcolreg(u_int regno, u_int red, u_int green,
 	return 0;
 }
 
-int __init kyrofb_setup(char *options)
+#ifndef MODULE
+static int __init kyrofb_setup(char *options)
 {
 	char *this_opt;
 
@@ -583,6 +584,7 @@ int __init kyrofb_setup(char *options)
 
 	return 0;
 }
+#endif
 
 static int kyrofb_ioctl(struct inode *inode, struct file *file,
 			unsigned int cmd, unsigned long arg,
@@ -791,7 +793,7 @@ static void __devexit kyrofb_remove(struct pci_dev *pdev)
 	kfree(info);
 }
 
-int __init kyrofb_init(void)
+static int __init kyrofb_init(void)
 {
 #ifndef MODULE
 	char *option = NULL;
