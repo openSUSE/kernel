@@ -384,6 +384,7 @@ enum
 {
 	TCF_EM_CONTAINER,
 	TCF_EM_CMP,
+	TCF_EM_NBYTE,
 	__TCF_EM_MAX
 };
 
