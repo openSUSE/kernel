@@ -86,7 +86,6 @@ struct nfs4_delegation {
 	struct list_head	dl_del_perfile; /* nfs4_file->fi_del_perfile */
 	struct list_head	dl_del_perclnt; /* nfs4_client->cl_del_perclnt*/
 	struct list_head	dl_recall_lru;  /* delegation recalled */
-	atomic_t		dl_recall_cnt;  /* resend cb_recall only once */
 	atomic_t		dl_count;       /* ref count */
 	atomic_t		dl_state;       /* recall state */
 	struct nfs4_client	*dl_client;

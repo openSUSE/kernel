@@ -161,7 +161,6 @@ alloc_init_deleg(struct nfs4_client *clp, struct nfs4_stateid *stp, struct svc_f
 	dp->dl_time = 0;
 	atomic_set(&dp->dl_state, NFS4_NO_RECALL);
 	atomic_set(&dp->dl_count, 1);
-	atomic_set(&dp->dl_recall_cnt, 0);
 	list_add(&dp->dl_del_perfile, &fp->fi_del_perfile);
 	list_add(&dp->dl_del_perclnt, &clp->cl_del_perclnt);
 	alloc_delegation++;
