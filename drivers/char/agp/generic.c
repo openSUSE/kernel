@@ -522,13 +522,14 @@ static void agp_v3_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 
 /**
  * agp_collect_device_status - determine correct agp_cmd from various agp_stat's
+ * @bridge: an agp_bridge_data struct allocated for the AGP host bridge.
  * @requested_mode: requested agp_stat from userspace (Typically from X)
  * @bridge_agpstat: current agp_stat from AGP bridge.
  *
  * This function will hunt for an AGP graphics card, and try to match
  * the requested mode to the capabilities of both the bridge and the card.
  */
-u32 agp_collect_device_status(u32 requested_mode, u32 bridge_agpstat)
+u32 agp_collect_device_status(struct agp_bridge_data *bridge, u32 requested_mode, u32 bridge_agpstat)
 {
 	struct pci_dev *device = NULL;
 	u8 cap_ptr = 0;
@@ -566,7 +567,7 @@ u32 agp_collect_device_status(u32 requested_mode, u32 bridge_agpstat)
 		bridge_agpstat &= ~AGPSTAT_FW;
 
 	/* Check to see if we are operating in 3.0 mode */
-	pci_read_config_dword(device, cap_ptr+AGPSTAT, &agp3);
+	pci_read_config_dword(agp_bridge->dev, cap_ptr+AGPSTAT, &agp3);
 	if (agp3 & AGPSTAT_MODE_3_0) {
 		agp_v3_parse_one(&requested_mode, &bridge_agpstat, &vga_agpstat);
 	} else {
@@ -631,7 +632,7 @@ void agp_generic_enable(u32 requested_mode)
 	pci_read_config_dword(agp_bridge->dev,
 		      agp_bridge->capndx + PCI_AGP_STATUS, &bridge_agpstat);
 
-	bridge_agpstat = agp_collect_device_status(requested_mode, bridge_agpstat);
+	bridge_agpstat = agp_collect_device_status(agp_bridge, requested_mode, bridge_agpstat);
 	if (bridge_agpstat == 0)
 		/* Something bad happened. FIXME: Return error code? */
 		return;
