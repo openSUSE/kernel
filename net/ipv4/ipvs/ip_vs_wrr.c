@@ -163,7 +163,7 @@ ip_vs_wrr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 			if (mark->cw <= 0) {
 				mark->cw = mark->mw;
 				/*
-				 * Still zero, which means no availabe servers.
+				 * Still zero, which means no available servers.
 				 */
 				if (mark->cw == 0) {
 					mark->cl = &svc->destinations;
