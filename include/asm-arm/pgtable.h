@@ -317,12 +317,6 @@ PTE_BIT_FUNC(mkyoung,   |= L_PTE_YOUNG);
 #define pmd_present(pmd)	(pmd_val(pmd))
 #define pmd_bad(pmd)		(pmd_val(pmd) & 2)
 
-#define set_pmd(pmdp,pmd)		\
-	do {				\
-		*(pmdp) = pmd;		\
-		flush_pmd_entry(pmdp);	\
-	} while (0)
-
 #define copy_pmd(pmdpd,pmdps)		\
 	do {				\
 		pmdpd[0] = pmdps[0];	\

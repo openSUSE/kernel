@@ -252,7 +252,8 @@ alloc_init_section(unsigned long virt, unsigned long phys, int prot)
 	if (virt & (1 << 20))
 		pmdp++;
 
-	set_pmd(pmdp, __pmd(phys | prot));
+	*pmdp = __pmd(phys | prot);
+	flush_pmd_entry(pmdp);
 }
 
 /*
@@ -568,8 +569,9 @@ void setup_mm_for_reboot(char mode)
 		if (cpu_arch <= CPU_ARCH_ARMv5)
 			pmdval |= PMD_BIT4;
 		pmd = pmd_offset(pgd + i, i << PGDIR_SHIFT);
-		set_pmd(pmd, __pmd(pmdval));
-		set_pmd(pmd + 1, __pmd(pmdval + (1 << (PGDIR_SHIFT - 1))));
+		pmd[0] = __pmd(pmdval);
+		pmd[1] = __pmd(pmdval + (1 << (PGDIR_SHIFT - 1)));
+		flush_pmd_entry(pmd);
 	}
 }
 
