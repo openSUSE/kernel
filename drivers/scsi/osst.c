@@ -5129,7 +5129,7 @@ static long osst_compat_ioctl(struct file * file, unsigned int cmd_in, unsigned 
 	int ret = -ENOIOCTLCMD;
 	if (sdev->host->hostt->compat_ioctl) {
 
-		ret = sdev->host->hostt->compat_ioctl(sdev, cmd_in, arg);
+		ret = sdev->host->hostt->compat_ioctl(sdev, cmd_in, (void __user *)arg);
 
 	}
 	return ret;

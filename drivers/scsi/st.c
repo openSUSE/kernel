@@ -3427,14 +3427,14 @@ static int st_ioctl(struct inode *inode, struct file *file,
 }
 
 #ifdef CONFIG_COMPAT
-static int st_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+static long st_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct scsi_tape *STp = file->private_data;
 	struct scsi_device *sdev = STp->device;
 	int ret = -ENOIOCTLCMD;
 	if (sdev->host->hostt->compat_ioctl) { 
 
-		ret = sdev->host->hostt->compat_ioctl(sdev, cmd, arg);
+		ret = sdev->host->hostt->compat_ioctl(sdev, cmd, (void __user *)arg);
 
 	}
 	return ret;

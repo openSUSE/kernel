@@ -514,10 +514,10 @@ static long aac_compat_do_ioctl(struct aac_dev *dev, unsigned cmd, unsigned long
 	return ret;
 }
 
-static long aac_compat_ioctl(struct scsi_device *sdev, int cmd, void __user *arg)
+static int aac_compat_ioctl(struct scsi_device *sdev, int cmd, void __user *arg)
 {
 	struct aac_dev *dev = (struct aac_dev *)sdev->host->hostdata;
-	return aac_compat_do_ioctl(dev, cmd, arg);
+	return aac_compat_do_ioctl(dev, cmd, (unsigned long)arg);
 }
 
 static long aac_compat_cfg_ioctl(struct file *file, unsigned cmd, unsigned long arg)
