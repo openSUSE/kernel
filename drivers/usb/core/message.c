@@ -55,7 +55,7 @@ static int usb_start_wait_urb(struct urb *urb, int timeout, int* actual_length)
 	if (status == 0) {
 		if (timeout > 0) {
 			init_timer(&timer);
-			timer.expires = jiffies + timeout;
+			timer.expires = jiffies + msecs_to_jiffies(timeout);
 			timer.data = (unsigned long)urb;
 			timer.function = timeout_kill;
 			/* grr.  timeout _should_ include submit delays. */
@@ -98,7 +98,7 @@ int usb_internal_control_msg(struct usb_device *usb_dev, unsigned int pipe,
 	usb_fill_control_urb(urb, usb_dev, pipe, (unsigned char *)cmd, data,
 			     len, usb_api_blocking_completion, NULL);
 
-	retv = usb_start_wait_urb(urb, msecs_to_jiffies(timeout), &length);
+	retv = usb_start_wait_urb(urb, timeout, &length);
 	if (retv < 0)
 		return retv;
 	else
@@ -196,7 +196,7 @@ int usb_bulk_msg(struct usb_device *usb_dev, unsigned int pipe,
 	usb_fill_bulk_urb(urb, usb_dev, pipe, data, len,
 			  usb_api_blocking_completion, NULL);
 
-	return usb_start_wait_urb(urb,msecs_to_jiffies(timeout),actual_length);
+	return usb_start_wait_urb(urb, timeout, actual_length);
 }
 
 /*-------------------------------------------------------------------*/
