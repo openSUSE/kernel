@@ -1378,9 +1378,7 @@ int csr1212_parse_keyval(struct csr1212_keyval *kv,
 		break;
 
 	case CSR1212_KV_TYPE_LEAF:
-		if (kv->key.id == CSR1212_KV_ID_EXTENDED_ROM) {
-			kv->value.leaf.data = cache->data;
-		} else {
+		if (kv->key.id != CSR1212_KV_ID_EXTENDED_ROM) {
 			kv->value.leaf.data = CSR1212_MALLOC(quads_to_bytes(kvi_len));
 			if (!kv->value.leaf.data)
 			{
@@ -1435,10 +1433,14 @@ int _csr1212_read_keyval(struct csr1212_csr *csr, struct csr1212_keyval *kv)
 			return CSR1212_EIO;
 		}
 
-		kv->value.leaf.len = quads_to_bytes(CSR1212_BE32_TO_CPU(q)>>16);
+		kv->value.leaf.len = CSR1212_BE32_TO_CPU(q) >> 16;
 
 		cache = csr1212_rom_cache_malloc(kv->offset,
-						 kv->value.leaf.len + sizeof(csr1212_quad_t));
+						 quads_to_bytes(kv->value.leaf.len + 1));
+		if (!cache)
+			return CSR1212_ENOMEM;
+
+		kv->value.leaf.data = &cache->data[1];
 		csr->cache_tail->next = cache;
 		cache->prev = csr->cache_tail;
 		cache->next = NULL;
