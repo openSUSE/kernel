@@ -632,21 +632,19 @@ done:
 u32 agp_collect_device_status(struct agp_bridge_data *bridge, u32 requested_mode, u32 bridge_agpstat)
 {
 	struct pci_dev *device = NULL;
-	u8 cap_ptr = 0;
 	u32 vga_agpstat;
+	u8 cap_ptr;
 
-	while (!cap_ptr) {
+	for (;;) {
 		device = pci_get_class(PCI_CLASS_DISPLAY_VGA << 8, device);
 		if (!device) {
 			printk (KERN_INFO PFX "Couldn't find an AGP VGA controller.\n");
 			return 0;
 		}
 		cap_ptr = pci_find_capability(device, PCI_CAP_ID_AGP);
-		if (!cap_ptr) {
-			pci_dev_put(device);
-			continue;
-		}
-			cap_ptr = 0;
+		if (cap_ptr)
+			break;
+		pci_dev_put(device);
 	}
 
 	/*
