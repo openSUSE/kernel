@@ -194,7 +194,7 @@ static u32 b2c2_usb_read_dw(struct usb_b2c2_usb *b2c2, u16 wRegOffsPCI)
 			0,
 			&val,
 			sizeof(u32),
-			B2C2_WAIT_FOR_OPERATION_RDW * HZ);
+			B2C2_WAIT_FOR_OPERATION_RDW * 1000);
 
 	if (len != sizeof(u32)) {
 		err("error while reading dword from %d (%d).",wAddress,wRegOffsPCI);
@@ -220,7 +220,7 @@ static int b2c2_usb_write_dw(struct usb_b2c2_usb *b2c2, u16 wRegOffsPCI, u32 val
 			0,
 			&val,
 			sizeof(u32),
-			B2C2_WAIT_FOR_OPERATION_RDW * HZ);
+			B2C2_WAIT_FOR_OPERATION_RDW * 1000);
 
 	if (len != sizeof(u32)) {
 		err("error while reading dword from %d (%d).",wAddress,wRegOffsPCI);
@@ -270,7 +270,7 @@ static int b2c2_usb_v8_memory_req(struct usb_b2c2_usb *b2c2,
 			wIndex,
 			pbBuffer,
 			buflen,
-			nWaitTime * HZ);
+			nWaitTime * 1000);
 	return len == buflen ? 0 : -EIO;
 }
 
@@ -312,7 +312,7 @@ static int b2c2_usb_i2c_req(struct usb_b2c2_usb *b2c2,
 			wIndex,
 			buf,
 			buflen,
-			nWaitTime * HZ);
+			nWaitTime * 1000);
 	return len == buflen ? 0 : -EIO;
 }
 
@@ -334,7 +334,7 @@ int static b2c2_usb_utility_req(struct usb_b2c2_usb *b2c2, int set,
 			wIndex,
 			pvBuffer,
 			buflen,
-			nWaitTime * HZ);
+			nWaitTime * 1000);
 	return len == buflen ? 0 : -EIO;
 }
 
