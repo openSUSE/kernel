@@ -1233,18 +1233,16 @@ cmp_owner_str(struct nfs4_stateowner *sop, struct xdr_netobj *owner, clientid_t 
 	  (sop->so_client->cl_clientid.cl_id == clid->cl_id));
 }
 
-/* search ownerstr_hashtbl[] for owner */
-static int
-find_openstateowner_str(unsigned int hashval, struct nfsd4_open *open, struct nfs4_stateowner **op) {
-	struct nfs4_stateowner *local = NULL;
+static struct nfs4_stateowner *
+find_openstateowner_str(unsigned int hashval, struct nfsd4_open *open)
+{
+	struct nfs4_stateowner *so = NULL;
 
-	list_for_each_entry(local, &ownerstr_hashtbl[hashval], so_strhash) {
-		if (!cmp_owner_str(local, &open->op_owner, &open->op_clientid))
-			continue;
-		*op = local;
-		return(1);
+	list_for_each_entry(so, &ownerstr_hashtbl[hashval], so_strhash) {
+		if (cmp_owner_str(so, &open->op_owner, &open->op_clientid))
+			return so;
 	}
-	return 0;
+	return NULL;
 }
 
 /* search file_hashtbl[] for file */
@@ -1461,7 +1459,8 @@ nfsd4_process_open1(struct nfsd4_open *open)
 		return nfserr_stale_clientid;
 
 	strhashval = ownerstr_hashval(clientid->cl_id, open->op_owner);
-	if (find_openstateowner_str(strhashval, open, &sop)) {
+	sop = find_openstateowner_str(strhashval, open);
+	if (sop) {
 		open->op_stateowner = sop;
 		/* check for replay */
 		if (open->op_seqid == sop->so_seqid){
@@ -1504,7 +1503,8 @@ nfsd4_process_open1(struct nfsd4_open *open)
 			goto out;
 	}
 	status = nfserr_resource;
-	if (!(sop = alloc_init_open_stateowner(strhashval, clp, open))) 
+	sop = alloc_init_open_stateowner(strhashval, clp, open);
+	if (sop == NULL)
 		goto out;
 	open->op_stateowner = sop;
 renew:
