@@ -116,7 +116,6 @@ struct sock_common {
   *	struct sock - network layer representation of sockets
   *	@__sk_common - shared layout with tcp_tw_bucket
   *	@sk_shutdown - mask of %SEND_SHUTDOWN and/or %RCV_SHUTDOWN
-  *	@sk_use_write_queue - wheter to call sk->sk_write_space in sock_wfree
   *	@sk_userlocks - %SO_SNDBUF and %SO_RCVBUF settings
   *	@sk_lock -	synchronizer
   *	@sk_rcvbuf - size of receive buffer in bytes
@@ -191,7 +190,6 @@ struct sock {
 #define sk_bind_node		__sk_common.skc_bind_node
 #define sk_refcnt		__sk_common.skc_refcnt
 	unsigned char		sk_shutdown;
-	unsigned char		sk_use_write_queue;
 	unsigned char		sk_userlocks;
 	socket_lock_t		sk_lock;
 	int			sk_rcvbuf;
@@ -390,6 +388,7 @@ enum sock_flags {
 	SOCK_BROADCAST,
 	SOCK_TIMESTAMP,
 	SOCK_ZAPPED,
+	SOCK_USE_WRITE_QUEUE, /* whether to call sk->sk_write_space in sock_wfree */
 };
 
 static inline void sock_set_flag(struct sock *sk, enum sock_flags flag)
