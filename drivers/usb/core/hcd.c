@@ -1432,7 +1432,7 @@ static int hcd_hub_resume (struct usb_bus *bus)
 /**
  * usb_bus_start_enum - start immediate enumeration (for OTG)
  * @bus: the bus (must use hcd framework)
- * @port: 1-based number of port; usually bus->otg_port
+ * @port_num: 1-based number of port; usually bus->otg_port
  * Context: in_interrupt()
  *
  * Starts enumeration, with an immediate reset followed later by
