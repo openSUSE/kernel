@@ -780,6 +780,10 @@ running once the system is up.
 	mtdparts=	[MTD]
 			See drivers/mtd/cmdline.c.
 
+	mtouchusb.raw_coordinates=
+			[HW] Make the MicroTouch USB driver use raw coordinates ('y', default)
+			or cooked coordinates ('n')
+
 	n2=		[NET] SDL Inc. RISCom/N2 synchronous serial card
 
 	NCR_D700=	[HW,SCSI]
