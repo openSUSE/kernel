@@ -487,4 +487,3 @@ char * dmi_get_system_info(int field)
 	return dmi_ident[field];
 }
 
-EXPORT_SYMBOL(dmi_get_system_info);
