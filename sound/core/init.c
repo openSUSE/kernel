@@ -39,7 +39,7 @@ struct snd_shutdown_f_ops {
 
 unsigned int snd_cards_lock = 0;	/* locked for registering/using */
 snd_card_t *snd_cards[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS-1)] = NULL};
-rwlock_t snd_card_rwlock = RW_LOCK_UNLOCKED;
+DEFINE_RWLOCK(snd_card_rwlock);
 
 #if defined(CONFIG_SND_MIXER_OSS) || defined(CONFIG_SND_MIXER_OSS_MODULE)
 int (*snd_mixer_oss_notify_callback)(snd_card_t *card, int free_flag);
