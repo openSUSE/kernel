@@ -1630,11 +1630,15 @@ struct dentry *proc_pid_unhash(struct task_struct *p)
 	if (proc_dentry != NULL) {
 
 		spin_lock(&dcache_lock);
+		spin_lock(&proc_dentry->d_lock);
 		if (!d_unhashed(proc_dentry)) {
 			dget_locked(proc_dentry);
 			__d_drop(proc_dentry);
-		} else
+			spin_unlock(&proc_dentry->d_lock);
+		} else {
+			spin_unlock(&proc_dentry->d_lock);
 			proc_dentry = NULL;
+		}
 		spin_unlock(&dcache_lock);
 	}
 	return proc_dentry;
