@@ -453,6 +453,22 @@ __uml_help(ubd_setup,
 "    an 's' will cause data to be written to disk on the host immediately.\n\n"
 );
 
+static int udb_setup(char *str)
+{
+	printk("udb%s specified on command line is almost certainly a ubd -> "
+	       "udb TYPO\n", str);
+	return(1);
+}
+
+__setup("udb", udb_setup);
+__uml_help(udb_setup,
+"udb\n"
+"    This option is here solely to catch ubd -> udb typos, which can be\n\n"
+"    to impossible to catch visually unless you specifically look for\n\n"
+"    them.  The only result of any option starting with 'udb' is an error\n\n"
+"    in the boot output.\n\n"
+);
+
 static int fakehd_set = 0;
 static int fakehd(char *str)
 {
@@ -605,7 +621,11 @@ static int ubd_open_dev(struct ubd *dev)
 		}
 	}
 
-	if(dev->fd < 0) return(dev->fd);
+	if(dev->fd < 0){
+		printk("Failed to open '%s', errno = %d\n", dev->file,
+		       -dev->fd);
+		return(dev->fd);
+	}
 
 	if(dev->cow.file != NULL){
 		err = -ENOMEM;
