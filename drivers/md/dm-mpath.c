@@ -1292,7 +1292,7 @@ static void __exit dm_multipath_exit(void)
 	kmem_cache_destroy(_mpio_cache);
 }
 
-EXPORT_SYMBOL(dm_pg_init_complete);
+EXPORT_SYMBOL_GPL(dm_pg_init_complete);
 
 module_init(dm_multipath_init);
 module_exit(dm_multipath_exit);

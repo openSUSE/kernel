@@ -211,6 +211,6 @@ unsigned dm_scsi_err_handler(struct hw_handler *hwh, struct bio *bio)
 	return MP_FAIL_PATH;
 }
 
-EXPORT_SYMBOL(dm_register_hw_handler);
-EXPORT_SYMBOL(dm_unregister_hw_handler);
-EXPORT_SYMBOL(dm_scsi_err_handler);
+EXPORT_SYMBOL_GPL(dm_register_hw_handler);
+EXPORT_SYMBOL_GPL(dm_unregister_hw_handler);
+EXPORT_SYMBOL_GPL(dm_scsi_err_handler);
