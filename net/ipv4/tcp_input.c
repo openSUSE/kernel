@@ -3018,15 +3018,16 @@ void tcp_parse_options(struct sk_buff *skb, struct tcp_options_received *opt_rx,
 				case TCPOPT_WINDOW:
 					if(opsize==TCPOLEN_WINDOW && th->syn && !estab)
 						if (sysctl_tcp_window_scaling) {
+							__u8 snd_wscale = *(__u8 *) ptr;
 							opt_rx->wscale_ok = 1;
-							opt_rx->snd_wscale = *(__u8 *)ptr;
-							if(opt_rx->snd_wscale > 14) {
+							if (snd_wscale > 14) {
 								if(net_ratelimit())
 									printk(KERN_INFO "tcp_parse_options: Illegal window "
 									       "scaling value %d >14 received.\n",
-									       opt_rx->snd_wscale);
-								opt_rx->snd_wscale = 14;
+									       snd_wscale);
+								snd_wscale = 14;
 							}
+							opt_rx->snd_wscale = snd_wscale;
 						}
 					break;
 				case TCPOPT_TIMESTAMP:

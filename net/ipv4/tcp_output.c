@@ -1427,6 +1427,7 @@ static inline void tcp_connect_init(struct sock *sk)
 {
 	struct dst_entry *dst = __sk_dst_get(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
+	__u8 rcv_wscale;
 
 	/* We'll fix this up when we get a response from the other end.
 	 * See tcp_input.c:tcp_rcv_state_process case TCP_SYN_SENT.
@@ -1451,8 +1452,9 @@ static inline void tcp_connect_init(struct sock *sk)
 				  &tp->rcv_wnd,
 				  &tp->window_clamp,
 				  sysctl_tcp_window_scaling,
-				  &tp->rx_opt.rcv_wscale);
+				  &rcv_wscale);
 
+	tp->rx_opt.rcv_wscale = rcv_wscale;
 	tp->rcv_ssthresh = tp->rcv_wnd;
 
 	sk->sk_err = 0;
