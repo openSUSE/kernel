@@ -230,9 +230,6 @@ struct hfsplus_readdir_data {
 #define hfs_brec_keylen hfsplus_brec_keylen
 #define hfs_brec_insert hfsplus_brec_insert
 #define hfs_brec_remove hfsplus_brec_remove
-#define hfs_bnode_split hfsplus_bnode_split
-#define hfs_brec_update_parent hfsplus_brec_update_parent
-#define hfs_btree_inc_height hfsplus_btree_inc_height
 #define hfs_find_init hfsplus_find_init
 #define hfs_find_exit hfsplus_find_exit
 #define __hfs_brec_find __hplusfs_brec_find
@@ -297,9 +294,6 @@ u16 hfs_brec_lenoff(struct hfs_bnode *, u16, u16 *);
 u16 hfs_brec_keylen(struct hfs_bnode *, u16);
 int hfs_brec_insert(struct hfs_find_data *, void *, int);
 int hfs_brec_remove(struct hfs_find_data *);
-struct hfs_bnode *hfs_bnode_split(struct hfs_find_data *);
-int hfs_brec_update_parent(struct hfs_find_data *);
-int hfs_btree_inc_height(struct hfs_btree *);
 
 /* bfind.c */
 int hfs_find_init(struct hfs_btree *, struct hfs_find_data *);
@@ -320,7 +314,6 @@ int hfsplus_rename_cat(u32, struct inode *, struct qstr *,
 
 /* extents.c */
 int hfsplus_ext_cmp_key(hfsplus_btree_key *, hfsplus_btree_key *);
-void hfsplus_ext_build_key(hfsplus_btree_key *, u32, u32, u8);
 void hfsplus_ext_write_extent(struct inode *);
 int hfsplus_get_block(struct inode *, sector_t, struct buffer_head *, int);
 int hfsplus_free_fork(struct super_block *, u32, struct hfsplus_fork_raw *, int);

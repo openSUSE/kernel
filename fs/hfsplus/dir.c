@@ -228,8 +228,8 @@ static int hfsplus_dir_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-int hfsplus_create(struct inode *dir, struct dentry *dentry, int mode,
-		   struct nameidata *nd)
+static int hfsplus_create(struct inode *dir, struct dentry *dentry, int mode,
+			  struct nameidata *nd)
 {
 	struct inode *inode;
 	int res;
@@ -250,7 +250,8 @@ int hfsplus_create(struct inode *dir, struct dentry *dentry, int mode,
 	return 0;
 }
 
-int hfsplus_link(struct dentry *src_dentry, struct inode *dst_dir, struct dentry *dst_dentry)
+static int hfsplus_link(struct dentry *src_dentry, struct inode *dst_dir,
+			struct dentry *dst_dentry)
 {
 	struct super_block *sb = dst_dir->i_sb;
 	struct inode *inode = src_dentry->d_inode;
@@ -302,7 +303,7 @@ int hfsplus_link(struct dentry *src_dentry, struct inode *dst_dir, struct dentry
 	return 0;
 }
 
-int hfsplus_unlink(struct inode *dir, struct dentry *dentry)
+static int hfsplus_unlink(struct inode *dir, struct dentry *dentry)
 {
 	struct super_block *sb = dir->i_sb;
 	struct inode *inode = dentry->d_inode;
@@ -346,7 +347,7 @@ int hfsplus_unlink(struct inode *dir, struct dentry *dentry)
 	return res;
 }
 
-int hfsplus_mkdir(struct inode *dir, struct dentry *dentry, int mode)
+static int hfsplus_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 {
 	struct inode *inode;
 	int res;
@@ -367,7 +368,7 @@ int hfsplus_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	return 0;
 }
 
-int hfsplus_rmdir(struct inode *dir, struct dentry *dentry)
+static int hfsplus_rmdir(struct inode *dir, struct dentry *dentry)
 {
 	struct inode *inode;
 	int res;
@@ -385,7 +386,8 @@ int hfsplus_rmdir(struct inode *dir, struct dentry *dentry)
 	return 0;
 }
 
-int hfsplus_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
+static int hfsplus_symlink(struct inode *dir, struct dentry *dentry,
+			   const char *symname)
 {
 	struct super_block *sb;
 	struct inode *inode;
@@ -415,7 +417,8 @@ int hfsplus_symlink(struct inode *dir, struct dentry *dentry, const char *symnam
 	return res;
 }
 
-int hfsplus_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t rdev)
+static int hfsplus_mknod(struct inode *dir, struct dentry *dentry,
+			 int mode, dev_t rdev)
 {
 	struct super_block *sb;
 	struct inode *inode;
@@ -440,8 +443,8 @@ int hfsplus_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t rdev
 	return 0;
 }
 
-int hfsplus_rename(struct inode *old_dir, struct dentry *old_dentry,
-		   struct inode *new_dir, struct dentry *new_dentry)
+static int hfsplus_rename(struct inode *old_dir, struct dentry *old_dentry,
+			  struct inode *new_dir, struct dentry *new_dentry)
 {
 	int res;
 

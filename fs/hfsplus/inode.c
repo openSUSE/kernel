@@ -40,7 +40,7 @@ static sector_t hfsplus_bmap(struct address_space *mapping, sector_t block)
 	return generic_block_bmap(mapping, block, hfsplus_get_block);
 }
 
-int hfsplus_releasepage(struct page *page, int mask)
+static int hfsplus_releasepage(struct page *page, int mask)
 {
 	struct inode *inode = page->mapping->host;
 	struct super_block *sb = inode->i_sb;
@@ -297,7 +297,7 @@ static int hfsplus_file_release(struct inode *inode, struct file *file)
 extern struct inode_operations hfsplus_dir_inode_operations;
 extern struct file_operations hfsplus_dir_operations;
 
-struct inode_operations hfsplus_file_inode_operations = {
+static struct inode_operations hfsplus_file_inode_operations = {
 	.lookup		= hfsplus_file_lookup,
 	.truncate	= hfsplus_file_truncate,
 	.permission	= hfsplus_permission,
@@ -306,7 +306,7 @@ struct inode_operations hfsplus_file_inode_operations = {
 	.listxattr	= hfsplus_listxattr,
 };
 
-struct file_operations hfsplus_file_operations = {
+static struct file_operations hfsplus_file_operations = {
 	.llseek 	= generic_file_llseek,
 	.read		= generic_file_read,
 	.write		= generic_file_write,

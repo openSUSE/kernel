@@ -648,14 +648,3 @@ void hfs_bnode_put(struct hfs_bnode *node)
 	}
 }
 
-void hfsplus_lock_bnode(struct hfs_bnode *node)
-{
-	wait_event(node->lock_wq, !test_and_set_bit(HFS_BNODE_LOCK, &node->flags));
-}
-
-void hfsplus_unlock_bnode(struct hfs_bnode *node)
-{
-	clear_bit(HFS_BNODE_LOCK, &node->flags);
-	if (waitqueue_active(&node->lock_wq))
-		wake_up(&node->lock_wq);
-}

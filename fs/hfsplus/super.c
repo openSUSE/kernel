@@ -94,7 +94,7 @@ static void hfsplus_read_inode(struct inode *inode)
 	make_bad_inode(inode);
 }
 
-int hfsplus_write_inode(struct inode *inode, int unused)
+static int hfsplus_write_inode(struct inode *inode, int unused)
 {
 	struct hfsplus_vh *vhdr;
 	int ret = 0;
@@ -239,7 +239,7 @@ static int hfsplus_statfs(struct super_block *sb, struct kstatfs *buf)
 	return 0;
 }
 
-int hfsplus_remount(struct super_block *sb, int *flags, char *data)
+static int hfsplus_remount(struct super_block *sb, int *flags, char *data)
 {
 	if ((*flags & MS_RDONLY) == (sb->s_flags & MS_RDONLY))
 		return 0;
