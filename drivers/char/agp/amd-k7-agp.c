@@ -429,7 +429,7 @@ static int __devinit agp_amdk7_probe(struct pci_dev *pdev,
 		u8 cap_ptr=0;
 		struct pci_dev *gfxcard=NULL;
 		while (!cap_ptr) {
-			gfxcard = pci_get_class(PCI_CLASS_DISPLAY_VGA, gfxcard);
+			gfxcard = pci_get_class(PCI_CLASS_DISPLAY_VGA<<8, gfxcard);
 			if (!gfxcard) {
 				printk (KERN_INFO PFX "Couldn't find an AGP VGA controller.\n");
 				return -ENODEV;
