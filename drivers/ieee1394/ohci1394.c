@@ -2545,6 +2545,10 @@ static void insert_dma_buffer(struct dma_rcv_ctx *d, int idx)
 	idx = (idx + d->num_desc - 1 ) % d->num_desc;
 	d->prg_cpu[idx]->branchAddress |= le32_to_cpu(0x00000001);
 
+	/* To avoid a race, ensure 1394 interface hardware sees the inserted
+	 * context program descriptors before it sees the wakeup bit set. */
+	wmb();
+	
 	/* wake up the dma context if necessary */
 	if (!(reg_read(ohci, d->ctrlSet) & 0x400)) {
 		PRINT(KERN_INFO,
