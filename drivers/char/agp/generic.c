@@ -589,6 +589,20 @@ done:
 	}
 }
 
+
+static int check_bridge_mode(struct pci_dev *dev)
+{
+	u32 agp3;
+	u8 cap_ptr;
+
+	cap_ptr = pci_find_capability(dev, PCI_CAP_ID_AGP);
+	pci_read_config_dword(dev, cap_ptr+AGPSTAT, &agp3);
+	if (agp3 & AGPSTAT_MODE_3_0)
+		return 1;
+	return 0;
+}
+
+
 /**
  * agp_collect_device_status - determine correct agp_cmd from various agp_stat's
  * @bridge: an agp_bridge_data struct allocated for the AGP host bridge.
@@ -603,7 +617,6 @@ u32 agp_collect_device_status(struct agp_bridge_data *bridge, u32 requested_mode
 	struct pci_dev *device = NULL;
 	u8 cap_ptr = 0;
 	u32 vga_agpstat;
-	u32 agp3;
 
 	while (!cap_ptr) {
 		device = pci_get_class(PCI_CLASS_DISPLAY_VGA, device);
@@ -636,12 +649,10 @@ u32 agp_collect_device_status(struct agp_bridge_data *bridge, u32 requested_mode
 		bridge_agpstat &= ~AGPSTAT_FW;
 
 	/* Check to see if we are operating in 3.0 mode */
-	pci_read_config_dword(agp_bridge->dev, cap_ptr+AGPSTAT, &agp3);
-	if (agp3 & AGPSTAT_MODE_3_0) {
+	if (check_bridge_mode(agp_bridge->dev))
 		agp_v3_parse_one(&requested_mode, &bridge_agpstat, &vga_agpstat);
-	} else {
+	else
 		agp_v2_parse_one(&requested_mode, &bridge_agpstat, &vga_agpstat);
-	}
 
 	pci_dev_put(device);
 	return bridge_agpstat;
@@ -689,7 +700,6 @@ EXPORT_SYMBOL(get_agp_version);
 void agp_generic_enable(u32 requested_mode)
 {
 	u32 bridge_agpstat, temp;
-	u32 agp3;
 
 	get_agp_version(agp_bridge);
 
@@ -710,11 +720,7 @@ void agp_generic_enable(u32 requested_mode)
 
 	/* Do AGP version specific frobbing. */
 	if(agp_bridge->major_version >= 3) {
-		pci_read_config_dword(agp_bridge->dev,
-			agp_bridge->capndx+AGPSTAT, &agp3);
-
-		/* Check to see if we are operating in 3.0 mode */
-		if (agp3 & AGPSTAT_MODE_3_0) {
+		if (check_bridge_mode(agp_bridge->dev)) {
 			/* If we have 3.5, we can do the isoch stuff. */
 			if (agp_bridge->minor_version >= 5)
 				agp_3_5_enable(agp_bridge);
