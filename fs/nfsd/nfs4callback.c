@@ -449,6 +449,7 @@ nfsd4_probe_callback(struct nfs4_client *clp)
 
 	msg.rpc_cred = nfsd4_lookupcred(clp,0);
 	status = rpc_call_async(clnt, &msg, RPC_TASK_ASYNC, nfs4_cb_null, NULL);
+	put_rpccred(msg.rpc_cred);
 
 	if (status != 0) {
 		dprintk("NFSD: asynchronous NFSPROC4_CB_NULL failed!\n");
@@ -573,5 +574,6 @@ nfsd4_cb_recall(struct nfs4_delegation *dp)
 		nfs4_cb_recall_done, cbr )))
 		dprintk("NFSD: recall_delegation: rpc_call_async failed %d\n",
 			status);
+	put_rpccred(msg.rpc_cred);
 	return;
 }
