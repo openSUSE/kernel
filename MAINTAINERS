@@ -2055,6 +2055,12 @@ M:	thomas@winischhofer.net
 W:	http://www.winischhofer.net/linuxsisvga.shtml
 S:	Maintained	
 
+SIS USB2VGA DRIVER
+P:	Thomas Winischhofer
+M:	thomas@winischhofer.net
+W:	http://www.winischhofer.at/linuxsisusbvga.shtml
+S:	Maintained
+
 SMSC47M1 HARDWARE MONITOR DRIVER
 P:	Jean Delvare
 M:	khali@linux-fr.org
