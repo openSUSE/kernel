@@ -261,19 +261,23 @@ next_signal(struct sigpending *pending, sigset_t *mask)
 	return sig;
 }
 
-static struct sigqueue *__sigqueue_alloc(struct task_struct *t, int flags)
+static struct sigqueue *__sigqueue_alloc(struct task_struct *t, int flags,
+					 int override_rlimit)
 {
 	struct sigqueue *q = NULL;
 
-	if (atomic_read(&t->user->sigpending) <
+	atomic_inc(&t->user->sigpending);
+	if (override_rlimit ||
+	    atomic_read(&t->user->sigpending) <=
 			t->signal->rlim[RLIMIT_SIGPENDING].rlim_cur)
 		q = kmem_cache_alloc(sigqueue_cachep, flags);
-	if (q) {
+	if (unlikely(q == NULL)) {
+		atomic_dec(&t->user->sigpending);
+	} else {
 		INIT_LIST_HEAD(&q->list);
 		q->flags = 0;
 		q->lock = NULL;
 		q->user = get_uid(t->user);
-		atomic_inc(&q->user->sigpending);
 	}
 	return(q);
 }
@@ -805,7 +809,9 @@ static int send_signal(int sig, struct siginfo *info, struct task_struct *t,
 	   make sure at least one signal gets delivered and don't
 	   pass on the info struct.  */
 
-	q = __sigqueue_alloc(t, GFP_ATOMIC);
+	q = __sigqueue_alloc(t, GFP_ATOMIC, (sig < SIGRTMIN &&
+					     ((unsigned long) info < 2 ||
+					      info->si_code >= 0)));
 	if (q) {
 		list_add_tail(&q->list, &signals->list);
 		switch ((unsigned long) info) {
@@ -1328,7 +1334,7 @@ struct sigqueue *sigqueue_alloc(void)
 {
 	struct sigqueue *q;
 
-	if ((q = __sigqueue_alloc(current, GFP_KERNEL)))
+	if ((q = __sigqueue_alloc(current, GFP_KERNEL, 0)))
 		q->flags |= SIGQUEUE_PREALLOC;
 	return(q);
 }
