@@ -2226,7 +2226,7 @@ static void __devexit sis900_remove(struct pci_dev *pci_dev)
 
 #ifdef CONFIG_PM
 
-static int sis900_suspend(struct pci_dev *pci_dev, u32 state)
+static int sis900_suspend(struct pci_dev *pci_dev, pm_message_t state)
 {
 	struct net_device *net_dev = pci_get_drvdata(pci_dev);
 	long ioaddr = net_dev->base_addr;

@@ -1712,7 +1712,7 @@ freeself:
 }
 
 static int
-toshoboe_gotosleep (struct pci_dev *pci_dev, u32 crap)
+toshoboe_gotosleep (struct pci_dev *pci_dev, pm_message_t crap)
 {
   struct toshoboe_cb *self = (struct toshoboe_cb*)pci_get_drvdata(pci_dev);
   unsigned long flags;

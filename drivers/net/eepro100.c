@@ -2281,7 +2281,7 @@ static void set_rx_mode(struct net_device *dev)
 }
 
 #ifdef CONFIG_PM
-static int eepro100_suspend(struct pci_dev *pdev, u32 state)
+static int eepro100_suspend(struct pci_dev *pdev, pm_message_t state)
 {
 	struct net_device *dev = pci_get_drvdata (pdev);
 	struct speedo_private *sp = netdev_priv(dev);
@@ -2299,7 +2299,7 @@ static int eepro100_suspend(struct pci_dev *pdev, u32 state)
 	
 	/* XXX call pci_set_power_state ()? */
 	pci_disable_device(pdev);
-	pci_set_power_state (pdev, 3);
+	pci_set_power_state (pdev, PCI_D3hot);
 	return 0;
 }
 
@@ -2309,7 +2309,7 @@ static int eepro100_resume(struct pci_dev *pdev)
 	struct speedo_private *sp = netdev_priv(dev);
 	void __iomem *ioaddr = sp->regs;
 
-	pci_set_power_state(pdev, 0);
+	pci_set_power_state(pdev, PCI_D0);
 	pci_restore_state(pdev);
 	pci_enable_device(pdev);
 	pci_set_master(pdev);
