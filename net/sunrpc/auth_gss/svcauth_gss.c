@@ -730,6 +730,19 @@ struct gss_svc_data {
 	struct rsc			*rsci;
 };
 
+static int
+svcauth_gss_set_client(struct svc_rqst *rqstp)
+{
+	struct gss_svc_data *svcdata = rqstp->rq_auth_data;
+	struct rsc *rsci = svcdata->rsci;
+	struct rpc_gss_wire_cred *gc = &svcdata->clcred;
+
+	rqstp->rq_client = find_gss_auth_domain(rsci->mechctx, gc->gc_svc);
+	if (rqstp->rq_client == NULL)
+		return SVC_DENIED;
+	return SVC_OK;
+}
+
 /*
  * Accept an rpcsec packet.
  * If context establishment, punt to user space
@@ -1052,6 +1065,7 @@ static struct auth_ops svcauthops_gss = {
 	.accept		= svcauth_gss_accept,
 	.release	= svcauth_gss_release,
 	.domain_release = svcauth_gss_domain_release,
+	.set_client	= svcauth_gss_set_client,
 };
 
 int

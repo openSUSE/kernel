@@ -92,6 +92,7 @@ struct auth_ops {
 	int	(*accept)(struct svc_rqst *rq, u32 *authp);
 	int	(*release)(struct svc_rqst *rq);
 	void	(*domain_release)(struct auth_domain *);
+	int	(*set_client)(struct svc_rqst *rq);
 };
 
 #define	SVC_GARBAGE	1
@@ -107,6 +108,7 @@ struct auth_ops {
 
 extern int	svc_authenticate(struct svc_rqst *rqstp, u32 *authp);
 extern int	svc_authorise(struct svc_rqst *rqstp);
+extern int	svc_set_client(struct svc_rqst *rqstp);
 extern int	svc_auth_register(rpc_authflavor_t flavor, struct auth_ops *aops);
 extern void	svc_auth_unregister(rpc_authflavor_t flavor);
 

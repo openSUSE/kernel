@@ -429,6 +429,7 @@ struct auth_ops svcauth_null = {
 	.flavour	= RPC_AUTH_NULL,
 	.accept 	= svcauth_null_accept,
 	.release	= svcauth_null_release,
+	.set_client	= svcauth_unix_set_client,
 };
 
 
@@ -510,5 +511,6 @@ struct auth_ops svcauth_unix = {
 	.accept 	= svcauth_unix_accept,
 	.release	= svcauth_unix_release,
 	.domain_release	= svcauth_unix_domain_release,
+	.set_client	= svcauth_unix_set_client,
 };
 
