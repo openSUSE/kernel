@@ -32,7 +32,11 @@ mv64x60_init:
 #if (CONFIG_MV64X60_NEW_BASE != CONFIG_MV64X60_BASE)
 move_base:
 	li	r20,0
+#ifdef CONFIG_GT64260
 	li	r23,20
+#else /* Must be mv64[34]60 which uses top 16 bits */
+	li	r23,16
+#endif
 
 	/* Relocate bridge's regs */
 	addis	r25,0,CONFIG_MV64X60_BASE@h
