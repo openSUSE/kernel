@@ -24,6 +24,7 @@
 #include <asm/unaligned.h>
 #include <asm/byteorder.h>
 #include <linux/input.h>
+#include <linux/wait.h>
 
 #undef DEBUG
 #undef DEBUG_DATA
@@ -1268,22 +1269,9 @@ void hid_submit_report(struct hid_device *hid, struct hid_report *report, unsign
 
 int hid_wait_io(struct hid_device *hid)
 {
-	DECLARE_WAITQUEUE(wait, current);
-	int timeout = 10*HZ;
-
-	set_current_state(TASK_UNINTERRUPTIBLE);
-	add_wait_queue(&hid->wait, &wait);
-
-	while (timeout && (test_bit(HID_CTRL_RUNNING, &hid->iofl) ||
-			   test_bit(HID_OUT_RUNNING, &hid->iofl))) {
-		set_current_state(TASK_UNINTERRUPTIBLE);
-		timeout = schedule_timeout(timeout);
-	}
-
-	set_current_state(TASK_RUNNING);
-	remove_wait_queue(&hid->wait, &wait);
-
-	if (!timeout) {
+	if (!wait_event_timeout(hid->wait, (!test_bit(HID_CTRL_RUNNING, &hid->iofl) &&
+					!test_bit(HID_OUT_RUNNING, &hid->iofl)),
+					10*HZ)) {
 		dbg("timeout waiting for ctrl or out queue to clear");
 		return -1;
 	}
