@@ -94,16 +94,13 @@ static nsc_chip_t chips[] = {
 	  nsc_ircc_probe_108, nsc_ircc_init_108 },
 	{ "PC87338", { 0x398, 0x15c, 0x2e }, 0x08, 0xb0, 0xf8, 
 	  nsc_ircc_probe_338, nsc_ircc_init_338 },
+	/* Contributed by Steffen Pingel - IBM X40 */
+	{ "PC8738x", { 0x164e, 0x4e, 0x0 }, 0x20, 0xf4, 0xff,
+	  nsc_ircc_probe_39x, nsc_ircc_init_39x },
 	/* Contributed by Jan Frey - IBM A30/A31 */
 	{ "PC8739x", { 0x2e, 0x4e, 0x0 }, 0x20, 0xea, 0xff, 
 	  nsc_ircc_probe_39x, nsc_ircc_init_39x },
 	{ NULL }
-#if 0
-	/* Probably bogus, "PC8739x" should be the real thing. Jean II */
-	/* Contributed by Kevin Thayer - OmniBook 6100 */
-	{ "PC87338?", { 0x2e, 0x15c, 0x398 }, 0x08, 0x00, 0xf8, 
-	  nsc_ircc_probe_338, nsc_ircc_init_338 },
-#endif
 };
 
 /* Max 4 instances for now */
