@@ -310,4 +310,7 @@
 /* --- MCP107 adapter */
 #define I2C_HW_MPC107 0x00
 
+/* --- Marvell mv64xxx i2c adapter */
+#define I2C_HW_MV64XXX 0x00
+
 #endif /* LINUX_I2C_ID_H */
