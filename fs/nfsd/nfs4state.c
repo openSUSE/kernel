@@ -1861,15 +1861,12 @@ nfs4_laundromat(void)
 	spin_lock(&recall_lock);
 	list_for_each_safe(pos, next, &del_recall_lru) {
 		dp = list_entry (pos, struct nfs4_delegation, dl_recall_lru);
-		if (atomic_read(&dp->dl_state) == NFS4_RECALL_COMPLETE)
-			goto reap;
 		if (time_after((unsigned long)dp->dl_time, (unsigned long)cutoff)) {
 			u = dp->dl_time - cutoff;
 			if (test_val > u)
 				test_val = u;
 			break;
 		}
-reap:
 		dprintk("NFSD: purging unused delegation dp %p, fp %p\n",
 			            dp, dp->dl_flock);
 		release_delegation(dp);
