@@ -901,8 +901,6 @@ static void __orinoco_ev_alloc(struct net_device *dev, hermes_t *hw)
 			printk(KERN_WARNING "%s: Allocate event on unexpected fid (%04X)\n",
 			       dev->name, fid);
 		return;
-	} else {
-		netif_wake_queue(dev);
 	}
 
 	hermes_write_regn(hw, ALLOCFID, DUMMY_FID);
@@ -914,6 +912,8 @@ static void __orinoco_ev_tx(struct net_device *dev, hermes_t *hw)
 	struct net_device_stats *stats = &priv->stats;
 
 	stats->tx_packets++;
+
+	netif_wake_queue(dev);
 
 	hermes_write_regn(hw, TXCOMPLFID, DUMMY_FID);
 }
@@ -941,6 +941,7 @@ static void __orinoco_ev_txexc(struct net_device *dev, hermes_t *hw)
 	
 	stats->tx_errors++;
 
+	netif_wake_queue(dev);
 	hermes_write_regn(hw, TXCOMPLFID, DUMMY_FID);
 }
 
