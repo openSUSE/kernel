@@ -649,7 +649,7 @@ shortname:
 	de->lcase = lcase;
 	de->adate = de->cdate = de->date = 0;
 	de->ctime = de->time = 0;
-	de->ctime_ms = 0;
+	de->ctime_cs = 0;
 	de->start = 0;
 	de->starthi = 0;
 	de->size = 0;

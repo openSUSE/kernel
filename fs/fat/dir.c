@@ -639,7 +639,7 @@ static int fat_dir_ioctl(struct inode * inode, struct file * filp,
 		both = 1;
 		break;
 	default:
-		return -EINVAL;
+		return fat_generic_ioctl(inode, filp, cmd, arg);
 	}
 
 	d1 = (struct dirent __user *)arg;

@@ -50,8 +50,6 @@
 #define MSDOS_VALID_MODE (S_IFREG | S_IFDIR | S_IRWXU | S_IRWXG | S_IRWXO)
 /* Convert attribute bits and a mask to the UNIX mode. */
 #define MSDOS_MKMODE(a, m) (m & (a & ATTR_RO ? S_IRUGO|S_IXUGO : S_IRWXUGO))
-/* Convert the UNIX mode to MS-DOS attribute bits. */
-#define MSDOS_MKATTR(m)	((m & S_IWUGO) ? ATTR_NONE : ATTR_RO)
 
 #define MSDOS_NAME	11	/* maximum name length */
 #define MSDOS_LONGNAME	256	/* maximum name length */
@@ -100,8 +98,11 @@
 /*
  * ioctl commands
  */
-#define	VFAT_IOCTL_READDIR_BOTH		_IOR('r', 1, struct dirent [2])
-#define	VFAT_IOCTL_READDIR_SHORT	_IOR('r', 2, struct dirent [2])
+#define VFAT_IOCTL_READDIR_BOTH		_IOR('r', 1, struct dirent [2])
+#define VFAT_IOCTL_READDIR_SHORT	_IOR('r', 2, struct dirent [2])
+/* <linux/videotext.h> has used 0x72 ('r') in collision, so skip a few */
+#define FAT_IOCTL_GET_ATTRIBUTES	_IOR('r', 0x10, __u32)
+#define FAT_IOCTL_SET_ATTRIBUTES	_IOW('r', 0x11, __u32)
 
 /*
  * vfat shortname flags
@@ -152,7 +153,7 @@ struct msdos_dir_entry {
 	__u8	name[8],ext[3];	/* name and extension */
 	__u8	attr;		/* attribute bits */
 	__u8    lcase;		/* Case for base and extension */
-	__u8	ctime_ms;	/* Creation time, milliseconds */
+	__u8	ctime_cs;	/* Creation time, centiseconds (0-199) */
 	__le16	ctime;		/* Creation time */
 	__le16	cdate;		/* Creation date */
 	__le16	adate;		/* Last access date */
@@ -257,7 +258,6 @@ struct msdos_inode_info {
 	int i_start;		/* first cluster or 0 */
 	int i_logstart;		/* logical first cluster */
 	int i_attrs;		/* unused attribute bits */
-	int i_ctime_ms;		/* unused change time in milliseconds */
 	loff_t i_pos;		/* on-disk position of directory entry or 0 */
 	struct hlist_node i_fat_hash;	/* hash by i_location */
 	struct inode vfs_inode;
@@ -271,6 +271,14 @@ static inline struct msdos_sb_info *MSDOS_SB(struct super_block *sb)
 static inline struct msdos_inode_info *MSDOS_I(struct inode *inode)
 {
 	return container_of(inode, struct msdos_inode_info, vfs_inode);
+}
+
+/* Return the FAT attribute byte for this inode */
+static inline u8 fat_attr(struct inode *inode)
+{
+	return ((inode->i_mode & S_IWUGO) ? ATTR_NONE : ATTR_RO) |
+		(S_ISDIR(inode->i_mode) ? ATTR_DIR : ATTR_NONE) |
+		MSDOS_I(inode)->i_attrs;
 }
 
 static inline sector_t fat_clus_to_blknr(struct msdos_sb_info *sbi, int clus)
@@ -328,6 +336,8 @@ extern int fat_scan(struct inode *dir, const unsigned char *name,
 		    struct msdos_dir_entry **res_de, loff_t *i_pos);
 
 /* fat/file.c */
+extern int fat_generic_ioctl(struct inode *inode, struct file *filp,
+			     unsigned int cmd, unsigned long arg);
 extern struct file_operations fat_file_operations;
 extern struct inode_operations fat_file_inode_operations;
 extern int fat_notify_change(struct dentry * dentry, struct iattr * attr);

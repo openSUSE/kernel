@@ -42,6 +42,104 @@ static ssize_t fat_file_writev(struct file *filp, const struct iovec *iov,
 	return retval;
 }
 
+int fat_generic_ioctl(struct inode *inode, struct file *filp,
+		      unsigned int cmd, unsigned long arg)
+{
+	struct msdos_sb_info *sbi = MSDOS_SB(inode->i_sb);
+	u32 __user *user_attr = (u32 __user *)arg;
+
+	switch (cmd) {
+	case FAT_IOCTL_GET_ATTRIBUTES:
+	{
+		u32 attr;
+
+		if (inode->i_ino == MSDOS_ROOT_INO)
+			attr = ATTR_DIR;
+		else
+			attr = fat_attr(inode);
+
+		return put_user(attr, user_attr);
+	}
+	case FAT_IOCTL_SET_ATTRIBUTES:
+	{
+		u32 attr, oldattr;
+		int err, is_dir = S_ISDIR(inode->i_mode);
+		struct iattr ia;
+
+		err = get_user(attr, user_attr);
+		if (err)
+			return err;
+
+		down(&inode->i_sem);
+
+		if (IS_RDONLY(inode)) {
+			err = -EROFS;
+			goto up;
+		}
+
+		/*
+		 * ATTR_VOLUME and ATTR_DIR cannot be changed; this also
+		 * prevents the user from turning us into a VFAT
+		 * longname entry.  Also, we obviously can't set
+		 * any of the NTFS attributes in the high 24 bits.
+		 */
+		attr &= 0xff & ~(ATTR_VOLUME | ATTR_DIR);
+		/* Merge in ATTR_VOLUME and ATTR_DIR */
+		attr |= (MSDOS_I(inode)->i_attrs & ATTR_VOLUME) |
+			(is_dir ? ATTR_DIR : 0);
+		oldattr = fat_attr(inode);
+
+		/* Equivalent to a chmod() */
+		ia.ia_valid = ATTR_MODE | ATTR_CTIME;
+		if (is_dir) {
+			ia.ia_mode = MSDOS_MKMODE(attr,
+				S_IRWXUGO & ~sbi->options.fs_dmask)
+				| S_IFDIR;
+		} else {
+			ia.ia_mode = MSDOS_MKMODE(attr,
+				(S_IRUGO | S_IWUGO | (inode->i_mode & S_IXUGO))
+				& ~sbi->options.fs_fmask)
+				| S_IFREG;
+		}
+
+		/* The root directory has no attributes */
+		if (inode->i_ino == MSDOS_ROOT_INO && attr != ATTR_DIR) {
+			err = -EINVAL;
+			goto up;
+		}
+
+		if (sbi->options.sys_immutable) {
+			if ((attr | oldattr) & ATTR_SYS) {
+				if (!capable(CAP_LINUX_IMMUTABLE)) {
+					err = -EPERM;
+					goto up;
+				}
+			}
+		}
+
+		/* This MUST be done before doing anything irreversible... */
+		err = notify_change(filp->f_dentry, &ia);
+		if (err)
+			goto up;
+
+		if (sbi->options.sys_immutable) {
+			if (attr & ATTR_SYS)
+				inode->i_flags |= S_IMMUTABLE;
+			else
+				inode->i_flags &= S_IMMUTABLE;
+		}
+
+		MSDOS_I(inode)->i_attrs = attr & ATTR_UNUSED;
+		mark_inode_dirty(inode);
+	up:
+		up(&inode->i_sem);
+		return err;
+	}
+	default:
+		return -ENOTTY;	/* Inappropriate ioctl for device */
+	}
+}
+
 struct file_operations fat_file_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= do_sync_read,
@@ -51,6 +149,7 @@ struct file_operations fat_file_operations = {
 	.aio_read	= generic_file_aio_read,
 	.aio_write	= fat_file_aio_write,
 	.mmap		= generic_file_mmap,
+	.ioctl		= fat_generic_ioctl,
 	.fsync		= file_fsync,
 	.sendfile	= generic_file_sendfile,
 };

@@ -220,8 +220,7 @@ static int fat_calc_dir_size(struct inode *inode)
 /* doesn't deal with root inode */
 static int fat_fill_inode(struct inode *inode, struct msdos_dir_entry *de)
 {
-	struct super_block *sb = inode->i_sb;
-	struct msdos_sb_info *sbi = MSDOS_SB(sb);
+	struct msdos_sb_info *sbi = MSDOS_SB(inode->i_sb);
 	int error;
 
 	MSDOS_I(inode)->i_pos = 0;
@@ -266,9 +265,10 @@ static int fat_fill_inode(struct inode *inode, struct msdos_dir_entry *de)
 		inode->i_mapping->a_ops = &fat_aops;
 		MSDOS_I(inode)->mmu_private = inode->i_size;
 	}
-	if(de->attr & ATTR_SYS)
+	if (de->attr & ATTR_SYS) {
 		if (sbi->options.sys_immutable)
 			inode->i_flags |= S_IMMUTABLE;
+	}
 	MSDOS_I(inode)->i_attrs = de->attr & ATTR_UNUSED;
 	/* this is as close to the truth as we can get ... */
 	inode->i_blksize = sbi->cluster_size;
@@ -277,12 +277,15 @@ static int fat_fill_inode(struct inode *inode, struct msdos_dir_entry *de)
 	inode->i_mtime.tv_sec = inode->i_atime.tv_sec =
 		date_dos2unix(le16_to_cpu(de->time), le16_to_cpu(de->date));
 	inode->i_mtime.tv_nsec = inode->i_atime.tv_nsec = 0;
-	inode->i_ctime.tv_sec =
-		MSDOS_SB(sb)->options.isvfat
-		? date_dos2unix(le16_to_cpu(de->ctime), le16_to_cpu(de->cdate))
-		: inode->i_mtime.tv_sec;
-	inode->i_ctime.tv_nsec = de->ctime_ms * 1000000;
-	MSDOS_I(inode)->i_ctime_ms = de->ctime_ms;
+	if (sbi->options.isvfat) {
+		int secs = de->ctime_cs / 100;
+		int csecs = de->ctime_cs % 100;
+		inode->i_ctime.tv_sec  =
+			date_dos2unix(le16_to_cpu(de->ctime),
+				      le16_to_cpu(de->cdate)) + secs;
+		inode->i_ctime.tv_nsec = csecs * 10000000;
+	} else
+		inode->i_ctime = inode->i_mtime;
 
 	return 0;
 }
@@ -483,22 +486,18 @@ retry:
 
 	raw_entry = &((struct msdos_dir_entry *) (bh->b_data))
 	    [i_pos & (sbi->dir_per_block - 1)];
-	if (S_ISDIR(inode->i_mode)) {
-		raw_entry->attr = ATTR_DIR;
+	if (S_ISDIR(inode->i_mode))
 		raw_entry->size = 0;
-	}
-	else {
-		raw_entry->attr = ATTR_NONE;
+	else
 		raw_entry->size = cpu_to_le32(inode->i_size);
-	}
-	raw_entry->attr |= MSDOS_MKATTR(inode->i_mode) |
-	    MSDOS_I(inode)->i_attrs;
+	raw_entry->attr = fat_attr(inode);
 	raw_entry->start = cpu_to_le16(MSDOS_I(inode)->i_logstart);
 	raw_entry->starthi = cpu_to_le16(MSDOS_I(inode)->i_logstart >> 16);
 	fat_date_unix2dos(inode->i_mtime.tv_sec, &raw_entry->time, &raw_entry->date);
 	if (sbi->options.isvfat) {
 		fat_date_unix2dos(inode->i_ctime.tv_sec,&raw_entry->ctime,&raw_entry->cdate);
-		raw_entry->ctime_ms = MSDOS_I(inode)->i_ctime_ms; /* use i_ctime.tv_nsec? */
+		raw_entry->ctime_cs = (inode->i_ctime.tv_sec & 1) * 100 +
+			inode->i_ctime.tv_nsec / 10000000;
 	}
 	spin_unlock(&sbi->inode_hash_lock);
 	mark_buffer_dirty(bh);
@@ -1026,10 +1025,9 @@ static int fat_read_root(struct inode *inode)
 	MSDOS_I(inode)->i_logstart = 0;
 	MSDOS_I(inode)->mmu_private = inode->i_size;
 
-	MSDOS_I(inode)->i_attrs = 0;
+	MSDOS_I(inode)->i_attrs = ATTR_NONE;
 	inode->i_mtime.tv_sec = inode->i_atime.tv_sec = inode->i_ctime.tv_sec = 0;
 	inode->i_mtime.tv_nsec = inode->i_atime.tv_nsec = inode->i_ctime.tv_nsec = 0;
-	MSDOS_I(inode)->i_ctime_ms = 0;
 	inode->i_nlink = fat_subdirs(inode)+2;
 
 	return 0;
