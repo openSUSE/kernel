@@ -36,6 +36,7 @@
 #include <linux/module.h>
 #include <linux/namei.h>
 #include <linux/vfs.h>
+#include <linux/delay.h>
 #include <linux/sunrpc/svc.h>
 #include <linux/nfsd/nfsd.h>
 #ifdef CONFIG_NFSD_V3
@@ -810,30 +811,21 @@ nfsd_read_actor(read_descriptor_t *desc, struct page *page, unsigned long offset
 	return size;
 }
 
-/*
- * Read data from a file. count must contain the requested read count
- * on entry. On return, *count contains the number of bytes actually read.
- * N.B. After this call fhp needs an fh_put
- */
-int
-nfsd_read(struct svc_rqst *rqstp, struct svc_fh *fhp, loff_t offset,
-          struct kvec *vec, int vlen, unsigned long *count)
+static inline int
+nfsd_vfs_read(struct svc_rqst *rqstp, struct svc_fh *fhp, struct file *file,
+              loff_t offset, struct kvec *vec, int vlen, unsigned long *count)
 {
+	struct inode *inode;
 	struct raparms	*ra;
 	mm_segment_t	oldfs;
 	int		err;
-	struct file	*file;
-	struct inode	*inode;
 
-	err = nfsd_open(rqstp, fhp, S_IFREG, MAY_READ, &file);
-	if (err)
-		goto out;
 	err = nfserr_perm;
 	inode = file->f_dentry->d_inode;
 #ifdef MSNFS
 	if ((fhp->fh_export->ex_flags & NFSEXP_MSNFS) &&
 		(!lock_may_read(inode, offset, *count)))
-		goto out_close;
+		goto out;
 #endif
 
 	/* Get readahead parameters */
@@ -869,41 +861,28 @@ nfsd_read(struct svc_rqst *rqstp, struct svc_fh *fhp, loff_t offset,
 		dnotify_parent(file->f_dentry, DN_ACCESS);
 	} else 
 		err = nfserrno(err);
-out_close:
-	nfsd_close(file);
 out:
 	return err;
 }
 
-/*
- * Write data to a file.
- * The stable flag requests synchronous writes.
- * N.B. After this call fhp needs an fh_put
- */
-int
-nfsd_write(struct svc_rqst *rqstp, struct svc_fh *fhp, loff_t offset,
-				struct kvec *vec, int vlen,
+static inline int
+nfsd_vfs_write(struct svc_rqst *rqstp, struct svc_fh *fhp, struct file *file,
+				loff_t offset, struct kvec *vec, int vlen,
 	   			unsigned long cnt, int *stablep)
 {
 	struct svc_export	*exp;
-	struct file		*file;
 	struct dentry		*dentry;
 	struct inode		*inode;
 	mm_segment_t		oldfs;
 	int			err = 0;
 	int			stable = *stablep;
 
-	err = nfsd_open(rqstp, fhp, S_IFREG, MAY_WRITE, &file);
-	if (err)
-		goto out;
-	if (!cnt)
-		goto out_close;
 	err = nfserr_perm;
 
 #ifdef MSNFS
 	if ((fhp->fh_export->ex_flags & NFSEXP_MSNFS) &&
 		(!lock_may_write(file->f_dentry->d_inode, offset, cnt)))
-		goto out_close;
+		goto out;
 #endif
 
 	dentry = file->f_dentry;
@@ -968,8 +947,7 @@ nfsd_write(struct svc_rqst *rqstp, struct svc_fh *fhp, loff_t offset,
 			if (atomic_read(&inode->i_writecount) > 1
 			    || (last_ino == inode->i_ino && last_dev == inode->i_sb->s_dev)) {
 				dprintk("nfsd: write defer %d\n", current->pid);
-				set_current_state(TASK_UNINTERRUPTIBLE);
-				schedule_timeout((HZ+99)/100);
+				msleep(10);
 				dprintk("nfsd: write resume %d\n", current->pid);
 			}
 
@@ -990,12 +968,71 @@ nfsd_write(struct svc_rqst *rqstp, struct svc_fh *fhp, loff_t offset,
 		err = 0;
 	else 
 		err = nfserrno(err);
-out_close:
-	nfsd_close(file);
 out:
 	return err;
 }
 
+/*
+ * Read data from a file. count must contain the requested read count
+ * on entry. On return, *count contains the number of bytes actually read.
+ * N.B. After this call fhp needs an fh_put
+ */
+int
+nfsd_read(struct svc_rqst *rqstp, struct svc_fh *fhp, struct file *file,
+		loff_t offset, struct kvec *vec, int vlen,
+		unsigned long *count)
+{
+	int		err;
+
+	if (file) {
+		err = nfsd_permission(fhp->fh_export, fhp->fh_dentry,
+				MAY_READ|MAY_OWNER_OVERRIDE);
+		if (err)
+			goto out;
+		err = nfsd_vfs_read(rqstp, fhp, file, offset, vec, vlen, count);
+	} else {
+		err = nfsd_open(rqstp, fhp, S_IFREG, MAY_READ, &file);
+		if (err)
+			goto out;
+		err = nfsd_vfs_read(rqstp, fhp, file, offset, vec, vlen, count);
+		nfsd_close(file);
+	}
+out:
+	return err;
+}
+
+/*
+ * Write data to a file.
+ * The stable flag requests synchronous writes.
+ * N.B. After this call fhp needs an fh_put
+ */
+int
+nfsd_write(struct svc_rqst *rqstp, struct svc_fh *fhp, struct file *file,
+		loff_t offset, struct kvec *vec, int vlen, unsigned long cnt,
+		int *stablep)
+{
+	int			err = 0;
+
+	if (file) {
+		err = nfsd_permission(fhp->fh_export, fhp->fh_dentry,
+				MAY_WRITE|MAY_OWNER_OVERRIDE);
+		if (err)
+			goto out;
+		err = nfsd_vfs_write(rqstp, fhp, file, offset, vec, vlen, cnt,
+				stablep);
+	} else {
+		err = nfsd_open(rqstp, fhp, S_IFREG, MAY_WRITE, &file);
+		if (err)
+			goto out;
+
+		if (cnt)
+			err = nfsd_vfs_write(rqstp, fhp, file, offset, vec, vlen,
+					     cnt, stablep);
+		nfsd_close(file);
+	}
+out:
+	return err;
+}
 
 #ifdef CONFIG_NFSD_V3
 /*

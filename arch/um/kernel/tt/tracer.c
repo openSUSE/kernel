@@ -12,8 +12,6 @@
 #include <sched.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <sys/ptrace.h>
-#include <linux/ptrace.h>
 #include <sys/time.h>
 #include <sys/wait.h>
 #include "user.h"
@@ -184,11 +182,13 @@ int tracing_pid = -1;
 int tracer(int (*init_proc)(void *), void *sp)
 {
 	void *task = NULL;
-	unsigned long eip = 0;
 	int status, pid = 0, sig = 0, cont_type, tracing = 0, op = 0;
-	int last_index, proc_id = 0, n, err, old_tracing = 0, strace = 0;
+	int proc_id = 0, n, err, old_tracing = 0, strace = 0;
 	int local_using_sysemu = 0;
-
+#ifdef UML_CONFIG_SYSCALL_DEBUG
+	unsigned long eip = 0;
+	int last_index;
+#endif
 	signal(SIGPIPE, SIG_IGN);
 	setup_tracer_winch();
 	tracing_pid = os_getpid();
@@ -279,22 +279,23 @@ int tracer(int (*init_proc)(void *), void *sp)
 		else if(WIFSTOPPED(status)){
 			proc_id = pid_to_processor_id(pid);
 			sig = WSTOPSIG(status);
+#ifdef UML_CONFIG_SYSCALL_DEBUG
 			if(signal_index[proc_id] == 1024){
 				signal_index[proc_id] = 0;
 				last_index = 1023;
 			}
 			else last_index = signal_index[proc_id] - 1;
-			if(((sig == SIGPROF) || (sig == SIGVTALRM) || 
+			if(((sig == SIGPROF) || (sig == SIGVTALRM) ||
 			    (sig == SIGALRM)) &&
 			   (signal_record[proc_id][last_index].signal == sig)&&
 			   (signal_record[proc_id][last_index].pid == pid))
 				signal_index[proc_id] = last_index;
 			signal_record[proc_id][signal_index[proc_id]].pid = pid;
 			gettimeofday(&signal_record[proc_id][signal_index[proc_id]].time, NULL);
-			eip = ptrace(PTRACE_PEEKUSER, pid, PT_IP_OFFSET, 0);
+			eip = ptrace(PTRACE_PEEKUSR, pid, PT_IP_OFFSET, 0);
 			signal_record[proc_id][signal_index[proc_id]].addr = eip;
 			signal_record[proc_id][signal_index[proc_id]++].signal = sig;
-			
+#endif
 			if(proc_id == -1){
 				sleeping_process_signal(pid, sig);
 				continue;
@@ -465,19 +466,6 @@ __uml_setup("debugtrace", uml_debugtrace_setup,
 "    debugger and continued.  This is mostly for debugging crashes\n"
 "    early during boot, and should be pretty much obsoleted by\n"
 "    the debug switch.\n\n"
-);
-
-static int __init uml_honeypot_setup(char *line, int *add)
-{
-	jail_setup("", add);
-	honeypot = 1;
-	return 0;
-}
-__uml_setup("honeypot", uml_honeypot_setup, 
-"honeypot\n"
-"    This makes UML put process stacks in the same location as they are\n"
-"    on the host, allowing expoits such as stack smashes to work against\n"
-"    UML.  This implies 'jail'.\n\n"
 );
 
 /*

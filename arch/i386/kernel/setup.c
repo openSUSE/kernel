@@ -40,6 +40,7 @@
 #include <linux/efi.h>
 #include <linux/init.h>
 #include <linux/edd.h>
+#include <linux/nodemask.h>
 #include <video/edid.h>
 #include <asm/e820.h>
 #include <asm/mpspec.h>
@@ -1053,8 +1054,29 @@ static unsigned long __init setup_memory(void)
 
 	return max_low_pfn;
 }
+
+void __init zone_sizes_init(void)
+{
+	unsigned long zones_size[MAX_NR_ZONES] = {0, 0, 0};
+	unsigned int max_dma, low;
+
+	max_dma = virt_to_phys((char *)MAX_DMA_ADDRESS) >> PAGE_SHIFT;
+	low = max_low_pfn;
+
+	if (low < max_dma)
+		zones_size[ZONE_DMA] = low;
+	else {
+		zones_size[ZONE_DMA] = max_dma;
+		zones_size[ZONE_NORMAL] = low - max_dma;
+#ifdef CONFIG_HIGHMEM
+		zones_size[ZONE_HIGHMEM] = highend_pfn - low;
+#endif
+	}
+	free_area_init(zones_size);
+}
 #else
 extern unsigned long setup_memory(void);
+extern void zone_sizes_init(void);
 #endif /* !CONFIG_DISCONTIGMEM */
 
 void __init setup_bootmem_allocator(void)
@@ -1130,6 +1152,24 @@ void __init setup_bootmem_allocator(void)
 		}
 	}
 #endif
+}
+
+/*
+ * The node 0 pgdat is initialized before all of these because
+ * it's needed for bootmem.  node>0 pgdats have their virtual
+ * space allocated before the pagetables are in place to access
+ * them, so they can't be cleared then.
+ *
+ * This should all compile down to nothing when NUMA is off.
+ */
+void __init remapped_pgdat_init(void)
+{
+	int nid;
+
+	for_each_online_node(nid) {
+		if (nid != 0)
+			memset(NODE_DATA(nid), 0, sizeof(struct pglist_data));
+	}
 }
 
 /*
@@ -1438,6 +1478,8 @@ void __init setup_arch(char **cmdline_p)
 	smp_alloc_memory(); /* AP processor realmode stacks in low memory*/
 #endif
 	paging_init();
+	remapped_pgdat_init();
+	zone_sizes_init();
 
 	/*
 	 * NOTE: at this point the bootmem allocator is fully available.

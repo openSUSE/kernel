@@ -93,7 +93,7 @@ static int external;
 static int libretto;
 static int nostretch;
 static int nopciburst;
-static char *mode_option __initdata = NULL;
+static char *mode_option __devinitdata = NULL;
 
 #ifdef MODULE
 
@@ -400,21 +400,21 @@ static void neoUnlock(void)
  */
 static int paletteEnabled = 0;
 
-inline void VGAenablePalette(void)
+static inline void VGAenablePalette(void)
 {
 	vga_r(NULL, VGA_IS1_RC);
 	vga_w(NULL, VGA_ATT_W, 0x00);
 	paletteEnabled = 1;
 }
 
-inline void VGAdisablePalette(void)
+static inline void VGAdisablePalette(void)
 {
 	vga_r(NULL, VGA_IS1_RC);
 	vga_w(NULL, VGA_ATT_W, 0x20);
 	paletteEnabled = 0;
 }
 
-inline void VGAwATTR(u8 index, u8 value)
+static inline void VGAwATTR(u8 index, u8 value)
 {
 	if (paletteEnabled)
 		index &= ~0x20;
@@ -425,7 +425,7 @@ inline void VGAwATTR(u8 index, u8 value)
 	vga_wattr(NULL, index, value);
 }
 
-void vgaHWProtect(int on)
+static void vgaHWProtect(int on)
 {
 	unsigned char tmp;
 
@@ -1315,7 +1315,7 @@ static int neofb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 /*
  *    (Un)Blank the display.
  */
-int neofb_blank(int blank_mode, struct fb_info *info)
+static int neofb_blank(int blank_mode, struct fb_info *info)
 {
 	/*
 	 *  Blank the screen if blank_mode != 0, else unblank.
@@ -2230,7 +2230,8 @@ static struct pci_driver neofb_driver = {
 
 /* ************************* init in-kernel code ************************** */
 
-int __init neofb_setup(char *options)
+#ifndef MODULE
+static int __init neofb_setup(char *options)
 {
 	char *this_opt;
 
@@ -2258,8 +2259,9 @@ int __init neofb_setup(char *options)
 	}
 	return 0;
 }
+#endif  /*  MODULE  */
 
-int __init neofb_init(void)
+static int __init neofb_init(void)
 {
 #ifndef MODULE
 	char *option = NULL;

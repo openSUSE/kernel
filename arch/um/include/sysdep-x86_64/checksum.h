@@ -9,7 +9,7 @@
 #include "linux/in6.h"
 #include "asm/uaccess.h"
 
-extern unsigned int csum_partial_copy_from(const char *src, char *dst, int len,
+extern unsigned int csum_partial_copy_from(const unsigned char *src, unsigned char *dst, int len,
 					   int sum, int *err_ptr);
 extern unsigned csum_partial(const unsigned char *buff, unsigned len,
                              unsigned sum);
@@ -23,7 +23,7 @@ extern unsigned csum_partial(const unsigned char *buff, unsigned len,
  */
 
 static __inline__
-unsigned int csum_partial_copy_nocheck(const char *src, char *dst,
+unsigned int csum_partial_copy_nocheck(const unsigned char *src, unsigned char *dst,
 				       int len, int sum)
 {
 	memcpy(dst, src, len);
@@ -31,7 +31,7 @@ unsigned int csum_partial_copy_nocheck(const char *src, char *dst,
 }
 
 static __inline__
-unsigned int csum_partial_copy_from_user(const char *src, char *dst,
+unsigned int csum_partial_copy_from_user(const unsigned char *src, unsigned char *dst,
 					 int len, int sum, int *err_ptr)
 {
 	return csum_partial_copy_from(src, dst, len, sum, err_ptr);

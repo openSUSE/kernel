@@ -14,6 +14,7 @@
 #include <linux/thread_info.h>
 #include <linux/cpumask.h>
 #include <linux/errno.h>
+#include <linux/nodemask.h>
 
 #include <asm/system.h>
 #include <asm/semaphore.h>
@@ -348,6 +349,13 @@ struct signal_struct {
 	struct rlimit rlim[RLIM_NLIMITS];
 
 	struct list_head cpu_timers[3];
+
+	/* keep the process-shared keyrings here so that they do the right
+	 * thing in threads created with CLONE_THREAD */
+#ifdef CONFIG_KEYS
+	struct key *session_keyring;	/* keyring inherited over fork */
+	struct key *process_keyring;	/* keyring private to this process */
+#endif
 };
 
 /*
@@ -507,6 +515,7 @@ extern void cpu_attach_domain(struct sched_domain *sd, int cpu);
 
 struct io_context;			/* See blkdev.h */
 void exit_io_context(void);
+struct cpuset;
 
 #define NGROUPS_SMALL		32
 #define NGROUPS_PER_BLOCK	((int)(PAGE_SIZE / sizeof(gid_t)))
@@ -631,8 +640,6 @@ struct task_struct {
 	unsigned keep_capabilities:1;
 	struct user_struct *user;
 #ifdef CONFIG_KEYS
-	struct key *session_keyring;	/* keyring inherited over fork */
-	struct key *process_keyring;	/* keyring private to this process (CLONE_THREAD) */
 	struct key *thread_keyring;	/* keyring private to this thread */
 #endif
 	int oomkilladj; /* OOM kill score adjustment (bit shift). */
@@ -706,6 +713,11 @@ struct task_struct {
 #ifdef CONFIG_NUMA
   	struct mempolicy *mempolicy;
 	short il_next;
+#endif
+#ifdef CONFIG_CPUSETS
+	struct cpuset *cpuset;
+	nodemask_t mems_allowed;
+	int cpuset_mems_generation;
 #endif
 };
 

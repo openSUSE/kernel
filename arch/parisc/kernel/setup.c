@@ -53,6 +53,15 @@ struct proc_dir_entry * proc_runway_root = NULL;
 struct proc_dir_entry * proc_gsc_root = NULL;
 struct proc_dir_entry * proc_mckinley_root = NULL;
 
+#if !defined(CONFIG_PA20) && (defined(CONFIG_IOMMU_CCIO) || defined(CONFIG_IOMMU_SBA))
+int parisc_bus_is_phys = 1;	/* Assume no IOMMU is present */
+EXPORT_SYMBOL(parisc_bus_is_phys);
+#endif
+
+/* This sets the vmerge boundary and size, it's here because it has to
+ * be available on all platforms (zero means no-virtual merging) */
+unsigned long parisc_vmerge_boundary = 0;
+unsigned long parisc_vmerge_max_size = 0;
 
 void __init setup_cmdline(char **cmdline_p)
 {

@@ -11,8 +11,8 @@
 #include "asm/unistd.h"
 #include "frame_kern.h"
 #include "signal_user.h"
-#include "ptrace_user.h"
 #include "sigcontext.h"
+#include "registers.h"
 #include "mode.h"
 
 #ifdef CONFIG_MODE_SKAS
@@ -51,7 +51,7 @@ static int copy_sc_from_user_skas(struct pt_regs *regs,
 	regs->regs.skas.fault_type = FAULT_WRITE(sc.err);
 	regs->regs.skas.trap_type = sc.trapno;
 
-	err = ptrace_setfpregs(userspace_pid[0], fpregs);
+	err = restore_fp_registers(userspace_pid[0], fpregs);
 	if(err < 0){
 	  	printk("copy_sc_from_user_skas - PTRACE_SETFPREGS failed, "
 		       "errno = %d\n", err);
@@ -90,7 +90,7 @@ int copy_sc_to_user_skas(struct sigcontext *to, struct _fpstate *to_fp,
 	sc.err = TO_SC_ERR(fault_type);
 	sc.trapno = regs->regs.skas.trap_type;
 
-	err = ptrace_getfpregs(userspace_pid[0], fpregs);
+	err = save_fp_registers(userspace_pid[0], fpregs);
 	if(err < 0){
 	  	printk("copy_sc_to_user_skas - PTRACE_GETFPREGS failed, "
 		       "errno = %d\n", err);
@@ -108,6 +108,15 @@ int copy_sc_to_user_skas(struct sigcontext *to, struct _fpstate *to_fp,
 #endif
 
 #ifdef CONFIG_MODE_TT
+
+/* These copy a sigcontext to/from userspace.  They copy the fpstate pointer,
+ * blowing away the old, good one.  So, that value is saved, and then restored
+ * after the sigcontext copy.  In copy_from, the variable holding the saved
+ * fpstate pointer, and the sigcontext that it should be restored to are both
+ * in the kernel, so we can just restore using an assignment.  In copy_to, the
+ * saved pointer is in the kernel, but the sigcontext is in userspace, so we
+ * copy_to_user it.
+ */
 int copy_sc_from_user_tt(struct sigcontext *to, struct sigcontext *from,
 			 int fpsize)
 {
@@ -120,11 +129,9 @@ int copy_sc_from_user_tt(struct sigcontext *to, struct sigcontext *from,
 	sigs = to->oldmask;
 	err = copy_from_user(to, from, sizeof(*to));
 	to->oldmask = sigs;
-	if(to_fp != NULL){
-		err |= copy_from_user(&to->fpstate, &to_fp,
-				      sizeof(to->fpstate));
+	to->fpstate = to_fp;
+	if(to_fp != NULL)
 		err |= copy_from_user(to_fp, from_fp, fpsize);
-	}
 	return(err);
 }
 
@@ -138,8 +145,7 @@ int copy_sc_to_user_tt(struct sigcontext *to, struct _fpstate *fp,
 	from_fp = from->fpstate;
 	err = copy_to_user(to, from, sizeof(*to));
 	if(from_fp != NULL){
-		err |= copy_to_user(&to->fpstate, &to_fp,
-					 sizeof(to->fpstate));
+		err |= copy_to_user(&to->fpstate, &to_fp, sizeof(to->fpstate));
 		err |= copy_to_user(to_fp, from_fp, fpsize);
 	}
 	return(err);
@@ -303,7 +309,7 @@ int setup_signal_stack_si(unsigned long stack_top, int sig,
 
 long sys_sigreturn(struct pt_regs regs)
 {
-	unsigned long __user sp = PT_REGS_SP(&current->thread.regs);
+	unsigned long sp = PT_REGS_SP(&current->thread.regs);
 	struct sigframe __user *frame = (struct sigframe *)(sp - 8);
 	sigset_t set;
 	struct sigcontext __user *sc = &frame->sc;

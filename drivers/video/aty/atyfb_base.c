@@ -209,7 +209,7 @@ struct pci_mmap_map {
 	unsigned long prot_mask;
 };
 
-static struct fb_fix_screeninfo atyfb_fix __initdata = {
+static struct fb_fix_screeninfo atyfb_fix __devinitdata = {
 	.id		= "ATY Mach64",
 	.type		= FB_TYPE_PACKED_PIXELS,
 	.visual		= FB_VISUAL_PSEUDOCOLOR,
@@ -265,7 +265,7 @@ static int read_aty_sense(const struct atyfb_par *par);
      *  Interface used by the world
      */
 
-struct fb_var_screeninfo default_var = {
+static struct fb_var_screeninfo default_var = {
 	/* 640x480, 60 Hz, Non-Interlaced (25.175 MHz dotclock) */
 	640, 480, 640, 480, 0, 0, 8, 0,
 	{0, 8, 0}, {0, 8, 0}, {0, 8, 0}, {0, 0, 0},
@@ -361,7 +361,7 @@ static struct {
 	const char *name;
 	int pll, mclk, xclk;
 	u32 features;
-} aty_chips[] __initdata = {
+} aty_chips[] __devinitdata = {
 #ifdef CONFIG_FB_ATY_GX
 	/* Mach64 GX */
 	{ PCI_CHIP_MACH64GX, "ATI888GX00 (Mach64 GX)", 135, 50, 50, ATI_CHIP_88800GX },
@@ -492,31 +492,31 @@ static int __devinit correct_chipset(struct atyfb_par *par)
 	return 0;
 }
 
-static char ram_dram[] __initdata = "DRAM";
-static char ram_resv[] __initdata = "RESV";
+static char ram_dram[] __devinitdata = "DRAM";
+static char ram_resv[] __devinitdata = "RESV";
 #ifdef CONFIG_FB_ATY_GX
-static char ram_vram[] __initdata = "VRAM";
+static char ram_vram[] __devinitdata = "VRAM";
 #endif /* CONFIG_FB_ATY_GX */
 #ifdef CONFIG_FB_ATY_CT
-static char ram_edo[] __initdata = "EDO";
-static char ram_sdram[] __initdata = "SDRAM (1:1)";
-static char ram_sgram[] __initdata = "SGRAM (1:1)";
-static char ram_sdram32[] __initdata = "SDRAM (2:1) (32-bit)";
-static char ram_off[] __initdata = "OFF";
+static char ram_edo[] __devinitdata = "EDO";
+static char ram_sdram[] __devinitdata = "SDRAM (1:1)";
+static char ram_sgram[] __devinitdata = "SGRAM (1:1)";
+static char ram_sdram32[] __devinitdata = "SDRAM (2:1) (32-bit)";
+static char ram_off[] __devinitdata = "OFF";
 #endif /* CONFIG_FB_ATY_CT */
 
 
 static u32 pseudo_palette[17];
 
 #ifdef CONFIG_FB_ATY_GX
-static char *aty_gx_ram[8] __initdata = {
+static char *aty_gx_ram[8] __devinitdata = {
 	ram_dram, ram_vram, ram_vram, ram_dram,
 	ram_dram, ram_vram, ram_vram, ram_resv
 };
 #endif /* CONFIG_FB_ATY_GX */
 
 #ifdef CONFIG_FB_ATY_CT
-static char *aty_ct_ram[8] __initdata = {
+static char *aty_ct_ram[8] __devinitdata = {
 	ram_off, ram_dram, ram_edo, ram_edo,
 	ram_sdram, ram_sgram, ram_sdram32, ram_resv
 };
@@ -2990,7 +2990,7 @@ static int __devinit atyfb_setup_sparc(struct pci_dev *pdev,
 
 #ifdef __i386__
 #ifdef CONFIG_FB_ATY_GENERIC_LCD
-void aty_init_lcd(struct atyfb_par *par, u32 bios_base)
+static void aty_init_lcd(struct atyfb_par *par, u32 bios_base)
 {
 	u32 driv_inf_tab, sig;
 	u16 lcd_ofs;
@@ -3589,7 +3589,8 @@ static struct pci_driver atyfb_driver = {
 
 #endif /* CONFIG_PCI */
 
-int __init atyfb_setup(char *options)
+#ifndef MODULE
+static int __init atyfb_setup(char *options)
 {
 	char *this_opt;
 
@@ -3657,8 +3658,9 @@ int __init atyfb_setup(char *options)
 	}
 	return 0;
 }
+#endif  /*  MODULE  */
 
-int __init atyfb_init(void)
+static int __init atyfb_init(void)
 {
 #ifndef MODULE
     char *option = NULL;
@@ -3677,7 +3679,7 @@ int __init atyfb_init(void)
     return 0;
 }
 
-void __exit atyfb_exit(void)
+static void __exit atyfb_exit(void)
 {
 #ifdef CONFIG_PCI
 	pci_unregister_driver(&atyfb_driver);
@@ -3685,9 +3687,7 @@ void __exit atyfb_exit(void)
 }
 
 module_init(atyfb_init);
-#ifdef MODULE
 module_exit(atyfb_exit);
-#endif
 
 MODULE_DESCRIPTION("FBDev driver for ATI Mach64 cards");
 MODULE_LICENSE("GPL");

@@ -268,25 +268,31 @@ int invalidate_inode_pages2_range(struct address_space *mapping,
 			min(end - next, (pgoff_t)PAGEVEC_SIZE - 1) + 1)) {
 		for (i = 0; !ret && i < pagevec_count(&pvec); i++) {
 			struct page *page = pvec.pages[i];
+			pgoff_t page_index;
 			int was_dirty;
 
 			lock_page(page);
-			if (page->mapping != mapping || page->index > end) {
+			if (page->mapping != mapping) {
 				unlock_page(page);
 				continue;
 			}
-			wait_on_page_writeback(page);
-			next = page->index + 1;
+			page_index = page->index;
+			next = page_index + 1;
 			if (next == 0)
 				wrapped = 1;
+			if (page_index > end) {
+				unlock_page(page);
+				break;
+			}
+			wait_on_page_writeback(page);
 			while (page_mapped(page)) {
 				if (!did_range_unmap) {
 					/*
 					 * Zap the rest of the file in one hit.
 					 */
 					unmap_mapping_range(mapping,
-					    page->index << PAGE_CACHE_SHIFT,
-					    (end - page->index + 1)
+					    page_index << PAGE_CACHE_SHIFT,
+					    (end - page_index + 1)
 							<< PAGE_CACHE_SHIFT,
 					    0);
 					did_range_unmap = 1;
@@ -295,7 +301,7 @@ int invalidate_inode_pages2_range(struct address_space *mapping,
 					 * Just zap this page
 					 */
 					unmap_mapping_range(mapping,
-					  page->index << PAGE_CACHE_SHIFT,
+					  page_index << PAGE_CACHE_SHIFT,
 					  PAGE_CACHE_SIZE, 0);
 				}
 			}

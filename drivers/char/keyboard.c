@@ -141,7 +141,7 @@ static struct ledptr {
 /* Simple translation table for the SysRq keys */
 
 #ifdef CONFIG_MAGIC_SYSRQ
-unsigned char kbd_sysrq_xlate[KEY_MAX] =
+unsigned char kbd_sysrq_xlate[KEY_MAX + 1] =
         "\000\0331234567890-=\177\t"                    /* 0x00 - 0x0f */
         "qwertyuiop[]\r\000as"                          /* 0x10 - 0x1f */
         "dfghjkl;'`\000\\zxcv"                          /* 0x20 - 0x2f */
@@ -173,7 +173,7 @@ int getkeycode(unsigned int scancode)
 	if (!dev)
 		return -ENODEV;
 
-	if (scancode < 0 || scancode >= dev->keycodemax)
+	if (scancode >= dev->keycodemax)
 		return -EINVAL;
 
 	return INPUT_KEYCODE(dev, scancode);
@@ -183,7 +183,7 @@ int setkeycode(unsigned int scancode, unsigned int keycode)
 {
 	struct list_head * node;
 	struct input_dev *dev = NULL;
-	int i, oldkey;
+	unsigned int i, oldkey;
 
 	list_for_each(node,&kbd_handler.h_list) {
 		struct input_handle *handle = to_handle_h(node);
@@ -196,7 +196,9 @@ int setkeycode(unsigned int scancode, unsigned int keycode)
 	if (!dev)
 		return -ENODEV;
 
-	if (scancode < 0 || scancode >= dev->keycodemax)
+	if (scancode >= dev->keycodemax)
+		return -EINVAL;
+	if (keycode > KEY_MAX)
 		return -EINVAL;
 	if (keycode < 0 || keycode > KEY_MAX)
 		return -EINVAL;
@@ -355,7 +357,7 @@ static void to_utf8(struct vc_data *vc, ushort c)
  */
 void compute_shiftstate(void)
 {
-	int i, j, k, sym, val;
+	unsigned int i, j, k, sym, val;
 
 	shift_state = 0;
 	memset(shift_down, 0, sizeof(shift_down));
@@ -396,7 +398,7 @@ void compute_shiftstate(void)
 static unsigned char handle_diacr(struct vc_data *vc, unsigned char ch)
 {
 	int d = diacr;
-	int i;
+	unsigned int i;
 
 	diacr = 0;
 
@@ -931,7 +933,7 @@ static void kbd_refresh_leds(struct input_handle *handle)
 #if defined(CONFIG_X86) || defined(CONFIG_IA64) || defined(CONFIG_ALPHA) ||\
     defined(CONFIG_MIPS) || defined(CONFIG_PPC) || defined(CONFIG_SPARC32) ||\
     defined(CONFIG_SPARC64) || defined(CONFIG_PARISC) || defined(CONFIG_SUPERH) ||\
-    (defined(CONFIG_ARM) && defined(CONFIG_KEYBOARD_ATKBD) && !defined(CONFIG_RPC))
+    (defined(CONFIG_ARM) && defined(CONFIG_KEYBOARD_ATKBD) && !defined(CONFIG_ARCH_RPC))
 
 #define HW_RAW(dev) (test_bit(EV_MSC, dev->evbit) && test_bit(MSC_RAW, dev->mscbit) &&\
 			((dev)->id.bustype == BUS_I8042) && ((dev)->id.vendor == 0x0001) && ((dev)->id.product == 0x0001))

@@ -518,7 +518,7 @@ static void get_detailed_timing(unsigned char *block,
  * This function builds a mode database using the contents of the EDID
  * data
  */
-struct fb_videomode *fb_create_modedb(unsigned char *edid, int *dbsize)
+static struct fb_videomode *fb_create_modedb(unsigned char *edid, int *dbsize)
 {
 	struct fb_videomode *mode, *m;
 	unsigned char *block;
@@ -593,7 +593,7 @@ void fb_destroy_modedb(struct fb_videomode *modedb)
 		kfree(modedb);
 }
 
-int fb_get_monitor_limits(unsigned char *edid, struct fb_monspecs *specs)
+static int fb_get_monitor_limits(unsigned char *edid, struct fb_monspecs *specs)
 {
 	int i, retval = 1;
 	unsigned char *block;
@@ -1197,16 +1197,8 @@ char *get_EDID_from_firmware(struct device *dev)
 {
 	return NULL;
 }
-struct fb_videomode *fb_create_modedb(unsigned char *edid, int *dbsize)
-{
-	return NULL;
-}
 void fb_destroy_modedb(struct fb_videomode *modedb)
 {
-}
-int fb_get_monitor_limits(unsigned char *edid, struct fb_monspecs *specs)
-{
-	return 1;
 }
 int fb_get_mode(int flags, u32 val, struct fb_var_screeninfo *var,
 		struct fb_info *info)
@@ -1282,6 +1274,4 @@ EXPORT_SYMBOL(get_EDID_from_firmware);
 
 EXPORT_SYMBOL(fb_get_mode);
 EXPORT_SYMBOL(fb_validate_mode);
-EXPORT_SYMBOL(fb_create_modedb);
 EXPORT_SYMBOL(fb_destroy_modedb);
-EXPORT_SYMBOL(fb_get_monitor_limits);

@@ -8,6 +8,7 @@
 #define __SYSDEP_X86_64_PTRACE_H
 
 #include "uml-config.h"
+#include "user_constants.h"
 
 #ifdef UML_CONFIG_MODE_TT
 #include "sysdep/sc.h"
@@ -15,6 +16,9 @@
 
 #ifdef UML_CONFIG_MODE_SKAS
 #include "skas_ptregs.h"
+
+#define MAX_REG_OFFSET (UM_FRAME_SIZE)
+#define MAX_REG_NR ((MAX_REG_OFFSET) / sizeof(unsigned long))
 
 #define REGS_IP(r) ((r)[HOST_IP])
 #define REGS_SP(r) ((r)[HOST_SP])

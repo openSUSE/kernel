@@ -522,6 +522,7 @@
 #define SECURITY__SETENFORCE                      0x00000080UL
 #define SECURITY__SETBOOL                         0x00000100UL
 #define SECURITY__SETSECPARAM                     0x00000200UL
+#define SECURITY__SETCHECKREQPROT                 0x00000400UL
 
 #define SYSTEM__IPC_INFO                          0x00000001UL
 #define SYSTEM__SYSLOG_READ                       0x00000002UL

@@ -530,7 +530,11 @@ static int __devinit radeon_probe_pll_params(struct radeonfb_info *rinfo)
         break;
 	}
 
+	radeon_pll_workaround_before(rinfo);
 	ppll_div_sel = INREG8(CLOCK_CNTL_INDEX + 1) & 0x3;
+	radeon_pll_workaround_after(rinfo);
+	if (rinfo->R300_cg_workaround)
+		R300_cg_workardound(rinfo);
 
 	n = (INPLL(PPLL_DIV_0 + ppll_div_sel) & 0x7ff);
 	m = (INPLL(PPLL_REF_DIV) & 0x3ff);
@@ -913,7 +917,7 @@ static int radeonfb_ioctl (struct inode *inode, struct file *file, unsigned int 
 
 			OUTREG(CRTC_EXT_CNTL, tmp);
 
-			break;
+			return 0;
 		case FBIO_RADEON_GET_MIRROR:
 			if (!rinfo->is_mobility)
 				return -EINVAL;
@@ -1139,7 +1143,8 @@ static int radeonfb_setcolreg (unsigned regno, unsigned red, unsigned green,
 }
 
 
-void radeon_save_state (struct radeonfb_info *rinfo, struct radeon_regs *save)
+static void radeon_save_state (struct radeonfb_info *rinfo,
+			       struct radeon_regs *save)
 {
 	/* CRTC regs */
 	save->crtc_gen_cntl = INREG(CRTC_GEN_CNTL);
@@ -1168,7 +1173,11 @@ void radeon_save_state (struct radeonfb_info *rinfo, struct radeon_regs *save)
 	save->vclk_ecp_cntl = INPLL(VCLK_ECP_CNTL);
 
 	/* PLL regs */
+	radeon_pll_workaround_before(rinfo);
 	save->clk_cntl_index = INREG(CLOCK_CNTL_INDEX) & ~0x3f;
+	radeon_pll_workaround_after(rinfo);
+	if (rinfo->R300_cg_workaround)
+		R300_cg_workardound(rinfo);
 	save->ppll_div_3 = INPLL(PPLL_DIV_3);
 	save->ppll_ref_div = INPLL(PPLL_REF_DIV);
 }
@@ -1195,9 +1204,13 @@ static void radeon_write_pll_regs(struct radeonfb_info *rinfo, struct radeon_reg
 			/* We still have to force a switch to selected PPLL div thanks to
 			 * an XFree86 driver bug which will switch it away in some cases
 			 * even when using UseFDev */
+			radeon_pll_workaround_before(rinfo);
 			OUTREGP(CLOCK_CNTL_INDEX,
 				mode->clk_cntl_index & PPLL_DIV_SEL_MASK,
 				~PPLL_DIV_SEL_MASK);
+			radeon_pll_workaround_after(rinfo);
+			if (rinfo->R300_cg_workaround)
+				R300_cg_workardound(rinfo);
             		return;
 		}
 	}
@@ -1211,9 +1224,13 @@ static void radeon_write_pll_regs(struct radeonfb_info *rinfo, struct radeon_reg
 		~(PPLL_RESET | PPLL_ATOMIC_UPDATE_EN | PPLL_VGA_ATOMIC_UPDATE_EN));
 
 	/* Switch to selected PPLL divider */
+	radeon_pll_workaround_before(rinfo);
 	OUTREGP(CLOCK_CNTL_INDEX,
 		mode->clk_cntl_index & PPLL_DIV_SEL_MASK,
 		~PPLL_DIV_SEL_MASK);
+	radeon_pll_workaround_after(rinfo);
+	if (rinfo->R300_cg_workaround)
+		R300_cg_workardound(rinfo);
 
 	/* Set PPLL ref. div */
 	if (rinfo->family == CHIP_FAMILY_R300 ||
@@ -2359,6 +2376,15 @@ static int radeonfb_pci_register (struct pci_dev *pdev,
 	radeon_save_state (rinfo, &rinfo->init_state);
 	memcpy(&rinfo->state, &rinfo->init_state, sizeof(struct radeon_regs));
 
+	/* Setup Power Management capabilities */
+	if (default_dynclk < -1) {
+		/* -2 is special: means  ON on mobility chips and do not
+		 * change on others
+		 */
+		radeonfb_pm_init(rinfo, rinfo->is_mobility ? 1 : -1);
+	} else
+		radeonfb_pm_init(rinfo, default_dynclk);
+
 	pci_set_drvdata(pdev, info);
 
 	/* Register with fbdev layer */
@@ -2368,13 +2394,6 @@ static int radeonfb_pci_register (struct pci_dev *pdev,
 			pci_name(rinfo->pdev));
 		goto err_unmap_fb;
 	}
-
-	/* Setup Power Management capabilities */
-	if (default_dynclk < -1) {
-		/* -2 is special: means  ON on mobility chips and do not change on others */
-		radeonfb_pm_init(rinfo, rinfo->is_mobility ? 1 : -1);
-	} else
-		radeonfb_pm_init(rinfo, default_dynclk);
 
 #ifdef CONFIG_MTRR
 	rinfo->mtrr_hdl = nomtrr ? -1 : mtrr_add(rinfo->fb_base_phys,
@@ -2486,27 +2505,8 @@ static struct pci_driver radeonfb_driver = {
 #endif /* CONFIG_PM */
 };
 
-int __init radeonfb_setup (char *options);
-
-int __init radeonfb_init (void)
-{
 #ifndef MODULE
-	char *option = NULL;
-
-	if (fb_get_options("radeonfb", &option))
-		return -ENODEV;
-	radeonfb_setup(option);
-#endif
-	return pci_module_init (&radeonfb_driver);
-}
-
-
-void __exit radeonfb_exit (void)
-{
-	pci_unregister_driver (&radeonfb_driver);
-}
-
-int __init radeonfb_setup (char *options)
+static int __init radeonfb_setup (char *options)
 {
 	char *this_opt;
 
@@ -2540,12 +2540,28 @@ int __init radeonfb_setup (char *options)
 	}
 	return 0;
 }
+#endif  /*  MODULE  */
+
+static int __init radeonfb_init (void)
+{
+#ifndef MODULE
+	char *option = NULL;
+
+	if (fb_get_options("radeonfb", &option))
+		return -ENODEV;
+	radeonfb_setup(option);
+#endif
+	return pci_module_init (&radeonfb_driver);
+}
+
+
+static void __exit radeonfb_exit (void)
+{
+	pci_unregister_driver (&radeonfb_driver);
+}
 
 module_init(radeonfb_init);
-
-#ifdef MODULE
 module_exit(radeonfb_exit);
-#endif
 
 MODULE_AUTHOR("Ani Joshi");
 MODULE_DESCRIPTION("framebuffer driver for ATI Radeon chipset");

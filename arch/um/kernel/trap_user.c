@@ -8,7 +8,6 @@
 #include <setjmp.h>
 #include <signal.h>
 #include <sys/time.h>
-#include <sys/ptrace.h>
 #include <sys/wait.h>
 #include <asm/page.h>
 #include <asm/unistd.h>

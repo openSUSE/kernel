@@ -33,6 +33,7 @@
 #include <linux/security.h>
 #include <linux/ptrace.h>
 #include <linux/seccomp.h>
+#include <linux/cpuset.h>
 #include "internal.h"
 
 /*
@@ -68,6 +69,9 @@ enum pid_directory_inos {
 #ifdef CONFIG_SCHEDSTATS
 	PROC_TGID_SCHEDSTAT,
 #endif
+#ifdef CONFIG_CPUSETS
+	PROC_TGID_CPUSET,
+#endif
 #ifdef CONFIG_SECURITY
 	PROC_TGID_ATTR,
 	PROC_TGID_ATTR_CURRENT,
@@ -101,6 +105,9 @@ enum pid_directory_inos {
 	PROC_TID_WCHAN,
 #ifdef CONFIG_SCHEDSTATS
 	PROC_TID_SCHEDSTAT,
+#endif
+#ifdef CONFIG_CPUSETS
+	PROC_TID_CPUSET,
 #endif
 #ifdef CONFIG_SECURITY
 	PROC_TID_ATTR,
@@ -153,6 +160,9 @@ static struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_SCHEDSTATS
 	E(PROC_TGID_SCHEDSTAT, "schedstat", S_IFREG|S_IRUGO),
 #endif
+#ifdef CONFIG_CPUSETS
+	E(PROC_TGID_CPUSET,    "cpuset",  S_IFREG|S_IRUGO),
+#endif
 	E(PROC_TGID_OOM_SCORE, "oom_score",S_IFREG|S_IRUGO),
 	E(PROC_TGID_OOM_ADJUST,"oom_adj", S_IFREG|S_IRUGO|S_IWUSR),
 #ifdef CONFIG_AUDITSYSCALL
@@ -185,6 +195,9 @@ static struct pid_entry tid_base_stuff[] = {
 #endif
 #ifdef CONFIG_SCHEDSTATS
 	E(PROC_TID_SCHEDSTAT, "schedstat",S_IFREG|S_IRUGO),
+#endif
+#ifdef CONFIG_CPUSETS
+	E(PROC_TID_CPUSET,     "cpuset",  S_IFREG|S_IRUGO),
 #endif
 	E(PROC_TID_OOM_SCORE,  "oom_score",S_IFREG|S_IRUGO),
 	E(PROC_TID_OOM_ADJUST, "oom_adj", S_IFREG|S_IRUGO|S_IWUSR),
@@ -1555,6 +1568,12 @@ static struct dentry *proc_pident_lookup(struct inode *dir,
 		case PROC_TGID_SCHEDSTAT:
 			inode->i_fop = &proc_info_file_operations;
 			ei->op.proc_read = proc_pid_schedstat;
+			break;
+#endif
+#ifdef CONFIG_CPUSETS
+		case PROC_TID_CPUSET:
+		case PROC_TGID_CPUSET:
+			inode->i_fop = &proc_cpuset_operations;
 			break;
 #endif
 		case PROC_TID_OOM_SCORE:

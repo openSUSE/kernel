@@ -288,7 +288,7 @@ int __ioremap_explicit(unsigned long pa, unsigned long ea,
 static void unmap_im_area_pte(pmd_t *pmd, unsigned long address,
 				  unsigned long size)
 {
-	unsigned long end;
+	unsigned long base, end;
 	pte_t *pte;
 
 	if (pmd_none(*pmd))
@@ -300,6 +300,7 @@ static void unmap_im_area_pte(pmd_t *pmd, unsigned long address,
 	}
 
 	pte = pte_offset_kernel(pmd, address);
+	base = address & PMD_MASK;
 	address &= ~PMD_MASK;
 	end = address + size;
 	if (end > PMD_SIZE)
@@ -307,7 +308,7 @@ static void unmap_im_area_pte(pmd_t *pmd, unsigned long address,
 
 	do {
 		pte_t page;
-		page = ptep_get_and_clear(&ioremap_mm, address, pte);
+		page = ptep_get_and_clear(&ioremap_mm, base + address, pte);
 		address += PAGE_SIZE;
 		pte++;
 		if (pte_none(page))
@@ -321,7 +322,7 @@ static void unmap_im_area_pte(pmd_t *pmd, unsigned long address,
 static void unmap_im_area_pmd(pgd_t *dir, unsigned long address,
 				  unsigned long size)
 {
-	unsigned long end;
+	unsigned long base, end;
 	pmd_t *pmd;
 
 	if (pgd_none(*dir))
@@ -333,13 +334,14 @@ static void unmap_im_area_pmd(pgd_t *dir, unsigned long address,
 	}
 
 	pmd = pmd_offset(dir, address);
+	base = address & PGDIR_MASK;
 	address &= ~PGDIR_MASK;
 	end = address + size;
 	if (end > PGDIR_SIZE)
 		end = PGDIR_SIZE;
 
 	do {
-		unmap_im_area_pte(pmd, address, end - address);
+		unmap_im_area_pte(pmd, base + address, end - address);
 		address = (address + PMD_SIZE) & PMD_MASK;
 		pmd++;
 	} while (address < end);
