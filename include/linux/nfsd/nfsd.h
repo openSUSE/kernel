@@ -134,10 +134,10 @@ void nfs4_state_shutdown(void);
 time_t nfs4_lease_time(void);
 void nfs4_reset_lease(time_t leasetime);
 #else
-int static inline nfs4_state_init(void){return 0;}
-void static inline nfs4_state_shutdown(void){}
-time_t static inline nfs4_lease_time(void){return 0;}
-void static inline nfs4_reset_lease(time_t leasetime){}
+static inline int nfs4_state_init(void){return 0;}
+static inline void nfs4_state_shutdown(void){}
+static inline time_t nfs4_lease_time(void){return 0;}
+static inline void nfs4_reset_lease(time_t leasetime){}
 #endif
 
 /*
