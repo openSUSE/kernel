@@ -2450,8 +2450,6 @@ find_delegation_stateid(struct inode *ino, stateid_t *stid)
                     stid->si_boot, stid->si_stateownerid,
                     stid->si_fileid, stid->si_generation);
 
-	if(!ino || !stid)
-		return NULL;
 	st_id = stid->si_stateownerid;
 	fi_hashval = file_hashval(ino);
 	if (find_file(fi_hashval, ino, &fp)) {
