@@ -415,15 +415,15 @@ static void agp_v2_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 	/* Check the speed bits make sense. Only one should be set. */
 	tmp = *requested_mode & 7;
 	if (tmp == 0) {
-		printk (KERN_INFO PFX "Userspace tried to set rate=x0. Setting to x1 mode.\n");
+		printk (KERN_INFO PFX "%s tried to set rate=x0. Setting to x1 mode.\n", current->comm);
 		*requested_mode |= AGPSTAT2_1X;
 	}
 	if (tmp == 3) {
-		printk (KERN_INFO PFX "Userspace tried to set rate=x3. Setting to x2 mode.\n");
+		printk (KERN_INFO PFX "%s tried to set rate=x3. Setting to x2 mode.\n", current->comm);
 		*requested_mode |= AGPSTAT2_2X;
 	}
 	if (tmp >4) {
-		printk (KERN_INFO PFX "Userspace tried to set rate=x%d. Setting to x4 mode.\n", tmp);
+		printk (KERN_INFO PFX "%s tried to set rate=x%d. Setting to x4 mode.\n", current->comm, tmp);
 		*requested_mode |= AGPSTAT2_4X;
 	}
 
@@ -470,15 +470,15 @@ static void agp_v3_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 	/* Check the speed bits make sense. */
 	tmp = *requested_mode & 7;
 	if (tmp == 0) {
-		printk (KERN_INFO PFX "Userspace tried to set rate=x0. Setting to AGP3 x4 mode.\n");
+		printk (KERN_INFO PFX "%s tried to set rate=x0. Setting to AGP3 x4 mode.\n", current->comm);
 		*requested_mode |= AGPSTAT3_4X;
 	}
 	if (tmp == 3) {
-		printk (KERN_INFO PFX "Userspace tried to set rate=x3. Setting to AGP3 x4 mode.\n");
+		printk (KERN_INFO PFX "%s tried to set rate=x3. Setting to AGP3 x4 mode.\n", current->comm);
 		*requested_mode |= AGPSTAT3_4X;
 	}
 	if (tmp >3) {
-		printk (KERN_INFO PFX "Userspace tried to set rate=x%d. Setting to AGP3 x8 mode.\n", tmp);
+		printk (KERN_INFO PFX "%s tried to set rate=x%d. Setting to AGP3 x8 mode.\n", current->comm, tmp);
 		*requested_mode |= AGPSTAT3_8X;
 	}
 
