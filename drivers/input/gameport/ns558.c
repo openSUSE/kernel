@@ -44,9 +44,6 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
 MODULE_DESCRIPTION("Classic gameport (ISA/PnP) driver");
 MODULE_LICENSE("GPL");
 
-#define NS558_ISA	1
-#define NS558_PNP	2
-
 static int ns558_isa_portlist[] = { 0x201, 0x200, 0x202, 0x203, 0x204, 0x205, 0x207, 0x209,
 				    0x20b, 0x20c, 0x20e, 0x20f, 0x211, 0x219, 0x101, 0 };
 
@@ -124,15 +121,15 @@ static void ns558_isa_probe(int io)
 
 		release_region(io & (-1 << (i-1)), (1 << (i-1)));
 
-		if (!request_region(io & (-1 << i), (1 << i), "ns558-isa"))	/* Don't disturb anyone */
-			break;
+		if (!request_region(io & (-1 << i), (1 << i), "ns558-isa"))
+			break;				/* Don't disturb anyone */
 
 		outb(0xff, io & (-1 << i));
 		for (j = b = 0; j < 1000; j++)
 			if (inb(io & (-1 << i)) != inb((io & (-1 << i)) + (1 << i) - 1)) b++;
 		msleep(3);
 
-		if (b > 300) {					/* We allow 30% difference */
+		if (b > 300) {				/* We allow 30% difference */
 			release_region(io & (-1 << i), (1 << i));
 			break;
 		}
@@ -151,7 +148,6 @@ static void ns558_isa_probe(int io)
 	}
 	memset(port, 0, sizeof(struct ns558));
 
-	port->type = NS558_ISA;
 	port->size = (1 << i);
 	port->gameport.io = io;
 	port->gameport.phys = port->phys;
@@ -225,7 +221,6 @@ static int ns558_pnp_probe(struct pnp_dev *dev, const struct pnp_device_id *did)
 	}
 	memset(port, 0, sizeof(struct ns558));
 
-	port->type = NS558_PNP;
 	port->size = iolen;
 	port->dev = dev;
 
@@ -261,19 +256,25 @@ static struct pnp_driver ns558_pnp_driver;
 
 #endif
 
+static int pnp_registered = 0;
+
 static int __init ns558_init(void)
 {
 	int i = 0;
 
 /*
- * Probe for ISA ports.
+ * Probe ISA ports first so that PnP gets to choose free port addresses
+ * not occupied by the ISA ports.
  */
-
+	
 	while (ns558_isa_portlist[i])
 		ns558_isa_probe(ns558_isa_portlist[i++]);
 
-	pnp_register_driver(&ns558_pnp_driver);
-	return list_empty(&ns558_list) ? -ENODEV : 0;
+	if (pnp_register_driver(&ns558_pnp_driver) >= 0) 
+		pnp_registered = 1;
+
+
+	return (list_empty(&ns558_list) && !pnp_registered) ? -ENODEV : 0;
 }
 
 static void __exit ns558_exit(void)
@@ -282,22 +283,13 @@ static void __exit ns558_exit(void)
 
 	list_for_each_entry(port, &ns558_list, node) {
 		gameport_unregister_port(&port->gameport);
-		switch (port->type) {
-
-#ifdef CONFIG_PNP
-			case NS558_PNP:
-				/* fall through */
-#endif
-			case NS558_ISA:
-				release_region(port->gameport.io & ~(port->size - 1), port->size);
-				kfree(port);
-				break;
-
-			default:
-				break;
-		}
+		release_region(port->gameport.io & ~(port->size - 1), port->size);
+		kfree(port);
+		break;
 	}
-	pnp_unregister_driver(&ns558_pnp_driver);
+
+	if (pnp_registered)
+		pnp_unregister_driver(&ns558_pnp_driver);
 }
 
 module_init(ns558_init);
