@@ -53,7 +53,7 @@ MODULE_PARM_DESC(dumbkbd, "Pretend that controller can only read data from keybo
 
 static unsigned int i8042_noloop;
 module_param_named(noloop, i8042_noloop, bool, 0);
-MODULE_PARM_DESC(dumbkbd, "Disable the AUX Loopback command while probing for the AUX port");
+MODULE_PARM_DESC(noloop, "Disable the AUX Loopback command while probing for the AUX port");
 
 static unsigned int i8042_blink_frequency = 500;
 module_param_named(panicblink, i8042_blink_frequency, uint, 0600);
