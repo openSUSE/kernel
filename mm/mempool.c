@@ -114,8 +114,8 @@ int mempool_resize(mempool_t *pool, int new_min_nr, int gfp_mask)
 	BUG_ON(new_min_nr <= 0);
 
 	spin_lock_irqsave(&pool->lock, flags);
-	if (new_min_nr < pool->min_nr) {
-		while (pool->curr_nr > new_min_nr) {
+	if (new_min_nr <= pool->min_nr) {
+		while (new_min_nr < pool->curr_nr) {
 			element = remove_element(pool);
 			spin_unlock_irqrestore(&pool->lock, flags);
 			pool->free(element, pool->pool_data);
@@ -132,6 +132,12 @@ int mempool_resize(mempool_t *pool, int new_min_nr, int gfp_mask)
 		return -ENOMEM;
 
 	spin_lock_irqsave(&pool->lock, flags);
+	if (unlikely(new_min_nr <= pool->min_nr)) {
+		/* Raced, other resize will do our work */
+		spin_unlock_irqrestore(&pool->lock, flags);
+		kfree(new_elements);
+		goto out;
+	}
 	memcpy(new_elements, pool->elements,
 			pool->curr_nr * sizeof(*new_elements));
 	kfree(pool->elements);
@@ -149,7 +155,7 @@ int mempool_resize(mempool_t *pool, int new_min_nr, int gfp_mask)
 		} else {
 			spin_unlock_irqrestore(&pool->lock, flags);
 			pool->free(element, pool->pool_data);	/* Raced */
-			spin_lock_irqsave(&pool->lock, flags);
+			goto out;
 		}
 	}
 out_unlock:
