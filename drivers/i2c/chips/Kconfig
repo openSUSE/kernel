@@ -382,4 +382,13 @@ config ISP1301_OMAP
 	  This driver can also be built as a module.  If so, the module
 	  will be called isp1301_omap.
 
+config SENSORS_M41T00
+	tristate "ST M41T00 RTC chip"
+	depends on I2C && PPC32
+	help
+	  If you say yes here you get support for the ST M41T00 RTC chip.
+
+	  This driver can also be built as a module.  If so, the module
+	  will be called m41t00.
+
 endmenu
