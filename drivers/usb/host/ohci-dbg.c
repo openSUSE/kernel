@@ -328,7 +328,7 @@ static void ohci_dump_td (const struct ohci_hcd *ohci, const char *label,
 			hc32_to_cpup (ohci, &td->hwCBP) & ~0x0fff,
 			hc32_to_cpup (ohci, &td->hwBE));
 		for (i = 0; i < MAXPSW; i++) {
-			u16	psw = hc16_to_cpup (ohci, &td->hwPSW [i]);
+			u16	psw = ohci_hwPSW (ohci, td, i);
 			int	cc = (psw >> 12) & 0x0f;
 			ohci_dbg (ohci, "    psw [%d] = %2x, CC=%x %s=%d\n", i,
 				psw, cc,

@@ -547,7 +547,8 @@ td_fill (struct ohci_hcd *ohci, u32 info,
 	td->hwINFO = cpu_to_hc32 (ohci, info);
 	if (is_iso) {
 		td->hwCBP = cpu_to_hc32 (ohci, data & 0xFFFFF000);
-		td->hwPSW [0] = cpu_to_hc16 (ohci, (data & 0x0FFF) | 0xE000);
+		*ohci_hwPSWp(ohci, td, 0) = cpu_to_hc16 (ohci,
+						(data & 0x0FFF) | 0xE000);
 		td->ed->last_iso = info & 0xffff;
 	} else {
 		td->hwCBP = cpu_to_hc32 (ohci, data); 
@@ -719,10 +720,12 @@ static void td_done (struct ohci_hcd *ohci, struct urb *urb, struct td *td)
 
 	/* ISO ... drivers see per-TD length/status */
   	if (tdINFO & TD_ISO) {
- 		u16	tdPSW = hc16_to_cpu (ohci, td->hwPSW [0]);
+ 		u16	tdPSW = ohci_hwPSW (ohci, td, 0);
 		int	dlen = 0;
 
-		/* NOTE:  assumes FC in tdINFO == 0 (and MAXPSW == 1) */
+		/* NOTE:  assumes FC in tdINFO == 0, and that
+		 * only the first of 0..MAXPSW psws is used.
+		 */
 
  		cc = (tdPSW >> 12) & 0xF;
   		if (tdINFO & TD_CC)	/* hc didn't touch? */
