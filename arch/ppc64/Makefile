@@ -86,14 +86,20 @@ boottarget-$(CONFIG_PPC_ISERIES) := vmlinux.sminitrd vmlinux.initrd vmlinux.sm
 $(boottarget-y): vmlinux
 	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
 
-bootimage-$(CONFIG_PPC_PSERIES) := zImage
-bootimage-$(CONFIG_PPC_MAPLE) := zImage
+bootimage-$(CONFIG_PPC_PSERIES) := $(boot)/zImage
+bootimage-$(CONFIG_PPC_PMAC) := vmlinux
+bootimage-$(CONFIG_PPC_MAPLE) := $(boot)/zImage
 bootimage-$(CONFIG_PPC_ISERIES) := vmlinux
 BOOTIMAGE := $(bootimage-y)
 install: vmlinux
 	$(Q)$(MAKE) $(build)=$(boot) BOOTIMAGE=$(BOOTIMAGE) $@
 
-all: $(BOOTIMAGE)
+defaultimage-$(CONFIG_PPC_PSERIES) := zImage
+defaultimage-$(CONFIG_PPC_PMAC) := vmlinux
+defaultimage-$(CONFIG_PPC_MAPLE) := zImage
+defaultimage-$(CONFIG_PPC_ISERIES) := vmlinux
+KBUILD_IMAGE := $(defaultimage-y)
+all: $(KBUILD_IMAGE)
 
 archclean:
 	$(Q)$(MAKE) $(clean)=$(boot)

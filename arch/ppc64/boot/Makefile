@@ -111,7 +111,7 @@ $(obj)/imagesize.c: vmlinux.strip
 	awk '{printf "unsigned long vmlinux_memsize = 0x%s;\n", substr($$1,8)}' \
 		>> $(obj)/imagesize.c
 
-install: $(CONFIGURE) $(obj)/$(BOOTIMAGE)
-	sh -x $(srctree)/$(src)/install.sh "$(KERNELRELEASE)" "$(obj)/$(BOOTIMAGE)" "$(INSTALL_PATH)"
+install: $(CONFIGURE) $(BOOTIMAGE)
+	sh -x $(srctree)/$(src)/install.sh "$(KERNELRELEASE)" vmlinux System.map "$(INSTALL_PATH)" "$(BOOTIMAGE)"
 
 clean-files := $(addprefix $(objtree)/, $(obj-boot) vmlinux.strip)
