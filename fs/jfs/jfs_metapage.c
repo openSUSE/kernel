@@ -21,6 +21,7 @@
 #include <linux/init.h>
 #include <linux/buffer_head.h>
 #include <linux/mempool.h>
+#include <linux/delay.h>
 #include "jfs_incore.h"
 #include "jfs_superblock.h"
 #include "jfs_filsys.h"
