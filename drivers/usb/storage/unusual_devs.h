@@ -516,6 +516,25 @@ UNUSUAL_DEV(  0x05dc, 0xb002, 0x0000, 0x0113,
 		US_SC_DEVICE, US_PR_DEVICE, NULL,
 		US_FL_FIX_INQUIRY ),
 
+/* The following two entries are for a Genesys USB to IDE
+ * converter chip, but it changes its ProductId depending
+ * on whether or not a disk or an optical device is enclosed
+ * They were originally reported by Alexander Oltu
+ * <alexander@all-2.com> and Peter Marks <peter.marks@turner.com>
+ * respectively.
+ */
+UNUSUAL_DEV(  0x05e3, 0x0701, 0x0000, 0xffff,
+		"Genesys Logic",
+		"USB to IDE Optical",
+		US_SC_DEVICE, US_PR_DEVICE, NULL,
+		US_FL_GO_SLOW ),
+
+UNUSUAL_DEV(  0x05e3, 0x0702, 0x0000, 0xffff,
+		"Genesys Logic",
+		"USB to IDE Disk",
+		US_SC_DEVICE, US_PR_DEVICE, NULL,
+		US_FL_GO_SLOW ),
+
 /* Reported by Hanno Boeck <hanno@gmx.de>
  * Taken from the Lycoris Kernel */
 UNUSUAL_DEV(  0x0636, 0x0003, 0x0000, 0x9999,
@@ -544,19 +563,19 @@ UNUSUAL_DEV( 0x066f, 0x8000, 0x0001, 0x0001,
 		US_SC_DEVICE, US_PR_DEVICE, NULL,
 		US_FL_FIX_CAPACITY ),
 
-/* Reported by Alex Butcher <alex.butcher@assursys.co.uk> */
-UNUSUAL_DEV( 0x067b, 0x3507, 0x0001, 0x0001,
+/* Reported by Richard -=[]=- <micro_flyer@hotmail.com> */
+UNUSUAL_DEV( 0x067b, 0x2507, 0x0100, 0x0100,
 		"Prolific Technology Inc.",
-		"ATAPI-6 Bridge Controller",
+		"Mass Storage Device",
 		US_SC_DEVICE, US_PR_DEVICE, NULL,
-		US_FL_FIX_CAPACITY ),
+		US_FL_FIX_CAPACITY | US_FL_GO_SLOW ),
 
 /* Reported by Alex Butcher <alex.butcher@assursys.co.uk> */
 UNUSUAL_DEV( 0x067b, 0x3507, 0x0001, 0x0001,
 		"Prolific Technology Inc.",
 		"ATAPI-6 Bridge Controller",
 		US_SC_DEVICE, US_PR_DEVICE, NULL,
-		US_FL_FIX_CAPACITY ),
+		US_FL_FIX_CAPACITY | US_FL_GO_SLOW ),
 
 /* Submitted by Benny Sjostrand <benny@hostmobility.com> */
 UNUSUAL_DEV( 0x0686, 0x4011, 0x0001, 0x0001,
@@ -921,6 +940,13 @@ UNUSUAL_DEV(  0x1370, 0x6828, 0x0110, 0x0110,
 		"Black Silver",
 		US_SC_DEVICE, US_PR_DEVICE, NULL,
 		US_FL_IGNORE_RESIDUE ),
+
+/* Reported by Radovan Garabik <garabik@kassiopeia.juls.savba.sk> */
+UNUSUAL_DEV(  0x2735, 0x100b, 0x0000, 0x9999,
+		"MPIO",
+		"HS200",
+		US_SC_DEVICE, US_PR_DEVICE, NULL,
+		US_FL_GO_SLOW ),
 
 #ifdef CONFIG_USB_STORAGE_SDDR55
 UNUSUAL_DEV(  0x55aa, 0xa103, 0x0000, 0x9999, 

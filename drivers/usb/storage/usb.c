@@ -479,6 +479,13 @@ static void get_device_info(struct us_data *us, int id_index)
 			unusual_dev->useTransport;
 	us->flags = unusual_dev->flags;
 
+	/*
+	 * This flag is only needed when we're in high-speed, so let's
+	 * disable it if we're in full-speed
+	 */
+	if (dev->speed != USB_SPEED_HIGH)
+		us->flags &= ~US_FL_GO_SLOW;
+
 	/* Log a message if a non-generic unusual_dev entry contains an
 	 * unnecessary subclass or protocol override.  This may stimulate
 	 * reports from users that will help us remove unneeded entries
