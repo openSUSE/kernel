@@ -64,9 +64,6 @@ static __inline__ int br_mac_hash(const unsigned char *mac)
 static __inline__ void fdb_delete(struct net_bridge_fdb_entry *f)
 {
 	hlist_del_rcu(&f->hlist);
-	if (!f->is_static)
-		list_del(&f->u.age_list);
-
 	br_fdb_put(f);
 }
 
@@ -113,30 +110,23 @@ void br_fdb_changeaddr(struct net_bridge_port *p, const unsigned char *newaddr)
 void br_fdb_cleanup(unsigned long _data)
 {
 	struct net_bridge *br = (struct net_bridge *)_data;
-	struct list_head *l, *n;
-	unsigned long delay;
+	unsigned long delay = hold_time(br);
+	int i;
 
 	spin_lock_bh(&br->hash_lock);
-	delay = hold_time(br);
-
-	list_for_each_safe(l, n, &br->age_list) {
+	for (i = 0; i < BR_HASH_SIZE; i++) {
 		struct net_bridge_fdb_entry *f;
-		unsigned long expires;
+		struct hlist_node *h, *n;
 
-		f = list_entry(l, struct net_bridge_fdb_entry, u.age_list);
-		expires = f->ageing_timer + delay;
-
-		if (time_before_eq(expires, jiffies)) {
-			WARN_ON(f->is_static);
-			pr_debug("expire age %lu jiffies %lu\n",
-				 f->ageing_timer, jiffies);
-			fdb_delete(f);
-		} else {
-			mod_timer(&br->gc_timer, expires);
-			break;
+		hlist_for_each_entry_safe(f, h, n, &br->hash[i], hlist) {
+			if (!f->is_static && 
+			    time_before_eq(f->ageing_timer + delay, jiffies)) 
+				fdb_delete(f);
 		}
 	}
 	spin_unlock_bh(&br->hash_lock);
+
+	mod_timer(&br->gc_timer, jiffies + HZ/10);
 }
 
 void br_fdb_delete_by_port(struct net_bridge *br, struct net_bridge_port *p)
@@ -212,7 +202,7 @@ struct net_bridge_fdb_entry *br_fdb_get(struct net_bridge *br,
 static void fdb_rcu_free(struct rcu_head *head)
 {
 	struct net_bridge_fdb_entry *ent
-		= container_of(head, struct net_bridge_fdb_entry, u.rcu);
+		= container_of(head, struct net_bridge_fdb_entry, rcu);
 	kmem_cache_free(br_fdb_cache, ent);
 }
 
@@ -220,7 +210,7 @@ static void fdb_rcu_free(struct rcu_head *head)
 void br_fdb_put(struct net_bridge_fdb_entry *ent)
 {
 	if (atomic_dec_and_test(&ent->use_count))
-		call_rcu(&ent->u.rcu, fdb_rcu_free);
+		call_rcu(&ent->rcu, fdb_rcu_free);
 }
 
 /*
@@ -305,8 +295,6 @@ static int fdb_insert(struct net_bridge *br, struct net_bridge_port *source,
 			if (fdb->is_static)
 				return 0;
 
-			/* move to end of age list */
-			list_del(&fdb->u.age_list);
 			goto update;
 		}
 	}
@@ -319,18 +307,11 @@ static int fdb_insert(struct net_bridge *br, struct net_bridge_port *source,
 	atomic_set(&fdb->use_count, 1);
 	hlist_add_head_rcu(&fdb->hlist, &br->hash[hash]);
 
-	if (!timer_pending(&br->gc_timer)) {
-		br->gc_timer.expires = jiffies + hold_time(br);
-		add_timer(&br->gc_timer);
-	}
-
  update:
 	fdb->dst = source;
 	fdb->is_local = is_local;
 	fdb->is_static = is_local;
 	fdb->ageing_timer = jiffies;
-	if (!is_local) 
-		list_add_tail(&fdb->u.age_list, &br->age_list);
 
 	return 0;
 }

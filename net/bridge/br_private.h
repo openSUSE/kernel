@@ -46,10 +46,8 @@ struct net_bridge_fdb_entry
 {
 	struct hlist_node		hlist;
 	struct net_bridge_port		*dst;
-	union {
-		struct list_head	age_list;
-		struct rcu_head		rcu;
-	} u;
+
+	struct rcu_head			rcu;
 	atomic_t			use_count;
 	unsigned long			ageing_timer;
 	mac_addr			addr;
