@@ -2907,11 +2907,9 @@ static int __init init_raw1394(void)
 		goto out_unreg;
 	}
 	
-	ret = devfs_mk_cdev(MKDEV(
+	devfs_mk_cdev(MKDEV(
 		IEEE1394_MAJOR, IEEE1394_MINOR_BLOCK_RAW1394 * 16),
 		S_IFCHR | S_IRUSR | S_IWUSR, RAW1394_DEVICE_NAME);
-	if (ret)
-		goto out_class;
 
 	cdev_init(&raw1394_cdev, &raw1394_fops);
 	raw1394_cdev.owner = THIS_MODULE;
@@ -2935,7 +2933,6 @@ static int __init init_raw1394(void)
 
 out_dev:
 	devfs_remove(RAW1394_DEVICE_NAME);
-out_class:
 	class_simple_device_remove(MKDEV(
 		IEEE1394_MAJOR, IEEE1394_MINOR_BLOCK_RAW1394 * 16));
 out_unreg:
