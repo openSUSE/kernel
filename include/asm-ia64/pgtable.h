@@ -550,7 +550,7 @@ do {											\
 #define __HAVE_ARCH_PTEP_SET_WRPROTECT
 #define __HAVE_ARCH_PTE_SAME
 #define __HAVE_ARCH_PGD_OFFSET_GATE
-#include <asm-generic/pgtable.h>
 #include <asm-generic/pgtable-nopud.h>
+#include <asm-generic/pgtable.h>
 
 #endif /* _ASM_IA64_PGTABLE_H */
