@@ -1010,12 +1010,6 @@ static int __init hisax_fcpcipnp_init(void)
 #endif
 	return 0;
 
-#if !defined(CONFIG_HOTPLUG) || defined(MODULE)
- out_unregister_isapnp:
-#ifdef __ISAPNP__
-	pnp_unregister_driver(&fcpnp_driver);
-#endif
-#endif
  out_unregister_pci:
 	pci_unregister_driver(&fcpci_driver);
  out:
