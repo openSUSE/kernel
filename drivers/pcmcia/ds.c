@@ -286,6 +286,7 @@ static struct pcmcia_bus_socket *pcmcia_get_bus_socket(struct pcmcia_bus_socket 
  * Registers a PCMCIA driver with the PCMCIA bus core.
  */
 static int pcmcia_device_probe(struct device *dev);
+static int pcmcia_device_remove(struct device * dev);
 
 int pcmcia_register_driver(struct pcmcia_driver *driver)
 {
@@ -296,6 +297,7 @@ int pcmcia_register_driver(struct pcmcia_driver *driver)
 	driver->drv.bus = &pcmcia_bus_type;
 	driver->drv.owner = driver->owner;
 	driver->drv.probe = pcmcia_device_probe;
+	driver->drv.remove = pcmcia_device_remove;
 
 	return driver_register(&driver->drv);
 }
@@ -401,6 +403,28 @@ static int pcmcia_device_probe(struct device * dev)
 	if ((ret) || !(p_drv->attach))
 		put_device(dev);
 	return (ret);
+}
+
+
+static int pcmcia_device_remove(struct device * dev)
+{
+	struct pcmcia_device *p_dev;
+	struct pcmcia_driver *p_drv;
+
+	/* detach the "instance" */
+	p_dev = to_pcmcia_dev(dev);
+	p_drv = to_pcmcia_drv(dev->driver);
+
+	if (p_drv) {
+		if ((p_drv->detach) && (p_dev->instance)) {
+			p_drv->detach(p_dev->instance);
+			/* from pcmcia_probe_device */
+			put_device(&p_dev->dev);
+		}
+		module_put(p_drv->owner);
+	}
+
+	return 0;
 }
 
 
@@ -866,7 +890,6 @@ static int get_device_info(struct pcmcia_bus_socket *s, bind_info_t *bind_info, 
 static int unbind_request(struct pcmcia_bus_socket *s)
 {
 	struct pcmcia_device	*p_dev;
-	struct pcmcia_driver	*p_drv;
 	unsigned long		flags;
 
 	ds_dbg(2, "unbind_request(%d)\n", s->parent->sock);
@@ -884,17 +907,6 @@ static int unbind_request(struct pcmcia_bus_socket *s)
 		list_del(&p_dev->socket_device_list);
 		p_dev->client.state |= CLIENT_STALE;
 		spin_unlock_irqrestore(&pcmcia_dev_list_lock, flags);
-
-		/* detach the "instance" */
-		p_drv = to_pcmcia_drv(p_dev->dev.driver);
-		if (p_drv) {
-			if ((p_drv->detach) && (p_dev->instance)) {
-				p_drv->detach(p_dev->instance);
-				/* from pcmcia_probe_device */
-				put_device(&p_dev->dev);
-			}
-			module_put(p_drv->owner);
-		}
 
 		device_unregister(&p_dev->dev);
 	}
