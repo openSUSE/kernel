@@ -210,9 +210,10 @@ static psmouse_ret_t alps_process_byte(struct psmouse *psmouse, struct pt_regs *
 	return PSMOUSE_GOOD_DATA;
 }
 
-static int alps_get_model(struct psmouse *psmouse)
+static int alps_get_model(struct psmouse *psmouse, int *version)
 {
 	struct ps2dev *ps2dev = &psmouse->ps2dev;
+	unsigned char rates[] = { 0, 10, 20, 40, 60, 80, 100, 200 };
 	unsigned char param[4];
 	int i;
 
@@ -249,6 +250,9 @@ static int alps_get_model(struct psmouse *psmouse)
 		return -1;
 
 	dbg("E7 report: %2.2x %2.2x %2.2x", param[0], param[1], param[2]);
+
+	for (i = 0; i < ARRAY_SIZE(rates) && param[2] != rates[i]; i++);
+	*version = (param[0] << 8) | (i << 4) | (param[1] & 0x0f);
 
 	for (i = 0; i < ARRAY_SIZE(alps_model_data); i++)
 		if (!memcmp(param, alps_model_data[i].signature, sizeof(alps_model_data[i].signature)))
@@ -347,8 +351,9 @@ static int alps_reconnect(struct psmouse *psmouse)
 {
 	struct alps_data *priv = psmouse->private;
 	unsigned char param[4];
+	int version;
 
-	if ((priv->model = alps_get_model(psmouse)) < 0)
+	if ((priv->model = alps_get_model(psmouse, &version)) < 0)
 		return -1;
 
 	if (priv->model == ALPS_MODEL_DUALPOINT && alps_passthrough_mode(psmouse, 1))
@@ -381,13 +386,14 @@ int alps_init(struct psmouse *psmouse)
 {
 	struct alps_data *priv;
 	unsigned char param[4];
+	int version;
 
 	psmouse->private = priv = kmalloc(sizeof(struct alps_data), GFP_KERNEL);
 	if (!priv)
 		goto init_fail;
 	memset(priv, 0, sizeof(struct alps_data));
 
-	if ((priv->model = alps_get_model(psmouse)) < 0)
+	if ((priv->model = alps_get_model(psmouse, &version)) < 0)
 		goto init_fail;
 
 	printk(KERN_INFO "ALPS Touchpad (%s) detected\n",
@@ -445,12 +451,15 @@ init_fail:
 
 int alps_detect(struct psmouse *psmouse, int set_properties)
 {
-	if (alps_get_model(psmouse) < 0)
+	int version;
+
+	if (alps_get_model(psmouse, &version) < 0)
 		return -1;
 
 	if (set_properties) {
 		psmouse->vendor = "ALPS";
 		psmouse->name = "TouchPad";
+		psmouse->model = version;
 	}
 	return 0;
 }
