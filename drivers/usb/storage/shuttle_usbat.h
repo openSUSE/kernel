@@ -5,8 +5,9 @@
  *
  * Current development and maintenance by:
  *   (c) 2000 Robert Baruch (autophile@dol.net)
+ *   (c) 2004, 2005 Daniel Drake <dsd@gentoo.org>
  *
- * See scm.c for more explanation
+ * See shuttle_usbat.c for more explanation
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -25,6 +26,10 @@
 
 #ifndef _USB_SHUTTLE_USBAT_H
 #define _USB_SHUTTLE_USBAT_H
+
+/* Supported device types */
+#define USBAT_DEV_HP8200	0x01
+#define USBAT_DEV_FLASH		0x02
 
 #define USBAT_EPP_PORT		0x10
 #define USBAT_EPP_REGISTER	0x30
@@ -52,6 +57,14 @@
 /* Qualifier bits */
 #define USBAT_QUAL_FCQ	0x20 // full compare
 #define USBAT_QUAL_ALQ	0x10 // auto load subcount
+
+/* USBAT Flash Media status types */
+#define USBAT_FLASH_MEDIA_NONE	0
+#define USBAT_FLASH_MEDIA_CF	1
+
+/* USBAT Flash Media change types */
+#define USBAT_FLASH_MEDIA_SAME	0
+#define USBAT_FLASH_MEDIA_CHANGED	1
 
 /* USBAT ATA registers */
 #define USBAT_ATA_DATA      0x10  // read/write data (R/W)
@@ -92,8 +105,23 @@
 #define USBAT_FEAT_ET1	0x02
 #define USBAT_FEAT_ET2	0x01
 
-/* HP 8200e stuff */
-extern int usbat_hp8200e_transport(struct scsi_cmnd *srb, struct us_data *us);
-extern int init_usbat_hp8200e(struct us_data *us);
+/* Transport functions */
+int usbat_hp8200e_transport(struct scsi_cmnd *srb, struct us_data *us);
+int usbat_flash_transport(struct scsi_cmnd * srb, struct us_data *us);
+
+extern int usbat_transport(struct scsi_cmnd *srb, struct us_data *us);
+extern int init_usbat(struct us_data *us);
+
+struct usbat_info {
+	int devicetype;
+
+	/* Used for Flash readers only */
+	unsigned long sectors;     // total sector count
+	unsigned long ssize;       // sector size in bytes
+
+	unsigned char sense_key;
+	unsigned long sense_asc;   // additional sense code
+	unsigned long sense_ascq;  // additional sense code qualifier
+};
 
 #endif

@@ -4,9 +4,13 @@
  *
  * Current development and maintenance by:
  *   (c) 2000, 2001 Robert Baruch (autophile@starband.net)
+ *   (c) 2004, 2005 Daniel Drake <dsd@gentoo.org>
  *
  * Developed with the assistance of:
  *   (c) 2002 Alan Stern <stern@rowland.org>
+ *
+ * Flash support based on earlier work by:
+ *   (c) 2002 Thomas Kreiling <usbdev@sm04.de>
  *
  * Many originally ATAPI devices were slightly modified to meet the USB
  * market by using some kind of translation from ATAPI to USB on the host,
@@ -58,6 +62,31 @@
 #define MSB_of(s) ((s)>>8)
 
 int transferred = 0;
+
+/*
+ * Convenience function to produce an ATAPI read/write sectors command
+ * Use cmd=0x20 for read, cmd=0x30 for write
+ */
+static void usbat_pack_atapi_sector_cmd(unsigned char *buf,
+					unsigned char thistime,
+					u32 sector, unsigned char cmd)
+{
+	buf[0] = 0;
+	buf[1] = thistime;
+	buf[2] = sector & 0xFF;
+	buf[3] = (sector >>  8) & 0xFF;
+	buf[4] = (sector >> 16) & 0xFF;
+	buf[5] = 0xE0 | ((sector >> 24) & 0x0F);
+	buf[6] = cmd;
+}
+
+/*
+ * Convenience function to get the device type (flash or hp8200)
+ */
+static int usbat_get_device_type(struct us_data *us)
+{
+	return ((struct usbat_info*)us->extra)->devicetype;
+}
 
 /*
  * Read a register from the device
@@ -149,6 +178,29 @@ static int usbat_get_status(struct us_data *us, unsigned char *status)
 	return rc;
 }
 
+/*
+ * Check the device status
+ */
+static int usbat_check_status(struct us_data *us)
+{
+	unsigned char *reply = us->iobuf;
+	int rc;
+
+	if (!us)
+		return USB_STOR_TRANSPORT_ERROR;
+
+	rc = usbat_get_status(us, reply);
+	if (rc != USB_STOR_XFER_GOOD)
+		return USB_STOR_TRANSPORT_FAILED;
+
+	if (*reply & 0x01 && *reply != 0x51) // error/check condition (0x51 is ok)
+		return USB_STOR_TRANSPORT_FAILED;
+
+	if (*reply & 0x20) // device fault
+		return USB_STOR_TRANSPORT_FAILED;
+
+	return USB_STOR_TRANSPORT_GOOD;
+}
 
 /*
  * Stores critical information in internal registers in prepartion for the execution
@@ -522,8 +574,94 @@ static int usbat_multiple_write(struct us_data *us,
 	if (result != USB_STOR_XFER_GOOD)
 		return USB_STOR_TRANSPORT_ERROR;
 
-	return usbat_wait_not_busy(us, 0);
+	if (usbat_get_device_type(us) == USBAT_DEV_HP8200)
+		return usbat_wait_not_busy(us, 0);
+	else
+		return USB_STOR_TRANSPORT_GOOD;
 }
+
+/*
+ * Conditionally read blocks from device:
+ * Allows us to read blocks from a specific data register, based upon the
+ * condition that a status register can be successfully masked with a status
+ * qualifier. If this condition is not initially met, the read will wait
+ * up until a maximum amount of time has elapsed, as specified by timeout.
+ * The read will start when the condition is met, otherwise the command aborts.
+ *
+ * The qualifier defined here is not the value that is masked, it defines
+ * conditions for the write to take place. The actual masked qualifier (and
+ * other related details) are defined beforehand with _set_shuttle_features().
+ */
+static int usbat_read_blocks(struct us_data *us,
+							 unsigned char *buffer,
+							 int len)
+{
+	int result;
+	unsigned char *command = us->iobuf;
+
+	command[0] = 0xC0;
+	command[1] = USBAT_ATA | USBAT_CMD_COND_READ_BLOCK;
+	command[2] = USBAT_ATA_DATA;
+	command[3] = USBAT_ATA_STATUS;
+	command[4] = 0xFD; // Timeout (ms);
+	command[5] = USBAT_QUAL_FCQ;
+	command[6] = LSB_of(len);
+	command[7] = MSB_of(len);
+
+	// Multiple block read setup command
+	result = usbat_execute_command(us, command, 8);
+	if (result != USB_STOR_XFER_GOOD)
+		return USB_STOR_TRANSPORT_FAILED;
+	
+	// Read the blocks we just asked for
+	result = usbat_bulk_read(us, buffer, len);
+	if (result != USB_STOR_XFER_GOOD)
+		return USB_STOR_TRANSPORT_FAILED;
+
+	return USB_STOR_TRANSPORT_GOOD;
+}
+
+/*
+ * Conditionally write blocks to device:
+ * Allows us to write blocks to a specific data register, based upon the
+ * condition that a status register can be successfully masked with a status
+ * qualifier. If this condition is not initially met, the write will wait
+ * up until a maximum amount of time has elapsed, as specified by timeout.
+ * The read will start when the condition is met, otherwise the command aborts.
+ *
+ * The qualifier defined here is not the value that is masked, it defines
+ * conditions for the write to take place. The actual masked qualifier (and
+ * other related details) are defined beforehand with _set_shuttle_features().
+ */
+static int usbat_write_blocks(struct us_data *us,
+							  unsigned char *buffer,
+							  int len)
+{
+	int result;
+	unsigned char *command = us->iobuf;
+
+	command[0] = 0x40;
+	command[1] = USBAT_ATA | USBAT_CMD_COND_WRITE_BLOCK;
+	command[2] = USBAT_ATA_DATA;
+	command[3] = USBAT_ATA_STATUS;
+	command[4] = 0xFD; // Timeout (ms)
+	command[5] = USBAT_QUAL_FCQ;
+	command[6] = LSB_of(len);
+	command[7] = MSB_of(len);
+
+	// Multiple block write setup command
+	result = usbat_execute_command(us, command, 8);
+	if (result != USB_STOR_XFER_GOOD)
+		return USB_STOR_TRANSPORT_FAILED;
+	
+	// Write the data
+	result = usbat_bulk_write(us, buffer, len);
+	if (result != USB_STOR_XFER_GOOD)
+		return USB_STOR_TRANSPORT_FAILED;
+
+	return USB_STOR_TRANSPORT_GOOD;
+}
+
 /*
  * Read the User IO register
  */
@@ -560,6 +698,421 @@ static int usbat_write_user_io(struct us_data *us,
 		0,
 		NULL,
 		USBAT_UIO_WRITE);
+}
+
+/*
+ * Reset the device
+ * Often needed on media change.
+ */
+static int usbat_device_reset(struct us_data *us)
+{
+	int rc;
+
+	// Reset peripheral, enable peripheral control signals
+	// (bring reset signal up)
+	rc = usbat_write_user_io(us,
+							 USBAT_UIO_DRVRST | USBAT_UIO_OE1 | USBAT_UIO_OE0,
+							 USBAT_UIO_EPAD | USBAT_UIO_1);
+	if (rc != USB_STOR_XFER_GOOD)
+		return USB_STOR_TRANSPORT_ERROR;
+			
+	// Enable peripheral control signals
+	// (bring reset signal down)
+	rc = usbat_write_user_io(us,
+							 USBAT_UIO_OE1  | USBAT_UIO_OE0,
+							 USBAT_UIO_EPAD | USBAT_UIO_1);
+	if (rc != USB_STOR_XFER_GOOD)
+		return USB_STOR_TRANSPORT_ERROR;
+
+	return USB_STOR_TRANSPORT_GOOD;
+}
+
+/*
+ * Enable card detect
+ */
+static int usbat_device_enable_cdt(struct us_data *us)
+{
+	int rc;
+
+	// Enable peripheral control signals and card detect
+	rc = usbat_write_user_io(us,
+							 USBAT_UIO_ACKD | USBAT_UIO_OE1  | USBAT_UIO_OE0,
+							 USBAT_UIO_EPAD | USBAT_UIO_1);
+	if (rc != USB_STOR_XFER_GOOD)
+		return USB_STOR_TRANSPORT_ERROR;
+
+	return USB_STOR_TRANSPORT_GOOD;
+}
+
+/*
+ * Determine if media is present.
+ */
+static int usbat_flash_check_media_present(unsigned char *uio)
+{
+	if (*uio & USBAT_UIO_UI0) {
+		US_DEBUGP("usbat_flash_check_media_present: no media detected\n");
+		return USBAT_FLASH_MEDIA_NONE;
+	}
+
+	return USBAT_FLASH_MEDIA_CF;
+}
+
+/*
+ * Determine if media has changed since last operation
+ */
+static int usbat_flash_check_media_changed(unsigned char *uio)
+{
+	if (*uio & USBAT_UIO_0) {
+		US_DEBUGP("usbat_flash_check_media_changed: media change detected\n");
+		return USBAT_FLASH_MEDIA_CHANGED;
+	}
+
+	return USBAT_FLASH_MEDIA_SAME;
+}
+
+/*
+ * Check for media change / no media and handle the situation appropriately
+ */
+static int usbat_flash_check_media(struct us_data *us,
+				   struct usbat_info *info)
+{
+	int rc;
+	unsigned char *uio = us->iobuf;
+
+	rc = usbat_read_user_io(us, uio);
+	if (rc != USB_STOR_XFER_GOOD)
+		return USB_STOR_TRANSPORT_ERROR;
+
+	// Check for media existance
+	rc = usbat_flash_check_media_present(uio);
+	if (rc == USBAT_FLASH_MEDIA_NONE) {
+		info->sense_key = 0x02;
+		info->sense_asc = 0x3A;
+		info->sense_ascq = 0x00;
+		return USB_STOR_TRANSPORT_FAILED;
+	}
+
+	// Check for media change
+	rc = usbat_flash_check_media_changed(uio);
+	if (rc == USBAT_FLASH_MEDIA_CHANGED) {
+
+		// Reset and re-enable card detect
+		rc = usbat_device_reset(us);
+		if (rc != USB_STOR_TRANSPORT_GOOD)
+			return rc;
+		rc = usbat_device_enable_cdt(us);
+		if (rc != USB_STOR_TRANSPORT_GOOD)
+			return rc;
+
+		msleep(50);
+
+		rc = usbat_read_user_io(us, uio);
+		if (rc != USB_STOR_XFER_GOOD)
+			return USB_STOR_TRANSPORT_ERROR;
+		
+		info->sense_key = UNIT_ATTENTION;
+		info->sense_asc = 0x28;
+		info->sense_ascq = 0x00;
+		return USB_STOR_TRANSPORT_FAILED;
+	}
+
+	return USB_STOR_TRANSPORT_GOOD;
+}
+
+/*
+ * Determine whether we are controlling a flash-based reader/writer,
+ * or a HP8200-based CD drive.
+ * Sets transport functions as appropriate.
+ */
+static int usbat_identify_device(struct us_data *us,
+				 struct usbat_info *info)
+{
+	int rc;
+	unsigned char status;
+
+	if (!us || !info)
+		return USB_STOR_TRANSPORT_ERROR;
+
+	rc = usbat_device_reset(us);
+	if (rc != USB_STOR_TRANSPORT_GOOD)
+		return rc;
+
+	/*
+	 * By examining the device signature after a reset, we can identify
+	 * whether the device supports the ATAPI packet interface.
+	 * The flash-devices do not support this, whereas the HP CDRW's obviously
+	 * do.
+	 *
+	 * This method is not ideal, but works because no other devices have been
+	 * produced based on the USBAT/USBAT02.
+	 *
+	 * Section 9.1 of the ATAPI-4 spec states (amongst other things) that
+	 * after a device reset, a Cylinder low of 0x14 indicates that the device
+	 * does support packet commands.
+	 */
+	rc = usbat_read(us, USBAT_ATA, USBAT_ATA_LBA_ME, &status);
+	if (rc != USB_STOR_XFER_GOOD)
+		return USB_STOR_TRANSPORT_ERROR;
+
+	US_DEBUGP("usbat_identify_device: Cylinder low is %02X\n", status);
+
+	if (status == 0x14) {
+		// Device is HP 8200
+		US_DEBUGP("usbat_identify_device: Detected HP8200 CDRW\n");
+		info->devicetype = USBAT_DEV_HP8200;
+	} else {
+		// Device is a CompactFlash reader/writer
+		US_DEBUGP("usbat_identify_device: Detected Flash reader/writer\n");
+		info->devicetype = USBAT_DEV_FLASH;
+	}
+
+	return USB_STOR_TRANSPORT_GOOD;
+}
+
+/*
+ * Set the transport function based on the device type
+ */
+int usbat_set_transport(struct us_data *us,
+			struct usbat_info *info)
+{
+	int rc;
+
+	if (!info->devicetype) {
+		rc = usbat_identify_device(us, info);
+		if (rc != USB_STOR_TRANSPORT_GOOD) {
+			US_DEBUGP("usbat_set_transport: Could not identify device\n");
+			return 1;
+		}
+	}
+
+	if (usbat_get_device_type(us) == USBAT_DEV_HP8200)
+		us->transport = usbat_hp8200e_transport;
+	else if (usbat_get_device_type(us) == USBAT_DEV_FLASH)
+		us->transport = usbat_flash_transport;
+
+	return 0;
+}
+
+/*
+ * Read the media capacity
+ */
+static int usbat_flash_get_sector_count(struct us_data *us,
+					struct usbat_info *info)
+{
+	unsigned char registers[3] = {
+		USBAT_ATA_SECCNT,
+		USBAT_ATA_DEVICE,
+		USBAT_ATA_CMD,
+	};
+	unsigned char  command[3] = { 0x01, 0xA0, 0xEC };
+	unsigned char *reply;
+	unsigned char status;
+	int rc;
+
+	if (!us || !info)
+		return USB_STOR_TRANSPORT_ERROR;
+
+	reply = kmalloc(512, GFP_NOIO);
+	if (!reply)
+		return USB_STOR_TRANSPORT_ERROR;
+
+	// ATAPI command : IDENTIFY DEVICE
+	rc = usbat_multiple_write(us, registers, command, 3);
+	if (rc != USB_STOR_XFER_GOOD) {
+		US_DEBUGP("usbat_flash_get_sector_count: Gah! identify_device failed\n");
+		rc = USB_STOR_TRANSPORT_ERROR;
+		goto leave;
+	}
+
+	// Read device status
+	if (usbat_get_status(us, &status) != USB_STOR_XFER_GOOD) {
+		rc = USB_STOR_TRANSPORT_ERROR;
+		goto leave;
+	}
+
+	msleep(100);
+
+	// Read the device identification data
+	rc = usbat_read_block(us, reply, 512);
+	if (rc != USB_STOR_TRANSPORT_GOOD)
+		goto leave;
+
+	info->sectors = ((u32)(reply[117]) << 24) |
+		((u32)(reply[116]) << 16) |
+		((u32)(reply[115]) <<  8) |
+		((u32)(reply[114])      );
+
+	rc = USB_STOR_TRANSPORT_GOOD;
+
+ leave:
+	kfree(reply);
+	return rc;
+}
+
+/*
+ * Read data from device
+ */
+static int usbat_flash_read_data(struct us_data *us,
+								 struct usbat_info *info,
+								 u32 sector,
+								 u32 sectors)
+{
+	unsigned char registers[7] = {
+		USBAT_ATA_FEATURES,
+		USBAT_ATA_SECCNT,
+		USBAT_ATA_SECNUM,
+		USBAT_ATA_LBA_ME,
+		USBAT_ATA_LBA_HI,
+		USBAT_ATA_DEVICE,
+		USBAT_ATA_STATUS,
+	};
+	unsigned char command[7];
+	unsigned char *buffer;
+	unsigned char  thistime;
+	unsigned int totallen, alloclen;
+	int len, result;
+	unsigned int sg_idx = 0, sg_offset = 0;
+
+	result = usbat_flash_check_media(us, info);
+	if (result != USB_STOR_TRANSPORT_GOOD)
+		return result;
+
+	// we're working in LBA mode.  according to the ATA spec,
+	// we can support up to 28-bit addressing.  I don't know if Jumpshot
+	// supports beyond 24-bit addressing.  It's kind of hard to test
+	// since it requires > 8GB CF card.
+
+	if (sector > 0x0FFFFFFF)
+		return USB_STOR_TRANSPORT_ERROR;
+
+	totallen = sectors * info->ssize;
+
+	// Since we don't read more than 64 KB at a time, we have to create
+	// a bounce buffer and move the data a piece at a time between the
+	// bounce buffer and the actual transfer buffer.
+
+	alloclen = min(totallen, 65536u);
+	buffer = kmalloc(alloclen, GFP_NOIO);
+	if (buffer == NULL)
+		return USB_STOR_TRANSPORT_ERROR;
+
+	do {
+		// loop, never allocate or transfer more than 64k at once
+		// (min(128k, 255*info->ssize) is the real limit)
+		len = min(totallen, alloclen);
+		thistime = (len / info->ssize) & 0xff;
+ 
+		// ATAPI command 0x20 (READ SECTORS)
+		usbat_pack_atapi_sector_cmd(command, thistime, sector, 0x20);
+
+		// Write/execute ATAPI read command
+		result = usbat_multiple_write(us, registers, command, 7);
+		if (result != USB_STOR_TRANSPORT_GOOD)
+			goto leave;
+
+		// Read the data we just requested
+		result = usbat_read_blocks(us, buffer, len);
+		if (result != USB_STOR_TRANSPORT_GOOD)
+			goto leave;
+  	 
+		US_DEBUGP("usbat_flash_read_data:  %d bytes\n", len);
+	
+		// Store the data in the transfer buffer
+		usb_stor_access_xfer_buf(buffer, len, us->srb,
+					 &sg_idx, &sg_offset, TO_XFER_BUF);
+
+		sector += thistime;
+		totallen -= len;
+	} while (totallen > 0);
+
+	kfree(buffer);
+	return USB_STOR_TRANSPORT_GOOD;
+
+leave:
+	kfree(buffer);
+	return USB_STOR_TRANSPORT_ERROR;
+}
+
+/*
+ * Write data to device
+ */
+static int usbat_flash_write_data(struct us_data *us,
+								  struct usbat_info *info,
+								  u32 sector,
+								  u32 sectors)
+{
+	unsigned char registers[7] = {
+		USBAT_ATA_FEATURES,
+		USBAT_ATA_SECCNT,
+		USBAT_ATA_SECNUM,
+		USBAT_ATA_LBA_ME,
+		USBAT_ATA_LBA_HI,
+		USBAT_ATA_DEVICE,
+		USBAT_ATA_STATUS,
+	};
+	unsigned char command[7];
+	unsigned char *buffer;
+	unsigned char  thistime;
+	unsigned int totallen, alloclen;
+	int len, result;
+	unsigned int sg_idx = 0, sg_offset = 0;
+
+	result = usbat_flash_check_media(us, info);
+	if (result != USB_STOR_TRANSPORT_GOOD)
+		return result;
+
+	// we're working in LBA mode.  according to the ATA spec,
+	// we can support up to 28-bit addressing.  I don't know if Jumpshot
+	// supports beyond 24-bit addressing.  It's kind of hard to test
+	// since it requires > 8GB CF card.
+
+	if (sector > 0x0FFFFFFF)
+		return USB_STOR_TRANSPORT_ERROR;
+
+	totallen = sectors * info->ssize;
+
+	// Since we don't write more than 64 KB at a time, we have to create
+	// a bounce buffer and move the data a piece at a time between the
+	// bounce buffer and the actual transfer buffer.
+
+	alloclen = min(totallen, 65536u);
+	buffer = kmalloc(alloclen, GFP_NOIO);
+	if (buffer == NULL)
+		return USB_STOR_TRANSPORT_ERROR;
+
+	do {
+		// loop, never allocate or transfer more than 64k at once
+		// (min(128k, 255*info->ssize) is the real limit)
+		len = min(totallen, alloclen);
+		thistime = (len / info->ssize) & 0xff;
+
+		// Get the data from the transfer buffer
+		usb_stor_access_xfer_buf(buffer, len, us->srb,
+					 &sg_idx, &sg_offset, FROM_XFER_BUF);
+
+		// ATAPI command 0x30 (WRITE SECTORS)
+		usbat_pack_atapi_sector_cmd(command, thistime, sector, 0x30);		
+
+		// Write/execute ATAPI write command
+		result = usbat_multiple_write(us, registers, command, 7);
+		if (result != USB_STOR_TRANSPORT_GOOD)
+			goto leave;
+
+		// Write the data
+		result = usbat_write_blocks(us, buffer, len);
+		if (result != USB_STOR_TRANSPORT_GOOD)
+			goto leave;
+
+		sector += thistime;
+		totallen -= len;
+	} while (totallen > 0);
+
+	kfree(buffer);
+	return result;
+
+leave:
+	kfree(buffer);
+	return USB_STOR_TRANSPORT_ERROR;
 }
 
 /*
@@ -683,12 +1236,16 @@ static int usbat_select_and_test_registers(struct us_data *us)
 {
 	int selector;
 	unsigned char *status = us->iobuf;
+	unsigned char max_selector = 0xB0;
+	if (usbat_get_device_type(us) == USBAT_DEV_FLASH)
+		max_selector = 0xA0;
 
 	// try device = master, then device = slave.
 
-	for (selector = 0xA0; selector <= 0xB0; selector += 0x10) {
+	for (selector = 0xA0; selector <= max_selector; selector += 0x10) {
 
-		if (usbat_write(us, USBAT_ATA, USBAT_ATA_DEVICE, selector) != 
+		if (usbat_get_device_type(us) == USBAT_DEV_HP8200 &&
+			usbat_write(us, USBAT_ATA, USBAT_ATA_DEVICE, selector) != 
 				USB_STOR_XFER_GOOD)
 			return USB_STOR_TRANSPORT_ERROR;
 
@@ -728,125 +1285,131 @@ static int usbat_select_and_test_registers(struct us_data *us)
 	return USB_STOR_TRANSPORT_GOOD;
 }
 
-int init_usbat_hp8200e(struct us_data *us)
+/*
+ * Initialize the USBAT processor and the storage device
+ */
+int init_usbat(struct us_data *us)
 {
-	int result;
+	int rc;
+	struct usbat_info *info;
+	unsigned char subcountH = USBAT_ATA_LBA_HI;
+	unsigned char subcountL = USBAT_ATA_LBA_ME;
 	unsigned char *status = us->iobuf;
 
-	// Enable peripheral control signals
+	us->extra = kmalloc(sizeof(struct usbat_info), GFP_NOIO);
+	if (!us->extra) {
+		US_DEBUGP("init_usbat: Gah! Can't allocate storage for usbat info struct!\n");
+		return 1;
+	}
+	memset(us->extra, 0, sizeof(struct usbat_info));
+	info = (struct usbat_info *) (us->extra);
 
-	if (usbat_write_user_io(us,
-	  USBAT_UIO_OE1 | USBAT_UIO_OE0,
-	  USBAT_UIO_EPAD | USBAT_UIO_1) != USB_STOR_XFER_GOOD)
+	// Enable peripheral control signals
+	rc = usbat_write_user_io(us,
+				 USBAT_UIO_OE1 | USBAT_UIO_OE0,
+				 USBAT_UIO_EPAD | USBAT_UIO_1);
+	if (rc != USB_STOR_XFER_GOOD)
 		return USB_STOR_TRANSPORT_ERROR;
 
 	US_DEBUGP("INIT 1\n");
 
 	msleep(2000);
 
-	if (usbat_read_user_io(us, status) !=
-			USB_STOR_XFER_GOOD)
-		return USB_STOR_TRANSPORT_ERROR;
+	rc = usbat_read_user_io(us, status);
+	if (rc != USB_STOR_TRANSPORT_GOOD)
+		return rc;
 
 	US_DEBUGP("INIT 2\n");
 
-	if (usbat_read_user_io(us, status) !=
-			USB_STOR_XFER_GOOD)
+	rc = usbat_read_user_io(us, status);
+	if (rc != USB_STOR_XFER_GOOD)
+		return USB_STOR_TRANSPORT_ERROR;
+
+	rc = usbat_read_user_io(us, status);
+	if (rc != USB_STOR_XFER_GOOD)
 		return USB_STOR_TRANSPORT_ERROR;
 
 	US_DEBUGP("INIT 3\n");
 
-	// Reset peripheral, enable periph control signals
-	// (bring reset signal up)
-
-	if (usbat_write_user_io(us,
-	  USBAT_UIO_DRVRST | USBAT_UIO_OE1 | USBAT_UIO_OE0,
-	  USBAT_UIO_EPAD | USBAT_UIO_1) != USB_STOR_XFER_GOOD)
+	// At this point, we need to detect which device we are using
+	if (usbat_set_transport(us, info))
 		return USB_STOR_TRANSPORT_ERROR;
 
 	US_DEBUGP("INIT 4\n");
 
-	// Enable periph control signals
-	// (bring reset signal down)
+	if (usbat_get_device_type(us) == USBAT_DEV_HP8200) {
+		msleep(250);
 
-	if (usbat_write_user_io(us,
-	  USBAT_UIO_OE1 | USBAT_UIO_OE0,
-	  USBAT_UIO_EPAD | USBAT_UIO_1) != USB_STOR_XFER_GOOD)
-		return USB_STOR_TRANSPORT_ERROR;
+		// Write 0x80 to ISA port 0x3F
+		rc = usbat_write(us, USBAT_ISA, 0x3F, 0x80);
+		if (rc != USB_STOR_XFER_GOOD)
+			return USB_STOR_TRANSPORT_ERROR;
 
-	US_DEBUGP("INIT 5\n");
+		US_DEBUGP("INIT 5\n");
 
-	msleep(250);
+		// Read ISA port 0x27
+		rc = usbat_read(us, USBAT_ISA, 0x27, status);
+		if (rc != USB_STOR_XFER_GOOD)
+			return USB_STOR_TRANSPORT_ERROR;
 
-	// Write 0x80 to ISA port 0x3F
+		US_DEBUGP("INIT 6\n");
 
-	if (usbat_write(us, USBAT_ISA, 0x3F, 0x80) !=
-			USB_STOR_XFER_GOOD)
-		return USB_STOR_TRANSPORT_ERROR;
+		rc = usbat_read_user_io(us, status);
+		if (rc != USB_STOR_XFER_GOOD)
+			return USB_STOR_TRANSPORT_ERROR;
 
-	US_DEBUGP("INIT 6\n");
+		US_DEBUGP("INIT 7\n");
+	}
 
-	// Read ISA port 0x27
-
-	if (usbat_read(us, USBAT_ISA, 0x27, status) !=
-			USB_STOR_XFER_GOOD)
-		return USB_STOR_TRANSPORT_ERROR;
-
-	US_DEBUGP("INIT 7\n");
-
-	if (usbat_read_user_io(us, status) !=
-			USB_STOR_XFER_GOOD)
-		return USB_STOR_TRANSPORT_ERROR;
+	rc = usbat_select_and_test_registers(us);
+	if (rc != USB_STOR_TRANSPORT_GOOD)
+		return rc;
 
 	US_DEBUGP("INIT 8\n");
 
-	if ( (result = usbat_select_and_test_registers(us)) !=
-			 USB_STOR_TRANSPORT_GOOD)
-		return result;
+	rc = usbat_read_user_io(us, status);
+	if (rc != USB_STOR_XFER_GOOD)
+		return USB_STOR_TRANSPORT_ERROR;
 
 	US_DEBUGP("INIT 9\n");
 
-	if (usbat_read_user_io(us, status) !=
-			USB_STOR_XFER_GOOD)
-		return USB_STOR_TRANSPORT_ERROR;
+	// Enable peripheral control signals and card detect
+	rc = usbat_device_enable_cdt(us);
+	if (rc != USB_STOR_TRANSPORT_GOOD)
+		return rc;
 
 	US_DEBUGP("INIT 10\n");
 
-	// Enable periph control signals and card detect
-
-	if (usbat_write_user_io(us,
-	  USBAT_UIO_ACKD |USBAT_UIO_OE1 | USBAT_UIO_OE0,
-	  USBAT_UIO_EPAD | USBAT_UIO_1) != USB_STOR_XFER_GOOD)
+	rc = usbat_read_user_io(us, status);
+	if (rc != USB_STOR_XFER_GOOD)
 		return USB_STOR_TRANSPORT_ERROR;
 
 	US_DEBUGP("INIT 11\n");
 
-	if (usbat_read_user_io(us, status) !=
-			USB_STOR_XFER_GOOD)
+	msleep(1400);
+
+	rc = usbat_read_user_io(us, status);
+	if (rc != USB_STOR_XFER_GOOD)
 		return USB_STOR_TRANSPORT_ERROR;
 
 	US_DEBUGP("INIT 12\n");
 
-	msleep(1400);
-
-	if (usbat_read_user_io(us, status) !=
-			USB_STOR_XFER_GOOD)
-		return USB_STOR_TRANSPORT_ERROR;
+	rc = usbat_select_and_test_registers(us);
+	if (rc != USB_STOR_TRANSPORT_GOOD)
+		return rc;
 
 	US_DEBUGP("INIT 13\n");
 
-	if ( (result = usbat_select_and_test_registers(us)) !=
-			 USB_STOR_TRANSPORT_GOOD)
-		return result;
-
-	US_DEBUGP("INIT 14\n");
-
-	if (usbat_set_shuttle_features(us, 
-			0x83, 0x00, 0x88, 0x08, 0x15, 0x14) !=
-			 USB_STOR_XFER_GOOD)
+	if (usbat_get_device_type(us) == USBAT_DEV_FLASH) { 
+		subcountH = 0x02;
+		subcountL = 0x00;
+	}
+	rc = usbat_set_shuttle_features(us, (USBAT_FEAT_ETEN | USBAT_FEAT_ET2 | USBAT_FEAT_ET1),
+									0x00, 0x88, 0x08, subcountH, subcountL);
+	if (rc != USB_STOR_XFER_GOOD)
 		return USB_STOR_TRANSPORT_ERROR;
 
-	US_DEBUGP("INIT 15\n");
+	US_DEBUGP("INIT 14\n");
 
 	return USB_STOR_TRANSPORT_GOOD;
 }
@@ -994,4 +1557,153 @@ int usbat_hp8200e_transport(struct scsi_cmnd *srb, struct us_data *us)
 	return result;
 }
 
+/*
+ * Transport for USBAT02-based CompactFlash and similar storage devices
+ */
+int usbat_flash_transport(struct scsi_cmnd * srb, struct us_data *us)
+{
+	int rc;
+	struct usbat_info *info = (struct usbat_info *) (us->extra);
+	unsigned long block, blocks;
+	unsigned char *ptr = us->iobuf;
+	static unsigned char inquiry_response[36] = {
+		0x00, 0x80, 0x00, 0x01, 0x1F, 0x00, 0x00, 0x00
+	};
+
+	if (srb->cmnd[0] == INQUIRY) {
+		US_DEBUGP("usbat_flash_transport: INQUIRY. Returning bogus response.\n");
+		memcpy(ptr, inquiry_response, sizeof(inquiry_response));
+		fill_inquiry_response(us, ptr, 36);
+		return USB_STOR_TRANSPORT_GOOD;
+	}
+
+	if (srb->cmnd[0] == READ_CAPACITY) {
+		rc = usbat_flash_check_media(us, info);
+		if (rc != USB_STOR_TRANSPORT_GOOD)
+			return rc;
+
+		rc = usbat_flash_get_sector_count(us, info);
+		if (rc != USB_STOR_TRANSPORT_GOOD)
+			return rc;
+
+		info->ssize = 0x200;  // hard coded 512 byte sectors as per ATA spec
+		US_DEBUGP("usbat_flash_transport: READ_CAPACITY: %ld sectors, %ld bytes per sector\n",
+			  info->sectors, info->ssize);
+
+		// build the reply
+		// note: must return the sector number of the last sector,
+		// *not* the total number of sectors
+		((__be32 *) ptr)[0] = cpu_to_be32(info->sectors - 1);
+		((__be32 *) ptr)[1] = cpu_to_be32(info->ssize);
+		usb_stor_set_xfer_buf(ptr, 8, srb);
+
+		return USB_STOR_TRANSPORT_GOOD;
+	}
+
+	if (srb->cmnd[0] == MODE_SELECT_10) {
+		US_DEBUGP("usbat_flash_transport:  Gah! MODE_SELECT_10.\n");
+		return USB_STOR_TRANSPORT_ERROR;
+	}
+
+	if (srb->cmnd[0] == READ_10) {
+		block = ((u32)(srb->cmnd[2]) << 24) | ((u32)(srb->cmnd[3]) << 16) |
+				((u32)(srb->cmnd[4]) <<  8) | ((u32)(srb->cmnd[5]));
+
+		blocks = ((u32)(srb->cmnd[7]) << 8) | ((u32)(srb->cmnd[8]));
+
+		US_DEBUGP("usbat_flash_transport:  READ_10: read block 0x%04lx  count %ld\n", block, blocks);
+		return usbat_flash_read_data(us, info, block, blocks);
+	}
+
+	if (srb->cmnd[0] == READ_12) {
+		// I don't think we'll ever see a READ_12 but support it anyway...
+		block = ((u32)(srb->cmnd[2]) << 24) | ((u32)(srb->cmnd[3]) << 16) |
+		        ((u32)(srb->cmnd[4]) <<  8) | ((u32)(srb->cmnd[5]));
+
+		blocks = ((u32)(srb->cmnd[6]) << 24) | ((u32)(srb->cmnd[7]) << 16) |
+		         ((u32)(srb->cmnd[8]) <<  8) | ((u32)(srb->cmnd[9]));
+
+		US_DEBUGP("usbat_flash_transport: READ_12: read block 0x%04lx  count %ld\n", block, blocks);
+		return usbat_flash_read_data(us, info, block, blocks);
+	}
+
+	if (srb->cmnd[0] == WRITE_10) {
+		block = ((u32)(srb->cmnd[2]) << 24) | ((u32)(srb->cmnd[3]) << 16) |
+		        ((u32)(srb->cmnd[4]) <<  8) | ((u32)(srb->cmnd[5]));
+
+		blocks = ((u32)(srb->cmnd[7]) << 8) | ((u32)(srb->cmnd[8]));
+
+		US_DEBUGP("usbat_flash_transport: WRITE_10: write block 0x%04lx  count %ld\n", block, blocks);
+		return usbat_flash_write_data(us, info, block, blocks);
+	}
+
+	if (srb->cmnd[0] == WRITE_12) {
+		// I don't think we'll ever see a WRITE_12 but support it anyway...
+		block = ((u32)(srb->cmnd[2]) << 24) | ((u32)(srb->cmnd[3]) << 16) |
+		        ((u32)(srb->cmnd[4]) <<  8) | ((u32)(srb->cmnd[5]));
+
+		blocks = ((u32)(srb->cmnd[6]) << 24) | ((u32)(srb->cmnd[7]) << 16) |
+		         ((u32)(srb->cmnd[8]) <<  8) | ((u32)(srb->cmnd[9]));
+
+		US_DEBUGP("usbat_flash_transport: WRITE_12: write block 0x%04lx  count %ld\n", block, blocks);
+		return usbat_flash_write_data(us, info, block, blocks);
+	}
+
+
+	if (srb->cmnd[0] == TEST_UNIT_READY) {
+		US_DEBUGP("usbat_flash_transport: TEST_UNIT_READY.\n");
+
+		rc = usbat_flash_check_media(us, info);
+		if (rc != USB_STOR_TRANSPORT_GOOD)
+			return rc;
+
+		return usbat_check_status(us);
+	}
+
+	if (srb->cmnd[0] == REQUEST_SENSE) {
+		US_DEBUGP("usbat_flash_transport: REQUEST_SENSE.\n");
+
+		memset(ptr, 0, 18);
+		ptr[0] = 0xF0;
+		ptr[2] = info->sense_key;
+		ptr[7] = 11;
+		ptr[12] = info->sense_asc;
+		ptr[13] = info->sense_ascq;
+		usb_stor_set_xfer_buf(ptr, 18, srb);
+
+		return USB_STOR_TRANSPORT_GOOD;
+	}
+
+	if (srb->cmnd[0] == ALLOW_MEDIUM_REMOVAL) {
+		// sure.  whatever.  not like we can stop the user from popping
+		// the media out of the device (no locking doors, etc)
+		return USB_STOR_TRANSPORT_GOOD;
+	}
+
+	US_DEBUGP("usbat_flash_transport: Gah! Unknown command: %d (0x%x)\n",
+			  srb->cmnd[0], srb->cmnd[0]);
+	info->sense_key = 0x05;
+	info->sense_asc = 0x20;
+	info->sense_ascq = 0x00;
+	return USB_STOR_TRANSPORT_FAILED;
+}
+
+/*
+ * Default transport function. Attempts to detect which transport function
+ * should be called, makes it the new default, and calls it.
+ *
+ * This function should never be called. Our usbat_init() function detects the
+ * device type and changes the us->transport ptr to the transport function
+ * relevant to the device.
+ * However, we'll support this impossible(?) case anyway.
+ */
+int usbat_transport(struct scsi_cmnd *srb, struct us_data *us)
+{
+	struct usbat_info *info = (struct usbat_info*) (us->extra);
+
+	if (usbat_set_transport(us, info))
+		return USB_STOR_TRANSPORT_ERROR;
+
+	return us->transport(srb, us);	
+}
 

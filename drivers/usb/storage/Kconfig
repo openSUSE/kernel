@@ -97,7 +97,18 @@ config USB_STORAGE_USBAT
 	  based on the SCM/Shuttle USBAT/USBAT02 processors.
 
 	  Devices reported to work with this driver include:
+	  - CompactFlash reader included with Kodak DC3800 camera
+	  - Dane-Elec Zmate CompactFlash reader
+	  - Delkin Efilm reader2
 	  - HP 8200e/8210e/8230e CD-Writer Plus drives
+	  - I-JAM JS-50U
+	  - Jessops CompactFlash JESDCFRU BLACK
+	  - Kingston Technology PCREAD-USB/CF
+	  - Maxell UA4 CompactFlash reader
+	  - Memorex UCF-100
+	  - Microtech ZiO! ICS-45 CF2
+	  - RCA LYRA MP3 portable
+	  - Sandisk ImageMate SDDR-05b
 
 config USB_STORAGE_SDDR09
 	bool "SanDisk SDDR-09 (and other SmartMedia) support (EXPERIMENTAL)"

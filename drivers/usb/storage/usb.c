@@ -571,7 +571,7 @@ static int get_transport(struct us_data *us)
 #ifdef CONFIG_USB_STORAGE_USBAT
 	case US_PR_SCM_ATAPI:
 		us->transport_name = "SCM/ATAPI";
-		us->transport = usbat_hp8200e_transport;
+		us->transport = usbat_transport;
 		us->transport_reset = usb_stor_CB_reset;
 		us->max_lun = 1;
 		break;
