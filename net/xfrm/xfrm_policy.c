@@ -1148,7 +1148,7 @@ int xfrm_bundle_ok(struct xfrm_dst *first, struct flowi *fl, int family)
 	struct xfrm_dst *last;
 	u32 mtu;
 
-	if (dst->path->obsolete > 0 ||
+	if (!dst_check(dst->path, 0) ||
 	    (dst->dev && !netif_running(dst->dev)))
 		return 0;
 
@@ -1168,6 +1168,8 @@ int xfrm_bundle_ok(struct xfrm_dst *first, struct flowi *fl, int family)
 			xdst->child_mtu_cached = mtu;
 		}
 
+		if (!dst_check(xdst->route, 0))
+			return 0;
 		mtu = dst_pmtu(xdst->route);
 		if (xdst->route_mtu_cached != mtu) {
 			last = xdst;
