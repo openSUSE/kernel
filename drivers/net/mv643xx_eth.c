@@ -1194,6 +1194,7 @@ linear:
 		if ((status == ETH_ERROR) || (status == ETH_QUEUE_FULL))
 			printk(KERN_ERR "%s: Error on transmitting packet\n",
 								dev->name);
+		stats->tx_bytes += pkt_info.byte_cnt;
 	} else {
 		unsigned int frag;
 		u32 ipheader;
@@ -1257,6 +1258,7 @@ linear:
 			if (status == ETH_QUEUE_LAST_RESOURCE)
 				printk("Tx resource error \n");
 		}
+		stats->tx_bytes += pkt_info.byte_cnt;
 
 		/* Check for the remaining frags */
 		for (frag = 0; frag < skb_shinfo(skb)->nr_frags; frag++) {
@@ -1295,6 +1297,7 @@ linear:
 				if (status == ETH_QUEUE_FULL)
 					printk("Queue is full \n");
 			}
+			stats->tx_bytes += pkt_info.byte_cnt;
 		}
 	}
 #else
@@ -1310,6 +1313,7 @@ linear:
 	if ((status == ETH_ERROR) || (status == ETH_QUEUE_FULL))
 		printk(KERN_ERR "%s: Error on transmitting packet\n",
 								dev->name);
+	stats->tx_bytes += pkt_info.byte_cnt;
 #endif
 
 	/* Check if TX queue can handle another skb. If not, then
@@ -1324,7 +1328,6 @@ linear:
 		netif_stop_queue(dev);
 
 	/* Update statistics and start of transmittion time */
-	stats->tx_bytes += skb->len;
 	stats->tx_packets++;
 	dev->trans_start = jiffies;
 
