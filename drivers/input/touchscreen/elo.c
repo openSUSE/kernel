@@ -80,7 +80,7 @@ static void elo_process_data_10(struct elo* elo, unsigned char data, struct pt_r
 				input_report_abs(dev, ABS_X, (elo->data[4] << 8) | elo->data[3]);
 				input_report_abs(dev, ABS_Y, (elo->data[6] << 8) | elo->data[5]);
 				input_report_abs(dev, ABS_PRESSURE, (elo->data[8] << 8) | elo->data[7]);
-				input_report_key(dev, BTN_TOUCH, elo->data[8] || elo->data[7]);
+				input_report_key(dev, BTN_TOUCH, elo->data[2] & 3);
 				input_sync(dev);
 			}
 			elo->idx = 0;
@@ -129,7 +129,7 @@ static void elo_process_data_6(struct elo* elo, unsigned char data, struct pt_re
 		case 5:
 			if ((data & 0xf0) == 0) {
 				input_report_abs(dev, ABS_PRESSURE, elo->data[5]);
-				input_report_key(dev, BTN_TOUCH, !!elo->data[5]);
+				input_report_key(dev, BTN_TOUCH, elo->data[5]);
 			}
 			input_sync(dev);
 			elo->idx = 0;
