@@ -38,6 +38,7 @@
 #include <linux/highmem.h>
 #include <linux/idr.h>
 #include <linux/nodemask.h>
+#include <linux/module.h>
 
 #include <asm/pgalloc.h>
 #include <asm/page.h>
@@ -441,6 +442,10 @@ int iounmap_explicit(volatile void __iomem *start, unsigned long size)
 
 #endif
 
+EXPORT_SYMBOL(ioremap);
+EXPORT_SYMBOL(__ioremap);
+EXPORT_SYMBOL(iounmap);
+
 void free_initmem(void)
 {
 	unsigned long addr;
@@ -758,6 +763,7 @@ void flush_dcache_page(struct page *page)
 	if (test_bit(PG_arch_1, &page->flags))
 		clear_bit(PG_arch_1, &page->flags);
 }
+EXPORT_SYMBOL(flush_dcache_page);
 
 void clear_user_page(void *page, unsigned long vaddr, struct page *pg)
 {
@@ -775,6 +781,7 @@ void clear_user_page(void *page, unsigned long vaddr, struct page *pg)
 	if (test_bit(PG_arch_1, &pg->flags))
 		clear_bit(PG_arch_1, &pg->flags);
 }
+EXPORT_SYMBOL(clear_user_page);
 
 void copy_user_page(void *vto, void *vfrom, unsigned long vaddr,
 		    struct page *pg)
@@ -812,6 +819,7 @@ void flush_icache_user_range(struct vm_area_struct *vma, struct page *page,
 	maddr = (unsigned long)page_address(page) + (addr & ~PAGE_MASK);
 	flush_icache_range(maddr, maddr + len);
 }
+EXPORT_SYMBOL(flush_icache_user_range);
 
 /*
  * This is called at the end of handling a user page fault, when the

@@ -61,6 +61,7 @@ extern void iSeries_smp_message_recv( struct pt_regs * );
 #endif
 
 extern irq_desc_t irq_desc[NR_IRQS];
+EXPORT_SYMBOL(irq_desc);
 
 int distribute_irqs = 1;
 int __irq_offset_value;

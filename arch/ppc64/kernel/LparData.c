@@ -224,6 +224,7 @@ struct ItVpdAreas itVpdAreas = {
 };
 
 struct msChunks msChunks;
+EXPORT_SYMBOL(msChunks);
 
 /* Depending on whether this is called from iSeries or pSeries setup
  * code, the location of the msChunks struct may or may not have

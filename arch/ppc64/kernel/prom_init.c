@@ -151,7 +151,6 @@ typedef u32 cell_t;
 
 extern void __start(unsigned long r3, unsigned long r4, unsigned long r5);
 
-extern unsigned long reloc_offset(void);
 extern void enter_prom(struct prom_args *args, unsigned long entry);
 extern void copy_and_flush(unsigned long dest, unsigned long src,
 			   unsigned long size, unsigned long offset);

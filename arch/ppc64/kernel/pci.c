@@ -63,7 +63,9 @@ unsigned int pcibios_assign_all_busses(void)
  * page is mapped and isa_io_limit prevents access to it.
  */
 unsigned long isa_io_base;	/* NULL if no ISA bus */
+EXPORT_SYMBOL(isa_io_base);
 unsigned long pci_io_base;
+EXPORT_SYMBOL(pci_io_base);
 
 void iSeries_pcibios_init(void);
 

@@ -129,6 +129,7 @@ int ucache_bsize;
 /* The main machine-dep calls structure
  */
 struct machdep_calls ppc_md;
+EXPORT_SYMBOL(ppc_md);
 
 #ifdef CONFIG_MAGIC_SYSRQ
 unsigned long SYSRQ_KEY;

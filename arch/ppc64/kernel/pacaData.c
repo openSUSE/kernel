@@ -221,3 +221,4 @@ struct paca_struct paca[] = {
 #endif
 #endif
 };
+EXPORT_SYMBOL(paca);

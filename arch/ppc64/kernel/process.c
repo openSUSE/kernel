@@ -487,6 +487,7 @@ void start_thread(struct pt_regs *regs, unsigned long fdptr, unsigned long sp)
 	current->thread.used_vr = 0;
 #endif /* CONFIG_ALTIVEC */
 }
+EXPORT_SYMBOL(start_thread);
 
 int set_fpexc_mode(struct task_struct *tsk, unsigned int val)
 {
@@ -625,6 +626,7 @@ unsigned long get_wchan(struct task_struct *p)
 	} while (count++ < 16);
 	return 0;
 }
+EXPORT_SYMBOL(get_wchan);
 
 void show_stack(struct task_struct *p, unsigned long *_sp)
 {

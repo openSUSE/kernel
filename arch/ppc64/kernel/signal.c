@@ -27,6 +27,8 @@
 #include <linux/stddef.h>
 #include <linux/elf.h>
 #include <linux/ptrace.h>
+#include <linux/module.h>
+
 #include <asm/sigcontext.h>
 #include <asm/ucontext.h>
 #include <asm/uaccess.h>
@@ -566,6 +568,4 @@ int do_signal(sigset_t *oldset, struct pt_regs *regs)
 
 	return 0;
 }
-
-
-
+EXPORT_SYMBOL(do_signal);
