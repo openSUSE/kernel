@@ -1,6 +1,6 @@
 /*
  * AGPGART driver.
- * Copyright (C) 2002-2004 Dave Jones.
+ * Copyright (C) 2002-2005 Dave Jones.
  * Copyright (C) 1999 Jeff Hartmann.
  * Copyright (C) 1999 Precision Insight, Inc.
  * Copyright (C) 1999 Xi Graphics, Inc.
@@ -573,6 +573,7 @@ u32 agp_collect_device_status(u32 requested_mode, u32 bridge_agpstat)
 		agp_v2_parse_one(&requested_mode, &bridge_agpstat, &vga_agpstat);
 	}
 
+	pci_dev_put(device);
 	return bridge_agpstat;
 }
 EXPORT_SYMBOL(agp_collect_device_status);
@@ -615,7 +616,7 @@ void get_agp_version(struct agp_bridge_data *bridge)
 EXPORT_SYMBOL(get_agp_version);
 
 
-void agp_generic_enable(u32 mode)
+void agp_generic_enable(u32 requested_mode)
 {
 	u32 bridge_agpstat, temp;
 	u32 agp3;
@@ -630,7 +631,7 @@ void agp_generic_enable(u32 mode)
 	pci_read_config_dword(agp_bridge->dev,
 		      agp_bridge->capndx + PCI_AGP_STATUS, &bridge_agpstat);
 
-	bridge_agpstat = agp_collect_device_status(mode, bridge_agpstat);
+	bridge_agpstat = agp_collect_device_status(requested_mode, bridge_agpstat);
 	if (bridge_agpstat == 0)
 		/* Something bad happened. FIXME: Return error code? */
 		return;
