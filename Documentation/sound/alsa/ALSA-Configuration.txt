@@ -635,13 +635,6 @@ Module parameters
 
     Module for RME Hammerfall DSP audio interface(s)
 
-    precise_ptr	      - Enable precise pointer (doesn't work reliably).
-			(default = 0)
-    line_outs_monitor - Send all input and playback streams to line outs
-			by default. (default = 0)
-    force_firmware    - Force a reload of the I/O box firmware
-			(default = 0)
-
     Module supports up to 8 cards.
 
     Note: The firmware data can be automatically loaded via hotplug
