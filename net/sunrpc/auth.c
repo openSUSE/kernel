@@ -99,21 +99,6 @@ rpcauth_init_credcache(struct rpc_auth *auth)
 }
 
 /*
- * Destroy an unreferenced credential
- */
-static inline void
-rpcauth_crdestroy(struct rpc_cred *cred)
-{
-#ifdef RPC_DEBUG
-	BUG_ON(cred->cr_magic != RPCAUTH_CRED_MAGIC ||
-			atomic_read(&cred->cr_count) ||
-			!list_empty(&cred->cr_hash));
-	cred->cr_magic = 0;
-#endif
-	cred->cr_ops->crdestroy(cred);
-}
-
-/*
  * Destroy a list of credentials
  */
 static inline
@@ -124,7 +109,7 @@ void rpcauth_destroy_credlist(struct list_head *head)
 	while (!list_empty(head)) {
 		cred = list_entry(head->next, struct rpc_cred, cr_hash);
 		list_del_init(&cred->cr_hash);
-		rpcauth_crdestroy(cred);
+		put_rpccred(cred);
 	}
 }
 
@@ -145,9 +130,7 @@ rpcauth_free_credcache(struct rpc_auth *auth)
 		list_for_each_safe(pos, next, &auth->au_credcache[i]) {
 			cred = list_entry(pos, struct rpc_cred, cr_hash);
 			cred->cr_auth = NULL;
-			list_del_init(&cred->cr_hash);
-			if (atomic_read(&cred->cr_count) == 0)
-				list_add(&cred->cr_hash, &free);
+			list_move(&cred->cr_hash, &free);
 		}
 	}
 	spin_unlock(&rpc_credcache_lock);
@@ -157,13 +140,12 @@ rpcauth_free_credcache(struct rpc_auth *auth)
 static inline int
 rpcauth_prune_expired(struct rpc_cred *cred, struct list_head *free)
 {
-	if (atomic_read(&cred->cr_count) != 0)
+	if (atomic_read(&cred->cr_count) != 1)
 	       return 0;
-	if (time_before(jiffies, cred->cr_expire))
+	if (time_before(jiffies, cred->cr_expire + cred->cr_auth->au_expire))
 		return 0;
 	cred->cr_auth = NULL;
-	list_del(&cred->cr_hash);
-	list_add(&cred->cr_hash, free);
+	list_move(&cred->cr_hash, free);
 	return 1;
 }
 
@@ -297,16 +279,10 @@ rpcauth_holdcred(struct rpc_task *task)
 void
 put_rpccred(struct rpc_cred *cred)
 {
-	if (!atomic_dec_and_lock(&cred->cr_count, &rpc_credcache_lock))
+	cred->cr_expire = jiffies;
+	if (!atomic_dec_and_test(&cred->cr_count))
 		return;
-
-	if (list_empty(&cred->cr_hash)) {
-		spin_unlock(&rpc_credcache_lock);
-		rpcauth_crdestroy(cred);
-		return;
-	}
-	cred->cr_expire = jiffies + cred->cr_auth->au_expire;
-	spin_unlock(&rpc_credcache_lock);
+	cred->cr_ops->crdestroy(cred);
 }
 
 void

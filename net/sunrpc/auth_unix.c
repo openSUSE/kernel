@@ -77,7 +77,7 @@ unx_create_cred(struct rpc_auth *auth, struct auth_cred *acred, int flags)
 	if (!(cred = (struct unx_cred *) kmalloc(sizeof(*cred), GFP_KERNEL)))
 		return NULL;
 
-	atomic_set(&cred->uc_count, 0);
+	atomic_set(&cred->uc_count, 1);
 	cred->uc_flags = RPCAUTH_CRED_UPTODATE;
 	if (flags & RPC_TASK_ROOTCREDS) {
 		cred->uc_uid = cred->uc_puid = 0;

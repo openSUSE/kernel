@@ -56,7 +56,7 @@ nul_create_cred(struct rpc_auth *auth, struct auth_cred *acred, int flags)
 
 	if (!(cred = (struct rpc_cred *) kmalloc(sizeof(*cred),GFP_KERNEL)))
 		return NULL;
-	atomic_set(&cred->cr_count, 0);
+	atomic_set(&cred->cr_count, 1);
 	cred->cr_flags = RPCAUTH_CRED_UPTODATE;
 	cred->cr_uid = acred->uid;
 	cred->cr_ops = &null_credops;

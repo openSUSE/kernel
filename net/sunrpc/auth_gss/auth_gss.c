@@ -666,7 +666,7 @@ gss_create_cred(struct rpc_auth *auth, struct auth_cred *acred, int taskflags)
 		goto out_err;
 
 	memset(cred, 0, sizeof(*cred));
-	atomic_set(&cred->gc_count, 0);
+	atomic_set(&cred->gc_count, 1);
 	cred->gc_uid = acred->uid;
 	/*
 	 * Note: in order to force a call to call_refresh(), we deliberately
