@@ -380,14 +380,6 @@ static struct poolinfo {
 static DECLARE_WAIT_QUEUE_HEAD(random_read_wait);
 static DECLARE_WAIT_QUEUE_HEAD(random_write_wait);
 
-/*
- * Forward procedure declarations
- */
-#ifdef CONFIG_SYSCTL
-struct entropy_store;
-static void sysctl_init_random(struct entropy_store *pool);
-#endif
-
 static inline __u32 rol32(__u32 word, int shift)
 {
 	return (word << shift) | (word >> (32 - shift));
@@ -1386,16 +1378,12 @@ static void init_std_data(struct entropy_store *r)
 static int __init rand_initialize(void)
 {
 	if (batch_entropy_init(BATCH_ENTROPY_SIZE, &input_pool))
-		goto err;
+		return -1;
+
 	init_std_data(&input_pool);
 	init_std_data(&blocking_pool);
 	init_std_data(&nonblocking_pool);
-#ifdef CONFIG_SYSCTL
-	sysctl_init_random(&input_pool);
-#endif
 	return 0;
-err:
-	return -1;
 }
 module_init(rand_initialize);
 
@@ -1666,8 +1654,9 @@ EXPORT_SYMBOL(generate_random_uuid);
 
 #include <linux/sysctl.h>
 
-static int min_read_thresh, max_read_thresh;
-static int min_write_thresh, max_write_thresh;
+static int min_read_thresh = 8, min_write_thresh;
+static int max_read_thresh = INPUT_POOL_WORDS * 32;
+static int max_write_thresh = INPUT_POOL_WORDS * 32;
 static char sysctl_bootid[16];
 
 /*
@@ -1751,6 +1740,7 @@ ctl_table random_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0444,
 		.proc_handler	= &proc_dointvec,
+		.data		= &input_pool.entropy_count,
 	},
 	{
 		.ctl_name	= RANDOM_READ_THRESH,
@@ -1793,14 +1783,6 @@ ctl_table random_table[] = {
 	},
 	{ .ctl_name = 0 }
 };
-
-static void sysctl_init_random(struct entropy_store *pool)
-{
-	min_read_thresh = 8;
-	min_write_thresh = 0;
-	max_read_thresh = max_write_thresh = pool->poolinfo->POOLBITS;
-	random_table[1].data = &pool->entropy_count;
-}
 #endif 	/* CONFIG_SYSCTL */
 
 /********************************************************************
