@@ -394,7 +394,7 @@ int alps_init(struct psmouse *psmouse)
 
 	psmouse->dev.evbit[LONG(EV_ABS)] |= BIT(EV_ABS);
 	input_set_abs_params(&psmouse->dev, ABS_X, 0, 1023, 0, 0);
-	input_set_abs_params(&psmouse->dev, ABS_Y, 0, 1023, 0, 0);
+	input_set_abs_params(&psmouse->dev, ABS_Y, 0, 767, 0, 0);
 	input_set_abs_params(&psmouse->dev, ABS_PRESSURE, 0, 127, 0, 0);
 
 	psmouse->dev.keybit[LONG(BTN_TOUCH)] |= BIT(BTN_TOUCH);
