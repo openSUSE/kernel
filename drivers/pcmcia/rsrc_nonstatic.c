@@ -844,7 +844,39 @@ static ssize_t show_io_db(struct class_device *class_dev, char *buf)
 	up(&rsrc_sem);
 	return (ret);
 }
-static CLASS_DEVICE_ATTR(available_resources_io, 0400, show_io_db, NULL);
+
+static ssize_t store_io_db(struct class_device *class_dev, const char *buf, size_t count)
+{
+	struct pcmcia_socket *s = class_get_devdata(class_dev);
+	unsigned long start_addr, end_addr;
+	unsigned int add = 1;
+	adjust_t adj;
+	ssize_t ret = 0;
+
+	ret = sscanf (buf, "+ 0x%lx - 0x%lx", &start_addr, &end_addr);
+	if (ret != 2) {
+		ret = sscanf (buf, "- 0x%lx - 0x%lx", &start_addr, &end_addr);
+		add = 0;
+		if (ret != 2) {
+			ret = sscanf (buf, "0x%lx - 0x%lx", &start_addr, &end_addr);
+			add = 1;
+			if (ret != 2)
+				return -EINVAL;
+		}
+	}
+	if (end_addr <= start_addr)
+		return -EINVAL;
+
+	adj.Action = add ? ADD_MANAGED_RESOURCE : REMOVE_MANAGED_RESOURCE;
+	adj.Resource = RES_IO_RANGE;
+	adj.resource.io.BasePort = start_addr;
+	adj.resource.io.NumPorts = end_addr - start_addr + 1;
+
+	ret = adjust_io(s, &adj);
+
+	return ret ? ret : count;
+}
+static CLASS_DEVICE_ATTR(available_resources_io, 0600, show_io_db, store_io_db);
 
 static ssize_t show_mem_db(struct class_device *class_dev, char *buf)
 {
@@ -868,7 +900,39 @@ static ssize_t show_mem_db(struct class_device *class_dev, char *buf)
 	up(&rsrc_sem);
 	return (ret);
 }
-static CLASS_DEVICE_ATTR(available_resources_mem, 0400, show_mem_db, NULL);
+
+static ssize_t store_mem_db(struct class_device *class_dev, const char *buf, size_t count)
+{
+	struct pcmcia_socket *s = class_get_devdata(class_dev);
+	unsigned long start_addr, end_addr;
+	unsigned int add = 1;
+	adjust_t adj;
+	ssize_t ret = 0;
+
+	ret = sscanf (buf, "+ 0x%lx - 0x%lx", &start_addr, &end_addr);
+	if (ret != 2) {
+		ret = sscanf (buf, "- 0x%lx - 0x%lx", &start_addr, &end_addr);
+		add = 0;
+		if (ret != 2) {
+			ret = sscanf (buf, "0x%lx - 0x%lx", &start_addr, &end_addr);
+			add = 1;
+			if (ret != 2)
+				return -EINVAL;
+		}
+	}
+	if (end_addr <= start_addr)
+		return -EINVAL;
+
+	adj.Action = add ? ADD_MANAGED_RESOURCE : REMOVE_MANAGED_RESOURCE;
+	adj.Resource = RES_MEMORY_RANGE;
+	adj.resource.memory.Base = start_addr;
+	adj.resource.memory.Size = end_addr - start_addr + 1;
+
+	ret = adjust_memory(s, &adj);
+
+	return ret ? ret : count;
+}
+static CLASS_DEVICE_ATTR(available_resources_mem, 0600, show_mem_db, store_mem_db);
 
 static struct class_device_attribute *pccard_rsrc_attributes[] = {
 	&class_device_attr_available_resources_io,
