@@ -23,6 +23,7 @@
 #include <linux/list.h>
 #include <linux/wait.h>
 #include <linux/net.h>
+#include <linux/delay.h>
 #include <asm/uaccess.h>
 #include <asm/processor.h>
 #include <linux/mempool.h>
@@ -156,8 +157,7 @@ smb_send(struct socket *ssocket, struct smb_hdr *smb_buffer,
 				rc = -EAGAIN;
 				break;
 			}
-			set_current_state(TASK_INTERRUPTIBLE);
-			schedule_timeout(HZ/2);
+			msleep(500);
 			continue;
 		}
 		if (rc < 0) 
@@ -223,8 +223,7 @@ smb_sendv(struct socket *ssocket, struct smb_hdr *smb_buffer,
 				rc = -EAGAIN;
 				break;
 			}
-			set_current_state(TASK_INTERRUPTIBLE);
-			schedule_timeout(HZ/2);
+			msleep(500);
 			continue;
 		}
 		if (rc < 0) 
