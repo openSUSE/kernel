@@ -165,8 +165,7 @@ MODULE_LICENSE("GPL");
 /* The max_partial_datagrams parameter is the maximum number of fragmented
  * datagrams per node that eth1394 will keep in memory.  Providing an upper
  * bound allows us to limit the amount of memory that partial datagrams
- * consume in the event that some partial datagrams are never completed.  This
- * should probably change to a sysctl item or the like if possible.
+ * consume in the event that some partial datagrams are never completed.
  */
 static int max_partial_datagrams = 25;
 module_param(max_partial_datagrams, int, S_IRUGO | S_IWUSR);
@@ -1187,7 +1186,7 @@ static int ether1394_data_handler(struct net_device *dev, int srcid, int destid,
 		lh = find_partial_datagram(pdgl, dgl);
 
 		if (lh == NULL) {
-			if (pdg->sz == max_partial_datagrams) {
+			while (pdg->sz >= max_partial_datagrams) {
 				/* remove the oldest */
 				purge_partial_datagram(pdgl->prev);
 				pdg->sz--;
