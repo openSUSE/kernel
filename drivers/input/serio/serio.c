@@ -326,7 +326,10 @@ static void serio_create_port(struct serio *serio)
 	serio->dev.release = serio_release_port;
 	if (serio->parent)
 		serio->dev.parent = &serio->parent->dev;
-	device_register(&serio->dev);
+	device_initialize(&serio->dev);
+	if (serio->start)
+		serio->start(serio);
+	device_add(&serio->dev);
 }
 
 /*
@@ -348,6 +351,9 @@ static void serio_destroy_port(struct serio *serio)
 		up_write(&serio_bus.subsys.rwsem);
 		put_driver(&drv->driver);
 	}
+
+	if (serio->stop)
+		serio->stop(serio);
 
 	if (serio->parent) {
 		spin_lock_irqsave(&serio->parent->lock, flags);
