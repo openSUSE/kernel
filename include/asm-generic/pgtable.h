@@ -141,10 +141,12 @@ static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addres
  * wrap to 0 only in clear_page_range, __boundary may wrap to 0 throughout.
  */
 
+#ifndef pgd_addr_end
 #define pgd_addr_end(addr, end)						\
 ({	unsigned long __boundary = ((addr) + PGDIR_SIZE) & PGDIR_MASK;	\
 	(__boundary - 1 < (end) - 1)? __boundary: (end);		\
 })
+#endif
 
 #ifndef pud_addr_end
 #define pud_addr_end(addr, end)						\
