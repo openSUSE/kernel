@@ -287,6 +287,11 @@ P:	Dave Gilbert
 M:	linux@treblig.org
 S:	Maintained
 
+ARM/CORGI MACHINE SUPPORT
+P:	Richard Purdie
+M:	rpurdie@rpsys.net
+S:	Maintained
+
 ARM/PLEB SUPPORT
 P:	Peter Chubb
 M:	pleb@gelato.unsw.edu.au
@@ -725,8 +730,8 @@ W:	http://www.win.tue.nl/~aeb/partitions/partition_types-1.html
 S:	Maintained
 
 DISKQUOTA:
-P:	Marco van Wieringen
-M:	mvw@planets.elm.net
+P:	Jan Kara
+M:	jack@suse.cz
 L:	linux-kernel@vger.kernel.org
 S:	Maintained
 
@@ -1180,13 +1185,6 @@ P:	John Ronciak
 M:	john.ronciak@intel.com
 W:	http://sourceforge.net/projects/e1000/
 S:	Supported
-
-INTERMEZZO FILE SYSTEM
-P:	Cluster File Systems	
-M:	intermezzo-devel@lists.sf.net
-W:	http://www.inter-mezzo.org/
-L:	intermezzo-discuss@lists.sourceforge.net
-S:	Maintained
 
 IOC3 DRIVER
 P:	Ralf Baechle
@@ -2244,13 +2242,6 @@ P:	Ben Fennema
 M:	bfennema@falcon.csc.calpoly.edu
 L:	linux_udf@hpesjro.fc.hp.com
 W:	http://linux-udf.sourceforge.net
-S:	Maintained
-
-UMSDOS FILESYSTEM
-P:	Matija Nalis
-M:	Matija Nalis <mnalis-umsdos@voyager.hr>
-L:	linux-kernel@vger.kernel.org
-W:	http://linux.voyager.hr/umsdos/
 S:	Maintained
 
 UNIFORM CDROM DRIVER
