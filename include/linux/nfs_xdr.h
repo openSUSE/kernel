@@ -563,6 +563,7 @@ struct nfs4_readdir_arg {
 	u32				count;
 	struct page **			pages;	/* zero-copy data */
 	unsigned int			pgbase;	/* zero-copy data */
+	const u32 *			bitmask;
 };
 
 struct nfs4_readdir_res {
