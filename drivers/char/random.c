@@ -556,7 +556,7 @@ static void __add_entropy_words(struct entropy_store *r, const __u32 *in,
 	add_ptr = r->add_ptr;
 
 	while (nwords--) {
-		w = rol32(input_rotate, next_w);
+		w = rol32(next_w, input_rotate);
 		if (nwords > 0)
 			next_w = *in++;
 		i = add_ptr = (add_ptr - 1) & wordmask;
