@@ -1327,6 +1327,7 @@ typedef struct smb_com_transaction2_fnext_rsp_parms {
 #define SMB_QUERY_FS_DEVICE_INFO    0x104
 #define SMB_QUERY_FS_ATTRIBUTE_INFO 0x105
 #define SMB_QUERY_CIFS_UNIX_INFO    0x200
+#define SMB_QUERY_POSIX_FS_INFO     0x201
 #define SMB_QUERY_LABEL_INFO        0x3ea
 #define SMB_QUERY_FS_QUOTA_INFO     0x3ee
 #define SMB_QUERY_FS_FULL_SIZE_INFO 0x3ef
@@ -1506,6 +1507,20 @@ typedef struct {
 #define CIFS_UNIX_FCNTL_CAP             0x00000001 /* support for fcntl locks */
 #define CIFS_UNIX_POSIX_ACL_CAP         0x00000002
 #define CIFS_UNIX_XATTR_CAP             0x00000004 /*support for new namespace*/
+
+typedef struct {
+	/* For undefined values return -1 in that field */
+	__le32 OptimalTransferSize;  /* bsize on some os, iosize on other os */
+	__le32 BlockSize; 
+	__le64 TotalBlocks;  /* redundant but easy to return */
+	__le64 BlocksAvail;  /* redundant but easy to return */
+	__le64 UserBlocksAvail;      /* bavail */
+	__le64 TotalFileNodes;
+	__le64 FreeFileNodes;
+	__le64 FileSysIdentifier;   /* fsid */
+	/* NB Namelen comes from FILE_SYSTEM_ATTRIBUTE_INFO call */
+	/* NB flags can come from FILE_SYSTEM_DEVICE_INFO call   */
+} FILE_SYSTEM_POSIX_INFO;
 
 /* DeviceType Flags */
 #define FILE_DEVICE_CD_ROM              0x00000002
