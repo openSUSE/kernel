@@ -107,8 +107,7 @@ static void gameport_find_driver(struct gameport *gameport)
         list_for_each_entry(drv, &gameport_driver_list, node) {
 		if (gameport->drv)
 			break;
-		if (drv->connect)
-                	drv->connect(gameport, drv);
+               	drv->connect(gameport, drv);
         }
 }
 
@@ -128,7 +127,7 @@ void gameport_register_port(struct gameport *gameport)
 void gameport_unregister_port(struct gameport *gameport)
 {
 	list_del_init(&gameport->node);
-	if (gameport->drv && gameport->drv->disconnect)
+	if (gameport->drv)
 		gameport->drv->disconnect(gameport);
 }
 
@@ -138,7 +137,7 @@ void gameport_register_driver(struct gameport_driver *drv)
 
 	list_add_tail(&drv->node, &gameport_driver_list);
 	list_for_each_entry(gameport, &gameport_list, node)
-		if (!gameport->drv && drv->connect)
+		if (!gameport->drv)
 			drv->connect(gameport, drv);
 }
 
@@ -148,7 +147,7 @@ void gameport_unregister_driver(struct gameport_driver *drv)
 
 	list_del_init(&drv->node);
 	list_for_each_entry(gameport, &gameport_list, node) {
-		if (gameport->drv == drv && drv->disconnect)
+		if (gameport->drv == drv)
 			drv->disconnect(gameport);
 		gameport_find_driver(gameport);
 	}
