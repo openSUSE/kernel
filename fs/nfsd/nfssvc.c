@@ -60,7 +60,7 @@ struct nfsd_list {
 	struct list_head 	list;
 	struct task_struct	*task;
 };
-struct list_head nfsd_list = LIST_HEAD_INIT(nfsd_list);
+static struct list_head nfsd_list = LIST_HEAD_INIT(nfsd_list);
 
 /*
  * Maximum number of nfsd processes
