@@ -489,17 +489,26 @@ struct sched_domain {
 	/* load_balance() stats */
 	unsigned long lb_cnt[MAX_IDLE_TYPES];
 	unsigned long lb_failed[MAX_IDLE_TYPES];
+	unsigned long lb_balanced[MAX_IDLE_TYPES];
 	unsigned long lb_imbalance[MAX_IDLE_TYPES];
+	unsigned long lb_gained[MAX_IDLE_TYPES];
+	unsigned long lb_hot_gained[MAX_IDLE_TYPES];
 	unsigned long lb_nobusyg[MAX_IDLE_TYPES];
 	unsigned long lb_nobusyq[MAX_IDLE_TYPES];
+
+	/* Active load balancing */
+	unsigned long alb_cnt;
+	unsigned long alb_failed;
+	unsigned long alb_pushed;
 
 	/* sched_balance_exec() stats */
 	unsigned long sbe_attempts;
 	unsigned long sbe_pushed;
 
 	/* try_to_wake_up() stats */
-	unsigned long ttwu_wake_affine;
-	unsigned long ttwu_wake_balance;
+	unsigned long ttwu_wake_remote;
+	unsigned long ttwu_move_affine;
+	unsigned long ttwu_move_balance;
 #endif
 };
 
