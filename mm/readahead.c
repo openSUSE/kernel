@@ -443,26 +443,26 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 		     struct file *filp, unsigned long offset,
 		     unsigned long req_size)
 {
-	unsigned long max, newsize = req_size;
-	int sequential = (offset == ra->prev_page + 1);
+	unsigned long max, newsize;
+	int sequential;
 
 	/*
 	 * Here we detect the case where the application is performing
 	 * sub-page sized reads.  We avoid doing extra work and bogusly
 	 * perturbing the readahead window expansion logic.
-	 * If size is zero, there is no read ahead window so we need one
 	 */
-	if (offset == ra->prev_page && req_size == 1)
-		goto out;
+	if (offset == ra->prev_page && --req_size)
+		++offset;
 
+	sequential = (offset == ra->prev_page + 1);
 	ra->prev_page = offset;
+
 	max = get_max_readahead(ra);
 	newsize = min(req_size, max);
 
-	if (newsize == 0 || (ra->flags & RA_FLAG_INCACHE)) {
-		newsize = 1;
-		goto out;	/* No readahead or file already in cache */
-	}
+	/* No readahead or file already in cache or sub-page sized read */
+	if (newsize == 0 || (ra->flags & RA_FLAG_INCACHE))
+		goto out;
 
 	ra->prev_page += newsize - 1;
 
@@ -527,7 +527,7 @@ page_cache_readahead(struct address_space *mapping, struct file_ra_state *ra,
 	}
 
 out:
-	return newsize;
+	return ra->prev_page + 1;
 }
 
 /*
