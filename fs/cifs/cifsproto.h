@@ -1,7 +1,7 @@
 /*
  *   fs/cifs/cifsproto.h
  *
- *   Copyright (c) International Business Machines  Corp., 2002,2004
+ *   Copyright (c) International Business Machines  Corp., 2002,2005
  *   Author(s): Steve French (sfrench@us.ibm.com)
  *
  *   This library is free software; you can redistribute it and/or modify
@@ -127,8 +127,11 @@ extern int CIFSSMBQFSUnixInfo(const int xid, struct cifsTconInfo *tcon,
 extern int CIFSSMBSetTimes(const int xid, struct cifsTconInfo *tcon,
 			const char *fileName, const FILE_BASIC_INFO * data,
 			const struct nls_table *nls_codepage);
-extern int CIFSSMBSetTimesLegacy(int xid, struct cifsTconInfo *tcon, char *fileName,
-                FILE_BASIC_INFO * data, const struct nls_table *nls_codepage);
+extern int CIFSSMBSetFileTimes(const int xid, struct cifsTconInfo *tcon,
+			const FILE_BASIC_INFO * data, __u16 fid);
+extern int CIFSSMBSetTimesLegacy(int xid, struct cifsTconInfo *tcon, 
+			char *fileName, FILE_BASIC_INFO * data,
+			const struct nls_table *nls_codepage);
 
 extern int CIFSSMBSetEOF(const int xid, struct cifsTconInfo *tcon,
 			const char *fileName, __u64 size,int setAllocationSizeFlag,

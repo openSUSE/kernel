@@ -1,7 +1,7 @@
 /*
  *   fs/cifs/inode.c
  *
- *   Copyright (C) International Business Machines  Corp., 2002,2003
+ *   Copyright (C) International Business Machines  Corp., 2002,2005
  *   Author(s): Steve French (sfrench@us.ibm.com)
  *
  *   This library is free software; you can redistribute it and/or modify
@@ -640,10 +640,18 @@ cifs_rename(struct inode *source_inode, struct dentry *source_direntry,
 		} /* if we can not get memory just leave rc as EEXIST */
 	}
 
+	if (rc) {
+		cFYI(1,("rename rc %d",rc)); /* BB removeme BB */
+	}
+
 	if((rc == -EIO)||(rc == -EEXIST)) {
 		int oplock = FALSE;
 		__u16 netfid;
 
+		/* BB FIXME Is Generic Read correct for rename? */
+		/* if renaming directory - we should not say CREATE_NOT_DIR,
+		need to test renaming open directory, also GENERIC_READ
+		might not right be right access to request */
 		rc = CIFSSMBOpen(xid, pTcon, fromName, FILE_OPEN, GENERIC_READ,
 					CREATE_NOT_DIR,
 					&netfid, &oplock, NULL, cifs_sb_source->local_nls);
@@ -979,13 +987,25 @@ cifs_setattr(struct dentry *direntry, struct iattr *attrs)
 		rc = CIFSSMBSetTimes(xid, pTcon, full_path, &time_buf,
 				cifs_sb->local_nls);
 		if(rc == -EOPNOTSUPP) {
-			cFYI(1,("OS2 level of SetPathInfo not implemented"));
-			/* For older servers converts time_buf into old DOS style
-			level which uses two second granularity */
+			int oplock = FALSE;
+			__u16 netfid;
 
-			/* return EOPNOTSUPP until function below is ready */
-			/* CIFSSMBSetTimesLegacy(xid, pTcon, full_path,
+			cFYI(1,("calling SetFileInfo since SetPathInfo for times not supported by this server"));
+		    /* BB we could scan to see if we already have it open */
+		    /* and pass in pid of opener to function */
+			rc = CIFSSMBOpen(xid, pTcon, full_path, FILE_OPEN, FILE_WRITE_ATTRIBUTES,
+				CREATE_NOT_DIR, &netfid, &oplock, NULL, cifs_sb->local_nls);
+			if(rc==0) {
+				rc = CIFSSMBSetFileTimes(xid, pTcon, 
+						&time_buf, netfid);
+				CIFSSMBClose(xid, pTcon, netfid);
+			} else {
+			/* BB For even older servers we could convert time_buf
+			into old DOS style which uses two second granularity */
+
+			/* rc = CIFSSMBSetTimesLegacy(xid, pTcon, full_path,
         	        &time_buf, cifs_sb->local_nls); */
+			}
 		}
 	}
 

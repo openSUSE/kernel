@@ -122,12 +122,14 @@ cifs client, and that EA support is present in later versions of Samba (e.g.
 3.0.6 and later (also EA support works in all versions of Windows, at least to
 shares on NTFS filesystems).  Extended Attribute (xattr) support is an optional
 feature of most Linux filesystems which may require enabling via
-make menuconfig.
+make menuconfig. Client support for extended attributes (user xattr) can be
+disabled on a per-mount basis by specifying "nouser_xattr" on mount.
 
 The CIFS client can get and set POSIX ACLs (getfacl, setfacl) to Samba servers
 version 3.10 and later.  Setting POSIX ACLs requires enabling both XATTR and 
 then POSIX support in the CIFS configuration options when building the cifs
-module.
+module.  POSIX ACL support can be disabled on a per mount basic by specifying
+"noacl" on mount.
  
 Some administrators may want to change Samba's smb.conf "map archive" and 
 "create mask" parameters from the default.  Unless the create mask is changed
@@ -370,6 +372,10 @@ A partial list of the supported mount options follows:
   acl   	Allow setfacl and getfacl to manage posix ACLs if server
 		supports them.  (default)
   noacl 	Do not allow setfacl and getfacl calls on this mount
+  user_xattr    Allow getting and setting user xattrs as OS/2 EAs (extended
+		attributes) to the server (default) e.g. via setfattr 
+		and getfattr utilities. 
+  nouser_xattr  Do not allow getfattr/setfattr to get/set xattrs 
 		
 The mount.cifs mount helper also accepts a few mount options before -o
 including:
