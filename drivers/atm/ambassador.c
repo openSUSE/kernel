@@ -296,16 +296,16 @@ static inline void __init show_version (void) {
 #endif
 #define UCODE2(x) #x
 
-static u32 __initdata ucode_start = 
+static u32 __devinitdata ucode_start =
 #include UCODE(start)
 ;
 
-static region __initdata ucode_regions[] = {
+static region __devinitdata ucode_regions[] = {
 #include UCODE(regions)
   { 0, 0 }
 };
 
-static u32 __initdata ucode_data[] = {
+static u32 __devinitdata ucode_data[] = {
 #include UCODE(data)
   0xdeadbeef
 };
@@ -1539,7 +1539,7 @@ static void do_housekeeping (unsigned long arg) {
 
 /********** creation of communication queues **********/
 
-static int __init create_queues (amb_dev * dev, unsigned int cmds,
+static int __devinit create_queues (amb_dev * dev, unsigned int cmds,
 				 unsigned int txs, unsigned int * rxs,
 				 unsigned int * rx_buffer_sizes) {
   unsigned char pool;
@@ -1769,7 +1769,7 @@ static  int decode_loader_result (loader_command cmd, u32 result)
 	return res;
 }
 
-static int __init do_loader_command (volatile loader_block * lb,
+static int __devinit do_loader_command (volatile loader_block * lb,
 				     const amb_dev * dev, loader_command cmd) {
   
   unsigned long timeout;
@@ -1825,7 +1825,7 @@ static int __init do_loader_command (volatile loader_block * lb,
 
 /* loader: determine loader version */
 
-static int __init get_loader_version (loader_block * lb,
+static int __devinit get_loader_version (loader_block * lb,
 				      const amb_dev * dev, u32 * version) {
   int res;
   
@@ -1841,7 +1841,7 @@ static int __init get_loader_version (loader_block * lb,
 
 /* loader: write memory data blocks */
 
-static int __init loader_write (loader_block * lb,
+static int __devinit loader_write (loader_block * lb,
 				const amb_dev * dev, const u32 * data,
 				u32 address, unsigned int count) {
   unsigned int i;
@@ -1860,7 +1860,7 @@ static int __init loader_write (loader_block * lb,
 
 /* loader: verify memory data blocks */
 
-static int __init loader_verify (loader_block * lb,
+static int __devinit loader_verify (loader_block * lb,
 				 const amb_dev * dev, const u32 * data,
 				 u32 address, unsigned int count) {
   unsigned int i;
@@ -1885,7 +1885,7 @@ static int __init loader_verify (loader_block * lb,
 
 /* loader: start microcode */
 
-static int __init loader_start (loader_block * lb,
+static int __devinit loader_start (loader_block * lb,
 				const amb_dev * dev, u32 address) {
   PRINTD (DBG_FLOW|DBG_LOAD, "loader_start");
   
@@ -1961,7 +1961,7 @@ static int amb_reset (amb_dev * dev, int diags) {
 
 /********** transfer and start the microcode **********/
 
-static int __init ucode_init (loader_block * lb, amb_dev * dev) {
+static int __devinit ucode_init (loader_block * lb, amb_dev * dev) {
   unsigned int i = 0;
   unsigned int total = 0;
   const u32 * pointer = ucode_data;
@@ -2011,7 +2011,7 @@ static inline u32 bus_addr(void * addr) {
     return cpu_to_be32 (virt_to_bus (addr));
 }
 
-static int __init amb_talk (amb_dev * dev) {
+static int __devinit amb_talk (amb_dev * dev) {
   adap_talk_block a;
   unsigned char pool;
   unsigned long timeout;
@@ -2058,7 +2058,7 @@ static int __init amb_talk (amb_dev * dev) {
 }
 
 // get microcode version
-static void __init amb_ucode_version (amb_dev * dev) {
+static void __devinit amb_ucode_version (amb_dev * dev) {
   u32 major;
   u32 minor;
   command cmd;
@@ -2085,7 +2085,7 @@ static u8 bit_swap (u8 byte)
 }
 
 // get end station address
-static void __init amb_esi (amb_dev * dev, u8 * esi) {
+static void __devinit amb_esi (amb_dev * dev, u8 * esi) {
   u32 lower4;
   u16 upper2;
   command cmd;
@@ -2131,7 +2131,7 @@ static void fixup_plx_window (amb_dev *dev, loader_block *lb)
 	return;
 }
 
-static int __init amb_init (amb_dev * dev)
+static int __devinit amb_init (amb_dev * dev)
 {
   loader_block lb;
   
