@@ -94,15 +94,11 @@ void rtc_time_to_tm(unsigned long time, struct rtc_time *tm)
 EXPORT_SYMBOL(rtc_time_to_tm);
 
 /*
- * Convert Gregorian date to seconds since 01-01-1970 00:00:00.
+ * Does the rtc_time represent a valid date/time?
  */
-int rtc_tm_to_time(struct rtc_time *tm, unsigned long *time)
+int rtc_valid_tm(struct rtc_time *tm)
 {
-	unsigned int yrs = tm->tm_year + 1900;
-
-	*time = 0;
-
-	if (yrs < 1970 ||
+	if (tm->tm_year < 70 ||
 	    tm->tm_mon >= 12 ||
 	    tm->tm_mday < 1 ||
 	    tm->tm_mday > month_days(tm->tm_mon, yrs) ||
@@ -111,7 +107,16 @@ int rtc_tm_to_time(struct rtc_time *tm, unsigned long *time)
 	    tm->tm_sec >= 60)
 		return -EINVAL;
 
-	*time = mktime(yrs, tm->tm_mon + 1, tm->tm_mday,
+	return 0;
+}
+EXPORT_SYMBOL(rtc_valid_tm);
+
+/*
+ * Convert Gregorian date to seconds since 01-01-1970 00:00:00.
+ */
+int rtc_tm_to_time(struct rtc_time *tm, unsigned long *time)
+{
+	*time = mktime(tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
 		       tm->tm_hour, tm->tm_min, tm->tm_sec);
 
 	return 0;
@@ -144,7 +149,13 @@ static inline void rtc_read_time(struct rtc_ops *ops, struct rtc_time *tm)
 
 static inline int rtc_set_time(struct rtc_ops *ops, struct rtc_time *tm)
 {
-	return ops->set_time(tm);
+	int ret;
+
+	ret = rtc_valid_tm(tm);
+	if (ret == 0)
+		ret = ops->set_time(tm);
+
+	return ret;
 }
 
 static inline int rtc_read_alarm(struct rtc_ops *ops, struct rtc_wkalrm *alrm)
