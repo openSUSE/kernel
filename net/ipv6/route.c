@@ -628,8 +628,10 @@ static void ip6_rt_update_pmtu(struct dst_entry *dst, u32 mtu)
 
 	if (mtu < dst_pmtu(dst) && rt6->rt6i_dst.plen == 128) {
 		rt6->rt6i_flags |= RTF_MODIFIED;
-		if (mtu < IPV6_MIN_MTU)
+		if (mtu < IPV6_MIN_MTU) {
 			mtu = IPV6_MIN_MTU;
+			dst->metrics[RTAX_FEATURES-1] |= RTAX_FEATURE_ALLFRAG;
+		}
 		dst->metrics[RTAX_MTU-1] = mtu;
 	}
 }
@@ -1164,25 +1166,25 @@ void rt6_pmtu_discovery(struct in6_addr *daddr, struct in6_addr *saddr,
 			struct net_device *dev, u32 pmtu)
 {
 	struct rt6_info *rt, *nrt;
-
-	if (pmtu < IPV6_MIN_MTU) {
-		if (net_ratelimit())
-			printk(KERN_DEBUG "rt6_pmtu_discovery: invalid MTU value %d\n",
-			       pmtu);
-		/* According to RFC1981, the PMTU is set to the IPv6 minimum
-		   link MTU if the node receives a Packet Too Big message
-		   reporting next-hop MTU that is less than the IPv6 minimum MTU.
-		   */
-		pmtu = IPV6_MIN_MTU;
-	}
+	int allfrag = 0;
 
 	rt = rt6_lookup(daddr, saddr, dev->ifindex, 0);
-
 	if (rt == NULL)
 		return;
 
 	if (pmtu >= dst_pmtu(&rt->u.dst))
 		goto out;
+
+	if (pmtu < IPV6_MIN_MTU) {
+		/*
+		 * According to RFC2460, PMTU is set to the IPv6 Minimum Link 
+		 * MTU (1280) and a fragment header should always be included
+		 * after a node receiving Too Big message reporting PMTU is
+		 * less than the IPv6 Minimum Link MTU.
+		 */
+		pmtu = IPV6_MIN_MTU;
+		allfrag = 1;
+	}
 
 	/* New mtu received -> path was valid.
 	   They are sent only in response to data packets,
@@ -1197,6 +1199,8 @@ void rt6_pmtu_discovery(struct in6_addr *daddr, struct in6_addr *saddr,
 	 */
 	if (rt->rt6i_flags & RTF_CACHE) {
 		rt->u.dst.metrics[RTAX_MTU-1] = pmtu;
+		if (allfrag)
+			rt->u.dst.metrics[RTAX_FEATURES-1] |= RTAX_FEATURE_ALLFRAG;
 		dst_set_expires(&rt->u.dst, ip6_rt_mtu_expires);
 		rt->rt6i_flags |= RTF_MODIFIED|RTF_EXPIRES;
 		goto out;
@@ -1211,6 +1215,8 @@ void rt6_pmtu_discovery(struct in6_addr *daddr, struct in6_addr *saddr,
 		nrt = rt6_cow(rt, daddr, saddr);
 		if (!nrt->u.dst.error) {
 			nrt->u.dst.metrics[RTAX_MTU-1] = pmtu;
+			if (allfrag)
+				nrt->u.dst.metrics[RTAX_FEATURES-1] |= RTAX_FEATURE_ALLFRAG;
 			/* According to RFC 1981, detecting PMTU increase shouldn't be
 			   happened within 5 mins, the recommended timer is 10 mins.
 			   Here this route expiration time is set to ip6_rt_mtu_expires
@@ -1232,6 +1238,8 @@ void rt6_pmtu_discovery(struct in6_addr *daddr, struct in6_addr *saddr,
 		dst_set_expires(&nrt->u.dst, ip6_rt_mtu_expires);
 		nrt->rt6i_flags |= RTF_DYNAMIC|RTF_CACHE|RTF_EXPIRES;
 		nrt->u.dst.metrics[RTAX_MTU-1] = pmtu;
+		if (allfrag)
+			nrt->u.dst.metrics[RTAX_FEATURES-1] |= RTAX_FEATURE_ALLFRAG;
 		ip6_ins_rt(nrt, NULL, NULL);
 	}
 
