@@ -455,7 +455,7 @@ static void mousedev_packet(struct mousedev_list *list, signed char *ps2_data)
 
 	switch (list->mode) {
 		case MOUSEDEV_EMUL_EXPS:
-			ps2_data[3] = mousedev_limit_delta(p->dz, 127);
+			ps2_data[3] = mousedev_limit_delta(p->dz, 7);
 			p->dz -= ps2_data[3];
 			ps2_data[3] = (ps2_data[3] & 0x0f) | ((p->buttons & 0x18) << 1);
 			list->bufsiz = 4;
