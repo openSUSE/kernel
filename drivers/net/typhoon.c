@@ -2378,9 +2378,6 @@ typhoon_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	tp->tx_ioaddr = ioaddr_mapped;
 	tp->dev = dev;
 
-	/* need to be able to restore PCI state after a suspend */
-	pci_save_state(pdev);
-
 	/* Init sequence:
 	 * 1) Reset the adapter to clear any bad juju
 	 * 2) Reload the sleep image
@@ -2395,9 +2392,11 @@ typhoon_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	}
 
 	/* Now that we've reset the 3XP and are sure it's not going to
-	 * write all over memory, enable bus mastering.
+	 * write all over memory, enable bus mastering, and save our
+	 * state for resuming after a suspend.
 	 */
 	pci_set_master(pdev);
+	pci_save_state(pdev);
 
 	/* dev->name is not valid until we register, but we need to
 	 * use some common routines to initialize the card. So that those
