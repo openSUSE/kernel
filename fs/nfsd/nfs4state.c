@@ -3238,7 +3238,14 @@ __nfs4_state_shutdown(void)
 	int i;
 	struct nfs4_client *clp = NULL;
 	struct nfs4_delegation *dp = NULL;
+	struct nfs4_stateowner *sop = NULL;
 	struct list_head *pos, *next;
+
+	list_for_each_safe(pos, next, &close_lru) {
+		sop = list_entry(pos, struct nfs4_stateowner, so_close_lru);
+		list_del(&sop->so_close_lru);
+		nfs4_put_stateowner(sop);
+	}
 
 	for (i = 0; i < CLIENT_HASH_SIZE; i++) {
 		while (!list_empty(&conf_id_hashtbl[i])) {
