@@ -264,9 +264,9 @@ static struct fb_info * __init gx1fb_init_fbinfo(void)
 }
 
 
-struct fb_info *gx1fb_info;
+static struct fb_info *gx1fb_info;
 
-int __init gx1fb_init(void)
+static int __init gx1fb_init(void)
 {
 	struct fb_info *info;
         struct geodefb_par *par;

@@ -55,7 +55,7 @@ static inline void NVSync(struct nvidia_par *par)
 	}
 }
 
-void NVDmaKickoff(struct nvidia_par *par)
+static void NVDmaKickoff(struct nvidia_par *par)
 {
 	if (par->dmaCurrent != par->dmaPut) {
 		par->dmaPut = par->dmaCurrent;
@@ -63,7 +63,7 @@ void NVDmaKickoff(struct nvidia_par *par)
 	}
 }
 
-void NVDmaWait(struct nvidia_par *par, int size)
+static void NVDmaWait(struct nvidia_par *par, int size)
 {
 	int dmaGet;
 	int count = 1000000000, cnt;

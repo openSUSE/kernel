@@ -906,7 +906,7 @@ riva_set_pattern(struct riva_par *par, int clr0, int clr1, int pat0, int pat1)
 }
 
 /* acceleration routines */
-inline void wait_for_idle(struct riva_par *par)
+static inline void wait_for_idle(struct riva_par *par)
 {
 	while (par->riva.Busy(&par->riva));
 }
@@ -923,7 +923,7 @@ riva_set_rop_solid(struct riva_par *par, int rop)
 
 }
 
-void riva_setup_accel(struct fb_info *info)
+static void riva_setup_accel(struct fb_info *info)
 {
 	struct riva_par *par = (struct riva_par *) info->par;
 
@@ -2139,7 +2139,7 @@ static void __exit rivafb_remove(struct pci_dev *pd)
  * ------------------------------------------------------------------------- */
 
 #ifndef MODULE
-int __init rivafb_setup(char *options)
+static int __init rivafb_setup(char *options)
 {
 	char *this_opt;
 
@@ -2189,7 +2189,7 @@ static struct pci_driver rivafb_driver = {
  *
  * ------------------------------------------------------------------------- */
 
-int __devinit rivafb_init(void)
+static int __devinit rivafb_init(void)
 {
 #ifndef MODULE
 	char *option = NULL;

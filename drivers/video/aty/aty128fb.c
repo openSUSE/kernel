@@ -425,11 +425,6 @@ struct aty128fb_par {
 
 #define round_div(n, d) ((n+(d/2))/d)
 
-    /*
-     *  Interface used by the world
-     */
-int aty128fb_init(void);
-
 static int aty128fb_check_var(struct fb_var_screeninfo *var,
 			      struct fb_info *info);
 static int aty128fb_set_par(struct fb_info *info);
@@ -1648,7 +1643,8 @@ static int aty128fb_sync(struct fb_info *info)
 	return 0;
 }
 
-int __init aty128fb_setup(char *options)
+#ifndef MODULE
+static int __init aty128fb_setup(char *options)
 {
 	char *this_opt;
 
@@ -1701,6 +1697,7 @@ int __init aty128fb_setup(char *options)
 	}
 	return 0;
 }
+#endif  /*  MODULE  */
 
 
 /*
@@ -2454,7 +2451,7 @@ static int aty128_pci_resume(struct pci_dev *pdev)
 }
 
 
-int __init aty128fb_init(void)
+static int __init aty128fb_init(void)
 {
 #ifndef MODULE
 	char *option = NULL;
@@ -2474,7 +2471,6 @@ static void __exit aty128fb_exit(void)
 
 module_init(aty128fb_init);
 
-#ifdef MODULE
 module_exit(aty128fb_exit);
 
 MODULE_AUTHOR("(c)1999-2003 Brad Douglas <brad@neruo.com>");
@@ -2485,6 +2481,5 @@ MODULE_PARM_DESC(mode_option, "Specify resolution as \"<xres>x<yres>[-<bpp>][@<r
 #ifdef CONFIG_MTRR
 module_param_named(nomtrr, mtrr, invbool, 0);
 MODULE_PARM_DESC(nomtrr, "bool: Disable MTRR support (0 or 1=disabled) (default=0)");
-#endif
 #endif
 

@@ -27,7 +27,7 @@
 
 #include "ati_ids.h"
 
-void radeon_pm_disable_dynamic_mode(struct radeonfb_info *rinfo)
+static void radeon_pm_disable_dynamic_mode(struct radeonfb_info *rinfo)
 {
 	u32 tmp;
 
@@ -229,7 +229,7 @@ void radeon_pm_disable_dynamic_mode(struct radeonfb_info *rinfo)
 	radeon_msleep(16);
 }
 
-void radeon_pm_enable_dynamic_mode(struct radeonfb_info *rinfo)
+static void radeon_pm_enable_dynamic_mode(struct radeonfb_info *rinfo)
 {
 	u32 tmp;
 

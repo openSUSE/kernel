@@ -1243,47 +1243,13 @@ static struct pci_driver pm2fb_driver = {
 MODULE_DEVICE_TABLE(pci, pm2fb_id_table);
 
 
-/*
- *  Initialization
- */
-
-int __init pm2fb_setup(char *options);
-
-int __init pm2fb_init(void)
-{
-#ifndef MODULE
-	char *option = NULL;
-
-	if (fb_get_options("pm2fb", &option))
-		return -ENODEV;
-	pm2fb_setup(option);
-#endif
-
-	return pci_module_init(&pm2fb_driver);
-}
-
-#ifdef MODULE
-/*
- *  Cleanup
- */
-
-static void __exit pm2fb_exit(void)
-{
-	pci_unregister_driver(&pm2fb_driver);
-}
-#endif
-
-/*
- *  Setup
- */
-
 #ifndef MODULE
 /**
  * Parse user speficied options.
  *
  * This is, comma-separated options following `video=pm2fb:'.
  */
-int __init pm2fb_setup(char *options)
+static int __init pm2fb_setup(char *options)
 {
 	char* this_opt;
 
@@ -1306,13 +1272,31 @@ int __init pm2fb_setup(char *options)
 #endif
 
 
-/* ------------------------------------------------------------------------- */
+static int __init pm2fb_init(void)
+{
+#ifndef MODULE
+	char *option = NULL;
 
-/* ------------------------------------------------------------------------- */
+	if (fb_get_options("pm2fb", &option))
+		return -ENODEV;
+	pm2fb_setup(option);
+#endif
 
-
+	return pci_module_init(&pm2fb_driver);
+}
 
 module_init(pm2fb_init);
+
+#ifdef MODULE
+/*
+ *  Cleanup
+ */
+
+static void __exit pm2fb_exit(void)
+{
+	pci_unregister_driver(&pm2fb_driver);
+}
+#endif
 
 #ifdef MODULE
 module_exit(pm2fb_exit);

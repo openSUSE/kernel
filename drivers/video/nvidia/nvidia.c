@@ -1614,7 +1614,7 @@ static void __exit nvidiafb_remove(struct pci_dev *pd)
  * ------------------------------------------------------------------------- */
 
 #ifndef MODULE
-int __init nvidiafb_setup(char *options)
+static int __init nvidiafb_setup(char *options)
 {
 	char *this_opt;
 
@@ -1667,7 +1667,7 @@ static struct pci_driver nvidiafb_driver = {
  *
  * ------------------------------------------------------------------------- */
 
-int __devinit nvidiafb_init(void)
+static int __devinit nvidiafb_init(void)
 {
 #ifndef MODULE
 	char *option = NULL;

@@ -154,9 +154,6 @@ MODULE_DEVICE_TABLE(pci, tdfxfb_id_table);
 /*
  *  Frame buffer device API
  */
-int tdfxfb_init(void);
-void tdfxfb_setup(char *options);
-
 static int tdfxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb); 
 static int tdfxfb_set_par(struct fb_info *info); 
 static int tdfxfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue, 
@@ -1292,6 +1289,28 @@ out_err:
 	return -ENXIO;
 }
 
+#ifndef MODULE
+void tdfxfb_setup(char *options)
+{
+	char* this_opt;
+
+	if (!options || !*options)
+		return;
+
+	while ((this_opt = strsep(&options, ",")) != NULL) {
+		if (!*this_opt)
+			continue;
+		if(!strcmp(this_opt, "nopan")) {
+			nopan = 1;
+		} else if(!strcmp(this_opt, "nowrap")) {
+			nowrap = 1;
+		} else {
+			mode_option = this_opt;
+		}
+	}
+}
+#endif
+
 /**
  *      tdfxfb_remove - Device removal
  *
@@ -1321,7 +1340,7 @@ static void __devexit tdfxfb_remove(struct pci_dev *pdev)
 	framebuffer_release(info);
 }
 
-int __init tdfxfb_init(void)
+static int __init tdfxfb_init(void)
 {
 #ifndef MODULE
 	char *option = NULL;
@@ -1345,27 +1364,3 @@ MODULE_LICENSE("GPL");
  
 module_init(tdfxfb_init);
 module_exit(tdfxfb_exit);
-
-
-#ifndef MODULE
-void tdfxfb_setup(char *options)
-{ 
-	char* this_opt;
-
-	if (!options || !*options)
-		return;
-
-	while ((this_opt = strsep(&options, ",")) != NULL) {	
-		if (!*this_opt)
-			continue;
-		if(!strcmp(this_opt, "nopan")) {
-			nopan = 1;
-		} else if(!strcmp(this_opt, "nowrap")) {
-			nowrap = 1;
-		} else {
-			mode_option = this_opt;
-		}
-	} 
-}
-#endif
-

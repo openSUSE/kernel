@@ -1547,7 +1547,7 @@ imsttfb_remove(struct pci_dev *pdev)
 }
 
 #ifndef MODULE
-int __init 
+static int __init
 imsttfb_setup(char *options)
 {
 	char *this_opt;
@@ -1601,7 +1601,7 @@ imsttfb_setup(char *options)
 
 #endif /* MODULE */
 
-int __init imsttfb_init(void)
+static int __init imsttfb_init(void)
 {
 #ifndef MODULE
 	char *option = NULL;
@@ -1619,9 +1619,8 @@ static void __exit imsttfb_exit(void)
 	pci_unregister_driver(&imsttfb_pci_driver);
 }
 
-#ifdef MODULE
 MODULE_LICENSE("GPL");
-#endif
+
 module_init(imsttfb_init);
 module_exit(imsttfb_exit);
 

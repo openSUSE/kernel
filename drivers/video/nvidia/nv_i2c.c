@@ -146,6 +146,7 @@ void nvidia_create_i2c_busses(struct nvidia_par *par)
 	nvidia_setup_i2c_bus(&par->chan[2], "BUS3");
 }
 
+#if 0
 void nvidia_delete_i2c_busses(struct nvidia_par *par)
 {
 	if (par->chan[0].par)
@@ -161,6 +162,7 @@ void nvidia_delete_i2c_busses(struct nvidia_par *par)
 	par->chan[2].par = NULL;
 
 }
+#endif  /*  0  */
 
 static u8 *nvidia_do_probe_i2c_edid(struct nvidia_i2c_chan *chan)
 {

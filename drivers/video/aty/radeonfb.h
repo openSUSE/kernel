@@ -647,7 +647,6 @@ extern void radeonfb_engine_reset(struct radeonfb_info *rinfo);
 
 /* Other functions */
 extern int radeon_screen_blank(struct radeonfb_info *rinfo, int blank, int mode_switch);
-extern void radeon_save_state (struct radeonfb_info *rinfo, struct radeon_regs *save);
 extern void radeon_write_mode (struct radeonfb_info *rinfo, struct radeon_regs *mode,
 			       int reg_only);
 

@@ -92,7 +92,6 @@ struct cfb_info {
 	u_char			ramdac_powerdown;
 };
 
-static char default_font_storage[40];
 static char *default_font = "Acorn8x8";
 module_param(default_font, charp, 0);
 MODULE_PARM_DESC(default_font, "Default font name");
@@ -1306,7 +1305,8 @@ cyberpro_free_fb_info(struct cfb_info *cfb)
  * Parse Cyber2000fb options.  Usage:
  *  video=cyber2000:font:fontname
  */
-int
+#ifndef MODULE
+static int
 cyber2000fb_setup(char *options)
 {
 	char *opt;
@@ -1319,6 +1319,8 @@ cyber2000fb_setup(char *options)
 			continue;
 
 		if (strncmp(opt, "font:", 5) == 0) {
+			static char default_font_storage[40];
+
 			strlcpy(default_font_storage, opt + 5, sizeof(default_font_storage));
 			default_font = default_font_storage;
 			continue;
@@ -1328,6 +1330,7 @@ cyber2000fb_setup(char *options)
 	}
 	return 0;
 }
+#endif  /*  MODULE  */
 
 /*
  * The CyberPro chips can be placed on many different bus types.
@@ -1717,7 +1720,7 @@ static struct pci_driver cyberpro_driver = {
  *
  * Tony: "module_init" is now required
  */
-int __init cyber2000fb_init(void)
+static int __init cyber2000fb_init(void)
 {
 	int ret = -1, err;
 

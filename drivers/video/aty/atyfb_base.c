@@ -265,7 +265,7 @@ static int read_aty_sense(const struct atyfb_par *par);
      *  Interface used by the world
      */
 
-struct fb_var_screeninfo default_var = {
+static struct fb_var_screeninfo default_var = {
 	/* 640x480, 60 Hz, Non-Interlaced (25.175 MHz dotclock) */
 	640, 480, 640, 480, 0, 0, 8, 0,
 	{0, 8, 0}, {0, 8, 0}, {0, 8, 0}, {0, 0, 0},
@@ -2990,7 +2990,7 @@ static int __devinit atyfb_setup_sparc(struct pci_dev *pdev,
 
 #ifdef __i386__
 #ifdef CONFIG_FB_ATY_GENERIC_LCD
-void aty_init_lcd(struct atyfb_par *par, u32 bios_base)
+static void aty_init_lcd(struct atyfb_par *par, u32 bios_base)
 {
 	u32 driv_inf_tab, sig;
 	u16 lcd_ofs;
@@ -3589,7 +3589,8 @@ static struct pci_driver atyfb_driver = {
 
 #endif /* CONFIG_PCI */
 
-int __init atyfb_setup(char *options)
+#ifndef MODULE
+static int __init atyfb_setup(char *options)
 {
 	char *this_opt;
 
@@ -3657,8 +3658,9 @@ int __init atyfb_setup(char *options)
 	}
 	return 0;
 }
+#endif  /*  MODULE  */
 
-int __init atyfb_init(void)
+static int __init atyfb_init(void)
 {
 #ifndef MODULE
     char *option = NULL;
@@ -3677,7 +3679,7 @@ int __init atyfb_init(void)
     return 0;
 }
 
-void __exit atyfb_exit(void)
+static void __exit atyfb_exit(void)
 {
 #ifdef CONFIG_PCI
 	pci_unregister_driver(&atyfb_driver);
@@ -3685,9 +3687,7 @@ void __exit atyfb_exit(void)
 }
 
 module_init(atyfb_init);
-#ifdef MODULE
 module_exit(atyfb_exit);
-#endif
 
 MODULE_DESCRIPTION("FBDev driver for ATI Mach64 cards");
 MODULE_LICENSE("GPL");

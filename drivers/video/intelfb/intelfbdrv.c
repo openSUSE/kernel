@@ -227,42 +227,6 @@ MODULE_PARM_DESC(bailearly, "Bail out early, depending on value (debug)");
 module_param(mode, charp, S_IRUGO);
 MODULE_PARM_DESC(mode,
 		 "Initial video mode \"<xres>x<yres>[-<depth>][@<refresh>]\"");
-/***************************************************************
- *                     modules entry points                    *
- ***************************************************************/
-
-/* module load/unload entry points */
-int __init
-intelfb_init(void)
-{
-#ifndef MODULE
-	char *option = NULL;
-#endif
-
-	DBG_MSG("intelfb_init\n");
-
-	INF_MSG("Framebuffer driver for "
-		"Intel(R) " SUPPORTED_CHIPSETS " chipsets\n");
-	INF_MSG("Version " INTELFB_VERSION "\n");
-
-	if (idonly)
-		return -ENODEV;
-
-#ifndef MODULE
-	if (fb_get_options("intelfb", &option))
-		return -ENODEV;
-	intelfb_setup(option);
-#endif
-
-	return pci_module_init(&intelfb_driver);
-}
-
-static void __exit
-intelfb_exit(void)
-{
-	DBG_MSG("intelfb_exit\n");
-	pci_unregister_driver(&intelfb_driver);
-}
 
 #ifndef MODULE
 #define OPT_EQUAL(opt, name) (!strncmp(opt, name, strlen(name)))
@@ -322,7 +286,7 @@ get_opt_bool(const char *this_opt, const char *name, int *ret)
 	return 1;
 }
 
-int __init
+static int __init
 intelfb_setup(char *options)
 {
 	char *this_opt;
@@ -374,11 +338,40 @@ intelfb_setup(char *options)
 
 #endif
 
-module_init(intelfb_init);
-
-#ifdef MODULE
-module_exit(intelfb_exit);
+static int __init
+intelfb_init(void)
+{
+#ifndef MODULE
+	char *option = NULL;
 #endif
+
+	DBG_MSG("intelfb_init\n");
+
+	INF_MSG("Framebuffer driver for "
+		"Intel(R) " SUPPORTED_CHIPSETS " chipsets\n");
+	INF_MSG("Version " INTELFB_VERSION "\n");
+
+	if (idonly)
+		return -ENODEV;
+
+#ifndef MODULE
+	if (fb_get_options("intelfb", &option))
+		return -ENODEV;
+	intelfb_setup(option);
+#endif
+
+	return pci_module_init(&intelfb_driver);
+}
+
+static void __exit
+intelfb_exit(void)
+{
+	DBG_MSG("intelfb_exit\n");
+	pci_unregister_driver(&intelfb_driver);
+}
+
+module_init(intelfb_init);
+module_exit(intelfb_exit);
 
 /***************************************************************
  *                     mtrr support functions                  *

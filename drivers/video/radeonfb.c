@@ -3109,28 +3109,8 @@ static struct pci_driver radeonfb_driver = {
 	.remove		= __devexit_p(radeonfb_pci_unregister),
 };
 
-int __init radeonfb_old_setup (char *options);
-
-int __init radeonfb_old_init (void)
-{
 #ifndef MODULE
-	char *option = NULL;
-
-	if (fb_get_options("radeonfb_old", &option))
-		return -ENODEV;
-	radeonfb_old_setup(option);
-#endif
-	return pci_module_init (&radeonfb_driver);
-}
-
-
-void __exit radeonfb_old_exit (void)
-{
-	pci_unregister_driver (&radeonfb_driver);
-}
-
-
-int __init radeonfb_old_setup (char *options)
+static int __init radeonfb_old_setup (char *options)
 {
         char *this_opt;
 
@@ -3156,12 +3136,28 @@ int __init radeonfb_old_setup (char *options)
 
 	return 0;
 }
+#endif  /*  MODULE  */
+
+static int __init radeonfb_old_init (void)
+{
+#ifndef MODULE
+	char *option = NULL;
+
+	if (fb_get_options("radeonfb_old", &option))
+		return -ENODEV;
+	radeonfb_old_setup(option);
+#endif
+	return pci_module_init (&radeonfb_driver);
+}
+
+
+static void __exit radeonfb_old_exit (void)
+{
+	pci_unregister_driver (&radeonfb_driver);
+}
 
 module_init(radeonfb_old_init);
-
-#ifdef MODULE
 module_exit(radeonfb_old_exit);
-#endif
 
 
 MODULE_AUTHOR("Ani Joshi");
