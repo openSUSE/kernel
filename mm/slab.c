@@ -665,8 +665,10 @@ static struct array_cache *alloc_arraycache(int cpu, int entries, int batchcount
 	struct array_cache *nc = NULL;
 
 	if (cpu != -1) {
-		nc = kmem_cache_alloc_node(kmem_find_general_cachep(memsize,
-					GFP_KERNEL), cpu_to_node(cpu));
+		kmem_cache_t *cachep;
+		cachep = kmem_find_general_cachep(memsize, GFP_KERNEL);
+		if (cachep)
+			nc = kmem_cache_alloc_node(cachep, cpu_to_node(cpu));
 	}
 	if (!nc)
 		nc = kmalloc(memsize, GFP_KERNEL);
