@@ -129,7 +129,7 @@ void __init xfrm6_state_init(void)
 	xfrm_state_register_afinfo(&xfrm6_state_afinfo);
 }
 
-void __exit xfrm6_state_fini(void)
+void xfrm6_state_fini(void)
 {
 	xfrm_state_unregister_afinfo(&xfrm6_state_afinfo);
 }

@@ -698,7 +698,7 @@ void __init ipv6_packet_init(void)
 	dev_add_pack(&ipv6_packet_type);
 }
 
-void __exit ipv6_packet_cleanup(void)
+void ipv6_packet_cleanup(void)
 {
 	dev_remove_pack(&ipv6_packet_type);
 }

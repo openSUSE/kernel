@@ -276,7 +276,7 @@ static void __init xfrm6_policy_init(void)
 	xfrm_policy_register_afinfo(&xfrm6_policy_afinfo);
 }
 
-static void __exit xfrm6_policy_fini(void)
+static void xfrm6_policy_fini(void)
 {
 	xfrm_policy_unregister_afinfo(&xfrm6_policy_afinfo);
 }
@@ -287,7 +287,7 @@ void __init xfrm6_init(void)
 	xfrm6_state_init();
 }
 
-void __exit xfrm6_fini(void)
+void xfrm6_fini(void)
 {
 	//xfrm6_input_fini();
 	xfrm6_policy_fini();
