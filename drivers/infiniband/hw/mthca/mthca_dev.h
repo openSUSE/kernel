@@ -171,6 +171,7 @@ struct mthca_eq_table {
 	struct mthca_alloc alloc;
 	void __iomem      *clr_int;
 	u32                clr_mask;
+	u32                arm_mask;
 	struct mthca_eq    eq[MTHCA_NUM_EQ];
 	u64                icm_virt;
 	struct page       *icm_page;

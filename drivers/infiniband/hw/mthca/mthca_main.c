@@ -608,13 +608,6 @@ static int __devinit mthca_setup_hca(struct mthca_dev *dev)
 		goto err_mr_table_free;
 	}
 
-	if (dev->hca_type == ARBEL_NATIVE) {
-		mthca_warn(dev, "Sorry, native MT25208 mode support is not done, "
-			   "aborting.\n");
-		err = -ENODEV;
-		goto err_pd_free;
-	}
-
 	err = mthca_init_eq_table(dev);
 	if (err) {
 		mthca_err(dev, "Failed to initialize "
@@ -638,8 +631,16 @@ static int __devinit mthca_setup_hca(struct mthca_dev *dev)
 			mthca_err(dev, "BIOS or ACPI interrupt routing problem?\n");
 
 		goto err_cmd_poll;
-	} else
-		mthca_dbg(dev, "NOP command IRQ test passed\n");
+	}
+
+	mthca_dbg(dev, "NOP command IRQ test passed\n");
+
+	if (dev->hca_type == ARBEL_NATIVE) {
+		mthca_warn(dev, "Sorry, native MT25208 mode support is not complete, "
+			   "aborting.\n");
+		err = -ENODEV;
+		goto err_cmd_poll;
+	}
 
 	err = mthca_init_cq_table(dev);
 	if (err) {

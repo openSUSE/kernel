@@ -70,7 +70,7 @@ struct mthca_pd {
 struct mthca_eq {
 	struct mthca_dev      *dev;
 	int                    eqn;
-	u32                    ecr_mask;
+	u32                    eqn_mask;
 	u32                    cons_index;
 	u16                    msi_x_vector;
 	u16                    msi_x_entry;
