@@ -166,8 +166,7 @@
 #define THROTTLE_JIFFIES	(HZ/8)
 
 // for vendor-specific control operations
-#define	CONTROL_TIMEOUT_MS	(500)			/* msec */
-#define CONTROL_TIMEOUT_JIFFIES ((CONTROL_TIMEOUT_MS * HZ)/1000)
+#define	CONTROL_TIMEOUT_MS	500
 
 // between wakeups
 #define UNLINK_TIMEOUT_MS	3
@@ -501,7 +500,7 @@ static int ax8817x_read_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
 		index,
 		data,
 		size,
-		CONTROL_TIMEOUT_JIFFIES);
+		CONTROL_TIMEOUT_MS);
 }
 
 static int ax8817x_write_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
@@ -516,7 +515,7 @@ static int ax8817x_write_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
 		index,
 		data,
 		size,
-		CONTROL_TIMEOUT_JIFFIES);
+		CONTROL_TIMEOUT_MS);
 }
 
 static void ax8817x_async_cmd_callback(struct urb *urb, struct pt_regs *regs)
@@ -1626,7 +1625,7 @@ static inline int gl_control_write (struct usbnet *dev, u8 request, u16 value)
 		      0,			// index
 		      0,			// data buffer
 		      0,			// size
-		      CONTROL_TIMEOUT_JIFFIES);
+		      CONTROL_TIMEOUT_MS);
 	return retval;
 }
 
@@ -1963,7 +1962,7 @@ nc_vendor_read (struct usbnet *dev, u8 req, u8 regnum, u16 *retval_ptr)
 		USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 		0, regnum,
 		retval_ptr, sizeof *retval_ptr,
-		CONTROL_TIMEOUT_JIFFIES);
+		CONTROL_TIMEOUT_MS);
 	if (status > 0)
 		status = 0;
 	if (!status)
@@ -1987,7 +1986,7 @@ nc_vendor_write (struct usbnet *dev, u8 req, u8 regnum, u16 value)
 		USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 		value, regnum,
 		NULL, 0,			// data is in setup packet
-		CONTROL_TIMEOUT_JIFFIES);
+		CONTROL_TIMEOUT_MS);
 }
 
 static inline void
@@ -2431,7 +2430,7 @@ pl_vendor_req (struct usbnet *dev, u8 req, u8 val, u8 index)
 		USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 		val, index,
 		NULL, 0,
-		CONTROL_TIMEOUT_JIFFIES);
+		CONTROL_TIMEOUT_MS);
 }
 
 static inline int
