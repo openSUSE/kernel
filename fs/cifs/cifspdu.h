@@ -568,7 +568,6 @@ typedef struct smb_com_tconx_rsp {
 #define SMB_SHARE_IS_IN_DFS     0x0002
 
 typedef struct smb_com_logoff_andx_req {
-
 	struct smb_hdr hdr;	/* wct = 2 */
 	__u8 AndXCommand;
 	__u8 AndXReserved;
@@ -695,7 +694,8 @@ typedef struct smb_com_write_rsp {
 	__le16 AndXOffset;
 	__le16 Count;
 	__le16 Remaining;
-	__le32 Reserved;
+	__le16 CountHigh;
+	__u16  Reserved;
 	__u16 ByteCount;
 } WRITE_RSP;
 
@@ -1592,17 +1592,32 @@ typedef struct {
 	char LinkDest[1];
 } FILE_UNIX_LINK_INFO;		/* level 0x201 QPathInfo */
 
+/* The following three structures are needed only for
+	setting time to NT4 and some older servers via
+	the primitive DOS time format */
 typedef struct {
-	__u16 CreationDate;
-	__u16 CreationTime;
-	__u16 LastAccessDate;
-	__u16 LastAccessTime;
-	__u16 LastWriteDate;
-	__u16 LastWriteTime;
-	__u32 DataSize; /* File Size (EOF) */
-	__u32 AllocationSize;
-	__u16 Attributes; /* verify not u32 */
-	__u32 EASize;
+	__u16 Day:5;
+	__u16 Month:4;
+	__u16 Year:7;
+} SMB_DATE;
+
+typedef struct {
+	__u16 TwoSeconds:5;
+	__u16 Minutes:6;
+	__u16 Hours:5;
+} SMB_TIME;
+
+typedef struct {
+	__le16 CreationDate; /* SMB Date see above */
+	__le16 CreationTime; /* SMB Time */
+	__le16 LastAccessDate;
+	__le16 LastAccessTime;
+	__le16 LastWriteDate;
+	__le16 LastWriteTime;
+	__le32 DataSize; /* File Size (EOF) */
+	__le32 AllocationSize;
+	__le16 Attributes; /* verify not u32 */
+	__le32 EASize;
 } FILE_INFO_STANDARD;  /* level 1 SetPath/FileInfo */
 
 typedef struct {
