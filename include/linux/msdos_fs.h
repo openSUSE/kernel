@@ -405,23 +405,6 @@ extern void fat_clusters_flush(struct super_block *sb);
 extern int fat_chain_add(struct inode *inode, int new_dclus, int nr_cluster);
 extern int date_dos2unix(unsigned short time, unsigned short date);
 extern void fat_date_unix2dos(int unix_date, __le16 *time, __le16 *date);
-extern int fat__get_entry(struct inode *dir, loff_t *pos,
-			  struct buffer_head **bh,
-			  struct msdos_dir_entry **de, loff_t *i_pos);
-static __inline__ int fat_get_entry(struct inode *dir, loff_t *pos,
-				    struct buffer_head **bh,
-				    struct msdos_dir_entry **de, loff_t *i_pos)
-{
-	/* Fast stuff first */
-	if (*bh && *de &&
-	    (*de - (struct msdos_dir_entry *)(*bh)->b_data) < MSDOS_SB(dir->i_sb)->dir_per_block - 1) {
-		*pos += sizeof(struct msdos_dir_entry);
-		(*de)++;
-		(*i_pos)++;
-		return 0;
-	}
-	return fat__get_entry(dir, pos, bh, de, i_pos);
-}
 extern int fat_sync_bhs(struct buffer_head **bhs, int nr_bhs);
 
 #endif /* __KERNEL__ */

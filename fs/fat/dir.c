@@ -22,6 +22,69 @@
 #include <linux/buffer_head.h>
 #include <asm/uaccess.h>
 
+/* Returns the inode number of the directory entry at offset pos. If bh is
+   non-NULL, it is brelse'd before. Pos is incremented. The buffer header is
+   returned in bh.
+   AV. Most often we do it item-by-item. Makes sense to optimize.
+   AV. OK, there we go: if both bh and de are non-NULL we assume that we just
+   AV. want the next entry (took one explicit de=NULL in vfat/namei.c).
+   AV. It's done in fat_get_entry() (inlined), here the slow case lives.
+   AV. Additionally, when we return -1 (i.e. reached the end of directory)
+   AV. we make bh NULL.
+ */
+static int fat__get_entry(struct inode *dir, loff_t *pos,
+			  struct buffer_head **bh,
+			  struct msdos_dir_entry **de, loff_t *i_pos)
+{
+	struct super_block *sb = dir->i_sb;
+	struct msdos_sb_info *sbi = MSDOS_SB(sb);
+	sector_t phys, iblock;
+	loff_t offset;
+	int err;
+
+next:
+	offset = *pos;
+	if (*bh)
+		brelse(*bh);
+
+	*bh = NULL;
+	iblock = *pos >> sb->s_blocksize_bits;
+	err = fat_bmap(dir, iblock, &phys);
+	if (err || !phys)
+		return -1;	/* beyond EOF or error */
+
+	*bh = sb_bread(sb, phys);
+	if (*bh == NULL) {
+		printk(KERN_ERR "FAT: Directory bread(block %llu) failed\n",
+		       (unsigned long long)phys);
+		/* skip this block */
+		*pos = (iblock + 1) << sb->s_blocksize_bits;
+		goto next;
+	}
+
+	offset &= sb->s_blocksize - 1;
+	*pos += sizeof(struct msdos_dir_entry);
+	*de = (struct msdos_dir_entry *)((*bh)->b_data + offset);
+	*i_pos = ((loff_t)phys << sbi->dir_per_block_bits) + (offset >> MSDOS_DIR_BITS);
+
+	return 0;
+}
+
+static inline int fat_get_entry(struct inode *dir, loff_t *pos,
+				struct buffer_head **bh,
+				struct msdos_dir_entry **de, loff_t *i_pos)
+{
+	/* Fast stuff first */
+	if (*bh && *de &&
+	    (*de - (struct msdos_dir_entry *)(*bh)->b_data) < MSDOS_SB(dir->i_sb)->dir_per_block - 1) {
+		*pos += sizeof(struct msdos_dir_entry);
+		(*de)++;
+		(*i_pos)++;
+		return 0;
+	}
+	return fat__get_entry(dir, pos, bh, de, i_pos);
+}
+
 /*
  * Convert Unicode 16 to UTF8, translated Unicode, or ASCII.
  * If uni_xlate is enabled and we can't get a 1:1 conversion, use a
