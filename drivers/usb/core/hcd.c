@@ -88,6 +88,7 @@
 
 /* host controllers we manage */
 LIST_HEAD (usb_bus_list);
+EXPORT_SYMBOL_GPL (usb_bus_list);
 
 /* used when allocating bus numbers */
 #define USB_MAXBUS		64
@@ -98,6 +99,7 @@ static struct usb_busmap busmap;
 
 /* used when updating list of hcds */
 DECLARE_MUTEX (usb_bus_list_lock);	/* exported only for usbfs */
+EXPORT_SYMBOL_GPL (usb_bus_list_lock);
 
 /* used when updating hcd data */
 static DEFINE_SPINLOCK(hcd_data_lock);
@@ -785,6 +787,7 @@ int usb_register_bus(struct usb_bus *bus)
 	up (&usb_bus_list_lock);
 
 	usbfs_add_bus (bus);
+	usbmon_notify_bus_add (bus);
 
 	dev_info (bus->controller, "new USB bus registered, assigned bus number %d\n", bus->busnum);
 	return 0;
@@ -812,6 +815,7 @@ void usb_deregister_bus (struct usb_bus *bus)
 	list_del (&bus->bus_list);
 	up (&usb_bus_list_lock);
 
+	usbmon_notify_bus_remove (bus);
 	usbfs_remove_bus (bus);
 
 	clear_bit (bus->busnum, busmap.busmap);
@@ -1097,9 +1101,7 @@ static int hcd_submit_urb (struct urb *urb, int mem_flags)
 	 * as simple as possible.
 	 */
 
-	// NOTE:  a generic device/urb monitoring hook would go here.
-	// hcd_monitor_hook(MONITOR_URB_SUBMIT, urb)
-	// It would catch submission paths for all urbs.
+	usbmon_urb_submit(&hcd->self, urb);
 
 	/*
 	 * Atomically queue the urb,  first to our records, then to the HCD.
@@ -1126,6 +1128,7 @@ static int hcd_submit_urb (struct urb *urb, int mem_flags)
 	spin_unlock_irqrestore (&hcd_data_lock, flags);
 	if (status) {
 		INIT_LIST_HEAD (&urb->urb_list);
+		usbmon_urb_submit_error(&hcd->self, urb, status);
 		return status;
 	}
 
@@ -1142,8 +1145,6 @@ static int hcd_submit_urb (struct urb *urb, int mem_flags)
 		 * valid and usb_buffer_{sync,unmap}() not be needed, since
 		 * they could clobber root hub response data.
 		 */
-		urb->transfer_flags |= (URB_NO_TRANSFER_DMA_MAP
-					| URB_NO_SETUP_DMA_MAP);
 		status = rh_urb_enqueue (hcd, urb);
 		goto done;
 	}
@@ -1178,6 +1179,7 @@ done:
 		if (urb->reject)
 			wake_up (&usb_kill_urb_queue);
 		usb_put_urb (urb);
+		usbmon_urb_submit_error(&hcd->self, urb, status);
 	}
 	return status;
 }
@@ -1500,14 +1502,13 @@ static struct usb_operations usb_hcd_operations = {
  */
 void usb_hcd_giveback_urb (struct usb_hcd *hcd, struct urb *urb, struct pt_regs *regs)
 {
+	int at_root_hub;
+
+	at_root_hub = (urb->dev == hcd->self.root_hub);
 	urb_unlink (urb);
 
-	// NOTE:  a generic device/urb monitoring hook would go here.
-	// hcd_monitor_hook(MONITOR_URB_FINISH, urb, dev)
-	// It would catch exit/unlink paths for all urbs.
-
 	/* lower level hcd code should use *_dma exclusively */
-	if (hcd->self.controller->dma_mask) {
+	if (hcd->self.controller->dma_mask && !at_root_hub) {
 		if (usb_pipecontrol (urb->pipe)
 			&& !(urb->transfer_flags & URB_NO_SETUP_DMA_MAP))
 			dma_unmap_single (hcd->self.controller, urb->setup_dma,
@@ -1523,6 +1524,7 @@ void usb_hcd_giveback_urb (struct usb_hcd *hcd, struct urb *urb, struct pt_regs 
 					    : DMA_TO_DEVICE);
 	}
 
+	usbmon_urb_complete (&hcd->self, urb);
 	/* pass ownership to the completion handler */
 	urb->complete (urb, regs);
 	atomic_dec (&urb->use_count);
@@ -1630,3 +1632,43 @@ void usb_put_hcd (struct usb_hcd *hcd)
 	usb_bus_put(&hcd->self);
 }
 EXPORT_SYMBOL (usb_put_hcd);
+
+/*-------------------------------------------------------------------------*/
+
+#if defined(CONFIG_USB_MON) || defined(CONFIG_USB_MON_MODULE)
+
+struct usb_mon_operations *mon_ops;
+
+/*
+ * The registration is unlocked.
+ * We do it this way because we do not want to lock in hot paths.
+ *
+ * Notice that the code is minimally error-proof. Because usbmon needs
+ * symbols from usbcore, usbcore gets referenced and cannot be unloaded first.
+ */
+ 
+int usb_mon_register (struct usb_mon_operations *ops)
+{
+
+	if (mon_ops)
+		return -EBUSY;
+
+	mon_ops = ops;
+	mb();
+	return 0;
+}
+EXPORT_SYMBOL_GPL (usb_mon_register);
+
+void usb_mon_deregister (void)
+{
+
+	if (mon_ops == NULL) {
+		printk(KERN_ERR "USB: monitor was not registered\n");
+		return;
+	}
+	mon_ops = NULL;
+	mb();
+}
+EXPORT_SYMBOL_GPL (usb_mon_deregister);
+
+#endif /* CONFIG_USB_MON */
