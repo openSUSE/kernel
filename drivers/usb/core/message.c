@@ -70,7 +70,10 @@ static int usb_start_wait_urb(struct urb *urb, int timeout, int* actual_length)
 				current->comm,
 				usb_pipeendpoint(urb->pipe),
 				usb_pipein(urb->pipe) ? "in" : "out");
-			status = -ETIMEDOUT;
+			if (urb->actual_length > 0)
+				status = 0;
+			else
+				status = -ETIMEDOUT;
 		}
 		if (timeout > 0)
 			del_timer_sync(&timer);
