@@ -1778,16 +1778,18 @@ static int open_tx(struct atm_vcc *vcc)
         if (ia_vcc->pcr < iadev->rate_limit)
            skb_queue_head_init (&ia_vcc->txing_skb);
         if (ia_vcc->pcr < iadev->rate_limit) {
-           if (vcc->qos.txtp.max_sdu != 0) {
+	   struct sock *sk = sk_atm(vcc);
+
+	   if (vcc->qos.txtp.max_sdu != 0) {
                if (ia_vcc->pcr > 60000)
-                  vcc->sk->sk_sndbuf = vcc->qos.txtp.max_sdu * 5;
+                  sk->sk_sndbuf = vcc->qos.txtp.max_sdu * 5;
                else if (ia_vcc->pcr > 2000)
-                  vcc->sk->sk_sndbuf = vcc->qos.txtp.max_sdu * 4;
+                  sk->sk_sndbuf = vcc->qos.txtp.max_sdu * 4;
                else
-                 vcc->sk->sk_sndbuf = vcc->qos.txtp.max_sdu * 3;
+                 sk->sk_sndbuf = vcc->qos.txtp.max_sdu * 3;
            }
            else
-             vcc->sk->sk_sndbuf = 24576;
+             sk->sk_sndbuf = 24576;
         }
            
 	vc = (struct main_vc *)iadev->MAIN_VC_TABLE_ADDR;  

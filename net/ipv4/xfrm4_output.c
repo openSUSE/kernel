@@ -116,7 +116,7 @@ int xfrm4_output(struct sk_buff *skb)
 
 	xfrm4_encap(skb);
 
-	err = x->type->output(skb);
+	err = x->type->output(x, skb);
 	if (err)
 		goto error;
 

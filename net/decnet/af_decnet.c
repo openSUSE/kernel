@@ -456,8 +456,6 @@ static struct sock *dn_alloc_sock(struct socket *sock, int gfp)
 	if  (!sk)
 		goto out;
 
-	sk->sk_protinfo = scp = (struct dn_scp *)(sk + 1);
-
 	if (sock)
 		sock->ops = &dn_proto_ops;
 	sock_init_data(sock, sk);
@@ -471,6 +469,7 @@ static struct sock *dn_alloc_sock(struct socket *sock, int gfp)
 	sk->sk_allocation  = gfp;
 
 	/* Initialization of DECnet Session Control Port		*/
+	scp = DN_SK(sk);
 	scp->state	= DN_O;		/* Open			*/
 	scp->numdat	= 1;		/* Next data seg to tx	*/
 	scp->numoth	= 1;		/* Next oth data to tx  */
