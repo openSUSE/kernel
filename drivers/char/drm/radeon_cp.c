@@ -35,6 +35,7 @@
 
 #define RADEON_FIFO_DEBUG	0
 
+static int radeon_do_cleanup_cp( drm_device_t *dev );
 
 /* CP microcode (from ATI) */
 static u32 R200_cp_microcode[][2] = {
@@ -815,7 +816,7 @@ static u32 R300_cp_microcode[][2] = {
 	{ 0000000000, 0000000000 },
 };
 
-int RADEON_READ_PLL(drm_device_t *dev, int addr)
+static int RADEON_READ_PLL(drm_device_t *dev, int addr)
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
 
@@ -1538,7 +1539,7 @@ static int radeon_do_init_cp( drm_device_t *dev, drm_radeon_init_t *init )
 	return 0;
 }
 
-int radeon_do_cleanup_cp( drm_device_t *dev )
+static int radeon_do_cleanup_cp( drm_device_t *dev )
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
 	DRM_DEBUG( "\n" );
