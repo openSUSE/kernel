@@ -1,5 +1,5 @@
 /*
- * include/asm/arch/ixdp2x01.h
+ * include/asm-arm/arch-ixp2000/ixdp2x01.h
  *
  * Platform definitions for IXDP2X01 && IXDP2801 systems
  *

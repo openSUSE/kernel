@@ -101,7 +101,7 @@ int rtc_valid_tm(struct rtc_time *tm)
 	if (tm->tm_year < 70 ||
 	    tm->tm_mon >= 12 ||
 	    tm->tm_mday < 1 ||
-	    tm->tm_mday > month_days(tm->tm_mon, yrs) ||
+	    tm->tm_mday > month_days(tm->tm_mon, tm->tm_year + 1900) ||
 	    tm->tm_hour >= 24 ||
 	    tm->tm_min >= 60 ||
 	    tm->tm_sec >= 60)

@@ -6,7 +6,7 @@
  * Created 2004 by Lennert Buytenhek from the ixdp2x01 code.  The
  * original version carries the following notices:
  *
- * Original Author: Andrzej Mialwoski <andrzej.mialwoski@intel.com>
+ * Original Author: Andrzej Mialkowski <andrzej.mialkowski@intel.com>
  * Maintainer: Deepak Saxena <dsaxena@plexity.net>
  *
  * Copyright (C) 2002-2003 Intel Corp.

@@ -55,7 +55,7 @@ static struct scoop_config collie_scoop_setup = {
 	.io_out		= COLLIE_SCOOP_IO_OUT,
 };
 
-static struct platform_device colliescoop_device = {
+struct platform_device colliescoop_device = {
 	.name		= "sharp-scoop",
 	.id		= -1,
 	.dev		= {
