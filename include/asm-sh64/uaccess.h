@@ -313,6 +313,12 @@ struct exception_table_entry
    sh64 at the moment). */
 #define ARCH_KMALLOC_MINALIGN 8
 
+/*
+ * We want 8-byte alignment for the slab caches as well, otherwise we have
+ * the same BYTES_PER_WORD (sizeof(void *)) min align in kmem_cache_create().
+ */
+#define ARCH_SLAB_MINALIGN 8
+
 /* Returns 0 if exception not found and fixup.unit otherwise.  */
 extern unsigned long search_exception_table(unsigned long addr);
 extern const struct exception_table_entry *search_exception_tables (unsigned long addr);
