@@ -278,6 +278,12 @@ struct sysinfo {
 extern void BUILD_BUG(void);
 #define BUILD_BUG_ON(condition) do { if (condition) BUILD_BUG(); } while(0)
 
+#ifdef CONFIG_SYSCTL
+extern int randomize_va_space;
+#else
+#define randomize_va_space 0
+#endif
+
 /* Trap pasters of __FUNCTION__ at compile-time */
 #if __GNUC__ > 2 || __GNUC_MINOR__ >= 95
 #define __FUNCTION__ (__func__)
