@@ -677,6 +677,7 @@ extern struct dentry_operations nfs4_dentry_operations;
 extern struct inode_operations nfs4_dir_inode_operations;
 
 /* nfs4proc.c */
+extern int nfs4_map_errors(int err);
 extern int nfs4_proc_setclientid(struct nfs4_client *, u32, unsigned short);
 extern int nfs4_proc_setclientid_confirm(struct nfs4_client *);
 extern int nfs4_open_reclaim(struct nfs4_state_owner *, struct nfs4_state *);

@@ -206,7 +206,7 @@ nfs4_put_client(struct nfs4_client *clp)
 	nfs4_free_client(clp);
 }
 
-int nfs4_init_client(struct nfs4_client *clp)
+static int __nfs4_init_client(struct nfs4_client *clp)
 {
 	int status = nfs4_proc_setclientid(clp, NFS4_CALLBACK, nfs_callback_tcpport);
 	if (status == 0)
@@ -214,6 +214,11 @@ int nfs4_init_client(struct nfs4_client *clp)
 	if (status == 0)
 		nfs4_schedule_state_renewal(clp);
 	return status;
+}
+
+int nfs4_init_client(struct nfs4_client *clp)
+{
+	return nfs4_map_errors(__nfs4_init_client(clp));
 }
 
 u32
@@ -859,7 +864,7 @@ restart_loop:
 	status = nfs4_proc_renew(clp);
 	if (status == 0 || status == -NFS4ERR_CB_PATH_DOWN)
 		goto out;
-	status = nfs4_init_client(clp);
+	status = __nfs4_init_client(clp);
 	if (status)
 		goto out_error;
 	/* Mark all delagations for reclaim */

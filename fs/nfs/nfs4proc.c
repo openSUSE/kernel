@@ -65,10 +65,10 @@ extern struct rpc_procinfo nfs4_procedures[];
 extern nfs4_stateid zero_stateid;
 
 /* Prevent leaks of NFSv4 errors into userland */
-static inline int nfs4_map_errors(int err)
+int nfs4_map_errors(int err)
 {
 	if (err < -1000) {
-		printk(KERN_WARNING "%s could not handle NFSv4 error %d\n",
+		dprintk("%s could not handle NFSv4 error %d\n",
 				__FUNCTION__, -err);
 		return -EIO;
 	}
