@@ -1047,8 +1047,12 @@ int snd_rawmidi_transmit_peek(snd_rawmidi_substream_t * substream, unsigned char
 		memcpy(buffer, runtime->buffer + runtime->hw_ptr, count1);
 		count -= count1;
 		result += count1;
-		if (count > 0)
+		if (count > 0) {
+			if (count > (int)(runtime->buffer_size - runtime->avail - count1))
+				count = runtime->buffer_size - runtime->avail - count1;
 			memcpy(buffer + count1, runtime->buffer, count);
+			result += count;
+		}
 	}
       __skip:
 	spin_unlock_irqrestore(&runtime->lock, flags);
