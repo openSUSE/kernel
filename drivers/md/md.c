@@ -1435,9 +1435,8 @@ static int analyze_sbs(mddev_t * mddev)
 
 
 
-	if ((mddev->recovery_cp != MaxSector) &&
-	    ((mddev->level == 1) ||
-	     ((mddev->level >= 4) && (mddev->level <= 6))))
+	if (mddev->recovery_cp != MaxSector &&
+	    mddev->level >= 1)
 		printk(KERN_ERR "md: %s: raid array is not clean"
 		       " -- starting background reconstruction\n",
 		       mdname(mddev));
