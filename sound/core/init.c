@@ -374,7 +374,7 @@ static void choose_default_id(snd_card_t * card)
 
 	while (1) {
 	      	if (loops-- == 0) {
-      			snd_printk(KERN_ERR "unable to choose default card id (%s)", id);
+      			snd_printk(KERN_ERR "unable to choose default card id (%s)\n", id);
       			strcpy(card->id, card->proc_root->name);
       			return;
       		}
