@@ -112,26 +112,24 @@ include/asm-$(ARCH)/offsets.h: arch/$(ARCH)/kernel/asm-offsets.s
 TOUT	:= .tmp_gas_check
 # Ensure this is binutils 2.12.1 (or 2.12.90.0.7) or later for altivec
 # instructions.
-AS_ALTIVEC	:= $(shell echo dssall | $(AS) -many -o $(TOUT) >/dev/null 2>&1 ; echo $$?)
 # gcc-3.4 and binutils-2.14 are a fatal combination.
 GCC_VERSION	:= $(call cc-version)
-BAD_GCC_AS	:= $(shell echo mftb 5 | $(AS) -mppc -many -o $(TOUT) >/dev/null 2>&1 && echo 0 || echo 1)
 
 checkbin:
-ifeq ($(GCC_VERSION)$(BAD_GCC_AS),03041)
-	@echo -n '*** ${VERSION}.${PATCHLEVEL} kernels no longer build '
-	@echo 'correctly with gcc-3.4 and your version of binutils.'
-	@echo '*** Please upgrade your binutils or downgrade your gcc'
-	@false
-endif
-ifneq ($(AS_ALTIVEC),0)
-	echo $(AS_ALTIVEC)
-	@echo -n '*** ${VERSION}.${PATCHLEVEL} kernels no longer build '
-	@echo 'correctly with old versions of binutils.'
-	@echo '*** Please upgrade your binutils to 2.12.1 or newer'
-	@false
-endif
-	@true
+	@if test "$(GCC_VERSION)" = "0304" ; then \
+		if ! /bin/echo mftb 5 | $(AS) -v -mppc -many -o $(TOUT) >/dev/null 2>&1 ; then \
+			echo -n '*** ${VERSION}.${PATCHLEVEL} kernels no longer build '; \
+			echo 'correctly with gcc-3.4 and your version of binutils.'; \
+			echo '*** Please upgrade your binutils or downgrade your gcc'; \
+			false; \
+		fi ; \
+	fi
+	@if ! /bin/echo dssall | $(AS) -many -o $(TOUT) >/dev/null 2>&1 ; then \
+		echo -n '*** ${VERSION}.${PATCHLEVEL} kernels no longer build ' ; \
+		echo 'correctly with old versions of binutils.' ; \
+		echo '*** Please upgrade your binutils to 2.12.1 or newer' ; \
+		false ; \
+	fi
 
 CLEAN_FILES +=	include/asm-$(ARCH)/offsets.h \
 		arch/$(ARCH)/kernel/asm-offsets.s \
