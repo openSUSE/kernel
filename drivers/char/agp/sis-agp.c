@@ -1,5 +1,5 @@
 /*
- * SiS AGPGART routines. 
+ * SiS AGPGART routines.
  */
 
 #include <linux/module.h>
@@ -82,7 +82,7 @@ static void sis_delayed_enable(u32 mode)
 		agp_bridge->dev->slot_name);
 
 	pci_read_config_dword(agp_bridge->dev, agp_bridge->capndx + PCI_AGP_STATUS, &command);
-	command = agp_collect_device_status(mode, command);
+	command = agp_collect_device_status(agp_bridge, mode, command);
 	command |= AGPSTAT_AGP_ENABLE;
 	rate = (command & 0x7) << 2;
 
@@ -99,7 +99,7 @@ static void sis_delayed_enable(u32 mode)
 		/*
 		 * Weird: on some sis chipsets any rate change in the target
 		 * command register triggers a 5ms screwup during which the master
-		 * cannot be configured		 
+		 * cannot be configured
 		 */
 		if (device->device == agp_bridge->dev->device) {
 			printk(KERN_INFO PFX "SiS delay workaround: giving bridge time to recover.\n");

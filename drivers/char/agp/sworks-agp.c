@@ -395,7 +395,7 @@ static void serverworks_agp_enable(u32 mode)
 			      agp_bridge->capndx + PCI_AGP_STATUS,
 			      &command);
 
-	command = agp_collect_device_status(mode, command);
+	command = agp_collect_device_status(agp_bridge, mode, command);
 
 	command &= ~0x10;	/* disable FW */
 	command &= ~0x08;
