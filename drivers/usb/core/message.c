@@ -1129,10 +1129,29 @@ int usb_set_interface(struct usb_device *dev, int interface, int alternate)
 	/* prevent submissions using previous endpoint settings */
 	usb_disable_interface(dev, iface);
 
+	/* 9.1.1.5 says:
+	 *
+	 *	Configuring a device or changing an alternate setting
+	 *	causes all of the status and configuration values
+	 *	associated with endpoints in the affected interfaces to
+	 *	be set to their default values. This includes setting
+	 *	the data toggle of any endpoint using data toggles to
+	 *	the value DATA0.
+	 *
+	 * Some devices take this too literally and don't reset the data
+	 * toggles if the new altsetting is the same as the old one (the
+	 * command isn't "changing" an alternate setting).  We will manually
+	 * reset the toggles when the new and old altsettings are the same.
+	 * Most devices won't need this, but fortunately it doesn't happen
+	 * often.
+	 */
+	if (iface->cur_altsetting == alt)
+		manual = 1;
 	iface->cur_altsetting = alt;
 
 	/* If the interface only has one altsetting and the device didn't
-	 * accept the request, we attempt to carry out the equivalent action
+	 * accept the request (or whenever the old altsetting is the same
+	 * as the new one), we attempt to carry out the equivalent action
 	 * by manually clearing the HALT feature for each endpoint in the
 	 * new altsetting.
 	 */
