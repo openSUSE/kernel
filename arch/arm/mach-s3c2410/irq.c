@@ -39,6 +39,9 @@
  *
  *   04-Nov-2004  Ben Dooks
  *		  Fix standard IRQ wake for EINT0..4 and RTC
+ *
+ *   22-Feb-2004  Ben Dooks
+ *		  Fixed edge-triggering on ADC IRQ
 */
 
 #include <linux/init.h>
@@ -262,8 +265,8 @@ s3c_irqext_unmask(unsigned int irqno)
 static int
 s3c_irqext_type(unsigned int irq, unsigned int type)
 {
-	unsigned long extint_reg;
-	unsigned long gpcon_reg;
+	void __iomem *extint_reg;
+	void __iomem *gpcon_reg;
 	unsigned long gpcon_offset, extint_offset;
 	unsigned long newvalue = 0, value;
 
@@ -426,6 +429,23 @@ s3c_irqsub_maskack(unsigned int irqno, unsigned int parentmask, unsigned int gro
 	}
 }
 
+static inline void
+s3c_irqsub_ack(unsigned int irqno, unsigned int parentmask, unsigned int group)
+{
+	unsigned int bit = 1UL << (irqno - IRQ_S3CUART_RX0);
+
+	__raw_writel(bit, S3C2410_SUBSRCPND);
+
+	/* only ack parent if we've got all the irqs (seems we must
+	 * ack, all and hope that the irq system retriggers ok when
+	 * the interrupt goes off again)
+	 */
+
+	if (1) {
+		__raw_writel(parentmask, S3C2410_SRCPND);
+		__raw_writel(parentmask, S3C2410_INTPND);
+	}
+}
 
 /* UART0 */
 
@@ -522,7 +542,7 @@ s3c_irq_adc_unmask(unsigned int irqno)
 static void
 s3c_irq_adc_ack(unsigned int irqno)
 {
-	s3c_irqsub_maskack(irqno, INTMSK_ADCPARENT, 3 << 9);
+	s3c_irqsub_ack(irqno, INTMSK_ADCPARENT, 3 << 9);
 }
 
 static struct irqchip s3c_irq_adc = {

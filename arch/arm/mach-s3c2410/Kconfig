@@ -58,6 +58,18 @@ config MACH_RX3715
 	  See <http://www.handhelds.org/projects/rx3715.html> for more
 	  information on this project
 
+config MACH_OTOM
+ 	bool "NexVision OTOM Board"
+ 	select CPU_S3C2410
+	help
+ 	  Say Y here if you are using the Nex Vision OTOM board
+
+config MACH_NEXCODER_2440
+ 	bool "NexVision NEXCODER 2440 Light Board"
+ 	select CPU_S3C2440
+	help
+ 	  Say Y here if you are using the Nex Vision NEXCODER 2440 Light Board
+
 endmenu
 
 config CPU_S3C2410

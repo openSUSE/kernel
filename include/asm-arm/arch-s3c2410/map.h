@@ -30,7 +30,12 @@
  * as they are only useful to certain drivers...
  */
 
+#ifndef __ASSEMBLY__
+#define S3C2410_ADDR(x)	  ((void __iomem *)0xF0000000 + (x))
+#else
 #define S3C2410_ADDR(x)	  (0xF0000000 + (x))
+#endif
+
 #define S3C2400_ADDR(x)	  S3C2410_ADDR(x)
 
 /* interrupt controller is the first thing we put in, to make

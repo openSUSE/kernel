@@ -46,7 +46,7 @@
 /*
  * IO Addresses
  */
-#define VIDC_BASE		0xe0400000
+#define VIDC_BASE		(void __iomem *)0xe0400000
 #define EXPMASK_BASE		0xe0360000
 #define IOMD_BASE		0xe0200000
 #define IOC_BASE		0xe0200000
