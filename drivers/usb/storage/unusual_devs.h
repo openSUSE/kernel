@@ -59,16 +59,16 @@ UNUSUAL_DEV(  0x03f0, 0x0107, 0x0200, 0x0200,
 		"CD-Writer+",
 		US_SC_8070, US_PR_CB, NULL, 0), 
 
-#ifdef CONFIG_USB_STORAGE_HP8200e
+#ifdef CONFIG_USB_STORAGE_USBAT
 UNUSUAL_DEV(  0x03f0, 0x0207, 0x0001, 0x0001, 
 		"HP",
 		"CD-Writer+ 8200e",
-		US_SC_8070, US_PR_SCM_ATAPI, init_8200e, 0), 
+		US_SC_8070, US_PR_SCM_ATAPI, init_usbat_hp8200e, 0), 
 
 UNUSUAL_DEV(  0x03f0, 0x0307, 0x0001, 0x0001, 
 		"HP",
 		"CD-Writer+ CD-4e",
-		US_SC_8070, US_PR_SCM_ATAPI, init_8200e, 0), 
+		US_SC_8070, US_PR_SCM_ATAPI, init_usbat_hp8200e, 0), 
 #endif
 
 /* Deduced by Jonathan Woithe <jwoithe@physics.adelaide.edu.au>

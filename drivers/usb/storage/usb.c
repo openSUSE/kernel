@@ -63,7 +63,7 @@
 #include "debug.h"
 #include "initializers.h"
 
-#ifdef CONFIG_USB_STORAGE_HP8200e
+#ifdef CONFIG_USB_STORAGE_USBAT
 #include "shuttle_usbat.h"
 #endif
 #ifdef CONFIG_USB_STORAGE_SDDR09
@@ -568,10 +568,10 @@ static int get_transport(struct us_data *us)
 		us->transport_reset = usb_stor_Bulk_reset;
 		break;
 
-#ifdef CONFIG_USB_STORAGE_HP8200e
+#ifdef CONFIG_USB_STORAGE_USBAT
 	case US_PR_SCM_ATAPI:
 		us->transport_name = "SCM/ATAPI";
-		us->transport = hp8200e_transport;
+		us->transport = usbat_hp8200e_transport;
 		us->transport_reset = usb_stor_CB_reset;
 		us->max_lun = 1;
 		break;

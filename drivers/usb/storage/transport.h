@@ -52,7 +52,7 @@ struct scsi_cmnd;
 #define US_PR_CBI	0x00		/* Control/Bulk/Interrupt */
 #define US_PR_CB	0x01		/* Control/Bulk w/o interrupt */
 #define US_PR_BULK	0x50		/* bulk only */
-#ifdef CONFIG_USB_STORAGE_HP8200e
+#ifdef CONFIG_USB_STORAGE_USBAT
 #define US_PR_SCM_ATAPI	0x80		/* SCM-ATAPI bridge */
 #endif
 #ifdef CONFIG_USB_STORAGE_SDDR09
