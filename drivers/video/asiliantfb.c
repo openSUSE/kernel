@@ -46,7 +46,7 @@
 #include <asm/io.h>
 
 /* Built in clock of the 69030 */
-const unsigned Fref = 14318180;
+static const unsigned Fref = 14318180;
 
 #define mmio_base (p->screen_base + 0x400000)
 
@@ -90,11 +90,6 @@ static void mm_write_ar(struct fb_info *p, u8 reg, u8 data)
 	mm_write_ind(reg, data, 0x780, 0x780);
 }
 #define write_ar(num, val)	mm_write_ar(p, num, val)
-
-/*
- * Exported functions
- */
-int asiliantfb_init(void);
 
 static int asiliantfb_pci_init(struct pci_dev *dp, const struct pci_device_id *);
 static int asiliantfb_check_var(struct fb_var_screeninfo *var,
@@ -604,7 +599,7 @@ static struct pci_driver asiliantfb_driver = {
 	.remove =	__devexit_p(asiliantfb_remove),
 };
 
-int __init asiliantfb_init(void)
+static int __init asiliantfb_init(void)
 {
 	if (fb_get_options("asiliantfb", NULL))
 		return -ENODEV;

@@ -49,7 +49,7 @@ static void end_8259A_irq (unsigned int irq)
 
 #define shutdown_8259A_irq	disable_8259A_irq
 
-void mask_and_ack_8259A(unsigned int);
+static void mask_and_ack_8259A(unsigned int);
 
 unsigned int startup_8259A_irq(unsigned int irq)
 { 
@@ -168,7 +168,7 @@ static inline int i8259A_irq_real(unsigned int irq)
  * first, _then_ send the EOI, and the order of EOI
  * to the two 8259s is important!
  */
-void mask_and_ack_8259A(unsigned int irq)
+static void mask_and_ack_8259A(unsigned int irq)
 {
 	unsigned int irqmask = 1 << irq;
 	unsigned long flags;

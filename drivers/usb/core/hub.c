@@ -383,7 +383,7 @@ static void hub_tt_kevent (void *arg)
 
 /**
  * usb_hub_tt_clear_buffer - clear control/bulk TT state in high speed hub
- * @dev: the device whose split transaction failed
+ * @udev: the device whose split transaction failed
  * @pipe: identifies the endpoint of the failed transaction
  *
  * High speed HCDs use this to tell the hub driver that some split control or

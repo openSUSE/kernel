@@ -1795,7 +1795,7 @@ static struct sysfs_ops cfq_sysfs_ops = {
 	.store	= cfq_attr_store,
 };
 
-struct kobj_type cfq_ktype = {
+static struct kobj_type cfq_ktype = {
 	.sysfs_ops	= &cfq_sysfs_ops,
 	.default_attrs	= default_attrs,
 };

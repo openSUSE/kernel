@@ -6,38 +6,39 @@
 # To add a new book the only step required is to add the book to the
 # list of DOCBOOKS.
 
-DOCBOOKS := wanbook.sgml z8530book.sgml mcabook.sgml videobook.sgml \
-	    kernel-hacking.sgml kernel-locking.sgml via-audio.sgml \
-	    deviceiobook.sgml procfs-guide.sgml tulip-user.sgml \
-	    writing_usb_driver.sgml scsidrivers.sgml sis900.sgml \
-	    kernel-api.sgml journal-api.sgml lsm.sgml usb.sgml \
-	    gadget.sgml libata.sgml mtdnand.sgml librs.sgml
+DOCBOOKS := wanbook.xml z8530book.xml mcabook.xml videobook.xml \
+	    kernel-hacking.xml kernel-locking.xml via-audio.xml \
+	    deviceiobook.xml procfs-guide.xml tulip-user.xml \
+	    writing_usb_driver.xml scsidrivers.xml sis900.xml \
+	    kernel-api.xml journal-api.xml lsm.xml usb.xml \
+	    gadget.xml libata.xml mtdnand.xml librs.xml
 
 ###
 # The build process is as follows (targets):
-#              (sgmldocs)
-# file.tmpl --> file.sgml +--> file.ps  (psdocs)
-#                         +--> file.pdf  (pdfdocs)
-#                         +--> DIR=file  (htmldocs)
-#                         +--> man/      (mandocs)
+#              (xmldocs)
+# file.tmpl --> file.xml +--> file.ps   (psdocs)
+#                        +--> file.pdf  (pdfdocs)
+#                        +--> DIR=file  (htmldocs)
+#                        +--> man/      (mandocs)
 
 ###
 # The targets that may be used.
-.PHONY:	sgmldocs psdocs pdfdocs htmldocs mandocs installmandocs
+.PHONY:	xmldocs sgmldocs psdocs pdfdocs htmldocs mandocs installmandocs
 
 BOOKS := $(addprefix $(obj)/,$(DOCBOOKS))
-sgmldocs: $(BOOKS)
+xmldocs: $(BOOKS)
+sgmldocs: xmldocs
 
-PS := $(patsubst %.sgml, %.ps, $(BOOKS))
+PS := $(patsubst %.xml, %.ps, $(BOOKS))
 psdocs: $(PS)
 
-PDF := $(patsubst %.sgml, %.pdf, $(BOOKS))
+PDF := $(patsubst %.xml, %.pdf, $(BOOKS))
 pdfdocs: $(PDF)
 
-HTML := $(patsubst %.sgml, %.html, $(BOOKS))
+HTML := $(patsubst %.xml, %.html, $(BOOKS))
 htmldocs: $(HTML)
 
-MAN := $(patsubst %.sgml, %.9, $(BOOKS))
+MAN := $(patsubst %.xml, %.9, $(BOOKS))
 mandocs: $(MAN)
 
 installmandocs: mandocs
@@ -55,7 +56,7 @@ MAKEMAN   = $(PERL) $(srctree)/scripts/makeman
 # 1) To generate a dependency list for a .tmpl file
 # 2) To preprocess a .tmpl file and call kernel-doc with
 #     appropriate parameters.
-# The following rules are used to generate the .sgml documentation
+# The following rules are used to generate the .xml documentation
 # required to generate the final targets. (ps, pdf, html).
 quiet_cmd_docproc = DOCPROC $@
       cmd_docproc = SRCTREE=$(srctree)/ $(DOCPROC) doc $< >$@
@@ -69,7 +70,7 @@ define rule_docproc
         ) > $(dir $@).$(notdir $@).cmd
 endef
 
-%.sgml: %.tmpl FORCE
+%.xml: %.tmpl FORCE
 	$(call if_changed_rule,docproc)
 
 ###
@@ -87,9 +88,9 @@ $(BOOKS): $(KERNELDOC)
 ###
 # procfs guide uses a .c file as example code.
 # This requires an explicit dependency
-C-procfs-example = procfs_example.sgml
+C-procfs-example = procfs_example.xml
 C-procfs-example2 = $(addprefix $(obj)/,$(C-procfs-example))
-$(obj)/procfs-guide.sgml: $(C-procfs-example2)
+$(obj)/procfs-guide.xml: $(C-procfs-example2)
 
 ###
 # Rules to generate postscript, PDF and HTML
@@ -97,7 +98,7 @@ $(obj)/procfs-guide.sgml: $(C-procfs-example2)
 
 quiet_cmd_db2ps = DB2PS   $@
       cmd_db2ps = db2ps -o $(dir $@) $<
-%.ps : %.sgml
+%.ps : %.xml
 	@(which db2ps > /dev/null 2>&1) || \
 	 (echo "*** You need to install DocBook stylesheets ***"; \
 	  exit 1)
@@ -105,7 +106,7 @@ quiet_cmd_db2ps = DB2PS   $@
 
 quiet_cmd_db2pdf = DB2PDF  $@
       cmd_db2pdf = db2pdf -o $(dir $@) $<
-%.pdf : %.sgml
+%.pdf : %.xml
 	@(which db2pdf > /dev/null 2>&1) || \
 	 (echo "*** You need to install DocBook stylesheets ***"; \
 	  exit 1)
@@ -116,7 +117,7 @@ quiet_cmd_db2html = DB2HTML $@
 		echo '<a HREF="$(patsubst %.html,%,$(notdir $@))/book1.html"> \
          Goto $(patsubst %.html,%,$(notdir $@))</a><p>' > $@
 
-%.html:	%.sgml
+%.html:	%.xml
 	@(which db2html > /dev/null 2>&1) || \
 	 (echo "*** You need to install DocBook stylesheets ***"; \
 	  exit 1)
@@ -128,7 +129,7 @@ quiet_cmd_db2html = DB2HTML $@
 ###
 # Rule to generate man files - output is placed in the man subdirectory
 
-%.9:	%.sgml
+%.9:	%.xml
 ifneq ($(KBUILD_SRC),)
 	$(Q)mkdir -p $(objtree)/Documentation/DocBook/man
 endif
@@ -156,8 +157,8 @@ quiet_cmd_fig2png = FIG2PNG $@
 	$(call cmd,fig2png)
 
 ###
-# Rule to convert a .c file to inline SGML documentation
-%.sgml: %.c
+# Rule to convert a .c file to inline XML documentation
+%.xml: %.c
 	@echo '  GEN     $@'
 	@(                            \
 	   echo "<programlisting>";   \
@@ -171,24 +172,24 @@ quiet_cmd_fig2png = FIG2PNG $@
 # Help targets as used by the top-level makefile
 dochelp:
 	@echo  '  Linux kernel internal documentation in different formats:'
-	@echo  '  sgmldocs (SGML), psdocs (Postscript), pdfdocs (PDF)'
+	@echo  '  xmldocs (XML DocBook), psdocs (Postscript), pdfdocs (PDF)'
 	@echo  '  htmldocs (HTML), mandocs (man pages, use installmandocs to install)'
 
 ###
 # Temporary files left by various tools
 clean-files := $(DOCBOOKS) \
-	$(patsubst %.sgml, %.dvi,  $(DOCBOOKS)) \
-	$(patsubst %.sgml, %.aux,  $(DOCBOOKS)) \
-	$(patsubst %.sgml, %.tex,  $(DOCBOOKS)) \
-	$(patsubst %.sgml, %.log,  $(DOCBOOKS)) \
-	$(patsubst %.sgml, %.out,  $(DOCBOOKS)) \
-	$(patsubst %.sgml, %.ps,   $(DOCBOOKS)) \
-	$(patsubst %.sgml, %.pdf,  $(DOCBOOKS)) \
-	$(patsubst %.sgml, %.html, $(DOCBOOKS)) \
-	$(patsubst %.sgml, %.9,    $(DOCBOOKS)) \
+	$(patsubst %.xml, %.dvi,  $(DOCBOOKS)) \
+	$(patsubst %.xml, %.aux,  $(DOCBOOKS)) \
+	$(patsubst %.xml, %.tex,  $(DOCBOOKS)) \
+	$(patsubst %.xml, %.log,  $(DOCBOOKS)) \
+	$(patsubst %.xml, %.out,  $(DOCBOOKS)) \
+	$(patsubst %.xml, %.ps,   $(DOCBOOKS)) \
+	$(patsubst %.xml, %.pdf,  $(DOCBOOKS)) \
+	$(patsubst %.xml, %.html, $(DOCBOOKS)) \
+	$(patsubst %.xml, %.9,    $(DOCBOOKS)) \
 	$(C-procfs-example)
 
-clean-dirs := $(patsubst %.sgml,%,$(DOCBOOKS))
+clean-dirs := $(patsubst %.xml,%,$(DOCBOOKS))
 
 #man put files in man subdir - traverse down
 subdir- := man/

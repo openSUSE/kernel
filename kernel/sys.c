@@ -90,7 +90,7 @@ int cad_pid = 1;
  */
 
 static struct notifier_block *reboot_notifier_list;
-DEFINE_RWLOCK(notifier_lock);
+static DEFINE_RWLOCK(notifier_lock);
 
 /**
  *	notifier_chain_register	- Add notifier to a notifier chain
@@ -1540,7 +1540,7 @@ asmlinkage long sys_setrlimit(unsigned int resource, struct rlimit __user *rlim)
  * given child after it's reaped, or none so this sample is before reaping.
  */
 
-void k_getrusage(struct task_struct *p, int who, struct rusage *r)
+static void k_getrusage(struct task_struct *p, int who, struct rusage *r)
 {
 	struct task_struct *t;
 	unsigned long flags;

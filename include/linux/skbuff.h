@@ -202,6 +202,8 @@ struct skb_shared_info {
  *	@nf_bridge: Saved data about a bridged frame - see br_netfilter.c
  *      @private: Data which is private to the HIPPI implementation
  *	@tc_index: Traffic control index
+ *	@tc_verd: traffic control verdict
+ *	@tc_classid: traffic control classid
  */
 
 struct sk_buff {

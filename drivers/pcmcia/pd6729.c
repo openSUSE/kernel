@@ -865,7 +865,7 @@ static struct pci_driver pd6729_pci_drv = {
 
 static int pd6729_module_init(void)
 {
-	return pci_module_init(&pd6729_pci_drv);
+	return pci_register_driver(&pd6729_pci_drv);
 }
 
 static void pd6729_module_exit(void)

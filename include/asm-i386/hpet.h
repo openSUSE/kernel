@@ -90,7 +90,6 @@
  */
 #define HPET_MIN_PERIOD (100000UL)
 
-extern unsigned long hpet_period;	/* fsecs / HPET clock */
 extern unsigned long hpet_tick;  	/* hpet clks count per tick */
 extern unsigned long hpet_address;	/* hpet memory map physical address */
 
@@ -100,7 +99,6 @@ extern int hpet_reenable(void);
 extern int is_hpet_enabled(void);
 extern int is_hpet_capable(void);
 extern int hpet_readl(unsigned long a);
-extern void hpet_writel(unsigned long d, unsigned long a);
 
 #ifdef CONFIG_HPET_EMULATE_RTC
 extern int hpet_mask_rtc_irq_bit(unsigned long bit_mask);

@@ -4217,7 +4217,7 @@ static struct kobject *floppy_find(dev_t dev, int *part, void *data)
 	return get_disk(disks[drive]);
 }
 
-int __init floppy_init(void)
+static int __init floppy_init(void)
 {
 	int i, unit, drive;
 	int err, dr;
@@ -4551,7 +4551,7 @@ static void floppy_release_irq_and_dma(void)
 
 #ifdef MODULE
 
-char *floppy;
+static char *floppy;
 
 static void unregister_devfs_entries(int drive)
 {

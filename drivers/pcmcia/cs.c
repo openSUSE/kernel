@@ -221,6 +221,8 @@ int pcmcia_register_socket(struct pcmcia_socket *socket)
 
 	cs_dbg(socket, 0, "pcmcia_register_socket(0x%p)\n", socket->ops);
 
+	spin_lock_init(&socket->lock);
+
 	if (socket->resource_ops->init) {
 		ret = socket->resource_ops->init(socket);
 		if (ret)
@@ -261,7 +263,6 @@ int pcmcia_register_socket(struct pcmcia_socket *socket)
 	socket->cis_mem.speed = cis_speed;
 
 	INIT_LIST_HEAD(&socket->cis_cache);
-	spin_lock_init(&socket->lock);
 
 	init_completion(&socket->socket_released);
 	init_completion(&socket->thread_done);

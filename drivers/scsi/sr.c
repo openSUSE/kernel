@@ -511,7 +511,7 @@ static int sr_block_media_changed(struct gendisk *disk)
 	return cdrom_media_changed(&cd->cdi);
 }
 
-struct block_device_operations sr_bdops =
+static struct block_device_operations sr_bdops =
 {
 	.owner		= THIS_MODULE,
 	.open		= sr_block_open,

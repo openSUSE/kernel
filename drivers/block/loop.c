@@ -1242,7 +1242,7 @@ int loop_unregister_transfer(int number)
 EXPORT_SYMBOL(loop_register_transfer);
 EXPORT_SYMBOL(loop_unregister_transfer);
 
-int __init loop_init(void)
+static int __init loop_init(void)
 {
 	int	i;
 
@@ -1317,7 +1317,7 @@ out_mem1:
 	return -ENOMEM;
 }
 
-void loop_exit(void)
+static void loop_exit(void)
 {
 	int i;
 

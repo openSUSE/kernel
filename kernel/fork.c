@@ -80,6 +80,24 @@ int nr_processes(void)
 static kmem_cache_t *task_struct_cachep;
 #endif
 
+/* SLAB cache for signal_struct structures (tsk->signal) */
+kmem_cache_t *signal_cachep;
+
+/* SLAB cache for sighand_struct structures (tsk->sighand) */
+kmem_cache_t *sighand_cachep;
+
+/* SLAB cache for files_struct structures (tsk->files) */
+kmem_cache_t *files_cachep;
+
+/* SLAB cache for fs_struct structures (tsk->fs) */
+kmem_cache_t *fs_cachep;
+
+/* SLAB cache for vm_area_struct structures */
+kmem_cache_t *vm_area_cachep;
+
+/* SLAB cache for mm_struct structures (tsk->mm) */
+static kmem_cache_t *mm_cachep;
+
 void free_task(struct task_struct *tsk)
 {
 	free_thread_info(tsk->thread_info);
@@ -1232,24 +1250,6 @@ long do_fork(unsigned long clone_flags,
 	}
 	return pid;
 }
-
-/* SLAB cache for signal_struct structures (tsk->signal) */
-kmem_cache_t *signal_cachep;
-
-/* SLAB cache for sighand_struct structures (tsk->sighand) */
-kmem_cache_t *sighand_cachep;
-
-/* SLAB cache for files_struct structures (tsk->files) */
-kmem_cache_t *files_cachep;
-
-/* SLAB cache for fs_struct structures (tsk->fs) */
-kmem_cache_t *fs_cachep;
-
-/* SLAB cache for vm_area_struct structures */
-kmem_cache_t *vm_area_cachep;
-
-/* SLAB cache for mm_struct structures (tsk->mm) */
-kmem_cache_t *mm_cachep;
 
 void __init proc_caches_init(void)
 {

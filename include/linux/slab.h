@@ -114,7 +114,6 @@ extern int FASTCALL(kmem_ptr_validate(kmem_cache_t *cachep, void *ptr));
 
 /* System wide caches */
 extern kmem_cache_t	*vm_area_cachep;
-extern kmem_cache_t	*mm_cachep;
 extern kmem_cache_t	*names_cachep;
 extern kmem_cache_t	*files_cachep;
 extern kmem_cache_t	*filp_cachep;

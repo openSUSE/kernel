@@ -92,7 +92,7 @@ inline int elv_try_last_merge(request_queue_t *q, struct bio *bio)
 }
 EXPORT_SYMBOL(elv_try_last_merge);
 
-struct elevator_type *elevator_find(const char *name)
+static struct elevator_type *elevator_find(const char *name)
 {
 	struct elevator_type *e = NULL;
 	struct list_head *entry;
@@ -220,7 +220,7 @@ void elevator_exit(elevator_t *e)
 	kfree(e);
 }
 
-int elevator_global_init(void)
+static int elevator_global_init(void)
 {
 	return 0;
 }

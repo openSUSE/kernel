@@ -91,7 +91,7 @@ static int r_show(struct seq_file *m, void *v)
 	return 0;
 }
 
-struct seq_operations resource_op = {
+static struct seq_operations resource_op = {
 	.start	= r_start,
 	.next	= r_next,
 	.stop	= r_stop,

@@ -315,7 +315,7 @@ static inline int sock_recv_bvec(struct socket *sock, struct bio_vec *bvec)
 }
 
 /* NULL returned = something went wrong, inform userspace */
-struct request *nbd_read_stat(struct nbd_device *lo)
+static struct request *nbd_read_stat(struct nbd_device *lo)
 {
 	int result;
 	struct nbd_reply reply;
@@ -377,7 +377,7 @@ harderror:
 	return NULL;
 }
 
-void nbd_do_it(struct nbd_device *lo)
+static void nbd_do_it(struct nbd_device *lo)
 {
 	struct request *req;
 
@@ -388,7 +388,7 @@ void nbd_do_it(struct nbd_device *lo)
 	return;
 }
 
-void nbd_clear_que(struct nbd_device *lo)
+static void nbd_clear_que(struct nbd_device *lo)
 {
 	struct request *req;
 

@@ -527,7 +527,7 @@ static int super_90_load(mdk_rdev_t *rdev, mdk_rdev_t *refdev, int minor_version
 	rdev->preferred_minor = sb->md_minor;
 	rdev->data_offset = 0;
 
-	if (sb->level == MULTIPATH)
+	if (sb->level == LEVEL_MULTIPATH)
 		rdev->desc_nr = -1;
 	else
 		rdev->desc_nr = sb->this_disk.number;
@@ -1435,9 +1435,8 @@ static int analyze_sbs(mddev_t * mddev)
 
 
 
-	if ((mddev->recovery_cp != MaxSector) &&
-	    ((mddev->level == 1) ||
-	     ((mddev->level >= 4) && (mddev->level <= 6))))
+	if (mddev->recovery_cp != MaxSector &&
+	    mddev->level >= 1)
 		printk(KERN_ERR "md: %s: raid array is not clean"
 		       " -- starting background reconstruction\n",
 		       mdname(mddev));
@@ -3545,18 +3544,18 @@ void md_check_recovery(mddev_t *mddev)
 
 		/* no recovery is running.
 		 * remove any failed drives, then
-		 * add spares if possible
+		 * add spares if possible.
+		 * Spare are also removed and re-added, to allow
+		 * the personality to fail the re-add.
 		 */
-		ITERATE_RDEV(mddev,rdev,rtmp) {
+		ITERATE_RDEV(mddev,rdev,rtmp)
 			if (rdev->raid_disk >= 0 &&
-			    rdev->faulty &&
+			    (rdev->faulty || ! rdev->in_sync) &&
 			    atomic_read(&rdev->nr_pending)==0) {
 				if (mddev->pers->hot_remove_disk(mddev, rdev->raid_disk)==0)
 					rdev->raid_disk = -1;
 			}
-			if (!rdev->faulty && rdev->raid_disk >= 0 && !rdev->in_sync)
-				spares++;
-		}
+
 		if (mddev->degraded) {
 			ITERATE_RDEV(mddev,rdev,rtmp)
 				if (rdev->raid_disk < 0

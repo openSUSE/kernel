@@ -112,9 +112,13 @@
  */
 #define PMAC_TYPE_UNKNOWN_INTREPID	0x11f	/* Generic */
 
-/* MacRISC4 / G5 machines
+/* MacRISC4 / G5 machines. We don't have per-machine selection here anymore,
+ * but rather machine families
  */
-#define PMAC_TYPE_POWERMAC_G5		0x150	/* First tower */
+#define PMAC_TYPE_POWERMAC_G5		0x150	/* U3 & U3H based */
+#define PMAC_TYPE_POWERMAC_G5_U3L	0x151	/* U3L based desktop */
+#define PMAC_TYPE_IMAC_G5		0x152	/* iMac G5 */
+#define PMAC_TYPE_XSERVE_G5		0x153	/* Xserve G5 */
 #define PMAC_TYPE_UNKNOWN_K2		0x19f	/* Any other K2 based */
 
 /*

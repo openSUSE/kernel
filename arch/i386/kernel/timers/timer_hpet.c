@@ -118,7 +118,7 @@ static void mark_offset_hpet(void)
 	write_sequnlock(&monotonic_lock);
 }
 
-void delay_hpet(unsigned long loops)
+static void delay_hpet(unsigned long loops)
 {
 	unsigned long hpet_start, hpet_end;
 	unsigned long eax;
