@@ -266,11 +266,11 @@ static int __init ns558_init(void)
  * Probe ISA ports first so that PnP gets to choose free port addresses
  * not occupied by the ISA ports.
  */
-	
+
 	while (ns558_isa_portlist[i])
 		ns558_isa_probe(ns558_isa_portlist[i++]);
 
-	if (pnp_register_driver(&ns558_pnp_driver) >= 0) 
+	if (pnp_register_driver(&ns558_pnp_driver) >= 0)
 		pnp_registered = 1;
 
 
@@ -285,7 +285,6 @@ static void __exit ns558_exit(void)
 		gameport_unregister_port(&port->gameport);
 		release_region(port->gameport.io & ~(port->size - 1), port->size);
 		kfree(port);
-		break;
 	}
 
 	if (pnp_registered)
