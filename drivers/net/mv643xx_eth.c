@@ -252,18 +252,14 @@ static void mv64340_eth_update_mac_address(struct net_device *dev)
 static void mv64340_eth_set_rx_mode(struct net_device *dev)
 {
 	struct mv64340_private *mp = netdev_priv(dev);
+	u32 config_reg;
 
-	if (dev->flags & IFF_PROMISC) {
-		ethernet_set_config_reg
-		    (mp->port_num,
-		     ethernet_get_config_reg(mp->port_num) |
-		     MV64340_ETH_UNICAST_PROMISCUOUS_MODE);
-	} else {
-		ethernet_set_config_reg
-		    (mp->port_num,
-		     ethernet_get_config_reg(mp->port_num) &
-		     ~(unsigned int) MV64340_ETH_UNICAST_PROMISCUOUS_MODE);
-	}
+	config_reg = ethernet_get_config_reg(mp->port_num);
+	if (dev->flags & IFF_PROMISC)
+		config_reg |= (u32)MV64340_ETH_UNICAST_PROMISCUOUS_MODE;
+	else
+		config_reg &= ~(u32)MV64340_ETH_UNICAST_PROMISCUOUS_MODE;
+	ethernet_set_config_reg(mp->port_num, config_reg);
 }
 
 
