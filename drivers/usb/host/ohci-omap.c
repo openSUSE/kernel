@@ -293,8 +293,6 @@ static void omap_stop_hc(struct platform_device *pdev)
 
 /*-------------------------------------------------------------------------*/
 
-void usb_hcd_omap_remove (struct usb_hcd *, struct platform_device *);
-
 /* configure so an HC device and id are always provided */
 /* always called with process context; sleeping is OK */
 
@@ -311,7 +309,7 @@ int usb_hcd_omap_probe (const struct hc_driver *driver,
 			  struct platform_device *pdev)
 {
 	int retval;
-	struct usb_hcd *hcd = 0;
+	struct usb_hcd *hcd;
 	struct ohci_hcd *ohci;
 
 	if (pdev->num_resources != 2) {
@@ -326,69 +324,38 @@ int usb_hcd_omap_probe (const struct hc_driver *driver,
 		return -ENODEV;
 	}
 
-	if (!request_mem_region(pdev->resource[0].start, 
-			pdev->resource[0].end - pdev->resource[0].start + 1,
-			hcd_name)) {
-		dev_dbg(&pdev->dev, "request_mem_region failed\n");
-		return -EBUSY;
-	}
+	hcd = usb_create_hcd (driver, &pdev->dev, pdev->dev.bus_id);
+	if (!hcd)
+		return -ENOMEM;
+	hcd->rsrc_start = pdev->resource[0].start;
+	hcd->rsrc_len = pdev->resource[0].end - pdev->resource[0].start + 1;
 
-	hcd = usb_create_hcd (driver);
-	if (hcd == NULL){
-		dev_dbg(&pdev->dev, "hcd_alloc failed\n");
-		retval = -ENOMEM;
+	if (!request_mem_region(hcd->rsrc_start, hcd->rsrc_len, hcd_name)) {
+		dev_dbg(&pdev->dev, "request_mem_region failed\n");
+		retval = -EBUSY;
 		goto err1;
 	}
-	dev_set_drvdata(&pdev->dev, hcd);
+
+	/* FIXME: Cast to pointer from integer of different size!
+	 * Needs ioremap */
+	hcd->regs = (void __iomem *) (u32) hcd->rsrc_start;
+
 	ohci = hcd_to_ohci(hcd);
 	ohci_hcd_init(ohci);
-
-	hcd->irq = pdev->resource[1].start;
-	hcd->regs = (void *)pdev->resource[0].start;
-	hcd->self.controller = &pdev->dev;
-
-	retval = hcd_buffer_create (hcd);
-	if (retval != 0) {
-		dev_dbg(&pdev->dev, "pool alloc fail\n");
-		goto err2;
-	}
 
 	retval = omap_start_hc(ohci, pdev);
 	if (retval < 0)
 		goto err2;
 
-	retval = request_irq (hcd->irq, usb_hcd_irq, 
-			      SA_INTERRUPT, hcd_name, hcd);
-	if (retval != 0) {
-		dev_dbg(&pdev->dev, "request_irq failed\n");
-		retval = -EBUSY;
-		goto err3;
-	}
-
-	dev_info(&pdev->dev, "%s at 0x%p, irq %d\n",
-		hcd->product_desc, hcd->regs, hcd->irq);
-
-	hcd->self.bus_name = pdev->dev.bus_id;
-	usb_register_bus (&hcd->self);
-
-	if ((retval = driver->start (hcd)) < 0) {
-		usb_hcd_omap_remove(hcd, pdev);
+	retval = usb_add_hcd(hcd, pdev->resource[1].start, SA_INTERRUPT);
+	if (retval == 0)
 		return retval;
-	}
 
-	return 0;
-
- err3:
-	hcd_buffer_destroy (hcd);
- err2:
-	dev_set_drvdata(&pdev->dev, NULL);
-	usb_put_hcd(hcd);
- err1:
 	omap_stop_hc(pdev);
-
-	release_mem_region(pdev->resource[0].start, 
-			   pdev->resource[0].end - pdev->resource[0].start + 1);
-
+ err2:
+	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
+ err1:
+	usb_put_hcd(hcd);
 	return retval;
 }
 
@@ -408,31 +375,12 @@ int usb_hcd_omap_probe (const struct hc_driver *driver,
  */
 void usb_hcd_omap_remove (struct usb_hcd *hcd, struct platform_device *pdev)
 {
-	dev_info(&pdev->dev, "remove: state %x\n", hcd->state);
-
-	if (in_interrupt ())
-		BUG ();
-
-	hcd->state = USB_STATE_QUIESCING;
-
-	dev_dbg(&pdev->dev, "roothub graceful disconnect\n");
-	usb_disconnect (&hcd->self.root_hub);
-
-	hcd->driver->stop (hcd);
-	hcd_buffer_destroy (hcd);
-	hcd->state = USB_STATE_HALT;
-
+	usb_remove_hcd(hcd);
 	if (machine_is_omap_osk())
 		omap_free_gpio(9);
-
-	free_irq (hcd->irq, hcd);
-
-	usb_deregister_bus (&hcd->self);
-
 	omap_stop_hc(pdev);
-
-	release_mem_region(pdev->resource[0].start, 
-			   pdev->resource[0].end - pdev->resource[0].start + 1);
+	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
+	usb_put_hcd(hcd);
 }
 
 /*-------------------------------------------------------------------------*/
@@ -467,7 +415,7 @@ static const struct hc_driver ohci_omap_hc_driver = {
 	 * generic hardware linkage
 	 */
 	.irq =			ohci_irq,
-	.flags =		HCD_USB11,
+	.flags =		HCD_USB11 | HCD_MEMORY,
 
 	/*
 	 * basic lifecycle operations
@@ -518,7 +466,6 @@ static int ohci_hcd_omap_drv_remove(struct device *dev)
 		(void) otg_set_host(ohci->transceiver, 0);
 		put_device(ohci->transceiver->dev);
 	}
-	dev_set_drvdata(dev, NULL);
 
 	return 0;
 }
