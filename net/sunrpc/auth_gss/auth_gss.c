@@ -811,7 +811,7 @@ gss_match(struct auth_cred *acred, struct rpc_cred *rc, int taskflags)
 * Maybe we should keep a cached credential for performance reasons.
 */
 static u32 *
-gss_marshal(struct rpc_task *task, u32 *p, int ruid)
+gss_marshal(struct rpc_task *task, u32 *p)
 {
 	struct rpc_cred *cred = task->tk_msg.rpc_cred;
 	struct gss_cred	*gss_cred = container_of(cred, struct gss_cred,

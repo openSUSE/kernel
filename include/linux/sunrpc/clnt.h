@@ -51,7 +51,6 @@ struct rpc_clnt {
 				cl_intr     : 1,/* interruptible */
 				cl_chatty   : 1,/* be verbose */
 				cl_autobind : 1,/* use getport() */
-				cl_droppriv : 1,/* enable NFS suid hack */
 				cl_oneshot  : 1,/* dispose after use */
 				cl_dead     : 1;/* abandoned */
 

@@ -368,7 +368,6 @@ nfs_create_client(struct nfs_server *server, const struct nfs_mount_data *data)
 
 	clnt->cl_intr     = (server->flags & NFS_MOUNT_INTR) ? 1 : 0;
 	clnt->cl_softrtry = (server->flags & NFS_MOUNT_SOFT) ? 1 : 0;
-	clnt->cl_droppriv = (server->flags & NFS_MOUNT_BROKEN_SUID) ? 1 : 0;
 	clnt->cl_chatty   = 1;
 
 	return clnt;
@@ -540,7 +539,6 @@ static int nfs_show_options(struct seq_file *m, struct vfsmount *mnt)
 		{ NFS_MOUNT_NOCTO, ",nocto", "" },
 		{ NFS_MOUNT_NOAC, ",noac", "" },
 		{ NFS_MOUNT_NONLM, ",nolock", ",lock" },
-		{ NFS_MOUNT_BROKEN_SUID, ",broken_suid", "" },
 		{ 0, NULL, NULL }
 	};
 	struct proc_nfs_info *nfs_infop;

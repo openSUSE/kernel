@@ -64,7 +64,7 @@ nul_match(struct auth_cred *acred, struct rpc_cred *cred, int taskflags)
  * Marshal credential.
  */
 static u32 *
-nul_marshal(struct rpc_task *task, u32 *p, int ruid)
+nul_marshal(struct rpc_task *task, u32 *p)
 {
 	*p++ = htonl(RPC_AUTH_NULL);
 	*p++ = 0;

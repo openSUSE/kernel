@@ -749,13 +749,10 @@ void rpc_init_task(struct rpc_task *task, struct rpc_clnt *clnt, rpc_action call
 	task->tk_client = clnt;
 	task->tk_flags  = flags;
 	task->tk_exit   = callback;
-	if (current->uid != current->fsuid || current->gid != current->fsgid)
-		task->tk_flags |= RPC_TASK_SETUID;
 
 	/* Initialize retry counters */
 	task->tk_garb_retry = 2;
 	task->tk_cred_retry = 2;
-	task->tk_suid_retry = 1;
 
 	task->tk_priority = RPC_PRIORITY_NORMAL;
 	task->tk_cookie = (unsigned long)current;

@@ -870,21 +870,6 @@ call_decode(struct rpc_task *task)
 		goto out_retry;
 	}
 
-	/*
-	 * The following is an NFS-specific hack to cater for setuid
-	 * processes whose uid is mapped to nobody on the server.
-	 */
-	if (task->tk_client->cl_droppriv && 
-            (ntohl(*p) == NFSERR_ACCES || ntohl(*p) == NFSERR_PERM)) {
-		if (RPC_IS_SETUID(task) && task->tk_suid_retry) {
-			dprintk("RPC: %4d retry squashed uid\n", task->tk_pid);
-			task->tk_flags ^= RPC_CALL_REALUID;
-			task->tk_action = call_bind;
-			task->tk_suid_retry--;
-			goto out_retry;
-		}
-	}
-
 	task->tk_action = NULL;
 
 	if (decode)

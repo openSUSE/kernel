@@ -103,7 +103,7 @@ struct rpc_credops {
 	void			(*crdestroy)(struct rpc_cred *);
 
 	int			(*crmatch)(struct auth_cred *, struct rpc_cred *, int);
-	u32 *			(*crmarshal)(struct rpc_task *, u32 *, int);
+	u32 *			(*crmarshal)(struct rpc_task *, u32 *);
 	int			(*crrefresh)(struct rpc_task *);
 	u32 *			(*crvalidate)(struct rpc_task *, u32 *);
 	int			(*crwrap_req)(struct rpc_task *, kxdrproc_t,

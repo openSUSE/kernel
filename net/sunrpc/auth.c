@@ -318,8 +318,7 @@ rpcauth_marshcred(struct rpc_task *task, u32 *p)
 
 	dprintk("RPC: %4d marshaling %s cred %p\n",
 		task->tk_pid, auth->au_ops->au_name, cred);
-	return cred->cr_ops->crmarshal(task, p,
-				task->tk_flags & RPC_CALL_REALUID);
+	return cred->cr_ops->crmarshal(task, p);
 }
 
 u32 *
