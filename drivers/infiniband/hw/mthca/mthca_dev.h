@@ -268,9 +268,10 @@ struct mthca_dev {
 	struct mthca_av_table  av_table;
 	struct mthca_mcg_table mcg_table;
 
-	struct mthca_uar      driver_uar;
-	struct mthca_pd       driver_pd;
-	struct mthca_mr       driver_mr;
+	struct mthca_uar       driver_uar;
+	struct mthca_db_table *db_tab;
+	struct mthca_pd        driver_pd;
+	struct mthca_mr        driver_mr;
 
 	struct ib_mad_agent  *send_agent[MTHCA_MAX_PORTS][2];
 	struct ib_ah         *sm_ah[MTHCA_MAX_PORTS];

@@ -33,6 +33,7 @@
  */
 
 #include "mthca_dev.h"
+#include "mthca_memfree.h"
 
 int mthca_uar_alloc(struct mthca_dev *dev, struct mthca_uar *uar)
 {
@@ -58,12 +59,20 @@ int mthca_init_uar_table(struct mthca_dev *dev)
 			       dev->limits.num_uars,
 			       dev->limits.num_uars - 1,
 			       dev->limits.reserved_uars);
+	if (ret)
+		return ret;
+
+	ret = mthca_init_db_tab(dev);
+	if (ret)
+		mthca_alloc_cleanup(&dev->uar_table.alloc);
 
 	return ret;
 }
 
 void mthca_cleanup_uar_table(struct mthca_dev *dev)
 {
+	mthca_cleanup_db_tab(dev);
+
 	/* XXX check if any UARs are still allocated? */
 	mthca_alloc_cleanup(&dev->uar_table.alloc);
 }
