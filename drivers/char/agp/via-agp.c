@@ -36,6 +36,7 @@ static int via_fetch_size(void)
 			return values[i].size;
 		}
 	}
+	printk(KERN_ERR PFX "Unknown aperture size from AGP bridge (0x%x)\n", temp);
 	return 0;
 }
 
