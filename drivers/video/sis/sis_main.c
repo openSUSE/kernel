@@ -145,7 +145,7 @@ sisfb_setdefaultparms(void)
 #endif
 }
 
-static void __init
+static void __devinit
 sisfb_search_vesamode(unsigned int vesamode, BOOLEAN quiet)
 {
 	int i = 0, j = 0;
@@ -5940,7 +5940,7 @@ MODULE_PARM_DESC(videoram,
 #endif
 #endif
 
-int __init sisfb_init_module(void)
+int __devinit sisfb_init_module(void)
 {
 	sisfb_setdefaultparms();
 
