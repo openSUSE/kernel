@@ -1028,8 +1028,7 @@ static void xfrm_dst_destroy(struct dst_entry *dst)
 {
 	struct xfrm_dst *xdst = (struct xfrm_dst *)dst;
 
-	if (xdst->route)
-		dst_release(xdst->route);
+	dst_release(xdst->route);
 
 	if (!dst->xfrm)
 		return;
