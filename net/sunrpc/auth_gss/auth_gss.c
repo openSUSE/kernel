@@ -654,6 +654,15 @@ gss_destroy_cred(struct rpc_cred *rc)
 	kfree(cred);
 }
 
+/*
+ * Lookup RPCSEC_GSS cred for the current process
+ */
+static struct rpc_cred *
+gss_lookup_cred(struct rpc_auth *auth, struct auth_cred *acred, int taskflags)
+{
+	return rpcauth_lookup_credcache(auth, acred, taskflags);
+}
+
 static struct rpc_cred *
 gss_create_cred(struct rpc_auth *auth, struct auth_cred *acred, int taskflags)
 {
@@ -1004,6 +1013,7 @@ static struct rpc_authops authgss_ops = {
 #endif
 	.create		= gss_create,
 	.destroy	= gss_destroy,
+	.lookup_cred	= gss_lookup_cred,
 	.crcreate	= gss_create_cred
 };
 

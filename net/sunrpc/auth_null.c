@@ -47,6 +47,15 @@ nul_destroy(struct rpc_auth *auth)
 }
 
 /*
+ * Lookup NULL creds for current process
+ */
+static struct rpc_cred *
+nul_lookup_cred(struct rpc_auth *auth, struct auth_cred *acred, int flags)
+{
+	return rpcauth_lookup_credcache(auth, acred, flags);
+}
+
+/*
  * Create NULL creds for current process
  */
 static struct rpc_cred *
@@ -135,6 +144,7 @@ struct rpc_authops	authnull_ops = {
 #endif
 	.create		= nul_create,
 	.destroy	= nul_destroy,
+	.lookup_cred	= nul_lookup_cred,
 	.crcreate	= nul_create_cred,
 };
 

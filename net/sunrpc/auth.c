@@ -137,16 +137,17 @@ rpcauth_free_credcache(struct rpc_auth *auth)
 	rpcauth_destroy_credlist(&free);
 }
 
-static inline int
+static void
 rpcauth_prune_expired(struct rpc_cred *cred, struct list_head *free)
 {
 	if (atomic_read(&cred->cr_count) != 1)
-	       return 0;
-	if (time_before(jiffies, cred->cr_expire + cred->cr_auth->au_expire))
-		return 0;
-	cred->cr_auth = NULL;
-	list_move(&cred->cr_hash, free);
-	return 1;
+	       return;
+	if (time_after(jiffies, cred->cr_expire + cred->cr_auth->au_expire))
+		cred->cr_flags &= ~RPCAUTH_CRED_UPTODATE;
+	if (!(cred->cr_flags & RPCAUTH_CRED_UPTODATE)) {
+		cred->cr_auth = NULL;
+		list_move(&cred->cr_hash, free);
+	}
 }
 
 /*
@@ -191,13 +192,12 @@ retry:
 	list_for_each_safe(pos, next, &auth->au_credcache[nr]) {
 		struct rpc_cred *entry;
 	       	entry = list_entry(pos, struct rpc_cred, cr_hash);
-		if (rpcauth_prune_expired(entry, &free))
-			continue;
 		if (entry->cr_ops->crmatch(acred, entry, taskflags)) {
 			list_del(&entry->cr_hash);
 			cred = entry;
 			break;
 		}
+		rpcauth_prune_expired(entry, &free);
 	}
 	if (new) {
 		if (cred)
@@ -240,7 +240,7 @@ rpcauth_lookupcred(struct rpc_auth *auth, int taskflags)
 
 	dprintk("RPC:     looking up %s cred\n",
 		auth->au_ops->au_name);
-	ret = rpcauth_lookup_credcache(auth, &acred, taskflags);
+	ret = auth->au_ops->lookup_cred(auth, &acred, taskflags);
 	put_group_info(current->group_info);
 	return ret;
 }
@@ -259,7 +259,7 @@ rpcauth_bindcred(struct rpc_task *task)
 
 	dprintk("RPC: %4d looking up %s cred\n",
 		task->tk_pid, task->tk_auth->au_ops->au_name);
-	task->tk_msg.rpc_cred = rpcauth_lookup_credcache(auth, &acred, task->tk_flags);
+	task->tk_msg.rpc_cred = auth->au_ops->lookup_cred(auth, &acred, task->tk_flags);
 	if (task->tk_msg.rpc_cred == 0)
 		task->tk_status = -ENOMEM;
 	ret = task->tk_msg.rpc_cred;

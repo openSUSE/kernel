@@ -65,6 +65,15 @@ unx_destroy(struct rpc_auth *auth)
 	kfree(auth);
 }
 
+/*
+ * Lookup AUTH_UNIX creds for current process
+ */
+static struct rpc_cred *
+unx_lookup_cred(struct rpc_auth *auth, struct auth_cred *acred, int flags)
+{
+	return rpcauth_lookup_credcache(auth, acred, flags);
+}
+
 static struct rpc_cred *
 unx_create_cred(struct rpc_auth *auth, struct auth_cred *acred, int flags)
 {
@@ -225,6 +234,7 @@ struct rpc_authops	authunix_ops = {
 #endif
 	.create		= unx_create,
 	.destroy	= unx_destroy,
+	.lookup_cred	= unx_lookup_cred,
 	.crcreate	= unx_create_cred,
 };
 
