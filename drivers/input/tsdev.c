@@ -424,6 +424,7 @@ static struct input_handle *tsdev_connect(struct input_handler *handler,
 static void tsdev_disconnect(struct input_handle *handle)
 {
 	struct tsdev *tsdev = handle->private;
+	struct tsdev_list *list;
 
 	class_simple_device_remove(MKDEV(INPUT_MAJOR, TSDEV_MINOR_BASE + tsdev->minor));
 	devfs_remove("input/ts%d", tsdev->minor);
@@ -433,6 +434,8 @@ static void tsdev_disconnect(struct input_handle *handle)
 	if (tsdev->open) {
 		input_close_device(handle);
 		wake_up_interruptible(&tsdev->wait);
+		list_for_each_entry(list, &tsdev->list, node)
+			kill_fasync(&list->fasync, SIGIO, POLL_HUP);
 	} else
 		tsdev_free(tsdev);
 }

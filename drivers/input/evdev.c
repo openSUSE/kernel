@@ -440,6 +440,7 @@ static struct input_handle *evdev_connect(struct input_handler *handler, struct 
 static void evdev_disconnect(struct input_handle *handle)
 {
 	struct evdev *evdev = handle->private;
+	struct evdev_list *list;
 
 	class_simple_device_remove(MKDEV(INPUT_MAJOR, EVDEV_MINOR_BASE + evdev->minor));
 	devfs_remove("input/event%d", evdev->minor);
@@ -448,6 +449,8 @@ static void evdev_disconnect(struct input_handle *handle)
 	if (evdev->open) {
 		input_close_device(handle);
 		wake_up_interruptible(&evdev->wait);
+		list_for_each_entry(list, &evdev->list, node)
+			kill_fasync(&list->fasync, SIGIO, POLL_HUP);
 	} else
 		evdev_free(evdev);
 }

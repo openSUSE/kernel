@@ -462,6 +462,7 @@ static struct input_handle *joydev_connect(struct input_handler *handler, struct
 static void joydev_disconnect(struct input_handle *handle)
 {
 	struct joydev *joydev = handle->private;
+	struct joydev_list *list;
 
 	class_simple_device_remove(MKDEV(INPUT_MAJOR, JOYDEV_MINOR_BASE + joydev->minor));
 	devfs_remove("input/js%d", joydev->minor);
@@ -470,6 +471,8 @@ static void joydev_disconnect(struct input_handle *handle)
 	if (joydev->open) {
 		input_close_device(handle);
 		wake_up_interruptible(&joydev->wait);
+		list_for_each_entry(list, &joydev->list, node)
+			kill_fasync(&list->fasync, SIGIO, POLL_HUP);
 	} else
 		joydev_free(joydev);
 }

@@ -652,6 +652,7 @@ static struct input_handle *mousedev_connect(struct input_handler *handler, stru
 static void mousedev_disconnect(struct input_handle *handle)
 {
 	struct mousedev *mousedev = handle->private;
+	struct mousedev_list *list;
 
 	class_simple_device_remove(MKDEV(INPUT_MAJOR, MOUSEDEV_MINOR_BASE + mousedev->minor));
 	devfs_remove("input/mouse%d", mousedev->minor);
@@ -660,6 +661,8 @@ static void mousedev_disconnect(struct input_handle *handle)
 	if (mousedev->open) {
 		input_close_device(handle);
 		wake_up_interruptible(&mousedev->wait);
+		list_for_each_entry(list, &mousedev->list, node)
+			kill_fasync(&list->fasync, SIGIO, POLL_HUP);
 	} else {
 		if (mousedev_mix.open)
 			input_close_device(handle);
