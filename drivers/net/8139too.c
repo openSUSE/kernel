@@ -390,8 +390,14 @@ enum rx_mode_bits {
 
 /* Bits in TxConfig. */
 enum tx_config_bits {
-	TxIFG1 = (1 << 25),	/* Interframe Gap Time */
-	TxIFG0 = (1 << 24),	/* Enabling these bits violates IEEE 802.3 */
+
+        /* Interframe Gap Time. Only TxIFG96 doesn't violate IEEE 802.3 */
+        TxIFGShift = 24,
+        TxIFG84 = (0 << TxIFGShift),    /* 8.4us / 840ns (10 / 100Mbps) */
+        TxIFG88 = (1 << TxIFGShift),    /* 8.8us / 880ns (10 / 100Mbps) */
+        TxIFG92 = (2 << TxIFGShift),    /* 9.2us / 920ns (10 / 100Mbps) */
+        TxIFG96 = (3 << TxIFGShift),    /* 9.6us / 960ns (10 / 100Mbps) */
+
 	TxLoopBack = (1 << 18) | (1 << 17), /* enable loopback test mode */
 	TxCRC = (1 << 16),	/* DISABLE appending CRC to end of Tx packets */
 	TxClearAbt = (1 << 0),	/* Clear abort (WO) */
@@ -724,7 +730,7 @@ static const unsigned int rtl8139_rx_config =
 #endif
 
 static const unsigned int rtl8139_tx_config =
-	(TX_DMA_BURST << TxDMAShift) | (TX_RETRY << TxRetryShift);
+	TxIFG96 | (TX_DMA_BURST << TxDMAShift) | (TX_RETRY << TxRetryShift);
 
 static void __rtl8139_cleanup_dev (struct net_device *dev)
 {
@@ -1400,8 +1406,6 @@ static void rtl8139_hw_start (struct net_device *dev)
 
 	tp->rx_config = rtl8139_rx_config | AcceptBroadcast | AcceptMyPhys;
 	RTL_W32 (RxConfig, tp->rx_config);
-
-	/* Check this value: the documentation for IFG contradicts ifself. */
 	RTL_W32 (TxConfig, rtl8139_tx_config);
 
 	tp->cur_rx = 0;
