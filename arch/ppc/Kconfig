@@ -1064,6 +1064,8 @@ config PROC_HARDWARE
 
 source "drivers/zorro/Kconfig"
 
+source kernel/power/Kconfig
+
 endmenu
 
 menu "Bus options"
