@@ -23,6 +23,7 @@
 
 #include "ieee1394_types.h"
 #include "ieee1394.h"
+#include "ieee1394_core.h"
 #include "hosts.h"
 #include "ieee1394_transactions.h"
 #include "highlevel.h"
@@ -1464,7 +1465,7 @@ static int nodemgr_check_irm_capability(struct hpsb_host *host, int cycles)
 	quadlet_t bc;
 	int status;
 
-	if (host->is_irm)
+	if (hpsb_disable_irm || host->is_irm)
 		return 1;
 
 	status = hpsb_read(host, LOCAL_BUS | (host->irm_id),

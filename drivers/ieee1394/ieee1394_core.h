@@ -218,6 +218,7 @@ static inline unsigned char ieee1394_file_to_instance(struct file *file)
 	return file->f_dentry->d_inode->i_cindex;
 }
 
+extern int hpsb_disable_irm;
 
 /* Our sysfs bus entry */
 extern struct bus_type ieee1394_bus_type;

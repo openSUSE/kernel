@@ -56,6 +56,12 @@ static int disable_nodemgr = 0;
 module_param(disable_nodemgr, int, 0444);
 MODULE_PARM_DESC(disable_nodemgr, "Disable nodemgr functionality.");
 
+/* Disable Isochronous Resource Manager functionality */
+int hpsb_disable_irm = 0;
+module_param_named(disable_irm, hpsb_disable_irm, bool, 0);
+MODULE_PARM_DESC(disable_irm,
+		 "Disable Isochronous Resource Manager functionality.");
+
 /* We are GPL, so treat us special */
 MODULE_LICENSE("GPL");
 
@@ -1129,8 +1135,17 @@ static int __init ieee1394_init(void)
 	}
 
 	if (disable_nodemgr) {
-		HPSB_INFO("nodemgr functionality disabled");
+		HPSB_INFO("nodemgr and IRM functionality disabled");
+		/* We shouldn't contend for IRM with nodemgr disabled, since
+		   nodemgr implements functionality required of ieee1394a-2000
+		   IRMs */
+		hpsb_disable_irm = 1;
+                      
 		return 0;
+	}
+
+	if (hpsb_disable_irm) {
+		HPSB_INFO("IRM functionality disabled");
 	}
 
 	ret = init_ieee1394_nodemgr();
@@ -1219,6 +1234,7 @@ EXPORT_SYMBOL(hpsb_selfid_received);
 EXPORT_SYMBOL(hpsb_selfid_complete);
 EXPORT_SYMBOL(hpsb_packet_sent);
 EXPORT_SYMBOL(hpsb_packet_received);
+EXPORT_SYMBOL_GPL(hpsb_disable_irm);
 
 /** ieee1394_transactions.c **/
 EXPORT_SYMBOL(hpsb_get_tlabel);

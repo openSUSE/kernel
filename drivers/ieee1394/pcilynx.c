@@ -384,7 +384,8 @@ static quadlet_t generate_own_selfid(struct ti_lynx *lynx,
         lsid = 0x80400000 | ((phyreg[0] & 0xfc) << 22);
         lsid |= (phyreg[1] & 0x3f) << 16; /* gap count */
         lsid |= (phyreg[2] & 0xc0) << 8; /* max speed */
-        lsid |= (phyreg[6] & 0x01) << 11; /* contender (phy dependent) */
+	if (!hpsb_disable_irm)
+		lsid |= (phyreg[6] & 0x01) << 11; /* contender (phy dependent) */
         /* lsid |= 1 << 11; *//* set contender (hack) */
         lsid |= (phyreg[6] & 0x10) >> 3; /* initiated reset */
 
@@ -1779,21 +1780,27 @@ static int __devinit add_card(struct pci_dev *dev,
                   | LINK_CONTROL_TX_ASYNC_EN | LINK_CONTROL_RX_ASYNC_EN
                   | LINK_CONTROL_RESET_TX    | LINK_CONTROL_RESET_RX);
 
-        if (!lynx->phyic.reg_1394a) {
-                /* attempt to enable contender bit -FIXME- would this work
-                 * elsewhere? */
-                reg_set_bits(lynx, GPIO_CTRL_A, 0x1);
-                reg_write(lynx, GPIO_DATA_BASE + 0x3c, 0x1);
-        } else {
-                /* set the contender and LCtrl bit in the extended PHY register
-                 * set. (Should check that bis 0,1,2 (=0xE0) is set
-                 * in register 2?)
-                 */
-                i = get_phy_reg(lynx, 4);
-                if (i != -1) set_phy_reg(lynx, 4, i | 0xc0);
-        }
-
-
+	if (!lynx->phyic.reg_1394a) {
+		if (!hpsb_disable_irm) {
+			/* attempt to enable contender bit -FIXME- would this
+			 * work elsewhere? */
+			reg_set_bits(lynx, GPIO_CTRL_A, 0x1);
+			reg_write(lynx, GPIO_DATA_BASE + 0x3c, 0x1);
+		}
+	} else {
+		/* set the contender (if appropriate) and LCtrl bit in the
+		 * extended PHY register set. (Should check that PHY_02_EXTENDED
+		 * is set in register 2?)
+		 */
+		i = get_phy_reg(lynx, 4);
+		i |= PHY_04_LCTRL;
+		if (hpsb_disable_irm)
+			i &= !PHY_04_CONTENDER;
+		else
+			i |= PHY_04_CONTENDER;
+		if (i != -1) set_phy_reg(lynx, 4, i);
+	}
+	
         if (!skip_eeprom)
         {
                 i2c_adapter = bit_ops;
