@@ -106,6 +106,10 @@
 /* TXX9 type number */
 #define PORT_TXX9       64
 
+/* NEC VR4100 series SIU/DSIU */
+#define PORT_VR41XX_SIU		65
+#define PORT_VR41XX_DSIU	66
+
 #ifdef __KERNEL__
 
 #include <linux/config.h>

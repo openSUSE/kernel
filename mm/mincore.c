@@ -97,8 +97,7 @@ static long mincore_vma(struct vm_area_struct * vma,
  * return values:
  *  zero    - success
  *  -EFAULT - vec points to an illegal address
- *  -EINVAL - addr is not a multiple of PAGE_CACHE_SIZE,
- *		or len has a nonpositive value
+ *  -EINVAL - addr is not a multiple of PAGE_CACHE_SIZE
  *  -ENOMEM - Addresses in the range [addr, addr + len] are
  *		invalid for the address space of this process, or
  *		specify one or more pages which are not currently
@@ -126,10 +125,13 @@ asmlinkage long sys_mincore(unsigned long start, size_t len,
 	if (start >= limit)
 		goto enomem;
 
+	if (!len)
+		return 0;
+
 	max = limit - start;
 	len = PAGE_CACHE_ALIGN(len);
-	if (len > max)
-		goto einval;
+	if (len > max || !len)
+		goto enomem;
 
 	end = start + len;
 

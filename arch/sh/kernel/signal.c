@@ -1,5 +1,4 @@
-/* $Id: signal.c,v 1.21 2004/06/28 13:18:44 doyu Exp $
- *
+/*
  *  linux/arch/sh/kernel/signal.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
@@ -341,8 +340,10 @@ setup_sigcontext(struct sigcontext __user *sc, struct pt_regs *regs,
 static inline void __user *
 get_sigframe(struct k_sigaction *ka, unsigned long sp, size_t frame_size)
 {
-	if ((ka->sa.sa_flags & SA_ONSTACK) != 0 && ! on_sig_stack(sp))
-		sp = current->sas_ss_sp + current->sas_ss_size;
+	if (ka->sa.sa_flags & SA_ONSTACK) {
+		if (sas_ss_flags(sp) == 0)
+			sp = current->sas_ss_sp + current->sas_ss_size;
+	}
 
 	return (void __user *)((sp - frame_size) & -8ul);
 }

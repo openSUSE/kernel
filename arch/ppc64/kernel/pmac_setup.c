@@ -244,7 +244,6 @@ static void btext_putc(unsigned char c)
 {
 	btext_drawchar(c);
 }
-#endif /* CONFIG_BOOTX_TEXT */
 
 static void __init init_boot_display(void)
 {
@@ -280,6 +279,7 @@ static void __init init_boot_display(void)
 			return;
 	}
 }
+#endif /* CONFIG_BOOTX_TEXT */
 
 /* 
  * Early initialization.

@@ -37,6 +37,7 @@
 static void * __devinit update_dn_pci_info(struct device_node *dn, void *data)
 {
 	struct pci_controller *phb = data;
+	int *type = (int *)get_property(dn, "ibm,pci-config-space-type", NULL);
 	u32 *regs;
 
 	dn->phb = phb;
@@ -46,6 +47,8 @@ static void * __devinit update_dn_pci_info(struct device_node *dn, void *data)
 		dn->busno = (regs[0] >> 16) & 0xff;
 		dn->devfn = (regs[0] >> 8) & 0xff;
 	}
+
+	dn->pci_ext_config_space = (type && *type == 1);
 	return NULL;
 }
 

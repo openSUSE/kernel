@@ -351,10 +351,9 @@ static void mdacon_init(struct vc_data *c, int init)
 	if (init) {
 		c->vc_cols = mda_num_columns;
 		c->vc_rows = mda_num_lines;
-	} else {
-		vc_resize(c->vc_num, mda_num_columns, mda_num_lines);
-        }
-	
+	} else
+		vc_resize(c, mda_num_columns, mda_num_lines);
+
 	/* make the first MDA console visible */
 
 	if (mda_display_fg == NULL)

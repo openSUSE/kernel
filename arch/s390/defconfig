@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
-# Linux kernel version: 2.6.11-rc2
-# Mon Jan 31 16:27:12 2005
+# Linux kernel version: 2.6.11
+# Wed Mar  2 16:57:55 2005
 #
 CONFIG_MMU=y
 CONFIG_RWSEM_XCHGADD_ALGORITHM=y
@@ -54,6 +54,7 @@ CONFIG_OBSOLETE_MODPARM=y
 # CONFIG_MODVERSIONS is not set
 # CONFIG_MODULE_SRCVERSION_ALL is not set
 CONFIG_KMOD=y
+CONFIG_STOP_MACHINE=y
 
 #
 # Base setup
@@ -67,7 +68,7 @@ CONFIG_KMOD=y
 CONFIG_ARCH_S390_31=y
 CONFIG_SMP=y
 CONFIG_NR_CPUS=32
-# CONFIG_HOTPLUG_CPU is not set
+CONFIG_HOTPLUG_CPU=y
 CONFIG_MATHEMU=y
 
 #
@@ -419,6 +420,10 @@ CONFIG_JBD=y
 CONFIG_FS_MBCACHE=y
 # CONFIG_REISERFS_FS is not set
 # CONFIG_JFS_FS is not set
+
+#
+# XFS support
+#
 # CONFIG_XFS_FS is not set
 # CONFIG_MINIX_FS is not set
 # CONFIG_ROMFS_FS is not set

@@ -27,7 +27,7 @@ echo "'| bk receive [path to repository]' or apply the patch as usual."
 
 SEP="\n===================================================================\n\n"
 echo -e $SEP
-bk changes -r$REV
+env PAGER=/bin/cat bk changes -r$REV
 echo
 bk export -tpatch -du -h -r$REV | diffstat
 echo; echo

@@ -2189,9 +2189,10 @@ SUPERH64 (sh64)
 P:	Paul Mundt
 M:	lethal@linux-sh.org
 P:	Richard Curnow
-M:	richard.curnow@superh.com
+M:	rc@rc0.org.uk
 L:	linuxsh-shmedia-dev@lists.sourceforge.net
 W:	http://www.linux-sh.org
+W:	http://www.rc0.org.uk/sh64
 S:	Maintained
 
 SUN3/3X

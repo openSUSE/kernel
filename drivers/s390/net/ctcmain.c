@@ -1,5 +1,5 @@
 /*
- * $Id: ctcmain.c,v 1.68 2004/12/27 09:25:27 heicarst Exp $
+ * $Id: ctcmain.c,v 1.69 2005/02/27 19:46:44 ptiedem Exp $
  *
  * CTC / ESCON network driver
  *
@@ -7,6 +7,7 @@
  * Author(s): Fritz Elfert (elfert@de.ibm.com, felfert@millenux.com)
  * Fixes by : Jochen Röhrig (roehrig@de.ibm.com)
  *            Arnaldo Carvalho de Melo <acme@conectiva.com.br>
+	      Peter Tiedemann (ptiedem@de.ibm.com)
  * Driver Model stuff by : Cornelia Huck <cohuck@de.ibm.com>
  *
  * Documentation used:
@@ -36,7 +37,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
- * RELEASE-TAG: CTC/ESCON network driver $Revision: 1.68 $
+ * RELEASE-TAG: CTC/ESCON network driver $Revision: 1.69 $
  *
  */
 
@@ -1894,12 +1895,14 @@ add_channel(struct ccw_device *cdev, enum channel_types type)
 		return -1;
 	}
 	memset(ch, 0, sizeof (struct channel));
-	if ((ch->ccw = (struct ccw1 *) kmalloc(sizeof (struct ccw1) * 8,
+	if ((ch->ccw = (struct ccw1 *) kmalloc(8*sizeof(struct ccw1),
 					       GFP_KERNEL | GFP_DMA)) == NULL) {
 		kfree(ch);
 		ctc_pr_warn("ctc: Out of memory in add_channel\n");
 		return -1;
 	}
+
+	memset(ch->ccw, 0, 8*sizeof(struct ccw1));	// assure all flags and counters are reset
 
 	/**
 	 * "static" ccws are used in the following way:
@@ -1914,21 +1917,17 @@ add_channel(struct ccw_device *cdev, enum channel_types type)
 	 *           4: write (idal allocated on every write).
 	 *           5: nop
 	 * ccw[6..7] (Channel program for initial channel setup):
-	 *           3: set extended mode
-	 *           4: nop
+	 *           6: set extended mode
+	 *           7: nop
 	 *
 	 * ch->ccw[0..5] are initialized in ch_action_start because
 	 * the channel's direction is yet unknown here.
 	 */
 	ch->ccw[6].cmd_code = CCW_CMD_SET_EXTENDED;
 	ch->ccw[6].flags = CCW_FLAG_SLI;
-	ch->ccw[6].count = 0;
-	ch->ccw[6].cda = 0;
 
 	ch->ccw[7].cmd_code = CCW_CMD_NOOP;
 	ch->ccw[7].flags = CCW_FLAG_SLI;
-	ch->ccw[7].count = 0;
-	ch->ccw[7].cda = 0;
 
 	ch->cdev = cdev;
 	snprintf(ch->id, CTC_ID_SIZE, "ch-%s", cdev->dev.bus_id);
@@ -1955,7 +1954,7 @@ add_channel(struct ccw_device *cdev, enum channel_types type)
 	memset(ch->irb, 0, sizeof (struct irb));
 	while (*c && less_than((*c)->id, ch->id))
 		c = &(*c)->next;
-	if (!strncmp((*c)->id, ch->id, CTC_ID_SIZE)) {
+	if (*c && (!strncmp((*c)->id, ch->id, CTC_ID_SIZE))) {
 		ctc_pr_debug(
 			"ctc: add_channel: device %s already in list, "
 			"using old entry\n", (*c)->id);
@@ -2011,6 +2010,8 @@ channel_remove(struct channel *ch)
 				dev_kfree_skb(ch->trans_skb);
 			}
 			kfree(ch->ccw);
+			kfree(ch->irb);
+			kfree(ch);
 			return;
 		}
 		c = &((*c)->next);

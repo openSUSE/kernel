@@ -789,6 +789,12 @@ struct journal_s
 	struct jbd_revoke_table_s *j_revoke_table[2];
 
 	/*
+	 * array of bhs for journal_commit_transaction
+	 */
+	struct buffer_head	**j_wbuf;
+	int			j_wbufsize;
+
+	/*
 	 * An opaque pointer to fs-private information.  ext3 puts its
 	 * superblock pointer here
 	 */
@@ -867,15 +873,12 @@ static inline handle_t *journal_current_handle(void)
 extern handle_t *journal_start(journal_t *, int nblocks);
 extern int	 journal_restart (handle_t *, int nblocks);
 extern int	 journal_extend (handle_t *, int nblocks);
-extern int	 journal_get_write_access(handle_t *, struct buffer_head *,
-						int *credits);
+extern int	 journal_get_write_access(handle_t *, struct buffer_head *);
 extern int	 journal_get_create_access (handle_t *, struct buffer_head *);
-extern int	 journal_get_undo_access(handle_t *, struct buffer_head *,
-						int *credits);
+extern int	 journal_get_undo_access(handle_t *, struct buffer_head *);
 extern int	 journal_dirty_data (handle_t *, struct buffer_head *);
 extern int	 journal_dirty_metadata (handle_t *, struct buffer_head *);
-extern void	 journal_release_buffer (handle_t *, struct buffer_head *,
-						int credits);
+extern void	 journal_release_buffer (handle_t *, struct buffer_head *);
 extern int	 journal_forget (handle_t *, struct buffer_head *);
 extern void	 journal_sync_buffer (struct buffer_head *);
 extern int	 journal_invalidatepage(journal_t *,

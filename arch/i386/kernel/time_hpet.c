@@ -121,11 +121,16 @@ int __init hpet_enable(void)
 	id = hpet_readl(HPET_ID);
 
 	/*
-	 * We are checking for value '1' or more in number field.
-	 * So, we are OK with HPET_EMULATE_RTC part too, where we need
-	 * to have atleast 2 timers.
+	 * We are checking for value '1' or more in number field if
+	 * CONFIG_HPET_EMULATE_RTC is set because we will need an
+	 * additional timer for RTC emulation.
+	 * However, we can do with one timer otherwise using the
+	 * the single HPET timer for system time.
 	 */
-	if (!(id & HPET_ID_NUMBER) ||
+	if (
+#ifdef CONFIG_HPET_EMULATE_RTC
+		!(id & HPET_ID_NUMBER) ||
+#endif
 	    !(id & HPET_ID_LEGSUP))
 		return -1;
 

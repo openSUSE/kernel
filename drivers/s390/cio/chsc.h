@@ -18,8 +18,6 @@ struct channel_path {
 	struct device dev;
 };
 
-extern struct channel_path *chps[];
-
 extern void s390_process_css( void );
 extern void chsc_validate_chpids(struct subchannel *);
 extern void chpid_is_actually_online(int);

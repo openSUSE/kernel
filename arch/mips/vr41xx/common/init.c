@@ -19,9 +19,11 @@
  */
 #include <linux/init.h>
 #include <linux/ioport.h>
+#include <linux/irq.h>
 #include <linux/string.h>
 
 #include <asm/bootinfo.h>
+#include <asm/time.h>
 #include <asm/vr41xx/vr41xx.h>
 
 #define IO_MEM_RESOURCE_START	0UL
@@ -31,6 +33,29 @@ static void __init iomem_resource_init(void)
 {
 	iomem_resource.start = IO_MEM_RESOURCE_START;
 	iomem_resource.end = IO_MEM_RESOURCE_END;
+}
+
+static void __init setup_timer_frequency(void)
+{
+	unsigned long tclock;
+
+	tclock = vr41xx_get_tclock_frequency();
+	if (current_cpu_data.processor_id == PRID_VR4131_REV2_0 ||
+	    current_cpu_data.processor_id == PRID_VR4131_REV2_1)
+		mips_hpt_frequency = tclock / 2;
+	else
+		mips_hpt_frequency = tclock / 4;
+}
+
+static void __init setup_timer_irq(struct irqaction *irq)
+{
+	setup_irq(TIMER_IRQ, irq);
+}
+
+static void __init timer_init(void)
+{
+	board_time_init = setup_timer_frequency;
+	board_timer_setup = setup_timer_irq;
 }
 
 void __init prom_init(void)
@@ -48,6 +73,8 @@ void __init prom_init(void)
 	}
 
 	vr41xx_calculate_clock_frequency();
+
+	timer_init();
 
 	iomem_resource_init();
 }

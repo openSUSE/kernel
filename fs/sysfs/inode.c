@@ -129,13 +129,17 @@ void sysfs_drop_dentry(struct sysfs_dirent * sd, struct dentry * parent)
 
 	if (dentry) {
 		spin_lock(&dcache_lock);
+		spin_lock(&dentry->d_lock);
 		if (!(d_unhashed(dentry) && dentry->d_inode)) {
 			dget_locked(dentry);
 			__d_drop(dentry);
+			spin_unlock(&dentry->d_lock);
 			spin_unlock(&dcache_lock);
 			simple_unlink(parent->d_inode, dentry);
-		} else
+		} else {
+			spin_unlock(&dentry->d_lock);
 			spin_unlock(&dcache_lock);
+		}
 	}
 }
 

@@ -2657,8 +2657,8 @@ z90crypt_reader_task(unsigned long ptr)
 
 	/**
 	 * we use workavail = 2 to ensure 2 passes with nothing dequeued before
-	 * exiting the loop. If pendingq_count == 0 after the loop, there is no
-	 * work remaining on the queues.
+	 * exiting the loop. If (pendingq_count+requestq_count) == 0 after the
+	 * loop, there is no work remaining on the queues.
 	 */
 	resp_addr = 0;
 	workavail = 2;
@@ -2697,7 +2697,7 @@ z90crypt_reader_task(unsigned long ptr)
 		spin_unlock_irq(&queuespinlock);
 	}
 
-	if (pendingq_count)
+	if (pendingq_count + requestq_count)
 		z90crypt_schedule_reader_timer();
 }
 

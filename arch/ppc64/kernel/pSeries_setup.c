@@ -322,8 +322,8 @@ static  void __init pSeries_discover_pic(void)
 
 static void pSeries_mach_cpu_die(void)
 {
-	idle_task_exit();
 	local_irq_disable();
+	idle_task_exit();
 	/* Some hardware requires clearing the CPPR, while other hardware does not
 	 * it is safe either way
 	 */

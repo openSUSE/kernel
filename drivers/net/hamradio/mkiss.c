@@ -419,7 +419,7 @@ static void ax25_write_wakeup(struct tty_struct *tty)
 /* Encapsulate an AX.25 packet and kick it into a TTY queue. */
 static int ax_xmit(struct sk_buff *skb, struct net_device *dev)
 {
-	struct ax_disp *ax = (struct ax_disp *) dev->priv;
+	struct ax_disp *ax = netdev_priv(dev);
 
 	if (!netif_running(dev))  {
 		printk(KERN_ERR "mkiss: %s: xmit call when iface is down\n", dev->name);
@@ -483,7 +483,7 @@ static int ax_rebuild_header(struct sk_buff *skb)
 /* Open the low-level part of the AX25 channel. Easy! */
 static int ax_open(struct net_device *dev)
 {
-	struct ax_disp *ax = (struct ax_disp *) dev->priv;
+	struct ax_disp *ax = netdev_priv(dev);
 	unsigned long len;
 
 	if (ax->tty == NULL)
@@ -534,7 +534,7 @@ norbuff:
 /* Close the low-level part of the AX25 channel. Easy! */
 static int ax_close(struct net_device *dev)
 {
-	struct ax_disp *ax = (struct ax_disp *) dev->priv;
+	struct ax_disp *ax = netdev_priv(dev);
 
 	if (ax->tty == NULL)
 		return -EBUSY;
@@ -634,7 +634,7 @@ static void ax25_close(struct tty_struct *tty)
 static struct net_device_stats *ax_get_stats(struct net_device *dev)
 {
 	static struct net_device_stats stats;
-	struct ax_disp *ax = (struct ax_disp *) dev->priv;
+	struct ax_disp *ax = netdev_priv(dev);
 
 	memset(&stats, 0, sizeof(struct net_device_stats));
 
@@ -827,7 +827,7 @@ static int ax25_disp_ioctl(struct tty_struct *tty, void *file, int cmd, void __u
 
 static int ax_open_dev(struct net_device *dev)
 {
-	struct ax_disp *ax = (struct ax_disp *) dev->priv;
+	struct ax_disp *ax = netdev_priv(dev);
 
 	if (ax->tty == NULL)
 		return -ENODEV;
@@ -839,7 +839,7 @@ static int ax_open_dev(struct net_device *dev)
 /* Initialize the driver.  Called by network startup. */
 static int ax25_init(struct net_device *dev)
 {
-	struct ax_disp *ax = (struct ax_disp *) dev->priv;
+	struct ax_disp *ax = netdev_priv(dev);
 
 	static char ax25_bcast[AX25_ADDR_LEN] =
 		{'Q'<<1,'S'<<1,'T'<<1,' '<<1,' '<<1,' '<<1,'0'<<1};

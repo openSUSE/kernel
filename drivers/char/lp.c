@@ -314,11 +314,13 @@ static ssize_t lp_write(struct file * file, const char __user * buf,
 	if (copy_size > LP_BUFFER_SIZE)
 		copy_size = LP_BUFFER_SIZE;
 
-	if (copy_from_user (kbuf, buf, copy_size))
-		return -EFAULT;
-
 	if (down_interruptible (&lp_table[minor].port_mutex))
 		return -EINTR;
+
+	if (copy_from_user (kbuf, buf, copy_size)) {
+		retv = -EFAULT;
+		goto out_unlock;
+	}
 
  	/* Claim Parport or sleep until it becomes available
  	 */
@@ -398,7 +400,7 @@ static ssize_t lp_write(struct file * file, const char __user * buf,
 		lp_table[minor].current_mode = IEEE1284_MODE_COMPAT;
 		lp_release_parport (&lp_table[minor]);
 	}
-
+out_unlock:
 	up (&lp_table[minor].port_mutex);
 
  	return retv;

@@ -151,7 +151,7 @@ static unsigned int find_physical_cpu_to_start(unsigned int old_hwindex)
 		if (index) {
 			int state;
 			int rc = rtas_get_sensor(9003, *index, &state);
-			if (rc != 0 || state != 1)
+			if (rc < 0 || state != 1)
 				continue;
 		}
 

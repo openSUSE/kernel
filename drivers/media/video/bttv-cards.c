@@ -1,5 +1,5 @@
 /*
-    $Id: bttv-cards.c,v 1.42 2005/01/13 17:22:33 kraxel Exp $
+    $Id: bttv-cards.c,v 1.44 2005/01/31 11:35:05 kraxel Exp $
 
     bttv-cards.c
 
@@ -170,6 +170,8 @@ static struct CARD {
 	// some cards ship with byteswapped IDs ...
 	{ 0x1200bd11, BTTV_PINNACLE,      "Pinnacle PCTV [bswap]" },
 	{ 0xff00bd11, BTTV_PINNACLE,      "Pinnacle PCTV [bswap]" },
+	// this seems to happen as well ...
+	{ 0xff1211bd, BTTV_PINNACLE,      "Pinnacle PCTV" },
 
 	{ 0x3000121a, BTTV_VOODOOTV_FM,   "3Dfx VoodooTV FM/ VoodooTV 200" },
 	{ 0x263710b4, BTTV_VOODOOTV_FM,   "3Dfx VoodooTV FM/ VoodooTV 200" },

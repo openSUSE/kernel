@@ -386,8 +386,9 @@ EXPORT_SYMBOL(mpage_readpage);
  * just allocate full-size (16-page) BIOs.
  */
 static struct bio *
-mpage_writepage(struct bio *bio, struct page *page, get_block_t get_block,
-	sector_t *last_block_in_bio, int *ret, struct writeback_control *wbc)
+__mpage_writepage(struct bio *bio, struct page *page, get_block_t get_block,
+	sector_t *last_block_in_bio, int *ret, struct writeback_control *wbc,
+	writepage_t writepage_fn)
 {
 	struct address_space *mapping = page->mapping;
 	struct inode *inode = page->mapping->host;
@@ -580,7 +581,13 @@ alloc_new:
 confused:
 	if (bio)
 		bio = mpage_bio_submit(WRITE, bio);
-	*ret = page->mapping->a_ops->writepage(page, wbc);
+
+	if (writepage_fn) {
+		*ret = (*writepage_fn)(page, wbc);
+	} else {
+		*ret = -EAGAIN;
+		goto out;
+	}
 	/*
 	 * The caller has a ref on the inode, so *mapping is stable
 	 */
@@ -706,8 +713,9 @@ retry:
 							&mapping->flags);
 				}
 			} else {
-				bio = mpage_writepage(bio, page, get_block,
-						&last_block_in_bio, &ret, wbc);
+				bio = __mpage_writepage(bio, page, get_block,
+						&last_block_in_bio, &ret, wbc,
+						page->mapping->a_ops->writepage);
 			}
 			if (ret || (--(wbc->nr_to_write) <= 0))
 				done = 1;
@@ -735,3 +743,19 @@ retry:
 	return ret;
 }
 EXPORT_SYMBOL(mpage_writepages);
+
+int mpage_writepage(struct page *page, get_block_t get_block,
+	struct writeback_control *wbc)
+{
+	int ret = 0;
+	struct bio *bio;
+	sector_t last_block_in_bio = 0;
+
+	bio = __mpage_writepage(NULL, page, get_block,
+			&last_block_in_bio, &ret, wbc, NULL);
+	if (bio)
+		mpage_bio_submit(WRITE, bio);
+
+	return ret;
+}
+EXPORT_SYMBOL(mpage_writepage);

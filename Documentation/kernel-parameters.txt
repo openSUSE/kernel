@@ -634,6 +634,20 @@ running once the system is up.
 	logibm.irq=	[HW,MOUSE] Logitech Bus Mouse Driver
 			Format: <irq>
 
+	loglevel=	All Kernel Messages with a loglevel smaller than the
+			console loglevel will be printed to the console. It can
+			also be changed with klogd or other programs. The
+			loglevels are defined as follows:
+
+			0 (KERN_EMERG)		system is unusable
+			1 (KERN_ALERT)		action must be taken immediately
+			2 (KERN_CRIT)		critical conditions
+			3 (KERN_ERR)		error conditions
+			4 (KERN_WARNING)	warning conditions
+			5 (KERN_NOTICE)		normal but significant condition
+			6 (KERN_INFO)		informational
+			7 (KERN_DEBUG)		debug-level messages
+
 	log_buf_len=n	Sets the size of the printk ring buffer, in bytes.
 			Format is n, nk, nM.  n must be a power of two.  The
 			default is set in kernel config.
@@ -1355,6 +1369,8 @@ running once the system is up.
 
 	thash_entries=	[KNL,NET]
 			Set number of hash buckets for TCP connection
+
+	time		Show timing data prefixed to each printk message line
 
 	tipar.timeout=	[HW,PPT]
 			Set communications timeout in tenths of a second
