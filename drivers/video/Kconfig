@@ -522,6 +522,7 @@ config FB_INTEL
 	depends on FB && EXPERIMENTAL && PCI && X86 && !X86_64
 	select AGP
 	select AGP_INTEL
+	select FB_MODE_HELPERS
 	help
 	  This driver supports the on-board graphics built in to the Intel
           830M/845G/852GM/855GM/865G chipsets.
