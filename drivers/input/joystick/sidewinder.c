@@ -58,7 +58,6 @@ MODULE_LICENSE("GPL");
 #define SW_BAD		2	/* Number of packet read errors to switch off 3d Pro optimization */
 #define SW_OK		64	/* Number of packet read successes to switch optimization back on */
 #define SW_LENGTH	512	/* Max number of bits in a packet */
-#define SW_REFRESH	HZ/50	/* Time to wait between updates of joystick data [20 ms] */
 
 #ifdef SW_DEBUG
 #define dbg(format, arg...) printk(KERN_DEBUG __FILE__ ": " format "\n" , ## arg)
@@ -115,7 +114,6 @@ static struct {
 
 struct sw {
 	struct gameport *gameport;
-	struct timer_list timer;
 	struct input_dev dev[4];
 	char name[64];
 	char phys[4][32];
@@ -127,7 +125,6 @@ struct sw {
 	int ok;
 	int reads;
 	int bads;
-	int used;
 };
 
 /*
@@ -496,22 +493,20 @@ static int sw_read(struct sw *sw)
 	return -1;
 }
 
-static void sw_timer(unsigned long private)
+static void sw_poll(struct gameport *gameport)
 {
-	struct sw *sw = (void *) private;
+	struct sw *sw = gameport_get_drvdata(gameport);
 
 	sw->reads++;
 	if (sw_read(sw))
 		sw->bads++;
-	mod_timer(&sw->timer, jiffies + SW_REFRESH);
 }
 
 static int sw_open(struct input_dev *dev)
 {
 	struct sw *sw = dev->private;
 
-	if (!sw->used++)
-		mod_timer(&sw->timer, jiffies + SW_REFRESH);
+	gameport_start_polling(sw->gameport);
 	return 0;
 }
 
@@ -519,8 +514,7 @@ static void sw_close(struct input_dev *dev)
 {
 	struct sw *sw = dev->private;
 
-	if (!--sw->used)
-		del_timer(&sw->timer);
+	gameport_stop_polling(sw->gameport);
 }
 
 /*
@@ -606,9 +600,6 @@ static int sw_connect(struct gameport *gameport, struct gameport_driver *drv)
 	}
 
 	sw->gameport = gameport;
-	init_timer(&sw->timer);
-	sw->timer.data = (long) sw;
-	sw->timer.function = sw_timer;
 
 	gameport_set_drvdata(gameport, sw);
 
@@ -725,6 +716,9 @@ static int sw_connect(struct gameport *gameport, struct gameport_driver *drv)
 	sw_print_packet("ID", j * 3, idbuf, 3);
 	sw_print_packet("Data", i * m, buf, m);
 #endif
+
+	gameport_set_poll_handler(gameport, sw_poll);
+	gameport_set_poll_interval(gameport, 20);
 
 	k = i;
 	l = j;
