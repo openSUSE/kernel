@@ -125,15 +125,11 @@ struct audit_rule {		/* for AUDIT_LIST, AUDIT_ADD, and AUDIT_DEL */
 
 #ifdef __KERNEL__
 
-#ifdef CONFIG_AUDIT
 struct audit_buffer;
 struct audit_context;
-#endif
-
-#ifdef CONFIG_AUDITSYSCALL
-/* forward decl for audit_inode */
 struct inode;
 
+#ifdef CONFIG_AUDITSYSCALL
 /* These are defined in auditsc.c */
 				/* Public API */
 extern int  audit_alloc(struct task_struct *task);
