@@ -148,7 +148,7 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long writeaccess,
 	mm = tsk->mm;
 
 	/* Not an IO address, so reenable interrupts */
-	sti();
+	local_irq_enable();
 
 	/*
 	 * If we're in an interrupt or have no user
