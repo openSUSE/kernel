@@ -283,7 +283,7 @@ static int sermouse_connect(struct serio *serio, struct serio_driver *drv)
 	serio_set_drvdata(serio, sermouse);
 
 	err = serio_open(serio, drv);
-	if (serio_open(serio, drv)) {
+	if (err) {
 		serio_set_drvdata(serio, NULL);
 		kfree(sermouse);
 		return err;
