@@ -52,7 +52,7 @@ EXPORT_SYMBOL(_dma_cache_inv);
 asmlinkage int sys_cacheflush(unsigned long addr, unsigned long int bytes,
 	unsigned int cache)
 {
-	if (verify_area(VERIFY_WRITE, (void *) addr, bytes))
+	if (!access_ok(VERIFY_WRITE, (void *) addr, bytes))
 		return -EFAULT;
 
 	flush_icache_range(addr, addr + bytes);
