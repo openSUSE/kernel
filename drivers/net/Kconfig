@@ -2083,7 +2083,7 @@ config TIGON3
 
 config GIANFAR
 	tristate "Gianfar Ethernet"
-	depends on 85xx
+	depends on 85xx || 83xx
 	help
 	  This driver supports the Gigabit TSEC on the MPC85xx 
 	  family of chips, and the FEC on the 8540

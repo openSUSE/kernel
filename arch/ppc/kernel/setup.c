@@ -227,6 +227,10 @@ int show_cpuinfo(struct seq_file *m, void *v)
 		maj = ((pvr >> 8) & 0xFF) - 1;
 		min = pvr & 0xFF;
 		break;
+	case 0x8083:	/* e300 */
+		maj = PVR_MAJ(pvr);
+		min = PVR_MIN(pvr);
+		break;
 	case 0x8020:	/* e500 */
 		maj = PVR_MAJ(pvr);
 		min = PVR_MIN(pvr);

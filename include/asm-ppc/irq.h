@@ -161,6 +161,16 @@ static __inline__ int irq_canonicalize(int irq)
 	return irq;
 }
 
+#elif defined(CONFIG_83xx)
+#include <asm/mpc83xx.h>
+
+static __inline__ int irq_canonicalize(int irq)
+{
+	return irq;
+}
+
+#define	NR_IRQS	(NR_IPIC_INTS)
+
 #elif defined(CONFIG_CPM2) && defined(CONFIG_85xx)
 /* Now include the board configuration specific associations.
 */
