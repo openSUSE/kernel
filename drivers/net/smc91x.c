@@ -211,13 +211,14 @@ struct smc_local {
 	spinlock_t lock;
 
 #ifdef SMC_CAN_USE_DATACS
-	u32	*datacs;
+	u32	__iomem *datacs;
 #endif
 
 #ifdef SMC_USE_PXA_DMA
 	/* DMA needs the physical address of the chip */
 	u_long physaddr;
 #endif
+	void __iomem *base;
 };
 
 #if SMC_DEBUG > 0
@@ -311,8 +312,8 @@ static void PRINT_PKT(u_char *buf, int length)
  */
 static void smc_reset(struct net_device *dev)
 {
-	unsigned long ioaddr = dev->base_addr;
 	struct smc_local *lp = netdev_priv(dev);
+	void __iomem *ioaddr = lp->base;
 	unsigned int ctl, cfg;
 
 	DBG(2, "%s: %s\n", dev->name, __FUNCTION__);
@@ -403,8 +404,8 @@ static void smc_reset(struct net_device *dev)
  */
 static void smc_enable(struct net_device *dev)
 {
-	unsigned long ioaddr = dev->base_addr;
 	struct smc_local *lp = netdev_priv(dev);
+	void __iomem *ioaddr = lp->base;
 	int mask;
 
 	DBG(2, "%s: %s\n", dev->name, __FUNCTION__);
@@ -437,8 +438,8 @@ static void smc_enable(struct net_device *dev)
  */
 static void smc_shutdown(struct net_device *dev)
 {
-	unsigned long ioaddr = dev->base_addr;
 	struct smc_local *lp = netdev_priv(dev);
+	void __iomem *ioaddr = lp->base;
 
 	DBG(2, "%s: %s\n", CARDNAME, __FUNCTION__);
 
@@ -466,7 +467,7 @@ static void smc_shutdown(struct net_device *dev)
 static inline void  smc_rcv(struct net_device *dev)
 {
 	struct smc_local *lp = netdev_priv(dev);
-	unsigned long ioaddr = dev->base_addr;
+	void __iomem *ioaddr = lp->base;
 	unsigned int packet_number, status, packet_len;
 
 	DBG(3, "%s: %s\n", dev->name, __FUNCTION__);
@@ -612,7 +613,7 @@ static void smc_hardware_send_pkt(unsigned long data)
 {
 	struct net_device *dev = (struct net_device *)data;
 	struct smc_local *lp = netdev_priv(dev);
-	unsigned long ioaddr = dev->base_addr;
+	void __iomem *ioaddr = lp->base;
 	struct sk_buff *skb;
 	unsigned int packet_no, len;
 	unsigned char *buf;
@@ -696,7 +697,7 @@ done:	if (!THROTTLE_TX_PKTS)
 static int smc_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct smc_local *lp = netdev_priv(dev);
-	unsigned long ioaddr = dev->base_addr;
+	void __iomem *ioaddr = lp->base;
 	unsigned int numPages, poll_count, status;
 
 	DBG(3, "%s: %s\n", dev->name, __FUNCTION__);
@@ -768,8 +769,8 @@ static int smc_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
  */
 static void smc_tx(struct net_device *dev)
 {
-	unsigned long ioaddr = dev->base_addr;
 	struct smc_local *lp = netdev_priv(dev);
+	void __iomem *ioaddr = lp->base;
 	unsigned int saved_packet, packet_no, tx_status, pkt_len;
 
 	DBG(3, "%s: %s\n", dev->name, __FUNCTION__);
@@ -825,7 +826,8 @@ static void smc_tx(struct net_device *dev)
 
 static void smc_mii_out(struct net_device *dev, unsigned int val, int bits)
 {
-	unsigned long ioaddr = dev->base_addr;
+	struct smc_local *lp = netdev_priv(dev);
+	void __iomem *ioaddr = lp->base;
 	unsigned int mii_reg, mask;
 
 	mii_reg = SMC_GET_MII() & ~(MII_MCLK | MII_MDOE | MII_MDO);
@@ -846,7 +848,8 @@ static void smc_mii_out(struct net_device *dev, unsigned int val, int bits)
 
 static unsigned int smc_mii_in(struct net_device *dev, int bits)
 {
-	unsigned long ioaddr = dev->base_addr;
+	struct smc_local *lp = netdev_priv(dev);
+	void __iomem *ioaddr = lp->base;
 	unsigned int mii_reg, mask, val;
 
 	mii_reg = SMC_GET_MII() & ~(MII_MCLK | MII_MDOE | MII_MDO);
@@ -870,7 +873,8 @@ static unsigned int smc_mii_in(struct net_device *dev, int bits)
  */
 static int smc_phy_read(struct net_device *dev, int phyaddr, int phyreg)
 {
-	unsigned long ioaddr = dev->base_addr;
+	struct smc_local *lp = netdev_priv(dev);
+	void __iomem *ioaddr = lp->base;
 	unsigned int phydata;
 
 	SMC_SELECT_BANK(3);
@@ -900,7 +904,8 @@ static int smc_phy_read(struct net_device *dev, int phyaddr, int phyreg)
 static void smc_phy_write(struct net_device *dev, int phyaddr, int phyreg,
 			  int phydata)
 {
-	unsigned long ioaddr = dev->base_addr;
+	struct smc_local *lp = netdev_priv(dev);
+	void __iomem *ioaddr = lp->base;
 
 	SMC_SELECT_BANK(3);
 
@@ -962,7 +967,7 @@ static void smc_phy_detect(struct net_device *dev)
 static int smc_phy_fixed(struct net_device *dev)
 {
 	struct smc_local *lp = netdev_priv(dev);
-	unsigned long ioaddr = dev->base_addr;
+	void __iomem *ioaddr = lp->base;
 	int phyaddr = lp->mii.phy_id;
 	int bmcr, cfg1;
 
@@ -1056,7 +1061,7 @@ static void smc_phy_powerdown(struct net_device *dev, int phy)
 static void smc_phy_check_media(struct net_device *dev, int init)
 {
 	struct smc_local *lp = netdev_priv(dev);
-	unsigned long ioaddr = dev->base_addr;
+	void __iomem *ioaddr = lp->base;
 
 	if (mii_check_media(&lp->mii, netif_msg_link(lp), init)) {
 		/* duplex state has changed */
@@ -1084,7 +1089,7 @@ static void smc_phy_configure(void *data)
 {
 	struct net_device *dev = data;
 	struct smc_local *lp = netdev_priv(dev);
-	unsigned long ioaddr = dev->base_addr;
+	void __iomem *ioaddr = lp->base;
 	int phyaddr = lp->mii.phy_id;
 	int my_phy_caps; /* My PHY capabilities */
 	int my_ad_caps; /* My Advertised capabilities */
@@ -1209,7 +1214,7 @@ static void smc_phy_interrupt(struct net_device *dev)
 static void smc_10bt_check_media(struct net_device *dev, int init)
 {
 	struct smc_local *lp = netdev_priv(dev);
-	unsigned long ioaddr = dev->base_addr;
+	void __iomem *ioaddr = lp->base;
 	unsigned int old_carrier, new_carrier;
 
 	old_carrier = netif_carrier_ok(dev) ? 1 : 0;
@@ -1232,7 +1237,8 @@ static void smc_10bt_check_media(struct net_device *dev, int init)
 
 static void smc_eph_interrupt(struct net_device *dev)
 {
-	unsigned long ioaddr = dev->base_addr;
+	struct smc_local *lp = netdev_priv(dev);
+	void __iomem *ioaddr = lp->base;
 	unsigned int ctl;
 
 	smc_10bt_check_media(dev, 0);
@@ -1251,8 +1257,8 @@ static void smc_eph_interrupt(struct net_device *dev)
 static irqreturn_t smc_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 {
 	struct net_device *dev = dev_id;
-	unsigned long ioaddr = dev->base_addr;
 	struct smc_local *lp = netdev_priv(dev);
+	void __iomem *ioaddr = lp->base;
 	int status, mask, timeout, card_stats;
 	int saved_pointer;
 
@@ -1366,7 +1372,7 @@ static void smc_poll_controller(struct net_device *dev)
 static void smc_timeout(struct net_device *dev)
 {
 	struct smc_local *lp = netdev_priv(dev);
-	unsigned long ioaddr = dev->base_addr;
+	void __iomem *ioaddr = lp->base;
 	int status, mask, meminfo, fifo;
 
 	DBG(2, "%s: %s\n", dev->name, __FUNCTION__);
@@ -1410,7 +1416,7 @@ static void smc_timeout(struct net_device *dev)
 static void smc_set_multicast_list(struct net_device *dev)
 {
 	struct smc_local *lp = netdev_priv(dev);
-	unsigned long ioaddr = dev->base_addr;
+	void __iomem *ioaddr = lp->base;
 	unsigned char multicast_table[8];
 	int update_multicast = 0;
 
@@ -1739,7 +1745,7 @@ static struct ethtool_ops smc_ethtool_ops = {
  * I just deleted auto_irq.c, since it was never built...
  *   --jgarzik
  */
-static int __init smc_findirq(unsigned long ioaddr)
+static int __init smc_findirq(void __iomem *ioaddr)
 {
 	int timeout = 20;
 	unsigned long cookie;
@@ -1812,7 +1818,7 @@ static int __init smc_findirq(unsigned long ioaddr)
  * o  actually GRAB the irq.
  * o  GRAB the region
  */
-static int __init smc_probe(struct net_device *dev, unsigned long ioaddr)
+static int __init smc_probe(struct net_device *dev, void __iomem *ioaddr)
 {
 	struct smc_local *lp = netdev_priv(dev);
 	static int version_printed = 0;
@@ -1829,7 +1835,7 @@ static int __init smc_probe(struct net_device *dev, unsigned long ioaddr)
 		if ((val & 0xFF) == 0x33) {
 			printk(KERN_WARNING
 				"%s: Detected possible byte-swapped interface"
-				" at IOADDR 0x%lx\n", CARDNAME, ioaddr);
+				" at IOADDR %p\n", CARDNAME, ioaddr);
 		}
 		retval = -ENODEV;
 		goto err_out;
@@ -1855,8 +1861,8 @@ static int __init smc_probe(struct net_device *dev, unsigned long ioaddr)
 	SMC_SELECT_BANK(1);
 	val = SMC_GET_BASE();
 	val = ((val & 0x1F00) >> 3) << SMC_IO_SHIFT;
-	if ((ioaddr & ((PAGE_SIZE-1)<<SMC_IO_SHIFT)) != val) {
-		printk("%s: IOADDR %lx doesn't match configuration (%x).\n",
+	if (((unsigned long)ioaddr & ((PAGE_SIZE-1)<<SMC_IO_SHIFT)) != val) { /*XXX: WTF? */
+		printk("%s: IOADDR %p doesn't match configuration (%x).\n",
 			CARDNAME, ioaddr, val);
 	}
 
@@ -1871,7 +1877,7 @@ static int __init smc_probe(struct net_device *dev, unsigned long ioaddr)
 	version_string = chip_ids[ (revision_register >> 4) & 0xF];
 	if (!version_string || (revision_register & 0xff00) != 0x3300) {
 		/* I don't recognize this chip, so... */
-		printk("%s: IO 0x%lx: Unrecognized revision register 0x%04x"
+		printk("%s: IO %p: Unrecognized revision register 0x%04x"
 			", Contact author.\n", CARDNAME,
 			ioaddr, revision_register);
 
@@ -1884,7 +1890,8 @@ static int __init smc_probe(struct net_device *dev, unsigned long ioaddr)
 		printk("%s", version);
 
 	/* fill in some of the fields */
-	dev->base_addr = ioaddr;
+	dev->base_addr = (unsigned long)ioaddr;
+	lp->base = ioaddr;
 	lp->version = revision_register & 0xff;
 	spin_lock_init(&lp->lock);
 
@@ -1990,9 +1997,9 @@ static int __init smc_probe(struct net_device *dev, unsigned long ioaddr)
 	retval = register_netdev(dev);
 	if (retval == 0) {
 		/* now, print out the card info, in a short format.. */
-		printk("%s: %s (rev %d) at %#lx IRQ %d",
+		printk("%s: %s (rev %d) at %p IRQ %d",
 			dev->name, version_string, revision_register & 0x0f,
-			dev->base_addr, dev->irq);
+			lp->base, dev->irq);
 
 		if (dev->dma != (unsigned char)-1)
 			printk(" DMA %d", dev->dma);
@@ -2032,7 +2039,7 @@ static int smc_enable_device(struct platform_device *pdev)
 {
 	unsigned long flags;
 	unsigned char ecor, ecsr;
-	void *addr;
+	void __iomem *addr;
 	struct resource * res;
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "smc91x-attrib");
@@ -2162,7 +2169,7 @@ static int smc_drv_probe(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct net_device *ndev;
 	struct resource *res;
-	unsigned int *addr;
+	unsigned int __iomem *addr;
 	int ret;
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "smc91x-regs");
@@ -2208,7 +2215,7 @@ static int smc_drv_probe(struct device *dev)
 	}
 
 	dev_set_drvdata(dev, ndev);
-	ret = smc_probe(ndev, (unsigned long)addr);
+	ret = smc_probe(ndev, addr);
 	if (ret != 0)
 		goto out_iounmap;
 #ifdef SMC_USE_PXA_DMA
@@ -2241,6 +2248,7 @@ static int smc_drv_remove(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct net_device *ndev = dev_get_drvdata(dev);
+	struct smc_local *lp = netdev_priv(ndev);
 	struct resource *res;
 
 	dev_set_drvdata(dev, NULL);
@@ -2253,7 +2261,7 @@ static int smc_drv_remove(struct device *dev)
 	if (ndev->dma != (unsigned char)-1)
 		pxa_free_dma(ndev->dma);
 #endif
-	iounmap((void *)ndev->base_addr);
+	iounmap(lp->base);
 
 	smc_release_datacs(pdev,ndev);
 	smc_release_attrib(pdev);
