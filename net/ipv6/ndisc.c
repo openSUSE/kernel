@@ -1540,13 +1540,16 @@ int ndisc_ifinfo_sysctl_change(struct ctl_table *ctl, int write, struct file * f
 {
 	struct net_device *dev = ctl->extra1;
 	struct inet6_dev *idev;
+	int ret;
+	
+	ret = proc_dointvec(ctl, write, filp, buffer, lenp, ppos);
 
-	if (write && dev && (idev = in6_dev_get(dev)) != NULL) {
+	if (write && ret == 0 && dev && (idev = in6_dev_get(dev)) != NULL) {
 		idev->tstamp = jiffies;
 		inet6_ifinfo_notify(RTM_NEWLINK, idev);
 		in6_dev_put(idev);
 	}
-	return proc_dointvec(ctl, write, filp, buffer, lenp, ppos);
+	return ret;
 }
 #endif
 
