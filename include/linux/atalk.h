@@ -1,5 +1,8 @@
 #ifndef __LINUX_ATALK_H__
 #define __LINUX_ATALK_H__
+
+#include <net/sock.h>
+
 /*
  * AppleTalk networking structures
  *
