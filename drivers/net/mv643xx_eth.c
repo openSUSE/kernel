@@ -1159,10 +1159,11 @@ static int mv643xx_eth_start_xmit(struct sk_buff *skb, struct net_device *dev)
 #ifdef MV643XX_CHECKSUM_OFFLOAD_TX
 	if (!skb_shinfo(skb)->nr_frags) {
 linear:
-		if (skb->ip_summed != CHECKSUM_HW)
+		if (skb->ip_summed != CHECKSUM_HW) {
 			pkt_info.cmd_sts = ETH_TX_ENABLE_INTERRUPT |
 					ETH_TX_FIRST_DESC | ETH_TX_LAST_DESC;
-		else {
+			pkt_info.l4i_chk = 0;
+		} else {
 			u32 ipheader = skb->nh.iph->ihl << 11;
 
 			pkt_info.cmd_sts = ETH_TX_ENABLE_INTERRUPT |
@@ -1221,6 +1222,7 @@ linear:
 		pkt_info.buf_ptr = dma_map_single(NULL, skb->data,
 							skb_headlen(skb),
 							DMA_TO_DEVICE);
+		pkt_info.l4i_chk = 0;
 		pkt_info.return_info = 0;
 		pkt_info.cmd_sts = ETH_TX_FIRST_DESC;
 
@@ -1271,6 +1273,7 @@ linear:
 			} else {
 				pkt_info.return_info = 0;
 			}
+			pkt_info.l4i_chk = 0;
 			pkt_info.byte_cnt = this_frag->size;
 
 			pkt_info.buf_ptr = dma_map_page(NULL, this_frag->page,
@@ -1297,6 +1300,7 @@ linear:
 #else
 	pkt_info.cmd_sts = ETH_TX_ENABLE_INTERRUPT | ETH_TX_FIRST_DESC |
 							ETH_TX_LAST_DESC;
+	pkt_info.l4i_chk = 0;
 	pkt_info.byte_cnt = skb->len;
 	pkt_info.buf_ptr = dma_map_single(NULL, skb->data, skb->len,
 								DMA_TO_DEVICE);
