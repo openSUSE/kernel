@@ -34,8 +34,10 @@
 #include <linux/root_dev.h>
 #include <linux/seq_file.h>
 #include <linux/serial.h>
+#include <linux/initrd.h>
 #include <linux/module.h>
 #include <linux/fsl_devices.h>
+#include <linux/interrupt.h>
 
 #include <asm/system.h>
 #include <asm/pgtable.h>
@@ -266,19 +268,9 @@ gp3_show_cpuinfo(struct seq_file *m)
 
 	memsize = total_memory;
 
+	seq_printf(m, "chip\t\t: MPC%s\n", cur_ppc_sys_spec->ppc_sys_name);
 	seq_printf(m, "Vendor\t\t: RPC Electronics STx \n");
-
-	switch (svid & 0xffff0000) {
-	case SVR_8540:
-		seq_printf(m, "Machine\t\t: GP3 - MPC8540\n");
-		break;
-	case SVR_8560:
-		seq_printf(m, "Machine\t\t: GP3 - MPC8560\n");
-		break;
-	default:
-		seq_printf(m, "Machine\t\t: unknown\n");
-		break;
-	}
+	seq_printf(m, "Machine\t\t: GP3 - MPC%s\n", cur_ppc_sys_spec->ppc_sys_name);
 	seq_printf(m, "bus freq\t: %u.%.6u MHz\n", freq / 1000000,
 		   freq % 1000000);
 	seq_printf(m, "PVR\t\t: 0x%x\n", pvid);

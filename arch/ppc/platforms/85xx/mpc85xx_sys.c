@@ -21,7 +21,7 @@
 struct ppc_sys_spec *cur_ppc_sys_spec;
 struct ppc_sys_spec ppc_sys_specs[] = {
 	{
-		.ppc_sys_name	= "MPC8540",
+		.ppc_sys_name	= "8540",
 		.mask 		= 0xFFFF0000,
 		.value 		= 0x80300000,
 		.num_devices	= 10,
@@ -33,7 +33,7 @@ struct ppc_sys_spec ppc_sys_specs[] = {
 		},
 	},
 	{
-		.ppc_sys_name	= "MPC8560",
+		.ppc_sys_name	= "8560",
 		.mask 		= 0xFFFF0000,
 		.value 		= 0x80700000,
 		.num_devices	= 19,
@@ -49,7 +49,7 @@ struct ppc_sys_spec ppc_sys_specs[] = {
 		},
 	},
 	{
-		.ppc_sys_name	= "MPC8541",
+		.ppc_sys_name	= "8541",
 		.mask 		= 0xFFFF0000,
 		.value 		= 0x80720000,
 		.num_devices	= 13,
@@ -63,7 +63,7 @@ struct ppc_sys_spec ppc_sys_specs[] = {
 		},
 	},
 	{
-		.ppc_sys_name	= "MPC8541E",
+		.ppc_sys_name	= "8541E",
 		.mask 		= 0xFFFF0000,
 		.value 		= 0x807A0000,
 		.num_devices	= 14,
@@ -77,7 +77,7 @@ struct ppc_sys_spec ppc_sys_specs[] = {
 		},
 	},
 	{
-		.ppc_sys_name	= "MPC8555",
+		.ppc_sys_name	= "8555",
 		.mask 		= 0xFFFF0000,
 		.value 		= 0x80710000,
 		.num_devices	= 20,
@@ -94,7 +94,7 @@ struct ppc_sys_spec ppc_sys_specs[] = {
 		},
 	},
 	{
-		.ppc_sys_name	= "MPC8555E",
+		.ppc_sys_name	= "8555E",
 		.mask 		= 0xFFFF0000,
 		.value 		= 0x80790000,
 		.num_devices	= 21,

@@ -43,6 +43,7 @@
 #include <asm/mpc85xx.h>
 #include <asm/irq.h>
 #include <asm/immap_85xx.h>
+#include <asm/ppc_sys.h>
 
 #include <mm/mmu_decl.h>
 
@@ -128,19 +129,9 @@ mpc85xx_ads_show_cpuinfo(struct seq_file *m)
 	pvid = mfspr(PVR);
 	svid = mfspr(SVR);
 
+	seq_printf(m, "chip\t\t: MPC%s\n", cur_ppc_sys_spec->ppc_sys_name);
 	seq_printf(m, "Vendor\t\t: Freescale Semiconductor\n");
-
-	switch (svid & 0xffff0000) {
-	case SVR_8540:
-		seq_printf(m, "Machine\t\t: mpc8540ads\n");
-		break;
-	case SVR_8560:
-		seq_printf(m, "Machine\t\t: mpc8560ads\n");
-		break;
-	default:
-		seq_printf(m, "Machine\t\t: unknown\n");
-		break;
-	}
+	seq_printf(m, "Machine\t\t: mpc%sads\n", cur_ppc_sys_spec->ppc_sys_name);
 	seq_printf(m, "clock\t\t: %dMHz\n", freq / 1000000);
 	seq_printf(m, "PVR\t\t: 0x%x\n", pvid);
 	seq_printf(m, "SVR\t\t: 0x%x\n", svid);

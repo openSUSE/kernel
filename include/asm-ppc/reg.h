@@ -488,12 +488,6 @@
 #define PVR_8245	0x80811014
 #define PVR_8260	PVR_8240
 
-/* System Version Numbers */
-#define SVR_8540	0x80300000
-#define SVR_8541E	0x807A0000
-#define SVR_8555E	0x80790000
-#define SVR_8560	0x80700000
-
 #if 0
 /* Segment Registers */
 #define SR0	0
