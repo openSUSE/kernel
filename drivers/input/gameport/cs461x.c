@@ -318,12 +318,12 @@ static struct pci_driver cs461x_pci_driver = {
         .remove =       __devexit_p(cs461x_pci_remove),
 };
 
-int __init cs461x_init(void)
+static int __init cs461x_init(void)
 {
         return pci_module_init(&cs461x_pci_driver);
 }
 
-void __exit cs461x_exit(void)
+static void __exit cs461x_exit(void)
 {
         pci_unregister_driver(&cs461x_pci_driver);
 }
