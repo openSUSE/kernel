@@ -19,13 +19,7 @@
 #include <linux/list.h>
 #include <linux/spinlock.h>
 #include <linux/device.h>
-
-struct serio_device_id {
-	unsigned char type;
-	unsigned char extra;
-	unsigned char id;
-	unsigned char proto;
-};
+#include <linux/mod_devicetable.h>
 
 struct serio {
 	void *port_data;
@@ -173,8 +167,6 @@ static inline void serio_unpin_driver(struct serio *serio)
 #define SERIO_TIMEOUT	1
 #define SERIO_PARITY	2
 #define SERIO_FRAME	4
-
-#define SERIO_ANY	0xff
 
 /*
  * Serio types
