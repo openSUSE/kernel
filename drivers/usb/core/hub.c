@@ -108,7 +108,7 @@ static int get_hub_descriptor(struct usb_device *hdev, void *data, int size)
 		ret = usb_control_msg(hdev, usb_rcvctrlpipe(hdev, 0),
 			USB_REQ_GET_DESCRIPTOR, USB_DIR_IN | USB_RT_HUB,
 			USB_DT_HUB << 8, 0, data, size,
-			HZ * USB_CTRL_GET_TIMEOUT);
+			USB_CTRL_GET_TIMEOUT);
 		if (ret >= (USB_DT_HUB_NONVAR_SIZE + 2))
 			return ret;
 	}
@@ -121,7 +121,7 @@ static int get_hub_descriptor(struct usb_device *hdev, void *data, int size)
 static int clear_hub_feature(struct usb_device *hdev, int feature)
 {
 	return usb_control_msg(hdev, usb_sndctrlpipe(hdev, 0),
-		USB_REQ_CLEAR_FEATURE, USB_RT_HUB, feature, 0, NULL, 0, HZ);
+		USB_REQ_CLEAR_FEATURE, USB_RT_HUB, feature, 0, NULL, 0, 1000);
 }
 
 /*
@@ -131,7 +131,7 @@ static int clear_port_feature(struct usb_device *hdev, int port1, int feature)
 {
 	return usb_control_msg(hdev, usb_sndctrlpipe(hdev, 0),
 		USB_REQ_CLEAR_FEATURE, USB_RT_PORT, feature, port1,
-		NULL, 0, HZ);
+		NULL, 0, 1000);
 }
 
 /*
@@ -141,7 +141,7 @@ static int set_port_feature(struct usb_device *hdev, int port1, int feature)
 {
 	return usb_control_msg(hdev, usb_sndctrlpipe(hdev, 0),
 		USB_REQ_SET_FEATURE, USB_RT_PORT, feature, port1,
-		NULL, 0, HZ);
+		NULL, 0, 1000);
 }
 
 /*
@@ -242,7 +242,7 @@ static void led_work (void *__hub)
 }
 
 /* use a short timeout for hub/port status fetches */
-#define	USB_STS_TIMEOUT		1
+#define	USB_STS_TIMEOUT		1000
 #define	USB_STS_RETRIES		5
 
 /*
@@ -256,7 +256,7 @@ static int get_hub_status(struct usb_device *hdev,
 	for (i = 0; i < USB_STS_RETRIES && status == -ETIMEDOUT; i++) {
 		status = usb_control_msg(hdev, usb_rcvctrlpipe(hdev, 0),
 			USB_REQ_GET_STATUS, USB_DIR_IN | USB_RT_HUB, 0, 0,
-			data, sizeof(*data), HZ * USB_STS_TIMEOUT);
+			data, sizeof(*data), USB_STS_TIMEOUT);
 	}
 	return status;
 }
@@ -272,7 +272,7 @@ static int get_port_status(struct usb_device *hdev, int port1,
 	for (i = 0; i < USB_STS_RETRIES && status == -ETIMEDOUT; i++) {
 		status = usb_control_msg(hdev, usb_rcvctrlpipe(hdev, 0),
 			USB_REQ_GET_STATUS, USB_DIR_IN | USB_RT_PORT, 0, port1,
-			data, sizeof(*data), HZ * USB_STS_TIMEOUT);
+			data, sizeof(*data), USB_STS_TIMEOUT);
 	}
 	return status;
 }
@@ -342,7 +342,7 @@ hub_clear_tt_buffer (struct usb_device *hdev, u16 devinfo, u16 tt)
 {
 	return usb_control_msg(hdev, usb_rcvctrlpipe(hdev, 0),
 			       HUB_CLEAR_TT_BUFFER, USB_RT_PORT, devinfo,
-			       tt, NULL, 0, HZ);
+			       tt, NULL, 0, 1000);
 }
 
 /*
@@ -1213,7 +1213,7 @@ int usb_new_device(struct usb_device *udev)
 					bus->b_hnp_enable
 						? USB_DEVICE_B_HNP_ENABLE
 						: USB_DEVICE_A_ALT_HNP_SUPPORT,
-					0, NULL, 0, HZ * USB_CTRL_SET_TIMEOUT);
+					0, NULL, 0, USB_CTRL_SET_TIMEOUT);
 				if (err < 0) {
 					/* OTG MESSAGE: report errors here,
 					 * customize to match your product.
@@ -2057,7 +2057,7 @@ static int hub_set_address(struct usb_device *udev)
 		return -EINVAL;
 	retval = usb_control_msg(udev, usb_sndaddr0pipe(),
 		USB_REQ_SET_ADDRESS, 0, udev->devnum, 0,
-		NULL, 0, HZ * USB_CTRL_SET_TIMEOUT);
+		NULL, 0, USB_CTRL_SET_TIMEOUT);
 	if (retval == 0) {
 		usb_set_device_state(udev, USB_STATE_ADDRESS);
 		ep0_reinit(udev);
@@ -2194,7 +2194,7 @@ hub_port_init (struct usb_hub *hub, struct usb_device *udev, int port1,
 					USB_REQ_GET_DESCRIPTOR, USB_DIR_IN,
 					USB_DT_DEVICE << 8, 0,
 					buf, GET_DESCRIPTOR_BUFSIZE,
-					(i ? HZ * USB_CTRL_GET_TIMEOUT : HZ));
+					(i ? USB_CTRL_GET_TIMEOUT : 1000));
 				switch (buf->bMaxPacketSize0) {
 				case 8: case 16: case 32: case 64:
 					if (buf->bDescriptorType ==
@@ -2966,7 +2966,7 @@ int usb_reset_device(struct usb_device *udev)
 	ret = usb_control_msg(udev, usb_sndctrlpipe(udev, 0),
 			USB_REQ_SET_CONFIGURATION, 0,
 			udev->actconfig->desc.bConfigurationValue, 0,
-			NULL, 0, HZ * USB_CTRL_SET_TIMEOUT);
+			NULL, 0, USB_CTRL_SET_TIMEOUT);
 	if (ret < 0) {
 		dev_err(&udev->dev,
 			"can't restore configuration #%d (error=%d)\n",
