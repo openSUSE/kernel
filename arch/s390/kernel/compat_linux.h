@@ -194,21 +194,4 @@ struct ucontext32 {
 	compat_sigset_t		uc_sigmask;	/* mask last for extensibility */
 };
 
-struct sigevent32 {
-	union {
-		int sival_int;
-		u32 sival_ptr;
-	} sigev_value;
-	int sigev_signo;
-	int sigev_notify;
-	union {
-		int _pad[COMPAT_SIGEV_PAD_SIZE];
-		int _tid;
-		struct {
-			u32 *_function;
-			u32 *_attribute;
-		} _sigev_thread;
-	} _sigev_un;
-};
-
 #endif /* _ASM_S390X_S390_H */

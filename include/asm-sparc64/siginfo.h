@@ -32,26 +32,4 @@ struct compat_siginfo;
 #define EMT_TAGOVF	(__SI_FAULT|1)	/* tag overflow */
 #define NSIGEMT		1
 
-#ifdef __KERNEL__
-
-#ifdef CONFIG_COMPAT
-
-typedef struct sigevent32 {
-	compat_sigval_t sigev_value;
-	int sigev_signo;
-	int sigev_notify;
-	union {
-		int _pad[COMPAT_SIGEV_PAD_SIZE];
-
-		struct {
-			u32 _function;
-			u32 _attribute;	/* really pthread_attr_t */
-		} _sigev_thread;
-	} _sigev_un;
-} sigevent_t32;
-
-#endif /* CONFIG_COMPAT */
-
-#endif /* __KERNEL__ */
-
 #endif

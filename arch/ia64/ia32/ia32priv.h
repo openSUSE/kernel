@@ -277,19 +277,6 @@ typedef struct compat_siginfo {
 	} _sifields;
 } compat_siginfo_t;
 
-typedef struct sigevent32 {
-	compat_sigval_t sigev_value;
-	int sigev_signo;
-	int sigev_notify;
-	union {
-		int _pad[COMPAT_SIGEV_PAD_SIZE];
-		struct {
-			u32 _function;
-			u32 _attribute; /* really pthread_attr_t */
-		} _sigev_thread;
-	} _sigev_un;
-} sigevent_t32;
-
 struct old_linux32_dirent {
 	u32	d_ino;
 	u32	d_offset;
