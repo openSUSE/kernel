@@ -579,7 +579,7 @@ int usb_get_descriptor(struct usb_device *dev, unsigned char type, unsigned char
 		result = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
 				USB_REQ_GET_DESCRIPTOR, USB_DIR_IN,
 				(type << 8) + index, 0, buf, size,
-				HZ * USB_CTRL_GET_TIMEOUT);
+				USB_CTRL_GET_TIMEOUT);
 		if (result == 0 || result == -EPIPE)
 			continue;
 		if (result > 1 && ((u8 *)buf)[1] != type) {
@@ -624,7 +624,7 @@ int usb_get_string(struct usb_device *dev, unsigned short langid,
 		result = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
 			USB_REQ_GET_DESCRIPTOR, USB_DIR_IN,
 			(USB_DT_STRING << 8) + index, langid, buf, size,
-			HZ * USB_CTRL_GET_TIMEOUT);
+			USB_CTRL_GET_TIMEOUT);
 		if (!(result == 0 || result == -EPIPE))
 			break;
 	}
@@ -834,7 +834,7 @@ int usb_get_status(struct usb_device *dev, int type, int target, void *data)
 
 	ret = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
 		USB_REQ_GET_STATUS, USB_DIR_IN | type, 0, target, status,
-		sizeof(*status), HZ * USB_CTRL_GET_TIMEOUT);
+		sizeof(*status), USB_CTRL_GET_TIMEOUT);
 
 	*(u16 *)data = *status;
 	kfree(status);
@@ -879,7 +879,7 @@ int usb_clear_halt(struct usb_device *dev, int pipe)
 	result = usb_control_msg(dev, usb_sndctrlpipe(dev, 0),
 		USB_REQ_CLEAR_FEATURE, USB_RECIP_ENDPOINT,
 		USB_ENDPOINT_HALT, endp, NULL, 0,
-		HZ * USB_CTRL_SET_TIMEOUT);
+		USB_CTRL_SET_TIMEOUT);
 
 	/* don't un-halt or force to DATA0 except on success */
 	if (result < 0)
@@ -1101,7 +1101,7 @@ int usb_set_interface(struct usb_device *dev, int interface, int alternate)
 
 	ret = usb_control_msg(dev, usb_sndctrlpipe(dev, 0),
 				   USB_REQ_SET_INTERFACE, USB_RECIP_INTERFACE,
-				   alternate, interface, NULL, 0, HZ * 5);
+				   alternate, interface, NULL, 0, 5000);
 
 	/* 9.4.10 says devices don't need this and are free to STALL the
 	 * request if the interface only has one alternate setting.
@@ -1202,7 +1202,7 @@ int usb_reset_configuration(struct usb_device *dev)
 	retval = usb_control_msg(dev, usb_sndctrlpipe(dev, 0),
 			USB_REQ_SET_CONFIGURATION, 0,
 			config->desc.bConfigurationValue, 0,
-			NULL, 0, HZ * USB_CTRL_SET_TIMEOUT);
+			NULL, 0, USB_CTRL_SET_TIMEOUT);
 	if (retval < 0) {
 		usb_set_device_state(dev, USB_STATE_ADDRESS);
 		return retval;
@@ -1337,7 +1337,7 @@ free_interfaces:
 
 	if ((ret = usb_control_msg(dev, usb_sndctrlpipe(dev, 0),
 			USB_REQ_SET_CONFIGURATION, 0, configuration, 0,
-			NULL, 0, HZ * USB_CTRL_SET_TIMEOUT)) < 0)
+			NULL, 0, USB_CTRL_SET_TIMEOUT)) < 0)
 		goto free_interfaces;
 
 	dev->actconfig = cp;
