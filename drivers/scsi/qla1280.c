@@ -20,6 +20,9 @@
 #define QLA1280_VERSION      "3.25"
 /*****************************************************************************
     Revision History:
+    Rev  3.25.1, February 10, 2005 Christoph Hellwig
+	- use pci_map_single to map non-S/G requests
+	- remove qla1280_proc_info
     Rev  3.25, September 28, 2004, Christoph Hellwig
 	- add support for ISP1020/1040
 	- don't include "scsi.h" anymore for 2.6.x
