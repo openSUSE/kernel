@@ -6,7 +6,7 @@
  * driver for that.
  *
  *
- * Copyright (c) 2004 Silicon Graphics, Inc.  All Rights Reserved.
+ * Copyright (c) 2004-2005 Silicon Graphics, Inc.  All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License
@@ -104,6 +104,7 @@ struct sn_cons_port {
 };
 
 static struct sn_cons_port sal_console_port;
+static int sn_process_input;
 
 /* Only used if USE_DYNAMIC_MINOR is set to 1 */
 static struct miscdevice misc;	/* used with misc_register for dynamic */
@@ -681,7 +682,8 @@ static void sn_sal_timer_poll(unsigned long data)
 
 	if (!port->sc_port.irq) {
 		spin_lock_irqsave(&port->sc_port.lock, flags);
-		sn_receive_chars(port, NULL, flags);
+		if (sn_process_input)
+			sn_receive_chars(port, NULL, flags);
 		sn_transmit_chars(port, TRANSMIT_RAW);
 		spin_unlock_irqrestore(&port->sc_port.lock, flags);
 		mod_timer(&port->sc_timer,
@@ -878,6 +880,7 @@ static int __init sn_sal_module_init(void)
 	if (!IS_RUNNING_ON_SIMULATOR()) {
 		sn_sal_switch_to_interrupts(&sal_console_port);
 	}
+	sn_process_input = 1;
 	return 0;
 }
 
