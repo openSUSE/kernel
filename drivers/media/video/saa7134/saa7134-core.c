@@ -1212,8 +1212,10 @@ static int saa7134_init(void)
 
 static void saa7134_fini(void)
 {
+#ifdef CONFIG_MODULES
 	if (pending_registered)
 		unregister_module_notifier(&pending_notifier);
+#endif
 	pci_unregister_driver(&saa7134_pci_driver);
 }
 
