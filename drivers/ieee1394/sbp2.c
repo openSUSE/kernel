@@ -232,7 +232,7 @@ static void sbp2scsi_complete_command(struct scsi_id_instance_data *scsi_id,
 
 static struct scsi_host_template scsi_driver_template;
 
-const u8 sbp2_speedto_max_payload[] = { 0x7, 0x8, 0x9, 0xA, 0xB, 0xC };
+static const u8 sbp2_speedto_max_payload[] = { 0x7, 0x8, 0x9, 0xA, 0xB, 0xC };
 
 static void sbp2_host_reset(struct hpsb_host *host);
 
@@ -376,7 +376,7 @@ static void sbp2_free_packet(struct hpsb_packet *packet)
 /* This is much like hpsb_node_write(), except it ignores the response
  * subaction and returns immediately. Can be used from interrupts.
  */
-int sbp2util_node_write_no_wait(struct node_entry *ne, u64 addr,
+static int sbp2util_node_write_no_wait(struct node_entry *ne, u64 addr,
 				quadlet_t *buffer, size_t length)
 {
 	struct hpsb_packet *packet;

@@ -1277,7 +1277,7 @@ static void do_dv1394_shutdown(struct video_card *video, int free_dv_buf)
 	error-prone code in dv1394.
 */
 
-int dv1394_mmap(struct file *file, struct vm_area_struct *vma)
+static int dv1394_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct video_card *video = file_to_video_card(file);
 	int retval = -EINVAL;

@@ -146,7 +146,7 @@ static void ne_cls_release(struct class_device *class_dev)
 	put_device(&container_of((class_dev), struct node_entry, class_dev)->device);
 }
 
-struct class nodemgr_ne_class = {
+static struct class nodemgr_ne_class = {
 	.name		= "ieee1394_node",
 	.release	= ne_cls_release,
 };
@@ -158,7 +158,7 @@ static void ud_cls_release(struct class_device *class_dev)
 
 /* The name here is only so that unit directory hotplug works with old
  * style hotplug, which only ever did unit directories anyway. */
-struct class nodemgr_ud_class = {
+static struct class nodemgr_ud_class = {
 	.name		= "ieee1394",
 	.release	= ud_cls_release,
 	.hotplug	= nodemgr_hotplug,
@@ -1564,29 +1564,6 @@ caught_signal:
 	complete_and_exit(&hi->exited, 0);
 }
 
-struct node_entry *hpsb_guid_get_entry(u64 guid)
-{
-        struct node_entry *ne;
-
-	down(&nodemgr_serialize);
-        ne = find_entry_by_guid(guid);
-	up(&nodemgr_serialize);
-
-        return ne;
-}
-
-struct node_entry *hpsb_nodeid_get_entry(struct hpsb_host *host, nodeid_t nodeid)
-{
-	struct node_entry *ne;
-
-	down(&nodemgr_serialize);
-	ne = find_entry_by_nodeid(host, nodeid);
-	up(&nodemgr_serialize);
-
-	return ne;
-}
-
-
 int nodemgr_for_each_host(void *__data, int (*cb)(struct hpsb_host *, void *))
 {
 	struct class *class = &hpsb_host_class;
@@ -1629,16 +1606,6 @@ void hpsb_node_fill_packet(struct node_entry *ne, struct hpsb_packet *pkt)
         pkt->node_id = ne->nodeid;
 }
 
-int hpsb_node_read(struct node_entry *ne, u64 addr,
-		   quadlet_t *buffer, size_t length)
-{
-	unsigned int generation = ne->generation;
-
-	barrier();
-	return hpsb_read(ne->host, ne->nodeid, generation,
-			 addr, buffer, length);
-}
-
 int hpsb_node_write(struct node_entry *ne, u64 addr,
 		    quadlet_t *buffer, size_t length)
 {
@@ -1647,16 +1614,6 @@ int hpsb_node_write(struct node_entry *ne, u64 addr,
 	barrier();
 	return hpsb_write(ne->host, ne->nodeid, generation,
 			  addr, buffer, length);
-}
-
-int hpsb_node_lock(struct node_entry *ne, u64 addr,
-		   int extcode, quadlet_t *data, quadlet_t arg)
-{
-	unsigned int generation = ne->generation;
-
-	barrier();
-	return hpsb_lock(ne->host, ne->nodeid, generation,
-			 addr, extcode, data, arg);
 }
 
 static void nodemgr_add_host(struct hpsb_host *host)

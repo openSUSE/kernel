@@ -157,8 +157,8 @@ printk(level "video1394: " fmt "\n" , ## args)
 #define PRINT(level, card, fmt, args...) \
 printk(level "video1394_%d: " fmt "\n" , card , ## args)
 
-void wakeup_dma_ir_ctx(unsigned long l);
-void wakeup_dma_it_ctx(unsigned long l);
+static void wakeup_dma_ir_ctx(unsigned long l);
+static void wakeup_dma_it_ctx(unsigned long l);
 
 static struct hpsb_highlevel video1394_highlevel;
 
@@ -498,7 +498,7 @@ find_ctx(struct list_head *list, int type, int channel)
 	return NULL;
 }
 
-void wakeup_dma_ir_ctx(unsigned long l)
+static void wakeup_dma_ir_ctx(unsigned long l)
 {
 	struct dma_iso_ctx *d = (struct dma_iso_ctx *) l;
 	int i;
@@ -571,7 +571,7 @@ static inline void put_timestamp(struct ti_ohci *ohci, struct dma_iso_ctx * d,
 #endif
 }
 
-void wakeup_dma_it_ctx(unsigned long l)
+static void wakeup_dma_it_ctx(unsigned long l)
 {
 	struct dma_iso_ctx *d = (struct dma_iso_ctx *) l;
 	struct ti_ohci *ohci = d->ohci;
@@ -1188,7 +1188,7 @@ static long video1394_ioctl(struct file *file, unsigned int cmd, unsigned long a
  *    But e.g. pte_alloc() does not work in modules ... :-(
  */
 
-int video1394_mmap(struct file *file, struct vm_area_struct *vma)
+static int video1394_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct file_ctx *ctx = (struct file_ctx *)file->private_data;
 	int res = -EINVAL;

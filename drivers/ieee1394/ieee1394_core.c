@@ -79,6 +79,7 @@ static void dump_packet(const char *text, quadlet_t *data, int size)
 #define dump_packet(x,y,z)
 #endif
 
+static void abort_requests(struct hpsb_host *host);
 static void queue_packet_complete(struct hpsb_packet *packet);
 
 
@@ -939,7 +940,7 @@ void hpsb_packet_received(struct hpsb_host *host, quadlet_t *data, size_t size,
 }
 
 
-void abort_requests(struct hpsb_host *host)
+static void abort_requests(struct hpsb_host *host)
 {
 	struct hpsb_packet *packet;
 	struct sk_buff *skb;
@@ -1002,7 +1003,7 @@ void abort_timedouts(unsigned long __opaque)
  * the stack. */
 static int khpsbpkt_pid = -1, khpsbpkt_kill;
 static DECLARE_COMPLETION(khpsbpkt_complete);
-struct sk_buff_head hpsbpkt_queue;
+static struct sk_buff_head hpsbpkt_queue;
 static DECLARE_MUTEX_LOCKED(khpsbpkt_sig);
 
 
@@ -1221,8 +1222,6 @@ EXPORT_SYMBOL(hpsb_make_isopacket);
 EXPORT_SYMBOL(hpsb_read);
 EXPORT_SYMBOL(hpsb_write);
 EXPORT_SYMBOL(hpsb_lock);
-EXPORT_SYMBOL(hpsb_lock64);
-EXPORT_SYMBOL(hpsb_send_gasp);
 EXPORT_SYMBOL(hpsb_packet_success);
 
 /** highlevel.c **/
@@ -1234,28 +1233,18 @@ EXPORT_SYMBOL(hpsb_allocate_and_register_addrspace);
 EXPORT_SYMBOL(hpsb_listen_channel);
 EXPORT_SYMBOL(hpsb_unlisten_channel);
 EXPORT_SYMBOL(hpsb_get_hostinfo);
-EXPORT_SYMBOL(hpsb_get_host_bykey);
 EXPORT_SYMBOL(hpsb_create_hostinfo);
 EXPORT_SYMBOL(hpsb_destroy_hostinfo);
 EXPORT_SYMBOL(hpsb_set_hostinfo_key);
-EXPORT_SYMBOL(hpsb_get_hostinfo_key);
 EXPORT_SYMBOL(hpsb_get_hostinfo_bykey);
 EXPORT_SYMBOL(hpsb_set_hostinfo);
-EXPORT_SYMBOL(highlevel_read);
-EXPORT_SYMBOL(highlevel_write);
-EXPORT_SYMBOL(highlevel_lock);
-EXPORT_SYMBOL(highlevel_lock64);
 EXPORT_SYMBOL(highlevel_add_host);
 EXPORT_SYMBOL(highlevel_remove_host);
 EXPORT_SYMBOL(highlevel_host_reset);
 
 /** nodemgr.c **/
-EXPORT_SYMBOL(hpsb_guid_get_entry);
-EXPORT_SYMBOL(hpsb_nodeid_get_entry);
 EXPORT_SYMBOL(hpsb_node_fill_packet);
-EXPORT_SYMBOL(hpsb_node_read);
 EXPORT_SYMBOL(hpsb_node_write);
-EXPORT_SYMBOL(hpsb_node_lock);
 EXPORT_SYMBOL(hpsb_register_protocol);
 EXPORT_SYMBOL(hpsb_unregister_protocol);
 EXPORT_SYMBOL(ieee1394_bus_type);
@@ -1299,27 +1288,14 @@ EXPORT_SYMBOL(hpsb_iso_recv_flush);
 EXPORT_SYMBOL(csr1212_create_csr);
 EXPORT_SYMBOL(csr1212_init_local_csr);
 EXPORT_SYMBOL(csr1212_new_immediate);
-EXPORT_SYMBOL(csr1212_new_leaf);
-EXPORT_SYMBOL(csr1212_new_csr_offset);
 EXPORT_SYMBOL(csr1212_new_directory);
 EXPORT_SYMBOL(csr1212_associate_keyval);
 EXPORT_SYMBOL(csr1212_attach_keyval_to_directory);
-EXPORT_SYMBOL(csr1212_new_extended_immediate);
-EXPORT_SYMBOL(csr1212_new_extended_leaf);
-EXPORT_SYMBOL(csr1212_new_descriptor_leaf);
-EXPORT_SYMBOL(csr1212_new_textual_descriptor_leaf);
 EXPORT_SYMBOL(csr1212_new_string_descriptor_leaf);
-EXPORT_SYMBOL(csr1212_new_icon_descriptor_leaf);
-EXPORT_SYMBOL(csr1212_new_modifiable_descriptor_leaf);
-EXPORT_SYMBOL(csr1212_new_keyword_leaf);
 EXPORT_SYMBOL(csr1212_detach_keyval_from_directory);
-EXPORT_SYMBOL(csr1212_disassociate_keyval);
 EXPORT_SYMBOL(csr1212_release_keyval);
 EXPORT_SYMBOL(csr1212_destroy_csr);
 EXPORT_SYMBOL(csr1212_read);
-EXPORT_SYMBOL(csr1212_generate_positions);
-EXPORT_SYMBOL(csr1212_generate_layout_order);
-EXPORT_SYMBOL(csr1212_fill_cache);
 EXPORT_SYMBOL(csr1212_generate_csr_image);
 EXPORT_SYMBOL(csr1212_parse_keyval);
 EXPORT_SYMBOL(csr1212_parse_csr);

@@ -89,7 +89,6 @@ static inline struct hpsb_packet *driver_packet(struct list_head *l)
 }
 
 void abort_timedouts(unsigned long __opaque);
-void abort_requests(struct hpsb_host *host);
 
 struct hpsb_packet *hpsb_alloc_packet(size_t data_size);
 void hpsb_free_packet(struct hpsb_packet *packet);
