@@ -78,10 +78,12 @@ static struct alps_model_info {
 
 static void alps_process_packet(struct psmouse *psmouse, struct pt_regs *regs)
 {
+	struct alps_data *priv = psmouse->private;
 	unsigned char *packet = psmouse->packet;
 	struct input_dev *dev = &psmouse->dev;
 	int x, y, z;
 	int left = 0, right = 0, middle = 0;
+	int ges, fin;
 
 	input_regs(dev, regs);
 
@@ -123,6 +125,27 @@ static void alps_process_packet(struct psmouse *psmouse, struct pt_regs *regs)
 		return;
 	}
 
+	ges = packet[2] & 1;		    /* gesture bit */
+	fin = packet[2] & 2;		    /* finger bit */
+
+	/* Convert hardware tap to a reasonable Z value */
+	if (ges && !fin)
+		z = 40;
+
+	/*
+	 * A "tap and drag" operation is reported by the hardware as a transition
+	 * from (!fin && ges) to (fin && ges). This should be translated to the
+	 * sequence Z>0, Z==0, Z>0, so the Z==0 event has to be generated manually.
+	 */
+	if (ges && fin && !priv->prev_fin) {
+		input_report_abs(dev, ABS_X, x);
+		input_report_abs(dev, ABS_Y, y);
+		input_report_abs(dev, ABS_PRESSURE, 0);
+		input_report_key(dev, BTN_TOOL_FINGER, 0);
+		input_sync(dev);
+	}
+	priv->prev_fin = fin;
+
 	if (z > 30) input_report_key(dev, BTN_TOUCH, 1);
 	if (z < 25) input_report_key(dev, BTN_TOUCH, 0);
 
@@ -133,7 +156,6 @@ static void alps_process_packet(struct psmouse *psmouse, struct pt_regs *regs)
 	input_report_abs(dev, ABS_PRESSURE, z);
 	input_report_key(dev, BTN_TOOL_FINGER, z > 0);
 
-	left  |= (packet[2]     ) & 1;
 	left  |= (packet[3]     ) & 1;
 	right |= (packet[3] >> 1) & 1;
 	if (packet[0] == 0xff) {
@@ -335,7 +357,7 @@ static int alps_reconnect(struct psmouse *psmouse)
 		return -1;
 
 	if (param[0] & 0x04)
-		alps_tap_mode(psmouse, 0);
+		alps_tap_mode(psmouse, 1);
 
 	if (alps_absolute_mode(psmouse)) {
 		printk(KERN_ERR "alps.c: Failed to enable absolute mode\n");
@@ -351,40 +373,47 @@ static int alps_reconnect(struct psmouse *psmouse)
 static void alps_disconnect(struct psmouse *psmouse)
 {
 	psmouse_reset(psmouse);
+	kfree(psmouse->private);
 }
 
 int alps_init(struct psmouse *psmouse)
 {
+	struct alps_data *priv;
 	unsigned char param[4];
 	int model;
 
+	psmouse->private = priv = kmalloc(sizeof(struct alps_data), GFP_KERNEL);
+	if (!priv)
+		goto init_fail;
+	memset(priv, 0, sizeof(struct alps_data));
+
 	if ((model = alps_get_model(psmouse)) < 0)
-		return -1;
+		goto init_fail;
 
 	printk(KERN_INFO "ALPS Touchpad (%s) detected\n",
 		model == ALPS_MODEL_GLIDEPOINT ? "Glidepoint" : "Dualpoint");
 
 	if (model == ALPS_MODEL_DUALPOINT && alps_passthrough_mode(psmouse, 1))
-		return -1;
+		goto init_fail;
 
 	if (alps_get_status(psmouse, param)) {
 		printk(KERN_ERR "alps.c: touchpad status report request failed\n");
-		return -1;
+		goto init_fail;
 	}
 
 	if (param[0] & 0x04) {
-		printk(KERN_INFO "  Disabling hardware tapping\n");
-		if (alps_tap_mode(psmouse, 0))
-			printk(KERN_WARNING "alps.c: Failed to disable hardware tapping\n");
+		printk(KERN_INFO "  Enabling hardware tapping\n");
+		if (alps_tap_mode(psmouse, 1))
+			printk(KERN_WARNING "alps.c: Failed to enable hardware tapping\n");
 	}
 
 	if (alps_absolute_mode(psmouse)) {
 		printk(KERN_ERR "alps.c: Failed to enable absolute mode\n");
-		return -1;
+		goto init_fail;
 	}
 
 	if (model == ALPS_MODEL_DUALPOINT && alps_passthrough_mode(psmouse, 0))
-		return -1;
+		goto init_fail;
 
 	psmouse->dev.evbit[LONG(EV_REL)] |= BIT(EV_REL);
 	psmouse->dev.relbit[LONG(REL_X)] |= BIT(REL_X);
@@ -408,6 +437,10 @@ int alps_init(struct psmouse *psmouse)
 	psmouse->pktsize = 6;
 
 	return 0;
+
+init_fail:
+	kfree(priv);
+	return -1;
 }
 
 int alps_detect(struct psmouse *psmouse, int set_properties)

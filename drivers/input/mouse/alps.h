@@ -14,4 +14,8 @@
 int alps_detect(struct psmouse *psmouse, int set_properties);
 int alps_init(struct psmouse *psmouse);
 
+struct alps_data {
+	int prev_fin;			    /* Finger bit from previous packet */
+};
+
 #endif
