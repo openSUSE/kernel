@@ -726,7 +726,6 @@ struct ipr_resource_entry {
 	u8 add_to_ml:1;
 	u8 del_from_ml:1;
 	u8 resetting_device:1;
-	u8 tcq_active:1;
 
 	struct scsi_device *sdev;
 	struct list_head queue;

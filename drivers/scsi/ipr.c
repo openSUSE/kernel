@@ -792,7 +792,6 @@ static void ipr_init_res_entry(struct ipr_resource_entry *res)
 	res->add_to_ml = 0;
 	res->del_from_ml = 0;
 	res->resetting_device = 0;
-	res->tcq_active = 0;
 	res->sdev = NULL;
 }
 
@@ -2695,13 +2694,10 @@ static int ipr_change_queue_type(struct scsi_device *sdev, int tag_type)
 			 */
 			scsi_set_tag_type(sdev, tag_type);
 
-			if (tag_type) {
-				res->tcq_active = 1;
+			if (tag_type)
 				scsi_activate_tcq(sdev, sdev->queue_depth);
-			} else {
-				res->tcq_active = 0;
+			else
 				scsi_deactivate_tcq(sdev, sdev->queue_depth);
-			}
 		} else
 			tag_type = 0;
 	} else
@@ -3513,7 +3509,7 @@ static void ipr_erp_cancel_all(struct ipr_cmnd *ipr_cmd)
 
 	ipr_reinit_ipr_cmnd_for_erp(ipr_cmd);
 
-	if (!res->tcq_active) {
+	if (!scsi_get_tag_type(scsi_cmd->device)) {
 		ipr_erp_request_sense(ipr_cmd);
 		return;
 	}
