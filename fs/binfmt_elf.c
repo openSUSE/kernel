@@ -757,7 +757,7 @@ static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	/* Do this immediately, since STACK_TOP as used in setup_arg_pages
 	   may depend on the personality.  */
 	SET_PERSONALITY(loc->elf_ex, ibcs2_interpreter);
-	if (elf_read_implies_exec(loc->elf_ex, have_pt_gnu_stack))
+	if (elf_read_implies_exec(loc->elf_ex, executable_stack))
 		current->personality |= READ_IMPLIES_EXEC;
 
 	arch_pick_mmap_layout(current->mm);
@@ -803,11 +803,13 @@ static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 				nbyte = ELF_MIN_ALIGN - nbyte;
 				if (nbyte > elf_brk - elf_bss)
 					nbyte = elf_brk - elf_bss;
-				if (clear_user((void __user *) elf_bss + load_bias, nbyte)) {
-					retval = -EFAULT;
-					send_sig(SIGKILL, current, 0);
-					goto out_free_dentry;
-				}
+				/*
+				 * This bss-zeroing can fail if the ELF file
+				 * specifies odd protections.  So we don't check
+				 * the return value
+				 */
+				(void)clear_user((void __user *)elf_bss +
+							load_bias, nbyte);
 			}
 		}
 
