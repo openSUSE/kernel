@@ -64,8 +64,13 @@ extern void pci_remove_legacy_files(struct pci_bus *bus);
 /* Lock for read/write access to pci device and bus lists */
 extern spinlock_t pci_bus_lock;
 
-extern int pcie_mch_quirk;
+#ifdef CONFIG_X86_IO_APIC
 extern int pci_msi_quirk;
+#else
+#define pci_msi_quirk 0
+#endif
+
+extern int pcie_mch_quirk;
 extern struct device_attribute pci_dev_attrs[];
 extern struct class_device_attribute class_device_attr_cpuaffinity;
 
