@@ -2400,7 +2400,8 @@ static void radeon_set_suspend(struct radeonfb_info *rinfo, int suspend)
 	 * including PCI config registers, clocks, AGP conf, ...)
 	 */
 	if (suspend) {
-		printk(KERN_DEBUG "radeonfb: switching to D2 state...\n");
+		printk(KERN_DEBUG "radeonfb (%s): switching to D2 state...\n",
+		       pci_name(rinfo->pdev));
 
 		/* Disable dynamic power management of clocks for the
 		 * duration of the suspend/resume process
@@ -2453,7 +2454,8 @@ static void radeon_set_suspend(struct radeonfb_info *rinfo, int suspend)
 			mdelay(500);
 		}
 	} else {
-		printk(KERN_DEBUG "radeonfb: switching to D0 state...\n");
+		printk(KERN_DEBUG "radeonfb (%s): switching to D0 state...\n",
+		       pci_name(rinfo->pdev));
 
 		/* Switch back PCI powermanagment to D0 */
 		mdelay(200);
@@ -2507,6 +2509,7 @@ int radeonfb_pci_suspend(struct pci_dev *pdev, u32 state)
 {
         struct fb_info *info = pci_get_drvdata(pdev);
         struct radeonfb_info *rinfo = info->par;
+	u8 agp;
 	int i;
 
 	if (state == pdev->dev.power.power_state)
@@ -2523,7 +2526,8 @@ int radeonfb_pci_suspend(struct pci_dev *pdev, u32 state)
 	if (state != PM_SUSPEND_MEM)
 		goto done;
 	if (susdisking) {
-		printk("suspending to disk but state = %d\n", state);
+		printk("radeonfb (%s): suspending to disk but state = %d\n",
+		       pci_name(pdev), state);
 		goto done;
 	}
 
@@ -2545,6 +2549,28 @@ int radeonfb_pci_suspend(struct pci_dev *pdev, u32 state)
 	rinfo->asleep = 1;
 	rinfo->lock_blank = 1;
 	del_timer_sync(&rinfo->lvds_timer);
+
+	/* Disable AGP. The AGP host should have done it, but since ordering
+	 * isn't always properly guaranteed in this specific case, let's make
+	 * sure it's disabled on card side now. Ultimately, when merging fbdev
+	 * and dri into some common infrastructure, this will be handled
+	 * more nicely. The host bridge side will (or will not) be dealt with
+	 * by the bridge AGP driver, we don't attempt to touch it here.
+	 */
+	agp = pci_find_capability(pdev, PCI_CAP_ID_AGP);
+	if (agp) {
+		u32 cmd;
+
+		pci_read_config_dword(pdev, agp + PCI_AGP_COMMAND, &cmd);
+		if (cmd & PCI_AGP_COMMAND_AGP) {
+			printk(KERN_INFO "radeonfb (%s): AGP was enabled, "
+			       "disabling ...\n",
+			       pci_name(pdev));
+			cmd &= ~PCI_AGP_COMMAND_AGP;
+			pci_write_config_dword(pdev, agp + PCI_AGP_COMMAND,
+					       cmd);
+		}
+	}
 
 	/* If we support wakeup from poweroff, we save all regs we can including cfg
 	 * space
@@ -2569,12 +2595,11 @@ int radeonfb_pci_suspend(struct pci_dev *pdev, u32 state)
 			OUTREG(LVDS_PLL_CNTL, (INREG(LVDS_PLL_CNTL) & ~30000) | 0x20000);
 			mdelay(20);
 			OUTREG(LVDS_GEN_CNTL, INREG(LVDS_GEN_CNTL) & ~(LVDS_DIGON));
-
-			// FIXME: Use PCI layer
-			for (i = 0; i < 64; ++i)
-				pci_read_config_dword(rinfo->pdev, i * 4,
-						      &rinfo->cfg_save[i]);
 		}
+		// FIXME: Use PCI layer
+		for (i = 0; i < 64; ++i)
+			pci_read_config_dword(pdev, i * 4, &rinfo->cfg_save[i]);
+		pci_disable_device(pdev);
 	}
 	/* If we support D2, we go to it (should be fixed later with a flag forcing
 	 * D3 only for some laptops)
