@@ -46,8 +46,10 @@
  *  The first part is the high level driver of the gigE ethernet ports.
  */
 
-/* Checksum offload for Tx works */
-#define	MV643XX_CHECKSUM_OFFLOAD_TX
+/* Checksum offload for Tx works for most packets, but
+ * fails if previous packet sent did not use hw csum
+ */
+#undef	MV643XX_CHECKSUM_OFFLOAD_TX
 #define	MV643XX_NAPI
 #define	MV643XX_TX_FAST_REFILL
 #undef	MV643XX_RX_QUEUE_FILL_ON_TASK	/* Does not work, yet */
