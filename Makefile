@@ -1170,7 +1170,7 @@ quiet_cmd_tags = MAKE   $@
 define cmd_tags
 	rm -f $@; \
 	CTAGSF=`ctags --version | grep -i exuberant >/dev/null && echo "-I __initdata,__exitdata,EXPORT_SYMBOL,EXPORT_SYMBOL_GPL"`; \
-	$(all-sources) | xargs ctags $$CTAGSF -a
+	$(all-sources) | xargs ctags $$CTAGSF -a --extra=+f
 endef
 
 TAGS: FORCE
