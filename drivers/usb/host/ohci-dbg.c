@@ -138,7 +138,7 @@ ohci_dump_status (struct ohci_hcd *controller, char **next, unsigned *size)
 	ohci_dbg_sw (controller, next, size,
 		"OHCI %d.%d, %s legacy support registers\n",
 		0x03 & (temp >> 4), (temp & 0x0f),
-		(temp & 0x10) ? "with" : "NO");
+		(temp & 0x0100) ? "with" : "NO");
 
 	temp = ohci_readl (controller, &regs->control);
 	ohci_dbg_sw (controller, next, size,
