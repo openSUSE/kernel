@@ -60,6 +60,32 @@ bootmem_data_t node0_bdata;
  */
 s8 physnode_map[MAX_ELEMENTS] = { [0 ... (MAX_ELEMENTS - 1)] = -1};
 
+void memory_present(int nid, unsigned long start, unsigned long end)
+{
+	unsigned long pfn;
+
+	printk(KERN_INFO "Node: %d, start_pfn: %ld, end_pfn: %ld\n",
+			nid, start, end);
+	printk(KERN_DEBUG "  Setting physnode_map array to node %d for pfns:\n", nid);
+	printk(KERN_DEBUG "  ");
+	for (pfn = start; pfn < end; pfn += PAGES_PER_ELEMENT) {
+		physnode_map[pfn / PAGES_PER_ELEMENT] = nid;
+		printk("%ld ", pfn);
+	}
+	printk("\n");
+}
+
+unsigned long node_memmap_size_bytes(int nid, unsigned long start_pfn,
+					      unsigned long end_pfn)
+{
+	unsigned long nr_pages = end_pfn - start_pfn;
+
+	if (!nr_pages)
+		return 0;
+
+	return (nr_pages + 1) * sizeof(struct page);
+}
+
 unsigned long node_start_pfn[MAX_NUMNODES];
 unsigned long node_end_pfn[MAX_NUMNODES];
 
@@ -171,9 +197,9 @@ static unsigned long calculate_numa_remap_pages(void)
 		if (node_end_pfn[nid] > max_pfn)
 			node_end_pfn[nid] = max_pfn;
 
-		/* calculate the size of the mem_map needed in bytes */
-		size = (node_end_pfn[nid] - node_start_pfn[nid] + 1) 
-			* sizeof(struct page) + sizeof(pg_data_t);
+		/* ensure the remap includes space for the pgdat. */
+		size = node_remap_size[nid] + sizeof(pg_data_t);
+
 		/* convert size to large (pmd size) pages, rounding up */
 		size = (size + LARGE_PAGE_BYTES - 1) / LARGE_PAGE_BYTES;
 		/* now the roundup is correct, convert to PAGE_SIZE pages */
@@ -198,7 +224,7 @@ unsigned long __init setup_memory(void)
 {
 	int nid;
 	unsigned long system_start_pfn, system_max_low_pfn;
-	unsigned long reserve_pages, pfn;
+	unsigned long reserve_pages;
 
 	/*
 	 * When mapping a NUMA machine we allocate the node_mem_map arrays
@@ -207,23 +233,9 @@ unsigned long __init setup_memory(void)
 	 * this space and use it to adjust the boundry between ZONE_NORMAL
 	 * and ZONE_HIGHMEM.
 	 */
+	find_max_pfn();
 	get_memcfg_numa();
 
-	/* Fill in the physnode_map */
-	for_each_online_node(nid) {
-		printk("Node: %d, start_pfn: %ld, end_pfn: %ld\n",
-				nid, node_start_pfn[nid], node_end_pfn[nid]);
-		printk("  Setting physnode_map array to node %d for pfns:\n  ",
-				nid);
-		for (pfn = node_start_pfn[nid]; pfn < node_end_pfn[nid];
-	       				pfn += PAGES_PER_ELEMENT) {
-			physnode_map[pfn / PAGES_PER_ELEMENT] = nid;
-			printk("%ld ", pfn);
-		}
-		printk("\n");
-	}
-
-	find_max_pfn();
 	reserve_pages = calculate_numa_remap_pages();
 
 	/* partially used pages are not usable - thus round upwards */

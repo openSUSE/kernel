@@ -32,7 +32,7 @@
 #include <asm/numaq.h>
 
 /* These are needed before the pgdat's are created */
-extern long node_start_pfn[], node_end_pfn[];
+extern long node_start_pfn[], node_end_pfn[], node_remap_size[];
 
 #define	MB_TO_PAGES(addr) ((addr) << (20 - PAGE_SHIFT))
 
@@ -59,6 +59,12 @@ static void __init smp_dump_qct(void)
 				eq->hi_shrd_mem_start - eq->priv_mem_size);
 			node_end_pfn[node] = MB_TO_PAGES(
 				eq->hi_shrd_mem_start + eq->hi_shrd_mem_size);
+
+			memory_present(node,
+				node_start_pfn[node], node_end_pfn[node]);
+			node_remap_size[node] = node_memmap_size_bytes(node,
+							node_start_pfn[node],
+							node_end_pfn[node]);
 		}
 	}
 }

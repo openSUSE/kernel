@@ -58,7 +58,7 @@ static int num_memory_chunks;		/* total number of memory chunks */
 static int zholes_size_init;
 static unsigned long zholes_size[MAX_NUMNODES * MAX_NR_ZONES];
 
-extern unsigned long node_start_pfn[], node_end_pfn[];
+extern unsigned long node_start_pfn[], node_end_pfn[], node_remap_size[];
 
 extern void * boot_ioremap(unsigned long, unsigned long);
 
@@ -285,6 +285,13 @@ static int __init acpi20_parse_srat(struct acpi_table_srat *sratp)
 				}
 			}
 		}
+	}
+	for_each_online_node(nid) {
+		unsigned long start = node_start_pfn[nid];
+		unsigned long end = node_end_pfn[nid];
+
+		memory_present(nid, start, end);
+		node_remap_size[nid] = node_memmap_size_bytes(nid, start, end);
 	}
 	return 1;
 out_fail:
