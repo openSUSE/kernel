@@ -383,7 +383,7 @@ reg_w(struct usb_ov511 *ov, unsigned char reg, unsigned char value)
 			     usb_sndctrlpipe(ov->dev, 0),
 			     (ov->bclass == BCL_OV518)?1:2 /* REG_IO */,
 			     USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			     0, (__u16)reg, &ov->cbuf[0], 1, HZ);
+			     0, (__u16)reg, &ov->cbuf[0], 1, 1000);
 	up(&ov->cbuf_lock);
 
 	if (rc < 0)
@@ -404,7 +404,7 @@ reg_r(struct usb_ov511 *ov, unsigned char reg)
 			     usb_rcvctrlpipe(ov->dev, 0),
 			     (ov->bclass == BCL_OV518)?1:3 /* REG_IO */,
 			     USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			     0, (__u16)reg, &ov->cbuf[0], 1, HZ);
+			     0, (__u16)reg, &ov->cbuf[0], 1, 1000);
 
 	if (rc < 0) {
 		err("reg read: error %d: %s", rc, symbolic(urb_errlist, rc));
@@ -464,7 +464,7 @@ ov518_reg_w32(struct usb_ov511 *ov, unsigned char reg, u32 val, int n)
 			     usb_sndctrlpipe(ov->dev, 0),
 			     1 /* REG_IO */,
 			     USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			     0, (__u16)reg, ov->cbuf, n, HZ);
+			     0, (__u16)reg, ov->cbuf, n, 1000);
 	up(&ov->cbuf_lock);
 
 	if (rc < 0)
