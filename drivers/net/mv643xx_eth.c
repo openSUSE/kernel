@@ -87,7 +87,7 @@ static int mv643xx_poll(struct net_device *dev, int *budget);
 #endif
 static void ethernet_phy_set(unsigned int eth_port_num, int phy_addr);
 static int ethernet_phy_detect(unsigned int eth_port_num);
-void mv643xx_set_ethtool_ops(struct net_device *netdev);
+static struct ethtool_ops mv643xx_ethtool_ops;
 
 static char mv643xx_driver_name[] = "mv643xx_eth";
 static char mv643xx_driver_version[] = "1.0";
@@ -1403,7 +1403,7 @@ static int mv643xx_eth_probe(struct device *ddev)
 	dev->tx_queue_len = mp->tx_ring_size;
 	dev->base_addr = 0;
 	dev->change_mtu = mv643xx_eth_change_mtu;
-	mv643xx_set_ethtool_ops(dev);
+	SET_ETHTOOL_OPS(dev, &mv643xx_ethtool_ops);
 
 #ifdef MV643XX_CHECKSUM_OFFLOAD_TX
 #ifdef MAX_SKB_FRAGS
@@ -3021,7 +3021,7 @@ mv643xx_get_strings(struct net_device *netdev, uint32_t stringset, uint8_t *data
 	}
 }
 
-struct ethtool_ops mv643xx_ethtool_ops = {
+static struct ethtool_ops mv643xx_ethtool_ops = {
 	.get_settings           = mv643xx_get_settings,
 	.get_drvinfo            = mv643xx_get_drvinfo,
 	.get_link               = ethtool_op_get_link,
@@ -3031,10 +3031,5 @@ struct ethtool_ops mv643xx_ethtool_ops = {
 	.get_stats_count        = mv643xx_get_stats_count,
 	.get_ethtool_stats      = mv643xx_get_ethtool_stats,
 };
-
-void mv643xx_set_ethtool_ops(struct net_device *netdev)
-{
-	SET_ETHTOOL_OPS(netdev, &mv643xx_ethtool_ops);
-}
 
 /************* End ethtool support *************************/
