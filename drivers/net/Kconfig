@@ -1780,14 +1780,6 @@ config DECLANCE
 	  DEC (now Compaq) based on the AMD Lance chipset, including the
 	  DEPCA series.  (This chipset is better known via the NE2100 cards.)
 
-config BAGETLANCE
-	tristate "Baget AMD LANCE support"
-	depends on NET_ETHERNET && BAGET_MIPS
-	help
-	  Say Y to enable kernel support for AMD Lance Ethernet cards on the
-	  MIPS-32-based Baget embedded system.  This chipset is better known
-	  via the NE2100 cards.
-
 config 68360_ENET
 	bool "Motorola 68360 ethernet controller"
 	depends on M68360

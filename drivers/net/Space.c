@@ -306,9 +306,6 @@ static struct devprobe2 mips_probes[] __initdata = {
 #ifdef CONFIG_MIPS_JAZZ_SONIC
 	{sonic_probe, 0},
 #endif
-#ifdef CONFIG_BAGETLANCE        /* Lance-based Baget ethernet boards */
-        {bagetlance_probe, 0},
-#endif
 	{NULL, 0},
 };
 
