@@ -299,8 +299,8 @@ struct i2c_client_address_data {
 };
 
 /* Internal numbers to terminate lists */
-#define I2C_CLIENT_END		0xfffe
-#define I2C_CLIENT_ISA_END	0xfffefffe
+#define I2C_CLIENT_END		0xfffeU
+#define I2C_CLIENT_ISA_END	0xfffefffeU
 
 /* The numbers to use to set I2C bus address */
 #define ANY_I2C_BUS		0xffff
