@@ -1536,12 +1536,35 @@ static struct notifier_block ndisc_netdev_notifier = {
 };
 
 #ifdef CONFIG_SYSCTL
+static void ndisc_warn_deprecated_sysctl(struct ctl_table *ctl,
+					 const char *func, const char *dev_name)
+{
+	static char warncomm[TASK_COMM_LEN];
+	static int warned;
+	if (strcmp(warncomm, current->comm) && warned < 5) {
+		strcpy(warncomm, current->comm);
+		printk(KERN_WARNING
+			"process `%s' is using deprecated sysctl (%s) "
+			"net.ipv6.neigh.%s.%s; "
+			"Use net.ipv6.neigh.%s.%s_ms "
+			"instead.\n",
+			warncomm, func,
+			dev_name, ctl->procname,
+			dev_name, ctl->procname);
+		warned++;
+	}
+}
+
 int ndisc_ifinfo_sysctl_change(struct ctl_table *ctl, int write, struct file * filp, void __user *buffer, size_t *lenp, loff_t *ppos)
 {
 	struct net_device *dev = ctl->extra1;
 	struct inet6_dev *idev;
 	int ret;
-	
+
+	if (ctl->ctl_name == NET_NEIGH_RETRANS_TIME ||
+	    ctl->ctl_name == NET_NEIGH_REACHABLE_TIME)
+		ndisc_warn_deprecated_sysctl(ctl, "syscall", dev ? dev->name : "default");
+
 	switch (ctl->ctl_name) {
 	case NET_NEIGH_RETRANS_TIME:
 		ret = proc_dointvec(ctl, write, filp, buffer, lenp, ppos);
@@ -1578,6 +1601,10 @@ int ndisc_ifinfo_sysctl_strategy(ctl_table *ctl, int __user *name, int nlen,
 	struct net_device *dev = ctl->extra1;
 	struct inet6_dev *idev;
 	int ret;
+
+	if (ctl->ctl_name == NET_NEIGH_RETRANS_TIME ||
+	    ctl->ctl_name == NET_NEIGH_REACHABLE_TIME)
+		ndisc_warn_deprecated_sysctl(ctl, "procfs", dev ? dev->name : "default");
 
 	switch (ctl->ctl_name) {
 	case NET_NEIGH_REACHABLE_TIME:

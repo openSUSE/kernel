@@ -1760,7 +1760,7 @@ base_reachable_time, base_reachable_time_ms
 A base  value  used for computing the random reachable time value as specified
 in RFC2461.
 
-Expression of base_reachable_time is in seconds.
+Expression of base_reachable_time, which is deprecated, is in seconds.
 Expression of base_reachable_time_ms is in milliseconds.
 
 retrans_time, retrans_time_ms
@@ -1770,8 +1770,8 @@ The time between retransmitted Neighbor Solicitation messages.
 Used for address resolution and to determine if a neighbor is
 unreachable.
 
-Expression of retrans_time is in 1/100 seconds (for IPv4) or in jiffies
-(for IPv6).
+Expression of retrans_time, which is deprecated, is in 1/100 seconds (for
+IPv4) or in jiffies (for IPv6).
 Expression of retrans_time_ms is in milliseconds.
 
 unres_qlen
