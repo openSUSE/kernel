@@ -1247,45 +1247,14 @@ static const struct driver_info	belkin_info = {
 
 #ifdef	NEED_GENERIC_CDC
 
-/* "Header Functional Descriptor" from CDC spec  5.2.3.1 */
-struct header_desc {
-	u8	bLength;
-	u8	bDescriptorType;
-	u8	bDescriptorSubType;
-
-	u16	bcdCDC;
-} __attribute__ ((packed));
-
-/* "Union Functional Descriptor" from CDC spec 5.2.3.X */
-struct union_desc {
-	u8	bLength;
-	u8	bDescriptorType;
-	u8	bDescriptorSubType;
-
-	u8	bMasterInterface0;
-	u8	bSlaveInterface0;
-	/* ... and there could be other slave interfaces */
-} __attribute__ ((packed));
-
-/* "Ethernet Networking Functional Descriptor" from CDC spec 5.2.3.16 */
-struct ether_desc {
-	u8	bLength;
-	u8	bDescriptorType;
-	u8	bDescriptorSubType;
-
-	u8	iMACAddress;
-	u32	bmEthernetStatistics;
-	__le16	wMaxSegmentSize;
-	__le16	wNumberMCFilters;
-	u8	bNumberPowerFilters;
-} __attribute__ ((packed));
+#include <linux/usb_cdc.h>
 
 struct cdc_state {
-	struct header_desc	*header;
-	struct union_desc	*u;
-	struct ether_desc	*ether;
-	struct usb_interface	*control;
-	struct usb_interface	*data;
+	struct usb_cdc_header_desc	*header;
+	struct usb_cdc_union_desc	*u;
+	struct usb_cdc_ether_desc	*ether;
+	struct usb_interface		*control;
+	struct usb_interface		*data;
 };
 
 static struct usb_driver usbnet_driver;
@@ -1340,7 +1309,7 @@ static int generic_cdc_bind (struct usbnet *dev, struct usb_interface *intf)
 		 * CDC Ethernet achieves with a simple descriptor.
 		 */
 		switch (buf [2]) {
-		case 0x00:		/* Header, mostly useless */
+		case USB_CDC_HEADER_TYPE:
 			if (info->header) {
 				dev_dbg (&intf->dev, "extra CDC header\n");
 				goto bad_desc;
@@ -1352,7 +1321,7 @@ static int generic_cdc_bind (struct usbnet *dev, struct usb_interface *intf)
 				goto bad_desc;
 			}
 			break;
-		case 0x06:		/* Union (groups interfaces) */
+		case USB_CDC_UNION_TYPE:
 			if (info->u) {
 				dev_dbg (&intf->dev, "extra CDC union\n");
 				goto bad_desc;
@@ -1401,7 +1370,7 @@ static int generic_cdc_bind (struct usbnet *dev, struct usb_interface *intf)
 				goto bad_desc;
 			}
 			break;
-		case 0x0F:		/* Ethernet Networking */
+		case USB_CDC_ETHERNET_TYPE:
 			if (info->ether) {
 				dev_dbg (&intf->dev, "extra CDC ether\n");
 				goto bad_desc;
@@ -1505,7 +1474,7 @@ static u8 nibble (unsigned char c)
 }
 
 static inline int
-get_ethernet_addr (struct usbnet *dev, struct ether_desc *e)
+get_ethernet_addr (struct usbnet *dev, struct usb_cdc_ether_desc *e)
 {
 	int 		tmp, i;
 	unsigned char	buf [13];
@@ -3748,6 +3717,7 @@ static const struct usb_device_id	products [] = {
 	.driver_info =	(unsigned long) &blob_info,
 }, {
 	// Linux Ethernet/RNDIS gadget on pxa210/25x/26x
+	// e.g. Gumstix, current OpenZaurus, ...
 	USB_DEVICE_VER (0x0525, 0xa4a2, 0x0203, 0x0203),
 	.driver_info =	(unsigned long) &linuxdev_info,
 }, 
@@ -3760,72 +3730,64 @@ static const struct usb_device_id	products [] = {
  *
  * PXA-2xx based models are also lying-about-cdc.
  *
+ * NOTE:  OpenZaurus versions with 2.6 kernels won't use these entries,
+ * unlike the older ones with 2.4 "embedix" kernels.
+ *
  * NOTE:  These entries do double-duty, serving as blacklist entries
  * whenever Zaurus support isn't enabled, but CDC Ethernet is.
  */
+#define	ZAURUS_MASTER_INTERFACE \
+	.bInterfaceClass	= USB_CLASS_COMM, \
+	.bInterfaceSubClass	= USB_CDC_SUBCLASS_ETHERNET, \
+	.bInterfaceProtocol	= USB_CDC_PROTO_NONE
 {
 	.match_flags	=   USB_DEVICE_ID_MATCH_INT_INFO
 			  | USB_DEVICE_ID_MATCH_DEVICE, 
 	.idVendor		= 0x04DD,
 	.idProduct		= 0x8004,
-	/* match the master interface */
-	.bInterfaceClass	= USB_CLASS_COMM,
-	.bInterfaceSubClass	= 6 /* Ethernet model */,
-	.bInterfaceProtocol	= 0,
+	ZAURUS_MASTER_INTERFACE,
 	.driver_info = ZAURUS_STRONGARM_INFO,
 }, {
 	.match_flags	=   USB_DEVICE_ID_MATCH_INT_INFO
 			  | USB_DEVICE_ID_MATCH_DEVICE, 
 	.idVendor		= 0x04DD,
 	.idProduct		= 0x8005,	/* A-300 */
-	.bInterfaceClass	= USB_CLASS_COMM,
-	.bInterfaceSubClass	= 6 /* Ethernet model */,
-	.bInterfaceProtocol	= 0x00,
+	ZAURUS_MASTER_INTERFACE,
 	.driver_info = ZAURUS_PXA_INFO,
 }, {
 	.match_flags	=   USB_DEVICE_ID_MATCH_INT_INFO
 			  | USB_DEVICE_ID_MATCH_DEVICE, 
 	.idVendor		= 0x04DD,
 	.idProduct		= 0x8006,	/* B-500/SL-5600 */
-	.bInterfaceClass	= USB_CLASS_COMM,
-	.bInterfaceSubClass	= 6 /* Ethernet model */,
-	.bInterfaceProtocol	= 0x00,
+	ZAURUS_MASTER_INTERFACE,
 	.driver_info = ZAURUS_PXA_INFO,
 }, {
 	.match_flags    =   USB_DEVICE_ID_MATCH_INT_INFO
 	          | USB_DEVICE_ID_MATCH_DEVICE,
 	.idVendor		= 0x04DD,
 	.idProduct		= 0x8007,	/* C-700 */
-	.bInterfaceClass	= USB_CLASS_COMM,
-	.bInterfaceSubClass	= 6 /* Ethernet model */,
-	.bInterfaceProtocol = 0x00,
+	ZAURUS_MASTER_INTERFACE,
 	.driver_info = ZAURUS_PXA_INFO,
 }, {
 	.match_flags    =   USB_DEVICE_ID_MATCH_INT_INFO
 		 | USB_DEVICE_ID_MATCH_DEVICE,
 	.idVendor               = 0x04DD,
 	.idProduct              = 0x9031,	/* C-750 C-760 */
-	.bInterfaceClass	= USB_CLASS_COMM,
-	.bInterfaceSubClass	= 6 /* Ethernet model */,
-	.bInterfaceProtocol     = 0x00,
+	ZAURUS_MASTER_INTERFACE,
 	.driver_info = ZAURUS_PXA_INFO,
 }, {
 	.match_flags    =   USB_DEVICE_ID_MATCH_INT_INFO
 		 | USB_DEVICE_ID_MATCH_DEVICE,
 	.idVendor               = 0x04DD,
 	.idProduct              = 0x9032,	/* SL-6000 */
-	.bInterfaceClass	= USB_CLASS_COMM,
-	.bInterfaceSubClass	= 6 /* Ethernet model */,
-	.bInterfaceProtocol     = 0x00,
+	ZAURUS_MASTER_INTERFACE,
 	.driver_info = ZAURUS_PXA_INFO,
 }, {
 	.match_flags    =   USB_DEVICE_ID_MATCH_INT_INFO
 		 | USB_DEVICE_ID_MATCH_DEVICE,
 	.idVendor               = 0x04DD,
 	.idProduct              = 0x9050,	/* C-860 */
-	.bInterfaceClass	= USB_CLASS_COMM,
-	.bInterfaceSubClass	= 6 /* Ethernet model */,
-	.bInterfaceProtocol     = 0x00,
+	ZAURUS_MASTER_INTERFACE,
 	.driver_info = ZAURUS_PXA_INFO,
 },
 
@@ -3837,9 +3799,7 @@ static const struct usb_device_id	products [] = {
 		 | USB_DEVICE_ID_MATCH_DEVICE,
 	.idVendor               = 0x07B4,
 	.idProduct              = 0x0F02,	/* R-1000 */
-	.bInterfaceClass	= USB_CLASS_COMM,
-	.bInterfaceSubClass	= 6 /* Ethernet model */,
-	.bInterfaceProtocol     = 0x00,
+	ZAURUS_MASTER_INTERFACE,
 	.driver_info = OLYMPUS_MXL_INFO,
 },
 #endif
@@ -3854,7 +3814,8 @@ static const struct usb_device_id	products [] = {
 	 * NOTE:  this match must come AFTER entries working around
 	 * bugs/quirks in a given product (like Zaurus, above).
 	 */
-	USB_INTERFACE_INFO (USB_CLASS_COMM, 6 /* Ethernet model */, 0),
+	USB_INTERFACE_INFO (USB_CLASS_COMM, USB_CDC_SUBCLASS_ETHERNET,
+			USB_CDC_PROTO_NONE),
 	.driver_info = (unsigned long) &cdc_info,
 },
 #endif
