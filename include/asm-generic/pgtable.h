@@ -146,15 +146,19 @@ static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addres
 	(__boundary - 1 < (end) - 1)? __boundary: (end);		\
 })
 
+#ifndef pud_addr_end
 #define pud_addr_end(addr, end)						\
 ({	unsigned long __boundary = ((addr) + PUD_SIZE) & PUD_MASK;	\
 	(__boundary - 1 < (end) - 1)? __boundary: (end);		\
 })
+#endif
 
+#ifndef pmd_addr_end
 #define pmd_addr_end(addr, end)						\
 ({	unsigned long __boundary = ((addr) + PMD_SIZE) & PMD_MASK;	\
 	(__boundary - 1 < (end) - 1)? __boundary: (end);		\
 })
+#endif
 
 #ifndef __ASSEMBLY__
 /*

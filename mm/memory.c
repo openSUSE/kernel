@@ -1973,15 +1973,12 @@ int handle_mm_fault(struct mm_struct *mm, struct vm_area_struct * vma,
 	return VM_FAULT_OOM;
 }
 
-#ifndef __ARCH_HAS_4LEVEL_HACK
+#ifndef __PAGETABLE_PUD_FOLDED
 /*
  * Allocate page upper directory.
  *
  * We've already handled the fast-path in-line, and we own the
  * page table lock.
- *
- * On a two-level or three-level page table, this ends up actually being
- * entirely optimized away.
  */
 pud_t fastcall *__pud_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address)
 {
@@ -2005,15 +2002,14 @@ pud_t fastcall *__pud_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long addr
  out:
 	return pud_offset(pgd, address);
 }
+#endif /* __PAGETABLE_PUD_FOLDED */
 
+#ifndef __PAGETABLE_PMD_FOLDED
 /*
  * Allocate page middle directory.
  *
  * We've already handled the fast-path in-line, and we own the
  * page table lock.
- *
- * On a two-level page table, this ends up actually being entirely
- * optimized away.
  */
 pmd_t fastcall *__pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
 {
@@ -2029,38 +2025,24 @@ pmd_t fastcall *__pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long addr
 	 * Because we dropped the lock, we should re-check the
 	 * entry, as somebody else could have populated it..
 	 */
+#ifndef __ARCH_HAS_4LEVEL_HACK
 	if (pud_present(*pud)) {
 		pmd_free(new);
 		goto out;
 	}
 	pud_populate(mm, pud, new);
- out:
-	return pmd_offset(pud, address);
-}
 #else
-pmd_t fastcall *__pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address)
-{
-	pmd_t *new;
-
-	spin_unlock(&mm->page_table_lock);
-	new = pmd_alloc_one(mm, address);
-	spin_lock(&mm->page_table_lock);
-	if (!new)
-		return NULL;
-
-	/*
-	 * Because we dropped the lock, we should re-check the
-	 * entry, as somebody else could have populated it..
-	 */
 	if (pgd_present(*pud)) {
 		pmd_free(new);
 		goto out;
 	}
 	pgd_populate(mm, pud, new);
-out:
+#endif /* __ARCH_HAS_4LEVEL_HACK */
+
+ out:
 	return pmd_offset(pud, address);
 }
-#endif
+#endif /* __PAGETABLE_PMD_FOLDED */
 
 int make_pages_present(unsigned long addr, unsigned long end)
 {
