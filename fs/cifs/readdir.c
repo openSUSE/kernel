@@ -394,7 +394,7 @@ static int cifs_get_name_from_search_buf(struct qstr * pqst,char * current_entry
 
 
 static int
-cifs_filldir2(char * pfindEntry, struct file *file, 
+cifs_filldir(char * pfindEntry, struct file *file, 
 			  filldir_t filldir, void *direntry,char * scratch_buf)
 {
 	int rc = 0;
@@ -515,7 +515,7 @@ int cifs_save_resume_key(const char * current_entry,struct cifsFileInfo * cifsFi
 	return rc;
 }
 
-int cifs_readdir2(struct file *file, void *direntry, filldir_t filldir)
+int cifs_readdir(struct file *file, void *direntry, filldir_t filldir)
 {
 	int rc = 0;
 	int xid,i;
@@ -625,7 +625,7 @@ int cifs_readdir2(struct file *file, void *direntry, filldir_t filldir)
 				fill in inode new_inode (which makes number locally)
 			}
 			also create local inode for per reasons unless new mount parm says otherwise */
-			rc = cifs_filldir2(current_entry, file, 
+			rc = cifs_filldir(current_entry, file, 
 					filldir, direntry,tmp_buf);
 			file->f_pos++;
 			if(file->f_pos == cifsFile->srch_inf.index_of_last_entry) {
