@@ -523,7 +523,7 @@ static unsigned long current_freq;
                         if(copy_from_user(arg, &amp;freq, 
                                 sizeof(unsigned long))!=0)
                                 return -EFAULT;
-                        if(hardware_set_freq(freq)<0)
+                        if(hardware_set_freq(freq)&lt;0)
                                 return -EINVAL;
                         current_freq = freq;
                         return 0;
@@ -1552,9 +1552,9 @@ static struct video_buffer capture_fb;
                         struct video_window v;
                         if(copy_from_user(&amp;v, arg, sizeof(v)))
                                 return -EFAULT;
-                        if(v.width > 640 || v.height > 480)
+                        if(v.width &gt; 640 || v.height &gt; 480)
                                 return -EINVAL;
-                        if(v.width < 16 || v.height < 16)
+                        if(v.width &lt; 16 || v.height &lt; 16)
                                 return -EINVAL;
                         hardware_set_key(v.chromakey);
                         hardware_set_window(v);
