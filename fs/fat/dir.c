@@ -759,7 +759,7 @@ static struct buffer_head *fat_extend_dir(struct inode *inode)
 {
 	struct super_block *sb = inode->i_sb;
 	struct buffer_head *bh, *res = NULL;
-	int nr, sec_per_clus = MSDOS_SB(sb)->sec_per_clus;
+	int err, cluster, sec_per_clus = MSDOS_SB(sb)->sec_per_clus;
 	sector_t sector, last_sector;
 
 	if (MSDOS_SB(sb)->fat_bits != 32) {
@@ -767,11 +767,16 @@ static struct buffer_head *fat_extend_dir(struct inode *inode)
 			return ERR_PTR(-ENOSPC);
 	}
 
-	nr = fat_add_cluster(inode);
-	if (nr < 0)
-		return ERR_PTR(nr);
+	err = fat_alloc_clusters(inode, &cluster, 1);
+	if (err)
+		return ERR_PTR(err);
+	err = fat_chain_add(inode, cluster, 1);
+	if (err) {
+		fat_free_clusters(inode, cluster);
+		return ERR_PTR(err);
+	}
 
-	sector = fat_clus_to_blknr(MSDOS_SB(sb), nr);
+	sector = fat_clus_to_blknr(MSDOS_SB(sb), cluster);
 	last_sector = sector + sec_per_clus;
 	for ( ; sector < last_sector; sector++) {
 		if ((bh = sb_getblk(sb, sector))) {

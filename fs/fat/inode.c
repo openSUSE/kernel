@@ -33,6 +33,21 @@ static int fat_default_codepage = CONFIG_FAT_DEFAULT_CODEPAGE;
 static char fat_default_iocharset[] = CONFIG_FAT_DEFAULT_IOCHARSET;
 
 
+static int fat_add_cluster(struct inode *inode)
+{
+	int err, cluster;
+
+	err = fat_alloc_clusters(inode, &cluster, 1);
+	if (err)
+		return err;
+	/* FIXME: this cluster should be added after data of this
+	 * cluster is writed */
+	err = fat_chain_add(inode, cluster, 1);
+	if (err)
+		fat_free_clusters(inode, cluster);
+	return err;
+}
+
 static int fat_get_block(struct inode *inode, sector_t iblock,
 			 struct buffer_head *bh_result, int create)
 {
@@ -55,11 +70,9 @@ static int fat_get_block(struct inode *inode, sector_t iblock,
 		return -EIO;
 	}
 	if (!((unsigned long)iblock & (MSDOS_SB(sb)->sec_per_clus - 1))) {
-		int error;
-
-		error = fat_add_cluster(inode);
-		if (error < 0)
-			return error;
+		err = fat_add_cluster(inode);
+		if (err)
+			return err;
 	}
 	MSDOS_I(inode)->mmu_private += sb->s_blocksize;
 	err = fat_bmap(inode, iblock, &phys);
@@ -423,34 +436,19 @@ static int fat_remount(struct super_block *sb, int *flags, char *data)
 static int fat_statfs(struct super_block *sb, struct kstatfs *buf)
 {
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
-	int free, nr, ret;
 
-	if (sbi->free_clusters != -1)
-		free = sbi->free_clusters;
-	else {
-		lock_fat(sb);
-		if (sbi->free_clusters != -1)
-			free = sbi->free_clusters;
-		else {
-			free = 0;
-			for (nr = FAT_START_ENT; nr < sbi->max_cluster; nr++) {
-				ret = fat_access(sb, nr, -1);
-				if (ret < 0) {
-					unlock_fat(sb);
-					return ret;
-				} else if (ret == FAT_ENT_FREE)
-					free++;
-			}
-			sbi->free_clusters = free;
-		}
-		unlock_fat(sb);
+	/* If the count of free cluster is still unknown, counts it here. */
+	if (sbi->free_clusters == -1) {
+		int err = fat_count_free_clusters(sb);
+		if (err)
+			return err;
 	}
 
 	buf->f_type = sb->s_magic;
 	buf->f_bsize = sbi->cluster_size;
 	buf->f_blocks = sbi->max_cluster - FAT_START_ENT;
-	buf->f_bfree = free;
-	buf->f_bavail = free;
+	buf->f_bfree = sbi->free_clusters;
+	buf->f_bavail = sbi->free_clusters;
 	buf->f_namelen = sbi->options.isvfat ? 260 : 12;
 
 	return 0;
@@ -1076,10 +1074,6 @@ int fat_fill_super(struct super_block *sb, void *data, int silent,
 	if (error)
 		goto out_fail;
 
-	/* set up enough so that it can read an inode */
-	fat_hash_init(sb);
-	init_MUTEX(&sbi->fat_lock);
-
 	error = -EIO;
 	sb_min_blocksize(sb, 512);
 	bh = sb_bread(sb, 0);
@@ -1255,6 +1249,10 @@ int fat_fill_super(struct super_block *sb, void *data, int silent,
 		sbi->free_clusters = -1;
 
 	brelse(bh);
+
+	/* set up enough so that it can read an inode */
+	fat_hash_init(sb);
+	fat_ent_access_init(sb);
 
 	/*
 	 * The low byte of FAT's first entry must have same value with

@@ -76,15 +76,11 @@
 #define BAD_FAT12	0xFF7
 #define BAD_FAT16	0xFFF7
 #define BAD_FAT32	0x0FFFFFF7
-#define BAD_FAT(s)	(MSDOS_SB(s)->fat_bits == 32 ? BAD_FAT32 : \
-	MSDOS_SB(s)->fat_bits == 16 ? BAD_FAT16 : BAD_FAT12)
 
 /* standard EOF */
 #define EOF_FAT12	0xFFF
 #define EOF_FAT16	0xFFFF
 #define EOF_FAT32	0x0FFFFFFF
-#define EOF_FAT(s)	(MSDOS_SB(s)->fat_bits == 32 ? EOF_FAT32 : \
-	MSDOS_SB(s)->fat_bits == 16 ? EOF_FAT16 : EOF_FAT12)
 
 #define FAT_ENT_FREE	(0)
 #define FAT_ENT_BAD	(BAD_FAT32)
@@ -238,6 +234,9 @@ struct msdos_sb_info {
 	int dir_per_block;	     /* dir entries per block */
 	int dir_per_block_bits;	     /* log2(dir_per_block) */
 
+	int fatent_shift;
+	struct fatent_operations *fatent_ops;
+
 	spinlock_t inode_hash_lock;
 	struct hlist_head inode_hashtable[FAT_HASH_SIZE];
 };
@@ -315,7 +314,6 @@ static inline void fatwchar_to16(__u8 *dst, const wchar_t *src, size_t len)
 
 /* fat/cache.c */
 extern void fat_cache_inval_inode(struct inode *inode);
-extern int fat_access(struct super_block *sb, int nr, int new_value);
 extern int fat_get_cluster(struct inode *inode, int cluster,
 			   int *fclus, int *dclus);
 extern int fat_bmap(struct inode *inode, sector_t sector, sector_t *phys);
@@ -335,6 +333,46 @@ extern int fat_scan(struct inode *dir, const unsigned char *name,
 		    struct buffer_head **res_bh,
 		    struct msdos_dir_entry **res_de, loff_t *i_pos);
 
+/* fat/fatent.c */
+struct fat_entry {
+	int entry;
+	union {
+		u8 *ent12_p[2];
+		__le16 *ent16_p;
+		__le32 *ent32_p;
+	} u;
+	int nr_bhs;
+	struct buffer_head *bhs[2];
+};
+
+static inline void fatent_init(struct fat_entry *fatent)
+{
+	fatent->nr_bhs = 0;
+}
+
+static inline void fatent_set_entry(struct fat_entry *fatent, int entry)
+{
+	fatent->entry = entry;
+}
+
+static inline void fatent_brelse(struct fat_entry *fatent)
+{
+	int i;
+	for (i = 0; i < fatent->nr_bhs; i++)
+		brelse(fatent->bhs[i]);
+	fatent->nr_bhs = 0;
+}
+
+extern void fat_ent_access_init(struct super_block *sb);
+extern int fat_ent_read(struct inode *inode, struct fat_entry *fatent,
+			int entry);
+extern int fat_ent_write(struct inode *inode, struct fat_entry *fatent,
+			 int new, int wait);
+extern int fat_alloc_clusters(struct inode *inode, int *cluster,
+			      int nr_cluster);
+extern int fat_free_clusters(struct inode *inode, int cluster);
+extern int fat_count_free_clusters(struct super_block *sb);
+
 /* fat/file.c */
 extern int fat_generic_ioctl(struct inode *inode, struct file *filp,
 			     unsigned int cmd, unsigned long arg);
@@ -350,15 +388,13 @@ extern struct inode *fat_iget(struct super_block *sb, loff_t i_pos);
 extern struct inode *fat_build_inode(struct super_block *sb,
 			struct msdos_dir_entry *de, loff_t i_pos, int *res);
 extern int fat_sync_inode(struct inode *inode);
-int fat_fill_super(struct super_block *sb, void *data, int silent,
-		   struct inode_operations *fs_dir_inode_ops, int isvfat);
+extern int fat_fill_super(struct super_block *sb, void *data, int silent,
+			struct inode_operations *fs_dir_inode_ops, int isvfat);
 
 /* fat/misc.c */
 extern void fat_fs_panic(struct super_block *s, const char *fmt, ...);
-extern void lock_fat(struct super_block *sb);
-extern void unlock_fat(struct super_block *sb);
 extern void fat_clusters_flush(struct super_block *sb);
-extern int fat_add_cluster(struct inode *inode);
+extern int fat_chain_add(struct inode *inode, int new_dclus, int nr_cluster);
 extern int date_dos2unix(unsigned short time, unsigned short date);
 extern void fat_date_unix2dos(int unix_date, __le16 *time, __le16 *date);
 extern int fat__get_entry(struct inode *dir, loff_t *pos,
@@ -378,6 +414,7 @@ static __inline__ int fat_get_entry(struct inode *dir, loff_t *pos,
 	}
 	return fat__get_entry(dir, pos, bh, de, i_pos);
 }
+extern int fat_sync_bhs(struct buffer_head **bhs, int nr_bhs);
 
 #endif /* __KERNEL__ */
 
