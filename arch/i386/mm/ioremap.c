@@ -17,6 +17,9 @@
 #include <asm/tlbflush.h>
 #include <asm/pgtable.h>
 
+#define ISA_START_ADDRESS	0xa0000
+#define ISA_END_ADDRESS		0x100000
+
 static inline void remap_area_pte(pte_t * pte, unsigned long address, unsigned long size,
 	unsigned long phys_addr, unsigned long flags)
 {
@@ -129,7 +132,7 @@ void __iomem * __ioremap(unsigned long phys_addr, unsigned long size, unsigned l
 	/*
 	 * Don't remap the low PCI/ISA area, it's always mapped..
 	 */
-	if (phys_addr >= 0xA0000 && last_addr < 0x100000)
+	if (phys_addr >= ISA_START_ADDRESS && last_addr < ISA_END_ADDRESS)
 		return (void __iomem *) phys_to_virt(phys_addr);
 
 	/*
@@ -230,7 +233,17 @@ void iounmap(volatile void __iomem *addr)
 {
 	struct vm_struct *p;
 	if ((void __force *) addr <= high_memory) 
-		return; 
+		return;
+
+	/*
+	 * __ioremap special-cases the PCI/ISA range by not instantiating a
+	 * vm_area and by simply returning an address into the kernel mapping
+	 * of ISA space.   So handle that here.
+	 */
+	if (addr >= phys_to_virt(ISA_START_ADDRESS) &&
+			addr < phys_to_virt(ISA_END_ADDRESS))
+		return;
+
 	p = remove_vm_area((void *) (PAGE_MASK & (unsigned long __force) addr));
 	if (!p) { 
 		printk("__iounmap: bad address %p\n", addr);
@@ -261,7 +274,7 @@ void __init *bt_ioremap(unsigned long phys_addr, unsigned long size)
 	/*
 	 * Don't remap the low PCI/ISA area, it's always mapped..
 	 */
-	if (phys_addr >= 0xA0000 && last_addr < 0x100000)
+	if (phys_addr >= ISA_START_ADDRESS && last_addr < ISA_END_ADDRESS)
 		return phys_to_virt(phys_addr);
 
 	/*
