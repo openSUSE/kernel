@@ -1,5 +1,5 @@
 /*
- * $Id: cx88-video.c,v 1.46 2004/11/07 14:44:59 kraxel Exp $
+ * $Id: cx88-video.c,v 1.58 2005/03/07 15:58:05 kraxel Exp $
  *
  * device driver for Conexant 2388x based TV cards
  * video4linux video interface
@@ -24,6 +24,7 @@
 #include <linux/init.h>
 #include <linux/list.h>
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/kmod.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -428,7 +429,7 @@ static int start_video_dma(struct cx8800_dev    *dev,
 	q->count = 1;
 
 	/* enable irqs */
-	cx_set(MO_PCI_INTMSK, 0x00fc01);
+	cx_set(MO_PCI_INTMSK, core->pci_irqmask | 0x01);
 	cx_set(MO_VID_INTMSK, 0x0f0011);
 
 	/* enable capture */
@@ -994,7 +995,7 @@ static int video_open(struct inode *inode, struct file *file)
 		cx_write(MO_GP3_IO, cx88_boards[board].radio.gpio3);
 		dev->core->tvaudio = WW_FM;
 		cx88_set_tvaudio(core);
-		cx88_set_stereo(core,V4L2_TUNER_MODE_STEREO);
+		cx88_set_stereo(core,V4L2_TUNER_MODE_STEREO,1);
 		cx88_call_i2c_clients(dev->core,AUDC_SET_RADIO,NULL);
 	}
 
@@ -1002,7 +1003,7 @@ static int video_open(struct inode *inode, struct file *file)
 }
 
 static ssize_t
-video_read(struct file *file, char __user *data, size_t count, loff_t *ppos)
+video_read(struct file *file, char *data, size_t count, loff_t *ppos)
 {
 	struct cx8800_fh *fh = file->private_data;
 
@@ -1083,6 +1084,8 @@ static int video_release(struct inode *inode, struct file *file)
 		res_free(dev,fh,RESOURCE_VBI);
 	}
 
+	videobuf_mmap_free(&fh->vidq);
+	videobuf_mmap_free(&fh->vbiq);
 	file->private_data = NULL;
 	kfree(fh);
 	return 0;
@@ -1338,7 +1341,6 @@ static int video_do_ioctl(struct inode *inode, struct file *file,
 			0;
 		if (UNSET != core->tuner_type)
 			cap->capabilities |= V4L2_CAP_TUNER;
-
 		return 0;
 	}
 
@@ -1429,6 +1431,7 @@ static int video_do_ioctl(struct inode *inode, struct file *file,
 		if (*i >= 4)
 			return -EINVAL;
 		down(&dev->lock);
+		cx88_newstation(core);
 		video_mux(dev,*i);
 		up(&dev->lock);
 		return 0;
@@ -1560,7 +1563,7 @@ static int video_do_ioctl(struct inode *inode, struct file *file,
 			return -EINVAL;
 		if (0 != t->index)
 			return -EINVAL;
-		cx88_set_stereo(core, t->audmode);
+		cx88_set_stereo(core, t->audmode, 1);
 		return 0;
 	}
 	case VIDIOC_G_FREQUENCY:
@@ -1590,6 +1593,7 @@ static int video_do_ioctl(struct inode *inode, struct file *file,
 			return -EINVAL;
 		down(&dev->lock);
 		dev->freq = f->frequency;
+		cx88_newstation(core);
 #ifdef V4L2_I2C_CLIENTS
 		cx88_call_i2c_clients(dev->core,VIDIOC_S_FREQUENCY,f);
 #else
@@ -1880,19 +1884,18 @@ static irqreturn_t cx8800_irq(int irq, void *dev_id, struct pt_regs *regs)
 {
 	struct cx8800_dev *dev = dev_id;
 	struct cx88_core *core = dev->core;
-	u32 status, mask;
+	u32 status;
 	int loop, handled = 0;
 
 	for (loop = 0; loop < 10; loop++) {
-		status = cx_read(MO_PCI_INTSTAT) & (~0x1f | 0x01);
-		mask   = cx_read(MO_PCI_INTMSK);
-		if (0 == (status & mask))
+		status = cx_read(MO_PCI_INTSTAT) & (core->pci_irqmask | 0x01);
+		if (0 == status)
 			goto out;
 		cx_write(MO_PCI_INTSTAT, status);
 		handled = 1;
 
-		if (status & mask & ~0x1f)
-			cx88_irq(core,status,mask);
+		if (status & core->pci_irqmask)
+			cx88_core_irq(core,status);
 		if (status & 0x01)
 			cx8800_vid_irq(dev);
 	};
@@ -2055,6 +2058,7 @@ static int __devinit cx8800_initdev(struct pci_dev *pci_dev,
 		       core->name,pci_dev->irq);
 		goto fail_core;
 	}
+	cx_set(MO_PCI_INTMSK, core->pci_irqmask);
 
 	/* load and configure helper modules */
 	if (TUNER_ABSENT != core->tuner_type)
@@ -2156,7 +2160,7 @@ static void __devexit cx8800_finidev(struct pci_dev *pci_dev)
 	kfree(dev);
 }
 
-static int cx8800_suspend(struct pci_dev *pci_dev, u32 state)
+static int cx8800_suspend(struct pci_dev *pci_dev, pm_message_t state)
 {
         struct cx8800_dev *dev = pci_get_drvdata(pci_dev);
 	struct cx88_core *core = dev->core;
@@ -2181,7 +2185,7 @@ static int cx8800_suspend(struct pci_dev *pci_dev, u32 state)
 #endif
 
 	pci_save_state(pci_dev);
-	if (0 != pci_set_power_state(pci_dev, state)) {
+	if (0 != pci_set_power_state(pci_dev, pci_choose_state(pci_dev, state))) {
 		pci_disable_device(pci_dev);
 		dev->state.disabled = 1;
 	}
@@ -2197,7 +2201,7 @@ static int cx8800_resume(struct pci_dev *pci_dev)
 		pci_enable_device(pci_dev);
 		dev->state.disabled = 0;
 	}
-	pci_set_power_state(pci_dev, 0);
+	pci_set_power_state(pci_dev, PCI_D0);
 	pci_restore_state(pci_dev);
 
 #if 1

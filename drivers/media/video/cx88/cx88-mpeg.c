@@ -1,5 +1,5 @@
 /*
- * $Id: cx88-mpeg.c,v 1.14 2004/10/25 11:26:36 kraxel Exp $
+ * $Id: cx88-mpeg.c,v 1.25 2005/03/07 14:18:00 kraxel Exp $
  *
  *  Support for the mpeg transport stream transfers
  *  PCI function #2 of the cx2388x.
@@ -24,6 +24,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/init.h>
 #include <linux/device.h>
 #include <linux/interrupt.h>
@@ -68,8 +69,14 @@ static int cx8802_start_dma(struct cx8802_dev    *dev,
 	 * also: move to cx88-blackbird + cx88-dvb source files? */
 
 	if (cx88_boards[core->board].dvb) {
-		/* Setup TS portion of chip */
-		cx_write(TS_GEN_CNTRL, 0x0c);
+		/* negedge driven & software reset */
+		cx_write(TS_GEN_CNTRL, 0x40);
+		udelay(100);
+		cx_write(MO_PINMUX_IO, 0x00);
+		cx_write(TS_HW_SOP_CNTRL,47<<16|188<<4|0x00);
+		cx_write(TS_SOP_STAT,0x00);
+		cx_write(TS_GEN_CNTRL, dev->ts_gen_cntrl);
+		udelay(100);
 	}
 
 	if (cx88_boards[core->board].blackbird) {
@@ -93,7 +100,7 @@ static int cx8802_start_dma(struct cx8802_dev    *dev,
 	q->count = 1;
 
 	/* enable irqs */
-	cx_set(MO_PCI_INTMSK, 0x00fc04);
+	cx_set(MO_PCI_INTMSK, core->pci_irqmask | 0x04);
 	cx_write(MO_TS_INTMSK,  0x1f0011);
 
 	/* start dma */
@@ -292,19 +299,18 @@ static irqreturn_t cx8802_irq(int irq, void *dev_id, struct pt_regs *regs)
 {
 	struct cx8802_dev *dev = dev_id;
 	struct cx88_core *core = dev->core;
-	u32 status, mask;
+	u32 status;
 	int loop, handled = 0;
 
 	for (loop = 0; loop < 10; loop++) {
-		status = cx_read(MO_PCI_INTSTAT) & (~0x1f | 0x04);
-		mask   = cx_read(MO_PCI_INTMSK);
-		if (0 == (status & mask))
+		status = cx_read(MO_PCI_INTSTAT) & (core->pci_irqmask | 0x04);
+		if (0 == status)
 			goto out;
 		handled = 1;
 		cx_write(MO_PCI_INTSTAT, status);
 
-		if (status & mask & ~0x1f)
-			cx88_irq(core,status,mask);
+		if (status & core->pci_irqmask)
+			cx88_core_irq(core,status);
 		if (status & 0x04)
 			cx8802_mpeg_irq(dev);
 	};
@@ -323,6 +329,7 @@ static irqreturn_t cx8802_irq(int irq, void *dev_id, struct pt_regs *regs)
 
 int cx8802_init_common(struct cx8802_dev *dev)
 {
+	struct cx88_core *core = dev->core;
 	int err;
 
 	/* pci init */
@@ -354,11 +361,6 @@ int cx8802_init_common(struct cx8802_dev *dev)
 	cx88_risc_stopper(dev->pci,&dev->mpegq.stopper,
 			  MO_TS_DMACNTRL,0x11,0x00);
 
-#if 0 /* FIXME */
-	/* initialize hardware */
-	cx8802_reset(dev);
-#endif
-
 	/* get irq */
 	err = request_irq(dev->pci->irq, cx8802_irq,
 			  SA_SHIRQ | SA_INTERRUPT, dev->core->name, dev);
@@ -367,11 +369,7 @@ int cx8802_init_common(struct cx8802_dev *dev)
 		       dev->core->name, dev->pci->irq);
 		return err;
 	}
-
-#if 0 /* FIXME */
-	/* register i2c bus + load i2c helpers */
-	cx88_card_setup(dev);
-#endif
+	cx_set(MO_PCI_INTMSK, core->pci_irqmask);
 
 	/* everything worked */
 	pci_set_drvdata(dev->pci,dev);
@@ -393,7 +391,7 @@ void cx8802_fini_common(struct cx8802_dev *dev)
 
 /* ----------------------------------------------------------- */
 
-int cx8802_suspend_common(struct pci_dev *pci_dev, u32 state)
+int cx8802_suspend_common(struct pci_dev *pci_dev, pm_message_t state)
 {
         struct cx8802_dev *dev = pci_get_drvdata(pci_dev);
 	struct cx88_core *core = dev->core;
@@ -413,7 +411,7 @@ int cx8802_suspend_common(struct pci_dev *pci_dev, u32 state)
 #endif
 
 	pci_save_state(pci_dev);
-	if (0 != pci_set_power_state(pci_dev, state)) {
+	if (0 != pci_set_power_state(pci_dev, pci_choose_state(pci_dev, state))) {
 		pci_disable_device(pci_dev);
 		dev->state.disabled = 1;
 	}
@@ -429,7 +427,7 @@ int cx8802_resume_common(struct pci_dev *pci_dev)
 		pci_enable_device(pci_dev);
 		dev->state.disabled = 0;
 	}
-	pci_set_power_state(pci_dev, 0);
+	pci_set_power_state(pci_dev, PCI_D0);
 	pci_restore_state(pci_dev);
 
 #if 1
