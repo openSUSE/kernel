@@ -102,7 +102,7 @@ EXPORT_SYMBOL_GPL(sysdev_class_register);
 EXPORT_SYMBOL_GPL(sysdev_class_unregister);
 
 
-static LIST_HEAD(global_drivers);
+static LIST_HEAD(sysdev_drivers);
 
 /**
  *	sysdev_driver_register - Register auxillary driver
@@ -112,7 +112,7 @@ static LIST_HEAD(global_drivers);
  *	If @cls is valid, then @drv is inserted into @cls->drivers to be
  *	called on each operation on devices of that class. The refcount
  *	of @cls is incremented.
- *	Otherwise, @drv is inserted into global_drivers, and called for
+ *	Otherwise, @drv is inserted into sysdev_drivers, and called for
  *	each device.
  */
 
@@ -130,7 +130,7 @@ int sysdev_driver_register(struct sysdev_class * cls,
 				drv->add(dev);
 		}
 	} else
-		list_add_tail(&drv->entry, &global_drivers);
+		list_add_tail(&drv->entry, &sysdev_drivers);
 	up_write(&system_subsys.rwsem);
 	return 0;
 }
@@ -199,7 +199,7 @@ int sysdev_register(struct sys_device * sysdev)
 		 */
 
 		/* Notify global drivers */
-		list_for_each_entry(drv, &global_drivers, entry) {
+		list_for_each_entry(drv, &sysdev_drivers, entry) {
 			if (drv->add)
 				drv->add(sysdev);
 		}
@@ -219,7 +219,7 @@ void sysdev_unregister(struct sys_device * sysdev)
 	struct sysdev_driver * drv;
 
 	down_write(&system_subsys.rwsem);
-	list_for_each_entry(drv, &global_drivers, entry) {
+	list_for_each_entry(drv, &sysdev_drivers, entry) {
 		if (drv->remove)
 			drv->remove(sysdev);
 	}
@@ -268,7 +268,7 @@ void sysdev_shutdown(void)
 			pr_debug(" %s\n", kobject_name(&sysdev->kobj));
 
 			/* Call global drivers first. */
-			list_for_each_entry(drv, &global_drivers, entry) {
+			list_for_each_entry(drv, &sysdev_drivers, entry) {
 				if (drv->shutdown)
 					drv->shutdown(sysdev);
 			}
@@ -319,7 +319,7 @@ int sysdev_suspend(u32 state)
 			pr_debug(" %s\n", kobject_name(&sysdev->kobj));
 
 			/* Call global drivers first. */
-			list_for_each_entry(drv, &global_drivers, entry) {
+			list_for_each_entry(drv, &sysdev_drivers, entry) {
 				if (drv->suspend)
 					drv->suspend(sysdev, state);
 			}
@@ -375,7 +375,7 @@ int sysdev_resume(void)
 			}
 
 			/* Call global drivers. */
-			list_for_each_entry(drv, &global_drivers, entry) {
+			list_for_each_entry(drv, &sysdev_drivers, entry) {
 				if (drv->resume)
 					drv->resume(sysdev);
 			}
