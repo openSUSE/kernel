@@ -389,32 +389,12 @@ void *vmap(struct page **pages, unsigned int count,
 
 EXPORT_SYMBOL(vmap);
 
-/**
- *	__vmalloc  -  allocate virtually contiguous memory
- *
- *	@size:		allocation size
- *	@gfp_mask:	flags for the page level allocator
- *	@prot:		protection mask for the allocated pages
- *
- *	Allocate enough pages to cover @size from the page level
- *	allocator with @gfp_mask flags.  Map them into contiguous
- *	kernel virtual space, using a pagetable protection of @prot.
- */
-void *__vmalloc(unsigned long size, int gfp_mask, pgprot_t prot)
+void *__vmalloc_area(struct vm_struct *area, int gfp_mask, pgprot_t prot)
 {
-	struct vm_struct *area;
 	struct page **pages;
 	unsigned int nr_pages, array_size, i;
 
-	size = PAGE_ALIGN(size);
-	if (!size || (size >> PAGE_SHIFT) > num_physpages)
-		return NULL;
-
-	area = get_vm_area(size, VM_ALLOC);
-	if (!area)
-		return NULL;
-
-	nr_pages = size >> PAGE_SHIFT;
+	nr_pages = (area->size - PAGE_SIZE) >> PAGE_SHIFT;
 	array_size = (nr_pages * sizeof(struct page *));
 
 	area->nr_pages = nr_pages;
@@ -439,7 +419,7 @@ void *__vmalloc(unsigned long size, int gfp_mask, pgprot_t prot)
 			goto fail;
 		}
 	}
-	
+
 	if (map_vm_area(area, prot, &pages))
 		goto fail;
 	return area->addr;
@@ -447,6 +427,32 @@ void *__vmalloc(unsigned long size, int gfp_mask, pgprot_t prot)
 fail:
 	vfree(area->addr);
 	return NULL;
+}
+
+/**
+ *	__vmalloc  -  allocate virtually contiguous memory
+ *
+ *	@size:		allocation size
+ *	@gfp_mask:	flags for the page level allocator
+ *	@prot:		protection mask for the allocated pages
+ *
+ *	Allocate enough pages to cover @size from the page level
+ *	allocator with @gfp_mask flags.  Map them into contiguous
+ *	kernel virtual space, using a pagetable protection of @prot.
+ */
+void *__vmalloc(unsigned long size, int gfp_mask, pgprot_t prot)
+{
+	struct vm_struct *area;
+
+	size = PAGE_ALIGN(size);
+	if (!size || (size >> PAGE_SHIFT) > num_physpages)
+		return NULL;
+
+	area = get_vm_area(size, VM_ALLOC);
+	if (!area)
+		return NULL;
+
+	return __vmalloc_area(area, gfp_mask, prot);
 }
 
 EXPORT_SYMBOL(__vmalloc);

@@ -27,6 +27,7 @@ extern void *vmalloc(unsigned long size);
 extern void *vmalloc_exec(unsigned long size);
 extern void *vmalloc_32(unsigned long size);
 extern void *__vmalloc(unsigned long size, int gfp_mask, pgprot_t prot);
+extern void *__vmalloc_area(struct vm_struct *area, int gfp_mask, pgprot_t prot);
 extern void vfree(void *addr);
 
 extern void *vmap(struct page **pages, unsigned int count,
