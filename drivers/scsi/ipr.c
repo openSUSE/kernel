@@ -89,6 +89,8 @@ static struct list_head ipr_ioa_head = LIST_HEAD_INIT(ipr_ioa_head);
 static unsigned int ipr_log_level = IPR_DEFAULT_LOG_LEVEL;
 static unsigned int ipr_max_speed = 1;
 static int ipr_testmode = 0;
+static unsigned int ipr_fastfail = 0;
+static unsigned int ipr_transop_timeout = IPR_OPERATIONAL_TIMEOUT;
 static DEFINE_SPINLOCK(ipr_driver_lock);
 
 /* This table describes the differences between DMA controller chips */
@@ -144,6 +146,10 @@ module_param_named(log_level, ipr_log_level, uint, 0);
 MODULE_PARM_DESC(log_level, "Set to 0 - 4 for increasing verbosity of device driver");
 module_param_named(testmode, ipr_testmode, int, 0);
 MODULE_PARM_DESC(testmode, "DANGEROUS!!! Allows unsupported configurations");
+module_param_named(fastfail, ipr_fastfail, int, 0);
+MODULE_PARM_DESC(fastfail, "Reduce timeouts and retries");
+module_param_named(transop_timeout, ipr_transop_timeout, int, 0);
+MODULE_PARM_DESC(transop_timeout, "Time in seconds to wait for adapter to come operational (default: 300)");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(IPR_DRIVER_VERSION);
 
@@ -1251,6 +1257,41 @@ static void ipr_timeout(struct ipr_cmnd *ipr_cmd)
 
 	if (!ioa_cfg->in_reset_reload || ioa_cfg->reset_cmd == ipr_cmd)
 		ipr_initiate_ioa_reset(ioa_cfg, IPR_SHUTDOWN_NONE);
+
+	spin_unlock_irqrestore(ioa_cfg->host->host_lock, lock_flags);
+	LEAVE;
+}
+
+/**
+ * ipr_oper_timeout -  Adapter timed out transitioning to operational
+ * @ipr_cmd:	ipr command struct
+ *
+ * This function blocks host requests and initiates an
+ * adapter reset.
+ *
+ * Return value:
+ * 	none
+ **/
+static void ipr_oper_timeout(struct ipr_cmnd *ipr_cmd)
+{
+	unsigned long lock_flags = 0;
+	struct ipr_ioa_cfg *ioa_cfg = ipr_cmd->ioa_cfg;
+
+	ENTER;
+	spin_lock_irqsave(ioa_cfg->host->host_lock, lock_flags);
+
+	ioa_cfg->errors_logged++;
+	dev_err(&ioa_cfg->pdev->dev,
+		"Adapter timed out transitioning to operational.\n");
+
+	if (WAIT_FOR_DUMP == ioa_cfg->sdt_state)
+		ioa_cfg->sdt_state = GET_DUMP;
+
+	if (!ioa_cfg->in_reset_reload || ioa_cfg->reset_cmd == ipr_cmd) {
+		if (ipr_fastfail)
+			ioa_cfg->reset_retries += IPR_NUM_RESET_RELOAD_RETRIES;
+		ipr_initiate_ioa_reset(ioa_cfg, IPR_SHUTDOWN_NONE);
+	}
 
 	spin_unlock_irqrestore(ioa_cfg->host->host_lock, lock_flags);
 	LEAVE;
@@ -4813,8 +4854,8 @@ static int ipr_reset_enable_ioa(struct ipr_cmnd *ipr_cmd)
 	dev_info(&ioa_cfg->pdev->dev, "Initializing IOA.\n");
 
 	ipr_cmd->timer.data = (unsigned long) ipr_cmd;
-	ipr_cmd->timer.expires = jiffies + IPR_OPERATIONAL_TIMEOUT;
-	ipr_cmd->timer.function = (void (*)(unsigned long))ipr_timeout;
+	ipr_cmd->timer.expires = jiffies + (ipr_transop_timeout * HZ);
+	ipr_cmd->timer.function = (void (*)(unsigned long))ipr_oper_timeout;
 	ipr_cmd->done = ipr_reset_ioa_job;
 	add_timer(&ipr_cmd->timer);
 	list_add_tail(&ipr_cmd->queue, &ioa_cfg->pending_q);
@@ -5289,7 +5330,7 @@ static void ipr_initiate_ioa_reset(struct ipr_ioa_cfg *ioa_cfg,
 	if (ioa_cfg->in_reset_reload && ioa_cfg->sdt_state == GET_DUMP)
 		ioa_cfg->sdt_state = ABORT_DUMP;
 
-	if (ioa_cfg->reset_retries++ > IPR_NUM_RESET_RELOAD_RETRIES) {
+	if (ioa_cfg->reset_retries++ >= IPR_NUM_RESET_RELOAD_RETRIES) {
 		dev_err(&ioa_cfg->pdev->dev,
 			"IOA taken offline - error recovery failed\n");
 
