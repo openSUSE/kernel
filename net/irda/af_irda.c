@@ -1012,11 +1012,23 @@ static int irda_connect(struct socket *sock, struct sockaddr *uaddr,
 		self->daddr = addr->sir_addr;
 		IRDA_DEBUG(1, "%s(), daddr = %08x\n", __FUNCTION__, self->daddr);
 
-		/* Query remote LM-IAS */
-		err = irda_find_lsap_sel(self, addr->sir_name);
-		if (err) {
-			IRDA_DEBUG(0, "%s(), connect failed!\n", __FUNCTION__);
-			return err;
+		/* If we don't have a valid service name, we assume the
+		 * user want to connect on a specific LSAP. Prevent
+		 * the use of invalid LSAPs (IrLMP 1.1 p10). Jean II */
+		if((addr->sir_name[0] != '\0') ||
+		   (addr->sir_lsap_sel >= 0x70)) {
+			/* Query remote LM-IAS using service name */
+			err = irda_find_lsap_sel(self, addr->sir_name);
+			if (err) {
+				IRDA_DEBUG(0, "%s(), connect failed!\n", __FUNCTION__);
+				return err;
+			}
+		} else {
+			/* Directly connect to the remote LSAP
+			 * specified by the sir_lsap field.
+			 * Please use with caution, in IrDA LSAPs are
+			 * dynamic and there is no "well-known" LSAP. */
+			self->dtsap_sel = addr->sir_lsap_sel;
 		}
 	}
 
