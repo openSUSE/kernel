@@ -70,7 +70,7 @@ do {				  					  \
 #ifndef __HAVE_ARCH_PTEP_TEST_AND_CLEAR_DIRTY
 #define ptep_test_and_clear_dirty(__vma, __address, __ptep)		\
 ({									\
-	pte_t __pte = *ptep;						\
+	pte_t __pte = *__ptep;						\
 	int r = 1;							\
 	if (!pte_dirty(__pte))						\
 		r = 0;							\

@@ -29,7 +29,13 @@ extern struct exception_table_entry __stop___ex_table[];
 static int cmp_ex(const void *a, const void *b)
 {
 	const struct exception_table_entry *x = a, *y = b;
-	return x->insn - y->insn;
+
+	/* avoid overflow */
+	if (x->insn > y->insn)
+		return 1;
+	if (x->insn < y->insn)
+		return -1;
+	return 0;
 }
 
 void sort_extable(struct exception_table_entry *start,

@@ -74,7 +74,6 @@ static int nr_queue_rx_frame(struct sock *sk, struct sk_buff *skb, int more)
 static int nr_state1_machine(struct sock *sk, struct sk_buff *skb,
 	int frametype)
 {
-	bh_lock_sock(sk);
 	switch (frametype) {
 	case NR_CONNACK: {
 		nr_cb *nr = nr_sk(sk);
@@ -103,8 +102,6 @@ static int nr_state1_machine(struct sock *sk, struct sk_buff *skb,
 	default:
 		break;
 	}
-	bh_unlock_sock(sk);
-
 	return 0;
 }
 
@@ -116,7 +113,6 @@ static int nr_state1_machine(struct sock *sk, struct sk_buff *skb,
 static int nr_state2_machine(struct sock *sk, struct sk_buff *skb,
 	int frametype)
 {
-	bh_lock_sock(sk);
 	switch (frametype) {
 	case NR_CONNACK | NR_CHOKE_FLAG:
 		nr_disconnect(sk, ECONNRESET);
@@ -132,8 +128,6 @@ static int nr_state2_machine(struct sock *sk, struct sk_buff *skb,
 	default:
 		break;
 	}
-	bh_unlock_sock(sk);
-
 	return 0;
 }
 
@@ -154,7 +148,6 @@ static int nr_state3_machine(struct sock *sk, struct sk_buff *skb, int frametype
 	nr = skb->data[18];
 	ns = skb->data[17];
 
-	bh_lock_sock(sk);
 	switch (frametype) {
 	case NR_CONNREQ:
 		nr_write_internal(sk, NR_CONNACK);
@@ -265,12 +258,10 @@ static int nr_state3_machine(struct sock *sk, struct sk_buff *skb, int frametype
 	default:
 		break;
 	}
-	bh_unlock_sock(sk);
-
 	return queued;
 }
 
-/* Higher level upcall for a LAPB frame */
+/* Higher level upcall for a LAPB frame - called with sk locked */
 int nr_process_rx_frame(struct sock *sk, struct sk_buff *skb)
 {
 	nr_cb *nr = nr_sk(sk);

@@ -197,7 +197,6 @@ ide_hwif_t ide_hwifs[MAX_HWIFS];	/* master data repository */
 EXPORT_SYMBOL(ide_hwifs);
 
 extern ide_driver_t idedefault_driver;
-static void setup_driver_defaults(ide_driver_t *driver);
 
 /*
  * Do not even *think* about calling this!
@@ -300,8 +299,6 @@ static void __init init_ide_data (void)
 	if (magic_cookie != MAGIC_COOKIE)
 		return;		/* already initialized */
 	magic_cookie = 0;
-
-	setup_driver_defaults(&idedefault_driver);
 
 	/* Initialise all interface structures */
 	for (index = 0; index < MAX_HWIFS; ++index) {
@@ -417,11 +414,6 @@ struct seq_operations ide_drivers_op = {
 
 #ifdef CONFIG_PROC_FS
 struct proc_dir_entry *proc_ide_root;
-
-static ide_proc_entry_t generic_subdriver_entries[] = {
-	{ "capacity",	S_IFREG|S_IRUGO,	proc_ide_read_capacity,	NULL },
-	{ NULL, 0, NULL, NULL }
-};
 #endif
 
 static struct resource* hwif_request_region(ide_hwif_t *hwif,
@@ -1751,6 +1743,8 @@ static int __init ide_setup(char *s)
 			case -4: /* "cdrom" */
 				drive->present = 1;
 				drive->media = ide_cdrom;
+				/* an ATAPI device ignores DRDY */
+				drive->ready_stat = 0;
 				hwif->noprobe = 0;
 				goto done;
 			case -5: /* "serialize" */
@@ -1777,6 +1771,7 @@ static int __init ide_setup(char *s)
 				goto done;
 			case 3: /* cyl,head,sect */
 				drive->media	= ide_disk;
+				drive->ready_stat = READY_STAT;
 				drive->cyl	= drive->bios_cyl  = vals[0];
 				drive->head	= drive->bios_head = vals[1];
 				drive->sect	= drive->bios_sect = vals[2];
@@ -2022,68 +2017,6 @@ static void __init probe_for_hwifs (void)
 #endif
 }
 
-static ide_startstop_t default_do_request (ide_drive_t *drive, struct request *rq, sector_t block)
-{
-	ide_end_request(drive, 0, 0);
-	return ide_stopped;
-}
-
-static int default_end_request (ide_drive_t *drive, int uptodate, int nr_sects)
-{
-	return ide_end_request(drive, uptodate, nr_sects);
-}
-
-static ide_startstop_t
-default_error(ide_drive_t *drive, struct request *rq, u8 stat, u8 err)
-{
-	return __ide_error(drive, rq, stat, err);
-}
-
-static void default_pre_reset (ide_drive_t *drive)
-{
-}
-
-static sector_t default_capacity (ide_drive_t *drive)
-{
-	return 0x7fffffff;
-}
-
-static ide_startstop_t default_special (ide_drive_t *drive)
-{
-	special_t *s = &drive->special;
-
-	s->all = 0;
-	drive->mult_req = 0;
-	return ide_stopped;
-}
-
-static ide_startstop_t default_abort(ide_drive_t *drive, struct request *rq)
-{
-	return __ide_abort(drive, rq);
-}
-
-static ide_startstop_t default_start_power_step(ide_drive_t *drive,
-						struct request *rq)
-{
-	rq->pm->pm_step = ide_pm_state_completed;
-	return ide_stopped;
-}
-
-static void setup_driver_defaults (ide_driver_t *d)
-{
-	BUG_ON(d->attach == NULL || d->cleanup == NULL);
-
-	if (d->do_request == NULL)	d->do_request = default_do_request;
-	if (d->end_request == NULL)	d->end_request = default_end_request;
-	if (d->error == NULL)		d->error = default_error;
-	if (d->abort == NULL)		d->abort = default_abort;
-	if (d->pre_reset == NULL)	d->pre_reset = default_pre_reset;
-	if (d->capacity == NULL)	d->capacity = default_capacity;
-	if (d->special == NULL)		d->special = default_special;
-	if (d->start_power_step == NULL)
-		d->start_power_step = default_start_power_step;
-}
-
 int ide_register_subdriver(ide_drive_t *drive, ide_driver_t *driver)
 {
 	unsigned long flags;
@@ -2109,10 +2042,8 @@ int ide_register_subdriver(ide_drive_t *drive, ide_driver_t *driver)
 		drive->nice1 = 1;
 	}
 #ifdef CONFIG_PROC_FS
-	if (drive->driver != &idedefault_driver) {
-		ide_add_proc_entries(drive->proc, generic_subdriver_entries, drive);
+	if (drive->driver != &idedefault_driver)
 		ide_add_proc_entries(drive->proc, driver->proc, drive);
-	}
 #endif
 	return 0;
 }
@@ -2146,7 +2077,6 @@ int ide_unregister_subdriver (ide_drive_t *drive)
 	}
 #ifdef CONFIG_PROC_FS
 	ide_remove_proc_entries(drive->proc, DRIVER(drive)->proc);
-	ide_remove_proc_entries(drive->proc, generic_subdriver_entries);
 #endif
 	auto_remove_settings(drive);
 	drive->driver = &idedefault_driver;
@@ -2184,8 +2114,6 @@ int ide_register_driver(ide_driver_t *driver)
 	struct list_head list;
 	struct list_head *list_loop;
 	struct list_head *tmp_storage;
-
-	setup_driver_defaults(driver);
 
 	spin_lock(&drivers_lock);
 	list_add(&driver->drivers, &drivers);

@@ -74,6 +74,7 @@ __xfrm4_bundle_create(struct xfrm_policy *policy, struct xfrm_state **xfrm, int 
 	for (i = 0; i < nx; i++) {
 		struct dst_entry *dst1 = dst_alloc(&xfrm4_dst_ops);
 		struct xfrm_dst *xdst;
+		int tunnel = 0;
 
 		if (unlikely(dst1 == NULL)) {
 			err = -ENOBUFS;
@@ -97,11 +98,12 @@ __xfrm4_bundle_create(struct xfrm_policy *policy, struct xfrm_state **xfrm, int 
 		if (xfrm[i]->props.mode) {
 			remote = xfrm[i]->id.daddr.a4;
 			local  = xfrm[i]->props.saddr.a4;
+			tunnel = 1;
 		}
 		header_len += xfrm[i]->props.header_len;
 		trailer_len += xfrm[i]->props.trailer_len;
 
-		if (remote != fl_tunnel.fl4_dst) {
+		if (tunnel) {
 			fl_tunnel.fl4_src = local;
 			fl_tunnel.fl4_dst = remote;
 			err = xfrm_dst_lookup((struct xfrm_dst **)&rt,

@@ -93,6 +93,7 @@ static inline u32 fz_key(u32 dst, struct fn_zone *fz)
 }
 
 static DEFINE_RWLOCK(fib_hash_lock);
+static unsigned int fib_hash_genid;
 
 #define FZ_MAX_DIVISOR ((PAGE_SIZE<<MAX_ORDER) / sizeof(struct hlist_head))
 
@@ -181,6 +182,7 @@ static void fn_rehash_zone(struct fn_zone *fz)
 		fz->fz_hashmask = new_hashmask;
 		fz->fz_divisor = new_divisor;
 		fn_rebuild_zone(fz, old_ht, old_divisor);
+		fib_hash_genid++;
 		write_unlock_bh(&fib_hash_lock);
 
 		fz_hash_free(old_ht, old_divisor);
@@ -236,6 +238,7 @@ fn_new_zone(struct fn_hash *table, int z)
 		table->fn_zones[i]->fz_next = fz;
 	}
 	table->fn_zones[z] = fz;
+	fib_hash_genid++;
 	write_unlock_bh(&fib_hash_lock);
 	return fz;
 }
@@ -451,6 +454,7 @@ fn_hash_insert(struct fib_table *tb, struct rtmsg *r, struct kern_rta *rta,
 			fa->fa_scope = r->rtm_scope;
 			state = fa->fa_state;
 			fa->fa_state &= ~FA_S_ACCESSED;
+			fib_hash_genid++;
 			write_unlock_bh(&fib_hash_lock);
 
 			fib_release_info(fi_drop);
@@ -515,6 +519,7 @@ fn_hash_insert(struct fib_table *tb, struct rtmsg *r, struct kern_rta *rta,
 		fib_insert_node(fz, new_f);
 	list_add_tail(&new_fa->fa_list,
 		 (fa ? &fa->fa_list : &f->fn_alias));
+	fib_hash_genid++;
 	write_unlock_bh(&fib_hash_lock);
 
 	if (new_f)
@@ -600,6 +605,7 @@ fn_hash_delete(struct fib_table *tb, struct rtmsg *r, struct kern_rta *rta,
 			hlist_del(&f->fn_hash);
 			kill_fn = 1;
 		}
+		fib_hash_genid++;
 		write_unlock_bh(&fib_hash_lock);
 
 		if (fa->fa_state & FA_S_ACCESSED)
@@ -637,6 +643,7 @@ static int fn_flush_list(struct fn_zone *fz, int idx)
 					hlist_del(&f->fn_hash);
 					kill_f = 1;
 				}
+				fib_hash_genid++;
 				write_unlock_bh(&fib_hash_lock);
 
 				fn_free_alias(fa);
@@ -801,6 +808,9 @@ struct fib_iter_state {
 	struct hlist_head *hash_head;
 	struct fib_node *fn;
 	struct fib_alias *fa;
+	loff_t pos;
+	unsigned int genid;
+	int valid;
 };
 
 static struct fib_alias *fib_get_first(struct seq_file *seq)
@@ -812,6 +822,9 @@ static struct fib_alias *fib_get_first(struct seq_file *seq)
 	iter->hash_head = NULL;
 	iter->fn        = NULL;
 	iter->fa        = NULL;
+	iter->pos	= 0;
+	iter->genid	= fib_hash_genid;
+	iter->valid	= 1;
 
 	for (iter->zone = table->fn_zone_list; iter->zone;
 	     iter->zone = iter->zone->fz_next) {
@@ -916,7 +929,25 @@ static struct fib_alias *fib_get_next(struct seq_file *seq)
 		}
 	}
 out:
+	iter->pos++;
 	return fa;
+}
+
+static struct fib_alias *fib_get_idx(struct seq_file *seq, loff_t pos)
+{
+	struct fib_iter_state *iter = seq->private;
+	struct fib_alias *fa;
+	
+	if (iter->valid && pos >= iter->pos && iter->genid == fib_hash_genid) {
+		fa   = iter->fa;
+		pos -= iter->pos;
+	} else
+		fa = fib_get_first(seq);
+
+	if (fa)
+		while (pos && (fa = fib_get_next(seq)))
+			--pos;
+	return pos ? NULL : fa;
 }
 
 static void *fib_seq_start(struct seq_file *seq, loff_t *pos)
@@ -925,7 +956,7 @@ static void *fib_seq_start(struct seq_file *seq, loff_t *pos)
 
 	read_lock(&fib_hash_lock);
 	if (ip_fib_main_table)
-		v = *pos ? fib_get_next(seq) : SEQ_START_TOKEN;
+		v = *pos ? fib_get_idx(seq, *pos - 1) : SEQ_START_TOKEN;
 	return v;
 }
 

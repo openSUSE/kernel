@@ -10,6 +10,7 @@
  * published by the Free Software Foundation.
  *
  * Modifications:
+ *     10-Mar-2005 LCVR Changed S3C2410_{VA,SZ} to S3C24XX_{VA,SZ}
  *     10-Feb-2005 BJD  Added camera from guillaume.gourat@nexvision.tv
  *     29-Aug-2004 BJD  Added timers 0 through 3
  *     29-Aug-2004 BJD  Changed index of devices we only have one of to -1
@@ -46,7 +47,7 @@ struct platform_device *s3c24xx_uart_devs[3];
 static struct resource s3c_usb_resource[] = {
 	[0] = {
 		.start = S3C2410_PA_USBHOST,
-		.end   = S3C2410_PA_USBHOST + S3C2410_SZ_USBHOST,
+		.end   = S3C2410_PA_USBHOST + S3C24XX_SZ_USBHOST,
 		.flags = IORESOURCE_MEM,
 	},
 	[1] = {
@@ -76,7 +77,7 @@ EXPORT_SYMBOL(s3c_device_usb);
 static struct resource s3c_lcd_resource[] = {
 	[0] = {
 		.start = S3C2410_PA_LCD,
-		.end   = S3C2410_PA_LCD + S3C2410_SZ_LCD,
+		.end   = S3C2410_PA_LCD + S3C24XX_SZ_LCD,
 		.flags = IORESOURCE_MEM,
 	},
 	[1] = {
@@ -107,7 +108,7 @@ EXPORT_SYMBOL(s3c_device_lcd);
 static struct resource s3c_nand_resource[] = {
 	[0] = {
 		.start = S3C2410_PA_NAND,
-		.end   = S3C2410_PA_NAND + S3C2410_SZ_NAND,
+		.end   = S3C2410_PA_NAND + S3C24XX_SZ_NAND,
 		.flags = IORESOURCE_MEM,
 	}
 };
@@ -126,7 +127,7 @@ EXPORT_SYMBOL(s3c_device_nand);
 static struct resource s3c_usbgadget_resource[] = {
 	[0] = {
 		.start = S3C2410_PA_USBDEV,
-		.end   = S3C2410_PA_USBDEV + S3C2410_SZ_USBDEV,
+		.end   = S3C2410_PA_USBDEV + S3C24XX_SZ_USBDEV,
 		.flags = IORESOURCE_MEM,
 	},
 	[1] = {
@@ -151,7 +152,7 @@ EXPORT_SYMBOL(s3c_device_usbgadget);
 static struct resource s3c_wdt_resource[] = {
 	[0] = {
 		.start = S3C2410_PA_WATCHDOG,
-		.end   = S3C2410_PA_WATCHDOG + S3C2410_SZ_WATCHDOG,
+		.end   = S3C2410_PA_WATCHDOG + S3C24XX_SZ_WATCHDOG,
 		.flags = IORESOURCE_MEM,
 	},
 	[1] = {
@@ -176,7 +177,7 @@ EXPORT_SYMBOL(s3c_device_wdt);
 static struct resource s3c_i2c_resource[] = {
 	[0] = {
 		.start = S3C2410_PA_IIC,
-		.end   = S3C2410_PA_IIC + S3C2410_SZ_IIC,
+		.end   = S3C2410_PA_IIC + S3C24XX_SZ_IIC,
 		.flags = IORESOURCE_MEM,
 	},
 	[1] = {
@@ -201,7 +202,7 @@ EXPORT_SYMBOL(s3c_device_i2c);
 static struct resource s3c_iis_resource[] = {
 	[0] = {
 		.start = S3C2410_PA_IIS,
-		.end   = S3C2410_PA_IIS + S3C2410_SZ_IIS,
+		.end   = S3C2410_PA_IIS + S3C24XX_SZ_IIS,
 		.flags = IORESOURCE_MEM,
 	}
 };
@@ -255,7 +256,7 @@ EXPORT_SYMBOL(s3c_device_rtc);
 static struct resource s3c_adc_resource[] = {
 	[0] = {
 		.start = S3C2410_PA_ADC,
-		.end   = S3C2410_PA_ADC + S3C2410_SZ_ADC,
+		.end   = S3C2410_PA_ADC + S3C24XX_SZ_ADC,
 		.flags = IORESOURCE_MEM,
 	},
 	[1] = {
@@ -278,7 +279,7 @@ struct platform_device s3c_device_adc = {
 static struct resource s3c_sdi_resource[] = {
 	[0] = {
 		.start = S3C2410_PA_SDI,
-		.end   = S3C2410_PA_SDI + S3C2410_SZ_SDI,
+		.end   = S3C2410_PA_SDI + S3C24XX_SZ_SDI,
 		.flags = IORESOURCE_MEM,
 	},
 	[1] = {

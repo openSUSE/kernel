@@ -134,6 +134,15 @@ static inline u32 dst_mtu(const struct dst_entry *dst)
 	return mtu;
 }
 
+static inline u32
+dst_allfrag(const struct dst_entry *dst)
+{
+	int ret = dst_path_metric(dst, RTAX_FEATURES) & RTAX_FEATURE_ALLFRAG;
+	/* Yes, _exactly_. This is paranoia. */
+	barrier();
+	return ret;
+}
+
 static inline int
 dst_metric_locked(struct dst_entry *dst, int metric)
 {
@@ -261,10 +270,8 @@ static inline int dst_input(struct sk_buff *skb)
 
 static inline struct dst_entry *dst_check(struct dst_entry *dst, u32 cookie)
 {
-	dst_hold(dst);
 	if (dst->obsolete)
 		dst = dst->ops->check(dst, cookie);
-	dst_release(dst);
 	return dst;
 }
 

@@ -381,7 +381,7 @@ static int __init nicstar_init(void)
 
    XPRINTK("nicstar: nicstar_init() called.\n");
 
-   error = pci_module_init(&nicstar_driver);
+   error = pci_register_driver(&nicstar_driver);
    
    TXPRINTK("nicstar: TX debug enabled.\n");
    RXPRINTK("nicstar: RX debug enabled.\n");

@@ -52,6 +52,7 @@ __ip_vs_dst_check(struct ip_vs_dest *dest, u32 rtos, u32 cookie)
 	if ((dst->obsolete || rtos != dest->dst_rtos) &&
 	    dst->ops->check(dst, cookie) == NULL) {
 		dest->dst_cache = NULL;
+		dst_release(dst);
 		return NULL;
 	}
 	dst_hold(dst);

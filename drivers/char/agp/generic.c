@@ -515,13 +515,9 @@ static void agp_v3_parse_one(u32 *requested_mode, u32 *bridge_agpstat, u32 *vga_
 		printk (KERN_INFO PFX "%s tried to set rate=x0. Setting to AGP3 x4 mode.\n", current->comm);
 		*requested_mode |= AGPSTAT3_4X;
 	}
-	if (tmp == 3) {
-		printk (KERN_INFO PFX "%s tried to set rate=x3. Setting to AGP3 x4 mode.\n", current->comm);
-		*requested_mode |= AGPSTAT3_4X;
-	}
-	if (tmp >3) {
-		printk (KERN_INFO PFX "%s tried to set rate=x%d. Setting to AGP3 x8 mode.\n", current->comm, tmp);
-		*requested_mode |= AGPSTAT3_8X;
+	if (tmp >= 3) {
+		printk (KERN_INFO PFX "%s tried to set rate=x%d. Setting to AGP3 x8 mode.\n", current->comm, tmp * 4);
+		*requested_mode = (*requested_mode & ~7) | AGPSTAT3_8X;
 	}
 
 	/* ARQSZ - Set the value to the maximum one.
@@ -632,26 +628,18 @@ done:
 u32 agp_collect_device_status(struct agp_bridge_data *bridge, u32 requested_mode, u32 bridge_agpstat)
 {
 	struct pci_dev *device = NULL;
-	u8 cap_ptr = 0;
 	u32 vga_agpstat;
+	u8 cap_ptr;
 
-	while (!cap_ptr) {
+	for (;;) {
 		device = pci_get_class(PCI_CLASS_DISPLAY_VGA << 8, device);
 		if (!device) {
 			printk (KERN_INFO PFX "Couldn't find an AGP VGA controller.\n");
 			return 0;
 		}
 		cap_ptr = pci_find_capability(device, PCI_CAP_ID_AGP);
-		if (!cap_ptr) {
-			pci_dev_put(device);
-			continue;
-		}
-		if ((device->bus->self->vendor != bridge->dev->vendor) &&
-			(device->bus->self->device != bridge->dev->device)) {
-			pci_dev_put(device);
-			cap_ptr = 0;
-			continue;
-		}
+		if (cap_ptr)
+			break;
 	}
 
 	/*

@@ -83,11 +83,6 @@ static int br_change_mtu(struct net_device *dev, int new_mtu)
 	return 0;
 }
 
-static int br_dev_accept_fastpath(struct net_device *dev, struct dst_entry *dst)
-{
-	return -1;
-}
-
 void br_dev_setup(struct net_device *dev)
 {
 	memset(dev->dev_addr, 0, ETH_ALEN);
@@ -103,7 +98,6 @@ void br_dev_setup(struct net_device *dev)
 	dev->destructor = free_netdev;
 	SET_MODULE_OWNER(dev);
 	dev->stop = br_dev_stop;
-	dev->accept_fastpath = br_dev_accept_fastpath;
 	dev->tx_queue_len = 0;
 	dev->set_mac_address = NULL;
 	dev->priv_flags = IFF_EBRIDGE;

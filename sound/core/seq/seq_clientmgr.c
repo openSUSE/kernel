@@ -37,8 +37,8 @@
 #include "seq_info.h"
 #include "seq_system.h"
 #include <sound/seq_device.h>
-#if defined(CONFIG_SND_BIT32_EMUL) || defined(CONFIG_SND_BIT32_EMUL_MODULE)
-#include "../ioctl32/ioctl32.h"
+#ifdef CONFIG_COMPAT
+#include <linux/compat.h>
 #endif
 
 /* Client Manager
@@ -51,7 +51,7 @@
 #define SNDRV_SEQ_LFLG_OUTPUT	0x0002
 #define SNDRV_SEQ_LFLG_OPEN	(SNDRV_SEQ_LFLG_INPUT|SNDRV_SEQ_LFLG_OUTPUT)
 
-static spinlock_t clients_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(clients_lock);
 static DECLARE_MUTEX(register_mutex);
 
 /*
@@ -413,7 +413,7 @@ static ssize_t snd_seq_read(struct file *file, char __user *buf, size_t count, l
 			}
 			count -= sizeof(snd_seq_event_t);
 			buf += sizeof(snd_seq_event_t);
-			err = snd_seq_expand_var_event(&cell->event, count, buf, 0, sizeof(snd_seq_event_t));
+			err = snd_seq_expand_var_event(&cell->event, count, (char *)buf, 0, sizeof(snd_seq_event_t));
 			if (err < 0)
 				break;
 			result += err;
@@ -1012,7 +1012,7 @@ static ssize_t snd_seq_write(struct file *file, const char __user *buf, size_t c
 			event.data.ext.ptr = (char*)buf + sizeof(snd_seq_event_t);
 			len += extlen; /* increment data length */
 		} else {
-#if defined(CONFIG_SND_BIT32_EMUL) || defined(CONFIG_SND_BIT32_EMUL_MODULE)
+#ifdef CONFIG_COMPAT
 			if (client->convert32 && snd_seq_ev_is_varusr(&event)) {
 				void *ptr = compat_ptr(event.data.raw32.d[1]);
 				event.data.ext.ptr = ptr;
@@ -2131,21 +2131,20 @@ static int snd_seq_do_ioctl(client_t *client, unsigned int cmd, void __user *arg
 }
 
 
-static int snd_seq_ioctl(struct inode *inode, struct file *file,
-			 unsigned int cmd, unsigned long arg)
+static long snd_seq_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	client_t *client = (client_t *) file->private_data;
-	int err;
 
 	snd_assert(client != NULL, return -ENXIO);
 		
-	/* FIXME: need to unlock BKL to allow preemption */
-	unlock_kernel();
-	err = snd_seq_do_ioctl(client, cmd, (void __user *) arg);
-	lock_kernel();
-	return err;
+	return snd_seq_do_ioctl(client, cmd, (void __user *) arg);
 }
 
+#ifdef CONFIG_COMPAT
+#include "seq_compat.c"
+#else
+#define snd_seq_ioctl_compat	NULL
+#endif
 
 /* -------------------------------------------------------- */
 
@@ -2321,7 +2320,7 @@ int snd_seq_kernel_client_ctl(int clientid, unsigned int cmd, void *arg)
 	if (client == NULL)
 		return -ENXIO;
 	fs = snd_enter_user();
-	result = snd_seq_do_ioctl(client, cmd, arg);
+	result = snd_seq_do_ioctl(client, cmd, (void __user *)arg);
 	snd_leave_user(fs);
 	return result;
 }
@@ -2462,7 +2461,8 @@ static struct file_operations snd_seq_f_ops =
 	.open =		snd_seq_open,
 	.release =	snd_seq_release,
 	.poll =		snd_seq_poll,
-	.ioctl =	snd_seq_ioctl,
+	.unlocked_ioctl =	snd_seq_ioctl,
+	.compat_ioctl =	snd_seq_ioctl_compat,
 };
 
 static snd_minor_t snd_seq_reg =

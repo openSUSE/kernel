@@ -43,6 +43,13 @@ struct target_io {
 	union map_info info;
 };
 
+union map_info *dm_get_mapinfo(struct bio *bio)
+{
+        if (bio && bio->bi_private)
+                return &((struct target_io *)bio->bi_private)->info;
+        return NULL;
+}
+
 /*
  * Bits for the md->flags field.
  */
@@ -1171,6 +1178,8 @@ static struct block_device_operations dm_blk_dops = {
 	.release = dm_blk_close,
 	.owner = THIS_MODULE
 };
+
+EXPORT_SYMBOL(dm_get_mapinfo);
 
 /*
  * module hooks

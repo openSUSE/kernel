@@ -88,6 +88,12 @@ static inline cpumask_t pcibus_to_cpumask(int bus)
 	.nr_balance_failed	= 0,			\
 }
 
+extern unsigned long node_start_pfn[];
+extern unsigned long node_end_pfn[];
+extern unsigned long node_remap_size[];
+
+#define node_has_online_mem(nid) (node_start_pfn[nid] != node_end_pfn[nid])
+
 #else /* !CONFIG_NUMA */
 /*
  * Other i386 platforms should define their own version of the 

@@ -291,7 +291,7 @@ struct page *snd_pcm_sgbuf_ops_page(snd_pcm_substream_t *substream, unsigned lon
  * @substream: the substream to allocate the DMA buffer to
  * @size: the requested buffer size in bytes
  *
- * Allocates the DMA buffer on the BUS type given by
+ * Allocates the DMA buffer on the BUS type given earlier to
  * snd_pcm_lib_preallocate_xxx_pages().
  *
  * Returns 1 if the buffer is changed, 0 if not changed, or a negative

@@ -784,7 +784,9 @@ static int __init inet6_init(void)
 	ipv6_packet_init();
 	ip6_route_init();
 	ip6_flowlabel_init();
-	addrconf_init();
+	err = addrconf_init();
+	if (err)
+		goto addrconf_fail;
 	sit_init();
 
 	/* Init v6 extension headers. */
@@ -800,7 +802,12 @@ static int __init inet6_init(void)
 out:
 	return err;
 
+addrconf_fail:
+	ip6_flowlabel_cleanup();
+	ip6_route_cleanup();
+	ipv6_packet_cleanup();
 #ifdef CONFIG_PROC_FS
+	if6_proc_exit();
 proc_if6_fail:
 	ac6_proc_exit();
 proc_anycast6_fail:
@@ -812,8 +819,8 @@ proc_udp6_fail:
 proc_tcp6_fail:
 	raw6_proc_exit();
 proc_raw6_fail:
-	igmp6_cleanup();
 #endif
+	igmp6_cleanup();
 igmp_fail:
 	ndisc_cleanup();
 ndisc_fail:

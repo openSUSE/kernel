@@ -2428,6 +2428,11 @@ static ide_startstop_t idetape_do_request(ide_drive_t *drive,
 	if (!drive->dsc_overlap && !(rq->cmd[0] & REQ_IDETAPE_PC2))
 		set_bit(IDETAPE_IGNORE_DSC, &tape->flags);
 
+	if (drive->post_reset == 1) {
+		set_bit(IDETAPE_IGNORE_DSC, &tape->flags);
+		drive->post_reset = 0;
+	}
+
 	if (tape->tape_still_time > 100 && tape->tape_still_time < 200)
 		tape->measure_insert_time = 1;
 	if (time_after(jiffies, tape->insert_time))
@@ -3559,16 +3564,6 @@ static int idetape_blkdev_ioctl(ide_drive_t *drive, unsigned int cmd, unsigned l
 }
 
 /*
- *	idetape_pre_reset is called before an ATAPI/ATA software reset.
- */
-static void idetape_pre_reset (ide_drive_t *drive)
-{
-	idetape_tape_t *tape = drive->driver_data;
-	if (tape != NULL)
-		set_bit(IDETAPE_IGNORE_DSC, &tape->flags);
-}
-
-/*
  *	idetape_space_over_filemarks is now a bit more complicated than just
  *	passing the command to the tape since we may have crossed some
  *	filemarks during our pipelined read-ahead mode.
@@ -4537,8 +4532,6 @@ static void idetape_setup (ide_drive_t *drive, idetape_tape_t *tape, int minor)
 	memset(tape, 0, sizeof (idetape_tape_t));
 	spin_lock_init(&tape->spinlock);
 	drive->driver_data = tape;
-	/* An ATAPI device ignores DRDY */
-	drive->ready_stat = 0;
 	drive->dsc_overlap = 1;
 #ifdef CONFIG_BLK_DEV_IDEPCI
 	if (HWIF(drive)->pci_dev != NULL) {
@@ -4674,6 +4667,7 @@ static int proc_idetape_read_name
 }
 
 static ide_proc_entry_t idetape_proc[] = {
+	{ "capacity",	S_IFREG|S_IRUGO,	proc_ide_read_capacity, NULL },
 	{ "name",	S_IFREG|S_IRUGO,	proc_idetape_read_name,	NULL },
 	{ NULL, 0, NULL, NULL }
 };
@@ -4699,7 +4693,8 @@ static ide_driver_t idetape_driver = {
 	.cleanup		= idetape_cleanup,
 	.do_request		= idetape_do_request,
 	.end_request		= idetape_end_request,
-	.pre_reset		= idetape_pre_reset,
+	.error			= __ide_error,
+	.abort			= __ide_abort,
 	.proc			= idetape_proc,
 	.attach			= idetape_attach,
 	.drives			= LIST_HEAD_INIT(idetape_driver.drives),

@@ -33,8 +33,11 @@ void slirp_init(struct net_device *dev, void *data)
 
 	dev->init = NULL;
 	dev->hard_header_len = 0;
-	dev->addr_len = 4;
-	dev->type = ARPHRD_ETHER;
+	dev->header_cache_update = NULL;
+	dev->hard_header_cache = NULL;
+	dev->hard_header = NULL;
+	dev->addr_len = 0;
+	dev->type = ARPHRD_SLIP;
 	dev->tx_queue_len = 256;
 	dev->flags = IFF_NOARP;
 	printk("SLIRP backend - command line:");

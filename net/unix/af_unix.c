@@ -861,8 +861,8 @@ static int unix_dgram_connect(struct socket *sock, struct sockaddr *addr,
 			goto out;
 		alen = err;
 
-		if (sock->passcred && !unix_sk(sk)->addr &&
-		    (err = unix_autobind(sock)) != 0)
+		if (test_bit(SOCK_PASSCRED, &sock->flags) &&
+		    !unix_sk(sk)->addr && (err = unix_autobind(sock)) != 0)
 			goto out;
 
 		other=unix_find_other(sunaddr, alen, sock->type, hash, &err);
@@ -952,7 +952,8 @@ static int unix_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 		goto out;
 	addr_len = err;
 
-	if (sock->passcred && !u->addr && (err = unix_autobind(sock)) != 0)
+	if (test_bit(SOCK_PASSCRED, &sock->flags)
+		&& !u->addr && (err = unix_autobind(sock)) != 0)
 		goto out;
 
 	timeo = sock_sndtimeo(sk, flags & O_NONBLOCK);
@@ -1286,7 +1287,8 @@ static int unix_dgram_sendmsg(struct kiocb *kiocb, struct socket *sock,
 			goto out;
 	}
 
-	if (sock->passcred && !u->addr && (err = unix_autobind(sock)) != 0)
+	if (test_bit(SOCK_PASSCRED, &sock->flags)
+		&& !u->addr && (err = unix_autobind(sock)) != 0)
 		goto out;
 
 	err = -EMSGSIZE;

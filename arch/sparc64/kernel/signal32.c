@@ -104,7 +104,7 @@ typedef struct compat_siginfo{
 		struct {
 			timer_t _tid;			/* timer id */
 			int _overrun;			/* overrun count */
-			sigval_t32 _sigval;		/* same as below */
+			compat_sigval_t _sigval;		/* same as below */
 			int _sys_private;		/* not to be passed to user */
 		} _timer;
 
@@ -112,7 +112,7 @@ typedef struct compat_siginfo{
 		struct {
 			compat_pid_t _pid;		/* sender's pid */
 			unsigned int _uid;		/* sender's uid */
-			sigval_t32 _sigval;
+			compat_sigval_t _sigval;
 		} _rt;
 
 		/* SIGCHLD */

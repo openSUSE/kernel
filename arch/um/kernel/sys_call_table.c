@@ -31,7 +31,6 @@
 extern syscall_handler_t sys_fork;
 extern syscall_handler_t sys_execve;
 extern syscall_handler_t um_time;
-extern syscall_handler_t um_mount;
 extern syscall_handler_t um_stime;
 extern syscall_handler_t sys_pipe;
 extern syscall_handler_t sys_olduname;
@@ -77,7 +76,7 @@ syscall_handler_t *sys_call_table[] = {
 	[ __NR_lchown ] = (syscall_handler_t *) sys_lchown16,
 	[ __NR_lseek ] = (syscall_handler_t *) sys_lseek,
 	[ __NR_getpid ] = (syscall_handler_t *) sys_getpid,
-	[ __NR_mount ] = um_mount,
+	[ __NR_mount ] = (syscall_handler_t *) sys_mount,
 	[ __NR_setuid ] = (syscall_handler_t *) sys_setuid16,
 	[ __NR_getuid ] = (syscall_handler_t *) sys_getuid16,
  	[ __NR_ptrace ] = (syscall_handler_t *) sys_ptrace,

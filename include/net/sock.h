@@ -983,6 +983,7 @@ __sk_dst_check(struct sock *sk, u32 cookie)
 
 	if (dst && dst->obsolete && dst->ops->check(dst, cookie) == NULL) {
 		sk->sk_dst_cache = NULL;
+		dst_release(dst);
 		return NULL;
 	}
 
@@ -996,6 +997,7 @@ sk_dst_check(struct sock *sk, u32 cookie)
 
 	if (dst && dst->obsolete && dst->ops->check(dst, cookie) == NULL) {
 		sk_dst_reset(sk);
+		dst_release(dst);
 		return NULL;
 	}
 

@@ -8,6 +8,7 @@
  * Modifications:
  *  06-Dec-1997	RMK	Created.
  *  02-Sep-2003 BJD	Modified for S3C2410
+ *  10-Mar-2005 LCVR	Changed S3C2410_VA to S3C24XX_VA
  *
  */
 
@@ -26,10 +27,10 @@
 
 #define __PORT_PCIO(x)	((x) < (1<<28))
 
-#define PCIO_BASE	 (S3C2410_VA_ISA_WORD)
-#define PCIO_BASE_b	 (S3C2410_VA_ISA_BYTE)
-#define PCIO_BASE_w	 (S3C2410_VA_ISA_WORD)
-#define PCIO_BASE_l	 (S3C2410_VA_ISA_WORD)
+#define PCIO_BASE	 (S3C24XX_VA_ISA_WORD)
+#define PCIO_BASE_b	 (S3C24XX_VA_ISA_BYTE)
+#define PCIO_BASE_w	 (S3C24XX_VA_ISA_WORD)
+#define PCIO_BASE_l	 (S3C24XX_VA_ISA_WORD)
 /*
  * Dynamic IO functions - let the compiler
  * optimize the expressions

@@ -413,7 +413,7 @@ static int irtty_stop_dev(struct sir_dev *dev)
 
 /* ------------------------------------------------------- */
 
-struct sir_driver sir_tty_drv = {
+static struct sir_driver sir_tty_drv = {
 	.owner			= THIS_MODULE,
 	.driver_name		= "sir_tty",
 	.start_dev		= irtty_start_dev,

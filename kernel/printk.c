@@ -579,6 +579,7 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 				   p[1] <= '7' && p[2] == '>') {
 					loglev_char = p[1];
 					p += 3;
+					printed_len += 3;
 				} else {
 					loglev_char = default_message_loglevel
 						+ '0';
@@ -591,8 +592,9 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 						(unsigned long)t,
 						nanosec_rem/1000);
 
-				for (tp = tbuf; tp< tbuf + tlen; tp++)
-					emit_log_char (*tp);
+				for (tp = tbuf; tp < tbuf + tlen; tp++)
+					emit_log_char(*tp);
+				printed_len += tlen - 3;
 			} else {
 				if (p[0] != '<' || p[1] < '0' ||
 				   p[1] > '7' || p[2] != '>') {
@@ -601,8 +603,11 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 						+ '0');
 					emit_log_char('>');
 				}
+				printed_len += 3;
 			}
 			log_level_unknown = 0;
+			if (!*p)
+				break;
 		}
 		emit_log_char(*p);
 		if (*p == '\n')

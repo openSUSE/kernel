@@ -48,8 +48,8 @@ static int snd_trident_pcm_mixer_build(trident_t *trident, snd_trident_voice_t *
 static int snd_trident_pcm_mixer_free(trident_t *trident, snd_trident_voice_t * voice, snd_pcm_substream_t *substream);
 static irqreturn_t snd_trident_interrupt(int irq, void *dev_id, struct pt_regs *regs);
 #ifdef CONFIG_PM
-static int snd_trident_suspend(snd_card_t *card, unsigned int state);
-static int snd_trident_resume(snd_card_t *card, unsigned int state);
+static int snd_trident_suspend(snd_card_t *card, pm_message_t state);
+static int snd_trident_resume(snd_card_t *card);
 #endif
 static int snd_trident_sis_reset(trident_t *trident);
 
@@ -3110,37 +3110,28 @@ static int __devinit snd_trident_mixer(trident_t * trident, int pcm_spdif_device
 
 #if defined(CONFIG_GAMEPORT) || (defined(MODULE) && defined(CONFIG_GAMEPORT_MODULE))
 
-typedef struct snd_trident_gameport {
-	struct gameport info;
-	trident_t *chip;
-} trident_gameport_t;
-
 static unsigned char snd_trident_gameport_read(struct gameport *gameport)
 {
-	trident_gameport_t *gp = (trident_gameport_t *)gameport;
-	trident_t *chip;
-	snd_assert(gp, return 0);
-	chip = gp->chip;
+	trident_t *chip = gameport->port_data;
+
+	snd_assert(chip, return 0);
 	return inb(TRID_REG(chip, GAMEPORT_LEGACY));
 }
 
 static void snd_trident_gameport_trigger(struct gameport *gameport)
 {
-	trident_gameport_t *gp = (trident_gameport_t *)gameport;
-	trident_t *chip;
-	snd_assert(gp, return);
-	chip = gp->chip;
+	trident_t *chip = gameport->port_data;
+
+	snd_assert(chip, return);
 	outb(0xff, TRID_REG(chip, GAMEPORT_LEGACY));
 }
 
 static int snd_trident_gameport_cooked_read(struct gameport *gameport, int *axes, int *buttons)
 {
-	trident_gameport_t *gp = (trident_gameport_t *)gameport;
-	trident_t *chip;
+	trident_t *chip = gameport->port_data;
 	int i;
 
-	snd_assert(gp, return 0);
-	chip = gp->chip;
+	snd_assert(chip, return 0);
 
 	*buttons = (~inb(TRID_REG(chip, GAMEPORT_LEGACY)) >> 4) & 0xf;
 
@@ -3154,10 +3145,9 @@ static int snd_trident_gameport_cooked_read(struct gameport *gameport, int *axes
 
 static int snd_trident_gameport_open(struct gameport *gameport, int mode)
 {
-	trident_gameport_t *gp = (trident_gameport_t *)gameport;
-	trident_t *chip;
-	snd_assert(gp, return -1);
-	chip = gp->chip;
+	trident_t *chip = gameport->port_data;
+
+	snd_assert(chip, return 0);
 
 	switch (mode) {
 		case GAMEPORT_MODE_COOKED:
@@ -3173,30 +3163,42 @@ static int snd_trident_gameport_open(struct gameport *gameport, int mode)
 	}
 }
 
-void __devinit snd_trident_gameport(trident_t *chip)
+int __devinit snd_trident_create_gameport(trident_t *chip)
 {
-	trident_gameport_t *gp;
-	gp = kmalloc(sizeof(*gp), GFP_KERNEL);
-	if (! gp) {
-		snd_printk("cannot allocate gameport area\n");
-		return;
+	struct gameport *gp;
+
+	chip->gameport = gp = gameport_allocate_port();
+	if (!gp) {
+		printk(KERN_ERR "trident: cannot allocate memory for gameport\n");
+		return -ENOMEM;
 	}
-	memset(gp, 0, sizeof(*gp));
-	gp->chip = chip;
-	gp->info.fuzz = 64;
-	gp->info.read = snd_trident_gameport_read;
-	gp->info.trigger = snd_trident_gameport_trigger;
-	gp->info.cooked_read = snd_trident_gameport_cooked_read;
-	gp->info.open = snd_trident_gameport_open;
-	chip->gameport = gp;
 
-	gameport_register_port(&gp->info);
+	gameport_set_name(gp, "Trident 4DWave");
+	gameport_set_phys(gp, "pci%s/gameport0", pci_name(chip->pci));
+	gp->dev.parent = &chip->pci->dev;
+
+	gp->port_data = chip;
+	gp->fuzz = 64;
+	gp->read = snd_trident_gameport_read;
+	gp->trigger = snd_trident_gameport_trigger;
+	gp->cooked_read = snd_trident_gameport_cooked_read;
+	gp->open = snd_trident_gameport_open;
+
+	gameport_register_port(gp);
+
+	return 0;
 }
 
-#else
-void __devinit snd_trident_gameport(trident_t *chip)
+static inline void snd_trident_free_gameport(trident_t *chip)
 {
+	if (chip->gameport) {
+		gameport_unregister_port(chip->gameport);
+		chip->gameport = NULL;
+	}
 }
+#else
+int __devinit snd_trident_create_gameport(trident_t *chip) { return -ENOSYS; }
+static inline void snd_trident_free_gameport(trident_t *chip) { }
 #endif /* CONFIG_GAMEPORT */
 
 /*
@@ -3661,12 +3663,7 @@ int __devinit snd_trident_create(snd_card_t * card,
 
 static int snd_trident_free(trident_t *trident)
 {
-#if defined(CONFIG_GAMEPORT) || (defined(MODULE) && defined(CONFIG_GAMEPORT_MODULE))
-	if (trident->gameport) {
-		gameport_unregister_port(&trident->gameport->info);
-		kfree(trident->gameport);
-	}
-#endif
+	snd_trident_free_gameport(trident);
 	snd_trident_disable_eso(trident);
 	// Disable S/PDIF out
 	if (trident->device == TRIDENT_DEVICE_ID_NX)
@@ -3921,7 +3918,7 @@ static void snd_trident_clear_voices(trident_t * trident, unsigned short v_min, 
 }
 
 #ifdef CONFIG_PM
-static int snd_trident_suspend(snd_card_t *card, unsigned int state)
+static int snd_trident_suspend(snd_card_t *card, pm_message_t state)
 {
 	trident_t *trident = card->pm_private_data;
 
@@ -3947,7 +3944,7 @@ static int snd_trident_suspend(snd_card_t *card, unsigned int state)
 	return 0;
 }
 
-static int snd_trident_resume(snd_card_t *card, unsigned int state)
+static int snd_trident_resume(snd_card_t *card)
 {
 	trident_t *trident = card->pm_private_data;
 

@@ -3246,8 +3246,8 @@ static void __devexit ia_remove_one(struct pci_dev *pdev)
 	iadev_count--;
 	ia_dev[iadev_count] = NULL;
 	_ia_dev[iadev_count] = NULL;
+	IF_EVENT(printk("deregistering iav at (itf:%d)\n", dev->number);)
 	atm_dev_deregister(dev);
-	IF_EVENT(printk("iav deregistered at (itf:%d)\n", dev->number);)
 
       	iounmap(iadev->base);  
 	pci_disable_device(pdev);
@@ -3276,7 +3276,7 @@ static int __init ia_module_init(void)
 {
 	int ret;
 
-	ret = pci_module_init(&ia_driver);
+	ret = pci_register_driver(&ia_driver);
 	if (ret >= 0) {
 		ia_timer.expires = jiffies + 3*HZ;
 		add_timer(&ia_timer); 

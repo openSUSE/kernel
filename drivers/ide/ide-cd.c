@@ -3088,7 +3088,6 @@ int ide_cdrom_setup (ide_drive_t *drive)
 		drive->queue->unplug_delay = 1;
 
 	drive->special.all	= 0;
-	drive->ready_stat	= 0;
 
 	CDROM_STATE_FLAGS(drive)->media_changed = 1;
 	CDROM_STATE_FLAGS(drive)->toc_valid     = 0;
@@ -3252,44 +3251,24 @@ int ide_cdrom_cleanup(ide_drive_t *drive)
 
 static int ide_cdrom_attach (ide_drive_t *drive);
 
-/*
- * Power Management state machine.
- *
- * We don't do much for CDs right now.
- */
-
-static void ide_cdrom_complete_power_step (ide_drive_t *drive, struct request *rq, u8 stat, u8 error)
+#ifdef CONFIG_PROC_FS
+static int proc_idecd_read_capacity
+	(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
+	ide_drive_t*drive = (ide_drive_t *)data;
+	int len;
+
+	len = sprintf(page,"%llu\n", (long long)ide_cdrom_capacity(drive));
+	PROC_IDE_READ_RETURN(page,start,off,count,eof,len);
 }
 
-static ide_startstop_t ide_cdrom_start_power_step (ide_drive_t *drive, struct request *rq)
-{
-	ide_task_t *args = rq->special;
-
-	memset(args, 0, sizeof(*args));
-
-	switch (rq->pm->pm_step) {
-	case ide_pm_state_start_suspend:
-		break;
-
-	case ide_pm_state_start_resume:	/* Resume step 1 (restore DMA) */
-		/*
-		 * Right now, all we do is call hwif->ide_dma_check(drive),
-		 * we could be smarter and check for current xfer_speed
-		 * in struct drive etc...
-		 * Also, this step could be implemented as a generic helper
-		 * as most subdrivers will use it.
-		 */
-		if ((drive->id->capability & 1) == 0)
-			break;
-		if (HWIF(drive)->ide_dma_check == NULL)
-			break;
-		HWIF(drive)->ide_dma_check(drive);
-		break;
-	}
-	rq->pm->pm_step = ide_pm_state_completed;
-	return ide_stopped;
-}
+static ide_proc_entry_t idecd_proc[] = {
+	{ "capacity", S_IFREG|S_IRUGO, proc_idecd_read_capacity, NULL },
+	{ NULL, 0, NULL, NULL }
+};
+#else
+# define idecd_proc	NULL
+#endif
 
 static ide_driver_t ide_cdrom_driver = {
 	.owner			= THIS_MODULE,
@@ -3300,11 +3279,12 @@ static ide_driver_t ide_cdrom_driver = {
 	.supports_dsc_overlap	= 1,
 	.cleanup		= ide_cdrom_cleanup,
 	.do_request		= ide_do_rw_cdrom,
-	.capacity		= ide_cdrom_capacity,
+	.end_request		= ide_end_request,
+	.error			= __ide_error,
+	.abort			= __ide_abort,
+	.proc			= idecd_proc,
 	.attach			= ide_cdrom_attach,
 	.drives			= LIST_HEAD_INIT(ide_cdrom_driver.drives),
-	.start_power_step	= ide_cdrom_start_power_step,
-	.complete_power_step	= ide_cdrom_complete_power_step,
 };
 
 static int idecd_open(struct inode * inode, struct file * file)

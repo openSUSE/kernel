@@ -17,10 +17,15 @@ static int cmp_ex(const void *a, const void *b)
 	u64 lip = (u64) &l->addr + l->addr;
 	u64 rip = (u64) &r->addr + r->addr;
 
-	return lip - rip;
+	/* avoid overflow */
+	if (lip > rip)
+		return 1;
+	if (lip < rip)
+		return -1;
+	return 0;
 }
 
-static void swap_ex(void *a, void *b)
+static void swap_ex(void *a, void *b, int size)
 {
 	struct exception_table_entry *l = a, *r = b, tmp;
 	u64 delta = (u64) r - (u64) l;

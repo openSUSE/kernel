@@ -69,6 +69,7 @@ typedef struct s_AC	SK_AC;
 #include <linux/bitops.h>
 #include <asm/byteorder.h>
 #include <asm/io.h>
+#include <asm/irq.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/skbuff.h>

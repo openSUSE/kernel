@@ -366,6 +366,13 @@
 #define AC97_DOUBLE_RATE	(1<<5)	/* supports double rate playback */
 #define AC97_HAS_NO_MASTER_VOL	(1<<6)	/* no Master volume */
 #define AC97_HAS_NO_PCM_VOL	(1<<7)	/* no PCM volume */
+#define AC97_DEFAULT_POWER_OFF	(1<<8)	/* no RESET write */
+#define AC97_MODEM_PATCH	(1<<9)	/* modem patch */
+#define AC97_HAS_NO_REC_GAIN	(1<<10) /* no Record gain */
+#define AC97_HAS_NO_PHONE	(1<<11) /* no PHONE volume */
+#define AC97_HAS_NO_PC_BEEP	(1<<12) /* no PC Beep volume */
+#define AC97_HAS_NO_VIDEO	(1<<13) /* no Video volume */
+#define AC97_HAS_NO_CD		(1<<14) /* no CD volume */
 
 /* rates indexes */
 #define AC97_RATES_FRONT_DAC	0
@@ -580,4 +587,11 @@ int snd_ac97_pcm_open(struct ac97_pcm *pcm, unsigned int rate,
 int snd_ac97_pcm_close(struct ac97_pcm *pcm);
 int snd_ac97_pcm_double_rate_rules(snd_pcm_runtime_t *runtime);
 
+struct ac97_enum {
+	unsigned char reg;
+	unsigned char shift_l;
+	unsigned char shift_r;
+	unsigned short mask;
+	const char **texts;
+};
 #endif /* __SOUND_AC97_CODEC_H */

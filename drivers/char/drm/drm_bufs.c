@@ -77,7 +77,7 @@ int drm_addmap( struct inode *inode, struct file *filp,
 		 unsigned int cmd, unsigned long arg )
 {
 	drm_file_t *priv = filp->private_data;
-	drm_device_t *dev = priv->dev;
+	drm_device_t *dev = priv->head->dev;
 	drm_map_t *map;
 	drm_map_t __user *argp = (void __user *)arg;
 	drm_map_list_t *list;
@@ -221,7 +221,7 @@ int drm_rmmap(struct inode *inode, struct file *filp,
 	       unsigned int cmd, unsigned long arg)
 {
 	drm_file_t	*priv	= filp->private_data;
-	drm_device_t	*dev	= priv->dev;
+	drm_device_t	*dev	= priv->head->dev;
 	struct list_head *list;
 	drm_map_list_t *r_list = NULL;
 	drm_vma_entry_t *pt, *prev;
@@ -349,7 +349,7 @@ int drm_addbufs_agp( struct inode *inode, struct file *filp,
 		      unsigned int cmd, unsigned long arg )
 {
 	drm_file_t *priv = filp->private_data;
-	drm_device_t *dev = priv->dev;
+	drm_device_t *dev = priv->head->dev;
 	drm_device_dma_t *dma = dev->dma;
 	drm_buf_desc_t request;
 	drm_buf_entry_t *entry;
@@ -514,7 +514,7 @@ int drm_addbufs_pci( struct inode *inode, struct file *filp,
 		      unsigned int cmd, unsigned long arg )
 {
    	drm_file_t *priv = filp->private_data;
-	drm_device_t *dev = priv->dev;
+	drm_device_t *dev = priv->head->dev;
 	drm_device_dma_t *dma = dev->dma;
 	drm_buf_desc_t request;
 	int count;
@@ -744,7 +744,7 @@ int drm_addbufs_sg( struct inode *inode, struct file *filp,
                      unsigned int cmd, unsigned long arg )
 {
 	drm_file_t *priv = filp->private_data;
-	drm_device_t *dev = priv->dev;
+	drm_device_t *dev = priv->head->dev;
 	drm_device_dma_t *dma = dev->dma;
 	drm_buf_desc_t __user *argp = (void __user *)arg;
 	drm_buf_desc_t request;
@@ -925,7 +925,7 @@ int drm_addbufs( struct inode *inode, struct file *filp,
 {
 	drm_buf_desc_t request;
 	drm_file_t *priv = filp->private_data;
-	drm_device_t *dev = priv->dev;
+	drm_device_t *dev = priv->head->dev;
 	
 	if (!drm_core_check_feature(dev, DRIVER_HAVE_DMA))
 		return -EINVAL;
@@ -967,7 +967,7 @@ int drm_infobufs( struct inode *inode, struct file *filp,
 		   unsigned int cmd, unsigned long arg )
 {
 	drm_file_t *priv = filp->private_data;
-	drm_device_t *dev = priv->dev;
+	drm_device_t *dev = priv->head->dev;
 	drm_device_dma_t *dma = dev->dma;
 	drm_buf_info_t request;
 	drm_buf_info_t __user *argp = (void __user *)arg;
@@ -1052,7 +1052,7 @@ int drm_markbufs( struct inode *inode, struct file *filp,
 		   unsigned int cmd, unsigned long arg )
 {
 	drm_file_t *priv = filp->private_data;
-	drm_device_t *dev = priv->dev;
+	drm_device_t *dev = priv->head->dev;
 	drm_device_dma_t *dma = dev->dma;
 	drm_buf_desc_t request;
 	int order;
@@ -1101,7 +1101,7 @@ int drm_freebufs( struct inode *inode, struct file *filp,
 		   unsigned int cmd, unsigned long arg )
 {
 	drm_file_t *priv = filp->private_data;
-	drm_device_t *dev = priv->dev;
+	drm_device_t *dev = priv->head->dev;
 	drm_device_dma_t *dma = dev->dma;
 	drm_buf_free_t request;
 	int i;
@@ -1158,7 +1158,7 @@ int drm_mapbufs( struct inode *inode, struct file *filp,
 		  unsigned int cmd, unsigned long arg )
 {
 	drm_file_t *priv = filp->private_data;
-	drm_device_t *dev = priv->dev;
+	drm_device_t *dev = priv->head->dev;
 	drm_device_dma_t *dma = dev->dma;
 	drm_buf_map_t __user *argp = (void __user *)arg;
 	int retcode = 0;

@@ -175,13 +175,13 @@ static __inline__ void tx_dump_ring(struct happy_meal *hp)
 #define DEFAULT_IPG2       4 /* For all modes */
 #define DEFAULT_JAMSIZE    4 /* Toe jam */
 
-#ifdef CONFIG_PCI
+#if defined(CONFIG_PCI) && defined(MODULE)
 /* This happy_pci_ids is declared __initdata because it is only used
    as an advisory to depmod.  If this is ported to the new PCI interface
    where it could be referenced at any time due to hot plugging,
    the __initdata reference should be removed. */
 
-struct pci_device_id happymeal_pci_ids[] = {
+static struct pci_device_id happymeal_pci_ids[] = {
 	{
 	  .vendor	= PCI_VENDOR_ID_SUN,
 	  .device	= PCI_DEVICE_ID_SUN_HAPPYMEAL,

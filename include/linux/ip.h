@@ -152,6 +152,7 @@ struct inet_sock {
 };
 
 #define IPCORK_OPT	1	/* ip-options has been held in ipcork.opt */
+#define IPCORK_ALLFRAG	2	/* always fragment (for ipv6 for now) */
 
 static inline struct inet_sock *inet_sk(const struct sock *sk)
 {

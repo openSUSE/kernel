@@ -367,7 +367,7 @@ struct _snd_via82xx {
 	unsigned int mpu_port_saved;
 #endif
 
-	unsigned char playback_volume[4][2]; /* for VIA8233/C/8235; default = 0 */
+	unsigned char playback_volume[2]; /* for VIA8233/C/8235; default = 0 */
 
 	unsigned int intr_mask; /* SGD_SHADOW mask to check interrupts */
 
@@ -394,8 +394,7 @@ struct _snd_via82xx {
 	snd_info_entry_t *proc_entry;
 
 #ifdef SUPPORT_JOYSTICK
-	struct gameport gameport;
-	struct resource *res_joystick;
+	struct gameport *gameport;
 #endif
 };
 
@@ -942,8 +941,8 @@ static int snd_via8233_playback_prepare(snd_pcm_substream_t *substream)
 	snd_assert((rbits & ~0xfffff) == 0, return -EINVAL);
 	snd_via82xx_channel_reset(chip, viadev);
 	snd_via82xx_set_table_ptr(chip, viadev);
-	outb(chip->playback_volume[viadev->reg_offset / 0x10][0], VIADEV_REG(viadev, OFS_PLAYBACK_VOLUME_L));
-	outb(chip->playback_volume[viadev->reg_offset / 0x10][1], VIADEV_REG(viadev, OFS_PLAYBACK_VOLUME_R));
+	outb(chip->playback_volume[0], VIADEV_REG(viadev, OFS_PLAYBACK_VOLUME_L));
+	outb(chip->playback_volume[1], VIADEV_REG(viadev, OFS_PLAYBACK_VOLUME_R));
 	outl((runtime->format == SNDRV_PCM_FORMAT_S16_LE ? VIA8233_REG_TYPE_16BIT : 0) | /* format */
 	     (runtime->channels > 1 ? VIA8233_REG_TYPE_STEREO : 0) | /* stereo */
 	     rbits | /* rate */
@@ -1497,17 +1496,15 @@ static int snd_via8233_dxs_volume_info(snd_kcontrol_t *kcontrol, snd_ctl_elem_in
 static int snd_via8233_dxs_volume_get(snd_kcontrol_t *kcontrol, snd_ctl_elem_value_t *ucontrol)
 {
 	via82xx_t *chip = snd_kcontrol_chip(kcontrol);
-	unsigned int idx = snd_ctl_get_ioff(kcontrol, &ucontrol->id);
-	ucontrol->value.integer.value[0] = VIA_DXS_MAX_VOLUME - chip->playback_volume[idx][0];
-	ucontrol->value.integer.value[1] = VIA_DXS_MAX_VOLUME - chip->playback_volume[idx][1];
+	ucontrol->value.integer.value[0] = VIA_DXS_MAX_VOLUME - chip->playback_volume[0];
+	ucontrol->value.integer.value[1] = VIA_DXS_MAX_VOLUME - chip->playback_volume[1];
 	return 0;
 }
 
 static int snd_via8233_dxs_volume_put(snd_kcontrol_t *kcontrol, snd_ctl_elem_value_t *ucontrol)
 {
 	via82xx_t *chip = snd_kcontrol_chip(kcontrol);
-	unsigned int idx = snd_ctl_get_ioff(kcontrol, &ucontrol->id);
-	unsigned long port = chip->port + 0x10 * idx;
+	unsigned int idx;
 	unsigned char val;
 	int i, change = 0;
 
@@ -1516,19 +1513,21 @@ static int snd_via8233_dxs_volume_put(snd_kcontrol_t *kcontrol, snd_ctl_elem_val
 		if (val > VIA_DXS_MAX_VOLUME)
 			val = VIA_DXS_MAX_VOLUME;
 		val = VIA_DXS_MAX_VOLUME - val;
-		change |= val != chip->playback_volume[idx][i];
-		if (change) {
-			chip->playback_volume[idx][i] = val;
-			outb(val, port + VIA_REG_OFS_PLAYBACK_VOLUME_L + i);
+		if (val != chip->playback_volume[i]) {
+			change = 1;
+			chip->playback_volume[i] = val;
+			for (idx = 0; idx < 4; idx++) {
+				unsigned long port = chip->port + 0x10 * idx;
+				outb(val, port + VIA_REG_OFS_PLAYBACK_VOLUME_L + i);
+			}
 		}
 	}
 	return change;
 }
 
 static snd_kcontrol_new_t snd_via8233_dxs_volume_control __devinitdata = {
-	.name = "VIA DXS Playback Volume",
+	.name = "PCM Playback Volume",
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.count = 4,
 	.info = snd_via8233_dxs_volume_info,
 	.get = snd_via8233_dxs_volume_get,
 	.put = snd_via8233_dxs_volume_put,
@@ -1635,11 +1634,70 @@ static int __devinit snd_via82xx_mixer_new(via82xx_t *chip, const char *quirk_ov
 	return 0;
 }
 
+#ifdef SUPPORT_JOYSTICK
+#define JOYSTICK_ADDR	0x200
+static int __devinit snd_via686_create_gameport(via82xx_t *chip, int dev, unsigned char *legacy)
+{
+	struct gameport *gp;
+	struct resource *r;
+
+	if (!joystick[dev])
+		return -ENODEV;
+
+	r = request_region(JOYSTICK_ADDR, 8, "VIA686 gameport");
+	if (!r) {
+		printk(KERN_WARNING "via82xx: cannot reserve joystick port 0x%#x\n", JOYSTICK_ADDR);
+		return -EBUSY;
+	}
+
+	chip->gameport = gp = gameport_allocate_port();
+	if (!gp) {
+		printk(KERN_ERR "via82xx: cannot allocate memory for gameport\n");
+		release_resource(r);
+		kfree_nocheck(r);
+		return -ENOMEM;
+	}
+
+	gameport_set_name(gp, "VIA686 Gameport");
+	gameport_set_phys(gp, "pci%s/gameport0", pci_name(chip->pci));
+	gp->dev.parent = &chip->pci->dev;
+	gp->io = JOYSTICK_ADDR;
+	gp->port_data = r;
+
+	/* Enable legacy joystick port */
+	*legacy |= VIA_FUNC_ENABLE_GAME;
+	pci_write_config_byte(chip->pci, VIA_FUNC_ENABLE, *legacy);
+
+	gameport_register_port(chip->gameport);
+
+	return 0;
+}
+
+static void snd_via686_free_gameport(via82xx_t *chip)
+{
+	if (chip->gameport) {
+		struct resource *r = chip->gameport->port_data;
+
+		gameport_unregister_port(chip->gameport);
+		chip->gameport = NULL;
+		release_resource(r);
+		kfree_nocheck(r);
+	}
+}
+#else
+static inline int snd_via686_create_gameport(via82xx_t *chip, int dev, unsigned char *legacy)
+{
+	return -ENOSYS;
+}
+static inline void snd_via686_free_gameport(via82xx_t *chip) { }
+#endif
+
+
 /*
  *
  */
 
-static int snd_via8233_init_misc(via82xx_t *chip, int dev)
+static int __devinit snd_via8233_init_misc(via82xx_t *chip, int dev)
 {
 	int i, err, caps;
 	unsigned char val;
@@ -1657,9 +1715,18 @@ static int snd_via8233_init_misc(via82xx_t *chip, int dev)
 			return err;
 	}
 	if (chip->chip_type != TYPE_VIA8233A) {
-		err = snd_ctl_add(chip->card, snd_ctl_new1(&snd_via8233_dxs_volume_control, chip));
-		if (err < 0)
-			return err;
+		/* when no h/w PCM volume control is found, use DXS volume control
+		 * as the PCM vol control
+		 */
+		snd_ctl_elem_id_t sid;
+		memset(&sid, 0, sizeof(sid));
+		strcpy(sid.name, "PCM Playback Volume");
+		sid.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
+		if (! snd_ctl_find_id(chip->card, &sid)) {
+			err = snd_ctl_add(chip->card, snd_ctl_new1(&snd_via8233_dxs_volume_control, chip));
+			if (err < 0)
+				return err;
+		}
 	}
 
 	/* select spdif data slot 10/11 */
@@ -1671,7 +1738,7 @@ static int snd_via8233_init_misc(via82xx_t *chip, int dev)
 	return 0;
 }
 
-static int snd_via686_init_misc(via82xx_t *chip, int dev)
+static int __devinit snd_via686_init_misc(via82xx_t *chip, int dev)
 {
 	unsigned char legacy, legacy_cfg;
 	int rev_h = 0;
@@ -1718,15 +1785,6 @@ static int snd_via686_init_misc(via82xx_t *chip, int dev)
 		mpu_port[dev] = 0;
 	}
 
-#ifdef SUPPORT_JOYSTICK
-#define JOYSTICK_ADDR	0x200
-	if (joystick[dev] &&
-	    (chip->res_joystick = request_region(JOYSTICK_ADDR, 8, "VIA686 gameport")) != NULL) {
-		legacy |= VIA_FUNC_ENABLE_GAME;
-		chip->gameport.io = JOYSTICK_ADDR;
-	}
-#endif
-
 	pci_write_config_byte(chip->pci, VIA_FUNC_ENABLE, legacy);
 	pci_write_config_byte(chip->pci, VIA_PNP_CONTROL, legacy_cfg);
 	if (chip->mpu_res) {
@@ -1741,10 +1799,7 @@ static int snd_via686_init_misc(via82xx_t *chip, int dev)
 		pci_write_config_byte(chip->pci, VIA_FUNC_ENABLE, legacy);
 	}
 
-#ifdef SUPPORT_JOYSTICK
-	if (chip->res_joystick)
-		gameport_register_port(&chip->gameport);
-#endif
+	snd_via686_create_gameport(chip, dev, &legacy);
 
 #ifdef CONFIG_PM
 	chip->legacy_saved = legacy;
@@ -1888,6 +1943,15 @@ static int __devinit snd_via82xx_chip_init(via82xx_t *chip)
 		}
 	}
 
+	if (chip->chip_type != TYPE_VIA8233A) {
+		int i, idx;
+		for (idx = 0; idx < 4; idx++) {
+			unsigned long port = chip->port + 0x10 * idx;
+			for (i = 0; i < 2; i++)
+				outb(chip->playback_volume[i], port + VIA_REG_OFS_PLAYBACK_VOLUME_L + i);
+		}
+	}
+
 	return 0;
 }
 
@@ -1895,7 +1959,7 @@ static int __devinit snd_via82xx_chip_init(via82xx_t *chip)
 /*
  * power management
  */
-static int snd_via82xx_suspend(snd_card_t *card, unsigned int state)
+static int snd_via82xx_suspend(snd_card_t *card, pm_message_t state)
 {
 	via82xx_t *chip = card->pm_private_data;
 	int i;
@@ -1920,10 +1984,10 @@ static int snd_via82xx_suspend(snd_card_t *card, unsigned int state)
 	return 0;
 }
 
-static int snd_via82xx_resume(snd_card_t *card, unsigned int state)
+static int snd_via82xx_resume(snd_card_t *card)
 {
 	via82xx_t *chip = card->pm_private_data;
-	int idx, i;
+	int i;
 
 	pci_enable_device(chip->pci);
 	pci_set_power_state(chip->pci, 0);
@@ -1939,11 +2003,6 @@ static int snd_via82xx_resume(snd_card_t *card, unsigned int state)
 		pci_write_config_byte(chip->pci, VIA8233_SPDIF_CTRL, chip->spdif_ctrl_saved);
 		outb(chip->capture_src_saved[0], chip->port + VIA_REG_CAPTURE_CHANNEL);
 		outb(chip->capture_src_saved[1], chip->port + VIA_REG_CAPTURE_CHANNEL + 0x10);
-		for (idx = 0; idx < 4; idx++) {
-			unsigned long port = chip->port + 0x10 * idx;
-			for (i = 0; i < 2; i++)
-				outb(chip->playback_volume[idx][i], port + VIA_REG_OFS_PLAYBACK_VOLUME_L + i);
-		}
 	}
 
 	snd_ac97_resume(chip->ac97);
@@ -1973,14 +2032,9 @@ static int snd_via82xx_free(via82xx_t *chip)
 		kfree_nocheck(chip->mpu_res);
 	}
 	pci_release_regions(chip->pci);
+
 	if (chip->chip_type == TYPE_VIA686) {
-#ifdef SUPPORT_JOYSTICK
-		if (chip->res_joystick) {
-			gameport_unregister_port(&chip->gameport);
-			release_resource(chip->res_joystick);
-			kfree_nocheck(chip->res_joystick);
-		}
-#endif
+		snd_via686_free_gameport(chip);
 		pci_write_config_byte(chip->pci, VIA_FUNC_ENABLE, chip->old_legacy);
 		pci_write_config_byte(chip->pci, VIA_PNP_CONTROL, chip->old_legacy_cfg);
 	}

@@ -305,6 +305,32 @@ static inline int ipv6_addr_equal(const struct in6_addr *a1,
 		a1->s6_addr32[3] == a2->s6_addr32[3]);
 }
 
+static inline int __ipv6_prefix_equal(const u32 *a1, const u32 *a2,
+				      unsigned int prefixlen)
+{
+	unsigned pdw, pbi;
+
+	/* check complete u32 in prefix */
+	pdw = prefixlen >> 5;
+	if (pdw && memcmp(a1, a2, pdw << 2))
+		return 0;
+
+	/* check incomplete u32 in prefix */
+	pbi = prefixlen & 0x1f;
+	if (pbi && ((a1[pdw] ^ a2[pdw]) & htonl((0xffffffff) << (32 - pbi))))
+		return 0;
+
+	return 1;
+}
+
+static inline int ipv6_prefix_equal(const struct in6_addr *a1,
+				    const struct in6_addr *a2,
+				    unsigned int prefixlen)
+{
+	return __ipv6_prefix_equal(a1->s6_addr32, a2->s6_addr32,
+				   prefixlen);
+}
+
 static inline int ipv6_addr_any(const struct in6_addr *a)
 {
 	return ((a->s6_addr32[0] | a->s6_addr32[1] | 

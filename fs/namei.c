@@ -681,7 +681,7 @@ fail:
  *
  * We expect 'base' to be positive and a directory.
  */
-int fastcall link_path_walk(const char * name, struct nameidata *nd)
+static fastcall int __link_path_walk(const char * name, struct nameidata *nd)
 {
 	struct path next;
 	struct inode *inode;
@@ -879,6 +879,37 @@ out_dput:
 	path_release(nd);
 return_err:
 	return err;
+}
+
+/*
+ * Wrapper to retry pathname resolution whenever the underlying
+ * file system returns an ESTALE.
+ *
+ * Retry the whole path once, forcing real lookup requests
+ * instead of relying on the dcache.
+ */
+int fastcall link_path_walk(const char *name, struct nameidata *nd)
+{
+	struct nameidata save = *nd;
+	int result;
+
+	/* make sure the stuff we saved doesn't go away */
+	dget(save.dentry);
+	mntget(save.mnt);
+
+	result = __link_path_walk(name, nd);
+	if (result == -ESTALE) {
+		*nd = save;
+		dget(nd->dentry);
+		mntget(nd->mnt);
+		nd->flags |= LOOKUP_REVAL;
+		result = __link_path_walk(name, nd);
+	}
+
+	dput(save.dentry);
+	mntput(save.mnt);
+
+	return result;
 }
 
 int fastcall path_walk(const char * name, struct nameidata *nd)

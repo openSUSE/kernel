@@ -338,7 +338,9 @@ static int pppoe_rcv_core(struct sock *sk, struct sk_buff *skb)
 		struct pppoe_hdr *ph = (struct pppoe_hdr *) skb->nh.raw;
 		int len = ntohs(ph->length);
 		skb_pull(skb, sizeof(struct pppoe_hdr));
-		skb_trim(skb, len);
+		skb_postpull_rcsum(skb, ph, sizeof(*ph));
+		if (pskb_trim_rcsum(skb, len))
+			goto abort_kfree;
 
 		ppp_input(&po->chan, skb);
 	} else if (sk->sk_state & PPPOX_RELAY) {

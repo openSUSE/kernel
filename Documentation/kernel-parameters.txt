@@ -67,12 +67,14 @@ restrictions referred to are that the relevant option is valid if:
 	SCSI	Appropriate SCSI support is enabled.
 			A lot of drivers has their options described inside of
 			Documentation/scsi/.
+	SELINUX SELinux support is enabled.
 	SERIAL	Serial support is enabled.
 	SMP	The kernel is an SMP kernel.
 	SPARC	Sparc architecture is enabled.
 	SWSUSP	Software suspension is enabled.
 	TS	Appropriate touchscreen support is enabled.
 	USB	USB support is enabled.
+	USBHID	USB Human Interface Device support is enabled.
 	V4L	Video For Linux support is enabled.
 	VGA	The VGA console has been enabled.
 	VT	Virtual terminal support is enabled.
@@ -295,6 +297,14 @@ running once the system is up.
 			See header of drivers/cdrom/cdu31a.c.
 
 	chandev=	[HW,NET] Generic channel device initialisation
+
+	checkreqprot	[SELINUX] Set initial checkreqprot flag value.
+			Format: { "0" | "1" }
+			See security/selinux/Kconfig help text.
+			0 -- check protection applied by kernel (includes any implied execute protection).
+			1 -- check protection requested by application.
+			Default value is set via a kernel config option.
+			Value can be changed at runtime via /selinux/checkreqprot.
  
  	clock=		[BUGS=IA-32, HW] gettimeofday timesource override. 
 			Forces specified timesource (if avaliable) to be used
@@ -435,6 +445,14 @@ running once the system is up.
 			See Documentation/block/as-iosched.txt
 			and Documentation/block/deadline-iosched.txt for details.
 
+	enforcing	[SELINUX] Set initial enforcing status.
+			Format: {"0" | "1"}
+			See security/selinux/Kconfig help text.
+			0 -- permissive (log only, no denials).
+			1 -- enforcing (deny and log).
+			Default value is 0.
+			Value can be changed at runtime via /selinux/enforce.
+
 	es1370=		[HW,OSS]
 			Format: <lineout>[,<micbias>]
 			See also header of sound/oss/es1370.c.
@@ -514,11 +532,14 @@ running once the system is up.
 	i8042.dumbkbd	[HW] Pretend that controlled can only read data from
 			     keyboard and can not control its state
 			     (Don't attempt to blink the leds)
-	i8042.noacpi	[HW] Don't use ACPI to discover KBD/AUX controller
-			     settings
 	i8042.noaux	[HW] Don't check for auxiliary (== mouse) port
 	i8042.nomux	[HW] Don't check presence of an active multiplexing
 			     controller
+	i8042.nopnp	[HW] Don't use ACPIPnP / PnPBIOS to discover KBD/AUX
+			     controllers
+	i8042.panicblink=
+			[HW] Frequency with which keyboard LEDs should blink
+			     when kernel panics (default is 0.5 sec)
 	i8042.reset	[HW] Reset the controller during init and cleanup
 	i8042.unlock	[HW] Unlock (ignore) the keylock
 
@@ -789,6 +810,10 @@ running once the system is up.
 
 	mtdparts=	[MTD]
 			See drivers/mtd/cmdline.c.
+
+	mtouchusb.raw_coordinates=
+			[HW] Make the MicroTouch USB driver use raw coordinates ('y', default)
+			or cooked coordinates ('n')
 
 	n2=		[NET] SDL Inc. RISCom/N2 synchronous serial card
 
@@ -1160,6 +1185,15 @@ running once the system is up.
 
 	scsi_logging=	[SCSI]
 
+	selinux		[SELINUX] Disable or enable SELinux at boot time.
+			Format: { "0" | "1" }
+			See security/selinux/Kconfig help text.
+			0 -- disable.
+			1 -- enable.
+			Default value is set via kernel config option.
+			If enabled at boot time, /selinux/disable can be used
+			later to disable prior to initial policy load.
+
 	serialnumber	[BUGS=IA-32]
 
 	sf16fm=		[HW] SF16FMI radio driver for Linux
@@ -1409,6 +1443,9 @@ running once the system is up.
 			Format: <io>,<irq>
 
 	usb-handoff	[HW] Enable early USB BIOS -> OS handoff
+
+	usbhid.mousepoll=
+			[USBHID] The interval which mice are to be polled at.
  
 	video=		[FB] Frame buffer configuration
 			See Documentation/fb/modedb.txt.

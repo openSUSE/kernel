@@ -671,7 +671,8 @@ static void turnaround_delay(const struct stir_cb *stir, long us)
 		return;
 
 	do_gettimeofday(&now);
-	us -= (now.tv_sec - stir->rx_time.tv_sec) * USEC_PER_SEC;
+	if (now.tv_sec - stir->rx_time.tv_sec > 0)
+		us -= USEC_PER_SEC;
 	us -= now.tv_usec - stir->rx_time.tv_usec;
 	if (us < 10)
 		return;
@@ -787,7 +788,7 @@ static int stir_transmit_thread(void *arg)
 				stir_send(stir, skb);
 			dev_kfree_skb(skb);
 
-			if (stir->speed != new_speed) {
+			if ((new_speed != -1) && (stir->speed != new_speed)) {
 				if (fifo_txwait(stir, -1) ||
 				    change_speed(stir, new_speed))
 					break;

@@ -2447,7 +2447,7 @@ static int __init amb_module_init (void)
   amb_check_args();
   
   // get the juice
-  return pci_module_init(&amb_driver);
+  return pci_register_driver(&amb_driver);
 }
 
 /********** module exit **********/

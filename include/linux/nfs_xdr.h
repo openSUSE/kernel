@@ -563,6 +563,7 @@ struct nfs4_readdir_arg {
 	u32				count;
 	struct page **			pages;	/* zero-copy data */
 	unsigned int			pgbase;	/* zero-copy data */
+	const u32 *			bitmask;
 };
 
 struct nfs4_readdir_res {
@@ -681,7 +682,7 @@ struct nfs_rpc_ops {
 	int	(*read)    (struct nfs_read_data *);
 	int	(*write)   (struct nfs_write_data *);
 	int	(*commit)  (struct nfs_write_data *);
-	struct inode *	(*create)  (struct inode *, struct dentry *,
+	int	(*create)  (struct inode *, struct dentry *,
 			    struct iattr *, int);
 	int	(*remove)  (struct inode *, struct qstr *);
 	int	(*unlink_setup)  (struct rpc_message *,
@@ -693,13 +694,12 @@ struct nfs_rpc_ops {
 	int	(*symlink) (struct inode *, struct qstr *, struct qstr *,
 			    struct iattr *, struct nfs_fh *,
 			    struct nfs_fattr *);
-	int	(*mkdir)   (struct inode *, struct qstr *, struct iattr *,
-			    struct nfs_fh *, struct nfs_fattr *);
+	int	(*mkdir)   (struct inode *, struct dentry *, struct iattr *);
 	int	(*rmdir)   (struct inode *, struct qstr *);
 	int	(*readdir) (struct dentry *, struct rpc_cred *,
 			    u64, struct page *, unsigned int, int);
-	int	(*mknod)   (struct inode *, struct qstr *, struct iattr *,
-			    dev_t, struct nfs_fh *, struct nfs_fattr *);
+	int	(*mknod)   (struct inode *, struct dentry *, struct iattr *,
+			    dev_t);
 	int	(*statfs)  (struct nfs_server *, struct nfs_fh *,
 			    struct nfs_fsstat *);
 	int	(*fsinfo)  (struct nfs_server *, struct nfs_fh *,
@@ -731,7 +731,5 @@ extern struct nfs_rpc_ops	nfs_v4_clientops;
 extern struct rpc_version	nfs_version2;
 extern struct rpc_version	nfs_version3;
 extern struct rpc_version	nfs_version4;
-extern struct rpc_program	nfs_program;
-extern struct rpc_stat		nfs_rpcstat;
 
 #endif

@@ -1015,7 +1015,6 @@ static struct dst_entry *xfrm_dst_check(struct dst_entry *dst, u32 cookie)
 	if (!stale_bundle(dst))
 		return dst;
 
-	dst_release(dst);
 	return NULL;
 }
 

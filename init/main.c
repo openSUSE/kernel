@@ -41,6 +41,7 @@
 #include <linux/kallsyms.h>
 #include <linux/writeback.h>
 #include <linux/cpu.h>
+#include <linux/cpuset.h>
 #include <linux/efi.h>
 #include <linux/unistd.h>
 #include <linux/rmap.h>
@@ -505,6 +506,7 @@ asmlinkage void __init start_kernel(void)
 	proc_caches_init();
 	buffer_init();
 	unnamed_dev_init();
+	key_init();
 	security_init();
 	vfs_caches_init(num_physpages);
 	radix_tree_init();
@@ -514,6 +516,8 @@ asmlinkage void __init start_kernel(void)
 #ifdef CONFIG_PROC_FS
 	proc_root_init();
 #endif
+	cpuset_init();
+
 	check_bugs();
 
 	acpi_early_init(); /* before LAPIC and SMP init */
@@ -582,7 +586,6 @@ static void __init do_basic_setup(void)
 	/* drivers will send hotplug events */
 	init_workqueues();
 	usermodehelper_init();
-	key_init();
 	driver_init();
 
 #ifdef CONFIG_SYSCTL
@@ -655,6 +658,8 @@ static int init(void * unused)
 	fixup_cpu_present_map();
 	smp_init();
 	sched_init_smp();
+
+	cpuset_init_smp();
 
 	/*
 	 * Do this before initcalls, because some drivers want to access

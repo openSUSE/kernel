@@ -381,6 +381,8 @@ void icmpv6_send(struct sk_buff *skb, int type, int code, __u32 info,
 		hlimit = np->hop_limit;
 	if (hlimit < 0)
 		hlimit = dst_metric(dst, RTAX_HOPLIMIT);
+	if (hlimit < 0)
+		hlimit = ipv6_get_hoplimit(dst->dev);
 
 	msg.skb = skb;
 	msg.offset = skb->nh.raw - skb->data;
@@ -467,6 +469,8 @@ static void icmpv6_echo_reply(struct sk_buff *skb)
 		hlimit = np->hop_limit;
 	if (hlimit < 0)
 		hlimit = dst_metric(dst, RTAX_HOPLIMIT);
+	if (hlimit < 0)
+		hlimit = ipv6_get_hoplimit(dst->dev);
 
 	idev = in6_dev_get(skb->dev);
 

@@ -106,11 +106,28 @@ static __inline__  int pci_is_lmmio(struct pci_hba_data *hba, unsigned long a)
 struct pci_bus;
 struct pci_dev;
 
-/* The PCI address space does equal the physical memory
- * address space.  The networking and block device layers use
+/*
+ * If the PCI device's view of memory is the same as the CPU's view of memory,
+ * PCI_DMA_BUS_IS_PHYS is true.  The networking and block device layers use
  * this boolean for bounce buffer decisions.
  */
-#define PCI_DMA_BUS_IS_PHYS     (1)
+#ifdef CONFIG_PA20
+/* All PA-2.0 machines have an IOMMU. */
+#define PCI_DMA_BUS_IS_PHYS	0
+#define parisc_has_iommu()	do { } while (0)
+#else
+
+#if defined(CONFIG_IOMMU_CCIO) || defined(CONFIG_IOMMU_SBA)
+extern int parisc_bus_is_phys; 	/* in arch/parisc/kernel/setup.c */
+#define PCI_DMA_BUS_IS_PHYS	parisc_bus_is_phys
+#define parisc_has_iommu()	do { parisc_bus_is_phys = 0; } while (0)
+#else
+#define PCI_DMA_BUS_IS_PHYS	1
+#define parisc_has_iommu()	do { } while (0)
+#endif
+
+#endif	/* !CONFIG_PA20 */
+
 
 /*
 ** Most PCI devices (eg Tulip, NCR720) also export the same registers

@@ -1460,8 +1460,11 @@ xprt_setup(int proto, struct sockaddr_in *ap, struct rpc_timeout *to)
 	if (xprt->stream) {
 		xprt->cwnd = RPC_MAXCWND(xprt);
 		xprt->nocong = 1;
-	} else
+		xprt->max_payload = (1U << 31) - 1;
+	} else {
 		xprt->cwnd = RPC_INITCWND;
+		xprt->max_payload = (1U << 16) - (MAX_HEADER << 3);
+	}
 	spin_lock_init(&xprt->sock_lock);
 	spin_lock_init(&xprt->xprt_lock);
 	init_waitqueue_head(&xprt->cong_wait);

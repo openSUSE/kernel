@@ -26,6 +26,8 @@
  *	05-Oct-2004	BJD	Added semaphore init to stop crashes on open
  *				Fixed tmr_count / wdt_count confusion
  *				Added configurable debug
+ *
+ *	10-Mar-2005	LCVR	Changed S3C2410_VA to S3C24XX_VA
 */
 
 #include <linux/module.h>
@@ -48,8 +50,8 @@
 #include <asm/arch/map.h>
 #include <asm/hardware/clock.h>
 
-#undef S3C2410_VA_WATCHDOG
-#define S3C2410_VA_WATCHDOG (0)
+#undef S3C24XX_VA_WATCHDOG
+#define S3C24XX_VA_WATCHDOG (0)
 
 #include <asm/arch/regs-watchdog.h>
 

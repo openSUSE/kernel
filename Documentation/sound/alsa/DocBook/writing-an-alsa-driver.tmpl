@@ -18,8 +18,8 @@
       </affiliation>
      </author>
 
-     <date>July 11, 2004</date>
-     <edition>0.3.3</edition>
+     <date>March 6, 2005</date>
+     <edition>0.3.4</edition>
 
     <abstract>
       <para>
@@ -110,9 +110,9 @@
       </para>
 
       <para>
-        One is the the trees provided as a tarball or via cvs from the
+        One is the trees provided as a tarball or via cvs from the
       ALSA's ftp site, and another is the 2.6 (or later) Linux kernel
-      tree. To synchronize both, the ALSA driver tree is split to
+      tree. To synchronize both, the ALSA driver tree is split into
       two different trees: alsa-kernel and alsa-driver. The former
       contains purely the source codes for the Linux 2.6 (or later)
       tree. This tree is designed only for compilation on 2.6 or
@@ -766,7 +766,7 @@
       </para>
 
       <para>
-      The ALSA interfaces like PCM or control API are define in other
+      The ALSA interfaces like PCM or control API are defined in other
       header files as <filename>&lt;sound/xxx.h&gt;</filename>.
       They have to be included after
       <filename>&lt;sound/core.h&gt;</filename>.
@@ -1103,7 +1103,7 @@
           /* release the irq */
           if (chip->irq >= 0)
                   free_irq(chip->irq, (void *)chip);
-          /* release the i/o ports */
+          /* release the i/o ports & memory */
           pci_release_regions(chip->pci);
           /* disable the PCI entry */
           pci_disable_device(chip->pci);
@@ -1314,6 +1314,7 @@
       </para>
 
       <para>
+        <!-- obsolete -->
         It will reserve the i/o port region of 8 bytes of the given
       PCI device. The returned value, chip-&gt;res_port, is allocated
       via <function>kmalloc()</function> by
@@ -1936,6 +1937,7 @@
           snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE,
                           &snd_mychip_capture_ops);
           /* pre-allocation of buffers */
+          /* NOTE: this may fail */
           snd_pcm_lib_preallocate_pages_for_all(pcm, SNDRV_DMA_TYPE_DEV,
                                                 snd_dma_pci_data(chip->pci),
                                                 64*1024, 64*1024);
@@ -1950,7 +1952,7 @@
     <section id="pcm-interface-constructor">
       <title>Constructor</title>
       <para>
-        A pcm instance is allocated <function>snd_pcm_new()</function>
+        A pcm instance is allocated by <function>snd_pcm_new()</function>
       function. It would be better to create a constructor for pcm,
       namely, 
 
@@ -2235,7 +2237,8 @@ struct _snd_pcm_runtime {
 	unsigned char *dma_area;	/* DMA area */
 	dma_addr_t dma_addr;		/* physical bus address (not accessible from main CPU) */
 	size_t dma_bytes;		/* size of DMA area */
-	void *dma_private;		/* private DMA data for the memory allocator */
+
+	struct snd_dma_buffer *dma_buffer_p;	/* allocated buffer */
 
 #if defined(CONFIG_SND_PCM_OSS) || defined(CONFIG_SND_PCM_OSS_MODULE)
 	/* -- OSS things -- */
@@ -2250,7 +2253,7 @@ struct _snd_pcm_runtime {
 	<para>
 	  For the operators (callbacks) of each sound driver, most of
 	these records are supposed to be read-only.  Only the PCM
-	middle-layer changes / updates these info.  The excpetions are
+	middle-layer changes / updates these info.  The exceptions are
 	the hardware description (hw), interrupt callbacks
 	(transfer_ack_xxx), DMA buffer information, and the private
 	data.  Besides, if you use the standard buffer allocation
@@ -3250,7 +3253,7 @@ struct _snd_pcm_runtime {
 
       <para>
         There are many different constraints.
-        Look in <filename>sound/asound.h</filename> for a complete list.
+        Look in <filename>sound/pcm.h</filename> for a complete list.
         You can even define your own constraint rules.
         For example, let's suppose my_chip can manage a substream of 1 channel
         if and only if the format is S16_LE, otherwise it supports any format
@@ -4066,7 +4069,7 @@ struct _snd_pcm_runtime {
         Both <function>snd_ac97_write()</function> and
         <function>snd_ac97_update()</function> functions are used to
         set a value to the given register
-        (<constant>AC97_XXX</constant>). The different between them is
+        (<constant>AC97_XXX</constant>). The difference between them is
         that <function>snd_ac97_update()</function> doesn't write a
         value if the given value has been already set, while
         <function>snd_ac97_write()</function> always rewrites the
@@ -4152,8 +4155,8 @@ struct _snd_pcm_runtime {
       <title>Proc Files</title>
       <para>
         The ALSA AC97 interface will create a proc file such as
-      <filename>/proc/asound/card0/ac97#0</filename> and
-      <filename>ac97#0regs</filename>. You can refer to these files to
+      <filename>/proc/asound/card0/codec97#0/ac97#0-0</filename> and
+      <filename>ac97#0-0+regs</filename>. You can refer to these files to
       see the current status and registers of the codec. 
       </para>
     </section>
@@ -4199,18 +4202,6 @@ struct _snd_pcm_runtime {
         Some soundchips have similar but a little bit different
       implementation of mpu401 stuff. For example, emu10k1 has its own
       mpu401 routines. 
-      </para>
-
-      <para>
-        In this document, I won't explain the rawmidi interface API,
-      which is the basis of MPU401-UART implementation. 
-      </para>
-
-      <para>
-        For details, please check the source,
-      <filename>core/rawmidi.c</filename>, and examples such as
-      <filename>drivers/mpu401/mpu401_uart.c</filename> or
-      <filename>usb/usbmidi.c</filename>. 
       </para>
     </section>
 
@@ -4329,6 +4320,356 @@ struct _snd_pcm_runtime {
           </programlisting>
         </informalexample>
       </para>
+    </section>
+
+  </chapter>
+
+
+<!-- ****************************************************** -->
+<!-- RawMIDI Interface  -->
+<!-- ****************************************************** -->
+  <chapter id="rawmidi-interface">
+    <title>RawMIDI Interface</title>
+
+    <section id="rawmidi-interface-overview">
+      <title>Overview</title>
+
+      <para>
+      The raw MIDI interface is used for hardware MIDI ports that can
+      be accessed as a byte stream.  It is not used for synthesizer
+      chips that do not directly understand MIDI.
+      </para>
+
+      <para>
+      ALSA handles file and buffer management.  All you have to do is
+      to write some code to move data between the buffer and the
+      hardware.
+      </para>
+
+      <para>
+      The rawmidi API is defined in
+      <filename>&lt;sound/rawmidi.h&gt;</filename>.
+      </para>
+    </section>
+
+    <section id="rawmidi-interface-constructor">
+      <title>Constructor</title>
+
+      <para>
+      To create a rawmidi device, call the
+      <function>snd_rawmidi_new</function> function:
+        <informalexample>
+          <programlisting>
+<![CDATA[
+  snd_rawmidi_t *rmidi;
+  err = snd_rawmidi_new(chip->card, "MyMIDI", 0, outs, ins, &rmidi);
+  if (err < 0)
+          return err;
+  rmidi->private_data = chip;
+  strcpy(rmidi->name, "My MIDI");
+  rmidi->info_flags = SNDRV_RAWMIDI_INFO_OUTPUT |
+                      SNDRV_RAWMIDI_INFO_INPUT |
+                      SNDRV_RAWMIDI_INFO_DUPLEX;
+]]>
+          </programlisting>
+        </informalexample>
+      </para>
+
+      <para>
+      The first argument is the card pointer, the second argument is
+      the ID string.
+      </para>
+
+      <para>
+      The third argument is the index of this component.  You can
+      create up to 8 rawmidi devices.
+      </para>
+
+      <para>
+      The fourth and fifth arguments are the number of output and
+      input substreams, respectively, of this device.  (A substream is
+      the equivalent of a MIDI port.)
+      </para>
+
+      <para>
+      Set the <structfield>info_flags</structfield> field to specify
+      the capabilities of the device.
+      Set <constant>SNDRV_RAWMIDI_INFO_OUTPUT</constant> if there is
+      at least one output port,
+      <constant>SNDRV_RAWMIDI_INFO_INPUT</constant> if there is at
+      least one input port,
+      and <constant>SNDRV_RAWMIDI_INFO_DUPLEX</constant> if the device
+      can handle output and input at the same time.
+      </para>
+
+      <para>
+      After the rawmidi device is created, you need to set the
+      operators (callbacks) for each substream.  There are helper
+      functions to set the operators for all substream of a device:
+        <informalexample>
+          <programlisting>
+<![CDATA[
+  snd_rawmidi_set_ops(rmidi, SNDRV_RAWMIDI_STREAM_OUTPUT, &snd_mymidi_output_ops);
+  snd_rawmidi_set_ops(rmidi, SNDRV_RAWMIDI_STREAM_INPUT, &snd_mymidi_input_ops);
+]]>
+          </programlisting>
+        </informalexample>
+      </para>
+
+      <para>
+      The operators are usually defined like this:
+        <informalexample>
+          <programlisting>
+<![CDATA[
+  static snd_rawmidi_ops_t snd_mymidi_output_ops = {
+          .open =    snd_mymidi_output_open,
+          .close =   snd_mymidi_output_close,
+          .trigger = snd_mymidi_output_trigger,
+  };
+]]>
+          </programlisting>
+        </informalexample>
+      These callbacks are explained in the <link
+      linkend="rawmidi-interface-callbacks"><citetitle>Callbacks</citetitle></link>
+      section.
+      </para>
+
+      <para>
+      If there is more than one substream, you should give each one a
+      unique name:
+        <informalexample>
+          <programlisting>
+<![CDATA[
+  struct list_head *list;
+  snd_rawmidi_substream_t *substream;
+  list_for_each(list, &rmidi->streams[SNDRV_RAWMIDI_STREAM_OUTPUT].substreams) {
+          substream = list_entry(list, snd_rawmidi_substream_t, list);
+          sprintf(substream->name, "My MIDI Port %d", substream->number + 1);
+  }
+  /* same for SNDRV_RAWMIDI_STREAM_INPUT */
+]]>
+          </programlisting>
+        </informalexample>
+      </para>
+    </section>
+
+    <section id="rawmidi-interface-callbacks">
+      <title>Callbacks</title>
+
+      <para>
+      In all callbacks, the private data that you've set for the
+      rawmidi device can be accessed as
+      substream-&gt;rmidi-&gt;private_data.
+      <!-- <code> isn't available before DocBook 4.3 -->
+      </para>
+
+      <para>
+      If there is more than one port, your callbacks can determine the
+      port index from the snd_rawmidi_substream_t data passed to each
+      callback:
+        <informalexample>
+          <programlisting>
+<![CDATA[
+  snd_rawmidi_substream_t *substream;
+  int index = substream->number;
+]]>
+          </programlisting>
+        </informalexample>
+      </para>
+
+      <section id="rawmidi-interface-op-open">
+      <title><function>open</function> callback</title>
+
+        <informalexample>
+          <programlisting>
+<![CDATA[
+  static int snd_xxx_open(snd_rawmidi_substream_t *substream);
+]]>
+          </programlisting>
+        </informalexample>
+
+        <para>
+        This is called when a substream is opened.
+        You can initialize the hardware here, but you should not yet
+        start transmitting/receiving data.
+        </para>
+      </section>
+
+      <section id="rawmidi-interface-op-close">
+      <title><function>close</function> callback</title>
+
+        <informalexample>
+          <programlisting>
+<![CDATA[
+  static int snd_xxx_close(snd_rawmidi_substream_t *substream);
+]]>
+          </programlisting>
+        </informalexample>
+
+        <para>
+        Guess what.
+        </para>
+
+        <para>
+        The <function>open</function> and <function>close</function>
+        callbacks of a rawmidi device are serialized with a mutex,
+        and can sleep.
+        </para>
+      </section>
+
+      <section id="rawmidi-interface-op-trigger-out">
+      <title><function>trigger</function> callback for output
+      substreams</title>
+
+        <informalexample>
+          <programlisting>
+<![CDATA[
+  static void snd_xxx_output_trigger(snd_rawmidi_substream_t *substream, int up);
+]]>
+          </programlisting>
+        </informalexample>
+
+        <para>
+        This is called with a nonzero <parameter>up</parameter>
+        parameter when there is some data in the substream buffer that
+        must be transmitted.
+        </para>
+
+        <para>
+        To read data from the buffer, call
+        <function>snd_rawmidi_transmit_peek</function>.  It will
+        return the number of bytes that have been read; this will be
+        less than the number of bytes requested when there is no more
+        data in the buffer.
+        After the data has been transmitted successfully, call
+        <function>snd_rawmidi_transmit_ack</function> to remove the
+        data from the substream buffer:
+          <informalexample>
+            <programlisting>
+<![CDATA[
+  unsigned char data;
+  while (snd_rawmidi_transmit_peek(substream, &data, 1) == 1) {
+          if (mychip_try_to_transmit(data))
+                  snd_rawmidi_transmit_ack(substream, 1);
+          else
+                  break; /* hardware FIFO full */
+  }
+]]>
+            </programlisting>
+          </informalexample>
+        </para>
+
+        <para>
+        If you know beforehand that the hardware will accept data, you
+        can use the <function>snd_rawmidi_transmit</function> function
+        which reads some data and removes it from the buffer at once:
+          <informalexample>
+            <programlisting>
+<![CDATA[
+  while (mychip_transmit_possible()) {
+          unsigned char data;
+          if (snd_rawmidi_transmit(substream, &data, 1) != 1)
+                  break; /* no more data */
+          mychip_transmit(data);
+  }
+]]>
+            </programlisting>
+          </informalexample>
+        </para>
+
+        <para>
+        If you know beforehand how many bytes you can accept, you can
+        use a buffer size greater than one with the
+        <function>snd_rawmidi_transmit*</function> functions.
+        </para>
+
+        <para>
+        The <function>trigger</function> callback must not sleep.  If
+        the hardware FIFO is full before the substream buffer has been
+        emptied, you have to continue transmitting data later, either
+        in an interrupt handler, or with a timer if the hardware
+        doesn't have a MIDI transmit interrupt.
+        </para>
+
+        <para>
+        The <function>trigger</function> callback is called with a
+        zero <parameter>up</parameter> parameter when the transmission
+        of data should be aborted.
+        </para>
+
+        <para>
+        The <function>trigger</function> callback may be called from
+        another hardware interrupt handler.  This means that all
+        spinlocks taken in the <function>trigger</function> callback
+        must be taken with <function>spin_lock_irqsave</function>
+        everywhere.
+        </para>
+      </section>
+
+      <section id="rawmidi-interface-op-trigger-in">
+      <title><function>trigger</function> callback for input
+      substreams</title>
+
+        <informalexample>
+          <programlisting>
+<![CDATA[
+  static void snd_xxx_input_trigger(snd_rawmidi_substream_t *substream, int up);
+]]>
+          </programlisting>
+        </informalexample>
+
+        <para>
+        This is called with a nonzero <parameter>up</parameter>
+        parameter to enable receiving data, or with a zero
+        <parameter>up</parameter> parameter do disable receiving data.
+        </para>
+
+        <para>
+        When data reception is enabled, your interrupt handler should
+        call <function>snd_rawmidi_receive</function> for all received
+        data:
+          <informalexample>
+            <programlisting>
+<![CDATA[
+  void snd_mychip_midi_interrupt(...)
+  {
+          while (mychip_midi_available()) {
+                  unsigned char data;
+                  data = mychip_midi_read();
+                  snd_rawmidi_receive(substream, &data, 1);
+          }
+  }
+]]>
+            </programlisting>
+          </informalexample>
+        </para>
+      </section>
+
+      <section id="rawmidi-interface-op-drain">
+      <title><function>drain</function> callback</title>
+
+        <informalexample>
+          <programlisting>
+<![CDATA[
+  static void snd_xxx_drain(snd_rawmidi_substream_t *substream);
+]]>
+          </programlisting>
+        </informalexample>
+
+        <para>
+        This is only used with output substreams.  This function should wait
+        until all data read from the substream buffer has been transmitted.
+        This ensures that the device can be closed and the driver unloaded
+        without losing data.
+        </para>
+
+        <para>
+        This callback is optional.  If you do not set
+        <structfield>drain</structfield> in the snd_rawmidi_ops_t
+        structure, ALSA will simply wait for 50&nbsp;milliseconds
+        instead.
+        </para>
+      </section>
     </section>
 
   </chapter>
@@ -4633,7 +4974,7 @@ struct _snd_pcm_runtime {
         where <parameter>size</parameter> is the byte size to be
       pre-allocated and the <parameter>max</parameter> is the maximal
       size to be changed via <filename>prealloc</filename> proc file.
-      The allocator will try to get as the large area as possible
+      The allocator will try to get as large area as possible
       within the given size. 
       </para>
 
@@ -4855,7 +5196,7 @@ struct _snd_pcm_runtime {
         If your hardware supports the page table like emu10k1 or the
       buffer descriptors like via82xx, you can use the scatter-gather
       (SG) DMA. ALSA provides an interface for handling SG-buffers.
-      The API is provided in <filename>&lt;sound/pcm_sgbuf.h&gt;</filename>. 
+      The API is provided in <filename>&lt;sound/pcm.h&gt;</filename>. 
       </para>
 
       <para>
@@ -5159,12 +5500,12 @@ struct _snd_pcm_runtime {
         <programlisting>
 <![CDATA[
   #ifdef CONFIG_PM
-  static int snd_my_suspend(snd_card_t *card, unsigned int state)
+  static int snd_my_suspend(snd_card_t *card, pm_message_t state)
   {
           .... // do things for suspsend
           return 0;
   }
-  static int snd_my_resume(snd_card_t *card, unsigned int state)
+  static int snd_my_resume(snd_card_t *card)
   {
           .... // do things for suspsend
           return 0;
@@ -5193,7 +5534,7 @@ struct _snd_pcm_runtime {
       <informalexample>
         <programlisting>
 <![CDATA[
-  static int mychip_suspend(snd_card_t *card, unsigned int state)
+  static int mychip_suspend(snd_card_t *card, pm_message_t state)
   {
           /* (1) */
           mychip_t *chip = card->pm_private_data;

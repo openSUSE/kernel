@@ -290,7 +290,7 @@ typedef struct {
 	int mode;		/* operation mode */
 	int client;		/* sequencer client number */
 	int port;		/* sequencer port number */
-	int midi_has_voices: 1;
+	unsigned int midi_has_voices: 1;
 } snd_trident_port_t;
 
 typedef struct snd_trident_memblk_arg {
@@ -308,7 +308,7 @@ typedef struct {
 
 struct _snd_trident_voice {
 	unsigned int number;
-	int use: 1,
+	unsigned int use: 1,
 	    pcm: 1,
 	    synth:1,
 	    midi: 1;
@@ -347,7 +347,7 @@ struct _snd_trident_voice {
 	trident_t *trident;
 	snd_pcm_substream_t *substream;
 	snd_trident_voice_t *extra;	/* extra PCM voice (acts as interrupt generator) */
-	int running: 1,
+	unsigned int running: 1,
             capture: 1,
             spdif: 1,
             foldback: 1,
@@ -448,7 +448,7 @@ struct _snd_trident {
 
 	spinlock_t reg_lock;
 
-	struct snd_trident_gameport *gameport;
+	struct gameport *gameport;
 };
 
 int snd_trident_create(snd_card_t * card,
@@ -457,7 +457,7 @@ int snd_trident_create(snd_card_t * card,
 		       int pcm_spdif_device,
 		       int max_wavetable_size,
 		       trident_t ** rtrident);
-void snd_trident_gameport(trident_t *trident);
+int snd_trident_create_gameport(trident_t *trident);
 
 int snd_trident_pcm(trident_t * trident, int device, snd_pcm_t **rpcm);
 int snd_trident_foldback_pcm(trident_t * trident, int device, snd_pcm_t **rpcm);

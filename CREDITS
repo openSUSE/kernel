@@ -34,8 +34,9 @@ N: Dave Airlie
 E: airlied@linux.ie
 W: http://www.csn.ul.ie/~airlied
 D: NFS over TCP patches
-S: University of Limerick
-S: Ireland
+D: in-kernel DRM Maintainer
+S: Longford, Ireland
+S: Sydney, Australia
 
 N: Tigran A. Aivazian
 E: tigran@veritas.com

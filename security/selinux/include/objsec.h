@@ -109,4 +109,6 @@ struct sk_security_struct {
 
 extern int inode_security_set_sid(struct inode *inode, u32 sid);
 
+extern unsigned int selinux_checkreqprot;
+
 #endif /* _SELINUX_OBJSEC_H_ */

@@ -61,6 +61,7 @@ typedef enum {
 #define SOCK_ASYNC_NOSPACE	0
 #define SOCK_ASYNC_WAITDATA	1
 #define SOCK_NOSPACE		2
+#define SOCK_PASSCRED		3
 
 #ifndef ARCH_HAS_SOCKET_TYPES
 /** sock_type - Socket types
@@ -111,7 +112,6 @@ struct socket {
 	struct sock		*sk;
 	wait_queue_head_t	wait;
 	short			type;
-	unsigned char		passcred;
 };
 
 struct vm_area_struct;

@@ -91,6 +91,7 @@ __xfrm6_bundle_create(struct xfrm_policy *policy, struct xfrm_state **xfrm, int 
 	for (i = 0; i < nx; i++) {
 		struct dst_entry *dst1 = dst_alloc(&xfrm6_dst_ops);
 		struct xfrm_dst *xdst;
+		int tunnel = 0;
 
 		if (unlikely(dst1 == NULL)) {
 			err = -ENOBUFS;
@@ -114,11 +115,12 @@ __xfrm6_bundle_create(struct xfrm_policy *policy, struct xfrm_state **xfrm, int 
 		if (xfrm[i]->props.mode) {
 			remote = (struct in6_addr*)&xfrm[i]->id.daddr;
 			local  = (struct in6_addr*)&xfrm[i]->props.saddr;
+			tunnel = 1;
 		}
 		header_len += xfrm[i]->props.header_len;
 		trailer_len += xfrm[i]->props.trailer_len;
 
-		if (!ipv6_addr_equal(remote, &fl_tunnel.fl6_dst)) {
+		if (tunnel) {
 			ipv6_addr_copy(&fl_tunnel.fl6_dst, remote);
 			ipv6_addr_copy(&fl_tunnel.fl6_src, local);
 			err = xfrm_dst_lookup((struct xfrm_dst **) &rt,

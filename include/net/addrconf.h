@@ -49,7 +49,7 @@ struct prefix_info {
 
 #define IN6_ADDR_HSIZE		16
 
-extern void			addrconf_init(void);
+extern int			addrconf_init(void);
 extern void			addrconf_cleanup(void);
 
 extern int			addrconf_add_ifaddr(void __user *arg);
@@ -101,6 +101,8 @@ extern int ipv6_chk_mcast_addr(struct net_device *dev, struct in6_addr *group,
 extern int ipv6_is_mld(struct sk_buff *skb, int nexthdr);
 
 extern void addrconf_prefix_rcv(struct net_device *dev, u8 *opt, int len);
+
+extern int ipv6_get_hoplimit(struct net_device *dev);
 
 /*
  *	anycast prototypes (anycast.c)

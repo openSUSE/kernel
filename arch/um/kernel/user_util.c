@@ -10,7 +10,6 @@
 #include <setjmp.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <sys/ptrace.h>
 #include <sys/utsname.h>
 #include <sys/param.h>
 #include <sys/time.h>
@@ -29,6 +28,7 @@
 #include "mem_user.h"
 #include "init.h"
 #include "helper.h"
+#include "ptrace_user.h"
 #include "uml-config.h"
 
 #define COMMAND_LINE_SIZE _POSIX_ARG_MAX

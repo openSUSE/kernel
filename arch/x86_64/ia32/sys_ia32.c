@@ -993,31 +993,19 @@ asmlinkage long sys32_open(const char __user * filename, int flags, int mode)
 	return fd;
 }
 
-struct sigevent32 { 
-	u32 sigev_value;
-	u32 sigev_signo; 
-	u32 sigev_notify; 
-	u32 payload[(64 / 4) - 3]; 
-}; 
-
 extern asmlinkage long
 sys_timer_create(clockid_t which_clock,
 		 struct sigevent __user *timer_event_spec,
 		 timer_t __user * created_timer_id);
 
 long
-sys32_timer_create(u32 clock, struct sigevent32 __user *se32, timer_t __user *timer_id)
+sys32_timer_create(u32 clock, struct compat_sigevent __user *se32, timer_t __user *timer_id)
 {
 	struct sigevent __user *p = NULL;
 	if (se32) { 
 		struct sigevent se;
 		p = compat_alloc_user_space(sizeof(struct sigevent));
-		memset(&se, 0, sizeof(struct sigevent)); 
-		if (get_user(se.sigev_value.sival_int,  &se32->sigev_value) ||
-		    __get_user(se.sigev_signo, &se32->sigev_signo) ||
-		    __get_user(se.sigev_notify, &se32->sigev_notify) ||
-		    __copy_from_user(&se._sigev_un._pad, &se32->payload, 
-				     sizeof(se32->payload)) ||
+		if (get_compat_sigevent(&se, se32) ||
 		    copy_to_user(p, &se, sizeof(se)))
 			return -EFAULT;
 	} 

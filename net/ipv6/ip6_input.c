@@ -95,15 +95,11 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	if (pkt_len || hdr->nexthdr != NEXTHDR_HOP) {
 		if (pkt_len + sizeof(struct ipv6hdr) > skb->len)
 			goto truncated;
-		if (pkt_len + sizeof(struct ipv6hdr) < skb->len) {
-			if (__pskb_trim(skb, pkt_len + sizeof(struct ipv6hdr))){
-				IP6_INC_STATS_BH(IPSTATS_MIB_INHDRERRORS);
-				goto drop;
-			}
-			hdr = skb->nh.ipv6h;
-			if (skb->ip_summed == CHECKSUM_HW)
-				skb->ip_summed = CHECKSUM_NONE;
+		if (pskb_trim_rcsum(skb, pkt_len + sizeof(struct ipv6hdr))) {
+			IP6_INC_STATS_BH(IPSTATS_MIB_INHDRERRORS);
+			goto drop;
 		}
+		hdr = skb->nh.ipv6h;
 	}
 
 	if (hdr->nexthdr == NEXTHDR_HOP) {
@@ -138,7 +134,6 @@ static inline int ip6_input_finish(struct sk_buff *skb)
 	unsigned int nhoff;
 	int nexthdr;
 	u8 hash;
-	int cksum_sub = 0;
 
 	skb->h.raw = skb->nh.raw + sizeof(struct ipv6hdr);
 
@@ -173,11 +168,8 @@ resubmit:
 		if (ipprot->flags & INET6_PROTO_FINAL) {
 			struct ipv6hdr *hdr;	
 
-			if (!cksum_sub && skb->ip_summed == CHECKSUM_HW) {
-				skb->csum = csum_sub(skb->csum,
-						     csum_partial(skb->nh.raw, skb->h.raw-skb->nh.raw, 0));
-				cksum_sub++;
-			}
+			skb_postpull_rcsum(skb, skb->nh.raw,
+					   skb->h.raw - skb->nh.raw);
 			hdr = skb->nh.ipv6h;
 			if (ipv6_addr_is_multicast(&hdr->daddr) &&
 			    !ipv6_chk_mcast_addr(skb->dev, &hdr->daddr,

@@ -651,6 +651,6 @@ asmlinkage long sys_rt_sigaction(int sig,
    have declarations.  If we use no prototype, then we get warnings from
    -Wstrict-prototypes.  Ho hum.  */
 
-#define cond_syscall(x)  asm(".weak\t" #x "\n" #x " = sys_ni_syscall");
+#define cond_syscall(x)  asm(".weak\t" #x "\n" #x " = sys_ni_syscall")
 
 #endif /* _ALPHA_UNISTD_H */

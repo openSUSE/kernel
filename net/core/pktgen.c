@@ -151,7 +151,7 @@
 #include <asm/timex.h>
 
 
-#define VERSION  "pktgen v2.58: Packet Generator for packet performance testing.\n"
+#define VERSION  "pktgen v2.59: Packet Generator for packet performance testing.\n"
 
 /* #define PG_DEBUG(a) a */
 #define PG_DEBUG(a) 
@@ -1682,7 +1682,7 @@ static void pktgen_setup_inject(struct pktgen_dev *pkt_dev)
 					pkt_dev->saddr_min = in_dev->ifa_list->ifa_address;
 					pkt_dev->saddr_max = pkt_dev->saddr_min;
 				}
-				in_dev_put(in_dev);	
+				__in_dev_put(in_dev);	
 			}
 			rcu_read_unlock();
 		}

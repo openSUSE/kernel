@@ -758,8 +758,10 @@ L:	linux-kernel@vger.kernel.org
 S:	Supported
 
 DRM DRIVERS
+P:	David Airlie
+M:	airlied@linux.ie
 L:	dri-devel@lists.sourceforge.net
-S:	Supported
+S:	Maintained
 
 DSCC4 DRIVER
 P:	François Romieu
@@ -1991,6 +1993,11 @@ SCx200 CPU SUPPORT
 P:	Christer Weinigel
 M:	christer@weinigel.se
 W:	http://www.weinigel.se
+S:	Supported
+
+SECURITY CONTACT
+P:	Security Officers
+M:	security@kernel.org
 S:	Supported
 
 SELINUX SECURITY MODULE
