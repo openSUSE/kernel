@@ -754,30 +754,6 @@ int clear_page_dirty_for_io(struct page *page)
 }
 EXPORT_SYMBOL(clear_page_dirty_for_io);
 
-/*
- * Clear a page's dirty flag while ignoring dirty memory accounting
- */
-int __clear_page_dirty(struct page *page)
-{
-	struct address_space *mapping = page_mapping(page);
-
-	if (mapping) {
-		unsigned long flags;
-
-		write_lock_irqsave(&mapping->tree_lock, flags);
-		if (TestClearPageDirty(page)) {
-			radix_tree_tag_clear(&mapping->page_tree,
-						page_index(page),
-						PAGECACHE_TAG_DIRTY);
-			write_unlock_irqrestore(&mapping->tree_lock, flags);
-			return 1;
-		}
-		write_unlock_irqrestore(&mapping->tree_lock, flags);
-		return 0;
-	}
-	return TestClearPageDirty(page);
-}
-
 int test_clear_page_writeback(struct page *page)
 {
 	struct address_space *mapping = page_mapping(page);
