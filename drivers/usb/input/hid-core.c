@@ -892,10 +892,8 @@ static int hid_input_report(int type, struct urb *urb, struct pt_regs *regs)
 
 	size = ((report->size - 1) >> 3) + 1;
 
-	if (len < size) {
+	if (len < size)
 		dbg("report %d is too short, (%d < %d)", report->id, len, size);
-		return -1;
-	}
 
 	if (hid->claimed & HID_CLAIMED_HIDDEV)
 		hiddev_report_event(hid, report);
