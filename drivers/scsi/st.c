@@ -3461,11 +3461,17 @@ static int st_ioctl(struct inode *inode, struct file *file,
 		case SCSI_IOCTL_GET_BUS_NUMBER:
 			break;
 		default:
-			i = scsi_cmd_ioctl(file, STp->disk, cmd_in, p);
+			if (!capable(CAP_SYS_ADMIN))
+				i = -EPERM;
+			else
+				i = scsi_cmd_ioctl(file, STp->disk, cmd_in, p);
 			if (i != -ENOTTY)
 				return i;
 			break;
 	}
+	if (!capable(CAP_SYS_ADMIN) &&
+	    (cmd_in == SCSI_IOCTL_START_UNIT || cmd_in == SCSI_IOCTL_STOP_UNIT))
+		return -EPERM;
 	return scsi_ioctl(STp->device, cmd_in, p);
 
  out:
