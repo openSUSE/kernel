@@ -1290,7 +1290,7 @@ int mthca_MAP_ICM_page(struct mthca_dev *dev, u64 dma_addr, u64 virt, u8 *status
 		return -ENOMEM;
 
 	inbox[0] = cpu_to_be64(virt);
-	inbox[1] = cpu_to_be64(dma_addr | (PAGE_SHIFT - 12));
+	inbox[1] = cpu_to_be64(dma_addr);
 
 	err = mthca_cmd(dev, indma, 1, 0, CMD_MAP_ICM, CMD_TIME_CLASS_B, status);
 
