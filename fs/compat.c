@@ -1620,7 +1620,7 @@ compat_sys_select(int n, compat_ulong_t __user *inp, compat_ulong_t __user *outp
 	fd_set_bits fds;
 	char *bits;
 	long timeout;
-	int ret, size, max_fdset;
+	int size, max_fdset, ret = -EINVAL;
 
 	timeout = MAX_SCHEDULE_TIMEOUT;
 	if (tvp) {
@@ -1633,7 +1633,6 @@ compat_sys_select(int n, compat_ulong_t __user *inp, compat_ulong_t __user *outp
 			goto out_nofds;
 		}
 
-		ret = -EINVAL;
 		if (sec < 0 || usec < 0)
 			goto out_nofds;
 
@@ -1643,7 +1642,6 @@ compat_sys_select(int n, compat_ulong_t __user *inp, compat_ulong_t __user *outp
 		}
 	}
 
-	ret = -EINVAL;
 	if (n < 0)
 		goto out_nofds;
 
