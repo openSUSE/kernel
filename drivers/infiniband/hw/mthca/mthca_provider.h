@@ -82,12 +82,18 @@ struct mthca_eq {
 
 struct mthca_av;
 
+enum mthca_ah_type {
+	MTHCA_AH_ON_HCA,
+	MTHCA_AH_PCI_POOL,
+	MTHCA_AH_KMALLOC
+};
+
 struct mthca_ah {
-	struct ib_ah     ibah;
-	int              on_hca;
-	u32              key;
-	struct mthca_av *av;
-	dma_addr_t       avdma;
+	struct ib_ah       ibah;
+	enum mthca_ah_type type;
+	u32                key;
+	struct mthca_av   *av;
+	dma_addr_t         avdma;
 };
 
 /*
