@@ -17,7 +17,7 @@
    Last modified: 18-JAN-1998 Richard Gooch <rgooch@atnf.csiro.au> Devfs support
  */
 
-static char *verstr = "20050213";
+static char *verstr = "20050307";
 
 #include <linux/module.h>
 
@@ -268,6 +268,7 @@ static void st_analyze_sense(struct scsi_request *SRpnt, struct st_cmdstatus *s)
 	const u8 *ucp;
 	const u8 *sense = SRpnt->sr_sense_buffer;
 
+	memset(s, 0, sizeof(struct st_cmdstatus));
 	s->have_sense = scsi_request_normalize_sense(SRpnt, &s->sense_hdr);
 
 	if (s->have_sense) {
@@ -287,8 +288,6 @@ static void st_analyze_sense(struct scsi_request *SRpnt, struct st_cmdstatus *s)
 			ucp = scsi_sense_desc_find(sense, SCSI_SENSE_BUFFERSIZE, 4);
 			s->flags = ucp ? (ucp[3] & 0xe0) : 0;
 			break;
-		default:
-			s->flags = 0;
 		}
 	}
 }
@@ -306,7 +305,7 @@ static int st_chk_result(struct scsi_tape *STp, struct scsi_request * SRpnt)
 	if (!result)
 		return 0;
 
-		cmdstatp = &STp->buffer->cmdstat;
+	cmdstatp = &STp->buffer->cmdstat;
 	st_analyze_sense(STp->buffer->last_SRpnt, cmdstatp);
 
 	if (cmdstatp->have_sense)
@@ -2413,6 +2412,22 @@ static int do_load_unload(struct scsi_tape *STp, struct file *filp, int load_cod
 	return retval;
 }
 
+#if DEBUG
+#define ST_DEB_FORWARD  0
+#define ST_DEB_BACKWARD 1
+static void deb_space_print(char *name, int direction, char *units, unsigned char *cmd)
+{
+	s32 sc;
+
+	sc = cmd[2] & 0x80 ? 0xff000000 : 0;
+	sc |= (cmd[2] << 16) | (cmd[3] << 8) | cmd[4];
+	if (direction)
+		sc = -sc;
+	printk(ST_DEB_MSG "%s: Spacing tape %s over %d %s.\n", name,
+	       direction ? "backward" : "forward", sc, units);
+}
+#endif
+
 
 /* Internal ioctl function */
 static int st_int_ioctl(struct scsi_tape *STp, unsigned int cmd_in, unsigned long arg)
@@ -2451,8 +2466,7 @@ static int st_int_ioctl(struct scsi_tape *STp, unsigned int cmd_in, unsigned lon
 		cmd[2] = (arg >> 16);
 		cmd[3] = (arg >> 8);
 		cmd[4] = arg;
-                DEBC(printk(ST_DEB_MSG "%s: Spacing tape forward over %d filemarks.\n",
-			    name, cmd[2] * 65536 + cmd[3] * 256 + cmd[4]));
+                DEBC(deb_space_print(name, ST_DEB_FORWARD, "filemarks", cmd);)
 		if (fileno >= 0)
 			fileno += arg;
 		blkno = 0;
@@ -2467,14 +2481,7 @@ static int st_int_ioctl(struct scsi_tape *STp, unsigned int cmd_in, unsigned lon
 		cmd[2] = (ltmp >> 16);
 		cmd[3] = (ltmp >> 8);
 		cmd[4] = ltmp;
-                DEBC(
-                     if (cmd[2] & 0x80)
-                     	ltmp = 0xff000000;
-                     ltmp = ltmp | (cmd[2] << 16) | (cmd[3] << 8) | cmd[4];
-                     printk(ST_DEB_MSG
-                            "%s: Spacing tape backward over %ld filemarks.\n",
-                            name, (-ltmp));
-		)
+                DEBC(deb_space_print(name, ST_DEB_BACKWARD, "filemarks", cmd);)
 		if (fileno >= 0)
 			fileno -= arg;
 		blkno = (-1);	/* We can't know the block number */
@@ -2486,8 +2493,7 @@ static int st_int_ioctl(struct scsi_tape *STp, unsigned int cmd_in, unsigned lon
 		cmd[2] = (arg >> 16);
 		cmd[3] = (arg >> 8);
 		cmd[4] = arg;
-                DEBC(printk(ST_DEB_MSG "%s: Spacing tape forward %d blocks.\n", name,
-			       cmd[2] * 65536 + cmd[3] * 256 + cmd[4]));
+                DEBC(deb_space_print(name, ST_DEB_FORWARD, "blocks", cmd);)
 		if (blkno >= 0)
 			blkno += arg;
 		at_sm &= (arg == 0);
@@ -2499,13 +2505,7 @@ static int st_int_ioctl(struct scsi_tape *STp, unsigned int cmd_in, unsigned lon
 		cmd[2] = (ltmp >> 16);
 		cmd[3] = (ltmp >> 8);
 		cmd[4] = ltmp;
-                DEBC(
-                     if (cmd[2] & 0x80)
-                          ltmp = 0xff000000;
-                     ltmp = ltmp | (cmd[2] << 16) | (cmd[3] << 8) | cmd[4];
-                     printk(ST_DEB_MSG
-                            "%s: Spacing tape backward %ld blocks.\n", name, (-ltmp));
-		)
+                DEBC(deb_space_print(name, ST_DEB_BACKWARD, "blocks", cmd);)
 		if (blkno >= 0)
 			blkno -= arg;
 		at_sm &= (arg == 0);
@@ -2516,8 +2516,7 @@ static int st_int_ioctl(struct scsi_tape *STp, unsigned int cmd_in, unsigned lon
 		cmd[2] = (arg >> 16);
 		cmd[3] = (arg >> 8);
 		cmd[4] = arg;
-                DEBC(printk(ST_DEB_MSG "%s: Spacing tape forward %d setmarks.\n", name,
-                            cmd[2] * 65536 + cmd[3] * 256 + cmd[4]));
+                DEBC(deb_space_print(name, ST_DEB_FORWARD, "setmarks", cmd);)
 		if (arg != 0) {
 			blkno = fileno = (-1);
 			at_sm = 1;
@@ -2530,13 +2529,7 @@ static int st_int_ioctl(struct scsi_tape *STp, unsigned int cmd_in, unsigned lon
 		cmd[2] = (ltmp >> 16);
 		cmd[3] = (ltmp >> 8);
 		cmd[4] = ltmp;
-                DEBC(
-                     if (cmd[2] & 0x80)
-				ltmp = 0xff000000;
-                     ltmp = ltmp | (cmd[2] << 16) | (cmd[3] << 8) | cmd[4];
-                     printk(ST_DEB_MSG "%s: Spacing tape backward %ld setmarks.\n",
-                            name, (-ltmp));
-		)
+                DEBC(deb_space_print(name, ST_DEB_BACKWARD, "setmarks", cmd);)
 		if (arg != 0) {
 			blkno = fileno = (-1);
 			at_sm = 1;
@@ -2606,7 +2599,7 @@ static int st_int_ioctl(struct scsi_tape *STp, unsigned int cmd_in, unsigned lon
 		cmd[1] = 3;
                 DEBC(printk(ST_DEB_MSG "%s: Spacing to end of recorded medium.\n",
                             name));
-		blkno = 0;
+		blkno = -1;
 		at_sm = 0;
 		break;
 	case MTERASE:
@@ -2767,7 +2760,7 @@ static int st_int_ioctl(struct scsi_tape *STp, unsigned int cmd_in, unsigned lon
 				STps->drv_file = fileno - undone;
 			else
 				STps->drv_file = fileno;
-			STps->drv_block = 0;
+			STps->drv_block = -1;
 			STps->eof = ST_NOEOF;
 		} else if ((cmd_in == MTBSF) || (cmd_in == MTBSFM)) {
 			if (arg > 0 && undone < 0)  /* Some drives get this wrong */
@@ -3245,12 +3238,15 @@ static int st_ioctl(struct inode *inode, struct file *file,
 			}
 			if (STps->rw == ST_WRITING &&
 			    (mtc.mt_op == MTREW || mtc.mt_op == MTOFFL ||
-			     mtc.mt_op == MTSEEK)) {
+			     mtc.mt_op == MTSEEK ||
+			     mtc.mt_op == MTBSF || mtc.mt_op == MTBSFM)) {
 				i = st_int_ioctl(STp, MTWEOF, 1);
 				if (i < 0) {
 					retval = i;
 					goto out;
 				}
+				if (mtc.mt_op == MTBSF || mtc.mt_op == MTBSFM)
+					mtc.mt_count++;
 				STps->rw = ST_IDLE;
 			     }
 
