@@ -1018,6 +1018,7 @@ static struct rpc_authops authgss_ops = {
 };
 
 static struct rpc_credops gss_credops = {
+	.cr_name	= "AUTH_GSS",
 	.crdestroy	= gss_destroy_cred,
 	.crmatch	= gss_match,
 	.crmarshal	= gss_marshal,

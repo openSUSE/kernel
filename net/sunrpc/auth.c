@@ -129,7 +129,6 @@ rpcauth_free_credcache(struct rpc_auth *auth)
 	for (i = 0; i < RPC_CREDCACHE_NR; i++) {
 		list_for_each_safe(pos, next, &auth->au_credcache[i]) {
 			cred = list_entry(pos, struct rpc_cred, cr_hash);
-			cred->cr_auth = NULL;
 			list_move(&cred->cr_hash, &free);
 		}
 	}
@@ -138,16 +137,14 @@ rpcauth_free_credcache(struct rpc_auth *auth)
 }
 
 static void
-rpcauth_prune_expired(struct rpc_cred *cred, struct list_head *free)
+rpcauth_prune_expired(struct rpc_auth *auth, struct rpc_cred *cred, struct list_head *free)
 {
 	if (atomic_read(&cred->cr_count) != 1)
 	       return;
-	if (time_after(jiffies, cred->cr_expire + cred->cr_auth->au_expire))
+	if (time_after(jiffies, cred->cr_expire + auth->au_expire))
 		cred->cr_flags &= ~RPCAUTH_CRED_UPTODATE;
-	if (!(cred->cr_flags & RPCAUTH_CRED_UPTODATE)) {
-		cred->cr_auth = NULL;
+	if (!(cred->cr_flags & RPCAUTH_CRED_UPTODATE))
 		list_move(&cred->cr_hash, free);
-	}
 }
 
 /*
@@ -164,7 +161,7 @@ rpcauth_gc_credcache(struct rpc_auth *auth, struct list_head *free)
 	for (i = 0; i < RPC_CREDCACHE_NR; i++) {
 		list_for_each_safe(pos, next, &auth->au_credcache[i]) {
 			cred = list_entry(pos, struct rpc_cred, cr_hash);
-			rpcauth_prune_expired(cred, free);
+			rpcauth_prune_expired(auth, cred, free);
 		}
 	}
 	auth->au_nextgc = jiffies + auth->au_expire;
@@ -197,7 +194,7 @@ retry:
 			cred = entry;
 			break;
 		}
-		rpcauth_prune_expired(entry, &free);
+		rpcauth_prune_expired(auth, entry, &free);
 	}
 	if (new) {
 		if (cred)
@@ -207,7 +204,6 @@ retry:
 	}
 	if (cred) {
 		list_add(&cred->cr_hash, &auth->au_credcache[nr]);
-		cred->cr_auth = auth;
 		get_rpccred(cred);
 	}
 	spin_unlock(&rpc_credcache_lock);
@@ -328,7 +324,7 @@ rpcauth_wrap_req(struct rpc_task *task, kxdrproc_t encode, void *rqstp,
 	struct rpc_cred *cred = task->tk_msg.rpc_cred;
 
 	dprintk("RPC: %4d using %s cred %p to wrap rpc data\n",
-			task->tk_pid, cred->cr_auth->au_ops->au_name, cred);
+			task->tk_pid, cred->cr_ops->cr_name, cred);
 	if (cred->cr_ops->crwrap_req)
 		return cred->cr_ops->crwrap_req(task, encode, rqstp, data, obj);
 	/* By default, we encode the arguments normally. */
@@ -342,7 +338,7 @@ rpcauth_unwrap_resp(struct rpc_task *task, kxdrproc_t decode, void *rqstp,
 	struct rpc_cred *cred = task->tk_msg.rpc_cred;
 
 	dprintk("RPC: %4d using %s cred %p to unwrap rpc data\n",
-			task->tk_pid, cred->cr_auth->au_ops->au_name, cred);
+			task->tk_pid, cred->cr_ops->cr_name, cred);
 	if (cred->cr_ops->crunwrap_resp)
 		return cred->cr_ops->crunwrap_resp(task, decode, rqstp,
 						   data, obj);

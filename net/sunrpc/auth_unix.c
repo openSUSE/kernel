@@ -240,6 +240,7 @@ struct rpc_authops	authunix_ops = {
 
 static
 struct rpc_credops	unix_credops = {
+	.cr_name	= "AUTH_UNIX",
 	.crdestroy	= unx_destroy_cred,
 	.crmatch	= unx_match,
 	.crmarshal	= unx_marshal,

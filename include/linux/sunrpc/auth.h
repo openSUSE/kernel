@@ -36,7 +36,6 @@ struct auth_cred {
  */
 struct rpc_cred {
 	struct list_head	cr_hash;	/* hash chain */
-	struct rpc_auth *	cr_auth;
 	struct rpc_credops *	cr_ops;
 	unsigned long		cr_expire;	/* when to gc */
 	atomic_t		cr_count;	/* ref count */
@@ -96,6 +95,7 @@ struct rpc_authops {
 };
 
 struct rpc_credops {
+	const char *		cr_name;	/* Name of the auth flavour */
 	void			(*crdestroy)(struct rpc_cred *);
 
 	int			(*crmatch)(struct auth_cred *, struct rpc_cred *, int);
