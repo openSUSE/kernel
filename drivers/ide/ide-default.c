@@ -38,6 +38,12 @@
 
 static int idedefault_attach(ide_drive_t *drive);
 
+static ide_startstop_t idedefault_do_request(ide_drive_t *drive, struct request *rq, sector_t block)
+{
+	ide_end_request(drive, 0, 0);
+	return ide_stopped;
+}
+
 /*
  *	IDE subdriver functions, registered with ide.c
  */
@@ -47,6 +53,10 @@ ide_driver_t idedefault_driver = {
 	.version	=	IDEDEFAULT_VERSION,
 	.attach		=	idedefault_attach,
 	.cleanup	=	ide_unregister_subdriver,
+	.do_request	=	idedefault_do_request,
+	.end_request	=	ide_end_request,
+	.error		=	__ide_error,
+	.abort		=	__ide_abort,
 	.drives		=	LIST_HEAD_INIT(idedefault_driver.drives)
 };
 

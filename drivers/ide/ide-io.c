@@ -493,6 +493,8 @@ __ide_error(ide_drive_t *drive, struct request *rq, u8 stat, u8 err)
 	return ide_atapi_error(drive, rq, stat, err);
 }
 
+EXPORT_SYMBOL_GPL(__ide_error);
+
 /**
  *	ide_error	-	handle an error on the IDE
  *	@drive: drive the error occurred on
@@ -536,6 +538,8 @@ ide_startstop_t __ide_abort(ide_drive_t *drive, struct request *rq)
 	DRIVER(drive)->end_request(drive, 0, 0);
 	return ide_stopped;
 }
+
+EXPORT_SYMBOL_GPL(__ide_abort);
 
 /**
  *	ide_abort	-	abort pending IDE operatins

@@ -197,7 +197,6 @@ ide_hwif_t ide_hwifs[MAX_HWIFS];	/* master data repository */
 EXPORT_SYMBOL(ide_hwifs);
 
 extern ide_driver_t idedefault_driver;
-static void setup_driver_defaults(ide_driver_t *driver);
 
 /*
  * Do not even *think* about calling this!
@@ -300,8 +299,6 @@ static void __init init_ide_data (void)
 	if (magic_cookie != MAGIC_COOKIE)
 		return;		/* already initialized */
 	magic_cookie = 0;
-
-	setup_driver_defaults(&idedefault_driver);
 
 	/* Initialise all interface structures */
 	for (index = 0; index < MAX_HWIFS; ++index) {
@@ -2020,38 +2017,6 @@ static void __init probe_for_hwifs (void)
 #endif
 }
 
-static ide_startstop_t default_do_request (ide_drive_t *drive, struct request *rq, sector_t block)
-{
-	ide_end_request(drive, 0, 0);
-	return ide_stopped;
-}
-
-static int default_end_request (ide_drive_t *drive, int uptodate, int nr_sects)
-{
-	return ide_end_request(drive, uptodate, nr_sects);
-}
-
-static ide_startstop_t
-default_error(ide_drive_t *drive, struct request *rq, u8 stat, u8 err)
-{
-	return __ide_error(drive, rq, stat, err);
-}
-
-static ide_startstop_t default_abort(ide_drive_t *drive, struct request *rq)
-{
-	return __ide_abort(drive, rq);
-}
-
-static void setup_driver_defaults (ide_driver_t *d)
-{
-	BUG_ON(d->attach == NULL || d->cleanup == NULL);
-
-	if (d->do_request == NULL)	d->do_request = default_do_request;
-	if (d->end_request == NULL)	d->end_request = default_end_request;
-	if (d->error == NULL)		d->error = default_error;
-	if (d->abort == NULL)		d->abort = default_abort;
-}
-
 int ide_register_subdriver(ide_drive_t *drive, ide_driver_t *driver)
 {
 	unsigned long flags;
@@ -2149,8 +2114,6 @@ int ide_register_driver(ide_driver_t *driver)
 	struct list_head list;
 	struct list_head *list_loop;
 	struct list_head *tmp_storage;
-
-	setup_driver_defaults(driver);
 
 	spin_lock(&drivers_lock);
 	list_add(&driver->drivers, &drivers);
