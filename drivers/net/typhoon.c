@@ -1072,8 +1072,10 @@ typhoon_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 		if(typhoon_issue_command(tp, 1, &xp_cmd, 3, xp_resp) < 0) {
 			strcpy(info->fw_version, "Unknown runtime");
 		} else {
-			strncpy(info->fw_version, (char *) &xp_resp[1], 32);
-			info->fw_version[31] = 0;
+			u32 sleep_ver = xp_resp[0].parm2;
+			snprintf(info->fw_version, 32, "%02x.%03x.%03x",
+				 sleep_ver >> 24, (sleep_ver >> 12) & 0xfff, 
+				 sleep_ver & 0xfff);
 		}
 	}
 
@@ -2592,7 +2594,8 @@ typhoon_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		u8 *ver_string = (u8 *) &xp_resp[1];
 		ver_string[25] = 0;
 		printk(KERN_INFO "%s: Typhoon 1.1+ Sleep Image version "
-			"%u.%u.%u.%u %s\n", dev->name, HIPQUAD(sleep_ver),
+			"%02x.%03x.%03x %s\n", dev->name, sleep_ver >> 24,
+			(sleep_ver >> 12) & 0xfff, sleep_ver & 0xfff,
 			ver_string);
 	} else {
 		printk(KERN_WARNING "%s: Unknown Sleep Image version "
