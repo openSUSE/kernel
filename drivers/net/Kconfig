@@ -2528,15 +2528,6 @@ config NET_FC
 	  adaptor below. You also should have said Y to "SCSI support" and
 	  "SCSI generic support".
 
-config IPHASE5526
-	tristate "Interphase 5526 Tachyon chipset based adapter support"
-	depends on NET_FC && SCSI && PCI && BROKEN
-	help
-	  Say Y here if you have a Fibre Channel adaptor of this kind.
-
-	  To compile this driver as a module, choose M here: the module
-	  will be called iph5526.
-
 config SHAPER
 	tristate "Traffic Shaper (EXPERIMENTAL)"
 	depends on NETDEVICES && EXPERIMENTAL
