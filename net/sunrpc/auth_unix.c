@@ -36,25 +36,16 @@ struct unx_cred {
 # define RPCDBG_FACILITY	RPCDBG_AUTH
 #endif
 
+static struct rpc_auth		unix_auth;
 static struct rpc_credops	unix_credops;
 
 static struct rpc_auth *
 unx_create(struct rpc_clnt *clnt, rpc_authflavor_t flavor)
 {
-	struct rpc_auth	*auth;
-
 	dprintk("RPC: creating UNIX authenticator for client %p\n", clnt);
-	if (!(auth = (struct rpc_auth *) kmalloc(sizeof(*auth), GFP_KERNEL)))
-		return NULL;
-	auth->au_cslack = UNX_WRITESLACK;
-	auth->au_rslack = 2;	/* assume AUTH_NULL verf */
-	auth->au_expire = UNX_CRED_EXPIRE;
-	auth->au_ops = &authunix_ops;
-	atomic_set(&auth->au_count, 1);
-
-	rpcauth_init_credcache(auth);
-
-	return auth;
+	if (atomic_inc_return(&unix_auth.au_count) == 0)
+		unix_auth.au_nextgc = jiffies + (unix_auth.au_expire >> 1);
+	return &unix_auth;
 }
 
 static void
@@ -62,7 +53,6 @@ unx_destroy(struct rpc_auth *auth)
 {
 	dprintk("RPC: destroying UNIX authenticator %p\n", auth);
 	rpcauth_free_credcache(auth);
-	kfree(auth);
 }
 
 /*
@@ -236,6 +226,15 @@ struct rpc_authops	authunix_ops = {
 	.destroy	= unx_destroy,
 	.lookup_cred	= unx_lookup_cred,
 	.crcreate	= unx_create_cred,
+};
+
+static
+struct rpc_auth		unix_auth = {
+	.au_cslack	= UNX_WRITESLACK,
+	.au_rslack	= 2,			/* assume AUTH_NULL verf */
+	.au_expire	= UNX_CRED_EXPIRE,
+	.au_ops		= &authunix_ops,
+	.au_count	= ATOMIC_INIT(0),
 };
 
 static
