@@ -182,7 +182,7 @@ EXPORT_SYMBOL(arcnet_dump_skb);
 void arcnet_dump_packet(struct net_device *dev, int bufnum, char *desc,
 			int take_arcnet_lock)
 {
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 	int i, length;
 	unsigned long flags = 0;
 	static uint8_t buf[512];
@@ -245,7 +245,7 @@ void arcnet_unregister_proto(struct ArcProto *proto)
  */
 static void release_arcbuf(struct net_device *dev, int bufnum)
 {
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 	int i;
 
 	lp->buf_queue[lp->first_free_buf++] = bufnum;
@@ -267,7 +267,7 @@ static void release_arcbuf(struct net_device *dev, int bufnum)
  */
 static int get_arcbuf(struct net_device *dev)
 {
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 	int buf = -1, i;
 
 	if (!atomic_dec_and_test(&lp->buf_lock)) {
@@ -368,7 +368,7 @@ struct net_device *alloc_arcdev(char *name)
  */
 static int arcnet_open(struct net_device *dev)
 {
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 	int count, newmtu, error;
 
 	BUGMSG(D_INIT,"opened.");
@@ -468,7 +468,7 @@ static int arcnet_open(struct net_device *dev)
 /* The inverse routine to arcnet_open - shuts down the card. */
 static int arcnet_close(struct net_device *dev)
 {
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 
 	netif_stop_queue(dev);
 
@@ -489,7 +489,7 @@ static int arcnet_header(struct sk_buff *skb, struct net_device *dev,
 			 unsigned short type, void *daddr, void *saddr,
 			 unsigned len)
 {
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 	uint8_t _daddr, proto_num;
 	struct ArcProto *proto;
 
@@ -547,7 +547,7 @@ static int arcnet_header(struct sk_buff *skb, struct net_device *dev,
 static int arcnet_rebuild_header(struct sk_buff *skb)
 {
 	struct net_device *dev = skb->dev;
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 	int status = 0;		/* default is failure */
 	unsigned short type;
 	uint8_t daddr=0;
@@ -592,7 +592,7 @@ static int arcnet_rebuild_header(struct sk_buff *skb)
 /* Called by the kernel in order to transmit a packet. */
 static int arcnet_send_packet(struct sk_buff *skb, struct net_device *dev)
 {
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 	struct archdr *pkt;
 	struct arc_rfc1201 *soft;
 	struct ArcProto *proto;
@@ -675,7 +675,7 @@ static int arcnet_send_packet(struct sk_buff *skb, struct net_device *dev)
  */
 static int go_tx(struct net_device *dev)
 {
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 
 	BUGMSG(D_DURING, "go_tx: status=%Xh, intmask=%Xh, next_tx=%d, cur_tx=%d\n",
 	       ASTATUS(), lp->intmask, lp->next_tx, lp->cur_tx);
@@ -706,7 +706,7 @@ static int go_tx(struct net_device *dev)
 static void arcnet_timeout(struct net_device *dev)
 {
 	unsigned long flags;
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 	int status = ASTATUS();
 	char *msg;
 
@@ -755,7 +755,7 @@ irqreturn_t arcnet_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 
 	BUGMSG(D_DURING, "in arcnet_interrupt\n");
 	
-	lp = (struct arcnet_local *) dev->priv;
+	lp = dev->priv;
 	if (!lp)
 		BUG();
 		
@@ -990,7 +990,7 @@ irqreturn_t arcnet_interrupt(int irq, void *dev_id, struct pt_regs *regs)
  */
 void arcnet_rx(struct net_device *dev, int bufnum)
 {
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 	struct archdr pkt;
 	struct arc_rfc1201 *soft;
 	int length, ofs;
@@ -1054,7 +1054,7 @@ void arcnet_rx(struct net_device *dev, int bufnum)
  */
 static struct net_device_stats *arcnet_get_stats(struct net_device *dev)
 {
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 	return &lp->stats;
 }
 
@@ -1071,7 +1071,7 @@ static void null_rx(struct net_device *dev, int bufnum,
 static int null_build_header(struct sk_buff *skb, struct net_device *dev,
 			     unsigned short type, uint8_t daddr)
 {
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 
 	BUGMSG(D_PROTO,
 	       "tx: can't build header for encap %02Xh; load a protocol driver.\n",
@@ -1086,7 +1086,7 @@ static int null_build_header(struct sk_buff *skb, struct net_device *dev,
 static int null_prepare_tx(struct net_device *dev, struct archdr *pkt,
 			   int length, int bufnum)
 {
-	struct arcnet_local *lp = (struct arcnet_local *) dev->priv;
+	struct arcnet_local *lp = dev->priv;
 	struct arc_hardware newpkt;
 
 	BUGMSG(D_PROTO, "tx: no encap for this host; load a protocol driver.\n");
