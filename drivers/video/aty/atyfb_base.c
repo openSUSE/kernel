@@ -209,7 +209,7 @@ struct pci_mmap_map {
 	unsigned long prot_mask;
 };
 
-static struct fb_fix_screeninfo atyfb_fix __initdata = {
+static struct fb_fix_screeninfo atyfb_fix __devinitdata = {
 	.id		= "ATY Mach64",
 	.type		= FB_TYPE_PACKED_PIXELS,
 	.visual		= FB_VISUAL_PSEUDOCOLOR,
@@ -361,7 +361,7 @@ static struct {
 	const char *name;
 	int pll, mclk, xclk;
 	u32 features;
-} aty_chips[] __initdata = {
+} aty_chips[] __devinitdata = {
 #ifdef CONFIG_FB_ATY_GX
 	/* Mach64 GX */
 	{ PCI_CHIP_MACH64GX, "ATI888GX00 (Mach64 GX)", 135, 50, 50, ATI_CHIP_88800GX },
@@ -492,31 +492,31 @@ static int __devinit correct_chipset(struct atyfb_par *par)
 	return 0;
 }
 
-static char ram_dram[] __initdata = "DRAM";
-static char ram_resv[] __initdata = "RESV";
+static char ram_dram[] __devinitdata = "DRAM";
+static char ram_resv[] __devinitdata = "RESV";
 #ifdef CONFIG_FB_ATY_GX
-static char ram_vram[] __initdata = "VRAM";
+static char ram_vram[] __devinitdata = "VRAM";
 #endif /* CONFIG_FB_ATY_GX */
 #ifdef CONFIG_FB_ATY_CT
-static char ram_edo[] __initdata = "EDO";
-static char ram_sdram[] __initdata = "SDRAM (1:1)";
-static char ram_sgram[] __initdata = "SGRAM (1:1)";
-static char ram_sdram32[] __initdata = "SDRAM (2:1) (32-bit)";
-static char ram_off[] __initdata = "OFF";
+static char ram_edo[] __devinitdata = "EDO";
+static char ram_sdram[] __devinitdata = "SDRAM (1:1)";
+static char ram_sgram[] __devinitdata = "SGRAM (1:1)";
+static char ram_sdram32[] __devinitdata = "SDRAM (2:1) (32-bit)";
+static char ram_off[] __devinitdata = "OFF";
 #endif /* CONFIG_FB_ATY_CT */
 
 
 static u32 pseudo_palette[17];
 
 #ifdef CONFIG_FB_ATY_GX
-static char *aty_gx_ram[8] __initdata = {
+static char *aty_gx_ram[8] __devinitdata = {
 	ram_dram, ram_vram, ram_vram, ram_dram,
 	ram_dram, ram_vram, ram_vram, ram_resv
 };
 #endif /* CONFIG_FB_ATY_GX */
 
 #ifdef CONFIG_FB_ATY_CT
-static char *aty_ct_ram[8] __initdata = {
+static char *aty_ct_ram[8] __devinitdata = {
 	ram_off, ram_dram, ram_edo, ram_edo,
 	ram_sdram, ram_sgram, ram_sdram32, ram_resv
 };
