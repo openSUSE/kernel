@@ -1865,8 +1865,13 @@ void locks_remove_flock(struct file *filp)
 		return;
 
 	if (filp->f_op && filp->f_op->flock) {
-		struct file_lock fl = { .fl_flags = FL_FLOCK,
-					.fl_type = F_UNLCK };
+		struct file_lock fl = {
+			.fl_pid = current->tgid,
+			.fl_file = filp,
+			.fl_flags = FL_FLOCK,
+			.fl_type = F_UNLCK,
+			.fl_end = OFFSET_MAX,
+		};
 		filp->f_op->flock(filp, F_SETLKW, &fl);
 	}
 

@@ -29,6 +29,8 @@
  * 06-Mar-2005  BJD  Add s3c2440 fclk clock source
  *
  * 09-Mar-2005  BJD  Add s3c2400 support
+ *
+ * 10-Mar-2005  LCVR Changed S3C2410_VA_UART to S3C24XX_VA_UART
 */
 
 /* Note on 2440 fclk clock source handling
@@ -1093,7 +1095,7 @@ static int s3c24xx_serial_init_port(struct s3c24xx_uart_port *ourport,
 
 	port->mapbase	= res->start;
 	port->membase	= (void __iomem *)(res->start - S3C2410_PA_UART);
-	port->membase  += S3C2410_VA_UART;
+	port->membase  += S3C24XX_VA_UART;
 	port->irq	= platform_get_irq(platdev, 0);
 
 	ourport->clk	= clk_get(&platdev->dev, "uart");
@@ -1441,9 +1443,9 @@ static int s3c2440_serial_getsource(struct uart_port *port,
 		/* the fun of calculating the uart divisors on
 		 * the s3c2440 */
 
-		ucon0 = __raw_readl(S3C2410_VA_UART0 + S3C2410_UCON);
-		ucon1 = __raw_readl(S3C2410_VA_UART1 + S3C2410_UCON);
-		ucon2 = __raw_readl(S3C2410_VA_UART2 + S3C2410_UCON);
+		ucon0 = __raw_readl(S3C24XX_VA_UART0 + S3C2410_UCON);
+		ucon1 = __raw_readl(S3C24XX_VA_UART1 + S3C2410_UCON);
+		ucon2 = __raw_readl(S3C24XX_VA_UART2 + S3C2410_UCON);
 
 		printk("ucons: %08lx, %08lx, %08lx\n", ucon0, ucon1, ucon2);
 

@@ -11,6 +11,7 @@
  *
  *  Changelog:
  *	29-Sep-2004  BJD  Initial include for Linux
+ *      10-Mar-2005  LCVR Changed S3C2410_VA to S3C24XX_VA
  *
 */
 
@@ -18,7 +19,7 @@
 #define __ASM_ARM_MEMREGS_H "$Id: regs.h,v 1.8 2003/05/01 15:55:41 ben Exp $"
 
 #ifndef S3C2410_MEMREG
-#define S3C2410_MEMREG(x) (S3C2410_VA_MEMCTRL + (x))
+#define S3C2410_MEMREG(x) (S3C24XX_VA_MEMCTRL + (x))
 #endif
 
 /* bus width, and wait state control */

@@ -25,6 +25,7 @@
  *     15-Jan-2005 BJD  Add serial port device definition
  *     20-Jan-2005 BJD  Use UPF_IOREMAP for ports
  *     10-Feb-2005 BJD  Added power-off capability
+ *     10-Mar-2005 LCVR Changed S3C2410_VA to S3C24XX_VA
 */
 
 #include <linux/kernel.h>
@@ -77,8 +78,8 @@
 static struct map_desc vr1000_iodesc[] __initdata = {
   /* ISA IO areas */
 
-  { S3C2410_VA_ISA_BYTE, PA_CS2(BAST_PA_ISAIO),	   SZ_16M, MT_DEVICE },
-  { S3C2410_VA_ISA_WORD, PA_CS3(BAST_PA_ISAIO),	   SZ_16M, MT_DEVICE },
+  { S3C24XX_VA_ISA_BYTE, PA_CS2(BAST_PA_ISAIO),	   SZ_16M, MT_DEVICE },
+  { S3C24XX_VA_ISA_WORD, PA_CS3(BAST_PA_ISAIO),	   SZ_16M, MT_DEVICE },
 
   /* we could possibly compress the next set down into a set of smaller tables
    * pagetables, but that would mean using an L2 section, and it still means
@@ -307,7 +308,7 @@ void __init vr1000_init_irq(void)
 
 MACHINE_START(VR1000, "Thorcom-VR1000")
      MAINTAINER("Ben Dooks <ben@simtec.co.uk>")
-     BOOT_MEM(S3C2410_SDRAM_PA, S3C2410_PA_UART, S3C2410_VA_UART)
+     BOOT_MEM(S3C2410_SDRAM_PA, S3C2410_PA_UART, S3C24XX_VA_UART)
      BOOT_PARAMS(S3C2410_SDRAM_PA + 0x100)
      MAPIO(vr1000_map_io)
      INITIRQ(vr1000_init_irq)

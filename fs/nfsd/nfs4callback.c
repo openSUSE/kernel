@@ -446,7 +446,7 @@ nfsd4_probe_callback(struct nfs4_client *clp)
 	atomic_inc(&clp->cl_count);
 
 	msg.rpc_cred = nfsd4_lookupcred(clp,0);
-	if (msg.rpc_cred == NULL)
+	if (IS_ERR(msg.rpc_cred))
 		goto out_rpciod;
 	status = rpc_call_async(clnt, &msg, RPC_TASK_ASYNC, nfs4_cb_null, NULL);
 	put_rpccred(msg.rpc_cred);
@@ -512,7 +512,7 @@ nfsd4_cb_recall(struct nfs4_delegation *dp)
 		return;
 
 	msg.rpc_cred = nfsd4_lookupcred(clp, 0);
-	if (msg.rpc_cred == NULL)
+	if (IS_ERR(msg.rpc_cred))
 		goto out;
 
 	cbr->cbr_trunc = 0; /* XXX need to implement truncate optimization */

@@ -11,6 +11,9 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Modifications:
+ *     10-Mar-2005 LCVR Changed S3C2410_VA to S3C24XX_VA
 */
 
 #include <linux/kernel.h>
@@ -138,7 +141,7 @@ void __init n30_init(void)
 
 MACHINE_START(N30, "Acer-N30")
      MAINTAINER("Christer Weinigel <christer@weinigel.se>, Ben Dooks <ben-linux@fluff.org>")
-     BOOT_MEM(S3C2410_SDRAM_PA, S3C2410_PA_UART, S3C2410_VA_UART)
+     BOOT_MEM(S3C2410_SDRAM_PA, S3C2410_PA_UART, S3C24XX_VA_UART)
      BOOT_PARAMS(S3C2410_SDRAM_PA + 0x100)
 
 	.timer		= &s3c24xx_timer,

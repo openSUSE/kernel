@@ -322,7 +322,7 @@ extern int agp_try_unsupported_boot;
 #define AGPCTRL_GTLBEN		(1<<7)
 
 #define AGP2_RESERVED_MASK 0x00fffcc8
-#define AGP3_RESERVED_MASK 0x00ff00cc
+#define AGP3_RESERVED_MASK 0x00ff00c4
 
 #define AGP_ERRATA_FASTWRITES 1<<0
 #define AGP_ERRATA_SBA	 1<<1

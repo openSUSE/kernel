@@ -39,12 +39,14 @@ enum {LAST_NORM, LAST_ROOT, LAST_DOT, LAST_DOTDOT, LAST_BIND};
  *  - ending slashes ok even for nonexistent files
  *  - internal "there are more path compnents" flag
  *  - locked when lookup done with dcache_lock held
+ *  - dentry cache is untrusted; force a real lookup
  */
 #define LOOKUP_FOLLOW		 1
 #define LOOKUP_DIRECTORY	 2
 #define LOOKUP_CONTINUE		 4
 #define LOOKUP_PARENT		16
 #define LOOKUP_NOALT		32
+#define LOOKUP_REVAL		64
 /*
  * Intent data
  */

@@ -381,7 +381,6 @@ static int rsc_parse(struct cache_detail *cd,
 	else {
 		int N, i;
 		struct gss_api_mech *gm;
-		struct xdr_netobj tmp_buf;
 
 		/* gid */
 		if (get_int(&mesg, &rsci.cred.cr_gid))
@@ -420,9 +419,7 @@ static int rsc_parse(struct cache_detail *cd,
 			gss_mech_put(gm);
 			goto out;
 		}
-		tmp_buf.len = len;
-		tmp_buf.data = buf;
-		if (gss_import_sec_context(&tmp_buf, gm, &rsci.mechctx)) {
+		if (gss_import_sec_context(buf, len, gm, &rsci.mechctx)) {
 			gss_mech_put(gm);
 			goto out;
 		}

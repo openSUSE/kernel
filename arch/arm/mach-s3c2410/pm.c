@@ -24,6 +24,9 @@
  * Parts based on arch/arm/mach-pxa/pm.c
  *
  * Thanks to Dimitry Andric for debugging
+ *
+ * Modifications:
+ *     10-Mar-2005 LCVR  Changed S3C2410_VA_UART to S3C24XX_VA_UART
 */
 
 #include <linux/config.h>
@@ -144,9 +147,11 @@ static struct sleep_save gpio_save[] = {
 	SAVE_ITEM((va) + S3C2410_UBRDIV)
 
 static struct sleep_save uart_save[] = {
-	SAVE_UART(S3C2410_VA_UART0),
-	SAVE_UART(S3C2410_VA_UART1),
-	SAVE_UART(S3C2410_VA_UART2),
+	SAVE_UART(S3C24XX_VA_UART0),
+	SAVE_UART(S3C24XX_VA_UART1),
+#ifndef CONFIG_CPU_S3C2400
+	SAVE_UART(S3C24XX_VA_UART2),
+#endif
 };
 
 /* debug
