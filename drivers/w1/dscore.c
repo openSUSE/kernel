@@ -148,7 +148,7 @@ int ds_recv_status_nodump(struct ds_device *dev, struct ds_status *st, unsigned 
 	return count;
 }
 
-int ds_recv_status(struct ds_device *dev, struct ds_status *st)
+static int ds_recv_status(struct ds_device *dev, struct ds_status *st)
 {
 	unsigned char buf[64];
 	int count, err = 0, i;
@@ -206,7 +206,7 @@ int ds_recv_status(struct ds_device *dev, struct ds_status *st)
 	return err;
 }
 
-int ds_recv_data(struct ds_device *dev, unsigned char *buf, int size)
+static int ds_recv_data(struct ds_device *dev, unsigned char *buf, int size)
 {
 	int count, err;
 	struct ds_status st;
@@ -234,7 +234,7 @@ int ds_recv_data(struct ds_device *dev, unsigned char *buf, int size)
 	return count;
 }
 
-int ds_send_data(struct ds_device *dev, unsigned char *buf, int len)
+static int ds_send_data(struct ds_device *dev, unsigned char *buf, int len)
 {
 	int count, err;
 	
@@ -774,15 +774,19 @@ EXPORT_SYMBOL(ds_read_block);
 EXPORT_SYMBOL(ds_write_byte);
 EXPORT_SYMBOL(ds_write_bit);
 EXPORT_SYMBOL(ds_write_block);
-EXPORT_SYMBOL(ds_start_pulse);
-EXPORT_SYMBOL(ds_set_speed);
 EXPORT_SYMBOL(ds_reset);
-EXPORT_SYMBOL(ds_detect);
-EXPORT_SYMBOL(ds_stop_pulse);
-EXPORT_SYMBOL(ds_send_data);
-EXPORT_SYMBOL(ds_recv_data);
-EXPORT_SYMBOL(ds_recv_status);
-EXPORT_SYMBOL(ds_search);
 EXPORT_SYMBOL(ds_get_device);
 EXPORT_SYMBOL(ds_put_device);
 
+/*
+ * This functions can be used for EEPROM programming, 
+ * when driver will be included into mainline this will 
+ * require uncommenting.
+ */
+#if 0
+EXPORT_SYMBOL(ds_start_pulse);
+EXPORT_SYMBOL(ds_set_speed);
+EXPORT_SYMBOL(ds_detect);
+EXPORT_SYMBOL(ds_stop_pulse);
+EXPORT_SYMBOL(ds_search);
+#endif
