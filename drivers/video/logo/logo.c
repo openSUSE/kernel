@@ -12,6 +12,7 @@
 #include <linux/config.h>
 #include <linux/linux_logo.h>
 #include <linux/stddef.h>
+#include <linux/module.h>
 
 #ifdef CONFIG_M68K
 #include <asm/setup.h>
@@ -99,4 +100,4 @@ const struct linux_logo *fb_find_logo(int depth)
 	}
 	return logo;
 }
-
+EXPORT_SYMBOL_GPL(fb_find_logo);
