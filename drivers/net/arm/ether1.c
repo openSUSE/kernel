@@ -997,15 +997,18 @@ static int __devinit
 ether1_probe(struct expansion_card *ec, const struct ecard_id *id)
 {
 	struct net_device *dev;
-	struct ether1_priv *priv;
 	int i, ret = 0;
 
 	ether1_banner();
 
+	ret = ecard_request_resources(ec);
+	if (ret)
+		goto out;
+
 	dev = alloc_etherdev(sizeof(struct ether1_priv));
 	if (!dev) {
 		ret = -ENOMEM;
-		goto out;
+		goto release;
 	}
 
 	SET_MODULE_OWNER(dev);
@@ -1013,15 +1016,9 @@ ether1_probe(struct expansion_card *ec, const struct ecard_id *id)
 	dev->base_addr	= ecard_address(ec, ECARD_IOC, ECARD_FAST);
 	dev->irq	= ec->irq;
 
-	/*
-	 * these will not fail - the nature of the bus ensures this
-	 */
-	request_region(dev->base_addr, 16, dev->name);
-	request_region(dev->base_addr + 0x800, 4096, dev->name);
-
 	if ((priv(dev)->bus_type = ether1_reset(dev)) == 0) {
 		ret = -ENODEV;
-		goto release;
+		goto free;
 	}
 
 	for (i = 0; i < 6; i++)
@@ -1029,7 +1026,7 @@ ether1_probe(struct expansion_card *ec, const struct ecard_id *id)
 
 	if (ether1_init_2(dev)) {
 		ret = -ENODEV;
-		goto release;
+		goto free;
 	}
 
 	dev->open		= ether1_open;
@@ -1042,7 +1039,7 @@ ether1_probe(struct expansion_card *ec, const struct ecard_id *id)
 
 	ret = register_netdev(dev);
 	if (ret)
-		goto release;
+		goto free;
 
 	printk(KERN_INFO "%s: ether1 in slot %d, ",
 		dev->name, ec->slot_no);
@@ -1053,11 +1050,11 @@ ether1_probe(struct expansion_card *ec, const struct ecard_id *id)
 	ecard_set_drvdata(ec, dev);
 	return 0;
 
-release:
-	release_region(dev->base_addr, 16);
-	release_region(dev->base_addr + 0x800, 4096);
+ free:
 	free_netdev(dev);
-out:
+ release:
+	ecard_release_resources(ec);
+ out:
 	return ret;
 }
 
@@ -1068,10 +1065,8 @@ static void __devexit ether1_remove(struct expansion_card *ec)
 	ecard_set_drvdata(ec, NULL);	
 
 	unregister_netdev(dev);
-
-	release_region(dev->base_addr, 16);
-	release_region(dev->base_addr + 0x800, 4096);
 	free_netdev(dev);
+	ecard_release_resources(ec);
 }
 
 static const struct ecard_id ether1_ids[] = {

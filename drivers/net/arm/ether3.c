@@ -804,10 +804,14 @@ ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 
 	ether3_banner();
 
+	ret = ecard_request_resources(ec);
+	if (ret)
+		goto out;
+
 	dev = alloc_etherdev(sizeof(struct dev_priv));
 	if (!dev) {
 		ret = -ENOMEM;
-		goto out;
+		goto release;
 	}
 
 	SET_MODULE_OWNER(dev);
@@ -815,14 +819,6 @@ ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 	name = ether3_get_dev(dev, ec);
 	if (!name) {
 		ret = -ENODEV;
-		goto free;
-	}
-
-	/*
-	 * this will not fail - the nature of the bus ensures this
-	 */
-	if (!request_region(dev->base_addr, 128, dev->name)) {
-		ret = -EBUSY;
 		goto free;
 	}
 
@@ -850,13 +846,13 @@ ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 	case BUS_UNKNOWN:
 		printk(KERN_ERR "%s: unable to identify bus width\n", dev->name);
 		ret = -ENODEV;
-		goto failed;
+		goto free;
 
 	case BUS_8:
 		printk(KERN_ERR "%s: %s found, but is an unsupported "
 			"8-bit card\n", dev->name, name);
 		ret = -ENODEV;
-		goto failed;
+		goto free;
 
 	default:
 		break;
@@ -864,7 +860,7 @@ ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 
 	if (ether3_init_2(dev)) {
 		ret = -ENODEV;
-		goto failed;
+		goto free;
 	}
 
 	dev->open		= ether3_open;
@@ -877,7 +873,7 @@ ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 
 	ret = register_netdev(dev);
 	if (ret)
-		goto failed;
+		goto free;
 
 	printk("%s: %s in slot %d, ", dev->name, name, ec->slot_no);
 	for (i = 0; i < 6; i++)
@@ -886,11 +882,11 @@ ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 	ecard_set_drvdata(ec, dev);
 	return 0;
 
-failed:
-	release_region(dev->base_addr, 128);
-free:
+ free:
 	free_netdev(dev);
-out:
+ release:
+	ecard_release_resources(ec);
+ out:
 	return ret;
 }
 
@@ -901,8 +897,8 @@ static void __devexit ether3_remove(struct expansion_card *ec)
 	ecard_set_drvdata(ec, NULL);
 
 	unregister_netdev(dev);
-	release_region(dev->base_addr, 128);
 	free_netdev(dev);
+	ecard_release_resources(ec);
 }
 
 static const struct ecard_id ether3_ids[] = {
