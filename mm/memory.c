@@ -182,19 +182,15 @@ void clear_page_range(struct mmu_gather *tlb,
 				unsigned long addr, unsigned long end)
 {
 	pgd_t *pgd;
-	unsigned long i, next;
+	unsigned long next;
 
 	pgd = pgd_offset(tlb->mm, addr);
-	for (i = pgd_index(addr); i <= pgd_index(end-1); i++) {
+	do {
 		next = pgd_addr_end(addr, end);
 		if (pgd_none_or_clear_bad(pgd))
 			continue;
 		clear_pud_range(tlb, pgd, addr, next);
-		pgd++;
-		addr = next;
-		if (addr == end)
-			break;
-	}
+	} while (pgd++, addr = next, addr != end);
 }
 
 pte_t fastcall * pte_alloc_map(struct mm_struct *mm, pmd_t *pmd, unsigned long address)
