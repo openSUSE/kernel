@@ -609,11 +609,11 @@ static struct sock *sctp_v6_create_accept_sk(struct sock *sk,
 	newsk->sk_reuse = sk->sk_reuse;
 
 	newsk->sk_destruct = inet_sock_destruct;
-	newsk->sk_zapped = 0;
 	newsk->sk_family = PF_INET6;
 	newsk->sk_protocol = IPPROTO_SCTP;
 	newsk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
 	newsk->sk_shutdown = sk->sk_shutdown;
+	sock_reset_flag(sk, SOCK_ZAPPED);
 
 	newsctp6sk = (struct sctp6_sock *)newsk;
 	inet_sk(newsk)->pinet6 = &newsctp6sk->inet6;

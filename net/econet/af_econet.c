@@ -583,7 +583,7 @@ static int econet_create(struct socket *sock, int protocol)
 	sk_set_owner(sk, THIS_MODULE);
 
 	eo = ec_sk(sk);
-	sk->sk_zapped = 0;
+	sock_reset_flag(sk, SOCK_ZAPPED);
 	sk->sk_family = PF_ECONET;
 	eo->num = protocol;
 

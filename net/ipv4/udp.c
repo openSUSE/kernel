@@ -574,7 +574,8 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		connected = 0;
 	}
 	tos = RT_TOS(inet->tos);
-	if (sk->sk_localroute || (msg->msg_flags & MSG_DONTROUTE) || 
+	if (sock_flag(sk, SOCK_LOCALROUTE) ||
+	    (msg->msg_flags & MSG_DONTROUTE) || 
 	    (ipc.opt && ipc.opt->is_strictroute)) {
 		tos |= RTO_ONLINK;
 		connected = 0;

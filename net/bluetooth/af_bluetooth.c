@@ -130,7 +130,7 @@ struct sock *bt_sock_alloc(struct socket *sock, int proto, int pi_size, int prio
 	sock_init_data(sock, sk);
 	INIT_LIST_HEAD(&bt_sk(sk)->accept_q);
 
-	sk->sk_zapped   = 0;
+	sock_reset_flag(sk, SOCK_ZAPPED);
 	sk->sk_protocol = proto;
 	sk->sk_state    = BT_OPEN;
 

@@ -1866,7 +1866,7 @@ static int tcp_v4_reselect_saddr(struct sock *sk)
 
 	/* Query new route. */
 	err = ip_route_connect(&rt, daddr, 0,
-			       RT_TOS(inet->tos) | sk->sk_localroute,
+			       RT_CONN_FLAGS(sk),
 			       sk->sk_bound_dev_if,
 			       IPPROTO_TCP,
 			       inet->sport, inet->dport, sk);
@@ -2064,7 +2064,7 @@ static int tcp_v4_init_sock(struct sock *sk)
 	sk->sk_state = TCP_CLOSE;
 
 	sk->sk_write_space = sk_stream_write_space;
-	sk->sk_use_write_queue = 1;
+	sock_set_flag(sk, SOCK_USE_WRITE_QUEUE);
 
 	tp->af_specific = &ipv4_specific;
 

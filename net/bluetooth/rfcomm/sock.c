@@ -105,7 +105,7 @@ static void rfcomm_sk_state_change(struct rfcomm_dlc *d, int err)
 	parent = bt_sk(sk)->parent;
 	if (parent) {
 		if (d->state == BT_CLOSED) {
-			sk->sk_zapped = 1;
+			sock_set_flag(sk, SOCK_ZAPPED);
 			bt_accept_unlink(sk);
 		}
 		parent->sk_data_ready(parent, 0);
@@ -117,7 +117,7 @@ static void rfcomm_sk_state_change(struct rfcomm_dlc *d, int err)
 
 	bh_unlock_sock(sk);
 
-	if (parent && sk->sk_zapped) {
+	if (parent && sock_flag(sk, SOCK_ZAPPED)) {
 		/* We have to drop DLC lock here, otherwise
 		 * rfcomm_sock_destruct() will dead lock. */
 		rfcomm_dlc_unlock(d);
@@ -214,7 +214,7 @@ static void rfcomm_sock_cleanup_listen(struct sock *parent)
 	}
 
 	parent->sk_state  = BT_CLOSED;
-	parent->sk_zapped = 1;
+	sock_set_flag(parent, SOCK_ZAPPED);
 }
 
 /* Kill socket (only if zapped and orphan)
@@ -222,7 +222,7 @@ static void rfcomm_sock_cleanup_listen(struct sock *parent)
  */
 static void rfcomm_sock_kill(struct sock *sk)
 {
-	if (!sk->sk_zapped || sk->sk_socket)
+	if (!sock_flag(sk, SOCK_ZAPPED) || sk->sk_socket)
 		return;
 
 	BT_DBG("sk %p state %d refcnt %d", sk, sk->sk_state, atomic_read(&sk->sk_refcnt));
@@ -251,7 +251,7 @@ static void __rfcomm_sock_close(struct sock *sk)
 		rfcomm_dlc_close(d, 0);
 
 	default:
-		sk->sk_zapped = 1;
+		sock_set_flag(sk, SOCK_ZAPPED);
 		break;
 	}
 }
