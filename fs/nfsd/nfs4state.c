@@ -1345,7 +1345,6 @@ do_recall(void *__dp)
 
 	daemonize("nfsv4-recall");
 
-	atomic_inc(&dp->dl_count);
 	nfsd4_cb_recall(dp);
 	return 0;
 }
@@ -1354,8 +1353,9 @@ do_recall(void *__dp)
  * Spawn a thread to perform a recall on the delegation represented
  * by the lease (file_lock)
  *
- * Called from break_lease() with lock_kernel() held,
- *
+ * Called from break_lease() with lock_kernel() held.
+ * Note: we assume break_lease will only call this *once* for any given
+ * lease.
  */
 static
 void nfsd_break_deleg_cb(struct file_lock *fl)
@@ -1367,7 +1367,13 @@ void nfsd_break_deleg_cb(struct file_lock *fl)
 	if (!dp)
 		return;
 
-	/* schedule delegation for recall */
+	/* We're assuming the state code never drops its reference
+	 * without first removing the lease.  Since we're in this lease
+	 * callback (and since the lease code is serialized by the kernel
+	 * lock) we know the server hasn't removed the lease yet, we know
+	 * it's safe to take a reference: */
+	atomic_inc(&dp->dl_count);
+
 	spin_lock(&recall_lock);
 	atomic_set(&dp->dl_state, NFS4_RECALL_IN_PROGRESS);
 	list_add_tail(&dp->dl_recall_lru, &del_recall_lru);
