@@ -109,7 +109,8 @@ static void alps_process_packet(struct psmouse *psmouse, struct pt_regs *regs)
 	y = (packet[4] & 0x7f) | ((packet[3] & 0x70)<<(7-4));
 	z = packet[5];
 
-	if (z == 127) {	/* DualPoint stick is relative, not absolute */
+	if ((priv->model == ALPS_MODEL_DUALPOINT) && (z == 127)) {
+		/* DualPoint stick, relative packet */
 		if (x > 383)
 			x = x - 768;
 		if (y > 255)
@@ -344,13 +345,13 @@ static int alps_tap_mode(struct psmouse *psmouse, int enable)
 
 static int alps_reconnect(struct psmouse *psmouse)
 {
-	int model;
+	struct alps_data *priv = psmouse->private;
 	unsigned char param[4];
 
-	if ((model = alps_get_model(psmouse)) < 0)
+	if ((priv->model = alps_get_model(psmouse)) < 0)
 		return -1;
 
-	if (model == ALPS_MODEL_DUALPOINT && alps_passthrough_mode(psmouse, 1))
+	if (priv->model == ALPS_MODEL_DUALPOINT && alps_passthrough_mode(psmouse, 1))
 		return -1;
 
 	if (alps_get_status(psmouse, param))
@@ -364,7 +365,7 @@ static int alps_reconnect(struct psmouse *psmouse)
 		return -1;
 	}
 
-	if (model == ALPS_MODEL_DUALPOINT && alps_passthrough_mode(psmouse, 0))
+	if (priv->model == ALPS_MODEL_DUALPOINT && alps_passthrough_mode(psmouse, 0))
 		return -1;
 
 	return 0;
@@ -380,20 +381,19 @@ int alps_init(struct psmouse *psmouse)
 {
 	struct alps_data *priv;
 	unsigned char param[4];
-	int model;
 
 	psmouse->private = priv = kmalloc(sizeof(struct alps_data), GFP_KERNEL);
 	if (!priv)
 		goto init_fail;
 	memset(priv, 0, sizeof(struct alps_data));
 
-	if ((model = alps_get_model(psmouse)) < 0)
+	if ((priv->model = alps_get_model(psmouse)) < 0)
 		goto init_fail;
 
 	printk(KERN_INFO "ALPS Touchpad (%s) detected\n",
-		model == ALPS_MODEL_GLIDEPOINT ? "Glidepoint" : "Dualpoint");
+		priv->model == ALPS_MODEL_GLIDEPOINT ? "Glidepoint" : "Dualpoint");
 
-	if (model == ALPS_MODEL_DUALPOINT && alps_passthrough_mode(psmouse, 1))
+	if (priv->model == ALPS_MODEL_DUALPOINT && alps_passthrough_mode(psmouse, 1))
 		goto init_fail;
 
 	if (alps_get_status(psmouse, param)) {
@@ -412,7 +412,7 @@ int alps_init(struct psmouse *psmouse)
 		goto init_fail;
 	}
 
-	if (model == ALPS_MODEL_DUALPOINT && alps_passthrough_mode(psmouse, 0))
+	if (priv->model == ALPS_MODEL_DUALPOINT && alps_passthrough_mode(psmouse, 0))
 		goto init_fail;
 
 	psmouse->dev.evbit[LONG(EV_REL)] |= BIT(EV_REL);
