@@ -44,6 +44,7 @@ struct dm_dev {
 	atomic_t count;
 	int mode;
 	struct block_device *bdev;
+	char name[16];
 };
 
 struct dm_table;
