@@ -802,6 +802,8 @@ CIFSSMBRead(const int xid, struct cifsTconInfo *tcon,
 	char *pReadData = NULL;
 	int bytes_returned;
 
+	cFYI(1,("Reading %d bytes on fid %d",count,netfid));
+
 	*nbytes = 0;
 	rc = smb_init(SMB_COM_READ_ANDX, 12, tcon, (void **) &pSMB,
 		      (void **) &pSMBr);
@@ -817,8 +819,8 @@ CIFSSMBRead(const int xid, struct cifsTconInfo *tcon,
 	pSMB->OffsetLow = cpu_to_le32(lseek & 0xFFFFFFFF);
 	pSMB->OffsetHigh = cpu_to_le32(lseek >> 32);
 	pSMB->Remaining = 0;
-	pSMB->MaxCount = cpu_to_le16(count);
-	pSMB->MaxCountHigh = 0;
+	pSMB->MaxCount = cpu_to_le16(count & 0xFFFF);
+	pSMB->MaxCountHigh = cpu_to_le32(count >> 16);
 	pSMB->ByteCount = 0;  /* no need to do le conversion since it is 0 */
 
 	rc = SendReceive(xid, tcon->ses, (struct smb_hdr *) pSMB,
@@ -826,8 +828,11 @@ CIFSSMBRead(const int xid, struct cifsTconInfo *tcon,
 	if (rc) {
 		cERROR(1, ("Send error in read = %d", rc));
 	} else {
-		__u16 data_length = le16_to_cpu(pSMBr->DataLength);
+		int data_length = le16_to_cpu(pSMBr->DataLengthHigh);
+		data_length = data_length << 16;
+		data_length += le16_to_cpu(pSMBr->DataLength);
 		*nbytes = data_length;
+
 		/*check that DataLength would not go beyond end of SMB */
 		if ((data_length > CIFSMaxBufSize) 
 				|| (data_length > count)) {
@@ -868,9 +873,10 @@ CIFSSMBWrite(const int xid, struct cifsTconInfo *tcon,
 	WRITE_REQ *pSMB = NULL;
 	WRITE_RSP *pSMBr = NULL;
 	int bytes_returned;
-	unsigned bytes_sent;
+	__u32 bytes_sent;
 	__u16 byte_count;
 
+	/* cFYI(1,("write at %lld %d bytes",offset,count));*/
 	rc = smb_init(SMB_COM_WRITE_ANDX, 14, tcon, (void **) &pSMB,
 		      (void **) &pSMBr);
 	if (rc)
@@ -886,31 +892,41 @@ CIFSSMBWrite(const int xid, struct cifsTconInfo *tcon,
 	pSMB->Reserved = 0xFFFFFFFF;
 	pSMB->WriteMode = 0;
 	pSMB->Remaining = 0;
-	/* BB can relax this if buffer is big enough in some cases - ie we can 
-	send more  if LARGE_WRITE_X capability returned by the server and if
+
+	/* Can increase buffer size if buffer is big enough in some cases - ie we 
+	can send more if LARGE_WRITE_X capability returned by the server and if
 	our buffer is big enough or if we convert to iovecs on socket writes
 	and eliminate the copy to the CIFS buffer */
-	bytes_sent = (tcon->ses->server->maxBuf - MAX_CIFS_HDR_SIZE) & ~0xFF;
+	if(tcon->ses->capabilities & CAP_LARGE_WRITE_X) {
+		bytes_sent = min_t(const unsigned int, CIFSMaxBufSize, count);
+	} else {
+		bytes_sent = (tcon->ses->server->maxBuf - MAX_CIFS_HDR_SIZE)
+			 & ~0xFF;
+	}
+
 	if (bytes_sent > count)
 		bytes_sent = count;
-	pSMB->DataLengthHigh = 0;
 	pSMB->DataOffset =
 	    cpu_to_le16(offsetof(struct smb_com_write_req,Data) - 4);
-    if(buf)
+	if(buf)
 	    memcpy(pSMB->Data,buf,bytes_sent);
-	else if(ubuf)
-		copy_from_user(pSMB->Data,ubuf,bytes_sent);
-    else {
+	else if(ubuf) {
+		if(copy_from_user(pSMB->Data,ubuf,bytes_sent)) {
+			if(pSMB)
+				cifs_buf_release(pSMB);
+			return -EFAULT;
+		}
+	} else {
 		/* No buffer */
 		if(pSMB)
 			cifs_buf_release(pSMB);
 		return -EINVAL;
 	}
 
-	byte_count = bytes_sent + 1 /* pad */ ;
-	pSMB->DataLengthLow = cpu_to_le16(bytes_sent);
-	pSMB->DataLengthHigh = 0;
-	pSMB->hdr.smb_buf_length += byte_count;
+	byte_count = bytes_sent + 1 /* pad */ ; /* BB fix this for sends > 64K */
+	pSMB->DataLengthLow = cpu_to_le16(bytes_sent & 0xFFFF);
+	pSMB->DataLengthHigh = cpu_to_le16(bytes_sent >> 16);
+	pSMB->hdr.smb_buf_length += bytes_sent+1;
 	pSMB->ByteCount = cpu_to_le16(byte_count);
 
 	rc = SendReceive(xid, tcon->ses, (struct smb_hdr *) pSMB,
@@ -918,8 +934,11 @@ CIFSSMBWrite(const int xid, struct cifsTconInfo *tcon,
 	if (rc) {
 		cFYI(1, ("Send error in write = %d", rc));
 		*nbytes = 0;
-	} else
-		*nbytes = le16_to_cpu(pSMBr->Count);
+	} else {
+		*nbytes = le16_to_cpu(pSMBr->CountHigh);
+		*nbytes = (*nbytes) << 16;
+		*nbytes += le16_to_cpu(pSMBr->Count);
+	}
 
 	if (pSMB)
 		cifs_buf_release(pSMB);
@@ -1913,14 +1932,13 @@ queryAclRetry:
 	if (pSMB->hdr.Flags2 & SMBFLG2_UNICODE) {
 		name_len =
 			cifs_strtoUCS((wchar_t *) pSMB->FileName, searchName, PATH_MAX
-				/* BB fixme find define for this maxpathcomponent */
 				, nls_codepage);
 		name_len++;     /* trailing null */
 		name_len *= 2;
 		pSMB->FileName[name_len] = 0;
 		pSMB->FileName[name_len+1] = 0;
 	} else {                /* BB improve the check for buffer overruns BB */
-		name_len = strnlen(searchName, PATH_MAX /* BB fixme */);
+		name_len = strnlen(searchName, PATH_MAX);
 		name_len++;     /* trailing null */
 		strncpy(pSMB->FileName, searchName, name_len);
 	}
@@ -1996,10 +2014,9 @@ setAclRetry:
                       (void **) &pSMBr);
 	if (rc)
 		return rc;
-                                                                                                               	if (pSMB->hdr.Flags2 & SMBFLG2_UNICODE) {
+	if (pSMB->hdr.Flags2 & SMBFLG2_UNICODE) {
 		name_len =
 			cifs_strtoUCS((wchar_t *) pSMB->FileName, fileName, PATH_MAX
-				/* BB fixme find define for this maxpathcomponent */
 				, nls_codepage);
 		name_len++;     /* trailing null */
 		name_len *= 2;
@@ -2051,9 +2068,9 @@ setAclRetry:
 setACLerrorExit:
 	if (pSMB)
 		cifs_buf_release(pSMB);
-                                                                                                            	if (rc == -EAGAIN)
+	if (rc == -EAGAIN)
 		goto setAclRetry;
-                                                                                                           	return rc;
+	return rc;
 }
 
 #endif
@@ -2072,7 +2089,7 @@ CIFSSMBQPathInfo(const int xid, struct cifsTconInfo *tcon,
 	int name_len;
 	__u16 params, byte_count;
 
-/* cFYI(1, ("In QPathInfo path %s", searchName)); */ /* BB fixme BB */
+/* cFYI(1, ("In QPathInfo path %s", searchName)); */
 QPathInfoRetry:
 	rc = smb_init(SMB_COM_TRANSACTION2, 15, tcon, (void **) &pSMB,
 		      (void **) &pSMBr);

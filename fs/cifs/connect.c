@@ -1410,14 +1410,14 @@ cifs_mount(struct super_block *sb, struct cifs_sb_info *cifs_sb,
     
 	/* search for existing tcon to this server share */
 	if (!rc) {
-		if((volume_info.rsize) && (volume_info.rsize + MAX_CIFS_HDR_SIZE < srvTcp->maxBuf))
+		if((volume_info.rsize) && (volume_info.rsize <= CIFSMaxBufSize))
 			cifs_sb->rsize = volume_info.rsize;
 		else
 			cifs_sb->rsize = srvTcp->maxBuf - MAX_CIFS_HDR_SIZE; /* default */
-		if((volume_info.wsize) && (volume_info.wsize + MAX_CIFS_HDR_SIZE < srvTcp->maxBuf))
+		if((volume_info.wsize) && (volume_info.wsize <= CIFSMaxBufSize))
 			cifs_sb->wsize = volume_info.wsize;
 		else
-			cifs_sb->wsize = srvTcp->maxBuf - MAX_CIFS_HDR_SIZE; /* default */
+			cifs_sb->wsize = CIFSMaxBufSize; /* default */
 		if(cifs_sb->rsize < PAGE_CACHE_SIZE) {
 			cifs_sb->rsize = PAGE_CACHE_SIZE;
 			cERROR(1,("Attempt to set readsize for mount to less than one page (4096)"));
@@ -1591,7 +1591,7 @@ CIFSSessSetup(unsigned int xid, struct cifsSesInfo *ses,
 	if(ses->server->secMode & (SECMODE_SIGN_REQUIRED | SECMODE_SIGN_ENABLED))
 		smb_buffer->Flags2 |= SMBFLG2_SECURITY_SIGNATURE;
 
-	capabilities = CAP_LARGE_FILES | CAP_NT_SMBS | CAP_LEVEL_II_OPLOCKS;
+	capabilities = CAP_LARGE_FILES | CAP_NT_SMBS | CAP_LEVEL_II_OPLOCKS | CAP_LARGE_WRITE_X | CAP_LARGE_READ_X;
 	if (ses->capabilities & CAP_UNICODE) {
 		smb_buffer->Flags2 |= SMBFLG2_UNICODE;
 		capabilities |= CAP_UNICODE;

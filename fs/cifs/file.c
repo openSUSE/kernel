@@ -680,10 +680,10 @@ cifs_user_write(struct file * file, const char __user * write_data,
 			}
 
 			rc = CIFSSMBWrite(xid, pTcon,
-				  open_file->netfid,
-				  write_size - total_written, *poffset,
-				  &bytes_written,
-				  NULL, write_data + total_written, long_op);
+				open_file->netfid,
+				min_t(const int,cifs_sb->wsize,write_size - total_written),
+				*poffset, &bytes_written,
+				NULL, write_data + total_written, long_op);
 		}
 		if (rc || (bytes_written == 0)) {
 			if (total_written)
@@ -799,10 +799,10 @@ cifs_write(struct file * file, const char *write_data,
 			}
 
 			rc = CIFSSMBWrite(xid, pTcon,
-				  open_file->netfid,
-				  write_size - total_written, *poffset,
-				  &bytes_written,
-				  write_data + total_written, NULL, long_op);
+				 open_file->netfid,
+				 min_t(const int,cifs_sb->wsize,write_size - total_written),
+				 *poffset,&bytes_written,
+				 write_data + total_written, NULL, long_op);
 		}
 		if (rc || (bytes_written == 0)) {
 			if (total_written)
@@ -1164,8 +1164,12 @@ cifs_user_read(struct file * file, char __user *read_data, size_t read_size,
 				 &bytes_read, &smb_read_data);
 
 			pSMBr = (struct smb_com_read_rsp *)smb_read_data;
-			copy_to_user(current_offset,smb_read_data + 4/* RFC1001 hdr*/
-				+ le16_to_cpu(pSMBr->DataOffset), bytes_read);
+			if(copy_to_user(current_offset,smb_read_data + 4/* RFC1001 hdr*/
+				+ le16_to_cpu(pSMBr->DataOffset), bytes_read)) {
+				rc = -EFAULT;
+				FreeXid(xid);
+				return rc;
+            }
 			if(smb_read_data) {
 				cifs_buf_release(smb_read_data);
 				smb_read_data = NULL;
