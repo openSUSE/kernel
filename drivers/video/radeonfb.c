@@ -657,8 +657,11 @@ static __inline__ int _max(int val1, int val2)
 /*
  * globals
  */
-        
+
+#ifndef MODULE
 static char *mode_option;
+#endif
+
 static char noaccel = 0;
 static char mirror = 0;
 static int panel_yres = 0;
