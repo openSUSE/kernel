@@ -12,7 +12,7 @@
 
 /*
  * To connect an AT or XT keyboard to the parallel port, a fairly simple adapter
- * can to be made:
+ * can be made:
  * 
  *  Parallel port            Keyboard port
  *
