@@ -4257,21 +4257,21 @@ trident_ac97_init(struct trident_card *card)
 static unsigned char
 trident_game_read(struct gameport *gameport)
 {
-	struct trident_card *card = gameport->driver;
+	struct trident_card *card = gameport->port_data;
 	return inb(TRID_REG(card, T4D_GAME_LEG));
 }
 
 static void
 trident_game_trigger(struct gameport *gameport)
 {
-	struct trident_card *card = gameport->driver;
+	struct trident_card *card = gameport->port_data;
 	outb(0xff, TRID_REG(card, T4D_GAME_LEG));
 }
 
 static int
 trident_game_cooked_read(struct gameport *gameport, int *axes, int *buttons)
 {
-	struct trident_card *card = gameport->driver;
+	struct trident_card *card = gameport->port_data;
 	int i;
 
 	*buttons = (~inb(TRID_REG(card, T4D_GAME_LEG)) >> 4) & 0xf;
@@ -4288,7 +4288,7 @@ trident_game_cooked_read(struct gameport *gameport, int *axes, int *buttons)
 static int
 trident_game_open(struct gameport *gameport, int mode)
 {
-	struct trident_card *card = gameport->driver;
+	struct trident_card *card = gameport->port_data;
 
 	switch (mode) {
 	case GAMEPORT_MODE_COOKED:
@@ -4368,7 +4368,7 @@ trident_probe(struct pci_dev *pci_dev, const struct pci_device_id *pci_id)
 	card->banks[BANK_B].addresses = &bank_b_addrs;
 	card->banks[BANK_B].bitmap = 0UL;
 
-	card->gameport.driver = card;
+	card->gameport.port_data = card;
 	card->gameport.fuzz = 64;
 	card->gameport.read = trident_game_read;
 	card->gameport.trigger = trident_game_trigger;

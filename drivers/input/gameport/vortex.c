@@ -62,19 +62,19 @@ struct vortex {
 
 static unsigned char vortex_read(struct gameport *gameport)
 {
-	struct vortex *vortex = gameport->driver;
+	struct vortex *vortex = gameport->port_data;
 	return readb(vortex->io + VORTEX_LEG);
 }
 
 static void vortex_trigger(struct gameport *gameport)
 {
-	struct vortex *vortex = gameport->driver;
+	struct vortex *vortex = gameport->port_data;
 	writeb(0xff, vortex->io + VORTEX_LEG);
 }
 
 static int vortex_cooked_read(struct gameport *gameport, int *axes, int *buttons)
 {
-	struct vortex *vortex = gameport->driver;
+	struct vortex *vortex = gameport->port_data;
 	int i;
 
 	*buttons = (~readb(vortex->base + VORTEX_LEG) >> 4) & 0xf;
@@ -89,7 +89,7 @@ static int vortex_cooked_read(struct gameport *gameport, int *axes, int *buttons
 
 static int vortex_open(struct gameport *gameport, int mode)
 {
-	struct vortex *vortex = gameport->driver;
+	struct vortex *vortex = gameport->port_data;
 
 	switch (mode) {
 		case GAMEPORT_MODE_COOKED:
@@ -120,7 +120,7 @@ static int __devinit vortex_probe(struct pci_dev *dev, const struct pci_device_i
 
 	pci_set_drvdata(dev, vortex);
 
-	vortex->gameport.driver = vortex;
+	vortex->gameport.port_data = vortex;
 	vortex->gameport.fuzz = 64;
 
 	vortex->gameport.read = vortex_read;
