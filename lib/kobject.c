@@ -140,9 +140,9 @@ void kobject_init(struct kobject * kobj)
 static void unlink(struct kobject * kobj)
 {
 	if (kobj->kset) {
-		down_write(&kobj->kset->subsys->rwsem);
+		spin_lock(&kobj->kset->list_lock);
 		list_del_init(&kobj->entry);
-		up_write(&kobj->kset->subsys->rwsem);
+		spin_unlock(&kobj->kset->list_lock);
 	}
 	kobject_put(kobj);
 }
@@ -168,13 +168,13 @@ int kobject_add(struct kobject * kobj)
 		 kobj->kset ? kobj->kset->kobj.name : "<NULL>" );
 
 	if (kobj->kset) {
-		down_write(&kobj->kset->subsys->rwsem);
+		spin_lock(&kobj->kset->list_lock);
 
 		if (!parent)
 			parent = kobject_get(&kobj->kset->kobj);
 
 		list_add_tail(&kobj->entry,&kobj->kset->list);
-		up_write(&kobj->kset->subsys->rwsem);
+		spin_unlock(&kobj->kset->list_lock);
 	}
 	kobj->parent = parent;
 
@@ -380,6 +380,7 @@ void kset_init(struct kset * k)
 {
 	kobject_init(&k->kobj);
 	INIT_LIST_HEAD(&k->list);
+	spin_lock_init(&k->list_lock);
 }
 
 
@@ -444,7 +445,7 @@ struct kobject * kset_find_obj(struct kset * kset, const char * name)
 	struct list_head * entry;
 	struct kobject * ret = NULL;
 
-	down_read(&kset->subsys->rwsem);
+	spin_lock(&kset->list_lock);
 	list_for_each(entry,&kset->list) {
 		struct kobject * k = to_kobj(entry);
 		if (kobject_name(k) && !strcmp(kobject_name(k),name)) {
@@ -452,7 +453,7 @@ struct kobject * kset_find_obj(struct kset * kset, const char * name)
 			break;
 		}
 	}
-	up_read(&kset->subsys->rwsem);
+	spin_unlock(&kset->list_lock);
 	return ret;
 }
 
