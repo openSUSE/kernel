@@ -220,7 +220,7 @@ static int __init dofind(int *junior, int firstslot)
 
 static void ResetBoard(struct net_device *dev)
 {
-	skmca_priv *priv = (skmca_priv *) dev->priv;
+	skmca_priv *priv = netdev_priv(dev);
 
 	SKMCA_WRITEB(CTRL_RESET_ON, priv->ctrladdr);
 	udelay(10);
@@ -231,7 +231,7 @@ static void ResetBoard(struct net_device *dev)
 
 static int WaitLANCE(struct net_device *dev)
 {
-	skmca_priv *priv = (skmca_priv *) dev->priv;
+	skmca_priv *priv = netdev_priv(dev);
 	int t = 0;
 
 	while ((SKMCA_READB(priv->ctrladdr) & STAT_IO_BUSY) ==
@@ -250,7 +250,7 @@ static int WaitLANCE(struct net_device *dev)
 
 static void SetLANCE(struct net_device *dev, u16 addr, u16 value)
 {
-	skmca_priv *priv = (skmca_priv *) dev->priv;
+	skmca_priv *priv = netdev_priv(dev);
 	unsigned long flags;
 
 	/* disable interrupts */
@@ -288,7 +288,7 @@ static void SetLANCE(struct net_device *dev, u16 addr, u16 value)
 
 static u16 GetLANCE(struct net_device *dev, u16 addr)
 {
-	skmca_priv *priv = (skmca_priv *) dev->priv;
+	skmca_priv *priv = netdev_priv(dev);
 	unsigned long flags;
 	unsigned int res;
 
@@ -425,7 +425,7 @@ static unsigned int GetHash(char *address)
 
 static void InitLANCE(struct net_device *dev)
 {
-	skmca_priv *priv = (skmca_priv *) dev->priv;
+	skmca_priv *priv = netdev_priv(dev);
 
 	/* build up descriptors. */
 
@@ -572,7 +572,7 @@ static u16 irqstart_handler(struct net_device *dev, u16 oldcsr0)
 
 static u16 irqmiss_handler(struct net_device *dev, u16 oldcsr0)
 {
-	skmca_priv *priv = (skmca_priv *) dev->priv;
+	skmca_priv *priv = netdev_priv(dev);
 
 	/* update statistics */
 
@@ -588,7 +588,7 @@ static u16 irqmiss_handler(struct net_device *dev, u16 oldcsr0)
 
 static u16 irqrx_handler(struct net_device *dev, u16 oldcsr0)
 {
-	skmca_priv *priv = (skmca_priv *) dev->priv;
+	skmca_priv *priv = netdev_priv(dev);
 	LANCE_RxDescr descr;
 	unsigned int descraddr;
 
@@ -669,7 +669,7 @@ static u16 irqrx_handler(struct net_device *dev, u16 oldcsr0)
 
 static u16 irqtx_handler(struct net_device *dev, u16 oldcsr0)
 {
-	skmca_priv *priv = (skmca_priv *) dev->priv;
+	skmca_priv *priv = netdev_priv(dev);
 	LANCE_TxDescr descr;
 	unsigned int descraddr;
 
@@ -798,9 +798,7 @@ static int skmca_getinfo(char *buf, int slot, void *d)
 
 	if (dev == NULL)
 		return len;
-	if (dev->priv == NULL)
-		return len;
-	priv = (skmca_priv *) dev->priv;
+	priv = netdev_priv(dev);
 
 	/* print info */
 
@@ -825,7 +823,7 @@ static int skmca_getinfo(char *buf, int slot, void *d)
 static int skmca_open(struct net_device *dev)
 {
 	int result;
-	skmca_priv *priv = (skmca_priv *) dev->priv;
+	skmca_priv *priv = netdev_priv(dev);
 
 	/* register resources - only necessary for IRQ */
 	result =
@@ -868,7 +866,7 @@ static int skmca_close(struct net_device *dev)
 
 static int skmca_tx(struct sk_buff *skb, struct net_device *dev)
 {
-	skmca_priv *priv = (skmca_priv *) dev->priv;
+	skmca_priv *priv = netdev_priv(dev);
 	LANCE_TxDescr descr;
 	unsigned int address;
 	int tmplen, retval = 0;
@@ -967,7 +965,7 @@ static int skmca_tx(struct sk_buff *skb, struct net_device *dev)
 
 static struct net_device_stats *skmca_stats(struct net_device *dev)
 {
-	skmca_priv *priv = (skmca_priv *) dev->priv;
+	skmca_priv *priv = netdev_priv(dev);
 
 	return &(priv->stat);
 }
@@ -1017,7 +1015,7 @@ static int startslot;		/* counts through slots when probing multiple devices */
 
 static void cleanup_card(struct net_device *dev)
 {
-	skmca_priv *priv = dev->priv;
+	skmca_priv *priv = netdev_priv(dev);
 	DeinitBoard(dev);
 	if (dev->irq != 0)
 		free_irq(dev->irq, dev);
@@ -1105,7 +1103,7 @@ struct net_device * __init skmca_probe(int unit)
 	       junior ? "Junior MC2" : "MC2+", slot + 1);
 
 	/* allocate structure */
-	priv = dev->priv;
+	priv = netdev_priv(dev);
 	priv->slot = slot;
 	priv->macbase = base + 0x3fc0;
 	priv->ioregaddr = base + 0x3ff0;
