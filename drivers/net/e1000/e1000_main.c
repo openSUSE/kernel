@@ -1103,6 +1103,7 @@ e1000_unmap_and_free_tx_resource(struct e1000_adapter *adapter,
 			struct e1000_buffer *buffer_info)
 {
 	struct pci_dev *pdev = adapter->pdev;
+
 	if(buffer_info->dma) {
 		pci_unmap_page(pdev,
 			       buffer_info->dma,
@@ -1130,6 +1131,11 @@ e1000_clean_tx_ring(struct e1000_adapter *adapter)
 	unsigned int i;
 
 	/* Free all the Tx ring sk_buffs */
+
+	if (likely(adapter->previous_buffer_info.skb != NULL)) {
+		e1000_unmap_and_free_tx_resource(adapter, 
+				&adapter->previous_buffer_info);
+	}
 
 	for(i = 0; i < tx_ring->count; i++) {
 		buffer_info = &tx_ring->buffer_info[i];
@@ -2214,11 +2220,34 @@ e1000_clean_tx_irq(struct e1000_adapter *adapter)
 	eop_desc = E1000_TX_DESC(*tx_ring, eop);
 
 	while(eop_desc->upper.data & cpu_to_le32(E1000_TXD_STAT_DD)) {
+		/* pre-mature writeback of Tx descriptors     */
+		/* clear (free buffers and unmap pci_mapping) */
+		/* previous_buffer_info                       */
+		if (likely(adapter->previous_buffer_info.skb != NULL)) {
+			e1000_unmap_and_free_tx_resource(adapter, 
+					&adapter->previous_buffer_info);
+		}
+
 		for(cleaned = FALSE; !cleaned; ) {
 			tx_desc = E1000_TX_DESC(*tx_ring, i);
 			buffer_info = &tx_ring->buffer_info[i];
+			cleaned = (i == eop);
 
-			e1000_unmap_and_free_tx_resource(adapter, buffer_info);
+			/* pre-mature writeback of Tx descriptors */
+			/* save the cleaning of the this for the  */
+			/* next iteration                         */
+			if (cleaned) {
+				memcpy(&adapter->previous_buffer_info,
+					buffer_info,
+					sizeof(struct e1000_buffer));
+				memset(buffer_info,
+					0,
+					sizeof(struct e1000_buffer));
+			} else {
+				e1000_unmap_and_free_tx_resource(adapter, 
+							buffer_info);
+			}
+
 			tx_desc->buffer_addr = 0;
 			tx_desc->lower.data = 0;
 			tx_desc->upper.data = 0;
