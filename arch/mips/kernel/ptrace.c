@@ -21,6 +21,7 @@
 #include <linux/mm.h>
 #include <linux/errno.h>
 #include <linux/ptrace.h>
+#include <linux/audit.h>
 #include <linux/smp.h>
 #include <linux/smp_lock.h>
 #include <linux/user.h>
@@ -307,7 +308,7 @@ asmlinkage void do_syscall_trace(struct pt_regs *regs, int entryexit)
 {
 	if (unlikely(current->audit_context)) {
 		if (!entryexit)
-			audit_syscall_entry(current, regs->orig_eax,
+			audit_syscall_entry(current, regs->regs[2],
 			                    regs->regs[4], regs->regs[5],
 			                    regs->regs[6], regs->regs[7]);
 		else
