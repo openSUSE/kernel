@@ -1183,7 +1183,7 @@ static void MD5Transform(__u32 buf[HASH_BUFFER_SIZE], __u32 const in[16])
 #define SEC_XFER_SIZE			(TMP_BUF_SIZE*4)
 
 static ssize_t extract_entropy(struct entropy_store *r, void * buf,
-			       size_t nbytes, int flags);
+			       size_t nbytes, int min, int flags);
 
 /*
  * This utility inline function is responsible for transfering entropy
@@ -1203,6 +1203,7 @@ static inline void xfer_secondary_pool(struct entropy_store *r,
 			  r->name, bytes * 8, nbytes * 8, r->entropy_count);
 
 		bytes=extract_entropy(&input_pool, tmp, bytes,
+				      random_read_wakeup_thresh / 8,
 				      EXTRACT_ENTROPY_LIMIT);
 		add_entropy_words(r, tmp, (bytes + 3) / 4);
 		credit_entropy_store(r, bytes*8);
@@ -1220,10 +1221,13 @@ static inline void xfer_secondary_pool(struct entropy_store *r,
  * extracting entropy from the secondary pool, and can refill from the
  * primary pool if needed.
  *
+ * If we have less than min bytes of entropy available, exit without
+ * transferring any. This helps avoid racing when reseeding.
+ *
  * Note: extract_entropy() assumes that .poolwords is a multiple of 16 words.
  */
 static ssize_t extract_entropy(struct entropy_store *r, void * buf,
-			       size_t nbytes, int flags)
+			       size_t nbytes, int min, int flags)
 {
 	ssize_t ret, i;
 	__u32 tmp[TMP_BUF_SIZE], data[16];
@@ -1243,16 +1247,21 @@ static ssize_t extract_entropy(struct entropy_store *r, void * buf,
 	DEBUG_ENT("trying to extract %d bits from %s\n",
 		  nbytes * 8, r->name);
 
-	if (flags & EXTRACT_ENTROPY_LIMIT && nbytes >= r->entropy_count / 8)
-		nbytes = r->entropy_count / 8;
+	if (r->entropy_count / 8 < min) {
+		nbytes = 0;
+	} else {
+		if (flags & EXTRACT_ENTROPY_LIMIT &&
+		    nbytes >= r->entropy_count / 8)
+			nbytes = r->entropy_count / 8;
 
-	if (r->entropy_count / 8 >= nbytes)
-		r->entropy_count -= nbytes*8;
-	else
-		r->entropy_count = 0;
+		if (r->entropy_count / 8 >= nbytes)
+			r->entropy_count -= nbytes*8;
+		else
+			r->entropy_count = 0;
 
-	if (r->entropy_count < random_write_wakeup_thresh)
-		wake_up_interruptible(&random_write_wait);
+		if (r->entropy_count < random_write_wakeup_thresh)
+			wake_up_interruptible(&random_write_wait);
+	}
 
 	DEBUG_ENT("debiting %d entropy credits from %s%s\n",
 		  nbytes * 8, r->name,
@@ -1345,7 +1354,7 @@ static ssize_t extract_entropy(struct entropy_store *r, void * buf,
  */
 void get_random_bytes(void *buf, int nbytes)
 {
-	extract_entropy(&nonblocking_pool, (char *) buf, nbytes,
+	extract_entropy(&nonblocking_pool, (char *) buf, nbytes, 0,
 			EXTRACT_ENTROPY_SECONDARY);
 }
 
@@ -1435,7 +1444,7 @@ random_read(struct file * file, char __user * buf, size_t nbytes, loff_t *ppos)
 
 		DEBUG_ENT("reading %d bits\n", n*8);
 
-		n = extract_entropy(&blocking_pool, buf, n,
+		n = extract_entropy(&blocking_pool, buf, n, 0,
 				    EXTRACT_ENTROPY_USER |
 				    EXTRACT_ENTROPY_LIMIT |
 				    EXTRACT_ENTROPY_SECONDARY);
@@ -1497,7 +1506,7 @@ urandom_read(struct file * file, char __user * buf,
 		flags |= EXTRACT_ENTROPY_SECONDARY;
 	spin_unlock_irqrestore(&input_pool.lock, cpuflags);
 
-	return extract_entropy(&nonblocking_pool, buf, nbytes, flags);
+	return extract_entropy(&nonblocking_pool, buf, nbytes, 0, flags);
 }
 
 static unsigned int
