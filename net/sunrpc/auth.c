@@ -67,8 +67,6 @@ rpcauth_create(rpc_authflavor_t pseudoflavor, struct rpc_clnt *clnt)
 
 	if (flavor >= RPC_AUTH_MAXFLAVOR || !(ops = auth_flavors[flavor]))
 		return NULL;
-	if (!try_module_get(ops->owner))
-		return NULL;
 	auth = ops->create(clnt, pseudoflavor);
 	if (!auth)
 		return NULL;
@@ -85,7 +83,6 @@ rpcauth_destroy(struct rpc_auth *auth)
 	if (!atomic_dec_and_test(&auth->au_count))
 		return;
 	auth->au_ops->destroy(auth);
-	module_put(auth->au_ops->owner);
 	kfree(auth);
 }
 

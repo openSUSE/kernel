@@ -569,6 +569,8 @@ gss_create(struct rpc_clnt *clnt, rpc_authflavor_t flavor)
 
 	dprintk("RPC:      creating GSS authenticator for client %p\n",clnt);
 
+	if (!try_module_get(THIS_MODULE))
+		return NULL;
 	if (!(gss_auth = kmalloc(sizeof(*gss_auth), GFP_KERNEL)))
 		goto out_dec;
 	gss_auth->mech = gss_mech_get_by_pseudoflavor(flavor);
@@ -601,6 +603,7 @@ err_put_mech:
 err_free:
 	kfree(gss_auth);
 out_dec:
+	module_put(THIS_MODULE);
 	return NULL;
 }
 
@@ -617,6 +620,7 @@ gss_destroy(struct rpc_auth *auth)
 	gss_mech_put(gss_auth->mech);
 
 	rpcauth_free_credcache(auth);
+	module_put(THIS_MODULE);
 }
 
 /* gss_destroy_cred (and gss_destroy_ctx) are used to clean up after failure
