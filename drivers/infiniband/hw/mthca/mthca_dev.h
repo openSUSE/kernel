@@ -207,8 +207,9 @@ struct mthca_av_table {
 };
 
 struct mthca_mcg_table {
-	struct semaphore   sem;
-	struct mthca_alloc alloc;
+	struct semaphore   	sem;
+	struct mthca_alloc 	alloc;
+	struct mthca_icm_table *table;
 };
 
 struct mthca_dev {

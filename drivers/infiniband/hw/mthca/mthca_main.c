@@ -412,7 +412,28 @@ static int __devinit mthca_init_icm(struct mthca_dev *mdev,
 		goto err_unmap_eqp;
 	}
 
+	/*
+	 * It's not strictly required, but for simplicity just map the
+	 * whole multicast group table now.  The table isn't very big
+	 * and it's a lot easier than trying to track ref counts.
+	 */
+	mdev->mcg_table.table = mthca_alloc_icm_table(mdev, init_hca->mc_base,
+						      MTHCA_MGM_ENTRY_SIZE,
+						      mdev->limits.num_mgms +
+						      mdev->limits.num_amgms,
+						      mdev->limits.num_mgms +
+						      mdev->limits.num_amgms,
+						      0);
+	if (!mdev->mcg_table.table) {
+		mthca_err(mdev, "Failed to map MCG context memory, aborting.\n");
+		err = -ENOMEM;
+		goto err_unmap_cq;
+	}
+
 	return 0;
+
+err_unmap_cq:
+	mthca_free_icm_table(mdev, mdev->cq_table.table);
 
 err_unmap_eqp:
 	mthca_free_icm_table(mdev, mdev->qp_table.eqp_table);
@@ -587,7 +608,7 @@ static int __devinit mthca_setup_hca(struct mthca_dev *dev)
 		goto err_uar_free;
 	}
 
-       err = mthca_init_pd_table(dev);
+	err = mthca_init_pd_table(dev);
 	if (err) {
 		mthca_err(dev, "Failed to initialize "
 			  "protection domain table, aborting.\n");
@@ -634,13 +655,6 @@ static int __devinit mthca_setup_hca(struct mthca_dev *dev)
 	}
 
 	mthca_dbg(dev, "NOP command IRQ test passed\n");
-
-	if (dev->hca_type == ARBEL_NATIVE) {
-		mthca_warn(dev, "Sorry, native MT25208 mode support is not complete, "
-			   "aborting.\n");
-		err = -ENODEV;
-		goto err_cmd_poll;
-	}
 
 	err = mthca_init_cq_table(dev);
 	if (err) {
@@ -704,7 +718,7 @@ err_uar_free:
 
 err_uar_table_free:
 	mthca_cleanup_uar_table(dev);
-       return err;
+	return err;
 }
 
 static int __devinit mthca_request_regions(struct pci_dev *pdev,
@@ -814,6 +828,7 @@ static int __devinit mthca_init_one(struct pci_dev *pdev,
 				    const struct pci_device_id *id)
 {
 	static int mthca_version_printed = 0;
+	static int mthca_memfree_warned = 0;
 	int ddr_hidden = 0;
 	int err;
 	struct mthca_dev *mdev;
@@ -892,6 +907,10 @@ static int __devinit mthca_init_one(struct pci_dev *pdev,
 
 	mdev->pdev     = pdev;
 	mdev->hca_type = id->driver_data;
+
+	if (mdev->hca_type == ARBEL_NATIVE && !mthca_memfree_warned++)
+		mthca_warn(mdev, "Warning: native MT25208 mode support is incomplete.  "
+			   "Your HCA may not work properly.\n");
 
 	if (ddr_hidden)
 		mdev->mthca_flags |= MTHCA_FLAG_DDR_HIDDEN;
