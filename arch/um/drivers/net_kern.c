@@ -728,7 +728,8 @@ static void close_devices(void)
 
 	list_for_each(ele, &opened){
 		lp = list_entry(ele, struct uml_net_private, list);
-		if(lp->close != NULL) (*lp->close)(lp->fd, &lp->user);
+		if((lp->close != NULL) && (lp->fd >= 0))
+			(*lp->close)(lp->fd, &lp->user);
 		if(lp->remove != NULL) (*lp->remove)(&lp->user);
 	}
 }
