@@ -936,17 +936,14 @@ static struct unit_directory *nodemgr_process_unit_directory
 			/* Logical Unit Number */
 			if (kv->key.type == CSR1212_KV_TYPE_IMMEDIATE) {
 				if (ud->flags & UNIT_DIRECTORY_HAS_LUN) {
-					nodemgr_register_device(ne, ud, &ne->device);
-
 					ud_child = kmalloc(sizeof(struct unit_directory), GFP_KERNEL);
 					if (!ud_child)
 						goto unit_directory_error;
 					memcpy(ud_child, ud, sizeof(struct unit_directory));
-					ud = ud_child;
+					nodemgr_register_device(ne, ud_child, &ne->device);
 					ud_child = NULL;
-
+					
 					ud->id = (*id)++;
-					ud->device.bus = NULL;
 				}
 				ud->lun = kv->value.immediate;
 				ud->flags |= UNIT_DIRECTORY_HAS_LUN;
