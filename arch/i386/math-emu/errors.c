@@ -34,6 +34,7 @@
 /* */
 
 
+#if 0
 void Un_impl(void)
 {
   u_char byte1, FPU_modrm;
@@ -69,6 +70,7 @@ void Un_impl(void)
   EXCEPTION(EX_Invalid);
 
 }
+#endif  /*  0  */
 
 
 /*

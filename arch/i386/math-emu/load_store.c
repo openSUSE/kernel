@@ -53,7 +53,7 @@ u_char const data_sizes_16[32] = {
   14, 0, 94, 10,  2, 10,  2,  8
 };
 
-u_char const data_sizes_32[32] = {
+static u_char const data_sizes_32[32] = {
   4,  4,  8,  2,  0,  0,  0,  0,
   4,  4,  8,  2,  4,  4,  8,  2,
   28, 0,108, 10,  2, 10,  0,  8,  
