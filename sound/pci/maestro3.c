@@ -820,7 +820,7 @@ struct snd_m3 {
 	unsigned long iobase;
 
 	int irq;
-	int allegro_flag : 1;
+	unsigned int allegro_flag : 1;
 
 	ac97_t *ac97;
 
@@ -955,6 +955,13 @@ static struct m3_quirk m3_quirk_list[] = {
 		.name = "NEC LM800J/7",
 		.vendor = 0x1033,
 		.device = 0x80f1,
+		.amp_gpio = 0x03,
+	},
+	/* LEGEND ZhaoYang 3100CF */
+	{
+		.name = "LEGEND ZhaoYang 3100CF",
+		.vendor = 0x1509,
+		.device = 0x1740,
 		.amp_gpio = 0x03,
 	},
 	/* END */
@@ -2385,7 +2392,7 @@ static int snd_m3_free(m3_t *chip)
  * APM support
  */
 #ifdef CONFIG_PM
-static int m3_suspend(snd_card_t *card, unsigned int state)
+static int m3_suspend(snd_card_t *card, pm_message_t state)
 {
 	m3_t *chip = card->pm_private_data;
 	int i, index;
@@ -2417,7 +2424,7 @@ static int m3_suspend(snd_card_t *card, unsigned int state)
 	return 0;
 }
 
-static int m3_resume(snd_card_t *card, unsigned int state)
+static int m3_resume(snd_card_t *card)
 {
 	m3_t *chip = card->pm_private_data;
 	int i, index;

@@ -2135,7 +2135,7 @@ static int saved_regs_index[] = {
 };
 #define YDSXGR_NUM_SAVED_REGS	ARRAY_SIZE(saved_regs_index)
 
-static int snd_ymfpci_suspend(snd_card_t *card, unsigned int state)
+static int snd_ymfpci_suspend(snd_card_t *card, pm_message_t state)
 {
 	ymfpci_t *chip = card->pm_private_data;
 	unsigned int i;
@@ -2154,7 +2154,7 @@ static int snd_ymfpci_suspend(snd_card_t *card, unsigned int state)
 	return 0;
 }
 
-static int snd_ymfpci_resume(snd_card_t *card, unsigned int state)
+static int snd_ymfpci_resume(snd_card_t *card)
 {
 	ymfpci_t *chip = card->pm_private_data;
 	unsigned int i;

@@ -28,6 +28,7 @@ int patch_wolfson03(ac97_t * ac97);
 int patch_wolfson04(ac97_t * ac97);
 int patch_wolfson05(ac97_t * ac97);
 int patch_wolfson11(ac97_t * ac97);
+int patch_wolfson13(ac97_t * ac97);
 int patch_tritech_tr28028(ac97_t * ac97);
 int patch_sigmatel_stac9700(ac97_t * ac97);
 int patch_sigmatel_stac9708(ac97_t * ac97);

@@ -1385,7 +1385,7 @@ static unsigned char saved_regs[SAVED_REG_SIZE+1] = {
 };
 
 
-static int es1938_suspend(snd_card_t *card, unsigned int state)
+static int es1938_suspend(snd_card_t *card, pm_message_t state)
 {
 	es1938_t *chip = card->pm_private_data;
 	unsigned char *s, *d;
@@ -1402,7 +1402,7 @@ static int es1938_suspend(snd_card_t *card, unsigned int state)
 	return 0;
 }
 
-static int es1938_resume(snd_card_t *card, unsigned int state)
+static int es1938_resume(snd_card_t *card)
 {
 	es1938_t *chip = card->pm_private_data;
 	unsigned char *s, *d;

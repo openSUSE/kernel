@@ -359,16 +359,9 @@ static int snd_mixer_oss_ioctl1(snd_mixer_oss_file_t *fmixer, unsigned int cmd, 
 	return -ENXIO;
 }
 
-/* FIXME: need to unlock BKL to allow preemption */
-static int snd_mixer_oss_ioctl(struct inode *inode, struct file *file,
-			       unsigned int cmd, unsigned long arg)
+static long snd_mixer_oss_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	int err;
-	/* FIXME: need to unlock BKL to allow preemption */
-	unlock_kernel();
-	err = snd_mixer_oss_ioctl1((snd_mixer_oss_file_t *) file->private_data, cmd, arg);
-	lock_kernel();
-	return err;
+	return snd_mixer_oss_ioctl1((snd_mixer_oss_file_t *) file->private_data, cmd, arg);
 }
 
 int snd_mixer_oss_ioctl_card(snd_card_t *card, unsigned int cmd, unsigned long arg)
@@ -384,6 +377,13 @@ int snd_mixer_oss_ioctl_card(snd_card_t *card, unsigned int cmd, unsigned long a
 	return snd_mixer_oss_ioctl1(&fmixer, cmd, arg);
 }
 
+#ifdef CONFIG_COMPAT
+/* all compatible */
+#define snd_mixer_oss_ioctl_compat	snd_mixer_oss_ioctl
+#else
+#define snd_mixer_oss_ioctl_compat	NULL
+#endif
+
 /*
  *  REGISTRATION PART
  */
@@ -393,7 +393,8 @@ static struct file_operations snd_mixer_oss_f_ops =
 	.owner =	THIS_MODULE,
 	.open =		snd_mixer_oss_open,
 	.release =	snd_mixer_oss_release,
-	.ioctl =	snd_mixer_oss_ioctl,
+	.unlocked_ioctl =	snd_mixer_oss_ioctl,
+	.compat_ioctl =	snd_mixer_oss_ioctl_compat,
 };
 
 static snd_minor_t snd_mixer_oss_reg =
@@ -521,7 +522,7 @@ static void snd_mixer_oss_get_volume1_vol(snd_mixer_oss_file_t *fmixer,
 		goto __unalloc;
 	snd_runtime_check(!kctl->info(kctl, uinfo), goto __unalloc);
 	snd_runtime_check(!kctl->get(kctl, uctl), goto __unalloc);
-	snd_runtime_check(uinfo->type != SNDRV_CTL_ELEM_TYPE_BOOLEAN || uinfo->value.integer.min != 0 || uinfo->value.integer.max != 1, return);
+	snd_runtime_check(uinfo->type != SNDRV_CTL_ELEM_TYPE_BOOLEAN || uinfo->value.integer.min != 0 || uinfo->value.integer.max != 1, goto __unalloc);
 	*left = snd_mixer_oss_conv1(uctl->value.integer.value[0], uinfo->value.integer.min, uinfo->value.integer.max, &pslot->volume[0]);
 	if (uinfo->count > 1)
 		*right = snd_mixer_oss_conv1(uctl->value.integer.value[1], uinfo->value.integer.min, uinfo->value.integer.max, &pslot->volume[1]);
@@ -615,7 +616,7 @@ static void snd_mixer_oss_put_volume1_vol(snd_mixer_oss_file_t *fmixer,
 	if (uinfo == NULL || uctl == NULL)
 		goto __unalloc;
 	snd_runtime_check(!kctl->info(kctl, uinfo), goto __unalloc);
-	snd_runtime_check(uinfo->type != SNDRV_CTL_ELEM_TYPE_BOOLEAN || uinfo->value.integer.min != 0 || uinfo->value.integer.max != 1, return);
+	snd_runtime_check(uinfo->type != SNDRV_CTL_ELEM_TYPE_BOOLEAN || uinfo->value.integer.min != 0 || uinfo->value.integer.max != 1, goto __unalloc);
 	uctl->value.integer.value[0] = snd_mixer_oss_conv2(left, uinfo->value.integer.min, uinfo->value.integer.max);
 	if (uinfo->count > 1)
 		uctl->value.integer.value[1] = snd_mixer_oss_conv2(right, uinfo->value.integer.min, uinfo->value.integer.max);

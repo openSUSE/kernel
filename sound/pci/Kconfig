@@ -514,5 +514,15 @@ config SND_VX222
 	  To compile this driver as a module, choose M here: the module
 	  will be called snd-vx222.
 
-endmenu
+config SND_HDA_INTEL
+	tristate "Intel HD Audio"
+	depends on SND
+	select SND_PCM
+	help
+	  Say Y here to include support for Intel "High Definition
+	  Audio" (Azalia) motherboard devices.
 
+	  To compile this driver as a module, choose M here: the module
+	  will be called snd-hda-intel.
+
+endmenu

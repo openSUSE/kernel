@@ -697,10 +697,11 @@ static unsigned short snd_cs4281_ac97_read(ac97_t *ac97,
 
 static int snd_cs4281_trigger(snd_pcm_substream_t *substream, int cmd)
 {
+	unsigned long flags;
 	cs4281_dma_t *dma = (cs4281_dma_t *)substream->runtime->private_data;
 	cs4281_t *chip = snd_pcm_substream_chip(substream);
 
-	spin_lock(&chip->reg_lock);
+	spin_lock_irqsave(&chip->reg_lock, flags);
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		dma->valDCR |= BA0_DCR_MSK;
@@ -727,13 +728,13 @@ static int snd_cs4281_trigger(snd_pcm_substream_t *substream, int cmd)
 			dma->valFCR &= ~BA0_FCR_FEN;
 		break;
 	default:
-		spin_unlock(&chip->reg_lock);
+		spin_unlock_irqrestore(&chip->reg_lock, flags);
 		return -EINVAL;
 	}
 	snd_cs4281_pokeBA0(chip, dma->regDMR, dma->valDMR);
 	snd_cs4281_pokeBA0(chip, dma->regFCR, dma->valFCR);
 	snd_cs4281_pokeBA0(chip, dma->regDCR, dma->valDCR);
-	spin_unlock(&chip->reg_lock);
+	spin_unlock_irqrestore(&chip->reg_lock, flags);
 	return 0;
 }
 
@@ -1377,8 +1378,8 @@ static int snd_cs4281_dev_free(snd_device_t *device)
 
 static int snd_cs4281_chip_init(cs4281_t *chip); /* defined below */
 #ifdef CONFIG_PM
-static int cs4281_suspend(snd_card_t *card, unsigned int state);
-static int cs4281_resume(snd_card_t *card, unsigned int state);
+static int cs4281_suspend(snd_card_t *card, pm_message_t state);
+static int cs4281_resume(snd_card_t *card);
 #endif
 
 static int __devinit snd_cs4281_create(snd_card_t * card,
@@ -1848,6 +1849,7 @@ static int __devinit snd_cs4281_midi(cs4281_t * chip, int device, snd_rawmidi_t 
 static irqreturn_t snd_cs4281_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 {
 	cs4281_t *chip = dev_id;
+	unsigned long flags;
 	unsigned int status, dma, val;
 	cs4281_dma_t *cdma;
 
@@ -1863,7 +1865,7 @@ static irqreturn_t snd_cs4281_interrupt(int irq, void *dev_id, struct pt_regs *r
 		for (dma = 0; dma < 4; dma++)
 			if (status & BA0_HISR_DMA(dma)) {
 				cdma = &chip->dma[dma];
-				spin_lock(&chip->reg_lock);
+				spin_lock_irqsave(&chip->reg_lock, flags);
 				/* ack DMA IRQ */
 				val = snd_cs4281_peekBA0(chip, cdma->regHDSR);
 				/* workaround, sometimes CS4281 acknowledges */
@@ -1872,16 +1874,16 @@ static irqreturn_t snd_cs4281_interrupt(int irq, void *dev_id, struct pt_regs *r
 				if ((val & BA0_HDSR_DHTC) && !(cdma->frag & 1)) {
 					cdma->frag--;
 					chip->spurious_dhtc_irq++;
-					spin_unlock(&chip->reg_lock);
+					spin_unlock_irqrestore(&chip->reg_lock, flags);
 					continue;
 				}
 				if ((val & BA0_HDSR_DTC) && (cdma->frag & 1)) {
 					cdma->frag--;
 					chip->spurious_dtc_irq++;
-					spin_unlock(&chip->reg_lock);
+					spin_unlock_irqrestore(&chip->reg_lock, flags);
 					continue;
 				}
-				spin_unlock(&chip->reg_lock);
+				spin_unlock_irqrestore(&chip->reg_lock, flags);
 				snd_pcm_period_elapsed(cdma->substream);
 			}
 	}
@@ -1889,14 +1891,12 @@ static irqreturn_t snd_cs4281_interrupt(int irq, void *dev_id, struct pt_regs *r
 	if ((status & BA0_HISR_MIDI) && chip->rmidi) {
 		unsigned char c;
 		
-		spin_lock(&chip->reg_lock);
+		spin_lock_irqsave(&chip->reg_lock, flags);
 		while ((snd_cs4281_peekBA0(chip, BA0_MIDSR) & BA0_MIDSR_RBE) == 0) {
 			c = snd_cs4281_peekBA0(chip, BA0_MIDRP);
 			if ((chip->midcr & BA0_MIDCR_RIE) == 0)
 				continue;
-			spin_unlock(&chip->reg_lock);
 			snd_rawmidi_receive(chip->midi_input, &c, 1);
-			spin_lock(&chip->reg_lock);
 		}
 		while ((snd_cs4281_peekBA0(chip, BA0_MIDSR) & BA0_MIDSR_TBF) == 0) {
 			if ((chip->midcr & BA0_MIDCR_TIE) == 0)
@@ -1908,7 +1908,7 @@ static irqreturn_t snd_cs4281_interrupt(int irq, void *dev_id, struct pt_regs *r
 			}
 			snd_cs4281_pokeBA0(chip, BA0_MIDWP, c);
 		}
-		spin_unlock(&chip->reg_lock);
+		spin_unlock_irqrestore(&chip->reg_lock, flags);
 	}
 
 	/* EOI to the PCI part... reenables interrupts */
@@ -2038,7 +2038,7 @@ static int saved_regs[SUSPEND_REGISTERS] = {
 
 #define CLKCR1_CKRA                             0x00010000L
 
-static int cs4281_suspend(snd_card_t *card, unsigned int state)
+static int cs4281_suspend(snd_card_t *card, pm_message_t state)
 {
 	cs4281_t *chip = card->pm_private_data;
 	u32 ulCLK;
@@ -2083,7 +2083,7 @@ static int cs4281_suspend(snd_card_t *card, unsigned int state)
 	return 0;
 }
 
-static int cs4281_resume(snd_card_t *card, unsigned int state)
+static int cs4281_resume(snd_card_t *card)
 {
 	cs4281_t *chip = card->pm_private_data;
 	unsigned int i;
