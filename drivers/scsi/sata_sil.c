@@ -78,7 +78,7 @@ static struct pci_device_id sil_pci_tbl[] = {
 
 
 /* TODO firmware versions should be added - eric */
-struct sil_drivelist {
+static const struct sil_drivelist {
 	const char * product;
 	unsigned int quirk;
 } sil_blacklist [] = {
