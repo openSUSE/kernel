@@ -179,7 +179,7 @@ static int mxser_numports[] = {
 
 #define UART_TYPE_NUM	2
 
-unsigned int Gmoxa_uart_id[UART_TYPE_NUM] = {
+static const unsigned int Gmoxa_uart_id[UART_TYPE_NUM] = {
 	MOXA_MUST_MU150_HWID,
 	MOXA_MUST_MU860_HWID
 };
@@ -197,7 +197,7 @@ struct mxpciuart_info {
 	long max_baud;
 };
 
-struct mxpciuart_info Gpci_uart_info[UART_INFO_NUM] = {
+static const struct mxpciuart_info Gpci_uart_info[UART_INFO_NUM] = {
 	{MOXA_OTHER_UART, 16, 16, 16, 14, 14, 1, 921600L},
 	{MOXA_MUST_MU150_HWID, 64, 64, 64, 48, 48, 16, 230400L},
 	{MOXA_MUST_MU860_HWID, 128, 128, 128, 96, 96, 32, 921600L}
@@ -3164,23 +3164,6 @@ static void mxser_normal_mode(int port)
 			(void) inb(port);
 	}
 	outb(0x00, port + 4);
-}
-
-// added by James 03-05-2004.
-// for secure device server:
-// stat = 1, the port8 DTR is set to ON.
-// stat = 0, the port8 DTR is set to OFF.
-void SDS_PORT8_DTR(int stat)
-{
-	int _sds_oldmcr;
-	_sds_oldmcr = inb(mxvar_table[7].base + UART_MCR);	// get old MCR
-	if (stat == 1) {
-		outb(_sds_oldmcr | 0x01, mxvar_table[7].base + UART_MCR);	// set DTR ON
-	}
-	if (stat == 0) {
-		outb(_sds_oldmcr & 0xfe, mxvar_table[7].base + UART_MCR);	// set DTR OFF
-	}
-	return;
 }
 
 module_init(mxser_module_init);
