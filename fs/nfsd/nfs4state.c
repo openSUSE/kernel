@@ -1171,7 +1171,7 @@ release_stateid(struct nfs4_stateid *stp, int flags)
 	list_del_perfile++;
 	list_del(&stp->st_perfile);
 	list_del(&stp->st_perfilestate);
-	if ((stp->st_vfs_set) && (flags & OPEN_STATE)) {
+	if ((stp->st_vfs_file) && (flags & OPEN_STATE)) {
 		list_for_each_entry(dp, &fp->fi_del_perfile, dl_del_perfile) {
 			if(cmp_clid(&dp->dl_client->cl_clientid,
 			    &stp->st_stateowner->so_client->cl_clientid)) {
@@ -1182,7 +1182,7 @@ release_stateid(struct nfs4_stateid *stp, int flags)
 		release_stateid_lockowners(stp);
 		nfsd_close(stp->st_vfs_file);
 		vfsclose++;
-	} else if ((stp->st_vfs_set) && (flags & LOCK_STATE)) {
+	} else if ((stp->st_vfs_file) && (flags & LOCK_STATE)) {
 		struct file *filp = stp->st_vfs_file;
 
 		locks_remove_posix(filp, (fl_owner_t) stp->st_stateowner);
@@ -1586,7 +1586,6 @@ nfs4_new_open(struct svc_rqst *rqstp, struct nfs4_stateid **stpp,
 		return status;
 	}
 	vfsopen++;
-	stp->st_vfs_set = 1;
 	*stpp = stp;
 	return 0;
 }
@@ -1922,7 +1921,7 @@ find_openstateowner_id(u32 st_id, int flags) {
 static inline int
 nfs4_check_fh(struct svc_fh *fhp, struct nfs4_stateid *stp)
 {
-	return (stp->st_vfs_set == 0 ||
+	return (stp->st_vfs_file == NULL ||
 		fhp->fh_dentry->d_inode != stp->st_vfs_file->f_dentry->d_inode);
 }
 
@@ -2147,7 +2146,6 @@ nfs4_preprocess_seqid_op(struct svc_fh *current_fh, u32 seqid, stateid_t *statei
 
 	if ((flags & CHECK_FH) && nfs4_check_fh(current_fh, stp)) {
 		printk("NFSD: preprocess_seqid_op: fh-stateid mismatch!\n");
-		stp->st_vfs_set = 0;
 		goto out;
 	}
 
@@ -2611,7 +2609,6 @@ alloc_init_lock_stateid(struct nfs4_stateowner *sop, struct nfs4_file *fp, struc
 	stp->st_stateid.si_fileid = fp->fi_id;
 	stp->st_stateid.si_generation = 0;
 	stp->st_vfs_file = open_stp->st_vfs_file; /* FIXME refcount?? */
-	stp->st_vfs_set = open_stp->st_vfs_set;
 	stp->st_access_bmap = open_stp->st_access_bmap;
 	stp->st_deny_bmap = open_stp->st_deny_bmap;
 
@@ -3018,7 +3015,7 @@ nfsd4_release_lockowner(struct svc_rqst *rqstp, struct nfsd4_release_lockowner *
 		status = nfserr_locks_held;
 		list_for_each_entry(stp, &local->so_perfilestate,
 				st_perfilestate) {
-			if (stp->st_vfs_set) {
+			if (stp->st_vfs_file) {
 				if (check_for_locks(stp->st_vfs_file, local))
 					goto out;
 			}
