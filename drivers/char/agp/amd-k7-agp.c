@@ -421,6 +421,37 @@ static int __devinit agp_amdk7_probe(struct pci_dev *pdev,
 	bridge->dev = pdev;
 	bridge->capndx = cap_ptr;
 
+	/* 751 Errata (22564_B-1.PDF)
+	   erratum 20: strobe glitch with Nvidia NV10 GeForce cards.
+	   system controller may experience noise due to strong drive strengths
+	 */
+	if (agp_bridge->dev->vendor == PCI_VENDOR_ID_AMD &&
+		agp_bridge->dev->device == PCI_DEVICE_ID_AMD_FE_GATE_7006) {
+		u8 cap_ptr=0;
+		struct pci_dev *gfxcard=NULL;
+		while (!cap_ptr) {
+			gfxcard = pci_get_class(PCI_CLASS_DISPLAY_VGA, gfxcard);
+			if (!gfxcard) {
+				printk (KERN_INFO PFX "Couldn't find an AGP VGA controller.\n");
+				return -ENODEV;
+			}
+			cap_ptr = pci_find_capability(gfxcard, PCI_CAP_ID_AGP);
+			if (!cap_ptr) {
+				pci_dev_put(gfxcard);
+				continue;
+			}
+		}
+
+		/* With so many variants of NVidia cards, it's simpler just
+		   to blacklist them all, and then whitelist them as needed
+		   (if necessary at all). */
+		if (gfxcard->vendor == PCI_VENDOR_ID_NVIDIA) {
+			agp_bridge->flags |= AGP_ERRATA_1X;
+			printk (KERN_INFO PFX "AMD 751 chipset with NVidia GeForce detected. Forcing to 1X due to errata.\n");
+		}
+		pci_dev_put(gfxcard);
+	}
+
 	/* 761 Errata (23613_F.pdf)
 	 * Revisions B0/B1 were a disaster.
 	 * erratum 44: SYSCLK/AGPCLK skew causes 2X failures -- Force mode to 1X
