@@ -13,9 +13,13 @@ config CPU_FREQ
 
 	  If in doubt, say N.
 
+if CPU_FREQ
+
+config CPU_FREQ_TABLE
+       def_tristate m
+
 config CPU_FREQ_DEBUG
 	bool "Enable CPUfreq debugging"
-	depends on CPU_FREQ
 	help
 	  Say Y here to enable CPUfreq subsystem (including drivers)
 	  debugging. You will need to activate it via the kernel
@@ -29,7 +33,7 @@ config CPU_FREQ_DEBUG
 
 config CPU_FREQ_STAT
        tristate "CPU frequency translation statistics"
-       depends on CPU_FREQ && CPU_FREQ_TABLE
+       select CPU_FREQ_TABLE
        default y
        help
          This driver exports CPU frequency statistics information through sysfs
@@ -37,17 +41,15 @@ config CPU_FREQ_STAT
 
 config CPU_FREQ_STAT_DETAILS
        bool "CPU frequency translation statistics details"
-       depends on CPU_FREQ && CPU_FREQ_STAT
-       default n
+       depends on CPU_FREQ_STAT
        help
          This will show detail CPU frequency translation table in sysfs file
          system
 
 choice
 	prompt "Default CPUFreq governor"
-	depends on CPU_FREQ
-	default CPU_FREQ_DEFAULT_GOV_PERFORMANCE if !CPU_FREQ_SA1100 && !CPU_FREQ_SA1110
 	default CPU_FREQ_DEFAULT_GOV_USERSPACE if CPU_FREQ_SA1100 || CPU_FREQ_SA1110
+	default CPU_FREQ_DEFAULT_GOV_PERFORMANCE
 	help
 	  This option sets which CPUFreq governor shall be loaded at
 	  startup. If in doubt, select 'performance'.
@@ -73,7 +75,6 @@ endchoice
 
 config CPU_FREQ_GOV_PERFORMANCE
        tristate "'performance' governor"
-       depends on CPU_FREQ
        help
 	  This cpufreq governor sets the frequency statically to the
 	  highest available CPU frequency.
@@ -82,7 +83,6 @@ config CPU_FREQ_GOV_PERFORMANCE
 
 config CPU_FREQ_GOV_POWERSAVE
        tristate "'powersave' governor"
-       depends on CPU_FREQ
        help
 	  This cpufreq governor sets the frequency statically to the
 	  lowest available CPU frequency.
@@ -91,7 +91,6 @@ config CPU_FREQ_GOV_POWERSAVE
 
 config CPU_FREQ_GOV_USERSPACE
        tristate "'userspace' governor for userspace frequency scaling"
-       depends on CPU_FREQ 
        help
 	  Enable this cpufreq governor when you either want to set the
 	  CPU frequency manually or when an userspace program shall
@@ -104,7 +103,6 @@ config CPU_FREQ_GOV_USERSPACE
 
 config CPU_FREQ_GOV_ONDEMAND
 	tristate "'ondemand' cpufreq policy governor"
-	depends on CPU_FREQ
 	help
 	  'ondemand' - This driver adds a dynamic cpufreq policy governor.
 	  The governor does a periodic polling and 
@@ -116,3 +114,5 @@ config CPU_FREQ_GOV_ONDEMAND
 	  For details, take a look at linux/Documentation/cpu-freq.
 
 	  If in doubt, say N.
+
+endif	# CPU_FREQ
