@@ -398,6 +398,16 @@ config NET_EMATCH_STACK
 	  encapsulated precedences. Every level requires 4 bytes of addtional
 	  stack space.
 
+config NET_EMATCH_CMP
+	tristate "Simple packet data comparison"
+	depends on NET_EMATCH
+	---help---
+	  Say Y here if you want to be able to classify packets based on
+	  simple packet data comparisons for 8, 16, and 32bit values.
+
+	  To compile this code as a module, choose M here: the
+	  module will be called em_cmp.
+
 config NET_CLS_ACT
 	bool "Packet ACTION"
 	depends on EXPERIMENTAL && NET_CLS && NET_QOS

@@ -383,12 +383,20 @@ enum
 enum
 {
 	TCF_EM_CONTAINER,
+	TCF_EM_CMP,
 	__TCF_EM_MAX
 };
 
 enum
 {
 	TCF_EM_PROG_TC
+};
+
+enum
+{
+	TCF_EM_OPND_EQ,
+	TCF_EM_OPND_GT,
+	TCF_EM_OPND_LT
 };
 
 #endif

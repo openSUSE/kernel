@@ -318,6 +318,26 @@ struct tcf_ematch_tree
 
 #endif /* CONFIG_NET_EMATCH */
 
+static inline unsigned char * tcf_get_base_ptr(struct sk_buff *skb, int layer)
+{
+	switch (layer) {
+		case TCF_LAYER_LINK:
+			return skb->data;
+		case TCF_LAYER_NETWORK:
+			return skb->nh.raw;
+		case TCF_LAYER_TRANSPORT:
+			return skb->h.raw;
+	}
+
+	return NULL;
+}
+
+static inline int tcf_valid_offset(struct sk_buff *skb, unsigned char *ptr,
+				   int len)
+{
+	return unlikely((ptr + len) < skb->tail && ptr > skb->head);
+}
+
 #ifdef CONFIG_NET_CLS_IND
 static inline int
 tcf_change_indev(struct tcf_proto *tp, char *indev, struct rtattr *indev_tlv)
