@@ -31,6 +31,8 @@ EXPORT_SYMBOL(gameport_open);
 EXPORT_SYMBOL(gameport_close);
 EXPORT_SYMBOL(gameport_rescan);
 EXPORT_SYMBOL(gameport_cooked_read);
+EXPORT_SYMBOL(gameport_set_name);
+EXPORT_SYMBOL(gameport_set_phys);
 
 static LIST_HEAD(gameport_list);
 static LIST_HEAD(gameport_driver_list);
@@ -117,10 +119,30 @@ void gameport_rescan(struct gameport *gameport)
 	gameport_find_driver(gameport);
 }
 
+void gameport_set_phys(struct gameport *gameport, const char *fmt, ...)
+{
+	va_list args;
+
+	va_start(args, fmt);
+	gameport->phys = gameport->phys_buf;
+	vsnprintf(gameport->phys_buf, sizeof(gameport->phys_buf), fmt, args);
+	va_end(args);
+}
+
 void gameport_register_port(struct gameport *gameport)
 {
 	list_add_tail(&gameport->node, &gameport_list);
 	gameport->speed = gameport_measure_speed(gameport);
+
+	if (gameport->dyn_alloc) {
+		if (gameport->io)
+			printk(KERN_INFO "gameport: %s is %s, io %#x, speed %d kHz\n",
+				gameport->name, gameport->phys, gameport->io, gameport->speed);
+		else
+			printk(KERN_INFO "gameport: %s is %s, speed %d kHz\n",
+				gameport->name, gameport->phys, gameport->speed);
+	}
+
 	gameport_find_driver(gameport);
 }
 
@@ -129,6 +151,8 @@ void gameport_unregister_port(struct gameport *gameport)
 	list_del_init(&gameport->node);
 	if (gameport->drv)
 		gameport->drv->disconnect(gameport);
+	if (gameport->dyn_alloc)
+		kfree(gameport);
 }
 
 void gameport_register_driver(struct gameport_driver *drv)

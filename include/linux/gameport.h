@@ -12,15 +12,16 @@
 #include <asm/io.h>
 #include <linux/input.h>
 #include <linux/list.h>
-
-struct gameport;
+#include <linux/device.h>
 
 struct gameport {
 
 	void *private;		/* Private pointer for joystick drivers */
 	void *port_data;	/* Private pointer for gameport drivers */
 	char *name;
+	char name_buf[32];
 	char *phys;
+	char phys_buf[32];
 
 	struct input_id id;
 
@@ -36,8 +37,12 @@ struct gameport {
 	void (*close)(struct gameport *);
 
 	struct gameport_driver *drv;
+	struct device dev;
 
 	struct list_head node;
+
+	/* temporary, till sysfs transition is complete */
+	int dyn_alloc;
 };
 
 struct gameport_driver {
@@ -55,13 +60,32 @@ int gameport_open(struct gameport *gameport, struct gameport_driver *drv, int mo
 void gameport_close(struct gameport *gameport);
 void gameport_rescan(struct gameport *gameport);
 
-#if defined(CONFIG_GAMEPORT) || defined(CONFIG_GAMEPORT_MODULE)
+static inline struct gameport *gameport_allocate_port(void)
+{
+	struct gameport *gameport = kcalloc(1, sizeof(struct gameport), GFP_KERNEL);
+
+	if (gameport)
+		gameport->dyn_alloc = 1;
+
+	return gameport;
+}
+
+static inline void gameport_free_port(struct gameport *gameport)
+{
+	kfree(gameport);
+}
+
+static inline void gameport_set_name(struct gameport *gameport, const char *name)
+{
+	gameport->name = gameport->name_buf;
+	strlcpy(gameport->name, name, sizeof(gameport->name_buf));
+}
+
+void gameport_set_phys(struct gameport *gameport, const char *fmt, ...)
+	__attribute__ ((format (printf, 2, 3)));
+
 void gameport_register_port(struct gameport *gameport);
 void gameport_unregister_port(struct gameport *gameport);
-#else
-static inline void gameport_register_port(struct gameport *gameport) { return; }
-static inline void gameport_unregister_port(struct gameport *gameport) { return; }
-#endif
 
 void gameport_register_driver(struct gameport_driver *drv);
 void gameport_unregister_driver(struct gameport_driver *drv);
