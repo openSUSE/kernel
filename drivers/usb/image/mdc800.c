@@ -331,7 +331,7 @@ static void mdc800_usb_irq (struct urb *urb, struct pt_regs *res)
 	{
 		mdc800->camera_request_ready=0;
 		mdc800->irq_woken=1;
-		wake_up_interruptible (&mdc800->irq_wait);
+		wake_up (&mdc800->irq_wait);
 	}
 }
 
@@ -386,7 +386,7 @@ static void mdc800_usb_write_notify (struct urb *urb, struct pt_regs *res)
 		mdc800->state=READY;
 	}
 	mdc800->written = 1;
-	wake_up_interruptible (&mdc800->write_wait);
+	wake_up (&mdc800->write_wait);
 }
 
 
@@ -414,7 +414,7 @@ static void mdc800_usb_download_notify (struct urb *urb, struct pt_regs *res)
 		err ("request bytes fails (status:%i)", urb->status);
 	}
 	mdc800->downloaded = 1;
-	wake_up_interruptible (&mdc800->download_wait);
+	wake_up (&mdc800->download_wait);
 }
 
 
