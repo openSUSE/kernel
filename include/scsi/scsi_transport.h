@@ -23,13 +23,10 @@
 #include <linux/transport_class.h>
 
 struct scsi_transport_template {
-	/* The statistics attached to the host class only */
-	struct attribute_group *host_statistics;
-
 	/* the attribute containers */
-	struct attribute_container host_attrs;
-	struct attribute_container target_attrs;
-	struct attribute_container device_attrs;
+	struct transport_container host_attrs;
+	struct transport_container target_attrs;
+	struct transport_container device_attrs;
 
 	/* The size of the specific transport attribute structure (a
 	 * space of this size will be left at the end of the

@@ -1098,7 +1098,6 @@
 	0180  Snipe chipset SCSI controller
 		1014 0241  iSeries 2757 DASD IOA
 		1014 0264  Quad Channel PCI-X U320 SCSI RAID Adapter (2780)
-		1014 02BD  Quad Channel PCI-X U320 DDR SCSI RAID Adapter (570F)
 	0188  EADS-X PCI-X to PCI-X Bridge
 	01a7  PCI-X to PCI-X Bridge
 	01bd  ServeRAID Controller
@@ -1123,7 +1122,9 @@
 	0268  Gigabit Ethernet-SX Adapter (PCI-X)
 	0269  10/100/1000 Base-TX Ethernet Adapter (PCI-X)
 	028C  Citrine chipset SCSI controller
-		1014 02BE  Dual Channel PCI-X U320 DDR SCSI RAID Adapter (571B)
+		1014 028D  Dual Channel PCI-X DDR SAS RAID Adapter (572E)
+		1014 02BE  Dual Channel PCI-X DDR U320 SCSI RAID Adapter (571B)
+		1014 02C0  Dual Channel PCI-X DDR U320 SCSI Adapter (571A)
 	0302  X-Architecture Bridge [Summit]
 	0314  ZISC 036 Neural accelerator card
 	ffff  MPIC-2 interrupt controller
@@ -9528,6 +9529,8 @@
 		9005 0294  ESD SO-DIMM PCI-X SATA ZCR (Prowler)
 	0286  AAC-RAID (Rocket)
 		9005 028c  ASR-2230S + ASR-2230SLP PCI-X (Lancer)
+	0503  Scamp chipset SCSI controller
+		1014 02BF  Quad Channel PCI-X DDR U320 SCSI RAID Adapter (571E)
 	8000  ASC-29320A U320
 	800f  AIC-7901 U320
 	8010  ASC-39320 U320

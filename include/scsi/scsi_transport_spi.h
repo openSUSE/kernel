@@ -130,5 +130,6 @@ struct scsi_transport_template *spi_attach_transport(struct spi_function_templat
 void spi_release_transport(struct scsi_transport_template *);
 void spi_schedule_dv_device(struct scsi_device *);
 void spi_dv_device(struct scsi_device *);
+void spi_display_xfer_agreement(struct scsi_target *);
 
 #endif /* SCSI_TRANSPORT_SPI_H */

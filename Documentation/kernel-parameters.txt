@@ -1397,9 +1397,6 @@ running once the system is up.
 	sym53c416=	[HW,SCSI]
 			See header of drivers/scsi/sym53c416.c.
 
-	sym53c8xx=	[HW,SCSI]
-			See Documentation/scsi/ncr53c8xx.txt.
-
 	t128=		[HW,SCSI]
 			See header of drivers/scsi/t128.c.
 

@@ -825,6 +825,7 @@ process_extended_message(struct Scsi_Host *host,
 	switch(hostdata->msgin[2]) {
 	case A_SDTR_MSG:
 		if(SCp != NULL && NCR_700_is_flag_set(SCp->device, NCR_700_DEV_BEGIN_SYNC_NEGOTIATION)) {
+			struct scsi_target *starget = SCp->device->sdev_target;
 			__u8 period = hostdata->msgin[3];
 			__u8 offset = hostdata->msgin[4];
 
@@ -832,22 +833,15 @@ process_extended_message(struct Scsi_Host *host,
 				offset = 0;
 				period = 0;
 			}
+
+			spi_offset(starget) = offset;
+			spi_period(starget) = period;
 			
 			if(NCR_700_is_flag_set(SCp->device, NCR_700_DEV_PRINT_SYNC_NEGOTIATION)) {
-				if(spi_offset(SCp->device->sdev_target) != 0)
-					printk(KERN_INFO "scsi%d: (%d:%d) Synchronous at offset %d, period %dns\n",
-					       host->host_no, pun, lun,
-					       offset, period*4);
-				else
-					printk(KERN_INFO "scsi%d: (%d:%d) Asynchronous\n",
-					       host->host_no, pun, lun);
+				spi_display_xfer_agreement(starget);
 				NCR_700_clear_flag(SCp->device, NCR_700_DEV_PRINT_SYNC_NEGOTIATION);
 			}
-				
-			spi_offset(SCp->device->sdev_target) = offset;
-			spi_period(SCp->device->sdev_target) = period;
 			
-
 			NCR_700_set_flag(SCp->device, NCR_700_DEV_NEGOTIATED_SYNC);
 			NCR_700_clear_flag(SCp->device, NCR_700_DEV_BEGIN_SYNC_NEGOTIATION);
 			

@@ -254,16 +254,8 @@ static int fc_add_host(struct device *dev)
 		sizeof(fc_host_symbolic_name(shost)));
 	fc_host_supported_speeds(shost) = FC_PORTSPEED_UNKNOWN;
 	fc_host_maxframe_size(shost) = -1;
-	memset(fc_host_hardware_version(shost), 0,
-		sizeof(fc_host_hardware_version(shost)));
-	memset(fc_host_firmware_version(shost), 0,
-		sizeof(fc_host_firmware_version(shost)));
 	memset(fc_host_serial_number(shost), 0,
 		sizeof(fc_host_serial_number(shost)));
-	memset(fc_host_opt_rom_version(shost), 0,
-		sizeof(fc_host_opt_rom_version(shost)));
-	memset(fc_host_driver_version(shost), 0,
-		sizeof(fc_host_driver_version(shost)));
 
 	fc_host_port_id(shost) = -1;
 	fc_host_port_type(shost) = FC_PORTTYPE_UNKNOWN;
@@ -539,11 +531,7 @@ fc_private_host_rd_attr_cast(node_name, "0x%llx\n", 20, unsigned long long);
 fc_private_host_rd_attr_cast(port_name, "0x%llx\n", 20, unsigned long long);
 fc_private_host_rd_attr(symbolic_name, "%s\n", (FC_SYMBOLIC_NAME_SIZE +1));
 fc_private_host_rd_attr(maxframe_size, "%u bytes\n", 20);
-fc_private_host_rd_attr(hardware_version, "%s\n", (FC_VERSION_STRING_SIZE +1));
-fc_private_host_rd_attr(firmware_version, "%s\n", (FC_VERSION_STRING_SIZE +1));
 fc_private_host_rd_attr(serial_number, "%s\n", (FC_SERIAL_NUMBER_SIZE +1));
-fc_private_host_rd_attr(opt_rom_version, "%s\n", (FC_VERSION_STRING_SIZE +1));
-fc_private_host_rd_attr(driver_version, "%s\n", (FC_VERSION_STRING_SIZE +1));
 
 
 /* Dynamic Host Attributes */
@@ -734,13 +722,13 @@ static int fc_host_match(struct attribute_container *cont,
 		return 0;
 
 	shost = dev_to_shost(dev);
-	if (!shost->transportt  || shost->transportt->host_attrs.class
+	if (!shost->transportt  || shost->transportt->host_attrs.ac.class
 	    != &fc_host_class.class)
 		return 0;
 
 	i = to_fc_internal(shost->transportt);
 	
-	return &i->t.host_attrs == cont;
+	return &i->t.host_attrs.ac == cont;
 }
 
 static int fc_target_match(struct attribute_container *cont,
@@ -753,13 +741,13 @@ static int fc_target_match(struct attribute_container *cont,
 		return 0;
 
 	shost = dev_to_shost(dev->parent);
-	if (!shost->transportt  || shost->transportt->host_attrs.class
+	if (!shost->transportt  || shost->transportt->host_attrs.ac.class
 	    != &fc_host_class.class)
 		return 0;
 
 	i = to_fc_internal(shost->transportt);
 	
-	return &i->t.target_attrs == cont;
+	return &i->t.target_attrs.ac == cont;
 }
 
 
@@ -775,20 +763,21 @@ fc_attach_transport(struct fc_function_template *ft)
 
 	memset(i, 0, sizeof(struct fc_internal));
 
-	i->t.target_attrs.attrs = &i->starget_attrs[0];
-	i->t.target_attrs.class = &fc_transport_class.class;
-	i->t.target_attrs.match = fc_target_match;
-	attribute_container_register(&i->t.target_attrs);
+	i->t.target_attrs.ac.attrs = &i->starget_attrs[0];
+	i->t.target_attrs.ac.class = &fc_transport_class.class;
+	i->t.target_attrs.ac.match = fc_target_match;
+	transport_container_register(&i->t.target_attrs);
 	i->t.target_size = sizeof(struct fc_starget_attrs);
 
-	i->t.host_attrs.attrs = &i->host_attrs[0];
-	i->t.host_attrs.class = &fc_host_class.class;
-	i->t.host_attrs.match = fc_host_match;
-	attribute_container_register(&i->t.host_attrs);
+	i->t.host_attrs.ac.attrs = &i->host_attrs[0];
+	i->t.host_attrs.ac.class = &fc_host_class.class;
+	i->t.host_attrs.ac.match = fc_host_match;
 	i->t.host_size = sizeof(struct fc_host_attrs);
 
 	if (ft->get_fc_host_stats)
-		i->t.host_statistics = &fc_statistics_group;
+		i->t.host_attrs.statistics = &fc_statistics_group;
+
+	transport_container_register(&i->t.host_attrs);
 
 	i->f = ft;
 
@@ -817,11 +806,7 @@ fc_attach_transport(struct fc_function_template *ft)
 	SETUP_HOST_ATTRIBUTE_RD(symbolic_name);
 	SETUP_HOST_ATTRIBUTE_RD(supported_speeds);
 	SETUP_HOST_ATTRIBUTE_RD(maxframe_size);
-	SETUP_HOST_ATTRIBUTE_RD(hardware_version);
-	SETUP_HOST_ATTRIBUTE_RD(firmware_version);
 	SETUP_HOST_ATTRIBUTE_RD(serial_number);
-	SETUP_HOST_ATTRIBUTE_RD(opt_rom_version);
-	SETUP_HOST_ATTRIBUTE_RD(driver_version);
 
 	SETUP_HOST_ATTRIBUTE_RD(port_id);
 	SETUP_HOST_ATTRIBUTE_RD(port_type);
@@ -846,6 +831,9 @@ EXPORT_SYMBOL(fc_attach_transport);
 void fc_release_transport(struct scsi_transport_template *t)
 {
 	struct fc_internal *i = to_fc_internal(t);
+
+	transport_container_unregister(&i->t.target_attrs);
+	transport_container_unregister(&i->t.host_attrs);
 
 	attribute_container_unregister(&i->t.target_attrs);
 	attribute_container_unregister(&i->t.host_attrs);

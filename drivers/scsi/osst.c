@@ -5127,6 +5127,22 @@ out:
 	return retval;
 }
 
+#ifdef CONFIG_COMPAT
+static long osst_compat_ioctl(struct file * file, unsigned int cmd_in, unsigned long arg)
+{
+	struct osst_tape *STp = file->private_data;
+	struct scsi_device *sdev = STp->device;
+	int ret = -ENOIOCTLCMD;
+	if (sdev->host->hostt->compat_ioctl) {
+
+		ret = sdev->host->hostt->compat_ioctl(sdev, cmd_in, (void __user *)arg);
+
+	}
+	return ret;
+}
+#endif
+
+
 
 /* Memory handling routines */
 
@@ -5462,6 +5478,9 @@ static struct file_operations osst_fops = {
 	.read =         osst_read,
 	.write =        osst_write,
 	.ioctl =        osst_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = osst_compat_ioctl,
+#endif
 	.open =         os_scsi_tape_open,
 	.flush =        os_scsi_tape_flush,
 	.release =      os_scsi_tape_close,
