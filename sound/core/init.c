@@ -84,16 +84,13 @@ snd_card_t *snd_card_new(int idx, const char *xid,
 	write_lock(&snd_card_rwlock);
 	if (idx < 0) {
 		int idx2;
-		for (idx2 = 0; idx2 < snd_ecards_limit; idx2++)
-			if (!(snd_cards_lock & (1 << idx2))) {
+		for (idx2 = 0; idx2 < SNDRV_CARDS; idx2++)
+			if (~snd_cards_lock & idx & 1<<idx2) {
 				idx = idx2;
+				if (idx >= snd_ecards_limit)
+					snd_ecards_limit = idx + 1;
 				break;
 			}
-		if (idx < 0 && snd_ecards_limit < SNDRV_CARDS)
-			/* for dynamically additional devices like hotplug:
-			 * increment the limit if still free slot exists.
-			 */
-			idx = snd_ecards_limit++;
 	} else if (idx < snd_ecards_limit) {
 		if (snd_cards_lock & (1 << idx))
 			err = -ENODEV;	/* invalid */
