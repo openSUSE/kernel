@@ -1515,13 +1515,9 @@ static void sx_close (void *ptr)
 	sx_reconfigure_port(port);	
 	sx_send_command (port, HS_CLOSE, 0, 0);
 
-	while (to-- && (sx_read_channel_byte (port, hi_hstat) != HS_IDLE_CLOSED)) {
-		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout (1);
-		if (signal_pending (current))
-				break;
-	}
-	current->state = TASK_RUNNING;
+	while (to-- && (sx_read_channel_byte (port, hi_hstat) != HS_IDLE_CLOSED))
+		if (msleep_interruptible(10))
+			break;
 	if (sx_read_channel_byte (port, hi_hstat) != HS_IDLE_CLOSED) {
 		if (sx_send_command (port, HS_FORCE_CLOSED, -1, HS_IDLE_CLOSED) != 1) {
 			printk (KERN_ERR 
