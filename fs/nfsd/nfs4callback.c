@@ -401,7 +401,7 @@ nfsd4_probe_callback(struct nfs4_client *clp)
 
 	/* Initialize timeout */
 	timeparms.to_initval = (NFSD_LEASE_TIME/4) * HZ;
-	timeparms.to_retries = 5;
+	timeparms.to_retries = 0;
 	timeparms.to_maxval = (NFSD_LEASE_TIME/2) * HZ;
 	timeparms.to_exponential = 1;
 
@@ -431,7 +431,7 @@ nfsd4_probe_callback(struct nfs4_client *clp)
 		dprintk("NFSD: couldn't create callback client\n");
 		goto out_xprt;
 	}
-	clnt->cl_intr = 1;
+	clnt->cl_intr = 0;
 	clnt->cl_softrtry = 1;
 	clnt->cl_chatty = 1;
 
@@ -530,6 +530,7 @@ out:
 	return;
 
 retry:
+	dprintk("NFSD: nfs4_cb_recall_done RETRY\n");
 	atomic_inc(&dp->dl_recall_cnt);
 	/* sleep 2 seconds before retrying recall */
 	set_current_state(TASK_UNINTERRUPTIBLE);
