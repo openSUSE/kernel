@@ -1039,6 +1039,7 @@ static inline void tcp_reset_xmit_timer(struct sock *sk, int what, unsigned long
 #ifdef TCP_DEBUG
 		printk(tcp_timer_bug_msg);
 #endif
+		return;
 	};
 }
 
