@@ -2689,6 +2689,16 @@ static struct ieee1394_device_id raw1394_id_table[] = {
 		.specifier_id	= CAMERA_UNIT_SPEC_ID_ENTRY & 0xffffff,
 		.version	= CAMERA_SW_VERSION_ENTRY & 0xffffff
 	},
+        {
+                .match_flags    = IEEE1394_MATCH_SPECIFIER_ID | IEEE1394_MATCH_VERSION,
+                .specifier_id   = CAMERA_UNIT_SPEC_ID_ENTRY & 0xffffff,
+                .version        = (CAMERA_SW_VERSION_ENTRY + 1) & 0xffffff
+        },
+        {
+                .match_flags    = IEEE1394_MATCH_SPECIFIER_ID | IEEE1394_MATCH_VERSION,
+                .specifier_id   = CAMERA_UNIT_SPEC_ID_ENTRY & 0xffffff,
+                .version        = (CAMERA_SW_VERSION_ENTRY + 2) & 0xffffff
+        },
 	{ }
 };
 
