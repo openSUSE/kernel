@@ -31,7 +31,6 @@ nul_create(struct rpc_clnt *clnt, rpc_authflavor_t flavor)
 static void
 nul_destroy(struct rpc_auth *auth)
 {
-	atomic_dec(&null_auth.au_count);
 }
 
 /*
