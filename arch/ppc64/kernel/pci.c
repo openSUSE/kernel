@@ -619,7 +619,8 @@ void __init pci_setup_phb_io(struct pci_controller *hose, int primary)
 	res->end += io_virt_offset;
 }
 
-void __devinit pci_setup_phb_io_dynamic(struct pci_controller *hose)
+void __devinit pci_setup_phb_io_dynamic(struct pci_controller *hose,
+					int primary)
 {
 	unsigned long size = hose->pci_io_size;
 	unsigned long io_virt_offset;
@@ -630,6 +631,9 @@ void __devinit pci_setup_phb_io_dynamic(struct pci_controller *hose)
 	DBG("phb%d io_base_phys 0x%lx io_base_virt 0x%lx\n",
 		hose->global_number, hose->io_base_phys,
 		(unsigned long) hose->io_base_virt);
+
+	if (primary)
+		pci_io_base = (unsigned long)hose->io_base_virt;
 
 	io_virt_offset = (unsigned long)hose->io_base_virt - pci_io_base;
 	res = &hose->io_resource;

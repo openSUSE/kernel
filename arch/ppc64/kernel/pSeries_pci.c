@@ -424,16 +424,18 @@ struct pci_controller * __devinit init_phb_dynamic(struct device_node *dn)
 	unsigned int root_size_cells = 0;
 	struct pci_controller *phb;
 	struct pci_bus *bus;
+	int primary;
 
 	root_size_cells = prom_n_size_cells(root);
 
+	primary = list_empty(&hose_list);
 	phb = alloc_phb_dynamic(dn, root_size_cells);
 	if (!phb)
 		return NULL;
 
 	pci_process_bridge_OF_ranges(phb, dn);
 
-	pci_setup_phb_io_dynamic(phb);
+	pci_setup_phb_io_dynamic(phb, primary);
 	of_node_put(root);
 
 	pci_devs_phb_init_dynamic(phb);
