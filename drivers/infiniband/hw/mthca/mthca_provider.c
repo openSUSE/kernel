@@ -43,6 +43,8 @@ static int mthca_query_device(struct ib_device *ibdev,
 	struct ib_smp *in_mad  = NULL;
 	struct ib_smp *out_mad = NULL;
 	int err = -ENOMEM;
+	struct mthca_dev* mdev = to_mdev(ibdev);
+
 	u8 status;
 
 	in_mad  = kmalloc(sizeof *in_mad, GFP_KERNEL);
@@ -50,7 +52,7 @@ static int mthca_query_device(struct ib_device *ibdev,
 	if (!in_mad || !out_mad)
 		goto out;
 
-	props->fw_ver        = to_mdev(ibdev)->fw_ver;
+	props->fw_ver              = mdev->fw_ver;
 
 	memset(in_mad, 0, sizeof *in_mad);
 	in_mad->base_version       = 1;
@@ -59,7 +61,7 @@ static int mthca_query_device(struct ib_device *ibdev,
 	in_mad->method         	   = IB_MGMT_METHOD_GET;
 	in_mad->attr_id   	   = IB_SMP_ATTR_NODE_INFO;
 
-	err = mthca_MAD_IFC(to_mdev(ibdev), 1, 1,
+	err = mthca_MAD_IFC(mdev, 1, 1,
 			    1, NULL, NULL, in_mad, out_mad,
 			    &status);
 	if (err)
@@ -69,10 +71,11 @@ static int mthca_query_device(struct ib_device *ibdev,
 		goto out;
 	}
 
-	props->vendor_id      = be32_to_cpup((u32 *) (out_mad->data + 36)) &
+	props->device_cap_flags = mdev->device_cap_flags;
+	props->vendor_id        = be32_to_cpup((u32 *) (out_mad->data + 36)) &
 		0xffffff;
-	props->vendor_part_id = be16_to_cpup((u16 *) (out_mad->data + 30));
-	props->hw_ver         = be16_to_cpup((u16 *) (out_mad->data + 32));
+	props->vendor_part_id   = be16_to_cpup((u16 *) (out_mad->data + 30));
+	props->hw_ver           = be16_to_cpup((u16 *) (out_mad->data + 32));
 	memcpy(&props->sys_image_guid, out_mad->data +  4, 8);
 	memcpy(&props->node_guid,      out_mad->data + 12, 8);
 

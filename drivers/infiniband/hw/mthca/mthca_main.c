@@ -171,6 +171,33 @@ static int __devinit mthca_dev_lim(struct mthca_dev *mdev, struct mthca_dev_lim 
 	mdev->limits.reserved_uars      = dev_lim->reserved_uars;
 	mdev->limits.reserved_pds       = dev_lim->reserved_pds;
 
+	/* IB_DEVICE_RESIZE_MAX_WR not supported by driver.
+	   May be doable since hardware supports it for SRQ.
+
+	   IB_DEVICE_N_NOTIFY_CQ is supported by hardware but not by driver.
+
+	   IB_DEVICE_SRQ_RESIZE is supported by hardware but SRQ is not
+	   supported by driver. */
+	mdev->device_cap_flags = IB_DEVICE_CHANGE_PHY_PORT |
+		IB_DEVICE_PORT_ACTIVE_EVENT |
+		IB_DEVICE_SYS_IMAGE_GUID |
+		IB_DEVICE_RC_RNR_NAK_GEN;
+
+	if (dev_lim->flags & DEV_LIM_FLAG_BAD_PKEY_CNTR)
+		mdev->device_cap_flags |= IB_DEVICE_BAD_PKEY_CNTR;
+
+	if (dev_lim->flags & DEV_LIM_FLAG_BAD_QKEY_CNTR)
+		mdev->device_cap_flags |= IB_DEVICE_BAD_QKEY_CNTR;
+
+	if (dev_lim->flags & DEV_LIM_FLAG_RAW_MULTI)
+		mdev->device_cap_flags |= IB_DEVICE_RAW_MULTI;
+
+	if (dev_lim->flags & DEV_LIM_FLAG_AUTO_PATH_MIG)
+		mdev->device_cap_flags |= IB_DEVICE_AUTO_PATH_MIG;
+
+	if (dev_lim->flags & DEV_LIM_FLAG_UD_AV_PORT_ENFORCE)
+		mdev->device_cap_flags |= IB_DEVICE_UD_AV_PORT_ENFORCE;
+
 	if (dev_lim->flags & DEV_LIM_FLAG_SRQ)
 		mdev->mthca_flags |= MTHCA_FLAG_SRQ;
 

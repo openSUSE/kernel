@@ -218,6 +218,7 @@ struct mthca_dev {
 
 	int          	 hca_type;
 	unsigned long	 mthca_flags;
+	unsigned long    device_cap_flags;
 
 	u32              rev_id;
 
