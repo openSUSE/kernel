@@ -81,6 +81,16 @@ ccw_device_start_key(struct ccw_device *cdev, struct ccw1 *cpa,
 		return -ENODEV;
 	if (cdev->private->state == DEV_STATE_NOT_OPER)
 		return -ENODEV;
+	if (cdev->private->state == DEV_STATE_VERIFY) {
+		/* Remember to fake irb when finished. */
+		if (!cdev->private->flags.fake_irb) {
+			cdev->private->flags.fake_irb = 1;
+			cdev->private->intparm = intparm;
+			return 0;
+		} else
+			/* There's already a fake I/O around. */
+			return -EBUSY;
+	}
 	if (cdev->private->state != DEV_STATE_ONLINE ||
 	    ((sch->schib.scsw.stctl & SCSW_STCTL_PRIM_STATUS) &&
 	     !(sch->schib.scsw.stctl & SCSW_STCTL_SEC_STATUS)) ||

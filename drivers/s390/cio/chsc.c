@@ -703,6 +703,9 @@ __check_for_io_and_kill(struct subchannel *sch, int index)
 {
 	int cc;
 
+	if (!device_is_online(sch))
+		/* cio could be doing I/O. */
+		return 0;
 	cc = stsch(sch->irq, &sch->schib);
 	if (cc)
 		return 0;

@@ -24,6 +24,17 @@
 #include "qdio.h"
 
 int
+device_is_online(struct subchannel *sch)
+{
+	struct ccw_device *cdev;
+
+	if (!sch->dev.driver_data)
+		return 0;
+	cdev = sch->dev.driver_data;
+	return (cdev->private->state == DEV_STATE_ONLINE);
+}
+
+int
 device_is_disconnected(struct subchannel *sch)
 {
 	struct ccw_device *cdev;
@@ -44,6 +55,7 @@ device_set_disconnected(struct subchannel *sch)
 		return;
 	cdev = sch->dev.driver_data;
 	ccw_device_set_timeout(cdev, 0);
+	cdev->private->flags.fake_irb = 0;
 	cdev->private->state = DEV_STATE_DISCONNECTED;
 }
 
@@ -474,6 +486,7 @@ ccw_device_nopath_notify(void *data)
 	} else {
 		cio_disable_subchannel(sch);
 		ccw_device_set_timeout(cdev, 0);
+		cdev->private->flags.fake_irb = 0;
 		cdev->private->state = DEV_STATE_DISCONNECTED;
 		wake_up(&cdev->private->wait_q);
 	}
@@ -488,6 +501,21 @@ ccw_device_verify_done(struct ccw_device *cdev, int err)
 		cdev->private->options.pgroup = 0;
 	case 0:
 		ccw_device_done(cdev, DEV_STATE_ONLINE);
+		/* Deliver fake irb to device driver, if needed. */
+		if (cdev->private->flags.fake_irb) {
+			memset(&cdev->private->irb, 0, sizeof(struct irb));
+			cdev->private->irb.scsw = (struct scsw) {
+				.cc = 1,
+				.fctl = SCSW_FCTL_START_FUNC,
+				.actl = SCSW_ACTL_START_PEND,
+				.stctl = SCSW_STCTL_STATUS_PEND,
+			};
+			cdev->private->flags.fake_irb = 0;
+			if (cdev->handler)
+				cdev->handler(cdev, cdev->private->intparm,
+					      &cdev->private->irb);
+			memset(&cdev->private->irb, 0, sizeof(struct irb));
+		}
 		break;
 	case -ETIME:
 		ccw_device_done(cdev, DEV_STATE_BOXED);
@@ -639,6 +667,7 @@ ccw_device_online_notoper(struct ccw_device *cdev, enum dev_event dev_event)
 	if (sch->driver->notify &&
 	    sch->driver->notify(&sch->dev, sch->lpm ? CIO_GONE : CIO_NO_PATH)) {
 			ccw_device_set_timeout(cdev, 0);
+			cdev->private->flags.fake_irb = 0;
 			cdev->private->state = DEV_STATE_DISCONNECTED;
 			wake_up(&cdev->private->wait_q);
 			return;
