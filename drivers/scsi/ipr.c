@@ -2728,81 +2728,6 @@ static int ipr_change_queue_type(struct scsi_device *sdev, int tag_type)
 }
 
 /**
- * ipr_show_tcq_enable - Show if the device is enabled for tcqing
- * @dev:	device struct
- * @buf:	buffer
- *
- * Return value:
- * 	number of bytes printed to buffer
- **/
-static ssize_t ipr_show_tcq_enable(struct device *dev, char *buf)
-{
-	struct scsi_device *sdev = to_scsi_device(dev);
-	struct ipr_ioa_cfg *ioa_cfg = (struct ipr_ioa_cfg *)sdev->host->hostdata;
-	struct ipr_resource_entry *res;
-	unsigned long lock_flags = 0;
-	ssize_t len = -ENXIO;
-
-	spin_lock_irqsave(ioa_cfg->host->host_lock, lock_flags);
-	res = (struct ipr_resource_entry *)sdev->hostdata;
-	if (res)
-		len = snprintf(buf, PAGE_SIZE, "%d\n", res->tcq_active);
-	spin_unlock_irqrestore(ioa_cfg->host->host_lock, lock_flags);
-	return len;
-}
-
-/**
- * ipr_store_tcq_enable - Change the device's TCQing state
- * @dev:	device struct
- * @buf:	buffer
- *
- * Return value:
- * 	number of bytes printed to buffer
- **/
-static ssize_t ipr_store_tcq_enable(struct device *dev,
-				    const char *buf, size_t count)
-{
-	struct scsi_device *sdev = to_scsi_device(dev);
-	struct ipr_ioa_cfg *ioa_cfg = (struct ipr_ioa_cfg *)sdev->host->hostdata;
-	struct ipr_resource_entry *res;
-	unsigned long lock_flags = 0;
-	int tcq_active = simple_strtoul(buf, NULL, 10);
-	ssize_t len = -ENXIO;
-
-	spin_lock_irqsave(ioa_cfg->host->host_lock, lock_flags);
-
-	res = (struct ipr_resource_entry *)sdev->hostdata;
-
-	if (res) {
-		if (ipr_is_gscsi(res) && sdev->tagged_supported) {
-			if (tcq_active) {
-				res->tcq_active = 1;
-				scsi_activate_tcq(sdev, res->qdepth);
-			} else {
-				res->tcq_active = 0;
-				scsi_deactivate_tcq(sdev, res->qdepth);
-			}
-
-			len = strlen(buf);
-		} else if (tcq_active) {
-			len = -EINVAL;
-		}
-	}
-
-	spin_unlock_irqrestore(ioa_cfg->host->host_lock, lock_flags);
-	return len;
-}
-
-static struct device_attribute ipr_tcqing_attr = {
-	.attr = {
-		.name = 	"tcq_enable",
-		.mode =		S_IRUSR | S_IWUSR,
-	},
-	.store = ipr_store_tcq_enable,
-	.show = ipr_show_tcq_enable
-};
-
-/**
  * ipr_show_adapter_handle - Show the adapter's resource handle for this device
  * @dev:	device struct
  * @buf:	buffer
@@ -2835,7 +2760,6 @@ static struct device_attribute ipr_adapter_handle_attr = {
 };
 
 static struct device_attribute *ipr_dev_attrs[] = {
-	&ipr_tcqing_attr,
 	&ipr_adapter_handle_attr,
 	NULL,
 };
