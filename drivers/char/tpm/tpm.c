@@ -422,21 +422,24 @@ EXPORT_SYMBOL_GPL(tpm_open);
 int tpm_release(struct inode *inode, struct file *file)
 {
 	struct tpm_chip *chip = file->private_data;
+	
+	file->private_data = NULL;
 
 	spin_lock(&driver_lock);
 	chip->num_opens--;
+	spin_unlock(&driver_lock);
+
 	down(&chip->timer_manipulation_mutex);
 	if (timer_pending(&chip->user_read_timer))
 		del_singleshot_timer_sync(&chip->user_read_timer);
 	else if (timer_pending(&chip->device_timer))
 		del_singleshot_timer_sync(&chip->device_timer);
 	up(&chip->timer_manipulation_mutex);
+
 	kfree(chip->data_buffer);
 	atomic_set(&chip->data_pending, 0);
 
 	pci_dev_put(chip->pci_dev);
-	file->private_data = NULL;
-	spin_unlock(&driver_lock);
 	return 0;
 }
 
@@ -534,14 +537,14 @@ void __devexit tpm_remove(struct pci_dev *pci_dev)
 
 	list_del(&chip->list);
 
+	spin_unlock(&driver_lock);
+
 	pci_set_drvdata(pci_dev, NULL);
 	misc_deregister(&chip->vendor->miscdev);
 
 	device_remove_file(&pci_dev->dev, &dev_attr_pubek);
 	device_remove_file(&pci_dev->dev, &dev_attr_pcrs);
 	device_remove_file(&pci_dev->dev, &dev_attr_caps);
-
-	spin_unlock(&driver_lock);
 
 	pci_disable_device(pci_dev);
 
@@ -583,6 +586,7 @@ EXPORT_SYMBOL_GPL(tpm_pm_suspend);
 int tpm_pm_resume(struct pci_dev *pci_dev)
 {
 	struct tpm_chip *chip = pci_get_drvdata(pci_dev);
+
 	if (chip == NULL)
 		return -ENODEV;
 
@@ -650,15 +654,12 @@ dev_num_search_complete:
 	chip->vendor->miscdev.dev = &(pci_dev->dev);
 	chip->pci_dev = pci_dev_get(pci_dev);
 
-	spin_lock(&driver_lock);
-
 	if (misc_register(&chip->vendor->miscdev)) {
 		dev_err(&chip->pci_dev->dev,
 			"unable to misc_register %s, minor %d\n",
 			chip->vendor->miscdev.name,
 			chip->vendor->miscdev.minor);
 		pci_dev_put(pci_dev);
-		spin_unlock(&driver_lock);
 		kfree(chip);
 		dev_mask[i] &= !(1 << j);
 		return -ENODEV;
@@ -672,7 +673,6 @@ dev_num_search_complete:
 	device_create_file(&pci_dev->dev, &dev_attr_pcrs);
 	device_create_file(&pci_dev->dev, &dev_attr_caps);
 
-	spin_unlock(&driver_lock);
 	return 0;
 }
 
