@@ -389,9 +389,9 @@ snd_harmony_set_data_format(harmony_t *h, int fmt, int force)
 	}
 
 	if (force || o != n) {
-		snd_pcm_format_set_silence(fmt, h->sdma.area,
-					   SILENCE_BUFSZ / 
-					   (snd_pcm_format_physical_width(fmt) / 8));
+		snd_pcm_format_set_silence(fmt, h->sdma.area, SILENCE_BUFSZ / 
+					   (snd_pcm_format_physical_width(fmt)
+					    / 8));
 	}
 
 	return n;
