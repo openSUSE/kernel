@@ -790,7 +790,6 @@ static int mv643xx_eth_real_open(struct net_device *dev)
 	struct mv643xx_private *mp = netdev_priv(dev);
 	unsigned int port_num = mp->port_num;
 	unsigned int size;
-	int i;
 
 	/* Stop RX Queues */
 	mv_write(MV643XX_ETH_RECEIVE_QUEUE_COMMAND_REG(port_num), 0x0000ff00);
@@ -907,10 +906,6 @@ static int mv643xx_eth_real_open(struct net_device *dev)
 
 	mp->tx_int_coal =
 		eth_port_set_tx_coal(port_num, 133000000, MV643XX_TX_COAL);
-
-	/* wait up to 1 second for link to come up */
-	for (i = 0; i < 10 && !eth_port_link_is_up(port_num); i++)
-		msleep(100);	/* sleep 1/10 second */
 
 	netif_start_queue(dev);
 
