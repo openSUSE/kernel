@@ -1434,38 +1434,37 @@ static int nfs4_proc_commit(struct nfs_write_data *cdata)
  * opens the file O_RDONLY. This will all be resolved with the VFS changes.
  */
 
-static struct inode *
+static int
 nfs4_proc_create(struct inode *dir, struct dentry *dentry, struct iattr *sattr,
                  int flags)
 {
-	struct inode *inode;
 	struct nfs4_state *state;
 	struct rpc_cred *cred;
+	int status = 0;
 
 	cred = rpcauth_lookupcred(NFS_SERVER(dir)->client->cl_auth, 0);
-	if (IS_ERR(cred))
-		return (struct inode *)cred;
+	if (IS_ERR(cred)) {
+		status = PTR_ERR(cred);
+		goto out;
+	}
 	state = nfs4_do_open(dir, dentry, flags, sattr, cred);
 	put_rpccred(cred);
 	if (IS_ERR(state)) {
-		inode = (struct inode *)state;
+		status = PTR_ERR(state);
 		goto out;
 	}
-	inode = state->inode;
+	d_instantiate(dentry, state->inode);
 	if (flags & O_EXCL) {
 		struct nfs_fattr fattr;
-		int status;
 		status = nfs4_do_setattr(NFS_SERVER(dir), &fattr,
-		                     NFS_FH(inode), sattr, state);
+		                     NFS_FH(state->inode), sattr, state);
 		if (status == 0)
 			goto out;
-		iput(inode);
-		inode = ERR_PTR(status);
 	} else if (flags != 0)
 		goto out;
 	nfs4_close_state(state, flags);
 out:
-	return inode;
+	return status;
 }
 
 static int _nfs4_proc_remove(struct inode *dir, struct qstr *name)

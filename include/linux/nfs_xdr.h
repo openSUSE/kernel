@@ -682,7 +682,7 @@ struct nfs_rpc_ops {
 	int	(*read)    (struct nfs_read_data *);
 	int	(*write)   (struct nfs_write_data *);
 	int	(*commit)  (struct nfs_write_data *);
-	struct inode *	(*create)  (struct inode *, struct dentry *,
+	int	(*create)  (struct inode *, struct dentry *,
 			    struct iattr *, int);
 	int	(*remove)  (struct inode *, struct qstr *);
 	int	(*unlink_setup)  (struct rpc_message *,

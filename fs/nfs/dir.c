@@ -997,7 +997,6 @@ static int nfs_create(struct inode *dir, struct dentry *dentry, int mode,
 		struct nameidata *nd)
 {
 	struct iattr attr;
-	struct inode *inode;
 	int error;
 	int open_flags = 0;
 
@@ -1012,18 +1011,17 @@ static int nfs_create(struct inode *dir, struct dentry *dentry, int mode,
 
 	lock_kernel();
 	nfs_begin_data_update(dir);
-	inode = NFS_PROTO(dir)->create(dir, dentry, &attr, open_flags);
+	error = NFS_PROTO(dir)->create(dir, dentry, &attr, open_flags);
 	nfs_end_data_update(dir);
-	if (!IS_ERR(inode)) {
-		d_instantiate(dentry, inode);
-		nfs_renew_times(dentry);
-		nfs_set_verifier(dentry, nfs_save_change_attribute(dir));
-		error = 0;
-	} else {
-		error = PTR_ERR(inode);
-		d_drop(dentry);
-	}
+	if (error != 0)
+		goto out_err;
+	nfs_renew_times(dentry);
+	nfs_set_verifier(dentry, nfs_save_change_attribute(dir));
 	unlock_kernel();
+	return 0;
+out_err:
+	unlock_kernel();
+	d_drop(dentry);
 	return error;
 }
 

@@ -212,7 +212,7 @@ static int nfs_proc_write(struct nfs_write_data *wdata)
 	return status < 0? status : wdata->res.count;
 }
 
-static struct inode *
+static int
 nfs_proc_create(struct inode *dir, struct dentry *dentry, struct iattr *sattr,
 		int flags)
 {
@@ -233,15 +233,10 @@ nfs_proc_create(struct inode *dir, struct dentry *dentry, struct iattr *sattr,
 	fattr.valid = 0;
 	dprintk("NFS call  create %s\n", dentry->d_name.name);
 	status = rpc_call(NFS_CLIENT(dir), NFSPROC_CREATE, &arg, &res, 0);
+	if (status == 0)
+		status = nfs_instantiate(dentry, &fhandle, &fattr);
 	dprintk("NFS reply create: %d\n", status);
-	if (status == 0) {
-		struct inode *inode;
-		inode = nfs_fhget(dir->i_sb, &fhandle, &fattr);
-		if (inode)
-			return inode;
-		status = -ENOMEM;
-	}
-	return ERR_PTR(status);
+	return status;
 }
 
 /*
