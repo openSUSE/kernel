@@ -43,15 +43,13 @@ static char *sel_buffer;
    from interrupt (via scrollback/front) */
 
 /* set reverse video on characters s-e of console with selection. */
-inline static void
-highlight(const int s, const int e)
+static inline void highlight(const int s, const int e)
 {
 	invert_screen(sel_cons, s, e-s+2, 1);
 }
 
 /* use complementary color to show the pointer */
-inline static void
-highlight_pointer(const int where)
+static inline void highlight_pointer(const int where)
 {
 	complement_pos(sel_cons, where);
 }

@@ -33,10 +33,9 @@
 #include <linux/buffer_head.h>		/* for fsync_bdev() */
 
 #include <linux/spinlock.h>
+#include <linux/vt_kern.h>
 
 #include <asm/ptrace.h>
-
-extern void reset_vc(unsigned int);
 
 /* Whether we react on sysrq keys or just ignore them */
 int sysrq_enabled = 1;
@@ -68,7 +67,7 @@ static void sysrq_handle_SAK(int key, struct pt_regs *pt_regs,
 {
 	if (tty)
 		do_SAK(tty);
-	reset_vc(fg_console);
+	reset_vc(vc_cons[fg_console].d);
 }
 static struct sysrq_key_op sysrq_SAK_op = {
 	.handler	= sysrq_handle_SAK,

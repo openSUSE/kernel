@@ -217,7 +217,7 @@ static void sticon_init(struct vc_data *c, int init)
     } else {
 	/* vc_rows = (c->vc_rows > vc_rows) ? vc_rows : c->vc_rows; */
 	/* vc_cols = (c->vc_cols > vc_cols) ? vc_cols : c->vc_cols; */
-	vc_resize(c->vc_num, vc_cols, vc_rows); 
+	vc_resize(c, vc_cols, vc_rows);
 /*	vc_resize_con(vc_rows, vc_cols, c->vc_num); */
     }
 }

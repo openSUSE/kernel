@@ -52,14 +52,17 @@ vcs_size(struct inode *inode)
 	int size;
 	int minor = iminor(inode);
 	int currcons = minor & 127;
+	struct vc_data *vc;
+
 	if (currcons == 0)
 		currcons = fg_console;
 	else
 		currcons--;
 	if (!vc_cons_allocated(currcons))
 		return -ENXIO;
+	vc = vc_cons[currcons].d;
 
-	size = vc_cons[currcons].d->vc_rows * vc_cons[currcons].d->vc_cols;
+	size = vc->vc_rows * vc->vc_cols;
 
 	if (minor & 128)
 		size = 2*size + HEADER_SIZE;
@@ -442,7 +445,7 @@ vcs_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
 		buf += orig_count;
 		pos += orig_count;
 		if (org0)
-			update_region(currcons, (unsigned long)(org0), org-org0);
+			update_region(vc, (unsigned long)(org0), org - org0);
 	}
 	*ppos += written;
 	ret = written;

@@ -1559,7 +1559,7 @@ static int do_fontx_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg, 
 		    get_user(data, &user_cfd->chardata))
 			return -EFAULT;
 		op.data = compat_ptr(data);
-		return con_font_op(fg_console, &op);
+		return con_font_op(vc_cons[fg_console].d, &op);
 	case GIO_FONTX:
 		op.op = KD_FONT_OP_GET;
 		op.flags = 0;
@@ -1571,7 +1571,7 @@ static int do_fontx_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg, 
 		if (!data)
 			return 0;
 		op.data = compat_ptr(data);
-		i = con_font_op(fg_console, &op);
+		i = con_font_op(vc_cons[fg_console].d, &op);
 		if (i)
 			return i;
 		if (put_user(op.height, &user_cfd->charheight) ||
@@ -1608,7 +1608,7 @@ static int do_kdfontop_ioctl(unsigned int fd, unsigned int cmd, unsigned long ar
 	op.data = compat_ptr(((struct console_font_op32 *)&op)->data);
 	op.flags |= KD_FONT_FLAG_OLD;
 	vt = (struct vt_struct *)((struct tty_struct *)file->private_data)->driver_data;
-	i = con_font_op(vt->vc_num, &op);
+	i = con_font_op(vc_cons[vt->vc_num].d, &op);
 	if (i) return i;
 	((struct console_font_op32 *)&op)->data = (unsigned long)op.data;
 	if (copy_to_user(fontop, &op, sizeof(struct console_font_op32)))
@@ -1633,9 +1633,9 @@ static int do_unimap_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg,
 	switch (cmd) {
 	case PIO_UNIMAP:
 		if (!perm) return -EPERM;
-		return con_set_unimap(fg_console, tmp.entry_ct, compat_ptr(tmp.entries));
+		return con_set_unimap(vc_cons[fg_console].d, tmp.entry_ct, compat_ptr(tmp.entries));
 	case GIO_UNIMAP:
-		return con_get_unimap(fg_console, tmp.entry_ct, &(user_ud->entry_ct), compat_ptr(tmp.entries));
+		return con_get_unimap(vc_cons[fg_console].d, tmp.entry_ct, &(user_ud->entry_ct), compat_ptr(tmp.entries));
 	}
 	return 0;
 }
