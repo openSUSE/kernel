@@ -411,6 +411,7 @@ static ssize_t raw1394_read(struct file *file, char __user *buffer, size_t count
         struct file_info *fi = (struct file_info *)file->private_data;
         struct list_head *lh;
         struct pending_request *req;
+	ssize_t ret;
 
         if (count != sizeof(struct raw1394_request)) {
                 return -EINVAL;
@@ -443,10 +444,15 @@ static ssize_t raw1394_read(struct file *file, char __user *buffer, size_t count
                         req->req.error = RAW1394_ERROR_MEMFAULT;
                 }
         }
-        __copy_to_user(buffer, &req->req, sizeof(req->req));
+        if (copy_to_user(buffer, &req->req, sizeof(req->req))) {
+		ret = -EFAULT;
+		goto out;
+	}
 
+        ret = (ssize_t)sizeof(struct raw1394_request);
+out:
         free_pending_request(req);
-        return sizeof(struct raw1394_request);
+	return ret;
 }
 
 
