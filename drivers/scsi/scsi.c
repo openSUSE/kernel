@@ -88,12 +88,6 @@
 				COMMAND_SIZE((cmd)->cmnd[0]) : (cmd)->cmd_len)
 
 /*
- * Data declarations.
- */
-unsigned long scsi_pid;
-static unsigned long serial_number;
-
-/*
  * Note - the initial logging level can be set here to log events at boot time.
  * After the system is up, you may enable logging via the /proc interface.
  */
@@ -510,6 +504,21 @@ void scsi_log_completion(struct scsi_cmnd *cmd, int disposition)
 }
 #endif
 
+/* 
+ * Assign a serial number and pid to the request for error recovery
+ * and debugging purposes.  Protected by the Host_Lock of host.
+ */
+static inline void scsi_cmd_get_serial(struct Scsi_Host *host, struct scsi_cmnd *cmd)
+{
+	cmd->serial_number = host->cmd_serial_number++;
+	if (cmd->serial_number == 0) 
+		cmd->serial_number = host->cmd_serial_number++;
+	
+	cmd->pid = host->cmd_pid++;
+	if (cmd->pid == 0)
+		cmd->pid = host->cmd_pid++;
+}
+
 /*
  * Function:    scsi_dispatch_command
  *
@@ -557,13 +566,6 @@ int scsi_dispatch_cmd(struct scsi_cmnd *cmd)
 		goto out;
 	}
 
-	/* Assign a unique nonzero serial_number. */
-	/* XXX(hch): this is racy */
-	if (++serial_number == 0)
-		serial_number = 1;
-	cmd->serial_number = serial_number;
-	cmd->pid = scsi_pid++;
-
 	/* 
 	 * If SCSI-2 or lower, store the LUN value in cmnd.
 	 */
@@ -594,6 +596,10 @@ int scsi_dispatch_cmd(struct scsi_cmnd *cmd)
 		host->resetting = 0;
 	}
 
+	/* 
+	 * AK: unlikely race here: for some reason the timer could
+	 * expire before the serial number is set up below.
+	 */
 	scsi_add_timer(cmd, cmd->timeout_per_command, scsi_times_out);
 
 	scsi_log_send(cmd);
@@ -622,6 +628,8 @@ int scsi_dispatch_cmd(struct scsi_cmnd *cmd)
 	}
 
 	spin_lock_irqsave(host->host_lock, flags);
+	scsi_cmd_get_serial(host, cmd); 
+
 	if (unlikely(test_bit(SHOST_CANCEL, &host->shost_state))) {
 		cmd->result = (DID_NO_CONNECT << 16);
 		scsi_done(cmd);

@@ -483,7 +483,12 @@ struct Scsi_Host {
 	short unsigned int sg_tablesize;
 	short unsigned int max_sectors;
 	unsigned long dma_boundary;
-
+	/* 
+	 * Used to assign serial numbers to the cmds.
+	 * Protected by the host lock.
+	 */
+	unsigned long cmd_serial_number, cmd_pid; 
+	
 	unsigned unchecked_isa_dma:1;
 	unsigned use_clustering:1;
 	unsigned use_blk_tcq:1;

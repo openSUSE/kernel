@@ -54,6 +54,7 @@ struct scsi_cmnd {
 	 * completed and the SCSI Command structure has already being reused
 	 * for another command, so that we can avoid incorrectly aborting or
 	 * resetting the new command.
+	 * The serial number is only unique per host.
 	 */
 	unsigned long serial_number;
 	unsigned long serial_number_at_timeout;
@@ -139,7 +140,7 @@ struct scsi_cmnd {
 	int result;		/* Status code from lower level driver */
 
 	unsigned char tag;	/* SCSI-II queued command tag */
-	unsigned long pid;	/* Process ID, starts at 0 */
+	unsigned long pid;	/* Process ID, starts at 0. Unique per host. */
 };
 
 /*
