@@ -266,6 +266,7 @@ static void snd_emu10k1_pcm_init_voice(emu10k1_t *emu,
 	unsigned char send_routing[8];
 	unsigned long flags;
 	unsigned int pitch_target;
+	unsigned int ccis;
 
 	voice = evoice->number;
 	if (evoice->epcm->type == PLAYBACK_EFX) 
@@ -303,7 +304,7 @@ static void snd_emu10k1_pcm_init_voice(emu10k1_t *emu,
 		memcpy(send_amount, &mix->send_volume[tmp][0], 8);
 	}
 
-	unsigned int ccis = stereo ? 28 : 30;
+	ccis = stereo ? 28 : 30;
 	if (w_16)
 		ccis *= 2;
 	
@@ -492,6 +493,8 @@ static int snd_emu10k1_efx_playback_prepare(snd_pcm_substream_t * substream)
 	snd_pcm_runtime_t *runtime = substream->runtime;
 	emu10k1_pcm_t *epcm = runtime->private_data;
 	unsigned int start_addr, end_addr;
+	unsigned int channel_size;
+	int i;
 
 	start_addr = epcm->start_addr;
 	end_addr = epcm->start_addr + snd_pcm_lib_buffer_bytes(substream);
@@ -499,8 +502,6 @@ static int snd_emu10k1_efx_playback_prepare(snd_pcm_substream_t * substream)
 	/*
 	 * the kX driver leaves some space between voices
 	 */
-	unsigned int channel_size;
-	int i;
 	channel_size = ( end_addr - start_addr ) / NUM_EFX_PLAYBACK;
 
 	snd_emu10k1_pcm_init_voice(emu, 1, 1, epcm->extra,
