@@ -390,7 +390,7 @@ static snd_kcontrol_new_t snd_ak4114_iec958_controls[] = {
 	.access =	SNDRV_CTL_ELEM_ACCESS_READ | SNDRV_CTL_ELEM_ACCESS_VOLATILE,
 	.info =		snd_ak4114_spdif_info,
 	.get =		snd_ak4114_spdif_playback_get,
-	.get =		snd_ak4114_spdif_playback_put,
+	.put =		snd_ak4114_spdif_playback_put,
 },
 {
 	.iface =	SNDRV_CTL_ELEM_IFACE_PCM,
