@@ -1524,6 +1524,8 @@ static void sbp2_parse_unit_directory(struct scsi_id_instance_data *scsi_id,
 
 				SBP2_DEBUG("sbp2_management_agent_addr = %x",
 					   (unsigned int) management_agent_addr);
+			} else if (kv->key.type == CSR1212_KV_TYPE_IMMEDIATE) {
+				scsi_id->sbp2_device_type_and_lun = kv->value.immediate;
 			}
 			break;
 
@@ -1615,7 +1617,8 @@ static void sbp2_parse_unit_directory(struct scsi_id_instance_data *scsi_id,
 		scsi_id->sbp2_unit_characteristics = unit_characteristics;
 		scsi_id->sbp2_firmware_revision = firmware_revision;
 		scsi_id->workarounds = workarounds;
-		scsi_id->sbp2_device_type_and_lun = ud->lun;
+		if (ud->flags & UNIT_DIRECTORY_HAS_LUN)
+			scsi_id->sbp2_device_type_and_lun = ud->lun;
 	}
 }
 
