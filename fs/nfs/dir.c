@@ -1107,7 +1107,7 @@ static int nfs_sillyrename(struct inode *dir, struct dentry *dentry)
 	static unsigned int sillycounter;
 	const int      i_inosize  = sizeof(dir->i_ino)*2;
 	const int      countersize = sizeof(sillycounter)*2;
-	const int      slen       = strlen(".nfs") + i_inosize + countersize;
+	const int      slen       = sizeof(".nfs") + i_inosize + countersize - 1;
 	char           silly[slen+1];
 	struct qstr    qsilly;
 	struct dentry *sdentry;

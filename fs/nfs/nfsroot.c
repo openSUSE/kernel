@@ -385,9 +385,9 @@ int __init nfs_root_setup(char *line)
 	if (line[0] == '/' || line[0] == ',' || (line[0] >= '0' && line[0] <= '9')) {
 		strlcpy(nfs_root_name, line, sizeof(nfs_root_name));
 	} else {
-		int n = strlen(line) + strlen(NFS_ROOT);
+		int n = strlen(line) + sizeof(NFS_ROOT) - 1;
 		if (n >= sizeof(nfs_root_name))
-			line[sizeof(nfs_root_name) - strlen(NFS_ROOT) - 1] = '\0';
+			line[sizeof(nfs_root_name) - sizeof(NFS_ROOT) - 2] = '\0';
 		sprintf(nfs_root_name, NFS_ROOT, line);
 	}
 	root_server_addr = root_nfs_parse_addr(nfs_root_name);
