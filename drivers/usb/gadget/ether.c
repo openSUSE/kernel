@@ -1675,10 +1675,16 @@ rx_submit (struct eth_dev *dev, struct usb_request *req, int gfp_flags)
 #endif	
 	size -= size % dev->out_ep->maxpacket;
 
-	if ((skb = alloc_skb (size, gfp_flags)) == 0) {
+	if ((skb = alloc_skb (size + NET_IP_ALIGN, gfp_flags)) == 0) {
 		DEBUG (dev, "no rx skb\n");
 		goto enomem;
 	}
+	
+	/* Some platforms perform better when IP packets are aligned,
+	 * but on at least one, checksumming fails otherwise.  Note:
+	 * this doesn't account for variable-sized RNDIS headers.
+	 */
+	skb_reserve(skb, NET_IP_ALIGN);
 
 	req->buf = skb->data;
 	req->length = size;
