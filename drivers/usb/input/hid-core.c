@@ -1289,7 +1289,7 @@ static int hid_get_class_descriptor(struct usb_device *dev, int ifnum,
 	do {
 		result = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
 				USB_REQ_GET_DESCRIPTOR, USB_RECIP_INTERFACE | USB_DIR_IN,
-				(type << 8), ifnum, buf, size, HZ * USB_CTRL_GET_TIMEOUT);
+				(type << 8), ifnum, buf, size, USB_CTRL_GET_TIMEOUT);
 		retries--;
 	} while (result < size && retries);
 	return result;
@@ -1340,7 +1340,7 @@ void hid_init_reports(struct hid_device *hid)
 	 */
 	usb_control_msg(hid->dev, usb_sndctrlpipe(hid->dev, 0),
 			HID_REQ_SET_IDLE, USB_TYPE_CLASS | USB_RECIP_INTERFACE, (1 << 8),
-			hid->ifnum, NULL, 0, HZ * USB_CTRL_SET_TIMEOUT);
+			hid->ifnum, NULL, 0, USB_CTRL_SET_TIMEOUT);
 
 	report_enum = hid->report_enum + HID_INPUT_REPORT;
 	list = report_enum->report_list.next;
@@ -1382,7 +1382,7 @@ void hid_init_reports(struct hid_device *hid)
 		report = (struct hid_report *) list;
 		usb_control_msg(hid->dev, usb_sndctrlpipe(hid->dev, 0),
 			HID_REQ_SET_IDLE, USB_TYPE_CLASS | USB_RECIP_INTERFACE, report->id,
-			hid->ifnum, NULL, 0, HZ * USB_CTRL_SET_TIMEOUT);
+			hid->ifnum, NULL, 0, USB_CTRL_SET_TIMEOUT);
 		list = list->next;
 	}
 }
