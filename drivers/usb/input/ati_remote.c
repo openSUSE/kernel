@@ -94,6 +94,7 @@
 #include <linux/moduleparam.h>
 #include <linux/input.h>
 #include <linux/usb.h>
+#include <linux/wait.h>
 
 /*
  * Module and Version Information, Module Parameters
@@ -396,8 +397,6 @@ static void ati_remote_irq_out(struct urb *urb, struct pt_regs *regs)
  */
 static int ati_remote_sendpacket(struct ati_remote *ati_remote, u16 cmd, unsigned char *data)
 {
-	DECLARE_WAITQUEUE(wait, current);
-	int timeout = HZ;	/* 1 second */
 	int retval = 0;
 	
 	/* Set up out_urb */
@@ -415,18 +414,10 @@ static int ati_remote_sendpacket(struct ati_remote *ati_remote, u16 cmd, unsigne
 		return retval;
 	}
 
-	set_current_state(TASK_INTERRUPTIBLE);
-	add_wait_queue(&ati_remote->wait, &wait);
-
-	while (timeout && (ati_remote->out_urb->status == -EINPROGRESS) 
-	       && !(ati_remote->send_flags & SEND_FLAG_COMPLETE)) {
-		set_current_state(TASK_INTERRUPTIBLE);
-		timeout = schedule_timeout(timeout);
-		rmb();
-	}
-
-	set_current_state(TASK_RUNNING);
-	remove_wait_queue(&ati_remote->wait, &wait);
+	wait_event_timeout(ati_remote->wait,
+		((ati_remote->out_urb->status != -EINPROGRESS) ||
+		 	(ati_remote->send_flags & SEND_FLAG_COMPLETE)),
+		HZ);
 	usb_kill_urb(ati_remote->out_urb);
 	
 	return retval;
