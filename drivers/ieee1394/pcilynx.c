@@ -1522,10 +1522,6 @@ static int __devinit add_card(struct pci_dev *dev,
         int i;
         int error;
 
-        /* needed for i2c communication with serial eeprom */
-        struct i2c_adapter i2c_adapter;
-        struct i2c_algo_bit_data i2c_adapter_data;
-
         error = -ENXIO;
 
         if (pci_set_dma_mask(dev, 0xffffffff))
@@ -1803,9 +1799,17 @@ static int __devinit add_card(struct pci_dev *dev,
 	
         if (!skip_eeprom)
         {
-                i2c_adapter = bit_ops;
+        	/* needed for i2c communication with serial eeprom */
+        	struct i2c_adapter *i2c_ad;
+        	struct i2c_algo_bit_data i2c_adapter_data;
+
+        	error = -ENOMEM;
+		i2c_ad = kmalloc(sizeof(struct i2c_adapter), SLAB_KERNEL);
+        	if (!i2c_ad) FAIL("failed to allocate I2C adapter memory");
+
+		memcpy(i2c_ad, &bit_ops, sizeof(struct i2c_adapter));
                 i2c_adapter_data = bit_data;
-                i2c_adapter.algo_data = &i2c_adapter_data;
+                i2c_ad->algo_data = &i2c_adapter_data;
                 i2c_adapter_data.data = lynx;
 
 		PRINTD(KERN_DEBUG, lynx->id,"original eeprom control: %d",
@@ -1815,8 +1819,9 @@ static int __devinit add_card(struct pci_dev *dev,
         	lynx->i2c_driven_state = 0x00000070;
         	reg_write(lynx, SERIAL_EEPROM_CONTROL, lynx->i2c_driven_state);
 
-        	if (i2c_bit_add_bus(&i2c_adapter) < 0)
+        	if (i2c_bit_add_bus(i2c_ad) < 0)
         	{
+			kfree(i2c_ad);
 			error = -ENXIO;
 			FAIL("unable to register i2c");
         	}
@@ -1832,13 +1837,13 @@ static int __devinit add_card(struct pci_dev *dev,
 #ifdef CONFIG_IEEE1394_VERBOSEDEBUG
                         union i2c_smbus_data data;
 
-                        if (i2c_smbus_xfer(&i2c_adapter, 80, 0, I2C_SMBUS_WRITE, 0, I2C_SMBUS_BYTE,NULL))
+                        if (i2c_smbus_xfer(i2c_ad, 80, 0, I2C_SMBUS_WRITE, 0, I2C_SMBUS_BYTE,NULL))
                                 PRINT(KERN_ERR, lynx->id,"eeprom read start has failed");
                         else
                         {
                                 u16 addr;
                                 for (addr=0x00; addr < 0x100; addr++) {
-                                        if (i2c_smbus_xfer(&i2c_adapter, 80, 0, I2C_SMBUS_READ, 0, I2C_SMBUS_BYTE,& data)) {
+                                        if (i2c_smbus_xfer(i2c_ad, 80, 0, I2C_SMBUS_READ, 0, I2C_SMBUS_BYTE,& data)) {
                                                 PRINT(KERN_ERR, lynx->id, "unable to read i2c %x", addr);
                                                 break;
                                         }
@@ -1850,7 +1855,7 @@ static int __devinit add_card(struct pci_dev *dev,
 
                         /* we use i2c_transfer, because i2c_smbus_read_block_data does not work properly and we
                            do it more efficiently in one transaction rather then using several reads */
-                        if (i2c_transfer(&i2c_adapter, msg, 2) < 0) {
+                        if (i2c_transfer(i2c_ad, msg, 2) < 0) {
                                 PRINT(KERN_ERR, lynx->id, "unable to read bus info block from i2c");
                         } else {
                                 int i;
@@ -1870,13 +1875,15 @@ static int __devinit add_card(struct pci_dev *dev,
                                 {
                                         PRINT(KERN_DEBUG, lynx->id, "read a valid bus info block from");
                                 } else {
+					kfree(i2c_ad);
 					error = -ENXIO;
 					FAIL("read something from serial eeprom, but it does not seem to be a valid bus info block");
                                 }
 
                         }
 
-                        i2c_bit_del_bus(&i2c_adapter);
+                        i2c_bit_del_bus(i2c_ad);
+			kfree(i2c_ad);
                 }
         }
 
