@@ -60,8 +60,8 @@
 
 #define DRV_MODULE_NAME		"tg3"
 #define PFX DRV_MODULE_NAME	": "
-#define DRV_MODULE_VERSION	"3.23"
-#define DRV_MODULE_RELDATE	"February 15, 2005"
+#define DRV_MODULE_VERSION	"3.24"
+#define DRV_MODULE_RELDATE	"March 4, 2005"
 
 #define TG3_DEF_MAC_MODE	0
 #define TG3_DEF_RX_MODE		0
@@ -3697,8 +3697,9 @@ static void tg3_nvram_unlock(struct tg3 *tp)
 /* tp->lock is held. */
 static void tg3_write_sig_pre_reset(struct tg3 *tp, int kind)
 {
-	tg3_write_mem(tp, NIC_SRAM_FIRMWARE_MBOX,
-		      NIC_SRAM_FIRMWARE_MBOX_MAGIC1);
+	if (!(tp->tg3_flags2 & TG3_FLG2_SUN_570X))
+		tg3_write_mem(tp, NIC_SRAM_FIRMWARE_MBOX,
+			      NIC_SRAM_FIRMWARE_MBOX_MAGIC1);
 
 	if (tp->tg3_flags2 & TG3_FLG2_ASF_NEW_HANDSHAKE) {
 		switch (kind) {
@@ -3902,19 +3903,20 @@ static int tg3_chip_reset(struct tg3 *tp)
 		tw32_f(MAC_MODE, 0);
 	udelay(40);
 
-	/* Wait for firmware initialization to complete. */
-	for (i = 0; i < 100000; i++) {
-		tg3_read_mem(tp, NIC_SRAM_FIRMWARE_MBOX, &val);
-		if (val == ~NIC_SRAM_FIRMWARE_MBOX_MAGIC1)
-			break;
-		udelay(10);
-	}
-	if (i >= 100000 &&
-	    !(tp->tg3_flags2 & TG3_FLG2_SUN_570X)) {
-		printk(KERN_ERR PFX "tg3_reset_hw timed out for %s, "
-		       "firmware will not restart magic=%08x\n",
-		       tp->dev->name, val);
-		return -ENODEV;
+	if (!(tp->tg3_flags2 & TG3_FLG2_SUN_570X)) {
+		/* Wait for firmware initialization to complete. */
+		for (i = 0; i < 100000; i++) {
+			tg3_read_mem(tp, NIC_SRAM_FIRMWARE_MBOX, &val);
+			if (val == ~NIC_SRAM_FIRMWARE_MBOX_MAGIC1)
+				break;
+			udelay(10);
+		}
+		if (i >= 100000) {
+			printk(KERN_ERR PFX "tg3_reset_hw timed out for %s, "
+			       "firmware will not restart magic=%08x\n",
+			       tp->dev->name, val);
+			return -ENODEV;
+		}
 	}
 
 	if ((tp->tg3_flags2 & TG3_FLG2_PCI_EXPRESS) &&
