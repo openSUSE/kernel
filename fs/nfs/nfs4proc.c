@@ -682,7 +682,6 @@ static void nfs4_close_done(struct rpc_task *task)
 	nfs4_increment_seqid(task->tk_status, sp);
 	switch (task->tk_status) {
 		case 0:
-			state->state = calldata->arg.open_flags;
 			memcpy(&state->stateid, &calldata->res.stateid,
 					sizeof(state->stateid));
 			break;
@@ -697,6 +696,7 @@ static void nfs4_close_done(struct rpc_task *task)
 				return;
 			}
 	}
+	state->state = calldata->arg.open_flags;
 	nfs4_put_open_state(state);
 	up(&sp->so_sema);
 	nfs4_put_state_owner(sp);
