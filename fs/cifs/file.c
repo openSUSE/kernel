@@ -1198,6 +1198,7 @@ cifs_user_read(struct file * file, char __user *read_data, size_t read_size,
 	return total_read;
 }
 
+
 static ssize_t
 cifs_read(struct file * file, char *read_data, size_t read_size,
 	  loff_t * poffset)
@@ -1291,6 +1292,7 @@ int cifs_file_mmap(struct file * file, struct vm_area_struct * vma)
 	FreeXid(xid);
 	return rc;
 }
+
 
 static void cifs_copy_cache_pages(struct address_space *mapping, 
 		struct list_head *pages, int bytes_read, 
@@ -1581,179 +1583,6 @@ int is_size_safe_to_change(struct cifsInodeInfo * cifsInode)
 	return rc;
 }
 
-
-void
-fill_in_inode(struct inode *tmp_inode,
-	      FILE_DIRECTORY_INFO * pfindData, int *pobject_type)
-{
-	struct cifsInodeInfo *cifsInfo = CIFS_I(tmp_inode);
-	struct cifs_sb_info *cifs_sb = CIFS_SB(tmp_inode->i_sb);
-	__u32 attr = le32_to_cpu(pfindData->ExtFileAttributes);
-	__u64 allocation_size = le64_to_cpu(pfindData->AllocationSize);
-	__u64 end_of_file = le64_to_cpu(pfindData->EndOfFile);
-
-	cifsInfo->cifsAttrs = attr;
-	cifsInfo->time = jiffies;
-
-	/* Linux can not store file creation time unfortunately so ignore it */
-	tmp_inode->i_atime =
-	    cifs_NTtimeToUnix(le64_to_cpu(pfindData->LastAccessTime));
-	tmp_inode->i_mtime =
-	    cifs_NTtimeToUnix(le64_to_cpu(pfindData->LastWriteTime));
-	tmp_inode->i_ctime =
-	    cifs_NTtimeToUnix(le64_to_cpu(pfindData->ChangeTime));
-	/* treat dos attribute of read-only as read-only mode bit e.g. 555? */
-	/* 2767 perms - indicate mandatory locking */
-		/* BB fill in uid and gid here? with help from winbind? 
-			or retrieve from NTFS stream extended attribute */
-	if(atomic_read(&cifsInfo->inUse) == 0) {
-		tmp_inode->i_uid = cifs_sb->mnt_uid;
-		tmp_inode->i_gid = cifs_sb->mnt_gid;
-		/* set default mode. will override for dirs below */
-		tmp_inode->i_mode = cifs_sb->mnt_file_mode;
-	}
-
-	cFYI(0,
-	     ("CIFS FFIRST: Attributes came in as 0x%x",
-	      attr));
-	if (attr & ATTR_DIRECTORY) {
-		*pobject_type = DT_DIR;
-		/* override default perms since we do not lock dirs */
-		if(atomic_read(&cifsInfo->inUse) == 0) {
-			tmp_inode->i_mode = cifs_sb->mnt_dir_mode;
-		}
-		tmp_inode->i_mode |= S_IFDIR;
-/* we no longer mark these because we could not follow them */
-/*        } else if (attr & ATTR_REPARSE) {
-                *pobject_type = DT_LNK;
-                tmp_inode->i_mode |= S_IFLNK;*/
-	} else {
-		*pobject_type = DT_REG;
-		tmp_inode->i_mode |= S_IFREG;
-		if(attr & ATTR_READONLY)
-			tmp_inode->i_mode &= ~(S_IWUGO);
-	}/* could add code here - to validate if device or weird share type? */
-
-	/* can not fill in nlink here as in qpathinfo version and Unx search */
-	if(atomic_read(&cifsInfo->inUse) == 0) {
-		atomic_set(&cifsInfo->inUse,1);
-	}
-
-	if(is_size_safe_to_change(cifsInfo)) {
-		/* can not safely change the file size here if the 
-		client is writing to it due to potential races */
-		i_size_write(tmp_inode,end_of_file);
-
-	/* 512 bytes (2**9) is the fake blocksize that must be used */
-	/* for this calculation, even though the reported blocksize is larger */
-		tmp_inode->i_blocks = (512 - 1 + allocation_size) >> 9;
-	}
-
-	if (allocation_size < end_of_file)
-		cFYI(1, ("Possible sparse file: allocation size less than end of file "));
-	cFYI(1,
-	     ("File Size %ld and blocks %ld and blocksize %ld",
-	      (unsigned long) tmp_inode->i_size, tmp_inode->i_blocks,
-	      tmp_inode->i_blksize));
-	if (S_ISREG(tmp_inode->i_mode)) {
-		cFYI(1, (" File inode "));
-		tmp_inode->i_op = &cifs_file_inode_ops;
-		tmp_inode->i_fop = &cifs_file_ops;
-		tmp_inode->i_data.a_ops = &cifs_addr_ops;
-	} else if (S_ISDIR(tmp_inode->i_mode)) {
-		cFYI(1, (" Directory inode"));
-		tmp_inode->i_op = &cifs_dir_inode_ops;
-		tmp_inode->i_fop = &cifs_dir_ops;
-	} else if (S_ISLNK(tmp_inode->i_mode)) {
-		cFYI(1, (" Symbolic Link inode "));
-		tmp_inode->i_op = &cifs_symlink_inode_ops;
-	} else {
-		cFYI(1, (" Init special inode "));
-		init_special_inode(tmp_inode, tmp_inode->i_mode,
-				   tmp_inode->i_rdev);
-	}
-}
-
-void
-unix_fill_in_inode(struct inode *tmp_inode,
-		   FILE_UNIX_INFO * pfindData, int *pobject_type)
-{
-	struct cifsInodeInfo *cifsInfo = CIFS_I(tmp_inode);
-	__u32 type = le32_to_cpu(pfindData->Type);
-	__u64 num_of_bytes = le64_to_cpu(pfindData->NumOfBytes);
-	__u64 end_of_file = le64_to_cpu(pfindData->EndOfFile);
-	cifsInfo->time = jiffies;
-	atomic_inc(&cifsInfo->inUse);
-
-	tmp_inode->i_atime =
-	    cifs_NTtimeToUnix(le64_to_cpu(pfindData->LastAccessTime));
-	tmp_inode->i_mtime =
-	    cifs_NTtimeToUnix(le64_to_cpu(pfindData->LastModificationTime));
-	tmp_inode->i_ctime =
-	    cifs_NTtimeToUnix(le64_to_cpu(pfindData->LastStatusChange));
-
-	tmp_inode->i_mode = le64_to_cpu(pfindData->Permissions);
-	if (type == UNIX_FILE) {
-		*pobject_type = DT_REG;
-		tmp_inode->i_mode |= S_IFREG;
-	} else if (type == UNIX_SYMLINK) {
-		*pobject_type = DT_LNK;
-		tmp_inode->i_mode |= S_IFLNK;
-	} else if (type == UNIX_DIR) {
-		*pobject_type = DT_DIR;
-		tmp_inode->i_mode |= S_IFDIR;
-	} else if (type == UNIX_CHARDEV) {
-		*pobject_type = DT_CHR;
-		tmp_inode->i_mode |= S_IFCHR;
-		tmp_inode->i_rdev = MKDEV(le64_to_cpu(pfindData->DevMajor),
-				le64_to_cpu(pfindData->DevMinor) & MINORMASK);
-	} else if (type == UNIX_BLOCKDEV) {
-		*pobject_type = DT_BLK;
-		tmp_inode->i_mode |= S_IFBLK;
-		tmp_inode->i_rdev = MKDEV(le64_to_cpu(pfindData->DevMajor),
-				le64_to_cpu(pfindData->DevMinor) & MINORMASK);
-	} else if (type == UNIX_FIFO) {
-		*pobject_type = DT_FIFO;
-		tmp_inode->i_mode |= S_IFIFO;
-	} else if (type == UNIX_SOCKET) {
-		*pobject_type = DT_SOCK;
-		tmp_inode->i_mode |= S_IFSOCK;
-	}
-
-	tmp_inode->i_uid = le64_to_cpu(pfindData->Uid);
-	tmp_inode->i_gid = le64_to_cpu(pfindData->Gid);
-	tmp_inode->i_nlink = le64_to_cpu(pfindData->Nlinks);
-
-
-	if(is_size_safe_to_change(cifsInfo)) {
-		/* can not safely change the file size here if the 
-		client is writing to it due to potential races */
-		i_size_write(tmp_inode,end_of_file);
-
-	/* 512 bytes (2**9) is the fake blocksize that must be used */
-	/* for this calculation, not the real blocksize */
-		tmp_inode->i_blocks = (512 - 1 + num_of_bytes) >> 9;
-	}
-
-	if (S_ISREG(tmp_inode->i_mode)) {
-		cFYI(1, ("File inode"));
-		tmp_inode->i_op = &cifs_file_inode_ops;
-		tmp_inode->i_fop = &cifs_file_ops;
-		tmp_inode->i_data.a_ops = &cifs_addr_ops;
-	} else if (S_ISDIR(tmp_inode->i_mode)) {
-		cFYI(1, ("Directory inode"));
-		tmp_inode->i_op = &cifs_dir_inode_ops;
-		tmp_inode->i_fop = &cifs_dir_ops;
-	} else if (S_ISLNK(tmp_inode->i_mode)) {
-		cFYI(1, ("Symbolic Link inode"));
-		tmp_inode->i_op = &cifs_symlink_inode_ops;
-/* tmp_inode->i_fop = *//* do not need to set to anything */
-	} else {
-		cFYI(1, ("Special inode")); 
-		init_special_inode(tmp_inode, tmp_inode->i_mode,
-				   tmp_inode->i_rdev);
-	}
-}
 
 static int cifs_prepare_write(struct file *file, struct page *page,
 			unsigned from, unsigned to)
