@@ -75,8 +75,6 @@ struct io_space io_space[MAX_IO_SPACES];
 EXPORT_SYMBOL(io_space);
 unsigned int num_io_spaces;
 
-unsigned char aux_device_present = 0xaa;        /* XXX remove this when legacy I/O is gone */
-
 /*
  * The merge_mask variable needs to be set to (max(iommu_page_size(iommu)) - 1).  This
  * mask specifies a mask of address bits that must be 0 in order for two buffers to be

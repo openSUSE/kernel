@@ -118,8 +118,6 @@ struct edid_info edid_info;
 struct ist_info ist_info;
 struct e820map e820;
 
-unsigned char aux_device_present;
-
 extern void early_cpu_init(void);
 extern void dmi_scan_machine(void);
 extern void generic_apic_probe(char *);
@@ -1430,7 +1428,6 @@ void __init setup_arch(char **cmdline_p)
 		machine_submodel_id = SYS_DESC_TABLE.table[1];
 		BIOS_revision = SYS_DESC_TABLE.table[2];
 	}
-	aux_device_present = AUX_DEVICE_INFO;
 	bootloader_type = LOADER_TYPE;
 
 #ifdef CONFIG_BLK_DEV_RAM
