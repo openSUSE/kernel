@@ -1172,10 +1172,8 @@ int __break_lease(struct inode *inode, unsigned int mode)
 		if (fl->fl_type != future) {
 			fl->fl_type = future;
 			fl->fl_break_time = break_time;
-			if (fl->fl_lmops && fl->fl_lmops->fl_break)
-				fl->fl_lmops->fl_break(fl);
-			else    /* lease must have lmops break callback */
-				BUG();
+			/* lease must have lmops break callback */
+			fl->fl_lmops->fl_break(fl);
 		}
 	}
 
