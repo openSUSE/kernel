@@ -228,7 +228,7 @@ struct initvalues {
 	__u8 addr, value;
 };
 
-static struct initvalues ibm_initregs[] __initdata = {
+static struct initvalues ibm_initregs[] __devinitdata = {
 	{ CLKCTL,	0x21 },
 	{ SYNCCTL,	0x00 },
 	{ HSYNCPOS,	0x00 },
@@ -275,7 +275,7 @@ static struct initvalues ibm_initregs[] __initdata = {
 	{ KEYCTL,	0x00 }
 };
 
-static struct initvalues tvp_initregs[] __initdata = {
+static struct initvalues tvp_initregs[] __devinitdata = {
 	{ TVPIRICC,	0x00 },
 	{ TVPIRBRC,	0xe4 },
 	{ TVPIRLAC,	0x06 },
@@ -338,7 +338,7 @@ enum {
 static int inverse = 0;
 static char fontname[40] __initdata = { 0 };
 #if defined(CONFIG_PPC)
-static signed char init_vmode __initdata = -1, init_cmode __initdata = -1;
+static signed char init_vmode __devinitdata = -1, init_cmode __devinitdata = -1;
 #endif
 
 static struct imstt_regvals tvp_reg_init_2 = {
@@ -1348,7 +1348,7 @@ static struct fb_ops imsttfb_ops = {
 	.fb_ioctl 	= imsttfb_ioctl,
 };
 
-static void __init 
+static void __devinit
 init_imstt(struct fb_info *info)
 {
 	struct imstt_par *par = (struct imstt_par *) info->par;
