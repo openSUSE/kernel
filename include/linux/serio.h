@@ -10,12 +10,12 @@
  */
 
 #include <linux/ioctl.h>
-#include <linux/interrupt.h>
 
 #define SPIOCSTYPE	_IOW('q', 0x01, unsigned long)
 
 #ifdef __KERNEL__
 
+#include <linux/interrupt.h>
 #include <linux/list.h>
 #include <linux/spinlock.h>
 #include <linux/device.h>
