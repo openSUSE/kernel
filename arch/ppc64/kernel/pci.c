@@ -300,19 +300,15 @@ int pci_domain_nr(struct pci_bus *bus)
 
 EXPORT_SYMBOL(pci_domain_nr);
 
-/* Set the name of the bus as it appears in /proc/bus/pci */
-int pci_name_bus(char *name, struct pci_bus *bus)
+/* Decide whether to display the domain number in /proc */
+int pci_proc_domain(struct pci_bus *bus)
 {
-#ifndef CONFIG_PPC_ISERIES
-	struct pci_controller *hose = pci_bus_to_host(bus);
-
-	if (hose->buid)
-		sprintf(name, "%04x:%02x", pci_domain_nr(bus), bus->number);
-	else
-#endif
-		sprintf(name, "%02x", bus->number);
-
+#ifdef CONFIG_PPC_ISERIES
 	return 0;
+#else
+	struct pci_controller *hose = pci_bus_to_host(bus);
+	return hose->buid;
+#endif
 }
 
 /*

@@ -79,7 +79,7 @@ static void sis_delayed_enable(u32 mode)
 	printk(KERN_INFO PFX "Found an AGP %d.%d compliant device at %s.\n",
 		agp_bridge->major_version,
 		agp_bridge->minor_version,
-		agp_bridge->dev->slot_name);
+		pci_name(agp_bridge->dev));
 
 	pci_read_config_dword(agp_bridge->dev, agp_bridge->capndx + PCI_AGP_STATUS, &command);
 	command = agp_collect_device_status(mode, command);
