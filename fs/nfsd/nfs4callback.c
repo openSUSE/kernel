@@ -498,7 +498,6 @@ nfs4_cb_recall_done(struct rpc_task *task)
 {
 	struct nfs4_cb_recall *cbr = (struct nfs4_cb_recall *)task->tk_calldata;
 	struct nfs4_delegation *dp = cbr->cbr_dp;
-	int status;
 
 	/* all is well... */
 	if (task->tk_status == 0)
@@ -536,15 +535,14 @@ retry:
 	/* sleep 2 seconds before retrying recall */
 	set_current_state(TASK_UNINTERRUPTIBLE);
 	schedule_timeout(2*HZ);
-	status = nfsd4_cb_recall(dp);
-	dprintk("NFSD: nfs4_cb_recall_done: retry status: %d  dp %p dl_flock %p\n",status,dp, dp->dl_flock);
+	nfsd4_cb_recall(dp);
 }
 
 /*
  * called with dp->dl_count inc'ed.
  * nfs4_lock_state() may or may not have been called.
  */
-int
+void
 nfsd4_cb_recall(struct nfs4_delegation *dp)
 {
 	struct nfs4_client *clp;
@@ -559,26 +557,21 @@ nfsd4_cb_recall(struct nfs4_delegation *dp)
 
 	clp = dp->dl_client;
 	clnt = clp->cl_callback.cb_client;
-	status = EIO;
 	if ((!atomic_read(&clp->cl_callback.cb_set)) || !clnt)
-		goto out_fail;
+		return;
 
 	msg.rpc_argp = cbr;
 	msg.rpc_resp = cbr;
 	msg.rpc_cred = nfsd4_lookupcred(clp,0);
+	if (IS_ERR(msg.rpc_cred))
+		return;
 
 	cbr->cbr_trunc = 0; /* XXX need to implement truncate optimization */
 	cbr->cbr_dp = dp;
 
 	if ((status = rpc_call_async(clnt, &msg, RPC_TASK_SOFT,
-		nfs4_cb_recall_done, cbr ))) {
+		nfs4_cb_recall_done, cbr )))
 		dprintk("NFSD: recall_delegation: rpc_call_async failed %d\n",
 			status);
-		goto out_fail;
-	}
-out:
-	return status;
-out_fail:
-	status = nfserrno(status);
-	goto out;
+	return;
 }
