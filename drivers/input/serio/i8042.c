@@ -900,7 +900,7 @@ static long i8042_panic_blink(long count)
  * Here we try to restore the original BIOS settings
  */
 
-static int i8042_suspend(struct device *dev, u32 state, u32 level)
+static int i8042_suspend(struct device *dev, pm_message_t state, u32 level)
 {
 	if (level == SUSPEND_DISABLE) {
 		del_timer_sync(&i8042_timer);
@@ -932,12 +932,12 @@ static int i8042_resume(struct device *dev, u32 level)
 			printk(KERN_WARNING "i8042: failed to resume active multiplexor, mouse won't work.\n");
 
 /*
- * Reconnect anything that was connected to the ports.
+ * Activate all ports.
  */
 
 	for (i = 0; i < I8042_NUM_PORTS; i++)
-		if (i8042_activate_port(&i8042_ports[i]) == 0)
-			serio_reconnect(i8042_ports[i].serio);
+		i8042_activate_port(&i8042_ports[i]);
+
 /*
  * Restart timer (for polling "stuck" data)
  */

@@ -774,6 +774,22 @@ static int serio_hotplug(struct device *dev, char **envp, int num_envp, char *bu
 
 #endif /* CONFIG_HOTPLUG */
 
+static int serio_resume(struct device *dev)
+{
+	struct serio *serio = to_serio_port(dev);
+
+	if (!serio->drv || !serio->drv->reconnect || serio->drv->reconnect(serio)) {
+		serio_disconnect_port(serio);
+		/*
+		 * Driver re-probing can take a while, so better let kseriod
+		 * deal with it.
+		 */
+		serio_rescan(serio);
+	}
+
+	return 0;
+}
+
 /* called from serio_driver->connect/disconnect methods under serio_sem */
 int serio_open(struct serio *serio, struct serio_driver *drv)
 {
@@ -826,6 +842,7 @@ static int __init serio_init(void)
 	serio_bus.drv_attrs = serio_driver_attrs;
 	serio_bus.match = serio_bus_match;
 	serio_bus.hotplug = serio_hotplug;
+	serio_bus.resume = serio_resume;
 	bus_register(&serio_bus);
 
 	return 0;
