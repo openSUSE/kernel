@@ -756,12 +756,12 @@ static int sixpack_ioctl(struct tty_struct *tty, struct file *file,
 
 	switch(cmd) {
 	case SIOCGIFNAME:
-		err = copy_to_user((void *) arg, dev->name,
+		err = copy_to_user((void __user *) arg, dev->name,
 		                   strlen(dev->name) + 1) ? -EFAULT : 0;
 		break;
 
 	case SIOCGIFENCAP:
-		err = put_user(0, (int __user *)arg);
+		err = put_user(0, (int __user *) arg);
 		break;
 
 	case SIOCSIFENCAP:
