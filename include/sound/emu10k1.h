@@ -710,9 +710,10 @@
 #define A_FXWC2			0x75		/* Selects 0x9f-0x80 for FX recording           */
 
 #define A_SPDIF_SAMPLERATE	0x76		/* Set the sample rate of SPDIF output		*/
-#define A_SPDIF_48000		0x00000080
-#define A_SPDIF_44100		0x00000000
-#define A_SPDIF_96000		0x00000040
+#define A_SPDIF_RATE_MASK	0x000000c0
+#define A_SPDIF_48000		0x00000000
+#define A_SPDIF_44100		0x00000040
+#define A_SPDIF_96000		0x00000080
 
 #define A_FXRT2			0x7c
 #define A_FXRT_CHANNELE		0x0000003f	/* Effects send bus number for channel's effects send E	*/
