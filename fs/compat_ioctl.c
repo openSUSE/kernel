@@ -1597,7 +1597,7 @@ static int do_kdfontop_ioctl(unsigned int fd, unsigned int cmd, unsigned long ar
 	struct console_font_op op;
 	struct console_font_op32 __user *fontop = compat_ptr(arg);
 	int perm = vt_check(file), i;
-	struct vt_struct *vt;
+	struct vc_data *vc;
 	
 	if (perm < 0) return perm;
 	
@@ -1607,9 +1607,10 @@ static int do_kdfontop_ioctl(unsigned int fd, unsigned int cmd, unsigned long ar
 		return -EPERM;
 	op.data = compat_ptr(((struct console_font_op32 *)&op)->data);
 	op.flags |= KD_FONT_FLAG_OLD;
-	vt = (struct vt_struct *)((struct tty_struct *)file->private_data)->driver_data;
-	i = con_font_op(vc_cons[vt->vc_num].d, &op);
-	if (i) return i;
+	vc = ((struct tty_struct *)file->private_data)->driver_data;
+	i = con_font_op(vc, &op);
+	if (i)
+		return i;
 	((struct console_font_op32 *)&op)->data = (unsigned long)op.data;
 	if (copy_to_user(fontop, &op, sizeof(struct console_font_op32)))
 		return -EFAULT;

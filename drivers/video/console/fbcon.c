@@ -203,7 +203,7 @@ static irqreturn_t fb_vbl_detect(int irq, void *dummy, struct pt_regs *fp)
 static inline int fbcon_is_inactive(struct vc_data *vc, struct fb_info *info)
 {
 	return (info->state != FBINFO_STATE_RUNNING ||
-		vt_cons[vc->vc_num]->vc_mode != KD_TEXT);
+		vc->vc_mode != KD_TEXT);
 }
 
 static inline int get_color(struct vc_data *vc, struct fb_info *info,
@@ -456,7 +456,7 @@ static void fbcon_prepare_logo(struct vc_data *vc, struct fb_info *info,
 		    erase,
 		    vc->vc_size_row * logo_lines);
 
-	if (CON_IS_VISIBLE(vc) && vt_cons[vc->vc_num]->vc_mode == KD_TEXT) {
+	if (CON_IS_VISIBLE(vc) && vc->vc_mode == KD_TEXT) {
 		fbcon_clear_margins(vc, 0);
 		update_screen(vc);
 	}
@@ -2209,7 +2209,7 @@ static int fbcon_do_set_font(struct vc_data *vc, int w, int h,
 			}
 		}
 	} else if (CON_IS_VISIBLE(vc)
-		   && vt_cons[vc->vc_num]->vc_mode == KD_TEXT) {
+		   && vc->vc_mode == KD_TEXT) {
 		fbcon_clear_margins(vc, 0);
 		update_screen(vc);
 	}
@@ -2436,7 +2436,7 @@ static int fbcon_scrolldelta(struct vc_data *vc, int lines)
 	if (softback_top) {
 		if (vc->vc_num != fg_console)
 			return 0;
-		if (vt_cons[vc->vc_num]->vc_mode != KD_TEXT || !lines)
+		if (vc->vc_mode != KD_TEXT || !lines)
 			return 0;
 		if (logo_shown >= 0) {
 			struct vc_data *conp2 = vc_cons[logo_shown].d;
@@ -2553,11 +2553,11 @@ static void fbcon_modechanged(struct fb_info *info)
 	struct display *p;
 	int rows, cols;
 
-	if (!ops || ops->currcon < 0 || vt_cons[ops->currcon]->vc_mode !=
-	    KD_TEXT || registered_fb[con2fb_map[ops->currcon]] != info)
+	if (!ops || ops->currcon < 0)
 		return;
-
 	vc = vc_cons[ops->currcon].d;
+	if (vc->vc_mode != KD_TEXT || registered_fb[con2fb_map[ops->currcon]] != info)
+		return;
 
 	p = &fb_display[vc->vc_num];
 
@@ -2639,26 +2639,23 @@ static int fbcon_fb_registered(int idx)
 static void fbcon_fb_blanked(struct fb_info *info, int blank)
 {
 	struct fbcon_ops *ops = info->fbcon_par;
-	int valid = 1;
+	struct vc_data *vc;
 
-	if (!ops || ops->currcon < 0 ||
-	    vt_cons[ops->currcon]->vc_mode != KD_TEXT ||
-	    registered_fb[con2fb_map[ops->currcon]] != info)
-		valid = 0;
+	if (!ops || ops->currcon < 0)
+		return;
 
-	if (valid) {
-		struct vc_data *vc;
+	vc = vc_cons[ops->currcon].d;
+	if (vc->vc_mode != KD_TEXT ||
+			registered_fb[con2fb_map[ops->currcon]] != info)
+		return;
 
-		vc = vc_cons[ops->currcon].d;
-
-		if (CON_IS_VISIBLE(vc)) {
-			if (blank)
-				do_blank_screen(0);
-			else
-				do_unblank_screen(0);
-		}
-		ops->blank_state = blank;
+	if (CON_IS_VISIBLE(vc)) {
+		if (blank)
+			do_blank_screen(0);
+		else
+			do_unblank_screen(0);
 	}
+	ops->blank_state = blank;
 }
 
 static int fbcon_event_notify(struct notifier_block *self, 

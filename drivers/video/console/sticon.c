@@ -87,13 +87,12 @@ static int sticon_set_palette(struct vc_data *c, unsigned char *table)
 
 static void sticon_putc(struct vc_data *conp, int c, int ypos, int xpos)
 {
-    int unit = conp->vc_num;
     int redraw_cursor = 0;
 
     if (vga_is_gfx || console_blanked)
 	    return;
-	    
-    if (vt_cons[unit]->vc_mode != KD_TEXT)
+
+    if (conp->vc_mode != KD_TEXT)
     	    return;
 #if 0
     if ((p->cursor_x == xpos) && (p->cursor_y == ypos)) {
@@ -111,15 +110,14 @@ static void sticon_putc(struct vc_data *conp, int c, int ypos, int xpos)
 static void sticon_putcs(struct vc_data *conp, const unsigned short *s,
 			 int count, int ypos, int xpos)
 {
-    int unit = conp->vc_num;
     int redraw_cursor = 0;
 
     if (vga_is_gfx || console_blanked)
 	    return;
 
-    if (vt_cons[unit]->vc_mode != KD_TEXT)
+    if (conp->vc_mode != KD_TEXT)
     	    return;
-    
+
 #if 0
     if ((p->cursor_y == ypos) && (xpos <= p->cursor_x) &&
 	(p->cursor_x < (xpos + count))) {
