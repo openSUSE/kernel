@@ -1050,9 +1050,7 @@ EXPORT_SYMBOL(agp_generic_alloc_by_type);
 
 void agp_generic_free_by_type(struct agp_memory *curr)
 {
-	if (curr->memory != NULL)
-		vfree(curr->memory);
-
+	vfree(curr->memory);
 	agp_free_key(curr->key);
 	kfree(curr);
 }
