@@ -171,15 +171,12 @@ UNUSUAL_DEV(  0x04da, 0x0d05, 0x0000, 0x0000,
 		"CD-R/RW Drive",
 		US_SC_8070, US_PR_CB, NULL, 0),
 
-/* Reported by Adriaan Penning <a.penning@luon.net>
- * Note that these cameras report "Medium not present" after
- * ALLOW_MEDIUM_REMOVAL, so they also need to be marked
- * NOT_LOCKABLE in the SCSI blacklist (and the vendor is MATSHITA). */
+/* Reported by Adriaan Penning <a.penning@luon.net> */
 UNUSUAL_DEV(  0x04da, 0x2372, 0x0000, 0x9999,
 		"Panasonic",
 		"DMC-LCx Camera",
 		US_SC_DEVICE, US_PR_DEVICE, NULL,
-		US_FL_FIX_CAPACITY ),
+		US_FL_FIX_CAPACITY | US_FL_NOT_LOCKABLE ),
 
 /* Most of the following entries were developed with the help of
  * Shuttle/SCM directly.
@@ -332,12 +329,11 @@ UNUSUAL_DEV(  0x052b, 0x1911, 0x0100, 0x0100,
 		US_SC_DEVICE, US_PR_DEVICE, NULL,
 		US_FL_IGNORE_RESIDUE ),
 
-/* This entry is needed because the device reports Sub=ff */
 UNUSUAL_DEV(  0x054c, 0x0010, 0x0106, 0x0450, 
 		"Sony",
 		"DSC-S30/S70/S75/505V/F505/F707/F717/P8", 
 		US_SC_SCSI, US_PR_DEVICE, NULL,
-		US_FL_SINGLE_LUN ),
+		US_FL_SINGLE_LUN | US_FL_NOT_LOCKABLE ),
 
 /* This entry is needed because the device reports Sub=ff */
 UNUSUAL_DEV(  0x054c, 0x0010, 0x0500, 0x0500, 

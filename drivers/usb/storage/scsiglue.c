@@ -162,6 +162,11 @@ static int slave_configure(struct scsi_device *sdev)
 		sdev->use_10_for_ms = 1;
 	}
 
+	/* Some devices choke when they receive a PREVENT-ALLOW MEDIUM
+	 * REMOVAL command, so suppress those commands. */
+	if (us->flags & US_FL_NOT_LOCKABLE)
+		sdev->lockable = 0;
+
 	/* this is to satisfy the compiler, tho I don't think the 
 	 * return code is ever checked anywhere. */
 	return 0;
