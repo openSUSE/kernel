@@ -271,7 +271,7 @@ pci_set_power_state(struct pci_dev *dev, pci_power_t state)
 	if ((pmc & PCI_PM_CAP_VER_MASK) > 2) {
 		printk(KERN_DEBUG
 		       "PCI: %s has unsupported PM cap regs version (%u)\n",
-		       dev->slot_name, pmc & PCI_PM_CAP_VER_MASK);
+		       pci_name(dev), pmc & PCI_PM_CAP_VER_MASK);
 		return -EIO;
 	}
 

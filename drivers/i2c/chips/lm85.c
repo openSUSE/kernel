@@ -27,6 +27,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 #include <linux/i2c-vid.h>
@@ -388,9 +389,6 @@ static struct i2c_driver lm85_driver = {
 	.attach_adapter = lm85_attach_adapter,
 	.detach_client  = lm85_detach_client,
 };
-
-/* Unique ID assigned to each LM85 detected */
-static int lm85_id;
 
 
 /* 4 Fans */
@@ -1148,15 +1146,9 @@ int lm85_detect(struct i2c_adapter *adapter, int address,
 	strlcpy(new_client->name, type_name, I2C_NAME_SIZE);
 
 	/* Fill in the remaining client fields */
-	new_client->id = lm85_id++;
 	data->type = kind;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
-
-	dev_dbg(&adapter->dev, "Assigning ID %d to %s at %d,0x%02x\n",
-		new_client->id, new_client->name,
-		i2c_adapter_id(new_client->adapter),
-		new_client->addr);
 
 	/* Tell the I2C layer a new client has arrived */
 	if ((err = i2c_attach_client(new_client)))
@@ -1363,7 +1355,7 @@ static struct lm85_data *lm85_update_device(struct device *dev)
 	down(&data->update_lock);
 
 	if ( !data->valid ||
-	     (jiffies - data->last_reading > LM85_DATA_INTERVAL ) ) {
+	     time_after(jiffies, data->last_reading + LM85_DATA_INTERVAL) ) {
 		/* Things that change quickly */
 		dev_dbg(&client->dev, "Reading sensor values\n");
 		
@@ -1417,7 +1409,7 @@ static struct lm85_data *lm85_update_device(struct device *dev)
 	};  /* last_reading */
 
 	if ( !data->valid ||
-	     (jiffies - data->last_config > LM85_CONFIG_INTERVAL) ) {
+	     time_after(jiffies, data->last_config + LM85_CONFIG_INTERVAL) ) {
 		/* Things that don't change often */
 		dev_dbg(&client->dev, "Reading config values\n");
 

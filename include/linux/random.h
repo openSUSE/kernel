@@ -70,6 +70,9 @@ extern __u32 secure_tcpv6_sequence_number(__u32 *saddr, __u32 *daddr,
 extern struct file_operations random_fops, urandom_fops;
 #endif
 
+unsigned int get_random_int(void);
+unsigned long randomize_range(unsigned long start, unsigned long end, unsigned long len);
+
 #endif /* __KERNEL___ */
 
 #endif /* _LINUX_RANDOM_H */

@@ -66,6 +66,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 
@@ -188,12 +189,6 @@ struct lm90_data {
 	u8 temp_hyst;
 	u8 alarms; /* bitvector */
 };
-
-/*
- * Internal variables
- */
-
-static int lm90_id;
 
 /*
  * Sysfs stuff
@@ -427,7 +422,6 @@ static int lm90_detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* We can fill in the remaining client fields */
 	strlcpy(new_client->name, name, I2C_NAME_SIZE);
-	new_client->id = lm90_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 
@@ -495,9 +489,7 @@ static struct lm90_data *lm90_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-	if ((jiffies - data->last_updated > HZ * 2) ||
-	    (jiffies < data->last_updated) ||
-	    !data->valid) {
+	if (time_after(jiffies, data->last_updated + HZ * 2) || !data->valid) {
 		u8 oldh, newh;
 
 		dev_dbg(&client->dev, "Updating lm90 data.\n");

@@ -368,7 +368,6 @@ svcauth_null_accept(struct svc_rqst *rqstp, u32 *authp)
 	struct kvec	*argv = &rqstp->rq_arg.head[0];
 	struct kvec	*resv = &rqstp->rq_res.head[0];
 	struct svc_cred	*cred = &rqstp->rq_cred;
-	int		rv=0;
 
 	cred->cr_group_info = NULL;
 	rqstp->rq_client = NULL;
@@ -394,19 +393,11 @@ svcauth_null_accept(struct svc_rqst *rqstp, u32 *authp)
 	if (cred->cr_group_info == NULL)
 		return SVC_DROP; /* kmalloc failure - client must retry */
 
-	rv = svcauth_unix_set_client(rqstp);
-	if (rv == SVC_DENIED)
-		goto badcred;
-
 	/* Put NULL verifier */
 	svc_putu32(resv, RPC_AUTH_NULL);
 	svc_putu32(resv, 0);
 
-	return rv;
-
-badcred:
-	*authp = rpc_autherr_badcred;
-	return SVC_DENIED;
+	return SVC_OK;
 }
 
 static int
@@ -429,6 +420,7 @@ struct auth_ops svcauth_null = {
 	.flavour	= RPC_AUTH_NULL,
 	.accept 	= svcauth_null_accept,
 	.release	= svcauth_null_release,
+	.set_client	= svcauth_unix_set_client,
 };
 
 
@@ -440,7 +432,6 @@ svcauth_unix_accept(struct svc_rqst *rqstp, u32 *authp)
 	struct svc_cred	*cred = &rqstp->rq_cred;
 	u32		slen, i;
 	int		len   = argv->iov_len;
-	int		rv=0;
 
 	cred->cr_group_info = NULL;
 	rqstp->rq_client = NULL;
@@ -472,15 +463,11 @@ svcauth_unix_accept(struct svc_rqst *rqstp, u32 *authp)
 		return SVC_DENIED;
 	}
 
-	rv = svcauth_unix_set_client(rqstp);
-	if (rv == SVC_DENIED)
-		goto badcred;
-
 	/* Put NULL verifier */
 	svc_putu32(resv, RPC_AUTH_NULL);
 	svc_putu32(resv, 0);
 
-	return rv;
+	return SVC_OK;
 
 badcred:
 	*authp = rpc_autherr_badcred;
@@ -510,5 +497,6 @@ struct auth_ops svcauth_unix = {
 	.accept 	= svcauth_unix_accept,
 	.release	= svcauth_unix_release,
 	.domain_release	= svcauth_unix_domain_release,
+	.set_client	= svcauth_unix_set_client,
 };
 

@@ -142,19 +142,13 @@ __setup("fas216_logging=", fas216_log_setup);
 static inline unsigned char fas216_readb(FAS216_Info *info, unsigned int reg)
 {
 	unsigned int off = reg << info->scsi.io_shift;
-	if (info->scsi.io_base)
-		return readb(info->scsi.io_base + off);
-	else
-		return inb(info->scsi.io_port + off);
+	return readb(info->scsi.io_base + off);
 }
 
 static inline void fas216_writeb(FAS216_Info *info, unsigned int reg, unsigned int val)
 {
 	unsigned int off = reg << info->scsi.io_shift;
-	if (info->scsi.io_base)
-		writeb(val, info->scsi.io_base + off);
-	else
-		outb(val, info->scsi.io_port + off);
+	writeb(val, info->scsi.io_base + off);
 }
 
 static void fas216_dumpstate(FAS216_Info *info)
@@ -197,8 +191,8 @@ static void fas216_dumpinfo(FAS216_Info *info)
 	printk("  { magic_start=%lX host=%p SCpnt=%p origSCpnt=%p\n",
 		info->magic_start, info->host, info->SCpnt,
 		info->origSCpnt);
-	printk("    scsi={ io_port=%X io_shift=%X irq=%X cfg={ %X %X %X %X }\n",
-		info->scsi.io_port, info->scsi.io_shift, info->scsi.irq,
+	printk("    scsi={ io_shift=%X irq=%X cfg={ %X %X %X %X }\n",
+		info->scsi.io_shift, info->scsi.irq,
 		info->scsi.cfg[0], info->scsi.cfg[1], info->scsi.cfg[2],
 		info->scsi.cfg[3]);
 	printk("           type=%p phase=%X\n",
@@ -2967,11 +2961,11 @@ int fas216_print_host(FAS216_Info *info, char *buffer)
 	return sprintf(buffer,
 			"\n"
 			"Chip    : %s\n"
-			" Address: 0x%08lx\n"
+			" Address: 0x%p\n"
 			" IRQ    : %d\n"
 			" DMA    : %d\n",
-			info->scsi.type, info->host->io_port,
-			info->host->irq, info->host->dma_channel);
+			info->scsi.type, info->scsi.io_base,
+			info->scsi.irq, info->scsi.dma);
 }
 
 int fas216_print_stats(FAS216_Info *info, char *buffer)

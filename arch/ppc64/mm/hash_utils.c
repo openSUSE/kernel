@@ -190,7 +190,7 @@ void __init htab_initialize(void)
 	 * _NOT_ map it to avoid cache paradoxes as it's remapped non
 	 * cacheable later on
 	 */
-	if (cur_cpu_spec->cpu_features & CPU_FTR_16M_PAGE)
+	if (cpu_has_feature(CPU_FTR_16M_PAGE))
 		use_largepages = 1;
 
 	/* create bolted the linear mapping in the hash table */

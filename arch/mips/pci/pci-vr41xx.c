@@ -288,4 +288,4 @@ static int __init vr41xx_pciu_init(void)
 	return 0;
 }
 
-early_initcall(vr41xx_pciu_init);
+arch_initcall(vr41xx_pciu_init);

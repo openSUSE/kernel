@@ -10,6 +10,7 @@
  * published by the Free Software Foundation.
  *
  * Modifications:
+ *     10-Feb-2005 BJD  Added camera from guillaume.gourat@nexvision.tv
  *     29-Aug-2004 BJD  Added timers 0 through 3
  *     29-Aug-2004 BJD  Changed index of devices we only have one of to -1
  *     21-Aug-2004 BJD  Added IRQ_TICK to RTC resources
@@ -446,3 +447,38 @@ struct platform_device s3c_device_timer3 = {
 };
 
 EXPORT_SYMBOL(s3c_device_timer3);
+
+#ifdef CONFIG_CPU_S3C2440
+
+/* Camif Controller */
+
+static struct resource s3c_camif_resource[] = {
+	[0] = {
+		.start = S3C2440_PA_CAMIF,
+		.end   = S3C2440_PA_CAMIF + S3C2440_SZ_CAMIF,
+		.flags = IORESOURCE_MEM,
+	},
+	[1] = {
+		.start = IRQ_CAM,
+		.end   = IRQ_CAM,
+		.flags = IORESOURCE_IRQ,
+	}
+
+};
+
+static u64 s3c_device_camif_dmamask = 0xffffffffUL;
+
+struct platform_device s3c_device_camif = {
+	.name		  = "s3c2440-camif",
+	.id		  = -1,
+	.num_resources	  = ARRAY_SIZE(s3c_camif_resource),
+	.resource	  = s3c_camif_resource,
+	.dev              = {
+		.dma_mask = &s3c_device_camif_dmamask,
+		.coherent_dma_mask = 0xffffffffUL
+	}
+};
+
+EXPORT_SYMBOL(s3c_device_camif);
+
+#endif // CONFIG_CPU_S32440

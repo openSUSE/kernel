@@ -37,6 +37,7 @@
 #include <linux/pagemap.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
+#include <linux/random.h>
 
 #include <asm/uaccess.h>
 #include <asm/param.h>
@@ -165,21 +166,14 @@ create_elf_tables(struct linux_binprm *bprm, struct elfhdr * exec,
 	if (k_platform) {
 		size_t len = strlen(k_platform) + 1;
 
-#ifdef CONFIG_X86_HT
 		/*
 		 * In some cases (e.g. Hyper-Threading), we want to avoid L1
 		 * evictions by the processes running on the same package. One
 		 * thing we can do is to shuffle the initial stack for them.
-		 *
-		 * The conditionals here are unneeded, but kept in to make the
-		 * code behaviour the same as pre change unless we have
-		 * hyperthreaded processors. This should be cleaned up
-		 * before 2.6
 		 */
 	 
-		if (smp_num_siblings > 1)
-			STACK_ALLOC(p, ((current->pid % 64) << 7));
-#endif
+		p = arch_align_stack(p);
+
 		u_platform = (elf_addr_t __user *)STACK_ALLOC(p, len);
 		if (__copy_to_user(u_platform, k_platform, len))
 			return -EFAULT;
@@ -501,6 +495,19 @@ out:
 #define INTERPRETER_ELF 2
 
 
+static unsigned long randomize_stack_top(unsigned long stack_top)
+{
+	unsigned int random_variable = 0;
+
+	if (current->flags & PF_RANDOMIZE)
+		random_variable = get_random_int() % (8*1024*1024);
+#ifdef CONFIG_STACK_GROWSUP
+	return PAGE_ALIGN(stack_top + random_variable);
+#else
+	return PAGE_ALIGN(stack_top - random_variable);
+#endif
+}
+
 static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 {
 	struct file *interpreter = NULL; /* to shut gcc up */
@@ -760,18 +767,29 @@ static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	if (elf_read_implies_exec(loc->elf_ex, executable_stack))
 		current->personality |= READ_IMPLIES_EXEC;
 
+	if ( !(current->personality & ADDR_NO_RANDOMIZE) && randomize_va_space)
+		current->flags |= PF_RANDOMIZE;
 	arch_pick_mmap_layout(current->mm);
 
 	/* Do this so that we can load the interpreter, if need be.  We will
 	   change some of these later */
 	current->mm->rss = 0;
 	current->mm->free_area_cache = current->mm->mmap_base;
-	retval = setup_arg_pages(bprm, STACK_TOP, executable_stack);
+	retval = setup_arg_pages(bprm, randomize_stack_top(STACK_TOP),
+				 executable_stack);
 	if (retval < 0) {
 		send_sig(SIGKILL, current, 0);
 		goto out_free_dentry;
 	}
 	
+#ifdef ARCH_HAS_SETUP_ADDITIONAL_PAGES
+	retval = arch_setup_additional_pages(bprm, executable_stack);
+	if (retval < 0) {
+		send_sig(SIGKILL, current, 0);
+		goto out_free_dentry;
+	}
+#endif /* ARCH_HAS_SETUP_ADDITIONAL_PAGES */
+
 	current->mm->start_stack = bprm->p;
 
 	/* Now we do a little grungy work by mmaping the ELF image into

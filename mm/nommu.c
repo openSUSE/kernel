@@ -959,10 +959,8 @@ void arch_unmap_area(struct vm_area_struct *area)
 {
 }
 
-void update_mem_hiwater(void)
+void update_mem_hiwater(struct task_struct *tsk)
 {
-	struct task_struct *tsk = current;
-
 	if (likely(tsk->mm)) {
 		if (tsk->mm->hiwater_rss < tsk->mm->rss)
 			tsk->mm->hiwater_rss = tsk->mm->rss;

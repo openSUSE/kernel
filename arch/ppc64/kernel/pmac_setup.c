@@ -439,6 +439,9 @@ static int __init pmac_probe(int platform)
 }
 
 struct machdep_calls __initdata pmac_md = {
+#ifdef CONFIG_HOTPLUG_CPU
+	.cpu_die		= generic_mach_cpu_die,
+#endif
 	.probe			= pmac_probe,
 	.setup_arch		= pmac_setup_arch,
 	.init_early		= pmac_init_early,

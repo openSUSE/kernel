@@ -31,6 +31,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 #include <linux/i2c.h>
 #include <linux/i2c-sensor.h>
 
@@ -148,12 +149,6 @@ struct lm83_data {
 	s8 temp_crit;
 	u16 alarms; /* bitvector, combined */
 };
-
-/*
- * Internal variables
- */
-
-static int lm83_id;
 
 /*
  * Sysfs stuff
@@ -312,7 +307,6 @@ static int lm83_detect(struct i2c_adapter *adapter, int address, int kind)
 
 	/* We can fill in the remaining client fields */
 	strlcpy(new_client->name, name, I2C_NAME_SIZE);
-	new_client->id = lm83_id++;
 	data->valid = 0;
 	init_MUTEX(&data->update_lock);
 
@@ -369,9 +363,7 @@ static struct lm83_data *lm83_update_device(struct device *dev)
 
 	down(&data->update_lock);
 
-	if ((jiffies - data->last_updated > HZ * 2) ||
-	    (jiffies < data->last_updated) ||
-	    !data->valid) {
+	if (time_after(jiffies, data->last_updated + HZ * 2) || !data->valid) {
 		int nr;
 
 		dev_dbg(&client->dev, "Updating lm83 data.\n");

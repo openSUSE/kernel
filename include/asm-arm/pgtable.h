@@ -106,6 +106,13 @@ extern void __pgd_error(const char *file, int line, unsigned long val);
 #define USER_PTRS_PER_PGD	((TASK_SIZE/PGDIR_SIZE) - FIRST_USER_PGD_NR)
 
 /*
+ * ARMv6 supersection address mask and size definitions.
+ */
+#define SUPERSECTION_SHIFT	24
+#define SUPERSECTION_SIZE	(1UL << SUPERSECTION_SHIFT)
+#define SUPERSECTION_MASK	(~(SUPERSECTION_SIZE-1))
+
+/*
  * Hardware page table definitions.
  *
  * + Level 1 descriptor (PMD)
@@ -129,6 +136,7 @@ extern void __pgd_error(const char *file, int line, unsigned long val);
 #define PMD_SECT_APX		(1 << 15)	/* v6 */
 #define PMD_SECT_S		(1 << 16)	/* v6 */
 #define PMD_SECT_nG		(1 << 17)	/* v6 */
+#define PMD_SECT_SUPER		(1 << 18)	/* v6 */
 
 #define PMD_SECT_UNCACHED	(0)
 #define PMD_SECT_BUFFERED	(PMD_SECT_BUFFERABLE)

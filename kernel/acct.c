@@ -534,10 +534,8 @@ void acct_process(long exitcode)
  * acct_update_integrals
  *    -  update mm integral fields in task_struct
  */
-void acct_update_integrals(void)
+void acct_update_integrals(struct task_struct *tsk)
 {
-	struct task_struct *tsk = current;
-
 	if (likely(tsk->mm)) {
 		long delta = tsk->stime - tsk->acct_stimexpd;
 

@@ -2516,7 +2516,7 @@ typhoon_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	INIT_COMMAND_WITH_RESPONSE(&xp_cmd, TYPHOON_CMD_READ_VERSIONS);
 	if(typhoon_issue_command(tp, 1, &xp_cmd, 3, xp_resp) < 0) {
 		printk(ERR_PFX "%s: Could not get Sleep Image version\n",
-			pdev->slot_name);
+			pci_name(pdev));
 		goto error_out_reset;
 	}
 
