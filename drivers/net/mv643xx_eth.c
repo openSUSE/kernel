@@ -1187,11 +1187,11 @@ linear:
 		pkt_info.buf_ptr = dma_map_single(NULL, skb->data, skb->len,
 							DMA_TO_DEVICE);
 		pkt_info.return_info = skb;
+		mp->tx_ring_skbs++;
 		status = eth_port_send(mp, &pkt_info);
 		if ((status == ETH_ERROR) || (status == ETH_QUEUE_FULL))
 			printk(KERN_ERR "%s: Error on transmitting packet\n",
 								dev->name);
-		mp->tx_ring_skbs++;
 	} else {
 		unsigned int frag;
 		u32 ipheader;
@@ -1301,11 +1301,11 @@ linear:
 	pkt_info.buf_ptr = dma_map_single(NULL, skb->data, skb->len,
 								DMA_TO_DEVICE);
 	pkt_info.return_info = skb;
+	mp->tx_ring_skbs++;
 	status = eth_port_send(mp, &pkt_info);
 	if ((status == ETH_ERROR) || (status == ETH_QUEUE_FULL))
 		printk(KERN_ERR "%s: Error on transmitting packet\n",
 								dev->name);
-	mp->tx_ring_skbs++;
 #endif
 
 	/* Check if TX queue can handle another skb. If not, then
