@@ -437,8 +437,8 @@ static int econet_sendmsg(struct kiocb *iocb, struct socket *sock,
 		void __user *base = msg->msg_iov[i].iov_base;
 		size_t len = msg->msg_iov[i].iov_len;
 		/* Check it now since we switch to KERNEL_DS later. */
-		if ((err = verify_area(VERIFY_READ, base, len)) < 0)
-			return err;
+		if (!access_ok(VERIFY_READ, base, len))
+			return -EFAULT;
 		iov[i+1].iov_base = base;
 		iov[i+1].iov_len = len;
 		size += len;

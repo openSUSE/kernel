@@ -40,7 +40,7 @@ void Un_impl(void)
   unsigned long address = FPU_ORIG_EIP;
 
   RE_ENTRANT_CHECK_OFF;
-  /* No need to verify_area(), we have previously fetched these bytes. */
+  /* No need to check access_ok(), we have previously fetched these bytes. */
   printk("Unimplemented FPU Opcode at eip=%p : ", (void __user *) address);
   if ( FPU_CS == __USER_CS )
     {
@@ -91,7 +91,7 @@ void FPU_printall(void)
   unsigned long address = FPU_ORIG_EIP;
 
   RE_ENTRANT_CHECK_OFF;
-  /* No need to verify_area(), we have previously fetched these bytes. */
+  /* No need to check access_ok(), we have previously fetched these bytes. */
   printk("At %p:", (void *) address);
   if ( FPU_CS == __USER_CS )
     {

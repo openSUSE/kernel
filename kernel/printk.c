@@ -269,9 +269,10 @@ int do_syslog(int type, char __user * buf, int len)
 		error = 0;
 		if (!len)
 			goto out;
-		error = verify_area(VERIFY_WRITE,buf,len);
-		if (error)
+		if (!access_ok(VERIFY_WRITE, buf, len)) {
+			error = -EFAULT;
 			goto out;
+		}
 		error = wait_event_interruptible(log_wait, (log_start - log_end));
 		if (error)
 			goto out;
@@ -301,9 +302,10 @@ int do_syslog(int type, char __user * buf, int len)
 		error = 0;
 		if (!len)
 			goto out;
-		error = verify_area(VERIFY_WRITE,buf,len);
-		if (error)
+		if (!access_ok(VERIFY_WRITE, buf, len)) {
+			error = -EFAULT;
 			goto out;
+		}
 		count = len;
 		if (count > log_buf_len)
 			count = log_buf_len;

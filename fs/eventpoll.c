@@ -640,8 +640,10 @@ asmlinkage long sys_epoll_wait(int epfd, struct epoll_event __user *events,
 		return -EINVAL;
 
 	/* Verify that the area passed by the user is writeable */
-	if ((error = verify_area(VERIFY_WRITE, events, maxevents * sizeof(struct epoll_event))))
+	if (!access_ok(VERIFY_WRITE, events, maxevents * sizeof(struct epoll_event))) {
+		error = -EFAULT;
 		goto eexit_1;
+	}
 
 	/* Get the "struct file *" for the eventpoll file */
 	error = -EBADF;

@@ -2282,11 +2282,8 @@ static int mtd_rw_oob(unsigned int fd, unsigned int cmd, unsigned long arg)
 static long
 put_dirent32 (struct dirent *d, struct compat_dirent __user *d32)
 {
-        int ret;
-
-        if ((ret = verify_area(VERIFY_WRITE, d32,
-                               sizeof(struct compat_dirent))))
-                return ret;
+        if (!access_ok(VERIFY_WRITE, d32, sizeof(struct compat_dirent)))
+                return -EFAULT;
 
         __put_user(d->d_ino, &d32->d_ino);
         __put_user(d->d_off, &d32->d_off);
@@ -2294,7 +2291,7 @@ put_dirent32 (struct dirent *d, struct compat_dirent __user *d32)
         if (__copy_to_user(d32->d_name, d->d_name, d->d_reclen))
 		return -EFAULT;
 
-        return ret;
+        return 0;
 }
 
 static int vfat_ioctl32(unsigned fd, unsigned cmd, unsigned long arg)
@@ -2345,9 +2342,8 @@ static int get_raw32_request(struct raw_config_request *req, struct raw32_config
 {
         int ret;
 
-        if ((ret = verify_area(VERIFY_READ, user_req,
-                               sizeof(struct raw32_config_request))))
-                return ret;
+        if (!access_ok(VERIFY_READ, user_req, sizeof(struct raw32_config_request)))
+                return -EFAULT;
 
         ret = __get_user(req->raw_minor, &user_req->raw_minor);
         ret |= __get_user(req->block_major, &user_req->block_major);
@@ -2360,9 +2356,8 @@ static int set_raw32_request(struct raw_config_request *req, struct raw32_config
 {
 	int ret;
 
-        if ((ret = verify_area(VERIFY_WRITE, user_req,
-                               sizeof(struct raw32_config_request))))
-                return ret;
+        if (!access_ok(VERIFY_WRITE, user_req, sizeof(struct raw32_config_request)))
+                return -EFAULT;
 
         ret = __put_user(req->raw_minor, &user_req->raw_minor);
         ret |= __put_user(req->block_major, &user_req->block_major);
@@ -2434,7 +2429,7 @@ static int serial_struct_ioctl(unsigned fd, unsigned cmd, unsigned long arg)
         __u32 udata;
 
         if (cmd == TIOCSSERIAL) {
-                if (verify_area(VERIFY_READ, ss32, sizeof(SS32)))
+                if (!access_ok(VERIFY_READ, ss32, sizeof(SS32)))
                         return -EFAULT;
                 if (__copy_from_user(&ss, ss32, offsetof(SS32, iomem_base)))
 			return -EFAULT;
@@ -2448,7 +2443,7 @@ static int serial_struct_ioctl(unsigned fd, unsigned cmd, unsigned long arg)
                 err = sys_ioctl(fd,cmd,(unsigned long)(&ss));
         set_fs(oldseg);
         if (cmd == TIOCGSERIAL && err >= 0) {
-                if (verify_area(VERIFY_WRITE, ss32, sizeof(SS32)))
+                if (!access_ok(VERIFY_WRITE, ss32, sizeof(SS32)))
                         return -EFAULT;
                 if (__copy_to_user(ss32,&ss,offsetof(SS32,iomem_base)))
 			return -EFAULT;
@@ -2625,11 +2620,11 @@ static int do_i2c_smbus_ioctl(unsigned int fd, unsigned int cmd, unsigned long a
 	tdata = compat_alloc_user_space(sizeof(*tdata));
 	if (tdata == NULL)
 		return -ENOMEM;
-	if (verify_area(VERIFY_WRITE, tdata, sizeof(*tdata)))
+	if (!access_ok(VERIFY_WRITE, tdata, sizeof(*tdata)))
 		return -EFAULT;
 
 	udata = compat_ptr(arg);
-	if (verify_area(VERIFY_READ, udata, sizeof(*udata)))
+	if (!access_ok(VERIFY_READ, udata, sizeof(*udata)))
 		return -EFAULT;
 
 	if (__copy_in_user(&tdata->read_write, &udata->read_write, 2 * sizeof(u8)))
@@ -2666,7 +2661,7 @@ static int do_wireless_ioctl(unsigned int fd, unsigned int cmd, unsigned long ar
 
 	iwp = &iwr->u.data;
 
-	if (verify_area(VERIFY_WRITE, iwr, sizeof(*iwr)))
+	if (!access_ok(VERIFY_WRITE, iwr, sizeof(*iwr)))
 		return -EFAULT;
 
 	if (__copy_in_user(&iwr->ifr_ifrn.ifrn_name[0],

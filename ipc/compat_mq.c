@@ -25,7 +25,7 @@ struct compat_mq_attr {
 static inline int get_compat_mq_attr(struct mq_attr *attr,
 			const struct compat_mq_attr __user *uattr)
 {
-	if (verify_area(VERIFY_READ, uattr, sizeof *uattr))
+	if (!access_ok(VERIFY_READ, uattr, sizeof *uattr))
 		return -EFAULT;
 
 	return __get_user(attr->mq_flags, &uattr->mq_flags)
