@@ -337,11 +337,15 @@ void syscall_trace(union uml_pt_regs *regs, int entryexit)
 
 	if (unlikely(current->audit_context)) {
 		if (!entryexit)
-			audit_syscall_entry(current, regs->orig_eax,
-					    regs->ebx, regs->ecx,
-					    regs->edx, regs->esi);
+			audit_syscall_entry(current, 
+					    UPT_SYSCALL_NR(&regs->regs),
+					    UPT_SYSCALL_ARG1(&regs->regs),
+					    UPT_SYSCALL_ARG2(&regs->regs),
+					    UPT_SYSCALL_ARG3(&regs->regs),
+					    UPT_SYSCALL_ARG4(&regs->regs));
 		else
-			audit_syscall_exit(current, regs->eax);
+			audit_syscall_exit(current, 
+					   UPT_SYSCALL_RET(&regs->regs));
 	}
 
 	/* Fake a debug trap */
