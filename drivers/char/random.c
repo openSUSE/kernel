@@ -1485,9 +1485,6 @@ EXPORT_SYMBOL(get_random_bytes);
 static void init_std_data(struct entropy_store *r)
 {
 	struct timeval tv;
-	__u32 words[2];
-	char *p;
-	int i;
 	unsigned long flags;
 
 	spin_lock_irqsave(&r->lock, flags);
@@ -1495,20 +1492,9 @@ static void init_std_data(struct entropy_store *r)
 	spin_unlock_irqrestore(&r->lock, flags);
 
 	do_gettimeofday(&tv);
-	words[0] = tv.tv_sec;
-	words[1] = tv.tv_usec;
-	add_entropy_words(r, words, 2);
-
-	/*
-	 *	This doesn't lock system.utsname. However, we are generating
-	 *	entropy so a race with a name set here is fine.
-	 */
-	p = (char *) &system_utsname;
-	for (i = sizeof(system_utsname) / sizeof(words); i; i--) {
-		memcpy(words, p, sizeof(words));
-		add_entropy_words(r, words, sizeof(words)/4);
-		p += sizeof(words);
-	}
+	add_entropy_words(r, (__u32 *)&tv, sizeof(tv)/4);
+	add_entropy_words(r, (__u32 *)&system_utsname,
+			  sizeof(system_utsname)/4);
 }
 
 static int __init rand_initialize(void)
