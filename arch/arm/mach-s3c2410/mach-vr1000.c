@@ -24,6 +24,7 @@
  *     14-Jan-2005 BJD  Added clock init
  *     15-Jan-2005 BJD  Add serial port device definition
  *     20-Jan-2005 BJD  Use UPF_IOREMAP for ports
+ *     10-Feb-2005 BJD  Added power-off capability
 */
 
 #include <linux/kernel.h>
@@ -52,8 +53,8 @@
 #include <asm/irq.h>
 #include <asm/mach-types.h>
 
-//#include <asm/debug-ll.h>
 #include <asm/arch/regs-serial.h>
+#include <asm/arch/regs-gpio.h>
 
 #include "clock.h"
 #include "devs.h"
@@ -269,6 +270,11 @@ static struct s3c24xx_board vr1000_board __initdata = {
 	.clocks_count  = ARRAY_SIZE(vr1000_clocks),
 };
 
+static void vr1000_power_off(void)
+{
+	s3c2410_gpio_cfgpin(S3C2410_GPB9, S3C2410_GPB9_OUTP);
+	s3c2410_gpio_setpin(S3C2410_GPB9, 1);
+}
 
 void __init vr1000_map_io(void)
 {
@@ -284,6 +290,8 @@ void __init vr1000_map_io(void)
 	s3c24xx_clkout1.parent  = &s3c24xx_dclk1;
 
 	s3c24xx_uclk.parent  = &s3c24xx_clkout1;
+
+	pm_power_off = vr1000_power_off;
 
 	s3c24xx_init_io(vr1000_iodesc, ARRAY_SIZE(vr1000_iodesc));
 	s3c24xx_init_clocks(0);
