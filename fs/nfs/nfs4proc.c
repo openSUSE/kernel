@@ -1320,27 +1320,30 @@ nfs4_proc_create(struct inode *dir, struct dentry *dentry, struct iattr *sattr,
                  int flags)
 {
 	struct inode *inode;
-	struct nfs4_state *state = NULL;
+	struct nfs4_state *state;
 	struct rpc_cred *cred;
 
 	cred = rpcauth_lookupcred(NFS_SERVER(dir)->client->cl_auth, 0);
 	state = nfs4_do_open(dir, dentry, flags, sattr, cred);
 	put_rpccred(cred);
-	if (!IS_ERR(state)) {
-		inode = state->inode;
-		if (flags & O_EXCL) {
-			struct nfs_fattr fattr;
-			int status;
-			status = nfs4_do_setattr(NFS_SERVER(dir), &fattr,
-			                     NFS_FH(inode), sattr, state);
-			if (status != 0) {
-				nfs4_close_state(state, flags);
-				iput(inode);
-				inode = ERR_PTR(status);
-			}
-		}
-	} else
+	if (IS_ERR(state)) {
 		inode = (struct inode *)state;
+		goto out;
+	}
+	inode = state->inode;
+	if (flags & O_EXCL) {
+		struct nfs_fattr fattr;
+		int status;
+		status = nfs4_do_setattr(NFS_SERVER(dir), &fattr,
+		                     NFS_FH(inode), sattr, state);
+		if (status == 0)
+			goto out;
+		iput(inode);
+		inode = ERR_PTR(status);
+	} else if (flags != 0)
+		goto out;
+	nfs4_close_state(state, flags);
+out:
 	return inode;
 }
 
