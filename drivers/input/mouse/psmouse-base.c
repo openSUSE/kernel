@@ -423,7 +423,7 @@ static int psmouse_extensions(struct psmouse *psmouse,
  * upsets the thinkingmouse).
  */
 
-	if (max_proto > PSMOUSE_PS2 && thinking_detect(psmouse, set_properties) == 0)
+	if (max_proto > PSMOUSE_IMEX && thinking_detect(psmouse, set_properties) == 0)
 		return PSMOUSE_THINKPS;
 
 /*
