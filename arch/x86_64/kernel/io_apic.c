@@ -147,7 +147,7 @@ static void unmask_IO_APIC_irq (unsigned int irq)
 	spin_unlock_irqrestore(&ioapic_lock, flags);
 }
 
-void clear_IO_APIC_pin(unsigned int apic, unsigned int pin)
+static void clear_IO_APIC_pin(unsigned int apic, unsigned int pin)
 {
 	struct IO_APIC_route_entry entry;
 	unsigned long flags;
@@ -185,8 +185,8 @@ static void clear_IO_APIC (void)
  */
 
 #define MAX_PIRQS 8
-int pirq_entries [MAX_PIRQS];
-int pirqs_enabled;
+static int pirq_entries [MAX_PIRQS];
+static int pirqs_enabled;
 int skip_ioapic_setup;
 int ioapic_force;
 
@@ -707,7 +707,7 @@ static inline void ioapic_register_intr(int irq, int vector, unsigned long trigg
 	}
 }
 
-void __init setup_IO_APIC_irqs(void)
+static void __init setup_IO_APIC_irqs(void)
 {
 	struct IO_APIC_route_entry entry;
 	int apic, pin, idx, irq, first_notcon = 1, vector;
@@ -776,7 +776,7 @@ void __init setup_IO_APIC_irqs(void)
  * Set up the 8259A-master output pin as broadcast to all
  * CPUs.
  */
-void __init setup_ExtINT_IRQ0_pin(unsigned int pin, int vector)
+static void __init setup_ExtINT_IRQ0_pin(unsigned int pin, int vector)
 {
 	struct IO_APIC_route_entry entry;
 	unsigned long flags;
@@ -948,6 +948,8 @@ void __apicdebuginit print_IO_APIC(void)
 	return;
 }
 
+#if 0
+
 static __apicdebuginit void print_APIC_bitfield (int base)
 {
 	unsigned int v;
@@ -1089,6 +1091,8 @@ void __apicdebuginit print_PIC(void)
 	v = inb(0x4d1) << 8 | inb(0x4d0);
 	printk(KERN_DEBUG "... PIC ELCR: %04x\n", v);
 }
+
+#endif  /*  0  */
 
 static void __init enable_IO_APIC(void)
 {
