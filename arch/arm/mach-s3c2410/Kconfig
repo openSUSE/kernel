@@ -59,6 +59,26 @@ config CPU_S3C2440
 	help
 	  Support for S3C2440 Samsung Mobile CPU based systems.
 
+comment "S3C2410 Boot"
+
+config S3C2410_BOOT_WATCHDOG
+	bool "S3C2410 Initialisation watchdog"
+	depends on ARCH_S3C2410 && S3C2410_WATCHDOG
+	help
+	  Say y to enable the watchdog during the kernel decompression
+	  stage. If the kernel fails to uncompress, then the watchdog
+	  will trigger a reset and the system should restart.
+
+	  Although this uses the same hardware unit as the kernel watchdog
+	  driver, it is not a replacement for it. If you use this option,
+	  you will have to use the watchdg driver to either stop the timeout
+	  or restart it. If you do not, then your kernel will reboot after
+	  startup.
+
+	  The driver uses a fixed timeout value, so the exact time till the
+	  system resets depends on the value of PCLK. The timeout on an
+	  200MHz s3c2410 should be about 30 seconds.
+
 comment "S3C2410 Setup"
 
 config S3C2410_DMA
