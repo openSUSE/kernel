@@ -256,6 +256,23 @@ alloc_init_section(unsigned long virt, unsigned long phys, int prot)
 }
 
 /*
+ * Create a SUPER SECTION PGD between VIRT and PHYS with protection PROT
+ */
+static inline void
+alloc_init_supersection(unsigned long virt, unsigned long phys, int prot)
+{
+	int i;
+
+	for (i = 0; i < 16; i += 1) {
+		alloc_init_section(virt, phys & SUPERSECTION_MASK,
+				   prot | PMD_SECT_SUPER);
+
+		virt += (PGDIR_SIZE / 2);
+		phys += (PGDIR_SIZE / 2);
+	}
+}
+
+/*
  * Add a PAGE mapping between VIRT and PHYS in domain
  * DOMAIN with protection PROT.  Note that due to the
  * way we map the PTEs, we must allocate two PTE_SIZE'd
@@ -436,7 +453,8 @@ static void __init build_mem_type_table(void)
  * Create the page directory entries and any necessary
  * page tables for the mapping specified by `md'.  We
  * are able to cope here with varying sizes and address
- * offsets, and we take full advantage of sections.
+ * offsets, and we take full advantage of sections and
+ * supersections.
  */
 static void __init create_mapping(struct map_desc *md)
 {
@@ -481,6 +499,30 @@ static void __init create_mapping(struct map_desc *md)
 
 		virt   += PAGE_SIZE;
 		length -= PAGE_SIZE;
+	}
+
+	/* N.B.	ARMv6 supersections are only defined to work with domain 0.
+	 *	Since domain assignments can in fact be arbitrary, the
+	 *	'domain == 0' check below is required to insure that ARMv6
+	 *	supersections are only allocated for domain 0 regardless
+	 *	of the actual domain assignments in use.
+	 */
+	if (cpu_architecture() >= CPU_ARCH_ARMv6 && domain == 0) {
+		/* Align to supersection boundary */
+		while ((virt & ~SUPERSECTION_MASK || (virt + off) &
+			~SUPERSECTION_MASK) && length >= (PGDIR_SIZE / 2)) {
+			alloc_init_section(virt, virt + off, prot_sect);
+
+			virt   += (PGDIR_SIZE / 2);
+			length -= (PGDIR_SIZE / 2);
+		}
+
+		while (length >= SUPERSECTION_SIZE) {
+			alloc_init_supersection(virt, virt + off, prot_sect);
+
+			virt   += SUPERSECTION_SIZE;
+			length -= SUPERSECTION_SIZE;
+		}
 	}
 
 	/*
