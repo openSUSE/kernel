@@ -319,6 +319,20 @@ enum
 
 #define TCA_TCINDEX_MAX     (__TCA_TCINDEX_MAX - 1)
 
+/* Basic filter */
+
+enum
+{
+	TCA_BASIC_UNSPEC,
+	TCA_BASIC_CLASSID,
+	TCA_BASIC_EMATCHES,
+	TCA_BASIC_ACT,
+	TCA_BASIC_POLICE,
+	__TCA_BASIC_MAX
+};
+
+#define TCA_BASIC_MAX (__TCA_BASIC_MAX - 1)
+
 /* Extended Matches */
 
 struct tcf_ematch_tree_hdr

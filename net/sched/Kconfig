@@ -269,6 +269,16 @@ config NET_CLS
 	  Documentation and software is at
 	  <http://diffserv.sourceforge.net/>.
 
+config NET_CLS_BASIC
+	tristate "Basic classifier"
+	depends on NET_CLS
+	---help---
+	  Say Y here if you want to be able to classify packets using
+	  only extended matches and actions.
+
+	  To compile this code as a module, choose M here: the
+	  module will be called cls_basic.
+
 config NET_CLS_TCINDEX
 	tristate "TC index classifier"
 	depends on NET_CLS
