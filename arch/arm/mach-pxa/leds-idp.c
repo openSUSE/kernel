@@ -19,6 +19,7 @@
 #include <asm/leds.h>
 #include <asm/system.h>
 
+#include <asm/arch/pxa-regs.h>
 #include <asm/arch/idp.h>
 
 #include "leds.h"
