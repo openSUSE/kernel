@@ -209,7 +209,7 @@ config CPU_FREQ_PMAC
 	  PowerBook.
 
 config CPU_FREQ_TABLE
-	bool
+	tristate
 	depends on CPU_FREQ_PMAC
 	default y
 
