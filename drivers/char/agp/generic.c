@@ -289,6 +289,19 @@ int agp_num_entries(void)
 EXPORT_SYMBOL_GPL(agp_num_entries);
 
 
+static int check_bridge_mode(struct pci_dev *dev)
+{
+	u32 agp3;
+	u8 cap_ptr;
+
+	cap_ptr = pci_find_capability(dev, PCI_CAP_ID_AGP);
+	pci_read_config_dword(dev, cap_ptr+AGPSTAT, &agp3);
+	if (agp3 & AGPSTAT_MODE_3_0)
+		return 1;
+	return 0;
+}
+
+
 /**
  *	agp_copy_info  -  copy bridge state information
  *
@@ -310,7 +323,10 @@ int agp_copy_info(struct agp_kern_info *info)
 	info->version.minor = agp_bridge->version->minor;
 	info->chipset = agp_bridge->type;
 	info->device = agp_bridge->dev;
-	info->mode = agp_bridge->mode;
+	if (check_bridge_mode(agp_bridge->dev))
+		info->mode = agp_bridge->mode & AGP3_RESERVED_MASK;
+	else
+		info->mode = agp_bridge->mode & AGP2_RESERVED_MASK;
 	info->aper_base = agp_bridge->gart_bus_addr;
 	info->aper_size = agp_return_size();
 	info->max_memory = agp_bridge->max_memory_agp;
@@ -587,19 +603,6 @@ done:
 		*bridge_agpstat &= ~(AGPSTAT2_2X | AGPSTAT2_4X);
 		*bridge_agpstat |= AGPSTAT2_1X;
 	}
-}
-
-
-static int check_bridge_mode(struct pci_dev *dev)
-{
-	u32 agp3;
-	u8 cap_ptr;
-
-	cap_ptr = pci_find_capability(dev, PCI_CAP_ID_AGP);
-	pci_read_config_dword(dev, cap_ptr+AGPSTAT, &agp3);
-	if (agp3 & AGPSTAT_MODE_3_0)
-		return 1;
-	return 0;
 }
 
 
