@@ -3545,18 +3545,18 @@ void md_check_recovery(mddev_t *mddev)
 
 		/* no recovery is running.
 		 * remove any failed drives, then
-		 * add spares if possible
+		 * add spares if possible.
+		 * Spare are also removed and re-added, to allow
+		 * the personality to fail the re-add.
 		 */
-		ITERATE_RDEV(mddev,rdev,rtmp) {
+		ITERATE_RDEV(mddev,rdev,rtmp)
 			if (rdev->raid_disk >= 0 &&
-			    rdev->faulty &&
+			    (rdev->faulty || ! rdev->in_sync) &&
 			    atomic_read(&rdev->nr_pending)==0) {
 				if (mddev->pers->hot_remove_disk(mddev, rdev->raid_disk)==0)
 					rdev->raid_disk = -1;
 			}
-			if (!rdev->faulty && rdev->raid_disk >= 0 && !rdev->in_sync)
-				spares++;
-		}
+
 		if (mddev->degraded) {
 			ITERATE_RDEV(mddev,rdev,rtmp)
 				if (rdev->raid_disk < 0
