@@ -18,7 +18,7 @@ struct quicklist {
 	int nr_pages;
 };
 
-DECLARE_PER_CPU(struct quicklist, quicklist)[CONFIG_NR_QUICK];
+DECLARE_PER_CPU_LOCKED(struct quicklist, quicklist)[CONFIG_NR_QUICK];
 
 /*
  * The two key functions quicklist_alloc and quicklist_free are inline so
@@ -30,19 +30,27 @@ DECLARE_PER_CPU(struct quicklist, quicklist)[CONFIG_NR_QUICK];
  * The fast patch in quicklist_alloc touched only a per cpu cacheline and
  * the first cacheline of the page itself. There is minmal overhead involved.
  */
-static inline void *quicklist_alloc(int nr, gfp_t flags, void (*ctor)(void *))
+static inline void *__quicklist_alloc(struct quicklist *q)
 {
-	struct quicklist *q;
-	void **p = NULL;
+	void **p = q->page;
 
-	q =&get_cpu_var(quicklist)[nr];
-	p = q->page;
 	if (likely(p)) {
 		q->page = p[0];
 		p[0] = NULL;
 		q->nr_pages--;
 	}
-	put_cpu_var(quicklist);
+	return p;
+}
+
+static inline void *quicklist_alloc(int nr, gfp_t flags, void (*ctor)(void *))
+{
+	struct quicklist *q;
+	void **p;
+	int cpu;
+
+	q = &get_cpu_var_locked(quicklist, &cpu)[nr];
+	p = __quicklist_alloc(q);
+	put_cpu_var_locked(quicklist, cpu);
 	if (likely(p))
 		return p;
 
@@ -56,12 +64,13 @@ static inline void __quicklist_free(int nr, void (*dtor)(void *), void *p,
 	struct page *page)
 {
 	struct quicklist *q;
+	int cpu;
 
-	q = &get_cpu_var(quicklist)[nr];
+	q = &get_cpu_var_locked(quicklist, &cpu)[nr];
 	*(void **)p = q->page;
 	q->page = p;
 	q->nr_pages++;
-	put_cpu_var(quicklist);
+	put_cpu_var_locked(quicklist, cpu);
 }
 
 static inline void quicklist_free(int nr, void (*dtor)(void *), void *pp)
