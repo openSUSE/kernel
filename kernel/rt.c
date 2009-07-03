@@ -315,7 +315,7 @@ EXPORT_SYMBOL(rt_up_read);
  */
 void  rt_downgrade_write(struct rw_semaphore *rwsem)
 {
-	BUG();
+	BUG_ON(rt_mutex_real_owner(&rwsem->lock) != current);
 }
 EXPORT_SYMBOL(rt_downgrade_write);
 
