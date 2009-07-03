@@ -96,9 +96,11 @@ void cpu_idle(void)
 		tick_nohz_restart_sched_tick();
 		if (cpu_should_die())
 			cpu_die();
-		preempt_enable_no_resched();
-		schedule();
+		local_irq_disable();
+		__preempt_enable_no_resched();
+		__schedule();
 		preempt_disable();
+		local_irq_enable();
 	}
 }
 
