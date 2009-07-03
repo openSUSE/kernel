@@ -280,6 +280,19 @@ static void print_cpu(struct seq_file *m, int cpu)
 	P(cpu_load[2]);
 	P(cpu_load[3]);
 	P(cpu_load[4]);
+#ifdef CONFIG_PREEMPT_RT
+	/* Print rt related rq stats */
+	P(rt.rt_nr_running);
+	P(rt.rt_nr_uninterruptible);
+# ifdef CONFIG_SCHEDSTATS
+	P(rto_schedule);
+	P(rto_schedule_tail);
+	P(rto_wakeup);
+	P(rto_pulled);
+	P(rto_pushed);
+# endif
+#endif
+
 #undef P
 #undef PN
 
