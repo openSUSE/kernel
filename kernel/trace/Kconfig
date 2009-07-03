@@ -376,7 +376,7 @@ config KMEMTRACE
 	  If unsure, say N.
 
 config WORKQUEUE_TRACER
-	bool "Trace workqueues"
+	bool "Trace workqueues" if !PREEMPT_RT
 	select GENERIC_TRACER
 	help
 	  The workqueue tracer provides some statistical informations
