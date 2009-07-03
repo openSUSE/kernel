@@ -247,6 +247,9 @@ struct mm_struct {
 	/* Architecture-specific MM context */
 	mm_context_t context;
 
+	/* realtime bits */
+	struct list_head	delayed_drop;
+
 	/* Swap token stuff */
 	/*
 	 * Last value of global fault stamp as seen by this process.
