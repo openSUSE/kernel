@@ -59,14 +59,20 @@ extern void set_pmd_pfn(unsigned long, unsigned long, pgprot_t);
 #define pte_offset_map_nested(dir, address)				\
 	((pte_t *)kmap_atomic_pte(pmd_page(*(dir)), KM_PTE1) +		\
 	 pte_index((address)))
+#define pte_offset_map_direct(dir, address)				\
+	((pte_t *)kmap_atomic_pte_direct(pmd_page(*(dir)), __KM_PTE) +	\
+	 pte_index((address)))
 #define pte_unmap(pte) kunmap_atomic((pte), __KM_PTE)
 #define pte_unmap_nested(pte) kunmap_atomic((pte), KM_PTE1)
+#define pte_unmap_direct(pte) kunmap_atomic_direct((pte), __KM_PTE)
 #else
 #define pte_offset_map(dir, address)					\
 	((pte_t *)page_address(pmd_page(*(dir))) + pte_index((address)))
 #define pte_offset_map_nested(dir, address) pte_offset_map((dir), (address))
+#define pte_offset_map_direct(dir, address) pte_offset_map((dir), (address))
 #define pte_unmap(pte) do { } while (0)
 #define pte_unmap_nested(pte) do { } while (0)
+#define pte_unmap_direct(pte) do { } while (0)
 #endif
 
 /* Clear a kernel PTE and flush it from the TLB */

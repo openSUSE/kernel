@@ -77,13 +77,13 @@ static noinline int gup_pte_range(pmd_t pmd, unsigned long addr,
 	if (write)
 		mask |= _PAGE_RW;
 
-	ptep = pte_offset_map(&pmd, addr);
+	ptep = pte_offset_map_direct(&pmd, addr);
 	do {
 		pte_t pte = gup_get_pte(ptep);
 		struct page *page;
 
 		if ((pte_flags(pte) & (mask | _PAGE_SPECIAL)) != mask) {
-			pte_unmap(ptep);
+			pte_unmap_direct(ptep);
 			return 0;
 		}
 		VM_BUG_ON(!pfn_valid(pte_pfn(pte)));
@@ -93,7 +93,7 @@ static noinline int gup_pte_range(pmd_t pmd, unsigned long addr,
 		(*nr)++;
 
 	} while (ptep++, addr += PAGE_SIZE, addr != end);
-	pte_unmap(ptep - 1);
+	pte_unmap_direct(ptep - 1);
 
 	return 1;
 }

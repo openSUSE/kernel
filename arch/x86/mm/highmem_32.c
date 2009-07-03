@@ -70,6 +70,11 @@ void *__kmap_atomic_prot(struct page *page, enum km_type type, pgprot_t prot)
 	return (void *)vaddr;
 }
 
+void *__kmap_atomic_direct(struct page *page, enum km_type type)
+{
+	return __kmap_atomic_prot(page, type, kmap_prot);
+}
+
 void *__kmap_atomic(struct page *page, enum km_type type)
 {
 	return kmap_atomic_prot(page, type, kmap_prot);
@@ -105,6 +110,7 @@ void __kunmap_atomic(void *kvaddr, enum km_type type)
  */
 void *__kmap_atomic_pfn(unsigned long pfn, enum km_type type)
 {
+	preempt_disable();
 	return kmap_atomic_prot_pfn(pfn, type, kmap_prot);
 }
 EXPORT_SYMBOL_GPL(__kmap_atomic_pfn); /* temporarily in use by i915 GEM until vmap */
