@@ -30,7 +30,11 @@ static void __init zap_identity_mappings(void)
 {
 	pgd_t *pgd = pgd_offset_k(0UL);
 	pgd_clear(pgd);
-	__flush_tlb_all();
+	/*
+	 * preempt_disable/enable does not work this early in the
+	 * bootup yet:
+	 */
+	write_cr3(read_cr3());
 }
 
 /* Don't add a printk in there. printk relies on the PDA which is not initialized 

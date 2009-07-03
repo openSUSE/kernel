@@ -881,7 +881,7 @@ static int __initdata early_console_initialized;
 
 asmlinkage void early_printk(const char *fmt, ...)
 {
-	char buf[512];
+	static char buf[512];
 	int n;
 	va_list ap;
 

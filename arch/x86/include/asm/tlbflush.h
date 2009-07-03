@@ -17,7 +17,9 @@
 
 static inline void __native_flush_tlb(void)
 {
+	preempt_disable();
 	native_write_cr3(native_read_cr3());
+	preempt_enable();
 }
 
 static inline void __native_flush_tlb_global(void)

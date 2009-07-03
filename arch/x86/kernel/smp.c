@@ -120,6 +120,16 @@ static void native_smp_send_reschedule(int cpu)
 	apic->send_IPI_mask(cpumask_of(cpu), RESCHEDULE_VECTOR);
 }
 
+/*
+ * this function sends a 'reschedule' IPI to all other CPUs.
+ * This is used when RT tasks are starving and other CPUs
+ * might be able to run them:
+ */
+void smp_send_reschedule_allbutself(void)
+{
+	apic->send_IPI_allbutself(RESCHEDULE_VECTOR);
+}
+
 void native_send_call_func_single_ipi(int cpu)
 {
 	apic->send_IPI_mask(cpumask_of(cpu), CALL_FUNCTION_SINGLE_VECTOR);
