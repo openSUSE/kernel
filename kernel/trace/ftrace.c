@@ -377,7 +377,8 @@ static int function_stat_show(struct seq_file *m, void *v)
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 	seq_printf(m, "    ");
 	avg = rec->time;
-	do_div(avg, rec->counter);
+	if (rec->counter)
+		do_div(avg, rec->counter);
 
 	mutex_lock(&mutex);
 	trace_seq_init(&s);

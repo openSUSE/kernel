@@ -470,7 +470,7 @@ trace_print_graph_duration(unsigned long long duration, struct trace_seq *s)
 	int ret, len;
 	int i;
 
-	sprintf(msecs_str, "%lu", (unsigned long) duration);
+	snprintf(msecs_str, sizeof(msecs_str), "%lu", (unsigned long) duration);
 
 	/* Print msecs */
 	ret = trace_seq_printf(s, "%s", msecs_str);
