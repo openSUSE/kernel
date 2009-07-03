@@ -91,9 +91,10 @@ static inline void conditional_sti(struct pt_regs *regs)
 		local_irq_enable();
 }
 
-static inline void preempt_conditional_sti(struct pt_regs *regs)
+static inline void preempt_conditional_sti(struct pt_regs *regs, int stack)
 {
-	inc_preempt_count();
+	if (stack)
+		inc_preempt_count();
 	if (regs->flags & X86_EFLAGS_IF)
 		local_irq_enable();
 }
@@ -104,11 +105,12 @@ static inline void conditional_cli(struct pt_regs *regs)
 		local_irq_disable();
 }
 
-static inline void preempt_conditional_cli(struct pt_regs *regs)
+static inline void preempt_conditional_cli(struct pt_regs *regs, int stack)
 {
 	if (regs->flags & X86_EFLAGS_IF)
 		local_irq_disable();
-	dec_preempt_count();
+	if (stack)
+		dec_preempt_count();
 }
 
 #ifdef CONFIG_X86_32
@@ -235,9 +237,9 @@ dotraplinkage void do_stack_segment(struct pt_regs *regs, long error_code)
 	if (notify_die(DIE_TRAP, "stack segment", regs, error_code,
 			12, SIGBUS) == NOTIFY_STOP)
 		return;
-	preempt_conditional_sti(regs);
+	preempt_conditional_sti(regs, STACKFAULT_STACK);
 	do_trap(12, SIGBUS, "stack segment", regs, error_code, NULL);
-	preempt_conditional_cli(regs);
+	preempt_conditional_cli(regs, STACKFAULT_STACK);
 }
 
 dotraplinkage void do_double_fault(struct pt_regs *regs, long error_code)
@@ -473,9 +475,9 @@ dotraplinkage void __kprobes do_int3(struct pt_regs *regs, long error_code)
 		return;
 #endif
 
-	preempt_conditional_sti(regs);
+	preempt_conditional_sti(regs, DEBUG_STACK);
 	do_trap(3, SIGTRAP, "int3", regs, error_code, NULL);
-	preempt_conditional_cli(regs);
+	preempt_conditional_cli(regs, DEBUG_STACK);
 }
 
 #ifdef CONFIG_X86_64
@@ -552,7 +554,7 @@ dotraplinkage void __kprobes do_debug(struct pt_regs *regs, long error_code)
 		return;
 
 	/* It's safe to allow irq's after DR6 has been saved */
-	preempt_conditional_sti(regs);
+	preempt_conditional_sti(regs, DEBUG_STACK);
 
 	/* Mask out spurious debug traps due to lazy DR7 setting */
 	if (condition & (DR_TRAP0|DR_TRAP1|DR_TRAP2|DR_TRAP3)) {
@@ -587,7 +589,7 @@ dotraplinkage void __kprobes do_debug(struct pt_regs *regs, long error_code)
 	 */
 clear_dr7:
 	set_debugreg(0, 7);
-	preempt_conditional_cli(regs);
+	preempt_conditional_cli(regs, DEBUG_STACK);
 	return;
 
 #ifdef CONFIG_X86_32
@@ -602,7 +604,7 @@ debug_vm86:
 clear_TF_reenable:
 	set_tsk_thread_flag(tsk, TIF_SINGLESTEP);
 	regs->flags &= ~X86_EFLAGS_TF;
-	preempt_conditional_cli(regs);
+	preempt_conditional_cli(regs, DEBUG_STACK);
 	return;
 }
 
