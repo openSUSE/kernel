@@ -422,6 +422,16 @@ struct pv_apic_ops pv_apic_ops = {
 #define PTE_IDENT	__PV_IS_CALLEE_SAVE(_paravirt_ident_64)
 #endif
 
+#ifdef CONFIG_HIGHPTE
+/*
+ * kmap_atomic() might be an inline or a macro:
+ */
+static void *kmap_atomic_func(struct page *page, enum km_type idx)
+{
+	return kmap_atomic(page, idx);
+}
+#endif
+
 struct pv_mmu_ops pv_mmu_ops = {
 #ifndef CONFIG_X86_64
 	.pagetable_setup_start = native_pagetable_setup_start,
@@ -462,7 +472,7 @@ struct pv_mmu_ops pv_mmu_ops = {
 	.ptep_modify_prot_commit = __ptep_modify_prot_commit,
 
 #ifdef CONFIG_HIGHPTE
-	.kmap_atomic_pte = kmap_atomic,
+	.kmap_atomic_pte = kmap_atomic_func,
 #endif
 
 #if PAGETABLE_LEVELS >= 3
