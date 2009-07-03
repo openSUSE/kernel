@@ -1880,7 +1880,7 @@ irqreturn_t usb_hcd_irq (int irq, void *__hcd)
 	 * when the first handler doesn't use it.  So let's just
 	 * assume it's never used.
 	 */
-	local_irq_save(flags);
+	local_irq_save_nort(flags);
 
 	if (unlikely(hcd->state == HC_STATE_HALT ||
 		     !test_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags))) {
@@ -1895,7 +1895,7 @@ irqreturn_t usb_hcd_irq (int irq, void *__hcd)
 		rc = IRQ_HANDLED;
 	}
 
-	local_irq_restore(flags);
+	local_irq_restore_nort(flags);
 	return rc;
 }
 
