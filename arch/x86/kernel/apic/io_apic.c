@@ -2164,8 +2164,10 @@ static int __init timer_irq_works(void)
 	 */
 
 	/* jiffies wrap? */
-	if (time_after(jiffies, t1 + 4))
+	if (time_after(jiffies, t1 + 4) &&
+	    time_before(jiffies, t1 + 16))
 		return 1;
+
 	return 0;
 }
 
