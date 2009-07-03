@@ -2734,7 +2734,7 @@ serial8250_console_write(struct console *co, const char *s, unsigned int count)
 
 	touch_nmi_watchdog();
 
-	if (up->port.sysrq || oops_in_progress)
+	if (up->port.sysrq || oops_in_progress || preempt_rt())
 		locked = spin_trylock_irqsave(&up->port.lock, flags);
 	else
 		spin_lock_irqsave(&up->port.lock, flags);
