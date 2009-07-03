@@ -2852,8 +2852,17 @@ static void fire_sched_in_preempt_notifiers(struct task_struct *curr)
 	struct preempt_notifier *notifier;
 	struct hlist_node *node;
 
+	if (hlist_empty(&curr->preempt_notifiers))
+		return;
+
+	/*
+	 * The KVM sched in notifier expects to be called with
+	 * interrupts enabled.
+	 */
+	local_irq_enable();
 	hlist_for_each_entry(notifier, node, &curr->preempt_notifiers, link)
 		notifier->ops->sched_in(notifier, raw_smp_processor_id());
+	local_irq_disable();
 }
 
 static void
