@@ -161,6 +161,7 @@ extern struct cred init_cred;
 	.fs_excl	= ATOMIC_INIT(0),				\
 	.pi_lock	= __ATOMIC_SPIN_LOCK_UNLOCKED(tsk.pi_lock),	\
 	.timer_slack_ns = 50000, /* 50 usec default slack */		\
+	.posix_timer_list = NULL,					\
 	.pids = {							\
 		[PIDTYPE_PID]  = INIT_PID_LINK(PIDTYPE_PID),		\
 		[PIDTYPE_PGID] = INIT_PID_LINK(PIDTYPE_PGID),		\

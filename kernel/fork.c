@@ -1052,7 +1052,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	acct_clear_integrals(p);
 
 	posix_cpu_timers_init(p);
-
+	p->posix_timer_list = NULL;
 	p->lock_depth = -1;		/* -1 = no lock */
 	do_posix_clock_monotonic_gettime(&p->start_time);
 	p->real_start_time = p->start_time;

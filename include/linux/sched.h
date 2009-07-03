@@ -1292,6 +1292,8 @@ struct task_struct {
 	struct task_cputime cputime_expires;
 	struct list_head cpu_timers[3];
 
+	struct task_struct* posix_timer_list;
+
 /* process credentials */
 	const struct cred *real_cred;	/* objective and real subjective task
 					 * credentials (COW) */
