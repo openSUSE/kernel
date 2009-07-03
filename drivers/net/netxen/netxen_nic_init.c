@@ -1408,7 +1408,7 @@ int netxen_process_cmd_ring(struct netxen_adapter *adapter)
 		smp_mb();
 
 		if (netif_queue_stopped(netdev) && netif_carrier_ok(netdev)) {
-			__netif_tx_lock(tx_ring->txq, smp_processor_id());
+			__netif_tx_lock(tx_ring->txq);
 			if (netxen_tx_avail(tx_ring) > TX_STOP_THRESH)
 				netif_wake_queue(netdev);
 			__netif_tx_unlock(tx_ring->txq);

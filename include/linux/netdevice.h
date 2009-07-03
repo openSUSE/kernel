@@ -1665,10 +1665,18 @@ static inline u32 netif_msg_init(int debug_value, int default_msg_enable_bits)
 	return (1 << debug_value) - 1;
 }
 
-static inline void __netif_tx_lock(struct netdev_queue *txq, void *curr)
+static inline void __netif_tx_lock(struct netdev_queue *txq)
 {
 	spin_lock(&txq->_xmit_lock);
-	txq->xmit_lock_owner = curr;
+	txq->xmit_lock_owner = (void *)current;
+}
+
+/*
+ * Do we hold the xmit_lock already?
+ */
+static inline int netif_tx_lock_recursion(struct netdev_queue *txq)
+{
+	return txq->xmit_lock_owner == (void *)current;
 }
 
 static inline void __netif_tx_lock_bh(struct netdev_queue *txq)
@@ -1712,10 +1720,8 @@ static inline void txq_trans_update(struct netdev_queue *txq)
 static inline void netif_tx_lock(struct net_device *dev)
 {
 	unsigned int i;
-	void *curr;
 
 	spin_lock(&dev->tx_global_lock);
-	curr = (void *)current;
 	for (i = 0; i < dev->num_tx_queues; i++) {
 		struct netdev_queue *txq = netdev_get_tx_queue(dev, i);
 
@@ -1725,7 +1731,7 @@ static inline void netif_tx_lock(struct net_device *dev)
 		 * the ->hard_start_xmit() handler and already
 		 * checked the frozen bit.
 		 */
-		__netif_tx_lock(txq, curr);
+		__netif_tx_lock(txq);
 		set_bit(__QUEUE_STATE_FROZEN, &txq->state);
 		__netif_tx_unlock(txq);
 	}
@@ -1761,9 +1767,9 @@ static inline void netif_tx_unlock_bh(struct net_device *dev)
 	local_bh_enable();
 }
 
-#define HARD_TX_LOCK(dev, txq, curr) {			\
+#define HARD_TX_LOCK(dev, txq) {			\
 	if ((dev->features & NETIF_F_LLTX) == 0) {	\
-		__netif_tx_lock(txq, curr);		\
+		__netif_tx_lock(txq);			\
 	}						\
 }
 
@@ -1776,14 +1782,12 @@ static inline void netif_tx_unlock_bh(struct net_device *dev)
 static inline void netif_tx_disable(struct net_device *dev)
 {
 	unsigned int i;
-	void *curr;
 
 	local_bh_disable();
-	curr = (void *)current;
 	for (i = 0; i < dev->num_tx_queues; i++) {
 		struct netdev_queue *txq = netdev_get_tx_queue(dev, i);
 
-		__netif_tx_lock(txq, curr);
+		__netif_tx_lock(txq);
 		netif_tx_stop_queue(txq);
 		__netif_tx_unlock(txq);
 	}

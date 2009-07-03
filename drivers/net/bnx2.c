@@ -2836,7 +2836,7 @@ bnx2_tx_int(struct bnx2 *bp, struct bnx2_napi *bnapi, int budget)
 
 	if (unlikely(netif_tx_queue_stopped(txq)) &&
 		     (bnx2_tx_avail(bp, txr) > bp->tx_wake_thresh)) {
-		__netif_tx_lock(txq, (void *)current);
+		__netif_tx_lock(txq);
 		if ((netif_tx_queue_stopped(txq)) &&
 		    (bnx2_tx_avail(bp, txr) > bp->tx_wake_thresh))
 			netif_tx_wake_queue(txq);

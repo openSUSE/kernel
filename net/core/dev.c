@@ -1893,9 +1893,9 @@ gso:
 		/*
 		 * No need to check for recursion with threaded interrupts:
 		 */
-		if (txq->xmit_lock_owner != (void *)current) {
+		if (!netif_tx_lock_recursion(txq)) {
 
-			HARD_TX_LOCK(dev, txq, (void *)current);
+			HARD_TX_LOCK(dev, txq);
 
 			if (!netif_tx_queue_stopped(txq)) {
 				rc = 0;
