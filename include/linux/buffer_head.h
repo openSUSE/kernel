@@ -71,6 +71,7 @@ struct buffer_head {
 						   associated with */
 	atomic_t b_count;		/* users using this buffer_head */
 	spinlock_t b_uptodate_lock;
+	spinlock_t b_state_lock;
 };
 
 /*

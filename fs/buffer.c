@@ -40,7 +40,6 @@
 #include <linux/cpu.h>
 #include <linux/bitops.h>
 #include <linux/mpage.h>
-#include <linux/bit_spinlock.h>
 
 static int fsync_buffers_list(spinlock_t *lock, struct list_head *list);
 
@@ -3243,6 +3242,7 @@ struct buffer_head *alloc_buffer_head(gfp_t gfp_flags)
 	if (ret) {
 		INIT_LIST_HEAD(&ret->b_assoc_buffers);
 		spin_lock_init(&ret->b_uptodate_lock);
+		spin_lock_init(&ret->b_state_lock);
 		get_cpu_var(bh_accounting).nr++;
 		recalc_bh_state();
 		put_cpu_var(bh_accounting);
@@ -3255,6 +3255,7 @@ void free_buffer_head(struct buffer_head *bh)
 {
 	BUG_ON(!list_empty(&bh->b_assoc_buffers));
 	BUG_ON(spin_is_locked(&bh->b_uptodate_lock));
+	BUG_ON(spin_is_locked(&bh->b_state_lock));
 	kmem_cache_free(bh_cachep, bh);
 	get_cpu_var(bh_accounting).nr--;
 	recalc_bh_state();
