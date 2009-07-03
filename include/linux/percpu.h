@@ -32,6 +32,29 @@
 	&__get_cpu_var(var); }))
 #define put_cpu_var(var) preempt_enable()
 
+/*
+ * Per-CPU data structures with an additional lock - useful for
+ * PREEMPT_RT code that wants to reschedule but also wants
+ * per-CPU data structures.
+ *
+ * 'cpu' gets updated with the CPU the task is currently executing on.
+ *
+ * NOTE: on normal !PREEMPT_RT kernels these per-CPU variables
+ * are the same as the normal per-CPU variables, so there no
+ * runtime overhead.
+ */
+#define get_cpu_var_locked(var, cpuptr)			\
+(*({							\
+	int __cpu = raw_smp_processor_id();		\
+							\
+	*(cpuptr) = __cpu;				\
+	spin_lock(&__get_cpu_lock(var, __cpu));		\
+	&__get_cpu_var_locked(var, __cpu);		\
+}))
+
+#define put_cpu_var_locked(var, cpu) \
+	 do { (void)cpu; spin_unlock(&__get_cpu_lock(var, cpu)); } while (0)
+
 #ifdef CONFIG_SMP
 
 #ifdef CONFIG_HAVE_DYNAMIC_PER_CPU_AREA

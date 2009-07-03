@@ -5,6 +5,9 @@
 #include <linux/threads.h>
 #include <linux/percpu-defs.h>
 
+#define __per_cpu_var_lock(var)	per_cpu__lock_##var##_locked
+#define __per_cpu_var_lock_var(var) per_cpu__##var##_locked
+
 #ifdef CONFIG_SMP
 
 /*
@@ -56,6 +59,14 @@ extern unsigned long __per_cpu_offset[NR_CPUS];
 #define __raw_get_cpu_var(var) \
 	(*SHIFT_PERCPU_PTR(&per_cpu_var(var), __my_cpu_offset))
 
+#define per_cpu_lock(var, cpu) \
+	(*SHIFT_PERCPU_PTR(&__per_cpu_var_lock(var), per_cpu_offset(cpu)))
+#define per_cpu_var_locked(var, cpu) \
+	(*SHIFT_PERCPU_PTR(&__per_cpu_var_lock_var(var), per_cpu_offset(cpu)))
+#define __get_cpu_lock(var, cpu) \
+		per_cpu_lock(var, cpu)
+#define __get_cpu_var_locked(var, cpu) \
+		per_cpu_var_locked(var, cpu)
 
 #ifdef CONFIG_HAVE_SETUP_PER_CPU_AREA
 extern void setup_per_cpu_areas(void);
@@ -64,9 +75,11 @@ extern void setup_per_cpu_areas(void);
 #else /* ! SMP */
 
 #define per_cpu(var, cpu)			(*((void)(cpu), &per_cpu_var(var)))
+#define per_cpu_var_locked(var, cpu)		(*((void)(cpu), &__per_cpu_var_lock_var(var)))
 #define __get_cpu_var(var)			per_cpu_var(var)
 #define __raw_get_cpu_var(var)			per_cpu_var(var)
-
+#define __get_cpu_lock(var, cpu)		__per_cpu_var_lock(var)
+#define __get_cpu_var_locked(var, cpu)		__per_cpu_var_lock_var(var)
 #endif	/* SMP */
 
 #ifndef PER_CPU_BASE_SECTION
