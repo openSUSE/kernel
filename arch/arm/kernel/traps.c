@@ -239,7 +239,7 @@ static void __die(const char *str, int err, struct thread_info *thread, struct p
 	}
 }
 
-DEFINE_SPINLOCK(die_lock);
+DEFINE_ATOMIC_SPINLOCK(die_lock);
 
 /*
  * This function is protected against re-entrancy.
@@ -251,12 +251,12 @@ NORET_TYPE void die(const char *str, struct pt_regs *regs, int err)
 	oops_enter();
 
 	console_verbose();
-	spin_lock_irq(&die_lock);
+	atomic_spin_lock_irq(&die_lock);
 	bust_spinlocks(1);
 	__die(str, err, thread, regs);
 	bust_spinlocks(0);
 	add_taint(TAINT_DIE);
-	spin_unlock_irq(&die_lock);
+	atomic_spin_unlock_irq(&die_lock);
 
 	if (in_interrupt())
 		panic("Fatal exception in interrupt");
@@ -282,24 +282,24 @@ void arm_notify_die(const char *str, struct pt_regs *regs,
 }
 
 static LIST_HEAD(undef_hook);
-static DEFINE_SPINLOCK(undef_lock);
+static DEFINE_ATOMIC_SPINLOCK(undef_lock);
 
 void register_undef_hook(struct undef_hook *hook)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&undef_lock, flags);
+	atomic_spin_lock_irqsave(&undef_lock, flags);
 	list_add(&hook->node, &undef_hook);
-	spin_unlock_irqrestore(&undef_lock, flags);
+	atomic_spin_unlock_irqrestore(&undef_lock, flags);
 }
 
 void unregister_undef_hook(struct undef_hook *hook)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&undef_lock, flags);
+	atomic_spin_lock_irqsave(&undef_lock, flags);
 	list_del(&hook->node);
-	spin_unlock_irqrestore(&undef_lock, flags);
+	atomic_spin_unlock_irqrestore(&undef_lock, flags);
 }
 
 static int call_undef_hook(struct pt_regs *regs, unsigned int instr)
@@ -308,12 +308,12 @@ static int call_undef_hook(struct pt_regs *regs, unsigned int instr)
 	unsigned long flags;
 	int (*fn)(struct pt_regs *regs, unsigned int instr) = NULL;
 
-	spin_lock_irqsave(&undef_lock, flags);
+	atomic_spin_lock_irqsave(&undef_lock, flags);
 	list_for_each_entry(hook, &undef_hook, node)
 		if ((instr & hook->instr_mask) == hook->instr_val &&
 		    (regs->ARM_cpsr & hook->cpsr_mask) == hook->cpsr_val)
 			fn = hook->fn;
-	spin_unlock_irqrestore(&undef_lock, flags);
+	atomic_spin_unlock_irqrestore(&undef_lock, flags);
 
 	return fn ? fn(regs, instr) : 1;
 }
