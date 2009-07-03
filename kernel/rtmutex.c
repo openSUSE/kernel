@@ -20,6 +20,7 @@
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/timer.h>
+#include <linux/hardirq.h>
 #include <linux/semaphore.h>
 
 #include "rtmutex_common.h"
@@ -679,8 +680,11 @@ rt_spin_lock_fastlock(struct rt_mutex *lock,
 		void  (*slowfn)(struct rt_mutex *lock))
 {
 	/* Temporary HACK! */
-	if (!current->in_printk)
+	if (likely(!current->in_printk))
 		might_sleep();
+	else if (in_atomic() || irqs_disabled())
+		/* don't grab locks for printk in atomic */
+		return;
 
 	if (likely(rt_mutex_cmpxchg(lock, NULL, current)))
 		rt_mutex_deadlock_account_lock(lock, current);
@@ -692,6 +696,11 @@ static inline void
 rt_spin_lock_fastunlock(struct rt_mutex *lock,
 			void  (*slowfn)(struct rt_mutex *lock))
 {
+	/* Temporary HACK! */
+	if (unlikely(rt_mutex_owner(lock) != current) && current->in_printk)
+		/* don't grab locks for printk in atomic */
+		return;
+
 	if (likely(rt_mutex_cmpxchg(lock, current, NULL)))
 		rt_mutex_deadlock_account_unlock(current);
 	else
