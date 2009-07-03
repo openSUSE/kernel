@@ -894,6 +894,13 @@ unsigned long rt_nr_uninterruptible(void)
 	for_each_online_cpu(i)
 		sum += cpu_rq(i)->rt.rt_nr_uninterruptible;
 
+	/*
+	 * Since we read the counters lockless, it might be slightly
+	 * inaccurate. Do not allow it to go below zero though:
+	 */
+	if (unlikely((long)sum < 0))
+		sum = 0;
+
 	return sum;
 }
 
