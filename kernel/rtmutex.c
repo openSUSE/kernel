@@ -775,12 +775,6 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 	atomic_spin_lock_irqsave(&lock->wait_lock, flags);
 	init_lists(lock);
 
-	/* Try to acquire the lock again: */
-	if (do_try_to_take_rt_mutex(lock, STEAL_LATERAL)) {
-		atomic_spin_unlock_irqrestore(&lock->wait_lock, flags);
-		return;
-	}
-
 	BUG_ON(rt_mutex_owner(lock) == current);
 
 	/*
