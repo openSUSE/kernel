@@ -1595,7 +1595,12 @@ static irqreturn_t serial8250_interrupt(int irq, void *dev_id)
 
 		l = l->next;
 
-		if (l == i->head && pass_counter++ > PASS_LIMIT) {
+		/*
+		 * On preempt-rt we can be preempted and run in our
+		 * own thread.
+		 */
+		if (!preempt_rt() && l == i->head &&
+		    pass_counter++ > PASS_LIMIT) {
 			/* If we hit this, we're dead. */
 			printk(KERN_ERR "serial8250: too much work for "
 				"irq%d\n", irq);
