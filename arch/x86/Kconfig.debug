@@ -76,6 +76,7 @@ config DEBUG_PER_CPU_MAPS
 	bool "Debug access to per_cpu maps"
 	depends on DEBUG_KERNEL
 	depends on SMP
+	depends on !PREEMPT_RT
 	default n
 	---help---
 	  Say Y to verify that the per_cpu map being accessed has
