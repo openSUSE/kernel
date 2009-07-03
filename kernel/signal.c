@@ -519,6 +519,9 @@ void signal_wake_up(struct task_struct *t, int resume)
 
 	set_tsk_thread_flag(t, TIF_SIGPENDING);
 
+	if (unlikely(t == current))
+		return;
+
 	/*
 	 * For SIGKILL, we want to wake it up in the stopped/traced/killable
 	 * case. We don't check t->state here because there is a race with it
