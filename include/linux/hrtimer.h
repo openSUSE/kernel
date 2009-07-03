@@ -109,6 +109,7 @@ struct hrtimer {
 	struct hrtimer_clock_base	*base;
 	unsigned long			state;
 	struct list_head		cb_entry;
+	int				irqsafe;
 #ifdef CONFIG_TIMER_STATS
 	int				start_pid;
 	void				*start_site;
@@ -144,6 +145,7 @@ struct hrtimer_clock_base {
 	struct hrtimer_cpu_base	*cpu_base;
 	clockid_t		index;
 	struct rb_root		active;
+	struct list_head	expired;
 	struct rb_node		*first;
 	ktime_t			resolution;
 	ktime_t			(*get_time)(void);
