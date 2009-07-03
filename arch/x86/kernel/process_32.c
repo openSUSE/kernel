@@ -162,8 +162,10 @@ void __show_regs(struct pt_regs *regs, int all)
 		regs->ax, regs->bx, regs->cx, regs->dx);
 	printk("ESI: %08lx EDI: %08lx EBP: %08lx ESP: %08lx\n",
 		regs->si, regs->di, regs->bp, sp);
-	printk(" DS: %04x ES: %04x FS: %04x GS: %04x SS: %04x\n",
-	       (u16)regs->ds, (u16)regs->es, (u16)regs->fs, gs, ss);
+	printk(" DS: %04x ES: %04x FS: %04x GS: %04x SS: %04x"
+	       " preempt:%08x\n",
+	       (u16)regs->ds, (u16)regs->es, (u16)regs->fs, gs, ss,
+	       preempt_count());
 
 	if (!all)
 		return;

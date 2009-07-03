@@ -58,6 +58,16 @@ extern void *kmap_high(struct page *page);
 extern void kunmap_high(struct page *page);
 
 void *kmap(struct page *page);
+extern void kunmap_virt(void *ptr);
+extern struct page *kmap_to_page(void *ptr);
+void kunmap(struct page *page);
+
+void *__kmap_atomic_prot(struct page *page, enum km_type type, pgprot_t prot);
+void *__kmap_atomic(struct page *page, enum km_type type);
+void __kunmap_atomic(void *kvaddr, enum km_type type);
+void *__kmap_atomic_pfn(unsigned long pfn, enum km_type type);
+struct page *__kmap_atomic_to_page(void *ptr);
+
 void kunmap(struct page *page);
 void *kmap_atomic_prot(struct page *page, enum km_type type, pgprot_t prot);
 void *kmap_atomic(struct page *page, enum km_type type);
@@ -74,6 +84,23 @@ struct page *kmap_atomic_to_page(void *ptr);
 
 extern void add_highpages_with_active_regions(int nid, unsigned long start_pfn,
 					unsigned long end_pfn);
+
+/*
+ * on PREEMPT_RT kmap_atomic() is a wrapper that uses kmap():
+ */
+#ifdef CONFIG_PREEMPT_RT
+# define kmap_atomic_prot(page, type, prot)	kmap(page)
+# define kmap_atomic(page, type)	kmap(page)
+# define kmap_atomic_pfn(pfn, type)	kmap(pfn_to_page(pfn))
+# define kunmap_atomic(kvaddr, type)	kunmap_virt(kvaddr)
+# define kmap_atomic_to_page(kvaddr)	kmap_to_page(kvaddr)
+#else
+# define kmap_atomic_prot(page, type, prot)	__kmap_atomic_prot(page, type, prot)
+# define kmap_atomic(page, type)	__kmap_atomic(page, type)
+# define kmap_atomic_pfn(pfn, type)	__kmap_atomic_pfn(pfn, type)
+# define kunmap_atomic(kvaddr, type)	__kunmap_atomic(kvaddr, type)
+# define kmap_atomic_to_page(kvaddr)	__kmap_atomic_to_page(kvaddr)
+#endif
 
 #endif /* __KERNEL__ */
 

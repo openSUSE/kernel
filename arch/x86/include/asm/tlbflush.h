@@ -7,6 +7,21 @@
 #include <asm/processor.h>
 #include <asm/system.h>
 
+/*
+ * TLB-flush needs to be nonpreemptible on PREEMPT_RT due to the
+ * following complex race scenario:
+ *
+ * if the current task is lazy-TLB and does a TLB flush and
+ * gets preempted after the movl %%r3, %0 but before the
+ * movl %0, %%cr3 then its ->active_mm might change and it will
+ * install the wrong cr3 when it switches back. This is not a
+ * problem for the lazy-TLB task itself, but if the next task it
+ * switches to has an ->mm that is also the lazy-TLB task's
+ * new ->active_mm, then the scheduler will assume that cr3 is
+ * the new one, while we overwrote it with the old one. The result
+ * is the wrong cr3 in the new (non-lazy-TLB) task, which typically
+ * causes an infinite pagefault upon the next userspace access.
+ */
 #ifdef CONFIG_PARAVIRT
 #include <asm/paravirt.h>
 #else
@@ -97,6 +112,13 @@ static inline void __flush_tlb_one(unsigned long addr)
 
 static inline void flush_tlb_mm(struct mm_struct *mm)
 {
+	/*
+	 * This is safe on PREEMPT_RT because if we preempt
+	 * right after the check but before the __flush_tlb(),
+	 * and if ->active_mm changes, then we might miss a
+	 * TLB flush, but that TLB flush happened already when
+	 * ->active_mm was changed:
+	 */
 	if (mm == current->active_mm)
 		__flush_tlb();
 }

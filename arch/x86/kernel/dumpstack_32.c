@@ -99,6 +99,12 @@ show_stack_log_lvl(struct task_struct *task, struct pt_regs *regs,
 }
 
 
+#if defined(CONFIG_DEBUG_STACKOVERFLOW) && defined(CONFIG_EVENT_TRACE)
+extern unsigned long worst_stack_left;
+#else
+# define worst_stack_left -1L
+#endif
+
 void show_registers(struct pt_regs *regs)
 {
 	int i;

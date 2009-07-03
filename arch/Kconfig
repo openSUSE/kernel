@@ -33,6 +33,11 @@ config OPROFILE_IBS
 config HAVE_OPROFILE
 	bool
 
+config PROFILE_NMI
+	bool
+	depends on OPROFILE
+	default y
+
 config KPROBES
 	bool "Kprobes"
 	depends on KALLSYMS && MODULES

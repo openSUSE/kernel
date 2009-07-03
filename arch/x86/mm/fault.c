@@ -561,6 +561,7 @@ static int is_f00f_bug(struct pt_regs *regs, unsigned long address)
 		nr = (address - idt_descr.address) >> 3;
 
 		if (nr == 6) {
+			zap_rt_locks();
 			do_invalid_op(regs, 0);
 			return 1;
 		}
