@@ -656,6 +656,14 @@ rt_spin_lock_fastunlock(struct rt_mutex *lock,
 		slowfn(lock);
 }
 
+static inline void
+update_current(unsigned long new_state, unsigned long *saved_state)
+{
+	unsigned long state = xchg(&current->state, new_state);
+	if (unlikely(state == TASK_RUNNING))
+		*saved_state = TASK_RUNNING;
+}
+
 /*
  * Slow path lock function spin_lock style: this variant is very
  * careful not to miss any non-lock wakeups.
@@ -695,7 +703,7 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 	 * saved_state accordingly. If we did not get a real wakeup
 	 * then we return with the saved state.
 	 */
-	saved_state = xchg(&current->state, TASK_UNINTERRUPTIBLE);
+	saved_state = current->state;
 
 	for (;;) {
 		int saved_lock_depth = current->lock_depth;
@@ -725,13 +733,14 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 
 		debug_rt_mutex_print_deadlock(&waiter);
 
-		schedule_rt_mutex(lock);
+		update_current(TASK_UNINTERRUPTIBLE, &saved_state);
+		if (waiter.task)
+			schedule_rt_mutex(lock);
+		else
+			update_current(TASK_RUNNING_MUTEX, &saved_state);
 
 		atomic_spin_lock_irqsave(&lock->wait_lock, flags);
 		current->lock_depth = saved_lock_depth;
-		state = xchg(&current->state, TASK_UNINTERRUPTIBLE);
-		if (unlikely(state == TASK_RUNNING))
-			saved_state = TASK_RUNNING;
 	}
 
 	state = xchg(&current->state, saved_state);
