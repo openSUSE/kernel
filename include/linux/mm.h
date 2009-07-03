@@ -602,23 +602,39 @@ static __always_inline void *lowmem_page_address(struct page *page)
 #endif
 
 #if defined(WANT_PAGE_VIRTUAL)
-#define page_address(page) ((page)->virtual)
-#define set_page_address(page, address)			\
-	do {						\
-		(page)->virtual = (address);		\
-	} while(0)
-#define page_address_init()  do { } while(0)
+/*
+ * wrap page->virtual so it is safe to set/read locklessly
+ */
+#define page_address(page) \
+	({ typeof((page)->virtual) v = (page)->virtual; \
+	 smp_read_barrier_depends(); \
+	 v; })
+
+static inline int set_page_address(struct page *page, void *address)
+{
+	if (address)
+		return cmpxchg(&page->virtual, NULL, address) == NULL;
+	else {
+		/*
+		 * cmpxchg is a bit abused because it is not guaranteed
+		 * safe wrt direct assignment on all platforms.
+		 */
+		void *virt = page->virtual;
+		return cmpxchg(&page->vitrual, virt, NULL) == virt;
+	}
+}
+void page_address_init(void);
 #endif
 
 #if defined(HASHED_PAGE_VIRTUAL)
 void *page_address(struct page *page);
-void set_page_address(struct page *page, void *virtual);
+int set_page_address(struct page *page, void *virtual);
 void page_address_init(void);
 #endif
 
 #if !defined(HASHED_PAGE_VIRTUAL) && !defined(WANT_PAGE_VIRTUAL)
 #define page_address(page) lowmem_page_address(page)
-#define set_page_address(page, address)  do { } while(0)
+#define set_page_address(page, address)  (0)
 #define page_address_init()  do { } while(0)
 #endif
 
