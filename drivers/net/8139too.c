@@ -2195,7 +2195,11 @@ static irqreturn_t rtl8139_interrupt (int irq, void *dev_instance)
  */
 static void rtl8139_poll_controller(struct net_device *dev)
 {
-	disable_irq(dev->irq);
+	/*
+	 * use _nosync() variant - might be used by netconsole
+	 * from atomic contexts:
+	 */
+	disable_irq_nosync(dev->irq);
 	rtl8139_interrupt(dev->irq, dev);
 	enable_irq(dev->irq);
 }
