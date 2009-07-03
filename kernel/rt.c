@@ -201,24 +201,18 @@ EXPORT_SYMBOL(rt_write_trylock_irqsave);
 int __lockfunc rt_read_trylock(rwlock_t *rwlock)
 {
 	struct rt_mutex *lock = &rwlock->lock;
-	unsigned long flags;
-	int ret;
+	int ret = 1;
 
 	/*
-	 * Read locks within the self-held write lock succeed.
+	 * recursive read locks succeed when current owns the lock
 	 */
-	spin_lock_irqsave(&lock->wait_lock, flags);
-	if (rt_mutex_real_owner(lock) == current) {
-		spin_unlock_irqrestore(&lock->wait_lock, flags);
+	if (rt_mutex_real_owner(lock) != current || !rwlock->read_depth)
+		ret = rt_mutex_trylock(lock);
+
+	if (ret) {
 		rwlock->read_depth++;
 		rwlock_acquire_read(&rwlock->dep_map, 0, 1, _RET_IP_);
-		return 1;
 	}
-	spin_unlock_irqrestore(&lock->wait_lock, flags);
-
-	ret = rt_mutex_trylock(lock);
-	if (ret)
-		rwlock_acquire_read(&rwlock->dep_map, 0, 1, _RET_IP_);
 
 	return ret;
 }
@@ -233,21 +227,16 @@ EXPORT_SYMBOL(rt_write_lock);
 
 void __lockfunc rt_read_lock(rwlock_t *rwlock)
 {
-	unsigned long flags;
 	struct rt_mutex *lock = &rwlock->lock;
 
 	rwlock_acquire_read(&rwlock->dep_map, 0, 0, _RET_IP_);
+
 	/*
-	 * Read locks within the write lock succeed.
+	 * recursive read locks succeed when current owns the lock
 	 */
-	spin_lock_irqsave(&lock->wait_lock, flags);
-	if (rt_mutex_real_owner(lock) == current) {
-		spin_unlock_irqrestore(&lock->wait_lock, flags);
-		rwlock->read_depth++;
-		return;
-	}
-	spin_unlock_irqrestore(&lock->wait_lock, flags);
-	__rt_spin_lock(lock);
+	if (rt_mutex_real_owner(lock) != current || !rwlock->read_depth)
+		__rt_spin_lock(lock);
+	rwlock->read_depth++;
 }
 
 EXPORT_SYMBOL(rt_read_lock);
@@ -262,22 +251,13 @@ EXPORT_SYMBOL(rt_write_unlock);
 
 void __lockfunc rt_read_unlock(rwlock_t *rwlock)
 {
-	struct rt_mutex *lock = &rwlock->lock;
-	unsigned long flags;
-
 	rwlock_release(&rwlock->dep_map, 1, _RET_IP_);
-	// TRACE_WARN_ON(lock->save_state != 1);
-	/*
-	 * Read locks within the self-held write lock succeed.
-	 */
-	spin_lock_irqsave(&lock->wait_lock, flags);
-	if (rt_mutex_real_owner(lock) == current && rwlock->read_depth) {
-		spin_unlock_irqrestore(&lock->wait_lock, flags);
-		rwlock->read_depth--;
-		return;
-	}
-	spin_unlock_irqrestore(&lock->wait_lock, flags);
-	__rt_spin_unlock(&rwlock->lock);
+
+	BUG_ON(rwlock->read_depth <= 0);
+
+	/* Release the lock only when read_depth is down to 0 */
+	if (--rwlock->read_depth == 0)
+		__rt_spin_unlock(&rwlock->lock);
 }
 EXPORT_SYMBOL(rt_read_unlock);
 
@@ -324,19 +304,7 @@ EXPORT_SYMBOL(rt_up_write);
 
 void  rt_up_read(struct rw_semaphore *rwsem)
 {
-	unsigned long flags;
-
 	rwsem_release(&rwsem->dep_map, 1, _RET_IP_);
-	/*
-	 * Read locks within the self-held write lock succeed.
-	 */
-	spin_lock_irqsave(&rwsem->lock.wait_lock, flags);
-	if (rt_mutex_real_owner(&rwsem->lock) == current && rwsem->read_depth) {
-		spin_unlock_irqrestore(&rwsem->lock.wait_lock, flags);
-		rwsem->read_depth--;
-		return;
-	}
-	spin_unlock_irqrestore(&rwsem->lock.wait_lock, flags);
 	rt_mutex_unlock(&rwsem->lock);
 }
 EXPORT_SYMBOL(rt_up_read);
@@ -377,10 +345,8 @@ EXPORT_SYMBOL(rt_down_write_nested);
 
 int  rt_down_read_trylock(struct rw_semaphore *rwsem)
 {
-	unsigned long flags;
-	int ret;
+	int ret = rt_mutex_trylock(&rwsem->lock);
 
-	ret = rt_mutex_trylock(&rwsem->lock);
 	if (ret)
 		rwsem_acquire(&rwsem->dep_map, 0, 1, _RET_IP_);
 	return ret;
@@ -389,21 +355,7 @@ EXPORT_SYMBOL(rt_down_read_trylock);
 
 static void __rt_down_read(struct rw_semaphore *rwsem, int subclass)
 {
-	unsigned long flags;
-
 	rwsem_acquire_read(&rwsem->dep_map, subclass, 0, _RET_IP_);
-
-	/*
-	 * Read locks within the write lock succeed.
-	 */
-	spin_lock_irqsave(&rwsem->lock.wait_lock, flags);
-
-	if (rt_mutex_real_owner(&rwsem->lock) == current) {
-		spin_unlock_irqrestore(&rwsem->lock.wait_lock, flags);
-		rwsem->read_depth++;
-		return;
-	}
-	spin_unlock_irqrestore(&rwsem->lock.wait_lock, flags);
 	rt_mutex_lock(&rwsem->lock);
 }
 
@@ -430,7 +382,6 @@ void  __rt_rwsem_init(struct rw_semaphore *rwsem, char *name,
 	lockdep_init_map(&rwsem->dep_map, name, key, 0);
 #endif
 	__rt_mutex_init(&rwsem->lock, name);
-	rwsem->read_depth = 0;
 }
 EXPORT_SYMBOL(__rt_rwsem_init);
 
