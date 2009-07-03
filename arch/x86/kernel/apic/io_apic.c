@@ -3189,7 +3189,6 @@ unsigned int create_irq_nr(unsigned int irq_want, int node)
 	if (irq_want < nr_irqs_gsi)
 		irq_want = nr_irqs_gsi;
 
-	atomic_spin_lock_irqsave(&vector_lock, flags);
 	for (new = irq_want; new < nr_irqs; new++) {
 		desc_new = irq_to_desc_alloc_node(new, node);
 		if (!desc_new) {
@@ -3201,13 +3200,14 @@ unsigned int create_irq_nr(unsigned int irq_want, int node)
 		if (cfg_new->vector != 0)
 			continue;
 
+		atomic_spin_lock_irqsave(&vector_lock, flags);
 		desc_new = move_irq_desc(desc_new, node);
 
 		if (__assign_irq_vector(new, cfg_new, apic->target_cpus()) == 0)
 			irq = new;
+		atomic_spin_unlock_irqrestore(&vector_lock, flags);
 		break;
 	}
-	atomic_spin_unlock_irqrestore(&vector_lock, flags);
 
 	if (irq > 0) {
 		dynamic_irq_init(irq);
