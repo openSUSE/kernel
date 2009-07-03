@@ -523,6 +523,41 @@ static void wakeup_next_waiter(struct rt_mutex *lock, int savestate)
 	pendowner = waiter->task;
 	waiter->task = NULL;
 
+	/*
+	 * Do the wakeup before the ownership change to give any spinning
+	 * waiter grantees a headstart over the other threads that will
+	 * trigger once owner changes.
+	 */
+	if (!savestate)
+		wake_up_process(pendowner);
+	else {
+		/*
+		 * We can skip the actual (expensive) wakeup if the
+		 * waiter is already running, but we have to be careful
+		 * of race conditions because they may be about to sleep.
+		 *
+		 * The waiter-side protocol has the following pattern:
+		 * 1: Set state != RUNNING
+		 * 2: Conditionally sleep if waiter->task != NULL;
+		 *
+		 * And the owner-side has the following:
+		 * A: Set waiter->task = NULL
+		 * B: Conditionally wake if the state != RUNNING
+		 *
+		 * As long as we ensure 1->2 order, and A->B order, we
+		 * will never miss a wakeup.
+		 *
+		 * Therefore, this barrier ensures that waiter->task = NULL
+		 * is visible before we test the pendowner->state.  The
+		 * corresponding barrier is in the sleep logic.
+		 */
+		smp_mb();
+
+		/* If !RUNNING && !RUNNING_MUTEX */
+		if (pendowner->state & ~TASK_RUNNING_MUTEX)
+			wake_up_process_mutex(pendowner);
+	}
+
 	rt_mutex_set_owner(lock, pendowner, RT_MUTEX_OWNER_PENDING);
 
 	atomic_spin_unlock(&current->pi_lock);
@@ -549,11 +584,6 @@ static void wakeup_next_waiter(struct rt_mutex *lock, int savestate)
 		plist_add(&next->pi_list_entry, &pendowner->pi_waiters);
 	}
 	atomic_spin_unlock(&pendowner->pi_lock);
-
-	if (savestate)
-		wake_up_process_mutex(pendowner);
-	else
-		wake_up_process(pendowner);
 }
 
 /*
@@ -791,6 +821,11 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 
 		if (adaptive_wait(&waiter, orig_owner)) {
 			update_current(TASK_UNINTERRUPTIBLE, &saved_state);
+			/*
+			 * The xchg() in update_current() is an implicit
+			 * barrier which we rely upon to ensure current->state
+			 * is visible before we test waiter.task.
+			 */
 			if (waiter.task)
 				schedule_rt_mutex(lock);
 		}
