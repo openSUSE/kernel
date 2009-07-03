@@ -388,6 +388,7 @@ extern void open_softirq(int nr, void (*action)(struct softirq_action *));
 extern void softirq_init(void);
 extern void raise_softirq_irqoff(unsigned int nr);
 extern void raise_softirq(unsigned int nr);
+extern void softirq_check_pending_idle(void);
 
 /* This is the worklist that queues up per-cpu softirq work.
  *
