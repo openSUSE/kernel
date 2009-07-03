@@ -40,6 +40,8 @@ static atomic_t thread_ack;
 static DEFINE_MUTEX(lock);
 /* setup_lock protects refcount, stop_machine_wq and stop_machine_work. */
 static DEFINE_MUTEX(setup_lock);
+/* do not start up until all worklets have been placed: */
+static DEFINE_MUTEX(startup_lock);
 /* Users of stop_machine. */
 static int refcount;
 static struct workqueue_struct *stop_machine_wq;
@@ -70,6 +72,15 @@ static void stop_cpu(struct work_struct *unused)
 	struct stop_machine_data *smdata = &idle;
 	int cpu = smp_processor_id();
 	int err;
+
+	/*
+	 * Wait for the startup loop to finish:
+	 */
+	mutex_lock(&startup_lock);
+	/*
+	 * Let other threads continue too:
+	 */
+	mutex_unlock(&startup_lock);
 
 	if (!active_cpus) {
 		if (cpu == cpumask_first(cpu_online_mask))
@@ -166,16 +177,21 @@ int __stop_machine(int (*fn)(void *), void *data, const struct cpumask *cpus)
 
 	set_state(STOPMACHINE_PREPARE);
 
-	/* Schedule the stop_cpu work on all cpus: hold this CPU so one
-	 * doesn't hit this CPU until we're ready. */
-	get_cpu();
+	/*
+	 * Schedule the stop_cpu work on all cpus before allowing any
+	 * of the CPUs to execute it:
+	 */
+	mutex_lock(&startup_lock);
+
 	for_each_online_cpu(i) {
 		sm_work = per_cpu_ptr(stop_machine_work, i);
 		INIT_WORK(sm_work, stop_cpu);
 		queue_work_on(i, stop_machine_wq, sm_work);
 	}
-	/* This will release the thread on our CPU. */
-	put_cpu();
+
+	/* This will release the thread on all CPUs: */
+	mutex_unlock(&startup_lock);
+
 	flush_workqueue(stop_machine_wq);
 	ret = active.fnret;
 	mutex_unlock(&lock);
