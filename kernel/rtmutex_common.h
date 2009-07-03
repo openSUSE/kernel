@@ -129,6 +129,26 @@ extern int rt_mutex_finish_proxy_lock(struct rt_mutex *lock,
 				      struct rt_mutex_waiter *waiter,
 				      int detect_deadlock);
 
+
+#define STEAL_LATERAL 1
+#define STEAL_NORMAL  0
+
+/*
+ * Note that RT tasks are excluded from lateral-steals to prevent the
+ * introduction of an unbounded latency
+ */
+static inline int lock_is_stealable(struct task_struct *task,
+				    struct task_struct *pendowner, int mode)
+{
+    if (mode == STEAL_NORMAL || rt_task(task)) {
+	    if (task->prio >= pendowner->prio)
+		    return 0;
+    } else if (task->prio > pendowner->prio)
+	    return 0;
+
+    return 1;
+}
+
 #ifdef CONFIG_DEBUG_RT_MUTEXES
 # include "rtmutex-debug.h"
 #else
