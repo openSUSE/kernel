@@ -86,8 +86,10 @@ void __raw_spin_unlock_wait(raw_spinlock_t *lock)
 {
 	while (lock->slock) {
 		HMT_low();
+		preempt_disable();
 		if (SHARED_PROCESSOR)
 			__spin_yield(lock);
+		preempt_enable();
 	}
 	HMT_medium();
 }
