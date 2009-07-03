@@ -263,7 +263,7 @@ ss_probe:
 
 			kcb->kprobe_status = KPROBE_HIT_SSDONE;
 			reset_current_kprobe();
-			preempt_enable_no_resched();
+			preempt_enable();
 			return 1;
 		} else if (ret < 0) {
 			/*
@@ -282,7 +282,7 @@ ss_probe:
 	return 1;
 
 no_kprobe:
-	preempt_enable_no_resched();
+	preempt_enable();
 	return ret;
 }
 
@@ -412,7 +412,7 @@ static int __kprobes post_kprobe_handler(struct pt_regs *regs)
 	}
 	reset_current_kprobe();
 out:
-	preempt_enable_no_resched();
+	preempt_enable();
 
 	/*
 	 * if somebody else is singlestepping across a probe point, msr
