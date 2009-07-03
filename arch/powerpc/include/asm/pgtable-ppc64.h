@@ -202,8 +202,15 @@ static inline unsigned long pte_update(struct mm_struct *mm,
 		assert_pte_locked(mm, addr);
 
 #ifdef CONFIG_PPC_STD_MMU_64
-	if (old & _PAGE_HASHPTE)
+	if (old & _PAGE_HASHPTE) {
+#ifdef CONFIG_PREEMPT_RT
+		preempt_disable();
+#endif
 		hpte_need_flush(mm, addr, ptep, old, huge);
+#ifdef CONFIG_PREEMPT_RT
+		preempt_enable();
+#endif
+	}
 #endif
 
 	return old;

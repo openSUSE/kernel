@@ -101,18 +101,25 @@ extern void hpte_need_flush(struct mm_struct *mm, unsigned long addr,
 
 static inline void arch_enter_lazy_mmu_mode(void)
 {
-	struct ppc64_tlb_batch *batch = &__get_cpu_var(ppc64_tlb_batch);
+	struct ppc64_tlb_batch *batch = &get_cpu_var(ppc64_tlb_batch);
 
 	batch->active = 1;
+
+	put_cpu_var(ppc64_tlb_batch);
 }
 
 static inline void arch_leave_lazy_mmu_mode(void)
 {
-	struct ppc64_tlb_batch *batch = &__get_cpu_var(ppc64_tlb_batch);
+	struct ppc64_tlb_batch *batch = &get_cpu_var(ppc64_tlb_batch);
 
-	if (batch->index)
-		__flush_tlb_pending(batch);
-	batch->active = 0;
+	if (batch->active) {
+		if (batch->index) {
+			__flush_tlb_pending(batch);
+		}
+		batch->active = 0;
+	}
+
+	put_cpu_var(ppc64_tlb_batch);
 }
 
 #define arch_flush_lazy_mmu_mode()      do {} while (0)

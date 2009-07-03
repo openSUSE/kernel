@@ -30,13 +30,9 @@
 #include <asm/tlbflush.h>
 #include <asm/tlb.h>
 #include <asm/bug.h>
+#include <asm/machdep.h>
 
 DEFINE_PER_CPU(struct ppc64_tlb_batch, ppc64_tlb_batch);
-
-/* This is declared as we are using the more or less generic
- * arch/powerpc/include/asm/tlb.h file -- tgall
- */
-DEFINE_PER_CPU(struct mmu_gather, mmu_gathers);
 
 /*
  * A linux PTE was changed and the corresponding hash table entry
@@ -49,7 +45,7 @@ DEFINE_PER_CPU(struct mmu_gather, mmu_gathers);
 void hpte_need_flush(struct mm_struct *mm, unsigned long addr,
 		     pte_t *ptep, unsigned long pte, int huge)
 {
-	struct ppc64_tlb_batch *batch = &__get_cpu_var(ppc64_tlb_batch);
+	struct ppc64_tlb_batch *batch = &get_cpu_var(ppc64_tlb_batch);
 	unsigned long vsid, vaddr;
 	unsigned int psize;
 	int ssize;
@@ -100,6 +96,7 @@ void hpte_need_flush(struct mm_struct *mm, unsigned long addr,
 	 */
 	if (!batch->active) {
 		flush_hash_page(vaddr, rpte, psize, ssize, 0);
+		put_cpu_var(ppc64_tlb_batch);
 		return;
 	}
 
@@ -126,8 +123,22 @@ void hpte_need_flush(struct mm_struct *mm, unsigned long addr,
 	batch->pte[i] = rpte;
 	batch->vaddr[i] = vaddr;
 	batch->index = ++i;
+
+#ifdef CONFIG_PREEMPT_RT
+	/*
+	 * Since flushing tlb needs expensive hypervisor call(s) on celleb,
+	 * always flush it on RT to reduce scheduling latency.
+	 */
+	if (machine_is(celleb)) {
+		__flush_tlb_pending(batch);
+		put_cpu_var(ppc64_tlb_batch);
+		return;
+	}
+#endif /* CONFIG_PREEMPT_RT */
+
 	if (i >= PPC64_TLB_BATCH_NR)
 		__flush_tlb_pending(batch);
+	put_cpu_var(ppc64_tlb_batch);
 }
 
 /*

@@ -30,26 +30,38 @@ struct mmu_gather;
 #define tlb_start_vma(tlb, vma)	do { } while (0)
 #define tlb_end_vma(tlb, vma)	do { } while (0)
 
+#define HAVE_ARCH_MMU_GATHER 1
+
+struct pte_freelist_batch;
+
+struct arch_mmu_gather {
+	struct pte_freelist_batch *batch;
+};
+
+#define ARCH_MMU_GATHER_INIT (struct arch_mmu_gather){ .batch = NULL, }
+
 #if !defined(CONFIG_PPC_STD_MMU)
 
 #define tlb_flush(tlb)			flush_tlb_mm((tlb)->mm)
 
 #elif defined(__powerpc64__)
 
-extern void pte_free_finish(void);
+extern void pte_free_finish(struct mmu_gather *tlb);
 
 static inline void tlb_flush(struct mmu_gather *tlb)
 {
-	struct ppc64_tlb_batch *tlbbatch = &__get_cpu_var(ppc64_tlb_batch);
+	struct ppc64_tlb_batch *tlbbatch = &get_cpu_var(ppc64_tlb_batch);
 
 	/* If there's a TLB batch pending, then we must flush it because the
 	 * pages are going to be freed and we really don't want to have a CPU
 	 * access a freed page because it has a stale TLB
 	 */
-	if (tlbbatch->index)
+	if (tlbbatch->index) {
 		__flush_tlb_pending(tlbbatch);
+	}
 
-	pte_free_finish();
+	put_cpu_var(ppc64_tlb_batch);
+	pte_free_finish(tlb);
 }
 
 #else
