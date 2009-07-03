@@ -868,7 +868,7 @@ static int enqueue_hrtimer(struct hrtimer *timer,
 	return leftmost;
 }
 
-#ifdef CONFIG_PREEMPT_SOFTIRQS
+#ifdef CONFIG_PREEMPT_RT
 # define wake_up_timer_waiters(b)	wake_up(&(b)->wait)
 
 /**
@@ -885,9 +885,9 @@ void hrtimer_wait_for_timer(const struct hrtimer *timer)
 {
 	struct hrtimer_clock_base *base = timer->base;
 
-	if (base && base->cpu_base && !hrtimer_hres_active(base->cpu_base))
+	if (base && base->cpu_base && !timer->irqsafe)
 		wait_event(base->cpu_base->wait,
-				!(timer->state & HRTIMER_STATE_CALLBACK));
+			   !(timer->state & HRTIMER_STATE_CALLBACK));
 }
 
 #else
@@ -1713,7 +1713,7 @@ static void __cpuinit init_hrtimers_cpu(int cpu)
 	}
 
 	hrtimer_init_hres(cpu_base);
-#ifdef CONFIG_PREEMPT_SOFTIRQS
+#ifdef CONFIG_PREEMPT_RT
 	init_waitqueue_head(&cpu_base->wait);
 #endif
 }
