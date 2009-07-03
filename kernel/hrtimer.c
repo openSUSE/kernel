@@ -837,6 +837,32 @@ static int enqueue_hrtimer(struct hrtimer *timer,
 	return leftmost;
 }
 
+#ifdef CONFIG_PREEMPT_SOFTIRQS
+# define wake_up_timer_waiters(b)	wake_up(&(b)->wait)
+
+/**
+ * hrtimer_wait_for_timer - Wait for a running timer
+ *
+ * @timer:	timer to wait for
+ *
+ * The function waits in case the timers callback function is
+ * currently executed on the waitqueue of the timer base. The
+ * waitqueue is woken up after the timer callback function has
+ * finished execution.
+ */
+void hrtimer_wait_for_timer(const struct hrtimer *timer)
+{
+	struct hrtimer_clock_base *base = timer->base;
+
+	if (base && base->cpu_base)
+		wait_event(base->cpu_base->wait,
+				!(timer->state & HRTIMER_STATE_CALLBACK));
+}
+
+#else
+# define wake_up_timer_waiters(b)	do { } while (0)
+#endif
+
 /*
  * __remove_hrtimer - internal function to remove a timer
  *
@@ -865,6 +891,8 @@ static void __remove_hrtimer(struct hrtimer *timer,
 		rb_erase(&timer->node, &base->active);
 	}
 	timer->state = newstate;
+
+	wake_up_timer_waiters(base->cpu_base);
 }
 
 /*
@@ -1023,7 +1051,7 @@ int hrtimer_cancel(struct hrtimer *timer)
 
 		if (ret >= 0)
 			return ret;
-		cpu_relax();
+		hrtimer_wait_for_timer(timer);
 	}
 }
 EXPORT_SYMBOL_GPL(hrtimer_cancel);
@@ -1558,6 +1586,9 @@ static void __cpuinit init_hrtimers_cpu(int cpu)
 		cpu_base->clock_base[i].cpu_base = cpu_base;
 
 	hrtimer_init_hres(cpu_base);
+#ifdef CONFIG_PREEMPT_SOFTIRQS
+	init_waitqueue_head(&cpu_base->wait);
+#endif
 }
 
 #ifdef CONFIG_HOTPLUG_CPU

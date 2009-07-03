@@ -177,6 +177,9 @@ struct hrtimer_cpu_base {
 	int				hres_active;
 	unsigned long			nr_events;
 #endif
+#ifdef CONFIG_PREEMPT_SOFTIRQS
+	wait_queue_head_t		wait;
+#endif
 };
 
 static inline void hrtimer_set_expires(struct hrtimer *timer, ktime_t time)
@@ -363,6 +366,13 @@ static inline int hrtimer_restart(struct hrtimer *timer)
 {
 	return hrtimer_start_expires(timer, HRTIMER_MODE_ABS);
 }
+
+/* Softirq preemption could deadlock timer removal */
+#ifdef CONFIG_PREEMPT_SOFTIRQS
+  extern void hrtimer_wait_for_timer(const struct hrtimer *timer);
+#else
+# define hrtimer_wait_for_timer(timer)	do { cpu_relax(); } while (0)
+#endif
 
 /* Query timers: */
 extern ktime_t hrtimer_get_remaining(const struct hrtimer *timer);
