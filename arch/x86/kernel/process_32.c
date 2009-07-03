@@ -116,10 +116,12 @@ void cpu_idle(void)
 			pm_idle();
 			start_critical_timings();
 		}
+		local_irq_disable();
 		tick_nohz_restart_sched_tick();
 		__preempt_enable_no_resched();
-		schedule();
+		__schedule();
 		preempt_disable();
+		local_irq_enable();
 	}
 }
 

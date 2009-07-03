@@ -371,13 +371,13 @@ END(ret_from_exception)
 ENTRY(resume_kernel)
 	DISABLE_INTERRUPTS(CLBR_ANY)
 	cmpl $0,TI_preempt_count(%ebp)	# non-zero preempt_count ?
-	jnz restore_all
+	jnz restore_nocheck
 need_resched:
 	movl TI_flags(%ebp), %ecx	# need_resched set ?
 	testb $_TIF_NEED_RESCHED, %cl
-	jz restore_all
+	jz restore_nocheck
 	testl $X86_EFLAGS_IF,PT_EFLAGS(%esp)	# interrupts off (exception path) ?
-	jz restore_all
+	jz restore_nocheck
 	call preempt_schedule_irq
 	jmp need_resched
 END(resume_kernel)
@@ -627,12 +627,9 @@ work_pending:
 	testb $_TIF_NEED_RESCHED, %cl
 	jz work_notifysig
 work_resched:
-	call schedule
+	call __schedule
 	LOCKDEP_SYS_EXIT
-	DISABLE_INTERRUPTS(CLBR_ANY)	# make sure we don't miss an interrupt
-					# setting need_resched or sigpending
-					# between sampling and the iret
-	TRACE_IRQS_OFF
+
 	movl TI_flags(%ebp), %ecx
 	andl $_TIF_WORK_MASK, %ecx	# is there any work to be done other
 					# than syscall tracing?
