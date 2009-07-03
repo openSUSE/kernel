@@ -736,6 +736,13 @@ static inline int hrtimer_enqueue_reprogram(struct hrtimer *timer,
 {
 	return 0;
 }
+
+static inline int hrtimer_reprogram(struct hrtimer *timer,
+				    struct hrtimer_clock_base *base)
+{
+	return 0;
+}
+
 static inline void hrtimer_init_hres(struct hrtimer_cpu_base *base) { }
 static inline void hrtimer_init_timer_hres(struct hrtimer *timer) { }
 
@@ -858,7 +865,7 @@ static int enqueue_hrtimer(struct hrtimer *timer,
 	return leftmost;
 }
 
-#ifdef CONFIG_PREEMPT_RT
+#ifdef CONFIG_PREEMPT_SOFTIRQS
 # define wake_up_timer_waiters(b)	wake_up(&(b)->wait)
 
 /**
@@ -1231,7 +1238,6 @@ static void __run_hrtimer(struct hrtimer *timer)
 }
 
 #ifdef CONFIG_PREEMPT_RT
-
 
 static void hrtimer_rt_reprogram(int restart, struct hrtimer *timer,
 				 struct hrtimer_clock_base *base)
