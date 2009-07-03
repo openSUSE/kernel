@@ -2537,7 +2537,7 @@ static struct console vt_console_driver = {
 	.write		= vt_console_print,
 	.device		= vt_console_device,
 	.unblank	= unblank_screen,
-	.flags		= CON_PRINTBUFFER,
+	.flags		= CON_PRINTBUFFER | CON_ATOMIC,
 	.index		= -1,
 };
 #endif

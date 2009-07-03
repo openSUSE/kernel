@@ -415,6 +415,7 @@ static void __call_console_drivers(unsigned start, unsigned end)
 
 	for (con = console_drivers; con; con = con->next) {
 		if ((con->flags & CON_ENABLED) && con->write &&
+				console_atomic_safe(con) &&
 				(cpu_online(raw_smp_processor_id()) ||
 				 (con->flags & CON_ANYTIME))) {
 			set_printk_might_sleep(1);

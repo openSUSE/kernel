@@ -59,7 +59,7 @@ static void early_vga_write(struct console *con, const char *str, unsigned n)
 static struct console early_vga_console = {
 	.name =		"earlyvga",
 	.write =	early_vga_write,
-	.flags =	CON_PRINTBUFFER,
+	.flags =	CON_PRINTBUFFER | CON_ATOMIC,
 	.index =	-1,
 };
 
@@ -156,7 +156,7 @@ static __init void early_serial_init(char *s)
 static struct console early_serial_console = {
 	.name =		"earlyser",
 	.write =	early_serial_write,
-	.flags =	CON_PRINTBUFFER,
+	.flags =	CON_PRINTBUFFER | CON_ATOMIC,
 	.index =	-1,
 };
 
