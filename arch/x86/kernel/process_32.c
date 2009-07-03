@@ -105,7 +105,6 @@ void cpu_idle(void)
 		tick_nohz_stop_sched_tick(1);
 		while (!need_resched()) {
 
-			check_pgt_cache();
 			rmb();
 
 			if (cpu_is_offline(cpu))
