@@ -233,7 +233,7 @@ EXPORT_SYMBOL(nf_ct_attach);
 void (*nf_ct_destroy)(struct nf_conntrack *);
 EXPORT_SYMBOL(nf_ct_destroy);
 
-void nf_conntrack_destroy(struct nf_conntrack *nfct)
+static void __nf_conntrack_destroy(struct nf_conntrack *nfct)
 {
 	void (*destroy)(struct nf_conntrack *);
 
@@ -243,6 +243,28 @@ void nf_conntrack_destroy(struct nf_conntrack *nfct)
 	destroy(nfct);
 	rcu_read_unlock();
 }
+
+#ifdef CONFIG_PREEMPT_RT
+/*
+ * nf_contrack_destroy is called with preemption disabled
+ * and will call functions that might schedule in PREEMPT_RT.
+ * For PREEMPT_RT we use a rcu callback instead to handle
+ * the destroying.
+ */
+static void nf_conntrack_destroy_rcu(struct rcu_head *rhp)
+{
+	__nf_conntrack_destroy(container_of(rhp, struct nf_conntrack, rcu));
+}
+void nf_conntrack_destroy(struct nf_conntrack *nfct)
+{
+	call_rcu(&nfct->rcu, nf_conntrack_destroy_rcu);
+}
+#else /* !PREEMPT_RT */
+void nf_conntrack_destroy(struct nf_conntrack *nfct)
+{
+	__nf_conntrack_destroy(nfct);
+}
+#endif /* PREEMPT_RT */
 EXPORT_SYMBOL(nf_conntrack_destroy);
 #endif /* CONFIG_NF_CONNTRACK */
 

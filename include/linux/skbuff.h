@@ -98,6 +98,9 @@ struct pipe_inode_info;
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 struct nf_conntrack {
 	atomic_t use;
+#ifdef CONFIG_PREEMPT_RT
+	struct rcu_head rcu;
+#endif
 };
 #endif
 
