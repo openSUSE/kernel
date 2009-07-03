@@ -24,6 +24,8 @@ struct cpu_usage_stat {
 	cputime64_t idle;
 	cputime64_t iowait;
 	cputime64_t steal;
+	cputime64_t user_rt;
+	cputime64_t system_rt;
 	cputime64_t guest;
 };
 

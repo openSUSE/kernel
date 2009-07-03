@@ -4962,7 +4962,9 @@ void account_user_time(struct task_struct *p, cputime_t cputime,
 
 	/* Add user time to cpustat. */
 	tmp = cputime_to_cputime64(cputime);
-	if (TASK_NICE(p) > 0)
+	if (rt_task(p))
+		cpustat->user_rt = cputime64_add(cpustat->user_rt, tmp);
+	else if (TASK_NICE(p) > 0)
 		cpustat->nice = cputime64_add(cpustat->nice, tmp);
 	else
 		cpustat->user = cputime64_add(cpustat->user, tmp);
@@ -5026,6 +5028,8 @@ void account_system_time(struct task_struct *p, int hardirq_offset,
 		cpustat->irq = cputime64_add(cpustat->irq, tmp);
 	else if (softirq_count() || (p->flags & PF_SOFTIRQ))
 		cpustat->softirq = cputime64_add(cpustat->softirq, tmp);
+	else if (rt_task(p))
+		cpustat->system_rt = cputime64_add(cpustat->system_rt, tmp);
 	else
 		cpustat->system = cputime64_add(cpustat->system, tmp);
 
