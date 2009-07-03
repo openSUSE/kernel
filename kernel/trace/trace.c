@@ -274,6 +274,10 @@ unsigned long trace_flags = TRACE_ITER_PRINT_PARENT | TRACE_ITER_PRINTK |
  */
 void trace_wake_up(void)
 {
+#ifdef CONFIG_PREEMPT_RT
+	if (in_atomic() || irqs_disabled())
+		return;
+#endif
 	/*
 	 * The runqueue_is_locked() can fail, but this is the best we
 	 * have for now:
