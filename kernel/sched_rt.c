@@ -860,6 +860,48 @@ static void dequeue_rt_entity(struct sched_rt_entity *rt_se)
 	}
 }
 
+static inline void incr_rt_nr_uninterruptible(struct task_struct *p,
+					      struct rq *rq)
+{
+	rq->rt.rt_nr_uninterruptible++;
+}
+
+static inline void decr_rt_nr_uninterruptible(struct task_struct *p,
+					      struct rq *rq)
+{
+	rq->rt.rt_nr_uninterruptible--;
+}
+
+unsigned long rt_nr_running(void)
+{
+	unsigned long i, sum = 0;
+
+	for_each_online_cpu(i)
+		sum += cpu_rq(i)->rt.rt_nr_running;
+
+	return sum;
+}
+
+unsigned long rt_nr_running_cpu(int cpu)
+{
+	return cpu_rq(cpu)->rt.rt_nr_running;
+}
+
+unsigned long rt_nr_uninterruptible(void)
+{
+	unsigned long i, sum = 0;
+
+	for_each_online_cpu(i)
+		sum += cpu_rq(i)->rt.rt_nr_uninterruptible;
+
+	return sum;
+}
+
+unsigned long rt_nr_uninterruptible_cpu(int cpu)
+{
+	return cpu_rq(cpu)->rt.rt_nr_uninterruptible;
+}
+
 /*
  * Adding/removing a task to/from a priority array:
  */
@@ -872,6 +914,9 @@ static void enqueue_task_rt(struct rq *rq, struct task_struct *p, int wakeup)
 
 	enqueue_rt_entity(rt_se);
 
+	if (p->state == TASK_UNINTERRUPTIBLE)
+		decr_rt_nr_uninterruptible(p, rq);
+
 	if (!task_current(rq, p) && p->rt.nr_cpus_allowed > 1)
 		enqueue_pushable_task(rq, p);
 
@@ -883,6 +928,10 @@ static void dequeue_task_rt(struct rq *rq, struct task_struct *p, int sleep)
 	struct sched_rt_entity *rt_se = &p->rt;
 
 	update_curr_rt(rq);
+
+	if (p->state == TASK_UNINTERRUPTIBLE)
+		incr_rt_nr_uninterruptible(p, rq);
+
 	dequeue_rt_entity(rt_se);
 
 	dequeue_pushable_task(rq, p);
@@ -1462,8 +1511,10 @@ static int pull_rt_task(struct rq *this_rq)
 static void pre_schedule_rt(struct rq *rq, struct task_struct *prev)
 {
 	/* Try to pull RT tasks here if we lower this rq's prio */
-	if (unlikely(rt_task(prev)) && rq->rt.highest_prio.curr > prev->prio)
+	if (unlikely(rt_task(prev)) && rq->rt.highest_prio.curr > prev->prio) {
 		pull_rt_task(rq);
+		schedstat_inc(rq, rto_schedule);
+	}
 }
 
 /*
@@ -1545,7 +1596,6 @@ static void set_cpus_allowed_rt(struct task_struct *p,
 			 */
 			if (weight > 1)
 				enqueue_pushable_task(rq, p);
-
 		}
 
 		if ((p->rt.nr_cpus_allowed <= 1) && (weight > 1)) {
