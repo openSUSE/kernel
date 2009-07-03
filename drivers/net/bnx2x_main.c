@@ -926,7 +926,7 @@ static void bnx2x_tx_int(struct bnx2x_fastpath *fp)
 	/* TBD need a thresh? */
 	if (unlikely(netif_tx_queue_stopped(txq))) {
 
-		__netif_tx_lock(txq, smp_processor_id());
+		__netif_tx_lock(txq);
 
 		/* Need to make the tx_bd_cons update visible to start_xmit()
 		 * before checking for netif_tx_queue_stopped().  Without the
