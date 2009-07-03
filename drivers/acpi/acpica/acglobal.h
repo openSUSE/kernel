@@ -197,7 +197,12 @@ ACPI_EXTERN u8 acpi_gbl_global_lock_present;
  * interrupt level
  */
 ACPI_EXTERN spinlock_t _acpi_gbl_gpe_lock;	/* For GPE data structs and registers */
-ACPI_EXTERN spinlock_t _acpi_gbl_hardware_lock;	/* For ACPI H/W except GPE registers */
+
+/*
+ * Need to be raw because it might be used in acpi_processor_idle():
+ */
+ACPI_EXTERN atomic_spinlock_t _acpi_gbl_hardware_lock;	/* For ACPI H/W except GPE registers */
+
 #define acpi_gbl_gpe_lock	&_acpi_gbl_gpe_lock
 #define acpi_gbl_hardware_lock	&_acpi_gbl_hardware_lock
 

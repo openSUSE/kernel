@@ -84,7 +84,7 @@ acpi_status acpi_ut_mutex_initialize(void)
 	/* Create the spinlocks for use at interrupt level */
 
 	spin_lock_init(acpi_gbl_gpe_lock);
-	spin_lock_init(acpi_gbl_hardware_lock);
+	atomic_spin_lock_init(acpi_gbl_hardware_lock);
 
 	/* Create the reader/writer lock for namespace access */
 
@@ -116,11 +116,6 @@ void acpi_ut_mutex_terminate(void)
 	for (i = 0; i < ACPI_NUM_MUTEX; i++) {
 		(void)acpi_ut_delete_mutex(i);
 	}
-
-	/* Delete the spinlocks */
-
-	acpi_os_delete_lock(acpi_gbl_gpe_lock);
-	acpi_os_delete_lock(acpi_gbl_hardware_lock);
 
 	/* Delete the reader/writer lock */
 

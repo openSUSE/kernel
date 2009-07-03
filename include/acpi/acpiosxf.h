@@ -61,7 +61,7 @@ typedef enum {
 	OSL_EC_BURST_HANDLER
 } acpi_execute_type;
 
-#define ACPI_NO_UNIT_LIMIT          ((u32) -1)
+#define ACPI_NO_UNIT_LIMIT          (INT_MAX/2)
 #define ACPI_MUTEX_SEM              1
 
 /* Functions for acpi_os_signal */
