@@ -5908,6 +5908,8 @@ void rt_mutex_setprio(struct task_struct *p, int prio)
 
 	p->prio = prio;
 
+	trace_sched_task_setprio(rq, p, oldprio);
+
 	if (running)
 		p->sched_class->set_curr_task(rq);
 	if (on_rq) {
