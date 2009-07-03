@@ -48,6 +48,7 @@
 #include <linux/security.h>
 #include <linux/ima.h>
 #include <linux/syscalls.h>
+#include <linux/delay.h>
 #include <linux/tsacct_kern.h>
 #include <linux/cn_proc.h>
 #include <linux/audit.h>
@@ -719,10 +720,12 @@ static int exec_mmap(struct mm_struct *mm)
 		}
 	}
 	task_lock(tsk);
+	local_irq_disable();
 	active_mm = tsk->active_mm;
+	activate_mm(active_mm, mm);
 	tsk->mm = mm;
 	tsk->active_mm = mm;
-	activate_mm(active_mm, mm);
+	local_irq_enable();
 	task_unlock(tsk);
 	arch_pick_mmap_layout(mm);
 	if (old_mm) {

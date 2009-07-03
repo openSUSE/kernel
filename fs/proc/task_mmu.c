@@ -137,8 +137,10 @@ static void *m_start(struct seq_file *m, loff_t *pos)
 	vma = NULL;
 	if ((unsigned long)l < mm->map_count) {
 		vma = mm->mmap;
-		while (l-- && vma)
+		while (l-- && vma) {
 			vma = vma->vm_next;
+			cond_resched();
+		}
 		goto out;
 	}
 

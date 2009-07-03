@@ -726,8 +726,9 @@ void shrink_dcache_for_umount(struct super_block *sb)
 {
 	struct dentry *dentry;
 
-	if (down_read_trylock(&sb->s_umount))
-		BUG();
+// -rt: this might succeed there ...
+//	if (down_read_trylock(&sb->s_umount))
+//		BUG();
 
 	dentry = sb->s_root;
 	sb->s_root = NULL;

@@ -612,9 +612,11 @@ static void use_mm(struct mm_struct *mm)
 	task_lock(tsk);
 	active_mm = tsk->active_mm;
 	atomic_inc(&mm->mm_count);
+	local_irq_disable(); // FIXME
+	switch_mm(active_mm, mm, tsk);
 	tsk->mm = mm;
 	tsk->active_mm = mm;
-	switch_mm(active_mm, mm, tsk);
+	local_irq_enable();
 	task_unlock(tsk);
 
 	mmdrop(active_mm);
