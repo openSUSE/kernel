@@ -84,7 +84,7 @@ static inline void *netpoll_poll_lock(struct napi_struct *napi)
 	rcu_read_lock(); /* deal with race on ->npinfo */
 	if (dev && dev->npinfo) {
 		spin_lock(&napi->poll_lock);
-		napi->poll_owner = smp_processor_id();
+		napi->poll_owner = raw_smp_processor_id();
 		return napi;
 	}
 	return NULL;

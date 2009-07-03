@@ -206,7 +206,7 @@ static void delayed_work_timer_fn(unsigned long __data)
 	struct cpu_workqueue_struct *cwq = get_wq_data(&dwork->work);
 	struct workqueue_struct *wq = cwq->wq;
 
-	__queue_work(wq_per_cpu(wq, smp_processor_id()), &dwork->work);
+	__queue_work(wq_per_cpu(wq, raw_smp_processor_id()), &dwork->work);
 }
 
 /**
