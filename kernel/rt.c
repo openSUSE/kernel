@@ -380,18 +380,6 @@ int  rt_down_read_trylock(struct rw_semaphore *rwsem)
 	unsigned long flags;
 	int ret;
 
-	/*
-	 * Read locks within the self-held write lock succeed.
-	 */
-	spin_lock_irqsave(&rwsem->lock.wait_lock, flags);
-	if (rt_mutex_real_owner(&rwsem->lock) == current) {
-		spin_unlock_irqrestore(&rwsem->lock.wait_lock, flags);
-		rwsem_acquire_read(&rwsem->dep_map, 0, 1, _RET_IP_);
-		rwsem->read_depth++;
-		return 1;
-	}
-	spin_unlock_irqrestore(&rwsem->lock.wait_lock, flags);
-
 	ret = rt_mutex_trylock(&rwsem->lock);
 	if (ret)
 		rwsem_acquire(&rwsem->dep_map, 0, 1, _RET_IP_);
