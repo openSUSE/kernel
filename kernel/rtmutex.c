@@ -8,6 +8,12 @@
  *  Copyright (C) 2005 Kihon Technologies Inc., Steven Rostedt
  *  Copyright (C) 2006 Esben Nielsen
  *
+ * Adaptive Spinlocks:
+ *  Copyright (C) 2008 Novell, Inc., Gregory Haskins, Sven Dietrich,
+ *                                   and Peter Morreale,
+ * Adaptive Spinlocks simplification:
+ *  Copyright (C) 2008 Red Hat, Inc., Steven Rostedt <srostedt@redhat.com>
+ *
  *  See Documentation/rt-mutex-design.txt for details.
  */
 #include <linux/spinlock.h>
@@ -664,6 +670,54 @@ update_current(unsigned long new_state, unsigned long *saved_state)
 		*saved_state = TASK_RUNNING;
 }
 
+#ifdef CONFIG_SMP
+static int adaptive_wait(struct rt_mutex_waiter *waiter,
+			 struct task_struct *orig_owner)
+{
+	int sleep = 0;
+
+	for (;;) {
+
+		/* we are the owner? */
+		if (!waiter->task)
+			break;
+
+		/*
+		 * We need to read the owner of the lock and then check
+		 * its state. But we can't let the owner task be freed
+		 * while we read the state. We grab the rcu_lock and
+		 * this makes sure that the owner task wont disappear
+		 * between testing that it still has the lock, and checking
+		 * its state.
+		 */
+		rcu_read_lock();
+		/* Owner changed? Then lets update the original */
+		if (orig_owner != rt_mutex_owner(waiter->lock)) {
+			rcu_read_unlock();
+			break;
+		}
+
+		/* Owner went to bed, so should we */
+		if (!task_is_current(orig_owner)) {
+			sleep = 1;
+			rcu_read_unlock();
+			break;
+		}
+		rcu_read_unlock();
+
+		cpu_relax();
+	}
+
+	return sleep;
+}
+#else
+static int adaptive_wait(struct rt_mutex_waiter *waiter,
+			 struct task_struct *orig_owner)
+{
+	return 1;
+}
+#endif
+
 /*
  * Slow path lock function spin_lock style: this variant is very
  * careful not to miss any non-lock wakeups.
@@ -679,6 +733,7 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 {
 	struct rt_mutex_waiter waiter;
 	unsigned long saved_state, state, flags;
+	struct task_struct *orig_owner;
 
 	debug_rt_mutex_init_waiter(&waiter);
 	waiter.task = NULL;
@@ -729,13 +784,16 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 		 * the lock ! We restore lock_depth when we come back.
 		 */
 		current->lock_depth = -1;
+		orig_owner = rt_mutex_owner(lock);
 		atomic_spin_unlock_irqrestore(&lock->wait_lock, flags);
 
 		debug_rt_mutex_print_deadlock(&waiter);
 
-		update_current(TASK_UNINTERRUPTIBLE, &saved_state);
-		if (waiter.task)
-			schedule_rt_mutex(lock);
+		if (adaptive_wait(&waiter, orig_owner)) {
+			update_current(TASK_UNINTERRUPTIBLE, &saved_state);
+			if (waiter.task)
+				schedule_rt_mutex(lock);
+		}
 
 		atomic_spin_lock_irqsave(&lock->wait_lock, flags);
 		current->lock_depth = saved_lock_depth;

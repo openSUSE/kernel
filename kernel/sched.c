@@ -699,6 +699,11 @@ inline void update_rq_clock(struct rq *rq)
 	rq->clock = sched_clock_cpu(cpu_of(rq));
 }
 
+int task_is_current(struct task_struct *task)
+{
+	return task_rq(task)->curr == task;
+}
+
 /*
  * Tunables that become constants when CONFIG_SCHED_DEBUG is off:
  */
