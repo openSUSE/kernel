@@ -535,7 +535,6 @@ static int hrtimer_reprogram(struct hrtimer *timer,
 
 	WARN_ON_ONCE(hrtimer_get_expires_tv64(timer) < 0);
 
-#ifndef CONFIG_PREEMPT_RT
 	/*
 	 * When the callback is running, we do not reprogram the clock event
 	 * device. The timer callback is either running on a different CPU or
@@ -544,15 +543,6 @@ static int hrtimer_reprogram(struct hrtimer *timer,
 	 */
 	if (hrtimer_callback_running(timer))
 		return 0;
-#else
-	/*
-	 * preempt-rt changes the rules here as long as we have not
-	 * solved the callback problem. For softirq based timers we
-	 * need to allow reprogramming.
-	 */
-	if (hrtimer_callback_running(timer) && timer->irqsafe)
-		return 0;
-#endif
 
 	/*
 	 * CLOCK_REALTIME timer might be requested with an absolute
@@ -1242,6 +1232,49 @@ static void __run_hrtimer(struct hrtimer *timer)
 
 #ifdef CONFIG_PREEMPT_RT
 
+
+static void hrtimer_rt_reprogram(int restart, struct hrtimer *timer,
+				 struct hrtimer_clock_base *base)
+{
+	/*
+	 * Note, we clear the callback flag before we requeue the
+	 * timer otherwise we trigger the callback_running() check
+	 * in hrtimer_reprogram().
+	 */
+	timer->state &= ~HRTIMER_STATE_CALLBACK;
+
+	if (restart != HRTIMER_NORESTART) {
+		BUG_ON(hrtimer_active(timer));
+		/*
+		 * Enqueue the timer, if it's the leftmost timer then
+		 * we need to reprogram it.
+		 */
+		if (!enqueue_hrtimer(timer, base))
+			return;
+
+		if (hrtimer_reprogram(timer, base))
+			goto requeue;
+
+	} else if (hrtimer_active(timer)) {
+		/*
+		 * If the timer was rearmed on another CPU, reprogram
+		 * the event device.
+		 */
+		if (base->first == &timer->node &&
+		    hrtimer_reprogram(timer, base))
+			goto requeue;
+	}
+	return;
+
+requeue:
+	/*
+	 * Timer is expired. Thus move it from tree to pending list
+	 * again.
+	 */
+	__remove_hrtimer(timer, base, timer->state, 0);
+	list_add_tail(&timer->cb_entry, &base->expired);
+}
+
 /*
  * The changes in mainline which removed the callback modes from
  * hrtimer are not yet working with -rt. The non wakeup_process()
@@ -1281,11 +1314,7 @@ static void hrtimer_rt_run_pending(void)
 			restart = fn(timer);
 			atomic_spin_lock_irq(&cpu_base->lock);
 
-			if (restart != HRTIMER_NORESTART) {
-				BUG_ON(timer->state != HRTIMER_STATE_CALLBACK);
-				enqueue_hrtimer(timer, base);
-			}
-			timer->state &= ~HRTIMER_STATE_CALLBACK;
+			hrtimer_rt_reprogram(restart, timer, base);
 		}
 	}
 
@@ -1476,7 +1505,6 @@ static inline void __hrtimer_peek_ahead_timers(void) { }
 
 static void run_hrtimer_softirq(struct softirq_action *h)
 {
-	hrtimer_peek_ahead_timers();
 	hrtimer_rt_run_pending();
 }
 
