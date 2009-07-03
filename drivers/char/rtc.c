@@ -1197,10 +1197,12 @@ static void rtc_dropped_irq(unsigned long data)
 
 	spin_unlock_irq(&rtc_lock);
 
+#ifndef CONFIG_PREEMPT_RT
 	if (printk_ratelimit()) {
 		printk(KERN_WARNING "rtc: lost some interrupts at %ldHz.\n",
 			freq);
 	}
+#endif
 
 	/* Now we have new data */
 	wake_up_interruptible(&rtc_wait);
