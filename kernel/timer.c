@@ -1233,7 +1233,7 @@ void update_process_times(int user_tick)
  */
 static void run_timer_softirq(struct softirq_action *h)
 {
-	struct tvec_base *base = __get_cpu_var(tvec_bases);
+	struct tvec_base *base = per_cpu(tvec_bases, raw_smp_processor_id());
 
 	perf_counter_do_pending();
 
