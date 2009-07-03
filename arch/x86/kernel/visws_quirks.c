@@ -643,11 +643,13 @@ out_unlock:
 static struct irqaction master_action = {
 	.handler =	piix4_master_intr,
 	.name =		"PIIX4-8259",
+	.flags =	IRQF_NODELAY,
 };
 
 static struct irqaction cascade_action = {
 	.handler = 	no_action,
 	.name =		"cascade",
+	.flags =	IRQF_NODELAY,
 };
 
 
