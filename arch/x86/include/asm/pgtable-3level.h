@@ -71,6 +71,7 @@ static inline void pud_clear(pud_t *pudp)
 {
 	unsigned long pgd;
 
+	preempt_disable();
 	set_pud(pudp, __pud(0));
 
 	/*
@@ -86,6 +87,7 @@ static inline void pud_clear(pud_t *pudp)
 	if (__pa(pudp) >= pgd && __pa(pudp) <
 	    (pgd + sizeof(pgd_t)*PTRS_PER_PGD))
 		write_cr3(pgd);
+	preempt_enable();
 }
 
 #ifdef CONFIG_SMP
