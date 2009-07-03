@@ -1061,7 +1061,7 @@ int netlink_broadcast(struct sock *ssk, struct sk_buff *skb, u32 pid,
 		return -ENOBUFS;
 
 	if (info.delivered) {
-		if (info.congested && (allocation & __GFP_WAIT))
+		if (info.congested && (allocation & __GFP_WAIT) && !rt_task(current))
 			yield();
 		return 0;
 	}
