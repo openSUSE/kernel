@@ -39,9 +39,10 @@ atomic_t flow_cache_genid = ATOMIC_INIT(0);
 
 static u32 flow_hash_shift;
 #define flow_hash_size	(1 << flow_hash_shift)
-static DEFINE_PER_CPU(struct flow_cache_entry **, flow_tables) = { NULL };
 
-#define flow_table(cpu) (per_cpu(flow_tables, cpu))
+static DEFINE_PER_CPU_LOCKED(struct flow_cache_entry **, flow_tables);
+
+#define flow_table(cpu) (per_cpu_var_locked(flow_tables, cpu))
 
 static struct kmem_cache *flow_cachep __read_mostly;
 
@@ -168,24 +169,24 @@ static int flow_key_compare(struct flowi *key1, struct flowi *key2)
 void *flow_cache_lookup(struct net *net, struct flowi *key, u16 family, u8 dir,
 			flow_resolve_t resolver)
 {
-	struct flow_cache_entry *fle, **head;
+	struct flow_cache_entry **table, *fle, **head;
 	unsigned int hash;
 	int cpu;
 
 	local_bh_disable();
-	cpu = smp_processor_id();
+	table = get_cpu_var_locked(flow_tables, &cpu);
 
 	fle = NULL;
 	/* Packet really early in init?  Making flow_cache_init a
 	 * pre-smp initcall would solve this.  --RR */
-	if (!flow_table(cpu))
+	if (!table)
 		goto nocache;
 
 	if (flow_hash_rnd_recalc(cpu))
 		flow_new_hash_rnd(cpu);
 	hash = flow_hash_code(key, cpu);
 
-	head = &flow_table(cpu)[hash];
+	head = &table[hash];
 	for (fle = *head; fle; fle = fle->next) {
 		if (fle->family == family &&
 		    fle->dir == dir &&
@@ -195,6 +196,7 @@ void *flow_cache_lookup(struct net *net, struct flowi *key, u16 family, u8 dir,
 
 				if (ret)
 					atomic_inc(fle->object_ref);
+				put_cpu_var_locked(flow_tables, cpu);
 				local_bh_enable();
 
 				return ret;
@@ -220,6 +222,8 @@ void *flow_cache_lookup(struct net *net, struct flowi *key, u16 family, u8 dir,
 	}
 
 nocache:
+	put_cpu_var_locked(flow_tables, cpu);
+
 	{
 		int err;
 		void *obj;
@@ -249,14 +253,15 @@ nocache:
 static void flow_cache_flush_tasklet(unsigned long data)
 {
 	struct flow_flush_info *info = (void *)data;
+	struct flow_cache_entry **table;
 	int i;
 	int cpu;
 
-	cpu = smp_processor_id();
+	table = get_cpu_var_locked(flow_tables, &cpu);
 	for (i = 0; i < flow_hash_size; i++) {
 		struct flow_cache_entry *fle;
 
-		fle = flow_table(cpu)[i];
+		fle = table[i];
 		for (; fle; fle = fle->next) {
 			unsigned genid = atomic_read(&flow_cache_genid);
 
@@ -267,6 +272,7 @@ static void flow_cache_flush_tasklet(unsigned long data)
 			atomic_dec(fle->object_ref);
 		}
 	}
+	put_cpu_var_locked(flow_tables, cpu);
 
 	if (atomic_dec_and_test(&info->cpuleft))
 		complete(&info->completion);
