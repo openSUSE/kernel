@@ -149,17 +149,16 @@ static void refresh_zone_stat_thresholds(void)
 void __mod_zone_page_state(struct zone *zone, enum zone_stat_item item,
 				int delta)
 {
-	struct per_cpu_pageset *pcp = zone_pcp(zone, smp_processor_id());
+	struct per_cpu_pageset *pcp = zone_pcp(zone, get_cpu());
 	s8 *p = pcp->vm_stat_diff + item;
-	long x;
-
-	x = delta + *p;
+	long x = delta + *p;
 
 	if (unlikely(x > pcp->stat_threshold || x < -pcp->stat_threshold)) {
 		zone_page_state_add(x, zone, item);
 		x = 0;
 	}
 	*p = x;
+	put_cpu();
 }
 EXPORT_SYMBOL(__mod_zone_page_state);
 
@@ -202,7 +201,7 @@ EXPORT_SYMBOL(mod_zone_page_state);
  */
 void __inc_zone_state(struct zone *zone, enum zone_stat_item item)
 {
-	struct per_cpu_pageset *pcp = zone_pcp(zone, smp_processor_id());
+	struct per_cpu_pageset *pcp = zone_pcp(zone, get_cpu());
 	s8 *p = pcp->vm_stat_diff + item;
 
 	(*p)++;
@@ -213,17 +212,28 @@ void __inc_zone_state(struct zone *zone, enum zone_stat_item item)
 		zone_page_state_add(*p + overstep, zone, item);
 		*p = -overstep;
 	}
+	put_cpu();
 }
 
 void __inc_zone_page_state(struct page *page, enum zone_stat_item item)
 {
+#ifdef CONFIG_PREEMPT_RT
+	unsigned long flags;
+	struct zone *zone;
+
+	zone = page_zone(page);
+	local_irq_save(flags);
+	__inc_zone_state(zone, item);
+	local_irq_restore(flags);
+#else
 	__inc_zone_state(page_zone(page), item);
+#endif
 }
 EXPORT_SYMBOL(__inc_zone_page_state);
 
 void __dec_zone_state(struct zone *zone, enum zone_stat_item item)
 {
-	struct per_cpu_pageset *pcp = zone_pcp(zone, smp_processor_id());
+	struct per_cpu_pageset *pcp = zone_pcp(zone, get_cpu());
 	s8 *p = pcp->vm_stat_diff + item;
 
 	(*p)--;
@@ -234,6 +244,7 @@ void __dec_zone_state(struct zone *zone, enum zone_stat_item item)
 		zone_page_state_add(*p - overstep, zone, item);
 		*p = overstep;
 	}
+	put_cpu();
 }
 
 void __dec_zone_page_state(struct page *page, enum zone_stat_item item)
