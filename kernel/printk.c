@@ -416,8 +416,11 @@ static void __call_console_drivers(unsigned start, unsigned end)
 	for (con = console_drivers; con; con = con->next) {
 		if ((con->flags & CON_ENABLED) && con->write &&
 				(cpu_online(raw_smp_processor_id()) ||
-				(con->flags & CON_ANYTIME)))
+				 (con->flags & CON_ANYTIME))) {
+			set_printk_might_sleep(1);
 			con->write(con, &LOG_BUF(start), end - start);
+			set_printk_might_sleep(0);
+		}
 	}
 }
 

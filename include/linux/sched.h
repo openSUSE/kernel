@@ -1549,10 +1549,23 @@ struct task_struct {
 	/* bitmask of trace recursion */
 	unsigned long trace_recursion;
 #endif /* CONFIG_TRACING */
+#ifdef CONFIG_PREEMPT_RT
+	/*
+	 * Temporary hack, until we find a solution to
+	 * handle printk in atomic operations.
+	 */
+	int in_printk;
+#endif
 };
 
 /* Future-safe accessor for struct task_struct's cpus_allowed. */
 #define tsk_cpumask(tsk) (&(tsk)->cpus_allowed)
+
+#ifdef CONFIG_PREEMPT_RT
+# define set_printk_might_sleep(x) do { current->in_printk = x; } while(0)
+#else
+# define set_printk_might_sleep(x) do { } while(0)
+#endif
 
 /*
  * Priority of a process goes from 0..MAX_PRIO-1, valid RT
