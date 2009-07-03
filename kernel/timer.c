@@ -1186,9 +1186,22 @@ unsigned long get_next_timer_interrupt(unsigned long now)
 	struct tvec_base *base = __get_cpu_var(tvec_bases);
 	unsigned long expires;
 
+#ifdef CONFIG_PREEMPT_RT
+	/*
+	 * On PREEMPT_RT we cannot sleep here. If the trylock does not
+	 * succeed then we return the worst-case 'expires in 1 tick'
+	 * value:
+	 */
+	if (spin_trylock(&base->lock)) {
+		expires = __next_timer_interrupt(base);
+		spin_unlock(&base->lock);
+	} else
+		expires = now + 1;
+#else
 	spin_lock(&base->lock);
 	expires = __next_timer_interrupt(base);
 	spin_unlock(&base->lock);
+#endif
 
 	if (time_before_eq(expires, now))
 		return now;
@@ -1217,23 +1230,6 @@ void update_process_times(int user_tick)
 }
 
 /*
- * Time of day handling:
- */
-static inline void update_times(void)
-{
-	static unsigned long last_tick = INITIAL_JIFFIES;
-	unsigned long ticks, flags;
-
-	write_atomic_seqlock_irqsave(&xtime_lock, flags);
-	ticks = jiffies - last_tick;
-	if (ticks) {
-		last_tick += ticks;
-		update_wall_time();
-	}
-	write_atomic_sequnlock_irqrestore(&xtime_lock, flags);
-}
-
-/*
  * This function runs timers and the timer-tq in bottom half context.
  */
 static void run_timer_softirq(struct softirq_action *h)
@@ -1242,7 +1238,6 @@ static void run_timer_softirq(struct softirq_action *h)
 
 	perf_counter_do_pending();
 
-	update_times();
 	hrtimer_run_pending();
 
 	if (time_after_eq(jiffies, base->timer_jiffies))
@@ -1268,6 +1263,7 @@ void run_local_timers(void)
 void do_timer(unsigned long ticks)
 {
 	jiffies_64 += ticks;
+	update_wall_time();
 	calc_global_load();
 }
 
