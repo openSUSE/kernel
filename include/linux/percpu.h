@@ -43,14 +43,36 @@
  * are the same as the normal per-CPU variables, so there no
  * runtime overhead.
  */
+#ifdef CONFIG_PREEMPT_RT
 #define get_cpu_var_locked(var, cpuptr)			\
 (*({							\
-	int __cpu = raw_smp_processor_id();		\
+	spinlock_t *__lock;				\
+	int __cpu;					\
 							\
+again:							\
+	__cpu = raw_smp_processor_id();			\
+	__lock = &__get_cpu_lock(var, __cpu);		\
+	spin_lock(__lock);				\
+	if (!cpu_online(__cpu)) {			\
+		spin_unlock(__lock);			\
+		goto again;				\
+	}						\
 	*(cpuptr) = __cpu;				\
-	spin_lock(&__get_cpu_lock(var, __cpu));		\
 	&__get_cpu_var_locked(var, __cpu);		\
 }))
+#else
+#define get_cpu_var_locked(var, cpuptr)			\
+(*({							\
+	int __cpu;					\
+							\
+	preempt_disable();				\
+	__cpu = smp_processor_id();			\
+	spin_lock(&__get_cpu_lock(var, __cpu));		\
+	preempt_enable();				\
+	*(cpuptr) = __cpu;				\
+	&__get_cpu_var_locked(var, __cpu);		\
+}))
+#endif
 
 #define put_cpu_var_locked(var, cpu) \
 	 do { (void)cpu; spin_unlock(&__get_cpu_lock(var, cpu)); } while (0)
