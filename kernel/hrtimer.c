@@ -664,6 +664,9 @@ static inline int hrtimer_enqueue_reprogram(struct hrtimer *timer,
 					    struct hrtimer_clock_base *base,
 					    int wakeup)
 {
+#ifdef CONFIG_PREEMPT_RT
+again:
+#endif
 	if (base->cpu_base->hres_active && hrtimer_reprogram(timer, base)) {
 #ifdef CONFIG_PREEMPT_RT
 		/*
@@ -673,6 +676,12 @@ static inline int hrtimer_enqueue_reprogram(struct hrtimer *timer,
 		 */
 		if (!hrtimer_rt_defer(timer)) {
 			__run_hrtimer(timer);
+			/*
+			 * __run_hrtimer might have requeued timer and
+			 * it could be base->first again.
+			 */
+			if (base->first == &timer->node)
+				goto again;
 			return 1;
 		}
 #endif
