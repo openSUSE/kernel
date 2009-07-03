@@ -22,14 +22,8 @@
  * and page free order so much..
  */
 #ifdef CONFIG_SMP
-  #ifdef ARCH_FREE_PTR_NR
-    #define FREE_PTR_NR   ARCH_FREE_PTR_NR
-  #else
-    #define FREE_PTE_NR	506
-  #endif
   #define tlb_fast_mode(tlb) ((tlb)->nr == ~0U)
 #else
-  #define FREE_PTE_NR	1
   #define tlb_fast_mode(tlb) 1
 #endif
 
@@ -39,30 +33,48 @@
 struct mmu_gather {
 	struct mm_struct	*mm;
 	unsigned int		nr;	/* set to ~0U means fast mode */
+	unsigned int		max; 	/* nr < max */
 	unsigned int		need_flush;/* Really unmapped some ptes? */
 	unsigned int		fullmm; /* non-zero means full mm flush */
-	struct page *		pages[FREE_PTE_NR];
+#ifdef HAVE_ARCH_MMU_GATHER
+	struct arch_mmu_gather	arch;
+#endif
+	struct page **		pages;
+	struct page *		local[8];
 };
 
-/* Users of the generic TLB shootdown code must declare this storage space. */
-DECLARE_PER_CPU(struct mmu_gather, mmu_gathers);
+static inline void __tlb_alloc_pages(struct mmu_gather *tlb)
+{
+	unsigned long addr = __get_free_pages(GFP_ATOMIC, 0);
+
+	if (addr) {
+		tlb->pages = (void *)addr;
+		tlb->max = PAGE_SIZE / sizeof(struct page *);
+	}
+}
 
 /* tlb_gather_mmu
  *	Return a pointer to an initialized struct mmu_gather.
  */
-static inline struct mmu_gather *
-tlb_gather_mmu(struct mm_struct *mm, unsigned int full_mm_flush)
+static inline void
+tlb_gather_mmu(struct mmu_gather *tlb, struct mm_struct *mm, unsigned int full_mm_flush)
 {
-	struct mmu_gather *tlb = &get_cpu_var(mmu_gathers);
-
 	tlb->mm = mm;
 
-	/* Use fast mode if only one CPU is online */
-	tlb->nr = num_online_cpus() > 1 ? 0U : ~0U;
+	tlb->max = ARRAY_SIZE(tlb->local);
+	tlb->pages = tlb->local;
+
+	if (num_online_cpus() > 1) {
+		tlb->nr = 0;
+		__tlb_alloc_pages(tlb);
+	} else /* Use fast mode if only one CPU is online */
+		tlb->nr = ~0U;
 
 	tlb->fullmm = full_mm_flush;
 
-	return tlb;
+#ifdef HAVE_ARCH_MMU_GATHER
+	tlb->arch = ARCH_MMU_GATHER_INIT;
+#endif
 }
 
 static inline void
@@ -75,6 +87,8 @@ tlb_flush_mmu(struct mmu_gather *tlb, unsigned long start, unsigned long end)
 	if (!tlb_fast_mode(tlb)) {
 		free_pages_and_swap_cache(tlb->pages, tlb->nr);
 		tlb->nr = 0;
+		if (tlb->pages == tlb->local)
+			__tlb_alloc_pages(tlb);
 	}
 }
 
@@ -90,7 +104,8 @@ tlb_finish_mmu(struct mmu_gather *tlb, unsigned long start, unsigned long end)
 	/* keep the page table cache within bounds */
 	check_pgt_cache();
 
-	put_cpu_var(mmu_gathers);
+	if (tlb->pages != tlb->local)
+		free_pages((unsigned long)tlb->pages, 0);
 }
 
 /* tlb_remove_page
@@ -106,7 +121,7 @@ static inline void tlb_remove_page(struct mmu_gather *tlb, struct page *page)
 		return;
 	}
 	tlb->pages[tlb->nr++] = page;
-	if (tlb->nr >= FREE_PTE_NR)
+	if (tlb->nr >= tlb->max)
 		tlb_flush_mmu(tlb, 0, 0);
 }
 
