@@ -288,6 +288,11 @@ MODULE_PARM_DESC(noirqdebug, "Disable irq lockup detection when true");
 
 static int __init irqfixup_setup(char *str)
 {
+#ifdef CONFIG_PREEMPT_RT
+	printk(KERN_WARNING "irqfixup boot option not supported "
+		"w/ CONFIG_PREEMPT_RT\n");
+	return 1;
+#endif
 	irqfixup = 1;
 	printk(KERN_WARNING "Misrouted IRQ fixup support enabled.\n");
 	printk(KERN_WARNING "This may impact system performance.\n");
@@ -301,6 +306,11 @@ MODULE_PARM_DESC("irqfixup", "0: No fixup, 1: irqfixup mode, 2: irqpoll mode");
 
 static int __init irqpoll_setup(char *str)
 {
+#ifdef CONFIG_PREEMPT_RT
+	printk(KERN_WARNING "irqpoll boot option not supported "
+		"w/ CONFIG_PREEMPT_RT\n");
+	return 1;
+#endif
 	irqfixup = 2;
 	printk(KERN_WARNING "Misrouted IRQ fixup and polling support "
 				"enabled\n");
