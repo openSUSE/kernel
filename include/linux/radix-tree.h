@@ -169,7 +169,18 @@ unsigned long radix_tree_next_hole(struct radix_tree_root *root,
 				unsigned long index, unsigned long max_scan);
 unsigned long radix_tree_prev_hole(struct radix_tree_root *root,
 				unsigned long index, unsigned long max_scan);
+/*
+ * On a mutex based kernel we can freely schedule within the radix code:
+ */
+#ifdef CONFIG_PREEMPT_RT
+static inline int radix_tree_preload(gfp_t gfp_mask)
+{
+	return 0;
+}
+#else
 int radix_tree_preload(gfp_t gfp_mask);
+#endif
+
 void radix_tree_init(void);
 void *radix_tree_tag_set(struct radix_tree_root *root,
 			unsigned long index, unsigned int tag);
@@ -189,7 +200,9 @@ int radix_tree_tagged(struct radix_tree_root *root, unsigned int tag);
 
 static inline void radix_tree_preload_end(void)
 {
+#ifndef CONFIG_PREEMPT_RT
 	preempt_enable();
+#endif
 }
 
 #endif /* _LINUX_RADIX_TREE_H */

@@ -175,6 +175,16 @@ void __put_task_struct(struct task_struct *tsk)
 		free_task(tsk);
 }
 
+#ifdef CONFIG_PREEMPT_RT
+void __put_task_struct_cb(struct rcu_head *rhp)
+{
+	struct task_struct *tsk = container_of(rhp, struct task_struct, rcu);
+
+	__put_task_struct(tsk);
+
+}
+#endif
+
 /*
  * macro override instead of weak attribute alias, to workaround
  * gcc 4.1.0 and 4.1.1 bugs with weak attribute and empty functions.
@@ -1235,11 +1245,13 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	 * to ensure it is on a valid CPU (and if not, just force it back to
 	 * parent's CPU). This avoids alot of nasty races.
 	 */
+	preempt_disable();
 	p->cpus_allowed = current->cpus_allowed;
 	p->rt.nr_cpus_allowed = current->rt.nr_cpus_allowed;
 	if (unlikely(!cpu_isset(task_cpu(p), p->cpus_allowed) ||
 			!cpu_online(task_cpu(p))))
 		set_task_cpu(p, smp_processor_id());
+	preempt_enable();
 
 	/* CLONE_PARENT re-uses the old parent */
 	if (clone_flags & (CLONE_PARENT|CLONE_THREAD)) {

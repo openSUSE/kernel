@@ -77,9 +77,9 @@
  * Are we doing bottom half or hardware interrupt processing?
  * Are we in a softirq context? Interrupt context?
  */
-#define in_irq()		(hardirq_count())
-#define in_softirq()		(softirq_count())
-#define in_interrupt()		(irq_count())
+#define in_irq()	(hardirq_count() || (current->flags & PF_HARDIRQ))
+#define in_softirq()	(softirq_count() || (current->flags & PF_SOFTIRQ))
+#define in_interrupt()	(irq_count())
 
 /*
  * Are we in NMI context?

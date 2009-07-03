@@ -50,6 +50,16 @@ extern void smp_send_stop(void);
  */
 extern void smp_send_reschedule(int cpu);
 
+/*
+ * trigger a reschedule on all other CPUs:
+ */
+extern void smp_send_reschedule_allbutself(void);
+
+/*
+ * trigger a reschedule on all other CPUs:
+ */
+extern void smp_send_reschedule_allbutself(void);
+
 
 /*
  * Prepare machine for booting other CPUs.
@@ -142,6 +152,7 @@ static inline int up_smp_call_function(void (*func)(void *), void *info)
 		0;				\
 	})
 static inline void smp_send_reschedule(int cpu) { }
+static inline void smp_send_reschedule_allbutself(void) { }
 #define num_booting_cpus()			1
 #define smp_prepare_boot_cpu()			do {} while (0)
 #define smp_call_function_mask(mask, func, info, wait) \

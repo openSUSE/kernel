@@ -45,7 +45,7 @@ static inline void cycle_kernel_lock(void)
 #define unlock_kernel()				do { } while(0)
 #define release_kernel_lock(task)		do { } while(0)
 #define cycle_kernel_lock()			do { } while(0)
-#define reacquire_kernel_lock(task)		0
+#define reacquire_kernel_lock(task)		do { } while(0)
 #define kernel_locked()				1
 
 #endif /* CONFIG_LOCK_KERNEL */

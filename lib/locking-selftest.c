@@ -158,7 +158,7 @@ static void init_shared_classes(void)
 		local_bh_disable();		\
 		local_irq_disable();		\
 		lockdep_softirq_enter();	\
-		WARN_ON(!in_softirq());
+		/* FIXME: preemptible softirqs. WARN_ON(!in_softirq()); */
 
 #define SOFTIRQ_EXIT()				\
 		lockdep_softirq_exit();		\
@@ -550,6 +550,11 @@ GENERATE_TESTCASE(init_held_rsem)
 #undef E
 
 /*
+ * FIXME: turns these into raw-spinlock tests on -rt
+ */
+#ifndef CONFIG_PREEMPT_RT
+
+/*
  * locking an irq-safe lock with irqs enabled:
  */
 #define E1()				\
@@ -890,6 +895,8 @@ GENERATE_PERMUTATIONS_3_EVENTS(irq_read_recursion_soft)
 #include "locking-selftest-softirq.h"
 // GENERATE_PERMUTATIONS_3_EVENTS(irq_read_recursion2_soft)
 
+#endif /* !CONFIG_PREEMPT_RT */
+
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 # define I_SPINLOCK(x)	lockdep_reset_lock(&lock_##x.dep_map)
 # define I_RWLOCK(x)	lockdep_reset_lock(&rwlock_##x.dep_map)
@@ -998,7 +1005,7 @@ static inline void print_testname(const char *testname)
 
 #define DO_TESTCASE_1(desc, name, nr)				\
 	print_testname(desc"/"#nr);				\
-	dotest(name##_##nr, SUCCESS, LOCKTYPE_RWLOCK);		\
+	dotest(name##_##nr, SUCCESS, LOCKTYPE_RWLOCK);	\
 	printk("\n");
 
 #define DO_TESTCASE_1B(desc, name, nr)				\
@@ -1006,17 +1013,17 @@ static inline void print_testname(const char *testname)
 	dotest(name##_##nr, FAILURE, LOCKTYPE_RWLOCK);		\
 	printk("\n");
 
-#define DO_TESTCASE_3(desc, name, nr)				\
-	print_testname(desc"/"#nr);				\
-	dotest(name##_spin_##nr, FAILURE, LOCKTYPE_SPIN);	\
-	dotest(name##_wlock_##nr, FAILURE, LOCKTYPE_RWLOCK);	\
+#define DO_TESTCASE_3(desc, name, nr)					\
+	print_testname(desc"/"#nr);					\
+	dotest(name##_spin_##nr, FAILURE, LOCKTYPE_SPIN);		\
+	dotest(name##_wlock_##nr, FAILURE, LOCKTYPE_RWLOCK);		\
 	dotest(name##_rlock_##nr, SUCCESS, LOCKTYPE_RWLOCK);	\
 	printk("\n");
 
-#define DO_TESTCASE_3RW(desc, name, nr)				\
-	print_testname(desc"/"#nr);				\
+#define DO_TESTCASE_3RW(desc, name, nr)					\
+	print_testname(desc"/"#nr);					\
 	dotest(name##_spin_##nr, FAILURE, LOCKTYPE_SPIN|LOCKTYPE_RWLOCK);\
-	dotest(name##_wlock_##nr, FAILURE, LOCKTYPE_RWLOCK);	\
+	dotest(name##_wlock_##nr, FAILURE, LOCKTYPE_RWLOCK);		\
 	dotest(name##_rlock_##nr, SUCCESS, LOCKTYPE_RWLOCK);	\
 	printk("\n");
 
@@ -1047,7 +1054,7 @@ static inline void print_testname(const char *testname)
 	print_testname(desc);					\
 	dotest(name##_spin, FAILURE, LOCKTYPE_SPIN);		\
 	dotest(name##_wlock, FAILURE, LOCKTYPE_RWLOCK);		\
-	dotest(name##_rlock, SUCCESS, LOCKTYPE_RWLOCK);		\
+	dotest(name##_rlock, SUCCESS, LOCKTYPE_RWLOCK);	\
 	dotest(name##_mutex, FAILURE, LOCKTYPE_MUTEX);		\
 	dotest(name##_wsem, FAILURE, LOCKTYPE_RWSEM);		\
 	dotest(name##_rsem, FAILURE, LOCKTYPE_RWSEM);		\
@@ -1179,6 +1186,7 @@ void locking_selftest(void)
 	/*
 	 * irq-context testcases:
 	 */
+#ifndef CONFIG_PREEMPT_RT
 	DO_TESTCASE_2x6("irqs-on + irq-safe-A", irqsafe1);
 	DO_TESTCASE_2x3("sirq-safe-A => hirqs-on", irqsafe2A);
 	DO_TESTCASE_2x6("safe-A + irqs-on", irqsafe2B);
@@ -1188,6 +1196,7 @@ void locking_selftest(void)
 
 	DO_TESTCASE_6x2("irq read-recursion", irq_read_recursion);
 //	DO_TESTCASE_6x2B("irq read-recursion #2", irq_read_recursion2);
+#endif
 
 	if (unexpected_testcase_failures) {
 		printk("-----------------------------------------------------------------\n");

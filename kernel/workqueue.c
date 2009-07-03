@@ -26,6 +26,7 @@
 #include <linux/slab.h>
 #include <linux/cpu.h>
 #include <linux/notifier.h>
+#include <linux/syscalls.h>
 #include <linux/kthread.h>
 #include <linux/hardirq.h>
 #include <linux/mempolicy.h>
@@ -35,6 +36,8 @@
 #include <linux/lockdep.h>
 #define CREATE_TRACE_POINTS
 #include <trace/events/workqueue.h>
+
+#include <asm/uaccess.h>
 
 /*
  * The per-CPU workqueue (if single thread, we always use the first
@@ -159,13 +162,14 @@ static void __queue_work(struct cpu_workqueue_struct *cwq,
  *
  * We queue the work to the CPU on which it was submitted, but if the CPU dies
  * it can be processed by another CPU.
+ *
+ * Especially no such guarantee on PREEMPT_RT.
  */
 int queue_work(struct workqueue_struct *wq, struct work_struct *work)
 {
-	int ret;
+	int ret = 0, cpu = raw_smp_processor_id();
 
-	ret = queue_work_on(get_cpu(), wq, work);
-	put_cpu();
+	ret = queue_work_on(cpu, wq, work);
 
 	return ret;
 }
@@ -883,6 +887,49 @@ static void cleanup_workqueue_thread(struct cpu_workqueue_struct *cwq)
 	cwq->thread = NULL;
 }
 
+void set_workqueue_thread_prio(struct workqueue_struct *wq, int cpu,
+			       int policy, int rt_priority, int nice)
+{
+	struct sched_param param = { .sched_priority = rt_priority };
+	struct cpu_workqueue_struct *cwq;
+	mm_segment_t oldfs = get_fs();
+	struct task_struct *p;
+	unsigned long flags;
+	int ret;
+
+	cwq = per_cpu_ptr(wq->cpu_wq, cpu);
+	spin_lock_irqsave(&cwq->lock, flags);
+	p = cwq->thread;
+	spin_unlock_irqrestore(&cwq->lock, flags);
+
+	set_user_nice(p, nice);
+
+	set_fs(KERNEL_DS);
+	ret = sys_sched_setscheduler(p->pid, policy, &param);
+	set_fs(oldfs);
+
+	WARN_ON(ret);
+}
+
+void set_workqueue_prio(struct workqueue_struct *wq, int policy,
+			int rt_priority, int nice)
+{
+	int cpu;
+
+	/* We don't need the distraction of CPUs appearing and vanishing. */
+	get_online_cpus();
+	spin_lock(&workqueue_lock);
+	if (is_wq_single_threaded(wq))
+		set_workqueue_thread_prio(wq, 0, policy, rt_priority, nice);
+	else {
+		for_each_online_cpu(cpu)
+			set_workqueue_thread_prio(wq, cpu, policy,
+						  rt_priority, nice);
+	}
+	spin_unlock(&workqueue_lock);
+	put_online_cpus();
+}
+
 /**
  * destroy_workqueue - safely terminate a workqueue
  * @wq: target workqueue
@@ -1015,4 +1062,5 @@ void __init init_workqueues(void)
 	hotcpu_notifier(workqueue_cpu_callback, 0);
 	keventd_wq = create_workqueue("events");
 	BUG_ON(!keventd_wq);
+	set_workqueue_prio(keventd_wq, SCHED_FIFO, 1, -20);
 }

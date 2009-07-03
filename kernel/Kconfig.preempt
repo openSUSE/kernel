@@ -1,14 +1,13 @@
-
 choice
-	prompt "Preemption Model"
-	default PREEMPT_NONE
+	prompt "Preemption Mode"
+	default PREEMPT_RT
 
 config PREEMPT_NONE
 	bool "No Forced Preemption (Server)"
 	help
-	  This is the traditional Linux preemption model, geared towards
+	  This is the traditional Linux preemption model geared towards
 	  throughput. It will still provide good latencies most of the
-	  time, but there are no guarantees and occasional longer delays
+	  time but there are no guarantees and occasional long delays
 	  are possible.
 
 	  Select this option if you are building a kernel for a server or
@@ -21,7 +20,7 @@ config PREEMPT_VOLUNTARY
 	help
 	  This option reduces the latency of the kernel by adding more
 	  "explicit preemption points" to the kernel code. These new
-	  preemption points have been selected to reduce the maximum
+	  preemption points have been selected to minimize the maximum
 	  latency of rescheduling, providing faster application reactions,
 	  at the cost of slightly lower throughput.
 
@@ -33,24 +32,59 @@ config PREEMPT_VOLUNTARY
 
 	  Select this if you are building a kernel for a desktop system.
 
-config PREEMPT
+config PREEMPT_DESKTOP
 	bool "Preemptible Kernel (Low-Latency Desktop)"
 	help
 	  This option reduces the latency of the kernel by making
-	  all kernel code (that is not executing in a critical section)
+	  all kernel code that is not executing in a critical section
 	  preemptible.  This allows reaction to interactive events by
 	  permitting a low priority process to be preempted involuntarily
 	  even if it is in kernel mode executing a system call and would
-	  otherwise not be about to reach a natural preemption point.
-	  This allows applications to run more 'smoothly' even when the
-	  system is under load, at the cost of slightly lower throughput
-	  and a slight runtime overhead to kernel code.
+	  otherwise not about to reach a preemption point.  This allows
+	  applications to run more 'smoothly' even when the system is
+	  under load, at the cost of slighly lower throughput and a
+	  slight runtime overhead to kernel code.
+
+	  (According to profiles, when this mode is selected then even
+	  during kernel-intense workloads the system is in an immediately
+	  preemptible state more than 50% of the time.)
 
 	  Select this if you are building a kernel for a desktop or
 	  embedded system with latency requirements in the milliseconds
 	  range.
 
+config PREEMPT_RT
+	bool "Complete Preemption (Real-Time)"
+	select PREEMPT_SOFTIRQS
+	select PREEMPT_HARDIRQS
+	select PREEMPT_RCU
+	select RT_MUTEXES
+	help
+	  This option further reduces the scheduling latency of the
+	  kernel by replacing almost every spinlock used by the kernel
+	  with preemptible mutexes and thus making all but the most
+	  critical kernel code involuntarily preemptible. The remaining
+	  handful of lowlevel non-preemptible codepaths are short and
+	  have a deterministic latency of a couple of tens of
+	  microseconds (depending on the hardware).  This also allows
+	  applications to run more 'smoothly' even when the system is
+	  under load, at the cost of lower throughput and runtime
+	  overhead to kernel code.
+
+	  (According to profiles, when this mode is selected then even
+	  during kernel-intense workloads the system is in an immediately
+	  preemptible state more than 95% of the time.)
+
+	  Select this if you are building a kernel for a desktop,
+	  embedded or real-time system with guaranteed latency
+	  requirements of 100 usecs or lower.
+
 endchoice
+
+config PREEMPT
+	bool
+	default y
+	depends on PREEMPT_DESKTOP || PREEMPT_RT
 
 config PREEMPT_SOFTIRQS
 	bool "Thread Softirqs"
@@ -58,13 +92,13 @@ config PREEMPT_SOFTIRQS
 #	depends on PREEMPT
 	help
 	  This option reduces the latency of the kernel by 'threading'
-	  soft interrupts. This means that all softirqs will execute
-	  in softirqd's context. While this helps latency, it can also
-	  reduce performance.
+          soft interrupts. This means that all softirqs will execute
+          in softirqd's context. While this helps latency, it can also
+          reduce performance.
 
-	  The threading of softirqs can also be controlled via
-	  /proc/sys/kernel/softirq_preemption runtime flag and the
-	  sofirq-preempt=0/1 boot-time option.
+          The threading of softirqs can also be controlled via
+          /proc/sys/kernel/softirq_preemption runtime flag and the
+          sofirq-preempt=0/1 boot-time option.
 
 	  Say N if you are unsure.
 
@@ -75,15 +109,14 @@ config PREEMPT_HARDIRQS
 	select PREEMPT_SOFTIRQS
 	help
 	  This option reduces the latency of the kernel by 'threading'
-	  hardirqs. This means that all (or selected) hardirqs will run
-	  in their own kernel thread context. While this helps latency,
-	  this feature can also reduce performance.
+          hardirqs. This means that all (or selected) hardirqs will run
+          in their own kernel thread context. While this helps latency,
+          this feature can also reduce performance.
 
-	  The threading of hardirqs can also be controlled via the
-	  /proc/sys/kernel/hardirq_preemption runtime flag and the
-	  hardirq-preempt=0/1 boot-time option. Per-irq threading can
-	  be enabled/disable via the /proc/irq/<IRQ>/<handler>/threaded
-	  runtime flags.
+          The threading of hardirqs can also be controlled via the
+          /proc/sys/kernel/hardirq_preemption runtime flag and the
+          hardirq-preempt=0/1 boot-time option. Per-irq threading can
+          be enabled/disable via the /proc/irq/<IRQ>/<handler>/threaded
+          runtime flags.
 
 	  Say N if you are unsure.
-

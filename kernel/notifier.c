@@ -71,7 +71,7 @@ static int notifier_chain_unregister(struct notifier_block **nl,
  *	@returns:	notifier_call_chain returns the value returned by the
  *			last notifier function called.
  */
-static int __kprobes notifier_call_chain(struct notifier_block **nl,
+static int __kprobes notrace notifier_call_chain(struct notifier_block **nl,
 					unsigned long val, void *v,
 					int nr_to_call,	int *nr_calls)
 {
@@ -217,7 +217,7 @@ int blocking_notifier_chain_register(struct blocking_notifier_head *nh,
 	 * not yet working and interrupts must remain disabled.  At
 	 * such times we must not call down_write().
 	 */
-	if (unlikely(system_state == SYSTEM_BOOTING))
+	if (unlikely(system_state < SYSTEM_RUNNING))
 		return notifier_chain_register(&nh->head, n);
 
 	down_write(&nh->rwsem);

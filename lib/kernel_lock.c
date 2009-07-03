@@ -35,6 +35,8 @@ DEFINE_SEMAPHORE(kernel_sem);
  * about recursion, both due to the down() and due to the enabling of
  * preemption. schedule() will re-check the preemption flag after
  * reacquiring the semaphore.
+ *
+ * Called with interrupts disabled.
  */
 int __lockfunc __reacquire_kernel_lock(void)
 {
@@ -67,11 +69,15 @@ void __lockfunc lock_kernel(void)
 	struct task_struct *task = current;
 	int depth = task->lock_depth + 1;
 
-	if (likely(!depth))
+	if (likely(!depth)) {
 		/*
 		 * No recursion worries - we set up lock_depth _after_
 		 */
 		down(&kernel_sem);
+#ifdef CONFIG_DEBUG_RT_MUTEXES
+		current->last_kernel_lock = __builtin_return_address(0);
+#endif
+	}
 
 	task->lock_depth = depth;
 }
@@ -82,8 +88,12 @@ void __lockfunc unlock_kernel(void)
 
 	BUG_ON(task->lock_depth < 0);
 
-	if (likely(--task->lock_depth < 0))
+	if (likely(--task->lock_depth < 0)) {
+#ifdef CONFIG_DEBUG_RT_MUTEXES
+		current->last_kernel_lock = NULL;
+#endif
 		up(&kernel_sem);
+	}
 }
 
 EXPORT_SYMBOL(lock_kernel);

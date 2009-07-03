@@ -20,6 +20,7 @@
 #include <linux/kernel_stat.h>
 #include <linux/interrupt.h>
 #include <linux/init.h>
+#include <linux/delay.h>
 #include <linux/mm.h>
 #include <linux/notifier.h>
 #include <linux/percpu.h>
@@ -105,6 +106,8 @@ static void trigger_softirqs(void)
 		curr++;
 	}
 }
+
+#ifndef CONFIG_PREEMPT_RT
 
 /*
  * This one is for softirq.c-internal use,
@@ -206,6 +209,8 @@ void local_bh_enable_ip(unsigned long ip)
 	_local_bh_enable_ip(ip);
 }
 EXPORT_SYMBOL(local_bh_enable_ip);
+
+#endif
 
 /*
  * We restart softirq processing MAX_SOFTIRQ_RESTART times,
@@ -606,7 +611,7 @@ void tasklet_kill(struct tasklet_struct *t)
 
 	while (test_and_set_bit(TASKLET_STATE_SCHED, &t->state)) {
 		do {
-			yield();
+			msleep(1);
 		} while (test_bit(TASKLET_STATE_SCHED, &t->state));
 	}
 	tasklet_unlock_wait(t);
@@ -1064,6 +1069,11 @@ int softirq_preemption = 1;
 
 EXPORT_SYMBOL(softirq_preemption);
 
+/*
+ * Real-Time Preemption depends on softirq threading:
+ */
+#ifndef CONFIG_PREEMPT_RT
+
 static int __init softirq_preempt_setup (char *str)
 {
 	if (!strncmp(str, "off", 3))
@@ -1077,7 +1087,7 @@ static int __init softirq_preempt_setup (char *str)
 }
 
 __setup("softirq-preempt=", softirq_preempt_setup);
-
+#endif
 #endif
 
 #ifdef CONFIG_SMP
