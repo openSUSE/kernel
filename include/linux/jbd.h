@@ -260,6 +260,15 @@ void buffer_assertion_failure(struct buffer_head *bh);
 #define J_ASSERT_JH(jh, expr)	J_ASSERT(expr)
 #endif
 
+/*
+ * For assertions that are only valid on SMP (e.g. spin_is_locked()):
+ */
+#ifdef CONFIG_SMP
+# define J_ASSERT_JH_SMP(jh, expr)	J_ASSERT_JH(jh, expr)
+#else
+# define J_ASSERT_JH_SMP(jh, assert)	do { } while (0)
+#endif
+
 #if defined(JBD_PARANOID_IOFAIL)
 #define J_EXPECT(expr, why...)		J_ASSERT(expr)
 #define J_EXPECT_BH(bh, expr, why...)	J_ASSERT_BH(bh, expr)
