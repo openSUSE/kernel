@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/scatterlist.h>
 #include <linux/highmem.h>
+#include <linux/interrupt.h>
 
 /**
  * sg_next - return the next scatterlist entry in a list
@@ -395,7 +396,7 @@ void sg_miter_stop(struct sg_mapping_iter *miter)
 		miter->__offset += miter->consumed;
 
 		if (miter->__flags & SG_MITER_ATOMIC) {
-			WARN_ON(!irqs_disabled());
+			WARN_ON_NONRT(!irqs_disabled());
 			kunmap_atomic(miter->addr, KM_BIO_SRC_IRQ);
 		} else
 			kunmap(miter->page);
@@ -429,7 +430,7 @@ static size_t sg_copy_buffer(struct scatterlist *sgl, unsigned int nents,
 
 	sg_miter_start(&miter, sgl, nents, SG_MITER_ATOMIC);
 
-	local_irq_save(flags);
+	local_irq_save_nort(flags);
 
 	while (sg_miter_next(&miter) && offset < buflen) {
 		unsigned int len;
@@ -448,7 +449,7 @@ static size_t sg_copy_buffer(struct scatterlist *sgl, unsigned int nents,
 
 	sg_miter_stop(&miter);
 
-	local_irq_restore(flags);
+	local_irq_restore_nort(flags);
 	return offset;
 }
 
