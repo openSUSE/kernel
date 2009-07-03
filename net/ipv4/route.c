@@ -204,13 +204,13 @@ struct rt_hash_bucket {
 };
 
 #if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK) || \
-	defined(CONFIG_PROVE_LOCKING)
+	defined(CONFIG_PROVE_LOCKING) || defined(CONFIG_PREEMPT_RT)
 /*
  * Instead of using one spinlock for each rt_hash_bucket, we use a table of spinlocks
  * The size of this table is a power of two and depends on the number of CPUS.
  * (on lockdep we have a quite big spinlock_t, so keep the size down there)
  */
-#ifdef CONFIG_LOCKDEP
+#if defined(CONFIG_LOCKDEP) || defined(CONFIG_PREEMPT_RT)
 # define RT_HASH_LOCK_SZ	256
 #else
 # if NR_CPUS >= 32

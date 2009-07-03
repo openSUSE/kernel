@@ -1674,14 +1674,14 @@ static inline void __netif_tx_lock(struct netdev_queue *txq, int cpu)
 static inline void __netif_tx_lock_bh(struct netdev_queue *txq)
 {
 	spin_lock_bh(&txq->_xmit_lock);
-	txq->xmit_lock_owner = smp_processor_id();
+	txq->xmit_lock_owner = raw_smp_processor_id();
 }
 
 static inline int __netif_tx_trylock(struct netdev_queue *txq)
 {
 	int ok = spin_trylock(&txq->_xmit_lock);
 	if (likely(ok))
-		txq->xmit_lock_owner = smp_processor_id();
+		txq->xmit_lock_owner = raw_smp_processor_id();
 	return ok;
 }
 
@@ -1715,7 +1715,7 @@ static inline void netif_tx_lock(struct net_device *dev)
 	int cpu;
 
 	spin_lock(&dev->tx_global_lock);
-	cpu = smp_processor_id();
+	cpu = raw_smp_processor_id();
 	for (i = 0; i < dev->num_tx_queues; i++) {
 		struct netdev_queue *txq = netdev_get_tx_queue(dev, i);
 
@@ -1779,7 +1779,7 @@ static inline void netif_tx_disable(struct net_device *dev)
 	int cpu;
 
 	local_bh_disable();
-	cpu = smp_processor_id();
+	cpu = raw_smp_processor_id();
 	for (i = 0; i < dev->num_tx_queues; i++) {
 		struct netdev_queue *txq = netdev_get_tx_queue(dev, i);
 

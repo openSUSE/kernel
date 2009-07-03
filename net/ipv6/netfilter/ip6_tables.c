@@ -375,7 +375,7 @@ ip6t_do_table(struct sk_buff *skb,
 
 	xt_info_rdlock_bh();
 	private = table->private;
-	table_base = private->entries[smp_processor_id()];
+	table_base = private->entries[raw_smp_processor_id()];
 
 	e = get_entry(table_base, private->hook_entry[hook]);
 
