@@ -60,6 +60,8 @@
 #include <linux/linkage.h>
 #include <linux/irqflags.h>
 
+#include <asm/memory.h>
+
 #define __exception	__attribute__((section(".exception.text")))
 
 struct thread_info;
