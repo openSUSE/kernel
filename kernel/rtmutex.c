@@ -736,8 +736,6 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 		update_current(TASK_UNINTERRUPTIBLE, &saved_state);
 		if (waiter.task)
 			schedule_rt_mutex(lock);
-		else
-			update_current(TASK_RUNNING_MUTEX, &saved_state);
 
 		atomic_spin_lock_irqsave(&lock->wait_lock, flags);
 		current->lock_depth = saved_lock_depth;
