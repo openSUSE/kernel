@@ -1887,44 +1887,51 @@ gso:
 	   Check this and shot the lock. It is not prone from deadlocks.
 	   Either shot noqueue qdisc, it is even simpler 8)
 	 */
-	if (dev->flags & IFF_UP) {
-		int cpu = raw_smp_processor_id(); /* ok because BHs are off */
+	if (!(dev->flags & IFF_UP))
+		goto err;
 
-		/*
-		 * No need to check for recursion with threaded interrupts:
-		 */
-		if (!netif_tx_lock_recursion(txq)) {
+	/* Recursion is detected! It is possible, unfortunately: */
+	if (netif_tx_lock_recursion(txq))
+		goto err_recursion;
 
-			HARD_TX_LOCK(dev, txq);
+	HARD_TX_LOCK(dev, txq);
 
-			if (!netif_tx_queue_stopped(txq)) {
-				rc = 0;
-				if (!dev_hard_start_xmit(skb, dev, txq)) {
-					HARD_TX_UNLOCK(dev, txq);
-					goto out;
-				}
-			}
-			HARD_TX_UNLOCK(dev, txq);
-			if (net_ratelimit())
-				printk(KERN_CRIT "Virtual device %s asks to "
-				       "queue packet!\n", dev->name);
-		} else {
-			/* Recursion is detected! It is possible,
-			 * unfortunately */
-			if (net_ratelimit())
-				printk(KERN_CRIT "Dead loop on virtual device "
-				       "%s, fix it urgently!\n", dev->name);
-		}
+	if (netif_tx_queue_stopped(txq))
+		goto err_tx_unlock;
+
+	if (dev_hard_start_xmit(skb, dev, txq))
+		goto err_tx_unlock;
+
+	rc = 0;
+	HARD_TX_UNLOCK(dev, txq);
+
+out:
+	rcu_read_unlock_bh();
+	return rc;
+
+err_recursion:
+	if (net_ratelimit()) {
+		printk(KERN_CRIT
+		       "Dead loop on virtual device %s, fix it urgently!\n",
+			dev->name);
 	}
+	goto err;
 
+err_tx_unlock:
+	HARD_TX_UNLOCK(dev, txq);
+
+	if (net_ratelimit()) {
+		printk(KERN_CRIT "Virtual device %s asks to queue packet!\n",
+			dev->name);
+	}
+	/* Fall through: */
+
+err:
 	rc = -ENETDOWN;
 	rcu_read_unlock_bh();
 
 out_kfree_skb:
 	kfree_skb(skb);
-	return rc;
-out:
-	rcu_read_unlock_bh();
 	return rc;
 }
 
