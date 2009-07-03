@@ -752,7 +752,7 @@ rcu_torture_reader(void *arg)
 		if (p == NULL) {
 			/* Wait for rcu_torture_writer to get underway */
 			cur_ops->readunlock(idx);
-			schedule_timeout_interruptible(HZ);
+			schedule_timeout_interruptible(round_jiffies_relative(HZ));
 			continue;
 		}
 		if (p->rtort_mbtest == 0)
