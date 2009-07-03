@@ -178,7 +178,7 @@ void
 rt_mutex_deadlock_account_lock(struct rt_mutex *lock, struct task_struct *task)
 {
 #ifdef CONFIG_DEBUG_PREEMPT
-	if (task->lock_count >= MAX_LOCK_STACK) {
+	if (atomic_read(&task->lock_count) >= MAX_LOCK_STACK) {
 		if (!debug_locks_off())
 			return;
 		printk("BUG: %s/%d: lock count overflow!\n",
@@ -187,16 +187,16 @@ rt_mutex_deadlock_account_lock(struct rt_mutex *lock, struct task_struct *task)
 		return;
 	}
 #ifdef CONFIG_PREEMPT_RT
-	task->owned_lock[task->lock_count] = lock;
+	task->owned_lock[atomic_read(&task->lock_count)] = lock;
 #endif
-	task->lock_count++;
+	atomic_inc(&task->lock_count);
 #endif
 }
 
 void rt_mutex_deadlock_account_unlock(struct task_struct *task)
 {
 #ifdef CONFIG_DEBUG_PREEMPT
-	if (!task->lock_count) {
+	if (!atomic_read(&task->lock_count)) {
 		if (!debug_locks_off())
 			return;
 		printk("BUG: %s/%d: lock count underflow!\n",
@@ -204,9 +204,9 @@ void rt_mutex_deadlock_account_unlock(struct task_struct *task)
 		dump_stack();
 		return;
 	}
-	task->lock_count--;
+	atomic_dec(&task->lock_count);
 #ifdef CONFIG_PREEMPT_RT
-	task->owned_lock[task->lock_count] = NULL;
+	task->owned_lock[atomic_read(&task->lock_count)] = NULL;
 #endif
 #endif
 }

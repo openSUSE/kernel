@@ -1400,7 +1400,7 @@ struct task_struct {
 #define MAX_PREEMPT_TRACE 25
 #define MAX_LOCK_STACK	MAX_PREEMPT_TRACE
 #ifdef CONFIG_DEBUG_PREEMPT
-	int lock_count;
+	atomic_t lock_count;
 # ifdef CONFIG_PREEMPT_RT
 	struct rt_mutex *owned_lock[MAX_LOCK_STACK];
 # endif
