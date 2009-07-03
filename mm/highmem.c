@@ -31,6 +31,8 @@
 #include <linux/init.h>
 #include <linux/hash.h>
 #include <linux/highmem.h>
+#include <linux/hardirq.h>
+
 #include <asm/tlbflush.h>
 #include <asm/pgtable.h>
 
@@ -66,10 +68,13 @@ unsigned int nr_free_highpages (void)
  */
 static atomic_t pkmap_count[LAST_PKMAP];
 static atomic_t pkmap_hand;
+static atomic_t pkmap_free;
+static atomic_t pkmap_users;
 
 pte_t * pkmap_page_table;
 
-static DECLARE_WAIT_QUEUE_HEAD(pkmap_map_wait);
+static DECLARE_WAIT_QUEUE_HEAD(pkmap_wait);
+
 
 /*
  * Most architectures have no use for kmap_high_get(), so let's abstract
@@ -102,6 +107,7 @@ static int pkmap_try_free(int pos)
 {
 	if (atomic_cmpxchg(&pkmap_count[pos], 1, 0) != 1)
 		return -1;
+	atomic_dec(&pkmap_free);
 	/*
 	 * TODO: add a young bit to make it CLOCK
 	 */
@@ -131,7 +137,8 @@ static inline void pkmap_put(atomic_t *counter)
 		BUG();
 
 	case 1:
-		wake_up(&pkmap_map_wait);
+		atomic_inc(&pkmap_free);
+		wake_up(&pkmap_wait);
 	}
 }
 
@@ -140,23 +147,21 @@ static inline void pkmap_put(atomic_t *counter)
 static int pkmap_get_free(void)
 {
 	int i, pos, flush;
-	DECLARE_WAITQUEUE(wait, current);
 
 restart:
 	for (i = 0; i < LAST_PKMAP; i++) {
-		pos = atomic_inc_return(&pkmap_hand) % LAST_PKMAP;
+		pos = atomic_inc_return(&pkmap_hand) & LAST_PKMAP_MASK;
 		flush = pkmap_try_free(pos);
 		if (flush >= 0)
 			goto got_one;
 	}
 
+	atomic_dec(&pkmap_free);
 	/*
 	 * wait for somebody else to unmap their entries
 	 */
-	__set_current_state(TASK_UNINTERRUPTIBLE);
-	add_wait_queue(&pkmap_map_wait, &wait);
-	schedule();
-	remove_wait_queue(&pkmap_map_wait, &wait);
+	if (likely(!in_interrupt()))
+		wait_event(pkmap_wait, atomic_read(&pkmap_free) != 0);
 
 	goto restart;
 
@@ -165,7 +170,7 @@ got_one:
 #if 0
 		flush_tlb_kernel_range(PKMAP_ADDR(pos), PKMAP_ADDR(pos+1));
 #else
-		int pos2 = (pos + 1) % LAST_PKMAP;
+		int pos2 = (pos + 1) & LAST_PKMAP_MASK;
 		int nr;
 		int entries[TLB_BATCH];
 
@@ -175,7 +180,7 @@ got_one:
 		 * Scan ahead of the hand to minimise search distances.
 		 */
 		for (i = 0, nr = 0; i < LAST_PKMAP && nr < TLB_BATCH;
-				i++, pos2 = (pos2 + 1) % LAST_PKMAP) {
+				i++, pos2 = (pos2 + 1) & LAST_PKMAP_MASK) {
 
 			flush = pkmap_try_free(pos2);
 			if (flush < 0)
@@ -240,10 +245,80 @@ void kmap_flush_unused(void)
 	WARN_ON_ONCE(1);
 }
 
+/*
+ * Avoid starvation deadlock by limiting the number of tasks that can obtain a
+ * kmap to (LAST_PKMAP - KM_TYPE_NR*NR_CPUS)/2.
+ */
+static void kmap_account(void)
+{
+	int weight;
+
+#ifndef CONFIG_PREEMPT_RT
+	if (in_interrupt()) {
+		/* irqs can always get them */
+		weight = -1;
+	} else
+#endif
+	if (current->flags & PF_KMAP) {
+		current->flags &= ~PF_KMAP;
+		/* we already accounted the second */
+		weight = 0;
+	} else {
+		/* mark 1, account 2 */
+		current->flags |= PF_KMAP;
+		weight = 2;
+	}
+
+	if (weight > 0) {
+		/*
+		 * reserve KM_TYPE_NR maps per CPU for interrupt context
+		 */
+		const int target = LAST_PKMAP
+#ifndef CONFIG_PREEMPT_RT
+				- KM_TYPE_NR*NR_CPUS
+#endif
+			;
+
+again:
+		wait_event(pkmap_wait,
+			atomic_read(&pkmap_users) + weight <= target);
+
+		if (atomic_add_return(weight, &pkmap_users) > target) {
+			atomic_sub(weight, &pkmap_users);
+			goto again;
+		}
+	}
+}
+
+static void kunmap_account(void)
+{
+	int weight;
+
+#ifndef CONFIG_PREEMPT_RT
+	if (in_irq()) {
+		weight = -1;
+	} else
+#endif
+	if (current->flags & PF_KMAP) {
+		/* there was only 1 kmap, un-account both */
+		current->flags &= ~PF_KMAP;
+		weight = 2;
+	} else {
+		/* there were two kmaps, un-account per kunmap */
+		weight = 1;
+	}
+
+	if (weight > 0)
+		atomic_sub(weight, &pkmap_users);
+	wake_up(&pkmap_wait);
+}
+
 void *kmap_high(struct page *page)
 {
 	unsigned long vaddr;
 
+
+	kmap_account();
 again:
 	vaddr = (unsigned long)page_address(page);
 	if (vaddr) {
@@ -310,6 +385,7 @@ void *kmap_high_get(struct page *page)
 	unsigned long vaddr = (unsigned long)page_address(page);
 	BUG_ON(!vaddr);
 	pkmap_put(&pkmap_count[PKMAP_NR(vaddr)]);
+	kunmap_account();
 }
 
 EXPORT_SYMBOL(kunmap_high);
@@ -465,6 +541,9 @@ void __init page_address_init(void)
 
 	for (i = 0; i < ARRAY_SIZE(pkmap_count); i++)
 		atomic_set(&pkmap_count[i], 1);
+	atomic_set(&pkmap_hand, 0);
+	atomic_set(&pkmap_free, LAST_PKMAP);
+	atomic_set(&pkmap_users, 0);
 #endif
 
 #ifdef HASHED_PAGE_VIRTUAL

@@ -1755,6 +1755,7 @@ extern cputime_t task_gtime(struct task_struct *p);
 #define PF_VCPU		0x00000010	/* I'm a virtual CPU */
 #define PF_HARDIRQ	0x00000020	/* hardirq thread */
 #define PF_FORKNOEXEC	0x00000040	/* forked but didn't exec */
+#define PF_KMAP		0x00000080	/* this context has a kmap */
 #define PF_SUPERPRIV	0x00000100	/* used super-user privileges */
 #define PF_DUMPCORE	0x00000200	/* dumped core */
 #define PF_SIGNALED	0x00000400	/* killed by a signal */
