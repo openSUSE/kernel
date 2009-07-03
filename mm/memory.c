@@ -922,10 +922,13 @@ static unsigned long unmap_page_range(struct mmu_gather *tlb,
 	return addr;
 }
 
-#ifdef CONFIG_PREEMPT
+#if defined(CONFIG_PREEMPT) && !defined(CONFIG_PREEMPT_RT)
 # define ZAP_BLOCK_SIZE	(8 * PAGE_SIZE)
 #else
-/* No preempt: go for improved straight-line efficiency */
+/*
+ * No preempt: go for improved straight-line efficiency
+ * on PREEMPT_RT this is not a critical latency-path.
+ */
 # define ZAP_BLOCK_SIZE	(1024 * PAGE_SIZE)
 #endif
 
