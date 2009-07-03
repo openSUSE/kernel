@@ -89,10 +89,10 @@ extern void add_highpages_with_active_regions(int nid, unsigned long start_pfn,
  * on PREEMPT_RT kmap_atomic() is a wrapper that uses kmap():
  */
 #ifdef CONFIG_PREEMPT_RT
-# define kmap_atomic_prot(page, type, prot)	kmap(page)
-# define kmap_atomic(page, type)	kmap(page)
+# define kmap_atomic_prot(page, type, prot)	({ pagefault_disable(); kmap(page); })
+# define kmap_atomic(page, type)	({ pagefault_disable(); kmap(page); })
 # define kmap_atomic_pfn(pfn, type)	kmap(pfn_to_page(pfn))
-# define kunmap_atomic(kvaddr, type)	kunmap_virt(kvaddr)
+# define kunmap_atomic(kvaddr, type)	do { pagefault_enable(); kunmap_virt(kvaddr); } while(0)
 # define kmap_atomic_to_page(kvaddr)	kmap_to_page(kvaddr)
 #else
 # define kmap_atomic_prot(page, type, prot)	__kmap_atomic_prot(page, type, prot)

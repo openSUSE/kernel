@@ -4,9 +4,9 @@
 
 void *kmap(struct page *page)
 {
-	might_sleep();
 	if (!PageHighMem(page))
 		return page_address(page);
+	might_sleep();
 	return kmap_high(page);
 }
 
