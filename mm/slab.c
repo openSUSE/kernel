@@ -180,28 +180,46 @@ static void slab_irq_disable_GFP_WAIT(gfp_t flags, int *cpu)
  * by a lock. This keeps the code preemptable - albeit at the cost of remote
  * memory access when the task does get migrated away.
  */
-DEFINE_PER_CPU_LOCKED(int, slab_irq_locks) = { 0, };
+DEFINE_PER_CPU_LOCKED(struct list_head, slab) = { 0, };
 
 static void _slab_irq_disable(int *cpu)
 {
-	get_cpu_var_locked(slab_irq_locks, cpu);
+	(void)get_cpu_var_locked(slab, cpu);
 }
 
 #define slab_irq_disable(cpu) _slab_irq_disable(&(cpu))
 
 static inline void slab_irq_enable(int cpu)
 {
-	put_cpu_var_locked(slab_irq_locks, cpu);
+	LIST_HEAD(list);
+
+	list_splice_init(&__get_cpu_var_locked(slab, cpu), &list);
+	put_cpu_var_locked(slab, cpu);
+
+	while (!list_empty(&list)) {
+		struct page *page = list_first_entry(&list, struct page, lru);
+		list_del(&page->lru);
+		__free_pages(page, page->index);
+	}
 }
 
 static inline void slab_irq_disable_this_rt(int cpu)
 {
-	spin_lock(&__get_cpu_lock(slab_irq_locks, cpu));
+	spin_lock(&__get_cpu_lock(slab, cpu));
 }
 
 static inline void slab_irq_enable_rt(int cpu)
 {
-	spin_unlock(&__get_cpu_lock(slab_irq_locks, cpu));
+	LIST_HEAD(list);
+
+	list_splice_init(&__get_cpu_var_locked(slab, cpu), &list);
+	spin_unlock(&__get_cpu_lock(slab, cpu));
+
+	while (!list_empty(&list)) {
+		struct page *page = list_first_entry(&list, struct page, lru);
+		list_del(&page->lru);
+		__free_pages(page, page->index);
+	}
 }
 
 # define slab_irq_save(flags, cpu) \
@@ -1507,6 +1525,12 @@ void __init kmem_cache_init(void)
 	int order;
 	int node;
 
+#ifdef CONFIG_PREEMPT_RT
+	for_each_possible_cpu(i) {
+		INIT_LIST_HEAD(&__get_cpu_var_locked(slab, i));
+	}
+#endif
+
 	if (num_possible_nodes() == 1)
 		use_alien_caches = 0;
 
@@ -1781,11 +1805,13 @@ static void *kmem_getpages(struct kmem_cache *cachep, gfp_t flags, int nodeid)
 /*
  * Interface to system's page release.
  */
-static void kmem_freepages(struct kmem_cache *cachep, void *addr)
+static void kmem_freepages(struct kmem_cache *cachep, void *addr, int cpu)
 {
 	unsigned long i = (1 << cachep->gfporder);
-	struct page *page = virt_to_page(addr);
+	struct page *page, *basepage = virt_to_page(addr);
 	const unsigned long nr_freed = i;
+
+	page = basepage;
 
 	kmemcheck_free_shadow(page, cachep->gfporder);
 
@@ -1795,6 +1821,7 @@ static void kmem_freepages(struct kmem_cache *cachep, void *addr)
 	else
 		sub_zone_page_state(page_zone(page),
 				NR_SLAB_UNRECLAIMABLE, nr_freed);
+
 	while (i--) {
 		BUG_ON(!PageSlab(page));
 		__ClearPageSlab(page);
@@ -1802,6 +1829,13 @@ static void kmem_freepages(struct kmem_cache *cachep, void *addr)
 	}
 	if (current->reclaim_state)
 		current->reclaim_state->reclaimed_slab += nr_freed;
+
+#ifdef CONFIG_PREEMPT_RT
+	if (cpu >= 0) {
+		basepage->index = cachep->gfporder;
+		list_add(&basepage->lru, &__get_cpu_var_locked(slab, cpu));
+	} else
+#endif
 	free_pages((unsigned long)addr, cachep->gfporder);
 }
 
@@ -1810,7 +1844,7 @@ static void kmem_rcu_free(struct rcu_head *head)
 	struct slab_rcu *slab_rcu = (struct slab_rcu *)head;
 	struct kmem_cache *cachep = slab_rcu->cachep;
 
-	kmem_freepages(cachep, slab_rcu->addr);
+	kmem_freepages(cachep, slab_rcu->addr, -1);
 	if (OFF_SLAB(cachep))
 		kmem_cache_free(cachep->slabp_cache, slab_rcu);
 }
@@ -2047,7 +2081,7 @@ slab_destroy(struct kmem_cache *cachep, struct slab *slabp, int *this_cpu)
 		slab_rcu->addr = addr;
 		call_rcu(&slab_rcu->head, kmem_rcu_free);
 	} else {
-		kmem_freepages(cachep, addr);
+		kmem_freepages(cachep, addr, *this_cpu);
 		if (OFF_SLAB(cachep)) {
 			if (this_cpu)
 				__cache_free(cachep->slabp_cache, slabp, this_cpu);
@@ -2583,9 +2617,9 @@ slab_on_each_cpu(void (*func)(void *arg, int this_cpu), void *arg)
 
 	check_irq_on();
 	for_each_online_cpu(i) {
-		spin_lock(&__get_cpu_lock(slab_irq_locks, i));
+		spin_lock(&__get_cpu_lock(slab, i));
 		func(arg, i);
-		spin_unlock(&__get_cpu_lock(slab_irq_locks, i));
+		spin_unlock(&__get_cpu_lock(slab, i));
 	}
 }
 #else
@@ -2976,7 +3010,7 @@ static int cache_grow(struct kmem_cache *cachep, gfp_t flags, int nodeid,
 	spin_unlock(&l3->list_lock);
 	return 1;
 opps1:
-	kmem_freepages(cachep, objp);
+	kmem_freepages(cachep, objp, -1);
 failed:
 	slab_irq_disable_GFP_WAIT(local_flags, this_cpu);
 	return 0;
