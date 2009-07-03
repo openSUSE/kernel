@@ -5304,7 +5304,8 @@ void scheduler_tick(void)
 	atomic_spin_lock(&rq->lock);
 	update_rq_clock(rq);
 	update_cpu_load(rq);
-	curr->sched_class->task_tick(rq, curr, 0);
+	if (curr != rq->idle && curr->se.on_rq)
+		curr->sched_class->task_tick(rq, curr, 0);
 	atomic_spin_unlock(&rq->lock);
 
 	perf_counter_task_tick(curr, cpu);
