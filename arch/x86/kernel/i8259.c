@@ -168,6 +168,8 @@ static void mask_and_ack_8259A(unsigned int irq)
 	 */
 	if (cached_irq_mask & irqmask)
 		goto spurious_8259A_irq;
+	if (irq & 8)
+		outb(0x60+(irq&7), PIC_SLAVE_CMD); /* 'Specific EOI' to slave */
 	cached_irq_mask |= irqmask;
 
 handle_real_irq:
@@ -328,10 +330,10 @@ void init_8259A(int auto_eoi)
 	/* 8259A-1 (the master) has a slave on IR2 */
 	outb_pic(1U << PIC_CASCADE_IR, PIC_MASTER_IMR);
 
-	if (auto_eoi)	/* master does Auto EOI */
-		outb_pic(MASTER_ICW4_DEFAULT | PIC_ICW4_AEOI, PIC_MASTER_IMR);
-	else		/* master expects normal EOI */
-		outb_pic(MASTER_ICW4_DEFAULT, PIC_MASTER_IMR);
+	if (!auto_eoi)	/* master expects normal EOI */
+		outb_p(MASTER_ICW4_DEFAULT, PIC_MASTER_IMR);
+	else		/* master does Auto EOI */
+		outb_p(MASTER_ICW4_DEFAULT | PIC_ICW4_AEOI, PIC_MASTER_IMR);
 
 	outb_pic(0x11, PIC_SLAVE_CMD);	/* ICW1: select 8259A-2 init */
 
