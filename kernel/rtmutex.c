@@ -708,41 +708,22 @@ update_current(unsigned long new_state, unsigned long *saved_state)
 static int adaptive_wait(struct rt_mutex_waiter *waiter,
 			 struct task_struct *orig_owner)
 {
-	int sleep = 0;
-
 	for (;;) {
 
 		/* we are the owner? */
 		if (!waiter->task)
-			break;
+			return 0;
 
-		/*
-		 * We need to read the owner of the lock and then check
-		 * its state. But we can't let the owner task be freed
-		 * while we read the state. We grab the rcu_lock and
-		 * this makes sure that the owner task wont disappear
-		 * between testing that it still has the lock, and checking
-		 * its state.
-		 */
-		rcu_read_lock();
 		/* Owner changed? Then lets update the original */
-		if (orig_owner != rt_mutex_owner(waiter->lock)) {
-			rcu_read_unlock();
-			break;
-		}
+		if (orig_owner != rt_mutex_owner(waiter->lock))
+			return 0;
 
 		/* Owner went to bed, so should we */
-		if (!task_is_current(orig_owner)) {
-			sleep = 1;
-			rcu_read_unlock();
-			break;
-		}
-		rcu_read_unlock();
+		if (!task_is_current(orig_owner))
+			return 1;
 
 		cpu_relax();
 	}
-
-	return sleep;
 }
 #else
 static int adaptive_wait(struct rt_mutex_waiter *waiter,
@@ -820,11 +801,13 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 		 */
 		current->lock_depth = -1;
 		orig_owner = rt_mutex_owner(lock);
+		get_task_struct(orig_owner);
 		atomic_spin_unlock_irqrestore(&lock->wait_lock, flags);
 
 		debug_rt_mutex_print_deadlock(&waiter);
 
 		if (adaptive_wait(&waiter, orig_owner)) {
+			put_task_struct(orig_owner);
 			update_current(TASK_UNINTERRUPTIBLE, &saved_state);
 			/*
 			 * The xchg() in update_current() is an implicit
@@ -833,7 +816,8 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 			 */
 			if (waiter.task)
 				schedule_rt_mutex(lock);
-		}
+		} else
+			put_task_struct(orig_owner);
 
 		atomic_spin_lock_irqsave(&lock->wait_lock, flags);
 		current->lock_depth = saved_lock_depth;
