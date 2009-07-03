@@ -68,3 +68,22 @@ config PREEMPT_SOFTIRQS
 
 	  Say N if you are unsure.
 
+config PREEMPT_HARDIRQS
+	bool "Thread Hardirqs"
+	default n
+	depends on GENERIC_HARDIRQS_NO__DO_IRQ
+	select PREEMPT_SOFTIRQS
+	help
+	  This option reduces the latency of the kernel by 'threading'
+	  hardirqs. This means that all (or selected) hardirqs will run
+	  in their own kernel thread context. While this helps latency,
+	  this feature can also reduce performance.
+
+	  The threading of hardirqs can also be controlled via the
+	  /proc/sys/kernel/hardirq_preemption runtime flag and the
+	  hardirq-preempt=0/1 boot-time option. Per-irq threading can
+	  be enabled/disable via the /proc/irq/<IRQ>/<handler>/threaded
+	  runtime flags.
+
+	  Say N if you are unsure.
+
