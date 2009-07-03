@@ -86,7 +86,7 @@ static int loopback_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	skb->protocol = eth_type_trans(skb, dev);
 	len = skb->len;
-	res = netif_rx(skb);
+	res = netif_rx_ni(skb);
 
 	pcpu_lstats = dev->ml_priv;
 	lb_stats = per_cpu_ptr(pcpu_lstats, xmit_get_cpu());
