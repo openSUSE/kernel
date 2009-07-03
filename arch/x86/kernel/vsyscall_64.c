@@ -78,14 +78,41 @@ void update_vsyscall(struct timespec *wall_time, struct clocksource *clock)
 	unsigned long flags;
 
 	write_atomic_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
+
+	if (likely(vsyscall_gtod_data.sysctl_enabled == 2)) {
+		struct timespec tmp = *(wall_time);
+		cycle_t (*vread)(void);
+		cycle_t now;
+
+		vread = vsyscall_gtod_data.clock.vread;
+		if (likely(vread))
+			now = vread();
+		else
+			now = clock->read(clock);
+
+		/* calculate interval: */
+		now = (now - clock->cycle_last) & clock->mask;
+		/* convert to nsecs: */
+		tmp.tv_nsec += ( now * clock->mult) >> clock->shift;
+
+		while (tmp.tv_nsec >= NSEC_PER_SEC) {
+			tmp.tv_sec += 1;
+			tmp.tv_nsec -= NSEC_PER_SEC;
+		}
+
+		vsyscall_gtod_data.wall_time_sec = tmp.tv_sec;
+		vsyscall_gtod_data.wall_time_nsec = tmp.tv_nsec;
+	} else {
+		vsyscall_gtod_data.wall_time_sec = wall_time->tv_sec;
+		vsyscall_gtod_data.wall_time_nsec = wall_time->tv_nsec;
+	}
+
 	/* copy vsyscall data */
 	vsyscall_gtod_data.clock.vread = clock->vread;
 	vsyscall_gtod_data.clock.cycle_last = clock->cycle_last;
 	vsyscall_gtod_data.clock.mask = clock->mask;
 	vsyscall_gtod_data.clock.mult = clock->mult;
 	vsyscall_gtod_data.clock.shift = clock->shift;
-	vsyscall_gtod_data.wall_time_sec = wall_time->tv_sec;
-	vsyscall_gtod_data.wall_time_nsec = wall_time->tv_nsec;
 	vsyscall_gtod_data.wall_to_monotonic = wall_to_monotonic;
 	write_atomic_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
 }
@@ -138,7 +165,8 @@ static __always_inline void do_vgettimeofday(struct timeval * tv)
 		} while (tmp.tv_usec != tv->tv_usec ||
 					tmp.tv_sec != tv->tv_sec);
 
-		tv->tv_usec /= NSEC_PER_USEC;
+		tv->tv_usec /= NSEC_PER_MSEC;
+		tv->tv_usec *= USEC_PER_MSEC;
 		return;
 	}
 
@@ -152,6 +180,7 @@ static __always_inline void do_vgettimeofday(struct timeval * tv)
 		}
 
 		now = vread();
+
 		base = __vsyscall_gtod_data.clock.cycle_last;
 		mask = __vsyscall_gtod_data.clock.mask;
 		mult = __vsyscall_gtod_data.clock.mult;
@@ -160,6 +189,8 @@ static __always_inline void do_vgettimeofday(struct timeval * tv)
 		tv->tv_sec = __vsyscall_gtod_data.wall_time_sec;
 		nsec = __vsyscall_gtod_data.wall_time_nsec;
 	} while (read_atomic_seqretry(&__vsyscall_gtod_data.lock, seq));
+
+	now = vread();
 
 	/* calculate interval: */
 	cycle_delta = (now - base) & mask;
