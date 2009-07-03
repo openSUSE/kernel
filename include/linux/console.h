@@ -55,6 +55,7 @@ struct consw {
 	void	(*con_invert_region)(struct vc_data *, u16 *, int);
 	u16    *(*con_screen_pos)(struct vc_data *, int);
 	unsigned long (*con_getxy)(struct vc_data *, unsigned long, int *, int *);
+	int	con_preemptible; // can it reschedule from within printk?
 };
 
 extern const struct consw *conswitchp;
