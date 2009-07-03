@@ -2600,6 +2600,15 @@ static void ack_apic_level(unsigned int irq)
 			move_masked_irq(irq);
 		unmask_IO_APIC_irq_desc(desc);
 	}
+#if (defined(CONFIG_GENERIC_PENDING_IRQ) || defined(CONFIG_IRQBALANCE)) && \
+	defined(CONFIG_PREEMPT_HARDIRQS)
+	/*
+	 * With threaded interrupts, we always have IRQ_INPROGRESS
+	 * when acking.
+	 */
+	else if (unlikely(desc->status & IRQ_MOVE_PENDING))
+		move_masked_irq(irq);
+#endif
 
 #ifdef CONFIG_X86_32
 	if (!(v & (1 << (i & 0x1f)))) {
