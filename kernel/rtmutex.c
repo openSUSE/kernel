@@ -729,16 +729,32 @@ static int adaptive_wait(struct rt_mutex_waiter *waiter,
 /*
  * The state setting needs to preserve the original state and needs to
  * take care of non rtmutex wakeups.
+ *
+ * Called with rtmutex->wait_lock held to serialize against rtmutex
+ * wakeups().
  */
 static inline unsigned long
 rt_set_current_blocked_state(unsigned long saved_state)
 {
-	unsigned long state;
+	unsigned long state, block_state;
 
-	state = xchg(&current->state, TASK_UNINTERRUPTIBLE);
+	/*
+	 * If state is TASK_INTERRUPTIBLE, then we set the state for
+	 * blocking to TASK_INTERRUPTIBLE as well, otherwise we would
+	 * miss real wakeups via wake_up_interruptible(). If such a
+	 * wakeup happens we see the running state and preserve it in
+	 * saved_state. Now we can ignore further wakeups as we will
+	 * return in state running from our "spin" sleep.
+	 */
+	if (saved_state == TASK_INTERRUPTIBLE)
+		block_state = TASK_INTERRUPTIBLE;
+	else
+		block_state = TASK_UNINTERRUPTIBLE;
+
+	state = xchg(&current->state, block_state);
 	/*
 	 * Take care of non rtmutex wakeups. rtmutex wakeups
-	 * set the state to TASK_RUNNING_MUTEX.
+	 * or TASK_RUNNING_MUTEX to (UN)INTERRUPTIBLE.
 	 */
 	if (state == TASK_RUNNING)
 		saved_state = TASK_RUNNING;
