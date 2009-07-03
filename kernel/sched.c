@@ -6117,6 +6117,25 @@ void task_setprio(struct task_struct *p, int prio)
 	BUG_ON(prio < 0 || prio > MAX_PRIO);
 
 	rq = task_rq_lock(p, &flags);
+
+	/*
+	 * Idle task boosting is a nono in general. There is one
+	 * exception, when NOHZ is active:
+	 *
+	 * The idle task calls get_next_timer_interrupt() and holds
+	 * the timer wheel base->lock on the CPU and another CPU wants
+	 * to access the timer (probably to cancel it). We can safely
+	 * ignore the boosting request, as the idle CPU runs this code
+	 * with interrupts disabled and will complete the lock
+	 * protected section without being interrupted. So there is no
+	 * real need to boost.
+	 */
+	if (unlikely(p == rq->idle)) {
+		WARN_ON(p != rq->curr);
+		WARN_ON(p->pi_blocked_on);
+		goto out_unlock;
+	}
+
 	update_rq_clock(rq);
 
 	oldprio = p->prio;
@@ -6144,6 +6163,7 @@ void task_setprio(struct task_struct *p, int prio)
 		check_class_changed(rq, p, prev_class, oldprio, running);
 	}
 
+out_unlock:
 	task_rq_unlock(rq, &flags);
 }
 
