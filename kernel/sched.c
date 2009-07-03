@@ -4989,7 +4989,7 @@ void account_system_time(struct task_struct *p, int hardirq_offset,
 	tmp = cputime_to_cputime64(cputime);
 	if (hardirq_count() - hardirq_offset)
 		cpustat->irq = cputime64_add(cpustat->irq, tmp);
-	else if (softirq_count())
+	else if (softirq_count() || (p->flags & PF_SOFTIRQ))
 		cpustat->softirq = cputime64_add(cpustat->softirq, tmp);
 	else
 		cpustat->system = cputime64_add(cpustat->system, tmp);
@@ -5526,7 +5526,7 @@ asmlinkage void __sched preempt_schedule_irq(void)
 	int saved_lock_depth;
 
 	/* Catch callers which need to be fixed */
-	BUG_ON(ti->preempt_count || !irqs_disabled());
+	WARN_ON_ONCE(ti->preempt_count || !irqs_disabled());
 
 	do {
 		add_preempt_count(PREEMPT_ACTIVE);
@@ -6666,9 +6666,12 @@ int cond_resched_lock(spinlock_t *lock)
 }
 EXPORT_SYMBOL(cond_resched_lock);
 
+/*
+ * Voluntarily preempt a process context that has softirqs disabled:
+ */
 int __sched cond_resched_softirq(void)
 {
-	BUG_ON(!in_softirq());
+	WARN_ON_ONCE(!in_softirq());
 
 	if (should_resched()) {
 		local_bh_enable();
@@ -6679,6 +6682,25 @@ int __sched cond_resched_softirq(void)
 	return 0;
 }
 EXPORT_SYMBOL(cond_resched_softirq);
+
+/*
+ * Voluntarily preempt a softirq context (possible with softirq threading):
+ */
+int __sched cond_resched_softirq_context(void)
+{
+	WARN_ON_ONCE(!in_softirq());
+
+	if (softirq_need_resched() && system_state == SYSTEM_RUNNING) {
+		raw_local_irq_disable();
+		_local_bh_enable();
+		raw_local_irq_enable();
+		__cond_resched();
+		local_bh_disable();
+		return 1;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(cond_resched_softirq_context);
 
 /**
  * yield - yield the current processor to other threads.

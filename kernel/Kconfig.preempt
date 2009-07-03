@@ -52,3 +52,19 @@ config PREEMPT
 
 endchoice
 
+config PREEMPT_SOFTIRQS
+	bool "Thread Softirqs"
+	default n
+#	depends on PREEMPT
+	help
+	  This option reduces the latency of the kernel by 'threading'
+	  soft interrupts. This means that all softirqs will execute
+	  in softirqd's context. While this helps latency, it can also
+	  reduce performance.
+
+	  The threading of softirqs can also be controlled via
+	  /proc/sys/kernel/softirq_preemption runtime flag and the
+	  sofirq-preempt=0/1 boot-time option.
+
+	  Say N if you are unsure.
+
