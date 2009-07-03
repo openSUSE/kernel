@@ -70,7 +70,7 @@ static void queue_process(struct work_struct *work)
 		txq = netdev_get_tx_queue(dev, skb_get_queue_mapping(skb));
 
 		local_irq_save_nort(flags);
-		__netif_tx_lock(txq, smp_processor_id());
+		__netif_tx_lock(txq, (void *)current);
 		if (netif_tx_queue_stopped(txq) ||
 		    netif_tx_queue_frozen(txq) ||
 		    ops->ndo_start_xmit(skb, dev) != NETDEV_TX_OK) {

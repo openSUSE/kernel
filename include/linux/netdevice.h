@@ -477,7 +477,7 @@ struct netdev_queue {
  * write mostly part
  */
 	spinlock_t		_xmit_lock ____cacheline_aligned_in_smp;
-	int			xmit_lock_owner;
+	void			*xmit_lock_owner;
 	/*
 	 * please use this field instead of dev->trans_start
 	 */
@@ -1665,41 +1665,41 @@ static inline u32 netif_msg_init(int debug_value, int default_msg_enable_bits)
 	return (1 << debug_value) - 1;
 }
 
-static inline void __netif_tx_lock(struct netdev_queue *txq, int cpu)
+static inline void __netif_tx_lock(struct netdev_queue *txq, void *curr)
 {
 	spin_lock(&txq->_xmit_lock);
-	txq->xmit_lock_owner = cpu;
+	txq->xmit_lock_owner = curr;
 }
 
 static inline void __netif_tx_lock_bh(struct netdev_queue *txq)
 {
 	spin_lock_bh(&txq->_xmit_lock);
-	txq->xmit_lock_owner = raw_smp_processor_id();
+	txq->xmit_lock_owner = (void *)current;
 }
 
 static inline int __netif_tx_trylock(struct netdev_queue *txq)
 {
 	int ok = spin_trylock(&txq->_xmit_lock);
 	if (likely(ok))
-		txq->xmit_lock_owner = raw_smp_processor_id();
+		txq->xmit_lock_owner = (void *)current;
 	return ok;
 }
 
 static inline void __netif_tx_unlock(struct netdev_queue *txq)
 {
-	txq->xmit_lock_owner = -1;
+	txq->xmit_lock_owner = (void *)-1;
 	spin_unlock(&txq->_xmit_lock);
 }
 
 static inline void __netif_tx_unlock_bh(struct netdev_queue *txq)
 {
-	txq->xmit_lock_owner = -1;
+	txq->xmit_lock_owner = (void *)-1;
 	spin_unlock_bh(&txq->_xmit_lock);
 }
 
 static inline void txq_trans_update(struct netdev_queue *txq)
 {
-	if (txq->xmit_lock_owner != -1)
+	if (txq->xmit_lock_owner != (void *)-1)
 		txq->trans_start = jiffies;
 }
 
@@ -1712,10 +1712,10 @@ static inline void txq_trans_update(struct netdev_queue *txq)
 static inline void netif_tx_lock(struct net_device *dev)
 {
 	unsigned int i;
-	int cpu;
+	void *curr;
 
 	spin_lock(&dev->tx_global_lock);
-	cpu = raw_smp_processor_id();
+	curr = (void *)current;
 	for (i = 0; i < dev->num_tx_queues; i++) {
 		struct netdev_queue *txq = netdev_get_tx_queue(dev, i);
 
@@ -1725,7 +1725,7 @@ static inline void netif_tx_lock(struct net_device *dev)
 		 * the ->hard_start_xmit() handler and already
 		 * checked the frozen bit.
 		 */
-		__netif_tx_lock(txq, cpu);
+		__netif_tx_lock(txq, curr);
 		set_bit(__QUEUE_STATE_FROZEN, &txq->state);
 		__netif_tx_unlock(txq);
 	}
@@ -1761,9 +1761,9 @@ static inline void netif_tx_unlock_bh(struct net_device *dev)
 	local_bh_enable();
 }
 
-#define HARD_TX_LOCK(dev, txq, cpu) {			\
+#define HARD_TX_LOCK(dev, txq, curr) {			\
 	if ((dev->features & NETIF_F_LLTX) == 0) {	\
-		__netif_tx_lock(txq, cpu);		\
+		__netif_tx_lock(txq, curr);		\
 	}						\
 }
 
@@ -1776,14 +1776,14 @@ static inline void netif_tx_unlock_bh(struct net_device *dev)
 static inline void netif_tx_disable(struct net_device *dev)
 {
 	unsigned int i;
-	int cpu;
+	void *curr;
 
 	local_bh_disable();
-	cpu = raw_smp_processor_id();
+	curr = (void *)current;
 	for (i = 0; i < dev->num_tx_queues; i++) {
 		struct netdev_queue *txq = netdev_get_tx_queue(dev, i);
 
-		__netif_tx_lock(txq, cpu);
+		__netif_tx_lock(txq, curr);
 		netif_tx_stop_queue(txq);
 		__netif_tx_unlock(txq);
 	}

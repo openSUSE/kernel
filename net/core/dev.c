@@ -1893,13 +1893,9 @@ gso:
 		/*
 		 * No need to check for recursion with threaded interrupts:
 		 */
-#ifdef CONFIG_PREEMPT_RT
-		if (1) {
-#else
-		if (txq->xmit_lock_owner != cpu) {
-#endif
+		if (txq->xmit_lock_owner != (void *)current) {
 
-			HARD_TX_LOCK(dev, txq, cpu);
+			HARD_TX_LOCK(dev, txq, (void *)current);
 
 			if (!netif_tx_queue_stopped(txq)) {
 				rc = 0;
@@ -4670,7 +4666,7 @@ static void __netdev_init_queue_locks_one(struct net_device *dev,
 {
 	spin_lock_init(&dev_queue->_xmit_lock);
 	netdev_set_xmit_lockdep_class(&dev_queue->_xmit_lock, dev->type);
-	dev_queue->xmit_lock_owner = -1;
+	dev_queue->xmit_lock_owner = (void *)-1;
 }
 
 static void netdev_init_queue_locks(struct net_device *dev)

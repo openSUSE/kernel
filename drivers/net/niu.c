@@ -3681,7 +3681,7 @@ static void niu_tx_work(struct niu *np, struct tx_ring_info *rp)
 out:
 	if (unlikely(netif_tx_queue_stopped(txq) &&
 		     (niu_tx_avail(rp) > NIU_TX_WAKEUP_THRESH(rp)))) {
-		__netif_tx_lock(txq, smp_processor_id());
+		__netif_tx_lock(txq, (void *)current);
 		if (netif_tx_queue_stopped(txq) &&
 		    (niu_tx_avail(rp) > NIU_TX_WAKEUP_THRESH(rp)))
 			netif_tx_wake_queue(txq);
