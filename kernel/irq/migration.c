@@ -54,6 +54,7 @@ void move_masked_irq(int irq)
 void move_native_irq(int irq)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
+	int mask = 1;
 
 	if (likely(!(desc->status & IRQ_MOVE_PENDING)))
 		return;
@@ -61,8 +62,17 @@ void move_native_irq(int irq)
 	if (unlikely(desc->status & IRQ_DISABLED))
 		return;
 
-	desc->chip->mask(irq);
+	/*
+	 * If the irq is already in progress, it should be masked.
+	 * If we unmask it, we might cause an interrupt storm on RT.
+	 */
+	if (unlikely(desc->status & IRQ_INPROGRESS))
+		mask = 0;
+
+	if (mask)
+		desc->chip->mask(irq);
 	move_masked_irq(irq);
-	desc->chip->unmask(irq);
+	if (mask)
+		desc->chip->unmask(irq);
 }
 
