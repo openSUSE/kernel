@@ -123,6 +123,25 @@ static __always_inline void do_vgettimeofday(struct timeval * tv)
 	unsigned seq;
 	unsigned long mult, shift, nsec;
 	cycle_t (*vread)(void);
+
+	if (likely(__vsyscall_gtod_data.sysctl_enabled == 2)) {
+		struct timeval tmp;
+
+		do {
+			barrier();
+			tv->tv_sec = __vsyscall_gtod_data.wall_time_sec;
+			tv->tv_usec = __vsyscall_gtod_data.wall_time_nsec;
+			barrier();
+			tmp.tv_sec = __vsyscall_gtod_data.wall_time_sec;
+			tmp.tv_usec = __vsyscall_gtod_data.wall_time_nsec;
+
+		} while (tmp.tv_usec != tv->tv_usec ||
+					tmp.tv_sec != tv->tv_sec);
+
+		tv->tv_usec /= NSEC_PER_USEC;
+		return;
+	}
+
 	do {
 		seq = read_atomic_seqbegin(&__vsyscall_gtod_data.lock);
 
