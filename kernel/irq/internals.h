@@ -44,6 +44,16 @@ extern int irq_select_affinity_usr(unsigned int irq);
 
 extern void irq_set_thread_affinity(struct irq_desc *desc);
 
+#ifdef CONFIG_PREEMPT_HARDIRQS
+extern irqreturn_t handle_irq_action(unsigned int irq,struct irqaction *action);
+#else
+static inline irqreturn_t
+handle_irq_action(unsigned int irq, struct irqaction *action)
+{
+	return action->handler(irq, action->dev_id);
+}
+#endif
+
 /*
  * Debugging printout:
  */

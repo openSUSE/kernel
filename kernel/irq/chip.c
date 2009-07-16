@@ -247,6 +247,7 @@ static unsigned int default_startup(unsigned int irq)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
 
+	desc->status &= ~IRQ_MASKED;
 	desc->chip->enable(irq);
 	return 0;
 }
@@ -382,7 +383,8 @@ handle_level_irq(unsigned int irq, struct irq_desc *desc)
 
 	atomic_spin_lock(&desc->lock);
 	desc->status &= ~IRQ_INPROGRESS;
-	if (!(desc->status & IRQ_DISABLED) && desc->chip->unmask)
+	if (!(desc->status & IRQ_DISABLED) && desc->chip->unmask &&
+	    !desc->forced_threads_active)
 		desc->chip->unmask(irq);
 out_unlock:
 	atomic_spin_unlock(&desc->lock);

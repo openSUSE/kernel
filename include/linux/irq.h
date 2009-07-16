@@ -193,6 +193,7 @@ struct irq_desc {
 #endif
 #endif
 	atomic_t		threads_active;
+	unsigned long		forced_threads_active;
 	wait_queue_head_t       wait_for_threads;
 #ifdef CONFIG_PROC_FS
 	struct proc_dir_entry	*dir;

@@ -278,7 +278,8 @@ void __enable_irq(struct irq_desc *desc, unsigned int irq, bool resume)
 			goto err_out;
 		/* Prevent probing on this irq: */
 		desc->status = status | IRQ_NOPROBE;
-		check_irq_resend(desc, irq);
+		if (!desc->forced_threads_active)
+			check_irq_resend(desc, irq);
 		/* fall-through */
 	}
 	default:
@@ -436,7 +437,117 @@ int __irq_set_trigger(struct irq_desc *desc, unsigned int irq,
 	return ret;
 }
 
-static int irq_wait_for_interrupt(struct irqaction *action)
+#ifdef CONFIG_PREEMPT_HARDIRQS
+/*
+ * handler function for forced irq threading. Dummy code. See
+ * handle_irq_action() below.
+ */
+static irqreturn_t preempt_hardirq_handler(int irq, void *dev_id)
+{
+	return IRQ_WAKE_THREAD;
+}
+
+/*
+ * Momentary workaround until I have a brighter idea how to handle the
+ * accounting of forced thread handlers.
+ */
+irqreturn_t handle_irq_action(unsigned int irq, struct irqaction *action)
+{
+	if (action->handler == preempt_hardirq_handler) {
+		struct irq_desc *desc = irq_to_desc(irq);
+		unsigned long flags;
+
+		atomic_spin_lock_irqsave(&desc->lock, flags);
+
+		/* FIXME: use some flag to do that */
+		if (desc->handle_irq == handle_fasteoi_irq) {
+			if (desc->chip->mask)
+				desc->chip->mask(irq);
+		}
+		desc->forced_threads_active |= action->thread_mask;
+		atomic_spin_unlock_irqrestore(&desc->lock, flags);
+		return IRQ_WAKE_THREAD;
+	}
+	return action->handler(irq, action->dev_id);
+}
+
+/*
+ * forced threaded interrupts need to unmask the interrupt line
+ */
+static int preempt_hardirq_thread_done(struct irq_desc *desc,
+					struct irqaction *action)
+{
+	unsigned long masked;
+
+	if (action->handler != preempt_hardirq_handler)
+		return 0;
+again:
+	atomic_spin_lock_irq(&desc->lock);
+	/*
+	 * Be careful. The hardirq handler might be running on the
+	 * other CPU.
+	 */
+	if (desc->status & IRQ_INPROGRESS) {
+		atomic_spin_unlock_irq(&desc->lock);
+		cpu_relax();
+		goto again;
+	}
+
+	/*
+	 * Now check again, whether the thread should run. Otherwise
+	 * we would clear the forced_threads_active bit which was just
+	 * set.
+	 */
+	if (test_bit(IRQTF_RUNTHREAD, &action->thread_flags)) {
+		atomic_spin_unlock_irq(&desc->lock);
+		return 1;
+	}
+
+	masked = desc->forced_threads_active;
+	desc->forced_threads_active &= ~action->thread_mask;
+
+	/*
+	 * Unmask the interrupt line when this is the last active
+	 * thread and the interrupt is not disabled.
+	 */
+	if (masked && !desc->forced_threads_active &&
+	    !(desc->status & IRQ_DISABLED)) {
+		if (desc->chip->unmask)
+			desc->chip->unmask(action->irq);
+		/*
+		 * Do we need to call check_irq_resend() here ?
+		 * No. check_irq_resend needs only to be checked when
+		 * we go from IRQ_DISABLED to IRQ_ENABLED state.
+		 */
+	}
+	atomic_spin_unlock_irq(&desc->lock);
+	return 0;
+}
+
+/*
+ * If the caller does not request irq threading then the handler
+ * becomes the thread function and we use the above handler as the
+ * primary hardirq context handler.
+ */
+static void preempt_hardirq_setup(struct irqaction *new)
+{
+	if (new->thread_fn || (new->flags & IRQF_NODELAY))
+		return;
+
+	new->thread_fn = new->handler;
+	new->handler = preempt_hardirq_handler;
+}
+#else
+static inline void preempt_hardirq_setup(struct irqaction *new) { }
+static inline int
+preempt_hardirq_thread_done(struct irq_desc *d, struct irqaction *a)
+{
+	return 0;
+}
+#endif
+
+static int
+irq_wait_for_interrupt(struct irq_desc *desc, struct irqaction *action)
 {
 	while (!kthread_should_stop()) {
 		set_current_state(TASK_INTERRUPTIBLE);
@@ -446,7 +557,8 @@ static int irq_wait_for_interrupt(struct irqaction *action)
 			__set_current_state(TASK_RUNNING);
 			return 0;
 		}
-		schedule();
+		if (!preempt_hardirq_thread_done(desc, action))
+			schedule();
 	}
 	return -1;
 }
@@ -495,9 +607,10 @@ static int irq_thread(void *data)
 	int wake;
 
 	sched_setscheduler(current, SCHED_FIFO, &param);
+	current->flags |= PF_HARDIRQ;
 	current->irqaction = action;
 
-	while (!irq_wait_for_interrupt(action)) {
+	while (!irq_wait_for_interrupt(desc, action)) {
 
 		irq_thread_check_affinity(desc, action);
 
@@ -564,7 +677,7 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 {
 	struct irqaction *old, **old_ptr;
 	const char *old_name = NULL;
-	unsigned long flags;
+	unsigned long flags, thread_mask = 0;
 	int shared = 0;
 	int ret;
 
@@ -590,6 +703,9 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 		rand_initialize_irq(irq);
 	}
 
+	/* Preempt-RT setup for forced threading */
+	preempt_hardirq_setup(new);
+
 	/*
 	 * Threaded handler ?
 	 */
@@ -607,7 +723,6 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 		 */
 		get_task_struct(t);
 		new->thread = t;
-		wake_up_process(t);
 	}
 
 	/*
@@ -638,11 +753,19 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 
 		/* add new interrupt at end of irq queue */
 		do {
+			thread_mask |= old->thread_mask;
 			old_ptr = &old->next;
 			old = *old_ptr;
 		} while (old);
 		shared = 1;
 	}
+
+	/*
+	 * Setup the thread mask for this irqaction. No risk that ffz
+	 * will fail. If we have 32 resp. 64 devices sharing one irq
+	 * then .....
+	 */
+	new->thread_mask = 1 << ffz(thread_mask);
 
 	if (!shared) {
 		irq_chip_set_defaults(desc->chip);
@@ -711,6 +834,9 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 	register_irq_proc(irq, desc);
 	new->dir = NULL;
 	register_handler_proc(irq, new);
+
+	if (new->thread)
+		wake_up_process(new->thread);
 
 	return 0;
 
@@ -808,6 +934,11 @@ static struct irqaction *__free_irq(unsigned int irq, void *dev_id)
 		else
 			desc->chip->disable(irq);
 	}
+
+	/*
+	 * Clear the forced_threaded bit of the removed action
+	 */
+	desc->forced_threads_active &= ~action->thread_mask;
 
 	irqthread = action->thread;
 	action->thread = NULL;
@@ -978,7 +1109,7 @@ int request_threaded_irq(unsigned int irq, irq_handler_t handler,
 		kfree(action);
 
 #ifdef CONFIG_DEBUG_SHIRQ
-	if (irqflags & IRQF_SHARED) {
+	if (!retval && (irqflags & IRQF_SHARED)) {
 		/*
 		 * It's a shared IRQ -- the driver ought to be prepared for it
 		 * to happen immediately, so let's make sure....
@@ -986,13 +1117,18 @@ int request_threaded_irq(unsigned int irq, irq_handler_t handler,
 		 * run in parallel with our fake.
 		 */
 		unsigned long flags;
+		irqreturn_t ret;
 
 		disable_irq(irq);
 		local_irq_save(flags);
 
-		handler(irq, dev_id);
+		ret = action->handler(irq, dev_id);
 
 		local_irq_restore(flags);
+
+		if (ret == IRQ_WAKE_THREAD)
+			action->thread_fn(irq, dev_id);
+
 		enable_irq(irq);
 	}
 #endif

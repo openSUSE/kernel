@@ -66,7 +66,8 @@ void move_native_irq(int irq)
 	 * If the irq is already in progress, it should be masked.
 	 * If we unmask it, we might cause an interrupt storm on RT.
 	 */
-	if (unlikely(desc->status & IRQ_INPROGRESS))
+	if (unlikely(desc->status & IRQ_INPROGRESS ||
+		     desc->forced_threads_active))
 		mask = 0;
 
 	if (mask)

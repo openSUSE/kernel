@@ -93,6 +93,7 @@ typedef irqreturn_t (*irq_handler_t)(int, void *);
  * @thread_fn:	interupt handler function for threaded interrupts
  * @thread:	thread pointer for threaded interrupts
  * @thread_flags:	flags related to @thread
+ * @thread_mask:	bit mask to account for forced threads
  */
 struct irqaction {
 	irq_handler_t handler;
@@ -106,6 +107,7 @@ struct irqaction {
 	irq_handler_t thread_fn;
 	struct task_struct *thread;
 	unsigned long thread_flags;
+	unsigned long thread_mask;
 };
 
 extern irqreturn_t no_action(int cpl, void *dev_id);
@@ -322,6 +324,7 @@ static inline int disable_irq_wake(unsigned int irq)
 
 #ifndef __ARCH_SET_SOFTIRQ_PENDING
 #define set_softirq_pending(x) (local_softirq_pending() = (x))
+// FIXME: PREEMPT_RT: set_bit()?
 #define or_softirq_pending(x)  (local_softirq_pending() |= (x))
 #endif
 
@@ -369,9 +372,15 @@ struct softirq_action
 	void	(*action)(struct softirq_action *);
 };
 
-#define __raise_softirq_irqoff(nr) \
+#ifdef CONFIG_PREEMPT_HARDIRQS
+# define __raise_softirq_irqoff(nr) raise_softirq_irqoff(nr)
+# define __do_raise_softirq_irqoff(nr) \
 	do { or_softirq_pending(1UL << (nr)); } while (0)
-#define __do_raise_softirq_irqoff(nr) __raise_softirq_irqoff(nr)
+#else
+# define __raise_softirq_irqoff(nr) \
+	do { or_softirq_pending(1UL << (nr)); } while (0)
+# define __do_raise_softirq_irqoff(nr) __raise_softirq_irqoff(nr)
+#endif
 
 asmlinkage void do_softirq(void);
 asmlinkage void __do_softirq(void);
