@@ -264,8 +264,16 @@ int mnt_want_write(struct vfsmount *mnt)
 	 * incremented count after it has set MNT_WRITE_HOLD.
 	 */
 	smp_mb();
-	while (mnt->mnt_flags & MNT_WRITE_HOLD)
-		cpu_relax();
+	preempt_enable();
+	/*
+	 * HACK ALERT. on RT we can not spin here with cpu_relax() and
+	 * preemption disabled so we block on the vfsmount lock which is
+	 * held by mnt_make_readonly(). Works on !RT as well.
+	 */
+	while (mnt->mnt_flags & MNT_WRITE_HOLD) {
+		spin_lock(&vfsmount_lock);
+		spin_unlock(&vfsmount_lock);
+	}
 	/*
 	 * After the slowpath clears MNT_WRITE_HOLD, mnt_is_readonly will
 	 * be set to match its requirements. So we must not load that until
@@ -273,12 +281,11 @@ int mnt_want_write(struct vfsmount *mnt)
 	 */
 	smp_rmb();
 	if (__mnt_is_readonly(mnt)) {
+		preempt_disable();
 		dec_mnt_writers(mnt);
+		preempt_enable();
 		ret = -EROFS;
-		goto out;
 	}
-out:
-	preempt_enable();
 	return ret;
 }
 EXPORT_SYMBOL_GPL(mnt_want_write);
