@@ -420,8 +420,11 @@ irqreturn_t handle_IRQ_event(unsigned int irq, struct irqaction *action)
 		action = action->next;
 	} while (action);
 
+#ifndef CONFIG_PREEMPT_RT
+	/* FIXME: Can we unbreak that ? */
 	if (status & IRQF_SAMPLE_RANDOM)
 		add_interrupt_randomness(irq);
+#endif
 	local_irq_disable();
 
 	return retval;
