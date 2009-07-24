@@ -91,30 +91,32 @@ extern int __lockfunc generic__raw_read_trylock(raw_rwlock_t *lock);
 #endif
 
 #ifdef CONFIG_DEBUG_SPINLOCK
-  extern void __spin_lock_init(spinlock_t *lock, const char *name,
-			       struct lock_class_key *key);
-# define spin_lock_init(lock)					\
+  extern void __atomic_spin_lock_init(atomic_spinlock_t *lock,
+				      const char *name,
+				      struct lock_class_key *key);
+
+# define atomic_spin_lock_init(lock)				\
 do {								\
 	static struct lock_class_key __key;			\
 								\
-	__spin_lock_init((lock), #lock, &__key);		\
+	__atomic_spin_lock_init((lock), #lock, &__key);		\
 } while (0)
 
 #else
-# define spin_lock_init(lock)					\
-	do { *(lock) = SPIN_LOCK_UNLOCKED; } while (0)
+# define atomic_spin_lock_init(lock)				\
+	do { *(lock) = __ATOMIC_SPIN_LOCK_UNLOCKED(lock); } while (0)
 #endif
 
-#define spin_is_locked(lock)	__raw_spin_is_locked(&(lock)->raw_lock)
+#define atomic_spin_is_locked(lock)	__raw_spin_is_locked(&(lock)->raw_lock)
 
 #ifdef CONFIG_GENERIC_LOCKBREAK
-#define spin_is_contended(lock) ((lock)->break_lock)
+#define atomic_spin_is_contended(lock) ((lock)->break_lock)
 #else
 
 #ifdef __raw_spin_is_contended
-#define spin_is_contended(lock)	__raw_spin_is_contended(&(lock)->raw_lock)
+#define atomic_spin_is_contended(lock)	__raw_spin_is_contended(&(lock)->raw_lock)
 #else
-#define spin_is_contended(lock)	(((void)(lock), 0))
+#define atomic_spin_is_contended(lock)	(((void)(lock), 0))
 #endif /*__raw_spin_is_contended*/
 #endif
 
@@ -127,7 +129,7 @@ static inline void smp_mb__after_lock(void) { smp_mb(); }
  * spin_unlock_wait - wait until the spinlock gets unlocked
  * @lock: the spinlock in question.
  */
-#define spin_unlock_wait(lock)	__raw_spin_unlock_wait(&(lock)->raw_lock)
+#define atomic_spin_unlock_wait(lock)	__raw_spin_unlock_wait(&(lock)->raw_lock)
 
 /*
  * Pull the _spin_*()/_read_*()/_write_*() functions/declarations:
@@ -139,10 +141,10 @@ static inline void smp_mb__after_lock(void) { smp_mb(); }
 #endif
 
 #ifdef CONFIG_DEBUG_SPINLOCK
- extern void _raw_spin_lock(spinlock_t *lock);
+ extern void _raw_spin_lock(atomic_spinlock_t *lock);
 #define _raw_spin_lock_flags(lock, flags) _raw_spin_lock(lock)
- extern int _raw_spin_trylock(spinlock_t *lock);
- extern void _raw_spin_unlock(spinlock_t *lock);
+ extern int _raw_spin_trylock(atomic_spinlock_t *lock);
+ extern void _raw_spin_unlock(atomic_spinlock_t *lock);
 #else
 # define _raw_spin_lock(lock)		__raw_spin_lock(&(lock)->raw_lock)
 # define _raw_spin_lock_flags(lock, flags) \
@@ -152,75 +154,79 @@ static inline void smp_mb__after_lock(void) { smp_mb(); }
 #endif
 
 /*
- * Define the various spin_lock and methods.  Note we define these
+ * Define the various spin_lock methods.  Note we define these
  * regardless of whether CONFIG_SMP or CONFIG_PREEMPT are set. The
  * various methods are defined as nops in the case they are not
  * required.
  */
-#define spin_trylock(lock)		__cond_lock(lock, _spin_trylock(lock))
+#define atomic_spin_trylock(lock)	__cond_lock(lock, _atomic_spin_trylock(lock))
 
-#define spin_lock(lock)			_spin_lock(lock)
+#define atomic_spin_lock(lock)		_atomic_spin_lock(lock)
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
-# define spin_lock_nested(lock, subclass) _spin_lock_nested(lock, subclass)
-# define spin_lock_nest_lock(lock, nest_lock)				\
+# define atomic_spin_lock_nested(lock, subclass) \
+	_atomic_spin_lock_nested(lock, subclass)
+
+# define atomic_spin_lock_nest_lock(lock, nest_lock)			\
 	 do {								\
 		 typecheck(struct lockdep_map *, &(nest_lock)->dep_map);\
-		 _spin_lock_nest_lock(lock, &(nest_lock)->dep_map);	\
+		 _atomic_spin_lock_nest_lock(lock, &(nest_lock)->dep_map);\
 	 } while (0)
 #else
-# define spin_lock_nested(lock, subclass) _spin_lock(lock)
-# define spin_lock_nest_lock(lock, nest_lock) _spin_lock(lock)
+# define atomic_spin_lock_nested(lock, subclass) _atomic_spin_lock(lock)
+# define atomic_spin_lock_nest_lock(lock, nest_lock) _atomic_spin_lock(lock)
 #endif
 
 #if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 
-#define spin_lock_irqsave(lock, flags)			\
+#define atomic_spin_lock_irqsave(lock, flags)		\
 	do {						\
 		typecheck(unsigned long, flags);	\
-		flags = _spin_lock_irqsave(lock);	\
+		flags = _atomic_spin_lock_irqsave(lock);\
 	} while (0)
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
-#define spin_lock_irqsave_nested(lock, flags, subclass)			\
+#define atomic_spin_lock_irqsave_nested(lock, flags, subclass)		\
 	do {								\
 		typecheck(unsigned long, flags);			\
-		flags = _spin_lock_irqsave_nested(lock, subclass);	\
+		flags = _atomic_spin_lock_irqsave_nested(lock, subclass);\
 	} while (0)
 #else
-#define spin_lock_irqsave_nested(lock, flags, subclass)			\
+#define atomic_spin_lock_irqsave_nested(lock, flags, subclass)		\
 	do {								\
 		typecheck(unsigned long, flags);			\
-		flags = _spin_lock_irqsave(lock);			\
+		flags = _atomic_spin_lock_irqsave(lock);		\
 	} while (0)
 #endif
 
 #else
 
-#define spin_lock_irqsave(lock, flags)			\
+#define atomic_spin_lock_irqsave(lock, flags)		\
 	do {						\
 		typecheck(unsigned long, flags);	\
-		_spin_lock_irqsave(lock, flags);	\
+		_atomic_spin_lock_irqsave(lock, flags);	\
 	} while (0)
-#define spin_lock_irqsave_nested(lock, flags, subclass)	\
-	spin_lock_irqsave(lock, flags)
+
+#define atomic_spin_lock_irqsave_nested(lock, flags, subclass)	\
+	atomic_spin_lock_irqsave(lock, flags)
 
 #endif
 
-#define spin_lock_irq(lock)		_spin_lock_irq(lock)
-#define spin_lock_bh(lock)		_spin_lock_bh(lock)
+#define atomic_spin_lock_irq(lock)	_atomic_spin_lock_irq(lock)
+#define atomic_spin_lock_bh(lock)	_atomic_spin_lock_bh(lock)
 
 /*
  * We inline the unlock functions in the nondebug case:
  */
 #if defined(CONFIG_DEBUG_SPINLOCK) || defined(CONFIG_PREEMPT) || \
 	!defined(CONFIG_SMP)
-# define spin_unlock(lock)		_spin_unlock(lock)
-# define spin_unlock_irq(lock)		_spin_unlock_irq(lock)
+# define atomic_spin_unlock(lock)	_atomic_spin_unlock(lock)
+# define atomic_spin_unlock_irq(lock)	_atomic_spin_unlock_irq(lock)
 #else
-# define spin_unlock(lock) \
+# define atomic_spin_unlock(lock) \
     do {__raw_spin_unlock(&(lock)->raw_lock); __release(lock); } while (0)
-# define spin_unlock_irq(lock)			\
+
+# define atomic_spin_unlock_irq(lock)		\
 do {						\
 	__raw_spin_unlock(&(lock)->raw_lock);	\
 	__release(lock);			\
@@ -228,28 +234,35 @@ do {						\
 } while (0)
 #endif
 
-#define spin_unlock_irqrestore(lock, flags)		\
+#define atomic_spin_unlock_irqrestore(lock, flags)	\
 	do {						\
 		typecheck(unsigned long, flags);	\
-		_spin_unlock_irqrestore(lock, flags);	\
+		_atomic_spin_unlock_irqrestore(lock, flags);\
 	} while (0)
-#define spin_unlock_bh(lock)		_spin_unlock_bh(lock)
+#define atomic_spin_unlock_bh(lock)	_atomic_spin_unlock_bh(lock)
 
-#define spin_trylock_bh(lock)	__cond_lock(lock, _spin_trylock_bh(lock))
+#define atomic_spin_trylock_bh(lock)	\
+	__cond_lock(lock, _atomic_spin_trylock_bh(lock))
 
-#define spin_trylock_irq(lock) \
+#define atomic_spin_trylock_irq(lock) \
 ({ \
 	local_irq_disable(); \
-	spin_trylock(lock) ? \
+	atomic_spin_trylock(lock) ? \
 	1 : ({ local_irq_enable(); 0;  }); \
 })
 
-#define spin_trylock_irqsave(lock, flags) \
+#define atomic_spin_trylock_irqsave(lock, flags) \
 ({ \
 	local_irq_save(flags); \
-	spin_trylock(lock) ? \
+	atomic_spin_trylock(lock) ? \
 	1 : ({ local_irq_restore(flags); 0; }); \
 })
+
+/**
+ * spin_can_lock - would spin_trylock() succeed?
+ * @lock: the spinlock in question.
+ */
+#define atomic_spin_can_lock(lock)	(!atomic_spin_is_locked(lock))
 
 /*
  * Pull the atomic_t declaration:
@@ -264,16 +277,152 @@ do {						\
  * Decrements @atomic by 1.  If the result is 0, returns true and locks
  * @lock.  Returns false for all other cases.
  */
-extern int _atomic_dec_and_lock(atomic_t *atomic, spinlock_t *lock);
-#define atomic_dec_and_lock(atomic, lock) \
-		__cond_lock(lock, _atomic_dec_and_lock(atomic, lock))
+extern int
+_atomic_dec_and_atomic_lock(atomic_t *atomic, atomic_spinlock_t *lock);
 
-/**
- * spin_can_lock - would spin_trylock() succeed?
- * @lock: the spinlock in question.
+#define atomic_dec_and_atomic_lock(atomic, lock) \
+	__cond_lock(lock, _atomic_dec_and_atomic_lock(atomic, lock))
+
+/*
+ * Map spin* to atomic_spin* for PREEMPT_RT=n
  */
-#define spin_can_lock(lock)	(!spin_is_locked(lock))
+static inline void spin_lockcheck(spinlock_t *lock) { }
 
+#define spin_lock_init(lock) \
+do { \
+	spin_lockcheck(lock); \
+	atomic_spin_lock_init((atomic_spinlock_t *)lock); \
+} while (0)
+
+#define spin_lock(lock) \
+do { \
+	spin_lockcheck(lock); \
+	atomic_spin_lock((atomic_spinlock_t *)lock); \
+} while (0)
+
+#define spin_lock_bh(lock) \
+do { \
+	spin_lockcheck(lock); \
+	atomic_spin_lock_bh((atomic_spinlock_t *)lock);	\
+} while (0)
+
+#define spin_trylock(lock) \
+({ \
+	spin_lockcheck(lock);			\
+	atomic_spin_trylock((atomic_spinlock_t *)lock);	\
+})
+
+#define spin_lock_nested(lock, subclass) \
+do { \
+	spin_lockcheck(lock); \
+	atomic_spin_lock_nested((atomic_spinlock_t *)lock, subclass); \
+} while (0)
+
+#define spin_lock_nest_lock(lock, nest_lock) \
+do { \
+	spin_lockcheck(lock); \
+	atomic_spin_lock_nest_lock((atomic_spinlock_t *)lock, nest_lock); \
+} while (0)
+
+#define spin_lock_irq(lock) \
+do { \
+	spin_lockcheck(lock); \
+	atomic_spin_lock_irq((atomic_spinlock_t *)lock); \
+} while (0)
+
+#define spin_lock_irqsave(lock, flags) \
+do { \
+	spin_lockcheck(lock); \
+	atomic_spin_lock_irqsave((atomic_spinlock_t *)lock, flags);	\
+} while (0)
+
+#define spin_lock_irqsave_nested(lock, flags, subclass) \
+do { \
+	spin_lockcheck(lock); \
+	atomic_spin_lock_irqsave_nested((atomic_spinlock_t *)lock, flags, subclass); \
+} while (0)
+
+#define spin_unlock(lock) \
+do { \
+	spin_lockcheck(lock); \
+	atomic_spin_unlock((atomic_spinlock_t *)lock); \
+} while (0)
+
+#define spin_unlock_bh(lock) \
+do { \
+	spin_lockcheck(lock); \
+	atomic_spin_unlock_bh((atomic_spinlock_t *)lock); \
+} while (0)
+
+#define spin_unlock_irq(lock) \
+do { \
+	spin_lockcheck(lock); \
+	atomic_spin_unlock_irq((atomic_spinlock_t *)lock); \
+} while (0)
+
+#define spin_unlock_irqrestore(lock, flags) \
+do { \
+	spin_lockcheck(lock); \
+	atomic_spin_unlock_irqrestore((atomic_spinlock_t *)lock, flags); \
+} while (0)
+
+#define spin_trylock_bh(lock) \
+({ \
+	spin_lockcheck(lock); \
+	atomic_spin_trylock_bh((atomic_spinlock_t *)lock); \
+})
+
+#define spin_trylock_irq(lock) \
+({ \
+	spin_lockcheck(lock); \
+	atomic_spin_trylock_irq((atomic_spinlock_t *)lock); \
+})
+
+#define spin_trylock_irqsave(lock, flags) \
+({				  \
+	spin_lockcheck(lock); \
+	atomic_spin_trylock_irqsave((atomic_spinlock_t *)lock, flags); \
+})
+
+#define spin_unlock_wait(lock) \
+do { \
+	spin_lockcheck(lock); \
+	atomic_spin_unlock_wait((atomic_spinlock_t *)lock); \
+} while (0)
+
+#define spin_is_locked(lock) \
+({ \
+	spin_lockcheck(lock); \
+	atomic_spin_is_locked((atomic_spinlock_t *)lock); \
+})
+
+#define spin_is_contended(lock)	\
+({ \
+	spin_lockcheck(lock); \
+	atomic_spin_is_contended((atomic_spinlock_t *)lock); \
+})
+
+#define spin_can_lock(lock) \
+({ \
+	spin_lockcheck(lock); \
+	atomic_spin_can_lock((atomic_spinlock_t *)lock); \
+})
+
+#define assert_spin_locked(lock) \
+do { \
+	spin_lockcheck(lock); \
+	assert_atomic_spin_locked((atomic_spinlock_t *)lock); \
+} while (0)
+
+#define atomic_dec_and_lock(atomic, lock) \
+({ \
+	spin_lockcheck(lock); \
+	atomic_dec_and_atomic_lock(atomic, (atomic_spinlock_t *)lock); \
+})
+
+/*
+ * Get the rwlock part
+ */
 #include <linux/rwlock.h>
 
 #endif /* __LINUX_SPINLOCK_H */

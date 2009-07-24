@@ -441,9 +441,9 @@ static void disable_runtime(struct rq *rq)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&rq->lock, flags);
+	atomic_spin_lock_irqsave(&rq->lock, flags);
 	__disable_runtime(rq);
-	spin_unlock_irqrestore(&rq->lock, flags);
+	atomic_spin_unlock_irqrestore(&rq->lock, flags);
 }
 
 static void __enable_runtime(struct rq *rq)
@@ -473,9 +473,9 @@ static void enable_runtime(struct rq *rq)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&rq->lock, flags);
+	atomic_spin_lock_irqsave(&rq->lock, flags);
 	__enable_runtime(rq);
-	spin_unlock_irqrestore(&rq->lock, flags);
+	atomic_spin_unlock_irqrestore(&rq->lock, flags);
 }
 
 static int balance_runtime(struct rt_rq *rt_rq)
@@ -511,7 +511,7 @@ static int do_sched_rt_period_timer(struct rt_bandwidth *rt_b, int overrun)
 		struct rt_rq *rt_rq = sched_rt_period_rt_rq(rt_b, i);
 		struct rq *rq = rq_of_rt_rq(rt_rq);
 
-		spin_lock(&rq->lock);
+		atomic_spin_lock(&rq->lock);
 		if (rt_rq->rt_time) {
 			u64 runtime;
 
@@ -532,7 +532,7 @@ static int do_sched_rt_period_timer(struct rt_bandwidth *rt_b, int overrun)
 
 		if (enqueue)
 			sched_rt_rq_enqueue(rt_rq);
-		spin_unlock(&rq->lock);
+		atomic_spin_unlock(&rq->lock);
 	}
 
 	return idle;
@@ -1244,7 +1244,7 @@ static struct rq *find_lock_lowest_rq(struct task_struct *task, struct rq *rq)
 				     task_running(rq, task) ||
 				     !task->se.on_rq)) {
 
-				spin_unlock(&lowest_rq->lock);
+				atomic_spin_unlock(&lowest_rq->lock);
 				lowest_rq = NULL;
 				break;
 			}
@@ -1480,9 +1480,9 @@ static void post_schedule_rt(struct rq *rq)
 	 * This is only called if needs_post_schedule_rt() indicates that
 	 * we need to push tasks away
 	 */
-	spin_lock_irq(&rq->lock);
+	atomic_spin_lock_irq(&rq->lock);
 	push_rt_tasks(rq);
-	spin_unlock_irq(&rq->lock);
+	atomic_spin_unlock_irq(&rq->lock);
 }
 
 /*

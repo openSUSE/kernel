@@ -23,7 +23,7 @@
 
 #include "lock-internals.h"
 
-int __lockfunc _spin_trylock(spinlock_t *lock)
+int __lockfunc _atomic_spin_trylock(atomic_spinlock_t *lock)
 {
 	preempt_disable();
 	if (_raw_spin_trylock(lock)) {
@@ -33,7 +33,7 @@ int __lockfunc _spin_trylock(spinlock_t *lock)
 	preempt_enable();
 	return 0;
 }
-EXPORT_SYMBOL(_spin_trylock);
+EXPORT_SYMBOL(_atomic_spin_trylock);
 
 /*
  * If lockdep is enabled then we use the non-preemption spin-ops
@@ -42,7 +42,7 @@ EXPORT_SYMBOL(_spin_trylock);
  */
 #if !defined(CONFIG_GENERIC_LOCKBREAK) || defined(CONFIG_DEBUG_LOCK_ALLOC)
 
-unsigned long __lockfunc _spin_lock_irqsave(spinlock_t *lock)
+unsigned long __lockfunc _atomic_spin_lock_irqsave(atomic_spinlock_t *lock)
 {
 	unsigned long flags;
 
@@ -61,33 +61,33 @@ unsigned long __lockfunc _spin_lock_irqsave(spinlock_t *lock)
 #endif
 	return flags;
 }
-EXPORT_SYMBOL(_spin_lock_irqsave);
+EXPORT_SYMBOL(_atomic_spin_lock_irqsave);
 
-void __lockfunc _spin_lock_irq(spinlock_t *lock)
+void __lockfunc _atomic_spin_lock_irq(atomic_spinlock_t *lock)
 {
 	local_irq_disable();
 	preempt_disable();
 	spin_acquire(&lock->dep_map, 0, 0, _RET_IP_);
 	LOCK_CONTENDED(lock, _raw_spin_trylock, _raw_spin_lock);
 }
-EXPORT_SYMBOL(_spin_lock_irq);
+EXPORT_SYMBOL(_atomic_spin_lock_irq);
 
-void __lockfunc _spin_lock_bh(spinlock_t *lock)
+void __lockfunc _atomic_spin_lock_bh(atomic_spinlock_t *lock)
 {
 	local_bh_disable();
 	preempt_disable();
 	spin_acquire(&lock->dep_map, 0, 0, _RET_IP_);
 	LOCK_CONTENDED(lock, _raw_spin_trylock, _raw_spin_lock);
 }
-EXPORT_SYMBOL(_spin_lock_bh);
+EXPORT_SYMBOL(_atomic_spin_lock_bh);
 
-void __lockfunc _spin_lock(spinlock_t *lock)
+void __lockfunc _atomic_spin_lock(atomic_spinlock_t *lock)
 {
 	preempt_disable();
 	spin_acquire(&lock->dep_map, 0, 0, _RET_IP_);
 	LOCK_CONTENDED(lock, _raw_spin_trylock, _raw_spin_lock);
 }
-EXPORT_SYMBOL(_spin_lock);
+EXPORT_SYMBOL(_atomic_spin_lock);
 
 #else /* CONFIG_PREEMPT: */
 
@@ -95,26 +95,27 @@ EXPORT_SYMBOL(_spin_lock);
  * Build preemption-friendly versions of the following
  * lock-spinning functions:
  *
- *         _spin_lock()
- *         _spin_lock_irq()
- *         _spin_lock_irqsave()
- *         _spin_lock_bh()
+ *         _atomic_spin_lock()
+ *         _atomic_spin_lock_irq()
+ *         _atomic_spin_lock_irqsave()
+ *         _atomic_spin_lock_bh()
  */
-BUILD_LOCK_OPS(spin, spinlock);
+BUILD_LOCK_OPS(atomic_spin, atomic_spinlock);
 
 #endif /* CONFIG_PREEMPT */
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 
-void __lockfunc _spin_lock_nested(spinlock_t *lock, int subclass)
+void __lockfunc _atomic_spin_lock_nested(atomic_spinlock_t *lock, int subclass)
 {
 	preempt_disable();
 	spin_acquire(&lock->dep_map, subclass, 0, _RET_IP_);
 	LOCK_CONTENDED(lock, _raw_spin_trylock, _raw_spin_lock);
 }
-EXPORT_SYMBOL(_spin_lock_nested);
+EXPORT_SYMBOL(_atomic_spin_lock_nested);
 
-unsigned long __lockfunc _spin_lock_irqsave_nested(spinlock_t *lock, int subclass)
+unsigned long __lockfunc
+_atomic_spin_lock_irqsave_nested(atomic_spinlock_t *lock, int subclass)
 {
 	unsigned long flags;
 
@@ -125,55 +126,56 @@ unsigned long __lockfunc _spin_lock_irqsave_nested(spinlock_t *lock, int subclas
 				_raw_spin_lock_flags, &flags);
 	return flags;
 }
-EXPORT_SYMBOL(_spin_lock_irqsave_nested);
+EXPORT_SYMBOL(_atomic_spin_lock_irqsave_nested);
 
-void __lockfunc _spin_lock_nest_lock(spinlock_t *lock,
+void __lockfunc _atomic_spin_lock_nest_lock(atomic_spinlock_t *lock,
 				     struct lockdep_map *nest_lock)
 {
 	preempt_disable();
 	spin_acquire_nest(&lock->dep_map, 0, 0, nest_lock, _RET_IP_);
 	LOCK_CONTENDED(lock, _raw_spin_trylock, _raw_spin_lock);
 }
-EXPORT_SYMBOL(_spin_lock_nest_lock);
+EXPORT_SYMBOL(_atomic_spin_lock_nest_lock);
 
 #endif
 
-void __lockfunc _spin_unlock(spinlock_t *lock)
+void __lockfunc _atomic_spin_unlock(atomic_spinlock_t *lock)
 {
 	spin_release(&lock->dep_map, 1, _RET_IP_);
 	_raw_spin_unlock(lock);
 	preempt_enable();
 }
-EXPORT_SYMBOL(_spin_unlock);
+EXPORT_SYMBOL(_atomic_spin_unlock);
 
-void __lockfunc _spin_unlock_irqrestore(spinlock_t *lock, unsigned long flags)
+void __lockfunc
+_atomic_spin_unlock_irqrestore(atomic_spinlock_t *lock, unsigned long flags)
 {
 	spin_release(&lock->dep_map, 1, _RET_IP_);
 	_raw_spin_unlock(lock);
 	local_irq_restore(flags);
 	preempt_enable();
 }
-EXPORT_SYMBOL(_spin_unlock_irqrestore);
+EXPORT_SYMBOL(_atomic_spin_unlock_irqrestore);
 
-void __lockfunc _spin_unlock_irq(spinlock_t *lock)
+void __lockfunc _atomic_spin_unlock_irq(atomic_spinlock_t *lock)
 {
 	spin_release(&lock->dep_map, 1, _RET_IP_);
 	_raw_spin_unlock(lock);
 	local_irq_enable();
 	preempt_enable();
 }
-EXPORT_SYMBOL(_spin_unlock_irq);
+EXPORT_SYMBOL(_atomic_spin_unlock_irq);
 
-void __lockfunc _spin_unlock_bh(spinlock_t *lock)
+void __lockfunc _atomic_spin_unlock_bh(atomic_spinlock_t *lock)
 {
 	spin_release(&lock->dep_map, 1, _RET_IP_);
 	_raw_spin_unlock(lock);
 	preempt_enable_no_resched();
 	local_bh_enable_ip((unsigned long)__builtin_return_address(0));
 }
-EXPORT_SYMBOL(_spin_unlock_bh);
+EXPORT_SYMBOL(_atomic_spin_unlock_bh);
 
-int __lockfunc _spin_trylock_bh(spinlock_t *lock)
+int __lockfunc _atomic_spin_trylock_bh(atomic_spinlock_t *lock)
 {
 	local_bh_disable();
 	preempt_disable();
@@ -186,7 +188,7 @@ int __lockfunc _spin_trylock_bh(spinlock_t *lock)
 	local_bh_enable_ip((unsigned long)__builtin_return_address(0));
 	return 0;
 }
-EXPORT_SYMBOL(_spin_trylock_bh);
+EXPORT_SYMBOL(_atomic_spin_trylock_bh);
 
 notrace int in_lock_functions(unsigned long addr)
 {

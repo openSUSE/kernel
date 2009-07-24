@@ -81,7 +81,8 @@ struct plist_head {
 	struct list_head prio_list;
 	struct list_head node_list;
 #ifdef CONFIG_DEBUG_PI_LIST
-	spinlock_t *lock;
+	atomic_spinlock_t *alock;
+	spinlock_t *slock;
 #endif
 };
 
@@ -91,9 +92,11 @@ struct plist_node {
 };
 
 #ifdef CONFIG_DEBUG_PI_LIST
-# define PLIST_HEAD_LOCK_INIT(_lock)	.lock = _lock
+# define PLIST_HEAD_LOCK_INIT(_lock)		.slock = _lock
+# define PLIST_HEAD_LOCK_INIT_ATOMIC(_lock)	.alock = _lock
 #else
 # define PLIST_HEAD_LOCK_INIT(_lock)
+# define PLIST_HEAD_LOCK_INIT_ATOMIC(_lock)
 #endif
 
 #define _PLIST_HEAD_INIT(head)				\
@@ -107,8 +110,19 @@ struct plist_node {
  */
 #define PLIST_HEAD_INIT(head, _lock)			\
 {							\
-        _PLIST_HEAD_INIT(head),                         \
+	_PLIST_HEAD_INIT(head),				\
 	PLIST_HEAD_LOCK_INIT(&(_lock))			\
+}
+
+/**
+ * PLIST_HEAD_INIT_ATOMIC - static struct plist_head initializer
+ * @head:	struct plist_head variable name
+ * @_lock:	lock to initialize for this list
+ */
+#define PLIST_HEAD_INIT_ATOMIC(head, _lock)		\
+{							\
+	_PLIST_HEAD_INIT(head),				\
+	PLIST_HEAD_LOCK_INIT_ATOMIC(&(_lock))		\
 }
 
 /**
@@ -119,7 +133,7 @@ struct plist_node {
 #define PLIST_NODE_INIT(node, __prio)			\
 {							\
 	.prio  = (__prio),				\
-	.plist = { _PLIST_HEAD_INIT((node).plist) }, 	\
+	.plist = { _PLIST_HEAD_INIT((node).plist) },	\
 }
 
 /**
@@ -133,7 +147,24 @@ plist_head_init(struct plist_head *head, spinlock_t *lock)
 	INIT_LIST_HEAD(&head->prio_list);
 	INIT_LIST_HEAD(&head->node_list);
 #ifdef CONFIG_DEBUG_PI_LIST
-	head->lock = lock;
+	head->slock = lock;
+	head->alock = NULL;
+#endif
+}
+
+/**
+ * plist_head_init_atomic - dynamic struct plist_head initializer
+ * @head:	&struct plist_head pointer
+ * @lock:	list atomic_spinlock, remembered for debugging
+ */
+static inline void
+plist_head_init_atomic(struct plist_head *head, atomic_spinlock_t *lock)
+{
+	INIT_LIST_HEAD(&head->prio_list);
+	INIT_LIST_HEAD(&head->node_list);
+#ifdef CONFIG_DEBUG_PI_LIST
+	head->alock = lock;
+	head->slock = NULL;
 #endif
 }
 

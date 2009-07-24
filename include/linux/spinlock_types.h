@@ -29,7 +29,7 @@ typedef struct {
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	struct lockdep_map dep_map;
 #endif
-} spinlock_t;
+} atomic_spinlock_t;
 
 #define SPINLOCK_MAGIC		0xdead4ead
 
@@ -42,21 +42,63 @@ typedef struct {
 #endif
 
 #ifdef CONFIG_DEBUG_SPINLOCK
-# define __SPIN_LOCK_UNLOCKED(lockname)					\
-	(spinlock_t)	{	.raw_lock = __RAW_SPIN_LOCK_UNLOCKED,	\
+# define __ATOMIC_SPIN_LOCK_UNLOCKED(lockname)				\
+	(atomic_spinlock_t) {	.raw_lock = __RAW_SPIN_LOCK_UNLOCKED,	\
 				.magic = SPINLOCK_MAGIC,		\
 				.owner = SPINLOCK_OWNER_INIT,		\
 				.owner_cpu = -1,			\
 				SPIN_DEP_MAP_INIT(lockname) }
 #else
-# define __SPIN_LOCK_UNLOCKED(lockname) \
-	(spinlock_t)	{	.raw_lock = __RAW_SPIN_LOCK_UNLOCKED,	\
+# define __ATOMIC_SPIN_LOCK_UNLOCKED(lockname) \
+	(atomic_spinlock_t) {	.raw_lock = __RAW_SPIN_LOCK_UNLOCKED,	\
 				SPIN_DEP_MAP_INIT(lockname) }
 #endif
 
 /*
  * SPIN_LOCK_UNLOCKED defeats lockdep state tracking and is hence
  * deprecated.
+ *
+ * Please use DEFINE_SPINLOCK() or __SPIN_LOCK_UNLOCKED() as
+ * appropriate.
+ */
+#define DEFINE_ATOMIC_SPINLOCK(x)	\
+	atomic_spinlock_t x = __ATOMIC_SPIN_LOCK_UNLOCKED(x)
+
+/*
+ * For PREEMPT_RT=n we use the same data structures and the spinlock
+ * functions are mapped to the atomic_spinlock functions
+ */
+typedef struct {
+	raw_spinlock_t raw_lock;
+#ifdef CONFIG_GENERIC_LOCKBREAK
+	unsigned int break_lock;
+#endif
+#ifdef CONFIG_DEBUG_SPINLOCK
+	unsigned int magic, owner_cpu;
+	void *owner;
+#endif
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+	struct lockdep_map dep_map;
+#endif
+} spinlock_t;
+
+#ifdef CONFIG_DEBUG_SPINLOCK
+# define __SPIN_LOCK_UNLOCKED(lockname)				\
+	(spinlock_t) {	.raw_lock = __RAW_SPIN_LOCK_UNLOCKED,	\
+			.magic = SPINLOCK_MAGIC,		\
+			.owner = SPINLOCK_OWNER_INIT,		\
+			.owner_cpu = -1,			\
+			SPIN_DEP_MAP_INIT(lockname) }
+#else
+# define __SPIN_LOCK_UNLOCKED(lockname) \
+	(spinlock_t) {	.raw_lock = __RAW_SPIN_LOCK_UNLOCKED,	\
+			SPIN_DEP_MAP_INIT(lockname) }
+#endif
+
+/*
+ * SPIN_LOCK_UNLOCKED defeats lockdep state tracking and is hence
+ * deprecated.
+ *
  * Please use DEFINE_SPINLOCK() or __SPIN_LOCK_UNLOCKED() as
  * appropriate.
  */

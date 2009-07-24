@@ -16,7 +16,7 @@
 
 #define in_lock_functions(ADDR)		0
 
-#define assert_spin_locked(lock)	do { (void)(lock); } while (0)
+#define assert_atomic_spin_locked(lock)	do { (void)(lock); } while (0)
 
 /*
  * In the UP-nondebug case there's no real locking going on, so the
@@ -48,33 +48,35 @@
 #define __UNLOCK_IRQRESTORE(lock, flags) \
   do { local_irq_restore(flags); __UNLOCK(lock); } while (0)
 
-#define _spin_lock(lock)			__LOCK(lock)
-#define _spin_lock_nested(lock, subclass)	__LOCK(lock)
+#define _atomic_spin_lock(lock)			__LOCK(lock)
+#define _atomic_spin_lock_nested(lock, subclass) \
+						__LOCK(lock)
 #define _read_lock(lock)			__LOCK(lock)
 #define _write_lock(lock)			__LOCK(lock)
-#define _spin_lock_bh(lock)			__LOCK_BH(lock)
+#define _atomic_spin_lock_bh(lock)		__LOCK_BH(lock)
 #define _read_lock_bh(lock)			__LOCK_BH(lock)
 #define _write_lock_bh(lock)			__LOCK_BH(lock)
-#define _spin_lock_irq(lock)			__LOCK_IRQ(lock)
+#define _atomic_spin_lock_irq(lock)		__LOCK_IRQ(lock)
 #define _read_lock_irq(lock)			__LOCK_IRQ(lock)
 #define _write_lock_irq(lock)			__LOCK_IRQ(lock)
-#define _spin_lock_irqsave(lock, flags)		__LOCK_IRQSAVE(lock, flags)
+#define _atomic_spin_lock_irqsave(lock, flags)	__LOCK_IRQSAVE(lock, flags)
 #define _read_lock_irqsave(lock, flags)		__LOCK_IRQSAVE(lock, flags)
 #define _write_lock_irqsave(lock, flags)	__LOCK_IRQSAVE(lock, flags)
-#define _spin_trylock(lock)			({ __LOCK(lock); 1; })
+#define _atomic_spin_trylock(lock)		({ __LOCK(lock); 1; })
 #define _read_trylock(lock)			({ __LOCK(lock); 1; })
 #define _write_trylock(lock)			({ __LOCK(lock); 1; })
-#define _spin_trylock_bh(lock)			({ __LOCK_BH(lock); 1; })
-#define _spin_unlock(lock)			__UNLOCK(lock)
+#define _atomic_spin_trylock_bh(lock)		({ __LOCK_BH(lock); 1; })
+#define _atomic_spin_unlock(lock)		__UNLOCK(lock)
 #define _read_unlock(lock)			__UNLOCK(lock)
 #define _write_unlock(lock)			__UNLOCK(lock)
-#define _spin_unlock_bh(lock)			__UNLOCK_BH(lock)
+#define _atomic_spin_unlock_bh(lock)		__UNLOCK_BH(lock)
 #define _write_unlock_bh(lock)			__UNLOCK_BH(lock)
 #define _read_unlock_bh(lock)			__UNLOCK_BH(lock)
-#define _spin_unlock_irq(lock)			__UNLOCK_IRQ(lock)
+#define _atomic_spin_unlock_irq(lock)		__UNLOCK_IRQ(lock)
 #define _read_unlock_irq(lock)			__UNLOCK_IRQ(lock)
 #define _write_unlock_irq(lock)			__UNLOCK_IRQ(lock)
-#define _spin_unlock_irqrestore(lock, flags)	__UNLOCK_IRQRESTORE(lock, flags)
+#define _atomic_spin_unlock_irqrestore(lock, flags) \
+						__UNLOCK_IRQRESTORE(lock, flags)
 #define _read_unlock_irqrestore(lock, flags)	__UNLOCK_IRQRESTORE(lock, flags)
 #define _write_unlock_irqrestore(lock, flags)	__UNLOCK_IRQRESTORE(lock, flags)
 
