@@ -35,6 +35,7 @@ void *kmap_atomic_prot(struct page *page, enum km_type type, pgprot_t prot)
 	unsigned long vaddr;
 
 	/* even !CONFIG_PREEMPT needs this, for in_atomic in do_page_fault */
+	preempt_disable();
 	pagefault_disable();
 	if (!PageHighMem(page))
 		return page_address(page);
@@ -73,5 +74,6 @@ void kunmap_atomic(void *kvaddr, enum km_type type)
 	local_flush_tlb_page(NULL, vaddr);
 #endif
 	pagefault_enable();
+	preempt_enable();
 }
 EXPORT_SYMBOL(kunmap_atomic);
