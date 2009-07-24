@@ -5163,6 +5163,19 @@ notrace unsigned long get_parent_ip(unsigned long addr)
 	return addr;
 }
 
+#ifdef CONFIG_DEBUG_PREEMPT
+void notrace preempt_enable_no_resched(void)
+{
+	barrier();
+	dec_preempt_count();
+
+	WARN_ONCE(!preempt_count(),
+	     KERN_ERR "BUG: %s:%d task might have lost a preemption check!\n",
+	     current->comm, current->pid);
+}
+EXPORT_SYMBOL(preempt_enable_no_resched);
+#endif
+
 #if defined(CONFIG_PREEMPT) && (defined(CONFIG_DEBUG_PREEMPT) || \
 				defined(CONFIG_PREEMPT_TRACER))
 
@@ -5381,7 +5394,7 @@ need_resched_nonpreemptible:
 	if (unlikely(reacquire_kernel_lock(current) < 0))
 		goto need_resched_nonpreemptible;
 
-	preempt_enable_no_resched();
+	__preempt_enable_no_resched();
 	if (need_resched())
 		goto need_resched;
 }
@@ -6555,9 +6568,8 @@ SYSCALL_DEFINE0(sched_yield)
 	__release(rq->lock);
 	spin_release(&rq->lock.dep_map, 1, _THIS_IP_);
 	_raw_spin_unlock(&rq->lock);
-	preempt_enable_no_resched();
 
-	schedule();
+	preempt_enable_and_schedule();
 
 	return 0;
 }

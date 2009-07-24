@@ -50,7 +50,7 @@ int __lockfunc __reacquire_kernel_lock(void)
 void __lockfunc __release_kernel_lock(void)
 {
 	_raw_spin_unlock(&kernel_flag);
-	preempt_enable_no_resched();
+	__preempt_enable_no_resched();
 }
 
 /*
