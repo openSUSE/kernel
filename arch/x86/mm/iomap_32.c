@@ -37,6 +37,7 @@ void *kmap_atomic_prot_pfn(unsigned long pfn, enum km_type type, pgprot_t prot)
 	enum fixed_addresses idx;
 	unsigned long vaddr;
 
+	preempt_disable();
 	pagefault_disable();
 
 	debug_kmap_atomic(type);
@@ -83,5 +84,6 @@ iounmap_atomic(void *kvaddr, enum km_type type)
 		kpte_clear_flush(kmap_pte-idx, vaddr);
 
 	pagefault_enable();
+	preempt_enable();
 }
 EXPORT_SYMBOL_GPL(iounmap_atomic);
