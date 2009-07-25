@@ -194,7 +194,7 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card, spinlock_t *lock
 		sg_init_table(mq->sg, host->max_phys_segs);
 	}
 
-	init_MUTEX(&mq->thread_sem);
+	semaphore_init(&mq->thread_sem);
 
 	mq->thread = kthread_run(mmc_queue_thread, mq, "mmcqd");
 	if (IS_ERR(mq->thread)) {
