@@ -72,7 +72,7 @@ err:		*value = -1;
 	if (!base)
 		goto err;
 
-	spin_lock_irqsave(&pci_config_lock, flags);
+	atomic_spin_lock_irqsave(&pci_config_lock, flags);
 
 	pci_exp_set_dev_base(base, bus, devfn);
 
@@ -87,7 +87,7 @@ err:		*value = -1;
 		*value = mmio_config_readl(mmcfg_virt_addr + reg);
 		break;
 	}
-	spin_unlock_irqrestore(&pci_config_lock, flags);
+	atomic_spin_unlock_irqrestore(&pci_config_lock, flags);
 
 	return 0;
 }
@@ -105,7 +105,7 @@ static int pci_mmcfg_write(unsigned int seg, unsigned int bus,
 	if (!base)
 		return -EINVAL;
 
-	spin_lock_irqsave(&pci_config_lock, flags);
+	atomic_spin_lock_irqsave(&pci_config_lock, flags);
 
 	pci_exp_set_dev_base(base, bus, devfn);
 
@@ -120,7 +120,7 @@ static int pci_mmcfg_write(unsigned int seg, unsigned int bus,
 		mmio_config_writel(mmcfg_virt_addr + reg, value);
 		break;
 	}
-	spin_unlock_irqrestore(&pci_config_lock, flags);
+	atomic_spin_unlock_irqrestore(&pci_config_lock, flags);
 
 	return 0;
 }
