@@ -26,6 +26,9 @@ struct semaphore {
 	.wait_list	= LIST_HEAD_INIT((name).wait_list),		\
 }
 
+#define DEFINE_SEMAPHORE(name)	\
+	struct semaphore name = __SEMAPHORE_INITIALIZER(name, 1)
+
 #define DECLARE_MUTEX(name)	\
 	struct semaphore name = __SEMAPHORE_INITIALIZER(name, 1)
 
@@ -34,6 +37,20 @@ static inline void sema_init(struct semaphore *sem, int val)
 	static struct lock_class_key __key;
 	*sem = (struct semaphore) __SEMAPHORE_INITIALIZER(*sem, val);
 	lockdep_init_map(&sem->lock.dep_map, "semaphore->lock", &__key, 0);
+}
+
+static inline void semaphore_init(struct semaphore *sem)
+{
+	sema_init(sem, 1);
+}
+
+/*
+ * semaphore_init_locked() is mostly a sign for a mutex which is
+ * abused as completion.
+ */
+static inline void __deprecated semaphore_init_locked(struct semaphore *sem)
+{
+	sema_init(sem, 0);
 }
 
 #define init_MUTEX(sem)		sema_init(sem, 1)
