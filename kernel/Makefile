@@ -45,9 +45,9 @@ obj-$(CONFIG_USE_GENERIC_SMP_HELPERS) += smp.o
 ifneq ($(CONFIG_SMP),y)
 obj-y += up.o
 endif
-obj-$(CONFIG_SMP) += spinlock.o
-obj-$(CONFIG_DEBUG_SPINLOCK) += spinlock.o
-obj-$(CONFIG_PROVE_LOCKING) += spinlock.o
+obj-$(CONFIG_SMP) += spinlock.o rwlock.o
+obj-$(CONFIG_DEBUG_SPINLOCK) += spinlock.o rwlock.o
+obj-$(CONFIG_PROVE_LOCKING) += spinlock.o rwlock.o
 obj-$(CONFIG_UID16) += uid16.o
 obj-$(CONFIG_MODULES) += module.o
 obj-$(CONFIG_KALLSYMS) += kallsyms.o
