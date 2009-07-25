@@ -606,7 +606,7 @@ static int sixpack_open(struct tty_struct *tty)
 
 	spin_lock_init(&sp->lock);
 	atomic_set(&sp->refcnt, 1);
-	init_MUTEX_LOCKED(&sp->dead_sem);
+	semaphore_init_locked(&sp->dead_sem);
 
 	/* !!! length of the buffers. MTU is IP MTU, not PACLEN!  */
 
