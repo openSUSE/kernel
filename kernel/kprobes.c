@@ -73,10 +73,10 @@ static bool kprobes_all_disarmed;
 static DEFINE_MUTEX(kprobe_mutex);	/* Protects kprobe_table */
 static DEFINE_PER_CPU(struct kprobe *, kprobe_instance) = NULL;
 static struct {
-	spinlock_t lock ____cacheline_aligned_in_smp;
+	atomic_spinlock_t lock ____cacheline_aligned_in_smp;
 } kretprobe_table_locks[KPROBE_TABLE_SIZE];
 
-static spinlock_t *kretprobe_table_lock_ptr(unsigned long hash)
+static atomic_spinlock_t *kretprobe_table_lock_ptr(unsigned long hash)
 {
 	return &(kretprobe_table_locks[hash].lock);
 }
@@ -415,9 +415,9 @@ void __kprobes recycle_rp_inst(struct kretprobe_instance *ri,
 	hlist_del(&ri->hlist);
 	INIT_HLIST_NODE(&ri->hlist);
 	if (likely(rp)) {
-		spin_lock(&rp->lock);
+		atomic_spin_lock(&rp->lock);
 		hlist_add_head(&ri->hlist, &rp->free_instances);
-		spin_unlock(&rp->lock);
+		atomic_spin_unlock(&rp->lock);
 	} else
 		/* Unregistering */
 		hlist_add_head(&ri->hlist, head);
@@ -427,34 +427,34 @@ void __kprobes kretprobe_hash_lock(struct task_struct *tsk,
 			 struct hlist_head **head, unsigned long *flags)
 {
 	unsigned long hash = hash_ptr(tsk, KPROBE_HASH_BITS);
-	spinlock_t *hlist_lock;
+	atomic_spinlock_t *hlist_lock;
 
 	*head = &kretprobe_inst_table[hash];
 	hlist_lock = kretprobe_table_lock_ptr(hash);
-	spin_lock_irqsave(hlist_lock, *flags);
+	atomic_spin_lock_irqsave(hlist_lock, *flags);
 }
 
 static void __kprobes kretprobe_table_lock(unsigned long hash,
 	unsigned long *flags)
 {
-	spinlock_t *hlist_lock = kretprobe_table_lock_ptr(hash);
-	spin_lock_irqsave(hlist_lock, *flags);
+	atomic_spinlock_t *hlist_lock = kretprobe_table_lock_ptr(hash);
+	atomic_spin_lock_irqsave(hlist_lock, *flags);
 }
 
 void __kprobes kretprobe_hash_unlock(struct task_struct *tsk,
 	unsigned long *flags)
 {
 	unsigned long hash = hash_ptr(tsk, KPROBE_HASH_BITS);
-	spinlock_t *hlist_lock;
+	atomic_spinlock_t *hlist_lock;
 
 	hlist_lock = kretprobe_table_lock_ptr(hash);
-	spin_unlock_irqrestore(hlist_lock, *flags);
+	atomic_spin_unlock_irqrestore(hlist_lock, *flags);
 }
 
 void __kprobes kretprobe_table_unlock(unsigned long hash, unsigned long *flags)
 {
-	spinlock_t *hlist_lock = kretprobe_table_lock_ptr(hash);
-	spin_unlock_irqrestore(hlist_lock, *flags);
+	atomic_spinlock_t *hlist_lock = kretprobe_table_lock_ptr(hash);
+	atomic_spin_unlock_irqrestore(hlist_lock, *flags);
 }
 
 /*
@@ -969,12 +969,12 @@ static int __kprobes pre_handler_kretprobe(struct kprobe *p,
 
 	/*TODO: consider to only swap the RA after the last pre_handler fired */
 	hash = hash_ptr(current, KPROBE_HASH_BITS);
-	spin_lock_irqsave(&rp->lock, flags);
+	atomic_spin_lock_irqsave(&rp->lock, flags);
 	if (!hlist_empty(&rp->free_instances)) {
 		ri = hlist_entry(rp->free_instances.first,
 				struct kretprobe_instance, hlist);
 		hlist_del(&ri->hlist);
-		spin_unlock_irqrestore(&rp->lock, flags);
+		atomic_spin_unlock_irqrestore(&rp->lock, flags);
 
 		ri->rp = rp;
 		ri->task = current;
@@ -991,7 +991,7 @@ static int __kprobes pre_handler_kretprobe(struct kprobe *p,
 		kretprobe_table_unlock(hash, &flags);
 	} else {
 		rp->nmissed++;
-		spin_unlock_irqrestore(&rp->lock, flags);
+		atomic_spin_unlock_irqrestore(&rp->lock, flags);
 	}
 	return 0;
 }
@@ -1027,7 +1027,7 @@ int __kprobes register_kretprobe(struct kretprobe *rp)
 		rp->maxactive = NR_CPUS;
 #endif
 	}
-	spin_lock_init(&rp->lock);
+	atomic_spin_lock_init(&rp->lock);
 	INIT_HLIST_HEAD(&rp->free_instances);
 	for (i = 0; i < rp->maxactive; i++) {
 		inst = kmalloc(sizeof(struct kretprobe_instance) +
@@ -1207,7 +1207,7 @@ static int __init init_kprobes(void)
 	for (i = 0; i < KPROBE_TABLE_SIZE; i++) {
 		INIT_HLIST_HEAD(&kprobe_table[i]);
 		INIT_HLIST_HEAD(&kretprobe_inst_table[i]);
-		spin_lock_init(&(kretprobe_table_locks[i].lock));
+		atomic_spin_lock_init(&(kretprobe_table_locks[i].lock));
 	}
 
 	/*
