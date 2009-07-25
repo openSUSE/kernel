@@ -190,7 +190,7 @@ static int open_getadapter_fib(struct aac_dev * dev, void __user *arg)
 		/*
 		 *	Initialize the mutex used to wait for the next AIF.
 		 */
-		init_MUTEX_LOCKED(&fibctx->wait_sem);
+		semaphore_init_locked(&fibctx->wait_sem);
 		fibctx->wait = 0;
 		/*
 		 *	Initialize the fibs and set the count of fibs on
