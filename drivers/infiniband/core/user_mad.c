@@ -1003,7 +1003,7 @@ static int ib_umad_init_port(struct ib_device *device, int port_num,
 
 	port->ib_dev   = device;
 	port->port_num = port_num;
-	init_MUTEX(&port->sm_sem);
+	semaphore_init(&port->sm_sem);
 	mutex_init(&port->file_mutex);
 	INIT_LIST_HEAD(&port->file_list);
 
