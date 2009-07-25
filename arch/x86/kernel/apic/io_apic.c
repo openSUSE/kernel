@@ -73,8 +73,8 @@
  */
 int sis_apic_bug = -1;
 
-static DEFINE_SPINLOCK(ioapic_lock);
-static DEFINE_SPINLOCK(vector_lock);
+static DEFINE_ATOMIC_SPINLOCK(ioapic_lock);
+static DEFINE_ATOMIC_SPINLOCK(vector_lock);
 
 /*
  * # of IRQ routing registers
@@ -413,7 +413,7 @@ static bool io_apic_level_ack_pending(struct irq_cfg *cfg)
 	struct irq_pin_list *entry;
 	unsigned long flags;
 
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	entry = cfg->irq_2_pin;
 	for (;;) {
 		unsigned int reg;
@@ -425,14 +425,14 @@ static bool io_apic_level_ack_pending(struct irq_cfg *cfg)
 		reg = io_apic_read(entry->apic, 0x10 + pin*2);
 		/* Is the remote IRR bit set? */
 		if (reg & IO_APIC_REDIR_REMOTE_IRR) {
-			spin_unlock_irqrestore(&ioapic_lock, flags);
+			atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 			return true;
 		}
 		if (!entry->next)
 			break;
 		entry = entry->next;
 	}
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 
 	return false;
 }
@@ -446,10 +446,10 @@ static struct IO_APIC_route_entry ioapic_read_entry(int apic, int pin)
 {
 	union entry_union eu;
 	unsigned long flags;
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	eu.w1 = io_apic_read(apic, 0x10 + 2 * pin);
 	eu.w2 = io_apic_read(apic, 0x11 + 2 * pin);
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 	return eu.entry;
 }
 
@@ -472,9 +472,9 @@ __ioapic_write_entry(int apic, int pin, struct IO_APIC_route_entry e)
 void ioapic_write_entry(int apic, int pin, struct IO_APIC_route_entry e)
 {
 	unsigned long flags;
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	__ioapic_write_entry(apic, pin, e);
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 }
 
 /*
@@ -487,10 +487,10 @@ static void ioapic_mask_entry(int apic, int pin)
 	unsigned long flags;
 	union entry_union eu = { .entry.mask = 1 };
 
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	io_apic_write(apic, 0x10 + 2*pin, eu.w1);
 	io_apic_write(apic, 0x11 + 2*pin, eu.w2);
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 }
 
 /*
@@ -622,9 +622,9 @@ static void mask_IO_APIC_irq_desc(struct irq_desc *desc)
 
 	BUG_ON(!cfg);
 
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	__mask_IO_APIC_irq(cfg);
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 }
 
 static void unmask_IO_APIC_irq_desc(struct irq_desc *desc)
@@ -632,9 +632,9 @@ static void unmask_IO_APIC_irq_desc(struct irq_desc *desc)
 	struct irq_cfg *cfg = desc->chip_data;
 	unsigned long flags;
 
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	__unmask_IO_APIC_irq(cfg);
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 }
 
 static void mask_IO_APIC_irq(unsigned int irq)
@@ -1158,12 +1158,12 @@ void lock_vector_lock(void)
 	/* Used to the online set of cpus does not change
 	 * during assign_irq_vector.
 	 */
-	spin_lock(&vector_lock);
+	atomic_spin_lock(&vector_lock);
 }
 
 void unlock_vector_lock(void)
 {
-	spin_unlock(&vector_lock);
+	atomic_spin_unlock(&vector_lock);
 }
 
 static int
@@ -1251,9 +1251,9 @@ assign_irq_vector(int irq, struct irq_cfg *cfg, const struct cpumask *mask)
 	int err;
 	unsigned long flags;
 
-	spin_lock_irqsave(&vector_lock, flags);
+	atomic_spin_lock_irqsave(&vector_lock, flags);
 	err = __assign_irq_vector(irq, cfg, mask);
-	spin_unlock_irqrestore(&vector_lock, flags);
+	atomic_spin_unlock_irqrestore(&vector_lock, flags);
 	return err;
 }
 
@@ -1623,14 +1623,14 @@ __apicdebuginit(void) print_IO_APIC(void)
 
 	for (apic = 0; apic < nr_ioapics; apic++) {
 
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	reg_00.raw = io_apic_read(apic, 0);
 	reg_01.raw = io_apic_read(apic, 1);
 	if (reg_01.bits.version >= 0x10)
 		reg_02.raw = io_apic_read(apic, 2);
 	if (reg_01.bits.version >= 0x20)
 		reg_03.raw = io_apic_read(apic, 3);
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 
 	printk("\n");
 	printk(KERN_DEBUG "IO APIC #%d......\n", mp_ioapics[apic].apicid);
@@ -1909,9 +1909,9 @@ void __init enable_IO_APIC(void)
 	 * The number of IO-APIC IRQ registers (== #pins):
 	 */
 	for (apic = 0; apic < nr_ioapics; apic++) {
-		spin_lock_irqsave(&ioapic_lock, flags);
+		atomic_spin_lock_irqsave(&ioapic_lock, flags);
 		reg_01.raw = io_apic_read(apic, 1);
-		spin_unlock_irqrestore(&ioapic_lock, flags);
+		atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 		nr_ioapic_registers[apic] = reg_01.bits.entries+1;
 	}
 	for(apic = 0; apic < nr_ioapics; apic++) {
@@ -2045,9 +2045,9 @@ static void __init setup_ioapic_ids_from_mpc(void)
 	for (apic_id = 0; apic_id < nr_ioapics; apic_id++) {
 
 		/* Read the register 0 value */
-		spin_lock_irqsave(&ioapic_lock, flags);
+		atomic_spin_lock_irqsave(&ioapic_lock, flags);
 		reg_00.raw = io_apic_read(apic_id, 0);
-		spin_unlock_irqrestore(&ioapic_lock, flags);
+		atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 
 		old_id = mp_ioapics[apic_id].apicid;
 
@@ -2106,16 +2106,16 @@ static void __init setup_ioapic_ids_from_mpc(void)
 			mp_ioapics[apic_id].apicid);
 
 		reg_00.bits.ID = mp_ioapics[apic_id].apicid;
-		spin_lock_irqsave(&ioapic_lock, flags);
+		atomic_spin_lock_irqsave(&ioapic_lock, flags);
 		io_apic_write(apic_id, 0, reg_00.raw);
-		spin_unlock_irqrestore(&ioapic_lock, flags);
+		atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 
 		/*
 		 * Sanity check
 		 */
-		spin_lock_irqsave(&ioapic_lock, flags);
+		atomic_spin_lock_irqsave(&ioapic_lock, flags);
 		reg_00.raw = io_apic_read(apic_id, 0);
-		spin_unlock_irqrestore(&ioapic_lock, flags);
+		atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 		if (reg_00.bits.ID != mp_ioapics[apic_id].apicid)
 			printk("could not set ID!\n");
 		else
@@ -2198,7 +2198,7 @@ static unsigned int startup_ioapic_irq(unsigned int irq)
 	unsigned long flags;
 	struct irq_cfg *cfg;
 
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	if (irq < NR_IRQS_LEGACY) {
 		disable_8259A_irq(irq);
 		if (i8259A_irq_pending(irq))
@@ -2206,7 +2206,7 @@ static unsigned int startup_ioapic_irq(unsigned int irq)
 	}
 	cfg = irq_cfg(irq);
 	__unmask_IO_APIC_irq(cfg);
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 
 	return was_pending;
 }
@@ -2218,9 +2218,9 @@ static int ioapic_retrigger_irq(unsigned int irq)
 	struct irq_cfg *cfg = irq_cfg(irq);
 	unsigned long flags;
 
-	spin_lock_irqsave(&vector_lock, flags);
+	atomic_spin_lock_irqsave(&vector_lock, flags);
 	apic->send_IPI_mask(cpumask_of(cpumask_first(cfg->domain)), cfg->vector);
-	spin_unlock_irqrestore(&vector_lock, flags);
+	atomic_spin_unlock_irqrestore(&vector_lock, flags);
 
 	return 1;
 }
@@ -2333,7 +2333,7 @@ set_ioapic_affinity_irq_desc(struct irq_desc *desc, const struct cpumask *mask)
 	irq = desc->irq;
 	cfg = desc->chip_data;
 
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	dest = set_desc_affinity(desc, mask);
 	if (dest != BAD_APICID) {
 		/* Only the high 8 bits are valid. */
@@ -2341,7 +2341,7 @@ set_ioapic_affinity_irq_desc(struct irq_desc *desc, const struct cpumask *mask)
 		__target_IO_APIC_irq(irq, dest, cfg);
 		ret = 0;
 	}
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 
 	return ret;
 }
@@ -2601,10 +2601,10 @@ static void ack_apic_level(unsigned int irq)
 #ifdef CONFIG_X86_32
 	if (!(v & (1 << (i & 0x1f)))) {
 		atomic_inc(&irq_mis_count);
-		spin_lock(&ioapic_lock);
+		atomic_spin_lock(&ioapic_lock);
 		__mask_and_edge_IO_APIC_irq(cfg);
 		__unmask_and_level_IO_APIC_irq(cfg);
-		spin_unlock(&ioapic_lock);
+		atomic_spin_unlock(&ioapic_lock);
 	}
 #endif
 }
@@ -2638,9 +2638,9 @@ eoi_ioapic_irq(struct irq_desc *desc)
 	irq = desc->irq;
 	cfg = desc->chip_data;
 
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	__eoi_ioapic_irq(irq, cfg);
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 }
 
 static void ir_ack_apic_edge(unsigned int irq)
@@ -3116,13 +3116,13 @@ static int ioapic_resume(struct sys_device *dev)
 	data = container_of(dev, struct sysfs_ioapic_data, dev);
 	entry = data->entry;
 
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	reg_00.raw = io_apic_read(dev->id, 0);
 	if (reg_00.bits.ID != mp_ioapics[dev->id].apicid) {
 		reg_00.bits.ID = mp_ioapics[dev->id].apicid;
 		io_apic_write(dev->id, 0, reg_00.raw);
 	}
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 	for (i = 0; i < nr_ioapic_registers[dev->id]; i++)
 		ioapic_write_entry(dev->id, i, entry[i]);
 
@@ -3186,7 +3186,7 @@ unsigned int create_irq_nr(unsigned int irq_want, int node)
 	if (irq_want < nr_irqs_gsi)
 		irq_want = nr_irqs_gsi;
 
-	spin_lock_irqsave(&vector_lock, flags);
+	atomic_spin_lock_irqsave(&vector_lock, flags);
 	for (new = irq_want; new < nr_irqs; new++) {
 		desc_new = irq_to_desc_alloc_node(new, node);
 		if (!desc_new) {
@@ -3204,7 +3204,7 @@ unsigned int create_irq_nr(unsigned int irq_want, int node)
 			irq = new;
 		break;
 	}
-	spin_unlock_irqrestore(&vector_lock, flags);
+	atomic_spin_unlock_irqrestore(&vector_lock, flags);
 
 	if (irq > 0) {
 		dynamic_irq_init(irq);
@@ -3245,9 +3245,9 @@ void destroy_irq(unsigned int irq)
 		desc->chip_data = cfg;
 
 	free_irte(irq);
-	spin_lock_irqsave(&vector_lock, flags);
+	atomic_spin_lock_irqsave(&vector_lock, flags);
 	__clear_irq_vector(irq, cfg);
-	spin_unlock_irqrestore(&vector_lock, flags);
+	atomic_spin_unlock_irqrestore(&vector_lock, flags);
 }
 
 /*
@@ -3775,10 +3775,10 @@ int arch_enable_uv_irq(char *irq_name, unsigned int irq, int cpu, int mmr_blade,
 	if (err != 0)
 		return err;
 
-	spin_lock_irqsave(&vector_lock, flags);
+	atomic_spin_lock_irqsave(&vector_lock, flags);
 	set_irq_chip_and_handler_name(irq, &uv_irq_chip, handle_percpu_irq,
 				      irq_name);
-	spin_unlock_irqrestore(&vector_lock, flags);
+	atomic_spin_unlock_irqrestore(&vector_lock, flags);
 
 	mmr_value = 0;
 	entry = (struct uv_IO_APIC_route_entry *)&mmr_value;
@@ -3822,9 +3822,9 @@ int __init io_apic_get_redir_entries (int ioapic)
 	union IO_APIC_reg_01	reg_01;
 	unsigned long flags;
 
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	reg_01.raw = io_apic_read(ioapic, 1);
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 
 	return reg_01.bits.entries;
 }
@@ -3965,9 +3965,9 @@ int __init io_apic_get_unique_id(int ioapic, int apic_id)
 	if (physids_empty(apic_id_map))
 		apic_id_map = apic->ioapic_phys_id_map(phys_cpu_present_map);
 
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	reg_00.raw = io_apic_read(ioapic, 0);
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 
 	if (apic_id >= get_physical_broadcast()) {
 		printk(KERN_WARNING "IOAPIC[%d]: Invalid apic_id %d, trying "
@@ -4001,10 +4001,10 @@ int __init io_apic_get_unique_id(int ioapic, int apic_id)
 	if (reg_00.bits.ID != apic_id) {
 		reg_00.bits.ID = apic_id;
 
-		spin_lock_irqsave(&ioapic_lock, flags);
+		atomic_spin_lock_irqsave(&ioapic_lock, flags);
 		io_apic_write(ioapic, 0, reg_00.raw);
 		reg_00.raw = io_apic_read(ioapic, 0);
-		spin_unlock_irqrestore(&ioapic_lock, flags);
+		atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 
 		/* Sanity check */
 		if (reg_00.bits.ID != apic_id) {
@@ -4025,9 +4025,9 @@ int __init io_apic_get_version(int ioapic)
 	union IO_APIC_reg_01	reg_01;
 	unsigned long flags;
 
-	spin_lock_irqsave(&ioapic_lock, flags);
+	atomic_spin_lock_irqsave(&ioapic_lock, flags);
 	reg_01.raw = io_apic_read(ioapic, 1);
-	spin_unlock_irqrestore(&ioapic_lock, flags);
+	atomic_spin_unlock_irqrestore(&ioapic_lock, flags);
 
 	return reg_01.bits.version;
 }
