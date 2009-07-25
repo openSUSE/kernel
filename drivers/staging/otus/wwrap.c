@@ -1066,7 +1066,7 @@ u8_t zfLnxCreateThread(zdev_t *dev)
 
     /* Create Mutex and keventd */
     INIT_WORK(&macp->kevent, kevent);
-    init_MUTEX(&macp->ioctl_sem);
+    semaphore_init(&macp->ioctl_sem);
 
     return 0;
 }

@@ -604,7 +604,7 @@ struct go7007 *go7007_alloc(struct go7007_board_info *board, struct device *dev)
 	go->tuner_type = -1;
 	go->channel_number = 0;
 	go->name[0] = 0;
-	init_MUTEX(&go->hw_lock);
+	semaphore_init(&go->hw_lock);
 	init_waitqueue_head(&go->frame_waitq);
 	spin_lock_init(&go->spinlock);
 	go->video_dev = NULL;

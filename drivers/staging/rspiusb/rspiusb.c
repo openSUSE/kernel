@@ -63,7 +63,7 @@ static int debug;
 #endif
 
 /* prevent races between open() and disconnect() */
-static DECLARE_MUTEX(disconnect_sem);
+static DEFINE_SEMAPHORE(disconnect_sem);
 
 /* Structure to hold all of our device specific stuff */
 struct device_extension {

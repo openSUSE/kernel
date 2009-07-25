@@ -35,7 +35,7 @@ typedef struct device_extension_s {
 #define MAX_DEVICES 256
 
 static pdevice_extension_t s2250_dev_table[MAX_DEVICES];
-static DECLARE_MUTEX(s2250_dev_table_mutex);
+static DEFINE_SEMAPHORE(s2250_dev_table_mutex);
 
 #define to_s2250loader_dev_common(d) container_of(d, device_extension_t, kref)
 static void s2250loader_delete(struct kref *kref)

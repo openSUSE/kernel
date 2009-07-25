@@ -39,7 +39,7 @@
 
 #include "cvmx-smix-defs.h"
 
-DECLARE_MUTEX(mdio_sem);
+DEFINE_SEMAPHORE(mdio_sem);
 
 /**
  * Perform an MII read. Called by the generic MII routines

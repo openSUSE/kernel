@@ -101,7 +101,7 @@ static int go7007_open(struct file *file)
 		return -ENOMEM;
 	++go->ref_count;
 	gofh->go = go;
-	init_MUTEX(&gofh->lock);
+	semaphore_init(&gofh->lock);
 	gofh->buf_count = 0;
 	file->private_data = gofh;
 	return 0;
