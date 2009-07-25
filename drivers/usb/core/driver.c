@@ -391,10 +391,10 @@ void usb_driver_release_interface(struct usb_driver *driver,
 	if (device_is_registered(dev)) {
 		device_release_driver(dev);
 	} else {
-		down(&dev->sem);
+		mutex_lock(&dev->mutex);
 		usb_unbind_interface(dev);
 		dev->driver = NULL;
-		up(&dev->sem);
+		mutex_unlock(&dev->mutex);
 	}
 }
 EXPORT_SYMBOL_GPL(usb_driver_release_interface);

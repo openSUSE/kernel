@@ -21,7 +21,6 @@
 #include <linux/types.h>
 #include <linux/module.h>
 #include <linux/pm.h>
-#include <linux/semaphore.h>
 #include <asm/atomic.h>
 #include <asm/device.h>
 
@@ -105,7 +104,7 @@ extern int bus_unregister_notifier(struct bus_type *bus,
 
 /* All 4 notifers below get called with the target struct device *
  * as an argument. Note that those functions are likely to be called
- * with the device semaphore held in the core, so be careful.
+ * with the device mutex held in the core, so be careful.
  */
 #define BUS_NOTIFY_ADD_DEVICE		0x00000001 /* device added */
 #define BUS_NOTIFY_DEL_DEVICE		0x00000002 /* device removed */
@@ -373,7 +372,7 @@ struct device {
 	const char		*init_name; /* initial name of the device */
 	struct device_type	*type;
 
-	struct semaphore	sem;	/* semaphore to synchronize calls to
+	struct mutex		mutex;	/* mutex to synchronize calls to
 					 * its driver.
 					 */
 

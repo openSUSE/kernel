@@ -173,10 +173,10 @@ static ssize_t driver_unbind(struct device_driver *drv,
 	dev = bus_find_device_by_name(bus, NULL, buf);
 	if (dev && dev->driver == drv) {
 		if (dev->parent)	/* Needed for USB */
-			down(&dev->parent->sem);
+			mutex_lock(&dev->parent->mutex);
 		device_release_driver(dev);
 		if (dev->parent)
-			up(&dev->parent->sem);
+			mutex_unlock(&dev->parent->mutex);
 		err = count;
 	}
 	put_device(dev);
@@ -200,12 +200,12 @@ static ssize_t driver_bind(struct device_driver *drv,
 	dev = bus_find_device_by_name(bus, NULL, buf);
 	if (dev && dev->driver == NULL && driver_match_device(drv, dev)) {
 		if (dev->parent)	/* Needed for USB */
-			down(&dev->parent->sem);
-		down(&dev->sem);
+			mutex_lock(&dev->parent->mutex);
+		mutex_lock(&dev->mutex);
 		err = driver_probe_device(drv, dev);
-		up(&dev->sem);
+		mutex_unlock(&dev->mutex);
 		if (dev->parent)
-			up(&dev->parent->sem);
+			mutex_unlock(&dev->parent->mutex);
 
 		if (err > 0) {
 			/* success */
@@ -742,10 +742,10 @@ static int __must_check bus_rescan_devices_helper(struct device *dev,
 
 	if (!dev->driver) {
 		if (dev->parent)	/* Needed for USB */
-			down(&dev->parent->sem);
+			mutex_lock(&dev->parent->mutex);
 		ret = device_attach(dev);
 		if (dev->parent)
-			up(&dev->parent->sem);
+			mutex_unlock(&dev->parent->mutex);
 	}
 	return ret < 0 ? ret : 0;
 }
@@ -777,10 +777,10 @@ int device_reprobe(struct device *dev)
 {
 	if (dev->driver) {
 		if (dev->parent)        /* Needed for USB */
-			down(&dev->parent->sem);
+			mutex_lock(&dev->parent->mutex);
 		device_release_driver(dev);
 		if (dev->parent)
-			up(&dev->parent->sem);
+			mutex_unlock(&dev->parent->mutex);
 	}
 	return bus_rescan_devices_helper(dev, NULL);
 }
