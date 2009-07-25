@@ -71,7 +71,7 @@
  */
 #define GP_STAGES    2
 struct rcu_data {
-	spinlock_t	lock;		/* Protect rcu_data fields. */
+	atomic_spinlock_t lock;		/* Protect rcu_data fields. */
 	long		completed;	/* Number of last completed batch. */
 	int		waitlistcount;
 	struct rcu_head *nextlist;
@@ -138,7 +138,7 @@ enum rcu_sched_sleep_states {
 };
 
 struct rcu_ctrlblk {
-	spinlock_t	fliplock;	/* Protect state-machine transitions. */
+	atomic_spinlock_t fliplock;	/* Protect state-machine transitions. */
 	long		completed;	/* Number of last completed batch. */
 	enum rcu_try_flip_states rcu_try_flip_state; /* The current state of
 							the rcu state machine */
@@ -193,7 +193,7 @@ void rcu_exit_nohz(void)
 static DEFINE_PER_CPU(struct rcu_data, rcu_data);
 
 static struct rcu_ctrlblk rcu_ctrlblk = {
-	.fliplock = __SPIN_LOCK_UNLOCKED(rcu_ctrlblk.fliplock),
+	.fliplock = __ATOMIC_SPIN_LOCK_UNLOCKED(rcu_ctrlblk.fliplock),
 	.completed = 0,
 	.rcu_try_flip_state = rcu_try_flip_idle_state,
 	.schedlock = __SPIN_LOCK_UNLOCKED(rcu_ctrlblk.schedlock),
@@ -910,7 +910,7 @@ static void rcu_try_flip(void)
 	unsigned long flags;
 
 	RCU_TRACE_ME(rcupreempt_trace_try_flip_1);
-	if (unlikely(!spin_trylock_irqsave(&rcu_ctrlblk.fliplock, flags))) {
+	if (unlikely(!atomic_spin_trylock_irqsave(&rcu_ctrlblk.fliplock, flags))) {
 		RCU_TRACE_ME(rcupreempt_trace_try_flip_e1);
 		return;
 	}
@@ -941,7 +941,7 @@ static void rcu_try_flip(void)
 			rcu_ctrlblk.rcu_try_flip_state =
 				rcu_try_flip_idle_state;
 	}
-	spin_unlock_irqrestore(&rcu_ctrlblk.fliplock, flags);
+	atomic_spin_unlock_irqrestore(&rcu_ctrlblk.fliplock, flags);
 }
 
 /*
@@ -986,13 +986,13 @@ void rcu_check_callbacks(int cpu, int user)
 	rcu_check_mb(cpu);
 	if (rcu_ctrlblk.completed == rdp->completed)
 		rcu_try_flip();
-	spin_lock_irqsave(&rdp->lock, flags);
+	atomic_spin_lock_irqsave(&rdp->lock, flags);
 	RCU_TRACE_RDP(rcupreempt_trace_check_callbacks, rdp);
 	__rcu_advance_callbacks(rdp);
 	if (rdp->donelist == NULL) {
-		spin_unlock_irqrestore(&rdp->lock, flags);
+		atomic_spin_unlock_irqrestore(&rdp->lock, flags);
 	} else {
-		spin_unlock_irqrestore(&rdp->lock, flags);
+		atomic_spin_unlock_irqrestore(&rdp->lock, flags);
 		raise_softirq(RCU_SOFTIRQ);
 	}
 }
@@ -1011,10 +1011,10 @@ void rcu_advance_callbacks(int cpu, int user)
 		if (rcu_ctrlblk.completed == rdp->completed)
 			return;
 	}
-	spin_lock_irqsave(&rdp->lock, flags);
+	atomic_spin_lock_irqsave(&rdp->lock, flags);
 	RCU_TRACE_RDP(rcupreempt_trace_check_callbacks, rdp);
 	__rcu_advance_callbacks(rdp);
-	spin_unlock_irqrestore(&rdp->lock, flags);
+	atomic_spin_unlock_irqrestore(&rdp->lock, flags);
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
@@ -1042,7 +1042,7 @@ void rcu_offline_cpu(int cpu)
 	 * Otherwise rcu_barrier() will fail
 	 */
 
-	spin_lock_irqsave(&rdp->lock, flags);
+	atomic_spin_lock_irqsave(&rdp->lock, flags);
 	rcu_offline_cpu_enqueue(rdp->donelist, rdp->donetail, list, tail);
 	for (i = GP_STAGES - 1; i >= 0; i--)
 		rcu_offline_cpu_enqueue(rdp->waitlist[i], rdp->waittail[i],
@@ -1053,12 +1053,12 @@ void rcu_offline_cpu(int cpu)
 	rcu_offline_cpu_enqueue(rdp->nextschedlist, rdp->nextschedtail,
 				schedlist, schedtail);
 	rdp->rcu_sched_sleeping = 0;
-	spin_unlock_irqrestore(&rdp->lock, flags);
+	atomic_spin_unlock_irqrestore(&rdp->lock, flags);
 	rdp->waitlistcount = 0;
 
 	/* Disengage the newly dead CPU from the grace-period computation. */
 
-	spin_lock_irqsave(&rcu_ctrlblk.fliplock, flags);
+	atomic_spin_lock_irqsave(&rcu_ctrlblk.fliplock, flags);
 	rcu_check_mb(cpu);
 	if (per_cpu(rcu_flip_flag, cpu) == rcu_flipped) {
 		smp_mb();  /* Subsequent counter accesses must see new value */
@@ -1075,7 +1075,7 @@ void rcu_offline_cpu(int cpu)
 
 	cpumask_clear_cpu(cpu, to_cpumask(rcu_cpu_online_map));
 
-	spin_unlock_irqrestore(&rcu_ctrlblk.fliplock, flags);
+	atomic_spin_unlock_irqrestore(&rcu_ctrlblk.fliplock, flags);
 
 	/*
 	 * Place the removed callbacks on the current CPU's queue.
@@ -1089,14 +1089,14 @@ void rcu_offline_cpu(int cpu)
 
 	local_irq_save(flags);  /* disable preempt till we know what lock. */
 	rdp = RCU_DATA_ME();
-	spin_lock(&rdp->lock);
+	atomic_spin_lock(&rdp->lock);
 	*rdp->nexttail = list;
 	if (list)
 		rdp->nexttail = tail;
 	*rdp->nextschedtail = schedlist;
 	if (schedlist)
 		rdp->nextschedtail = schedtail;
-	spin_unlock_irqrestore(&rdp->lock, flags);
+	atomic_spin_unlock_irqrestore(&rdp->lock, flags);
 }
 
 #else /* #ifdef CONFIG_HOTPLUG_CPU */
@@ -1112,9 +1112,9 @@ void __cpuinit rcu_online_cpu(int cpu)
 	unsigned long flags;
 	struct rcu_data *rdp;
 
-	spin_lock_irqsave(&rcu_ctrlblk.fliplock, flags);
+	atomic_spin_lock_irqsave(&rcu_ctrlblk.fliplock, flags);
 	cpumask_set_cpu(cpu, to_cpumask(rcu_cpu_online_map));
-	spin_unlock_irqrestore(&rcu_ctrlblk.fliplock, flags);
+	atomic_spin_unlock_irqrestore(&rcu_ctrlblk.fliplock, flags);
 
 	/*
 	 * The rcu_sched grace-period processing might have bypassed
@@ -1126,9 +1126,9 @@ void __cpuinit rcu_online_cpu(int cpu)
 	 */
 
 	rdp = RCU_DATA_CPU(cpu);
-	spin_lock_irqsave(&rdp->lock, flags);
+	atomic_spin_lock_irqsave(&rdp->lock, flags);
 	rdp->rcu_sched_sleeping = 1;
-	spin_unlock_irqrestore(&rdp->lock, flags);
+	atomic_spin_unlock_irqrestore(&rdp->lock, flags);
 }
 
 static void rcu_process_callbacks(struct softirq_action *unused)
@@ -1139,16 +1139,16 @@ static void rcu_process_callbacks(struct softirq_action *unused)
 
 	local_irq_save(flags);
 	rdp = RCU_DATA_ME();
-	spin_lock(&rdp->lock);
+	atomic_spin_lock(&rdp->lock);
 	list = rdp->donelist;
 	if (list == NULL) {
-		spin_unlock_irqrestore(&rdp->lock, flags);
+		atomic_spin_unlock_irqrestore(&rdp->lock, flags);
 		return;
 	}
 	rdp->donelist = NULL;
 	rdp->donetail = &rdp->donelist;
 	RCU_TRACE_RDP(rcupreempt_trace_done_remove, rdp);
-	spin_unlock_irqrestore(&rdp->lock, flags);
+	atomic_spin_unlock_irqrestore(&rdp->lock, flags);
 	while (list) {
 		next = list->next;
 		list->func(list);
@@ -1166,12 +1166,12 @@ void call_rcu(struct rcu_head *head, void (*func)(struct rcu_head *rcu))
 	head->next = NULL;
 	local_irq_save(flags);
 	rdp = RCU_DATA_ME();
-	spin_lock(&rdp->lock);
+	atomic_spin_lock(&rdp->lock);
 	__rcu_advance_callbacks(rdp);
 	*rdp->nexttail = head;
 	rdp->nexttail = &head->next;
 	RCU_TRACE_RDP(rcupreempt_trace_next_add, rdp);
-	spin_unlock_irqrestore(&rdp->lock, flags);
+	atomic_spin_unlock_irqrestore(&rdp->lock, flags);
 }
 EXPORT_SYMBOL_GPL(call_rcu);
 
@@ -1185,7 +1185,7 @@ void call_rcu_sched(struct rcu_head *head, void (*func)(struct rcu_head *rcu))
 	head->next = NULL;
 	local_irq_save(flags);
 	rdp = RCU_DATA_ME();
-	spin_lock(&rdp->lock);
+	atomic_spin_lock(&rdp->lock);
 	*rdp->nextschedtail = head;
 	rdp->nextschedtail = &head->next;
 	if (rdp->rcu_sched_sleeping) {
@@ -1195,7 +1195,7 @@ void call_rcu_sched(struct rcu_head *head, void (*func)(struct rcu_head *rcu))
 		rdp->rcu_sched_sleeping = 0;
 		wake_gp = 1;
 	}
-	spin_unlock_irqrestore(&rdp->lock, flags);
+	atomic_spin_unlock_irqrestore(&rdp->lock, flags);
 	if (wake_gp) {
 
 		/* Wake up grace-period processing, unless someone beat us. */
@@ -1291,7 +1291,7 @@ static int rcu_sched_grace_period(void *arg)
 		for_each_online_cpu(cpu) {
 
 			rdp = RCU_DATA_CPU(cpu);
-			spin_lock_irqsave(&rdp->lock, flags);
+			atomic_spin_lock_irqsave(&rdp->lock, flags);
 
 			/*
 			 * We are running on this CPU irq-disabled, so no
@@ -1330,7 +1330,7 @@ static int rcu_sched_grace_period(void *arg)
 
 			rdp->rcu_sched_sleeping = couldsleep;
 
-			spin_unlock_irqrestore(&rdp->lock, flags);
+			atomic_spin_unlock_irqrestore(&rdp->lock, flags);
 		}
 
 		/* If we saw callbacks on the last scan, go deal with them. */
@@ -1452,7 +1452,7 @@ void __init __rcu_init(void)
 	printk(KERN_NOTICE "Preemptible RCU implementation.\n");
 	for_each_possible_cpu(cpu) {
 		rdp = RCU_DATA_CPU(cpu);
-		spin_lock_init(&rdp->lock);
+		atomic_spin_lock_init(&rdp->lock);
 		rdp->completed = 0;
 		rdp->waitlistcount = 0;
 		rdp->nextlist = NULL;
