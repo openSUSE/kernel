@@ -127,7 +127,7 @@ static struct clocksource *curr_clocksource = &clocksource_jiffies;
 static struct clocksource *next_clocksource;
 static struct clocksource *clocksource_override;
 static LIST_HEAD(clocksource_list);
-static DEFINE_SPINLOCK(clocksource_lock);
+static DEFINE_ATOMIC_SPINLOCK(clocksource_lock);
 static char override_name[32];
 static int finished_booting;
 
@@ -296,7 +296,7 @@ void clocksource_resume(void)
 	struct clocksource *cs;
 	unsigned long flags;
 
-	spin_lock_irqsave(&clocksource_lock, flags);
+	atomic_spin_lock_irqsave(&clocksource_lock, flags);
 
 	list_for_each_entry(cs, &clocksource_list, list) {
 		if (cs->resume)
@@ -305,7 +305,7 @@ void clocksource_resume(void)
 
 	clocksource_resume_watchdog();
 
-	spin_unlock_irqrestore(&clocksource_lock, flags);
+	atomic_spin_unlock_irqrestore(&clocksource_lock, flags);
 }
 
 /**
@@ -328,12 +328,12 @@ struct clocksource *clocksource_get_next(void)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&clocksource_lock, flags);
+	atomic_spin_lock_irqsave(&clocksource_lock, flags);
 	if (next_clocksource && finished_booting) {
 		curr_clocksource = next_clocksource;
 		next_clocksource = NULL;
 	}
-	spin_unlock_irqrestore(&clocksource_lock, flags);
+	atomic_spin_unlock_irqrestore(&clocksource_lock, flags);
 
 	return curr_clocksource;
 }
@@ -402,11 +402,11 @@ int clocksource_register(struct clocksource *c)
 	unsigned long flags;
 	int ret;
 
-	spin_lock_irqsave(&clocksource_lock, flags);
+	atomic_spin_lock_irqsave(&clocksource_lock, flags);
 	ret = clocksource_enqueue(c);
 	if (!ret)
 		next_clocksource = select_clocksource();
-	spin_unlock_irqrestore(&clocksource_lock, flags);
+	atomic_spin_unlock_irqrestore(&clocksource_lock, flags);
 	if (!ret)
 		clocksource_check_watchdog(c);
 	return ret;
@@ -421,12 +421,12 @@ void clocksource_change_rating(struct clocksource *cs, int rating)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&clocksource_lock, flags);
+	atomic_spin_lock_irqsave(&clocksource_lock, flags);
 	list_del(&cs->list);
 	cs->rating = rating;
 	clocksource_enqueue(cs);
 	next_clocksource = select_clocksource();
-	spin_unlock_irqrestore(&clocksource_lock, flags);
+	atomic_spin_unlock_irqrestore(&clocksource_lock, flags);
 }
 
 /**
@@ -436,12 +436,12 @@ void clocksource_unregister(struct clocksource *cs)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&clocksource_lock, flags);
+	atomic_spin_lock_irqsave(&clocksource_lock, flags);
 	list_del(&cs->list);
 	if (clocksource_override == cs)
 		clocksource_override = NULL;
 	next_clocksource = select_clocksource();
-	spin_unlock_irqrestore(&clocksource_lock, flags);
+	atomic_spin_unlock_irqrestore(&clocksource_lock, flags);
 }
 
 #ifdef CONFIG_SYSFS
@@ -458,9 +458,9 @@ sysfs_show_current_clocksources(struct sys_device *dev,
 {
 	ssize_t count = 0;
 
-	spin_lock_irq(&clocksource_lock);
+	atomic_spin_lock_irq(&clocksource_lock);
 	count = snprintf(buf, PAGE_SIZE, "%s\n", curr_clocksource->name);
-	spin_unlock_irq(&clocksource_lock);
+	atomic_spin_unlock_irq(&clocksource_lock);
 
 	return count;
 }
@@ -490,7 +490,7 @@ static ssize_t sysfs_override_clocksource(struct sys_device *dev,
 	if (buf[count-1] == '\n')
 		count--;
 
-	spin_lock_irq(&clocksource_lock);
+	atomic_spin_lock_irq(&clocksource_lock);
 
 	if (count > 0)
 		memcpy(override_name, buf, count);
@@ -527,7 +527,7 @@ static ssize_t sysfs_override_clocksource(struct sys_device *dev,
 		next_clocksource = select_clocksource();
 	}
 
-	spin_unlock_irq(&clocksource_lock);
+	atomic_spin_unlock_irq(&clocksource_lock);
 
 	return ret;
 }
@@ -547,7 +547,7 @@ sysfs_show_available_clocksources(struct sys_device *dev,
 	struct clocksource *src;
 	ssize_t count = 0;
 
-	spin_lock_irq(&clocksource_lock);
+	atomic_spin_lock_irq(&clocksource_lock);
 	list_for_each_entry(src, &clocksource_list, list) {
 		/*
 		 * Don't show non-HRES clocksource if the tick code is
@@ -559,7 +559,7 @@ sysfs_show_available_clocksources(struct sys_device *dev,
 				  max((ssize_t)PAGE_SIZE - count, (ssize_t)0),
 				  "%s ", src->name);
 	}
-	spin_unlock_irq(&clocksource_lock);
+	atomic_spin_unlock_irq(&clocksource_lock);
 
 	count += snprintf(buf + count,
 			  max((ssize_t)PAGE_SIZE - count, (ssize_t)0), "\n");
@@ -615,10 +615,10 @@ device_initcall(init_clocksource_sysfs);
 static int __init boot_override_clocksource(char* str)
 {
 	unsigned long flags;
-	spin_lock_irqsave(&clocksource_lock, flags);
+	atomic_spin_lock_irqsave(&clocksource_lock, flags);
 	if (str)
 		strlcpy(override_name, str, sizeof(override_name));
-	spin_unlock_irqrestore(&clocksource_lock, flags);
+	atomic_spin_unlock_irqrestore(&clocksource_lock, flags);
 	return 1;
 }
 
