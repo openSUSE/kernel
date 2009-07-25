@@ -152,7 +152,7 @@ void cpu_idle(void)
 		}
 
 		tick_nohz_restart_sched_tick();
-		preempt_enable_no_resched();
+		__preempt_enable_no_resched();
 		schedule();
 		preempt_disable();
 	}
