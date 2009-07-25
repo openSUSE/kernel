@@ -520,7 +520,7 @@ struct task_cputime {
 struct thread_group_cputimer {
 	struct task_cputime cputime;
 	int running;
-	spinlock_t lock;
+	atomic_spinlock_t lock;
 };
 
 /*
@@ -2321,7 +2321,7 @@ void thread_group_cputimer(struct task_struct *tsk, struct task_cputime *times);
 static inline void thread_group_cputime_init(struct signal_struct *sig)
 {
 	sig->cputimer.cputime = INIT_CPUTIME;
-	spin_lock_init(&sig->cputimer.lock);
+	atomic_spin_lock_init(&sig->cputimer.lock);
 	sig->cputimer.running = 0;
 }
 

@@ -279,7 +279,7 @@ void thread_group_cputimer(struct task_struct *tsk, struct task_cputime *times)
 	struct task_cputime sum;
 	unsigned long flags;
 
-	spin_lock_irqsave(&cputimer->lock, flags);
+	atomic_spin_lock_irqsave(&cputimer->lock, flags);
 	if (!cputimer->running) {
 		cputimer->running = 1;
 		/*
@@ -292,7 +292,7 @@ void thread_group_cputimer(struct task_struct *tsk, struct task_cputime *times)
 		update_gt_cputime(&cputimer->cputime, &sum);
 	}
 	*times = cputimer->cputime;
-	spin_unlock_irqrestore(&cputimer->lock, flags);
+	atomic_spin_unlock_irqrestore(&cputimer->lock, flags);
 }
 
 /*
@@ -1065,9 +1065,9 @@ static void stop_process_timers(struct task_struct *tsk)
 	if (!cputimer->running)
 		return;
 
-	spin_lock_irqsave(&cputimer->lock, flags);
+	atomic_spin_lock_irqsave(&cputimer->lock, flags);
 	cputimer->running = 0;
-	spin_unlock_irqrestore(&cputimer->lock, flags);
+	atomic_spin_unlock_irqrestore(&cputimer->lock, flags);
 }
 
 /*
