@@ -34,7 +34,7 @@
 static void pic_lock(struct kvm_pic *s)
 	__acquires(&s->lock)
 {
-	spin_lock(&s->lock);
+	atomic_spin_lock(&s->lock);
 }
 
 static void pic_unlock(struct kvm_pic *s)
@@ -48,7 +48,7 @@ static void pic_unlock(struct kvm_pic *s)
 	s->pending_acks = 0;
 	s->wakeup_needed = false;
 
-	spin_unlock(&s->lock);
+	atomic_spin_unlock(&s->lock);
 
 	while (acks) {
 		kvm_notify_acked_irq(kvm, SELECT_PIC(__ffs(acks)),
@@ -522,7 +522,7 @@ struct kvm_pic *kvm_create_pic(struct kvm *kvm)
 	s = kzalloc(sizeof(struct kvm_pic), GFP_KERNEL);
 	if (!s)
 		return NULL;
-	spin_lock_init(&s->lock);
+	atomic_spin_lock_init(&s->lock);
 	s->kvm = kvm;
 	s->pics[0].elcr_mask = 0xf8;
 	s->pics[1].elcr_mask = 0xde;
