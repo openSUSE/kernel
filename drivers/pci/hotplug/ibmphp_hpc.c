@@ -132,8 +132,8 @@ void __init ibmphp_hpc_initvars (void)
 	debug ("%s - Entry\n", __func__);
 
 	mutex_init(&sem_hpcaccess);
-	init_MUTEX (&semOperations);
-	init_MUTEX_LOCKED (&sem_exit);
+	semaphore_init(&semOperations);
+	semaphore_init_locked(&sem_exit);
 	to_debug = 0;
 
 	debug ("%s - Exit\n", __func__);
