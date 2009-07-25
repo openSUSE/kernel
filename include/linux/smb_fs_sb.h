@@ -57,7 +57,7 @@ struct smb_sb_info {
 	struct smb_conn_opt opt;
 	wait_queue_head_t conn_wq;
 	int conn_complete;
-	struct semaphore sem;
+	struct mutex mutex;
 
 	unsigned char      header[SMB_HEADER_LEN + 20*2 + 2];
 	u32                header_len;
@@ -79,19 +79,19 @@ struct smb_sb_info {
 static inline int
 smb_lock_server_interruptible(struct smb_sb_info *server)
 {
-	return down_interruptible(&(server->sem));
+	return mutex_lock_interruptible(&server->mutex);
 }
 
 static inline void
 smb_lock_server(struct smb_sb_info *server)
 {
-	down(&(server->sem));
+	mutex_lock(&server->mutex);
 }
 
 static inline void
 smb_unlock_server(struct smb_sb_info *server)
 {
-	up(&(server->sem));
+	mutex_unlock(&server->mutex);
 }
 
 #endif
