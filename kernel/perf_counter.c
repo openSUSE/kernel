@@ -192,14 +192,14 @@ perf_lock_task_context(struct task_struct *task, unsigned long *flags)
 		 * if so.  If we locked the right context, then it
 		 * can't get swapped on us any more.
 		 */
-		spin_lock_irqsave(&ctx->lock, *flags);
+		atomic_spin_lock_irqsave(&ctx->lock, *flags);
 		if (ctx != rcu_dereference(task->perf_counter_ctxp)) {
-			spin_unlock_irqrestore(&ctx->lock, *flags);
+			atomic_spin_unlock_irqrestore(&ctx->lock, *flags);
 			goto retry;
 		}
 
 		if (!atomic_inc_not_zero(&ctx->refcount)) {
-			spin_unlock_irqrestore(&ctx->lock, *flags);
+			atomic_spin_unlock_irqrestore(&ctx->lock, *flags);
 			ctx = NULL;
 		}
 	}
@@ -220,7 +220,7 @@ static struct perf_counter_context *perf_pin_task_context(struct task_struct *ta
 	ctx = perf_lock_task_context(task, &flags);
 	if (ctx) {
 		++ctx->pin_count;
-		spin_unlock_irqrestore(&ctx->lock, flags);
+		atomic_spin_unlock_irqrestore(&ctx->lock, flags);
 	}
 	return ctx;
 }
@@ -229,9 +229,9 @@ static void perf_unpin_context(struct perf_counter_context *ctx)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&ctx->lock, flags);
+	atomic_spin_lock_irqsave(&ctx->lock, flags);
 	--ctx->pin_count;
-	spin_unlock_irqrestore(&ctx->lock, flags);
+	atomic_spin_unlock_irqrestore(&ctx->lock, flags);
 	put_ctx(ctx);
 }
 
@@ -358,7 +358,7 @@ static void __perf_counter_remove_from_context(void *info)
 	if (ctx->task && cpuctx->task_ctx != ctx)
 		return;
 
-	spin_lock(&ctx->lock);
+	atomic_spin_lock(&ctx->lock);
 	/*
 	 * Protect the list operation against NMI by disabling the
 	 * counters on a global level.
@@ -380,7 +380,7 @@ static void __perf_counter_remove_from_context(void *info)
 	}
 
 	perf_enable();
-	spin_unlock(&ctx->lock);
+	atomic_spin_unlock(&ctx->lock);
 }
 
 
@@ -419,12 +419,12 @@ retry:
 	task_oncpu_function_call(task, __perf_counter_remove_from_context,
 				 counter);
 
-	spin_lock_irq(&ctx->lock);
+	atomic_spin_lock_irq(&ctx->lock);
 	/*
 	 * If the context is active we need to retry the smp call.
 	 */
 	if (ctx->nr_active && !list_empty(&counter->list_entry)) {
-		spin_unlock_irq(&ctx->lock);
+		atomic_spin_unlock_irq(&ctx->lock);
 		goto retry;
 	}
 
@@ -436,7 +436,7 @@ retry:
 	if (!list_empty(&counter->list_entry)) {
 		list_del_counter(counter, ctx);
 	}
-	spin_unlock_irq(&ctx->lock);
+	atomic_spin_unlock_irq(&ctx->lock);
 }
 
 static inline u64 perf_clock(void)
@@ -504,7 +504,7 @@ static void __perf_counter_disable(void *info)
 	if (ctx->task && cpuctx->task_ctx != ctx)
 		return;
 
-	spin_lock(&ctx->lock);
+	atomic_spin_lock(&ctx->lock);
 
 	/*
 	 * If the counter is on, turn it off.
@@ -520,7 +520,7 @@ static void __perf_counter_disable(void *info)
 		counter->state = PERF_COUNTER_STATE_OFF;
 	}
 
-	spin_unlock(&ctx->lock);
+	atomic_spin_unlock(&ctx->lock);
 }
 
 /*
@@ -553,12 +553,12 @@ static void perf_counter_disable(struct perf_counter *counter)
  retry:
 	task_oncpu_function_call(task, __perf_counter_disable, counter);
 
-	spin_lock_irq(&ctx->lock);
+	atomic_spin_lock_irq(&ctx->lock);
 	/*
 	 * If the counter is still active, we need to retry the cross-call.
 	 */
 	if (counter->state == PERF_COUNTER_STATE_ACTIVE) {
-		spin_unlock_irq(&ctx->lock);
+		atomic_spin_unlock_irq(&ctx->lock);
 		goto retry;
 	}
 
@@ -571,7 +571,7 @@ static void perf_counter_disable(struct perf_counter *counter)
 		counter->state = PERF_COUNTER_STATE_OFF;
 	}
 
-	spin_unlock_irq(&ctx->lock);
+	atomic_spin_unlock_irq(&ctx->lock);
 }
 
 static int
@@ -739,7 +739,7 @@ static void __perf_install_in_context(void *info)
 		cpuctx->task_ctx = ctx;
 	}
 
-	spin_lock(&ctx->lock);
+	atomic_spin_lock(&ctx->lock);
 	ctx->is_active = 1;
 	update_context_time(ctx);
 
@@ -789,7 +789,7 @@ static void __perf_install_in_context(void *info)
  unlock:
 	perf_enable();
 
-	spin_unlock(&ctx->lock);
+	atomic_spin_unlock(&ctx->lock);
 }
 
 /*
@@ -825,12 +825,12 @@ retry:
 	task_oncpu_function_call(task, __perf_install_in_context,
 				 counter);
 
-	spin_lock_irq(&ctx->lock);
+	atomic_spin_lock_irq(&ctx->lock);
 	/*
 	 * we need to retry the smp call.
 	 */
 	if (ctx->is_active && list_empty(&counter->list_entry)) {
-		spin_unlock_irq(&ctx->lock);
+		atomic_spin_unlock_irq(&ctx->lock);
 		goto retry;
 	}
 
@@ -841,7 +841,7 @@ retry:
 	 */
 	if (list_empty(&counter->list_entry))
 		add_counter_to_ctx(counter, ctx);
-	spin_unlock_irq(&ctx->lock);
+	atomic_spin_unlock_irq(&ctx->lock);
 }
 
 /*
@@ -865,7 +865,7 @@ static void __perf_counter_enable(void *info)
 		cpuctx->task_ctx = ctx;
 	}
 
-	spin_lock(&ctx->lock);
+	atomic_spin_lock(&ctx->lock);
 	ctx->is_active = 1;
 	update_context_time(ctx);
 
@@ -908,7 +908,7 @@ static void __perf_counter_enable(void *info)
 	}
 
  unlock:
-	spin_unlock(&ctx->lock);
+	atomic_spin_unlock(&ctx->lock);
 }
 
 /*
@@ -934,7 +934,7 @@ static void perf_counter_enable(struct perf_counter *counter)
 		return;
 	}
 
-	spin_lock_irq(&ctx->lock);
+	atomic_spin_lock_irq(&ctx->lock);
 	if (counter->state >= PERF_COUNTER_STATE_INACTIVE)
 		goto out;
 
@@ -949,10 +949,10 @@ static void perf_counter_enable(struct perf_counter *counter)
 		counter->state = PERF_COUNTER_STATE_OFF;
 
  retry:
-	spin_unlock_irq(&ctx->lock);
+	atomic_spin_unlock_irq(&ctx->lock);
 	task_oncpu_function_call(task, __perf_counter_enable, counter);
 
-	spin_lock_irq(&ctx->lock);
+	atomic_spin_lock_irq(&ctx->lock);
 
 	/*
 	 * If the context is active and the counter is still off,
@@ -971,7 +971,7 @@ static void perf_counter_enable(struct perf_counter *counter)
 			ctx->time - counter->total_time_enabled;
 	}
  out:
-	spin_unlock_irq(&ctx->lock);
+	atomic_spin_unlock_irq(&ctx->lock);
 }
 
 static int perf_counter_refresh(struct perf_counter *counter, int refresh)
@@ -993,7 +993,7 @@ void __perf_counter_sched_out(struct perf_counter_context *ctx,
 {
 	struct perf_counter *counter;
 
-	spin_lock(&ctx->lock);
+	atomic_spin_lock(&ctx->lock);
 	ctx->is_active = 0;
 	if (likely(!ctx->nr_counters))
 		goto out;
@@ -1010,7 +1010,7 @@ void __perf_counter_sched_out(struct perf_counter_context *ctx,
 	}
 	perf_enable();
  out:
-	spin_unlock(&ctx->lock);
+	atomic_spin_unlock(&ctx->lock);
 }
 
 /*
@@ -1150,8 +1150,8 @@ void perf_counter_task_sched_out(struct task_struct *task,
 		 * order we take the locks because no other cpu could
 		 * be trying to lock both of these tasks.
 		 */
-		spin_lock(&ctx->lock);
-		spin_lock_nested(&next_ctx->lock, SINGLE_DEPTH_NESTING);
+		atomic_spin_lock(&ctx->lock);
+		atomic_spin_lock_nested(&next_ctx->lock, SINGLE_DEPTH_NESTING);
 		if (context_equiv(ctx, next_ctx)) {
 			/*
 			 * XXX do we need a memory barrier of sorts
@@ -1165,8 +1165,8 @@ void perf_counter_task_sched_out(struct task_struct *task,
 
 			perf_counter_sync_stat(ctx, next_ctx);
 		}
-		spin_unlock(&next_ctx->lock);
-		spin_unlock(&ctx->lock);
+		atomic_spin_unlock(&next_ctx->lock);
+		atomic_spin_unlock(&ctx->lock);
 	}
 	rcu_read_unlock();
 
@@ -1208,7 +1208,7 @@ __perf_counter_sched_in(struct perf_counter_context *ctx,
 	struct perf_counter *counter;
 	int can_add_hw = 1;
 
-	spin_lock(&ctx->lock);
+	atomic_spin_lock(&ctx->lock);
 	ctx->is_active = 1;
 	if (likely(!ctx->nr_counters))
 		goto out;
@@ -1273,7 +1273,7 @@ __perf_counter_sched_in(struct perf_counter_context *ctx,
 	}
 	perf_enable();
  out:
-	spin_unlock(&ctx->lock);
+	atomic_spin_unlock(&ctx->lock);
 }
 
 /*
@@ -1337,7 +1337,7 @@ static void perf_ctx_adjust_freq(struct perf_counter_context *ctx)
 	struct hw_perf_counter *hwc;
 	u64 interrupts, freq;
 
-	spin_lock(&ctx->lock);
+	atomic_spin_lock(&ctx->lock);
 	list_for_each_entry(counter, &ctx->counter_list, list_entry) {
 		if (counter->state != PERF_COUNTER_STATE_ACTIVE)
 			continue;
@@ -1392,7 +1392,7 @@ static void perf_ctx_adjust_freq(struct perf_counter_context *ctx)
 			perf_enable();
 		}
 	}
-	spin_unlock(&ctx->lock);
+	atomic_spin_unlock(&ctx->lock);
 }
 
 /*
@@ -1405,7 +1405,7 @@ static void rotate_ctx(struct perf_counter_context *ctx)
 	if (!ctx->nr_counters)
 		return;
 
-	spin_lock(&ctx->lock);
+	atomic_spin_lock(&ctx->lock);
 	/*
 	 * Rotate the first entry last (works just fine for group counters too):
 	 */
@@ -1416,7 +1416,7 @@ static void rotate_ctx(struct perf_counter_context *ctx)
 	}
 	perf_enable();
 
-	spin_unlock(&ctx->lock);
+	atomic_spin_unlock(&ctx->lock);
 }
 
 void perf_counter_task_tick(struct task_struct *curr, int cpu)
@@ -1465,7 +1465,7 @@ static void perf_counter_enable_on_exec(struct task_struct *task)
 
 	__perf_counter_task_sched_out(ctx);
 
-	spin_lock(&ctx->lock);
+	atomic_spin_lock(&ctx->lock);
 
 	list_for_each_entry(counter, &ctx->counter_list, list_entry) {
 		if (!counter->attr.enable_on_exec)
@@ -1485,7 +1485,7 @@ static void perf_counter_enable_on_exec(struct task_struct *task)
 	if (enabled)
 		unclone_ctx(ctx);
 
-	spin_unlock(&ctx->lock);
+	atomic_spin_unlock(&ctx->lock);
 
 	perf_counter_task_sched_in(task, smp_processor_id());
  out:
@@ -1533,7 +1533,7 @@ __perf_counter_init_context(struct perf_counter_context *ctx,
 			    struct task_struct *task)
 {
 	memset(ctx, 0, sizeof(*ctx));
-	spin_lock_init(&ctx->lock);
+	atomic_spin_lock_init(&ctx->lock);
 	mutex_init(&ctx->mutex);
 	INIT_LIST_HEAD(&ctx->counter_list);
 	INIT_LIST_HEAD(&ctx->event_list);
@@ -1603,7 +1603,7 @@ static struct perf_counter_context *find_get_context(pid_t pid, int cpu)
 	ctx = perf_lock_task_context(task, &flags);
 	if (ctx) {
 		unclone_ctx(ctx);
-		spin_unlock_irqrestore(&ctx->lock, flags);
+		atomic_spin_unlock_irqrestore(&ctx->lock, flags);
 	}
 
 	if (!ctx) {
@@ -1814,7 +1814,7 @@ static int perf_counter_period(struct perf_counter *counter, u64 __user *arg)
 	if (!value)
 		return -EINVAL;
 
-	spin_lock_irq(&ctx->lock);
+	atomic_spin_lock_irq(&ctx->lock);
 	if (counter->attr.freq) {
 		if (value > sysctl_perf_counter_sample_rate) {
 			ret = -EINVAL;
@@ -1827,7 +1827,7 @@ static int perf_counter_period(struct perf_counter *counter, u64 __user *arg)
 		counter->hw.sample_period = value;
 	}
 unlock:
-	spin_unlock_irq(&ctx->lock);
+	atomic_spin_unlock_irq(&ctx->lock);
 
 	return ret;
 }
@@ -3415,14 +3415,14 @@ static int perf_swcounter_is_counting(struct perf_counter *counter)
 	 * which protects the existence of *ctx.
 	 */
 	ctx = counter->ctx;
-	spin_lock_irqsave(&ctx->lock, flags);
+	atomic_spin_lock_irqsave(&ctx->lock, flags);
 	count = 1;
 	/* Re-check state now we have the lock */
 	if (counter->state < PERF_COUNTER_STATE_INACTIVE ||
 	    counter->ctx->is_active ||
 	    counter->tstamp_stopped < ctx->time)
 		count = 0;
-	spin_unlock_irqrestore(&ctx->lock, flags);
+	atomic_spin_unlock_irqrestore(&ctx->lock, flags);
 	return count;
 }
 
@@ -4254,7 +4254,7 @@ void perf_counter_exit_task(struct task_struct *child)
 	 * reading child->perf_counter_ctxp, we wait until it has
 	 * incremented the context's refcount before we do put_ctx below.
 	 */
-	spin_lock(&child_ctx->lock);
+	atomic_spin_lock(&child_ctx->lock);
 	child->perf_counter_ctxp = NULL;
 	/*
 	 * If this context is a clone; unclone it so it can't get
@@ -4262,7 +4262,7 @@ void perf_counter_exit_task(struct task_struct *child)
 	 * the counters from it.
 	 */
 	unclone_ctx(child_ctx);
-	spin_unlock(&child_ctx->lock);
+	atomic_spin_unlock(&child_ctx->lock);
 	local_irq_restore(flags);
 
 	/*
@@ -4535,11 +4535,11 @@ perf_set_reserve_percpu(struct sysdev_class *class,
 	perf_reserved_percpu = val;
 	for_each_online_cpu(cpu) {
 		cpuctx = &per_cpu(perf_cpu_context, cpu);
-		spin_lock_irq(&cpuctx->ctx.lock);
+		atomic_spin_lock_irq(&cpuctx->ctx.lock);
 		mpt = min(perf_max_counters - cpuctx->ctx.nr_counters,
 			  perf_max_counters - perf_reserved_percpu);
 		cpuctx->max_pertask = mpt;
-		spin_unlock_irq(&cpuctx->ctx.lock);
+		atomic_spin_unlock_irq(&cpuctx->ctx.lock);
 	}
 	spin_unlock(&perf_resource_lock);
 
