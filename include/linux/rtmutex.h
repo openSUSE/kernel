@@ -24,7 +24,7 @@
  * @owner:	the mutex owner
  */
 struct rt_mutex {
-	spinlock_t		wait_lock;
+	atomic_spinlock_t	wait_lock;
 	struct plist_head	wait_list;
 	struct task_struct	*owner;
 #ifdef CONFIG_DEBUG_RT_MUTEXES
@@ -63,8 +63,8 @@ struct hrtimer_sleeper;
 #endif
 
 #define __RT_MUTEX_INITIALIZER(mutexname) \
-	{ .wait_lock = __SPIN_LOCK_UNLOCKED(mutexname.wait_lock) \
-	, .wait_list = PLIST_HEAD_INIT(mutexname.wait_list, mutexname.wait_lock) \
+	{ .wait_lock = __ATOMIC_SPIN_LOCK_UNLOCKED(mutexname.wait_lock) \
+	, .wait_list = PLIST_HEAD_INIT_ATOMIC(mutexname.wait_list, mutexname.wait_lock) \
 	, .owner = NULL \
 	__DEBUG_RT_MUTEX_INITIALIZER(mutexname)}
 
@@ -98,7 +98,7 @@ extern void rt_mutex_unlock(struct rt_mutex *lock);
 
 #ifdef CONFIG_RT_MUTEXES
 # define INIT_RT_MUTEXES(tsk)						\
-	.pi_waiters	= PLIST_HEAD_INIT(tsk.pi_waiters, tsk.pi_lock),	\
+	.pi_waiters	= PLIST_HEAD_INIT_ATOMIC(tsk.pi_waiters, tsk.pi_lock),	\
 	INIT_RT_MUTEX_DEBUG(tsk)
 #else
 # define INIT_RT_MUTEXES(tsk)
