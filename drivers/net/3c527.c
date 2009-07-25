@@ -521,7 +521,7 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 	lp->tx_len 		= lp->exec_box->data[9];   /* Transmit list count */
 	lp->rx_len 		= lp->exec_box->data[11];  /* Receive list count */
 
-	init_MUTEX_LOCKED(&lp->cmd_mutex);
+	semaphore_init_locked(&lp->cmd_mutex);
 	init_completion(&lp->execution_cmd);
 	init_completion(&lp->xceiver_cmd);
 
