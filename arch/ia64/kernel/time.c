@@ -197,10 +197,10 @@ timer_interrupt (int irq, void *dev_id)
 			 * another CPU. We need to avoid to SMP race by acquiring the
 			 * xtime_lock.
 			 */
-			write_seqlock(&xtime_lock);
+			write_atomic_seqlock(&xtime_lock);
 			do_timer(1);
 			local_cpu_data->itm_next = new_itm;
-			write_sequnlock(&xtime_lock);
+			write_atomic_sequnlock(&xtime_lock);
 		} else
 			local_cpu_data->itm_next = new_itm;
 
@@ -477,7 +477,7 @@ void update_vsyscall(struct timespec *wall, struct clocksource *c)
 {
         unsigned long flags;
 
-        write_seqlock_irqsave(&fsyscall_gtod_data.lock, flags);
+	write_atomic_seqlock_irqsave(&fsyscall_gtod_data.lock, flags);
 
         /* copy fsyscall clock data */
         fsyscall_gtod_data.clk_mask = c->mask;
@@ -500,6 +500,6 @@ void update_vsyscall(struct timespec *wall, struct clocksource *c)
 		fsyscall_gtod_data.monotonic_time.tv_sec++;
 	}
 
-        write_sequnlock_irqrestore(&fsyscall_gtod_data.lock, flags);
+	write_atomic_sequnlock_irqrestore(&fsyscall_gtod_data.lock, flags);
 }
 

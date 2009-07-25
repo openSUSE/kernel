@@ -703,10 +703,10 @@ static void pcic_clear_clock_irq(void)
 
 static irqreturn_t pcic_timer_handler (int irq, void *h)
 {
-	write_seqlock(&xtime_lock);	/* Dummy, to show that we remember */
+	write_atomic_seqlock(&xtime_lock); /* Dummy, to show that we remember */
 	pcic_clear_clock_irq();
 	do_timer(1);
-	write_sequnlock(&xtime_lock);
+	write_atomic_sequnlock(&xtime_lock);
 #ifndef CONFIG_SMP
 	update_process_times(user_mode(get_irq_regs()));
 #endif
@@ -766,7 +766,7 @@ static void pci_do_gettimeofday(struct timeval *tv)
 	unsigned long max_ntp_tick = tick_usec - tickadj;
 
 	do {
-		seq = read_seqbegin_irqsave(&xtime_lock, flags);
+		seq = read_atomic_seqbegin_irqsave(&xtime_lock, flags);
 		usec = do_gettimeoffset();
 
 		/*
@@ -779,7 +779,7 @@ static void pci_do_gettimeofday(struct timeval *tv)
 
 		sec = xtime.tv_sec;
 		usec += (xtime.tv_nsec / 1000);
-	} while (read_seqretry_irqrestore(&xtime_lock, seq, flags));
+	} while (read_atomic_seqretry_irqrestore(&xtime_lock, seq, flags));
 
 	while (usec >= 1000000) {
 		usec -= 1000000;

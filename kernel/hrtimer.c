@@ -120,11 +120,11 @@ void ktime_get_ts(struct timespec *ts)
 	unsigned long seq;
 
 	do {
-		seq = read_seqbegin(&xtime_lock);
+		seq = read_atomic_seqbegin(&xtime_lock);
 		getnstimeofday(ts);
 		tomono = wall_to_monotonic;
 
-	} while (read_seqretry(&xtime_lock, seq));
+	} while (read_atomic_seqretry(&xtime_lock, seq));
 
 	set_normalized_timespec(ts, ts->tv_sec + tomono.tv_sec,
 				ts->tv_nsec + tomono.tv_nsec);
@@ -142,10 +142,10 @@ static void hrtimer_get_softirq_time(struct hrtimer_cpu_base *base)
 	unsigned long seq;
 
 	do {
-		seq = read_seqbegin(&xtime_lock);
+		seq = read_atomic_seqbegin(&xtime_lock);
 		xts = current_kernel_time();
 		tom = wall_to_monotonic;
-	} while (read_seqretry(&xtime_lock, seq));
+	} while (read_atomic_seqretry(&xtime_lock, seq));
 
 	xtim = timespec_to_ktime(xts);
 	tomono = timespec_to_ktime(tom);
@@ -638,11 +638,11 @@ static void retrigger_next_event(void *arg)
 		return;
 
 	do {
-		seq = read_seqbegin(&xtime_lock);
+		seq = read_atomic_seqbegin(&xtime_lock);
 		set_normalized_timespec(&realtime_offset,
 					-wall_to_monotonic.tv_sec,
 					-wall_to_monotonic.tv_nsec);
-	} while (read_seqretry(&xtime_lock, seq));
+	} while (read_atomic_seqretry(&xtime_lock, seq));
 
 	base = &__get_cpu_var(hrtimer_bases);
 

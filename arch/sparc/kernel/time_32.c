@@ -93,7 +93,7 @@ static irqreturn_t timer_interrupt(int dummy, void *dev_id)
 #endif
 
 	/* Protect counter clear so that do_gettimeoffset works */
-	write_seqlock(&xtime_lock);
+	write_atomic_seqlock(&xtime_lock);
 
 	clear_clock_irq();
 
@@ -109,7 +109,7 @@ static irqreturn_t timer_interrupt(int dummy, void *dev_id)
 	  else
 	    last_rtc_update = xtime.tv_sec - 600; /* do it again in 60 s */
 	}
-	write_sequnlock(&xtime_lock);
+	write_atomic_sequnlock(&xtime_lock);
 
 #ifndef CONFIG_SMP
 	update_process_times(user_mode(get_irq_regs()));
@@ -251,7 +251,7 @@ void do_gettimeofday(struct timeval *tv)
 	unsigned long max_ntp_tick = tick_usec - tickadj;
 
 	do {
-		seq = read_seqbegin_irqsave(&xtime_lock, flags);
+		seq = read_atomic_seqbegin_irqsave(&xtime_lock, flags);
 		usec = do_gettimeoffset();
 
 		/*
@@ -264,7 +264,7 @@ void do_gettimeofday(struct timeval *tv)
 
 		sec = xtime.tv_sec;
 		usec += (xtime.tv_nsec / 1000);
-	} while (read_seqretry_irqrestore(&xtime_lock, seq, flags));
+	} while (read_atomic_seqretry_irqrestore(&xtime_lock, seq, flags));
 
 	while (usec >= 1000000) {
 		usec -= 1000000;
@@ -281,9 +281,9 @@ int do_settimeofday(struct timespec *tv)
 {
 	int ret;
 
-	write_seqlock_irq(&xtime_lock);
+	write_atomic_seqlock_irq(&xtime_lock);
 	ret = bus_do_settimeofday(tv);
-	write_sequnlock_irq(&xtime_lock);
+	write_atomic_sequnlock_irq(&xtime_lock);
 	clock_was_set();
 	return ret;
 }

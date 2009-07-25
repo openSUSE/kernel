@@ -141,10 +141,10 @@ consider_steal_time(unsigned long new_itm)
 		delta_itm += local_cpu_data->itm_delta * (stolen + blocked);
 
 		if (cpu == time_keeper_id) {
-			write_seqlock(&xtime_lock);
+			write_atomic_seqlock(&xtime_lock);
 			do_timer(stolen + blocked);
 			local_cpu_data->itm_next = delta_itm + new_itm;
-			write_sequnlock(&xtime_lock);
+			write_atomic_sequnlock(&xtime_lock);
 		} else {
 			local_cpu_data->itm_next = delta_itm + new_itm;
 		}

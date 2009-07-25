@@ -106,7 +106,7 @@ irqreturn_t timer_interrupt(int irq, void *dev)
 	profile_tick(CPU_PROFILING);
 #endif
 
-	write_seqlock(&xtime_lock);
+	write_atomic_seqlock(&xtime_lock);
 
 	/*
 	 * Calculate how many ticks have passed since the last update,
@@ -136,7 +136,7 @@ irqreturn_t timer_interrupt(int irq, void *dev)
 		state.last_rtc_update = xtime.tv_sec - (tmp ? 600 : 0);
 	}
 
-	write_sequnlock(&xtime_lock);
+	write_atomic_sequnlock(&xtime_lock);
 
 #ifndef CONFIG_SMP
 	while (nticks--)
@@ -416,14 +416,14 @@ do_gettimeofday(struct timeval *tv)
 	unsigned long delta_cycles, delta_usec, partial_tick;
 
 	do {
-		seq = read_seqbegin_irqsave(&xtime_lock, flags);
+		seq = read_atomic_seqbegin_irqsave(&xtime_lock, flags);
 
 		delta_cycles = rpcc() - state.last_time;
 		sec = xtime.tv_sec;
 		usec = (xtime.tv_nsec / 1000);
 		partial_tick = state.partial_tick;
 
-	} while (read_seqretry_irqrestore(&xtime_lock, seq, flags));
+	} while (read_atomic_seqretry_irqrestore(&xtime_lock, seq, flags));
 
 #ifdef CONFIG_SMP
 	/* Until and unless we figure out how to get cpu cycle counters
@@ -470,7 +470,7 @@ do_settimeofday(struct timespec *tv)
 	if ((unsigned long)tv->tv_nsec >= NSEC_PER_SEC)
 		return -EINVAL;
 
-	write_seqlock_irq(&xtime_lock);
+	write_atomic_seqlock_irq(&xtime_lock);
 
 	/* The offset that is added into time in do_gettimeofday above
 	   must be subtracted out here to keep a coherent view of the
@@ -496,7 +496,7 @@ do_settimeofday(struct timespec *tv)
 
 	ntp_clear();
 
-	write_sequnlock_irq(&xtime_lock);
+	write_atomic_sequnlock_irq(&xtime_lock);
 	clock_was_set();
 	return 0;
 }
