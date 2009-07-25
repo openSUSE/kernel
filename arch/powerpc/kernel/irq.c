@@ -191,7 +191,7 @@ int show_interrupts(struct seq_file *p, void *v)
 
 	if (i < NR_IRQS) {
 		desc = get_irq_desc(i);
-		spin_lock_irqsave(&desc->lock, flags);
+		atomic_spin_lock_irqsave(&desc->lock, flags);
 		action = desc->action;
 		if (!action || !action->handler)
 			goto skip;
@@ -212,7 +212,7 @@ int show_interrupts(struct seq_file *p, void *v)
 			seq_printf(p, ", %s", action->name);
 		seq_putc(p, '\n');
 skip:
-		spin_unlock_irqrestore(&desc->lock, flags);
+		atomic_spin_unlock_irqrestore(&desc->lock, flags);
 	} else if (i == NR_IRQS) {
 #if defined(CONFIG_PPC32) && defined(CONFIG_TAU_INT)
 		if (tau_initialized){
@@ -1065,7 +1065,7 @@ static int virq_debug_show(struct seq_file *m, void *private)
 
 	for (i = 1; i < NR_IRQS; i++) {
 		desc = get_irq_desc(i);
-		spin_lock_irqsave(&desc->lock, flags);
+		atomic_spin_lock_irqsave(&desc->lock, flags);
 
 		if (desc->action && desc->action->handler) {
 			seq_printf(m, "%5d  ", i);
@@ -1084,7 +1084,7 @@ static int virq_debug_show(struct seq_file *m, void *private)
 			seq_printf(m, "%s\n", p);
 		}
 
-		spin_unlock_irqrestore(&desc->lock, flags);
+		atomic_spin_unlock_irqrestore(&desc->lock, flags);
 	}
 
 	return 0;

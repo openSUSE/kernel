@@ -81,12 +81,12 @@ void fixup_irqs(void)
 			continue;
 
 		/* interrupt's are disabled at this point */
-		spin_lock(&desc->lock);
+		atomic_spin_lock(&desc->lock);
 
 		affinity = desc->affinity;
 		if (!irq_has_action(irq) ||
 		    cpumask_equal(affinity, cpu_online_mask)) {
-			spin_unlock(&desc->lock);
+			atomic_spin_unlock(&desc->lock);
 			continue;
 		}
 
@@ -106,7 +106,7 @@ void fixup_irqs(void)
 		if (desc->chip->unmask)
 			desc->chip->unmask(irq);
 
-		spin_unlock(&desc->lock);
+		atomic_spin_unlock(&desc->lock);
 
 		if (break_affinity && set_affinity)
 			printk("Broke affinity for irq %i\n", irq);

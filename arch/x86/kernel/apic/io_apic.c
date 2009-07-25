@@ -2454,7 +2454,7 @@ asmlinkage void smp_irq_move_cleanup_interrupt(void)
 			continue;
 
 		cfg = irq_cfg(irq);
-		spin_lock(&desc->lock);
+		atomic_spin_lock(&desc->lock);
 		if (!cfg->move_cleanup_count)
 			goto unlock;
 
@@ -2476,7 +2476,7 @@ asmlinkage void smp_irq_move_cleanup_interrupt(void)
 		__get_cpu_var(vector_irq)[vector] = -1;
 		cfg->move_cleanup_count--;
 unlock:
-		spin_unlock(&desc->lock);
+		atomic_spin_unlock(&desc->lock);
 	}
 
 	irq_exit();

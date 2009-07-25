@@ -851,7 +851,7 @@ void xics_migrate_irqs_away(void)
 		    || desc->chip->set_affinity == NULL)
 			continue;
 
-		spin_lock_irqsave(&desc->lock, flags);
+		atomic_spin_lock_irqsave(&desc->lock, flags);
 
 		status = rtas_call(ibm_get_xive, 1, 3, xics_status, irq);
 		if (status) {
@@ -875,7 +875,7 @@ void xics_migrate_irqs_away(void)
 		cpumask_setall(irq_desc[virq].affinity);
 		desc->chip->set_affinity(virq, cpu_all_mask);
 unlock:
-		spin_unlock_irqrestore(&desc->lock, flags);
+		atomic_spin_unlock_irqrestore(&desc->lock, flags);
 	}
 }
 #endif

@@ -217,9 +217,9 @@ void __init iSeries_activate_IRQs()
 		struct irq_desc *desc = get_irq_desc(irq);
 
 		if (desc && desc->chip && desc->chip->startup) {
-			spin_lock_irqsave(&desc->lock, flags);
+			atomic_spin_lock_irqsave(&desc->lock, flags);
 			desc->chip->startup(irq);
-			spin_unlock_irqrestore(&desc->lock, flags);
+			atomic_spin_unlock_irqrestore(&desc->lock, flags);
 		}
 	}
 }
