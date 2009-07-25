@@ -113,8 +113,8 @@ static void init_once(void *foo)
 {
 	struct affs_inode_info *ei = (struct affs_inode_info *) foo;
 
-	init_MUTEX(&ei->i_link_lock);
-	init_MUTEX(&ei->i_ext_lock);
+	semaphore_init(&ei->i_link_lock);
+	semaphore_init(&ei->i_ext_lock);
 	inode_init_once(&ei->vfs_inode);
 }
 
