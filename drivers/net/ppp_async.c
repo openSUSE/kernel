@@ -183,7 +183,7 @@ ppp_asynctty_open(struct tty_struct *tty)
 	tasklet_init(&ap->tsk, ppp_async_process, (unsigned long) ap);
 
 	atomic_set(&ap->refcnt, 1);
-	init_MUTEX_LOCKED(&ap->dead_sem);
+	semaphore_init_locked(&ap->dead_sem);
 
 	ap->chan.private = ap;
 	ap->chan.ops = &async_ops;
