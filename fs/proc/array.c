@@ -134,12 +134,13 @@ static inline void task_name(struct seq_file *m, struct task_struct *p)
  */
 static const char *task_state_array[] = {
 	"R (running)",		/*  0 */
-	"S (sleeping)",		/*  1 */
-	"D (disk sleep)",	/*  2 */
-	"T (stopped)",		/*  4 */
-	"T (tracing stop)",	/*  8 */
-	"Z (zombie)",		/* 16 */
-	"X (dead)"		/* 32 */
+	"M (running-mutex)",	/*  1 */
+	"S (sleeping)",		/*  2 */
+	"D (disk sleep)",	/*  4 */
+	"T (stopped)",		/*  8 */
+	"T (tracing stop)",	/* 16 */
+	"Z (zombie)",		/* 32 */
+	"X (dead)"		/* 64 */
 };
 
 static inline const char *get_task_state(struct task_struct *tsk)
@@ -321,6 +322,19 @@ static inline void task_context_switch_counts(struct seq_file *m,
 			p->nivcsw);
 }
 
+#define get_blocked_on(t)	(-1)
+
+static inline void show_blocked_on(struct seq_file *m, struct task_struct *p)
+{
+	pid_t pid = get_blocked_on(p);
+
+	if (pid < 0)
+		return;
+
+	seq_printf(m, "BlckOn: %d\n", pid);
+}
+
+
 int proc_pid_status(struct seq_file *m, struct pid_namespace *ns,
 			struct pid *pid, struct task_struct *task)
 {
@@ -340,6 +354,7 @@ int proc_pid_status(struct seq_file *m, struct pid_namespace *ns,
 	task_show_regs(m, task);
 #endif
 	task_context_switch_counts(m, task);
+	show_blocked_on(m, task);
 	return 0;
 }
 
