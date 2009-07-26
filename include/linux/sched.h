@@ -1969,6 +1969,9 @@ extern void do_timer(unsigned long ticks);
 
 extern int wake_up_state(struct task_struct *tsk, unsigned int state);
 extern int wake_up_process(struct task_struct *tsk);
+extern int wake_up_process_mutex(struct task_struct * tsk);
+extern int wake_up_process_sync(struct task_struct * tsk);
+extern int wake_up_process_mutex_sync(struct task_struct * tsk);
 extern void wake_up_new_task(struct task_struct *tsk,
 				unsigned long clone_flags);
 #ifdef CONFIG_SMP
