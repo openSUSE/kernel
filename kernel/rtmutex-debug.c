@@ -29,61 +29,6 @@
 
 #include "rtmutex_common.h"
 
-# define TRACE_WARN_ON(x)			WARN_ON(x)
-# define TRACE_BUG_ON(x)			BUG_ON(x)
-
-# define TRACE_OFF()						\
-do {								\
-	if (rt_trace_on) {					\
-		rt_trace_on = 0;				\
-		console_verbose();				\
-		if (atomic_spin_is_locked(&current->pi_lock))	\
-			atomic_spin_unlock(&current->pi_lock);	\
-	}							\
-} while (0)
-
-# define TRACE_OFF_NOLOCK()					\
-do {								\
-	if (rt_trace_on) {					\
-		rt_trace_on = 0;				\
-		console_verbose();				\
-	}							\
-} while (0)
-
-# define TRACE_BUG_LOCKED()			\
-do {						\
-	TRACE_OFF();				\
-	BUG();					\
-} while (0)
-
-# define TRACE_WARN_ON_LOCKED(c)		\
-do {						\
-	if (unlikely(c)) {			\
-		TRACE_OFF();			\
-		WARN_ON(1);			\
-	}					\
-} while (0)
-
-# define TRACE_BUG_ON_LOCKED(c)			\
-do {						\
-	if (unlikely(c))			\
-		TRACE_BUG_LOCKED();		\
-} while (0)
-
-#ifdef CONFIG_SMP
-# define SMP_TRACE_BUG_ON_LOCKED(c)	TRACE_BUG_ON_LOCKED(c)
-#else
-# define SMP_TRACE_BUG_ON_LOCKED(c)	do { } while (0)
-#endif
-
-/*
- * deadlock detection flag. We turn it off when we detect
- * the first problem because we dont want to recurse back
- * into the tracing code when doing error printk or
- * executing a BUG():
- */
-static int rt_trace_on = 1;
-
 static void printk_task(struct task_struct *p)
 {
 	if (p)
@@ -111,8 +56,8 @@ static void printk_lock(struct rt_mutex *lock, int print_owner)
 
 void rt_mutex_debug_task_free(struct task_struct *task)
 {
-	WARN_ON(!plist_head_empty(&task->pi_waiters));
-	WARN_ON(task->pi_blocked_on);
+	DEBUG_LOCKS_WARN_ON(!plist_head_empty(&task->pi_waiters));
+	DEBUG_LOCKS_WARN_ON(task->pi_blocked_on);
 }
 
 /*
@@ -125,7 +70,7 @@ void debug_rt_mutex_deadlock(int detect, struct rt_mutex_waiter *act_waiter,
 {
 	struct task_struct *task;
 
-	if (!rt_trace_on || detect || !act_waiter)
+	if (!debug_locks || detect || !act_waiter)
 		return;
 
 	task = rt_mutex_owner(act_waiter->lock);
@@ -139,7 +84,7 @@ void debug_rt_mutex_print_deadlock(struct rt_mutex_waiter *waiter)
 {
 	struct task_struct *task;
 
-	if (!waiter->deadlock_lock || !rt_trace_on)
+	if (!waiter->deadlock_lock || !debug_locks)
 		return;
 
 	rcu_read_lock();
@@ -149,7 +94,8 @@ void debug_rt_mutex_print_deadlock(struct rt_mutex_waiter *waiter)
 		return;
 	}
 
-	TRACE_OFF_NOLOCK();
+	if (!debug_locks_off())
+		return;
 
 	printk("\n============================================\n");
 	printk(  "[ BUG: circular locking deadlock detected! ]\n");
@@ -180,7 +126,6 @@ void debug_rt_mutex_print_deadlock(struct rt_mutex_waiter *waiter)
 
 	printk("[ turning off deadlock detection."
 	       "Please report this trace. ]\n\n");
-	local_irq_disable();
 }
 
 void debug_rt_mutex_lock(struct rt_mutex *lock)
@@ -189,7 +134,8 @@ void debug_rt_mutex_lock(struct rt_mutex *lock)
 
 void debug_rt_mutex_unlock(struct rt_mutex *lock)
 {
-	TRACE_WARN_ON_LOCKED(rt_mutex_owner(lock) != current);
+	if (debug_locks)
+		DEBUG_LOCKS_WARN_ON(rt_mutex_owner(lock) != current);
 }
 
 void
@@ -199,7 +145,7 @@ debug_rt_mutex_proxy_lock(struct rt_mutex *lock, struct task_struct *powner)
 
 void debug_rt_mutex_proxy_unlock(struct rt_mutex *lock)
 {
-	TRACE_WARN_ON_LOCKED(!rt_mutex_owner(lock));
+	DEBUG_LOCKS_WARN_ON(!rt_mutex_owner(lock));
 }
 
 void debug_rt_mutex_init_waiter(struct rt_mutex_waiter *waiter)
@@ -213,9 +159,9 @@ void debug_rt_mutex_init_waiter(struct rt_mutex_waiter *waiter)
 void debug_rt_mutex_free_waiter(struct rt_mutex_waiter *waiter)
 {
 	put_pid(waiter->deadlock_task_pid);
-	TRACE_WARN_ON(!plist_node_empty(&waiter->list_entry));
-	TRACE_WARN_ON(!plist_node_empty(&waiter->pi_list_entry));
-	TRACE_WARN_ON(waiter->task);
+	DEBUG_LOCKS_WARN_ON(!plist_node_empty(&waiter->list_entry));
+	DEBUG_LOCKS_WARN_ON(!plist_node_empty(&waiter->pi_list_entry));
+	DEBUG_LOCKS_WARN_ON(waiter->task);
 	memset(waiter, 0x22, sizeof(*waiter));
 }
 
@@ -231,9 +177,36 @@ void debug_rt_mutex_init(struct rt_mutex *lock, const char *name)
 void
 rt_mutex_deadlock_account_lock(struct rt_mutex *lock, struct task_struct *task)
 {
+#ifdef CONFIG_DEBUG_PREEMPT
+	if (task->lock_count >= MAX_LOCK_STACK) {
+		if (!debug_locks_off())
+			return;
+		printk("BUG: %s/%d: lock count overflow!\n",
+			task->comm, task->pid);
+		dump_stack();
+		return;
+	}
+#ifdef CONFIG_PREEMPT_RT
+	task->owned_lock[task->lock_count] = lock;
+#endif
+	task->lock_count++;
+#endif
 }
 
 void rt_mutex_deadlock_account_unlock(struct task_struct *task)
 {
+#ifdef CONFIG_DEBUG_PREEMPT
+	if (!task->lock_count) {
+		if (!debug_locks_off())
+			return;
+		printk("BUG: %s/%d: lock count underflow!\n",
+			task->comm, task->pid);
+		dump_stack();
+		return;
+	}
+	task->lock_count--;
+#ifdef CONFIG_PREEMPT_RT
+	task->owned_lock[task->lock_count] = NULL;
+#endif
+#endif
 }
-

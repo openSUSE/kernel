@@ -24,7 +24,7 @@
  *
  * Don't use in new code.
  */
-static DEFINE_SEMAPHORE(kernel_sem);
+DEFINE_SEMAPHORE(kernel_sem);
 
 /*
  * Re-acquire the kernel semaphore.
