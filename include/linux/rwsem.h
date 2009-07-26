@@ -14,6 +14,7 @@
 #include <asm/system.h>
 #include <asm/atomic.h>
 
+struct rw_anon_semaphore;
 struct rw_semaphore;
 
 #ifdef CONFIG_RWSEM_GENERIC_SPINLOCK
@@ -25,37 +26,37 @@ struct rw_semaphore;
 /*
  * lock for reading
  */
-extern void down_read(struct rw_semaphore *sem);
+extern void anon_down_read(struct rw_anon_semaphore *sem);
 
 /*
  * trylock for reading -- returns 1 if successful, 0 if contention
  */
-extern int down_read_trylock(struct rw_semaphore *sem);
+extern int anon_down_read_trylock(struct rw_anon_semaphore *sem);
 
 /*
  * lock for writing
  */
-extern void down_write(struct rw_semaphore *sem);
+extern void anon_down_write(struct rw_anon_semaphore *sem);
 
 /*
  * trylock for writing -- returns 1 if successful, 0 if contention
  */
-extern int down_write_trylock(struct rw_semaphore *sem);
+extern int anon_down_write_trylock(struct rw_anon_semaphore *sem);
 
 /*
  * release a read lock
  */
-extern void up_read(struct rw_semaphore *sem);
+extern void anon_up_read(struct rw_anon_semaphore *sem);
 
 /*
  * release a write lock
  */
-extern void up_write(struct rw_semaphore *sem);
+extern void anon_up_write(struct rw_anon_semaphore *sem);
 
 /*
  * downgrade write lock to read lock
  */
-extern void downgrade_write(struct rw_semaphore *sem);
+extern void anon_downgrade_write(struct rw_anon_semaphore *sem);
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 /*
@@ -71,21 +72,69 @@ extern void downgrade_write(struct rw_semaphore *sem);
  * lockdep_set_class() at lock initialization time.
  * See Documentation/lockdep-design.txt for more details.)
  */
-extern void down_read_nested(struct rw_semaphore *sem, int subclass);
-extern void down_write_nested(struct rw_semaphore *sem, int subclass);
+extern void anon_down_read_nested(struct rw_anon_semaphore *sem, int subclass);
+extern void anon_down_write_nested(struct rw_anon_semaphore *sem, int subclass);
 /*
  * Take/release a lock when not the owner will release it.
  *
  * [ This API should be avoided as much as possible - the
  *   proper abstraction for this case is completions. ]
  */
-extern void down_read_non_owner(struct rw_semaphore *sem);
-extern void up_read_non_owner(struct rw_semaphore *sem);
+extern void anon_down_read_non_owner(struct rw_anon_semaphore *sem);
+extern void anon_up_read_non_owner(struct rw_anon_semaphore *sem);
 #else
-# define down_read_nested(sem, subclass)		down_read(sem)
-# define down_write_nested(sem, subclass)	down_write(sem)
-# define down_read_non_owner(sem)		down_read(sem)
-# define up_read_non_owner(sem)			up_read(sem)
+# define anon_down_read_nested(sem, subclass)	anon_down_read(sem)
+# define anon_down_write_nested(sem, subclass)	anon_down_write(sem)
+# define anon_down_read_non_owner(sem)		anon_down_read(sem)
+# define anon_up_read_non_owner(sem)		anon_up_read(sem)
 #endif
+
+/*
+ * Non preempt-rt implementations
+ */
+static inline void down_read(struct rw_semaphore *sem)
+{
+	anon_down_read((struct rw_anon_semaphore *)sem);
+}
+
+static inline int down_read_trylock(struct rw_semaphore *sem)
+{
+	return anon_down_read_trylock((struct rw_anon_semaphore *)sem);
+}
+
+static inline void down_write(struct rw_semaphore *sem)
+{
+	anon_down_write((struct rw_anon_semaphore *)sem);
+}
+
+static inline int down_write_trylock(struct rw_semaphore *sem)
+{
+	return anon_down_write_trylock((struct rw_anon_semaphore *)sem);
+}
+
+static inline void up_read(struct rw_semaphore *sem)
+{
+	anon_up_read((struct rw_anon_semaphore *)sem);
+}
+
+static inline void up_write(struct rw_semaphore *sem)
+{
+	anon_up_write((struct rw_anon_semaphore *)sem);
+}
+
+static inline void downgrade_write(struct rw_semaphore *sem)
+{
+	anon_downgrade_write((struct rw_anon_semaphore *)sem);
+}
+
+static inline void down_read_nested(struct rw_semaphore *sem, int subclass)
+{
+	return anon_down_read_nested((struct rw_anon_semaphore *)sem, subclass);
+}
+
+static inline void down_write_nested(struct rw_semaphore *sem, int subclass)
+{
+	anon_down_write_nested((struct rw_anon_semaphore *)sem, subclass);
+}
 
 #endif /* _LINUX_RWSEM_H */

@@ -18,15 +18,18 @@
 
 struct rwsem_waiter;
 
-extern struct rw_semaphore *rwsem_down_read_failed(struct rw_semaphore *sem);
-extern struct rw_semaphore *rwsem_down_write_failed(struct rw_semaphore *sem);
-extern struct rw_semaphore *rwsem_wake(struct rw_semaphore *);
-extern struct rw_semaphore *rwsem_downgrade_wake(struct rw_semaphore *sem);
+extern struct rw_anon_semaphore *
+rwsem_down_read_failed(struct rw_anon_semaphore *sem);
+extern struct rw_anon_semaphore *
+rwsem_down_write_failed(struct rw_anon_semaphore *sem);
+extern struct rw_anon_semaphore *rwsem_wake(struct rw_anon_semaphore *);
+extern struct rw_anon_semaphore *
+rwsem_downgrade_wake(struct rw_anon_semaphore *sem);
 
 /*
  * the semaphore definition
  */
-struct rw_semaphore {
+struct rw_anon_semaphore {
 	long			count;
 #define RWSEM_UNLOCKED_VALUE		0x0000000000000000L
 #define RWSEM_ACTIVE_BIAS		0x0000000000000001L
@@ -34,6 +37,31 @@ struct rw_semaphore {
 #define RWSEM_WAITING_BIAS		(-0x0000000100000000L)
 #define RWSEM_ACTIVE_READ_BIAS		RWSEM_ACTIVE_BIAS
 #define RWSEM_ACTIVE_WRITE_BIAS		(RWSEM_WAITING_BIAS + RWSEM_ACTIVE_BIAS)
+	spinlock_t		wait_lock;
+	struct list_head	wait_list;
+};
+
+#define __RWSEM_ANON_INITIALIZER(name) \
+	{ RWSEM_UNLOCKED_VALUE, SPIN_LOCK_UNLOCKED, \
+	LIST_HEAD_INIT((name).wait_list) }
+
+#define DECLARE_ANON_RWSEM(name) \
+	struct rw_anon_semaphore name = __RWSEM_ANON_INITIALIZER(name)
+
+static inline void init_anon_rwsem(struct rw_anon_semaphore *sem)
+{
+	sem->count = RWSEM_UNLOCKED_VALUE;
+	spin_lock_init(&sem->wait_lock);
+	INIT_LIST_HEAD(&sem->wait_list);
+}
+
+static inline int anon_rwsem_is_locked(struct rw_anon_semaphore *sem)
+{
+	return (sem->count != 0);
+}
+
+struct rw_semaphore {
+	long			count;
 	spinlock_t		wait_lock;
 	struct list_head	wait_list;
 };
@@ -47,12 +75,15 @@ struct rw_semaphore {
 
 static inline void init_rwsem(struct rw_semaphore *sem)
 {
-	sem->count = RWSEM_UNLOCKED_VALUE;
-	spin_lock_init(&sem->wait_lock);
-	INIT_LIST_HEAD(&sem->wait_list);
+	init_anon_rwsem((struct rw_anon_semaphore *)sem);
 }
 
-static inline void __down_read(struct rw_semaphore *sem)
+static inline int rwsem_is_locked(struct rw_semaphore *sem)
+{
+	return (sem->count != 0);
+}
+
+static inline void __down_read(struct rw_anon_semaphore *sem)
 {
 	long oldcount;
 #ifndef	CONFIG_SMP
@@ -79,7 +110,7 @@ static inline void __down_read(struct rw_semaphore *sem)
 /*
  * trylock for reading -- returns 1 if successful, 0 if contention
  */
-static inline int __down_read_trylock(struct rw_semaphore *sem)
+static inline int __down_read_trylock(struct rw_anon_semaphore *sem)
 {
 	long old, new, res;
 
@@ -94,7 +125,7 @@ static inline int __down_read_trylock(struct rw_semaphore *sem)
 	return res >= 0 ? 1 : 0;
 }
 
-static inline void __down_write(struct rw_semaphore *sem)
+static inline void __down_write(struct rw_anon_semaphore *sem)
 {
 	long oldcount;
 #ifndef	CONFIG_SMP
@@ -121,7 +152,7 @@ static inline void __down_write(struct rw_semaphore *sem)
 /*
  * trylock for writing -- returns 1 if successful, 0 if contention
  */
-static inline int __down_write_trylock(struct rw_semaphore *sem)
+static inline int __down_write_trylock(struct rw_anon_semaphore *sem)
 {
 	long ret = cmpxchg(&sem->count, RWSEM_UNLOCKED_VALUE,
 			   RWSEM_ACTIVE_WRITE_BIAS);
@@ -130,7 +161,7 @@ static inline int __down_write_trylock(struct rw_semaphore *sem)
 	return 0;
 }
 
-static inline void __up_read(struct rw_semaphore *sem)
+static inline void __up_read(struct rw_anon_semaphore *sem)
 {
 	long oldcount;
 #ifndef	CONFIG_SMP
@@ -155,7 +186,7 @@ static inline void __up_read(struct rw_semaphore *sem)
 			rwsem_wake(sem);
 }
 
-static inline void __up_write(struct rw_semaphore *sem)
+static inline void __up_write(struct rw_anon_semaphore *sem)
 {
 	long count;
 #ifndef	CONFIG_SMP
@@ -184,7 +215,7 @@ static inline void __up_write(struct rw_semaphore *sem)
 /*
  * downgrade write lock to read lock
  */
-static inline void __downgrade_write(struct rw_semaphore *sem)
+static inline void __downgrade_write(struct rw_anon_semaphore *sem)
 {
 	long oldcount;
 #ifndef	CONFIG_SMP
@@ -208,7 +239,7 @@ static inline void __downgrade_write(struct rw_semaphore *sem)
 		rwsem_downgrade_wake(sem);
 }
 
-static inline void rwsem_atomic_add(long val, struct rw_semaphore *sem)
+static inline void rwsem_atomic_add(long val, struct rw_anon_semaphore *sem)
 {
 #ifndef	CONFIG_SMP
 	sem->count += val;
@@ -227,7 +258,7 @@ static inline void rwsem_atomic_add(long val, struct rw_semaphore *sem)
 #endif
 }
 
-static inline long rwsem_atomic_update(long val, struct rw_semaphore *sem)
+static inline long rwsem_atomic_update(long val, struct rw_anon_semaphore *sem)
 {
 #ifndef	CONFIG_SMP
 	sem->count += val;
@@ -248,11 +279,6 @@ static inline long rwsem_atomic_update(long val, struct rw_semaphore *sem)
 
 	return ret;
 #endif
-}
-
-static inline int rwsem_is_locked(struct rw_semaphore *sem)
-{
-	return (sem->count != 0);
 }
 
 #endif /* __KERNEL__ */

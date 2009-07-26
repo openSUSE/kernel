@@ -25,7 +25,7 @@
 /*
  * the semaphore definition
  */
-struct rw_semaphore {
+struct rw_anon_semaphore {
 	signed long		count;
 #define RWSEM_UNLOCKED_VALUE		0x00000000
 #define RWSEM_ACTIVE_BIAS		0x00000001
@@ -37,29 +37,37 @@ struct rw_semaphore {
 	struct list_head	wait_list;
 };
 
-#define __RWSEM_INITIALIZER(name) \
+#define __RWSEM_ANON_INITIALIZER(name) \
 	{ RWSEM_UNLOCKED_VALUE, SPIN_LOCK_UNLOCKED, \
 	  LIST_HEAD_INIT((name).wait_list) }
 
-#define DECLARE_RWSEM(name)		\
-	struct rw_semaphore name = __RWSEM_INITIALIZER(name)
+#define DECLARE_ANON_RWSEM(name)		\
+	struct rw_anon_semaphore name = __RWSEM_ANON_INITIALIZER(name)
 
-extern struct rw_semaphore *rwsem_down_read_failed(struct rw_semaphore *sem);
-extern struct rw_semaphore *rwsem_down_write_failed(struct rw_semaphore *sem);
-extern struct rw_semaphore *rwsem_wake(struct rw_semaphore *sem);
-extern struct rw_semaphore *rwsem_downgrade_wake(struct rw_semaphore *sem);
+extern struct rw_anon_semaphore *
+rwsem_down_read_failed(struct rw_anon_semaphore *sem);
+extern struct rw_anon_semaphore *
+rwsem_down_write_failed(struct rw_anon_semaphore *sem);
+extern struct rw_anon_semaphore *rwsem_wake(struct rw_anon_semaphore *sem);
+extern struct rw_anon_semaphore *
+rwsem_downgrade_wake(struct rw_anon_semaphore *sem);
 
-static inline void init_rwsem(struct rw_semaphore *sem)
+static inline void init_anon_rwsem(struct rw_anon_semaphore *sem)
 {
 	sem->count = RWSEM_UNLOCKED_VALUE;
 	spin_lock_init(&sem->wait_lock);
 	INIT_LIST_HEAD(&sem->wait_list);
 }
 
+static inline int anon_rwsem_is_locked(struct rw_anon_semaphore *sem)
+{
+	return (sem->count != 0);
+}
+
 /*
  * lock for reading
  */
-static inline void __down_read(struct rw_semaphore *sem)
+static inline void __down_read(struct rw_anon_semaphore *sem)
 {
 	if (atomic_add_return(1,(atomic_t *)(&sem->count)) > 0)
 		smp_wmb();
@@ -67,7 +75,7 @@ static inline void __down_read(struct rw_semaphore *sem)
 		rwsem_down_read_failed(sem);
 }
 
-static inline int __down_read_trylock(struct rw_semaphore *sem)
+static inline int __down_read_trylock(struct rw_anon_semaphore *sem)
 {
 	int tmp;
 
@@ -84,7 +92,7 @@ static inline int __down_read_trylock(struct rw_semaphore *sem)
 /*
  * lock for writing
  */
-static inline void __down_write(struct rw_semaphore *sem)
+static inline void __down_write(struct rw_anon_semaphore *sem)
 {
 	int tmp;
 
@@ -96,7 +104,7 @@ static inline void __down_write(struct rw_semaphore *sem)
 		rwsem_down_write_failed(sem);
 }
 
-static inline int __down_write_trylock(struct rw_semaphore *sem)
+static inline int __down_write_trylock(struct rw_anon_semaphore *sem)
 {
 	int tmp;
 
@@ -109,7 +117,7 @@ static inline int __down_write_trylock(struct rw_semaphore *sem)
 /*
  * unlock after reading
  */
-static inline void __up_read(struct rw_semaphore *sem)
+static inline void __up_read(struct rw_anon_semaphore *sem)
 {
 	int tmp;
 
@@ -122,7 +130,7 @@ static inline void __up_read(struct rw_semaphore *sem)
 /*
  * unlock after writing
  */
-static inline void __up_write(struct rw_semaphore *sem)
+static inline void __up_write(struct rw_anon_semaphore *sem)
 {
 	smp_wmb();
 	if (atomic_sub_return(RWSEM_ACTIVE_WRITE_BIAS,
@@ -133,7 +141,7 @@ static inline void __up_write(struct rw_semaphore *sem)
 /*
  * implement atomic add functionality
  */
-static inline void rwsem_atomic_add(int delta, struct rw_semaphore *sem)
+static inline void rwsem_atomic_add(int delta, struct rw_anon_semaphore *sem)
 {
 	atomic_add(delta, (atomic_t *)(&sem->count));
 }
@@ -141,7 +149,7 @@ static inline void rwsem_atomic_add(int delta, struct rw_semaphore *sem)
 /*
  * downgrade write lock to read lock
  */
-static inline void __downgrade_write(struct rw_semaphore *sem)
+static inline void __downgrade_write(struct rw_anon_semaphore *sem)
 {
 	int tmp;
 
@@ -154,10 +162,35 @@ static inline void __downgrade_write(struct rw_semaphore *sem)
 /*
  * implement exchange and add functionality
  */
-static inline int rwsem_atomic_update(int delta, struct rw_semaphore *sem)
+static inline int rwsem_atomic_update(int delta, struct rw_anon_semaphore *sem)
 {
 	smp_mb();
 	return atomic_add_return(delta, (atomic_t *)(&sem->count));
+}
+
+static inline int anon_rwsem_is_locked(struct rw_anon_semaphore *sem)
+{
+	return (sem->count != 0);
+}
+
+struct rw_semaphore {
+	signed long		count;
+	spinlock_t		wait_lock;
+	struct list_head	wait_list;
+};
+
+#define __RWSEM_INITIALIZER(name) \
+	{ RWSEM_UNLOCKED_VALUE, SPIN_LOCK_UNLOCKED, \
+	  LIST_HEAD_INIT((name).wait_list) }
+
+#define DECLARE_RWSEM(name)		\
+	struct rw_semaphore name = __RWSEM_INITIALIZER(name)
+
+static inline void init_rwsem(struct rw_semaphore *sem)
+{
+	sem->count = RWSEM_UNLOCKED_VALUE;
+	spin_lock_init(&sem->wait_lock);
+	INIT_LIST_HEAD(&sem->wait_list);
 }
 
 static inline int rwsem_is_locked(struct rw_semaphore *sem)
