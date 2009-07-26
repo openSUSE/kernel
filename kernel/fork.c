@@ -911,6 +911,9 @@ static void rt_mutex_init_task(struct task_struct *p)
 #ifdef CONFIG_RT_MUTEXES
 	plist_head_init_atomic(&p->pi_waiters, &p->pi_lock);
 	p->pi_blocked_on = NULL;
+# ifdef CONFIG_DEBUG_RT_MUTEXES
+	p->last_kernel_lock = NULL;
+# endif
 #endif
 }
 
@@ -1123,6 +1126,9 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	retval = copy_thread(clone_flags, stack_start, stack_size, p, regs);
 	if (retval)
 		goto bad_fork_cleanup_io;
+#ifdef CONFIG_DEBUG_PREEMPT
+	p->lock_count = 0;
+#endif
 
 	if (pid != &init_struct_pid) {
 		retval = -ENOMEM;

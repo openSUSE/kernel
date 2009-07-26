@@ -1395,6 +1395,26 @@ struct task_struct {
 	gfp_t lockdep_reclaim_gfp;
 #endif
 
+/* realtime bits */
+
+#define MAX_PREEMPT_TRACE 25
+#define MAX_LOCK_STACK	MAX_PREEMPT_TRACE
+#ifdef CONFIG_DEBUG_PREEMPT
+	int lock_count;
+# ifdef CONFIG_PREEMPT_RT
+	struct rt_mutex *owned_lock[MAX_LOCK_STACK];
+# endif
+#endif
+#ifdef CONFIG_DETECT_SOFTLOCKUP
+	unsigned long	softlockup_count; /* Count to keep track how long the
+					   *  thread is in the kernel without
+					   *  sleeping.
+					   */
+#endif
+#ifdef CONFIG_DEBUG_RT_MUTEXES
+	void *last_kernel_lock;
+#endif
+
 /* journalling filesystem info */
 	void *journal_info;
 
