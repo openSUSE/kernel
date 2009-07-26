@@ -1150,7 +1150,7 @@ xfs_mountfs(
 	/*
 	 * Allocate and initialize the per-ag data.
 	 */
-	init_rwsem(&mp->m_peraglock);
+	init_anon_rwsem(&mp->m_peraglock);
 	mp->m_perag = kmem_zalloc(sbp->sb_agcount * sizeof(xfs_perag_t),
 				  KM_MAYFAIL);
 	if (!mp->m_perag)
