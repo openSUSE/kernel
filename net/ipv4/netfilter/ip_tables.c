@@ -348,7 +348,7 @@ ipt_do_table(struct sk_buff *skb,
 	IP_NF_ASSERT(table->valid_hooks & (1 << hook));
 	xt_info_rdlock_bh();
 	private = table->private;
-	table_base = private->entries[smp_processor_id()];
+	table_base = private->entries[raw_smp_processor_id()];
 
 	e = get_entry(table_base, private->hook_entry[hook]);
 
@@ -892,7 +892,7 @@ get_counters(const struct xt_table_info *t,
 {
 	unsigned int cpu;
 	unsigned int i;
-	unsigned int curcpu;
+	unsigned int curcpu = NR_CPUS;
 
 	/* Instead of clearing (by a previous call to memset())
 	 * the counters and using adds, we set the counters
@@ -902,6 +902,7 @@ get_counters(const struct xt_table_info *t,
 	 * if new softirq were to run and call ipt_do_table
 	 */
 	local_bh_disable();
+#ifndef CONFIG_PREEMPT_RT
 	curcpu = smp_processor_id();
 
 	i = 0;
@@ -910,7 +911,7 @@ get_counters(const struct xt_table_info *t,
 			  set_entry_to_counter,
 			  counters,
 			  &i);
-
+#endif
 	for_each_possible_cpu(cpu) {
 		if (cpu == curcpu)
 			continue;
@@ -1391,7 +1392,7 @@ do_add_counters(struct net *net, void __user *user, unsigned int len, int compat
 
 	i = 0;
 	/* Choose the copy that is on our node */
-	curcpu = smp_processor_id();
+	curcpu = raw_smp_processor_id();
 	loc_cpu_entry = private->entries[curcpu];
 	xt_info_wrlock(curcpu);
 	IPT_ENTRY_ITERATE(loc_cpu_entry,

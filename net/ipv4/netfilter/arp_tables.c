@@ -709,7 +709,7 @@ static void get_counters(const struct xt_table_info *t,
 {
 	unsigned int cpu;
 	unsigned int i;
-	unsigned int curcpu;
+	unsigned int curcpu = NR_CPUS;
 
 	/* Instead of clearing (by a previous call to memset())
 	 * the counters and using adds, we set the counters
@@ -719,6 +719,7 @@ static void get_counters(const struct xt_table_info *t,
 	 * if new softirq were to run and call ipt_do_table
 	 */
 	local_bh_disable();
+#ifndef CONFIG_PREEMPT_RT
 	curcpu = smp_processor_id();
 
 	i = 0;
@@ -727,7 +728,7 @@ static void get_counters(const struct xt_table_info *t,
 			   set_entry_to_counter,
 			   counters,
 			   &i);
-
+#endif
 	for_each_possible_cpu(cpu) {
 		if (cpu == curcpu)
 			continue;
