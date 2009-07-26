@@ -77,6 +77,7 @@ static inline int anon_rwsem_is_locked(struct rw_anon_semaphore *sem)
 	return (sem->activity != 0);
 }
 
+#ifndef CONFIG_PREEMPT_RT
 /*
  * Non preempt-rt implementation of rw_semaphore. Same as above, but
  * restricted vs. ownership. i.e. ownerless locked state and non owner
@@ -129,6 +130,7 @@ static inline int rwsem_is_locked(struct rw_semaphore *sem)
 {
 	return (sem->activity != 0);
 }
+#endif
 
 #endif /* __KERNEL__ */
 #endif /* _LINUX_RWSEM_SPINLOCK_H */

@@ -31,6 +31,7 @@ void __atomic_spin_lock_init(atomic_spinlock_t *lock, const char *name,
 
 EXPORT_SYMBOL(__atomic_spin_lock_init);
 
+#ifndef CONFIG_PREEMPT_RT
 void __rwlock_init(rwlock_t *lock, const char *name,
 		   struct lock_class_key *key)
 {
@@ -46,8 +47,8 @@ void __rwlock_init(rwlock_t *lock, const char *name,
 	lock->owner = SPINLOCK_OWNER_INIT;
 	lock->owner_cpu = -1;
 }
-
 EXPORT_SYMBOL(__rwlock_init);
+#endif
 
 static void spin_bug(atomic_spinlock_t *lock, const char *msg)
 {
@@ -153,6 +154,8 @@ void _raw_spin_unlock(atomic_spinlock_t *lock)
 	debug_spin_unlock(lock);
 	__raw_spin_unlock(&lock->raw_lock);
 }
+
+#ifndef CONFIG_PREEMPT_RT
 
 static void rwlock_bug(rwlock_t *lock, const char *msg)
 {
@@ -295,3 +298,4 @@ void _raw_write_unlock(rwlock_t *lock)
 	debug_write_unlock(lock);
 	__raw_write_unlock(&lock->raw_lock);
 }
+#endif

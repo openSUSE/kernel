@@ -75,14 +75,16 @@
 
 #include <linux/kernel.h>
 #include <linux/list.h>
-#include <linux/spinlock_types.h>
+
+struct spinlock;
+struct atomic_spinlock;
 
 struct plist_head {
 	struct list_head prio_list;
 	struct list_head node_list;
 #ifdef CONFIG_DEBUG_PI_LIST
-	atomic_spinlock_t *alock;
-	spinlock_t *slock;
+	struct atomic_spinlock *alock;
+	struct spinlock *slock;
 #endif
 };
 
@@ -142,7 +144,7 @@ struct plist_node {
  * @lock:	list spinlock, remembered for debugging
  */
 static inline void
-plist_head_init(struct plist_head *head, spinlock_t *lock)
+plist_head_init(struct plist_head *head, struct spinlock *lock)
 {
 	INIT_LIST_HEAD(&head->prio_list);
 	INIT_LIST_HEAD(&head->node_list);
@@ -158,7 +160,7 @@ plist_head_init(struct plist_head *head, spinlock_t *lock)
  * @lock:	list atomic_spinlock, remembered for debugging
  */
 static inline void
-plist_head_init_atomic(struct plist_head *head, atomic_spinlock_t *lock)
+plist_head_init_atomic(struct plist_head *head, struct atomic_spinlock *lock)
 {
 	INIT_LIST_HEAD(&head->prio_list);
 	INIT_LIST_HEAD(&head->node_list);

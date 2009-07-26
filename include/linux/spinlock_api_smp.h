@@ -58,7 +58,7 @@ void __lockfunc
 _atomic_spin_unlock_irqrestore(atomic_spinlock_t *lock,	unsigned long flags)
 							__releases(lock);
 
-
+#ifndef CONFIG_PREEMPT_RT
 void __lockfunc _read_lock(rwlock_t *lock)		__acquires(lock);
 void __lockfunc _write_lock(rwlock_t *lock)		__acquires(lock);
 void __lockfunc _read_lock_bh(rwlock_t *lock)		__acquires(lock);
@@ -85,5 +85,6 @@ void __lockfunc _read_unlock_irqrestore(rwlock_t *lock, unsigned long flags)
 							__releases(lock);
 void __lockfunc _write_unlock_irqrestore(rwlock_t *lock, unsigned long flags)
 							__releases(lock);
+#endif
 
 #endif /* __LINUX_SPINLOCK_API_SMP_H */

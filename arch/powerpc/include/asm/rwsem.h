@@ -173,6 +173,8 @@ static inline int anon_rwsem_is_locked(struct rw_anon_semaphore *sem)
 	return (sem->count != 0);
 }
 
+#ifndef CONFIG_PREEMPT_RT
+
 struct rw_semaphore {
 	/* XXX this should be able to be an atomic_t  -- paulus */
 	signed int		count;
@@ -213,6 +215,7 @@ static inline int rwsem_is_locked(struct rw_semaphore *sem)
 {
 	return (sem->count != 0);
 }
+#endif
 
 #endif	/* __KERNEL__ */
 #endif	/* _ASM_POWERPC_RWSEM_H */

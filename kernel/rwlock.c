@@ -14,6 +14,8 @@
  * frame contact the architecture maintainers.
  */
 
+#ifndef CONFIG_PREEMPT_RT
+
 #include <linux/linkage.h>
 #include <linux/preempt.h>
 #include <linux/spinlock.h>
@@ -221,3 +223,4 @@ void __lockfunc _write_unlock_bh(rwlock_t *lock)
 }
 EXPORT_SYMBOL(_write_unlock_bh);
 
+#endif

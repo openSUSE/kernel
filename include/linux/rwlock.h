@@ -5,6 +5,60 @@
 # error "please don't include this file directly"
 #endif
 
+#ifdef CONFIG_PREEMPT_RT
+
+#define read_trylock(lock)	__cond_lock(lock, rt_read_trylock(lock))
+#define write_trylock(lock)	__cond_lock(lock, rt_write_trylock(lock))
+
+#define write_trylock_irqsave(lock, flags)	\
+	__cond_lock(lock, rt_write_trylock_irqsave(lock, &flags))
+
+#define write_lock(lock)	rt_write_lock(lock)
+#define read_lock(lock)		rt_read_lock(lock)
+
+#define read_lock_irqsave(lock, flags)			\
+	do {						\
+		typecheck(unsigned long, flags);	\
+		flags = rt_read_lock_irqsave(lock);	\
+	} while (0)
+
+#define write_lock_irqsave(lock, flags)			\
+	do {						\
+		typecheck(unsigned long, flags);	\
+		flags = rt_write_lock_irqsave(lock);	\
+	} while (0)
+
+#define read_lock_irq(lock)	rt_read_lock(lock)
+#define read_lock_bh(lock)	rt_read_lock(lock)
+
+#define write_lock_irq(lock)	rt_write_lock(lock)
+#define write_lock_bh(lock)	rt_write_lock(lock)
+
+#define read_unlock(lock)	rt_read_unlock(lock)
+#define write_unlock(lock)	rt_write_unlock(lock)
+#define read_unlock_irq(lock)	rt_read_unlock(lock)
+#define write_unlock_irq(lock)	rt_write_unlock(lock)
+
+#define read_unlock_irqrestore(lock, flags)		\
+	do {						\
+		typecheck(unsigned long, flags);	\
+		(void) flags;				\
+		rt_read_unlock(lock);			\
+	} while (0)
+
+#define read_unlock_bh(lock)	rt_read_unlock(lock)
+
+#define write_unlock_irqrestore(lock, flags) \
+	do {						\
+		typecheck(unsigned long, flags);	\
+		(void) flags;				\
+		rt_write_unlock(lock);			\
+	} while (0)
+
+#define write_unlock_bh(lock)	rt_write_unlock(lock)
+
+#else
+
 /*
  * rwlock related methods
  *
@@ -147,5 +201,6 @@ do {						\
 	write_trylock(lock) ? \
 	1 : ({ local_irq_restore(flags); 0; }); \
 })
+#endif
 
 #endif /* __LINUX_RWLOCK_H */

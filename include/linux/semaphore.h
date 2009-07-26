@@ -58,6 +58,46 @@ extern int __must_check anon_down_trylock(struct anon_semaphore *sem);
 extern int __must_check anon_down_timeout(struct anon_semaphore *sem, long jiffies);
 extern void anon_up(struct anon_semaphore *sem);
 
+#ifdef CONFIG_PREEMPT_RT
+
+static inline void sema_init(struct semaphore *sem, int val)
+{
+	rt_sema_init(sem, val);
+}
+
+static inline void semaphore_init(struct semaphore *sem)
+{
+	sema_init(sem, 1);
+}
+
+static inline void down(struct semaphore *sem)
+{
+	rt_down(sem);
+}
+
+static inline int __must_check down_interruptible(struct semaphore *sem)
+{
+	return rt_down_interruptible(sem);
+}
+
+static inline int __must_check down_trylock(struct semaphore *sem)
+{
+	return rt_down_trylock(sem);
+}
+
+static inline int __must_check
+down_timeout(struct semaphore *sem, long jiffies)
+{
+	return rt_down_timeout(sem, jiffies);
+}
+
+static inline void up(struct semaphore *sem)
+{
+	rt_up(sem);
+}
+
+
+#else
 /*
  * Non preempt-rt maps semaphores to anon semaphores
  */
@@ -125,5 +165,6 @@ static inline void up(struct semaphore *sem)
 {
 	anon_up((struct anon_semaphore *)sem);
 }
+#endif
 
 #endif /* __LINUX_SEMAPHORE_H */

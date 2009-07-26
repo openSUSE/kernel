@@ -82,7 +82,11 @@ int max_threads;		/* tunable limit on nr_threads */
 
 DEFINE_PER_CPU(unsigned long, process_counts) = 0;
 
+#ifdef CONFIG_PREEMPT_RT
+DEFINE_RWLOCK(tasklist_lock);  /* outer */
+#else
 __cacheline_aligned DEFINE_RWLOCK(tasklist_lock);  /* outer */
+#endif
 
 int nr_processes(void)
 {

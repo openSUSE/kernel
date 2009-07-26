@@ -58,23 +58,6 @@
 #include <asm/system.h>
 
 /*
- * Must define these before including other files, inline functions need them
- */
-#define LOCK_SECTION_NAME ".text.lock."KBUILD_BASENAME
-
-#define LOCK_SECTION_START(extra)               \
-        ".subsection 1\n\t"                     \
-        extra                                   \
-        ".ifndef " LOCK_SECTION_NAME "\n\t"     \
-        LOCK_SECTION_NAME ":\n\t"               \
-        ".endif\n"
-
-#define LOCK_SECTION_END                        \
-        ".previous\n\t"
-
-#define __lockfunc __attribute__((section(".spinlock.text")))
-
-/*
  * Pull the raw_spinlock_t and raw_rwlock_t definitions:
  */
 #include <linux/spinlock_types.h>
@@ -283,6 +266,98 @@ _atomic_dec_and_atomic_lock(atomic_t *atomic, atomic_spinlock_t *lock);
 #define atomic_dec_and_atomic_lock(atomic, lock) \
 	__cond_lock(lock, _atomic_dec_and_atomic_lock(atomic, lock))
 
+#ifdef CONFIG_PREEMPT_RT
+
+#include <linux/rt_lock.h>
+
+#define spin_lock(lock)			rt_spin_lock(lock)
+#define spin_lock_bh(lock)		rt_spin_lock(lock)
+
+#define spin_trylock(lock)		__cond_lock(lock, rt_spin_trylock(lock))
+
+#ifdef CONFIG_LOCKDEP
+# define spin_lock_nested(lock, subclass) \
+	rt_spin_lock_nested(lock, subclass)
+
+# define spin_lock_irqsave_nested(lock, flags, subclass) \
+do { \
+	typecheck(unsigned long, flags); \
+	flags = 0; \
+	rt_spin_lock_nested(lock, subclass); \
+} while (0)
+#else
+# define spin_lock_nested(lock, subclass) \
+	rt_spin_lock(lock)
+
+# define spin_lock_irqsave_nested(lock, flags, subclass) \
+do { \
+	typecheck(unsigned long, flags); \
+	flags = 0; \
+	rt_spin_lock(lock); \
+} while (0)
+#endif
+
+#define spin_lock_irq(lock)		rt_spin_lock(lock)
+
+#define spin_lock_irqsave(lock, flags) \
+do { \
+	typecheck(unsigned long, flags); \
+	flags = 0; \
+	rt_spin_lock(lock); \
+} while (0)
+
+/* FIXME: we need rt_spin_lock_nested */
+#define spin_lock_nest_lock(lock, nest_lock) spin_lock_nested(lock, 0)
+
+#define spin_unlock(lock)		rt_spin_unlock(lock)
+#define spin_unlock_bh(lock)		rt_spin_unlock(lock)
+#define spin_unlock_irq(lock)		rt_spin_unlock(lock)
+
+#define spin_unlock_irqrestore(lock, flags) \
+do { \
+	typecheck(unsigned long, flags); \
+	(void) flags; \
+	rt_spin_unlock(lock); \
+} while (0)
+
+#define spin_trylock_bh(lock)		__cond_lock(lock, rt_spin_trylock(lock))
+#define spin_trylock_irq(lock)		__cond_lock(lock, rt_spin_trylock(lock))
+
+#define spin_trylock_irqsave(lock, flags) \
+({				  \
+	typecheck(unsigned long, flags); \
+	flags = 0; \
+	__cond_lock(lock, rt_spin_trylock(lock));	\
+})
+
+#define spin_unlock_wait(lock)		rt_spin_unlock_wait(lock)
+
+#ifdef CONFIG_GENERIC_LOCKBREAK
+# define spin_is_contended(lock)	((lock)->break_lock)
+#else
+# define spin_is_contended(lock)	(((void)(lock), 0))
+#endif
+
+static inline int spin_can_locked(spinlock_t *lock)
+{
+	return !rt_mutex_is_locked(&lock->lock);
+}
+
+static inline int spin_is_locked(spinlock_t *lock)
+{
+	return rt_mutex_is_locked(&lock->lock);
+}
+
+static inline void assert_spin_locked(spinlock_t *lock)
+{
+	BUG_ON(!spin_is_locked(lock));
+}
+
+#define atomic_dec_and_lock(atomic, lock) \
+	atomic_dec_and_spin_lock(atomic, lock)
+
+#else
+
 /*
  * Map spin* to atomic_spin* for PREEMPT_RT=n
  */
@@ -419,6 +494,8 @@ do { \
 	spin_lockcheck(lock); \
 	atomic_dec_and_atomic_lock(atomic, (atomic_spinlock_t *)lock); \
 })
+
+#endif /* !PREEMPT_RT */
 
 /*
  * Get the rwlock part

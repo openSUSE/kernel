@@ -261,6 +261,8 @@ static inline int anon_rwsem_is_locked(struct rw_anon_semaphore *sem)
 	return (sem->count != 0);
 }
 
+#ifndef CONFIG_PREEMPT_RT
+
 struct rw_semaphore {
 	signed long		count;
 	spinlock_t		wait_lock;
@@ -301,6 +303,7 @@ static inline int rwsem_is_locked(struct rw_semaphore *sem)
 {
 	return (sem->count != 0);
 }
+#endif
 
 #endif /* __KERNEL__ */
 #endif /* _ASM_X86_RWSEM_H */

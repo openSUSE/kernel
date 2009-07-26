@@ -11,6 +11,7 @@
 
 #include <linux/types.h>
 #include <linux/kernel.h>
+#include <linux/rt_lock.h>
 #include <asm/system.h>
 #include <asm/atomic.h>
 
@@ -89,6 +90,59 @@ extern void anon_up_read_non_owner(struct rw_anon_semaphore *sem);
 # define anon_up_read_non_owner(sem)		anon_up_read(sem)
 #endif
 
+#ifdef CONFIG_PREEMPT_RT
+
+#include <linux/rt_lock.h>
+
+#define init_rwsem(sem)		rt_init_rwsem(sem)
+#define rwsem_is_locked(s)	rt_mutex_is_locked(&(s)->lock)
+
+static inline void down_read(struct rw_semaphore *sem)
+{
+	rt_down_read(sem);
+}
+
+static inline int down_read_trylock(struct rw_semaphore *sem)
+{
+	return rt_down_read_trylock(sem);
+}
+
+static inline void down_write(struct rw_semaphore *sem)
+{
+	rt_down_write(sem);
+}
+
+static inline int down_write_trylock(struct rw_semaphore *sem)
+{
+	return rt_down_write_trylock(sem);
+}
+
+static inline void up_read(struct rw_semaphore *sem)
+{
+	rt_up_read(sem);
+}
+
+static inline void up_write(struct rw_semaphore *sem)
+{
+	rt_up_write(sem);
+}
+
+static inline void downgrade_write(struct rw_semaphore *sem)
+{
+	rt_downgrade_write(sem);
+}
+
+static inline void down_read_nested(struct rw_semaphore *sem, int subclass)
+{
+	return rt_down_read_nested(sem, subclass);
+}
+
+static inline void down_write_nested(struct rw_semaphore *sem, int subclass)
+{
+	rt_down_write_nested(sem, subclass);
+}
+
+#else
 /*
  * Non preempt-rt implementations
  */
@@ -136,5 +190,6 @@ static inline void down_write_nested(struct rw_semaphore *sem, int subclass)
 {
 	anon_down_write_nested((struct rw_anon_semaphore *)sem, subclass);
 }
+#endif
 
 #endif /* _LINUX_RWSEM_H */
