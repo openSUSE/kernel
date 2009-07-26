@@ -122,10 +122,18 @@ config ARCH_MAY_HAVE_PC_FDC
 	def_bool y
 
 config RWSEM_GENERIC_SPINLOCK
-	def_bool !X86_XADD
+	bool
+	depends on !X86_XADD || PREEMPT_RT
+	default y
+
+config ASM_SEMAPHORES
+	bool
+	default y
 
 config RWSEM_XCHGADD_ALGORITHM
-	def_bool X86_XADD
+	bool
+	depends on X86_XADD && !RWSEM_GENERIC_SPINLOCK && !PREEMPT_RT
+	default y
 
 config ARCH_HAS_CPU_IDLE_WAIT
 	def_bool y
