@@ -499,7 +499,7 @@ nilfs_mdt_new_common(struct the_nilfs *nilfs, struct super_block *sb,
 
 		spin_lock_init(&inode->i_lock);
 		mutex_init(&inode->i_mutex);
-		init_rwsem(&inode->i_alloc_sem);
+		init_anon_rwsem(&inode->i_alloc_sem);
 
 		mapping->host = NULL;  /* instead of inode */
 		mapping->flags = 0;

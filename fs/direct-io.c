@@ -242,7 +242,7 @@ static int dio_complete(struct dio *dio, loff_t offset, int ret)
 			    dio->map_bh.b_private);
 	if (dio->lock_type == DIO_LOCKING)
 		/* lockdep: non-owner release */
-		up_read_non_owner(&dio->inode->i_alloc_sem);
+		anon_up_read_non_owner(&dio->inode->i_alloc_sem);
 
 	if (ret == 0)
 		ret = dio->page_errors;
@@ -1192,7 +1192,7 @@ __blockdev_direct_IO(int rw, struct kiocb *iocb, struct inode *inode,
 
 		if (dio_lock_type == DIO_LOCKING)
 			/* lockdep: not the owner will release it */
-			down_read_non_owner(&inode->i_alloc_sem);
+			anon_down_read_non_owner(&inode->i_alloc_sem);
 	}
 
 	/*

@@ -540,9 +540,9 @@ reiserfs_xattr_set_handle(struct reiserfs_transaction_handle *th,
 			.ia_valid = ATTR_SIZE | ATTR_CTIME,
 		};
 		mutex_lock_nested(&dentry->d_inode->i_mutex, I_MUTEX_XATTR);
-		down_write(&dentry->d_inode->i_alloc_sem);
+		anon_down_write(&dentry->d_inode->i_alloc_sem);
 		err = reiserfs_setattr(dentry, &newattrs);
-		up_write(&dentry->d_inode->i_alloc_sem);
+		anon_up_write(&dentry->d_inode->i_alloc_sem);
 		mutex_unlock(&dentry->d_inode->i_mutex);
 	} else
 		update_ctime(inode);

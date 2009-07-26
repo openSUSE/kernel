@@ -164,7 +164,7 @@ int notify_change(struct dentry * dentry, struct iattr * attr)
 		return error;
 
 	if (ia_valid & ATTR_SIZE)
-		down_write(&dentry->d_inode->i_alloc_sem);
+		anon_down_write(&dentry->d_inode->i_alloc_sem);
 
 	if (inode->i_op && inode->i_op->setattr) {
 		error = inode->i_op->setattr(dentry, attr);
@@ -181,7 +181,7 @@ int notify_change(struct dentry * dentry, struct iattr * attr)
 	}
 
 	if (ia_valid & ATTR_SIZE)
-		up_write(&dentry->d_inode->i_alloc_sem);
+		anon_up_write(&dentry->d_inode->i_alloc_sem);
 
 	if (!error)
 		fsnotify_change(dentry, ia_valid);
