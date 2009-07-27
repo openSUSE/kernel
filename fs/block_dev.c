@@ -240,7 +240,7 @@ struct super_block *freeze_bdev(struct block_device *bdev)
 	}
 	bdev->bd_fsfreeze_count++;
 
-	mutex_lock(&bdev->bd_mount_sem);
+	down(&bdev->bd_mount_sem);
 	sb = get_super(bdev);
 	if (sb && !(sb->s_flags & MS_RDONLY)) {
 		sb->s_frozen = SB_FREEZE_WRITE;
@@ -260,7 +260,7 @@ struct super_block *freeze_bdev(struct block_device *bdev)
 					"VFS:Filesystem freeze failed\n");
 				sb->s_frozen = SB_UNFROZEN;
 				drop_super(sb);
-				mutex_unlock(&bdev->bd_mount_sem);
+				up(&bdev->bd_mount_sem);
 				bdev->bd_fsfreeze_count--;
 				mutex_unlock(&bdev->bd_fsfreeze_mutex);
 				return ERR_PTR(error);
@@ -321,7 +321,7 @@ int thaw_bdev(struct block_device *bdev, struct super_block *sb)
 		drop_super(sb);
 	}
 
-	mutex_unlock(&bdev->bd_mount_sem);
+	up(&bdev->bd_mount_sem);
 	mutex_unlock(&bdev->bd_fsfreeze_mutex);
 	return 0;
 }
@@ -431,7 +431,7 @@ static void init_once(void *foo)
 
 	memset(bdev, 0, sizeof(*bdev));
 	mutex_init(&bdev->bd_mutex);
-	mutex_init(&bdev->bd_mount_sem);
+	sema_init(&bdev->bd_mount_sem, 1);
 	INIT_LIST_HEAD(&bdev->bd_inodes);
 	INIT_LIST_HEAD(&bdev->bd_list);
 #ifdef CONFIG_SYSFS
