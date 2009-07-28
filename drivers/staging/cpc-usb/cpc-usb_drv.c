@@ -83,7 +83,7 @@ static CPC_USB_T *CPCUSB_Table[CPC_USB_CARD_CNT] = { 0 };
 static unsigned int CPCUsbCnt;
 
 /* prevent races between open() and disconnect() */
-static DECLARE_MUTEX(disconnect_sem);
+static DEFINE_SEMAPHORE(disconnect_sem);
 
 /* local function prototypes */
 static ssize_t cpcusb_read(struct file *file, char *buffer, size_t count,
@@ -903,7 +903,7 @@ static int cpcusb_probe(struct usb_interface *interface,
 	memset(chan, 0, sizeof(CPC_CHAN_T));
 	ResetBuffer(chan);
 
-	init_MUTEX(&card->sem);
+	semaphore_init(&card->sem);
 	spin_lock_init(&card->slock);
 
 	card->udev = udev;

@@ -277,7 +277,7 @@ static int hil_kbd_connect(struct serio *serio, struct serio_driver *drv)
 	serio_set_drvdata(serio, kbd);
 	kbd->serio = serio;
 
-	init_MUTEX_LOCKED(&kbd->sem);
+	semaphore_init_locked(&kbd->sem);
 
 	/* Get device info.  MLC driver supplies devid/status/etc. */
 	serio->write(serio, 0);

@@ -1397,9 +1397,9 @@ static int update_pdrv(struct device *dev, void *data)
 			pdrv = container_of(drv, struct hpsb_protocol_driver,
 					    driver);
 			if (pdrv->update) {
-				down(&ud->device.sem);
+				mutex_lock(&ud->device.mutex);
 				error = pdrv->update(ud);
-				up(&ud->device.sem);
+				mutex_unlock(&ud->device.mutex);
 			}
 			if (error)
 				device_release_driver(&ud->device);

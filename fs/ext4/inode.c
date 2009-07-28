@@ -5265,7 +5265,7 @@ int ext4_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 	 * Get i_alloc_sem to stop truncates messing with the inode. We cannot
 	 * get i_mutex because we are already holding mmap_sem.
 	 */
-	down_read(&inode->i_alloc_sem);
+	anon_down_read(&inode->i_alloc_sem);
 	size = i_size_read(inode);
 	if (page->mapping != mapping || size <= page_offset(page)
 	    || !PageUptodate(page)) {
@@ -5306,6 +5306,6 @@ int ext4_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 out_unlock:
 	if (ret)
 		ret = VM_FAULT_SIGBUS;
-	up_read(&inode->i_alloc_sem);
+	anon_up_read(&inode->i_alloc_sem);
 	return ret;
 }

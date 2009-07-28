@@ -145,7 +145,7 @@ typedef int (*xfs_buf_bdstrat_t)(struct xfs_buf *);
 #define XB_PAGES	2
 
 typedef struct xfs_buf {
-	struct semaphore	b_sema;		/* semaphore for lockables */
+	struct anon_semaphore	b_sema;		/* semaphore for lockables */
 	unsigned long		b_queuetime;	/* time buffer was queued */
 	atomic_t		b_pin_count;	/* pin count */
 	wait_queue_head_t	b_waiters;	/* unpin waiters */

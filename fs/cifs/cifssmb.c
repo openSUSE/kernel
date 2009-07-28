@@ -154,7 +154,7 @@ small_smb_init(int smb_command, int wct, struct cifsTconInfo *tcon,
 			nls_codepage = load_nls_default();
 		/* need to prevent multiple threads trying to
 		simultaneously reconnect the same SMB session */
-			down(&tcon->ses->sesSem);
+			mutex_lock(&tcon->ses->sesSem);
 			if (tcon->ses->need_reconnect)
 				rc = cifs_setup_session(0, tcon->ses,
 							nls_codepage);
@@ -162,7 +162,7 @@ small_smb_init(int smb_command, int wct, struct cifsTconInfo *tcon,
 				mark_open_files_invalid(tcon);
 				rc = CIFSTCon(0, tcon->ses, tcon->treeName,
 					      tcon, nls_codepage);
-				up(&tcon->ses->sesSem);
+				mutex_unlock(&tcon->ses->sesSem);
 				/* BB FIXME add code to check if wsize needs
 				   update due to negotiated smb buffer size
 				   shrinking */
@@ -196,7 +196,7 @@ small_smb_init(int smb_command, int wct, struct cifsTconInfo *tcon,
 					}
 				}
 			} else {
-				up(&tcon->ses->sesSem);
+				mutex_unlock(&tcon->ses->sesSem);
 			}
 			unload_nls(nls_codepage);
 
@@ -301,7 +301,7 @@ smb_init(int smb_command, int wct, struct cifsTconInfo *tcon,
 			nls_codepage = load_nls_default();
 		/* need to prevent multiple threads trying to
 		simultaneously reconnect the same SMB session */
-			down(&tcon->ses->sesSem);
+			mutex_lock(&tcon->ses->sesSem);
 			if (tcon->ses->need_reconnect)
 				rc = cifs_setup_session(0, tcon->ses,
 							nls_codepage);
@@ -309,7 +309,7 @@ smb_init(int smb_command, int wct, struct cifsTconInfo *tcon,
 				mark_open_files_invalid(tcon);
 				rc = CIFSTCon(0, tcon->ses, tcon->treeName,
 					      tcon, nls_codepage);
-				up(&tcon->ses->sesSem);
+				mutex_unlock(&tcon->ses->sesSem);
 				/* BB FIXME add code to check if wsize needs
 				update due to negotiated smb buffer size
 				shrinking */
@@ -343,7 +343,7 @@ smb_init(int smb_command, int wct, struct cifsTconInfo *tcon,
 					}
 				}
 			} else {
-				up(&tcon->ses->sesSem);
+				mutex_unlock(&tcon->ses->sesSem);
 			}
 			unload_nls(nls_codepage);
 
@@ -765,13 +765,13 @@ CIFSSMBLogoff(const int xid, struct cifsSesInfo *ses)
 	if (!ses || !ses->server)
 		return -EIO;
 
-	down(&ses->sesSem);
+	mutex_lock(&ses->sesSem);
 	if (ses->need_reconnect)
 		goto session_already_dead; /* no need to send SMBlogoff if uid
 					      already closed due to reconnect */
 	rc = small_smb_init(SMB_COM_LOGOFF_ANDX, 2, NULL, (void **)&pSMB);
 	if (rc) {
-		up(&ses->sesSem);
+		mutex_unlock(&ses->sesSem);
 		return rc;
 	}
 
@@ -786,7 +786,7 @@ CIFSSMBLogoff(const int xid, struct cifsSesInfo *ses)
 	pSMB->AndXCommand = 0xFF;
 	rc = SendReceiveNoRsp(xid, ses, (struct smb_hdr *) pSMB, 0);
 session_already_dead:
-	up(&ses->sesSem);
+	mutex_unlock(&ses->sesSem);
 
 	/* if session dead then we do not need to do ulogoff,
 		since server closed smb session, no sense reporting

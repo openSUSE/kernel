@@ -137,7 +137,7 @@ void crw_handle_channel_report(void)
  */
 static int __init crw_init_semaphore(void)
 {
-	init_MUTEX_LOCKED(&crw_semaphore);
+	semaphore_init_locked(&crw_semaphore);
 	return 0;
 }
 pure_initcall(crw_init_semaphore);

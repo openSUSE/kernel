@@ -33,11 +33,11 @@
 #include <linux/spinlock.h>
 #include <linux/ftrace.h>
 
-static noinline void __down(struct semaphore *sem);
-static noinline int __down_interruptible(struct semaphore *sem);
-static noinline int __down_killable(struct semaphore *sem);
-static noinline int __down_timeout(struct semaphore *sem, long jiffies);
-static noinline void __up(struct semaphore *sem);
+static noinline void __down(struct anon_semaphore *sem);
+static noinline int __down_interruptible(struct anon_semaphore *sem);
+static noinline int __down_killable(struct anon_semaphore *sem);
+static noinline int __down_timeout(struct anon_semaphore *sem, long jiffies);
+static noinline void __up(struct anon_semaphore *sem);
 
 /**
  * down - acquire the semaphore
@@ -50,7 +50,7 @@ static noinline void __up(struct semaphore *sem);
  * Use of this function is deprecated, please use down_interruptible() or
  * down_killable() instead.
  */
-void down(struct semaphore *sem)
+void anon_down(struct anon_semaphore *sem)
 {
 	unsigned long flags;
 
@@ -61,7 +61,7 @@ void down(struct semaphore *sem)
 		__down(sem);
 	spin_unlock_irqrestore(&sem->lock, flags);
 }
-EXPORT_SYMBOL(down);
+EXPORT_SYMBOL(anon_down);
 
 /**
  * down_interruptible - acquire the semaphore unless interrupted
@@ -72,7 +72,7 @@ EXPORT_SYMBOL(down);
  * If the sleep is interrupted by a signal, this function will return -EINTR.
  * If the semaphore is successfully acquired, this function returns 0.
  */
-int down_interruptible(struct semaphore *sem)
+int anon_down_interruptible(struct anon_semaphore *sem)
 {
 	unsigned long flags;
 	int result = 0;
@@ -86,7 +86,7 @@ int down_interruptible(struct semaphore *sem)
 
 	return result;
 }
-EXPORT_SYMBOL(down_interruptible);
+EXPORT_SYMBOL(anon_down_interruptible);
 
 /**
  * down_killable - acquire the semaphore unless killed
@@ -98,7 +98,7 @@ EXPORT_SYMBOL(down_interruptible);
  * -EINTR.  If the semaphore is successfully acquired, this function returns
  * 0.
  */
-int down_killable(struct semaphore *sem)
+int anon_down_killable(struct anon_semaphore *sem)
 {
 	unsigned long flags;
 	int result = 0;
@@ -112,7 +112,7 @@ int down_killable(struct semaphore *sem)
 
 	return result;
 }
-EXPORT_SYMBOL(down_killable);
+EXPORT_SYMBOL(anon_down_killable);
 
 /**
  * down_trylock - try to acquire the semaphore, without waiting
@@ -127,7 +127,7 @@ EXPORT_SYMBOL(down_killable);
  * Unlike mutex_trylock, this function can be used from interrupt context,
  * and the semaphore can be released by any task or interrupt.
  */
-int down_trylock(struct semaphore *sem)
+int anon_down_trylock(struct anon_semaphore *sem)
 {
 	unsigned long flags;
 	int count;
@@ -140,7 +140,7 @@ int down_trylock(struct semaphore *sem)
 
 	return (count < 0);
 }
-EXPORT_SYMBOL(down_trylock);
+EXPORT_SYMBOL(anon_down_trylock);
 
 /**
  * down_timeout - acquire the semaphore within a specified time
@@ -152,7 +152,7 @@ EXPORT_SYMBOL(down_trylock);
  * If the semaphore is not released within the specified number of jiffies,
  * this function returns -ETIME.  It returns 0 if the semaphore was acquired.
  */
-int down_timeout(struct semaphore *sem, long jiffies)
+int anon_down_timeout(struct anon_semaphore *sem, long jiffies)
 {
 	unsigned long flags;
 	int result = 0;
@@ -166,7 +166,7 @@ int down_timeout(struct semaphore *sem, long jiffies)
 
 	return result;
 }
-EXPORT_SYMBOL(down_timeout);
+EXPORT_SYMBOL(anon_down_timeout);
 
 /**
  * up - release the semaphore
@@ -175,7 +175,7 @@ EXPORT_SYMBOL(down_timeout);
  * Release the semaphore.  Unlike mutexes, up() may be called from any
  * context and even by tasks which have never called down().
  */
-void up(struct semaphore *sem)
+void anon_up(struct anon_semaphore *sem)
 {
 	unsigned long flags;
 
@@ -186,7 +186,7 @@ void up(struct semaphore *sem)
 		__up(sem);
 	spin_unlock_irqrestore(&sem->lock, flags);
 }
-EXPORT_SYMBOL(up);
+EXPORT_SYMBOL(anon_up);
 
 /* Functions for the contended case */
 
@@ -201,7 +201,7 @@ struct semaphore_waiter {
  * constant, and thus optimised away by the compiler.  Likewise the
  * 'timeout' parameter for the cases without timeouts.
  */
-static inline int __sched __down_common(struct semaphore *sem, long state,
+static inline int __sched __down_common(struct anon_semaphore *sem, long state,
 								long timeout)
 {
 	struct task_struct *task = current;
@@ -233,27 +233,27 @@ static inline int __sched __down_common(struct semaphore *sem, long state,
 	return -EINTR;
 }
 
-static noinline void __sched __down(struct semaphore *sem)
+static noinline void __sched __down(struct anon_semaphore *sem)
 {
 	__down_common(sem, TASK_UNINTERRUPTIBLE, MAX_SCHEDULE_TIMEOUT);
 }
 
-static noinline int __sched __down_interruptible(struct semaphore *sem)
+static noinline int __sched __down_interruptible(struct anon_semaphore *sem)
 {
 	return __down_common(sem, TASK_INTERRUPTIBLE, MAX_SCHEDULE_TIMEOUT);
 }
 
-static noinline int __sched __down_killable(struct semaphore *sem)
+static noinline int __sched __down_killable(struct anon_semaphore *sem)
 {
 	return __down_common(sem, TASK_KILLABLE, MAX_SCHEDULE_TIMEOUT);
 }
 
-static noinline int __sched __down_timeout(struct semaphore *sem, long jiffies)
+static noinline int __sched __down_timeout(struct anon_semaphore *sem, long jiffies)
 {
 	return __down_common(sem, TASK_UNINTERRUPTIBLE, jiffies);
 }
 
-static noinline void __sched __up(struct semaphore *sem)
+static noinline void __sched __up(struct anon_semaphore *sem)
 {
 	struct semaphore_waiter *waiter = list_first_entry(&sem->wait_list,
 						struct semaphore_waiter, list);

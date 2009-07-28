@@ -22,6 +22,68 @@
 struct rwsem_waiter;
 
 /*
+ * the rw-anon-semaphore definition
+ * - if activity is 0 then there are no active readers or writers
+ * - if activity is +ve then that is the number of active readers
+ * - if activity is -1 then there is one active writer
+ * - if wait_list is not empty, then there are processes waiting for the semaphore
+ *
+ * the anon in the name documents that the semaphore has no full
+ * restrictions versus owner ship.
+ */
+struct rw_anon_semaphore {
+	__s32			activity;
+	spinlock_t		wait_lock;
+	struct list_head	wait_list;
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+	struct lockdep_map dep_map;
+#endif
+};
+
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+# define __RWSEM_ANON_DEP_MAP_INIT(lockname) , .dep_map = { .name = #lockname }
+#else
+# define __RWSEM_ANON_DEP_MAP_INIT(lockname)
+#endif
+
+#define __RWSEM_ANON_INITIALIZER(name) \
+{ 0, __SPIN_LOCK_UNLOCKED(name.wait_lock), LIST_HEAD_INIT((name).wait_list) \
+  __RWSEM_ANON_DEP_MAP_INIT(name) }
+
+#define DECLARE_ANON_RWSEM(name) \
+	struct rw_anon_semaphore name = __RWSEM_ANON_INITIALIZER(name)
+
+extern void __init_anon_rwsem(struct rw_anon_semaphore *sem, const char *name,
+			      struct lock_class_key *key);
+
+#define init_anon_rwsem(sem)					\
+do {								\
+	static struct lock_class_key __key;			\
+								\
+	__init_anon_rwsem((sem), #sem, &__key);			\
+} while (0)
+
+extern void __down_read(struct rw_anon_semaphore *sem);
+extern int __down_read_trylock(struct rw_anon_semaphore *sem);
+extern void __down_write(struct rw_anon_semaphore *sem);
+extern void __down_write_nested(struct rw_anon_semaphore *sem, int subclass);
+extern int __down_write_trylock(struct rw_anon_semaphore *sem);
+extern void __up_read(struct rw_anon_semaphore *sem);
+extern void __up_write(struct rw_anon_semaphore *sem);
+extern void __downgrade_write(struct rw_anon_semaphore *sem);
+
+static inline int anon_rwsem_is_locked(struct rw_anon_semaphore *sem)
+{
+	return (sem->activity != 0);
+}
+
+/*
+ * Non preempt-rt implementation of rw_semaphore. Same as above, but
+ * restricted vs. ownership. i.e. ownerless locked state and non owner
+ * release not allowed.
+ */
+
+/*
  * the rw-semaphore definition
  * - if activity is 0 then there are no active readers or writers
  * - if activity is +ve then that is the number of active readers
@@ -50,8 +112,11 @@ struct rw_semaphore {
 #define DECLARE_RWSEM(name) \
 	struct rw_semaphore name = __RWSEM_INITIALIZER(name)
 
-extern void __init_rwsem(struct rw_semaphore *sem, const char *name,
-			 struct lock_class_key *key);
+static inline void __init_rwsem(struct rw_semaphore *sem, const char *name,
+				struct lock_class_key *key)
+{
+	__init_anon_rwsem((struct rw_anon_semaphore *)sem, name, key);
+}
 
 #define init_rwsem(sem)						\
 do {								\
@@ -59,15 +124,6 @@ do {								\
 								\
 	__init_rwsem((sem), #sem, &__key);			\
 } while (0)
-
-extern void __down_read(struct rw_semaphore *sem);
-extern int __down_read_trylock(struct rw_semaphore *sem);
-extern void __down_write(struct rw_semaphore *sem);
-extern void __down_write_nested(struct rw_semaphore *sem, int subclass);
-extern int __down_write_trylock(struct rw_semaphore *sem);
-extern void __up_read(struct rw_semaphore *sem);
-extern void __up_write(struct rw_semaphore *sem);
-extern void __downgrade_write(struct rw_semaphore *sem);
 
 static inline int rwsem_is_locked(struct rw_semaphore *sem)
 {

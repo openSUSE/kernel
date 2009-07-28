@@ -388,7 +388,7 @@ static int cap_init_module(void)
 	/* Initialize each device. */
 	for (i = 0; i < cap_nr_devs; i++) {
 		cap_devices[i].node_size = cap_node_size;
-		init_MUTEX(&cap_devices[i].sem);
+		semaphore_init(&cap_devices[i].sem);
 		cap_setup_cdev(&cap_devices[i], i);
 	}
 

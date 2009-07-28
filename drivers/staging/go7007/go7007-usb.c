@@ -1065,7 +1065,7 @@ static int go7007_usb_probe(struct usb_interface *intf,
 	if (board->flags & GO7007_USB_EZUSB_I2C) {
 		memcpy(&go->i2c_adapter, &go7007_usb_adap_templ,
 				sizeof(go7007_usb_adap_templ));
-		init_MUTEX(&usb->i2c_lock);
+		semaphore_init(&usb->i2c_lock);
 		go->i2c_adapter.dev.parent = go->dev;
 		i2c_set_adapdata(&go->i2c_adapter, go);
 		if (i2c_add_adapter(&go->i2c_adapter) < 0) {

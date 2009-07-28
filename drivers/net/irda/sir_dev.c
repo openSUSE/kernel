@@ -908,7 +908,7 @@ struct sir_dev * sirdev_get_instance(const struct sir_driver *drv, const char *n
 	dev->tx_skb = NULL;
 
 	spin_lock_init(&dev->tx_lock);
-	init_MUTEX(&dev->fsm.sem);
+	semaphore_init(&dev->fsm.sem);
 
 	dev->drv = drv;
 	dev->netdev = ndev;

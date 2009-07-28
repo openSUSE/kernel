@@ -11,8 +11,8 @@
 /*
  * Initialize an rwsem:
  */
-void __init_rwsem(struct rw_semaphore *sem, const char *name,
-		  struct lock_class_key *key)
+void __init_anon_rwsem(struct rw_anon_semaphore *sem, const char *name,
+		       struct lock_class_key *key)
 {
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	/*
@@ -25,8 +25,7 @@ void __init_rwsem(struct rw_semaphore *sem, const char *name,
 	spin_lock_init(&sem->wait_lock);
 	INIT_LIST_HEAD(&sem->wait_list);
 }
-
-EXPORT_SYMBOL(__init_rwsem);
+EXPORT_SYMBOL(__init_anon_rwsem);
 
 struct rwsem_waiter {
 	struct list_head list;
@@ -46,8 +45,8 @@ struct rwsem_waiter {
  * - woken process blocks are discarded from the list after having task zeroed
  * - writers are only woken if downgrading is false
  */
-static inline struct rw_semaphore *
-__rwsem_do_wake(struct rw_semaphore *sem, int downgrading)
+static inline struct rw_anon_semaphore *
+__rwsem_do_wake(struct rw_anon_semaphore *sem, int downgrading)
 {
 	struct rwsem_waiter *waiter;
 	struct task_struct *tsk;
@@ -146,9 +145,9 @@ __rwsem_do_wake(struct rw_semaphore *sem, int downgrading)
 /*
  * wait for a lock to be granted
  */
-static struct rw_semaphore __sched *
-rwsem_down_failed_common(struct rw_semaphore *sem,
-			struct rwsem_waiter *waiter, signed long adjustment)
+static struct rw_anon_semaphore __sched *
+rwsem_down_failed_common(struct rw_anon_semaphore *sem,
+			 struct rwsem_waiter *waiter, signed long adjustment)
 {
 	struct task_struct *tsk = current;
 	signed long count;
@@ -187,8 +186,8 @@ rwsem_down_failed_common(struct rw_semaphore *sem,
 /*
  * wait for the read lock to be granted
  */
-asmregparm struct rw_semaphore __sched *
-rwsem_down_read_failed(struct rw_semaphore *sem)
+asmregparm struct rw_anon_semaphore __sched *
+rwsem_down_read_failed(struct rw_anon_semaphore *sem)
 {
 	struct rwsem_waiter waiter;
 
@@ -201,8 +200,8 @@ rwsem_down_read_failed(struct rw_semaphore *sem)
 /*
  * wait for the write lock to be granted
  */
-asmregparm struct rw_semaphore __sched *
-rwsem_down_write_failed(struct rw_semaphore *sem)
+asmregparm struct rw_anon_semaphore __sched *
+rwsem_down_write_failed(struct rw_anon_semaphore *sem)
 {
 	struct rwsem_waiter waiter;
 
@@ -216,7 +215,7 @@ rwsem_down_write_failed(struct rw_semaphore *sem)
  * handle waking up a waiter on the semaphore
  * - up_read/up_write has decremented the active part of count if we come here
  */
-asmregparm struct rw_semaphore *rwsem_wake(struct rw_semaphore *sem)
+asmregparm struct rw_anon_semaphore *rwsem_wake(struct rw_anon_semaphore *sem)
 {
 	unsigned long flags;
 
@@ -236,7 +235,8 @@ asmregparm struct rw_semaphore *rwsem_wake(struct rw_semaphore *sem)
  * - caller incremented waiting part of count and discovered it still negative
  * - just wake up any readers at the front of the queue
  */
-asmregparm struct rw_semaphore *rwsem_downgrade_wake(struct rw_semaphore *sem)
+asmregparm struct rw_anon_semaphore *
+rwsem_downgrade_wake(struct rw_anon_semaphore *sem)
 {
 	unsigned long flags;
 

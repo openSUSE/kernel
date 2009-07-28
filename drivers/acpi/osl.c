@@ -808,14 +808,14 @@ void acpi_os_delete_lock(acpi_spinlock handle)
 acpi_status
 acpi_os_create_semaphore(u32 max_units, u32 initial_units, acpi_handle * handle)
 {
-	struct semaphore *sem = NULL;
+	struct anon_semaphore *sem = NULL;
 
-	sem = acpi_os_allocate(sizeof(struct semaphore));
+	sem = acpi_os_allocate(sizeof(struct anon_semaphore));
 	if (!sem)
 		return AE_NO_MEMORY;
-	memset(sem, 0, sizeof(struct semaphore));
+	memset(sem, 0, sizeof(struct anon_semaphore));
 
-	sema_init(sem, initial_units);
+	anon_sema_init(sem, initial_units);
 
 	*handle = (acpi_handle *) sem;
 
@@ -834,7 +834,7 @@ acpi_os_create_semaphore(u32 max_units, u32 initial_units, acpi_handle * handle)
 
 acpi_status acpi_os_delete_semaphore(acpi_handle handle)
 {
-	struct semaphore *sem = (struct semaphore *)handle;
+	struct anon_semaphore *sem = (struct anon_semaphore *)handle;
 
 	if (!sem)
 		return AE_BAD_PARAMETER;
@@ -854,7 +854,7 @@ acpi_status acpi_os_delete_semaphore(acpi_handle handle)
 acpi_status acpi_os_wait_semaphore(acpi_handle handle, u32 units, u16 timeout)
 {
 	acpi_status status = AE_OK;
-	struct semaphore *sem = (struct semaphore *)handle;
+	struct anon_semaphore *sem = (struct anon_semaphore *)handle;
 	long jiffies;
 	int ret = 0;
 
@@ -872,7 +872,7 @@ acpi_status acpi_os_wait_semaphore(acpi_handle handle, u32 units, u16 timeout)
 	else
 		jiffies = msecs_to_jiffies(timeout);
 	
-	ret = down_timeout(sem, jiffies);
+	ret = anon_down_timeout(sem, jiffies);
 	if (ret)
 		status = AE_TIME;
 
@@ -895,7 +895,7 @@ acpi_status acpi_os_wait_semaphore(acpi_handle handle, u32 units, u16 timeout)
  */
 acpi_status acpi_os_signal_semaphore(acpi_handle handle, u32 units)
 {
-	struct semaphore *sem = (struct semaphore *)handle;
+	struct anon_semaphore *sem = (struct anon_semaphore *)handle;
 
 	if (!sem || (units < 1))
 		return AE_BAD_PARAMETER;
@@ -906,7 +906,7 @@ acpi_status acpi_os_signal_semaphore(acpi_handle handle, u32 units)
 	ACPI_DEBUG_PRINT((ACPI_DB_MUTEX, "Signaling semaphore[%p|%d]\n", handle,
 			  units));
 
-	up(sem);
+	anon_up(sem);
 
 	return AE_OK;
 }

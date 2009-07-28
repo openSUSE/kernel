@@ -270,7 +270,7 @@ static int hil_ptr_connect(struct serio *serio, struct serio_driver *driver)
 	serio_set_drvdata(serio, ptr);
 	ptr->serio = serio;
 
-	init_MUTEX_LOCKED(&ptr->sem);
+	semaphore_init_locked(&ptr->sem);
 
 	/* Get device info.  MLC driver supplies devid/status/etc. */
 	serio->write(serio, 0);

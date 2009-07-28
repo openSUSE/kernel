@@ -1039,7 +1039,7 @@ static int __init hp_sdc_register(void)
 		return hp_sdc.dev_err;
 	}
 
-	init_MUTEX_LOCKED(&tq_init_sem);
+	semaphore_init(&tq_init_sem);
 
 	tq_init.actidx		= 0;
 	tq_init.idx		= 1;

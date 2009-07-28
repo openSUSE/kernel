@@ -751,13 +751,13 @@ NDIS_STATUS	 CreateThreads(
 
 	//init_MUTEX(&(pAd->usbdev_semaphore));
 
-	init_MUTEX_LOCKED(&(pAd->mlme_semaphore));
+	semaphore_init_locked(&(pAd->mlme_semaphore));
 	init_completion (&pAd->mlmeComplete);
 
-	init_MUTEX_LOCKED(&(pAd->RTUSBCmd_semaphore));
+	semaphore_init_locked(&(pAd->RTUSBCmd_semaphore));
 	init_completion (&pAd->CmdQComplete);
 
-	init_MUTEX_LOCKED(&(pAd->RTUSBTimer_semaphore));
+	semaphore_init_locked(&(pAd->RTUSBTimer_semaphore));
 	init_completion (&pAd->TimerQComplete);
 
 	// Creat MLME Thread

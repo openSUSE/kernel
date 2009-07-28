@@ -366,12 +366,12 @@ struct dentry *uwb_dbg_create_pal_dir(struct uwb_pal *pal);
 
 static inline void uwb_dev_lock(struct uwb_dev *uwb_dev)
 {
-	down(&uwb_dev->dev.sem);
+	mutex_lock(&uwb_dev->dev.mutex);
 }
 
 static inline void uwb_dev_unlock(struct uwb_dev *uwb_dev)
 {
-	up(&uwb_dev->dev.sem);
+	mutex_unlock(&uwb_dev->dev.mutex);
 }
 
 #endif /* #ifndef __UWB_INTERNAL_H__ */

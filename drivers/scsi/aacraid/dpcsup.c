@@ -127,7 +127,7 @@ unsigned int aac_response_normal(struct aac_queue * q)
 			spin_lock_irqsave(&fib->event_lock, flagv);
 			if (!fib->done)
 				fib->done = 1;
-			up(&fib->event_wait);
+			anon_up(&fib->event_wait);
 			spin_unlock_irqrestore(&fib->event_lock, flagv);
 			FIB_COUNTER_INCREMENT(aac_config.NormalRecved);
 			if (fib->done == 2) {
@@ -322,7 +322,7 @@ unsigned int aac_intr_normal(struct aac_dev * dev, u32 index)
 			spin_lock_irqsave(&fib->event_lock, flagv);
 			if (!fib->done)
 				fib->done = 1;
-			up(&fib->event_wait);
+			anon_up(&fib->event_wait);
 			spin_unlock_irqrestore(&fib->event_lock, flagv);
 			FIB_COUNTER_INCREMENT(aac_config.NormalRecved);
 		}

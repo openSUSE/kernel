@@ -34,7 +34,7 @@
 #define GPSELEI0	(0x01 << 26)
 #define GPSELEI1	(0x01 << 27)
 
-static DECLARE_MUTEX(mfp_sem);
+static DEFINE_MUTEX(mfp_sem);
 
 void mfp_set_groupf(struct device *dev)
 {
@@ -43,7 +43,7 @@ void mfp_set_groupf(struct device *dev)
 
 	BUG_ON(!dev);
 
-	down(&mfp_sem);
+	mutex_lock(&mfp_sem);
 
 	dev_id = dev_name(dev);
 
@@ -56,7 +56,7 @@ void mfp_set_groupf(struct device *dev)
 
 	__raw_writel(mfpen, REG_MFSEL);
 
-	up(&mfp_sem);
+	mutex_unlock(&mfp_sem);
 }
 EXPORT_SYMBOL(mfp_set_groupf);
 
@@ -67,7 +67,7 @@ void mfp_set_groupc(struct device *dev)
 
 	BUG_ON(!dev);
 
-	down(&mfp_sem);
+	mutex_lock(&mfp_sem);
 
 	dev_id = dev_name(dev);
 
@@ -86,7 +86,7 @@ void mfp_set_groupc(struct device *dev)
 
 	__raw_writel(mfpen, REG_MFSEL);
 
-	up(&mfp_sem);
+	mutex_unlock(&mfp_sem);
 }
 EXPORT_SYMBOL(mfp_set_groupc);
 
@@ -97,7 +97,7 @@ void mfp_set_groupi(struct device *dev, int gpio)
 
 	BUG_ON(!dev);
 
-	down(&mfp_sem);
+	mutex_lock(&mfp_sem);
 
 	dev_id = dev_name(dev);
 
@@ -110,7 +110,7 @@ void mfp_set_groupi(struct device *dev, int gpio)
 
 	__raw_writel(mfpen, REG_MFSEL);
 
-	up(&mfp_sem);
+	mutex_unlock(&mfp_sem);
 }
 EXPORT_SYMBOL(mfp_set_groupi);
 
