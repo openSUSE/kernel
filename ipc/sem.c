@@ -415,6 +415,11 @@ static void update_queue (struct sem_array * sma)
 			struct sem_queue *n;
 
 			/*
+			 * make sure that the wakeup doesnt preempt
+			 * _this_ cpu prematurely. (on preempt_rt)
+			 */
+			preempt_disable_rt();
+			/*
 			 * Continue scanning. The next operation
 			 * that must be checked depends on the type of the
 			 * completed operation:
@@ -450,6 +455,7 @@ static void update_queue (struct sem_array * sma)
 			 */
 			smp_wmb();
 			q->status = error;
+			preempt_enable_rt();
 			q = n;
 		} else {
 			q = list_entry(q->list.next, struct sem_queue, list);
