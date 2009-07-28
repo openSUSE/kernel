@@ -170,7 +170,7 @@ void __lockfunc _atomic_spin_unlock_bh(atomic_spinlock_t *lock)
 {
 	spin_release(&lock->dep_map, 1, _RET_IP_);
 	_raw_spin_unlock(lock);
-	preempt_enable_no_resched();
+	__preempt_enable_no_resched();
 	local_bh_enable_ip((unsigned long)__builtin_return_address(0));
 }
 EXPORT_SYMBOL(_atomic_spin_unlock_bh);
@@ -184,7 +184,7 @@ int __lockfunc _atomic_spin_trylock_bh(atomic_spinlock_t *lock)
 		return 1;
 	}
 
-	preempt_enable_no_resched();
+	__preempt_enable_no_resched();
 	local_bh_enable_ip((unsigned long)__builtin_return_address(0));
 	return 0;
 }

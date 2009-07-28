@@ -1029,6 +1029,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	spin_lock_init(&p->alloc_lock);
 
 	init_sigpending(&p->pending);
+	p->sigqueue_cache = NULL;
 
 	p->utime = cputime_zero;
 	p->stime = cputime_zero;
@@ -1159,6 +1160,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 #endif
 	INIT_LIST_HEAD(&p->pi_state_list);
 	p->pi_state_cache = NULL;
+	p->futex_wakeup = NULL;
 #endif
 	/*
 	 * sigaltstack should be cleared when sharing the same VM

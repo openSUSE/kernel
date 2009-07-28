@@ -463,8 +463,7 @@ static noinline void __init_refok rest_init(void)
 	 */
 	init_idle_bootup_task(current);
 	rcu_scheduler_starting();
-	preempt_enable_no_resched();
-	schedule();
+	preempt_enable_and_schedule();
 	preempt_disable();
 
 	/* Call into cpu_idle with preempt disabled */

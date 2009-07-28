@@ -67,7 +67,7 @@ char *softirq_to_name[NR_SOFTIRQS] = {
  * to the pending events, so lets the scheduler to balance
  * the softirq load for us.
  */
-void wakeup_softirqd(void)
+static void wakeup_softirqd(void)
 {
 	/* Interrupts are disabled: no need to stop preemption */
 	struct task_struct *tsk = __get_cpu_var(ksoftirqd);
@@ -308,7 +308,7 @@ void irq_exit(void)
 	if (idle_cpu(smp_processor_id()) && !in_interrupt() && !need_resched())
 		tick_nohz_stop_sched_tick(0);
 #endif
-	preempt_enable_no_resched();
+	__preempt_enable_no_resched();
 }
 
 /*
@@ -704,8 +704,7 @@ static int ksoftirqd(void * __bind_cpu)
 	while (!kthread_should_stop()) {
 		preempt_disable();
 		if (!local_softirq_pending()) {
-			preempt_enable_no_resched();
-			schedule();
+			preempt_enable_and_schedule();
 			preempt_disable();
 		}
 
@@ -718,7 +717,7 @@ static int ksoftirqd(void * __bind_cpu)
 			if (cpu_is_offline((long)__bind_cpu))
 				goto wait_to_die;
 			do_softirq();
-			preempt_enable_no_resched();
+			__preempt_enable_no_resched();
 			cond_resched();
 			preempt_disable();
 			rcu_qsctr_inc((long)__bind_cpu);
