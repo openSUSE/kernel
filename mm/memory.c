@@ -2955,6 +2955,28 @@ unlock:
 	return 0;
 }
 
+void pagefault_disable(void)
+{
+	current->pagefault_disabled++;
+	/*
+	 * make sure to have issued the store before a pagefault
+	 * can hit.
+	 */
+	barrier();
+}
+EXPORT_SYMBOL(pagefault_disable);
+
+void pagefault_enable(void)
+{
+	/*
+	 * make sure to issue those last loads/stores before enabling
+	 * the pagefault handler again.
+	 */
+	barrier();
+	current->pagefault_disabled--;
+}
+EXPORT_SYMBOL(pagefault_enable);
+
 /*
  * By the time we get here, we already hold the mm semaphore
  */
