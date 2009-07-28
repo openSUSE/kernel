@@ -946,9 +946,9 @@ static inline void prepare_lock_switch(struct rq *rq, struct task_struct *next)
 	next->oncpu = 1;
 #endif
 #ifdef __ARCH_WANT_INTERRUPTS_ON_CTXSW
-	spin_unlock_irq(&rq->lock);
+	atomic_spin_unlock_irq(&rq->lock);
 #else
-	spin_unlock(&rq->lock);
+	atomic_spin_unlock(&rq->lock);
 #endif
 }
 
@@ -10183,9 +10183,9 @@ static int sched_rt_global_constraints(void)
 	for_each_possible_cpu(i) {
 		struct rt_rq *rt_rq = &cpu_rq(i)->rt;
 
-		spin_lock(&rt_rq->rt_runtime_lock);
+		atomic_spin_lock(&rt_rq->rt_runtime_lock);
 		rt_rq->rt_runtime = global_rt_runtime();
-		spin_unlock(&rt_rq->rt_runtime_lock);
+		atomic_spin_unlock(&rt_rq->rt_runtime_lock);
 	}
 	atomic_spin_unlock_irqrestore(&def_rt_bandwidth.rt_runtime_lock, flags);
 
