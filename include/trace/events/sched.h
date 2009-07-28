@@ -263,6 +263,37 @@ TRACE_EVENT(sched_process_exit,
 );
 
 /*
+ * Tracepoint for priority boosting/deboosting of a task:
+ *
+ * (NOTE: the 'rq' argument is not used by generic trace events,
+ *        but used by the latency tracer plugin. )
+ */
+TRACE_EVENT(sched_task_setprio,
+
+	TP_PROTO(struct rq *rq, struct task_struct *p, int oldprio),
+
+	TP_ARGS(rq, p, oldprio),
+
+	TP_STRUCT__entry(
+		__array(	char,	comm,	TASK_COMM_LEN	)
+		__field(	pid_t,	pid			)
+		__field(	int,	prio			)
+		__field(	int,	oldprio			)
+	),
+
+	TP_fast_assign(
+		memcpy(__entry->comm, p->comm, TASK_COMM_LEN);
+		__entry->pid		= p->pid;
+		__entry->prio		= p->prio;
+		__entry->oldprio	= oldprio;
+	),
+
+	TP_printk("task %s:%d [%d] oldprio=%d",
+		  __entry->comm, __entry->pid, __entry->prio,
+		  __entry->oldprio)
+);
+
+/*
  * Tracepoint for a waiting task:
  */
 TRACE_EVENT(sched_process_wait,
