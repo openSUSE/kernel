@@ -20,7 +20,7 @@
  *
  * Don't use in new code.
  */
-static  __cacheline_aligned_in_smp DEFINE_SPINLOCK(kernel_flag);
+static  __cacheline_aligned_in_smp DEFINE_ATOMIC_SPINLOCK(kernel_flag);
 
 
 /*
@@ -79,7 +79,7 @@ static inline void __lock_kernel(void)
 		 */
 		do {
 			preempt_enable();
-			while (spin_is_locked(&kernel_flag))
+			while (atomic_spin_is_locked(&kernel_flag))
 				cpu_relax();
 			preempt_disable();
 		} while (!_raw_spin_trylock(&kernel_flag));

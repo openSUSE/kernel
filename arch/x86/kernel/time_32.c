@@ -84,11 +84,11 @@ irqreturn_t timer_interrupt(int irq, void *dev_id)
 		 * manually to deassert NMI lines for the watchdog if run
 		 * on an 82489DX-based system.
 		 */
-		spin_lock(&i8259A_lock);
+		atomic_spin_lock(&i8259A_lock);
 		outb(0x0c, PIC_MASTER_OCW3);
 		/* Ack the IRQ; AEOI will end it automatically. */
 		inb(PIC_MASTER_POLL);
-		spin_unlock(&i8259A_lock);
+		atomic_spin_unlock(&i8259A_lock);
 	}
 #endif
 

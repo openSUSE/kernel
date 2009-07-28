@@ -99,7 +99,7 @@ static irqreturn_t timer_interrupt(int irq, void *dev_id)
 {
 	unsigned tsc, elapse;
 
-	write_seqlock(&xtime_lock);
+	write_atomic_seqlock(&xtime_lock);
 
 	while (tsc = get_cycles(),
 	       elapse = mn10300_last_tsc - tsc, /* time elapsed since last
@@ -114,7 +114,7 @@ static irqreturn_t timer_interrupt(int irq, void *dev_id)
 		check_rtc_time();
 	}
 
-	write_sequnlock(&xtime_lock);
+	write_atomic_sequnlock(&xtime_lock);
 
 	update_process_times(user_mode(get_irq_regs()));
 

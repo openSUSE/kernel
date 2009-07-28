@@ -16,11 +16,11 @@ static DEFINE_PER_CPU(struct call_single_queue, call_single_queue);
 
 static struct {
 	struct list_head	queue;
-	spinlock_t		lock;
+	atomic_spinlock_t	lock;
 } call_function __cacheline_aligned_in_smp =
 	{
-		.queue		= LIST_HEAD_INIT(call_function.queue),
-		.lock		= __SPIN_LOCK_UNLOCKED(call_function.lock),
+		.queue	= LIST_HEAD_INIT(call_function.queue),
+		.lock	= __ATOMIC_SPIN_LOCK_UNLOCKED(call_function.lock),
 	};
 
 enum {
@@ -29,18 +29,18 @@ enum {
 
 struct call_function_data {
 	struct call_single_data	csd;
-	spinlock_t		lock;
+	atomic_spinlock_t	lock;
 	unsigned int		refs;
 	cpumask_var_t		cpumask;
 };
 
 struct call_single_queue {
 	struct list_head	list;
-	spinlock_t		lock;
+	atomic_spinlock_t	lock;
 };
 
 static DEFINE_PER_CPU(struct call_function_data, cfd_data) = {
-	.lock			= __SPIN_LOCK_UNLOCKED(cfd_data.lock),
+	.lock			= __ATOMIC_SPIN_LOCK_UNLOCKED(cfd_data.lock),
 };
 
 static int
@@ -83,7 +83,7 @@ static int __cpuinit init_call_single_data(void)
 	for_each_possible_cpu(i) {
 		struct call_single_queue *q = &per_cpu(call_single_queue, i);
 
-		spin_lock_init(&q->lock);
+		atomic_spin_lock_init(&q->lock);
 		INIT_LIST_HEAD(&q->list);
 	}
 
@@ -144,10 +144,10 @@ void generic_exec_single(int cpu, struct call_single_data *data, int wait)
 	unsigned long flags;
 	int ipi;
 
-	spin_lock_irqsave(&dst->lock, flags);
+	atomic_spin_lock_irqsave(&dst->lock, flags);
 	ipi = list_empty(&dst->list);
 	list_add_tail(&data->list, &dst->list);
-	spin_unlock_irqrestore(&dst->lock, flags);
+	atomic_spin_unlock_irqrestore(&dst->lock, flags);
 
 	/*
 	 * The list addition should be visible before sending the IPI
@@ -191,25 +191,25 @@ void generic_smp_call_function_interrupt(void)
 	list_for_each_entry_rcu(data, &call_function.queue, csd.list) {
 		int refs;
 
-		spin_lock(&data->lock);
+		atomic_spin_lock(&data->lock);
 		if (!cpumask_test_cpu(cpu, data->cpumask)) {
-			spin_unlock(&data->lock);
+			atomic_spin_unlock(&data->lock);
 			continue;
 		}
 		cpumask_clear_cpu(cpu, data->cpumask);
-		spin_unlock(&data->lock);
+		atomic_spin_unlock(&data->lock);
 
 		data->csd.func(data->csd.info);
 
-		spin_lock(&data->lock);
+		atomic_spin_lock(&data->lock);
 		WARN_ON(data->refs == 0);
 		refs = --data->refs;
 		if (!refs) {
-			spin_lock(&call_function.lock);
+			atomic_spin_lock(&call_function.lock);
 			list_del_rcu(&data->csd.list);
-			spin_unlock(&call_function.lock);
+			atomic_spin_unlock(&call_function.lock);
 		}
-		spin_unlock(&data->lock);
+		atomic_spin_unlock(&data->lock);
 
 		if (refs)
 			continue;
@@ -230,9 +230,9 @@ void generic_smp_call_function_single_interrupt(void)
 	unsigned int data_flags;
 	LIST_HEAD(list);
 
-	spin_lock(&q->lock);
+	atomic_spin_lock(&q->lock);
 	list_replace_init(&q->list, &list);
-	spin_unlock(&q->lock);
+	atomic_spin_unlock(&q->lock);
 
 	while (!list_empty(&list)) {
 		struct call_single_data *data;
@@ -391,23 +391,23 @@ void smp_call_function_many(const struct cpumask *mask,
 	data = &__get_cpu_var(cfd_data);
 	csd_lock(&data->csd);
 
-	spin_lock_irqsave(&data->lock, flags);
+	atomic_spin_lock_irqsave(&data->lock, flags);
 	data->csd.func = func;
 	data->csd.info = info;
 	cpumask_and(data->cpumask, mask, cpu_online_mask);
 	cpumask_clear_cpu(this_cpu, data->cpumask);
 	data->refs = cpumask_weight(data->cpumask);
 
-	spin_lock(&call_function.lock);
+	atomic_spin_lock(&call_function.lock);
 	/*
 	 * Place entry at the _HEAD_ of the list, so that any cpu still
 	 * observing the entry in generic_smp_call_function_interrupt()
 	 * will not miss any other list entries:
 	 */
 	list_add_rcu(&data->csd.list, &call_function.queue);
-	spin_unlock(&call_function.lock);
+	atomic_spin_unlock(&call_function.lock);
 
-	spin_unlock_irqrestore(&data->lock, flags);
+	atomic_spin_unlock_irqrestore(&data->lock, flags);
 
 	/*
 	 * Make the list addition visible before sending the ipi.
@@ -453,20 +453,20 @@ EXPORT_SYMBOL(smp_call_function);
 
 void ipi_call_lock(void)
 {
-	spin_lock(&call_function.lock);
+	atomic_spin_lock(&call_function.lock);
 }
 
 void ipi_call_unlock(void)
 {
-	spin_unlock(&call_function.lock);
+	atomic_spin_unlock(&call_function.lock);
 }
 
 void ipi_call_lock_irq(void)
 {
-	spin_lock_irq(&call_function.lock);
+	atomic_spin_lock_irq(&call_function.lock);
 }
 
 void ipi_call_unlock_irq(void)
 {
-	spin_unlock_irq(&call_function.lock);
+	atomic_spin_unlock_irq(&call_function.lock);
 }

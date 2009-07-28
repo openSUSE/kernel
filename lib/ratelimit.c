@@ -14,7 +14,7 @@
 #include <linux/jiffies.h>
 #include <linux/module.h>
 
-static DEFINE_SPINLOCK(ratelimit_lock);
+static DEFINE_ATOMIC_SPINLOCK(ratelimit_lock);
 
 /*
  * __ratelimit - rate limiting
@@ -30,7 +30,7 @@ int __ratelimit(struct ratelimit_state *rs)
 	if (!rs->interval)
 		return 1;
 
-	spin_lock_irqsave(&ratelimit_lock, flags);
+	atomic_spin_lock_irqsave(&ratelimit_lock, flags);
 	if (!rs->begin)
 		rs->begin = jiffies;
 
@@ -46,12 +46,12 @@ int __ratelimit(struct ratelimit_state *rs)
 		goto print;
 
 	rs->missed++;
-	spin_unlock_irqrestore(&ratelimit_lock, flags);
+	atomic_spin_unlock_irqrestore(&ratelimit_lock, flags);
 	return 0;
 
 print:
 	rs->printed++;
-	spin_unlock_irqrestore(&ratelimit_lock, flags);
+	atomic_spin_unlock_irqrestore(&ratelimit_lock, flags);
 	return 1;
 }
 EXPORT_SYMBOL(__ratelimit);

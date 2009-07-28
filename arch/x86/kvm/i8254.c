@@ -237,11 +237,11 @@ static void kvm_pit_ack_irq(struct kvm_irq_ack_notifier *kian)
 {
 	struct kvm_kpit_state *ps = container_of(kian, struct kvm_kpit_state,
 						 irq_ack_notifier);
-	spin_lock(&ps->inject_lock);
+	atomic_spin_lock(&ps->inject_lock);
 	if (atomic_dec_return(&ps->pit_timer.pending) < 0)
 		atomic_inc(&ps->pit_timer.pending);
 	ps->irq_ack = 1;
-	spin_unlock(&ps->inject_lock);
+	atomic_spin_unlock(&ps->inject_lock);
 }
 
 void __kvm_migrate_pit_timer(struct kvm_vcpu *vcpu)
@@ -577,7 +577,7 @@ struct kvm_pit *kvm_create_pit(struct kvm *kvm)
 
 	mutex_init(&pit->pit_state.lock);
 	mutex_lock(&pit->pit_state.lock);
-	spin_lock_init(&pit->pit_state.inject_lock);
+	atomic_spin_lock_init(&pit->pit_state.inject_lock);
 
 	/* Initialize PIO device */
 	pit->dev.read = pit_ioport_read;
@@ -669,12 +669,12 @@ void kvm_inject_pit_timer_irqs(struct kvm_vcpu *vcpu)
 		/* Try to inject pending interrupts when
 		 * last one has been acked.
 		 */
-		spin_lock(&ps->inject_lock);
+		atomic_spin_lock(&ps->inject_lock);
 		if (atomic_read(&ps->pit_timer.pending) && ps->irq_ack) {
 			ps->irq_ack = 0;
 			inject = 1;
 		}
-		spin_unlock(&ps->inject_lock);
+		atomic_spin_unlock(&ps->inject_lock);
 		if (inject)
 			__inject_pit_timer_intr(kvm);
 	}

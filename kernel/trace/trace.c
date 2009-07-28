@@ -668,7 +668,7 @@ static void trace_init_cmdlines(void)
 }
 
 static int trace_stop_count;
-static DEFINE_SPINLOCK(tracing_start_lock);
+static DEFINE_ATOMIC_SPINLOCK(tracing_start_lock);
 
 /**
  * ftrace_off_permanent - disable all ftrace code permanently
@@ -699,7 +699,7 @@ void tracing_start(void)
 	if (tracing_disabled)
 		return;
 
-	spin_lock_irqsave(&tracing_start_lock, flags);
+	atomic_spin_lock_irqsave(&tracing_start_lock, flags);
 	if (--trace_stop_count) {
 		if (trace_stop_count < 0) {
 			/* Someone screwed up their debugging */
@@ -720,7 +720,7 @@ void tracing_start(void)
 
 	ftrace_start();
  out:
-	spin_unlock_irqrestore(&tracing_start_lock, flags);
+	atomic_spin_unlock_irqrestore(&tracing_start_lock, flags);
 }
 
 /**
@@ -735,7 +735,7 @@ void tracing_stop(void)
 	unsigned long flags;
 
 	ftrace_stop();
-	spin_lock_irqsave(&tracing_start_lock, flags);
+	atomic_spin_lock_irqsave(&tracing_start_lock, flags);
 	if (trace_stop_count++)
 		goto out;
 
@@ -748,7 +748,7 @@ void tracing_stop(void)
 		ring_buffer_record_disable(buffer);
 
  out:
-	spin_unlock_irqrestore(&tracing_start_lock, flags);
+	atomic_spin_unlock_irqrestore(&tracing_start_lock, flags);
 }
 
 void trace_stop_cmdline_recording(void);

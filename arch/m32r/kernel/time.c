@@ -106,7 +106,7 @@ void do_gettimeofday(struct timeval *tv)
 	unsigned long max_ntp_tick = tick_usec - tickadj;
 
 	do {
-		seq = read_seqbegin(&xtime_lock);
+		seq = read_atomic_seqbegin(&xtime_lock);
 
 		usec = do_gettimeoffset();
 
@@ -120,7 +120,7 @@ void do_gettimeofday(struct timeval *tv)
 
 		sec = xtime.tv_sec;
 		usec += (xtime.tv_nsec / 1000);
-	} while (read_seqretry(&xtime_lock, seq));
+	} while (read_atomic_seqretry(&xtime_lock, seq));
 
 	while (usec >= 1000000) {
 		usec -= 1000000;
@@ -141,7 +141,7 @@ int do_settimeofday(struct timespec *tv)
 	if ((unsigned long)tv->tv_nsec >= NSEC_PER_SEC)
 		return -EINVAL;
 
-	write_seqlock_irq(&xtime_lock);
+	write_atomic_seqlock_irq(&xtime_lock);
 	/*
 	 * This is revolting. We need to set "xtime" correctly. However, the
 	 * value in this location is the value at the most recent update of
@@ -157,7 +157,7 @@ int do_settimeofday(struct timespec *tv)
 	set_normalized_timespec(&wall_to_monotonic, wtm_sec, wtm_nsec);
 
 	ntp_clear();
-	write_sequnlock_irq(&xtime_lock);
+	write_atomic_sequnlock_irq(&xtime_lock);
 	clock_was_set();
 
 	return 0;
@@ -202,7 +202,7 @@ static irqreturn_t timer_interrupt(int irq, void *dev_id)
 	 * CMOS clock accordingly every ~11 minutes. Set_rtc_mmss() has to be
 	 * called as close as possible to 500 ms before the new second starts.
 	 */
-	write_seqlock(&xtime_lock);
+	write_atomic_seqlock(&xtime_lock);
 	if (ntp_synced()
 		&& xtime.tv_sec > last_rtc_update + 660
 		&& (xtime.tv_nsec / 1000) >= 500000 - ((unsigned)TICK_SIZE) / 2
@@ -213,7 +213,7 @@ static irqreturn_t timer_interrupt(int irq, void *dev_id)
 		else	/* do it again in 60 s */
 			last_rtc_update = xtime.tv_sec - 600;
 	}
-	write_sequnlock(&xtime_lock);
+	write_atomic_sequnlock(&xtime_lock);
 	/* As we return to user mode fire off the other CPU schedulers..
 	   this is basically because we don't yet share IRQ's around.
 	   This message is rigged to be safe on the 386 - basically it's

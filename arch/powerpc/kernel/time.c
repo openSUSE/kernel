@@ -1000,7 +1000,7 @@ void __init time_init(void)
 	/* Save the current timebase to pretty up CONFIG_PRINTK_TIME */
 	boot_tb = get_tb_or_rtc();
 
-	write_seqlock_irqsave(&xtime_lock, flags);
+	write_atomic_seqlock_irqsave(&xtime_lock, flags);
 
 	/* If platform provided a timezone (pmac), we correct the time */
         if (timezone_offset) {
@@ -1014,7 +1014,7 @@ void __init time_init(void)
 	vdso_data->stamp_xsec = (u64) xtime.tv_sec * XSEC_PER_SEC;
 	vdso_data->tb_to_xs = tb_to_xs;
 
-	write_sequnlock_irqrestore(&xtime_lock, flags);
+	write_atomic_sequnlock_irqrestore(&xtime_lock, flags);
 
 	/* Register the clocksource, if we're not running on iSeries */
 	if (!firmware_has_feature(FW_FEATURE_ISERIES))

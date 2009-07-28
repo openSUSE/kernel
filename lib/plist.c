@@ -54,9 +54,11 @@ static void plist_check_list(struct list_head *top)
 
 static void plist_check_head(struct plist_head *head)
 {
-	WARN_ON(!head->lock);
-	if (head->lock)
-		WARN_ON_SMP(!spin_is_locked(head->lock));
+	WARN_ON(!head->alock && !head->slock);
+	if (head->alock)
+		WARN_ON_SMP(!atomic_spin_is_locked(head->alock));
+	if (head->slock)
+		WARN_ON_SMP(!spin_is_locked(head->slock));
 	plist_check_list(&head->prio_list);
 	plist_check_list(&head->node_list);
 }

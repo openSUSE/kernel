@@ -40,7 +40,7 @@ union smp_flush_state {
 	struct {
 		struct mm_struct *flush_mm;
 		unsigned long flush_va;
-		spinlock_t tlbstate_lock;
+		atomic_spinlock_t tlbstate_lock;
 		DECLARE_BITMAP(flush_cpumask, NR_CPUS);
 	};
 	char pad[CONFIG_X86_INTERNODE_CACHE_BYTES];
@@ -179,7 +179,7 @@ static void flush_tlb_others_ipi(const struct cpumask *cpumask,
 	 * num_online_cpus() <= NUM_INVALIDATE_TLB_VECTORS, but it is
 	 * probably not worth checking this for a cache-hot lock.
 	 */
-	spin_lock(&f->tlbstate_lock);
+	atomic_spin_lock(&f->tlbstate_lock);
 
 	f->flush_mm = mm;
 	f->flush_va = va;
@@ -198,7 +198,7 @@ static void flush_tlb_others_ipi(const struct cpumask *cpumask,
 
 	f->flush_mm = NULL;
 	f->flush_va = 0;
-	spin_unlock(&f->tlbstate_lock);
+	atomic_spin_unlock(&f->tlbstate_lock);
 }
 
 void native_flush_tlb_others(const struct cpumask *cpumask,
@@ -222,7 +222,7 @@ static int __cpuinit init_smp_flush(void)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(flush_state); i++)
-		spin_lock_init(&flush_state[i].tlbstate_lock);
+		atomic_spin_lock_init(&flush_state[i].tlbstate_lock);
 
 	return 0;
 }

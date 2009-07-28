@@ -102,7 +102,7 @@ void do_gettimeofday(struct timeval *tv)
 	unsigned long max_ntp_tick = tick_usec - tickadj;
 
 	do {
-		seq = read_seqbegin_irqsave(&xtime_lock, flags);
+		seq = read_atomic_seqbegin_irqsave(&xtime_lock, flags);
 
 		usec = mach_gettimeoffset();
 
@@ -116,7 +116,7 @@ void do_gettimeofday(struct timeval *tv)
 
 		sec = xtime.tv_sec;
 		usec += xtime.tv_nsec/1000;
-	} while (read_seqretry_irqrestore(&xtime_lock, seq, flags));
+	} while (read_atomic_seqretry_irqrestore(&xtime_lock, seq, flags));
 
 
 	while (usec >= 1000000) {
@@ -138,7 +138,7 @@ int do_settimeofday(struct timespec *tv)
 	if ((unsigned long)tv->tv_nsec >= NSEC_PER_SEC)
 		return -EINVAL;
 
-	write_seqlock_irq(&xtime_lock);
+	write_atomic_seqlock_irq(&xtime_lock);
 	/* This is revolting. We need to set the xtime.tv_nsec
 	 * correctly. However, the value in this location is
 	 * is value at the last tick.
@@ -154,7 +154,7 @@ int do_settimeofday(struct timespec *tv)
 	set_normalized_timespec(&wall_to_monotonic, wtm_sec, wtm_nsec);
 
 	ntp_clear();
-	write_sequnlock_irq(&xtime_lock);
+	write_atomic_sequnlock_irq(&xtime_lock);
 	clock_was_set();
 	return 0;
 }

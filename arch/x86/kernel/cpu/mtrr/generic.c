@@ -549,7 +549,7 @@ static unsigned long set_mtrr_state(void)
 
 
 static unsigned long cr4 = 0;
-static DEFINE_SPINLOCK(set_atomicity_lock);
+static DEFINE_ATOMIC_SPINLOCK(set_atomicity_lock);
 
 /*
  * Since we are disabling the cache don't allow any interrupts - they
@@ -566,7 +566,7 @@ static void prepare_set(void) __acquires(set_atomicity_lock)
 	   for this CPU while the MTRRs are changed, but changing this requires
 	   more invasive changes to the way the kernel boots  */
 
-	spin_lock(&set_atomicity_lock);
+	atomic_spin_lock(&set_atomicity_lock);
 
 	/*  Enter the no-fill (CD=1, NW=0) cache mode and flush caches. */
 	cr0 = read_cr0() | X86_CR0_CD;
@@ -603,7 +603,7 @@ static void post_set(void) __releases(set_atomicity_lock)
 	/*  Restore value of CR4  */
 	if ( cpu_has_pge )
 		write_cr4(cr4);
-	spin_unlock(&set_atomicity_lock);
+	atomic_spin_unlock(&set_atomicity_lock);
 }
 
 static void generic_set_all(void)

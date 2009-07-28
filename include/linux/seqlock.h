@@ -31,6 +31,11 @@
 
 typedef struct {
 	unsigned sequence;
+	atomic_spinlock_t lock;
+} atomic_seqlock_t;
+
+typedef struct {
+	unsigned sequence;
 	spinlock_t lock;
 } seqlock_t;
 
@@ -38,11 +43,23 @@ typedef struct {
  * These macros triggered gcc-3.x compile-time problems.  We think these are
  * OK now.  Be cautious.
  */
+#define __ATOMIC_SEQLOCK_UNLOCKED(lockname) \
+	{ 0, __ATOMIC_SPIN_LOCK_UNLOCKED(lockname) }
+
+#define seqlock_atomic_init(x)				\
+	do {						\
+		(x)->sequence = 0;			\
+		atomic_spin_lock_init(&(x)->lock);	\
+	} while (0)
+
+#define DEFINE_ATOMIC_SEQLOCK(x) \
+	atomic_seqlock_t x = __ATOMIC_SEQLOCK_UNLOCKED(x)
+
 #define __SEQLOCK_UNLOCKED(lockname) \
-		 { 0, __SPIN_LOCK_UNLOCKED(lockname) }
+	{ 0, __SPIN_LOCK_UNLOCKED(lockname) }
 
 #define SEQLOCK_UNLOCKED \
-		 __SEQLOCK_UNLOCKED(old_style_seqlock_init)
+	__SEQLOCK_UNLOCKED(old_style_seqlock_init)
 
 #define seqlock_init(x)					\
 	do {						\
@@ -51,17 +68,31 @@ typedef struct {
 	} while (0)
 
 #define DEFINE_SEQLOCK(x) \
-		seqlock_t x = __SEQLOCK_UNLOCKED(x)
+	seqlock_t x = __SEQLOCK_UNLOCKED(x)
 
 /* Lock out other writers and update the count.
  * Acts like a normal spin_lock/unlock.
  * Don't need preempt_disable() because that is in the spin_lock already.
  */
+static inline void write_atomic_seqlock(atomic_seqlock_t *sl)
+{
+	atomic_spin_lock(&sl->lock);
+	++sl->sequence;
+	smp_wmb();
+}
+
 static inline void write_seqlock(seqlock_t *sl)
 {
 	spin_lock(&sl->lock);
 	++sl->sequence;
 	smp_wmb();
+}
+
+static inline void write_atomic_sequnlock(atomic_seqlock_t *sl)
+{
+	smp_wmb();
+	sl->sequence++;
+	atomic_spin_unlock(&sl->lock);
 }
 
 static inline void write_sequnlock(seqlock_t *sl)
@@ -83,6 +114,21 @@ static inline int write_tryseqlock(seqlock_t *sl)
 }
 
 /* Start of read calculation -- fetch last complete writer token */
+static __always_inline unsigned read_atomic_seqbegin(const atomic_seqlock_t *sl)
+{
+	unsigned ret;
+
+repeat:
+	ret = sl->sequence;
+	smp_rmb();
+	if (unlikely(ret & 1)) {
+		cpu_relax();
+		goto repeat;
+	}
+
+	return ret;
+}
+
 static __always_inline unsigned read_seqbegin(const seqlock_t *sl)
 {
 	unsigned ret;
@@ -103,6 +149,14 @@ repeat:
  *
  * If sequence value changed then writer changed data while in section.
  */
+static __always_inline int
+read_atomic_seqretry(const atomic_seqlock_t *sl, unsigned start)
+{
+	smp_rmb();
+
+	return (sl->sequence != start);
+}
+
 static __always_inline int read_seqretry(const seqlock_t *sl, unsigned start)
 {
 	smp_rmb();
@@ -170,12 +224,36 @@ static inline void write_seqcount_end(seqcount_t *s)
 /*
  * Possible sw/hw IRQ protected versions of the interfaces.
  */
+#define write_atomic_seqlock_irqsave(lock, flags)			\
+	do { local_irq_save(flags); write_atomic_seqlock(lock); } while (0)
+#define write_atomic_seqlock_irq(lock)					\
+	do { local_irq_disable();   write_atomic_seqlock(lock); } while (0)
+#define write_atomic_seqlock_bh(lock)					\
+	do { local_bh_disable();    write_atomic_seqlock(lock); } while (0)
+
+#define write_atomic_sequnlock_irqrestore(lock, flags)			\
+	do { write_atomic_sequnlock(lock); local_irq_restore(flags); } while(0)
+#define write_atomic_sequnlock_irq(lock)				\
+	do { write_atomic_sequnlock(lock); local_irq_enable(); } while(0)
+#define write_atomic_sequnlock_bh(lock)					\
+	do { write_atomic_sequnlock(lock); local_bh_enable(); } while(0)
+
+#define read_atomic_seqbegin_irqsave(lock, flags)			\
+	({ local_irq_save(flags);   read_atomic_seqbegin(lock); })
+
+#define read_atomic_seqretry_irqrestore(lock, iv, flags)		\
+	({								\
+		int ret = read_atomic_seqretry(lock, iv);		\
+		local_irq_restore(flags);				\
+		ret;							\
+	})
+
 #define write_seqlock_irqsave(lock, flags)				\
 	do { local_irq_save(flags); write_seqlock(lock); } while (0)
 #define write_seqlock_irq(lock)						\
 	do { local_irq_disable();   write_seqlock(lock); } while (0)
 #define write_seqlock_bh(lock)						\
-        do { local_bh_disable();    write_seqlock(lock); } while (0)
+	do { local_bh_disable();    write_seqlock(lock); } while (0)
 
 #define write_sequnlock_irqrestore(lock, flags)				\
 	do { write_sequnlock(lock); local_irq_restore(flags); } while(0)

@@ -128,7 +128,7 @@ irqreturn_t timer_interrupt(int irq, void *dummy)
 	/* last time the cmos clock got updated */
 	static long last_rtc_update;
 
-	write_seqlock(&xtime_lock);
+	write_atomic_seqlock(&xtime_lock);
 	do_timer(1);
 
 	/*
@@ -148,7 +148,7 @@ irqreturn_t timer_interrupt(int irq, void *dummy)
 			/* Do it again in 60s. */
 			last_rtc_update = xtime.tv_sec - 600;
 	}
-	write_sequnlock(&xtime_lock);
+	write_atomic_sequnlock(&xtime_lock);
 
 #ifdef CONFIG_IPIPE
 	update_root_process_times(get_irq_regs());
@@ -192,12 +192,12 @@ void do_gettimeofday(struct timeval *tv)
 	unsigned long usec, sec;
 
 	do {
-		seq = read_seqbegin_irqsave(&xtime_lock, flags);
+		seq = read_atomic_seqbegin_irqsave(&xtime_lock, flags);
 		usec = gettimeoffset();
 		sec = xtime.tv_sec;
 		usec += (xtime.tv_nsec / NSEC_PER_USEC);
 	}
-	while (read_seqretry_irqrestore(&xtime_lock, seq, flags));
+	while (read_atomic_seqretry_irqrestore(&xtime_lock, seq, flags));
 
 	while (usec >= USEC_PER_SEC) {
 		usec -= USEC_PER_SEC;
@@ -217,7 +217,7 @@ int do_settimeofday(struct timespec *tv)
 	if ((unsigned long)tv->tv_nsec >= NSEC_PER_SEC)
 		return -EINVAL;
 
-	write_seqlock_irq(&xtime_lock);
+	write_atomic_seqlock_irq(&xtime_lock);
 	/*
 	 * This is revolting. We need to set the xtime.tv_usec
 	 * correctly. However, the value in this location is
@@ -235,7 +235,7 @@ int do_settimeofday(struct timespec *tv)
 
 	ntp_clear();
 
-	write_sequnlock_irq(&xtime_lock);
+	write_atomic_sequnlock_irq(&xtime_lock);
 	clock_was_set();
 
 	return 0;

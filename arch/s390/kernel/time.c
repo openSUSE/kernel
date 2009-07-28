@@ -272,14 +272,14 @@ void __init time_init(void)
 	 * small for /proc/uptime to be accurate.
 	 * Reset xtime and wall_to_monotonic to sane values.
 	 */
-	write_seqlock_irqsave(&xtime_lock, flags);
+	write_atomic_seqlock_irqsave(&xtime_lock, flags);
 	now = get_clock();
 	tod_to_timeval(now - TOD_UNIX_EPOCH, &xtime);
 	clocksource_tod.cycle_last = now;
 	clocksource_tod.raw_time = xtime;
 	tod_to_timeval(sched_clock_base_cc - TOD_UNIX_EPOCH, &ts);
 	set_normalized_timespec(&wall_to_monotonic, -ts.tv_sec, -ts.tv_nsec);
-	write_sequnlock_irqrestore(&xtime_lock, flags);
+	write_atomic_sequnlock_irqrestore(&xtime_lock, flags);
 
 	/* Enable TOD clock interrupts on the boot cpu. */
 	init_cpu_timer();

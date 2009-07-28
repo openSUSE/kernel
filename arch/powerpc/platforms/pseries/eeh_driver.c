@@ -70,12 +70,12 @@ static int irq_in_use(unsigned int irq)
 {
 	int rc = 0;
 	unsigned long flags;
-   struct irq_desc *desc = irq_desc + irq;
+	struct irq_desc *desc = irq_desc + irq;
 
-	spin_lock_irqsave(&desc->lock, flags);
+	atomic_spin_lock_irqsave(&desc->lock, flags);
 	if (desc->action)
 		rc = 1;
-	spin_unlock_irqrestore(&desc->lock, flags);
+	atomic_spin_unlock_irqrestore(&desc->lock, flags);
 	return rc;
 }
 

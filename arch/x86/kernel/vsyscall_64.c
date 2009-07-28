@@ -59,7 +59,7 @@ int __vgetcpu_mode __section_vgetcpu_mode;
 
 struct vsyscall_gtod_data __vsyscall_gtod_data __section_vsyscall_gtod_data =
 {
-	.lock = SEQLOCK_UNLOCKED,
+	.lock = __ATOMIC_SEQLOCK_UNLOCKED(__vsyscall_gtod_data.lock),
 	.sysctl_enabled = 1,
 };
 
@@ -67,17 +67,17 @@ void update_vsyscall_tz(void)
 {
 	unsigned long flags;
 
-	write_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
+	write_atomic_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
 	/* sys_tz has changed */
 	vsyscall_gtod_data.sys_tz = sys_tz;
-	write_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
+	write_atomic_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
 }
 
 void update_vsyscall(struct timespec *wall_time, struct clocksource *clock)
 {
 	unsigned long flags;
 
-	write_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
+	write_atomic_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
 	/* copy vsyscall data */
 	vsyscall_gtod_data.clock.vread = clock->vread;
 	vsyscall_gtod_data.clock.cycle_last = clock->cycle_last;
@@ -87,7 +87,7 @@ void update_vsyscall(struct timespec *wall_time, struct clocksource *clock)
 	vsyscall_gtod_data.wall_time_sec = wall_time->tv_sec;
 	vsyscall_gtod_data.wall_time_nsec = wall_time->tv_nsec;
 	vsyscall_gtod_data.wall_to_monotonic = wall_to_monotonic;
-	write_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
+	write_atomic_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
 }
 
 /* RED-PEN may want to readd seq locking, but then the variable should be
@@ -124,7 +124,7 @@ static __always_inline void do_vgettimeofday(struct timeval * tv)
 	unsigned long mult, shift, nsec;
 	cycle_t (*vread)(void);
 	do {
-		seq = read_seqbegin(&__vsyscall_gtod_data.lock);
+		seq = read_atomic_seqbegin(&__vsyscall_gtod_data.lock);
 
 		vread = __vsyscall_gtod_data.clock.vread;
 		if (unlikely(!__vsyscall_gtod_data.sysctl_enabled || !vread)) {
@@ -140,7 +140,7 @@ static __always_inline void do_vgettimeofday(struct timeval * tv)
 
 		tv->tv_sec = __vsyscall_gtod_data.wall_time_sec;
 		nsec = __vsyscall_gtod_data.wall_time_nsec;
-	} while (read_seqretry(&__vsyscall_gtod_data.lock, seq));
+	} while (read_atomic_seqretry(&__vsyscall_gtod_data.lock, seq));
 
 	/* calculate interval: */
 	cycle_delta = (now - base) & mask;

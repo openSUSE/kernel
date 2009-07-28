@@ -163,9 +163,9 @@ irqreturn_t __irq_entry timer_interrupt(int irq, void *dev_id)
 	}
 
 	if (cpu == 0) {
-		write_seqlock(&xtime_lock);
+		write_atomic_seqlock(&xtime_lock);
 		do_timer(ticks_elapsed);
-		write_sequnlock(&xtime_lock);
+		write_atomic_sequnlock(&xtime_lock);
 	}
 
 	return IRQ_HANDLED;
@@ -268,12 +268,12 @@ void __init time_init(void)
 	if (pdc_tod_read(&tod_data) == 0) {
 		unsigned long flags;
 
-		write_seqlock_irqsave(&xtime_lock, flags);
+		write_atomic_seqlock_irqsave(&xtime_lock, flags);
 		xtime.tv_sec = tod_data.tod_sec;
 		xtime.tv_nsec = tod_data.tod_usec * 1000;
 		set_normalized_timespec(&wall_to_monotonic,
 		                        -xtime.tv_sec, -xtime.tv_nsec);
-		write_sequnlock_irqrestore(&xtime_lock, flags);
+		write_atomic_sequnlock_irqrestore(&xtime_lock, flags);
 	} else {
 		printk(KERN_ERR "Error reading tod clock\n");
 	        xtime.tv_sec = 0;

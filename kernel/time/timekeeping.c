@@ -24,8 +24,7 @@
  * This read-write spinlock protects us from races in SMP while
  * playing with xtime.
  */
-__cacheline_aligned_in_smp DEFINE_SEQLOCK(xtime_lock);
-
+__cacheline_aligned_in_smp DEFINE_ATOMIC_SEQLOCK(xtime_lock);
 
 /*
  * The current time
@@ -102,7 +101,7 @@ void getnstimeofday(struct timespec *ts)
 	WARN_ON(timekeeping_suspended);
 
 	do {
-		seq = read_seqbegin(&xtime_lock);
+		seq = read_atomic_seqbegin(&xtime_lock);
 
 		*ts = xtime;
 
@@ -118,7 +117,7 @@ void getnstimeofday(struct timespec *ts)
 		/* If arch requires, add in gettimeoffset() */
 		nsecs += arch_gettimeoffset();
 
-	} while (read_seqretry(&xtime_lock, seq));
+	} while (read_atomic_seqretry(&xtime_lock, seq));
 
 	timespec_add_ns(ts, nsecs);
 }
@@ -134,7 +133,7 @@ ktime_t ktime_get(void)
 	WARN_ON(timekeeping_suspended);
 
 	do {
-		seq = read_seqbegin(&xtime_lock);
+		seq = read_atomic_seqbegin(&xtime_lock);
 		secs = xtime.tv_sec + wall_to_monotonic.tv_sec;
 		nsecs = xtime.tv_nsec + wall_to_monotonic.tv_nsec;
 
@@ -147,7 +146,7 @@ ktime_t ktime_get(void)
 		/* convert to nanoseconds: */
 		nsecs += cyc2ns(clock, cycle_delta);
 
-	} while (read_seqretry(&xtime_lock, seq));
+	} while (read_atomic_seqretry(&xtime_lock, seq));
 	/*
 	 * Use ktime_set/ktime_add_ns to create a proper ktime on
 	 * 32-bit architectures without CONFIG_KTIME_SCALAR.
@@ -174,7 +173,7 @@ void ktime_get_ts(struct timespec *ts)
 	WARN_ON(timekeeping_suspended);
 
 	do {
-		seq = read_seqbegin(&xtime_lock);
+		seq = read_atomic_seqbegin(&xtime_lock);
 		*ts = xtime;
 		tomono = wall_to_monotonic;
 
@@ -187,7 +186,7 @@ void ktime_get_ts(struct timespec *ts)
 		/* convert to nanoseconds: */
 		nsecs = cyc2ns(clock, cycle_delta);
 
-	} while (read_seqretry(&xtime_lock, seq));
+	} while (read_atomic_seqretry(&xtime_lock, seq));
 
 	set_normalized_timespec(ts, ts->tv_sec + tomono.tv_sec,
 				ts->tv_nsec + tomono.tv_nsec + nsecs);
@@ -224,7 +223,7 @@ int do_settimeofday(struct timespec *tv)
 	if ((unsigned long)tv->tv_nsec >= NSEC_PER_SEC)
 		return -EINVAL;
 
-	write_seqlock_irqsave(&xtime_lock, flags);
+	write_atomic_seqlock_irqsave(&xtime_lock, flags);
 
 	clocksource_forward_now();
 
@@ -241,7 +240,7 @@ int do_settimeofday(struct timespec *tv)
 
 	update_vsyscall(&xtime, clock);
 
-	write_sequnlock_irqrestore(&xtime_lock, flags);
+	write_atomic_sequnlock_irqrestore(&xtime_lock, flags);
 
 	/* signal hrtimers about time change */
 	clock_was_set();
@@ -323,11 +322,11 @@ void ktime_get_ts(struct timespec *ts)
 	unsigned long seq;
 
 	do {
-		seq = read_seqbegin(&xtime_lock);
+		seq = read_atomic_seqbegin(&xtime_lock);
 		getnstimeofday(ts);
 		tomono = wall_to_monotonic;
 
-	} while (read_seqretry(&xtime_lock, seq));
+	} while (read_atomic_seqretry(&xtime_lock, seq));
 
 	set_normalized_timespec(ts, ts->tv_sec + tomono.tv_sec,
 				ts->tv_nsec + tomono.tv_nsec);
@@ -363,7 +362,7 @@ void getrawmonotonic(struct timespec *ts)
 	cycle_t cycle_now, cycle_delta;
 
 	do {
-		seq = read_seqbegin(&xtime_lock);
+		seq = read_atomic_seqbegin(&xtime_lock);
 
 		/* read clocksource: */
 		cycle_now = clocksource_read(clock);
@@ -376,7 +375,7 @@ void getrawmonotonic(struct timespec *ts)
 
 		*ts = clock->raw_time;
 
-	} while (read_seqretry(&xtime_lock, seq));
+	} while (read_atomic_seqretry(&xtime_lock, seq));
 
 	timespec_add_ns(ts, nsecs);
 }
@@ -392,11 +391,11 @@ int timekeeping_valid_for_hres(void)
 	int ret;
 
 	do {
-		seq = read_seqbegin(&xtime_lock);
+		seq = read_atomic_seqbegin(&xtime_lock);
 
 		ret = clock->flags & CLOCK_SOURCE_VALID_FOR_HRES;
 
-	} while (read_seqretry(&xtime_lock, seq));
+	} while (read_atomic_seqretry(&xtime_lock, seq));
 
 	return ret;
 }
@@ -423,7 +422,7 @@ void __init timekeeping_init(void)
 	unsigned long flags;
 	unsigned long sec = read_persistent_clock();
 
-	write_seqlock_irqsave(&xtime_lock, flags);
+	write_atomic_seqlock_irqsave(&xtime_lock, flags);
 
 	ntp_init();
 
@@ -438,7 +437,7 @@ void __init timekeeping_init(void)
 		-xtime.tv_sec, -xtime.tv_nsec);
 	update_xtime_cache(0);
 	total_sleep_time = 0;
-	write_sequnlock_irqrestore(&xtime_lock, flags);
+	write_atomic_sequnlock_irqrestore(&xtime_lock, flags);
 }
 
 /* time in seconds when suspend began */
@@ -459,7 +458,7 @@ static int timekeeping_resume(struct sys_device *dev)
 
 	clocksource_resume();
 
-	write_seqlock_irqsave(&xtime_lock, flags);
+	write_atomic_seqlock_irqsave(&xtime_lock, flags);
 
 	if (now && (now > timekeeping_suspend_time)) {
 		unsigned long sleep_length = now - timekeeping_suspend_time;
@@ -474,7 +473,7 @@ static int timekeeping_resume(struct sys_device *dev)
 	clock->cycle_last = clocksource_read(clock);
 	clock->error = 0;
 	timekeeping_suspended = 0;
-	write_sequnlock_irqrestore(&xtime_lock, flags);
+	write_atomic_sequnlock_irqrestore(&xtime_lock, flags);
 
 	touch_softlockup_watchdog();
 
@@ -492,10 +491,10 @@ static int timekeeping_suspend(struct sys_device *dev, pm_message_t state)
 
 	timekeeping_suspend_time = read_persistent_clock();
 
-	write_seqlock_irqsave(&xtime_lock, flags);
+	write_atomic_seqlock_irqsave(&xtime_lock, flags);
 	clocksource_forward_now();
 	timekeeping_suspended = 1;
-	write_sequnlock_irqrestore(&xtime_lock, flags);
+	write_atomic_sequnlock_irqrestore(&xtime_lock, flags);
 
 	clockevents_notify(CLOCK_EVT_NOTIFY_SUSPEND, NULL);
 
@@ -734,10 +733,10 @@ struct timespec current_kernel_time(void)
 	unsigned long seq;
 
 	do {
-		seq = read_seqbegin(&xtime_lock);
+		seq = read_atomic_seqbegin(&xtime_lock);
 
 		now = xtime_cache;
-	} while (read_seqretry(&xtime_lock, seq));
+	} while (read_atomic_seqretry(&xtime_lock, seq));
 
 	return now;
 }

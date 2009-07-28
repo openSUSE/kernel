@@ -92,7 +92,7 @@ static int console_locked, console_suspended;
  * It is also used in interesting ways to provide interlocking in
  * release_console_sem().
  */
-static DEFINE_SPINLOCK(logbuf_lock);
+static DEFINE_ATOMIC_SPINLOCK(logbuf_lock);
 
 #define LOG_BUF_MASK (log_buf_len-1)
 #define LOG_BUF(idx) (log_buf[(idx) & LOG_BUF_MASK])
@@ -171,7 +171,7 @@ static int __init log_buf_len_setup(char *str)
 			goto out;
 		}
 
-		spin_lock_irqsave(&logbuf_lock, flags);
+		atomic_spin_lock_irqsave(&logbuf_lock, flags);
 		log_buf_len = size;
 		log_buf = new_log_buf;
 
@@ -185,7 +185,7 @@ static int __init log_buf_len_setup(char *str)
 		log_start -= offset;
 		con_start -= offset;
 		log_end -= offset;
-		spin_unlock_irqrestore(&logbuf_lock, flags);
+		atomic_spin_unlock_irqrestore(&logbuf_lock, flags);
 
 		printk(KERN_NOTICE "log_buf_len: %d\n", log_buf_len);
 	}
@@ -297,18 +297,18 @@ int do_syslog(int type, char __user *buf, int len)
 		if (error)
 			goto out;
 		i = 0;
-		spin_lock_irq(&logbuf_lock);
+		atomic_spin_lock_irq(&logbuf_lock);
 		while (!error && (log_start != log_end) && i < len) {
 			c = LOG_BUF(log_start);
 			log_start++;
-			spin_unlock_irq(&logbuf_lock);
+			atomic_spin_unlock_irq(&logbuf_lock);
 			error = __put_user(c,buf);
 			buf++;
 			i++;
 			cond_resched();
-			spin_lock_irq(&logbuf_lock);
+			atomic_spin_lock_irq(&logbuf_lock);
 		}
-		spin_unlock_irq(&logbuf_lock);
+		atomic_spin_unlock_irq(&logbuf_lock);
 		if (!error)
 			error = i;
 		break;
@@ -329,7 +329,7 @@ int do_syslog(int type, char __user *buf, int len)
 		count = len;
 		if (count > log_buf_len)
 			count = log_buf_len;
-		spin_lock_irq(&logbuf_lock);
+		atomic_spin_lock_irq(&logbuf_lock);
 		if (count > logged_chars)
 			count = logged_chars;
 		if (do_clear)
@@ -346,12 +346,12 @@ int do_syslog(int type, char __user *buf, int len)
 			if (j + log_buf_len < log_end)
 				break;
 			c = LOG_BUF(j);
-			spin_unlock_irq(&logbuf_lock);
+			atomic_spin_unlock_irq(&logbuf_lock);
 			error = __put_user(c,&buf[count-1-i]);
 			cond_resched();
-			spin_lock_irq(&logbuf_lock);
+			atomic_spin_lock_irq(&logbuf_lock);
 		}
-		spin_unlock_irq(&logbuf_lock);
+		atomic_spin_unlock_irq(&logbuf_lock);
 		if (error)
 			break;
 		error = i;
@@ -527,7 +527,7 @@ static void zap_locks(void)
 	oops_timestamp = jiffies;
 
 	/* If a crash is occurring, make sure we can't deadlock */
-	spin_lock_init(&logbuf_lock);
+	atomic_spin_lock_init(&logbuf_lock);
 	/* And make sure that we print immediately */
 	init_MUTEX(&console_sem);
 }
@@ -631,7 +631,7 @@ static int acquire_console_semaphore_for_printk(unsigned int cpu)
 		}
 	}
 	printk_cpu = UINT_MAX;
-	spin_unlock(&logbuf_lock);
+	atomic_spin_unlock(&logbuf_lock);
 	return retval;
 }
 static const char recursion_bug_msg [] =
@@ -674,7 +674,7 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 	}
 
 	lockdep_off();
-	spin_lock(&logbuf_lock);
+	atomic_spin_lock(&logbuf_lock);
 	printk_cpu = this_cpu;
 
 	if (recursion_bug) {
@@ -1023,14 +1023,14 @@ void release_console_sem(void)
 	console_may_schedule = 0;
 
 	for ( ; ; ) {
-		spin_lock_irqsave(&logbuf_lock, flags);
+		atomic_spin_lock_irqsave(&logbuf_lock, flags);
 		wake_klogd |= log_start - log_end;
 		if (con_start == log_end)
 			break;			/* Nothing to print */
 		_con_start = con_start;
 		_log_end = log_end;
 		con_start = log_end;		/* Flush */
-		spin_unlock(&logbuf_lock);
+		atomic_spin_unlock(&logbuf_lock);
 		stop_critical_timings();	/* don't trace print latency */
 		call_console_drivers(_con_start, _log_end);
 		start_critical_timings();
@@ -1038,7 +1038,7 @@ void release_console_sem(void)
 	}
 	console_locked = 0;
 	up(&console_sem);
-	spin_unlock_irqrestore(&logbuf_lock, flags);
+	atomic_spin_unlock_irqrestore(&logbuf_lock, flags);
 	if (wake_klogd)
 		wake_up_klogd();
 }
@@ -1240,9 +1240,9 @@ void register_console(struct console *console)
 		 * release_console_sem() will print out the buffered messages
 		 * for us.
 		 */
-		spin_lock_irqsave(&logbuf_lock, flags);
+		atomic_spin_lock_irqsave(&logbuf_lock, flags);
 		con_start = log_start;
-		spin_unlock_irqrestore(&logbuf_lock, flags);
+		atomic_spin_unlock_irqrestore(&logbuf_lock, flags);
 	}
 	release_console_sem();
 }

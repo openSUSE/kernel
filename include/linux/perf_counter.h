@@ -584,7 +584,7 @@ struct perf_counter_context {
 	 * Protect the states of the counters in the list,
 	 * nr_active, and the list:
 	 */
-	spinlock_t			lock;
+	atomic_spinlock_t		lock;
 	/*
 	 * Protect the list of counters.  Locking either mutex or lock
 	 * is sufficient to ensure the list doesn't change; to change
