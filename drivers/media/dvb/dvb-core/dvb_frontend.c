@@ -101,7 +101,7 @@ struct dvb_frontend_private {
 	struct dvb_device *dvbdev;
 	struct dvb_frontend_parameters parameters;
 	struct dvb_fe_events events;
-	struct semaphore sem;
+	struct anon_semaphore sem;
 	struct list_head list_head;
 	wait_queue_head_t wait_queue;
 	struct task_struct *thread;
@@ -189,12 +189,12 @@ static int dvb_frontend_get_event(struct dvb_frontend *fe,
 		if (flags & O_NONBLOCK)
 			return -EWOULDBLOCK;
 
-		up(&fepriv->sem);
+		anon_up(&fepriv->sem);
 
 		ret = wait_event_interruptible (events->wait_queue,
 						events->eventw != events->eventr);
 
-		if (down_interruptible (&fepriv->sem))
+		if (anon_down_interruptible (&fepriv->sem))
 			return -ERESTARTSYS;
 
 		if (ret < 0)
@@ -534,7 +534,7 @@ static int dvb_frontend_thread(void *data)
 
 	set_freezable();
 	while (1) {
-		up(&fepriv->sem);	    /* is locked when we enter the thread... */
+		anon_up(&fepriv->sem);	    /* is locked when we enter the thread... */
 restart:
 		timeout = wait_event_interruptible_timeout(fepriv->wait_queue,
 			dvb_frontend_should_wakeup(fe) || kthread_should_stop()
@@ -550,7 +550,7 @@ restart:
 		if (try_to_freeze())
 			goto restart;
 
-		if (down_interruptible(&fepriv->sem))
+		if (anon_down_interruptible(&fepriv->sem))
 			break;
 
 		if (fepriv->reinitialise) {
@@ -678,7 +678,7 @@ static void dvb_frontend_stop(struct dvb_frontend *fe)
 
 	kthread_stop(fepriv->thread);
 
-	semaphore_init(&fepriv->sem);
+	anon_semaphore_init(&fepriv->sem);
 	fepriv->state = FESTATE_IDLE;
 
 	/* paranoia check in case a signal arrived */
@@ -747,7 +747,7 @@ static int dvb_frontend_start(struct dvb_frontend *fe)
 
 	if (signal_pending(current))
 		return -EINTR;
-	if (down_interruptible (&fepriv->sem))
+	if (anon_down_interruptible (&fepriv->sem))
 		return -EINTR;
 
 	fepriv->state = FESTATE_IDLE;
@@ -760,7 +760,7 @@ static int dvb_frontend_start(struct dvb_frontend *fe)
 	if (IS_ERR(fe_thread)) {
 		ret = PTR_ERR(fe_thread);
 		printk("dvb_frontend_start: failed to start kthread (%d)\n", ret);
-		up(&fepriv->sem);
+		anon_up(&fepriv->sem);
 		return ret;
 	}
 	fepriv->thread = fe_thread;
@@ -1372,7 +1372,7 @@ static int dvb_frontend_ioctl(struct inode *inode, struct file *file,
 	     cmd == FE_DISEQC_RECV_SLAVE_REPLY))
 		return -EPERM;
 
-	if (down_interruptible (&fepriv->sem))
+	if (anon_down_interruptible (&fepriv->sem))
 		return -ERESTARTSYS;
 
 	if ((cmd == FE_SET_PROPERTY) || (cmd == FE_GET_PROPERTY))
@@ -1382,7 +1382,7 @@ static int dvb_frontend_ioctl(struct inode *inode, struct file *file,
 		err = dvb_frontend_ioctl_legacy(inode, file, cmd, parg);
 	}
 
-	up(&fepriv->sem);
+	anon_up(&fepriv->sem);
 	return err;
 }
 
@@ -1909,7 +1909,7 @@ int dvb_register_frontend(struct dvb_adapter* dvb,
 	}
 	fepriv = fe->frontend_priv;
 
-	semaphore_init(&fepriv->sem);
+	anon_semaphore_init(&fepriv->sem);
 	init_waitqueue_head (&fepriv->wait_queue);
 	init_waitqueue_head (&fepriv->events.wait_queue);
 	mutex_init(&fepriv->events.mtx);
