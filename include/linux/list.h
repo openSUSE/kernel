@@ -345,6 +345,9 @@ static inline void list_splice_tail_init(struct list_head *list,
 #define list_first_entry(ptr, type, member) \
 	list_entry((ptr)->next, type, member)
 
+#define list_last_entry(ptr, type, member) \
+	list_entry((ptr)->prev, type, member)
+
 /**
  * list_for_each	-	iterate over a list
  * @pos:	the &struct list_head to use as a loop cursor.

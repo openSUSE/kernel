@@ -948,13 +948,14 @@ void mem_cgroup_update_mapped_file_stat(struct page *page, int val)
 		goto done;
 
 	/*
-	 * Preemption is already disabled, we don't need get_cpu()
+	 * Preemption is already disabled, we don't need get_cpu(), but
+	 * that's not true for RT :)
 	 */
-	cpu = smp_processor_id();
+	cpu = get_cpu();
 	stat = &mem->stat;
 	cpustat = &stat->cpustat[cpu];
-
 	__mem_cgroup_stat_add_safe(cpustat, MEM_CGROUP_STAT_MAPPED_FILE, val);
+	put_cpu();
 done:
 	unlock_page_cgroup(pc);
 }

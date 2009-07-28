@@ -23,6 +23,7 @@
 #include <linux/file.h>
 #include <linux/writeback.h>
 #include <linux/blkdev.h>
+#include <linux/interrupt.h>
 #include <linux/buffer_head.h>	/* for try_to_release_page(),
 					buffer_heads_over_limit */
 #include <linux/mm_inline.h>
@@ -1118,7 +1119,7 @@ static unsigned long shrink_inactive_list(unsigned long max_scan,
 		}
 
 		nr_reclaimed += nr_freed;
-		local_irq_disable();
+		local_irq_disable_nort();
 		if (current_is_kswapd()) {
 			__count_zone_vm_events(PGSCAN_KSWAPD, zone, nr_scan);
 			__count_vm_events(KSWAPD_STEAL, nr_freed);
@@ -1159,9 +1160,14 @@ static unsigned long shrink_inactive_list(unsigned long max_scan,
 			}
 		}
   	} while (nr_scanned < max_scan);
+	/*
+	 * Non-PREEMPT_RT relies on IRQs-off protecting the page_states
+	 * per-CPU data. PREEMPT_RT has that data protected even in
+	 * __mod_page_state(), so no need to keep IRQs disabled.
+	 */
 	spin_unlock(&zone->lru_lock);
 done:
-	local_irq_enable();
+	local_irq_enable_nort();
 	pagevec_release(&pvec);
 	return nr_reclaimed;
 }

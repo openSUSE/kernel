@@ -161,6 +161,53 @@ static unsigned long __meminitdata dma_reserve;
   EXPORT_SYMBOL(movable_zone);
 #endif /* CONFIG_ARCH_POPULATES_NODE_MAP */
 
+#ifdef CONFIG_PREEMPT_RT
+static DEFINE_PER_CPU_LOCKED(int, pcp_locks);
+#endif
+
+static inline void __lock_cpu_pcp(unsigned long *flags, int cpu)
+{
+#ifdef CONFIG_PREEMPT_RT
+	spin_lock(&__get_cpu_lock(pcp_locks, cpu));
+	flags = 0;
+#else
+	local_irq_save(*flags);
+#endif
+}
+
+static inline void lock_cpu_pcp(unsigned long *flags, int *this_cpu)
+{
+#ifdef CONFIG_PREEMPT_RT
+	(void)get_cpu_var_locked(pcp_locks, this_cpu);
+	flags = 0;
+#else
+	local_irq_save(*flags);
+	*this_cpu = smp_processor_id();
+#endif
+}
+
+static inline void unlock_cpu_pcp(unsigned long flags, int this_cpu)
+{
+#ifdef CONFIG_PREEMPT_RT
+	put_cpu_var_locked(pcp_locks, this_cpu);
+#else
+	local_irq_restore(flags);
+#endif
+}
+
+static struct per_cpu_pageset *
+get_zone_pcp(struct zone *zone, unsigned long *flags, int *this_cpu)
+{
+	lock_cpu_pcp(flags, this_cpu);
+	return zone_pcp(zone, *this_cpu);
+}
+
+static void
+put_zone_pcp(struct zone *zone, unsigned long flags, int this_cpu)
+{
+	unlock_cpu_pcp(flags, this_cpu);
+}
+
 #if MAX_NUMNODES > 1
 int nr_node_ids __read_mostly = MAX_NUMNODES;
 int nr_online_nodes __read_mostly = 1;
@@ -523,7 +570,9 @@ static inline int free_pages_check(struct page *page)
 static void free_pages_bulk(struct zone *zone, int count,
 					struct list_head *list, int order)
 {
-	spin_lock(&zone->lock);
+	unsigned long flags;
+
+	spin_lock_irqsave(&zone->lock, flags);
 	zone_clear_flag(zone, ZONE_ALL_UNRECLAIMABLE);
 	zone->pages_scanned = 0;
 
@@ -536,27 +585,31 @@ static void free_pages_bulk(struct zone *zone, int count,
 		/* have to delete it as __free_one_page list manipulates */
 		list_del(&page->lru);
 		__free_one_page(page, zone, order, page_private(page));
+#ifdef CONFIG_PREEMPT_RT
+		cond_resched_lock(&zone->lock);
+#endif
 	}
-	spin_unlock(&zone->lock);
+	spin_unlock_irqrestore(&zone->lock, flags);
 }
 
 static void free_one_page(struct zone *zone, struct page *page, int order,
 				int migratetype)
 {
-	spin_lock(&zone->lock);
+	unsigned long flags;
+
+	spin_lock_irqsave(&zone->lock, flags);
 	zone_clear_flag(zone, ZONE_ALL_UNRECLAIMABLE);
 	zone->pages_scanned = 0;
 
 	__mod_zone_page_state(zone, NR_FREE_PAGES, 1 << order);
 	__free_one_page(page, zone, order, migratetype);
-	spin_unlock(&zone->lock);
+	spin_unlock_irqrestore(&zone->lock, flags);
 }
 
 static void __free_pages_ok(struct page *page, unsigned int order)
 {
 	unsigned long flags;
-	int i;
-	int bad = 0;
+	int i, this_cpu, bad = 0;
 	int wasMlocked = TestClearPageMlocked(page);
 
 	kmemcheck_free_shadow(page, order);
@@ -574,13 +627,13 @@ static void __free_pages_ok(struct page *page, unsigned int order)
 	arch_free_page(page, order);
 	kernel_map_pages(page, 1 << order, 0);
 
-	local_irq_save(flags);
+	lock_cpu_pcp(&flags, &this_cpu);
 	if (unlikely(wasMlocked))
 		free_page_mlock(page);
-	__count_vm_events(PGFREE, 1 << order);
+	count_vm_events(PGFREE, 1 << order);
+	unlock_cpu_pcp(flags, this_cpu);
 	free_one_page(page_zone(page), page, order,
-					get_pageblock_migratetype(page));
-	local_irq_restore(flags);
+		      get_pageblock_migratetype(page));
 }
 
 /*
@@ -910,6 +963,16 @@ static int rmqueue_bulk(struct zone *zone, unsigned int order,
 	return i;
 }
 
+static void
+isolate_pcp_pages(int count, struct list_head *src, struct list_head *dst)
+{
+	while (count--) {
+		struct page *page = list_last_entry(src, struct page, lru);
+		list_move(&page->lru, dst);
+	}
+}
+
+
 #ifdef CONFIG_NUMA
 /*
  * Called from the vmstat counter updater to drain pagesets of this
@@ -921,17 +984,20 @@ static int rmqueue_bulk(struct zone *zone, unsigned int order,
  */
 void drain_zone_pages(struct zone *zone, struct per_cpu_pages *pcp)
 {
+	LIST_HEAD(free_list);
 	unsigned long flags;
 	int to_drain;
+	int this_cpu;
 
-	local_irq_save(flags);
+	lock_cpu_pcp(&flags, &this_cpu);
 	if (pcp->count >= pcp->batch)
 		to_drain = pcp->batch;
 	else
 		to_drain = pcp->count;
-	free_pages_bulk(zone, to_drain, &pcp->list, 0);
+	isolate_pcp_pages(to_drain, &pcp->list, &free_list);
 	pcp->count -= to_drain;
-	local_irq_restore(flags);
+	unlock_cpu_pcp(flags, this_cpu);
+	free_pages_bulk(zone, to_drain, &free_list, 0);
 }
 #endif
 
@@ -950,14 +1016,22 @@ static void drain_pages(unsigned int cpu)
 	for_each_populated_zone(zone) {
 		struct per_cpu_pageset *pset;
 		struct per_cpu_pages *pcp;
+		LIST_HEAD(free_list);
+		int count;
 
+		__lock_cpu_pcp(&flags, cpu);
 		pset = zone_pcp(zone, cpu);
-
+		if (!pset) {
+			unlock_cpu_pcp(flags, cpu);
+			WARN_ON(1);
+			continue;
+		}
 		pcp = &pset->pcp;
-		local_irq_save(flags);
-		free_pages_bulk(zone, pcp->count, &pcp->list, 0);
+		isolate_pcp_pages(pcp->count, &pcp->list, &free_list);
+		count = pcp->count;
 		pcp->count = 0;
-		local_irq_restore(flags);
+		unlock_cpu_pcp(flags, cpu);
+		free_pages_bulk(zone, count, &free_list, 0);
 	}
 }
 
@@ -969,12 +1043,52 @@ void drain_local_pages(void *arg)
 	drain_pages(smp_processor_id());
 }
 
+#ifdef CONFIG_PREEMPT_RT
+static void drain_local_pages_work(struct work_struct *wrk)
+{
+	drain_pages(smp_processor_id());
+}
+#endif
+
 /*
  * Spill all the per-cpu pages from all CPUs back into the buddy allocator
  */
 void drain_all_pages(void)
 {
+#ifdef CONFIG_PREEMPT_RT
+	/*
+	 * HACK!!!!!
+	 *  For RT we can't use IPIs to run drain_local_pages, since
+	 *  that code will call spin_locks that will now sleep.
+	 *  But, schedule_on_each_cpu will call kzalloc, which will
+	 *  call page_alloc which was what calls this.
+	 *
+	 *  Luckily, there's a condition to get here, and that is if
+	 *  the order passed in to alloc_pages is greater than 0
+	 *  (alloced more than a page size).  The slabs only allocate
+	 *  what is needed, and the allocation made by schedule_on_each_cpu
+	 *  does an alloc of "sizeof(void *)*nr_cpu_ids".
+	 *
+	 *  So we can safely call schedule_on_each_cpu if that number
+	 *  is less than a page. Otherwise don't bother. At least warn of
+	 *  this issue.
+	 *
+	 * And yes, this is one big hack.  Please fix ;-)
+	 */
+	if (sizeof(void *)*nr_cpu_ids < PAGE_SIZE)
+		schedule_on_each_cpu(drain_local_pages_work);
+	else {
+		static int once;
+		if (!once) {
+			printk(KERN_ERR "Can't drain all CPUS due to possible recursion\n");
+			once = 1;
+		}
+		drain_local_pages(NULL);
+	}
+
+#else
 	on_each_cpu(drain_local_pages, NULL, 1);
+#endif
 }
 
 #ifdef CONFIG_HIBERNATION
@@ -1019,9 +1133,10 @@ void mark_free_pages(struct zone *zone)
 static void free_hot_cold_page(struct page *page, int cold)
 {
 	struct zone *zone = page_zone(page);
+	struct per_cpu_pageset *pset;
 	struct per_cpu_pages *pcp;
 	unsigned long flags;
-	int wasMlocked = TestClearPageMlocked(page);
+	int count, this_cpu, wasMlocked = TestClearPageMlocked(page);
 
 	kmemcheck_free_shadow(page, 0);
 
@@ -1037,12 +1152,12 @@ static void free_hot_cold_page(struct page *page, int cold)
 	arch_free_page(page, 0);
 	kernel_map_pages(page, 1, 0);
 
-	pcp = &zone_pcp(zone, get_cpu())->pcp;
+	pset = get_zone_pcp(zone, &flags, &this_cpu);
+	pcp = &pset->pcp;
 	set_page_private(page, get_pageblock_migratetype(page));
-	local_irq_save(flags);
 	if (unlikely(wasMlocked))
 		free_page_mlock(page);
-	__count_vm_event(PGFREE);
+	count_vm_event(PGFREE);
 
 	if (cold)
 		list_add_tail(&page->lru, &pcp->list);
@@ -1050,11 +1165,15 @@ static void free_hot_cold_page(struct page *page, int cold)
 		list_add(&page->lru, &pcp->list);
 	pcp->count++;
 	if (pcp->count >= pcp->high) {
-		free_pages_bulk(zone, pcp->batch, &pcp->list, 0);
+		LIST_HEAD(free_list);
+
+		isolate_pcp_pages(pcp->batch, &pcp->list, &free_list);
 		pcp->count -= pcp->batch;
-	}
-	local_irq_restore(flags);
-	put_cpu();
+		count = pcp->batch;
+		put_zone_pcp(zone, flags, this_cpu);
+		free_pages_bulk(zone, count, &free_list, 0);
+	} else
+		put_zone_pcp(zone, flags, this_cpu);
 }
 
 void free_hot_page(struct page *page)
@@ -1108,15 +1227,15 @@ struct page *buffered_rmqueue(struct zone *preferred_zone,
 	unsigned long flags;
 	struct page *page;
 	int cold = !!(gfp_flags & __GFP_COLD);
-	int cpu;
+	struct per_cpu_pageset *pset;
+	int this_cpu;
 
 again:
-	cpu  = get_cpu();
-	if (likely(order == 0)) {
-		struct per_cpu_pages *pcp;
+	pset = get_zone_pcp(zone, &flags, &this_cpu);
 
-		pcp = &zone_pcp(zone, cpu)->pcp;
-		local_irq_save(flags);
+	if (likely(order == 0)) {
+		struct per_cpu_pages *pcp = &pset->pcp;
+
 		if (!pcp->count) {
 			pcp->count = rmqueue_bulk(zone, 0,
 					pcp->batch, &pcp->list, migratetype);
@@ -1158,7 +1277,7 @@ again:
 			 */
 			WARN_ON_ONCE(order > 1);
 		}
-		spin_lock_irqsave(&zone->lock, flags);
+		spin_lock(&zone->lock);
 		page = __rmqueue(zone, order, migratetype);
 		__mod_zone_page_state(zone, NR_FREE_PAGES, -(1 << order));
 		spin_unlock(&zone->lock);
@@ -1168,8 +1287,7 @@ again:
 
 	__count_zone_vm_events(PGALLOC, zone, 1 << order);
 	zone_statistics(preferred_zone, zone);
-	local_irq_restore(flags);
-	put_cpu();
+	put_zone_pcp(zone, flags, this_cpu);
 
 	VM_BUG_ON(bad_range(zone, page));
 	if (prep_new_page(page, order, gfp_flags))
@@ -1177,8 +1295,7 @@ again:
 	return page;
 
 failed:
-	local_irq_restore(flags);
-	put_cpu();
+	put_zone_pcp(zone, flags, this_cpu);
 	return NULL;
 }
 
@@ -3036,7 +3153,23 @@ static inline void free_zone_pagesets(int cpu)
 	struct zone *zone;
 
 	for_each_zone(zone) {
-		struct per_cpu_pageset *pset = zone_pcp(zone, cpu);
+		unsigned long flags;
+		struct per_cpu_pageset *pset;
+
+		/*
+		 * On PREEMPT_RT the allocator is preemptible, therefore
+		 * kstopmachine can preempt a process in the middle of an
+		 * allocation, freeing the pset underneath such a process
+		 * isn't a good idea.
+		 *
+		 * Take the per-cpu pcp lock to allow the task to complete
+		 * before we free it. New tasks will be held off by the
+		 * cpu_online() check in get_cpu_var_locked().
+		 */
+		__lock_cpu_pcp(&flags, cpu);
+		pset = zone_pcp(zone, cpu);
+		zone_pcp(zone, cpu) = NULL;
+		unlock_cpu_pcp(flags, cpu);
 
 		/* Free per_cpu_pageset if it is slab allocated */
 		if (pset != &boot_pageset[cpu])

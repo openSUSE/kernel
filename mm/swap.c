@@ -30,14 +30,91 @@
 #include <linux/notifier.h>
 #include <linux/backing-dev.h>
 #include <linux/memcontrol.h>
+#include <linux/interrupt.h>
 
 #include "internal.h"
 
 /* How many pages do we try to swap or page in/out together? */
 int page_cluster;
 
+#ifdef CONFIG_PREEMPT_RT
+/*
+ * On PREEMPT_RT we don't want to disable preemption for cpu variables.
+ * We grab a cpu and then use that cpu to lock the variables accordingly.
+ *
+ * (On !PREEMPT_RT this turns into normal preempt-off sections, as before.)
+ */
+static DEFINE_PER_CPU_LOCKED(struct pagevec[NR_LRU_LISTS], lru_add_pvecs);
+static DEFINE_PER_CPU_LOCKED(struct pagevec, lru_rotate_pvecs);
+
+#define swap_get_cpu_var_irq_save(var, flags, cpu)	\
+	({						\
+		(void)flags;				\
+		&get_cpu_var_locked(var, &cpu);		\
+	})
+
+#define swap_put_cpu_var_irq_restore(var, flags, cpu)	\
+	put_cpu_var_locked(var, cpu)
+
+#define swap_get_cpu_var(var, cpu)			\
+	&get_cpu_var_locked(var, &cpu)
+
+#define swap_put_cpu_var(var, cpu)			\
+	put_cpu_var_locked(var, cpu)
+
+#define swap_per_cpu_lock(var, cpu)			\
+	({						\
+		spin_lock(&__get_cpu_lock(var, cpu));	\
+		&__get_cpu_var_locked(var, cpu);	\
+	})
+
+#define swap_per_cpu_unlock(var, cpu)			\
+	spin_unlock(&__get_cpu_lock(var, cpu));
+
+#define swap_get_cpu() raw_smp_processor_id()
+
+#define swap_put_cpu() do { } while (0)
+
+#define swap_irq_save(flags) do { (void)flags; } while (0)
+
+#define swap_irq_restore(flags) do { (void)flags; } while (0)
+
+#else
+
 static DEFINE_PER_CPU(struct pagevec[NR_LRU_LISTS], lru_add_pvecs);
 static DEFINE_PER_CPU(struct pagevec, lru_rotate_pvecs);
+
+#define swap_get_cpu_var_irq_save(var, flags, cpu)	\
+	({						\
+		(void)cpu;				\
+		local_irq_save(flags);			\
+		&__get_cpu_var(var);			\
+	})
+
+#define swap_put_cpu_var_irq_restore(var, flags, cpu)	\
+	local_irq_restore(flags)
+
+#define swap_get_cpu_var(var, cpu)			\
+	({						\
+		(void)cpu;				\
+		&get_cpu_var(var);			\
+	 })
+
+#define swap_put_cpu_var(var, cpu)	put_cpu_var(var)
+
+#define swap_per_cpu_lock(var, cpu)	&per_cpu(var, cpu)
+
+#define swap_per_cpu_unlock(var, cpu)	do { } while (0)
+
+#define swap_get_cpu() get_cpu()
+
+#define swap_put_cpu() put_cpu()
+
+#define swap_irq_save(flags) local_irq_save(flags)
+
+#define swap_irq_restore(flags) local_irq_restore(flags)
+
+#endif
 
 /*
  * This path almost never happens for VM activity - pages are normally
@@ -141,13 +218,13 @@ void  rotate_reclaimable_page(struct page *page)
 	    !PageUnevictable(page) && PageLRU(page)) {
 		struct pagevec *pvec;
 		unsigned long flags;
+		int cpu;
 
 		page_cache_get(page);
-		local_irq_save(flags);
-		pvec = &__get_cpu_var(lru_rotate_pvecs);
+		pvec = swap_get_cpu_var_irq_save(lru_rotate_pvecs, flags, cpu);
 		if (!pagevec_add(pvec, page))
 			pagevec_move_tail(pvec);
-		local_irq_restore(flags);
+		swap_put_cpu_var_irq_restore(lru_rotate_pvecs, flags, cpu);
 	}
 }
 
@@ -216,12 +293,14 @@ EXPORT_SYMBOL(mark_page_accessed);
 
 void __lru_cache_add(struct page *page, enum lru_list lru)
 {
-	struct pagevec *pvec = &get_cpu_var(lru_add_pvecs)[lru];
+	struct pagevec *pvec;
+	int cpu;
 
+	pvec = swap_get_cpu_var(lru_add_pvecs, cpu)[lru];
 	page_cache_get(page);
 	if (!pagevec_add(pvec, page))
 		____pagevec_lru_add(pvec, lru);
-	put_cpu_var(lru_add_pvecs);
+	swap_put_cpu_var(lru_add_pvecs, cpu);
 }
 
 /**
@@ -271,31 +350,33 @@ void add_page_to_unevictable_list(struct page *page)
  */
 static void drain_cpu_pagevecs(int cpu)
 {
-	struct pagevec *pvecs = per_cpu(lru_add_pvecs, cpu);
-	struct pagevec *pvec;
+	struct pagevec *pvecs, *pvec;
 	int lru;
 
+	pvecs = swap_per_cpu_lock(lru_add_pvecs, cpu)[0];
 	for_each_lru(lru) {
 		pvec = &pvecs[lru - LRU_BASE];
 		if (pagevec_count(pvec))
 			____pagevec_lru_add(pvec, lru);
 	}
+	swap_per_cpu_unlock(lru_add_pvecs, cpu);
 
-	pvec = &per_cpu(lru_rotate_pvecs, cpu);
+	pvec = swap_per_cpu_lock(lru_rotate_pvecs, cpu);
 	if (pagevec_count(pvec)) {
 		unsigned long flags;
 
 		/* No harm done if a racing interrupt already did this */
-		local_irq_save(flags);
+		swap_irq_save(flags);
 		pagevec_move_tail(pvec);
-		local_irq_restore(flags);
+		swap_irq_restore(flags);
 	}
+	swap_per_cpu_unlock(lru_rotate_pvecs, cpu);
 }
 
 void lru_add_drain(void)
 {
-	drain_cpu_pagevecs(get_cpu());
-	put_cpu();
+	drain_cpu_pagevecs(swap_get_cpu());
+	swap_put_cpu();
 }
 
 static void lru_add_drain_per_cpu(struct work_struct *dummy)
@@ -369,7 +450,7 @@ void release_pages(struct page **pages, int nr, int cold)
 			}
 			__pagevec_free(&pages_to_free);
 			pagevec_reinit(&pages_to_free);
-  		}
+		}
 	}
 	if (zone)
 		spin_unlock_irqrestore(&zone->lru_lock, flags);
