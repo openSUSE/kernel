@@ -124,7 +124,7 @@ int aac_fib_setup(struct aac_dev * dev)
 		fibptr->hw_fib_va = hw_fib;
 		fibptr->data = (void *) fibptr->hw_fib_va->data;
 		fibptr->next = fibptr+1;	/* Forward chain the fibs */
-		semaphore_init_locked(&fibptr->event_wait);
+		anon_semaphore_init_locked(&fibptr->event_wait);
 		spin_lock_init(&fibptr->event_lock);
 		hw_fib->header.XferState = cpu_to_le32(0xffffffff);
 		hw_fib->header.SenderSize = cpu_to_le16(dev->max_fib_size);
@@ -490,7 +490,7 @@ int aac_fib_send(u16 command, struct fib *fibptr, unsigned long size,
 			 * hardware failure has occurred.
 			 */
 			unsigned long count = 36000000L; /* 3 minutes */
-			while (down_trylock(&fibptr->event_wait)) {
+			while (anon_down_trylock(&fibptr->event_wait)) {
 				int blink;
 				if (--count == 0) {
 					struct aac_queue * q = &dev->queues->queue[AdapNormCmdQueue];
@@ -515,9 +515,9 @@ int aac_fib_send(u16 command, struct fib *fibptr, unsigned long size,
 				}
 				udelay(5);
 			}
-		} else if (down_interruptible(&fibptr->event_wait)) {
+		} else if (anon_down_interruptible(&fibptr->event_wait)) {
 			fibptr->done = 2;
-			up(&fibptr->event_wait);
+			anon_up(&fibptr->event_wait);
 		}
 		spin_lock_irqsave(&fibptr->event_lock, flags);
 		if ((fibptr->done == 0) || (fibptr->done == 2)) {
@@ -1177,7 +1177,7 @@ static int _aac_reset_adapter(struct aac_dev *aac, int forced)
 		  (fib->hw_fib_va->header.XferState & cpu_to_le32(ResponseExpected))) {
 			unsigned long flagv;
 			spin_lock_irqsave(&fib->event_lock, flagv);
-			up(&fib->event_wait);
+			anon_up(&fib->event_wait);
 			spin_unlock_irqrestore(&fib->event_lock, flagv);
 			schedule();
 			retval = 0;
@@ -1460,7 +1460,7 @@ int aac_check_health(struct aac_dev * aac)
 			 * Set the event to wake up the
 			 * thread that will waiting.
 			 */
-			up(&fibctx->wait_sem);
+			anon_up(&fibctx->wait_sem);
 		} else {
 			printk(KERN_WARNING "aifd: didn't allocate NewFib.\n");
 			kfree(fib);
@@ -1691,7 +1691,7 @@ int aac_command_thread(void *data)
 						 * Set the event to wake up the
 						 * thread that is waiting.
 						 */
-						up(&fibctx->wait_sem);
+						anon_up(&fibctx->wait_sem);
 					} else {
 						printk(KERN_WARNING "aifd: didn't allocate NewFib.\n");
 					}
