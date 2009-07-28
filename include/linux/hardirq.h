@@ -86,14 +86,6 @@
  */
 #define in_nmi()	(preempt_count() & NMI_MASK)
 
-#if defined(CONFIG_PREEMPT)
-# define PREEMPT_INATOMIC_BASE kernel_locked()
-# define PREEMPT_CHECK_OFFSET 1
-#else
-# define PREEMPT_INATOMIC_BASE 0
-# define PREEMPT_CHECK_OFFSET 0
-#endif
-
 /*
  * Are we running in atomic context?  WARNING: this macro cannot
  * always detect atomic context; in particular, it cannot know about
@@ -101,11 +93,17 @@
  * used in the general case to determine whether sleeping is possible.
  * Do not use in_atomic() in driver code.
  */
-#define in_atomic()	((preempt_count() & ~PREEMPT_ACTIVE) != PREEMPT_INATOMIC_BASE)
+#define in_atomic()		((preempt_count() & ~PREEMPT_ACTIVE) != 0)
+
+#ifdef CONFIG_PREEMPT
+# define PREEMPT_CHECK_OFFSET 1
+#else
+# define PREEMPT_CHECK_OFFSET 0
+#endif
 
 /*
  * Check whether we were atomic before we did preempt_disable():
- * (used by the scheduler, *after* releasing the kernel lock)
+ * (used by the scheduler)
  */
 #define in_atomic_preempt_off() \
 		((preempt_count() & ~PREEMPT_ACTIVE) != PREEMPT_CHECK_OFFSET)
