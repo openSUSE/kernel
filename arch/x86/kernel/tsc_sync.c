@@ -104,6 +104,7 @@ static __cpuinit void check_tsc_warp(void)
  */
 void __cpuinit check_tsc_sync_source(int cpu)
 {
+	unsigned long flags;
 	int cpus = 2;
 
 	/*
@@ -129,8 +130,11 @@ void __cpuinit check_tsc_sync_source(int cpu)
 	/*
 	 * Wait for the target to arrive:
 	 */
+	local_save_flags(flags);
+	local_irq_enable();
 	while (atomic_read(&start_count) != cpus-1)
 		cpu_relax();
+	local_irq_restore(flags);
 	/*
 	 * Trigger the target to continue into the measurement too:
 	 */

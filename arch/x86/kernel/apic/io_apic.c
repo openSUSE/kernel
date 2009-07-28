@@ -2164,8 +2164,10 @@ static int __init timer_irq_works(void)
 	 */
 
 	/* jiffies wrap? */
-	if (time_after(jiffies, t1 + 4))
+	if (time_after(jiffies, t1 + 4) &&
+	    time_before(jiffies, t1 + 16))
 		return 1;
+
 	return 0;
 }
 
@@ -2526,7 +2528,8 @@ static void ack_apic_level(unsigned int irq)
 	irq_complete_move(&desc);
 #ifdef CONFIG_GENERIC_PENDING_IRQ
 	/* If we are moving the irq we need to mask it */
-	if (unlikely(desc->status & IRQ_MOVE_PENDING)) {
+	if (unlikely(desc->status & IRQ_MOVE_PENDING) &&
+	    !(desc->status & IRQ_INPROGRESS)) {
 		do_unmask_irq = 1;
 		mask_IO_APIC_irq_desc(desc);
 	}
