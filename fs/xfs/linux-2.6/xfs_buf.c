@@ -263,7 +263,7 @@ _xfs_buf_initialize(
 	init_completion(&bp->b_iowait);
 	INIT_LIST_HEAD(&bp->b_list);
 	INIT_LIST_HEAD(&bp->b_hash_list);
-	semaphore_init_locked(&bp->b_sema); /* held, no waiters */
+	anon_semaphore_init_locked(&bp->b_sema); /* held, no waiters */
 	XB_SET_OWNER(bp);
 	bp->b_target = target;
 	bp->b_file_offset = range_base;
@@ -545,7 +545,7 @@ found:
 	 * if this does not work then we need to drop the
 	 * spinlock and do a hard attempt on the semaphore.
 	 */
-	if (down_trylock(&bp->b_sema)) {
+	if (anon_down_trylock(&bp->b_sema)) {
 		if (!(flags & XBF_TRYLOCK)) {
 			/* wait for buffer ownership */
 			XB_TRACE(bp, "get_lock", 0);
@@ -908,7 +908,7 @@ xfs_buf_cond_lock(
 {
 	int			locked;
 
-	locked = down_trylock(&bp->b_sema) == 0;
+	locked = anon_down_trylock(&bp->b_sema) == 0;
 	if (locked) {
 		XB_SET_OWNER(bp);
 	}
@@ -938,7 +938,7 @@ xfs_buf_lock(
 	XB_TRACE(bp, "lock", 0);
 	if (atomic_read(&bp->b_io_remaining))
 		blk_run_address_space(bp->b_target->bt_mapping);
-	down(&bp->b_sema);
+	anon_down(&bp->b_sema);
 	XB_SET_OWNER(bp);
 	XB_TRACE(bp, "locked", 0);
 }
@@ -961,7 +961,7 @@ xfs_buf_unlock(
 	}
 
 	XB_CLEAR_OWNER(bp);
-	up(&bp->b_sema);
+	anon_up(&bp->b_sema);
 	XB_TRACE(bp, "unlock", 0);
 }
 
