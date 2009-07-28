@@ -72,6 +72,7 @@ static irqreturn_t math_error_irq(int cpl, void *dev_id)
 static struct irqaction fpu_irq = {
 	.handler = math_error_irq,
 	.name = "fpu",
+	.flags = IRQF_NODELAY,
 };
 #endif
 
@@ -81,6 +82,7 @@ static struct irqaction fpu_irq = {
 static struct irqaction irq2 = {
 	.handler = no_action,
 	.name = "cascade",
+	.flags = IRQF_NODELAY,
 };
 
 DEFINE_PER_CPU(vector_irq_t, vector_irq) = {
