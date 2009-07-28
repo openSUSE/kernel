@@ -82,7 +82,7 @@ struct mkiss {
 #define CRC_MODE_SMACK_TEST	4
 
 	atomic_t		refcnt;
-	struct semaphore	dead_sem;
+	struct anon_semaphore	dead_sem;
 };
 
 /*---------------------------------------------------------------------------*/
@@ -718,7 +718,7 @@ static struct mkiss *mkiss_get(struct tty_struct *tty)
 static void mkiss_put(struct mkiss *ax)
 {
 	if (atomic_dec_and_test(&ax->refcnt))
-		up(&ax->dead_sem);
+		anon_up(&ax->dead_sem);
 }
 
 static int crc_force = 0;	/* Can be overridden with insmod */
@@ -745,7 +745,7 @@ static int mkiss_open(struct tty_struct *tty)
 
 	spin_lock_init(&ax->buflock);
 	atomic_set(&ax->refcnt, 1);
-	semaphore_init_locked(&ax->dead_sem);
+	anon_semaphore_init_locked(&ax->dead_sem);
 
 	ax->tty = tty;
 	tty->disc_data = ax;
@@ -824,7 +824,7 @@ static void mkiss_close(struct tty_struct *tty)
 	 * we have to wait for all existing users to finish.
 	 */
 	if (!atomic_dec_and_test(&ax->refcnt))
-		down(&ax->dead_sem);
+		anon_down(&ax->dead_sem);
 
 	unregister_netdev(ax->dev);
 

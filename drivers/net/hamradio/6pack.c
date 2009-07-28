@@ -120,7 +120,7 @@ struct sixpack {
 	struct timer_list	tx_t;
 	struct timer_list	resync_t;
 	atomic_t		refcnt;
-	struct semaphore	dead_sem;
+	struct anon_semaphore	dead_sem;
 	spinlock_t		lock;
 };
 
@@ -412,7 +412,7 @@ static struct sixpack *sp_get(struct tty_struct *tty)
 static void sp_put(struct sixpack *sp)
 {
 	if (atomic_dec_and_test(&sp->refcnt))
-		up(&sp->dead_sem);
+		anon_up(&sp->dead_sem);
 }
 
 /*
@@ -606,7 +606,7 @@ static int sixpack_open(struct tty_struct *tty)
 
 	spin_lock_init(&sp->lock);
 	atomic_set(&sp->refcnt, 1);
-	semaphore_init_locked(&sp->dead_sem);
+	anon_semaphore_init_locked(&sp->dead_sem);
 
 	/* !!! length of the buffers. MTU is IP MTU, not PACLEN!  */
 
@@ -702,7 +702,7 @@ static void sixpack_close(struct tty_struct *tty)
 	 * we have to wait for all existing users to finish.
 	 */
 	if (!atomic_dec_and_test(&sp->refcnt))
-		down(&sp->dead_sem);
+		anon_down(&sp->dead_sem);
 
 	unregister_netdev(sp->dev);
 
