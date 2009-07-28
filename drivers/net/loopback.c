@@ -65,6 +65,14 @@ struct pcpu_lstats {
 	unsigned long drops;
 };
 
+#ifdef CONFIG_PREEMPT_RT
+# define xmit_get_cpu()		get_cpu()
+# define xmit_put_cpu()		put_cpu()
+#else
+# define xmit_get_cpu()		smp_processor_id()
+# define xmit_put_cpu()		do { } while (0)
+#endif
+
 /*
  * The higher levels take care of making this non-reentrant (it's
  * called with bh's disabled).
@@ -72,22 +80,23 @@ struct pcpu_lstats {
 static int loopback_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct pcpu_lstats *pcpu_lstats, *lb_stats;
-	int len;
+	int len, res;
 
 	skb_orphan(skb);
 
 	skb->protocol = eth_type_trans(skb, dev);
-
-	/* it's OK to use per_cpu_ptr() because BHs are off */
-	pcpu_lstats = dev->ml_priv;
-	lb_stats = per_cpu_ptr(pcpu_lstats, smp_processor_id());
-
 	len = skb->len;
-	if (likely(netif_rx(skb) == NET_RX_SUCCESS)) {
+	res = netif_rx(skb);
+
+	pcpu_lstats = dev->ml_priv;
+	lb_stats = per_cpu_ptr(pcpu_lstats, xmit_get_cpu());
+
+	if (likely(res == NET_RX_SUCCESS)) {
 		lb_stats->bytes += len;
 		lb_stats->packets++;
 	} else
 		lb_stats->drops++;
+	xmit_put_cpu();
 
 	return 0;
 }

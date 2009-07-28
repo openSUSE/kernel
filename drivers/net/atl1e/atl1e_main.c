@@ -1856,8 +1856,7 @@ static int atl1e_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 		return NETDEV_TX_OK;
 	}
 	tpd_req = atl1e_cal_tdp_req(skb);
-	if (!spin_trylock_irqsave(&adapter->tx_lock, flags))
-		return NETDEV_TX_LOCKED;
+	spin_lock_irqsave(&adapter->tx_lock, flags);
 
 	if (atl1e_tpd_avail(adapter) < tpd_req) {
 		/* no enough descriptor, just stop queue */

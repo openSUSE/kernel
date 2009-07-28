@@ -1032,12 +1032,8 @@ static int gem_start_xmit(struct sk_buff *skb, struct net_device *dev)
 			(csum_stuff_off << 21));
 	}
 
-	local_irq_save(flags);
-	if (!spin_trylock(&gp->tx_lock)) {
-		/* Tell upper layer to requeue */
-		local_irq_restore(flags);
-		return NETDEV_TX_LOCKED;
-	}
+	spin_lock_irqsave(&gp->tx_lock, flags);
+
 	/* We raced with gem_do_stop() */
 	if (!gp->running) {
 		spin_unlock_irqrestore(&gp->tx_lock, flags);
