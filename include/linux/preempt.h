@@ -93,6 +93,18 @@ do { \
 
 #endif
 
+#ifdef CONFIG_PREEMPT_RT
+# define preempt_disable_rt()		preempt_disable()
+# define preempt_enable_rt()		preempt_enable()
+# define preempt_disable_nort()		do { } while (0)
+# define preempt_enable_nort()		do { } while (0)
+#else
+# define preempt_disable_rt()		do { } while (0)
+# define preempt_enable_rt()		do { } while (0)
+# define preempt_disable_nort()		preempt_disable()
+# define preempt_enable_nort()		preempt_enable()
+#endif
+
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 
 struct preempt_notifier;
