@@ -104,7 +104,7 @@ static int to_debug = 0;
 static struct mutex sem_hpcaccess;	// lock access to HPC
 static struct semaphore semOperations;	// lock all operations and
 					// access to data structures
-static struct semaphore sem_exit;	// make sure polling thread goes away
+static struct anon_semaphore sem_exit;	// make sure polling thread goes away
 static struct task_struct *ibmphp_poll_thread;
 //----------------------------------------------------------------------------
 // local function prototypes
@@ -133,7 +133,7 @@ void __init ibmphp_hpc_initvars (void)
 
 	mutex_init(&sem_hpcaccess);
 	semaphore_init(&semOperations);
-	semaphore_init_locked(&sem_exit);
+	anon_semaphore_init_locked(&sem_exit);
 	to_debug = 0;
 
 	debug ("%s - Exit\n", __func__);
@@ -906,7 +906,7 @@ static int poll_hpc(void *data)
 		/* sleep for a short time just for good measure */
 		msleep(100);
 	}
-	up (&sem_exit);
+	anon_up (&sem_exit);
 	debug ("%s - Exit\n", __func__);
 	return 0;
 }
@@ -1076,7 +1076,7 @@ void __exit ibmphp_hpc_stop_poll_thread (void)
 	
 	// wait for poll thread to exit
 	debug ("before sem_exit down \n");
-	down (&sem_exit);
+	anon_down (&sem_exit);
 	debug ("after sem_exit down \n");
 
 	// cleanup
@@ -1085,7 +1085,7 @@ void __exit ibmphp_hpc_stop_poll_thread (void)
 	debug ("after free_hpc_access \n");
 	ibmphp_unlock_operations ();
 	debug ("after unlock operations \n");
-	up (&sem_exit);
+	anon_up (&sem_exit);
 	debug ("after sem exit up\n");
 
 	debug ("%s - Exit\n", __func__);
