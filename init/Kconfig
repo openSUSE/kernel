@@ -318,6 +318,7 @@ choice
 
 config CLASSIC_RCU
 	bool "Classic RCU"
+	depends on !PREEMPT_RT
 	help
 	  This option selects the classic RCU implementation that is
 	  designed for best read-side performance on non-realtime
@@ -327,6 +328,7 @@ config CLASSIC_RCU
 
 config TREE_RCU
 	bool "Tree-based hierarchical RCU"
+	depends on !PREEMPT_RT
 	help
 	  This option selects the RCU implementation that is
 	  designed for very large SMP system with hundreds or
