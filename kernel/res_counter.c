@@ -14,6 +14,7 @@
 #include <linux/res_counter.h>
 #include <linux/uaccess.h>
 #include <linux/mm.h>
+#include <linux/interrupt.h>
 
 void res_counter_init(struct res_counter *counter, struct res_counter *parent)
 {
@@ -43,7 +44,7 @@ int res_counter_charge(struct res_counter *counter, unsigned long val,
 	struct res_counter *c, *u;
 
 	*limit_fail_at = NULL;
-	local_irq_save(flags);
+	local_irq_save_nort(flags);
 	for (c = counter; c != NULL; c = c->parent) {
 		spin_lock(&c->lock);
 		ret = res_counter_charge_locked(c, val);
@@ -62,7 +63,7 @@ undo:
 		spin_unlock(&u->lock);
 	}
 done:
-	local_irq_restore(flags);
+	local_irq_restore_nort(flags);
 	return ret;
 }
 
@@ -79,13 +80,13 @@ void res_counter_uncharge(struct res_counter *counter, unsigned long val)
 	unsigned long flags;
 	struct res_counter *c;
 
-	local_irq_save(flags);
+	local_irq_save_nort(flags);
 	for (c = counter; c != NULL; c = c->parent) {
 		spin_lock(&c->lock);
 		res_counter_uncharge_locked(c, val);
 		spin_unlock(&c->lock);
 	}
-	local_irq_restore(flags);
+	local_irq_restore_nort(flags);
 }
 
 
