@@ -104,7 +104,8 @@ typedef struct {
  */
 #define SPIN_LOCK_UNLOCKED	__SPIN_LOCK_UNLOCKED(old_style_spin_init)
 
-#define DEFINE_SPINLOCK(x)	spinlock_t x = __SPIN_LOCK_UNLOCKED(x)
+#define __DEFINE_SPINLOCK(x)	spinlock_t x = __SPIN_LOCK_UNLOCKED(x)
+#define DEFINE_SPINLOCK(x)	__DEFINE_SPINLOCK(x)
 
 #include <linux/rwlock_types.h>
 
