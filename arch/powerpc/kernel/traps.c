@@ -102,11 +102,11 @@ static inline void pmac_backlight_unblank(void) { }
 int die(const char *str, struct pt_regs *regs, long err)
 {
 	static struct {
-		spinlock_t lock;
+		atomic_spinlock_t lock;
 		u32 lock_owner;
 		int lock_owner_depth;
 	} die = {
-		.lock =			__SPIN_LOCK_UNLOCKED(die.lock),
+		.lock =			__ATOMIC_SPIN_LOCK_UNLOCKED(die.lock),
 		.lock_owner =		-1,
 		.lock_owner_depth =	0
 	};
@@ -120,7 +120,7 @@ int die(const char *str, struct pt_regs *regs, long err)
 
 	if (die.lock_owner != raw_smp_processor_id()) {
 		console_verbose();
-		spin_lock_irqsave(&die.lock, flags);
+		atomic_spin_lock_irqsave(&die.lock, flags);
 		die.lock_owner = smp_processor_id();
 		die.lock_owner_depth = 0;
 		bust_spinlocks(1);
@@ -155,7 +155,7 @@ int die(const char *str, struct pt_regs *regs, long err)
 	bust_spinlocks(0);
 	die.lock_owner = -1;
 	add_taint(TAINT_DIE);
-	spin_unlock_irqrestore(&die.lock, flags);
+	atomic_spin_unlock_irqrestore(&die.lock, flags);
 
 	if (kexec_should_crash(current) ||
 		kexec_sr_activated(smp_processor_id()))
@@ -192,6 +192,11 @@ void _exception(int signr, struct pt_regs *regs, int code, unsigned long addr)
 				current->comm, current->pid, signr,
 				addr, regs->nip, regs->link, code);
 		}
+
+#ifdef CONFIG_PREEMPT_RT
+	local_irq_enable();
+	preempt_check_resched();
+#endif
 
 	memset(&info, 0, sizeof(info));
 	info.si_signo = signr;

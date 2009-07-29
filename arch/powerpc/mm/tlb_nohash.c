@@ -85,7 +85,7 @@ EXPORT_SYMBOL(local_flush_tlb_page);
  */
 #ifdef CONFIG_SMP
 
-static DEFINE_SPINLOCK(tlbivax_lock);
+static DEFINE_ATOMIC_SPINLOCK(tlbivax_lock);
 
 struct tlb_flush_param {
 	unsigned long addr;
@@ -158,10 +158,10 @@ void flush_tlb_page(struct vm_area_struct *vma, unsigned long vmaddr)
 		if (mmu_has_feature(MMU_FTR_USE_TLBIVAX_BCAST)) {
 			int lock = mmu_has_feature(MMU_FTR_LOCK_BCAST_INVAL);
 			if (lock)
-				spin_lock(&tlbivax_lock);
+				atomic_spin_lock(&tlbivax_lock);
 			_tlbivax_bcast(vmaddr, pid);
 			if (lock)
-				spin_unlock(&tlbivax_lock);
+				atomic_spin_unlock(&tlbivax_lock);
 			goto bail;
 		} else {
 			struct tlb_flush_param p = { .pid = pid, .addr = vmaddr };
@@ -189,7 +189,9 @@ void flush_tlb_kernel_range(unsigned long start, unsigned long end)
 	_tlbil_pid(0);
 	preempt_enable();
 #else
+	preempt_disable();
 	_tlbil_pid(0);
+	preempt_enable();
 #endif
 }
 EXPORT_SYMBOL(flush_tlb_kernel_range);

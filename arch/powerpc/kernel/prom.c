@@ -81,7 +81,7 @@ struct boot_param_header *initial_boot_params;
 
 extern struct device_node *allnodes;	/* temporary while merging */
 
-extern rwlock_t devtree_lock;	/* temporary while merging */
+extern atomic_spinlock_t devtree_lock;	/* temporary while merging */
 
 /* export that to outside world */
 struct device_node *of_chosen;
@@ -1275,12 +1275,12 @@ struct device_node *of_find_node_by_phandle(phandle handle)
 {
 	struct device_node *np;
 
-	read_lock(&devtree_lock);
+	atomic_spin_lock(&devtree_lock);
 	for (np = allnodes; np != 0; np = np->allnext)
 		if (np->linux_phandle == handle)
 			break;
 	of_node_get(np);
-	read_unlock(&devtree_lock);
+	atomic_spin_unlock(&devtree_lock);
 	return np;
 }
 EXPORT_SYMBOL(of_find_node_by_phandle);
@@ -1328,13 +1328,13 @@ struct device_node *of_find_all_nodes(struct device_node *prev)
 {
 	struct device_node *np;
 
-	read_lock(&devtree_lock);
+	atomic_spin_lock(&devtree_lock);
 	np = prev ? prev->allnext : allnodes;
 	for (; np != 0; np = np->allnext)
 		if (of_node_get(np))
 			break;
 	of_node_put(prev);
-	read_unlock(&devtree_lock);
+	atomic_spin_unlock(&devtree_lock);
 	return np;
 }
 EXPORT_SYMBOL(of_find_all_nodes);
@@ -1419,12 +1419,12 @@ void of_attach_node(struct device_node *np)
 {
 	unsigned long flags;
 
-	write_lock_irqsave(&devtree_lock, flags);
+	atomic_spin_lock_irqsave(&devtree_lock, flags);
 	np->sibling = np->parent->child;
 	np->allnext = allnodes;
 	np->parent->child = np;
 	allnodes = np;
-	write_unlock_irqrestore(&devtree_lock, flags);
+	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
 }
 
 /*
@@ -1437,7 +1437,7 @@ void of_detach_node(struct device_node *np)
 	struct device_node *parent;
 	unsigned long flags;
 
-	write_lock_irqsave(&devtree_lock, flags);
+	atomic_spin_lock_irqsave(&devtree_lock, flags);
 
 	parent = np->parent;
 	if (!parent)
@@ -1468,7 +1468,7 @@ void of_detach_node(struct device_node *np)
 	of_node_set_flag(np, OF_DETACHED);
 
 out_unlock:
-	write_unlock_irqrestore(&devtree_lock, flags);
+	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
 }
 
 #ifdef CONFIG_PPC_PSERIES
@@ -1552,18 +1552,18 @@ int prom_add_property(struct device_node* np, struct property* prop)
 	unsigned long flags;
 
 	prop->next = NULL;	
-	write_lock_irqsave(&devtree_lock, flags);
+	atomic_spin_lock_irqsave(&devtree_lock, flags);
 	next = &np->properties;
 	while (*next) {
 		if (strcmp(prop->name, (*next)->name) == 0) {
 			/* duplicate ! don't insert it */
-			write_unlock_irqrestore(&devtree_lock, flags);
+			atomic_spin_unlock_irqrestore(&devtree_lock, flags);
 			return -1;
 		}
 		next = &(*next)->next;
 	}
 	*next = prop;
-	write_unlock_irqrestore(&devtree_lock, flags);
+	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
 
 #ifdef CONFIG_PROC_DEVICETREE
 	/* try to add to proc as well if it was initialized */
@@ -1586,7 +1586,7 @@ int prom_remove_property(struct device_node *np, struct property *prop)
 	unsigned long flags;
 	int found = 0;
 
-	write_lock_irqsave(&devtree_lock, flags);
+	atomic_spin_lock_irqsave(&devtree_lock, flags);
 	next = &np->properties;
 	while (*next) {
 		if (*next == prop) {
@@ -1599,7 +1599,7 @@ int prom_remove_property(struct device_node *np, struct property *prop)
 		}
 		next = &(*next)->next;
 	}
-	write_unlock_irqrestore(&devtree_lock, flags);
+	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
 
 	if (!found)
 		return -ENODEV;
@@ -1628,7 +1628,7 @@ int prom_update_property(struct device_node *np,
 	unsigned long flags;
 	int found = 0;
 
-	write_lock_irqsave(&devtree_lock, flags);
+	atomic_spin_lock_irqsave(&devtree_lock, flags);
 	next = &np->properties;
 	while (*next) {
 		if (*next == oldprop) {
@@ -1642,7 +1642,7 @@ int prom_update_property(struct device_node *np,
 		}
 		next = &(*next)->next;
 	}
-	write_unlock_irqrestore(&devtree_lock, flags);
+	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
 
 	if (!found)
 		return -ENODEV;
