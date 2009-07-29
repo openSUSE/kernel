@@ -375,12 +375,18 @@ static int gpio_irq_type(unsigned pin, unsigned type)
 	}
 }
 
+static void gpio_irq_ack_noop(unsigned int irq)
+{
+	/* Dummy function.  */
+}
+
 static struct irq_chip gpio_irqchip = {
 	.name		= "GPIO",
 	.mask		= gpio_irq_mask,
 	.unmask		= gpio_irq_unmask,
 	.set_type	= gpio_irq_type,
 	.set_wake	= gpio_irq_set_wake,
+	.ack            = gpio_irq_ack_noop,
 };
 
 static void gpio_irq_handler(unsigned irq, struct irq_desc *desc)
@@ -527,7 +533,7 @@ void __init at91_gpio_irq_setup(void)
 			 * shorter, and the AIC handles interrupts sanely.
 			 */
 			set_irq_chip(pin, &gpio_irqchip);
-			set_irq_handler(pin, handle_simple_irq);
+			set_irq_handler(pin, handle_edge_irq);
 			set_irq_flags(pin, IRQF_VALID);
 		}
 

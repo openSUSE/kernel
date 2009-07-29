@@ -108,15 +108,12 @@ EXPORT_SYMBOL(clk_disable);
 
 unsigned long clk_get_rate(struct clk *clk)
 {
-	unsigned long flags;
 	unsigned long ret = 0;
 
 	if (clk == NULL || IS_ERR(clk))
 		return 0;
 
-	spin_lock_irqsave(&clockfw_lock, flags);
 	ret = clk->rate;
-	spin_unlock_irqrestore(&clockfw_lock, flags);
 
 	return ret;
 }

@@ -240,15 +240,22 @@ void badge4_set_5V(unsigned subsystem, int on)
 	/* detect on->off and off->on transitions */
 	if ((!old_5V_bitmap) && (badge4_5V_bitmap)) {
 		/* was off, now on */
-		printk(KERN_INFO "%s: enabling 5V supply rail\n", __func__);
 		GPSR = BADGE4_GPIO_PCMEN5V;
 	} else if ((old_5V_bitmap) && (!badge4_5V_bitmap)) {
 		/* was on, now off */
-		printk(KERN_INFO "%s: disabling 5V supply rail\n", __func__);
 		GPCR = BADGE4_GPIO_PCMEN5V;
 	}
 
 	local_irq_restore(flags);
+
+	/* detect on->off and off->on transitions */
+	if ((!old_5V_bitmap) && (badge4_5V_bitmap)) {
+		/* was off, now on */
+		printk(KERN_INFO "%s: enabling 5V supply rail\n", __FUNCTION__);
+	} else if ((old_5V_bitmap) && (!badge4_5V_bitmap)) {
+		/* was on, now off */
+		printk(KERN_INFO "%s: disabling 5V supply rail\n", __FUNCTION__);
+	}
 }
 EXPORT_SYMBOL(badge4_set_5V);
 

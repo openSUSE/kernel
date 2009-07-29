@@ -41,7 +41,7 @@
  * These are the page tables (2MB each) covering uncached, DMA consistent allocations
  */
 static pte_t *consistent_pte[NUM_CONSISTENT_PTES];
-static DEFINE_SPINLOCK(consistent_lock);
+static DEFINE_ATOMIC_SPINLOCK(consistent_lock);
 
 /*
  * VM region handling support.
@@ -97,7 +97,7 @@ arm_vm_region_alloc(struct arm_vm_region *head, size_t size, gfp_t gfp)
 	if (!new)
 		goto out;
 
-	spin_lock_irqsave(&consistent_lock, flags);
+	atomic_spin_lock_irqsave(&consistent_lock, flags);
 
 	list_for_each_entry(c, &head->vm_list, vm_list) {
 		if ((addr + size) < addr)
@@ -118,11 +118,11 @@ arm_vm_region_alloc(struct arm_vm_region *head, size_t size, gfp_t gfp)
 	new->vm_end = addr + size;
 	new->vm_active = 1;
 
-	spin_unlock_irqrestore(&consistent_lock, flags);
+	atomic_spin_unlock_irqrestore(&consistent_lock, flags);
 	return new;
 
  nospc:
-	spin_unlock_irqrestore(&consistent_lock, flags);
+	atomic_spin_unlock_irqrestore(&consistent_lock, flags);
 	kfree(new);
  out:
 	return NULL;
@@ -317,9 +317,9 @@ static int dma_mmap(struct device *dev, struct vm_area_struct *vma,
 
 	user_size = (vma->vm_end - vma->vm_start) >> PAGE_SHIFT;
 
-	spin_lock_irqsave(&consistent_lock, flags);
+	atomic_spin_lock_irqsave(&consistent_lock, flags);
 	c = arm_vm_region_find(&consistent_head, (unsigned long)cpu_addr);
-	spin_unlock_irqrestore(&consistent_lock, flags);
+	atomic_spin_unlock_irqrestore(&consistent_lock, flags);
 
 	if (c) {
 		unsigned long off = vma->vm_pgoff;
@@ -378,13 +378,13 @@ void dma_free_coherent(struct device *dev, size_t size, void *cpu_addr, dma_addr
 
 	size = PAGE_ALIGN(size);
 
-	spin_lock_irqsave(&consistent_lock, flags);
+	atomic_spin_lock_irqsave(&consistent_lock, flags);
 	c = arm_vm_region_find(&consistent_head, (unsigned long)cpu_addr);
 	if (!c)
 		goto no_area;
 
 	c->vm_active = 0;
-	spin_unlock_irqrestore(&consistent_lock, flags);
+	atomic_spin_unlock_irqrestore(&consistent_lock, flags);
 
 	if ((c->vm_end - c->vm_start) != size) {
 		printk(KERN_ERR "%s: freeing wrong coherent size (%ld != %d)\n",
@@ -431,15 +431,15 @@ void dma_free_coherent(struct device *dev, size_t size, void *cpu_addr, dma_addr
 
 	flush_tlb_kernel_range(c->vm_start, c->vm_end);
 
-	spin_lock_irqsave(&consistent_lock, flags);
+	atomic_spin_lock_irqsave(&consistent_lock, flags);
 	list_del(&c->vm_list);
-	spin_unlock_irqrestore(&consistent_lock, flags);
+	atomic_spin_unlock_irqrestore(&consistent_lock, flags);
 
 	kfree(c);
 	return;
 
  no_area:
-	spin_unlock_irqrestore(&consistent_lock, flags);
+	atomic_spin_unlock_irqrestore(&consistent_lock, flags);
 	printk(KERN_ERR "%s: trying to free invalid coherent area: %p\n",
 	       __func__, cpu_addr);
 	dump_stack();
