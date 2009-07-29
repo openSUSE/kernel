@@ -25,7 +25,7 @@ struct device_node *allnodes;
 /* use when traversing tree through the allnext, child, sibling,
  * or parent members of struct device_node.
  */
-DEFINE_RWLOCK(devtree_lock);
+DEFINE_ATOMIC_SPINLOCK(devtree_lock);
 
 int of_n_addr_cells(struct device_node *np)
 {
@@ -68,7 +68,7 @@ struct property *of_find_property(const struct device_node *np,
 	if (!np)
 		return NULL;
 
-	read_lock(&devtree_lock);
+	atomic_spin_lock(&devtree_lock);
 	for (pp = np->properties; pp != 0; pp = pp->next) {
 		if (of_prop_cmp(pp->name, name) == 0) {
 			if (lenp != 0)
@@ -76,7 +76,7 @@ struct property *of_find_property(const struct device_node *np,
 			break;
 		}
 	}
-	read_unlock(&devtree_lock);
+	atomic_spin_unlock(&devtree_lock);
 
 	return pp;
 }
@@ -159,9 +159,9 @@ struct device_node *of_get_parent(const struct device_node *node)
 	if (!node)
 		return NULL;
 
-	read_lock(&devtree_lock);
+	atomic_spin_lock(&devtree_lock);
 	np = of_node_get(node->parent);
-	read_unlock(&devtree_lock);
+	atomic_spin_unlock(&devtree_lock);
 	return np;
 }
 EXPORT_SYMBOL(of_get_parent);
@@ -184,10 +184,10 @@ struct device_node *of_get_next_parent(struct device_node *node)
 	if (!node)
 		return NULL;
 
-	read_lock(&devtree_lock);
+	atomic_spin_lock(&devtree_lock);
 	parent = of_node_get(node->parent);
 	of_node_put(node);
-	read_unlock(&devtree_lock);
+	atomic_spin_unlock(&devtree_lock);
 	return parent;
 }
 
@@ -204,13 +204,13 @@ struct device_node *of_get_next_child(const struct device_node *node,
 {
 	struct device_node *next;
 
-	read_lock(&devtree_lock);
+	atomic_spin_lock(&devtree_lock);
 	next = prev ? prev->sibling : node->child;
 	for (; next; next = next->sibling)
 		if (of_node_get(next))
 			break;
 	of_node_put(prev);
-	read_unlock(&devtree_lock);
+	atomic_spin_unlock(&devtree_lock);
 	return next;
 }
 EXPORT_SYMBOL(of_get_next_child);
@@ -226,13 +226,13 @@ struct device_node *of_find_node_by_path(const char *path)
 {
 	struct device_node *np = allnodes;
 
-	read_lock(&devtree_lock);
+	atomic_spin_lock(&devtree_lock);
 	for (; np; np = np->allnext) {
 		if (np->full_name && (of_node_cmp(np->full_name, path) == 0)
 		    && of_node_get(np))
 			break;
 	}
-	read_unlock(&devtree_lock);
+	atomic_spin_unlock(&devtree_lock);
 	return np;
 }
 EXPORT_SYMBOL(of_find_node_by_path);
@@ -253,14 +253,14 @@ struct device_node *of_find_node_by_name(struct device_node *from,
 {
 	struct device_node *np;
 
-	read_lock(&devtree_lock);
+	atomic_spin_lock(&devtree_lock);
 	np = from ? from->allnext : allnodes;
 	for (; np; np = np->allnext)
 		if (np->name && (of_node_cmp(np->name, name) == 0)
 		    && of_node_get(np))
 			break;
 	of_node_put(from);
-	read_unlock(&devtree_lock);
+	atomic_spin_unlock(&devtree_lock);
 	return np;
 }
 EXPORT_SYMBOL(of_find_node_by_name);
@@ -282,14 +282,14 @@ struct device_node *of_find_node_by_type(struct device_node *from,
 {
 	struct device_node *np;
 
-	read_lock(&devtree_lock);
+	atomic_spin_lock(&devtree_lock);
 	np = from ? from->allnext : allnodes;
 	for (; np; np = np->allnext)
 		if (np->type && (of_node_cmp(np->type, type) == 0)
 		    && of_node_get(np))
 			break;
 	of_node_put(from);
-	read_unlock(&devtree_lock);
+	atomic_spin_unlock(&devtree_lock);
 	return np;
 }
 EXPORT_SYMBOL(of_find_node_by_type);
@@ -313,7 +313,7 @@ struct device_node *of_find_compatible_node(struct device_node *from,
 {
 	struct device_node *np;
 
-	read_lock(&devtree_lock);
+	atomic_spin_lock(&devtree_lock);
 	np = from ? from->allnext : allnodes;
 	for (; np; np = np->allnext) {
 		if (type
@@ -323,7 +323,7 @@ struct device_node *of_find_compatible_node(struct device_node *from,
 			break;
 	}
 	of_node_put(from);
-	read_unlock(&devtree_lock);
+	atomic_spin_unlock(&devtree_lock);
 	return np;
 }
 EXPORT_SYMBOL(of_find_compatible_node);
@@ -346,7 +346,7 @@ struct device_node *of_find_node_with_property(struct device_node *from,
 	struct device_node *np;
 	struct property *pp;
 
-	read_lock(&devtree_lock);
+	atomic_spin_lock(&devtree_lock);
 	np = from ? from->allnext : allnodes;
 	for (; np; np = np->allnext) {
 		for (pp = np->properties; pp != 0; pp = pp->next) {
@@ -358,7 +358,7 @@ struct device_node *of_find_node_with_property(struct device_node *from,
 	}
 out:
 	of_node_put(from);
-	read_unlock(&devtree_lock);
+	atomic_spin_unlock(&devtree_lock);
 	return np;
 }
 EXPORT_SYMBOL(of_find_node_with_property);
@@ -409,14 +409,14 @@ struct device_node *of_find_matching_node(struct device_node *from,
 {
 	struct device_node *np;
 
-	read_lock(&devtree_lock);
+	atomic_spin_lock(&devtree_lock);
 	np = from ? from->allnext : allnodes;
 	for (; np; np = np->allnext) {
 		if (of_match_node(matches, np) && of_node_get(np))
 			break;
 	}
 	of_node_put(from);
-	read_unlock(&devtree_lock);
+	atomic_spin_unlock(&devtree_lock);
 	return np;
 }
 EXPORT_SYMBOL(of_find_matching_node);
