@@ -24,6 +24,7 @@
 #include <linux/interrupt.h>
 #include <linux/device.h>
 #include <linux/mutex.h>
+#include <linux/semaphore.h>
 
 #include <mach/dma.h>
 #include <mach/hardware.h>
