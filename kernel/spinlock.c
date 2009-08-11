@@ -100,7 +100,7 @@ EXPORT_SYMBOL(_atomic_spin_lock);
  *         _atomic_spin_lock_irqsave()
  *         _atomic_spin_lock_bh()
  */
-BUILD_LOCK_OPS(atomic_spin, atomic_spinlock);
+BUILD_LOCK_OPS(atomic_spin, spin, atomic_spinlock);
 
 #endif /* CONFIG_PREEMPT */
 
