@@ -262,8 +262,6 @@ static int get_sample(void *unused)
 		/* Keep a running maximum ever recorded hardware latency */
 		if (sample > data.max_sample)
 			data.max_sample = sample;
-
-		wake_up(&data.wq); /* wake up reader(s) */
 	}
 
 	ret = 0;
@@ -300,6 +298,8 @@ static int kthread_fn(void *unused)
 			mutex_unlock(&data.lock);
 			goto err_out;
 		}
+
+		wake_up(&data.wq); /* wake up reader(s) */
 
 		interval = data.sample_window - data.sample_width;
 		do_div(interval, USEC_PER_MSEC); /* modifies interval value */
