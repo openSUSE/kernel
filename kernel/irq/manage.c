@@ -537,6 +537,14 @@ static void preempt_hardirq_setup(struct irqaction *new)
 	new->thread_fn = new->handler;
 	new->handler = preempt_hardirq_handler;
 }
+
+static inline void
+preempt_hardirq_cleanup(struct irq_desc *desc, struct irqaction *action)
+{
+	clear_bit(IRQTF_RUNTHREAD, &action->thread_flags);
+	preempt_hardirq_thread_done(desc, action);
+}
+
 #else
 static inline void preempt_hardirq_setup(struct irqaction *new) { }
 static inline int
@@ -544,6 +552,8 @@ preempt_hardirq_thread_done(struct irq_desc *d, struct irqaction *a)
 {
 	return 0;
 }
+static inline void
+preempt_hardirq_cleanup(struct irq_desc *d, struct irqaction *a) { }
 #endif
 
 static int
@@ -638,6 +648,8 @@ static int irq_thread(void *data)
 		if (wake && waitqueue_active(&desc->wait_for_threads))
 			wake_up(&desc->wait_for_threads);
 	}
+
+	preempt_hardirq_cleanup(desc, action);
 
 	/*
 	 * Clear irqaction. Otherwise exit_irq_thread() would make
