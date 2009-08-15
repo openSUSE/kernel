@@ -887,7 +887,6 @@ static struct irqaction *__free_irq(unsigned int irq, void *dev_id)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
 	struct irqaction *action, **action_ptr;
-	struct task_struct *irqthread;
 	unsigned long flags;
 
 	WARN(in_interrupt(), "Trying to free IRQ %d from IRQ context!\n", irq);
@@ -935,26 +934,12 @@ static struct irqaction *__free_irq(unsigned int irq, void *dev_id)
 			desc->chip->disable(irq);
 	}
 
-	/*
-	 * Clear the forced_threaded bit of the removed action
-	 */
-	desc->forced_threads_active &= ~action->thread_mask;
-
-	irqthread = action->thread;
-	action->thread = NULL;
-
 	atomic_spin_unlock_irqrestore(&desc->lock, flags);
 
 	unregister_handler_proc(irq, action);
 
 	/* Make sure it's not being used on another CPU: */
 	synchronize_irq(irq);
-
-	if (irqthread) {
-		if (!test_bit(IRQTF_DIED, &action->thread_flags))
-			kthread_stop(irqthread);
-		put_task_struct(irqthread);
-	}
 
 #ifdef CONFIG_DEBUG_SHIRQ
 	/*
@@ -971,6 +956,13 @@ static struct irqaction *__free_irq(unsigned int irq, void *dev_id)
 		local_irq_restore(flags);
 	}
 #endif
+
+	if (action->thread) {
+		if (!test_bit(IRQTF_DIED, &action->thread_flags))
+			kthread_stop(action->thread);
+		put_task_struct(action->thread);
+	}
+
 	return action;
 }
 

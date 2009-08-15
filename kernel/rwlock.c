@@ -148,8 +148,8 @@ EXPORT_SYMBOL(_write_lock);
  *         _[read|write]_lock_irqsave()
  *         _[read|write]_lock_bh()
  */
-BUILD_LOCK_OPS(read, rwlock);
-BUILD_LOCK_OPS(write, rwlock);
+BUILD_LOCK_OPS(read, read, rwlock);
+BUILD_LOCK_OPS(write, write, rwlock);
 
 #endif /* CONFIG_PREEMPT */
 

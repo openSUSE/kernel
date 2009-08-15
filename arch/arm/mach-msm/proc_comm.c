@@ -14,6 +14,7 @@
  *
  */
 
+#include <linux/cache.h>
 #include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/io.h>

@@ -133,6 +133,7 @@ EXPORT_SYMBOL(kunmap);
 EXPORT_SYMBOL(kunmap_virt);
 EXPORT_SYMBOL(__kmap_atomic);
 EXPORT_SYMBOL(__kunmap_atomic);
+EXPORT_SYMBOL(__kmap_atomic_prot);
 
 void __init set_highmem_pages_init(void)
 {
