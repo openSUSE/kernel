@@ -1040,7 +1040,7 @@ int rt_mutex_start_proxy_lock(struct rt_mutex *lock,
 		/* We got the lock for task. */
 		debug_rt_mutex_lock(lock);
 		rt_mutex_set_owner(lock, task, 0);
-		spin_unlock(&lock->wait_lock);
+		atomic_spin_unlock(&lock->wait_lock);
 		rt_mutex_deadlock_account_lock(lock, task);
 		return 1;
 	}
