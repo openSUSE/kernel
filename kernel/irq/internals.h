@@ -44,15 +44,18 @@ extern int irq_select_affinity_usr(unsigned int irq);
 
 extern void irq_set_thread_affinity(struct irq_desc *desc);
 
-#ifdef CONFIG_PREEMPT_HARDIRQS
-extern irqreturn_t handle_irq_action(unsigned int irq,struct irqaction *action);
-#else
-static inline irqreturn_t
-handle_irq_action(unsigned int irq, struct irqaction *action)
+/* Inline functions for support of irq chips on slow busses */
+static inline void chip_bus_lock(unsigned int irq, struct irq_desc *desc)
 {
-	return action->handler(irq, action->dev_id);
+	if (unlikely(desc->chip->bus_lock))
+		desc->chip->bus_lock(irq);
 }
-#endif
+
+static inline void chip_bus_sync_unlock(unsigned int irq, struct irq_desc *desc)
+{
+	if (unlikely(desc->chip->bus_sync_unlock))
+		desc->chip->bus_sync_unlock(irq);
+}
 
 /*
  * Debugging printout:
