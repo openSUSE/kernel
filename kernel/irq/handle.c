@@ -356,6 +356,25 @@ static void warn_no_thread(unsigned int irq, struct irqaction *action)
 	       "but no thread function available.", irq, action->name);
 }
 
+/*
+ * Momentary workaround until I have a brighter idea how to handle the
+ * accounting of forced threaded (shared) handlers.
+ */
+irqreturn_t handle_irq_action(unsigned int irq, struct irqaction *action)
+{
+	struct irq_desc *desc = irq_to_desc(irq);
+
+	if (desc->status & IRQ_ONESHOT) {
+		unsigned long flags;
+
+		atomic_spin_lock_irqsave(&desc->lock, flags);
+		desc->forced_threads_active |= action->thread_mask;
+		atomic_spin_unlock_irqrestore(&desc->lock, flags);
+		return IRQ_WAKE_THREAD;
+	}
+	return action->handler(irq, action->dev_id);
+}
+
 /**
  * handle_IRQ_event - irq action chain handler
  * @irq:	the interrupt number

@@ -69,7 +69,7 @@ static void put_ldisc(struct tty_ldisc *ld)
 	 * We really want an "atomic_dec_and_lock_irqsave()",
 	 * but we don't have it, so this does it by hand.
 	 */
-	local_irq_save(flags);
+	local_irq_save_nort(flags);
 	if (atomic_dec_and_lock(&ld->users, &tty_ldisc_lock)) {
 		struct tty_ldisc_ops *ldo = ld->ops;
 
@@ -80,7 +80,7 @@ static void put_ldisc(struct tty_ldisc *ld)
 		kfree(ld);
 		return;
 	}
-	local_irq_restore(flags);
+	local_irq_restore_nort(flags);
 }
 
 /**
