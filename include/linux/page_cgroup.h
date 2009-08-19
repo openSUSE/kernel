@@ -12,6 +12,7 @@
  */
 struct page_cgroup {
 	unsigned long flags;
+	spinlock_t lock;
 	struct mem_cgroup *mem_cgroup;
 	struct page *page;
 	struct list_head lru;		/* per cgroup LRU list */
@@ -70,17 +71,17 @@ static inline enum zone_type page_cgroup_zid(struct page_cgroup *pc)
 
 static inline void lock_page_cgroup(struct page_cgroup *pc)
 {
-	bit_spin_lock(PCG_LOCK, &pc->flags);
+	spin_lock(&pc->lock);
 }
 
 static inline int trylock_page_cgroup(struct page_cgroup *pc)
 {
-	return bit_spin_trylock(PCG_LOCK, &pc->flags);
+	return spin_trylock(&pc->lock);
 }
 
 static inline void unlock_page_cgroup(struct page_cgroup *pc)
 {
-	bit_spin_unlock(PCG_LOCK, &pc->flags);
+	spin_unlock(&pc->lock);
 }
 
 #else /* CONFIG_CGROUP_MEM_RES_CTLR */

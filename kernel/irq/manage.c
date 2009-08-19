@@ -470,7 +470,7 @@ static irqreturn_t irq_nested_primary_handler(int irq, void *dev_id)
  */
 static void preempt_hardirq_setup(struct irqaction *new)
 {
-	if (new->thread_fn || (new->flags & IRQF_NODELAY))
+	if (new->thread_fn || (new->flags & (IRQF_NODELAY | IRQF_PERCPU)))
 		return;
 
 	new->flags |= IRQF_ONESHOT;
