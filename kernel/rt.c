@@ -206,7 +206,7 @@ int __lockfunc rt_read_trylock(rwlock_t *rwlock)
 	/*
 	 * recursive read locks succeed when current owns the lock
 	 */
-	if (rt_mutex_real_owner(lock) != current || !rwlock->read_depth)
+	if (rt_mutex_real_owner(lock) != current)
 		ret = rt_mutex_trylock(lock);
 
 	if (ret) {
@@ -234,7 +234,7 @@ void __lockfunc rt_read_lock(rwlock_t *rwlock)
 	/*
 	 * recursive read locks succeed when current owns the lock
 	 */
-	if (rt_mutex_real_owner(lock) != current || !rwlock->read_depth)
+	if (rt_mutex_real_owner(lock) != current)
 		__rt_spin_lock(lock);
 	rwlock->read_depth++;
 }
@@ -252,8 +252,6 @@ EXPORT_SYMBOL(rt_write_unlock);
 void __lockfunc rt_read_unlock(rwlock_t *rwlock)
 {
 	rwlock_release(&rwlock->dep_map, 1, _RET_IP_);
-
-	BUG_ON(rwlock->read_depth <= 0);
 
 	/* Release the lock only when read_depth is down to 0 */
 	if (--rwlock->read_depth == 0)
