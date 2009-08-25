@@ -151,12 +151,14 @@ extern void warn_slowpath_null(const char *file, const int line);
 # define WARN_ON_RT(condition)		WARN_ON(condition)
 # define WARN_ON_NONRT(condition)	do { } while (0)
 # define WARN_ON_ONCE_NONRT(condition)	do { } while (0)
+# define WARN_ONCE_NONRT		do { } while (0)
 #else
 # define BUG_ON_RT(c)			do { } while (0)
 # define BUG_ON_NONRT(c)		BUG_ON(c)
 # define WARN_ON_RT(condition)		do { } while (0)
 # define WARN_ON_NONRT(condition)	WARN_ON(condition)
 # define WARN_ON_ONCE_NONRT(condition)	WARN_ON_ONCE(condition)
+# define WARN_ONCE_NONRT(cond, fmt...)	WARN_ONCE(cond, fmt)
 #endif
 
 #endif
