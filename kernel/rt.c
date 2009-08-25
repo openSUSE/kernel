@@ -303,7 +303,8 @@ EXPORT_SYMBOL(rt_up_write);
 void  rt_up_read(struct rw_semaphore *rwsem)
 {
 	rwsem_release(&rwsem->dep_map, 1, _RET_IP_);
-	rt_mutex_unlock(&rwsem->lock);
+	if (--rwsem->read_depth == 0)
+		rt_mutex_unlock(&rwsem->lock);
 }
 EXPORT_SYMBOL(rt_up_read);
 
@@ -314,6 +315,7 @@ EXPORT_SYMBOL(rt_up_read);
 void  rt_downgrade_write(struct rw_semaphore *rwsem)
 {
 	BUG_ON(rt_mutex_real_owner(&rwsem->lock) != current);
+	rwsem->read_depth = 1;
 }
 EXPORT_SYMBOL(rt_downgrade_write);
 
@@ -343,18 +345,29 @@ EXPORT_SYMBOL(rt_down_write_nested);
 
 int  rt_down_read_trylock(struct rw_semaphore *rwsem)
 {
-	int ret = rt_mutex_trylock(&rwsem->lock);
+	struct rt_mutex *lock = &rwsem->lock;
+	int ret = 1;
 
-	if (ret)
+	if (rt_mutex_real_owner(lock) != current)
+		ret = rt_mutex_trylock(&rwsem->lock);
+
+	if (ret) {
+		rwsem->read_depth++;
 		rwsem_acquire(&rwsem->dep_map, 0, 1, _RET_IP_);
+	}
 	return ret;
 }
 EXPORT_SYMBOL(rt_down_read_trylock);
 
 static void __rt_down_read(struct rw_semaphore *rwsem, int subclass)
 {
+	struct rt_mutex *lock = &rwsem->lock;
+
 	rwsem_acquire_read(&rwsem->dep_map, subclass, 0, _RET_IP_);
-	rt_mutex_lock(&rwsem->lock);
+
+	if (rt_mutex_real_owner(lock) != current)
+		rt_mutex_lock(&rwsem->lock);
+	rwsem->read_depth++;
 }
 
 void  rt_down_read(struct rw_semaphore *rwsem)
@@ -380,6 +393,7 @@ void  __rt_rwsem_init(struct rw_semaphore *rwsem, char *name,
 	lockdep_init_map(&rwsem->dep_map, name, key, 0);
 #endif
 	__rt_mutex_init(&rwsem->lock, name);
+	rwsem->read_depth = 0;
 }
 EXPORT_SYMBOL(__rt_rwsem_init);
 
