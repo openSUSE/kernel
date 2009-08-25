@@ -2365,11 +2365,26 @@ static void perf_pending_counter(struct perf_pending_entry *entry)
 		__perf_counter_disable(counter);
 	}
 
+#ifndef CONFIG_PREEMPT_RT
+	if (counter->pending_wakeup) {
+		counter->pending_wakeup = 0;
+		perf_counter_wakeup(counter);
+	}
+#endif
+}
+
+#ifdef CONFIG_PREEMPT_RT
+static void perf_pending_counter_softirq(struct perf_pending_entry *entry)
+{
+	struct perf_counter *counter = container_of(entry,
+			struct perf_counter, pending_softirq);
+
 	if (counter->pending_wakeup) {
 		counter->pending_wakeup = 0;
 		perf_counter_wakeup(counter);
 	}
 }
+#endif
 
 #define PENDING_TAIL ((struct perf_pending_entry *)-1UL)
 
@@ -2377,33 +2392,43 @@ static DEFINE_PER_CPU(struct perf_pending_entry *, perf_pending_head) = {
 	PENDING_TAIL,
 };
 
-static void perf_pending_queue(struct perf_pending_entry *entry,
-			       void (*func)(struct perf_pending_entry *))
+static DEFINE_PER_CPU(struct perf_pending_entry *, perf_pending_softirq_head) =
 {
-	struct perf_pending_entry **head;
+	PENDING_TAIL,
+};
 
+static void __perf_pending_queue(struct perf_pending_entry **head,
+				 struct perf_pending_entry *entry,
+				 void (*func)(struct perf_pending_entry *))
+{
 	if (cmpxchg(&entry->next, NULL, PENDING_TAIL) != NULL)
 		return;
 
 	entry->func = func;
 
-	head = &get_cpu_var(perf_pending_head);
-
 	do {
 		entry->next = *head;
 	} while (cmpxchg(head, entry->next, entry) != entry->next);
-
-	set_perf_counter_pending();
-
-	put_cpu_var(perf_pending_head);
 }
 
-static int __perf_pending_run(void)
+static void perf_pending_queue(struct perf_pending_entry *entry,
+			       void (*func)(struct perf_pending_entry *))
+{
+	struct perf_pending_entry **head;
+
+	head = &get_cpu_var(perf_pending_head);
+	__perf_pending_queue(head, entry, func);
+	put_cpu_var(perf_pending_head);
+
+	set_perf_counter_pending();
+}
+
+static int __perf_pending_run(struct perf_pending_entry **head)
 {
 	struct perf_pending_entry *list;
 	int nr = 0;
 
-	list = xchg(&__get_cpu_var(perf_pending_head), PENDING_TAIL);
+	list = xchg(head, PENDING_TAIL);
 	while (list != PENDING_TAIL) {
 		void (*func)(struct perf_pending_entry *);
 		struct perf_pending_entry *entry = list;
@@ -2433,7 +2458,8 @@ static inline int perf_not_pending(struct perf_counter *counter)
 	 * need to wait.
 	 */
 	get_cpu();
-	__perf_pending_run();
+	__perf_pending_run(&__get_cpu_var(perf_pending_head));
+	__perf_pending_run(&__get_cpu_var(perf_pending_softirq_head));
 	put_cpu();
 
 	/*
@@ -2451,7 +2477,13 @@ static void perf_pending_sync(struct perf_counter *counter)
 
 void perf_counter_do_pending(void)
 {
-	__perf_pending_run();
+	__perf_pending_run(&__get_cpu_var(perf_pending_head));
+}
+
+void perf_counter_do_pending_softirq(void)
+{
+	__perf_pending_run(&__get_cpu_var(perf_pending_head));
+	__perf_pending_run(&__get_cpu_var(perf_pending_softirq_head));
 }
 
 /*
@@ -2511,8 +2543,14 @@ static void perf_output_wakeup(struct perf_output_handle *handle)
 
 	if (handle->nmi) {
 		handle->counter->pending_wakeup = 1;
+#ifndef CONFIG_PREEMPT_RT
 		perf_pending_queue(&handle->counter->pending,
 				   perf_pending_counter);
+#else
+		__perf_pending_queue(&__get_cpu_var(perf_pending_softirq_head),
+				     &handle->counter->pending_softirq,
+				     perf_pending_counter_softirq);
+#endif
 	} else
 		perf_counter_wakeup(handle->counter);
 }

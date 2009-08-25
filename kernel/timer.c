@@ -1235,7 +1235,7 @@ static void run_timer_softirq(struct softirq_action *h)
 {
 	struct tvec_base *base = per_cpu(tvec_bases, raw_smp_processor_id());
 
-	perf_counter_do_pending();
+	perf_counter_do_pending_softirq();
 
 	printk_tick();
 	hrtimer_run_pending();
