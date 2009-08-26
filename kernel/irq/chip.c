@@ -536,7 +536,12 @@ handle_edge_irq(unsigned int irq, struct irq_desc *desc)
 {
 	atomic_spin_lock(&desc->lock);
 
-	desc->status &= ~(IRQ_REPLAY | IRQ_WAITING);
+	/*
+	 * Edge irqs can be requested with IRQF_ONESHOT set. RT
+	 * (ab)uses this for enforced irq threading, but we do not
+	 * want to mask edge type interrupts. Clear the oneshot flag.
+	 */
+	desc->status &= ~(IRQ_REPLAY | IRQ_WAITING | IRQ_ONESHOT);
 
 	/*
 	 * If we're currently running this IRQ, or its disabled,
@@ -551,14 +556,8 @@ handle_edge_irq(unsigned int irq, struct irq_desc *desc)
 	}
 	kstat_incr_irqs_this_cpu(irq, desc);
 
-	/* Start handling the irq */
-	if (unlikely(desc->status & IRQ_ONESHOT)) {
-		desc->status |= IRQ_MASKED;
-		mask_ack_irq(desc, irq);
-	} else {
-		if (desc->chip->ack)
-			desc->chip->ack(irq);
-	}
+	if (desc->chip->ack)
+		desc->chip->ack(irq);
 
 	/* Mark the IRQ currently in progress.*/
 	desc->status |= IRQ_INPROGRESS;
