@@ -65,7 +65,7 @@ config KVM_AMD
 
 config KVM_TRACE
 	bool "KVM trace support"
-	depends on KVM && SYSFS
+	depends on KVM && SYSFS && !PREEMPTRT
 	select MARKERS
 	select RELAY
 	select DEBUG_FS
