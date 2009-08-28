@@ -2457,10 +2457,8 @@ static inline int perf_not_pending(struct perf_counter *counter)
 	 * If we flush on whatever cpu we run, there is a chance we don't
 	 * need to wait.
 	 */
-	get_cpu();
-	__perf_pending_run(&__get_cpu_var(perf_pending_head));
-	__perf_pending_run(&__get_cpu_var(perf_pending_softirq_head));
-	put_cpu();
+	__perf_pending_run(&__raw_get_cpu_var(perf_pending_head));
+	__perf_pending_run(&__raw_get_cpu_var(perf_pending_softirq_head));
 
 	/*
 	 * Ensure we see the proper queue state before going to sleep
@@ -2482,8 +2480,8 @@ void perf_counter_do_pending(void)
 
 void perf_counter_do_pending_softirq(void)
 {
-	__perf_pending_run(&__get_cpu_var(perf_pending_head));
-	__perf_pending_run(&__get_cpu_var(perf_pending_softirq_head));
+	__perf_pending_run(&__raw_get_cpu_var(perf_pending_head));
+	__perf_pending_run(&__raw_get_cpu_var(perf_pending_softirq_head));
 }
 
 /*
@@ -2541,18 +2539,23 @@ static void perf_output_wakeup(struct perf_output_handle *handle)
 {
 	atomic_set(&handle->data->poll, POLL_IN);
 
+#ifndef CONFIG_PREEMPT_RT
 	if (handle->nmi) {
 		handle->counter->pending_wakeup = 1;
-#ifndef CONFIG_PREEMPT_RT
 		perf_pending_queue(&handle->counter->pending,
 				   perf_pending_counter);
-#else
-		__perf_pending_queue(&__get_cpu_var(perf_pending_softirq_head),
-				     &handle->counter->pending_softirq,
-				     perf_pending_counter_softirq);
-#endif
 	} else
 		perf_counter_wakeup(handle->counter);
+#else
+	/*
+	 * Move it always to the softirq. This code is called with
+	 * interrupts disabled.
+	 */
+	handle->counter->pending_wakeup = 1;
+	__perf_pending_queue(&__get_cpu_var(perf_pending_softirq_head),
+			     &handle->counter->pending_softirq,
+			     perf_pending_counter_softirq);
+#endif
 }
 
 /*
