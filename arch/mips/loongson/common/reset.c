@@ -21,8 +21,18 @@ static void loongson_restart(char *command)
 	/* do preparation for reboot */
 	mach_prepare_reboot();
 
-	/* reboot via jumping to boot base address */
+	/* reboot via jumping to boot base address
+	 *
+	 * ".set noat" and ".set at" are used to ensure the address not broken
+	 * by the -mfix-loongson2f-jump option provided by binutils 2.20.1 and
+	 * higher which try to change the jumping address to "addr &
+	 * 0xcfffffff" via the at($1) register, this is totally wrong for
+	 * 0xbfc00000(LOONGSON_BOOT_BASE).
+	 */
+
+	__asm__ __volatile__(".set noat\n");
 	((void (*)(void))ioremap_nocache(LOONGSON_BOOT_BASE, 4)) ();
+	__asm__ __volatile__(".set at\n");
 }
 
 static void loongson_halt(void)
