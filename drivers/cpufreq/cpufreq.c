@@ -858,6 +858,8 @@ static int cpufreq_add_dev(struct sys_device *sys_dev)
 
 		/* Check for existing affected CPUs.
 		 * They may not be aware of it due to CPU Hotplug.
+		 * cpufreq_cpu_put is called when the device is removed
+		 * in __cpufreq_remove_dev()
 		 */
 		managed_policy = cpufreq_cpu_get(j);
 		if (unlikely(managed_policy)) {
@@ -884,7 +886,7 @@ static int cpufreq_add_dev(struct sys_device *sys_dev)
 			ret = sysfs_create_link(&sys_dev->kobj,
 						&managed_policy->kobj,
 						"cpufreq");
-			if (!ret)
+			if (ret)
 				cpufreq_cpu_put(managed_policy);
 			/*
 			 * Success. We only needed to be added to the mask.
@@ -924,6 +926,8 @@ static int cpufreq_add_dev(struct sys_device *sys_dev)
 
 	spin_lock_irqsave(&cpufreq_driver_lock, flags);
 	for_each_cpu(j, policy->cpus) {
+		if (!cpu_online(j))
+			continue;
 		per_cpu(cpufreq_cpu_data, j) = policy;
 		per_cpu(policy_cpu, j) = policy->cpu;
 	}
@@ -1244,9 +1248,9 @@ EXPORT_SYMBOL(cpufreq_get);
 
 static int cpufreq_suspend(struct sys_device *sysdev, pm_message_t pmsg)
 {
-	int cpu = sysdev->id;
 	int ret = 0;
-	unsigned int cur_freq = 0;
+
+	int cpu = sysdev->id;
 	struct cpufreq_policy *cpu_policy;
 
 	dprintk("suspending cpu %u\n", cpu);
@@ -1269,42 +1273,9 @@ static int cpufreq_suspend(struct sys_device *sysdev, pm_message_t pmsg)
 
 	if (cpufreq_driver->suspend) {
 		ret = cpufreq_driver->suspend(cpu_policy, pmsg);
-		if (ret) {
+		if (ret)
 			printk(KERN_ERR "cpufreq: suspend failed in ->suspend "
 					"step on CPU %u\n", cpu_policy->cpu);
-			goto out;
-		}
-	}
-
-	if (cpufreq_driver->flags & CPUFREQ_CONST_LOOPS)
-		goto out;
-
-	if (cpufreq_driver->get)
-		cur_freq = cpufreq_driver->get(cpu_policy->cpu);
-
-	if (!cur_freq || !cpu_policy->cur) {
-		printk(KERN_ERR "cpufreq: suspend failed to assert current "
-		       "frequency is what timing core thinks it is.\n");
-		goto out;
-	}
-
-	if (unlikely(cur_freq != cpu_policy->cur)) {
-		struct cpufreq_freqs freqs;
-
-		if (!(cpufreq_driver->flags & CPUFREQ_PM_NO_WARN))
-			dprintk("Warning: CPU frequency is %u, "
-			       "cpufreq assumed %u kHz.\n",
-			       cur_freq, cpu_policy->cur);
-
-		freqs.cpu = cpu;
-		freqs.old = cpu_policy->cur;
-		freqs.new = cur_freq;
-
-		srcu_notifier_call_chain(&cpufreq_transition_notifier_list,
-				    CPUFREQ_SUSPENDCHANGE, &freqs);
-		adjust_jiffies(CPUFREQ_SUSPENDCHANGE, &freqs);
-
-		cpu_policy->cur = cur_freq;
 	}
 
 out:
@@ -1316,14 +1287,17 @@ out:
  *	cpufreq_resume -  restore proper CPU frequency handling after resume
  *
  *	1.) resume CPUfreq hardware support (cpufreq_driver->resume())
- *	2.) if ->target and !CPUFREQ_CONST_LOOPS: verify we're in sync
- *	3.) schedule call cpufreq_update_policy() ASAP as interrupts are
- *	    restored.
+ *	2.) schedule call cpufreq_update_policy() ASAP as interrupts are
+ *	    restored. It will verify that the current freq is in sync with
+ *	    what we believe it to be. This is a bit later than when it
+ *	    should be, but nonethteless it's better than calling
+ *	    cpufreq_driver->get() here which might re-enable interrupts...
  */
 static int cpufreq_resume(struct sys_device *sysdev)
 {
-	int cpu = sysdev->id;
 	int ret = 0;
+
+	int cpu = sysdev->id;
 	struct cpufreq_policy *cpu_policy;
 
 	dprintk("resuming cpu %u\n", cpu);
@@ -1353,42 +1327,8 @@ static int cpufreq_resume(struct sys_device *sysdev)
 		}
 	}
 
-	if (!(cpufreq_driver->flags & CPUFREQ_CONST_LOOPS)) {
-		unsigned int cur_freq = 0;
-
-		if (cpufreq_driver->get)
-			cur_freq = cpufreq_driver->get(cpu_policy->cpu);
-
-		if (!cur_freq || !cpu_policy->cur) {
-			printk(KERN_ERR "cpufreq: resume failed to assert "
-					"current frequency is what timing core "
-					"thinks it is.\n");
-			goto out;
-		}
-
-		if (unlikely(cur_freq != cpu_policy->cur)) {
-			struct cpufreq_freqs freqs;
-
-			if (!(cpufreq_driver->flags & CPUFREQ_PM_NO_WARN))
-				dprintk("Warning: CPU frequency "
-				       "is %u, cpufreq assumed %u kHz.\n",
-				       cur_freq, cpu_policy->cur);
-
-			freqs.cpu = cpu;
-			freqs.old = cpu_policy->cur;
-			freqs.new = cur_freq;
-
-			srcu_notifier_call_chain(
-					&cpufreq_transition_notifier_list,
-					CPUFREQ_RESUMECHANGE, &freqs);
-			adjust_jiffies(CPUFREQ_RESUMECHANGE, &freqs);
-
-			cpu_policy->cur = cur_freq;
-		}
-	}
-
-out:
 	schedule_work(&cpu_policy->update);
+
 fail:
 	cpufreq_cpu_put(cpu_policy);
 	return ret;

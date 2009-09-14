@@ -300,8 +300,7 @@ static int do_output_char(unsigned char c, struct tty_struct *tty, int space)
 			if (space < 2)
 				return -1;
 			tty->canon_column = tty->column = 0;
-			tty_put_char(tty, '\r');
-			tty_put_char(tty, c);
+			tty->ops->write(tty, "\r\n", 2);
 			return 2;
 		}
 		tty->canon_column = tty->column;
@@ -1583,6 +1582,7 @@ static int n_tty_open(struct tty_struct *tty)
 
 static inline int input_available_p(struct tty_struct *tty, int amt)
 {
+	tty_flush_to_ldisc(tty);
 	if (tty->icanon) {
 		if (tty->canon_data)
 			return 1;
