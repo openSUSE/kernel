@@ -204,10 +204,14 @@ int __lockfunc rt_read_trylock(rwlock_t *rwlock)
 	int ret = 1;
 
 	/*
-	 * recursive read locks succeed when current owns the lock
+	 * recursive read locks succeed when current owns the lock,
+	 * but not when read_depth == 0 which means that the lock is
+	 * write locked.
 	 */
 	if (rt_mutex_real_owner(lock) != current)
 		ret = rt_mutex_trylock(lock);
+	else if (!rwlock->read_depth)
+		ret = 0;
 
 	if (ret) {
 		rwlock->read_depth++;
@@ -348,8 +352,15 @@ int  rt_down_read_trylock(struct rw_semaphore *rwsem)
 	struct rt_mutex *lock = &rwsem->lock;
 	int ret = 1;
 
+	/*
+	 * recursive read locks succeed when current owns the rwsem,
+	 * but not when read_depth == 0 which means that the rwsem is
+	 * write locked.
+	 */
 	if (rt_mutex_real_owner(lock) != current)
 		ret = rt_mutex_trylock(&rwsem->lock);
+	else if (!rwsem->read_depth)
+		ret = 0;
 
 	if (ret) {
 		rwsem->read_depth++;
