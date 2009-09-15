@@ -167,6 +167,21 @@ config IRQSOFF_TRACER
 	  enabled. This option and the preempt-off timing option can be
 	  used together or separately.)
 
+config INTERRUPT_OFF_HIST
+	bool "Interrupts-off Latency Histogram"
+	depends on IRQSOFF_TRACER
+	help
+	  This option generates a continuously updated histogram (one per cpu)
+	  of the duration of time periods with interrupts disabled. The
+	  histogram is disabled by default. To enable it, write a non-zero
+	  number to the related file in
+
+	      /sys/kernel/debug/tracing/latency_hist/enable/preemptirqsoff
+
+	  If PREEMPT_OFF_HIST is also selected, an additional histogram (one
+	  per cpu) is generated that accumulates the duration of time periods
+	  when both interrupts and preemption are disabled.
+
 config PREEMPT_TRACER
 	bool "Preemption-off Latency Tracer"
 	default n
@@ -189,14 +204,20 @@ config PREEMPT_TRACER
 	  enabled. This option and the irqs-off timing option can be
 	  used together or separately.)
 
-config SYSPROF_TRACER
-	bool "Sysprof Tracer"
-	depends on X86
-	select GENERIC_TRACER
-	select CONTEXT_SWITCH_TRACER
+config PREEMPT_OFF_HIST
+	bool "Preemption-off Latency Histogram"
+	depends on PREEMPT_TRACER
 	help
-	  This tracer provides the trace needed by the 'Sysprof' userspace
-	  tool.
+	  This option generates a continuously updated histogram (one per cpu)
+	  of the duration of time periods with preemption disabled. The
+	  histogram is disabled by default. To enable it, write a non-zero
+	  number to
+
+	      /sys/kernel/debug/tracing/latency_hist/enable/preemptirqsoff
+
+	  If INTERRUPT_OFF_HIST is also selected, an additional histogram (one
+	  per cpu) is generated that accumulates the duration of time periods
+	  when both interrupts and preemption are disabled.
 
 config SCHED_TRACER
 	bool "Scheduling Latency Tracer"
@@ -206,6 +227,25 @@ config SCHED_TRACER
 	help
 	  This tracer tracks the latency of the highest priority task
 	  to be scheduled in, starting from the point it has woken up.
+
+config WAKEUP_LATENCY_HIST
+	bool "Scheduling Latency Histogram"
+	depends on SCHED_TRACER
+	help
+	  This option generates a continuously updated histogram (one per cpu)
+	  of the scheduling latency of the highest priority task. The histogram
+	  is disabled by default. To enable it, write a non-zero number to
+
+	      /sys/kernel/debug/tracing/latency_hist/enable/wakeup
+
+config SYSPROF_TRACER
+	bool "Sysprof Tracer"
+	depends on X86
+	select GENERIC_TRACER
+	select CONTEXT_SWITCH_TRACER
+	help
+	  This tracer provides the trace needed by the 'Sysprof' userspace
+	  tool.
 
 config ENABLE_DEFAULT_TRACERS
 	bool "Trace process context switches and events"
