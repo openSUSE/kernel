@@ -1969,6 +1969,7 @@ extern int sched_setscheduler_nocheck(struct task_struct *, int,
 extern struct task_struct *idle_task(int cpu);
 extern struct task_struct *curr_task(int cpu);
 extern void set_curr_task(int cpu, struct task_struct *p);
+extern struct task_struct *rq_curr(struct rq *rq);
 
 void yield(void);
 void __yield(void);

@@ -95,12 +95,13 @@ static DEFINE_PER_CPU(struct pagevec, lru_rotate_pvecs);
 	local_irq_restore(flags)
 
 #define swap_get_cpu_var(var, cpu)			\
-	({						\
-		(void)cpu;				\
-		&get_cpu_var(var);			\
-	 })
+	&get_cpu_var(var)			\
 
-#define swap_put_cpu_var(var, cpu)	put_cpu_var(var)
+#define swap_put_cpu_var(var, cpu)		\
+	({					\
+		(void)cpu;			\
+		put_cpu_var(var);		\
+	 })
 
 #define swap_per_cpu_lock(var, cpu)	&per_cpu(var, cpu)
 

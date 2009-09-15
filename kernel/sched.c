@@ -717,6 +717,11 @@ struct rq {
 #endif
 };
 
+struct task_struct *rq_curr(struct rq *rq)
+{
+	return rq->curr;
+}
+
 static DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
 static inline void check_preempt_curr(struct rq *rq, struct task_struct *p, int sync)
