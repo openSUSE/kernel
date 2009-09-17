@@ -919,6 +919,8 @@ static inline u64 global_rt_runtime(void)
 #endif
 #ifndef finish_arch_switch
 # define _finish_arch_switch(prev)	do { } while (0)
+#else
+# define _finish_arch_switch		finish_arch_switch
 #endif
 
 static inline int task_current(struct rq *rq, struct task_struct *p)
