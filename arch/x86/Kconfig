@@ -281,6 +281,7 @@ config X86_X2APIC
 config SPARSE_IRQ
 	bool "Support sparse irq numbering"
 	depends on PCI_MSI || HT_IRQ
+	depends on !PREEMPT_RT
 	---help---
 	  This enables support for sparse irqs. This is useful for distro
 	  kernels that want to define a high CONFIG_NR_CPUS value but still
@@ -1902,7 +1903,7 @@ config PCI_MMCONFIG
 
 config DMAR
 	bool "Support for DMA Remapping Devices (EXPERIMENTAL)"
-	depends on PCI_MSI && ACPI && EXPERIMENTAL
+	depends on PCI_MSI && ACPI && EXPERIMENTAL && !PREEMPT_RT
 	help
 	  DMA remapping (DMAR) devices support enables independent address
 	  translations for Direct Memory Access (DMA) from devices.
@@ -1945,6 +1946,7 @@ config DMAR_FLOPPY_WA
 config INTR_REMAP
 	bool "Support for Interrupt Remapping (EXPERIMENTAL)"
 	depends on X86_64 && X86_IO_APIC && PCI_MSI && ACPI && EXPERIMENTAL
+	depends on !PREEMPT_RT
 	---help---
 	  Supports Interrupt remapping for IO-APIC and MSI devices.
 	  To use x2apic mode in the CPU's which support x2APIC enhancements or
