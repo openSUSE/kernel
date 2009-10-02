@@ -48,15 +48,7 @@ static unsigned long total_sleep_time;		/* seconds */
 /* flag for if timekeeping is suspended */
 int __read_mostly timekeeping_suspended;
 
-static struct timespec xtime_cache __attribute__ ((aligned (16)));
-void update_xtime_cache(u64 nsec)
-{
-	xtime_cache = xtime;
-	timespec_add_ns(&xtime_cache, nsec);
-}
-
 struct clocksource *clock;
-
 
 #ifdef CONFIG_GENERIC_TIME
 /**
@@ -232,8 +224,6 @@ int do_settimeofday(struct timespec *tv)
 	wall_to_monotonic = timespec_sub(wall_to_monotonic, ts_delta);
 
 	xtime = *tv;
-
-	update_xtime_cache(0);
 
 	clock->error = 0;
 	ntp_clear();
@@ -434,8 +424,7 @@ void __init timekeeping_init(void)
 	xtime.tv_sec = sec;
 	xtime.tv_nsec = 0;
 	set_normalized_timespec(&wall_to_monotonic,
-		-xtime.tv_sec, -xtime.tv_nsec);
-	update_xtime_cache(0);
+				-xtime.tv_sec, -xtime.tv_nsec);
 	total_sleep_time = 0;
 	write_atomic_sequnlock_irqrestore(&xtime_lock, flags);
 }
@@ -467,7 +456,6 @@ static int timekeeping_resume(struct sys_device *dev)
 		wall_to_monotonic.tv_sec -= sleep_length;
 		total_sleep_time += sleep_length;
 	}
-	update_xtime_cache(0);
 	/* re-base the last cycle value */
 	clock->cycle_last = 0;
 	clock->cycle_last = clocksource_read(clock);
@@ -608,7 +596,6 @@ static void clocksource_adjust(s64 offset)
 			(NTP_SCALE_SHIFT - clock->shift);
 }
 
-
 /**
  * logarithmic_accumulation - shifted accumulation of cycles
  *
@@ -651,7 +638,6 @@ static cycle_t logarithmic_accumulation(cycle_t offset, int shift)
 
 	return offset;
 }
-
 
 /**
  * update_wall_time - Uses the current clocksource to increment the wall time
@@ -724,8 +710,6 @@ void update_wall_time(void)
 	clock->xtime_nsec -= (s64)xtime.tv_nsec << clock->shift;
 	clock->error += clock->xtime_nsec << (NTP_SCALE_SHIFT - clock->shift);
 
-	update_xtime_cache(cyc2ns(clock, offset));
-
 	/* check to see if there is a new clocksource to use */
 	change_clocksource();
 	update_vsyscall(&xtime, clock);
@@ -760,10 +744,9 @@ void monotonic_to_bootbased(struct timespec *ts)
 
 unsigned long get_seconds(void)
 {
-	return xtime_cache.tv_sec;
+	return xtime.tv_sec;
 }
 EXPORT_SYMBOL(get_seconds);
-
 
 struct timespec current_kernel_time(void)
 {
@@ -772,10 +755,10 @@ struct timespec current_kernel_time(void)
 
 	do {
 		seq = read_atomic_seqbegin(&xtime_lock);
-
-		now = xtime_cache;
+		now = xtime;
 	} while (read_atomic_seqretry(&xtime_lock, seq));
 
 	return now;
 }
 EXPORT_SYMBOL(current_kernel_time);
+
