@@ -325,6 +325,7 @@ ipt_do_table(struct sk_buff *skb,
 	struct xt_table_info *private;
 	struct xt_match_param mtpar;
 	struct xt_target_param tgpar;
+	int cpu;
 
 	/* Initialization */
 	ip = ip_hdr(skb);
@@ -346,9 +347,9 @@ ipt_do_table(struct sk_buff *skb,
 	mtpar.hooknum = tgpar.hooknum = hook;
 
 	IP_NF_ASSERT(table->valid_hooks & (1 << hook));
-	xt_info_rdlock_bh();
+	cpu = xt_info_rdlock_bh();
 	private = table->private;
-	table_base = private->entries[raw_smp_processor_id()];
+	table_base = private->entries[cpu];
 
 	e = get_entry(table_base, private->hook_entry[hook]);
 
@@ -435,7 +436,7 @@ ipt_do_table(struct sk_buff *skb,
 			/* Verdict */
 			break;
 	} while (!hotdrop);
-	xt_info_rdunlock_bh();
+	xt_info_rdunlock_bh(cpu);
 
 #ifdef DEBUG_ALLOW_ALL
 	return NF_ACCEPT;
