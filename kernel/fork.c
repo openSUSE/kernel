@@ -585,6 +585,8 @@ void mm_release(struct task_struct *tsk, struct mm_struct *mm)
 		tsk->compat_robust_list = NULL;
 	}
 #endif
+	if (unlikely(!list_empty(&tsk->pi_state_list)))
+		exit_pi_state_list(tsk);
 #endif
 
 	/* Get rid of any cached register state */
