@@ -468,22 +468,35 @@ DECLARE_PER_CPU(struct xt_info_lock, xt_info_locks);
  * _Only_ that special combination of being per-cpu and never getting
  * re-entered asynchronously means that the count is safe.
  */
-static inline void xt_info_rdlock_bh(void)
+static inline int xt_info_rdlock_bh(void)
 {
 	struct xt_info_lock *lock;
+	int cpu;
 
 	local_bh_disable();
-	lock = &__raw_get_cpu_var(xt_info_locks);
-	if (likely(!lock->readers++))
+	preempt_disable_rt();
+	cpu = smp_processor_id();
+	lock = &per_cpu(xt_info_locks, cpu);
+	if (likely(!lock->readers++)) {
+		preempt_enable_rt();
 		spin_lock(&lock->lock);
+	} else
+		preempt_enable_rt();
+	return cpu;
 }
 
-static inline void xt_info_rdunlock_bh(void)
+static inline void xt_info_rdunlock_bh(int cpu)
 {
-	struct xt_info_lock *lock = &__raw_get_cpu_var(xt_info_locks);
+	struct xt_info_lock *lock = &per_cpu(xt_info_locks, cpu);
 
-	if (likely(!--lock->readers))
+	preempt_disable_rt();
+
+	if (likely(!--lock->readers)) {
+		preempt_enable_rt();
 		spin_unlock(&lock->lock);
+	} else
+		preempt_enable_rt();
+
 	local_bh_enable();
 }
 

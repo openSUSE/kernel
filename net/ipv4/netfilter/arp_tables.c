@@ -252,6 +252,7 @@ unsigned int arpt_do_table(struct sk_buff *skb,
 	void *table_base;
 	const struct xt_table_info *private;
 	struct xt_target_param tgpar;
+	int cpu;
 
 	if (!pskb_may_pull(skb, arp_hdr_len(skb->dev)))
 		return NF_DROP;
@@ -259,9 +260,9 @@ unsigned int arpt_do_table(struct sk_buff *skb,
 	indev = in ? in->name : nulldevname;
 	outdev = out ? out->name : nulldevname;
 
-	xt_info_rdlock_bh();
+	cpu = xt_info_rdlock_bh();
 	private = table->private;
-	table_base = private->entries[raw_smp_processor_id()];
+	table_base = private->entries[cpu];
 
 	e = get_entry(table_base, private->hook_entry[hook]);
 	back = get_entry(table_base, private->underflow[hook]);
@@ -332,7 +333,7 @@ unsigned int arpt_do_table(struct sk_buff *skb,
 			/* Verdict */
 			break;
 	} while (!hotdrop);
-	xt_info_rdunlock_bh();
+	xt_info_rdunlock_bh(cpu);
 
 	if (hotdrop)
 		return NF_DROP;
