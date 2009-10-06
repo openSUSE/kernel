@@ -1161,6 +1161,8 @@ static int __cpuinit cpu_callback(struct notifier_block *nfb,
 			per_cpu(ksoftirqd, hotcpu)[i].tsk = NULL;
 		}
 		for (i = 0; i < NR_SOFTIRQS; i++) {
+			if (!softirq_names[i])
+				continue;
 			p = kthread_create(ksoftirqd,
 					   &per_cpu(ksoftirqd, hotcpu)[i],
 					   "sirq-%s/%d", softirq_names[i],
@@ -1177,8 +1179,11 @@ static int __cpuinit cpu_callback(struct notifier_block *nfb,
 	break;
 	case CPU_ONLINE:
 	case CPU_ONLINE_FROZEN:
-		for (i = 0; i < NR_SOFTIRQS; i++)
-			wake_up_process(per_cpu(ksoftirqd, hotcpu)[i].tsk);
+		for (i = 0; i < NR_SOFTIRQS; i++) {
+			p = per_cpu(ksoftirqd, hotcpu)[i].tsk;
+			if (p)
+				wake_up_process(p);
+		}
 		break;
 #ifdef CONFIG_HOTPLUG_CPU
 	case CPU_UP_CANCELED:
@@ -1192,9 +1197,11 @@ static int __cpuinit cpu_callback(struct notifier_block *nfb,
 		for (i = 0; i < NR_SOFTIRQS; i++) {
 			param.sched_priority = MAX_RT_PRIO-1;
 			p = per_cpu(ksoftirqd, hotcpu)[i].tsk;
-			sched_setscheduler(p, SCHED_FIFO, &param);
-			per_cpu(ksoftirqd, hotcpu)[i].tsk = NULL;
-			kthread_stop(p);
+			if (p) {
+				sched_setscheduler(p, SCHED_FIFO, &param);
+				per_cpu(ksoftirqd, hotcpu)[i].tsk = NULL;
+				kthread_stop(p);
+			}
 		}
 		takeover_tasklets(hotcpu);
 		break;
