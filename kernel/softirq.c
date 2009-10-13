@@ -1139,9 +1139,7 @@ static const char *softirq_names [] =
   [NET_RX_SOFTIRQ]	= "net-rx",
   [BLOCK_SOFTIRQ]	= "block",
   [TASKLET_SOFTIRQ]	= "tasklet",
-#ifdef CONFIG_HIGH_RES_TIMERS
   [HRTIMER_SOFTIRQ]	= "hrtimer",
-#endif
   [RCU_SOFTIRQ]		= "rcu",
 };
 
