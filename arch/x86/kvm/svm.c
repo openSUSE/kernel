@@ -709,6 +709,8 @@ static void svm_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		rdtscll(tsc_this);
 		delta = vcpu->arch.host_tsc - tsc_this;
 		svm->vmcb->control.tsc_offset += delta;
+		if (is_nested(svm))
+			svm->hsave->control.tsc_offset += delta;
 		vcpu->cpu = cpu;
 		kvm_migrate_timers(vcpu);
 		svm->asid_generation = 0;
@@ -1954,10 +1956,14 @@ static int svm_get_msr(struct kvm_vcpu *vcpu, unsigned ecx, u64 *data)
 
 	switch (ecx) {
 	case MSR_IA32_TIME_STAMP_COUNTER: {
-		u64 tsc;
+		u64 tsc_offset;
 
-		rdtscll(tsc);
-		*data = svm->vmcb->control.tsc_offset + tsc;
+		if (is_nested(svm))
+			tsc_offset = svm->hsave->control.tsc_offset;
+		else
+			tsc_offset = svm->vmcb->control.tsc_offset;
+
+		*data = tsc_offset + native_read_tsc();
 		break;
 	}
 	case MSR_K6_STAR:
@@ -2044,10 +2050,17 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, unsigned ecx, u64 data)
 
 	switch (ecx) {
 	case MSR_IA32_TIME_STAMP_COUNTER: {
-		u64 tsc;
+		u64 tsc_offset = data - native_read_tsc();
+		u64 g_tsc_offset = 0;
 
-		rdtscll(tsc);
-		svm->vmcb->control.tsc_offset = data - tsc;
+		if (is_nested(svm)) {
+			g_tsc_offset = svm->vmcb->control.tsc_offset -
+				       svm->hsave->control.tsc_offset;
+			svm->hsave->control.tsc_offset = tsc_offset;
+		}
+
+		svm->vmcb->control.tsc_offset = tsc_offset + g_tsc_offset;
+
 		break;
 	}
 	case MSR_K6_STAR:
