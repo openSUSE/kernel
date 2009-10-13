@@ -164,6 +164,9 @@ static void slab_irq_disable_GFP_WAIT(gfp_t flags, int *cpu)
 		local_irq_disable();
 }
 
+#define slab_spin_trylock_irq(lock, cpu) \
+	({ int __l = spin_trylock_irq(lock); if (__l) (cpu) = smp_processor_id(); __l; })
+
 # define slab_spin_lock_irq(lock, cpu) \
 	do { spin_lock_irq(lock); (cpu) = smp_processor_id(); } while (0)
 # define slab_spin_unlock_irq(lock, cpu) spin_unlock_irq(lock)
@@ -241,10 +244,26 @@ static void slab_irq_disable_GFP_WAIT(gfp_t flags, int *cpu)
 	slab_irq_disable(*cpu);
 }
 
+static int _slab_spin_trylock_irq(spinlock_t *lock, int *cpu)
+{
+	int locked;
+
+	slab_irq_disable(*cpu);
+	locked = spin_trylock(lock);
+	if (!locked)
+		slab_irq_enable(*cpu);
+
+	return locked;
+}
+
+# define slab_spin_trylock_irq(lock, cpu) \
+	_slab_spin_trylock_irq((lock), &(cpu))
+
 # define slab_spin_lock_irq(lock, cpu) \
 		do { slab_irq_disable(cpu); spin_lock(lock); } while (0)
 # define slab_spin_unlock_irq(lock, cpu) \
 		do { spin_unlock(lock); slab_irq_enable(cpu); } while (0)
+
 # define slab_spin_lock_irqsave(lock, flags, cpu) \
 	do { slab_irq_disable(cpu); spin_lock_irqsave(lock, flags); } while (0)
 # define slab_spin_unlock_irqrestore(lock, flags, cpu) \
@@ -1063,7 +1082,7 @@ static int transfer_objects(struct array_cache *to,
 #ifndef CONFIG_NUMA
 
 #define drain_alien_cache(cachep, alien) do { } while (0)
-#define reap_alien(cachep, l3, this_cpu) 0
+#define reap_alien(cachep, l3) 0
 
 static inline struct array_cache **alloc_alien_cache(int node, int limit, gfp_t gfp)
 {
@@ -1161,16 +1180,17 @@ static void __drain_alien_cache(struct kmem_cache *cachep,
  * Called from cache_reap() to regularly drain alien caches round robin.
  */
 static int
-reap_alien(struct kmem_cache *cachep, struct kmem_list3 *l3, int *this_cpu)
+reap_alien(struct kmem_cache *cachep, struct kmem_list3 *l3)
 {
-	int node = per_cpu(reap_node, *this_cpu);
+	int node = __get_cpu_var(reap_node);
+	int this_cpu;
 
 	if (l3->alien) {
 		struct array_cache *ac = l3->alien[node];
 
-		if (ac && ac->avail && spin_trylock_irq(&ac->lock)) {
-			__drain_alien_cache(cachep, ac, node, this_cpu);
-			spin_unlock_irq(&ac->lock);
+		if (ac && ac->avail && slab_spin_trylock_irq(&ac->lock, this_cpu)) {
+			__drain_alien_cache(cachep, ac, node, &this_cpu);
+			slab_spin_unlock_irq(&ac->lock, this_cpu);
 			return 1;
 		}
 	}
@@ -4274,7 +4294,7 @@ int drain_array(struct kmem_cache *cachep, struct kmem_list3 *l3,
  */
 static void cache_reap(struct work_struct *w)
 {
-	int this_cpu = raw_smp_processor_id(), node = cpu_to_node(this_cpu);
+	int this_cpu = smp_processor_id(), node = cpu_to_node(this_cpu);
 	struct kmem_cache *searchp;
 	struct kmem_list3 *l3;
 	struct delayed_work *work = to_delayed_work(w);
@@ -4294,7 +4314,7 @@ static void cache_reap(struct work_struct *w)
 		 */
 		l3 = searchp->nodelists[node];
 
-		work_done += reap_alien(searchp, l3, &this_cpu);
+		work_done += reap_alien(searchp, l3);
 
 		node = cpu_to_node(this_cpu);
 
