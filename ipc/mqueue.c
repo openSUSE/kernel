@@ -830,7 +830,7 @@ static inline void pipelined_send(struct mqueue_inode_info *info,
 	wake_up_process(receiver->task);
 	smp_wmb();
 	receiver->state = STATE_READY;
-	preempt_enable_nort();
+	preempt_enable_rt();
 }
 
 /* pipelined_receive() - if there is task waiting in sys_mq_timedsend()
