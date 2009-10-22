@@ -1047,6 +1047,10 @@ partition_sched_domains(int ndoms_new, struct cpumask *doms_new,
 }
 #endif	/* !CONFIG_SMP */
 
+
+unsigned long default_scale_freq_power(struct sched_domain *sd, int cpu);
+unsigned long default_scale_smt_power(struct sched_domain *sd, int cpu);
+
 struct io_context;			/* See blkdev.h */
 
 
