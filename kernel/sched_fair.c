@@ -1080,14 +1080,13 @@ static int wake_idle_power_save(int cpu, struct task_struct *p)
  * not idle and an idle cpu is available.  The span of cpus to
  * search starts with cpus closest then further out as needed,
  * so we always favor a closer, idle cpu.
- * Domains may include CPUs that are not usable for migration,
- * hence we need to mask them out (cpu_active_mask)
  *
  * Returns the CPU we should wake onto.
  */
 static int wake_idle(int cpu, struct task_struct *p)
 {
-	struct sched_domain *sd;
+	struct rq *task_rq = task_rq(p);
+	struct sched_domain *sd, *child = NULL;
 	int i;
 
 	i = wake_idle_power_save(cpu, p);
@@ -1106,24 +1105,34 @@ static int wake_idle(int cpu, struct task_struct *p)
 	if (idle_cpu(cpu) || cpu_rq(cpu)->cfs.nr_running > 1)
 		return cpu;
 
-	for_each_domain(cpu, sd) {
-		if ((sd->flags & SD_WAKE_IDLE)
-		    || ((sd->flags & SD_WAKE_IDLE_FAR)
-			&& !task_hot(p, task_rq(p)->clock, sd))) {
-			for_each_cpu_and(i, sched_domain_span(sd),
-					 &p->cpus_allowed) {
-				if (cpu_active(i) && idle_cpu(i)) {
-					if (i != task_cpu(p)) {
-						schedstat_inc(p,
-						       se.nr_wakeups_idle);
-					}
-					return i;
-				}
-			}
-		} else {
+	rcu_read_lock();
+ 	for_each_domain(cpu, sd) {
+		if (!(sd->flags & SD_LOAD_BALANCE))
+ 			break;
+
+		if (!(sd->flags & SD_WAKE_IDLE) &&
+		    (task_hot(p, task_rq->clock, sd) || !(sd->flags & SD_WAKE_IDLE_FAR)))
 			break;
-		}
-	}
+
+		for_each_cpu_and(i, sched_domain_span(sd), &p->cpus_allowed) {
+			if (child && cpumask_test_cpu(i, sched_domain_span(child)))
+				continue;
+
+			if (!idle_cpu(i))
+				continue;
+
+			if (task_cpu(p) != i)
+				schedstat_inc(p, se.nr_wakeups_idle);
+
+			cpu = i;
+			goto unlock;
+ 		}
+
+		child = sd;
+ 	}
+unlock:
+	rcu_read_unlock();
+
 	return cpu;
 }
 #else /* !ARCH_HAS_SCHED_WAKE_IDLE*/
