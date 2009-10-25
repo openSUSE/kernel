@@ -1548,6 +1548,9 @@ struct task_struct {
 	unsigned long trace;
 	/* bitmask of trace recursion */
 	unsigned long trace_recursion;
+#ifdef CONFIG_WAKEUP_LATENCY_HIST
+	u64 preempt_timestamp_hist;
+#endif
 #endif /* CONFIG_TRACING */
 #ifdef CONFIG_PREEMPT_RT
 	/*
