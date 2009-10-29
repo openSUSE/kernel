@@ -1040,39 +1040,58 @@ static void yield_task_fair(struct rq *rq)
 	se->vruntime = rightmost->vruntime + 1;
 }
 
+#if defined(ARCH_HAS_SCHED_WAKE_IDLE)
+/*
+ * At POWERSAVINGS_BALANCE_WAKEUP level, if both this_cpu and prev_cpu
+ * are idle and this is not a kernel thread and this task's affinity
+ * allows it to be moved to preferred cpu, then just move!
+ *
+ * XXX - can generate significant overload on perferred_wakeup_cpu
+ *       with plenty of idle cpus, leading to a significant loss in
+ *       throughput.
+ *
+ * Returns: <  0 - no placement decision made
+ *          >= 0 - place on cpu
+ */
+static int wake_idle_power_save(int cpu, struct task_struct *p)
+{
+	int this_cpu = smp_processor_id();
+	int wakeup_cpu;
+
+	if (sched_mc_power_savings < POWERSAVINGS_BALANCE_WAKEUP)
+		return -1;
+
+	if (!idle_cpu(cpu) || !idle_cpu(this_cpu))
+		return -1;
+
+	if (!p->mm || (p->flags & PF_KTHREAD))
+		return -1;
+
+	wakeup_cpu = cpu_rq(this_cpu)->rd->sched_mc_preferred_wakeup_cpu;
+
+	if (!cpu_isset(wakeup_cpu, p->cpus_allowed))
+		return -1;
+
+	return wakeup_cpu;
+}
+
 /*
  * wake_idle() will wake a task on an idle cpu if task->cpu is
  * not idle and an idle cpu is available.  The span of cpus to
  * search starts with cpus closest then further out as needed,
  * so we always favor a closer, idle cpu.
- * Domains may include CPUs that are not usable for migration,
- * hence we need to mask them out (cpu_active_mask)
  *
  * Returns the CPU we should wake onto.
  */
-#if defined(ARCH_HAS_SCHED_WAKE_IDLE)
 static int wake_idle(int cpu, struct task_struct *p)
 {
-	struct sched_domain *sd;
+	struct rq *task_rq = task_rq(p);
+	struct sched_domain *sd, *child = NULL;
 	int i;
-	unsigned int chosen_wakeup_cpu;
-	int this_cpu;
 
-	/*
-	 * At POWERSAVINGS_BALANCE_WAKEUP level, if both this_cpu and prev_cpu
-	 * are idle and this is not a kernel thread and this task's affinity
-	 * allows it to be moved to preferred cpu, then just move!
-	 */
-
-	this_cpu = smp_processor_id();
-	chosen_wakeup_cpu =
-		cpu_rq(this_cpu)->rd->sched_mc_preferred_wakeup_cpu;
-
-	if (sched_mc_power_savings >= POWERSAVINGS_BALANCE_WAKEUP &&
-		idle_cpu(cpu) && idle_cpu(this_cpu) &&
-		p->mm && !(p->flags & PF_KTHREAD) &&
-		cpu_isset(chosen_wakeup_cpu, p->cpus_allowed))
-		return chosen_wakeup_cpu;
+	i = wake_idle_power_save(cpu, p);
+	if (i >= 0)
+		return i;
 
 	/*
 	 * If it is idle, then it is the best cpu to run this task.
@@ -1081,29 +1100,39 @@ static int wake_idle(int cpu, struct task_struct *p)
 	 * Siblings must be also busy(in most cases) as they didn't already
 	 * pickup the extra load from this cpu and hence we need not check
 	 * sibling runqueue info. This will avoid the checks and cache miss
-	 * penalities associated with that.
+	 * penalties associated with that.
 	 */
 	if (idle_cpu(cpu) || cpu_rq(cpu)->cfs.nr_running > 1)
 		return cpu;
 
-	for_each_domain(cpu, sd) {
-		if ((sd->flags & SD_WAKE_IDLE)
-		    || ((sd->flags & SD_WAKE_IDLE_FAR)
-			&& !task_hot(p, task_rq(p)->clock, sd))) {
-			for_each_cpu_and(i, sched_domain_span(sd),
-					 &p->cpus_allowed) {
-				if (cpu_active(i) && idle_cpu(i)) {
-					if (i != task_cpu(p)) {
-						schedstat_inc(p,
-						       se.nr_wakeups_idle);
-					}
-					return i;
-				}
-			}
-		} else {
+	rcu_read_lock();
+ 	for_each_domain(cpu, sd) {
+		if (!(sd->flags & SD_LOAD_BALANCE))
+ 			break;
+
+		if (!(sd->flags & SD_WAKE_IDLE) &&
+		    (task_hot(p, task_rq->clock, sd) || !(sd->flags & SD_WAKE_IDLE_FAR)))
 			break;
-		}
-	}
+
+		for_each_cpu_and(i, sched_domain_span(sd), &p->cpus_allowed) {
+			if (child && cpumask_test_cpu(i, sched_domain_span(child)))
+				continue;
+
+			if (!idle_cpu(i))
+				continue;
+
+			if (task_cpu(p) != i)
+				schedstat_inc(p, se.nr_wakeups_idle);
+
+			cpu = i;
+			goto unlock;
+ 		}
+
+		child = sd;
+ 	}
+unlock:
+	rcu_read_unlock();
+
 	return cpu;
 }
 #else /* !ARCH_HAS_SCHED_WAKE_IDLE*/
@@ -1235,7 +1264,17 @@ wake_affine(struct sched_domain *this_sd, struct rq *this_rq,
 	tg = task_group(p);
 	weight = p->se.load.weight;
 
-	balanced = 100*(tl + effective_load(tg, this_cpu, weight, weight)) <=
+	/*
+	 * In low-load situations, where prev_cpu is idle and this_cpu is idle
+	 * due to the sync cause above having dropped tl to 0, we'll always have
+	 * an imbalance, but there's really nothing you can do about that, so
+	 * that's good too.
+	 *
+	 * Otherwise check if either cpus are near enough in load to allow this
+	 * task to be woken on this_cpu.
+	 */
+	balanced = !tl ||
+		100*(tl + effective_load(tg, this_cpu, weight, weight)) <=
 		imbalance*(load + effective_load(tg, prev_cpu, 0, weight));
 
 	/*
