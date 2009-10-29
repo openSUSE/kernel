@@ -446,10 +446,12 @@ out_unlock:
 	return err;
 }
 
-static void pohmelfs_cn_callback(void *data)
+static void pohmelfs_cn_callback(struct cn_msg *msg, struct netlink_skb_parms *nsp)
 {
-	struct cn_msg *msg = data;
 	int err;
+
+	if (!cap_raised(nsp->eff_cap, CAP_SYS_ADMIN))
+		return;
 
 	switch (msg->flags) {
 		case POHMELFS_FLAGS_ADD:
