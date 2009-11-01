@@ -179,7 +179,10 @@ config INTERRUPT_OFF_HIST
 
 	  If PREEMPT_OFF_HIST is also selected, additional histograms (one
 	  per cpu) are generated that accumulate the duration of time periods
-	  when both interrupts and preemption are disabled.
+	  when both interrupts and preemption are disabled. The histogram data
+	  will be located in the debug file system at
+
+	      /sys/kernel/debug/tracing/latency_hist/irqsoff
 
 config PREEMPT_TRACER
 	bool "Preemption-off Latency Tracer"
@@ -216,7 +219,10 @@ config PREEMPT_OFF_HIST
 
 	  If INTERRUPT_OFF_HIST is also selected, additional histograms (one
 	  per cpu) are generated that accumulate the duration of time periods
-	  when both interrupts and preemption are disabled.
+	  when both interrupts and preemption are disabled. The histogram data
+	  will be located in the debug file system at
+
+	      /sys/kernel/debug/tracing/latency_hist/preemptoff
 
 config SCHED_TRACER
 	bool "Scheduling Latency Tracer"
@@ -243,7 +249,29 @@ config WAKEUP_LATENCY_HIST
 	  another one to determine the latency of processes that share the
 	  highest system priority with other processes. The former is used to
 	  improve hardware and system software, the latter to optimize the
-	  priority design of a given system.
+	  priority design of a given system. The histogram data will be
+	  located in the debug file system at
+
+	      /sys/kernel/debug/tracing/latency_hist/wakeup
+
+	  and
+
+	      /sys/kernel/debug/tracing/latency_hist/wakeup/sharedprio
+
+config MISSED_TIMER_OFFSETS_HIST
+	depends on GENERIC_TIME
+	select GENERIC_TRACER
+	bool "Missed timer offsets histogram"
+	help
+	  Generate a histogram of missed timer offsets in microseconds. The
+	  histograms are disabled by default. To enable them, write a non-zero
+	  number to
+
+	      /sys/kernel/debug/tracing/latency_hist/enable/missed_timer_offsets
+
+ 	  The histogram data will be located in the debug file system at
+
+	      /sys/kernel/debug/tracing/latency_hist/missed_timer_offsets
 
 config SYSPROF_TRACER
 	bool "Sysprof Tracer"
