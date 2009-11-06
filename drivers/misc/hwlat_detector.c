@@ -607,7 +607,11 @@ static ssize_t  debug_enable_fwrite(struct file *filp,
 		if (!enabled)
 			goto unlock;
 		enabled = 0;
-		stop_kthread();
+		err = stop_kthread();
+		if (err) {
+			printk(KERN_ERR BANNER "cannot stop kthread\n");
+			return -EFAULT;
+		}
 		wake_up(&data.wq);		/* reader(s) should return */
 	}
 unlock:
@@ -1194,9 +1198,13 @@ out:
  */
 static void detector_exit(void)
 {
+	int err;
+
 	if (enabled) {
 		enabled = 0;
-		stop_kthread();
+		err = stop_kthread();
+		if (err)
+			printk(KERN_ERR BANNER "cannot stop kthread\n");
 	}
 
 	free_debugfs();

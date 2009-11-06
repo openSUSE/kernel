@@ -111,9 +111,14 @@ of ftrace. Here is a list of some of the key files:
 	For example, the time interrupts are disabled.
 	This time is saved in this file. The max trace
 	will also be stored, and displayed by "trace".
-	A new max trace will only be recorded if the
+	A new max trace will only be recorded, if the
 	latency is greater than the value in this
-	file. (in microseconds)
+	file (in microseconds). Note that the max latency
+	recorded by the wakeup and the wakeup_rt tracer
+	do not necessarily reflect the worst-case latency
+	of the system, but may be erroneously high in
+	case two or more processes share the maximum
+	priority of the system.
 
   buffer_size_kb:
 
