@@ -1196,6 +1196,7 @@ static void iwl3945_rx_allocate(struct iwl_priv *priv, gfp_t priority)
 	struct iwl_rx_queue *rxq = &priv->rxq;
 	struct list_head *element;
 	struct iwl_rx_mem_buffer *rxb;
+	struct sk_buff *skb;
 	unsigned long flags;
 
 	while (1) {
@@ -1205,24 +1206,38 @@ static void iwl3945_rx_allocate(struct iwl_priv *priv, gfp_t priority)
 			spin_unlock_irqrestore(&rxq->lock, flags);
 			return;
 		}
-
-		element = rxq->rx_used.next;
-		rxb = list_entry(element, struct iwl_rx_mem_buffer, list);
-		list_del(element);
 		spin_unlock_irqrestore(&rxq->lock, flags);
 
+		if (rxq->free_count > RX_LOW_WATERMARK)
+			priority |= __GFP_NOWARN;
 		/* Alloc a new receive buffer */
-		rxb->skb =
-		    alloc_skb(priv->hw_params.rx_buf_size,
-				priority);
-		if (!rxb->skb) {
+		skb = alloc_skb(priv->hw_params.rx_buf_size, priority);
+		if (!skb) {
 			if (net_ratelimit())
-				IWL_CRIT(priv, ": Can not allocate SKB buffers\n");
+				IWL_DEBUG_INFO(priv, "Failed to allocate SKB buffer.\n");
+			if ((rxq->free_count <= RX_LOW_WATERMARK) &&
+			    net_ratelimit())
+				IWL_CRIT(priv, "Failed to allocate SKB buffer with %s. Only %u free buffers remaining.\n",
+					 priority == GFP_ATOMIC ?  "GFP_ATOMIC" : "GFP_KERNEL",
+					 rxq->free_count);
 			/* We don't reschedule replenish work here -- we will
 			 * call the restock method and if it still needs
 			 * more buffers it will schedule replenish */
 			break;
 		}
+
+		spin_lock_irqsave(&rxq->lock, flags);
+		if (list_empty(&rxq->rx_used)) {
+			spin_unlock_irqrestore(&rxq->lock, flags);
+			dev_kfree_skb_any(skb);
+			return;
+		}
+		element = rxq->rx_used.next;
+		rxb = list_entry(element, struct iwl_rx_mem_buffer, list);
+		list_del(element);
+		spin_unlock_irqrestore(&rxq->lock, flags);
+
+		rxb->skb = skb;
 
 		/* If radiotap head is required, reserve some headroom here.
 		 * The physical head count is a variable rx_stats->phy_count.

@@ -1616,6 +1616,11 @@
 #define   PIPE_START_VBLANK_INTERRUPT_STATUS	(1UL<<2) /* 965 or later */
 #define   PIPE_VBLANK_INTERRUPT_STATUS		(1UL<<1)
 #define   PIPE_OVERLAY_UPDATED_STATUS		(1UL<<0)
+#define   PIPE_BPC_MASK 			(7 << 5) /* Ironlake */
+#define   PIPE_8BPC				(0 << 5)
+#define   PIPE_10BPC				(1 << 5)
+#define   PIPE_6BPC				(2 << 5)
+#define   PIPE_12BPC				(3 << 5)
 
 #define DSPARB			0x70030
 #define   DSPARB_CSTART_MASK	(0x7f << 7)
@@ -1866,6 +1871,11 @@
 #define PFA_CTL_1               0x68080
 #define PFB_CTL_1               0x68880
 #define  PF_ENABLE              (1<<31)
+#define  PF_FILTER_MASK		(3<<23)
+#define  PF_FILTER_PROGRAMMED	(0<<23)
+#define  PF_FILTER_MED_3x3	(1<<23)
+#define  PF_FILTER_EDGE_ENHANCE	(2<<23)
+#define  PF_FILTER_EDGE_SOFTEN	(3<<23)
 #define PFA_WIN_SZ		0x68074
 #define PFB_WIN_SZ		0x68874
 #define PFA_WIN_POS		0x68070
@@ -1985,11 +1995,11 @@
 #define  DREF_CPU_SOURCE_OUTPUT_MASK		(3<<13)
 #define  DREF_SSC_SOURCE_DISABLE                (0<<11)
 #define  DREF_SSC_SOURCE_ENABLE                 (2<<11)
-#define  DREF_SSC_SOURCE_MASK			(2<<11)
+#define  DREF_SSC_SOURCE_MASK			(3<<11)
 #define  DREF_NONSPREAD_SOURCE_DISABLE          (0<<9)
 #define  DREF_NONSPREAD_CK505_ENABLE		(1<<9)
 #define  DREF_NONSPREAD_SOURCE_ENABLE           (2<<9)
-#define  DREF_NONSPREAD_SOURCE_MASK		(2<<9)
+#define  DREF_NONSPREAD_SOURCE_MASK		(3<<9)
 #define  DREF_SUPERSPREAD_SOURCE_DISABLE        (0<<7)
 #define  DREF_SUPERSPREAD_SOURCE_ENABLE         (2<<7)
 #define  DREF_SSC4_DOWNSPREAD                   (0<<6)
