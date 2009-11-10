@@ -1033,10 +1033,10 @@ sleep_more:
 				goto sleep_more;
 			}
 			per_cpu(softirq_running, cpu) |= softirq_mask;
-			__preempt_enable_no_resched();
 			set_softirq_pending(local_softirq_pending() & ~softirq_mask);
 			local_bh_disable();
 			local_irq_enable();
+			preempt_enable();
 
 			h = &softirq_vec[data->nr];
 			if (h)
