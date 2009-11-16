@@ -1378,9 +1378,6 @@ int trace_array_vprintk(struct trace_array *tr,
 	__raw_spin_lock(&trace_buf_lock);
 	len = vsnprintf(trace_buf, TRACE_BUF_SIZE, fmt, args);
 
-	len = min(len, TRACE_BUF_SIZE-1);
-	trace_buf[len] = 0;
-
 	size = sizeof(*entry) + len + 1;
 	buffer = tr->buffer;
 	event = trace_buffer_lock_reserve(buffer, TRACE_PRINT, size,
@@ -1388,10 +1385,10 @@ int trace_array_vprintk(struct trace_array *tr,
 	if (!event)
 		goto out_unlock;
 	entry = ring_buffer_event_data(event);
-	entry->ip			= ip;
+	entry->ip = ip;
 
 	memcpy(&entry->buf, trace_buf, len);
-	entry->buf[len] = 0;
+	entry->buf[len] = '\0';
 	if (!filter_check_discard(call, entry, buffer, event))
 		ring_buffer_unlock_commit(buffer, event);
 
@@ -1408,7 +1405,7 @@ int trace_array_vprintk(struct trace_array *tr,
 
 int trace_vprintk(unsigned long ip, const char *fmt, va_list args)
 {
-	return trace_array_printk(&global_trace, ip, fmt, args);
+	return trace_array_vprintk(&global_trace, ip, fmt, args);
 }
 EXPORT_SYMBOL_GPL(trace_vprintk);
 
@@ -3351,7 +3348,6 @@ tracing_mark_write(struct file *filp, const char __user *ubuf,
 					size_t cnt, loff_t *fpos)
 {
 	char *buf;
-	char *end;
 
 	if (tracing_disabled)
 		return -EINVAL;
@@ -3359,7 +3355,7 @@ tracing_mark_write(struct file *filp, const char __user *ubuf,
 	if (cnt > TRACE_BUF_SIZE)
 		cnt = TRACE_BUF_SIZE;
 
-	buf = kmalloc(cnt + 1, GFP_KERNEL);
+	buf = kmalloc(cnt + 2, GFP_KERNEL);
 	if (buf == NULL)
 		return -ENOMEM;
 
@@ -3367,14 +3363,13 @@ tracing_mark_write(struct file *filp, const char __user *ubuf,
 		kfree(buf);
 		return -EFAULT;
 	}
+	if (buf[cnt-1] != '\n') {
+		buf[cnt] = '\n';
+		buf[cnt+1] = '\0';
+	} else
+		buf[cnt] = '\0';
 
-	/* Cut from the first nil or newline. */
-	buf[cnt] = '\0';
-	end = strchr(buf, '\n');
-	if (end)
-		*end = '\0';
-
-	cnt = mark_printk("%s\n", buf);
+	cnt = mark_printk("%s", buf);
 	kfree(buf);
 	*fpos += cnt;
 
