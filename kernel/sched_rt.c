@@ -1532,13 +1532,15 @@ static int needs_post_schedule_rt(struct rq *rq)
 
 static void post_schedule_rt(struct rq *rq)
 {
+	unsigned long flags;
+
 	/*
 	 * This is only called if needs_post_schedule_rt() indicates that
 	 * we need to push tasks away
 	 */
-	atomic_spin_lock_irq(&rq->lock);
+	atomic_spin_lock_irqsave(&rq->lock, flags);
 	push_rt_tasks(rq);
-	atomic_spin_unlock_irq(&rq->lock);
+	atomic_spin_unlock_irqrestore(&rq->lock, flags);
 }
 
 /*
