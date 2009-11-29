@@ -556,8 +556,8 @@ latency_hist_enable(struct file *filp, const char __user *ubuf,
 				    "to trace_sched_switch\n");
 				unregister_trace_sched_wakeup(
 				    probe_wakeup_latency_hist_start);
-				unregister_trace_sched_switch(
-				    probe_wakeup_latency_hist_stop);
+				unregister_trace_sched_wakeup_new(
+				    probe_wakeup_latency_hist_start);
 				return ret;
 			}
 			break;
@@ -603,7 +603,7 @@ latency_hist_enable(struct file *filp, const char __user *ubuf,
 			}
 			break;
 #endif
-#ifdef CONFIG_WAKEUP_LATEHCY_HIST
+#ifdef CONFIG_WAKEUP_LATENCY_HIST
 		case WAKEUP_LATENCY:
 			unregister_trace_sched_wakeup(
 			    probe_wakeup_latency_hist_start);
@@ -807,9 +807,9 @@ notrace void probe_wakeup_latency_hist_stop(struct rq *rq,
 	cpu = raw_smp_processor_id();
 	stop = ftrace_now(cpu);
 
-	atomic_spin_lock_irqsave(&wakeup_lock, flags);
-
 	latency = nsecs_to_usecs(stop - next->preempt_timestamp_hist);
+
+	atomic_spin_lock_irqsave(&wakeup_lock, flags);
 	if (next != wakeup_task) {
 		if (wakeup_task && next->prio == wakeup_task->prio)
 			latency_hist(WAKEUP_LATENCY_SHAREDPRIO, cpu, latency,
@@ -831,15 +831,19 @@ out:
 #endif
 
 #ifdef CONFIG_MISSED_TIMER_OFFSETS_HIST
+static DEFINE_ATOMIC_SPINLOCK(missed_timer_lock);
 notrace void probe_hrtimer_interrupt(int cpu, long long latency_ns,
     struct task_struct *task)
 {
 	if (latency_ns <= 0) {
+		unsigned long flags;
 		unsigned long latency;
 
 		latency = (unsigned long) div_s64(-latency_ns, 1000);
 
+		atomic_spin_lock_irqsave(&missed_timer_lock, flags);
 		latency_hist(MISSED_TIMER_OFFSETS, cpu, latency, task);
+		atomic_spin_unlock_irqrestore(&missed_timer_lock, flags);
 	}
 }
 #endif
