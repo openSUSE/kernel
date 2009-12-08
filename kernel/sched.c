@@ -6835,11 +6835,11 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 	}
 	retval = -EPERM;
 	if (!check_same_owner(p) && !capable(CAP_SYS_NICE))
-		goto out_unlock;
+		goto out_free;
 
 	retval = security_task_setscheduler(p, 0, NULL);
 	if (retval)
-		goto out_unlock;
+		goto out_free;
 
 	cpuset_cpus_allowed(p, cpus_allowed);
 	cpumask_and(new_mask, in_mask, cpus_allowed);
@@ -6858,7 +6858,7 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 			goto again;
 		}
 	}
-out_unlock:
+out_free:
 	free_cpumask_var(new_mask);
 out_free_cpus_allowed:
 	free_cpumask_var(cpus_allowed);
