@@ -349,7 +349,7 @@ static void dump_tasks(const struct mem_cgroup *mem)
 			continue;
 		}
 		printk(KERN_INFO "[%5d] %5d %5d %8lu %8lu %3d     %3d %s\n",
-		       p->pid, __task_cred(p)->uid, p->tgid, mm->total_vm,
+		       p->pid, task_uid(p), p->tgid, mm->total_vm,
 		       get_mm_rss(mm), (int)task_cpu(p), p->signal->oom_adj,
 		       p->comm);
 		task_unlock(p);
