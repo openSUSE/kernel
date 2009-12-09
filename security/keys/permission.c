@@ -23,8 +23,7 @@
  * Check to see whether permission is granted to use a key in the desired way,
  * but permit the security modules to override.
  *
- * The caller must hold either a ref on cred or must hold the RCU readlock or a
- * spinlock.
+ * The caller must hold either a ref on cred or must hold the RCU readlock.
  */
 int key_task_permission(const key_ref_t key_ref, const struct cred *cred,
 			key_perm_t perm)
