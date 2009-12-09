@@ -232,14 +232,12 @@ static struct sigqueue *__sigqueue_do_alloc(struct task_struct *t, gfp_t flags,
 	struct sigqueue *q = NULL;
 	struct user_struct *user;
 
-	/*
-	 * We won't get problems with the target's UID changing under us
-	 * because changing it requires RCU be used, and if t != current, the
-	 * caller must be holding the RCU readlock (by way of a spinlock) and
-	 * we use RCU protection here
-	 */
+	rcu_read_lock();
 	user = get_uid(__task_cred(t)->user);
+	rcu_read_unlock();
+
 	atomic_inc(&user->sigpending);
+
 	if (override_rlimit ||
 	    atomic_read(&user->sigpending) <=
 	    t->signal->rlim[RLIMIT_SIGPENDING].rlim_cur) {
@@ -995,7 +993,7 @@ out_set:
 static int send_signal(int sig, struct siginfo *info, struct task_struct *t,
 			int group)
 {
-	int from_ancestor_ns = 0;
+	int ret, from_ancestor_ns = 0;
 
 #ifdef CONFIG_PID_NS
 	if (!is_si_special(info) && SI_FROMUSER(info) &&
