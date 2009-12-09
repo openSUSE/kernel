@@ -165,6 +165,7 @@ SYSCALL_DEFINE3(setpriority, int, which, int, who, int, niceval)
 		niceval = 19;
 
 	read_lock(&tasklist_lock);
+	rcu_read_lock();
 	switch (which) {
 		case PRIO_PROCESS:
 			if (who)
@@ -200,6 +201,7 @@ SYSCALL_DEFINE3(setpriority, int, which, int, who, int, niceval)
 			break;
 	}
 out_unlock:
+	rcu_read_unlock();
 	read_unlock(&tasklist_lock);
 out:
 	return error;
