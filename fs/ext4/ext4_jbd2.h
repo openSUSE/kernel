@@ -49,7 +49,7 @@
 
 #define EXT4_DATA_TRANS_BLOCKS(sb)	(EXT4_SINGLEDATA_TRANS_BLOCKS(sb) + \
 					 EXT4_XATTR_TRANS_BLOCKS - 2 + \
-					 2*EXT4_QUOTA_TRANS_BLOCKS(sb))
+					 EXT4_MAXQUOTAS_TRANS_BLOCKS(sb))
 
 /*
  * Define the number of metadata blocks we need to account to modify data.
@@ -57,7 +57,7 @@
  * This include super block, inode block, quota blocks and xattr blocks
  */
 #define EXT4_META_TRANS_BLOCKS(sb)	(EXT4_XATTR_TRANS_BLOCKS + \
-					2*EXT4_QUOTA_TRANS_BLOCKS(sb))
+					EXT4_MAXQUOTAS_TRANS_BLOCKS(sb))
 
 /* Delete operations potentially hit one directory's namespace plus an
  * entire inode, plus arbitrary amounts of bitmap/indirection data.  Be
@@ -92,6 +92,7 @@
  * but inode, sb and group updates are done only once */
 #define EXT4_QUOTA_INIT_BLOCKS(sb) (test_opt(sb, QUOTA) ? (DQUOT_INIT_ALLOC*\
 		(EXT4_SINGLEDATA_TRANS_BLOCKS(sb)-3)+3+DQUOT_INIT_REWRITE) : 0)
+
 #define EXT4_QUOTA_DEL_BLOCKS(sb) (test_opt(sb, QUOTA) ? (DQUOT_DEL_ALLOC*\
 		(EXT4_SINGLEDATA_TRANS_BLOCKS(sb)-3)+3+DQUOT_DEL_REWRITE) : 0)
 #else
@@ -99,6 +100,9 @@
 #define EXT4_QUOTA_INIT_BLOCKS(sb) 0
 #define EXT4_QUOTA_DEL_BLOCKS(sb) 0
 #endif
+#define EXT4_MAXQUOTAS_TRANS_BLOCKS(sb) (MAXQUOTAS*EXT4_QUOTA_TRANS_BLOCKS(sb))
+#define EXT4_MAXQUOTAS_INIT_BLOCKS(sb) (MAXQUOTAS*EXT4_QUOTA_INIT_BLOCKS(sb))
+#define EXT4_MAXQUOTAS_DEL_BLOCKS(sb) (MAXQUOTAS*EXT4_QUOTA_DEL_BLOCKS(sb))
 
 int
 ext4_mark_iloc_dirty(handle_t *handle,
@@ -161,11 +165,13 @@ int __ext4_handle_dirty_metadata(const char *where, handle_t *handle,
 handle_t *ext4_journal_start_sb(struct super_block *sb, int nblocks);
 int __ext4_journal_stop(const char *where, handle_t *handle);
 
-#define EXT4_NOJOURNAL_HANDLE	((handle_t *) 0x1)
+#define EXT4_NOJOURNAL_MAX_REF_COUNT ((unsigned long) 4096)
 
+/* Note:  Do not use this for NULL handles.  This is only to determine if
+ * a properly allocated handle is using a journal or not. */
 static inline int ext4_handle_valid(handle_t *handle)
 {
-	if (handle == EXT4_NOJOURNAL_HANDLE)
+	if ((unsigned long)handle < EXT4_NOJOURNAL_MAX_REF_COUNT)
 		return 0;
 	return 1;
 }
@@ -250,6 +256,19 @@ static inline int ext4_jbd2_file_inode(handle_t *handle, struct inode *inode)
 	if (ext4_handle_valid(handle))
 		return jbd2_journal_file_inode(handle, &EXT4_I(inode)->jinode);
 	return 0;
+}
+
+static inline void ext4_update_inode_fsync_trans(handle_t *handle,
+						 struct inode *inode,
+						 int datasync)
+{
+	struct ext4_inode_info *ei = EXT4_I(inode);
+
+	if (ext4_handle_valid(handle)) {
+		ei->i_sync_tid = handle->h_transaction->t_tid;
+		if (datasync)
+			ei->i_datasync_tid = handle->h_transaction->t_tid;
+	}
 }
 
 /* super.c */

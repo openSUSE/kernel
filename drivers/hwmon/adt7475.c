@@ -350,8 +350,7 @@ static ssize_t show_temp(struct device *dev, struct device_attribute *attr,
 
 	case FAULT:
 		/* Note - only for remote1 and remote2 */
-		out = data->alarms & (sattr->index ? 0x8000 : 0x4000);
-		out = out ? 0 : 1;
+		out = !!(data->alarms & (sattr->index ? 0x8000 : 0x4000));
 		break;
 
 	default:
@@ -1152,7 +1151,7 @@ static struct adt7475_data *adt7475_update_device(struct device *dev)
 	}
 
 	/* Limits and settings, should never change update every 60 seconds */
-	if (time_after(jiffies, data->limits_updated + HZ * 2) ||
+	if (time_after(jiffies, data->limits_updated + HZ * 60) ||
 	    !data->valid) {
 		data->config5 = adt7475_read(REG_CONFIG5);
 

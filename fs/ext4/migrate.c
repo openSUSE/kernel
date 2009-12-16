@@ -75,7 +75,7 @@ static int finish_range(handle_t *handle, struct inode *inode,
 				goto err_out;
 		}
 	}
-	retval = ext4_ext_insert_extent(handle, inode, path, &newext);
+	retval = ext4_ext_insert_extent(handle, inode, path, &newext, 0);
 err_out:
 	if (path) {
 		ext4_ext_drop_refs(path);
@@ -238,7 +238,7 @@ static int extend_credit_for_blkdel(handle_t *handle, struct inode *inode)
 	 * So allocate a credit of 3. We may update
 	 * quota (user and group).
 	 */
-	needed = 3 + 2*EXT4_QUOTA_TRANS_BLOCKS(inode->i_sb);
+	needed = 3 + EXT4_MAXQUOTAS_TRANS_BLOCKS(inode->i_sb);
 
 	if (ext4_journal_extend(handle, needed) != 0)
 		retval = ext4_journal_restart(handle, needed);
@@ -353,17 +353,16 @@ static int ext4_ext_swap_inode_data(handle_t *handle, struct inode *inode,
 
 	down_write(&EXT4_I(inode)->i_data_sem);
 	/*
-	 * if EXT4_EXT_MIGRATE is cleared a block allocation
+	 * if EXT4_STATE_EXT_MIGRATE is cleared a block allocation
 	 * happened after we started the migrate. We need to
 	 * fail the migrate
 	 */
-	if (!(EXT4_I(inode)->i_flags & EXT4_EXT_MIGRATE)) {
+	if (!(EXT4_I(inode)->i_state & EXT4_STATE_EXT_MIGRATE)) {
 		retval = -EAGAIN;
 		up_write(&EXT4_I(inode)->i_data_sem);
 		goto err_out;
 	} else
-		EXT4_I(inode)->i_flags = EXT4_I(inode)->i_flags &
-							~EXT4_EXT_MIGRATE;
+		EXT4_I(inode)->i_state &= ~EXT4_STATE_EXT_MIGRATE;
 	/*
 	 * We have the extent map build with the tmp inode.
 	 * Now copy the i_data across
@@ -478,7 +477,7 @@ int ext4_ext_migrate(struct inode *inode)
 	handle = ext4_journal_start(inode,
 					EXT4_DATA_TRANS_BLOCKS(inode->i_sb) +
 					EXT4_INDEX_EXTRA_TRANS_BLOCKS + 3 +
-					2 * EXT4_QUOTA_INIT_BLOCKS(inode->i_sb)
+					EXT4_MAXQUOTAS_INIT_BLOCKS(inode->i_sb)
 					+ 1);
 	if (IS_ERR(handle)) {
 		retval = PTR_ERR(handle);
@@ -517,14 +516,15 @@ int ext4_ext_migrate(struct inode *inode)
 	 * when we add extents we extent the journal
 	 */
 	/*
-	 * Even though we take i_mutex we can still cause block allocation
-	 * via mmap write to holes. If we have allocated new blocks we fail
-	 * migrate.  New block allocation will clear EXT4_EXT_MIGRATE flag.
-	 * The flag is updated with i_data_sem held to prevent racing with
-	 * block allocation.
+	 * Even though we take i_mutex we can still cause block
+	 * allocation via mmap write to holes. If we have allocated
+	 * new blocks we fail migrate.  New block allocation will
+	 * clear EXT4_STATE_EXT_MIGRATE flag.  The flag is updated
+	 * with i_data_sem held to prevent racing with block
+	 * allocation.
 	 */
 	down_read((&EXT4_I(inode)->i_data_sem));
-	EXT4_I(inode)->i_flags = EXT4_I(inode)->i_flags | EXT4_EXT_MIGRATE;
+	EXT4_I(inode)->i_state |= EXT4_STATE_EXT_MIGRATE;
 	up_read((&EXT4_I(inode)->i_data_sem));
 
 	handle = ext4_journal_start(inode, 1);
@@ -618,7 +618,7 @@ err_out:
 	tmp_inode->i_nlink = 0;
 
 	ext4_journal_stop(handle);
-
+	unlock_new_inode(tmp_inode);
 	iput(tmp_inode);
 
 	return retval;
