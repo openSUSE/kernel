@@ -956,7 +956,8 @@ static inline void hrtick_update(struct rq *rq)
  * increased. Here we update the fair scheduling stats and
  * then put the task into the rbtree:
  */
-static void enqueue_task_fair(struct rq *rq, struct task_struct *p, int wakeup)
+static void
+enqueue_task_fair(struct rq *rq, struct task_struct *p, int wakeup, bool head)
 {
 	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &p->se;
@@ -1773,7 +1774,7 @@ static void task_new_fair(struct rq *rq, struct task_struct *p)
 		resched_task(rq->curr);
 	}
 
-	enqueue_task_fair(rq, p, 0);
+	enqueue_task_fair(rq, p, 0, false);
 }
 
 /*
