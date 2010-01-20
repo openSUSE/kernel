@@ -6714,7 +6714,25 @@ recheck:
 	if (running)
 		p->sched_class->set_curr_task(rq);
 	if (on_rq) {
-		activate_task(rq, p, 0, false);
+		/*
+		 * Workaround to make prio ceiling work as expected:
+		 *
+		 * Queue task to head when task is running and task is
+		 * lowering its priority. This works around the non-
+		 * availability of a sched_setprio syscall which was
+		 * tinkered into the posix spec to make prio ceiling
+		 * work correctly.
+		 *
+		 * This workaround violates the posix scheduling
+		 * semantics of tail queueing in the case that the
+		 * priority was changed by anything else than
+		 * sched_setprio, but there is no other breakage
+		 * lurking than some specification fetishists going
+		 * berserk on me.
+		 *
+		 * Fixing this in mainline needs more thoughts.
+		 */
+		activate_task(rq, p, 0, running && oldprio < p->prio);
 
 		check_class_changed(rq, p, prev_class, oldprio, running);
 	}
