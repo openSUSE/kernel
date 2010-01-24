@@ -5,7 +5,8 @@ This document gives a short explanation how to enable, configure and use
 latency histograms. Latency histograms are primarily relevant in the
 context of real-time enabled kernels (CONFIG_PREEMPT/CONFIG_PREEMPT_RT)
 and are used in the quality management of the Linux real-time
-capabilities.
+capabilities. Only processes with RT priority (SCHED_FIFO or SCHED_RR
+policy) are monitored.
 
 
 * Purpose of latency histograms
@@ -54,11 +55,12 @@ that is suffering from this latency are stored as well (see below).
 Missed timer latencies occur when a timer interrupt is serviced later
 than it should. This is mainly due to disabled interrupts. To determine
 the missed timer latency, the expected and the real execution time of a
-timer are compared. If the former precedes the latter, the difference is
-entered into the missed timer offsets histogram. If the timer is
-responsible to wakeup a sleeping process and the latency is highest so
-far among previous wakeup timers, details of the related task are stored
-as well (see below).
+timer are compared. If the timer is executed later than expected and the
+timer is responsible to wakeup a sleeping process, the difference
+between the the expected and the real execution time is calculated and
+entered as latency into the missed timer offsets histogram. If the
+latency is highest so far among previous wakeup timers, details of the
+related task are stored as well (see below).
 - Configuration item (in the Kernel hacking/Tracers submenu)
   CONFIG_MISSED_TIMER_OFFSETS_HIST
 
@@ -183,8 +185,18 @@ PID of the requested process to
 PIDs are not considered, if this variable is set to 0.
 
 
-* Details of processes with the highest wakeup or missed timer
-latency so far
+* Missed timer offsets of a selected process
+
+To only collect missed timer offset data of a particular process, write the
+PID of the requested process to
+
+/sys/kernel/debug/tracing/latency_hist/missed_timer_offsets/pid.
+
+PIDs are not considered, if this variable is set to 0.
+
+
+* Details of processes with the highest wakeup or missed timer latency
+so far
 
 Selected data of processes that suffered from the highest wakeup or
 missed timer latency that occurred on a particular CPU are available in
@@ -197,4 +209,10 @@ the files
 The format of the data is
 <PID> <Priority> <Latency> <Command>
 
+The priority <Priority> is given in user space format, i.e. the lowest
+RT priority is 1 and the highest RT priority is 99.
+
 These data are also reset when the related histograms are reset.
+Initially and after reset as long as no data are available yet, <PID> is
+set to -1, <Priority> to 100, <Latency> to -1 and <Command> to an empty
+string.

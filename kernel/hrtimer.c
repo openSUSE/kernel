@@ -1425,6 +1425,7 @@ void hrtimer_interrupt(struct clock_event_device *dev)
 			trace_hrtimer_interrupt(raw_smp_processor_id(),
 			    ktime_to_ns(ktime_sub(
 				hrtimer_get_expires(timer), basenow)),
+			    current,
 			    timer->function == hrtimer_wakeup ?
 			    container_of(timer, struct hrtimer_sleeper,
 				timer)->task : NULL);
