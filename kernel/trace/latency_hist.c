@@ -769,6 +769,11 @@ static notrace void probe_wakeup_latency_hist_stop(struct rq *rq,
 	unsigned long latency;
 	cycle_t stop;
 
+        if (unlikely(current == wakeup_task)) {
+                atomic_spin_lock_irqsave(&wakeup_lock, flags);
+                goto out_reset;
+        }
+
 	if (next != wakeup_task)
 		return;
 
@@ -791,6 +796,7 @@ static notrace void probe_wakeup_latency_hist_stop(struct rq *rq,
 	} else
 		latency_hist(WAKEUP_LATENCY, cpu, latency, next);
 
+out_reset:
 	put_task_struct(wakeup_task);
 	wakeup_task = NULL;
 out:
