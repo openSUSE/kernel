@@ -131,6 +131,14 @@ probe_wakeup_sched_switch(struct rq *rq, struct task_struct *prev,
 	 */
 	smp_rmb();
 
+	/* The task we are waiting for is already running */
+	if (unlikely(current == wakeup_task)) {
+		cpu = raw_smp_processor_id();
+		local_irq_save(flags);
+		__raw_spin_lock(&wakeup_lock);
+		goto out_unlock;
+	}
+
 	if (next != wakeup_task)
 		return;
 
