@@ -8,6 +8,7 @@
 
 #include <linux/limits.h>
 #include <linux/ioctl.h>
+#include <asm/atomic.h>
 
 /*
  * It's silly to have NR_OPEN bigger than NR_FILE, but you can change
@@ -39,8 +40,8 @@ struct files_stat_struct {
 };
 
 struct inodes_stat_t {
-	int nr_inodes;
-	int nr_unused;
+	atomic_t nr_inodes;
+	atomic_t nr_unused;
 	int dummy[5];		/* padding for sysctl ABI compatibility */
 };
 
