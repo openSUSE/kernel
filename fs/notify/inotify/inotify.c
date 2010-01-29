@@ -186,6 +186,7 @@ static void set_dentry_child_flags(struct inode *inode, int watched)
 	struct dentry *alias;
 
 	spin_lock(&dcache_lock);
+	spin_lock(&dcache_inode_lock);
 	list_for_each_entry(alias, &inode->i_dentry, d_alias) {
 		struct dentry *child;
 
@@ -203,6 +204,7 @@ static void set_dentry_child_flags(struct inode *inode, int watched)
 		}
 		spin_unlock(&alias->d_lock);
 	}
+	spin_unlock(&dcache_inode_lock);
 	spin_unlock(&dcache_lock);
 }
 
