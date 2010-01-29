@@ -656,6 +656,40 @@ __inode_add_to_lists(struct super_block *sb, struct inode_hash_bucket *b,
 	}
 }
 
+#ifdef CONFIG_SMP
+/*
+ * Each cpu owns a range of 1024 numbers.
+ * 'shared_last_ino' is dirtied only once out of 1024 allocations,
+ * to renew the exhausted range.
+ *
+ * On a 32bit, non LFS stat() call, glibc will generate an EOVERFLOW
+ * error if st_ino won't fit in target struct field. Use 32bit counter
+ * here to attempt to avoid that.
+ */
+static DEFINE_PER_CPU(int, last_ino);
+static atomic_t shared_last_ino;
+
+static int last_ino_get(void)
+{
+	int *p = &get_cpu_var(last_ino);
+	int res = *p;
+
+	if (unlikely((res & 1023) == 0))
+		res = atomic_add_return(1024, &shared_last_ino) - 1024;
+
+	*p = ++res;
+	put_cpu_var(last_ino);
+	return res;
+}
+#else
+static int last_ino_get(void)
+{
+	static int last_ino;
+
+	return ++last_ino;
+}
+#endif
+
 /**
  * inode_add_to_lists - add a new inode to relevant lists
  * @sb: superblock inode belongs to
@@ -692,18 +726,12 @@ EXPORT_SYMBOL_GPL(inode_add_to_lists);
  */
 struct inode *new_inode(struct super_block *sb)
 {
-	/*
-	 * On a 32bit, non LFS stat() call, glibc will generate an EOVERFLOW
-	 * error if st_ino won't fit in target struct field. Use 32bit counter
-	 * here to attempt to avoid that.
-	 */
-	static atomic_t last_ino = ATOMIC_INIT(0);
 	struct inode *inode;
 
 	inode = alloc_inode(sb);
 	if (inode) {
 		spin_lock(&inode->i_lock);
-		inode->i_ino = atomic_inc_return(&last_ino);
+		inode->i_ino = last_ino_get();
 		inode->i_state = 0;
 		__inode_add_to_lists(sb, NULL, inode);
 		spin_unlock(&inode->i_lock);
