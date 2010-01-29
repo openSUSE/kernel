@@ -841,46 +841,55 @@ static int dqinit_needed(struct inode *inode, int type)
 /* This routine is guarded by dqonoff_mutex mutex */
 static void add_dquot_ref(struct super_block *sb, int type)
 {
-	struct inode *inode, *old_inode = NULL;
 	int reserved = 0;
+	int i;
+	for_each_possible_cpu(i) {
+		struct inode *inode, *old_inode = NULL;
+		struct list_head *list;
+#ifdef CONFIG_SMP
+                list = per_cpu_ptr(sb->s_inodes, i);
+#else
+                list = &sb->s_inodes;
+#endif
 
-	rcu_read_lock();
-	list_for_each_entry_rcu(inode, &sb->s_inodes, i_sb_list) {
-		spin_lock(&inode->i_lock);
-		if (inode->i_state & (I_FREEING|I_CLEAR|I_WILL_FREE|I_NEW)) {
-			spin_unlock(&inode->i_lock);
-			continue;
-		}
-
-		if (unlikely(inode_get_rsv_space(inode) > 0))
-			reserved = 1;
-
-		if (!atomic_read(&inode->i_writecount)) {
-			spin_unlock(&inode->i_lock);
-			continue;
-		}
-
-		if (!dqinit_needed(inode, type)) {
-			spin_unlock(&inode->i_lock);
-			continue;
-		}
-
-		__iget(inode);
-		spin_unlock(&inode->i_lock);
-		rcu_read_unlock();
-
-		iput(old_inode);
-		sb->dq_op->initialize(inode, type);
-		/* We hold a reference to 'inode' so it couldn't have been
-		 * removed from s_inodes list while we dropped the inode_lock.
-		 * We cannot iput the inode now as we can be holding the last
-		 * reference and we cannot iput it under inode_lock. So we
-		 * keep the reference and iput it later. */
-		old_inode = inode;
 		rcu_read_lock();
+		list_for_each_entry_rcu(inode, list, i_sb_list) {
+			spin_lock(&inode->i_lock);
+			if (inode->i_state & (I_FREEING|I_CLEAR|I_WILL_FREE|I_NEW)) {
+				spin_unlock(&inode->i_lock);
+				continue;
+			}
+
+			if (unlikely(inode_get_rsv_space(inode) > 0))
+				reserved = 1;
+
+			if (!atomic_read(&inode->i_writecount)) {
+				spin_unlock(&inode->i_lock);
+				continue;
+			}
+
+			if (!dqinit_needed(inode, type)) {
+				spin_unlock(&inode->i_lock);
+				continue;
+			}
+
+			__iget(inode);
+			spin_unlock(&inode->i_lock);
+			rcu_read_unlock();
+
+			iput(old_inode);
+			sb->dq_op->initialize(inode, type);
+			/* We hold a reference to 'inode' so it couldn't have been
+			 * removed from s_inodes list while we dropped the inode_lock.
+			 * We cannot iput the inode now as we can be holding the last
+			 * reference and we cannot iput it under inode_lock. So we
+			 * keep the reference and iput it later. */
+			old_inode = inode;
+			rcu_read_lock();
+		}
+		rcu_read_unlock();
+		iput(old_inode);
 	}
-	rcu_read_unlock();
-	iput(old_inode);
 
 	if (reserved) {
 		printk(KERN_WARNING "VFS (%s): Writes happened before quota"
@@ -953,20 +962,29 @@ static void put_dquot_list(struct list_head *tofree_head)
 static void remove_dquot_ref(struct super_block *sb, int type,
 		struct list_head *tofree_head)
 {
-	struct inode *inode;
+	int i;
+	for_each_possible_cpu(i) {
+		struct inode *inode;
+		struct list_head *list;
+#ifdef CONFIG_SMP
+                list = per_cpu_ptr(sb->s_inodes, i);
+#else
+                list = &sb->s_inodes;
+#endif
 
-	rcu_read_lock();
-	list_for_each_entry_rcu(inode, &sb->s_inodes, i_sb_list) {
-		/*
-		 *  We have to scan also I_NEW inodes because they can already
-		 *  have quota pointer initialized. Luckily, we need to touch
-		 *  only quota pointers and these have separate locking
-		 *  (dqptr_sem).
-		 */
-		if (!IS_NOQUOTA(inode))
-			remove_inode_dquot_ref(inode, type, tofree_head);
+		rcu_read_lock();
+		list_for_each_entry_rcu(inode, list, i_sb_list) {
+			/*
+			 *  We have to scan also I_NEW inodes because they can already
+			 *  have quota pointer initialized. Luckily, we need to touch
+			 *  only quota pointers and these have separate locking
+			 *  (dqptr_sem).
+			 */
+			if (!IS_NOQUOTA(inode))
+				remove_inode_dquot_ref(inode, type, tofree_head);
+		}
+		rcu_read_unlock();
 	}
-	rcu_read_unlock();
 }
 
 /* Gather all references from inodes and drop them */

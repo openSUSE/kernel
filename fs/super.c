@@ -78,9 +78,25 @@ static struct super_block *alloc_super(struct file_system_type *type)
 #else
 		INIT_LIST_HEAD(&s->s_files);
 #endif
+#ifdef CONFIG_SMP
+		s->s_inodes = alloc_percpu(struct list_head);
+		if (!s->s_inodes) {
+			free_percpu(s->s_files);
+			security_sb_free(s);
+			kfree(s);
+			s = NULL;
+			goto out;
+		} else {
+			int i;
+
+			for_each_possible_cpu(i)
+				INIT_LIST_HEAD(per_cpu_ptr(s->s_inodes, i));
+		}
+#else
+		INIT_LIST_HEAD(&s->s_inodes);
+#endif
 		INIT_LIST_HEAD(&s->s_instances);
 		INIT_HLIST_HEAD(&s->s_anon);
-		INIT_LIST_HEAD(&s->s_inodes);
 		INIT_LIST_HEAD(&s->s_dentry_lru);
 		init_rwsem(&s->s_umount);
 		mutex_init(&s->s_lock);
@@ -133,6 +149,7 @@ out:
 static inline void destroy_super(struct super_block *s)
 {
 #ifdef CONFIG_SMP
+	free_percpu(s->s_inodes);
 	free_percpu(s->s_files);
 #endif
 	security_sb_free(s);

@@ -1142,7 +1142,7 @@ EXPORT_SYMBOL(__mark_inode_dirty);
  */
 static void wait_sb_inodes(struct super_block *sb)
 {
-	struct inode *inode, *old_inode = NULL;
+	int i;
 
 	/*
 	 * We need to be protected against the filesystem going from
@@ -1150,47 +1150,57 @@ static void wait_sb_inodes(struct super_block *sb)
 	 */
 	WARN_ON(!rwsem_is_locked(&sb->s_umount));
 
-	/*
-	 * Data integrity sync. Must wait for all pages under writeback,
-	 * because there may have been pages dirtied before our sync
-	 * call, but which had writeout started before we write it out.
-	 * In which case, the inode may not be on the dirty list, but
-	 * we still have to wait for that writeout.
-	 */
-	rcu_read_lock();
-	list_for_each_entry_rcu(inode, &sb->s_inodes, i_sb_list) {
-		struct address_space *mapping;
-
-		mapping = inode->i_mapping;
-		if (mapping->nrpages == 0)
-			continue;
-
-		spin_lock(&inode->i_lock);
-		if (inode->i_state & (I_FREEING|I_CLEAR|I_WILL_FREE|I_NEW)) {
-			spin_unlock(&inode->i_lock);
-			continue;
-		}
-		__iget(inode);
-		spin_unlock(&inode->i_lock);
-		rcu_read_unlock();
+	for_each_possible_cpu(i) {
+		struct inode *inode, *old_inode = NULL;
+		struct list_head *list;
+#ifdef CONFIG_SMP
+                list = per_cpu_ptr(sb->s_inodes, i);
+#else
+                list = &sb->s_inodes;
+#endif
 		/*
-		 * We hold a reference to 'inode' so it couldn't have been
-		 * removed from s_inodes list while we dropped the i_lock.  We
-		 * cannot iput the inode now as we can be holding the last
-		 * reference and we cannot iput it under spinlock. So we keep
-		 * the reference and iput it later.
+		 * Data integrity sync. Must wait for all pages under writeback,
+		 * because there may have been pages dirtied before our sync
+		 * call, but which had writeout started before we write it out.
+		 * In which case, the inode may not be on the dirty list, but
+		 * we still have to wait for that writeout.
 		 */
-		iput(old_inode);
-		old_inode = inode;
-
-		filemap_fdatawait(mapping);
-
-		cond_resched();
-
 		rcu_read_lock();
+		list_for_each_entry_rcu(inode, list, i_sb_list) {
+			struct address_space *mapping;
+
+			mapping = inode->i_mapping;
+			if (mapping->nrpages == 0)
+				continue;
+
+			spin_lock(&inode->i_lock);
+			if (inode->i_state & (I_FREEING|I_CLEAR|I_WILL_FREE|I_NEW)) {
+				spin_unlock(&inode->i_lock);
+				continue;
+			}
+			__iget(inode);
+			spin_unlock(&inode->i_lock);
+			rcu_read_unlock();
+			/*
+			 * We hold a reference to 'inode' so it couldn't have
+			 * been removed from s_inodes list while we dropped the
+			 * i_lock.  We cannot iput the inode now as we can be
+			 * holding the last reference and we cannot iput it
+			 * under spinlock. So we keep the reference and iput it
+			 * later.
+			 */
+			iput(old_inode);
+			old_inode = inode;
+
+			filemap_fdatawait(mapping);
+
+			cond_resched();
+
+			rcu_read_lock();
+		}
+		rcu_read_unlock();
+		iput(old_inode);
 	}
-	rcu_read_unlock();
-	iput(old_inode);
 }
 
 /**

@@ -88,7 +88,7 @@ static struct inode_hash_bucket *inode_hashtable __read_mostly;
  * NOTE! You also have to own the lock if you change
  * the i_state of an inode while it is in use..
  */
-DEFINE_SPINLOCK(sb_inode_list_lock);
+static DEFINE_PER_CPU(spinlock_t, inode_cpulock);
 DEFINE_SPINLOCK(wb_inode_list_lock);
 
 /*
@@ -373,9 +373,7 @@ static void dispose_list(struct list_head *head)
 
 		spin_lock(&inode->i_lock);
 		__remove_inode_hash(inode);
-		spin_lock(&sb_inode_list_lock);
-		list_del_rcu(&inode->i_sb_list);
-		spin_unlock(&sb_inode_list_lock);
+		inode_sb_list_del(inode);
 		spin_unlock(&inode->i_lock);
 
 		wake_up_inode(inode);
@@ -387,39 +385,49 @@ static void dispose_list(struct list_head *head)
 /*
  * Invalidate all inodes for a device.
  */
-static int invalidate_list(struct list_head *head, struct list_head *dispose)
+static int invalidate_sb_inodes(struct super_block *sb, struct list_head *dispose)
 {
-	struct list_head *next;
 	int busy = 0;
+	int i;
 
-	next = head->next;
-	for (;;) {
-		struct list_head *tmp = next;
-		struct inode *inode;
+	for_each_possible_cpu(i) {
+		struct list_head *next;
+		struct list_head *head;
+#ifdef CONFIG_SMP
+                head = per_cpu_ptr(sb->s_inodes, i);
+#else
+		head = &sb->s_inodes;
+#endif
 
-		next = next->next;
-		if (tmp == head)
-			break;
-		inode = list_entry(tmp, struct inode, i_sb_list);
-		spin_lock(&inode->i_lock);
-		if (inode->i_state & I_NEW) {
+		next = head->next;
+		for (;;) {
+			struct list_head *tmp = next;
+			struct inode *inode;
+
+			next = next->next;
+			if (tmp == head)
+				break;
+			inode = list_entry(tmp, struct inode, i_sb_list);
+			spin_lock(&inode->i_lock);
+			if (inode->i_state & I_NEW) {
+				spin_unlock(&inode->i_lock);
+				continue;
+			}
+			invalidate_inode_buffers(inode);
+			if (!inode->i_count) {
+				spin_lock(&wb_inode_list_lock);
+				list_del(&inode->i_list);
+				inodes_stat.nr_unused--;
+				spin_unlock(&wb_inode_list_lock);
+				WARN_ON(inode->i_state & I_NEW);
+				inode->i_state |= I_FREEING;
+				spin_unlock(&inode->i_lock);
+				list_add(&inode->i_list, dispose);
+				continue;
+			}
 			spin_unlock(&inode->i_lock);
-			continue;
+			busy = 1;
 		}
-		invalidate_inode_buffers(inode);
-		if (!inode->i_count) {
-			spin_lock(&wb_inode_list_lock);
-			list_del(&inode->i_list);
-			inodes_stat.nr_unused--;
-			spin_unlock(&wb_inode_list_lock);
-			WARN_ON(inode->i_state & I_NEW);
-			inode->i_state |= I_FREEING;
-			spin_unlock(&inode->i_lock);
-			list_add(&inode->i_list, dispose);
-			continue;
-		}
-		spin_unlock(&inode->i_lock);
-		busy = 1;
 	}
 	return busy;
 }
@@ -444,9 +452,9 @@ int invalidate_inodes(struct super_block *sb)
 	 */
 	down_write(&iprune_sem);
 //	spin_lock(&sb_inode_list_lock); XXX: is this safe?
-	inotify_unmount_inodes(&sb->s_inodes);
-	fsnotify_unmount_inodes(&sb->s_inodes);
-	busy = invalidate_list(&sb->s_inodes, &throw_away);
+	inotify_unmount_inodes(sb);
+	fsnotify_unmount_inodes(sb);
+	busy = invalidate_sb_inodes(sb, &throw_away);
 //	spin_unlock(&sb_inode_list_lock);
 
 	dispose_list(&throw_away);
@@ -665,13 +673,47 @@ static unsigned long hash(struct super_block *sb, unsigned long hashval)
 	return tmp & I_HASHMASK;
 }
 
+static void inode_sb_list_add(struct inode *inode, struct super_block *sb)
+{
+	spinlock_t *lock;
+	struct list_head *list;
+#ifdef CONFIG_SMP
+	int cpu;
+#endif
+
+	lock = &get_cpu_var(inode_cpulock);
+#ifdef CONFIG_SMP
+	cpu = smp_processor_id();
+	list = per_cpu_ptr(sb->s_inodes, cpu);
+	inode->i_sb_list_cpu = cpu;
+#else
+	list = &sb->s_files;
+#endif
+	spin_lock(lock);
+	list_add_rcu(&inode->i_sb_list, list);
+	spin_unlock(lock);
+	put_cpu_var(inode_cpulock);
+}
+
+void inode_sb_list_del(struct inode *inode)
+{
+	spinlock_t *lock;
+
+#ifdef CONFIG_SMP
+	lock = &per_cpu(inode_cpulock, inode->i_sb_list_cpu);
+#else
+	lock = &__get_cpu_var(inode_cpulock);
+#endif
+	spin_lock(lock);
+	list_del_rcu(&inode->i_sb_list);
+	spin_unlock(lock);
+}
+
 static inline void
 __inode_add_to_lists(struct super_block *sb, struct inode_hash_bucket *b,
 			struct inode *inode)
 {
-	spin_lock(&sb_inode_list_lock);
-	list_add_rcu(&inode->i_sb_list, &sb->s_inodes);
-	spin_unlock(&sb_inode_list_lock);
+	inode_sb_list_add(inode, sb);
 	percpu_counter_inc(&nr_inodes);
 	if (b) {
 		spin_lock(&b->lock);
@@ -1349,9 +1391,7 @@ void generic_delete_inode(struct inode *inode)
 		list_del_init(&inode->i_list);
 		spin_unlock(&wb_inode_list_lock);
 	}
-	spin_lock(&sb_inode_list_lock);
-	list_del_rcu(&inode->i_sb_list);
-	spin_unlock(&sb_inode_list_lock);
+	inode_sb_list_del(inode);
 	percpu_counter_dec(&nr_inodes);
 	WARN_ON(inode->i_state & I_NEW);
 	inode->i_state |= I_FREEING;
@@ -1426,9 +1466,7 @@ int generic_detach_inode(struct inode *inode)
 		inodes_stat.nr_unused--;
 		spin_unlock(&wb_inode_list_lock);
 	}
-	spin_lock(&sb_inode_list_lock);
-	list_del_rcu(&inode->i_sb_list);
-	spin_unlock(&sb_inode_list_lock);
+	inode_sb_list_del(inode);
 	percpu_counter_dec(&nr_inodes);
 	WARN_ON(inode->i_state & I_NEW);
 	inode->i_state |= I_FREEING;
@@ -1749,6 +1787,10 @@ void __init inode_init(void)
 					 SLAB_MEM_SPREAD),
 					 init_once);
 	register_shrinker(&icache_shrinker);
+
+	for_each_possible_cpu(loop) {
+		spin_lock_init(&per_cpu(inode_cpulock, loop));
+	}
 
 	/* Hash may have been set up in inode_init_early */
 	if (!hashdist)

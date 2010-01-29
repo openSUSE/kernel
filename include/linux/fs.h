@@ -733,6 +733,9 @@ struct inode {
 		struct rcu_head		i_rcu;
 	};
 	unsigned long		i_ino;
+#ifdef CONFIG_SMP
+	int			i_sb_list_cpu;
+#endif
 	unsigned int		i_count;
 	unsigned int		i_nlink;
 	uid_t			i_uid;
@@ -1345,8 +1348,12 @@ struct super_block {
 #endif
 	struct xattr_handler	**s_xattr;
 
-	struct list_head	s_inodes;	/* all inodes */
 	struct hlist_head	s_anon;		/* anonymous dentries for (nfs) exporting */
+#ifdef CONFIG_SMP
+	struct list_head	*s_inodes;
+#else
+	struct list_head	s_inodes;	/* all inodes */
+#endif
 #ifdef CONFIG_SMP
 	struct list_head	*s_files;
 #else
@@ -2187,6 +2194,7 @@ extern struct inode *new_inode(struct super_block *);
 extern int should_remove_suid(struct dentry *);
 extern int file_remove_suid(struct file *);
 
+extern void inode_sb_list_del(struct inode *inode);
 extern void __insert_inode_hash(struct inode *, unsigned long hashval);
 extern void __remove_inode_hash(struct inode *);
 extern void remove_inode_hash(struct inode *);
