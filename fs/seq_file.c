@@ -468,6 +468,7 @@ int seq_path_root(struct seq_file *m, struct path *path, struct path *root,
 		p = __d_path(path, root, buf, size);
 		vfsmount_read_unlock();
 		spin_unlock(&dcache_lock);
+
 		res = PTR_ERR(p);
 		if (!IS_ERR(p)) {
 			char *end = mangle_path(buf, p, esc);
