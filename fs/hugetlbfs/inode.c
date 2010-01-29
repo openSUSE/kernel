@@ -382,6 +382,7 @@ static void hugetlbfs_forget_inode(struct inode *inode) __releases(inode_lock)
 	if (generic_detach_inode(inode)) {
 		truncate_hugepages(inode, 0);
 		clear_inode(inode);
+		/* XXX: why no wake_up_inode? */
 		destroy_inode(inode);
 	}
 }
