@@ -983,10 +983,12 @@ struct file *create_write_pipe(int flags)
 		goto err;
 
 	err = -ENOMEM;
-	path.dentry = d_alloc(pipe_mnt->mnt_sb->s_root, &name);
+	path.dentry = d_alloc(NULL, &name);
 	if (!path.dentry)
 		goto err_inode;
 	path.mnt = mntget(pipe_mnt);
+	path.dentry->d_parent = path.dentry;
+	path.dentry->d_flags |= DCACHE_DISCONNECTED;
 
 	path.dentry->d_op = &pipefs_dentry_operations;
 	d_instantiate(path.dentry, inode);
