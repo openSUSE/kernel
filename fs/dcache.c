@@ -90,7 +90,7 @@ static struct dcache_hash_bucket *dentry_hashtable __read_mostly;
 
 /* Statistics gathering. */
 struct dentry_stat_t dentry_stat = {
-	.nr_dentry = ATOMIC_INIT(0),
+	.nr_dentry = 0,
 	.age_limit = 45,
 };
 
@@ -121,7 +121,6 @@ static void d_callback(struct rcu_head *head)
  */
 static void d_free(struct dentry *dentry)
 {
-	atomic_dec(&dentry_stat.nr_dentry);
 	BUG_ON(dentry->d_count);
 	if (dentry->d_op && dentry->d_op->d_release)
 		dentry->d_op->d_release(dentry);
@@ -1210,8 +1209,6 @@ struct dentry *d_alloc(struct dentry * parent, const struct qstr *name)
 		spin_unlock(&dentry->d_lock);
 		spin_unlock(&parent->d_lock);
 	}
-
-	atomic_inc(&dentry_stat.nr_dentry);
 
 	return dentry;
 }
