@@ -111,7 +111,7 @@ static void autofs4_force_release(struct autofs_sb_info *sbi)
 	if (!sbi->sb->s_root)
 		return;
 
-	spin_lock(&dcache_lock);
+	spin_lock(&autofs4_lock);
 repeat:
 	spin_lock(&this_parent->d_lock);
 	next = this_parent->d_subdirs.next;
@@ -133,13 +133,13 @@ resume:
 
 		next = next->next;
 		spin_unlock(&this_parent->d_lock);
-		spin_unlock(&dcache_lock);
+		spin_unlock(&autofs4_lock);
 
 		DPRINTK("dentry %p %.*s",
 			dentry, (int)dentry->d_name.len, dentry->d_name.name);
 
 		dput(dentry);
-		spin_lock(&dcache_lock);
+		spin_lock(&autofs4_lock);
 		spin_lock(&this_parent->d_lock);
 	}
 
@@ -149,16 +149,16 @@ resume:
 		next = this_parent->d_u.d_child.next;
 		spin_unlock(&this_parent->d_lock);
 		this_parent = this_parent->d_parent;
-		spin_unlock(&dcache_lock);
+		spin_unlock(&autofs4_lock);
 		DPRINTK("parent dentry %p %.*s",
 			dentry, (int)dentry->d_name.len, dentry->d_name.name);
 		dput(dentry);
-		spin_lock(&dcache_lock);
+		spin_lock(&autofs4_lock);
 		spin_lock(&this_parent->d_lock);
 		goto resume;
 	}
 	spin_unlock(&this_parent->d_lock);
-	spin_unlock(&dcache_lock);
+	spin_unlock(&autofs4_lock);
 }
 
 void autofs4_kill_sb(struct super_block *sb)

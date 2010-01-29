@@ -17,7 +17,7 @@ prototypes:
 	void (*d_iput)(struct dentry *, struct inode *);
 	char *(*d_dname)((struct dentry *dentry, char *buffer, int buflen);
 
-locking rules:
+locking rules: XXX: update these!!
 	none have BKL
 		dcache_lock	rename_lock	->d_lock	may block
 d_revalidate:	no		no		no		yes

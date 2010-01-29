@@ -150,13 +150,13 @@ struct dentry_operations {
 
 /*
 locking rules:
-		big lock	dcache_lock	d_lock   may block
-d_revalidate:	no		no		no       yes
-d_hash		no		no		no       yes
-d_compare:	no		yes		yes      no
-d_delete:	no		yes		no       no
-d_release:	no		no		no       yes
-d_iput:		no		no		no       yes
+		big lock	d_lock   may block
+d_revalidate:	no		no       yes
+d_hash		no		no       yes
+d_compare:	no		yes      no
+d_delete:	no		no       no
+d_release:	no		no       yes
+d_iput:		no		no       yes
  */
 
 /* d_flags entries */
@@ -188,7 +188,6 @@ d_iput:		no		no		no       yes
 
 extern spinlock_t dcache_inode_lock;
 extern spinlock_t dcache_hash_lock;
-extern spinlock_t dcache_lock;
 extern seqlock_t rename_lock;
 
 /**
@@ -219,11 +218,9 @@ static inline void __d_drop(struct dentry *dentry)
 
 static inline void d_drop(struct dentry *dentry)
 {
-	spin_lock(&dcache_lock);
 	spin_lock(&dentry->d_lock);
  	__d_drop(dentry);
 	spin_unlock(&dentry->d_lock);
-	spin_unlock(&dcache_lock);
 }
 
 static inline int dname_external(struct dentry *dentry)

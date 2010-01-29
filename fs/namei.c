@@ -697,14 +697,11 @@ static __always_inline void follow_dotdot(struct nameidata *nd)
 		    nd->path.mnt == nd->root.mnt) {
 			break;
 		}
-		spin_lock(&dcache_lock);
 		if (nd->path.dentry != nd->path.mnt->mnt_root) {
 			nd->path.dentry = dget(nd->path.dentry->d_parent);
-			spin_unlock(&dcache_lock);
 			dput(old);
 			break;
 		}
-		spin_unlock(&dcache_lock);
 		vfsmount_read_lock();
 		parent = nd->path.mnt->mnt_parent;
 		if (parent == nd->path.mnt) {
@@ -2164,12 +2161,10 @@ void dentry_unhash(struct dentry *dentry)
 {
 	dget(dentry);
 	shrink_dcache_parent(dentry);
-	spin_lock(&dcache_lock);
 	spin_lock(&dentry->d_lock);
 	if (dentry->d_count == 2)
 		__d_drop(dentry);
 	spin_unlock(&dentry->d_lock);
-	spin_unlock(&dcache_lock);
 }
 
 int vfs_rmdir(struct inode *dir, struct dentry *dentry)

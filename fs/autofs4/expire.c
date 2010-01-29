@@ -94,9 +94,9 @@ done:
  * Calculate next entry in top down tree traversal.
  * From next_mnt in namespace.c - elegant.
  *
- * How is this supposed to work if we drop dcache_lock between calls anyway?
+ * How is this supposed to work if we drop autofs4_lock between calls anyway?
  * How does it cope with renames?
- * And also callers dput the returned dentry before taking dcache_lock again
+ * And also callers dput the returned dentry before taking autofs4_lock again
  * so what prevents it from being freed??
  */
 static struct dentry *get_next_positive_dentry(struct dentry *p,
@@ -105,7 +105,7 @@ static struct dentry *get_next_positive_dentry(struct dentry *p,
 	struct list_head *next;
 	struct dentry *ret;
 
-	spin_lock(&dcache_lock);
+	spin_lock(&autofs4_lock);
 again:
 	spin_lock(&p->d_lock);
 	next = p->d_subdirs.next;
@@ -115,7 +115,7 @@ again:
 
 			if (p == root) {
 				spin_unlock(&p->d_lock);
-				spin_unlock(&dcache_lock);
+				spin_unlock(&autofs4_lock);
 				return NULL;
 			}
 
@@ -143,7 +143,7 @@ again:
 	dget_dlock(ret);
 	spin_unlock(&ret->d_lock);
 	spin_unlock(&p->d_lock);
-	spin_unlock(&dcache_lock);
+	spin_unlock(&autofs4_lock);
 
 	return ret;
 }
@@ -314,7 +314,7 @@ struct dentry *autofs4_expire_direct(struct super_block *sb,
  * A tree is eligible if :-
  *  - it is unused by any user process
  *  - it has been unused for exp_timeout time
- * This seems to be racy dropping dcache_lock and asking for next->next after
+ * This seems to be racy dropping autofs4_lock and asking for next->next after
  * the lock has been dropped.
  */
 struct dentry *autofs4_expire_indirect(struct super_block *sb,
@@ -337,7 +337,7 @@ struct dentry *autofs4_expire_indirect(struct super_block *sb,
 	now = jiffies;
 	timeout = sbi->exp_timeout;
 
-	spin_lock(&dcache_lock);
+	spin_lock(&autofs4_lock);
 	spin_lock(&root->d_lock);
 	next = root->d_subdirs.next;
 
@@ -356,7 +356,7 @@ struct dentry *autofs4_expire_indirect(struct super_block *sb,
 		dentry = dget_dlock(dentry);
 		spin_unlock(&dentry->d_lock);
 		spin_unlock(&root->d_lock);
-		spin_unlock(&dcache_lock);
+		spin_unlock(&autofs4_lock);
 
 		spin_lock(&sbi->fs_lock);
 		ino = autofs4_dentry_ino(dentry);
@@ -421,12 +421,12 @@ struct dentry *autofs4_expire_indirect(struct super_block *sb,
 next:
 		spin_unlock(&sbi->fs_lock);
 		dput(dentry);
-		spin_lock(&dcache_lock);
+		spin_lock(&autofs4_lock);
 		spin_lock(&root->d_lock);
 		next = next->next;
 	}
 	spin_unlock(&root->d_lock);
-	spin_unlock(&dcache_lock);
+	spin_unlock(&autofs4_lock);
 	return NULL;
 
 found:
@@ -437,13 +437,13 @@ found:
 	autofs4_add_expiring(expired);
 	init_completion(&ino->expire_complete);
 	spin_unlock(&sbi->fs_lock);
-	spin_lock(&dcache_lock);
+	spin_lock(&autofs4_lock);
 	spin_lock(&expired->d_parent->d_lock);
 	spin_lock_nested(&expired->d_lock, DENTRY_D_LOCK_NESTED);
 	list_move(&expired->d_parent->d_subdirs, &expired->d_u.d_child);
 	spin_unlock(&expired->d_lock);
 	spin_unlock(&expired->d_parent->d_lock);
-	spin_unlock(&dcache_lock);
+	spin_unlock(&autofs4_lock);
 	return expired;
 }
 
