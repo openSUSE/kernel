@@ -37,8 +37,8 @@ struct qstr {
 };
 
 struct dentry_stat_t {
-	int nr_dentry;
-	int nr_unused;
+	atomic_t nr_dentry;
+	int nr_unused;		/* protected by dcache_lru_lock */
 	int age_limit;          /* age in seconds */
 	int want_pages;         /* pages requested by system */
 	int dummy[2];

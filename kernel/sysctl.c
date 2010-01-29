@@ -1334,6 +1334,12 @@ static struct ctl_table fs_table[] = {
 		.extra2		= &sysctl_nr_open_max,
 	},
 	{
+		/*
+		 * dentry_stat has an atomic_t member, so this is a bit of
+		 * a hack, but it works for the moment, and I won't bother
+		 * changing it now because we'll probably want to change to
+		 * a more scalable counter anyway.
+		 */
 		.procname	= "dentry-state",
 		.data		= &dentry_stat,
 		.maxlen		= 6*sizeof(int),

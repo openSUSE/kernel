@@ -84,6 +84,7 @@ static struct hlist_head *dentry_hashtable __read_mostly;
 
 /* Statistics gathering. */
 struct dentry_stat_t dentry_stat = {
+	.nr_dentry = ATOMIC_INIT(0),
 	.age_limit = 45,
 };
 
@@ -102,11 +103,11 @@ static void d_callback(struct rcu_head *head)
 }
 
 /*
- * no dcache_lock, please.  The caller must decrement dentry_stat.nr_dentry
- * inside dcache_lock.
+ * no dcache_lock, please.
  */
 static void d_free(struct dentry *dentry)
 {
+	atomic_dec(&dentry_stat.nr_dentry);
 	if (dentry->d_op && dentry->d_op->d_release)
 		dentry->d_op->d_release(dentry);
 	/* if dentry was never inserted into hash, immediate free is OK */
@@ -213,7 +214,6 @@ static struct dentry *d_kill(struct dentry *dentry)
 	struct dentry *parent;
 
 	list_del(&dentry->d_u.d_child);
-	dentry_stat.nr_dentry--;	/* For d_free, below */
 	/*drops the locks, at that point nobody can reach this dentry */
 	dentry_iput(dentry);
 	if (IS_ROOT(dentry))
@@ -778,10 +778,7 @@ static void shrink_dcache_for_umount_subtree(struct dentry *dentry)
 				    struct dentry, d_u.d_child);
 	}
 out:
-	/* several dentries were freed, need to correct nr_dentry */
-	spin_lock(&dcache_lock);
-	dentry_stat.nr_dentry -= detached;
-	spin_unlock(&dcache_lock);
+	return;
 }
 
 /*
@@ -1037,11 +1034,12 @@ struct dentry *d_alloc(struct dentry * parent, const struct qstr *name)
 		INIT_LIST_HEAD(&dentry->d_u.d_child);
 	}
 
-	spin_lock(&dcache_lock);
-	if (parent)
+	if (parent) {
+		spin_lock(&dcache_lock);
 		list_add(&dentry->d_u.d_child, &parent->d_subdirs);
-	dentry_stat.nr_dentry++;
-	spin_unlock(&dcache_lock);
+		spin_unlock(&dcache_lock);
+	}
+	atomic_inc(&dentry_stat.nr_dentry);
 
 	return dentry;
 }
