@@ -264,7 +264,8 @@ static struct dentry *d_kill(struct dentry *dentry)
 
 void dput(struct dentry *dentry)
 {
-	struct dentry *parent = NULL;
+	struct dentry *parent;
+
 	if (!dentry)
 		return;
 
@@ -272,25 +273,10 @@ repeat:
 	if (dentry->d_count == 1)
 		might_sleep();
 	spin_lock(&dentry->d_lock);
-	if (dentry->d_count == 1) {
-		if (!spin_trylock(&dcache_inode_lock)) {
-drop2:
-			spin_unlock(&dentry->d_lock);
-			goto repeat;
-		}
-		parent = dentry->d_parent;
-		if (parent && parent != dentry) {
-			if (!spin_trylock(&parent->d_lock)) {
-				spin_unlock(&dcache_inode_lock);
-				goto drop2;
-			}
-		}
-	}
-	dentry->d_count--;
-	if (dentry->d_count) {
+	BUG_ON(!dentry->d_count);
+	if (dentry->d_count > 1) {
+		dentry->d_count--;
 		spin_unlock(&dentry->d_lock);
-		if (parent && parent != dentry)
-			spin_unlock(&parent->d_lock);
 		return;
 	}
 
@@ -298,8 +284,10 @@ drop2:
 	 * AV: ->d_delete() is _NOT_ allowed to block now.
 	 */
 	if (dentry->d_op && dentry->d_op->d_delete) {
-		if (dentry->d_op->d_delete(dentry))
-			goto unhash_it;
+		if (dentry->d_op->d_delete(dentry)) {
+			__d_drop(dentry);
+			goto kill_it;
+		}
 	}
 	/* Unreachable? Get rid of it */
  	if (d_unhashed(dentry))
@@ -308,15 +296,31 @@ drop2:
   		dentry->d_flags |= DCACHE_REFERENCED;
 		dentry_lru_add(dentry);
   	}
- 	spin_unlock(&dentry->d_lock);
-	if (parent && parent != dentry)
-		spin_unlock(&parent->d_lock);
-	spin_unlock(&dcache_inode_lock);
+	dentry->d_count--;
+	spin_unlock(&dentry->d_lock);
 	return;
 
-unhash_it:
-	__d_drop(dentry);
 kill_it:
+	spin_unlock(&dentry->d_lock);
+	spin_lock(&dcache_inode_lock);
+relock:
+	spin_lock(&dentry->d_lock);
+	parent = dentry->d_parent;
+	if (parent && parent != dentry) {
+		if (!spin_trylock(&parent->d_lock)) {
+			spin_unlock(&dentry->d_lock);
+			goto relock;
+		}
+	}
+	dentry->d_count--;
+	if (dentry->d_count) {
+		/* This case should be fine */
+		spin_unlock(&dentry->d_lock);
+		if (parent && parent != dentry)
+			spin_unlock(&parent->d_lock);
+		spin_unlock(&dcache_inode_lock);
+		return;
+	}
 	/* if dentry was on the d_lru list delete it from there */
 	dentry_lru_del(dentry);
 	dentry = d_kill(dentry);
