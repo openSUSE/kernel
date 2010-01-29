@@ -55,7 +55,9 @@ static int nfs_superblock_set_dummy_root(struct super_block *sb, struct inode *i
 			return -ENOMEM;
 		}
 		/* Circumvent igrab(): we know the inode is not being freed */
-		atomic_inc(&inode->i_count);
+		spin_lock(&inode->i_lock);
+		inode->i_count++;
+		spin_unlock(&inode->i_lock);
 		/*
 		 * Ensure that this dentry is invisible to d_find_alias().
 		 * Otherwise, it may be spliced into the tree by

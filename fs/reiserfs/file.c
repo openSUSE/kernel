@@ -39,7 +39,7 @@ static int reiserfs_file_release(struct inode *inode, struct file *filp)
 	BUG_ON(!S_ISREG(inode->i_mode));
 
 	/* fast out for when nothing needs to be done */
-	if ((atomic_read(&inode->i_count) > 1 ||
+	if ((inode->i_count > 1 ||
 	     !(REISERFS_I(inode)->i_flags & i_pack_on_close_mask) ||
 	     !tail_has_to_be_packed(inode)) &&
 	    REISERFS_I(inode)->i_prealloc_count <= 0) {
@@ -94,7 +94,7 @@ static int reiserfs_file_release(struct inode *inode, struct file *filp)
 	if (!err)
 		err = jbegin_failure;
 
-	if (!err && atomic_read(&inode->i_count) <= 1 &&
+	if (!err && inode->i_count <= 1 &&
 	    (REISERFS_I(inode)->i_flags & i_pack_on_close_mask) &&
 	    tail_has_to_be_packed(inode)) {
 		/* if regular file is released by last holder and it has been

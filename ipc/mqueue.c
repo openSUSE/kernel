@@ -762,8 +762,11 @@ SYSCALL_DEFINE1(mq_unlink, const char __user *, u_name)
 	}
 
 	inode = dentry->d_inode;
-	if (inode)
-		atomic_inc(&inode->i_count);
+	if (inode) {
+		spin_lock(&inode->i_lock);
+		inode->i_count++;
+		spin_unlock(&inode->i_lock);
+	}
 	err = mnt_want_write(ipc_ns->mq_mnt);
 	if (err)
 		goto out_err;

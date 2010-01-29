@@ -1007,7 +1007,9 @@ static int afs_link(struct dentry *from, struct inode *dir,
 	if (ret < 0)
 		goto link_error;
 
-	atomic_inc(&vnode->vfs_inode.i_count);
+	spin_lock(&vnode->vfs_inode.i_lock);
+	vnode->vfs_inode.i_count++;
+	spin_unlock(&vnode->vfs_inode.i_lock);
 	d_instantiate(dentry, &vnode->vfs_inode);
 	key_put(key);
 	_leave(" = 0");

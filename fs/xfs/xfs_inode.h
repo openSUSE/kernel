@@ -493,8 +493,10 @@ void		xfs_mark_inode_dirty_sync(xfs_inode_t *);
 
 #define IHOLD(ip) \
 do { \
-	ASSERT(atomic_read(&VFS_I(ip)->i_count) > 0) ; \
-	atomic_inc(&(VFS_I(ip)->i_count)); \
+	spin_lock(&VFS_I(ip)->i_lock);		\
+	ASSERT(&VFS_I(ip)->i_count > 0);	\
+	VFS_I(ip)->i_count++;			\
+	spin_unlock(&VFS_I(ip)->i_lock);	\
 	trace_xfs_ihold(ip, _THIS_IP_); \
 } while (0)
 

@@ -136,7 +136,7 @@ int inode_init_always(struct super_block *sb, struct inode *inode)
 	inode->i_sb = sb;
 	inode->i_blkbits = sb->s_blocksize_bits;
 	inode->i_flags = 0;
-	atomic_set(&inode->i_count, 1);
+	inode->i_count = 1;
 	inode->i_op = &empty_iops;
 	inode->i_fop = &empty_fops;
 	inode->i_nlink = 1;
@@ -290,11 +290,10 @@ static void init_once(void *foo)
 void __iget(struct inode *inode)
 {
 	assert_spin_locked(&inode->i_lock);
-	if (atomic_read(&inode->i_count)) {
-		atomic_inc(&inode->i_count);
+	inode->i_count++;
+	if (inode->i_count > 1)
 		return;
-	}
-	atomic_inc(&inode->i_count);
+
 	if (!(inode->i_state & (I_DIRTY|I_SYNC)))
 		list_move(&inode->i_list, &inode_in_use);
 	inodes_stat.nr_unused--;
@@ -399,7 +398,7 @@ static int invalidate_list(struct list_head *head, struct list_head *dispose)
 			continue;
 		}
 		invalidate_inode_buffers(inode);
-		if (!atomic_read(&inode->i_count)) {
+		if (!inode->i_count) {
 			list_move(&inode->i_list, dispose);
 			WARN_ON(inode->i_state & I_NEW);
 			inode->i_state |= I_FREEING;
@@ -450,7 +449,7 @@ static int can_unuse(struct inode *inode)
 		return 0;
 	if (inode_has_buffers(inode))
 		return 0;
-	if (atomic_read(&inode->i_count))
+	if (inode->i_count)
 		return 0;
 	if (inode->i_data.nrpages)
 		return 0;
@@ -488,7 +487,7 @@ static void prune_icache(int nr_to_scan)
 		inode = list_entry(inode_unused.prev, struct inode, i_list);
 
 		spin_lock(&inode->i_lock);
-		if (inode->i_state || atomic_read(&inode->i_count)) {
+		if (inode->i_state || inode->i_count) {
 			list_move(&inode->i_list, &inode_unused);
 			spin_unlock(&inode->i_lock);
 			continue;
@@ -1277,8 +1276,6 @@ void generic_delete_inode(struct inode *inode)
 {
 	const struct super_operations *op = inode->i_sb->s_op;
 
-	spin_lock(&sb_inode_list_lock);
-	spin_lock(&inode->i_lock);
 	list_del_init(&inode->i_list);
 	list_del_init(&inode->i_sb_list);
 	spin_unlock(&sb_inode_list_lock);
@@ -1327,8 +1324,6 @@ int generic_detach_inode(struct inode *inode)
 {
 	struct super_block *sb = inode->i_sb;
 
-	spin_lock(&sb_inode_list_lock);
-	spin_lock(&inode->i_lock);
 	if (!hlist_unhashed(&inode->i_hash)) {
 		if (!(inode->i_state & (I_DIRTY|I_SYNC)))
 			list_move(&inode->i_list, &inode_unused);
@@ -1427,8 +1422,24 @@ void iput(struct inode *inode)
 	if (inode) {
 		BUG_ON(inode->i_state == I_CLEAR);
 
-		if (atomic_dec_and_lock(&inode->i_count, &inode_lock))
+retry:
+		spin_lock(&inode->i_lock);
+		if (inode->i_count == 1) {
+			if (!spin_trylock(&inode_lock)) {
+				spin_unlock(&inode->i_lock);
+				goto retry;
+			}
+			if (!spin_trylock(&sb_inode_list_lock)) {
+				spin_unlock(&inode_lock);
+				spin_unlock(&inode->i_lock);
+				goto retry;
+			}
+			inode->i_count--;
 			iput_final(inode);
+		} else {
+			inode->i_count--;
+			spin_unlock(&inode->i_lock);
+		}
 	}
 }
 EXPORT_SYMBOL(iput);

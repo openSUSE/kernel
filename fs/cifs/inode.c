@@ -1425,7 +1425,7 @@ int cifs_revalidate(struct dentry *direntry)
 	}
 	cFYI(1, ("Revalidate: %s inode 0x%p count %d dentry: 0x%p d_time %ld "
 		 "jiffies %ld", full_path, direntry->d_inode,
-		 direntry->d_inode->i_count.counter, direntry,
+		 direntry->d_inode->i_count, direntry,
 		 direntry->d_time, jiffies));
 
 	if (cifsInode->time == 0) {

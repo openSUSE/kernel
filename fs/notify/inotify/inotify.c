@@ -408,23 +408,28 @@ void inotify_unmount_inodes(struct list_head *list)
 		 * evict all inodes with zero i_count from icache which is
 		 * unnecessarily violent and may in fact be illegal to do.
 		 */
-		if (!atomic_read(&inode->i_count))
+		if (!inode->i_count)
 			continue;
 
 		need_iput_tmp = need_iput;
 		need_iput = NULL;
 		/* In case inotify_remove_watch_locked() drops a reference. */
-		if (inode != need_iput_tmp)
+		if (inode != need_iput_tmp) {
+			spin_lock(&inode->i_lock);
 			__iget(inode);
-		else
+			spin_unlock(&inode->i_lock);
+		} else
 			need_iput_tmp = NULL;
 		/* In case the dropping of a reference would nuke next_i. */
-		if ((&next_i->i_sb_list != list) &&
-				atomic_read(&next_i->i_count) &&
-				!(next_i->i_state & (I_CLEAR | I_FREEING |
-					I_WILL_FREE))) {
-			__iget(next_i);
-			need_iput = next_i;
+		if (&next_i->i_sb_list != list) {
+			spin_lock(&next_i->i_lock);
+			if (next_i->i_count &&
+				!(next_i->i_state &
+					(I_CLEAR|I_FREEING|I_WILL_FREE))) {
+				__iget(next_i);
+				need_iput = next_i;
+			}
+			spin_unlock(&next_i->i_lock);
 		}
 
 		/*
@@ -443,11 +448,10 @@ void inotify_unmount_inodes(struct list_head *list)
 		mutex_lock(&inode->inotify_mutex);
 		watches = &inode->inotify_watches;
 		list_for_each_entry_safe(watch, next_w, watches, i_list) {
-			struct inotify_handle *ih= watch->ih;
+			struct inotify_handle *ih = watch->ih;
 			get_inotify_watch(watch);
 			mutex_lock(&ih->mutex);
-			ih->in_ops->handle_event(watch, watch->wd, IN_UNMOUNT, 0,
-						 NULL, NULL);
+			ih->in_ops->handle_event(watch, watch->wd, IN_UNMOUNT, 0, NULL, NULL);
 			inotify_remove_watch_locked(ih, watch);
 			mutex_unlock(&ih->mutex);
 			put_inotify_watch(watch);

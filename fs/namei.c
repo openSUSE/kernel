@@ -2317,8 +2317,11 @@ static long do_unlinkat(int dfd, const char __user *pathname)
 		if (nd.last.name[nd.last.len])
 			goto slashes;
 		inode = dentry->d_inode;
-		if (inode)
-			atomic_inc(&inode->i_count);
+		if (inode) {
+			spin_lock(&inode->i_lock);
+			inode->i_count++;
+			spin_unlock(&inode->i_lock);
+		}
 		error = mnt_want_write(nd.path.mnt);
 		if (error)
 			goto exit2;
