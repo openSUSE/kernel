@@ -947,13 +947,14 @@ static int autofs4_dir_rmdir(struct inode *dir, struct dentry *dentry)
 		return -EACCES;
 
 	spin_lock(&autofs4_lock);
+	spin_lock(&sbi->lookup_lock);
 	spin_lock(&dentry->d_lock);
 	if (!list_empty(&dentry->d_subdirs)) {
 		spin_unlock(&dentry->d_lock);
+		spin_unlock(&sbi->lookup_lock);
 		spin_unlock(&autofs4_lock);
 		return -ENOTEMPTY;
 	}
-	spin_lock(&sbi->lookup_lock);
 	if (list_empty(&ino->expiring))
 		list_add(&ino->expiring, &sbi->expiring_list);
 	spin_unlock(&sbi->lookup_lock);
