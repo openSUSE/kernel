@@ -105,8 +105,10 @@ int tomoyo_realpath_from_path2(struct path *path, char *newname,
 			ns_root.dentry = dget(ns_root.mnt->mnt_root);
 		vfsmount_read_unlock();
 		spin_lock(&dcache_lock);
+		vfsmount_read_lock();
 		tmp = ns_root;
 		sp = __d_path(path, &tmp, newname, newname_len);
+		vfsmount_read_unlock();
 		spin_unlock(&dcache_lock);
 		path_put(&root);
 		path_put(&ns_root);

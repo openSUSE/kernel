@@ -328,7 +328,9 @@ int d_invalidate(struct dentry * dentry)
 	 * If it's already been dropped, return OK.
 	 */
 	spin_lock(&dcache_lock);
+	spin_lock(&dentry->d_lock);
 	if (d_unhashed(dentry)) {
+		spin_unlock(&dentry->d_lock);
 		spin_unlock(&dcache_lock);
 		return 0;
 	}
@@ -337,9 +339,11 @@ int d_invalidate(struct dentry * dentry)
 	 * to get rid of unused child entries.
 	 */
 	if (!list_empty(&dentry->d_subdirs)) {
+		spin_unlock(&dentry->d_lock);
 		spin_unlock(&dcache_lock);
 		shrink_dcache_parent(dentry);
 		spin_lock(&dcache_lock);
+		spin_lock(&dentry->d_lock);
 	}
 
 	/*
@@ -352,7 +356,6 @@ int d_invalidate(struct dentry * dentry)
 	 * we might still populate it if it was a
 	 * working directory or similar).
 	 */
-	spin_lock(&dentry->d_lock);
 	if (dentry->d_count > 1) {
 		if (dentry->d_inode && S_ISDIR(dentry->d_inode->i_mode)) {
 			spin_unlock(&dentry->d_lock);
@@ -448,15 +451,18 @@ static struct dentry * __d_find_alias(struct inode *inode, int want_discon)
 		next = tmp->next;
 		prefetch(next);
 		alias = list_entry(tmp, struct dentry, d_alias);
+		spin_lock(&alias->d_lock);
  		if (S_ISDIR(inode->i_mode) || !d_unhashed(alias)) {
 			if (IS_ROOT(alias) &&
 			    (alias->d_flags & DCACHE_DISCONNECTED))
 				discon_alias = alias;
 			else if (!want_discon) {
-				__dget_locked(alias);
+				__dget_locked_dlock(alias);
+				spin_unlock(&alias->d_lock);
 				return alias;
 			}
 		}
+		spin_unlock(&alias->d_lock);
 	}
 	if (discon_alias)
 		__dget_locked(discon_alias);
@@ -739,8 +745,8 @@ static void shrink_dcache_for_umount_subtree(struct dentry *dentry)
 	spin_lock(&dcache_lock);
 	spin_lock(&dentry->d_lock);
 	dentry_lru_del_init(dentry);
-	spin_unlock(&dentry->d_lock);
 	__d_drop(dentry);
+	spin_unlock(&dentry->d_lock);
 	spin_unlock(&dcache_lock);
 
 	for (;;) {
@@ -755,8 +761,8 @@ static void shrink_dcache_for_umount_subtree(struct dentry *dentry)
 					    d_u.d_child) {
 				spin_lock(&loop->d_lock);
 				dentry_lru_del_init(loop);
-				spin_unlock(&loop->d_lock);
 				__d_drop(loop);
+				spin_unlock(&loop->d_lock);
 				cond_resched_lock(&dcache_lock);
 			}
 			spin_unlock(&dcache_lock);
@@ -2023,7 +2029,8 @@ static int prepend_name(char **buffer, int *buflen, struct qstr *name)
  * Returns a pointer into the buffer or an error code if the
  * path was too long.
  *
- * "buflen" should be positive. Caller holds the dcache_lock.
+ * "buflen" should be positive. Caller holds the dcache_lock and
+ * path->dentry->d_lock.
  *
  * If path is not reachable from the supplied root, then the value of
  * root is changed (without modifying refcounts).
@@ -2036,8 +2043,9 @@ char *__d_path(const struct path *path, struct path *root,
 	char *end = buffer + buflen;
 	char *retval;
 
-	vfsmount_read_lock();
 	prepend(&end, &buflen, "\0", 1);
+	spin_lock(&dentry->d_lock);
+unlinked:
 	if (d_unlinked(dentry) &&
 		(prepend(&end, &buflen, " (deleted)", 10) != 0))
 			goto Elong;
@@ -2049,7 +2057,7 @@ char *__d_path(const struct path *path, struct path *root,
 	*retval = '/';
 
 	for (;;) {
-		struct dentry * parent;
+		struct dentry *parent;
 
 		if (dentry == root->dentry && vfsmnt == root->mnt)
 			break;
@@ -2058,8 +2066,10 @@ char *__d_path(const struct path *path, struct path *root,
 			if (vfsmnt->mnt_parent == vfsmnt) {
 				goto global_root;
 			}
+			spin_unlock(&dentry->d_lock);
 			dentry = vfsmnt->mnt_mountpoint;
 			vfsmnt = vfsmnt->mnt_parent;
+			spin_lock(&dentry->d_lock); /* can't get unlinked because locked vfsmount */
 			continue;
 		}
 		parent = dentry->d_parent;
@@ -2068,11 +2078,14 @@ char *__d_path(const struct path *path, struct path *root,
 		    (prepend(&end, &buflen, "/", 1) != 0))
 			goto Elong;
 		retval = end;
+		spin_unlock(&dentry->d_lock);
 		dentry = parent;
+		if (d_unlinked(dentry))
+			goto unlinked;
 	}
 
 out:
-	vfsmount_read_unlock();
+	spin_unlock(&dentry->d_lock);
 	return retval;
 
 global_root:
@@ -2124,10 +2137,14 @@ char *d_path(const struct path *path, char *buf, int buflen)
 	root = current->fs->root;
 	path_get(&root);
 	read_unlock(&current->fs->lock);
+
 	spin_lock(&dcache_lock);
+	vfsmount_read_lock();
 	tmp = root;
 	res = __d_path(path, &tmp, buf, buflen);
+	vfsmount_read_unlock();
 	spin_unlock(&dcache_lock);
+
 	path_put(&root);
 	return res;
 }
@@ -2162,7 +2179,9 @@ char *dentry_path(struct dentry *dentry, char *buf, int buflen)
 	char *retval;
 
 	spin_lock(&dcache_lock);
+	spin_lock(&dentry->d_lock);
 	prepend(&end, &buflen, "\0", 1);
+unlinked:
 	if (d_unlinked(dentry) &&
 		(prepend(&end, &buflen, "//deleted", 9) != 0))
 			goto Elong;
@@ -2181,11 +2200,17 @@ char *dentry_path(struct dentry *dentry, char *buf, int buflen)
 			goto Elong;
 
 		retval = end;
+		spin_unlock(&dentry->d_lock);
 		dentry = parent;
+		spin_lock(&dentry->d_lock);
+		if (d_unlinked(dentry))
+			goto unlinked;
 	}
+	spin_unlock(&dentry->d_lock);
 	spin_unlock(&dcache_lock);
 	return retval;
 Elong:
+	spin_unlock(&dentry->d_lock);
 	spin_unlock(&dcache_lock);
 	return ERR_PTR(-ENAMETOOLONG);
 }
@@ -2226,12 +2251,17 @@ SYSCALL_DEFINE2(getcwd, char __user *, buf, unsigned long, size)
 
 	error = -ENOENT;
 	spin_lock(&dcache_lock);
+	vfsmount_read_lock();
+	spin_lock(&pwd.dentry->d_lock);
 	if (!d_unlinked(pwd.dentry)) {
 		unsigned long len;
 		struct path tmp = root;
 		char * cwd;
 
+		spin_unlock(&pwd.dentry->d_lock);
+		/* XXX: race here, have to close (eg. return unlinked from __d_path) */
 		cwd = __d_path(&pwd, &tmp, page, PAGE_SIZE);
+		vfsmount_read_unlock();
 		spin_unlock(&dcache_lock);
 
 		error = PTR_ERR(cwd);
@@ -2245,8 +2275,11 @@ SYSCALL_DEFINE2(getcwd, char __user *, buf, unsigned long, size)
 			if (copy_to_user(buf, cwd, len))
 				error = -EFAULT;
 		}
-	} else
+	} else {
+		spin_unlock(&pwd.dentry->d_lock);
+		vfsmount_read_unlock();
 		spin_unlock(&dcache_lock);
+	}
 
 out:
 	path_put(&pwd);
@@ -2310,13 +2343,16 @@ resume:
 		struct list_head *tmp = next;
 		struct dentry *dentry = list_entry(tmp, struct dentry, d_u.d_child);
 		next = tmp->next;
-		if (d_unhashed(dentry)||!dentry->d_inode)
+		spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
+		if (d_unhashed(dentry) || !dentry->d_inode) {
+			spin_unlock(&dentry->d_lock);
 			continue;
+		}
 		if (!list_empty(&dentry->d_subdirs)) {
+			spin_unlock(&dentry->d_lock);
 			this_parent = dentry;
 			goto repeat;
 		}
-		spin_lock(&dentry->d_lock);
 		dentry->d_count--;
 		spin_unlock(&dentry->d_lock);
 	}
