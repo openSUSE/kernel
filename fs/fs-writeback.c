@@ -865,8 +865,7 @@ static long wb_check_old_data_flush(struct bdi_writeback *wb)
 	wb->last_old_flush = jiffies;
 	nr_pages = global_page_state(NR_FILE_DIRTY) +
 			global_page_state(NR_UNSTABLE_NFS) +
-			(atomic_read(&inodes_stat.nr_inodes) -
-			atomic_read(&inodes_stat.nr_unused));
+			inodes_stat.nr_inodes - inodes_stat.nr_unused;
 
 	if (nr_pages) {
 		struct wb_writeback_args args = {
@@ -1210,8 +1209,7 @@ void writeback_inodes_sb(struct super_block *sb)
 	long nr_to_write;
 
 	nr_to_write = nr_dirty + nr_unstable +
-			(atomic_read(&inodes_stat.nr_inodes) -
-			atomic_read(&inodes_stat.nr_unused));
+			inodes_stat.nr_inodes - inodes_stat.nr_unused;
 
 	bdi_start_writeback(sb->s_bdi, sb, nr_to_write);
 }

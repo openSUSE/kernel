@@ -109,8 +109,8 @@ static DECLARE_RWSEM(iprune_sem);
  * Statistics gathering..
  */
 struct inodes_stat_t inodes_stat = {
-	.nr_inodes = ATOMIC_INIT(0),
-	.nr_unused = ATOMIC_INIT(0),
+	.nr_inodes = 0,
+	.nr_unused = 0,
 };
 
 static struct kmem_cache *inode_cachep __read_mostly;
@@ -358,7 +358,6 @@ static void dispose_list(struct list_head *head)
 		destroy_inode(inode);
 		nr_disposed++;
 	}
-	atomic_sub(nr_disposed, &inodes_stat.nr_inodes);
 }
 
 /*
@@ -367,7 +366,7 @@ static void dispose_list(struct list_head *head)
 static int invalidate_list(struct list_head *head, struct list_head *dispose)
 {
 	struct list_head *next;
-	int busy = 0, count = 0;
+	int busy = 0;
 
 	next = head->next;
 	for (;;) {
@@ -387,19 +386,17 @@ static int invalidate_list(struct list_head *head, struct list_head *dispose)
 		if (!inode->i_count) {
 			spin_lock(&wb_inode_list_lock);
 			list_del(&inode->i_list);
+			inodes_stat.nr_unused--;
 			spin_unlock(&wb_inode_list_lock);
 			WARN_ON(inode->i_state & I_NEW);
 			inode->i_state |= I_FREEING;
 			spin_unlock(&inode->i_lock);
 			list_add(&inode->i_list, dispose);
-			count++;
 			continue;
 		}
 		spin_unlock(&inode->i_lock);
 		busy = 1;
 	}
-	/* only unused inodes may be cached with i_count zero */
-	atomic_sub(count, &inodes_stat.nr_unused);
 	return busy;
 }
 
@@ -464,7 +461,6 @@ static int can_unuse(struct inode *inode)
 static void prune_icache(int nr_to_scan)
 {
 	LIST_HEAD(freeable);
-	int nr_pruned = 0;
 	int nr_scanned;
 	unsigned long reap = 0;
 
@@ -486,7 +482,7 @@ again:
 		if (inode->i_count) {
 			list_del_init(&inode->i_list);
 			spin_unlock(&inode->i_lock);
-			atomic_dec(&inodes_stat.nr_unused);
+			inodes_stat.nr_unused--;
 			continue;
 		}
 		if (inode->i_state) {
@@ -522,9 +518,8 @@ again2:
 		WARN_ON(inode->i_state & I_NEW);
 		inode->i_state |= I_FREEING;
 		spin_unlock(&inode->i_lock);
-		nr_pruned++;
+		inodes_stat.nr_unused--;
 	}
-	atomic_sub(nr_pruned, &inodes_stat.nr_unused);
 	if (current_is_kswapd())
 		__count_vm_events(KSWAPD_INODESTEAL, reap);
 	else
@@ -556,8 +551,7 @@ static int shrink_icache_memory(int nr, gfp_t gfp_mask)
 			return -1;
 		prune_icache(nr);
 	}
-	return (atomic_read(&inodes_stat.nr_unused) / 100) *
-					sysctl_vfs_cache_pressure;
+	return inodes_stat.nr_unused / 100 * sysctl_vfs_cache_pressure;
 }
 
 static struct shrinker icache_shrinker = {
@@ -651,9 +645,9 @@ static inline void
 __inode_add_to_lists(struct super_block *sb, struct inode_hash_bucket *b,
 			struct inode *inode)
 {
-	atomic_inc(&inodes_stat.nr_inodes);
 	spin_lock(&sb_inode_list_lock);
 	list_add_rcu(&inode->i_sb_list, &sb->s_inodes);
+	inodes_stat.nr_inodes++;
 	spin_unlock(&sb_inode_list_lock);
 	if (b) {
 		spin_lock(&b->lock);
@@ -1305,11 +1299,11 @@ void generic_delete_inode(struct inode *inode)
 	}
 	spin_lock(&sb_inode_list_lock);
 	list_del_rcu(&inode->i_sb_list);
+	inodes_stat.nr_inodes--;
 	spin_unlock(&sb_inode_list_lock);
 	WARN_ON(inode->i_state & I_NEW);
 	inode->i_state |= I_FREEING;
 	spin_unlock(&inode->i_lock);
-	atomic_dec(&inodes_stat.nr_inodes);
 
 	security_inode_delete(inode);
 
@@ -1358,8 +1352,8 @@ int generic_detach_inode(struct inode *inode)
 		if (list_empty(&inode->i_list)) {
 			spin_lock(&wb_inode_list_lock);
 			list_add(&inode->i_list, &inode_unused);
+			inodes_stat.nr_unused++;
 			spin_unlock(&wb_inode_list_lock);
-			atomic_inc(&inodes_stat.nr_unused);
 		}
 		if (sb->s_flags & MS_ACTIVE) {
 			spin_unlock(&inode->i_lock);
@@ -1377,16 +1371,16 @@ int generic_detach_inode(struct inode *inode)
 	if (!list_empty(&inode->i_list)) {
 		spin_lock(&wb_inode_list_lock);
 		list_del_init(&inode->i_list);
+		inodes_stat.nr_unused--;
 		spin_unlock(&wb_inode_list_lock);
-		atomic_dec(&inodes_stat.nr_unused);
 	}
 	spin_lock(&sb_inode_list_lock);
 	list_del_rcu(&inode->i_sb_list);
+	inodes_stat.nr_inodes--;
 	spin_unlock(&sb_inode_list_lock);
 	WARN_ON(inode->i_state & I_NEW);
 	inode->i_state |= I_FREEING;
 	spin_unlock(&inode->i_lock);
-	atomic_dec(&inodes_stat.nr_inodes);
 	return 1;
 }
 EXPORT_SYMBOL_GPL(generic_detach_inode);
