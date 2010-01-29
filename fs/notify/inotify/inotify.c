@@ -438,14 +438,6 @@ void inotify_unmount_inodes(struct list_head *list)
 			spin_unlock(&next_i->i_lock);
 		}
 
-		/*
-		 * We can safely drop inode_lock here because we hold
-		 * references on both inode and next_i.  Also no new inodes
-		 * will be added since the umount has begun.  Finally,
-		 * iprune_mutex keeps shrink_icache_memory() away.
-		 */
-		spin_unlock(&sb_inode_list_lock);
-
 		if (need_iput_tmp)
 			iput(need_iput_tmp);
 
@@ -463,8 +455,6 @@ void inotify_unmount_inodes(struct list_head *list)
 		}
 		mutex_unlock(&inode->inotify_mutex);
 		iput(inode);		
-
-		spin_lock(&sb_inode_list_lock);
 	}
 }
 EXPORT_SYMBOL_GPL(inotify_unmount_inodes);

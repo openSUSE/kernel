@@ -844,8 +844,8 @@ static void add_dquot_ref(struct super_block *sb, int type)
 	struct inode *inode, *old_inode = NULL;
 	int reserved = 0;
 
-	spin_lock(&sb_inode_list_lock);
-	list_for_each_entry(inode, &sb->s_inodes, i_sb_list) {
+	rcu_read_lock();
+	list_for_each_entry_rcu(inode, &sb->s_inodes, i_sb_list) {
 		spin_lock(&inode->i_lock);
 		if (inode->i_state & (I_FREEING|I_CLEAR|I_WILL_FREE|I_NEW)) {
 			spin_unlock(&inode->i_lock);
@@ -867,7 +867,7 @@ static void add_dquot_ref(struct super_block *sb, int type)
 
 		__iget(inode);
 		spin_unlock(&inode->i_lock);
-		spin_unlock(&sb_inode_list_lock);
+		rcu_read_unlock();
 
 		iput(old_inode);
 		sb->dq_op->initialize(inode, type);
@@ -877,9 +877,9 @@ static void add_dquot_ref(struct super_block *sb, int type)
 		 * reference and we cannot iput it under inode_lock. So we
 		 * keep the reference and iput it later. */
 		old_inode = inode;
-		spin_lock(&sb_inode_list_lock);
+		rcu_read_lock();
 	}
-	spin_unlock(&sb_inode_list_lock);
+	rcu_read_unlock();
 	iput(old_inode);
 
 	if (reserved) {
@@ -955,8 +955,8 @@ static void remove_dquot_ref(struct super_block *sb, int type,
 {
 	struct inode *inode;
 
-	spin_lock(&sb_inode_list_lock);
-	list_for_each_entry(inode, &sb->s_inodes, i_sb_list) {
+	rcu_read_lock();
+	list_for_each_entry_rcu(inode, &sb->s_inodes, i_sb_list) {
 		/*
 		 *  We have to scan also I_NEW inodes because they can already
 		 *  have quota pointer initialized. Luckily, we need to touch
@@ -966,7 +966,7 @@ static void remove_dquot_ref(struct super_block *sb, int type,
 		if (!IS_NOQUOTA(inode))
 			remove_inode_dquot_ref(inode, type, tofree_head);
 	}
-	spin_unlock(&sb_inode_list_lock);
+	rcu_read_unlock();
 }
 
 /* Gather all references from inodes and drop them */
