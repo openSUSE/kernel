@@ -433,6 +433,7 @@ void inotify_unmount_inodes(struct list_head *list)
 		 * will be added since the umount has begun.  Finally,
 		 * iprune_mutex keeps shrink_icache_memory() away.
 		 */
+		spin_unlock(&sb_inode_list_lock);
 		spin_unlock(&inode_lock);
 
 		if (need_iput_tmp)
@@ -455,6 +456,7 @@ void inotify_unmount_inodes(struct list_head *list)
 		iput(inode);		
 
 		spin_lock(&inode_lock);
+		spin_lock(&sb_inode_list_lock);
 	}
 }
 EXPORT_SYMBOL_GPL(inotify_unmount_inodes);
