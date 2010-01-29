@@ -93,22 +93,59 @@ done:
 /*
  * Calculate next entry in top down tree traversal.
  * From next_mnt in namespace.c - elegant.
+ *
+ * How is this supposed to work if we drop dcache_lock between calls anyway?
+ * How does it cope with renames?
+ * And also callers dput the returned dentry before taking dcache_lock again
+ * so what prevents it from being freed??
  */
-static struct dentry *next_dentry(struct dentry *p, struct dentry *root)
+static struct dentry *get_next_positive_dentry(struct dentry *p,
+						struct dentry *root)
 {
-	struct list_head *next = p->d_subdirs.next;
+	struct list_head *next;
+	struct dentry *ret;
 
+	spin_lock(&dcache_lock);
+again:
+	spin_lock(&p->d_lock);
+	next = p->d_subdirs.next;
 	if (next == &p->d_subdirs) {
 		while (1) {
-			if (p == root)
+			struct dentry *parent;
+
+			if (p == root) {
+				spin_unlock(&p->d_lock);
+				spin_unlock(&dcache_lock);
 				return NULL;
+			}
+
+			parent = p->d_parent;
+			if (!spin_trylock(&parent->d_lock)) {
+				spin_unlock(&p->d_lock);
+				goto again;
+			}
+			spin_unlock(&p->d_lock);
 			next = p->d_u.d_child.next;
-			if (next != &p->d_parent->d_subdirs)
+			p = parent;
+			if (next != &parent->d_subdirs)
 				break;
-			p = p->d_parent;
 		}
 	}
-	return list_entry(next, struct dentry, d_u.d_child);
+	ret = list_entry(next, struct dentry, d_u.d_child);
+
+	spin_lock_nested(&ret->d_lock, DENTRY_D_LOCK_NESTED);
+	/* Negative dentry - try next */
+	if (!simple_positive(ret)) {
+		spin_unlock(&ret->d_lock);
+		p = ret;
+		goto again;
+	}
+	dget_dlock(ret);
+	spin_unlock(&ret->d_lock);
+	spin_unlock(&p->d_lock);
+	spin_unlock(&dcache_lock);
+
+	return ret;
 }
 
 /*
@@ -158,17 +195,10 @@ static int autofs4_tree_busy(struct vfsmount *mnt,
 	if (!simple_positive(top))
 		return 1;
 
-	spin_lock(&dcache_lock);
-	for (p = top; p; p = next_dentry(p, top)) {
-		/* Negative dentry - give up */
-		if (!simple_positive(p))
-			continue;
+	for (p = dget(top); p; p = get_next_positive_dentry(p, top)) {
 
 		DPRINTK("dentry %p %.*s",
 			p, (int) p->d_name.len, p->d_name.name);
-
-		p = dget(p);
-		spin_unlock(&dcache_lock);
 
 		/*
 		 * Is someone visiting anywhere in the subtree ?
@@ -205,9 +235,7 @@ static int autofs4_tree_busy(struct vfsmount *mnt,
 			}
 		}
 		dput(p);
-		spin_lock(&dcache_lock);
 	}
-	spin_unlock(&dcache_lock);
 
 	/* Timeout of a tree mount is ultimately determined by its top dentry */
 	if (!autofs4_can_expire(top, timeout, do_now))
@@ -226,17 +254,10 @@ static struct dentry *autofs4_check_leaves(struct vfsmount *mnt,
 	DPRINTK("parent %p %.*s",
 		parent, (int)parent->d_name.len, parent->d_name.name);
 
-	spin_lock(&dcache_lock);
-	for (p = parent; p; p = next_dentry(p, parent)) {
-		/* Negative dentry - give up */
-		if (!simple_positive(p))
-			continue;
+	for (p = dget(parent); p; p = get_next_positive_dentry(p, parent)) {
 
 		DPRINTK("dentry %p %.*s",
 			p, (int) p->d_name.len, p->d_name.name);
-
-		p = dget(p);
-		spin_unlock(&dcache_lock);
 
 		if (d_mountpoint(p)) {
 			/* Can we umount this guy */
@@ -249,9 +270,7 @@ static struct dentry *autofs4_check_leaves(struct vfsmount *mnt,
 		}
 cont:
 		dput(p);
-		spin_lock(&dcache_lock);
 	}
-	spin_unlock(&dcache_lock);
 	return NULL;
 }
 
@@ -295,6 +314,8 @@ struct dentry *autofs4_expire_direct(struct super_block *sb,
  * A tree is eligible if :-
  *  - it is unused by any user process
  *  - it has been unused for exp_timeout time
+ * This seems to be racy dropping dcache_lock and asking for next->next after
+ * the lock has been dropped.
  */
 struct dentry *autofs4_expire_indirect(struct super_block *sb,
 				       struct vfsmount *mnt,
@@ -317,6 +338,7 @@ struct dentry *autofs4_expire_indirect(struct super_block *sb,
 	timeout = sbi->exp_timeout;
 
 	spin_lock(&dcache_lock);
+	spin_lock(&root->d_lock);
 	next = root->d_subdirs.next;
 
 	/* On exit from the loop expire is set to a dgot dentry
@@ -330,7 +352,10 @@ struct dentry *autofs4_expire_indirect(struct super_block *sb,
 			continue;
 		}
 
-		dentry = dget(dentry);
+		spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
+		dentry = dget_dlock(dentry);
+		spin_unlock(&dentry->d_lock);
+		spin_unlock(&root->d_lock);
 		spin_unlock(&dcache_lock);
 
 		spin_lock(&sbi->fs_lock);
@@ -397,8 +422,10 @@ next:
 		spin_unlock(&sbi->fs_lock);
 		dput(dentry);
 		spin_lock(&dcache_lock);
+		spin_lock(&root->d_lock);
 		next = next->next;
 	}
+	spin_unlock(&root->d_lock);
 	spin_unlock(&dcache_lock);
 	return NULL;
 
@@ -411,7 +438,11 @@ found:
 	init_completion(&ino->expire_complete);
 	spin_unlock(&sbi->fs_lock);
 	spin_lock(&dcache_lock);
+	spin_lock(&expired->d_parent->d_lock);
+	spin_lock_nested(&expired->d_lock, DENTRY_D_LOCK_NESTED);
 	list_move(&expired->d_parent->d_subdirs, &expired->d_u.d_child);
+	spin_unlock(&expired->d_lock);
+	spin_unlock(&expired->d_parent->d_lock);
 	spin_unlock(&dcache_lock);
 	return expired;
 }
