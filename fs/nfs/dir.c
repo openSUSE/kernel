@@ -1325,7 +1325,7 @@ static int nfs_sillyrename(struct inode *dir, struct dentry *dentry)
 
 	dfprintk(VFS, "NFS: silly-rename(%s/%s, ct=%d)\n",
 		dentry->d_parent->d_name.name, dentry->d_name.name, 
-		atomic_read(&dentry->d_count));
+		dentry->d_count);
 	nfs_inc_stats(dir, NFSIOS_SILLYRENAME);
 
 	/*
@@ -1434,7 +1434,7 @@ static int nfs_unlink(struct inode *dir, struct dentry *dentry)
 
 	spin_lock(&dcache_lock);
 	spin_lock(&dentry->d_lock);
-	if (atomic_read(&dentry->d_count) > 1) {
+	if (dentry->d_count > 1) {
 		spin_unlock(&dentry->d_lock);
 		spin_unlock(&dcache_lock);
 		/* Start asynchronous writeout of the inode */
@@ -1582,7 +1582,7 @@ static int nfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	dfprintk(VFS, "NFS: rename(%s/%s -> %s/%s, ct=%d)\n",
 		 old_dentry->d_parent->d_name.name, old_dentry->d_name.name,
 		 new_dentry->d_parent->d_name.name, new_dentry->d_name.name,
-		 atomic_read(&new_dentry->d_count));
+		 new_dentry->d_count);
 
 	/*
 	 * For non-directories, check whether the target is busy and if so,
@@ -1600,7 +1600,7 @@ static int nfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			rehash = new_dentry;
 		}
 
-		if (atomic_read(&new_dentry->d_count) > 2) {
+		if (new_dentry->d_count > 2) {
 			int err;
 
 			/* copy the target dentry's name */
@@ -1623,7 +1623,7 @@ static int nfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	/*
 	 * ... prune child dentries and writebacks if needed.
 	 */
-	if (atomic_read(&old_dentry->d_count) > 1) {
+	if (old_dentry->d_count > 1) {
 		if (S_ISREG(old_inode->i_mode))
 			nfs_wb_all(old_inode);
 		shrink_dcache_parent(old_dentry);

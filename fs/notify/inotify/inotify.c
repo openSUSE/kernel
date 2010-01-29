@@ -339,18 +339,28 @@ void inotify_dentry_parent_queue_event(struct dentry *dentry, u32 mask,
 	if (!(dentry->d_flags & DCACHE_INOTIFY_PARENT_WATCHED))
 		return;
 
+again:
 	spin_lock(&dentry->d_lock);
 	parent = dentry->d_parent;
+	if (parent != dentry && !spin_trylock(&parent->d_lock)) {
+		spin_unlock(&dentry->d_lock);
+		goto again;
+	}
 	inode = parent->d_inode;
 
 	if (inotify_inode_watched(inode)) {
-		dget(parent);
+		dget_dlock(parent);
 		spin_unlock(&dentry->d_lock);
+		if (parent != dentry)
+			spin_unlock(&parent->d_lock);
 		inotify_inode_queue_event(inode, mask, cookie, name,
 					  dentry->d_inode);
 		dput(parent);
-	} else
+	} else {
 		spin_unlock(&dentry->d_lock);
+		if (parent != dentry)
+			spin_unlock(&parent->d_lock);
+	}
 }
 EXPORT_SYMBOL_GPL(inotify_dentry_parent_queue_event);
 

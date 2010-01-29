@@ -415,7 +415,7 @@ again:
 		mutex_unlock(&hpfs_i(inode)->i_parent_mutex);
 		d_drop(dentry);
 		spin_lock(&dentry->d_lock);
-		if (atomic_read(&dentry->d_count) > 1 ||
+		if (dentry->d_count > 1 ||
 		    generic_permission(inode, MAY_WRITE, NULL) ||
 		    !S_ISREG(inode->i_mode) ||
 		    get_write_access(inode)) {

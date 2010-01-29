@@ -74,12 +74,19 @@ static struct dentry *
 find_disconnected_root(struct dentry *dentry)
 {
 	dget(dentry);
+again:
 	spin_lock(&dentry->d_lock);
 	while (!IS_ROOT(dentry) &&
 	       (dentry->d_parent->d_flags & DCACHE_DISCONNECTED)) {
 		struct dentry *parent = dentry->d_parent;
-		dget(parent);
+
+		if (!spin_trylock(&parent->d_lock)) {
+			spin_unlock(&dentry->d_lock);
+			goto again;
+		}
+		dget_dlock(parent);
 		spin_unlock(&dentry->d_lock);
+		spin_unlock(&parent->d_lock);
 		dput(dentry);
 		dentry = parent;
 		spin_lock(&dentry->d_lock);

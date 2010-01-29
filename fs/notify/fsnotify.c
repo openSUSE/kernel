@@ -87,13 +87,18 @@ void __fsnotify_parent(struct dentry *dentry, __u32 mask)
 	if (!(dentry->d_flags & DCACHE_FSNOTIFY_PARENT_WATCHED))
 		return;
 
+again:
 	spin_lock(&dentry->d_lock);
 	parent = dentry->d_parent;
+	if (parent != dentry && !spin_trylock(&parent->d_lock)) {
+		spin_unlock(&dentry->d_lock);
+		goto again;
+	}
 	p_inode = parent->d_inode;
 
 	if (fsnotify_inode_watches_children(p_inode)) {
 		if (p_inode->i_fsnotify_mask & mask) {
-			dget(parent);
+			dget_dlock(parent);
 			send = true;
 		}
 	} else {
@@ -103,11 +108,13 @@ void __fsnotify_parent(struct dentry *dentry, __u32 mask)
 		 * children and update their d_flags to let them know p_inode
 		 * doesn't care about them any more.
 		 */
-		dget(parent);
+		dget_dlock(parent);
 		should_update_children = true;
 	}
 
 	spin_unlock(&dentry->d_lock);
+	if (parent != dentry)
+		spin_unlock(&parent->d_lock);
 
 	if (send) {
 		/* we are notifying a parent so come up with the new mask which

@@ -332,6 +332,7 @@ static int smb_build_path(struct smb_sb_info *server, unsigned char *buf,
 	 * and store it in reversed order [see reverse_string()]
 	 */
 	dget(entry);
+again:
 	spin_lock(&entry->d_lock);
 	while (!IS_ROOT(entry)) {
 		struct dentry *parent;
@@ -350,6 +351,7 @@ static int smb_build_path(struct smb_sb_info *server, unsigned char *buf,
 			dput(entry);
 			return len;
 		}
+
 		reverse_string(path, len);
 		path += len;
 		if (unicode) {
@@ -361,7 +363,11 @@ static int smb_build_path(struct smb_sb_info *server, unsigned char *buf,
 		maxlen -= len+1;
 
 		parent = entry->d_parent;
-		dget(parent);
+		if (!spin_trylock(&parent->d_lock)) {
+			spin_unlock(&entry->d_lock);
+			goto again;
+		}
+		dget_dlock(parent);
 		spin_unlock(&entry->d_lock);
 		dput(entry);
 		entry = parent;

@@ -558,12 +558,12 @@ restart:
 		spin_lock(&active->d_lock);
 
 		/* Already gone? */
-		if (atomic_read(&active->d_count) == 0)
+		if (active->d_count == 0)
 			goto next;
 
 		if (active->d_inode && IS_DEADDIR(active->d_inode)) {
 			if (!list_empty(&ino->rehash_list)) {
-				dget(active);
+				dget_locked_dlock(active);
 				spin_unlock(&active->d_lock);
 				spin_unlock(&sbi->lookup_lock);
 				spin_unlock(&dcache_lock);
@@ -586,7 +586,7 @@ restart:
 		if (memcmp(qstr->name, str, len))
 			goto next;
 
-		dget(active);
+		dget_locked_dlock(active);
 		spin_unlock(&active->d_lock);
 		spin_unlock(&sbi->lookup_lock);
 		spin_unlock(&dcache_lock);
@@ -639,7 +639,7 @@ static struct dentry *autofs4_lookup_expiring(struct dentry *dentry)
 		if (memcmp(qstr->name, str, len))
 			goto next;
 
-		dget(expiring);
+		dget_locked_dlock(expiring);
 		spin_unlock(&expiring->d_lock);
 		spin_unlock(&sbi->lookup_lock);
 		spin_unlock(&dcache_lock);
