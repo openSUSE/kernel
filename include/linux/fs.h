@@ -726,7 +726,10 @@ struct inode {
 	struct hlist_node	i_hash;
 	struct list_head	i_list;		/* backing dev IO list */
 	struct list_head	i_sb_list;
-	struct list_head	i_dentry;
+	union {
+		struct list_head	i_dentry;
+		struct rcu_head		i_rcu;
+	};
 	unsigned long		i_ino;
 	unsigned int		i_count;
 	unsigned int		i_nlink;
