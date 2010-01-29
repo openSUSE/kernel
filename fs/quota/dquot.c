@@ -844,7 +844,6 @@ static void add_dquot_ref(struct super_block *sb, int type)
 	struct inode *inode, *old_inode = NULL;
 	int reserved = 0;
 
-	spin_lock(&inode_lock);
 	spin_lock(&sb_inode_list_lock);
 	list_for_each_entry(inode, &sb->s_inodes, i_sb_list) {
 		spin_lock(&inode->i_lock);
@@ -869,7 +868,6 @@ static void add_dquot_ref(struct super_block *sb, int type)
 		__iget(inode);
 		spin_unlock(&inode->i_lock);
 		spin_unlock(&sb_inode_list_lock);
-		spin_unlock(&inode_lock);
 
 		iput(old_inode);
 		sb->dq_op->initialize(inode, type);
@@ -879,11 +877,9 @@ static void add_dquot_ref(struct super_block *sb, int type)
 		 * reference and we cannot iput it under inode_lock. So we
 		 * keep the reference and iput it later. */
 		old_inode = inode;
-		spin_lock(&inode_lock);
 		spin_lock(&sb_inode_list_lock);
 	}
 	spin_unlock(&sb_inode_list_lock);
-	spin_unlock(&inode_lock);
 	iput(old_inode);
 
 	if (reserved) {
@@ -959,7 +955,6 @@ static void remove_dquot_ref(struct super_block *sb, int type,
 {
 	struct inode *inode;
 
-	spin_lock(&inode_lock);
 	spin_lock(&sb_inode_list_lock);
 	list_for_each_entry(inode, &sb->s_inodes, i_sb_list) {
 		/*
@@ -972,7 +967,6 @@ static void remove_dquot_ref(struct super_block *sb, int type,
 			remove_inode_dquot_ref(inode, type, tofree_head);
 	}
 	spin_unlock(&sb_inode_list_lock);
-	spin_unlock(&inode_lock);
 }
 
 /* Gather all references from inodes and drop them */
