@@ -244,6 +244,7 @@ int get_sb_pseudo(struct file_system_type *fs_type, char *name,
 	d_instantiate(dentry, root);
 	s->s_root = dentry;
 	s->s_flags |= MS_ACTIVE;
+	mnt->mnt_mounted++;
 	simple_set_mnt(mnt, s);
 	return 0;
 

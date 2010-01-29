@@ -56,19 +56,19 @@ struct vfsmount {
 	struct mnt_namespace *mnt_ns;	/* containing namespace */
 	int mnt_id;			/* mount identifier */
 	int mnt_group_id;		/* peer group identifier */
-	/*
-	 * We put mnt_count & mnt_expiry_mark at the end of struct vfsmount
-	 * to let these frequently modified fields in a separate cache line
-	 * (so that reads of mnt_flags wont ping-pong on SMP machines)
-	 */
-	atomic_t mnt_count;
 	int mnt_expiry_mark;		/* true if marked for expiry */
 	int mnt_pinned;
 	int mnt_ghosts;
+	int mnt_mounted;
 #ifdef CONFIG_SMP
 	int *mnt_writers;
 #else
 	int mnt_writers;
+#endif
+#ifdef CONFIG_SMP
+	int *mnt_count;
+#else
+	int mnt_count;
 #endif
 };
 
@@ -81,13 +81,6 @@ static inline int *get_mnt_writers_ptr(struct vfsmount *mnt)
 #endif
 }
 
-static inline struct vfsmount *mntget(struct vfsmount *mnt)
-{
-	if (mnt)
-		atomic_inc(&mnt->mnt_count);
-	return mnt;
-}
-
 struct file; /* forward dec */
 
 extern void vfsmount_read_lock(void);
@@ -95,22 +88,20 @@ extern void vfsmount_read_unlock(void);
 extern void vfsmount_write_lock(void);
 extern void vfsmount_write_unlock(void);
 
+extern unsigned int count_mnt_count(struct vfsmount *mnt);
+
 extern int mnt_want_write(struct vfsmount *mnt);
 extern int mnt_want_write_file(struct file *file);
 extern int mnt_clone_write(struct vfsmount *mnt);
 extern void mnt_drop_write(struct vfsmount *mnt);
+
 extern void mntput_no_expire(struct vfsmount *mnt);
+extern struct vfsmount *mntget(struct vfsmount *mnt);
+extern void mntput(struct vfsmount *mnt);
+
 extern void mnt_pin(struct vfsmount *mnt);
 extern void mnt_unpin(struct vfsmount *mnt);
 extern int __mnt_is_readonly(struct vfsmount *mnt);
-
-static inline void mntput(struct vfsmount *mnt)
-{
-	if (mnt) {
-		mnt->mnt_expiry_mark = 0;
-		mntput_no_expire(mnt);
-	}
-}
 
 extern struct vfsmount *do_kern_mount(const char *fstype, int flags,
 				      const char *name, void *data);
