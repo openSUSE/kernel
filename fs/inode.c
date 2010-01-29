@@ -74,7 +74,6 @@ static unsigned int i_hash_shift __read_mostly;
  * allowing for low-overhead inode sync() operations.
  */
 
-LIST_HEAD(inode_in_use);
 LIST_HEAD(inode_unused);
 
 struct inode_hash_bucket {
@@ -266,6 +265,7 @@ void inode_init_once(struct inode *inode)
 	INIT_HLIST_NODE(&inode->i_hash);
 	INIT_LIST_HEAD(&inode->i_dentry);
 	INIT_LIST_HEAD(&inode->i_devices);
+	INIT_LIST_HEAD(&inode->i_list);
 	INIT_RADIX_TREE(&inode->i_data.page_tree, GFP_ATOMIC);
 	spin_lock_init(&inode->i_data.tree_lock);
 	spin_lock_init(&inode->i_data.i_mmap_lock);
@@ -289,24 +289,6 @@ static void init_once(void *foo)
 	struct inode *inode = (struct inode *) foo;
 
 	inode_init_once(inode);
-}
-
-/*
- * inode_lock must be held
- */
-void __iget(struct inode *inode)
-{
-	assert_spin_locked(&inode->i_lock);
-	inode->i_count++;
-	if (inode->i_count > 1)
-		return;
-
-	if (!(inode->i_state & (I_DIRTY|I_SYNC))) {
-		spin_lock(&wb_inode_list_lock);
-		list_move(&inode->i_list, &inode_in_use);
-		spin_unlock(&wb_inode_list_lock);
-	}
-	atomic_dec(&inodes_stat.nr_unused);
 }
 
 /**
@@ -352,7 +334,7 @@ static void dispose_list(struct list_head *head)
 		struct inode *inode;
 
 		inode = list_first_entry(head, struct inode, i_list);
-		list_del(&inode->i_list);
+		list_del_init(&inode->i_list);
 
 		if (inode->i_data.nrpages)
 			truncate_inode_pages(&inode->i_data, 0);
@@ -405,11 +387,12 @@ static int invalidate_list(struct list_head *head, struct list_head *dispose)
 		invalidate_inode_buffers(inode);
 		if (!inode->i_count) {
 			spin_lock(&wb_inode_list_lock);
-			list_move(&inode->i_list, dispose);
+			list_del(&inode->i_list);
 			spin_unlock(&wb_inode_list_lock);
 			WARN_ON(inode->i_state & I_NEW);
 			inode->i_state |= I_FREEING;
 			spin_unlock(&inode->i_lock);
+			list_add(&inode->i_list, dispose);
 			count++;
 			continue;
 		}
@@ -496,7 +479,13 @@ again:
 			spin_unlock(&wb_inode_list_lock);
 			goto again;
 		}
-		if (inode->i_state || inode->i_count) {
+		if (inode->i_count) {
+			list_del_init(&inode->i_list);
+			spin_unlock(&inode->i_lock);
+			atomic_dec(&inodes_stat.nr_unused);
+			continue;
+		}
+		if (inode->i_state) {
 			list_move(&inode->i_list, &inode_unused);
 			spin_unlock(&inode->i_lock);
 			continue;
@@ -512,6 +501,7 @@ again:
 again2:
 			spin_lock(&wb_inode_list_lock);
 
+			/* XXX: may no longer work well */
 			if (inode != list_entry(inode_unused.next,
 						struct inode, i_list))
 				continue;	/* wrong inode or list_empty */
@@ -660,9 +650,6 @@ __inode_add_to_lists(struct super_block *sb, struct inode_hash_bucket *b,
 	atomic_inc(&inodes_stat.nr_inodes);
 	list_add(&inode->i_sb_list, &sb->s_inodes);
 	spin_unlock(&sb_inode_list_lock);
-	spin_lock(&wb_inode_list_lock);
-	list_add(&inode->i_list, &inode_in_use);
-	spin_unlock(&wb_inode_list_lock);
 	if (b) {
 		spin_lock(&b->lock);
 		hlist_add_head(&inode->i_hash, &b->head);
@@ -1311,9 +1298,11 @@ void generic_delete_inode(struct inode *inode)
 {
 	const struct super_operations *op = inode->i_sb->s_op;
 
-	spin_lock(&wb_inode_list_lock);
-	list_del_init(&inode->i_list);
-	spin_unlock(&wb_inode_list_lock);
+	if (!list_empty(&inode->i_list)) {
+		spin_lock(&wb_inode_list_lock);
+		list_del_init(&inode->i_list);
+		spin_unlock(&wb_inode_list_lock);
+	}
 	list_del_init(&inode->i_sb_list);
 	spin_unlock(&sb_inode_list_lock);
 	WARN_ON(inode->i_state & I_NEW);
@@ -1365,12 +1354,12 @@ int generic_detach_inode(struct inode *inode)
 	struct super_block *sb = inode->i_sb;
 
 	if (!hlist_unhashed(&inode->i_hash)) {
-		if (!(inode->i_state & (I_DIRTY|I_SYNC))) {
+		if (list_empty(&inode->i_list)) {
 			spin_lock(&wb_inode_list_lock);
-			list_move(&inode->i_list, &inode_unused);
+			list_add(&inode->i_list, &inode_unused);
 			spin_unlock(&wb_inode_list_lock);
+			atomic_inc(&inodes_stat.nr_unused);
 		}
-		atomic_inc(&inodes_stat.nr_unused);
 		if (sb->s_flags & MS_ACTIVE) {
 			spin_unlock(&inode->i_lock);
 			spin_unlock(&sb_inode_list_lock);
@@ -1386,11 +1375,13 @@ int generic_detach_inode(struct inode *inode)
 		WARN_ON(inode->i_state & I_NEW);
 		inode->i_state &= ~I_WILL_FREE;
 		__remove_inode_hash(inode);
+	}
+	if (!list_empty(&inode->i_list)) {
+		spin_lock(&wb_inode_list_lock);
+		list_del_init(&inode->i_list);
+		spin_unlock(&wb_inode_list_lock);
 		atomic_dec(&inodes_stat.nr_unused);
 	}
-	spin_lock(&wb_inode_list_lock);
-	list_del_init(&inode->i_list);
-	spin_unlock(&wb_inode_list_lock);
 	list_del_init(&inode->i_sb_list);
 	spin_unlock(&sb_inode_list_lock);
 	WARN_ON(inode->i_state & I_NEW);
@@ -1726,7 +1717,7 @@ void __init inode_init(void)
 
 	inode_hashtable =
 		alloc_large_system_hash("Inode-cache",
-					sizeof(struct hlist_head),
+					sizeof(struct inode_hash_bucket),
 					ihash_entries,
 					14,
 					0,

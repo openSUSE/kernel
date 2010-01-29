@@ -2174,7 +2174,6 @@ extern int insert_inode_locked4(struct inode *, unsigned long, int (*test)(struc
 extern int insert_inode_locked(struct inode *);
 extern void unlock_new_inode(struct inode *);
 
-extern void __iget(struct inode * inode);
 extern void iget_failed(struct inode *);
 extern void clear_inode(struct inode *);
 extern void destroy_inode(struct inode *);
@@ -2392,6 +2391,12 @@ extern void file_update_time(struct file *file);
 extern int generic_show_options(struct seq_file *m, struct vfsmount *mnt);
 extern void save_mount_options(struct super_block *sb, char *options);
 extern void replace_mount_options(struct super_block *sb, char *options);
+
+static inline void __iget(struct inode *inode)
+{
+	assert_spin_locked(&inode->i_lock);
+	inode->i_count++;
+}
 
 static inline ino_t parent_ino(struct dentry *dentry)
 {

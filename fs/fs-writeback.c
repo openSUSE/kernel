@@ -544,7 +544,7 @@ select_queue:
 			/*
 			 * The inode is clean, inuse
 			 */
-			list_move(&inode->i_list, &inode_in_use);
+			list_del_init(&inode->i_list);
 		} else {
 			/*
 			 * The inode is clean, unused
@@ -1151,8 +1151,6 @@ static void wait_sb_inodes(struct super_block *sb)
 	 */
 	WARN_ON(!rwsem_is_locked(&sb->s_umount));
 
-	spin_lock(&sb_inode_list_lock);
-
 	/*
 	 * Data integrity sync. Must wait for all pages under writeback,
 	 * because there may have been pages dirtied before our sync
@@ -1160,7 +1158,8 @@ static void wait_sb_inodes(struct super_block *sb)
 	 * In which case, the inode may not be on the dirty list, but
 	 * we still have to wait for that writeout.
 	 */
-	list_for_each_entry(inode, &sb->s_inodes, i_sb_list) {
+	rcu_read_lock();
+	list_for_each_entry_rcu(inode, &sb->s_inodes, i_sb_list) {
 		struct address_space *mapping;
 
 		mapping = inode->i_mapping;
@@ -1174,13 +1173,13 @@ static void wait_sb_inodes(struct super_block *sb)
 		}
 		__iget(inode);
 		spin_unlock(&inode->i_lock);
-		spin_unlock(&sb_inode_list_lock);
+		rcu_read_unlock();
 		/*
 		 * We hold a reference to 'inode' so it couldn't have been
-		 * removed from s_inodes list while we dropped the
-		 * sb_inode_list_lock.  We cannot iput the inode now as we can
-		 * be holding the last reference and we cannot iput it under
-		 * spinlock. So we keep the reference and iput it later.
+		 * removed from s_inodes list while we dropped the i_lock.  We
+		 * cannot iput the inode now as we can be holding the last
+		 * reference and we cannot iput it under spinlock. So we keep
+		 * the reference and iput it later.
 		 */
 		iput(old_inode);
 		old_inode = inode;
@@ -1189,9 +1188,9 @@ static void wait_sb_inodes(struct super_block *sb)
 
 		cond_resched();
 
-		spin_lock(&sb_inode_list_lock);
+		rcu_read_lock();
 	}
-	spin_unlock(&sb_inode_list_lock);
+	rcu_read_unlock();
 	iput(old_inode);
 }
 
