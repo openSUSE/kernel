@@ -72,6 +72,7 @@ static int bdi_debug_stats_show(struct seq_file *m, void *v)
 	 */
 	nr_wb = nr_dirty = nr_io = nr_more_io = 0;
 	spin_lock(&inode_lock);
+	spin_lock(&wb_inode_list_lock);
 	list_for_each_entry(wb, &bdi->wb_list, list) {
 		nr_wb++;
 		list_for_each_entry(inode, &wb->b_dirty, i_list)
@@ -81,6 +82,7 @@ static int bdi_debug_stats_show(struct seq_file *m, void *v)
 		list_for_each_entry(inode, &wb->b_more_io, i_list)
 			nr_more_io++;
 	}
+	spin_unlock(&wb_inode_list_lock);
 	spin_unlock(&inode_lock);
 
 	get_dirty_limits(&background_thresh, &dirty_thresh, &bdi_thresh, bdi);
@@ -697,9 +699,11 @@ void bdi_destroy(struct backing_dev_info *bdi)
 		struct bdi_writeback *dst = &default_backing_dev_info.wb;
 
 		spin_lock(&inode_lock);
+		spin_lock(&wb_inode_list_lock);
 		list_splice(&bdi->wb.b_dirty, &dst->b_dirty);
 		list_splice(&bdi->wb.b_io, &dst->b_io);
 		list_splice(&bdi->wb.b_more_io, &dst->b_more_io);
+		spin_unlock(&wb_inode_list_lock);
 		spin_unlock(&inode_lock);
 	}
 
