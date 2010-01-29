@@ -112,8 +112,32 @@ struct inodes_stat_t inodes_stat = {
 	.nr_inodes = 0,
 	.nr_unused = 0,
 };
+struct percpu_counter nr_inodes;
 
 static struct kmem_cache *inode_cachep __read_mostly;
+
+int get_nr_inodes(void)
+{
+	return percpu_counter_sum_positive(&nr_inodes);
+}
+
+/*
+ * Handle nr_dentry sysctl
+ */
+#if defined(CONFIG_SYSCTL) && defined(CONFIG_PROC_FS)
+int proc_nr_inodes(ctl_table *table, int write,
+		   void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+	inodes_stat.nr_inodes = get_nr_inodes();
+	return proc_dointvec(table, write, buffer, lenp, ppos);
+}
+#else
+int proc_nr_inodes(ctl_table *table, int write,
+		   void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+	return -ENOSYS;
+}
+#endif
 
 static void wake_up_inode(struct inode *inode)
 {
@@ -647,8 +671,8 @@ __inode_add_to_lists(struct super_block *sb, struct inode_hash_bucket *b,
 {
 	spin_lock(&sb_inode_list_lock);
 	list_add_rcu(&inode->i_sb_list, &sb->s_inodes);
-	inodes_stat.nr_inodes++;
 	spin_unlock(&sb_inode_list_lock);
+	percpu_counter_inc(&nr_inodes);
 	if (b) {
 		spin_lock(&b->lock);
 		hlist_add_head(&inode->i_hash, &b->head);
@@ -1327,8 +1351,8 @@ void generic_delete_inode(struct inode *inode)
 	}
 	spin_lock(&sb_inode_list_lock);
 	list_del_rcu(&inode->i_sb_list);
-	inodes_stat.nr_inodes--;
 	spin_unlock(&sb_inode_list_lock);
+	percpu_counter_dec(&nr_inodes);
 	WARN_ON(inode->i_state & I_NEW);
 	inode->i_state |= I_FREEING;
 	spin_unlock(&inode->i_lock);
@@ -1404,8 +1428,8 @@ int generic_detach_inode(struct inode *inode)
 	}
 	spin_lock(&sb_inode_list_lock);
 	list_del_rcu(&inode->i_sb_list);
-	inodes_stat.nr_inodes--;
 	spin_unlock(&sb_inode_list_lock);
+	percpu_counter_dec(&nr_inodes);
 	WARN_ON(inode->i_state & I_NEW);
 	inode->i_state |= I_FREEING;
 	spin_unlock(&inode->i_lock);
@@ -1716,6 +1740,7 @@ void __init inode_init(void)
 {
 	int loop;
 
+	percpu_counter_init(&nr_inodes, 0);
 	/* inode slab cache */
 	inode_cachep = kmem_cache_create("inode_cache",
 					 sizeof(struct inode),
