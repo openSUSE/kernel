@@ -1911,7 +1911,7 @@ char *__d_path(const struct path *path, struct path *root,
 	char *end = buffer + buflen;
 	char *retval;
 
-	spin_lock(&vfsmount_lock);
+	vfsmount_read_lock();
 	prepend(&end, &buflen, "\0", 1);
 	if (d_unlinked(dentry) &&
 		(prepend(&end, &buflen, " (deleted)", 10) != 0))
@@ -1947,7 +1947,7 @@ char *__d_path(const struct path *path, struct path *root,
 	}
 
 out:
-	spin_unlock(&vfsmount_lock);
+	vfsmount_read_unlock();
 	return retval;
 
 global_root:

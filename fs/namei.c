@@ -617,15 +617,16 @@ int follow_up(struct path *path)
 {
 	struct vfsmount *parent;
 	struct dentry *mountpoint;
-	spin_lock(&vfsmount_lock);
+
+	vfsmount_read_lock();
 	parent = path->mnt->mnt_parent;
 	if (parent == path->mnt) {
-		spin_unlock(&vfsmount_lock);
+		vfsmount_read_unlock();
 		return 0;
 	}
 	mntget(parent);
 	mountpoint = dget(path->mnt->mnt_mountpoint);
-	spin_unlock(&vfsmount_lock);
+	vfsmount_read_unlock();
 	dput(path->dentry);
 	path->dentry = mountpoint;
 	mntput(path->mnt);
@@ -704,15 +705,15 @@ static __always_inline void follow_dotdot(struct nameidata *nd)
 			break;
 		}
 		spin_unlock(&dcache_lock);
-		spin_lock(&vfsmount_lock);
+		vfsmount_read_lock();
 		parent = nd->path.mnt->mnt_parent;
 		if (parent == nd->path.mnt) {
-			spin_unlock(&vfsmount_lock);
+			vfsmount_read_unlock();
 			break;
 		}
 		mntget(parent);
 		nd->path.dentry = dget(nd->path.mnt->mnt_mountpoint);
-		spin_unlock(&vfsmount_lock);
+		vfsmount_read_unlock();
 		dput(old);
 		mntput(nd->path.mnt);
 		nd->path.mnt = parent;

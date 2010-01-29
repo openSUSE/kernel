@@ -653,12 +653,12 @@ static unsigned mounts_poll(struct file *file, poll_table *wait)
 
 	poll_wait(file, &ns->poll, wait);
 
-	spin_lock(&vfsmount_lock);
+	vfsmount_read_lock();
 	if (p->event != ns->event) {
 		p->event = ns->event;
 		res |= POLLERR | POLLPRI;
 	}
-	spin_unlock(&vfsmount_lock);
+	vfsmount_read_unlock();
 
 	return res;
 }

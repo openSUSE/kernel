@@ -90,6 +90,11 @@ static inline struct vfsmount *mntget(struct vfsmount *mnt)
 
 struct file; /* forward dec */
 
+extern void vfsmount_read_lock(void);
+extern void vfsmount_read_unlock(void);
+extern void vfsmount_write_lock(void);
+extern void vfsmount_write_unlock(void);
+
 extern int mnt_want_write(struct vfsmount *mnt);
 extern int mnt_want_write_file(struct file *file);
 extern int mnt_clone_write(struct vfsmount *mnt);
@@ -123,7 +128,6 @@ extern int do_add_mount(struct vfsmount *newmnt, struct path *path,
 
 extern void mark_mounts_for_expiry(struct list_head *mounts);
 
-extern spinlock_t vfsmount_lock;
 extern dev_t name_to_dev_t(char *name);
 
 #endif /* _LINUX_MOUNT_H */

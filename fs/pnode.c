@@ -264,12 +264,12 @@ int propagate_mnt(struct vfsmount *dest_mnt, struct dentry *dest_dentry,
 		prev_src_mnt  = child;
 	}
 out:
-	spin_lock(&vfsmount_lock);
+	vfsmount_write_lock();
 	while (!list_empty(&tmp_list)) {
 		child = list_first_entry(&tmp_list, struct vfsmount, mnt_hash);
 		umount_tree(child, 0, &umount_list);
 	}
-	spin_unlock(&vfsmount_lock);
+	vfsmount_write_unlock();
 	release_mounts(&umount_list);
 	return ret;
 }
