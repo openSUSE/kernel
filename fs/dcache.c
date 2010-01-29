@@ -1188,12 +1188,12 @@ struct dentry *d_alloc(struct dentry * parent, const struct qstr *name)
 	dentry->d_count = 1;
 	dentry->d_flags = DCACHE_UNHASHED;
 	spin_lock_init(&dentry->d_lock);
+	seqcount_init(&dentry->d_seq);
 	dentry->d_inode = NULL;
 	dentry->d_parent = NULL;
 	dentry->d_sb = NULL;
 	dentry->d_op = NULL;
 	dentry->d_fsdata = NULL;
-	dentry->d_mounted = 0;
 	INIT_HLIST_NODE(&dentry->d_hash);
 	INIT_LIST_HEAD(&dentry->d_lru);
 	INIT_LIST_HEAD(&dentry->d_subdirs);
@@ -1581,21 +1581,6 @@ err_out:
  * d_lookup() is protected against the concurrent renames in some unrelated
  * directory using the seqlockt_t rename_lock.
  */
-
-struct dentry * d_lookup(struct dentry * parent, struct qstr * name)
-{
-	struct dentry * dentry = NULL;
-	unsigned seq;
-
-        do {
-                seq = read_seqbegin(&rename_lock);
-                dentry = __d_lookup(parent, name);
-                if (dentry)
-			break;
-	} while (read_seqretry(&rename_lock, seq));
-	return dentry;
-}
-
 struct dentry * __d_lookup(struct dentry * parent, struct qstr * name)
 {
 	unsigned int len = name->len;
@@ -1656,6 +1641,78 @@ next:
  	rcu_read_unlock();
 
  	return found;
+}
+
+struct dentry * d_lookup(struct dentry * parent, struct qstr * name)
+{
+	struct dentry *dentry = NULL;
+	unsigned seq;
+
+        do {
+                seq = read_seqbegin(&rename_lock);
+                dentry = __d_lookup(parent, name);
+                if (dentry)
+			break;
+	} while (read_seqretry(&rename_lock, seq));
+	return dentry;
+}
+
+struct dentry * __d_lookup_rcu(struct dentry * parent, struct qstr * name)
+{
+	unsigned int len = name->len;
+	unsigned int hash = name->hash;
+	const unsigned char *str = name->name;
+	struct dcache_hash_bucket *b = d_hash(parent, hash);
+	struct hlist_head *head = &b->head;
+	struct hlist_node *node;
+	struct dentry *dentry;
+
+	hlist_for_each_entry_rcu(dentry, node, head, d_hash) {
+		unsigned seq;
+		struct dentry *tparent;
+		const char *tname;
+		int tlen;
+
+		if (unlikely(dentry->d_name.hash != hash))
+			continue;
+
+seqretry:
+		seq = read_seqcount_begin(&dentry->d_seq);
+		tparent = dentry->d_parent;
+		if (unlikely(tparent != parent))
+			continue;
+		tlen = dentry->d_name.len;
+		if (unlikely(tlen != len))
+			continue;
+		tname = dentry->d_name.name;
+		if (unlikely(read_seqcount_retry(&dentry->d_seq, seq)))
+			goto seqretry;
+		if (unlikely(memcmp(tname, str, tlen)))
+			continue;
+		if (unlikely(read_seqcount_retry(&dentry->d_seq, seq)))
+			goto seqretry;
+
+		return dentry;
+	}
+	return NULL;
+}
+
+struct dentry *d_lookup_rcu(struct dentry *parent, struct qstr * name)
+{
+	struct dentry *dentry = NULL;
+	unsigned seq;
+
+	if (parent->d_op && parent->d_op->d_compare)
+		goto out;
+
+	do {
+		seq = read_seqbegin(&rename_lock);
+		dentry = __d_lookup_rcu(parent, name);
+		if (dentry)
+			break;
+	} while (read_seqretry(&rename_lock, seq));
+out:
+	return dentry;
 }
 
 /**
@@ -1927,6 +1984,8 @@ static void d_move_locked(struct dentry * dentry, struct dentry * target)
 	list_del(&target->d_u.d_child);
 
 	/* Switch the names.. */
+	write_seqcount_begin(&dentry->d_seq);
+	write_seqcount_begin(&target->d_seq);
 	switch_names(dentry, target);
 	swap(dentry->d_name.hash, target->d_name.hash);
 
@@ -1941,6 +2000,8 @@ static void d_move_locked(struct dentry * dentry, struct dentry * target)
 		/* And add them back to the (new) parent lists */
 		list_add(&target->d_u.d_child, &target->d_parent->d_subdirs);
 	}
+	write_seqcount_end(&target->d_seq);
+	write_seqcount_end(&dentry->d_seq);
 
 	list_add(&dentry->d_u.d_child, &dentry->d_parent->d_subdirs);
 	if (target->d_parent != dentry->d_parent)

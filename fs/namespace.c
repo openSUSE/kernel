@@ -581,25 +581,36 @@ static void __touch_mnt_namespace(struct mnt_namespace *ns)
 	}
 }
 
+static void dentry_reset_mounted(struct vfsmount *mnt, struct dentry *dentry)
+{
+	if (!__lookup_mnt(mnt, dentry, 0)) {
+		spin_lock(&dentry->d_lock);
+		dentry->d_flags &= ~DCACHE_MOUNTED;
+		spin_unlock(&dentry->d_lock);
+	}
+}
+
 static void detach_mnt(struct vfsmount *mnt, struct path *old_path)
 {
 	old_path->dentry = mnt->mnt_mountpoint;
 	old_path->mnt = mnt->mnt_parent;
 	mnt->mnt_parent = mnt;
 	mnt->mnt_mountpoint = mnt->mnt_root;
-	list_del_init(&mnt->mnt_hash);
 	list_del_init(&mnt->mnt_child);
-	old_path->dentry->d_mounted--;
-	WARN_ON(mnt->mnt_mounted != 1);
-	mnt->mnt_mounted--;
+	list_del_init(&mnt->mnt_hash);
+	dentry_reset_mounted(old_path->mnt, old_path->dentry);
+	WARN_ON(!(mnt->mnt_flags & MNT_MOUNTED));
+	mnt->mnt_flags &= ~MNT_MOUNTED;
 }
 
 void mnt_set_mountpoint(struct vfsmount *mnt, struct dentry *dentry,
 			struct vfsmount *child_mnt)
 {
 	child_mnt->mnt_parent = mntget(mnt);
-	child_mnt->mnt_mountpoint = dget(dentry);
-	dentry->d_mounted++;
+	spin_lock(&dentry->d_lock);
+	child_mnt->mnt_mountpoint = dget_dlock(dentry);
+	dentry->d_flags |= DCACHE_MOUNTED;
+	spin_unlock(&dentry->d_lock);
 }
 
 static void attach_mnt(struct vfsmount *mnt, struct path *path)
@@ -608,8 +619,8 @@ static void attach_mnt(struct vfsmount *mnt, struct path *path)
 	list_add_tail(&mnt->mnt_hash, mount_hashtable +
 			hash(path->mnt, path->dentry));
 	list_add_tail(&mnt->mnt_child, &path->mnt->mnt_mounts);
-	WARN_ON(mnt->mnt_mounted != 0);
-	mnt->mnt_mounted++;
+	WARN_ON(mnt->mnt_flags & MNT_MOUNTED);
+	mnt->mnt_flags |= MNT_MOUNTED;
 }
 
 /*
@@ -632,8 +643,8 @@ static void commit_tree(struct vfsmount *mnt)
 	list_add_tail(&mnt->mnt_hash, mount_hashtable +
 				hash(parent, mnt->mnt_mountpoint));
 	list_add_tail(&mnt->mnt_child, &parent->mnt_mounts);
-	WARN_ON(mnt->mnt_mounted != 0);
-	mnt->mnt_mounted++;
+	WARN_ON(mnt->mnt_flags & MNT_MOUNTED);
+	mnt->mnt_flags |= MNT_MOUNTED;
 	touch_mnt_namespace(n);
 }
 
@@ -737,9 +748,9 @@ static inline void __mntput(struct vfsmount *mnt)
 
 void mntput_no_expire(struct vfsmount *mnt)
 {
-	if (likely(mnt->mnt_mounted)) {
+	if (likely(mnt->mnt_flags & MNT_MOUNTED)) {
 		vfsmount_read_lock();
-		if (unlikely(!mnt->mnt_mounted)) {
+		if (unlikely(!mnt->mnt_flags & MNT_MOUNTED)) {
 			vfsmount_read_unlock();
 			goto repeat;
 		}
@@ -751,7 +762,7 @@ void mntput_no_expire(struct vfsmount *mnt)
 
 repeat:
 	vfsmount_write_lock();
-	BUG_ON(mnt->mnt_mounted);
+	BUG_ON(mnt->mnt_flags & MNT_MOUNTED);
 	dec_mnt_count(mnt);
 	if (count_mnt_count(mnt)) {
 		vfsmount_write_unlock();
@@ -1174,11 +1185,11 @@ void umount_tree(struct vfsmount *mnt, int propagate, struct list_head *kill)
 		__touch_mnt_namespace(p->mnt_ns);
 		p->mnt_ns = NULL;
 		list_del_init(&p->mnt_child);
-		WARN_ON(p->mnt_mounted != 1);
-		p->mnt_mounted--;
+		WARN_ON(!(p->mnt_flags & MNT_MOUNTED));
+		p->mnt_flags &= ~MNT_MOUNTED;
 		if (p->mnt_parent != p) {
 			p->mnt_parent->mnt_ghosts++;
-			p->mnt_mountpoint->d_mounted--;
+			dentry_reset_mounted(p->mnt_parent, p->mnt_mountpoint);
 		}
 		change_mnt_propagation(p, MS_PRIVATE);
 	}

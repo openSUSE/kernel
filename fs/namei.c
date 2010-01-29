@@ -198,6 +198,29 @@ static int acl_permission_check(struct inode *inode, int mask,
 	return -EACCES;
 }
 
+static int acl_permission_check_rcu(struct inode *inode, int mask,
+		int (*check_acl)(struct inode *inode, int mask))
+{
+	umode_t			mode = inode->i_mode;
+
+	mask &= MAY_READ | MAY_WRITE | MAY_EXEC;
+
+	if (current_fsuid() == inode->i_uid)
+		mode >>= 6;
+	else {
+		if (IS_POSIXACL(inode) && (mode & S_IRWXG) && check_acl)
+			return -EAGAIN;
+		if (in_group_p(inode->i_gid))
+			mode >>= 3;
+	}
+
+	/*
+	 * If the DACs are ok we don't need any capability check.
+	 */
+	if ((mask & ~mode) == 0)
+		return 0;
+	return -EACCES;
+}
 /**
  * generic_permission  -  check for access rights on a Posix-like filesystem
  * @inode:	inode to check access rights for
@@ -483,6 +506,26 @@ ok:
 	return security_inode_permission(inode, MAY_EXEC);
 }
 
+static int exec_permission_lite_rcu(struct inode *inode)
+{
+	int ret;
+
+	if (inode->i_op->permission)
+		return -EAGAIN;
+	ret = acl_permission_check_rcu(inode, MAY_EXEC, inode->i_op->check_acl);
+	if (ret == -EAGAIN)
+		return ret;
+	if (!ret)
+		goto ok;
+
+	if (capable(CAP_DAC_OVERRIDE) || capable(CAP_DAC_READ_SEARCH))
+		goto ok;
+
+	return ret;
+ok:
+	return security_inode_permission(inode, MAY_EXEC);
+}
+
 static __always_inline void set_root(struct nameidata *nd)
 {
 	if (!nd->root.mnt) {
@@ -495,6 +538,15 @@ static __always_inline void set_root(struct nameidata *nd)
 }
 
 static int link_path_walk(const char *, struct nameidata *);
+static __always_inline void set_root_rcu(struct nameidata *nd)
+{
+	if (!nd->root.mnt) {
+		struct fs_struct *fs = current->fs;
+		read_lock(&fs->lock);
+		nd->root = fs->root;
+		read_unlock(&fs->lock);
+	}
+}
 
 static __always_inline int __vfs_follow_link(struct nameidata *nd, const char *link)
 {
@@ -536,6 +588,12 @@ static void path_put_conditional(struct path *path, struct nameidata *nd)
 	dput(path->dentry);
 	if (path->mnt != nd->path.mnt)
 		mntput(path->mnt);
+}
+
+static inline void path_to_nameidata_rcu(struct path *path, struct nameidata *nd)
+{
+	nd->path.mnt = path->mnt;
+	nd->path.dentry = path->dentry;
 }
 
 static inline void path_to_nameidata(struct path *path, struct nameidata *nd)
@@ -637,6 +695,21 @@ int follow_up(struct path *path)
 /* no need for dcache_lock, as serialization is taken care in
  * namespace.c
  */
+static int __follow_mount_rcu(struct path *path)
+{
+	int res = 0;
+	while (d_mountpoint(path->dentry)) {
+		struct vfsmount *mounted;
+		mounted = __lookup_mnt(path->mnt, path->dentry, 1);
+		if (!mounted)
+			break;
+		path->mnt = mounted;
+		path->dentry = mounted->mnt_root;
+		res = 1;
+	}
+	return res;
+}
+
 static int __follow_mount(struct path *path)
 {
 	int res = 0;
@@ -723,6 +796,24 @@ static __always_inline void follow_dotdot(struct nameidata *nd)
  *  small and for now I'd prefer to have fast path as straight as possible.
  *  It _is_ time-critical.
  */
+static int do_lookup_rcu(struct nameidata *nd, struct qstr *name,
+		     struct path *path)
+{
+	struct vfsmount *mnt = nd->path.mnt;
+	struct dentry *dentry;
+
+	dentry = __d_lookup_rcu(nd->path.dentry, name);
+
+	if (!dentry)
+		return -EAGAIN;
+	if (dentry->d_op && dentry->d_op->d_revalidate)
+		return -EAGAIN;
+	path->mnt = mnt;
+	path->dentry = dentry;
+	__follow_mount_rcu(path);
+	return 0;
+}
+
 static int do_lookup(struct nameidata *nd, struct qstr *name,
 		     struct path *path)
 {
@@ -820,6 +911,134 @@ fail:
 	return PTR_ERR(dentry);
 }
 
+static noinline int link_path_walk_rcu(const char *name, struct nameidata *nd, struct path *next)
+{
+	struct inode *inode;
+	unsigned int lookup_flags = nd->flags;
+
+	while (*name=='/')
+		name++;
+	if (!*name)
+		goto return_reval;
+
+	inode = nd->path.dentry->d_inode;
+	if (nd->depth)
+		lookup_flags = LOOKUP_FOLLOW | (nd->flags & LOOKUP_CONTINUE);
+
+	/* At this point we know we have a real path component. */
+	for(;;) {
+		unsigned long hash;
+		struct qstr this;
+		unsigned int c;
+
+		nd->flags |= LOOKUP_CONTINUE;
+		if (exec_permission_lite_rcu(inode))
+			return -EAGAIN;
+
+		this.name = name;
+		c = *(const unsigned char *)name;
+
+		hash = init_name_hash();
+		do {
+			name++;
+			hash = partial_name_hash(c, hash);
+			c = *(const unsigned char *)name;
+		} while (c && (c != '/'));
+		this.len = name - (const char *) this.name;
+		this.hash = end_name_hash(hash);
+
+		/* remove trailing slashes? */
+		if (!c)
+			goto last_component;
+		while (*++name == '/');
+		if (!*name)
+			goto last_with_slashes;
+
+		if (this.name[0] == '.') switch (this.len) {
+			default:
+				break;
+			case 2:
+				if (this.name[1] != '.')
+					break;
+				return -EAGAIN;
+			case 1:
+				continue;
+		}
+		if (nd->path.dentry->d_op && nd->path.dentry->d_op->d_hash)
+			return -EAGAIN;
+		/* This does the actual lookups.. */
+		if (do_lookup_rcu(nd, &this, next))
+			return -EAGAIN;
+
+		inode = next->dentry->d_inode;
+		if (!inode)
+			return -ENOENT;
+		if (inode->i_op->follow_link)
+			return -EAGAIN;
+		path_to_nameidata_rcu(next, nd);
+		if (!inode->i_op->lookup)
+			return -ENOTDIR;
+		continue;
+		/* here ends the main loop */
+
+last_with_slashes:
+		lookup_flags |= LOOKUP_FOLLOW | LOOKUP_DIRECTORY;
+last_component:
+		/* Clear LOOKUP_CONTINUE iff it was previously unset */
+		nd->flags &= lookup_flags | ~LOOKUP_CONTINUE;
+		if (lookup_flags & LOOKUP_PARENT)
+			return -EAGAIN;
+		if (this.name[0] == '.') switch (this.len) {
+			default:
+				break;
+			case 2:
+				if (this.name[1] != '.')
+					break;
+				return -EAGAIN;
+			case 1:
+				goto return_reval;
+		}
+		if (nd->path.dentry->d_op && nd->path.dentry->d_op->d_hash)
+			return -EAGAIN;
+		if (do_lookup_rcu(nd, &this, next))
+			return -EAGAIN;
+		inode = next->dentry->d_inode;
+		if ((lookup_flags & LOOKUP_FOLLOW)
+		    && inode && inode->i_op->follow_link)
+			return -EAGAIN;
+
+		path_to_nameidata_rcu(next, nd);
+		if (!inode)
+			return -ENOENT;
+		if (lookup_flags & LOOKUP_DIRECTORY) {
+			if (!inode->i_op->lookup)
+				return -ENOTDIR;
+		}
+		goto return_base;
+	}
+return_reval:
+	/*
+	 * We bypassed the ordinary revalidation routines.
+	 * We may need to check the cached dentry for staleness.
+	 */
+	if (nd->path.dentry && nd->path.dentry->d_sb &&
+	    (nd->path.dentry->d_sb->s_type->fs_flags & FS_REVAL_DOT))
+		return -EAGAIN;
+return_base:
+	spin_lock(&nd->path.dentry->d_lock);
+	if (d_unhashed(nd->path.dentry)) {
+		spin_unlock(&nd->path.dentry->d_lock);
+		return -EAGAIN;
+	}
+	if (!nd->path.dentry->d_inode) {
+		spin_unlock(&nd->path.dentry->d_lock);
+		return -EAGAIN;
+	}
+	nd->path.dentry->d_count++;
+	spin_unlock(&nd->path.dentry->d_lock);
+	return 0;
+}
+
 /*
  * This is a temporary kludge to deal with "automount" symlinks; proper
  * solution is to trigger them on follow_mount(), so that do_lookup()
@@ -893,7 +1112,7 @@ static int link_path_walk(const char *name, struct nameidata *nd)
 		if (this.name[0] == '.') switch (this.len) {
 			default:
 				break;
-			case 2:	
+			case 2:
 				if (this.name[1] != '.')
 					break;
 				follow_dotdot(nd);
@@ -938,7 +1157,7 @@ last_component:
 		if (this.name[0] == '.') switch (this.len) {
 			default:
 				break;
-			case 2:	
+			case 2:
 				if (this.name[1] != '.')
 					break;
 				follow_dotdot(nd);
@@ -1002,6 +1221,19 @@ return_err:
 	return err;
 }
 
+static int path_walk_rcu(const char *name, struct nameidata *nd)
+{
+	struct path save = nd->path;
+	struct path path = {.mnt = NULL};
+	int err;
+
+	current->total_link_count = 0;
+	err = link_path_walk_rcu(name, nd, &path);
+	if (unlikely(err == -EAGAIN))
+		nd->path = save;
+	return err;
+}
+
 static int path_walk(const char *name, struct nameidata *nd)
 {
 	struct path save = nd->path;
@@ -1025,6 +1257,55 @@ static int path_walk(const char *name, struct nameidata *nd)
 	path_put(&save);
 
 	return result;
+}
+
+static noinline int path_init_rcu(int dfd, const char *name, unsigned int flags, struct nameidata *nd)
+{
+	int retval = 0;
+	int fput_needed;
+	struct file *file;
+
+	nd->last_type = LAST_ROOT; /* if there are only slashes... */
+	nd->flags = flags;
+	nd->depth = 0;
+	nd->root.mnt = NULL;
+
+	if (*name=='/') {
+		set_root_rcu(nd);
+		nd->path = nd->root;
+	} else if (dfd == AT_FDCWD) {
+		struct fs_struct *fs = current->fs;
+		read_lock(&fs->lock);
+		nd->path = fs->pwd;
+		read_unlock(&fs->lock);
+	} else {
+		struct dentry *dentry;
+
+		file = fget_light(dfd, &fput_needed);
+		retval = -EBADF;
+		if (!file)
+			goto out_fail;
+
+		dentry = file->f_path.dentry;
+
+		retval = -ENOTDIR;
+		if (!S_ISDIR(dentry->d_inode->i_mode))
+			goto fput_fail;
+
+		retval = file_permission(file, MAY_EXEC);
+		if (retval)
+			goto fput_fail;
+
+		nd->path = file->f_path;
+
+		fput_light(file, fput_needed);
+	}
+	return 0;
+
+fput_fail:
+	fput_light(file, fput_needed);
+out_fail:
+	return retval;
 }
 
 static int path_init(int dfd, const char *name, unsigned int flags, struct nameidata *nd)
@@ -1083,16 +1364,49 @@ out_fail:
 static int do_path_lookup(int dfd, const char *name,
 				unsigned int flags, struct nameidata *nd)
 {
-	int retval = path_init(dfd, name, flags, nd);
-	if (!retval)
-		retval = path_walk(name, nd);
-	if (unlikely(!retval && !audit_dummy_context() && nd->path.dentry &&
-				nd->path.dentry->d_inode))
-		audit_inode(name, nd->path.dentry);
-	if (nd->root.mnt) {
-		path_put(&nd->root);
-		nd->root.mnt = NULL;
+	int retval;
+
+	vfsmount_read_lock();
+	rcu_read_lock();
+	retval = path_init_rcu(dfd, name, flags, nd);
+	if (unlikely(retval)) {
+		rcu_read_unlock();
+		vfsmount_read_unlock();
+		return retval;
 	}
+	retval = path_walk_rcu(name, nd);
+	rcu_read_unlock();
+	if (likely(!retval))
+		mntget(nd->path.mnt);
+	vfsmount_read_unlock();
+	if (likely(!retval)) {
+		if (unlikely(!audit_dummy_context())) {
+			if (nd->path.dentry && nd->path.dentry->d_inode)
+				audit_inode(name, nd->path.dentry);
+		}
+	}
+	if (nd->root.mnt)
+		nd->root.mnt = NULL;
+
+	if (unlikely(retval == -EAGAIN)) {
+		/* slower, locked walk */
+		retval = path_init(dfd, name, flags, nd);
+		if (unlikely(retval))
+			return retval;
+		retval = path_walk(name, nd);
+		if (likely(!retval)) {
+			if (unlikely(!audit_dummy_context())) {
+				if (nd->path.dentry && nd->path.dentry->d_inode)
+					audit_inode(name, nd->path.dentry);
+			}
+		}
+
+		if (nd->root.mnt) {
+			path_put(&nd->root);
+			nd->root.mnt = NULL;
+		}
+	}
+
 	return retval;
 }
 

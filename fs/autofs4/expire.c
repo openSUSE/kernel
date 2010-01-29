@@ -295,7 +295,9 @@ struct dentry *autofs4_expire_direct(struct super_block *sb,
 		struct autofs_info *ino = autofs4_dentry_ino(root);
 		if (d_mountpoint(root)) {
 			ino->flags |= AUTOFS_INF_MOUNTPOINT;
-			root->d_mounted--;
+			spin_lock(&root->d_lock);
+			root->d_flags &= ~DCACHE_MOUNTED;
+			spin_unlock(&root->d_lock);
 		}
 		ino->flags |= AUTOFS_INF_EXPIRING;
 		autofs4_add_expiring(root);
@@ -533,7 +535,9 @@ int autofs4_do_expire_multi(struct super_block *sb, struct vfsmount *mnt,
 
 		spin_lock(&sbi->fs_lock);
 		if (ino->flags & AUTOFS_INF_MOUNTPOINT) {
-			sb->s_root->d_mounted++;
+			spin_lock(&sb->s_root->d_lock);
+			sb->s_root->d_flags |= DCACHE_MOUNTED;
+			spin_unlock(&sb->s_root->d_lock);
 			ino->flags &= ~AUTOFS_INF_MOUNTPOINT;
 		}
 		ino->flags &= ~AUTOFS_INF_EXPIRING;
