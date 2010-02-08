@@ -2529,6 +2529,8 @@ void lockdep_init_map(struct lockdep_map *lock, const char *name,
 }
 EXPORT_SYMBOL_GPL(lockdep_init_map);
 
+struct lock_class_key __lockdep_no_validate__;
+
 /*
  * This gets called for every mutex_lock*()/spin_lock*() operation.
  * We maintain the dependency maps and validate the locking attempt:
@@ -2560,6 +2562,9 @@ static int __lock_acquire(struct lockdep_map *lock, unsigned int subclass,
 		dump_stack();
 		return 0;
 	}
+
+	if (lock->key == &__lockdep_no_validate__)
+		check = 1;
 
 	if (!subclass)
 		class = lock->class_cache;
