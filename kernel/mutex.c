@@ -148,6 +148,9 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 
 	preempt_disable();
 	mutex_acquire(&lock->dep_map, subclass, 0, ip);
+
+	DEBUG_LOCKS_WARN_ON(in_interrupt());
+
 #if defined(CONFIG_SMP) && !defined(CONFIG_DEBUG_MUTEXES) && \
     !defined(CONFIG_HAVE_DEFAULT_NO_SPIN_MUTEXES)
 	/*
