@@ -1014,6 +1014,17 @@ static int select_task_rq_rt(struct task_struct *p, int sync)
 	}
 
 	/*
+	 * If the new task is an RT task, current is not an RT task
+	 * and the new one may run on the current CPU, run it here.
+	 * This avoids sending reschedule IPIs across CPUs.
+	 */
+	if (unlikely(rt_task(p)) && !rt_task(rq->curr)) {
+		int cpu = smp_processor_id();
+		if (cpumask_test_cpu(cpu, &p->cpus_allowed))
+			return cpu;
+	}
+
+	/*
 	 * Otherwise, just let it ride on the affined RQ and the
 	 * post-schedule router will push the preempted task away
 	 */
