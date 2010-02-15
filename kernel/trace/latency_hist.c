@@ -108,14 +108,16 @@ static notrace void probe_wakeup_latency_hist_start(struct rq *rq,
     struct task_struct *p, int success);
 static notrace void probe_wakeup_latency_hist_stop(struct rq *rq,
     struct task_struct *prev, struct task_struct *next);
+static notrace void probe_sched_migrate_task(struct task_struct *task,
+    int cpu);
 static struct enable_data wakeup_latency_enabled_data = {
 	.latency_type = WAKEUP_LATENCY,
 	.enabled = 0,
 };
 static DEFINE_PER_CPU(struct maxlatproc_data, wakeup_maxlatproc);
 static DEFINE_PER_CPU(struct maxlatproc_data, wakeup_maxlatproc_sharedprio);
-static struct task_struct *wakeup_task;
-static int wakeup_sharedprio;
+static DEFINE_PER_CPU(struct task_struct *, wakeup_task);
+static DEFINE_PER_CPU(int, wakeup_sharedprio);
 static unsigned long wakeup_pid;
 #endif
 
@@ -531,6 +533,20 @@ do_enable(struct file *file, const char __user *ubuf, size_t cnt, loff_t *ppos)
 				    probe_wakeup_latency_hist_start);
 				return ret;
 			}
+			ret = register_trace_sched_migrate_task(
+			    probe_sched_migrate_task);
+			if (ret) {
+				pr_info("wakeup trace: Couldn't assign "
+				    "probe_sched_migrate_task "
+				    "to trace_sched_migrate_task\n");
+				unregister_trace_sched_wakeup(
+				    probe_wakeup_latency_hist_start);
+				unregister_trace_sched_wakeup_new(
+				    probe_wakeup_latency_hist_start);
+				unregister_trace_sched_switch(
+				    probe_wakeup_latency_hist_stop);
+				return ret;
+			}
 			break;
 #endif
 #ifdef CONFIG_MISSED_TIMER_OFFSETS_HIST
@@ -576,14 +592,23 @@ do_enable(struct file *file, const char __user *ubuf, size_t cnt, loff_t *ppos)
 #endif
 #ifdef CONFIG_WAKEUP_LATENCY_HIST
 		case WAKEUP_LATENCY:
-			unregister_trace_sched_wakeup(
-			    probe_wakeup_latency_hist_start);
-			unregister_trace_sched_wakeup_new(
-			    probe_wakeup_latency_hist_start);
-			unregister_trace_sched_switch(
-			    probe_wakeup_latency_hist_stop);
-			wakeup_task = NULL;
-			wakeup_sharedprio = 0;
+			{
+				int cpu;
+
+				unregister_trace_sched_wakeup(
+				    probe_wakeup_latency_hist_start);
+				unregister_trace_sched_wakeup_new(
+				    probe_wakeup_latency_hist_start);
+				unregister_trace_sched_switch(
+				    probe_wakeup_latency_hist_stop);
+				unregister_trace_sched_migrate_task(
+				    probe_sched_migrate_task);
+
+				for_each_online_cpu(cpu) {
+					per_cpu(wakeup_task, cpu) = NULL;
+					per_cpu(wakeup_sharedprio, cpu) = 0;
+				}
+			}
 			break;
 #endif
 #ifdef CONFIG_MISSED_TIMER_OFFSETS_HIST
@@ -729,35 +754,63 @@ static notrace void probe_preemptirqsoff_hist(int reason, int starthist)
 
 #ifdef CONFIG_WAKEUP_LATENCY_HIST
 static DEFINE_ATOMIC_SPINLOCK(wakeup_lock);
+static notrace void probe_sched_migrate_task(struct task_struct *task, int cpu)
+{
+        int old_cpu = task_cpu(task);
+
+	if (cpu != old_cpu) {
+		unsigned long flags;
+		struct task_struct *cpu_wakeup_task;
+
+		atomic_spin_lock_irqsave(&wakeup_lock, flags);
+
+		cpu_wakeup_task = per_cpu(wakeup_task, old_cpu);
+		if (task == cpu_wakeup_task) {
+			put_task_struct(cpu_wakeup_task);
+			per_cpu(wakeup_task, old_cpu) = NULL;
+			cpu_wakeup_task = per_cpu(wakeup_task, cpu) = task;
+			get_task_struct(cpu_wakeup_task);
+		}
+
+		atomic_spin_unlock_irqrestore(&wakeup_lock, flags);
+	}
+}
+
 static notrace void probe_wakeup_latency_hist_start(struct rq *rq,
     struct task_struct *p, int success)
 {
 	unsigned long flags;
 	struct task_struct *curr = rq_curr(rq);
-
-	if (wakeup_pid) {
-		if ((wakeup_task && p->prio == wakeup_task->prio) ||
-		    p->prio == curr->prio)
-			wakeup_sharedprio = 1;
-		if (likely(wakeup_pid != task_pid_nr(p)))
-			return;
-	} else {
-		if (likely(!rt_task(p)) ||
-		    (wakeup_task && p->prio > wakeup_task->prio) ||
-		    p->prio > curr->prio)
-			return;
-		if ((wakeup_task && p->prio == wakeup_task->prio) ||
-		    p->prio == curr->prio)
-			wakeup_sharedprio = 1;
-	}
+	int cpu = task_cpu(p);
+	struct task_struct *cpu_wakeup_task;
 
 	atomic_spin_lock_irqsave(&wakeup_lock, flags);
-	if (wakeup_task)
-		put_task_struct(wakeup_task);
-	get_task_struct(p);
-	wakeup_task = p;
-	wakeup_task->preempt_timestamp_hist =
-	    ftrace_now(raw_smp_processor_id());
+
+	cpu_wakeup_task = per_cpu(wakeup_task, cpu);
+
+	if (wakeup_pid) {
+		if ((cpu_wakeup_task && p->prio == cpu_wakeup_task->prio) ||
+		    p->prio == curr->prio)
+			per_cpu(wakeup_sharedprio, cpu) = 1;
+		if (likely(wakeup_pid != task_pid_nr(p)))
+			goto out;
+	} else {
+		if (likely(!rt_task(p)) ||
+		    (cpu_wakeup_task && p->prio > cpu_wakeup_task->prio) ||
+		    p->prio > curr->prio)
+			goto out;
+		if ((cpu_wakeup_task && p->prio == cpu_wakeup_task->prio) ||
+		    p->prio == curr->prio)
+			per_cpu(wakeup_sharedprio, cpu) = 1;
+	}
+
+	if (cpu_wakeup_task)
+		put_task_struct(cpu_wakeup_task);
+	cpu_wakeup_task = per_cpu(wakeup_task, cpu) = p;
+	get_task_struct(cpu_wakeup_task);
+	cpu_wakeup_task->preempt_timestamp_hist =
+		ftrace_now(raw_smp_processor_id());
+out:
 	atomic_spin_unlock_irqrestore(&wakeup_lock, flags);
 }
 
@@ -765,40 +818,49 @@ static notrace void probe_wakeup_latency_hist_stop(struct rq *rq,
     struct task_struct *prev, struct task_struct *next)
 {
 	unsigned long flags;
-	int cpu;
+	int cpu = task_cpu(next);
 	unsigned long latency;
 	cycle_t stop;
-
-        if (unlikely(current == wakeup_task)) {
-                atomic_spin_lock_irqsave(&wakeup_lock, flags);
-                goto out_reset;
-        }
-
-	if (next != wakeup_task)
-		return;
-
-	cpu = raw_smp_processor_id();
-	stop = ftrace_now(cpu);
-
-	latency = nsecs_to_usecs(stop - next->preempt_timestamp_hist);
+	struct task_struct *cpu_wakeup_task;
 
 	atomic_spin_lock_irqsave(&wakeup_lock, flags);
-	if (next != wakeup_task) {
-		if (wakeup_task && next->prio == wakeup_task->prio)
-			latency_hist(WAKEUP_LATENCY_SHAREDPRIO, cpu, latency,
-			    next);
+
+	cpu_wakeup_task = per_cpu(wakeup_task, cpu);
+
+	if (cpu_wakeup_task == NULL)
+		goto out;
+
+	/* Already running? */
+	if (unlikely(current == cpu_wakeup_task))
+		goto out_reset;
+
+	if (next != cpu_wakeup_task) {
+		if (next->prio < cpu_wakeup_task->prio)
+			goto out_reset;
+
+		if (next->prio == cpu_wakeup_task->prio)
+			per_cpu(wakeup_sharedprio, cpu) = 1;
+
 		goto out;
 	}
 
-	if (wakeup_sharedprio) {
+	/*
+	 * The task we are waiting for is about to be switched to.
+	 * Calculate latency and store it in histogram.
+	 */
+	stop = ftrace_now(raw_smp_processor_id());
+
+	latency = nsecs_to_usecs(stop - next->preempt_timestamp_hist);
+
+	if (per_cpu(wakeup_sharedprio, cpu)) {
 		latency_hist(WAKEUP_LATENCY_SHAREDPRIO, cpu, latency, next);
-		wakeup_sharedprio = 0;
+		per_cpu(wakeup_sharedprio, cpu) = 0;
 	} else
 		latency_hist(WAKEUP_LATENCY, cpu, latency, next);
 
 out_reset:
-	put_task_struct(wakeup_task);
-	wakeup_task = NULL;
+	put_task_struct(cpu_wakeup_task);
+	per_cpu(wakeup_task, cpu) = NULL;
 out:
 	atomic_spin_unlock_irqrestore(&wakeup_lock, flags);
 }
