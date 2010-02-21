@@ -692,7 +692,7 @@ static int myri_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	DTX(("tbusy=0, returning 0\n"));
 	netif_start_queue(dev);
 	spin_unlock_irqrestore(&mp->irq_lock, flags);
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /* Create the MyriNet MAC header for an arbitrary protocol layer
@@ -1084,7 +1084,7 @@ static int __devinit myri_sbus_probe(struct of_device *op, const struct of_devic
 
 	/* Register interrupt handler now. */
 	DET(("Requesting MYRIcom IRQ line.\n"));
-	if (request_irq(dev->irq, &myri_interrupt,
+	if (request_irq(dev->irq, myri_interrupt,
 			IRQF_SHARED, "MyriCOM Ethernet", (void *) dev)) {
 		printk("MyriCOM: Cannot register interrupt handler.\n");
 		goto err;

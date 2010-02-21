@@ -1,6 +1,7 @@
 #ifndef _ASM_GENERIC_GPIO_H
 #define _ASM_GENERIC_GPIO_H
 
+#include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/errno.h>
 
@@ -27,6 +28,7 @@ static inline int gpio_is_valid(int number)
 	return ((unsigned)number) < ARCH_NR_GPIOS;
 }
 
+struct device;
 struct seq_file;
 struct module;
 
@@ -141,6 +143,9 @@ extern int __gpio_to_irq(unsigned gpio);
  * but more typically is configured entirely from userspace.
  */
 extern int gpio_export(unsigned gpio, bool direction_may_change);
+extern int gpio_export_link(struct device *dev, const char *name,
+			unsigned gpio);
+extern int gpio_sysfs_set_active_low(unsigned gpio, int value);
 extern void gpio_unexport(unsigned gpio);
 
 #endif	/* CONFIG_GPIO_SYSFS */
@@ -178,9 +183,22 @@ static inline void gpio_set_value_cansleep(unsigned gpio, int value)
 
 #ifndef CONFIG_GPIO_SYSFS
 
+struct device;
+
 /* sysfs support is only available with gpiolib, where it's optional */
 
 static inline int gpio_export(unsigned gpio, bool direction_may_change)
+{
+	return -ENOSYS;
+}
+
+static inline int gpio_export_link(struct device *dev, const char *name,
+				unsigned gpio)
+{
+	return -ENOSYS;
+}
+
+static inline int gpio_sysfs_set_active_low(unsigned gpio, int value)
 {
 	return -ENOSYS;
 }

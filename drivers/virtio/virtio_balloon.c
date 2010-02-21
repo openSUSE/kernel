@@ -84,7 +84,7 @@ static void tell_host(struct virtio_balloon *vb, struct virtqueue *vq)
 	init_completion(&vb->acked);
 
 	/* We should always be able to add one buffer to an empty queue. */
-	if (vq->vq_ops->add_buf(vq, &sg, 1, 0, vb) != 0)
+	if (vq->vq_ops->add_buf(vq, &sg, 1, 0, vb) < 0)
 		BUG();
 	vq->vq_ops->kick(vq);
 
@@ -247,7 +247,7 @@ out:
 	return err;
 }
 
-static void virtballoon_remove(struct virtio_device *vdev)
+static void __devexit virtballoon_remove(struct virtio_device *vdev)
 {
 	struct virtio_balloon *vb = vdev->priv;
 
@@ -266,7 +266,7 @@ static void virtballoon_remove(struct virtio_device *vdev)
 
 static unsigned int features[] = { VIRTIO_BALLOON_F_MUST_TELL_HOST };
 
-static struct virtio_driver virtio_balloon = {
+static struct virtio_driver virtio_balloon_driver = {
 	.feature_table = features,
 	.feature_table_size = ARRAY_SIZE(features),
 	.driver.name =	KBUILD_MODNAME,
@@ -279,12 +279,12 @@ static struct virtio_driver virtio_balloon = {
 
 static int __init init(void)
 {
-	return register_virtio_driver(&virtio_balloon);
+	return register_virtio_driver(&virtio_balloon_driver);
 }
 
 static void __exit fini(void)
 {
-	unregister_virtio_driver(&virtio_balloon);
+	unregister_virtio_driver(&virtio_balloon_driver);
 }
 module_init(init);
 module_exit(fini);

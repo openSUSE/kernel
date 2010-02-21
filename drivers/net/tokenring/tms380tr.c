@@ -144,8 +144,8 @@ static void 	tms380tr_exec_sifcmd(struct net_device *dev, unsigned int WriteValu
 /* "G" */
 static struct net_device_stats *tms380tr_get_stats(struct net_device *dev);
 /* "H" */
-static int 	tms380tr_hardware_send_packet(struct sk_buff *skb,
-			struct net_device *dev);
+static netdev_tx_t tms380tr_hardware_send_packet(struct sk_buff *skb,
+						       struct net_device *dev);
 /* "I" */
 static int 	tms380tr_init_adapter(struct net_device *dev);
 static void 	tms380tr_init_ipb(struct net_local *tp);
@@ -165,7 +165,8 @@ static int 	tms380tr_reset_adapter(struct net_device *dev);
 static void 	tms380tr_reset_interrupt(struct net_device *dev);
 static void 	tms380tr_ring_status_irq(struct net_device *dev);
 /* "S" */
-static int 	tms380tr_send_packet(struct sk_buff *skb, struct net_device *dev);
+static netdev_tx_t tms380tr_send_packet(struct sk_buff *skb,
+					      struct net_device *dev);
 static void 	tms380tr_set_multicast_list(struct net_device *dev);
 static int	tms380tr_set_mac_address(struct net_device *dev, void *addr);
 /* "T" */
@@ -599,21 +600,23 @@ static void tms380tr_timeout(struct net_device *dev)
 /*
  * Gets skb from system, queues it and checks if it can be sent
  */
-static int tms380tr_send_packet(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t tms380tr_send_packet(struct sk_buff *skb,
+					      struct net_device *dev)
 {
 	struct net_local *tp = netdev_priv(dev);
-	int err;
+	netdev_tx_t rc;
 
-	err = tms380tr_hardware_send_packet(skb, dev);
+	rc = tms380tr_hardware_send_packet(skb, dev);
 	if(tp->TplFree->NextTPLPtr->BusyFlag)
 		netif_stop_queue(dev);
-	return (err);
+	return rc;
 }
 
 /*
  * Move frames into adapter tx queue
  */
-static int tms380tr_hardware_send_packet(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t tms380tr_hardware_send_packet(struct sk_buff *skb,
+						       struct net_device *dev)
 {
 	TPL *tpl;
 	short length;
@@ -682,7 +685,7 @@ static int tms380tr_hardware_send_packet(struct sk_buff *skb, struct net_device 
 	tms380tr_exec_sifcmd(dev, CMD_TX_VALID);
 	spin_unlock_irqrestore(&tp->lock, flags);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /*
@@ -726,8 +729,8 @@ static void tms380tr_timer_chk(unsigned long data)
 		return;
 
 	tms380tr_chk_outstanding_cmds(dev);
-	if(time_before(tp->LastSendTime + SEND_TIMEOUT, jiffies)
-		&& (tp->TplFree != tp->TplBusy))
+	if(time_before(tp->LastSendTime + SEND_TIMEOUT, jiffies) &&
+	   (tp->TplFree != tp->TplBusy))
 	{
 		/* Anything to send, but stalled too long */
 		tp->LastSendTime = jiffies;
@@ -827,8 +830,8 @@ irqreturn_t tms380tr_interrupt(int irq, void *dev_id)
 		}
 
 		/* Reset system interrupt if not already done. */
-		if(irq_type != STS_IRQ_TRANSMIT_STATUS
-			&& irq_type != STS_IRQ_RECEIVE_STATUS) {
+		if(irq_type != STS_IRQ_TRANSMIT_STATUS &&
+		   irq_type != STS_IRQ_RECEIVE_STATUS) {
 			tms380tr_reset_interrupt(dev);
 		}
 
@@ -892,10 +895,10 @@ static unsigned char tms380tr_chk_ssb(struct net_local *tp, unsigned short IrqTy
 
 	/* Check if this interrupt does use the SSB. */
 
-	if(IrqType != STS_IRQ_TRANSMIT_STATUS
-		&& IrqType != STS_IRQ_RECEIVE_STATUS
-		&& IrqType != STS_IRQ_COMMAND_STATUS
-		&& IrqType != STS_IRQ_RING_STATUS)
+	if(IrqType != STS_IRQ_TRANSMIT_STATUS &&
+	   IrqType != STS_IRQ_RECEIVE_STATUS &&
+	   IrqType != STS_IRQ_COMMAND_STATUS &&
+	   IrqType != STS_IRQ_RING_STATUS)
 	{
 		return (1);	/* SSB not involved. */
 	}
@@ -1361,6 +1364,8 @@ static int tms380tr_reset_adapter(struct net_device *dev)
 	return (-1);
 }
 
+MODULE_FIRMWARE("tms380tr.bin");
+
 /*
  * Starts bring up diagnostics of token ring adapter and evaluates
  * diagnostic results.
@@ -1480,8 +1485,8 @@ static int tms380tr_init_adapter(struct net_device *dev)
 			/* Mask interesting status bits */
 			Status = SIFREADW(SIFSTS);
 			Status &= STS_MASK;
-		} while(((Status &(STS_INITIALIZE | STS_ERROR | STS_TEST)) != 0)
-			&& ((Status & STS_ERROR) == 0) && (loop_cnt != 0));
+		} while(((Status &(STS_INITIALIZE | STS_ERROR | STS_TEST)) != 0) &&
+			((Status & STS_ERROR) == 0) && (loop_cnt != 0));
 
 		if((Status & (STS_INITIALIZE | STS_ERROR | STS_TEST)) == 0)
 		{
@@ -2178,8 +2183,8 @@ static void tms380tr_rcv_status_irq(struct net_device *dev)
 				}
 			}
 
-			if(skb && (rpl->SkbStat == SKB_DATA_COPY
-				|| rpl->SkbStat == SKB_DMA_DIRECT))
+			if(skb && (rpl->SkbStat == SKB_DATA_COPY ||
+				   rpl->SkbStat == SKB_DMA_DIRECT))
 			{
 				if(rpl->SkbStat == SKB_DATA_COPY)
 					skb_copy_to_linear_data(skb, ReceiveDataPtr,

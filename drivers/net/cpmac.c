@@ -54,7 +54,7 @@ module_param(dumb_switch, int, 0444);
 MODULE_PARM_DESC(debug_level, "Number of NETIF_MSG bits to enable");
 MODULE_PARM_DESC(dumb_switch, "Assume switch is not connected to MDIO bus");
 
-#define CPMAC_VERSION "0.5.0"
+#define CPMAC_VERSION "0.5.1"
 /* frame size + 802.1q tag */
 #define CPMAC_SKB_SIZE		(ETH_FRAME_LEN + 4)
 #define CPMAC_QUEUES	8
@@ -380,9 +380,8 @@ static struct sk_buff *cpmac_rx_one(struct cpmac_priv *priv,
 		return NULL;
 	}
 
-	skb = netdev_alloc_skb(priv->dev, CPMAC_SKB_SIZE);
+	skb = netdev_alloc_skb_ip_align(priv->dev, CPMAC_SKB_SIZE);
 	if (likely(skb)) {
-		skb_reserve(skb, 2);
 		skb_put(desc->skb, desc->datalen);
 		desc->skb->protocol = eth_type_trans(desc->skb, priv->dev);
 		desc->skb->ip_summed = CHECKSUM_NONE;
@@ -991,12 +990,11 @@ static int cpmac_open(struct net_device *dev)
 
 	priv->rx_head = &priv->desc_ring[CPMAC_QUEUES];
 	for (i = 0, desc = priv->rx_head; i < priv->ring_size; i++, desc++) {
-		skb = netdev_alloc_skb(dev, CPMAC_SKB_SIZE);
+		skb = netdev_alloc_skb_ip_align(dev, CPMAC_SKB_SIZE);
 		if (unlikely(!skb)) {
 			res = -ENOMEM;
 			goto fail_desc;
 		}
-		skb_reserve(skb, 2);
 		desc->skb = skb;
 		desc->data_mapping = dma_map_single(&dev->dev, skb->data,
 						    CPMAC_SKB_SIZE,
@@ -1109,7 +1107,7 @@ static int external_switch;
 static int __devinit cpmac_probe(struct platform_device *pdev)
 {
 	int rc, phy_id;
-	char *mdio_bus_id = "0";
+	char mdio_bus_id[MII_BUS_ID_SIZE];
 	struct resource *mem;
 	struct cpmac_priv *priv;
 	struct net_device *dev;
@@ -1117,22 +1115,23 @@ static int __devinit cpmac_probe(struct platform_device *pdev)
 
 	pdata = pdev->dev.platform_data;
 
-	for (phy_id = 0; phy_id < PHY_MAX_ADDR; phy_id++) {
-		if (!(pdata->phy_mask & (1 << phy_id)))
-			continue;
-		if (!cpmac_mii->phy_map[phy_id])
-			continue;
-		break;
+	if (external_switch || dumb_switch) {
+		strncpy(mdio_bus_id, "0", MII_BUS_ID_SIZE); /* fixed phys bus */
+		phy_id = pdev->id;
+	} else {
+		for (phy_id = 0; phy_id < PHY_MAX_ADDR; phy_id++) {
+			if (!(pdata->phy_mask & (1 << phy_id)))
+				continue;
+			if (!cpmac_mii->phy_map[phy_id])
+				continue;
+			strncpy(mdio_bus_id, cpmac_mii->id, MII_BUS_ID_SIZE);
+			break;
+		}
 	}
 
 	if (phy_id == PHY_MAX_ADDR) {
-		if (external_switch || dumb_switch) {
-			mdio_bus_id = 0; /* fixed phys bus */
-			phy_id = pdev->id;
-		} else {
-			dev_err(&pdev->dev, "no PHY present\n");
-			return -ENODEV;
-		}
+		dev_err(&pdev->dev, "no PHY present\n");
+		return -ENODEV;
 	}
 
 	dev = alloc_etherdev_mq(sizeof(*priv), CPMAC_QUEUES);
@@ -1164,10 +1163,13 @@ static int __devinit cpmac_probe(struct platform_device *pdev)
 	priv->dev = dev;
 	priv->ring_size = 64;
 	priv->msg_enable = netif_msg_init(debug_level, 0xff);
-	memcpy(dev->dev_addr, pdata->dev_addr, sizeof(dev->dev_addr));
+	memcpy(dev->dev_addr, pdata->dev_addr, sizeof(pdata->dev_addr));
 
-	priv->phy = phy_connect(dev, dev_name(&cpmac_mii->phy_map[phy_id]->dev),
-				&cpmac_adjust_link, 0, PHY_INTERFACE_MODE_MII);
+	snprintf(priv->phy_name, MII_BUS_ID_SIZE, PHY_ID_FMT, mdio_bus_id, phy_id);
+
+	priv->phy = phy_connect(dev, priv->phy_name, &cpmac_adjust_link, 0,
+						PHY_INTERFACE_MODE_MII);
+
 	if (IS_ERR(priv->phy)) {
 		if (netif_msg_drv(priv))
 			printk(KERN_ERR "%s: Could not attach to PHY\n",
@@ -1241,11 +1243,11 @@ int __devinit cpmac_init(void)
 
 	cpmac_mii->reset(cpmac_mii);
 
-	for (i = 0; i < 300000; i++)
+	for (i = 0; i < 300; i++)
 		if ((mask = cpmac_read(cpmac_mii->priv, CPMAC_MDIO_ALIVE)))
 			break;
 		else
-			cpu_relax();
+			msleep(10);
 
 	mask &= 0x7fffffff;
 	if (mask & (mask - 1)) {
@@ -1254,7 +1256,7 @@ int __devinit cpmac_init(void)
 	}
 
 	cpmac_mii->phy_mask = ~(mask | 0x80000000);
-	snprintf(cpmac_mii->id, MII_BUS_ID_SIZE, "0");
+	snprintf(cpmac_mii->id, MII_BUS_ID_SIZE, "1");
 
 	res = mdiobus_register(cpmac_mii);
 	if (res)

@@ -154,16 +154,12 @@ static int ipcomp6_init_state(struct xfrm_state *x)
 	if (x->props.mode == XFRM_MODE_TUNNEL) {
 		err = ipcomp6_tunnel_attach(x);
 		if (err)
-			goto error_tunnel;
+			goto out;
 	}
 
 	err = 0;
 out:
 	return err;
-error_tunnel:
-	ipcomp_destroy(x);
-
-	goto out;
 }
 
 static const struct xfrm_type ipcomp6_type =
@@ -178,7 +174,7 @@ static const struct xfrm_type ipcomp6_type =
 	.hdr_offset	= xfrm6_find_1stfragopt,
 };
 
-static struct inet6_protocol ipcomp6_protocol =
+static const struct inet6_protocol ipcomp6_protocol =
 {
 	.handler	= xfrm6_rcv,
 	.err_handler	= ipcomp6_err,

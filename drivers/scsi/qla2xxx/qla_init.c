@@ -40,6 +40,210 @@ static struct qla_chip_state_84xx *qla84xx_get_chip(struct scsi_qla_host *);
 static int qla84xx_init_chip(scsi_qla_host_t *);
 static int qla25xx_init_queues(struct qla_hw_data *);
 
+/* SRB Extensions ---------------------------------------------------------- */
+
+static void
+qla2x00_ctx_sp_timeout(unsigned long __data)
+{
+	srb_t *sp = (srb_t *)__data;
+	struct srb_ctx *ctx;
+	fc_port_t *fcport = sp->fcport;
+	struct qla_hw_data *ha = fcport->vha->hw;
+	struct req_que *req;
+	unsigned long flags;
+
+	spin_lock_irqsave(&ha->hardware_lock, flags);
+	req = ha->req_q_map[0];
+	req->outstanding_cmds[sp->handle] = NULL;
+	ctx = sp->ctx;
+	ctx->timeout(sp);
+	spin_unlock_irqrestore(&ha->hardware_lock, flags);
+
+	ctx->free(sp);
+}
+
+static void
+qla2x00_ctx_sp_free(srb_t *sp)
+{
+	struct srb_ctx *ctx = sp->ctx;
+
+	kfree(ctx);
+	mempool_free(sp, sp->fcport->vha->hw->srb_mempool);
+}
+
+inline srb_t *
+qla2x00_get_ctx_sp(scsi_qla_host_t *vha, fc_port_t *fcport, size_t size,
+    unsigned long tmo)
+{
+	srb_t *sp;
+	struct qla_hw_data *ha = vha->hw;
+	struct srb_ctx *ctx;
+
+	sp = mempool_alloc(ha->srb_mempool, GFP_KERNEL);
+	if (!sp)
+		goto done;
+	ctx = kzalloc(size, GFP_KERNEL);
+	if (!ctx) {
+		mempool_free(sp, ha->srb_mempool);
+		goto done;
+	}
+
+	memset(sp, 0, sizeof(*sp));
+	sp->fcport = fcport;
+	sp->ctx = ctx;
+	ctx->free = qla2x00_ctx_sp_free;
+
+	init_timer(&ctx->timer);
+	if (!tmo)
+		goto done;
+	ctx->timer.expires = jiffies + tmo * HZ;
+	ctx->timer.data = (unsigned long)sp;
+	ctx->timer.function = qla2x00_ctx_sp_timeout;
+	add_timer(&ctx->timer);
+done:
+	return sp;
+}
+
+/* Asynchronous Login/Logout Routines -------------------------------------- */
+
+#define ELS_TMO_2_RATOV(ha) ((ha)->r_a_tov / 10 * 2)
+
+static void
+qla2x00_async_logio_timeout(srb_t *sp)
+{
+	fc_port_t *fcport = sp->fcport;
+	struct srb_logio *lio = sp->ctx;
+
+	DEBUG2(printk(KERN_WARNING
+	    "scsi(%ld:%x): Async-%s timeout.\n",
+	    fcport->vha->host_no, sp->handle,
+	    lio->ctx.type == SRB_LOGIN_CMD ? "login": "logout"));
+
+	if (lio->ctx.type == SRB_LOGIN_CMD)
+		qla2x00_post_async_logout_work(fcport->vha, fcport, NULL);
+}
+
+int
+qla2x00_async_login(struct scsi_qla_host *vha, fc_port_t *fcport,
+    uint16_t *data)
+{
+	struct qla_hw_data *ha = vha->hw;
+	srb_t *sp;
+	struct srb_logio *lio;
+	int rval;
+
+	rval = QLA_FUNCTION_FAILED;
+	sp = qla2x00_get_ctx_sp(vha, fcport, sizeof(struct srb_logio),
+	    ELS_TMO_2_RATOV(ha) + 2);
+	if (!sp)
+		goto done;
+
+	lio = sp->ctx;
+	lio->ctx.type = SRB_LOGIN_CMD;
+	lio->ctx.timeout = qla2x00_async_logio_timeout;
+	lio->flags |= SRB_LOGIN_COND_PLOGI;
+	if (data[1] & QLA_LOGIO_LOGIN_RETRIED)
+		lio->flags |= SRB_LOGIN_RETRIED;
+	rval = qla2x00_start_sp(sp);
+	if (rval != QLA_SUCCESS)
+		goto done_free_sp;
+
+	DEBUG2(printk(KERN_DEBUG
+	    "scsi(%ld:%x): Async-login - loop-id=%x portid=%02x%02x%02x "
+	    "retries=%d.\n", fcport->vha->host_no, sp->handle, fcport->loop_id,
+	    fcport->d_id.b.domain, fcport->d_id.b.area, fcport->d_id.b.al_pa,
+	    fcport->login_retry));
+	return rval;
+
+done_free_sp:
+	del_timer_sync(&lio->ctx.timer);
+	lio->ctx.free(sp);
+done:
+	return rval;
+}
+
+int
+qla2x00_async_logout(struct scsi_qla_host *vha, fc_port_t *fcport)
+{
+	struct qla_hw_data *ha = vha->hw;
+	srb_t *sp;
+	struct srb_logio *lio;
+	int rval;
+
+	rval = QLA_FUNCTION_FAILED;
+	sp = qla2x00_get_ctx_sp(vha, fcport, sizeof(struct srb_logio),
+	    ELS_TMO_2_RATOV(ha) + 2);
+	if (!sp)
+		goto done;
+
+	lio = sp->ctx;
+	lio->ctx.type = SRB_LOGOUT_CMD;
+	lio->ctx.timeout = qla2x00_async_logio_timeout;
+	rval = qla2x00_start_sp(sp);
+	if (rval != QLA_SUCCESS)
+		goto done_free_sp;
+
+	DEBUG2(printk(KERN_DEBUG
+	    "scsi(%ld:%x): Async-logout - loop-id=%x portid=%02x%02x%02x.\n",
+	    fcport->vha->host_no, sp->handle, fcport->loop_id,
+	    fcport->d_id.b.domain, fcport->d_id.b.area, fcport->d_id.b.al_pa));
+	return rval;
+
+done_free_sp:
+	del_timer_sync(&lio->ctx.timer);
+	lio->ctx.free(sp);
+done:
+	return rval;
+}
+
+int
+qla2x00_async_login_done(struct scsi_qla_host *vha, fc_port_t *fcport,
+    uint16_t *data)
+{
+	int rval;
+	uint8_t opts = 0;
+
+	switch (data[0]) {
+	case MBS_COMMAND_COMPLETE:
+		if (fcport->flags & FCF_FCP2_DEVICE)
+			opts |= BIT_1;
+		rval = qla2x00_get_port_database(vha, fcport, opts);
+		if (rval != QLA_SUCCESS)
+			qla2x00_mark_device_lost(vha, fcport, 1, 0);
+		else
+			qla2x00_update_fcport(vha, fcport);
+		break;
+	case MBS_COMMAND_ERROR:
+		if (data[1] & QLA_LOGIO_LOGIN_RETRIED)
+			set_bit(RELOGIN_NEEDED, &vha->dpc_flags);
+		else
+			qla2x00_mark_device_lost(vha, fcport, 1, 0);
+		break;
+	case MBS_PORT_ID_USED:
+		fcport->loop_id = data[1];
+		qla2x00_post_async_login_work(vha, fcport, NULL);
+		break;
+	case MBS_LOOP_ID_USED:
+		fcport->loop_id++;
+		rval = qla2x00_find_new_loop_id(vha, fcport);
+		if (rval != QLA_SUCCESS) {
+			qla2x00_mark_device_lost(vha, fcport, 1, 0);
+			break;
+		}
+		qla2x00_post_async_login_work(vha, fcport, NULL);
+		break;
+	}
+	return QLA_SUCCESS;
+}
+
+int
+qla2x00_async_logout_done(struct scsi_qla_host *vha, fc_port_t *fcport,
+    uint16_t *data)
+{
+	qla2x00_mark_device_lost(vha, fcport, 1, 0);
+	return QLA_SUCCESS;
+}
+
 /****************************************************************************/
 /*                QLogic ISP2x00 Hardware Support Functions.                */
 /****************************************************************************/
@@ -65,6 +269,8 @@ qla2x00_initialize_adapter(scsi_qla_host_t *vha)
 	vha->flags.online = 0;
 	ha->flags.chip_reset_done = 0;
 	vha->flags.reset_active = 0;
+	ha->flags.pci_channel_io_perm_failure = 0;
+	ha->flags.eeh_busy = 0;
 	atomic_set(&vha->loop_down_timer, LOOP_DOWN_TIME);
 	atomic_set(&vha->loop_state, LOOP_DOWN);
 	vha->device_flags = DFLG_NO_CABLE;
@@ -73,7 +279,6 @@ qla2x00_initialize_adapter(scsi_qla_host_t *vha)
 	vha->marker_needed = 0;
 	ha->isp_abort_cnt = 0;
 	ha->beacon_blink_led = 0;
-	set_bit(REGISTER_FDMI_NEEDED, &vha->dpc_flags);
 
 	set_bit(0, ha->req_qid_map);
 	set_bit(0, ha->rsp_qid_map);
@@ -378,6 +583,9 @@ qla2x00_reset_chip(scsi_qla_host_t *vha)
 	uint32_t	cnt;
 	uint16_t	cmd;
 
+	if (unlikely(pci_channel_offline(ha->pdev)))
+		return;
+
 	ha->isp_ops->disable_intrs(ha);
 
 	spin_lock_irqsave(&ha->hardware_lock, flags);
@@ -583,6 +791,12 @@ void
 qla24xx_reset_chip(scsi_qla_host_t *vha)
 {
 	struct qla_hw_data *ha = vha->hw;
+
+	if (pci_channel_offline(ha->pdev) &&
+	    ha->flags.pci_channel_io_perm_failure) {
+		return;
+	}
+
 	ha->isp_ops->disable_intrs(ha);
 
 	/* Perform RISC reset. */
@@ -987,7 +1201,6 @@ qla2x00_setup_chip(scsi_qla_host_t *vha)
 				    ha->phy_version);
 				if (rval != QLA_SUCCESS)
 					goto failed;
-
 				ha->flags.npiv_supported = 0;
 				if (IS_QLA2XXX_MIDTYPE(ha) &&
 					 (ha->fw_attributes & BIT_2)) {
@@ -1000,7 +1213,7 @@ qla2x00_setup_chip(scsi_qla_host_t *vha)
 				}
 				qla2x00_get_resource_cnts(vha, NULL,
 				    &ha->fw_xcb_count, NULL, NULL,
-				    &ha->max_npiv_vports);
+				    &ha->max_npiv_vports, NULL);
 
 				if (!fw_major_version && ql2xallocfwdump)
 					qla2x00_alloc_fw_dump(vha);
@@ -1240,7 +1453,17 @@ qla24xx_config_rings(struct scsi_qla_host *vha)
 			icb->firmware_options_2 |=
 				__constant_cpu_to_le32(BIT_18);
 
-		icb->firmware_options_2 &= __constant_cpu_to_le32(~BIT_22);
+		/* Use Disable MSIX Handshake mode for capable adapters */
+		if (IS_MSIX_NACK_CAPABLE(ha)) {
+			icb->firmware_options_2 &=
+				__constant_cpu_to_le32(~BIT_22);
+			ha->flags.disable_msix_handshake = 1;
+			qla_printk(KERN_INFO, ha,
+				"MSIX Handshake Disable Mode turned on\n");
+		} else {
+			icb->firmware_options_2 |=
+				__constant_cpu_to_le32(BIT_22);
+		}
 		icb->firmware_options_2 |= __constant_cpu_to_le32(BIT_23);
 
 		WRT_REG_DWORD(&reg->isp25mq.req_q_in, 0);
@@ -1591,7 +1814,8 @@ qla2x00_set_model_info(scsi_qla_host_t *vha, uint8_t *model, size_t len,
 	char *st, *en;
 	uint16_t index;
 	struct qla_hw_data *ha = vha->hw;
-	int use_tbl = !IS_QLA25XX(ha) && !IS_QLA81XX(ha);
+	int use_tbl = !IS_QLA24XX_TYPE(ha) && !IS_QLA25XX(ha) &&
+	    !IS_QLA81XX(ha);
 
 	if (memcmp(model, BINZERO, len) != 0) {
 		strncpy(ha->model_number, model, len);
@@ -1978,7 +2202,7 @@ qla2x00_rport_del(void *data)
 	struct fc_rport *rport;
 
 	spin_lock_irq(fcport->vha->host->host_lock);
-	rport = fcport->drport;
+	rport = fcport->drport ? fcport->drport: fcport->rport;
 	fcport->drport = NULL;
 	spin_unlock_irq(fcport->vha->host->host_lock);
 	if (rport)
@@ -2052,6 +2276,8 @@ qla2x00_configure_loop(scsi_qla_host_t *vha)
 	 */
 	clear_bit(LOCAL_LOOP_UPDATE, &vha->dpc_flags);
 	clear_bit(RSCN_UPDATE, &vha->dpc_flags);
+
+	qla2x00_get_data_rate(vha);
 
 	/* Determine what we need to do */
 	if (ha->current_topology == ISP_CFG_FL &&
@@ -2345,8 +2571,7 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 	struct fc_rport *rport;
 	struct qla_hw_data *ha = vha->hw;
 
-	if (fcport->drport)
-		qla2x00_rport_del(fcport);
+	qla2x00_rport_del(fcport);
 
 	rport_ids.node_name = wwn_to_u64(fcport->node_name);
 	rport_ids.port_name = wwn_to_u64(fcport->port_name);
@@ -2501,7 +2726,7 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 
 		/*
 		 * Logout all previous fabric devices marked lost, except
-		 * tape devices.
+		 * FCP2 devices.
 		 */
 		list_for_each_entry(fcport, &vha->vp_fcports, list) {
 			if (test_bit(LOOP_RESYNC_NEEDED, &vha->dpc_flags))
@@ -2514,7 +2739,7 @@ qla2x00_configure_fabric(scsi_qla_host_t *vha)
 				qla2x00_mark_device_lost(vha, fcport,
 				    ql2xplogiabsentdevice, 0);
 				if (fcport->loop_id != FC_NO_LOOP_ID &&
-				    (fcport->flags & FCF_TAPE_PRESENT) == 0 &&
+				    (fcport->flags & FCF_FCP2_DEVICE) == 0 &&
 				    fcport->port_type != FCT_INITIATOR &&
 				    fcport->port_type != FCT_BROADCAST) {
 					ha->isp_ops->fabric_logout(vha,
@@ -2793,7 +3018,7 @@ qla2x00_find_all_fabric_devs(scsi_qla_host_t *vha,
 			fcport->d_id.b24 = new_fcport->d_id.b24;
 			fcport->flags |= FCF_LOGIN_NEEDED;
 			if (fcport->loop_id != FC_NO_LOOP_ID &&
-			    (fcport->flags & FCF_TAPE_PRESENT) == 0 &&
+			    (fcport->flags & FCF_FCP2_DEVICE) == 0 &&
 			    fcport->port_type != FCT_INITIATOR &&
 			    fcport->port_type != FCT_BROADCAST) {
 				ha->isp_ops->fabric_logout(vha, fcport->loop_id,
@@ -3039,11 +3264,17 @@ qla2x00_fabric_dev_login(scsi_qla_host_t *vha, fc_port_t *fcport,
 	rval = QLA_SUCCESS;
 	retry = 0;
 
+	if (IS_ALOGIO_CAPABLE(ha)) {
+		rval = qla2x00_post_async_login_work(vha, fcport, NULL);
+		if (!rval)
+			return rval;
+	}
+
 	rval = qla2x00_fabric_login(vha, fcport, next_loopid);
 	if (rval == QLA_SUCCESS) {
-		/* Send an ADISC to tape devices.*/
+		/* Send an ADISC to FCP2 devices.*/
 		opts = 0;
-		if (fcport->flags & FCF_TAPE_PRESENT)
+		if (fcport->flags & FCF_FCP2_DEVICE)
 			opts |= BIT_1;
 		rval = qla2x00_get_port_database(vha, fcport, opts);
 		if (rval != QLA_SUCCESS) {
@@ -3133,7 +3364,7 @@ qla2x00_fabric_login(scsi_qla_host_t *vha, fc_port_t *fcport,
 			} else {
 				fcport->port_type = FCT_TARGET;
 				if (mb[1] & BIT_1) {
-					fcport->flags |= FCF_TAPE_PRESENT;
+					fcport->flags |= FCF_FCP2_DEVICE;
 				}
 			}
 
@@ -3244,7 +3475,7 @@ qla2x00_loop_resync(scsi_qla_host_t *vha)
 	struct req_que *req;
 	struct rsp_que *rsp;
 
-	if (ql2xmultique_tag)
+	if (vha->hw->flags.cpu_affinity_enabled)
 		req = vha->hw->req_q_map[0];
 	else
 		req = vha->req;
@@ -3286,15 +3517,17 @@ qla2x00_loop_resync(scsi_qla_host_t *vha)
 }
 
 void
-qla2x00_update_fcports(scsi_qla_host_t *vha)
+qla2x00_update_fcports(scsi_qla_host_t *base_vha)
 {
 	fc_port_t *fcport;
+	struct scsi_qla_host *tvp, *vha;
 
 	/* Go with deferred removal of rport references. */
-	list_for_each_entry(fcport, &vha->vp_fcports, list)
-		if (fcport && fcport->drport &&
-		    atomic_read(&fcport->state) != FCS_UNCONFIGURED)
-			qla2x00_rport_del(fcport);
+	list_for_each_entry_safe(vha, tvp, &base_vha->hw->vp_list, list)
+		list_for_each_entry(fcport, &vha->vp_fcports, list)
+			if (fcport && fcport->drport &&
+			    atomic_read(&fcport->state) != FCS_UNCONFIGURED)
+				qla2x00_rport_del(fcport);
 }
 
 /*
@@ -3331,8 +3564,6 @@ qla2x00_abort_isp(scsi_qla_host_t *vha)
 		if (atomic_read(&vha->loop_state) != LOOP_DOWN) {
 			atomic_set(&vha->loop_state, LOOP_DOWN);
 			qla2x00_mark_all_devices_lost(vha, 0);
-			list_for_each_entry_safe(vp, tvp, &ha->vp_list, list)
-			       qla2x00_mark_all_devices_lost(vp, 0);
 		} else {
 			if (!atomic_read(&vha->loop_down_timer))
 				atomic_set(&vha->loop_down_timer,
@@ -3341,6 +3572,13 @@ qla2x00_abort_isp(scsi_qla_host_t *vha)
 
 		/* Requeue all commands in outstanding command list. */
 		qla2x00_abort_all_cmds(vha, DID_RESET << 16);
+
+		if (unlikely(pci_channel_offline(ha->pdev) &&
+		    ha->flags.pci_channel_io_perm_failure)) {
+			clear_bit(ISP_ABORT_RETRY, &vha->dpc_flags);
+			status = 0;
+			return status;
+		}
 
 		ha->isp_ops->get_flash_version(vha, req->ring);
 
@@ -3363,6 +3601,15 @@ qla2x00_abort_isp(scsi_qla_host_t *vha)
 
 			ha->isp_abort_cnt = 0;
 			clear_bit(ISP_ABORT_RETRY, &vha->dpc_flags);
+
+			if (IS_QLA81XX(ha))
+				qla2x00_get_fw_version(vha,
+				    &ha->fw_major_version,
+				    &ha->fw_minor_version,
+				    &ha->fw_subminor_version,
+				    &ha->fw_attributes, &ha->fw_memory_size,
+				    ha->mpi_version, &ha->mpi_capabilities,
+				    ha->phy_version);
 
 			if (ha->fce) {
 				ha->flags.fce_enabled = 1;
@@ -4231,6 +4478,8 @@ qla2x00_try_to_stop_firmware(scsi_qla_host_t *vha)
 	int ret, retries;
 	struct qla_hw_data *ha = vha->hw;
 
+	if (ha->flags.pci_channel_io_perm_failure)
+		return;
 	if (!IS_FWI2_CAPABLE(ha))
 		return;
 	if (!ha->fw_major_version)
@@ -4264,7 +4513,7 @@ qla24xx_configure_vhba(scsi_qla_host_t *vha)
 		return -EINVAL;
 
 	rval = qla2x00_fw_ready(base_vha);
-	if (ql2xmultique_tag)
+	if (ha->flags.cpu_affinity_enabled)
 		req = ha->req_q_map[0];
 	else
 		req = vha->req;

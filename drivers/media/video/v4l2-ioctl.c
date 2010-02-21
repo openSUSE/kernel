@@ -42,6 +42,12 @@
 			printk(KERN_DEBUG "%s: " fmt, vfd->name, ## arg);\
 		} while (0)
 
+#define dbgarg3(fmt, arg...) \
+		do {							\
+		    if (vfd->debug & V4L2_DEBUG_IOCTL_ARG)		\
+			printk(KERN_CONT "%s: " fmt, vfd->name, ## arg);\
+		} while (0)
+
 /* Zero out the end of the struct pointed to by p.  Everthing after, but
  * not including, the specified field is cleared. */
 #define CLEAR_AFTER_FIELD(p, field) \
@@ -278,6 +284,12 @@ static const char *v4l2_ioctls[] = {
 	[_IOC_NR(VIDIOC_DBG_G_CHIP_IDENT)] = "VIDIOC_DBG_G_CHIP_IDENT",
 	[_IOC_NR(VIDIOC_S_HW_FREQ_SEEK)]   = "VIDIOC_S_HW_FREQ_SEEK",
 #endif
+	[_IOC_NR(VIDIOC_ENUM_DV_PRESETS)]  = "VIDIOC_ENUM_DV_PRESETS",
+	[_IOC_NR(VIDIOC_S_DV_PRESET)]	   = "VIDIOC_S_DV_PRESET",
+	[_IOC_NR(VIDIOC_G_DV_PRESET)]	   = "VIDIOC_G_DV_PRESET",
+	[_IOC_NR(VIDIOC_QUERY_DV_PRESET)]  = "VIDIOC_QUERY_DV_PRESET",
+	[_IOC_NR(VIDIOC_S_DV_TIMINGS)]     = "VIDIOC_S_DV_TIMINGS",
+	[_IOC_NR(VIDIOC_G_DV_TIMINGS)]     = "VIDIOC_G_DV_TIMINGS",
 };
 #define V4L2_IOCTLS ARRAY_SIZE(v4l2_ioctls)
 
@@ -507,11 +519,12 @@ static inline void v4l_print_ext_ctrls(unsigned int cmd,
 	dbgarg(cmd, "");
 	printk(KERN_CONT "class=0x%x", c->ctrl_class);
 	for (i = 0; i < c->count; i++) {
-		if (show_vals)
+		if (show_vals && !c->controls[i].size)
 			printk(KERN_CONT " id/val=0x%x/0x%x",
 				c->controls[i].id, c->controls[i].value);
 		else
-			printk(KERN_CONT " id=0x%x", c->controls[i].id);
+			printk(KERN_CONT " id=0x%x,size=%u",
+				c->controls[i].id, c->controls[i].size);
 	}
 	printk(KERN_CONT "\n");
 };
@@ -522,10 +535,9 @@ static inline int check_ext_ctrls(struct v4l2_ext_controls *c, int allow_priv)
 
 	/* zero the reserved fields */
 	c->reserved[0] = c->reserved[1] = 0;
-	for (i = 0; i < c->count; i++) {
+	for (i = 0; i < c->count; i++)
 		c->controls[i].reserved2[0] = 0;
-		c->controls[i].reserved2[1] = 0;
-	}
+
 	/* V4L2_CID_PRIVATE_BASE cannot be used as control class
 	   when using extended controls.
 	   Only when passed in through VIDIOC_G_CTRL and VIDIOC_S_CTRL
@@ -1129,6 +1141,19 @@ static long __video_do_ioctl(struct file *file,
 	{
 		struct v4l2_input *p = arg;
 
+		/*
+		 * We set the flags for CAP_PRESETS, CAP_CUSTOM_TIMINGS &
+		 * CAP_STD here based on ioctl handler provided by the
+		 * driver. If the driver doesn't support these
+		 * for a specific input, it must override these flags.
+		 */
+		if (ops->vidioc_s_std)
+			p->capabilities |= V4L2_IN_CAP_STD;
+		if (ops->vidioc_s_dv_preset)
+			p->capabilities |= V4L2_IN_CAP_PRESETS;
+		if (ops->vidioc_s_dv_timings)
+			p->capabilities |= V4L2_IN_CAP_CUSTOM_TIMINGS;
+
 		if (!ops->vidioc_enum_input)
 			break;
 
@@ -1172,6 +1197,19 @@ static long __video_do_ioctl(struct file *file,
 
 		if (!ops->vidioc_enum_output)
 			break;
+
+		/*
+		 * We set the flags for CAP_PRESETS, CAP_CUSTOM_TIMINGS &
+		 * CAP_STD here based on ioctl handler provided by the
+		 * driver. If the driver doesn't support these
+		 * for a specific output, it must override these flags.
+		 */
+		if (ops->vidioc_s_std)
+			p->capabilities |= V4L2_OUT_CAP_STD;
+		if (ops->vidioc_s_dv_preset)
+			p->capabilities |= V4L2_OUT_CAP_PRESETS;
+		if (ops->vidioc_s_dv_timings)
+			p->capabilities |= V4L2_OUT_CAP_CUSTOM_TIMINGS;
 
 		ret = ops->vidioc_enum_output(file, fh, p);
 		if (!ret)
@@ -1726,24 +1764,29 @@ static long __video_do_ioctl(struct file *file,
 
 		ret = ops->vidioc_enum_framesizes(file, fh, p);
 		dbgarg(cmd,
-			"index=%d, pixelformat=%d, type=%d ",
-			p->index, p->pixel_format, p->type);
+			"index=%d, pixelformat=%c%c%c%c, type=%d ",
+			p->index,
+			(p->pixel_format & 0xff),
+			(p->pixel_format >>  8) & 0xff,
+			(p->pixel_format >> 16) & 0xff,
+			(p->pixel_format >> 24) & 0xff,
+			p->type);
 		switch (p->type) {
 		case V4L2_FRMSIZE_TYPE_DISCRETE:
-			dbgarg2("width = %d, height=%d\n",
+			dbgarg3("width = %d, height=%d\n",
 				p->discrete.width, p->discrete.height);
 			break;
 		case V4L2_FRMSIZE_TYPE_STEPWISE:
-			dbgarg2("min %dx%d, max %dx%d, step %dx%d\n",
+			dbgarg3("min %dx%d, max %dx%d, step %dx%d\n",
 				p->stepwise.min_width,  p->stepwise.min_height,
 				p->stepwise.step_width, p->stepwise.step_height,
 				p->stepwise.max_width,  p->stepwise.max_height);
 			break;
 		case V4L2_FRMSIZE_TYPE_CONTINUOUS:
-			dbgarg2("continuous\n");
+			dbgarg3("continuous\n");
 			break;
 		default:
-			dbgarg2("- Unknown type!\n");
+			dbgarg3("- Unknown type!\n");
 		}
 
 		break;
@@ -1780,6 +1823,121 @@ static long __video_do_ioctl(struct file *file,
 			break;
 		default:
 			dbgarg2("- Unknown type!\n");
+		}
+		break;
+	}
+	case VIDIOC_ENUM_DV_PRESETS:
+	{
+		struct v4l2_dv_enum_preset *p = arg;
+
+		if (!ops->vidioc_enum_dv_presets)
+			break;
+
+		ret = ops->vidioc_enum_dv_presets(file, fh, p);
+		if (!ret)
+			dbgarg(cmd,
+				"index=%d, preset=%d, name=%s, width=%d,"
+				" height=%d ",
+				p->index, p->preset, p->name, p->width,
+				p->height);
+		break;
+	}
+	case VIDIOC_S_DV_PRESET:
+	{
+		struct v4l2_dv_preset *p = arg;
+
+		if (!ops->vidioc_s_dv_preset)
+			break;
+
+		dbgarg(cmd, "preset=%d\n", p->preset);
+		ret = ops->vidioc_s_dv_preset(file, fh, p);
+		break;
+	}
+	case VIDIOC_G_DV_PRESET:
+	{
+		struct v4l2_dv_preset *p = arg;
+
+		if (!ops->vidioc_g_dv_preset)
+			break;
+
+		ret = ops->vidioc_g_dv_preset(file, fh, p);
+		if (!ret)
+			dbgarg(cmd, "preset=%d\n", p->preset);
+		break;
+	}
+	case VIDIOC_QUERY_DV_PRESET:
+	{
+		struct v4l2_dv_preset *p = arg;
+
+		if (!ops->vidioc_query_dv_preset)
+			break;
+
+		ret = ops->vidioc_query_dv_preset(file, fh, p);
+		if (!ret)
+			dbgarg(cmd, "preset=%d\n", p->preset);
+		break;
+	}
+	case VIDIOC_S_DV_TIMINGS:
+	{
+		struct v4l2_dv_timings *p = arg;
+
+		if (!ops->vidioc_s_dv_timings)
+			break;
+
+		switch (p->type) {
+		case V4L2_DV_BT_656_1120:
+			dbgarg2("bt-656/1120:interlaced=%d, pixelclock=%lld,"
+				" width=%d, height=%d, polarities=%x,"
+				" hfrontporch=%d, hsync=%d, hbackporch=%d,"
+				" vfrontporch=%d, vsync=%d, vbackporch=%d,"
+				" il_vfrontporch=%d, il_vsync=%d,"
+				" il_vbackporch=%d\n",
+				p->bt.interlaced, p->bt.pixelclock,
+				p->bt.width, p->bt.height, p->bt.polarities,
+				p->bt.hfrontporch, p->bt.hsync,
+				p->bt.hbackporch, p->bt.vfrontporch,
+				p->bt.vsync, p->bt.vbackporch,
+				p->bt.il_vfrontporch, p->bt.il_vsync,
+				p->bt.il_vbackporch);
+			ret = ops->vidioc_s_dv_timings(file, fh, p);
+			break;
+		default:
+			dbgarg2("Unknown type %d!\n", p->type);
+			break;
+		}
+		break;
+	}
+	case VIDIOC_G_DV_TIMINGS:
+	{
+		struct v4l2_dv_timings *p = arg;
+
+		if (!ops->vidioc_g_dv_timings)
+			break;
+
+		ret = ops->vidioc_g_dv_timings(file, fh, p);
+		if (!ret) {
+			switch (p->type) {
+			case V4L2_DV_BT_656_1120:
+				dbgarg2("bt-656/1120:interlaced=%d,"
+					" pixelclock=%lld,"
+					" width=%d, height=%d, polarities=%x,"
+					" hfrontporch=%d, hsync=%d,"
+					" hbackporch=%d, vfrontporch=%d,"
+					" vsync=%d, vbackporch=%d,"
+					" il_vfrontporch=%d, il_vsync=%d,"
+					" il_vbackporch=%d\n",
+					p->bt.interlaced, p->bt.pixelclock,
+					p->bt.width, p->bt.height,
+					p->bt.polarities, p->bt.hfrontporch,
+					p->bt.hsync, p->bt.hbackporch,
+					p->bt.vfrontporch, p->bt.vsync,
+					p->bt.vbackporch, p->bt.il_vfrontporch,
+					p->bt.il_vsync, p->bt.il_vbackporch);
+				break;
+			default:
+				dbgarg2("Unknown type %d!\n", p->type);
+				break;
+			}
 		}
 		break;
 	}

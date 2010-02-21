@@ -2,7 +2,7 @@
  * Agere Systems Inc.
  * 10/100/1000 Base-T Ethernet Driver for the ET1301 and ET131x series MACs
  *
- * Copyright © 2005 Agere Systems Inc.
+ * Copyright Â© 2005 Agere Systems Inc.
  * All rights reserved.
  *   http://www.agere.com
  *
@@ -20,7 +20,7 @@
  * software indicates your acceptance of these terms and conditions.  If you do
  * not agree with these terms and conditions, do not use the software.
  *
- * Copyright © 2005 Agere Systems Inc.
+ * Copyright Â© 2005 Agere Systems Inc.
  * All rights reserved.
  *
  * Redistribution and use in source or binary forms, with or without
@@ -41,7 +41,7 @@
  *
  * Disclaimer
  *
- * THIS SOFTWARE IS PROVIDED “AS IS” AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
  * INCLUDING, BUT NOT LIMITED TO, INFRINGEMENT AND THE IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  ANY
  * USE, MODIFICATION OR DISTRIBUTION OF THIS SOFTWARE IS SOLELY AT THE USERS OWN
@@ -61,29 +61,43 @@
 
 #include "et1310_address_map.h"
 
-#ifndef SUCCESS
-#define SUCCESS		0
-#define FAILURE		1
-#endif
+/*
+ * EEPROM Defines
+ */
 
-#ifndef READ
-#define READ		0
-#define WRITE		1
-#endif
+/* LBCIF Register Groups (addressed via 32-bit offsets) */
+#define LBCIF_DWORD0_GROUP       0xAC
+#define LBCIF_DWORD1_GROUP       0xB0
 
-#ifndef SINGLE_BYTE
-#define SINGLE_BYTE	0
-#define DUAL_BYTE	1
-#endif
+/* LBCIF Registers (addressed via 8-bit offsets) */
+#define LBCIF_ADDRESS_REGISTER   0xAC
+#define LBCIF_DATA_REGISTER      0xB0
+#define LBCIF_CONTROL_REGISTER   0xB1
+#define LBCIF_STATUS_REGISTER    0xB2
+
+/* LBCIF Control Register Bits */
+#define LBCIF_CONTROL_SEQUENTIAL_READ   0x01
+#define LBCIF_CONTROL_PAGE_WRITE        0x02
+#define LBCIF_CONTROL_EEPROM_RELOAD     0x08
+#define LBCIF_CONTROL_TWO_BYTE_ADDR     0x20
+#define LBCIF_CONTROL_I2C_WRITE         0x40
+#define LBCIF_CONTROL_LBCIF_ENABLE      0x80
+
+/* LBCIF Status Register Bits */
+#define LBCIF_STATUS_PHY_QUEUE_AVAIL    0x01
+#define LBCIF_STATUS_I2C_IDLE           0x02
+#define LBCIF_STATUS_ACK_ERROR          0x04
+#define LBCIF_STATUS_GENERAL_ERROR      0x08
+#define LBCIF_STATUS_CHECKSUM_ERROR     0x40
+#define LBCIF_STATUS_EEPROM_PRESENT     0x80
+
+/* Miscellaneous Constraints */
+#define MAX_NUM_REGISTER_POLLS          1000
+#define MAX_NUM_WRITE_RETRIES           2
 
 /* Forward declaration of the private adapter structure */
 struct et131x_adapter;
 
-int32_t EepromWriteByte(struct et131x_adapter *adapter, u32 unAddress,
-			u8 bData, u32 unEepromId,
-			u32 unAddressingMode);
-int32_t EepromReadByte(struct et131x_adapter *adapter, u32 unAddress,
-		       u8 *pbData, u32 unEepromId,
-		       u32 unAddressingMode);
+int et131x_init_eeprom(struct et131x_adapter *etdev);
 
 #endif /* _ET1310_EEPROM_H_ */

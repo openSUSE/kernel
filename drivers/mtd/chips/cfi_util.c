@@ -71,6 +71,13 @@ int __xipram cfi_qry_mode_on(uint32_t base, struct map_info *map,
 	cfi_send_gen_cmd(0x98, 0x555, base, map, cfi, cfi->device_type, NULL);
 	if (cfi_qry_present(map, base, cfi))
 		return 1;
+	/* some old SST chips, e.g. 39VF160x/39VF320x */
+	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
+	cfi_send_gen_cmd(0xAA, 0x5555, base, map, cfi, cfi->device_type, NULL);
+	cfi_send_gen_cmd(0x55, 0x2AAA, base, map, cfi, cfi->device_type, NULL);
+	cfi_send_gen_cmd(0x98, 0x5555, base, map, cfi, cfi->device_type, NULL);
+	if (cfi_qry_present(map, base, cfi))
+		return 1;
 	/* QRY not found */
 	return 0;
 }
@@ -81,6 +88,10 @@ void __xipram cfi_qry_mode_off(uint32_t base, struct map_info *map,
 {
 	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
 	cfi_send_gen_cmd(0xFF, 0, base, map, cfi, cfi->device_type, NULL);
+	/* M29W128G flashes require an additional reset command
+	   when exit qry mode */
+	if ((cfi->mfr == CFI_MFR_ST) && (cfi->id == 0x227E || cfi->id == 0x7E))
+		cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
 }
 EXPORT_SYMBOL_GPL(cfi_qry_mode_off);
 

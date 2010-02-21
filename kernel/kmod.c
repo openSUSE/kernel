@@ -86,6 +86,10 @@ int __request_module(bool wait, const char *fmt, ...)
 	if (ret >= MODULE_NAME_LEN)
 		return -ENAMETOOLONG;
 
+	ret = security_kernel_module_request(module_name);
+	if (ret)
+		return ret;
+
 	/* If modprobe needs a service that is in a module, we get a recursive
 	 * loop.  Limit the number of running kmod threads to max_threads/2 or
 	 * MAX_KMOD_CONCURRENT, whichever is the smaller.  A cleaner method
@@ -466,6 +470,7 @@ int call_usermodehelper_exec(struct subprocess_info *sub_info,
 	int retval = 0;
 
 	BUG_ON(atomic_read(&sub_info->cred->usage) != 1);
+	validate_creds(sub_info->cred);
 
 	helper_lock();
 	if (sub_info->path[0] == '\0')
@@ -515,13 +520,15 @@ int call_usermodehelper_pipe(char *path, char **argv, char **envp,
 		return -ENOMEM;
 
 	ret = call_usermodehelper_stdinpipe(sub_info, filp);
-	if (ret < 0)
-		goto out;
+	if (ret < 0) {
+		call_usermodehelper_freeinfo(sub_info);
+		return ret;
+	}
 
-	return call_usermodehelper_exec(sub_info, UMH_WAIT_EXEC);
+	ret = call_usermodehelper_exec(sub_info, UMH_WAIT_EXEC);
+	if (ret < 0)	/* Failed to execute helper, close pipe */
+		filp_close(*filp, NULL);
 
-  out:
-	call_usermodehelper_freeinfo(sub_info);
 	return ret;
 }
 EXPORT_SYMBOL(call_usermodehelper_pipe);

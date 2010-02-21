@@ -389,6 +389,9 @@ static int imote2_mci_get_ro(struct device *dev)
 static struct pxamci_platform_data imote2_mci_platform_data = {
 	.ocr_mask = MMC_VDD_32_33 | MMC_VDD_33_34, /* default anyway */
 	.get_ro = imote2_mci_get_ro,
+	.gpio_card_detect = -1,
+	.gpio_card_ro	= -1,
+	.gpio_power = -1,
 };
 
 static struct mtd_partition imote2flash_partitions[] = {
@@ -551,8 +554,12 @@ static struct i2c_pxa_platform_data i2c_pdata = {
 
 static void __init imote2_init(void)
 {
-
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(imote2_pin_config));
+
+	pxa_set_ffuart_info(NULL);
+	pxa_set_btuart_info(NULL);
+	pxa_set_stuart_info(NULL);
+
 	/* SPI chip select directions - all other directions should
 	 * be handled by drivers.*/
 	gpio_direction_output(37, 0);

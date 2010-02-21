@@ -52,13 +52,13 @@ void __init setup_arch(char **cmdline_p)
 	/* irq_early_init(); */
 	setup_cpuinfo();
 
-	__invalidate_icache_all();
-	__enable_icache();
+	microblaze_cache_init();
 
-	__invalidate_dcache_all();
-	__enable_dcache();
+	invalidate_dcache();
+	enable_dcache();
 
-	panic_timeout = 120;
+	invalidate_icache();
+	enable_icache();
 
 	setup_memory();
 
@@ -94,7 +94,7 @@ inline unsigned get_romfs_len(unsigned *addr)
 #endif	/* CONFIG_MTD_UCLINUX_EBSS */
 
 void __init machine_early_init(const char *cmdline, unsigned int ram,
-		unsigned int fdt)
+		unsigned int fdt, unsigned int msr)
 {
 	unsigned long *src, *dst = (unsigned long *)0x0;
 
@@ -131,6 +131,8 @@ void __init machine_early_init(const char *cmdline, unsigned int ram,
 		strlcpy(cmd_line, cmdline, COMMAND_LINE_SIZE);
 #endif
 
+	lockdep_init();
+
 /* initialize device tree for usage in early_printk */
 	early_init_devtree((void *)_fdt_start);
 
@@ -157,6 +159,16 @@ void __init machine_early_init(const char *cmdline, unsigned int ram,
 	early_printk("New klimit: 0x%08x\n", (unsigned)klimit);
 #endif
 
+#if CONFIG_XILINX_MICROBLAZE0_USE_MSR_INSTR
+	if (msr)
+		early_printk("!!!Your kernel has setup MSR instruction but "
+				"CPU don't have it %d\n", msr);
+#else
+	if (!msr)
+		early_printk("!!!Your kernel not setup MSR instruction but "
+				"CPU have it %d\n", msr);
+#endif
+
 	for (src = __ivt_start; src < __ivt_end; src++, dst++)
 		*dst = *src;
 
@@ -176,32 +188,3 @@ static int microblaze_debugfs_init(void)
 }
 arch_initcall(microblaze_debugfs_init);
 #endif
-
-void machine_restart(char *cmd)
-{
-	printk(KERN_NOTICE "Machine restart...\n");
-	dump_stack();
-	while (1)
-		;
-}
-
-void machine_shutdown(void)
-{
-	printk(KERN_NOTICE "Machine shutdown...\n");
-	while (1)
-		;
-}
-
-void machine_halt(void)
-{
-	printk(KERN_NOTICE "Machine halt...\n");
-	while (1)
-		;
-}
-
-void machine_power_off(void)
-{
-	printk(KERN_NOTICE "Machine power off...\n");
-	while (1)
-		;
-}

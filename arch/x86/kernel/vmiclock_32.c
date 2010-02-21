@@ -68,7 +68,7 @@ unsigned long long vmi_sched_clock(void)
 	return cycles_2_ns(vmi_timer_ops.get_cycle_counter(VMI_CYCLES_AVAILABLE));
 }
 
-/* paravirt_ops.get_tsc_khz = vmi_tsc_khz */
+/* x86_platform.calibrate_tsc = vmi_tsc_khz */
 unsigned long vmi_tsc_khz(void)
 {
 	unsigned long long khz;
@@ -226,7 +226,7 @@ static void __devinit vmi_time_init_clockevent(void)
 	evt->min_delta_ns = clockevent_delta2ns(1, evt);
 	evt->cpumask = cpumask_of(cpu);
 
-	printk(KERN_WARNING "vmi: registering clock event %s. mult=%lu shift=%u\n",
+	printk(KERN_WARNING "vmi: registering clock event %s. mult=%u shift=%u\n",
 	       evt->name, evt->mult, evt->shift);
 	clockevents_register_device(evt);
 }

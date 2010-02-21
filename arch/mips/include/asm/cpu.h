@@ -113,6 +113,12 @@
 
 #define PRID_IMP_BCM4710	0x4000
 #define PRID_IMP_BCM3302	0x9000
+#define PRID_IMP_BCM6338	0x9000
+#define PRID_IMP_BCM6345	0x8000
+#define PRID_IMP_BCM6348	0x9100
+#define PRID_IMP_BCM4350	0xA000
+#define PRID_REV_BCM6358	0x0010
+#define PRID_REV_BCM6368	0x0030
 
 /*
  * These are the PRID's for when 23:16 == PRID_COMP_CAVIUM
@@ -148,6 +154,8 @@
 #define PRID_REV_VR4181A	0x0070	/* Same as VR4122 */
 #define PRID_REV_VR4130		0x0080
 #define PRID_REV_34K_V1_0_2	0x0022
+#define PRID_REV_LOONGSON2E	0x0002
+#define PRID_REV_LOONGSON2F	0x0003
 
 /*
  * Older processors used to encode processor version and revision in two
@@ -210,6 +218,7 @@ enum cpu_type_enum {
 	 */
 	CPU_4KC, CPU_4KEC, CPU_4KSC, CPU_24K, CPU_34K, CPU_1004K, CPU_74K,
 	CPU_ALCHEMY, CPU_PR4450, CPU_BCM3302, CPU_BCM4710,
+	CPU_BCM6338, CPU_BCM6345, CPU_BCM6348, CPU_BCM6358,
 
 	/*
 	 * MIPS64 class processors

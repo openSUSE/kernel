@@ -90,17 +90,35 @@ config USB_EHCI_TT_NEWSCHED
 
 config USB_EHCI_BIG_ENDIAN_MMIO
 	bool
-	depends on USB_EHCI_HCD && (PPC_CELLEB || PPC_PS3 || 440EPX || ARCH_IXP4XX)
+	depends on USB_EHCI_HCD && (PPC_CELLEB || PPC_PS3 || 440EPX || ARCH_IXP4XX || XPS_USB_HCD_XILINX)
 	default y
 
 config USB_EHCI_BIG_ENDIAN_DESC
 	bool
-	depends on USB_EHCI_HCD && (440EPX || ARCH_IXP4XX)
+	depends on USB_EHCI_HCD && (440EPX || ARCH_IXP4XX || XPS_USB_HCD_XILINX)
 	default y
+
+config XPS_USB_HCD_XILINX
+	bool "Use Xilinx usb host EHCI controller core"
+	depends on USB_EHCI_HCD && (PPC32 || MICROBLAZE)
+	select USB_EHCI_BIG_ENDIAN_DESC
+	select USB_EHCI_BIG_ENDIAN_MMIO
+	---help---
+		Xilinx xps USB host controller core is EHCI compilant and has
+		transaction translator built-in. It can be configured to either
+		support both high speed and full speed devices, or high speed
+		devices only.
 
 config USB_EHCI_FSL
 	bool "Support for Freescale on-chip EHCI USB controller"
 	depends on USB_EHCI_HCD && FSL_SOC
+	select USB_EHCI_ROOT_HUB_TT
+	---help---
+	  Variation of ARC USB block used in some Freescale chips.
+
+config USB_EHCI_MXC
+	bool "Support for Freescale on-chip EHCI USB controller"
+	depends on USB_EHCI_HCD && ARCH_MXC
 	select USB_EHCI_ROOT_HUB_TT
 	---help---
 	  Variation of ARC USB block used in some Freescale chips.
@@ -112,6 +130,12 @@ config USB_EHCI_HCD_PPC_OF
 	---help---
 	  Enables support for the USB controller present on the PowerPC
 	  OpenFirmware platform bus.
+
+config USB_W90X900_EHCI
+	bool "W90X900(W90P910) EHCI support"
+	depends on USB_EHCI_HCD && ARCH_W90X900
+	---help---
+		Enables support for the W90X900 USB controller
 
 config USB_OXU210HP_HCD
 	tristate "OXU210HP HCD support"
@@ -152,6 +176,18 @@ config USB_ISP1760_HCD
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called isp1760.
+
+config USB_ISP1362_HCD
+	tristate "ISP1362 HCD support"
+	depends on USB
+	default N
+	---help---
+	  Supports the Philips ISP1362 chip as a host controller
+
+	  This driver does not support isochronous transfers.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called isp1362-hcd.
 
 config USB_OHCI_HCD
 	tristate "OHCI HCD support"
@@ -335,13 +371,6 @@ config USB_R8A66597_HCD
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called r8a66597-hcd.
-
-config SUPERH_ON_CHIP_R8A66597
-	boolean "Enable SuperH on-chip R8A66597 USB"
-	depends on USB_R8A66597_HCD && (CPU_SUBTYPE_SH7366 || CPU_SUBTYPE_SH7723 || CPU_SUBTYPE_SH7724)
-	help
-	   This driver enables support for the on-chip R8A66597 in the
-	   SH7366, SH7723 and SH7724 processors.
 
 config USB_WHCI_HCD
 	tristate "Wireless USB Host Controller Interface (WHCI) driver (EXPERIMENTAL)"

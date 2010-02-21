@@ -22,7 +22,6 @@
 #include <linux/signal.h>
 #include <linux/resource.h>
 #include <linux/times.h>
-#include <linux/utsname.h>
 #include <linux/smp.h>
 #include <linux/smp_lock.h>
 #include <linux/sem.h>
@@ -343,6 +342,18 @@ off_t ppc32_lseek(unsigned int fd, u32 offset, unsigned int origin)
 	return sys_lseek(fd, (int)offset, origin);
 }
 
+long compat_sys_truncate(const char __user * path, u32 length)
+{
+	/* sign extend length */
+	return sys_truncate(path, (int)length);
+}
+
+long compat_sys_ftruncate(int fd, u32 length)
+{
+	/* sign extend length */
+	return sys_ftruncate(fd, (int)length);
+}
+
 /* Note: it is necessary to treat bufsiz as an unsigned int,
  * with the corresponding cast to a signed int to insure that the 
  * proper conversion (sign extension) between the register representation of a signed int (msr in 32-bit mode)
@@ -508,58 +519,6 @@ asmlinkage long compat_sys_umask(u32 mask)
 {
 	return sys_umask((int)mask);
 }
-
-#ifdef CONFIG_SYSCTL_SYSCALL
-struct __sysctl_args32 {
-	u32 name;
-	int nlen;
-	u32 oldval;
-	u32 oldlenp;
-	u32 newval;
-	u32 newlen;
-	u32 __unused[4];
-};
-
-asmlinkage long compat_sys_sysctl(struct __sysctl_args32 __user *args)
-{
-	struct __sysctl_args32 tmp;
-	int error;
-	size_t oldlen;
-	size_t __user *oldlenp = NULL;
-	unsigned long addr = (((unsigned long)&args->__unused[0]) + 7) & ~7;
-
-	if (copy_from_user(&tmp, args, sizeof(tmp)))
-		return -EFAULT;
-
-	if (tmp.oldval && tmp.oldlenp) {
-		/* Duh, this is ugly and might not work if sysctl_args
-		   is in read-only memory, but do_sysctl does indirectly
-		   a lot of uaccess in both directions and we'd have to
-		   basically copy the whole sysctl.c here, and
-		   glibc's __sysctl uses rw memory for the structure
-		   anyway.  */
-		oldlenp = (size_t __user *)addr;
-		if (get_user(oldlen, (compat_size_t __user *)compat_ptr(tmp.oldlenp)) ||
-		    put_user(oldlen, oldlenp))
-			return -EFAULT;
-	}
-
-	lock_kernel();
-	error = do_sysctl(compat_ptr(tmp.name), tmp.nlen,
-			  compat_ptr(tmp.oldval), oldlenp,
-			  compat_ptr(tmp.newval), tmp.newlen);
-	unlock_kernel();
-	if (oldlenp) {
-		if (!error) {
-			if (get_user(oldlen, oldlenp) ||
-			    put_user(oldlen, (compat_size_t __user *)compat_ptr(tmp.oldlenp)))
-				error = -EFAULT;
-		}
-		copy_to_user(args->__unused, tmp.__unused, sizeof(tmp.__unused));
-	}
-	return error;
-}
-#endif
 
 unsigned long compat_sys_mmap2(unsigned long addr, size_t len,
 			  unsigned long prot, unsigned long flags,

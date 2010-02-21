@@ -13,6 +13,37 @@
 #include <linux/io.h>
 #include <linux/serial_sci.h>
 #include <linux/sh_timer.h>
+#include <asm/dma-sh.h>
+
+static struct plat_sci_port scif0_platform_data = {
+	.mapbase	= 0xffe00000,
+	.flags		= UPF_BOOT_AUTOCONF,
+	.type		= PORT_SCIF,
+	.irqs		= { 40, 40, 40, 40 },
+};
+
+static struct platform_device scif0_device = {
+	.name		= "sh-sci",
+	.id		= 0,
+	.dev		= {
+		.platform_data	= &scif0_platform_data,
+	},
+};
+
+static struct plat_sci_port scif1_platform_data = {
+	.mapbase	= 0xffe10000,
+	.flags		= UPF_BOOT_AUTOCONF,
+	.type		= PORT_SCIF,
+	.irqs		= { 76, 76, 76, 76 },
+};
+
+static struct platform_device scif1_device = {
+	.name		= "sh-sci",
+	.id		= 1,
+	.dev		= {
+		.platform_data	= &scif1_platform_data,
+	},
+};
 
 static struct sh_timer_config tmu0_platform_data = {
 	.name = "TMU0",
@@ -216,31 +247,21 @@ static struct platform_device rtc_device = {
 	.resource	= rtc_resources,
 };
 
-static struct plat_sci_port sci_platform_data[] = {
-	{
-		.mapbase	= 0xffe00000,
-		.flags		= UPF_BOOT_AUTOCONF,
-		.type		= PORT_SCIF,
-		.irqs		= { 40, 40, 40, 40 },
-	}, {
-		.mapbase	= 0xffe10000,
-		.flags		= UPF_BOOT_AUTOCONF,
-		.type		= PORT_SCIF,
-		.irqs		= { 76, 76, 76, 76 },
-	}, {
-		.flags = 0,
-	}
+static struct sh_dmae_pdata dma_platform_data = {
+	.mode = (SHDMA_MIX_IRQ | SHDMA_DMAOR1),
 };
 
-static struct platform_device sci_device = {
-	.name		= "sh-sci",
-	.id		= -1,
-	.dev		= {
-		.platform_data	= sci_platform_data,
+static struct platform_device dma_device = {
+	.name           = "sh-dma-engine",
+	.id             = -1,
+	.dev            = {
+		.platform_data  = &dma_platform_data,
 	},
 };
 
 static struct platform_device *sh7780_devices[] __initdata = {
+	&scif0_device,
+	&scif1_device,
 	&tmu0_device,
 	&tmu1_device,
 	&tmu2_device,
@@ -248,7 +269,7 @@ static struct platform_device *sh7780_devices[] __initdata = {
 	&tmu4_device,
 	&tmu5_device,
 	&rtc_device,
-	&sci_device,
+	&dma_device,
 };
 
 static int __init sh7780_devices_setup(void)
@@ -257,8 +278,9 @@ static int __init sh7780_devices_setup(void)
 				    ARRAY_SIZE(sh7780_devices));
 }
 arch_initcall(sh7780_devices_setup);
-
 static struct platform_device *sh7780_early_devices[] __initdata = {
+	&scif0_device,
+	&scif1_device,
 	&tmu0_device,
 	&tmu1_device,
 	&tmu2_device,

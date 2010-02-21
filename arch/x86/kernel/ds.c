@@ -265,13 +265,13 @@ struct ds_context {
 	int			cpu;
 };
 
-static DEFINE_PER_CPU(struct ds_context *, cpu_context);
+static DEFINE_PER_CPU(struct ds_context *, cpu_ds_context);
 
 
 static struct ds_context *ds_get_context(struct task_struct *task, int cpu)
 {
 	struct ds_context **p_context =
-		(task ? &task->thread.ds_ctx : &per_cpu(cpu_context, cpu));
+		(task ? &task->thread.ds_ctx : &per_cpu(cpu_ds_context, cpu));
 	struct ds_context *context = NULL;
 	struct ds_context *new_context = NULL;
 
@@ -509,15 +509,15 @@ enum bts_field {
 	bts_escape		= ((unsigned long)-1 & ~bts_qual_mask)
 };
 
-static inline unsigned long bts_get(const char *base, enum bts_field field)
+static inline unsigned long bts_get(const char *base, unsigned long field)
 {
 	base += (ds_cfg.sizeof_ptr_field * field);
 	return *(unsigned long *)base;
 }
 
-static inline void bts_set(char *base, enum bts_field field, unsigned long val)
+static inline void bts_set(char *base, unsigned long field, unsigned long val)
 {
-	base += (ds_cfg.sizeof_ptr_field * field);;
+	base += (ds_cfg.sizeof_ptr_field * field);
 	(*(unsigned long *)base) = val;
 }
 

@@ -110,7 +110,7 @@ static int stripe_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	}
 
 	stripes = simple_strtoul(argv[0], &end, 10);
-	if (*end) {
+	if (!stripes || *end) {
 		ti->error = "Invalid stripe count";
 		return -EINVAL;
 	}
@@ -285,7 +285,7 @@ static int stripe_end_io(struct dm_target *ti, struct bio *bio,
 	if (!error)
 		return 0; /* I/O complete */
 
-	if ((error == -EWOULDBLOCK) && bio_rw_ahead(bio))
+	if ((error == -EWOULDBLOCK) && bio_rw_flagged(bio, BIO_RW_AHEAD))
 		return error;
 
 	if (error == -EOPNOTSUPP)
@@ -336,7 +336,7 @@ static void stripe_io_hints(struct dm_target *ti,
 	unsigned chunk_size = (sc->chunk_mask + 1) << 9;
 
 	blk_limits_io_min(limits, chunk_size);
-	limits->io_opt = chunk_size * sc->stripes;
+	blk_limits_io_opt(limits, chunk_size * sc->stripes);
 }
 
 static struct target_type stripe_target = {

@@ -406,6 +406,12 @@ struct gfs2_statfs_change_host {
 #define GFS2_DATA_WRITEBACK	1
 #define GFS2_DATA_ORDERED	2
 
+#define GFS2_ERRORS_DEFAULT     GFS2_ERRORS_WITHDRAW
+#define GFS2_ERRORS_WITHDRAW    0
+#define GFS2_ERRORS_CONTINUE    1 /* place holder for future feature */
+#define GFS2_ERRORS_RO          2 /* place holder for future feature */
+#define GFS2_ERRORS_PANIC       3
+
 struct gfs2_args {
 	char ar_lockproto[GFS2_LOCKNAME_LEN];	/* Name of the Lock Protocol */
 	char ar_locktable[GFS2_LOCKNAME_LEN];	/* Name of the Lock Table */
@@ -422,7 +428,12 @@ struct gfs2_args {
 	unsigned int ar_data:2;			/* ordered/writeback */
 	unsigned int ar_meta:1;			/* mount metafs */
 	unsigned int ar_discard:1;		/* discard requests */
+	unsigned int ar_errors:2;               /* errors=withdraw | panic */
+	unsigned int ar_nobarrier:1;            /* do not send barriers */
 	int ar_commit;				/* Commit interval */
+	int ar_statfs_quantum;			/* The fast statfs interval */
+	int ar_quota_quantum;			/* The quota interval */
+	int ar_statfs_percent;			/* The % change to force sync */
 };
 
 struct gfs2_tune {
@@ -489,7 +500,6 @@ struct gfs2_sb_host {
  */
 
 struct lm_lockstruct {
-	u32 ls_id;
 	unsigned int ls_jid;
 	unsigned int ls_first;
 	unsigned int ls_first_done;
@@ -534,6 +544,8 @@ struct gfs2_sbd {
 	struct gfs2_holder sd_live_gh;
 	struct gfs2_glock *sd_rename_gl;
 	struct gfs2_glock *sd_trans_gl;
+	wait_queue_head_t sd_glock_wait;
+	atomic_t sd_glock_disposal;
 
 	/* Inode Stuff */
 
@@ -541,23 +553,18 @@ struct gfs2_sbd {
 	struct dentry *sd_root_dir;
 
 	struct inode *sd_jindex;
-	struct inode *sd_inum_inode;
 	struct inode *sd_statfs_inode;
-	struct inode *sd_ir_inode;
 	struct inode *sd_sc_inode;
 	struct inode *sd_qc_inode;
 	struct inode *sd_rindex;
 	struct inode *sd_quota_inode;
-
-	/* Inum stuff */
-
-	struct mutex sd_inum_mutex;
 
 	/* StatFS stuff */
 
 	spinlock_t sd_statfs_spin;
 	struct gfs2_statfs_change_host sd_statfs_master;
 	struct gfs2_statfs_change_host sd_statfs_local;
+	int sd_statfs_force_sync;
 
 	/* Resource group stuff */
 
@@ -580,7 +587,6 @@ struct gfs2_sbd {
 	struct gfs2_holder sd_journal_gh;
 	struct gfs2_holder sd_jinode_gh;
 
-	struct gfs2_holder sd_ir_gh;
 	struct gfs2_holder sd_sc_gh;
 	struct gfs2_holder sd_qc_gh;
 

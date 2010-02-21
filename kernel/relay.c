@@ -60,7 +60,7 @@ static int relay_buf_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 /*
  * vm_ops for relay file mappings.
  */
-static struct vm_operations_struct relay_file_mmap_ops = {
+static const struct vm_operations_struct relay_file_mmap_ops = {
 	.fault = relay_buf_fault,
 	.close = relay_file_mmap_close,
 };
@@ -1194,7 +1194,7 @@ static void relay_pipe_buf_release(struct pipe_inode_info *pipe,
 	relay_consume_bytes(rbuf, buf->private);
 }
 
-static struct pipe_buf_operations relay_pipe_buf_ops = {
+static const struct pipe_buf_operations relay_pipe_buf_ops = {
 	.can_merge = 0,
 	.map = generic_pipe_buf_map,
 	.unmap = generic_pipe_buf_unmap,

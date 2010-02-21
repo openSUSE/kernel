@@ -16,6 +16,7 @@
 #include <linux/ptrace.h>
 #include <linux/smp.h>
 #include <linux/stddef.h>
+#include <linux/module.h>
 
 #include <asm/bugs.h>
 #include <asm/cpu.h>
@@ -23,7 +24,7 @@
 #include <asm/mipsregs.h>
 #include <asm/system.h>
 #include <asm/watch.h>
-
+#include <asm/spram.h>
 /*
  * Not all of the MIPS CPUs have the "wait" instruction available. Moreover,
  * the implementation of the "wait" feature differs between CPU families. This
@@ -31,7 +32,8 @@
  * The wait instruction stops the pipeline and reduces the power consumption of
  * the CPU very much.
  */
-void (*cpu_wait)(void) = NULL;
+void (*cpu_wait)(void);
+EXPORT_SYMBOL(cpu_wait);
 
 static void r3081_wait(void)
 {
@@ -91,16 +93,13 @@ static void rm7k_wait_irqoff(void)
 	local_irq_enable();
 }
 
-/* The Au1xxx wait is available only if using 32khz counter or
- * external timer source, but specifically not CP0 Counter. */
-int allow_au1k_wait;
-
+/*
+ * The Au1xxx wait is available only if using 32khz counter or
+ * external timer source, but specifically not CP0 Counter.
+ * alchemy/common/time.c may override cpu_wait!
+ */
 static void au1k_wait(void)
 {
-	if (!allow_au1k_wait)
-		return;
-
-	/* using the wait instruction makes CP0 counter unusable */
 	__asm__("	.set	mips3			\n"
 		"	cache	0x14, 0(%0)		\n"
 		"	cache	0x14, 32(%0)		\n"
@@ -115,7 +114,7 @@ static void au1k_wait(void)
 		: : "r" (au1k_wait));
 }
 
-static int __initdata nowait = 0;
+static int __initdata nowait;
 
 static int __init wait_disable(char *s)
 {
@@ -159,6 +158,9 @@ void __init check_wait(void)
 	case CPU_25KF:
 	case CPU_PR4450:
 	case CPU_BCM3302:
+	case CPU_BCM6338:
+	case CPU_BCM6348:
+	case CPU_BCM6358:
 	case CPU_CAVIUM_OCTEON:
 		cpu_wait = r4k_wait;
 		break;
@@ -280,6 +282,15 @@ static inline unsigned long cpu_get_fpu_id(void)
 static inline int __cpu_has_fpu(void)
 {
 	return ((cpu_get_fpu_id() & 0xff00) != FPIR_IMP_NONE);
+}
+
+static inline void cpu_probe_vmbits(struct cpuinfo_mips *c)
+{
+#ifdef __NEED_VMBITS_PROBE
+	write_c0_entryhi(0x3fffffffffffe000ULL);
+	back_to_back_c0_hazard();
+	c->vmbits = fls64(read_c0_entryhi() & 0x3fffffffffffe000ULL);
+#endif
 }
 
 #define R4K_OPTS (MIPS_CPU_TLB | MIPS_CPU_4KEX | MIPS_CPU_4K_CACHE \
@@ -711,12 +722,6 @@ static void __cpuinit decode_configs(struct cpuinfo_mips *c)
 	mips_probe_watch_registers(c);
 }
 
-#ifdef CONFIG_CPU_MIPSR2
-extern void spram_config(void);
-#else
-static inline void spram_config(void) {}
-#endif
-
 static inline void cpu_probe_mips(struct cpuinfo_mips *c, unsigned int cpu)
 {
 	decode_configs(c);
@@ -857,12 +862,32 @@ static inline void cpu_probe_broadcom(struct cpuinfo_mips *c, unsigned int cpu)
 	decode_configs(c);
 	switch (c->processor_id & 0xff00) {
 	case PRID_IMP_BCM3302:
+	 /* same as PRID_IMP_BCM6338 */
 		c->cputype = CPU_BCM3302;
 		__cpu_name[cpu] = "Broadcom BCM3302";
 		break;
 	case PRID_IMP_BCM4710:
 		c->cputype = CPU_BCM4710;
 		__cpu_name[cpu] = "Broadcom BCM4710";
+		break;
+	case PRID_IMP_BCM6345:
+		c->cputype = CPU_BCM6345;
+		__cpu_name[cpu] = "Broadcom BCM6345";
+		break;
+	case PRID_IMP_BCM6348:
+		c->cputype = CPU_BCM6348;
+		__cpu_name[cpu] = "Broadcom BCM6348";
+		break;
+	case PRID_IMP_BCM4350:
+		switch (c->processor_id & 0xf0) {
+		case PRID_REV_BCM6358:
+			c->cputype = CPU_BCM6358;
+			__cpu_name[cpu] = "Broadcom BCM6358";
+			break;
+		default:
+			c->cputype = CPU_UNKNOWN;
+			break;
+		}
 		break;
 	}
 }
@@ -953,6 +978,8 @@ __cpuinit void cpu_probe(void)
 		c->srsets = ((read_c0_srsctl() >> 26) & 0x0f) + 1;
 	else
 		c->srsets = 1;
+
+	cpu_probe_vmbits(c);
 }
 
 __cpuinit void cpu_report(void)

@@ -30,6 +30,7 @@ struct mm_struct;
 #include <linux/math64.h>
 #include <linux/init.h>
 
+#define HBP_NUM 4
 /*
  * Default implementation of macro that returns current
  * instruction pointer ("program counter").
@@ -180,7 +181,7 @@ static inline void native_cpuid(unsigned int *eax, unsigned int *ebx,
 				unsigned int *ecx, unsigned int *edx)
 {
 	/* ecx is often an input as well as an output. */
-	asm("cpuid"
+	asm volatile("cpuid"
 	    : "=a" (*eax),
 	      "=b" (*ebx),
 	      "=c" (*ecx),
@@ -404,13 +405,25 @@ extern unsigned long kernel_eflags;
 extern asmlinkage void ignore_sysret(void);
 #else	/* X86_64 */
 #ifdef CONFIG_CC_STACKPROTECTOR
-DECLARE_PER_CPU(unsigned long, stack_canary);
+/*
+ * Make sure stack canary segment base is cached-aligned:
+ *   "For Intel Atom processors, avoid non zero segment base address
+ *    that is not aligned to cache line boundary at all cost."
+ * (Optim Ref Manual Assembly/Compiler Coding Rule 15.)
+ */
+struct stack_canary {
+	char __pad[20];		/* canary at %gs:20 */
+	unsigned long canary;
+};
+DECLARE_PER_CPU_ALIGNED(struct stack_canary, stack_canary);
 #endif
 #endif	/* X86_64 */
 
 extern unsigned int xstate_size;
 extern void free_thread_xstate(struct task_struct *);
 extern struct kmem_cache *task_xstate_cachep;
+
+struct perf_event;
 
 struct thread_struct {
 	/* Cached TLS descriptors: */
@@ -433,13 +446,10 @@ struct thread_struct {
 	unsigned long		fs;
 #endif
 	unsigned long		gs;
-	/* Hardware debugging registers: */
-	unsigned long		debugreg0;
-	unsigned long		debugreg1;
-	unsigned long		debugreg2;
-	unsigned long		debugreg3;
-	unsigned long		debugreg6;
-	unsigned long		debugreg7;
+	/* Save middle states of ptrace breakpoints */
+	struct perf_event	*ptrace_bps[HBP_NUM];
+	/* Debug status used for traps, single steps, etc... */
+	unsigned long           debugreg6;
 	/* Fault info: */
 	unsigned long		cr2;
 	unsigned long		trap_no;
@@ -704,13 +714,23 @@ static inline void cpu_relax(void)
 	rep_nop();
 }
 
-/* Stop speculative execution: */
+/* Stop speculative execution and prefetching of modified code. */
 static inline void sync_core(void)
 {
 	int tmp;
 
-	asm volatile("cpuid" : "=a" (tmp) : "0" (1)
-		     : "ebx", "ecx", "edx", "memory");
+#if defined(CONFIG_M386) || defined(CONFIG_M486)
+	if (boot_cpu_data.x86 < 5)
+		/* There is no speculative execution.
+		 * jmp is a barrier to prefetching. */
+		asm volatile("jmp 1f\n1:\n" ::: "memory");
+	else
+#endif
+		/* cpuid is a barrier to speculative execution.
+		 * Prefetched instructions are automatically
+		 * invalidated when modified. */
+		asm volatile("cpuid" : "=a" (tmp) : "0" (1)
+			     : "ebx", "ecx", "edx", "memory");
 }
 
 static inline void __monitor(const void *eax, unsigned long ecx,
@@ -980,7 +1000,7 @@ extern unsigned long thread_saved_pc(struct task_struct *tsk);
 #define thread_saved_pc(t)	(*(unsigned long *)((t)->thread.sp - 8))
 
 #define task_pt_regs(tsk)	((struct pt_regs *)(tsk)->thread.sp0 - 1)
-#define KSTK_ESP(tsk)		-1 /* sorry. doesn't work for syscall. */
+extern unsigned long KSTK_ESP(struct task_struct *task);
 #endif /* CONFIG_X86_64 */
 
 extern void start_thread(struct pt_regs *regs, unsigned long new_ip,
@@ -1000,6 +1020,8 @@ extern void start_thread(struct pt_regs *regs, unsigned long new_ip,
 
 extern int get_tsc_mode(unsigned long adr);
 extern int set_tsc_mode(unsigned int val);
+
+extern int amd_get_nb_id(int cpu);
 
 struct aperfmperf {
 	u64 aperf, mperf;

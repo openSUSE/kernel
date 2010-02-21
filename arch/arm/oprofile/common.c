@@ -48,9 +48,9 @@ static int op_arm_setup(void)
 {
 	int ret;
 
-	atomic_spin_lock(&oprofilefs_lock);
+	raw_spin_lock(&oprofilefs_lock);
 	ret = op_arm_model->setup_ctrs();
-	atomic_spin_unlock(&oprofilefs_lock);
+	raw_spin_unlock(&oprofilefs_lock);
 	return ret;
 }
 

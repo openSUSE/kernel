@@ -160,6 +160,11 @@
  * @NL80211_CMD_SCAN_ABORTED: scan was aborted, for unspecified reasons,
  *	partial scan results may be available
  *
+ * @NL80211_CMD_GET_SURVEY: get survey resuls, e.g. channel occupation
+ *      or noise level
+ * @NL80211_CMD_NEW_SURVEY_RESULTS: survey data notification (as a reply to
+ *	NL80211_CMD_GET_SURVEY and on the "scan" multicast group)
+ *
  * @NL80211_CMD_REG_CHANGE: indicates to userspace the regulatory domain
  * 	has been changed and provides details of the request information
  * 	that caused the change such as who initiated the regulatory request
@@ -242,6 +247,29 @@
  * @NL80211_CMD_LEAVE_IBSS: Leave the IBSS -- no special arguments, the IBSS is
  *	determined by the network interface.
  *
+ * @NL80211_CMD_TESTMODE: testmode command, takes a wiphy (or ifindex) attribute
+ *	to identify the device, and the TESTDATA blob attribute to pass through
+ *	to the driver.
+ *
+ * @NL80211_CMD_CONNECT: connection request and notification; this command
+ *	requests to connect to a specified network but without separating
+ *	auth and assoc steps. For this, you need to specify the SSID in a
+ *	%NL80211_ATTR_SSID attribute, and can optionally specify the association
+ *	IEs in %NL80211_ATTR_IE, %NL80211_ATTR_AUTH_TYPE, %NL80211_ATTR_MAC,
+ *	%NL80211_ATTR_WIPHY_FREQ and %NL80211_ATTR_CONTROL_PORT.
+ *	It is also sent as an event, with the BSSID and response IEs when the
+ *	connection is established or failed to be established. This can be
+ *	determined by the STATUS_CODE attribute.
+ * @NL80211_CMD_ROAM: request that the card roam (currently not implemented),
+ *	sent as an event when the card/driver roamed by itself.
+ * @NL80211_CMD_DISCONNECT: drop a given connection; also used to notify
+ *	userspace that a connection was dropped by the AP or due to other
+ *	reasons, for this the %NL80211_ATTR_DISCONNECTED_BY_AP and
+ *	%NL80211_ATTR_REASON_CODE attributes are used.
+ *
+ * @NL80211_CMD_SET_WIPHY_NETNS: Set a wiphy's netns. Note that all devices
+ *	associated with this wiphy must be down and will follow.
+ *
  * @NL80211_CMD_MAX: highest used command number
  * @__NL80211_CMD_AFTER_LAST: internal use
  */
@@ -309,6 +337,21 @@ enum nl80211_commands {
 
 	NL80211_CMD_JOIN_IBSS,
 	NL80211_CMD_LEAVE_IBSS,
+
+	NL80211_CMD_TESTMODE,
+
+	NL80211_CMD_CONNECT,
+	NL80211_CMD_ROAM,
+	NL80211_CMD_DISCONNECT,
+
+	NL80211_CMD_SET_WIPHY_NETNS,
+
+	NL80211_CMD_GET_SURVEY,
+	NL80211_CMD_NEW_SURVEY_RESULTS,
+
+	NL80211_CMD_SET_PMKSA,
+	NL80211_CMD_DEL_PMKSA,
+	NL80211_CMD_FLUSH_PMKSA,
 
 	/* add new commands above here */
 
@@ -449,10 +492,6 @@ enum nl80211_commands {
  * @NL80211_ATTR_SCAN_FREQUENCIES: nested attribute with frequencies (in MHz)
  * @NL80211_ATTR_SCAN_SSIDS: nested attribute with SSIDs, leave out for passive
  *	scanning and include a zero-length SSID (wildcard) for wildcard scan
- * @NL80211_ATTR_SCAN_GENERATION: the scan generation increases whenever the
- *	scan result list changes (BSS expired or added) so that applications
- *	can verify that they got a single, consistent snapshot (when all dump
- *	messages carried the same generation number)
  * @NL80211_ATTR_BSS: scan result BSS
  *
  * @NL80211_ATTR_REG_INITIATOR: indicates who requested the regulatory domain
@@ -510,6 +549,62 @@ enum nl80211_commands {
  *	request, the driver will assume that the port is unauthorized until
  *	authorized by user space. Otherwise, port is marked authorized by
  *	default in station mode.
+ *
+ * @NL80211_ATTR_TESTDATA: Testmode data blob, passed through to the driver.
+ *	We recommend using nested, driver-specific attributes within this.
+ *
+ * @NL80211_ATTR_DISCONNECTED_BY_AP: A flag indicating that the DISCONNECT
+ *	event was due to the AP disconnecting the station, and not due to
+ *	a local disconnect request.
+ * @NL80211_ATTR_STATUS_CODE: StatusCode for the %NL80211_CMD_CONNECT
+ *	event (u16)
+ * @NL80211_ATTR_PRIVACY: Flag attribute, used with connect(), indicating
+ *	that protected APs should be used.
+ *
+ * @NL80211_ATTR_CIPHERS_PAIRWISE: Used with CONNECT and ASSOCIATE to
+ *	indicate which unicast key ciphers will be used with the connection
+ *	(an array of u32).
+ * @NL80211_ATTR_CIPHER_GROUP: Used with CONNECT and ASSOCIATE to indicate
+ *	which group key cipher will be used with the connection (a u32).
+ * @NL80211_ATTR_WPA_VERSIONS: Used with CONNECT and ASSOCIATE to indicate
+ *	which WPA version(s) the AP we want to associate with is using
+ *	(a u32 with flags from &enum nl80211_wpa_versions).
+ * @NL80211_ATTR_AKM_SUITES: Used with CONNECT and ASSOCIATE to indicate
+ *	which key management algorithm(s) to use (an array of u32).
+ *
+ * @NL80211_ATTR_REQ_IE: (Re)association request information elements as
+ *	sent out by the card, for ROAM and successful CONNECT events.
+ * @NL80211_ATTR_RESP_IE: (Re)association response information elements as
+ *	sent by peer, for ROAM and successful CONNECT events.
+ *
+ * @NL80211_ATTR_PREV_BSSID: previous BSSID, to be used by in ASSOCIATE
+ *	commands to specify using a reassociate frame
+ *
+ * @NL80211_ATTR_KEY: key information in a nested attribute with
+ *	%NL80211_KEY_* sub-attributes
+ * @NL80211_ATTR_KEYS: array of keys for static WEP keys for connect()
+ *	and join_ibss(), key information is in a nested attribute each
+ *	with %NL80211_KEY_* sub-attributes
+ *
+ * @NL80211_ATTR_PID: Process ID of a network namespace.
+ *
+ * @NL80211_ATTR_GENERATION: Used to indicate consistent snapshots for
+ *	dumps. This number increases whenever the object list being
+ *	dumped changes, and as such userspace can verify that it has
+ *	obtained a complete and consistent snapshot by verifying that
+ *	all dump messages contain the same generation number. If it
+ *	changed then the list changed and the dump should be repeated
+ *	completely from scratch.
+ *
+ * @NL80211_ATTR_4ADDR: Use 4-address frames on a virtual interface
+ *
+ * @NL80211_ATTR_SURVEY_INFO: survey information about a channel, part of
+ *      the survey response for %NL80211_CMD_GET_SURVEY, nested attribute
+ *      containing info as possible, see &enum survey_info.
+ *
+ * @NL80211_ATTR_PMKID: PMK material for PMKSA caching.
+ * @NL80211_ATTR_MAX_NUM_PMKIDS: maximum number of PMKIDs a firmware can
+ *	cache, a wiphy attribute.
  *
  * @NL80211_ATTR_MAX: highest attribute number currently defined
  * @__NL80211_ATTR_AFTER_LAST: internal use
@@ -582,7 +677,7 @@ enum nl80211_attrs {
 
 	NL80211_ATTR_SCAN_FREQUENCIES,
 	NL80211_ATTR_SCAN_SSIDS,
-	NL80211_ATTR_SCAN_GENERATION,
+	NL80211_ATTR_GENERATION, /* replaces old SCAN_GENERATION */
 	NL80211_ATTR_BSS,
 
 	NL80211_ATTR_REG_INITIATOR,
@@ -619,16 +714,49 @@ enum nl80211_attrs {
 
 	NL80211_ATTR_CONTROL_PORT,
 
+	NL80211_ATTR_TESTDATA,
+
+	NL80211_ATTR_PRIVACY,
+
+	NL80211_ATTR_DISCONNECTED_BY_AP,
+	NL80211_ATTR_STATUS_CODE,
+
+	NL80211_ATTR_CIPHER_SUITES_PAIRWISE,
+	NL80211_ATTR_CIPHER_SUITE_GROUP,
+	NL80211_ATTR_WPA_VERSIONS,
+	NL80211_ATTR_AKM_SUITES,
+
+	NL80211_ATTR_REQ_IE,
+	NL80211_ATTR_RESP_IE,
+
+	NL80211_ATTR_PREV_BSSID,
+
+	NL80211_ATTR_KEY,
+	NL80211_ATTR_KEYS,
+
+	NL80211_ATTR_PID,
+
+	NL80211_ATTR_4ADDR,
+
+	NL80211_ATTR_SURVEY_INFO,
+
+	NL80211_ATTR_PMKID,
+	NL80211_ATTR_MAX_NUM_PMKIDS,
+
 	/* add attributes here, update the policy in nl80211.c */
 
 	__NL80211_ATTR_AFTER_LAST,
 	NL80211_ATTR_MAX = __NL80211_ATTR_AFTER_LAST - 1
 };
 
+/* source-level API compatibility */
+#define NL80211_ATTR_SCAN_GENERATION NL80211_ATTR_GENERATION
+
 /*
  * Allow user space programs to use #ifdef on new attributes by defining them
  * here
  */
+#define NL80211_CMD_CONNECT NL80211_CMD_CONNECT
 #define NL80211_ATTR_HT_CAPABILITY NL80211_ATTR_HT_CAPABILITY
 #define NL80211_ATTR_BSS_BASIC_RATES NL80211_ATTR_BSS_BASIC_RATES
 #define NL80211_ATTR_WIPHY_TXQ_PARAMS NL80211_ATTR_WIPHY_TXQ_PARAMS
@@ -642,6 +770,12 @@ enum nl80211_attrs {
 #define NL80211_ATTR_SSID NL80211_ATTR_SSID
 #define NL80211_ATTR_AUTH_TYPE NL80211_ATTR_AUTH_TYPE
 #define NL80211_ATTR_REASON_CODE NL80211_ATTR_REASON_CODE
+#define NL80211_ATTR_CIPHER_SUITES_PAIRWISE NL80211_ATTR_CIPHER_SUITES_PAIRWISE
+#define NL80211_ATTR_CIPHER_SUITE_GROUP NL80211_ATTR_CIPHER_SUITE_GROUP
+#define NL80211_ATTR_WPA_VERSIONS NL80211_ATTR_WPA_VERSIONS
+#define NL80211_ATTR_AKM_SUITES NL80211_ATTR_AKM_SUITES
+#define NL80211_ATTR_KEY NL80211_ATTR_KEY
+#define NL80211_ATTR_KEYS NL80211_ATTR_KEYS
 
 #define NL80211_MAX_SUPP_RATES			32
 #define NL80211_MAX_SUPP_REG_RULES		32
@@ -649,6 +783,9 @@ enum nl80211_attrs {
 #define NL80211_TKIP_DATA_OFFSET_TX_MIC_KEY	16
 #define NL80211_TKIP_DATA_OFFSET_RX_MIC_KEY	24
 #define NL80211_HT_CAPABILITY_LEN		26
+
+#define NL80211_MAX_NR_CIPHER_SUITES		5
+#define NL80211_MAX_NR_AKM_SUITES		2
 
 /**
  * enum nl80211_iftype - (virtual) interface types
@@ -787,14 +924,14 @@ enum nl80211_sta_info {
  *
  * @NL80211_MPATH_FLAG_ACTIVE: the mesh path is active
  * @NL80211_MPATH_FLAG_RESOLVING: the mesh path discovery process is running
- * @NL80211_MPATH_FLAG_DSN_VALID: the mesh path contains a valid DSN
+ * @NL80211_MPATH_FLAG_SN_VALID: the mesh path contains a valid SN
  * @NL80211_MPATH_FLAG_FIXED: the mesh path has been manually set
  * @NL80211_MPATH_FLAG_RESOLVED: the mesh path discovery process succeeded
  */
 enum nl80211_mpath_flags {
 	NL80211_MPATH_FLAG_ACTIVE =	1<<0,
 	NL80211_MPATH_FLAG_RESOLVING =	1<<1,
-	NL80211_MPATH_FLAG_DSN_VALID =	1<<2,
+	NL80211_MPATH_FLAG_SN_VALID =	1<<2,
 	NL80211_MPATH_FLAG_FIXED =	1<<3,
 	NL80211_MPATH_FLAG_RESOLVED =	1<<4,
 };
@@ -807,7 +944,7 @@ enum nl80211_mpath_flags {
  *
  * @__NL80211_MPATH_INFO_INVALID: attribute number 0 is reserved
  * @NL80211_ATTR_MPATH_FRAME_QLEN: number of queued frames for this destination
- * @NL80211_ATTR_MPATH_DSN: destination sequence number
+ * @NL80211_ATTR_MPATH_SN: destination sequence number
  * @NL80211_ATTR_MPATH_METRIC: metric (cost) of this mesh path
  * @NL80211_ATTR_MPATH_EXPTIME: expiration time for the path, in msec from now
  * @NL80211_ATTR_MPATH_FLAGS: mesh path flags, enumerated in
@@ -818,7 +955,7 @@ enum nl80211_mpath_flags {
 enum nl80211_mpath_info {
 	__NL80211_MPATH_INFO_INVALID,
 	NL80211_MPATH_INFO_FRAME_QLEN,
-	NL80211_MPATH_INFO_DSN,
+	NL80211_MPATH_INFO_SN,
 	NL80211_MPATH_INFO_METRIC,
 	NL80211_MPATH_INFO_EXPTIME,
 	NL80211_MPATH_INFO_FLAGS,
@@ -1009,6 +1146,26 @@ enum nl80211_reg_rule_flags {
 };
 
 /**
+ * enum nl80211_survey_info - survey information
+ *
+ * These attribute types are used with %NL80211_ATTR_SURVEY_INFO
+ * when getting information about a survey.
+ *
+ * @__NL80211_SURVEY_INFO_INVALID: attribute number 0 is reserved
+ * @NL80211_SURVEY_INFO_FREQUENCY: center frequency of channel
+ * @NL80211_SURVEY_INFO_NOISE: noise level of channel (u8, dBm)
+ */
+enum nl80211_survey_info {
+	__NL80211_SURVEY_INFO_INVALID,
+	NL80211_SURVEY_INFO_FREQUENCY,
+	NL80211_SURVEY_INFO_NOISE,
+
+	/* keep last */
+	__NL80211_SURVEY_INFO_AFTER_LAST,
+	NL80211_SURVEY_INFO_MAX = __NL80211_SURVEY_INFO_AFTER_LAST - 1
+};
+
+/**
  * enum nl80211_mntr_flags - monitor configuration flags
  *
  * Monitor configuration flags.
@@ -1088,6 +1245,8 @@ enum nl80211_mntr_flags {
  * @NL80211_MESHCONF_HWMP_NET_DIAM_TRVS_TIME: The interval of time (in TUs)
  * that it takes for an HWMP information element to propagate across the mesh
  *
+ * @NL80211_MESHCONF_ROOTMODE: whether root mode is enabled or not
+ *
  * @NL80211_MESHCONF_ATTR_MAX: highest possible mesh configuration attribute
  *
  * @__NL80211_MESHCONF_ATTR_AFTER_LAST: internal use
@@ -1107,6 +1266,7 @@ enum nl80211_meshconf_params {
 	NL80211_MESHCONF_HWMP_ACTIVE_PATH_TIMEOUT,
 	NL80211_MESHCONF_HWMP_PREQ_MIN_INTERVAL,
 	NL80211_MESHCONF_HWMP_NET_DIAM_TRVS_TIME,
+	NL80211_MESHCONF_HWMP_ROOTMODE,
 
 	/* keep last */
 	__NL80211_MESHCONF_ATTR_AFTER_LAST,
@@ -1168,6 +1328,8 @@ enum nl80211_channel_type {
  *	in mBm (100 * dBm) (s32)
  * @NL80211_BSS_SIGNAL_UNSPEC: signal strength of the probe response/beacon
  *	in unspecified units, scaled to 0..100 (u8)
+ * @NL80211_BSS_STATUS: status, if this BSS is "used"
+ * @NL80211_BSS_SEEN_MS_AGO: age of this BSS entry in ms
  * @__NL80211_BSS_AFTER_LAST: internal
  * @NL80211_BSS_MAX: highest BSS attribute
  */
@@ -1181,10 +1343,21 @@ enum nl80211_bss {
 	NL80211_BSS_INFORMATION_ELEMENTS,
 	NL80211_BSS_SIGNAL_MBM,
 	NL80211_BSS_SIGNAL_UNSPEC,
+	NL80211_BSS_STATUS,
+	NL80211_BSS_SEEN_MS_AGO,
 
 	/* keep last */
 	__NL80211_BSS_AFTER_LAST,
 	NL80211_BSS_MAX = __NL80211_BSS_AFTER_LAST - 1
+};
+
+/**
+ * enum nl80211_bss_status - BSS "status"
+ */
+enum nl80211_bss_status {
+	NL80211_BSS_STATUS_AUTHENTICATED,
+	NL80211_BSS_STATUS_ASSOCIATED,
+	NL80211_BSS_STATUS_IBSS_JOINED,
 };
 
 /**
@@ -1194,12 +1367,22 @@ enum nl80211_bss {
  * @NL80211_AUTHTYPE_SHARED_KEY: Shared Key authentication (WEP only)
  * @NL80211_AUTHTYPE_FT: Fast BSS Transition (IEEE 802.11r)
  * @NL80211_AUTHTYPE_NETWORK_EAP: Network EAP (some Cisco APs and mainly LEAP)
+ * @__NL80211_AUTHTYPE_NUM: internal
+ * @NL80211_AUTHTYPE_MAX: maximum valid auth algorithm
+ * @NL80211_AUTHTYPE_AUTOMATIC: determine automatically (if necessary by
+ *	trying multiple times); this is invalid in netlink -- leave out
+ *	the attribute for this on CONNECT commands.
  */
 enum nl80211_auth_type {
 	NL80211_AUTHTYPE_OPEN_SYSTEM,
 	NL80211_AUTHTYPE_SHARED_KEY,
 	NL80211_AUTHTYPE_FT,
 	NL80211_AUTHTYPE_NETWORK_EAP,
+
+	/* keep last */
+	__NL80211_AUTHTYPE_NUM,
+	NL80211_AUTHTYPE_MAX = __NL80211_AUTHTYPE_NUM - 1,
+	NL80211_AUTHTYPE_AUTOMATIC
 };
 
 /**
@@ -1222,6 +1405,41 @@ enum nl80211_key_type {
 enum nl80211_mfp {
 	NL80211_MFP_NO,
 	NL80211_MFP_REQUIRED,
+};
+
+enum nl80211_wpa_versions {
+	NL80211_WPA_VERSION_1 = 1 << 0,
+	NL80211_WPA_VERSION_2 = 1 << 1,
+};
+
+/**
+ * enum nl80211_key_attributes - key attributes
+ * @__NL80211_KEY_INVALID: invalid
+ * @NL80211_KEY_DATA: (temporal) key data; for TKIP this consists of
+ *	16 bytes encryption key followed by 8 bytes each for TX and RX MIC
+ *	keys
+ * @NL80211_KEY_IDX: key ID (u8, 0-3)
+ * @NL80211_KEY_CIPHER: key cipher suite (u32, as defined by IEEE 802.11
+ *	section 7.3.2.25.1, e.g. 0x000FAC04)
+ * @NL80211_KEY_SEQ: transmit key sequence number (IV/PN) for TKIP and
+ *	CCMP keys, each six bytes in little endian
+ * @NL80211_KEY_DEFAULT: flag indicating default key
+ * @NL80211_KEY_DEFAULT_MGMT: flag indicating default management key
+ * @__NL80211_KEY_AFTER_LAST: internal
+ * @NL80211_KEY_MAX: highest key attribute
+ */
+enum nl80211_key_attributes {
+	__NL80211_KEY_INVALID,
+	NL80211_KEY_DATA,
+	NL80211_KEY_IDX,
+	NL80211_KEY_CIPHER,
+	NL80211_KEY_SEQ,
+	NL80211_KEY_DEFAULT,
+	NL80211_KEY_DEFAULT_MGMT,
+
+	/* keep last */
+	__NL80211_KEY_AFTER_LAST,
+	NL80211_KEY_MAX = __NL80211_KEY_AFTER_LAST - 1
 };
 
 #endif /* __LINUX_NL80211_H */

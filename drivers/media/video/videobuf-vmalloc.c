@@ -116,7 +116,7 @@ static void videobuf_vm_close(struct vm_area_struct *vma)
 	return;
 }
 
-static struct vm_operations_struct videobuf_vm_ops =
+static const struct vm_operations_struct videobuf_vm_ops =
 {
 	.open     = videobuf_vm_open,
 	.close    = videobuf_vm_close,
@@ -391,8 +391,8 @@ static struct videobuf_qtype_ops qops = {
 };
 
 void videobuf_queue_vmalloc_init(struct videobuf_queue* q,
-			 struct videobuf_queue_ops *ops,
-			 void *dev,
+			 const struct videobuf_queue_ops *ops,
+			 struct device *dev,
 			 spinlock_t *irqlock,
 			 enum v4l2_buf_type type,
 			 enum v4l2_field field,

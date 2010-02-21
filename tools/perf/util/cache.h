@@ -1,9 +1,14 @@
-#ifndef CACHE_H
-#define CACHE_H
+#ifndef __PERF_CACHE_H
+#define __PERF_CACHE_H
 
 #include "util.h"
 #include "strbuf.h"
 #include "../perf.h"
+
+#define CMD_EXEC_PATH "--exec-path"
+#define CMD_PERF_DIR "--perf-dir="
+#define CMD_WORK_TREE "--work-tree="
+#define CMD_DEBUGFS_DIR "--debugfs-dir="
 
 #define PERF_DIR_ENVIRONMENT "PERF_DIR"
 #define PERF_WORK_TREE_ENVIRONMENT "PERF_WORK_TREE"
@@ -52,7 +57,6 @@ extern const char *perf_mailmap_file;
 extern void maybe_flush_or_die(FILE *, const char *);
 extern int copy_fd(int ifd, int ofd);
 extern int copy_file(const char *dst, const char *src, int mode);
-extern ssize_t read_in_full(int fd, void *buf, size_t count);
 extern ssize_t write_in_full(int fd, const void *buf, size_t count);
 extern void write_or_die(int fd, const void *buf, size_t count);
 extern int write_or_whine(int fd, const void *buf, size_t count, const char *msg);
@@ -118,4 +122,4 @@ extern char *perf_pathdup(const char *fmt, ...)
 
 extern size_t strlcpy(char *dest, const char *src, size_t size);
 
-#endif /* CACHE_H */
+#endif /* __PERF_CACHE_H */

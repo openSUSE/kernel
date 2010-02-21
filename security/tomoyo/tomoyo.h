@@ -18,8 +18,6 @@ struct inode;
 struct linux_binprm;
 struct pt_regs;
 
-int tomoyo_check_file_perm(struct tomoyo_domain_info *domain,
-			   const char *filename, const u8 perm);
 int tomoyo_check_exec_perm(struct tomoyo_domain_info *domain,
 			   const struct tomoyo_path_info *filename);
 int tomoyo_check_open_permission(struct tomoyo_domain_info *domain,
@@ -31,8 +29,7 @@ int tomoyo_check_2path_perm(struct tomoyo_domain_info *domain,
 			    struct path *path2);
 int tomoyo_check_rewrite_permission(struct tomoyo_domain_info *domain,
 				    struct file *filp);
-int tomoyo_find_next_domain(struct linux_binprm *bprm,
-			    struct tomoyo_domain_info **next_domain);
+int tomoyo_find_next_domain(struct linux_binprm *bprm);
 
 /* Index numbers for Access Controls. */
 

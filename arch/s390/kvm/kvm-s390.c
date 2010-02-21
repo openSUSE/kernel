@@ -1,7 +1,7 @@
 /*
  * s390host.c --  hosting zSeries kernel virtual machines
  *
- * Copyright IBM Corp. 2008
+ * Copyright IBM Corp. 2008,2009
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License (version 2 only)
@@ -10,6 +10,7 @@
  *    Author(s): Carsten Otte <cotte@de.ibm.com>
  *               Christian Borntraeger <borntraeger@de.ibm.com>
  *               Heiko Carstens <heiko.carstens@de.ibm.com>
+ *               Christian Ehrhardt <ehrhardt@de.ibm.com>
  */
 
 #include <linux/compiler.h>
@@ -73,9 +74,10 @@ struct kvm_stats_debugfs_item debugfs_entries[] = {
 static unsigned long long *facilities;
 
 /* Section: not file related */
-void kvm_arch_hardware_enable(void *garbage)
+int kvm_arch_hardware_enable(void *garbage)
 {
 	/* every s390 is virtualization enabled ;-) */
+	return 0;
 }
 
 void kvm_arch_hardware_disable(void *garbage)
@@ -115,10 +117,16 @@ long kvm_arch_dev_ioctl(struct file *filp,
 
 int kvm_dev_ioctl_check_extension(long ext)
 {
+	int r;
+
 	switch (ext) {
+	case KVM_CAP_S390_PSW:
+		r = 1;
+		break;
 	default:
-		return 0;
+		r = 0;
 	}
+	return r;
 }
 
 /* Section: vm related */
@@ -149,7 +157,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		break;
 	}
 	default:
-		r = -EINVAL;
+		r = -ENOTTY;
 	}
 
 	return r;
@@ -210,13 +218,17 @@ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
 static void kvm_free_vcpus(struct kvm *kvm)
 {
 	unsigned int i;
+	struct kvm_vcpu *vcpu;
 
-	for (i = 0; i < KVM_MAX_VCPUS; ++i) {
-		if (kvm->vcpus[i]) {
-			kvm_arch_vcpu_destroy(kvm->vcpus[i]);
-			kvm->vcpus[i] = NULL;
-		}
-	}
+	kvm_for_each_vcpu(i, vcpu, kvm)
+		kvm_arch_vcpu_destroy(vcpu);
+
+	mutex_lock(&kvm->lock);
+	for (i = 0; i < atomic_read(&kvm->online_vcpus); i++)
+		kvm->vcpus[i] = NULL;
+
+	atomic_set(&kvm->online_vcpus, 0);
+	mutex_unlock(&kvm->lock);
 }
 
 void kvm_arch_sync_events(struct kvm *kvm)
@@ -278,16 +290,10 @@ static void kvm_s390_vcpu_initial_reset(struct kvm_vcpu *vcpu)
 	vcpu->arch.sie_block->gbea = 1;
 }
 
-/* The current code can have up to 256 pages for virtio */
-#define VIRTIODESCSPACE (256ul * 4096ul)
-
 int kvm_arch_vcpu_setup(struct kvm_vcpu *vcpu)
 {
 	atomic_set(&vcpu->arch.sie_block->cpuflags, CPUSTAT_ZARCH);
-	vcpu->arch.sie_block->gmslm = vcpu->kvm->arch.guest_memsize +
-				      vcpu->kvm->arch.guest_origin +
-				      VIRTIODESCSPACE - 1ul;
-	vcpu->arch.sie_block->gmsor = vcpu->kvm->arch.guest_origin;
+	set_bit(KVM_REQ_MMU_RELOAD, &vcpu->requests);
 	vcpu->arch.sie_block->ecb   = 2;
 	vcpu->arch.sie_block->eca   = 0xC1002001U;
 	vcpu->arch.sie_block->fac   = (int) (long) facilities;
@@ -319,8 +325,6 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm,
 	BUG_ON(!kvm->arch.sca);
 	if (!kvm->arch.sca->cpu[id].sda)
 		kvm->arch.sca->cpu[id].sda = (__u64) vcpu->arch.sie_block;
-	else
-		BUG_ON(!kvm->vcpus[id]); /* vcpu does already exist */
 	vcpu->arch.sie_block->scaoh = (__u32)(((__u64)kvm->arch.sca) >> 32);
 	vcpu->arch.sie_block->scaol = (__u32)(__u64)kvm->arch.sca;
 
@@ -422,8 +426,10 @@ static int kvm_arch_vcpu_ioctl_set_initial_psw(struct kvm_vcpu *vcpu, psw_t psw)
 	vcpu_load(vcpu);
 	if (atomic_read(&vcpu->arch.sie_block->cpuflags) & CPUSTAT_RUNNING)
 		rc = -EBUSY;
-	else
-		vcpu->arch.sie_block->gpsw = psw;
+	else {
+		vcpu->run->psw_mask = psw.mask;
+		vcpu->run->psw_addr = psw.addr;
+	}
 	vcpu_put(vcpu);
 	return rc;
 }
@@ -490,9 +496,15 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 
 	vcpu_load(vcpu);
 
+rerun_vcpu:
+	if (vcpu->requests)
+		if (test_and_clear_bit(KVM_REQ_MMU_RELOAD, &vcpu->requests))
+			kvm_s390_vcpu_set_mem(vcpu);
+
 	/* verify, that memory has been registered */
-	if (!vcpu->kvm->arch.guest_memsize) {
+	if (!vcpu->arch.sie_block->gmslm) {
 		vcpu_put(vcpu);
+		VCPU_EVENT(vcpu, 3, "%s", "no memory registered to run vcpu");
 		return -EINVAL;
 	}
 
@@ -505,15 +517,16 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 
 	switch (kvm_run->exit_reason) {
 	case KVM_EXIT_S390_SIEIC:
-		vcpu->arch.sie_block->gpsw.mask = kvm_run->s390_sieic.mask;
-		vcpu->arch.sie_block->gpsw.addr = kvm_run->s390_sieic.addr;
-		break;
 	case KVM_EXIT_UNKNOWN:
+	case KVM_EXIT_INTR:
 	case KVM_EXIT_S390_RESET:
 		break;
 	default:
 		BUG();
 	}
+
+	vcpu->arch.sie_block->gpsw.mask = kvm_run->psw_mask;
+	vcpu->arch.sie_block->gpsw.addr = kvm_run->psw_addr;
 
 	might_fault();
 
@@ -522,15 +535,18 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 		rc = kvm_handle_sie_intercept(vcpu);
 	} while (!signal_pending(current) && !rc);
 
-	if (signal_pending(current) && !rc)
+	if (rc == SIE_INTERCEPT_RERUNVCPU)
+		goto rerun_vcpu;
+
+	if (signal_pending(current) && !rc) {
+		kvm_run->exit_reason = KVM_EXIT_INTR;
 		rc = -EINTR;
+	}
 
 	if (rc == -ENOTSUPP) {
 		/* intercept cannot be handled in-kernel, prepare kvm-run */
 		kvm_run->exit_reason         = KVM_EXIT_S390_SIEIC;
 		kvm_run->s390_sieic.icptcode = vcpu->arch.sie_block->icptcode;
-		kvm_run->s390_sieic.mask     = vcpu->arch.sie_block->gpsw.mask;
-		kvm_run->s390_sieic.addr     = vcpu->arch.sie_block->gpsw.addr;
 		kvm_run->s390_sieic.ipa      = vcpu->arch.sie_block->ipa;
 		kvm_run->s390_sieic.ipb      = vcpu->arch.sie_block->ipb;
 		rc = 0;
@@ -541,6 +557,9 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 		 * kvm_run has been prepared by the handler */
 		rc = 0;
 	}
+
+	kvm_run->psw_mask     = vcpu->arch.sie_block->gpsw.mask;
+	kvm_run->psw_addr     = vcpu->arch.sie_block->gpsw.addr;
 
 	if (vcpu->sigset_active)
 		sigprocmask(SIG_SETMASK, &sigsaved, NULL);
@@ -676,6 +695,7 @@ int kvm_arch_set_memory_region(struct kvm *kvm,
 				int user_alloc)
 {
 	int i;
+	struct kvm_vcpu *vcpu;
 
 	/* A few sanity checks. We can have exactly one memory slot which has
 	   to start at guest virtual zero and which has to be located at a
@@ -684,7 +704,7 @@ int kvm_arch_set_memory_region(struct kvm *kvm,
 	   vmas. It is okay to mmap() and munmap() stuff in this slot after
 	   doing this call at any time */
 
-	if (mem->slot || kvm->arch.guest_memsize)
+	if (mem->slot)
 		return -EINVAL;
 
 	if (mem->guest_phys_addr)
@@ -699,36 +719,14 @@ int kvm_arch_set_memory_region(struct kvm *kvm,
 	if (!user_alloc)
 		return -EINVAL;
 
-	/* lock all vcpus */
-	for (i = 0; i < KVM_MAX_VCPUS; ++i) {
-		if (!kvm->vcpus[i])
+	/* request update of sie control block for all available vcpus */
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		if (test_and_set_bit(KVM_REQ_MMU_RELOAD, &vcpu->requests))
 			continue;
-		if (!mutex_trylock(&kvm->vcpus[i]->mutex))
-			goto fail_out;
-	}
-
-	kvm->arch.guest_origin = mem->userspace_addr;
-	kvm->arch.guest_memsize = mem->memory_size;
-
-	/* update sie control blocks, and unlock all vcpus */
-	for (i = 0; i < KVM_MAX_VCPUS; ++i) {
-		if (kvm->vcpus[i]) {
-			kvm->vcpus[i]->arch.sie_block->gmsor =
-				kvm->arch.guest_origin;
-			kvm->vcpus[i]->arch.sie_block->gmslm =
-				kvm->arch.guest_memsize +
-				kvm->arch.guest_origin +
-				VIRTIODESCSPACE - 1ul;
-			mutex_unlock(&kvm->vcpus[i]->mutex);
-		}
+		kvm_s390_inject_sigp_stop(vcpu, ACTION_RELOADVCPU_ON_STOP);
 	}
 
 	return 0;
-
-fail_out:
-	for (; i >= 0; i--)
-		mutex_unlock(&kvm->vcpus[i]->mutex);
-	return -EINVAL;
 }
 
 void kvm_arch_flush_shadow(struct kvm *kvm)

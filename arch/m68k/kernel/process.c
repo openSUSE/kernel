@@ -42,9 +42,9 @@
  */
 static struct signal_struct init_signals = INIT_SIGNALS(init_signals);
 static struct sighand_struct init_sighand = INIT_SIGHAND(init_sighand);
-union thread_union init_thread_union
-__attribute__((section(".data.init_task"), aligned(THREAD_SIZE)))
-       = { INIT_THREAD_INFO(init_task) };
+union thread_union init_thread_union __init_task_data
+	__attribute__((aligned(THREAD_SIZE))) =
+		{ INIT_THREAD_INFO(init_task) };
 
 /* initial task structure */
 struct task_struct init_task = INIT_TASK(init_task);
@@ -317,15 +317,12 @@ asmlinkage int sys_execve(char __user *name, char __user * __user *argv, char __
 	char * filename;
 	struct pt_regs *regs = (struct pt_regs *) &name;
 
-	lock_kernel();
 	filename = getname(name);
 	error = PTR_ERR(filename);
 	if (IS_ERR(filename))
-		goto out;
+		return error;
 	error = do_execve(filename, argv, envp, regs);
 	putname(filename);
-out:
-	unlock_kernel();
 	return error;
 }
 

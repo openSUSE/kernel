@@ -76,12 +76,9 @@
 
 /*
  * uCode queue management definitions ...
- * Queue #4 is the command queue for 3945 and 4965; map it to Tx FIFO chnl 4.
  * The first queue used for block-ack aggregation is #7 (4965 only).
  * All block-ack aggregation queues should map to Tx DMA/FIFO channel 7.
  */
-#define IWL_CMD_QUEUE_NUM       4
-#define IWL_CMD_FIFO_NUM        4
 #define IWL49_FIRST_AMPDU_QUEUE	7
 
 /* Time constants */
@@ -188,7 +185,7 @@ static inline int iwl4965_hw_valid_rtc_data_addr(u32 addr)
  *
  * 1)  Regulatory information (max txpower and channel usage flags) is provided
  *     separately for each channel that can possibly supported by 4965.
- *     40 MHz wide (.11n fat) channels are listed separately from 20 MHz
+ *     40 MHz wide (.11n HT40) channels are listed separately from 20 MHz
  *     (legacy) channels.
  *
  *     See struct iwl4965_eeprom_channel for format, and struct iwl4965_eeprom
@@ -251,8 +248,8 @@ static inline int iwl4965_hw_valid_rtc_data_addr(u32 addr)
  *     no reduction (such as with regulatory txpower limits) is required.
  *
  *     Saturation and Backoff values apply equally to 20 Mhz (legacy) channel
- *     widths and 40 Mhz (.11n fat) channel widths; there is no separate
- *     factory measurement for fat channels.
+ *     widths and 40 Mhz (.11n HT40) channel widths; there is no separate
+ *     factory measurement for ht40 channels.
  *
  *     The result of this step is the final target txpower.  The rest of
  *     the steps figure out the proper settings for the device to achieve

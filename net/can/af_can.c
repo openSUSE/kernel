@@ -114,7 +114,8 @@ static void can_sock_destruct(struct sock *sk)
 	skb_queue_purge(&sk->sk_receive_queue);
 }
 
-static int can_create(struct net *net, struct socket *sock, int protocol)
+static int can_create(struct net *net, struct socket *sock, int protocol,
+		      int kern)
 {
 	struct sock *sk;
 	struct can_proto *cp;
@@ -125,7 +126,7 @@ static int can_create(struct net *net, struct socket *sock, int protocol)
 	if (protocol < 0 || protocol >= CAN_NPROTO)
 		return -EINVAL;
 
-	if (net != &init_net)
+	if (!net_eq(net, &init_net))
 		return -EAFNOSUPPORT;
 
 #ifdef CONFIG_MODULES
@@ -157,11 +158,6 @@ static int can_create(struct net *net, struct socket *sock, int protocol)
 
 	if (cp->type != sock->type) {
 		err = -EPROTONOSUPPORT;
-		goto errout;
-	}
-
-	if (cp->capability >= 0 && !capable(cp->capability)) {
-		err = -EPERM;
 		goto errout;
 	}
 
@@ -198,6 +194,8 @@ static int can_create(struct net *net, struct socket *sock, int protocol)
  * can_send - transmit a CAN frame (optional with local loopback)
  * @skb: pointer to socket buffer with CAN frame in data section
  * @loop: loopback for listeners on local CAN sockets (recommended default!)
+ *
+ * Due to the loopback this routine must not be called from hardirq context.
  *
  * Return:
  *  0 on success
@@ -278,7 +276,7 @@ int can_send(struct sk_buff *skb, int loop)
 	}
 
 	if (newskb)
-		netif_rx(newskb);
+		netif_rx_ni(newskb);
 
 	/* update statistics */
 	can_stats.tx_frames++;
@@ -377,8 +375,8 @@ static struct hlist_head *find_rcv_list(canid_t *can_id, canid_t *mask,
 		return &d->rx[RX_ALL];
 
 	/* extra filterlists for the subscription of a single non-RTR can_id */
-	if (((*mask & CAN_EFF_RTR_FLAGS) == CAN_EFF_RTR_FLAGS)
-	    && !(*can_id & CAN_RTR_FLAG)) {
+	if (((*mask & CAN_EFF_RTR_FLAGS) == CAN_EFF_RTR_FLAGS) &&
+	    !(*can_id & CAN_RTR_FLAG)) {
 
 		if (*can_id & CAN_EFF_FLAG) {
 			if (*mask == (CAN_EFF_MASK | CAN_EFF_RTR_FLAGS)) {
@@ -527,8 +525,8 @@ void can_rx_unregister(struct net_device *dev, canid_t can_id, canid_t mask,
 	 */
 
 	hlist_for_each_entry_rcu(r, next, rl, list) {
-		if (r->can_id == can_id && r->mask == mask
-		    && r->func == func && r->data == data)
+		if (r->can_id == can_id && r->mask == mask &&
+		    r->func == func && r->data == data)
 			break;
 	}
 
@@ -651,12 +649,16 @@ static int can_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct can_frame *cf = (struct can_frame *)skb->data;
 	int matches;
 
-	if (dev->type != ARPHRD_CAN || !net_eq(dev_net(dev), &init_net)) {
-		kfree_skb(skb);
-		return 0;
-	}
+	if (!net_eq(dev_net(dev), &init_net))
+		goto drop;
 
-	BUG_ON(skb->len != sizeof(struct can_frame) || cf->can_dlc > 8);
+	if (WARN_ONCE(dev->type != ARPHRD_CAN ||
+		      skb->len != sizeof(struct can_frame) ||
+		      cf->can_dlc > 8,
+		      "PF_CAN: dropped non conform skbuf: "
+		      "dev type %d, len %d, can_dlc %d\n",
+		      dev->type, skb->len, cf->can_dlc))
+		goto drop;
 
 	/* update statistics */
 	can_stats.rx_frames++;
@@ -682,7 +684,11 @@ static int can_rcv(struct sk_buff *skb, struct net_device *dev,
 		can_stats.matches_delta++;
 	}
 
-	return 0;
+	return NET_RX_SUCCESS;
+
+drop:
+	kfree_skb(skb);
+	return NET_RX_DROP;
 }
 
 /*
@@ -832,7 +838,7 @@ static struct packet_type can_packet __read_mostly = {
 	.func = can_rcv,
 };
 
-static struct net_proto_family can_family_ops __read_mostly = {
+static const struct net_proto_family can_family_ops = {
 	.family = PF_CAN,
 	.create = can_create,
 	.owner  = THIS_MODULE,

@@ -192,7 +192,7 @@ struct irq_desc {
 	unsigned int		irq_count;	/* For detecting broken IRQs */
 	unsigned long		last_unhandled;	/* Aging timer for unhandled count */
 	unsigned int		irqs_unhandled;
-	atomic_spinlock_t	lock;
+	raw_spinlock_t		lock;
 #ifdef CONFIG_SMP
 	cpumask_var_t		affinity;
 	unsigned int		node;
@@ -227,13 +227,6 @@ static inline struct irq_desc *move_irq_desc(struct irq_desc *desc, int node)
 #endif
 
 extern struct irq_desc *irq_to_desc_alloc_node(unsigned int irq, int node);
-
-/*
- * Migration helpers for obsolete names, they will go away:
- */
-#define hw_interrupt_type	irq_chip
-#define no_irq_type		no_irq_chip
-typedef struct irq_desc		irq_desc_t;
 
 /*
  * Pick up the arch-dependent methods:
@@ -290,7 +283,7 @@ extern irqreturn_t handle_IRQ_event(unsigned int irq, struct irqaction *action);
 
 /*
  * Built-in IRQ handlers for various IRQ types,
- * callable via desc->chip->handle_irq()
+ * callable via desc->handle_irq()
  */
 extern void handle_level_irq(unsigned int irq, struct irq_desc *desc);
 extern void handle_fasteoi_irq(unsigned int irq, struct irq_desc *desc);
@@ -298,6 +291,7 @@ extern void handle_edge_irq(unsigned int irq, struct irq_desc *desc);
 extern void handle_simple_irq(unsigned int irq, struct irq_desc *desc);
 extern void handle_percpu_irq(unsigned int irq, struct irq_desc *desc);
 extern void handle_bad_irq(unsigned int irq, struct irq_desc *desc);
+extern void handle_nested_irq(unsigned int irq);
 
 /*
  * Monolithic do_IRQ implementation.

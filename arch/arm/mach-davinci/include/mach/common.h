@@ -20,12 +20,6 @@ extern void davinci_irq_init(void);
 extern void __iomem *davinci_intc_base;
 extern int davinci_intc_type;
 
-/* parameters describe VBUS sourcing for host mode */
-extern void setup_usb(unsigned mA, unsigned potpgt_msec);
-
-/* parameters describe VBUS sourcing for host mode */
-extern void setup_usb(unsigned mA, unsigned potpgt_msec);
-
 struct davinci_timer_instance {
 	void __iomem	*base;
 	u32		bottom_irq;
@@ -60,10 +54,10 @@ struct davinci_soc_info {
 	u8				*intc_irq_prios;
 	unsigned long			intc_irq_num;
 	struct davinci_timer_info	*timer_info;
-	void __iomem			*wdt_base;
 	void __iomem			*gpio_base;
 	unsigned			gpio_num;
 	unsigned			gpio_irq;
+	unsigned			gpio_unbanked;
 	struct platform_device		*serial_dev;
 	struct emac_platform_data	*emac_pdata;
 	dma_addr_t			sram_dma;

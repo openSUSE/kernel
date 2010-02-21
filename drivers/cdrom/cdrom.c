@@ -3412,7 +3412,7 @@ static int cdrom_print_info(const char *header, int val, char *info,
 	return 0;
 }
 
-static int cdrom_sysctl_info(ctl_table *ctl, int write, struct file * filp,
+static int cdrom_sysctl_info(ctl_table *ctl, int write,
                            void __user *buffer, size_t *lenp, loff_t *ppos)
 {
 	int pos;
@@ -3489,7 +3489,7 @@ static int cdrom_sysctl_info(ctl_table *ctl, int write, struct file * filp,
 		goto done;
 doit:
 	mutex_unlock(&cdrom_mutex);
-	return proc_dostring(ctl, write, filp, buffer, lenp, ppos);
+	return proc_dostring(ctl, write, buffer, lenp, ppos);
 done:
 	printk(KERN_INFO "cdrom: info buffer too small\n");
 	goto doit;
@@ -3525,12 +3525,12 @@ static void cdrom_update_settings(void)
 	mutex_unlock(&cdrom_mutex);
 }
 
-static int cdrom_sysctl_handler(ctl_table *ctl, int write, struct file * filp,
+static int cdrom_sysctl_handler(ctl_table *ctl, int write,
 				void __user *buffer, size_t *lenp, loff_t *ppos)
 {
 	int ret;
 	
-	ret = proc_dointvec(ctl, write, filp, buffer, lenp, ppos);
+	ret = proc_dointvec(ctl, write, buffer, lenp, ppos);
 
 	if (write) {
 	
@@ -3557,67 +3557,65 @@ static ctl_table cdrom_table[] = {
 		.data		= &cdrom_sysctl_settings.info, 
 		.maxlen		= CDROM_STR_SIZE,
 		.mode		= 0444,
-		.proc_handler	= &cdrom_sysctl_info,
+		.proc_handler	= cdrom_sysctl_info,
 	},
 	{
 		.procname	= "autoclose",
 		.data		= &cdrom_sysctl_settings.autoclose,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
-		.proc_handler	= &cdrom_sysctl_handler,
+		.proc_handler	= cdrom_sysctl_handler,
 	},
 	{
 		.procname	= "autoeject",
 		.data		= &cdrom_sysctl_settings.autoeject,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
-		.proc_handler	= &cdrom_sysctl_handler,
+		.proc_handler	= cdrom_sysctl_handler,
 	},
 	{
 		.procname	= "debug",
 		.data		= &cdrom_sysctl_settings.debug,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
-		.proc_handler	= &cdrom_sysctl_handler,
+		.proc_handler	= cdrom_sysctl_handler,
 	},
 	{
 		.procname	= "lock",
 		.data		= &cdrom_sysctl_settings.lock,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
-		.proc_handler	= &cdrom_sysctl_handler,
+		.proc_handler	= cdrom_sysctl_handler,
 	},
 	{
 		.procname	= "check_media",
 		.data		= &cdrom_sysctl_settings.check,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
-		.proc_handler	= &cdrom_sysctl_handler
+		.proc_handler	= cdrom_sysctl_handler
 	},
-	{ .ctl_name = 0 }
+	{ }
 };
 
 static ctl_table cdrom_cdrom_table[] = {
 	{
-		.ctl_name	= DEV_CDROM,
 		.procname	= "cdrom",
 		.maxlen		= 0,
 		.mode		= 0555,
 		.child		= cdrom_table,
 	},
-	{ .ctl_name = 0 }
+	{ }
 };
 
 /* Make sure that /proc/sys/dev is there */
 static ctl_table cdrom_root_table[] = {
 	{
-		.ctl_name	= CTL_DEV,
 		.procname	= "dev",
 		.maxlen		= 0,
 		.mode		= 0555,
 		.child		= cdrom_cdrom_table,
 	},
-	{ .ctl_name = 0 }
+	{ }
 };
 static struct ctl_table_header *cdrom_sysctl_header;
 

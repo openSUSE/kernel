@@ -100,7 +100,7 @@ int eeh_subsystem_enabled;
 EXPORT_SYMBOL(eeh_subsystem_enabled);
 
 /* Lock to avoid races due to multiple reports of an error */
-static DEFINE_ATOMIC_SPINLOCK(confirm_error_lock);
+static DEFINE_RAW_SPINLOCK(confirm_error_lock);
 
 /* Buffer for reporting slot-error-detail rtas calls. Its here
  * in BSS, and not dynamically alloced, so that it ends up in
@@ -436,7 +436,7 @@ static void __eeh_clear_slot(struct device_node *parent, int mode_flag)
 void eeh_clear_slot (struct device_node *dn, int mode_flag)
 {
 	unsigned long flags;
-	atomic_spin_lock_irqsave(&confirm_error_lock, flags);
+	raw_spin_lock_irqsave(&confirm_error_lock, flags);
 	
 	dn = find_device_pe (dn);
 	
@@ -447,7 +447,7 @@ void eeh_clear_slot (struct device_node *dn, int mode_flag)
 	PCI_DN(dn)->eeh_mode &= ~mode_flag;
 	PCI_DN(dn)->eeh_check_count = 0;
 	__eeh_clear_slot(dn, mode_flag);
-	atomic_spin_unlock_irqrestore(&confirm_error_lock, flags);
+	raw_spin_unlock_irqrestore(&confirm_error_lock, flags);
 }
 
 /**
@@ -506,7 +506,7 @@ int eeh_dn_check_failure(struct device_node *dn, struct pci_dev *dev)
 	 * in one slot might report errors simultaneously, and we
 	 * only want one error recovery routine running.
 	 */
-	atomic_spin_lock_irqsave(&confirm_error_lock, flags);
+	raw_spin_lock_irqsave(&confirm_error_lock, flags);
 	rc = 1;
 	if (pdn->eeh_mode & EEH_MODE_ISOLATED) {
 		pdn->eeh_check_count ++;
@@ -575,7 +575,7 @@ int eeh_dn_check_failure(struct device_node *dn, struct pci_dev *dev)
 	 * with other functions on this device, and functions under
 	 * bridges. */
 	eeh_mark_slot (dn, EEH_MODE_ISOLATED);
-	atomic_spin_unlock_irqrestore(&confirm_error_lock, flags);
+	raw_spin_unlock_irqrestore(&confirm_error_lock, flags);
 
 	eeh_send_failure_event (dn, dev);
 
@@ -586,7 +586,7 @@ int eeh_dn_check_failure(struct device_node *dn, struct pci_dev *dev)
 	return 1;
 
 dn_unlock:
-	atomic_spin_unlock_irqrestore(&confirm_error_lock, flags);
+	raw_spin_unlock_irqrestore(&confirm_error_lock, flags);
 	return rc;
 }
 
@@ -744,7 +744,15 @@ int pcibios_set_pcie_reset_state(struct pci_dev *dev, enum pcie_reset_state stat
 
 static void __rtas_set_slot_reset(struct pci_dn *pdn)
 {
-	rtas_pci_slot_reset (pdn, 1);
+	struct pci_dev *dev = pdn->pcidev;
+
+	/* Determine type of EEH reset required by device,
+	 * default hot reset or fundamental reset
+	 */
+	if (dev->needs_freset)
+		rtas_pci_slot_reset(pdn, 3);
+	else
+		rtas_pci_slot_reset(pdn, 1);
 
 	/* The PCI bus requires that the reset be held high for at least
 	 * a 100 milliseconds. We wait a bit longer 'just in case'.  */
@@ -1056,7 +1064,7 @@ void __init eeh_init(void)
 	struct device_node *phb, *np;
 	struct eeh_early_enable_info info;
 
-	atomic_spin_lock_init(&confirm_error_lock);
+	raw_spin_lock_init(&confirm_error_lock);
 	spin_lock_init(&slot_errbuf_lock);
 
 	np = of_find_node_by_path("/rtas");

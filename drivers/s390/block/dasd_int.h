@@ -59,6 +59,11 @@
 #include <asm/dasd.h>
 #include <asm/idals.h>
 
+/* DASD discipline magic */
+#define DASD_ECKD_MAGIC 0xC5C3D2C4
+#define DASD_DIAG_MAGIC 0xC4C9C1C7
+#define DASD_FBA_MAGIC 0xC6C2C140
+
 /*
  * SECTION: Type definitions
  */
@@ -102,6 +107,16 @@ do { \
 			    d_str "\n", \
 			    d_data); \
 } while(0)
+
+#define DBF_EVENT_DEVID(d_level, d_cdev, d_str, d_data...)	\
+do { \
+	struct ccw_dev_id __dev_id;			\
+	ccw_device_get_id(d_cdev, &__dev_id);		\
+	debug_sprintf_event(dasd_debug_area,		\
+			    d_level,					\
+			    "0.%x.%04x " d_str "\n",			\
+			    __dev_id.ssid, __dev_id.devno, d_data);	\
+} while (0)
 
 #define DBF_EXC(d_level, d_str, d_data...)\
 do { \
@@ -535,14 +550,14 @@ dasd_check_blocksize(int bsize)
 extern debug_info_t *dasd_debug_area;
 extern struct dasd_profile_info_t dasd_global_profile;
 extern unsigned int dasd_profile_level;
-extern struct block_device_operations dasd_device_operations;
+extern const struct block_device_operations dasd_device_operations;
 
 extern struct kmem_cache *dasd_page_cache;
 
 struct dasd_ccw_req *
-dasd_kmalloc_request(char *, int, int, struct dasd_device *);
+dasd_kmalloc_request(int , int, int, struct dasd_device *);
 struct dasd_ccw_req *
-dasd_smalloc_request(char *, int, int, struct dasd_device *);
+dasd_smalloc_request(int , int, int, struct dasd_device *);
 void dasd_kfree_request(struct dasd_ccw_req *, struct dasd_device *);
 void dasd_sfree_request(struct dasd_ccw_req *, struct dasd_device *);
 
@@ -587,8 +602,11 @@ void dasd_generic_handle_state_change(struct dasd_device *);
 int dasd_generic_pm_freeze(struct ccw_device *);
 int dasd_generic_restore_device(struct ccw_device *);
 
-int dasd_generic_read_dev_chars(struct dasd_device *, char *, void *, int);
+int dasd_generic_read_dev_chars(struct dasd_device *, int, void *, int);
 char *dasd_get_sense(struct irb *);
+
+void dasd_device_set_stop_bits(struct dasd_device *, int);
+void dasd_device_remove_stop_bits(struct dasd_device *, int);
 
 /* externals in dasd_devmap.c */
 extern int dasd_max_devindex;

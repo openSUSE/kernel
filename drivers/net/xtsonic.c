@@ -92,7 +92,7 @@ static unsigned short known_revisions[] =
 
 static int xtsonic_open(struct net_device *dev)
 {
-	if (request_irq(dev->irq,&sonic_interrupt,IRQF_DISABLED,"sonic",dev)) {
+	if (request_irq(dev->irq,sonic_interrupt,IRQF_DISABLED,"sonic",dev)) {
 		printk(KERN_ERR "%s: unable to get IRQ %d.\n",
 		       dev->name, dev->irq);
 		return -EAGAIN;
@@ -239,7 +239,7 @@ out:
  * Actually probing is superfluous but we're paranoid.
  */
 
-int __init xtsonic_probe(struct platform_device *pdev)
+int __devinit xtsonic_probe(struct platform_device *pdev)
 {
 	struct net_device *dev;
 	struct sonic_local *lp;

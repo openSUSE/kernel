@@ -367,6 +367,7 @@ static int __devinit tdo24m_probe(struct spi_device *spi)
 
 	spi_message_init(m);
 
+	x->cs_change = 1;
 	x->tx_buf = &lcd->buf[0];
 	spi_message_add_tail(x, m);
 
@@ -472,3 +473,4 @@ module_exit(tdo24m_exit);
 MODULE_AUTHOR("Eric Miao <eric.miao@marvell.com>");
 MODULE_DESCRIPTION("Driver for Toppoly TDO24M LCD Panel");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("spi:tdo24m");

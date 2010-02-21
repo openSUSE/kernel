@@ -41,6 +41,7 @@ char *klimit = _end;
  * have available.
  */
 unsigned long memory_start;
+EXPORT_SYMBOL(memory_start);
 unsigned long memory_end; /* due to mm/nommu.c */
 unsigned long memory_size;
 
@@ -180,7 +181,8 @@ void free_initrd_mem(unsigned long start, unsigned long end)
 		totalram_pages++;
 		pages++;
 	}
-	printk(KERN_NOTICE "Freeing initrd memory: %dk freed\n", pages);
+	printk(KERN_NOTICE "Freeing initrd memory: %dk freed\n",
+					(int)(pages * (PAGE_SIZE / 1024)));
 }
 #endif
 
@@ -204,7 +206,7 @@ void __init mem_init(void)
 	totalram_pages += free_all_bootmem();
 
 	printk(KERN_INFO "Memory: %luk/%luk available\n",
-	       (unsigned long) nr_free_pages() << (PAGE_SHIFT-10),
+	       nr_free_pages() << (PAGE_SHIFT-10),
 	       num_physpages << (PAGE_SHIFT-10));
 #ifdef CONFIG_MMU
 	mem_init_done = 1;

@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2004 - 2009 rt2x00 SourceForge Project
+	Copyright (C) 2004 - 2009 Ivo van Doorn <IvDoorn@gmail.com>
 	<http://rt2x00.serialmonkey.com>
 
 	This program is free software; you can redistribute it and/or modify
@@ -51,7 +51,7 @@ MODULE_PARM_DESC(nohwcrypt, "Disable hardware encryption.");
  * These indirect registers work with busy bits,
  * and we will try maximal REGISTER_BUSY_COUNT times to access
  * the register while taking a REGISTER_BUSY_DELAY us delay
- * between each attampt. When the busy bit is still set at that time,
+ * between each attempt. When the busy bit is still set at that time,
  * the access attempt is considered to have failed,
  * and we will print an error.
  */
@@ -237,7 +237,6 @@ static const struct rt2x00debug rt61pci_rt2x00debug = {
 };
 #endif /* CONFIG_RT2X00_LIB_DEBUGFS */
 
-#ifdef CONFIG_RT2X00_LIB_RFKILL
 static int rt61pci_rfkill_poll(struct rt2x00_dev *rt2x00dev)
 {
 	u32 reg;
@@ -245,9 +244,6 @@ static int rt61pci_rfkill_poll(struct rt2x00_dev *rt2x00dev)
 	rt2x00pci_register_read(rt2x00dev, MAC_CSR13, &reg);
 	return rt2x00_get_field32(reg, MAC_CSR13_BIT5);
 }
-#else
-#define rt61pci_rfkill_poll	NULL
-#endif /* CONFIG_RT2X00_LIB_RFKILL */
 
 #ifdef CONFIG_RT2X00_LIB_LEDS
 static void rt61pci_brightness_set(struct led_classdev *led_cdev,
@@ -390,7 +386,7 @@ static int rt61pci_config_shared_key(struct rt2x00_dev *rt2x00dev,
 		 * The driver does not support the IV/EIV generation
 		 * in hardware. However it doesn't support the IV/EIV
 		 * inside the ieee80211 frame either, but requires it
-		 * to be provided seperately for the descriptor.
+		 * to be provided separately for the descriptor.
 		 * rt2x00lib will cut the IV/EIV data out of all frames
 		 * given to us by mac80211, but we must tell mac80211
 		 * to generate the IV/EIV data.
@@ -401,7 +397,7 @@ static int rt61pci_config_shared_key(struct rt2x00_dev *rt2x00dev,
 	/*
 	 * SEC_CSR0 contains only single-bit fields to indicate
 	 * a particular key is valid. Because using the FIELD32()
-	 * defines directly will cause a lot of overhead we use
+	 * defines directly will cause a lot of overhead, we use
 	 * a calculation to determine the correct bit directly.
 	 */
 	mask = 1 << key->hw_key_idx;
@@ -429,11 +425,11 @@ static int rt61pci_config_pairwise_key(struct rt2x00_dev *rt2x00dev,
 		/*
 		 * rt2x00lib can't determine the correct free
 		 * key_idx for pairwise keys. We have 2 registers
-		 * with key valid bits. The goal is simple, read
-		 * the first register, if that is full move to
+		 * with key valid bits. The goal is simple: read
+		 * the first register. If that is full, move to
 		 * the next register.
-		 * When both registers are full, we drop the key,
-		 * otherwise we use the first invalid entry.
+		 * When both registers are full, we drop the key.
+		 * Otherwise, we use the first invalid entry.
 		 */
 		rt2x00pci_register_read(rt2x00dev, SEC_CSR2, &reg);
 		if (reg && reg == ~0) {
@@ -468,8 +464,8 @@ static int rt61pci_config_pairwise_key(struct rt2x00_dev *rt2x00dev,
 					      &addr_entry, sizeof(addr_entry));
 
 		/*
-		 * Enable pairwise lookup table for given BSS idx,
-		 * without this received frames will not be decrypted
+		 * Enable pairwise lookup table for given BSS idx.
+		 * Without this, received frames will not be decrypted
 		 * by the hardware.
 		 */
 		rt2x00pci_register_read(rt2x00dev, SEC_CSR4, &reg);
@@ -491,7 +487,7 @@ static int rt61pci_config_pairwise_key(struct rt2x00_dev *rt2x00dev,
 	/*
 	 * SEC_CSR2 and SEC_CSR3 contain only single-bit fields to indicate
 	 * a particular key is valid. Because using the FIELD32()
-	 * defines directly will cause a lot of overhead we use
+	 * defines directly will cause a lot of overhead, we use
 	 * a calculation to determine the correct bit directly.
 	 */
 	if (key->hw_key_idx < 32) {
@@ -534,7 +530,7 @@ static void rt61pci_config_filter(struct rt2x00_dev *rt2x00dev,
 	rt2x00_set_field32(&reg, TXRX_CSR0_DROP_PHYSICAL,
 			   !(filter_flags & FIF_PLCPFAIL));
 	rt2x00_set_field32(&reg, TXRX_CSR0_DROP_CONTROL,
-			   !(filter_flags & FIF_CONTROL));
+			   !(filter_flags & (FIF_CONTROL | FIF_PSPOLL)));
 	rt2x00_set_field32(&reg, TXRX_CSR0_DROP_NOT_TO_ME,
 			   !(filter_flags & FIF_PROMISC_IN_BSS));
 	rt2x00_set_field32(&reg, TXRX_CSR0_DROP_TO_DS,
@@ -560,7 +556,7 @@ static void rt61pci_config_intf(struct rt2x00_dev *rt2x00dev,
 	if (flags & CONFIG_UPDATE_TYPE) {
 		/*
 		 * Clear current synchronisation setup.
-		 * For the Beacon base registers we only need to clear
+		 * For the Beacon base registers, we only need to clear
 		 * the first byte since that byte contains the VALID and OWNER
 		 * bits which (when set to 0) will invalidate the entire beacon.
 		 */
@@ -602,7 +598,7 @@ static void rt61pci_config_erp(struct rt2x00_dev *rt2x00dev,
 	u32 reg;
 
 	rt2x00pci_register_read(rt2x00dev, TXRX_CSR0, &reg);
-	rt2x00_set_field32(&reg, TXRX_CSR0_RX_ACK_TIMEOUT, erp->ack_timeout);
+	rt2x00_set_field32(&reg, TXRX_CSR0_RX_ACK_TIMEOUT, 0x32);
 	rt2x00_set_field32(&reg, TXRX_CSR0_TSF_OFFSET, IEEE80211_HEADER);
 	rt2x00pci_register_write(rt2x00dev, TXRX_CSR0, reg);
 
@@ -1172,8 +1168,8 @@ static int rt61pci_check_firmware(struct rt2x00_dev *rt2x00dev,
 		return FW_BAD_LENGTH;
 
 	/*
-	 * The last 2 bytes in the firmware array are the crc checksum itself,
-	 * this means that we should never pass those 2 bytes to the crc
+	 * The last 2 bytes in the firmware array are the crc checksum itself.
+	 * This means that we should never pass those 2 bytes to the crc
 	 * algorithm.
 	 */
 	fw_crc = (data[len - 2] << 8 | data[len - 1]);
@@ -1859,8 +1855,6 @@ static void rt61pci_write_beacon(struct queue_entry *entry)
 	 * otherwise we might be sending out invalid data.
 	 */
 	rt2x00pci_register_read(rt2x00dev, TXRX_CSR9, &reg);
-	rt2x00_set_field32(&reg, TXRX_CSR9_TSF_TICKING, 0);
-	rt2x00_set_field32(&reg, TXRX_CSR9_TBTT_ENABLE, 0);
 	rt2x00_set_field32(&reg, TXRX_CSR9_BEACON_GEN, 0);
 	rt2x00pci_register_write(rt2x00dev, TXRX_CSR9, reg);
 
@@ -1992,7 +1986,7 @@ static void rt61pci_fill_rxdone(struct queue_entry *entry,
 
 		/*
 		 * Hardware has stripped IV/EIV data from 802.11 frame during
-		 * decryption. It has provided the data seperately but rt2x00lib
+		 * decryption. It has provided the data separately but rt2x00lib
 		 * should decide if it should be reinserted.
 		 */
 		rxdesc->flags |= RX_FLAG_IV_STRIPPED;
@@ -2048,7 +2042,7 @@ static void rt61pci_txdone(struct rt2x00_dev *rt2x00dev)
 	 * During each loop we will compare the freshly read
 	 * STA_CSR4 register value with the value read from
 	 * the previous loop. If the 2 values are equal then
-	 * we should stop processing because the chance it
+	 * we should stop processing because the chance is
 	 * quite big that the device has been unplugged and
 	 * we risk going into an endless loop.
 	 */
@@ -2306,6 +2300,7 @@ static int rt61pci_init_eeprom(struct rt2x00_dev *rt2x00dev)
 	value = rt2x00_get_field16(eeprom, EEPROM_ANTENNA_RF_TYPE);
 	rt2x00pci_register_read(rt2x00dev, MAC_CSR0, &reg);
 	rt2x00_set_chip_rf(rt2x00dev, value, reg);
+	rt2x00_print_chip(rt2x00dev);
 
 	if (!rt2x00_rf(&rt2x00dev->chip, RF5225) &&
 	    !rt2x00_rf(&rt2x00dev->chip, RF5325) &&
@@ -2316,7 +2311,7 @@ static int rt61pci_init_eeprom(struct rt2x00_dev *rt2x00dev)
 	}
 
 	/*
-	 * Determine number of antenna's.
+	 * Determine number of antennas.
 	 */
 	if (rt2x00_get_field16(eeprom, EEPROM_ANTENNA_NUM) == 2)
 		__set_bit(CONFIG_DOUBLE_ANTENNA, &rt2x00dev->flags);
@@ -2336,12 +2331,10 @@ static int rt61pci_init_eeprom(struct rt2x00_dev *rt2x00dev)
 		__set_bit(CONFIG_FRAME_TYPE, &rt2x00dev->flags);
 
 	/*
-	 * Detect if this device has an hardware controlled radio.
+	 * Detect if this device has a hardware controlled radio.
 	 */
-#ifdef CONFIG_RT2X00_LIB_RFKILL
 	if (rt2x00_get_field16(eeprom, EEPROM_ANTENNA_HARDWARE_RADIO))
 		__set_bit(CONFIG_SUPPORT_HW_BUTTON, &rt2x00dev->flags);
-#endif /* CONFIG_RT2X00_LIB_RFKILL */
 
 	/*
 	 * Read frequency offset and RF programming sequence.
@@ -2363,7 +2356,7 @@ static int rt61pci_init_eeprom(struct rt2x00_dev *rt2x00dev)
 		__set_bit(CONFIG_EXTERNAL_LNA_BG, &rt2x00dev->flags);
 
 	/*
-	 * When working with a RF2529 chip without double antenna
+	 * When working with a RF2529 chip without double antenna,
 	 * the antenna settings should be gathered from the NIC
 	 * eeprom word.
 	 */
@@ -2546,6 +2539,11 @@ static int rt61pci_probe_hw_mode(struct rt2x00_dev *rt2x00dev)
 	unsigned int i;
 
 	/*
+	 * Disable powersaving as default.
+	 */
+	rt2x00dev->hw->wiphy->flags &= ~WIPHY_FLAG_PS_ON_BY_DEFAULT;
+
+	/*
 	 * Initialize all hw fields.
 	 */
 	rt2x00dev->hw->flags =
@@ -2553,7 +2551,6 @@ static int rt61pci_probe_hw_mode(struct rt2x00_dev *rt2x00dev)
 	    IEEE80211_HW_SIGNAL_DBM |
 	    IEEE80211_HW_SUPPORTS_PS |
 	    IEEE80211_HW_PS_NULLFUNC_STACK;
-	rt2x00dev->hw->extra_tx_headroom = 0;
 
 	SET_IEEE80211_DEV(rt2x00dev->hw, rt2x00dev->dev);
 	SET_IEEE80211_PERM_ADDR(rt2x00dev->hw,
@@ -2607,6 +2604,11 @@ static int rt61pci_probe_hw(struct rt2x00_dev *rt2x00dev)
 	int retval;
 
 	/*
+	 * Disable power saving.
+	 */
+	rt2x00pci_register_write(rt2x00dev, SOFT_RESET_CSR, 0x00000007);
+
+	/*
 	 * Allocate eeprom data.
 	 */
 	retval = rt61pci_validate_eeprom(rt2x00dev);
@@ -2623,6 +2625,12 @@ static int rt61pci_probe_hw(struct rt2x00_dev *rt2x00dev)
 	retval = rt61pci_probe_hw_mode(rt2x00dev);
 	if (retval)
 		return retval;
+
+	/*
+	 * This device has multiple filters for control frames,
+	 * but has no a separate filter for PS Poll frames.
+	 */
+	__set_bit(DRIVER_SUPPORT_CONTROL_FILTERS, &rt2x00dev->flags);
 
 	/*
 	 * This device requires firmware and DMA mapped skbs.
@@ -2665,7 +2673,7 @@ static int rt61pci_conf_tx(struct ieee80211_hw *hw, u16 queue_idx,
 
 	/*
 	 * We only need to perform additional register initialization
-	 * for WMM queues/
+	 * for WMM queues.
 	 */
 	if (queue_idx >= 4)
 		return 0;
@@ -2722,12 +2730,14 @@ static const struct ieee80211_ops rt61pci_mac80211_ops = {
 	.remove_interface	= rt2x00mac_remove_interface,
 	.config			= rt2x00mac_config,
 	.configure_filter	= rt2x00mac_configure_filter,
+	.set_tim		= rt2x00mac_set_tim,
 	.set_key		= rt2x00mac_set_key,
 	.get_stats		= rt2x00mac_get_stats,
 	.bss_info_changed	= rt2x00mac_bss_info_changed,
 	.conf_tx		= rt61pci_conf_tx,
 	.get_tx_stats		= rt2x00mac_get_tx_stats,
 	.get_tsf		= rt61pci_get_tsf,
+	.rfkill_poll		= rt2x00mac_rfkill_poll,
 };
 
 static const struct rt2x00lib_ops rt61pci_rt2x00_ops = {
@@ -2782,19 +2792,20 @@ static const struct data_queue_desc rt61pci_queue_bcn = {
 };
 
 static const struct rt2x00_ops rt61pci_ops = {
-	.name		= KBUILD_MODNAME,
-	.max_sta_intf	= 1,
-	.max_ap_intf	= 4,
-	.eeprom_size	= EEPROM_SIZE,
-	.rf_size	= RF_SIZE,
-	.tx_queues	= NUM_TX_QUEUES,
-	.rx		= &rt61pci_queue_rx,
-	.tx		= &rt61pci_queue_tx,
-	.bcn		= &rt61pci_queue_bcn,
-	.lib		= &rt61pci_rt2x00_ops,
-	.hw		= &rt61pci_mac80211_ops,
+	.name			= KBUILD_MODNAME,
+	.max_sta_intf		= 1,
+	.max_ap_intf		= 4,
+	.eeprom_size		= EEPROM_SIZE,
+	.rf_size		= RF_SIZE,
+	.tx_queues		= NUM_TX_QUEUES,
+	.extra_tx_headroom	= 0,
+	.rx			= &rt61pci_queue_rx,
+	.tx			= &rt61pci_queue_tx,
+	.bcn			= &rt61pci_queue_bcn,
+	.lib			= &rt61pci_rt2x00_ops,
+	.hw			= &rt61pci_mac80211_ops,
 #ifdef CONFIG_RT2X00_LIB_DEBUGFS
-	.debugfs	= &rt61pci_rt2x00debug,
+	.debugfs		= &rt61pci_rt2x00debug,
 #endif /* CONFIG_RT2X00_LIB_DEBUGFS */
 };
 

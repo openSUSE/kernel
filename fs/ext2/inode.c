@@ -137,7 +137,8 @@ static int ext2_block_to_path(struct inode *inode,
 	int final = 0;
 
 	if (i_block < 0) {
-		ext2_warning (inode->i_sb, "ext2_block_to_path", "block < 0");
+		ext2_msg(inode->i_sb, KERN_WARNING,
+			"warning: %s: block < 0", __func__);
 	} else if (i_block < direct_blocks) {
 		offsets[n++] = i_block;
 		final = direct_blocks;
@@ -157,7 +158,8 @@ static int ext2_block_to_path(struct inode *inode,
 		offsets[n++] = i_block & (ptrs - 1);
 		final = ptrs;
 	} else {
-		ext2_warning (inode->i_sb, "ext2_block_to_path", "block > big");
+		ext2_msg(inode->i_sb, KERN_WARNING,
+			"warning: %s: block is too big", __func__);
 	}
 	if (boundary)
 		*boundary = final - 1 - (i_block & (ptrs - 1));
@@ -482,7 +484,7 @@ static int ext2_alloc_branch(struct inode *inode,
 		unlock_buffer(bh);
 		mark_buffer_dirty_inode(bh, inode);
 		/* We used to sync bh here if IS_SYNC(inode).
-		 * But we now rely upon generic_osync_inode()
+		 * But we now rely upon generic_write_sync()
 		 * and b_inode_buffers.  But not for directories.
 		 */
 		if (S_ISDIR(inode->i_mode) && IS_DIRSYNC(inode))
@@ -819,6 +821,7 @@ const struct address_space_operations ext2_aops = {
 	.writepages		= ext2_writepages,
 	.migratepage		= buffer_migrate_page,
 	.is_partially_uptodate	= block_is_partially_uptodate,
+	.error_remove_page	= generic_error_remove_page,
 };
 
 const struct address_space_operations ext2_aops_xip = {
@@ -837,6 +840,7 @@ const struct address_space_operations ext2_nobh_aops = {
 	.direct_IO		= ext2_direct_IO,
 	.writepages		= ext2_writepages,
 	.migratepage		= buffer_migrate_page,
+	.error_remove_page	= generic_error_remove_page,
 };
 
 /*

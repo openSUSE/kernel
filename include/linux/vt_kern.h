@@ -13,6 +13,7 @@
 #include <linux/console_struct.h>
 #include <linux/mm.h>
 #include <linux/consolemap.h>
+#include <linux/notifier.h>
 
 /*
  * Presently, a lot of graphics programs do not restore the contents of
@@ -91,7 +92,8 @@ int con_copy_unimap(struct vc_data *dst_vc, struct vc_data *src_vc);
 #endif
 
 /* vt.c */
-int vt_waitactive(int vt);
+void vt_event_post(unsigned int event, unsigned int old, unsigned int new);
+int vt_waitactive(int n);
 void change_console(struct vc_data *new_vc);
 void reset_vc(struct vc_data *vc);
 extern int unbind_con_driver(const struct consw *csw, int first, int last,
@@ -108,6 +110,7 @@ extern char con_buf[CON_BUF_SIZE];
 extern struct mutex con_buf_mtx;
 extern char vt_dont_switch;
 extern int default_utf8;
+extern int global_cursor_default;
 
 struct vt_spawn_console {
 	spinlock_t lock;
@@ -115,5 +118,19 @@ struct vt_spawn_console {
 	int sig;
 };
 extern struct vt_spawn_console vt_spawn_con;
+
+extern int vt_move_to_console(unsigned int vt, int alloc);
+
+/* Interfaces for VC notification of character events (for accessibility etc) */
+
+struct vt_notifier_param {
+	struct vc_data *vc;	/* VC on which the update happened */
+	unsigned int c;		/* Printed char */
+};
+
+extern int register_vt_notifier(struct notifier_block *nb);
+extern int unregister_vt_notifier(struct notifier_block *nb);
+
+extern void hide_boot_cursor(bool hide);
 
 #endif /* _VT_KERN_H */

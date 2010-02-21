@@ -48,7 +48,7 @@ out:
 static struct ctl_table *find_in_table(struct ctl_table *p, struct qstr *name)
 {
 	int len;
-	for ( ; p->ctl_name || p->procname; p++) {
+	for ( ; p->procname; p++) {
 
 		if (!p->procname)
 			continue;
@@ -153,7 +153,7 @@ static ssize_t proc_sys_call_handler(struct file *filp, void __user *buf,
 
 	/* careful: calling conventions are nasty here */
 	res = count;
-	error = table->proc_handler(table, write, filp, buf, &res, ppos);
+	error = table->proc_handler(table, write, buf, &res, ppos);
 	if (!error)
 		error = res;
 out:
@@ -218,7 +218,7 @@ static int scan(struct ctl_table_header *head, ctl_table *table,
 		void *dirent, filldir_t filldir)
 {
 
-	for (; table->ctl_name || table->procname; table++, (*pos)++) {
+	for (; table->procname; table++, (*pos)++) {
 		int res;
 
 		/* Can't do anything without a proc name */

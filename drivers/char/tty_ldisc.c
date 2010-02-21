@@ -34,6 +34,8 @@
 #include <linux/vt_kern.h>
 #include <linux/selection.h>
 
+#include <linux/smp_lock.h>	/* For the moment */
+
 #include <linux/kmod.h>
 #include <linux/nsproxy.h>
 
@@ -145,48 +147,33 @@ int tty_unregister_ldisc(int disc)
 }
 EXPORT_SYMBOL(tty_unregister_ldisc);
 
-
-/**
- *	tty_ldisc_try_get	-	try and reference an ldisc
- *	@disc: ldisc number
- *
- *	Attempt to open and lock a line discipline into place. Return
- *	the line discipline refcounted or an error.
- */
-
-static struct tty_ldisc *tty_ldisc_try_get(int disc)
+static struct tty_ldisc_ops *get_ldops(int disc)
 {
 	unsigned long flags;
-	struct tty_ldisc *ld;
-	struct tty_ldisc_ops *ldops;
-	int err = -EINVAL;
-
-	ld = kmalloc(sizeof(struct tty_ldisc), GFP_KERNEL);
-	if (ld == NULL)
-		return ERR_PTR(-ENOMEM);
+	struct tty_ldisc_ops *ldops, *ret;
 
 	spin_lock_irqsave(&tty_ldisc_lock, flags);
-	ld->ops = NULL;
+	ret = ERR_PTR(-EINVAL);
 	ldops = tty_ldiscs[disc];
-	/* Check the entry is defined */
 	if (ldops) {
-		/* If the module is being unloaded we can't use it */
-		if (!try_module_get(ldops->owner))
-			err = -EAGAIN;
-		else {
-			/* lock it */
+		ret = ERR_PTR(-EAGAIN);
+		if (try_module_get(ldops->owner)) {
 			ldops->refcount++;
-			ld->ops = ldops;
-			atomic_set(&ld->users, 1);
-			err = 0;
+			ret = ldops;
 		}
 	}
 	spin_unlock_irqrestore(&tty_ldisc_lock, flags);
-	if (err) {
-		kfree(ld);
-		return ERR_PTR(err);
-	}
-	return ld;
+	return ret;
+}
+
+static void put_ldops(struct tty_ldisc_ops *ldops)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&tty_ldisc_lock, flags);
+	ldops->refcount--;
+	module_put(ldops->owner);
+	spin_unlock_irqrestore(&tty_ldisc_lock, flags);
 }
 
 /**
@@ -205,14 +192,31 @@ static struct tty_ldisc *tty_ldisc_try_get(int disc)
 static struct tty_ldisc *tty_ldisc_get(int disc)
 {
 	struct tty_ldisc *ld;
+	struct tty_ldisc_ops *ldops;
 
 	if (disc < N_TTY || disc >= NR_LDISCS)
 		return ERR_PTR(-EINVAL);
-	ld = tty_ldisc_try_get(disc);
-	if (IS_ERR(ld)) {
+
+	/*
+	 * Get the ldisc ops - we may need to request them to be loaded
+	 * dynamically and try again.
+	 */
+	ldops = get_ldops(disc);
+	if (IS_ERR(ldops)) {
 		request_module("tty-ldisc-%d", disc);
-		ld = tty_ldisc_try_get(disc);
+		ldops = get_ldops(disc);
+		if (IS_ERR(ldops))
+			return ERR_CAST(ldops);
 	}
+
+	ld = kmalloc(sizeof(struct tty_ldisc), GFP_KERNEL);
+	if (ld == NULL) {
+		put_ldops(ldops);
+		return ERR_PTR(-ENOMEM);
+	}
+
+	ld->ops = ldops;
+	atomic_set(&ld->users, 1);
 	return ld;
 }
 
@@ -234,13 +238,13 @@ static void tty_ldiscs_seq_stop(struct seq_file *m, void *v)
 static int tty_ldiscs_seq_show(struct seq_file *m, void *v)
 {
 	int i = *(loff_t *)v;
-	struct tty_ldisc *ld;
+	struct tty_ldisc_ops *ldops;
 
-	ld = tty_ldisc_try_get(i);
-	if (IS_ERR(ld))
+	ldops = get_ldops(i);
+	if (IS_ERR(ldops))
 		return 0;
-	seq_printf(m, "%-10s %2d\n", ld->ops->name ? ld->ops->name : "???", i);
-	put_ldisc(ld);
+	seq_printf(m, "%-10s %2d\n", ldops->name ? ldops->name : "???", i);
+	put_ldops(ldops);
 	return 0;
 }
 
@@ -441,8 +445,14 @@ static void tty_set_termios_ldisc(struct tty_struct *tty, int num)
 static int tty_ldisc_open(struct tty_struct *tty, struct tty_ldisc *ld)
 {
 	WARN_ON(test_and_set_bit(TTY_LDISC_OPEN, &tty->flags));
-	if (ld->ops->open)
-		return ld->ops->open(tty);
+	if (ld->ops->open) {
+		int ret;
+                /* BKL here locks verus a hangup event */
+		lock_kernel();
+		ret = ld->ops->open(tty);
+		unlock_kernel();
+		return ret;
+	}
 	return 0;
 }
 
@@ -516,7 +526,7 @@ static void tty_ldisc_restore(struct tty_struct *tty, struct tty_ldisc *old)
 static int tty_ldisc_halt(struct tty_struct *tty)
 {
 	clear_bit(TTY_LDISC, &tty->flags);
-	return cancel_delayed_work(&tty->buf.work);
+	return cancel_delayed_work_sync(&tty->buf.work);
 }
 
 /**
@@ -543,6 +553,7 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 	if (IS_ERR(new_ldisc))
 		return PTR_ERR(new_ldisc);
 
+	lock_kernel();
 	/*
 	 *	We need to look at the tty locking here for pty/tty pairs
 	 *	when both sides try to change in parallel.
@@ -556,10 +567,12 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 	 */
 
 	if (tty->ldisc->ops->num == ldisc) {
+		unlock_kernel();
 		tty_ldisc_put(new_ldisc);
 		return 0;
 	}
 
+	unlock_kernel();
 	/*
 	 *	Problem: What do we do if this blocks ?
 	 *	We could deadlock here
@@ -580,6 +593,9 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 			test_bit(TTY_LDISC_CHANGING, &tty->flags) == 0);
 		mutex_lock(&tty->ldisc_mutex);
 	}
+
+	lock_kernel();
+
 	set_bit(TTY_LDISC_CHANGING, &tty->flags);
 
 	/*
@@ -590,6 +606,8 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 	tty->receive_room = 0;
 
 	o_ldisc = tty->ldisc;
+
+	unlock_kernel();
 	/*
 	 *	Make sure we don't change while someone holds a
 	 *	reference to the line discipline. The TTY_LDISC bit
@@ -615,12 +633,14 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 	flush_scheduled_work();
 
 	mutex_lock(&tty->ldisc_mutex);
+	lock_kernel();
 	if (test_bit(TTY_HUPPED, &tty->flags)) {
 		/* We were raced by the hangup method. It will have stomped
 		   the ldisc data and closed the ldisc down */
 		clear_bit(TTY_LDISC_CHANGING, &tty->flags);
 		mutex_unlock(&tty->ldisc_mutex);
 		tty_ldisc_put(new_ldisc);
+		unlock_kernel();
 		return -EIO;
 	}
 
@@ -662,6 +682,7 @@ int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 	if (o_work)
 		schedule_delayed_work(&o_tty->buf.work, 1);
 	mutex_unlock(&tty->ldisc_mutex);
+	unlock_kernel();
 	return retval;
 }
 
@@ -754,12 +775,9 @@ void tty_ldisc_hangup(struct tty_struct *tty)
 	 * N_TTY.
 	 */
 	if (tty->driver->flags & TTY_DRIVER_RESET_TERMIOS) {
-		/* Make sure the old ldisc is quiescent */
-		tty_ldisc_halt(tty);
-		flush_scheduled_work();
-
 		/* Avoid racing set_ldisc or tty_ldisc_release */
 		mutex_lock(&tty->ldisc_mutex);
+		tty_ldisc_halt(tty);
 		if (tty->ldisc) {	/* Not yet closed */
 			/* Switch back to N_TTY */
 			tty_ldisc_reinit(tty);

@@ -22,6 +22,11 @@
  *
  *  Added validation of kernel classes and permissions
  *
+ * Updated: KaiGai Kohei <kaigai@ak.jp.nec.com>
+ *
+ *  Added support for bounds domain and audit messaged on masked permissions
+ *
+ * Copyright (C) 2008, 2009 NEC Corporation
  * Copyright (C) 2006, 2007 Hewlett-Packard Development Company, L.P.
  * Copyright (C) 2004-2006 Trusted Computer Solutions, Inc.
  * Copyright (C) 2003 - 2004, 2006 Tresys Technology, LLC
@@ -60,15 +65,9 @@
 #include "audit.h"
 
 extern void selnl_notify_policyload(u32 seqno);
-unsigned int policydb_loaded_version;
 
 int selinux_policycap_netpeer;
 int selinux_policycap_openperm;
-
-/*
- * This is declared in avc.c
- */
-extern const struct selinux_class_perm selinux_class_perm;
 
 static DEFINE_RWLOCK(policy_rwlock);
 
@@ -93,6 +92,165 @@ static int context_struct_compute_av(struct context *scontext,
 				     u16 tclass,
 				     u32 requested,
 				     struct av_decision *avd);
+
+struct selinux_mapping {
+	u16 value; /* policy value */
+	unsigned num_perms;
+	u32 perms[sizeof(u32) * 8];
+};
+
+static struct selinux_mapping *current_mapping;
+static u16 current_mapping_size;
+
+static int selinux_set_mapping(struct policydb *pol,
+			       struct security_class_mapping *map,
+			       struct selinux_mapping **out_map_p,
+			       u16 *out_map_size)
+{
+	struct selinux_mapping *out_map = NULL;
+	size_t size = sizeof(struct selinux_mapping);
+	u16 i, j;
+	unsigned k;
+	bool print_unknown_handle = false;
+
+	/* Find number of classes in the input mapping */
+	if (!map)
+		return -EINVAL;
+	i = 0;
+	while (map[i].name)
+		i++;
+
+	/* Allocate space for the class records, plus one for class zero */
+	out_map = kcalloc(++i, size, GFP_ATOMIC);
+	if (!out_map)
+		return -ENOMEM;
+
+	/* Store the raw class and permission values */
+	j = 0;
+	while (map[j].name) {
+		struct security_class_mapping *p_in = map + (j++);
+		struct selinux_mapping *p_out = out_map + j;
+
+		/* An empty class string skips ahead */
+		if (!strcmp(p_in->name, "")) {
+			p_out->num_perms = 0;
+			continue;
+		}
+
+		p_out->value = string_to_security_class(pol, p_in->name);
+		if (!p_out->value) {
+			printk(KERN_INFO
+			       "SELinux:  Class %s not defined in policy.\n",
+			       p_in->name);
+			if (pol->reject_unknown)
+				goto err;
+			p_out->num_perms = 0;
+			print_unknown_handle = true;
+			continue;
+		}
+
+		k = 0;
+		while (p_in->perms && p_in->perms[k]) {
+			/* An empty permission string skips ahead */
+			if (!*p_in->perms[k]) {
+				k++;
+				continue;
+			}
+			p_out->perms[k] = string_to_av_perm(pol, p_out->value,
+							    p_in->perms[k]);
+			if (!p_out->perms[k]) {
+				printk(KERN_INFO
+				       "SELinux:  Permission %s in class %s not defined in policy.\n",
+				       p_in->perms[k], p_in->name);
+				if (pol->reject_unknown)
+					goto err;
+				print_unknown_handle = true;
+			}
+
+			k++;
+		}
+		p_out->num_perms = k;
+	}
+
+	if (print_unknown_handle)
+		printk(KERN_INFO "SELinux: the above unknown classes and permissions will be %s\n",
+		       pol->allow_unknown ? "allowed" : "denied");
+
+	*out_map_p = out_map;
+	*out_map_size = i;
+	return 0;
+err:
+	kfree(out_map);
+	return -EINVAL;
+}
+
+/*
+ * Get real, policy values from mapped values
+ */
+
+static u16 unmap_class(u16 tclass)
+{
+	if (tclass < current_mapping_size)
+		return current_mapping[tclass].value;
+
+	return tclass;
+}
+
+static u32 unmap_perm(u16 tclass, u32 tperm)
+{
+	if (tclass < current_mapping_size) {
+		unsigned i;
+		u32 kperm = 0;
+
+		for (i = 0; i < current_mapping[tclass].num_perms; i++)
+			if (tperm & (1<<i)) {
+				kperm |= current_mapping[tclass].perms[i];
+				tperm &= ~(1<<i);
+			}
+		return kperm;
+	}
+
+	return tperm;
+}
+
+static void map_decision(u16 tclass, struct av_decision *avd,
+			 int allow_unknown)
+{
+	if (tclass < current_mapping_size) {
+		unsigned i, n = current_mapping[tclass].num_perms;
+		u32 result;
+
+		for (i = 0, result = 0; i < n; i++) {
+			if (avd->allowed & current_mapping[tclass].perms[i])
+				result |= 1<<i;
+			if (allow_unknown && !current_mapping[tclass].perms[i])
+				result |= 1<<i;
+		}
+		avd->allowed = result;
+
+		for (i = 0, result = 0; i < n; i++)
+			if (avd->auditallow & current_mapping[tclass].perms[i])
+				result |= 1<<i;
+		avd->auditallow = result;
+
+		for (i = 0, result = 0; i < n; i++) {
+			if (avd->auditdeny & current_mapping[tclass].perms[i])
+				result |= 1<<i;
+			if (!allow_unknown && !current_mapping[tclass].perms[i])
+				result |= 1<<i;
+		}
+		/*
+		 * In case the kernel has a bug and requests a permission
+		 * between num_perms and the maximum permission number, we
+		 * should audit that denial
+		 */
+		for (; i < (sizeof(u32)*8); i++)
+			result |= 1<<i;
+		avd->auditdeny = result;
+	}
+}
+
+
 /*
  * Return the boolean value of a constraint expression
  * when it is applied to the specified source and target
@@ -279,6 +437,95 @@ mls_ops:
 }
 
 /*
+ * security_dump_masked_av - dumps masked permissions during
+ * security_compute_av due to RBAC, MLS/Constraint and Type bounds.
+ */
+static int dump_masked_av_helper(void *k, void *d, void *args)
+{
+	struct perm_datum *pdatum = d;
+	char **permission_names = args;
+
+	BUG_ON(pdatum->value < 1 || pdatum->value > 32);
+
+	permission_names[pdatum->value - 1] = (char *)k;
+
+	return 0;
+}
+
+static void security_dump_masked_av(struct context *scontext,
+				    struct context *tcontext,
+				    u16 tclass,
+				    u32 permissions,
+				    const char *reason)
+{
+	struct common_datum *common_dat;
+	struct class_datum *tclass_dat;
+	struct audit_buffer *ab;
+	char *tclass_name;
+	char *scontext_name = NULL;
+	char *tcontext_name = NULL;
+	char *permission_names[32];
+	int index, length;
+	bool need_comma = false;
+
+	if (!permissions)
+		return;
+
+	tclass_name = policydb.p_class_val_to_name[tclass - 1];
+	tclass_dat = policydb.class_val_to_struct[tclass - 1];
+	common_dat = tclass_dat->comdatum;
+
+	/* init permission_names */
+	if (common_dat &&
+	    hashtab_map(common_dat->permissions.table,
+			dump_masked_av_helper, permission_names) < 0)
+		goto out;
+
+	if (hashtab_map(tclass_dat->permissions.table,
+			dump_masked_av_helper, permission_names) < 0)
+		goto out;
+
+	/* get scontext/tcontext in text form */
+	if (context_struct_to_string(scontext,
+				     &scontext_name, &length) < 0)
+		goto out;
+
+	if (context_struct_to_string(tcontext,
+				     &tcontext_name, &length) < 0)
+		goto out;
+
+	/* audit a message */
+	ab = audit_log_start(current->audit_context,
+			     GFP_ATOMIC, AUDIT_SELINUX_ERR);
+	if (!ab)
+		goto out;
+
+	audit_log_format(ab, "op=security_compute_av reason=%s "
+			 "scontext=%s tcontext=%s tclass=%s perms=",
+			 reason, scontext_name, tcontext_name, tclass_name);
+
+	for (index = 0; index < 32; index++) {
+		u32 mask = (1 << index);
+
+		if ((mask & permissions) == 0)
+			continue;
+
+		audit_log_format(ab, "%s%s",
+				 need_comma ? "," : "",
+				 permission_names[index]
+				 ? permission_names[index] : "????");
+		need_comma = true;
+	}
+	audit_log_end(ab);
+out:
+	/* release scontext/tcontext */
+	kfree(tcontext_name);
+	kfree(scontext_name);
+
+	return;
+}
+
+/*
  * security_boundary_permission - drops violated permissions
  * on boundary constraint.
  */
@@ -347,28 +594,12 @@ static void type_attribute_bounds_av(struct context *scontext,
 	}
 
 	if (masked) {
-		struct audit_buffer *ab;
-		char *stype_name
-			= policydb.p_type_val_to_name[source->value - 1];
-		char *ttype_name
-			= policydb.p_type_val_to_name[target->value - 1];
-		char *tclass_name
-			= policydb.p_class_val_to_name[tclass - 1];
-
 		/* mask violated permissions */
 		avd->allowed &= ~masked;
 
-		/* notice to userspace via audit message */
-		ab = audit_log_start(current->audit_context,
-				     GFP_ATOMIC, AUDIT_SELINUX_ERR);
-		if (!ab)
-			return;
-
-		audit_log_format(ab, "av boundary violation: "
-				 "source=%s target=%s tclass=%s",
-				 stype_name, ttype_name, tclass_name);
-		avc_dump_av(ab, tclass, masked);
-		audit_log_end(ab);
+		/* audit masked permissions */
+		security_dump_masked_av(scontext, tcontext,
+					tclass, masked, "bounds");
 	}
 }
 
@@ -389,19 +620,7 @@ static int context_struct_compute_av(struct context *scontext,
 	struct class_datum *tclass_datum;
 	struct ebitmap *sattr, *tattr;
 	struct ebitmap_node *snode, *tnode;
-	const struct selinux_class_perm *kdefs = &selinux_class_perm;
 	unsigned int i, j;
-
-	/*
-	 * Remap extended Netlink classes for old policy versions.
-	 * Do this here rather than socket_type_to_security_class()
-	 * in case a newer policy version is loaded, allowing sockets
-	 * to remain in the correct class.
-	 */
-	if (policydb_loaded_version < POLICYDB_VERSION_NLCLASS)
-		if (tclass >= SECCLASS_NETLINK_ROUTE_SOCKET &&
-		    tclass <= SECCLASS_NETLINK_DNRT_SOCKET)
-			tclass = SECCLASS_NETLINK_SOCKET;
 
 	/*
 	 * Initialize the access vectors to the default values.
@@ -412,33 +631,11 @@ static int context_struct_compute_av(struct context *scontext,
 	avd->seqno = latest_granting;
 	avd->flags = 0;
 
-	/*
-	 * Check for all the invalid cases.
-	 * - tclass 0
-	 * - tclass > policy and > kernel
-	 * - tclass > policy but is a userspace class
-	 * - tclass > policy but we do not allow unknowns
-	 */
-	if (unlikely(!tclass))
-		goto inval_class;
-	if (unlikely(tclass > policydb.p_classes.nprim))
-		if (tclass > kdefs->cts_len ||
-		    !kdefs->class_to_string[tclass] ||
-		    !policydb.allow_unknown)
-			goto inval_class;
-
-	/*
-	 * Kernel class and we allow unknown so pad the allow decision
-	 * the pad will be all 1 for unknown classes.
-	 */
-	if (tclass <= kdefs->cts_len && policydb.allow_unknown)
-		avd->allowed = policydb.undefined_perms[tclass - 1];
-
-	/*
-	 * Not in policy. Since decision is completed (all 1 or all 0) return.
-	 */
-	if (unlikely(tclass > policydb.p_classes.nprim))
-		return 0;
+	if (unlikely(!tclass || tclass > policydb.p_classes.nprim)) {
+		if (printk_ratelimit())
+			printk(KERN_WARNING "SELinux:  Invalid class %hu\n", tclass);
+		return -EINVAL;
+	}
 
 	tclass_datum = policydb.class_val_to_struct[tclass - 1];
 
@@ -480,7 +677,7 @@ static int context_struct_compute_av(struct context *scontext,
 		if ((constraint->permissions & (avd->allowed)) &&
 		    !constraint_expr_eval(scontext, tcontext, NULL,
 					  constraint->expr)) {
-			avd->allowed = (avd->allowed) & ~(constraint->permissions);
+			avd->allowed &= ~(constraint->permissions);
 		}
 		constraint = constraint->next;
 	}
@@ -490,8 +687,8 @@ static int context_struct_compute_av(struct context *scontext,
 	 * role is changing, then check the (current_role, new_role)
 	 * pair.
 	 */
-	if (tclass == SECCLASS_PROCESS &&
-	    (avd->allowed & (PROCESS__TRANSITION | PROCESS__DYNTRANSITION)) &&
+	if (tclass == policydb.process_class &&
+	    (avd->allowed & policydb.process_trans_perms) &&
 	    scontext->role != tcontext->role) {
 		for (ra = policydb.role_allow; ra; ra = ra->next) {
 			if (scontext->role == ra->role &&
@@ -499,8 +696,7 @@ static int context_struct_compute_av(struct context *scontext,
 				break;
 		}
 		if (!ra)
-			avd->allowed = (avd->allowed) & ~(PROCESS__TRANSITION |
-							PROCESS__DYNTRANSITION);
+			avd->allowed &= ~policydb.process_trans_perms;
 	}
 
 	/*
@@ -511,21 +707,6 @@ static int context_struct_compute_av(struct context *scontext,
 	type_attribute_bounds_av(scontext, tcontext,
 				 tclass, requested, avd);
 
-	return 0;
-
-inval_class:
-	if (!tclass || tclass > kdefs->cts_len ||
-	    !kdefs->class_to_string[tclass]) {
-		if (printk_ratelimit())
-			printk(KERN_ERR "SELinux: %s:  unrecognized class %d\n",
-			       __func__, tclass);
-		return -EINVAL;
-	}
-
-	/*
-	 * Known to the kernel, but not to the policy.
-	 * Handle as a denial (allowed is 0).
-	 */
 	return 0;
 }
 
@@ -558,13 +739,14 @@ out:
 }
 
 int security_validate_transition(u32 oldsid, u32 newsid, u32 tasksid,
-				 u16 tclass)
+				 u16 orig_tclass)
 {
 	struct context *ocontext;
 	struct context *ncontext;
 	struct context *tcontext;
 	struct class_datum *tclass_datum;
 	struct constraint_node *constraint;
+	u16 tclass;
 	int rc = 0;
 
 	if (!ss_initialized)
@@ -572,16 +754,7 @@ int security_validate_transition(u32 oldsid, u32 newsid, u32 tasksid,
 
 	read_lock(&policy_rwlock);
 
-	/*
-	 * Remap extended Netlink classes for old policy versions.
-	 * Do this here rather than socket_type_to_security_class()
-	 * in case a newer policy version is loaded, allowing sockets
-	 * to remain in the correct class.
-	 */
-	if (policydb_loaded_version < POLICYDB_VERSION_NLCLASS)
-		if (tclass >= SECCLASS_NETLINK_ROUTE_SOCKET &&
-		    tclass <= SECCLASS_NETLINK_DNRT_SOCKET)
-			tclass = SECCLASS_NETLINK_SOCKET;
+	tclass = unmap_class(orig_tclass);
 
 	if (!tclass || tclass > policydb.p_classes.nprim) {
 		printk(KERN_ERR "SELinux: %s:  unrecognized class %d\n",
@@ -663,7 +836,7 @@ int security_bounded_transition(u32 old_sid, u32 new_sid)
 		goto out;
 	}
 
-	/* type/domain unchaned */
+	/* type/domain unchanged */
 	if (old_context->type == new_context->type) {
 		rc = 0;
 		goto out;
@@ -687,12 +860,64 @@ int security_bounded_transition(u32 old_sid, u32 new_sid)
 		}
 		index = type->bounds;
 	}
+
+	if (rc) {
+		char *old_name = NULL;
+		char *new_name = NULL;
+		int length;
+
+		if (!context_struct_to_string(old_context,
+					      &old_name, &length) &&
+		    !context_struct_to_string(new_context,
+					      &new_name, &length)) {
+			audit_log(current->audit_context,
+				  GFP_ATOMIC, AUDIT_SELINUX_ERR,
+				  "op=security_bounded_transition "
+				  "result=denied "
+				  "oldcontext=%s newcontext=%s",
+				  old_name, new_name);
+		}
+		kfree(new_name);
+		kfree(old_name);
+	}
 out:
 	read_unlock(&policy_rwlock);
 
 	return rc;
 }
 
+
+static int security_compute_av_core(u32 ssid,
+				    u32 tsid,
+				    u16 tclass,
+				    u32 requested,
+				    struct av_decision *avd)
+{
+	struct context *scontext = NULL, *tcontext = NULL;
+	int rc = 0;
+
+	scontext = sidtab_search(&sidtab, ssid);
+	if (!scontext) {
+		printk(KERN_ERR "SELinux: %s:  unrecognized SID %d\n",
+		       __func__, ssid);
+		return -EINVAL;
+	}
+	tcontext = sidtab_search(&sidtab, tsid);
+	if (!tcontext) {
+		printk(KERN_ERR "SELinux: %s:  unrecognized SID %d\n",
+		       __func__, tsid);
+		return -EINVAL;
+	}
+
+	rc = context_struct_compute_av(scontext, tcontext, tclass,
+				       requested, avd);
+
+	/* permissive domain? */
+	if (ebitmap_get_bit(&policydb.permissive_map, scontext->type))
+		avd->flags |= AVD_FLAGS_PERMISSIVE;
+
+	return rc;
+}
 
 /**
  * security_compute_av - Compute access vector decisions.
@@ -709,12 +934,49 @@ out:
  */
 int security_compute_av(u32 ssid,
 			u32 tsid,
-			u16 tclass,
-			u32 requested,
+			u16 orig_tclass,
+			u32 orig_requested,
 			struct av_decision *avd)
 {
-	struct context *scontext = NULL, *tcontext = NULL;
-	int rc = 0;
+	u16 tclass;
+	u32 requested;
+	int rc;
+
+	read_lock(&policy_rwlock);
+
+	if (!ss_initialized)
+		goto allow;
+
+	requested = unmap_perm(orig_tclass, orig_requested);
+	tclass = unmap_class(orig_tclass);
+	if (unlikely(orig_tclass && !tclass)) {
+		if (policydb.allow_unknown)
+			goto allow;
+		rc = -EINVAL;
+		goto out;
+	}
+	rc = security_compute_av_core(ssid, tsid, tclass, requested, avd);
+	map_decision(orig_tclass, avd, policydb.allow_unknown);
+out:
+	read_unlock(&policy_rwlock);
+	return rc;
+allow:
+	avd->allowed = 0xffffffff;
+	avd->auditallow = 0;
+	avd->auditdeny = 0xffffffff;
+	avd->seqno = latest_granting;
+	avd->flags = 0;
+	rc = 0;
+	goto out;
+}
+
+int security_compute_av_user(u32 ssid,
+			     u32 tsid,
+			     u16 tclass,
+			     u32 requested,
+			     struct av_decision *avd)
+{
+	int rc;
 
 	if (!ss_initialized) {
 		avd->allowed = 0xffffffff;
@@ -725,29 +987,7 @@ int security_compute_av(u32 ssid,
 	}
 
 	read_lock(&policy_rwlock);
-
-	scontext = sidtab_search(&sidtab, ssid);
-	if (!scontext) {
-		printk(KERN_ERR "SELinux: %s:  unrecognized SID %d\n",
-		       __func__, ssid);
-		rc = -EINVAL;
-		goto out;
-	}
-	tcontext = sidtab_search(&sidtab, tsid);
-	if (!tcontext) {
-		printk(KERN_ERR "SELinux: %s:  unrecognized SID %d\n",
-		       __func__, tsid);
-		rc = -EINVAL;
-		goto out;
-	}
-
-	rc = context_struct_compute_av(scontext, tcontext, tclass,
-				       requested, avd);
-
-	/* permissive domain? */
-	if (ebitmap_get_bit(&policydb.permissive_map, scontext->type))
-	    avd->flags |= AVD_FLAGS_PERMISSIVE;
-out:
+	rc = security_compute_av_core(ssid, tsid, tclass, requested, avd);
 	read_unlock(&policy_rwlock);
 	return rc;
 }
@@ -1106,20 +1346,22 @@ out:
 
 static int security_compute_sid(u32 ssid,
 				u32 tsid,
-				u16 tclass,
+				u16 orig_tclass,
 				u32 specified,
-				u32 *out_sid)
+				u32 *out_sid,
+				bool kern)
 {
 	struct context *scontext = NULL, *tcontext = NULL, newcontext;
 	struct role_trans *roletr = NULL;
 	struct avtab_key avkey;
 	struct avtab_datum *avdatum;
 	struct avtab_node *node;
+	u16 tclass;
 	int rc = 0;
 
 	if (!ss_initialized) {
-		switch (tclass) {
-		case SECCLASS_PROCESS:
+		switch (orig_tclass) {
+		case SECCLASS_PROCESS: /* kernel value */
 			*out_sid = ssid;
 			break;
 		default:
@@ -1132,6 +1374,11 @@ static int security_compute_sid(u32 ssid,
 	context_init(&newcontext);
 
 	read_lock(&policy_rwlock);
+
+	if (kern)
+		tclass = unmap_class(orig_tclass);
+	else
+		tclass = orig_tclass;
 
 	scontext = sidtab_search(&sidtab, ssid);
 	if (!scontext) {
@@ -1162,13 +1409,11 @@ static int security_compute_sid(u32 ssid,
 	}
 
 	/* Set the role and type to default values. */
-	switch (tclass) {
-	case SECCLASS_PROCESS:
+	if (tclass == policydb.process_class) {
 		/* Use the current role and type of process. */
 		newcontext.role = scontext->role;
 		newcontext.type = scontext->type;
-		break;
-	default:
+	} else {
 		/* Use the well-defined object role. */
 		newcontext.role = OBJECT_R_VAL;
 		/* Use the type of the related object. */
@@ -1199,8 +1444,7 @@ static int security_compute_sid(u32 ssid,
 	}
 
 	/* Check for class-specific changes. */
-	switch (tclass) {
-	case SECCLASS_PROCESS:
+	if  (tclass == policydb.process_class) {
 		if (specified & AVTAB_TRANSITION) {
 			/* Look for a role transition rule. */
 			for (roletr = policydb.role_tr; roletr;
@@ -1213,9 +1457,6 @@ static int security_compute_sid(u32 ssid,
 				}
 			}
 		}
-		break;
-	default:
-		break;
 	}
 
 	/* Set the MLS attributes.
@@ -1260,7 +1501,17 @@ int security_transition_sid(u32 ssid,
 			    u16 tclass,
 			    u32 *out_sid)
 {
-	return security_compute_sid(ssid, tsid, tclass, AVTAB_TRANSITION, out_sid);
+	return security_compute_sid(ssid, tsid, tclass, AVTAB_TRANSITION,
+				    out_sid, true);
+}
+
+int security_transition_sid_user(u32 ssid,
+				 u32 tsid,
+				 u16 tclass,
+				 u32 *out_sid)
+{
+	return security_compute_sid(ssid, tsid, tclass, AVTAB_TRANSITION,
+				    out_sid, false);
 }
 
 /**
@@ -1281,7 +1532,8 @@ int security_member_sid(u32 ssid,
 			u16 tclass,
 			u32 *out_sid)
 {
-	return security_compute_sid(ssid, tsid, tclass, AVTAB_MEMBER, out_sid);
+	return security_compute_sid(ssid, tsid, tclass, AVTAB_MEMBER, out_sid,
+				    false);
 }
 
 /**
@@ -1302,144 +1554,8 @@ int security_change_sid(u32 ssid,
 			u16 tclass,
 			u32 *out_sid)
 {
-	return security_compute_sid(ssid, tsid, tclass, AVTAB_CHANGE, out_sid);
-}
-
-/*
- * Verify that each kernel class that is defined in the
- * policy is correct
- */
-static int validate_classes(struct policydb *p)
-{
-	int i, j;
-	struct class_datum *cladatum;
-	struct perm_datum *perdatum;
-	u32 nprim, tmp, common_pts_len, perm_val, pol_val;
-	u16 class_val;
-	const struct selinux_class_perm *kdefs = &selinux_class_perm;
-	const char *def_class, *def_perm, *pol_class;
-	struct symtab *perms;
-	bool print_unknown_handle = 0;
-
-	if (p->allow_unknown) {
-		u32 num_classes = kdefs->cts_len;
-		p->undefined_perms = kcalloc(num_classes, sizeof(u32), GFP_KERNEL);
-		if (!p->undefined_perms)
-			return -ENOMEM;
-	}
-
-	for (i = 1; i < kdefs->cts_len; i++) {
-		def_class = kdefs->class_to_string[i];
-		if (!def_class)
-			continue;
-		if (i > p->p_classes.nprim) {
-			printk(KERN_INFO
-			       "SELinux:  class %s not defined in policy\n",
-			       def_class);
-			if (p->reject_unknown)
-				return -EINVAL;
-			if (p->allow_unknown)
-				p->undefined_perms[i-1] = ~0U;
-			print_unknown_handle = 1;
-			continue;
-		}
-		pol_class = p->p_class_val_to_name[i-1];
-		if (strcmp(pol_class, def_class)) {
-			printk(KERN_ERR
-			       "SELinux:  class %d is incorrect, found %s but should be %s\n",
-			       i, pol_class, def_class);
-			return -EINVAL;
-		}
-	}
-	for (i = 0; i < kdefs->av_pts_len; i++) {
-		class_val = kdefs->av_perm_to_string[i].tclass;
-		perm_val = kdefs->av_perm_to_string[i].value;
-		def_perm = kdefs->av_perm_to_string[i].name;
-		if (class_val > p->p_classes.nprim)
-			continue;
-		pol_class = p->p_class_val_to_name[class_val-1];
-		cladatum = hashtab_search(p->p_classes.table, pol_class);
-		BUG_ON(!cladatum);
-		perms = &cladatum->permissions;
-		nprim = 1 << (perms->nprim - 1);
-		if (perm_val > nprim) {
-			printk(KERN_INFO
-			       "SELinux:  permission %s in class %s not defined in policy\n",
-			       def_perm, pol_class);
-			if (p->reject_unknown)
-				return -EINVAL;
-			if (p->allow_unknown)
-				p->undefined_perms[class_val-1] |= perm_val;
-			print_unknown_handle = 1;
-			continue;
-		}
-		perdatum = hashtab_search(perms->table, def_perm);
-		if (perdatum == NULL) {
-			printk(KERN_ERR
-			       "SELinux:  permission %s in class %s not found in policy, bad policy\n",
-			       def_perm, pol_class);
-			return -EINVAL;
-		}
-		pol_val = 1 << (perdatum->value - 1);
-		if (pol_val != perm_val) {
-			printk(KERN_ERR
-			       "SELinux:  permission %s in class %s has incorrect value\n",
-			       def_perm, pol_class);
-			return -EINVAL;
-		}
-	}
-	for (i = 0; i < kdefs->av_inherit_len; i++) {
-		class_val = kdefs->av_inherit[i].tclass;
-		if (class_val > p->p_classes.nprim)
-			continue;
-		pol_class = p->p_class_val_to_name[class_val-1];
-		cladatum = hashtab_search(p->p_classes.table, pol_class);
-		BUG_ON(!cladatum);
-		if (!cladatum->comdatum) {
-			printk(KERN_ERR
-			       "SELinux:  class %s should have an inherits clause but does not\n",
-			       pol_class);
-			return -EINVAL;
-		}
-		tmp = kdefs->av_inherit[i].common_base;
-		common_pts_len = 0;
-		while (!(tmp & 0x01)) {
-			common_pts_len++;
-			tmp >>= 1;
-		}
-		perms = &cladatum->comdatum->permissions;
-		for (j = 0; j < common_pts_len; j++) {
-			def_perm = kdefs->av_inherit[i].common_pts[j];
-			if (j >= perms->nprim) {
-				printk(KERN_INFO
-				       "SELinux:  permission %s in class %s not defined in policy\n",
-				       def_perm, pol_class);
-				if (p->reject_unknown)
-					return -EINVAL;
-				if (p->allow_unknown)
-					p->undefined_perms[class_val-1] |= (1 << j);
-				print_unknown_handle = 1;
-				continue;
-			}
-			perdatum = hashtab_search(perms->table, def_perm);
-			if (perdatum == NULL) {
-				printk(KERN_ERR
-				       "SELinux:  permission %s in class %s not found in policy, bad policy\n",
-				       def_perm, pol_class);
-				return -EINVAL;
-			}
-			if (perdatum->value != j + 1) {
-				printk(KERN_ERR
-				       "SELinux:  permission %s in class %s has incorrect value\n",
-				       def_perm, pol_class);
-				return -EINVAL;
-			}
-		}
-	}
-	if (print_unknown_handle)
-		printk(KERN_INFO "SELinux: the above unknown classes and permissions will be %s\n",
-			(security_get_allow_unknown() ? "allowed" : "denied"));
-	return 0;
+	return security_compute_sid(ssid, tsid, tclass, AVTAB_CHANGE, out_sid,
+				    false);
 }
 
 /* Clone the SID into the new SID table. */
@@ -1612,8 +1728,10 @@ int security_load_policy(void *data, size_t len)
 {
 	struct policydb oldpolicydb, newpolicydb;
 	struct sidtab oldsidtab, newsidtab;
+	struct selinux_mapping *oldmap, *map = NULL;
 	struct convert_context_args args;
 	u32 seqno;
+	u16 map_size;
 	int rc = 0;
 	struct policy_file file = { data, len }, *fp = &file;
 
@@ -1623,22 +1741,19 @@ int security_load_policy(void *data, size_t len)
 			avtab_cache_destroy();
 			return -EINVAL;
 		}
+		if (selinux_set_mapping(&policydb, secclass_map,
+					&current_mapping,
+					&current_mapping_size)) {
+			policydb_destroy(&policydb);
+			avtab_cache_destroy();
+			return -EINVAL;
+		}
 		if (policydb_load_isids(&policydb, &sidtab)) {
 			policydb_destroy(&policydb);
 			avtab_cache_destroy();
 			return -EINVAL;
 		}
-		/* Verify that the kernel defined classes are correct. */
-		if (validate_classes(&policydb)) {
-			printk(KERN_ERR
-			       "SELinux:  the definition of a class is incorrect\n");
-			sidtab_destroy(&sidtab);
-			policydb_destroy(&policydb);
-			avtab_cache_destroy();
-			return -EINVAL;
-		}
 		security_load_policycaps();
-		policydb_loaded_version = policydb.policyvers;
 		ss_initialized = 1;
 		seqno = ++latest_granting;
 		selinux_complete_init();
@@ -1661,13 +1776,9 @@ int security_load_policy(void *data, size_t len)
 		return -ENOMEM;
 	}
 
-	/* Verify that the kernel defined classes are correct. */
-	if (validate_classes(&newpolicydb)) {
-		printk(KERN_ERR
-		       "SELinux:  the definition of a class is incorrect\n");
-		rc = -EINVAL;
+	if (selinux_set_mapping(&newpolicydb, secclass_map,
+				&map, &map_size))
 		goto err;
-	}
 
 	rc = security_preserve_bools(&newpolicydb);
 	if (rc) {
@@ -1701,13 +1812,16 @@ int security_load_policy(void *data, size_t len)
 	memcpy(&policydb, &newpolicydb, sizeof policydb);
 	sidtab_set(&sidtab, &newsidtab);
 	security_load_policycaps();
+	oldmap = current_mapping;
+	current_mapping = map;
+	current_mapping_size = map_size;
 	seqno = ++latest_granting;
-	policydb_loaded_version = policydb.policyvers;
 	write_unlock_irq(&policy_rwlock);
 
 	/* Free the old policydb and SID table. */
 	policydb_destroy(&oldpolicydb);
 	sidtab_destroy(&oldsidtab);
+	kfree(oldmap);
 
 	avc_ss_reset(seqno);
 	selnl_notify_policyload(seqno);
@@ -1717,6 +1831,7 @@ int security_load_policy(void *data, size_t len)
 	return 0;
 
 err:
+	kfree(map);
 	sidtab_destroy(&newsidtab);
 	policydb_destroy(&newpolicydb);
 	return rc;
@@ -1993,7 +2108,7 @@ out_unlock:
 	}
 	for (i = 0, j = 0; i < mynel; i++) {
 		rc = avc_has_perm_noaudit(fromsid, mysids[i],
-					  SECCLASS_PROCESS,
+					  SECCLASS_PROCESS, /* kernel value */
 					  PROCESS__TRANSITION, AVC_STRICT,
 					  NULL);
 		if (!rc)
@@ -2021,10 +2136,11 @@ out:
  */
 int security_genfs_sid(const char *fstype,
 		       char *path,
-		       u16 sclass,
+		       u16 orig_sclass,
 		       u32 *sid)
 {
 	int len;
+	u16 sclass;
 	struct genfs *genfs;
 	struct ocontext *c;
 	int rc = 0, cmp = 0;
@@ -2033,6 +2149,8 @@ int security_genfs_sid(const char *fstype,
 		path++;
 
 	read_lock(&policy_rwlock);
+
+	sclass = unmap_class(orig_sclass);
 
 	for (genfs = policydb.genfs; genfs; genfs = genfs->next) {
 		cmp = strcmp(fstype, genfs->fstype);

@@ -369,8 +369,8 @@ static int corkscrew_setup(struct net_device *dev, int ioaddr,
 			    struct pnp_dev *idev, int card_number);
 static int corkscrew_open(struct net_device *dev);
 static void corkscrew_timer(unsigned long arg);
-static int corkscrew_start_xmit(struct sk_buff *skb,
-				struct net_device *dev);
+static netdev_tx_t corkscrew_start_xmit(struct sk_buff *skb,
+					struct net_device *dev);
 static int corkscrew_rx(struct net_device *dev);
 static void corkscrew_timeout(struct net_device *dev);
 static int boomerang_rx(struct net_device *dev);
@@ -764,13 +764,14 @@ static int corkscrew_open(struct net_device *dev)
 	/* Use the now-standard shared IRQ implementation. */
 	if (vp->capabilities == 0x11c7) {
 		/* Corkscrew: Cannot share ISA resources. */
-		if (dev->irq == 0
-		    || dev->dma == 0
-		    || request_irq(dev->irq, &corkscrew_interrupt, 0,
-				   vp->product_name, dev)) return -EAGAIN;
+		if (dev->irq == 0 ||
+		    dev->dma == 0 ||
+		    request_irq(dev->irq, corkscrew_interrupt, 0,
+				vp->product_name, dev))
+			return -EAGAIN;
 		enable_dma(dev->dma);
 		set_dma_mode(dev->dma, DMA_MODE_CASCADE);
-	} else if (request_irq(dev->irq, &corkscrew_interrupt, IRQF_SHARED,
+	} else if (request_irq(dev->irq, corkscrew_interrupt, IRQF_SHARED,
 			       vp->product_name, dev)) {
 		return -EAGAIN;
 	}
@@ -998,8 +999,8 @@ static void corkscrew_timeout(struct net_device *dev)
 	netif_wake_queue(dev);
 }
 
-static int corkscrew_start_xmit(struct sk_buff *skb,
-				struct net_device *dev)
+static netdev_tx_t corkscrew_start_xmit(struct sk_buff *skb,
+					struct net_device *dev)
 {
 	struct corkscrew_private *vp = netdev_priv(dev);
 	int ioaddr = dev->base_addr;
@@ -1056,7 +1057,7 @@ static int corkscrew_start_xmit(struct sk_buff *skb,
 			netif_wake_queue(dev);
 		}
 		dev->trans_start = jiffies;
-		return 0;
+		return NETDEV_TX_OK;
 	}
 	/* Put out the doubleword header... */
 	outl(skb->len, ioaddr + TX_FIFO);
@@ -1119,7 +1120,7 @@ static int corkscrew_start_xmit(struct sk_buff *skb,
 			outb(0x00, ioaddr + TxStatus);	/* Pop the status stack. */
 		}
 	}
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /* The interrupt handler does all of the Rx thread work and cleans up
@@ -1368,8 +1369,8 @@ static int boomerang_rx(struct net_device *dev)
 
 			/* Check if the packet is long enough to just accept without
 			   copying to a properly sized skbuff. */
-			if (pkt_len < rx_copybreak
-			    && (skb = dev_alloc_skb(pkt_len + 4)) != NULL) {
+			if (pkt_len < rx_copybreak &&
+			    (skb = dev_alloc_skb(pkt_len + 4)) != NULL) {
 				skb_reserve(skb, 2);	/* Align IP on 16 byte boundaries */
 				/* 'skb_put()' points to the start of sk_buff data area. */
 				memcpy(skb_put(skb, pkt_len),

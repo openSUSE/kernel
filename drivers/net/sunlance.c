@@ -923,7 +923,7 @@ static int lance_open(struct net_device *dev)
 
 	STOP_LANCE(lp);
 
-	if (request_irq(dev->irq, &lance_interrupt, IRQF_SHARED,
+	if (request_irq(dev->irq, lance_interrupt, IRQF_SHARED,
 			lancestr, (void *) dev)) {
 		printk(KERN_ERR "Lance: Can't get irq %d\n", dev->irq);
 		return -EAGAIN;
@@ -1163,7 +1163,7 @@ static int lance_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	dev->trans_start = jiffies;
 	dev_kfree_skb(skb);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /* taken from the depca driver */

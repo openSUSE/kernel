@@ -98,6 +98,7 @@
 #define AOPOBJ_SETUP_COMPLETE       0x10
 #define AOPOBJ_SINGLE_DATUM         0x20
 #define AOPOBJ_INVALID              0x40	/* Used if host OS won't allow an op_region address */
+#define AOPOBJ_MODULE_LEVEL         0x80
 
 /******************************************************************************
  *
@@ -179,7 +180,11 @@ struct acpi_object_method {
 	u8 sync_level;
 	union acpi_operand_object *mutex;
 	u8 *aml_start;
-	ACPI_INTERNAL_METHOD implementation;
+	union {
+		ACPI_INTERNAL_METHOD implementation;
+		union acpi_operand_object *handler;
+	} extra;
+
 	u32 aml_length;
 	u8 thread_count;
 	acpi_owner_id owner_id;

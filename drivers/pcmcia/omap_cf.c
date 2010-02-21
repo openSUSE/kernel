@@ -23,8 +23,8 @@
 #include <asm/io.h>
 #include <asm/sizes.h>
 
-#include <mach/mux.h>
-#include <mach/tc.h>
+#include <plat/mux.h>
+#include <plat/tc.h>
 
 
 /* NOTE:  don't expect this to support many I/O cards.  The 16xx chips have
@@ -334,7 +334,7 @@ static int __exit omap_cf_remove(struct platform_device *pdev)
 
 static int omap_cf_suspend(struct platform_device *pdev, pm_message_t mesg)
 {
-	return pcmcia_socket_dev_suspend(&pdev->dev, mesg);
+	return pcmcia_socket_dev_suspend(&pdev->dev);
 }
 
 static int omap_cf_resume(struct platform_device *pdev)

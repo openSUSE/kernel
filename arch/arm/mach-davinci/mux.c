@@ -19,7 +19,6 @@
 #include <linux/module.h>
 #include <linux/spinlock.h>
 
-#include <mach/hardware.h>
 #include <mach/mux.h>
 #include <mach/common.h>
 
@@ -91,3 +90,17 @@ int __init_or_module davinci_cfg_reg(const unsigned long index)
 	return 0;
 }
 EXPORT_SYMBOL(davinci_cfg_reg);
+
+int da8xx_pinmux_setup(const short pins[])
+{
+	int i, error = -EINVAL;
+
+	if (pins)
+		for (i = 0; pins[i] >= 0; i++) {
+			error = davinci_cfg_reg(pins[i]);
+			if (error)
+				break;
+		}
+
+	return error;
+}

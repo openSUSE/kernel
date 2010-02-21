@@ -139,6 +139,7 @@ struct tp_finger {
 /* trackpad finger data size, empirically at least ten fingers */
 #define SIZEOF_FINGER		sizeof(struct tp_finger)
 #define SIZEOF_ALL_FINGERS	(16 * SIZEOF_FINGER)
+#define MAX_FINGER_ORIENTATION	16384
 
 /* device-specific parameters */
 struct bcm5974_param {
@@ -284,6 +285,26 @@ static void setup_events_to_report(struct input_dev *input_dev,
 	input_set_abs_params(input_dev, ABS_Y,
 				0, cfg->y.dim, cfg->y.fuzz, 0);
 
+	/* finger touch area */
+	input_set_abs_params(input_dev, ABS_MT_TOUCH_MAJOR,
+			     cfg->w.devmin, cfg->w.devmax, 0, 0);
+	input_set_abs_params(input_dev, ABS_MT_TOUCH_MINOR,
+			     cfg->w.devmin, cfg->w.devmax, 0, 0);
+	/* finger approach area */
+	input_set_abs_params(input_dev, ABS_MT_WIDTH_MAJOR,
+			     cfg->w.devmin, cfg->w.devmax, 0, 0);
+	input_set_abs_params(input_dev, ABS_MT_WIDTH_MINOR,
+			     cfg->w.devmin, cfg->w.devmax, 0, 0);
+	/* finger orientation */
+	input_set_abs_params(input_dev, ABS_MT_ORIENTATION,
+			     -MAX_FINGER_ORIENTATION,
+			     MAX_FINGER_ORIENTATION, 0, 0);
+	/* finger position */
+	input_set_abs_params(input_dev, ABS_MT_POSITION_X,
+			     cfg->x.devmin, cfg->x.devmax, 0, 0);
+	input_set_abs_params(input_dev, ABS_MT_POSITION_Y,
+			     cfg->y.devmin, cfg->y.devmax, 0, 0);
+
 	__set_bit(EV_KEY, input_dev->evbit);
 	__set_bit(BTN_TOUCH, input_dev->keybit);
 	__set_bit(BTN_TOOL_FINGER, input_dev->keybit);
@@ -310,14 +331,30 @@ static int report_bt_state(struct bcm5974 *dev, int size)
 	return 0;
 }
 
+static void report_finger_data(struct input_dev *input,
+			       const struct bcm5974_config *cfg,
+			       const struct tp_finger *f)
+{
+	input_report_abs(input, ABS_MT_TOUCH_MAJOR, raw2int(f->force_major));
+	input_report_abs(input, ABS_MT_TOUCH_MINOR, raw2int(f->force_minor));
+	input_report_abs(input, ABS_MT_WIDTH_MAJOR, raw2int(f->size_major));
+	input_report_abs(input, ABS_MT_WIDTH_MINOR, raw2int(f->size_minor));
+	input_report_abs(input, ABS_MT_ORIENTATION,
+			 MAX_FINGER_ORIENTATION - raw2int(f->orientation));
+	input_report_abs(input, ABS_MT_POSITION_X, raw2int(f->abs_x));
+	input_report_abs(input, ABS_MT_POSITION_Y,
+			 cfg->y.devmin + cfg->y.devmax - raw2int(f->abs_y));
+	input_mt_sync(input);
+}
+
 /* report trackpad data as logical trackpad state */
 static int report_tp_state(struct bcm5974 *dev, int size)
 {
 	const struct bcm5974_config *c = &dev->cfg;
 	const struct tp_finger *f;
 	struct input_dev *input = dev->input;
-	int raw_p, raw_w, raw_x, raw_y, raw_n;
-	int ptest = 0, origin = 0, ibt = 0, nmin = 0, nmax = 0;
+	int raw_p, raw_w, raw_x, raw_y, raw_n, i;
+	int ptest, origin, ibt = 0, nmin = 0, nmax = 0;
 	int abs_p = 0, abs_w = 0, abs_x = 0, abs_y = 0;
 
 	if (size < c->tp_offset || (size - c->tp_offset) % SIZEOF_FINGER != 0)
@@ -329,6 +366,11 @@ static int report_tp_state(struct bcm5974 *dev, int size)
 
 	/* always track the first finger; when detached, start over */
 	if (raw_n) {
+
+		/* report raw trackpad data */
+		for (i = 0; i < raw_n; i++)
+			report_finger_data(input, c, &f[i]);
+
 		raw_p = raw2int(f->force_major);
 		raw_w = raw2int(f->size_major);
 		raw_x = raw2int(f->abs_x);
@@ -345,21 +387,22 @@ static int report_tp_state(struct bcm5974 *dev, int size)
 		/* set the integrated button if applicable */
 		if (c->tp_type == TYPE2)
 			ibt = raw2int(dev->tp_data[BUTTON_TYPE2]);
-	}
 
-	/* while tracking finger still valid, count all fingers */
-	if (ptest > PRESSURE_LOW && origin) {
-		abs_p = ptest;
-		abs_w = int2bound(&c->w, raw_w);
-		abs_x = int2bound(&c->x, raw_x - c->x.devmin);
-		abs_y = int2bound(&c->y, c->y.devmax - raw_y);
-		while (raw_n--) {
-			ptest = int2bound(&c->p, raw2int(f->force_major));
-			if (ptest > PRESSURE_LOW)
-				nmax++;
-			if (ptest > PRESSURE_HIGH)
-				nmin++;
-			f++;
+		/* while tracking finger still valid, count all fingers */
+		if (ptest > PRESSURE_LOW && origin) {
+			abs_p = ptest;
+			abs_w = int2bound(&c->w, raw_w);
+			abs_x = int2bound(&c->x, raw_x - c->x.devmin);
+			abs_y = int2bound(&c->y, c->y.devmax - raw_y);
+			while (raw_n--) {
+				ptest = int2bound(&c->p,
+						  raw2int(f->force_major));
+				if (ptest > PRESSURE_LOW)
+					nmax++;
+				if (ptest > PRESSURE_HIGH)
+					nmin++;
+				f++;
+			}
 		}
 	}
 

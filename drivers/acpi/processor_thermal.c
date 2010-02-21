@@ -40,6 +40,8 @@
 #include <acpi/processor.h>
 #include <acpi/acpi_drivers.h>
 
+#define PREFIX "ACPI: "
+
 #define ACPI_PROCESSOR_CLASS            "processor"
 #define _COMPONENT              ACPI_PROCESSOR_COMPONENT
 ACPI_MODULE_NAME("processor_thermal");
@@ -438,11 +440,10 @@ struct thermal_cooling_device_ops processor_cooling_ops = {
 };
 
 /* /proc interface */
-
+#ifdef CONFIG_ACPI_PROCFS
 static int acpi_processor_limit_seq_show(struct seq_file *seq, void *offset)
 {
-	struct acpi_processor *pr = (struct acpi_processor *)seq->private;
-
+	struct acpi_processor *pr = seq->private;
 
 	if (!pr)
 		goto end;
@@ -517,3 +518,4 @@ const struct file_operations acpi_processor_limit_fops = {
 	.llseek = seq_lseek,
 	.release = single_release,
 };
+#endif

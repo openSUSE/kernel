@@ -800,7 +800,7 @@ static int usb_tranzport_probe(struct usb_interface *intf,
 		dev_err(&intf->dev, "Out of memory\n");
 		goto exit;
 	}
-	semaphore_init(&dev->sem);
+	sema_init(&dev->sem, 1);
 	dev->intf = intf;
 	init_waitqueue_head(&dev->read_wait);
 	init_waitqueue_head(&dev->write_wait);

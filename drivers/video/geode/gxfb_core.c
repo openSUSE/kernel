@@ -32,7 +32,7 @@
 #include <linux/suspend.h>
 #include <linux/init.h>
 #include <linux/pci.h>
-#include <asm/geode.h>
+#include <linux/cs5535.h>
 
 #include "gxfb.h"
 
@@ -342,10 +342,10 @@ static int gxfb_suspend(struct pci_dev *pdev, pm_message_t state)
 	struct fb_info *info = pci_get_drvdata(pdev);
 
 	if (state.event == PM_EVENT_SUSPEND) {
-		acquire_console_sem();
+		acquire_console_mutex();
 		gx_powerdown(info);
 		fb_set_suspend(info, 1);
-		release_console_sem();
+		release_console_mutex();
 	}
 
 	/* there's no point in setting PCI states; we emulate PCI, so
@@ -359,7 +359,7 @@ static int gxfb_resume(struct pci_dev *pdev)
 	struct fb_info *info = pci_get_drvdata(pdev);
 	int ret;
 
-	acquire_console_sem();
+	acquire_console_mutex();
 	ret = gx_powerup(info);
 	if (ret) {
 		printk(KERN_ERR "gxfb:  power up failed!\n");
@@ -367,7 +367,7 @@ static int gxfb_resume(struct pci_dev *pdev)
 	}
 
 	fb_set_suspend(info, 0);
-	release_console_sem();
+	release_console_mutex();
 	return 0;
 }
 #endif

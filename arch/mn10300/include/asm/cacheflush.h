@@ -17,7 +17,7 @@
 #include <linux/mm.h>
 
 /*
- * virtually-indexed cache managment (our cache is physically indexed)
+ * virtually-indexed cache management (our cache is physically indexed)
  */
 #define flush_cache_all()			do {} while (0)
 #define flush_cache_mm(mm)			do {} while (0)
@@ -26,12 +26,13 @@
 #define flush_cache_page(vma, vmaddr, pfn)	do {} while (0)
 #define flush_cache_vmap(start, end)		do {} while (0)
 #define flush_cache_vunmap(start, end)		do {} while (0)
+#define ARCH_IMPLEMENTS_FLUSH_DCACHE_PAGE 0
 #define flush_dcache_page(page)			do {} while (0)
 #define flush_dcache_mmap_lock(mapping)		do {} while (0)
 #define flush_dcache_mmap_unlock(mapping)	do {} while (0)
 
 /*
- * physically-indexed cache managment
+ * physically-indexed cache management
  */
 #ifndef CONFIG_MN10300_CACHE_DISABLED
 

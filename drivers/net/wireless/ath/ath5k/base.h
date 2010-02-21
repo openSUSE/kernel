@@ -36,7 +36,7 @@
  */
 
 /*
- * Defintions for the Atheros Wireless LAN controller driver.
+ * Definitions for the Atheros Wireless LAN controller driver.
  */
 #ifndef _DEV_ATH_ATHVAR_H
 #define _DEV_ATH_ATHVAR_H
@@ -50,6 +50,9 @@
 
 #include "ath5k.h"
 #include "debug.h"
+
+#include "../regd.h"
+#include "../ath.h"
 
 #define	ATH_RXBUF	40		/* number of RX buffers */
 #define	ATH_TXBUF	200		/* number of TX buffers */
@@ -114,8 +117,7 @@ struct ath5k_softc {
 	struct pci_dev		*pdev;		/* for dma mapping */
 	void __iomem		*iobase;	/* address of the device */
 	struct mutex		lock;		/* dev-level lock */
-	/* FIXME: how many does it really need? */
-	struct ieee80211_tx_queue_stats tx_stats[16];
+	struct ieee80211_tx_queue_stats tx_stats[AR5K_NUM_TX_QUEUES];
 	struct ieee80211_low_level_stats ll_stats;
 	struct ieee80211_hw	*hw;		/* IEEE 802.11 common */
 	struct ieee80211_supported_band sbands[IEEE80211_NUM_BANDS];
@@ -135,7 +137,6 @@ struct ath5k_softc {
 	struct ath5k_desc	*desc;		/* TX/RX descriptors */
 	dma_addr_t		desc_daddr;	/* DMA (physical) address */
 	size_t			desc_len;	/* size of TX/RX descriptors */
-	u16			cachelsz;	/* cache line size */
 
 	DECLARE_BITMAP(status, 5);
 #define ATH_STAT_INVALID	0		/* disable hardware accesses */
@@ -151,8 +152,6 @@ struct ath5k_softc {
 	struct ieee80211_vif *vif;
 
 	enum ath5k_int		imask;		/* interrupt mask copy */
-
-	DECLARE_BITMAP(keymap, AR5K_KEYCACHE_SIZE); /* key use bit map */
 
 	u8			bssidmask[ETH_ALEN];
 
@@ -171,13 +170,14 @@ struct ath5k_softc {
 	struct list_head	txbuf;		/* transmit buffer */
 	spinlock_t		txbuflock;
 	unsigned int		txbuf_len;	/* buf count in txbuf list */
-	struct ath5k_txq	txqs[2];	/* beacon and tx */
-
-	struct ath5k_txq	*txq;		/* beacon and tx*/
+	struct ath5k_txq	txqs[AR5K_NUM_TX_QUEUES];	/* tx queues */
+	struct ath5k_txq	*txq;		/* main tx queue */
 	struct tasklet_struct	txtq;		/* tx intr tasklet */
 	struct ath5k_led	tx_led;		/* tx led */
 
 	struct ath5k_rfkill	rf_kill;
+
+	struct tasklet_struct	calib;		/* calibration tasklet */
 
 	spinlock_t		block;		/* protects beacon */
 	struct tasklet_struct	beacontq;	/* beacon intr tasklet */
@@ -187,10 +187,11 @@ struct ath5k_softc {
 				bintval,	/* beacon interval in TU */
 				bsent;
 	unsigned int		nexttbtt;	/* next beacon time in TU */
+	struct ath5k_txq	*cabq;		/* content after beacon */
 
-	struct timer_list	calib_tim;	/* calibration timer */
 	int 			power_level;	/* Requested tx power in dbm */
-	bool			assoc;		/* assocate state */
+	bool			assoc;		/* associate state */
+	bool			enable_beacon;	/* true if beacons are on */
 };
 
 #define ath5k_hw_hasbssidmask(_ah) \

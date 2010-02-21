@@ -89,120 +89,6 @@ static const struct usb_descriptor_header *otg_desc[] = {
 
 /*-------------------------------------------------------------------------*/
 
-/**
- * Handle USB audio endpoint set/get command in setup class request
- */
-
-static int audio_set_endpoint_req(struct usb_configuration *c,
-		const struct usb_ctrlrequest *ctrl)
-{
-	struct usb_composite_dev *cdev = c->cdev;
-	int			value = -EOPNOTSUPP;
-	u16			ep = le16_to_cpu(ctrl->wIndex);
-	u16			len = le16_to_cpu(ctrl->wLength);
-	u16			w_value = le16_to_cpu(ctrl->wValue);
-
-	DBG(cdev, "bRequest 0x%x, w_value 0x%04x, len %d, endpoint %d\n",
-			ctrl->bRequest, w_value, len, ep);
-
-	switch (ctrl->bRequest) {
-	case SET_CUR:
-		value = 0;
-		break;
-
-	case SET_MIN:
-		break;
-
-	case SET_MAX:
-		break;
-
-	case SET_RES:
-		break;
-
-	case SET_MEM:
-		break;
-
-	default:
-		break;
-	}
-
-	return value;
-}
-
-static int audio_get_endpoint_req(struct usb_configuration *c,
-		const struct usb_ctrlrequest *ctrl)
-{
-	struct usb_composite_dev *cdev = c->cdev;
-	int value = -EOPNOTSUPP;
-	u8 ep = ((le16_to_cpu(ctrl->wIndex) >> 8) & 0xFF);
-	u16 len = le16_to_cpu(ctrl->wLength);
-	u16 w_value = le16_to_cpu(ctrl->wValue);
-
-	DBG(cdev, "bRequest 0x%x, w_value 0x%04x, len %d, endpoint %d\n",
-			ctrl->bRequest, w_value, len, ep);
-
-	switch (ctrl->bRequest) {
-	case GET_CUR:
-	case GET_MIN:
-	case GET_MAX:
-	case GET_RES:
-		value = 3;
-		break;
-	case GET_MEM:
-		break;
-	default:
-		break;
-	}
-
-	return value;
-}
-
-static int
-audio_setup(struct usb_configuration *c, const struct usb_ctrlrequest *ctrl)
-{
-	struct usb_composite_dev *cdev = c->cdev;
-	struct usb_request *req = cdev->req;
-	int value = -EOPNOTSUPP;
-	u16 w_index = le16_to_cpu(ctrl->wIndex);
-	u16 w_value = le16_to_cpu(ctrl->wValue);
-	u16 w_length = le16_to_cpu(ctrl->wLength);
-
-	/* composite driver infrastructure handles everything except
-	 * Audio class messages; interface activation uses set_alt().
-	 */
-	switch (ctrl->bRequestType) {
-	case USB_AUDIO_SET_ENDPOINT:
-		value = audio_set_endpoint_req(c, ctrl);
-		break;
-
-	case USB_AUDIO_GET_ENDPOINT:
-		value = audio_get_endpoint_req(c, ctrl);
-		break;
-
-	default:
-		ERROR(cdev, "Invalid control req%02x.%02x v%04x i%04x l%d\n",
-			ctrl->bRequestType, ctrl->bRequest,
-			w_value, w_index, w_length);
-	}
-
-	/* respond with data transfer or status phase? */
-	if (value >= 0) {
-		DBG(cdev, "Audio req%02x.%02x v%04x i%04x l%d\n",
-			ctrl->bRequestType, ctrl->bRequest,
-			w_value, w_index, w_length);
-		req->zero = 0;
-		req->length = value;
-		value = usb_ep_queue(cdev->gadget->ep0, req, GFP_ATOMIC);
-		if (value < 0)
-			ERROR(cdev, "Audio response on err %d\n", value);
-	}
-
-	/* device either stalls (value < 0) or reports success */
-	return value;
-}
-
-/*-------------------------------------------------------------------------*/
-
 static int __init audio_do_config(struct usb_configuration *c)
 {
 	/* FIXME alloc iConfiguration string, set it in c->strings */
@@ -220,7 +106,6 @@ static int __init audio_do_config(struct usb_configuration *c)
 static struct usb_configuration audio_config_driver = {
 	.label			= DRIVER_DESC,
 	.bind			= audio_do_config,
-	.setup			= audio_setup,
 	.bConfigurationValue	= 1,
 	/* .iConfiguration = DYNAMIC */
 	.bmAttributes		= USB_CONFIG_ATT_SELFPOWER,
@@ -273,6 +158,7 @@ fail:
 
 static int __exit audio_unbind(struct usb_composite_dev *cdev)
 {
+	gaudio_cleanup();
 	return 0;
 }
 

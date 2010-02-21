@@ -27,6 +27,8 @@
 #include <linux/types.h>
 #include <linux/kallsyms.h>
 #include <linux/mm.h>
+#include <linux/namei.h>
+#include <linux/mount.h>
 #include <linux/slab.h>
 #include <linux/utsname.h>
 #include <linux/workqueue.h>
@@ -77,7 +79,7 @@ static void	call_connect_status(struct rpc_task *task);
 
 static __be32	*rpc_encode_header(struct rpc_task *task);
 static __be32	*rpc_verify_header(struct rpc_task *task);
-static int	rpc_ping(struct rpc_clnt *clnt, int flags);
+static int	rpc_ping(struct rpc_clnt *clnt);
 
 static void rpc_register_client(struct rpc_clnt *clnt)
 {
@@ -97,33 +99,49 @@ static int
 rpc_setup_pipedir(struct rpc_clnt *clnt, char *dir_name)
 {
 	static uint32_t clntid;
+	struct nameidata nd;
+	struct path path;
+	char name[15];
+	struct qstr q = {
+		.name = name,
+	};
 	int error;
 
-	clnt->cl_vfsmnt = ERR_PTR(-ENOENT);
-	clnt->cl_dentry = ERR_PTR(-ENOENT);
+	clnt->cl_path.mnt = ERR_PTR(-ENOENT);
+	clnt->cl_path.dentry = ERR_PTR(-ENOENT);
 	if (dir_name == NULL)
 		return 0;
 
-	clnt->cl_vfsmnt = rpc_get_mount();
-	if (IS_ERR(clnt->cl_vfsmnt))
-		return PTR_ERR(clnt->cl_vfsmnt);
+	path.mnt = rpc_get_mount();
+	if (IS_ERR(path.mnt))
+		return PTR_ERR(path.mnt);
+	error = vfs_path_lookup(path.mnt->mnt_root, path.mnt, dir_name, 0, &nd);
+	if (error)
+		goto err;
 
 	for (;;) {
-		snprintf(clnt->cl_pathname, sizeof(clnt->cl_pathname),
-				"%s/clnt%x", dir_name,
-				(unsigned int)clntid++);
-		clnt->cl_pathname[sizeof(clnt->cl_pathname) - 1] = '\0';
-		clnt->cl_dentry = rpc_mkdir(clnt->cl_pathname, clnt);
-		if (!IS_ERR(clnt->cl_dentry))
-			return 0;
-		error = PTR_ERR(clnt->cl_dentry);
+		q.len = snprintf(name, sizeof(name), "clnt%x", (unsigned int)clntid++);
+		name[sizeof(name) - 1] = '\0';
+		q.hash = full_name_hash(q.name, q.len);
+		path.dentry = rpc_create_client_dir(nd.path.dentry, &q, clnt);
+		if (!IS_ERR(path.dentry))
+			break;
+		error = PTR_ERR(path.dentry);
 		if (error != -EEXIST) {
-			printk(KERN_INFO "RPC: Couldn't create pipefs entry %s, error %d\n",
-					clnt->cl_pathname, error);
-			rpc_put_mount();
-			return error;
+			printk(KERN_INFO "RPC: Couldn't create pipefs entry"
+					" %s/%s, error %d\n",
+					dir_name, name, error);
+			goto err_path_put;
 		}
 	}
+	path_put(&nd.path);
+	clnt->cl_path = path;
+	return 0;
+err_path_put:
+	path_put(&nd.path);
+err:
+	rpc_put_mount();
+	return error;
 }
 
 static struct rpc_clnt * rpc_new_client(const struct rpc_create_args *args, struct rpc_xprt *xprt)
@@ -231,8 +249,8 @@ static struct rpc_clnt * rpc_new_client(const struct rpc_create_args *args, stru
 	return clnt;
 
 out_no_auth:
-	if (!IS_ERR(clnt->cl_dentry)) {
-		rpc_rmdir(clnt->cl_dentry);
+	if (!IS_ERR(clnt->cl_path.dentry)) {
+		rpc_remove_client_dir(clnt->cl_path.dentry);
 		rpc_put_mount();
 	}
 out_no_path:
@@ -270,6 +288,7 @@ struct rpc_clnt *rpc_create(struct rpc_create_args *args)
 		.srcaddr = args->saddress,
 		.dstaddr = args->address,
 		.addrlen = args->addrsize,
+		.bc_xprt = args->bc_xprt,
 	};
 	char servername[48];
 
@@ -321,7 +340,7 @@ struct rpc_clnt *rpc_create(struct rpc_create_args *args)
 		return clnt;
 
 	if (!(args->flags & RPC_CLNT_CREATE_NOPING)) {
-		int err = rpc_ping(clnt, RPC_TASK_SOFT);
+		int err = rpc_ping(clnt);
 		if (err != 0) {
 			rpc_shutdown_client(clnt);
 			return ERR_PTR(err);
@@ -423,8 +442,8 @@ rpc_free_client(struct kref *kref)
 
 	dprintk("RPC:       destroying %s client for %s\n",
 			clnt->cl_protname, clnt->cl_server);
-	if (!IS_ERR(clnt->cl_dentry)) {
-		rpc_rmdir(clnt->cl_dentry);
+	if (!IS_ERR(clnt->cl_path.dentry)) {
+		rpc_remove_client_dir(clnt->cl_path.dentry);
 		rpc_put_mount();
 	}
 	if (clnt->cl_parent != clnt) {
@@ -509,7 +528,7 @@ struct rpc_clnt *rpc_bind_new_program(struct rpc_clnt *old,
 	clnt->cl_prog     = program->number;
 	clnt->cl_vers     = version->number;
 	clnt->cl_stats    = program->stats;
-	err = rpc_ping(clnt, RPC_TASK_SOFT);
+	err = rpc_ping(clnt);
 	if (err != 0) {
 		rpc_shutdown_client(clnt);
 		clnt = ERR_PTR(err);
@@ -621,10 +640,11 @@ EXPORT_SYMBOL_GPL(rpc_call_async);
 /**
  * rpc_run_bc_task - Allocate a new RPC task for backchannel use, then run
  * rpc_execute against it
- * @ops: RPC call ops
+ * @req: RPC request
+ * @tk_ops: RPC call ops
  */
 struct rpc_task *rpc_run_bc_task(struct rpc_rqst *req,
-					const struct rpc_call_ops *tk_ops)
+				const struct rpc_call_ops *tk_ops)
 {
 	struct rpc_task *task;
 	struct xdr_buf *xbufp = &req->rq_snd_buf;
@@ -1040,7 +1060,7 @@ call_bind_status(struct rpc_task *task)
 		goto retry_timeout;
 	case -EPFNOSUPPORT:
 		/* server doesn't support any rpcbind version we know of */
-		dprintk("RPC: %5u remote rpcbind service unavailable\n",
+		dprintk("RPC: %5u unrecognized remote rpcbind service\n",
 				task->tk_pid);
 		break;
 	case -EPROTONOSUPPORT:
@@ -1049,6 +1069,21 @@ call_bind_status(struct rpc_task *task)
 		task->tk_status = 0;
 		task->tk_action = call_bind;
 		return;
+	case -ECONNREFUSED:		/* connection problems */
+	case -ECONNRESET:
+	case -ENOTCONN:
+	case -EHOSTDOWN:
+	case -EHOSTUNREACH:
+	case -ENETUNREACH:
+	case -EPIPE:
+		dprintk("RPC: %5u remote rpcbind unreachable: %d\n",
+				task->tk_pid, task->tk_status);
+		if (!RPC_IS_SOFTCONN(task)) {
+			rpc_delay(task, 5*HZ);
+			goto retry_timeout;
+		}
+		status = task->tk_status;
+		break;
 	default:
 		dprintk("RPC: %5u unrecognized rpcbind error (%d)\n",
 				task->tk_pid, -task->tk_status);
@@ -1160,11 +1195,25 @@ static void
 call_transmit_status(struct rpc_task *task)
 {
 	task->tk_action = call_status;
+
+	/*
+	 * Common case: success.  Force the compiler to put this
+	 * test first.
+	 */
+	if (task->tk_status == 0) {
+		xprt_end_transmit(task);
+		rpc_task_force_reencode(task);
+		return;
+	}
+
 	switch (task->tk_status) {
 	case -EAGAIN:
 		break;
 	default:
+		dprint_status(task);
 		xprt_end_transmit(task);
+		rpc_task_force_reencode(task);
+		break;
 		/*
 		 * Special cases: if we've been waiting on the
 		 * socket's write_space() callback, or if the
@@ -1172,11 +1221,16 @@ call_transmit_status(struct rpc_task *task)
 		 * then hold onto the transport lock.
 		 */
 	case -ECONNREFUSED:
-	case -ECONNRESET:
-	case -ENOTCONN:
 	case -EHOSTDOWN:
 	case -EHOSTUNREACH:
 	case -ENETUNREACH:
+		if (RPC_IS_SOFTCONN(task)) {
+			xprt_end_transmit(task);
+			rpc_exit(task, task->tk_status);
+			break;
+		}
+	case -ECONNRESET:
+	case -ENOTCONN:
 	case -EPIPE:
 		rpc_task_force_reencode(task);
 	}
@@ -1326,6 +1380,10 @@ call_timeout(struct rpc_task *task)
 	dprintk("RPC: %5u call_timeout (major)\n", task->tk_pid);
 	task->tk_timeouts++;
 
+	if (RPC_IS_SOFTCONN(task)) {
+		rpc_exit(task, -ETIMEDOUT);
+		return;
+	}
 	if (RPC_IS_SOFT(task)) {
 		if (clnt->cl_chatty)
 			printk(KERN_NOTICE "%s: server %s not responding, timed out\n",
@@ -1655,14 +1713,14 @@ static struct rpc_procinfo rpcproc_null = {
 	.p_decode = rpcproc_decode_null,
 };
 
-static int rpc_ping(struct rpc_clnt *clnt, int flags)
+static int rpc_ping(struct rpc_clnt *clnt)
 {
 	struct rpc_message msg = {
 		.rpc_proc = &rpcproc_null,
 	};
 	int err;
 	msg.rpc_cred = authnull_ops.lookup_cred(NULL, NULL, 0);
-	err = rpc_call_sync(clnt, &msg, flags);
+	err = rpc_call_sync(clnt, &msg, RPC_TASK_SOFT | RPC_TASK_SOFTCONN);
 	put_rpccred(msg.rpc_cred);
 	return err;
 }

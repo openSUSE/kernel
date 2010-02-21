@@ -40,10 +40,17 @@ void *kmap_atomic(struct page *page, enum km_type type)
 {
 	unsigned int idx;
 	unsigned long vaddr;
+	void *kmap;
 
 	pagefault_disable();
 	if (!PageHighMem(page))
 		return page_address(page);
+
+	debug_kmap_atomic(type);
+
+	kmap = kmap_high_get(page);
+	if (kmap)
+		return kmap;
 
 	idx = type + KM_TYPE_NR * smp_processor_id();
 	vaddr = __fix_to_virt(FIX_KMAP_BEGIN + idx);
@@ -72,7 +79,7 @@ void kunmap_atomic(void *kvaddr, enum km_type type)
 	unsigned int idx = type + KM_TYPE_NR * smp_processor_id();
 
 	if (kvaddr >= (void *)FIXADDR_START) {
-		__cpuc_flush_dcache_page((void *)vaddr);
+		__cpuc_flush_dcache_area((void *)vaddr, PAGE_SIZE);
 #ifdef CONFIG_DEBUG_HIGHMEM
 		BUG_ON(vaddr != __fix_to_virt(FIX_KMAP_BEGIN + idx));
 		set_pte_ext(TOP_PTE(vaddr), __pte(0), 0);
@@ -80,6 +87,9 @@ void kunmap_atomic(void *kvaddr, enum km_type type)
 #else
 		(void) idx;  /* to kill a warning */
 #endif
+	} else if (vaddr >= PKMAP_ADDR(0) && vaddr < PKMAP_ADDR(LAST_PKMAP)) {
+		/* this address was obtained through kmap_high_get() */
+		kunmap_high(pte_page(pkmap_page_table[PKMAP_NR(vaddr)]));
 	}
 	pagefault_enable();
 }

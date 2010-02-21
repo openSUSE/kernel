@@ -19,44 +19,9 @@
 #include <linux/stat.h>
 #include <linux/mman.h>
 #include <linux/file.h>
-#include <linux/utsname.h>
 #include <linux/tty.h>
 
 #include <asm/uaccess.h>
-
-#define MIN_MAP_ADDR	PAGE_SIZE	/* minimum fixed mmap address */
-
-/*
- * memory mapping syscall
- */
-asmlinkage long sys_mmap2(unsigned long addr, unsigned long len,
-			  unsigned long prot, unsigned long flags,
-			  unsigned long fd, unsigned long pgoff)
-{
-	struct file *file = NULL;
-	long error = -EINVAL;
-
-	flags &= ~(MAP_EXECUTABLE | MAP_DENYWRITE);
-
-	if (flags & MAP_FIXED && addr < MIN_MAP_ADDR)
-		goto out;
-
-	error = -EBADF;
-	if (!(flags & MAP_ANONYMOUS)) {
-		file = fget(fd);
-		if (!file)
-			goto out;
-	}
-
-	down_write(&current->mm->mmap_sem);
-	error = do_mmap_pgoff(file, addr, len, prot, flags, pgoff);
-	up_write(&current->mm->mmap_sem);
-
-	if (file)
-		fput(file);
-out:
-	return error;
-}
 
 asmlinkage long old_mmap(unsigned long addr, unsigned long len,
 			 unsigned long prot, unsigned long flags,
@@ -64,7 +29,7 @@ asmlinkage long old_mmap(unsigned long addr, unsigned long len,
 {
 	if (offset & ~PAGE_MASK)
 		return -EINVAL;
-	return sys_mmap2(addr, len, prot, flags, fd, offset >> PAGE_SHIFT);
+	return sys_mmap_pgoff(addr, len, prot, flags, fd, offset >> PAGE_SHIFT);
 }
 
 struct sel_arg_struct {

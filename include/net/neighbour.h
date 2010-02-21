@@ -24,6 +24,7 @@
 
 #include <linux/err.h>
 #include <linux/sysctl.h>
+#include <linux/workqueue.h>
 #include <net/rtnetlink.h>
 
 /*
@@ -36,8 +37,7 @@
 
 struct neighbour;
 
-struct neigh_parms
-{
+struct neigh_parms {
 #ifdef CONFIG_NET_NS
 	struct net *net;
 #endif
@@ -69,8 +69,7 @@ struct neigh_parms
 	int	locktime;
 };
 
-struct neigh_statistics
-{
+struct neigh_statistics {
 	unsigned long allocs;		/* number of allocated neighs */
 	unsigned long destroys;		/* number of destroyed neighs */
 	unsigned long hash_grows;	/* number of hash resizes */
@@ -89,15 +88,9 @@ struct neigh_statistics
 	unsigned long unres_discards;	/* number of unresolved drops */
 };
 
-#define NEIGH_CACHE_STAT_INC(tbl, field)				\
-	do {								\
-		preempt_disable();					\
-		(per_cpu_ptr((tbl)->stats, smp_processor_id())->field)++; \
-		preempt_enable();					\
-	} while (0)
+#define NEIGH_CACHE_STAT_INC(tbl, field) this_cpu_inc((tbl)->stats->field)
 
-struct neighbour
-{
+struct neighbour {
 	struct neighbour	*next;
 	struct neigh_table	*tbl;
 	struct neigh_parms	*parms;
@@ -117,12 +110,11 @@ struct neighbour
 	int			(*output)(struct sk_buff *skb);
 	struct sk_buff_head	arp_queue;
 	struct timer_list	timer;
-	struct neigh_ops	*ops;
+	const struct neigh_ops	*ops;
 	u8			primary_key[0];
 };
 
-struct neigh_ops
-{
+struct neigh_ops {
 	int			family;
 	void			(*solicit)(struct neighbour *, struct sk_buff*);
 	void			(*error_report)(struct neighbour *, struct sk_buff*);
@@ -132,8 +124,7 @@ struct neigh_ops
 	int			(*queue_xmit)(struct sk_buff*);
 };
 
-struct pneigh_entry
-{
+struct pneigh_entry {
 	struct pneigh_entry	*next;
 #ifdef CONFIG_NET_NS
 	struct net		*net;
@@ -148,8 +139,7 @@ struct pneigh_entry
  */
 
 
-struct neigh_table
-{
+struct neigh_table {
 	struct neigh_table	*next;
 	int			family;
 	int			entry_size;
@@ -167,7 +157,7 @@ struct neigh_table
 	int			gc_thresh2;
 	int			gc_thresh3;
 	unsigned long		last_flush;
-	struct timer_list 	gc_timer;
+	struct delayed_work	gc_work;
 	struct timer_list 	proxy_timer;
 	struct sk_buff_head	proxy_queue;
 	atomic_t		entries;
@@ -178,7 +168,6 @@ struct neigh_table
 	struct neighbour	**hash_buckets;
 	unsigned int		hash_mask;
 	__u32			hash_rnd;
-	unsigned int		hash_chain_gc;
 	struct pneigh_entry	**phash_buckets;
 };
 
@@ -264,8 +253,7 @@ extern int			neigh_sysctl_register(struct net_device *dev,
 						      struct neigh_parms *p,
 						      int p_id, int pdev_id,
 						      char *p_name,
-						      proc_handler *proc_handler,
-						      ctl_handler *strategy);
+						      proc_handler *proc_handler);
 extern void			neigh_sysctl_unregister(struct neigh_parms *p);
 
 static inline void __neigh_parms_put(struct neigh_parms *parms)

@@ -39,9 +39,7 @@
 #include "linux/netlink.h"
 #include "linux/rtnetlink.h"
 
-#if WIRELESS_EXT > 12
 #include <net/iw_handler.h>
-#endif
 
 #ifdef ZM_HOSTAPD_SUPPORT
 #include "athr_common.h"
@@ -113,10 +111,7 @@ extern u8_t zfLnxCreateThread(zdev_t *dev);
 
 /* Definition of Wireless Extension */
 
-#if WIRELESS_EXT > 12
-#include <net/iw_handler.h>
-#endif
-//wireless extension helper functions
+/* wireless extension helper functions */
 extern int usbdrv_ioctl_setessid(struct net_device *dev, struct iw_point *erq);
 extern int usbdrv_ioctl_setrts(struct net_device *dev, struct iw_param *rrq);
 /* Wireless Extension Handler functions */
@@ -203,7 +198,6 @@ struct iw_priv_args usbdrv_private_args[] = {
 //    { SIOCIWFIRSTPRIV + 0xC, 0, IW_PRIV_TYPE_CHAR | 12, "get_mac_mode" },
 };
 
-#if WIRELESS_EXT > 12
 static iw_handler usbdrvwext_handler[] = {
     (iw_handler) NULL,                              /* SIOCSIWCOMMIT */
     (iw_handler) usbdrvwext_giwname,                /* SIOCGIWNAME */
@@ -229,13 +223,8 @@ static iw_handler usbdrvwext_handler[] = {
     (iw_handler) usbdrvwext_giwap,                  /* SIOCGIWAP */
     (iw_handler) NULL,              /* -- hole -- */
     (iw_handler) usbdrvwext_iwaplist,               /* SIOCGIWAPLIST */
-#if WIRELESS_EXT > 13
     (iw_handler) usbdrvwext_siwscan,                /* SIOCSIWSCAN */
     (iw_handler) usbdrvwext_giwscan,                /* SIOCGIWSCAN */
-#else /* WIRELESS_EXT > 13 */
-    (iw_handler) NULL, /* null */                   /* SIOCSIWSCAN */
-    (iw_handler) NULL, /* null */                   /* SIOCGIWSCAN */
-#endif /* WIRELESS_EXT > 13 */
     (iw_handler) usbdrvwext_siwessid,               /* SIOCSIWESSID */
     (iw_handler) usbdrvwext_giwessid,               /* SIOCGIWESSID */
 
@@ -291,11 +280,10 @@ static struct iw_handler_def p80211wext_handler_def = {
     .private = (iw_handler *) usbdrv_private_handler,
     .private_args = (struct iw_priv_args *) usbdrv_private_args
 };
-#endif
 
 /* WDS */
-//struct zsWdsStruct wds[ZM_WDS_PORT_NUMBER];
-//void zfInitWdsStruct(void);
+/* struct zsWdsStruct wds[ZM_WDS_PORT_NUMBER]; */
+/* void zfInitWdsStruct(void);	*/
 
 /* VAP */
 struct zsVapStruct vap[ZM_VAP_PORT_NUMBER];
@@ -326,13 +314,11 @@ irqreturn_t usbdrv_intr(int irq, void *dev_inst, struct pt_regs *regs)
         return IRQ_NONE;
 
     /* the device is closed, don't continue or else bad things may happen. */
-    if (!netif_running(dev)) {
+    if (!netif_running(dev))
         return IRQ_NONE;
-    }
 
-    if (macp->driver_isolated) {
+    if (macp->driver_isolated)
         return IRQ_NONE;
-    }
 
 #if (WLAN_HOSTIF == WLAN_PCI)
     //zfiIsrPci(dev);
@@ -352,9 +338,11 @@ int usbdrv_open(struct net_device *dev)
 
     printk("Enter open()\n");
 
-//#ifndef CONFIG_SMP
-//    read_lock(&(macp->isolate_lock));
-//#endif
+/*
+ * #ifndef CONFIG_SMP
+ *   read_lock(&(macp->isolate_lock));
+ * #endif
+ */
     if (macp->driver_isolated) {
         rc = -EBUSY;
         goto exit;
@@ -405,11 +393,11 @@ int usbdrv_open(struct net_device *dev)
     dev->dev_addr[4] = addr[4];
     dev->dev_addr[5] = addr[5];
 #endif
-    //zfwMacAddressNotify() will be called to setup dev->dev_addr[]
+    /* zfwMacAddressNotify() will be called to setup dev->dev_addr[] */
 
     zfLnxCreateThread(dev);
 
-    mod_timer(&(macp->hbTimer10ms), jiffies + (1*HZ)/100);   //10 ms
+    mod_timer(&(macp->hbTimer10ms), jiffies + (1*HZ)/100);   /* 10 ms */
 
     netif_carrier_on(dev);
 
@@ -437,15 +425,15 @@ int usbdrv_open(struct net_device *dev)
 
     #if ZM_SHARE_AUTH == 1
     zfiWlanSetAuthenticationMode(dev, 1);
-    #endif //#if ZM_SHARE_AUTH == 1
-  #endif //#if ZM_WEP_MOME == 1
+    #endif /* #if ZM_SHARE_AUTH == 1 */
+  #endif /* #if ZM_WEP_MOME == 1 */
 
 #elif ZM_PIBSS_MODE == 1
     zfiWlanSetWlanMode(dev, ZM_MODE_PSEUDO);
 #else
     zfiWlanSetWlanMode(dev, ZM_MODE_INFRASTRUCTURE);
 #endif
-    //zfiWlanSetChannel(dev, ZM_CHANNEL, FALSE);
+    /* zfiWlanSetChannel(dev, ZM_CHANNEL, FALSE); */
     zfiWlanSetFrequency(dev, 2462000, FALSE);
     zfiWlanSetRtsThreshold(dev, 32767);
     zfiWlanSetFragThreshold(dev, 0);
@@ -659,7 +647,7 @@ int usbdrv_xmit_frame(struct sk_buff *skb, struct net_device *dev)
         netif_stop_queue(dev);
     }
 
-    return 0;
+    return NETDEV_TX_OK;
 }
 
 
@@ -732,7 +720,7 @@ void zfLnxInitVapStruct(void)
 {
     u16_t i;
 
-    for (i=0; i<ZM_VAP_PORT_NUMBER; i++)
+    for (i = 0; i < ZM_VAP_PORT_NUMBER; i++)
     {
         vap[i].dev = NULL;
         vap[i].openFlag = 0;
@@ -796,13 +784,13 @@ int zfLnxVapXmitFrame(struct sk_buff *skb, struct net_device *dev)
     if (vapId >= ZM_VAP_PORT_NUMBER)
     {
         dev_kfree_skb_irq(skb);
-        return 0;
+        return NETDEV_TX_OK;
     }
 #if 1
     if (vap[vapId].openFlag == 0)
     {
         dev_kfree_skb_irq(skb);
-        return 0;
+        return NETDEV_TX_OK;
     }
 #endif
 
@@ -819,7 +807,7 @@ int zfLnxVapXmitFrame(struct sk_buff *skb, struct net_device *dev)
         netif_stop_queue(dev);
     }
 
-    return 0;
+    return NETDEV_TX_OK;
 }
 
 static const struct net_device_ops vap_netdev_ops = {
@@ -1106,9 +1094,7 @@ u8_t zfLnxInitSetup(struct net_device *dev, struct usbdrv_private *macp)
     dev->dev_addr[4] = addr[4];
     dev->dev_addr[5] = addr[5];
 #endif
-#if WIRELESS_EXT > 12
     dev->wireless_handlers = (struct iw_handler_def *)&p80211wext_handler_def;
-#endif
 
     dev->netdev_ops = &otus_netdev_ops;
 
@@ -1142,8 +1128,7 @@ u8_t zfLnxClearStructs(struct net_device *dev)
 
     printk(KERN_ERR "TxQCnt: %d\n", TxQCnt);
 
-    for(ii = 0; ii < TxQCnt; ii++)
-    {
+    for (ii = 0; ii < TxQCnt; ii++) {
         UsbTxQ_t *TxQ = zfLnxGetUsbTxBuffer(dev);
 
         printk(KERN_ERR "dev_kfree_skb_any\n");

@@ -34,6 +34,7 @@
 #include <linux/ip.h>
 #include <linux/tcp.h>
 #include <linux/semaphore.h>
+#include <linux/compat.h>
 #include <asm/atomic.h>
 
 #define SIXPACK_VERSION    "Revision: 0.3.0"
@@ -120,7 +121,7 @@ struct sixpack {
 	struct timer_list	tx_t;
 	struct timer_list	resync_t;
 	atomic_t		refcnt;
-	struct anon_semaphore	dead_sem;
+	struct semaphore	dead_sem;
 	spinlock_t		lock;
 };
 
@@ -242,7 +243,7 @@ out_drop:
 
 /* Encapsulate an IP datagram and kick it into a TTY queue. */
 
-static int sp_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t sp_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct sixpack *sp = netdev_priv(dev);
 
@@ -255,7 +256,7 @@ static int sp_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	dev_kfree_skb(skb);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 static int sp_open_dev(struct net_device *dev)
@@ -412,7 +413,7 @@ static struct sixpack *sp_get(struct tty_struct *tty)
 static void sp_put(struct sixpack *sp)
 {
 	if (atomic_dec_and_test(&sp->refcnt))
-		anon_up(&sp->dead_sem);
+		up(&sp->dead_sem);
 }
 
 /*
@@ -606,7 +607,7 @@ static int sixpack_open(struct tty_struct *tty)
 
 	spin_lock_init(&sp->lock);
 	atomic_set(&sp->refcnt, 1);
-	anon_semaphore_init_locked(&sp->dead_sem);
+	sema_init(&sp->dead_sem, 0);
 
 	/* !!! length of the buffers. MTU is IP MTU, not PACLEN!  */
 
@@ -702,7 +703,7 @@ static void sixpack_close(struct tty_struct *tty)
 	 * we have to wait for all existing users to finish.
 	 */
 	if (!atomic_dec_and_test(&sp->refcnt))
-		anon_down(&sp->dead_sem);
+		down(&sp->dead_sem);
 
 	unregister_netdev(sp->dev);
 
@@ -777,6 +778,23 @@ static int sixpack_ioctl(struct tty_struct *tty, struct file *file,
 	return err;
 }
 
+#ifdef CONFIG_COMPAT
+static long sixpack_compat_ioctl(struct tty_struct * tty, struct file * file,
+				unsigned int cmd, unsigned long arg)
+{
+	switch (cmd) {
+	case SIOCGIFNAME:
+	case SIOCGIFENCAP:
+	case SIOCSIFENCAP:
+	case SIOCSIFHWADDR:
+		return sixpack_ioctl(tty, file, cmd,
+				(unsigned long)compat_ptr(arg));
+	}
+
+	return -ENOIOCTLCMD;
+}
+#endif
+
 static struct tty_ldisc_ops sp_ldisc = {
 	.owner		= THIS_MODULE,
 	.magic		= TTY_LDISC_MAGIC,
@@ -784,6 +802,9 @@ static struct tty_ldisc_ops sp_ldisc = {
 	.open		= sixpack_open,
 	.close		= sixpack_close,
 	.ioctl		= sixpack_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl	= sixpack_compat_ioctl,
+#endif
 	.receive_buf	= sixpack_receive_buf,
 	.write_wakeup	= sixpack_write_wakeup,
 };

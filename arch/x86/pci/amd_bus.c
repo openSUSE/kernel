@@ -6,134 +6,16 @@
 
 #ifdef CONFIG_X86_64
 #include <asm/pci-direct.h>
-#include <asm/mpspec.h>
-#include <linux/cpumask.h>
 #endif
+
+#include "bus_numa.h"
 
 /*
  * This discovers the pcibus <-> node mapping on AMD K8.
  * also get peer root bus resource for io,mmio
  */
 
-#ifdef CONFIG_NUMA
-
-#define BUS_NR 256
-
 #ifdef CONFIG_X86_64
-
-static int mp_bus_to_node[BUS_NR];
-
-void set_mp_bus_to_node(int busnum, int node)
-{
-	if (busnum >= 0 &&  busnum < BUS_NR)
-		mp_bus_to_node[busnum] = node;
-}
-
-int get_mp_bus_to_node(int busnum)
-{
-	int node = -1;
-
-	if (busnum < 0 || busnum > (BUS_NR - 1))
-		return node;
-
-	node = mp_bus_to_node[busnum];
-
-	/*
-	 * let numa_node_id to decide it later in dma_alloc_pages
-	 * if there is no ram on that node
-	 */
-	if (node != -1 && !node_online(node))
-		node = -1;
-
-	return node;
-}
-
-#else /* CONFIG_X86_32 */
-
-static unsigned char mp_bus_to_node[BUS_NR];
-
-void set_mp_bus_to_node(int busnum, int node)
-{
-	if (busnum >= 0 &&  busnum < BUS_NR)
-	mp_bus_to_node[busnum] = (unsigned char) node;
-}
-
-int get_mp_bus_to_node(int busnum)
-{
-	int node;
-
-	if (busnum < 0 || busnum > (BUS_NR - 1))
-		return 0;
-	node = mp_bus_to_node[busnum];
-	return node;
-}
-
-#endif /* CONFIG_X86_32 */
-
-#endif /* CONFIG_NUMA */
-
-#ifdef CONFIG_X86_64
-
-/*
- * sub bus (transparent) will use entres from 3 to store extra from root,
- * so need to make sure have enought slot there, increase PCI_BUS_NUM_RESOURCES?
- */
-#define RES_NUM 16
-struct pci_root_info {
-	char name[12];
-	unsigned int res_num;
-	struct resource res[RES_NUM];
-	int bus_min;
-	int bus_max;
-	int node;
-	int link;
-};
-
-/* 4 at this time, it may become to 32 */
-#define PCI_ROOT_NR 4
-static int pci_root_num;
-static struct pci_root_info pci_root_info[PCI_ROOT_NR];
-
-void x86_pci_root_bus_res_quirks(struct pci_bus *b)
-{
-	int i;
-	int j;
-	struct pci_root_info *info;
-
-	/* don't go for it if _CRS is used already */
-	if (b->resource[0] != &ioport_resource ||
-	    b->resource[1] != &iomem_resource)
-		return;
-
-	/* if only one root bus, don't need to anything */
-	if (pci_root_num < 2)
-		return;
-
-	for (i = 0; i < pci_root_num; i++) {
-		if (pci_root_info[i].bus_min == b->number)
-			break;
-	}
-
-	if (i == pci_root_num)
-		return;
-
-	printk(KERN_DEBUG "PCI: peer root bus %02x res updated from pci conf\n",
-			b->number);
-
-	info = &pci_root_info[i];
-	for (j = 0; j < info->res_num; j++) {
-		struct resource *res;
-		struct resource *root;
-
-		res = &info->res[j];
-		b->resource[j] = res;
-		if (res->flags & IORESOURCE_IO)
-			root = &ioport_resource;
-		else
-			root = &iomem_resource;
-		insert_resource(root, res);
-	}
-}
 
 #define RANGE_NUM 16
 
@@ -185,52 +67,6 @@ static void __init update_range(struct res_range *range, size_t start,
 			continue;
 		}
 	}
-}
-
-static void __init update_res(struct pci_root_info *info, size_t start,
-			      size_t end, unsigned long flags, int merge)
-{
-	int i;
-	struct resource *res;
-
-	if (!merge)
-		goto addit;
-
-	/* try to merge it with old one */
-	for (i = 0; i < info->res_num; i++) {
-		size_t final_start, final_end;
-		size_t common_start, common_end;
-
-		res = &info->res[i];
-		if (res->flags != flags)
-			continue;
-
-		common_start = max((size_t)res->start, start);
-		common_end = min((size_t)res->end, end);
-		if (common_start > common_end + 1)
-			continue;
-
-		final_start = min((size_t)res->start, start);
-		final_end = max((size_t)res->end, end);
-
-		res->start = final_start;
-		res->end = final_end;
-		return;
-	}
-
-addit:
-
-	/* need to add that */
-	if (info->res_num >= RES_NUM)
-		return;
-
-	res = &info->res[info->res_num];
-	res->name = info->name;
-	res->flags = flags;
-	res->start = start;
-	res->end = end;
-	res->child = NULL;
-	info->res_num++;
 }
 
 struct pci_hostbridge_probe {
@@ -287,7 +123,6 @@ static int __init early_fill_mp_bus_info(void)
 	int j;
 	unsigned bus;
 	unsigned slot;
-	int found;
 	int node;
 	int link;
 	int def_node;
@@ -301,15 +136,10 @@ static int __init early_fill_mp_bus_info(void)
 	u64 val;
 	u32 address;
 
-#ifdef CONFIG_NUMA
-	for (i = 0; i < BUS_NR; i++)
-		mp_bus_to_node[i] = -1;
-#endif
-
 	if (!early_pci_allowed())
 		return -1;
 
-	found = 0;
+	found_all_numa_early = 0;
 	for (i = 0; i < ARRAY_SIZE(pci_probes); i++) {
 		u32 id;
 		u16 device;
@@ -323,12 +153,12 @@ static int __init early_fill_mp_bus_info(void)
 		device = (id>>16) & 0xffff;
 		if (pci_probes[i].vendor == vendor &&
 		    pci_probes[i].device == device) {
-			found = 1;
+			found_all_numa_early = 1;
 			break;
 		}
 	}
 
-	if (!found)
+	if (!found_all_numa_early)
 		return 0;
 
 	pci_root_num = 0;
@@ -346,7 +176,7 @@ static int __init early_fill_mp_bus_info(void)
 		node = (reg >> 4) & 0x07;
 #ifdef CONFIG_NUMA
 		for (j = min_bus; j <= max_bus; j++)
-			mp_bus_to_node[j] = (unsigned char) node;
+			set_mp_bus_to_node(j, node);
 #endif
 		link = (reg >> 8) & 0x03;
 
@@ -550,7 +380,7 @@ static int __init early_fill_mp_bus_info(void)
 		info = &pci_root_info[i];
 		res_num = info->res_num;
 		busnum = info->bus_min;
-		printk(KERN_DEBUG "bus: [%02x,%02x] on node %x link %x\n",
+		printk(KERN_DEBUG "bus: [%02x, %02x] on node %x link %x\n",
 		       info->bus_min, info->bus_max, info->node, info->link);
 		for (j = 0; j < res_num; j++) {
 			res = &info->res[j];

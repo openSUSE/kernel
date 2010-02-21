@@ -377,7 +377,7 @@ static int ni5010_open(struct net_device *dev)
 
 	PRINTK2((KERN_DEBUG "%s: entering ni5010_open()\n", dev->name));
 
-	if (request_irq(dev->irq, &ni5010_interrupt, 0, boardname, dev)) {
+	if (request_irq(dev->irq, ni5010_interrupt, 0, boardname, dev)) {
 		printk(KERN_WARNING "%s: Cannot get irq %#2x\n", dev->name, dev->irq);
 		return -EAGAIN;
 	}
@@ -463,7 +463,7 @@ static int ni5010_send_packet(struct sk_buff *skb, struct net_device *dev)
 	hardware_send_packet(dev, (unsigned char *)skb->data, skb->len, length-skb->len);
 	dev->trans_start = jiffies;
 	dev_kfree_skb (skb);
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /*

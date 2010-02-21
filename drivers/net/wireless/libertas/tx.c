@@ -3,8 +3,9 @@
   */
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
+#include <linux/sched.h>
 
-#include "hostcmd.h"
+#include "host.h"
 #include "radiotap.h"
 #include "decl.h"
 #include "defs.h"
@@ -57,18 +58,16 @@ static u32 convert_radiotap_rate_to_mv(u8 rate)
  *  @param skb     A pointer to skb which includes TX packet
  *  @return 	   0 or -1
  */
-int lbs_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
+netdev_tx_t lbs_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	unsigned long flags;
 	struct lbs_private *priv = dev->ml_priv;
 	struct txpd *txpd;
 	char *p802x_hdr;
 	uint16_t pkt_len;
-	int ret;
+	netdev_tx_t ret = NETDEV_TX_OK;
 
 	lbs_deb_enter(LBS_DEB_TX);
-
-	ret = NETDEV_TX_OK;
 
 	/* We need to protect against the queues being restarted before
 	   we get round to stopping them */
@@ -132,12 +131,7 @@ int lbs_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	txpd->tx_packet_length = cpu_to_le16(pkt_len);
 	txpd->tx_packet_location = cpu_to_le32(sizeof(struct txpd));
 
-	if (dev == priv->mesh_dev) {
-		if (priv->mesh_fw_ver == MESH_FW_OLD)
-			txpd->tx_control |= cpu_to_le32(TxPD_MESH_FRAME);
-		else if (priv->mesh_fw_ver == MESH_FW_NEW)
-			txpd->u.bss.bss_num = MESH_IFACE_ID;
-	}
+	lbs_mesh_set_txpd(priv, dev, txpd);
 
 	lbs_deb_hex(LBS_DEB_TX, "txpd", (u8 *) &txpd, sizeof(struct txpd));
 

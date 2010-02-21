@@ -48,6 +48,11 @@ module_param(xor_sources, uint, S_IRUGO);
 MODULE_PARM_DESC(xor_sources,
 		"Number of xor source buffers (default: 3)");
 
+static unsigned int pq_sources = 3;
+module_param(pq_sources, uint, S_IRUGO);
+MODULE_PARM_DESC(pq_sources,
+		"Number of p+q source buffers (default: 3)");
+
 /*
  * Initialization patterns. All bytes in the source buffer has bit 7
  * set, all bytes in the destination buffer has bit 7 cleared.
@@ -232,6 +237,7 @@ static int dmatest_func(void *data)
 	dma_cookie_t		cookie;
 	enum dma_status		status;
 	enum dma_ctrl_flags 	flags;
+	u8			pq_coefs[pq_sources];
 	int			ret;
 	int			src_cnt;
 	int			dst_cnt;
@@ -248,6 +254,11 @@ static int dmatest_func(void *data)
 	else if (thread->type == DMA_XOR) {
 		src_cnt = xor_sources | 1; /* force odd to ensure dst = src */
 		dst_cnt = 1;
+	} else if (thread->type == DMA_PQ) {
+		src_cnt = pq_sources | 1; /* force odd to ensure dst = src */
+		dst_cnt = 2;
+		for (i = 0; i < pq_sources; i++)
+			pq_coefs[i] = 1;
 	} else
 		goto err_srcs;
 
@@ -283,12 +294,33 @@ static int dmatest_func(void *data)
 		dma_addr_t dma_dsts[dst_cnt];
 		struct completion cmp;
 		unsigned long tmo = msecs_to_jiffies(3000);
+		u8 align = 0;
 
 		total_tests++;
 
+		/* honor alignment restrictions */
+		if (thread->type == DMA_MEMCPY)
+			align = dev->copy_align;
+		else if (thread->type == DMA_XOR)
+			align = dev->xor_align;
+		else if (thread->type == DMA_PQ)
+			align = dev->pq_align;
+
+		if (1 << align > test_buf_size) {
+			pr_err("%u-byte buffer too small for %d-byte alignment\n",
+			       test_buf_size, 1 << align);
+			break;
+		}
+
 		len = dmatest_random() % test_buf_size + 1;
+		len = (len >> align) << align;
+		if (!len)
+			len = 1 << align;
 		src_off = dmatest_random() % (test_buf_size - len + 1);
 		dst_off = dmatest_random() % (test_buf_size - len + 1);
+
+		src_off = (src_off >> align) << align;
+		dst_off = (dst_off >> align) << align;
 
 		dmatest_init_srcs(thread->srcs, src_off, len);
 		dmatest_init_dsts(thread->dsts, dst_off, len);
@@ -306,6 +338,7 @@ static int dmatest_func(void *data)
 						     DMA_BIDIRECTIONAL);
 		}
 
+
 		if (thread->type == DMA_MEMCPY)
 			tx = dev->device_prep_dma_memcpy(chan,
 							 dma_dsts[0] + dst_off,
@@ -316,6 +349,15 @@ static int dmatest_func(void *data)
 						      dma_dsts[0] + dst_off,
 						      dma_srcs, xor_sources,
 						      len, flags);
+		else if (thread->type == DMA_PQ) {
+			dma_addr_t dma_pq[dst_cnt];
+
+			for (i = 0; i < dst_cnt; i++)
+				dma_pq[i] = dma_dsts[i] + dst_off;
+			tx = dev->device_prep_dma_pq(chan, dma_pq, dma_srcs,
+						     pq_sources, pq_coefs,
+						     len, flags);
+		}
 
 		if (!tx) {
 			for (i = 0; i < src_cnt; i++)
@@ -425,7 +467,7 @@ err_srcs:
 
 	if (iterations > 0)
 		while (!kthread_should_stop()) {
-			DECLARE_WAIT_QUEUE_HEAD(wait_dmatest_exit);
+			DECLARE_WAIT_QUEUE_HEAD_ONSTACK(wait_dmatest_exit);
 			interruptible_sleep_on(&wait_dmatest_exit);
 		}
 
@@ -459,6 +501,8 @@ static int dmatest_add_threads(struct dmatest_chan *dtc, enum dma_transaction_ty
 		op = "copy";
 	else if (type == DMA_XOR)
 		op = "xor";
+	else if (type == DMA_PQ)
+		op = "pq";
 	else
 		return -EINVAL;
 
@@ -513,6 +557,10 @@ static int dmatest_add_channel(struct dma_chan *chan)
 	if (dma_has_cap(DMA_XOR, dma_dev->cap_mask)) {
 		cnt = dmatest_add_threads(dtc, DMA_XOR);
 		thread_count += cnt > 0 ? cnt : 0;
+	}
+	if (dma_has_cap(DMA_PQ, dma_dev->cap_mask)) {
+		cnt = dmatest_add_threads(dtc, DMA_PQ);
+		thread_count += cnt > 0 ?: 0;
 	}
 
 	pr_info("dmatest: Started %u threads using %s\n",

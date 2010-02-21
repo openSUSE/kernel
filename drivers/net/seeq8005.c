@@ -81,7 +81,8 @@ struct net_local {
 static int seeq8005_probe1(struct net_device *dev, int ioaddr);
 static int seeq8005_open(struct net_device *dev);
 static void seeq8005_timeout(struct net_device *dev);
-static int seeq8005_send_packet(struct sk_buff *skb, struct net_device *dev);
+static netdev_tx_t seeq8005_send_packet(struct sk_buff *skb,
+					struct net_device *dev);
 static irqreturn_t seeq8005_interrupt(int irq, void *dev_id);
 static void seeq8005_rx(struct net_device *dev);
 static int seeq8005_close(struct net_device *dev);
@@ -334,7 +335,7 @@ static int __init seeq8005_probe1(struct net_device *dev, int ioaddr)
 
 #if 0
 	{
-		 int irqval = request_irq(dev->irq, &seeq8005_interrupt, 0, "seeq8005", dev);
+		 int irqval = request_irq(dev->irq, seeq8005_interrupt, 0, "seeq8005", dev);
 		 if (irqval) {
 			 printk ("%s: unable to get IRQ %d (irqval=%d).\n", dev->name,
 					 dev->irq, irqval);
@@ -366,7 +367,7 @@ static int seeq8005_open(struct net_device *dev)
 	struct net_local *lp = netdev_priv(dev);
 
 	{
-		 int irqval = request_irq(dev->irq, &seeq8005_interrupt, 0, "seeq8005", dev);
+		 int irqval = request_irq(dev->irq, seeq8005_interrupt, 0, "seeq8005", dev);
 		 if (irqval) {
 			 printk ("%s: unable to get IRQ %d (irqval=%d).\n", dev->name,
 					 dev->irq, irqval);
@@ -394,14 +395,15 @@ static void seeq8005_timeout(struct net_device *dev)
 	netif_wake_queue(dev);
 }
 
-static int seeq8005_send_packet(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t seeq8005_send_packet(struct sk_buff *skb,
+					struct net_device *dev)
 {
 	short length = skb->len;
 	unsigned char *buf;
 
 	if (length < ETH_ZLEN) {
 		if (skb_padto(skb, ETH_ZLEN))
-			return 0;
+			return NETDEV_TX_OK;
 		length = ETH_ZLEN;
 	}
 	buf = skb->data;
@@ -415,7 +417,7 @@ static int seeq8005_send_packet(struct sk_buff *skb, struct net_device *dev)
 	dev_kfree_skb (skb);
 	/* You might need to clean up and record Tx statistics here. */
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /*

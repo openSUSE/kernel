@@ -315,7 +315,7 @@ EXPORT_SYMBOL(tty_termios_input_baud_rate);
  *	For maximal back compatibility with legacy SYS5/POSIX *nix behaviour
  *	we need to carefully set the bits when the user does not get the
  *	desired speed. We allow small margins and preserve as much of possible
- *	of the input intent to keep compatiblity.
+ *	of the input intent to keep compatibility.
  *
  *	Locking: Caller should hold termios lock. This is already held
  *	when calling this function from the driver termios handler.
@@ -393,9 +393,7 @@ void tty_termios_encode_baud_rate(struct ktermios *termios,
 		termios->c_cflag |= (BOTHER << IBSHIFT);
 #else
 	if (ifound == -1 || ofound == -1) {
-		static int warned;
-		if (!warned++)
-			printk(KERN_WARNING "tty: Unable to return correct "
+		printk_once(KERN_WARNING "tty: Unable to return correct "
 			  "speed data as your architecture needs updating.\n");
 	}
 #endif

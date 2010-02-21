@@ -1,8 +1,8 @@
 /*
  * Au12x0/Au1550 PSC ALSA ASoC audio support.
  *
- * (c) 2007-2008 MSC Vertriebsges.m.b.H.,
- *	Manuel Lauss <mano@roarinelk.homelinux.net>
+ * (c) 2007-2009 MSC Vertriebsges.m.b.H.,
+ *	Manuel Lauss <manuel.lauss@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -19,6 +19,7 @@
 #include <linux/module.h>
 #include <linux/device.h>
 #include <linux/delay.h>
+#include <linux/mutex.h>
 #include <linux/suspend.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -28,6 +29,9 @@
 #include <asm/mach-au1x00/au1xxx_psc.h>
 
 #include "psc.h"
+
+/* how often to retry failed codec register reads/writes */
+#define AC97_RW_RETRIES	5
 
 #define AC97_DIR	\
 	(SND_SOC_DAIDIR_PLAYBACK | SND_SOC_DAIDIR_CAPTURE)
@@ -45,6 +49,9 @@
 #define AC97PCR_CLRFIFO(stype)	\
 	((stype) == PCM_TX ? PSC_AC97PCR_TC : PSC_AC97PCR_RC)
 
+#define AC97STAT_BUSY(stype)	\
+	((stype) == PCM_TX ? PSC_AC97STAT_TB : PSC_AC97STAT_RB)
+
 /* instance data. There can be only one, MacLeod!!!! */
 static struct au1xpsc_audio_data *au1xpsc_ac97_workdata;
 
@@ -54,24 +61,40 @@ static unsigned short au1xpsc_ac97_read(struct snd_ac97 *ac97,
 {
 	/* FIXME */
 	struct au1xpsc_audio_data *pscdata = au1xpsc_ac97_workdata;
-	unsigned short data, tmo;
-
-	au_writel(PSC_AC97CDC_RD | PSC_AC97CDC_INDX(reg), AC97_CDC(pscdata));
-	au_sync();
-
-	tmo = 1000;
-	while ((!(au_readl(AC97_EVNT(pscdata)) & PSC_AC97EVNT_CD)) && --tmo)
-		udelay(2);
-
-	if (!tmo)
-		data = 0xffff;
-	else
-		data = au_readl(AC97_CDC(pscdata)) & 0xffff;
+	unsigned short retry, tmo;
+	unsigned long data;
 
 	au_writel(PSC_AC97EVNT_CD, AC97_EVNT(pscdata));
 	au_sync();
 
-	return data;
+	retry = AC97_RW_RETRIES;
+	do {
+		mutex_lock(&pscdata->lock);
+
+		au_writel(PSC_AC97CDC_RD | PSC_AC97CDC_INDX(reg),
+			  AC97_CDC(pscdata));
+		au_sync();
+
+		tmo = 20;
+		do {
+			udelay(21);
+			if (au_readl(AC97_EVNT(pscdata)) & PSC_AC97EVNT_CD)
+				break;
+		} while (--tmo);
+
+		data = au_readl(AC97_CDC(pscdata));
+
+		au_writel(PSC_AC97EVNT_CD, AC97_EVNT(pscdata));
+		au_sync();
+
+		mutex_unlock(&pscdata->lock);
+
+		if (reg != ((data >> 16) & 0x7f))
+			tmo = 1;	/* wrong register, try again */
+
+	} while (--retry && !tmo);
+
+	return retry ? data & 0xffff : 0xffff;
 }
 
 /* AC97 controller writes to codec register */
@@ -80,16 +103,31 @@ static void au1xpsc_ac97_write(struct snd_ac97 *ac97, unsigned short reg,
 {
 	/* FIXME */
 	struct au1xpsc_audio_data *pscdata = au1xpsc_ac97_workdata;
-	unsigned int tmo;
-
-	au_writel(PSC_AC97CDC_INDX(reg) | (val & 0xffff), AC97_CDC(pscdata));
-	au_sync();
-	tmo = 1000;
-	while ((!(au_readl(AC97_EVNT(pscdata)) & PSC_AC97EVNT_CD)) && --tmo)
-		au_sync();
+	unsigned int tmo, retry;
 
 	au_writel(PSC_AC97EVNT_CD, AC97_EVNT(pscdata));
 	au_sync();
+
+	retry = AC97_RW_RETRIES;
+	do {
+		mutex_lock(&pscdata->lock);
+
+		au_writel(PSC_AC97CDC_INDX(reg) | (val & 0xffff),
+			  AC97_CDC(pscdata));
+		au_sync();
+
+		tmo = 20;
+		do {
+			udelay(21);
+			if (au_readl(AC97_EVNT(pscdata)) & PSC_AC97EVNT_CD)
+				break;
+		} while (--tmo);
+
+		au_writel(PSC_AC97EVNT_CD, AC97_EVNT(pscdata));
+		au_sync();
+
+		mutex_unlock(&pscdata->lock);
+	} while (--retry && !tmo);
 }
 
 /* AC97 controller asserts a warm reset */
@@ -129,9 +167,9 @@ static void au1xpsc_ac97_cold_reset(struct snd_ac97 *ac97)
 	au_sync();
 
 	/* wait for PSC to indicate it's ready */
-	i = 100000;
+	i = 1000;
 	while (!((au_readl(AC97_STAT(pscdata)) & PSC_AC97STAT_SR)) && (--i))
-		au_sync();
+		msleep(1);
 
 	if (i == 0) {
 		printk(KERN_ERR "au1xpsc-ac97: PSC not ready!\n");
@@ -143,9 +181,9 @@ static void au1xpsc_ac97_cold_reset(struct snd_ac97 *ac97)
 	au_sync();
 
 	/* wait for AC97 core to become ready */
-	i = 100000;
+	i = 1000;
 	while (!((au_readl(AC97_STAT(pscdata)) & PSC_AC97STAT_DR)) && (--i))
-		au_sync();
+		msleep(1);
 	if (i == 0)
 		printk(KERN_ERR "au1xpsc-ac97: AC97 ctrl not ready\n");
 }
@@ -165,12 +203,12 @@ static int au1xpsc_ac97_hw_params(struct snd_pcm_substream *substream,
 {
 	/* FIXME */
 	struct au1xpsc_audio_data *pscdata = au1xpsc_ac97_workdata;
-	unsigned long r, stat;
-	int chans, stype = SUBSTREAM_TYPE(substream);
+	unsigned long r, ro, stat;
+	int chans, t, stype = SUBSTREAM_TYPE(substream);
 
 	chans = params_channels(params);
 
-	r = au_readl(AC97_CFG(pscdata));
+	r = ro = au_readl(AC97_CFG(pscdata));
 	stat = au_readl(AC97_STAT(pscdata));
 
 	/* already active? */
@@ -180,9 +218,6 @@ static int au1xpsc_ac97_hw_params(struct snd_pcm_substream *substream,
 		    (pscdata->rate != params_rate(params)))
 			return -EINVAL;
 	} else {
-		/* disable AC97 device controller first */
-		au_writel(r & ~PSC_AC97CFG_DE_ENABLE, AC97_CFG(pscdata));
-		au_sync();
 
 		/* set sample bitdepth: REG[24:21]=(BITS-2)/2 */
 		r &= ~PSC_AC97CFG_LEN_MASK;
@@ -199,14 +234,48 @@ static int au1xpsc_ac97_hw_params(struct snd_pcm_substream *substream,
 			r |= PSC_AC97CFG_RXSLOT_ENA(4);
 		}
 
-		/* finally enable the AC97 controller again */
+		/* do we need to poke the hardware? */
+		if (!(r ^ ro))
+			goto out;
+
+		/* ac97 engine is about to be disabled */
+		mutex_lock(&pscdata->lock);
+
+		/* disable AC97 device controller first... */
+		au_writel(r & ~PSC_AC97CFG_DE_ENABLE, AC97_CFG(pscdata));
+		au_sync();
+
+		/* ...wait for it... */
+		t = 100;
+		while ((au_readl(AC97_STAT(pscdata)) & PSC_AC97STAT_DR) && --t)
+			msleep(1);
+
+		if (!t)
+			printk(KERN_ERR "PSC-AC97: can't disable!\n");
+
+		/* ...write config... */
+		au_writel(r, AC97_CFG(pscdata));
+		au_sync();
+
+		/* ...enable the AC97 controller again... */
 		au_writel(r | PSC_AC97CFG_DE_ENABLE, AC97_CFG(pscdata));
 		au_sync();
+
+		/* ...and wait for ready bit */
+		t = 100;
+		while ((!(au_readl(AC97_STAT(pscdata)) & PSC_AC97STAT_DR)) && --t)
+			msleep(1);
+
+		if (!t)
+			printk(KERN_ERR "PSC-AC97: can't enable!\n");
+
+		mutex_unlock(&pscdata->lock);
 
 		pscdata->cfg = r;
 		pscdata->rate = params_rate(params);
 	}
 
+out:
 	return 0;
 }
 
@@ -222,6 +291,8 @@ static int au1xpsc_ac97_trigger(struct snd_pcm_substream *substream,
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
+		au_writel(AC97PCR_CLRFIFO(stype), AC97_PCR(pscdata));
+		au_sync();
 		au_writel(AC97PCR_START(stype), AC97_PCR(pscdata));
 		au_sync();
 		break;
@@ -229,6 +300,13 @@ static int au1xpsc_ac97_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 		au_writel(AC97PCR_STOP(stype), AC97_PCR(pscdata));
 		au_sync();
+
+		while (au_readl(AC97_STAT(pscdata)) & AC97STAT_BUSY(stype))
+			asm volatile ("nop");
+
+		au_writel(AC97PCR_CLRFIFO(stype), AC97_PCR(pscdata));
+		au_sync();
+
 		break;
 	default:
 		ret = -EINVAL;
@@ -239,107 +317,12 @@ static int au1xpsc_ac97_trigger(struct snd_pcm_substream *substream,
 static int au1xpsc_ac97_probe(struct platform_device *pdev,
 			      struct snd_soc_dai *dai)
 {
-	int ret;
-	struct resource *r;
-	unsigned long sel;
-
-	if (au1xpsc_ac97_workdata)
-		return -EBUSY;
-
-	au1xpsc_ac97_workdata =
-		kzalloc(sizeof(struct au1xpsc_audio_data), GFP_KERNEL);
-	if (!au1xpsc_ac97_workdata)
-		return -ENOMEM;
-
-	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!r) {
-		ret = -ENODEV;
-		goto out0;
-	}
-
-	ret = -EBUSY;
-	au1xpsc_ac97_workdata->ioarea =
-		request_mem_region(r->start, r->end - r->start + 1,
-					"au1xpsc_ac97");
-	if (!au1xpsc_ac97_workdata->ioarea)
-		goto out0;
-
-	au1xpsc_ac97_workdata->mmio = ioremap(r->start, 0xffff);
-	if (!au1xpsc_ac97_workdata->mmio)
-		goto out1;
-
-	/* configuration: max dma trigger threshold, enable ac97 */
-	 au1xpsc_ac97_workdata->cfg = PSC_AC97CFG_RT_FIFO8 |
-				      PSC_AC97CFG_TT_FIFO8 |
-				      PSC_AC97CFG_DE_ENABLE;
-
-	/* preserve PSC clock source set up by platform (dev.platform_data
-	 * is already occupied by soc layer)
-	 */
-	sel = au_readl(PSC_SEL(au1xpsc_ac97_workdata)) & PSC_SEL_CLK_MASK;
-	au_writel(PSC_CTRL_DISABLE, PSC_CTRL(au1xpsc_ac97_workdata));
-	au_sync();
-	au_writel(0, PSC_SEL(au1xpsc_ac97_workdata));
-	au_sync();
-	au_writel(PSC_SEL_PS_AC97MODE | sel, PSC_SEL(au1xpsc_ac97_workdata));
-	au_sync();
-	/* next up: cold reset.  Dont check for PSC-ready now since
-	 * there may not be any codec clock yet.
-	 */
-
-	return 0;
-
-out1:
-	release_resource(au1xpsc_ac97_workdata->ioarea);
-	kfree(au1xpsc_ac97_workdata->ioarea);
-out0:
-	kfree(au1xpsc_ac97_workdata);
-	au1xpsc_ac97_workdata = NULL;
-	return ret;
+	return au1xpsc_ac97_workdata ? 0 : -ENODEV;
 }
 
 static void au1xpsc_ac97_remove(struct platform_device *pdev,
 				struct snd_soc_dai *dai)
 {
-	/* disable PSC completely */
-	au_writel(0, AC97_CFG(au1xpsc_ac97_workdata));
-	au_sync();
-	au_writel(PSC_CTRL_DISABLE, PSC_CTRL(au1xpsc_ac97_workdata));
-	au_sync();
-
-	iounmap(au1xpsc_ac97_workdata->mmio);
-	release_resource(au1xpsc_ac97_workdata->ioarea);
-	kfree(au1xpsc_ac97_workdata->ioarea);
-	kfree(au1xpsc_ac97_workdata);
-	au1xpsc_ac97_workdata = NULL;
-}
-
-static int au1xpsc_ac97_suspend(struct snd_soc_dai *dai)
-{
-	/* save interesting registers and disable PSC */
-	au1xpsc_ac97_workdata->pm[0] =
-			au_readl(PSC_SEL(au1xpsc_ac97_workdata));
-
-	au_writel(0, AC97_CFG(au1xpsc_ac97_workdata));
-	au_sync();
-	au_writel(PSC_CTRL_DISABLE, PSC_CTRL(au1xpsc_ac97_workdata));
-	au_sync();
-
-	return 0;
-}
-
-static int au1xpsc_ac97_resume(struct snd_soc_dai *dai)
-{
-	/* restore PSC clock config */
-	au_writel(au1xpsc_ac97_workdata->pm[0] | PSC_SEL_PS_AC97MODE,
-			PSC_SEL(au1xpsc_ac97_workdata));
-	au_sync();
-
-	/* after this point the ac97 core will cold-reset the codec.
-	 * During cold-reset the PSC is reinitialized and the last
-	 * configuration set up in hw_params() is restored.
-	 */
-	return 0;
 }
 
 static struct snd_soc_dai_ops au1xpsc_ac97_dai_ops = {
@@ -352,8 +335,6 @@ struct snd_soc_dai au1xpsc_ac97_dai = {
 	.ac97_control		= 1,
 	.probe			= au1xpsc_ac97_probe,
 	.remove			= au1xpsc_ac97_remove,
-	.suspend		= au1xpsc_ac97_suspend,
-	.resume			= au1xpsc_ac97_resume,
 	.playback = {
 		.rates		= AC97_RATES,
 		.formats	= AC97_FMTS,
@@ -370,20 +351,165 @@ struct snd_soc_dai au1xpsc_ac97_dai = {
 };
 EXPORT_SYMBOL_GPL(au1xpsc_ac97_dai);
 
-static int __init au1xpsc_ac97_init(void)
+static int __devinit au1xpsc_ac97_drvprobe(struct platform_device *pdev)
+{
+	int ret;
+	struct resource *r;
+	unsigned long sel;
+	struct au1xpsc_audio_data *wd;
+
+	if (au1xpsc_ac97_workdata)
+		return -EBUSY;
+
+	wd = kzalloc(sizeof(struct au1xpsc_audio_data), GFP_KERNEL);
+	if (!wd)
+		return -ENOMEM;
+
+	mutex_init(&wd->lock);
+
+	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!r) {
+		ret = -ENODEV;
+		goto out0;
+	}
+
+	ret = -EBUSY;
+	wd->ioarea = request_mem_region(r->start, r->end - r->start + 1,
+					"au1xpsc_ac97");
+	if (!wd->ioarea)
+		goto out0;
+
+	wd->mmio = ioremap(r->start, 0xffff);
+	if (!wd->mmio)
+		goto out1;
+
+	/* configuration: max dma trigger threshold, enable ac97 */
+	wd->cfg = PSC_AC97CFG_RT_FIFO8 | PSC_AC97CFG_TT_FIFO8 |
+		  PSC_AC97CFG_DE_ENABLE;
+
+	/* preserve PSC clock source set up by platform	 */
+	sel = au_readl(PSC_SEL(wd)) & PSC_SEL_CLK_MASK;
+	au_writel(PSC_CTRL_DISABLE, PSC_CTRL(wd));
+	au_sync();
+	au_writel(0, PSC_SEL(wd));
+	au_sync();
+	au_writel(PSC_SEL_PS_AC97MODE | sel, PSC_SEL(wd));
+	au_sync();
+
+	ret = snd_soc_register_dai(&au1xpsc_ac97_dai);
+	if (ret)
+		goto out1;
+
+	wd->dmapd = au1xpsc_pcm_add(pdev);
+	if (wd->dmapd) {
+		platform_set_drvdata(pdev, wd);
+		au1xpsc_ac97_workdata = wd;	/* MDEV */
+		return 0;
+	}
+
+	snd_soc_unregister_dai(&au1xpsc_ac97_dai);
+out1:
+	release_resource(wd->ioarea);
+	kfree(wd->ioarea);
+out0:
+	kfree(wd);
+	return ret;
+}
+
+static int __devexit au1xpsc_ac97_drvremove(struct platform_device *pdev)
+{
+	struct au1xpsc_audio_data *wd = platform_get_drvdata(pdev);
+
+	if (wd->dmapd)
+		au1xpsc_pcm_destroy(wd->dmapd);
+
+	snd_soc_unregister_dai(&au1xpsc_ac97_dai);
+
+	/* disable PSC completely */
+	au_writel(0, AC97_CFG(wd));
+	au_sync();
+	au_writel(PSC_CTRL_DISABLE, PSC_CTRL(wd));
+	au_sync();
+
+	iounmap(wd->mmio);
+	release_resource(wd->ioarea);
+	kfree(wd->ioarea);
+	kfree(wd);
+
+	au1xpsc_ac97_workdata = NULL;	/* MDEV */
+
+	return 0;
+}
+
+#ifdef CONFIG_PM
+static int au1xpsc_ac97_drvsuspend(struct device *dev)
+{
+	struct au1xpsc_audio_data *wd = dev_get_drvdata(dev);
+
+	/* save interesting registers and disable PSC */
+	wd->pm[0] = au_readl(PSC_SEL(wd));
+
+	au_writel(0, AC97_CFG(wd));
+	au_sync();
+	au_writel(PSC_CTRL_DISABLE, PSC_CTRL(wd));
+	au_sync();
+
+	return 0;
+}
+
+static int au1xpsc_ac97_drvresume(struct device *dev)
+{
+	struct au1xpsc_audio_data *wd = dev_get_drvdata(dev);
+
+	/* restore PSC clock config */
+	au_writel(wd->pm[0] | PSC_SEL_PS_AC97MODE, PSC_SEL(wd));
+	au_sync();
+
+	/* after this point the ac97 core will cold-reset the codec.
+	 * During cold-reset the PSC is reinitialized and the last
+	 * configuration set up in hw_params() is restored.
+	 */
+	return 0;
+}
+
+static struct dev_pm_ops au1xpscac97_pmops = {
+	.suspend	= au1xpsc_ac97_drvsuspend,
+	.resume		= au1xpsc_ac97_drvresume,
+};
+
+#define AU1XPSCAC97_PMOPS &au1xpscac97_pmops
+
+#else
+
+#define AU1XPSCAC97_PMOPS NULL
+
+#endif
+
+static struct platform_driver au1xpsc_ac97_driver = {
+	.driver	= {
+		.name	= "au1xpsc_ac97",
+		.owner	= THIS_MODULE,
+		.pm	= AU1XPSCAC97_PMOPS,
+	},
+	.probe		= au1xpsc_ac97_drvprobe,
+	.remove		= __devexit_p(au1xpsc_ac97_drvremove),
+};
+
+static int __init au1xpsc_ac97_load(void)
 {
 	au1xpsc_ac97_workdata = NULL;
-	return snd_soc_register_dai(&au1xpsc_ac97_dai);
+	return platform_driver_register(&au1xpsc_ac97_driver);
 }
 
-static void __exit au1xpsc_ac97_exit(void)
+static void __exit au1xpsc_ac97_unload(void)
 {
-	snd_soc_unregister_dai(&au1xpsc_ac97_dai);
+	platform_driver_unregister(&au1xpsc_ac97_driver);
 }
 
-module_init(au1xpsc_ac97_init);
-module_exit(au1xpsc_ac97_exit);
+module_init(au1xpsc_ac97_load);
+module_exit(au1xpsc_ac97_unload);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Au12x0/Au1550 PSC AC97 ALSA ASoC audio driver");
-MODULE_AUTHOR("Manuel Lauss <mano@roarinelk.homelinux.net>");
+MODULE_AUTHOR("Manuel Lauss");
+

@@ -141,7 +141,7 @@ static int mipsnet_xmit(struct sk_buff *skb, struct net_device *dev)
 	netif_stop_queue(dev);
 	mipsnet_put_todevice(dev, skb);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 static inline ssize_t mipsnet_get_fromdev(struct net_device *dev, size_t len)
@@ -211,7 +211,7 @@ static int mipsnet_open(struct net_device *dev)
 {
 	int err;
 
-	err = request_irq(dev->irq, &mipsnet_interrupt,
+	err = request_irq(dev->irq, mipsnet_interrupt,
 			  IRQF_SHARED, dev->name, (void *) dev);
 	if (err) {
 		release_region(dev->base_addr, sizeof(struct mipsnet_regs));

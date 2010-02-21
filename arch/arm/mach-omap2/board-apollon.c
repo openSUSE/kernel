@@ -26,6 +26,7 @@
 #include <linux/leds.h>
 #include <linux/err.h>
 #include <linux/clk.h>
+#include <linux/smc91x.h>
 
 #include <mach/hardware.h>
 #include <asm/mach-types.h>
@@ -33,13 +34,13 @@
 #include <asm/mach/flash.h>
 
 #include <mach/gpio.h>
-#include <mach/led.h>
-#include <mach/mux.h>
-#include <mach/usb.h>
-#include <mach/board.h>
-#include <mach/common.h>
-#include <mach/gpmc.h>
-#include <mach/control.h>
+#include <plat/led.h>
+#include <plat/mux.h>
+#include <plat/usb.h>
+#include <plat/board.h>
+#include <plat/common.h>
+#include <plat/gpmc.h>
+#include <plat/control.h>
 
 /* LED & Switch macros */
 #define LED0_GPIO13		13
@@ -87,7 +88,7 @@ static struct mtd_partition apollon_partitions[] = {
 	},
 };
 
-static struct flash_platform_data apollon_flash_data = {
+static struct onenand_platform_data apollon_flash_data = {
 	.parts		= apollon_partitions,
 	.nr_parts	= ARRAY_SIZE(apollon_partitions),
 };
@@ -99,7 +100,7 @@ static struct resource apollon_flash_resource[] = {
 };
 
 static struct platform_device apollon_onenand_device = {
-	.name		= "onenand",
+	.name		= "onenand-flash",
 	.id		= -1,
 	.dev		= {
 		.platform_data	= &apollon_flash_data,
@@ -120,6 +121,12 @@ static void __init apollon_flash_init(void)
 	apollon_flash_resource[0].end   = base + SZ_128K - 1;
 }
 
+static struct smc91x_platdata appolon_smc91x_info = {
+	.flags	= SMC91X_USE_16BIT | SMC91X_NOWAIT,
+	.leda	= RPC_LED_100_10,
+	.ledb	= RPC_LED_TX_RX,
+};
+
 static struct resource apollon_smc91x_resources[] = {
 	[0] = {
 		.flags  = IORESOURCE_MEM,
@@ -134,6 +141,9 @@ static struct resource apollon_smc91x_resources[] = {
 static struct platform_device apollon_smc91x_device = {
 	.name		= "smc91x",
 	.id		= -1,
+	.dev	= {
+		.platform_data	= &appolon_smc91x_info,
+	},
 	.num_resources	= ARRAY_SIZE(apollon_smc91x_resources),
 	.resource	= apollon_smc91x_resources,
 };
@@ -248,18 +258,6 @@ out:
 	clk_put(gpmc_fck);
 }
 
-static void __init omap_apollon_init_irq(void)
-{
-	omap2_init_common_hw(NULL, NULL);
-	omap_init_irq();
-	omap_gpio_init();
-	apollon_init_smc91x();
-}
-
-static struct omap_uart_config apollon_uart_config __initdata = {
-	.enabled_uarts = (1 << 0) | (0 << 1) | (0 << 2),
-};
-
 static struct omap_usb_config apollon_usb_config __initdata = {
 	.register_dev	= 1,
 	.hmc_mode	= 0x14,	/* 0:dev 1:host1 2:disable */
@@ -272,9 +270,18 @@ static struct omap_lcd_config apollon_lcd_config __initdata = {
 };
 
 static struct omap_board_config_kernel apollon_config[] = {
-	{ OMAP_TAG_UART,	&apollon_uart_config },
 	{ OMAP_TAG_LCD,		&apollon_lcd_config },
 };
+
+static void __init omap_apollon_init_irq(void)
+{
+	omap_board_config = apollon_config;
+	omap_board_config_size = ARRAY_SIZE(apollon_config);
+	omap2_init_common_hw(NULL, NULL);
+	omap_init_irq();
+	omap_gpio_init();
+	apollon_init_smc91x();
+}
 
 static void __init apollon_led_init(void)
 {
@@ -324,8 +331,6 @@ static void __init omap_apollon_init(void)
 	 * if not needed.
 	 */
 	platform_add_devices(apollon_devices, ARRAY_SIZE(apollon_devices));
-	omap_board_config = apollon_config;
-	omap_board_config_size = ARRAY_SIZE(apollon_config);
 	omap_serial_init();
 }
 
@@ -338,7 +343,7 @@ static void __init omap_apollon_map_io(void)
 MACHINE_START(OMAP_APOLLON, "OMAP24xx Apollon")
 	/* Maintainer: Kyungmin Park <kyungmin.park@samsung.com> */
 	.phys_io	= 0x48000000,
-	.io_pg_offst	= ((0xd8000000) >> 18) & 0xfffc,
+	.io_pg_offst	= ((0xfa000000) >> 18) & 0xfffc,
 	.boot_params	= 0x80000100,
 	.map_io		= omap_apollon_map_io,
 	.init_irq	= omap_apollon_init_irq,

@@ -98,7 +98,7 @@ struct smb_vol {
 	bool nostrictsync:1; /* do not force expensive SMBflush on every sync */
 	unsigned int rsize;
 	unsigned int wsize;
-	unsigned int sockopt;
+	bool sockopt_tcp_nodelay:1;
 	unsigned short int port;
 	char *prepath;
 };
@@ -1142,9 +1142,11 @@ cifs_parse_mount_options(char *options, const char *devname,
 					simple_strtoul(value, &value, 0);
 			}
 		} else if (strnicmp(data, "sockopt", 5) == 0) {
-			if (value && *value) {
-				vol->sockopt =
-					simple_strtoul(value, &value, 0);
+			if (!value || !*value) {
+				cERROR(1, ("no socket option specified"));
+				continue;
+			} else if (strnicmp(value, "TCP_NODELAY", 11) == 0) {
+				vol->sockopt_tcp_nodelay = 1;
 			}
 		} else if (strnicmp(data, "netbiosname", 4) == 0) {
 			if (!value || !*value || (*value == ' ')) {
@@ -1377,7 +1379,7 @@ cifs_parse_mount_options(char *options, const char *devname,
 }
 
 static struct TCP_Server_Info *
-cifs_find_tcp_session(struct sockaddr_storage *addr)
+cifs_find_tcp_session(struct sockaddr_storage *addr, unsigned short int port)
 {
 	struct list_head *tmp;
 	struct TCP_Server_Info *server;
@@ -1397,16 +1399,37 @@ cifs_find_tcp_session(struct sockaddr_storage *addr)
 		if (server->tcpStatus == CifsNew)
 			continue;
 
-		if (addr->ss_family == AF_INET &&
-		    (addr4->sin_addr.s_addr !=
-		     server->addr.sockAddr.sin_addr.s_addr))
-			continue;
-		else if (addr->ss_family == AF_INET6 &&
-			 (!ipv6_addr_equal(&server->addr.sockAddr6.sin6_addr,
-					   &addr6->sin6_addr) ||
-			  server->addr.sockAddr6.sin6_scope_id !=
-					   addr6->sin6_scope_id))
-			continue;
+		switch (addr->ss_family) {
+		case AF_INET:
+			if (addr4->sin_addr.s_addr ==
+			    server->addr.sockAddr.sin_addr.s_addr) {
+				addr4->sin_port = htons(port);
+				/* user overrode default port? */
+				if (addr4->sin_port) {
+					if (addr4->sin_port !=
+					    server->addr.sockAddr.sin_port)
+						continue;
+				}
+				break;
+			} else
+				continue;
+
+		case AF_INET6:
+			if (ipv6_addr_equal(&addr6->sin6_addr,
+			    &server->addr.sockAddr6.sin6_addr) &&
+			    (addr6->sin6_scope_id ==
+			    server->addr.sockAddr6.sin6_scope_id)) {
+				addr6->sin6_port = htons(port);
+				/* user overrode default port? */
+				if (addr6->sin6_port) {
+					if (addr6->sin6_port !=
+					   server->addr.sockAddr6.sin6_port)
+						continue;
+				}
+				break;
+			} else
+				continue;
+		}
 
 		++server->srv_count;
 		write_unlock(&cifs_tcp_ses_lock);
@@ -1475,7 +1498,7 @@ cifs_get_tcp_session(struct smb_vol *volume_info)
 	}
 
 	/* see if we already have a matching tcp_ses */
-	tcp_ses = cifs_find_tcp_session(&addr);
+	tcp_ses = cifs_find_tcp_session(&addr, volume_info->port);
 	if (tcp_ses)
 		return tcp_ses;
 
@@ -1493,6 +1516,7 @@ cifs_get_tcp_session(struct smb_vol *volume_info)
 
 	tcp_ses->noblocksnd = volume_info->noblocksnd;
 	tcp_ses->noautotune = volume_info->noautotune;
+	tcp_ses->tcp_nodelay = volume_info->sockopt_tcp_nodelay;
 	atomic_set(&tcp_ses->inFlight, 0);
 	init_waitqueue_head(&tcp_ses->response_q);
 	init_waitqueue_head(&tcp_ses->request_q);
@@ -1556,7 +1580,8 @@ cifs_get_tcp_session(struct smb_vol *volume_info)
 
 out_err:
 	if (tcp_ses) {
-		kfree(tcp_ses->hostname);
+		if (!IS_ERR(tcp_ses->hostname))
+			kfree(tcp_ses->hostname);
 		if (tcp_ses->ssocket)
 			sock_release(tcp_ses->ssocket);
 		kfree(tcp_ses);
@@ -1649,7 +1674,6 @@ cifs_put_tcon(struct cifsTconInfo *tcon)
 	CIFSSMBTDis(xid, tcon);
 	_FreeXid(xid);
 
-	DeleteTconOplockQEntries(tcon);
 	tconInfoFree(tcon);
 	cifs_put_smb_ses(ses);
 }
@@ -1743,6 +1767,7 @@ static int
 ipv4_connect(struct TCP_Server_Info *server)
 {
 	int rc = 0;
+	int val;
 	bool connected = false;
 	__be16 orig_port = 0;
 	struct socket *socket = server->ssocket;
@@ -1824,6 +1849,14 @@ ipv4_connect(struct TCP_Server_Info *server)
 			socket->sk->sk_rcvbuf = 140 * 1024;
 	}
 
+	if (server->tcp_nodelay) {
+		val = 1;
+		rc = kernel_setsockopt(socket, SOL_TCP, TCP_NODELAY,
+				(char *)&val, sizeof(val));
+		if (rc)
+			cFYI(1, ("set TCP_NODELAY socket option error %d", rc));
+	}
+
 	 cFYI(1, ("sndbuf %d rcvbuf %d rcvtimeo 0x%lx",
 		 socket->sk->sk_sndbuf,
 		 socket->sk->sk_rcvbuf, socket->sk->sk_rcvtimeo));
@@ -1895,6 +1928,7 @@ static int
 ipv6_connect(struct TCP_Server_Info *server)
 {
 	int rc = 0;
+	int val;
 	bool connected = false;
 	__be16 orig_port = 0;
 	struct socket *socket = server->ssocket;
@@ -1966,6 +2000,15 @@ ipv6_connect(struct TCP_Server_Info *server)
 	 */
 	socket->sk->sk_rcvtimeo = 7 * HZ;
 	socket->sk->sk_sndtimeo = 5 * HZ;
+
+	if (server->tcp_nodelay) {
+		val = 1;
+		rc = kernel_setsockopt(socket, SOL_TCP, TCP_NODELAY,
+				(char *)&val, sizeof(val));
+		if (rc)
+			cFYI(1, ("set TCP_NODELAY socket option error %d", rc));
+	}
+
 	server->ssocket = socket;
 
 	return rc;
@@ -2199,15 +2242,7 @@ is_path_accessible(int xid, struct cifsTconInfo *tcon,
 		   struct cifs_sb_info *cifs_sb, const char *full_path)
 {
 	int rc;
-	__u64 inode_num;
 	FILE_ALL_INFO *pfile_info;
-
-	rc = CIFSGetSrvInodeNumber(xid, tcon, full_path, &inode_num,
-				   cifs_sb->local_nls,
-				   cifs_sb->mnt_cifs_flags &
-						CIFS_MOUNT_MAP_SPECIAL_CHR);
-	if (rc != -EOPNOTSUPP)
-		return rc;
 
 	pfile_info = kmalloc(sizeof(FILE_ALL_INFO), GFP_KERNEL);
 	if (pfile_info == NULL)
@@ -2274,12 +2309,12 @@ int
 cifs_mount(struct super_block *sb, struct cifs_sb_info *cifs_sb,
 		char *mount_data_global, const char *devname)
 {
-	int rc = 0;
+	int rc;
 	int xid;
 	struct smb_vol *volume_info;
-	struct cifsSesInfo *pSesInfo = NULL;
-	struct cifsTconInfo *tcon = NULL;
-	struct TCP_Server_Info *srvTcp = NULL;
+	struct cifsSesInfo *pSesInfo;
+	struct cifsTconInfo *tcon;
+	struct TCP_Server_Info *srvTcp;
 	char   *full_path;
 	char *mount_data = mount_data_global;
 #ifdef CONFIG_CIFS_DFS_UPCALL
@@ -2288,6 +2323,10 @@ cifs_mount(struct super_block *sb, struct cifs_sb_info *cifs_sb,
 	int referral_walks_count = 0;
 try_mount_again:
 #endif
+	rc = 0;
+	tcon = NULL;
+	pSesInfo = NULL;
+	srvTcp = NULL;
 	full_path = NULL;
 
 	xid = GetXid();
@@ -2349,13 +2388,13 @@ try_mount_again:
 		 */
 		cifs_put_tcp_session(srvTcp);
 
-		mutex_lock(&pSesInfo->sesSem);
+		mutex_lock(&pSesInfo->session_mutex);
 		if (pSesInfo->need_reconnect) {
 			cFYI(1, ("Session needs reconnect"));
 			rc = cifs_setup_session(xid, pSesInfo,
 						cifs_sb->local_nls);
 		}
-		mutex_unlock(&pSesInfo->sesSem);
+		mutex_unlock(&pSesInfo->session_mutex);
 	} else if (!rc) {
 		cFYI(1, ("Existing smb sess not found"));
 		pSesInfo = sesInfoAlloc();
@@ -2398,12 +2437,12 @@ try_mount_again:
 		}
 		pSesInfo->linux_uid = volume_info->linux_uid;
 		pSesInfo->overrideSecFlg = volume_info->secFlg;
-		mutex_lock(&pSesInfo->sesSem);
+		mutex_lock(&pSesInfo->session_mutex);
 
 		/* BB FIXME need to pass vol->secFlgs BB */
 		rc = cifs_setup_session(xid, pSesInfo,
 					cifs_sb->local_nls);
-		mutex_unlock(&pSesInfo->sesSem);
+		mutex_unlock(&pSesInfo->session_mutex);
 	}
 
 	/* search for existing tcon to this server share */
@@ -2584,6 +2623,7 @@ remote_path_check:
 
 			cleanup_volume_info(&volume_info);
 			referral_walks_count++;
+			FreeXid(xid);
 			goto try_mount_again;
 		}
 #else /* No DFS support, return error on mount */
@@ -2636,9 +2676,9 @@ CIFSTCon(unsigned int xid, struct cifsSesInfo *ses,
 		return -EIO;
 
 	smb_buffer = cifs_buf_get();
-	if (smb_buffer == NULL) {
+	if (smb_buffer == NULL)
 		return -ENOMEM;
-	}
+
 	smb_buffer_response = smb_buffer;
 
 	header_assemble(smb_buffer, SMB_COM_TREE_CONNECT_ANDX,

@@ -18,6 +18,8 @@
 #include <linux/capability.h>
 #include <linux/errno.h>
 #include <linux/sched.h>
+#include <linux/xattr.h>
+#include <linux/security.h>
 #include "sysfs.h"
 
 extern struct super_block * sysfs_sb;
@@ -29,12 +31,16 @@ static const struct address_space_operations sysfs_aops = {
 };
 
 static struct backing_dev_info sysfs_backing_dev_info = {
+	.name		= "sysfs",
 	.ra_pages	= 0,	/* No readahead */
 	.capabilities	= BDI_CAP_NO_ACCT_AND_WRITEBACK,
 };
 
 static const struct inode_operations sysfs_inode_operations ={
+	.permission	= sysfs_permission,
 	.setattr	= sysfs_setattr,
+	.getattr	= sysfs_getattr,
+	.setxattr	= sysfs_setxattr,
 };
 
 int __init sysfs_inode_init(void)
@@ -42,18 +48,68 @@ int __init sysfs_inode_init(void)
 	return bdi_init(&sysfs_backing_dev_info);
 }
 
-int sysfs_setattr(struct dentry * dentry, struct iattr * iattr)
+static struct sysfs_inode_attrs *sysfs_init_inode_attrs(struct sysfs_dirent *sd)
 {
-	struct inode * inode = dentry->d_inode;
-	struct sysfs_dirent * sd = dentry->d_fsdata;
-	struct iattr * sd_iattr;
+	struct sysfs_inode_attrs *attrs;
+	struct iattr *iattrs;
+
+	attrs = kzalloc(sizeof(struct sysfs_inode_attrs), GFP_KERNEL);
+	if (!attrs)
+		return NULL;
+	iattrs = &attrs->ia_iattr;
+
+	/* assign default attributes */
+	iattrs->ia_mode = sd->s_mode;
+	iattrs->ia_uid = 0;
+	iattrs->ia_gid = 0;
+	iattrs->ia_atime = iattrs->ia_mtime = iattrs->ia_ctime = CURRENT_TIME;
+
+	return attrs;
+}
+
+int sysfs_sd_setattr(struct sysfs_dirent *sd, struct iattr * iattr)
+{
+	struct sysfs_inode_attrs *sd_attrs;
+	struct iattr *iattrs;
 	unsigned int ia_valid = iattr->ia_valid;
+
+	sd_attrs = sd->s_iattr;
+
+	if (!sd_attrs) {
+		/* setting attributes for the first time, allocate now */
+		sd_attrs = sysfs_init_inode_attrs(sd);
+		if (!sd_attrs)
+			return -ENOMEM;
+		sd->s_iattr = sd_attrs;
+	}
+	/* attributes were changed at least once in past */
+	iattrs = &sd_attrs->ia_iattr;
+
+	if (ia_valid & ATTR_UID)
+		iattrs->ia_uid = iattr->ia_uid;
+	if (ia_valid & ATTR_GID)
+		iattrs->ia_gid = iattr->ia_gid;
+	if (ia_valid & ATTR_ATIME)
+		iattrs->ia_atime = iattr->ia_atime;
+	if (ia_valid & ATTR_MTIME)
+		iattrs->ia_mtime = iattr->ia_mtime;
+	if (ia_valid & ATTR_CTIME)
+		iattrs->ia_ctime = iattr->ia_ctime;
+	if (ia_valid & ATTR_MODE) {
+		umode_t mode = iattr->ia_mode;
+		iattrs->ia_mode = sd->s_mode = mode;
+	}
+	return 0;
+}
+
+int sysfs_setattr(struct dentry *dentry, struct iattr *iattr)
+{
+	struct inode *inode = dentry->d_inode;
+	struct sysfs_dirent *sd = dentry->d_fsdata;
 	int error;
 
 	if (!sd)
 		return -EINVAL;
-
-	sd_iattr = sd->s_iattr;
 
 	error = inode_change_ok(inode, iattr);
 	if (error)
@@ -65,42 +121,67 @@ int sysfs_setattr(struct dentry * dentry, struct iattr * iattr)
 	if (error)
 		return error;
 
-	if (!sd_iattr) {
-		/* setting attributes for the first time, allocate now */
-		sd_iattr = kzalloc(sizeof(struct iattr), GFP_KERNEL);
-		if (!sd_iattr)
-			return -ENOMEM;
-		/* assign default attributes */
-		sd_iattr->ia_mode = sd->s_mode;
-		sd_iattr->ia_uid = 0;
-		sd_iattr->ia_gid = 0;
-		sd_iattr->ia_atime = sd_iattr->ia_mtime = sd_iattr->ia_ctime = CURRENT_TIME;
-		sd->s_iattr = sd_iattr;
-	}
+	mutex_lock(&sysfs_mutex);
+	error = sysfs_sd_setattr(sd, iattr);
+	mutex_unlock(&sysfs_mutex);
 
-	/* attributes were changed atleast once in past */
+	return error;
+}
 
-	if (ia_valid & ATTR_UID)
-		sd_iattr->ia_uid = iattr->ia_uid;
-	if (ia_valid & ATTR_GID)
-		sd_iattr->ia_gid = iattr->ia_gid;
-	if (ia_valid & ATTR_ATIME)
-		sd_iattr->ia_atime = timespec_trunc(iattr->ia_atime,
-						inode->i_sb->s_time_gran);
-	if (ia_valid & ATTR_MTIME)
-		sd_iattr->ia_mtime = timespec_trunc(iattr->ia_mtime,
-						inode->i_sb->s_time_gran);
-	if (ia_valid & ATTR_CTIME)
-		sd_iattr->ia_ctime = timespec_trunc(iattr->ia_ctime,
-						inode->i_sb->s_time_gran);
-	if (ia_valid & ATTR_MODE) {
-		umode_t mode = iattr->ia_mode;
+static int sysfs_sd_setsecdata(struct sysfs_dirent *sd, void **secdata, u32 *secdata_len)
+{
+	struct sysfs_inode_attrs *iattrs;
+	void *old_secdata;
+	size_t old_secdata_len;
 
-		if (!in_group_p(inode->i_gid) && !capable(CAP_FSETID))
-			mode &= ~S_ISGID;
-		sd_iattr->ia_mode = sd->s_mode = mode;
-	}
+	iattrs = sd->s_iattr;
+	if (!iattrs)
+		iattrs = sysfs_init_inode_attrs(sd);
+	if (!iattrs)
+		return -ENOMEM;
 
+	old_secdata = iattrs->ia_secdata;
+	old_secdata_len = iattrs->ia_secdata_len;
+
+	iattrs->ia_secdata = *secdata;
+	iattrs->ia_secdata_len = *secdata_len;
+
+	*secdata = old_secdata;
+	*secdata_len = old_secdata_len;
+	return 0;
+}
+
+int sysfs_setxattr(struct dentry *dentry, const char *name, const void *value,
+		size_t size, int flags)
+{
+	struct sysfs_dirent *sd = dentry->d_fsdata;
+	void *secdata;
+	int error;
+	u32 secdata_len = 0;
+
+	if (!sd)
+		return -EINVAL;
+
+	if (!strncmp(name, XATTR_SECURITY_PREFIX, XATTR_SECURITY_PREFIX_LEN)) {
+		const char *suffix = name + XATTR_SECURITY_PREFIX_LEN;
+		error = security_inode_setsecurity(dentry->d_inode, suffix,
+						value, size, flags);
+		if (error)
+			goto out;
+		error = security_inode_getsecctx(dentry->d_inode,
+						&secdata, &secdata_len);
+		if (error)
+			goto out;
+
+		mutex_lock(&sysfs_mutex);
+		error = sysfs_sd_setsecdata(sd, &secdata, &secdata_len);
+		mutex_unlock(&sysfs_mutex);
+
+		if (secdata)
+			security_release_secctx(secdata, secdata_len);
+	} else
+		return -EINVAL;
+out:
 	return error;
 }
 
@@ -112,24 +193,12 @@ static inline void set_default_inode_attr(struct inode * inode, mode_t mode)
 
 static inline void set_inode_attr(struct inode * inode, struct iattr * iattr)
 {
-	inode->i_mode = iattr->ia_mode;
 	inode->i_uid = iattr->ia_uid;
 	inode->i_gid = iattr->ia_gid;
 	inode->i_atime = iattr->ia_atime;
 	inode->i_mtime = iattr->ia_mtime;
 	inode->i_ctime = iattr->ia_ctime;
 }
-
-
-/*
- * sysfs has a different i_mutex lock order behavior for i_mutex than other
- * filesystems; sysfs i_mutex is called in many places with subsystem locks
- * held. At the same time, many of the VFS locking rules do not apply to
- * sysfs at all (cross directory rename for example). To untangle this mess
- * (which gives false positives in lockdep), we're giving sysfs inodes their
- * own class for i_mutex.
- */
-static struct lock_class_key sysfs_inode_imutex_key;
 
 static int sysfs_count_nlink(struct sysfs_dirent *sd)
 {
@@ -143,6 +212,38 @@ static int sysfs_count_nlink(struct sysfs_dirent *sd)
 	return nr + 2;
 }
 
+static void sysfs_refresh_inode(struct sysfs_dirent *sd, struct inode *inode)
+{
+	struct sysfs_inode_attrs *iattrs = sd->s_iattr;
+
+	inode->i_mode = sd->s_mode;
+	if (iattrs) {
+		/* sysfs_dirent has non-default attributes
+		 * get them from persistent copy in sysfs_dirent
+		 */
+		set_inode_attr(inode, &iattrs->ia_iattr);
+		security_inode_notifysecctx(inode,
+					    iattrs->ia_secdata,
+					    iattrs->ia_secdata_len);
+	}
+
+	if (sysfs_type(sd) == SYSFS_DIR)
+		inode->i_nlink = sysfs_count_nlink(sd);
+}
+
+int sysfs_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat)
+{
+	struct sysfs_dirent *sd = dentry->d_fsdata;
+	struct inode *inode = dentry->d_inode;
+
+	mutex_lock(&sysfs_mutex);
+	sysfs_refresh_inode(sd, inode);
+	mutex_unlock(&sysfs_mutex);
+
+	generic_fillattr(inode, stat);
+	return 0;
+}
+
 static void sysfs_init_inode(struct sysfs_dirent *sd, struct inode *inode)
 {
 	struct bin_attribute *bin_attr;
@@ -151,25 +252,15 @@ static void sysfs_init_inode(struct sysfs_dirent *sd, struct inode *inode)
 	inode->i_mapping->a_ops = &sysfs_aops;
 	inode->i_mapping->backing_dev_info = &sysfs_backing_dev_info;
 	inode->i_op = &sysfs_inode_operations;
-	inode->i_ino = sd->s_ino;
-	lockdep_set_class(&inode->i_mutex, &sysfs_inode_imutex_key);
 
-	if (sd->s_iattr) {
-		/* sysfs_dirent has non-default attributes
-		 * get them for the new inode from persistent copy
-		 * in sysfs_dirent
-		 */
-		set_inode_attr(inode, sd->s_iattr);
-	} else
-		set_default_inode_attr(inode, sd->s_mode);
-
+	set_default_inode_attr(inode, sd->s_mode);
+	sysfs_refresh_inode(sd, inode);
 
 	/* initialize inode according to type */
 	switch (sysfs_type(sd)) {
 	case SYSFS_DIR:
 		inode->i_op = &sysfs_dir_inode_operations;
 		inode->i_fop = &sysfs_dir_operations;
-		inode->i_nlink = sysfs_count_nlink(sd);
 		break;
 	case SYSFS_KOBJ_ATTR:
 		inode->i_size = PAGE_SIZE;
@@ -251,4 +342,15 @@ int sysfs_hash_and_remove(struct sysfs_dirent *dir_sd, const char *name)
 		return 0;
 	else
 		return -ENOENT;
+}
+
+int sysfs_permission(struct inode *inode, int mask)
+{
+	struct sysfs_dirent *sd = inode->i_private;
+
+	mutex_lock(&sysfs_mutex);
+	sysfs_refresh_inode(sd, inode);
+	mutex_unlock(&sysfs_mutex);
+
+	return generic_permission(inode, mask, NULL);
 }

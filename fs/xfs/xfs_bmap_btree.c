@@ -98,8 +98,7 @@ xfs_bmdr_to_bmbt(
  * This code must be in sync with the routines xfs_bmbt_get_startoff,
  * xfs_bmbt_get_startblock, xfs_bmbt_get_blockcount and xfs_bmbt_get_state.
  */
-
-STATIC_INLINE void
+STATIC void
 __xfs_bmbt_get_all(
 		__uint64_t l0,
 		__uint64_t l1,
@@ -200,16 +199,6 @@ xfs_bmbt_get_state(
 	ext_flag = (int)((r->l0) >> (64 - BMBT_EXNTFLAG_BITLEN));
 	return xfs_extent_state(xfs_bmbt_get_blockcount(r),
 				ext_flag);
-}
-
-/* Endian flipping versions of the bmbt extraction functions */
-void
-xfs_bmbt_disk_get_all(
-	xfs_bmbt_rec_t	*r,
-	xfs_bmbt_irec_t *s)
-{
-	__xfs_bmbt_get_all(get_unaligned_be64(&r->l0),
-				get_unaligned_be64(&r->l1), s);
 }
 
 /*
@@ -779,12 +768,6 @@ xfs_bmbt_trace_enter(
 		(void *)a0, (void *)a1, (void *)a2, (void *)a3,
 		(void *)a4, (void *)a5, (void *)a6, (void *)a7,
 		(void *)a8, (void *)a9, (void *)a10);
-	ktrace_enter(ip->i_btrace,
-		(void *)((__psint_t)type | (whichfork << 8) | (line << 16)),
-		(void *)func, (void *)s, (void *)ip, (void *)cur,
-		(void *)a0, (void *)a1, (void *)a2, (void *)a3,
-		(void *)a4, (void *)a5, (void *)a6, (void *)a7,
-		(void *)a8, (void *)a9, (void *)a10);
 }
 
 STATIC void
@@ -814,6 +797,16 @@ xfs_bmbt_trace_key(
 {
 	*l0 = be64_to_cpu(key->bmbt.br_startoff);
 	*l1 = 0;
+}
+
+/* Endian flipping versions of the bmbt extraction functions */
+STATIC void
+xfs_bmbt_disk_get_all(
+	xfs_bmbt_rec_t	*r,
+	xfs_bmbt_irec_t *s)
+{
+	__xfs_bmbt_get_all(get_unaligned_be64(&r->l0),
+				get_unaligned_be64(&r->l1), s);
 }
 
 STATIC void

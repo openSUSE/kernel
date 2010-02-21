@@ -919,7 +919,7 @@ static int bigmac_open(struct net_device *dev)
 	struct bigmac *bp = netdev_priv(dev);
 	int ret;
 
-	ret = request_irq(dev->irq, &bigmac_interrupt, IRQF_SHARED, dev->name, bp);
+	ret = request_irq(dev->irq, bigmac_interrupt, IRQF_SHARED, dev->name, bp);
 	if (ret) {
 		printk(KERN_ERR "BIGMAC: Can't order irq %d to go.\n", dev->irq);
 		return ret;
@@ -984,7 +984,7 @@ static int bigmac_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	dev->trans_start = jiffies;
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 static struct net_device_stats *bigmac_get_stats(struct net_device *dev)

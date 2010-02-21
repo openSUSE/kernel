@@ -45,11 +45,20 @@ extern int gspca_debug;
 /* image transfers */
 #define MAX_NURBS 4		/* max number of URBs */
 
+
+/* used to list framerates supported by a camera mode (resolution) */
+struct framerates {
+	int *rates;
+	int nrates;
+};
+
 /* device information - set at probe time */
 struct cam {
 	int bulk_size;		/* buffer size when image transfer by bulk */
 	const struct v4l2_pix_format *cam_mode;	/* size nmodes */
 	char nmodes;
+	const struct framerates *mode_framerates; /* must have size nmode,
+						   * just like cam_mode */
 	__u8 bulk_nurbs;	/* number of URBs in bulk mode
 				 * - cannot be > MAX_NURBS
 				 * - when 0 and bulk_size != 0 means
@@ -58,6 +67,7 @@ struct cam {
 	u8 npkt;		/* number of packets in an ISOC message
 				 * 0 is the default value: 32 packets */
 	u32 input_flags;	/* value for ENUM_INPUT status flags */
+	char reverse_alts;	/* Alt settings are in high to low order */
 };
 
 struct gspca_dev;
@@ -78,8 +88,7 @@ typedef int (*cam_streamparm_op) (struct gspca_dev *,
 typedef int (*cam_qmnu_op) (struct gspca_dev *,
 			struct v4l2_querymenu *);
 typedef void (*cam_pkt_op) (struct gspca_dev *gspca_dev,
-				struct gspca_frame *frame,
-				__u8 *data,
+				u8 *data,
 				int len);
 
 struct ctrl {
@@ -98,9 +107,11 @@ struct sd_desc {
 /* mandatory operations */
 	cam_cf_op config;	/* called on probe */
 	cam_op init;		/* called on probe and resume */
-	cam_op start;		/* called on stream on */
+	cam_op start;		/* called on stream on after URBs creation */
 	cam_pkt_op pkt_scan;
 /* optional operations */
+	cam_op isoc_init;	/* called on stream on before getting the EP */
+	cam_op isoc_nego;	/* called when URB submit failed with NOSPC */
 	cam_v_op stopN;		/* called on stream off - main alt */
 	cam_v_op stop0;		/* called on stream off & disconnect - alt 0 */
 	cam_v_op dq_callback;	/* called when a frame has been dequeued */
@@ -140,6 +151,7 @@ struct gspca_dev {
 	struct cam cam;				/* device information */
 	const struct sd_desc *sd_desc;		/* subdriver description */
 	unsigned ctrl_dis;		/* disabled controls (bit map) */
+	unsigned ctrl_inac;		/* inactive controls (bit map) */
 
 #define USB_BUF_SZ 64
 	__u8 *usb_buf;				/* buffer for USB exchanges */
@@ -147,6 +159,7 @@ struct gspca_dev {
 
 	__u8 *frbuf;				/* buffer for nframes */
 	struct gspca_frame frame[GSPCA_MAX_FRAMES];
+	struct gspca_frame *cur_frame;		/* frame beeing filled */
 	__u32 frsz;				/* frame size */
 	char nframes;				/* number of frames */
 	char fr_i;				/* frame being filled */
@@ -167,6 +180,7 @@ struct gspca_dev {
 	struct mutex usb_lock;		/* usb exchange protection */
 	struct mutex read_lock;		/* read protection */
 	struct mutex queue_lock;	/* ISOC queue protection */
+	int usb_err;			/* USB error - protected by usb_lock */
 #ifdef CONFIG_PM
 	char frozen;			/* suspend - resume */
 #endif
@@ -178,6 +192,7 @@ struct gspca_dev {
 	__u8 iface;			/* USB interface number */
 	__u8 alt;			/* USB alternate setting */
 	__u8 nbalt;			/* number of USB alternate settings */
+	u16 pkt_size;			/* ISOC packet size */
 };
 
 int gspca_dev_probe(struct usb_interface *intf,
@@ -186,11 +201,10 @@ int gspca_dev_probe(struct usb_interface *intf,
 		int dev_size,
 		struct module *module);
 void gspca_disconnect(struct usb_interface *intf);
-struct gspca_frame *gspca_frame_add(struct gspca_dev *gspca_dev,
-				    enum gspca_packet_type packet_type,
-				    struct gspca_frame *frame,
-				    const __u8 *data,
-				    int len);
+void gspca_frame_add(struct gspca_dev *gspca_dev,
+			enum gspca_packet_type packet_type,
+			const u8 *data,
+			int len);
 struct gspca_frame *gspca_get_i_frame(struct gspca_dev *gspca_dev);
 #ifdef CONFIG_PM
 int gspca_suspend(struct usb_interface *intf, pm_message_t message);

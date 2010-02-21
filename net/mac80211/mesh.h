@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008 open80211s Ltd.
+ * Copyright (c) 2008, 2009 open80211s Ltd.
  * Authors:    Luis Carlos Cobo <luisca@cozybit.com>
  *             Javier Cardona <javier@cozybit.com>
  *
@@ -26,7 +26,7 @@
  *
  * @MESH_PATH_ACTIVE: the mesh path can be used for forwarding
  * @MESH_PATH_RESOLVING: the discovery process is running for this mesh path
- * @MESH_PATH_DSN_VALID: the mesh path contains a valid destination sequence
+ * @MESH_PATH_SN_VALID: the mesh path contains a valid destination sequence
  * 	number
  * @MESH_PATH_FIXED: the mesh path has been manually set and should not be
  * 	modified
@@ -38,9 +38,28 @@
 enum mesh_path_flags {
 	MESH_PATH_ACTIVE =	BIT(0),
 	MESH_PATH_RESOLVING =	BIT(1),
-	MESH_PATH_DSN_VALID =	BIT(2),
+	MESH_PATH_SN_VALID =	BIT(2),
 	MESH_PATH_FIXED	=	BIT(3),
 	MESH_PATH_RESOLVED =	BIT(4),
+};
+
+/**
+ * enum mesh_deferred_task_flags - mac80211 mesh deferred tasks
+ *
+ *
+ *
+ * @MESH_WORK_HOUSEKEEPING: run the periodic mesh housekeeping tasks
+ * @MESH_WORK_GROW_MPATH_TABLE: the mesh path table is full and needs
+ * to grow.
+ * @MESH_WORK_GROW_MPP_TABLE: the mesh portals table is full and needs to
+ * grow
+ * @MESH_WORK_ROOT: the mesh root station needs to send a frame
+ */
+enum mesh_deferred_task_flags {
+	MESH_WORK_HOUSEKEEPING,
+	MESH_WORK_GROW_MPATH_TABLE,
+	MESH_WORK_GROW_MPP_TABLE,
+	MESH_WORK_ROOT,
 };
 
 /**
@@ -53,7 +72,7 @@ enum mesh_path_flags {
  * @timer: mesh path discovery timer
  * @frame_queue: pending queue for frames sent to this destination while the
  * 	path is unresolved
- * @dsn: destination sequence number of the destination
+ * @sn: target sequence number
  * @metric: current metric to this destination
  * @hop_count: hops to destination
  * @exp_time: in jiffies, when the path will expire or when it expired
@@ -61,7 +80,7 @@ enum mesh_path_flags {
  * 	retry
  * @discovery_retries: number of discovery retries
  * @flags: mesh path flags, as specified on &enum mesh_path_flags
- * @state_lock: mesh pat state lock
+ * @state_lock: mesh path state lock
  *
  *
  * The combination of dst and sdata is unique in the mesh path table. Since the
@@ -77,7 +96,7 @@ struct mesh_path {
 	struct timer_list timer;
 	struct sk_buff_head frame_queue;
 	struct rcu_head rcu;
-	u32 dsn;
+	u32 sn;
 	u32 metric;
 	u8 hop_count;
 	unsigned long exp_time;
@@ -157,7 +176,7 @@ struct mesh_rmc {
 #define MESH_CFG_CMP_LEN 	(IEEE80211_MESH_CONFIG_LEN - 2)
 
 /* Default values, timeouts in ms */
-#define MESH_TTL 		5
+#define MESH_TTL 		31
 #define MESH_MAX_RETR	 	3
 #define MESH_RET_T 		100
 #define MESH_CONF_T 		100
@@ -169,11 +188,13 @@ struct mesh_rmc {
  */
 #define MESH_PREQ_MIN_INT	10
 #define MESH_DIAM_TRAVERSAL_TIME 50
-/* Paths will be refreshed if they are closer than PATH_REFRESH_TIME to their
- * expiration
+/* A path will be refreshed if it is used PATH_REFRESH_TIME milliseconds before
+ * timing out.  This way it will remain ACTIVE and no data frames will be
+ * unnecesarily held in the pending queue.
  */
 #define MESH_PATH_REFRESH_TIME			1000
 #define MESH_MIN_DISCOVERY_TIMEOUT (2 * MESH_DIAM_TRAVERSAL_TIME)
+#define MESH_DEFAULT_BEACON_INTERVAL		1000 	/* in 1024 us units */
 
 #define MESH_MAX_PREQ_RETRIES 4
 #define MESH_PATH_EXPIRE (600 * HZ)
@@ -188,13 +209,22 @@ struct mesh_rmc {
 #define MESH_MAX_MPATHS		1024
 
 /* Pending ANA approval */
-#define PLINK_CATEGORY		30
+#define MESH_PLINK_CATEGORY	30
 #define MESH_PATH_SEL_CATEGORY	32
+#define MESH_PATH_SEL_ACTION	0
+
+/* PERR reason codes */
+#define PEER_RCODE_UNSPECIFIED  11
+#define PERR_RCODE_NO_ROUTE     12
+#define PERR_RCODE_DEST_UNREACH 13
 
 /* Public interfaces */
 /* Various */
+int ieee80211_fill_mesh_addresses(struct ieee80211_hdr *hdr, __le16 *fc,
+				  const u8 *da, const u8 *sa);
 int ieee80211_new_mesh_header(struct ieee80211s_hdr *meshhdr,
-		struct ieee80211_sub_if_data *sdata);
+		struct ieee80211_sub_if_data *sdata, char *addr4,
+		char *addr5, char *addr6);
 int mesh_rmc_check(u8 *addr, struct ieee80211s_hdr *mesh_hdr,
 		struct ieee80211_sub_if_data *sdata);
 bool mesh_matches_local(struct ieee802_11_elems *ie,
@@ -205,13 +235,15 @@ void mesh_mgmt_ies_add(struct sk_buff *skb,
 void mesh_rmc_free(struct ieee80211_sub_if_data *sdata);
 int mesh_rmc_init(struct ieee80211_sub_if_data *sdata);
 void ieee80211s_init(void);
+void ieee80211s_update_metric(struct ieee80211_local *local,
+		struct sta_info *stainfo, struct sk_buff *skb);
 void ieee80211s_stop(void);
 void ieee80211_mesh_init_sdata(struct ieee80211_sub_if_data *sdata);
 ieee80211_rx_result
-ieee80211_mesh_rx_mgmt(struct ieee80211_sub_if_data *sdata, struct sk_buff *skb,
-		       struct ieee80211_rx_status *rx_status);
+ieee80211_mesh_rx_mgmt(struct ieee80211_sub_if_data *sdata, struct sk_buff *skb);
 void ieee80211_start_mesh(struct ieee80211_sub_if_data *sdata);
 void ieee80211_stop_mesh(struct ieee80211_sub_if_data *sdata);
+void ieee80211_mesh_root_setup(struct ieee80211_if_mesh *ifmsh);
 
 /* Mesh paths */
 int mesh_nexthop_lookup(struct sk_buff *skb,
@@ -247,12 +279,13 @@ void mesh_rx_plink_frame(struct ieee80211_sub_if_data *sdata,
 /* Mesh tables */
 struct mesh_table *mesh_table_alloc(int size_order);
 void mesh_table_free(struct mesh_table *tbl, bool free_leafs);
-struct mesh_table *mesh_table_grow(struct mesh_table *tbl);
+void mesh_mpath_table_grow(void);
+void mesh_mpp_table_grow(void);
 u32 mesh_table_hash(u8 *addr, struct ieee80211_sub_if_data *sdata,
 		struct mesh_table *tbl);
 /* Mesh paths */
-int mesh_path_error_tx(u8 *dest, __le32 dest_dsn, u8 *ra,
-		struct ieee80211_sub_if_data *sdata);
+int mesh_path_error_tx(u8 ttl, u8 *target, __le32 target_sn, __le16 target_rcode,
+		       const u8 *ra, struct ieee80211_sub_if_data *sdata);
 void mesh_path_assign_nexthop(struct mesh_path *mpath, struct sta_info *sta);
 void mesh_path_flush_pending(struct mesh_path *mpath);
 void mesh_path_tx_pending(struct mesh_path *mpath);
@@ -265,6 +298,9 @@ void mesh_path_discard_frame(struct sk_buff *skb,
 		struct ieee80211_sub_if_data *sdata);
 void mesh_path_quiesce(struct ieee80211_sub_if_data *sdata);
 void mesh_path_restart(struct ieee80211_sub_if_data *sdata);
+void mesh_path_tx_root_frame(struct ieee80211_sub_if_data *sdata);
+
+extern int mesh_paths_generation;
 
 #ifdef CONFIG_MAC80211_MESH
 extern int mesh_allocated;

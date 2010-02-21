@@ -30,10 +30,19 @@
 #include "radeon.h"
 #include "radeon_drm.h"
 
+int radeon_driver_unload_kms(struct drm_device *dev)
+{
+	struct radeon_device *rdev = dev->dev_private;
 
-/*
- * Driver load/unload
- */
+	if (rdev == NULL)
+		return 0;
+	radeon_modeset_fini(rdev);
+	radeon_device_fini(rdev);
+	kfree(rdev);
+	dev->dev_private = NULL;
+	return 0;
+}
+
 int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags)
 {
 	struct radeon_device *rdev;
@@ -54,25 +63,28 @@ int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags)
 		flags |= RADEON_IS_PCI;
 	}
 
+	/* radeon_device_init should report only fatal error
+	 * like memory allocation failure or iomapping failure,
+	 * or memory manager initialization failure, it must
+	 * properly initialize the GPU MC controller and permit
+	 * VRAM allocation
+	 */
 	r = radeon_device_init(rdev, dev, dev->pdev, flags);
 	if (r) {
-		DRM_ERROR("Failed to initialize radeon, disabling IOCTL\n");
-		radeon_device_fini(rdev);
-		kfree(rdev);
-		dev->dev_private = NULL;
-		return r;
+		dev_err(&dev->pdev->dev, "Fatal error during GPU init\n");
+		goto out;
 	}
-	return 0;
-}
-
-int radeon_driver_unload_kms(struct drm_device *dev)
-{
-	struct radeon_device *rdev = dev->dev_private;
-
-	radeon_device_fini(rdev);
-	kfree(rdev);
-	dev->dev_private = NULL;
-	return 0;
+	/* Again modeset_init should fail only on fatal error
+	 * otherwise it should provide enough functionalities
+	 * for shadowfb to run
+	 */
+	r = radeon_modeset_init(rdev);
+	if (r)
+		dev_err(&dev->pdev->dev, "Fatal error during modeset init\n");
+out:
+	if (r)
+		radeon_driver_unload_kms(dev);
+	return r;
 }
 
 
@@ -97,6 +109,9 @@ int radeon_info_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 		break;
 	case RADEON_INFO_NUM_Z_PIPES:
 		value = rdev->num_z_pipes;
+		break;
+	case RADEON_INFO_ACCEL_WORKING:
+		value = rdev->accel_working;
 		break;
 	default:
 		DRM_DEBUG("Invalid request %d\n", info->request);
@@ -180,55 +195,6 @@ void radeon_disable_vblank_kms(struct drm_device *dev, int crtc)
 	rdev->irq.crtc_vblank_int[crtc] = false;
 
 	radeon_irq_set(rdev);
-}
-
-
-/*
- * For multiple master (like multiple X).
- */
-struct drm_radeon_master_private {
-	drm_local_map_t *sarea;
-	drm_radeon_sarea_t *sarea_priv;
-};
-
-int radeon_master_create_kms(struct drm_device *dev, struct drm_master *master)
-{
-	struct drm_radeon_master_private *master_priv;
-	unsigned long sareapage;
-	int ret;
-
-	master_priv = kzalloc(sizeof(*master_priv), GFP_KERNEL);
-	if (master_priv == NULL) {
-		return -ENOMEM;
-	}
-	/* prebuild the SAREA */
-	sareapage = max_t(unsigned long, SAREA_MAX, PAGE_SIZE);
-	ret = drm_addmap(dev, 0, sareapage, _DRM_SHM,
-			 _DRM_CONTAINS_LOCK,
-			 &master_priv->sarea);
-	if (ret) {
-		DRM_ERROR("SAREA setup failed\n");
-		return ret;
-	}
-	master_priv->sarea_priv = master_priv->sarea->handle + sizeof(struct drm_sarea);
-	master_priv->sarea_priv->pfCurrentPage = 0;
-	master->driver_priv = master_priv;
-	return 0;
-}
-
-void radeon_master_destroy_kms(struct drm_device *dev,
-			       struct drm_master *master)
-{
-	struct drm_radeon_master_private *master_priv = master->driver_priv;
-
-	if (master_priv == NULL) {
-		return;
-	}
-	if (master_priv->sarea) {
-		drm_rmmap_locked(dev, master_priv->sarea);
-	}
-	kfree(master_priv);
-	master->driver_priv = NULL;
 }
 
 

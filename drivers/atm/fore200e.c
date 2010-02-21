@@ -1795,7 +1795,7 @@ fore200e_getsockopt(struct atm_vcc* vcc, int level, int optname, void __user *op
 
 
 static int
-fore200e_setsockopt(struct atm_vcc* vcc, int level, int optname, void __user *optval, int optlen)
+fore200e_setsockopt(struct atm_vcc* vcc, int level, int optname, void __user *optval, unsigned int optlen)
 {
     /* struct fore200e* fore200e = FORE200E_DEV(vcc->dev); */
     
@@ -2906,8 +2906,8 @@ fore200e_proc_read(struct atm_dev *dev, loff_t* pos, char* page)
 	u32 media_index    = FORE200E_MEDIA_INDEX(fore200e->bus->read(&fore200e->cp_queues->media_type));
 	u32 oc3_index;
 
-	if ((media_index < 0) || (media_index > 4))
-	    media_index = 5;
+	if (media_index > 4)
+		media_index = 5;
 	
 	switch (fore200e->loop_mode) {
 	    case ATM_LM_NONE:    oc3_index = 0;

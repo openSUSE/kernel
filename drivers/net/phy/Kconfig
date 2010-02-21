@@ -56,6 +56,12 @@ config BROADCOM_PHY
 	  Currently supports the BCM5411, BCM5421, BCM5461, BCM5464, BCM5481
 	  and BCM5482 PHYs.
 
+config BCM63XX_PHY
+	tristate "Drivers for Broadcom 63xx SOCs internal PHY"
+	depends on BCM63XX
+	---help---
+	  Currently supports the 6348 and 6358 PHYs.
+
 config ICPLUS_PHY
 	tristate "Drivers for ICPlus PHYs"
 	---help---
@@ -108,5 +114,16 @@ config MDIO_GPIO
 
 	  To compile this driver as a module, choose M here: the module
 	  will be called mdio-gpio.
+
+config MDIO_OCTEON
+	tristate "Support for MDIO buses on Octeon SOCs"
+	depends on  CPU_CAVIUM_OCTEON
+	default y
+	help
+
+	  This module provides a driver for the Octeon MDIO busses.
+	  It is required by the Octeon Ethernet device drivers.
+
+	  If in doubt, say Y.
 
 endif # PHYLIB

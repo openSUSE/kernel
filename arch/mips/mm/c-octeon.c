@@ -79,7 +79,7 @@ static void octeon_flush_icache_all_cores(struct vm_area_struct *vma)
 	 * cores it has been used on
 	 */
 	if (vma)
-		mask = vma->vm_mm->cpu_vm_mask;
+		mask = *mm_cpumask(vma->vm_mm);
 	else
 		mask = cpu_online_map;
 	cpu_clear(cpu, mask);
@@ -174,7 +174,7 @@ static void octeon_flush_cache_page(struct vm_area_struct *vma,
  * Probe Octeon's caches
  *
  */
-static void __devinit probe_octeon(void)
+static void __cpuinit probe_octeon(void)
 {
 	unsigned long icache_size;
 	unsigned long dcache_size;
@@ -235,7 +235,7 @@ static void __devinit probe_octeon(void)
  * Setup the Octeon cache flush routines
  *
  */
-void __devinit octeon_cache_init(void)
+void __cpuinit octeon_cache_init(void)
 {
 	extern unsigned long ebase;
 	extern char except_vec2_octeon;

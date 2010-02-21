@@ -348,6 +348,8 @@ struct snd_pcm_group {		/* keep linked substreams */
 	int count;
 };
 
+struct pid;
+
 struct snd_pcm_substream {
 	struct snd_pcm *pcm;
 	struct snd_pcm_str *pstr;
@@ -379,6 +381,7 @@ struct snd_pcm_substream {
 	atomic_t mmap_count;
 	unsigned int f_flags;
 	void (*pcm_release)(struct snd_pcm_substream *);
+	struct pid *pid;
 #if defined(CONFIG_SND_PCM_OSS) || defined(CONFIG_SND_PCM_OSS_MODULE)
 	/* -- OSS things -- */
 	struct snd_pcm_oss_substream oss;
@@ -902,6 +905,7 @@ int snd_pcm_lib_preallocate_pages_for_all(struct snd_pcm *pcm,
 int snd_pcm_lib_malloc_pages(struct snd_pcm_substream *substream, size_t size);
 int snd_pcm_lib_free_pages(struct snd_pcm_substream *substream);
 
+#ifdef CONFIG_SND_DMA_SGBUF
 /*
  * SG-buffer handling
  */
@@ -926,6 +930,28 @@ struct page *snd_pcm_sgbuf_ops_page(struct snd_pcm_substream *substream,
 				    unsigned long offset);
 unsigned int snd_pcm_sgbuf_get_chunk_size(struct snd_pcm_substream *substream,
 					  unsigned int ofs, unsigned int size);
+
+#else /* !SND_DMA_SGBUF */
+/*
+ * fake using a continuous buffer
+ */
+static inline dma_addr_t
+snd_pcm_sgbuf_get_addr(struct snd_pcm_substream *substream, unsigned int ofs)
+{
+	return substream->runtime->dma_addr + ofs;
+}
+
+static inline void *
+snd_pcm_sgbuf_get_ptr(struct snd_pcm_substream *substream, unsigned int ofs)
+{
+	return substream->runtime->dma_area + ofs;
+}
+
+#define snd_pcm_sgbuf_ops_page	NULL
+
+#define snd_pcm_sgbuf_get_chunk_size(subs, ofs, size)	(size)
+
+#endif /* SND_DMA_SGBUF */
 
 /* handle mmap counter - PCM mmap callback should handle this counter properly */
 static inline void snd_pcm_mmap_data_open(struct vm_area_struct *area)
@@ -964,5 +990,7 @@ static inline void snd_pcm_limit_isa_dma_size(int dma, size_t *max)
 					 (IEC958_AES3_CON_FS_48000<<24))
 
 #define PCM_RUNTIME_CHECK(sub) snd_BUG_ON(!(sub) || !(sub)->runtime)
+
+const char *snd_pcm_format_name(snd_pcm_format_t format);
 
 #endif /* __SOUND_PCM_H */

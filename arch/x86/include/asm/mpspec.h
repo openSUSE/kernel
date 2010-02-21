@@ -4,6 +4,7 @@
 #include <linux/init.h>
 
 #include <asm/mpspec_def.h>
+#include <asm/x86_init.h>
 
 extern int apic_version[MAX_APICS];
 extern int pic_mode;
@@ -41,9 +42,6 @@ extern int quad_local_to_mp_bus_id [NR_CPUS/4][4];
 
 #endif /* CONFIG_X86_64 */
 
-extern void early_find_smp_config(void);
-extern void early_get_smp_config(void);
-
 #if defined(CONFIG_MCA) || defined(CONFIG_EISA)
 extern int mp_bus_id_to_type[MAX_MP_BUSSES];
 #endif
@@ -52,20 +50,50 @@ extern DECLARE_BITMAP(mp_bus_not_pci, MAX_MP_BUSSES);
 
 extern unsigned int boot_cpu_physical_apicid;
 extern unsigned int max_physical_apicid;
-extern int smp_found_config;
 extern int mpc_default_type;
 extern unsigned long mp_lapic_addr;
 
-extern void get_smp_config(void);
+#ifdef CONFIG_X86_LOCAL_APIC
+extern int smp_found_config;
+#else
+# define smp_found_config 0
+#endif
+
+static inline void get_smp_config(void)
+{
+	x86_init.mpparse.get_smp_config(0);
+}
+
+static inline void early_get_smp_config(void)
+{
+	x86_init.mpparse.get_smp_config(1);
+}
+
+static inline void find_smp_config(void)
+{
+	x86_init.mpparse.find_smp_config();
+}
 
 #ifdef CONFIG_X86_MPPARSE
-extern void find_smp_config(void);
 extern void early_reserve_e820_mpc_new(void);
 extern int enable_update_mptable;
+extern int default_mpc_apic_id(struct mpc_cpu *m);
+extern void default_smp_read_mpc_oem(struct mpc_table *mpc);
+# ifdef CONFIG_X86_IO_APIC
+extern void default_mpc_oem_bus_info(struct mpc_bus *m, char *str);
+# else
+#  define default_mpc_oem_bus_info NULL
+# endif
+extern void default_find_smp_config(void);
+extern void default_get_smp_config(unsigned int early);
 #else
-static inline void find_smp_config(void) { }
 static inline void early_reserve_e820_mpc_new(void) { }
 #define enable_update_mptable 0
+#define default_mpc_apic_id NULL
+#define default_smp_read_mpc_oem NULL
+#define default_mpc_oem_bus_info NULL
+#define default_find_smp_config x86_init_noop
+#define default_get_smp_config x86_init_uint_noop
 #endif
 
 void __cpuinit generic_processor_info(int apicid, int version);
@@ -130,14 +158,16 @@ typedef struct physid_mask physid_mask_t;
 #define physids_shift_left(d, s, n)				\
 	bitmap_shift_left((d).mask, (s).mask, n, MAX_APICS)
 
-#define physids_coerce(map)			((map).mask[0])
+static inline unsigned long physids_coerce(physid_mask_t *map)
+{
+	return map->mask[0];
+}
 
-#define physids_promote(physids)					\
-	({								\
-		physid_mask_t __physid_mask = PHYSID_MASK_NONE;		\
-		__physid_mask.mask[0] = physids;			\
-		__physid_mask;						\
-	})
+static inline void physids_promote(unsigned long physids, physid_mask_t *map)
+{
+	physids_clear(*map);
+	map->mask[0] = physids;
+}
 
 /* Note: will create very large stack frames if physid_mask_t is big */
 #define physid_mask_of_physid(physid)					\

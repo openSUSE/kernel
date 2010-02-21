@@ -120,7 +120,7 @@ static int irq = 5;		/* Default IRQ */
  *      DAYNA driver mode:
  *              Dayna DL2000/DaynaTalk PC (Half Length), COPS LT-95, 
  *		Farallon PhoneNET PC III, Farallon PhoneNET PC II
- *	Other cards possibly supported mode unkown though:
+ *	Other cards possibly supported mode unknown though:
  *		Dayna DL2000 (Full length), COPS LT/M (Micro-Channel)
  *
  *	Cards NOT supported by this driver but supported by the ltpc.c
@@ -192,7 +192,8 @@ static irqreturn_t cops_interrupt (int irq, void *dev_id);
 static void cops_poll (unsigned long ltdev);
 static void cops_timeout(struct net_device *dev);
 static void cops_rx (struct net_device *dev);
-static int  cops_send_packet (struct sk_buff *skb, struct net_device *dev);
+static netdev_tx_t  cops_send_packet (struct sk_buff *skb,
+					    struct net_device *dev);
 static void set_multicast_list (struct net_device *dev);
 static int  cops_ioctl (struct net_device *dev, struct ifreq *rq, int cmd);
 static int  cops_close (struct net_device *dev);
@@ -327,7 +328,7 @@ static int __init cops_probe1(struct net_device *dev, int ioaddr)
 
 	/* Reserve any actual interrupt. */
 	if (dev->irq) {
-		retval = request_irq(dev->irq, &cops_interrupt, 0, dev->name, dev);
+		retval = request_irq(dev->irq, cops_interrupt, 0, dev->name, dev);
 		if (retval)
 			goto err_out;
 	}
@@ -875,7 +876,8 @@ static void cops_timeout(struct net_device *dev)
  *	Make the card transmit a LocalTalk packet.
  */
 
-static int cops_send_packet(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t cops_send_packet(struct sk_buff *skb,
+					  struct net_device *dev)
 {
         struct cops_local *lp = netdev_priv(dev);
         int ioaddr = dev->base_addr;
@@ -920,7 +922,7 @@ static int cops_send_packet(struct sk_buff *skb, struct net_device *dev)
 	dev->stats.tx_bytes += skb->len;
 	dev->trans_start = jiffies;
 	dev_kfree_skb (skb);
-        return 0;
+        return NETDEV_TX_OK;
 }
 
 /*

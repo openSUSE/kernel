@@ -71,11 +71,7 @@ extern int __down_write_trylock(struct rw_anon_semaphore *sem);
 extern void __up_read(struct rw_anon_semaphore *sem);
 extern void __up_write(struct rw_anon_semaphore *sem);
 extern void __downgrade_write(struct rw_anon_semaphore *sem);
-
-static inline int anon_rwsem_is_locked(struct rw_anon_semaphore *sem)
-{
-	return (sem->activity != 0);
-}
+ extern int anon_rwsem_is_locked(struct rw_anon_semaphore *sem);
 
 #ifndef CONFIG_PREEMPT_RT
 /*
@@ -128,9 +124,9 @@ do {								\
 
 static inline int rwsem_is_locked(struct rw_semaphore *sem)
 {
-	return (sem->activity != 0);
+	return anon_rwsem_is_locked((struct rw_anon_semaphore *)sem);
 }
-#endif
+#endif /* !PREEMPT_RT */
 
 #endif /* __KERNEL__ */
 #endif /* _LINUX_RWSEM_SPINLOCK_H */

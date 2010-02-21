@@ -32,6 +32,7 @@
 #include <linux/swap.h>
 #include <linux/bootmem.h>
 #include <linux/fs_struct.h>
+#include <linux/hardirq.h>
 #include "internal.h"
 
 int sysctl_vfs_cache_pressure __read_mostly = 100;
@@ -978,6 +979,7 @@ struct dentry *d_alloc_name(struct dentry *parent, const char *name)
 	q.hash = full_name_hash(q.name, q.len);
 	return d_alloc(parent, &q);
 }
+EXPORT_SYMBOL(d_alloc_name);
 
 /* the caller must hold dcache_lock */
 static void __d_instantiate(struct dentry *dentry, struct inode *inode)

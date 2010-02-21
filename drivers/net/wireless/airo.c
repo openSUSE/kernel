@@ -1920,14 +1920,16 @@ static int airo_open(struct net_device *dev) {
 	return 0;
 }
 
-static int mpi_start_xmit(struct sk_buff *skb, struct net_device *dev) {
+static netdev_tx_t mpi_start_xmit(struct sk_buff *skb,
+					struct net_device *dev)
+{
 	int npacks, pending;
 	unsigned long flags;
 	struct airo_info *ai = dev->ml_priv;
 
 	if (!skb) {
 		airo_print_err(dev->name, "%s: skb == NULL!",__func__);
-		return 0;
+		return NETDEV_TX_OK;
 	}
 	npacks = skb_queue_len (&ai->txq);
 
@@ -1938,7 +1940,7 @@ static int mpi_start_xmit(struct sk_buff *skb, struct net_device *dev) {
 			return NETDEV_TX_BUSY;
 		}
 		skb_queue_tail (&ai->txq, skb);
-		return 0;
+		return NETDEV_TX_OK;
 	}
 
 	spin_lock_irqsave(&ai->aux_lock, flags);
@@ -1951,7 +1953,7 @@ static int mpi_start_xmit(struct sk_buff *skb, struct net_device *dev) {
 		set_bit(FLAG_PENDING_XMIT, &ai->flags);
 		mpi_send_packet (dev);
 	}
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /*
@@ -2119,7 +2121,9 @@ static void airo_end_xmit(struct net_device *dev) {
 	dev_kfree_skb(skb);
 }
 
-static int airo_start_xmit(struct sk_buff *skb, struct net_device *dev) {
+static netdev_tx_t airo_start_xmit(struct sk_buff *skb,
+					 struct net_device *dev)
+{
 	s16 len;
 	int i, j;
 	struct airo_info *priv = dev->ml_priv;
@@ -2127,7 +2131,7 @@ static int airo_start_xmit(struct sk_buff *skb, struct net_device *dev) {
 
 	if ( skb == NULL ) {
 		airo_print_err(dev->name, "%s: skb == NULL!", __func__);
-		return 0;
+		return NETDEV_TX_OK;
 	}
 
 	/* Find a vacant FID */
@@ -2155,7 +2159,7 @@ static int airo_start_xmit(struct sk_buff *skb, struct net_device *dev) {
 		wake_up_interruptible(&priv->thr_wait);
 	} else
 		airo_end_xmit(dev);
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 static void airo_end_xmit11(struct net_device *dev) {
@@ -2184,7 +2188,9 @@ static void airo_end_xmit11(struct net_device *dev) {
 	dev_kfree_skb(skb);
 }
 
-static int airo_start_xmit11(struct sk_buff *skb, struct net_device *dev) {
+static netdev_tx_t airo_start_xmit11(struct sk_buff *skb,
+					   struct net_device *dev)
+{
 	s16 len;
 	int i, j;
 	struct airo_info *priv = dev->ml_priv;
@@ -2199,7 +2205,7 @@ static int airo_start_xmit11(struct sk_buff *skb, struct net_device *dev) {
 
 	if ( skb == NULL ) {
 		airo_print_err(dev->name, "%s: skb == NULL!", __func__);
-		return 0;
+		return NETDEV_TX_OK;
 	}
 
 	/* Find a vacant FID */
@@ -2227,7 +2233,7 @@ static int airo_start_xmit11(struct sk_buff *skb, struct net_device *dev) {
 		wake_up_interruptible(&priv->thr_wait);
 	} else
 		airo_end_xmit11(dev);
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 static void airo_read_stats(struct net_device *dev)
@@ -4784,9 +4790,8 @@ static int proc_stats_rid_open( struct inode *inode,
 static int get_dec_u16( char *buffer, int *start, int limit ) {
 	u16 value;
 	int valid = 0;
-	for( value = 0; buffer[*start] >= '0' &&
-		     buffer[*start] <= '9' &&
-		     *start < limit; (*start)++ ) {
+	for (value = 0; *start < limit && buffer[*start] >= '0' &&
+			buffer[*start] <= '9'; (*start)++) {
 		valid = 1;
 		value *= 10;
 		value += buffer[*start] - '0';
@@ -4801,7 +4806,7 @@ static int airo_config_commit(struct net_device *dev,
 
 static inline int sniffing_mode(struct airo_info *ai)
 {
-	return le16_to_cpu(ai->config.rmode & RXMODE_MASK) >=
+	return (le16_to_cpu(ai->config.rmode) & le16_to_cpu(RXMODE_MASK)) >=
 		le16_to_cpu(RXMODE_RFMON);
 }
 
@@ -5654,7 +5659,8 @@ static int airo_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 
 	pci_enable_wake(pdev, pci_choose_state(pdev, state), 1);
 	pci_save_state(pdev);
-	return pci_set_power_state(pdev, pci_choose_state(pdev, state));
+	pci_set_power_state(pdev, pci_choose_state(pdev, state));
+	return 0;
 }
 
 static int airo_pci_resume(struct pci_dev *pdev)

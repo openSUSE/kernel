@@ -801,14 +801,14 @@ static int lance_open(struct net_device *dev)
 	netif_start_queue(dev);
 
 	/* Associate IRQ with lance_interrupt */
-	if (request_irq(dev->irq, &lance_interrupt, 0, "lance", dev)) {
+	if (request_irq(dev->irq, lance_interrupt, 0, "lance", dev)) {
 		printk("%s: Can't get IRQ %d\n", dev->name, dev->irq);
 		return -EAGAIN;
 	}
 	if (lp->dma_irq >= 0) {
 		unsigned long flags;
 
-		if (request_irq(lp->dma_irq, &lance_dma_merr_int, 0,
+		if (request_irq(lp->dma_irq, lance_dma_merr_int, 0,
 				"lance error", dev)) {
 			free_irq(dev->irq, dev);
 			printk("%s: Can't get DMA IRQ %d\n", dev->name,
@@ -902,7 +902,7 @@ static int lance_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	if (len < ETH_ZLEN) {
 		if (skb_padto(skb, ETH_ZLEN))
-			return 0;
+			return NETDEV_TX_OK;
 		len = ETH_ZLEN;
 	}
 
@@ -933,7 +933,7 @@ static int lance_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	dev->trans_start = jiffies;
 	dev_kfree_skb(skb);
 
- 	return 0;
+ 	return NETDEV_TX_OK;
 }
 
 static void lance_load_multicast(struct net_device *dev)

@@ -33,8 +33,9 @@
 /*
  * Returns a bitmask of CPUs on Node 'node'.
  */
-#define node_to_cpumask(node) (node_to_cpu_mask[node])
-#define cpumask_of_node(node) (&node_to_cpu_mask[node])
+#define cpumask_of_node(node) ((node) == -1 ?				\
+			       cpu_all_mask :				\
+			       &node_to_cpu_mask[node])
 
 /*
  * Returns the number of the node containing Node 'nid'.
@@ -61,12 +62,13 @@ void build_cpu_to_node_map(void);
 	.cache_nice_tries	= 2,			\
 	.busy_idx		= 2,			\
 	.idle_idx		= 1,			\
-	.newidle_idx		= 2,			\
-	.wake_idx		= 1,			\
-	.forkexec_idx		= 1,			\
+	.newidle_idx		= 0,			\
+	.wake_idx		= 0,			\
+	.forkexec_idx		= 0,			\
 	.flags			= SD_LOAD_BALANCE	\
 				| SD_BALANCE_NEWIDLE	\
 				| SD_BALANCE_EXEC	\
+				| SD_BALANCE_FORK	\
 				| SD_WAKE_AFFINE,	\
 	.last_balance		= jiffies,		\
 	.balance_interval	= 1,			\
@@ -85,14 +87,14 @@ void build_cpu_to_node_map(void);
 	.cache_nice_tries	= 2,			\
 	.busy_idx		= 3,			\
 	.idle_idx		= 2,			\
-	.newidle_idx		= 2,			\
-	.wake_idx		= 1,			\
-	.forkexec_idx		= 1,			\
+	.newidle_idx		= 0,			\
+	.wake_idx		= 0,			\
+	.forkexec_idx		= 0,			\
 	.flags			= SD_LOAD_BALANCE	\
+				| SD_BALANCE_NEWIDLE	\
 				| SD_BALANCE_EXEC	\
 				| SD_BALANCE_FORK	\
-				| SD_SERIALIZE		\
-				| SD_WAKE_BALANCE,	\
+				| SD_SERIALIZE,		\
 	.last_balance		= jiffies,		\
 	.balance_interval	= 64,			\
 	.nr_balance_failed	= 0,			\
@@ -103,8 +105,6 @@ void build_cpu_to_node_map(void);
 #ifdef CONFIG_SMP
 #define topology_physical_package_id(cpu)	(cpu_data(cpu)->socket_id)
 #define topology_core_id(cpu)			(cpu_data(cpu)->core_id)
-#define topology_core_siblings(cpu)		(cpu_core_map[cpu])
-#define topology_thread_siblings(cpu)		(per_cpu(cpu_sibling_map, cpu))
 #define topology_core_cpumask(cpu)		(&cpu_core_map[cpu])
 #define topology_thread_cpumask(cpu)		(&per_cpu(cpu_sibling_map, cpu))
 #define smt_capable() 				(smp_num_siblings > 1)

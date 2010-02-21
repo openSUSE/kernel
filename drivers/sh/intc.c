@@ -2,6 +2,7 @@
  * Shared interrupt handling code for IPR and INTC2 types of IRQs.
  *
  * Copyright (C) 2007, 2008 Magnus Damm
+ * Copyright (C) 2009 Paul Mundt
  *
  * Based on intc2.c and ipr.c
  *
@@ -24,6 +25,7 @@
 #include <linux/sysdev.h>
 #include <linux/list.h>
 #include <linux/topology.h>
+#include <linux/bitmap.h>
 
 #define _INTC_MK(fn, mode, addr_e, addr_d, width, shift) \
 	((shift) | ((width) << 5) | ((fn) << 9) | ((mode) << 13) | \
@@ -59,6 +61,20 @@ struct intc_desc_int {
 
 static LIST_HEAD(intc_list);
 
+/*
+ * The intc_irq_map provides a global map of bound IRQ vectors for a
+ * given platform. Allocation of IRQs are either static through the CPU
+ * vector map, or dynamic in the case of board mux vectors or MSI.
+ *
+ * As this is a central point for all IRQ controllers on the system,
+ * each of the available sources are mapped out here. This combined with
+ * sparseirq makes it quite trivial to keep the vector map tightly packed
+ * when dynamically creating IRQs, as well as tying in to otherwise
+ * unused irq_desc positions in the sparse array.
+ */
+static DECLARE_BITMAP(intc_irq_map, NR_IRQS);
+static DEFINE_SPINLOCK(vector_lock);
+
 #ifdef CONFIG_SMP
 #define IS_SMP(x) x.smp
 #define INTC_REG(d, x, c) (d->reg[(x)] + ((d->smp[(x)] & 0xff) * c))
@@ -70,14 +86,12 @@ static LIST_HEAD(intc_list);
 #endif
 
 static unsigned int intc_prio_level[NR_IRQS]; /* for now */
-#if defined(CONFIG_CPU_SH3) || defined(CONFIG_CPU_SH4A)
 static unsigned long ack_handle[NR_IRQS];
-#endif
 
 static inline struct intc_desc_int *get_intc_desc(unsigned int irq)
 {
 	struct irq_chip *chip = get_irq_chip(irq);
-	return (void *)((char *)chip - offsetof(struct intc_desc_int, chip));
+	return container_of(chip, struct intc_desc_int, chip);
 }
 
 static inline unsigned int set_field(unsigned int value,
@@ -95,16 +109,19 @@ static inline unsigned int set_field(unsigned int value,
 static void write_8(unsigned long addr, unsigned long h, unsigned long data)
 {
 	__raw_writeb(set_field(0, data, h), addr);
+	(void)__raw_readb(addr);	/* Defeat write posting */
 }
 
 static void write_16(unsigned long addr, unsigned long h, unsigned long data)
 {
 	__raw_writew(set_field(0, data, h), addr);
+	(void)__raw_readw(addr);	/* Defeat write posting */
 }
 
 static void write_32(unsigned long addr, unsigned long h, unsigned long data)
 {
 	__raw_writel(set_field(0, data, h), addr);
+	(void)__raw_readl(addr);	/* Defeat write posting */
 }
 
 static void modify_8(unsigned long addr, unsigned long h, unsigned long data)
@@ -112,6 +129,7 @@ static void modify_8(unsigned long addr, unsigned long h, unsigned long data)
 	unsigned long flags;
 	local_irq_save(flags);
 	__raw_writeb(set_field(__raw_readb(addr), data, h), addr);
+	(void)__raw_readb(addr);	/* Defeat write posting */
 	local_irq_restore(flags);
 }
 
@@ -120,6 +138,7 @@ static void modify_16(unsigned long addr, unsigned long h, unsigned long data)
 	unsigned long flags;
 	local_irq_save(flags);
 	__raw_writew(set_field(__raw_readw(addr), data, h), addr);
+	(void)__raw_readw(addr);	/* Defeat write posting */
 	local_irq_restore(flags);
 }
 
@@ -128,6 +147,7 @@ static void modify_32(unsigned long addr, unsigned long h, unsigned long data)
 	unsigned long flags;
 	local_irq_save(flags);
 	__raw_writel(set_field(__raw_readl(addr), data, h), addr);
+	(void)__raw_readl(addr);	/* Defeat write posting */
 	local_irq_restore(flags);
 }
 
@@ -244,7 +264,6 @@ static int intc_set_wake(unsigned int irq, unsigned int on)
 	return 0; /* allow wakeup, but setup hardware in intc_suspend() */
 }
 
-#if defined(CONFIG_CPU_SH3) || defined(CONFIG_CPU_SH4A)
 static void intc_mask_ack(unsigned int irq)
 {
 	struct intc_desc_int *d = get_intc_desc(irq);
@@ -276,7 +295,6 @@ static void intc_mask_ack(unsigned int irq)
 		}
 	}
 }
-#endif
 
 static struct intc_handle_int *intc_find_irq(struct intc_handle_int *hp,
 					     unsigned int nr_hp,
@@ -495,7 +513,6 @@ static unsigned int __init intc_prio_data(struct intc_desc *desc,
 	return 0;
 }
 
-#if defined(CONFIG_CPU_SH3) || defined(CONFIG_CPU_SH4A)
 static unsigned int __init intc_ack_data(struct intc_desc *desc,
 					  struct intc_desc_int *d,
 					  intc_enum enum_id)
@@ -527,7 +544,6 @@ static unsigned int __init intc_ack_data(struct intc_desc *desc,
 
 	return 0;
 }
-#endif
 
 static unsigned int __init intc_sense_data(struct intc_desc *desc,
 					   struct intc_desc_int *d,
@@ -565,6 +581,11 @@ static void __init intc_register_irq(struct intc_desc *desc,
 {
 	struct intc_handle_int *hp;
 	unsigned int data[2], primary;
+
+	/*
+	 * Register the IRQ position with the global IRQ map
+	 */
+	set_bit(irq, intc_irq_map);
 
 	/* Prefer single interrupt source bitmap over other combinations:
 	 * 1. bitmap, single interrupt source
@@ -635,10 +656,8 @@ static void __init intc_register_irq(struct intc_desc *desc,
 	/* irq should be disabled by default */
 	d->chip.mask(irq);
 
-#if defined(CONFIG_CPU_SH3) || defined(CONFIG_CPU_SH4A)
 	if (desc->ack_regs)
 		ack_handle[irq] = intc_ack_data(desc, d, enum_id);
-#endif
 }
 
 static unsigned int __init save_reg(struct intc_desc_int *d,
@@ -657,16 +676,9 @@ static unsigned int __init save_reg(struct intc_desc_int *d,
 	return 0;
 }
 
-static unsigned char *intc_evt2irq_table;
-
-unsigned int intc_evt2irq(unsigned int vector)
+static void intc_redirect_irq(unsigned int irq, struct irq_desc *desc)
 {
-	unsigned int irq = evt2irq(vector);
-
-	if (intc_evt2irq_table && intc_evt2irq_table[irq])
-		irq = intc_evt2irq_table[irq];
-
-	return irq;
+	generic_handle_irq((unsigned int)get_irq_data(irq));
 }
 
 void __init register_intc_controller(struct intc_desc *desc)
@@ -682,10 +694,8 @@ void __init register_intc_controller(struct intc_desc *desc)
 	d->nr_reg = desc->mask_regs ? desc->nr_mask_regs * 2 : 0;
 	d->nr_reg += desc->prio_regs ? desc->nr_prio_regs * 2 : 0;
 	d->nr_reg += desc->sense_regs ? desc->nr_sense_regs : 0;
-
-#if defined(CONFIG_CPU_SH3) || defined(CONFIG_CPU_SH4A)
 	d->nr_reg += desc->ack_regs ? desc->nr_ack_regs : 0;
-#endif
+
 	d->reg = kzalloc(d->nr_reg * sizeof(*d->reg), GFP_NOWAIT);
 #ifdef CONFIG_SMP
 	d->smp = kzalloc(d->nr_reg * sizeof(*d->smp), GFP_NOWAIT);
@@ -728,44 +738,14 @@ void __init register_intc_controller(struct intc_desc *desc)
 	d->chip.set_type = intc_set_sense;
 	d->chip.set_wake = intc_set_wake;
 
-#if defined(CONFIG_CPU_SH3) || defined(CONFIG_CPU_SH4A)
 	if (desc->ack_regs) {
 		for (i = 0; i < desc->nr_ack_regs; i++)
 			k += save_reg(d, k, desc->ack_regs[i].set_reg, 0);
 
 		d->chip.mask_ack = intc_mask_ack;
 	}
-#endif
 
 	BUG_ON(k > 256); /* _INTC_ADDR_E() and _INTC_ADDR_D() are 8 bits */
-
-	/* keep the first vector only if same enum is used multiple times */
-	for (i = 0; i < desc->nr_vectors; i++) {
-		struct intc_vect *vect = desc->vectors + i;
-		int first_irq = evt2irq(vect->vect);
-
-		if (!vect->enum_id)
-			continue;
-
-		for (k = i + 1; k < desc->nr_vectors; k++) {
-			struct intc_vect *vect2 = desc->vectors + k;
-
-			if (vect->enum_id != vect2->enum_id)
-				continue;
-
-			vect2->enum_id = 0;
-
-			if (!intc_evt2irq_table)
-				intc_evt2irq_table = kzalloc(NR_IRQS, GFP_NOWAIT);
-
-			if (!intc_evt2irq_table) {
-				pr_warning("intc: cannot allocate evt2irq!\n");
-				continue;
-			}
-
-			intc_evt2irq_table[evt2irq(vect2->vect)] = first_irq;
-		}
-	}
 
 	/* register the vectors one by one */
 	for (i = 0; i < desc->nr_vectors; i++) {
@@ -778,11 +758,37 @@ void __init register_intc_controller(struct intc_desc *desc)
 
 		irq_desc = irq_to_desc_alloc_node(irq, numa_node_id());
 		if (unlikely(!irq_desc)) {
-			printk(KERN_INFO "can not get irq_desc for %d\n", irq);
+			pr_info("can't get irq_desc for %d\n", irq);
 			continue;
 		}
 
 		intc_register_irq(desc, d, vect->enum_id, irq);
+
+		for (k = i + 1; k < desc->nr_vectors; k++) {
+			struct intc_vect *vect2 = desc->vectors + k;
+			unsigned int irq2 = evt2irq(vect2->vect);
+
+			if (vect->enum_id != vect2->enum_id)
+				continue;
+
+			/*
+			 * In the case of multi-evt handling and sparse
+			 * IRQ support, each vector still needs to have
+			 * its own backing irq_desc.
+			 */
+			irq_desc = irq_to_desc_alloc_node(irq2, numa_node_id());
+			if (unlikely(!irq_desc)) {
+				pr_info("can't get irq_desc for %d\n", irq2);
+				continue;
+			}
+
+			vect2->enum_id = 0;
+
+			/* redirect this interrupts to the first one */
+			set_irq_chip_and_handler_name(irq2, &d->chip,
+					intc_redirect_irq, "redirect");
+			set_irq_data(irq2, (void *)irq);
+		}
 	}
 }
 
@@ -800,6 +806,8 @@ static int intc_suspend(struct sys_device *dev, pm_message_t state)
 		if (d->state.event != PM_EVENT_FREEZE)
 			break;
 		for_each_irq_desc(irq, desc) {
+			if (desc->handle_irq == intc_redirect_irq)
+				continue;
 			if (desc->chip != &d->chip)
 				continue;
 			if (desc->status & IRQ_DISABLED)
@@ -859,5 +867,91 @@ static int __init register_intc_sysdevs(void)
 
 	return error;
 }
-
 device_initcall(register_intc_sysdevs);
+
+/*
+ * Dynamic IRQ allocation and deallocation
+ */
+static unsigned int create_irq_on_node(unsigned int irq_want, int node)
+{
+	unsigned int irq = 0, new;
+	unsigned long flags;
+	struct irq_desc *desc;
+
+	spin_lock_irqsave(&vector_lock, flags);
+
+	/*
+	 * First try the wanted IRQ, then scan.
+	 */
+	if (test_and_set_bit(irq_want, intc_irq_map)) {
+		new = find_first_zero_bit(intc_irq_map, nr_irqs);
+		if (unlikely(new == nr_irqs))
+			goto out_unlock;
+
+		desc = irq_to_desc_alloc_node(new, node);
+		if (unlikely(!desc)) {
+			pr_info("can't get irq_desc for %d\n", new);
+			goto out_unlock;
+		}
+
+		desc = move_irq_desc(desc, node);
+		__set_bit(new, intc_irq_map);
+		irq = new;
+	}
+
+out_unlock:
+	spin_unlock_irqrestore(&vector_lock, flags);
+
+	if (irq > 0)
+		dynamic_irq_init(irq);
+
+	return irq;
+}
+
+int create_irq(void)
+{
+	int nid = cpu_to_node(smp_processor_id());
+	int irq;
+
+	irq = create_irq_on_node(NR_IRQS_LEGACY, nid);
+	if (irq == 0)
+		irq = -1;
+
+	return irq;
+}
+
+void destroy_irq(unsigned int irq)
+{
+	unsigned long flags;
+
+	dynamic_irq_cleanup(irq);
+
+	spin_lock_irqsave(&vector_lock, flags);
+	__clear_bit(irq, intc_irq_map);
+	spin_unlock_irqrestore(&vector_lock, flags);
+}
+
+int reserve_irq_vector(unsigned int irq)
+{
+	unsigned long flags;
+	int ret = 0;
+
+	spin_lock_irqsave(&vector_lock, flags);
+	if (test_and_set_bit(irq, intc_irq_map))
+		ret = -EBUSY;
+	spin_unlock_irqrestore(&vector_lock, flags);
+
+	return ret;
+}
+
+void reserve_irq_legacy(void)
+{
+	unsigned long flags;
+	int i, j;
+
+	spin_lock_irqsave(&vector_lock, flags);
+	j = find_first_bit(intc_irq_map, nr_irqs);
+	for (i = 0; i < j; i++)
+		__set_bit(i, intc_irq_map);
+	spin_unlock_irqrestore(&vector_lock, flags);
+}

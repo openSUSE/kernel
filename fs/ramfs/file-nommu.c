@@ -60,7 +60,7 @@ const struct inode_operations ramfs_file_inode_operations = {
  */
 int ramfs_nommu_expand_for_mapping(struct inode *inode, size_t newsize)
 {
-	unsigned long npages, xpages, loop, limit;
+	unsigned long npages, xpages, loop;
 	struct page *pages;
 	unsigned order;
 	void *data;
@@ -69,14 +69,11 @@ int ramfs_nommu_expand_for_mapping(struct inode *inode, size_t newsize)
 	/* make various checks */
 	order = get_order(newsize);
 	if (unlikely(order >= MAX_ORDER))
-		goto too_big;
+		return -EFBIG;
 
-	limit = current->signal->rlim[RLIMIT_FSIZE].rlim_cur;
-	if (limit != RLIM_INFINITY && newsize > limit)
-		goto fsize_exceeded;
-
-	if (newsize > inode->i_sb->s_maxbytes)
-		goto too_big;
+	ret = inode_newsize_ok(inode, newsize);
+	if (ret)
+		return ret;
 
 	i_size_write(inode, newsize);
 
@@ -118,39 +115,10 @@ int ramfs_nommu_expand_for_mapping(struct inode *inode, size_t newsize)
 
 	return 0;
 
- fsize_exceeded:
-	send_sig(SIGXFSZ, current, 0);
- too_big:
-	return -EFBIG;
-
- add_error:
+add_error:
 	while (loop < npages)
 		__free_page(pages + loop++);
 	return ret;
-}
-
-/*****************************************************************************/
-/*
- * check that file shrinkage doesn't leave any VMAs dangling in midair
- */
-static int ramfs_nommu_check_mappings(struct inode *inode,
-				      size_t newsize, size_t size)
-{
-	struct vm_area_struct *vma;
-	struct prio_tree_iter iter;
-
-	/* search for VMAs that fall within the dead zone */
-	vma_prio_tree_foreach(vma, &iter, &inode->i_mapping->i_mmap,
-			      newsize >> PAGE_SHIFT,
-			      (size + PAGE_SIZE - 1) >> PAGE_SHIFT
-			      ) {
-		/* found one - only interested if it's shared out of the page
-		 * cache */
-		if (vma->vm_flags & VM_SHARED)
-			return -ETXTBSY; /* not quite true, but near enough */
-	}
-
-	return 0;
 }
 
 /*****************************************************************************/
@@ -172,7 +140,7 @@ static int ramfs_nommu_resize(struct inode *inode, loff_t newsize, loff_t size)
 
 	/* check that a decrease in size doesn't cut off any shared mappings */
 	if (newsize < size) {
-		ret = ramfs_nommu_check_mappings(inode, newsize, size);
+		ret = nommu_shrink_inode_mappings(inode, size, newsize);
 		if (ret < 0)
 			return ret;
 	}

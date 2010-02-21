@@ -157,7 +157,7 @@ static struct hlist_head dn_sk_hash[DN_SK_HASH_SIZE];
 static struct hlist_head dn_wild_sk;
 static atomic_t decnet_memory_allocated;
 
-static int __dn_setsockopt(struct socket *sock, int level, int optname, char __user *optval, int optlen, int flags);
+static int __dn_setsockopt(struct socket *sock, int level, int optname, char __user *optval, unsigned int optlen, int flags);
 static int __dn_getsockopt(struct socket *sock, int level, int optname, char __user *optval, int __user *optlen, int flags);
 
 static struct hlist_head *dn_find_list(struct sock *sk)
@@ -675,11 +675,12 @@ char *dn_addr2asc(__u16 addr, char *buf)
 
 
 
-static int dn_create(struct net *net, struct socket *sock, int protocol)
+static int dn_create(struct net *net, struct socket *sock, int protocol,
+		     int kern)
 {
 	struct sock *sk;
 
-	if (net != &init_net)
+	if (!net_eq(net, &init_net))
 		return -EAFNOSUPPORT;
 
 	switch(sock->type) {
@@ -749,9 +750,9 @@ static int dn_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 
 	if (!(saddr->sdn_flags & SDF_WILD)) {
 		if (le16_to_cpu(saddr->sdn_nodeaddrl)) {
-			read_lock(&dev_base_lock);
+			rcu_read_lock();
 			ldev = NULL;
-			for_each_netdev(&init_net, dev) {
+			for_each_netdev_rcu(&init_net, dev) {
 				if (!dev->dn_ptr)
 					continue;
 				if (dn_dev_islocal(dev, dn_saddr2dn(saddr))) {
@@ -759,7 +760,7 @@ static int dn_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 					break;
 				}
 			}
-			read_unlock(&dev_base_lock);
+			rcu_read_unlock();
 			if (ldev == NULL)
 				return -EADDRNOTAVAIL;
 		}
@@ -1325,7 +1326,7 @@ out:
 	return err;
 }
 
-static int dn_setsockopt(struct socket *sock, int level, int optname, char __user *optval, int optlen)
+static int dn_setsockopt(struct socket *sock, int level, int optname, char __user *optval, unsigned int optlen)
 {
 	struct sock *sk = sock->sk;
 	int err;
@@ -1337,7 +1338,7 @@ static int dn_setsockopt(struct socket *sock, int level, int optname, char __use
 	return err;
 }
 
-static int __dn_setsockopt(struct socket *sock, int level,int optname, char __user *optval, int optlen, int flags)
+static int __dn_setsockopt(struct socket *sock, int level,int optname, char __user *optval, unsigned int optlen, int flags)
 {
 	struct	sock *sk = sock->sk;
 	struct dn_scp *scp = DN_SK(sk);
@@ -1955,7 +1956,7 @@ static int dn_sendmsg(struct kiocb *iocb, struct socket *sock,
 	}
 
 	if ((flags & MSG_TRYHARD) && sk->sk_dst_cache)
-		dst_negative_advice(&sk->sk_dst_cache);
+		dst_negative_advice(&sk->sk_dst_cache, sk);
 
 	mss = scp->segsize_rem;
 	fctype = scp->services_rem & NSP_FC_MASK;
@@ -2325,7 +2326,7 @@ static const struct file_operations dn_socket_seq_fops = {
 };
 #endif
 
-static struct net_proto_family	dn_family_ops = {
+static const struct net_proto_family	dn_family_ops = {
 	.family =	AF_DECnet,
 	.create =	dn_create,
 	.owner	=	THIS_MODULE,

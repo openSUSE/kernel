@@ -77,7 +77,7 @@ static int dlci_header(struct sk_buff *skb, struct net_device *dev,
 	dlp = netdev_priv(dev);
 
 	hdr.control = FRAD_I_UI;
-	switch(type)
+	switch (type)
 	{
 		case ETH_P_IP:
 			hdr.IP_NLPID = FRAD_P_IP;
@@ -130,7 +130,7 @@ static void dlci_receive(struct sk_buff *skb, struct net_device *dev)
 		dev->stats.rx_errors++;
 	}
 	else
-		switch(hdr->IP_NLPID)
+		switch (hdr->IP_NLPID)
 		{
 			case FRAD_P_PADDING:
 				if (hdr->NLPID != FRAD_P_SNAP)
@@ -186,45 +186,13 @@ static void dlci_receive(struct sk_buff *skb, struct net_device *dev)
 		dev_kfree_skb(skb);
 }
 
-static int dlci_transmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t dlci_transmit(struct sk_buff *skb, struct net_device *dev)
 {
-	struct dlci_local *dlp;
-	int					ret;
+	struct dlci_local *dlp = netdev_priv(dev);
 
-	ret = 0;
-
-	if (!skb || !dev)
-		return(0);
-
-	dlp = netdev_priv(dev);
-
-	netif_stop_queue(dev);
-	
-	ret = dlp->slave->netdev_ops->ndo_start_xmit(skb, dlp->slave);
-	switch (ret)
-	{
-		case DLCI_RET_OK:
-			dev->stats.tx_packets++;
-			ret = NETDEV_TX_OK;
-			break;
-			case DLCI_RET_ERR:
-			dev->stats.tx_errors++;
-			ret = NETDEV_TX_OK;
-			break;
-			case DLCI_RET_DROP:
-			dev->stats.tx_dropped++;
-			ret = NETDEV_TX_BUSY;
-			break;
-	}
-	/* Alan Cox recommends always returning 0, and always freeing the packet */
-	/* experience suggest a slightly more conservative approach */
-
-	if (!ret)
-	{
-		dev_kfree_skb(skb);
-		netif_wake_queue(dev);
-	}
-	return(ret);
+	if (skb)
+		dlp->slave->netdev_ops->ndo_start_xmit(skb, dlp->slave);
+	return NETDEV_TX_OK;
 }
 
 static int dlci_config(struct net_device *dev, struct dlci_conf __user *conf, int get)
@@ -240,7 +208,7 @@ static int dlci_config(struct net_device *dev, struct dlci_conf __user *conf, in
 
 	if (!get)
 	{
-		if(copy_from_user(&config, conf, sizeof(struct dlci_conf)))
+		if (copy_from_user(&config, conf, sizeof(struct dlci_conf)))
 			return -EFAULT;
 		if (config.flags & ~DLCI_VALID_FLAGS)
 			return(-EINVAL);
@@ -254,7 +222,7 @@ static int dlci_config(struct net_device *dev, struct dlci_conf __user *conf, in
 
 	if (get)
 	{
-		if(copy_to_user(conf, &dlp->config, sizeof(struct dlci_conf)))
+		if (copy_to_user(conf, &dlp->config, sizeof(struct dlci_conf)))
 			return -EFAULT;
 	}
 
@@ -270,7 +238,7 @@ static int dlci_dev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 
 	dlp = netdev_priv(dev);
 
-	switch(cmd)
+	switch (cmd)
 	{
 		case DLCI_GET_SLAVE:
 			if (!*(short *)(dev->dev_addr))
@@ -449,7 +417,7 @@ static int dlci_ioctl(unsigned int cmd, void __user *arg)
 	if (!capable(CAP_NET_ADMIN))
 		return(-EPERM);
 
-	if(copy_from_user(&add, arg, sizeof(struct dlci_add)))
+	if (copy_from_user(&add, arg, sizeof(struct dlci_add)))
 		return -EFAULT;
 
 	switch (cmd)
@@ -458,7 +426,7 @@ static int dlci_ioctl(unsigned int cmd, void __user *arg)
 			err = dlci_add(&add);
 
 			if (!err)
-				if(copy_to_user(arg, &add, sizeof(struct dlci_add)))
+				if (copy_to_user(arg, &add, sizeof(struct dlci_add)))
 					return -EFAULT;
 			break;
 

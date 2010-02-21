@@ -15,6 +15,8 @@
 
 #include <linux/list.h>
 #include <linux/spinlock.h>
+#include <net/dst.h>
+#include <net/xfrm.h>
 #include <net/mac80211.h>
 #include <net/ieee80211_radiotap.h>
 #include <linux/if_arp.h>
@@ -282,7 +284,7 @@ struct mac80211_hwsim_data {
 	struct ieee80211_channel *channel;
 	unsigned long beacon_int; /* in jiffies unit */
 	unsigned int rx_filter;
-	int started;
+	bool started, idle;
 	struct timer_list beacon_timer;
 	enum ps_mode {
 		PS_DISABLED, PS_ENABLED, PS_AUTO_POLL, PS_MANUAL_POLL
@@ -310,11 +312,12 @@ struct hwsim_radiotap_hdr {
 } __attribute__ ((packed));
 
 
-static int hwsim_mon_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t hwsim_mon_xmit(struct sk_buff *skb,
+					struct net_device *dev)
 {
 	/* TODO: allow packet injection */
 	dev_kfree_skb(skb);
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 
@@ -351,6 +354,49 @@ static void mac80211_hwsim_monitor_rx(struct ieee80211_hw *hw,
 	else
 		flags |= IEEE80211_CHAN_CCK;
 	hdr->rt_chbitmask = cpu_to_le16(flags);
+
+	skb->dev = hwsim_mon;
+	skb_set_mac_header(skb, 0);
+	skb->ip_summed = CHECKSUM_UNNECESSARY;
+	skb->pkt_type = PACKET_OTHERHOST;
+	skb->protocol = htons(ETH_P_802_2);
+	memset(skb->cb, 0, sizeof(skb->cb));
+	netif_rx(skb);
+}
+
+
+static void mac80211_hwsim_monitor_ack(struct ieee80211_hw *hw, const u8 *addr)
+{
+	struct mac80211_hwsim_data *data = hw->priv;
+	struct sk_buff *skb;
+	struct hwsim_radiotap_hdr *hdr;
+	u16 flags;
+	struct ieee80211_hdr *hdr11;
+
+	if (!netif_running(hwsim_mon))
+		return;
+
+	skb = dev_alloc_skb(100);
+	if (skb == NULL)
+		return;
+
+	hdr = (struct hwsim_radiotap_hdr *) skb_put(skb, sizeof(*hdr));
+	hdr->hdr.it_version = PKTHDR_RADIOTAP_VERSION;
+	hdr->hdr.it_pad = 0;
+	hdr->hdr.it_len = cpu_to_le16(sizeof(*hdr));
+	hdr->hdr.it_present = cpu_to_le32((1 << IEEE80211_RADIOTAP_FLAGS) |
+					  (1 << IEEE80211_RADIOTAP_CHANNEL));
+	hdr->rt_flags = 0;
+	hdr->rt_rate = 0;
+	hdr->rt_channel = cpu_to_le16(data->channel->center_freq);
+	flags = IEEE80211_CHAN_2GHZ;
+	hdr->rt_chbitmask = cpu_to_le16(flags);
+
+	hdr11 = (struct ieee80211_hdr *) skb_put(skb, 10);
+	hdr11->frame_control = cpu_to_le16(IEEE80211_FTYPE_CTL |
+					   IEEE80211_STYPE_ACK);
+	hdr11->duration_id = cpu_to_le16(0);
+	memcpy(hdr11->addr1, addr, ETH_ALEN);
 
 	skb->dev = hwsim_mon;
 	skb_set_mac_header(skb, 0);
@@ -399,15 +445,29 @@ static bool mac80211_hwsim_tx_frame(struct ieee80211_hw *hw,
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	struct ieee80211_rx_status rx_status;
 
+	if (data->idle) {
+		printk(KERN_DEBUG "%s: Trying to TX when idle - reject\n",
+		       wiphy_name(hw->wiphy));
+		return false;
+	}
+
 	memset(&rx_status, 0, sizeof(rx_status));
 	/* TODO: set mactime */
 	rx_status.freq = data->channel->center_freq;
 	rx_status.band = data->channel->band;
 	rx_status.rate_idx = info->control.rates[0].idx;
-	/* TODO: simulate signal strength (and optional packet drop) */
+	/* TODO: simulate real signal strength (and optional packet loss) */
+	rx_status.signal = -50;
 
 	if (data->ps != PS_DISABLED)
 		hdr->frame_control |= cpu_to_le16(IEEE80211_FCTL_PM);
+
+	/* release the skb's source info */
+	skb_orphan(skb);
+	skb_dst_drop(skb);
+	skb->mark = 0;
+	secpath_reset(skb);
+	nf_reset(skb);
 
 	/* Copy skb to all enabled radios that are on the current frequency */
 	spin_lock(&hwsim_radio_lock);
@@ -417,7 +477,8 @@ static bool mac80211_hwsim_tx_frame(struct ieee80211_hw *hw,
 		if (data == data2)
 			continue;
 
-		if (!data2->started || !hwsim_ps_rx_ok(data2, skb) ||
+		if (data2->idle || !data2->started ||
+		    !hwsim_ps_rx_ok(data2, skb) ||
 		    !data->channel || !data2->channel ||
 		    data->channel->center_freq != data2->channel->center_freq ||
 		    !(data->group & data2->group))
@@ -430,7 +491,8 @@ static bool mac80211_hwsim_tx_frame(struct ieee80211_hw *hw,
 		if (memcmp(hdr->addr1, data2->hw->wiphy->perm_addr,
 			   ETH_ALEN) == 0)
 			ack = true;
-		ieee80211_rx_irqsafe(data2->hw, nskb, &rx_status);
+		memcpy(IEEE80211_SKB_RXCB(nskb), &rx_status, sizeof(rx_status));
+		ieee80211_rx_irqsafe(data2->hw, nskb);
 	}
 	spin_unlock(&hwsim_radio_lock);
 
@@ -452,6 +514,10 @@ static int mac80211_hwsim_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 	}
 
 	ack = mac80211_hwsim_tx_frame(hw, skb);
+	if (ack && skb->len >= 16) {
+		struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
+		mac80211_hwsim_monitor_ack(hw, hdr->addr2);
+	}
 
 	txi = IEEE80211_SKB_CB(skb);
 
@@ -559,6 +625,8 @@ static int mac80211_hwsim_config(struct ieee80211_hw *hw, u32 changed)
 	       !!(conf->flags & IEEE80211_CONF_IDLE),
 	       !!(conf->flags & IEEE80211_CONF_PS));
 
+	data->idle = !!(conf->flags & IEEE80211_CONF_IDLE);
+
 	data->channel = conf->channel;
 	if (!data->started || !data->beacon_int)
 		del_timer(&data->beacon_timer);
@@ -571,9 +639,7 @@ static int mac80211_hwsim_config(struct ieee80211_hw *hw, u32 changed)
 
 static void mac80211_hwsim_configure_filter(struct ieee80211_hw *hw,
 					    unsigned int changed_flags,
-					    unsigned int *total_flags,
-					    int mc_count,
-					    struct dev_addr_list *mc_list)
+					    unsigned int *total_flags,u64 multicast)
 {
 	struct mac80211_hwsim_data *data = hw->priv;
 
@@ -621,6 +687,9 @@ static void mac80211_hwsim_bss_info_changed(struct ieee80211_hw *hw,
 		data->beacon_int = 1024 * info->beacon_int / 1000 * HZ / 1000;
 		if (WARN_ON(!data->beacon_int))
 			data->beacon_int = 1;
+		if (data->started)
+			mod_timer(&data->beacon_timer,
+				  jiffies + data->beacon_int);
 	}
 
 	if (changed & BSS_CHANGED_ERP_CTS_PROT) {
@@ -690,6 +759,74 @@ static int mac80211_hwsim_conf_tx(
 	return 0;
 }
 
+#ifdef CONFIG_NL80211_TESTMODE
+/*
+ * This section contains example code for using netlink
+ * attributes with the testmode command in nl80211.
+ */
+
+/* These enums need to be kept in sync with userspace */
+enum hwsim_testmode_attr {
+	__HWSIM_TM_ATTR_INVALID	= 0,
+	HWSIM_TM_ATTR_CMD	= 1,
+	HWSIM_TM_ATTR_PS	= 2,
+
+	/* keep last */
+	__HWSIM_TM_ATTR_AFTER_LAST,
+	HWSIM_TM_ATTR_MAX	= __HWSIM_TM_ATTR_AFTER_LAST - 1
+};
+
+enum hwsim_testmode_cmd {
+	HWSIM_TM_CMD_SET_PS		= 0,
+	HWSIM_TM_CMD_GET_PS		= 1,
+};
+
+static const struct nla_policy hwsim_testmode_policy[HWSIM_TM_ATTR_MAX + 1] = {
+	[HWSIM_TM_ATTR_CMD] = { .type = NLA_U32 },
+	[HWSIM_TM_ATTR_PS] = { .type = NLA_U32 },
+};
+
+static int hwsim_fops_ps_write(void *dat, u64 val);
+
+static int mac80211_hwsim_testmode_cmd(struct ieee80211_hw *hw,
+				       void *data, int len)
+{
+	struct mac80211_hwsim_data *hwsim = hw->priv;
+	struct nlattr *tb[HWSIM_TM_ATTR_MAX + 1];
+	struct sk_buff *skb;
+	int err, ps;
+
+	err = nla_parse(tb, HWSIM_TM_ATTR_MAX, data, len,
+			hwsim_testmode_policy);
+	if (err)
+		return err;
+
+	if (!tb[HWSIM_TM_ATTR_CMD])
+		return -EINVAL;
+
+	switch (nla_get_u32(tb[HWSIM_TM_ATTR_CMD])) {
+	case HWSIM_TM_CMD_SET_PS:
+		if (!tb[HWSIM_TM_ATTR_PS])
+			return -EINVAL;
+		ps = nla_get_u32(tb[HWSIM_TM_ATTR_PS]);
+		return hwsim_fops_ps_write(hwsim, ps);
+	case HWSIM_TM_CMD_GET_PS:
+		skb = cfg80211_testmode_alloc_reply_skb(hw->wiphy,
+						nla_total_size(sizeof(u32)));
+		if (!skb)
+			return -ENOMEM;
+		NLA_PUT_U32(skb, HWSIM_TM_ATTR_PS, hwsim->ps);
+		return cfg80211_testmode_reply(skb);
+	default:
+		return -EOPNOTSUPP;
+	}
+
+ nla_put_failure:
+	kfree_skb(skb);
+	return -ENOBUFS;
+}
+#endif
+
 static const struct ieee80211_ops mac80211_hwsim_ops =
 {
 	.tx = mac80211_hwsim_tx,
@@ -703,6 +840,7 @@ static const struct ieee80211_ops mac80211_hwsim_ops =
 	.sta_notify = mac80211_hwsim_sta_notify,
 	.set_tim = mac80211_hwsim_set_tim,
 	.conf_tx = mac80211_hwsim_conf_tx,
+	CFG80211_TESTMODE_CMD(mac80211_hwsim_testmode_cmd)
 };
 
 
@@ -757,7 +895,6 @@ static void hwsim_send_ps_poll(void *dat, u8 *mac, struct ieee80211_vif *vif)
 {
 	struct mac80211_hwsim_data *data = dat;
 	struct hwsim_vif_priv *vp = (void *)vif->drv_priv;
-	DECLARE_MAC_BUF(buf);
 	struct sk_buff *skb;
 	struct ieee80211_pspoll *pspoll;
 
@@ -787,7 +924,6 @@ static void hwsim_send_nullfunc(struct mac80211_hwsim_data *data, u8 *mac,
 				struct ieee80211_vif *vif, int ps)
 {
 	struct hwsim_vif_priv *vp = (void *)vif->drv_priv;
-	DECLARE_MAC_BUF(buf);
 	struct sk_buff *skb;
 	struct ieee80211_hdr *hdr;
 
@@ -945,7 +1081,8 @@ static int __init init_mac80211_hwsim(void)
 			BIT(NL80211_IFTYPE_AP) |
 			BIT(NL80211_IFTYPE_MESH_POINT);
 
-		hw->flags = IEEE80211_HW_MFP_CAPABLE;
+		hw->flags = IEEE80211_HW_MFP_CAPABLE |
+			    IEEE80211_HW_SIGNAL_DBM;
 
 		/* ask mac80211 to reserve space for magic */
 		hw->vif_data_size = sizeof(struct hwsim_vif_priv);
@@ -964,18 +1101,19 @@ static int __init init_mac80211_hwsim(void)
 				sband->channels = data->channels_2ghz;
 				sband->n_channels =
 					ARRAY_SIZE(hwsim_channels_2ghz);
+				sband->bitrates = data->rates;
+				sband->n_bitrates = ARRAY_SIZE(hwsim_rates);
 				break;
 			case IEEE80211_BAND_5GHZ:
 				sband->channels = data->channels_5ghz;
 				sband->n_channels =
 					ARRAY_SIZE(hwsim_channels_5ghz);
+				sband->bitrates = data->rates + 4;
+				sband->n_bitrates = ARRAY_SIZE(hwsim_rates) - 4;
 				break;
 			default:
 				break;
 			}
-
-			sband->bitrates = data->rates;
-			sband->n_bitrates = ARRAY_SIZE(hwsim_rates);
 
 			sband->ht_cap.ht_supported = true;
 			sband->ht_cap.cap = IEEE80211_HT_CAP_SUP_WIDTH_20_40 |
@@ -1008,46 +1146,46 @@ static int __init init_mac80211_hwsim(void)
 			break;
 		case HWSIM_REGTEST_WORLD_ROAM:
 			if (i == 0) {
-				hw->wiphy->custom_regulatory = true;
+				hw->wiphy->flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
 				wiphy_apply_custom_regulatory(hw->wiphy,
 					&hwsim_world_regdom_custom_01);
 			}
 			break;
 		case HWSIM_REGTEST_CUSTOM_WORLD:
-			hw->wiphy->custom_regulatory = true;
+			hw->wiphy->flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
 			wiphy_apply_custom_regulatory(hw->wiphy,
 				&hwsim_world_regdom_custom_01);
 			break;
 		case HWSIM_REGTEST_CUSTOM_WORLD_2:
 			if (i == 0) {
-				hw->wiphy->custom_regulatory = true;
+				hw->wiphy->flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
 				wiphy_apply_custom_regulatory(hw->wiphy,
 					&hwsim_world_regdom_custom_01);
 			} else if (i == 1) {
-				hw->wiphy->custom_regulatory = true;
+				hw->wiphy->flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
 				wiphy_apply_custom_regulatory(hw->wiphy,
 					&hwsim_world_regdom_custom_02);
 			}
 			break;
 		case HWSIM_REGTEST_STRICT_ALL:
-			hw->wiphy->strict_regulatory = true;
+			hw->wiphy->flags |= WIPHY_FLAG_STRICT_REGULATORY;
 			break;
 		case HWSIM_REGTEST_STRICT_FOLLOW:
 		case HWSIM_REGTEST_STRICT_AND_DRIVER_REG:
 			if (i == 0)
-				hw->wiphy->strict_regulatory = true;
+				hw->wiphy->flags |= WIPHY_FLAG_STRICT_REGULATORY;
 			break;
 		case HWSIM_REGTEST_ALL:
 			if (i == 0) {
-				hw->wiphy->custom_regulatory = true;
+				hw->wiphy->flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
 				wiphy_apply_custom_regulatory(hw->wiphy,
 					&hwsim_world_regdom_custom_01);
 			} else if (i == 1) {
-				hw->wiphy->custom_regulatory = true;
+				hw->wiphy->flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
 				wiphy_apply_custom_regulatory(hw->wiphy,
 					&hwsim_world_regdom_custom_02);
 			} else if (i == 4)
-				hw->wiphy->strict_regulatory = true;
+				hw->wiphy->flags |= WIPHY_FLAG_STRICT_REGULATORY;
 			break;
 		default:
 			break;

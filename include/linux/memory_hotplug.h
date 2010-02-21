@@ -69,7 +69,6 @@ extern void online_page(struct page *page);
 /* VM interface that may be used by firmware interface */
 extern int online_pages(unsigned long, unsigned long);
 extern void __offline_isolated_pages(unsigned long, unsigned long);
-extern int offline_pages(unsigned long, unsigned long, unsigned long);
 
 /* reasonably generic interface to expand the physical pages in a zone  */
 extern int __add_pages(int nid, struct zone *zone, unsigned long start_pfn,
@@ -190,14 +189,6 @@ static inline void register_page_bootmem_info_node(struct pglist_data *pgdat)
 }
 
 #endif /* ! CONFIG_MEMORY_HOTPLUG */
-
-/*
- * Walk through all memory which is registered as resource.
- * arg is (start_pfn, nr_pages, private_arg_pointer)
- */
-extern int walk_memory_resource(unsigned long start_pfn,
-			unsigned long nr_pages, void *arg,
-			int (*func)(unsigned long, unsigned long, void *));
 
 #ifdef CONFIG_MEMORY_HOTREMOVE
 

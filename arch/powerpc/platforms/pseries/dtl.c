@@ -54,7 +54,7 @@ struct dtl {
 	int			buf_entries;
 	u64			last_idx;
 };
-static DEFINE_PER_CPU(struct dtl, dtl);
+static DEFINE_PER_CPU(struct dtl, cpu_dtl);
 
 /*
  * Dispatch trace log event mask:
@@ -209,7 +209,7 @@ static ssize_t dtl_file_read(struct file *filp, char __user *buf, size_t len,
 	return n_read * sizeof(struct dtl_entry);
 }
 
-static struct file_operations dtl_fops = {
+static const struct file_operations dtl_fops = {
 	.open		= dtl_file_open,
 	.release	= dtl_file_release,
 	.read		= dtl_file_read,
@@ -261,7 +261,7 @@ static int dtl_init(void)
 
 	/* set up the per-cpu log structures */
 	for_each_possible_cpu(i) {
-		struct dtl *dtl = &per_cpu(dtl, i);
+		struct dtl *dtl = &per_cpu(cpu_dtl, i);
 		dtl->cpu = i;
 
 		rc = dtl_setup_file(dtl);

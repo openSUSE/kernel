@@ -295,6 +295,8 @@ void vxge_hw_device_intr_enable(struct __vxge_hw_device *hldev)
 	u64 val64;
 	u32 val32;
 
+	vxge_hw_device_mask_all(hldev);
+
 	for (i = 0; i < VXGE_HW_MAX_VIRTUAL_PATHS; i++) {
 
 		if (!(hldev->vpaths_deployed & vxge_mBIT(i)))
@@ -731,6 +733,7 @@ vxge_hw_channel_dtr_try_complete(struct __vxge_hw_channel *channel, void **dtrh)
 	vxge_assert(channel->compl_index < channel->length);
 
 	*dtrh =	channel->work_arr[channel->compl_index];
+	prefetch(*dtrh);
 }
 
 /*
@@ -1070,11 +1073,11 @@ static void __vxge_hw_non_offload_db_post(struct __vxge_hw_fifo *fifo,
 		VXGE_HW_NODBW_GET_NO_SNOOP(no_snoop),
 		&fifo->nofl_db->control_0);
 
-	wmb();
+	mmiowb();
 
 	writeq(txdl_ptr, &fifo->nofl_db->txdl_ptr);
-	wmb();
 
+	mmiowb();
 }
 
 /**
@@ -1231,7 +1234,7 @@ void vxge_hw_fifo_txdl_post(struct __vxge_hw_fifo *fifo, void *txdlh)
 	vxge_hw_channel_dtr_post(&fifo->channel, txdlh);
 
 	__vxge_hw_non_offload_db_post(fifo,
-		(u64)(size_t)txdl_priv->dma_addr,
+		(u64)txdl_priv->dma_addr,
 		txdl_priv->frags - 1,
 		fifo->no_snoop_bits);
 
@@ -1960,14 +1963,14 @@ enum vxge_hw_status __vxge_hw_vpath_alarm_process(
 			val64 = readq(&vp_reg->asic_ntwk_vp_err_reg);
 
 			if (((val64 &
-				VXGE_HW_ASIC_NW_VP_ERR_REG_XMACJ_STN_FLT) &&
-			    (!(val64 &
+			      VXGE_HW_ASIC_NW_VP_ERR_REG_XMACJ_STN_FLT) &&
+			     (!(val64 &
 				VXGE_HW_ASIC_NW_VP_ERR_REG_XMACJ_STN_OK))) ||
 			    ((val64 &
-				VXGE_HW_ASIC_NW_VP_ERR_REG_XMACJ_STN_FLT_OCCURR)
-				&& (!(val64 &
+			      VXGE_HW_ASIC_NW_VP_ERR_REG_XMACJ_STN_FLT_OCCURR) &&
+			     (!(val64 &
 				VXGE_HW_ASIC_NW_VP_ERR_REG_XMACJ_STN_OK_OCCURR)
-			))) {
+				     ))) {
 				sw_stats->error_stats.network_sustained_fault++;
 
 				writeq(
@@ -1980,14 +1983,14 @@ enum vxge_hw_status __vxge_hw_vpath_alarm_process(
 			}
 
 			if (((val64 &
-				VXGE_HW_ASIC_NW_VP_ERR_REG_XMACJ_STN_OK) &&
-			    (!(val64 &
+			      VXGE_HW_ASIC_NW_VP_ERR_REG_XMACJ_STN_OK) &&
+			     (!(val64 &
 				VXGE_HW_ASIC_NW_VP_ERR_REG_XMACJ_STN_FLT))) ||
 			    ((val64 &
-				VXGE_HW_ASIC_NW_VP_ERR_REG_XMACJ_STN_OK_OCCURR)
-				&& (!(val64 &
+			      VXGE_HW_ASIC_NW_VP_ERR_REG_XMACJ_STN_OK_OCCURR) &&
+			     (!(val64 &
 				VXGE_HW_ASIC_NW_VP_ERR_REG_XMACJ_STN_FLT_OCCURR)
-			))) {
+				     ))) {
 
 				sw_stats->error_stats.network_sustained_ok++;
 
@@ -2508,7 +2511,8 @@ enum vxge_hw_status vxge_hw_vpath_poll_rx(struct __vxge_hw_ring *ring)
  * See also: vxge_hw_vpath_poll_tx().
  */
 enum vxge_hw_status vxge_hw_vpath_poll_tx(struct __vxge_hw_fifo *fifo,
-					void **skb_ptr)
+					struct sk_buff ***skb_ptr, int nr_skb,
+					int *more)
 {
 	enum vxge_hw_fifo_tcode t_code;
 	void *first_txdlh;
@@ -2520,8 +2524,8 @@ enum vxge_hw_status vxge_hw_vpath_poll_tx(struct __vxge_hw_fifo *fifo,
 	status = vxge_hw_fifo_txdl_next_completed(fifo,
 				&first_txdlh, &t_code);
 	if (status == VXGE_HW_OK)
-		if (fifo->callback(fifo, first_txdlh,
-			t_code, channel->userdata, skb_ptr) != VXGE_HW_OK)
+		if (fifo->callback(fifo, first_txdlh, t_code,
+			channel->userdata, skb_ptr, nr_skb, more) != VXGE_HW_OK)
 			status = VXGE_HW_COMPLETIONS_REMAIN;
 
 	return status;

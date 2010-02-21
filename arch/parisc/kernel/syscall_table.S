@@ -234,7 +234,7 @@
 	ENTRY_SAME(getsid)
 	ENTRY_SAME(fdatasync)
 	/* struct __sysctl_args is a mess */
-	ENTRY_DIFF(sysctl)
+	ENTRY_COMP(sysctl)
 	ENTRY_SAME(mlock)		/* 150 */
 	ENTRY_SAME(munlock)
 	ENTRY_SAME(mlockall)
@@ -416,7 +416,7 @@
 	ENTRY_COMP(preadv)		/* 315 */
 	ENTRY_COMP(pwritev)
 	ENTRY_COMP(rt_tgsigqueueinfo)
-	ENTRY_SAME(perf_counter_open)
+	ENTRY_SAME(perf_event_open)
 
 	/* Nothing yet */
 

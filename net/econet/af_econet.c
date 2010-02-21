@@ -457,15 +457,15 @@ static int econet_sendmsg(struct kiocb *iocb, struct socket *sock,
 	iov[0].iov_len = size;
 	for (i = 0; i < msg->msg_iovlen; i++) {
 		void __user *base = msg->msg_iov[i].iov_base;
-		size_t len = msg->msg_iov[i].iov_len;
+		size_t iov_len = msg->msg_iov[i].iov_len;
 		/* Check it now since we switch to KERNEL_DS later. */
-		if (!access_ok(VERIFY_READ, base, len)) {
+		if (!access_ok(VERIFY_READ, base, iov_len)) {
 			mutex_unlock(&econet_mutex);
 			return -EFAULT;
 		}
 		iov[i+1].iov_base = base;
-		iov[i+1].iov_len = len;
-		size += len;
+		iov[i+1].iov_len = iov_len;
+		size += iov_len;
 	}
 
 	/* Get a skbuff (no data, just holds our cb information) */
@@ -605,13 +605,14 @@ static struct proto econet_proto = {
  *	Create an Econet socket
  */
 
-static int econet_create(struct net *net, struct socket *sock, int protocol)
+static int econet_create(struct net *net, struct socket *sock, int protocol,
+			 int kern)
 {
 	struct sock *sk;
 	struct econet_sock *eo;
 	int err;
 
-	if (net != &init_net)
+	if (!net_eq(net, &init_net))
 		return -EAFNOSUPPORT;
 
 	/* Econet only provides datagram services. */
@@ -742,7 +743,7 @@ static int econet_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg
 	return 0;
 }
 
-static struct net_proto_family econet_family_ops = {
+static const struct net_proto_family econet_family_ops = {
 	.family =	PF_ECONET,
 	.create =	econet_create,
 	.owner	=	THIS_MODULE,
@@ -1073,7 +1074,7 @@ static int econet_rcv(struct sk_buff *skb, struct net_device *dev, struct packet
 		skb->protocol = htons(ETH_P_IP);
 		skb_pull(skb, sizeof(struct ec_framehdr));
 		netif_rx(skb);
-		return 0;
+		return NET_RX_SUCCESS;
 	}
 
 	sk = ec_listening_socket(hdr->port, hdr->src_stn, hdr->src_net);
@@ -1084,7 +1085,7 @@ static int econet_rcv(struct sk_buff *skb, struct net_device *dev, struct packet
 			    hdr->port))
 		goto drop;
 
-	return 0;
+	return NET_RX_SUCCESS;
 
 drop:
 	kfree_skb(skb);

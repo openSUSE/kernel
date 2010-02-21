@@ -14,7 +14,7 @@
 #include <linux/init.h>
 #include <asm/crw.h>
 
-static struct semaphore crw_semaphore;
+static DEFINE_SEMAPHORE(crw_semaphore, 0);
 static DEFINE_MUTEX(crw_handler_mutex);
 static crw_handler_t crw_handlers[NR_RSCS];
 
@@ -130,17 +130,6 @@ void crw_handle_channel_report(void)
 {
 	up(&crw_semaphore);
 }
-
-/*
- * Separate initcall needed for semaphore initialization since
- * crw_handle_channel_report might be called before crw_machine_check_init.
- */
-static int __init crw_init_semaphore(void)
-{
-	semaphore_init_locked(&crw_semaphore);
-	return 0;
-}
-pure_initcall(crw_init_semaphore);
 
 /*
  * Machine checks for the channel subsystem must be enabled

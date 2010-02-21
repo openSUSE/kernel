@@ -34,8 +34,6 @@ enum {
 	PREEMPTOFF_LATENCY,
 	PREEMPTIRQSOFF_LATENCY,
 	WAKEUP_LATENCY,
-	WAKEUP_LATENCY_SHAREDPRIO,
-	MISSED_TIMER_OFFSETS,
 	MAX_LATENCY_TYPE,
 };
 
@@ -43,11 +41,9 @@ enum {
 
 struct hist_data {
 	atomic_t hist_mode; /* 0 log, 1 don't log */
-	long offset; /* set it to MAX_ENTRY_NUM/2 for a bipolar scale */
 	unsigned long min_lat;
 	unsigned long max_lat;
-	unsigned long long below_hist_bound_samples;
-	unsigned long long above_hist_bound_samples;
+	unsigned long long beyond_hist_bound_samples;
 	unsigned long long accumulate_lat;
 	unsigned long long total_samples;
 	unsigned long long hist_array[MAX_ENTRY_NUM];
@@ -63,22 +59,16 @@ static char *latency_hist_dir_root = "latency_hist";
 #ifdef CONFIG_INTERRUPT_OFF_HIST
 static DEFINE_PER_CPU(struct hist_data, irqsoff_hist);
 static char *irqsoff_hist_dir = "irqsoff";
-static DEFINE_PER_CPU(cycles_t, hist_irqsoff_start);
-static DEFINE_PER_CPU(int, hist_irqsoff_counting);
 #endif
 
 #ifdef CONFIG_PREEMPT_OFF_HIST
 static DEFINE_PER_CPU(struct hist_data, preemptoff_hist);
 static char *preemptoff_hist_dir = "preemptoff";
-static DEFINE_PER_CPU(cycles_t, hist_preemptoff_start);
-static DEFINE_PER_CPU(int, hist_preemptoff_counting);
 #endif
 
 #if defined(CONFIG_PREEMPT_OFF_HIST) && defined(CONFIG_INTERRUPT_OFF_HIST)
 static DEFINE_PER_CPU(struct hist_data, preemptirqsoff_hist);
 static char *preemptirqsoff_hist_dir = "preemptirqsoff";
-static DEFINE_PER_CPU(cycles_t, hist_preemptirqsoff_start);
-static DEFINE_PER_CPU(int, hist_preemptirqsoff_counting);
 #endif
 
 #if defined(CONFIG_PREEMPT_OFF_HIST) || defined(CONFIG_INTERRUPT_OFF_HIST)
@@ -89,21 +79,9 @@ static struct enable_data preemptirqsoff_enabled_data = {
 };
 #endif
 
-#if defined(CONFIG_WAKEUP_LATENCY_HIST) || \
-    defined(CONFIG_MISSED_TIMER_OFFSETS_HIST)
-struct maxlatproc_data {
-	char comm[FIELD_SIZEOF(struct task_struct, comm)];
-	unsigned int pid;
-	unsigned int prio;
-	unsigned long latency;
-};
-#endif
-
 #ifdef CONFIG_WAKEUP_LATENCY_HIST
 static DEFINE_PER_CPU(struct hist_data, wakeup_latency_hist);
-static DEFINE_PER_CPU(struct hist_data, wakeup_latency_hist_sharedprio);
 static char *wakeup_latency_hist_dir = "wakeup";
-static char *wakeup_latency_hist_dir_sharedprio = "sharedprio";
 static notrace void probe_wakeup_latency_hist_start(struct rq *rq,
     struct task_struct *p, int success);
 static notrace void probe_wakeup_latency_hist_stop(struct rq *rq,
@@ -112,34 +90,23 @@ static struct enable_data wakeup_latency_enabled_data = {
 	.latency_type = WAKEUP_LATENCY,
 	.enabled = 0,
 };
-static DEFINE_PER_CPU(struct maxlatproc_data, wakeup_maxlatproc);
-static DEFINE_PER_CPU(struct maxlatproc_data, wakeup_maxlatproc_sharedprio);
-static struct task_struct *wakeup_task;
-static int wakeup_sharedprio;
-static int wakeup_pid;
-#endif
-
-#ifdef CONFIG_MISSED_TIMER_OFFSETS_HIST
-static DEFINE_PER_CPU(struct hist_data, missed_timer_offsets);
-static char *missed_timer_offsets_dir = "missed_timer_offsets";
-static notrace void probe_hrtimer_interrupt(int cpu,
-    long long offset, struct task_struct *task);
-static struct enable_data missed_timer_offsets_enabled_data = {
-	.latency_type = MISSED_TIMER_OFFSETS,
-	.enabled = 0,
+static struct task_struct *ts;
+struct maxlatproc_data {
+	char comm[sizeof(ts->comm)];
+	unsigned int pid;
+	unsigned int prio;
+	unsigned long latency;
 };
-static DEFINE_PER_CPU(struct maxlatproc_data,
-    missed_timer_offsets_maxlatproc);
+static DEFINE_PER_CPU(struct maxlatproc_data, wakeup_maxlatproc);
+static unsigned wakeup_prio = (unsigned)-1;
+static struct task_struct *wakeup_task;
+static int wakeup_pid;
 #endif
 
 void notrace latency_hist(int latency_type, int cpu, unsigned long latency,
 			  struct task_struct *p)
 {
 	struct hist_data *my_hist;
-#if defined(CONFIG_WAKEUP_LATENCY_HIST) || \
-    defined(CONFIG_MISSED_TIMER_OFFSETS_HIST)
-	struct maxlatproc_data *mp = NULL;
-#endif
 
 	if (cpu < 0 || cpu >= NR_CPUS || latency_type < 0 ||
 	    latency_type >= MAX_LATENCY_TYPE)
@@ -151,30 +118,22 @@ void notrace latency_hist(int latency_type, int cpu, unsigned long latency,
 		my_hist = &per_cpu(irqsoff_hist, cpu);
 		break;
 #endif
+
 #ifdef CONFIG_PREEMPT_OFF_HIST
 	case PREEMPTOFF_LATENCY:
 		my_hist = &per_cpu(preemptoff_hist, cpu);
 		break;
 #endif
+
 #if defined(CONFIG_PREEMPT_OFF_HIST) && defined(CONFIG_INTERRUPT_OFF_HIST)
 	case PREEMPTIRQSOFF_LATENCY:
 		my_hist = &per_cpu(preemptirqsoff_hist, cpu);
 		break;
 #endif
+
 #ifdef CONFIG_WAKEUP_LATENCY_HIST
 	case WAKEUP_LATENCY:
 		my_hist = &per_cpu(wakeup_latency_hist, cpu);
-		mp = &per_cpu(wakeup_maxlatproc, cpu);
-		break;
-	case WAKEUP_LATENCY_SHAREDPRIO:
-		my_hist = &per_cpu(wakeup_latency_hist_sharedprio, cpu);
-		mp = &per_cpu(wakeup_maxlatproc_sharedprio, cpu);
-		break;
-#endif
-#ifdef CONFIG_MISSED_TIMER_OFFSETS_HIST
-	case MISSED_TIMER_OFFSETS:
-		my_hist = &per_cpu(missed_timer_offsets, cpu);
-		mp = &per_cpu(missed_timer_offsets_maxlatproc, cpu);
 		break;
 #endif
 	default:
@@ -184,23 +143,18 @@ void notrace latency_hist(int latency_type, int cpu, unsigned long latency,
 	if (atomic_read(&my_hist->hist_mode) == 0)
 		return;
 
-	latency += my_hist->offset;
-
-	if (latency < 0 || latency >= MAX_ENTRY_NUM) {
-		if (latency < 0)
-			my_hist->below_hist_bound_samples++;
-		else
-			my_hist->above_hist_bound_samples++;
-	} else
+	if (latency >= MAX_ENTRY_NUM)
+		my_hist->beyond_hist_bound_samples++;
+	else
 		my_hist->hist_array[latency]++;
 
 	if (latency < my_hist->min_lat)
 		my_hist->min_lat = latency;
 	else if (latency > my_hist->max_lat) {
-#if defined (CONFIG_WAKEUP_LATENCY_HIST) || \
-    defined(CONFIG_MISSED_TIMER_OFFSETS_HIST)
-		if (latency_type == WAKEUP_LATENCY ||
-		    latency_type == WAKEUP_LATENCY_SHAREDPRIO) {
+#ifdef CONFIG_WAKEUP_LATENCY_HIST
+		if (latency_type == WAKEUP_LATENCY) {
+			struct maxlatproc_data *mp =
+			    &per_cpu(wakeup_maxlatproc, cpu);
 			strncpy(mp->comm, p->comm, sizeof(mp->comm));
 			mp->pid = task_pid_nr(p);
 			mp->prio = p->prio;
@@ -209,15 +163,7 @@ void notrace latency_hist(int latency_type, int cpu, unsigned long latency,
 #endif
 		my_hist->max_lat = latency;
 	}
-#ifdef CONFIG_MISSED_TIMER_OFFSETS_HIST
-	if (latency_type == MISSED_TIMER_OFFSETS && p != NULL &&
-	    latency > mp->latency) {
-		strncpy(mp->comm, p->comm, sizeof(mp->comm));
-		mp->pid = task_pid_nr(p);
-		mp->prio = p->prio;
-		mp->latency = latency;
-	}
-#endif
+
 	my_hist->total_samples++;
 	my_hist->accumulate_lat += latency;
 	return;
@@ -233,42 +179,30 @@ static void *l_start(struct seq_file *m, loff_t *pos)
 		return NULL;
 
 	if (index == 0) {
-		char minstr[32], avgstr[32], maxstr[32];
+		char avgstr[32];
 
 		atomic_dec(&my_hist->hist_mode);
-
 		if (likely(my_hist->total_samples)) {
 			unsigned long avg = (unsigned long)
 			    div64_u64(my_hist->accumulate_lat,
 			    my_hist->total_samples);
-			snprintf(minstr, sizeof(minstr), "%ld",
-			    (long) my_hist->min_lat - my_hist->offset);
-			snprintf(avgstr, sizeof(avgstr), "%ld",
-			    (long) avg - my_hist->offset);
-			snprintf(maxstr, sizeof(minstr), "%ld",
-			    (long) my_hist->max_lat - my_hist->offset);
-		} else {
-			strcpy(minstr, "<undef>");
-			strcpy(avgstr, minstr);
-			strcpy(maxstr, minstr);
-		}
+			sprintf(avgstr, "%lu", avg);
+		} else
+			strcpy(avgstr, "<undef>");
 
-		seq_printf(m, "#Minimum latency: %s microseconds\n"
-			   "#Average latency: %s microseconds\n"
-			   "#Maximum latency: %s microseconds\n"
+		seq_printf(m, "#Minimum latency: %lu microseconds.\n"
+			   "#Average latency: %s microseconds.\n"
+			   "#Maximum latency: %lu microseconds.\n"
 			   "#Total samples: %llu\n"
-			   "#There are %llu samples lower than %ld"
-			   " microseconds.\n"
 			   "#There are %llu samples greater or equal"
-			   " than %ld microseconds.\n"
-			   "#usecs\t%16s\n",
-			   minstr, avgstr, maxstr,
-			   my_hist->total_samples,
-			   my_hist->below_hist_bound_samples,
-			   -my_hist->offset,
-			   my_hist->above_hist_bound_samples,
-			   MAX_ENTRY_NUM - my_hist->offset,
-			   "samples");
+			   " than %d microseconds\n"
+			   "#usecs\t%16s\n"
+			   , my_hist->min_lat
+			   , avgstr
+			   , my_hist->max_lat
+			   , my_hist->total_samples
+			   , my_hist->beyond_hist_bound_samples
+			   , MAX_ENTRY_NUM, "samples");
 	}
 	if (index >= MAX_ENTRY_NUM)
 		return NULL;
@@ -299,15 +233,8 @@ static int l_show(struct seq_file *m, void *p)
 {
 	int index = *(loff_t *) p;
 	struct hist_data *my_hist = m->private;
-	char *fmt;
 
-	if (my_hist->offset)
-		fmt = "%6d\t%16llu\n";
-	else
-		fmt = "%5d\t%16llu\n";
-
-	seq_printf(m, fmt, index - my_hist->offset,
-	    my_hist->hist_array[index]);
+	seq_printf(m, "%5d\t%16llu\n", index, my_hist->hist_array[index]);
 	return 0;
 }
 
@@ -342,8 +269,7 @@ static void hist_reset(struct hist_data *hist)
 	atomic_dec(&hist->hist_mode);
 
 	memset(hist->hist_array, 0, sizeof(hist->hist_array));
-	hist->below_hist_bound_samples = 0ULL;
-	hist->above_hist_bound_samples = 0ULL;
+	hist->beyond_hist_bound_samples = 0ULL;
 	hist->min_lat = 0xFFFFFFFFUL;
 	hist->max_lat = 0UL;
 	hist->total_samples = 0ULL;
@@ -358,13 +284,10 @@ latency_hist_reset(struct file *file, const char __user *a,
 {
 	int cpu;
 	struct hist_data *hist;
-#if defined(CONFIG_WAKEUP_LATENCY_HIST) || \
-    defined(CONFIG_MISSED_TIMER_OFFSETS_HIST)
-	struct maxlatproc_data *mp = NULL;
-#endif
 	int latency_type = (int) file->private_data;
 
 	switch (latency_type) {
+
 #ifdef CONFIG_PREEMPT_OFF_HIST
 	case PREEMPTOFF_LATENCY:
 		for_each_online_cpu(cpu) {
@@ -373,6 +296,7 @@ latency_hist_reset(struct file *file, const char __user *a,
 		}
 		break;
 #endif
+
 #ifdef CONFIG_INTERRUPT_OFF_HIST
 	case IRQSOFF_LATENCY:
 		for_each_online_cpu(cpu) {
@@ -381,6 +305,7 @@ latency_hist_reset(struct file *file, const char __user *a,
 		}
 		break;
 #endif
+
 #if defined(CONFIG_INTERRUPT_OFF_HIST) && defined(CONFIG_PREEMPT_OFF_HIST)
 	case PREEMPTIRQSOFF_LATENCY:
 		for_each_online_cpu(cpu) {
@@ -389,34 +314,16 @@ latency_hist_reset(struct file *file, const char __user *a,
 		}
 		break;
 #endif
+
 #ifdef CONFIG_WAKEUP_LATENCY_HIST
 	case WAKEUP_LATENCY:
 		for_each_online_cpu(cpu) {
+			struct maxlatproc_data *mp =
+			    &per_cpu(wakeup_maxlatproc, cpu);
+			mp->comm[0] = '\0';
+			mp->prio = mp->pid = mp->latency = 0;
 			hist = &per_cpu(wakeup_latency_hist, cpu);
 			hist_reset(hist);
-			mp = &per_cpu(wakeup_maxlatproc, cpu);
-			mp->comm[0] = '\0';
-			mp->prio = mp->pid = mp->latency = 0;
-		}
-		break;
-	case WAKEUP_LATENCY_SHAREDPRIO:
-		for_each_online_cpu(cpu) {
-			hist = &per_cpu(wakeup_latency_hist_sharedprio, cpu);
-			hist_reset(hist);
-			mp = &per_cpu(wakeup_maxlatproc_sharedprio, cpu);
-			mp->comm[0] = '\0';
-			mp->prio = mp->pid = mp->latency = 0;
-		}
-		break;
-#endif
-#ifdef CONFIG_MISSED_TIMER_OFFSETS_HIST
-	case MISSED_TIMER_OFFSETS:
-		for_each_online_cpu(cpu) {
-			hist = &per_cpu(missed_timer_offsets, cpu);
-			hist_reset(hist);
-			mp = &per_cpu(missed_timer_offsets_maxlatproc, cpu);
-			mp->comm[0] = '\0';
-			mp->prio = mp->pid = mp->latency = 0;
 		}
 		break;
 #endif
@@ -434,6 +341,8 @@ latency_hist_show_pid(struct file *filp, char __user *ubuf,
 	int r;
 
 	r = snprintf(buf, sizeof(buf), "%u\n", wakeup_pid);
+	if (r > sizeof(buf))
+		r = sizeof(buf);
 	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
 }
 
@@ -458,10 +367,7 @@ latency_hist_pid(struct file *filp, const char __user *ubuf,
 	wakeup_pid = pid;
 	return cnt;
 }
-#endif
 
-#if defined(CONFIG_WAKEUP_LATENCY_HIST) || \
-    defined(CONFIG_MISSED_TIMER_OFFSETS_HIST)
 static ssize_t
 latency_hist_show_maxlatproc(struct file *filp, char __user *ubuf,
 		      size_t cnt, loff_t *ppos)
@@ -473,9 +379,25 @@ latency_hist_show_maxlatproc(struct file *filp, char __user *ubuf,
 
 	r = snprintf(buf, sizeof(buf), "%5d %3d %ld %s\n",
 	    mp->pid, mp->prio, mp->latency, mp->comm);
+	if (r > sizeof(buf))
+		r = sizeof(buf);
 	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
 }
 
+#endif
+
+#if defined(CONFIG_INTERRUPT_OFF_HIST) || defined(CONFIG_PREEMPT_OFF_HIST)
+#ifdef CONFIG_INTERRUPT_OFF_HIST
+static DEFINE_PER_CPU(cycles_t, hist_irqsoff_start);
+static DEFINE_PER_CPU(int, hist_irqsoff_counting);
+#endif
+#ifdef CONFIG_PREEMPT_OFF_HIST
+static DEFINE_PER_CPU(cycles_t, hist_preemptoff_start);
+static DEFINE_PER_CPU(int, hist_preemptoff_counting);
+#endif
+#if defined(CONFIG_INTERRUPT_OFF_HIST) && defined(CONFIG_PREEMPT_OFF_HIST)
+static DEFINE_PER_CPU(cycles_t, hist_preemptirqsoff_start);
+static DEFINE_PER_CPU(int, hist_preemptirqsoff_counting);
 #endif
 
 static ssize_t
@@ -487,6 +409,8 @@ latency_hist_show_enable(struct file *filp, char __user *ubuf,
 	int r;
 
 	r = snprintf(buf, sizeof(buf), "%d\n", ed->enabled);
+	if (r > sizeof(buf))
+		r = sizeof(buf);
 	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
 }
 
@@ -516,19 +440,6 @@ latency_hist_enable(struct file *filp, const char __user *ubuf,
 		int ret;
 
 		switch (ed->latency_type) {
-#if defined(CONFIG_INTERRUPT_OFF_HIST) || defined(CONFIG_PREEMPT_OFF_HIST)
-		case PREEMPTIRQSOFF_LATENCY:
-			ret = register_trace_preemptirqsoff_hist(
-			    probe_preemptirqsoff_hist);
-			if (ret) {
-				pr_info("wakeup trace: Couldn't assign "
-				    "probe_preemptirqsoff_hist "
-				    "to trace_preemptirqsoff_hist\n");
-				return ret;
-			}
-			break;
-#endif
-#ifdef CONFIG_WAKEUP_LATENCY_HIST
 		case WAKEUP_LATENCY:
 			ret = register_trace_sched_wakeup(
 			    probe_wakeup_latency_hist_start);
@@ -561,49 +472,23 @@ latency_hist_enable(struct file *filp, const char __user *ubuf,
 				return ret;
 			}
 			break;
-#endif
-#ifdef CONFIG_MISSED_TIMER_OFFSETS_HIST
-		case MISSED_TIMER_OFFSETS:
-			ret = register_trace_hrtimer_interrupt(
-			    probe_hrtimer_interrupt);
+		case PREEMPTIRQSOFF_LATENCY:
+			ret = register_trace_preemptirqsoff_hist(
+			    probe_preemptirqsoff_hist);
 			if (ret) {
 				pr_info("wakeup trace: Couldn't assign "
-				    "probe_hrtimer_interrupt "
-				    "to trace_hrtimer_interrupt\n");
+				    "probe_preemptirqsoff_hist "
+				    "to trace_preemptirqsoff_hist\n");
 				return ret;
 			}
 			break;
-#endif
 		default:
 			break;
 		}
 	} else {
-		switch (ed->latency_type) {
-#if defined(CONFIG_INTERRUPT_OFF_HIST) || defined(CONFIG_PREEMPT_OFF_HIST)
-		case PREEMPTIRQSOFF_LATENCY:
-			{
-				int cpu;
+		int cpu;
 
-				unregister_trace_preemptirqsoff_hist(
-				    probe_preemptirqsoff_hist);
-				for_each_online_cpu(cpu) {
-#ifdef CONFIG_INTERRUPT_OFF_HIST
-					per_cpu(hist_irqsoff_counting,
-					    cpu) = 0;
-#endif
-#ifdef CONFIG_PREEMPT_OFF_HIST
-					per_cpu(hist_preemptoff_counting,
-					    cpu) = 0;
-#endif
-#if defined(CONFIG_INTERRUPT_OFF_HIST) && defined(CONFIG_PREEMPT_OFF_HIST)
-					per_cpu(hist_preemptirqsoff_counting,
-					    cpu) = 0;
-#endif
-				}
-			}
-			break;
-#endif
-#ifdef CONFIG_WAKEUP_LATEHCY_HIST
+		switch (ed->latency_type) {
 		case WAKEUP_LATENCY:
 			unregister_trace_sched_wakeup(
 			    probe_wakeup_latency_hist_start);
@@ -612,15 +497,23 @@ latency_hist_enable(struct file *filp, const char __user *ubuf,
 			unregister_trace_sched_switch(
 			    probe_wakeup_latency_hist_stop);
 			wakeup_task = NULL;
-			wakeup_sharedprio = 0;
+			wakeup_prio = (unsigned)-1;
 			break;
+		case PREEMPTIRQSOFF_LATENCY:
+			unregister_trace_preemptirqsoff_hist(
+			    probe_preemptirqsoff_hist);
+			for_each_online_cpu(cpu) {
+#ifdef CONFIG_INTERRUPT_OFF_HIST
+				per_cpu(hist_irqsoff_counting, cpu) = 0;
 #endif
-#ifdef CONFIG_MISSED_TIMER_OFFSETS_HIST
-		case MISSED_TIMER_OFFSETS:
-			unregister_trace_hrtimer_interrupt(
-			    probe_hrtimer_interrupt);
+#ifdef CONFIG_PREEMPT_OFF_HIST
+				per_cpu(hist_preemptoff_counting, cpu) = 0;
+#endif
+#if defined(CONFIG_INTERRUPT_OFF_HIST) && defined(CONFIG_PREEMPT_OFF_HIST)
+				per_cpu(hist_preemptirqsoff_counting, cpu) = 0;
+#endif
+			}
 			break;
-#endif
 		default:
 			break;
 		}
@@ -629,34 +522,28 @@ latency_hist_enable(struct file *filp, const char __user *ubuf,
 	return cnt;
 }
 
-static const struct file_operations latency_hist_reset_fops = {
+static struct file_operations latency_hist_reset_fops = {
 	.open = tracing_open_generic,
 	.write = latency_hist_reset,
 };
 
-static const struct file_operations latency_hist_enable_fops = {
+static struct file_operations latency_hist_pid_fops = {
+	.open = tracing_open_generic,
+	.read = latency_hist_show_pid,
+	.write = latency_hist_pid,
+};
+
+static struct file_operations latency_hist_maxlatproc_fops = {
+	.open = tracing_open_generic,
+	.read = latency_hist_show_maxlatproc,
+};
+
+static struct file_operations latency_hist_enable_fops = {
 	.open = tracing_open_generic,
 	.read = latency_hist_show_enable,
 	.write = latency_hist_enable,
 };
 
-#ifdef CONFIG_WAKEUP_LATENCY_HIST
-static const struct file_operations latency_hist_pid_fops = {
-	.open = tracing_open_generic,
-	.read = latency_hist_show_pid,
-	.write = latency_hist_pid,
-};
-#endif
-
-#if defined(CONFIG_WAKEUP_LATENCY_HIST) || \
-    defined(CONFIG_MISSED_TIMER_OFFSETS_HIST)
-static const struct file_operations latency_hist_maxlatproc_fops = {
-	.open = tracing_open_generic,
-	.read = latency_hist_show_maxlatproc,
-};
-#endif
-
-#if defined(CONFIG_INTERRUPT_OFF_HIST) || defined(CONFIG_PREEMPT_OFF_HIST)
 notrace void probe_preemptirqsoff_hist(int reason, int starthist)
 {
 	int cpu = raw_smp_processor_id();
@@ -756,10 +643,12 @@ notrace void probe_preemptirqsoff_hist(int reason, int starthist)
 #endif
 	}
 }
+
 #endif
 
 #ifdef CONFIG_WAKEUP_LATENCY_HIST
-static DEFINE_ATOMIC_SPINLOCK(wakeup_lock);
+static cycle_t wakeup_start;
+static DEFINE_RAW_SPINLOCK(wakeup_lock);
 
 notrace void probe_wakeup_latency_hist_start(struct rq *rq,
     struct task_struct *p, int success)
@@ -768,29 +657,24 @@ notrace void probe_wakeup_latency_hist_start(struct rq *rq,
 	struct task_struct *curr = rq_curr(rq);
 
 	if (wakeup_pid) {
-		if ((wakeup_task && p->prio == wakeup_task->prio) ||
-		    p->prio == curr->prio)
-			wakeup_sharedprio = 1;
 		if (likely(wakeup_pid != task_pid_nr(p)))
 			return;
 	} else {
 		if (likely(!rt_task(p)) ||
-		    (wakeup_task && p->prio > wakeup_task->prio) ||
-		    p->prio > curr->prio)
+		    p->prio >= wakeup_prio ||
+		    p->prio >= curr->prio)
 			return;
-		if ((wakeup_task && p->prio == wakeup_task->prio) ||
-		    p->prio == curr->prio)
-			wakeup_sharedprio = 1;
 	}
 
-	atomic_spin_lock_irqsave(&wakeup_lock, flags);
+	raw_spin_lock_irqsave(&wakeup_lock, flags);
 	if (wakeup_task)
 		put_task_struct(wakeup_task);
+
 	get_task_struct(p);
 	wakeup_task = p;
-	wakeup_task->preempt_timestamp_hist =
-	    ftrace_now(raw_smp_processor_id());
-	atomic_spin_unlock_irqrestore(&wakeup_lock, flags);
+	wakeup_prio = p->prio;
+	wakeup_start = ftrace_now(raw_smp_processor_id());
+	raw_spin_unlock_irqrestore(&wakeup_lock, flags);
 }
 
 notrace void probe_wakeup_latency_hist_stop(struct rq *rq,
@@ -807,60 +691,32 @@ notrace void probe_wakeup_latency_hist_stop(struct rq *rq,
 	cpu = raw_smp_processor_id();
 	stop = ftrace_now(cpu);
 
-	atomic_spin_lock_irqsave(&wakeup_lock, flags);
-
-	latency = nsecs_to_usecs(stop - next->preempt_timestamp_hist);
-	if (next != wakeup_task) {
-		if (wakeup_task && next->prio == wakeup_task->prio)
-			latency_hist(WAKEUP_LATENCY_SHAREDPRIO, cpu, latency,
-			    next);
+	raw_spin_lock_irqsave(&wakeup_lock, flags);
+	if (next != wakeup_task)
 		goto out;
-	}
 
-	if (wakeup_sharedprio) {
-		latency_hist(WAKEUP_LATENCY_SHAREDPRIO, cpu, latency, next);
-		wakeup_sharedprio = 0;
-	} else
-		latency_hist(WAKEUP_LATENCY, cpu, latency, next);
+	latency = nsecs_to_usecs(stop - wakeup_start);
+	latency_hist(WAKEUP_LATENCY, cpu, latency, next);
 
 	put_task_struct(wakeup_task);
 	wakeup_task = NULL;
+	wakeup_prio = (unsigned)-1;
 out:
-	atomic_spin_unlock_irqrestore(&wakeup_lock, flags);
+	raw_spin_unlock_irqrestore(&wakeup_lock, flags);
 }
-#endif
 
-#ifdef CONFIG_MISSED_TIMER_OFFSETS_HIST
-notrace void probe_hrtimer_interrupt(int cpu, long long latency_ns,
-    struct task_struct *task)
-{
-	if (latency_ns <= 0) {
-		unsigned long latency;
-
-		latency = (unsigned long) div_s64(-latency_ns, 1000);
-
-		latency_hist(MISSED_TIMER_OFFSETS, cpu, latency, task);
-	}
-}
 #endif
 
 static __init int latency_hist_init(void)
 {
 	struct dentry *latency_hist_root = NULL;
 	struct dentry *dentry;
-#ifdef CONFIG_WAKEUP_LATENCY_HIST
-	struct dentry *dentry_sharedprio;
-#endif
 	struct dentry *entry;
 	struct dentry *latency_hist_enable_root;
-	int i = 0;
+	int i = 0, len = 0;
 	struct hist_data *my_hist;
 	char name[64];
 	char *cpufmt = "CPU%d";
-#if defined(CONFIG_WAKEUP_LATENCY_HIST) || \
-    defined(CONFIG_MISSED_TIMER_OFFSETS_HIST)
-	char *cpufmt_maxlatproc = "max_latency-CPU%d";
-#endif
 
 	dentry = tracing_init_dentry();
 
@@ -873,118 +729,92 @@ static __init int latency_hist_init(void)
 #ifdef CONFIG_INTERRUPT_OFF_HIST
 	dentry = debugfs_create_dir(irqsoff_hist_dir, latency_hist_root);
 	for_each_possible_cpu(i) {
-		sprintf(name, cpufmt, i);
+		len = sprintf(name, cpufmt, i);
+		name[len] = '\0';
 		entry = debugfs_create_file(name, 0444, dentry,
-		    &per_cpu(irqsoff_hist, i), &latency_hist_fops);
+					    &per_cpu(irqsoff_hist, i),
+					    &latency_hist_fops);
 		my_hist = &per_cpu(irqsoff_hist, i);
 		atomic_set(&my_hist->hist_mode, 1);
 		my_hist->min_lat = 0xFFFFFFFFUL;
 	}
 	entry = debugfs_create_file("reset", 0644, dentry,
-	    (void *)IRQSOFF_LATENCY, &latency_hist_reset_fops);
+				    (void *)IRQSOFF_LATENCY,
+				    &latency_hist_reset_fops);
 #endif
 
 #ifdef CONFIG_PREEMPT_OFF_HIST
 	dentry = debugfs_create_dir(preemptoff_hist_dir,
-	    latency_hist_root);
+				    latency_hist_root);
 	for_each_possible_cpu(i) {
-		sprintf(name, cpufmt, i);
+		len = sprintf(name, cpufmt, i);
+		name[len] = '\0';
 		entry = debugfs_create_file(name, 0444, dentry,
-		    &per_cpu(preemptoff_hist, i), &latency_hist_fops);
+					    &per_cpu(preemptoff_hist, i),
+					    &latency_hist_fops);
 		my_hist = &per_cpu(preemptoff_hist, i);
 		atomic_set(&my_hist->hist_mode, 1);
 		my_hist->min_lat = 0xFFFFFFFFUL;
 	}
 	entry = debugfs_create_file("reset", 0644, dentry,
-	    (void *)PREEMPTOFF_LATENCY, &latency_hist_reset_fops);
+				    (void *)PREEMPTOFF_LATENCY,
+				    &latency_hist_reset_fops);
 #endif
 
 #if defined(CONFIG_INTERRUPT_OFF_HIST) && defined(CONFIG_PREEMPT_OFF_HIST)
 	dentry = debugfs_create_dir(preemptirqsoff_hist_dir,
-	    latency_hist_root);
+				    latency_hist_root);
 	for_each_possible_cpu(i) {
-		sprintf(name, cpufmt, i);
+		len = sprintf(name, cpufmt, i);
+		name[len] = '\0';
 		entry = debugfs_create_file(name, 0444, dentry,
-		    &per_cpu(preemptirqsoff_hist, i), &latency_hist_fops);
+					    &per_cpu(preemptirqsoff_hist, i),
+					    &latency_hist_fops);
 		my_hist = &per_cpu(preemptirqsoff_hist, i);
 		atomic_set(&my_hist->hist_mode, 1);
 		my_hist->min_lat = 0xFFFFFFFFUL;
 	}
 	entry = debugfs_create_file("reset", 0644, dentry,
-	    (void *)PREEMPTIRQSOFF_LATENCY, &latency_hist_reset_fops);
+				    (void *)PREEMPTIRQSOFF_LATENCY,
+				    &latency_hist_reset_fops);
 #endif
 
 #if defined(CONFIG_INTERRUPT_OFF_HIST) || defined(CONFIG_PREEMPT_OFF_HIST)
 	entry = debugfs_create_file("preemptirqsoff", 0644,
-	    latency_hist_enable_root, (void *)&preemptirqsoff_enabled_data,
-	    &latency_hist_enable_fops);
+				    latency_hist_enable_root,
+				    (void *)&preemptirqsoff_enabled_data,
+				    &latency_hist_enable_fops);
 #endif
 
 #ifdef CONFIG_WAKEUP_LATENCY_HIST
 	dentry = debugfs_create_dir(wakeup_latency_hist_dir,
-	    latency_hist_root);
-	dentry_sharedprio = debugfs_create_dir(
-	    wakeup_latency_hist_dir_sharedprio, dentry);
+				    latency_hist_root);
 	for_each_possible_cpu(i) {
-		sprintf(name, cpufmt, i);
+		len = sprintf(name, cpufmt, i);
+		name[len] = '\0';
 		entry = debugfs_create_file(name, 0444, dentry,
-		    &per_cpu(wakeup_latency_hist, i),
-		    &latency_hist_fops);
+					    &per_cpu(wakeup_latency_hist, i),
+					    &latency_hist_fops);
 		my_hist = &per_cpu(wakeup_latency_hist, i);
 		atomic_set(&my_hist->hist_mode, 1);
 		my_hist->min_lat = 0xFFFFFFFFUL;
 
-		sprintf(name, cpufmt, i);
-		entry = debugfs_create_file(name, 0444, dentry_sharedprio,
-		    &per_cpu(wakeup_latency_hist_sharedprio, i),
-		    &latency_hist_fops);
-		my_hist = &per_cpu(wakeup_latency_hist_sharedprio, i);
-		atomic_set(&my_hist->hist_mode, 1);
-		my_hist->min_lat = 0xFFFFFFFFUL;
-
-		sprintf(name, cpufmt_maxlatproc, i);
+		len = sprintf(name, "max_latency-CPU%d", i);
+		name[len] = '\0';
 		entry = debugfs_create_file(name, 0444, dentry,
-		    &per_cpu(wakeup_maxlatproc, i),
-		    &latency_hist_maxlatproc_fops);
-
-		sprintf(name, cpufmt_maxlatproc, i);
-		entry = debugfs_create_file(name, 0444, dentry_sharedprio,
-		    &per_cpu(wakeup_maxlatproc_sharedprio, i),
-		    &latency_hist_maxlatproc_fops);
+					    &per_cpu(wakeup_maxlatproc, i),
+					    &latency_hist_maxlatproc_fops);
 	}
 	entry = debugfs_create_file("pid", 0644, dentry,
-	    (void *)&wakeup_pid, &latency_hist_pid_fops);
+				    (void *)&wakeup_pid,
+				    &latency_hist_pid_fops);
 	entry = debugfs_create_file("reset", 0644, dentry,
-	    (void *)WAKEUP_LATENCY, &latency_hist_reset_fops);
-	entry = debugfs_create_file("reset", 0644, dentry_sharedprio,
-	    (void *)WAKEUP_LATENCY_SHAREDPRIO, &latency_hist_reset_fops);
+				    (void *)WAKEUP_LATENCY,
+				    &latency_hist_reset_fops);
 	entry = debugfs_create_file("wakeup", 0644,
-	    latency_hist_enable_root, (void *)&wakeup_latency_enabled_data,
-	    &latency_hist_enable_fops);
-#endif
-
-#ifdef CONFIG_MISSED_TIMER_OFFSETS_HIST
-	dentry = debugfs_create_dir(missed_timer_offsets_dir,
-	    latency_hist_root);
-	for_each_possible_cpu(i) {
-		sprintf(name, cpufmt, i);
-		entry = debugfs_create_file(name, 0444, dentry,
-		    &per_cpu(missed_timer_offsets, i), &latency_hist_fops);
-		my_hist = &per_cpu(missed_timer_offsets, i);
-		atomic_set(&my_hist->hist_mode, 1);
-		my_hist->min_lat = 0xFFFFFFFFUL;
-
-		sprintf(name, cpufmt_maxlatproc, i);
-		entry = debugfs_create_file(name, 0444, dentry,
-		    &per_cpu(missed_timer_offsets_maxlatproc, i),
-		    &latency_hist_maxlatproc_fops);
-	}
-	entry = debugfs_create_file("reset", 0644, dentry,
-	    (void *)MISSED_TIMER_OFFSETS, &latency_hist_reset_fops);
-	entry = debugfs_create_file("missed_timer_offsets", 0644,
-	    latency_hist_enable_root,
-	    (void *)&missed_timer_offsets_enabled_data,
-	    &latency_hist_enable_fops);
+				    latency_hist_enable_root,
+				    (void *)&wakeup_latency_enabled_data,
+				    &latency_hist_enable_fops);
 #endif
 	return 0;
 }

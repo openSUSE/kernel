@@ -93,8 +93,7 @@ typedef unsigned int nf_hookfn(unsigned int hooknum,
 			       const struct net_device *out,
 			       int (*okfn)(struct sk_buff *));
 
-struct nf_hook_ops
-{
+struct nf_hook_ops {
 	struct list_head list;
 
 	/* User fills in from here down. */
@@ -106,8 +105,7 @@ struct nf_hook_ops
 	int priority;
 };
 
-struct nf_sockopt_ops
-{
+struct nf_sockopt_ops {
 	struct list_head list;
 
 	u_int8_t pf;
@@ -221,12 +219,12 @@ __ret;})
 
 /* Call setsockopt() */
 int nf_setsockopt(struct sock *sk, u_int8_t pf, int optval, char __user *opt,
-		  int len);
+		  unsigned int len);
 int nf_getsockopt(struct sock *sk, u_int8_t pf, int optval, char __user *opt,
 		  int *len);
 
 int compat_nf_setsockopt(struct sock *sk, u_int8_t pf, int optval,
-		char __user *opt, int len);
+		char __user *opt, unsigned int len);
 int compat_nf_getsockopt(struct sock *sk, u_int8_t pf, int optval,
 		char __user *opt, int *len);
 

@@ -7,6 +7,8 @@ struct device;
 struct dma_attrs;
 struct scatterlist;
 
+extern int swiotlb_force;
+
 /*
  * Maximum allowable number of contiguous slabs to map,
  * must be a power of 2.  What is the appropriate value ?
@@ -14,25 +16,13 @@ struct scatterlist;
  */
 #define IO_TLB_SEGSIZE	128
 
-
 /*
  * log of the size of each IO TLB slab.  The number of slabs is command line
  * controllable.
  */
 #define IO_TLB_SHIFT 11
 
-extern void
-swiotlb_init(void);
-
-extern void *swiotlb_alloc_boot(size_t bytes, unsigned long nslabs);
-extern void *swiotlb_alloc(unsigned order, unsigned long nslabs);
-
-extern dma_addr_t swiotlb_phys_to_bus(struct device *hwdev,
-				      phys_addr_t address);
-extern phys_addr_t swiotlb_bus_to_phys(struct device *hwdev,
-				       dma_addr_t address);
-
-extern int swiotlb_arch_range_needs_mapping(phys_addr_t paddr, size_t size);
+extern void swiotlb_init(int verbose);
 
 extern void
 *swiotlb_alloc_coherent(struct device *hwdev, size_t size,
@@ -99,4 +89,11 @@ swiotlb_dma_mapping_error(struct device *hwdev, dma_addr_t dma_addr);
 extern int
 swiotlb_dma_supported(struct device *hwdev, u64 mask);
 
+#ifdef CONFIG_SWIOTLB
+extern void __init swiotlb_free(void);
+#else
+static inline void swiotlb_free(void) { }
+#endif
+
+extern void swiotlb_print_info(void);
 #endif /* __LINUX_SWIOTLB_H */

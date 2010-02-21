@@ -14,7 +14,7 @@
 #include <asm/mmu_context.h>
 #include <asm/tlbflush.h>
 
-static DEFINE_ATOMIC_SPINLOCK(cpu_asid_lock);
+static DEFINE_RAW_SPINLOCK(cpu_asid_lock);
 unsigned int cpu_last_asid = ASID_FIRST_VERSION;
 
 /*
@@ -32,7 +32,7 @@ void __new_context(struct mm_struct *mm)
 {
 	unsigned int asid;
 
-	atomic_spin_lock(&cpu_asid_lock);
+	raw_spin_lock(&cpu_asid_lock);
 	asid = ++cpu_last_asid;
 	if (asid == 0)
 		asid = cpu_last_asid = ASID_FIRST_VERSION;
@@ -50,15 +50,12 @@ void __new_context(struct mm_struct *mm)
 		isb();
 		flush_tlb_all();
 		if (icache_is_vivt_asid_tagged()) {
-			asm("mcr	p15, 0, %0, c7, c5, 0	@ invalidate I-cache\n"
-			    "mcr	p15, 0, %0, c7, c5, 6	@ flush BTAC/BTB\n"
-			    :
-			    : "r" (0));
+			__flush_icache_all();
 			dsb();
 		}
 	}
-	atomic_spin_unlock(&cpu_asid_lock);
+	raw_spin_unlock(&cpu_asid_lock);
 
-	mm->cpu_vm_mask = cpumask_of_cpu(smp_processor_id());
+	cpumask_copy(mm_cpumask(mm), cpumask_of(smp_processor_id()));
 	mm->context.id = asid;
 }

@@ -177,7 +177,7 @@ static int __devinit tosa_lcd_probe(struct spi_device *spi)
 	if (!data)
 		return -ENOMEM;
 
-	data->is_vga = true; /* defaut to VGA mode */
+	data->is_vga = true; /* default to VGA mode */
 
 	/*
 	 * bits_per_word cannot be configured in platform data
@@ -300,4 +300,4 @@ module_exit(tosa_lcd_exit);
 MODULE_AUTHOR("Dmitry Baryshkov");
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("LCD/Backlight control for Sharp SL-6000 PDA");
-
+MODULE_ALIAS("spi:tosa-lcd");

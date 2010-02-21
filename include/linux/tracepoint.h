@@ -4,7 +4,7 @@
 /*
  * Kernel Tracepoint API.
  *
- * See Documentation/tracepoint.txt.
+ * See Documentation/trace/tracepoints.txt.
  *
  * (C) Copyright 2008 Mathieu Desnoyers <mathieu.desnoyers@polymtl.ca>
  *
@@ -36,7 +36,7 @@ struct tracepoint {
 #ifndef DECLARE_TRACE
 
 #define TP_PROTO(args...)	args
-#define TP_ARGS(args...)		args
+#define TP_ARGS(args...)	args
 
 #ifdef CONFIG_TRACEPOINTS
 
@@ -279,6 +279,12 @@ static inline void tracepoint_synchronize_unregister(void)
  * A set of (un)registration functions can be passed to the variant
  * TRACE_EVENT_FN to perform any (un)registration work.
  */
+
+#define DECLARE_EVENT_CLASS(name, proto, args, tstruct, assign, print)
+#define DEFINE_EVENT(template, name, proto, args)		\
+	DECLARE_TRACE(name, PARAMS(proto), PARAMS(args))
+#define DEFINE_EVENT_PRINT(template, name, proto, args, print)	\
+	DECLARE_TRACE(name, PARAMS(proto), PARAMS(args))
 
 #define TRACE_EVENT(name, proto, args, struct, assign, print)	\
 	DECLARE_TRACE(name, PARAMS(proto), PARAMS(args))

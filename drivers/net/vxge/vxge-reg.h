@@ -1784,7 +1784,7 @@ struct vxge_hw_mrpcim_reg {
 #define	VXGE_HW_XMAC_GEN_ERR_REG_XMACJ_XMAC_FSM_ERR	vxge_mBIT(63)
 /*0x01e18*/	u64	xmac_gen_err_mask;
 /*0x01e20*/	u64	xmac_gen_err_alarm;
-/*0x01e28*/	u64	xmac_link_err_port_reg[2];
+/*0x01e28*/	u64	xmac_link_err_port0_reg;
 #define	VXGE_HW_XMAC_LINK_ERR_PORT_REG_XMACJ_PORT_DOWN	vxge_mBIT(3)
 #define	VXGE_HW_XMAC_LINK_ERR_PORT_REG_XMACJ_PORT_UP	vxge_mBIT(7)
 #define	VXGE_HW_XMAC_LINK_ERR_PORT_REG_XMACJ_PORT_WENT_DOWN	vxge_mBIT(11)
@@ -1798,8 +1798,11 @@ struct vxge_hw_mrpcim_reg {
 #define	VXGE_HW_XMAC_LINK_ERR_PORT_REG_RATEMGMT_LASI_INV	vxge_mBIT(39)
 #define	VXGE_HW_XMAC_LINK_ERR_PORT_REG_XMDIO_MDIO_MGR_ACCESS_COMPLETE \
 								vxge_mBIT(47)
-/*0x01e30*/	u64	xmac_link_err_port_mask[2];
-/*0x01e38*/	u64	xmac_link_err_port_alarm[2];
+/*0x01e30*/	u64	xmac_link_err_port0_mask;
+/*0x01e38*/	u64	xmac_link_err_port0_alarm;
+/*0x01e40*/	u64	xmac_link_err_port1_reg;
+/*0x01e48*/	u64	xmac_link_err_port1_mask;
+/*0x01e50*/	u64	xmac_link_err_port1_alarm;
 /*0x01e58*/	u64	xgxs_gen_err_reg;
 #define	VXGE_HW_XGXS_GEN_ERR_REG_XGXS_XGXS_FSM_ERR	vxge_mBIT(63)
 /*0x01e60*/	u64	xgxs_gen_err_mask;
@@ -4323,10 +4326,6 @@ struct vxge_hw_vpath_reg {
 /*0x011e0*/	u64	umq_bwr_init_byte;
 #define VXGE_HW_UMQ_BWR_INIT_BYTE_COUNT(val) vxge_vBIT(val, 0, 32)
 /*0x011e8*/	u64	gendma_int;
-#define	VXGE_HW_GENDMA_INT_IMMED_ENABLE	vxge_mBIT(6)
-#define	VXGE_HW_GENDMA_INT_EVENT_ENABLE	vxge_mBIT(7)
-#define VXGE_HW_GENDMA_INT_NUMBER(val) vxge_vBIT(val, 9, 7)
-#define VXGE_HW_GENDMA_INT_BITMAP(val) vxge_vBIT(val, 16, 16)
 /*0x011f0*/	u64	umqdmq_ir_init_notify;
 #define	VXGE_HW_UMQDMQ_IR_INIT_NOTIFY_PULSE	vxge_mBIT(3)
 /*0x011f8*/	u64	dmq_init_notify;

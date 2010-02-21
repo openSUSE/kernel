@@ -99,6 +99,22 @@ static struct {
 	{ ATMEL_FW_TYPE_506,		"atmel_at76c506",	"bin" },
 	{ ATMEL_FW_TYPE_NONE,		NULL,			NULL }
 };
+MODULE_FIRMWARE("atmel_at76c502-wpa.bin");
+MODULE_FIRMWARE("atmel_at76c502.bin");
+MODULE_FIRMWARE("atmel_at76c502d-wpa.bin");
+MODULE_FIRMWARE("atmel_at76c502d.bin");
+MODULE_FIRMWARE("atmel_at76c502e-wpa.bin");
+MODULE_FIRMWARE("atmel_at76c502e.bin");
+MODULE_FIRMWARE("atmel_at76c502_3com-wpa.bin");
+MODULE_FIRMWARE("atmel_at76c502_3com.bin");
+MODULE_FIRMWARE("atmel_at76c504-wpa.bin");
+MODULE_FIRMWARE("atmel_at76c504.bin");
+MODULE_FIRMWARE("atmel_at76c504_2958-wpa.bin");
+MODULE_FIRMWARE("atmel_at76c504_2958.bin");
+MODULE_FIRMWARE("atmel_at76c504a_2958-wpa.bin");
+MODULE_FIRMWARE("atmel_at76c504a_2958.bin");
+MODULE_FIRMWARE("atmel_at76c506-wpa.bin");
+MODULE_FIRMWARE("atmel_at76c506.bin");
 
 #define MAX_SSID_LENGTH 32
 #define MGMT_JIFFIES (256 * HZ / 100)
@@ -781,7 +797,7 @@ static void tx_update_descriptor(struct atmel_private *priv, int is_bcast,
 	priv->tx_free_mem -= len;
 }
 
-static int start_tx(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev)
 {
 	static const u8 SNAP_RFC1024[6] = { 0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00 };
 	struct atmel_private *priv = netdev_priv(dev);
@@ -793,13 +809,13 @@ static int start_tx(struct sk_buff *skb, struct net_device *dev)
 	    !(*priv->present_callback)(priv->card)) {
 		dev->stats.tx_errors++;
 		dev_kfree_skb(skb);
-		return 0;
+		return NETDEV_TX_OK;
 	}
 
 	if (priv->station_state != STATION_STATE_READY) {
 		dev->stats.tx_errors++;
 		dev_kfree_skb(skb);
-		return 0;
+		return NETDEV_TX_OK;
 	}
 
 	/* first ensure the timer func cannot run */
@@ -856,7 +872,7 @@ static int start_tx(struct sk_buff *skb, struct net_device *dev)
 	spin_unlock_bh(&priv->timerlock);
 	dev_kfree_skb(skb);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 static void atmel_transmit_management_frame(struct atmel_private *priv,
@@ -3330,7 +3346,7 @@ static void atmel_smooth_qual(struct atmel_private *priv)
 	priv->wstats.qual.updated &= ~IW_QUAL_QUAL_INVALID;
 }
 
-/* deals with incoming managment frames. */
+/* deals with incoming management frames. */
 static void atmel_management_frame(struct atmel_private *priv,
 				   struct ieee80211_hdr *header,
 				   u16 frame_len, u8 rssi)

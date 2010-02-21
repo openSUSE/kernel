@@ -8,6 +8,7 @@
 
 #include <asm/tlbflush.h>
 #include <asm/mmu_context.h>
+#include <asm/cache.h>
 #include <asm/apic.h>
 #include <asm/uv/uv.h>
 
@@ -40,10 +41,10 @@ union smp_flush_state {
 	struct {
 		struct mm_struct *flush_mm;
 		unsigned long flush_va;
-		atomic_spinlock_t tlbstate_lock;
+		raw_spinlock_t tlbstate_lock;
 		DECLARE_BITMAP(flush_cpumask, NR_CPUS);
 	};
-	char pad[CONFIG_X86_INTERNODE_CACHE_BYTES];
+	char pad[INTERNODE_CACHE_BYTES];
 } ____cacheline_internodealigned_in_smp;
 
 /* State is put into the per CPU data section, but padded
@@ -59,7 +60,8 @@ void leave_mm(int cpu)
 {
 	if (percpu_read(cpu_tlbstate.state) == TLBSTATE_OK)
 		BUG();
-	cpu_clear(cpu, percpu_read(cpu_tlbstate.active_mm)->cpu_vm_mask);
+	cpumask_clear_cpu(cpu,
+			  mm_cpumask(percpu_read(cpu_tlbstate.active_mm)));
 	load_cr3(swapper_pg_dir);
 }
 EXPORT_SYMBOL_GPL(leave_mm);
@@ -179,7 +181,7 @@ static void flush_tlb_others_ipi(const struct cpumask *cpumask,
 	 * num_online_cpus() <= NUM_INVALIDATE_TLB_VECTORS, but it is
 	 * probably not worth checking this for a cache-hot lock.
 	 */
-	atomic_spin_lock(&f->tlbstate_lock);
+	raw_spin_lock(&f->tlbstate_lock);
 
 	f->flush_mm = mm;
 	f->flush_va = va;
@@ -197,7 +199,7 @@ static void flush_tlb_others_ipi(const struct cpumask *cpumask,
 
 	f->flush_mm = NULL;
 	f->flush_va = 0;
-	atomic_spin_unlock(&f->tlbstate_lock);
+	raw_spin_unlock(&f->tlbstate_lock);
 }
 
 void native_flush_tlb_others(const struct cpumask *cpumask,
@@ -221,7 +223,7 @@ static int __cpuinit init_smp_flush(void)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(flush_state); i++)
-		atomic_spin_lock_init(&flush_state[i].tlbstate_lock);
+		raw_spin_lock_init(&flush_state[i].tlbstate_lock);
 
 	return 0;
 }
@@ -234,8 +236,8 @@ void flush_tlb_current_task(void)
 	preempt_disable();
 
 	local_flush_tlb();
-	if (cpumask_any_but(&mm->cpu_vm_mask, smp_processor_id()) < nr_cpu_ids)
-		flush_tlb_others(&mm->cpu_vm_mask, mm, TLB_FLUSH_ALL);
+	if (cpumask_any_but(mm_cpumask(mm), smp_processor_id()) < nr_cpu_ids)
+		flush_tlb_others(mm_cpumask(mm), mm, TLB_FLUSH_ALL);
 	preempt_enable();
 }
 
@@ -249,8 +251,8 @@ void flush_tlb_mm(struct mm_struct *mm)
 		else
 			leave_mm(smp_processor_id());
 	}
-	if (cpumask_any_but(&mm->cpu_vm_mask, smp_processor_id()) < nr_cpu_ids)
-		flush_tlb_others(&mm->cpu_vm_mask, mm, TLB_FLUSH_ALL);
+	if (cpumask_any_but(mm_cpumask(mm), smp_processor_id()) < nr_cpu_ids)
+		flush_tlb_others(mm_cpumask(mm), mm, TLB_FLUSH_ALL);
 
 	preempt_enable();
 }
@@ -268,8 +270,8 @@ void flush_tlb_page(struct vm_area_struct *vma, unsigned long va)
 			leave_mm(smp_processor_id());
 	}
 
-	if (cpumask_any_but(&mm->cpu_vm_mask, smp_processor_id()) < nr_cpu_ids)
-		flush_tlb_others(&mm->cpu_vm_mask, mm, va);
+	if (cpumask_any_but(mm_cpumask(mm), smp_processor_id()) < nr_cpu_ids)
+		flush_tlb_others(mm_cpumask(mm), mm, va);
 
 	preempt_enable();
 }

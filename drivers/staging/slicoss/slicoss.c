@@ -354,7 +354,6 @@ static const struct net_device_ops slic_netdev_ops = {
 	.ndo_get_stats		= slic_get_stats,
 	.ndo_set_multicast_list	= slic_mcast_set_list,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_set_mac_address	= eth_mac_addr,
 	.ndo_change_mtu		= eth_change_mtu,
 };
 
@@ -845,7 +844,7 @@ static int slic_xmit_start(struct sk_buff *skb, struct net_device *dev)
 				 hcmd->paddrh, DONT_FLUSH);
 	}
 xmit_done:
-	return 0;
+	return NETDEV_TX_OK;
 xmit_fail:
 	slic_xmit_fail(adapter, skb, offloadcmd, skbtype, status);
 	goto xmit_done;
@@ -1306,7 +1305,7 @@ static void slic_mcast_init_crc32(void)
 
 	static int p[] = { 0, 1, 2, 4, 5, 7, 8, 10, 11, 12, 16, 22, 23, 26 };
 
-	for (i = 0; i < sizeof(p) / sizeof(int); i++)
+	for (i = 0; i < ARRAY_SIZE(p); i++)
 		e |= 1L << (31 - p[i]);
 
 	for (i = 1; i < 256; i++) {

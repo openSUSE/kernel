@@ -160,7 +160,7 @@ static struct usb_driver mimio_driver = {
 	.id_table = mimio_table,
 };
 
-static DEFINE_SEMAPHORE(disconnect_sem);
+static DEFINE_SEMAPHORE(disconnect_sem, 1);
 
 static void mimio_close(struct input_dev *idev)
 {

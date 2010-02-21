@@ -5,10 +5,13 @@
  * relegated to obsolescence, but used by various less
  * important (or lazy) subsystems.
  */
-#include <linux/smp_lock.h>
 #include <linux/module.h>
 #include <linux/kallsyms.h>
-#include <linux/semaphore.h>
+#include <linux/mutex.h>
+#include <linux/smp_lock.h>
+
+#define CREATE_TRACE_POINTS
+#include <trace/events/bkl.h>
 
 /*
  * The 'big kernel semaphore'
@@ -24,7 +27,7 @@
  *
  * Don't use in new code.
  */
-DEFINE_SEMAPHORE(kernel_sem);
+DEFINE_MUTEX(kernel_sem);
 
 /*
  * Re-acquire the kernel semaphore.
@@ -40,62 +43,62 @@ DEFINE_SEMAPHORE(kernel_sem);
  */
 int __lockfunc __reacquire_kernel_lock(void)
 {
-	struct task_struct *task = current;
-	int saved_lock_depth = task->lock_depth;
+	int saved_lock_depth = current->lock_depth;
 
-	local_irq_enable();
 	BUG_ON(saved_lock_depth < 0);
 
-	task->lock_depth = -1;
-
-	down(&kernel_sem);
-
-	task->lock_depth = saved_lock_depth;
+	current->lock_depth = -1;
 	local_irq_enable();
+
+	mutex_lock(&kernel_sem);
+
+	local_irq_disable();
+	current->lock_depth = saved_lock_depth;
 
 	return 0;
 }
 
 void __lockfunc __release_kernel_lock(void)
 {
-	up(&kernel_sem);
+	mutex_unlock(&kernel_sem);
 }
 
 /*
  * Getting the big kernel semaphore.
  */
-void __lockfunc lock_kernel(void)
+void __lockfunc _lock_kernel(const char *func, const char *file, int line)
 {
-	struct task_struct *task = current;
-	int depth = task->lock_depth + 1;
+	int depth = current->lock_depth + 1;
+
+	trace_lock_kernel(func, file, line);
 
 	if (likely(!depth)) {
+		might_sleep();
 		/*
 		 * No recursion worries - we set up lock_depth _after_
 		 */
-		down(&kernel_sem);
+		mutex_lock(&kernel_sem);
 #ifdef CONFIG_DEBUG_RT_MUTEXES
 		current->last_kernel_lock = __builtin_return_address(0);
 #endif
 	}
 
-	task->lock_depth = depth;
+	current->lock_depth = depth;
 }
 
-void __lockfunc unlock_kernel(void)
+void __lockfunc _unlock_kernel(const char *func, const char *file, int line)
 {
-	struct task_struct *task = current;
+	BUG_ON(current->lock_depth < 0);
 
-	BUG_ON(task->lock_depth < 0);
-
-	if (likely(--task->lock_depth < 0)) {
+	if (likely(--current->lock_depth < 0)) {
 #ifdef CONFIG_DEBUG_RT_MUTEXES
 		current->last_kernel_lock = NULL;
 #endif
-		up(&kernel_sem);
+		mutex_unlock(&kernel_sem);
 	}
+	trace_unlock_kernel(func, file, line);
 }
 
-EXPORT_SYMBOL(lock_kernel);
-EXPORT_SYMBOL(unlock_kernel);
+EXPORT_SYMBOL(_lock_kernel);
+EXPORT_SYMBOL(_unlock_kernel);
 

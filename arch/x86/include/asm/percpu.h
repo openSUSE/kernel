@@ -49,7 +49,7 @@
 #define __percpu_arg(x)		"%%"__stringify(__percpu_seg)":%P" #x
 #define __my_cpu_offset		percpu_read(this_cpu_off)
 #else
-#define __percpu_arg(x)		"%" #x
+#define __percpu_arg(x)		"%P" #x
 #endif
 
 /*
@@ -74,72 +74,162 @@ extern void __bad_percpu_size(void);
 
 #define percpu_to_op(op, var, val)			\
 do {							\
-	typedef typeof(var) T__;			\
+	typedef typeof(var) pto_T__;			\
 	if (0) {					\
-		T__ tmp__;				\
-		tmp__ = (val);				\
+		pto_T__ pto_tmp__;			\
+		pto_tmp__ = (val);			\
 	}						\
 	switch (sizeof(var)) {				\
 	case 1:						\
 		asm(op "b %1,"__percpu_arg(0)		\
 		    : "+m" (var)			\
-		    : "qi" ((T__)(val)));		\
+		    : "qi" ((pto_T__)(val)));		\
 		break;					\
 	case 2:						\
 		asm(op "w %1,"__percpu_arg(0)		\
 		    : "+m" (var)			\
-		    : "ri" ((T__)(val)));		\
+		    : "ri" ((pto_T__)(val)));		\
 		break;					\
 	case 4:						\
 		asm(op "l %1,"__percpu_arg(0)		\
 		    : "+m" (var)			\
-		    : "ri" ((T__)(val)));		\
+		    : "ri" ((pto_T__)(val)));		\
 		break;					\
 	case 8:						\
 		asm(op "q %1,"__percpu_arg(0)		\
 		    : "+m" (var)			\
-		    : "re" ((T__)(val)));		\
+		    : "re" ((pto_T__)(val)));		\
 		break;					\
 	default: __bad_percpu_size();			\
 	}						\
 } while (0)
 
-#define percpu_from_op(op, var)				\
+#define percpu_from_op(op, var, constraint)		\
 ({							\
-	typeof(var) ret__;				\
+	typeof(var) pfo_ret__;				\
 	switch (sizeof(var)) {				\
 	case 1:						\
 		asm(op "b "__percpu_arg(1)",%0"		\
-		    : "=q" (ret__)			\
-		    : "m" (var));			\
+		    : "=q" (pfo_ret__)			\
+		    : constraint);			\
 		break;					\
 	case 2:						\
 		asm(op "w "__percpu_arg(1)",%0"		\
-		    : "=r" (ret__)			\
-		    : "m" (var));			\
+		    : "=r" (pfo_ret__)			\
+		    : constraint);			\
 		break;					\
 	case 4:						\
 		asm(op "l "__percpu_arg(1)",%0"		\
-		    : "=r" (ret__)			\
-		    : "m" (var));			\
+		    : "=r" (pfo_ret__)			\
+		    : constraint);			\
 		break;					\
 	case 8:						\
 		asm(op "q "__percpu_arg(1)",%0"		\
-		    : "=r" (ret__)			\
-		    : "m" (var));			\
+		    : "=r" (pfo_ret__)			\
+		    : constraint);			\
 		break;					\
 	default: __bad_percpu_size();			\
 	}						\
-	ret__;						\
+	pfo_ret__;					\
 })
 
-#define percpu_read(var)	percpu_from_op("mov", per_cpu__##var)
+/*
+ * percpu_read() makes gcc load the percpu variable every time it is
+ * accessed while percpu_read_stable() allows the value to be cached.
+ * percpu_read_stable() is more efficient and can be used if its value
+ * is guaranteed to be valid across cpus.  The current users include
+ * get_current() and get_thread_info() both of which are actually
+ * per-thread variables implemented as per-cpu variables and thus
+ * stable for the duration of the respective task.
+ */
+#define percpu_read(var)	percpu_from_op("mov", per_cpu__##var,	\
+					       "m" (per_cpu__##var))
+#define percpu_read_stable(var)	percpu_from_op("mov", per_cpu__##var,	\
+					       "p" (&per_cpu__##var))
 #define percpu_write(var, val)	percpu_to_op("mov", per_cpu__##var, val)
 #define percpu_add(var, val)	percpu_to_op("add", per_cpu__##var, val)
 #define percpu_sub(var, val)	percpu_to_op("sub", per_cpu__##var, val)
 #define percpu_and(var, val)	percpu_to_op("and", per_cpu__##var, val)
 #define percpu_or(var, val)	percpu_to_op("or", per_cpu__##var, val)
 #define percpu_xor(var, val)	percpu_to_op("xor", per_cpu__##var, val)
+
+#define __this_cpu_read_1(pcp)		percpu_from_op("mov", (pcp), "m"(pcp))
+#define __this_cpu_read_2(pcp)		percpu_from_op("mov", (pcp), "m"(pcp))
+#define __this_cpu_read_4(pcp)		percpu_from_op("mov", (pcp), "m"(pcp))
+
+#define __this_cpu_write_1(pcp, val)	percpu_to_op("mov", (pcp), val)
+#define __this_cpu_write_2(pcp, val)	percpu_to_op("mov", (pcp), val)
+#define __this_cpu_write_4(pcp, val)	percpu_to_op("mov", (pcp), val)
+#define __this_cpu_add_1(pcp, val)	percpu_to_op("add", (pcp), val)
+#define __this_cpu_add_2(pcp, val)	percpu_to_op("add", (pcp), val)
+#define __this_cpu_add_4(pcp, val)	percpu_to_op("add", (pcp), val)
+#define __this_cpu_and_1(pcp, val)	percpu_to_op("and", (pcp), val)
+#define __this_cpu_and_2(pcp, val)	percpu_to_op("and", (pcp), val)
+#define __this_cpu_and_4(pcp, val)	percpu_to_op("and", (pcp), val)
+#define __this_cpu_or_1(pcp, val)	percpu_to_op("or", (pcp), val)
+#define __this_cpu_or_2(pcp, val)	percpu_to_op("or", (pcp), val)
+#define __this_cpu_or_4(pcp, val)	percpu_to_op("or", (pcp), val)
+#define __this_cpu_xor_1(pcp, val)	percpu_to_op("xor", (pcp), val)
+#define __this_cpu_xor_2(pcp, val)	percpu_to_op("xor", (pcp), val)
+#define __this_cpu_xor_4(pcp, val)	percpu_to_op("xor", (pcp), val)
+
+#define this_cpu_read_1(pcp)		percpu_from_op("mov", (pcp), "m"(pcp))
+#define this_cpu_read_2(pcp)		percpu_from_op("mov", (pcp), "m"(pcp))
+#define this_cpu_read_4(pcp)		percpu_from_op("mov", (pcp), "m"(pcp))
+#define this_cpu_write_1(pcp, val)	percpu_to_op("mov", (pcp), val)
+#define this_cpu_write_2(pcp, val)	percpu_to_op("mov", (pcp), val)
+#define this_cpu_write_4(pcp, val)	percpu_to_op("mov", (pcp), val)
+#define this_cpu_add_1(pcp, val)	percpu_to_op("add", (pcp), val)
+#define this_cpu_add_2(pcp, val)	percpu_to_op("add", (pcp), val)
+#define this_cpu_add_4(pcp, val)	percpu_to_op("add", (pcp), val)
+#define this_cpu_and_1(pcp, val)	percpu_to_op("and", (pcp), val)
+#define this_cpu_and_2(pcp, val)	percpu_to_op("and", (pcp), val)
+#define this_cpu_and_4(pcp, val)	percpu_to_op("and", (pcp), val)
+#define this_cpu_or_1(pcp, val)		percpu_to_op("or", (pcp), val)
+#define this_cpu_or_2(pcp, val)		percpu_to_op("or", (pcp), val)
+#define this_cpu_or_4(pcp, val)		percpu_to_op("or", (pcp), val)
+#define this_cpu_xor_1(pcp, val)	percpu_to_op("xor", (pcp), val)
+#define this_cpu_xor_2(pcp, val)	percpu_to_op("xor", (pcp), val)
+#define this_cpu_xor_4(pcp, val)	percpu_to_op("xor", (pcp), val)
+
+#define irqsafe_cpu_add_1(pcp, val)	percpu_to_op("add", (pcp), val)
+#define irqsafe_cpu_add_2(pcp, val)	percpu_to_op("add", (pcp), val)
+#define irqsafe_cpu_add_4(pcp, val)	percpu_to_op("add", (pcp), val)
+#define irqsafe_cpu_and_1(pcp, val)	percpu_to_op("and", (pcp), val)
+#define irqsafe_cpu_and_2(pcp, val)	percpu_to_op("and", (pcp), val)
+#define irqsafe_cpu_and_4(pcp, val)	percpu_to_op("and", (pcp), val)
+#define irqsafe_cpu_or_1(pcp, val)	percpu_to_op("or", (pcp), val)
+#define irqsafe_cpu_or_2(pcp, val)	percpu_to_op("or", (pcp), val)
+#define irqsafe_cpu_or_4(pcp, val)	percpu_to_op("or", (pcp), val)
+#define irqsafe_cpu_xor_1(pcp, val)	percpu_to_op("xor", (pcp), val)
+#define irqsafe_cpu_xor_2(pcp, val)	percpu_to_op("xor", (pcp), val)
+#define irqsafe_cpu_xor_4(pcp, val)	percpu_to_op("xor", (pcp), val)
+
+/*
+ * Per cpu atomic 64 bit operations are only available under 64 bit.
+ * 32 bit must fall back to generic operations.
+ */
+#ifdef CONFIG_X86_64
+#define __this_cpu_read_8(pcp)		percpu_from_op("mov", (pcp), "m"(pcp))
+#define __this_cpu_write_8(pcp, val)	percpu_to_op("mov", (pcp), val)
+#define __this_cpu_add_8(pcp, val)	percpu_to_op("add", (pcp), val)
+#define __this_cpu_and_8(pcp, val)	percpu_to_op("and", (pcp), val)
+#define __this_cpu_or_8(pcp, val)	percpu_to_op("or", (pcp), val)
+#define __this_cpu_xor_8(pcp, val)	percpu_to_op("xor", (pcp), val)
+
+#define this_cpu_read_8(pcp)		percpu_from_op("mov", (pcp), "m"(pcp))
+#define this_cpu_write_8(pcp, val)	percpu_to_op("mov", (pcp), val)
+#define this_cpu_add_8(pcp, val)	percpu_to_op("add", (pcp), val)
+#define this_cpu_and_8(pcp, val)	percpu_to_op("and", (pcp), val)
+#define this_cpu_or_8(pcp, val)		percpu_to_op("or", (pcp), val)
+#define this_cpu_xor_8(pcp, val)	percpu_to_op("xor", (pcp), val)
+
+#define irqsafe_cpu_add_8(pcp, val)	percpu_to_op("add", (pcp), val)
+#define irqsafe_cpu_and_8(pcp, val)	percpu_to_op("and", (pcp), val)
+#define irqsafe_cpu_or_8(pcp, val)	percpu_to_op("or", (pcp), val)
+#define irqsafe_cpu_xor_8(pcp, val)	percpu_to_op("xor", (pcp), val)
+
+#endif
 
 /* This is not atomic against other CPUs -- CPU preemption needs to be off */
 #define x86_test_and_clear_bit_percpu(bit, var)				\
@@ -155,15 +245,6 @@ do {							\
 
 /* We can use this directly for local CPU (faster). */
 DECLARE_PER_CPU(unsigned long, this_cpu_off);
-
-#ifdef CONFIG_NEED_MULTIPLE_NODES
-void *pcpu_lpage_remapped(void *kaddr);
-#else
-static inline void *pcpu_lpage_remapped(void *kaddr)
-{
-	return NULL;
-}
-#endif
 
 #endif /* !__ASSEMBLY__ */
 

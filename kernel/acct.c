@@ -491,13 +491,17 @@ static void do_acct_process(struct bsd_acct_struct *acct,
 	u64 run_time;
 	struct timespec uptime;
 	struct tty_struct *tty;
+	const struct cred *orig_cred;
+
+	/* Perform file operations on behalf of whoever enabled accounting */
+	orig_cred = override_creds(file->f_cred);
 
 	/*
 	 * First check to see if there is enough free_space to continue
 	 * the process accounting system.
 	 */
 	if (!check_free_space(acct, file))
-		return;
+		goto out;
 
 	/*
 	 * Fill the accounting struct with the needed info as recorded
@@ -532,7 +536,8 @@ static void do_acct_process(struct bsd_acct_struct *acct,
 	do_div(elapsed, AHZ);
 	ac.ac_btime = get_seconds() - elapsed;
 	/* we really need to bite the bullet and change layout */
-	current_uid_gid(&ac.ac_uid, &ac.ac_gid);
+	ac.ac_uid = orig_cred->uid;
+	ac.ac_gid = orig_cred->gid;
 #if ACCT_VERSION==2
 	ac.ac_ahz = AHZ;
 #endif
@@ -578,6 +583,8 @@ static void do_acct_process(struct bsd_acct_struct *acct,
 			       sizeof(acct_t), &file->f_pos);
 	current->signal->rlim[RLIMIT_FSIZE].rlim_cur = flim;
 	set_fs(fs);
+out:
+	revert_creds(orig_cred);
 }
 
 /**

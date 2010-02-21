@@ -24,6 +24,7 @@
 	.code32
 	.text
 
+#include <linux/init.h>
 #include <linux/linkage.h>
 #include <asm/segment.h>
 #include <asm/pgtable_types.h>
@@ -33,7 +34,7 @@
 #include <asm/processor-flags.h>
 #include <asm/asm-offsets.h>
 
-	.section ".text.head"
+	__HEAD
 	.code32
 ENTRY(startup_32)
 	cld
@@ -106,8 +107,7 @@ ENTRY(startup_32)
 	lgdt	gdt(%ebp)
 
 	/* Enable PAE mode */
-	xorl	%eax, %eax
-	orl	$(X86_CR4_PAE), %eax
+	movl	$(X86_CR4_PAE), %eax
 	movl	%eax, %cr4
 
  /*

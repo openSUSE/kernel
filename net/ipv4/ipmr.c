@@ -99,10 +99,6 @@ static int ipmr_cache_report(struct net *net,
 			     struct sk_buff *pkt, vifi_t vifi, int assert);
 static int ipmr_fill_mroute(struct sk_buff *skb, struct mfc_cache *c, struct rtmsg *rtm);
 
-#ifdef CONFIG_IP_PIMSM_V2
-static struct net_protocol pim_protocol;
-#endif
-
 static struct timer_list ipmr_expire_timer;
 
 /* Service routines creating virtual interfaces: DVMRP tunnels and PIMREG */
@@ -201,7 +197,7 @@ failure:
 
 #ifdef CONFIG_IP_PIMSM
 
-static int reg_vif_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t reg_vif_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct net *net = dev_net(dev);
 
@@ -212,7 +208,7 @@ static int reg_vif_xmit(struct sk_buff *skb, struct net_device *dev)
 			  IGMPMSG_WHOLEPKT);
 	read_unlock(&mrt_lock);
 	kfree_skb(skb);
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 static const struct net_device_ops reg_vif_netdev_ops = {
@@ -279,7 +275,8 @@ failure:
  *	@notify: Set to 1, if the caller is a notifier_call
  */
 
-static int vif_delete(struct net *net, int vifi, int notify)
+static int vif_delete(struct net *net, int vifi, int notify,
+		      struct list_head *head)
 {
 	struct vif_device *v;
 	struct net_device *dev;
@@ -323,7 +320,7 @@ static int vif_delete(struct net *net, int vifi, int notify)
 	}
 
 	if (v->flags&(VIFF_TUNNEL|VIFF_REGISTER) && !notify)
-		unregister_netdevice(dev);
+		unregister_netdevice_queue(dev, head);
 
 	dev_put(dev);
 	return 0;
@@ -473,8 +470,18 @@ static int vif_add(struct net *net, struct vifctl *vifc, int mrtsock)
 			return err;
 		}
 		break;
+
+	case VIFF_USE_IFINDEX:
 	case 0:
-		dev = ip_dev_find(net, vifc->vifc_lcl_addr.s_addr);
+		if (vifc->vifc_flags == VIFF_USE_IFINDEX) {
+			dev = dev_get_by_index(net, vifc->vifc_lcl_ifindex);
+			if (dev && dev->ip_ptr == NULL) {
+				dev_put(dev);
+				return -EADDRNOTAVAIL;
+			}
+		} else
+			dev = ip_dev_find(net, vifc->vifc_lcl_addr.s_addr);
+
 		if (!dev)
 			return -EADDRNOTAVAIL;
 		err = dev_set_allmulti(dev, 1);
@@ -487,8 +494,10 @@ static int vif_add(struct net *net, struct vifctl *vifc, int mrtsock)
 		return -EINVAL;
 	}
 
-	if ((in_dev = __in_dev_get_rtnl(dev)) == NULL)
+	if ((in_dev = __in_dev_get_rtnl(dev)) == NULL) {
+		dev_put(dev);
 		return -EADDRNOTAVAIL;
+	}
 	IPV4_DEVCONF(in_dev->cnf, MC_FORWARDING)++;
 	ip_rt_multicast_event(in_dev);
 
@@ -864,14 +873,16 @@ static int ipmr_mfc_add(struct net *net, struct mfcctl *mfc, int mrtsock)
 static void mroute_clean_tables(struct net *net)
 {
 	int i;
+	LIST_HEAD(list);
 
 	/*
 	 *	Shut down all active vif entries
 	 */
 	for (i = 0; i < net->ipv4.maxvif; i++) {
 		if (!(net->ipv4.vif_table[i].flags&VIFF_STATIC))
-			vif_delete(net, i, 0);
+			vif_delete(net, i, 0, &list);
 	}
+	unregister_netdevice_many(&list);
 
 	/*
 	 *	Wipe the cache
@@ -935,7 +946,7 @@ static void mrtsock_destruct(struct sock *sk)
  *	MOSPF/PIM router set up we can clean this up.
  */
 
-int ip_mroute_setsockopt(struct sock *sk, int optname, char __user *optval, int optlen)
+int ip_mroute_setsockopt(struct sock *sk, int optname, char __user *optval, unsigned int optlen)
 {
 	int ret;
 	struct vifctl vif;
@@ -950,7 +961,7 @@ int ip_mroute_setsockopt(struct sock *sk, int optname, char __user *optval, int 
 	switch (optname) {
 	case MRT_INIT:
 		if (sk->sk_type != SOCK_RAW ||
-		    inet_sk(sk)->num != IPPROTO_IGMP)
+		    inet_sk(sk)->inet_num != IPPROTO_IGMP)
 			return -EOPNOTSUPP;
 		if (optlen != sizeof(int))
 			return -ENOPROTOOPT;
@@ -987,7 +998,7 @@ int ip_mroute_setsockopt(struct sock *sk, int optname, char __user *optval, int 
 		if (optname == MRT_ADD_VIF) {
 			ret = vif_add(net, &vif, sk == net->ipv4.mroute_sk);
 		} else {
-			ret = vif_delete(net, vif.vifc_vifi, 0);
+			ret = vif_delete(net, vif.vifc_vifi, 0, NULL);
 		}
 		rtnl_unlock();
 		return ret;
@@ -1150,6 +1161,7 @@ static int ipmr_device_event(struct notifier_block *this, unsigned long event, v
 	struct net *net = dev_net(dev);
 	struct vif_device *v;
 	int ct;
+	LIST_HEAD(list);
 
 	if (!net_eq(dev_net(dev), net))
 		return NOTIFY_DONE;
@@ -1159,8 +1171,9 @@ static int ipmr_device_event(struct notifier_block *this, unsigned long event, v
 	v = &net->ipv4.vif_table[0];
 	for (ct = 0; ct < net->ipv4.maxvif; ct++, v++) {
 		if (v->dev == dev)
-			vif_delete(net, ct, 1);
+			vif_delete(net, ct, 1, &list);
 	}
+	unregister_netdevice_many(&list);
 	return NOTIFY_DONE;
 }
 
@@ -1945,7 +1958,7 @@ static const struct file_operations ipmr_mfc_fops = {
 #endif
 
 #ifdef CONFIG_IP_PIMSM_V2
-static struct net_protocol pim_protocol = {
+static const struct net_protocol pim_protocol = {
 	.handler	=	pim_rcv,
 	.netns_ok	=	1,
 };

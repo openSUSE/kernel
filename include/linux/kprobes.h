@@ -48,13 +48,13 @@
 #define KPROBE_HIT_SSDONE	0x00000008
 
 /* Attach to insert probes on any functions which should be ignored*/
-#define __kprobes	__attribute__((__section__(".kprobes.text"))) notrace
+#define __kprobes	__attribute__((__section__(".kprobes.text")))
 #else /* CONFIG_KPROBES */
 typedef int kprobe_opcode_t;
 struct arch_specific_insn {
 	int dummy;
 };
-#define __kprobes	notrace
+#define __kprobes
 #endif /* CONFIG_KPROBES */
 
 struct kprobe;
@@ -170,7 +170,7 @@ struct kretprobe {
 	int nmissed;
 	size_t data_size;
 	struct hlist_head free_instances;
-	atomic_spinlock_t lock;
+	raw_spinlock_t lock;
 };
 
 struct kretprobe_instance {
@@ -295,6 +295,8 @@ void recycle_rp_inst(struct kretprobe_instance *ri, struct hlist_head *head);
 
 int disable_kprobe(struct kprobe *kp);
 int enable_kprobe(struct kprobe *kp);
+
+void dump_kprobe(struct kprobe *kp);
 
 #else /* !CONFIG_KPROBES: */
 

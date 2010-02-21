@@ -35,6 +35,7 @@
 #include <asm/prom.h>
 #include <asm/vdso_datapage.h>
 #include <asm/vio.h>
+#include <asm/mmu.h>
 
 #define MODULE_VERS "1.8"
 #define MODULE_NAME "lparcfg"
@@ -537,6 +538,8 @@ static int pseries_lparcfg_data(struct seq_file *m, void *v)
 
 	seq_printf(m, "shared_processor_mode=%d\n", lppaca[0].shared_proc);
 
+	seq_printf(m, "slb_size=%d\n", mmu_slb_size);
+
 	return 0;
 }
 
@@ -778,9 +781,9 @@ static int __init lparcfg_init(void)
 			!firmware_has_feature(FW_FEATURE_ISERIES))
 		mode |= S_IWUSR;
 
-	ent = proc_create("ppc64/lparcfg", mode, NULL, &lparcfg_fops);
+	ent = proc_create("powerpc/lparcfg", mode, NULL, &lparcfg_fops);
 	if (!ent) {
-		printk(KERN_ERR "Failed to create ppc64/lparcfg\n");
+		printk(KERN_ERR "Failed to create powerpc/lparcfg\n");
 		return -EIO;
 	}
 

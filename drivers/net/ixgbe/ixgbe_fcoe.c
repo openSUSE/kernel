@@ -1,7 +1,7 @@
 /*******************************************************************************
 
   Intel 10 Gigabit PCI Express Linux driver
-  Copyright(c) 1999 - 2009 Intel Corporation.
+  Copyright(c) 1999 - 2010 Intel Corporation.
 
   This program is free software; you can redistribute it and/or modify it
   under the terms and conditions of the GNU General Public License,
@@ -27,6 +27,9 @@
 
 
 #include "ixgbe.h"
+#ifdef CONFIG_IXGBE_DCB
+#include "ixgbe_dcb_82599.h"
+#endif /* CONFIG_IXGBE_DCB */
 #include <linux/if_ether.h>
 #include <scsi/scsi_cmnd.h>
 #include <scsi/scsi_device.h>
@@ -289,6 +292,7 @@ int ixgbe_fcoe_ddp(struct ixgbe_adapter *adapter,
 		   struct sk_buff *skb)
 {
 	u16 xid;
+	u32 fctl;
 	u32 sterr, fceofe, fcerr, fcstat;
 	int rc = -EINVAL;
 	struct ixgbe_fcoe *fcoe;
@@ -309,7 +313,12 @@ int ixgbe_fcoe_ddp(struct ixgbe_adapter *adapter,
 	skb_set_transport_header(skb, skb_network_offset(skb) +
 				 sizeof(struct fcoe_hdr));
 	fh = (struct fc_frame_header *)skb_transport_header(skb);
-	xid =  be16_to_cpu(fh->fh_ox_id);
+	fctl = ntoh24(fh->fh_f_ctl);
+	if (fctl & FC_FC_EX_CTX)
+		xid =  be16_to_cpu(fh->fh_ox_id);
+	else
+		xid =  be16_to_cpu(fh->fh_rx_id);
+
 	if (xid >= IXGBE_FCOE_DDP_MAX)
 		goto ddp_out;
 
@@ -490,6 +499,10 @@ void ixgbe_configure_fcoe(struct ixgbe_adapter *adapter)
 	struct ixgbe_hw *hw = &adapter->hw;
 	struct ixgbe_fcoe *fcoe = &adapter->fcoe;
 	struct ixgbe_ring_feature *f = &adapter->ring_feature[RING_F_FCOE];
+#ifdef CONFIG_IXGBE_DCB
+	u8 tc;
+	u32 up2tc;
+#endif
 
 	/* create the pool for ddp if not created yet */
 	if (!fcoe->pool) {
@@ -531,6 +544,17 @@ void ixgbe_configure_fcoe(struct ixgbe_adapter *adapter)
 			IXGBE_FCRXCTRL_FCOELLI |
 			IXGBE_FCRXCTRL_FCCRCBO |
 			(FC_FCOE_VER << IXGBE_FCRXCTRL_FCOEVER_SHIFT));
+#ifdef CONFIG_IXGBE_DCB
+	up2tc = IXGBE_READ_REG(&adapter->hw, IXGBE_RTTUP2TC);
+	for (i = 0; i < MAX_USER_PRIORITY; i++) {
+		tc = (u8)(up2tc >> (i * IXGBE_RTTUP2TC_UP_SHIFT));
+		tc &= (MAX_TRAFFIC_CLASS - 1);
+		if (fcoe->tc == tc) {
+			fcoe->up = i;
+			break;
+		}
+	}
+#endif
 }
 
 /**
@@ -554,3 +578,193 @@ void ixgbe_cleanup_fcoe(struct ixgbe_adapter *adapter)
 		fcoe->pool = NULL;
 	}
 }
+
+/**
+ * ixgbe_fcoe_enable - turn on FCoE offload feature
+ * @netdev: the corresponding netdev
+ *
+ * Turns on FCoE offload feature in 82599.
+ *
+ * Returns : 0 indicates success or -EINVAL on failure
+ */
+int ixgbe_fcoe_enable(struct net_device *netdev)
+{
+	int rc = -EINVAL;
+	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+
+
+	if (!(adapter->flags & IXGBE_FLAG_FCOE_CAPABLE))
+		goto out_enable;
+
+	if (adapter->flags & IXGBE_FLAG_FCOE_ENABLED)
+		goto out_enable;
+
+	DPRINTK(DRV, INFO, "Enabling FCoE offload features.\n");
+	if (netif_running(netdev))
+		netdev->netdev_ops->ndo_stop(netdev);
+
+	ixgbe_clear_interrupt_scheme(adapter);
+
+	adapter->flags |= IXGBE_FLAG_FCOE_ENABLED;
+	adapter->ring_feature[RING_F_FCOE].indices = IXGBE_FCRETA_SIZE;
+	netdev->features |= NETIF_F_FCOE_CRC;
+	netdev->features |= NETIF_F_FSO;
+	netdev->features |= NETIF_F_FCOE_MTU;
+	netdev->vlan_features |= NETIF_F_FCOE_CRC;
+	netdev->vlan_features |= NETIF_F_FSO;
+	netdev->vlan_features |= NETIF_F_FCOE_MTU;
+	netdev->fcoe_ddp_xid = IXGBE_FCOE_DDP_MAX - 1;
+	netdev_features_change(netdev);
+
+	ixgbe_init_interrupt_scheme(adapter);
+
+	if (netif_running(netdev))
+		netdev->netdev_ops->ndo_open(netdev);
+	rc = 0;
+
+out_enable:
+	return rc;
+}
+
+/**
+ * ixgbe_fcoe_disable - turn off FCoE offload feature
+ * @netdev: the corresponding netdev
+ *
+ * Turns off FCoE offload feature in 82599.
+ *
+ * Returns : 0 indicates success or -EINVAL on failure
+ */
+int ixgbe_fcoe_disable(struct net_device *netdev)
+{
+	int rc = -EINVAL;
+	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+
+	if (!(adapter->flags & IXGBE_FLAG_FCOE_CAPABLE))
+		goto out_disable;
+
+	if (!(adapter->flags & IXGBE_FLAG_FCOE_ENABLED))
+		goto out_disable;
+
+	DPRINTK(DRV, INFO, "Disabling FCoE offload features.\n");
+	if (netif_running(netdev))
+		netdev->netdev_ops->ndo_stop(netdev);
+
+	ixgbe_clear_interrupt_scheme(adapter);
+
+	adapter->flags &= ~IXGBE_FLAG_FCOE_ENABLED;
+	adapter->ring_feature[RING_F_FCOE].indices = 0;
+	netdev->features &= ~NETIF_F_FCOE_CRC;
+	netdev->features &= ~NETIF_F_FSO;
+	netdev->features &= ~NETIF_F_FCOE_MTU;
+	netdev->vlan_features &= ~NETIF_F_FCOE_CRC;
+	netdev->vlan_features &= ~NETIF_F_FSO;
+	netdev->vlan_features &= ~NETIF_F_FCOE_MTU;
+	netdev->fcoe_ddp_xid = 0;
+	netdev_features_change(netdev);
+
+	ixgbe_cleanup_fcoe(adapter);
+
+	ixgbe_init_interrupt_scheme(adapter);
+	if (netif_running(netdev))
+		netdev->netdev_ops->ndo_open(netdev);
+	rc = 0;
+
+out_disable:
+	return rc;
+}
+
+#ifdef CONFIG_IXGBE_DCB
+/**
+ * ixgbe_fcoe_getapp - retrieves current user priority bitmap for FCoE
+ * @adapter : ixgbe adapter
+ *
+ * Finds out the corresponding user priority bitmap from the current
+ * traffic class that FCoE belongs to. Returns 0 as the invalid user
+ * priority bitmap to indicate an error.
+ *
+ * Returns : 802.1p user priority bitmap for FCoE
+ */
+u8 ixgbe_fcoe_getapp(struct ixgbe_adapter *adapter)
+{
+	return 1 << adapter->fcoe.up;
+}
+
+/**
+ * ixgbe_fcoe_setapp - sets the user priority bitmap for FCoE
+ * @adapter : ixgbe adapter
+ * @up : 802.1p user priority bitmap
+ *
+ * Finds out the traffic class from the input user priority
+ * bitmap for FCoE.
+ *
+ * Returns : 0 on success otherwise returns 1 on error
+ */
+u8 ixgbe_fcoe_setapp(struct ixgbe_adapter *adapter, u8 up)
+{
+	int i;
+	u32 up2tc;
+
+	/* valid user priority bitmap must not be 0 */
+	if (up) {
+		/* from user priority to the corresponding traffic class */
+		up2tc = IXGBE_READ_REG(&adapter->hw, IXGBE_RTTUP2TC);
+		for (i = 0; i < MAX_USER_PRIORITY; i++) {
+			if (up & (1 << i)) {
+				up2tc >>= (i * IXGBE_RTTUP2TC_UP_SHIFT);
+				up2tc &= (MAX_TRAFFIC_CLASS - 1);
+				adapter->fcoe.tc = (u8)up2tc;
+				adapter->fcoe.up = i;
+				return 0;
+			}
+		}
+	}
+
+	return 1;
+}
+#endif /* CONFIG_IXGBE_DCB */
+
+/**
+ * ixgbe_fcoe_get_wwn - get world wide name for the node or the port
+ * @netdev : ixgbe adapter
+ * @wwn : the world wide name
+ * @type: the type of world wide name
+ *
+ * Returns the node or port world wide name if both the prefix and the san
+ * mac address are valid, then the wwn is formed based on the NAA-2 for
+ * IEEE Extended name identifier (ref. to T10 FC-LS Spec., Sec. 15.3).
+ *
+ * Returns : 0 on success
+ */
+int ixgbe_fcoe_get_wwn(struct net_device *netdev, u64 *wwn, int type)
+{
+	int rc = -EINVAL;
+	u16 prefix = 0xffff;
+	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_mac_info *mac = &adapter->hw.mac;
+
+	switch (type) {
+	case NETDEV_FCOE_WWNN:
+		prefix = mac->wwnn_prefix;
+		break;
+	case NETDEV_FCOE_WWPN:
+		prefix = mac->wwpn_prefix;
+		break;
+	default:
+		break;
+	}
+
+	if ((prefix != 0xffff) &&
+	    is_valid_ether_addr(mac->san_addr)) {
+		*wwn = ((u64) prefix << 48) |
+		       ((u64) mac->san_addr[0] << 40) |
+		       ((u64) mac->san_addr[1] << 32) |
+		       ((u64) mac->san_addr[2] << 24) |
+		       ((u64) mac->san_addr[3] << 16) |
+		       ((u64) mac->san_addr[4] << 8)  |
+		       ((u64) mac->san_addr[5]);
+		rc = 0;
+	}
+	return rc;
+}
+
+

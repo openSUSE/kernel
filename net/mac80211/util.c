@@ -31,6 +31,7 @@
 #include "mesh.h"
 #include "wme.h"
 #include "led.h"
+#include "wep.h"
 
 /* privid for wiphys to determine whether they belong to us or not */
 void *mac80211_wiphy_privid = &mac80211_wiphy_privid;
@@ -268,22 +269,24 @@ static void __ieee80211_wake_queue(struct ieee80211_hw *hw, int queue,
 				   enum queue_stop_reason reason)
 {
 	struct ieee80211_local *local = hw_to_local(hw);
+	struct ieee80211_sub_if_data *sdata;
 
 	if (WARN_ON(queue >= hw->queues))
 		return;
 
 	__clear_bit(reason, &local->queue_stop_reasons[queue]);
 
-	if (!skb_queue_empty(&local->pending[queue]) &&
-	    local->queue_stop_reasons[queue] ==
-				BIT(IEEE80211_QUEUE_STOP_REASON_PENDING))
-		tasklet_schedule(&local->tx_pending_tasklet);
-
 	if (local->queue_stop_reasons[queue] != 0)
 		/* someone still has this queue stopped */
 		return;
 
-	netif_wake_subqueue(local->mdev, queue);
+	if (!skb_queue_empty(&local->pending[queue]))
+		tasklet_schedule(&local->tx_pending_tasklet);
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(sdata, &local->interfaces, list)
+		netif_tx_wake_queue(netdev_get_tx_queue(sdata->dev, queue));
+	rcu_read_unlock();
 }
 
 void ieee80211_wake_queue_by_reason(struct ieee80211_hw *hw, int queue,
@@ -308,19 +311,17 @@ static void __ieee80211_stop_queue(struct ieee80211_hw *hw, int queue,
 				   enum queue_stop_reason reason)
 {
 	struct ieee80211_local *local = hw_to_local(hw);
+	struct ieee80211_sub_if_data *sdata;
 
 	if (WARN_ON(queue >= hw->queues))
 		return;
 
-	/*
-	 * Only stop if it was previously running, this is necessary
-	 * for correct pending packets handling because there we may
-	 * start (but not wake) the queue and rely on that.
-	 */
-	if (!local->queue_stop_reasons[queue])
-		netif_stop_subqueue(local->mdev, queue);
-
 	__set_bit(reason, &local->queue_stop_reasons[queue]);
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(sdata, &local->interfaces, list)
+		netif_tx_stop_queue(netdev_get_tx_queue(sdata->dev, queue));
+	rcu_read_unlock();
 }
 
 void ieee80211_stop_queue_by_reason(struct ieee80211_hw *hw, int queue,
@@ -347,11 +348,16 @@ void ieee80211_add_pending_skb(struct ieee80211_local *local,
 	struct ieee80211_hw *hw = &local->hw;
 	unsigned long flags;
 	int queue = skb_get_queue_mapping(skb);
+	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+
+	if (WARN_ON(!info->control.vif)) {
+		kfree_skb(skb);
+		return;
+	}
 
 	spin_lock_irqsave(&local->queue_stop_reason_lock, flags);
 	__ieee80211_stop_queue(hw, queue, IEEE80211_QUEUE_STOP_REASON_SKB_ADD);
-	__ieee80211_stop_queue(hw, queue, IEEE80211_QUEUE_STOP_REASON_PENDING);
-	skb_queue_tail(&local->pending[queue], skb);
+	__skb_queue_tail(&local->pending[queue], skb);
 	__ieee80211_wake_queue(hw, queue, IEEE80211_QUEUE_STOP_REASON_SKB_ADD);
 	spin_unlock_irqrestore(&local->queue_stop_reason_lock, flags);
 }
@@ -370,18 +376,21 @@ int ieee80211_add_pending_skbs(struct ieee80211_local *local,
 			IEEE80211_QUEUE_STOP_REASON_SKB_ADD);
 
 	while ((skb = skb_dequeue(skbs))) {
+		struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+
+		if (WARN_ON(!info->control.vif)) {
+			kfree_skb(skb);
+			continue;
+		}
+
 		ret++;
 		queue = skb_get_queue_mapping(skb);
-		skb_queue_tail(&local->pending[queue], skb);
+		__skb_queue_tail(&local->pending[queue], skb);
 	}
 
-	for (i = 0; i < hw->queues; i++) {
-		if (ret)
-			__ieee80211_stop_queue(hw, i,
-				IEEE80211_QUEUE_STOP_REASON_PENDING);
+	for (i = 0; i < hw->queues; i++)
 		__ieee80211_wake_queue(hw, i,
 			IEEE80211_QUEUE_STOP_REASON_SKB_ADD);
-	}
 	spin_unlock_irqrestore(&local->queue_stop_reason_lock, flags);
 
 	return ret;
@@ -412,11 +421,16 @@ EXPORT_SYMBOL(ieee80211_stop_queues);
 int ieee80211_queue_stopped(struct ieee80211_hw *hw, int queue)
 {
 	struct ieee80211_local *local = hw_to_local(hw);
+	unsigned long flags;
+	int ret;
 
 	if (WARN_ON(queue >= hw->queues))
 		return true;
 
-	return __netif_subqueue_stopped(local->mdev, queue);
+	spin_lock_irqsave(&local->queue_stop_reason_lock, flags);
+	ret = !!local->queue_stop_reasons[queue];
+	spin_unlock_irqrestore(&local->queue_stop_reason_lock, flags);
+	return ret;
 }
 EXPORT_SYMBOL(ieee80211_queue_stopped);
 
@@ -509,6 +523,46 @@ void ieee80211_iterate_active_interfaces_atomic(
 }
 EXPORT_SYMBOL_GPL(ieee80211_iterate_active_interfaces_atomic);
 
+/*
+ * Nothing should have been stuffed into the workqueue during
+ * the suspend->resume cycle. If this WARN is seen then there
+ * is a bug with either the driver suspend or something in
+ * mac80211 stuffing into the workqueue which we haven't yet
+ * cleared during mac80211's suspend cycle.
+ */
+static bool ieee80211_can_queue_work(struct ieee80211_local *local)
+{
+	if (WARN(local->suspended && !local->resuming,
+		 "queueing ieee80211 work while going to suspend\n"))
+		return false;
+
+	return true;
+}
+
+void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work)
+{
+	struct ieee80211_local *local = hw_to_local(hw);
+
+	if (!ieee80211_can_queue_work(local))
+		return;
+
+	queue_work(local->workqueue, work);
+}
+EXPORT_SYMBOL(ieee80211_queue_work);
+
+void ieee80211_queue_delayed_work(struct ieee80211_hw *hw,
+				  struct delayed_work *dwork,
+				  unsigned long delay)
+{
+	struct ieee80211_local *local = hw_to_local(hw);
+
+	if (!ieee80211_can_queue_work(local))
+		return;
+
+	queue_delayed_work(local->workqueue, dwork, delay);
+}
+EXPORT_SYMBOL(ieee80211_queue_delayed_work);
+
 void ieee802_11_parse_elems(u8 *start, size_t len,
 			    struct ieee802_11_elems *elems)
 {
@@ -537,7 +591,7 @@ u32 ieee802_11_parse_elems_crc(u8 *start, size_t len,
 		if (elen > left)
 			break;
 
-		if (calc_crc && id < 64 && (filter & BIT(id)))
+		if (calc_crc && id < 64 && (filter & (1ULL << id)))
 			crc = crc32_be(crc, pos - 2, elen + 2);
 
 		switch (id) {
@@ -624,8 +678,8 @@ u32 ieee802_11_parse_elems_crc(u8 *start, size_t len,
 			elems->mesh_id_len = elen;
 			break;
 		case WLAN_EID_MESH_CONFIG:
-			elems->mesh_config = pos;
-			elems->mesh_config_len = elen;
+			if (elen >= sizeof(struct ieee80211_meshconf_ie))
+				elems->mesh_config = (void *)pos;
 			break;
 		case WLAN_EID_PEER_LINK:
 			elems->peer_link = pos;
@@ -642,6 +696,10 @@ u32 ieee802_11_parse_elems_crc(u8 *start, size_t len,
 		case WLAN_EID_PERR:
 			elems->perr = pos;
 			elems->perr_len = elen;
+			break;
+		case WLAN_EID_RANN:
+			if (elen >= sizeof(struct ieee80211_rann_ie))
+				elems->rann = (void *)pos;
 			break;
 		case WLAN_EID_CHANNEL_SWITCH:
 			elems->ch_switch_elem = pos;
@@ -760,20 +818,6 @@ void ieee80211_sta_def_wmm_params(struct ieee80211_sub_if_data *sdata,
 	ieee80211_set_wmm_default(sdata);
 }
 
-void ieee80211_tx_skb(struct ieee80211_sub_if_data *sdata, struct sk_buff *skb,
-		      int encrypt)
-{
-	skb->dev = sdata->local->mdev;
-	skb_set_mac_header(skb, 0);
-	skb_set_network_header(skb, 0);
-	skb_set_transport_header(skb, 0);
-
-	skb->iif = sdata->dev->ifindex;
-	skb->do_not_encrypt = !encrypt;
-
-	dev_queue_xmit(skb);
-}
-
 u32 ieee80211_mandatory_rates(struct ieee80211_local *local,
 			      enum ieee80211_band band)
 {
@@ -804,12 +848,13 @@ u32 ieee80211_mandatory_rates(struct ieee80211_local *local,
 
 void ieee80211_send_auth(struct ieee80211_sub_if_data *sdata,
 			 u16 transaction, u16 auth_alg,
-			 u8 *extra, size_t extra_len,
-			 const u8 *bssid, int encrypt)
+			 u8 *extra, size_t extra_len, const u8 *bssid,
+			 const u8 *key, u8 key_len, u8 key_idx)
 {
 	struct ieee80211_local *local = sdata->local;
 	struct sk_buff *skb;
 	struct ieee80211_mgmt *mgmt;
+	int err;
 
 	skb = dev_alloc_skb(local->hw.extra_tx_headroom +
 			    sizeof(*mgmt) + 6 + extra_len);
@@ -824,8 +869,6 @@ void ieee80211_send_auth(struct ieee80211_sub_if_data *sdata,
 	memset(mgmt, 0, 24 + 6);
 	mgmt->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT |
 					  IEEE80211_STYPE_AUTH);
-	if (encrypt)
-		mgmt->frame_control |= cpu_to_le16(IEEE80211_FCTL_PROTECTED);
 	memcpy(mgmt->da, bssid, ETH_ALEN);
 	memcpy(mgmt->sa, sdata->dev->dev_addr, ETH_ALEN);
 	memcpy(mgmt->bssid, bssid, ETH_ALEN);
@@ -835,17 +878,25 @@ void ieee80211_send_auth(struct ieee80211_sub_if_data *sdata,
 	if (extra)
 		memcpy(skb_put(skb, extra_len), extra, extra_len);
 
-	ieee80211_tx_skb(sdata, skb, encrypt);
+	if (auth_alg == WLAN_AUTH_SHARED_KEY && transaction == 3) {
+		mgmt->frame_control |= cpu_to_le16(IEEE80211_FCTL_PROTECTED);
+		err = ieee80211_wep_encrypt(local, skb, key, key_len, key_idx);
+		WARN_ON(err);
+	}
+
+	IEEE80211_SKB_CB(skb)->flags |= IEEE80211_TX_INTFL_DONT_ENCRYPT;
+	ieee80211_tx_skb(sdata, skb);
 }
 
 int ieee80211_build_preq_ies(struct ieee80211_local *local, u8 *buffer,
-			     const u8 *ie, size_t ie_len)
+			     const u8 *ie, size_t ie_len,
+			     enum ieee80211_band band)
 {
 	struct ieee80211_supported_band *sband;
 	u8 *pos, *supp_rates_len, *esupp_rates_len = NULL;
 	int i;
 
-	sband = local->hw.wiphy->bands[local->hw.conf.channel->band];
+	sband = local->hw.wiphy->bands[band];
 
 	pos = buffer;
 
@@ -933,9 +984,11 @@ void ieee80211_send_probe_req(struct ieee80211_sub_if_data *sdata, u8 *dst,
 	memcpy(pos, ssid, ssid_len);
 	pos += ssid_len;
 
-	skb_put(skb, ieee80211_build_preq_ies(local, pos, ie, ie_len));
+	skb_put(skb, ieee80211_build_preq_ies(local, pos, ie, ie_len,
+					      local->hw.conf.channel->band));
 
-	ieee80211_tx_skb(sdata, skb, 0);
+	IEEE80211_SKB_CB(skb)->flags |= IEEE80211_TX_INTFL_DONT_ENCRYPT;
+	ieee80211_tx_skb(sdata, skb);
 }
 
 u32 ieee80211_sta_get_rates(struct ieee80211_local *local,
@@ -974,6 +1027,16 @@ u32 ieee80211_sta_get_rates(struct ieee80211_local *local,
 	return supp_rates;
 }
 
+void ieee80211_stop_device(struct ieee80211_local *local)
+{
+	ieee80211_led_radio(local, false);
+
+	cancel_work_sync(&local->reconfig_filter);
+	drv_stop(local);
+
+	flush_workqueue(local->workqueue);
+}
+
 int ieee80211_reconfig(struct ieee80211_local *local)
 {
 	struct ieee80211_hw *hw = &local->hw;
@@ -982,17 +1045,25 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 	struct sta_info *sta;
 	unsigned long flags;
 	int res;
-	bool from_suspend = local->suspended;
 
-	/*
-	 * We're going to start the hardware, at that point
-	 * we are no longer suspended and can RX frames.
-	 */
-	local->suspended = false;
+	if (local->suspended)
+		local->resuming = true;
 
 	/* restart hardware */
 	if (local->open_count) {
+		/*
+		 * Upon resume hardware can sometimes be goofy due to
+		 * various platform / driver / bus issues, so restarting
+		 * the device may at times not work immediately. Propagate
+		 * the error.
+		 */
 		res = drv_start(local);
+		if (res) {
+			WARN(local->suspended, "Harware became unavailable "
+			     "upon resume. This is could be a software issue"
+			     "prior to suspend or a harware issue\n");
+			return res;
+		}
 
 		ieee80211_led_radio(local, true);
 	}
@@ -1043,9 +1114,7 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 	/* reconfigure hardware */
 	ieee80211_hw_config(local, ~0);
 
-	netif_addr_lock_bh(local->mdev);
 	ieee80211_configure_filter(local);
-	netif_addr_unlock_bh(local->mdev);
 
 	/* Finally also reconfigure all the BSS information */
 	list_for_each_entry(sdata, &local->interfaces, list) {
@@ -1088,11 +1157,14 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 	 * If this is for hw restart things are still running.
 	 * We may want to change that later, however.
 	 */
-	if (!from_suspend)
+	if (!local->suspended)
 		return 0;
 
 #ifdef CONFIG_PM
+	/* first set suspended false, then resuming */
 	local->suspended = false;
+	mb();
+	local->resuming = false;
 
 	list_for_each_entry(sdata, &local->interfaces, list) {
 		switch(sdata->vif.type) {
@@ -1121,3 +1193,4 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 #endif
 	return 0;
 }
+

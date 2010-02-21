@@ -55,7 +55,14 @@ static inline int device_is_not_partition(struct device *dev)
  */
 const char *dev_driver_string(const struct device *dev)
 {
-	return dev->driver ? dev->driver->name :
+	struct device_driver *drv;
+
+	/* dev->driver can change to NULL underneath us because of unbinding,
+	 * so be careful about accessing it.  dev->bus and dev->class should
+	 * never change once they are set, so they don't need special care.
+	 */
+	drv = ACCESS_ONCE(dev->driver);
+	return drv ? drv->name :
 			(dev->bus ? dev->bus->name :
 			(dev->class ? dev->class->name : ""));
 }
@@ -165,13 +172,16 @@ static int dev_uevent(struct kset *kset, struct kobject *kobj,
 	if (MAJOR(dev->devt)) {
 		const char *tmp;
 		const char *name;
+		mode_t mode = 0;
 
 		add_uevent_var(env, "MAJOR=%u", MAJOR(dev->devt));
 		add_uevent_var(env, "MINOR=%u", MINOR(dev->devt));
-		name = device_get_nodename(dev, &tmp);
+		name = device_get_devnode(dev, &mode, &tmp);
 		if (name) {
 			add_uevent_var(env, "DEVNAME=%s", name);
 			kfree(tmp);
+			if (mode)
+				add_uevent_var(env, "DEVMODE=%#o", mode & 0777);
 		}
 	}
 
@@ -340,7 +350,7 @@ static void device_remove_attributes(struct device *dev,
 }
 
 static int device_add_groups(struct device *dev,
-			     struct attribute_group **groups)
+			     const struct attribute_group **groups)
 {
 	int error = 0;
 	int i;
@@ -360,7 +370,7 @@ static int device_add_groups(struct device *dev,
 }
 
 static void device_remove_groups(struct device *dev,
-				 struct attribute_group **groups)
+				 const struct attribute_group **groups)
 {
 	int i;
 
@@ -435,7 +445,8 @@ struct kset *devices_kset;
  * @dev: device.
  * @attr: device attribute descriptor.
  */
-int device_create_file(struct device *dev, struct device_attribute *attr)
+int device_create_file(struct device *dev,
+		       const struct device_attribute *attr)
 {
 	int error = 0;
 	if (dev)
@@ -448,7 +459,8 @@ int device_create_file(struct device *dev, struct device_attribute *attr)
  * @dev: device.
  * @attr: device attribute descriptor.
  */
-void device_remove_file(struct device *dev, struct device_attribute *attr)
+void device_remove_file(struct device *dev,
+			const struct device_attribute *attr)
 {
 	if (dev)
 		sysfs_remove_file(&dev->kobj, &attr->attr);
@@ -459,7 +471,8 @@ void device_remove_file(struct device *dev, struct device_attribute *attr)
  * @dev: device.
  * @attr: device binary attribute descriptor.
  */
-int device_create_bin_file(struct device *dev, struct bin_attribute *attr)
+int device_create_bin_file(struct device *dev,
+			   const struct bin_attribute *attr)
 {
 	int error = -EINVAL;
 	if (dev)
@@ -473,7 +486,8 @@ EXPORT_SYMBOL_GPL(device_create_bin_file);
  * @dev: device.
  * @attr: device binary attribute descriptor.
  */
-void device_remove_bin_file(struct device *dev, struct bin_attribute *attr)
+void device_remove_bin_file(struct device *dev,
+			    const struct bin_attribute *attr)
 {
 	if (dev)
 		sysfs_remove_bin_file(&dev->kobj, attr);
@@ -550,6 +564,7 @@ void device_initialize(struct device *dev)
 	kobject_init(&dev->kobj, &device_ktype);
 	INIT_LIST_HEAD(&dev->dma_pools);
 	mutex_init(&dev->mutex);
+	lockdep_set_novalidate_class(&dev->mutex);
 	spin_lock_init(&dev->devres_lock);
 	INIT_LIST_HEAD(&dev->devres_head);
 	device_init_wakeup(dev, 0);
@@ -842,6 +857,17 @@ static void device_remove_sys_dev_entry(struct device *dev)
 	}
 }
 
+int device_private_init(struct device *dev)
+{
+	dev->p = kzalloc(sizeof(*dev->p), GFP_KERNEL);
+	if (!dev->p)
+		return -ENOMEM;
+	dev->p->device = dev;
+	klist_init(&dev->p->klist_children, klist_children_get,
+		   klist_children_put);
+	return 0;
+}
+
 /**
  * device_add - add device to device hierarchy.
  * @dev: device.
@@ -867,14 +893,11 @@ int device_add(struct device *dev)
 	if (!dev)
 		goto done;
 
-	dev->p = kzalloc(sizeof(*dev->p), GFP_KERNEL);
 	if (!dev->p) {
-		error = -ENOMEM;
-		goto done;
+		error = device_private_init(dev);
+		if (error)
+			goto done;
 	}
-	dev->p->device = dev;
-	klist_init(&dev->p->klist_children, klist_children_get,
-		   klist_children_put);
 
 	/*
 	 * for statically allocated devices, which should all be converted
@@ -886,8 +909,10 @@ int device_add(struct device *dev)
 		dev->init_name = NULL;
 	}
 
-	if (!dev_name(dev))
+	if (!dev_name(dev)) {
+		error = -EINVAL;
 		goto name_error;
+	}
 
 	pr_debug("device: '%s': %s\n", dev_name(dev), __func__);
 
@@ -920,6 +945,8 @@ int device_add(struct device *dev)
 		error = device_create_sys_dev_entry(dev);
 		if (error)
 			goto devtattrError;
+
+		devtmpfs_create_node(dev);
 	}
 
 	error = device_add_class_symlinks(dev);
@@ -944,7 +971,7 @@ int device_add(struct device *dev)
 					     BUS_NOTIFY_ADD_DEVICE, dev);
 
 	kobject_uevent(&dev->kobj, KOBJ_ADD);
-	bus_attach_device(dev);
+	bus_probe_device(dev);
 	if (parent)
 		klist_add_tail(&dev->p->knode_parent,
 			       &parent->p->klist_children);
@@ -972,6 +999,8 @@ done:
  AttrsError:
 	device_remove_class_symlinks(dev);
  SymlinkError:
+	if (MAJOR(dev->devt))
+		devtmpfs_delete_node(dev);
 	if (MAJOR(dev->devt))
 		device_remove_sys_dev_entry(dev);
  devtattrError:
@@ -1066,6 +1095,7 @@ void device_del(struct device *dev)
 	if (parent)
 		klist_del(&dev->p->knode_parent);
 	if (MAJOR(dev->devt)) {
+		devtmpfs_delete_node(dev);
 		device_remove_sys_dev_entry(dev);
 		device_remove_file(dev, &devt_attr);
 	}
@@ -1136,8 +1166,9 @@ static struct device *next_device(struct klist_iter *i)
 }
 
 /**
- * device_get_nodename - path of device node file
+ * device_get_devnode - path of device node file
  * @dev: device
+ * @mode: returned file access mode
  * @tmp: possibly allocated string
  *
  * Return the relative path of a possible device node.
@@ -1145,21 +1176,22 @@ static struct device *next_device(struct klist_iter *i)
  * a name. This memory is returned in tmp and needs to be
  * freed by the caller.
  */
-const char *device_get_nodename(struct device *dev, const char **tmp)
+const char *device_get_devnode(struct device *dev,
+			       mode_t *mode, const char **tmp)
 {
 	char *s;
 
 	*tmp = NULL;
 
 	/* the device type may provide a specific name */
-	if (dev->type && dev->type->nodename)
-		*tmp = dev->type->nodename(dev);
+	if (dev->type && dev->type->devnode)
+		*tmp = dev->type->devnode(dev, mode);
 	if (*tmp)
 		return *tmp;
 
 	/* the class may provide a specific name */
-	if (dev->class && dev->class->nodename)
-		*tmp = dev->class->nodename(dev);
+	if (dev->class && dev->class->devnode)
+		*tmp = dev->class->devnode(dev, mode);
 	if (*tmp)
 		return *tmp;
 
@@ -1711,8 +1743,5 @@ void device_shutdown(void)
 			dev->driver->shutdown(dev);
 		}
 	}
-	kobject_put(sysfs_dev_char_kobj);
-	kobject_put(sysfs_dev_block_kobj);
-	kobject_put(dev_kobj);
 	async_synchronize_full();
 }

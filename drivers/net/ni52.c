@@ -170,7 +170,7 @@ static int     ni52_probe1(struct net_device *dev, int ioaddr);
 static irqreturn_t ni52_interrupt(int irq, void *dev_id);
 static int     ni52_open(struct net_device *dev);
 static int     ni52_close(struct net_device *dev);
-static int     ni52_send_packet(struct sk_buff *, struct net_device *);
+static netdev_tx_t ni52_send_packet(struct sk_buff *, struct net_device *);
 static struct  net_device_stats *ni52_get_stats(struct net_device *dev);
 static void    set_multicast_list(struct net_device *dev);
 static void    ni52_timeout(struct net_device *dev);
@@ -284,7 +284,7 @@ static int ni52_open(struct net_device *dev)
 	startrecv586(dev);
 	ni_enaint();
 
-	ret = request_irq(dev->irq, &ni52_interrupt, 0, dev->name, dev);
+	ret = request_irq(dev->irq, ni52_interrupt, 0, dev->name, dev);
 	if (ret) {
 		ni_reset586();
 		return ret;
@@ -477,8 +477,8 @@ static int __init ni52_probe1(struct net_device *dev, int ioaddr)
 	for (i = 0; i < ETH_ALEN; i++)
 		dev->dev_addr[i] = inb(dev->base_addr+i);
 
-	if (dev->dev_addr[0] != NI52_ADDR0 || dev->dev_addr[1] != NI52_ADDR1
-		 || dev->dev_addr[2] != NI52_ADDR2) {
+	if (dev->dev_addr[0] != NI52_ADDR0 || dev->dev_addr[1] != NI52_ADDR1 ||
+	    dev->dev_addr[2] != NI52_ADDR2) {
 		retval = -ENODEV;
 		goto out;
 	}
@@ -615,10 +615,10 @@ static int init586(struct net_device *dev)
 	/* addr_len |!src_insert |pre-len |loopback */
 	writeb(0x2e, &cfg_cmd->adr_len);
 	writeb(0x00, &cfg_cmd->priority);
-	writeb(0x60, &cfg_cmd->ifs);;
+	writeb(0x60, &cfg_cmd->ifs);
 	writeb(0x00, &cfg_cmd->time_low);
 	writeb(0xf2, &cfg_cmd->time_high);
-	writeb(0x00, &cfg_cmd->promisc);;
+	writeb(0x00, &cfg_cmd->promisc);
 	if (dev->flags & IFF_ALLMULTI) {
 		int len = ((char __iomem *)p->iscp - (char __iomem *)ptr - 8) / 6;
 		if (num_addrs > len) {
@@ -1173,7 +1173,8 @@ static void ni52_timeout(struct net_device *dev)
  * send frame
  */
 
-static int ni52_send_packet(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t ni52_send_packet(struct sk_buff *skb,
+				    struct net_device *dev)
 {
 	int len, i;
 #ifndef NO_NOPCOMMANDS
@@ -1183,7 +1184,7 @@ static int ni52_send_packet(struct sk_buff *skb, struct net_device *dev)
 
 	if (skb->len > XMIT_BUFF_SIZE) {
 		printk(KERN_ERR "%s: Sorry, max. framelength is %d bytes. The length of your frame is %d bytes.\n", dev->name, XMIT_BUFF_SIZE, skb->len);
-		return 0;
+		return NETDEV_TX_OK;
 	}
 
 	netif_stop_queue(dev);
@@ -1267,7 +1268,7 @@ static int ni52_send_packet(struct sk_buff *skb, struct net_device *dev)
 	}
 	dev_kfree_skb(skb);
 #endif
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /*******************************************

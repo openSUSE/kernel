@@ -282,16 +282,6 @@ static void fixup_s29gl032n_sectors(struct mtd_info *mtd, void *param)
 	}
 }
 
-static void fixup_M29W128G_write_buffer(struct mtd_info *mtd, void *param)
-{
-	struct map_info *map = mtd->priv;
-	struct cfi_private *cfi = map->fldrv_priv;
-	if (cfi->cfiq->BufWriteTimeoutTyp) {
-		pr_warning("Don't use write buffer on ST flash M29W128G\n");
-		cfi->cfiq->BufWriteTimeoutTyp = 0;
-	}
-}
-
 static struct cfi_fixup cfi_fixup_table[] = {
 	{ CFI_MFR_ATMEL, CFI_ID_ANY, fixup_convert_atmel_pri, NULL },
 #ifdef AMD_BOOTLOC_BUG
@@ -308,7 +298,6 @@ static struct cfi_fixup cfi_fixup_table[] = {
 	{ CFI_MFR_AMD, 0x1301, fixup_s29gl064n_sectors, NULL, },
 	{ CFI_MFR_AMD, 0x1a00, fixup_s29gl032n_sectors, NULL, },
 	{ CFI_MFR_AMD, 0x1a01, fixup_s29gl032n_sectors, NULL, },
-	{ CFI_MFR_ST,  0x227E, fixup_M29W128G_write_buffer, NULL, },
 #if !FORCE_WORD_WRITE
 	{ CFI_MFR_ANY, CFI_ID_ANY, fixup_use_write_buffers, NULL, },
 #endif
@@ -501,10 +490,6 @@ static struct mtd_info *cfi_amdstd_setup(struct mtd_info *mtd)
 	}
 #endif
 
-	/* FIXME: erase-suspend-program is broken.  See
-	   http://lists.infradead.org/pipermail/linux-mtd/2003-December/009001.html */
-	printk(KERN_NOTICE "cfi_cmdset_0002: Disabling erase-suspend-program due to code brokenness.\n");
-
 	__module_get(THIS_MODULE);
 	return mtd;
 
@@ -584,7 +569,6 @@ static int get_chip(struct map_info *map, struct flchip *chip, unsigned long adr
 
 			if (time_after(jiffies, timeo)) {
 				printk(KERN_ERR "Waiting for chip to be ready timed out.\n");
-				spin_unlock(chip->mutex);
 				return -EIO;
 			}
 			spin_unlock(chip->mutex);
@@ -600,15 +584,9 @@ static int get_chip(struct map_info *map, struct flchip *chip, unsigned long adr
 		return 0;
 
 	case FL_ERASING:
-		if (mode == FL_WRITING) /* FIXME: Erase-suspend-program appears broken. */
-			goto sleep;
-
-		if (!(   mode == FL_READY
-		      || mode == FL_POINT
-		      || !cfip
-		      || (mode == FL_WRITING && (cfip->EraseSuspend & 0x2))
-		      || (mode == FL_WRITING && (cfip->EraseSuspend & 0x1)
-		    )))
+		if (!cfip || !(cfip->EraseSuspend & (0x1|0x2)) ||
+		    !(mode == FL_READY || mode == FL_POINT ||
+		    (mode == FL_WRITING && (cfip->EraseSuspend & 0x2))))
 			goto sleep;
 
 		/* We could check to see if we're trying to access the sector

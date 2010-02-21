@@ -64,7 +64,7 @@ int ip6_ra_control(struct sock *sk, int sel)
 	struct ip6_ra_chain *ra, *new_ra, **rap;
 
 	/* RA packet may be delivered ONLY to IPPROTO_RAW socket */
-	if (sk->sk_type != SOCK_RAW || inet_sk(sk)->num != IPPROTO_RAW)
+	if (sk->sk_type != SOCK_RAW || inet_sk(sk)->inet_num != IPPROTO_RAW)
 		return -ENOPROTOOPT;
 
 	new_ra = (sel>=0) ? kmalloc(sizeof(*new_ra), GFP_KERNEL) : NULL;
@@ -106,7 +106,7 @@ struct ipv6_txoptions *ipv6_update_options(struct sock *sk,
 	if (inet_sk(sk)->is_icsk) {
 		if (opt &&
 		    !((1 << sk->sk_state) & (TCPF_LISTEN | TCPF_CLOSE)) &&
-		    inet_sk(sk)->daddr != LOOPBACK4_IPV6) {
+		    inet_sk(sk)->inet_daddr != LOOPBACK4_IPV6) {
 			struct inet_connection_sock *icsk = inet_csk(sk);
 			icsk->icsk_ext_hdr_len = opt->opt_flen + opt->opt_nflen;
 			icsk->icsk_sync_mss(sk, icsk->icsk_pmtu_cookie);
@@ -123,7 +123,7 @@ struct ipv6_txoptions *ipv6_update_options(struct sock *sk,
 }
 
 static int do_ipv6_setsockopt(struct sock *sk, int level, int optname,
-		    char __user *optval, int optlen)
+		    char __user *optval, unsigned int optlen)
 {
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	struct net *net = sock_net(sk);
@@ -234,7 +234,7 @@ static int do_ipv6_setsockopt(struct sock *sk, int level, int optname,
 
 	case IPV6_V6ONLY:
 		if (optlen < sizeof(int) ||
-		    inet_sk(sk)->num)
+		    inet_sk(sk)->inet_num)
 			goto e_inval;
 		np->ipv6only = valbool;
 		retv = 0;
@@ -315,6 +315,9 @@ static int do_ipv6_setsockopt(struct sock *sk, int level, int optname,
 			goto e_inval;
 		if (val < -1 || val > 0xff)
 			goto e_inval;
+		/* RFC 3542, 6.5: default traffic class of 0x0 */
+		if (val == -1)
+			val = 0;
 		np->tclass = val;
 		retv = 0;
 		break;
@@ -421,6 +424,7 @@ sticky_done:
 
 		fl.fl6_flowlabel = 0;
 		fl.oif = sk->sk_bound_dev_if;
+		fl.mark = sk->sk_mark;
 
 		if (optlen == 0)
 			goto update;
@@ -493,13 +497,17 @@ done:
 			goto e_inval;
 
 		if (val) {
+			struct net_device *dev;
+
 			if (sk->sk_bound_dev_if && sk->sk_bound_dev_if != val)
 				goto e_inval;
 
-			if (__dev_get_by_index(net, val) == NULL) {
+			dev = dev_get_by_index(net, val);
+			if (!dev) {
 				retv = -ENODEV;
 				break;
 			}
+			dev_put(dev);
 		}
 		np->mcast_oif = val;
 		retv = 0;
@@ -658,7 +666,7 @@ done:
 	case IPV6_MTU_DISCOVER:
 		if (optlen < sizeof(int))
 			goto e_inval;
-		if (val<0 || val>3)
+		if (val < IP_PMTUDISC_DONT || val > IP_PMTUDISC_PROBE)
 			goto e_inval;
 		np->pmtudisc = val;
 		retv = 0;
@@ -770,7 +778,7 @@ e_inval:
 }
 
 int ipv6_setsockopt(struct sock *sk, int level, int optname,
-		    char __user *optval, int optlen)
+		    char __user *optval, unsigned int optlen)
 {
 	int err;
 
@@ -798,7 +806,7 @@ EXPORT_SYMBOL(ipv6_setsockopt);
 
 #ifdef CONFIG_COMPAT
 int compat_ipv6_setsockopt(struct sock *sk, int level, int optname,
-			   char __user *optval, int optlen)
+			   char __user *optval, unsigned int optlen)
 {
 	int err;
 
@@ -1037,8 +1045,6 @@ static int do_ipv6_getsockopt(struct sock *sk, int level, int optname,
 
 	case IPV6_TCLASS:
 		val = np->tclass;
-		if (val < 0)
-			val = 0;
 		break;
 
 	case IPV6_RECVTCLASS:

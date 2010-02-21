@@ -512,13 +512,10 @@ int cifs_get_inode_info(struct inode **pinode,
 					cifs_sb->local_nls,
 					cifs_sb->mnt_cifs_flags &
 						CIFS_MOUNT_MAP_SPECIAL_CHR);
-			if (rc1) {
+			if (rc1 || !fattr.cf_uniqueid) {
 				cFYI(1, ("GetSrvInodeNum rc %d", rc1));
 				fattr.cf_uniqueid = iunique(sb, ROOT_I);
-				/* disable serverino if call not supported */
-				if (rc1 == -EINVAL)
-					cifs_sb->mnt_cifs_flags &=
-							~CIFS_MOUNT_SERVER_INUM;
+				cifs_autodisable_serverino(cifs_sb);
 			}
 		} else {
 			fattr.cf_uniqueid = iunique(sb, ROOT_I);
@@ -800,7 +797,7 @@ set_via_filehandle:
 	if (open_file == NULL)
 		CIFSSMBClose(xid, pTcon, netfid);
 	else
-		atomic_dec(&open_file->wrtPending);
+		cifsFileInfo_put(open_file);
 out:
 	return rc;
 }
@@ -917,8 +914,8 @@ undo_setattr:
 /*
  * If dentry->d_inode is null (usually meaning the cached dentry
  * is a negative dentry) then we would attempt a standard SMB delete, but
- * if that fails we can not attempt the fall back mechanisms on EACESS
- * but will return the EACESS to the caller.  Note that the VFS does not call
+ * if that fails we can not attempt the fall back mechanisms on EACCESS
+ * but will return the EACCESS to the caller. Note that the VFS does not call
  * unlink on negative dentries currently.
  */
 int cifs_unlink(struct inode *dir, struct dentry *dentry)
@@ -1557,57 +1554,24 @@ static int cifs_truncate_page(struct address_space *mapping, loff_t from)
 
 static int cifs_vmtruncate(struct inode *inode, loff_t offset)
 {
-	struct address_space *mapping = inode->i_mapping;
-	unsigned long limit;
+	loff_t oldsize;
+	int err;
 
 	spin_lock(&inode->i_lock);
-	if (inode->i_size < offset)
-		goto do_expand;
-	/*
-	 * truncation of in-use swapfiles is disallowed - it would cause
-	 * subsequent swapout to scribble on the now-freed blocks.
-	 */
-	if (IS_SWAPFILE(inode)) {
+	err = inode_newsize_ok(inode, offset);
+	if (err) {
 		spin_unlock(&inode->i_lock);
-		goto out_busy;
+		goto out;
 	}
-	i_size_write(inode, offset);
-	spin_unlock(&inode->i_lock);
-	/*
-	 * unmap_mapping_range is called twice, first simply for efficiency
-	 * so that truncate_inode_pages does fewer single-page unmaps. However
-	 * after this first call, and before truncate_inode_pages finishes,
-	 * it is possible for private pages to be COWed, which remain after
-	 * truncate_inode_pages finishes, hence the second unmap_mapping_range
-	 * call must be made for correctness.
-	 */
-	unmap_mapping_range(mapping, offset + PAGE_SIZE - 1, 0, 1);
-	truncate_inode_pages(mapping, offset);
-	unmap_mapping_range(mapping, offset + PAGE_SIZE - 1, 0, 1);
-	goto out_truncate;
 
-do_expand:
-	limit = current->signal->rlim[RLIMIT_FSIZE].rlim_cur;
-	if (limit != RLIM_INFINITY && offset > limit) {
-		spin_unlock(&inode->i_lock);
-		goto out_sig;
-	}
-	if (offset > inode->i_sb->s_maxbytes) {
-		spin_unlock(&inode->i_lock);
-		goto out_big;
-	}
+	oldsize = inode->i_size;
 	i_size_write(inode, offset);
 	spin_unlock(&inode->i_lock);
-out_truncate:
+	truncate_pagecache(inode, oldsize, offset);
 	if (inode->i_op->truncate)
 		inode->i_op->truncate(inode);
-	return 0;
-out_sig:
-	send_sig(SIGXFSZ, current, 0);
-out_big:
-	return -EFBIG;
-out_busy:
-	return -ETXTBSY;
+out:
+	return err;
 }
 
 static int
@@ -1635,7 +1599,7 @@ cifs_set_file_size(struct inode *inode, struct iattr *attrs,
 		__u32 npid = open_file->pid;
 		rc = CIFSSMBSetFileSize(xid, pTcon, attrs->ia_size, nfid,
 					npid, false);
-		atomic_dec(&open_file->wrtPending);
+		cifsFileInfo_put(open_file);
 		cFYI(1, ("SetFSize for attrs rc = %d", rc));
 		if ((rc == -EINVAL) || (rc == -EOPNOTSUPP)) {
 			unsigned int bytes_written;
@@ -1790,7 +1754,7 @@ cifs_setattr_unix(struct dentry *direntry, struct iattr *attrs)
 		u16 nfid = open_file->netfid;
 		u32 npid = open_file->pid;
 		rc = CIFSSMBUnixSetFileInfo(xid, pTcon, args, nfid, npid);
-		atomic_dec(&open_file->wrtPending);
+		cifsFileInfo_put(open_file);
 	} else {
 		rc = CIFSSMBUnixSetPathInfo(xid, pTcon, full_path, args,
 				    cifs_sb->local_nls,
@@ -1798,8 +1762,18 @@ cifs_setattr_unix(struct dentry *direntry, struct iattr *attrs)
 					CIFS_MOUNT_MAP_SPECIAL_CHR);
 	}
 
-	if (!rc)
+	if (!rc) {
 		rc = inode_setattr(inode, attrs);
+
+		/* force revalidate when any of these times are set since some
+		   of the fs types (eg ext3, fat) do not have fine enough
+		   time granularity to match protocol, and we do not have a
+		   a way (yet) to query the server fs's time granularity (and
+		   whether it rounds times down).
+		*/
+		if (!rc && (attrs->ia_valid & (ATTR_MTIME | ATTR_CTIME)))
+			cifsInode->time = 0;
+	}
 out:
 	kfree(args);
 	kfree(full_path);

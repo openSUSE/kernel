@@ -47,6 +47,7 @@
 #include <linux/rculist.h>
 #include <asm/uaccess.h>
 #include <asm/cacheflush.h>
+#include <asm/mmu_context.h>
 #include <linux/license.h>
 #include <asm/sections.h>
 #include <linux/tracepoint.h>
@@ -369,8 +370,6 @@ EXPORT_SYMBOL_GPL(find_module);
 
 #ifdef CONFIG_SMP
 
-#ifdef CONFIG_HAVE_DYNAMIC_PER_CPU_AREA
-
 static void *percpu_modalloc(unsigned long size, unsigned long align,
 			     const char *name)
 {
@@ -393,154 +392,6 @@ static void percpu_modfree(void *freeme)
 {
 	free_percpu(freeme);
 }
-
-#else /* ... !CONFIG_HAVE_DYNAMIC_PER_CPU_AREA */
-
-/* Number of blocks used and allocated. */
-static unsigned int pcpu_num_used, pcpu_num_allocated;
-/* Size of each block.  -ve means used. */
-static int *pcpu_size;
-
-static int split_block(unsigned int i, unsigned short size)
-{
-	/* Reallocation required? */
-	if (pcpu_num_used + 1 > pcpu_num_allocated) {
-		int *new;
-
-		new = krealloc(pcpu_size, sizeof(new[0])*pcpu_num_allocated*2,
-			       GFP_KERNEL);
-		if (!new)
-			return 0;
-
-		pcpu_num_allocated *= 2;
-		pcpu_size = new;
-	}
-
-	/* Insert a new subblock */
-	memmove(&pcpu_size[i+1], &pcpu_size[i],
-		sizeof(pcpu_size[0]) * (pcpu_num_used - i));
-	pcpu_num_used++;
-
-	pcpu_size[i+1] -= size;
-	pcpu_size[i] = size;
-	return 1;
-}
-
-static inline unsigned int block_size(int val)
-{
-	if (val < 0)
-		return -val;
-	return val;
-}
-
-static void *percpu_modalloc(unsigned long size, unsigned long align,
-			     const char *name)
-{
-	unsigned long extra;
-	unsigned int i;
-	void *ptr;
-	int cpu;
-
-	if (align > PAGE_SIZE) {
-		printk(KERN_WARNING "%s: per-cpu alignment %li > %li\n",
-		       name, align, PAGE_SIZE);
-		align = PAGE_SIZE;
-	}
-
-	ptr = __per_cpu_start;
-	for (i = 0; i < pcpu_num_used; ptr += block_size(pcpu_size[i]), i++) {
-		/* Extra for alignment requirement. */
-		extra = ALIGN((unsigned long)ptr, align) - (unsigned long)ptr;
-		BUG_ON(i == 0 && extra != 0);
-
-		if (pcpu_size[i] < 0 || pcpu_size[i] < extra + size)
-			continue;
-
-		/* Transfer extra to previous block. */
-		if (pcpu_size[i-1] < 0)
-			pcpu_size[i-1] -= extra;
-		else
-			pcpu_size[i-1] += extra;
-		pcpu_size[i] -= extra;
-		ptr += extra;
-
-		/* Split block if warranted */
-		if (pcpu_size[i] - size > sizeof(unsigned long))
-			if (!split_block(i, size))
-				return NULL;
-
-		/* add the per-cpu scanning areas */
-		for_each_possible_cpu(cpu)
-			kmemleak_alloc(ptr + per_cpu_offset(cpu), size, 0,
-				       GFP_KERNEL);
-
-		/* Mark allocated */
-		pcpu_size[i] = -pcpu_size[i];
-		return ptr;
-	}
-
-	printk(KERN_WARNING "Could not allocate %lu bytes percpu data\n",
-	       size);
-	return NULL;
-}
-
-static void percpu_modfree(void *freeme)
-{
-	unsigned int i;
-	void *ptr = __per_cpu_start + block_size(pcpu_size[0]);
-	int cpu;
-
-	/* First entry is core kernel percpu data. */
-	for (i = 1; i < pcpu_num_used; ptr += block_size(pcpu_size[i]), i++) {
-		if (ptr == freeme) {
-			pcpu_size[i] = -pcpu_size[i];
-			goto free;
-		}
-	}
-	BUG();
-
- free:
-	/* remove the per-cpu scanning areas */
-	for_each_possible_cpu(cpu)
-		kmemleak_free(freeme + per_cpu_offset(cpu));
-
-	/* Merge with previous? */
-	if (pcpu_size[i-1] >= 0) {
-		pcpu_size[i-1] += pcpu_size[i];
-		pcpu_num_used--;
-		memmove(&pcpu_size[i], &pcpu_size[i+1],
-			(pcpu_num_used - i) * sizeof(pcpu_size[0]));
-		i--;
-	}
-	/* Merge with next? */
-	if (i+1 < pcpu_num_used && pcpu_size[i+1] >= 0) {
-		pcpu_size[i] += pcpu_size[i+1];
-		pcpu_num_used--;
-		memmove(&pcpu_size[i+1], &pcpu_size[i+2],
-			(pcpu_num_used - (i+1)) * sizeof(pcpu_size[0]));
-	}
-}
-
-static int percpu_modinit(void)
-{
-	pcpu_num_used = 2;
-	pcpu_num_allocated = 2;
-	pcpu_size = kmalloc(sizeof(pcpu_size[0]) * pcpu_num_allocated,
-			    GFP_KERNEL);
-	/* Static in-kernel percpu data (used). */
-	pcpu_size[0] = -(__per_cpu_end-__per_cpu_start);
-	/* Free room. */
-	pcpu_size[1] = PERCPU_ENOUGH_ROOM + pcpu_size[0];
-	if (pcpu_size[1] < 0) {
-		printk(KERN_ERR "No per-cpu room for modules.\n");
-		pcpu_num_used = 1;
-	}
-
-	return 0;
-}
-__initcall(percpu_modinit);
-
-#endif /* CONFIG_HAVE_DYNAMIC_PER_CPU_AREA */
 
 static unsigned int find_pcpusec(Elf_Ehdr *hdr,
 				 Elf_Shdr *sechdrs,
@@ -1029,11 +880,23 @@ static int try_to_force_load(struct module *mod, const char *reason)
 }
 
 #ifdef CONFIG_MODVERSIONS
+/* If the arch applies (non-zero) relocations to kernel kcrctab, unapply it. */
+static unsigned long maybe_relocated(unsigned long crc,
+				     const struct module *crc_owner)
+{
+#ifdef ARCH_RELOCATES_KCRCTAB
+	if (crc_owner == NULL)
+		return crc - (unsigned long)reloc_start;
+#endif
+	return crc;
+}
+
 static int check_version(Elf_Shdr *sechdrs,
 			 unsigned int versindex,
 			 const char *symname,
 			 struct module *mod, 
-			 const unsigned long *crc)
+			 const unsigned long *crc,
+			 const struct module *crc_owner)
 {
 	unsigned int i, num_versions;
 	struct modversion_info *versions;
@@ -1054,10 +917,10 @@ static int check_version(Elf_Shdr *sechdrs,
 		if (strcmp(versions[i].name, symname) != 0)
 			continue;
 
-		if (versions[i].crc == *crc)
+		if (versions[i].crc == maybe_relocated(*crc, crc_owner))
 			return 1;
 		DEBUGP("Found checksum %lX vs module %lX\n",
-		       *crc, versions[i].crc);
+		       maybe_relocated(*crc, crc_owner), versions[i].crc);
 		goto bad_version;
 	}
 
@@ -1080,7 +943,8 @@ static inline int check_modstruct_version(Elf_Shdr *sechdrs,
 	if (!find_symbol(MODULE_SYMBOL_PREFIX "module_layout", NULL,
 			 &crc, true, false))
 		BUG();
-	return check_version(sechdrs, versindex, "module_layout", mod, crc);
+	return check_version(sechdrs, versindex, "module_layout", mod, crc,
+			     NULL);
 }
 
 /* First part is kernel version, which we ignore if module has crcs. */
@@ -1098,7 +962,8 @@ static inline int check_version(Elf_Shdr *sechdrs,
 				unsigned int versindex,
 				const char *symname,
 				struct module *mod, 
-				const unsigned long *crc)
+				const unsigned long *crc,
+				const struct module *crc_owner)
 {
 	return 1;
 }
@@ -1133,8 +998,8 @@ static const struct kernel_symbol *resolve_symbol(Elf_Shdr *sechdrs,
 	/* use_module can fail due to OOM,
 	   or module initialization or unloading */
 	if (sym) {
-		if (!check_version(sechdrs, versindex, name, mod, crc) ||
-		    !use_module(mod, owner))
+		if (!check_version(sechdrs, versindex, name, mod, crc, owner)
+		    || !use_module(mod, owner))
 			sym = NULL;
 	}
 	return sym;
@@ -1145,6 +1010,12 @@ static const struct kernel_symbol *resolve_symbol(Elf_Shdr *sechdrs,
  * J. Corbet <corbet@lwn.net>
  */
 #if defined(CONFIG_KALLSYMS) && defined(CONFIG_SYSFS)
+
+static inline bool sect_empty(const Elf_Shdr *sect)
+{
+	return !(sect->sh_flags & SHF_ALLOC) || sect->sh_size == 0;
+}
+
 struct module_sect_attr
 {
 	struct module_attribute mattr;
@@ -1186,7 +1057,7 @@ static void add_sect_attrs(struct module *mod, unsigned int nsect,
 
 	/* Count loaded sections and allocate structures */
 	for (i = 0; i < nsect; i++)
-		if (sechdrs[i].sh_flags & SHF_ALLOC)
+		if (!sect_empty(&sechdrs[i]))
 			nloaded++;
 	size[0] = ALIGN(sizeof(*sect_attrs)
 			+ nloaded * sizeof(sect_attrs->attrs[0]),
@@ -1204,7 +1075,7 @@ static void add_sect_attrs(struct module *mod, unsigned int nsect,
 	sattr = &sect_attrs->attrs[0];
 	gattr = &sect_attrs->grp.attrs[0];
 	for (i = 0; i < nsect; i++) {
-		if (! (sechdrs[i].sh_flags & SHF_ALLOC))
+		if (sect_empty(&sechdrs[i]))
 			continue;
 		sattr->address = sechdrs[i].sh_addr;
 		sattr->name = kstrdup(secstrings + sechdrs[i].sh_name,
@@ -1288,7 +1159,7 @@ static void add_notes_attrs(struct module *mod, unsigned int nsect,
 	/* Count notes sections and allocate structures.  */
 	notes = 0;
 	for (i = 0; i < nsect; i++)
-		if ((sechdrs[i].sh_flags & SHF_ALLOC) &&
+		if (!sect_empty(&sechdrs[i]) &&
 		    (sechdrs[i].sh_type == SHT_NOTE))
 			++notes;
 
@@ -1304,7 +1175,7 @@ static void add_notes_attrs(struct module *mod, unsigned int nsect,
 	notes_attrs->notes = notes;
 	nattr = &notes_attrs->attrs[0];
 	for (loaded = i = 0; i < nsect; ++i) {
-		if (!(sechdrs[i].sh_flags & SHF_ALLOC))
+		if (sect_empty(&sechdrs[i]))
 			continue;
 		if (sechdrs[i].sh_type == SHT_NOTE) {
 			nattr->attr.name = mod->sect_attrs->attrs[loaded].name;
@@ -1535,6 +1406,10 @@ static void free_module(struct module *mod)
 
 	/* Finally, free the core (containing the module structure) */
 	module_free(mod, mod->module_core);
+
+#ifdef CONFIG_MPU
+	update_protections(current->mm);
+#endif
 }
 
 void *__symbol_get(const char *symbol)
@@ -1792,6 +1667,17 @@ static void setup_modinfo(struct module *mod, Elf_Shdr *sechdrs,
 	}
 }
 
+static void free_modinfo(struct module *mod)
+{
+	struct module_attribute *attr;
+	int i;
+
+	for (i = 0; (attr = modinfo_attrs[i]); i++) {
+		if (attr->free)
+			attr->free(mod);
+	}
+}
+
 #ifdef CONFIG_KALLSYMS
 
 /* lookup symbol in given range of kernel_symbols */
@@ -1857,13 +1743,93 @@ static char elf_type(const Elf_Sym *sym,
 	return '?';
 }
 
+static bool is_core_symbol(const Elf_Sym *src, const Elf_Shdr *sechdrs,
+                           unsigned int shnum)
+{
+	const Elf_Shdr *sec;
+
+	if (src->st_shndx == SHN_UNDEF
+	    || src->st_shndx >= shnum
+	    || !src->st_name)
+		return false;
+
+	sec = sechdrs + src->st_shndx;
+	if (!(sec->sh_flags & SHF_ALLOC)
+#ifndef CONFIG_KALLSYMS_ALL
+	    || !(sec->sh_flags & SHF_EXECINSTR)
+#endif
+	    || (sec->sh_entsize & INIT_OFFSET_MASK))
+		return false;
+
+	return true;
+}
+
+static unsigned long layout_symtab(struct module *mod,
+				   Elf_Shdr *sechdrs,
+				   unsigned int symindex,
+				   unsigned int strindex,
+				   const Elf_Ehdr *hdr,
+				   const char *secstrings,
+				   unsigned long *pstroffs,
+				   unsigned long *strmap)
+{
+	unsigned long symoffs;
+	Elf_Shdr *symsect = sechdrs + symindex;
+	Elf_Shdr *strsect = sechdrs + strindex;
+	const Elf_Sym *src;
+	const char *strtab;
+	unsigned int i, nsrc, ndst;
+
+	/* Put symbol section at end of init part of module. */
+	symsect->sh_flags |= SHF_ALLOC;
+	symsect->sh_entsize = get_offset(mod, &mod->init_size, symsect,
+					 symindex) | INIT_OFFSET_MASK;
+	DEBUGP("\t%s\n", secstrings + symsect->sh_name);
+
+	src = (void *)hdr + symsect->sh_offset;
+	nsrc = symsect->sh_size / sizeof(*src);
+	strtab = (void *)hdr + strsect->sh_offset;
+	for (ndst = i = 1; i < nsrc; ++i, ++src)
+		if (is_core_symbol(src, sechdrs, hdr->e_shnum)) {
+			unsigned int j = src->st_name;
+
+			while(!__test_and_set_bit(j, strmap) && strtab[j])
+				++j;
+			++ndst;
+		}
+
+	/* Append room for core symbols at end of core part. */
+	symoffs = ALIGN(mod->core_size, symsect->sh_addralign ?: 1);
+	mod->core_size = symoffs + ndst * sizeof(Elf_Sym);
+
+	/* Put string table section at end of init part of module. */
+	strsect->sh_flags |= SHF_ALLOC;
+	strsect->sh_entsize = get_offset(mod, &mod->init_size, strsect,
+					 strindex) | INIT_OFFSET_MASK;
+	DEBUGP("\t%s\n", secstrings + strsect->sh_name);
+
+	/* Append room for core symbols' strings at end of core part. */
+	*pstroffs = mod->core_size;
+	__set_bit(0, strmap);
+	mod->core_size += bitmap_weight(strmap, strsect->sh_size);
+
+	return symoffs;
+}
+
 static void add_kallsyms(struct module *mod,
 			 Elf_Shdr *sechdrs,
+			 unsigned int shnum,
 			 unsigned int symindex,
 			 unsigned int strindex,
-			 const char *secstrings)
+			 unsigned long symoffs,
+			 unsigned long stroffs,
+			 const char *secstrings,
+			 unsigned long *strmap)
 {
-	unsigned int i;
+	unsigned int i, ndst;
+	const Elf_Sym *src;
+	Elf_Sym *dst;
+	char *s;
 
 	mod->symtab = (void *)sechdrs[symindex].sh_addr;
 	mod->num_symtab = sechdrs[symindex].sh_size / sizeof(Elf_Sym);
@@ -1873,13 +1839,46 @@ static void add_kallsyms(struct module *mod,
 	for (i = 0; i < mod->num_symtab; i++)
 		mod->symtab[i].st_info
 			= elf_type(&mod->symtab[i], sechdrs, secstrings, mod);
+
+	mod->core_symtab = dst = mod->module_core + symoffs;
+	src = mod->symtab;
+	*dst = *src;
+	for (ndst = i = 1; i < mod->num_symtab; ++i, ++src) {
+		if (!is_core_symbol(src, sechdrs, shnum))
+			continue;
+		dst[ndst] = *src;
+		dst[ndst].st_name = bitmap_weight(strmap, dst[ndst].st_name);
+		++ndst;
+	}
+	mod->core_num_syms = ndst;
+
+	mod->core_strtab = s = mod->module_core + stroffs;
+	for (*s = 0, i = 1; i < sechdrs[strindex].sh_size; ++i)
+		if (test_bit(i, strmap))
+			*++s = mod->strtab[i];
 }
 #else
+static inline unsigned long layout_symtab(struct module *mod,
+					  Elf_Shdr *sechdrs,
+					  unsigned int symindex,
+					  unsigned int strindex,
+					  const Elf_Ehdr *hdr,
+					  const char *secstrings,
+					  unsigned long *pstroffs,
+					  unsigned long *strmap)
+{
+	return 0;
+}
+
 static inline void add_kallsyms(struct module *mod,
 				Elf_Shdr *sechdrs,
+				unsigned int shnum,
 				unsigned int symindex,
 				unsigned int strindex,
-				const char *secstrings)
+				unsigned long symoffs,
+				unsigned long stroffs,
+				const char *secstrings,
+				const unsigned long *strmap)
 {
 }
 #endif /* CONFIG_KALLSYMS */
@@ -1914,9 +1913,7 @@ static void kmemleak_load_module(struct module *mod, Elf_Ehdr *hdr,
 	unsigned int i;
 
 	/* only scan the sections containing data */
-	kmemleak_scan_area(mod->module_core, (unsigned long)mod -
-			   (unsigned long)mod->module_core,
-			   sizeof(struct module), GFP_KERNEL);
+	kmemleak_scan_area(mod, sizeof(struct module), GFP_KERNEL);
 
 	for (i = 1; i < hdr->e_shnum; i++) {
 		if (!(sechdrs[i].sh_flags & SHF_ALLOC))
@@ -1925,8 +1922,7 @@ static void kmemleak_load_module(struct module *mod, Elf_Ehdr *hdr,
 		    && strncmp(secstrings + sechdrs[i].sh_name, ".bss", 4) != 0)
 			continue;
 
-		kmemleak_scan_area(mod->module_core, sechdrs[i].sh_addr -
-				   (unsigned long)mod->module_core,
+		kmemleak_scan_area((void *)sechdrs[i].sh_addr,
 				   sechdrs[i].sh_size, GFP_KERNEL);
 	}
 }
@@ -1954,6 +1950,8 @@ static noinline struct module *load_module(void __user *umod,
 	struct module *mod;
 	long err = 0;
 	void *percpu = NULL, *ptr = NULL; /* Stops spurious gcc warning */
+	unsigned long symoffs, stroffs, *strmap;
+
 	mm_segment_t old_fs;
 
 	DEBUGP("load_module: umod=%p, len=%lu, uargs=%p\n",
@@ -2035,11 +2033,6 @@ static noinline struct module *load_module(void __user *umod,
 	/* Don't keep modinfo and version sections. */
 	sechdrs[infoindex].sh_flags &= ~(unsigned long)SHF_ALLOC;
 	sechdrs[versindex].sh_flags &= ~(unsigned long)SHF_ALLOC;
-#ifdef CONFIG_KALLSYMS
-	/* Keep symbol and string tables for decoding later. */
-	sechdrs[symindex].sh_flags |= SHF_ALLOC;
-	sechdrs[strindex].sh_flags |= SHF_ALLOC;
-#endif
 
 	/* Check module struct version now, before we try to use module. */
 	if (!check_modstruct_version(sechdrs, versindex, mod)) {
@@ -2075,6 +2068,13 @@ static noinline struct module *load_module(void __user *umod,
 		goto free_hdr;
 	}
 
+	strmap = kzalloc(BITS_TO_LONGS(sechdrs[strindex].sh_size)
+			 * sizeof(long), GFP_KERNEL);
+	if (!strmap) {
+		err = -ENOMEM;
+		goto free_mod;
+	}
+
 	if (find_module(mod->name)) {
 		err = -EEXIST;
 		goto free_mod;
@@ -2104,6 +2104,8 @@ static noinline struct module *load_module(void __user *umod,
 	   this is done generically; there doesn't appear to be any
 	   special cases for the architectures. */
 	layout_sections(mod, hdr, sechdrs, secstrings);
+	symoffs = layout_symtab(mod, sechdrs, symindex, strindex, hdr,
+				secstrings, &stroffs, strmap);
 
 	/* Do the allocs. */
 	ptr = module_alloc_update_bounds(mod->core_size);
@@ -2237,10 +2239,6 @@ static noinline struct module *load_module(void __user *umod,
 				  sizeof(*mod->ctors), &mod->num_ctors);
 #endif
 
-#ifdef CONFIG_MARKERS
-	mod->markers = section_objs(hdr, sechdrs, secstrings, "__markers",
-				    sizeof(*mod->markers), &mod->num_markers);
-#endif
 #ifdef CONFIG_TRACEPOINTS
 	mod->tracepoints = section_objs(hdr, sechdrs, secstrings,
 					"__tracepoints",
@@ -2252,6 +2250,12 @@ static noinline struct module *load_module(void __user *umod,
 					 "_ftrace_events",
 					 sizeof(*mod->trace_events),
 					 &mod->num_trace_events);
+	/*
+	 * This section contains pointers to allocated objects in the trace
+	 * code and not scanning it leads to false positives.
+	 */
+	kmemleak_scan_area(mod->trace_events, sizeof(*mod->trace_events) *
+			   mod->num_trace_events, GFP_KERNEL);
 #endif
 #ifdef CONFIG_FTRACE_MCOUNT_RECORD
 	/* sechdrs[0].sh_size is always zero */
@@ -2312,7 +2316,10 @@ static noinline struct module *load_module(void __user *umod,
 	percpu_modcopy(mod->percpu, (void *)sechdrs[pcpuindex].sh_addr,
 		       sechdrs[pcpuindex].sh_size);
 
-	add_kallsyms(mod, sechdrs, symindex, strindex, secstrings);
+	add_kallsyms(mod, sechdrs, hdr->e_shnum, symindex, strindex,
+		     symoffs, stroffs, secstrings, strmap);
+	kfree(strmap);
+	strmap = NULL;
 
 	if (!mod->taints) {
 		struct _ddebug *debug;
@@ -2384,13 +2391,14 @@ static noinline struct module *load_module(void __user *umod,
 	synchronize_sched();
 	module_arch_cleanup(mod);
  cleanup:
+	free_modinfo(mod);
 	kobject_del(&mod->mkobj.kobj);
 	kobject_put(&mod->mkobj.kobj);
  free_unload:
 	module_unload_free(mod);
 #if defined(CONFIG_MODULE_UNLOAD) && defined(CONFIG_SMP)
- free_init:
 	percpu_modfree(mod->refptr);
+ free_init:
 #endif
 	module_free(mod, mod->module_init);
  free_core:
@@ -2401,6 +2409,7 @@ static noinline struct module *load_module(void __user *umod,
 		percpu_modfree(percpu);
  free_mod:
 	kfree(args);
+	kfree(strmap);
  free_hdr:
 	vfree(hdr);
 	return ERR_PTR(err);
@@ -2490,6 +2499,11 @@ SYSCALL_DEFINE3(init_module, void __user *, umod,
 	/* Drop initial reference. */
 	module_put(mod);
 	trim_init_extable(mod);
+#ifdef CONFIG_KALLSYMS
+	mod->num_symtab = mod->core_num_syms;
+	mod->symtab = mod->core_symtab;
+	mod->strtab = mod->core_strtab;
+#endif
 	module_free(mod, mod->module_init);
 	mod->module_init = NULL;
 	mod->init_size = 0;
@@ -2951,25 +2965,10 @@ void module_layout(struct module *mod,
 		   struct modversion_info *ver,
 		   struct kernel_param *kp,
 		   struct kernel_symbol *ks,
-		   struct marker *marker,
 		   struct tracepoint *tp)
 {
 }
 EXPORT_SYMBOL(module_layout);
-#endif
-
-#ifdef CONFIG_MARKERS
-void module_update_markers(void)
-{
-	struct module *mod;
-
-	mutex_lock(&module_mutex);
-	list_for_each_entry(mod, &modules, list)
-		if (!mod->taints)
-			marker_update_probe_range(mod->markers,
-				mod->markers + mod->num_markers);
-	mutex_unlock(&module_mutex);
-}
 #endif
 
 #ifdef CONFIG_TRACEPOINTS

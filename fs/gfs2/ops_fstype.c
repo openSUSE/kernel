@@ -18,6 +18,7 @@
 #include <linux/mount.h>
 #include <linux/gfs2_ondisk.h>
 #include <linux/slow-work.h>
+#include <linux/quotaops.h>
 
 #include "gfs2.h"
 #include "incore.h"
@@ -62,13 +63,10 @@ static void gfs2_tune_init(struct gfs2_tune *gt)
 	gt->gt_quota_warn_period = 10;
 	gt->gt_quota_scale_num = 1;
 	gt->gt_quota_scale_den = 1;
-	gt->gt_quota_quantum = 60;
 	gt->gt_new_files_jdata = 0;
 	gt->gt_max_readahead = 1 << 18;
 	gt->gt_stall_secs = 600;
 	gt->gt_complain_secs = 10;
-	gt->gt_statfs_quantum = 30;
-	gt->gt_statfs_slow = 0;
 }
 
 static struct gfs2_sbd *init_sbd(struct super_block *sb)
@@ -84,7 +82,8 @@ static struct gfs2_sbd *init_sbd(struct super_block *sb)
 
 	gfs2_tune_init(&sdp->sd_tune);
 
-	mutex_init(&sdp->sd_inum_mutex);
+	init_waitqueue_head(&sdp->sd_glock_wait);
+	atomic_set(&sdp->sd_glock_disposal, 0);
 	spin_lock_init(&sdp->sd_statfs_spin);
 
 	spin_lock_init(&sdp->sd_rindex_spin);
@@ -726,7 +725,7 @@ static int init_journal(struct gfs2_sbd *sdp, int undo)
 		goto fail;
 	}
 
-	error = -EINVAL;
+	error = -EUSERS;
 	if (!gfs2_jindex_size(sdp)) {
 		fs_err(sdp, "no journals!\n");
 		goto fail_jindex;
@@ -833,21 +832,12 @@ static int init_inodes(struct gfs2_sbd *sdp, int undo)
 	if (error)
 		goto fail;
 
-	/* Read in the master inode number inode */
-	sdp->sd_inum_inode = gfs2_lookup_simple(master, "inum");
-	if (IS_ERR(sdp->sd_inum_inode)) {
-		error = PTR_ERR(sdp->sd_inum_inode);
-		fs_err(sdp, "can't read in inum inode: %d\n", error);
-		goto fail_journal;
-	}
-
-
 	/* Read in the master statfs inode */
 	sdp->sd_statfs_inode = gfs2_lookup_simple(master, "statfs");
 	if (IS_ERR(sdp->sd_statfs_inode)) {
 		error = PTR_ERR(sdp->sd_statfs_inode);
 		fs_err(sdp, "can't read in statfs inode: %d\n", error);
-		goto fail_inum;
+		goto fail_journal;
 	}
 
 	/* Read in the resource index inode */
@@ -876,8 +866,6 @@ fail_rindex:
 	iput(sdp->sd_rindex);
 fail_statfs:
 	iput(sdp->sd_statfs_inode);
-fail_inum:
-	iput(sdp->sd_inum_inode);
 fail_journal:
 	init_journal(sdp, UNDO);
 fail:
@@ -905,20 +893,12 @@ static int init_per_node(struct gfs2_sbd *sdp, int undo)
 		return error;
 	}
 
-	sprintf(buf, "inum_range%u", sdp->sd_jdesc->jd_jid);
-	sdp->sd_ir_inode = gfs2_lookup_simple(pn, buf);
-	if (IS_ERR(sdp->sd_ir_inode)) {
-		error = PTR_ERR(sdp->sd_ir_inode);
-		fs_err(sdp, "can't find local \"ir\" file: %d\n", error);
-		goto fail;
-	}
-
 	sprintf(buf, "statfs_change%u", sdp->sd_jdesc->jd_jid);
 	sdp->sd_sc_inode = gfs2_lookup_simple(pn, buf);
 	if (IS_ERR(sdp->sd_sc_inode)) {
 		error = PTR_ERR(sdp->sd_sc_inode);
 		fs_err(sdp, "can't find local \"sc\" file: %d\n", error);
-		goto fail_ir_i;
+		goto fail;
 	}
 
 	sprintf(buf, "quota_change%u", sdp->sd_jdesc->jd_jid);
@@ -932,27 +912,16 @@ static int init_per_node(struct gfs2_sbd *sdp, int undo)
 	iput(pn);
 	pn = NULL;
 
-	ip = GFS2_I(sdp->sd_ir_inode);
-	error = gfs2_glock_nq_init(ip->i_gl,
-				   LM_ST_EXCLUSIVE, 0,
-				   &sdp->sd_ir_gh);
-	if (error) {
-		fs_err(sdp, "can't lock local \"ir\" file: %d\n", error);
-		goto fail_qc_i;
-	}
-
 	ip = GFS2_I(sdp->sd_sc_inode);
-	error = gfs2_glock_nq_init(ip->i_gl,
-				   LM_ST_EXCLUSIVE, 0,
+	error = gfs2_glock_nq_init(ip->i_gl, LM_ST_EXCLUSIVE, 0,
 				   &sdp->sd_sc_gh);
 	if (error) {
 		fs_err(sdp, "can't lock local \"sc\" file: %d\n", error);
-		goto fail_ir_gh;
+		goto fail_qc_i;
 	}
 
 	ip = GFS2_I(sdp->sd_qc_inode);
-	error = gfs2_glock_nq_init(ip->i_gl,
-				   LM_ST_EXCLUSIVE, 0,
+	error = gfs2_glock_nq_init(ip->i_gl, LM_ST_EXCLUSIVE, 0,
 				   &sdp->sd_qc_gh);
 	if (error) {
 		fs_err(sdp, "can't lock local \"qc\" file: %d\n", error);
@@ -965,14 +934,10 @@ fail_qc_gh:
 	gfs2_glock_dq_uninit(&sdp->sd_qc_gh);
 fail_ut_gh:
 	gfs2_glock_dq_uninit(&sdp->sd_sc_gh);
-fail_ir_gh:
-	gfs2_glock_dq_uninit(&sdp->sd_ir_gh);
 fail_qc_i:
 	iput(sdp->sd_qc_inode);
 fail_ut_i:
 	iput(sdp->sd_sc_inode);
-fail_ir_i:
-	iput(sdp->sd_ir_inode);
 fail:
 	if (pn)
 		iput(pn);
@@ -1020,9 +985,17 @@ static const match_table_t nolock_tokens = {
 	{ Opt_err, NULL },
 };
 
+static void nolock_put_lock(struct kmem_cache *cachep, struct gfs2_glock *gl)
+{
+	struct gfs2_sbd *sdp = gl->gl_sbd;
+	kmem_cache_free(cachep, gl);
+	if (atomic_dec_and_test(&sdp->sd_glock_disposal))
+		wake_up(&sdp->sd_glock_wait);
+}
+
 static const struct lm_lockops nolock_ops = {
 	.lm_proto_name = "lock_nolock",
-	.lm_put_lock = kmem_cache_free,
+	.lm_put_lock = nolock_put_lock,
 	.lm_tokens = &nolock_tokens,
 };
 
@@ -1063,7 +1036,6 @@ static int gfs2_lm_mount(struct gfs2_sbd *sdp, int silent)
 
 	ls->ls_ops = lm;
 	ls->ls_first = 1;
-	ls->ls_id = 0;
 
 	for (options = args->ar_hostdata; (o = strsep(&options, ":")); ) {
 		substring_t tmp[MAX_OPT_ARGS];
@@ -1081,10 +1053,7 @@ static int gfs2_lm_mount(struct gfs2_sbd *sdp, int silent)
 			ls->ls_jid = option;
 			break;
 		case Opt_id:
-			ret = match_int(&tmp[0], &option);
-			if (ret)
-				goto hostdata_error;
-			ls->ls_id = option;
+			/* Obsolete, but left for backward compat purposes */
 			break;
 		case Opt_first:
 			ret = match_int(&tmp[0], &option);
@@ -1133,6 +1102,17 @@ void gfs2_lm_unmount(struct gfs2_sbd *sdp)
 		lm->lm_unmount(sdp);
 }
 
+void gfs2_online_uevent(struct gfs2_sbd *sdp)
+{
+	struct super_block *sb = sdp->sd_vfs;
+	char ro[20];
+	char spectator[20];
+	char *envp[] = { ro, spectator, NULL };
+	sprintf(ro, "RDONLY=%d", (sb->s_flags & MS_RDONLY) ? 1 : 0);
+	sprintf(spectator, "SPECTATOR=%d", sdp->sd_args.ar_spectator ? 1 : 0);
+	kobject_uevent_env(&sdp->sd_kobj, KOBJ_ONLINE, envp);
+}
+
 /**
  * fill_super - Read in superblock
  * @sb: The VFS superblock
@@ -1142,7 +1122,7 @@ void gfs2_lm_unmount(struct gfs2_sbd *sdp)
  * Returns: errno
  */
 
-static int fill_super(struct super_block *sb, void *data, int silent)
+static int fill_super(struct super_block *sb, struct gfs2_args *args, int silent)
 {
 	struct gfs2_sbd *sdp;
 	struct gfs2_holder mount_gh;
@@ -1153,16 +1133,7 @@ static int fill_super(struct super_block *sb, void *data, int silent)
 		printk(KERN_WARNING "GFS2: can't alloc struct gfs2_sbd\n");
 		return -ENOMEM;
 	}
-
-	sdp->sd_args.ar_quota = GFS2_QUOTA_DEFAULT;
-	sdp->sd_args.ar_data = GFS2_DATA_DEFAULT;
-	sdp->sd_args.ar_commit = 60;
-
-	error = gfs2_mount_args(sdp, &sdp->sd_args, data);
-	if (error) {
-		printk(KERN_WARNING "GFS2: can't parse mount arguments\n");
-		goto fail;
-	}
+	sdp->sd_args = *args;
 
 	if (sdp->sd_args.ar_spectator) {
                 sb->s_flags |= MS_RDONLY;
@@ -1170,10 +1141,15 @@ static int fill_super(struct super_block *sb, void *data, int silent)
 	}
 	if (sdp->sd_args.ar_posix_acl)
 		sb->s_flags |= MS_POSIXACL;
+	if (sdp->sd_args.ar_nobarrier)
+		set_bit(SDF_NOBARRIERS, &sdp->sd_flags);
 
 	sb->s_magic = GFS2_MAGIC;
 	sb->s_op = &gfs2_super_ops;
 	sb->s_export_op = &gfs2_export_ops;
+	sb->s_xattr = gfs2_xattr_handlers;
+	sb->s_qcop = &gfs2_quotactl_ops;
+	sb_dqopt(sb)->flags |= DQUOT_QUOTA_SYS_FILE;
 	sb->s_time_gran = 1;
 	sb->s_maxbytes = MAX_LFS_FILESIZE;
 
@@ -1186,6 +1162,15 @@ static int fill_super(struct super_block *sb, void *data, int silent)
 	sdp->sd_fsb2bb = 1 << sdp->sd_fsb2bb_shift;
 
 	sdp->sd_tune.gt_log_flush_secs = sdp->sd_args.ar_commit;
+	sdp->sd_tune.gt_quota_quantum = sdp->sd_args.ar_quota_quantum;
+	if (sdp->sd_args.ar_statfs_quantum) {
+		sdp->sd_tune.gt_statfs_slow = 0;
+		sdp->sd_tune.gt_statfs_quantum = sdp->sd_args.ar_statfs_quantum;
+	}
+	else {
+		sdp->sd_tune.gt_statfs_slow = 1;
+		sdp->sd_tune.gt_statfs_quantum = 30;
+	}
 
 	error = init_names(sdp, silent);
 	if (error)
@@ -1236,7 +1221,7 @@ static int fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	gfs2_glock_dq_uninit(&mount_gh);
-
+	gfs2_online_uevent(sdp);
 	return 0;
 
 fail_threads:
@@ -1269,16 +1254,125 @@ fail:
 	return error;
 }
 
-static int gfs2_get_sb(struct file_system_type *fs_type, int flags,
-		       const char *dev_name, void *data, struct vfsmount *mnt)
+static int set_gfs2_super(struct super_block *s, void *data)
 {
-	return get_sb_bdev(fs_type, flags, dev_name, data, fill_super, mnt);
+	s->s_bdev = data;
+	s->s_dev = s->s_bdev->bd_dev;
+
+	/*
+	 * We set the bdi here to the queue backing, file systems can
+	 * overwrite this in ->fill_super()
+	 */
+	s->s_bdi = &bdev_get_queue(s->s_bdev)->backing_dev_info;
+	return 0;
 }
 
-static int test_meta_super(struct super_block *s, void *ptr)
+static int test_gfs2_super(struct super_block *s, void *ptr)
 {
 	struct block_device *bdev = ptr;
 	return (bdev == s->s_bdev);
+}
+
+/**
+ * gfs2_get_sb - Get the GFS2 superblock
+ * @fs_type: The GFS2 filesystem type
+ * @flags: Mount flags
+ * @dev_name: The name of the device
+ * @data: The mount arguments
+ * @mnt: The vfsmnt for this mount
+ *
+ * Q. Why not use get_sb_bdev() ?
+ * A. We need to select one of two root directories to mount, independent
+ *    of whether this is the initial, or subsequent, mount of this sb
+ *
+ * Returns: 0 or -ve on error
+ */
+
+static int gfs2_get_sb(struct file_system_type *fs_type, int flags,
+		       const char *dev_name, void *data, struct vfsmount *mnt)
+{
+	struct block_device *bdev;
+	struct super_block *s;
+	fmode_t mode = FMODE_READ;
+	int error;
+	struct gfs2_args args;
+	struct gfs2_sbd *sdp;
+
+	if (!(flags & MS_RDONLY))
+		mode |= FMODE_WRITE;
+
+	bdev = open_bdev_exclusive(dev_name, mode, fs_type);
+	if (IS_ERR(bdev))
+		return PTR_ERR(bdev);
+
+	/*
+	 * once the super is inserted into the list by sget, s_umount
+	 * will protect the lockfs code from trying to start a snapshot
+	 * while we are mounting
+	 */
+	mutex_lock(&bdev->bd_fsfreeze_mutex);
+	if (bdev->bd_fsfreeze_count > 0) {
+		mutex_unlock(&bdev->bd_fsfreeze_mutex);
+		error = -EBUSY;
+		goto error_bdev;
+	}
+	s = sget(fs_type, test_gfs2_super, set_gfs2_super, bdev);
+	mutex_unlock(&bdev->bd_fsfreeze_mutex);
+	error = PTR_ERR(s);
+	if (IS_ERR(s))
+		goto error_bdev;
+
+	memset(&args, 0, sizeof(args));
+	args.ar_quota = GFS2_QUOTA_DEFAULT;
+	args.ar_data = GFS2_DATA_DEFAULT;
+	args.ar_commit = 60;
+	args.ar_statfs_quantum = 30;
+	args.ar_quota_quantum = 60;
+	args.ar_errors = GFS2_ERRORS_DEFAULT;
+
+	error = gfs2_mount_args(&args, data);
+	if (error) {
+		printk(KERN_WARNING "GFS2: can't parse mount arguments\n");
+		if (s->s_root)
+			goto error_super;
+		deactivate_locked_super(s);
+		return error;
+	}
+
+	if (s->s_root) {
+		error = -EBUSY;
+		if ((flags ^ s->s_flags) & MS_RDONLY)
+			goto error_super;
+		close_bdev_exclusive(bdev, mode);
+	} else {
+		char b[BDEVNAME_SIZE];
+
+		s->s_flags = flags;
+		s->s_mode = mode;
+		strlcpy(s->s_id, bdevname(bdev, b), sizeof(s->s_id));
+		sb_set_blocksize(s, block_size(bdev));
+		error = fill_super(s, &args, flags & MS_SILENT ? 1 : 0);
+		if (error) {
+			deactivate_locked_super(s);
+			return error;
+		}
+		s->s_flags |= MS_ACTIVE;
+		bdev->bd_super = s;
+	}
+
+	sdp = s->s_fs_info;
+	mnt->mnt_sb = s;
+	if (args.ar_meta)
+		mnt->mnt_root = dget(sdp->sd_master_dir);
+	else
+		mnt->mnt_root = dget(sdp->sd_root_dir);
+	return 0;
+
+error_super:
+	deactivate_locked_super(s);
+error_bdev:
+	close_bdev_exclusive(bdev, mode);
+	return error;
 }
 
 static int set_meta_super(struct super_block *s, void *ptr)
@@ -1300,12 +1394,16 @@ static int gfs2_get_sb_meta(struct file_system_type *fs_type, int flags,
 		       dev_name, error);
 		return error;
 	}
-	s = sget(&gfs2_fs_type, test_meta_super, set_meta_super,
+	s = sget(&gfs2_fs_type, test_gfs2_super, set_meta_super,
 		 path.dentry->d_inode->i_sb->s_bdev);
 	path_put(&path);
 	if (IS_ERR(s)) {
 		printk(KERN_WARNING "GFS2: gfs2 mount does not exist\n");
 		return PTR_ERR(s);
+	}
+	if ((flags ^ s->s_flags) & MS_RDONLY) {
+		deactivate_locked_super(s);
+		return -EBUSY;
 	}
 	sdp = s->s_fs_info;
 	mnt->mnt_sb = s;

@@ -235,8 +235,8 @@ int rds_send_xmit(struct rds_connection *conn)
 			 * connection.
 			 * Therefore, we never retransmit messages with RDMA ops.
 			 */
-			if (rm->m_rdma_op
-			 && test_bit(RDS_MSG_RETRANSMITTED, &rm->m_flags)) {
+			if (rm->m_rdma_op &&
+			    test_bit(RDS_MSG_RETRANSMITTED, &rm->m_flags)) {
 				spin_lock_irqsave(&conn->c_lock, flags);
 				if (test_and_clear_bit(RDS_MSG_ON_CONN, &rm->m_flags))
 					list_move(&rm->m_conn_item, &to_be_dropped);
@@ -247,8 +247,8 @@ int rds_send_xmit(struct rds_connection *conn)
 
 			/* Require an ACK every once in a while */
 			len = ntohl(rm->m_inc.i_hdr.h_len);
-			if (conn->c_unacked_packets == 0
-			 || conn->c_unacked_bytes < len) {
+			if (conn->c_unacked_packets == 0 ||
+			    conn->c_unacked_bytes < len) {
 				__set_bit(RDS_MSG_ACK_REQUIRED, &rm->m_flags);
 
 				conn->c_unacked_packets = rds_sysctl_max_unacked_packets;
@@ -418,8 +418,8 @@ void rds_rdma_send_complete(struct rds_message *rm, int status)
 	spin_lock(&rm->m_rs_lock);
 
 	ro = rm->m_rdma_op;
-	if (test_bit(RDS_MSG_ON_SOCK, &rm->m_flags)
-	 && ro && ro->r_notify && ro->r_notifier) {
+	if (test_bit(RDS_MSG_ON_SOCK, &rm->m_flags) &&
+	    ro && ro->r_notify && ro->r_notifier) {
 		notifier = ro->r_notifier;
 		rs = rm->m_rs;
 		sock_hold(rds_rs_to_sk(rs));
@@ -439,6 +439,7 @@ void rds_rdma_send_complete(struct rds_message *rm, int status)
 		sock_put(rds_rs_to_sk(rs));
 	}
 }
+EXPORT_SYMBOL_GPL(rds_rdma_send_complete);
 
 /*
  * This is the same as rds_rdma_send_complete except we
@@ -494,6 +495,7 @@ out:
 
 	return found;
 }
+EXPORT_SYMBOL_GPL(rds_send_get_message);
 
 /*
  * This removes messages from the socket's list if they're on it.  The list
@@ -547,8 +549,7 @@ void rds_send_remove_from_sock(struct list_head *messages, int status)
 			list_del_init(&rm->m_sock_item);
 			rds_send_sndbuf_remove(rs, rm);
 
-			if (ro && ro->r_notifier
-			   && (status || ro->r_notify)) {
+			if (ro && ro->r_notifier && (status || ro->r_notify)) {
 				notifier = ro->r_notifier;
 				list_add_tail(&notifier->n_list,
 						&rs->rs_notify_queue);
@@ -610,6 +611,7 @@ void rds_send_drop_acked(struct rds_connection *conn, u64 ack,
 	/* now remove the messages from the sock list as needed */
 	rds_send_remove_from_sock(&list, RDS_RDMA_SUCCESS);
 }
+EXPORT_SYMBOL_GPL(rds_send_drop_acked);
 
 void rds_send_drop_to(struct rds_sock *rs, struct sockaddr_in *dest)
 {
@@ -874,8 +876,8 @@ int rds_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg,
 	if (ret)
 		goto out;
 
-	if ((rm->m_rdma_cookie || rm->m_rdma_op)
-	 && conn->c_trans->xmit_rdma == NULL) {
+	if ((rm->m_rdma_cookie || rm->m_rdma_op) &&
+	    conn->c_trans->xmit_rdma == NULL) {
 		if (printk_ratelimit())
 			printk(KERN_NOTICE "rdma_op %p conn xmit_rdma %p\n",
 				rm->m_rdma_op, conn->c_trans->xmit_rdma);
@@ -887,8 +889,8 @@ int rds_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg,
 	 * have scheduled a delayed reconnect however - in this case
 	 * we should not interfere.
 	 */
-	if (rds_conn_state(conn) == RDS_CONN_DOWN
-	 && !test_and_set_bit(RDS_RECONNECT_PENDING, &conn->c_flags))
+	if (rds_conn_state(conn) == RDS_CONN_DOWN &&
+	    !test_and_set_bit(RDS_RECONNECT_PENDING, &conn->c_flags))
 		queue_delayed_work(rds_wq, &conn->c_conn_w, 0);
 
 	ret = rds_cong_wait(conn->c_fcong, dport, nonblock, rs);
@@ -970,8 +972,8 @@ rds_send_pong(struct rds_connection *conn, __be16 dport)
 	 * have scheduled a delayed reconnect however - in this case
 	 * we should not interfere.
 	 */
-	if (rds_conn_state(conn) == RDS_CONN_DOWN
-	 && !test_and_set_bit(RDS_RECONNECT_PENDING, &conn->c_flags))
+	if (rds_conn_state(conn) == RDS_CONN_DOWN &&
+	    !test_and_set_bit(RDS_RECONNECT_PENDING, &conn->c_flags))
 		queue_delayed_work(rds_wq, &conn->c_conn_w, 0);
 
 	ret = rds_cong_wait(conn->c_fcong, dport, 1, NULL);

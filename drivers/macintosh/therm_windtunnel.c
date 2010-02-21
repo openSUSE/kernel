@@ -15,7 +15,7 @@
  *
  *	WARNING: This driver has only been testen on Apple's
  *	1.25 MHz Dual G4 (March 03). It is tuned for a CPU
- *	temperatur around 57 C.
+ *	temperature around 57 C.
  *
  *   Copyright (C) 2003, 2004 Samuel Rydh (samuel@ibrium.se)
  *
@@ -239,8 +239,8 @@ setup_hardware( void )
 	 * to be on the safe side (OSX doesn't)...
 	 */
 	if( x.overheat_temp == (80 << 8) ) {
-		x.overheat_temp = 65 << 8;
-		x.overheat_hyst = 60 << 8;
+		x.overheat_temp = 75 << 8;
+		x.overheat_hyst = 70 << 8;
 		write_reg( x.thermostat, 2, x.overheat_hyst, 2 );
 		write_reg( x.thermostat, 3, x.overheat_temp, 2 );
 
@@ -457,7 +457,7 @@ therm_of_remove( struct of_device *dev )
 	return 0;
 }
 
-static struct of_device_id therm_of_match[] = {{
+static const struct of_device_id therm_of_match[] = {{
 	.name		= "fan",
 	.compatible	= "adm1030"
     }, {}

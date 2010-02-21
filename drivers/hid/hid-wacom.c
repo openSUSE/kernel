@@ -142,6 +142,7 @@ static int wacom_raw_event(struct hid_device *hdev, struct hid_report *report,
 		wdata->butstate = rw;
 		input_report_key(input, BTN_0, rw & 0x02);
 		input_report_key(input, BTN_1, rw & 0x01);
+		input_report_key(input, BTN_TOOL_FINGER, 0xf0);
 		input_event(input, EV_MSC, MSC_SERIAL, 0xf0);
 		input_sync(input);
 	}
@@ -196,6 +197,9 @@ static int wacom_probe(struct hid_device *hdev,
 	/* Pad */
 	input->evbit[0] |= BIT(EV_MSC);
 	input->mscbit[0] |= BIT(MSC_SERIAL);
+	set_bit(BTN_0, input->keybit);
+	set_bit(BTN_1, input->keybit);
+	set_bit(BTN_TOOL_FINGER, input->keybit);
 
 	/* Distance, rubber and mouse */
 	input->absbit[0] |= BIT(ABS_DISTANCE);
@@ -237,7 +241,7 @@ static struct hid_driver wacom_driver = {
 	.raw_event = wacom_raw_event,
 };
 
-static int wacom_init(void)
+static int __init wacom_init(void)
 {
 	int ret;
 
@@ -248,7 +252,7 @@ static int wacom_init(void)
 	return ret;
 }
 
-static void wacom_exit(void)
+static void __exit wacom_exit(void)
 {
 	hid_unregister_driver(&wacom_driver);
 }

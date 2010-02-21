@@ -14,20 +14,14 @@
 #include <linux/interrupt.h>
 #include <linux/clocksource.h>
 #include <linux/clockchips.h>
-#include <linux/spinlock.h>
 #include <linux/io.h>
 #include <linux/clk.h>
 #include <linux/err.h>
-#include <linux/device.h>
 #include <linux/platform_device.h>
 
 #include <mach/hardware.h>
-#include <asm/system.h>
-#include <asm/irq.h>
 #include <asm/mach/irq.h>
 #include <asm/mach/time.h>
-#include <asm/errno.h>
-#include <mach/io.h>
 #include <mach/cputype.h>
 #include <mach/time.h>
 #include "clock.h"
@@ -406,11 +400,11 @@ struct sys_timer davinci_timer = {
 void davinci_watchdog_reset(void)
 {
 	u32 tgcr, wdtcr;
-	struct davinci_soc_info *soc_info = &davinci_soc_info;
-	void __iomem *base = soc_info->wdt_base;
+	struct platform_device *pdev = &davinci_wdt_device;
+	void __iomem *base = IO_ADDRESS(pdev->resource[0].start);
 	struct clk *wd_clk;
 
-	wd_clk = clk_get(&davinci_wdt_device.dev, NULL);
+	wd_clk = clk_get(&pdev->dev, NULL);
 	if (WARN_ON(IS_ERR(wd_clk)))
 		return;
 	clk_enable(wd_clk);
@@ -420,11 +414,11 @@ void davinci_watchdog_reset(void)
 
 	/* reset timer, set mode to 64-bit watchdog, and unreset */
 	tgcr = 0;
-	__raw_writel(tgcr, base + TCR);
+	__raw_writel(tgcr, base + TGCR);
 	tgcr = TGCR_TIMMODE_64BIT_WDOG << TGCR_TIMMODE_SHIFT;
 	tgcr |= (TGCR_UNRESET << TGCR_TIM12RS_SHIFT) |
 		(TGCR_UNRESET << TGCR_TIM34RS_SHIFT);
-	__raw_writel(tgcr, base + TCR);
+	__raw_writel(tgcr, base + TGCR);
 
 	/* clear counter and period regs */
 	__raw_writel(0, base + TIM12);
@@ -432,12 +426,8 @@ void davinci_watchdog_reset(void)
 	__raw_writel(0, base + PRD12);
 	__raw_writel(0, base + PRD34);
 
-	/* enable */
-	wdtcr = __raw_readl(base + WDTCR);
-	wdtcr |= WDTCR_WDEN_ENABLE << WDTCR_WDEN_SHIFT;
-	__raw_writel(wdtcr, base + WDTCR);
-
 	/* put watchdog in pre-active state */
+	wdtcr = __raw_readl(base + WDTCR);
 	wdtcr = (WDTCR_WDKEY_SEQ0 << WDTCR_WDKEY_SHIFT) |
 		(WDTCR_WDEN_ENABLE << WDTCR_WDEN_SHIFT);
 	__raw_writel(wdtcr, base + WDTCR);

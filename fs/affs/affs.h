@@ -50,9 +50,8 @@ struct affs_ext_key {
  */
 struct affs_inode_info {
 	atomic_t i_opencnt;
-	struct semaphore i_link_lock;		/* Protects internal inode access. */
-	struct semaphore i_ext_lock;		/* Protects internal inode access. */
-#define i_hash_lock i_ext_lock
+	struct mutex i_link_lock;		/* Protects internal inode access. */
+	struct mutex i_ext_lock;		/* Protects internal inode access. */
 	u32	 i_blkcnt;			/* block count */
 	u32	 i_extcnt;			/* extended block count */
 	u32	*i_lc;				/* linear cache of extended blocks */
@@ -106,8 +105,8 @@ struct affs_sb_info {
 	u32 s_last_bmap;
 	struct buffer_head *s_bmap_bh;
 	char *s_prefix;			/* Prefix for volumes and assigns. */
-	int s_prefix_len;		/* Length of prefix. */
 	char s_volume[32];		/* Volume prefix for absolute symlinks. */
+	spinlock_t symlink_lock;	/* protects the previous two */
 };
 
 #define SF_INTL		0x0001		/* International filesystem. */
@@ -275,30 +274,23 @@ affs_adjust_bitmapchecksum(struct buffer_head *bh, u32 val)
 static inline void
 affs_lock_link(struct inode *inode)
 {
-	down(&AFFS_I(inode)->i_link_lock);
+	mutex_lock(&AFFS_I(inode)->i_link_lock);
 }
 static inline void
 affs_unlock_link(struct inode *inode)
 {
-	up(&AFFS_I(inode)->i_link_lock);
-}
-static inline void
-affs_lock_dir(struct inode *inode)
-{
-	down(&AFFS_I(inode)->i_hash_lock);
-}
-static inline void
-affs_unlock_dir(struct inode *inode)
-{
-	up(&AFFS_I(inode)->i_hash_lock);
+	mutex_unlock(&AFFS_I(inode)->i_link_lock);
 }
 static inline void
 affs_lock_ext(struct inode *inode)
 {
-	down(&AFFS_I(inode)->i_ext_lock);
+	mutex_lock(&AFFS_I(inode)->i_ext_lock);
 }
 static inline void
 affs_unlock_ext(struct inode *inode)
 {
-	up(&AFFS_I(inode)->i_ext_lock);
+	mutex_unlock(&AFFS_I(inode)->i_ext_lock);
 }
+
+#define affs_lock_dir(i)	affs_lock_ext(i)
+#define affs_unlock_dir(i)	affs_unlock_ext(i)

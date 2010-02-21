@@ -28,17 +28,8 @@
 
 #include <mach/hardware.h>
 #include <mach/irqs.h>
-#include <mach/mux.h>
-#include <mach/usb.h>
-
-#define OTG_SYSCONFIG	(OMAP34XX_HSUSB_OTG_BASE + 0x404)
-
-static void __init usb_musb_pm_init(void)
-{
-	/* Ensure force-idle mode for OTG controller */
-	if (cpu_is_omap34xx())
-		omap_writel(0, OTG_SYSCONFIG);
-}
+#include <plat/mux.h>
+#include <plat/usb.h>
 
 #ifdef CONFIG_USB_MUSB_SOC
 
@@ -173,13 +164,10 @@ void __init usb_musb_init(void)
 		printk(KERN_ERR "Unable to register HS-USB (MUSB) device\n");
 		return;
 	}
-
-	usb_musb_pm_init();
 }
 
 #else
 void __init usb_musb_init(void)
 {
-	usb_musb_pm_init();
 }
 #endif /* CONFIG_USB_MUSB_SOC */

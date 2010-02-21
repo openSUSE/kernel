@@ -91,9 +91,6 @@ struct acpiphp_bridge {
 	/* PCI-to-PCI bridge device */
 	struct pci_dev *pci_dev;
 
-	/* ACPI 2.0 _HPP parameters */
-	struct hotplug_params hpp;
-
 	spinlock_t res_lock;
 };
 
@@ -147,12 +144,6 @@ struct acpiphp_attention_info
 	int (*set_attn)(struct hotplug_slot *slot, u8 status);
 	int (*get_attn)(struct hotplug_slot *slot, u8 *status);
 	struct module *owner;
-};
-
-struct acpiphp_ioapic {
-	struct pci_dev *dev;
-	u32 gsi_base;
-	struct list_head list;
 };
 
 /* PCI bus bridge HID */

@@ -267,15 +267,17 @@ static inline void __user *get_sigframe(struct sigaction *sa, struct pt_regs *re
 			sp = current->sas_ss_sp + current->sas_ss_size;
 	}
 
+	sp -= framesize;
+
 	/* Always align the stack frame.  This handles two cases.  First,
 	 * sigaltstack need not be mindful of platform specific stack
 	 * alignment.  Second, if we took this signal because the stack
 	 * is not aligned properly, we'd like to take the signal cleanly
 	 * and report that.
 	 */
-	sp &= ~7UL;
+	sp &= ~15UL;
 
-	return (void __user *)(sp - framesize);
+	return (void __user *) sp;
 }
 
 static inline int
@@ -590,6 +592,8 @@ void do_notify_resume(struct pt_regs *regs, unsigned long orig_i0,
 	if (thread_info_flags & _TIF_NOTIFY_RESUME) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(regs);
+		if (current->replacement_session_keyring)
+			key_replace_session_keyring();
 	}
 }
 

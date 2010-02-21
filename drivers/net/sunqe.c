@@ -621,7 +621,7 @@ static int qe_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	dev_kfree_skb(skb);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 static void qe_set_multicast(struct net_device *dev)
@@ -807,7 +807,7 @@ static struct sunqec * __devinit get_qec(struct of_device *child)
 
 			qec_init_once(qecp, op);
 
-			if (request_irq(op->irqs[0], &qec_interrupt,
+			if (request_irq(op->irqs[0], qec_interrupt,
 					IRQF_SHARED, "qec", (void *) qecp)) {
 				printk(KERN_ERR "qec: Can't register irq.\n");
 				goto fail;

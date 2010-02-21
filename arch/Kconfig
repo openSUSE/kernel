@@ -9,6 +9,7 @@ config OPROFILE
 	depends on TRACING_SUPPORT
 	select TRACING
 	select RING_BUFFER
+	select RING_BUFFER_ALLOW_SWAP
 	help
 	  OProfile is a profiling system capable of profiling the
 	  whole system, include the kernel, kernel modules, libraries,
@@ -27,6 +28,18 @@ config OPROFILE_IBS
           (AMD Opteron Quad-Core processor "Barcelona") to overcome
           the limitations of conventional performance counter
           sampling.
+
+	  If unsure, say N.
+
+config OPROFILE_EVENT_MULTIPLEX
+	bool "OProfile multiplexing support (EXPERIMENTAL)"
+	default n
+	depends on OPROFILE && X86
+	help
+	  The number of hardware counters is limited. The multiplexing
+	  feature enables OProfile to gather more events than counters
+	  are provided by the hardware. This is realized by switching
+	  between events at an user specified time interval.
 
 	  If unsure, say N.
 
@@ -75,6 +88,13 @@ config KRETPROBES
 	def_bool y
 	depends on KPROBES && HAVE_KRETPROBES
 
+config USER_RETURN_NOTIFIER
+	bool
+	depends on HAVE_USER_RETURN_NOTIFIER
+	help
+	  Provide a kernel-internal notification when a cpu is about to
+	  switch to user mode.
+
 config HAVE_IOREMAP_PROT
 	bool
 
@@ -116,6 +136,13 @@ config HAVE_DMA_API_DEBUG
 	bool
 
 config HAVE_DEFAULT_NO_SPIN_MUTEXES
+	bool
+
+config HAVE_HW_BREAKPOINT
+	bool
+	depends on PERF_EVENTS
+
+config HAVE_USER_RETURN_NOTIFIER
 	bool
 
 source "kernel/gcov/Kconfig"

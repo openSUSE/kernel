@@ -353,7 +353,7 @@ segv:
 /* Checks if the fp is valid */
 static int invalid_frame_pointer(void __user *fp, int fplen)
 {
-	if (((unsigned long) fp) & 7)
+	if (((unsigned long) fp) & 15)
 		return 1;
 	return 0;
 }
@@ -396,15 +396,17 @@ static inline void __user *get_sigframe(struct k_sigaction *ka, struct pt_regs *
 			sp = current->sas_ss_sp + current->sas_ss_size;
 	}
 
+	sp -= framesize;
+
 	/* Always align the stack frame.  This handles two cases.  First,
 	 * sigaltstack need not be mindful of platform specific stack
 	 * alignment.  Second, if we took this signal because the stack
 	 * is not aligned properly, we'd like to take the signal cleanly
 	 * and report that.
 	 */
-	sp &= ~7UL;
+	sp &= ~15UL;
 
-	return (void __user *)(sp - framesize);
+	return (void __user *) sp;
 }
 
 static inline void
@@ -613,5 +615,8 @@ void do_notify_resume(struct pt_regs *regs, unsigned long orig_i0, unsigned long
 	if (thread_info_flags & _TIF_NOTIFY_RESUME) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(regs);
+		if (current->replacement_session_keyring)
+			key_replace_session_keyring();
 	}
 }
+

@@ -59,7 +59,7 @@
 #include <linux/slab.h>
 #include <linux/stacktrace.h>
 
-static DEFINE_ATOMIC_SPINLOCK(latency_lock);
+static DEFINE_RAW_SPINLOCK(latency_lock);
 
 #define MAXLR 128
 static struct latency_record latency_record[MAXLR];
@@ -73,19 +73,19 @@ void clear_all_latency_tracing(struct task_struct *p)
 	if (!latencytop_enabled)
 		return;
 
-	atomic_spin_lock_irqsave(&latency_lock, flags);
+	raw_spin_lock_irqsave(&latency_lock, flags);
 	memset(&p->latency_record, 0, sizeof(p->latency_record));
 	p->latency_record_count = 0;
-	atomic_spin_unlock_irqrestore(&latency_lock, flags);
+	raw_spin_unlock_irqrestore(&latency_lock, flags);
 }
 
 static void clear_global_latency_tracing(void)
 {
 	unsigned long flags;
 
-	atomic_spin_lock_irqsave(&latency_lock, flags);
+	raw_spin_lock_irqsave(&latency_lock, flags);
 	memset(&latency_record, 0, sizeof(latency_record));
-	atomic_spin_unlock_irqrestore(&latency_lock, flags);
+	raw_spin_unlock_irqrestore(&latency_lock, flags);
 }
 
 static void __sched
@@ -191,7 +191,7 @@ __account_scheduler_latency(struct task_struct *tsk, int usecs, int inter)
 	lat.max = usecs;
 	store_stacktrace(tsk, &lat);
 
-	atomic_spin_lock_irqsave(&latency_lock, flags);
+	raw_spin_lock_irqsave(&latency_lock, flags);
 
 	account_global_scheduler_latency(tsk, &lat);
 
@@ -233,7 +233,7 @@ __account_scheduler_latency(struct task_struct *tsk, int usecs, int inter)
 	memcpy(&tsk->latency_record[i], &lat, sizeof(struct latency_record));
 
 out_unlock:
-	atomic_spin_unlock_irqrestore(&latency_lock, flags);
+	raw_spin_unlock_irqrestore(&latency_lock, flags);
 }
 
 static int lstats_show(struct seq_file *m, void *v)

@@ -346,8 +346,10 @@ static int pipe_do_rcv(struct sock *sk, struct sk_buff *skb)
 		break;
 
 	case PNS_PEP_CTRL_REQ:
-		if (skb_queue_len(&pn->ctrlreq_queue) >= PNPIPE_CTRLREQ_MAX)
+		if (skb_queue_len(&pn->ctrlreq_queue) >= PNPIPE_CTRLREQ_MAX) {
+			atomic_inc(&sk->sk_drops);
 			break;
+		}
 		__skb_pull(skb, 4);
 		queue = &pn->ctrlreq_queue;
 		goto queue;
@@ -362,6 +364,7 @@ static int pipe_do_rcv(struct sock *sk, struct sk_buff *skb)
 		}
 
 		if (pn->rx_credits == 0) {
+			atomic_inc(&sk->sk_drops);
 			err = -ENOBUFS;
 			break;
 		}
@@ -711,8 +714,8 @@ static int pep_ioctl(struct sock *sk, int cmd, unsigned long arg)
 			return -EINVAL;
 
 		lock_sock(sk);
-		if (sock_flag(sk, SOCK_URGINLINE)
-		 && !skb_queue_empty(&pn->ctrlreq_queue))
+		if (sock_flag(sk, SOCK_URGINLINE) &&
+		    !skb_queue_empty(&pn->ctrlreq_queue))
 			answ = skb_peek(&pn->ctrlreq_queue)->len;
 		else if (!skb_queue_empty(&sk->sk_receive_queue))
 			answ = skb_peek(&sk->sk_receive_queue)->len;
@@ -737,7 +740,7 @@ static int pep_init(struct sock *sk)
 }
 
 static int pep_setsockopt(struct sock *sk, int level, int optname,
-				char __user *optval, int optlen)
+				char __user *optval, unsigned int optlen)
 {
 	struct pep_sock *pn = pep_sk(sk);
 	int val = 0, err = 0;
@@ -840,13 +843,23 @@ static int pep_sendmsg(struct kiocb *iocb, struct sock *sk,
 			struct msghdr *msg, size_t len)
 {
 	struct pep_sock *pn = pep_sk(sk);
-	struct sk_buff *skb = NULL;
+	struct sk_buff *skb;
 	long timeo;
 	int flags = msg->msg_flags;
 	int err, done;
 
 	if (msg->msg_flags & MSG_OOB || !(msg->msg_flags & MSG_EOR))
 		return -EOPNOTSUPP;
+
+	skb = sock_alloc_send_skb(sk, MAX_PNPIPE_HEADER + len,
+					flags & MSG_DONTWAIT, &err);
+	if (!skb)
+		return -ENOBUFS;
+
+	skb_reserve(skb, MAX_PHONET_HEADER + 3);
+	err = memcpy_fromiovec(skb_put(skb, len), msg->msg_iov, len);
+	if (err < 0)
+		goto outfree;
 
 	lock_sock(sk);
 	timeo = sock_sndtimeo(sk, flags & MSG_DONTWAIT);
@@ -891,28 +904,13 @@ disabled:
 			goto disabled;
 	}
 
-	if (!skb) {
-		skb = sock_alloc_send_skb(sk, MAX_PNPIPE_HEADER + len,
-						flags & MSG_DONTWAIT, &err);
-		if (skb == NULL)
-			goto out;
-		skb_reserve(skb, MAX_PHONET_HEADER + 3);
-
-		if (sk->sk_state != TCP_ESTABLISHED ||
-		    !atomic_read(&pn->tx_credits))
-			goto disabled; /* sock_alloc_send_skb might sleep */
-	}
-
-	err = memcpy_fromiovec(skb_put(skb, len), msg->msg_iov, len);
-	if (err < 0)
-		goto out;
-
 	err = pipe_skb_send(sk, skb);
 	if (err >= 0)
 		err = len; /* success! */
 	skb = NULL;
 out:
 	release_sock(sk);
+outfree:
 	kfree_skb(skb);
 	return err;
 }

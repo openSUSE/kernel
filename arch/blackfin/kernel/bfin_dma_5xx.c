@@ -2,6 +2,7 @@
  * bfin_dma_5xx.c - Blackfin DMA implementation
  *
  * Copyright 2004-2008 Analog Devices Inc.
+ *
  * Licensed under the GPL-2 or later.
  */
 
@@ -19,6 +20,7 @@
 #include <asm/cacheflush.h>
 #include <asm/dma.h>
 #include <asm/uaccess.h>
+#include <asm/early_printk.h>
 
 /*
  * To make sure we work around 05000119 - we always check DMA_DONE bit,
@@ -35,9 +37,8 @@ static int __init blackfin_dma_init(void)
 	printk(KERN_INFO "Blackfin DMA Controller\n");
 
 	for (i = 0; i < MAX_DMA_CHANNELS; i++) {
-		dma_ch[i].chan_status = DMA_CHANNEL_FREE;
+		atomic_set(&dma_ch[i].chan_status, 0);
 		dma_ch[i].regs = dma_io_base_addr[i];
-		mutex_init(&(dma_ch[i].dmalock));
 	}
 	/* Mark MEMDMA Channel 0 as requested since we're using it internally */
 	request_dma(CH_MEM_STREAM0_DEST, "Blackfin dma_memcpy");
@@ -58,7 +59,7 @@ static int proc_dma_show(struct seq_file *m, void *v)
 	int i;
 
 	for (i = 0; i < MAX_DMA_CHANNELS; ++i)
-		if (dma_ch[i].chan_status != DMA_CHANNEL_FREE)
+		if (dma_channel_active(i))
 			seq_printf(m, "%2d: %s\n", i, dma_ch[i].device_id);
 
 	return 0;
@@ -105,19 +106,10 @@ int request_dma(unsigned int channel, const char *device_id)
 	}
 #endif
 
-	mutex_lock(&(dma_ch[channel].dmalock));
-
-	if ((dma_ch[channel].chan_status == DMA_CHANNEL_REQUESTED)
-	    || (dma_ch[channel].chan_status == DMA_CHANNEL_ENABLED)) {
-		mutex_unlock(&(dma_ch[channel].dmalock));
+	if (atomic_cmpxchg(&dma_ch[channel].chan_status, 0, 1)) {
 		pr_debug("DMA CHANNEL IN USE  \n");
 		return -EBUSY;
-	} else {
-		dma_ch[channel].chan_status = DMA_CHANNEL_REQUESTED;
-		pr_debug("DMA CHANNEL IS ALLOCATED  \n");
 	}
-
-	mutex_unlock(&(dma_ch[channel].dmalock));
 
 #ifdef CONFIG_BF54x
 	if (channel >= CH_UART2_RX && channel <= CH_UART3_TX) {
@@ -146,21 +138,20 @@ EXPORT_SYMBOL(request_dma);
 
 int set_dma_callback(unsigned int channel, irq_handler_t callback, void *data)
 {
-	BUG_ON(!(dma_ch[channel].chan_status != DMA_CHANNEL_FREE
-	       && channel < MAX_DMA_CHANNELS));
+	int ret;
+	unsigned int irq;
 
-	if (callback != NULL) {
-		int ret;
-		unsigned int irq = channel2irq(channel);
+	BUG_ON(channel >= MAX_DMA_CHANNELS || !callback ||
+			!atomic_read(&dma_ch[channel].chan_status));
 
-		ret = request_irq(irq, callback, IRQF_DISABLED,
-			dma_ch[channel].device_id, data);
-		if (ret)
-			return ret;
+	irq = channel2irq(channel);
+	ret = request_irq(irq, callback, 0, dma_ch[channel].device_id, data);
+	if (ret)
+		return ret;
 
-		dma_ch[channel].irq = irq;
-		dma_ch[channel].data = data;
-	}
+	dma_ch[channel].irq = irq;
+	dma_ch[channel].data = data;
+
 	return 0;
 }
 EXPORT_SYMBOL(set_dma_callback);
@@ -181,8 +172,8 @@ static void clear_dma_buffer(unsigned int channel)
 void free_dma(unsigned int channel)
 {
 	pr_debug("freedma() : BEGIN \n");
-	BUG_ON(!(dma_ch[channel].chan_status != DMA_CHANNEL_FREE
-	       && channel < MAX_DMA_CHANNELS));
+	BUG_ON(channel >= MAX_DMA_CHANNELS ||
+			!atomic_read(&dma_ch[channel].chan_status));
 
 	/* Halt the DMA */
 	disable_dma(channel);
@@ -192,9 +183,7 @@ void free_dma(unsigned int channel)
 		free_irq(dma_ch[channel].irq, dma_ch[channel].data);
 
 	/* Clear the DMA Variable in the Channel */
-	mutex_lock(&(dma_ch[channel].dmalock));
-	dma_ch[channel].chan_status = DMA_CHANNEL_FREE;
-	mutex_unlock(&(dma_ch[channel].dmalock));
+	atomic_set(&dma_ch[channel].chan_status, 0);
 
 	pr_debug("freedma() : END \n");
 }
@@ -208,13 +197,14 @@ int blackfin_dma_suspend(void)
 {
 	int i;
 
-	for (i = 0; i < MAX_DMA_SUSPEND_CHANNELS; ++i) {
-		if (dma_ch[i].chan_status == DMA_CHANNEL_ENABLED) {
+	for (i = 0; i < MAX_DMA_CHANNELS; ++i) {
+		if (dma_ch[i].regs->cfg & DMAEN) {
 			printk(KERN_ERR "DMA Channel %d failed to suspend\n", i);
 			return -EBUSY;
 		}
 
-		dma_ch[i].saved_peripheral_map = dma_ch[i].regs->peripheral_map;
+		if (i < MAX_DMA_SUSPEND_CHANNELS)
+			dma_ch[i].saved_peripheral_map = dma_ch[i].regs->peripheral_map;
 	}
 
 	return 0;
@@ -223,8 +213,13 @@ int blackfin_dma_suspend(void)
 void blackfin_dma_resume(void)
 {
 	int i;
-	for (i = 0; i < MAX_DMA_SUSPEND_CHANNELS; ++i)
-		dma_ch[i].regs->peripheral_map = dma_ch[i].saved_peripheral_map;
+
+	for (i = 0; i < MAX_DMA_CHANNELS; ++i) {
+		dma_ch[i].regs->cfg = 0;
+
+		if (i < MAX_DMA_SUSPEND_CHANNELS)
+			dma_ch[i].regs->peripheral_map = dma_ch[i].saved_peripheral_map;
+	}
 }
 #endif
 
@@ -236,6 +231,7 @@ void blackfin_dma_resume(void)
  */
 void __init blackfin_dma_early_init(void)
 {
+	early_shadow_stamp();
 	bfin_write_MDMA_S0_CONFIG(0);
 	bfin_write_MDMA_S1_CONFIG(0);
 }
@@ -245,6 +241,8 @@ void __init early_dma_memcpy(void *pdst, const void *psrc, size_t size)
 	unsigned long dst = (unsigned long)pdst;
 	unsigned long src = (unsigned long)psrc;
 	struct dma_register *dst_ch, *src_ch;
+
+	early_shadow_stamp();
 
 	/* We assume that everything is 4 byte aligned, so include
 	 * a basic sanity check
@@ -300,6 +298,8 @@ void __init early_dma_memcpy(void *pdst, const void *psrc, size_t size)
 
 void __init early_dma_memcpy_done(void)
 {
+	early_shadow_stamp();
+
 	while ((bfin_read_MDMA_S0_CONFIG() && !(bfin_read_MDMA_D0_IRQ_STATUS() & DMA_DONE)) ||
 	       (bfin_read_MDMA_S1_CONFIG() && !(bfin_read_MDMA_D1_IRQ_STATUS() & DMA_DONE)))
 		continue;

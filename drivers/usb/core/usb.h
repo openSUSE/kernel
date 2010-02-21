@@ -24,6 +24,7 @@ extern void usb_disable_device(struct usb_device *dev, int skip_ep0);
 extern int usb_deauthorize_device(struct usb_device *);
 extern int usb_authorize_device(struct usb_device *);
 extern void usb_detect_quirks(struct usb_device *udev);
+extern int usb_remove_device(struct usb_device *udev);
 
 extern int usb_get_device_descriptor(struct usb_device *dev,
 		unsigned int size);
@@ -36,6 +37,13 @@ extern int usb_match_device(struct usb_device *dev,
 			    const struct usb_device_id *id);
 extern void usb_forced_unbind_intf(struct usb_interface *intf);
 extern void usb_rebind_intf(struct usb_interface *intf);
+
+extern int usb_hub_claim_port(struct usb_device *hdev, unsigned port,
+		void *owner);
+extern int usb_hub_release_port(struct usb_device *hdev, unsigned port,
+		void *owner);
+extern void usb_hub_release_all_ports(struct usb_device *hdev, void *owner);
+extern bool usb_device_is_owned(struct usb_device *udev);
 
 extern int  usb_hub_init(void);
 extern void usb_hub_cleanup(void);
@@ -152,8 +160,8 @@ static inline int is_active(const struct usb_interface *f)
 extern const char *usbcore_name;
 
 /* sysfs stuff */
-extern struct attribute_group *usb_device_groups[];
-extern struct attribute_group *usb_interface_groups[];
+extern const struct attribute_group *usb_device_groups[];
+extern const struct attribute_group *usb_interface_groups[];
 
 /* usbfs stuff */
 extern struct mutex usbfs_mutex;

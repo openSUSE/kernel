@@ -10,6 +10,8 @@
 #ifndef _ASM_X86_I387_H
 #define _ASM_X86_I387_H
 
+#ifndef __ASSEMBLY__
+
 #include <linux/sched.h>
 #include <linux/kernel_stat.h>
 #include <linux/regset.h>
@@ -26,6 +28,7 @@ extern void fpu_init(void);
 extern void mxcsr_feature_mask_init(void);
 extern int init_fpu(struct task_struct *child);
 extern asmlinkage void math_state_restore(void);
+extern void __math_state_restore(void);
 extern void init_thread_xstate(void);
 extern int dump_fpu(struct pt_regs *, struct user_i387_struct *);
 
@@ -301,6 +304,14 @@ static inline void kernel_fpu_end(void)
 	preempt_enable();
 }
 
+static inline bool irq_fpu_usable(void)
+{
+	struct pt_regs *regs;
+
+	return !in_interrupt() || !(regs = get_irq_regs()) || \
+		user_mode(regs) || (read_cr0() & X86_CR0_TS);
+}
+
 /*
  * Some instructions like VIA's padlock instructions generate a spurious
  * DNA fault but don't modify SSE registers. And these instructions
@@ -401,5 +412,10 @@ static inline unsigned short get_fpu_mxcsr(struct task_struct *tsk)
 		return MXCSR_DEFAULT;
 	}
 }
+
+#endif /* __ASSEMBLY__ */
+
+#define PSHUFB_XMM5_XMM0 .byte 0x66, 0x0f, 0x38, 0x00, 0xc5
+#define PSHUFB_XMM5_XMM6 .byte 0x66, 0x0f, 0x38, 0x00, 0xf5
 
 #endif /* _ASM_X86_I387_H */

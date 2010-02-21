@@ -10,7 +10,6 @@
  */
 
 #include <linux/kernel.h>
-#include <linux/utsname.h>
 #include <linux/device.h>
 #include <linux/delay.h>
 #include <linux/ctype.h>
@@ -253,11 +252,13 @@ static int gaudio_open_snd_dev(struct gaudio *card)
 	snd->filp = filp_open(fn_cap, O_RDONLY, 0);
 	if (IS_ERR(snd->filp)) {
 		ERROR(card, "No such PCM capture device: %s\n", fn_cap);
-		snd->filp = NULL;
+		snd->substream = NULL;
+		snd->card = NULL;
+	} else {
+		pcm_file = snd->filp->private_data;
+		snd->substream = pcm_file->substream;
+		snd->card = card;
 	}
-	pcm_file = snd->filp->private_data;
-	snd->substream = pcm_file->substream;
-	snd->card = card;
 
 	return 0;
 }
@@ -287,6 +288,7 @@ static int gaudio_close_snd_dev(struct gaudio *gau)
 	return 0;
 }
 
+static struct gaudio *the_card;
 /**
  * gaudio_setup - setup ALSA interface and preparing for USB transfer
  *
@@ -302,6 +304,9 @@ int __init gaudio_setup(struct gaudio *card)
 	if (ret)
 		ERROR(card, "we need at least one control device\n");
 
+	if (!the_card)
+		the_card = card;
+
 	return ret;
 
 }
@@ -311,9 +316,11 @@ int __init gaudio_setup(struct gaudio *card)
  *
  * This is called to free all resources allocated by @gaudio_setup().
  */
-void gaudio_cleanup(struct gaudio *card)
+void gaudio_cleanup(void)
 {
-	if (card)
-		gaudio_close_snd_dev(card);
+	if (the_card) {
+		gaudio_close_snd_dev(the_card);
+		the_card = NULL;
+	}
 }
 

@@ -71,12 +71,6 @@
 
 #include "iwl-eeprom.h"
 
-/*
- * uCode queue management definitions ...
- * Queue #4 is the command queue for 3945 and 4965.
- */
-#define IWL_CMD_QUEUE_NUM	4
-
 /* Time constants */
 #define SHORT_SLOT_TIME 9
 #define LONG_SLOT_TIME 20
@@ -176,7 +170,7 @@ struct iwl3945_eeprom {
  * in EEPROM containing EEPROM_CHANNEL_* usage flags (LSB) and max regulatory
  * txpower (MSB).
  *
- * Entries immediately below are for 20 MHz channel width.  FAT (40 MHz)
+ * Entries immediately below are for 20 MHz channel width.  HT40 (40 MHz)
  * channels (only for 4965, not supported by 3945) appear later in the EEPROM.
  *
  * 2.4 GHz channels 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
@@ -232,9 +226,8 @@ struct iwl3945_eeprom {
 #define PCI_CFG_REV_ID_BIT_BASIC_SKU                (0x40)	/* bit 6    */
 #define PCI_CFG_REV_ID_BIT_RTP                      (0x80)	/* bit 7    */
 
-#define TFD_QUEUE_MIN           0
-#define TFD_QUEUE_MAX           5	/* 4 DATA + 1 CMD */
-
+/* 4 DATA + 1 CMD. There are 2 HCCA queues that are not used. */
+#define IWL39_NUM_QUEUES        5
 #define IWL_NUM_SCAN_RATES         (2)
 
 #define IWL_DEFAULT_TX_RETRY  15
@@ -255,12 +248,6 @@ struct iwl3945_eeprom {
 #define TFD_CTL_PAD_SET(n)         (n << 28)
 #define TFD_CTL_PAD_GET(ctl)       (ctl >> 28)
 
-/*
- * RX related structures and functions
- */
-#define RX_FREE_BUFFERS 64
-#define RX_LOW_WATERMARK 8
-
 /* Sizes and addresses for instruction and data memory (SRAM) in
  * 3945's embedded processor.  Driver access is via HBUS_TARG_MEM_* regs. */
 #define IWL39_RTC_INST_LOWER_BOUND		(0x000000)
@@ -279,8 +266,6 @@ struct iwl3945_eeprom {
 
 /* Size of uCode instruction memory in bootstrap state machine */
 #define IWL39_MAX_BSM_SIZE IWL39_RTC_INST_SIZE
-
-#define IWL39_MAX_NUM_QUEUES	8
 
 static inline int iwl3945_hw_valid_rtc_data_addr(u32 addr)
 {

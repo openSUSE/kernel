@@ -55,16 +55,15 @@ struct nfgenmsg {
 #include <linux/capability.h>
 #include <net/netlink.h>
 
-struct nfnl_callback
-{
+struct nfnl_callback {
 	int (*call)(struct sock *nl, struct sk_buff *skb, 
-		struct nlmsghdr *nlh, struct nlattr *cda[]);
+		    const struct nlmsghdr *nlh,
+		    const struct nlattr * const cda[]);
 	const struct nla_policy *policy;	/* netlink attribute policy */
 	const u_int16_t attr_count;		/* number of nlattr's */
 };
 
-struct nfnetlink_subsystem
-{
+struct nfnetlink_subsystem {
 	const char *name;
 	__u8 subsys_id;			/* nfnetlink subsystem ID */
 	__u8 cb_count;			/* number of callbacks */

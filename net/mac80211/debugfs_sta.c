@@ -57,7 +57,6 @@ STA_FILE(tx_filtered, tx_filtered_count, LU);
 STA_FILE(tx_retry_failed, tx_retry_failed, LU);
 STA_FILE(tx_retry_count, tx_retry_count, LU);
 STA_FILE(last_signal, last_signal, D);
-STA_FILE(last_qual, last_qual, D);
 STA_FILE(last_noise, last_noise, D);
 STA_FILE(wep_weak_iv_count, wep_weak_iv_count, LU);
 
@@ -67,10 +66,11 @@ static ssize_t sta_flags_read(struct file *file, char __user *userbuf,
 	char buf[100];
 	struct sta_info *sta = file->private_data;
 	u32 staflags = get_sta_flags(sta);
-	int res = scnprintf(buf, sizeof(buf), "%s%s%s%s%s%s%s%s",
+	int res = scnprintf(buf, sizeof(buf), "%s%s%s%s%s%s%s%s%s",
 		staflags & WLAN_STA_AUTH ? "AUTH\n" : "",
 		staflags & WLAN_STA_ASSOC ? "ASSOC\n" : "",
-		staflags & WLAN_STA_PS ? "PS\n" : "",
+		staflags & WLAN_STA_PS_STA ? "PS (sta)\n" : "",
+		staflags & WLAN_STA_PS_DRIVER ? "PS (driver)\n" : "",
 		staflags & WLAN_STA_AUTHORIZED ? "AUTHORIZED\n" : "",
 		staflags & WLAN_STA_SHORT_PREAMBLE ? "SHORT PREAMBLE\n" : "",
 		staflags & WLAN_STA_WME ? "WME\n" : "",
@@ -120,57 +120,74 @@ STA_OPS(last_seq_ctrl);
 static ssize_t sta_agg_status_read(struct file *file, char __user *userbuf,
 					size_t count, loff_t *ppos)
 {
-	char buf[768], *p = buf;
+	char buf[30 + STA_TID_NUM * 70], *p = buf;
 	int i;
 	struct sta_info *sta = file->private_data;
-	p += scnprintf(p, sizeof(buf)+buf-p, "Agg state for STA is:\n");
-	p += scnprintf(p, sizeof(buf)+buf-p, " STA next dialog_token is %d \n "
-			"TIDs info is: \n TID :",
-			(sta->ampdu_mlme.dialog_token_allocator + 1));
-	for (i = 0; i < STA_TID_NUM; i++)
-		p += scnprintf(p, sizeof(buf)+buf-p, "%5d", i);
 
-	p += scnprintf(p, sizeof(buf)+buf-p, "\n RX  :");
-	for (i = 0; i < STA_TID_NUM; i++)
-		p += scnprintf(p, sizeof(buf)+buf-p, "%5d",
-			sta->ampdu_mlme.tid_state_rx[i]);
+	spin_lock_bh(&sta->lock);
+	p += scnprintf(p, sizeof(buf)+buf-p, "next dialog_token is %#02x\n",
+			sta->ampdu_mlme.dialog_token_allocator + 1);
+	for (i = 0; i < STA_TID_NUM; i++) {
+		p += scnprintf(p, sizeof(buf)+buf-p, "TID %02d:", i);
+		p += scnprintf(p, sizeof(buf)+buf-p, " RX=%x",
+				sta->ampdu_mlme.tid_state_rx[i]);
+		p += scnprintf(p, sizeof(buf)+buf-p, "/DTKN=%#.2x",
+				sta->ampdu_mlme.tid_state_rx[i] ?
+				sta->ampdu_mlme.tid_rx[i]->dialog_token : 0);
+		p += scnprintf(p, sizeof(buf)+buf-p, "/SSN=%#.3x",
+				sta->ampdu_mlme.tid_state_rx[i] ?
+				sta->ampdu_mlme.tid_rx[i]->ssn : 0);
 
-	p += scnprintf(p, sizeof(buf)+buf-p, "\n DTKN:");
-	for (i = 0; i < STA_TID_NUM; i++)
-		p += scnprintf(p, sizeof(buf)+buf-p, "%5d",
-			sta->ampdu_mlme.tid_state_rx[i] ?
-			sta->ampdu_mlme.tid_rx[i]->dialog_token : 0);
-
-	p += scnprintf(p, sizeof(buf)+buf-p, "\n TX  :");
-	for (i = 0; i < STA_TID_NUM; i++)
-		p += scnprintf(p, sizeof(buf)+buf-p, "%5d",
-			sta->ampdu_mlme.tid_state_tx[i]);
-
-	p += scnprintf(p, sizeof(buf)+buf-p, "\n DTKN:");
-	for (i = 0; i < STA_TID_NUM; i++)
-		p += scnprintf(p, sizeof(buf)+buf-p, "%5d",
-			sta->ampdu_mlme.tid_state_tx[i] ?
-			sta->ampdu_mlme.tid_tx[i]->dialog_token : 0);
-
-	p += scnprintf(p, sizeof(buf)+buf-p, "\n SSN :");
-	for (i = 0; i < STA_TID_NUM; i++)
-		p += scnprintf(p, sizeof(buf)+buf-p, "%5d",
-			sta->ampdu_mlme.tid_state_tx[i] ?
-			sta->ampdu_mlme.tid_tx[i]->ssn : 0);
-
-	p += scnprintf(p, sizeof(buf)+buf-p, "\n");
+		p += scnprintf(p, sizeof(buf)+buf-p, " TX=%x",
+				sta->ampdu_mlme.tid_state_tx[i]);
+		p += scnprintf(p, sizeof(buf)+buf-p, "/DTKN=%#.2x",
+				sta->ampdu_mlme.tid_state_tx[i] ?
+				sta->ampdu_mlme.tid_tx[i]->dialog_token : 0);
+		p += scnprintf(p, sizeof(buf)+buf-p, "/SSN=%#.3x",
+				sta->ampdu_mlme.tid_state_tx[i] ?
+				sta->ampdu_mlme.tid_tx[i]->ssn : 0);
+		p += scnprintf(p, sizeof(buf)+buf-p, "/pending=%03d",
+				sta->ampdu_mlme.tid_state_tx[i] ?
+				skb_queue_len(&sta->ampdu_mlme.tid_tx[i]->pending) : 0);
+		p += scnprintf(p, sizeof(buf)+buf-p, "\n");
+	}
+	spin_unlock_bh(&sta->lock);
 
 	return simple_read_from_buffer(userbuf, count, ppos, buf, p - buf);
 }
 STA_OPS(agg_status);
 
-#define DEBUGFS_ADD(name) \
-	sta->debugfs.name = debugfs_create_file(#name, 0400, \
-		sta->debugfs.dir, sta, &sta_ ##name## _ops);
+static ssize_t sta_ht_capa_read(struct file *file, char __user *userbuf,
+				size_t count, loff_t *ppos)
+{
+	char buf[200], *p = buf;
+	int i;
+	struct sta_info *sta = file->private_data;
+	struct ieee80211_sta_ht_cap *htc = &sta->sta.ht_cap;
 
-#define DEBUGFS_DEL(name) \
-	debugfs_remove(sta->debugfs.name);\
-	sta->debugfs.name = NULL;
+	p += scnprintf(p, sizeof(buf) + buf - p, "ht %ssupported\n",
+			htc->ht_supported ? "" : "not ");
+	if (htc->ht_supported) {
+		p += scnprintf(p, sizeof(buf)+buf-p, "cap: %#.2x\n", htc->cap);
+		p += scnprintf(p, sizeof(buf)+buf-p, "ampdu factor/density: %d/%d\n",
+				htc->ampdu_factor, htc->ampdu_density);
+		p += scnprintf(p, sizeof(buf)+buf-p, "MCS mask:");
+		for (i = 0; i < IEEE80211_HT_MCS_MASK_LEN; i++)
+			p += scnprintf(p, sizeof(buf)+buf-p, " %.2x",
+					htc->mcs.rx_mask[i]);
+		p += scnprintf(p, sizeof(buf)+buf-p, "\nMCS rx highest: %d\n",
+				le16_to_cpu(htc->mcs.rx_highest));
+		p += scnprintf(p, sizeof(buf)+buf-p, "MCS tx params: %x\n",
+				htc->mcs.tx_params);
+	}
+
+	return simple_read_from_buffer(userbuf, count, ppos, buf, p - buf);
+}
+STA_OPS(ht_capa);
+
+#define DEBUGFS_ADD(name) \
+	debugfs_create_file(#name, 0400, \
+		sta->debugfs.dir, sta, &sta_ ##name## _ops);
 
 
 void ieee80211_sta_debugfs_add(struct sta_info *sta)
@@ -203,16 +220,26 @@ void ieee80211_sta_debugfs_add(struct sta_info *sta)
 	DEBUGFS_ADD(inactive_ms);
 	DEBUGFS_ADD(last_seq_ctrl);
 	DEBUGFS_ADD(agg_status);
+	DEBUGFS_ADD(dev);
+	DEBUGFS_ADD(rx_packets);
+	DEBUGFS_ADD(tx_packets);
+	DEBUGFS_ADD(rx_bytes);
+	DEBUGFS_ADD(tx_bytes);
+	DEBUGFS_ADD(rx_duplicates);
+	DEBUGFS_ADD(rx_fragments);
+	DEBUGFS_ADD(rx_dropped);
+	DEBUGFS_ADD(tx_fragments);
+	DEBUGFS_ADD(tx_filtered);
+	DEBUGFS_ADD(tx_retry_failed);
+	DEBUGFS_ADD(tx_retry_count);
+	DEBUGFS_ADD(last_signal);
+	DEBUGFS_ADD(last_noise);
+	DEBUGFS_ADD(wep_weak_iv_count);
+	DEBUGFS_ADD(ht_capa);
 }
 
 void ieee80211_sta_debugfs_remove(struct sta_info *sta)
 {
-	DEBUGFS_DEL(flags);
-	DEBUGFS_DEL(num_ps_buf_frames);
-	DEBUGFS_DEL(inactive_ms);
-	DEBUGFS_DEL(last_seq_ctrl);
-	DEBUGFS_DEL(agg_status);
-
-	debugfs_remove(sta->debugfs.dir);
+	debugfs_remove_recursive(sta->debugfs.dir);
 	sta->debugfs.dir = NULL;
 }

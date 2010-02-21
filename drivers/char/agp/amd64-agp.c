@@ -79,7 +79,8 @@ static int amd64_insert_memory(struct agp_memory *mem, off_t pg_start, int type)
 
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
 		tmp = agp_bridge->driver->mask_memory(agp_bridge,
-			mem->pages[i], mask_type);
+						      page_to_phys(mem->pages[i]),
+						      mask_type);
 
 		BUG_ON(tmp & 0xffffff0000000ffcULL);
 		pte = (tmp & 0x000000ff00000000ULL) >> 28;
@@ -177,7 +178,7 @@ static const struct aper_size_info_32 amd_8151_sizes[7] =
 
 static int amd_8151_configure(void)
 {
-	unsigned long gatt_bus = virt_to_gart(agp_bridge->gatt_table_real);
+	unsigned long gatt_bus = virt_to_phys(agp_bridge->gatt_table_real);
 	int i;
 
 	/* Configure AGP regs in each x86-64 host bridge. */
@@ -557,7 +558,7 @@ static void __devexit agp_amd64_remove(struct pci_dev *pdev)
 {
 	struct agp_bridge_data *bridge = pci_get_drvdata(pdev);
 
-	release_mem_region(virt_to_gart(bridge->gatt_table_real),
+	release_mem_region(virt_to_phys(bridge->gatt_table_real),
 			   amd64_aperture_sizes[bridge->aperture_size_idx].size);
 	agp_remove_bridge(bridge);
 	agp_put_bridge(bridge);
@@ -727,6 +728,7 @@ int __init agp_amd64_init(void)
 
 	if (agp_off)
 		return -EINVAL;
+
 	err = pci_register_driver(&agp_amd64_pci_driver);
 	if (err < 0)
 		return err;
@@ -763,19 +765,28 @@ int __init agp_amd64_init(void)
 	return err;
 }
 
+static int __init agp_amd64_mod_init(void)
+{
+#ifndef MODULE
+	if (gart_iommu_aperture)
+		return agp_bridges_found ? 0 : -ENODEV;
+#endif
+	return agp_amd64_init();
+}
+
 static void __exit agp_amd64_cleanup(void)
 {
+#ifndef MODULE
+	if (gart_iommu_aperture)
+		return;
+#endif
 	if (aperture_resource)
 		release_resource(aperture_resource);
 	pci_unregister_driver(&agp_amd64_pci_driver);
 }
 
-/* On AMD64 the PCI driver needs to initialize this driver early
-   for the IOMMU, so it has to be called via a backdoor. */
-#ifndef CONFIG_GART_IOMMU
-module_init(agp_amd64_init);
+module_init(agp_amd64_mod_init);
 module_exit(agp_amd64_cleanup);
-#endif
 
 MODULE_AUTHOR("Dave Jones <davej@redhat.com>, Andi Kleen");
 module_param(agp_try_unsupported, bool, 0);

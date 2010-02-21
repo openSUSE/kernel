@@ -580,21 +580,6 @@ static int cx8802_resume_common(struct pci_dev *pci_dev)
 	return 0;
 }
 
-#if defined(CONFIG_VIDEO_CX88_BLACKBIRD) || \
-    defined(CONFIG_VIDEO_CX88_BLACKBIRD_MODULE)
-struct cx8802_dev *cx8802_get_device(int minor)
-{
-	struct cx8802_dev *dev;
-
-	list_for_each_entry(dev, &cx8802_devlist, devlist)
-		if (dev->mpeg_dev && dev->mpeg_dev->minor == minor)
-			return dev;
-
-	return NULL;
-}
-EXPORT_SYMBOL(cx8802_get_device);
-#endif
-
 struct cx8802_driver * cx8802_get_driver(struct cx8802_dev *dev, enum cx88_board_type btype)
 {
 	struct cx8802_driver *d;
@@ -870,7 +855,7 @@ static struct pci_driver cx8802_pci_driver = {
 	.remove   = __devexit_p(cx8802_remove),
 };
 
-static int cx8802_init(void)
+static int __init cx8802_init(void)
 {
 	printk(KERN_INFO "cx88/2: cx2388x MPEG-TS Driver Manager version %d.%d.%d loaded\n",
 	       (CX88_VERSION_CODE >> 16) & 0xff,
@@ -883,7 +868,7 @@ static int cx8802_init(void)
 	return pci_register_driver(&cx8802_pci_driver);
 }
 
-static void cx8802_fini(void)
+static void __exit cx8802_fini(void)
 {
 	pci_unregister_driver(&cx8802_pci_driver);
 }

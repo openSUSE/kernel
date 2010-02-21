@@ -330,23 +330,6 @@ FTRACE_ENTRY(hw_branch, hw_branch_entry,
 	F_printk("from: %llx to: %llx", __entry->from, __entry->to)
 );
 
-FTRACE_ENTRY(power, trace_power,
-
-	TRACE_POWER,
-
-	F_STRUCT(
-		__field_struct(	struct power_trace,	state_data	)
-		__field_desc(	s64,	state_data,	stamp		)
-		__field_desc(	s64,	state_data,	end		)
-		__field_desc(	int,	state_data,	type		)
-		__field_desc(	int,	state_data,	state		)
-	),
-
-	F_printk("%llx->%llx type:%u state:%u",
-		 __entry->stamp, __entry->end,
-		 __entry->type, __entry->state)
-);
-
 FTRACE_ENTRY(kmem_alloc, kmemtrace_alloc_entry,
 
 	TRACE_KMEM_ALLOC,
@@ -380,4 +363,20 @@ FTRACE_ENTRY(kmem_free, kmemtrace_free_entry,
 
 	F_printk("type:%u call_site:%lx ptr:%p",
 		 __entry->type_id, __entry->call_site, __entry->ptr)
+);
+
+FTRACE_ENTRY(ksym_trace, ksym_trace_entry,
+
+	TRACE_KSYM,
+
+	F_STRUCT(
+		__field(	unsigned long,	ip			  )
+		__field(	unsigned char,	type			  )
+		__array(	char	     ,	cmd,	   TASK_COMM_LEN  )
+		__field(	unsigned long,  addr			  )
+	),
+
+	F_printk("ip: %pF type: %d ksym_name: %pS cmd: %s",
+		(void *)__entry->ip, (unsigned int)__entry->type,
+		(void *)__entry->addr,  __entry->cmd)
 );

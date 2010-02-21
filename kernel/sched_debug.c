@@ -184,7 +184,7 @@ void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "exec_clock",
 			SPLIT_NS(cfs_rq->exec_clock));
 
-	atomic_spin_lock_irqsave(&rq->lock, flags);
+	raw_spin_lock_irqsave(&rq->lock, flags);
 	if (cfs_rq->rb_leftmost)
 		MIN_vruntime = (__pick_next_entity(cfs_rq))->vruntime;
 	last = __pick_last_entity(cfs_rq);
@@ -192,7 +192,7 @@ void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 		max_vruntime = last->vruntime;
 	min_vruntime = cfs_rq->min_vruntime;
 	rq0_min_vruntime = cpu_rq(0)->cfs.min_vruntime;
-	atomic_spin_unlock_irqrestore(&rq->lock, flags);
+	raw_spin_unlock_irqrestore(&rq->lock, flags);
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "MIN_vruntime",
 			SPLIT_NS(MIN_vruntime));
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "min_vruntime",
@@ -298,12 +298,16 @@ static void print_cpu(struct seq_file *m, int cpu)
 
 #ifdef CONFIG_SCHEDSTATS
 #define P(n) SEQ_printf(m, "  .%-30s: %d\n", #n, rq->n);
+#define P64(n) SEQ_printf(m, "  .%-30s: %Ld\n", #n, rq->n);
 
 	P(yld_count);
 
 	P(sched_switch);
 	P(sched_count);
 	P(sched_goidle);
+#ifdef CONFIG_SMP
+	P64(avg_idle);
+#endif
 
 	P(ttwu_count);
 	P(ttwu_local);
@@ -317,6 +321,12 @@ static void print_cpu(struct seq_file *m, int cpu)
 
 	print_rq(m, rq, cpu);
 }
+
+static const char *sched_tunable_scaling_names[] = {
+	"none",
+	"logaritmic",
+	"linear"
+};
 
 static int sched_debug_show(struct seq_file *m, void *v)
 {
@@ -342,6 +352,10 @@ static int sched_debug_show(struct seq_file *m, void *v)
 	P(sysctl_sched_features);
 #undef PN
 #undef P
+
+	SEQ_printf(m, "  .%-40s: %d (%s)\n", "sysctl_sched_tunable_scaling",
+		sysctl_sched_tunable_scaling,
+		sched_tunable_scaling_names[sysctl_sched_tunable_scaling]);
 
 	for_each_online_cpu(cpu)
 		print_cpu(m, cpu);
@@ -422,6 +436,8 @@ void proc_sched_show_task(struct task_struct *p, struct seq_file *m)
 	PN(se.wait_max);
 	PN(se.wait_sum);
 	P(se.wait_count);
+	PN(se.iowait_sum);
+	P(se.iowait_count);
 	P(sched_info.bkl_count);
 	P(se.nr_migrations);
 	P(se.nr_migrations_cold);
@@ -429,7 +445,6 @@ void proc_sched_show_task(struct task_struct *p, struct seq_file *m)
 	P(se.nr_failed_migrations_running);
 	P(se.nr_failed_migrations_hot);
 	P(se.nr_forced_migrations);
-	P(se.nr_forced2_migrations);
 	P(se.nr_wakeups);
 	P(se.nr_wakeups_sync);
 	P(se.nr_wakeups_migrate);
@@ -492,6 +507,8 @@ void proc_sched_set_task(struct task_struct *p)
 	p->se.wait_max				= 0;
 	p->se.wait_sum				= 0;
 	p->se.wait_count			= 0;
+	p->se.iowait_sum			= 0;
+	p->se.iowait_count			= 0;
 	p->se.sleep_max				= 0;
 	p->se.sum_sleep_runtime			= 0;
 	p->se.block_max				= 0;
@@ -503,7 +520,6 @@ void proc_sched_set_task(struct task_struct *p)
 	p->se.nr_failed_migrations_running	= 0;
 	p->se.nr_failed_migrations_hot		= 0;
 	p->se.nr_forced_migrations		= 0;
-	p->se.nr_forced2_migrations		= 0;
 	p->se.nr_wakeups			= 0;
 	p->se.nr_wakeups_sync			= 0;
 	p->se.nr_wakeups_migrate		= 0;

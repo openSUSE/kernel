@@ -89,7 +89,13 @@ all_defconfigs()
 
 docscope()
 {
-	(echo \-k; echo \-q; all_sources) > cscope.files
+	# always use absolute paths for cscope, as recommended by cscope
+	# upstream
+	case "$tree" in
+		/*) ;;
+		*) tree=$PWD/$tree ;;
+	esac
+	(cd /; echo \-k; echo \-q; all_sources) > cscope.files
 	cscope -b -f cscope.out
 }
 
@@ -101,7 +107,8 @@ exuberant()
 	-I ____cacheline_aligned_in_smp                         \
 	-I ____cacheline_internodealigned_in_smp                \
 	-I EXPORT_SYMBOL,EXPORT_SYMBOL_GPL                      \
-	--extra=+f --c-kinds=+px                                \
+	-I DEFINE_TRACE,EXPORT_TRACEPOINT_SYMBOL,EXPORT_TRACEPOINT_SYMBOL_GPL \
+	--extra=+f --c-kinds=-px                                \
 	--regex-asm='/^ENTRY\(([^)]*)\).*/\1/'                  \
 	--regex-c='/^SYSCALL_DEFINE[[:digit:]]?\(([^,)]*).*/sys_\1/'
 

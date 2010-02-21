@@ -73,7 +73,6 @@ extern int nvram_write_error_log(char * buff, int length,
 extern int nvram_read_error_log(char * buff, int length,
 					 unsigned int * err_type, unsigned int *err_seq);
 extern int nvram_clear_error_log(void);
-extern struct nvram_partition *nvram_find_partition(int sig, const char *name);
 
 extern int pSeries_nvram_init(void);
 
@@ -106,6 +105,9 @@ extern void	pmac_xpram_write(int xpaddr, u8 data);
 
 /* Synchronize NVRAM */
 extern void	nvram_sync(void);
+
+/* Determine NVRAM size */
+extern ssize_t nvram_get_size(void);
 
 /* Normal access to NVRAM */
 extern unsigned char nvram_read_byte(int i);

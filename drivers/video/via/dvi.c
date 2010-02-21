@@ -160,7 +160,7 @@ int viafb_tmds_trasmitter_identify(void)
 
 static void tmds_register_write(int index, u8 data)
 {
-	viaparinfo->i2c_stuff.i2c_port =
+	viaparinfo->shared->i2c_stuff.i2c_port =
 		viaparinfo->chip_info->tmds_chip_info.i2c_port;
 
 	viafb_i2c_writebyte(viaparinfo->chip_info->tmds_chip_info.
@@ -172,7 +172,7 @@ static int tmds_register_read(int index)
 {
 	u8 data;
 
-	viaparinfo->i2c_stuff.i2c_port =
+	viaparinfo->shared->i2c_stuff.i2c_port =
 		viaparinfo->chip_info->tmds_chip_info.i2c_port;
 	viafb_i2c_readbyte((u8) viaparinfo->chip_info->
 	    tmds_chip_info.tmds_chip_slave_addr,
@@ -182,7 +182,7 @@ static int tmds_register_read(int index)
 
 static int tmds_register_read_bytes(int index, u8 *buff, int buff_len)
 {
-	viaparinfo->i2c_stuff.i2c_port =
+	viaparinfo->shared->i2c_stuff.i2c_port =
 		viaparinfo->chip_info->tmds_chip_info.i2c_port;
 	viafb_i2c_readbytes((u8) viaparinfo->chip_info->tmds_chip_info.
 			 tmds_chip_slave_addr, (u8) index, buff, buff_len);
@@ -467,7 +467,7 @@ static int dvi_get_panel_size_from_DDCv1(void)
 	default:
 		viaparinfo->tmds_setting_info->dvi_panel_size =
 			VIA_RES_1024X768;
-		DEBUG_MSG(KERN_INFO "Unknow panel size max resolution = %d !\
+		DEBUG_MSG(KERN_INFO "Unknown panel size max resolution = %d !\
 					 set default panel size.\n", max_h);
 		break;
 	}
@@ -534,7 +534,7 @@ static int dvi_get_panel_size_from_DDCv2(void)
 	default:
 		viaparinfo->tmds_setting_info->dvi_panel_size =
 			VIA_RES_1024X768;
-		DEBUG_MSG(KERN_INFO "Unknow panel size max resolution = %d!\
+		DEBUG_MSG(KERN_INFO "Unknown panel size max resolution = %d!\
 					set default panel size.\n", HSize);
 		break;
 	}

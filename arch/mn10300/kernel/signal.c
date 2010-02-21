@@ -264,7 +264,7 @@ static inline void __user *get_sigframe(struct k_sigaction *ka,
 
 	/* this is the X/Open sanctioned signal stack switching.  */
 	if (ka->sa.sa_flags & SA_ONSTACK) {
-		if (!on_sig_stack(sp))
+		if (sas_ss_flags(sp) == 0)
 			sp = current->sas_ss_sp + current->sas_ss_size;
 	}
 
@@ -568,5 +568,7 @@ asmlinkage void do_notify_resume(struct pt_regs *regs, u32 thread_info_flags)
 	if (thread_info_flags & _TIF_NOTIFY_RESUME) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(__frame);
+		if (current->replacement_session_keyring)
+			key_replace_session_keyring();
 	}
 }

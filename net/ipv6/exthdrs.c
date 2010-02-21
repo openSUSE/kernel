@@ -500,17 +500,17 @@ unknown_rh:
 	return -1;
 }
 
-static struct inet6_protocol rthdr_protocol = {
+static const struct inet6_protocol rthdr_protocol = {
 	.handler	=	ipv6_rthdr_rcv,
 	.flags		=	INET6_PROTO_NOPOLICY | INET6_PROTO_GSO_EXTHDR,
 };
 
-static struct inet6_protocol destopt_protocol = {
+static const struct inet6_protocol destopt_protocol = {
 	.handler	=	ipv6_destopt_rcv,
 	.flags		=	INET6_PROTO_NOPOLICY | INET6_PROTO_GSO_EXTHDR,
 };
 
-static struct inet6_protocol nodata_protocol = {
+static const struct inet6_protocol nodata_protocol = {
 	.handler	=	dst_discard,
 	.flags		=	INET6_PROTO_NOPOLICY,
 };
@@ -559,6 +559,11 @@ static inline struct inet6_dev *ipv6_skb_idev(struct sk_buff *skb)
 	return skb_dst(skb) ? ip6_dst_idev(skb_dst(skb)) : __in6_dev_get(skb->dev);
 }
 
+static inline struct net *ipv6_skb_net(struct sk_buff *skb)
+{
+	return skb_dst(skb) ? dev_net(skb_dst(skb)->dev) : dev_net(skb->dev);
+}
+
 /* Router Alert as of RFC 2711 */
 
 static int ipv6_hop_ra(struct sk_buff *skb, int optoff)
@@ -580,8 +585,8 @@ static int ipv6_hop_ra(struct sk_buff *skb, int optoff)
 static int ipv6_hop_jumbo(struct sk_buff *skb, int optoff)
 {
 	const unsigned char *nh = skb_network_header(skb);
+	struct net *net = ipv6_skb_net(skb);
 	u32 pkt_len;
-	struct net *net = dev_net(skb_dst(skb)->dev);
 
 	if (nh[optoff + 1] != 4 || (optoff & 3) != 2) {
 		LIMIT_NETDEBUG(KERN_DEBUG "ipv6_hop_jumbo: wrong jumbo opt length/alignment %d\n",

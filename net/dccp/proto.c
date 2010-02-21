@@ -124,7 +124,7 @@ EXPORT_SYMBOL_GPL(dccp_done);
 
 const char *dccp_packet_name(const int type)
 {
-	static const char *dccp_packet_names[] = {
+	static const char *const dccp_packet_names[] = {
 		[DCCP_PKT_REQUEST]  = "REQUEST",
 		[DCCP_PKT_RESPONSE] = "RESPONSE",
 		[DCCP_PKT_DATA]	    = "DATA",
@@ -147,7 +147,7 @@ EXPORT_SYMBOL_GPL(dccp_packet_name);
 
 const char *dccp_state_name(const int state)
 {
-	static char *dccp_state_names[] = {
+	static const char *const dccp_state_names[] = {
 	[DCCP_OPEN]		= "OPEN",
 	[DCCP_REQUESTING]	= "REQUESTING",
 	[DCCP_PARTOPEN]		= "PARTOPEN",
@@ -278,7 +278,7 @@ int dccp_disconnect(struct sock *sk, int flags)
 		sk->sk_send_head = NULL;
 	}
 
-	inet->dport = 0;
+	inet->inet_dport = 0;
 
 	if (!(sk->sk_userlocks & SOCK_BINDADDR_LOCK))
 		inet_reset_saddr(sk);
@@ -290,7 +290,7 @@ int dccp_disconnect(struct sock *sk, int flags)
 	inet_csk_delack_init(sk);
 	__sk_dst_reset(sk);
 
-	WARN_ON(inet->num && !icsk->icsk_bind_hash);
+	WARN_ON(inet->inet_num && !icsk->icsk_bind_hash);
 
 	sk->sk_error_report(sk);
 	return err;
@@ -393,7 +393,7 @@ out:
 EXPORT_SYMBOL_GPL(dccp_ioctl);
 
 static int dccp_setsockopt_service(struct sock *sk, const __be32 service,
-				   char __user *optval, int optlen)
+				   char __user *optval, unsigned int optlen)
 {
 	struct dccp_sock *dp = dccp_sk(sk);
 	struct dccp_service_list *sl = NULL;
@@ -464,7 +464,7 @@ static int dccp_setsockopt_cscov(struct sock *sk, int cscov, bool rx)
 }
 
 static int dccp_setsockopt_ccid(struct sock *sk, int type,
-				char __user *optval, int optlen)
+				char __user *optval, unsigned int optlen)
 {
 	u8 *val;
 	int rc = 0;
@@ -494,7 +494,7 @@ static int dccp_setsockopt_ccid(struct sock *sk, int type,
 }
 
 static int do_dccp_setsockopt(struct sock *sk, int level, int optname,
-		char __user *optval, int optlen)
+		char __user *optval, unsigned int optlen)
 {
 	struct dccp_sock *dp = dccp_sk(sk);
 	int val, err = 0;
@@ -546,7 +546,7 @@ static int do_dccp_setsockopt(struct sock *sk, int level, int optname,
 }
 
 int dccp_setsockopt(struct sock *sk, int level, int optname,
-		    char __user *optval, int optlen)
+		    char __user *optval, unsigned int optlen)
 {
 	if (level != SOL_DCCP)
 		return inet_csk(sk)->icsk_af_ops->setsockopt(sk, level,
@@ -559,7 +559,7 @@ EXPORT_SYMBOL_GPL(dccp_setsockopt);
 
 #ifdef CONFIG_COMPAT
 int compat_dccp_setsockopt(struct sock *sk, int level, int optname,
-			   char __user *optval, int optlen)
+			   char __user *optval, unsigned int optlen)
 {
 	if (level != SOL_DCCP)
 		return inet_csk_compat_setsockopt(sk, level, optname,
@@ -1049,10 +1049,10 @@ static int __init dccp_init(void)
 	 *
 	 * The methodology is similar to that of the buffer cache.
 	 */
-	if (num_physpages >= (128 * 1024))
-		goal = num_physpages >> (21 - PAGE_SHIFT);
+	if (totalram_pages >= (128 * 1024))
+		goal = totalram_pages >> (21 - PAGE_SHIFT);
 	else
-		goal = num_physpages >> (23 - PAGE_SHIFT);
+		goal = totalram_pages >> (23 - PAGE_SHIFT);
 
 	if (thash_entries)
 		goal = (thash_entries *
@@ -1060,11 +1060,12 @@ static int __init dccp_init(void)
 	for (ehash_order = 0; (1UL << ehash_order) < goal; ehash_order++)
 		;
 	do {
-		dccp_hashinfo.ehash_size = (1UL << ehash_order) * PAGE_SIZE /
+		unsigned long hash_size = (1UL << ehash_order) * PAGE_SIZE /
 					sizeof(struct inet_ehash_bucket);
-		while (dccp_hashinfo.ehash_size &
-		       (dccp_hashinfo.ehash_size - 1))
-			dccp_hashinfo.ehash_size--;
+
+		while (hash_size & (hash_size - 1))
+			hash_size--;
+		dccp_hashinfo.ehash_mask = hash_size - 1;
 		dccp_hashinfo.ehash = (struct inet_ehash_bucket *)
 			__get_free_pages(GFP_ATOMIC|__GFP_NOWARN, ehash_order);
 	} while (!dccp_hashinfo.ehash && --ehash_order > 0);
@@ -1074,7 +1075,7 @@ static int __init dccp_init(void)
 		goto out_free_bind_bucket_cachep;
 	}
 
-	for (i = 0; i < dccp_hashinfo.ehash_size; i++) {
+	for (i = 0; i <= dccp_hashinfo.ehash_mask; i++) {
 		INIT_HLIST_NULLS_HEAD(&dccp_hashinfo.ehash[i].chain, i);
 		INIT_HLIST_NULLS_HEAD(&dccp_hashinfo.ehash[i].twchain, i);
 	}
@@ -1153,7 +1154,7 @@ static void __exit dccp_fini(void)
 		   get_order(dccp_hashinfo.bhash_size *
 			     sizeof(struct inet_bind_hashbucket)));
 	free_pages((unsigned long)dccp_hashinfo.ehash,
-		   get_order(dccp_hashinfo.ehash_size *
+		   get_order((dccp_hashinfo.ehash_mask + 1) *
 			     sizeof(struct inet_ehash_bucket)));
 	inet_ehash_locks_free(&dccp_hashinfo);
 	kmem_cache_destroy(dccp_hashinfo.bind_bucket_cachep);

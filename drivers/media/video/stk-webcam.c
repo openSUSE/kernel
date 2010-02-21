@@ -790,7 +790,7 @@ static void stk_v4l_vm_close(struct vm_area_struct *vma)
 	if (sbuf->mapcount == 0)
 		sbuf->v4lbuf.flags &= ~V4L2_BUF_FLAG_MAPPED;
 }
-static struct vm_operations_struct stk_v4l_vm_ops = {
+static const struct vm_operations_struct stk_v4l_vm_ops = {
 	.open = stk_v4l_vm_open,
 	.close = stk_v4l_vm_close
 };
@@ -1307,7 +1307,6 @@ static void stk_v4l_dev_release(struct video_device *vd)
 
 static struct video_device stk_v4l_data = {
 	.name = "stkwebcam",
-	.minor = -1,
 	.tvnorms = V4L2_STD_UNKNOWN,
 	.current_norm = V4L2_STD_UNKNOWN,
 	.fops = &v4l_stk_fops,
@@ -1327,8 +1326,8 @@ static int stk_register_video_device(struct stk_camera *dev)
 	if (err)
 		STK_ERROR("v4l registration failed\n");
 	else
-		STK_INFO("Syntek USB2.0 Camera is now controlling video device"
-			" /dev/video%d\n", dev->vdev.num);
+		STK_INFO("Syntek USB2.0 Camera is now controlling device %s\n",
+			 video_device_node_name(&dev->vdev));
 	return err;
 }
 
@@ -1400,7 +1399,6 @@ static int stk_camera_probe(struct usb_interface *interface,
 	}
 
 	stk_create_sysfs_files(&dev->vdev);
-	usb_autopm_enable(dev->interface);
 
 	return 0;
 
@@ -1419,8 +1417,8 @@ static void stk_camera_disconnect(struct usb_interface *interface)
 	wake_up_interruptible(&dev->wait_frame);
 	stk_remove_sysfs_files(&dev->vdev);
 
-	STK_INFO("Syntek USB2.0 Camera release resources "
-		"video device /dev/video%d\n", dev->vdev.num);
+	STK_INFO("Syntek USB2.0 Camera release resources device %s\n",
+		 video_device_node_name(&dev->vdev));
 
 	video_unregister_device(&dev->vdev);
 }

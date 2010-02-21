@@ -25,6 +25,8 @@
   Reset functions and helpers
 \*****************************/
 
+#include <asm/unaligned.h>
+
 #include <linux/pci.h> 		/* To determine if a card is pci-e */
 #include <linux/log2.h>
 #include "ath5k.h"
@@ -258,29 +260,35 @@ int ath5k_hw_set_power(struct ath5k_hw *ah, enum ath5k_power_mode mode,
 		if (!set_chip)
 			goto commit;
 
-		/* Preserve sleep duration */
 		data = ath5k_hw_reg_read(ah, AR5K_SLEEP_CTL);
+
+		/* If card is down we 'll get 0xffff... so we
+		 * need to clean this up before we write the register
+		 */
 		if (data & 0xffc00000)
 			data = 0;
 		else
-			data = data & 0xfffcffff;
+			/* Preserve sleep duration etc */
+			data = data & ~AR5K_SLEEP_CTL_SLE;
 
-		ath5k_hw_reg_write(ah, data, AR5K_SLEEP_CTL);
+		ath5k_hw_reg_write(ah, data | AR5K_SLEEP_CTL_SLE_WAKE,
+							AR5K_SLEEP_CTL);
 		udelay(15);
 
-		for (i = 50; i > 0; i--) {
+		for (i = 200; i > 0; i--) {
 			/* Check if the chip did wake up */
 			if ((ath5k_hw_reg_read(ah, AR5K_PCICFG) &
 					AR5K_PCICFG_SPWR_DN) == 0)
 				break;
 
 			/* Wait a bit and retry */
-			udelay(200);
-			ath5k_hw_reg_write(ah, data, AR5K_SLEEP_CTL);
+			udelay(50);
+			ath5k_hw_reg_write(ah, data | AR5K_SLEEP_CTL_SLE_WAKE,
+							AR5K_SLEEP_CTL);
 		}
 
 		/* Fail if the chip didn't wake up */
-		if (i <= 0)
+		if (i == 0)
 			return -EIO;
 
 		break;
@@ -290,10 +298,67 @@ int ath5k_hw_set_power(struct ath5k_hw *ah, enum ath5k_power_mode mode,
 	}
 
 commit:
-	ah->ah_power_mode = mode;
 	ath5k_hw_reg_write(ah, staid, AR5K_STA_ID1);
 
 	return 0;
+}
+
+/*
+ * Put device on hold
+ *
+ * Put MAC and Baseband on warm reset and
+ * keep that state (don't clean sleep control
+ * register). After this MAC and Baseband are
+ * disabled and a full reset is needed to come
+ * back. This way we save as much power as possible
+ * without puting the card on full sleep.
+ */
+int ath5k_hw_on_hold(struct ath5k_hw *ah)
+{
+	struct pci_dev *pdev = ah->ah_sc->pdev;
+	u32 bus_flags;
+	int ret;
+
+	/* Make sure device is awake */
+	ret = ath5k_hw_set_power(ah, AR5K_PM_AWAKE, true, 0);
+	if (ret) {
+		ATH5K_ERR(ah->ah_sc, "failed to wakeup the MAC Chip\n");
+		return ret;
+	}
+
+	/*
+	 * Put chipset on warm reset...
+	 *
+	 * Note: puting PCI core on warm reset on PCI-E cards
+	 * results card to hang and always return 0xffff... so
+	 * we ingore that flag for PCI-E cards. On PCI cards
+	 * this flag gets cleared after 64 PCI clocks.
+	 */
+	bus_flags = (pdev->is_pcie) ? 0 : AR5K_RESET_CTL_PCI;
+
+	if (ah->ah_version == AR5K_AR5210) {
+		ret = ath5k_hw_nic_reset(ah, AR5K_RESET_CTL_PCU |
+			AR5K_RESET_CTL_MAC | AR5K_RESET_CTL_DMA |
+			AR5K_RESET_CTL_PHY | AR5K_RESET_CTL_PCI);
+			mdelay(2);
+	} else {
+		ret = ath5k_hw_nic_reset(ah, AR5K_RESET_CTL_PCU |
+			AR5K_RESET_CTL_BASEBAND | bus_flags);
+	}
+
+	if (ret) {
+		ATH5K_ERR(ah->ah_sc, "failed to put device on warm reset\n");
+		return -EIO;
+	}
+
+	/* ...wakeup again!*/
+	ret = ath5k_hw_set_power(ah, AR5K_PM_AWAKE, true, 0);
+	if (ret) {
+		ATH5K_ERR(ah->ah_sc, "failed to put device on hold\n");
+		return ret;
+	}
+
+	return ret;
 }
 
 /*
@@ -318,6 +383,50 @@ int ath5k_hw_nic_wakeup(struct ath5k_hw *ah, int flags, bool initial)
 		ATH5K_ERR(ah->ah_sc, "failed to wakeup the MAC Chip\n");
 		return ret;
 	}
+
+	/*
+	 * Put chipset on warm reset...
+	 *
+	 * Note: puting PCI core on warm reset on PCI-E cards
+	 * results card to hang and always return 0xffff... so
+	 * we ingore that flag for PCI-E cards. On PCI cards
+	 * this flag gets cleared after 64 PCI clocks.
+	 */
+	bus_flags = (pdev->is_pcie) ? 0 : AR5K_RESET_CTL_PCI;
+
+	if (ah->ah_version == AR5K_AR5210) {
+		ret = ath5k_hw_nic_reset(ah, AR5K_RESET_CTL_PCU |
+			AR5K_RESET_CTL_MAC | AR5K_RESET_CTL_DMA |
+			AR5K_RESET_CTL_PHY | AR5K_RESET_CTL_PCI);
+			mdelay(2);
+	} else {
+		ret = ath5k_hw_nic_reset(ah, AR5K_RESET_CTL_PCU |
+			AR5K_RESET_CTL_BASEBAND | bus_flags);
+	}
+
+	if (ret) {
+		ATH5K_ERR(ah->ah_sc, "failed to reset the MAC Chip\n");
+		return -EIO;
+	}
+
+	/* ...wakeup again!...*/
+	ret = ath5k_hw_set_power(ah, AR5K_PM_AWAKE, true, 0);
+	if (ret) {
+		ATH5K_ERR(ah->ah_sc, "failed to resume the MAC Chip\n");
+		return ret;
+	}
+
+	/* ...clear reset control register and pull device out of
+	 * warm reset */
+	if (ath5k_hw_nic_reset(ah, 0)) {
+		ATH5K_ERR(ah->ah_sc, "failed to warm reset the MAC Chip\n");
+		return -EIO;
+	}
+
+	/* On initialization skip PLL programming since we don't have
+	 * a channel / mode set yet */
+	if (initial)
+		return 0;
 
 	if (ah->ah_version != AR5K_AR5210) {
 		/*
@@ -382,39 +491,6 @@ int ath5k_hw_nic_wakeup(struct ath5k_hw *ah, int flags, bool initial)
 		if (flags & CHANNEL_TURBO)
 			ath5k_hw_reg_write(ah, AR5K_PHY_TURBO_MODE,
 					AR5K_PHY_TURBO);
-	}
-
-	/* reseting PCI on PCI-E cards results card to hang
-	 * and always return 0xffff... so we ingore that flag
-	 * for PCI-E cards */
-	bus_flags = (pdev->is_pcie) ? 0 : AR5K_RESET_CTL_PCI;
-
-	/* Reset chipset */
-	if (ah->ah_version == AR5K_AR5210) {
-		ret = ath5k_hw_nic_reset(ah, AR5K_RESET_CTL_PCU |
-			AR5K_RESET_CTL_MAC | AR5K_RESET_CTL_DMA |
-			AR5K_RESET_CTL_PHY | AR5K_RESET_CTL_PCI);
-			mdelay(2);
-	} else {
-		ret = ath5k_hw_nic_reset(ah, AR5K_RESET_CTL_PCU |
-			AR5K_RESET_CTL_BASEBAND | bus_flags);
-	}
-	if (ret) {
-		ATH5K_ERR(ah->ah_sc, "failed to reset the MAC Chip\n");
-		return -EIO;
-	}
-
-	/* ...wakeup again!*/
-	ret = ath5k_hw_set_power(ah, AR5K_PM_AWAKE, true, 0);
-	if (ret) {
-		ATH5K_ERR(ah->ah_sc, "failed to resume the MAC Chip\n");
-		return ret;
-	}
-
-	/* ...final warm reset */
-	if (ath5k_hw_nic_reset(ah, 0)) {
-		ATH5K_ERR(ah->ah_sc, "failed to warm reset the MAC Chip\n");
-		return -EIO;
 	}
 
 	if (ah->ah_version != AR5K_AR5210) {
@@ -796,6 +872,7 @@ static void ath5k_hw_commit_eeprom_settings(struct ath5k_hw *ah,
 int ath5k_hw_reset(struct ath5k_hw *ah, enum nl80211_iftype op_mode,
 	struct ieee80211_channel *channel, bool change_channel)
 {
+	struct ath_common *common = ath5k_hw_common(ah);
 	u32 s_seq[10], s_ant, s_led[3], staid1_flags, tsf_up, tsf_lo;
 	u32 phy_tst1;
 	u8 mode, freq, ee_mode, ant[2];
@@ -1097,10 +1174,12 @@ int ath5k_hw_reset(struct ath5k_hw *ah, enum nl80211_iftype op_mode,
 	ath5k_hw_reg_write(ah, s_led[2], AR5K_GPIODO);
 
 	/* Restore sta_id flags and preserve our mac address*/
-	ath5k_hw_reg_write(ah, AR5K_LOW_ID(ah->ah_sta_id),
-						AR5K_STA_ID0);
-	ath5k_hw_reg_write(ah, staid1_flags | AR5K_HIGH_ID(ah->ah_sta_id),
-						AR5K_STA_ID1);
+	ath5k_hw_reg_write(ah,
+			   get_unaligned_le32(common->macaddr),
+			   AR5K_STA_ID0);
+	ath5k_hw_reg_write(ah,
+			   staid1_flags | get_unaligned_le16(common->macaddr + 4),
+			   AR5K_STA_ID1);
 
 
 	/*
@@ -1108,8 +1187,7 @@ int ath5k_hw_reset(struct ath5k_hw *ah, enum nl80211_iftype op_mode,
 	 */
 
 	/* Restore bssid and bssid mask */
-	/* XXX: add ah->aid once mac80211 gives this to us */
-	ath5k_hw_set_associd(ah, ah->ah_bssid, 0);
+	ath5k_hw_set_associd(ah);
 
 	/* Set PCU config */
 	ath5k_hw_set_opmode(ah);
@@ -1215,7 +1293,7 @@ int ath5k_hw_reset(struct ath5k_hw *ah, enum nl80211_iftype op_mode,
 	 * out and/or noise floor calibration might timeout.
 	 */
 	AR5K_REG_ENABLE_BITS(ah, AR5K_PHY_AGCCTL,
-				AR5K_PHY_AGCCTL_CAL);
+				AR5K_PHY_AGCCTL_CAL | AR5K_PHY_AGCCTL_NF);
 
 	/* At the same time start I/Q calibration for QAM constellation
 	 * -no need for CCK- */
@@ -1235,21 +1313,6 @@ int ath5k_hw_reset(struct ath5k_hw *ah, enum nl80211_iftype op_mode,
 		ATH5K_ERR(ah->ah_sc, "gain calibration timeout (%uMHz)\n",
 			channel->center_freq);
 	}
-
-	/*
-	 * If we run NF calibration before AGC, it always times out.
-	 * Binary HAL starts NF and AGC calibration at the same time
-	 * and only waits for AGC to finish. Also if AGC or NF cal.
-	 * times out, reset doesn't fail on binary HAL. I believe
-	 * that's wrong because since rx path is routed to a detector,
-	 * if cal. doesn't finish we won't have RX. Sam's HAL for AR5210/5211
-	 * enables noise floor calibration after offset calibration and if noise
-	 * floor calibration fails, reset fails. I believe that's
-	 * a better approach, we just need to find a polling interval
-	 * that suits best, even if reset continues we need to make
-	 * sure that rx path is ready.
-	 */
-	ath5k_hw_noise_floor_calibration(ah, channel->center_freq);
 
 	/* Restore antenna mode */
 	ath5k_hw_set_antenna_mode(ah, ah->ah_ant_mode);

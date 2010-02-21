@@ -187,6 +187,14 @@ struct iwm_coex_prio_table_cmd {
 				     COEX_EVT_FLAG_MEDIUM_ACTV_NTFY_MSK | \
 				     COEX_EVT_FLAG_DELAY_MEDIUM_FREE_NTFY_MSK)
 
+/* CT kill config command */
+struct iwm_ct_kill_cfg_cmd {
+	u32 exit_threshold;
+	u32 reserved;
+	u32 entry_threshold;
+} __attribute__ ((packed));
+
+
 /* LMAC OP CODES */
 #define REPLY_PAD			0x0
 #define REPLY_ALIVE			0x1
@@ -395,6 +403,25 @@ enum {
 	SHILOH_PHY_CALIBRATE_TXIQ_PERIODIC_CMD	= 17,
 	CALIBRATION_CMD_NUM,
 };
+
+enum {
+	CALIB_CFG_RX_BB_IDX       = 0,
+	CALIB_CFG_DC_IDX          = 1,
+	CALIB_CFG_LO_IDX          = 2,
+	CALIB_CFG_TX_IQ_IDX       = 3,
+	CALIB_CFG_RX_IQ_IDX       = 4,
+	CALIB_CFG_NOISE_IDX       = 5,
+	CALIB_CFG_CRYSTAL_IDX     = 6,
+	CALIB_CFG_TEMPERATURE_IDX = 7,
+	CALIB_CFG_PAPD_IDX        = 8,
+	CALIB_CFG_LAST_IDX        = CALIB_CFG_PAPD_IDX,
+	CALIB_CFG_MODULE_NUM,
+};
+
+#define IWM_CALIB_MAP_INIT_MSK		0xFFFF
+#define IWM_CALIB_MAP_PER_LMAC(m)	((m & 0xFF0000) >> 16)
+#define IWM_CALIB_MAP_PER_UMAC(m)	((m & 0xFF000000) >> 24)
+#define IWM_CALIB_OPCODE_TO_INDEX(op)   (op - PHY_CALIBRATE_OPCODES_NUM)
 
 struct iwm_lmac_calib_hdr {
 	u8 opcode;

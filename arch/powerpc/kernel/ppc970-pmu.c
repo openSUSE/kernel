@@ -9,7 +9,7 @@
  * 2 of the License, or (at your option) any later version.
  */
 #include <linux/string.h>
-#include <linux/perf_counter.h>
+#include <linux/perf_event.h>
 #include <asm/reg.h>
 #include <asm/cputable.h>
 
@@ -82,10 +82,6 @@ static short mmcr1_adder_bits[8] = {
 	MMCR1_PMC7_ADDER_SEL_SH,
 	MMCR1_PMC8_ADDER_SEL_SH
 };
-
-/*
- * Bits in MMCRA
- */
 
 /*
  * Layout of constraint bits:

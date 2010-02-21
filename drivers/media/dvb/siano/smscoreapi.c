@@ -1367,13 +1367,13 @@ int smscore_set_gpio(struct smscore_device_t *coredev, u32 pin, int level)
 					    &msg, sizeof(msg));
 }
 
-/* new GPIO managment implementation */
+/* new GPIO management implementation */
 static int GetGpioPinParams(u32 PinNum, u32 *pTranslatedPinNum,
 		u32 *pGroupNum, u32 *pGroupCfg) {
 
 	*pGroupCfg = 1;
 
-	if (PinNum >= 0 && PinNum <= 1)	{
+	if (PinNum <= 1)	{
 		*pTranslatedPinNum = 0;
 		*pGroupNum = 9;
 		*pGroupCfg = 2;

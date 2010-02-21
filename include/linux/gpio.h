@@ -12,6 +12,8 @@
 #include <linux/types.h>
 #include <linux/errno.h>
 
+struct device;
+
 /*
  * Some platforms don't support the GPIO programming interface.
  *
@@ -85,6 +87,21 @@ static inline void gpio_set_value_cansleep(unsigned gpio, int value)
 static inline int gpio_export(unsigned gpio, bool direction_may_change)
 {
 	/* GPIO can never have been requested or set as {in,out}put */
+	WARN_ON(1);
+	return -EINVAL;
+}
+
+static inline int gpio_export_link(struct device *dev, const char *name,
+				unsigned gpio)
+{
+	/* GPIO can never have been exported */
+	WARN_ON(1);
+	return -EINVAL;
+}
+
+static inline int gpio_sysfs_set_active_low(unsigned gpio, int value)
+{
+	/* GPIO can never have been requested */
 	WARN_ON(1);
 	return -EINVAL;
 }

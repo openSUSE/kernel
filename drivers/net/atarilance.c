@@ -663,7 +663,7 @@ static int lance_open( struct net_device *dev )
 	while (--i > 0)
 		if (DREG & CSR0_IDON)
 			break;
-	if (i < 0 || (DREG & CSR0_ERR)) {
+	if (i <= 0 || (DREG & CSR0_ERR)) {
 		DPRINTK( 2, ( "lance_open(): opening %s failed, i=%d, csr0=%04x\n",
 					  dev->name, i, DREG ));
 		DREG = CSR0_STOP;
@@ -796,7 +796,7 @@ static int lance_start_xmit( struct sk_buff *skb, struct net_device *dev )
 
 	if (len > skb->len) {
 		if (skb_padto(skb, len))
-			return 0;
+			return NETDEV_TX_OK;
 	}
 
 	netif_stop_queue (dev);
@@ -846,7 +846,7 @@ static int lance_start_xmit( struct sk_buff *skb, struct net_device *dev )
 		lp->tx_full = 1;
 	spin_unlock_irqrestore (&lp->devlock, flags);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /* The LANCE interrupt handler. */
@@ -930,8 +930,8 @@ static irqreturn_t lance_interrupt( int irq, void *dev_id )
 			}
 #endif
 
-			if (lp->tx_full && (netif_queue_stopped(dev))
-				&& dirty_tx > lp->cur_tx - TX_RING_SIZE + 2) {
+			if (lp->tx_full && (netif_queue_stopped(dev)) &&
+				dirty_tx > lp->cur_tx - TX_RING_SIZE + 2) {
 				/* The ring is no longer full, clear tbusy. */
 				lp->tx_full = 0;
 				netif_wake_queue (dev);

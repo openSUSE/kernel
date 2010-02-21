@@ -335,6 +335,7 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0,
 		      &regs, 0, NULL, NULL);
 }
+EXPORT_SYMBOL(kernel_thread);
 
 /*
  * Free current thread data structures etc..
@@ -367,7 +368,7 @@ void exit_thread(void)
 void flush_thread(void)
 {
 
-	/* Called by fs/exec.c (flush_old_exec) to remove traces of a
+	/* Called by fs/exec.c (setup_new_exec) to remove traces of a
 	 * previously running executable. */
 #ifdef CONFIG_SH_FPU
 	if (last_task_used_math == current) {
@@ -403,7 +404,7 @@ int dump_fpu(struct pt_regs *regs, elf_fpregset_t *fpu)
 	if (fpvalid) {
 		if (current == last_task_used_math) {
 			enable_fpu();
-			save_fpu(tsk, regs);
+			save_fpu(tsk);
 			disable_fpu();
 			last_task_used_math = 0;
 			regs->sr |= SR_FD;
@@ -417,6 +418,7 @@ int dump_fpu(struct pt_regs *regs, elf_fpregset_t *fpu)
 	return 0; /* Task didn't use the fpu at all. */
 #endif
 }
+EXPORT_SYMBOL(dump_fpu);
 
 asmlinkage void ret_from_fork(void);
 
@@ -425,12 +427,11 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 		struct task_struct *p, struct pt_regs *regs)
 {
 	struct pt_regs *childregs;
-	unsigned long long se;			/* Sign extension */
 
 #ifdef CONFIG_SH_FPU
 	if(last_task_used_math == current) {
 		enable_fpu();
-		save_fpu(current, regs);
+		save_fpu(current);
 		disable_fpu();
 		last_task_used_math = NULL;
 		regs->sr |= SR_FD;
@@ -441,11 +442,19 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 
 	*childregs = *regs;
 
+	/*
+	 * Sign extend the edited stack.
+	 * Note that thread.pc and thread.pc will stay
+	 * 32-bit wide and context switch must take care
+	 * of NEFF sign extension.
+	 */
 	if (user_mode(regs)) {
-		childregs->regs[15] = usp;
+		childregs->regs[15] = neff_sign_extend(usp);
 		p->thread.uregs = childregs;
 	} else {
-		childregs->regs[15] = (unsigned long)task_stack_page(p) + THREAD_SIZE;
+		childregs->regs[15] =
+			neff_sign_extend((unsigned long)task_stack_page(p) +
+					 THREAD_SIZE);
 	}
 
 	childregs->regs[9] = 0; /* Set return value for child */
@@ -453,17 +462,6 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 
 	p->thread.sp = (unsigned long) childregs;
 	p->thread.pc = (unsigned long) ret_from_fork;
-
-	/*
-	 * Sign extend the edited stack.
-         * Note that thread.pc and thread.pc will stay
-	 * 32-bit wide and context switch must take care
-	 * of NEFF sign extension.
-	 */
-
-	se = childregs->regs[15];
-	se = (se & NEFF_SIGN) ? (se | NEFF_MASK) : se;
-	childregs->regs[15] = se;
 
 	return 0;
 }

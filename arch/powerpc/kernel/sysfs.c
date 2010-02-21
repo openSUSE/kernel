@@ -17,6 +17,7 @@
 #include <asm/prom.h>
 #include <asm/machdep.h>
 #include <asm/smp.h>
+#include <asm/pmc.h>
 
 #include "cacheinfo.h"
 
@@ -123,6 +124,8 @@ static DEFINE_PER_CPU(char, pmcs_enabled);
 
 void ppc_enable_pmcs(void)
 {
+	ppc_set_pmu_inuse(1);
+
 	/* Only need to enable them once */
 	if (__get_cpu_var(pmcs_enabled))
 		return;
@@ -458,6 +461,25 @@ static void unregister_cpu_online(unsigned int cpu)
 
 	cacheinfo_cpu_offline(cpu);
 }
+
+#ifdef CONFIG_ARCH_CPU_PROBE_RELEASE
+ssize_t arch_cpu_probe(const char *buf, size_t count)
+{
+	if (ppc_md.cpu_probe)
+		return ppc_md.cpu_probe(buf, count);
+
+	return -EINVAL;
+}
+
+ssize_t arch_cpu_release(const char *buf, size_t count)
+{
+	if (ppc_md.cpu_release)
+		return ppc_md.cpu_release(buf, count);
+
+	return -EINVAL;
+}
+#endif /* CONFIG_ARCH_CPU_PROBE_RELEASE */
+
 #endif /* CONFIG_HOTPLUG_CPU */
 
 static int __cpuinit sysfs_cpu_notify(struct notifier_block *self,

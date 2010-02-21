@@ -49,9 +49,22 @@ config GENERIC_HARDIRQS_NO__DO_IRQ
 config HAVE_SETUP_PER_CPU_AREA
 	def_bool PPC64
 
+config NEED_PER_CPU_EMBED_FIRST_CHUNK
+	def_bool PPC64
+
 config IRQ_PER_CPU
 	bool
 	default y
+
+config NR_IRQS
+	int "Number of virtual interrupt numbers"
+	range 32 512
+	default "512"
+	help
+	  This defines the number of virtual interrupt numbers the kernel
+	  can manage. Virtual interrupt numbers are what you see in
+	  /proc/interrupts. If you configure your system to have too few,
+	  drivers will fail to load or worse - handle with care.
 
 config STACKTRACE_SUPPORT
 	bool
@@ -113,12 +126,13 @@ config PPC
 	select HAVE_KRETPROBES
 	select HAVE_ARCH_TRACEHOOK
 	select HAVE_LMB
-	select HAVE_DMA_ATTRS if PPC64
+	select HAVE_DMA_ATTRS
+	select HAVE_DMA_API_DEBUG
 	select USE_GENERIC_SMP_HELPERS if SMP
 	select HAVE_OPROFILE
 	select HAVE_SYSCALL_WRAPPERS if PPC64
 	select GENERIC_ATOMIC64 if PPC32
-	select HAVE_PERF_COUNTERS
+	select HAVE_PERF_EVENTS
 
 config EARLY_PRINTK
 	bool
@@ -188,24 +202,14 @@ config DEFAULT_UIMAGE
 config REDBOOT
 	bool
 
-config HIBERNATE_32
-	bool
-	depends on (PPC_PMAC && !SMP) || BROKEN
-	default y
-
-config HIBERNATE_64
-	bool
-	depends on BROKEN || (PPC_PMAC64 && EXPERIMENTAL)
-	default y
-
 config ARCH_HIBERNATION_POSSIBLE
 	bool
-	depends on (PPC64 && HIBERNATE_64) || (PPC32 && HIBERNATE_32)
 	default y
 
 config ARCH_SUSPEND_POSSIBLE
 	def_bool y
-	depends on ADB_PMU || PPC_EFIKA || PPC_LITE5200 || PPC_83xx
+	depends on ADB_PMU || PPC_EFIKA || PPC_LITE5200 || PPC_83xx || \
+		   PPC_85xx || PPC_86xx
 
 config PPC_DCR_NATIVE
 	bool
@@ -308,10 +312,6 @@ config SWIOTLB
 	  platforms where the size of a physical address is larger
 	  than the bus address.  Not all platforms support this.
 
-config PPC_NEED_DMA_SYNC_OPS
-	def_bool y
-	depends on (NOT_COHERENT_CACHE || SWIOTLB)
-
 config HOTPLUG_CPU
 	bool "Support for enabling/disabling CPUs"
 	depends on SMP && HOTPLUG && EXPERIMENTAL && (PPC_PSERIES || PPC_PMAC)
@@ -320,6 +320,10 @@ config HOTPLUG_CPU
 	  CPUs at runtime on SMP machines.
 
 	  Say N if you are unsure.
+
+config ARCH_CPU_PROBE_RELEASE
+	def_bool y
+	depends on HOTPLUG_CPU
 
 config ARCH_ENABLE_MEMORY_HOTPLUG
 	def_bool y
@@ -379,6 +383,19 @@ config IRQ_ALL_CPUS
 	  CPU.  Generally saying Y is safe, although some problems have been
 	  reported with SMP Power Macintoshes with this option enabled.
 
+config SPARSE_IRQ
+	bool "Support sparse irq numbering"
+	default y
+	help
+	  This enables support for sparse irqs. This is useful for distro
+	  kernels that want to define a high CONFIG_NR_CPUS value but still
+	  want to have low kernel memory footprint on smaller machines.
+
+	  ( Sparse IRQs can also be beneficial on NUMA boxes, as they spread
+	    out the irq_desc[] array in a more NUMA-friendly way. )
+
+	  If you don't know what to do here, say Y.
+
 config NUMA
 	bool "NUMA support"
 	depends on PPC64
@@ -386,8 +403,14 @@ config NUMA
 
 config NODES_SHIFT
 	int
+	default "8" if PPC64
 	default "4"
 	depends on NEED_MULTIPLE_NODES
+
+config MAX_ACTIVE_REGIONS
+	int
+	default "256" if PPC64
+	default "32"
 
 config ARCH_SELECT_MEMORY_MODEL
 	def_bool y
@@ -408,6 +431,10 @@ config ARCH_SPARSEMEM_DEFAULT
 
 config ARCH_POPULATES_NODE_MAP
 	def_bool y
+
+config SYS_SUPPORTS_HUGETLBFS
+       def_bool y
+       depends on PPC_BOOK3S_64
 
 source "mm/Kconfig"
 
@@ -473,7 +500,7 @@ config PPC_16K_PAGES
 	bool "16k page size" if 44x
 
 config PPC_64K_PAGES
-	bool "64k page size" if 44x || PPC_STD_MMU_64
+	bool "64k page size" if 44x || PPC_STD_MMU_64 || PPC_BOOK3E_64
 	select PPC_HAS_HASH_64K if PPC_STD_MMU_64
 
 config PPC_256K_PAGES
@@ -493,16 +520,16 @@ endchoice
 
 config FORCE_MAX_ZONEORDER
 	int "Maximum zone order"
-	range 9 64 if PPC_STD_MMU_64 && PPC_64K_PAGES
-	default "9" if PPC_STD_MMU_64 && PPC_64K_PAGES
-	range 13 64 if PPC_STD_MMU_64 && !PPC_64K_PAGES
-	default "13" if PPC_STD_MMU_64 && !PPC_64K_PAGES
-	range 9 64 if PPC_STD_MMU_32 && PPC_16K_PAGES
-	default "9" if PPC_STD_MMU_32 && PPC_16K_PAGES
-	range 7 64 if PPC_STD_MMU_32 && PPC_64K_PAGES
-	default "7" if PPC_STD_MMU_32 && PPC_64K_PAGES
-	range 5 64 if PPC_STD_MMU_32 && PPC_256K_PAGES
-	default "5" if PPC_STD_MMU_32 && PPC_256K_PAGES
+	range 9 64 if PPC64 && PPC_64K_PAGES
+	default "9" if PPC64 && PPC_64K_PAGES
+	range 13 64 if PPC64 && !PPC_64K_PAGES
+	default "13" if PPC64 && !PPC_64K_PAGES
+	range 9 64 if PPC32 && PPC_16K_PAGES
+	default "9" if PPC32 && PPC_16K_PAGES
+	range 7 64 if PPC32 && PPC_64K_PAGES
+	default "7" if PPC32 && PPC_64K_PAGES
+	range 5 64 if PPC32 && PPC_256K_PAGES
+	default "5" if PPC32 && PPC_256K_PAGES
 	range 11 64
 	default "11"
 	help
@@ -643,6 +670,14 @@ config FSL_PCI
 	select PPC_INDIRECT_PCI
 	select PCI_QUIRKS
 
+config FSL_PMC
+	bool
+	default y
+	depends on SUSPEND && (PPC_85xx || PPC_86xx)
+	help
+	  Freescale MPC85xx/MPC86xx power management controller support
+	  (suspend/resume). For MPC83xx see platforms/83xx/suspend.c
+
 config 4xx_SOC
 	bool
 
@@ -670,7 +705,7 @@ config PPC_PCI_CHOICE
 config PCI
 	bool "PCI support" if PPC_PCI_CHOICE
 	default y if !40x && !CPM2 && !8xx && !PPC_83xx \
-		&& !PPC_85xx && !PPC_86xx
+		&& !PPC_85xx && !PPC_86xx && !GAMECUBE_COMMON
 	default PCI_PERMEDIA if !4xx && !CPM2 && !8xx
 	default PCI_QSPAN if !4xx && !CPM2 && 8xx
 	select ARCH_SUPPORTS_MSI

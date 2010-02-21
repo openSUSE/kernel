@@ -17,11 +17,17 @@ if DMADEVICES
 
 comment "DMA Devices"
 
+config ASYNC_TX_DISABLE_CHANNEL_SWITCH
+	bool
+
 config INTEL_IOATDMA
 	tristate "Intel I/OAT DMA support"
 	depends on PCI && X86
 	select DMA_ENGINE
 	select DCA
+	select ASYNC_TX_DISABLE_CHANNEL_SWITCH
+	select ASYNC_TX_DISABLE_PQ_VAL_DMA
+	select ASYNC_TX_DISABLE_XOR_VAL_DMA
 	help
 	  Enable support for the Intel(R) I/OAT DMA engine present
 	  in recent Intel Xeon chipsets.
@@ -48,7 +54,7 @@ config DW_DMAC
 
 config AT_HDMAC
 	tristate "Atmel AHB DMA support"
-	depends on ARCH_AT91SAM9RL
+	depends on ARCH_AT91SAM9RL || ARCH_AT91SAM9G45
 	select DMA_ENGINE
 	help
 	  Support the Atmel AHB DMA controller.  This can be integrated in
@@ -97,6 +103,32 @@ config TXX9_DMAC
 	  Support the TXx9 SoC internal DMA controller.  This can be
 	  integrated in chips such as the Toshiba TX4927/38/39.
 
+config SH_DMAE
+	tristate "Renesas SuperH DMAC support"
+	depends on SUPERH && SH_DMA
+	depends on !SH_DMA_API
+	select DMA_ENGINE
+	help
+	  Enable support for the Renesas SuperH DMA controllers.
+
+config COH901318
+	bool "ST-Ericsson COH901318 DMA support"
+	select DMA_ENGINE
+	depends on ARCH_U300
+	help
+	  Enable support for ST-Ericsson COH 901 318 DMA.
+
+config AMCC_PPC440SPE_ADMA
+	tristate "AMCC PPC440SPe ADMA support"
+	depends on 440SPe || 440SP
+	select DMA_ENGINE
+	select ARCH_HAS_ASYNC_TX_FIND_CHANNEL
+	help
+	  Enable support for the AMCC PPC440SPe RAID engines.
+
+config ARCH_HAS_ASYNC_TX_FIND_CHANNEL
+	bool
+
 config DMA_ENGINE
 	bool
 
@@ -116,7 +148,7 @@ config NET_DMA
 
 config ASYNC_TX_DMA
 	bool "Async_tx: Offload support for the async_tx api"
-	depends on DMA_ENGINE && !HIGHMEM64G
+	depends on DMA_ENGINE
 	help
 	  This allows the async_tx api to take advantage of offload engines for
 	  memcpy, memset, xor, and raid6 p+q operations.  If your platform has

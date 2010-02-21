@@ -6,26 +6,21 @@
 #include <asm/cpufeature.h>
 #include <asm/processor.h>
 
-static DEFINE_PER_CPU(struct aperfmperf, old_aperfmperf);
+#ifdef CONFIG_SMP
+
+static DEFINE_PER_CPU(struct aperfmperf, old_perf_sched);
 
 static unsigned long scale_aperfmperf(void)
 {
-	struct aperfmperf cur, val, *old = &__get_cpu_var(old_aperfmperf);
-	unsigned long ratio = SCHED_LOAD_SCALE;
-	unsigned long flags;
+	struct aperfmperf val, *old = &__get_cpu_var(old_perf_sched);
+	unsigned long ratio, flags;
 
 	local_irq_save(flags);
 	get_aperfmperf(&val);
 	local_irq_restore(flags);
 
-	cur = val;
-	cur.aperf -= old->aperf;
-	cur.mperf -= old->mperf;
+	ratio = calc_aperfmperf_ratio(old, &val);
 	*old = val;
-
-	cur.mperf >>= SCHED_LOAD_SHIFT;
-	if (cur.mperf)
-		ratio = div_u64(cur.aperf, cur.mperf);
 
 	return ratio;
 }
@@ -56,3 +51,5 @@ unsigned long arch_scale_smt_power(struct sched_domain *sd, int cpu)
 
 	return default_scale_smt_power(sd, cpu);
 }
+
+#endif

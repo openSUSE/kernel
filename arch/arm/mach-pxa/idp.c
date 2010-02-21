@@ -168,7 +168,10 @@ static struct pxafb_mach_info sharp_lm8v31 = {
 };
 
 static struct pxamci_platform_data idp_mci_platform_data = {
-	.ocr_mask	= MMC_VDD_32_33|MMC_VDD_33_34,
+	.ocr_mask		= MMC_VDD_32_33|MMC_VDD_33_34,
+	.gpio_card_detect	= -1,
+	.gpio_card_ro		= -1,
+	.gpio_power		= -1,
 };
 
 static void __init idp_init(void)
@@ -176,6 +179,9 @@ static void __init idp_init(void)
 	printk("idp_init()\n");
 
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(idp_pin_config));
+	pxa_set_ffuart_info(NULL);
+	pxa_set_btuart_info(NULL);
+	pxa_set_stuart_info(NULL);
 
 	platform_device_register(&smc91x_device);
 	//platform_device_register(&mst_audio_device);

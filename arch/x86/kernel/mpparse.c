@@ -45,6 +45,11 @@ static int __init mpf_checksum(unsigned char *mp, int len)
 	return sum & 0xFF;
 }
 
+int __init default_mpc_apic_id(struct mpc_cpu *m)
+{
+	return m->apicid;
+}
+
 static void __init MP_processor_info(struct mpc_cpu *m)
 {
 	int apicid;
@@ -55,10 +60,7 @@ static void __init MP_processor_info(struct mpc_cpu *m)
 		return;
 	}
 
-	if (x86_quirks->mpc_apic_id)
-		apicid = x86_quirks->mpc_apic_id(m);
-	else
-		apicid = m->apicid;
+	apicid = x86_init.mpparse.mpc_apic_id(m);
 
 	if (m->cpuflag & CPU_BOOTPROCESSOR) {
 		bootup_cpu = " (Bootup-CPU)";
@@ -70,16 +72,18 @@ static void __init MP_processor_info(struct mpc_cpu *m)
 }
 
 #ifdef CONFIG_X86_IO_APIC
+void __init default_mpc_oem_bus_info(struct mpc_bus *m, char *str)
+{
+	memcpy(str, m->bustype, 6);
+	str[6] = 0;
+	apic_printk(APIC_VERBOSE, "Bus #%d is %s\n", m->busid, str);
+}
+
 static void __init MP_bus_info(struct mpc_bus *m)
 {
 	char str[7];
-	memcpy(str, m->bustype, 6);
-	str[6] = 0;
 
-	if (x86_quirks->mpc_oem_bus_info)
-		x86_quirks->mpc_oem_bus_info(m, str);
-	else
-		apic_printk(APIC_VERBOSE, "Bus #%d is %s\n", m->busid, str);
+	x86_init.mpparse.mpc_oem_bus_info(m, str);
 
 #if MAX_MP_BUSSES < 256
 	if (m->busid >= MAX_MP_BUSSES) {
@@ -96,8 +100,8 @@ static void __init MP_bus_info(struct mpc_bus *m)
 		mp_bus_id_to_type[m->busid] = MP_BUS_ISA;
 #endif
 	} else if (strncmp(str, BUSTYPE_PCI, sizeof(BUSTYPE_PCI) - 1) == 0) {
-		if (x86_quirks->mpc_oem_pci_bus)
-			x86_quirks->mpc_oem_pci_bus(m);
+		if (x86_init.mpparse.mpc_oem_pci_bus)
+			x86_init.mpparse.mpc_oem_pci_bus(m);
 
 		clear_bit(m->busid, mp_bus_not_pci);
 #if defined(CONFIG_EISA) || defined(CONFIG_MCA)
@@ -291,6 +295,8 @@ static void __init smp_dump_mptable(struct mpc_table *mpc, unsigned char *mpt)
 			1, mpc, mpc->length, 1);
 }
 
+void __init default_smp_read_mpc_oem(struct mpc_table *mpc) { }
+
 static int __init smp_read_mpc(struct mpc_table *mpc, unsigned early)
 {
 	char str[16];
@@ -312,16 +318,13 @@ static int __init smp_read_mpc(struct mpc_table *mpc, unsigned early)
 	if (early)
 		return 1;
 
-	if (mpc->oemptr && x86_quirks->smp_read_mpc_oem) {
-		struct mpc_oemtable *oem_table = (void *)(long)mpc->oemptr;
-		x86_quirks->smp_read_mpc_oem(oem_table, mpc->oemsize);
-	}
+	if (mpc->oemptr)
+		x86_init.mpparse.smp_read_mpc_oem(mpc);
 
 	/*
 	 *      Now process the configuration blocks.
 	 */
-	if (x86_quirks->mpc_record)
-		*x86_quirks->mpc_record = 0;
+	x86_init.mpparse.mpc_record(0);
 
 	while (count < mpc->length) {
 		switch (*mpt) {
@@ -353,16 +356,8 @@ static int __init smp_read_mpc(struct mpc_table *mpc, unsigned early)
 			count = mpc->length;
 			break;
 		}
-		if (x86_quirks->mpc_record)
-			(*x86_quirks->mpc_record)++;
+		x86_init.mpparse.mpc_record(1);
 	}
-
-#ifdef CONFIG_X86_BIGSMP
-	generic_bigsmp_probe();
-#endif
-
-	if (apic->setup_apic_routing)
-		apic->setup_apic_routing();
 
 	if (!num_processors)
 		printk(KERN_ERR "MPTABLE: no processors registered!\n");
@@ -482,11 +477,11 @@ static void __init construct_ioapic_table(int mpc_default_type)
 		MP_bus_info(&bus);
 	}
 
-	ioapic.type = MP_IOAPIC;
-	ioapic.apicid = 2;
-	ioapic.apicver = mpc_default_type > 4 ? 0x10 : 0x01;
-	ioapic.flags = MPC_APIC_USABLE;
-	ioapic.apicaddr = 0xFEC00000;
+	ioapic.type	= MP_IOAPIC;
+	ioapic.apicid	= 2;
+	ioapic.apicver	= mpc_default_type > 4 ? 0x10 : 0x01;
+	ioapic.flags	= MPC_APIC_USABLE;
+	ioapic.apicaddr	= IO_APIC_DEFAULT_PHYS_BASE;
 	MP_ioapic_info(&ioapic);
 
 	/*
@@ -608,7 +603,7 @@ static int __init check_physptr(struct mpf_intel *mpf, unsigned int early)
 /*
  * Scan the memory blocks for an SMP configuration block.
  */
-static void __init __get_smp_config(unsigned int early)
+void __init default_get_smp_config(unsigned int early)
 {
 	struct mpf_intel *mpf = mpf_found;
 
@@ -624,11 +619,6 @@ static void __init __get_smp_config(unsigned int early)
 	 */
 	if (acpi_lapic && acpi_ioapic)
 		return;
-
-	if (x86_quirks->mach_get_smp_config) {
-		if (x86_quirks->mach_get_smp_config(early))
-			return;
-	}
 
 	printk(KERN_INFO "Intel MultiProcessor Specification v1.%d\n",
 	       mpf->specification);
@@ -670,46 +660,18 @@ static void __init __get_smp_config(unsigned int early)
 	 */
 }
 
-void __init early_get_smp_config(void)
-{
-	__get_smp_config(1);
-}
-
-void __init get_smp_config(void)
-{
-	__get_smp_config(0);
-}
-
-static void __init smp_reserve_bootmem(struct mpf_intel *mpf)
+static void __init smp_reserve_memory(struct mpf_intel *mpf)
 {
 	unsigned long size = get_mpc_size(mpf->physptr);
-#ifdef CONFIG_X86_32
-	/*
-	 * We cannot access to MPC table to compute table size yet,
-	 * as only few megabytes from the bottom is mapped now.
-	 * PC-9800's MPC table places on the very last of physical
-	 * memory; so that simply reserving PAGE_SIZE from mpf->physptr
-	 * yields BUG() in reserve_bootmem.
-	 * also need to make sure physptr is below than max_low_pfn
-	 * we don't need reserve the area above max_low_pfn
-	 */
-	unsigned long end = max_low_pfn * PAGE_SIZE;
 
-	if (mpf->physptr < end) {
-		if (mpf->physptr + size > end)
-			size = end - mpf->physptr;
-		reserve_bootmem_generic(mpf->physptr, size, BOOTMEM_DEFAULT);
-	}
-#else
-	reserve_bootmem_generic(mpf->physptr, size, BOOTMEM_DEFAULT);
-#endif
+	reserve_early(mpf->physptr, mpf->physptr+size, "MP-table mpc");
 }
 
-static int __init smp_scan_config(unsigned long base, unsigned long length,
-				  unsigned reserve)
+static int __init smp_scan_config(unsigned long base, unsigned long length)
 {
 	unsigned int *bp = phys_to_virt(base);
 	struct mpf_intel *mpf;
+	unsigned long mem;
 
 	apic_printk(APIC_VERBOSE, "Scan SMP from %p for %ld bytes.\n",
 			bp, length);
@@ -730,12 +692,10 @@ static int __init smp_scan_config(unsigned long base, unsigned long length,
 			printk(KERN_INFO "found SMP MP-table at [%p] %llx\n",
 			       mpf, (u64)virt_to_phys(mpf));
 
-			if (!reserve)
-				return 1;
-			reserve_bootmem_generic(virt_to_phys(mpf), sizeof(*mpf),
-						BOOTMEM_DEFAULT);
+			mem = virt_to_phys(mpf);
+			reserve_early(mem, mem + sizeof(*mpf), "MP-table mpf");
 			if (mpf->physptr)
-				smp_reserve_bootmem(mpf);
+				smp_reserve_memory(mpf);
 
 			return 1;
 		}
@@ -745,14 +705,10 @@ static int __init smp_scan_config(unsigned long base, unsigned long length,
 	return 0;
 }
 
-static void __init __find_smp_config(unsigned int reserve)
+void __init default_find_smp_config(void)
 {
 	unsigned int address;
 
-	if (x86_quirks->mach_find_smp_config) {
-		if (x86_quirks->mach_find_smp_config(reserve))
-			return;
-	}
 	/*
 	 * FIXME: Linux assumes you have 640K of base ram..
 	 * this continues the error...
@@ -761,9 +717,9 @@ static void __init __find_smp_config(unsigned int reserve)
 	 * 2) Scan the top 1K of base RAM
 	 * 3) Scan the 64K of bios
 	 */
-	if (smp_scan_config(0x0, 0x400, reserve) ||
-	    smp_scan_config(639 * 0x400, 0x400, reserve) ||
-	    smp_scan_config(0xF0000, 0x10000, reserve))
+	if (smp_scan_config(0x0, 0x400) ||
+	    smp_scan_config(639 * 0x400, 0x400) ||
+	    smp_scan_config(0xF0000, 0x10000))
 		return;
 	/*
 	 * If it is an SMP machine we should know now, unless the
@@ -784,17 +740,7 @@ static void __init __find_smp_config(unsigned int reserve)
 
 	address = get_bios_ebda();
 	if (address)
-		smp_scan_config(address, 0x400, reserve);
-}
-
-void __init early_find_smp_config(void)
-{
-	__find_smp_config(0);
-}
-
-void __init find_smp_config(void)
-{
-	__find_smp_config(1);
+		smp_scan_config(address, 0x400);
 }
 
 #ifdef CONFIG_X86_IO_APIC
@@ -992,9 +938,6 @@ void __init early_reserve_e820_mpc_new(void)
 {
 	if (enable_update_mptable && alloc_mptable) {
 		u64 startt = 0;
-#ifdef CONFIG_X86_TRAMPOLINE
-		startt = TRAMPOLINE_BASE;
-#endif
 		mpc_new_phys = early_reserve_e820(startt, mpc_new_length, 4);
 	}
 }

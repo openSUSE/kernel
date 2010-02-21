@@ -11,6 +11,7 @@
  */
 
 #include <linux/irq.h>
+#include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/random.h>
@@ -79,7 +80,7 @@ static struct irq_desc irq_desc_init = {
 	.chip	    = &no_irq_chip,
 	.handle_irq = handle_bad_irq,
 	.depth      = 1,
-	.lock       = __ATOMIC_SPIN_LOCK_UNLOCKED(irq_desc_init.lock),
+	.lock       = __RAW_SPIN_LOCK_UNLOCKED(irq_desc_init.lock),
 };
 
 void __ref init_kstat_irqs(struct irq_desc *desc, int node, int nr)
@@ -107,7 +108,7 @@ static void init_one_irq_desc(int irq, struct irq_desc *desc, int node)
 {
 	memcpy(desc, &irq_desc_init, sizeof(struct irq_desc));
 
-	atomic_spin_lock_init(&desc->lock);
+	raw_spin_lock_init(&desc->lock);
 	desc->irq = irq;
 #ifdef CONFIG_SMP
 	desc->node = node;
@@ -129,7 +130,7 @@ static void init_one_irq_desc(int irq, struct irq_desc *desc, int node)
 /*
  * Protect the sparse_irqs:
  */
-DEFINE_ATOMIC_SPINLOCK(sparse_irq_lock);
+DEFINE_RAW_SPINLOCK(sparse_irq_lock);
 
 struct irq_desc **irq_desc_ptrs __read_mostly;
 
@@ -140,7 +141,7 @@ static struct irq_desc irq_desc_legacy[NR_IRQS_LEGACY] __cacheline_aligned_in_sm
 		.chip	    = &no_irq_chip,
 		.handle_irq = handle_bad_irq,
 		.depth	    = 1,
-		.lock	    = __ATOMIC_SPIN_LOCK_UNLOCKED(irq_desc_init.lock),
+		.lock	    = __RAW_SPIN_LOCK_UNLOCKED(irq_desc_init.lock),
 	}
 };
 
@@ -161,7 +162,7 @@ int __init early_irq_init(void)
 
 	desc = irq_desc_legacy;
 	legacy_count = ARRAY_SIZE(irq_desc_legacy);
- 	node = first_online_node;
+	node = first_online_node;
 
 	/* allocate irq_desc_ptrs array based on nr_irqs */
 	irq_desc_ptrs = kcalloc(nr_irqs, sizeof(void *), GFP_NOWAIT);
@@ -172,6 +173,9 @@ int __init early_irq_init(void)
 
 	for (i = 0; i < legacy_count; i++) {
 		desc[i].irq = i;
+#ifdef CONFIG_SMP
+		desc[i].node = node;
+#endif
 		desc[i].kstat_irqs = kstat_irqs_legacy + i * nr_cpu_ids;
 		lockdep_set_class(&desc[i].lock, &irq_desc_lock_class);
 		alloc_desc_masks(&desc[i], node, true);
@@ -208,7 +212,7 @@ struct irq_desc * __ref irq_to_desc_alloc_node(unsigned int irq, int node)
 	if (desc)
 		return desc;
 
-	atomic_spin_lock_irqsave(&sparse_irq_lock, flags);
+	raw_spin_lock_irqsave(&sparse_irq_lock, flags);
 
 	/* We have to check it to avoid races with another CPU */
 	desc = irq_desc_ptrs[irq];
@@ -230,7 +234,7 @@ struct irq_desc * __ref irq_to_desc_alloc_node(unsigned int irq, int node)
 	irq_desc_ptrs[irq] = desc;
 
 out_unlock:
-	atomic_spin_unlock_irqrestore(&sparse_irq_lock, flags);
+	raw_spin_unlock_irqrestore(&sparse_irq_lock, flags);
 
 	return desc;
 }
@@ -243,7 +247,7 @@ struct irq_desc irq_desc[NR_IRQS] __cacheline_aligned_in_smp = {
 		.chip = &no_irq_chip,
 		.handle_irq = handle_bad_irq,
 		.depth = 1,
-		.lock = __ATOMIC_SPIN_LOCK_UNLOCKED(irq_desc->lock),
+		.lock = __RAW_SPIN_LOCK_UNLOCKED(irq_desc->lock),
 	}
 };
 
@@ -367,9 +371,9 @@ irqreturn_t handle_irq_action(unsigned int irq, struct irqaction *action)
 	if (desc->status & IRQ_ONESHOT) {
 		unsigned long flags;
 
-		atomic_spin_lock_irqsave(&desc->lock, flags);
+		raw_spin_lock_irqsave(&desc->lock, flags);
 		desc->forced_threads_active |= action->thread_mask;
-		atomic_spin_unlock_irqrestore(&desc->lock, flags);
+		raw_spin_unlock_irqrestore(&desc->lock, flags);
 		return IRQ_WAKE_THREAD;
 	}
 	return action->handler(irq, action->dev_id);
@@ -496,7 +500,7 @@ unsigned int __do_IRQ(unsigned int irq)
 		return 1;
 	}
 
-	atomic_spin_lock(&desc->lock);
+	raw_spin_lock(&desc->lock);
 	if (desc->chip->ack)
 		desc->chip->ack(irq);
 	/*
@@ -540,13 +544,13 @@ unsigned int __do_IRQ(unsigned int irq)
 	for (;;) {
 		irqreturn_t action_ret;
 
-		atomic_spin_unlock(&desc->lock);
+		raw_spin_unlock(&desc->lock);
 
 		action_ret = handle_IRQ_event(irq, action);
 		if (!noirqdebug)
 			note_interrupt(irq, desc, action_ret);
 
-		atomic_spin_lock(&desc->lock);
+		raw_spin_lock(&desc->lock);
 		if (likely(!(desc->status & IRQ_PENDING)))
 			break;
 		desc->status &= ~IRQ_PENDING;
@@ -559,7 +563,7 @@ out:
 	 * disabled while the handler was running.
 	 */
 	desc->chip->end(irq);
-	atomic_spin_unlock(&desc->lock);
+	raw_spin_unlock(&desc->lock);
 
 	return 1;
 }

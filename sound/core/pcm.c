@@ -162,18 +162,7 @@ static int snd_pcm_control_ioctl(struct snd_card *card,
 	return -ENOIOCTLCMD;
 }
 
-#ifdef CONFIG_SND_VERBOSE_PROCFS
-
-#define STATE(v) [SNDRV_PCM_STATE_##v] = #v
-#define STREAM(v) [SNDRV_PCM_STREAM_##v] = #v
-#define READY(v) [SNDRV_PCM_READY_##v] = #v
-#define XRUN(v) [SNDRV_PCM_XRUN_##v] = #v
-#define SILENCE(v) [SNDRV_PCM_SILENCE_##v] = #v
-#define TSTAMP(v) [SNDRV_PCM_TSTAMP_##v] = #v
-#define ACCESS(v) [SNDRV_PCM_ACCESS_##v] = #v
-#define START(v) [SNDRV_PCM_START_##v] = #v
 #define FORMAT(v) [SNDRV_PCM_FORMAT_##v] = #v
-#define SUBFORMAT(v) [SNDRV_PCM_SUBFORMAT_##v] = #v 
 
 static char *snd_pcm_format_names[] = {
 	FORMAT(S8),
@@ -216,10 +205,23 @@ static char *snd_pcm_format_names[] = {
 	FORMAT(U18_3BE),
 };
 
-static const char *snd_pcm_format_name(snd_pcm_format_t format)
+const char *snd_pcm_format_name(snd_pcm_format_t format)
 {
 	return snd_pcm_format_names[format];
 }
+EXPORT_SYMBOL_GPL(snd_pcm_format_name);
+
+#ifdef CONFIG_SND_VERBOSE_PROCFS
+
+#define STATE(v) [SNDRV_PCM_STATE_##v] = #v
+#define STREAM(v) [SNDRV_PCM_STREAM_##v] = #v
+#define READY(v) [SNDRV_PCM_READY_##v] = #v
+#define XRUN(v) [SNDRV_PCM_XRUN_##v] = #v
+#define SILENCE(v) [SNDRV_PCM_SILENCE_##v] = #v
+#define TSTAMP(v) [SNDRV_PCM_TSTAMP_##v] = #v
+#define ACCESS(v) [SNDRV_PCM_ACCESS_##v] = #v
+#define START(v) [SNDRV_PCM_START_##v] = #v
+#define SUBFORMAT(v) [SNDRV_PCM_SUBFORMAT_##v] = #v 
 
 static char *snd_pcm_stream_names[] = {
 	STREAM(PLAYBACK),
@@ -433,6 +435,7 @@ static void snd_pcm_substream_proc_status_read(struct snd_info_entry *entry,
 		return;
 	}
 	snd_iprintf(buffer, "state: %s\n", snd_pcm_state_name(status.state));
+	snd_iprintf(buffer, "owner_pid   : %d\n", pid_vnr(substream->pid));
 	snd_iprintf(buffer, "trigger_time: %ld.%09ld\n",
 		status.trigger_tstamp.tv_sec, status.trigger_tstamp.tv_nsec);
 	snd_iprintf(buffer, "tstamp      : %ld.%09ld\n",
@@ -807,7 +810,7 @@ int snd_pcm_attach_substream(struct snd_pcm *pcm, int stream,
 	card = pcm->card;
 	read_lock(&card->ctl_files_rwlock);
 	list_for_each_entry(kctl, &card->ctl_files, list) {
-		if (kctl->pid == current->pid) {
+		if (kctl->pid == task_pid(current)) {
 			prefer_subdevice = kctl->prefer_pcm_subdevice;
 			if (prefer_subdevice != -1)
 				break;
@@ -898,6 +901,7 @@ int snd_pcm_attach_substream(struct snd_pcm *pcm, int stream,
 	substream->private_data = pcm->private_data;
 	substream->ref_count = 1;
 	substream->f_flags = file->f_flags;
+	substream->pid = get_pid(task_pid(current));
 	pstr->substream_opened++;
 	*rsubstream = substream;
 	return 0;
@@ -919,6 +923,8 @@ void snd_pcm_detach_substream(struct snd_pcm_substream *substream)
 	kfree(runtime->hw_constraints.rules);
 	kfree(runtime);
 	substream->runtime = NULL;
+	put_pid(substream->pid);
+	substream->pid = NULL;
 	substream->pstr->substream_opened--;
 }
 
@@ -951,11 +957,12 @@ static int snd_pcm_dev_register(struct snd_device *device)
 	struct snd_pcm_substream *substream;
 	struct snd_pcm_notify *notify;
 	char str[16];
-	struct snd_pcm *pcm = device->device_data;
+	struct snd_pcm *pcm;
 	struct device *dev;
 
-	if (snd_BUG_ON(!pcm || !device))
+	if (snd_BUG_ON(!device || !device->device_data))
 		return -ENXIO;
+	pcm = device->device_data;
 	mutex_lock(&register_mutex);
 	err = snd_pcm_add(pcm);
 	if (err) {

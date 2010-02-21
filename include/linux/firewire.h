@@ -20,20 +20,6 @@
 #define fw_notify(s, args...) printk(KERN_NOTICE KBUILD_MODNAME ": " s, ## args)
 #define fw_error(s, args...) printk(KERN_ERR KBUILD_MODNAME ": " s, ## args)
 
-static inline void fw_memcpy_from_be32(void *_dst, void *_src, size_t size)
-{
-	u32    *dst = _dst;
-	__be32 *src = _src;
-	int i;
-
-	for (i = 0; i < size / 4; i++)
-		dst[i] = be32_to_cpu(src[i]);
-}
-
-static inline void fw_memcpy_to_be32(void *_dst, void *_src, size_t size)
-{
-	fw_memcpy_from_be32(_dst, _src, size);
-}
 #define CSR_REGISTER_BASE		0xfffff0000000ULL
 
 /* register offsets are relative to CSR_REGISTER_BASE */
@@ -131,22 +117,8 @@ struct fw_card {
 
 	bool broadcast_channel_allocated;
 	u32 broadcast_channel;
-	u32 topology_map[(CSR_TOPOLOGY_MAP_END - CSR_TOPOLOGY_MAP) / 4];
+	__be32 topology_map[(CSR_TOPOLOGY_MAP_END - CSR_TOPOLOGY_MAP) / 4];
 };
-
-static inline struct fw_card *fw_card_get(struct fw_card *card)
-{
-	kref_get(&card->kref);
-
-	return card;
-}
-
-void fw_card_release(struct kref *kref);
-
-static inline void fw_card_put(struct fw_card *card)
-{
-	kref_put(&card->kref, fw_card_release);
-}
 
 struct fw_attribute_group {
 	struct attribute_group *groups[2];
@@ -276,8 +248,8 @@ typedef void (*fw_transaction_callback_t)(struct fw_card *card, int rcode,
 					  void *data, size_t length,
 					  void *callback_data);
 /*
- * Important note:  The callback must guarantee that either fw_send_response()
- * or kfree() is called on the @request.
+ * Important note:  Except for the FCP registers, the callback must guarantee
+ * that either fw_send_response() or kfree() is called on the @request.
  */
 typedef void (*fw_address_callback_t)(struct fw_card *card,
 				      struct fw_request *request,
@@ -295,6 +267,7 @@ struct fw_packet {
 	void *payload;
 	size_t payload_length;
 	dma_addr_t payload_bus;
+	bool payload_mapped;
 	u32 timestamp;
 
 	/*

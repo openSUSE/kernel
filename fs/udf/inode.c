@@ -90,25 +90,24 @@ no_delete:
 }
 
 /*
- * If we are going to release inode from memory, we discard preallocation and
- * truncate last inode extent to proper length. We could use drop_inode() but
- * it's called under inode_lock and thus we cannot mark inode dirty there.  We
- * use clear_inode() but we have to make sure to write inode as it's not written
- * automatically.
+ * If we are going to release inode from memory, we truncate last inode extent
+ * to proper length. We could use drop_inode() but it's called under inode_lock
+ * and thus we cannot mark inode dirty there.  We use clear_inode() but we have
+ * to make sure to write inode as it's not written automatically.
  */
 void udf_clear_inode(struct inode *inode)
 {
-	struct udf_inode_info *iinfo;
-	if (!(inode->i_sb->s_flags & MS_RDONLY)) {
-		lock_kernel();
-		/* Discard preallocation for directories, symlinks, etc. */
-		udf_discard_prealloc(inode);
-		udf_truncate_tail_extent(inode);
-		unlock_kernel();
-		write_inode_now(inode, 0);
-		invalidate_inode_buffers(inode);
+	struct udf_inode_info *iinfo = UDF_I(inode);
+
+	if (iinfo->i_alloc_type != ICBTAG_FLAG_AD_IN_ICB &&
+	    inode->i_size != iinfo->i_lenExtents) {
+		printk(KERN_WARNING "UDF-fs (%s): Inode %lu (mode %o) has "
+			"inode size %llu different from extent lenght %llu. "
+			"Filesystem need not be standards compliant.\n",
+			inode->i_sb->s_id, inode->i_ino, inode->i_mode,
+			(unsigned long long)inode->i_size,
+			(unsigned long long)iinfo->i_lenExtents);
 	}
-	iinfo = UDF_I(inode);
 	kfree(iinfo->i_ext.i_data);
 	iinfo->i_ext.i_data = NULL;
 }
@@ -201,7 +200,6 @@ struct buffer_head *udf_expand_dir_adinicb(struct inode *inode, int *block,
 	int newblock;
 	struct buffer_head *dbh = NULL;
 	struct kernel_lb_addr eloc;
-	uint32_t elen;
 	uint8_t alloctype;
 	struct extent_position epos;
 
@@ -276,12 +274,11 @@ struct buffer_head *udf_expand_dir_adinicb(struct inode *inode, int *block,
 	eloc.logicalBlockNum = *block;
 	eloc.partitionReferenceNum =
 				iinfo->i_location.partitionReferenceNum;
-	elen = inode->i_sb->s_blocksize;
-	iinfo->i_lenExtents = elen;
+	iinfo->i_lenExtents = inode->i_size;
 	epos.bh = NULL;
 	epos.block = iinfo->i_location;
 	epos.offset = udf_file_entry_alloc_offset(inode);
-	udf_add_aext(inode, &epos, &eloc, elen, 0);
+	udf_add_aext(inode, &epos, &eloc, inode->i_size, 0);
 	/* UniqueID stuff */
 
 	brelse(epos.bh);
@@ -664,8 +661,12 @@ static struct buffer_head *inode_getblk(struct inode *inode, sector_t block,
 	udf_split_extents(inode, &c, offset, newblocknum, laarr, &endnum);
 
 #ifdef UDF_PREALLOCATE
-	/* preallocate blocks */
-	udf_prealloc_extents(inode, c, lastblock, laarr, &endnum);
+	/* We preallocate blocks only for regular files. It also makes sense
+	 * for directories but there's a problem when to drop the
+	 * preallocation. We might use some delayed work for that but I feel
+	 * it's overengineering for a filesystem like UDF. */
+	if (S_ISREG(inode->i_mode))
+		udf_prealloc_extents(inode, c, lastblock, laarr, &endnum);
 #endif
 
 	/* merge any continuous blocks in laarr */

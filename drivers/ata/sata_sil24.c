@@ -417,6 +417,10 @@ static struct ata_port_operations sil24_ops = {
 #endif
 };
 
+static int sata_sil24_msi;    /* Disable MSI */
+module_param_named(msi, sata_sil24_msi, bool, S_IRUGO);
+MODULE_PARM_DESC(msi, "Enable MSI (Default: false)");
+
 /*
  * Use bits 30-31 of port_flags to encode available port numbers.
  * Current maxium is 4.
@@ -846,6 +850,17 @@ static void sil24_qc_prep(struct ata_queued_cmd *qc)
 	if (!ata_is_atapi(qc->tf.protocol)) {
 		prb = &cb->ata.prb;
 		sge = cb->ata.sge;
+		if (ata_is_data(qc->tf.protocol)) {
+			u16 prot = 0;
+			ctrl = PRB_CTRL_PROTOCOL;
+			if (ata_is_ncq(qc->tf.protocol))
+				prot |= PRB_PROT_NCQ;
+			if (qc->tf.flags & ATA_TFLAG_WRITE)
+				prot |= PRB_PROT_WRITE;
+			else
+				prot |= PRB_PROT_READ;
+			prb->prot = cpu_to_le16(prot);
+		}
 	} else {
 		prb = &cb->atapi.prb;
 		sge = cb->atapi.sge;
@@ -1328,6 +1343,11 @@ static int sil24_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	pcie_set_readrq(pdev, 4096);
 
 	sil24_init_controller(host);
+
+	if (sata_sil24_msi && !pci_enable_msi(pdev)) {
+		dev_printk(KERN_INFO, &pdev->dev, "Using MSI\n");
+		pci_intx(pdev, 0);
+	}
 
 	pci_set_master(pdev);
 	return ata_host_activate(host, pdev->irq, sil24_interrupt, IRQF_SHARED,

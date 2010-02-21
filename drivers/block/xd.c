@@ -130,7 +130,7 @@ static struct gendisk *xd_gendisk[2];
 
 static int xd_getgeo(struct block_device *bdev, struct hd_geometry *geo);
 
-static struct block_device_operations xd_fops = {
+static const struct block_device_operations xd_fops = {
 	.owner	= THIS_MODULE,
 	.locked_ioctl	= xd_ioctl,
 	.getgeo = xd_getgeo,
@@ -169,13 +169,6 @@ static int __init xd_init(void)
 
 	init_timer (&xd_watchdog_int); xd_watchdog_int.function = xd_watchdog;
 
-	if (!xd_dma_buffer)
-		xd_dma_buffer = (char *)xd_dma_mem_alloc(xd_maxsectors * 0x200);
-	if (!xd_dma_buffer) {
-		printk(KERN_ERR "xd: Out of memory.\n");
-		return -ENOMEM;
-	}
-
 	err = -EBUSY;
 	if (register_blkdev(XT_DISK_MAJOR, "xd"))
 		goto out1;
@@ -200,6 +193,19 @@ static int __init xd_init(void)
 		
 		printk("Detected %d hard drive%s (using IRQ%d & DMA%d)\n",
 			xd_drives,xd_drives == 1 ? "" : "s",xd_irq,xd_dma);
+	}
+
+	/*
+	 * With the drive detected, xd_maxsectors should now be known.
+	 * If xd_maxsectors is 0, nothing was detected and we fall through
+	 * to return -ENODEV
+	 */
+	if (!xd_dma_buffer && xd_maxsectors) {
+		xd_dma_buffer = (char *)xd_dma_mem_alloc(xd_maxsectors * 0x200);
+		if (!xd_dma_buffer) {
+			printk(KERN_ERR "xd: Out of memory.\n");
+			goto out3;
+		}
 	}
 
 	err = -ENODEV;
@@ -249,15 +255,17 @@ out4:
 	for (i = 0; i < xd_drives; i++)
 		put_disk(xd_gendisk[i]);
 out3:
-	release_region(xd_iobase,4);
+	if (xd_maxsectors)
+		release_region(xd_iobase,4);
+
+	if (xd_dma_buffer)
+		xd_dma_mem_free((unsigned long)xd_dma_buffer,
+				xd_maxsectors * 0x200);
 out2:
 	blk_cleanup_queue(xd_queue);
 out1a:
 	unregister_blkdev(XT_DISK_MAJOR, "xd");
 out1:
-	if (xd_dma_buffer)
-		xd_dma_mem_free((unsigned long)xd_dma_buffer,
-				xd_maxsectors * 0x200);
 	return err;
 Enomem:
 	err = -ENOMEM;

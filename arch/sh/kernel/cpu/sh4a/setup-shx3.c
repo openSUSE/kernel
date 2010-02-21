@@ -15,37 +15,57 @@
 #include <linux/sh_timer.h>
 #include <asm/mmzone.h>
 
-static struct plat_sci_port sci_platform_data[] = {
-	{
-		.mapbase	= 0xffc30000,
-		.flags		= UPF_BOOT_AUTOCONF,
-		.type		= PORT_SCIF,
-		.irqs		= { 40, 41, 43, 42 },
-	}, {
-		.mapbase	= 0xffc40000,
-		.flags		= UPF_BOOT_AUTOCONF,
-		.type		= PORT_SCIF,
-		.irqs		= { 44, 45, 47, 46 },
-	}, {
-		.mapbase	= 0xffc50000,
-		.flags		= UPF_BOOT_AUTOCONF,
-		.type		= PORT_SCIF,
-		.irqs		= { 48, 49, 51, 50 },
-	}, {
-		.mapbase	= 0xffc60000,
-		.flags		= UPF_BOOT_AUTOCONF,
-		.type		= PORT_SCIF,
-		.irqs		= { 52, 53, 55, 54 },
-	}, {
-		.flags = 0,
-	}
+/*
+ * This intentionally only registers SCIF ports 0, 1, and 3. SCIF 2
+ * INTEVT values overlap with the FPU EXPEVT ones, requiring special
+ * demuxing in the exception dispatch path.
+ *
+ * As this overlap is something that never should have made it in to
+ * silicon in the first place, we just refuse to deal with the port at
+ * all rather than adding infrastructure to hack around it.
+ */
+static struct plat_sci_port scif0_platform_data = {
+	.mapbase	= 0xffc30000,
+	.flags		= UPF_BOOT_AUTOCONF,
+	.type		= PORT_SCIF,
+	.irqs		= { 40, 41, 43, 42 },
 };
 
-static struct platform_device sci_device = {
+static struct platform_device scif0_device = {
 	.name		= "sh-sci",
-	.id		= -1,
+	.id		= 0,
 	.dev		= {
-		.platform_data	= sci_platform_data,
+		.platform_data	= &scif0_platform_data,
+	},
+};
+
+static struct plat_sci_port scif1_platform_data = {
+	.mapbase	= 0xffc40000,
+	.flags		= UPF_BOOT_AUTOCONF,
+	.type		= PORT_SCIF,
+	.irqs		= { 44, 45, 47, 46 },
+};
+
+static struct platform_device scif1_device = {
+	.name		= "sh-sci",
+	.id		= 1,
+	.dev		= {
+		.platform_data	= &scif1_platform_data,
+	},
+};
+
+static struct plat_sci_port scif2_platform_data = {
+	.mapbase	= 0xffc60000,
+	.flags		= UPF_BOOT_AUTOCONF,
+	.type		= PORT_SCIF,
+	.irqs		= { 52, 53, 55, 54 },
+};
+
+static struct platform_device scif2_device = {
+	.name		= "sh-sci",
+	.id		= 2,
+	.dev		= {
+		.platform_data	= &scif2_platform_data,
 	},
 };
 
@@ -232,6 +252,9 @@ static struct platform_device tmu5_device = {
 };
 
 static struct platform_device *shx3_early_devices[] __initdata = {
+	&scif0_device,
+	&scif1_device,
+	&scif2_device,
 	&tmu0_device,
 	&tmu1_device,
 	&tmu2_device,
@@ -240,21 +263,10 @@ static struct platform_device *shx3_early_devices[] __initdata = {
 	&tmu5_device,
 };
 
-static struct platform_device *shx3_devices[] __initdata = {
-	&sci_device,
-};
-
 static int __init shx3_devices_setup(void)
 {
-	int ret;
-
-	ret = platform_add_devices(shx3_early_devices,
+	return platform_add_devices(shx3_early_devices,
 				   ARRAY_SIZE(shx3_early_devices));
-	if (unlikely(ret != 0))
-		return ret;
-
-	return platform_add_devices(shx3_devices,
-				    ARRAY_SIZE(shx3_devices));
 }
 arch_initcall(shx3_devices_setup);
 
@@ -287,10 +299,7 @@ enum {
 	DMAC1_DMINT6, DMAC1_DMINT7, DMAC1_DMINT8, DMAC1_DMINT9,
 	DMAC1_DMINT10, DMAC1_DMINT11, DMAC1_DMAE,
 	IIC, VIN0, VIN1, VCORE0, ATAPI,
-	DTU0_TEND, DTU0_AE, DTU0_TMISS,
-	DTU1_TEND, DTU1_AE, DTU1_TMISS,
-	DTU2_TEND, DTU2_AE, DTU2_TMISS,
-	DTU3_TEND, DTU3_AE, DTU3_TMISS,
+	DTU0, DTU1, DTU2, DTU3,
 	FE0, FE1,
 	GPIO0, GPIO1, GPIO2, GPIO3,
 	PAM, IRM,
@@ -299,7 +308,7 @@ enum {
 
 	/* interrupt groups */
 	IRL, PCII56789, SCIF0, SCIF1, SCIF2, SCIF3,
-	DMAC0, DMAC1, DTU0, DTU1, DTU2, DTU3,
+	DMAC0, DMAC1,
 };
 
 static struct intc_vect vectors[] __initdata = {
@@ -316,8 +325,6 @@ static struct intc_vect vectors[] __initdata = {
 	INTC_VECT(SCIF0_BRI, 0x740), INTC_VECT(SCIF0_TXI, 0x760),
 	INTC_VECT(SCIF1_ERI, 0x780), INTC_VECT(SCIF1_RXI, 0x7a0),
 	INTC_VECT(SCIF1_BRI, 0x7c0), INTC_VECT(SCIF1_TXI, 0x7e0),
-	INTC_VECT(SCIF2_ERI, 0x800), INTC_VECT(SCIF2_RXI, 0x820),
-	INTC_VECT(SCIF2_BRI, 0x840), INTC_VECT(SCIF2_TXI, 0x860),
 	INTC_VECT(SCIF3_ERI, 0x880), INTC_VECT(SCIF3_RXI, 0x8a0),
 	INTC_VECT(SCIF3_BRI, 0x8c0), INTC_VECT(SCIF3_TXI, 0x8e0),
 	INTC_VECT(DMAC0_DMINT0, 0x900), INTC_VECT(DMAC0_DMINT1, 0x920),
@@ -332,14 +339,14 @@ static struct intc_vect vectors[] __initdata = {
 	INTC_VECT(IIC, 0xae0),
 	INTC_VECT(VIN0, 0xb00), INTC_VECT(VIN1, 0xb20),
 	INTC_VECT(VCORE0, 0xb00), INTC_VECT(ATAPI, 0xb60),
-	INTC_VECT(DTU0_TEND, 0xc00), INTC_VECT(DTU0_AE, 0xc20),
-	INTC_VECT(DTU0_TMISS, 0xc40),
-	INTC_VECT(DTU1_TEND, 0xc60), INTC_VECT(DTU1_AE, 0xc80),
-	INTC_VECT(DTU1_TMISS, 0xca0),
-	INTC_VECT(DTU2_TEND, 0xcc0), INTC_VECT(DTU2_AE, 0xce0),
-	INTC_VECT(DTU2_TMISS, 0xd00),
-	INTC_VECT(DTU3_TEND, 0xd20), INTC_VECT(DTU3_AE, 0xd40),
-	INTC_VECT(DTU3_TMISS, 0xd60),
+	INTC_VECT(DTU0, 0xc00), INTC_VECT(DTU0, 0xc20),
+	INTC_VECT(DTU0, 0xc40),
+	INTC_VECT(DTU1, 0xc60), INTC_VECT(DTU1, 0xc80),
+	INTC_VECT(DTU1, 0xca0),
+	INTC_VECT(DTU2, 0xcc0), INTC_VECT(DTU2, 0xce0),
+	INTC_VECT(DTU2, 0xd00),
+	INTC_VECT(DTU3, 0xd20), INTC_VECT(DTU3, 0xd40),
+	INTC_VECT(DTU3, 0xd60),
 	INTC_VECT(FE0, 0xe00), INTC_VECT(FE1, 0xe20),
 	INTC_VECT(GPIO0, 0xe40), INTC_VECT(GPIO1, 0xe60),
 	INTC_VECT(GPIO2, 0xe80), INTC_VECT(GPIO3, 0xea0),
@@ -358,16 +365,11 @@ static struct intc_group groups[] __initdata = {
 	INTC_GROUP(PCII56789, PCII5, PCII6, PCII7, PCII8, PCII9),
 	INTC_GROUP(SCIF0, SCIF0_ERI, SCIF0_RXI, SCIF0_BRI, SCIF0_TXI),
 	INTC_GROUP(SCIF1, SCIF1_ERI, SCIF1_RXI, SCIF1_BRI, SCIF1_TXI),
-	INTC_GROUP(SCIF2, SCIF2_ERI, SCIF2_RXI, SCIF2_BRI, SCIF2_TXI),
 	INTC_GROUP(SCIF3, SCIF3_ERI, SCIF3_RXI, SCIF3_BRI, SCIF3_TXI),
 	INTC_GROUP(DMAC0, DMAC0_DMINT0, DMAC0_DMINT1, DMAC0_DMINT2,
 		   DMAC0_DMINT3, DMAC0_DMINT4, DMAC0_DMINT5, DMAC0_DMAE),
 	INTC_GROUP(DMAC1, DMAC1_DMINT6, DMAC1_DMINT7, DMAC1_DMINT8,
 		   DMAC1_DMINT9, DMAC1_DMINT10, DMAC1_DMINT11),
-	INTC_GROUP(DTU0, DTU0_TEND, DTU0_AE, DTU0_TMISS),
-	INTC_GROUP(DTU1, DTU1_TEND, DTU1_AE, DTU1_TMISS),
-	INTC_GROUP(DTU2, DTU2_TEND, DTU2_AE, DTU2_TMISS),
-	INTC_GROUP(DTU3, DTU3_TEND, DTU3_AE, DTU3_TMISS),
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {

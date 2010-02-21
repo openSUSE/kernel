@@ -126,11 +126,11 @@ extern int allocate_resource(struct resource *root, struct resource *new,
 int adjust_resource(struct resource *res, resource_size_t start,
 		    resource_size_t size);
 resource_size_t resource_alignment(struct resource *res);
-static inline resource_size_t resource_size(struct resource *res)
+static inline resource_size_t resource_size(const struct resource *res)
 {
 	return res->end - res->start + 1;
 }
-static inline unsigned long resource_type(struct resource *res)
+static inline unsigned long resource_type(const struct resource *res)
 {
 	return res->flags & IORESOURCE_TYPE_BITS;
 }
@@ -183,6 +183,10 @@ extern void __devm_release_region(struct device *dev, struct resource *parent,
 				  resource_size_t start, resource_size_t n);
 extern int iomem_map_sanity_check(resource_size_t addr, unsigned long size);
 extern int iomem_is_exclusive(u64 addr);
+
+extern int
+walk_system_ram_range(unsigned long start_pfn, unsigned long nr_pages,
+		void *arg, int (*func)(unsigned long, unsigned long, void *));
 
 #endif /* __ASSEMBLY__ */
 #endif	/* _LINUX_IOPORT_H */

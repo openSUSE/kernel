@@ -41,7 +41,7 @@ ENTRY(cpu_arm7_dcache_clean_area)
 ENTRY(cpu_arm7_data_abort)
 	mrc	p15, 0, r1, c5, c0, 0		@ get FSR
 	mrc	p15, 0, r0, c6, c0, 0		@ get FAR
-	ldr	r8, [r0]			@ read arm instruction
+	ldr	r8, [r2]			@ read arm instruction
 	tst	r8, #1 << 20			@ L = 0 -> write?
 	orreq	r1, r1, #1 << 11		@ yes.
 	and	r7, r8, #15 << 24
@@ -278,7 +278,7 @@ __arm7_setup:	mov	r0, #0
 		.type	arm6_processor_functions, #object
 ENTRY(arm6_processor_functions)
 		.word	cpu_arm6_data_abort
-		.word	pabort_noifar
+		.word	legacy_pabort
 		.word	cpu_arm6_proc_init
 		.word	cpu_arm6_proc_fin
 		.word	cpu_arm6_reset
@@ -295,7 +295,7 @@ ENTRY(arm6_processor_functions)
 		.type	arm7_processor_functions, #object
 ENTRY(arm7_processor_functions)
 		.word	cpu_arm7_data_abort
-		.word	pabort_noifar
+		.word	legacy_pabort
 		.word	cpu_arm7_proc_init
 		.word	cpu_arm7_proc_fin
 		.word	cpu_arm7_reset

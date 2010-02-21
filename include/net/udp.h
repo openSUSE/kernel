@@ -50,16 +50,49 @@ struct udp_skb_cb {
 };
 #define UDP_SKB_CB(__skb)	((struct udp_skb_cb *)((__skb)->cb))
 
+/**
+ *	struct udp_hslot - UDP hash slot
+ *
+ *	@head:	head of list of sockets
+ *	@count:	number of sockets in 'head' list
+ *	@lock:	spinlock protecting changes to head/count
+ */
 struct udp_hslot {
 	struct hlist_nulls_head	head;
+	int			count;
 	spinlock_t		lock;
 } __attribute__((aligned(2 * sizeof(long))));
+
+/**
+ *	struct udp_table - UDP table
+ *
+ *	@hash:	hash table, sockets are hashed on (local port)
+ *	@hash2:	hash table, sockets are hashed on (local port, local address)
+ *	@mask:	number of slots in hash tables, minus 1
+ *	@log:	log2(number of slots in hash table)
+ */
 struct udp_table {
-	struct udp_hslot	hash[UDP_HTABLE_SIZE];
+	struct udp_hslot	*hash;
+	struct udp_hslot	*hash2;
+	unsigned int		mask;
+	unsigned int		log;
 };
 extern struct udp_table udp_table;
-extern void udp_table_init(struct udp_table *);
-
+extern void udp_table_init(struct udp_table *, const char *);
+static inline struct udp_hslot *udp_hashslot(struct udp_table *table,
+					     struct net *net, unsigned num)
+{
+	return &table->hash[udp_hashfn(net, num, table->mask)];
+}
+/*
+ * For secondary hash, net_hash_mix() is performed before calling
+ * udp_hashslot2(), this explains difference with udp_hashslot()
+ */
+static inline struct udp_hslot *udp_hashslot2(struct udp_table *table,
+					      unsigned int hash)
+{
+	return &table->hash2[hash & table->mask];
+}
 
 /* Note: this must match 'valbool' in sock_setsockopt */
 #define UDP_CSUM_NOXMIT		1
@@ -125,7 +158,8 @@ static inline void udp_lib_close(struct sock *sk, long timeout)
 }
 
 extern int	udp_lib_get_port(struct sock *sk, unsigned short snum,
-		int (*)(const struct sock*,const struct sock*));
+		int (*)(const struct sock *,const struct sock *),
+		unsigned int hash2_nulladdr);
 
 /* net/ipv4/udp.c */
 extern int	udp_get_port(struct sock *sk, unsigned short snum,
@@ -144,7 +178,7 @@ extern unsigned int udp_poll(struct file *file, struct socket *sock,
 extern int 	udp_lib_getsockopt(struct sock *sk, int level, int optname,
 			           char __user *optval, int __user *optlen);
 extern int 	udp_lib_setsockopt(struct sock *sk, int level, int optname,
-				   char __user *optval, int optlen,
+				   char __user *optval, unsigned int optlen,
 				   int (*push_pending_frames)(struct sock *));
 
 extern struct sock *udp4_lib_lookup(struct net *net, __be32 saddr, __be16 sport,
@@ -207,4 +241,7 @@ extern void udp4_proc_exit(void);
 #endif
 
 extern void udp_init(void);
+
+extern int udp4_ufo_send_check(struct sk_buff *skb);
+extern struct sk_buff *udp4_ufo_fragment(struct sk_buff *skb, int features);
 #endif	/* _UDP_H */

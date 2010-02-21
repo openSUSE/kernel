@@ -33,6 +33,7 @@
 #include <asm/udbg.h>
 
 #include <asm/mpic.h>
+#include <asm/nvram.h>
 
 #include <sysdev/fsl_pci.h>
 #include <sysdev/fsl_soc.h>
@@ -95,6 +96,10 @@ static void __init gef_ppc9a_setup_arch(void)
 			printk(KERN_WARNING "Unable to map board registers\n");
 		of_node_put(regs);
 	}
+
+#if defined(CONFIG_MMIO_NVRAM)
+	mmio_nvram_init();
+#endif
 }
 
 /* Return the PCB revision */
@@ -102,8 +107,8 @@ static unsigned int gef_ppc9a_get_pcb_rev(void)
 {
 	unsigned int reg;
 
-	reg = ioread32(ppc9a_regs);
-	return (reg >> 8) & 0xff;
+	reg = ioread32be(ppc9a_regs);
+	return (reg >> 16) & 0xff;
 }
 
 /* Return the board (software) revision */
@@ -111,8 +116,8 @@ static unsigned int gef_ppc9a_get_board_rev(void)
 {
 	unsigned int reg;
 
-	reg = ioread32(ppc9a_regs);
-	return (reg >> 16) & 0xff;
+	reg = ioread32be(ppc9a_regs);
+	return (reg >> 8) & 0xff;
 }
 
 /* Return the FPGA revision */
@@ -120,8 +125,26 @@ static unsigned int gef_ppc9a_get_fpga_rev(void)
 {
 	unsigned int reg;
 
-	reg = ioread32(ppc9a_regs);
-	return (reg >> 24) & 0xf;
+	reg = ioread32be(ppc9a_regs);
+	return reg & 0xf;
+}
+
+/* Return VME Geographical Address */
+static unsigned int gef_ppc9a_get_vme_geo_addr(void)
+{
+	unsigned int reg;
+
+	reg = ioread32be(ppc9a_regs + 0x4);
+	return reg & 0x1f;
+}
+
+/* Return VME System Controller Status */
+static unsigned int gef_ppc9a_get_vme_is_syscon(void)
+{
+	unsigned int reg;
+
+	reg = ioread32be(ppc9a_regs + 0x4);
+	return (reg >> 9) & 0x1;
 }
 
 static void gef_ppc9a_show_cpuinfo(struct seq_file *m)
@@ -131,10 +154,15 @@ static void gef_ppc9a_show_cpuinfo(struct seq_file *m)
 	seq_printf(m, "Vendor\t\t: GE Fanuc Intelligent Platforms\n");
 
 	seq_printf(m, "Revision\t: %u%c\n", gef_ppc9a_get_pcb_rev(),
-		('A' + gef_ppc9a_get_board_rev() - 1));
+		('A' + gef_ppc9a_get_board_rev()));
 	seq_printf(m, "FPGA Revision\t: %u\n", gef_ppc9a_get_fpga_rev());
 
 	seq_printf(m, "SVR\t\t: 0x%x\n", svid);
+
+	seq_printf(m, "VME geo. addr\t: %u\n", gef_ppc9a_get_vme_geo_addr());
+
+	seq_printf(m, "VME syscon\t: %s\n",
+		gef_ppc9a_get_vme_is_syscon() ? "yes" : "no");
 }
 
 static void __init gef_ppc9a_nec_fixup(struct pci_dev *pdev)

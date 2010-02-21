@@ -401,7 +401,7 @@ static int dataflash_write(struct mtd_info *mtd, loff_t to, size_t len,
 		(void) dataflash_waitready(priv->spi);
 
 
-#ifdef CONFIG_MTD_DATAFLASH_VERIFY_WRITE
+#ifdef CONFIG_MTD_DATAFLASH_WRITE_VERIFY
 
 		/* (3) Compare to Buffer1 */
 		addr = pageaddr << priv->page_offset;
@@ -430,7 +430,7 @@ static int dataflash_write(struct mtd_info *mtd, loff_t to, size_t len,
 		} else
 			status = 0;
 
-#endif	/* CONFIG_MTD_DATAFLASH_VERIFY_WRITE */
+#endif	/* CONFIG_MTD_DATAFLASH_WRITE_VERIFY */
 
 		remaining = remaining - writelen;
 		pageaddr++;
@@ -636,6 +636,7 @@ add_dataflash_otp(struct spi_device *spi, char *name,
 	struct mtd_info			*device;
 	struct flash_platform_data	*pdata = spi->dev.platform_data;
 	char				*otp_tag = "";
+	int				err = 0;
 
 	priv = kzalloc(sizeof *priv, GFP_KERNEL);
 	if (!priv)
@@ -693,13 +694,23 @@ add_dataflash_otp(struct spi_device *spi, char *name,
 
 		if (nr_parts > 0) {
 			priv->partitioned = 1;
-			return add_mtd_partitions(device, parts, nr_parts);
+			err = add_mtd_partitions(device, parts, nr_parts);
+			goto out;
 		}
 	} else if (pdata && pdata->nr_parts)
 		dev_warn(&spi->dev, "ignoring %d default partitions on %s\n",
 				pdata->nr_parts, device->name);
 
-	return add_mtd_device(device) == 1 ? -ENODEV : 0;
+	if (add_mtd_device(device) == 1)
+		err = -ENODEV;
+
+out:
+	if (!err)
+		return 0;
+
+	dev_set_drvdata(&spi->dev, NULL);
+	kfree(priv);
+	return err;
 }
 
 static inline int __devinit
@@ -932,8 +943,10 @@ static int __devexit dataflash_remove(struct spi_device *spi)
 		status = del_mtd_partitions(&flash->mtd);
 	else
 		status = del_mtd_device(&flash->mtd);
-	if (status == 0)
+	if (status == 0) {
+		dev_set_drvdata(&spi->dev, NULL);
 		kfree(flash);
+	}
 	return status;
 }
 
@@ -966,3 +979,4 @@ module_exit(dataflash_exit);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Andrew Victor, David Brownell");
 MODULE_DESCRIPTION("MTD DataFlash driver");
+MODULE_ALIAS("spi:mtd_dataflash");

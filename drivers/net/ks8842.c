@@ -357,7 +357,7 @@ static void ks8842_rx_frame(struct net_device *netdev,
 
 	/* check the status */
 	if ((status & RXSR_VALID) && !(status & RXSR_ERROR)) {
-		struct sk_buff *skb = netdev_alloc_skb(netdev, len + 2);
+		struct sk_buff *skb = netdev_alloc_skb_ip_align(netdev, len);
 
 		dev_dbg(&adapter->pdev->dev, "%s, got package, len: %d\n",
 			__func__, len);
@@ -369,9 +369,6 @@ static void ks8842_rx_frame(struct net_device *netdev,
 			if (status & RXSR_MULTICAST)
 				netdev->stats.multicast++;
 
-			/* Align socket buffer in 4-byte boundary for
-				 better performance. */
-			skb_reserve(skb, 2);
 			data = (u32 *)skb_put(skb, len);
 
 			ks8842_select_bank(adapter, 17);
@@ -551,7 +548,8 @@ static int ks8842_close(struct net_device *netdev)
 	return 0;
 }
 
-static int ks8842_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
+static netdev_tx_t ks8842_xmit_frame(struct sk_buff *skb,
+				     struct net_device *netdev)
 {
 	int ret;
 	struct ks8842_adapter *adapter = netdev_priv(netdev);
@@ -618,7 +616,7 @@ static const struct net_device_ops ks8842_netdev_ops = {
 	.ndo_validate_addr	= eth_validate_addr
 };
 
-static struct ethtool_ops ks8842_ethtool_ops = {
+static const struct ethtool_ops ks8842_ethtool_ops = {
 	.get_link		= ethtool_op_get_link,
 };
 

@@ -24,7 +24,7 @@
 #include "acl.h"
 #include "bmap.h"
 #include "dir.h"
-#include "eattr.h"
+#include "xattr.h"
 #include "glock.h"
 #include "glops.h"
 #include "inode.h"
@@ -125,7 +125,7 @@ static struct inode *gfs2_iget_skip(struct super_block *sb,
  * directory entry when gfs2_inode_lookup() is invoked. Part of the code
  * segment inside gfs2_inode_lookup code needs to get moved around.
  *
- * Clean up I_LOCK and I_NEW as well.
+ * Clears I_NEW as well.
  **/
 
 void gfs2_set_iop(struct inode *inode)
@@ -519,139 +519,6 @@ out:
 	return inode ? inode : ERR_PTR(error);
 }
 
-static void gfs2_inum_range_in(struct gfs2_inum_range_host *ir, const void *buf)
-{
-	const struct gfs2_inum_range *str = buf;
-
-	ir->ir_start = be64_to_cpu(str->ir_start);
-	ir->ir_length = be64_to_cpu(str->ir_length);
-}
-
-static void gfs2_inum_range_out(const struct gfs2_inum_range_host *ir, void *buf)
-{
-	struct gfs2_inum_range *str = buf;
-
-	str->ir_start = cpu_to_be64(ir->ir_start);
-	str->ir_length = cpu_to_be64(ir->ir_length);
-}
-
-static int pick_formal_ino_1(struct gfs2_sbd *sdp, u64 *formal_ino)
-{
-	struct gfs2_inode *ip = GFS2_I(sdp->sd_ir_inode);
-	struct buffer_head *bh;
-	struct gfs2_inum_range_host ir;
-	int error;
-
-	error = gfs2_trans_begin(sdp, RES_DINODE, 0);
-	if (error)
-		return error;
-	mutex_lock(&sdp->sd_inum_mutex);
-
-	error = gfs2_meta_inode_buffer(ip, &bh);
-	if (error) {
-		mutex_unlock(&sdp->sd_inum_mutex);
-		gfs2_trans_end(sdp);
-		return error;
-	}
-
-	gfs2_inum_range_in(&ir, bh->b_data + sizeof(struct gfs2_dinode));
-
-	if (ir.ir_length) {
-		*formal_ino = ir.ir_start++;
-		ir.ir_length--;
-		gfs2_trans_add_bh(ip->i_gl, bh, 1);
-		gfs2_inum_range_out(&ir,
-				    bh->b_data + sizeof(struct gfs2_dinode));
-		brelse(bh);
-		mutex_unlock(&sdp->sd_inum_mutex);
-		gfs2_trans_end(sdp);
-		return 0;
-	}
-
-	brelse(bh);
-
-	mutex_unlock(&sdp->sd_inum_mutex);
-	gfs2_trans_end(sdp);
-
-	return 1;
-}
-
-static int pick_formal_ino_2(struct gfs2_sbd *sdp, u64 *formal_ino)
-{
-	struct gfs2_inode *ip = GFS2_I(sdp->sd_ir_inode);
-	struct gfs2_inode *m_ip = GFS2_I(sdp->sd_inum_inode);
-	struct gfs2_holder gh;
-	struct buffer_head *bh;
-	struct gfs2_inum_range_host ir;
-	int error;
-
-	error = gfs2_glock_nq_init(m_ip->i_gl, LM_ST_EXCLUSIVE, 0, &gh);
-	if (error)
-		return error;
-
-	error = gfs2_trans_begin(sdp, 2 * RES_DINODE, 0);
-	if (error)
-		goto out;
-	mutex_lock(&sdp->sd_inum_mutex);
-
-	error = gfs2_meta_inode_buffer(ip, &bh);
-	if (error)
-		goto out_end_trans;
-
-	gfs2_inum_range_in(&ir, bh->b_data + sizeof(struct gfs2_dinode));
-
-	if (!ir.ir_length) {
-		struct buffer_head *m_bh;
-		u64 x, y;
-		__be64 z;
-
-		error = gfs2_meta_inode_buffer(m_ip, &m_bh);
-		if (error)
-			goto out_brelse;
-
-		z = *(__be64 *)(m_bh->b_data + sizeof(struct gfs2_dinode));
-		x = y = be64_to_cpu(z);
-		ir.ir_start = x;
-		ir.ir_length = GFS2_INUM_QUANTUM;
-		x += GFS2_INUM_QUANTUM;
-		if (x < y)
-			gfs2_consist_inode(m_ip);
-		z = cpu_to_be64(x);
-		gfs2_trans_add_bh(m_ip->i_gl, m_bh, 1);
-		*(__be64 *)(m_bh->b_data + sizeof(struct gfs2_dinode)) = z;
-
-		brelse(m_bh);
-	}
-
-	*formal_ino = ir.ir_start++;
-	ir.ir_length--;
-
-	gfs2_trans_add_bh(ip->i_gl, bh, 1);
-	gfs2_inum_range_out(&ir, bh->b_data + sizeof(struct gfs2_dinode));
-
-out_brelse:
-	brelse(bh);
-out_end_trans:
-	mutex_unlock(&sdp->sd_inum_mutex);
-	gfs2_trans_end(sdp);
-out:
-	gfs2_glock_dq_uninit(&gh);
-	return error;
-}
-
-static int pick_formal_ino(struct gfs2_sbd *sdp, u64 *inum)
-{
-	int error;
-
-	error = pick_formal_ino_1(sdp, inum);
-	if (error <= 0)
-		return error;
-
-	error = pick_formal_ino_2(sdp, inum);
-
-	return error;
-}
-
 /**
  * create_ok - OK to create a new on-disk inode here?
  * @dip:  Directory in which dinode is to be created
@@ -731,7 +598,7 @@ static int alloc_dinode(struct gfs2_inode *dip, u64 *no_addr, u64 *generation)
 	if (error)
 		goto out_ipreserv;
 
-	*no_addr = gfs2_alloc_di(dip, generation);
+	error = gfs2_alloc_di(dip, no_addr, generation);
 
 	gfs2_trans_end(sdp);
 
@@ -924,7 +791,6 @@ static int gfs2_security_init(struct gfs2_inode *dip, struct gfs2_inode *ip)
 	size_t len;
 	void *value;
 	char *name;
-	struct gfs2_ea_request er;
 
 	err = security_inode_init_security(&ip->i_inode, &dip->i_inode,
 					   &name, &value, &len);
@@ -935,16 +801,8 @@ static int gfs2_security_init(struct gfs2_inode *dip, struct gfs2_inode *ip)
 		return err;
 	}
 
-	memset(&er, 0, sizeof(struct gfs2_ea_request));
-
-	er.er_type = GFS2_EATYPE_SECURITY;
-	er.er_name = name;
-	er.er_data = value;
-	er.er_name_len = strlen(name);
-	er.er_data_len = len;
-
-	err = gfs2_ea_set_i(ip, &er);
-
+	err = __gfs2_xattr_set(&ip->i_inode, name, value, len, 0,
+			       GFS2_EATYPE_SECURITY);
 	kfree(value);
 	kfree(name);
 
@@ -991,13 +849,10 @@ struct inode *gfs2_createi(struct gfs2_holder *ghs, const struct qstr *name,
 	if (error)
 		goto fail_gunlock;
 
-	error = pick_formal_ino(sdp, &inum.no_formal_ino);
-	if (error)
-		goto fail_gunlock;
-
 	error = alloc_dinode(dip, &inum.no_addr, &generation);
 	if (error)
 		goto fail_gunlock;
+	inum.no_formal_ino = generation;
 
 	error = gfs2_glock_nq_num(sdp, inum.no_addr, &gfs2_inode_glops,
 				  LM_ST_EXCLUSIVE, GL_SKIP, ghs + 1);
@@ -1008,9 +863,8 @@ struct inode *gfs2_createi(struct gfs2_holder *ghs, const struct qstr *name,
 	if (error)
 		goto fail_gunlock2;
 
-	inode = gfs2_inode_lookup(dir->i_sb, IF2DT(mode),
-					inum.no_addr,
-					inum.no_formal_ino, 0);
+	inode = gfs2_inode_lookup(dir->i_sb, IF2DT(mode), inum.no_addr,
+				  inum.no_formal_ino, 0);
 	if (IS_ERR(inode))
 		goto fail_gunlock2;
 
@@ -1018,7 +872,7 @@ struct inode *gfs2_createi(struct gfs2_holder *ghs, const struct qstr *name,
 	if (error)
 		goto fail_gunlock2;
 
-	error = gfs2_acl_create(dip, GFS2_I(inode));
+	error = gfs2_acl_create(dip, inode);
 	if (error)
 		goto fail_gunlock2;
 
@@ -1094,9 +948,7 @@ void gfs2_dinode_out(const struct gfs2_inode *ip, void *buf)
 
 	str->di_header.mh_magic = cpu_to_be32(GFS2_MAGIC);
 	str->di_header.mh_type = cpu_to_be32(GFS2_METATYPE_DI);
-	str->di_header.__pad0 = 0;
 	str->di_header.mh_format = cpu_to_be32(GFS2_FORMAT_DI);
-	str->di_header.__pad1 = 0;
 	str->di_num.no_addr = cpu_to_be64(ip->i_no_addr);
 	str->di_num.no_formal_ino = cpu_to_be64(ip->i_no_formal_ino);
 	str->di_mode = cpu_to_be32(ip->i_inode.i_mode);

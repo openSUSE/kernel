@@ -8,7 +8,7 @@
 #ifndef _ASM_S390_SETUP_H
 #define _ASM_S390_SETUP_H
 
-#define COMMAND_LINE_SIZE	1024
+#define COMMAND_LINE_SIZE	4096
 
 #define ARCH_COMMAND_LINE_SIZE	896
 
@@ -49,17 +49,12 @@ extern unsigned long memory_end;
 
 void detect_memory_layout(struct mem_chunk chunk[]);
 
-#ifdef CONFIG_S390_SWITCH_AMODE
-extern unsigned int switch_amode;
-#else
-#define switch_amode	(0)
-#endif
+#define PRIMARY_SPACE_MODE	0
+#define ACCESS_REGISTER_MODE	1
+#define SECONDARY_SPACE_MODE	2
+#define HOME_SPACE_MODE		3
 
-#ifdef CONFIG_S390_EXEC_PROTECT
-extern unsigned int s390_noexec;
-#else
-#define s390_noexec	(0)
-#endif
+extern unsigned int user_mode;
 
 /*
  * Machine features detected in head.S

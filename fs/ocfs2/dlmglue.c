@@ -53,6 +53,7 @@
 #include "super.h"
 #include "uptodate.h"
 #include "quota.h"
+#include "refcounttree.h"
 
 #include "buffer_head_io.h"
 
@@ -109,6 +110,11 @@ static void ocfs2_dentry_post_unlock(struct ocfs2_super *osb,
 				     struct ocfs2_lock_res *lockres);
 
 static void ocfs2_set_qinfo_lvb(struct ocfs2_lock_res *lockres);
+
+static int ocfs2_check_refcount_downconvert(struct ocfs2_lock_res *lockres,
+					    int new_level);
+static int ocfs2_refcount_convert_worker(struct ocfs2_lock_res *lockres,
+					 int blocking);
 
 #define mlog_meta_lvb(__level, __lockres) ocfs2_dump_meta_lvb_info(__level, __PRETTY_FUNCTION__, __LINE__, __lockres)
 
@@ -278,6 +284,12 @@ static struct ocfs2_lock_res_ops ocfs2_qinfo_lops = {
 	.flags		= LOCK_TYPE_REQUIRES_REFRESH | LOCK_TYPE_USES_LVB,
 };
 
+static struct ocfs2_lock_res_ops ocfs2_refcount_block_lops = {
+	.check_downconvert = ocfs2_check_refcount_downconvert,
+	.downconvert_worker = ocfs2_refcount_convert_worker,
+	.flags		= 0,
+};
+
 static inline int ocfs2_is_inode_lock(struct ocfs2_lock_res *lockres)
 {
 	return lockres->l_type == OCFS2_LOCK_TYPE_META ||
@@ -304,6 +316,12 @@ static inline struct ocfs2_mem_dqinfo *ocfs2_lock_res_qinfo(struct ocfs2_lock_re
 	BUG_ON(lockres->l_type != OCFS2_LOCK_TYPE_QINFO);
 
 	return (struct ocfs2_mem_dqinfo *)lockres->l_priv;
+}
+
+static inline struct ocfs2_refcount_tree *
+ocfs2_lock_res_refcount_tree(struct ocfs2_lock_res *res)
+{
+	return container_of(res, struct ocfs2_refcount_tree, rf_lockres);
 }
 
 static inline struct ocfs2_super *ocfs2_get_lockres_osb(struct ocfs2_lock_res *lockres)
@@ -693,6 +711,17 @@ void ocfs2_qinfo_lock_res_init(struct ocfs2_lock_res *lockres,
 				   info);
 }
 
+void ocfs2_refcount_lock_res_init(struct ocfs2_lock_res *lockres,
+				  struct ocfs2_super *osb, u64 ref_blkno,
+				  unsigned int generation)
+{
+	ocfs2_lock_res_init_once(lockres);
+	ocfs2_build_lock_name(OCFS2_LOCK_TYPE_REFCOUNT, ref_blkno,
+			      generation, lockres->l_name);
+	ocfs2_lock_res_init_common(osb, lockres, OCFS2_LOCK_TYPE_REFCOUNT,
+				   &ocfs2_refcount_block_lops, osb);
+}
+
 void ocfs2_lock_res_free(struct ocfs2_lock_res *res)
 {
 	mlog_entry_void();
@@ -846,6 +875,14 @@ static inline void ocfs2_generic_handle_convert_action(struct ocfs2_lock_res *lo
 		lockres_or_flags(lockres, OCFS2_LOCK_NEEDS_REFRESH);
 
 	lockres->l_level = lockres->l_requested;
+
+	/*
+	 * We set the OCFS2_LOCK_UPCONVERT_FINISHING flag before clearing
+	 * the OCFS2_LOCK_BUSY flag to prevent the dc thread from
+	 * downconverting the lock before the upconvert has fully completed.
+	 */
+	lockres_or_flags(lockres, OCFS2_LOCK_UPCONVERT_FINISHING);
+
 	lockres_clear_flags(lockres, OCFS2_LOCK_BUSY);
 
 	mlog_exit_void();
@@ -878,8 +915,6 @@ static int ocfs2_generic_handle_bast(struct ocfs2_lock_res *lockres,
 
 	assert_spin_locked(&lockres->l_lock);
 
-	lockres_or_flags(lockres, OCFS2_LOCK_BLOCKED);
-
 	if (level > lockres->l_blocking) {
 		/* only schedule a downconvert if we haven't already scheduled
 		 * one that goes low enough to satisfy the level we're
@@ -891,6 +926,9 @@ static int ocfs2_generic_handle_bast(struct ocfs2_lock_res *lockres,
 
 		lockres->l_blocking = level;
 	}
+
+	if (needs_downconvert)
+		lockres_or_flags(lockres, OCFS2_LOCK_BLOCKED);
 
 	mlog_exit(needs_downconvert);
 	return needs_downconvert;
@@ -1104,6 +1142,7 @@ static inline void ocfs2_recover_from_dlm_error(struct ocfs2_lock_res *lockres,
 	mlog_entry_void();
 	spin_lock_irqsave(&lockres->l_lock, flags);
 	lockres_clear_flags(lockres, OCFS2_LOCK_BUSY);
+	lockres_clear_flags(lockres, OCFS2_LOCK_UPCONVERT_FINISHING);
 	if (convert)
 		lockres->l_action = OCFS2_AST_INVALID;
 	else
@@ -1294,12 +1333,12 @@ static int __ocfs2_cluster_lock(struct ocfs2_super *osb,
 again:
 	wait = 0;
 
+	spin_lock_irqsave(&lockres->l_lock, flags);
+
 	if (catch_signals && signal_pending(current)) {
 		ret = -ERESTARTSYS;
-		goto out;
+		goto unlock;
 	}
-
-	spin_lock_irqsave(&lockres->l_lock, flags);
 
 	mlog_bug_on_msg(lockres->l_flags & OCFS2_LOCK_FREEING,
 			"Cluster lock called on freeing lockres %s! flags "
@@ -1315,6 +1354,25 @@ again:
 		lockres_add_mask_waiter(lockres, &mw, OCFS2_LOCK_BUSY, 0);
 		wait = 1;
 		goto unlock;
+	}
+
+	if (lockres->l_flags & OCFS2_LOCK_UPCONVERT_FINISHING) {
+		/*
+		 * We've upconverted. If the lock now has a level we can
+		 * work with, we take it. If, however, the lock is not at the
+		 * required level, we go thru the full cycle. One way this could
+		 * happen is if a process requesting an upconvert to PR is
+		 * closely followed by another requesting upconvert to an EX.
+		 * If the process requesting EX lands here, we want it to
+		 * continue attempting to upconvert and let the process
+		 * requesting PR take the lock.
+		 * If multiple processes request upconvert to PR, the first one
+		 * here will take the lock. The others will have to go thru the
+		 * OCFS2_LOCK_BLOCKED check to ensure that there is no pending
+		 * downconvert request.
+		 */
+		if (level <= lockres->l_level)
+			goto update_holders;
 	}
 
 	if (lockres->l_flags & OCFS2_LOCK_BLOCKED &&
@@ -1387,11 +1445,14 @@ again:
 		goto again;
 	}
 
+update_holders:
 	/* Ok, if we get here then we're good to go. */
 	ocfs2_inc_holders(lockres, level);
 
 	ret = 0;
 unlock:
+	lockres_clear_flags(lockres, OCFS2_LOCK_UPCONVERT_FINISHING);
+
 	spin_unlock_irqrestore(&lockres->l_lock, flags);
 out:
 	/*
@@ -1548,8 +1609,10 @@ int ocfs2_rw_lock(struct inode *inode, int write)
 	     (unsigned long long)OCFS2_I(inode)->ip_blkno,
 	     write ? "EXMODE" : "PRMODE");
 
-	if (ocfs2_mount_local(osb))
+	if (ocfs2_mount_local(osb)) {
+		mlog_exit(0);
 		return 0;
+	}
 
 	lockres = &OCFS2_I(inode)->ip_rw_lockres;
 
@@ -1824,7 +1887,7 @@ int ocfs2_file_lock(struct file *file, int ex, int trylock)
 		 * outstanding lock request, so a cancel convert is
 		 * required. We intentionally overwrite 'ret' - if the
 		 * cancel fails and the lock was granted, it's easier
-		 * to just bubble sucess back up to the user.
+		 * to just bubble success back up to the user.
 		 */
 		ret = ocfs2_flock_handle_signal(lockres, level);
 	} else if (!ret && (level > lockres->l_level)) {
@@ -2127,7 +2190,7 @@ static int ocfs2_inode_lock_update(struct inode *inode,
 
 	/* This will discard any caching information we might have had
 	 * for the inode metadata. */
-	ocfs2_metadata_cache_purge(inode);
+	ocfs2_metadata_cache_purge(INODE_CACHE(inode));
 
 	ocfs2_extent_map_trunc(inode, 0);
 
@@ -3009,6 +3072,7 @@ static void ocfs2_unlock_ast(void *opaque, int error)
 		     "unlock_action %d\n", error, lockres->l_name,
 		     lockres->l_unlock_action);
 		spin_unlock_irqrestore(&lockres->l_lock, flags);
+		mlog_exit_void();
 		return;
 	}
 
@@ -3123,7 +3187,7 @@ out:
 /* Mark the lockres as being dropped. It will no longer be
  * queued if blocking, but we still may have to wait on it
  * being dequeued from the downconvert thread before we can consider
- * it safe to drop. 
+ * it safe to drop.
  *
  * You can *not* attempt to call cluster_lock on this lockres anymore. */
 void ocfs2_mark_lockres_freeing(struct ocfs2_lock_res *lockres)
@@ -3320,6 +3384,7 @@ static int ocfs2_unblock_lock(struct ocfs2_super *osb,
 	unsigned long flags;
 	int blocking;
 	int new_level;
+	int level;
 	int ret = 0;
 	int set_lvb = 0;
 	unsigned int gen;
@@ -3328,9 +3393,17 @@ static int ocfs2_unblock_lock(struct ocfs2_super *osb,
 
 	spin_lock_irqsave(&lockres->l_lock, flags);
 
-	BUG_ON(!(lockres->l_flags & OCFS2_LOCK_BLOCKED));
-
 recheck:
+	/*
+	 * Is it still blocking? If not, we have no more work to do.
+	 */
+	if (!(lockres->l_flags & OCFS2_LOCK_BLOCKED)) {
+		BUG_ON(lockres->l_blocking != DLM_LOCK_NL);
+		spin_unlock_irqrestore(&lockres->l_lock, flags);
+		ret = 0;
+		goto leave;
+	}
+
 	if (lockres->l_flags & OCFS2_LOCK_BUSY) {
 		/* XXX
 		 * This is a *big* race.  The OCFS2_LOCK_PENDING flag
@@ -3366,6 +3439,31 @@ recheck:
 			if (ret < 0)
 				mlog_errno(ret);
 		}
+		goto leave;
+	}
+
+	/*
+	 * This prevents livelocks. OCFS2_LOCK_UPCONVERT_FINISHING flag is
+	 * set when the ast is received for an upconvert just before the
+	 * OCFS2_LOCK_BUSY flag is cleared. Now if the fs received a bast
+	 * on the heels of the ast, we want to delay the downconvert just
+	 * enough to allow the up requestor to do its task. Because this
+	 * lock is in the blocked queue, the lock will be downconverted
+	 * as soon as the requestor is done with the lock.
+	 */
+	if (lockres->l_flags & OCFS2_LOCK_UPCONVERT_FINISHING)
+		goto leave_requeue;
+
+	/*
+	 * How can we block and yet be at NL?  We were trying to upconvert
+	 * from NL and got canceled.  The code comes back here, and now
+	 * we notice and clear BLOCKING.
+	 */
+	if (lockres->l_level == DLM_LOCK_NL) {
+		BUG_ON(lockres->l_ex_holders || lockres->l_ro_holders);
+		lockres->l_blocking = DLM_LOCK_NL;
+		lockres_clear_flags(lockres, OCFS2_LOCK_BLOCKED);
+		spin_unlock_irqrestore(&lockres->l_lock, flags);
 		goto leave;
 	}
 
@@ -3406,6 +3504,7 @@ recheck:
 	 * may sleep, so we save off a copy of what we're blocking as
 	 * it may change while we're not holding the spin lock. */
 	blocking = lockres->l_blocking;
+	level = lockres->l_level;
 	spin_unlock_irqrestore(&lockres->l_lock, flags);
 
 	ctl->unblock_action = lockres->l_ops->downconvert_worker(lockres, blocking);
@@ -3414,7 +3513,7 @@ recheck:
 		goto leave;
 
 	spin_lock_irqsave(&lockres->l_lock, flags);
-	if (blocking != lockres->l_blocking) {
+	if ((blocking != lockres->l_blocking) || (level != lockres->l_level)) {
 		/* If this changed underneath us, then we can't drop
 		 * it just yet. */
 		goto recheck;
@@ -3495,11 +3594,11 @@ out:
 	return UNBLOCK_CONTINUE;
 }
 
-static int ocfs2_check_meta_downconvert(struct ocfs2_lock_res *lockres,
-					int new_level)
+static int ocfs2_ci_checkpointed(struct ocfs2_caching_info *ci,
+				 struct ocfs2_lock_res *lockres,
+				 int new_level)
 {
-	struct inode *inode = ocfs2_lock_res_inode(lockres);
-	int checkpointed = ocfs2_inode_fully_checkpointed(inode);
+	int checkpointed = ocfs2_ci_fully_checkpointed(ci);
 
 	BUG_ON(new_level != DLM_LOCK_NL && new_level != DLM_LOCK_PR);
 	BUG_ON(lockres->l_level != DLM_LOCK_EX && !checkpointed);
@@ -3507,8 +3606,16 @@ static int ocfs2_check_meta_downconvert(struct ocfs2_lock_res *lockres,
 	if (checkpointed)
 		return 1;
 
-	ocfs2_start_checkpoint(OCFS2_SB(inode->i_sb));
+	ocfs2_start_checkpoint(OCFS2_SB(ocfs2_metadata_cache_get_super(ci)));
 	return 0;
+}
+
+static int ocfs2_check_meta_downconvert(struct ocfs2_lock_res *lockres,
+					int new_level)
+{
+	struct inode *inode = ocfs2_lock_res_inode(lockres);
+
+	return ocfs2_ci_checkpointed(INODE_CACHE(inode), lockres, new_level);
 }
 
 static void ocfs2_set_meta_lvb(struct ocfs2_lock_res *lockres)
@@ -3640,6 +3747,26 @@ static int ocfs2_dentry_convert_worker(struct ocfs2_lock_res *lockres,
 	return UNBLOCK_CONTINUE_POST;
 }
 
+static int ocfs2_check_refcount_downconvert(struct ocfs2_lock_res *lockres,
+					    int new_level)
+{
+	struct ocfs2_refcount_tree *tree =
+				ocfs2_lock_res_refcount_tree(lockres);
+
+	return ocfs2_ci_checkpointed(&tree->rf_ci, lockres, new_level);
+}
+
+static int ocfs2_refcount_convert_worker(struct ocfs2_lock_res *lockres,
+					 int blocking)
+{
+	struct ocfs2_refcount_tree *tree =
+				ocfs2_lock_res_refcount_tree(lockres);
+
+	ocfs2_metadata_cache_purge(&tree->rf_ci);
+
+	return UNBLOCK_CONTINUE;
+}
+
 static void ocfs2_set_qinfo_lvb(struct ocfs2_lock_res *lockres)
 {
 	struct ocfs2_qinfo_lvb *lvb;
@@ -3750,6 +3877,37 @@ int ocfs2_qinfo_lock(struct ocfs2_mem_dqinfo *oinfo, int ex)
 bail:
 	mlog_exit(status);
 	return status;
+}
+
+int ocfs2_refcount_lock(struct ocfs2_refcount_tree *ref_tree, int ex)
+{
+	int status;
+	int level = ex ? DLM_LOCK_EX : DLM_LOCK_PR;
+	struct ocfs2_lock_res *lockres = &ref_tree->rf_lockres;
+	struct ocfs2_super *osb = lockres->l_priv;
+
+
+	if (ocfs2_is_hard_readonly(osb))
+		return -EROFS;
+
+	if (ocfs2_mount_local(osb))
+		return 0;
+
+	status = ocfs2_cluster_lock(osb, lockres, level, 0, 0);
+	if (status < 0)
+		mlog_errno(status);
+
+	return status;
+}
+
+void ocfs2_refcount_unlock(struct ocfs2_refcount_tree *ref_tree, int ex)
+{
+	int level = ex ? DLM_LOCK_EX : DLM_LOCK_PR;
+	struct ocfs2_lock_res *lockres = &ref_tree->rf_lockres;
+	struct ocfs2_super *osb = lockres->l_priv;
+
+	if (!ocfs2_mount_local(osb))
+		ocfs2_cluster_unlock(osb, lockres, level);
 }
 
 /*

@@ -44,6 +44,7 @@
 #include <linux/mutex.h>
 #include <linux/kref.h>
 #include <linux/compat.h>
+#include <linux/sched.h>
 #include <linux/semaphore.h>
 
 #include <asm/uaccess.h>
@@ -1003,7 +1004,7 @@ static int ib_umad_init_port(struct ib_device *device, int port_num,
 
 	port->ib_dev   = device;
 	port->port_num = port_num;
-	semaphore_init(&port->sm_sem);
+	sema_init(&port->sm_sem, 1);
 	mutex_init(&port->file_mutex);
 	INIT_LIST_HEAD(&port->file_list);
 

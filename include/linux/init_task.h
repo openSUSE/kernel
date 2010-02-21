@@ -27,7 +27,7 @@ extern struct fs_struct init_fs;
 	.cputimer	= { 						\
 		.cputime = INIT_CPUTIME,				\
 		.running = 0,						\
-		.lock = __ATOMIC_SPIN_LOCK_UNLOCKED(sig.cputimer.lock),	\
+		.lock = __RAW_SPIN_LOCK_UNLOCKED(sig.cputimer.lock),	\
 	},								\
 }
 
@@ -83,26 +83,32 @@ extern struct group_info init_groups;
 #define INIT_IDS
 #endif
 
-#ifdef CONFIG_SECURITY_FILE_CAPABILITIES
 /*
  * Because of the reduced scope of CAP_SETPCAP when filesystem
  * capabilities are in effect, it is safe to allow CAP_SETPCAP to
  * be available in the default configuration.
  */
 # define CAP_INIT_BSET  CAP_FULL_SET
+
+#ifdef CONFIG_TREE_PREEMPT_RCU
+#define INIT_TASK_RCU_PREEMPT(tsk)					\
+	.rcu_read_lock_nesting = 0,					\
+	.rcu_read_unlock_special = 0,					\
+	.rcu_blocked_node = NULL,					\
+	.rcu_node_entry = LIST_HEAD_INIT(tsk.rcu_node_entry),
 #else
-# define CAP_INIT_BSET  CAP_INIT_EFF_SET
+#define INIT_TASK_RCU_PREEMPT(tsk)
 #endif
 
 extern struct cred init_cred;
 
-#ifdef CONFIG_PERF_COUNTERS
-# define INIT_PERF_COUNTERS(tsk)					\
-	.perf_counter_mutex = 						\
-		 __MUTEX_INITIALIZER(tsk.perf_counter_mutex),		\
-	.perf_counter_list = LIST_HEAD_INIT(tsk.perf_counter_list),
+#ifdef CONFIG_PERF_EVENTS
+# define INIT_PERF_EVENTS(tsk)					\
+	.perf_event_mutex = 						\
+		 __MUTEX_INITIALIZER(tsk.perf_event_mutex),		\
+	.perf_event_list = LIST_HEAD_INIT(tsk.perf_event_list),
 #else
-# define INIT_PERF_COUNTERS(tsk)
+# define INIT_PERF_EVENTS(tsk)
 #endif
 
 /*
@@ -159,7 +165,7 @@ extern struct cred init_cred;
 	.journal_info	= NULL,						\
 	.cpu_timers	= INIT_CPU_TIMERS(tsk.cpu_timers),		\
 	.fs_excl	= ATOMIC_INIT(0),				\
-	.pi_lock	= __ATOMIC_SPIN_LOCK_UNLOCKED(tsk.pi_lock),	\
+	.pi_lock	= __RAW_SPIN_LOCK_UNLOCKED(tsk.pi_lock),	\
 	.timer_slack_ns = 50000, /* 50 usec default slack */		\
 	.posix_timer_list = NULL,					\
 	.pids = {							\
@@ -169,11 +175,12 @@ extern struct cred init_cred;
 	},								\
 	.dirties = INIT_PROP_LOCAL_SINGLE(dirties),			\
 	INIT_IDS							\
-	INIT_PERF_COUNTERS(tsk)						\
+	INIT_PERF_EVENTS(tsk)						\
 	INIT_TRACE_IRQFLAGS						\
 	INIT_LOCKDEP							\
 	INIT_FTRACE_GRAPH						\
 	INIT_TRACE_RECURSION						\
+	INIT_TASK_RCU_PREEMPT(tsk)					\
 }
 
 

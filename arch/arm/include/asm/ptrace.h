@@ -82,6 +82,14 @@
 #define PSR_ENDSTATE	0
 #endif
 
+/* 
+ * These are 'magic' values for PTRACE_PEEKUSR that return info about where a
+ * process is located in memory.
+ */
+#define PT_TEXT_ADDR		0x10000
+#define PT_DATA_ADDR		0x10004
+#define PT_TEXT_END_ADDR	0x10008
+
 #ifndef __ASSEMBLY__
 
 /*
@@ -89,9 +97,15 @@
  * stack during a system call.  Note that sizeof(struct pt_regs)
  * has to be a multiple of 8.
  */
+#ifndef __KERNEL__
 struct pt_regs {
 	long uregs[18];
 };
+#else /* __KERNEL__ */
+struct pt_regs {
+	unsigned long uregs[18];
+};
+#endif /* __KERNEL__ */
 
 #define ARM_cpsr	uregs[16]
 #define ARM_pc		uregs[15]

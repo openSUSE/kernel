@@ -57,6 +57,7 @@
 enum s390_regset {
 	REGSET_GENERAL,
 	REGSET_FP,
+	REGSET_GENERAL_EXTENDED,
 };
 
 static void
@@ -64,6 +65,7 @@ FixPerRegisters(struct task_struct *task)
 {
 	struct pt_regs *regs;
 	per_struct *per_info;
+	per_cr_words cr_words;
 
 	regs = task_pt_regs(task);
 	per_info = (per_struct *) &task->thread.per_info;
@@ -97,6 +99,13 @@ FixPerRegisters(struct task_struct *task)
 		per_info->control_regs.bits.storage_alt_space_ctl = 1;
 	else
 		per_info->control_regs.bits.storage_alt_space_ctl = 0;
+
+	if (task == current) {
+		__ctl_store(cr_words, 9, 11);
+		if (memcmp(&cr_words, &per_info->control_regs.words,
+			   sizeof(cr_words)) != 0)
+			__ctl_load(per_info->control_regs.words, 9, 11);
+	}
 }
 
 void user_enable_single_step(struct task_struct *task)
@@ -339,23 +348,9 @@ long arch_ptrace(struct task_struct *child, long request, long addr, long data)
 	int copied, ret;
 
 	switch (request) {
-	case PTRACE_PEEKTEXT:
-	case PTRACE_PEEKDATA:
-		/* Remove high order bit from address (only for 31 bit). */
-		addr &= PSW_ADDR_INSN;
-		/* read word at location addr. */
-		return generic_ptrace_peekdata(child, addr, data);
-
 	case PTRACE_PEEKUSR:
 		/* read the word at location addr in the USER area. */
 		return peek_user(child, addr, data);
-
-	case PTRACE_POKETEXT:
-	case PTRACE_POKEDATA:
-		/* Remove high order bit from address (only for 31 bit). */
-		addr &= PSW_ADDR_INSN;
-		/* write the word at location addr. */
-		return generic_ptrace_pokedata(child, addr, data);
 
 	case PTRACE_POKEUSR:
 		/* write the word at location addr in the USER area */
@@ -386,8 +381,11 @@ long arch_ptrace(struct task_struct *child, long request, long addr, long data)
 			copied += sizeof(unsigned long);
 		}
 		return 0;
+	default:
+		/* Removing high order bit from addr (only for 31 bit). */
+		addr &= PSW_ADDR_INSN;
+		return ptrace_request(child, request, addr, data);
 	}
-	return ptrace_request(child, request, addr, data);
 }
 
 #ifdef CONFIG_COMPAT
@@ -890,6 +888,67 @@ static int s390_compat_regs_set(struct task_struct *target,
 	return rc;
 }
 
+static int s390_compat_regs_high_get(struct task_struct *target,
+				     const struct user_regset *regset,
+				     unsigned int pos, unsigned int count,
+				     void *kbuf, void __user *ubuf)
+{
+	compat_ulong_t *gprs_high;
+
+	gprs_high = (compat_ulong_t *)
+		&task_pt_regs(target)->gprs[pos / sizeof(compat_ulong_t)];
+	if (kbuf) {
+		compat_ulong_t *k = kbuf;
+		while (count > 0) {
+			*k++ = *gprs_high;
+			gprs_high += 2;
+			count -= sizeof(*k);
+		}
+	} else {
+		compat_ulong_t __user *u = ubuf;
+		while (count > 0) {
+			if (__put_user(*gprs_high, u++))
+				return -EFAULT;
+			gprs_high += 2;
+			count -= sizeof(*u);
+		}
+	}
+	return 0;
+}
+
+static int s390_compat_regs_high_set(struct task_struct *target,
+				     const struct user_regset *regset,
+				     unsigned int pos, unsigned int count,
+				     const void *kbuf, const void __user *ubuf)
+{
+	compat_ulong_t *gprs_high;
+	int rc = 0;
+
+	gprs_high = (compat_ulong_t *)
+		&task_pt_regs(target)->gprs[pos / sizeof(compat_ulong_t)];
+	if (kbuf) {
+		const compat_ulong_t *k = kbuf;
+		while (count > 0) {
+			*gprs_high = *k++;
+			*gprs_high += 2;
+			count -= sizeof(*k);
+		}
+	} else {
+		const compat_ulong_t  __user *u = ubuf;
+		while (count > 0 && !rc) {
+			unsigned long word;
+			rc = __get_user(word, u++);
+			if (rc)
+				break;
+			*gprs_high = word;
+			*gprs_high += 2;
+			count -= sizeof(*u);
+		}
+	}
+
+	return rc;
+}
+
 static const struct user_regset s390_compat_regsets[] = {
 	[REGSET_GENERAL] = {
 		.core_note_type = NT_PRSTATUS,
@@ -906,6 +965,14 @@ static const struct user_regset s390_compat_regsets[] = {
 		.align = sizeof(compat_long_t),
 		.get = s390_fpregs_get,
 		.set = s390_fpregs_set,
+	},
+	[REGSET_GENERAL_EXTENDED] = {
+		.core_note_type = NT_S390_HIGH_GPRS,
+		.n = sizeof(s390_compat_regs_high) / sizeof(compat_long_t),
+		.size = sizeof(compat_long_t),
+		.align = sizeof(compat_long_t),
+		.get = s390_compat_regs_high_get,
+		.set = s390_compat_regs_high_set,
 	},
 };
 

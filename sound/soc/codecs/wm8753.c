@@ -595,6 +595,7 @@ static const struct snd_soc_dapm_route audio_map[] = {
 
 	/* Mono Capture mixer-mux */
 	{"Capture Right Mixer", "Stereo", "Capture Right Mux"},
+	{"Capture Left Mixer", "Stereo", "Capture Left Mux"},
 	{"Capture Left Mixer", "Analogue Mix Left", "Capture Left Mux"},
 	{"Capture Left Mixer", "Analogue Mix Left", "Capture Right Mux"},
 	{"Capture Right Mixer", "Analogue Mix Right", "Capture Left Mux"},
@@ -672,7 +673,6 @@ static int wm8753_add_widgets(struct snd_soc_codec *codec)
 
 	snd_soc_dapm_add_routes(codec, audio_map, ARRAY_SIZE(audio_map));
 
-	snd_soc_dapm_new_widgets(codec);
 	return 0;
 }
 
@@ -723,8 +723,8 @@ static void pll_factors(struct _pll_div *pll_div, unsigned int target,
 	pll_div->k = K;
 }
 
-static int wm8753_set_dai_pll(struct snd_soc_dai *codec_dai,
-		int pll_id, unsigned int freq_in, unsigned int freq_out)
+static int wm8753_set_dai_pll(struct snd_soc_dai *codec_dai, int pll_id,
+		int source, unsigned int freq_in, unsigned int freq_out)
 {
 	u16 reg, enable;
 	int offset;
@@ -1582,17 +1582,8 @@ static int wm8753_probe(struct platform_device *pdev)
 	snd_soc_add_controls(codec, wm8753_snd_controls,
 			     ARRAY_SIZE(wm8753_snd_controls));
 	wm8753_add_widgets(codec);
-	ret = snd_soc_init_card(socdev);
-	if (ret < 0) {
-		printk(KERN_ERR "wm8753: failed to register card\n");
-		goto card_err;
-	}
 
 	return 0;
-
-card_err:
-	snd_soc_free_pcms(socdev);
-	snd_soc_dapm_free(socdev);
 
 pcm_err:
 	return ret;

@@ -194,13 +194,15 @@ static struct platform_device *devices[] __initdata = {
 static void __init e750_init(void)
 {
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(e750_pin_config));
+	pxa_set_ffuart_info(NULL);
+	pxa_set_btuart_info(NULL);
+	pxa_set_stuart_info(NULL);
 	clk_add_alias("CLK_CK3P6MI", e750_tc6393xb_device.name,
 			"GPIO11_CLK", NULL),
 	eseries_get_tmio_gpios();
 	platform_add_devices(devices, ARRAY_SIZE(devices));
 	pxa_set_udc_info(&e7xx_udc_mach_info);
 	pxa_set_ac97_info(NULL);
-	e7xx_irda_init();
 	pxa_set_ficp_info(&e7xx_ficp_platform_data);
 }
 

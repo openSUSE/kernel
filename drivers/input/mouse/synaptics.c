@@ -24,6 +24,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/dmi.h>
 #include <linux/input.h>
 #include <linux/serio.h>
 #include <linux/libps2.h>
@@ -60,7 +61,7 @@ static int synaptics_mode_cmd(struct psmouse *psmouse, unsigned char mode)
 	return 0;
 }
 
-int synaptics_detect(struct psmouse *psmouse, int set_properties)
+int synaptics_detect(struct psmouse *psmouse, bool set_properties)
 {
 	struct ps2dev *ps2dev = &psmouse->ps2dev;
 	unsigned char param[4];
@@ -556,38 +557,38 @@ static void set_input_params(struct input_dev *dev, struct synaptics_data *priv)
 {
 	int i;
 
-	set_bit(EV_ABS, dev->evbit);
+	__set_bit(EV_ABS, dev->evbit);
 	input_set_abs_params(dev, ABS_X, XMIN_NOMINAL, XMAX_NOMINAL, 0, 0);
 	input_set_abs_params(dev, ABS_Y, YMIN_NOMINAL, YMAX_NOMINAL, 0, 0);
 	input_set_abs_params(dev, ABS_PRESSURE, 0, 255, 0, 0);
-	set_bit(ABS_TOOL_WIDTH, dev->absbit);
+	__set_bit(ABS_TOOL_WIDTH, dev->absbit);
 
-	set_bit(EV_KEY, dev->evbit);
-	set_bit(BTN_TOUCH, dev->keybit);
-	set_bit(BTN_TOOL_FINGER, dev->keybit);
-	set_bit(BTN_LEFT, dev->keybit);
-	set_bit(BTN_RIGHT, dev->keybit);
+	__set_bit(EV_KEY, dev->evbit);
+	__set_bit(BTN_TOUCH, dev->keybit);
+	__set_bit(BTN_TOOL_FINGER, dev->keybit);
+	__set_bit(BTN_LEFT, dev->keybit);
+	__set_bit(BTN_RIGHT, dev->keybit);
 
 	if (SYN_CAP_MULTIFINGER(priv->capabilities)) {
-		set_bit(BTN_TOOL_DOUBLETAP, dev->keybit);
-		set_bit(BTN_TOOL_TRIPLETAP, dev->keybit);
+		__set_bit(BTN_TOOL_DOUBLETAP, dev->keybit);
+		__set_bit(BTN_TOOL_TRIPLETAP, dev->keybit);
 	}
 
 	if (SYN_CAP_MIDDLE_BUTTON(priv->capabilities))
-		set_bit(BTN_MIDDLE, dev->keybit);
+		__set_bit(BTN_MIDDLE, dev->keybit);
 
 	if (SYN_CAP_FOUR_BUTTON(priv->capabilities) ||
 	    SYN_CAP_MIDDLE_BUTTON(priv->capabilities)) {
-		set_bit(BTN_FORWARD, dev->keybit);
-		set_bit(BTN_BACK, dev->keybit);
+		__set_bit(BTN_FORWARD, dev->keybit);
+		__set_bit(BTN_BACK, dev->keybit);
 	}
 
 	for (i = 0; i < SYN_CAP_MULTI_BUTTON_NO(priv->ext_cap); i++)
-		set_bit(BTN_0 + i, dev->keybit);
+		__set_bit(BTN_0 + i, dev->keybit);
 
-	clear_bit(EV_REL, dev->evbit);
-	clear_bit(REL_X, dev->relbit);
-	clear_bit(REL_Y, dev->relbit);
+	__clear_bit(EV_REL, dev->evbit);
+	__clear_bit(REL_X, dev->relbit);
+	__clear_bit(REL_Y, dev->relbit);
 
 	dev->absres[ABS_X] = priv->x_res;
 	dev->absres[ABS_Y] = priv->y_res;
@@ -629,33 +630,49 @@ static int synaptics_reconnect(struct psmouse *psmouse)
 	return 0;
 }
 
-#if defined(__i386__)
-#include <linux/dmi.h>
-static const struct dmi_system_id toshiba_dmi_table[] = {
+static bool impaired_toshiba_kbc;
+
+static const struct dmi_system_id __initconst toshiba_dmi_table[] = {
+#if defined(CONFIG_DMI) && defined(CONFIG_X86)
 	{
-		.ident = "Toshiba Satellite",
+		/* Toshiba Satellite */
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "TOSHIBA"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "Satellite"),
 		},
 	},
 	{
-		.ident = "Toshiba Dynabook",
+		/* Toshiba Dynabook */
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "TOSHIBA"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "dynabook"),
 		},
 	},
 	{
-		.ident = "Toshiba Portege M300",
+		/* Toshiba Portege M300 */
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "TOSHIBA"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "PORTEGE M300"),
 		},
+
+	},
+	{
+		/* Toshiba Portege M300 */
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "TOSHIBA"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Portable PC"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "Version 1.0"),
+		},
+
 	},
 	{ }
-};
 #endif
+};
+
+void __init synaptics_module_init(void)
+{
+	impaired_toshiba_kbc = dmi_check_system(toshiba_dmi_table);
+}
 
 int synaptics_init(struct psmouse *psmouse)
 {
@@ -708,18 +725,16 @@ int synaptics_init(struct psmouse *psmouse)
 	if (SYN_CAP_PASS_THROUGH(priv->capabilities))
 		synaptics_pt_create(psmouse);
 
-#if defined(__i386__)
 	/*
 	 * Toshiba's KBC seems to have trouble handling data from
 	 * Synaptics as full rate, switch to lower rate which is roughly
 	 * thye same as rate of standard PS/2 mouse.
 	 */
-	if (psmouse->rate >= 80 && dmi_check_system(toshiba_dmi_table)) {
+	if (psmouse->rate >= 80 && impaired_toshiba_kbc) {
 		printk(KERN_INFO "synaptics: Toshiba %s detected, limiting rate to 40pps.\n",
 			dmi_get_system_info(DMI_PRODUCT_NAME));
 		psmouse->rate = 40;
 	}
-#endif
 
 	return 0;
 
@@ -728,11 +743,25 @@ int synaptics_init(struct psmouse *psmouse)
 	return -1;
 }
 
+bool synaptics_supported(void)
+{
+	return true;
+}
+
 #else /* CONFIG_MOUSE_PS2_SYNAPTICS */
+
+void __init synaptics_module_init(void)
+{
+}
 
 int synaptics_init(struct psmouse *psmouse)
 {
 	return -ENOSYS;
+}
+
+bool synaptics_supported(void)
+{
+	return false;
 }
 
 #endif /* CONFIG_MOUSE_PS2_SYNAPTICS */

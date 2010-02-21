@@ -64,10 +64,14 @@ static struct usb_device_id ar9170_usb_ids[] = {
 	{ USB_DEVICE(0x0cf3, 0x9170) },
 	/* Atheros TG121N */
 	{ USB_DEVICE(0x0cf3, 0x1001) },
+	/* TP-Link TL-WN821N v2 */
+	{ USB_DEVICE(0x0cf3, 0x1002) },
 	/* Cace Airpcap NX */
 	{ USB_DEVICE(0xcace, 0x0300) },
-	/* D-Link DWA 160A */
+	/* D-Link DWA 160 A1 */
 	{ USB_DEVICE(0x07d1, 0x3c10) },
+	/* D-Link DWA 160 A2 */
+	{ USB_DEVICE(0x07d1, 0x3a09) },
 	/* Netgear WNDA3100 */
 	{ USB_DEVICE(0x0846, 0x9010) },
 	/* Netgear WN111 v2 */
@@ -106,15 +110,15 @@ static void ar9170_usb_submit_urb(struct ar9170_usb *aru)
 		return ;
 
 	spin_lock_irqsave(&aru->tx_urb_lock, flags);
-	if (aru->tx_submitted_urbs >= AR9170_NUM_TX_URBS) {
+	if (atomic_read(&aru->tx_submitted_urbs) >= AR9170_NUM_TX_URBS) {
 		spin_unlock_irqrestore(&aru->tx_urb_lock, flags);
 		return ;
 	}
-	aru->tx_submitted_urbs++;
+	atomic_inc(&aru->tx_submitted_urbs);
 
 	urb = usb_get_from_anchor(&aru->tx_pending);
 	if (!urb) {
-		aru->tx_submitted_urbs--;
+		atomic_dec(&aru->tx_submitted_urbs);
 		spin_unlock_irqrestore(&aru->tx_urb_lock, flags);
 
 		return ;
@@ -131,7 +135,7 @@ static void ar9170_usb_submit_urb(struct ar9170_usb *aru)
 				err);
 
 		usb_unanchor_urb(urb);
-		aru->tx_submitted_urbs--;
+		atomic_dec(&aru->tx_submitted_urbs);
 		ar9170_tx_callback(&aru->common, urb->context);
 	}
 
@@ -149,7 +153,7 @@ static void ar9170_usb_tx_urb_complete_frame(struct urb *urb)
 		return ;
 	}
 
-	aru->tx_submitted_urbs--;
+	atomic_dec(&aru->tx_submitted_urbs);
 
 	ar9170_tx_callback(&aru->common, skb);
 
@@ -783,7 +787,7 @@ static int ar9170_usb_probe(struct usb_interface *intf,
 	aru->req_one_stage_fw = ar9170_requires_one_stage(id);
 
 	usb_set_intfdata(intf, aru);
-	SET_IEEE80211_DEV(ar->hw, &udev->dev);
+	SET_IEEE80211_DEV(ar->hw, &intf->dev);
 
 	init_usb_anchor(&aru->rx_submitted);
 	init_usb_anchor(&aru->tx_pending);
@@ -792,7 +796,7 @@ static int ar9170_usb_probe(struct usb_interface *intf,
 	spin_lock_init(&aru->tx_urb_lock);
 
 	aru->tx_pending_urbs = 0;
-	aru->tx_submitted_urbs = 0;
+	atomic_set(&aru->tx_submitted_urbs, 0);
 
 	aru->common.stop = ar9170_usb_stop;
 	aru->common.flush = ar9170_usb_flush;

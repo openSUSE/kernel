@@ -73,6 +73,27 @@ static inline void backlight_unregister_fb(struct backlight_device *bd)
 }
 #endif /* CONFIG_FB */
 
+static void backlight_generate_event(struct backlight_device *bd,
+				     enum backlight_update_reason reason)
+{
+	char *envp[2];
+
+	switch (reason) {
+	case BACKLIGHT_UPDATE_SYSFS:
+		envp[0] = "SOURCE=sysfs";
+		break;
+	case BACKLIGHT_UPDATE_HOTKEY:
+		envp[0] = "SOURCE=hotkey";
+		break;
+	default:
+		envp[0] = "SOURCE=unknown";
+		break;
+	}
+	envp[1] = NULL;
+	kobject_uevent_env(&bd->dev.kobj, KOBJ_CHANGE, envp);
+	sysfs_notify(&bd->dev.kobj, NULL, "actual_brightness");
+}
+
 static ssize_t backlight_show_power(struct device *dev,
 		struct device_attribute *attr,char *buf)
 {
@@ -141,6 +162,8 @@ static ssize_t backlight_store_brightness(struct device *dev,
 		}
 	}
 	mutex_unlock(&bd->ops_lock);
+
+	backlight_generate_event(bd, BACKLIGHT_UPDATE_SYSFS);
 
 	return rc;
 }
@@ -214,6 +237,25 @@ static struct device_attribute bl_device_attributes[] = {
 };
 
 /**
+ * backlight_force_update - tell the backlight subsystem that hardware state
+ *   has changed
+ * @bd: the backlight device to update
+ *
+ * Updates the internal state of the backlight in response to a hardware event,
+ * and generate a uevent to notify userspace
+ */
+void backlight_force_update(struct backlight_device *bd,
+			    enum backlight_update_reason reason)
+{
+	mutex_lock(&bd->ops_lock);
+	if (bd->ops && bd->ops->get_brightness)
+		bd->props.brightness = bd->ops->get_brightness(bd);
+	mutex_unlock(&bd->ops_lock);
+	backlight_generate_event(bd, reason);
+}
+EXPORT_SYMBOL(backlight_force_update);
+
+/**
  * backlight_device_register - create and register a new object of
  *   backlight_device class.
  * @name: the name of the new object(must be the same as the name of the
@@ -227,7 +269,7 @@ static struct device_attribute bl_device_attributes[] = {
  * ERR_PTR() or a pointer to the newly allocated device.
  */
 struct backlight_device *backlight_device_register(const char *name,
-		struct device *parent, void *devdata, struct backlight_ops *ops)
+		struct device *parent, void *devdata, const struct backlight_ops *ops)
 {
 	struct backlight_device *new_bd;
 	int rc;

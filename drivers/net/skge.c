@@ -37,6 +37,7 @@
 #include <linux/crc32.h>
 #include <linux/dma-mapping.h>
 #include <linux/debugfs.h>
+#include <linux/sched.h>
 #include <linux/seq_file.h>
 #include <linux/mii.h>
 #include <asm/irq.h>
@@ -215,7 +216,7 @@ static void skge_wol_init(struct skge_port *skge)
 	if (skge->wol & WAKE_MAGIC)
 		ctrl |= WOL_CTL_ENA_PME_ON_MAGIC_PKT|WOL_CTL_ENA_MAGIC_PKT_UNIT;
 	else
-		ctrl |= WOL_CTL_DIS_PME_ON_MAGIC_PKT|WOL_CTL_DIS_MAGIC_PKT_UNIT;;
+		ctrl |= WOL_CTL_DIS_PME_ON_MAGIC_PKT|WOL_CTL_DIS_MAGIC_PKT_UNIT;
 
 	ctrl |= WOL_CTL_DIS_PME_ON_PATTERN|WOL_CTL_DIS_PATTERN_UNIT;
 	skge_write16(hw, WOL_REGS(port, WOL_CTRL_STAT), ctrl);
@@ -237,8 +238,8 @@ static int skge_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 	struct skge_port *skge = netdev_priv(dev);
 	struct skge_hw *hw = skge->hw;
 
-	if ((wol->wolopts & ~wol_supported(hw))
-	    || !device_can_wakeup(&hw->pdev->dev))
+	if ((wol->wolopts & ~wol_supported(hw)) ||
+	    !device_can_wakeup(&hw->pdev->dev))
 		return -EOPNOTSUPP;
 
 	skge->wol = wol->wolopts;
@@ -575,9 +576,10 @@ static void skge_get_pauseparam(struct net_device *dev,
 {
 	struct skge_port *skge = netdev_priv(dev);
 
-	ecmd->rx_pause = (skge->flow_control == FLOW_MODE_SYMMETRIC)
-		|| (skge->flow_control == FLOW_MODE_SYM_OR_REM);
-	ecmd->tx_pause = ecmd->rx_pause || (skge->flow_control == FLOW_MODE_LOC_SEND);
+	ecmd->rx_pause = ((skge->flow_control == FLOW_MODE_SYMMETRIC) ||
+			  (skge->flow_control == FLOW_MODE_SYM_OR_REM));
+	ecmd->tx_pause = (ecmd->rx_pause ||
+			  (skge->flow_control == FLOW_MODE_LOC_SEND));
 
 	ecmd->autoneg = ecmd->rx_pause || ecmd->tx_pause;
 }
@@ -2496,9 +2498,6 @@ static int skge_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	}
 
 	case SIOCSMIIREG:
-		if (!capable(CAP_NET_ADMIN))
-			return -EPERM;
-
 		spin_lock_bh(&hw->phy_lock);
 		if (hw->chip_id == CHIP_ID_GENESIS)
 			err = xm_phy_write(hw, skge->port, data->reg_num & 0x1f,
@@ -2746,7 +2745,8 @@ static inline int skge_avail(const struct skge_ring *ring)
 		+ (ring->to_clean - ring->to_use) - 1;
 }
 
-static int skge_xmit_frame(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t skge_xmit_frame(struct sk_buff *skb,
+				   struct net_device *dev)
 {
 	struct skge_port *skge = netdev_priv(dev);
 	struct skge_hw *hw = skge->hw;
@@ -2780,8 +2780,8 @@ static int skge_xmit_frame(struct sk_buff *skb, struct net_device *dev)
 		/* This seems backwards, but it is what the sk98lin
 		 * does.  Looks like hardware is wrong?
 		 */
-		if (ipip_hdr(skb)->protocol == IPPROTO_UDP
-	            && hw->chip_rev == 0 && hw->chip_id == CHIP_ID_YUKON)
+		if (ipip_hdr(skb)->protocol == IPPROTO_UDP &&
+	            hw->chip_rev == 0 && hw->chip_id == CHIP_ID_YUKON)
 			control = BMU_TCP_CHECK;
 		else
 			control = BMU_UDP_CHECK;
@@ -2949,8 +2949,8 @@ static void genesis_set_multicast(struct net_device *dev)
 	else {
 		memset(filter, 0, sizeof(filter));
 
-		if (skge->flow_status == FLOW_STAT_REM_SEND
-		    || skge->flow_status == FLOW_STAT_SYMMETRIC)
+		if (skge->flow_status == FLOW_STAT_REM_SEND ||
+		    skge->flow_status == FLOW_STAT_SYMMETRIC)
 			genesis_add_filter(filter, pause_mc_addr);
 
 		for (i = 0; list && i < count; i++, list = list->next)
@@ -2973,8 +2973,8 @@ static void yukon_set_multicast(struct net_device *dev)
 	struct skge_hw *hw = skge->hw;
 	int port = skge->port;
 	struct dev_mc_list *list = dev->mc_list;
-	int rx_pause = (skge->flow_status == FLOW_STAT_REM_SEND
-			|| skge->flow_status == FLOW_STAT_SYMMETRIC);
+	int rx_pause = (skge->flow_status == FLOW_STAT_REM_SEND ||
+			skge->flow_status == FLOW_STAT_SYMMETRIC);
 	u16 reg;
 	u8 filter[8];
 
@@ -3072,11 +3072,10 @@ static struct sk_buff *skge_rx_get(struct net_device *dev,
 		goto error;
 
 	if (len < RX_COPY_THRESHOLD) {
-		skb = netdev_alloc_skb(dev, len + 2);
+		skb = netdev_alloc_skb_ip_align(dev, len);
 		if (!skb)
 			goto resubmit;
 
-		skb_reserve(skb, 2);
 		pci_dma_sync_single_for_cpu(skge->hw->pdev,
 					    pci_unmap_addr(e, mapaddr),
 					    len, PCI_DMA_FROMDEVICE);
@@ -3087,11 +3086,11 @@ static struct sk_buff *skge_rx_get(struct net_device *dev,
 		skge_rx_reuse(e, skge->rx_buf_size);
 	} else {
 		struct sk_buff *nskb;
-		nskb = netdev_alloc_skb(dev, skge->rx_buf_size + NET_IP_ALIGN);
+
+		nskb = netdev_alloc_skb_ip_align(dev, skge->rx_buf_size);
 		if (!nskb)
 			goto resubmit;
 
-		skb_reserve(nskb, NET_IP_ALIGN);
 		pci_unmap_single(skge->hw->pdev,
 				 pci_unmap_addr(e, mapaddr),
 				 pci_unmap_len(e, maplen),
@@ -3937,16 +3936,19 @@ static int __devinit skge_probe(struct pci_dev *pdev,
 #endif
 
 	err = -ENOMEM;
-	hw = kzalloc(sizeof(*hw), GFP_KERNEL);
+	/* space for skge@pci:0000:04:00.0 */
+	hw = kzalloc(sizeof(*hw) + strlen(DRV_NAME "@pci:" )
+		     + strlen(pci_name(pdev)) + 1, GFP_KERNEL);
 	if (!hw) {
 		dev_err(&pdev->dev, "cannot allocate hardware struct\n");
 		goto err_out_free_regions;
 	}
+	sprintf(hw->irq_name, DRV_NAME "@pci:%s", pci_name(pdev));
 
 	hw->pdev = pdev;
 	spin_lock_init(&hw->hw_lock);
 	spin_lock_init(&hw->phy_lock);
-	tasklet_init(&hw->phy_task, &skge_extirq, (unsigned long) hw);
+	tasklet_init(&hw->phy_task, skge_extirq, (unsigned long) hw);
 
 	hw->regs = ioremap_nocache(pci_resource_start(pdev, 0), 0x4000);
 	if (!hw->regs) {
@@ -3976,7 +3978,7 @@ static int __devinit skge_probe(struct pci_dev *pdev,
 		goto err_out_free_netdev;
 	}
 
-	err = request_irq(pdev->irq, skge_intr, IRQF_SHARED, dev->name, hw);
+	err = request_irq(pdev->irq, skge_intr, IRQF_SHARED, hw->irq_name, hw);
 	if (err) {
 		dev_err(&pdev->dev, "%s: cannot assign irq %d\n",
 		       dev->name, pdev->irq);
@@ -3984,14 +3986,17 @@ static int __devinit skge_probe(struct pci_dev *pdev,
 	}
 	skge_show_addr(dev);
 
-	if (hw->ports > 1 && (dev1 = skge_devinit(hw, 1, using_dac))) {
-		if (register_netdev(dev1) == 0)
+	if (hw->ports > 1) {
+		dev1 = skge_devinit(hw, 1, using_dac);
+		if (dev1 && register_netdev(dev1) == 0)
 			skge_show_addr(dev1);
 		else {
 			/* Failure to register second port need not be fatal */
 			dev_warn(&pdev->dev, "register of second port failed\n");
 			hw->dev[1] = NULL;
-			free_netdev(dev1);
+			hw->ports = 1;
+			if (dev1)
+				free_netdev(dev1);
 		}
 	}
 	pci_set_drvdata(pdev, hw);

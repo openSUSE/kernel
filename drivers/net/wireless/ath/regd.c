@@ -450,7 +450,7 @@ ath_regd_init_wiphy(struct ath_regulatory *reg,
 	const struct ieee80211_regdomain *regd;
 
 	wiphy->reg_notifier = reg_notifier;
-	wiphy->strict_regulatory = true;
+	wiphy->flags |= WIPHY_FLAG_STRICT_REGULATORY;
 
 	if (ath_is_world_regd(reg)) {
 		/*
@@ -458,8 +458,7 @@ ath_regd_init_wiphy(struct ath_regulatory *reg,
 		 * saved on the wiphy orig_* parameters
 		 */
 		regd = ath_world_regdomain(reg);
-		wiphy->custom_regulatory = true;
-		wiphy->strict_regulatory = false;
+		wiphy->flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
 	} else {
 		/*
 		 * This gets applied in the case of the absense of CRDA,
@@ -586,7 +585,5 @@ u32 ath_regd_get_band_ctl(struct ath_regulatory *reg,
 	default:
 		return NO_CTL;
 	}
-
-	return NO_CTL;
 }
 EXPORT_SYMBOL(ath_regd_get_band_ctl);

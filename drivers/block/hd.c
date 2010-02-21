@@ -165,12 +165,12 @@ unsigned long read_timer(void)
 	unsigned long t, flags;
 	int i;
 
-	atomic_spin_lock_irqsave(&i8253_lock, flags);
+	raw_spin_lock_irqsave(&i8253_lock, flags);
 	t = jiffies * 11932;
 	outb_p(0, 0x43);
 	i = inb_p(0x40);
 	i |= inb(0x40) << 8;
-	atomic_spin_unlock_irqrestore(&i8253_lock, flags);
+	raw_spin_unlock_irqrestore(&i8253_lock, flags);
 	return(t - i);
 }
 #endif
@@ -692,7 +692,7 @@ static irqreturn_t hd_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static struct block_device_operations hd_fops = {
+static const struct block_device_operations hd_fops = {
 	.getgeo =	hd_getgeo,
 };
 

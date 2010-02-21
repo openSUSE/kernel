@@ -1476,7 +1476,6 @@ static void sbmac_channel_start(struct sbmac_softc *s)
 		V_MAC_TX_RL_THRSH(4) |
 		V_MAC_RX_PL_THRSH(4) |
 		V_MAC_RX_RD_THRSH(4) |	/* Must be '4' */
-		V_MAC_RX_PL_THRSH(4) |
 		V_MAC_RX_RL_THRSH(8) |
 		0;
 
@@ -2091,7 +2090,7 @@ static int sbmac_start_tx(struct sk_buff *skb, struct net_device *dev)
 
 	spin_unlock_irqrestore(&sc->sbm_lock, flags);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /**********************************************************************
@@ -2411,7 +2410,7 @@ static int sbmac_open(struct net_device *dev)
 	 */
 
 	__raw_readq(sc->sbm_isr);
-	err = request_irq(dev->irq, &sbmac_intr, IRQF_SHARED, dev->name, dev);
+	err = request_irq(dev->irq, sbmac_intr, IRQF_SHARED, dev->name, dev);
 	if (err) {
 		printk(KERN_ERR "%s: unable to get IRQ %d\n", dev->name,
 		       dev->irq);
@@ -2688,7 +2687,7 @@ static int sbmac_poll(struct napi_struct *napi, int budget)
 }
 
 
-static int __init sbmac_probe(struct platform_device *pldev)
+static int __devinit sbmac_probe(struct platform_device *pldev)
 {
 	struct net_device *dev;
 	struct sbmac_softc *sc;

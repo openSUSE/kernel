@@ -139,7 +139,11 @@ extern phys_addr_t kernstart_addr;
  * Don't compare things with KERNELBASE or PAGE_OFFSET to test for
  * "kernelness", use is_kernel_addr() - it should do what you want.
  */
+#ifdef CONFIG_PPC_BOOK3E_64
+#define is_kernel_addr(x)	((x) >= 0x8000000000000000ul)
+#else
 #define is_kernel_addr(x)	((x) >= PAGE_OFFSET)
+#endif
 
 #ifndef __ASSEMBLY__
 
@@ -224,6 +228,20 @@ typedef unsigned long pgprot_t;
 #define __pgprot(x)	(x)
 
 #endif
+
+typedef struct { signed long pd; } hugepd_t;
+#define HUGEPD_SHIFT_MASK     0x3f
+
+#ifdef CONFIG_HUGETLB_PAGE
+static inline int hugepd_ok(hugepd_t hpd)
+{
+	return (hpd.pd > 0);
+}
+
+#define is_hugepd(pdep)               (hugepd_ok(*((hugepd_t *)(pdep))))
+#else /* CONFIG_HUGETLB_PAGE */
+#define is_hugepd(pdep)			0
+#endif /* CONFIG_HUGETLB_PAGE */
 
 struct page;
 extern void clear_user_page(void *page, unsigned long vaddr, struct page *pg);

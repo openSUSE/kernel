@@ -31,16 +31,16 @@
 #include <asm/mach/map.h>
 #include <asm/mach/flash.h>
 
-#include <mach/control.h>
+#include <plat/control.h>
 #include <mach/gpio.h>
-#include <mach/mux.h>
-#include <mach/usb.h>
-#include <mach/board.h>
-#include <mach/common.h>
-#include <mach/keypad.h>
-#include <mach/menelaus.h>
-#include <mach/dma.h>
-#include <mach/gpmc.h>
+#include <plat/mux.h>
+#include <plat/usb.h>
+#include <plat/board.h>
+#include <plat/common.h>
+#include <plat/keypad.h>
+#include <plat/menelaus.h>
+#include <plat/dma.h>
+#include <plat/gpmc.h>
 
 #define H4_FLASH_CS	0
 #define H4_SMC91X_CS	1
@@ -268,18 +268,6 @@ static void __init h4_init_flash(void)
 	h4_flash_resource.end	= base + SZ_64M - 1;
 }
 
-static void __init omap_h4_init_irq(void)
-{
-	omap2_init_common_hw(NULL, NULL);
-	omap_init_irq();
-	omap_gpio_init();
-	h4_init_flash();
-}
-
-static struct omap_uart_config h4_uart_config __initdata = {
-	.enabled_uarts = ((1 << 0) | (1 << 1) | (1 << 2)),
-};
-
 static struct omap_lcd_config h4_lcd_config __initdata = {
 	.ctrl_name	= "internal",
 };
@@ -318,9 +306,18 @@ static struct omap_usb_config h4_usb_config __initdata = {
 };
 
 static struct omap_board_config_kernel h4_config[] = {
-	{ OMAP_TAG_UART,	&h4_uart_config },
 	{ OMAP_TAG_LCD,		&h4_lcd_config },
 };
+
+static void __init omap_h4_init_irq(void)
+{
+	omap_board_config = h4_config;
+	omap_board_config_size = ARRAY_SIZE(h4_config);
+	omap2_init_common_hw(NULL, NULL);
+	omap_init_irq();
+	omap_gpio_init();
+	h4_init_flash();
+}
 
 static struct at24_platform_data m24c01 = {
 	.byte_len	= SZ_1K / 8,
@@ -366,8 +363,6 @@ static void __init omap_h4_init(void)
 			ARRAY_SIZE(h4_i2c_board_info));
 
 	platform_add_devices(h4_devices, ARRAY_SIZE(h4_devices));
-	omap_board_config = h4_config;
-	omap_board_config_size = ARRAY_SIZE(h4_config);
 	omap_usb_init(&h4_usb_config);
 	omap_serial_init();
 }
@@ -381,7 +376,7 @@ static void __init omap_h4_map_io(void)
 MACHINE_START(OMAP_H4, "OMAP2420 H4 board")
 	/* Maintainer: Paul Mundt <paul.mundt@nokia.com> */
 	.phys_io	= 0x48000000,
-	.io_pg_offst	= ((0xd8000000) >> 18) & 0xfffc,
+	.io_pg_offst	= ((0xfa000000) >> 18) & 0xfffc,
 	.boot_params	= 0x80000100,
 	.map_io		= omap_h4_map_io,
 	.init_irq	= omap_h4_init_irq,

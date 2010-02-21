@@ -76,6 +76,16 @@ extern unsigned long zero_page_mask;
 #define ZERO_PAGE(vaddr) \
 	(virt_to_page((void *)(empty_zero_page + (((unsigned long)(vaddr)) & zero_page_mask))))
 
+#define is_zero_pfn is_zero_pfn
+static inline int is_zero_pfn(unsigned long pfn)
+{
+	extern unsigned long zero_pfn;
+	unsigned long offset_from_zero_pfn = pfn - zero_pfn;
+	return offset_from_zero_pfn <= (zero_page_mask >> PAGE_SHIFT);
+}
+
+#define my_zero_pfn(addr)	page_to_pfn(ZERO_PAGE(addr))
+
 extern void paging_init(void);
 
 /*
@@ -378,6 +388,19 @@ static inline int io_remap_pfn_range(struct vm_area_struct *vma,
 #endif
 
 #include <asm-generic/pgtable.h>
+
+/*
+ * uncached accelerated TLB map for video memory access
+ */
+#ifdef CONFIG_CPU_SUPPORTS_UNCACHED_ACCELERATED
+#define __HAVE_PHYS_MEM_ACCESS_PROT
+
+struct file;
+pgprot_t phys_mem_access_prot(struct file *file, unsigned long pfn,
+		unsigned long size, pgprot_t vma_prot);
+int phys_mem_access_prot_allowed(struct file *file, unsigned long pfn,
+		unsigned long size, pgprot_t *vma_prot);
+#endif
 
 /*
  * We provide our own get_unmapped area to cope with the virtual aliasing

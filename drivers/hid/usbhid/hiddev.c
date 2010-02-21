@@ -44,7 +44,7 @@
 #define HIDDEV_MINOR_BASE	96
 #define HIDDEV_MINORS		16
 #endif
-#define HIDDEV_BUFFER_SIZE	64
+#define HIDDEV_BUFFER_SIZE	2048
 
 struct hiddev {
 	int exist;
@@ -450,7 +450,6 @@ static noinline int hiddev_ioctl_usage(struct hiddev *hiddev, unsigned int cmd, 
 	uref_multi = kmalloc(sizeof(struct hiddev_usage_ref_multi), GFP_KERNEL);
 	if (!uref_multi)
 		return -ENOMEM;
-	lock_kernel();
 	uref = &uref_multi->uref;
 	if (cmd == HIDIOCGUSAGES || cmd == HIDIOCSUSAGES) {
 		if (copy_from_user(uref_multi, user_arg,
@@ -528,7 +527,6 @@ static noinline int hiddev_ioctl_usage(struct hiddev *hiddev, unsigned int cmd, 
 
 		case HIDIOCGCOLLECTIONINDEX:
 			i = field->usage[uref->usage_index].collection_index;
-			unlock_kernel();
 			kfree(uref_multi);
 			return i;
 		case HIDIOCGUSAGES:
@@ -547,15 +545,12 @@ static noinline int hiddev_ioctl_usage(struct hiddev *hiddev, unsigned int cmd, 
 		}
 
 goodreturn:
-		unlock_kernel();
 		kfree(uref_multi);
 		return 0;
 fault:
-		unlock_kernel();
 		kfree(uref_multi);
 		return -EFAULT;
 inval:
-		unlock_kernel();
 		kfree(uref_multi);
 		return -EINVAL;
 	}
@@ -852,14 +847,14 @@ static const struct file_operations hiddev_fops = {
 #endif
 };
 
-static char *hiddev_nodename(struct device *dev)
+static char *hiddev_devnode(struct device *dev, mode_t *mode)
 {
 	return kasprintf(GFP_KERNEL, "usb/%s", dev_name(dev));
 }
 
 static struct usb_class_driver hiddev_class = {
 	.name =		"hiddev%d",
-	.nodename =	hiddev_nodename,
+	.devnode =	hiddev_devnode,
 	.fops =		&hiddev_fops,
 	.minor_base =	HIDDEV_MINOR_BASE,
 };

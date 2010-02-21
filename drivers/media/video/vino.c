@@ -1776,7 +1776,6 @@ static struct i2c_algo_sgi_data i2c_sgi_vino_data = {
 
 static struct i2c_adapter vino_i2c_adapter = {
 	.name			= "VINO I2C bus",
-	.id			= I2C_HW_SGI_VINO,
 	.algo			= &sgi_algo,
 	.algo_data		= &i2c_sgi_vino_data,
 	.owner 			= THIS_MODULE,
@@ -3858,7 +3857,7 @@ static void vino_vm_close(struct vm_area_struct *vma)
 	dprintk("vino_vm_close(): count = %d\n", fb->map_count);
 }
 
-static struct vm_operations_struct vino_vm_ops = {
+static const struct vm_operations_struct vino_vm_ops = {
 	.open	= vino_vm_open,
 	.close	= vino_vm_close,
 };
@@ -4069,7 +4068,6 @@ static struct video_device vdev_template = {
 	.fops		= &vino_fops,
 	.ioctl_ops 	= &vino_ioctl_ops,
 	.tvnorms 	= V4L2_STD_NTSC | V4L2_STD_PAL | V4L2_STD_SECAM,
-	.minor		= -1,
 };
 
 static void vino_module_cleanup(int stage)
@@ -4334,11 +4332,11 @@ static int __init vino_module_init(void)
 	vino_init_stage++;
 
 	vino_drvdata->decoder =
-		v4l2_i2c_new_probed_subdev_addr(&vino_drvdata->v4l2_dev,
-			&vino_i2c_adapter, "saa7191", "saa7191", 0x45);
+		v4l2_i2c_new_subdev(&vino_drvdata->v4l2_dev, &vino_i2c_adapter,
+			       "saa7191", "saa7191", 0, I2C_ADDRS(0x45));
 	vino_drvdata->camera =
-		v4l2_i2c_new_probed_subdev_addr(&vino_drvdata->v4l2_dev,
-			&vino_i2c_adapter, "indycam", "indycam", 0x2b);
+		v4l2_i2c_new_subdev(&vino_drvdata->v4l2_dev, &vino_i2c_adapter,
+			       "indycam", "indycam", 0, I2C_ADDRS(0x2b));
 
 	dprintk("init complete!\n");
 

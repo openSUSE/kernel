@@ -12,6 +12,7 @@
 #include <linux/seq_file.h>
 #include <linux/debugfs.h>
 #include <linux/pfn.h>
+#include <linux/percpu.h>
 
 #include <asm/e820.h>
 #include <asm/processor.h>
@@ -143,6 +144,7 @@ void clflush_cache_range(void *vaddr, unsigned int size)
 
 	mb();
 }
+EXPORT_SYMBOL_GPL(clflush_cache_range);
 
 static void __cpa_flush_all(void *arg)
 {
@@ -276,6 +278,22 @@ static inline pgprot_t static_protections(pgprot_t prot, unsigned long address,
 	if (within(pfn, __pa((unsigned long)__start_rodata) >> PAGE_SHIFT,
 		   __pa((unsigned long)__end_rodata) >> PAGE_SHIFT))
 		pgprot_val(forbidden) |= _PAGE_RW;
+
+#if defined(CONFIG_X86_64) && defined(CONFIG_DEBUG_RODATA)
+	/*
+	 * Once the kernel maps the text as RO (kernel_set_to_readonly is set),
+	 * kernel text mappings for the large page aligned text, rodata sections
+	 * will be always read-only. For the kernel identity mappings covering
+	 * the holes caused by this alignment can be anything that user asks.
+	 *
+	 * This will preserve the large page mappings for kernel text/data
+	 * at no extra cost.
+	 */
+	if (kernel_set_to_readonly &&
+	    within(address, (unsigned long)_text,
+		   (unsigned long)__end_rodata_hpage_align))
+		pgprot_val(forbidden) |= _PAGE_RW;
+#endif
 
 	prot = __pgprot(pgprot_val(prot) & ~pgprot_val(forbidden));
 
@@ -686,7 +704,7 @@ static int cpa_process_alias(struct cpa_data *cpa)
 {
 	struct cpa_data alias_cpa;
 	unsigned long laddr = (unsigned long)__va(cpa->pfn << PAGE_SHIFT);
-	unsigned long vaddr, remapped;
+	unsigned long vaddr;
 	int ret;
 
 	if (cpa->pfn >= max_pfn_mapped)
@@ -743,24 +761,6 @@ static int cpa_process_alias(struct cpa_data *cpa)
 		__change_page_attr_set_clr(&alias_cpa, 0);
 	}
 #endif
-
-	/*
-	 * If the PMD page was partially used for per-cpu remapping,
-	 * the recycled area needs to be split and modified.  Because
-	 * the area is always proper subset of a PMD page
-	 * cpa->numpages is guaranteed to be 1 for these areas, so
-	 * there's no need to loop over and check for further remaps.
-	 */
-	remapped = (unsigned long)pcpu_lpage_remapped((void *)laddr);
-	if (remapped) {
-		WARN_ON(cpa->numpages > 1);
-		alias_cpa = *cpa;
-		alias_cpa.vaddr = &remapped;
-		alias_cpa.flags &= ~(CPA_PAGES_ARRAY | CPA_ARRAY);
-		ret = __change_page_attr_set_clr(&alias_cpa, 0);
-		if (ret)
-			return ret;
-	}
 
 	return 0;
 }
@@ -822,6 +822,7 @@ static int change_page_attr_set_clr(unsigned long *addr, int numpages,
 {
 	struct cpa_data cpa;
 	int ret, cache, checkalias;
+	unsigned long baddr = 0;
 
 	/*
 	 * Check, if we are requested to change a not supported
@@ -853,6 +854,11 @@ static int change_page_attr_set_clr(unsigned long *addr, int numpages,
 			 */
 			WARN_ON_ONCE(1);
 		}
+		/*
+		 * Save address for cache flush. *addr is modified in the call
+		 * to __change_page_attr_set_clr() below.
+		 */
+		baddr = *addr;
 	}
 
 #if 0
@@ -902,7 +908,7 @@ static int change_page_attr_set_clr(unsigned long *addr, int numpages,
 			cpa_flush_array(addr, numpages, cache,
 					cpa.flags, pages);
 		} else
-			cpa_flush_range(*addr, numpages, cache);
+			cpa_flush_range(baddr, numpages, cache);
 	} else
 		cpa_flush_all(cache);
 
@@ -1081,12 +1087,18 @@ EXPORT_SYMBOL(set_memory_array_wb);
 
 int set_memory_x(unsigned long addr, int numpages)
 {
+	if (!(__supported_pte_mask & _PAGE_NX))
+		return 0;
+
 	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_NX), 0);
 }
 EXPORT_SYMBOL(set_memory_x);
 
 int set_memory_nx(unsigned long addr, int numpages)
 {
+	if (!(__supported_pte_mask & _PAGE_NX))
+		return 0;
+
 	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_NX), 0);
 }
 EXPORT_SYMBOL(set_memory_nx);

@@ -117,22 +117,22 @@ extern void warn_slowpath_null(const char *file, const int line);
 #endif
 
 #define WARN_ON_ONCE(condition)	({				\
-	static int __warned;					\
+	static bool __warned;					\
 	int __ret_warn_once = !!(condition);			\
 								\
 	if (unlikely(__ret_warn_once))				\
 		if (WARN_ON(!__warned)) 			\
-			__warned = 1;				\
+			__warned = true;			\
 	unlikely(__ret_warn_once);				\
 })
 
 #define WARN_ONCE(condition, format...)	({			\
-	static int __warned;					\
+	static bool __warned;					\
 	int __ret_warn_once = !!(condition);			\
 								\
 	if (unlikely(__ret_warn_once))				\
 		if (WARN(!__warned, format)) 			\
-			__warned = 1;				\
+			__warned = true;			\
 	unlikely(__ret_warn_once);				\
 })
 
@@ -151,14 +151,12 @@ extern void warn_slowpath_null(const char *file, const int line);
 # define WARN_ON_RT(condition)		WARN_ON(condition)
 # define WARN_ON_NONRT(condition)	do { } while (0)
 # define WARN_ON_ONCE_NONRT(condition)	do { } while (0)
-# define WARN_ONCE_NONRT		do { } while (0)
 #else
 # define BUG_ON_RT(c)			do { } while (0)
 # define BUG_ON_NONRT(c)		BUG_ON(c)
 # define WARN_ON_RT(condition)		do { } while (0)
 # define WARN_ON_NONRT(condition)	WARN_ON(condition)
 # define WARN_ON_ONCE_NONRT(condition)	WARN_ON_ONCE(condition)
-# define WARN_ONCE_NONRT(cond, fmt...)	WARN_ONCE(cond, fmt)
 #endif
 
 #endif

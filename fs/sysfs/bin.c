@@ -40,7 +40,7 @@ struct bin_buffer {
 	struct mutex			mutex;
 	void				*buffer;
 	int				mmapped;
-	struct vm_operations_struct 	*vm_ops;
+	const struct vm_operations_struct *vm_ops;
 	struct file			*file;
 	struct hlist_node		list;
 };
@@ -331,7 +331,7 @@ static int bin_migrate(struct vm_area_struct *vma, const nodemask_t *from,
 }
 #endif
 
-static struct vm_operations_struct bin_vm_ops = {
+static const struct vm_operations_struct bin_vm_ops = {
 	.open		= bin_vma_open,
 	.close		= bin_vma_close,
 	.fault		= bin_fault,
@@ -483,7 +483,8 @@ void unmap_bin_file(struct sysfs_dirent *attr_sd)
  *	@attr:	attribute descriptor.
  */
 
-int sysfs_create_bin_file(struct kobject * kobj, struct bin_attribute * attr)
+int sysfs_create_bin_file(struct kobject *kobj,
+			  const struct bin_attribute *attr)
 {
 	BUG_ON(!kobj || !kobj->sd || !attr);
 
@@ -497,7 +498,8 @@ int sysfs_create_bin_file(struct kobject * kobj, struct bin_attribute * attr)
  *	@attr:	attribute descriptor.
  */
 
-void sysfs_remove_bin_file(struct kobject * kobj, struct bin_attribute * attr)
+void sysfs_remove_bin_file(struct kobject *kobj,
+			   const struct bin_attribute *attr)
 {
 	sysfs_hash_and_remove(kobj->sd, attr->attr.name);
 }

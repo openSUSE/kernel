@@ -34,7 +34,7 @@ static int dcssblk_direct_access(struct block_device *bdev, sector_t secnum,
 static char dcssblk_segments[DCSSBLK_PARM_LEN] = "\0";
 
 static int dcssblk_major;
-static struct block_device_operations dcssblk_devops = {
+static const struct block_device_operations dcssblk_devops = {
 	.owner   	= THIS_MODULE,
 	.open    	= dcssblk_open,
 	.release 	= dcssblk_release,
@@ -1005,7 +1005,7 @@ static int dcssblk_thaw(struct device *dev)
 	return 0;
 }
 
-static struct dev_pm_ops dcssblk_pm_ops = {
+static const struct dev_pm_ops dcssblk_pm_ops = {
 	.freeze		= dcssblk_freeze,
 	.thaw		= dcssblk_thaw,
 	.restore	= dcssblk_restore,

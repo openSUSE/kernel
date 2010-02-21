@@ -59,6 +59,9 @@ extern unsigned long __per_cpu_offset[NR_CPUS];
 #define __raw_get_cpu_var(var) \
 	(*SHIFT_PERCPU_PTR(&per_cpu_var(var), __my_cpu_offset))
 
+#define this_cpu_ptr(ptr) SHIFT_PERCPU_PTR(ptr, my_cpu_offset)
+#define __this_cpu_ptr(ptr) SHIFT_PERCPU_PTR(ptr, __my_cpu_offset)
+
 #define per_cpu_lock(var, cpu) \
 	(*SHIFT_PERCPU_PTR(&__per_cpu_var_lock(var), per_cpu_offset(cpu)))
 #define per_cpu_var_locked(var, cpu) \
@@ -75,11 +78,17 @@ extern void setup_per_cpu_areas(void);
 #else /* ! SMP */
 
 #define per_cpu(var, cpu)			(*((void)(cpu), &per_cpu_var(var)))
-#define per_cpu_var_locked(var, cpu)		(*((void)(cpu), &__per_cpu_var_lock_var(var)))
+#define per_cpu_var_locked(var, cpu) \
+	(*((void)(cpu), &__per_cpu_var_lock_var(var)))
 #define __get_cpu_var(var)			per_cpu_var(var)
 #define __raw_get_cpu_var(var)			per_cpu_var(var)
 #define __get_cpu_lock(var, cpu)		__per_cpu_var_lock(var)
 #define __get_cpu_var_locked(var, cpu)		__per_cpu_var_lock_var(var)
+#define __get_cpu_var(var)			per_cpu_var(var)
+#define __raw_get_cpu_var(var)			per_cpu_var(var)
+#define this_cpu_ptr(ptr) per_cpu_ptr(ptr, 0)
+#define __this_cpu_ptr(ptr) this_cpu_ptr(ptr)
+
 #endif	/* SMP */
 
 #ifndef PER_CPU_BASE_SECTION
@@ -94,14 +103,17 @@ extern void setup_per_cpu_areas(void);
 
 #ifdef MODULE
 #define PER_CPU_SHARED_ALIGNED_SECTION ""
+#define PER_CPU_ALIGNED_SECTION ""
 #else
 #define PER_CPU_SHARED_ALIGNED_SECTION ".shared_aligned"
+#define PER_CPU_ALIGNED_SECTION ".shared_aligned"
 #endif
 #define PER_CPU_FIRST_SECTION ".first"
 
 #else
 
 #define PER_CPU_SHARED_ALIGNED_SECTION ""
+#define PER_CPU_ALIGNED_SECTION ".shared_aligned"
 #define PER_CPU_FIRST_SECTION ""
 
 #endif

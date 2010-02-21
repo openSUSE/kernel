@@ -30,7 +30,6 @@
 #include <linux/types.h>
 #include <linux/slab.h>
 #include <linux/highmem.h>
-#include <linux/utsname.h>
 #include <linux/init.h>
 #include <linux/sysctl.h>
 #include <linux/random.h>
@@ -270,7 +269,7 @@ static enum dlm_status dlmlock_remote(struct dlm_ctxt *dlm,
 		}
 		dlm_revert_pending_lock(res, lock);
 		dlm_lock_put(lock);
-	} else if (dlm_is_recovery_lock(res->lockname.name, 
+	} else if (dlm_is_recovery_lock(res->lockname.name,
 					res->lockname.len)) {
 		/* special case for the $RECOVERY lock.
 		 * there will never be an AST delivered to put

@@ -16,58 +16,107 @@
 #include <asm/asm-offsets.h>
 #include <asm/suspend.h>
 
-/* manage self-refresh and enter standby mode.
+/*
+ * Kernel mode register usage, see entry.S:
+ *	k0	scratch
+ *	k1	scratch
+ */
+#define k0	r0
+#define k1	r1
+
+/* manage self-refresh and enter standby mode. must be self-contained.
  * this code will be copied to on-chip memory and executed from there.
  */
+	.balign 4
+ENTRY(sh_mobile_sleep_enter_start)
 
-	.balign 	4096,0,4096
-ENTRY(sh_mobile_standby)
-	mov	r4, r0
+	/* save mode flags */
+	mov.l	r4, @(SH_SLEEP_MODE, r5)
 
+	/* save original vbr */
+	stc	vbr, r0
+	mov.l	r0, @(SH_SLEEP_VBR, r5)
+
+	/* point vbr to our on-chip memory page */
+	ldc	r5, vbr
+
+	/* save return address */
+	sts	pr, r0
+	mov.l	r0, @(SH_SLEEP_SPC, r5)
+
+	/* save sr */
+	stc	sr, r0
+	mov.l	r0, @(SH_SLEEP_SR, r5)
+
+	/* save sp */
+	mov.l	r15, @(SH_SLEEP_SP, r5)
+
+	/* save stbcr */
+	bsr     save_register
+	 mov    #SH_SLEEP_REG_STBCR, r0
+
+	/* save mmu and cache context if needed */
+	mov.l	@(SH_SLEEP_MODE, r5), r0
+	tst	#SUSP_SH_MMU, r0
+	bt	skip_mmu_save_disable
+
+       /* save mmu state */
+	bsr	save_register
+	 mov	#SH_SLEEP_REG_PTEH, r0
+
+	bsr	save_register
+	 mov	#SH_SLEEP_REG_PTEL, r0
+
+	bsr	save_register
+	 mov	#SH_SLEEP_REG_TTB, r0
+
+	bsr	save_register
+	 mov	#SH_SLEEP_REG_TEA, r0
+
+	bsr	save_register
+	 mov	#SH_SLEEP_REG_MMUCR, r0
+
+	bsr	save_register
+	 mov	#SH_SLEEP_REG_PTEA, r0
+
+	bsr	save_register
+	 mov	#SH_SLEEP_REG_PASCR, r0
+
+	bsr	save_register
+	 mov	#SH_SLEEP_REG_IRMCR, r0
+
+	/* invalidate TLBs and disable the MMU */
+	bsr	get_register
+	 mov	#SH_SLEEP_REG_MMUCR, r0
+	mov	#4, r1
+	mov.l	r1, @r0
+	icbi	@r0
+
+	/* save cache registers and disable caches */
+	bsr	save_register
+	 mov	#SH_SLEEP_REG_CCR, r0
+
+	bsr	save_register
+	 mov	#SH_SLEEP_REG_RAMCR, r0
+
+	bsr	get_register
+	 mov	#SH_SLEEP_REG_CCR, r0
+	mov	#0, r1
+	mov.l	r1, @r0
+	icbi	@r0
+
+skip_mmu_save_disable:
+	/* call self-refresh entering code if needed */
+	mov.l	@(SH_SLEEP_MODE, r5), r0
 	tst	#SUSP_SH_SF, r0
 	bt	skip_set_sf
-#ifdef CONFIG_CPU_SUBTYPE_SH7724
-	/* DBSC: put memory in self-refresh mode */
 
-	mov.l	dben_reg, r4
-	mov.l	dben_data0, r1
-	mov.l	r1, @r4
-
-	mov.l	dbrfpdn0_reg, r4
-	mov.l	dbrfpdn0_data0, r1
-	mov.l	r1, @r4
-
-	mov.l	dbcmdcnt_reg, r4
-	mov.l	dbcmdcnt_data0, r1
-	mov.l	r1, @r4
-
-	mov.l	dbcmdcnt_reg, r4
-	mov.l	dbcmdcnt_data1, r1
-	mov.l	r1, @r4
-
-	mov.l	dbrfpdn0_reg, r4
-	mov.l	dbrfpdn0_data1, r1
-	mov.l	r1, @r4
-#else
-	/* SBSC: disable power down and put in self-refresh mode */
-	mov.l	1f, r4
-	mov.l	2f, r1
-	mov.l	@r4, r2
-	or	r1, r2
-	mov.l   3f, r3
-	and	r3, r2
-	mov.l	r2, @r4
-#endif
+	mov.l	@(SH_SLEEP_SF_PRE, r5), r0
+	jsr	@r0
+	 nop
 
 skip_set_sf:
-	tst	#SUSP_SH_SLEEP, r0
-	bt	test_standby
-
-	/* set mode to "sleep mode" */
-	bra	do_sleep
-	 mov	#0x00, r1
-
-test_standby:
+	mov.l	@(SH_SLEEP_MODE, r5), r0
 	tst	#SUSP_SH_STANDBY, r0
 	bt	test_rstandby
 
@@ -79,113 +128,161 @@ test_rstandby:
 	tst	#SUSP_SH_RSTANDBY, r0
 	bt	test_ustandby
 
+	/* setup BAR register */
+	bsr	get_register
+	 mov	#SH_SLEEP_REG_BAR, r0
+	mov.l	@(SH_SLEEP_RESUME, r5), r1
+	mov.l	r1, @r0
+
 	/* set mode to "r-standby mode" */
 	bra	do_sleep
 	 mov	#0x20, r1
 
 test_ustandby:
 	tst	#SUSP_SH_USTANDBY, r0
-	bt	done_sleep
+	bt	force_sleep
 
 	/* set mode to "u-standby mode" */
-	mov	#0x10, r1
+	bra	do_sleep
+	 mov	#0x10, r1
 
-	/* fall-through */
+force_sleep:
+
+	/* set mode to "sleep mode" */
+	mov	#0x00, r1
 
 do_sleep:
 	/* setup and enter selected standby mode */
-	mov.l	5f, r4
-	mov.l	r1, @r4
+	bsr     get_register
+	 mov    #SH_SLEEP_REG_STBCR, r0
+	mov.l	r1, @r0
+again:
 	sleep
+	bra	again
+	 nop
 
-done_sleep:
-	/* reset standby mode to sleep mode */
-	mov.l	5f, r4
-	mov	#0x00, r1
-	mov.l	r1, @r4
+save_register:
+	add	#SH_SLEEP_BASE_ADDR, r0
+	mov.l	@(r0, r5), r1
+	add	#-SH_SLEEP_BASE_ADDR, r0
+	mov.l	@r1, r1
+	add	#SH_SLEEP_BASE_DATA, r0
+	mov.l	r1, @(r0, r5)
+	add	#-SH_SLEEP_BASE_DATA, r0
+	rts
+	 nop
 
+get_register:
+	add	#SH_SLEEP_BASE_ADDR, r0
+	mov.l	@(r0, r5), r0
+	rts
+	 nop
+ENTRY(sh_mobile_sleep_enter_end)
+
+	.balign 4
+ENTRY(sh_mobile_sleep_resume_start)
+
+	/* figure out start address */
+	bsr	0f
+	 nop
+0:
+	sts	pr, k1
+	mov.l	1f, k0
+	and	k0, k1
+
+	/* store pointer to data area in VBR */
+	ldc	k1, vbr
+
+	/* setup sr with saved sr */
+	mov.l	@(SH_SLEEP_SR, k1), k0
+	ldc	k0, sr
+
+	/* now: user register set! */
+	stc	vbr, r5
+
+	/* setup spc with return address to c code */
+	mov.l	@(SH_SLEEP_SPC, r5), r0
+	ldc	r0, spc
+
+	/* restore vbr */
+	mov.l	@(SH_SLEEP_VBR, r5), r0
+	ldc	r0, vbr
+
+	/* setup ssr with saved sr */
+	mov.l	@(SH_SLEEP_SR, r5), r0
+	ldc	r0, ssr
+
+	/* restore sp */
+	mov.l   @(SH_SLEEP_SP, r5), r15
+
+	/* restore sleep mode register */
+	bsr     restore_register
+	 mov    #SH_SLEEP_REG_STBCR, r0
+
+	/* call self-refresh resume code if needed */
+	mov.l	@(SH_SLEEP_MODE, r5), r0
 	tst	#SUSP_SH_SF, r0
 	bt	skip_restore_sf
 
-#ifdef CONFIG_CPU_SUBTYPE_SH7724
-	/* DBSC: put memory in auto-refresh mode */
+	mov.l	@(SH_SLEEP_SF_POST, r5), r0
+	jsr	@r0
+	 nop
 
-	mov.l	dbrfpdn0_reg, r4
-	mov.l	dbrfpdn0_data0, r1
-	mov.l	r1, @r4
-
-	/* sleep 140 ns */
-	nop
-	nop
-	nop
-	nop
-
-	mov.l	dbcmdcnt_reg, r4
-	mov.l	dbcmdcnt_data0, r1
-	mov.l	r1, @r4
-
-	mov.l	dbcmdcnt_reg, r4
-	mov.l	dbcmdcnt_data1, r1
-	mov.l	r1, @r4
-
-	mov.l	dben_reg, r4
-	mov.l	dben_data1, r1
-	mov.l	r1, @r4
-
-	mov.l	dbrfpdn0_reg, r4
-	mov.l	dbrfpdn0_data2, r1
-	mov.l	r1, @r4
-#else
-	/* SBSC: set auto-refresh mode */
-	mov.l	1f, r4
-	mov.l	@r4, r2
-	mov.l   4f, r3
-	and	r3, r2
-	mov.l	r2, @r4
-	mov.l	6f, r4
-	mov.l	7f, r1
-	mov.l	8f, r2
-	mov.l	@r4, r3
-	mov	#-1, r4
-	add	r4, r3
-	or	r2, r3
-	mov.l	r3, @r1
-#endif
 skip_restore_sf:
+	/* restore mmu and cache state if needed */
+	mov.l	@(SH_SLEEP_MODE, r5), r0
+	tst	#SUSP_SH_MMU, r0
+	bt	skip_restore_mmu
+
+	/* restore mmu state */
+	bsr	restore_register
+	 mov	#SH_SLEEP_REG_PTEH, r0
+
+	bsr	restore_register
+	 mov	#SH_SLEEP_REG_PTEL, r0
+
+	bsr	restore_register
+	 mov	#SH_SLEEP_REG_TTB, r0
+
+	bsr	restore_register
+	 mov	#SH_SLEEP_REG_TEA, r0
+
+	bsr	restore_register
+	 mov	#SH_SLEEP_REG_PTEA, r0
+
+	bsr	restore_register
+	 mov	#SH_SLEEP_REG_PASCR, r0
+
+	bsr	restore_register
+	 mov	#SH_SLEEP_REG_IRMCR, r0
+
+	bsr	restore_register
+	 mov	#SH_SLEEP_REG_MMUCR, r0
+	icbi	@r0
+
+	/* restore cache settings */
+	bsr	restore_register
+	 mov	#SH_SLEEP_REG_RAMCR, r0
+	icbi	@r0
+
+	bsr	restore_register
+	 mov	#SH_SLEEP_REG_CCR, r0
+	icbi	@r0
+
+skip_restore_mmu:
+	rte
+	 nop
+
+restore_register:
+	add	#SH_SLEEP_BASE_DATA, r0
+	mov.l	@(r0, r5), r1
+	add	#-SH_SLEEP_BASE_DATA, r0
+	add	#SH_SLEEP_BASE_ADDR, r0
+	mov.l	@(r0, r5), r0
+	mov.l	r1, @r0
 	rts
 	 nop
 
 	.balign 4
-#ifdef CONFIG_CPU_SUBTYPE_SH7724
-dben_reg:	.long	0xfd000010 /* DBEN */
-dben_data0:	.long	0
-dben_data1:	.long	1
-dbrfpdn0_reg:	.long	0xfd000040 /* DBRFPDN0 */
-dbrfpdn0_data0:	.long	0
-dbrfpdn0_data1:	.long	1
-dbrfpdn0_data2:	.long	0x00010000
-dbcmdcnt_reg:	.long	0xfd000014 /* DBCMDCNT */
-dbcmdcnt_data0:	.long	2
-dbcmdcnt_data1:	.long	4
-#else
-1:	.long	0xfe400008 /* SDCR0 */
-2:	.long	0x00000400
-3:	.long	0xffff7fff
-4:	.long	0xfffffbff
-#endif
-5:	.long	0xa4150020 /* STBCR */
-6:	.long   0xfe40001c /* RTCOR */
-7:	.long   0xfe400018 /* RTCNT */
-8:	.long   0xa55a0000
-
-/* interrupt vector @ 0x600 */
-	.balign 	0x400,0,0x400
-	.long	0xdeadbeef
-	.balign 	0x200,0,0x200
-	/* sh7722 will end up here in sleep mode */
-	rte
-	 nop
-sh_mobile_standby_end:
-
-ENTRY(sh_mobile_standby_size)
-	.long sh_mobile_standby_end - sh_mobile_standby
+1:	.long	~0x7ff
+ENTRY(sh_mobile_sleep_resume_end)

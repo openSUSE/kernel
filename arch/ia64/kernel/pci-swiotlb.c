@@ -41,17 +41,17 @@ struct dma_map_ops swiotlb_dma_ops = {
 void __init swiotlb_dma_init(void)
 {
 	dma_ops = &swiotlb_dma_ops;
-	swiotlb_init();
+	swiotlb_init(1);
 }
 
 void __init pci_swiotlb_init(void)
 {
-	if (!iommu_detected || iommu_pass_through) {
+	if (!iommu_detected) {
 #ifdef CONFIG_IA64_GENERIC
 		swiotlb = 1;
 		printk(KERN_INFO "PCI-DMA: Re-initialize machine vector.\n");
 		machvec_init("dig");
-		swiotlb_init();
+		swiotlb_init(1);
 		dma_ops = &swiotlb_dma_ops;
 #else
 		panic("Unable to find Intel IOMMU");

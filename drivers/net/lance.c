@@ -300,7 +300,8 @@ static unsigned char lance_need_isa_bounce_buffers = 1;
 
 static int lance_open(struct net_device *dev);
 static void lance_init_ring(struct net_device *dev, gfp_t mode);
-static int lance_start_xmit(struct sk_buff *skb, struct net_device *dev);
+static netdev_tx_t lance_start_xmit(struct sk_buff *skb,
+				    struct net_device *dev);
 static int lance_rx(struct net_device *dev);
 static irqreturn_t lance_interrupt(int irq, void *dev_id);
 static int lance_close(struct net_device *dev);
@@ -492,14 +493,14 @@ static int __init lance_probe1(struct net_device *dev, int ioaddr, int irq, int 
 		static const short ioaddr_table[] = { 0x300, 0x320, 0x340, 0x360};
 		int hp_port = (readl(bios + 1) & 1)  ? 0x499 : 0x99;
 		/* We can have boards other than the built-in!  Verify this is on-board. */
-		if ((inb(hp_port) & 0xc0) == 0x80
-			&& ioaddr_table[inb(hp_port) & 3] == ioaddr)
+		if ((inb(hp_port) & 0xc0) == 0x80 &&
+		    ioaddr_table[inb(hp_port) & 3] == ioaddr)
 			hp_builtin = hp_port;
 	}
 	iounmap(bios);
 	/* We also recognize the HP Vectra on-board here, but check below. */
-	hpJ2405A = (inb(ioaddr) == 0x08 && inb(ioaddr+1) == 0x00
-				&& inb(ioaddr+2) == 0x09);
+	hpJ2405A = (inb(ioaddr) == 0x08 && inb(ioaddr+1) == 0x00 &&
+		    inb(ioaddr+2) == 0x09);
 
 	/* Reset the LANCE.	 */
 	reset_val = inw(ioaddr+LANCE_RESET); /* Reset the LANCE */
@@ -754,7 +755,7 @@ lance_open(struct net_device *dev)
 	int i;
 
 	if (dev->irq == 0 ||
-		request_irq(dev->irq, &lance_interrupt, 0, lp->name, dev)) {
+		request_irq(dev->irq, lance_interrupt, 0, lp->name, dev)) {
 		return -EAGAIN;
 	}
 
@@ -949,7 +950,8 @@ static void lance_tx_timeout (struct net_device *dev)
 }
 
 
-static int lance_start_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t lance_start_xmit(struct sk_buff *skb,
+				    struct net_device *dev)
 {
 	struct lance_private *lp = dev->ml_priv;
 	int ioaddr = dev->base_addr;
@@ -1016,7 +1018,7 @@ static int lance_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 out:
 	spin_unlock_irqrestore(&lp->devlock, flags);
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /* The LANCE interrupt handler. */
@@ -1033,8 +1035,8 @@ static irqreturn_t lance_interrupt(int irq, void *dev_id)
 	spin_lock (&lp->devlock);
 
 	outw(0x00, dev->base_addr + LANCE_ADDR);
-	while ((csr0 = inw(dev->base_addr + LANCE_DATA)) & 0x8600
-		   && --boguscnt >= 0) {
+	while ((csr0 = inw(dev->base_addr + LANCE_DATA)) & 0x8600 &&
+	       --boguscnt >= 0) {
 		/* Acknowledge all of the current interrupt sources ASAP. */
 		outw(csr0 & ~0x004f, dev->base_addr + LANCE_DATA);
 

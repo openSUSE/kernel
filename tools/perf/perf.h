@@ -41,20 +41,50 @@
 #define cpu_relax()	asm volatile("" ::: "memory");
 #endif
 
+#ifdef __sparc__
+#include "../../arch/sparc/include/asm/unistd.h"
+#define rmb()		asm volatile("":::"memory")
+#define cpu_relax()	asm volatile("":::"memory")
+#endif
+
+#ifdef __alpha__
+#include "../../arch/alpha/include/asm/unistd.h"
+#define rmb()		asm volatile("mb" ::: "memory")
+#define cpu_relax()	asm volatile("" ::: "memory")
+#endif
+
+#ifdef __ia64__
+#include "../../arch/ia64/include/asm/unistd.h"
+#define rmb()		asm volatile ("mf" ::: "memory")
+#define cpu_relax()	asm volatile ("hint @pause" ::: "memory")
+#endif
+
+#ifdef __arm__
+#include "../../arch/arm/include/asm/unistd.h"
+/*
+ * Use the __kuser_memory_barrier helper in the CPU helper page. See
+ * arch/arm/kernel/entry-armv.S in the kernel source for details.
+ */
+#define rmb()		asm volatile("mov r0, #0xffff0fff; mov lr, pc;" \
+				     "sub pc, r0, #95" ::: "r0", "lr", "cc", \
+				     "memory")
+#define cpu_relax()	asm volatile("":::"memory")
+#endif
+
 #include <time.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/syscall.h>
 
-#include "../../include/linux/perf_counter.h"
+#include "../../include/linux/perf_event.h"
 #include "util/types.h"
 
 /*
- * prctl(PR_TASK_PERF_COUNTERS_DISABLE) will (cheaply) disable all
+ * prctl(PR_TASK_PERF_EVENTS_DISABLE) will (cheaply) disable all
  * counters in the current task.
  */
-#define PR_TASK_PERF_COUNTERS_DISABLE   31
-#define PR_TASK_PERF_COUNTERS_ENABLE    32
+#define PR_TASK_PERF_EVENTS_DISABLE   31
+#define PR_TASK_PERF_EVENTS_ENABLE    32
 
 #ifndef NSEC_PER_SEC
 # define NSEC_PER_SEC			1000000000ULL
@@ -84,12 +114,12 @@ static inline unsigned long long rdclock(void)
 	_min1 < _min2 ? _min1 : _min2; })
 
 static inline int
-sys_perf_counter_open(struct perf_counter_attr *attr,
+sys_perf_event_open(struct perf_event_attr *attr,
 		      pid_t pid, int cpu, int group_fd,
 		      unsigned long flags)
 {
 	attr->size = sizeof(*attr);
-	return syscall(__NR_perf_counter_open, attr, pid, cpu,
+	return syscall(__NR_perf_event_open, attr, pid, cpu,
 		       group_fd, flags);
 }
 

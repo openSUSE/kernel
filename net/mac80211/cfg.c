@@ -36,6 +36,15 @@ static bool nl80211_type_check(enum nl80211_iftype type)
 	}
 }
 
+static bool nl80211_params_check(enum nl80211_iftype type,
+				 struct vif_params *params)
+{
+	if (!nl80211_type_check(type))
+		return false;
+
+	return true;
+}
+
 static int ieee80211_add_iface(struct wiphy *wiphy, char *name,
 			       enum nl80211_iftype type, u32 *flags,
 			       struct vif_params *params)
@@ -45,7 +54,7 @@ static int ieee80211_add_iface(struct wiphy *wiphy, char *name,
 	struct ieee80211_sub_if_data *sdata;
 	int err;
 
-	if (!nl80211_type_check(type))
+	if (!nl80211_params_check(type, params))
 		return -EINVAL;
 
 	err = ieee80211_if_add(local, name, &dev, type, params);
@@ -57,37 +66,25 @@ static int ieee80211_add_iface(struct wiphy *wiphy, char *name,
 	return 0;
 }
 
-static int ieee80211_del_iface(struct wiphy *wiphy, int ifindex)
+static int ieee80211_del_iface(struct wiphy *wiphy, struct net_device *dev)
 {
-	struct net_device *dev;
-	struct ieee80211_sub_if_data *sdata;
-
-	/* we're under RTNL */
-	dev = __dev_get_by_index(&init_net, ifindex);
-	if (!dev)
-		return -ENODEV;
-
-	sdata = IEEE80211_DEV_TO_SUB_IF(dev);
-
-	ieee80211_if_remove(sdata);
+	ieee80211_if_remove(IEEE80211_DEV_TO_SUB_IF(dev));
 
 	return 0;
 }
 
-static int ieee80211_change_iface(struct wiphy *wiphy, int ifindex,
+static int ieee80211_change_iface(struct wiphy *wiphy,
+				  struct net_device *dev,
 				  enum nl80211_iftype type, u32 *flags,
 				  struct vif_params *params)
 {
-	struct net_device *dev;
 	struct ieee80211_sub_if_data *sdata;
 	int ret;
 
-	/* we're under RTNL */
-	dev = __dev_get_by_index(&init_net, ifindex);
-	if (!dev)
-		return -ENODEV;
+	if (netif_running(dev))
+		return -EBUSY;
 
-	if (!nl80211_type_check(type))
+	if (!nl80211_params_check(type, params))
 		return -EINVAL;
 
 	sdata = IEEE80211_DEV_TO_SUB_IF(dev);
@@ -96,9 +93,6 @@ static int ieee80211_change_iface(struct wiphy *wiphy, int ifindex,
 	if (ret)
 		return ret;
 
-	if (netif_running(sdata->dev))
-		return -EBUSY;
-
 	if (ieee80211_vif_is_mesh(&sdata->vif) && params->mesh_id_len)
 		ieee80211_sdata_set_mesh_id(sdata,
 					    params->mesh_id_len,
@@ -106,6 +100,13 @@ static int ieee80211_change_iface(struct wiphy *wiphy, int ifindex,
 
 	if (sdata->vif.type != NL80211_IFTYPE_MONITOR || !flags)
 		return 0;
+
+	if (type == NL80211_IFTYPE_AP_VLAN &&
+	    params && params->use_4addr == 0)
+		rcu_assign_pointer(sdata->u.vlan.sta, NULL);
+	else if (type == NL80211_IFTYPE_STATION &&
+		 params && params->use_4addr >= 0)
+		sdata->u.mgd.use_4addr = params->use_4addr;
 
 	sdata->u.mntr_flags = *flags;
 	return 0;
@@ -338,6 +339,8 @@ static void sta_set_sinfo(struct sta_info *sta, struct station_info *sinfo)
 {
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
 
+	sinfo->generation = sdata->local->sta_generation;
+
 	sinfo->filled = STATION_INFO_INACTIVE_TIME |
 			STATION_INFO_RX_BYTES |
 			STATION_INFO_TX_BYTES |
@@ -351,7 +354,8 @@ static void sta_set_sinfo(struct sta_info *sta, struct station_info *sinfo)
 	sinfo->rx_packets = sta->rx_packets;
 	sinfo->tx_packets = sta->tx_packets;
 
-	if (sta->local->hw.flags & IEEE80211_HW_SIGNAL_DBM) {
+	if ((sta->local->hw.flags & IEEE80211_HW_SIGNAL_DBM) ||
+	    (sta->local->hw.flags & IEEE80211_HW_SIGNAL_UNSPEC)) {
 		sinfo->filled |= STATION_INFO_SIGNAL;
 		sinfo->signal = (s8)sta->last_signal;
 	}
@@ -390,13 +394,13 @@ static void sta_set_sinfo(struct sta_info *sta, struct station_info *sinfo)
 static int ieee80211_dump_station(struct wiphy *wiphy, struct net_device *dev,
 				 int idx, u8 *mac, struct station_info *sinfo)
 {
-	struct ieee80211_local *local = wdev_priv(dev->ieee80211_ptr);
+	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 	struct sta_info *sta;
 	int ret = -ENOENT;
 
 	rcu_read_lock();
 
-	sta = sta_info_get_by_idx(local, idx, dev);
+	sta = sta_info_get_by_idx(sdata, idx);
 	if (sta) {
 		ret = 0;
 		memcpy(mac, sta->sta.addr, ETH_ALEN);
@@ -751,13 +755,6 @@ static int ieee80211_add_station(struct wiphy *wiphy, struct net_device *dev,
 
 	err = sta_info_insert(sta);
 	if (err) {
-		/* STA has been freed */
-		if (err == -EEXIST && layer2_update) {
-			/* Need to update layer 2 devices on reassociation */
-			sta = sta_info_get(local, mac);
-			if (sta)
-				ieee80211_send_layer2_update(sta);
-		}
 		rcu_read_unlock();
 		return err;
 	}
@@ -824,6 +821,15 @@ static int ieee80211_change_station(struct wiphy *wiphy,
 		    vlansdata->vif.type != NL80211_IFTYPE_AP) {
 			rcu_read_unlock();
 			return -EINVAL;
+		}
+
+		if (params->vlan->ieee80211_ptr->use_4addr) {
+			if (vlansdata->u.vlan.sta) {
+				rcu_read_unlock();
+				return -EBUSY;
+			}
+
+			rcu_assign_pointer(vlansdata->u.vlan.sta, sta);
 		}
 
 		sta->sdata = vlansdata;
@@ -924,8 +930,10 @@ static void mpath_set_pinfo(struct mesh_path *mpath, u8 *next_hop,
 	else
 		memset(next_hop, 0, ETH_ALEN);
 
+	pinfo->generation = mesh_paths_generation;
+
 	pinfo->filled = MPATH_INFO_FRAME_QLEN |
-			MPATH_INFO_DSN |
+			MPATH_INFO_SN |
 			MPATH_INFO_METRIC |
 			MPATH_INFO_EXPTIME |
 			MPATH_INFO_DISCOVERY_TIMEOUT |
@@ -933,7 +941,7 @@ static void mpath_set_pinfo(struct mesh_path *mpath, u8 *next_hop,
 			MPATH_INFO_FLAGS;
 
 	pinfo->frame_qlen = mpath->frame_queue.qlen;
-	pinfo->dsn = mpath->dsn;
+	pinfo->sn = mpath->sn;
 	pinfo->metric = mpath->metric;
 	if (time_before(jiffies, mpath->exp_time))
 		pinfo->exptime = jiffies_to_msecs(mpath->exp_time - jiffies);
@@ -945,8 +953,8 @@ static void mpath_set_pinfo(struct mesh_path *mpath, u8 *next_hop,
 		pinfo->flags |= NL80211_MPATH_FLAG_ACTIVE;
 	if (mpath->flags & MESH_PATH_RESOLVING)
 		pinfo->flags |= NL80211_MPATH_FLAG_RESOLVING;
-	if (mpath->flags & MESH_PATH_DSN_VALID)
-		pinfo->flags |= NL80211_MPATH_FLAG_DSN_VALID;
+	if (mpath->flags & MESH_PATH_SN_VALID)
+		pinfo->flags |= NL80211_MPATH_FLAG_SN_VALID;
 	if (mpath->flags & MESH_PATH_FIXED)
 		pinfo->flags |= NL80211_MPATH_FLAG_FIXED;
 	if (mpath->flags & MESH_PATH_RESOLVING)
@@ -1019,7 +1027,10 @@ static int ieee80211_set_mesh_params(struct wiphy *wiphy,
 {
 	struct mesh_config *conf;
 	struct ieee80211_sub_if_data *sdata;
+	struct ieee80211_if_mesh *ifmsh;
+
 	sdata = IEEE80211_DEV_TO_SUB_IF(dev);
+	ifmsh = &sdata->u.mesh;
 
 	/* Set the config options which we are interested in setting */
 	conf = &(sdata->u.mesh.mshcfg);
@@ -1054,6 +1065,10 @@ static int ieee80211_set_mesh_params(struct wiphy *wiphy,
 			   mask))
 		conf->dot11MeshHWMPnetDiameterTraversalTime =
 			nconf->dot11MeshHWMPnetDiameterTraversalTime;
+	if (_chg_mesh_attr(NL80211_MESHCONF_HWMP_ROOTMODE, mask)) {
+		conf->dot11MeshHWMPRootMode = nconf->dot11MeshHWMPRootMode;
+		ieee80211_mesh_root_setup(ifmsh);
+	}
 	return 0;
 }
 
@@ -1177,123 +1192,29 @@ static int ieee80211_scan(struct wiphy *wiphy,
 static int ieee80211_auth(struct wiphy *wiphy, struct net_device *dev,
 			  struct cfg80211_auth_request *req)
 {
-	struct ieee80211_sub_if_data *sdata;
-
-	sdata = IEEE80211_DEV_TO_SUB_IF(dev);
-
-	switch (req->auth_type) {
-	case NL80211_AUTHTYPE_OPEN_SYSTEM:
-		sdata->u.mgd.auth_algs = IEEE80211_AUTH_ALG_OPEN;
-		break;
-	case NL80211_AUTHTYPE_SHARED_KEY:
-		sdata->u.mgd.auth_algs = IEEE80211_AUTH_ALG_SHARED_KEY;
-		break;
-	case NL80211_AUTHTYPE_FT:
-		sdata->u.mgd.auth_algs = IEEE80211_AUTH_ALG_FT;
-		break;
-	case NL80211_AUTHTYPE_NETWORK_EAP:
-		sdata->u.mgd.auth_algs = IEEE80211_AUTH_ALG_LEAP;
-		break;
-	default:
-		return -EOPNOTSUPP;
-	}
-
-	memcpy(sdata->u.mgd.bssid, req->peer_addr, ETH_ALEN);
-	sdata->u.mgd.flags &= ~IEEE80211_STA_AUTO_BSSID_SEL;
-	sdata->u.mgd.flags |= IEEE80211_STA_BSSID_SET;
-
-	/* TODO: req->chan */
-	sdata->u.mgd.flags |= IEEE80211_STA_AUTO_CHANNEL_SEL;
-
-	if (req->ssid) {
-		sdata->u.mgd.flags |= IEEE80211_STA_SSID_SET;
-		memcpy(sdata->u.mgd.ssid, req->ssid, req->ssid_len);
-		sdata->u.mgd.ssid_len = req->ssid_len;
-		sdata->u.mgd.flags &= ~IEEE80211_STA_AUTO_SSID_SEL;
-	}
-
-	kfree(sdata->u.mgd.sme_auth_ie);
-	sdata->u.mgd.sme_auth_ie = NULL;
-	sdata->u.mgd.sme_auth_ie_len = 0;
-	if (req->ie) {
-		sdata->u.mgd.sme_auth_ie = kmalloc(req->ie_len, GFP_KERNEL);
-		if (sdata->u.mgd.sme_auth_ie == NULL)
-			return -ENOMEM;
-		memcpy(sdata->u.mgd.sme_auth_ie, req->ie, req->ie_len);
-		sdata->u.mgd.sme_auth_ie_len = req->ie_len;
-	}
-
-	sdata->u.mgd.flags |= IEEE80211_STA_EXT_SME;
-	sdata->u.mgd.state = IEEE80211_STA_MLME_DIRECT_PROBE;
-	ieee80211_sta_req_auth(sdata);
-	return 0;
+	return ieee80211_mgd_auth(IEEE80211_DEV_TO_SUB_IF(dev), req);
 }
 
 static int ieee80211_assoc(struct wiphy *wiphy, struct net_device *dev,
 			   struct cfg80211_assoc_request *req)
 {
-	struct ieee80211_sub_if_data *sdata;
-	int ret;
-
-	sdata = IEEE80211_DEV_TO_SUB_IF(dev);
-
-	if (memcmp(sdata->u.mgd.bssid, req->peer_addr, ETH_ALEN) != 0 ||
-	    !(sdata->u.mgd.flags & IEEE80211_STA_AUTHENTICATED))
-		return -ENOLINK; /* not authenticated */
-
-	sdata->u.mgd.flags &= ~IEEE80211_STA_AUTO_BSSID_SEL;
-	sdata->u.mgd.flags |= IEEE80211_STA_BSSID_SET;
-
-	/* TODO: req->chan */
-	sdata->u.mgd.flags |= IEEE80211_STA_AUTO_CHANNEL_SEL;
-
-	if (req->ssid) {
-		sdata->u.mgd.flags |= IEEE80211_STA_SSID_SET;
-		memcpy(sdata->u.mgd.ssid, req->ssid, req->ssid_len);
-		sdata->u.mgd.ssid_len = req->ssid_len;
-		sdata->u.mgd.flags &= ~IEEE80211_STA_AUTO_SSID_SEL;
-	} else
-		sdata->u.mgd.flags |= IEEE80211_STA_AUTO_SSID_SEL;
-
-	ret = ieee80211_sta_set_extra_ie(sdata, req->ie, req->ie_len);
-	if (ret && ret != -EALREADY)
-		return ret;
-
-	if (req->use_mfp) {
-		sdata->u.mgd.mfp = IEEE80211_MFP_REQUIRED;
-		sdata->u.mgd.flags |= IEEE80211_STA_MFP_ENABLED;
-	} else {
-		sdata->u.mgd.mfp = IEEE80211_MFP_DISABLED;
-		sdata->u.mgd.flags &= ~IEEE80211_STA_MFP_ENABLED;
-	}
-
-	if (req->control_port)
-		sdata->u.mgd.flags |= IEEE80211_STA_CONTROL_PORT;
-	else
-		sdata->u.mgd.flags &= ~IEEE80211_STA_CONTROL_PORT;
-
-	sdata->u.mgd.flags |= IEEE80211_STA_EXT_SME;
-	sdata->u.mgd.state = IEEE80211_STA_MLME_ASSOCIATE;
-	ieee80211_sta_req_auth(sdata);
-	return 0;
+	return ieee80211_mgd_assoc(IEEE80211_DEV_TO_SUB_IF(dev), req);
 }
 
 static int ieee80211_deauth(struct wiphy *wiphy, struct net_device *dev,
-			    struct cfg80211_deauth_request *req)
+			    struct cfg80211_deauth_request *req,
+			    void *cookie)
 {
-	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
-
-	/* TODO: req->ie, req->peer_addr */
-	return ieee80211_sta_deauthenticate(sdata, req->reason_code);
+	return ieee80211_mgd_deauth(IEEE80211_DEV_TO_SUB_IF(dev),
+				    req, cookie);
 }
 
 static int ieee80211_disassoc(struct wiphy *wiphy, struct net_device *dev,
-			      struct cfg80211_disassoc_request *req)
+			      struct cfg80211_disassoc_request *req,
+			      void *cookie)
 {
-	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
-
-	/* TODO: req->ie, req->peer_addr */
-	return ieee80211_sta_disassociate(sdata, req->reason_code);
+	return ieee80211_mgd_disassoc(IEEE80211_DEV_TO_SUB_IF(dev),
+				      req, cookie);
 }
 
 static int ieee80211_join_ibss(struct wiphy *wiphy, struct net_device *dev,
@@ -1374,11 +1295,103 @@ static int ieee80211_get_tx_power(struct wiphy *wiphy, int *dbm)
 	return 0;
 }
 
+static int ieee80211_set_wds_peer(struct wiphy *wiphy, struct net_device *dev,
+				  u8 *addr)
+{
+	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
+
+	memcpy(&sdata->u.wds.remote_addr, addr, ETH_ALEN);
+
+	return 0;
+}
+
 static void ieee80211_rfkill_poll(struct wiphy *wiphy)
 {
 	struct ieee80211_local *local = wiphy_priv(wiphy);
 
 	drv_rfkill_poll(local);
+}
+
+#ifdef CONFIG_NL80211_TESTMODE
+static int ieee80211_testmode_cmd(struct wiphy *wiphy, void *data, int len)
+{
+	struct ieee80211_local *local = wiphy_priv(wiphy);
+
+	if (!local->ops->testmode_cmd)
+		return -EOPNOTSUPP;
+
+	return local->ops->testmode_cmd(&local->hw, data, len);
+}
+#endif
+
+static int ieee80211_set_power_mgmt(struct wiphy *wiphy, struct net_device *dev,
+				    bool enabled, int timeout)
+{
+	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
+	struct ieee80211_local *local = wdev_priv(dev->ieee80211_ptr);
+	struct ieee80211_conf *conf = &local->hw.conf;
+
+	if (sdata->vif.type != NL80211_IFTYPE_STATION)
+		return -EOPNOTSUPP;
+
+	if (!(local->hw.flags & IEEE80211_HW_SUPPORTS_PS))
+		return -EOPNOTSUPP;
+
+	if (enabled == sdata->u.mgd.powersave &&
+	    timeout == conf->dynamic_ps_timeout)
+		return 0;
+
+	sdata->u.mgd.powersave = enabled;
+	conf->dynamic_ps_timeout = timeout;
+
+	if (local->hw.flags & IEEE80211_HW_SUPPORTS_DYNAMIC_PS)
+		ieee80211_hw_config(local, IEEE80211_CONF_CHANGE_PS);
+
+	ieee80211_recalc_ps(local, -1);
+
+	return 0;
+}
+
+static int ieee80211_set_bitrate_mask(struct wiphy *wiphy,
+				      struct net_device *dev,
+				      const u8 *addr,
+				      const struct cfg80211_bitrate_mask *mask)
+{
+	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
+	struct ieee80211_local *local = wdev_priv(dev->ieee80211_ptr);
+	int i, err = -EINVAL;
+	u32 target_rate;
+	struct ieee80211_supported_band *sband;
+
+	sband = local->hw.wiphy->bands[local->hw.conf.channel->band];
+
+	/* target_rate = -1, rate->fixed = 0 means auto only, so use all rates
+	 * target_rate = X, rate->fixed = 1 means only rate X
+	 * target_rate = X, rate->fixed = 0 means all rates <= X */
+	sdata->max_ratectrl_rateidx = -1;
+	sdata->force_unicast_rateidx = -1;
+
+	if (mask->fixed)
+		target_rate = mask->fixed / 100;
+	else if (mask->maxrate)
+		target_rate = mask->maxrate / 100;
+	else
+		return 0;
+
+	for (i=0; i< sband->n_bitrates; i++) {
+		struct ieee80211_rate *brate = &sband->bitrates[i];
+		int this_rate = brate->bitrate;
+
+		if (target_rate == this_rate) {
+			sdata->max_ratectrl_rateidx = i;
+			if (mask->fixed)
+				sdata->force_unicast_rateidx = i;
+			err = 0;
+			break;
+		}
+	}
+
+	return err;
 }
 
 struct cfg80211_ops mac80211_config_ops = {
@@ -1422,5 +1435,9 @@ struct cfg80211_ops mac80211_config_ops = {
 	.set_wiphy_params = ieee80211_set_wiphy_params,
 	.set_tx_power = ieee80211_set_tx_power,
 	.get_tx_power = ieee80211_get_tx_power,
+	.set_wds_peer = ieee80211_set_wds_peer,
 	.rfkill_poll = ieee80211_rfkill_poll,
+	CFG80211_TESTMODE_CMD(ieee80211_testmode_cmd)
+	.set_power_mgmt = ieee80211_set_power_mgmt,
+	.set_bitrate_mask = ieee80211_set_bitrate_mask,
 };

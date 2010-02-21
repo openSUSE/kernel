@@ -251,7 +251,7 @@ static void __global_reg_poll(struct global_reg_snapshot *gp)
 	}
 }
 
-void __trigger_all_cpu_backtrace(void)
+void arch_trigger_all_cpu_backtrace(void)
 {
 	struct thread_info *tp = current_thread_info();
 	struct pt_regs *regs = get_irq_regs();
@@ -304,7 +304,7 @@ void __trigger_all_cpu_backtrace(void)
 
 static void sysrq_handle_globreg(int key, struct tty_struct *tty)
 {
-	__trigger_all_cpu_backtrace();
+	arch_trigger_all_cpu_backtrace();
 }
 
 static struct sysrq_key_op sparc_globalreg_op = {
@@ -365,14 +365,6 @@ void flush_thread(void)
 	struct thread_info *t = current_thread_info();
 	struct mm_struct *mm;
 
-	if (test_ti_thread_flag(t, TIF_ABI_PENDING)) {
-		clear_ti_thread_flag(t, TIF_ABI_PENDING);
-		if (test_ti_thread_flag(t, TIF_32BIT))
-			clear_ti_thread_flag(t, TIF_32BIT);
-		else
-			set_ti_thread_flag(t, TIF_32BIT);
-	}
-
 	mm = t->task->mm;
 	if (mm)
 		tsb_context_switch(mm);
@@ -406,11 +398,11 @@ static unsigned long clone_stackframe(unsigned long csp, unsigned long psp)
 	} else
 		__get_user(fp, &(((struct reg_window32 __user *)psp)->ins[6]));
 
-	/* Now 8-byte align the stack as this is mandatory in the
-	 * Sparc ABI due to how register windows work.  This hides
-	 * the restriction from thread libraries etc.  -DaveM
+	/* Now align the stack as this is mandatory in the Sparc ABI
+	 * due to how register windows work.  This hides the
+	 * restriction from thread libraries etc.
 	 */
-	csp &= ~7UL;
+	csp &= ~15UL;
 
 	distance = fp - psp;
 	rval = (csp - distance);

@@ -169,10 +169,7 @@ static void __init dmi_save_uuid(const struct dmi_header *dm, int slot, int inde
 	if (!s)
 		return;
 
-	sprintf(s,
-		"%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X",
-		d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7],
-		d[8], d[9], d[10], d[11], d[12], d[13], d[14], d[15]);
+	sprintf(s, "%pUB", d);
 
         dmi_ident[slot] = s;
 }
@@ -429,7 +426,7 @@ static bool dmi_matches(const struct dmi_system_id *dmi)
 	for (i = 0; i < ARRAY_SIZE(dmi->matches); i++) {
 		int s = dmi->matches[i].slot;
 		if (s == DMI_NONE)
-			continue;
+			break;
 		if (dmi_ident[s]
 		    && strstr(dmi_ident[s], dmi->matches[i].substr))
 			continue;
@@ -437,6 +434,15 @@ static bool dmi_matches(const struct dmi_system_id *dmi)
 		return false;
 	}
 	return true;
+}
+
+/**
+ *	dmi_is_end_of_table - check for end-of-table marker
+ *	@dmi: pointer to the dmi_system_id structure to check
+ */
+static bool dmi_is_end_of_table(const struct dmi_system_id *dmi)
+{
+	return dmi->matches[0].slot == DMI_NONE;
 }
 
 /**
@@ -457,7 +463,7 @@ int dmi_check_system(const struct dmi_system_id *list)
 	int count = 0;
 	const struct dmi_system_id *d;
 
-	for (d = list; d->ident; d++)
+	for (d = list; !dmi_is_end_of_table(d); d++)
 		if (dmi_matches(d)) {
 			count++;
 			if (d->callback && d->callback(d))
@@ -484,7 +490,7 @@ const struct dmi_system_id *dmi_first_match(const struct dmi_system_id *list)
 {
 	const struct dmi_system_id *d;
 
-	for (d = list; d->ident; d++)
+	for (d = list; !dmi_is_end_of_table(d); d++)
 		if (dmi_matches(d))
 			return d;
 
@@ -568,35 +574,76 @@ const struct dmi_device * dmi_find_device(int type, const char *name,
 EXPORT_SYMBOL(dmi_find_device);
 
 /**
- *	dmi_get_year - Return year of a DMI date
- *	@field:	data index (like dmi_get_system_info)
+ *	dmi_get_date - parse a DMI date
+ *	@field:	data index (see enum dmi_field)
+ *	@yearp: optional out parameter for the year
+ *	@monthp: optional out parameter for the month
+ *	@dayp: optional out parameter for the day
  *
- *	Returns -1 when the field doesn't exist. 0 when it is broken.
+ *	The date field is assumed to be in the form resembling
+ *	[mm[/dd]]/yy[yy] and the result is stored in the out
+ *	parameters any or all of which can be omitted.
+ *
+ *	If the field doesn't exist, all out parameters are set to zero
+ *	and false is returned.  Otherwise, true is returned with any
+ *	invalid part of date set to zero.
+ *
+ *	On return, year, month and day are guaranteed to be in the
+ *	range of [0,9999], [0,12] and [0,31] respectively.
  */
-int dmi_get_year(int field)
+bool dmi_get_date(int field, int *yearp, int *monthp, int *dayp)
 {
-	int year;
-	const char *s = dmi_get_system_info(field);
+	int year = 0, month = 0, day = 0;
+	bool exists;
+	const char *s, *y;
+	char *e;
 
-	if (!s)
-		return -1;
-	if (*s == '\0')
-		return 0;
-	s = strrchr(s, '/');
-	if (!s)
-		return 0;
+	s = dmi_get_system_info(field);
+	exists = s;
+	if (!exists)
+		goto out;
 
-	s += 1;
-	year = simple_strtoul(s, NULL, 0);
-	if (year && year < 100) {	/* 2-digit year */
+	/*
+	 * Determine year first.  We assume the date string resembles
+	 * mm/dd/yy[yy] but the original code extracted only the year
+	 * from the end.  Keep the behavior in the spirit of no
+	 * surprises.
+	 */
+	y = strrchr(s, '/');
+	if (!y)
+		goto out;
+
+	y++;
+	year = simple_strtoul(y, &e, 10);
+	if (y != e && year < 100) {	/* 2-digit year */
 		year += 1900;
 		if (year < 1996)	/* no dates < spec 1.0 */
 			year += 100;
 	}
+	if (year > 9999)		/* year should fit in %04d */
+		year = 0;
 
-	return year;
+	/* parse the mm and dd */
+	month = simple_strtoul(s, &e, 10);
+	if (s == e || *e != '/' || !month || month > 12) {
+		month = 0;
+		goto out;
+	}
+
+	s = e + 1;
+	day = simple_strtoul(s, &e, 10);
+	if (s == y || s == e || *e != '/' || day > 31)
+		day = 0;
+out:
+	if (yearp)
+		*yearp = year;
+	if (monthp)
+		*monthp = month;
+	if (dayp)
+		*dayp = day;
+	return exists;
 }
-EXPORT_SYMBOL(dmi_get_year);
+EXPORT_SYMBOL(dmi_get_date);
 
 /**
  *	dmi_walk - Walk the DMI table and get called back for every record

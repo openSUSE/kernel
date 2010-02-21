@@ -17,16 +17,17 @@
  * for more details.
  */
 #include <linux/init.h>
-#include <linux/irq.h>
-#include <linux/module.h>
-#include <linux/io.h>
 #include <linux/interrupt.h>
+#include <linux/io.h>
+#include <linux/irq.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/topology.h>
 
 static inline struct ipr_desc *get_ipr_desc(unsigned int irq)
 {
 	struct irq_chip *chip = get_irq_chip(irq);
-	return (void *)((char *)chip - offsetof(struct ipr_desc, chip));
+	return container_of(chip, struct ipr_desc, chip);
 }
 
 static void disable_ipr_irq(unsigned int irq)
@@ -35,6 +36,7 @@ static void disable_ipr_irq(unsigned int irq)
 	unsigned long addr = get_ipr_desc(irq)->ipr_offsets[p->ipr_idx];
 	/* Set the priority in IPR to 0 */
 	__raw_writew(__raw_readw(addr) & (0xffff ^ (0xf << p->shift)), addr);
+	(void)__raw_readw(addr);	/* Read back to flush write posting */
 }
 
 static void enable_ipr_irq(unsigned int irq)

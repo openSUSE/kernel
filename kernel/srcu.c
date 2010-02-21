@@ -49,6 +49,7 @@ int init_srcu_struct(struct srcu_struct *sp)
 	sp->per_cpu_ref = alloc_percpu(struct srcu_struct_array);
 	return (sp->per_cpu_ref ? 0 : -ENOMEM);
 }
+EXPORT_SYMBOL_GPL(init_srcu_struct);
 
 /*
  * srcu_readers_active_idx -- returns approximate number of readers
@@ -97,6 +98,7 @@ void cleanup_srcu_struct(struct srcu_struct *sp)
 	free_percpu(sp->per_cpu_ref);
 	sp->per_cpu_ref = NULL;
 }
+EXPORT_SYMBOL_GPL(cleanup_srcu_struct);
 
 /**
  * srcu_read_lock - register a new reader for an SRCU-protected structure.
@@ -118,6 +120,7 @@ int srcu_read_lock(struct srcu_struct *sp)
 	preempt_enable();
 	return idx;
 }
+EXPORT_SYMBOL_GPL(srcu_read_lock);
 
 /**
  * srcu_read_unlock - unregister a old reader from an SRCU-protected structure.
@@ -136,22 +139,12 @@ void srcu_read_unlock(struct srcu_struct *sp, int idx)
 	per_cpu_ptr(sp->per_cpu_ref, smp_processor_id())->c[idx]--;
 	preempt_enable();
 }
+EXPORT_SYMBOL_GPL(srcu_read_unlock);
 
-/**
- * synchronize_srcu - wait for prior SRCU read-side critical-section completion
- * @sp: srcu_struct with which to synchronize.
- *
- * Flip the completed counter, and wait for the old count to drain to zero.
- * As with classic RCU, the updater must use some separate means of
- * synchronizing concurrent updates.  Can block; must be called from
- * process context.
- *
- * Note that it is illegal to call synchornize_srcu() from the corresponding
- * SRCU read-side critical section; doing so will result in deadlock.
- * However, it is perfectly legal to call synchronize_srcu() on one
- * srcu_struct from some other srcu_struct's read-side critical section.
+/*
+ * Helper function for synchronize_srcu() and synchronize_srcu_expedited().
  */
-void synchronize_srcu(struct srcu_struct *sp)
+void __synchronize_srcu(struct srcu_struct *sp, void (*sync_func)(void))
 {
 	int idx;
 
@@ -173,7 +166,7 @@ void synchronize_srcu(struct srcu_struct *sp)
 		return;
 	}
 
-	synchronize_sched();  /* Force memory barrier on all CPUs. */
+	sync_func();  /* Force memory barrier on all CPUs. */
 
 	/*
 	 * The preceding synchronize_sched() ensures that any CPU that
@@ -190,7 +183,7 @@ void synchronize_srcu(struct srcu_struct *sp)
 	idx = sp->completed & 0x1;
 	sp->completed++;
 
-	synchronize_sched();  /* Force memory barrier on all CPUs. */
+	sync_func();  /* Force memory barrier on all CPUs. */
 
 	/*
 	 * At this point, because of the preceding synchronize_sched(),
@@ -203,7 +196,7 @@ void synchronize_srcu(struct srcu_struct *sp)
 	while (srcu_readers_active_idx(sp, idx))
 		schedule_timeout_interruptible(1);
 
-	synchronize_sched();  /* Force memory barrier on all CPUs. */
+	sync_func();  /* Force memory barrier on all CPUs. */
 
 	/*
 	 * The preceding synchronize_sched() forces all srcu_read_unlock()
@@ -237,6 +230,47 @@ void synchronize_srcu(struct srcu_struct *sp)
 }
 
 /**
+ * synchronize_srcu - wait for prior SRCU read-side critical-section completion
+ * @sp: srcu_struct with which to synchronize.
+ *
+ * Flip the completed counter, and wait for the old count to drain to zero.
+ * As with classic RCU, the updater must use some separate means of
+ * synchronizing concurrent updates.  Can block; must be called from
+ * process context.
+ *
+ * Note that it is illegal to call synchronize_srcu() from the corresponding
+ * SRCU read-side critical section; doing so will result in deadlock.
+ * However, it is perfectly legal to call synchronize_srcu() on one
+ * srcu_struct from some other srcu_struct's read-side critical section.
+ */
+void synchronize_srcu(struct srcu_struct *sp)
+{
+	__synchronize_srcu(sp, synchronize_sched);
+}
+EXPORT_SYMBOL_GPL(synchronize_srcu);
+
+/**
+ * synchronize_srcu_expedited - like synchronize_srcu, but less patient
+ * @sp: srcu_struct with which to synchronize.
+ *
+ * Flip the completed counter, and wait for the old count to drain to zero.
+ * As with classic RCU, the updater must use some separate means of
+ * synchronizing concurrent updates.  Can block; must be called from
+ * process context.
+ *
+ * Note that it is illegal to call synchronize_srcu_expedited()
+ * from the corresponding SRCU read-side critical section; doing so
+ * will result in deadlock.  However, it is perfectly legal to call
+ * synchronize_srcu_expedited() on one srcu_struct from some other
+ * srcu_struct's read-side critical section.
+ */
+void synchronize_srcu_expedited(struct srcu_struct *sp)
+{
+	__synchronize_srcu(sp, synchronize_sched_expedited);
+}
+EXPORT_SYMBOL_GPL(synchronize_srcu_expedited);
+
+/**
  * srcu_batches_completed - return batches completed.
  * @sp: srcu_struct on which to report batch completion.
  *
@@ -248,96 +282,4 @@ long srcu_batches_completed(struct srcu_struct *sp)
 {
 	return sp->completed;
 }
-
-EXPORT_SYMBOL_GPL(init_srcu_struct);
-EXPORT_SYMBOL_GPL(cleanup_srcu_struct);
-EXPORT_SYMBOL_GPL(srcu_read_lock);
-EXPORT_SYMBOL_GPL(srcu_read_unlock);
-EXPORT_SYMBOL_GPL(synchronize_srcu);
 EXPORT_SYMBOL_GPL(srcu_batches_completed);
-
-int init_qrcu_struct(struct qrcu_struct *qp)
-{
-	qp->completed = 0;
-	atomic_set(qp->ctr + 0, 1);
-	atomic_set(qp->ctr + 1, 0);
-	init_waitqueue_head(&qp->wq);
-	mutex_init(&qp->mutex);
-
-	return 0;
-}
-
-int qrcu_read_lock(struct qrcu_struct *qp)
-{
-	for (;;) {
-		int idx = qp->completed & 0x1;
-		if (likely(atomic_inc_not_zero(qp->ctr + idx)))
-			return idx;
-	}
-}
-
-void qrcu_read_unlock(struct qrcu_struct *qp, int idx)
-{
-	if (atomic_dec_and_test(qp->ctr + idx))
-		wake_up(&qp->wq);
-}
-
-void synchronize_qrcu(struct qrcu_struct *qp)
-{
-	int idx;
-
-	smp_mb();  /* Force preceding change to happen before fastpath check. */
-
-	/*
-	 * Fastpath: If the two counters sum to "1" at a given point in
-	 * time, there are no readers.  However, it takes two separate
-	 * loads to sample both counters, which won't occur simultaneously.
-	 * So we might race with a counter switch, so that we might see
-	 * ctr[0]==0, then the counter might switch, then we might see
-	 * ctr[1]==1 (unbeknownst to us because there is a reader still
-	 * there).  So we do a read memory barrier and recheck.  If the
-	 * same race happens again, there must have been a second counter
-	 * switch.  This second counter switch could not have happened
-	 * until all preceding readers finished, so if the condition
-	 * is true both times, we may safely proceed.
-	 *
-	 * This relies critically on the atomic increment and atomic
-	 * decrement being seen as executing in order.
-	 */
-
-	if (atomic_read(&qp->ctr[0]) + atomic_read(&qp->ctr[1]) <= 1) {
-		smp_rmb();  /* Keep two checks independent. */
-		if (atomic_read(&qp->ctr[0]) + atomic_read(&qp->ctr[1]) <= 1)
-			goto out;
-	}
-
-	mutex_lock(&qp->mutex);
-
-	idx = qp->completed & 0x1;
-	if (atomic_read(qp->ctr + idx) == 1)
-		goto out_unlock;
-
-	atomic_inc(qp->ctr + (idx ^ 0x1));
-
-	/*
-	 * Prevent subsequent decrement from being seen before previous
-	 * increment -- such an inversion could cause the fastpath
-	 * above to falsely conclude that there were no readers.  Also,
-	 * reduce the likelihood that qrcu_read_lock() will loop.
-	 */
-
-	smp_mb__after_atomic_inc();
-	qp->completed++;
-
-	atomic_dec(qp->ctr + idx);
-	__wait_event(qp->wq, !atomic_read(qp->ctr + idx));
-out_unlock:
-	mutex_unlock(&qp->mutex);
-out:
-	smp_mb(); /* force subsequent free after qrcu_read_unlock(). */
-}
-
-EXPORT_SYMBOL_GPL(init_qrcu_struct);
-EXPORT_SYMBOL_GPL(qrcu_read_lock);
-EXPORT_SYMBOL_GPL(qrcu_read_unlock);
-EXPORT_SYMBOL_GPL(synchronize_qrcu);

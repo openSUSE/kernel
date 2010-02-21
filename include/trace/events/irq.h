@@ -8,16 +8,17 @@
 #include <linux/interrupt.h>
 
 #define softirq_name(sirq) { sirq##_SOFTIRQ, #sirq }
-#define show_softirq_name(val)			\
-	__print_symbolic(val,			\
-			 softirq_name(HI),	\
-			 softirq_name(TIMER),	\
-			 softirq_name(NET_TX),	\
-			 softirq_name(NET_RX),	\
-			 softirq_name(BLOCK),	\
-			 softirq_name(TASKLET),	\
-			 softirq_name(SCHED),	\
-			 softirq_name(HRTIMER),	\
+#define show_softirq_name(val)				\
+	__print_symbolic(val,				\
+			 softirq_name(HI),		\
+			 softirq_name(TIMER),		\
+			 softirq_name(NET_TX),		\
+			 softirq_name(NET_RX),		\
+			 softirq_name(BLOCK),		\
+			 softirq_name(BLOCK_IOPOLL),	\
+			 softirq_name(TASKLET),		\
+			 softirq_name(SCHED),		\
+			 softirq_name(HRTIMER),		\
 			 softirq_name(RCU))
 
 /**
@@ -47,7 +48,7 @@ TRACE_EVENT(irq_handler_entry,
 		__assign_str(name, action->name);
 	),
 
-	TP_printk("irq=%d handler=%s", __entry->irq, __get_str(name))
+	TP_printk("irq=%d name=%s", __entry->irq, __get_str(name))
 );
 
 /**
@@ -77,8 +78,26 @@ TRACE_EVENT(irq_handler_exit,
 		__entry->ret	= ret;
 	),
 
-	TP_printk("irq=%d return=%s",
+	TP_printk("irq=%d ret=%s",
 		  __entry->irq, __entry->ret ? "handled" : "unhandled")
+);
+
+DECLARE_EVENT_CLASS(softirq,
+
+	TP_PROTO(struct softirq_action *h, struct softirq_action *vec),
+
+	TP_ARGS(h, vec),
+
+	TP_STRUCT__entry(
+		__field(	int,	vec			)
+	),
+
+	TP_fast_assign(
+		__entry->vec = (int)(h - vec);
+	),
+
+	TP_printk("vec=%d [action=%s]", __entry->vec,
+		  show_softirq_name(__entry->vec))
 );
 
 /**
@@ -92,22 +111,11 @@ TRACE_EVENT(irq_handler_exit,
  * number. Also, when used in combination with the softirq_exit tracepoint
  * we can determine the softirq latency.
  */
-TRACE_EVENT(softirq_entry,
+DEFINE_EVENT(softirq, softirq_entry,
 
 	TP_PROTO(struct softirq_action *h, struct softirq_action *vec),
 
-	TP_ARGS(h, vec),
-
-	TP_STRUCT__entry(
-		__field(	int,	vec			)
-	),
-
-	TP_fast_assign(
-		__entry->vec = (int)(h - vec);
-	),
-
-	TP_printk("softirq=%d action=%s", __entry->vec,
-		  show_softirq_name(__entry->vec))
+	TP_ARGS(h, vec)
 );
 
 /**
@@ -121,22 +129,11 @@ TRACE_EVENT(softirq_entry,
  * combination with the softirq_entry tracepoint we can determine the softirq
  * latency.
  */
-TRACE_EVENT(softirq_exit,
+DEFINE_EVENT(softirq, softirq_exit,
 
 	TP_PROTO(struct softirq_action *h, struct softirq_action *vec),
 
-	TP_ARGS(h, vec),
-
-	TP_STRUCT__entry(
-		__field(	int,	vec			)
-	),
-
-	TP_fast_assign(
-		__entry->vec = (int)(h - vec);
-	),
-
-	TP_printk("softirq=%d action=%s", __entry->vec,
-		  show_softirq_name(__entry->vec))
+	TP_ARGS(h, vec)
 );
 
 #endif /*  _TRACE_IRQ_H */

@@ -27,7 +27,7 @@ void move_masked_irq(int irq)
 	if (!desc->chip->set_affinity)
 		return;
 
-	assert_atomic_spin_locked(&desc->lock);
+	assert_raw_spin_locked(&desc->lock);
 
 	/*
 	 * If there was a valid mask to work with, please
@@ -66,7 +66,7 @@ void move_native_irq(int irq)
 	 * If the irq is already in progress, it should be masked.
 	 * If we unmask it, we might cause an interrupt storm on RT.
 	 */
-	if (unlikely(desc->status & IRQ_INPROGRESS ||
+	if (unlikely((desc->status & IRQ_INPROGRESS) ||
 		     desc->forced_threads_active))
 		mask = 0;
 

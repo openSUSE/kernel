@@ -1003,6 +1003,21 @@ static struct hash_testvec tgr128_tv_template[] = {
 	},
 };
 
+#define GHASH_TEST_VECTORS 1
+
+static struct hash_testvec ghash_tv_template[] =
+{
+	{
+
+		.key	= "\xdf\xa6\xbf\x4d\xed\x81\xdb\x03\xff\xca\xff\x95\xf8\x30\xf0\x61",
+		.ksize	= 16,
+		.plaintext = "\x95\x2b\x2a\x56\xa5\x60\x04a\xc0\xb3\x2b\x66\x56\xa0\x5b\x40\xb6",
+		.psize	= 16,
+		.digest	= "\xda\x53\xeb\x0a\xd2\xc5\x5b\xb6"
+			  "\x4f\xc4\x80\x2c\xc3\xfe\xda\x60",
+	},
+};
+
 /*
  * HMAC-MD5 test vectors from RFC2202
  * (These need to be fixed to not use strlen).
@@ -1652,6 +1667,22 @@ static struct hash_testvec aes_xcbc128_tv_template[] = {
 		.np	= 2,
 		.ksize	= 16,
 	}
+};
+
+#define VMAC_AES_TEST_VECTORS	1
+static char vmac_string[128] = {'\x01', '\x01', '\x01', '\x01',
+				'\x02', '\x03', '\x02', '\x02',
+				'\x02', '\x04', '\x01', '\x07',
+				'\x04', '\x01', '\x04', '\x03',};
+static struct hash_testvec aes_vmac128_tv_template[] = {
+	{
+		.key    = "\x00\x01\x02\x03\x04\x05\x06\x07"
+			  "\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f",
+		.plaintext = vmac_string,
+		.digest = "\xcb\xd7\x8a\xfd\xb7\x33\x79\xe7",
+		.psize  = 128,
+		.ksize  = 16,
+	},
 };
 
 /*

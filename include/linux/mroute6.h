@@ -75,8 +75,7 @@ struct mif6ctl {
  *	Cache manipulation structures for mrouted and PIMd
  */
 
-struct mf6cctl
-{
+struct mf6cctl {
 	struct sockaddr_in6 mf6cc_origin;		/* Origin of mcast	*/
 	struct sockaddr_in6 mf6cc_mcastgrp;		/* Group in question	*/
 	mifi_t	mf6cc_parent;			/* Where it arrived	*/
@@ -87,8 +86,7 @@ struct mf6cctl
  *	Group count retrieval for pim6sd
  */
 
-struct sioc_sg_req6
-{
+struct sioc_sg_req6 {
 	struct sockaddr_in6 src;
 	struct sockaddr_in6 grp;
 	unsigned long pktcnt;
@@ -100,8 +98,7 @@ struct sioc_sg_req6
  *	To get vif packet counts
  */
 
-struct sioc_mif_req6
-{
+struct sioc_mif_req6 {
 	mifi_t	mifi;		/* Which iface */
 	unsigned long icount;	/* In packets */
 	unsigned long ocount;	/* Out packets */
@@ -134,7 +131,7 @@ static inline int ip6_mroute_opt(int opt)
 struct sock;
 
 #ifdef CONFIG_IPV6_MROUTE
-extern int ip6_mroute_setsockopt(struct sock *, int, char __user *, int);
+extern int ip6_mroute_setsockopt(struct sock *, int, char __user *, unsigned int);
 extern int ip6_mroute_getsockopt(struct sock *, int, char __user *, int __user *);
 extern int ip6_mr_input(struct sk_buff *skb);
 extern int ip6mr_ioctl(struct sock *sk, int cmd, void __user *arg);
@@ -143,7 +140,7 @@ extern void ip6_mr_cleanup(void);
 #else
 static inline
 int ip6_mroute_setsockopt(struct sock *sock,
-			  int optname, char __user *optval, int optlen)
+			  int optname, char __user *optval, unsigned int optlen)
 {
 	return -ENOPROTOOPT;
 }
@@ -172,8 +169,7 @@ static inline void ip6_mr_cleanup(void)
 }
 #endif
 
-struct mif_device
-{
+struct mif_device {
 	struct net_device 	*dev;			/* Device we are using */
 	unsigned long	bytes_in,bytes_out;
 	unsigned long	pkt_in,pkt_out;		/* Statistics 			*/
@@ -185,8 +181,7 @@ struct mif_device
 
 #define VIFF_STATIC 0x8000
 
-struct mfc6_cache
-{
+struct mfc6_cache {
 	struct mfc6_cache *next;		/* Next entry on cache line 	*/
 #ifdef CONFIG_NET_NS
 	struct net *mfc6_net;

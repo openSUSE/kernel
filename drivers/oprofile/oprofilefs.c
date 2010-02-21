@@ -21,7 +21,7 @@
 
 #define OPROFILEFS_MAGIC 0x6f70726f
 
-DEFINE_ATOMIC_SPINLOCK(oprofilefs_lock);
+DEFINE_RAW_SPINLOCK(oprofilefs_lock);
 
 static struct inode *oprofilefs_get_inode(struct super_block *sb, int mode)
 {
@@ -35,7 +35,7 @@ static struct inode *oprofilefs_get_inode(struct super_block *sb, int mode)
 }
 
 
-static struct super_operations s_ops = {
+static const struct super_operations s_ops = {
 	.statfs		= simple_statfs,
 	.drop_inode 	= generic_delete_inode,
 };
@@ -75,9 +75,9 @@ int oprofilefs_ulong_from_user(unsigned long *val, char const __user *buf, size_
 	if (copy_from_user(tmpbuf, buf, count))
 		return -EFAULT;
 
-	atomic_spin_lock_irqsave(&oprofilefs_lock, flags);
+	raw_spin_lock_irqsave(&oprofilefs_lock, flags);
 	*val = simple_strtoul(tmpbuf, NULL, 0);
-	atomic_spin_unlock_irqrestore(&oprofilefs_lock, flags);
+	raw_spin_unlock_irqrestore(&oprofilefs_lock, flags);
 	return 0;
 }
 

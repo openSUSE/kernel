@@ -17,6 +17,19 @@ struct rwsem_waiter {
 #define RWSEM_WAITING_FOR_WRITE	0x00000002
 };
 
+int anon_rwsem_is_locked(struct rw_anon_semaphore *sem)
+{
+	int ret = 1;
+	unsigned long flags;
+
+	if (spin_trylock_irqsave(&sem->wait_lock, flags)) {
+		ret = (sem->activity != 0);
+		spin_unlock_irqrestore(&sem->wait_lock, flags);
+	}
+	return ret;
+}
+EXPORT_SYMBOL(anon_rwsem_is_locked);
+
 /*
  * initialise the semaphore
  */
@@ -34,6 +47,7 @@ void __init_anon_rwsem(struct rw_anon_semaphore *sem, const char *name,
 	spin_lock_init(&sem->wait_lock);
 	INIT_LIST_HEAD(&sem->wait_list);
 }
+EXPORT_SYMBOL(__init_anon_rwsem);
 
 /*
  * handle the lock release when processes blocked on it that can now run
@@ -304,13 +318,3 @@ void __downgrade_write(struct rw_anon_semaphore *sem)
 
 	spin_unlock_irqrestore(&sem->wait_lock, flags);
 }
-
-EXPORT_SYMBOL(__init_anon_rwsem);
-EXPORT_SYMBOL(__down_read);
-EXPORT_SYMBOL(__down_read_trylock);
-EXPORT_SYMBOL(__down_write_nested);
-EXPORT_SYMBOL(__down_write);
-EXPORT_SYMBOL(__down_write_trylock);
-EXPORT_SYMBOL(__up_read);
-EXPORT_SYMBOL(__up_write);
-EXPORT_SYMBOL(__downgrade_write);

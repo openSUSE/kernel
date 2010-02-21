@@ -19,6 +19,7 @@
 #include <linux/kernel.h>
 #include <linux/version.h>
 #include <linux/pci.h>
+#include <linux/sched.h>
 #include <linux/ioport.h>
 #include <linux/init.h>
 #include <linux/if.h>
@@ -792,25 +793,6 @@ fst_process_rx_status(int rx_status, char *name)
 			 */
 			break;
 		}
-
-	case NET_RX_CN_LOW:
-		{
-			dbg(DBG_ASS, "%s: Receive Low Congestion\n", name);
-			break;
-		}
-
-	case NET_RX_CN_MOD:
-		{
-			dbg(DBG_ASS, "%s: Receive Moderate Congestion\n", name);
-			break;
-		}
-
-	case NET_RX_CN_HIGH:
-		{
-			dbg(DBG_ASS, "%s: Receive High Congestion\n", name);
-			break;
-		}
-
 	case NET_RX_DROP:
 		{
 			dbg(DBG_ASS, "%s: Received packet dropped\n", name);
@@ -1364,8 +1346,8 @@ do_bottom_half_tx(struct fst_card_info *card)
 
 		dev = port_to_dev(port);
 		while (!(FST_RDB(card, txDescrRing[pi][port->txpos].bits) &
-			 DMA_OWN)
-		       && !(card->dmatx_in_progress)) {
+			 DMA_OWN) &&
+		       !(card->dmatx_in_progress)) {
 			/*
 			 * There doesn't seem to be a txdone event per-se
 			 * We seem to have to deduce it, by checking the DMA_OWN
@@ -1397,8 +1379,8 @@ do_bottom_half_tx(struct fst_card_info *card)
 				 */
 				FST_WRW(card, txDescrRing[pi][port->txpos].bcnt,
 					cnv_bcnt(skb->len));
-				if ((skb->len < FST_MIN_DMA_LEN)
-				    || (card->family == FST_FAMILY_TXP)) {
+				if ((skb->len < FST_MIN_DMA_LEN) ||
+				    (card->family == FST_FAMILY_TXP)) {
 					/* Enqueue the packet with normal io */
 					memcpy_toio(card->mem +
 						    BUF_OFFSET(txBuffer[pi]
@@ -2048,8 +2030,8 @@ fst_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		/* Sanity check the parameters. We don't support partial writes
 		 * when going over the top
 		 */
-		if (wrthdr.size > FST_MEMSIZE || wrthdr.offset > FST_MEMSIZE
-		    || wrthdr.size + wrthdr.offset > FST_MEMSIZE) {
+		if (wrthdr.size > FST_MEMSIZE || wrthdr.offset > FST_MEMSIZE ||
+		    wrthdr.size + wrthdr.offset > FST_MEMSIZE) {
 			return -ENXIO;
 		}
 
@@ -2293,7 +2275,7 @@ fst_tx_timeout(struct net_device *dev)
 	port->start = 0;
 }
 
-static int
+static netdev_tx_t
 fst_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct fst_card_info *card;
@@ -2313,7 +2295,7 @@ fst_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		dbg(DBG_ASS,
 		    "Tried to transmit but no carrier on card %d port %d\n",
 		    card->card_no, port->index);
-		return 0;
+		return NETDEV_TX_OK;
 	}
 
 	/* Drop it if it's too big! MTU failure ? */
@@ -2322,7 +2304,7 @@ fst_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		    LEN_TX_BUFFER);
 		dev_kfree_skb(skb);
 		dev->stats.tx_errors++;
-		return 0;
+		return NETDEV_TX_OK;
 	}
 
 	/*
@@ -2356,7 +2338,7 @@ fst_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		dev->stats.tx_errors++;
 		dbg(DBG_ASS, "Tx queue overflow card %d port %d\n",
 		    card->card_no, port->index);
-		return 0;
+		return NETDEV_TX_OK;
 	}
 
 	/*
@@ -2373,7 +2355,7 @@ fst_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	fst_q_work_item(&fst_work_txq, card->card_no);
 	tasklet_schedule(&fst_tx_task);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /*

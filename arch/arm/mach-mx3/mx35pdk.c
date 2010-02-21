@@ -23,6 +23,7 @@
 #include <linux/platform_device.h>
 #include <linux/memory.h>
 #include <linux/gpio.h>
+#include <linux/fsl_devices.h>
 
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
@@ -69,6 +70,15 @@ static struct pad_desc mx35pdk_pads[] = {
 	MX35_PAD_FEC_TDATA2__FEC_TDATA_2,
 	MX35_PAD_FEC_RDATA3__FEC_RDATA_3,
 	MX35_PAD_FEC_TDATA3__FEC_TDATA_3,
+	/* USBOTG */
+	MX35_PAD_USBOTG_PWR__USB_TOP_USBOTG_PWR,
+	MX35_PAD_USBOTG_OC__USB_TOP_USBOTG_OC,
+};
+
+/* OTG config */
+static struct fsl_usb2_platform_data usb_pdata = {
+	.operating_mode	= FSL_USB2_DR_DEVICE,
+	.phy_mode	= FSL_USB2_PHY_UTMI_WIDE,
 };
 
 /*
@@ -81,6 +91,8 @@ static void __init mxc_board_init(void)
 	platform_add_devices(devices, ARRAY_SIZE(devices));
 
 	mxc_register_device(&mxc_uart_device0, &uart_pdata);
+
+	mxc_register_device(&mxc_otg_udc_device, &usb_pdata);
 }
 
 static void __init mx35pdk_timer_init(void)
@@ -98,7 +110,7 @@ MACHINE_START(MX35_3DS, "Freescale MX35PDK")
 	.io_pg_offst	= ((AIPS1_BASE_ADDR_VIRT) >> 18) & 0xfffc,
 	.boot_params    = PHYS_OFFSET + 0x100,
 	.map_io         = mx35_map_io,
-	.init_irq       = mxc_init_irq,
+	.init_irq       = mx35_init_irq,
 	.init_machine   = mxc_board_init,
 	.timer          = &mx35pdk_timer,
 MACHINE_END

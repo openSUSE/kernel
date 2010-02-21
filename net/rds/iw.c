@@ -83,23 +83,16 @@ void rds_iw_add_one(struct ib_device *device)
 	rds_iwdev->max_wrs = dev_attr->max_qp_wr;
 	rds_iwdev->max_sge = min(dev_attr->max_sge, RDS_IW_MAX_SGE);
 
-	rds_iwdev->page_shift = max(PAGE_SHIFT, ffs(dev_attr->page_size_cap) - 1);
-
 	rds_iwdev->dev = device;
 	rds_iwdev->pd = ib_alloc_pd(device);
 	if (IS_ERR(rds_iwdev->pd))
 		goto free_dev;
 
 	if (!rds_iwdev->dma_local_lkey) {
-		if (device->node_type != RDMA_NODE_RNIC) {
-			rds_iwdev->mr = ib_get_dma_mr(rds_iwdev->pd,
-						IB_ACCESS_LOCAL_WRITE);
-		} else {
-			rds_iwdev->mr = ib_get_dma_mr(rds_iwdev->pd,
-						IB_ACCESS_REMOTE_READ |
-						IB_ACCESS_REMOTE_WRITE |
-						IB_ACCESS_LOCAL_WRITE);
-		}
+		rds_iwdev->mr = ib_get_dma_mr(rds_iwdev->pd,
+					IB_ACCESS_REMOTE_READ |
+					IB_ACCESS_REMOTE_WRITE |
+					IB_ACCESS_LOCAL_WRITE);
 		if (IS_ERR(rds_iwdev->mr))
 			goto err_pd;
 	} else
@@ -191,8 +184,8 @@ static int rds_iw_conn_info_visitor(struct rds_connection *conn,
 		ic = conn->c_transport_data;
 		dev_addr = &ic->i_cm_id->route.addr.dev_addr;
 
-		ib_addr_get_sgid(dev_addr, (union ib_gid *) &iinfo->src_gid);
-		ib_addr_get_dgid(dev_addr, (union ib_gid *) &iinfo->dst_gid);
+		rdma_addr_get_sgid(dev_addr, (union ib_gid *) &iinfo->src_gid);
+		rdma_addr_get_dgid(dev_addr, (union ib_gid *) &iinfo->dst_gid);
 
 		rds_iwdev = ib_get_client_data(ic->i_cm_id->device, &rds_iw_client);
 		iinfo->max_send_wr = ic->i_send_ring.w_nr;
@@ -291,6 +284,7 @@ struct rds_transport rds_iw_transport = {
 	.flush_mrs		= rds_iw_flush_mrs,
 	.t_owner		= THIS_MODULE,
 	.t_name			= "iwarp",
+	.t_type			= RDS_TRANS_IWARP,
 	.t_prefer_loopback	= 1,
 };
 

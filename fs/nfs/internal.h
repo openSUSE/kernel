@@ -30,6 +30,15 @@ static inline int nfs4_has_session(const struct nfs_client *clp)
 	return 0;
 }
 
+static inline int nfs4_has_persistent_session(const struct nfs_client *clp)
+{
+#ifdef CONFIG_NFS_V4_1
+	if (nfs4_has_session(clp))
+		return (clp->cl_session->flags & SESSION4_PERSIST);
+#endif /* CONFIG_NFS_V4_1 */
+	return 0;
+}
+
 struct nfs_clone_mount {
 	const struct super_block *sb;
 	const struct dentry *dentry;
@@ -49,6 +58,11 @@ struct nfs_clone_mount {
 #define NFS_MAX_SECFLAVORS	(12)
 
 /*
+ * Value used if the user did not specify a port value.
+ */
+#define NFS_UNSPEC_PORT		(-1)
+
+/*
  * In-kernel mount arguments
  */
 struct nfs_parsed_mount_data {
@@ -63,6 +77,7 @@ struct nfs_parsed_mount_data {
 	unsigned int		auth_flavor_len;
 	rpc_authflavor_t	auth_flavors[1];
 	char			*client_address;
+	unsigned int		version;
 	unsigned int		minorversion;
 	char			*fscache_uniq;
 
@@ -71,7 +86,7 @@ struct nfs_parsed_mount_data {
 		size_t			addrlen;
 		char			*hostname;
 		u32			version;
-		unsigned short		port;
+		int			port;
 		unsigned short		protocol;
 	} mount_server;
 
@@ -80,7 +95,7 @@ struct nfs_parsed_mount_data {
 		size_t			addrlen;
 		char			*hostname;
 		char			*export_path;
-		unsigned short		port;
+		int			port;
 		unsigned short		protocol;
 	} nfs_server;
 
@@ -102,6 +117,7 @@ struct nfs_mount_request {
 };
 
 extern int nfs_mount(struct nfs_mount_request *info);
+extern void nfs_umount(const struct nfs_mount_request *info);
 
 /* client.c */
 extern struct rpc_program nfs_program;
@@ -149,6 +165,7 @@ struct vfsmount *nfs_do_refmount(const struct vfsmount *mnt_parent, struct dentr
 
 /* callback_xdr.c */
 extern struct svc_version nfs4_callback_version1;
+extern struct svc_version nfs4_callback_version4;
 
 /* pagelist.c */
 extern int __init nfs_init_nfspagecache(void);
@@ -170,23 +187,13 @@ extern __be32 * nfs_decode_dirent(__be32 *, struct nfs_entry *, int);
 extern struct rpc_procinfo nfs3_procedures[];
 extern __be32 *nfs3_decode_dirent(__be32 *, struct nfs_entry *, int);
 
-/* nfs4proc.c */
-static inline void nfs4_restart_rpc(struct rpc_task *task,
-				    const struct nfs_client *clp)
-{
-#ifdef CONFIG_NFS_V4_1
-	if (nfs4_has_session(clp) &&
-	    test_bit(NFS4CLNT_SESSION_SETUP, &clp->cl_state)) {
-		rpc_restart_call_prepare(task);
-		return;
-	}
-#endif /* CONFIG_NFS_V4_1 */
-	rpc_restart_call(task);
-}
-
 /* nfs4xdr.c */
 #ifdef CONFIG_NFS_V4
 extern __be32 *nfs4_decode_dirent(__be32 *p, struct nfs_entry *entry, int plus);
+#endif
+#ifdef CONFIG_NFS_V4_1
+extern const u32 nfs41_maxread_overhead;
+extern const u32 nfs41_maxwrite_overhead;
 #endif
 
 /* nfs4proc.c */
@@ -213,7 +220,6 @@ void nfs_zap_acl_cache(struct inode *inode);
 extern int nfs_wait_bit_killable(void *word);
 
 /* super.c */
-void nfs_parse_ip_address(char *, size_t, struct sockaddr *, size_t *);
 extern struct file_system_type nfs_xdev_fs_type;
 #ifdef CONFIG_NFS_V4
 extern struct file_system_type nfs4_xdev_fs_type;
@@ -248,6 +254,12 @@ extern void nfs_read_prepare(struct rpc_task *task, void *calldata);
 
 /* write.c */
 extern void nfs_write_prepare(struct rpc_task *task, void *calldata);
+#ifdef CONFIG_MIGRATION
+extern int nfs_migrate_page(struct address_space *,
+		struct page *, struct page *);
+#else
+#define nfs_migrate_page NULL
+#endif
 
 /* nfs4proc.c */
 extern int _nfs4_call_sync(struct nfs_server *server,
@@ -260,20 +272,6 @@ extern int _nfs4_call_sync_session(struct nfs_server *server,
 				   struct nfs4_sequence_args *args,
 				   struct nfs4_sequence_res *res,
 				   int cache_reply);
-
-#ifdef CONFIG_NFS_V4_1
-extern void nfs41_sequence_free_slot(const struct nfs_client *,
-				     struct nfs4_sequence_res *res);
-#endif /* CONFIG_NFS_V4_1 */
-
-static inline void nfs4_sequence_free_slot(const struct nfs_client *clp,
-					   struct nfs4_sequence_res *res)
-{
-#ifdef CONFIG_NFS_V4_1
-	if (nfs4_has_session(clp))
-		nfs41_sequence_free_slot(clp, res);
-#endif /* CONFIG_NFS_V4_1 */
-}
 
 /*
  * Determine the device name as a string
@@ -369,23 +367,14 @@ unsigned int nfs_page_array_len(unsigned int base, size_t len)
 		PAGE_SIZE - 1) >> PAGE_SHIFT;
 }
 
-#define IPV6_SCOPE_DELIMITER	'%'
-
 /*
- * Set the port number in an address.  Be agnostic about the address
- * family.
+ * Helper for restarting RPC calls in the possible presence of NFSv4.1
+ * sessions.
  */
-static inline void nfs_set_port(struct sockaddr *sap, unsigned short port)
+static inline void nfs_restart_rpc(struct rpc_task *task, const struct nfs_client *clp)
 {
-	struct sockaddr_in *ap = (struct sockaddr_in *)sap;
-	struct sockaddr_in6 *ap6 = (struct sockaddr_in6 *)sap;
-
-	switch (sap->sa_family) {
-	case AF_INET:
-		ap->sin_port = htons(port);
-		break;
-	case AF_INET6:
-		ap6->sin6_port = htons(port);
-		break;
-	}
+	if (nfs4_has_session(clp))
+		rpc_restart_call_prepare(task);
+	else
+		rpc_restart_call(task);
 }

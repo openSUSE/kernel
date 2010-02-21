@@ -142,7 +142,7 @@ char *cifs_compose_mount_options(const char *sb_mountdata,
 	rc = dns_resolve_server_name_to_ip(*devname, &srvIP);
 	if (rc != 0) {
 		cERROR(1, ("%s: Failed to resolve server part of %s to IP: %d",
-			  __func__, *devname, rc));;
+			  __func__, *devname, rc));
 		goto compose_mount_options_err;
 	}
 	/* md_len = strlen(...) + 12 for 'sep+prefixpath='
@@ -269,7 +269,7 @@ static int add_mount_helper(struct vfsmount *newmnt, struct nameidata *nd,
 	int err;
 
 	mntget(newmnt);
-	err = do_add_mount(newmnt, &nd->path, nd->path.mnt->mnt_flags, mntlist);
+	err = do_add_mount(newmnt, &nd->path, nd->path.mnt->mnt_flags | MNT_SHRINKABLE, mntlist);
 	switch (err) {
 	case 0:
 		path_put(&nd->path);
@@ -371,7 +371,6 @@ cifs_dfs_follow_mountpoint(struct dentry *dentry, struct nameidata *nd)
 	if (IS_ERR(mnt))
 		goto out_err;
 
-	nd->path.mnt->mnt_flags |= MNT_SHRINKABLE;
 	rc = add_mount_helper(mnt, nd, &cifs_dfs_automount_list);
 
 out:
@@ -385,7 +384,7 @@ out_err:
 	goto out;
 }
 
-struct inode_operations cifs_dfs_referral_inode_operations = {
+const struct inode_operations cifs_dfs_referral_inode_operations = {
 	.follow_link = cifs_dfs_follow_mountpoint,
 };
 

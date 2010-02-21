@@ -415,7 +415,7 @@ static void check_duplex(struct net_device *dev);
 static void netdev_timer(unsigned long data);
 static void tx_timeout(struct net_device *dev);
 static void init_ring(struct net_device *dev);
-static int  start_tx(struct sk_buff *skb, struct net_device *dev);
+static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev);
 static int reset_tx (struct net_device *dev);
 static irqreturn_t intr_handler(int irq, void *dev_instance);
 static void rx_poll(unsigned long data);
@@ -603,8 +603,8 @@ static int __devinit sundance_probe1 (struct pci_dev *pdev,
 			    strcmp (media[card_idx], "4") == 0) {
 				np->speed = 100;
 				np->mii_if.full_duplex = 1;
-			} else if (strcmp (media[card_idx], "100mbps_hd") == 0
-				   || strcmp (media[card_idx], "3") == 0) {
+			} else if (strcmp (media[card_idx], "100mbps_hd") == 0 ||
+				   strcmp (media[card_idx], "3") == 0) {
 				np->speed = 100;
 				np->mii_if.full_duplex = 0;
 			} else if (strcmp (media[card_idx], "10mbps_fd") == 0 ||
@@ -819,7 +819,7 @@ static int netdev_open(struct net_device *dev)
 
 	/* Do we need to reset the chip??? */
 
-	i = request_irq(dev->irq, &intr_handler, IRQF_SHARED, dev->name, dev);
+	i = request_irq(dev->irq, intr_handler, IRQF_SHARED, dev->name, dev);
 	if (i)
 		return i;
 
@@ -1053,7 +1053,7 @@ static void tx_poll (unsigned long data)
 	return;
 }
 
-static int
+static netdev_tx_t
 start_tx (struct sk_buff *skb, struct net_device *dev)
 {
 	struct netdev_private *np = netdev_priv(dev);
@@ -1079,8 +1079,8 @@ start_tx (struct sk_buff *skb, struct net_device *dev)
 	tasklet_schedule(&np->tx_tasklet);
 
 	/* On some architectures: explicitly flush cache lines here. */
-	if (np->cur_tx - np->dirty_tx < TX_QUEUE_LEN - 1
-			&& !netif_queue_stopped(dev)) {
+	if (np->cur_tx - np->dirty_tx < TX_QUEUE_LEN - 1 &&
+	    !netif_queue_stopped(dev)) {
 		/* do nothing */
 	} else {
 		netif_stop_queue (dev);
@@ -1091,7 +1091,7 @@ start_tx (struct sk_buff *skb, struct net_device *dev)
 			"%s: Transmit frame #%d queued in slot %d.\n",
 			dev->name, np->cur_tx, entry);
 	}
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /* Reset hardware tx and free all of tx buffers */
@@ -1336,8 +1336,8 @@ static void rx_poll(unsigned long data)
 #endif
 			/* Check if the packet is long enough to accept without copying
 			   to a minimally-sized skbuff. */
-			if (pkt_len < rx_copybreak
-				&& (skb = dev_alloc_skb(pkt_len + 2)) != NULL) {
+			if (pkt_len < rx_copybreak &&
+			    (skb = dev_alloc_skb(pkt_len + 2)) != NULL) {
 				skb_reserve(skb, 2);	/* 16 byte align the IP header */
 				pci_dma_sync_single_for_cpu(np->pci_dev,
 							    le32_to_cpu(desc->frag[0].addr),
@@ -1517,8 +1517,8 @@ static void set_rx_mode(struct net_device *dev)
 	if (dev->flags & IFF_PROMISC) {			/* Set promiscuous. */
 		memset(mc_filter, 0xff, sizeof(mc_filter));
 		rx_mode = AcceptBroadcast | AcceptMulticast | AcceptAll | AcceptMyPhys;
-	} else if ((dev->mc_count > multicast_filter_limit)
-			   ||  (dev->flags & IFF_ALLMULTI)) {
+	} else if ((dev->mc_count > multicast_filter_limit) ||
+		   (dev->flags & IFF_ALLMULTI)) {
 		/* Too many to match, or accept all multicasts. */
 		memset(mc_filter, 0xff, sizeof(mc_filter));
 		rx_mode = AcceptBroadcast | AcceptMulticast | AcceptMyPhys;

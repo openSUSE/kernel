@@ -36,6 +36,7 @@
 #include <linux/skbuff.h>
 #include <linux/if_arp.h>
 #include <linux/jiffies.h>
+#include <linux/compat.h>
 
 #include <net/ax25.h>
 
@@ -82,7 +83,7 @@ struct mkiss {
 #define CRC_MODE_SMACK_TEST	4
 
 	atomic_t		refcnt;
-	struct anon_semaphore	dead_sem;
+	struct semaphore	dead_sem;
 };
 
 /*---------------------------------------------------------------------------*/
@@ -258,7 +259,7 @@ static void ax_bump(struct mkiss *ax)
 			}
 			if (ax->crcmode != CRC_MODE_SMACK && ax->crcauto) {
 				printk(KERN_INFO
-				       "mkiss: %s: Switchting to crc-smack\n",
+				       "mkiss: %s: Switching to crc-smack\n",
 				       ax->dev->name);
 				ax->crcmode = CRC_MODE_SMACK;
 			}
@@ -272,7 +273,7 @@ static void ax_bump(struct mkiss *ax)
 			}
 			if (ax->crcmode != CRC_MODE_FLEX && ax->crcauto) {
 				printk(KERN_INFO
-				       "mkiss: %s: Switchting to crc-flexnet\n",
+				       "mkiss: %s: Switching to crc-flexnet\n",
 				       ax->dev->name);
 				ax->crcmode = CRC_MODE_FLEX;
 			}
@@ -525,7 +526,7 @@ static void ax_encaps(struct net_device *dev, unsigned char *icp, int len)
 }
 
 /* Encapsulate an AX.25 packet and kick it into a TTY queue. */
-static int ax_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t ax_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct mkiss *ax = netdev_priv(dev);
 
@@ -560,7 +561,7 @@ static int ax_xmit(struct sk_buff *skb, struct net_device *dev)
 		kfree_skb(skb);
 	}
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 static int ax_open_dev(struct net_device *dev)
@@ -718,7 +719,7 @@ static struct mkiss *mkiss_get(struct tty_struct *tty)
 static void mkiss_put(struct mkiss *ax)
 {
 	if (atomic_dec_and_test(&ax->refcnt))
-		anon_up(&ax->dead_sem);
+		up(&ax->dead_sem);
 }
 
 static int crc_force = 0;	/* Can be overridden with insmod */
@@ -745,7 +746,7 @@ static int mkiss_open(struct tty_struct *tty)
 
 	spin_lock_init(&ax->buflock);
 	atomic_set(&ax->refcnt, 1);
-	anon_semaphore_init_locked(&ax->dead_sem);
+	sema_init(&ax->dead_sem, 0);
 
 	ax->tty = tty;
 	tty->disc_data = ax;
@@ -824,7 +825,7 @@ static void mkiss_close(struct tty_struct *tty)
 	 * we have to wait for all existing users to finish.
 	 */
 	if (!atomic_dec_and_test(&ax->refcnt))
-		anon_down(&ax->dead_sem);
+		down(&ax->dead_sem);
 
 	unregister_netdev(ax->dev);
 
@@ -897,6 +898,23 @@ static int mkiss_ioctl(struct tty_struct *tty, struct file *file,
 
 	return err;
 }
+
+#ifdef CONFIG_COMPAT
+static long mkiss_compat_ioctl(struct tty_struct *tty, struct file *file,
+	unsigned int cmd, unsigned long arg)
+{
+	switch (cmd) {
+	case SIOCGIFNAME:
+	case SIOCGIFENCAP:
+	case SIOCSIFENCAP:
+	case SIOCSIFHWADDR:
+		return mkiss_ioctl(tty, file, cmd,
+				   (unsigned long)compat_ptr(arg));
+	}
+
+	return -ENOIOCTLCMD;
+}
+#endif
 
 /*
  * Handle the 'receiver data ready' interrupt.
@@ -972,6 +990,9 @@ static struct tty_ldisc_ops ax_ldisc = {
 	.open		= mkiss_open,
 	.close		= mkiss_close,
 	.ioctl		= mkiss_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl	= mkiss_compat_ioctl,
+#endif
 	.receive_buf	= mkiss_receive_buf,
 	.write_wakeup	= mkiss_write_wakeup
 };

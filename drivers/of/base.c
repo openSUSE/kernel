@@ -9,7 +9,8 @@
  *
  *  Adapted for sparc and sparc64 by David S. Miller davem@davemloft.net
  *
- *  Reconsolidated from arch/x/kernel/prom.c by Stephen Rothwell.
+ *  Reconsolidated from arch/x/kernel/prom.c by Stephen Rothwell and
+ *  Grant Likely.
  *
  *      This program is free software; you can redistribute it and/or
  *      modify it under the terms of the GNU General Public License
@@ -25,7 +26,7 @@ struct device_node *allnodes;
 /* use when traversing tree through the allnext, child, sibling,
  * or parent members of struct device_node.
  */
-DEFINE_ATOMIC_SPINLOCK(devtree_lock);
+DEFINE_RAW_SPINLOCK(devtree_lock);
 
 int of_n_addr_cells(struct device_node *np)
 {
@@ -60,7 +61,8 @@ int of_n_size_cells(struct device_node *np)
 EXPORT_SYMBOL(of_n_size_cells);
 
 static struct property *__of_find_property(const struct device_node *np,
-					   const char *name, int *lenp)
+				  const char *name,
+				  int *lenp)
 {
 	struct property *pp;
 
@@ -85,13 +87,36 @@ struct property *of_find_property(const struct device_node *np,
 	struct property *pp;
 	unsigned long flags;
 
-	atomic_spin_lock_irqsave(&devtree_lock, flags);
+	raw_spin_lock_irqsave(&devtree_lock, flags);
 	pp = __of_find_property(np, name, lenp);
-	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
+	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 
 	return pp;
 }
 EXPORT_SYMBOL(of_find_property);
+
+/**
+ * of_find_all_nodes - Get next node in global list
+ * @prev:	Previous node or NULL to start iteration
+ *		of_node_put() will be called on it
+ *
+ * Returns a node pointer with refcount incremented, use
+ * of_node_put() on it when done.
+ */
+struct device_node *of_find_all_nodes(struct device_node *prev)
+{
+	struct device_node *np;
+
+	raw_spin_lock(&devtree_lock);
+	np = prev ? prev->allnext : allnodes;
+	for (; np != NULL; np = np->allnext)
+		if (of_node_get(np))
+			break;
+	of_node_put(prev);
+	raw_spin_unlock(&devtree_lock);
+	return np;
+}
+EXPORT_SYMBOL(of_find_all_nodes);
 
 /*
  * Find a property with a given name for a given node
@@ -150,9 +175,9 @@ int of_device_is_compatible(const struct device_node *device,
 	unsigned long flags;
 	int res;
 
-	atomic_spin_lock_irqsave(&devtree_lock, flags);
+	raw_spin_lock_irqsave(&devtree_lock, flags);
 	res = __of_device_is_compatible(device, compat);
-	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
+	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 	return res;
 }
 EXPORT_SYMBOL(of_device_is_compatible);
@@ -198,9 +223,9 @@ struct device_node *of_get_parent(const struct device_node *node)
 	if (!node)
 		return NULL;
 
-	atomic_spin_lock_irqsave(&devtree_lock, flags);
+	raw_spin_lock_irqsave(&devtree_lock, flags);
 	np = of_node_get(node->parent);
-	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
+	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 	return np;
 }
 EXPORT_SYMBOL(of_get_parent);
@@ -224,10 +249,10 @@ struct device_node *of_get_next_parent(struct device_node *node)
 	if (!node)
 		return NULL;
 
-	atomic_spin_lock_irqsave(&devtree_lock, flags);
+	raw_spin_lock_irqsave(&devtree_lock, flags);
 	parent = of_node_get(node->parent);
 	of_node_put(node);
-	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
+	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 	return parent;
 }
 
@@ -245,13 +270,13 @@ struct device_node *of_get_next_child(const struct device_node *node,
 	struct device_node *next;
 	unsigned long flags;
 
-	atomic_spin_lock_irqsave(&devtree_lock, flags);
+	raw_spin_lock_irqsave(&devtree_lock, flags);
 	next = prev ? prev->sibling : node->child;
 	for (; next; next = next->sibling)
 		if (of_node_get(next))
 			break;
 	of_node_put(prev);
-	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
+	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 	return next;
 }
 EXPORT_SYMBOL(of_get_next_child);
@@ -268,13 +293,13 @@ struct device_node *of_find_node_by_path(const char *path)
 	struct device_node *np = allnodes;
 	unsigned long flags;
 
-	atomic_spin_lock_irqsave(&devtree_lock, flags);
+	raw_spin_lock_irqsave(&devtree_lock, flags);
 	for (; np; np = np->allnext) {
 		if (np->full_name && (of_node_cmp(np->full_name, path) == 0)
 		    && of_node_get(np))
 			break;
 	}
-	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
+	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 	return np;
 }
 EXPORT_SYMBOL(of_find_node_by_path);
@@ -296,14 +321,14 @@ struct device_node *of_find_node_by_name(struct device_node *from,
 	struct device_node *np;
 	unsigned long flags;
 
-	atomic_spin_lock_irqsave(&devtree_lock, flags);
+	raw_spin_lock_irqsave(&devtree_lock, flags);
 	np = from ? from->allnext : allnodes;
 	for (; np; np = np->allnext)
 		if (np->name && (of_node_cmp(np->name, name) == 0)
 		    && of_node_get(np))
 			break;
 	of_node_put(from);
-	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
+	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 	return np;
 }
 EXPORT_SYMBOL(of_find_node_by_name);
@@ -326,14 +351,14 @@ struct device_node *of_find_node_by_type(struct device_node *from,
 	struct device_node *np;
 	unsigned long flags;
 
-	atomic_spin_lock_irqsave(&devtree_lock, flags);
+	raw_spin_lock_irqsave(&devtree_lock, flags);
 	np = from ? from->allnext : allnodes;
 	for (; np; np = np->allnext)
 		if (np->type && (of_node_cmp(np->type, type) == 0)
 		    && of_node_get(np))
 			break;
 	of_node_put(from);
-	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
+	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 	return np;
 }
 EXPORT_SYMBOL(of_find_node_by_type);
@@ -358,7 +383,7 @@ struct device_node *of_find_compatible_node(struct device_node *from,
 	struct device_node *np;
 	unsigned long flags;
 
-	atomic_spin_lock_irqsave(&devtree_lock, flags);
+	raw_spin_lock_irqsave(&devtree_lock, flags);
 	np = from ? from->allnext : allnodes;
 	for (; np; np = np->allnext) {
 		if (type
@@ -369,7 +394,7 @@ struct device_node *of_find_compatible_node(struct device_node *from,
 			break;
 	}
 	of_node_put(from);
-	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
+	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 	return np;
 }
 EXPORT_SYMBOL(of_find_compatible_node);
@@ -393,7 +418,7 @@ struct device_node *of_find_node_with_property(struct device_node *from,
 	struct property *pp;
 	unsigned long flags;
 
-	atomic_spin_lock_irqsave(&devtree_lock, flags);
+	raw_spin_lock_irqsave(&devtree_lock, flags);
 	np = from ? from->allnext : allnodes;
 	for (; np; np = np->allnext) {
 		for (pp = np->properties; pp != 0; pp = pp->next) {
@@ -405,7 +430,7 @@ struct device_node *of_find_node_with_property(struct device_node *from,
 	}
 out:
 	of_node_put(from);
-	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
+	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 	return np;
 }
 EXPORT_SYMBOL(of_find_node_with_property);
@@ -445,9 +470,9 @@ const struct of_device_id *of_match_node(const struct of_device_id *matches,
 	const struct of_device_id *match;
 	unsigned long flags;
 
-	atomic_spin_lock_irqsave(&devtree_lock, flags);
+	raw_spin_lock_irqsave(&devtree_lock, flags);
 	match = __of_match_node(matches, node);
-	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
+	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 	return match;
 }
 EXPORT_SYMBOL(of_match_node);
@@ -470,14 +495,14 @@ struct device_node *of_find_matching_node(struct device_node *from,
 	struct device_node *np;
 	unsigned long flags;
 
-	atomic_spin_lock_irqsave(&devtree_lock, flags);
+	raw_spin_lock_irqsave(&devtree_lock, flags);
 	np = from ? from->allnext : allnodes;
 	for (; np; np = np->allnext) {
 		if (__of_match_node(matches, np) && of_node_get(np))
 			break;
 	}
 	of_node_put(from);
-	atomic_spin_unlock_irqrestore(&devtree_lock, flags);
+	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 	return np;
 }
 EXPORT_SYMBOL(of_find_matching_node);
@@ -508,7 +533,6 @@ struct of_modalias_table {
 static struct of_modalias_table of_modalias_table[] = {
 	{ "fsl,mcu-mpc8349emitx", "mcu-mpc8349emitx" },
 	{ "mmc-spi-slot", "mmc_spi" },
-	{ "stm,m25p40", "m25p80" },
 };
 
 /**

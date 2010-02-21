@@ -31,18 +31,18 @@
 #define DMA_MODE_CASCADE 0xc0
 #define DMA_AUTOINIT	 0x10
 
-extern atomic_spinlock_t  dma_spin_lock;
+extern raw_spinlock_t  dma_spin_lock;
 
 static inline unsigned long claim_dma_lock(void)
 {
 	unsigned long flags;
-	atomic_spin_lock_irqsave(&dma_spin_lock, flags);
+	raw_spin_lock_irqsave(&dma_spin_lock, flags);
 	return flags;
 }
 
 static inline void release_dma_lock(unsigned long flags)
 {
-	atomic_spin_unlock_irqrestore(&dma_spin_lock, flags);
+	raw_spin_unlock_irqrestore(&dma_spin_lock, flags);
 }
 
 /* Clear the 'DMA Pointer Flip Flop'.
@@ -138,12 +138,12 @@ extern int  get_dma_residue(unsigned int chan);
 #define NO_DMA	255
 #endif
 
+#endif /* CONFIG_ISA_DMA_API */
+
 #ifdef CONFIG_PCI
 extern int isa_dma_bridge_buggy;
 #else
 #define isa_dma_bridge_buggy    (0)
 #endif
-
-#endif /* CONFIG_ISA_DMA_API */
 
 #endif /* __ASM_ARM_DMA_H */

@@ -6,7 +6,7 @@
  *  Author(s): Stefan Weinhuber <wein@de.ibm.com>
  */
 
-#define KMSG_COMPONENT "dasd"
+#define KMSG_COMPONENT "dasd-eckd"
 
 #include <linux/init.h>
 #include <linux/fs.h>
@@ -464,7 +464,7 @@ int dasd_eer_enable(struct dasd_device *device)
 	if (!device->discipline || strcmp(device->discipline->name, "ECKD"))
 		return -EPERM;	/* FIXME: -EMEDIUMTYPE ? */
 
-	cqr = dasd_kmalloc_request("ECKD", 1 /* SNSS */,
+	cqr = dasd_kmalloc_request(DASD_ECKD_MAGIC, 1 /* SNSS */,
 				   SNSS_DATA_SIZE, device);
 	if (IS_ERR(cqr))
 		return -ENOMEM;
@@ -536,7 +536,6 @@ static int dasd_eer_open(struct inode *inp, struct file *filp)
 	eerb = kzalloc(sizeof(struct eerbuffer), GFP_KERNEL);
 	if (!eerb)
 		return -ENOMEM;
-	lock_kernel();
 	eerb->buffer_page_count = eer_pages;
 	if (eerb->buffer_page_count < 1 ||
 	    eerb->buffer_page_count > INT_MAX / PAGE_SIZE) {
@@ -544,7 +543,6 @@ static int dasd_eer_open(struct inode *inp, struct file *filp)
 		DBF_EVENT(DBF_WARNING, "can't open device since module "
 			"parameter eer_pages is smaller than 1 or"
 			" bigger than %d", (int)(INT_MAX / PAGE_SIZE));
-		unlock_kernel();
 		return -EINVAL;
 	}
 	eerb->buffersize = eerb->buffer_page_count * PAGE_SIZE;
@@ -552,14 +550,12 @@ static int dasd_eer_open(struct inode *inp, struct file *filp)
 			       GFP_KERNEL);
         if (!eerb->buffer) {
 		kfree(eerb);
-		unlock_kernel();
                 return -ENOMEM;
 	}
 	if (dasd_eer_allocate_buffer_pages(eerb->buffer,
 					   eerb->buffer_page_count)) {
 		kfree(eerb->buffer);
 		kfree(eerb);
-		unlock_kernel();
 		return -ENOMEM;
 	}
 	filp->private_data = eerb;
@@ -567,7 +563,6 @@ static int dasd_eer_open(struct inode *inp, struct file *filp)
 	list_add(&eerb->list, &bufferlist);
 	spin_unlock_irqrestore(&bufferlock, flags);
 
-	unlock_kernel();
 	return nonseekable_open(inp,filp);
 }
 

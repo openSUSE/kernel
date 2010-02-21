@@ -16,6 +16,7 @@ GZFLAGS          := -9
 KBUILD_CFLAGS           += $(call cc-option,-mno-fdpic)
 KBUILD_AFLAGS           += $(call cc-option,-mno-fdpic)
 CFLAGS_MODULE    += -mlong-calls
+LDFLAGS_MODULE   += -m elf32bfin
 KALLSYMS         += --symbol-prefix=_
 
 KBUILD_DEFCONFIG := BF537-STAMP_defconfig
@@ -137,7 +138,7 @@ archclean:
 
 INSTALL_PATH ?= /tftpboot
 boot := arch/$(ARCH)/boot
-BOOT_TARGETS = vmImage vmImage.bz2 vmImage.gz vmImage.lzma
+BOOT_TARGETS = vmImage vmImage.bin vmImage.bz2 vmImage.gz vmImage.lzma
 PHONY += $(BOOT_TARGETS) install
 KBUILD_IMAGE := $(boot)/vmImage
 
@@ -151,11 +152,12 @@ install:
 
 define archhelp
   echo  '* vmImage         - Alias to selected kernel format (vmImage.gz by default)'
+  echo  '  vmImage.bin     - Uncompressed Kernel-only image for U-Boot (arch/$(ARCH)/boot/vmImage.bin)'
   echo  '  vmImage.bz2     - Kernel-only image for U-Boot (arch/$(ARCH)/boot/vmImage.bz2)'
   echo  '* vmImage.gz      - Kernel-only image for U-Boot (arch/$(ARCH)/boot/vmImage.gz)'
   echo  '  vmImage.lzma    - Kernel-only image for U-Boot (arch/$(ARCH)/boot/vmImage.lzma)'
   echo  '  install         - Install kernel using'
-  echo  '                     (your) ~/bin/$(CROSS_COMPILE)installkernel or'
-  echo  '                     (distribution) PATH: $(CROSS_COMPILE)installkernel or'
+  echo  '                     (your) ~/bin/$(INSTALLKERNEL) or'
+  echo  '                     (distribution) PATH: $(INSTALLKERNEL) or'
   echo  '                     install to $$(INSTALL_PATH)'
 endef

@@ -1478,10 +1478,7 @@ void do_fd_request(struct request_queue * q)
 	stdma_lock(floppy_irq, NULL);
 
 	atari_disable_irq( IRQ_MFP_FDC );
-	local_save_flags(flags);	/* The request function is called with ints
-	local_irq_disable();		 * disabled... so must save the IPL for later */ 
 	redo_fd_request();
-	local_irq_restore(flags);
 	atari_enable_irq( IRQ_MFP_FDC );
 }
 
@@ -1856,7 +1853,7 @@ static int floppy_release(struct gendisk *disk, fmode_t mode)
 	return 0;
 }
 
-static struct block_device_operations floppy_fops = {
+static const struct block_device_operations floppy_fops = {
 	.owner		= THIS_MODULE,
 	.open		= floppy_open,
 	.release	= floppy_release,

@@ -273,6 +273,19 @@ static unsigned long get_rate_csi(struct clk *clk)
 	return rate / get_3_3_div((pdr2 >> 16) & 0x3f);
 }
 
+static unsigned long get_rate_otg(struct clk *clk)
+{
+	unsigned long pdr4 = __raw_readl(CCM_BASE + CCM_PDR4);
+	unsigned long rate;
+
+	if (pdr4 & (1 << 9))
+		rate = get_rate_arm();
+	else
+		rate = get_rate_ppll();
+
+	return rate / get_3_3_div((pdr4 >> 22) & 0x3f);
+}
+
 static unsigned long get_rate_ipg_per(struct clk *clk)
 {
 	unsigned long pdr0 = __raw_readl(CCM_BASE + CCM_PDR0);
@@ -322,7 +335,7 @@ static void clk_cgr_disable(struct clk *clk)
 
 DEFINE_CLOCK(asrc_clk,   0, CCM_CGR0,  0, NULL, NULL);
 DEFINE_CLOCK(ata_clk,    0, CCM_CGR0,  2, get_rate_ipg, NULL);
-DEFINE_CLOCK(audmux_clk, 0, CCM_CGR0,  4, NULL, NULL);
+/* DEFINE_CLOCK(audmux_clk, 0, CCM_CGR0,  4, NULL, NULL); */
 DEFINE_CLOCK(can1_clk,   0, CCM_CGR0,  6, get_rate_ipg, NULL);
 DEFINE_CLOCK(can2_clk,   1, CCM_CGR0,  8, get_rate_ipg, NULL);
 DEFINE_CLOCK(cspi1_clk,  0, CCM_CGR0, 10, get_rate_ipg, NULL);
@@ -365,14 +378,45 @@ DEFINE_CLOCK(ssi2_clk,   1, CCM_CGR2, 14, get_rate_ssi, NULL);
 DEFINE_CLOCK(uart1_clk,  0, CCM_CGR2, 16, get_rate_uart, NULL);
 DEFINE_CLOCK(uart2_clk,  1, CCM_CGR2, 18, get_rate_uart, NULL);
 DEFINE_CLOCK(uart3_clk,  2, CCM_CGR2, 20, get_rate_uart, NULL);
-DEFINE_CLOCK(usbotg_clk, 0, CCM_CGR2, 22, NULL, NULL);
+DEFINE_CLOCK(usbotg_clk, 0, CCM_CGR2, 22, get_rate_otg, NULL);
 DEFINE_CLOCK(wdog_clk,   0, CCM_CGR2, 24, NULL, NULL);
 DEFINE_CLOCK(max_clk,    0, CCM_CGR2, 26, NULL, NULL);
-DEFINE_CLOCK(admux_clk,  0, CCM_CGR2, 30, NULL, NULL);
+DEFINE_CLOCK(audmux_clk, 0, CCM_CGR2, 30, NULL, NULL);
 
 DEFINE_CLOCK(csi_clk,    0, CCM_CGR3,  0, get_rate_csi, NULL);
 DEFINE_CLOCK(iim_clk,    0, CCM_CGR3,  2, NULL, NULL);
 DEFINE_CLOCK(gpu2d_clk,  0, CCM_CGR3,  4, NULL, NULL);
+
+DEFINE_CLOCK(usbahb_clk, 0, 0,         0, get_rate_ahb, NULL);
+
+static int clk_dummy_enable(struct clk *clk)
+{
+	return 0;
+}
+
+static void clk_dummy_disable(struct clk *clk)
+{
+}
+
+static unsigned long get_rate_nfc(struct clk *clk)
+{
+	unsigned long div1;
+
+	div1 = (__raw_readl(CCM_BASE + CCM_PDR4) >> 28) + 1;
+
+	return get_rate_ahb(NULL) / div1;
+}
+
+/* NAND Controller: It seems it can't be disabled */
+static struct clk nfc_clk = {
+	.id		= 0,
+	.enable_reg	= 0,
+	.enable_shift	= 0,
+	.get_rate	= get_rate_nfc,
+	.set_rate	= NULL, /* set_rate_nfc, */
+	.enable		= clk_dummy_enable,
+	.disable	= clk_dummy_disable
+};
 
 #define _REGISTER_CLOCK(d, n, c)	\
 	{				\
@@ -384,7 +428,6 @@ DEFINE_CLOCK(gpu2d_clk,  0, CCM_CGR3,  4, NULL, NULL);
 static struct clk_lookup lookups[] = {
 	_REGISTER_CLOCK(NULL, "asrc", asrc_clk)
 	_REGISTER_CLOCK(NULL, "ata", ata_clk)
-	_REGISTER_CLOCK(NULL, "audmux", audmux_clk)
 	_REGISTER_CLOCK(NULL, "can", can1_clk)
 	_REGISTER_CLOCK(NULL, "can", can2_clk)
 	_REGISTER_CLOCK("spi_imx.0", NULL, cspi1_clk)
@@ -421,18 +464,23 @@ static struct clk_lookup lookups[] = {
 	_REGISTER_CLOCK(NULL, "sdma", sdma_clk)
 	_REGISTER_CLOCK(NULL, "spba", spba_clk)
 	_REGISTER_CLOCK(NULL, "spdif", spdif_clk)
-	_REGISTER_CLOCK(NULL, "ssi", ssi1_clk)
-	_REGISTER_CLOCK(NULL, "ssi", ssi2_clk)
+	_REGISTER_CLOCK("imx-ssi.0", NULL, ssi1_clk)
+	_REGISTER_CLOCK("imx-ssi.1", NULL, ssi2_clk)
 	_REGISTER_CLOCK("imx-uart.0", NULL, uart1_clk)
 	_REGISTER_CLOCK("imx-uart.1", NULL, uart2_clk)
 	_REGISTER_CLOCK("imx-uart.2", NULL, uart3_clk)
-	_REGISTER_CLOCK(NULL, "usbotg", usbotg_clk)
-	_REGISTER_CLOCK("mxc_wdt.0", NULL, wdog_clk)
+	_REGISTER_CLOCK("mxc-ehci.0", "usb", usbotg_clk)
+	_REGISTER_CLOCK("mxc-ehci.1", "usb", usbotg_clk)
+	_REGISTER_CLOCK("mxc-ehci.2", "usb", usbotg_clk)
+	_REGISTER_CLOCK("fsl-usb2-udc", "usb", usbotg_clk)
+	_REGISTER_CLOCK("fsl-usb2-udc", "usb_ahb", usbahb_clk)
+	_REGISTER_CLOCK("imx-wdt.0", NULL, wdog_clk)
 	_REGISTER_CLOCK(NULL, "max", max_clk)
-	_REGISTER_CLOCK(NULL, "admux", admux_clk)
+	_REGISTER_CLOCK(NULL, "audmux", audmux_clk)
 	_REGISTER_CLOCK(NULL, "csi", csi_clk)
 	_REGISTER_CLOCK(NULL, "iim", iim_clk)
 	_REGISTER_CLOCK(NULL, "gpu2d", gpu2d_clk)
+	_REGISTER_CLOCK("mxc_nand.0", NULL, nfc_clk)
 };
 
 int __init mx35_clocks_init()
@@ -440,7 +488,7 @@ int __init mx35_clocks_init()
 	int i;
 	unsigned int ll = 0;
 
-#ifdef CONFIG_DEBUG_LL_CONSOLE
+#if defined(CONFIG_DEBUG_LL) && !defined(CONFIG_DEBUG_ICEDCC)
 	ll = (3 << 16);
 #endif
 
@@ -456,7 +504,7 @@ int __init mx35_clocks_init()
 	__raw_writel((3 << 26) | ll, CCM_BASE + CCM_CGR2);
 	__raw_writel(0, CCM_BASE + CCM_CGR3);
 
-	mxc_timer_init(&gpt_clk);
+	mxc_timer_init(&gpt_clk, IO_ADDRESS(GPT1_BASE_ADDR), MXC_INT_GPT);
 
 	return 0;
 }

@@ -628,8 +628,8 @@ static void mdio_write (struct net_device *dev, int phy_id, int location,
 static void rtl8139_start_thread(struct rtl8139_private *tp);
 static void rtl8139_tx_timeout (struct net_device *dev);
 static void rtl8139_init_ring (struct net_device *dev);
-static int rtl8139_start_xmit (struct sk_buff *skb,
-			       struct net_device *dev);
+static netdev_tx_t rtl8139_start_xmit (struct sk_buff *skb,
+				       struct net_device *dev);
 #ifdef CONFIG_NET_POLL_CONTROLLER
 static void rtl8139_poll_controller(struct net_device *dev);
 #endif
@@ -1549,8 +1549,8 @@ static inline void rtl8139_thread_iter (struct net_device *dev,
 	mii_lpa = mdio_read (dev, tp->phys[0], MII_LPA);
 
 	if (!tp->mii.force_media && mii_lpa != 0xffff) {
-		int duplex = (mii_lpa & LPA_100FULL)
-		    || (mii_lpa & 0x01C0) == 0x0040;
+		int duplex = ((mii_lpa & LPA_100FULL) ||
+			      (mii_lpa & 0x01C0) == 0x0040);
 		if (tp->mii.full_duplex != duplex) {
 			tp->mii.full_duplex = duplex;
 
@@ -1687,7 +1687,8 @@ static void rtl8139_tx_timeout (struct net_device *dev)
 	}
 }
 
-static int rtl8139_start_xmit (struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t rtl8139_start_xmit (struct sk_buff *skb,
+					     struct net_device *dev)
 {
 	struct rtl8139_private *tp = netdev_priv(dev);
 	void __iomem *ioaddr = tp->mmio_addr;
@@ -1707,7 +1708,7 @@ static int rtl8139_start_xmit (struct sk_buff *skb, struct net_device *dev)
 	} else {
 		dev_kfree_skb(skb);
 		dev->stats.tx_dropped++;
-		return 0;
+		return NETDEV_TX_OK;
 	}
 
 	spin_lock_irqsave(&tp->lock, flags);
@@ -1732,7 +1733,7 @@ static int rtl8139_start_xmit (struct sk_buff *skb, struct net_device *dev)
 		pr_debug("%s: Queued Tx packet size %u to slot %d.\n",
 			dev->name, len, entry);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 
@@ -1935,8 +1936,8 @@ static int rtl8139_rx(struct net_device *dev, struct rtl8139_private *tp,
 		 RTL_R16 (RxBufAddr),
 		 RTL_R16 (RxBufPtr), RTL_R8 (ChipCmd));
 
-	while (netif_running(dev) && received < budget
-	       && (RTL_R8 (ChipCmd) & RxBufEmpty) == 0) {
+	while (netif_running(dev) && received < budget &&
+	       (RTL_R8 (ChipCmd) & RxBufEmpty) == 0) {
 		u32 ring_offset = cur_rx % RX_BUF_LEN;
 		u32 rx_status;
 		unsigned int pkt_size;
@@ -2003,9 +2004,8 @@ no_early_rx:
 		/* Malloc up new buffer, compatible with net-2e. */
 		/* Omit the four octet CRC from the length. */
 
-		skb = netdev_alloc_skb(dev, pkt_size + NET_IP_ALIGN);
+		skb = netdev_alloc_skb_ip_align(dev, pkt_size);
 		if (likely(skb)) {
-			skb_reserve (skb, NET_IP_ALIGN);	/* 16 byte align the IP fields. */
 #if RX_BUF_IDX == 3
 			wrap_copy(skb, rx_ring, ring_offset+4, pkt_size);
 #else
@@ -2525,8 +2525,8 @@ static void __set_rx_mode (struct net_device *dev)
 		    AcceptBroadcast | AcceptMulticast | AcceptMyPhys |
 		    AcceptAllPhys;
 		mc_filter[1] = mc_filter[0] = 0xffffffff;
-	} else if ((dev->mc_count > multicast_filter_limit)
-		   || (dev->flags & IFF_ALLMULTI)) {
+	} else if ((dev->mc_count > multicast_filter_limit) ||
+		   (dev->flags & IFF_ALLMULTI)) {
 		/* Too many to filter perfectly -- accept all multicasts. */
 		rx_mode = AcceptBroadcast | AcceptMulticast | AcceptMyPhys;
 		mc_filter[1] = mc_filter[0] = 0xffffffff;

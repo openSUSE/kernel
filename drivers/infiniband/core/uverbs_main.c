@@ -40,6 +40,7 @@
 #include <linux/err.h>
 #include <linux/fs.h>
 #include <linux/poll.h>
+#include <linux/sched.h>
 #include <linux/file.h>
 #include <linux/mount.h>
 #include <linux/cdev.h>
@@ -73,7 +74,7 @@ DEFINE_IDR(ib_uverbs_cq_idr);
 DEFINE_IDR(ib_uverbs_qp_idr);
 DEFINE_IDR(ib_uverbs_srq_idr);
 
-static spinlock_t map_lock;
+static DEFINE_SPINLOCK(map_lock);
 static struct ib_uverbs_device *dev_table[IB_UVERBS_MAX_DEVICES];
 static DECLARE_BITMAP(dev_map, IB_UVERBS_MAX_DEVICES);
 
@@ -491,6 +492,7 @@ struct file *ib_uverbs_alloc_event_file(struct ib_uverbs_file *uverbs_file,
 					int is_async, int *fd)
 {
 	struct ib_uverbs_event_file *ev_file;
+	struct path path;
 	struct file *filp;
 	int ret;
 
@@ -518,8 +520,10 @@ struct file *ib_uverbs_alloc_event_file(struct ib_uverbs_file *uverbs_file,
 	 * system call on a uverbs file, which will already have a
 	 * module reference.
 	 */
-	filp = alloc_file(uverbs_event_mnt, dget(uverbs_event_mnt->mnt_root),
-			  FMODE_READ, fops_get(&uverbs_event_fops));
+	path.mnt = uverbs_event_mnt;
+	path.dentry = uverbs_event_mnt->mnt_root;
+	path_get(&path);
+	filp = alloc_file(&path, FMODE_READ, fops_get(&uverbs_event_fops));
 	if (!filp) {
 		ret = -ENFILE;
 		goto err_fd;
@@ -530,6 +534,8 @@ struct file *ib_uverbs_alloc_event_file(struct ib_uverbs_file *uverbs_file,
 	return filp;
 
 err_fd:
+	fops_put(&uverbs_event_fops);
+	path_put(&path);
 	put_unused_fd(*fd);
 
 err:
@@ -584,13 +590,15 @@ static ssize_t ib_uverbs_write(struct file *filp, const char __user *buf,
 
 	if (hdr.command < 0				||
 	    hdr.command >= ARRAY_SIZE(uverbs_cmd_table) ||
-	    !uverbs_cmd_table[hdr.command]		||
-	    !(file->device->ib_dev->uverbs_cmd_mask & (1ull << hdr.command)))
+	    !uverbs_cmd_table[hdr.command])
 		return -EINVAL;
 
 	if (!file->ucontext &&
 	    hdr.command != IB_USER_VERBS_CMD_GET_CONTEXT)
 		return -EINVAL;
+
+	if (!(file->device->ib_dev->uverbs_cmd_mask & (1ull << hdr.command)))
+		return -ENOSYS;
 
 	return uverbs_cmd_table[hdr.command](file, buf + sizeof hdr,
 					     hdr.in_words * 4, hdr.out_words * 4);
@@ -835,8 +843,6 @@ static struct file_system_type uverbs_event_fs = {
 static int __init ib_uverbs_init(void)
 {
 	int ret;
-
-	spin_lock_init(&map_lock);
 
 	ret = register_chrdev_region(IB_UVERBS_BASE_DEV, IB_UVERBS_MAX_DEVICES,
 				     "infiniband_verbs");

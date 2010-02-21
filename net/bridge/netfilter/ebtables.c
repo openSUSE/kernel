@@ -1103,23 +1103,24 @@ free_newinfo:
 	return ret;
 }
 
-struct ebt_table *ebt_register_table(struct net *net, struct ebt_table *table)
+struct ebt_table *
+ebt_register_table(struct net *net, const struct ebt_table *input_table)
 {
 	struct ebt_table_info *newinfo;
-	struct ebt_table *t;
+	struct ebt_table *t, *table;
 	struct ebt_replace_kernel *repl;
 	int ret, i, countersize;
 	void *p;
 
-	if (!table || !(repl = table->table) || !repl->entries ||
-	    repl->entries_size == 0 ||
-	    repl->counters || table->private) {
+	if (input_table == NULL || (repl = input_table->table) == NULL ||
+	    repl->entries == 0 || repl->entries_size == 0 ||
+	    repl->counters != NULL || input_table->private != NULL) {
 		BUGPRINT("Bad table data for ebt_register_table!!!\n");
 		return ERR_PTR(-EINVAL);
 	}
 
 	/* Don't add one table to multiple lists. */
-	table = kmemdup(table, sizeof(struct ebt_table), GFP_KERNEL);
+	table = kmemdup(input_table, sizeof(struct ebt_table), GFP_KERNEL);
 	if (!table) {
 		ret = -ENOMEM;
 		goto out;
@@ -1405,6 +1406,9 @@ static int do_ebt_set_ctl(struct sock *sk,
 {
 	int ret;
 
+	if (!capable(CAP_NET_ADMIN))
+		return -EPERM;
+
 	switch(cmd) {
 	case EBT_SO_SET_ENTRIES:
 		ret = do_replace(sock_net(sk), user, len);
@@ -1423,6 +1427,9 @@ static int do_ebt_get_ctl(struct sock *sk, int cmd, void __user *user, int *len)
 	int ret;
 	struct ebt_replace tmp;
 	struct ebt_table *t;
+
+	if (!capable(CAP_NET_ADMIN))
+		return -EPERM;
 
 	if (copy_from_user(&tmp, user, sizeof(tmp)))
 		return -EFAULT;

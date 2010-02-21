@@ -43,21 +43,29 @@ static struct svc_program nfs4_callback_program;
 unsigned int nfs_callback_set_tcpport;
 unsigned short nfs_callback_tcpport;
 unsigned short nfs_callback_tcpport6;
-static const int nfs_set_port_min = 0;
-static const int nfs_set_port_max = 65535;
+#define NFS_CALLBACK_MAXPORTNR (65535U)
 
-static int param_set_port(const char *val, struct kernel_param *kp)
+static int param_set_portnr(const char *val, struct kernel_param *kp)
 {
-	char *endp;
-	int num = simple_strtol(val, &endp, 0);
-	if (endp == val || *endp || num < nfs_set_port_min || num > nfs_set_port_max)
+	unsigned long num;
+	int ret;
+
+	if (!val)
 		return -EINVAL;
-	*((int *)kp->arg) = num;
+	ret = strict_strtoul(val, 0, &num);
+	if (ret == -EINVAL || num > NFS_CALLBACK_MAXPORTNR)
+		return -EINVAL;
+	*((unsigned int *)kp->arg) = num;
 	return 0;
 }
 
-module_param_call(callback_tcpport, param_set_port, param_get_int,
-		 &nfs_callback_set_tcpport, 0644);
+static int param_get_portnr(char *buffer, struct kernel_param *kp)
+{
+	return param_get_uint(buffer, kp);
+}
+#define param_check_portnr(name, p) __param_check(name, p, unsigned int);
+
+module_param_named(callback_tcpport, nfs_callback_set_tcpport, portnr, 0644);
 
 /*
  * This is the NFSv4 callback kernel thread.
@@ -70,11 +78,6 @@ nfs4_callback_svc(void *vrqstp)
 
 	set_freezable();
 
-	/*
-	 * FIXME: do we really need to run this under the BKL? If so, please
-	 * add a comment about what it's intended to protect.
-	 */
-	lock_kernel();
 	while (!kthread_should_stop()) {
 		/*
 		 * Listen for a request on the socket
@@ -96,7 +99,6 @@ nfs4_callback_svc(void *vrqstp)
 		preverr = err;
 		svc_process(rqstp);
 	}
-	unlock_kernel();
 	return 0;
 }
 
@@ -152,11 +154,6 @@ nfs41_callback_svc(void *vrqstp)
 
 	set_freezable();
 
-	/*
-	 * FIXME: do we really need to run this under the BKL? If so, please
-	 * add a comment about what it's intended to protect.
-	 */
-	lock_kernel();
 	while (!kthread_should_stop()) {
 		prepare_to_wait(&serv->sv_cb_waitq, &wq, TASK_INTERRUPTIBLE);
 		spin_lock_bh(&serv->sv_cb_lock);
@@ -175,7 +172,6 @@ nfs41_callback_svc(void *vrqstp)
 		}
 		finish_wait(&serv->sv_cb_waitq, &wq);
 	}
-	unlock_kernel();
 	return 0;
 }
 
@@ -389,6 +385,7 @@ static int nfs_callback_authenticate(struct svc_rqst *rqstp)
  */
 static struct svc_version *nfs4_callback_version[] = {
 	[1] = &nfs4_callback_version1,
+	[4] = &nfs4_callback_version4,
 };
 
 static struct svc_stat nfs4_callback_stats;

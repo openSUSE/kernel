@@ -25,7 +25,7 @@ static void udplitev6_err(struct sk_buff *skb,
 	__udp6_lib_err(skb, opt, type, code, offset, info, &udplite_table);
 }
 
-static struct inet6_protocol udplitev6_protocol = {
+static const struct inet6_protocol udplitev6_protocol = {
 	.handler	=	udplitev6_rcv,
 	.err_handler	=	udplitev6_err,
 	.flags		=	INET6_PROTO_NOPOLICY|INET6_PROTO_FINAL,
@@ -62,7 +62,6 @@ static struct inet_protosw udplite6_protosw = {
 	.protocol	= IPPROTO_UDPLITE,
 	.prot		= &udplitev6_prot,
 	.ops		= &inet6_dgram_ops,
-	.capability	= -1,
 	.no_check	= 0,
 	.flags		= INET_PROTOSW_PERMANENT,
 };

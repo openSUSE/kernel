@@ -8,7 +8,7 @@
  * Copyright (C) 2002 David S. Miller (davem@redhat.com)
  *
  */
-
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #include <linux/kernel.h>
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
@@ -342,15 +342,11 @@ unsigned int arpt_do_table(struct sk_buff *skb,
 }
 
 /* All zeroes == unconditional rule. */
-static inline int unconditional(const struct arpt_arp *arp)
+static inline bool unconditional(const struct arpt_arp *arp)
 {
-	unsigned int i;
+	static const struct arpt_arp uncond;
 
-	for (i = 0; i < sizeof(*arp)/sizeof(__u32); i++)
-		if (((__u32 *)arp)[i])
-			return 0;
-
-	return 1;
+	return memcmp(arp, &uncond, sizeof(uncond)) == 0;
 }
 
 /* Figures out from what hook each rule can be called: returns 0 if
@@ -389,11 +385,11 @@ static int mark_source_chains(struct xt_table_info *newinfo,
 				|= ((1 << hook) | (1 << NF_ARP_NUMHOOKS));
 
 			/* Unconditional return/END. */
-			if ((e->target_offset == sizeof(struct arpt_entry)
-			    && (strcmp(t->target.u.user.name,
-				       ARPT_STANDARD_TARGET) == 0)
-			    && t->verdict < 0
-			    && unconditional(&e->arp)) || visited) {
+			if ((e->target_offset == sizeof(struct arpt_entry) &&
+			     (strcmp(t->target.u.user.name,
+				     ARPT_STANDARD_TARGET) == 0) &&
+			     t->verdict < 0 && unconditional(&e->arp)) ||
+			    visited) {
 				unsigned int oldpos, size;
 
 				if ((strcmp(t->target.u.user.name,
@@ -432,8 +428,8 @@ static int mark_source_chains(struct xt_table_info *newinfo,
 				int newpos = t->verdict;
 
 				if (strcmp(t->target.u.user.name,
-					   ARPT_STANDARD_TARGET) == 0
-				    && newpos >= 0) {
+					   ARPT_STANDARD_TARGET) == 0 &&
+				    newpos >= 0) {
 					if (newpos > newinfo->size -
 						sizeof(struct arpt_entry)) {
 						duprintf("mark_source_chains: "
@@ -538,18 +534,34 @@ out:
 	return ret;
 }
 
+static bool check_underflow(struct arpt_entry *e)
+{
+	const struct arpt_entry_target *t;
+	unsigned int verdict;
+
+	if (!unconditional(&e->arp))
+		return false;
+	t = arpt_get_target(e);
+	if (strcmp(t->u.user.name, XT_STANDARD_TARGET) != 0)
+		return false;
+	verdict = ((struct arpt_standard_target *)t)->verdict;
+	verdict = -verdict - 1;
+	return verdict == NF_DROP || verdict == NF_ACCEPT;
+}
+
 static inline int check_entry_size_and_hooks(struct arpt_entry *e,
 					     struct xt_table_info *newinfo,
 					     unsigned char *base,
 					     unsigned char *limit,
 					     const unsigned int *hook_entries,
 					     const unsigned int *underflows,
+					     unsigned int valid_hooks,
 					     unsigned int *i)
 {
 	unsigned int h;
 
-	if ((unsigned long)e % __alignof__(struct arpt_entry) != 0
-	    || (unsigned char *)e + sizeof(struct arpt_entry) >= limit) {
+	if ((unsigned long)e % __alignof__(struct arpt_entry) != 0 ||
+	    (unsigned char *)e + sizeof(struct arpt_entry) >= limit) {
 		duprintf("Bad offset %p\n", e);
 		return -EINVAL;
 	}
@@ -563,14 +575,20 @@ static inline int check_entry_size_and_hooks(struct arpt_entry *e,
 
 	/* Check hooks & underflows */
 	for (h = 0; h < NF_ARP_NUMHOOKS; h++) {
+		if (!(valid_hooks & (1 << h)))
+			continue;
 		if ((unsigned char *)e - base == hook_entries[h])
 			newinfo->hook_entry[h] = hook_entries[h];
-		if ((unsigned char *)e - base == underflows[h])
+		if ((unsigned char *)e - base == underflows[h]) {
+			if (!check_underflow(e)) {
+				pr_err("Underflows must be unconditional and "
+				       "use the STANDARD target with "
+				       "ACCEPT/DROP\n");
+				return -EINVAL;
+			}
 			newinfo->underflow[h] = underflows[h];
+		}
 	}
-
-	/* FIXME: underflows must be unconditional, standard verdicts
-	   < 0 (not ARPT_RETURN). --RR */
 
 	/* Clear counters and comefrom */
 	e->counters = ((struct xt_counters) { 0, 0 });
@@ -631,7 +649,7 @@ static int translate_table(const char *name,
 				 newinfo,
 				 entry0,
 				 entry0 + size,
-				 hook_entries, underflows, &i);
+				 hook_entries, underflows, valid_hooks, &i);
 	duprintf("translate_table: ARPT_ENTRY_ITERATE gives %d\n", ret);
 	if (ret != 0)
 		return ret;
@@ -909,10 +927,10 @@ static int get_info(struct net *net, void __user *user, int *len, int compat)
 	if (t && !IS_ERR(t)) {
 		struct arpt_getinfo info;
 		const struct xt_table_info *private = t->private;
-
 #ifdef CONFIG_COMPAT
+		struct xt_table_info tmp;
+
 		if (compat) {
-			struct xt_table_info tmp;
 			ret = compat_table_info(private, &tmp);
 			xt_compat_flush_offsets(NFPROTO_ARP);
 			private = &tmp;
@@ -1235,8 +1253,8 @@ check_compat_entry_size_and_hooks(struct compat_arpt_entry *e,
 	int ret, off, h;
 
 	duprintf("check_compat_entry_size_and_hooks %p\n", e);
-	if ((unsigned long)e % __alignof__(struct compat_arpt_entry) != 0
-	    || (unsigned char *)e + sizeof(struct compat_arpt_entry) >= limit) {
+	if ((unsigned long)e % __alignof__(struct compat_arpt_entry) != 0 ||
+	    (unsigned char *)e + sizeof(struct compat_arpt_entry) >= limit) {
 		duprintf("Bad offset %p, limit = %p\n", e, limit);
 		return -EINVAL;
 	}
@@ -1762,7 +1780,8 @@ static int do_arpt_get_ctl(struct sock *sk, int cmd, void __user *user, int *len
 	return ret;
 }
 
-struct xt_table *arpt_register_table(struct net *net, struct xt_table *table,
+struct xt_table *arpt_register_table(struct net *net,
+				     const struct xt_table *table,
 				     const struct arpt_replace *repl)
 {
 	int ret;

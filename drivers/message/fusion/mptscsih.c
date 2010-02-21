@@ -628,6 +628,16 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 		return 1;
 	}
 
+	if (ioc->bus_type == SAS) {
+		VirtDevice *vdevice = sc->device->hostdata;
+
+		if (!vdevice || !vdevice->vtarget ||
+		    vdevice->vtarget->deleted) {
+			sc->result = DID_NO_CONNECT << 16;
+			goto out;
+		}
+	}
+
 	sc->host_scribble = NULL;
 	sc->result = DID_OK << 16;		/* Set default reply as OK */
 	pScsiReq = (SCSIIORequest_t *) mf;
@@ -689,6 +699,7 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 
 		switch(status) {
 		case MPI_IOCSTATUS_BUSY:			/* 0x0002 */
+		case MPI_IOCSTATUS_INSUFFICIENT_RESOURCES:	/* 0x0006 */
 			/* CHECKME!
 			 * Maybe: DRIVER_BUSY | SUGGEST_RETRY | DID_SOFT_ERROR (retry)
 			 * But not: DID_BUS_BUSY lest one risk
@@ -781,11 +792,36 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 			 *  precedence!
 			 */
 			sc->result = (DID_OK << 16) | scsi_status;
-			if (scsi_state & MPI_SCSI_STATE_AUTOSENSE_VALID) {
-				/* Have already saved the status and sense data
+			if (!(scsi_state & MPI_SCSI_STATE_AUTOSENSE_VALID)) {
+
+				/*
+				 * For an Errata on LSI53C1030
+				 * When the length of request data
+				 * and transfer data are different
+				 * with result of command (READ or VERIFY),
+				 * DID_SOFT_ERROR is set.
 				 */
-				;
-			} else {
+				if (ioc->bus_type == SPI) {
+					if (pScsiReq->CDB[0] == READ_6  ||
+					    pScsiReq->CDB[0] == READ_10 ||
+					    pScsiReq->CDB[0] == READ_12 ||
+					    pScsiReq->CDB[0] == READ_16 ||
+					    pScsiReq->CDB[0] == VERIFY  ||
+					    pScsiReq->CDB[0] == VERIFY_16) {
+						if (scsi_bufflen(sc) !=
+							xfer_cnt) {
+							sc->result =
+							DID_SOFT_ERROR << 16;
+						    printk(KERN_WARNING "Errata"
+						    "on LSI53C1030 occurred."
+						    "sc->req_bufflen=0x%02x,"
+						    "xfer_cnt=0x%02x\n",
+						    scsi_bufflen(sc),
+						    xfer_cnt);
+						}
+					}
+				}
+
 				if (xfer_cnt < sc->underflow) {
 					if (scsi_status == SAM_STAT_BUSY)
 						sc->result = SAM_STAT_BUSY;
@@ -824,7 +860,58 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 			sc->result = (DID_OK << 16) | scsi_status;
 			if (scsi_state == 0) {
 				;
-			} else if (scsi_state & MPI_SCSI_STATE_AUTOSENSE_VALID) {
+			} else if (scsi_state &
+			    MPI_SCSI_STATE_AUTOSENSE_VALID) {
+
+				/*
+				 * For potential trouble on LSI53C1030.
+				 * (date:2007.xx.)
+				 * It is checked whether the length of
+				 * request data is equal to
+				 * the length of transfer and residual.
+				 * MEDIUM_ERROR is set by incorrect data.
+				 */
+				if ((ioc->bus_type == SPI) &&
+					(sc->sense_buffer[2] & 0x20)) {
+					u32	 difftransfer;
+					difftransfer =
+					sc->sense_buffer[3] << 24 |
+					sc->sense_buffer[4] << 16 |
+					sc->sense_buffer[5] << 8 |
+					sc->sense_buffer[6];
+					if (((sc->sense_buffer[3] & 0x80) ==
+						0x80) && (scsi_bufflen(sc)
+						!= xfer_cnt)) {
+						sc->sense_buffer[2] =
+						    MEDIUM_ERROR;
+						sc->sense_buffer[12] = 0xff;
+						sc->sense_buffer[13] = 0xff;
+						printk(KERN_WARNING"Errata"
+						"on LSI53C1030 occurred."
+						"sc->req_bufflen=0x%02x,"
+						"xfer_cnt=0x%02x\n" ,
+						scsi_bufflen(sc),
+						xfer_cnt);
+					}
+					if (((sc->sense_buffer[3] & 0x80)
+						!= 0x80) &&
+						(scsi_bufflen(sc) !=
+						xfer_cnt + difftransfer)) {
+						sc->sense_buffer[2] =
+							MEDIUM_ERROR;
+						sc->sense_buffer[12] = 0xff;
+						sc->sense_buffer[13] = 0xff;
+						printk(KERN_WARNING
+						"Errata on LSI53C1030 occurred"
+						"sc->req_bufflen=0x%02x,"
+						" xfer_cnt=0x%02x,"
+						"difftransfer=0x%02x\n",
+						scsi_bufflen(sc),
+						xfer_cnt,
+						difftransfer);
+					}
+				}
+
 				/*
 				 * If running against circa 200003dd 909 MPT f/w,
 				 * may get this (AUTOSENSE_VALID) for actual TASK_SET_FULL
@@ -872,7 +959,6 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 		case MPI_IOCSTATUS_INVALID_SGL:			/* 0x0003 */
 		case MPI_IOCSTATUS_INTERNAL_ERROR:		/* 0x0004 */
 		case MPI_IOCSTATUS_RESERVED:			/* 0x0005 */
-		case MPI_IOCSTATUS_INSUFFICIENT_RESOURCES:	/* 0x0006 */
 		case MPI_IOCSTATUS_INVALID_FIELD:		/* 0x0007 */
 		case MPI_IOCSTATUS_INVALID_STATE:		/* 0x0008 */
 		case MPI_IOCSTATUS_SCSI_IO_DATA_ERROR:		/* 0x0046 */
@@ -892,7 +978,7 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 #endif
 
 	} /* end of address reply case */
-
+out:
 	/* Unmap the DMA buffers, if any. */
 	scsi_dma_unmap(sc);
 
@@ -1710,7 +1796,7 @@ mptscsih_abort(struct scsi_cmnd * SCpnt)
 		dtmprintk(ioc, printk(MYIOC_s_DEBUG_FMT "task abort: "
 		   "Command not in the active list! (sc=%p)\n", ioc->name,
 		   SCpnt));
-		retval = 0;
+		retval = SUCCESS;
 		goto out;
 	}
 
@@ -1729,9 +1815,6 @@ mptscsih_abort(struct scsi_cmnd * SCpnt)
 	 */
 	mf = MPT_INDEX_2_MFPTR(ioc, scpnt_idx);
 	ctx2abort = mf->u.frame.hwhdr.msgctxu.MsgContext;
-
-	hd->abortSCpnt = SCpnt;
-
 	retval = mptscsih_IssueTaskMgmt(hd,
 			 MPI_SCSITASKMGMT_TASKTYPE_ABORT_TASK,
 			 vdevice->vtarget->channel,
@@ -2268,11 +2351,12 @@ mptscsih_slave_destroy(struct scsi_device *sdev)
  *	mptscsih_change_queue_depth - This function will set a devices queue depth
  *	@sdev: per scsi_device pointer
  *	@qdepth: requested queue depth
+ *	@reason: calling context
  *
  *	Adding support for new 'change_queue_depth' api.
 */
 int
-mptscsih_change_queue_depth(struct scsi_device *sdev, int qdepth)
+mptscsih_change_queue_depth(struct scsi_device *sdev, int qdepth, int reason)
 {
 	MPT_SCSI_HOST		*hd = shost_priv(sdev->host);
 	VirtTarget 		*vtarget;
@@ -2284,6 +2368,9 @@ mptscsih_change_queue_depth(struct scsi_device *sdev, int qdepth)
 	starget = scsi_target(sdev);
 	vtarget = starget->hostdata;
 
+	if (reason != SCSI_QDEPTH_DEFAULT)
+		return -EOPNOTSUPP;
+
 	if (ioc->bus_type == SPI) {
 		if (!(vtarget->tflags & MPT_TARGET_FLAGS_Q_YES))
 			max_depth = 1;
@@ -2293,7 +2380,10 @@ mptscsih_change_queue_depth(struct scsi_device *sdev, int qdepth)
 		else
 			max_depth = MPT_SCSI_CMD_PER_DEV_LOW;
 	} else
-		max_depth = MPT_SCSI_CMD_PER_DEV_HIGH;
+		 max_depth = ioc->sh->can_queue;
+
+	if (!sdev->tagged_supported)
+		max_depth = 1;
 
 	if (qdepth > max_depth)
 		qdepth = max_depth;
@@ -2347,7 +2437,8 @@ mptscsih_slave_configure(struct scsi_device *sdev)
 		    ioc->name, vtarget->negoFlags, vtarget->maxOffset,
 		    vtarget->minSyncFactor));
 
-	mptscsih_change_queue_depth(sdev, MPT_SCSI_CMD_PER_DEV_HIGH);
+	mptscsih_change_queue_depth(sdev, MPT_SCSI_CMD_PER_DEV_HIGH,
+				    SCSI_QDEPTH_DEFAULT);
 	dsprintk(ioc, printk(MYIOC_s_DEBUG_FMT
 		"tagged %d, simple %d, ordered %d\n",
 		ioc->name,sdev->tagged_supported, sdev->simple_tags,
@@ -2627,50 +2718,6 @@ mptscsih_scandv_complete(MPT_ADAPTER *ioc, MPT_FRAME_HDR *req,
 	return 1;
 }
 
-/*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
-/*	mptscsih_timer_expired - Call back for timer process.
- *	Used only for dv functionality.
- *	@data: Pointer to MPT_SCSI_HOST recast as an unsigned long
- *
- */
-void
-mptscsih_timer_expired(unsigned long data)
-{
-	MPT_SCSI_HOST *hd = (MPT_SCSI_HOST *) data;
-	MPT_ADAPTER 	*ioc = hd->ioc;
-
-	ddvprintk(ioc, printk(MYIOC_s_DEBUG_FMT "Timer Expired! Cmd %p\n", ioc->name, hd->cmdPtr));
-
-	if (hd->cmdPtr) {
-		MPIHeader_t *cmd = (MPIHeader_t *)hd->cmdPtr;
-
-		if (cmd->Function == MPI_FUNCTION_SCSI_IO_REQUEST) {
-			/* Desire to issue a task management request here.
-			 * TM requests MUST be single threaded.
-			 * If old eh code and no TM current, issue request.
-			 * If new eh code, do nothing. Wait for OS cmd timeout
-			 *	for bus reset.
-			 */
-		} else {
-			/* Perform a FW reload */
-			if (mpt_HardResetHandler(ioc, NO_SLEEP) < 0) {
-				printk(MYIOC_s_WARN_FMT "Firmware Reload FAILED!\n", ioc->name);
-			}
-		}
-	} else {
-		/* This should NEVER happen */
-		printk(MYIOC_s_WARN_FMT "Null cmdPtr!!!!\n", ioc->name);
-	}
-
-	/* No more processing.
-	 * TM call will generate an interrupt for SCSI TM Management.
-	 * The FW will reply to all outstanding commands, callback will finish cleanup.
-	 * Hard reset clean-up will free all resources.
-	 */
-	ddvprintk(ioc, printk(MYIOC_s_DEBUG_FMT "Timer Expired Complete!\n", ioc->name));
-
-	return;
-}
 
 /**
  *	mptscsih_get_completion_code -
@@ -3265,6 +3312,5 @@ EXPORT_SYMBOL(mptscsih_scandv_complete);
 EXPORT_SYMBOL(mptscsih_event_process);
 EXPORT_SYMBOL(mptscsih_ioc_reset);
 EXPORT_SYMBOL(mptscsih_change_queue_depth);
-EXPORT_SYMBOL(mptscsih_timer_expired);
 
 /*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/

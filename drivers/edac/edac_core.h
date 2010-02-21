@@ -74,6 +74,7 @@
 
 #ifdef CONFIG_EDAC_DEBUG
 extern int edac_debug_level;
+extern const char *edac_mem_types[];
 
 #ifndef CONFIG_EDAC_DEBUG_VERBOSE
 #define edac_debug_printk(level, fmt, arg...)                           \
@@ -286,7 +287,7 @@ enum scrub_type {
  *			is irrespective of the memory devices being mounted
  *			on both sides of the memory stick.
  *
- * Socket set:		All of the memory sticks that are required for for
+ * Socket set:		All of the memory sticks that are required for
  *			a single memory access or all of the memory sticks
  *			spanned by a chip-select row.  A single socket set
  *			has two chip-select rows and if double-sided sticks

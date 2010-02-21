@@ -353,13 +353,13 @@ static int au1k_irda_start(struct net_device *dev)
 		return retval;
 	}
 
-	if ((retval = request_irq(AU1000_IRDA_TX_INT, &au1k_irda_interrupt, 
+	if ((retval = request_irq(AU1000_IRDA_TX_INT, au1k_irda_interrupt, 
 					0, dev->name, dev))) {
 		printk(KERN_ERR "%s: unable to get IRQ %d\n", 
 				dev->name, dev->irq);
 		return retval;
 	}
-	if ((retval = request_irq(AU1000_IRDA_RX_INT, &au1k_irda_interrupt, 
+	if ((retval = request_irq(AU1000_IRDA_RX_INT, au1k_irda_interrupt, 
 					0, dev->name, dev))) {
 		free_irq(AU1000_IRDA_TX_INT, dev);
 		printk(KERN_ERR "%s: unable to get IRQ %d\n", 
@@ -498,7 +498,7 @@ static int au1k_irda_hard_xmit(struct sk_buff *skb, struct net_device *dev)
 			aup->newspeed = 0;
 		}
 		dev_kfree_skb(skb);
-		return 0;
+		return NETDEV_TX_OK;
 	}
 
 	ptxd = aup->tx_ring[aup->tx_head];
@@ -551,7 +551,7 @@ static int au1k_irda_hard_xmit(struct sk_buff *skb, struct net_device *dev)
 	dev_kfree_skb(skb);
 	aup->tx_head = (aup->tx_head + 1) & (NUM_IR_DESC - 1);
 	dev->trans_start = jiffies;
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 

@@ -104,28 +104,15 @@ static const struct file_operations ht40allow_map_ops = {
 };
 
 #define DEBUGFS_ADD(name)						\
-	drv->debugfs.name = debugfs_create_file(#name, S_IRUGO, phyd,	\
-						  &drv->wiphy, &name## _ops);
-#define DEBUGFS_DEL(name)						\
-	debugfs_remove(drv->debugfs.name);				\
-	drv->debugfs.name = NULL;
+	debugfs_create_file(#name, S_IRUGO, phyd, &rdev->wiphy, &name## _ops);
 
-void cfg80211_debugfs_drv_add(struct cfg80211_registered_device *drv)
+void cfg80211_debugfs_rdev_add(struct cfg80211_registered_device *rdev)
 {
-	struct dentry *phyd = drv->wiphy.debugfsdir;
+	struct dentry *phyd = rdev->wiphy.debugfsdir;
 
 	DEBUGFS_ADD(rts_threshold);
 	DEBUGFS_ADD(fragmentation_threshold);
 	DEBUGFS_ADD(short_retry_limit);
 	DEBUGFS_ADD(long_retry_limit);
 	DEBUGFS_ADD(ht40allow_map);
-}
-
-void cfg80211_debugfs_drv_del(struct cfg80211_registered_device *drv)
-{
-	DEBUGFS_DEL(rts_threshold);
-	DEBUGFS_DEL(fragmentation_threshold);
-	DEBUGFS_DEL(short_retry_limit);
-	DEBUGFS_DEL(long_retry_limit);
-	DEBUGFS_DEL(ht40allow_map);
 }

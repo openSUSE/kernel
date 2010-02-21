@@ -18,6 +18,7 @@
  */
 #include <linux/in.h>
 #include <linux/in6.h>
+#include <linux/slow-work.h>
 #include "cifs_fs_sb.h"
 #include "cifsacl.h"
 /*
@@ -38,7 +39,7 @@
 
 /*
  * MAX_REQ is the maximum number of requests that WE will send
- * on one socket concurently. It also matches the most common
+ * on one socket concurrently. It also matches the most common
  * value of max multiplex returned by servers.  We may
  * eventually want to use the negotiated value (in case
  * future servers can handle more) when we are more confident that
@@ -148,6 +149,7 @@ struct TCP_Server_Info {
 	bool svlocal:1;			/* local server or remote */
 	bool noblocksnd;		/* use blocking sendmsg */
 	bool noautotune;		/* do not autotune send buf sizes */
+	bool tcp_nodelay;
 	atomic_t inFlight;  /* number of requests on the wire to server */
 #ifdef CONFIG_CIFS_STATS2
 	atomic_t inSend; /* requests trying to send */
@@ -203,7 +205,7 @@ struct cifsUidInfo {
 struct cifsSesInfo {
 	struct list_head smb_ses_list;
 	struct list_head tcon_list;
-	struct mutex sesSem;
+	struct mutex session_mutex;
 #if 0
 	struct cifsUidInfo *uidInfo;	/* pointer to user info */
 #endif
@@ -346,15 +348,32 @@ struct cifsFileInfo {
 	/* lock scope id (0 if none) */
 	struct file *pfile; /* needed for writepage */
 	struct inode *pInode; /* needed for oplock break */
+	struct vfsmount *mnt;
 	struct mutex lock_mutex;
 	struct list_head llist; /* list of byte range locks we have. */
 	bool closePend:1;	/* file is marked to close */
 	bool invalidHandle:1;	/* file closed via session abend */
-	bool messageMode:1;	/* for pipes: message vs byte mode */
-	atomic_t wrtPending;   /* handle in use - defer close */
+	bool oplock_break_cancelled:1;
+	atomic_t count;		/* reference count */
 	struct mutex fh_mutex; /* prevents reopen race after dead ses*/
 	struct cifs_search_info srch_inf;
+	struct slow_work oplock_break; /* slow_work job for oplock breaks */
 };
+
+/* Take a reference on the file private data */
+static inline void cifsFileInfo_get(struct cifsFileInfo *cifs_file)
+{
+	atomic_inc(&cifs_file->count);
+}
+
+/* Release a reference on the file private data */
+static inline void cifsFileInfo_put(struct cifsFileInfo *cifs_file)
+{
+	if (atomic_dec_and_test(&cifs_file->count)) {
+		iput(cifs_file->pInode);
+		kfree(cifs_file);
+	}
+}
 
 /*
  * One of these for each file inode
@@ -369,7 +388,6 @@ struct cifsInodeInfo {
 	unsigned long time;	/* jiffies of last update/check of inode */
 	bool clientCanCacheRead:1;	/* read oplock */
 	bool clientCanCacheAll:1;	/* read and writebehind oplock */
-	bool oplockPending:1;
 	bool delete_pending:1;		/* DELETE_ON_CLOSE is set */
 	u64  server_eof;		/* current file size on server */
 	u64  uniqueid;			/* server inode number */
@@ -572,9 +590,9 @@ require use of the stronger protocol */
 #define   CIFSSEC_MUST_LANMAN	0x10010
 #define   CIFSSEC_MUST_PLNTXT	0x20020
 #ifdef CONFIG_CIFS_UPCALL
-#define   CIFSSEC_MASK          0xAF0AF /* allows weak security but also krb5 */
+#define   CIFSSEC_MASK          0xBF0BF /* allows weak security but also krb5 */
 #else
-#define   CIFSSEC_MASK          0xA70A7 /* current flags supported if weak */
+#define   CIFSSEC_MASK          0xB70B7 /* current flags supported if weak */
 #endif /* UPCALL */
 #else /* do not allow weak pw hash */
 #ifdef CONFIG_CIFS_UPCALL
@@ -656,8 +674,6 @@ GLOBAL_EXTERN rwlock_t		cifs_tcp_ses_lock;
  */
 GLOBAL_EXTERN rwlock_t GlobalSMBSeslock;
 
-GLOBAL_EXTERN struct list_head GlobalOplock_Q;
-
 /* Outstanding dir notify requests */
 GLOBAL_EXTERN struct list_head GlobalDnotifyReqList;
 /* DirNotify response queue */
@@ -708,3 +724,4 @@ GLOBAL_EXTERN unsigned int cifs_min_rcv;    /* min size of big ntwrk buf pool */
 GLOBAL_EXTERN unsigned int cifs_min_small;  /* min size of small buf pool */
 GLOBAL_EXTERN unsigned int cifs_max_pending; /* MAX requests at once to server*/
 
+extern const struct slow_work_ops cifs_oplock_break_ops;

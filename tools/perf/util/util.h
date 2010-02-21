@@ -39,10 +39,6 @@
 /* Approximation of the length of the decimal representation of this type. */
 #define decimal_length(x)	((int)(sizeof(x) * 2.56 + 0.5) + 1)
 
-#if !defined(__APPLE__) && !defined(__FreeBSD__)  && !defined(__USLC__) && !defined(_M_UNIX)
-#define _XOPEN_SOURCE 600 /* glibc2 and AIX 5.3L need 500, OpenBSD needs 600 for S_ISLNK() */
-#define _XOPEN_SOURCE_EXTENDED 1 /* AIX 5.3L needs this */
-#endif
 #define _ALL_SOURCE 1
 #define _GNU_SOURCE 1
 #define _BSD_SOURCE 1
@@ -83,9 +79,13 @@
 #include <inttypes.h>
 #include "../../../include/linux/magic.h"
 
+
 #ifndef NO_ICONV
 #include <iconv.h>
 #endif
+
+extern const char *graph_line;
+extern const char *graph_dotted_line;
 
 /* On most systems <limits.h> would have given us this, but
  * not on some systems (e.g. GNU/Hurd).
@@ -136,6 +136,15 @@ extern void usage(const char *err) NORETURN;
 extern void die(const char *err, ...) NORETURN __attribute__((format (printf, 1, 2)));
 extern int error(const char *err, ...) __attribute__((format (printf, 1, 2)));
 extern void warning(const char *err, ...) __attribute__((format (printf, 1, 2)));
+
+#include "../../../include/linux/stringify.h"
+
+#define DIE_IF(cnd)	\
+	do { if (cnd)	\
+		die(" at (" __FILE__ ":" __stringify(__LINE__) "): "	\
+		    __stringify(cnd) "\n");				\
+	} while (0)
+
 
 extern void set_die_routine(void (*routine)(const char *err, va_list params) NORETURN);
 
@@ -281,17 +290,15 @@ static inline char *gitstrchrnul(const char *s, int c)
  * Wrappers:
  */
 extern char *xstrdup(const char *str);
-extern void *xmalloc(size_t size);
+extern void *xmalloc(size_t size) __attribute__((weak));
 extern void *xmemdupz(const void *data, size_t len);
 extern char *xstrndup(const char *str, size_t len);
-extern void *xrealloc(void *ptr, size_t size);
-extern void *xcalloc(size_t nmemb, size_t size);
-extern void *xmmap(void *start, size_t length, int prot, int flags, int fd, off_t offset);
-extern ssize_t xread(int fd, void *buf, size_t len);
-extern ssize_t xwrite(int fd, const void *buf, size_t len);
-extern int xdup(int fd);
-extern FILE *xfdopen(int fd, const char *mode);
-extern int xmkstemp(char *template);
+extern void *xrealloc(void *ptr, size_t size) __attribute__((weak));
+
+static inline void *zalloc(size_t size)
+{
+	return calloc(1, size);
+}
 
 static inline size_t xsize_t(off_t len)
 {
@@ -309,7 +316,9 @@ static inline int has_extension(const char *filename, const char *ext)
 #undef isascii
 #undef isspace
 #undef isdigit
+#undef isxdigit
 #undef isalpha
+#undef isprint
 #undef isalnum
 #undef tolower
 #undef toupper
@@ -325,6 +334,8 @@ extern unsigned char sane_ctype[256];
 #define isascii(x) (((x) & ~0x7f) == 0)
 #define isspace(x) sane_istest(x,GIT_SPACE)
 #define isdigit(x) sane_istest(x,GIT_DIGIT)
+#define isxdigit(x)	\
+	(sane_istest(toupper(x), GIT_ALPHA | GIT_DIGIT) && toupper(x) < 'G')
 #define isalpha(x) sane_istest(x,GIT_ALPHA)
 #define isalnum(x) sane_istest(x,GIT_ALPHA | GIT_DIGIT)
 #define isprint(x) sane_istest(x,GIT_PRINT)

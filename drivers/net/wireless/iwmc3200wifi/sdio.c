@@ -65,6 +65,7 @@
 #include <linux/kernel.h>
 #include <linux/netdevice.h>
 #include <linux/debugfs.h>
+#include <linux/mmc/sdio_ids.h>
 #include <linux/mmc/sdio.h>
 #include <linux/mmc/sdio_func.h>
 
@@ -223,8 +224,6 @@ static int if_sdio_disable(struct iwm_priv *iwm)
 	struct iwm_sdio_priv *hw = iwm_to_if_sdio(iwm);
 	int ret;
 
-	iwm_reset(iwm);
-
 	sdio_claim_host(hw->func);
 	sdio_writeb(hw->func, 0, IWM_SDIO_INTR_ENABLE_ADDR, &ret);
 	if (ret < 0)
@@ -235,6 +234,8 @@ static int if_sdio_disable(struct iwm_priv *iwm)
 	sdio_release_host(hw->func);
 
 	iwm_sdio_rx_free(hw);
+
+	iwm_reset(iwm);
 
 	IWM_DBG_SDIO(iwm, INFO, "IWM SDIO disable\n");
 
@@ -398,6 +399,9 @@ static struct iwm_if_ops if_sdio_ops = {
 	.calib_lmac_name = "iwmc3200wifi-calib-sdio.bin",
 	.lmac_name = "iwmc3200wifi-lmac-sdio.bin",
 };
+MODULE_FIRMWARE("iwmc3200wifi-umac-sdio.bin");
+MODULE_FIRMWARE("iwmc3200wifi-calib-sdio.bin");
+MODULE_FIRMWARE("iwmc3200wifi-lmac-sdio.bin");
 
 static int iwm_sdio_probe(struct sdio_func *func,
 			  const struct sdio_device_id *id)
@@ -492,7 +496,10 @@ static void iwm_sdio_remove(struct sdio_func *func)
 }
 
 static const struct sdio_device_id iwm_sdio_ids[] = {
-	{ SDIO_DEVICE(SDIO_VENDOR_ID_INTEL, SDIO_DEVICE_ID_IWM) },
+	/* Global/AGN SKU */
+	{ SDIO_DEVICE(SDIO_VENDOR_ID_INTEL, 0x1403) },
+	/* BGN SKU */
+	{ SDIO_DEVICE(SDIO_VENDOR_ID_INTEL, 0x1408) },
 	{ /* end: all zeroes */	},
 };
 MODULE_DEVICE_TABLE(sdio, iwm_sdio_ids);
@@ -506,11 +513,7 @@ static struct sdio_driver iwm_sdio_driver = {
 
 static int __init iwm_sdio_init_module(void)
 {
-	int ret;
-
-	ret = sdio_register_driver(&iwm_sdio_driver);
-
-	return ret;
+	return sdio_register_driver(&iwm_sdio_driver);
 }
 
 static void __exit iwm_sdio_exit_module(void)

@@ -16,6 +16,7 @@
 #include <linux/kobject.h>
 #include <asm/uaccess.h>
 #include <linux/gfs2_ondisk.h>
+#include <linux/genhd.h>
 
 #include "gfs2.h"
 #include "incore.h"
@@ -84,11 +85,7 @@ static ssize_t uuid_show(struct gfs2_sbd *sdp, char *buf)
 	buf[0] = '\0';
 	if (!gfs2_uuid_valid(uuid))
 		return 0;
-	return snprintf(buf, PAGE_SIZE, "%02X%02X%02X%02X-%02X%02X-"
-			"%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X\n",
-			uuid[0], uuid[1], uuid[2], uuid[3], uuid[4], uuid[5],
-			uuid[6], uuid[7], uuid[8], uuid[9], uuid[10], uuid[11],
-			uuid[12], uuid[13], uuid[14], uuid[15]);
+	return snprintf(buf, PAGE_SIZE, "%pUB\n", uuid);
 }
 
 static ssize_t freeze_show(struct gfs2_sbd *sdp, char *buf)
@@ -157,7 +154,7 @@ static ssize_t statfs_sync_store(struct gfs2_sbd *sdp, const char *buf,
 	if (simple_strtol(buf, NULL, 0) != 1)
 		return -EINVAL;
 
-	gfs2_statfs_sync(sdp);
+	gfs2_statfs_sync(sdp->sd_vfs, 0);
 	return len;
 }
 
@@ -170,13 +167,14 @@ static ssize_t quota_sync_store(struct gfs2_sbd *sdp, const char *buf,
 	if (simple_strtol(buf, NULL, 0) != 1)
 		return -EINVAL;
 
-	gfs2_quota_sync(sdp);
+	gfs2_quota_sync(sdp->sd_vfs, 0);
 	return len;
 }
 
 static ssize_t quota_refresh_user_store(struct gfs2_sbd *sdp, const char *buf,
 					size_t len)
 {
+	int error;
 	u32 id;
 
 	if (!capable(CAP_SYS_ADMIN))
@@ -184,13 +182,14 @@ static ssize_t quota_refresh_user_store(struct gfs2_sbd *sdp, const char *buf,
 
 	id = simple_strtoul(buf, NULL, 0);
 
-	gfs2_quota_refresh(sdp, 1, id);
-	return len;
+	error = gfs2_quota_refresh(sdp, 1, id);
+	return error ? error : len;
 }
 
 static ssize_t quota_refresh_group_store(struct gfs2_sbd *sdp, const char *buf,
 					 size_t len)
 {
+	int error;
 	u32 id;
 
 	if (!capable(CAP_SYS_ADMIN))
@@ -198,8 +197,8 @@ static ssize_t quota_refresh_group_store(struct gfs2_sbd *sdp, const char *buf,
 
 	id = simple_strtoul(buf, NULL, 0);
 
-	gfs2_quota_refresh(sdp, 0, id);
-	return len;
+	error = gfs2_quota_refresh(sdp, 0, id);
+	return error ? error : len;
 }
 
 static ssize_t demote_rq_store(struct gfs2_sbd *sdp, const char *buf, size_t len)
@@ -319,12 +318,6 @@ static ssize_t block_store(struct gfs2_sbd *sdp, const char *buf, size_t len)
 	return ret;
 }
 
-static ssize_t lkid_show(struct gfs2_sbd *sdp, char *buf)
-{
-	struct lm_lockstruct *ls = &sdp->sd_lockstruct;
-	return sprintf(buf, "%u\n", ls->ls_id);
-}
-
 static ssize_t lkfirst_show(struct gfs2_sbd *sdp, char *buf)
 {
 	struct lm_lockstruct *ls = &sdp->sd_lockstruct;
@@ -389,7 +382,6 @@ static struct gfs2_attr gdlm_attr_##_name = __ATTR(_name,_mode,_show,_store)
 GDLM_ATTR(proto_name,		0444, proto_name_show,		NULL);
 GDLM_ATTR(block,		0644, block_show,		block_store);
 GDLM_ATTR(withdraw,		0644, withdraw_show,		withdraw_store);
-GDLM_ATTR(id,			0444, lkid_show,		NULL);
 GDLM_ATTR(jid,			0444, jid_show,			NULL);
 GDLM_ATTR(first,		0444, lkfirst_show,		NULL);
 GDLM_ATTR(first_done,		0444, first_done_show,		NULL);
@@ -401,7 +393,6 @@ static struct attribute *lock_module_attrs[] = {
 	&gdlm_attr_proto_name.attr,
 	&gdlm_attr_block.attr,
 	&gdlm_attr_withdraw.attr,
-	&gdlm_attr_id.attr,
 	&gdlm_attr_jid.attr,
 	&gdlm_attr_first.attr,
 	&gdlm_attr_first_done.attr,
@@ -519,7 +510,14 @@ static struct attribute_group lock_module_group = {
 
 int gfs2_sys_fs_add(struct gfs2_sbd *sdp)
 {
+	struct super_block *sb = sdp->sd_vfs;
 	int error;
+	char ro[20];
+	char spectator[20];
+	char *envp[] = { ro, spectator, NULL };
+
+	sprintf(ro, "RDONLY=%d", (sb->s_flags & MS_RDONLY) ? 1 : 0);
+	sprintf(spectator, "SPECTATOR=%d", sdp->sd_args.ar_spectator ? 1 : 0);
 
 	sdp->sd_kobj.kset = gfs2_kset;
 	error = kobject_init_and_add(&sdp->sd_kobj, &gfs2_ktype, NULL,
@@ -535,9 +533,17 @@ int gfs2_sys_fs_add(struct gfs2_sbd *sdp)
 	if (error)
 		goto fail_tune;
 
-	kobject_uevent(&sdp->sd_kobj, KOBJ_ADD);
+	error = sysfs_create_link(&sdp->sd_kobj,
+				  &disk_to_dev(sb->s_bdev->bd_disk)->kobj,
+				  "device");
+	if (error)
+		goto fail_lock_module;
+
+	kobject_uevent_env(&sdp->sd_kobj, KOBJ_ADD, envp);
 	return 0;
 
+fail_lock_module:
+	sysfs_remove_group(&sdp->sd_kobj, &lock_module_group);
 fail_tune:
 	sysfs_remove_group(&sdp->sd_kobj, &tune_group);
 fail_reg:
@@ -549,11 +555,11 @@ fail:
 
 void gfs2_sys_fs_del(struct gfs2_sbd *sdp)
 {
+	sysfs_remove_link(&sdp->sd_kobj, "device");
 	sysfs_remove_group(&sdp->sd_kobj, &tune_group);
 	sysfs_remove_group(&sdp->sd_kobj, &lock_module_group);
 	kobject_put(&sdp->sd_kobj);
 }
-
 
 static int gfs2_uevent(struct kset *kset, struct kobject *kobj,
 		       struct kobj_uevent_env *env)
@@ -563,21 +569,16 @@ static int gfs2_uevent(struct kset *kset, struct kobject *kobj,
 
 	add_uevent_var(env, "LOCKTABLE=%s", sdp->sd_table_name);
 	add_uevent_var(env, "LOCKPROTO=%s", sdp->sd_proto_name);
-	if (gfs2_uuid_valid(uuid)) {
-		add_uevent_var(env, "UUID=%02X%02X%02X%02X-%02X%02X-%02X%02X-"
-			       "%02X%02X-%02X%02X%02X%02X%02X%02X",
-			       uuid[0], uuid[1], uuid[2], uuid[3], uuid[4],
-			       uuid[5], uuid[6], uuid[7], uuid[8], uuid[9],
-			       uuid[10], uuid[11], uuid[12], uuid[13],
-			       uuid[14], uuid[15]);
-	}
+	if (!sdp->sd_args.ar_spectator)
+		add_uevent_var(env, "JOURNALID=%u", sdp->sd_lockstruct.ls_jid);
+	if (gfs2_uuid_valid(uuid))
+		add_uevent_var(env, "UUID=%pUB", uuid);
 	return 0;
 }
 
 static struct kset_uevent_ops gfs2_uevent_ops = {
 	.uevent = gfs2_uevent,
 };
-
 
 int gfs2_sys_init(void)
 {

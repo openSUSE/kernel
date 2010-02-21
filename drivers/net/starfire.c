@@ -595,7 +595,7 @@ static int	netdev_open(struct net_device *dev);
 static void	check_duplex(struct net_device *dev);
 static void	tx_timeout(struct net_device *dev);
 static void	init_ring(struct net_device *dev);
-static int	start_tx(struct sk_buff *skb, struct net_device *dev);
+static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev);
 static irqreturn_t intr_handler(int irq, void *dev_instance);
 static void	netdev_error(struct net_device *dev, int intr_status);
 static int	__netdev_rx(struct net_device *dev, int *quota);
@@ -928,7 +928,7 @@ static int netdev_open(struct net_device *dev)
 
 	/* Do we ever need to reset the chip??? */
 
-	retval = request_irq(dev->irq, &intr_handler, IRQF_SHARED, dev->name, dev);
+	retval = request_irq(dev->irq, intr_handler, IRQF_SHARED, dev->name, dev);
 	if (retval)
 		return retval;
 
@@ -1063,7 +1063,7 @@ static int netdev_open(struct net_device *dev)
 	if (retval) {
 		printk(KERN_ERR "starfire: Failed to load firmware \"%s\"\n",
 		       FIRMWARE_RX);
-		return retval;
+		goto out_init;
 	}
 	if (fw_rx->size % 4) {
 		printk(KERN_ERR "starfire: bogus length %zu in \"%s\"\n",
@@ -1108,6 +1108,9 @@ out_tx:
 	release_firmware(fw_tx);
 out_rx:
 	release_firmware(fw_rx);
+out_init:
+	if (retval)
+		netdev_close(dev);
 	return retval;
 }
 
@@ -1223,7 +1226,7 @@ static void init_ring(struct net_device *dev)
 }
 
 
-static int start_tx(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev)
 {
 	struct netdev_private *np = netdev_priv(dev);
 	unsigned int entry;
@@ -1311,7 +1314,7 @@ static int start_tx(struct sk_buff *skb, struct net_device *dev)
 
 	dev->trans_start = jiffies;
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 
@@ -1482,8 +1485,8 @@ static int __netdev_rx(struct net_device *dev, int *quota)
 			printk(KERN_DEBUG "  netdev_rx() normal Rx pkt length %d, quota %d.\n", pkt_len, *quota);
 		/* Check if the packet is long enough to accept without copying
 		   to a minimally-sized skbuff. */
-		if (pkt_len < rx_copybreak
-		    && (skb = dev_alloc_skb(pkt_len + 2)) != NULL) {
+		if (pkt_len < rx_copybreak &&
+		    (skb = dev_alloc_skb(pkt_len + 2)) != NULL) {
 			skb_reserve(skb, 2);	/* 16 byte align the IP header */
 			pci_dma_sync_single_for_cpu(np->pci_dev,
 						    np->rx_info[entry].mapping,
@@ -1793,8 +1796,8 @@ static void set_rx_mode(struct net_device *dev)
 
 	if (dev->flags & IFF_PROMISC) {	/* Set promiscuous. */
 		rx_mode |= AcceptAll;
-	} else if ((dev->mc_count > multicast_filter_limit)
-		   || (dev->flags & IFF_ALLMULTI)) {
+	} else if ((dev->mc_count > multicast_filter_limit) ||
+		   (dev->flags & IFF_ALLMULTI)) {
 		/* Too many to match, or accept all multicasts. */
 		rx_mode |= AcceptBroadcast|AcceptAllMulticast|PerfectFilter;
 	} else if (dev->mc_count <= 14) {

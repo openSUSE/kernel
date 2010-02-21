@@ -23,6 +23,7 @@
 #include <linux/tick.h>
 #include <linux/reboot.h>
 #include <linux/fs.h>
+#include <linux/ftrace.h>
 #include <linux/preempt.h>
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -31,15 +32,35 @@
 #include <asm/ubc.h>
 #include <asm/fpu.h>
 #include <asm/syscalls.h>
+#include <asm/watchdog.h>
 
 int ubc_usercnt = 0;
 
+#ifdef CONFIG_32BIT
+static void watchdog_trigger_immediate(void)
+{
+	sh_wdt_write_cnt(0xFF);
+	sh_wdt_write_csr(0xC2);
+}
+
+void machine_restart(char * __unused)
+{
+	local_irq_disable();
+
+	/* Use watchdog timer to trigger reset */
+	watchdog_trigger_immediate();
+
+	while (1)
+		cpu_sleep();
+}
+#else
 void machine_restart(char * __unused)
 {
 	/* SR.BL=1 and invoke address error to let CPU reset (manual reset) */
 	asm volatile("ldc %0, sr\n\t"
 		     "mov.l @%1, %0" : : "r" (0x10000000), "r" (0x80000001));
 }
+#endif
 
 void machine_halt(void)
 {
@@ -113,7 +134,10 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	regs.regs[5] = (unsigned long)fn;
 
 	regs.pc = (unsigned long)kernel_thread_helper;
-	regs.sr = (1 << 30);
+	regs.sr = SR_MD;
+#if defined(CONFIG_SH_FPU)
+	regs.sr |= SR_FD;
+#endif
 
 	/* Ok, create the new process.. */
 	pid = do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0,
@@ -121,6 +145,7 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 
 	return pid;
 }
+EXPORT_SYMBOL(kernel_thread);
 
 /*
  * Free current thread data structures etc..
@@ -165,6 +190,16 @@ int dump_fpu(struct pt_regs *regs, elf_fpregset_t *fpu)
 
 	return fpvalid;
 }
+EXPORT_SYMBOL(dump_fpu);
+
+/*
+ * This gets called before we allocate a new thread and copy
+ * the current task into it.
+ */
+void prepare_to_copy(struct task_struct *tsk)
+{
+	unlazy_fpu(tsk, task_pt_regs(tsk));
+}
 
 asmlinkage void ret_from_fork(void);
 
@@ -174,14 +209,8 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 {
 	struct thread_info *ti = task_thread_info(p);
 	struct pt_regs *childregs;
-#if defined(CONFIG_SH_FPU) || defined(CONFIG_SH_DSP)
+#if defined(CONFIG_SH_DSP)
 	struct task_struct *tsk = current;
-#endif
-
-#if defined(CONFIG_SH_FPU)
-	unlazy_fpu(tsk, regs);
-	p->thread.fpu = tsk->thread.fpu;
-	copy_to_stopped_child_used_math(p);
 #endif
 
 #if defined(CONFIG_SH_DSP)
@@ -203,6 +232,8 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 	} else {
 		childregs->regs[15] = (unsigned long)childregs;
 		ti->addr_limit = KERNEL_DS;
+		ti->status &= ~TS_USEDFPU;
+		p->fpu_counter = 0;
 	}
 
 	if (clone_flags & CLONE_SETTLS)
@@ -264,12 +295,16 @@ static void ubc_set_tracing(int asid, unsigned long pc)
  *	switch_to(x,y) should switch tasks from x to y.
  *
  */
-struct task_struct *__switch_to(struct task_struct *prev,
-				struct task_struct *next)
+__notrace_funcgraph struct task_struct *
+__switch_to(struct task_struct *prev, struct task_struct *next)
 {
-#if defined(CONFIG_SH_FPU)
+	struct thread_struct *next_t = &next->thread;
+
 	unlazy_fpu(prev, task_pt_regs(prev));
-#endif
+
+	/* we're going to use this soon, after a few expensive things */
+	if (next->fpu_counter > 5)
+		prefetch(&next_t->fpu.hard);
 
 #ifdef CONFIG_MMU
 	/*
@@ -299,6 +334,14 @@ struct task_struct *__switch_to(struct task_struct *prev,
 		ctrl_outw(0, UBC_BBRB);
 #endif
 	}
+
+	/*
+	 * If the task has used fpu the last 5 timeslices, just do a full
+	 * restore of the math state immediately to avoid the trap; the
+	 * chances of needing FPU soon are obviously high now
+	 */
+	if (next->fpu_counter > 5)
+		fpu_state_restore(task_pt_regs(next));
 
 	return prev;
 }

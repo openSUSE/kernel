@@ -25,30 +25,8 @@
 #include <asm/syscalls.h>
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
-
-static inline long
-do_mmap2(unsigned long addr, unsigned long len, unsigned long prot,
-	 unsigned long flags, int fd, unsigned long pgoff)
-{
-	int error = -EBADF;
-	struct file *file = NULL;
-
-	flags &= ~(MAP_EXECUTABLE | MAP_DENYWRITE);
-	if (!(flags & MAP_ANONYMOUS)) {
-		file = fget(fd);
-		if (!file)
-			goto out;
-	}
-
-	down_write(&current->mm->mmap_sem);
-	error = do_mmap_pgoff(file, addr, len, prot, flags, pgoff);
-	up_write(&current->mm->mmap_sem);
-
-	if (file)
-		fput(file);
-out:
-	return error;
-}
+#include <asm/cacheflush.h>
+#include <asm/cachectl.h>
 
 asmlinkage int old_mmap(unsigned long addr, unsigned long len,
 	unsigned long prot, unsigned long flags,
@@ -56,7 +34,7 @@ asmlinkage int old_mmap(unsigned long addr, unsigned long len,
 {
 	if (off & ~PAGE_MASK)
 		return -EINVAL;
-	return do_mmap2(addr, len, prot, flags, fd, off>>PAGE_SHIFT);
+	return sys_mmap_pgoff(addr, len, prot, flags, fd, off>>PAGE_SHIFT);
 }
 
 asmlinkage long sys_mmap2(unsigned long addr, unsigned long len,
@@ -72,7 +50,7 @@ asmlinkage long sys_mmap2(unsigned long addr, unsigned long len,
 
 	pgoff >>= PAGE_SHIFT - 12;
 
-	return do_mmap2(addr, len, prot, flags, fd, pgoff);
+	return sys_mmap_pgoff(addr, len, prot, flags, fd, pgoff);
 }
 
 /*
@@ -177,6 +155,47 @@ asmlinkage int sys_ipc(uint call, int first, int second,
 		}
 
 	return -EINVAL;
+}
+
+/* sys_cacheflush -- flush (part of) the processor cache.  */
+asmlinkage int sys_cacheflush(unsigned long addr, unsigned long len, int op)
+{
+	struct vm_area_struct *vma;
+
+	if ((op <= 0) || (op > (CACHEFLUSH_D_PURGE|CACHEFLUSH_I)))
+		return -EINVAL;
+
+	/*
+	 * Verify that the specified address region actually belongs
+	 * to this process.
+	 */
+	if (addr + len < addr)
+		return -EFAULT;
+
+	down_read(&current->mm->mmap_sem);
+	vma = find_vma (current->mm, addr);
+	if (vma == NULL || addr < vma->vm_start || addr + len > vma->vm_end) {
+		up_read(&current->mm->mmap_sem);
+		return -EFAULT;
+	}
+
+	switch (op & CACHEFLUSH_D_PURGE) {
+		case CACHEFLUSH_D_INVAL:
+			__flush_invalidate_region((void *)addr, len);
+			break;
+		case CACHEFLUSH_D_WB:
+			__flush_wback_region((void *)addr, len);
+			break;
+		case CACHEFLUSH_D_PURGE:
+			__flush_purge_region((void *)addr, len);
+			break;
+	}
+
+	if (op & CACHEFLUSH_I)
+		flush_cache_all();
+
+	up_read(&current->mm->mmap_sem);
+	return 0;
 }
 
 asmlinkage int sys_uname(struct old_utsname __user *name)

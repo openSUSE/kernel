@@ -53,7 +53,7 @@
 #include <linux/bootmem.h>
 #include <linux/pci.h>
 #include <linux/debugfs.h>
-#include <linux/perf_counter.h>
+#include <linux/perf_event.h>
 
 #include <asm/uaccess.h>
 #include <asm/system.h>
@@ -70,6 +70,8 @@
 #include <asm/firmware.h>
 #include <asm/lv1call.h>
 #endif
+#define CREATE_TRACE_POINTS
+#include <asm/trace.h>
 
 int __irq_offset_value;
 static int ppc_spurious_interrupts;
@@ -85,7 +87,10 @@ extern int tau_interrupts(int);
 #endif /* CONFIG_PPC32 */
 
 #ifdef CONFIG_PPC64
+
+#ifndef CONFIG_SPARSE_IRQ
 EXPORT_SYMBOL(irq_desc);
+#endif
 
 int distribute_irqs = 1;
 
@@ -138,9 +143,9 @@ notrace void raw_local_irq_restore(unsigned long en)
 	}
 #endif /* CONFIG_PPC_STD_MMU_64 */
 
-	if (test_perf_counter_pending()) {
-		clear_perf_counter_pending();
-		perf_counter_do_pending();
+	if (test_perf_event_pending()) {
+		clear_perf_event_pending();
+		perf_event_do_pending();
 	}
 
 	/*
@@ -187,33 +192,7 @@ int show_interrupts(struct seq_file *p, void *v)
 		for_each_online_cpu(j)
 			seq_printf(p, "CPU%d       ", j);
 		seq_putc(p, '\n');
-	}
-
-	if (i < NR_IRQS) {
-		desc = get_irq_desc(i);
-		atomic_spin_lock_irqsave(&desc->lock, flags);
-		action = desc->action;
-		if (!action || !action->handler)
-			goto skip;
-		seq_printf(p, "%3d: ", i);
-#ifdef CONFIG_SMP
-		for_each_online_cpu(j)
-			seq_printf(p, "%10u ", kstat_irqs_cpu(i, j));
-#else
-		seq_printf(p, "%10u ", kstat_irqs(i));
-#endif /* CONFIG_SMP */
-		if (desc->chip)
-			seq_printf(p, " %s ", desc->chip->typename);
-		else
-			seq_puts(p, "  None      ");
-		seq_printf(p, "%s", (desc->status & IRQ_LEVEL) ? "Level " : "Edge  ");
-		seq_printf(p, "    %s", action->name);
-		for (action = action->next; action; action = action->next)
-			seq_printf(p, ", %s", action->name);
-		seq_putc(p, '\n');
-skip:
-		atomic_spin_unlock_irqrestore(&desc->lock, flags);
-	} else if (i == NR_IRQS) {
+	} else if (i == nr_irqs) {
 #if defined(CONFIG_PPC32) && defined(CONFIG_TAU_INT)
 		if (tau_initialized){
 			seq_puts(p, "TAU: ");
@@ -223,30 +202,68 @@ skip:
 		}
 #endif /* CONFIG_PPC32 && CONFIG_TAU_INT*/
 		seq_printf(p, "BAD: %10u\n", ppc_spurious_interrupts);
+
+		return 0;
 	}
+
+	desc = irq_to_desc(i);
+	if (!desc)
+		return 0;
+
+	raw_spin_lock_irqsave(&desc->lock, flags);
+
+	action = desc->action;
+	if (!action || !action->handler)
+		goto skip;
+
+	seq_printf(p, "%3d: ", i);
+#ifdef CONFIG_SMP
+	for_each_online_cpu(j)
+		seq_printf(p, "%10u ", kstat_irqs_cpu(i, j));
+#else
+	seq_printf(p, "%10u ", kstat_irqs(i));
+#endif /* CONFIG_SMP */
+
+	if (desc->chip)
+		seq_printf(p, " %s ", desc->chip->name);
+	else
+		seq_puts(p, "  None      ");
+
+	seq_printf(p, "%s", (desc->status & IRQ_LEVEL) ? "Level " : "Edge  ");
+	seq_printf(p, "    %s", action->name);
+
+	for (action = action->next; action; action = action->next)
+		seq_printf(p, ", %s", action->name);
+	seq_putc(p, '\n');
+
+skip:
+	raw_spin_unlock_irqrestore(&desc->lock, flags);
+
 	return 0;
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
 void fixup_irqs(cpumask_t map)
 {
+	struct irq_desc *desc;
 	unsigned int irq;
 	static int warned;
 
 	for_each_irq(irq) {
 		cpumask_t mask;
 
-		if (irq_desc[irq].status & IRQ_PER_CPU)
+		desc = irq_to_desc(irq);
+		if (desc && desc->status & IRQ_PER_CPU)
 			continue;
 
-		cpumask_and(&mask, irq_desc[irq].affinity, &map);
+		cpumask_and(&mask, desc->affinity, &map);
 		if (any_online_cpu(mask) == NR_CPUS) {
 			printk("Breaking affinity for irq %i\n", irq);
 			mask = map;
 		}
-		if (irq_desc[irq].chip->set_affinity)
-			irq_desc[irq].chip->set_affinity(irq, &mask);
-		else if (irq_desc[irq].action && !(warned++))
+		if (desc->chip->set_affinity)
+			desc->chip->set_affinity(irq, &mask);
+		else if (desc->action && !(warned++))
 			printk("Cannot set affinity for irq %i\n", irq);
 	}
 
@@ -273,7 +290,7 @@ static inline void handle_one_irq(unsigned int irq)
 		return;
 	}
 
-	desc = irq_desc + irq;
+	desc = irq_to_desc(irq);
 	saved_sp_limit = current->thread.ksp_limit;
 
 	irqtp->task = curtp->task;
@@ -325,6 +342,8 @@ void do_IRQ(struct pt_regs *regs)
 	struct pt_regs *old_regs = set_irq_regs(regs);
 	unsigned int irq;
 
+	trace_irq_entry(regs);
+
 	irq_enter();
 
 	check_stack_overflow();
@@ -348,6 +367,8 @@ void do_IRQ(struct pt_regs *regs)
 		timer_interrupt(regs);
 	}
 #endif
+
+	trace_irq_exit(regs);
 }
 
 void __init init_IRQ(void)
@@ -453,7 +474,7 @@ void do_softirq(void)
  */
 
 static LIST_HEAD(irq_hosts);
-static DEFINE_ATOMIC_SPINLOCK(irq_big_lock);
+static DEFINE_RAW_SPINLOCK(irq_big_lock);
 static unsigned int revmap_trees_allocated;
 static DEFINE_MUTEX(revmap_trees_mutex);
 struct irq_map_entry irq_map[NR_IRQS];
@@ -499,14 +520,14 @@ struct irq_host *irq_alloc_host(struct device_node *of_node,
 	if (host->ops->match == NULL)
 		host->ops->match = default_irq_host_match;
 
-	atomic_spin_lock_irqsave(&irq_big_lock, flags);
+	raw_spin_lock_irqsave(&irq_big_lock, flags);
 
 	/* If it's a legacy controller, check for duplicates and
 	 * mark it as allocated (we use irq 0 host pointer for that
 	 */
 	if (revmap_type == IRQ_HOST_MAP_LEGACY) {
 		if (irq_map[0].host != NULL) {
-			atomic_spin_unlock_irqrestore(&irq_big_lock, flags);
+			raw_spin_unlock_irqrestore(&irq_big_lock, flags);
 			/* If we are early boot, we can't free the structure,
 			 * too bad...
 			 * this will be fixed once slab is made available early
@@ -520,7 +541,7 @@ struct irq_host *irq_alloc_host(struct device_node *of_node,
 	}
 
 	list_add(&host->link, &irq_hosts);
-	atomic_spin_unlock_irqrestore(&irq_big_lock, flags);
+	raw_spin_unlock_irqrestore(&irq_big_lock, flags);
 
 	/* Additional setups per revmap type */
 	switch(revmap_type) {
@@ -535,7 +556,7 @@ struct irq_host *irq_alloc_host(struct device_node *of_node,
 			smp_wmb();
 
 			/* Clear norequest flags */
-			get_irq_desc(i)->status &= ~IRQ_NOREQUEST;
+			irq_to_desc(i)->status &= ~IRQ_NOREQUEST;
 
 			/* Legacy flags are left to default at this point,
 			 * one can then use irq_create_mapping() to
@@ -571,13 +592,13 @@ struct irq_host *irq_find_host(struct device_node *node)
 	 * the absence of a device node. This isn't a problem so far
 	 * yet though...
 	 */
-	atomic_spin_lock_irqsave(&irq_big_lock, flags);
+	raw_spin_lock_irqsave(&irq_big_lock, flags);
 	list_for_each_entry(h, &irq_hosts, link)
 		if (h->ops->match(h, node)) {
 			found = h;
 			break;
 		}
-	atomic_spin_unlock_irqrestore(&irq_big_lock, flags);
+	raw_spin_unlock_irqrestore(&irq_big_lock, flags);
 	return found;
 }
 EXPORT_SYMBOL_GPL(irq_find_host);
@@ -601,8 +622,16 @@ void irq_set_virq_count(unsigned int count)
 static int irq_setup_virq(struct irq_host *host, unsigned int virq,
 			    irq_hw_number_t hwirq)
 {
+	struct irq_desc *desc;
+
+	desc = irq_to_desc_alloc_node(virq, 0);
+	if (!desc) {
+		pr_debug("irq: -> allocating desc failed\n");
+		goto error;
+	}
+
 	/* Clear IRQ_NOREQUEST flag */
-	get_irq_desc(virq)->status &= ~IRQ_NOREQUEST;
+	desc->status &= ~IRQ_NOREQUEST;
 
 	/* map it */
 	smp_wmb();
@@ -611,11 +640,14 @@ static int irq_setup_virq(struct irq_host *host, unsigned int virq,
 
 	if (host->ops->map(host, virq, hwirq)) {
 		pr_debug("irq: -> mapping failed, freeing\n");
-		irq_free_virt(virq, 1);
-		return -1;
+		goto error;
 	}
 
 	return 0;
+
+error:
+	irq_free_virt(virq, 1);
+	return -1;
 }
 
 unsigned int irq_create_direct_mapping(struct irq_host *host)
@@ -699,7 +731,7 @@ unsigned int irq_create_mapping(struct irq_host *host,
 EXPORT_SYMBOL_GPL(irq_create_mapping);
 
 unsigned int irq_create_of_mapping(struct device_node *controller,
-				   u32 *intspec, unsigned int intsize)
+				   const u32 *intspec, unsigned int intsize)
 {
 	struct irq_host *host;
 	irq_hw_number_t hwirq;
@@ -732,7 +764,7 @@ unsigned int irq_create_of_mapping(struct device_node *controller,
 
 	/* Set type if specified and different than the current one */
 	if (type != IRQ_TYPE_NONE &&
-	    type != (get_irq_desc(virq)->status & IRQF_TRIGGER_MASK))
+	    type != (irq_to_desc(virq)->status & IRQF_TRIGGER_MASK))
 		set_irq_type(virq, type);
 	return virq;
 }
@@ -804,7 +836,7 @@ void irq_dispose_mapping(unsigned int virq)
 	irq_map[virq].hwirq = host->inval_irq;
 
 	/* Set some flags */
-	get_irq_desc(virq)->status |= IRQ_NOREQUEST;
+	irq_to_desc(virq)->status |= IRQ_NOREQUEST;
 
 	/* Free it */
 	irq_free_virt(virq, 1);
@@ -935,7 +967,7 @@ unsigned int irq_alloc_virt(struct irq_host *host,
 	if (count == 0 || count > (irq_virq_count - NUM_ISA_INTERRUPTS))
 		return NO_IRQ;
 
-	atomic_spin_lock_irqsave(&irq_big_lock, flags);
+	raw_spin_lock_irqsave(&irq_big_lock, flags);
 
 	/* Use hint for 1 interrupt if any */
 	if (count == 1 && hint >= NUM_ISA_INTERRUPTS &&
@@ -959,7 +991,7 @@ unsigned int irq_alloc_virt(struct irq_host *host,
 		}
 	}
 	if (found == NO_IRQ) {
-		atomic_spin_unlock_irqrestore(&irq_big_lock, flags);
+		raw_spin_unlock_irqrestore(&irq_big_lock, flags);
 		return NO_IRQ;
 	}
  hint_found:
@@ -968,7 +1000,7 @@ unsigned int irq_alloc_virt(struct irq_host *host,
 		smp_wmb();
 		irq_map[i].host = host;
 	}
-	atomic_spin_unlock_irqrestore(&irq_big_lock, flags);
+	raw_spin_unlock_irqrestore(&irq_big_lock, flags);
 	return found;
 }
 
@@ -980,7 +1012,7 @@ void irq_free_virt(unsigned int virq, unsigned int count)
 	WARN_ON (virq < NUM_ISA_INTERRUPTS);
 	WARN_ON (count == 0 || (virq + count) > irq_virq_count);
 
-	atomic_spin_lock_irqsave(&irq_big_lock, flags);
+	raw_spin_lock_irqsave(&irq_big_lock, flags);
 	for (i = virq; i < (virq + count); i++) {
 		struct irq_host *host;
 
@@ -993,15 +1025,27 @@ void irq_free_virt(unsigned int virq, unsigned int count)
 		smp_wmb();
 		irq_map[i].host = NULL;
 	}
-	atomic_spin_unlock_irqrestore(&irq_big_lock, flags);
+	raw_spin_unlock_irqrestore(&irq_big_lock, flags);
 }
 
-void irq_early_init(void)
+int arch_early_irq_init(void)
 {
-	unsigned int i;
+	struct irq_desc *desc;
+	int i;
 
-	for (i = 0; i < NR_IRQS; i++)
-		get_irq_desc(i)->status |= IRQ_NOREQUEST;
+	for (i = 0; i < NR_IRQS; i++) {
+		desc = irq_to_desc(i);
+		if (desc)
+			desc->status |= IRQ_NOREQUEST;
+	}
+
+	return 0;
+}
+
+int arch_init_chip_data(struct irq_desc *desc, int node)
+{
+	desc->status |= IRQ_NOREQUEST;
+	return 0;
 }
 
 /* We need to create the radix trees late */
@@ -1063,16 +1107,19 @@ static int virq_debug_show(struct seq_file *m, void *private)
 	seq_printf(m, "%-5s  %-7s  %-15s  %s\n", "virq", "hwirq",
 		      "chip name", "host name");
 
-	for (i = 1; i < NR_IRQS; i++) {
-		desc = get_irq_desc(i);
-		atomic_spin_lock_irqsave(&desc->lock, flags);
+	for (i = 1; i < nr_irqs; i++) {
+		desc = irq_to_desc(i);
+		if (!desc)
+			continue;
+
+		raw_spin_lock_irqsave(&desc->lock, flags);
 
 		if (desc->action && desc->action->handler) {
 			seq_printf(m, "%5d  ", i);
 			seq_printf(m, "0x%05lx  ", virq_to_hw(i));
 
-			if (desc->chip && desc->chip->typename)
-				p = desc->chip->typename;
+			if (desc->chip && desc->chip->name)
+				p = desc->chip->name;
 			else
 				p = none;
 			seq_printf(m, "%-15s  ", p);
@@ -1084,7 +1131,7 @@ static int virq_debug_show(struct seq_file *m, void *private)
 			seq_printf(m, "%s\n", p);
 		}
 
-		atomic_spin_unlock_irqrestore(&desc->lock, flags);
+		raw_spin_unlock_irqrestore(&desc->lock, flags);
 	}
 
 	return 0;

@@ -38,6 +38,7 @@
 #include "tda18271.h"
 #include "lgdt330x.h"
 #include "xc5000.h"
+#include "max2165.h"
 #include "tda10048.h"
 #include "tuner-xc2028.h"
 #include "tuner-simple.h"
@@ -54,6 +55,9 @@
 #include "netup-eeprom.h"
 #include "netup-init.h"
 #include "lgdt3305.h"
+#include "atbm8830.h"
+#include "ds3000.h"
+#include "cx23885-f300.h"
 
 static unsigned int debug;
 
@@ -255,15 +259,18 @@ static struct tda18271_std_map hauppauge_hvr1200_tda18271_std_map = {
 static struct tda18271_config hauppauge_tda18271_config = {
 	.std_map = &hauppauge_tda18271_std_map,
 	.gate    = TDA18271_GATE_ANALOG,
+	.output_opt = TDA18271_OUTPUT_LT_OFF,
 };
 
 static struct tda18271_config hauppauge_hvr1200_tuner_config = {
 	.std_map = &hauppauge_hvr1200_tda18271_std_map,
 	.gate    = TDA18271_GATE_ANALOG,
+	.output_opt = TDA18271_OUTPUT_LT_OFF,
 };
 
 static struct tda18271_config hauppauge_hvr1210_tuner_config = {
 	.gate    = TDA18271_GATE_DIGITAL,
+	.output_opt = TDA18271_OUTPUT_LT_OFF,
 };
 
 static struct tda18271_std_map hauppauge_hvr127x_std_map = {
@@ -275,6 +282,7 @@ static struct tda18271_std_map hauppauge_hvr127x_std_map = {
 
 static struct tda18271_config hauppauge_hvr127x_config = {
 	.std_map = &hauppauge_hvr127x_std_map,
+	.output_opt = TDA18271_OUTPUT_LT_OFF,
 };
 
 static struct lgdt3305_config hauppauge_lgdt3305_config = {
@@ -396,7 +404,8 @@ static struct stv0900_reg stv0900_ts_regs[] = {
 
 static struct stv0900_config netup_stv0900_config = {
 	.demod_address = 0x68,
-	.xtal = 27000000,
+	.demod_mode = 1, /* dual */
+	.xtal = 8000000,
 	.clkmode = 3,/* 0-CLKI, 2-XTALI, else AUTO */
 	.diseqc_mode = 2,/* 2/3 PWM */
 	.ts_config_regs = stv0900_ts_regs,
@@ -408,36 +417,24 @@ static struct stv0900_config netup_stv0900_config = {
 
 static struct stv6110_config netup_stv6110_tunerconfig_a = {
 	.i2c_address = 0x60,
-	.mclk = 27000000,
-	.iq_wiring = 0,
+	.mclk = 16000000,
+	.clk_div = 1,
+	.gain = 8, /* +16 dB  - maximum gain */
 };
 
 static struct stv6110_config netup_stv6110_tunerconfig_b = {
 	.i2c_address = 0x63,
-	.mclk = 27000000,
-	.iq_wiring = 1,
+	.mclk = 16000000,
+	.clk_div = 1,
+	.gain = 8, /* +16 dB  - maximum gain */
 };
-
-static int tbs_set_voltage(struct dvb_frontend *fe, fe_sec_voltage_t voltage)
-{
-	struct cx23885_tsport *port = fe->dvb->priv;
-	struct cx23885_dev *dev = port->dev;
-
-	if (voltage == SEC_VOLTAGE_18)
-		cx_write(MC417_RWD, 0x00001e00);/* GPIO-13 high */
-	else if (voltage == SEC_VOLTAGE_13)
-		cx_write(MC417_RWD, 0x00001a00);/* GPIO-13 low */
-	else
-		cx_write(MC417_RWD, 0x00001800);/* GPIO-12 low */
-	return 0;
-}
 
 static struct cx24116_config tbs_cx24116_config = {
-	.demod_address = 0x05,
+	.demod_address = 0x55,
 };
 
-static struct cx24116_config tevii_cx24116_config = {
-	.demod_address = 0x55,
+static struct ds3000_config tevii_ds3000_config = {
+	.demod_address = 0x68,
 };
 
 static struct cx24116_config dvbworld_cx24116_config = {
@@ -482,10 +479,91 @@ static int cx23885_dvb_set_frontend(struct dvb_frontend *fe,
 			break;
 		}
 		break;
+	case CX23885_BOARD_MYGICA_X8506:
+	case CX23885_BOARD_MAGICPRO_PROHDTVE2:
+		/* Select Digital TV */
+		cx23885_gpio_set(dev, GPIO_0);
+		break;
 	}
-	return (port->set_frontend_save) ?
-		port->set_frontend_save(fe, param) : -ENODEV;
+	return 0;
 }
+
+static int cx23885_dvb_fe_ioctl_override(struct dvb_frontend *fe,
+					 unsigned int cmd, void *parg,
+					 unsigned int stage)
+{
+	int err = 0;
+
+	switch (stage) {
+	case DVB_FE_IOCTL_PRE:
+
+		switch (cmd) {
+		case FE_SET_FRONTEND:
+			err = cx23885_dvb_set_frontend(fe,
+				(struct dvb_frontend_parameters *) parg);
+			break;
+		}
+		break;
+
+	case DVB_FE_IOCTL_POST:
+		/* no post-ioctl handling required */
+		break;
+	}
+	return err;
+};
+
+
+static struct lgs8gxx_config magicpro_prohdtve2_lgs8g75_config = {
+	.prod = LGS8GXX_PROD_LGS8G75,
+	.demod_address = 0x19,
+	.serial_ts = 0,
+	.ts_clk_pol = 1,
+	.ts_clk_gated = 1,
+	.if_clk_freq = 30400, /* 30.4 MHz */
+	.if_freq = 6500, /* 6.50 MHz */
+	.if_neg_center = 1,
+	.ext_adc = 0,
+	.adc_signed = 1,
+	.adc_vpp = 2, /* 1.6 Vpp */
+	.if_neg_edge = 1,
+};
+
+static struct xc5000_config magicpro_prohdtve2_xc5000_config = {
+	.i2c_address = 0x61,
+	.if_khz = 6500,
+};
+
+static struct atbm8830_config mygica_x8558pro_atbm8830_cfg1 = {
+	.prod = ATBM8830_PROD_8830,
+	.demod_address = 0x44,
+	.serial_ts = 0,
+	.ts_sampling_edge = 1,
+	.ts_clk_gated = 0,
+	.osc_clk_freq = 30400, /* in kHz */
+	.if_freq = 0, /* zero IF */
+	.zif_swap_iq = 1,
+};
+
+static struct max2165_config mygic_x8558pro_max2165_cfg1 = {
+	.i2c_address = 0x60,
+	.osc_clk = 20
+};
+
+static struct atbm8830_config mygica_x8558pro_atbm8830_cfg2 = {
+	.prod = ATBM8830_PROD_8830,
+	.demod_address = 0x44,
+	.serial_ts = 1,
+	.ts_sampling_edge = 1,
+	.ts_clk_gated = 0,
+	.osc_clk_freq = 30400, /* in kHz */
+	.if_freq = 0, /* zero IF */
+	.zif_swap_iq = 1,
+};
+
+static struct max2165_config mygic_x8558pro_max2165_cfg2 = {
+	.i2c_address = 0x60,
+	.osc_clk = 20
+};
 
 static int dvb_register(struct cx23885_tsport *port)
 {
@@ -526,12 +604,6 @@ static int dvb_register(struct cx23885_tsport *port)
 				   0x60, &dev->i2c_bus[1].i2c_adap,
 				   &hauppauge_hvr127x_config);
 		}
-
-		/* FIXME: temporary hack */
-		/* define bridge override to set_frontend */
-		port->set_frontend_save = fe0->dvb.frontend->ops.set_frontend;
-		fe0->dvb.frontend->ops.set_frontend = cx23885_dvb_set_frontend;
-
 		break;
 	case CX23885_BOARD_HAUPPAUGE_HVR1255:
 		i2c_bus = &dev->i2c_bus[0];
@@ -723,6 +795,7 @@ static int dvb_register(struct cx23885_tsport *port)
 	}
 	case CX23885_BOARD_LEADTEK_WINFAST_PXDVR3200_H:
 	case CX23885_BOARD_COMPRO_VIDEOMATE_E650F:
+	case CX23885_BOARD_COMPRO_VIDEOMATE_E800:
 		i2c_bus = &dev->i2c_bus[0];
 
 		fe0->dvb.frontend = dvb_attach(zl10353_attach,
@@ -747,23 +820,23 @@ static int dvb_register(struct cx23885_tsport *port)
 		}
 		break;
 	case CX23885_BOARD_TBS_6920:
-		i2c_bus = &dev->i2c_bus[0];
+		i2c_bus = &dev->i2c_bus[1];
 
 		fe0->dvb.frontend = dvb_attach(cx24116_attach,
-			&tbs_cx24116_config,
-			&i2c_bus->i2c_adap);
+					&tbs_cx24116_config,
+					&i2c_bus->i2c_adap);
 		if (fe0->dvb.frontend != NULL)
-			fe0->dvb.frontend->ops.set_voltage = tbs_set_voltage;
+			fe0->dvb.frontend->ops.set_voltage = f300_set_voltage;
 
 		break;
 	case CX23885_BOARD_TEVII_S470:
 		i2c_bus = &dev->i2c_bus[1];
 
-		fe0->dvb.frontend = dvb_attach(cx24116_attach,
-			&tevii_cx24116_config,
-			&i2c_bus->i2c_adap);
+		fe0->dvb.frontend = dvb_attach(ds3000_attach,
+					&tevii_ds3000_config,
+					&i2c_bus->i2c_adap);
 		if (fe0->dvb.frontend != NULL)
-			fe0->dvb.frontend->ops.set_voltage = tbs_set_voltage;
+			fe0->dvb.frontend->ops.set_voltage = f300_set_voltage;
 
 		break;
 	case CX23885_BOARD_DVBWORLD_2005:
@@ -789,8 +862,8 @@ static int dvb_register(struct cx23885_tsport *port)
 					if (!dvb_attach(lnbh24_attach,
 							fe0->dvb.frontend,
 							&i2c_bus->i2c_adap,
-							LNBH24_PCL,
-							LNBH24_TTX, 0x09))
+							LNBH24_PCL | LNBH24_TTX,
+							LNBH24_TEN, 0x09))
 						printk(KERN_ERR
 							"No LNBH24 found!\n");
 
@@ -810,8 +883,8 @@ static int dvb_register(struct cx23885_tsport *port)
 					if (!dvb_attach(lnbh24_attach,
 							fe0->dvb.frontend,
 							&i2c_bus->i2c_adap,
-							LNBH24_PCL,
-							LNBH24_TTX, 0x0a))
+							LNBH24_PCL | LNBH24_TTX,
+							LNBH24_TEN, 0x0a))
 						printk(KERN_ERR
 							"No LNBH24 found!\n");
 
@@ -833,6 +906,61 @@ static int dvb_register(struct cx23885_tsport *port)
 				&mygica_x8506_xc5000_config);
 		}
 		break;
+	case CX23885_BOARD_MAGICPRO_PROHDTVE2:
+		i2c_bus = &dev->i2c_bus[0];
+		i2c_bus2 = &dev->i2c_bus[1];
+		fe0->dvb.frontend = dvb_attach(lgs8gxx_attach,
+			&magicpro_prohdtve2_lgs8g75_config,
+			&i2c_bus->i2c_adap);
+		if (fe0->dvb.frontend != NULL) {
+			dvb_attach(xc5000_attach,
+				fe0->dvb.frontend,
+				&i2c_bus2->i2c_adap,
+				&magicpro_prohdtve2_xc5000_config);
+		}
+		break;
+	case CX23885_BOARD_HAUPPAUGE_HVR1850:
+	case CX23885_BOARD_HAUPPAUGE_HVR1290:
+		i2c_bus = &dev->i2c_bus[0];
+		fe0->dvb.frontend = dvb_attach(s5h1411_attach,
+			&hcw_s5h1411_config,
+			&i2c_bus->i2c_adap);
+		if (fe0->dvb.frontend != NULL)
+			dvb_attach(tda18271_attach, fe0->dvb.frontend,
+				0x60, &dev->i2c_bus[0].i2c_adap,
+				&hauppauge_tda18271_config);
+		break;
+	case CX23885_BOARD_MYGICA_X8558PRO:
+		switch (port->nr) {
+		/* port B */
+		case 1:
+			i2c_bus = &dev->i2c_bus[0];
+			fe0->dvb.frontend = dvb_attach(atbm8830_attach,
+				&mygica_x8558pro_atbm8830_cfg1,
+				&i2c_bus->i2c_adap);
+			if (fe0->dvb.frontend != NULL) {
+				dvb_attach(max2165_attach,
+					fe0->dvb.frontend,
+					&i2c_bus->i2c_adap,
+					&mygic_x8558pro_max2165_cfg1);
+			}
+			break;
+		/* port C */
+		case 2:
+			i2c_bus = &dev->i2c_bus[1];
+			fe0->dvb.frontend = dvb_attach(atbm8830_attach,
+				&mygica_x8558pro_atbm8830_cfg2,
+				&i2c_bus->i2c_adap);
+			if (fe0->dvb.frontend != NULL) {
+				dvb_attach(max2165_attach,
+					fe0->dvb.frontend,
+					&i2c_bus->i2c_adap,
+					&mygic_x8558pro_max2165_cfg2);
+			}
+			break;
+		}
+		break;
+
 	default:
 		printk(KERN_INFO "%s: The frontend of your DVB/ATSC card "
 			" isn't supported yet\n",
@@ -848,14 +976,15 @@ static int dvb_register(struct cx23885_tsport *port)
 	fe0->dvb.frontend->callback = cx23885_tuner_callback;
 
 	/* Put the analog decoder in standby to keep it quiet */
-	call_all(dev, tuner, s_standby);
+	call_all(dev, core, s_power, 0);
 
 	if (fe0->dvb.frontend->ops.analog_ops.standby)
 		fe0->dvb.frontend->ops.analog_ops.standby(fe0->dvb.frontend);
 
 	/* register everything */
 	ret = videobuf_dvb_register_bus(&port->frontends, THIS_MODULE, port,
-		&dev->pci->dev, adapter_nr, 0);
+					&dev->pci->dev, adapter_nr, 0,
+					cx23885_dvb_fe_ioctl_override);
 
 	/* init CI & MAC */
 	switch (dev->board) {
@@ -891,7 +1020,7 @@ int cx23885_dvb_register(struct cx23885_tsport *port)
 	int err, i;
 
 	/* Here we need to allocate the correct number of frontends,
-	 * as reflected in the cards struct. The reality is that currrently
+	 * as reflected in the cards struct. The reality is that currently
 	 * no cx23885 boards support this - yet. But, if we don't modify this
 	 * code then the second frontend would never be allocated (later)
 	 * and fail with error before the attach in dvb_register().

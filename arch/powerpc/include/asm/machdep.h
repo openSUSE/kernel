@@ -209,13 +209,13 @@ struct machdep_calls {
 	/*
 	 * optional PCI "hooks"
 	 */
-	/* Called in indirect_* to avoid touching devices */
-	int (*pci_exclude_device)(struct pci_controller *, unsigned char, unsigned char);
-
 	/* Called at then very end of pcibios_init() */
 	void (*pcibios_after_init)(void);
 
 #endif /* CONFIG_PPC32 */
+
+	/* Called in indirect_* to avoid touching devices */
+	int (*pci_exclude_device)(struct pci_controller *, unsigned char, unsigned char);
 
 	/* Called after PPC generic resource fixup to perform
 	   machine specific fixups */
@@ -265,6 +265,11 @@ struct machdep_calls {
 	 */
 	void (*suspend_disable_irqs)(void);
 	void (*suspend_enable_irqs)(void);
+#endif
+
+#ifdef CONFIG_ARCH_CPU_PROBE_RELEASE
+	ssize_t (*cpu_probe)(const char *, size_t);
+	ssize_t (*cpu_release)(const char *, size_t);
 #endif
 };
 

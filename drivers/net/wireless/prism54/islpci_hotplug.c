@@ -49,9 +49,7 @@ static const struct pci_device_id prism54_id_tbl[] = {
 
 	/* 3COM 3CRWE154G72 Wireless LAN adapter */
 	{
-	 0x10b7, 0x6001,
-	 PCI_ANY_ID, PCI_ANY_ID,
-	 0, 0, 0
+	 PCI_VDEVICE(3COM, 0x6001), 0
 	},
 
 	/* Intersil PRISM Indigo Wireless LAN adapter */
@@ -183,7 +181,7 @@ prism54_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	isl38xx_disable_interrupts(priv->device_base);
 
 	/* request for the interrupt before uploading the firmware */
-	rvalue = request_irq(pdev->irq, &islpci_interrupt,
+	rvalue = request_irq(pdev->irq, islpci_interrupt,
 			     IRQF_SHARED, ndev->name, priv);
 
 	if (rvalue) {

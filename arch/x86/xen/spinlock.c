@@ -120,14 +120,14 @@ struct xen_spinlock {
 	unsigned short spinners;	/* count of waiting cpus */
 };
 
-static int xen_spin_is_locked(struct raw_spinlock *lock)
+static int xen_spin_is_locked(struct arch_spinlock *lock)
 {
 	struct xen_spinlock *xl = (struct xen_spinlock *)lock;
 
 	return xl->lock != 0;
 }
 
-static int xen_spin_is_contended(struct raw_spinlock *lock)
+static int xen_spin_is_contended(struct arch_spinlock *lock)
 {
 	struct xen_spinlock *xl = (struct xen_spinlock *)lock;
 
@@ -136,7 +136,7 @@ static int xen_spin_is_contended(struct raw_spinlock *lock)
 	return xl->spinners != 0;
 }
 
-static int xen_spin_trylock(struct raw_spinlock *lock)
+static int xen_spin_trylock(struct arch_spinlock *lock)
 {
 	struct xen_spinlock *xl = (struct xen_spinlock *)lock;
 	u8 old = 1;
@@ -181,13 +181,12 @@ static inline void unspinning_lock(struct xen_spinlock *xl, struct xen_spinlock 
 	__get_cpu_var(lock_spinners) = prev;
 }
 
-static noinline int xen_spin_lock_slow(struct raw_spinlock *lock, bool irq_enable)
+static noinline int xen_spin_lock_slow(struct arch_spinlock *lock, bool irq_enable)
 {
 	struct xen_spinlock *xl = (struct xen_spinlock *)lock;
 	struct xen_spinlock *prev;
 	int irq = __get_cpu_var(lock_kicker_irq);
 	int ret;
-	unsigned long flags;
 	u64 start;
 
 	/* If kicker interrupts not initialized yet, just spin */
@@ -199,16 +198,12 @@ static noinline int xen_spin_lock_slow(struct raw_spinlock *lock, bool irq_enabl
 	/* announce we're spinning */
 	prev = spinning_lock(xl);
 
-	flags = __raw_local_save_flags();
-	if (irq_enable) {
-		ADD_STATS(taken_slow_irqenable, 1);
-		raw_local_irq_enable();
-	}
-
 	ADD_STATS(taken_slow, 1);
 	ADD_STATS(taken_slow_nested, prev != NULL);
 
 	do {
+		unsigned long flags;
+
 		/* clear pending */
 		xen_clear_irq_pending(irq);
 
@@ -228,6 +223,12 @@ static noinline int xen_spin_lock_slow(struct raw_spinlock *lock, bool irq_enabl
 			goto out;
 		}
 
+		flags = __raw_local_save_flags();
+		if (irq_enable) {
+			ADD_STATS(taken_slow_irqenable, 1);
+			raw_local_irq_enable();
+		}
+
 		/*
 		 * Block until irq becomes pending.  If we're
 		 * interrupted at this point (after the trylock but
@@ -238,20 +239,22 @@ static noinline int xen_spin_lock_slow(struct raw_spinlock *lock, bool irq_enabl
 		 * pending.
 		 */
 		xen_poll_irq(irq);
+
+		raw_local_irq_restore(flags);
+
 		ADD_STATS(taken_slow_spurious, !xen_test_irq_pending(irq));
 	} while (!xen_test_irq_pending(irq)); /* check for spurious wakeups */
 
 	kstat_incr_irqs_this_cpu(irq, irq_to_desc(irq));
 
 out:
-	raw_local_irq_restore(flags);
 	unspinning_lock(xl, prev);
 	spin_time_accum_blocked(start);
 
 	return ret;
 }
 
-static inline void __xen_spin_lock(struct raw_spinlock *lock, bool irq_enable)
+static inline void __xen_spin_lock(struct arch_spinlock *lock, bool irq_enable)
 {
 	struct xen_spinlock *xl = (struct xen_spinlock *)lock;
 	unsigned timeout;
@@ -288,12 +291,12 @@ static inline void __xen_spin_lock(struct raw_spinlock *lock, bool irq_enable)
 	spin_time_accum_total(start_spin);
 }
 
-static void xen_spin_lock(struct raw_spinlock *lock)
+static void xen_spin_lock(struct arch_spinlock *lock)
 {
 	__xen_spin_lock(lock, false);
 }
 
-static void xen_spin_lock_flags(struct raw_spinlock *lock, unsigned long flags)
+static void xen_spin_lock_flags(struct arch_spinlock *lock, unsigned long flags)
 {
 	__xen_spin_lock(lock, !raw_irqs_disabled_flags(flags));
 }
@@ -314,7 +317,7 @@ static noinline void xen_spin_unlock_slow(struct xen_spinlock *xl)
 	}
 }
 
-static void xen_spin_unlock(struct raw_spinlock *lock)
+static void xen_spin_unlock(struct arch_spinlock *lock)
 {
 	struct xen_spinlock *xl = (struct xen_spinlock *)lock;
 
@@ -323,8 +326,13 @@ static void xen_spin_unlock(struct raw_spinlock *lock)
 	smp_wmb();		/* make sure no writes get moved after unlock */
 	xl->lock = 0;		/* release lock */
 
-	/* make sure unlock happens before kick */
-	barrier();
+	/*
+	 * Make sure unlock happens before checking for waiting
+	 * spinners.  We need a strong barrier to enforce the
+	 * write-read ordering to different memory locations, as the
+	 * CPU makes no implied guarantees about their ordering.
+	 */
+	mb();
 
 	if (unlikely(xl->spinners))
 		xen_spin_unlock_slow(xl);

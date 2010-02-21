@@ -25,6 +25,7 @@
 #include <linux/interrupt.h>
 #include <linux/kernel_stat.h>
 #include <linux/module.h>
+#include <linux/ftrace.h>
 
 #include <asm/cpu.h>
 #include <asm/processor.h>
@@ -75,7 +76,6 @@ unsigned long irq_hwmask[NR_IRQS];
 
 asiduse smtc_live_asid[MAX_SMTC_TLBS][MAX_SMTC_ASIDS];
 
-
 /*
  * Number of InterProcessor Interrupt (IPI) message buffers to allocate
  */
@@ -95,14 +95,14 @@ void init_smtc_stats(void);
 
 /* Global SMTC Status */
 
-unsigned int smtc_status = 0;
+unsigned int smtc_status;
 
 /* Boot command line configuration overrides */
 
 static int vpe0limit;
-static int ipibuffers = 0;
-static int nostlb = 0;
-static int asidmask = 0;
+static int ipibuffers;
+static int nostlb;
+static int asidmask;
 unsigned long smtc_asid_mask = 0xff;
 
 static int __init vpe0tcs(char *str)
@@ -151,7 +151,7 @@ __setup("asidmask=", asidmask_set);
 
 #ifdef CONFIG_SMTC_IDLE_HOOK_DEBUG
 
-static int hang_trig = 0;
+static int hang_trig;
 
 static int __init hangtrig_enable(char *s)
 {
@@ -305,7 +305,7 @@ int __init smtc_build_cpu_map(int start_cpu_slot)
 	 */
 	ntcs = ((read_c0_mvpconf0() & MVPCONF0_PTC) >> MVPCONF0_PTC_SHIFT) + 1;
 	for (i=start_cpu_slot; i<NR_CPUS && i<ntcs; i++) {
-		cpu_set(i, cpu_possible_map);
+		set_cpu_possible(i, true);
 		__cpu_number_map[i] = i;
 		__cpu_logical_map[i] = i;
 	}
@@ -388,6 +388,7 @@ void smtc_prepare_cpus(int cpus)
 		IPIQ[i].head = IPIQ[i].tail = NULL;
 		spin_lock_init(&IPIQ[i].lock);
 		IPIQ[i].depth = 0;
+		IPIQ[i].resched_flag = 0; /* No reschedules queued initially */
 	}
 
 	/* cpu_data index starts at zero */
@@ -525,8 +526,8 @@ void smtc_prepare_cpus(int cpus)
 	 * Pull any physically present but unused TCs out of circulation.
 	 */
 	while (tc < (((val & MVPCONF0_PTC) >> MVPCONF0_PTC_SHIFT) + 1)) {
-		cpu_clear(tc, cpu_possible_map);
-		cpu_clear(tc, cpu_present_map);
+		set_cpu_possible(tc, false);
+		set_cpu_present(tc, false);
 		tc++;
 	}
 
@@ -741,11 +742,24 @@ void smtc_forward_irq(unsigned int irq)
 static void smtc_ipi_qdump(void)
 {
 	int i;
+	struct smtc_ipi *temp;
 
 	for (i = 0; i < NR_CPUS ;i++) {
-		printk("IPIQ[%d]: head = 0x%x, tail = 0x%x, depth = %d\n",
+		pr_info("IPIQ[%d]: head = 0x%x, tail = 0x%x, depth = %d\n",
 			i, (unsigned)IPIQ[i].head, (unsigned)IPIQ[i].tail,
 			IPIQ[i].depth);
+		temp = IPIQ[i].head;
+
+		while (temp != IPIQ[i].tail) {
+			pr_debug("%d %d %d: ", temp->type, temp->dest,
+			       (int)temp->arg);
+#ifdef	SMTC_IPI_DEBUG
+		    pr_debug("%u %lu\n", temp->sender, temp->stamp);
+#else
+		    pr_debug("\n");
+#endif
+		    temp = temp->flink;
+		}
 	}
 }
 
@@ -784,11 +798,16 @@ void smtc_send_ipi(int cpu, int type, unsigned int action)
 	int mtflags;
 	unsigned long tcrestart;
 	extern void r4k_wait_irqoff(void), __pastwait(void);
+	int set_resched_flag = (type == LINUX_SMP_IPI &&
+				action == SMP_RESCHEDULE_YOURSELF);
 
 	if (cpu == smp_processor_id()) {
 		printk("Cannot Send IPI to self!\n");
 		return;
 	}
+	if (set_resched_flag && IPIQ[cpu].resched_flag != 0)
+		return; /* There is a reschedule queued already */
+
 	/* Set up a descriptor, to be delivered either promptly or queued */
 	pipi = smtc_ipi_dq(&freeIPIq);
 	if (pipi == NULL) {
@@ -801,6 +820,7 @@ void smtc_send_ipi(int cpu, int type, unsigned int action)
 	pipi->dest = cpu;
 	if (cpu_data[cpu].vpe_id != cpu_data[smp_processor_id()].vpe_id) {
 		/* If not on same VPE, enqueue and send cross-VPE interrupt */
+		IPIQ[cpu].resched_flag |= set_resched_flag;
 		smtc_ipi_nq(&IPIQ[cpu], pipi);
 		LOCK_CORE_PRA();
 		settc(cpu_data[cpu].tc_id);
@@ -847,6 +867,7 @@ void smtc_send_ipi(int cpu, int type, unsigned int action)
 			 */
 			write_tc_c0_tchalt(0);
 			UNLOCK_CORE_PRA();
+			IPIQ[cpu].resched_flag |= set_resched_flag;
 			smtc_ipi_nq(&IPIQ[cpu], pipi);
 		} else {
 postdirect:
@@ -919,23 +940,29 @@ static void ipi_call_interrupt(void)
 
 DECLARE_PER_CPU(struct clock_event_device, mips_clockevent_device);
 
-void ipi_decode(struct smtc_ipi *pipi)
+static void __irq_entry smtc_clock_tick_interrupt(void)
 {
 	unsigned int cpu = smp_processor_id();
 	struct clock_event_device *cd;
+	int irq = MIPS_CPU_IRQ_BASE + 1;
+
+	irq_enter();
+	kstat_incr_irqs_this_cpu(irq, irq_to_desc(irq));
+	cd = &per_cpu(mips_clockevent_device, cpu);
+	cd->event_handler(cd);
+	irq_exit();
+}
+
+void ipi_decode(struct smtc_ipi *pipi)
+{
 	void *arg_copy = pipi->arg;
 	int type_copy = pipi->type;
-	int irq = MIPS_CPU_IRQ_BASE + 1;
 
 	smtc_ipi_nq(&freeIPIq, pipi);
 
 	switch (type_copy) {
 	case SMTC_CLOCK_TICK:
-		irq_enter();
-		kstat_incr_irqs_this_cpu(irq, irq_to_desc(irq));
-		cd = &per_cpu(mips_clockevent_device, cpu);
-		cd->event_handler(cd);
-		irq_exit();
+		smtc_clock_tick_interrupt();
 		break;
 
 	case LINUX_SMP_IPI:
@@ -996,12 +1023,15 @@ void deferred_smtc_ipi(void)
 		 * already enabled.
 		 */
 		local_irq_save(flags);
-
 		spin_lock(&q->lock);
 		pipi = __smtc_ipi_dq(q);
 		spin_unlock(&q->lock);
-		if (pipi != NULL)
+		if (pipi != NULL) {
+			if (pipi->type == LINUX_SMP_IPI &&
+			    (int)pipi->arg == SMP_RESCHEDULE_YOURSELF)
+				IPIQ[cpu].resched_flag = 0;
 			ipi_decode(pipi);
+		}
 		/*
 		 * The use of the __raw_local restore isn't
 		 * as obviously necessary here as in smtc_ipi_replay(),
@@ -1082,6 +1112,9 @@ static irqreturn_t ipi_interrupt(int irq, void *dev_idm)
 				 * with interrupts off
 				 */
 				local_irq_save(flags);
+				if (pipi->type == LINUX_SMP_IPI &&
+				    (int)pipi->arg == SMP_RESCHEDULE_YOURSELF)
+					IPIQ[cpu].resched_flag = 0;
 				ipi_decode(pipi);
 				local_irq_restore(flags);
 			}
@@ -1098,9 +1131,8 @@ static void ipi_irq_dispatch(void)
 
 static struct irqaction irq_ipi = {
 	.handler	= ipi_interrupt,
-	.flags		= IRQF_DISABLED,
-	.name		= "SMTC_IPI",
-	.flags		= IRQF_PERCPU
+	.flags		= IRQF_DISABLED | IRQF_PERCPU,
+	.name		= "SMTC_IPI"
 };
 
 static void setup_cross_vpe_interrupts(unsigned int nvpe)
@@ -1306,7 +1338,7 @@ void smtc_get_new_mmu_context(struct mm_struct *mm, unsigned long cpu)
 		if (!((asid += ASID_INC) & ASID_MASK) ) {
 			if (cpu_has_vtag_icache)
 				flush_icache_all();
-			/* Traverse all online CPUs (hack requires contigous range) */
+			/* Traverse all online CPUs (hack requires contiguous range) */
 			for_each_online_cpu(i) {
 				/*
 				 * We don't need to worry about our own CPU, nor those of

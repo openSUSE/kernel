@@ -32,6 +32,7 @@
 
 #include "ttm/ttm_bo_api.h"
 #include "ttm/ttm_memory.h"
+#include "ttm/ttm_module.h"
 #include "drm_mm.h"
 #include "linux/workqueue.h"
 #include "linux/fs.h"
@@ -161,7 +162,7 @@ struct ttm_tt {
 	long last_lomem_page;
 	uint32_t page_flags;
 	unsigned long num_pages;
-	struct ttm_bo_device *bdev;
+	struct ttm_bo_global *glob;
 	struct ttm_backend *be;
 	struct task_struct *tsk;
 	unsigned long start;
@@ -241,12 +242,6 @@ struct ttm_mem_type_manager {
 /**
  * struct ttm_bo_driver
  *
- * @mem_type_prio: Priority array of memory types to place a buffer object in
- * if it fits without evicting buffers from any of these memory types.
- * @mem_busy_prio: Priority array of memory types to place a buffer object in
- * if it needs to evict buffers to make room.
- * @num_mem_type_prio: Number of elements in the @mem_type_prio array.
- * @num_mem_busy_prio: Number of elements in the @num_mem_busy_prio array.
  * @create_ttm_backend_entry: Callback to create a struct ttm_backend.
  * @invalidate_caches: Callback to invalidate read caches when a buffer object
  * has been evicted.
@@ -264,11 +259,6 @@ struct ttm_mem_type_manager {
  */
 
 struct ttm_bo_driver {
-	const uint32_t *mem_type_prio;
-	const uint32_t *mem_busy_prio;
-	uint32_t num_mem_type_prio;
-	uint32_t num_mem_busy_prio;
-
 	/**
 	 * struct ttm_bo_driver member create_ttm_backend_entry
 	 *
@@ -305,7 +295,8 @@ struct ttm_bo_driver {
 	 * finished, they'll end up in bo->mem.flags
 	 */
 
-	 uint32_t(*evict_flags) (struct ttm_buffer_object *bo);
+	 void(*evict_flags) (struct ttm_buffer_object *bo,
+				struct ttm_placement *placement);
 	/**
 	 * struct ttm_bo_driver member move:
 	 *
@@ -362,7 +353,70 @@ struct ttm_bo_driver {
 	/* notify the driver we are taking a fault on this BO
 	 * and have reserved it */
 	void (*fault_reserve_notify)(struct ttm_buffer_object *bo);
+
+	/**
+	 * notify the driver that we're about to swap out this bo
+	 */
+	void (*swap_notify) (struct ttm_buffer_object *bo);
 };
+
+/**
+ * struct ttm_bo_global_ref - Argument to initialize a struct ttm_bo_global.
+ */
+
+struct ttm_bo_global_ref {
+	struct ttm_global_reference ref;
+	struct ttm_mem_global *mem_glob;
+};
+
+/**
+ * struct ttm_bo_global - Buffer object driver global data.
+ *
+ * @mem_glob: Pointer to a struct ttm_mem_global object for accounting.
+ * @dummy_read_page: Pointer to a dummy page used for mapping requests
+ * of unpopulated pages.
+ * @shrink: A shrink callback object used for buffer object swap.
+ * @ttm_bo_extra_size: Extra size (sizeof(struct ttm_buffer_object) excluded)
+ * used by a buffer object. This is excluding page arrays and backing pages.
+ * @ttm_bo_size: This is @ttm_bo_extra_size + sizeof(struct ttm_buffer_object).
+ * @device_list_mutex: Mutex protecting the device list.
+ * This mutex is held while traversing the device list for pm options.
+ * @lru_lock: Spinlock protecting the bo subsystem lru lists.
+ * @device_list: List of buffer object devices.
+ * @swap_lru: Lru list of buffer objects used for swapping.
+ */
+
+struct ttm_bo_global {
+
+	/**
+	 * Constant after init.
+	 */
+
+	struct kobject kobj;
+	struct ttm_mem_global *mem_glob;
+	struct page *dummy_read_page;
+	struct ttm_mem_shrink shrink;
+	size_t ttm_bo_extra_size;
+	size_t ttm_bo_size;
+	struct mutex device_list_mutex;
+	spinlock_t lru_lock;
+
+	/**
+	 * Protected by device_list_mutex.
+	 */
+	struct list_head device_list;
+
+	/**
+	 * Protected by the lru_lock.
+	 */
+	struct list_head swap_lru;
+
+	/**
+	 * Internal protection.
+	 */
+	atomic_t bo_count;
+};
+
 
 #define TTM_NUM_MEM_TYPES 8
 
@@ -372,16 +426,7 @@ struct ttm_bo_driver {
 /**
  * struct ttm_bo_device - Buffer object driver device-specific data.
  *
- * @mem_glob: Pointer to a struct ttm_mem_global object for accounting.
  * @driver: Pointer to a struct ttm_bo_driver struct setup by the driver.
- * @count: Current number of buffer object.
- * @pages: Current number of pinned pages.
- * @dummy_read_page: Pointer to a dummy page used for mapping requests
- * of unpopulated pages.
- * @shrink: A shrink callback object used for buffre object swap.
- * @ttm_bo_extra_size: Extra size (sizeof(struct ttm_buffer_object) excluded)
- * used by a buffer object. This is excluding page arrays and backing pages.
- * @ttm_bo_size: This is @ttm_bo_extra_size + sizeof(struct ttm_buffer_object).
  * @man: An array of mem_type_managers.
  * @addr_space_mm: Range manager for the device address space.
  * lru_lock: Spinlock that protects the buffer+device lru lists and
@@ -399,32 +444,21 @@ struct ttm_bo_device {
 	/*
 	 * Constant after bo device init / atomic.
 	 */
-
-	struct ttm_mem_global *mem_glob;
+	struct list_head device_list;
+	struct ttm_bo_global *glob;
 	struct ttm_bo_driver *driver;
-	struct page *dummy_read_page;
-	struct ttm_mem_shrink shrink;
-
-	size_t ttm_bo_extra_size;
-	size_t ttm_bo_size;
-
 	rwlock_t vm_lock;
+	struct ttm_mem_type_manager man[TTM_NUM_MEM_TYPES];
 	/*
 	 * Protected by the vm lock.
 	 */
-	struct ttm_mem_type_manager man[TTM_NUM_MEM_TYPES];
 	struct rb_root addr_space_rb;
 	struct drm_mm addr_space_mm;
 
 	/*
-	 * Might want to change this to one lock per manager.
-	 */
-	spinlock_t lru_lock;
-	/*
-	 * Protected by the lru lock.
+	 * Protected by the global:lru lock.
 	 */
 	struct list_head ddestroy;
-	struct list_head swap_lru;
 
 	/*
 	 * Protected by load / firstopen / lastclose /unload sync.
@@ -504,6 +538,15 @@ extern int ttm_tt_set_user(struct ttm_tt *ttm,
  * Bind the pages of @ttm to an aperture location identified by @bo_mem
  */
 extern int ttm_tt_bind(struct ttm_tt *ttm, struct ttm_mem_reg *bo_mem);
+
+/**
+ * ttm_tt_populate:
+ *
+ * @ttm: The struct ttm_tt to contain the backing pages.
+ *
+ * Add backing pages to all of @ttm
+ */
+extern int ttm_tt_populate(struct ttm_tt *ttm);
 
 /**
  * ttm_ttm_destroy:
@@ -600,12 +643,12 @@ extern bool ttm_mem_reg_is_pci(struct ttm_bo_device *bdev,
  * -EBUSY: No space available (only if no_wait == 1).
  * -ENOMEM: Could not allocate memory for the buffer object, either due to
  * fragmentation or concurrent allocators.
- * -ERESTART: An interruptible sleep was interrupted by a signal.
+ * -ERESTARTSYS: An interruptible sleep was interrupted by a signal.
  */
 extern int ttm_bo_mem_space(struct ttm_buffer_object *bo,
-			    uint32_t proposed_placement,
-			    struct ttm_mem_reg *mem,
-			    bool interruptible, bool no_wait);
+				struct ttm_placement *placement,
+				struct ttm_mem_reg *mem,
+				bool interruptible, bool no_wait);
 /**
  * ttm_bo_wait_for_cpu
  *
@@ -615,7 +658,7 @@ extern int ttm_bo_mem_space(struct ttm_buffer_object *bo,
  * Wait until a buffer object is no longer sync'ed for CPU access.
  * Returns:
  * -EBUSY: Buffer object was sync'ed for CPU access. (only if no_wait == 1).
- * -ERESTART: An interruptible sleep was interrupted by a signal.
+ * -ERESTARTSYS: An interruptible sleep was interrupted by a signal.
  */
 
 extern int ttm_bo_wait_cpu(struct ttm_buffer_object *bo, bool no_wait);
@@ -640,6 +683,9 @@ extern int ttm_bo_pci_offset(struct ttm_bo_device *bdev,
 			     unsigned long *bus_offset,
 			     unsigned long *bus_size);
 
+extern void ttm_bo_global_release(struct ttm_global_reference *ref);
+extern int ttm_bo_global_init(struct ttm_global_reference *ref);
+
 extern int ttm_bo_device_release(struct ttm_bo_device *bdev);
 
 /**
@@ -657,7 +703,7 @@ extern int ttm_bo_device_release(struct ttm_bo_device *bdev);
  * !0: Failure.
  */
 extern int ttm_bo_device_init(struct ttm_bo_device *bdev,
-			      struct ttm_mem_global *mem_glob,
+			      struct ttm_bo_global *glob,
 			      struct ttm_bo_driver *driver,
 			      uint64_t file_page_offset, bool need_dma32);
 
@@ -716,7 +762,7 @@ extern void ttm_bo_unmap_virtual(struct ttm_buffer_object *bo);
  * -EAGAIN: The reservation may cause a deadlock.
  * Release all buffer reservations, wait for @bo to become unreserved and
  * try again. (only if use_sequence == 1).
- * -ERESTART: A wait for the buffer to become unreserved was interrupted by
+ * -ERESTARTSYS: A wait for the buffer to become unreserved was interrupted by
  * a signal. Release all buffer reservations and return to user-space.
  */
 extern int ttm_bo_reserve(struct ttm_buffer_object *bo,
@@ -757,7 +803,7 @@ extern int ttm_bo_wait_unreserved(struct ttm_buffer_object *bo,
  *
  * Returns:
  * -EBUSY: If no_wait == 1 and the buffer is already reserved.
- * -ERESTART: If interruptible == 1 and the process received a signal
+ * -ERESTARTSYS: If interruptible == 1 and the process received a signal
  * while sleeping.
  */
 extern int ttm_bo_block_reservation(struct ttm_buffer_object *bo,

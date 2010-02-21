@@ -25,7 +25,7 @@
 #include <linux/fb.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
-/* Why should fb driver call console functions? because acquire_console_sem() */
+/* Why should fb driver call console functions? because acquire_console_mutex() */
 #include <linux/console.h>
 #include <linux/mfd/core.h>
 #include <linux/mfd/tmio.h>
@@ -944,7 +944,7 @@ static int tmiofb_suspend(struct platform_device *dev, pm_message_t state)
 	struct mfd_cell *cell = dev->dev.platform_data;
 	int retval = 0;
 
-	acquire_console_sem();
+	acquire_console_mutex();
 
 	fb_set_suspend(info, 1);
 
@@ -965,7 +965,7 @@ static int tmiofb_suspend(struct platform_device *dev, pm_message_t state)
 	if (cell->suspend)
 		retval = cell->suspend(dev);
 
-	release_console_sem();
+	release_console_mutex();
 
 	return retval;
 }
@@ -974,9 +974,9 @@ static int tmiofb_resume(struct platform_device *dev)
 {
 	struct fb_info *info = platform_get_drvdata(dev);
 	struct mfd_cell *cell = dev->dev.platform_data;
-	int retval;
+	int retval = 0;
 
-	acquire_console_sem();
+	acquire_console_mutex();
 
 	if (cell->resume) {
 		retval = cell->resume(dev);
@@ -992,7 +992,7 @@ static int tmiofb_resume(struct platform_device *dev)
 
 	fb_set_suspend(info, 0);
 out:
-	release_console_sem();
+	release_console_mutex();
 	return retval;
 }
 #else

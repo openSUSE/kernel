@@ -433,7 +433,7 @@ static void netdev_timer(unsigned long data);
 static void reset_timer(unsigned long data);
 static void fealnx_tx_timeout(struct net_device *dev);
 static void init_ring(struct net_device *dev);
-static int start_tx(struct sk_buff *skb, struct net_device *dev);
+static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev);
 static irqreturn_t intr_handler(int irq, void *dev_instance);
 static int netdev_rx(struct net_device *dev);
 static void set_rx_mode(struct net_device *dev);
@@ -839,7 +839,7 @@ static int netdev_open(struct net_device *dev)
 
 	iowrite32(0x00000001, ioaddr + BCR);	/* Reset */
 
-	if (request_irq(dev->irq, &intr_handler, IRQF_SHARED, dev->name, dev))
+	if (request_irq(dev->irq, intr_handler, IRQF_SHARED, dev->name, dev))
 		return -EAGAIN;
 
 	for (i = 0; i < 3; i++)
@@ -1305,7 +1305,7 @@ static void init_ring(struct net_device *dev)
 }
 
 
-static int start_tx(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev)
 {
 	struct netdev_private *np = netdev_priv(dev);
 	unsigned long flags;
@@ -1378,7 +1378,7 @@ static int start_tx(struct sk_buff *skb, struct net_device *dev)
 	dev->trans_start = jiffies;
 
 	spin_unlock_irqrestore(&np->lock, flags);
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 
@@ -1629,8 +1629,8 @@ static int netdev_rx(struct net_device *dev)
 		if (debug)
 			printk(KERN_DEBUG "  netdev_rx() status was %8.8x.\n", rx_status);
 
-		if ((!((rx_status & RXFSD) && (rx_status & RXLSD)))
-		    || (rx_status & ErrorSummary)) {
+		if ((!((rx_status & RXFSD) && (rx_status & RXLSD))) ||
+		    (rx_status & ErrorSummary)) {
 			if (rx_status & ErrorSummary) {	/* there was a fatal error */
 				if (debug)
 					printk(KERN_DEBUG
@@ -1655,8 +1655,8 @@ static int netdev_rx(struct net_device *dev)
 					cur = np->cur_rx;
 					while (desno <= np->really_rx_count) {
 						++desno;
-						if ((!(cur->status & RXOWN))
-						    && (cur->status & RXLSD))
+						if ((!(cur->status & RXOWN)) &&
+						    (cur->status & RXLSD))
 							break;
 						/* goto next rx descriptor */
 						cur = cur->next_desc_logical;
@@ -1786,8 +1786,8 @@ static void __set_rx_mode(struct net_device *dev)
 	if (dev->flags & IFF_PROMISC) {	/* Set promiscuous. */
 		memset(mc_filter, 0xff, sizeof(mc_filter));
 		rx_mode = CR_W_PROM | CR_W_AB | CR_W_AM;
-	} else if ((dev->mc_count > multicast_filter_limit)
-		   || (dev->flags & IFF_ALLMULTI)) {
+	} else if ((dev->mc_count > multicast_filter_limit) ||
+		   (dev->flags & IFF_ALLMULTI)) {
 		/* Too many to match, or accept all multicasts. */
 		memset(mc_filter, 0xff, sizeof(mc_filter));
 		rx_mode = CR_W_AB | CR_W_AM;

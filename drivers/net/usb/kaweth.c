@@ -263,6 +263,7 @@ static int kaweth_control(struct kaweth_device *kaweth,
 			  int timeout)
 {
 	struct usb_ctrlrequest *dr;
+	int retval;
 
 	dbg("kaweth_control()");
 
@@ -278,18 +279,21 @@ static int kaweth_control(struct kaweth_device *kaweth,
 		return -ENOMEM;
 	}
 
-	dr->bRequestType= requesttype;
+	dr->bRequestType = requesttype;
 	dr->bRequest = request;
 	dr->wValue = cpu_to_le16(value);
 	dr->wIndex = cpu_to_le16(index);
 	dr->wLength = cpu_to_le16(size);
 
-	return kaweth_internal_control_msg(kaweth->dev,
-					pipe,
-					dr,
-					data,
-					size,
-					timeout);
+	retval = kaweth_internal_control_msg(kaweth->dev,
+					     pipe,
+					     dr,
+					     data,
+					     size,
+					     timeout);
+
+	kfree(dr);
+	return retval;
 }
 
 /****************************************************************
@@ -467,16 +471,7 @@ static int kaweth_reset(struct kaweth_device *kaweth)
 	int result;
 
 	dbg("kaweth_reset(%p)", kaweth);
-	result = kaweth_control(kaweth,
-				usb_sndctrlpipe(kaweth->dev, 0),
-				USB_REQ_SET_CONFIGURATION,
-				0,
-				kaweth->dev->config[0].desc.bConfigurationValue,
-				0,
-				NULL,
-				0,
-				KAWETH_CONTROL_TIMEOUT);
-
+	result = usb_reset_configuration(kaweth->dev);
 	mdelay(10);
 
 	dbg("kaweth_reset() returns %d.",result);
@@ -721,7 +716,7 @@ static int kaweth_open(struct net_device *net)
 	return 0;
 
 err_out:
-	usb_autopm_enable(kaweth->intf);
+	usb_autopm_put_interface(kaweth->intf);
 	return -EIO;
 }
 
@@ -758,7 +753,7 @@ static int kaweth_close(struct net_device *net)
 
 	kaweth->status &= ~KAWETH_STATUS_CLOSING;
 
-	usb_autopm_enable(kaweth->intf);
+	usb_autopm_put_interface(kaweth->intf);
 
 	return 0;
 }
@@ -778,7 +773,7 @@ static u32 kaweth_get_link(struct net_device *dev)
 	return kaweth->linkstate;
 }
 
-static struct ethtool_ops ops = {
+static const struct ethtool_ops ops = {
 	.get_drvinfo	= kaweth_get_drvinfo,
 	.get_link	= kaweth_get_link
 };
@@ -803,7 +798,8 @@ static void kaweth_usb_transmit_complete(struct urb *urb)
 /****************************************************************
  *     kaweth_start_xmit
  ****************************************************************/
-static int kaweth_start_xmit(struct sk_buff *skb, struct net_device *net)
+static netdev_tx_t kaweth_start_xmit(struct sk_buff *skb,
+					   struct net_device *net)
 {
 	struct kaweth_device *kaweth = netdev_priv(net);
 	__le16 *private_header;
@@ -829,7 +825,7 @@ static int kaweth_start_xmit(struct sk_buff *skb, struct net_device *net)
 			kaweth->stats.tx_errors++;
 			netif_start_queue(net);
 			spin_unlock_irq(&kaweth->device_lock);
-			return 0;
+			return NETDEV_TX_OK;
 		}
 	}
 
@@ -864,7 +860,7 @@ skip:
 
 	spin_unlock_irq(&kaweth->device_lock);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /****************************************************************

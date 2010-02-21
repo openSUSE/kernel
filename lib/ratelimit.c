@@ -7,14 +7,11 @@
  * parameter. Now every user can use their own standalone ratelimit_state.
  *
  * This file is released under the GPLv2.
- *
  */
 
-#include <linux/kernel.h>
+#include <linux/ratelimit.h>
 #include <linux/jiffies.h>
 #include <linux/module.h>
-
-static DEFINE_ATOMIC_SPINLOCK(ratelimit_lock);
 
 /*
  * __ratelimit - rate limiting
@@ -23,35 +20,43 @@ static DEFINE_ATOMIC_SPINLOCK(ratelimit_lock);
  * This enforces a rate limit: not more than @rs->ratelimit_burst callbacks
  * in every @rs->ratelimit_jiffies
  */
-int __ratelimit(struct ratelimit_state *rs)
+int ___ratelimit(struct ratelimit_state *rs, const char *func)
 {
 	unsigned long flags;
+	int ret;
 
 	if (!rs->interval)
 		return 1;
 
-	atomic_spin_lock_irqsave(&ratelimit_lock, flags);
+	/*
+	 * If we contend on this state's lock then almost
+	 * by definition we are too busy to print a message,
+	 * in addition to the one that will be printed by
+	 * the entity that is holding the lock already:
+	 */
+	if (!raw_spin_trylock_irqsave(&rs->lock, flags))
+		return 1;
+
 	if (!rs->begin)
 		rs->begin = jiffies;
 
 	if (time_is_before_jiffies(rs->begin + rs->interval)) {
 		if (rs->missed)
 			printk(KERN_WARNING "%s: %d callbacks suppressed\n",
-				__func__, rs->missed);
-		rs->begin = 0;
+				func, rs->missed);
+		rs->begin   = 0;
 		rs->printed = 0;
-		rs->missed = 0;
+		rs->missed  = 0;
 	}
-	if (rs->burst && rs->burst > rs->printed)
-		goto print;
+	if (rs->burst && rs->burst > rs->printed) {
+		rs->printed++;
+		ret = 1;
+	} else {
+		rs->missed++;
+		ret = 0;
+	}
+	raw_spin_unlock_irqrestore(&rs->lock, flags);
 
-	rs->missed++;
-	atomic_spin_unlock_irqrestore(&ratelimit_lock, flags);
-	return 0;
-
-print:
-	rs->printed++;
-	atomic_spin_unlock_irqrestore(&ratelimit_lock, flags);
-	return 1;
+	return ret;
 }
-EXPORT_SYMBOL(__ratelimit);
+EXPORT_SYMBOL(___ratelimit);

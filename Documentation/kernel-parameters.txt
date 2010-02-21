@@ -57,6 +57,7 @@ parameter is applicable:
 	ISAPNP	ISA PnP code is enabled.
 	ISDN	Appropriate ISDN support is enabled.
 	JOY	Appropriate joystick support is enabled.
+	KVM	Kernel Virtual Machine support is enabled.
 	LIBATA  Libata driver is enabled
 	LP	Printer support is enabled.
 	LOOP	Loopback device support is enabled.
@@ -84,7 +85,6 @@ parameter is applicable:
 	PPT	Parallel port support is enabled.
 	PS2	Appropriate PS/2 support is enabled.
 	RAM	RAM disk support is enabled.
-	ROOTPLUG The example Root Plug LSM is enabled.
 	S390	S390 architecture is enabled.
 	SCSI	Appropriate SCSI support is enabled.
 			A lot of drivers has their options described inside of
@@ -199,6 +199,10 @@ and is between 256 and 4096 characters. It is defined in the file
 			acpi_display_output=video
 			See above.
 
+	acpi_early_pdc_eval	[HW,ACPI] Evaluate processor _PDC methods
+				early. Needed on some platforms to properly
+				initialize the EC.
+
 	acpi_irq_balance [HW,ACPI]
 			ACPI will balance active IRQs
 			default in APIC mode
@@ -240,7 +244,7 @@ and is between 256 and 4096 characters. It is defined in the file
 
 	acpi_sleep=	[HW,ACPI] Sleep options
 			Format: { s3_bios, s3_mode, s3_beep, s4_nohwsig,
-				  old_ordering, s4_nonvs }
+				  old_ordering, s4_nonvs, sci_force_enable }
 			See Documentation/power/video.txt for information on
 			s3_bios and s3_mode.
 			s3_beep is for debugging; it makes the PC's speaker beep
@@ -253,6 +257,9 @@ and is between 256 and 4096 characters. It is defined in the file
 			of _PTS is used by default).
 			s4_nonvs prevents the kernel from saving/restoring the
 			ACPI NVS memory during hibernation.
+			sci_force_enable causes the kernel to set SCI_EN directly
+			on resume from S1/S3 (which is against the ACPI spec,
+			but some broken systems don't work without it).
 
 	acpi_use_timer_override [HW,ACPI]
 			Use timer override. For some broken Nvidia NF5 boards
@@ -343,6 +350,15 @@ and is between 256 and 4096 characters. It is defined in the file
 			Format: { quiet (default) | verbose | debug }
 			Change the amount of debugging information output
 			when initialising the APIC and IO-APIC components.
+
+	show_lapic=	[APIC,X86] Advanced Programmable Interrupt Controller
+			Limit apic dumping. The parameter defines the maximal
+			number of local apics being dumped. Also it is possible
+			to set it to "all" by meaning -- no limit here.
+			Format: { 1 (default) | 2 | ... | all }.
+			The parameter valid if only apic=debug or
+			apic=verbose is specified.
+			Example: apic=debug show_lapic=all
 
 	apm=		[APM] Advanced Power Management
 			See header of arch/x86/kernel/apm_32.c.
@@ -670,7 +686,8 @@ and is between 256 and 4096 characters. It is defined in the file
 	earlyprintk=	[X86,SH,BLACKFIN]
 			earlyprintk=vga
 			earlyprintk=serial[,ttySn[,baudrate]]
-			earlyprintk=dbgp
+			earlyprintk=ttySn[,baudrate]
+			earlyprintk=dbgp[debugController#]
 
 			Append ",keep" to not disable it when the real console
 			takes over.
@@ -776,6 +793,13 @@ and is between 256 and 4096 characters. It is defined in the file
 			function-list. This list can be changed at run time
 			by the set_ftrace_notrace file in the debugfs
 			tracing directory.
+
+	ftrace_graph_filter=[function-list]
+			[FTRACE] Limit the top level callers functions traced
+			by the function graph tracer at boot up.
+			function-list is a comma separated list of functions
+			that can be changed at run time by the
+			set_graph_function file in the debugfs tracing directory.
 
 	gamecon.map[2|3]=
 			[HW,JOY] Multisystem joystick and NES/SNES/PSX pad
@@ -932,7 +956,7 @@ and is between 256 and 4096 characters. It is defined in the file
 			1 -- enable informational integrity auditing messages.
 
 	ima_hash=	[IMA]
-			Formt: { "sha1" | "md5" }
+			Format: { "sha1" | "md5" }
 			default: "sha1"
 
 	ima_tcb		[IMA]
@@ -1015,7 +1039,7 @@ and is between 256 and 4096 characters. It is defined in the file
 			No delay
 
 	ip=		[IP_PNP]
-			See Documentation/filesystems/nfsroot.txt.
+			See Documentation/filesystems/nfs/nfsroot.txt.
 
 	ip2=		[HW] Set IO/IRQ pairs for up to 4 IntelliPort boards
 			See comment before ip2_setup() in
@@ -1097,6 +1121,44 @@ and is between 256 and 4096 characters. It is defined in the file
 
 	kstack=N	[X86] Print N words from the kernel stack
 			in oops dumps.
+
+	kvm.ignore_msrs=[KVM] Ignore guest accesses to unhandled MSRs.
+			Default is 0 (don't ignore, but inject #GP)
+
+	kvm.oos_shadow=	[KVM] Disable out-of-sync shadow paging.
+			Default is 1 (enabled)
+
+	kvm-amd.nested=	[KVM,AMD] Allow nested virtualization in KVM/SVM.
+			Default is 0 (off)
+
+	kvm-amd.npt=	[KVM,AMD] Disable nested paging (virtualized MMU)
+			for all guests.
+			Default is 1 (enabled) if in 64bit or 32bit-PAE mode
+
+	kvm-intel.bypass_guest_pf=
+			[KVM,Intel] Disables bypassing of guest page faults
+			on Intel chips. Default is 1 (enabled)
+
+	kvm-intel.ept=	[KVM,Intel] Disable extended page tables
+			(virtualized MMU) support on capable Intel chips.
+			Default is 1 (enabled)
+
+	kvm-intel.emulate_invalid_guest_state=
+			[KVM,Intel] Enable emulation of invalid guest states
+			Default is 0 (disabled)
+
+	kvm-intel.flexpriority=
+			[KVM,Intel] Disable FlexPriority feature (TPR shadow).
+			Default is 1 (enabled)
+
+	kvm-intel.unrestricted_guest=
+			[KVM,Intel] Disable unrestricted guest feature
+			(virtualized real and unpaged mode) on capable
+			Intel chips. Default is 1 (enabled)
+
+	kvm-intel.vpid=	[KVM,Intel] Disable Virtual Processor Identification
+			feature (tagged TLBs) on capable Intel chips.
+			Default is 1 (enabled)
 
 	l2cr=		[PPC]
 
@@ -1246,6 +1308,10 @@ and is between 256 and 4096 characters. It is defined in the file
 	machvec=	[IA64] Force the use of a particular machine-vector
 			(machvec) in a generic kernel.
 			Example: machvec=hpzx1_swiotlb
+
+	machtype=	[Loongson] Share the same kernel image file between different
+			 yeeloong laptop.
+			Example: machtype=lemote-yeeloong-2f-7inch
 
 	max_addr=nn[KMG]	[KNL,BOOT,ia64] All physical memory greater
 			than or equal to this physical address is ignored.
@@ -1494,14 +1560,22 @@ and is between 256 and 4096 characters. It is defined in the file
 			going to be removed in 2.6.29.
 
 	nfsaddrs=	[NFS]
-			See Documentation/filesystems/nfsroot.txt.
+			See Documentation/filesystems/nfs/nfsroot.txt.
 
 	nfsroot=	[NFS] nfs root filesystem for disk-less boxes.
-			See Documentation/filesystems/nfsroot.txt.
+			See Documentation/filesystems/nfs/nfsroot.txt.
 
 	nfs.callback_tcpport=
 			[NFS] set the TCP port on which the NFSv4 callback
 			channel should listen.
+
+	nfs.cache_getent=
+			[NFS] sets the pathname to the program which is used
+			to update the NFS client cache entries.
+
+	nfs.cache_getent_timeout=
+			[NFS] sets the timeout after which an attempt to
+			update a cache entry is deemed to have failed.
 
 	nfs.idmap_cache_timeout=
 			[NFS] set the maximum lifetime for idmapper cache
@@ -1514,7 +1588,7 @@ and is between 256 and 4096 characters. It is defined in the file
 			of returning the full 64-bit number.
 			The default is to return 64-bit inode numbers.
 
-	nmi_debug=	[KNL,AVR32] Specify one or more actions to take
+	nmi_debug=	[KNL,AVR32,SH] Specify one or more actions to take
 			when a NMI is triggered.
 			Format: [state][,regs][,debounce][,die]
 
@@ -1534,6 +1608,11 @@ and is between 256 and 4096 characters. It is defined in the file
 			Instead of 1 and 2 it is possible to use the following
 			symbolic names: lapic and ioapic
 			Example: nmi_watchdog=2 or nmi_watchdog=panic,lapic
+
+	netpoll.carrier_timeout=
+			[NET] Specifies amount of time (in seconds) that
+			netpoll should wait for a carrier. By default netpoll
+			waits 4 seconds.
 
 	no387		[BUGS=X86-32] Tells the kernel to use the 387 maths
 			emulation library even if a 387 maths coprocessor
@@ -1714,6 +1793,11 @@ and is between 256 and 4096 characters. It is defined in the file
 			of the timeout.  We have interrupts disabled while
 			waiting for the ACK, so if this is set too high
 			interrupts *may* be lost!
+
+	omap_mux=	[OMAP] Override bootloader pin multiplexing.
+			Format: <mux_mode0.mode_name=value>...
+			For example, to override I2C bus2:
+			omap_mux=i2c2_scl.i2c2_scl=0x100,i2c2_sda.i2c2_sda=0x100
 
 	opl3=		[HW,OSS]
 			Format: <io>
@@ -1919,11 +2003,12 @@ and is between 256 and 4096 characters. It is defined in the file
 			Format: { 0 | 1 }
 			See arch/parisc/kernel/pdc_chassis.c
 
-	percpu_alloc=	[X86] Select which percpu first chunk allocator to use.
-			Allowed values are one of "lpage", "embed" and "4k".
-			See comments in arch/x86/kernel/setup_percpu.c for
-			details on each allocator.  This parameter is primarily
-			for debugging and performance comparison.
+	percpu_alloc=	Select which percpu first chunk allocator to use.
+			Currently supported values are "embed" and "page".
+			Archs may support subset or none of the	selections.
+			See comments in mm/percpu.c for details on each
+			allocator.  This parameter is primarily	for debugging
+			and performance comparison.
 
 	pf.		[PARIDE]
 			See Documentation/blockdev/paride.txt.
@@ -1974,8 +2059,15 @@ and is between 256 and 4096 characters. It is defined in the file
 
 	print-fatal-signals=
 			[KNL] debug: print fatal signals
-			print-fatal-signals=1: print segfault info to
-			the kernel console.
+
+			If enabled, warn about various signal handling
+			related application anomalies: too many signals,
+			too many POSIX.1 timers, fatal signals causing a
+			coredump - etc.
+
+			If you hit the warning due to signal overflow,
+			you might want to try "ulimit -i unlimited".
+
 			default: off.
 
 	printk.time=	Show timing data prefixed to each printk message line
@@ -2106,15 +2198,6 @@ and is between 256 and 4096 characters. It is defined in the file
 			Useful for devices that are detected asynchronously
 			(e.g. USB and MMC devices).
 
-	root_plug.vendor_id=
-			[ROOTPLUG] Override the default vendor ID
-
-	root_plug.product_id=
-			[ROOTPLUG] Override the default product ID
-
-	root_plug.debug=
-			[ROOTPLUG] Enable debugging output
-
 	rw		[KNL] Mount root device read-write on boot
 
 	S		[KNL] Run init in single mode
@@ -2123,6 +2206,8 @@ and is between 256 and 4096 characters. It is defined in the file
 			See drivers/net/irda/sa1100_ir.c.
 
 	sbni=		[NET] Granch SBNI12 leased line adapter
+
+	sched_debug	[KNL] Enables verbose scheduler debug messages.
 
 	sc1200wdt=	[HW,WDT] SC1200 WDT (watchdog) driver
 			Format: <io>[,<timeout>[,<isapnp>]]
@@ -2395,6 +2480,18 @@ and is between 256 and 4096 characters. It is defined in the file
 	stifb=		[HW]
 			Format: bpp:<bpp1>[:<bpp2>[:<bpp3>...]]
 
+	sunrpc.min_resvport=
+	sunrpc.max_resvport=
+			[NFS,SUNRPC]
+			SunRPC servers often require that client requests
+			originate from a privileged port (i.e. a port in the
+			range 0 < portnr < 1024).
+			An administrator who wishes to reserve some of these
+			ports for other uses may adjust the range that the
+			kernel's sunrpc client considers to be privileged
+			using these two parameters to set the minimum and
+			maximum port values.
+
 	sunrpc.pool_mode=
 			[NFS]
 			Control how the NFS server code allocates CPUs to
@@ -2410,6 +2507,15 @@ and is between 256 and 4096 characters. It is defined in the file
 			percpu	    one pool for each CPU
 			pernode	    one pool for each NUMA node (equivalent
 				    to global on non-NUMA machines)
+
+	sunrpc.tcp_slot_table_entries=
+	sunrpc.udp_slot_table_entries=
+			[NFS,SUNRPC]
+			Sets the upper limit on the number of simultaneous
+			RPC calls that can be sent from the client to a
+			server. Increasing these values may allow you to
+			improve throughput, but will also increase the
+			amount of memory reserved for use by the client.
 
 	swiotlb=	[IA-64] Number of I/O TLB slabs
 
@@ -2511,6 +2617,9 @@ and is between 256 and 4096 characters. It is defined in the file
 	uart6850=	[HW,OSS]
 			Format: <io>,<irq>
 
+	uhash_entries=	[KNL,NET]
+			Set number of hash buckets for UDP/UDP-Lite connections
+
 	uhci-hcd.ignore_oc=
 			[USB] Ignore overcurrent events (default N).
 			Some badly-designed motherboards generate lots of
@@ -2566,6 +2675,8 @@ and is between 256 and 4096 characters. It is defined in the file
 			to a common usb-storage quirk flag as follows:
 				a = SANE_SENSE (collect more than 18 bytes
 					of sense data);
+				b = BAD_SENSE (don't collect more than 18
+					bytes of sense data);
 				c = FIX_CAPACITY (decrease the reported
 					device capacity by one sector);
 				h = CAPACITY_HEURISTICS (decrease the
@@ -2625,6 +2736,11 @@ and is between 256 and 4096 characters. It is defined in the file
 	vmpoff=		[KNL,S390] Perform z/VM CP command after power off.
 			Format: <command>
 
+	vt.cur_default=	[VT] Default cursor shape.
+			Format: 0xCCBBAA, where AA, BB, and CC are the same as
+			the parameters of the <Esc>[?A;B;Cc escape sequence;
+			see VGA-softcursor.txt. Default: 2 = underline.
+
 	vt.default_blu=	[VT]
 			Format: <blue0>,<blue1>,<blue2>,...,<blue15>
 			Change the default blue palette of the console.
@@ -2649,6 +2765,15 @@ and is between 256 and 4096 characters. It is defined in the file
 			Set system-wide default UTF-8 mode for all tty's.
 			Default is 1, i.e. UTF-8 mode is enabled for all
 			newly opened terminals.
+
+	vt.global_cursor_default=
+			[VT]
+			Format=<-1|0|1>
+			Set system-wide default for whether a cursor
+			is shown on new VTs. Default is -1,
+			i.e. cursors will be created by default unless
+			overridden by individual drivers. 0 will hide
+			cursors, 1 will display them.
 
 	waveartist=	[HW,OSS]
 			Format: <io>,<irq>,<dma>,<dma2>

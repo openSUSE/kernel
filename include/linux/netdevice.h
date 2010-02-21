@@ -63,37 +63,74 @@ struct wireless_dev;
 #define HAVE_FREE_NETDEV		/* free_netdev() */
 #define HAVE_NETDEV_PRIV		/* netdev_priv() */
 
-#define NET_XMIT_SUCCESS	0
-#define NET_XMIT_DROP		1	/* skb dropped			*/
-#define NET_XMIT_CN		2	/* congestion notification	*/
-#define NET_XMIT_POLICED	3	/* skb is shot by police	*/
-#define NET_XMIT_MASK		0xFFFF	/* qdisc flags in net/sch_generic.h */
-
 /* Backlog congestion levels */
-#define NET_RX_SUCCESS		0   /* keep 'em coming, baby */
-#define NET_RX_DROP		1  /* packet dropped */
-#define NET_RX_CN_LOW		2   /* storm alert, just in case */
-#define NET_RX_CN_MOD		3   /* Storm on its way! */
-#define NET_RX_CN_HIGH		4   /* The storm is here */
-#define NET_RX_BAD		5  /* packet dropped due to kernel error */
+#define NET_RX_SUCCESS		0	/* keep 'em coming, baby */
+#define NET_RX_DROP		1	/* packet dropped */
+
+/*
+ * Transmit return codes: transmit return codes originate from three different
+ * namespaces:
+ *
+ * - qdisc return codes
+ * - driver transmit return codes
+ * - errno values
+ *
+ * Drivers are allowed to return any one of those in their hard_start_xmit()
+ * function. Real network devices commonly used with qdiscs should only return
+ * the driver transmit return codes though - when qdiscs are used, the actual
+ * transmission happens asynchronously, so the value is not propagated to
+ * higher layers. Virtual network devices transmit synchronously, in this case
+ * the driver transmit return codes are consumed by dev_queue_xmit(), all
+ * others are propagated to higher layers.
+ */
+
+/* qdisc ->enqueue() return codes. */
+#define NET_XMIT_SUCCESS	0x00
+#define NET_XMIT_DROP		0x01	/* skb dropped			*/
+#define NET_XMIT_CN		0x02	/* congestion notification	*/
+#define NET_XMIT_POLICED	0x03	/* skb is shot by police	*/
+#define NET_XMIT_MASK		0x0f	/* qdisc flags in net/sch_generic.h */
 
 /* NET_XMIT_CN is special. It does not guarantee that this packet is lost. It
  * indicates that the device will soon be dropping packets, or already drops
  * some packets of the same priority; prompting us to send less aggressively. */
-#define net_xmit_eval(e)	((e) == NET_XMIT_CN? 0 : (e))
+#define net_xmit_eval(e)	((e) == NET_XMIT_CN ? 0 : (e))
 #define net_xmit_errno(e)	((e) != NET_XMIT_CN ? -ENOBUFS : 0)
+
+/* Driver transmit return codes */
+#define NETDEV_TX_MASK		0xf0
+
+enum netdev_tx {
+	__NETDEV_TX_MIN	 = INT_MIN,	/* make sure enum is signed */
+	NETDEV_TX_OK	 = 0x00,	/* driver took care of packet */
+	NETDEV_TX_BUSY	 = 0x10,	/* driver tx path was busy*/
+	NETDEV_TX_LOCKED = 0x20,	/* driver tx lock was already taken */
+};
+typedef enum netdev_tx netdev_tx_t;
+
+/*
+ * Current order: NETDEV_TX_MASK > NET_XMIT_MASK >= 0 is significant;
+ * hard_start_xmit() return < NET_XMIT_MASK means skb was consumed.
+ */
+static inline bool dev_xmit_complete(int rc)
+{
+	/*
+	 * Positive cases with an skb consumed by a driver:
+	 * - successful transmission (rc == NETDEV_TX_OK)
+	 * - error while transmitting (rc < 0)
+	 * - error while queueing to a different device (rc & NET_XMIT_MASK)
+	 */
+	if (likely(rc < NET_XMIT_MASK))
+		return true;
+
+	return false;
+}
 
 #endif
 
 #define MAX_ADDR_LEN	32		/* Largest hardware address length */
 
-/* Driver transmit return codes */
-#define NETDEV_TX_OK 0		/* driver took care of packet */
-#define NETDEV_TX_BUSY 1	/* driver tx path was busy*/
-#define NETDEV_TX_LOCKED -1	/* driver tx lock was already taken */
-
 #ifdef  __KERNEL__
-
 /*
  *	Compute the worst case header length according to the protocols
  *	used.
@@ -127,8 +164,7 @@ struct wireless_dev;
  *	with byte counters.
  */
 
-struct net_device_stats
-{
+struct net_device_stats {
 	unsigned long	rx_packets;		/* total packets received	*/
 	unsigned long	tx_packets;		/* total packets transmitted	*/
 	unsigned long	rx_bytes;		/* total bytes received 	*/
@@ -181,8 +217,7 @@ struct neighbour;
 struct neigh_parms;
 struct sk_buff;
 
-struct netif_rx_stats
-{
+struct netif_rx_stats {
 	unsigned total;
 	unsigned dropped;
 	unsigned time_squeeze;
@@ -191,8 +226,7 @@ struct netif_rx_stats
 
 DECLARE_PER_CPU(struct netif_rx_stats, netdev_rx_stat);
 
-struct dev_addr_list
-{
+struct dev_addr_list {
 	struct dev_addr_list	*next;
 	u8			da_addr[MAX_ADDR_LEN];
 	u8			da_addrlen;
@@ -229,8 +263,7 @@ struct netdev_hw_addr_list {
 	int			count;
 };
 
-struct hh_cache
-{
+struct hh_cache {
 	struct hh_cache *hh_next;	/* Next entry			     */
 	atomic_t	hh_refcnt;	/* number of users                   */
 /*
@@ -293,8 +326,7 @@ struct header_ops {
  * code.
  */
 
-enum netdev_state_t
-{
+enum netdev_state_t {
 	__LINK_STATE_START,
 	__LINK_STATE_PRESENT,
 	__LINK_STATE_NOCARRIER,
@@ -343,20 +375,20 @@ struct napi_struct {
 	struct sk_buff		*skb;
 };
 
-enum
-{
+enum {
 	NAPI_STATE_SCHED,	/* Poll is scheduled */
 	NAPI_STATE_DISABLE,	/* Disable pending */
 	NAPI_STATE_NPSVC,	/* Netpoll - don't dequeue from poll_list */
 };
 
-enum {
+enum gro_result {
 	GRO_MERGED,
 	GRO_MERGED_FREE,
 	GRO_HELD,
 	GRO_NORMAL,
 	GRO_DROP,
 };
+typedef enum gro_result gro_result_t;
 
 extern void __napi_schedule(struct napi_struct *n);
 
@@ -459,8 +491,7 @@ static inline void napi_synchronize(const struct napi_struct *n)
 # define napi_synchronize(n)	barrier()
 #endif
 
-enum netdev_queue_state_t
-{
+enum netdev_queue_state_t {
 	__QUEUE_STATE_XOFF,
 	__QUEUE_STATE_FROZEN,
 };
@@ -511,9 +542,11 @@ struct netdev_queue {
  *     This function is called when network device transistions to the down
  *     state.
  *
- * int (*ndo_start_xmit)(struct sk_buff *skb, struct net_device *dev);
+ * netdev_tx_t (*ndo_start_xmit)(struct sk_buff *skb,
+ *                               struct net_device *dev);
  *	Called when a packet needs to be transmitted.
- *	Must return NETDEV_TX_OK , NETDEV_TX_BUSY, or NETDEV_TX_LOCKED,
+ *	Must return NETDEV_TX_OK , NETDEV_TX_BUSY.
+ *        (can also return NETDEV_TX_LOCKED iff NETIF_F_LLTX)
  *	Required can not be NULL.
  *
  * u16 (*ndo_select_queue)(struct net_device *dev, struct sk_buff *skb);
@@ -557,7 +590,7 @@ struct netdev_queue {
  *	Callback uses when the transmitter has not made any progress
  *	for dev->watchdog ticks.
  *
- * struct net_device_stats* (*get_stats)(struct net_device *dev);
+ * struct net_device_stats* (*ndo_get_stats)(struct net_device *dev);
  *	Called when a user wants to get the network device usage
  *	statistics. If not defined, the counters in dev->stats will
  *	be used.
@@ -584,7 +617,7 @@ struct net_device_ops {
 	void			(*ndo_uninit)(struct net_device *dev);
 	int			(*ndo_open)(struct net_device *dev);
 	int			(*ndo_stop)(struct net_device *dev);
-	int			(*ndo_start_xmit) (struct sk_buff *skb,
+	netdev_tx_t		(*ndo_start_xmit) (struct sk_buff *skb,
 						   struct net_device *dev);
 	u16			(*ndo_select_queue)(struct net_device *dev,
 						    struct sk_buff *skb);
@@ -627,12 +660,18 @@ struct net_device_ops {
 	void                    (*ndo_poll_controller)(struct net_device *dev);
 #endif
 #if defined(CONFIG_FCOE) || defined(CONFIG_FCOE_MODULE)
+	int			(*ndo_fcoe_enable)(struct net_device *dev);
+	int			(*ndo_fcoe_disable)(struct net_device *dev);
 	int			(*ndo_fcoe_ddp_setup)(struct net_device *dev,
 						      u16 xid,
 						      struct scatterlist *sgl,
 						      unsigned int sgc);
 	int			(*ndo_fcoe_ddp_done)(struct net_device *dev,
 						     u16 xid);
+#define NETDEV_FCOE_WWNN 0
+#define NETDEV_FCOE_WWPN 1
+	int			(*ndo_fcoe_get_wwn)(struct net_device *dev,
+						    u64 *wwn, int type);
 #endif
 };
 
@@ -646,8 +685,7 @@ struct net_device_ops {
  *	moves out.
  */
 
-struct net_device
-{
+struct net_device {
 
 	/*
 	 * This is the first field of the "visible" part of this structure
@@ -681,6 +719,7 @@ struct net_device
 
 	struct list_head	dev_list;
 	struct list_head	napi_list;
+	struct list_head	unreg_list;
 
 	/* Net device features */
 	unsigned long		features;
@@ -705,6 +744,7 @@ struct net_device
 /* the GSO_MASK reserves bits 16 through 23 */
 #define NETIF_F_FCOE_CRC	(1 << 24) /* FCoE CRC32 */
 #define NETIF_F_SCTP_CSUM	(1 << 25) /* SCTP checksum offload */
+#define NETIF_F_FCOE_MTU	(1 << 26) /* Supports max FCoE MTU, 2158 bytes*/
 
 	/* Segmentation offload features */
 #define NETIF_F_GSO_SHIFT	16
@@ -829,6 +869,9 @@ struct net_device
 	/* Number of TX queues currently active in device  */
 	unsigned int		real_num_tx_queues;
 
+	/* root qdisc from userspace point of view */
+	struct Qdisc		*qdisc;
+
 	unsigned long		tx_queue_len;	/* Max frames per queue allowed */
 	spinlock_t		tx_global_lock;
 /*
@@ -853,7 +896,7 @@ struct net_device
 	/* device index hash chain */
 	struct hlist_node	index_hlist;
 
-	struct net_device	*link_watch_next;
+	struct list_head	link_watch_list;
 
 	/* register/unregister state machine */
 	enum { NETREG_UNINITIALIZED=0,
@@ -888,8 +931,8 @@ struct net_device
 
 	/* class/net/name entry */
 	struct device		dev;
-	/* space for optional statistics and wireless sysfs groups */
-	struct attribute_group  *sysfs_groups[3];
+	/* space for optional device, statistics, and wireless sysfs groups */
+	const struct attribute_group *sysfs_groups[4];
 
 	/* rtnetlink link ops */
 	const struct rtnl_link_ops *rtnl_link_ops;
@@ -903,7 +946,7 @@ struct net_device
 
 #ifdef CONFIG_DCB
 	/* Data Center Bridging netlink ops */
-	struct dcbnl_rtnl_ops *dcbnl_ops;
+	const struct dcbnl_rtnl_ops *dcbnl_ops;
 #endif
 
 #if defined(CONFIG_FCOE) || defined(CONFIG_FCOE_MODULE)
@@ -992,6 +1035,12 @@ static inline void *netdev_priv(const struct net_device *dev)
  */
 #define SET_NETDEV_DEV(net, pdev)	((net)->dev.parent = (pdev))
 
+/* Set the sysfs device type for the network logical device to allow
+ * fin grained indentification of different network device types. For
+ * example Ethernet, Wirelss LAN, Bluetooth, WiMAX etc.
+ */
+#define SET_NETDEV_DEVTYPE(net, devtype)	((net)->dev.type = (devtype))
+
 /**
  *	netif_napi_add - initialize a napi context
  *	@dev:  network device
@@ -1063,10 +1112,16 @@ extern rwlock_t				dev_base_lock;		/* Device list lock */
 
 #define for_each_netdev(net, d)		\
 		list_for_each_entry(d, &(net)->dev_base_head, dev_list)
+#define for_each_netdev_reverse(net, d)	\
+		list_for_each_entry_reverse(d, &(net)->dev_base_head, dev_list)
+#define for_each_netdev_rcu(net, d)		\
+		list_for_each_entry_rcu(d, &(net)->dev_base_head, dev_list)
 #define for_each_netdev_safe(net, d, n)	\
 		list_for_each_entry_safe(d, n, &(net)->dev_base_head, dev_list)
 #define for_each_netdev_continue(net, d)		\
 		list_for_each_entry_continue(d, &(net)->dev_base_head, dev_list)
+#define for_each_netdev_continue_rcu(net, d)		\
+	list_for_each_entry_continue_rcu(d, &(net)->dev_base_head, dev_list)
 #define net_device_entry(lh)	list_entry(lh, struct net_device, dev_list)
 
 static inline struct net_device *next_net_device(struct net_device *dev)
@@ -1076,6 +1131,16 @@ static inline struct net_device *next_net_device(struct net_device *dev)
 
 	net = dev_net(dev);
 	lh = dev->dev_list.next;
+	return lh == &net->dev_base_head ? NULL : net_device_entry(lh);
+}
+
+static inline struct net_device *next_net_device_rcu(struct net_device *dev)
+{
+	struct list_head *lh;
+	struct net *net;
+
+	net = dev_net(dev);
+	lh = rcu_dereference(dev->dev_list.next);
 	return lh == &net->dev_base_head ? NULL : net_device_entry(lh);
 }
 
@@ -1097,6 +1162,7 @@ extern void		__dev_remove_pack(struct packet_type *pt);
 extern struct net_device	*dev_get_by_flags(struct net *net, unsigned short flags,
 						  unsigned short mask);
 extern struct net_device	*dev_get_by_name(struct net *net, const char *name);
+extern struct net_device	*dev_get_by_name_rcu(struct net *net, const char *name);
 extern struct net_device	*__dev_get_by_name(struct net *net, const char *name);
 extern int		dev_alloc_name(struct net_device *dev, const char *name);
 extern int		dev_open(struct net_device *dev);
@@ -1104,7 +1170,14 @@ extern int		dev_close(struct net_device *dev);
 extern void		dev_disable_lro(struct net_device *dev);
 extern int		dev_queue_xmit(struct sk_buff *skb);
 extern int		register_netdevice(struct net_device *dev);
-extern void		unregister_netdevice(struct net_device *dev);
+extern void		unregister_netdevice_queue(struct net_device *dev,
+						   struct list_head *head);
+extern void		unregister_netdevice_many(struct list_head *head);
+static inline void unregister_netdevice(struct net_device *dev)
+{
+	unregister_netdevice_queue(dev, NULL);
+}
+
 extern void		free_netdev(struct net_device *dev);
 extern void		synchronize_net(void);
 extern int 		register_netdevice_notifier(struct notifier_block *nb);
@@ -1115,6 +1188,7 @@ extern void		netdev_resync_ops(struct net_device *dev);
 extern int call_netdevice_notifiers(unsigned long val, struct net_device *dev);
 extern struct net_device	*dev_get_by_index(struct net *net, int ifindex);
 extern struct net_device	*__dev_get_by_index(struct net *net, int ifindex);
+extern struct net_device	*dev_get_by_index_rcu(struct net *net, int ifindex);
 extern int		dev_restart(struct net_device *dev);
 #ifdef CONFIG_NETPOLL_TRAP
 extern int		netpoll_trap(void);
@@ -1200,8 +1274,7 @@ static inline int unregister_gifconf(unsigned int family)
  * Incoming packets are placed on per-cpu queues so that
  * no locking is needed.
  */
-struct softnet_data
-{
+struct softnet_data {
 	struct Qdisc		*output_queue;
 	struct sk_buff_head	input_pkt_queue;
 	struct list_head	poll_list;
@@ -1260,7 +1333,7 @@ static inline void netif_tx_wake_queue(struct netdev_queue *dev_queue)
 {
 #ifdef CONFIG_NETPOLL_TRAP
 	if (netpoll_trap()) {
-		clear_bit(__QUEUE_STATE_XOFF, &dev_queue->state);
+		netif_tx_start_queue(dev_queue);
 		return;
 	}
 #endif
@@ -1366,7 +1439,8 @@ static inline int netif_running(const struct net_device *dev)
 static inline void netif_start_subqueue(struct net_device *dev, u16 queue_index)
 {
 	struct netdev_queue *txq = netdev_get_tx_queue(dev, queue_index);
-	clear_bit(__QUEUE_STATE_XOFF, &txq->state);
+
+	netif_tx_start_queue(txq);
 }
 
 /**
@@ -1383,7 +1457,7 @@ static inline void netif_stop_subqueue(struct net_device *dev, u16 queue_index)
 	if (netpoll_trap())
 		return;
 #endif
-	set_bit(__QUEUE_STATE_XOFF, &txq->state);
+	netif_tx_stop_queue(txq);
 }
 
 /**
@@ -1397,7 +1471,8 @@ static inline int __netif_subqueue_stopped(const struct net_device *dev,
 					 u16 queue_index)
 {
 	struct netdev_queue *txq = netdev_get_tx_queue(dev, queue_index);
-	return test_bit(__QUEUE_STATE_XOFF, &txq->state);
+
+	return netif_tx_queue_stopped(txq);
 }
 
 static inline int netif_subqueue_stopped(const struct net_device *dev,
@@ -1453,18 +1528,19 @@ extern int		netif_rx_ni(struct sk_buff *skb);
 #define HAVE_NETIF_RECEIVE_SKB 1
 extern int		netif_receive_skb(struct sk_buff *skb);
 extern void		napi_gro_flush(struct napi_struct *napi);
-extern int		dev_gro_receive(struct napi_struct *napi,
+extern gro_result_t	dev_gro_receive(struct napi_struct *napi,
 					struct sk_buff *skb);
-extern int		napi_skb_finish(int ret, struct sk_buff *skb);
-extern int		napi_gro_receive(struct napi_struct *napi,
+extern gro_result_t	napi_skb_finish(gro_result_t ret, struct sk_buff *skb);
+extern gro_result_t	napi_gro_receive(struct napi_struct *napi,
 					 struct sk_buff *skb);
 extern void		napi_reuse_skb(struct napi_struct *napi,
 				       struct sk_buff *skb);
 extern struct sk_buff *	napi_get_frags(struct napi_struct *napi);
-extern int		napi_frags_finish(struct napi_struct *napi,
-					  struct sk_buff *skb, int ret);
+extern gro_result_t	napi_frags_finish(struct napi_struct *napi,
+					  struct sk_buff *skb,
+					  gro_result_t ret);
 extern struct sk_buff *	napi_frags_skb(struct napi_struct *napi);
-extern int		napi_gro_frags(struct napi_struct *napi);
+extern gro_result_t	napi_gro_frags(struct napi_struct *napi);
 
 static inline void napi_free_frags(struct napi_struct *napi)
 {
@@ -1488,6 +1564,8 @@ extern int		dev_set_mac_address(struct net_device *,
 extern int		dev_hard_start_xmit(struct sk_buff *skb,
 					    struct net_device *dev,
 					    struct netdev_queue *txq);
+extern int		dev_forward_skb(struct net_device *dev,
+					struct sk_buff *skb);
 
 extern int		netdev_budget;
 
@@ -1526,6 +1604,7 @@ static inline void dev_hold(struct net_device *dev)
  */
 
 extern void linkwatch_fire_event(struct net_device *dev);
+extern void linkwatch_forget_dev(struct net_device *dev);
 
 /**
  *	netif_carrier_ok - test if carrier present
@@ -1595,7 +1674,8 @@ static inline int netif_dormant(const struct net_device *dev)
  *
  * Check if carrier is operational
  */
-static inline int netif_oper_up(const struct net_device *dev) {
+static inline int netif_oper_up(const struct net_device *dev)
+{
 	return (dev->operstate == IF_OPER_UP ||
 		dev->operstate == IF_OPER_UNKNOWN /* backward compat */);
 }
@@ -1755,8 +1835,7 @@ static inline void netif_tx_unlock(struct net_device *dev)
 		 * force a schedule.
 		 */
 		clear_bit(__QUEUE_STATE_FROZEN, &txq->state);
-		if (!test_bit(__QUEUE_STATE_XOFF, &txq->state))
-			__netif_schedule(txq->qdisc);
+		netif_schedule_queue(txq);
 	}
 	spin_unlock(&dev->tx_global_lock);
 }
@@ -1864,12 +1943,14 @@ extern void		__dev_addr_unsync(struct dev_addr_list **to, int *to_count, struct 
 extern int		dev_set_promiscuity(struct net_device *dev, int inc);
 extern int		dev_set_allmulti(struct net_device *dev, int inc);
 extern void		netdev_state_change(struct net_device *dev);
-extern void		netdev_bonding_change(struct net_device *dev);
+extern void		netdev_bonding_change(struct net_device *dev,
+					      unsigned long event);
 extern void		netdev_features_change(struct net_device *dev);
 /* Load a device via the kmod */
 extern void		dev_load(struct net *net, const char *name);
 extern void		dev_mcast_init(void);
 extern const struct net_device_stats *dev_get_stats(struct net_device *dev);
+extern void		dev_txq_stats_fold(const struct net_device *dev, struct net_device_stats *stats);
 
 extern int		netdev_max_backlog;
 extern int		weight_p;
@@ -1903,6 +1984,9 @@ extern void linkwatch_run_queue(void);
 unsigned long netdev_increment_features(unsigned long all, unsigned long one,
 					unsigned long mask);
 unsigned long netdev_fix_features(unsigned long features, const char *name);
+
+void netif_stacked_transfer_operstate(const struct net_device *rootdev,
+					struct net_device *dev);
 
 static inline int net_gso_ok(int features, int gso_type)
 {

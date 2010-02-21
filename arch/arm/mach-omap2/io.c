@@ -22,27 +22,32 @@
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/clk.h>
+#include <linux/omapfb.h>
 
 #include <asm/tlb.h>
 
 #include <asm/mach/map.h>
 
-#include <mach/mux.h>
-#include <mach/omapfb.h>
-#include <mach/sram.h>
-#include <mach/sdrc.h>
-#include <mach/gpmc.h>
+#include <plat/mux.h>
+#include <plat/sram.h>
+#include <plat/sdrc.h>
+#include <plat/gpmc.h>
+#include <plat/serial.h>
+#include <plat/vram.h>
 
-#ifndef CONFIG_ARCH_OMAP4	/* FIXME: Remove this once clkdev is ready */
 #include "clock.h"
 
-#include <mach/powerdomain.h>
-
+#include <plat/omap-pm.h>
+#include <plat/powerdomain.h>
 #include "powerdomains.h"
 
-#include <mach/clockdomain.h>
+#include <plat/clockdomain.h>
 #include "clockdomains.h"
-#endif
+#include <plat/omap_hwmod.h>
+#include "omap_hwmod_2420.h"
+#include "omap_hwmod_2430.h"
+#include "omap_hwmod_34xx.h"
+
 /*
  * The machine specific code may provide the extra mapping besides the
  * default mapping provided here.
@@ -67,21 +72,21 @@ static struct map_desc omap24xx_io_desc[] __initdata = {
 #ifdef CONFIG_ARCH_OMAP2420
 static struct map_desc omap242x_io_desc[] __initdata = {
 	{
-		.virtual	= DSP_MEM_24XX_VIRT,
-		.pfn		= __phys_to_pfn(DSP_MEM_24XX_PHYS),
-		.length		= DSP_MEM_24XX_SIZE,
+		.virtual	= DSP_MEM_2420_VIRT,
+		.pfn		= __phys_to_pfn(DSP_MEM_2420_PHYS),
+		.length		= DSP_MEM_2420_SIZE,
 		.type		= MT_DEVICE
 	},
 	{
-		.virtual	= DSP_IPI_24XX_VIRT,
-		.pfn		= __phys_to_pfn(DSP_IPI_24XX_PHYS),
-		.length		= DSP_IPI_24XX_SIZE,
+		.virtual	= DSP_IPI_2420_VIRT,
+		.pfn		= __phys_to_pfn(DSP_IPI_2420_PHYS),
+		.length		= DSP_IPI_2420_SIZE,
 		.type		= MT_DEVICE
 	},
 	{
-		.virtual	= DSP_MMU_24XX_VIRT,
-		.pfn		= __phys_to_pfn(DSP_MMU_24XX_PHYS),
-		.length		= DSP_MMU_24XX_SIZE,
+		.virtual	= DSP_MMU_2420_VIRT,
+		.pfn		= __phys_to_pfn(DSP_MMU_2420_PHYS),
+		.length		= DSP_MMU_2420_SIZE,
 		.type		= MT_DEVICE
 	},
 };
@@ -197,6 +202,24 @@ static struct map_desc omap44xx_io_desc[] __initdata = {
 		.type		= MT_DEVICE,
 	},
 	{
+		.virtual	= OMAP44XX_EMIF1_VIRT,
+		.pfn		= __phys_to_pfn(OMAP44XX_EMIF1_PHYS),
+		.length		= OMAP44XX_EMIF1_SIZE,
+		.type		= MT_DEVICE,
+	},
+	{
+		.virtual	= OMAP44XX_EMIF2_VIRT,
+		.pfn		= __phys_to_pfn(OMAP44XX_EMIF2_PHYS),
+		.length		= OMAP44XX_EMIF2_SIZE,
+		.type		= MT_DEVICE,
+	},
+	{
+		.virtual	= OMAP44XX_DMM_VIRT,
+		.pfn		= __phys_to_pfn(OMAP44XX_DMM_PHYS),
+		.length		= OMAP44XX_DMM_SIZE,
+		.type		= MT_DEVICE,
+	},
+	{
 		.virtual	= L4_PER_44XX_VIRT,
 		.pfn		= __phys_to_pfn(L4_PER_44XX_PHYS),
 		.length		= L4_PER_44XX_SIZE,
@@ -240,6 +263,7 @@ void __init omap2_map_common_io(void)
 	omap2_check_revision();
 	omap_sram_init();
 	omapfb_reserve_sdram();
+	omap_vram_reserve_sdram();
 }
 
 /*
@@ -279,11 +303,28 @@ static int __init _omap2_init_reprogram_sdrc(void)
 void __init omap2_init_common_hw(struct omap_sdrc_params *sdrc_cs0,
 				 struct omap_sdrc_params *sdrc_cs1)
 {
-	omap2_mux_init();
+	struct omap_hwmod **hwmods = NULL;
+
+	if (cpu_is_omap2420())
+		hwmods = omap2420_hwmods;
+	else if (cpu_is_omap2430())
+		hwmods = omap2430_hwmods;
+	else if (cpu_is_omap34xx())
+		hwmods = omap34xx_hwmods;
+
 #ifndef CONFIG_ARCH_OMAP4 /* FIXME: Remove this once the clkdev is ready */
+	/* The OPP tables have to be registered before a clk init */
+	omap_hwmod_init(hwmods);
+	omap2_mux_init();
+	omap_pm_if_early_init(mpu_opps, dsp_opps, l3_opps);
 	pwrdm_init(powerdomains_omap);
 	clkdm_init(clockdomains_omap, clkdm_pwrdm_autodeps);
+#endif
 	omap2_clk_init();
+	omap_serial_early_init();
+#ifndef CONFIG_ARCH_OMAP4
+	omap_hwmod_late_init();
+	omap_pm_if_init();
 	omap2_sdrc_init(sdrc_cs0, sdrc_cs1);
 	_omap2_init_reprogram_sdrc();
 #endif

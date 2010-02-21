@@ -312,6 +312,7 @@ struct hid_item {
 #define HID_QUIRK_MULTI_INPUT			0x00000040
 #define HID_QUIRK_SKIP_OUTPUT_REPORTS		0x00010000
 #define HID_QUIRK_FULLSPEED_INTERVAL		0x10000000
+#define HID_QUIRK_NO_INIT_REPORTS		0x20000000
 
 /*
  * This is the global environment of the parser. This information is
@@ -494,12 +495,21 @@ struct hid_device {							/* device report descriptor */
 
 	/* hiddev event handler */
 	int (*hiddev_connect)(struct hid_device *, unsigned int);
+	void (*hiddev_disconnect)(struct hid_device *);
 	void (*hiddev_hid_event) (struct hid_device *, struct hid_field *field,
 				  struct hid_usage *, __s32);
 	void (*hiddev_report_event) (struct hid_device *, struct hid_report *);
 
 	/* handler for raw output data, used by hidraw */
 	int (*hid_output_raw_report) (struct hid_device *, __u8 *, size_t);
+
+	/* debugging support via debugfs */
+	unsigned short debug;
+	struct dentry *debug_dir;
+	struct dentry *debug_rdesc;
+	struct dentry *debug_events;
+	struct list_head debug_list;
+	wait_queue_head_t debug_wait;
 };
 
 static inline void *hid_get_drvdata(struct hid_device *hdev)
@@ -657,9 +667,7 @@ struct hid_ll_driver {
 
 /* HID core API */
 
-#ifdef CONFIG_HID_DEBUG
 extern int hid_debug;
-#endif
 
 extern int hid_add_device(struct hid_device *);
 extern void hid_destroy_device(struct hid_device *);
@@ -685,6 +693,7 @@ struct hid_device *hid_allocate_device(void);
 int hid_parse_report(struct hid_device *hid, __u8 *start, unsigned size);
 int hid_check_keys_pressed(struct hid_device *hid);
 int hid_connect(struct hid_device *hid, unsigned int connect_mask);
+void hid_disconnect(struct hid_device *hid);
 
 /**
  * hid_map_usage - map usage input bits
@@ -794,6 +803,7 @@ static inline int __must_check hid_hw_start(struct hid_device *hdev,
  */
 static inline void hid_hw_stop(struct hid_device *hdev)
 {
+	hid_disconnect(hdev);
 	hdev->ll_driver->stop(hdev);
 }
 
@@ -815,21 +825,9 @@ int hid_pidff_init(struct hid_device *hid);
 #define hid_pidff_init NULL
 #endif
 
-#ifdef CONFIG_HID_DEBUG
 #define dbg_hid(format, arg...) if (hid_debug) \
 				printk(KERN_DEBUG "%s: " format ,\
 				__FILE__ , ## arg)
-#define dbg_hid_line(format, arg...) if (hid_debug) \
-				printk(format, ## arg)
-#else
-static inline int __attribute__((format(printf, 1, 2)))
-dbg_hid(const char *fmt, ...)
-{
-	return 0;
-}
-#define dbg_hid_line dbg_hid
-#endif /* HID_DEBUG */
-
 #define err_hid(format, arg...) printk(KERN_ERR "%s: " format "\n" , \
 		__FILE__ , ## arg)
 #endif /* HID_FF */

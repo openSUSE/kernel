@@ -213,7 +213,6 @@ typedef struct xfs_icdinode {
 
 struct bhv_desc;
 struct cred;
-struct ktrace;
 struct xfs_buf;
 struct xfs_bmap_free;
 struct xfs_bmbt_irec;
@@ -221,13 +220,6 @@ struct xfs_inode_log_item;
 struct xfs_mount;
 struct xfs_trans;
 struct xfs_dquot;
-
-#if defined(XFS_ILOCK_TRACE)
-#define XFS_ILOCK_KTRACE_SIZE	32
-extern void xfs_ilock_trace(struct xfs_inode *, int, unsigned int, inst_t *);
-#else
-#define	xfs_ilock_trace(i,n,f,ra)
-#endif
 
 typedef struct dm_attrs_s {
 	__uint32_t	da_dmevmask;	/* DMIG event mask */
@@ -261,7 +253,6 @@ typedef struct xfs_inode {
 	/* Miscellaneous state. */
 	unsigned short		i_flags;	/* see defined flags below */
 	unsigned char		i_update_core;	/* timestamps/size is dirty */
-	unsigned char		i_update_size;	/* di_size field is dirty */
 	unsigned int		i_delayed_blks;	/* count of delay alloc blks */
 
 	xfs_icdinode_t		i_d;		/* most of ondisk inode */
@@ -272,26 +263,6 @@ typedef struct xfs_inode {
 
 	/* VFS inode */
 	struct inode		i_vnode;	/* embedded VFS inode */
-
-	/* Trace buffers per inode. */
-#ifdef XFS_INODE_TRACE
-	struct ktrace		*i_trace;	/* general inode trace */
-#endif
-#ifdef XFS_BMAP_TRACE
-	struct ktrace		*i_xtrace;	/* inode extent list trace */
-#endif
-#ifdef XFS_BTREE_TRACE
-	struct ktrace		*i_btrace;	/* inode bmap btree trace */
-#endif
-#ifdef XFS_RW_TRACE
-	struct ktrace		*i_rwtrace;	/* inode read/write trace */
-#endif
-#ifdef XFS_ILOCK_TRACE
-	struct ktrace		*i_lock_trace;	/* inode lock/unlock trace */
-#endif
-#ifdef XFS_DIR2_TRACE
-	struct ktrace		*i_dir_trace;	/* inode directory trace */
-#endif
 } xfs_inode_t;
 
 #define XFS_ISIZE(ip)	(((ip)->i_d.di_mode & S_IFMT) == S_IFREG) ? \
@@ -407,6 +378,14 @@ static inline void xfs_ifunlock(xfs_inode_t *ip)
 #define XFS_LOCK_MASK		(XFS_IOLOCK_EXCL | XFS_IOLOCK_SHARED \
 				| XFS_ILOCK_EXCL | XFS_ILOCK_SHARED)
 
+#define XFS_LOCK_FLAGS \
+	{ XFS_IOLOCK_EXCL,	"IOLOCK_EXCL" }, \
+	{ XFS_IOLOCK_SHARED,	"IOLOCK_SHARED" }, \
+	{ XFS_ILOCK_EXCL,	"ILOCK_EXCL" }, \
+	{ XFS_ILOCK_SHARED,	"ILOCK_SHARED" }, \
+	{ XFS_IUNLOCK_NONOTIFY,	"IUNLOCK_NONOTIFY" }
+
+
 /*
  * Flags for lockdep annotations.
  *
@@ -456,6 +435,10 @@ static inline void xfs_ifunlock(xfs_inode_t *ip)
 #define	XFS_ITRUNC_DEFINITE	0x1
 #define	XFS_ITRUNC_MAYBE	0x2
 
+#define XFS_ITRUNC_FLAGS \
+	{ XFS_ITRUNC_DEFINITE,	"DEFINITE" }, \
+	{ XFS_ITRUNC_MAYBE,	"MAYBE" }
+
 /*
  * For multiple groups support: if S_ISGID bit is set in the parent
  * directory, group of new file is set to that of the parent, and
@@ -468,8 +451,6 @@ static inline void xfs_ifunlock(xfs_inode_t *ip)
 /*
  * xfs_iget.c prototypes.
  */
-xfs_inode_t	*xfs_inode_incore(struct xfs_mount *, xfs_ino_t,
-				  struct xfs_trans *);
 int		xfs_iget(struct xfs_mount *, struct xfs_trans *, xfs_ino_t,
 			 uint, uint, xfs_inode_t **, xfs_daddr_t);
 void		xfs_iput(xfs_inode_t *, uint);
@@ -504,55 +485,22 @@ void		xfs_ipin(xfs_inode_t *);
 void		xfs_iunpin(xfs_inode_t *);
 int		xfs_iflush(xfs_inode_t *, uint);
 void		xfs_ichgtime(xfs_inode_t *, int);
-xfs_fsize_t	xfs_file_last_byte(xfs_inode_t *);
 void		xfs_lock_inodes(xfs_inode_t **, int, uint);
 void		xfs_lock_two_inodes(xfs_inode_t *, xfs_inode_t *, uint);
 
-void		xfs_synchronize_atime(xfs_inode_t *);
+void		xfs_synchronize_times(xfs_inode_t *);
 void		xfs_mark_inode_dirty_sync(xfs_inode_t *);
-
-#if defined(XFS_INODE_TRACE)
-
-#define	INODE_TRACE_SIZE	16		/* number of trace entries */
-#define	INODE_KTRACE_ENTRY	1
-#define	INODE_KTRACE_EXIT	2
-#define	INODE_KTRACE_HOLD	3
-#define	INODE_KTRACE_REF	4
-#define	INODE_KTRACE_RELE	5
-
-extern void _xfs_itrace_entry(struct xfs_inode *, const char *, inst_t *);
-extern void _xfs_itrace_exit(struct xfs_inode *, const char *, inst_t *);
-extern void xfs_itrace_hold(struct xfs_inode *, char *, int, inst_t *);
-extern void _xfs_itrace_ref(struct xfs_inode *, char *, int, inst_t *);
-extern void xfs_itrace_rele(struct xfs_inode *, char *, int, inst_t *);
-#define xfs_itrace_entry(ip)	\
-	_xfs_itrace_entry(ip, __func__, (inst_t *)__return_address)
-#define xfs_itrace_exit(ip)	\
-	_xfs_itrace_exit(ip, __func__, (inst_t *)__return_address)
-#define xfs_itrace_exit_tag(ip, tag)	\
-	_xfs_itrace_exit(ip, tag, (inst_t *)__return_address)
-#define xfs_itrace_ref(ip)	\
-	_xfs_itrace_ref(ip, __FILE__, __LINE__, (inst_t *)__return_address)
-
-#else
-#define	xfs_itrace_entry(a)
-#define	xfs_itrace_exit(a)
-#define	xfs_itrace_exit_tag(a, b)
-#define	xfs_itrace_hold(a, b, c, d)
-#define	xfs_itrace_ref(a)
-#define	xfs_itrace_rele(a, b, c, d)
-#endif
 
 #define IHOLD(ip) \
 do { \
 	ASSERT(atomic_read(&VFS_I(ip)->i_count) > 0) ; \
 	atomic_inc(&(VFS_I(ip)->i_count)); \
-	xfs_itrace_hold((ip), __FILE__, __LINE__, (inst_t *)__return_address); \
+	trace_xfs_ihold(ip, _THIS_IP_); \
 } while (0)
 
 #define IRELE(ip) \
 do { \
-	xfs_itrace_rele((ip), __FILE__, __LINE__, (inst_t *)__return_address); \
+	trace_xfs_irele(ip, _THIS_IP_); \
 	iput(VFS_I(ip)); \
 } while (0)
 
@@ -572,8 +520,6 @@ int		xfs_itobp(struct xfs_mount *, struct xfs_trans *,
 			  struct xfs_buf **, uint);
 int		xfs_iread(struct xfs_mount *, struct xfs_trans *,
 			  struct xfs_inode *, xfs_daddr_t, uint);
-void		xfs_dinode_from_disk(struct xfs_icdinode *,
-				     struct xfs_dinode *);
 void		xfs_dinode_to_disk(struct xfs_dinode *,
 				   struct xfs_icdinode *);
 void		xfs_idestroy_fork(struct xfs_inode *, int);
@@ -583,17 +529,15 @@ int		xfs_iread_extents(struct xfs_trans *, struct xfs_inode *, int);
 int		xfs_iextents_copy(struct xfs_inode *, xfs_bmbt_rec_t *, int);
 
 xfs_bmbt_rec_host_t *xfs_iext_get_ext(xfs_ifork_t *, xfs_extnum_t);
-void		xfs_iext_insert(xfs_ifork_t *, xfs_extnum_t, xfs_extnum_t,
-				xfs_bmbt_irec_t *);
+void		xfs_iext_insert(xfs_inode_t *, xfs_extnum_t, xfs_extnum_t,
+				xfs_bmbt_irec_t *, int);
 void		xfs_iext_add(xfs_ifork_t *, xfs_extnum_t, int);
 void		xfs_iext_add_indirect_multi(xfs_ifork_t *, int, xfs_extnum_t, int);
-void		xfs_iext_remove(xfs_ifork_t *, xfs_extnum_t, int);
+void		xfs_iext_remove(xfs_inode_t *, xfs_extnum_t, int, int);
 void		xfs_iext_remove_inline(xfs_ifork_t *, xfs_extnum_t, int);
 void		xfs_iext_remove_direct(xfs_ifork_t *, xfs_extnum_t, int);
 void		xfs_iext_remove_indirect(xfs_ifork_t *, xfs_extnum_t, int);
 void		xfs_iext_realloc_direct(xfs_ifork_t *, int);
-void		xfs_iext_realloc_indirect(xfs_ifork_t *, int);
-void		xfs_iext_indirect_to_direct(xfs_ifork_t *);
 void		xfs_iext_direct_to_inline(xfs_ifork_t *, xfs_extnum_t);
 void		xfs_iext_inline_to_direct(xfs_ifork_t *, int);
 void		xfs_iext_destroy(xfs_ifork_t *);

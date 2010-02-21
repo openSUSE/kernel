@@ -47,7 +47,7 @@ int *_prom_argv, *_prom_envp;
  */
 #define prom_envp(index) ((char *)(long)_prom_envp[(index)])
 
-int init_debug = 0;
+int init_debug;
 
 static int mips_revision_corid;
 int mips_revision_sconid;
@@ -355,7 +355,6 @@ void __init prom_init(void)
 	board_nmi_handler_setup = mips_nmi_setup;
 	board_ejtag_handler_setup = mips_ejtag_setup;
 
-	pr_info("\nLINUX started...\n");
 	prom_init_cmdline();
 	prom_meminit();
 #ifdef CONFIG_SERIAL_8250_CONSOLE

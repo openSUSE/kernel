@@ -31,6 +31,7 @@
 #include <linux/wait.h>
 #include <linux/slab.h>
 #include <linux/poll.h>
+#include <linux/semaphore.h>
 #include <linux/module.h>
 #include <linux/list.h>
 #include <linux/freezer.h>
@@ -72,6 +73,7 @@ MODULE_PARM_DESC(dvb_mfe_wait_time, "Wait up to <mfe_wait_time> seconds on open(
 #define FESTATE_ZIGZAG_FAST 32
 #define FESTATE_ZIGZAG_SLOW 64
 #define FESTATE_DISEQC 128
+#define FESTATE_ERROR 256
 #define FESTATE_WAITFORLOCK (FESTATE_TUNING_FAST | FESTATE_TUNING_SLOW | FESTATE_ZIGZAG_FAST | FESTATE_ZIGZAG_SLOW | FESTATE_DISEQC)
 #define FESTATE_SEARCHING_FAST (FESTATE_TUNING_FAST | FESTATE_ZIGZAG_FAST)
 #define FESTATE_SEARCHING_SLOW (FESTATE_TUNING_SLOW | FESTATE_ZIGZAG_SLOW)
@@ -101,7 +103,7 @@ struct dvb_frontend_private {
 	struct dvb_device *dvbdev;
 	struct dvb_frontend_parameters parameters;
 	struct dvb_fe_events events;
-	struct anon_semaphore sem;
+	struct semaphore sem;
 	struct list_head list_head;
 	wait_queue_head_t wait_queue;
 	struct task_struct *thread;
@@ -189,12 +191,12 @@ static int dvb_frontend_get_event(struct dvb_frontend *fe,
 		if (flags & O_NONBLOCK)
 			return -EWOULDBLOCK;
 
-		anon_up(&fepriv->sem);
+		up(&fepriv->sem);
 
 		ret = wait_event_interruptible (events->wait_queue,
 						events->eventw != events->eventr);
 
-		if (anon_down_interruptible (&fepriv->sem))
+		if (down_interruptible (&fepriv->sem))
 			return -ERESTARTSYS;
 
 		if (ret < 0)
@@ -269,6 +271,7 @@ static int dvb_frontend_swzigzag_autotune(struct dvb_frontend *fe, int check_wra
 {
 	int autoinversion;
 	int ready = 0;
+	int fe_set_err = 0;
 	struct dvb_frontend_private *fepriv = fe->frontend_priv;
 	int original_inversion = fepriv->parameters.inversion;
 	u32 original_frequency = fepriv->parameters.frequency;
@@ -345,7 +348,11 @@ static int dvb_frontend_swzigzag_autotune(struct dvb_frontend *fe, int check_wra
 	if (autoinversion)
 		fepriv->parameters.inversion = fepriv->inversion;
 	if (fe->ops.set_frontend)
-		fe->ops.set_frontend(fe, &fepriv->parameters);
+		fe_set_err = fe->ops.set_frontend(fe, &fepriv->parameters);
+	if (fe_set_err < 0) {
+		fepriv->state = FESTATE_ERROR;
+		return fe_set_err;
+	}
 
 	fepriv->parameters.frequency = original_frequency;
 	fepriv->parameters.inversion = original_inversion;
@@ -357,6 +364,7 @@ static int dvb_frontend_swzigzag_autotune(struct dvb_frontend *fe, int check_wra
 static void dvb_frontend_swzigzag(struct dvb_frontend *fe)
 {
 	fe_status_t s = 0;
+	int retval = 0;
 	struct dvb_frontend_private *fepriv = fe->frontend_priv;
 
 	/* if we've got no parameters, just keep idling */
@@ -370,8 +378,12 @@ static void dvb_frontend_swzigzag(struct dvb_frontend *fe)
 	if (fepriv->tune_mode_flags & FE_TUNE_MODE_ONESHOT) {
 		if (fepriv->state & FESTATE_RETUNE) {
 			if (fe->ops.set_frontend)
-				fe->ops.set_frontend(fe, &fepriv->parameters);
-			fepriv->state = FESTATE_TUNED;
+				retval = fe->ops.set_frontend(fe,
+							&fepriv->parameters);
+			if (retval < 0)
+				fepriv->state = FESTATE_ERROR;
+			else
+				fepriv->state = FESTATE_TUNED;
 		}
 		fepriv->delay = 3*HZ;
 		fepriv->quality = 0;
@@ -449,7 +461,11 @@ static void dvb_frontend_swzigzag(struct dvb_frontend *fe)
 		fepriv->delay = fepriv->min_delay;
 
 		/* peform a tune */
-		if (dvb_frontend_swzigzag_autotune(fe, fepriv->check_wrapped)) {
+		retval = dvb_frontend_swzigzag_autotune(fe,
+							fepriv->check_wrapped);
+		if (retval < 0) {
+			return;
+		} else if (retval) {
 			/* OK, if we've run out of trials at the fast speed.
 			 * Drop back to slow for the _next_ attempt */
 			fepriv->state = FESTATE_SEARCHING_SLOW;
@@ -534,7 +550,7 @@ static int dvb_frontend_thread(void *data)
 
 	set_freezable();
 	while (1) {
-		anon_up(&fepriv->sem);	    /* is locked when we enter the thread... */
+		up(&fepriv->sem);	    /* is locked when we enter the thread... */
 restart:
 		timeout = wait_event_interruptible_timeout(fepriv->wait_queue,
 			dvb_frontend_should_wakeup(fe) || kthread_should_stop()
@@ -550,7 +566,7 @@ restart:
 		if (try_to_freeze())
 			goto restart;
 
-		if (anon_down_interruptible(&fepriv->sem))
+		if (down_interruptible(&fepriv->sem))
 			break;
 
 		if (fepriv->reinitialise) {
@@ -678,7 +694,7 @@ static void dvb_frontend_stop(struct dvb_frontend *fe)
 
 	kthread_stop(fepriv->thread);
 
-	anon_semaphore_init(&fepriv->sem);
+	sema_init(&fepriv->sem, 1);
 	fepriv->state = FESTATE_IDLE;
 
 	/* paranoia check in case a signal arrived */
@@ -747,7 +763,7 @@ static int dvb_frontend_start(struct dvb_frontend *fe)
 
 	if (signal_pending(current))
 		return -EINTR;
-	if (anon_down_interruptible (&fepriv->sem))
+	if (down_interruptible (&fepriv->sem))
 		return -EINTR;
 
 	fepriv->state = FESTATE_IDLE;
@@ -760,7 +776,7 @@ static int dvb_frontend_start(struct dvb_frontend *fe)
 	if (IS_ERR(fe_thread)) {
 		ret = PTR_ERR(fe_thread);
 		printk("dvb_frontend_start: failed to start kthread (%d)\n", ret);
-		anon_up(&fepriv->sem);
+		up(&fepriv->sem);
 		return ret;
 	}
 	fepriv->thread = fe_thread;
@@ -823,145 +839,132 @@ static int dvb_frontend_check_parameters(struct dvb_frontend *fe,
 		}
 	}
 
+	/* check for supported modulation */
+	if (fe->ops.info.type == FE_QAM &&
+	    (parms->u.qam.modulation > QAM_AUTO ||
+	     !((1 << (parms->u.qam.modulation + 10)) & fe->ops.info.caps))) {
+		printk(KERN_WARNING "DVB: adapter %i frontend %i modulation %u not supported\n",
+		       fe->dvb->num, fe->id, parms->u.qam.modulation);
+			return -EINVAL;
+	}
+
 	return 0;
 }
 
+static int dvb_frontend_clear_cache(struct dvb_frontend *fe)
+{
+	int i;
+
+	memset(&(fe->dtv_property_cache), 0,
+			sizeof(struct dtv_frontend_properties));
+
+	fe->dtv_property_cache.state = DTV_CLEAR;
+	fe->dtv_property_cache.delivery_system = SYS_UNDEFINED;
+	fe->dtv_property_cache.inversion = INVERSION_AUTO;
+	fe->dtv_property_cache.fec_inner = FEC_AUTO;
+	fe->dtv_property_cache.transmission_mode = TRANSMISSION_MODE_AUTO;
+	fe->dtv_property_cache.bandwidth_hz = BANDWIDTH_AUTO;
+	fe->dtv_property_cache.guard_interval = GUARD_INTERVAL_AUTO;
+	fe->dtv_property_cache.hierarchy = HIERARCHY_AUTO;
+	fe->dtv_property_cache.symbol_rate = QAM_AUTO;
+	fe->dtv_property_cache.code_rate_HP = FEC_AUTO;
+	fe->dtv_property_cache.code_rate_LP = FEC_AUTO;
+
+	fe->dtv_property_cache.isdbt_partial_reception = -1;
+	fe->dtv_property_cache.isdbt_sb_mode = -1;
+	fe->dtv_property_cache.isdbt_sb_subchannel = -1;
+	fe->dtv_property_cache.isdbt_sb_segment_idx = -1;
+	fe->dtv_property_cache.isdbt_sb_segment_count = -1;
+	fe->dtv_property_cache.isdbt_layer_enabled = 0x7;
+	for (i = 0; i < 3; i++) {
+		fe->dtv_property_cache.layer[i].fec = FEC_AUTO;
+		fe->dtv_property_cache.layer[i].modulation = QAM_AUTO;
+		fe->dtv_property_cache.layer[i].interleaving = -1;
+		fe->dtv_property_cache.layer[i].segment_count = -1;
+	}
+
+	return 0;
+}
+
+#define _DTV_CMD(n, s, b) \
+[n] = { \
+	.name = #n, \
+	.cmd  = n, \
+	.set  = s,\
+	.buffer = b \
+}
+
 static struct dtv_cmds_h dtv_cmds[] = {
-	[DTV_TUNE] = {
-		.name	= "DTV_TUNE",
-		.cmd	= DTV_TUNE,
-		.set	= 1,
-	},
-	[DTV_CLEAR] = {
-		.name	= "DTV_CLEAR",
-		.cmd	= DTV_CLEAR,
-		.set	= 1,
-	},
+	_DTV_CMD(DTV_TUNE, 1, 0),
+	_DTV_CMD(DTV_CLEAR, 1, 0),
 
 	/* Set */
-	[DTV_FREQUENCY] = {
-		.name	= "DTV_FREQUENCY",
-		.cmd	= DTV_FREQUENCY,
-		.set	= 1,
-	},
-	[DTV_BANDWIDTH_HZ] = {
-		.name	= "DTV_BANDWIDTH_HZ",
-		.cmd	= DTV_BANDWIDTH_HZ,
-		.set	= 1,
-	},
-	[DTV_MODULATION] = {
-		.name	= "DTV_MODULATION",
-		.cmd	= DTV_MODULATION,
-		.set	= 1,
-	},
-	[DTV_INVERSION] = {
-		.name	= "DTV_INVERSION",
-		.cmd	= DTV_INVERSION,
-		.set	= 1,
-	},
-	[DTV_DISEQC_MASTER] = {
-		.name	= "DTV_DISEQC_MASTER",
-		.cmd	= DTV_DISEQC_MASTER,
-		.set	= 1,
-		.buffer	= 1,
-	},
-	[DTV_SYMBOL_RATE] = {
-		.name	= "DTV_SYMBOL_RATE",
-		.cmd	= DTV_SYMBOL_RATE,
-		.set	= 1,
-	},
-	[DTV_INNER_FEC] = {
-		.name	= "DTV_INNER_FEC",
-		.cmd	= DTV_INNER_FEC,
-		.set	= 1,
-	},
-	[DTV_VOLTAGE] = {
-		.name	= "DTV_VOLTAGE",
-		.cmd	= DTV_VOLTAGE,
-		.set	= 1,
-	},
-	[DTV_TONE] = {
-		.name	= "DTV_TONE",
-		.cmd	= DTV_TONE,
-		.set	= 1,
-	},
-	[DTV_PILOT] = {
-		.name	= "DTV_PILOT",
-		.cmd	= DTV_PILOT,
-		.set	= 1,
-	},
-	[DTV_ROLLOFF] = {
-		.name	= "DTV_ROLLOFF",
-		.cmd	= DTV_ROLLOFF,
-		.set	= 1,
-	},
-	[DTV_DELIVERY_SYSTEM] = {
-		.name	= "DTV_DELIVERY_SYSTEM",
-		.cmd	= DTV_DELIVERY_SYSTEM,
-		.set	= 1,
-	},
-	[DTV_HIERARCHY] = {
-		.name	= "DTV_HIERARCHY",
-		.cmd	= DTV_HIERARCHY,
-		.set	= 1,
-	},
-	[DTV_CODE_RATE_HP] = {
-		.name	= "DTV_CODE_RATE_HP",
-		.cmd	= DTV_CODE_RATE_HP,
-		.set	= 1,
-	},
-	[DTV_CODE_RATE_LP] = {
-		.name	= "DTV_CODE_RATE_LP",
-		.cmd	= DTV_CODE_RATE_LP,
-		.set	= 1,
-	},
-	[DTV_GUARD_INTERVAL] = {
-		.name	= "DTV_GUARD_INTERVAL",
-		.cmd	= DTV_GUARD_INTERVAL,
-		.set	= 1,
-	},
-	[DTV_TRANSMISSION_MODE] = {
-		.name	= "DTV_TRANSMISSION_MODE",
-		.cmd	= DTV_TRANSMISSION_MODE,
-		.set	= 1,
-	},
+	_DTV_CMD(DTV_FREQUENCY, 1, 0),
+	_DTV_CMD(DTV_BANDWIDTH_HZ, 1, 0),
+	_DTV_CMD(DTV_MODULATION, 1, 0),
+	_DTV_CMD(DTV_INVERSION, 1, 0),
+	_DTV_CMD(DTV_DISEQC_MASTER, 1, 1),
+	_DTV_CMD(DTV_SYMBOL_RATE, 1, 0),
+	_DTV_CMD(DTV_INNER_FEC, 1, 0),
+	_DTV_CMD(DTV_VOLTAGE, 1, 0),
+	_DTV_CMD(DTV_TONE, 1, 0),
+	_DTV_CMD(DTV_PILOT, 1, 0),
+	_DTV_CMD(DTV_ROLLOFF, 1, 0),
+	_DTV_CMD(DTV_DELIVERY_SYSTEM, 1, 0),
+	_DTV_CMD(DTV_HIERARCHY, 1, 0),
+	_DTV_CMD(DTV_CODE_RATE_HP, 1, 0),
+	_DTV_CMD(DTV_CODE_RATE_LP, 1, 0),
+	_DTV_CMD(DTV_GUARD_INTERVAL, 1, 0),
+	_DTV_CMD(DTV_TRANSMISSION_MODE, 1, 0),
+
+	_DTV_CMD(DTV_ISDBT_PARTIAL_RECEPTION, 1, 0),
+	_DTV_CMD(DTV_ISDBT_SOUND_BROADCASTING, 1, 0),
+	_DTV_CMD(DTV_ISDBT_SB_SUBCHANNEL_ID, 1, 0),
+	_DTV_CMD(DTV_ISDBT_SB_SEGMENT_IDX, 1, 0),
+	_DTV_CMD(DTV_ISDBT_SB_SEGMENT_COUNT, 1, 0),
+	_DTV_CMD(DTV_ISDBT_LAYER_ENABLED, 1, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERA_FEC, 1, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERA_MODULATION, 1, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERA_SEGMENT_COUNT, 1, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERA_TIME_INTERLEAVING, 1, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERB_FEC, 1, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERB_MODULATION, 1, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERB_SEGMENT_COUNT, 1, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERB_TIME_INTERLEAVING, 1, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERC_FEC, 1, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERC_MODULATION, 1, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERC_SEGMENT_COUNT, 1, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERC_TIME_INTERLEAVING, 1, 0),
+
+	_DTV_CMD(DTV_ISDBT_PARTIAL_RECEPTION, 0, 0),
+	_DTV_CMD(DTV_ISDBT_SOUND_BROADCASTING, 0, 0),
+	_DTV_CMD(DTV_ISDBT_SB_SUBCHANNEL_ID, 0, 0),
+	_DTV_CMD(DTV_ISDBT_SB_SEGMENT_IDX, 0, 0),
+	_DTV_CMD(DTV_ISDBT_SB_SEGMENT_COUNT, 0, 0),
+	_DTV_CMD(DTV_ISDBT_LAYER_ENABLED, 0, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERA_FEC, 0, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERA_MODULATION, 0, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERA_SEGMENT_COUNT, 0, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERA_TIME_INTERLEAVING, 0, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERB_FEC, 0, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERB_MODULATION, 0, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERB_SEGMENT_COUNT, 0, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERB_TIME_INTERLEAVING, 0, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERC_FEC, 0, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERC_MODULATION, 0, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERC_SEGMENT_COUNT, 0, 0),
+	_DTV_CMD(DTV_ISDBT_LAYERC_TIME_INTERLEAVING, 0, 0),
+
+	_DTV_CMD(DTV_ISDBS_TS_ID, 1, 0),
+
 	/* Get */
-	[DTV_DISEQC_SLAVE_REPLY] = {
-		.name	= "DTV_DISEQC_SLAVE_REPLY",
-		.cmd	= DTV_DISEQC_SLAVE_REPLY,
-		.set	= 0,
-		.buffer	= 1,
-	},
-	[DTV_API_VERSION] = {
-		.name	= "DTV_API_VERSION",
-		.cmd	= DTV_API_VERSION,
-		.set	= 0,
-	},
-	[DTV_CODE_RATE_HP] = {
-		.name	= "DTV_CODE_RATE_HP",
-		.cmd	= DTV_CODE_RATE_HP,
-		.set	= 0,
-	},
-	[DTV_CODE_RATE_LP] = {
-		.name	= "DTV_CODE_RATE_LP",
-		.cmd	= DTV_CODE_RATE_LP,
-		.set	= 0,
-	},
-	[DTV_GUARD_INTERVAL] = {
-		.name	= "DTV_GUARD_INTERVAL",
-		.cmd	= DTV_GUARD_INTERVAL,
-		.set	= 0,
-	},
-	[DTV_TRANSMISSION_MODE] = {
-		.name	= "DTV_TRANSMISSION_MODE",
-		.cmd	= DTV_TRANSMISSION_MODE,
-		.set	= 0,
-	},
-	[DTV_HIERARCHY] = {
-		.name	= "DTV_HIERARCHY",
-		.cmd	= DTV_HIERARCHY,
-		.set	= 0,
-	},
+	_DTV_CMD(DTV_DISEQC_SLAVE_REPLY, 0, 1),
+	_DTV_CMD(DTV_API_VERSION, 0, 0),
+	_DTV_CMD(DTV_CODE_RATE_HP, 0, 0),
+	_DTV_CMD(DTV_CODE_RATE_LP, 0, 0),
+	_DTV_CMD(DTV_GUARD_INTERVAL, 0, 0),
+	_DTV_CMD(DTV_TRANSMISSION_MODE, 0, 0),
+	_DTV_CMD(DTV_HIERARCHY, 0, 0),
 };
 
 static void dtv_property_dump(struct dtv_property *tvp)
@@ -1141,14 +1144,21 @@ static void dtv_property_adv_params_sync(struct dvb_frontend *fe)
 	if(c->delivery_system == SYS_ISDBT) {
 		/* Fake out a generic DVB-T request so we pass validation in the ioctl */
 		p->frequency = c->frequency;
-		p->inversion = INVERSION_AUTO;
+		p->inversion = c->inversion;
 		p->u.ofdm.constellation = QAM_AUTO;
 		p->u.ofdm.code_rate_HP = FEC_AUTO;
 		p->u.ofdm.code_rate_LP = FEC_AUTO;
-		p->u.ofdm.bandwidth = BANDWIDTH_AUTO;
 		p->u.ofdm.transmission_mode = TRANSMISSION_MODE_AUTO;
 		p->u.ofdm.guard_interval = GUARD_INTERVAL_AUTO;
 		p->u.ofdm.hierarchy_information = HIERARCHY_AUTO;
+		if (c->bandwidth_hz == 8000000)
+			p->u.ofdm.bandwidth = BANDWIDTH_8_MHZ;
+		else if (c->bandwidth_hz == 7000000)
+			p->u.ofdm.bandwidth = BANDWIDTH_7_MHZ;
+		else if (c->bandwidth_hz == 6000000)
+			p->u.ofdm.bandwidth = BANDWIDTH_6_MHZ;
+		else
+			p->u.ofdm.bandwidth = BANDWIDTH_AUTO;
 	}
 }
 
@@ -1250,6 +1260,65 @@ static int dtv_property_process_get(struct dvb_frontend *fe,
 	case DTV_HIERARCHY:
 		tvp->u.data = fe->dtv_property_cache.hierarchy;
 		break;
+
+	/* ISDB-T Support here */
+	case DTV_ISDBT_PARTIAL_RECEPTION:
+		tvp->u.data = fe->dtv_property_cache.isdbt_partial_reception;
+		break;
+	case DTV_ISDBT_SOUND_BROADCASTING:
+		tvp->u.data = fe->dtv_property_cache.isdbt_sb_mode;
+		break;
+	case DTV_ISDBT_SB_SUBCHANNEL_ID:
+		tvp->u.data = fe->dtv_property_cache.isdbt_sb_subchannel;
+		break;
+	case DTV_ISDBT_SB_SEGMENT_IDX:
+		tvp->u.data = fe->dtv_property_cache.isdbt_sb_segment_idx;
+		break;
+	case DTV_ISDBT_SB_SEGMENT_COUNT:
+		tvp->u.data = fe->dtv_property_cache.isdbt_sb_segment_count;
+		break;
+	case DTV_ISDBT_LAYER_ENABLED:
+		tvp->u.data = fe->dtv_property_cache.isdbt_layer_enabled;
+		break;
+	case DTV_ISDBT_LAYERA_FEC:
+		tvp->u.data = fe->dtv_property_cache.layer[0].fec;
+		break;
+	case DTV_ISDBT_LAYERA_MODULATION:
+		tvp->u.data = fe->dtv_property_cache.layer[0].modulation;
+		break;
+	case DTV_ISDBT_LAYERA_SEGMENT_COUNT:
+		tvp->u.data = fe->dtv_property_cache.layer[0].segment_count;
+		break;
+	case DTV_ISDBT_LAYERA_TIME_INTERLEAVING:
+		tvp->u.data = fe->dtv_property_cache.layer[0].interleaving;
+		break;
+	case DTV_ISDBT_LAYERB_FEC:
+		tvp->u.data = fe->dtv_property_cache.layer[1].fec;
+		break;
+	case DTV_ISDBT_LAYERB_MODULATION:
+		tvp->u.data = fe->dtv_property_cache.layer[1].modulation;
+		break;
+	case DTV_ISDBT_LAYERB_SEGMENT_COUNT:
+		tvp->u.data = fe->dtv_property_cache.layer[1].segment_count;
+		break;
+	case DTV_ISDBT_LAYERB_TIME_INTERLEAVING:
+		tvp->u.data = fe->dtv_property_cache.layer[1].interleaving;
+		break;
+	case DTV_ISDBT_LAYERC_FEC:
+		tvp->u.data = fe->dtv_property_cache.layer[2].fec;
+		break;
+	case DTV_ISDBT_LAYERC_MODULATION:
+		tvp->u.data = fe->dtv_property_cache.layer[2].modulation;
+		break;
+	case DTV_ISDBT_LAYERC_SEGMENT_COUNT:
+		tvp->u.data = fe->dtv_property_cache.layer[2].segment_count;
+		break;
+	case DTV_ISDBT_LAYERC_TIME_INTERLEAVING:
+		tvp->u.data = fe->dtv_property_cache.layer[2].interleaving;
+		break;
+	case DTV_ISDBS_TS_ID:
+		tvp->u.data = fe->dtv_property_cache.isdbs_ts_id;
+		break;
 	default:
 		r = -1;
 	}
@@ -1278,10 +1347,8 @@ static int dtv_property_process_set(struct dvb_frontend *fe,
 		/* Reset a cache of data specific to the frontend here. This does
 		 * not effect hardware.
 		 */
+		dvb_frontend_clear_cache(fe);
 		dprintk("%s() Flushing property cache\n", __func__);
-		memset(&fe->dtv_property_cache, 0, sizeof(struct dtv_frontend_properties));
-		fe->dtv_property_cache.state = tvp->cmd;
-		fe->dtv_property_cache.delivery_system = SYS_UNDEFINED;
 		break;
 	case DTV_TUNE:
 		/* interpret the cache of data, build either a traditional frontend
@@ -1347,6 +1414,65 @@ static int dtv_property_process_set(struct dvb_frontend *fe,
 	case DTV_HIERARCHY:
 		fe->dtv_property_cache.hierarchy = tvp->u.data;
 		break;
+
+	/* ISDB-T Support here */
+	case DTV_ISDBT_PARTIAL_RECEPTION:
+		fe->dtv_property_cache.isdbt_partial_reception = tvp->u.data;
+		break;
+	case DTV_ISDBT_SOUND_BROADCASTING:
+		fe->dtv_property_cache.isdbt_sb_mode = tvp->u.data;
+		break;
+	case DTV_ISDBT_SB_SUBCHANNEL_ID:
+		fe->dtv_property_cache.isdbt_sb_subchannel = tvp->u.data;
+		break;
+	case DTV_ISDBT_SB_SEGMENT_IDX:
+		fe->dtv_property_cache.isdbt_sb_segment_idx = tvp->u.data;
+		break;
+	case DTV_ISDBT_SB_SEGMENT_COUNT:
+		fe->dtv_property_cache.isdbt_sb_segment_count = tvp->u.data;
+		break;
+	case DTV_ISDBT_LAYER_ENABLED:
+		fe->dtv_property_cache.isdbt_layer_enabled = tvp->u.data;
+		break;
+	case DTV_ISDBT_LAYERA_FEC:
+		fe->dtv_property_cache.layer[0].fec = tvp->u.data;
+		break;
+	case DTV_ISDBT_LAYERA_MODULATION:
+		fe->dtv_property_cache.layer[0].modulation = tvp->u.data;
+		break;
+	case DTV_ISDBT_LAYERA_SEGMENT_COUNT:
+		fe->dtv_property_cache.layer[0].segment_count = tvp->u.data;
+		break;
+	case DTV_ISDBT_LAYERA_TIME_INTERLEAVING:
+		fe->dtv_property_cache.layer[0].interleaving = tvp->u.data;
+		break;
+	case DTV_ISDBT_LAYERB_FEC:
+		fe->dtv_property_cache.layer[1].fec = tvp->u.data;
+		break;
+	case DTV_ISDBT_LAYERB_MODULATION:
+		fe->dtv_property_cache.layer[1].modulation = tvp->u.data;
+		break;
+	case DTV_ISDBT_LAYERB_SEGMENT_COUNT:
+		fe->dtv_property_cache.layer[1].segment_count = tvp->u.data;
+		break;
+	case DTV_ISDBT_LAYERB_TIME_INTERLEAVING:
+		fe->dtv_property_cache.layer[1].interleaving = tvp->u.data;
+		break;
+	case DTV_ISDBT_LAYERC_FEC:
+		fe->dtv_property_cache.layer[2].fec = tvp->u.data;
+		break;
+	case DTV_ISDBT_LAYERC_MODULATION:
+		fe->dtv_property_cache.layer[2].modulation = tvp->u.data;
+		break;
+	case DTV_ISDBT_LAYERC_SEGMENT_COUNT:
+		fe->dtv_property_cache.layer[2].segment_count = tvp->u.data;
+		break;
+	case DTV_ISDBT_LAYERC_TIME_INTERLEAVING:
+		fe->dtv_property_cache.layer[2].interleaving = tvp->u.data;
+		break;
+	case DTV_ISDBS_TS_ID:
+		fe->dtv_property_cache.isdbs_ts_id = tvp->u.data;
+		break;
 	default:
 		r = -1;
 	}
@@ -1372,7 +1498,7 @@ static int dvb_frontend_ioctl(struct inode *inode, struct file *file,
 	     cmd == FE_DISEQC_RECV_SLAVE_REPLY))
 		return -EPERM;
 
-	if (anon_down_interruptible (&fepriv->sem))
+	if (down_interruptible (&fepriv->sem))
 		return -ERESTARTSYS;
 
 	if ((cmd == FE_SET_PROPERTY) || (cmd == FE_GET_PROPERTY))
@@ -1382,7 +1508,7 @@ static int dvb_frontend_ioctl(struct inode *inode, struct file *file,
 		err = dvb_frontend_ioctl_legacy(inode, file, cmd, parg);
 	}
 
-	anon_up(&fepriv->sem);
+	up(&fepriv->sem);
 	return err;
 }
 
@@ -1479,7 +1605,18 @@ static int dvb_frontend_ioctl_legacy(struct inode *inode, struct file *file,
 	struct dvb_device *dvbdev = file->private_data;
 	struct dvb_frontend *fe = dvbdev->priv;
 	struct dvb_frontend_private *fepriv = fe->frontend_priv;
-	int err = -EOPNOTSUPP;
+	int cb_err, err = -EOPNOTSUPP;
+
+	if (fe->dvb->fe_ioctl_override) {
+		cb_err = fe->dvb->fe_ioctl_override(fe, cmd, parg,
+						    DVB_FE_IOCTL_PRE);
+		if (cb_err < 0)
+			return cb_err;
+		if (cb_err > 0)
+			return 0;
+		/* fe_ioctl_override returning 0 allows
+		 * dvb-core to continue handling the ioctl */
+	}
 
 	switch (cmd) {
 	case FE_GET_INFO: {
@@ -1499,7 +1636,8 @@ static int dvb_frontend_ioctl_legacy(struct inode *inode, struct file *file,
 
 		/* if retune was requested but hasn't occured yet, prevent
 		 * that user get signal state from previous tuning */
-		if(fepriv->state == FESTATE_RETUNE) {
+		if (fepriv->state == FESTATE_RETUNE ||
+		    fepriv->state == FESTATE_ERROR) {
 			err=0;
 			*status = 0;
 			break;
@@ -1744,6 +1882,13 @@ static int dvb_frontend_ioctl_legacy(struct inode *inode, struct file *file,
 		break;
 	};
 
+	if (fe->dvb->fe_ioctl_override) {
+		cb_err = fe->dvb->fe_ioctl_override(fe, cmd, parg,
+						    DVB_FE_IOCTL_POST);
+		if (cb_err < 0)
+			return cb_err;
+	}
+
 	return err;
 }
 
@@ -1909,7 +2054,7 @@ int dvb_register_frontend(struct dvb_adapter* dvb,
 	}
 	fepriv = fe->frontend_priv;
 
-	anon_semaphore_init(&fepriv->sem);
+	sema_init(&fepriv->sem, 1);
 	init_waitqueue_head (&fepriv->wait_queue);
 	init_waitqueue_head (&fepriv->events.wait_queue);
 	mutex_init(&fepriv->events.mtx);

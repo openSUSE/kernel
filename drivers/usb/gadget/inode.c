@@ -30,6 +30,7 @@
 #include <linux/wait.h>
 #include <linux/compiler.h>
 #include <asm/uaccess.h>
+#include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/poll.h>
 #include <linux/smp_lock.h>
@@ -297,7 +298,7 @@ get_ready_ep (unsigned f_flags, struct ep_data *epdata)
 	int	val;
 
 	if (f_flags & O_NONBLOCK) {
-		if (mutex_trylock(&epdata->lock) != 0)
+		if (!mutex_trylock(&epdata->lock))
 			goto nonblock;
 		if (epdata->state != STATE_EP_ENABLED) {
 			mutex_unlock(&epdata->lock);
@@ -2036,7 +2037,7 @@ gadgetfs_create_file (struct super_block *sb, char const *name,
 	return inode;
 }
 
-static struct super_operations gadget_fs_operations = {
+static const struct super_operations gadget_fs_operations = {
 	.statfs =	simple_statfs,
 	.drop_inode =	generic_delete_inode,
 };

@@ -24,43 +24,26 @@ histograms of potential sources of latency, the kernel stores the time
 stamp at the start of a critical section, determines the time elapsed
 when the end of the section is reached, and increments the frequency
 counter of that latency value - irrespective of whether any concurrently
-running process is affected by this latency or not.
+running process is affected by latency or not.
 - Configuration items (in the Kernel hacking/Tracers submenu)
-  CONFIG_INTERRUPT_OFF_HIST
-  CONFIG_PREEMPT_OFF_HIST
+  CONFIG_INTERRUPT_OFF_LATENCY
+  CONFIG_PREEMPT_OFF_LATENCY
 
 
 * Effective latencies
-There are two types of effective latencies, wakeup latencies and missed
-timer latencies
 
-* Wakeup latencies
-Wakeup latencies may occur during wakeup of a process. To determine
-wakeup latencies, the kernel stores the time stamp when a process is
-scheduled to be woken up, and determines the duration of the wakeup time
-shortly before control is passed over to this process. Note that the
-apparent latency in user space may be considerably longer, since
-i) interrupts may be disabled preventing the timer from waking up a process
-in time
+Effective latencies are actually occuring during wakeup of a process. To
+determine effective latencies, the kernel stores the time stamp when a
+process is scheduled to be woken up, and determines the duration of the
+wakeup time shortly before control is passed over to this process. Note
+that the apparent latency in user space may be considerably longer,
+since
+i) interrupts may be disabled preventing the scheduler from initiating
+the wakeup mechanism, and
 ii) the process may be interrupted after control is passed over to it
 but before user space execution takes place.
-If a particular wakeup latency is highest so far, details of the task
-that is suffering from this latency are stored as well (see below).
 - Configuration item (in the Kernel hacking/Tracers submenu)
-  CONFIG_WAKEUP_LATENCY_HIST
-
-* Missed timer latencies
-
-Missed timer latencies occur when a timer interrupt is serviced later
-than it should. This is mainly due to disabled interrupts. To determine
-the missed timer latency, the expected and the real execution time of a
-timer are compared. If the former precedes the latter, the difference is
-entered into the missed timer offsets histogram. If the timer is
-responsible to wakeup a sleeping process and the latency is highest so
-far among previous wakeup timers, details of the related task are stored
-as well (see below).
-- Configuration item (in the Kernel hacking/Tracers submenu)
-  CONFIG_MISSED_TIMER_OFFSETS_HIST
+  CONFIG_WAKEUP_LATENCY
 
 
 * Usage
@@ -76,36 +59,30 @@ from shell command line level, or add
 nodev	/sys			sysfs	defaults	0 0
 nodev	/sys/kernel/debug	debugfs	defaults	0 0
 
-to the file /etc/fstab in order to implicitly mount the debug file
-system at every reboot. All latency histogram related files are
+to the file /etc/fstab. All latency histogram related files are
 available in the directory /sys/kernel/debug/tracing/latency_hist. A
 particular histogram type is enabled by writing non-zero to the related
 variable in the /sys/kernel/debug/tracing/latency_hist/enable directory.
-Select "preemptirqsoff" for histograms of potential sources of
-latencies, "wakeup" for histograms of wakeup latencies and
-"missed_timer_offsets" for histograms of missed timer offsets,
-respectively.
+Select "preemptirqsoff" for the histograms of potential sources of
+latencies and "wakeup" for histograms of effective latencies. The
+histogram data - one per CPU - are available in the files
 
-The histogram data - one per CPU - are available in the files
 /sys/kernel/debug/tracing/latency_hist/preemptoff/CPUx
 /sys/kernel/debug/tracing/latency_hist/irqsoff/CPUx
 /sys/kernel/debug/tracing/latency_hist/preemptirqsoff/CPUx
 /sys/kernel/debug/tracing/latency_hist/wakeup/CPUx.
-/sys/kernel/debug/tracing/latency_hist/wakeup/sharedprio/CPUx.
-/sys/kernel/debug/tracing/latency_hist/missed_timer_offsets/CPUx.
 
 The histograms are reset by writing non-zero to the file "reset" in a
 particular latency directory. To reset all latency data, use
 
-#!/bin/bash
+#!/bin/sh
 
-TRACINGDIR=/sys/kernel/debug/tracing
-HISTDIR=$TRACINGDIR/latency_hist
+HISTDIR=/sys/kernel/debug/tracing/latency_hist
 
 if test -d $HISTDIR
 then
   cd $HISTDIR
-  for i in `find . | grep /reset$`
+  for i in */reset
   do
     echo 1 >$i
   done
@@ -115,19 +92,19 @@ fi
 * Data format
 
 Latency data are stored with a resolution of one microsecond. The
-maximum latency is 10,240 microseconds. Every output line contains the
-latency in microseconds in the first row and the number of samples in
-the second row. To display only lines with a positive latency count,
-use, for example,
+maximum latency is 10,240 microseconds. The data are only valid, if the
+overflow register is empty. Every output line contains the latency in
+microseconds in the first row and the number of samples in the second
+row. To display only lines with a positive latency count, use, for
+example,
 
 grep -v " 0$" /sys/kernel/debug/tracing/latency_hist/preemptoff/CPU0
 
-#Minimum latency: 0 microseconds
-#Average latency: 0 microseconds
-#Maximum latency: 25 microseconds
+#Minimum latency: 0 microseconds.
+#Average latency: 0 microseconds.
+#Maximum latency: 25 microseconds.
 #Total samples: 3104770694
-#There are 0 samples lower than 0 microseconds.
-#There are 0 samples greater or equal than 10240 microseconds.
+#There are 0 samples greater or equal than 10240 microseconds
 #usecs	         samples
     0	      2984486876
     1	        49843506
@@ -156,23 +133,6 @@ grep -v " 0$" /sys/kernel/debug/tracing/latency_hist/preemptoff/CPU0
    25	               1
 
 
-* Two types of wakeup latency histograms
-
-Two different algorithms are used to determine the wakeup latency of a
-process. One of them only considers processes that exclusively use the
-highest priority of the system, the other one records the wakeup latency
-of a process even if it shares the highest system latency with other
-processes. The former is used to determine the worst-case latency of a
-system; if higher than expected, the hardware and or system software
-(e.g. the Linux kernel) may need to be debugged and fixed. The latter
-reflects the priority design of a given system; if higher than expected,
-the system design may need to be re-evaluated - the hardware
-manufacturer or the kernel developers must not be blamed for such
-latencies. The exclusive-priority wakeup latency histograms are located
-in the "wakeup" subdirectory, the shared-priority histograms are located
-in the "wakeup/sharedprio" subdirectory.
-
-
 * Wakeup latency of a selected process
 
 To only collect wakeup latency data of a particular process, write the
@@ -183,18 +143,14 @@ PID of the requested process to
 PIDs are not considered, if this variable is set to 0.
 
 
-* Details of processes with the highest wakeup or missed timer
-latency so far
+* Details of the process with the highest wakeup latency so far
 
-Selected data of processes that suffered from the highest wakeup or
-missed timer latency that occurred on a particular CPU are available in
-the files
+Selected data of the process that suffered from the highest wakeup
+latency that occurred in a particular CPU are available in the file
 
-/sys/kernel/debug/tracing/latency_hist/wakeup/max_latency-CPUx
-/sys/kernel/debug/tracing/latency_hist/wakeup/sharedprio/max_latency-CPUx
-/sys/kernel/debug/tracing/latency_hist/missed_timer_offsets/max_latency-CPUx
+/sys/kernel/debug/tracing/latency_hist/wakeup/max_latency-CPUx.
 
 The format of the data is
 <PID> <Priority> <Latency> <Command>
 
-These data are also reset when the related histograms are reset.
+These data are also reset when the wakeup histogram ist reset.

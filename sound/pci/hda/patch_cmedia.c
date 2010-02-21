@@ -66,7 +66,7 @@ struct cmi_spec {
 
 	struct hda_pcm pcm_rec[2];	/* PCM information */
 
-	/* pin deafault configuration */
+	/* pin default configuration */
 	hda_nid_t pin_nid[NUM_PINS];
 	unsigned int def_conf[NUM_PINS];
 	unsigned int pin_def_confs;
@@ -197,8 +197,8 @@ static struct snd_kcontrol_new cmi9880_basic_mixer[] = {
 	HDA_CODEC_VOLUME_IDX("Capture Volume", 1, 0x09, 0, HDA_INPUT),
 	HDA_CODEC_MUTE("Capture Switch", 0x08, 0, HDA_INPUT),
 	HDA_CODEC_MUTE_IDX("Capture Switch", 1, 0x09, 0, HDA_INPUT),
-	HDA_CODEC_VOLUME("PC Speaker Playback Volume", 0x23, 0, HDA_OUTPUT),
-	HDA_CODEC_MUTE("PC Speaker Playback Switch", 0x23, 0, HDA_OUTPUT),
+	HDA_CODEC_VOLUME("Beep Playback Volume", 0x23, 0, HDA_OUTPUT),
+	HDA_CODEC_MUTE("Beep Playback Switch", 0x23, 0, HDA_OUTPUT),
 	{ } /* end */
 };
 
@@ -635,7 +635,8 @@ static int patch_cmi9880(struct hda_codec *codec)
 							cmi9880_models,
 							cmi9880_cfg_tbl);
 	if (spec->board_config < 0) {
-		snd_printdd(KERN_INFO "hda_codec: Unknown model for CMI9880\n");
+		snd_printdd(KERN_INFO "hda_codec: %s: BIOS auto-probing.\n",
+			    codec->chip_name);
 		spec->board_config = CMI_AUTO; /* try everything */
 	}
 

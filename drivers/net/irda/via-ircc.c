@@ -87,10 +87,10 @@ static int via_ircc_close(struct via_ircc_cb *self);
 static int via_ircc_dma_receive(struct via_ircc_cb *self);
 static int via_ircc_dma_receive_complete(struct via_ircc_cb *self,
 					 int iobase);
-static int via_ircc_hard_xmit_sir(struct sk_buff *skb,
-				  struct net_device *dev);
-static int via_ircc_hard_xmit_fir(struct sk_buff *skb,
-				  struct net_device *dev);
+static netdev_tx_t via_ircc_hard_xmit_sir(struct sk_buff *skb,
+						struct net_device *dev);
+static netdev_tx_t via_ircc_hard_xmit_fir(struct sk_buff *skb,
+						struct net_device *dev);
 static void via_hw_init(struct via_ircc_cb *self);
 static void via_ircc_change_speed(struct via_ircc_cb *self, __u32 baud);
 static irqreturn_t via_ircc_interrupt(int irq, void *dev_id);
@@ -823,8 +823,8 @@ static void via_ircc_change_speed(struct via_ircc_cb *self, __u32 speed)
  *    Transmit the frame!
  *
  */
-static int via_ircc_hard_xmit_sir(struct sk_buff *skb,
-				  struct net_device *dev)
+static netdev_tx_t via_ircc_hard_xmit_sir(struct sk_buff *skb,
+						struct net_device *dev)
 {
 	struct via_ircc_cb *self;
 	unsigned long flags;
@@ -832,7 +832,7 @@ static int via_ircc_hard_xmit_sir(struct sk_buff *skb,
 	__u32 speed;
 
 	self = netdev_priv(dev);
-	IRDA_ASSERT(self != NULL, return 0;);
+	IRDA_ASSERT(self != NULL, return NETDEV_TX_OK;);
 	iobase = self->io.fir_base;
 
 	netif_stop_queue(dev);
@@ -844,7 +844,7 @@ static int via_ircc_hard_xmit_sir(struct sk_buff *skb,
 			via_ircc_change_speed(self, speed);
 			dev->trans_start = jiffies;
 			dev_kfree_skb(skb);
-			return 0;
+			return NETDEV_TX_OK;
 		} else
 			self->new_speed = speed;
 	}
@@ -892,11 +892,11 @@ static int via_ircc_hard_xmit_sir(struct sk_buff *skb,
 	dev->trans_start = jiffies;
 	spin_unlock_irqrestore(&self->lock, flags);
 	dev_kfree_skb(skb);
-	return 0;
+	return NETDEV_TX_OK;
 }
 
-static int via_ircc_hard_xmit_fir(struct sk_buff *skb,
-				  struct net_device *dev)
+static netdev_tx_t via_ircc_hard_xmit_fir(struct sk_buff *skb,
+						struct net_device *dev)
 {
 	struct via_ircc_cb *self;
 	u16 iobase;
@@ -907,7 +907,7 @@ static int via_ircc_hard_xmit_fir(struct sk_buff *skb,
 	iobase = self->io.fir_base;
 
 	if (self->st_fifo.len)
-		return 0;
+		return NETDEV_TX_OK;
 	if (self->chip_id == 0x3076)
 		iodelay(1500);
 	else
@@ -919,7 +919,7 @@ static int via_ircc_hard_xmit_fir(struct sk_buff *skb,
 			via_ircc_change_speed(self, speed);
 			dev->trans_start = jiffies;
 			dev_kfree_skb(skb);
-			return 0;
+			return NETDEV_TX_OK;
 		} else
 			self->new_speed = speed;
 	}
@@ -940,7 +940,7 @@ static int via_ircc_hard_xmit_fir(struct sk_buff *skb,
 	dev->trans_start = jiffies;
 	dev_kfree_skb(skb);
 	spin_unlock_irqrestore(&self->lock, flags);
-	return 0;
+	return NETDEV_TX_OK;
 
 }
 
@@ -1185,8 +1185,8 @@ F01_E */
 		 * if frame size,data ptr,or skb ptr are wrong ,the get next
 		 * entry.
 		 */
-		if ((skb == NULL) || (skb->data == NULL)
-		    || (self->rx_buff.data == NULL) || (len < 6)) {
+		if ((skb == NULL) || (skb->data == NULL) ||
+		    (self->rx_buff.data == NULL) || (len < 6)) {
 			self->netdev->stats.rx_dropped++;
 			return TRUE;
 		}
@@ -1284,8 +1284,8 @@ static int RxTimerHandler(struct via_ircc_cb *self, int iobase)
 		self->RetryCount++;
 
 	if ((self->RetryCount >= 1) ||
-	    ((st_fifo->pending_bytes + 2048) > self->rx_buff.truesize)
-	    || (st_fifo->len >= (MAX_RX_WINDOW))) {
+	    ((st_fifo->pending_bytes + 2048) > self->rx_buff.truesize) ||
+	    (st_fifo->len >= (MAX_RX_WINDOW))) {
 		while (st_fifo->len > 0) {	//upload frame
 			// Put this entry back in fifo 
 			if (st_fifo->head > MAX_RX_WINDOW)
@@ -1300,8 +1300,8 @@ static int RxTimerHandler(struct via_ircc_cb *self, int iobase)
 			 * if frame size, data ptr, or skb ptr are wrong,
 			 * then get next entry.
 			 */
-			if ((skb == NULL) || (skb->data == NULL)
-			    || (self->rx_buff.data == NULL) || (len < 6)) {
+			if ((skb == NULL) || (skb->data == NULL) ||
+			    (self->rx_buff.data == NULL) || (len < 6)) {
 				self->netdev->stats.rx_dropped++;
 				continue;
 			}
@@ -1332,8 +1332,8 @@ static int RxTimerHandler(struct via_ircc_cb *self, int iobase)
 		 * if frame is receive complete at this routine ,then upload
 		 * frame.
 		 */
-		if ((GetRXStatus(iobase) & 0x10)
-		    && (RxCurCount(iobase, self) != self->RxLastCount)) {
+		if ((GetRXStatus(iobase) & 0x10) &&
+		    (RxCurCount(iobase, self) != self->RxLastCount)) {
 			upload_rxdata(self, iobase);
 			if (irda_device_txqueue_empty(self->netdev))
 				via_ircc_dma_receive(self);

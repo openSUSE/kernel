@@ -1,5 +1,6 @@
 /*
-	Copyright (C) 2004 - 2009 rt2x00 SourceForge Project
+	Copyright (C) 2004 - 2009 Ivo van Doorn <IvDoorn@gmail.com>
+	Copyright (C) 2004 - 2009 Gertjan van Wingerde <gwingerde@gmail.com>
 	<http://rt2x00.serialmonkey.com>
 
 	This program is free software; you can redistribute it and/or modify
@@ -112,6 +113,12 @@
 	(  ((unsigned long)((__skb)->data + (__header))) & 3 )
 
 /*
+ * Constants for extra TX headroom for alignment purposes.
+ */
+#define RT2X00_ALIGN_SIZE	4 /* Only whole frame needs alignment */
+#define RT2X00_L2PAD_SIZE	8 /* Both header & payload need alignment */
+
+/*
  * Standard timing and size defines.
  * These values should follow the ieee80211 specifications.
  */
@@ -134,6 +141,22 @@
 				  GET_DURATION(IEEE80211_HEADER + ACK_SIZE, 10) )
 
 /*
+ * Structure for average calculation
+ * The avg field contains the actual average value,
+ * but avg_weight is internally used during calculations
+ * to prevent rounding errors.
+ */
+struct avg_val {
+	int avg;
+	int avg_weight;
+};
+
+enum rt2x00_chip_intf {
+	RT2X00_CHIP_INTF_PCI,
+	RT2X00_CHIP_INTF_USB,
+};
+
+/*
  * Chipset identification
  * The chipset on the device is composed of a RT and RF chip.
  * The chipset combination is important for determining device capabilities.
@@ -147,10 +170,20 @@ struct rt2x00_chip {
 #define RT2561		0x0302
 #define RT2661		0x0401
 #define RT2571		0x1300
+#define RT2860		0x0601	/* 2.4GHz PCI/CB */
+#define RT2860D		0x0681	/* 2.4GHz, 5GHz PCI/CB */
+#define RT2890		0x0701	/* 2.4GHz PCIe */
+#define RT2890D		0x0781	/* 2.4GHz, 5GHz PCIe */
+#define RT2880		0x2880	/* WSOC */
+#define RT3052		0x3052	/* WSOC */
+#define RT3090		0x3090	/* 2.4GHz PCIe */
 #define RT2870		0x1600
+#define RT3070		0x1800
 
 	u16 rf;
 	u32 rev;
+
+	enum rt2x00_chip_intf intf;
 };
 
 /*
@@ -245,21 +278,18 @@ struct link_ant {
 	struct antenna_setup active;
 
 	/*
-	 * RSSI information for the different antenna's.
-	 * These statistics are used to determine when
-	 * to switch antenna when using software diversity.
-	 *
-	 *        rssi[0] -> Antenna A RSSI
-	 *        rssi[1] -> Antenna B RSSI
+	 * RSSI history information for the antenna.
+	 * Used to determine when to switch antenna
+	 * when using software diversity.
 	 */
-	int rssi_history[2];
+	int rssi_history;
 
 	/*
 	 * Current RSSI average of the currently active antenna.
 	 * Similar to the avg_rssi in the link_qual structure
 	 * this value is updated by using the walking average.
 	 */
-	int rssi_ant;
+	struct avg_val rssi_ant;
 };
 
 /*
@@ -288,14 +318,7 @@ struct link {
 	/*
 	 * Currently active average RSSI value
 	 */
-	int avg_rssi;
-
-	/*
-	 * Currently precalculated percentages of successful
-	 * TX and RX frames.
-	 */
-	int rx_percentage;
-	int tx_percentage;
+	struct avg_val avg_rssi;
 
 	/*
 	 * Work structure for scheduling periodic link tuning.
@@ -326,6 +349,11 @@ struct rt2x00_intf {
 	u8 bssid[ETH_ALEN];
 
 	/*
+	 * beacon->skb must be protected with the mutex.
+	 */
+	struct mutex beacon_skb_mutex;
+
+	/*
 	 * Entry in the beacon queue which belongs to
 	 * this interface. Each interface has its own
 	 * dedicated beacon entry.
@@ -337,8 +365,6 @@ struct rt2x00_intf {
 	 */
 	unsigned int delayed_flags;
 #define DELAYED_UPDATE_BEACON		0x00000001
-#define DELAYED_CONFIG_ERP		0x00000002
-#define DELAYED_LED_ASSOC		0x00000004
 
 	/*
 	 * Software sequence counter, this is only required
@@ -405,9 +431,6 @@ struct rt2x00lib_conf {
 struct rt2x00lib_erp {
 	int short_preamble;
 	int cts_protection;
-
-	int ack_timeout;
-	int ack_consume_time;
 
 	u32 basic_rates;
 
@@ -571,6 +594,7 @@ struct rt2x00_ops {
 	const unsigned int eeprom_size;
 	const unsigned int rf_size;
 	const unsigned int tx_queues;
+	const unsigned int extra_tx_headroom;
 	const struct data_queue_desc *rx;
 	const struct data_queue_desc *tx;
 	const struct data_queue_desc *bcn;
@@ -594,7 +618,6 @@ enum rt2x00_flags {
 	DEVICE_STATE_INITIALIZED,
 	DEVICE_STATE_STARTED,
 	DEVICE_STATE_ENABLED_RADIO,
-	DEVICE_STATE_DISABLED_RADIO_HW,
 
 	/*
 	 * Driver requirements
@@ -602,7 +625,6 @@ enum rt2x00_flags {
 	DRIVER_REQUIRE_FIRMWARE,
 	DRIVER_REQUIRE_BEACON_GUARD,
 	DRIVER_REQUIRE_ATIM_QUEUE,
-	DRIVER_REQUIRE_SCHEDULED,
 	DRIVER_REQUIRE_DMA,
 	DRIVER_REQUIRE_COPY_IV,
 	DRIVER_REQUIRE_L2PAD,
@@ -612,6 +634,8 @@ enum rt2x00_flags {
 	 */
 	CONFIG_SUPPORT_HW_BUTTON,
 	CONFIG_SUPPORT_HW_CRYPTO,
+	DRIVER_SUPPORT_CONTROL_FILTERS,
+	DRIVER_SUPPORT_CONTROL_FILTER_PSPOLL,
 
 	/*
 	 * Driver configuration
@@ -634,7 +658,7 @@ struct rt2x00_dev {
 	 * The structure stored in here depends on the
 	 * system bus (PCI or USB).
 	 * When accessing this variable, the rt2x00dev_{pci,usb}
-	 * macro's should be used for correct typecasting.
+	 * macros should be used for correct typecasting.
 	 */
 	struct device *dev;
 
@@ -649,18 +673,6 @@ struct rt2x00_dev {
 	struct ieee80211_hw *hw;
 	struct ieee80211_supported_band bands[IEEE80211_NUM_BANDS];
 	enum ieee80211_band curr_band;
-
-	/*
-	 * rfkill structure for RF state switching support.
-	 * This will only be compiled in when required.
-	 */
-#ifdef CONFIG_RT2X00_LIB_RFKILL
-	unsigned long rfkill_state;
-#define RFKILL_STATE_ALLOCATED		1
-#define RFKILL_STATE_REGISTERED		2
-#define RFKILL_STATE_BLOCKED		3
-	struct input_polled_dev *rfkill_poll_dev;
-#endif /* CONFIG_RT2X00_LIB_RFKILL */
 
 	/*
 	 * If enabled, the debugfs interface structures
@@ -824,7 +836,6 @@ struct rt2x00_dev {
 	 * due to RTNL locking requirements.
 	 */
 	struct work_struct intf_work;
-	struct work_struct filter_work;
 
 	/*
 	 * Data queue arrays for RX, TX and Beacon.
@@ -840,7 +851,21 @@ struct rt2x00_dev {
 	 * Firmware image.
 	 */
 	const struct firmware *fw;
+
+	/*
+	 * Driver specific data.
+	 */
+	void *priv;
 };
+
+/*
+ * Register defines.
+ * Some registers require multiple attempts before success,
+ * in those cases REGISTER_BUSY_COUNT attempts should be
+ * taken with a REGISTER_BUSY_DELAY interval.
+ */
+#define REGISTER_BUSY_COUNT	5
+#define REGISTER_BUSY_DELAY	100
 
 /*
  * Generic RF access.
@@ -888,10 +913,6 @@ static inline void rt2x00_eeprom_write(struct rt2x00_dev *rt2x00dev,
 static inline void rt2x00_set_chip(struct rt2x00_dev *rt2x00dev,
 				   const u16 rt, const u16 rf, const u32 rev)
 {
-	INFO(rt2x00dev,
-	     "Chipset detected - rt: %04x, rf: %04x, rev: %08x.\n",
-	     rt, rf, rev);
-
 	rt2x00dev->chip.rt = rt;
 	rt2x00dev->chip.rf = rf;
 	rt2x00dev->chip.rev = rev;
@@ -907,6 +928,13 @@ static inline void rt2x00_set_chip_rf(struct rt2x00_dev *rt2x00dev,
 				      const u16 rf, const u32 rev)
 {
 	rt2x00_set_chip(rt2x00dev, rt2x00dev->chip.rt, rf, rev);
+}
+
+static inline void rt2x00_print_chip(struct rt2x00_dev *rt2x00dev)
+{
+	INFO(rt2x00dev,
+	     "Chipset detected - rt: %04x, rf: %04x, rev: %08x.\n",
+	     rt2x00dev->chip.rt, rt2x00dev->chip.rf, rt2x00dev->chip.rev);
 }
 
 static inline char rt2x00_rt(const struct rt2x00_chip *chipset, const u16 chip)
@@ -928,6 +956,28 @@ static inline bool rt2x00_check_rev(const struct rt2x00_chip *chipset,
 				    const u32 mask, const u32 rev)
 {
 	return ((chipset->rev & mask) == rev);
+}
+
+static inline void rt2x00_set_chip_intf(struct rt2x00_dev *rt2x00dev,
+					enum rt2x00_chip_intf intf)
+{
+	rt2x00dev->chip.intf = intf;
+}
+
+static inline bool rt2x00_intf(const struct rt2x00_chip *chipset,
+			       enum rt2x00_chip_intf intf)
+{
+	return (chipset->intf == intf);
+}
+
+static inline bool rt2x00_intf_is_pci(struct rt2x00_dev *rt2x00dev)
+{
+	return rt2x00_intf(&rt2x00dev->chip, RT2X00_CHIP_INTF_PCI);
+}
+
+static inline bool rt2x00_intf_is_usb(struct rt2x00_dev *rt2x00dev)
+{
+	return rt2x00_intf(&rt2x00dev->chip, RT2X00_CHIP_INTF_USB);
 }
 
 /**
@@ -976,7 +1026,9 @@ int rt2x00mac_config(struct ieee80211_hw *hw, u32 changed);
 void rt2x00mac_configure_filter(struct ieee80211_hw *hw,
 				unsigned int changed_flags,
 				unsigned int *total_flags,
-				int mc_count, struct dev_addr_list *mc_list);
+				u64 multicast);
+int rt2x00mac_set_tim(struct ieee80211_hw *hw, struct ieee80211_sta *sta,
+		      bool set);
 #ifdef CONFIG_RT2X00_LIB_CRYPTO
 int rt2x00mac_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 		      struct ieee80211_vif *vif, struct ieee80211_sta *sta,
@@ -994,6 +1046,7 @@ void rt2x00mac_bss_info_changed(struct ieee80211_hw *hw,
 				u32 changes);
 int rt2x00mac_conf_tx(struct ieee80211_hw *hw, u16 queue,
 		      const struct ieee80211_tx_queue_params *params);
+void rt2x00mac_rfkill_poll(struct ieee80211_hw *hw);
 
 /*
  * Driver allocation handlers.

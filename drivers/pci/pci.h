@@ -16,6 +16,7 @@ extern void pci_cleanup_rom(struct pci_dev *dev);
 extern int pci_mmap_fits(struct pci_dev *pdev, int resno,
 			 struct vm_area_struct *vma);
 #endif
+int pci_probe_reset_function(struct pci_dev *dev);
 
 /**
  * struct pci_platform_pm_ops - Firmware PM callbacks
@@ -133,7 +134,6 @@ static inline int pci_no_d1d2(struct pci_dev *dev)
 	return (dev->no_d1d2 || parent_dstates);
 
 }
-extern int pcie_mch_quirk;
 extern struct device_attribute pci_dev_attrs[];
 extern struct device_attribute dev_attr_cpuaffinity;
 extern struct device_attribute dev_attr_cpulistaffinity;
@@ -310,5 +310,15 @@ static inline int pci_resource_alignment(struct pci_dev *dev,
 #endif
 	return resource_alignment(res);
 }
+
+extern void pci_enable_acs(struct pci_dev *dev);
+
+struct pci_dev_reset_methods {
+	u16 vendor;
+	u16 device;
+	int (*reset)(struct pci_dev *dev, int probe);
+};
+
+extern int pci_dev_specific_reset(struct pci_dev *dev, int probe);
 
 #endif /* DRIVERS_PCI_H */

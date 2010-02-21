@@ -59,7 +59,7 @@ int __vgetcpu_mode __section_vgetcpu_mode;
 
 struct vsyscall_gtod_data __vsyscall_gtod_data __section_vsyscall_gtod_data =
 {
-	.lock = __ATOMIC_SEQLOCK_UNLOCKED(__vsyscall_gtod_data.lock),
+	.lock = __RAW_SEQLOCK_UNLOCKED(__vsyscall_gtod_data.lock),
 	.sysctl_enabled = 1,
 };
 
@@ -67,17 +67,18 @@ void update_vsyscall_tz(void)
 {
 	unsigned long flags;
 
-	write_atomic_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
+	write_raw_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
 	/* sys_tz has changed */
 	vsyscall_gtod_data.sys_tz = sys_tz;
-	write_atomic_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
+	write_raw_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
 }
 
-void update_vsyscall(struct timespec *wall_time, struct clocksource *clock)
+void update_vsyscall(struct timespec *wall_time, struct clocksource *clock,
+		     u32 mult)
 {
 	unsigned long flags;
 
-	write_atomic_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
+	write_raw_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
 
 	if (likely(vsyscall_gtod_data.sysctl_enabled == 2)) {
 		struct timespec tmp = *(wall_time);
@@ -111,10 +112,11 @@ void update_vsyscall(struct timespec *wall_time, struct clocksource *clock)
 	vsyscall_gtod_data.clock.vread = clock->vread;
 	vsyscall_gtod_data.clock.cycle_last = clock->cycle_last;
 	vsyscall_gtod_data.clock.mask = clock->mask;
-	vsyscall_gtod_data.clock.mult = clock->mult;
+	vsyscall_gtod_data.clock.mult = mult;
 	vsyscall_gtod_data.clock.shift = clock->shift;
 	vsyscall_gtod_data.wall_to_monotonic = wall_to_monotonic;
-	write_atomic_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
+	vsyscall_gtod_data.wall_time_coarse = __current_kernel_time();
+	write_raw_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
 }
 
 /* RED-PEN may want to readd seq locking, but then the variable should be
@@ -171,7 +173,7 @@ static __always_inline void do_vgettimeofday(struct timeval * tv)
 	}
 
 	do {
-		seq = read_atomic_seqbegin(&__vsyscall_gtod_data.lock);
+		seq = read_raw_seqbegin(&__vsyscall_gtod_data.lock);
 
 		vread = __vsyscall_gtod_data.clock.vread;
 		if (unlikely(!__vsyscall_gtod_data.sysctl_enabled || !vread)) {
@@ -188,9 +190,7 @@ static __always_inline void do_vgettimeofday(struct timeval * tv)
 
 		tv->tv_sec = __vsyscall_gtod_data.wall_time_sec;
 		nsec = __vsyscall_gtod_data.wall_time_nsec;
-	} while (read_atomic_seqretry(&__vsyscall_gtod_data.lock, seq));
-
-	now = vread();
+	} while (read_raw_seqretry(&__vsyscall_gtod_data.lock, seq));
 
 	/* calculate interval: */
 	cycle_delta = (now - base) & mask;
@@ -277,24 +277,16 @@ static long __vsyscall(3) venosys_1(void)
 }
 
 #ifdef CONFIG_SYSCTL
-
-static int
-vsyscall_sysctl_change(ctl_table *ctl, int write, struct file * filp,
-		       void __user *buffer, size_t *lenp, loff_t *ppos)
-{
-	return proc_dointvec(ctl, write, filp, buffer, lenp, ppos);
-}
-
 static ctl_table kernel_table2[] = {
 	{ .procname = "vsyscall64",
 	  .data = &vsyscall_gtod_data.sysctl_enabled, .maxlen = sizeof(int),
 	  .mode = 0644,
-	  .proc_handler = vsyscall_sysctl_change },
+	  .proc_handler = proc_dointvec },
 	{}
 };
 
 static ctl_table kernel_root_table2[] = {
-	{ .ctl_name = CTL_KERN, .procname = "kernel", .mode = 0555,
+	{ .procname = "kernel", .mode = 0555,
 	  .child = kernel_table2 },
 	{}
 };

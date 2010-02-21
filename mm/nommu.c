@@ -33,6 +33,7 @@
 #include <asm/uaccess.h>
 #include <asm/tlb.h>
 #include <asm/tlbflush.h>
+#include <asm/mmu_context.h>
 #include "internal.h"
 
 static inline __attribute__((format(printf, 1, 2)))
@@ -56,12 +57,11 @@ void no_printk(const char *fmt, ...)
 	no_printk(KERN_DEBUG FMT"\n", ##__VA_ARGS__)
 #endif
 
-#include "internal.h"
-
 void *high_memory;
 struct page *mem_map;
 unsigned long max_mapnr;
 unsigned long num_physpages;
+unsigned long highest_memmap_pfn;
 struct percpu_counter vm_committed_as;
 int sysctl_overcommit_memory = OVERCOMMIT_GUESS; /* heuristic overcommit */
 int sysctl_overcommit_ratio = 50; /* default is 50% */
@@ -79,48 +79,8 @@ static struct kmem_cache *vm_region_jar;
 struct rb_root nommu_region_tree = RB_ROOT;
 DECLARE_RWSEM(nommu_region_sem);
 
-struct vm_operations_struct generic_file_vm_ops = {
+const struct vm_operations_struct generic_file_vm_ops = {
 };
-
-/*
- * Handle all mappings that got truncated by a "truncate()"
- * system call.
- *
- * NOTE! We have to be ready to update the memory sharing
- * between the file and the memory map for a potential last
- * incomplete page.  Ugly, but necessary.
- */
-int vmtruncate(struct inode *inode, loff_t offset)
-{
-	struct address_space *mapping = inode->i_mapping;
-	unsigned long limit;
-
-	if (inode->i_size < offset)
-		goto do_expand;
-	i_size_write(inode, offset);
-
-	truncate_inode_pages(mapping, offset);
-	goto out_truncate;
-
-do_expand:
-	limit = current->signal->rlim[RLIMIT_FSIZE].rlim_cur;
-	if (limit != RLIM_INFINITY && offset > limit)
-		goto out_sig;
-	if (offset > inode->i_sb->s_maxbytes)
-		goto out;
-	i_size_write(inode, offset);
-
-out_truncate:
-	if (inode->i_op->truncate)
-		inode->i_op->truncate(inode);
-	return 0;
-out_sig:
-	send_sig(SIGXFSZ, current, 0);
-out:
-	return -EFBIG;
-}
-
-EXPORT_SYMBOL(vmtruncate);
 
 /*
  * Return the total memory allocated for this pointer, not
@@ -170,21 +130,20 @@ unsigned int kobjsize(const void *objp)
 }
 
 int __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
-		     unsigned long start, int nr_pages, int flags,
+		     unsigned long start, int nr_pages, unsigned int foll_flags,
 		     struct page **pages, struct vm_area_struct **vmas)
 {
 	struct vm_area_struct *vma;
 	unsigned long vm_flags;
 	int i;
-	int write = !!(flags & GUP_FLAGS_WRITE);
-	int force = !!(flags & GUP_FLAGS_FORCE);
-	int ignore = !!(flags & GUP_FLAGS_IGNORE_VMA_PERMISSIONS);
 
 	/* calculate required read or write permissions.
-	 * - if 'force' is set, we only require the "MAY" flags.
+	 * If FOLL_FORCE is set, we only require the "MAY" flags.
 	 */
-	vm_flags  = write ? (VM_WRITE | VM_MAYWRITE) : (VM_READ | VM_MAYREAD);
-	vm_flags &= force ? (VM_MAYREAD | VM_MAYWRITE) : (VM_READ | VM_WRITE);
+	vm_flags  = (foll_flags & FOLL_WRITE) ?
+			(VM_WRITE | VM_MAYWRITE) : (VM_READ | VM_MAYREAD);
+	vm_flags &= (foll_flags & FOLL_FORCE) ?
+			(VM_MAYREAD | VM_MAYWRITE) : (VM_READ | VM_WRITE);
 
 	for (i = 0; i < nr_pages; i++) {
 		vma = find_vma(mm, start);
@@ -192,8 +151,8 @@ int __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 			goto finish_or_fault;
 
 		/* protect what we can, including chardevs */
-		if (vma->vm_flags & (VM_IO | VM_PFNMAP) ||
-		    (!ignore && !(vm_flags & vma->vm_flags)))
+		if ((vma->vm_flags & (VM_IO | VM_PFNMAP)) ||
+		    !(vm_flags & vma->vm_flags))
 			goto finish_or_fault;
 
 		if (pages) {
@@ -212,7 +171,6 @@ finish_or_fault:
 	return i ? : -EFAULT;
 }
 
-
 /*
  * get a list of pages in an address range belonging to the specified process
  * and indicate the VMA that covers each page
@@ -227,9 +185,9 @@ int get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 	int flags = 0;
 
 	if (write)
-		flags |= GUP_FLAGS_WRITE;
+		flags |= FOLL_WRITE;
 	if (force)
-		flags |= GUP_FLAGS_FORCE;
+		flags |= FOLL_FORCE;
 
 	return __get_user_pages(tsk, mm, start, nr_pages, flags, pages, vmas);
 }
@@ -474,6 +432,7 @@ SYSCALL_DEFINE1(brk, unsigned long, brk)
 	/*
 	 * Ok, looks good - let it rip.
 	 */
+	flush_icache_range(mm->brk, brk);
 	return mm->brk = brk;
 }
 
@@ -593,11 +552,11 @@ static void free_page_series(unsigned long from, unsigned long to)
 static void __put_nommu_region(struct vm_region *region)
 	__releases(nommu_region_sem)
 {
-	kenter("%p{%d}", region, atomic_read(&region->vm_usage));
+	kenter("%p{%d}", region, region->vm_usage);
 
 	BUG_ON(!nommu_region_tree.rb_node);
 
-	if (atomic_dec_and_test(&region->vm_usage)) {
+	if (--region->vm_usage == 0) {
 		if (region->vm_top > region->vm_start)
 			delete_nommu_region(region);
 		up_write(&nommu_region_sem);
@@ -627,6 +586,22 @@ static void put_nommu_region(struct vm_region *region)
 }
 
 /*
+ * update protection on a vma
+ */
+static void protect_vma(struct vm_area_struct *vma, unsigned long flags)
+{
+#ifdef CONFIG_MPU
+	struct mm_struct *mm = vma->vm_mm;
+	long start = vma->vm_start & PAGE_MASK;
+	while (start < vma->vm_end) {
+		protect_page(mm, start, flags);
+		start += PAGE_SIZE;
+	}
+	update_protections(mm);
+#endif
+}
+
+/*
  * add a VMA into a process's mm_struct in the appropriate place in the list
  * and tree and add to the address space's page tree also if not an anonymous
  * page
@@ -644,6 +619,8 @@ static void add_vma_to_mm(struct mm_struct *mm, struct vm_area_struct *vma)
 
 	mm->map_count++;
 	vma->vm_mm = mm;
+
+	protect_vma(vma, vma->vm_flags);
 
 	/* add the VMA to the mapping */
 	if (vma->vm_file) {
@@ -706,6 +683,8 @@ static void delete_vma_from_mm(struct vm_area_struct *vma)
 	struct mm_struct *mm = vma->vm_mm;
 
 	kenter("%p", vma);
+
+	protect_vma(vma, 0);
 
 	mm->map_count--;
 	if (mm->mmap_cache == vma)
@@ -848,7 +827,7 @@ static int validate_mmap_request(struct file *file,
 	int ret;
 
 	/* do the simple checks first */
-	if (flags & MAP_FIXED || addr) {
+	if (flags & MAP_FIXED) {
 		printk(KERN_DEBUG
 		       "%d: Can't do fixed-address/overlay mmap of RAM\n",
 		       current->pid);
@@ -1056,7 +1035,7 @@ static int do_mmap_shared_file(struct vm_area_struct *vma)
 	ret = vma->vm_file->f_op->mmap(vma->vm_file, vma);
 	if (ret == 0) {
 		vma->vm_region->vm_top = vma->vm_region->vm_end;
-		return ret;
+		return 0;
 	}
 	if (ret != -ENOSYS)
 		return ret;
@@ -1073,7 +1052,8 @@ static int do_mmap_shared_file(struct vm_area_struct *vma)
  */
 static int do_mmap_private(struct vm_area_struct *vma,
 			   struct vm_region *region,
-			   unsigned long len)
+			   unsigned long len,
+			   unsigned long capabilities)
 {
 	struct page *pages;
 	unsigned long total, point, n, rlen;
@@ -1084,13 +1064,13 @@ static int do_mmap_private(struct vm_area_struct *vma,
 	 * shared mappings on devices or memory
 	 * - VM_MAYSHARE will be set if it may attempt to share
 	 */
-	if (vma->vm_file) {
+	if (capabilities & BDI_CAP_MAP_DIRECT) {
 		ret = vma->vm_file->f_op->mmap(vma->vm_file, vma);
 		if (ret == 0) {
 			/* shouldn't return success if we're not sharing */
 			BUG_ON(!(vma->vm_flags & VM_MAYSHARE));
 			vma->vm_region->vm_top = vma->vm_region->vm_end;
-			return ret;
+			return 0;
 		}
 		if (ret != -ENOSYS)
 			return ret;
@@ -1164,9 +1144,6 @@ static int do_mmap_private(struct vm_area_struct *vma,
 		if (ret < rlen)
 			memset(base + ret, 0, rlen - ret);
 
-	} else {
-		/* if it's an anonymous mapping, then just clear it */
-		memset(base, 0, rlen);
 	}
 
 	return 0;
@@ -1203,9 +1180,6 @@ unsigned long do_mmap_pgoff(struct file *file,
 
 	kenter(",%lx,%lx,%lx,%lx,%lx", addr, len, prot, flags, pgoff);
 
-	if (!(flags & MAP_FIXED))
-		addr = round_hint_to_min(addr);
-
 	/* decide whether we should attempt the mapping, and if so what sort of
 	 * mapping */
 	ret = validate_mmap_request(file, addr, len, prot, flags, pgoff,
@@ -1214,6 +1188,9 @@ unsigned long do_mmap_pgoff(struct file *file,
 		kleave(" = %d [val]", ret);
 		return ret;
 	}
+
+	/* we ignore the address hint */
+	addr = 0;
 
 	/* we've determined that we can make the mapping, now translate what we
 	 * now know into VMA flags */
@@ -1228,7 +1205,7 @@ unsigned long do_mmap_pgoff(struct file *file,
 	if (!vma)
 		goto error_getting_vma;
 
-	atomic_set(&region->vm_usage, 1);
+	region->vm_usage = 1;
 	region->vm_flags = vm_flags;
 	region->vm_pgoff = pgoff;
 
@@ -1295,7 +1272,7 @@ unsigned long do_mmap_pgoff(struct file *file,
 			}
 
 			/* we've found a region we can share */
-			atomic_inc(&pregion->vm_usage);
+			pregion->vm_usage++;
 			vma->vm_region = pregion;
 			start = pregion->vm_start;
 			start += (pgoff - pregion->vm_pgoff) << PAGE_SHIFT;
@@ -1312,7 +1289,7 @@ unsigned long do_mmap_pgoff(struct file *file,
 					vma->vm_region = NULL;
 					vma->vm_start = 0;
 					vma->vm_end = 0;
-					atomic_dec(&pregion->vm_usage);
+					pregion->vm_usage--;
 					pregion = NULL;
 					goto error_just_free;
 				}
@@ -1328,7 +1305,7 @@ unsigned long do_mmap_pgoff(struct file *file,
 		 * - this is the hook for quasi-memory character devices to
 		 *   tell us the location of a shared mapping
 		 */
-		if (file && file->f_op->get_unmapped_area) {
+		if (capabilities & BDI_CAP_MAP_DIRECT) {
 			addr = file->f_op->get_unmapped_area(file, addr, len,
 							     pgoff, flags);
 			if (IS_ERR((void *) addr)) {
@@ -1352,15 +1329,22 @@ unsigned long do_mmap_pgoff(struct file *file,
 	}
 
 	vma->vm_region = region;
-	add_nommu_region(region);
 
-	/* set up the mapping */
+	/* set up the mapping
+	 * - the region is filled in if BDI_CAP_MAP_DIRECT is still set
+	 */
 	if (file && vma->vm_flags & VM_SHARED)
 		ret = do_mmap_shared_file(vma);
 	else
-		ret = do_mmap_private(vma, region, len);
+		ret = do_mmap_private(vma, region, len, capabilities);
 	if (ret < 0)
-		goto error_put_region;
+		goto error_just_free;
+	add_nommu_region(region);
+
+	/* clear anonymous mappings that don't ask for uninitialized data */
+	if (!vma->vm_file && !(flags & MAP_UNINITIALIZED))
+		memset((void *)region->vm_start, 0,
+		       region->vm_end - region->vm_start);
 
 	/* okay... we have a mapping; now we have to register it */
 	result = vma->vm_start;
@@ -1370,33 +1354,26 @@ unsigned long do_mmap_pgoff(struct file *file,
 share:
 	add_vma_to_mm(current->mm, vma);
 
-	up_write(&nommu_region_sem);
+	/* we flush the region from the icache only when the first executable
+	 * mapping of it is made  */
+	if (vma->vm_flags & VM_EXEC && !region->vm_icache_flushed) {
+		flush_icache_range(region->vm_start, region->vm_end);
+		region->vm_icache_flushed = true;
+	}
 
-	if (prot & PROT_EXEC)
-		flush_icache_range(result, result + len);
+	up_write(&nommu_region_sem);
 
 	kleave(" = %lx", result);
 	return result;
 
-error_put_region:
-	__put_nommu_region(region);
-	if (vma) {
-		if (vma->vm_file) {
-			fput(vma->vm_file);
-			if (vma->vm_flags & VM_EXECUTABLE)
-				removed_exe_file_vma(vma->vm_mm);
-		}
-		kmem_cache_free(vm_area_cachep, vma);
-	}
-	kleave(" = %d [pr]", ret);
-	return ret;
-
 error_just_free:
 	up_write(&nommu_region_sem);
 error:
-	fput(region->vm_file);
+	if (region->vm_file)
+		fput(region->vm_file);
 	kmem_cache_free(vm_region_jar, region);
-	fput(vma->vm_file);
+	if (vma->vm_file)
+		fput(vma->vm_file);
 	if (vma->vm_flags & VM_EXECUTABLE)
 		removed_exe_file_vma(vma->vm_mm);
 	kmem_cache_free(vm_area_cachep, vma);
@@ -1426,6 +1403,31 @@ error_getting_region:
 }
 EXPORT_SYMBOL(do_mmap_pgoff);
 
+SYSCALL_DEFINE6(mmap_pgoff, unsigned long, addr, unsigned long, len,
+		unsigned long, prot, unsigned long, flags,
+		unsigned long, fd, unsigned long, pgoff)
+{
+	struct file *file = NULL;
+	unsigned long retval = -EBADF;
+
+	if (!(flags & MAP_ANONYMOUS)) {
+		file = fget(fd);
+		if (!file)
+			goto out;
+	}
+
+	flags &= ~(MAP_EXECUTABLE | MAP_DENYWRITE);
+
+	down_write(&current->mm->mmap_sem);
+	retval = do_mmap_pgoff(file, addr, len, prot, flags, pgoff);
+	up_write(&current->mm->mmap_sem);
+
+	if (file)
+		fput(file);
+out:
+	return retval;
+}
+
 /*
  * split a vma into two pieces at address 'addr', a new vma is allocated either
  * for the first part or the tail.
@@ -1439,10 +1441,9 @@ int split_vma(struct mm_struct *mm, struct vm_area_struct *vma,
 
 	kenter("");
 
-	/* we're only permitted to split anonymous regions that have a single
-	 * owner */
-	if (vma->vm_file ||
-	    atomic_read(&vma->vm_region->vm_usage) != 1)
+	/* we're only permitted to split anonymous regions (these should have
+	 * only a single usage on the region) */
+	if (vma->vm_file)
 		return -ENOMEM;
 
 	if (mm->map_count >= sysctl_max_map_count)
@@ -1516,7 +1517,7 @@ static int shrink_vma(struct mm_struct *mm,
 
 	/* cut the backing region down to size */
 	region = vma->vm_region;
-	BUG_ON(atomic_read(&region->vm_usage) != 1);
+	BUG_ON(region->vm_usage != 1);
 
 	down_write(&nommu_region_sem);
 	delete_nommu_region(region);
@@ -1760,27 +1761,6 @@ void unmap_mapping_range(struct address_space *mapping,
 EXPORT_SYMBOL(unmap_mapping_range);
 
 /*
- * ask for an unmapped area at which to create a mapping on a file
- */
-unsigned long get_unmapped_area(struct file *file, unsigned long addr,
-				unsigned long len, unsigned long pgoff,
-				unsigned long flags)
-{
-	unsigned long (*get_area)(struct file *, unsigned long, unsigned long,
-				  unsigned long, unsigned long);
-
-	get_area = current->mm->get_unmapped_area;
-	if (file && file->f_op && file->f_op->get_unmapped_area)
-		get_area = file->f_op->get_unmapped_area;
-
-	if (!get_area)
-		return -ENOSYS;
-
-	return get_area(file, addr, len, pgoff, flags);
-}
-EXPORT_SYMBOL(get_unmapped_area);
-
-/*
  * Check that a process has enough memory to allocate a new virtual
  * mapping. 0 means there is enough memory for the allocation to
  * succeed and -ENOMEM implies there is not.
@@ -1919,9 +1899,11 @@ int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, in
 
 		/* only read or write mappings where it is permitted */
 		if (write && vma->vm_flags & VM_MAYWRITE)
-			len -= copy_to_user((void *) addr, buf, len);
+			copy_to_user_page(vma, NULL, addr,
+					 (void *) addr, buf, len);
 		else if (!write && vma->vm_flags & VM_MAYREAD)
-			len -= copy_from_user(buf, (void *) addr, len);
+			copy_from_user_page(vma, NULL, addr,
+					    buf, (void *) addr, len);
 		else
 			len = 0;
 	} else {
@@ -1931,4 +1913,66 @@ int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, in
 	up_read(&mm->mmap_sem);
 	mmput(mm);
 	return len;
+}
+
+/**
+ * nommu_shrink_inode_mappings - Shrink the shared mappings on an inode
+ * @inode: The inode to check
+ * @size: The current filesize of the inode
+ * @newsize: The proposed filesize of the inode
+ *
+ * Check the shared mappings on an inode on behalf of a shrinking truncate to
+ * make sure that that any outstanding VMAs aren't broken and then shrink the
+ * vm_regions that extend that beyond so that do_mmap_pgoff() doesn't
+ * automatically grant mappings that are too large.
+ */
+int nommu_shrink_inode_mappings(struct inode *inode, size_t size,
+				size_t newsize)
+{
+	struct vm_area_struct *vma;
+	struct prio_tree_iter iter;
+	struct vm_region *region;
+	pgoff_t low, high;
+	size_t r_size, r_top;
+
+	low = newsize >> PAGE_SHIFT;
+	high = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
+
+	down_write(&nommu_region_sem);
+
+	/* search for VMAs that fall within the dead zone */
+	vma_prio_tree_foreach(vma, &iter, &inode->i_mapping->i_mmap,
+			      low, high) {
+		/* found one - only interested if it's shared out of the page
+		 * cache */
+		if (vma->vm_flags & VM_SHARED) {
+			up_write(&nommu_region_sem);
+			return -ETXTBSY; /* not quite true, but near enough */
+		}
+	}
+
+	/* reduce any regions that overlap the dead zone - if in existence,
+	 * these will be pointed to by VMAs that don't overlap the dead zone
+	 *
+	 * we don't check for any regions that start beyond the EOF as there
+	 * shouldn't be any
+	 */
+	vma_prio_tree_foreach(vma, &iter, &inode->i_mapping->i_mmap,
+			      0, ULONG_MAX) {
+		if (!(vma->vm_flags & VM_SHARED))
+			continue;
+
+		region = vma->vm_region;
+		r_size = region->vm_top - region->vm_start;
+		r_top = (region->vm_pgoff << PAGE_SHIFT) + r_size;
+
+		if (r_top > newsize) {
+			region->vm_top -= r_top - newsize;
+			if (region->vm_end > region->vm_top)
+				region->vm_end = region->vm_top;
+		}
+	}
+
+	up_write(&nommu_region_sem);
+	return 0;
 }

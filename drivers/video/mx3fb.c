@@ -324,8 +324,11 @@ static void sdc_enable_channel(struct mx3fb_info *mx3_fbi)
 	unsigned long flags;
 	dma_cookie_t cookie;
 
-	dev_dbg(mx3fb->dev, "mx3fbi %p, desc %p, sg %p\n", mx3_fbi,
-		to_tx_desc(mx3_fbi->txd), to_tx_desc(mx3_fbi->txd)->sg);
+	if (mx3_fbi->txd)
+		dev_dbg(mx3fb->dev, "mx3fbi %p, desc %p, sg %p\n", mx3_fbi,
+			to_tx_desc(mx3_fbi->txd), to_tx_desc(mx3_fbi->txd)->sg);
+	else
+		dev_dbg(mx3fb->dev, "mx3fbi %p, txd = NULL\n", mx3_fbi);
 
 	/* This enables the channel */
 	if (mx3_fbi->cookie < 0) {
@@ -646,6 +649,7 @@ static int sdc_set_global_alpha(struct mx3fb_data *mx3fb, bool enable, uint8_t a
 
 static void sdc_set_brightness(struct mx3fb_data *mx3fb, uint8_t value)
 {
+	dev_dbg(mx3fb->dev, "%s: value = %d\n", __func__, value);
 	/* This might be board-specific */
 	mx3fb_write_reg(mx3fb, 0x03000000UL | value << 16, SDC_PWM_CTRL);
 	return;
@@ -1171,9 +1175,9 @@ static int mx3fb_suspend(struct platform_device *pdev, pm_message_t state)
 	struct mx3fb_data *mx3fb = platform_get_drvdata(pdev);
 	struct mx3fb_info *mx3_fbi = mx3fb->fbi->par;
 
-	acquire_console_sem();
+	acquire_console_mutex();
 	fb_set_suspend(mx3fb->fbi, 1);
-	release_console_sem();
+	release_console_mutex();
 
 	if (mx3_fbi->blank == FB_BLANK_UNBLANK) {
 		sdc_disable_channel(mx3_fbi);
@@ -1196,9 +1200,9 @@ static int mx3fb_resume(struct platform_device *pdev)
 		sdc_set_brightness(mx3fb, mx3fb->backlight_level);
 	}
 
-	acquire_console_sem();
+	acquire_console_mutex();
 	fb_set_suspend(mx3fb->fbi, 0);
-	release_console_sem();
+	release_console_mutex();
 
 	return 0;
 }
@@ -1486,11 +1490,11 @@ static int mx3fb_probe(struct platform_device *pdev)
 		goto ersdc0;
 	}
 
+	mx3fb->backlight_level = 255;
+
 	ret = init_fb_chan(mx3fb, to_idmac_chan(chan));
 	if (ret < 0)
 		goto eisdc0;
-
-	mx3fb->backlight_level = 255;
 
 	return 0;
 

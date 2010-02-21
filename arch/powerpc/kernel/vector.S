@@ -58,14 +58,14 @@ _GLOBAL(load_up_altivec)
 	 * all 1's
 	 */
 	mfspr	r4,SPRN_VRSAVE
-	cmpdi	0,r4,0
+	cmpwi	0,r4,0
 	bne+	1f
 	li	r4,-1
 	mtspr	SPRN_VRSAVE,r4
 1:
 	/* enable use of VMX after return */
 #ifdef CONFIG_PPC32
-	mfspr	r5,SPRN_SPRG3		/* current task's THREAD (phys) */
+	mfspr	r5,SPRN_SPRG_THREAD		/* current task's THREAD (phys) */
 	oris	r9,r9,MSR_VEC@h
 #else
 	ld	r4,PACACURRENT(r13)

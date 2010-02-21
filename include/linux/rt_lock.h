@@ -32,14 +32,14 @@ typedef struct spinlock {
 #ifdef CONFIG_DEBUG_RT_MUTEXES
 # define __RT_SPIN_INITIALIZER(name) \
 	{ \
-	.wait_lock = __ATOMIC_SPIN_LOCK_UNLOCKED(name), \
+	.wait_lock = __RAW_SPIN_LOCK_UNLOCKED(name), \
 	.save_state = 1, \
 	.file = __FILE__, \
 	.line = __LINE__ , \
 	}
 #else
 # define __RT_SPIN_INITIALIZER(name) \
-	{ .wait_lock = __ATOMIC_SPIN_LOCK_UNLOCKED(name) }
+	{ .wait_lock = __RAW_SPIN_LOCK_UNLOCKED(name) }
 #endif
 
 #define __SPIN_LOCK_UNLOCKED(name)			\
@@ -173,36 +173,6 @@ extern int  rt_down_read_trylock(struct rw_semaphore *rwsem);
 extern void  rt_up_read(struct rw_semaphore *rwsem);
 extern void  rt_up_write(struct rw_semaphore *rwsem);
 extern void  rt_downgrade_write(struct rw_semaphore *rwsem);
-
-/*
- * Semaphores - a spinlock plus the semaphore count:
- */
-struct semaphore {
-	atomic_t		count;
-	struct rt_mutex		lock;
-};
-
-#define DEFINE_SEMAPHORE(name) \
-struct semaphore name = \
-	{ .count = { 1 }, .lock = __RT_MUTEX_INITIALIZER(name.lock) }
-
-extern void
-__sema_init(struct semaphore *sem, int val, char *name, char *file, int line);
-
-#define rt_sema_init(sem, val) \
-		__sema_init(sem, val, #sem, __FILE__, __LINE__)
-
-/*
- * No locked initialization for RT semaphores
- */
-extern void  rt_down(struct semaphore *sem);
-extern int  rt_down_interruptible(struct semaphore *sem);
-extern int  rt_down_timeout(struct semaphore *sem, long jiffies);
-extern int  rt_down_trylock(struct semaphore *sem);
-extern void  rt_up(struct semaphore *sem);
-
-#define rt_sem_is_locked(s)	rt_mutex_is_locked(&(s)->lock)
-#define rt_sema_count(s)	atomic_read(&(s)->count)
 
 #else
 

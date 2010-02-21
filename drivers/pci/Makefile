@@ -8,8 +8,13 @@ obj-y		+= access.o bus.o probe.o remove.o pci.o quirks.o \
 obj-$(CONFIG_PROC_FS) += proc.o
 obj-$(CONFIG_SYSFS) += slot.o
 
+obj-$(CONFIG_PCI_LEGACY) += legacy.o
+CFLAGS_legacy.o += -Wno-deprecated-declarations
+
 # Build PCI Express stuff if needed
 obj-$(CONFIG_PCIEPORTBUS) += pcie/
+
+obj-$(CONFIG_PCI_IOAPIC) += ioapic.o
 
 obj-$(CONFIG_HOTPLUG) += hotplug.o
 

@@ -102,7 +102,8 @@ static void p9_virtio_close(struct p9_client *client)
 	struct virtio_chan *chan = client->trans;
 
 	mutex_lock(&virtio_9p_lock);
-	chan->inuse = false;
+	if (chan)
+		chan->inuse = false;
 	mutex_unlock(&virtio_9p_lock);
 }
 
@@ -200,7 +201,7 @@ p9_virtio_request(struct p9_client *client, struct p9_req_t *req)
 
 	req->status = REQ_STATUS_SENT;
 
-	if (chan->vq->vq_ops->add_buf(chan->vq, chan->sg, out, in, req->tc)) {
+	if (chan->vq->vq_ops->add_buf(chan->vq, chan->sg, out, in, req->tc) < 0) {
 		P9_DPRINTK(P9_DEBUG_TRANS,
 			"9p debug: virtio rpc add_buf returned failure");
 		return -EIO;
@@ -311,6 +312,7 @@ p9_virtio_create(struct p9_client *client, const char *devname, char *args)
 	}
 
 	client->trans = (void *)chan;
+	client->status = Connected;
 	chan->client = client;
 
 	return 0;
@@ -333,8 +335,6 @@ static void p9_virtio_remove(struct virtio_device *vdev)
 		chan->initialized = false;
 	}
 }
-
-#define VIRTIO_ID_9P 9
 
 static struct virtio_device_id id_table[] = {
 	{ VIRTIO_ID_9P, VIRTIO_DEV_ANY_ID },

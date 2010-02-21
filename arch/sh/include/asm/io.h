@@ -90,11 +90,11 @@
 #define ctrl_outl		__raw_writel
 #define ctrl_outq		__raw_writeq
 
+extern unsigned long generic_io_base;
+
 static inline void ctrl_delay(void)
 {
-#ifdef P2SEG
-	__raw_readw(P2SEG);
-#endif
+	__raw_readw(generic_io_base);
 }
 
 #define __BUILD_MEMORY_STRING(bwlq, type)				\
@@ -146,6 +146,7 @@ __BUILD_MEMORY_STRING(q, u64)
 #define readl_relaxed(a)	readl(a)
 #define readq_relaxed(a)	readq(a)
 
+#ifndef CONFIG_GENERIC_IOMAP
 /* Simple MMIO */
 #define ioread8(a)		__raw_readb(a)
 #define ioread16(a)		__raw_readw(a)
@@ -166,13 +167,20 @@ __BUILD_MEMORY_STRING(q, u64)
 #define iowrite8_rep(a, s, c)	__raw_writesb((a), (s), (c))
 #define iowrite16_rep(a, s, c)	__raw_writesw((a), (s), (c))
 #define iowrite32_rep(a, s, c)	__raw_writesl((a), (s), (c))
+#endif
+
+#define mmio_insb(p,d,c)	__raw_readsb(p,d,c)
+#define mmio_insw(p,d,c)	__raw_readsw(p,d,c)
+#define mmio_insl(p,d,c)	__raw_readsl(p,d,c)
+
+#define mmio_outsb(p,s,c)	__raw_writesb(p,s,c)
+#define mmio_outsw(p,s,c)	__raw_writesw(p,s,c)
+#define mmio_outsl(p,s,c)	__raw_writesl(p,s,c)
 
 /* synco on SH-4A, otherwise a nop */
 #define mmiowb()		wmb()
 
 #define IO_SPACE_LIMIT 0xffffffff
-
-extern unsigned long generic_io_base;
 
 /*
  * This function provides a method for the generic case where a
@@ -225,14 +233,20 @@ unsigned long long poke_real_address_q(unsigned long long addr,
  * doesn't exist, so everything must go through page tables.
  */
 #ifdef CONFIG_MMU
-void __iomem *__ioremap(unsigned long offset, unsigned long size,
-			unsigned long flags);
+void __iomem *__ioremap_caller(unsigned long offset, unsigned long size,
+			       unsigned long flags, void *caller);
 void __iounmap(void __iomem *addr);
+
+static inline void __iomem *
+__ioremap(unsigned long offset, unsigned long size, unsigned long flags)
+{
+	return __ioremap_caller(offset, size, flags, __builtin_return_address(0));
+}
 
 static inline void __iomem *
 __ioremap_mode(unsigned long offset, unsigned long size, unsigned long flags)
 {
-#if defined(CONFIG_SUPERH32) && !defined(CONFIG_PMB_FIXED)
+#if defined(CONFIG_SUPERH32) && !defined(CONFIG_PMB_FIXED) && !defined(CONFIG_PMB)
 	unsigned long last_addr = offset + size - 1;
 #endif
 	void __iomem *ret;
@@ -241,7 +255,7 @@ __ioremap_mode(unsigned long offset, unsigned long size, unsigned long flags)
 	if (ret)
 		return ret;
 
-#if defined(CONFIG_SUPERH32) && !defined(CONFIG_PMB_FIXED)
+#if defined(CONFIG_SUPERH32) && !defined(CONFIG_PMB_FIXED) && !defined(CONFIG_PMB)
 	/*
 	 * For P1 and P2 space this is trivial, as everything is already
 	 * mapped. Uncached access for P1 addresses are done through P2.
@@ -263,6 +277,7 @@ __ioremap_mode(unsigned long offset, unsigned long size, unsigned long flags)
 	return __ioremap(offset, size, flags);
 }
 #else
+#define __ioremap(offset, size, flags)		((void __iomem *)(offset))
 #define __ioremap_mode(offset, size, flags)	((void __iomem *)(offset))
 #define __iounmap(addr)				do { } while (0)
 #endif /* CONFIG_MMU */

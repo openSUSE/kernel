@@ -49,6 +49,9 @@
 #ifdef CONFIG_ARCH_MX2
 # define GPIO_PORT_MAX  5
 #endif
+#ifdef CONFIG_ARCH_MX25
+# define GPIO_PORT_MAX  3
+#endif
 
 #ifndef GPIO_PORT_MAX
 # error "GPIO config port count unknown!"
@@ -107,6 +110,9 @@
 #include <mach/iomux-mx27.h>
 #endif
 #endif
+#ifdef CONFIG_ARCH_MX25
+#include <mach/iomux-mx25.h>
+#endif
 
 
 /* decode irq number to use with IMR(x), ISR(x) and friends */
@@ -117,6 +123,7 @@
 #define IRQ_GPIOC(x)  (IRQ_GPIOB(32) + x)
 #define IRQ_GPIOD(x)  (IRQ_GPIOC(32) + x)
 #define IRQ_GPIOE(x)  (IRQ_GPIOD(32) + x)
+#define IRQ_GPIOF(x)  (IRQ_GPIOE(32) + x)
 
 
 extern void mxc_gpio_mode(int gpio_mode);

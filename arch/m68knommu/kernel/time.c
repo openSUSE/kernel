@@ -44,11 +44,11 @@ irqreturn_t arch_timer_interrupt(int irq, void *dummy)
 	if (current->pid)
 		profile_tick(CPU_PROFILING);
 
-	write_atomic_seqlock(&xtime_lock);
+	write_raw_seqlock(&xtime_lock);
 
 	do_timer(1);
 
-	write_atomic_sequnlock(&xtime_lock);
+	write_raw_sequnlock(&xtime_lock);
 
 #ifndef CONFIG_SMP
 	update_process_times(user_mode(get_irq_regs()));
@@ -69,12 +69,13 @@ static unsigned long read_rtc_mmss(void)
 	if ((year += 1900) < 1970)
 		year += 100;
 
-	return  mktime(year, mon, day, hour, min, sec);;
+	return  mktime(year, mon, day, hour, min, sec);
 }
 
-unsigned long read_persistent_clock(void)
+void read_persistent_clock(struct timespec *ts)
 {
-	return read_rtc_mmss();
+	ts->tv_sec = read_rtc_mmss();
+	ts->tv_nsec = 0;
 }
 
 int update_persistent_clock(struct timespec now)

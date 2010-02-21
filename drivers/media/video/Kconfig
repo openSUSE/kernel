@@ -37,10 +37,6 @@ config VIDEO_BTCX
 	depends on PCI
 	tristate
 
-config VIDEO_IR
-	tristate
-	depends on INPUT
-
 config VIDEO_TVEEPROM
 	tristate
 	depends on I2C
@@ -203,9 +199,9 @@ config VIDEO_CS53L32A
 	  module will be called cs53l32a.
 
 config VIDEO_M52790
-       tristate "Mitsubishi M52790 A/V switch"
-       depends on VIDEO_V4L2 && I2C
-       ---help---
+	tristate "Mitsubishi M52790 A/V switch"
+	depends on VIDEO_V4L2 && I2C
+	---help---
 	 Support for the Mitsubishi M52790 A/V switch.
 
 	 To compile this driver as a module, choose M here: the
@@ -264,6 +260,15 @@ config VIDEO_SAA6588
 	  module will be called saa6588.
 
 comment "Video decoders"
+
+config VIDEO_ADV7180
+	tristate "Analog Devices ADV7180 decoder"
+	depends on VIDEO_V4L2 && I2C
+	---help---
+	  Support for the Analog Devices ADV7180 video decoder.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called adv7180.
 
 config VIDEO_BT819
 	tristate "BT819A VideoStream decoder"
@@ -493,6 +498,39 @@ config VIDEO_UPD64083
 
 endmenu # encoder / decoder chips
 
+config DISPLAY_DAVINCI_DM646X_EVM
+	tristate "DM646x EVM Video Display"
+	depends on VIDEO_DEV && MACH_DAVINCI_DM6467_EVM
+	select VIDEOBUF_DMA_CONTIG
+	select VIDEO_DAVINCI_VPIF
+	select VIDEO_ADV7343
+	select VIDEO_THS7303
+	help
+	  Support for DM6467 based display device.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called vpif_display.
+
+config CAPTURE_DAVINCI_DM646X_EVM
+	tristate "DM646x EVM Video Capture"
+	depends on VIDEO_DEV && MACH_DAVINCI_DM6467_EVM
+	select VIDEOBUF_DMA_CONTIG
+	select VIDEO_DAVINCI_VPIF
+	help
+	  Support for DM6467 based capture device.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called vpif_capture.
+
+config VIDEO_DAVINCI_VPIF
+	tristate "DaVinci VPIF Driver"
+	depends on DISPLAY_DAVINCI_DM646X_EVM
+	help
+	  Support for DaVinci VPIF Driver.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called vpif.
+
 config VIDEO_VIVI
 	tristate "Virtual Video Driver"
 	depends on VIDEO_DEV && VIDEO_V4L2 && !SPARC32 && !SPARC64
@@ -505,11 +543,60 @@ config VIDEO_VIVI
 	  Say Y here if you want to test video apps or debug V4L devices.
 	  In doubt, say N.
 
+config VIDEO_VPSS_SYSTEM
+	tristate "VPSS System module driver"
+	depends on ARCH_DAVINCI
+	help
+	  Support for vpss system module for video driver
+	default y
+
+config VIDEO_VPFE_CAPTURE
+	tristate "VPFE Video Capture Driver"
+	depends on VIDEO_V4L2 && ARCH_DAVINCI
+	select VIDEOBUF_DMA_CONTIG
+	help
+	  Support for DMXXXX VPFE based frame grabber. This is the
+	  common V4L2 module for following DMXXX SoCs from Texas
+	  Instruments:- DM6446 & DM355.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called vpfe-capture.
+
+config VIDEO_DM6446_CCDC
+	tristate "DM6446 CCDC HW module"
+	depends on ARCH_DAVINCI_DM644x && VIDEO_VPFE_CAPTURE
+	select VIDEO_VPSS_SYSTEM
+	default y
+	help
+	   Enables DaVinci CCD hw module. DaVinci CCDC hw interfaces
+	   with decoder modules such as TVP5146 over BT656 or
+	   sensor module such as MT9T001 over a raw interface. This
+	   module configures the interface and CCDC/ISIF to do
+	   video frame capture from slave decoders.
+
+	   To compile this driver as a module, choose M here: the
+	   module will be called vpfe.
+
+config VIDEO_DM355_CCDC
+	tristate "DM355 CCDC HW module"
+	depends on ARCH_DAVINCI_DM355 && VIDEO_VPFE_CAPTURE
+	select VIDEO_VPSS_SYSTEM
+	default y
+	help
+	   Enables DM355 CCD hw module. DM355 CCDC hw interfaces
+	   with decoder modules such as TVP5146 over BT656 or
+	   sensor module such as MT9T001 over a raw interface. This
+	   module configures the interface and CCDC/ISIF to do
+	   video frame capture from a slave decoders
+
+	   To compile this driver as a module, choose M here: the
+	   module will be called vpfe.
+
 source "drivers/media/video/bt8xx/Kconfig"
 
 config VIDEO_PMS
 	tristate "Mediavision Pro Movie Studio Video For Linux"
-	depends on ISA && VIDEO_V4L1
+	depends on ISA && VIDEO_V4L2
 	help
 	  Say Y if you have such a thing.
 
@@ -690,6 +777,8 @@ source "drivers/media/video/ivtv/Kconfig"
 
 source "drivers/media/video/cx18/Kconfig"
 
+source "drivers/media/video/saa7164/Kconfig"
+
 config VIDEO_M32R_AR
 	tristate "AR devices"
 	depends on M32R && VIDEO_V4L1
@@ -747,12 +836,24 @@ config SOC_CAMERA_MT9T031
 	help
 	  This driver supports MT9T031 cameras from Micron.
 
+config SOC_CAMERA_MT9T112
+	tristate "mt9t112 support"
+	depends on SOC_CAMERA && I2C
+	help
+	  This driver supports MT9T112 cameras from Aptina.
+
 config SOC_CAMERA_MT9V022
 	tristate "mt9v022 support"
 	depends on SOC_CAMERA && I2C
 	select GPIO_PCA953X if MT9V022_PCA9536_SWITCH
 	help
 	  This driver supports MT9V022 cameras from Micron
+
+config SOC_CAMERA_RJ54N1
+	tristate "rj54n1cb0c support"
+	depends on SOC_CAMERA && I2C
+	help
+	  This is a rj54n1cb0c video driver
 
 config SOC_CAMERA_TW9910
 	tristate "tw9910 support"
@@ -771,6 +872,12 @@ config SOC_CAMERA_OV772X
 	depends on SOC_CAMERA && I2C
 	help
 	  This is a ov772x camera driver
+
+config SOC_CAMERA_OV9640
+	tristate "ov9640 camera support"
+	depends on SOC_CAMERA && I2C
+	help
+	  This is a ov9640 camera driver
 
 config MX1_VIDEO
 	bool
@@ -846,9 +953,14 @@ source "drivers/media/video/usbvideo/Kconfig"
 source "drivers/media/video/et61x251/Kconfig"
 
 config VIDEO_OVCAMCHIP
-	tristate "OmniVision Camera Chip support"
+	tristate "OmniVision Camera Chip support (DEPRECATED)"
 	depends on I2C && VIDEO_V4L1
 	---help---
+	  This driver is DEPRECATED please use the gspca ov519 module
+	  instead. Note that for the ov511 / ov518 support of the gspca module
+	  you need atleast version 0.6.0 of libv4l and for the w9968cf
+	  atleast version 0.6.3 of libv4l.
+
 	  Support for the OmniVision OV6xxx and OV7xxx series of camera chips.
 	  This driver is intended to be used with the ov511 and w9968cf USB
 	  camera drivers.
@@ -857,9 +969,13 @@ config VIDEO_OVCAMCHIP
 	  module will be called ovcamchip.
 
 config USB_W9968CF
-	tristate "USB W996[87]CF JPEG Dual Mode Camera support"
+	tristate "USB W996[87]CF JPEG Dual Mode Camera support (DEPRECATED)"
 	depends on VIDEO_V4L1 && I2C && VIDEO_OVCAMCHIP
 	---help---
+	  This driver is DEPRECATED please use the gspca ov519 module
+	  instead. Note that for the w9968cf support of the gspca module
+	  you need atleast version 0.6.3 of libv4l.
+
 	  Say Y here if you want support for cameras based on OV681 or
 	  Winbond W9967CF/W9968CF JPEG USB Dual Mode Camera Chips.
 
@@ -902,9 +1018,13 @@ config USB_SE401
 source "drivers/media/video/sn9c102/Kconfig"
 
 config USB_STV680
-	tristate "USB STV680 (Pencam) Camera support"
+	tristate "USB STV680 (Pencam) Camera support (DEPRECATED)"
 	depends on VIDEO_V4L1
 	---help---
+	  This driver is DEPRECATED please use the gspca stv0680 module
+	  instead. Note that for the gspca stv0680 module you need
+	  atleast version 0.6.3 of libv4l.
+
 	  Say Y here if you want to connect this type of camera to your
 	  computer's USB port. This includes the Pencam line of cameras.
 	  See <file:Documentation/video4linux/stv680.txt> for more information

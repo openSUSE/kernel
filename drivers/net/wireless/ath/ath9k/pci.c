@@ -25,16 +25,18 @@ static struct pci_device_id ath_pci_id_table[] __devinitdata = {
 	{ PCI_VDEVICE(ATHEROS, 0x0029) }, /* PCI   */
 	{ PCI_VDEVICE(ATHEROS, 0x002A) }, /* PCI-E */
 	{ PCI_VDEVICE(ATHEROS, 0x002B) }, /* PCI-E */
+	{ PCI_VDEVICE(ATHEROS, 0x002D) }, /* PCI   */
+	{ PCI_VDEVICE(ATHEROS, 0x002E) }, /* PCI-E */
 	{ 0 }
 };
 
 /* return bus cachesize in 4B word units */
-static void ath_pci_read_cachesize(struct ath_softc *sc, int *csz)
+static void ath_pci_read_cachesize(struct ath_common *common, int *csz)
 {
+	struct ath_softc *sc = (struct ath_softc *) common->priv;
 	u8 u8tmp;
 
-	pci_read_config_byte(to_pci_dev(sc->dev), PCI_CACHE_LINE_SIZE,
-			     (u8 *)&u8tmp);
+	pci_read_config_byte(to_pci_dev(sc->dev), PCI_CACHE_LINE_SIZE, &u8tmp);
 	*csz = (int)u8tmp;
 
 	/*
@@ -47,8 +49,9 @@ static void ath_pci_read_cachesize(struct ath_softc *sc, int *csz)
 		*csz = DEFAULT_CACHELINE >> 2;   /* Use the default size */
 }
 
-static void ath_pci_cleanup(struct ath_softc *sc)
+static void ath_pci_cleanup(struct ath_common *common)
 {
+	struct ath_softc *sc = (struct ath_softc *) common->priv;
 	struct pci_dev *pdev = to_pci_dev(sc->dev);
 
 	pci_iounmap(pdev, sc->mem);
@@ -56,9 +59,11 @@ static void ath_pci_cleanup(struct ath_softc *sc)
 	pci_release_region(pdev, 0);
 }
 
-static bool ath_pci_eeprom_read(struct ath_hw *ah, u32 off, u16 *data)
+static bool ath_pci_eeprom_read(struct ath_common *common, u32 off, u16 *data)
 {
-	(void)REG_READ(ah, AR5416_EEPROM_OFFSET + (off << AR5416_EEPROM_S));
+	struct ath_hw *ah = (struct ath_hw *) common->ah;
+
+	common->ops->read(ah, AR5416_EEPROM_OFFSET + (off << AR5416_EEPROM_S));
 
 	if (!ath9k_hw_wait(ah,
 			   AR_EEPROM_STATUS_DATA,
@@ -68,16 +73,34 @@ static bool ath_pci_eeprom_read(struct ath_hw *ah, u32 off, u16 *data)
 		return false;
 	}
 
-	*data = MS(REG_READ(ah, AR_EEPROM_STATUS_DATA),
+	*data = MS(common->ops->read(ah, AR_EEPROM_STATUS_DATA),
 		   AR_EEPROM_STATUS_DATA_VAL);
 
 	return true;
 }
 
-static struct ath_bus_ops ath_pci_bus_ops = {
+/*
+ * Bluetooth coexistance requires disabling ASPM.
+ */
+static void ath_pci_bt_coex_prep(struct ath_common *common)
+{
+	struct ath_softc *sc = (struct ath_softc *) common->priv;
+	struct pci_dev *pdev = to_pci_dev(sc->dev);
+	u8 aspm;
+
+	if (!pdev->is_pcie)
+		return;
+
+	pci_read_config_byte(pdev, ATH_PCIE_CAP_LINK_CTRL, &aspm);
+	aspm &= ~(ATH_PCIE_CAP_LINK_L0S | ATH_PCIE_CAP_LINK_L1);
+	pci_write_config_byte(pdev, ATH_PCIE_CAP_LINK_CTRL, aspm);
+}
+
+static const struct ath_bus_ops ath_pci_bus_ops = {
 	.read_cachesize = ath_pci_read_cachesize,
 	.cleanup = ath_pci_cleanup,
 	.eeprom_read = ath_pci_eeprom_read,
+	.bt_coex_prep = ath_pci_bt_coex_prep,
 };
 
 static int ath_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
@@ -87,9 +110,11 @@ static int ath_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	struct ath_softc *sc;
 	struct ieee80211_hw *hw;
 	u8 csz;
+	u16 subsysid;
 	u32 val;
 	int ret = 0;
 	struct ath_hw *ah;
+	char hw_name[64];
 
 	if (pci_enable_device(pdev))
 		return -EIO;
@@ -158,8 +183,9 @@ static int ath_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	hw = ieee80211_alloc_hw(sizeof(struct ath_wiphy) +
 				sizeof(struct ath_softc), &ath9k_ops);
-	if (hw == NULL) {
-		printk(KERN_ERR "ath_pci: no memory for ieee80211_hw\n");
+	if (!hw) {
+		dev_err(&pdev->dev, "no memory for ieee80211_hw\n");
+		ret = -ENOMEM;
 		goto bad2;
 	}
 
@@ -174,33 +200,30 @@ static int ath_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	sc->hw = hw;
 	sc->dev = &pdev->dev;
 	sc->mem = mem;
-	sc->bus_ops = &ath_pci_bus_ops;
 
-	if (ath_attach(id->device, sc) != 0) {
-		ret = -ENODEV;
+	pci_read_config_word(pdev, PCI_SUBSYSTEM_ID, &subsysid);
+	ret = ath_init_device(id->device, sc, subsysid, &ath_pci_bus_ops);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to initialize device\n");
 		goto bad3;
 	}
 
 	/* setup interrupt service routine */
 
-	if (request_irq(pdev->irq, ath_isr, IRQF_SHARED, "ath", sc)) {
-		printk(KERN_ERR "%s: request_irq failed\n",
-			wiphy_name(hw->wiphy));
-		ret = -EIO;
+	ret = request_irq(pdev->irq, ath_isr, IRQF_SHARED, "ath9k", sc);
+	if (ret) {
+		dev_err(&pdev->dev, "request_irq failed\n");
 		goto bad4;
 	}
 
 	sc->irq = pdev->irq;
 
 	ah = sc->sc_ah;
+	ath9k_hw_name(ah, hw_name, sizeof(hw_name));
 	printk(KERN_INFO
-	       "%s: Atheros AR%s MAC/BB Rev:%x "
-	       "AR%s RF Rev:%x: mem=0x%lx, irq=%d\n",
+	       "%s: %s mem=0x%lx, irq=%d\n",
 	       wiphy_name(hw->wiphy),
-	       ath_mac_bb_name(ah->hw_version.macVersion),
-	       ah->hw_version.macRev,
-	       ath_rf_name((ah->hw_version.analog5GhzRev & AR_RADIO_SREV_MAJOR)),
-	       ah->hw_version.phyRev,
+	       hw_name,
 	       (unsigned long)mem, pdev->irq);
 
 	return 0;
@@ -234,7 +257,7 @@ static int ath_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 	struct ath_wiphy *aphy = hw->priv;
 	struct ath_softc *sc = aphy->sc;
 
-	ath9k_hw_set_gpio(sc->sc_ah, ATH_LED_PIN, 1);
+	ath9k_hw_set_gpio(sc->sc_ah, sc->sc_ah->led_pin, 1);
 
 	pci_save_state(pdev);
 	pci_disable_device(pdev);
@@ -251,10 +274,12 @@ static int ath_pci_resume(struct pci_dev *pdev)
 	u32 val;
 	int err;
 
+	pci_restore_state(pdev);
+
 	err = pci_enable_device(pdev);
 	if (err)
 		return err;
-	pci_restore_state(pdev);
+
 	/*
 	 * Suspend/Resume resets the PCI configuration space, so we have to
 	 * re-disable the RETRY_TIMEOUT register (0x41) to keep
@@ -265,9 +290,9 @@ static int ath_pci_resume(struct pci_dev *pdev)
 		pci_write_config_dword(pdev, 0x40, val & 0xffff00ff);
 
 	/* Enable LED */
-	ath9k_hw_cfg_output(sc->sc_ah, ATH_LED_PIN,
+	ath9k_hw_cfg_output(sc->sc_ah, sc->sc_ah->led_pin,
 			    AR_GPIO_OUTPUT_MUX_AS_OUTPUT);
-	ath9k_hw_set_gpio(sc->sc_ah, ATH_LED_PIN, 1);
+	ath9k_hw_set_gpio(sc->sc_ah, sc->sc_ah->led_pin, 1);
 
 	return 0;
 }

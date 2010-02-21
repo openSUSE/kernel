@@ -56,7 +56,8 @@ static struct pcmcia_device *pcmcia_cur_dev = NULL;
 
 #define DIO700_SIZE 8		/*  size of io region used by board */
 
-static int dio700_attach(struct comedi_device *dev, struct comedi_devconfig *it);
+static int dio700_attach(struct comedi_device *dev,
+			 struct comedi_devconfig *it);
 static int dio700_detach(struct comedi_device *dev);
 
 enum dio700_bustype { pcmcia_bustype };
@@ -74,17 +75,17 @@ struct dio700_board {
 
 static const struct dio700_board dio700_boards[] = {
 	{
-	.name = "daqcard-700",
-	.device_id = 0x4743,/*  0x10b is manufacturer id, 0x4743 is device id */
-	.bustype = pcmcia_bustype,
-	.have_dio = 1,
-		},
+	 .name = "daqcard-700",
+	 .device_id = 0x4743,	/*  0x10b is manufacturer id, 0x4743 is device id */
+	 .bustype = pcmcia_bustype,
+	 .have_dio = 1,
+	 },
 	{
-	.name = "ni_daq_700",
-	.device_id = 0x4743,/*  0x10b is manufacturer id, 0x4743 is device id */
-	.bustype = pcmcia_bustype,
-	.have_dio = 1,
-		},
+	 .name = "ni_daq_700",
+	 .device_id = 0x4743,	/*  0x10b is manufacturer id, 0x4743 is device id */
+	 .bustype = pcmcia_bustype,
+	 .have_dio = 1,
+	 },
 };
 
 /*
@@ -96,7 +97,6 @@ struct dio700_private {
 
 	int data;		/* number of data points left to be taken */
 };
-
 
 #define devpriv ((struct dio700_private *)dev->private)
 
@@ -156,8 +156,9 @@ static int subdev_700_cb(int dir, int port, int data, unsigned long arg)
 	}
 }
 
-static int subdev_700_insn(struct comedi_device *dev, struct comedi_subdevice *s,
-	struct comedi_insn *insn, unsigned int *data)
+static int subdev_700_insn(struct comedi_device *dev,
+			   struct comedi_subdevice *s, struct comedi_insn *insn,
+			   unsigned int *data)
 {
 	if (data[0]) {
 		s->state &= ~data[0];
@@ -165,7 +166,7 @@ static int subdev_700_insn(struct comedi_device *dev, struct comedi_subdevice *s
 
 		if (data[0] & 0xff)
 			CALLBACK_FUNC(1, _700_DATA, s->state & 0xff,
-				CALLBACK_ARG);
+				      CALLBACK_ARG);
 	}
 
 	data[1] = s->state & 0xff;
@@ -174,8 +175,9 @@ static int subdev_700_insn(struct comedi_device *dev, struct comedi_subdevice *s
 	return 2;
 }
 
-static int subdev_700_insn_config(struct comedi_device *dev, struct comedi_subdevice *s,
-	struct comedi_insn *insn, unsigned int *data)
+static int subdev_700_insn_config(struct comedi_device *dev,
+				  struct comedi_subdevice *s,
+				  struct comedi_insn *insn, unsigned int *data)
 {
 
 	switch (data[0]) {
@@ -185,9 +187,9 @@ static int subdev_700_insn_config(struct comedi_device *dev, struct comedi_subde
 		break;
 	case INSN_CONFIG_DIO_QUERY:
 		data[1] =
-			(s->io_bits & (1 << CR_CHAN(insn->
-					chanspec))) ? COMEDI_OUTPUT :
-			COMEDI_INPUT;
+		    (s->
+		     io_bits & (1 << CR_CHAN(insn->chanspec))) ? COMEDI_OUTPUT :
+		    COMEDI_INPUT;
 		return insn->n;
 		break;
 	default:
@@ -202,8 +204,9 @@ static void do_config(struct comedi_device *dev, struct comedi_subdevice *s)
 	return;
 }
 
-static int subdev_700_cmdtest(struct comedi_device *dev, struct comedi_subdevice *s,
-	struct comedi_cmd *cmd)
+static int subdev_700_cmdtest(struct comedi_device *dev,
+			      struct comedi_subdevice *s,
+			      struct comedi_cmd *cmd)
 {
 	int err = 0;
 	unsigned int tmp;
@@ -284,15 +287,16 @@ static int subdev_700_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	return 0;
 }
 
-static int subdev_700_cancel(struct comedi_device *dev, struct comedi_subdevice *s)
+static int subdev_700_cancel(struct comedi_device *dev,
+			     struct comedi_subdevice *s)
 {
 	/* FIXME */
 
 	return 0;
 }
 
-int subdev_700_init(struct comedi_device *dev, struct comedi_subdevice *s, int (*cb) (int,
-		int, int, unsigned long), unsigned long arg)
+int subdev_700_init(struct comedi_device *dev, struct comedi_subdevice *s,
+		    int (*cb) (int, int, int, unsigned long), unsigned long arg)
 {
 	s->type = COMEDI_SUBD_DIO;
 	s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
@@ -321,7 +325,8 @@ int subdev_700_init(struct comedi_device *dev, struct comedi_subdevice *s, int (
 }
 
 int subdev_700_init_irq(struct comedi_device *dev, struct comedi_subdevice *s,
-	int (*cb) (int, int, int, unsigned long), unsigned long arg)
+			int (*cb) (int, int, int, unsigned long),
+			unsigned long arg)
 {
 	int ret;
 
@@ -383,7 +388,7 @@ static int dio700_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		break;
 	}
 	printk("comedi%d: ni_daq_700: %s, io 0x%lx", dev->minor,
-		thisboard->name, iobase);
+	       thisboard->name, iobase);
 #ifdef incomplete
 	if (irq) {
 		printk(", irq %u", irq);
@@ -431,25 +436,7 @@ static int dio700_detach(struct comedi_device *dev)
 	return 0;
 };
 
-/* PCMCIA crap */
-
-/*
-   All the PCMCIA modules use PCMCIA_DEBUG to control debugging.  If
-   you do not define PCMCIA_DEBUG at all, all the debug code will be
-   left out.  If you compile with PCMCIA_DEBUG=0, the debug code will
-   be present but disabled -- but it can then be enabled for specific
-   modules at load time with a 'pc_debug=#' option to insmod.
-*/
-#ifdef PCMCIA_DEBUG
-static int pc_debug = PCMCIA_DEBUG;
-module_param(pc_debug, int, 0644);
-#define DEBUG(n, args...) if (pc_debug>(n)) printk(KERN_DEBUG args)
-static char *version = "ni_daq_700.c, based on dummy_cs.c";
-#else
-#define DEBUG(n, args...)
-#endif
-
-/*====================================================================*/
+/* PCMCIA crap -- watch your words, please! */
 
 static void dio700_config(struct pcmcia_device *link);
 static void dio700_release(struct pcmcia_device *link);
@@ -505,7 +492,7 @@ static int dio700_cs_attach(struct pcmcia_device *link)
 
 	printk(KERN_INFO "ni_daq_700:  cs-attach\n");
 
-	DEBUG(0, "dio700_cs_attach()\n");
+	dev_dbg(&link->dev, "dio700_cs_attach()\n");
 
 	/* Allocate space for private device-specific data */
 	local = kzalloc(sizeof(struct local_info_t), GFP_KERNEL);
@@ -515,8 +502,7 @@ static int dio700_cs_attach(struct pcmcia_device *link)
 	link->priv = local;
 
 	/* Interrupt setup */
-	link->irq.Attributes = IRQ_TYPE_EXCLUSIVE;
-	link->irq.IRQInfo1 = IRQ_LEVEL_ID;
+	link->irq.Attributes = IRQ_TYPE_DYNAMIC_SHARING;
 	link->irq.Handler = NULL;
 
 	/*
@@ -550,10 +536,10 @@ static void dio700_cs_detach(struct pcmcia_device *link)
 
 	printk(KERN_INFO "ni_daq_700: cs-detach!\n");
 
-	DEBUG(0, "dio700_cs_detach(0x%p)\n", link);
+	dev_dbg(&link->dev, "dio700_cs_detach\n");
 
 	if (link->dev_node) {
-		((struct local_info_t *) link->priv)->stop = 1;
+		((struct local_info_t *)link->priv)->stop = 1;
 		dio700_release(link);
 	}
 
@@ -571,141 +557,85 @@ static void dio700_cs_detach(struct pcmcia_device *link)
 
 ======================================================================*/
 
+static int dio700_pcmcia_config_loop(struct pcmcia_device *p_dev,
+				cistpl_cftable_entry_t *cfg,
+				cistpl_cftable_entry_t *dflt,
+				unsigned int vcc,
+				void *priv_data)
+{
+	win_req_t *req = priv_data;
+	memreq_t map;
+
+	if (cfg->index == 0)
+		return -ENODEV;
+
+	/* Does this card need audio output? */
+	if (cfg->flags & CISTPL_CFTABLE_AUDIO) {
+		p_dev->conf.Attributes |= CONF_ENABLE_SPKR;
+		p_dev->conf.Status = CCSR_AUDIO_ENA;
+	}
+
+	/* Do we need to allocate an interrupt? */
+	if (cfg->irq.IRQInfo1 || dflt->irq.IRQInfo1)
+		p_dev->conf.Attributes |= CONF_ENABLE_IRQ;
+
+	/* IO window settings */
+	p_dev->io.NumPorts1 = p_dev->io.NumPorts2 = 0;
+	if ((cfg->io.nwin > 0) || (dflt->io.nwin > 0)) {
+		cistpl_io_t *io = (cfg->io.nwin) ? &cfg->io : &dflt->io;
+		p_dev->io.Attributes1 = IO_DATA_PATH_WIDTH_AUTO;
+		if (!(io->flags & CISTPL_IO_8BIT))
+			p_dev->io.Attributes1 = IO_DATA_PATH_WIDTH_16;
+		if (!(io->flags & CISTPL_IO_16BIT))
+			p_dev->io.Attributes1 = IO_DATA_PATH_WIDTH_8;
+		p_dev->io.IOAddrLines = io->flags & CISTPL_IO_LINES_MASK;
+		p_dev->io.BasePort1 = io->win[0].base;
+		p_dev->io.NumPorts1 = io->win[0].len;
+		if (io->nwin > 1) {
+			p_dev->io.Attributes2 = p_dev->io.Attributes1;
+			p_dev->io.BasePort2 = io->win[1].base;
+			p_dev->io.NumPorts2 = io->win[1].len;
+		}
+		/* This reserves IO space but doesn't actually enable it */
+		if (pcmcia_request_io(p_dev, &p_dev->io) != 0)
+			return -ENODEV;
+	}
+
+	if ((cfg->mem.nwin > 0) || (dflt->mem.nwin > 0)) {
+		cistpl_mem_t *mem =
+			(cfg->mem.nwin) ? &cfg->mem : &dflt->mem;
+		req->Attributes = WIN_DATA_WIDTH_16 | WIN_MEMORY_TYPE_CM;
+		req->Attributes |= WIN_ENABLE;
+		req->Base = mem->win[0].host_addr;
+		req->Size = mem->win[0].len;
+		if (req->Size < 0x1000)
+			req->Size = 0x1000;
+		req->AccessSpeed = 0;
+		if (pcmcia_request_window(p_dev, req, &p_dev->win))
+			return -ENODEV;
+		map.Page = 0;
+		map.CardOffset = mem->win[0].card_addr;
+		if (pcmcia_map_mem_page(p_dev, p_dev->win, &map))
+			return -ENODEV;
+	}
+	/* If we got this far, we're cool! */
+	return 0;
+}
+
 static void dio700_config(struct pcmcia_device *link)
 {
 	struct local_info_t *dev = link->priv;
-	tuple_t tuple;
-	cisparse_t parse;
-	int last_ret;
-	u_char buf[64];
 	win_req_t req;
-	memreq_t map;
-	cistpl_cftable_entry_t dflt = { 0 };
+	int ret;
 
 	printk(KERN_INFO "ni_daq_700:  cs-config\n");
 
-	DEBUG(0, "dio700_config(0x%p)\n", link);
+	dev_dbg(&link->dev, "dio700_config\n");
 
-	/*
-	   This reads the card's CONFIG tuple to find its configuration
-	   registers.
-	 */
-	tuple.DesiredTuple = CISTPL_CONFIG;
-	tuple.Attributes = 0;
-	tuple.TupleData = buf;
-	tuple.TupleDataMax = sizeof(buf);
-	tuple.TupleOffset = 0;
-
-	last_ret = pcmcia_get_first_tuple(link, &tuple);
-	if (last_ret) {
-		cs_error(link, GetFirstTuple, last_ret);
-		goto cs_failed;
-	}
-
-	last_ret = pcmcia_get_tuple_data(link, &tuple);
-	if (last_ret) {
-		cs_error(link, GetTupleData, last_ret);
-		goto cs_failed;
-	}
-
-	last_ret = pcmcia_parse_tuple(&tuple, &parse);
-	 if (last_ret) {
-		cs_error(link, ParseTuple, last_ret);
-		goto cs_failed;
-	}
-	link->conf.ConfigBase = parse.config.base;
-	link->conf.Present = parse.config.rmask[0];
-
-	/*
-	   In this loop, we scan the CIS for configuration table entries,
-	   each of which describes a valid card configuration, including
-	   voltage, IO window, memory window, and interrupt settings.
-
-	   We make no assumptions about the card to be configured: we use
-	   just the information available in the CIS.  In an ideal world,
-	   this would work for any PCMCIA card, but it requires a complete
-	   and accurate CIS.  In practice, a driver usually "knows" most of
-	   these things without consulting the CIS, and most client drivers
-	   will only use the CIS to fill in implementation-defined details.
-	 */
-	tuple.DesiredTuple = CISTPL_CFTABLE_ENTRY;
-	last_ret = pcmcia_get_first_tuple(link, &tuple);
-	if (last_ret != 0) {
-		cs_error(link, GetFirstTuple, last_ret);
-		goto cs_failed;
-	}
-	while (1) {
-		cistpl_cftable_entry_t *cfg = &(parse.cftable_entry);
-		if (pcmcia_get_tuple_data(link, &tuple) != 0)
-			goto next_entry;
-		if (pcmcia_parse_tuple(&tuple, &parse) != 0)
-			goto next_entry;
-
-		if (cfg->flags & CISTPL_CFTABLE_DEFAULT)
-			dflt = *cfg;
-		if (cfg->index == 0)
-			goto next_entry;
-		link->conf.ConfigIndex = cfg->index;
-
-		/* Does this card need audio output? */
-		if (cfg->flags & CISTPL_CFTABLE_AUDIO) {
-			link->conf.Attributes |= CONF_ENABLE_SPKR;
-			link->conf.Status = CCSR_AUDIO_ENA;
-		}
-
-		/* Do we need to allocate an interrupt? */
-		if (cfg->irq.IRQInfo1 || dflt.irq.IRQInfo1)
-			link->conf.Attributes |= CONF_ENABLE_IRQ;
-
-		/* IO window settings */
-		link->io.NumPorts1 = link->io.NumPorts2 = 0;
-		if ((cfg->io.nwin > 0) || (dflt.io.nwin > 0)) {
-			cistpl_io_t *io = (cfg->io.nwin) ? &cfg->io : &dflt.io;
-			link->io.Attributes1 = IO_DATA_PATH_WIDTH_AUTO;
-			if (!(io->flags & CISTPL_IO_8BIT))
-				link->io.Attributes1 = IO_DATA_PATH_WIDTH_16;
-			if (!(io->flags & CISTPL_IO_16BIT))
-				link->io.Attributes1 = IO_DATA_PATH_WIDTH_8;
-			link->io.IOAddrLines = io->flags & CISTPL_IO_LINES_MASK;
-			link->io.BasePort1 = io->win[0].base;
-			link->io.NumPorts1 = io->win[0].len;
-			if (io->nwin > 1) {
-				link->io.Attributes2 = link->io.Attributes1;
-				link->io.BasePort2 = io->win[1].base;
-				link->io.NumPorts2 = io->win[1].len;
-			}
-			/* This reserves IO space but doesn't actually enable it */
-			if (pcmcia_request_io(link, &link->io) != 0)
-				goto next_entry;
-		}
-
-		if ((cfg->mem.nwin > 0) || (dflt.mem.nwin > 0)) {
-			cistpl_mem_t *mem =
-				(cfg->mem.nwin) ? &cfg->mem : &dflt.mem;
-			req.Attributes = WIN_DATA_WIDTH_16 | WIN_MEMORY_TYPE_CM;
-			req.Attributes |= WIN_ENABLE;
-			req.Base = mem->win[0].host_addr;
-			req.Size = mem->win[0].len;
-			if (req.Size < 0x1000)
-				req.Size = 0x1000;
-			req.AccessSpeed = 0;
-			if (pcmcia_request_window(&link, &req, &link->win))
-				goto next_entry;
-			map.Page = 0;
-			map.CardOffset = mem->win[0].card_addr;
-			if (pcmcia_map_mem_page(link->win, &map))
-				goto next_entry;
-		}
-		/* If we got this far, we're cool! */
-		break;
-
-	      next_entry:
-
-		last_ret = pcmcia_get_next_tuple(link, &tuple);
-		if (last_ret) {
-			cs_error(link, GetNextTuple, last_ret);
-			goto cs_failed;
-		}
+	ret = pcmcia_loop_config(link, dio700_pcmcia_config_loop, &req);
+	if (ret) {
+		dev_warn(&link->dev, "no configuration found\n");
+		goto failed;
 	}
 
 	/*
@@ -714,11 +644,9 @@ static void dio700_config(struct pcmcia_device *link)
 	   irq structure is initialized.
 	 */
 	if (link->conf.Attributes & CONF_ENABLE_IRQ) {
-		last_ret = pcmcia_request_irq(link, &link->irq);
-		if (last_ret) {
-			cs_error(link, RequestIRQ, last_ret);
-			goto cs_failed;
-		}
+		ret = pcmcia_request_irq(link, &link->irq);
+		if (ret)
+			goto failed;
 	}
 
 	/*
@@ -726,11 +654,9 @@ static void dio700_config(struct pcmcia_device *link)
 	   the I/O windows and the interrupt mapping, and putting the
 	   card and host interface into "Memory and IO" mode.
 	 */
-	last_ret = pcmcia_request_configuration(link, &link->conf);
-	if (last_ret != 0) {
-		cs_error(link, RequestConfiguration, last_ret);
-		goto cs_failed;
-	}
+	ret = pcmcia_request_configuration(link, &link->conf);
+	if (ret != 0)
+		goto failed;
 
 	/*
 	   At this point, the dev_node_t structure(s) need to be
@@ -742,23 +668,23 @@ static void dio700_config(struct pcmcia_device *link)
 
 	/* Finally, report what we've done */
 	printk(KERN_INFO "%s: index 0x%02x",
-		dev->node.dev_name, link->conf.ConfigIndex);
+	       dev->node.dev_name, link->conf.ConfigIndex);
 	if (link->conf.Attributes & CONF_ENABLE_IRQ)
 		printk(", irq %d", link->irq.AssignedIRQ);
 	if (link->io.NumPorts1)
 		printk(", io 0x%04x-0x%04x", link->io.BasePort1,
-			link->io.BasePort1 + link->io.NumPorts1 - 1);
+		       link->io.BasePort1 + link->io.NumPorts1 - 1);
 	if (link->io.NumPorts2)
 		printk(" & 0x%04x-0x%04x", link->io.BasePort2,
-			link->io.BasePort2 + link->io.NumPorts2 - 1);
+		       link->io.BasePort2 + link->io.NumPorts2 - 1);
 	if (link->win)
 		printk(", mem 0x%06lx-0x%06lx", req.Base,
-			req.Base + req.Size - 1);
+		       req.Base + req.Size - 1);
 	printk("\n");
 
 	return;
 
-      cs_failed:
+failed:
 	printk(KERN_INFO "ni_daq_700 cs failed");
 	dio700_release(link);
 
@@ -766,7 +692,7 @@ static void dio700_config(struct pcmcia_device *link)
 
 static void dio700_release(struct pcmcia_device *link)
 {
-	DEBUG(0, "dio700_release(0x%p)\n", link);
+	dev_dbg(&link->dev, "dio700_release\n");
 
 	pcmcia_disable_device(link);
 }				/* dio700_release */
@@ -819,23 +745,22 @@ struct pcmcia_driver dio700_cs_driver = {
 	.id_table = dio700_cs_ids,
 	.owner = THIS_MODULE,
 	.drv = {
-			.name = dev_info,
+		.name = dev_info,
 		},
 };
 
 static int __init init_dio700_cs(void)
 {
-	printk("ni_daq_700:  cs-init \n");
-	DEBUG(0, "%s\n", version);
 	pcmcia_register_driver(&dio700_cs_driver);
 	return 0;
 }
 
 static void __exit exit_dio700_cs(void)
 {
-	DEBUG(0, "ni_daq_700: unloading\n");
+	pr_debug("ni_daq_700: unloading\n");
 	pcmcia_unregister_driver(&dio700_cs_driver);
 }
+
 int __init init_module(void)
 {
 	int ret;

@@ -47,6 +47,7 @@
 #include <linux/hdreg.h>
 #include <linux/uaccess.h>
 #include <linux/suspend.h>
+#include <asm/unaligned.h>
 
 #include "libata.h"
 
@@ -154,8 +155,7 @@ static ssize_t ata_scsi_lpm_put(struct device *dev,
 	 */
 	for (i = 1; i < ARRAY_SIZE(link_pm_policy); i++) {
 		const int len = strlen(link_pm_policy[i].name);
-		if (strncmp(link_pm_policy[i].name, buf, len) == 0 &&
-		   buf[len] == '\n') {
+		if (strncmp(link_pm_policy[i].name, buf, len) == 0) {
 			policy = link_pm_policy[i].value;
 			break;
 		}
@@ -1119,10 +1119,6 @@ static int ata_scsi_dev_config(struct scsi_device *sdev,
 
 		blk_queue_dma_drain(q, atapi_drain_needed, buf, ATAPI_MAX_DRAIN);
 	} else {
-		if (ata_id_is_ssd(dev->id))
-			queue_flag_set_unlocked(QUEUE_FLAG_NONROT,
-						sdev->request_queue);
-
 		/* ATA devices must be sector aligned */
 		blk_queue_update_dma_alignment(sdev->request_queue,
 					       ATA_SECT_SIZE - 1);
@@ -1212,6 +1208,7 @@ void ata_scsi_slave_destroy(struct scsi_device *sdev)
  *	ata_scsi_change_queue_depth - SCSI callback for queue depth config
  *	@sdev: SCSI device to configure queue depth for
  *	@queue_depth: new queue depth
+ *	@reason: calling context
  *
  *	This is libata standard hostt->change_queue_depth callback.
  *	SCSI will call into this callback when user tries to set queue
@@ -1223,11 +1220,15 @@ void ata_scsi_slave_destroy(struct scsi_device *sdev)
  *	RETURNS:
  *	Newly configured queue depth.
  */
-int ata_scsi_change_queue_depth(struct scsi_device *sdev, int queue_depth)
+int ata_scsi_change_queue_depth(struct scsi_device *sdev, int queue_depth,
+				int reason)
 {
 	struct ata_port *ap = ata_shost_to_port(sdev->host);
 	struct ata_device *dev;
 	unsigned long flags;
+
+	if (reason != SCSI_QDEPTH_DEFAULT)
+		return -EOPNOTSUPP;
 
 	if (queue_depth < 1 || queue_depth == sdev->queue_depth)
 		return sdev->queue_depth;
@@ -1255,23 +1256,6 @@ int ata_scsi_change_queue_depth(struct scsi_device *sdev, int queue_depth)
 
 	scsi_adjust_queue_depth(sdev, MSG_SIMPLE_TAG, queue_depth);
 	return queue_depth;
-}
-
-/* XXX: for spindown warning */
-static void ata_delayed_done_timerfn(unsigned long arg)
-{
-	struct scsi_cmnd *scmd = (void *)arg;
-
-	scmd->scsi_done(scmd);
-}
-
-/* XXX: for spindown warning */
-static void ata_delayed_done(struct scsi_cmnd *scmd)
-{
-	static struct timer_list timer;
-
-	setup_timer(&timer, ata_delayed_done_timerfn, (unsigned long)scmd);
-	mod_timer(&timer, jiffies + 5 * HZ);
 }
 
 /**
@@ -1337,32 +1321,6 @@ static unsigned int ata_scsi_start_stop_xlat(struct ata_queued_cmd *qc)
 		if ((qc->ap->flags & ATA_FLAG_NO_HIBERNATE_SPINDOWN) &&
 		     system_entering_hibernation())
 			goto skip;
-
-		/* XXX: This is for backward compatibility, will be
-		 * removed.  Read Documentation/feature-removal-schedule.txt
-		 * for more info.
-		 */
-		if ((qc->dev->flags & ATA_DFLAG_SPUNDOWN) &&
-		    (system_state == SYSTEM_HALT ||
-		     system_state == SYSTEM_POWER_OFF)) {
-			static unsigned long warned;
-
-			if (!test_and_set_bit(0, &warned)) {
-				ata_dev_printk(qc->dev, KERN_WARNING,
-					"DISK MIGHT NOT BE SPUN DOWN PROPERLY. "
-					"UPDATE SHUTDOWN UTILITY\n");
-				ata_dev_printk(qc->dev, KERN_WARNING,
-					"For more info, visit "
-					"http://linux-ata.org/shutdown.html\n");
-
-				/* ->scsi_done is not used, use it for
-				 * delayed completion.
-				 */
-				scmd->scsi_done = qc->scsidone;
-				qc->scsidone = ata_delayed_done;
-			}
-			goto skip;
-		}
 
 		/* Issue ATA STANDBY IMMEDIATE command */
 		tf->command = ATA_CMD_STANDBYNOW1;
@@ -1764,14 +1722,6 @@ static void ata_scsi_qc_complete(struct ata_queued_cmd *qc)
 		}
 	}
 
-	/* XXX: track spindown state for spindown skipping and warning */
-	if (unlikely(qc->tf.command == ATA_CMD_STANDBY ||
-		     qc->tf.command == ATA_CMD_STANDBYNOW1))
-		qc->dev->flags |= ATA_DFLAG_SPUNDOWN;
-	else if (likely(system_state != SYSTEM_HALT &&
-			system_state != SYSTEM_POWER_OFF))
-		qc->dev->flags &= ~ATA_DFLAG_SPUNDOWN;
-
 	if (need_sense && !ap->ops->error_handler)
 		ata_dump_status(ap->print_id, &qc->result_tf);
 
@@ -2019,6 +1969,7 @@ static unsigned int ata_scsiop_inq_00(struct ata_scsi_args *args, u8 *rbuf)
 		0x80,	/* page 0x80, unit serial no page */
 		0x83,	/* page 0x83, device ident page */
 		0x89,	/* page 0x89, ata info page */
+		0xb0,	/* page 0xb0, block limits page */
 		0xb1,	/* page 0xb1, block device characteristics page */
 	};
 
@@ -2137,6 +2088,43 @@ static unsigned int ata_scsiop_inq_89(struct ata_scsi_args *args, u8 *rbuf)
 	rbuf[56] = ATA_CMD_ID_ATA;
 
 	memcpy(&rbuf[60], &args->id[0], 512);
+	return 0;
+}
+
+static unsigned int ata_scsiop_inq_b0(struct ata_scsi_args *args, u8 *rbuf)
+{
+	u32 min_io_sectors;
+
+	rbuf[1] = 0xb0;
+	rbuf[3] = 0x3c;		/* required VPD size with unmap support */
+
+	/*
+	 * Optimal transfer length granularity.
+	 *
+	 * This is always one physical block, but for disks with a smaller
+	 * logical than physical sector size we need to figure out what the
+	 * latter is.
+	 */
+	if (ata_id_has_large_logical_sectors(args->id))
+		min_io_sectors = ata_id_logical_per_physical_sectors(args->id);
+	else
+		min_io_sectors = 1;
+	put_unaligned_be16(min_io_sectors, &rbuf[6]);
+
+	/*
+	 * Optimal unmap granularity.
+	 *
+	 * The ATA spec doesn't even know about a granularity or alignment
+	 * for the TRIM command.  We can leave away most of the unmap related
+	 * VPD page entries, but we have specifify a granularity to signal
+	 * that we support some form of unmap - in thise case via WRITE SAME
+	 * with the unmap bit set.
+	 */
+	if (ata_id_has_trim(args->id)) {
+		put_unaligned_be32(65535 * 512 / 8, &rbuf[20]);
+		put_unaligned_be32(1, &rbuf[28]);
+	}
+
 	return 0;
 }
 
@@ -2429,6 +2417,13 @@ static unsigned int ata_scsiop_read_cap(struct ata_scsi_args *args, u8 *rbuf)
 		rbuf[13] = log_per_phys;
 		rbuf[14] = (lowest_aligned >> 8) & 0x3f;
 		rbuf[15] = lowest_aligned;
+
+		if (ata_id_has_trim(args->id)) {
+			rbuf[14] |= 0x80; /* TPE */
+
+			if (ata_id_has_zero_after_trim(args->id))
+				rbuf[14] |= 0x40; /* TPRZ */
+		}
 	}
 
 	return 0;
@@ -2815,28 +2810,6 @@ static unsigned int ata_scsi_pass_thru(struct ata_queued_cmd *qc)
 		goto invalid_fld;
 
 	/*
-	 * Filter TPM commands by default. These provide an
-	 * essentially uncontrolled encrypted "back door" between
-	 * applications and the disk. Set libata.allow_tpm=1 if you
-	 * have a real reason for wanting to use them. This ensures
-	 * that installed software cannot easily mess stuff up without
-	 * user intent. DVR type users will probably ship with this enabled
-	 * for movie content management.
-	 *
-	 * Note that for ATA8 we can issue a DCS change and DCS freeze lock
-	 * for this and should do in future but that it is not sufficient as
-	 * DCS is an optional feature set. Thus we also do the software filter
-	 * so that we comply with the TC consortium stated goal that the user
-	 * can turn off TC features of their system.
-	 */
-	if (tf->command >= 0x5C && tf->command <= 0x5F && !libata_allow_tpm)
-		goto invalid_fld;
-
-	/* We may not issue DMA commands if no DMA mode is set */
-	if (tf->protocol == ATA_PROT_DMA && dev->dma_mode == 0)
-		goto invalid_fld;
-
-	/*
 	 * 12 and 16 byte CDBs use different offsets to
 	 * provide the various register values.
 	 */
@@ -2885,6 +2858,41 @@ static unsigned int ata_scsi_pass_thru(struct ata_queued_cmd *qc)
 	tf->device = dev->devno ?
 		tf->device | ATA_DEV1 : tf->device & ~ATA_DEV1;
 
+	/* READ/WRITE LONG use a non-standard sect_size */
+	qc->sect_size = ATA_SECT_SIZE;
+	switch (tf->command) {
+	case ATA_CMD_READ_LONG:
+	case ATA_CMD_READ_LONG_ONCE:
+	case ATA_CMD_WRITE_LONG:
+	case ATA_CMD_WRITE_LONG_ONCE:
+		if (tf->protocol != ATA_PROT_PIO || tf->nsect != 1)
+			goto invalid_fld;
+		qc->sect_size = scsi_bufflen(scmd);
+	}
+
+	/*
+	 * Set flags so that all registers will be written, pass on
+	 * write indication (used for PIO/DMA setup), result TF is
+	 * copied back and we don't whine too much about its failure.
+	 */
+	tf->flags |= ATA_TFLAG_ISADDR | ATA_TFLAG_DEVICE;
+	if (scmd->sc_data_direction == DMA_TO_DEVICE)
+		tf->flags |= ATA_TFLAG_WRITE;
+
+	qc->flags |= ATA_QCFLAG_RESULT_TF | ATA_QCFLAG_QUIET;
+
+	/*
+	 * Set transfer length.
+	 *
+	 * TODO: find out if we need to do more here to
+	 *       cover scatter/gather case.
+	 */
+	ata_qc_set_pc_nbytes(qc);
+
+	/* We may not issue DMA commands if no DMA mode is set */
+	if (tf->protocol == ATA_PROT_DMA && dev->dma_mode == 0)
+		goto invalid_fld;
+
 	/* sanity check for pio multi commands */
 	if ((cdb[1] & 0xe0) && !is_multi_taskfile(tf))
 		goto invalid_fld;
@@ -2901,18 +2909,6 @@ static unsigned int ata_scsi_pass_thru(struct ata_queued_cmd *qc)
 				       multi_count);
 	}
 
-	/* READ/WRITE LONG use a non-standard sect_size */
-	qc->sect_size = ATA_SECT_SIZE;
-	switch (tf->command) {
-	case ATA_CMD_READ_LONG:
-	case ATA_CMD_READ_LONG_ONCE:
-	case ATA_CMD_WRITE_LONG:
-	case ATA_CMD_WRITE_LONG_ONCE:
-		if (tf->protocol != ATA_PROT_PIO || tf->nsect != 1)
-			goto invalid_fld;
-		qc->sect_size = scsi_bufflen(scmd);
-	}
-
 	/*
 	 * Filter SET_FEATURES - XFER MODE command -- otherwise,
 	 * SET_FEATURES - XFER MODE must be preceded/succeeded
@@ -2920,30 +2916,79 @@ static unsigned int ata_scsi_pass_thru(struct ata_queued_cmd *qc)
 	 * controller (i.e. the reason for ->set_piomode(),
 	 * ->set_dmamode(), and ->post_set_mode() hooks).
 	 */
-	if ((tf->command == ATA_CMD_SET_FEATURES)
-	 && (tf->feature == SETFEATURES_XFER))
+	if (tf->command == ATA_CMD_SET_FEATURES &&
+	    tf->feature == SETFEATURES_XFER)
 		goto invalid_fld;
 
 	/*
-	 * Set flags so that all registers will be written,
-	 * and pass on write indication (used for PIO/DMA
-	 * setup.)
+	 * Filter TPM commands by default. These provide an
+	 * essentially uncontrolled encrypted "back door" between
+	 * applications and the disk. Set libata.allow_tpm=1 if you
+	 * have a real reason for wanting to use them. This ensures
+	 * that installed software cannot easily mess stuff up without
+	 * user intent. DVR type users will probably ship with this enabled
+	 * for movie content management.
+	 *
+	 * Note that for ATA8 we can issue a DCS change and DCS freeze lock
+	 * for this and should do in future but that it is not sufficient as
+	 * DCS is an optional feature set. Thus we also do the software filter
+	 * so that we comply with the TC consortium stated goal that the user
+	 * can turn off TC features of their system.
 	 */
-	tf->flags |= (ATA_TFLAG_ISADDR | ATA_TFLAG_DEVICE);
+	if (tf->command >= 0x5C && tf->command <= 0x5F && !libata_allow_tpm)
+		goto invalid_fld;
 
-	if (scmd->sc_data_direction == DMA_TO_DEVICE)
-		tf->flags |= ATA_TFLAG_WRITE;
+	return 0;
+
+ invalid_fld:
+	ata_scsi_set_sense(scmd, ILLEGAL_REQUEST, 0x24, 0x00);
+	/* "Invalid field in cdb" */
+	return 1;
+}
+
+static unsigned int ata_scsi_write_same_xlat(struct ata_queued_cmd *qc)
+{
+	struct ata_taskfile *tf = &qc->tf;
+	struct scsi_cmnd *scmd = qc->scsicmd;
+	struct ata_device *dev = qc->dev;
+	const u8 *cdb = scmd->cmnd;
+	u64 block;
+	u32 n_block;
+	u32 size;
+	void *buf;
+
+	/* we may not issue DMA commands if no DMA mode is set */
+	if (unlikely(!dev->dma_mode))
+		goto invalid_fld;
+
+	if (unlikely(scmd->cmd_len < 16))
+		goto invalid_fld;
+	scsi_16_lba_len(cdb, &block, &n_block);
+
+	/* for now we only support WRITE SAME with the unmap bit set */
+	if (unlikely(!(cdb[1] & 0x8)))
+		goto invalid_fld;
 
 	/*
-	 * Set transfer length.
-	 *
-	 * TODO: find out if we need to do more here to
-	 *       cover scatter/gather case.
+	 * WRITE SAME always has a sector sized buffer as payload, this
+	 * should never be a multiple entry S/G list.
 	 */
-	ata_qc_set_pc_nbytes(qc);
+	if (!scsi_sg_count(scmd))
+		goto invalid_fld;
 
-	/* request result TF and be quiet about device error */
-	qc->flags |= ATA_QCFLAG_RESULT_TF | ATA_QCFLAG_QUIET;
+	buf = page_address(sg_page(scsi_sglist(scmd)));
+	size = ata_set_lba_range_entries(buf, 512, block, n_block);
+
+	tf->protocol = ATA_PROT_DMA;
+	tf->hob_feature = 0;
+	tf->feature = ATA_DSM_TRIM;
+	tf->hob_nsect = (size / 512) >> 8;
+	tf->nsect = size / 512;
+	tf->command = ATA_CMD_DSM;
+	tf->flags |= ATA_TFLAG_ISADDR | ATA_TFLAG_DEVICE | ATA_TFLAG_LBA48 |
+		     ATA_TFLAG_WRITE;
+
+	ata_qc_set_pc_nbytes(qc);
 
 	return 0;
 
@@ -2976,6 +3021,9 @@ static inline ata_xlat_func_t ata_get_xlat_func(struct ata_device *dev, u8 cmd)
 	case WRITE_10:
 	case WRITE_16:
 		return ata_scsi_rw_xlat;
+
+	case WRITE_SAME_16:
+		return ata_scsi_write_same_xlat;
 
 	case SYNCHRONIZE_CACHE:
 		if (ata_try_flush_cache(dev))
@@ -3165,6 +3213,9 @@ void ata_scsi_simulate(struct ata_device *dev, struct scsi_cmnd *cmd,
 			break;
 		case 0x89:
 			ata_scsi_rbuf_fill(&args, ata_scsiop_inq_89);
+			break;
+		case 0xb0:
+			ata_scsi_rbuf_fill(&args, ata_scsiop_inq_b0);
 			break;
 		case 0xb1:
 			ata_scsi_rbuf_fill(&args, ata_scsiop_inq_b1);

@@ -64,6 +64,12 @@
 #define HARDIRQ_OFFSET	(1UL << HARDIRQ_SHIFT)
 #define NMI_OFFSET	(1UL << NMI_SHIFT)
 
+#ifndef PREEMPT_ACTIVE
+#define PREEMPT_ACTIVE_BITS	1
+#define PREEMPT_ACTIVE_SHIFT	(NMI_SHIFT + NMI_BITS)
+#define PREEMPT_ACTIVE	(__IRQ_MASK(PREEMPT_ACTIVE_BITS) << PREEMPT_ACTIVE_SHIFT)
+#endif
+
 #if PREEMPT_ACTIVE < (1 << (NMI_SHIFT + NMI_BITS))
 #error PREEMPT_ACTIVE is too low!
 #endif
@@ -77,14 +83,16 @@
  * Are we doing bottom half or hardware interrupt processing?
  * Are we in a softirq context? Interrupt context?
  */
-#define in_irq()	(hardirq_count() || (current->flags & PF_HARDIRQ))
-#define in_softirq()	(softirq_count() || (current->flags & PF_SOFTIRQ))
+#define in_irq()	(hardirq_count() || (current->extra_flags & PFE_HARDIRQ))
+#define in_softirq()	(softirq_count() || (current->extra_flags & PFE_SOFTIRQ))
 #define in_interrupt()	(irq_count())
 
 /*
  * Are we in NMI context?
  */
 #define in_nmi()	(preempt_count() & NMI_MASK)
+
+#define PREEMPT_INATOMIC_BASE 0
 
 /*
  * Are we running in atomic context?  WARNING: this macro cannot
@@ -93,7 +101,21 @@
  * used in the general case to determine whether sleeping is possible.
  * Do not use in_atomic() in driver code.
  */
-#define in_atomic()		((preempt_count() & ~PREEMPT_ACTIVE) != 0)
+#define in_atomic()	\
+	((preempt_count() & ~PREEMPT_ACTIVE) != PREEMPT_INATOMIC_BASE)
+
+#ifdef CONFIG_PREEMPT
+# define PREEMPT_CHECK_OFFSET 1
+#else
+# define PREEMPT_CHECK_OFFSET 0
+#endif
+
+/*
+ * Check whether we were atomic before we did preempt_disable():
+ * (used by the scheduler)
+ */
+#define in_atomic_preempt_off() \
+	((preempt_count() & ~PREEMPT_ACTIVE) != PREEMPT_CHECK_OFFSET)
 
 #ifdef CONFIG_PREEMPT
 # define preemptible()	(preempt_count() == 0 && !irqs_disabled())
@@ -117,17 +139,41 @@ static inline void account_system_vtime(struct task_struct *tsk)
 }
 #endif
 
-#if defined(CONFIG_NO_HZ) && !defined(CONFIG_CLASSIC_RCU)
+#if defined(CONFIG_NO_HZ)
+#if defined(CONFIG_TINY_RCU)
+extern void rcu_enter_nohz(void);
+extern void rcu_exit_nohz(void);
+
+static inline void rcu_irq_enter(void)
+{
+	rcu_exit_nohz();
+}
+
+static inline void rcu_irq_exit(void)
+{
+	rcu_enter_nohz();
+}
+
+static inline void rcu_nmi_enter(void)
+{
+}
+
+static inline void rcu_nmi_exit(void)
+{
+}
+
+#else
 extern void rcu_irq_enter(void);
 extern void rcu_irq_exit(void);
 extern void rcu_nmi_enter(void);
 extern void rcu_nmi_exit(void);
+#endif
 #else
 # define rcu_irq_enter() do { } while (0)
 # define rcu_irq_exit() do { } while (0)
 # define rcu_nmi_enter() do { } while (0)
 # define rcu_nmi_exit() do { } while (0)
-#endif /* #if defined(CONFIG_NO_HZ) && !defined(CONFIG_CLASSIC_RCU) */
+#endif /* #if defined(CONFIG_NO_HZ) */
 
 /*
  * It is safe to do non-atomic ops on ->hardirq_context,

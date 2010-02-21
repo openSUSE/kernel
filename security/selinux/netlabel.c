@@ -204,7 +204,7 @@ int selinux_netlbl_skbuff_getsid(struct sk_buff *skb,
  *
  * Description
  * Call the NetLabel mechanism to set the label of a packet using @sid.
- * Returns zero on auccess, negative values on failure.
+ * Returns zero on success, negative values on failure.
  *
  */
 int selinux_netlbl_skbuff_setsid(struct sk_buff *skb,
@@ -342,7 +342,7 @@ int selinux_netlbl_socket_post_create(struct sock *sk, u16 family)
 int selinux_netlbl_sock_rcv_skb(struct sk_security_struct *sksec,
 				struct sk_buff *skb,
 				u16 family,
-				struct avc_audit_data *ad)
+				struct common_audit_data *ad)
 {
 	int rc;
 	u32 nlbl_sid;

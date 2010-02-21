@@ -139,7 +139,7 @@ int usb_choose_configuration(struct usb_device *udev)
 
 	if (best) {
 		i = best->desc.bConfigurationValue;
-		dev_info(&udev->dev,
+		dev_dbg(&udev->dev,
 			"configuration #%d chosen from %d choice%s\n",
 			i, num_configs, plural(num_configs));
 	} else {
@@ -158,7 +158,9 @@ static int generic_probe(struct usb_device *udev)
 	/* Choose and set the configuration.  This registers the interfaces
 	 * with the driver core and lets interface drivers bind to them.
 	 */
-	if (udev->authorized == 0)
+	if (usb_device_is_owned(udev))
+		;		/* Don't configure if the device is owned */
+	else if (udev->authorized == 0)
 		dev_err(&udev->dev, "Device is not authorized for usage\n");
 	else {
 		c = usb_choose_configuration(udev);

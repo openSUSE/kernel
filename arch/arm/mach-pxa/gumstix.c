@@ -88,7 +88,10 @@ static struct platform_device *devices[] __initdata = {
 
 #ifdef CONFIG_MMC_PXA
 static struct pxamci_platform_data gumstix_mci_platform_data = {
-	.ocr_mask	= MMC_VDD_32_33|MMC_VDD_33_34,
+	.ocr_mask		= MMC_VDD_32_33|MMC_VDD_33_34,
+	.gpio_card_detect 	= -1,
+	.gpio_card_ro		= -1,
+	.gpio_power		= -1,
 };
 
 static void __init gumstix_mmc_init(void)
@@ -207,6 +210,11 @@ static void __init carrier_board_init(void)
 static void __init gumstix_init(void)
 {
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(gumstix_pin_config));
+
+	pxa_set_ffuart_info(NULL);
+	pxa_set_btuart_info(NULL);
+	pxa_set_stuart_info(NULL);
+	pxa_set_hwuart_info(NULL);
 
 	gumstix_bluetooth_init();
 	gumstix_udc_init();

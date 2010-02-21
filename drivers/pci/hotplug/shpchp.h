@@ -121,7 +121,7 @@ struct controller {
 #define PCI_DEVICE_ID_AMD_GOLAM_7450	0x7450
 #define PCI_DEVICE_ID_AMD_POGO_7458	0x7458
 
-/* AMD PCIX bridge registers */
+/* AMD PCI-X bridge registers */
 #define PCIX_MEM_BASE_LIMIT_OFFSET	0x1C
 #define PCIX_MISCII_OFFSET		0x48
 #define PCIX_MISC_BRIDGE_ERRORS_OFFSET	0x80
@@ -188,21 +188,12 @@ static inline const char *slot_name(struct slot *slot)
 
 #ifdef CONFIG_ACPI
 #include <linux/pci-acpi.h>
-static inline int get_hp_params_from_firmware(struct pci_dev *dev,
-					      struct hotplug_params *hpp)
-{
-	if (ACPI_FAILURE(acpi_get_hp_params_from_firmware(dev->bus, hpp)))
-			return -ENODEV;
-	return 0;
-}
-
 static inline int get_hp_hw_control_from_firmware(struct pci_dev *dev)
 {
 	u32 flags = OSC_SHPC_NATIVE_HP_CONTROL;
 	return acpi_get_hp_hw_control_from_firmware(dev, flags);
 }
 #else
-#define get_hp_params_from_firmware(dev, hpp) (-ENODEV)
 #define get_hp_hw_control_from_firmware(dev) (0)
 #endif
 

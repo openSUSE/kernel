@@ -80,6 +80,8 @@
 #define APMG_RFKILL_REG			(APMG_BASE + 0x0014)
 #define APMG_RTC_INT_STT_REG		(APMG_BASE + 0x001c)
 #define APMG_RTC_INT_MSK_REG		(APMG_BASE + 0x0020)
+#define APMG_DIGITAL_SVR_REG		(APMG_BASE + 0x0058)
+#define APMG_ANALOG_SVR_REG		(APMG_BASE + 0x006C)
 
 #define APMG_CLK_VAL_DMA_CLK_RQT	(0x00000200)
 #define APMG_CLK_VAL_BSM_CLK_RQT	(0x00000800)
@@ -91,7 +93,8 @@
 #define APMG_PS_CTRL_VAL_PWR_SRC_VMAIN		(0x00000000)
 #define APMG_PS_CTRL_VAL_PWR_SRC_MAX		(0x01000000) /* 3945 only */
 #define APMG_PS_CTRL_VAL_PWR_SRC_VAUX		(0x02000000)
-
+#define APMG_SVR_VOLTAGE_CONFIG_BIT_MSK	(0x000001E0) /* bit 8:5 */
+#define APMG_SVR_DIGITAL_VOLTAGE_1_32		(0x00000060)
 
 #define APMG_PCIDEV_STT_VAL_L1_ACT_DIS		(0x00000800)
 
@@ -251,7 +254,8 @@
  * device.  A queue maps to only one (selectable by driver) Tx DMA channel,
  * but one DMA channel may take input from several queues.
  *
- * Tx DMA channels have dedicated purposes.  For 4965, they are used as follows:
+ * Tx DMA channels have dedicated purposes.  For 4965, they are used as follows
+ * (cf. default_queue_to_tx_fifo in iwl-4965.c):
  *
  * 0 -- EDCA BK (background) frames, lowest priority
  * 1 -- EDCA BE (best effort) frames, normal priority
@@ -262,9 +266,21 @@
  * 6 -- HCCA long frames
  * 7 -- not used by driver (device-internal only)
  *
+ * For 5000 series and up, they are used slightly differently
+ * (cf. iwl5000_default_queue_to_tx_fifo in iwl-5000.c):
+ *
+ * 0 -- EDCA BK (background) frames, lowest priority
+ * 1 -- EDCA BE (best effort) frames, normal priority
+ * 2 -- EDCA VI (video) frames, higher priority
+ * 3 -- EDCA VO (voice) and management frames, highest priority
+ * 4 -- (TBD)
+ * 5 -- HCCA short frames
+ * 6 -- HCCA long frames
+ * 7 -- Commands
+ *
  * Driver should normally map queues 0-6 to Tx DMA/FIFO channels 0-6.
- * In addition, driver can map queues 7-15 to Tx DMA/FIFO channels 0-3 to
- * support 11n aggregation via EDCA DMA channels.
+ * In addition, driver can map the remaining queues to Tx DMA/FIFO
+ * channels 0-3 to support 11n aggregation via EDCA DMA channels.
  *
  * The driver sets up each queue to work in one of two modes:
  *

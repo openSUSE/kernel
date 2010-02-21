@@ -52,8 +52,10 @@
 #include <linux/kvm_host.h>
 #endif
 
+#ifdef CONFIG_PPC32
 #if defined(CONFIG_BOOKE) || defined(CONFIG_40x)
 #include "head_booke.h"
+#endif
 #endif
 
 #if defined(CONFIG_FSL_BOOKE)
@@ -67,6 +69,8 @@ int main(void)
 	DEFINE(MMCONTEXTID, offsetof(struct mm_struct, context.id));
 #ifdef CONFIG_PPC64
 	DEFINE(AUDITCONTEXT, offsetof(struct task_struct, audit_context));
+	DEFINE(SIGSEGV, SIGSEGV);
+	DEFINE(NMI_MASK, NMI_MASK);
 #else
 	DEFINE(THREAD_INFO, offsetof(struct task_struct, stack));
 #endif /* CONFIG_PPC64 */
@@ -129,7 +133,7 @@ int main(void)
 	DEFINE(PACAKMSR, offsetof(struct paca_struct, kernel_msr));
 	DEFINE(PACASOFTIRQEN, offsetof(struct paca_struct, soft_enabled));
 	DEFINE(PACAHARDIRQEN, offsetof(struct paca_struct, hard_enabled));
-	DEFINE(PACAPERFPEND, offsetof(struct paca_struct, perf_counter_pending));
+	DEFINE(PACAPERFPEND, offsetof(struct paca_struct, perf_event_pending));
 	DEFINE(PACACONTEXTID, offsetof(struct paca_struct, context.id));
 #ifdef CONFIG_PPC_MM_SLICES
 	DEFINE(PACALOWSLICESPSIZE, offsetof(struct paca_struct,
@@ -138,6 +142,20 @@ int main(void)
 					    context.high_slices_psize));
 	DEFINE(MMUPSIZEDEFSIZE, sizeof(struct mmu_psize_def));
 #endif /* CONFIG_PPC_MM_SLICES */
+
+#ifdef CONFIG_PPC_BOOK3E
+	DEFINE(PACAPGD, offsetof(struct paca_struct, pgd));
+	DEFINE(PACA_KERNELPGD, offsetof(struct paca_struct, kernel_pgd));
+	DEFINE(PACA_EXGEN, offsetof(struct paca_struct, exgen));
+	DEFINE(PACA_EXTLB, offsetof(struct paca_struct, extlb));
+	DEFINE(PACA_EXMC, offsetof(struct paca_struct, exmc));
+	DEFINE(PACA_EXCRIT, offsetof(struct paca_struct, excrit));
+	DEFINE(PACA_EXDBG, offsetof(struct paca_struct, exdbg));
+	DEFINE(PACA_MC_STACK, offsetof(struct paca_struct, mc_kstack));
+	DEFINE(PACA_CRIT_STACK, offsetof(struct paca_struct, crit_kstack));
+	DEFINE(PACA_DBG_STACK, offsetof(struct paca_struct, dbg_kstack));
+#endif /* CONFIG_PPC_BOOK3E */
+
 #ifdef CONFIG_PPC_STD_MMU_64
 	DEFINE(PACASTABREAL, offsetof(struct paca_struct, stab_real));
 	DEFINE(PACASTABVIRT, offsetof(struct paca_struct, stab_addr));
@@ -172,6 +190,11 @@ int main(void)
 	DEFINE(PACA_SYSTEM_TIME, offsetof(struct paca_struct, system_time));
 	DEFINE(PACA_DATA_OFFSET, offsetof(struct paca_struct, data_offset));
 	DEFINE(PACA_TRAP_SAVE, offsetof(struct paca_struct, trap_save));
+#ifdef CONFIG_KVM_BOOK3S_64_HANDLER
+	DEFINE(PACA_KVM_IN_GUEST, offsetof(struct paca_struct, kvm_in_guest));
+	DEFINE(PACA_KVM_SLB, offsetof(struct paca_struct, kvm_slb));
+	DEFINE(PACA_KVM_SLB_MAX, offsetof(struct paca_struct, kvm_slb_max));
+#endif
 #endif /* CONFIG_PPC64 */
 
 	/* RTAS */
@@ -260,6 +283,7 @@ int main(void)
 	DEFINE(_SRR1, STACK_FRAME_OVERHEAD+sizeof(struct pt_regs)+8);
 #endif /* CONFIG_PPC64 */
 
+#if defined(CONFIG_PPC32)
 #if defined(CONFIG_BOOKE) || defined(CONFIG_40x)
 	DEFINE(EXC_LVL_SIZE, STACK_EXC_LVL_FRAME_SIZE);
 	DEFINE(MAS0, STACK_INT_FRAME_SIZE+offsetof(struct exception_regs, mas0));
@@ -278,7 +302,7 @@ int main(void)
 	DEFINE(_DSRR1, STACK_INT_FRAME_SIZE+offsetof(struct exception_regs, dsrr1));
 	DEFINE(SAVED_KSP_LIMIT, STACK_INT_FRAME_SIZE+offsetof(struct exception_regs, saved_ksp_limit));
 #endif
-
+#endif
 	DEFINE(CLONE_VM, CLONE_VM);
 	DEFINE(CLONE_UNTRACED, CLONE_UNTRACED);
 
@@ -379,13 +403,23 @@ int main(void)
 	DEFINE(VCPU_LAST_INST, offsetof(struct kvm_vcpu, arch.last_inst));
 	DEFINE(VCPU_FAULT_DEAR, offsetof(struct kvm_vcpu, arch.fault_dear));
 	DEFINE(VCPU_FAULT_ESR, offsetof(struct kvm_vcpu, arch.fault_esr));
+
+	/* book3s_64 */
+#ifdef CONFIG_PPC64
+	DEFINE(VCPU_FAULT_DSISR, offsetof(struct kvm_vcpu, arch.fault_dsisr));
+	DEFINE(VCPU_HOST_RETIP, offsetof(struct kvm_vcpu, arch.host_retip));
+	DEFINE(VCPU_HOST_R2, offsetof(struct kvm_vcpu, arch.host_r2));
+	DEFINE(VCPU_HOST_MSR, offsetof(struct kvm_vcpu, arch.host_msr));
+	DEFINE(VCPU_SHADOW_MSR, offsetof(struct kvm_vcpu, arch.shadow_msr));
+	DEFINE(VCPU_TRAMPOLINE_LOWMEM, offsetof(struct kvm_vcpu, arch.trampoline_lowmem));
+	DEFINE(VCPU_TRAMPOLINE_ENTER, offsetof(struct kvm_vcpu, arch.trampoline_enter));
+	DEFINE(VCPU_HIGHMEM_HANDLER, offsetof(struct kvm_vcpu, arch.highmem_handler));
+	DEFINE(VCPU_HFLAGS, offsetof(struct kvm_vcpu, arch.hflags));
+#endif
 #endif
 #ifdef CONFIG_44x
 	DEFINE(PGD_T_LOG2, PGD_T_LOG2);
 	DEFINE(PTE_T_LOG2, PTE_T_LOG2);
-#endif
-#ifdef CONFIG_FSL_BOOKE
-	DEFINE(TLBCAM_SIZE, sizeof(struct tlbcam));
 #endif
 
 #ifdef CONFIG_KVM_EXIT_TIMING

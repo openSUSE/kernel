@@ -108,6 +108,9 @@ static int linear_congested(void *data, int bits)
 	linear_conf_t *conf;
 	int i, ret = 0;
 
+	if (mddev_congested(mddev, bits))
+		return 1;
+
 	rcu_read_lock();
 	conf = rcu_dereference(mddev->private);
 
@@ -288,8 +291,8 @@ static int linear_make_request (struct request_queue *q, struct bio *bio)
 	sector_t start_sector;
 	int cpu;
 
-	if (unlikely(bio_barrier(bio))) {
-		bio_endio(bio, -EOPNOTSUPP);
+	if (unlikely(bio_rw_flagged(bio, BIO_RW_BARRIER))) {
+		md_barrier_request(mddev, bio);
 		return 0;
 	}
 
@@ -380,6 +383,7 @@ static void linear_exit (void)
 module_init(linear_init);
 module_exit(linear_exit);
 MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Linear device concatenation personality for MD");
 MODULE_ALIAS("md-personality-1"); /* LINEAR - deprecated*/
 MODULE_ALIAS("md-linear");
 MODULE_ALIAS("md-level--1");

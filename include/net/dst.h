@@ -8,6 +8,7 @@
 #ifndef _NET_DST_H
 #define _NET_DST_H
 
+#include <net/dst_ops.h>
 #include <linux/netdevice.h>
 #include <linux/rtnetlink.h>
 #include <linux/rcupdate.h>
@@ -35,8 +36,7 @@
 
 struct sk_buff;
 
-struct dst_entry
-{
+struct dst_entry {
 	struct rcu_head		rcu_head;
 	struct dst_entry	*child;
 	struct net_device       *dev;
@@ -102,34 +102,18 @@ struct dst_entry
 	};
 };
 
-
-struct dst_ops
-{
-	unsigned short		family;
-	__be16			protocol;
-	unsigned		gc_thresh;
-
-	int			(*gc)(struct dst_ops *ops);
-	struct dst_entry *	(*check)(struct dst_entry *, __u32 cookie);
-	void			(*destroy)(struct dst_entry *);
-	void			(*ifdown)(struct dst_entry *,
-					  struct net_device *dev, int how);
-	struct dst_entry *	(*negative_advice)(struct dst_entry *);
-	void			(*link_failure)(struct sk_buff *);
-	void			(*update_pmtu)(struct dst_entry *dst, u32 mtu);
-	int			(*local_out)(struct sk_buff *skb);
-
-	atomic_t		entries;
-	struct kmem_cache 		*kmem_cachep;
-	struct net              *dst_net;
-};
-
 #ifdef __KERNEL__
 
 static inline u32
 dst_metric(const struct dst_entry *dst, int metric)
 {
 	return dst->metrics[metric-1];
+}
+
+static inline u32
+dst_feature(const struct dst_entry *dst, u32 feature)
+{
+	return dst_metric(dst, RTAX_FEATURES) & feature;
 }
 
 static inline u32 dst_mtu(const struct dst_entry *dst)
@@ -157,7 +141,7 @@ static inline void set_dst_metric_rtt(struct dst_entry *dst, int metric,
 static inline u32
 dst_allfrag(const struct dst_entry *dst)
 {
-	int ret = dst_metric(dst, RTAX_FEATURES) & RTAX_FEATURE_ALLFRAG;
+	int ret = dst_feature(dst,  RTAX_FEATURE_ALLFRAG);
 	/* Yes, _exactly_. This is paranoia. */
 	barrier();
 	return ret;
@@ -243,11 +227,19 @@ static inline void dst_confirm(struct dst_entry *dst)
 		neigh_confirm(dst->neighbour);
 }
 
-static inline void dst_negative_advice(struct dst_entry **dst_p)
+static inline void dst_negative_advice(struct dst_entry **dst_p,
+				       struct sock *sk)
 {
 	struct dst_entry * dst = *dst_p;
-	if (dst && dst->ops->negative_advice)
+	if (dst && dst->ops->negative_advice) {
 		*dst_p = dst->ops->negative_advice(dst);
+
+		if (dst != *dst_p) {
+			extern void sk_reset_txq(struct sock *sk);
+
+			sk_reset_txq(sk);
+		}
+	}
 }
 
 static inline void dst_link_failure(struct sk_buff *skb)

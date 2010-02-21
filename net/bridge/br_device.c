@@ -20,7 +20,7 @@
 #include "br_private.h"
 
 /* net device transmit always called with no BH (preempt_disabled) */
-int br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
+netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct net_bridge *br = netdev_priv(dev);
 	const unsigned char *dest = skb->data;
@@ -39,7 +39,7 @@ int br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 	else
 		br_flood_deliver(br, skb);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 static int br_dev_open(struct net_device *dev)
@@ -157,6 +157,7 @@ static const struct ethtool_ops br_ethtool_ops = {
 	.get_tso	= ethtool_op_get_tso,
 	.set_tso	= br_set_tso,
 	.get_ufo	= ethtool_op_get_ufo,
+	.set_ufo	= ethtool_op_set_ufo,
 	.get_flags	= ethtool_op_get_flags,
 };
 

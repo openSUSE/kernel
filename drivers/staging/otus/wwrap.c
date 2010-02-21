@@ -26,10 +26,7 @@
 #include "usbdrv.h"
 
 #include <linux/netlink.h>
-
-#if WIRELESS_EXT > 12
 #include <net/iw_handler.h>
-#endif
 
 extern void zfiRecv80211(zdev_t* dev, zbuf_t* buf, struct zsAdditionInfo* addInfo);
 extern void zfCoreRecv(zdev_t* dev, zbuf_t* buf, struct zsAdditionInfo* addInfo);
@@ -1018,11 +1015,6 @@ void kevent(struct work_struct *work)
                container_of(work, struct usbdrv_private, kevent);
     zdev_t *dev = macp->device;
 
-    if (macp == NULL)
-    {
-        return;
-    }
-
     if (test_and_set_bit(0, (void *)&smp_kevent_Lock))
     {
         //schedule_work(&macp->kevent);
@@ -1066,7 +1058,7 @@ u8_t zfLnxCreateThread(zdev_t *dev)
 
     /* Create Mutex and keventd */
     INIT_WORK(&macp->kevent, kevent);
-    semaphore_init(&macp->ioctl_sem);
+    sema_init(&macp->ioctl_sem, 1);
 
     return 0;
 }

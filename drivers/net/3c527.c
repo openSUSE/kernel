@@ -179,7 +179,7 @@ struct mc32_local
 
 	u16 rx_ring_tail;       /* index to rx de-queue end */
 
-	struct anon_semaphore cmd_mutex;    /* Serialises issuing of execute commands */
+	struct semaphore cmd_mutex;    /* Serialises issuing of execute commands */
         struct completion execution_cmd; /* Card has completed an execute command */
 	struct completion xceiver_cmd;   /* Card has completed a tx or rx command */
 };
@@ -213,7 +213,8 @@ static int	mc32_probe1(struct net_device *dev, int ioaddr);
 static int      mc32_command(struct net_device *dev, u16 cmd, void *data, int len);
 static int	mc32_open(struct net_device *dev);
 static void	mc32_timeout(struct net_device *dev);
-static int	mc32_send_packet(struct sk_buff *skb, struct net_device *dev);
+static netdev_tx_t mc32_send_packet(struct sk_buff *skb,
+				    struct net_device *dev);
 static irqreturn_t mc32_interrupt(int irq, void *dev_id);
 static int	mc32_close(struct net_device *dev);
 static struct	net_device_stats *mc32_get_stats(struct net_device *dev);
@@ -442,7 +443,7 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 	 *	Grab the IRQ
 	 */
 
-	err = request_irq(dev->irq, &mc32_interrupt, IRQF_SHARED | IRQF_SAMPLE_RANDOM, DRV_NAME, dev);
+	err = request_irq(dev->irq, mc32_interrupt, IRQF_SHARED | IRQF_SAMPLE_RANDOM, DRV_NAME, dev);
 	if (err) {
 		release_region(dev->base_addr, MC32_IO_EXTENT);
 		pr_err("%s: unable to get IRQ %d.\n", DRV_NAME, dev->irq);
@@ -521,7 +522,7 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 	lp->tx_len 		= lp->exec_box->data[9];   /* Transmit list count */
 	lp->rx_len 		= lp->exec_box->data[11];  /* Receive list count */
 
-	anon_semaphore_init_locked(&lp->cmd_mutex);
+	sema_init(&lp->cmd_mutex, 0);
 	init_completion(&lp->execution_cmd);
 	init_completion(&lp->xceiver_cmd);
 
@@ -580,7 +581,7 @@ static int mc32_command_nowait(struct net_device *dev, u16 cmd, void *data, int 
 	int ioaddr = dev->base_addr;
 	int ret = -1;
 
-	if (anon_down_trylock(&lp->cmd_mutex) == 0)
+	if (down_trylock(&lp->cmd_mutex) == 0)
 	{
 		lp->cmd_nonblocking=1;
 		lp->exec_box->mbox=0;
@@ -626,7 +627,7 @@ static int mc32_command(struct net_device *dev, u16 cmd, void *data, int len)
 	int ioaddr = dev->base_addr;
 	int ret = 0;
 
-	anon_down(&lp->cmd_mutex);
+	down(&lp->cmd_mutex);
 
 	/*
 	 *     My Turn
@@ -646,7 +647,7 @@ static int mc32_command(struct net_device *dev, u16 cmd, void *data, int len)
 	if(lp->exec_box->mbox&(1<<13))
 		ret = -1;
 
-	anon_up(&lp->cmd_mutex);
+	up(&lp->cmd_mutex);
 
 	/*
 	 *	A multicast set got blocked - try it now
@@ -916,7 +917,7 @@ static int mc32_open(struct net_device *dev)
 	 *      Allow ourselves to issue commands
 	 */
 
-	anon_up(&lp->cmd_mutex);
+	up(&lp->cmd_mutex);
 
 
 	/*
@@ -1020,7 +1021,8 @@ static void mc32_timeout(struct net_device *dev)
  *
  */
 
-static int mc32_send_packet(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t mc32_send_packet(struct sk_buff *skb,
+				    struct net_device *dev)
 {
 	struct mc32_local *lp = netdev_priv(dev);
 	u32 head = atomic_read(&lp->tx_ring_head);
@@ -1035,7 +1037,7 @@ static int mc32_send_packet(struct sk_buff *skb, struct net_device *dev)
 
 	if (skb_padto(skb, ETH_ZLEN)) {
 		netif_wake_queue(dev);
-		return 0;
+		return NETDEV_TX_OK;
 	}
 
 	atomic_dec(&lp->tx_count);
@@ -1066,7 +1068,7 @@ static int mc32_send_packet(struct sk_buff *skb, struct net_device *dev)
 	p->control     &= ~CONTROL_EOL;
 
 	netif_wake_queue(dev);
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 
@@ -1166,8 +1168,8 @@ static void mc32_rx_ring(struct net_device *dev)
 
 			/* Try to save time by avoiding a copy on big frames */
 
-			if ((length > RX_COPYBREAK)
-			    && ((newskb=dev_alloc_skb(1532)) != NULL))
+			if ((length > RX_COPYBREAK) &&
+			    ((newskb=dev_alloc_skb(1532)) != NULL))
 			{
 				skb=lp->rx_ring[rx_ring_tail].skb;
 				skb_put(skb, length);
@@ -1384,7 +1386,7 @@ static irqreturn_t mc32_interrupt(int irq, void *dev_id)
 			 */
 
 			if (lp->cmd_nonblocking) {
-				anon_up(&lp->cmd_mutex);
+				up(&lp->cmd_mutex);
 				if (lp->mc_reload_wait)
 					mc32_reset_multicast_list(dev);
 			}
@@ -1461,7 +1463,7 @@ static int mc32_close(struct net_device *dev)
 
 	/* Ensure we issue no more commands beyond this point */
 
-	anon_down(&lp->cmd_mutex);
+	down(&lp->cmd_mutex);
 
 	/* Ok the card is now stopping */
 

@@ -497,16 +497,15 @@ static int em_x270_usb_hub_init(void)
 		goto err_free_vbus_gpio;
 
 	/* USB Hub power-on and reset */
-	gpio_direction_output(usb_hub_reset, 0);
+	gpio_direction_output(usb_hub_reset, 1);
+	gpio_direction_output(GPIO9_USB_VBUS_EN, 0);
 	regulator_enable(em_x270_usb_ldo);
-	gpio_set_value(usb_hub_reset, 1);
 	gpio_set_value(usb_hub_reset, 0);
+	gpio_set_value(usb_hub_reset, 1);
 	regulator_disable(em_x270_usb_ldo);
 	regulator_enable(em_x270_usb_ldo);
-	gpio_set_value(usb_hub_reset, 1);
-
-	/* enable VBUS */
-	gpio_direction_output(GPIO9_USB_VBUS_EN, 1);
+	gpio_set_value(usb_hub_reset, 0);
+	gpio_set_value(GPIO9_USB_VBUS_EN, 1);
 
 	return 0;
 
@@ -646,13 +645,16 @@ static int em_x270_mci_get_ro(struct device *dev)
 }
 
 static struct pxamci_platform_data em_x270_mci_platform_data = {
-	.ocr_mask	= MMC_VDD_20_21|MMC_VDD_21_22|MMC_VDD_22_23|
-			  MMC_VDD_24_25|MMC_VDD_25_26|MMC_VDD_26_27|
-			  MMC_VDD_27_28|MMC_VDD_28_29|MMC_VDD_29_30|
-			  MMC_VDD_30_31|MMC_VDD_31_32,
-	.init 		= em_x270_mci_init,
-	.setpower 	= em_x270_mci_setpower,
-	.exit		= em_x270_mci_exit,
+	.ocr_mask		= MMC_VDD_20_21|MMC_VDD_21_22|MMC_VDD_22_23|
+				  MMC_VDD_24_25|MMC_VDD_25_26|MMC_VDD_26_27|
+				  MMC_VDD_27_28|MMC_VDD_28_29|MMC_VDD_29_30|
+				  MMC_VDD_30_31|MMC_VDD_31_32,
+	.init 			= em_x270_mci_init,
+	.setpower 		= em_x270_mci_setpower,
+	.exit			= em_x270_mci_exit,
+	.gpio_card_detect	= -1,
+	.gpio_card_ro		= -1,
+	.gpio_power		= -1,
 };
 
 static void __init em_x270_init_mmc(void)
@@ -964,7 +966,7 @@ static inline void em_x270_init_gpio_keys(void) {}
 #if defined(CONFIG_VIDEO_PXA27x) || defined(CONFIG_VIDEO_PXA27x_MODULE)
 static struct regulator *em_x270_camera_ldo;
 
-static int em_x270_sensor_init(struct device *dev)
+static int em_x270_sensor_init(void)
 {
 	int ret;
 
@@ -993,7 +995,6 @@ static int em_x270_sensor_init(struct device *dev)
 }
 
 struct pxacamera_platform_data em_x270_camera_platform_data = {
-	.init	= em_x270_sensor_init,
 	.flags  = PXA_CAMERA_MASTER | PXA_CAMERA_DATAWIDTH_8 |
 		PXA_CAMERA_PCLK_EN | PXA_CAMERA_MCLK_EN,
 	.mclk_10khz = 2600,
@@ -1022,22 +1023,34 @@ static int em_x270_sensor_power(struct device *dev, int on)
 	return 0;
 }
 
-static struct soc_camera_link iclink = {
-	.bus_id	= 0,
-	.power = em_x270_sensor_power,
-};
-
 static struct i2c_board_info em_x270_i2c_cam_info[] = {
 	{
 		I2C_BOARD_INFO("mt9m111", 0x48),
+	},
+};
+
+static struct soc_camera_link iclink = {
+	.bus_id		= 0,
+	.power		= em_x270_sensor_power,
+	.board_info	= &em_x270_i2c_cam_info[0],
+	.i2c_adapter_id	= 0,
+	.module_name	= "mt9m111",
+};
+
+static struct platform_device em_x270_camera = {
+	.name	= "soc-camera-pdrv",
+	.id	= -1,
+	.dev	= {
 		.platform_data = &iclink,
 	},
 };
 
 static void  __init em_x270_init_camera(void)
 {
-	i2c_register_board_info(0, ARRAY_AND_SIZE(em_x270_i2c_cam_info));
-	pxa_set_camera_info(&em_x270_camera_platform_data);
+	if (em_x270_sensor_init() == 0) {
+		pxa_set_camera_info(&em_x270_camera_platform_data);
+		platform_device_register(&em_x270_camera);
+	}
 }
 #else
 static inline void em_x270_init_camera(void) {}
@@ -1103,6 +1116,7 @@ REGULATOR_CONSUMER(ldo5, NULL, "vcc cam");
 REGULATOR_CONSUMER(ldo10, &pxa_device_mci.dev, "vcc sdio");
 REGULATOR_CONSUMER(ldo12, NULL, "vcc usb");
 REGULATOR_CONSUMER(ldo19, &em_x270_gprs_userspace_consumer.dev, "vcc gprs");
+REGULATOR_CONSUMER(buck2, NULL, "vcc_core");
 
 #define REGULATOR_INIT(_ldo, _min_uV, _max_uV, _ops_mask)		\
 	static struct regulator_init_data _ldo##_data = {		\
@@ -1125,6 +1139,7 @@ REGULATOR_INIT(ldo10, 2000000, 3200000,
 	       REGULATOR_CHANGE_STATUS | REGULATOR_CHANGE_VOLTAGE);
 REGULATOR_INIT(ldo12, 3000000, 3000000, REGULATOR_CHANGE_STATUS);
 REGULATOR_INIT(ldo19, 3200000, 3200000, REGULATOR_CHANGE_STATUS);
+REGULATOR_INIT(buck2, 1000000, 1650000, REGULATOR_CHANGE_VOLTAGE);
 
 struct led_info em_x270_led_info = {
 	.name = "em-x270:orange",
@@ -1194,6 +1209,8 @@ struct da903x_subdev_info em_x270_da9030_subdevs[] = {
 	DA9030_LDO(12),
 	DA9030_LDO(19),
 
+	DA9030_SUBDEV(regulator, BUCK2, &buck2_data),
+
 	DA9030_SUBDEV(led, LED_PC, &em_x270_led_info),
 	DA9030_SUBDEV(backlight, WLED, &em_x270_led_info),
 	DA9030_SUBDEV(battery, BAT, &em_x270_batterty_info),
@@ -1245,7 +1262,6 @@ static void __init em_x270_init_i2c(void)
 
 static void __init em_x270_module_init(void)
 {
-	pr_info("%s\n", __func__);
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(em_x270_pin_config));
 
 	mmc_cd = GPIO13_MMC_CD;
@@ -1257,7 +1273,6 @@ static void __init em_x270_module_init(void)
 
 static void __init em_x270_exeda_init(void)
 {
-	pr_info("%s\n", __func__);
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(exeda_pin_config));
 
 	mmc_cd = GPIO114_MMC_CD;
@@ -1270,6 +1285,10 @@ static void __init em_x270_exeda_init(void)
 static void __init em_x270_init(void)
 {
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(common_pin_config));
+
+	pxa_set_ffuart_info(NULL);
+	pxa_set_btuart_info(NULL);
+	pxa_set_stuart_info(NULL);
 
 #ifdef CONFIG_PM
 	pxa27x_set_pwrmode(PWRMODE_DEEPSLEEP);

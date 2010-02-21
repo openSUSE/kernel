@@ -4,6 +4,7 @@
 #include "../perf.h"
 #include <linux/list.h>
 #include <linux/rbtree.h>
+#include "util.h"
 #include "symbol.h"
 
 enum chain_mode {
@@ -57,4 +58,4 @@ static inline u64 cumul_hits(struct callchain_node *node)
 int register_callchain_param(struct callchain_param *param);
 void append_chain(struct callchain_node *root, struct ip_callchain *chain,
 		  struct symbol **syms);
-#endif
+#endif	/* __PERF_CALLCHAIN_H */

@@ -56,6 +56,7 @@
 /* deprecated: RDS_BARRIER 4 */
 #define RDS_RECVERR			5
 #define RDS_CONG_MONITOR		6
+#define RDS_GET_MR_FOR_DEST		7
 
 /*
  * Control message types for SOL_RDS.
@@ -147,6 +148,18 @@ struct rds_info_socket {
 	u_int64_t	inum;
 } __attribute__((packed));
 
+struct rds_info_tcp_socket {
+	__be32          local_addr;
+	__be16          local_port;
+	__be32          peer_addr;
+	__be16          peer_port;
+	u_int64_t       hdr_rem;
+	u_int64_t       data_rem;
+	u_int32_t       last_sent_nxt;
+	u_int32_t       last_expected_una;
+	u_int32_t       last_seen_una;
+} __attribute__((packed));
+
 #define RDS_IB_GID_LEN	16
 struct rds_info_rdma_connection {
 	__be32		src_addr;
@@ -210,6 +223,13 @@ struct rds_get_mr_args {
 	struct rds_iovec vec;
 	u_int64_t	cookie_addr;
 	uint64_t	flags;
+};
+
+struct rds_get_mr_for_dest_args {
+	struct sockaddr_storage	dest_addr;
+	struct rds_iovec 	vec;
+	u_int64_t		cookie_addr;
+	uint64_t		flags;
 };
 
 struct rds_free_mr_args {

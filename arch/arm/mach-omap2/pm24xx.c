@@ -36,12 +36,12 @@
 #include <asm/mach-types.h>
 
 #include <mach/irqs.h>
-#include <mach/clock.h>
-#include <mach/sram.h>
-#include <mach/control.h>
-#include <mach/mux.h>
-#include <mach/dma.h>
-#include <mach/board.h>
+#include <plat/clock.h>
+#include <plat/sram.h>
+#include <plat/control.h>
+#include <plat/mux.h>
+#include <plat/dma.h>
+#include <plat/board.h>
 
 #include "prm.h"
 #include "prm-regbits-24xx.h"
@@ -50,8 +50,8 @@
 #include "sdrc.h"
 #include "pm.h"
 
-#include <mach/powerdomain.h>
-#include <mach/clockdomain.h>
+#include <plat/powerdomain.h>
+#include <plat/clockdomain.h>
 
 static void (*omap2_sram_idle)(void);
 static void (*omap2_sram_suspend)(u32 dllctrl, void __iomem *sdrc_dlla_ctrl,
@@ -333,7 +333,7 @@ static struct platform_suspend_ops omap_pm_ops = {
 	.valid		= suspend_valid_only_mem,
 };
 
-static int _pm_clkdm_enable_hwsup(struct clockdomain *clkdm)
+static int _pm_clkdm_enable_hwsup(struct clockdomain *clkdm, void *unused)
 {
 	omap2_clkdm_allow_idle(clkdm);
 	return 0;
@@ -385,7 +385,7 @@ static void __init prcm_setup_regs(void)
 	omap2_clkdm_sleep(gfx_clkdm);
 
 	/* Enable clockdomain hardware-supervised control for all clkdms */
-	clkdm_for_each(_pm_clkdm_enable_hwsup);
+	clkdm_for_each(_pm_clkdm_enable_hwsup, NULL);
 
 	/* Enable clock autoidle for all domains */
 	cm_write_mod_reg(OMAP24XX_AUTO_CAM |

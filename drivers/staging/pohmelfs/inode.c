@@ -143,7 +143,6 @@ static int pohmelfs_writepages(struct address_space *mapping, struct writeback_c
 	struct inode *inode = mapping->host;
 	struct pohmelfs_inode *pi = POHMELFS_I(inode);
 	struct pohmelfs_sb *psb = POHMELFS_SB(inode->i_sb);
-	struct backing_dev_info *bdi = mapping->backing_dev_info;
 	int err = 0;
 	int done = 0;
 	int nr_pages;
@@ -151,11 +150,6 @@ static int pohmelfs_writepages(struct address_space *mapping, struct writeback_c
 	pgoff_t end;		/* Inclusive */
 	int scanned = 0;
 	int range_whole = 0;
-
-	if (wbc->nonblocking && bdi_write_congested(bdi)) {
-		wbc->encountered_congestion = 1;
-		return 0;
-	}
 
 	if (wbc->range_cyclic) {
 		index = mapping->writeback_index; /* Start from prev offset */
@@ -248,10 +242,6 @@ retry:
 
 			if (wbc->nr_to_write <= 0)
 				done = 1;
-			if (wbc->nonblocking && bdi_write_congested(bdi)) {
-				wbc->encountered_congestion = 1;
-				done = 1;
-			}
 
 			continue;
 out_continue:
@@ -921,16 +911,16 @@ ssize_t pohmelfs_write(struct file *file, const char __user *buf,
 	if (ret)
 		goto err_out_unlock;
 
-	ret = generic_file_aio_write_nolock(&kiocb, &iov, 1, pos);
+	ret = __generic_file_aio_write(&kiocb, &iov, 1, &kiocb.ki_pos);
 	*ppos = kiocb.ki_pos;
 
 	mutex_unlock(&inode->i_mutex);
 	WARN_ON(ret < 0);
 
-	if (ret > 0 && ((file->f_flags & O_SYNC) || IS_SYNC(inode))) {
+	if (ret > 0) {
 		ssize_t err;
 
-		err = sync_page_range(inode, mapping, pos, ret);
+		err = generic_write_sync(file, pos, ret);
 		if (err < 0)
 			ret = err;
 		WARN_ON(ret < 0);
@@ -1504,7 +1494,9 @@ static void pohmelfs_flush_inode(struct pohmelfs_inode *pi, unsigned int count)
 		inode->i_sb->s_op->write_inode(inode, 0);
 	}
 
+#ifdef POHMELFS_TRUNCATE_ON_INODE_FLUSH
 	truncate_inode_pages(inode->i_mapping, 0);
+#endif
 
 	pohmelfs_data_unlock(pi, 0, ~0, POHMELFS_WRITE_LOCK);
 	mutex_unlock(&inode->i_mutex);
@@ -1743,11 +1735,10 @@ static int pohmelfs_root_handshake(struct pohmelfs_sb *psb)
 	err = wait_event_interruptible_timeout(psb->wait,
 			(psb->flags != ~0),
 			psb->wait_on_page_timeout);
-	if (!err) {
+	if (!err)
 		err = -ETIMEDOUT;
-	} else {
+	else if (err > 0)
 		err = -psb->flags;
-	}
 
 	if (err)
 		goto err_out_exit;
@@ -1865,7 +1856,7 @@ static int pohmelfs_fill_super(struct super_block *sb, void *data, int silent)
 	INIT_LIST_HEAD(&psb->crypto_active_list);
 
 	atomic_set(&psb->trans_gen, 1);
-	atomic_set(&psb->total_inodes, 0);
+	atomic_long_set(&psb->total_inodes, 0);
 
 	mutex_init(&psb->state_lock);
 	INIT_LIST_HEAD(&psb->state_list);
@@ -1950,14 +1941,7 @@ static int pohmelfs_get_sb(struct file_system_type *fs_type,
  */
 static void pohmelfs_kill_super(struct super_block *sb)
 {
-	struct writeback_control wbc = {
-		.sync_mode	= WB_SYNC_ALL,
-		.range_start	= 0,
-		.range_end	= LLONG_MAX,
-		.nr_to_write	= LONG_MAX,
-	};
-	generic_sync_sb_inodes(sb, &wbc);
-
+	sync_inodes_sb(sb);
 	kill_anon_super(sb);
 }
 

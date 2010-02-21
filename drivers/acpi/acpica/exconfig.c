@@ -110,7 +110,14 @@ acpi_ex_add_table(u32 table_index,
 	if (ACPI_FAILURE(status)) {
 		acpi_ut_remove_reference(obj_desc);
 		*ddb_handle = NULL;
+		return_ACPI_STATUS(status);
 	}
+
+	/* Execute any module-level code that was found in the table */
+
+	acpi_ex_exit_interpreter();
+	acpi_ns_exec_module_code_list();
+	acpi_ex_enter_interpreter();
 
 	return_ACPI_STATUS(status);
 }
@@ -163,14 +170,12 @@ acpi_ex_load_table_op(struct acpi_walk_state *walk_state,
 
 		/* Table not found, return an Integer=0 and AE_OK */
 
-		ddb_handle = acpi_ut_create_internal_object(ACPI_TYPE_INTEGER);
+		ddb_handle = acpi_ut_create_integer_object((u64) 0);
 		if (!ddb_handle) {
 			return_ACPI_STATUS(AE_NO_MEMORY);
 		}
 
-		ddb_handle->integer.value = 0;
 		*return_desc = ddb_handle;
-
 		return_ACPI_STATUS(AE_OK);
 	}
 

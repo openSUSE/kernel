@@ -2,6 +2,9 @@
 # Makefile for the i2c bus drivers.
 #
 
+# ACPI drivers
+obj-$(CONFIG_I2C_SCMI)		+= i2c-scmi.o
+
 # PC SMBus host controller drivers
 obj-$(CONFIG_I2C_ALI1535)	+= i2c-ali1535.o
 obj-$(CONFIG_I2C_ALI1563)	+= i2c-ali1563.o
@@ -57,9 +60,6 @@ obj-$(CONFIG_I2C_PARPORT)	+= i2c-parport.o
 obj-$(CONFIG_I2C_PARPORT_LIGHT)	+= i2c-parport-light.o
 obj-$(CONFIG_I2C_TAOS_EVM)	+= i2c-taos-evm.o
 obj-$(CONFIG_I2C_TINY_USB)	+= i2c-tiny-usb.o
-
-# Graphics adapter I2C/DDC channel drivers
-obj-$(CONFIG_I2C_VOODOO3)	+= i2c-voodoo3.o
 
 # Other I2C/SMBus bus drivers
 obj-$(CONFIG_I2C_ACORN)		+= i2c-acorn.o

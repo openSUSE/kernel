@@ -127,32 +127,34 @@ void cpupri_set(struct cpupri *cp, int cpu, int newpri)
 
 	/*
 	 * If the cpu was currently mapped to a different value, we
-	 * first need to unmap the old value
+	 * need to map it to the new value then remove the old value.
+	 * Note, we must add the new value first, otherwise we risk the
+	 * cpu being cleared from pri_active, and this cpu could be
+	 * missed for a push or pull.
 	 */
-	if (likely(oldpri != CPUPRI_INVALID)) {
-		struct cpupri_vec *vec  = &cp->pri_to_cpu[oldpri];
-
-		atomic_spin_lock_irqsave(&vec->lock, flags);
-
-		vec->count--;
-		if (!vec->count)
-			clear_bit(oldpri, cp->pri_active);
-		cpumask_clear_cpu(cpu, vec->mask);
-
-		atomic_spin_unlock_irqrestore(&vec->lock, flags);
-	}
-
 	if (likely(newpri != CPUPRI_INVALID)) {
 		struct cpupri_vec *vec = &cp->pri_to_cpu[newpri];
 
-		atomic_spin_lock_irqsave(&vec->lock, flags);
+		raw_spin_lock_irqsave(&vec->lock, flags);
 
 		cpumask_set_cpu(cpu, vec->mask);
 		vec->count++;
 		if (vec->count == 1)
 			set_bit(newpri, cp->pri_active);
 
-		atomic_spin_unlock_irqrestore(&vec->lock, flags);
+		raw_spin_unlock_irqrestore(&vec->lock, flags);
+	}
+	if (likely(oldpri != CPUPRI_INVALID)) {
+		struct cpupri_vec *vec  = &cp->pri_to_cpu[oldpri];
+
+		raw_spin_lock_irqsave(&vec->lock, flags);
+
+		vec->count--;
+		if (!vec->count)
+			clear_bit(oldpri, cp->pri_active);
+		cpumask_clear_cpu(cpu, vec->mask);
+
+		raw_spin_unlock_irqrestore(&vec->lock, flags);
 	}
 
 	*currpri = newpri;
@@ -178,7 +180,7 @@ int cpupri_init(struct cpupri *cp, bool bootmem)
 	for (i = 0; i < CPUPRI_NR_PRIORITIES; i++) {
 		struct cpupri_vec *vec = &cp->pri_to_cpu[i];
 
-		atomic_spin_lock_init(&vec->lock);
+		raw_spin_lock_init(&vec->lock);
 		vec->count = 0;
 		if (!zalloc_cpumask_var(&vec->mask, gfp))
 			goto cleanup;

@@ -9,7 +9,7 @@
  * 2 of the License, or (at your option) any later version.
  */
 #include <linux/kernel.h>
-#include <linux/perf_counter.h>
+#include <linux/perf_event.h>
 #include <linux/string.h>
 #include <asm/reg.h>
 #include <asm/cputable.h>
@@ -71,10 +71,6 @@
 #define MMCR1_PMC4SEL_SH	1
 #define MMCR1_PMCSEL_SH(n)	(MMCR1_PMC1SEL_SH - (n) * 8)
 #define MMCR1_PMCSEL_MSK	0x7f
-
-/*
- * Bits in MMCRA
- */
 
 /*
  * Layout of constraint bits:

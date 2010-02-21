@@ -91,6 +91,7 @@ struct hd_struct {
 	sector_t start_sect;
 	sector_t nr_sects;
 	sector_t alignment_offset;
+	unsigned int discard_alignment;
 	struct device __dev;
 	struct kobject *holder_dir;
 	int policy, partno;
@@ -98,7 +99,7 @@ struct hd_struct {
 	int make_it_fail;
 #endif
 	unsigned long stamp;
-	int in_flight;
+	int in_flight[2];
 #ifdef	CONFIG_SMP
 	struct disk_stats *dkstats;
 #else
@@ -142,7 +143,7 @@ struct gendisk {
                                          * disks that can't be partitioned. */
 
 	char disk_name[DISK_NAME_LEN];	/* name of major driver */
-	char *(*nodename)(struct gendisk *gd);
+	char *(*devnode)(struct gendisk *gd, mode_t *mode);
 	/* Array of pointers to partitions indexed by partno.
 	 * Protected with matching bdev lock but stat and other
 	 * non-critical accesses use RCU.  Always access through
@@ -151,7 +152,7 @@ struct gendisk {
 	struct disk_part_tbl *part_tbl;
 	struct hd_struct part0;
 
-	struct block_device_operations *fops;
+	const struct block_device_operations *fops;
 	struct request_queue *queue;
 	void *private_data;
 
@@ -255,9 +256,9 @@ extern struct hd_struct *disk_map_sector_rcu(struct gendisk *disk,
 #define part_stat_read(part, field)					\
 ({									\
 	typeof((part)->dkstats->field) res = 0;				\
-	int i;								\
-	for_each_possible_cpu(i)					\
-		res += per_cpu_ptr((part)->dkstats, i)->field;		\
+	unsigned int _cpu;						\
+	for_each_possible_cpu(_cpu)					\
+		res += per_cpu_ptr((part)->dkstats, _cpu)->field;	\
 	res;								\
 })
 
@@ -322,18 +323,23 @@ static inline void free_part_stats(struct hd_struct *part)
 #define part_stat_sub(cpu, gendiskp, field, subnd)			\
 	part_stat_add(cpu, gendiskp, field, -subnd)
 
-static inline void part_inc_in_flight(struct hd_struct *part)
+static inline void part_inc_in_flight(struct hd_struct *part, int rw)
 {
-	part->in_flight++;
+	part->in_flight[rw]++;
 	if (part->partno)
-		part_to_disk(part)->part0.in_flight++;
+		part_to_disk(part)->part0.in_flight[rw]++;
 }
 
-static inline void part_dec_in_flight(struct hd_struct *part)
+static inline void part_dec_in_flight(struct hd_struct *part, int rw)
 {
-	part->in_flight--;
+	part->in_flight[rw]--;
 	if (part->partno)
-		part_to_disk(part)->part0.in_flight--;
+		part_to_disk(part)->part0.in_flight[rw]--;
+}
+
+static inline int part_in_flight(struct hd_struct *part)
+{
+	return part->in_flight[0] + part->in_flight[1];
 }
 
 /* block/blk-core.c */
@@ -545,6 +551,8 @@ extern void blk_unregister_region(dev_t devt, unsigned long range);
 extern ssize_t part_size_show(struct device *dev,
 			      struct device_attribute *attr, char *buf);
 extern ssize_t part_stat_show(struct device *dev,
+			      struct device_attribute *attr, char *buf);
+extern ssize_t part_inflight_show(struct device *dev,
 			      struct device_attribute *attr, char *buf);
 #ifdef CONFIG_FAIL_MAKE_REQUEST
 extern ssize_t part_fail_show(struct device *dev,

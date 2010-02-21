@@ -17,6 +17,7 @@
 
 #include <linux/pfn.h>
 #include <asm/setup.h>
+#include <asm/asm-compat.h>
 #include <linux/const.h>
 
 #ifdef __KERNEL__
@@ -25,6 +26,8 @@
 #define PAGE_SHIFT	(12)
 #define PAGE_SIZE	(_AC(1, UL) << PAGE_SHIFT)
 #define PAGE_MASK	(~(PAGE_SIZE-1))
+
+#define LOAD_OFFSET	ASM_CONST((CONFIG_KERNEL_START-CONFIG_KERNEL_BASE_ADDR))
 
 #ifndef __ASSEMBLY__
 
@@ -161,7 +164,8 @@ extern int page_is_ram(unsigned long pfn);
 #  endif /* CONFIG_MMU */
 
 #  ifndef CONFIG_MMU
-#  define pfn_valid(pfn)	((pfn) >= min_low_pfn && (pfn) <= max_mapnr)
+#  define pfn_valid(pfn)	(((pfn) >= min_low_pfn) && \
+				((pfn) <= (min_low_pfn + max_mapnr)))
 #  define ARCH_PFN_OFFSET	(PAGE_OFFSET >> PAGE_SHIFT)
 #  else /* CONFIG_MMU */
 #  define ARCH_PFN_OFFSET	(memory_start >> PAGE_SHIFT)

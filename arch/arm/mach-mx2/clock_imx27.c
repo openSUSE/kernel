@@ -638,14 +638,21 @@ static struct clk_lookup lookups[] = {
 	_REGISTER_CLOCK("mxc-mmc.0", NULL, sdhc1_clk)
 	_REGISTER_CLOCK("mxc-mmc.1", NULL, sdhc2_clk)
 	_REGISTER_CLOCK("mxc-mmc.2", NULL, sdhc3_clk)
-	_REGISTER_CLOCK(NULL, "cspi1", cspi1_clk)
-	_REGISTER_CLOCK(NULL, "cspi2", cspi2_clk)
-	_REGISTER_CLOCK(NULL, "cspi3", cspi3_clk)
+	_REGISTER_CLOCK("spi_imx.0", NULL, cspi1_clk)
+	_REGISTER_CLOCK("spi_imx.1", NULL, cspi2_clk)
+	_REGISTER_CLOCK("spi_imx.2", NULL, cspi3_clk)
 	_REGISTER_CLOCK("imx-fb.0", NULL, lcdc_clk)
 	_REGISTER_CLOCK(NULL, "csi", csi_clk)
-	_REGISTER_CLOCK(NULL, "usb", usb_clk)
-	_REGISTER_CLOCK(NULL, "ssi1", ssi1_clk)
-	_REGISTER_CLOCK(NULL, "ssi2", ssi2_clk)
+	_REGISTER_CLOCK("fsl-usb2-udc", "usb", usb_clk)
+	_REGISTER_CLOCK("fsl-usb2-udc", "usb_ahb", usb_clk1)
+	_REGISTER_CLOCK("mxc-ehci.0", "usb", usb_clk)
+	_REGISTER_CLOCK("mxc-ehci.0", "usb_ahb", usb_clk1)
+	_REGISTER_CLOCK("mxc-ehci.1", "usb", usb_clk)
+	_REGISTER_CLOCK("mxc-ehci.1", "usb_ahb", usb_clk1)
+	_REGISTER_CLOCK("mxc-ehci.2", "usb", usb_clk)
+	_REGISTER_CLOCK("mxc-ehci.2", "usb_ahb", usb_clk1)
+	_REGISTER_CLOCK("imx-ssi.0", NULL, ssi1_clk)
+	_REGISTER_CLOCK("imx-ssi.1", NULL, ssi2_clk)
 	_REGISTER_CLOCK("mxc_nand.0", NULL, nfc_clk)
 	_REGISTER_CLOCK(NULL, "vpu", vpu_clk)
 	_REGISTER_CLOCK(NULL, "dma", dma_clk)
@@ -658,7 +665,7 @@ static struct clk_lookup lookups[] = {
 	_REGISTER_CLOCK(NULL, "sahara2", sahara2_clk)
 	_REGISTER_CLOCK(NULL, "ata", ata_clk)
 	_REGISTER_CLOCK(NULL, "mstick", mstick_clk)
-	_REGISTER_CLOCK(NULL, "wdog", wdog_clk)
+	_REGISTER_CLOCK("imx-wdt.0", NULL, wdog_clk)
 	_REGISTER_CLOCK(NULL, "gpio", gpio_clk)
 	_REGISTER_CLOCK("imx-i2c.0", NULL, i2c1_clk)
 	_REGISTER_CLOCK("imx-i2c.1", NULL, i2c2_clk)
@@ -744,11 +751,11 @@ int __init mx27_clocks_init(unsigned long fref)
 	clk_enable(&emi_clk);
 	clk_enable(&iim_clk);
 
-#ifdef CONFIG_DEBUG_LL_CONSOLE
+#if defined(CONFIG_DEBUG_LL) && !defined(CONFIG_DEBUG_ICEDCC)
 	clk_enable(&uart1_clk);
 #endif
 
-	mxc_timer_init(&gpt1_clk);
+	mxc_timer_init(&gpt1_clk, IO_ADDRESS(GPT1_BASE_ADDR), MXC_INT_GPT1);
 
 	return 0;
 }

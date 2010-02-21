@@ -3,7 +3,7 @@
  *
  * CPU init code
  *
- * Copyright (C) 2002 - 2007  Paul Mundt
+ * Copyright (C) 2002 - 2009  Paul Mundt
  * Copyright (C) 2003  Richard Curnow
  *
  * This file is subject to the terms and conditions of the GNU General Public
@@ -60,6 +60,32 @@ static void __init speculative_execution_init(void)
 }
 #else
 #define speculative_execution_init()	do { } while (0)
+#endif
+
+#ifdef CONFIG_CPU_SH4A
+#define EXPMASK			0xff2f0004
+#define EXPMASK_RTEDS		(1 << 0)
+#define EXPMASK_BRDSSLP		(1 << 1)
+#define EXPMASK_MMCAW		(1 << 4)
+
+static void __init expmask_init(void)
+{
+	unsigned long expmask = __raw_readl(EXPMASK);
+
+	/*
+	 * Future proofing.
+	 *
+	 * Disable support for slottable sleep instruction, non-nop
+	 * instructions in the rte delay slot, and associative writes to
+	 * the memory-mapped cache array.
+	 */
+	expmask &= ~(EXPMASK_RTEDS | EXPMASK_BRDSSLP | EXPMASK_MMCAW);
+
+	__raw_writel(expmask, EXPMASK);
+	ctrl_barrier();
+}
+#else
+#define expmask_init()	do { } while (0)
 #endif
 
 /* 2nd-level cache init */
@@ -268,11 +294,9 @@ asmlinkage void __init sh_cpu_init(void)
 	cache_init();
 
 	if (raw_smp_processor_id() == 0) {
-#ifdef CONFIG_MMU
 		shm_align_mask = max_t(unsigned long,
 				       current_cpu_data.dcache.way_size - 1,
 				       PAGE_SIZE - 1);
-#endif
 
 		/* Boot CPU sets the cache shape */
 		detect_cache_shape();
@@ -282,12 +306,12 @@ asmlinkage void __init sh_cpu_init(void)
 	if (fpu_disabled) {
 		printk("FPU Disabled\n");
 		current_cpu_data.flags &= ~CPU_HAS_FPU;
-		disable_fpu();
 	}
 
 	/* FPU initialization */
+	disable_fpu();
 	if ((current_cpu_data.flags & CPU_HAS_FPU)) {
-		clear_thread_flag(TIF_USEDFPU);
+		current_thread_info()->status &= ~TS_USEDFPU;
 		clear_used_math();
 	}
 
@@ -309,16 +333,6 @@ asmlinkage void __init sh_cpu_init(void)
 	}
 #endif
 
-	/*
-	 * Some brain-damaged loaders decided it would be a good idea to put
-	 * the UBC to sleep. This causes some issues when it comes to things
-	 * like PTRACE_SINGLESTEP or doing hardware watchpoints in GDB.  So ..
-	 * we wake it up and hope that all is well.
-	 */
-#ifdef CONFIG_SUPERH32
-	if (raw_smp_processor_id() == 0)
-		ubc_wakeup();
-#endif
-
 	speculative_execution_init();
+	expmask_init();
 }

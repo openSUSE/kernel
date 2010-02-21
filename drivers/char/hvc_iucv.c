@@ -273,7 +273,9 @@ static int hvc_iucv_write(struct hvc_iucv_private *priv,
 	case MSG_TYPE_WINSIZE:
 		if (rb->mbuf->datalen != sizeof(struct winsize))
 			break;
-		hvc_resize(priv->hvc, *((struct winsize *) rb->mbuf->data));
+		/* The caller must ensure that the hvc is locked, which
+		 * is the case when called from hvc_iucv_get_chars() */
+		__hvc_resize(priv->hvc, *((struct winsize *) rb->mbuf->data));
 		break;
 
 	case MSG_TYPE_ERROR:	/* ignored ... */
@@ -929,7 +931,7 @@ static struct hv_ops hvc_iucv_ops = {
 };
 
 /* Suspend / resume device operations */
-static struct dev_pm_ops hvc_iucv_pm_ops = {
+static const struct dev_pm_ops hvc_iucv_pm_ops = {
 	.freeze	  = hvc_iucv_pm_freeze,
 	.thaw	  = hvc_iucv_pm_restore_thaw,
 	.restore  = hvc_iucv_pm_restore_thaw,
@@ -1006,7 +1008,7 @@ static int __init hvc_iucv_alloc(int id, unsigned int is_console)
 	priv->dev->release = (void (*)(struct device *)) kfree;
 	rc = device_register(priv->dev);
 	if (rc) {
-		kfree(priv->dev);
+		put_device(priv->dev);
 		goto out_error_dev;
 	}
 

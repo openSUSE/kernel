@@ -128,9 +128,10 @@ static inline unsigned int ucb1400_ts_read_yres(struct ucb1400_ts *ucb)
 	return ucb1400_adc_read(ucb->ac97, 0, adcsync);
 }
 
-static inline int ucb1400_ts_pen_down(struct snd_ac97 *ac97)
+static inline int ucb1400_ts_pen_up(struct snd_ac97 *ac97)
 {
 	unsigned short val = ucb1400_reg_read(ac97, UCB_TS_CR);
+
 	return val & (UCB_TS_CR_TSPX_LOW | UCB_TS_CR_TSMX_LOW);
 }
 
@@ -209,7 +210,7 @@ static int ucb1400_ts_thread(void *_ucb)
 
 		msleep(10);
 
-		if (ucb1400_ts_pen_down(ucb->ac97)) {
+		if (ucb1400_ts_pen_up(ucb->ac97)) {
 			ucb1400_ts_irq_enable(ucb->ac97);
 
 			/*
@@ -354,10 +355,13 @@ static int ucb1400_ts_probe(struct platform_device *dev)
 		goto err;
 	}
 
-	error = ucb1400_ts_detect_irq(ucb);
-	if (error) {
-		printk(KERN_ERR "UCB1400: IRQ probe failed\n");
-		goto err_free_devs;
+	/* Only in case the IRQ line wasn't supplied, try detecting it */
+	if (ucb->irq < 0) {
+		error = ucb1400_ts_detect_irq(ucb);
+		if (error) {
+			printk(KERN_ERR "UCB1400: IRQ probe failed\n");
+			goto err_free_devs;
+		}
 	}
 
 	init_waitqueue_head(&ucb->ts_wait);

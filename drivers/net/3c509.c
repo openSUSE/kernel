@@ -191,7 +191,7 @@ static void el3_common_remove(struct net_device *dev);
 static ushort id_read_eeprom(int index);
 static ushort read_eeprom(int ioaddr, int index);
 static int el3_open(struct net_device *dev);
-static int el3_start_xmit(struct sk_buff *skb, struct net_device *dev);
+static netdev_tx_t el3_start_xmit(struct sk_buff *skb, struct net_device *dev);
 static irqreturn_t el3_interrupt(int irq, void *dev_id);
 static void update_stats(struct net_device *dev);
 static struct net_device_stats *el3_get_stats(struct net_device *dev);
@@ -253,9 +253,9 @@ static int el3_isa_id_sequence(__be16 *phys_addr)
 		   This check is needed in order not to register them twice. */
 		for (i = 0; i < el3_cards; i++) {
 			struct el3_private *lp = netdev_priv(el3_devs[i]);
-			if (lp->type == EL3_PNP
-			    && !memcmp(phys_addr, el3_devs[i]->dev_addr,
-				       ETH_ALEN)) {
+			if (lp->type == EL3_PNP &&
+			    !memcmp(phys_addr, el3_devs[i]->dev_addr,
+				    ETH_ALEN)) {
 				if (el3_debug > 3)
 					pr_debug("3c509 with address %02x %02x %02x %02x %02x %02x was found by ISAPnP\n",
 						phys_addr[0] & 0xff, phys_addr[0] >> 8,
@@ -780,7 +780,7 @@ el3_open(struct net_device *dev)
 	outw(RxReset, ioaddr + EL3_CMD);
 	outw(SetStatusEnb | 0x00, ioaddr + EL3_CMD);
 
-	i = request_irq(dev->irq, &el3_interrupt, 0, dev->name, dev);
+	i = request_irq(dev->irq, el3_interrupt, 0, dev->name, dev);
 	if (i)
 		return i;
 
@@ -816,7 +816,7 @@ el3_tx_timeout (struct net_device *dev)
 }
 
 
-static int
+static netdev_tx_t
 el3_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct el3_private *lp = netdev_priv(dev);
@@ -835,8 +835,8 @@ el3_start_xmit(struct sk_buff *skb, struct net_device *dev)
 #ifndef final_version
 	{	/* Error-checking code, delete someday. */
 		ushort status = inw(ioaddr + EL3_STATUS);
-		if (status & 0x0001 		/* IRQ line active, missed one. */
-			&& inw(ioaddr + EL3_STATUS) & 1) { 			/* Make sure. */
+		if (status & 0x0001 && 		/* IRQ line active, missed one. */
+		    inw(ioaddr + EL3_STATUS) & 1) { 			/* Make sure. */
 			pr_debug("%s: Missed interrupt, status then %04x now %04x"
 				   "  Tx %2.2x Rx %4.4x.\n", dev->name, status,
 				   inw(ioaddr + EL3_STATUS), inb(ioaddr + TX_STATUS),
@@ -892,7 +892,7 @@ el3_start_xmit(struct sk_buff *skb, struct net_device *dev)
 			outb(0x00, ioaddr + TX_STATUS); /* Pop the status stack. */
 		}
 	}
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /* The EL3 interrupt handler. */

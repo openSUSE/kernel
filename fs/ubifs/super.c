@@ -36,7 +36,6 @@
 #include <linux/mount.h>
 #include <linux/math64.h>
 #include <linux/writeback.h>
-#include <linux/smp_lock.h>
 #include "ubifs.h"
 
 /*
@@ -318,6 +317,8 @@ static int ubifs_write_inode(struct inode *inode, int wait)
 		if (err)
 			ubifs_err("can't write inode %lu, error %d",
 				  inode->i_ino, err);
+		else
+			err = dbg_check_inode_size(c, inode, ui->ui_size);
 	}
 
 	ui->dirty = 0;
@@ -438,12 +439,6 @@ static int ubifs_sync_fs(struct super_block *sb, int wait)
 {
 	int i, err;
 	struct ubifs_info *c = sb->s_fs_info;
-	struct writeback_control wbc = {
-		.sync_mode   = WB_SYNC_ALL,
-		.range_start = 0,
-		.range_end   = LLONG_MAX,
-		.nr_to_write = LONG_MAX,
-	};
 
 	/*
 	 * Zero @wait is just an advisory thing to help the file system shove
@@ -452,17 +447,6 @@ static int ubifs_sync_fs(struct super_block *sb, int wait)
 	 */
 	if (!wait)
 		return 0;
-
-	/*
-	 * VFS calls '->sync_fs()' before synchronizing all dirty inodes and
-	 * pages, so synchronize them first, then commit the journal. Strictly
-	 * speaking, it is not necessary to commit the journal here,
-	 * synchronizing write-buffers would be enough. But committing makes
-	 * UBIFS free space predictions much more accurate, so we want to let
-	 * the user be able to get more accurate results of 'statfs()' after
-	 * they synchronize the file system.
-	 */
-	generic_sync_sb_inodes(sb, &wbc);
 
 	/*
 	 * Synchronize write buffers, because 'ubifs_run_commit()' does not
@@ -474,6 +458,13 @@ static int ubifs_sync_fs(struct super_block *sb, int wait)
 			return err;
 	}
 
+	/*
+	 * Strictly speaking, it is not necessary to commit the journal here,
+	 * synchronizing write-buffers would be enough. But committing makes
+	 * UBIFS free space predictions much more accurate, so we want to let
+	 * the user be able to get more accurate results of 'statfs()' after
+	 * they synchronize the file system.
+	 */
 	err = ubifs_run_commit(c);
 	if (err)
 		return err;
@@ -1402,12 +1393,7 @@ static int mount_ubifs(struct ubifs_info *c)
 		c->leb_size, c->leb_size >> 10);
 	dbg_msg("data journal heads:  %d",
 		c->jhead_cnt - NONDATA_JHEADS_CNT);
-	dbg_msg("UUID:                %02X%02X%02X%02X-%02X%02X"
-	       "-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X",
-	       c->uuid[0], c->uuid[1], c->uuid[2], c->uuid[3],
-	       c->uuid[4], c->uuid[5], c->uuid[6], c->uuid[7],
-	       c->uuid[8], c->uuid[9], c->uuid[10], c->uuid[11],
-	       c->uuid[12], c->uuid[13], c->uuid[14], c->uuid[15]);
+	dbg_msg("UUID:                %pUB", c->uuid);
 	dbg_msg("big_lpt              %d", c->big_lpt);
 	dbg_msg("log LEBs:            %d (%d - %d)",
 		c->log_lebs, UBIFS_LOG_LNUM, c->log_last);
@@ -1726,8 +1712,6 @@ static void ubifs_put_super(struct super_block *sb)
 	ubifs_msg("un-mount UBI device %d, volume %d", c->vi.ubi_num,
 		  c->vi.vol_id);
 
-	lock_kernel();
-
 	/*
 	 * The following asserts are only valid if there has not been a failure
 	 * of the media. For example, there will be dirty inodes if we failed
@@ -1792,8 +1776,6 @@ static void ubifs_put_super(struct super_block *sb)
 	ubi_close_volume(c->ubi);
 	mutex_unlock(&c->umount_mutex);
 	kfree(c);
-
-	unlock_kernel();
 }
 
 static int ubifs_remount_fs(struct super_block *sb, int *flags, char *data)
@@ -1809,22 +1791,17 @@ static int ubifs_remount_fs(struct super_block *sb, int *flags, char *data)
 		return err;
 	}
 
-	lock_kernel();
 	if ((sb->s_flags & MS_RDONLY) && !(*flags & MS_RDONLY)) {
 		if (c->ro_media) {
 			ubifs_msg("cannot re-mount due to prior errors");
-			unlock_kernel();
 			return -EROFS;
 		}
 		err = ubifs_remount_rw(c);
-		if (err) {
-			unlock_kernel();
+		if (err)
 			return err;
-		}
 	} else if (!(sb->s_flags & MS_RDONLY) && (*flags & MS_RDONLY)) {
 		if (c->ro_media) {
 			ubifs_msg("cannot re-mount due to prior errors");
-			unlock_kernel();
 			return -EROFS;
 		}
 		ubifs_remount_ro(c);
@@ -1839,7 +1816,6 @@ static int ubifs_remount_fs(struct super_block *sb, int *flags, char *data)
 	}
 
 	ubifs_assert(c->lst.taken_empty_lebs > 0);
-	unlock_kernel();
 	return 0;
 }
 
@@ -1861,22 +1837,32 @@ const struct super_operations ubifs_super_operations = {
  * @name: UBI volume name
  * @mode: UBI volume open mode
  *
- * There are several ways to specify UBI volumes when mounting UBIFS:
- * o ubiX_Y    - UBI device number X, volume Y;
- * o ubiY      - UBI device number 0, volume Y;
+ * The primary method of mounting UBIFS is by specifying the UBI volume
+ * character device node path. However, UBIFS may also be mounted withoug any
+ * character device node using one of the following methods:
+ *
+ * o ubiX_Y    - mount UBI device number X, volume Y;
+ * o ubiY      - mount UBI device number 0, volume Y;
  * o ubiX:NAME - mount UBI device X, volume with name NAME;
  * o ubi:NAME  - mount UBI device 0, volume with name NAME.
  *
  * Alternative '!' separator may be used instead of ':' (because some shells
  * like busybox may interpret ':' as an NFS host name separator). This function
- * returns ubi volume object in case of success and a negative error code in
- * case of failure.
+ * returns UBI volume description object in case of success and a negative
+ * error code in case of failure.
  */
 static struct ubi_volume_desc *open_ubi(const char *name, int mode)
 {
+	struct ubi_volume_desc *ubi;
 	int dev, vol;
 	char *endptr;
 
+	/* First, try to open using the device node path method */
+	ubi = ubi_open_volume_path(name, mode);
+	if (!IS_ERR(ubi))
+		return ubi;
+
+	/* Try the "nodev" method */
 	if (name[0] != 'u' || name[1] != 'b' || name[2] != 'i')
 		return ERR_PTR(-EINVAL);
 
@@ -1971,6 +1957,7 @@ static int ubifs_fill_super(struct super_block *sb, void *data, int silent)
 	 *
 	 * Read-ahead will be disabled because @c->bdi.ra_pages is 0.
 	 */
+	c->bdi.name = "ubifs",
 	c->bdi.capabilities = BDI_CAP_MAP_COPY;
 	c->bdi.unplug_io_fn = default_unplug_io_fn;
 	err  = bdi_init(&c->bdi);
@@ -1985,6 +1972,7 @@ static int ubifs_fill_super(struct super_block *sb, void *data, int silent)
 	if (err)
 		goto out_bdi;
 
+	sb->s_bdi = &c->bdi;
 	sb->s_fs_info = c;
 	sb->s_magic = UBIFS_SUPER_MAGIC;
 	sb->s_blocksize = UBIFS_BLOCK_SIZE;

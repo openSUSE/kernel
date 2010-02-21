@@ -409,13 +409,11 @@ acpi_ds_method_data_get_value(u8 type,
 		/* If slack enabled, init the local_x/arg_x to an Integer of value zero */
 
 		if (acpi_gbl_enable_interpreter_slack) {
-			object =
-			    acpi_ut_create_internal_object(ACPI_TYPE_INTEGER);
+			object = acpi_ut_create_integer_object((u64) 0);
 			if (!object) {
 				return_ACPI_STATUS(AE_NO_MEMORY);
 			}
 
-			object->integer.value = 0;
 			node->object = object;
 		}
 
@@ -433,10 +431,10 @@ acpi_ds_method_data_get_value(u8 type,
 
 			case ACPI_REFCLASS_LOCAL:
 
-				ACPI_ERROR((AE_INFO,
-					    "Uninitialized Local[%d] at node %p",
-					    index, node));
-
+				/*
+				 * No error message for this case, will be trapped again later to
+				 * detect and ignore cases of Store(local_x,local_x)
+				 */
 				return_ACPI_STATUS(AE_AML_UNINITIALIZED_LOCAL);
 
 			default:

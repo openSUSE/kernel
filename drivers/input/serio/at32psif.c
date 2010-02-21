@@ -137,7 +137,7 @@ static int psif_write(struct serio *io, unsigned char val)
 	spin_lock_irqsave(&psif->lock, flags);
 
 	while (!(psif_readl(psif, SR) & PSIF_BIT(TXEMPTY)) && timeout--)
-		msleep(10);
+		udelay(50);
 
 	if (timeout >= 0) {
 		psif_writel(psif, THR, val);
@@ -231,7 +231,7 @@ static int __init psif_probe(struct platform_device *pdev)
 		goto out_free_io;
 	}
 
-	psif->regs = ioremap(regs->start, regs->end - regs->start + 1);
+	psif->regs = ioremap(regs->start, resource_size(regs));
 	if (!psif->regs) {
 		ret = -ENOMEM;
 		dev_dbg(&pdev->dev, "could not map I/O memory\n");
@@ -352,6 +352,7 @@ static struct platform_driver psif_driver = {
 	.remove		= __exit_p(psif_remove),
 	.driver		= {
 		.name	= "atmel_psif",
+		.owner	= THIS_MODULE,
 	},
 	.suspend	= psif_suspend,
 	.resume		= psif_resume,

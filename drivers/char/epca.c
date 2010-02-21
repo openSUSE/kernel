@@ -30,6 +30,7 @@
 #include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/init.h>
+#include <linux/sched.h>
 #include <linux/serial.h>
 #include <linux/delay.h>
 #include <linux/ctype.h>
@@ -934,7 +935,7 @@ static int info_open(struct tty_struct *tty, struct file *filp)
 	return 0;
 }
 
-static struct tty_operations info_ops = {
+static const struct tty_operations info_ops = {
 	.open = info_open,
 	.ioctl = info_ioctl,
 };
@@ -2239,7 +2240,7 @@ static void do_softint(struct work_struct *work)
 	struct channel *ch = container_of(work, struct channel, tqueue);
 	/* Called in response to a modem change event */
 	if (ch && ch->magic == EPCA_MAGIC) {
-		struct tty_struct *tty = tty_port_tty_get(&ch->port);;
+		struct tty_struct *tty = tty_port_tty_get(&ch->port);
 
 		if (tty && tty->driver_data) {
 			if (test_and_clear_bit(EPCA_EVENT_HANGUP, &ch->event)) {

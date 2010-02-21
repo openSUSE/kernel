@@ -42,6 +42,7 @@
 #include <linux/module.h>
 #include <linux/scatterlist.h>
 
+#include <xen/xen.h>
 #include <xen/xenbus.h>
 #include <xen/grant_table.h>
 #include <xen/events.h>
@@ -65,7 +66,7 @@ struct blk_shadow {
 	unsigned long frame[BLKIF_MAX_SEGMENTS_PER_REQUEST];
 };
 
-static struct block_device_operations xlvbd_block_fops;
+static const struct block_device_operations xlvbd_block_fops;
 
 #define BLK_RING_SIZE __RING_SIZE((struct blkif_sring *)0, PAGE_SIZE)
 
@@ -1039,7 +1040,7 @@ static int blkif_release(struct gendisk *disk, fmode_t mode)
 	return 0;
 }
 
-static struct block_device_operations xlvbd_block_fops =
+static const struct block_device_operations xlvbd_block_fops =
 {
 	.owner = THIS_MODULE,
 	.open = blkif_open,

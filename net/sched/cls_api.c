@@ -137,7 +137,7 @@ static int tc_ctl_tfilter(struct sk_buff *skb, struct nlmsghdr *n, void *arg)
 	int err;
 	int tp_created = 0;
 
-	if (net != &init_net)
+	if (!net_eq(net, &init_net))
 		return -EINVAL;
 
 replay:
@@ -168,8 +168,7 @@ replay:
 
 	/* Find qdisc */
 	if (!parent) {
-		struct netdev_queue *dev_queue = netdev_get_tx_queue(dev, 0);
-		q = dev_queue->qdisc_sleeping;
+		q = dev->qdisc;
 		parent = q->handle;
 	} else {
 		q = qdisc_lookup(dev, TC_H_MAJ(t->tcm_parent));
@@ -180,6 +179,9 @@ replay:
 	/* Is it classful? */
 	if ((cops = q->ops->cl_ops) == NULL)
 		return -EINVAL;
+
+	if (cops->tcf_chain == NULL)
+		return -EOPNOTSUPP;
 
 	/* Do we search for filter, attached to class? */
 	if (TC_H_MIN(parent)) {
@@ -402,10 +404,10 @@ static int tcf_node_dump(struct tcf_proto *tp, unsigned long n,
 			     a->cb->nlh->nlmsg_seq, NLM_F_MULTI, RTM_NEWTFILTER);
 }
 
+/* called with RTNL */
 static int tc_dump_tfilter(struct sk_buff *skb, struct netlink_callback *cb)
 {
 	struct net *net = sock_net(skb->sk);
-	struct netdev_queue *dev_queue;
 	int t;
 	int s_t;
 	struct net_device *dev;
@@ -416,22 +418,23 @@ static int tc_dump_tfilter(struct sk_buff *skb, struct netlink_callback *cb)
 	const struct Qdisc_class_ops *cops;
 	struct tcf_dump_args arg;
 
-	if (net != &init_net)
+	if (!net_eq(net, &init_net))
 		return 0;
 
 	if (cb->nlh->nlmsg_len < NLMSG_LENGTH(sizeof(*tcm)))
 		return skb->len;
-	if ((dev = dev_get_by_index(&init_net, tcm->tcm_ifindex)) == NULL)
+	if ((dev = __dev_get_by_index(&init_net, tcm->tcm_ifindex)) == NULL)
 		return skb->len;
 
-	dev_queue = netdev_get_tx_queue(dev, 0);
 	if (!tcm->tcm_parent)
-		q = dev_queue->qdisc_sleeping;
+		q = dev->qdisc;
 	else
 		q = qdisc_lookup(dev, TC_H_MAJ(tcm->tcm_parent));
 	if (!q)
 		goto out;
 	if ((cops = q->ops->cl_ops) == NULL)
+		goto errout;
+	if (cops->tcf_chain == NULL)
 		goto errout;
 	if (TC_H_MIN(tcm->tcm_parent)) {
 		cl = cops->get(q, tcm->tcm_parent);
@@ -482,7 +485,6 @@ errout:
 	if (cl)
 		cops->put(q, cl);
 out:
-	dev_put(dev);
 	return skb->len;
 }
 

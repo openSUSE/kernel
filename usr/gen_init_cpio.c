@@ -354,7 +354,10 @@ static int cpio_mkfile(const char *name, const char *location,
 		push_pad();
 
 		if (size) {
-			fwrite(filebuf, size, 1, stdout);
+			if (fwrite(filebuf, size, 1, stdout) != 1) {
+				fprintf(stderr, "writing filebuf failed\n");
+				goto error;
+			}
 			offset += size;
 			push_pad();
 		}
@@ -446,7 +449,7 @@ static int cpio_mkfile_line(const char *line)
 	return rc;
 }
 
-void usage(const char *prog)
+static void usage(const char *prog)
 {
 	fprintf(stderr, "Usage:\n"
 		"\t%s <cpio_list>\n"

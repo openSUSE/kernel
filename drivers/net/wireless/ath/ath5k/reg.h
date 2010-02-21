@@ -35,7 +35,7 @@
  * released by Atheros and on various debug messages found on the net.
  */
 
-
+#include "../reg.h"
 
 /*====MAC DMA REGISTERS====*/
 
@@ -339,9 +339,9 @@
 #define AR5K_SISR2		0x008c			/* Register Address [5211+] */
 #define AR5K_SISR2_QCU_TXURN	0x000003ff	/* Mask for QCU_TXURN */
 #define	AR5K_SISR2_QCU_TXURN_S	0
-#define	AR5K_SISR2_MCABT	0x00100000	/* Master Cycle Abort */
-#define	AR5K_SISR2_SSERR	0x00200000	/* Signaled System Error */
-#define	AR5K_SISR2_DPERR	0x00400000	/* Bus parity error */
+#define	AR5K_SISR2_MCABT	0x00010000	/* Master Cycle Abort */
+#define	AR5K_SISR2_SSERR	0x00020000	/* Signaled System Error */
+#define	AR5K_SISR2_DPERR	0x00040000	/* Bus parity error */
 #define	AR5K_SISR2_TIM		0x01000000	/* [5212+] */
 #define	AR5K_SISR2_CAB_END	0x02000000	/* [5212+] */
 #define	AR5K_SISR2_DTIM_SYNC	0x04000000	/* DTIM sync lost [5212+] */
@@ -430,9 +430,9 @@
 #define AR5K_SIMR2		0x00ac			/* Register Address [5211+] */
 #define AR5K_SIMR2_QCU_TXURN	0x000003ff	/* Mask for QCU_TXURN */
 #define AR5K_SIMR2_QCU_TXURN_S	0
-#define	AR5K_SIMR2_MCABT	0x00100000	/* Master Cycle Abort */
-#define	AR5K_SIMR2_SSERR	0x00200000	/* Signaled System Error */
-#define	AR5K_SIMR2_DPERR	0x00400000	/* Bus parity error */
+#define	AR5K_SIMR2_MCABT	0x00010000	/* Master Cycle Abort */
+#define	AR5K_SIMR2_SSERR	0x00020000	/* Signaled System Error */
+#define	AR5K_SIMR2_DPERR	0x00040000	/* Bus parity error */
 #define	AR5K_SIMR2_TIM		0x01000000	/* [5212+] */
 #define	AR5K_SIMR2_CAB_END	0x02000000	/* [5212+] */
 #define	AR5K_SIMR2_DTIM_SYNC	0x04000000	/* DTIM Sync lost [5212+] */
@@ -982,7 +982,7 @@
 #define AR5K_5414_CBCFG_BUF_DIS	0x10	/* Disable buffer */
 
 /*
- * PCI-E Power managment configuration
+ * PCI-E Power management configuration
  * and status register [5424+]
  */
 #define	AR5K_PCIE_PM_CTL		0x4068			/* Register address */
@@ -1650,12 +1650,6 @@
 #define AR5K_SLEEP2_DTIM_PER_S		16
 
 /*
- * BSSID mask registers
- */
-#define AR5K_BSS_IDM0			0x80e0	/* Upper bits */
-#define AR5K_BSS_IDM1			0x80e4	/* Lower bits */
-
-/*
  * TX power control (TPC) register
  *
  * XXX: PCDAC steps (0.5dbm) or DBM ?
@@ -2039,17 +2033,14 @@
 #define	AR5K_PHY_AGCCTL_NF_NOUPDATE	0x00020000	/* Don't update nf automaticaly */
 
 /*
- * PHY noise floor status register
+ * PHY noise floor status register (CCA = Clear Channel Assessment)
  */
 #define AR5K_PHY_NF			0x9864			/* Register address */
-#define AR5K_PHY_NF_M			0x000001ff	/* Noise floor mask */
-#define AR5K_PHY_NF_ACTIVE		0x00000100	/* Noise floor calibration still active */
-#define AR5K_PHY_NF_RVAL(_n)		(((_n) >> 19) & AR5K_PHY_NF_M)
-#define AR5K_PHY_NF_AVAL(_n)		(-((_n) ^ AR5K_PHY_NF_M) + 1)
-#define AR5K_PHY_NF_SVAL(_n)		(((_n) & AR5K_PHY_NF_M) | (1 << 9))
+#define AR5K_PHY_NF_M			0x000001ff	/* Noise floor, written to hardware in 1/2 dBm units */
+#define AR5K_PHY_NF_SVAL(_n)           (((_n) & AR5K_PHY_NF_M) | (1 << 9))
 #define	AR5K_PHY_NF_THRESH62		0x0007f000	/* Thresh62 -check ANI patent- (field) */
 #define	AR5K_PHY_NF_THRESH62_S		12
-#define	AR5K_PHY_NF_MINCCA_PWR		0x0ff80000	/* ??? */
+#define	AR5K_PHY_NF_MINCCA_PWR		0x0ff80000	/* Minimum measured noise level, read from hardware in 1 dBm units */
 #define	AR5K_PHY_NF_MINCCA_PWR_S	19
 
 /*

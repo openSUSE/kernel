@@ -144,7 +144,7 @@ static void check_hung_uninterruptible_tasks(unsigned long timeout)
 
 	rcu_read_lock();
 	do_each_thread(g, t) {
-		if (!--max_count)
+		if (!max_count--)
 			goto unlock;
 		if (!--batch_count) {
 			batch_count = HUNG_TASK_BATCHING;
@@ -171,12 +171,12 @@ static unsigned long timeout_jiffies(unsigned long timeout)
  * Process updating of timeout sysctl
  */
 int proc_dohung_task_timeout_secs(struct ctl_table *table, int write,
-				  struct file *filp, void __user *buffer,
+				  void __user *buffer,
 				  size_t *lenp, loff_t *ppos)
 {
 	int ret;
 
-	ret = proc_doulongvec_minmax(table, write, filp, buffer, lenp, ppos);
+	ret = proc_doulongvec_minmax(table, write, buffer, lenp, ppos);
 
 	if (ret || !write)
 		goto out;

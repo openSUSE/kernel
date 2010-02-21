@@ -1,7 +1,5 @@
 #define MSNFS	/* HACK HACK */
 /*
- * linux/fs/nfsd/export.c
- *
  * NFS exporting and validation.
  *
  * We maintain a list of clients, each of which has a list of
@@ -14,28 +12,15 @@
  * Copyright (C) 1995, 1996 Olaf Kirch, <okir@monad.swb.de>
  */
 
-#include <linux/unistd.h>
-#include <linux/slab.h>
-#include <linux/stat.h>
-#include <linux/in.h>
-#include <linux/seq_file.h>
-#include <linux/syscalls.h>
-#include <linux/rwsem.h>
-#include <linux/dcache.h>
 #include <linux/namei.h>
-#include <linux/mount.h>
-#include <linux/hash.h>
 #include <linux/module.h>
 #include <linux/exportfs.h>
 
-#include <linux/sunrpc/svc.h>
-#include <linux/nfsd/nfsd.h>
-#include <linux/nfsd/nfsfh.h>
 #include <linux/nfsd/syscall.h>
-#include <linux/lockd/bind.h>
-#include <linux/sunrpc/msg_prot.h>
-#include <linux/sunrpc/gss_api.h>
 #include <net/ipv6.h>
+
+#include "nfsd.h"
+#include "nfsfh.h"
 
 #define NFSDDBG_FACILITY	NFSDDBG_EXPORT
 
@@ -83,6 +68,11 @@ static void expkey_request(struct cache_detail *cd,
 	qword_add(bpp, blen, type);
 	qword_addhex(bpp, blen, (char*)ek->ek_fsid, key_len(ek->ek_fsidtype));
 	(*bpp)[-1] = '\n';
+}
+
+static int expkey_upcall(struct cache_detail *cd, struct cache_head *h)
+{
+	return sunrpc_cache_pipe_upcall(cd, h, expkey_request);
 }
 
 static struct svc_expkey *svc_expkey_update(struct svc_expkey *new, struct svc_expkey *old);
@@ -259,7 +249,7 @@ static struct cache_detail svc_expkey_cache = {
 	.hash_table	= expkey_table,
 	.name		= "nfsd.fh",
 	.cache_put	= expkey_put,
-	.cache_request	= expkey_request,
+	.cache_upcall	= expkey_upcall,
 	.cache_parse	= expkey_parse,
 	.cache_show	= expkey_show,
 	.match		= expkey_match,
@@ -355,19 +345,33 @@ static void svc_export_request(struct cache_detail *cd,
 	(*bpp)[-1] = '\n';
 }
 
+static int svc_export_upcall(struct cache_detail *cd, struct cache_head *h)
+{
+	return sunrpc_cache_pipe_upcall(cd, h, svc_export_request);
+}
+
 static struct svc_export *svc_export_update(struct svc_export *new,
 					    struct svc_export *old);
 static struct svc_export *svc_export_lookup(struct svc_export *);
 
-static int check_export(struct inode *inode, int flags, unsigned char *uuid)
+static int check_export(struct inode *inode, int *flags, unsigned char *uuid)
 {
 
-	/* We currently export only dirs and regular files.
-	 * This is what umountd does.
+	/*
+	 * We currently export only dirs, regular files, and (for v4
+	 * pseudoroot) symlinks.
 	 */
 	if (!S_ISDIR(inode->i_mode) &&
+	    !S_ISLNK(inode->i_mode) &&
 	    !S_ISREG(inode->i_mode))
 		return -ENOTDIR;
+
+	/*
+	 * Mountd should never pass down a writeable V4ROOT export, but,
+	 * just to make sure:
+	 */
+	if (*flags & NFSEXP_V4ROOT)
+		*flags |= NFSEXP_READONLY;
 
 	/* There are two requirements on a filesystem to be exportable.
 	 * 1:  We must be able to identify the filesystem from a number.
@@ -377,7 +381,7 @@ static int check_export(struct inode *inode, int flags, unsigned char *uuid)
 	 *       This means that s_export_op must be set.
 	 */
 	if (!(inode->i_sb->s_type->fs_flags & FS_REQUIRES_DEV) &&
-	    !(flags & NFSEXP_FSID) &&
+	    !(*flags & NFSEXP_FSID) &&
 	    uuid == NULL) {
 		dprintk("exp_export: export of non-dev fs without fsid\n");
 		return -EINVAL;
@@ -592,7 +596,7 @@ static int svc_export_parse(struct cache_detail *cd, char *mesg, int mlen)
 				goto out4;
 		}
 
-		err = check_export(exp.ex_path.dentry->d_inode, exp.ex_flags,
+		err = check_export(exp.ex_path.dentry->d_inode, &exp.ex_flags,
 				   exp.ex_uuid);
 		if (err)
 			goto out4;
@@ -724,7 +728,7 @@ struct cache_detail svc_export_cache = {
 	.hash_table	= export_table,
 	.name		= "nfsd.export",
 	.cache_put	= svc_export_put,
-	.cache_request	= svc_export_request,
+	.cache_upcall	= svc_export_upcall,
 	.cache_parse	= svc_export_parse,
 	.cache_show	= svc_export_show,
 	.match		= svc_export_match,
@@ -1031,7 +1035,7 @@ exp_export(struct nfsctl_export *nxp)
 		goto finish;
 	}
 
-	err = check_export(path.dentry->d_inode, nxp->ex_flags, NULL);
+	err = check_export(path.dentry->d_inode, &nxp->ex_flags, NULL);
 	if (err) goto finish;
 
 	err = -ENOMEM;
@@ -1310,6 +1314,15 @@ rqst_exp_parent(struct svc_rqst *rqstp, struct path *path)
 	return exp;
 }
 
+static struct svc_export *find_fsidzero_export(struct svc_rqst *rqstp)
+{
+	u32 fsidv[2];
+
+	mk_fsid(FSID_NUM, fsidv, 0, 0, 0, NULL);
+
+	return rqst_exp_find(rqstp, FSID_NUM, fsidv);
+}
+
 /*
  * Called when we need the filehandle for the root of the pseudofs,
  * for a given NFSv4 client.   The root is defined to be the
@@ -1320,17 +1333,16 @@ exp_pseudoroot(struct svc_rqst *rqstp, struct svc_fh *fhp)
 {
 	struct svc_export *exp;
 	__be32 rv;
-	u32 fsidv[2];
 
-	mk_fsid(FSID_NUM, fsidv, 0, 0, 0, NULL);
-
-	exp = rqst_exp_find(rqstp, FSID_NUM, fsidv);
+	exp = find_fsidzero_export(rqstp);
 	if (IS_ERR(exp))
 		return nfserrno(PTR_ERR(exp));
 	rv = fh_compose(fhp, exp, exp->ex_path.dentry, NULL);
 	if (rv)
 		goto out;
 	rv = check_nfsd_access(exp, rqstp);
+	if (rv)
+		fh_put(fhp);
 out:
 	exp_put(exp);
 	return rv;
@@ -1413,6 +1425,7 @@ static struct flags {
 	{ NFSEXP_CROSSMOUNT, {"crossmnt", ""}},
 	{ NFSEXP_NOSUBTREECHECK, {"no_subtree_check", ""}},
 	{ NFSEXP_NOAUTHNLM, {"insecure_locks", ""}},
+	{ NFSEXP_V4ROOT, {"v4root", ""}},
 #ifdef MSNFS
 	{ NFSEXP_MSNFS, {"msnfs", ""}},
 #endif
@@ -1505,7 +1518,7 @@ static int e_show(struct seq_file *m, void *p)
 	return svc_export_show(m, &svc_export_cache, cp);
 }
 
-struct seq_operations nfs_exports_op = {
+const struct seq_operations nfs_exports_op = {
 	.start	= e_start,
 	.next	= e_next,
 	.stop	= e_stop,

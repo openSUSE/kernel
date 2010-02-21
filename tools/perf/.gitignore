@@ -10,7 +10,10 @@ perf-stat
 perf-top
 perf*.1
 perf*.xml
+perf*.html
 common-cmds.h
+perf.data
+perf.data.old
 tags
 TAGS
 cscope*

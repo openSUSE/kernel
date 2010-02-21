@@ -33,6 +33,7 @@
 #include <linux/lapb.h>
 #include <linux/init.h>
 #include <linux/rtnetlink.h>
+#include <linux/compat.h>
 #include "x25_asy.h"
 
 #include <net/x25device.h>
@@ -299,7 +300,8 @@ static void x25_asy_timeout(struct net_device *dev)
 
 /* Encapsulate an IP datagram and kick it into a TTY queue. */
 
-static int x25_asy_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t x25_asy_xmit(struct sk_buff *skb,
+				      struct net_device *dev)
 {
 	struct x25_asy *sl = netdev_priv(dev);
 	int err;
@@ -308,7 +310,7 @@ static int x25_asy_xmit(struct sk_buff *skb, struct net_device *dev)
 		printk(KERN_ERR "%s: xmit call when iface is down\n",
 			dev->name);
 		kfree_skb(skb);
-		return 0;
+		return NETDEV_TX_OK;
 	}
 
 	switch (skb->data[0]) {
@@ -319,14 +321,14 @@ static int x25_asy_xmit(struct sk_buff *skb, struct net_device *dev)
 		if (err != LAPB_OK)
 			printk(KERN_ERR "x25_asy: lapb_connect_request error - %d\n", err);
 		kfree_skb(skb);
-		return 0;
+		return NETDEV_TX_OK;
 	case 0x02: /* Disconnect request .. do nothing - hang up ?? */
 		err = lapb_disconnect_request(dev);
 		if (err != LAPB_OK)
 			printk(KERN_ERR "x25_asy: lapb_disconnect_request error - %d\n", err);
 	default:
 		kfree_skb(skb);
-		return  0;
+		return NETDEV_TX_OK;
 	}
 	skb_pull(skb, 1);	/* Remove control byte */
 	/*
@@ -344,9 +346,9 @@ static int x25_asy_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (err != LAPB_OK) {
 		printk(KERN_ERR "x25_asy: lapb_data_request error - %d\n", err);
 		kfree_skb(skb);
-		return 0;
+		return NETDEV_TX_OK;
 	}
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 
@@ -655,8 +657,8 @@ static void x25_asy_unesc(struct x25_asy *sl, unsigned char s)
 
 	switch (s) {
 	case X25_END:
-		if (!test_and_clear_bit(SLF_ERROR, &sl->flags)
-			&& sl->rcount > 2)
+		if (!test_and_clear_bit(SLF_ERROR, &sl->flags) &&
+		    sl->rcount > 2)
 			x25_asy_bump(sl);
 		clear_bit(SLF_ESCAPE, &sl->flags);
 		sl->rcount = 0;
@@ -703,6 +705,21 @@ static int x25_asy_ioctl(struct tty_struct *tty, struct file *file,
 		return tty_mode_ioctl(tty, file, cmd, arg);
 	}
 }
+
+#ifdef CONFIG_COMPAT
+static long x25_asy_compat_ioctl(struct tty_struct *tty, struct file *file,
+			 unsigned int cmd,  unsigned long arg)
+{
+	switch (cmd) {
+	case SIOCGIFNAME:
+	case SIOCSIFHWADDR:
+		return x25_asy_ioctl(tty, file, cmd,
+				     (unsigned long)compat_ptr(arg));
+	}
+
+	return -ENOIOCTLCMD;
+}
+#endif
 
 static int x25_asy_open_dev(struct net_device *dev)
 {
@@ -753,6 +770,9 @@ static struct tty_ldisc_ops x25_ldisc = {
 	.open		= x25_asy_open_tty,
 	.close		= x25_asy_close_tty,
 	.ioctl		= x25_asy_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl	= x25_asy_compat_ioctl,
+#endif
 	.receive_buf	= x25_asy_receive_buf,
 	.write_wakeup	= x25_asy_write_wakeup,
 };

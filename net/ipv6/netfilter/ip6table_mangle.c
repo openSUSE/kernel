@@ -21,7 +21,7 @@ MODULE_DESCRIPTION("ip6tables mangle table");
 			    (1 << NF_INET_LOCAL_OUT) | \
 			    (1 << NF_INET_POST_ROUTING))
 
-static struct
+static const struct
 {
 	struct ip6t_replace repl;
 	struct ip6t_standard entries[5];
@@ -57,11 +57,11 @@ static struct
 	.term = IP6T_ERROR_INIT,		/* ERROR */
 };
 
-static struct xt_table packet_mangler = {
+static const struct xt_table packet_mangler = {
 	.name		= "mangle",
 	.valid_hooks	= MANGLE_VALID_HOOKS,
 	.me		= THIS_MODULE,
-	.af		= AF_INET6,
+	.af		= NFPROTO_IPV6,
 };
 
 /* The work comes in here from netfilter.c. */
@@ -102,8 +102,8 @@ ip6t_local_out_hook(unsigned int hook,
 
 #if 0
 	/* root is playing with raw sockets. */
-	if (skb->len < sizeof(struct iphdr)
-	    || ip_hdrlen(skb) < sizeof(struct iphdr)) {
+	if (skb->len < sizeof(struct iphdr) ||
+	    ip_hdrlen(skb) < sizeof(struct iphdr)) {
 		if (net_ratelimit())
 			printk("ip6t_hook: happy cracking.\n");
 		return NF_ACCEPT;
@@ -122,11 +122,11 @@ ip6t_local_out_hook(unsigned int hook,
 	ret = ip6t_do_table(skb, hook, in, out,
 			    dev_net(out)->ipv6.ip6table_mangle);
 
-	if (ret != NF_DROP && ret != NF_STOLEN
-		&& (memcmp(&ipv6_hdr(skb)->saddr, &saddr, sizeof(saddr))
-		    || memcmp(&ipv6_hdr(skb)->daddr, &daddr, sizeof(daddr))
-		    || skb->mark != mark
-		    || ipv6_hdr(skb)->hop_limit != hop_limit))
+	if (ret != NF_DROP && ret != NF_STOLEN &&
+	    (memcmp(&ipv6_hdr(skb)->saddr, &saddr, sizeof(saddr)) ||
+	     memcmp(&ipv6_hdr(skb)->daddr, &daddr, sizeof(daddr)) ||
+	     skb->mark != mark ||
+	     ipv6_hdr(skb)->hop_limit != hop_limit))
 		return ip6_route_me_harder(skb) == 0 ? ret : NF_DROP;
 
 	return ret;
@@ -136,35 +136,35 @@ static struct nf_hook_ops ip6t_ops[] __read_mostly = {
 	{
 		.hook		= ip6t_in_hook,
 		.owner		= THIS_MODULE,
-		.pf		= PF_INET6,
+		.pf		= NFPROTO_IPV6,
 		.hooknum	= NF_INET_PRE_ROUTING,
 		.priority	= NF_IP6_PRI_MANGLE,
 	},
 	{
 		.hook		= ip6t_in_hook,
 		.owner		= THIS_MODULE,
-		.pf		= PF_INET6,
+		.pf		= NFPROTO_IPV6,
 		.hooknum	= NF_INET_LOCAL_IN,
 		.priority	= NF_IP6_PRI_MANGLE,
 	},
 	{
 		.hook		= ip6t_in_hook,
 		.owner		= THIS_MODULE,
-		.pf		= PF_INET6,
+		.pf		= NFPROTO_IPV6,
 		.hooknum	= NF_INET_FORWARD,
 		.priority	= NF_IP6_PRI_MANGLE,
 	},
 	{
 		.hook		= ip6t_local_out_hook,
 		.owner		= THIS_MODULE,
-		.pf		= PF_INET6,
+		.pf		= NFPROTO_IPV6,
 		.hooknum	= NF_INET_LOCAL_OUT,
 		.priority	= NF_IP6_PRI_MANGLE,
 	},
 	{
 		.hook		= ip6t_post_routing_hook,
 		.owner		= THIS_MODULE,
-		.pf		= PF_INET6,
+		.pf		= NFPROTO_IPV6,
 		.hooknum	= NF_INET_POST_ROUTING,
 		.priority	= NF_IP6_PRI_MANGLE,
 	},

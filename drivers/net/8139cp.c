@@ -87,7 +87,7 @@
 
 /* These identify the driver base version and may not be removed. */
 static char version[] =
-KERN_INFO DRV_NAME ": 10/100 PCI Ethernet driver v" DRV_VERSION " (" DRV_RELDATE ")\n";
+DRV_NAME ": 10/100 PCI Ethernet driver v" DRV_VERSION " (" DRV_RELDATE ")\n";
 
 MODULE_AUTHOR("Jeff Garzik <jgarzik@pobox.com>");
 MODULE_DESCRIPTION("RealTek RTL-8139C+ series 10/100 PCI Ethernet driver");
@@ -549,13 +549,11 @@ rx_status_loop:
 			pr_debug("%s: rx slot %d status 0x%x len %d\n",
 			       dev->name, rx_tail, status, len);
 
-		new_skb = netdev_alloc_skb(dev, buflen + NET_IP_ALIGN);
+		new_skb = netdev_alloc_skb_ip_align(dev, buflen);
 		if (!new_skb) {
 			dev->stats.rx_dropped++;
 			goto rx_next;
 		}
-
-		skb_reserve(new_skb, NET_IP_ALIGN);
 
 		dma_unmap_single(&cp->pdev->dev, mapping,
 				 buflen, PCI_DMA_FROMDEVICE);
@@ -736,7 +734,8 @@ static void cp_tx (struct cp_private *cp)
 		netif_wake_queue(cp->dev);
 }
 
-static int cp_start_xmit (struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t cp_start_xmit (struct sk_buff *skb,
+					struct net_device *dev)
 {
 	struct cp_private *cp = netdev_priv(dev);
 	unsigned entry;
@@ -890,7 +889,7 @@ static int cp_start_xmit (struct sk_buff *skb, struct net_device *dev)
 	cpw8(TxPoll, NormalTxPoll);
 	dev->trans_start = jiffies;
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /* Set or clear the multicast filter for this adaptor.
@@ -910,8 +909,8 @@ static void __cp_set_rx_mode (struct net_device *dev)
 		    AcceptBroadcast | AcceptMulticast | AcceptMyPhys |
 		    AcceptAllPhys;
 		mc_filter[1] = mc_filter[0] = 0xffffffff;
-	} else if ((dev->mc_count > multicast_filter_limit)
-		   || (dev->flags & IFF_ALLMULTI)) {
+	} else if ((dev->mc_count > multicast_filter_limit) ||
+		   (dev->flags & IFF_ALLMULTI)) {
 		/* Too many to filter perfectly -- accept all multicasts. */
 		rx_mode = AcceptBroadcast | AcceptMulticast | AcceptMyPhys;
 		mc_filter[1] = mc_filter[0] = 0xffffffff;
@@ -1056,11 +1055,9 @@ static int cp_refill_rx(struct cp_private *cp)
 		struct sk_buff *skb;
 		dma_addr_t mapping;
 
-		skb = netdev_alloc_skb(dev, cp->rx_buf_sz + NET_IP_ALIGN);
+		skb = netdev_alloc_skb_ip_align(dev, cp->rx_buf_sz);
 		if (!skb)
 			goto err_out;
-
-		skb_reserve(skb, NET_IP_ALIGN);
 
 		mapping = dma_map_single(&cp->pdev->dev, skb->data,
 					 cp->rx_buf_sz, PCI_DMA_FROMDEVICE);

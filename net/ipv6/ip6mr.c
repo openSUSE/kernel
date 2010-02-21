@@ -83,10 +83,6 @@ static int ip6mr_cache_report(struct net *net, struct sk_buff *pkt,
 static int ip6mr_fill_mroute(struct sk_buff *skb, struct mfc6_cache *c, struct rtmsg *rtm);
 static void mroute_clean_tables(struct net *net);
 
-#ifdef CONFIG_IPV6_PIMSM_V2
-static struct inet6_protocol pim6_protocol;
-#endif
-
 static struct timer_list ipmr_expire_timer;
 
 
@@ -204,7 +200,7 @@ static int ip6mr_vif_seq_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
-static struct seq_operations ip6mr_vif_seq_ops = {
+static const struct seq_operations ip6mr_vif_seq_ops = {
 	.start = ip6mr_vif_seq_start,
 	.next  = ip6mr_vif_seq_next,
 	.stop  = ip6mr_vif_seq_stop,
@@ -217,7 +213,7 @@ static int ip6mr_vif_open(struct inode *inode, struct file *file)
 			    sizeof(struct ipmr_vif_iter));
 }
 
-static struct file_operations ip6mr_vif_fops = {
+static const struct file_operations ip6mr_vif_fops = {
 	.owner	 = THIS_MODULE,
 	.open    = ip6mr_vif_open,
 	.read    = seq_read,
@@ -328,7 +324,7 @@ static int ipmr_mfc_seq_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
-static struct seq_operations ipmr_mfc_seq_ops = {
+static const struct seq_operations ipmr_mfc_seq_ops = {
 	.start = ipmr_mfc_seq_start,
 	.next  = ipmr_mfc_seq_next,
 	.stop  = ipmr_mfc_seq_stop,
@@ -341,7 +337,7 @@ static int ipmr_mfc_open(struct inode *inode, struct file *file)
 			    sizeof(struct ipmr_mfc_iter));
 }
 
-static struct file_operations ip6mr_mfc_fops = {
+static const struct file_operations ip6mr_mfc_fops = {
 	.owner	 = THIS_MODULE,
 	.open    = ipmr_mfc_open,
 	.read    = seq_read,
@@ -410,13 +406,14 @@ static int pim6_rcv(struct sk_buff *skb)
 	return 0;
 }
 
-static struct inet6_protocol pim6_protocol = {
+static const struct inet6_protocol pim6_protocol = {
 	.handler	=	pim6_rcv,
 };
 
 /* Service routines creating virtual interfaces: PIMREG */
 
-static int reg_vif_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t reg_vif_xmit(struct sk_buff *skb,
+				      struct net_device *dev)
 {
 	struct net *net = dev_net(dev);
 
@@ -427,7 +424,7 @@ static int reg_vif_xmit(struct sk_buff *skb, struct net_device *dev)
 			   MRT6MSG_WHOLEPKT);
 	read_unlock(&mrt_lock);
 	kfree_skb(skb);
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 static const struct net_device_ops reg_vif_netdev_ops = {
@@ -480,7 +477,7 @@ failure:
  *	Delete a VIF entry
  */
 
-static int mif6_delete(struct net *net, int vifi)
+static int mif6_delete(struct net *net, int vifi, struct list_head *head)
 {
 	struct mif_device *v;
 	struct net_device *dev;
@@ -522,7 +519,7 @@ static int mif6_delete(struct net *net, int vifi)
 		in6_dev->cnf.mc_forwarding--;
 
 	if (v->flags & MIFF_REGISTER)
-		unregister_netdevice(dev);
+		unregister_netdevice_queue(dev, head);
 
 	dev_put(dev);
 	return 0;
@@ -979,6 +976,7 @@ static int ip6mr_device_event(struct notifier_block *this,
 	struct net *net = dev_net(dev);
 	struct mif_device *v;
 	int ct;
+	LIST_HEAD(list);
 
 	if (event != NETDEV_UNREGISTER)
 		return NOTIFY_DONE;
@@ -986,8 +984,10 @@ static int ip6mr_device_event(struct notifier_block *this,
 	v = &net->ipv6.vif6_table[0];
 	for (ct = 0; ct < net->ipv6.maxvif; ct++, v++) {
 		if (v->dev == dev)
-			mif6_delete(net, ct);
+			mif6_delete(net, ct, &list);
 	}
+	unregister_netdevice_many(&list);
+
 	return NOTIFY_DONE;
 }
 
@@ -1191,14 +1191,16 @@ static int ip6mr_mfc_add(struct net *net, struct mf6cctl *mfc, int mrtsock)
 static void mroute_clean_tables(struct net *net)
 {
 	int i;
+	LIST_HEAD(list);
 
 	/*
 	 *	Shut down all active vif entries
 	 */
 	for (i = 0; i < net->ipv6.maxvif; i++) {
 		if (!(net->ipv6.vif6_table[i].flags & VIFF_STATIC))
-			mif6_delete(net, i);
+			mif6_delete(net, i, &list);
 	}
+	unregister_netdevice_many(&list);
 
 	/*
 	 *	Wipe the cache
@@ -1284,7 +1286,7 @@ int ip6mr_sk_done(struct sock *sk)
  *	MOSPF/PIM router set up we can clean this up.
  */
 
-int ip6_mroute_setsockopt(struct sock *sk, int optname, char __user *optval, int optlen)
+int ip6_mroute_setsockopt(struct sock *sk, int optname, char __user *optval, unsigned int optlen)
 {
 	int ret;
 	struct mif6ctl vif;
@@ -1300,7 +1302,7 @@ int ip6_mroute_setsockopt(struct sock *sk, int optname, char __user *optval, int
 	switch (optname) {
 	case MRT6_INIT:
 		if (sk->sk_type != SOCK_RAW ||
-		    inet_sk(sk)->num != IPPROTO_ICMPV6)
+		    inet_sk(sk)->inet_num != IPPROTO_ICMPV6)
 			return -EOPNOTSUPP;
 		if (optlen < sizeof(int))
 			return -EINVAL;
@@ -1328,7 +1330,7 @@ int ip6_mroute_setsockopt(struct sock *sk, int optname, char __user *optval, int
 		if (copy_from_user(&mifi, optval, sizeof(mifi_t)))
 			return -EFAULT;
 		rtnl_lock();
-		ret = mif6_delete(net, mifi);
+		ret = mif6_delete(net, mifi, NULL);
 		rtnl_unlock();
 		return ret;
 

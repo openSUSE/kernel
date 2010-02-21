@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2004 - 2009 rt2x00 SourceForge Project
+	Copyright (C) 2004 - 2009 Ivo van Doorn <IvDoorn@gmail.com>
 	<http://rt2x00.serialmonkey.com>
 
 	This program is free software; you can redistribute it and/or modify
@@ -176,8 +176,8 @@ struct rt2x00_field32 {
 #define is_valid_mask(x)	is_power_of_two(1LU + (x) + low_bit_mask(x))
 
 /*
- * Macro's to find first set bit in a variable.
- * These macro's behaves the same as the __ffs() function with
+ * Macros to find first set bit in a variable.
+ * These macros behave the same as the __ffs() functions but
  * the most important difference that this is done during
  * compile-time rather then run-time.
  */

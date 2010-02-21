@@ -47,6 +47,7 @@
 #include <asm/udbg.h>
 #include <sysdev/fsl_soc.h>
 #include <sysdev/fsl_pci.h>
+#include <sysdev/simple_gpio.h>
 #include <asm/qe.h>
 #include <asm/qe_ic.h>
 #include <asm/mpic.h>
@@ -85,7 +86,7 @@ static int mpc8568_fixup_125_clock(struct phy_device *phydev)
 	scr = phy_read(phydev, MV88E1111_SCR);
 
 	if (scr < 0)
-		return err;
+		return scr;
 
 	err = phy_write(phydev, MV88E1111_SCR, scr | 0x0008);
 
@@ -254,7 +255,8 @@ static void __init mpc85xx_mds_setup_arch(void)
 #ifdef CONFIG_SWIOTLB
 	if (lmb_end_of_DRAM() > max) {
 		ppc_swiotlb_enable = 1;
-		set_pci_dma_ops(&swiotlb_pci_dma_ops);
+		set_pci_dma_ops(&swiotlb_dma_ops);
+		ppc_md.pci_dma_dev_setup = pci_dma_dev_setup_swiotlb;
 	}
 #endif
 }
@@ -299,11 +301,15 @@ static struct of_device_id mpc85xx_ids[] = {
 	{ .compatible = "fsl,qe", },
 	{ .compatible = "gianfar", },
 	{ .compatible = "fsl,rapidio-delta", },
+	{ .compatible = "fsl,mpc8548-guts", },
 	{},
 };
 
 static int __init mpc85xx_publish_devices(void)
 {
+	if (machine_is(mpc8569_mds))
+		simple_gpiochip_init("fsl,mpc8569mds-bcsr-gpio");
+
 	/* Publish the QE devices */
 	of_platform_bus_probe(NULL, mpc85xx_ids, NULL);
 
@@ -332,7 +338,8 @@ static void __init mpc85xx_mds_pic_init(void)
 	}
 
 	mpic = mpic_alloc(np, r.start,
-			MPIC_PRIMARY | MPIC_WANTS_RESET | MPIC_BIG_ENDIAN,
+			MPIC_PRIMARY | MPIC_WANTS_RESET | MPIC_BIG_ENDIAN |
+			MPIC_BROKEN_FRR_NIRQS,
 			0, 256, " OpenPIC  ");
 	BUG_ON(mpic == NULL);
 	of_node_put(np);

@@ -288,8 +288,8 @@ void rds_iw_send_cq_comp_handler(struct ib_cq *cq, void *context)
 
 		rds_iw_ring_free(&ic->i_send_ring, completed);
 
-		if (test_and_clear_bit(RDS_LL_SEND_FULL, &conn->c_flags)
-		 || test_bit(0, &conn->c_map_queued))
+		if (test_and_clear_bit(RDS_LL_SEND_FULL, &conn->c_flags) ||
+		    test_bit(0, &conn->c_map_queued))
 			queue_delayed_work(rds_wq, &conn->c_send_w, 0);
 
 		/* We expect errors as the qp is drained during shutdown */
@@ -519,8 +519,7 @@ int rds_iw_xmit(struct rds_connection *conn, struct rds_message *rm,
 	BUG_ON(hdr_off != 0 && hdr_off != sizeof(struct rds_header));
 
 	/* Fastreg support */
-	if (rds_rdma_cookie_key(rm->m_rdma_cookie)
-	 && !ic->i_fastreg_posted) {
+	if (rds_rdma_cookie_key(rm->m_rdma_cookie) && !ic->i_fastreg_posted) {
 		ret = -EAGAIN;
 		goto out;
 	}
@@ -779,7 +778,7 @@ static void rds_iw_build_send_fastreg(struct rds_iw_device *rds_iwdev, struct rd
 	send->s_wr.wr.fast_reg.rkey = send->s_mr->rkey;
 	send->s_wr.wr.fast_reg.page_list = send->s_page_list;
 	send->s_wr.wr.fast_reg.page_list_len = nent;
-	send->s_wr.wr.fast_reg.page_shift = rds_iwdev->page_shift;
+	send->s_wr.wr.fast_reg.page_shift = PAGE_SHIFT;
 	send->s_wr.wr.fast_reg.access_flags = IB_ACCESS_REMOTE_WRITE;
 	send->s_wr.wr.fast_reg.iova_start = sg_addr;
 

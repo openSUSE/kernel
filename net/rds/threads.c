@@ -68,6 +68,7 @@
  *	(TCP, IB/RDMA) to provide the necessary synchronisation.
  */
 struct workqueue_struct *rds_wq;
+EXPORT_SYMBOL_GPL(rds_wq);
 
 void rds_connect_complete(struct rds_connection *conn)
 {
@@ -89,6 +90,7 @@ void rds_connect_complete(struct rds_connection *conn)
 	queue_delayed_work(rds_wq, &conn->c_send_w, 0);
 	queue_delayed_work(rds_wq, &conn->c_recv_w, 0);
 }
+EXPORT_SYMBOL_GPL(rds_connect_complete);
 
 /*
  * This random exponential backoff is relied on to eventually resolve racing
@@ -168,8 +170,8 @@ void rds_shutdown_worker(struct work_struct *work)
 		 * handler is supposed to check for state DISCONNECTING
 		 */
 		mutex_lock(&conn->c_cm_lock);
-		if (!rds_conn_transition(conn, RDS_CONN_UP, RDS_CONN_DISCONNECTING)
-		 && !rds_conn_transition(conn, RDS_CONN_ERROR, RDS_CONN_DISCONNECTING)) {
+		if (!rds_conn_transition(conn, RDS_CONN_UP, RDS_CONN_DISCONNECTING) &&
+		    !rds_conn_transition(conn, RDS_CONN_ERROR, RDS_CONN_DISCONNECTING)) {
 			rds_conn_error(conn, "shutdown called in state %d\n",
 					atomic_read(&conn->c_state));
 			mutex_unlock(&conn->c_cm_lock);

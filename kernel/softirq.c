@@ -72,7 +72,7 @@ struct softirqdata {
 static DEFINE_PER_CPU(struct softirqdata [NR_SOFTIRQS], ksoftirqd);
 
 char *softirq_to_name[NR_SOFTIRQS] = {
-	"HI", "TIMER", "NET_TX", "NET_RX", "BLOCK",
+	"HI", "TIMER", "NET_TX", "NET_RX", "BLOCK", "BLOCK_IOPOLL",
 	"TASKLET", "SCHED", "HRTIMER",	"RCU"
 };
 
@@ -107,14 +107,14 @@ void softirq_check_pending_idle(void)
 			 * under tsk->pi_lock. So we need to check for
 			 * both: state and pi_blocked_on.
 			 */
-			atomic_spin_lock(&tsk->pi_lock);
+			raw_spin_lock(&tsk->pi_lock);
 
 			if (!tsk->pi_blocked_on &&
 			    !(tsk->state == TASK_RUNNING) &&
 			    !(tsk->state & TASK_RUNNING_MUTEX))
 				warnpending |= 1 << curr;
 
-			atomic_spin_unlock(&tsk->pi_lock);
+			raw_spin_unlock(&tsk->pi_lock);
 		}
 		pending >>= 1;
 		curr++;
@@ -397,7 +397,7 @@ restart:
 		if (per_cpu(softirq_running, cpu) & softirq_mask) {
 			available_mask &= ~softirq_mask;
 			goto next;
-  		}
+		}
 		per_cpu(softirq_running, cpu) |= softirq_mask;
 		kstat_incr_softirqs_this_cpu(h - softirq_vec);
 		local_irq_enable();
@@ -408,7 +408,7 @@ restart:
 
 		debug_check_preempt_count_stop(&preempt_count, h);
 
-		rcu_bh_qsctr_inc(cpu);
+		rcu_bh_qs(cpu);
 		cond_resched_softirq_context();
 		local_irq_disable();
 		per_cpu(softirq_running, cpu) &= ~softirq_mask;
@@ -425,6 +425,12 @@ next:
 		if (--max_restart)
 			goto restart;
 	}
+
+	local_irq_disable();
+
+	pending = local_softirq_pending();
+	if (pending && --max_restart)
+		goto restart;
 
 	if (pending)
 		trigger_softirqs();
@@ -511,9 +517,9 @@ void irq_exit(void)
 	if (!in_interrupt() && local_softirq_pending())
 		invoke_softirq();
 
+	rcu_irq_exit();
 #ifdef CONFIG_NO_HZ
 	/* Make sure that timer wheel updates are propagated */
-	rcu_irq_exit();
 	if (idle_cpu(smp_processor_id()) && !in_interrupt() && !need_resched())
 		tick_nohz_stop_sched_tick(0);
 #endif
@@ -775,22 +781,17 @@ EXPORT_SYMBOL(tasklet_kill);
  */
 
 /*
- * The trampoline is called when the hrtimer expires. If this is
- * called from the hrtimer interrupt then we schedule the tasklet as
- * the timer callback function expects to run in softirq context. If
- * it's called in softirq context anyway (i.e. high resolution timers
- * disabled) then the hrtimer callback is called right away.
+ * The trampoline is called when the hrtimer expires. It schedules a tasklet
+ * to run __tasklet_hrtimer_trampoline() which in turn will call the intended
+ * hrtimer callback, but from softirq context.
  */
 static enum hrtimer_restart __hrtimer_tasklet_trampoline(struct hrtimer *timer)
 {
 	struct tasklet_hrtimer *ttimer =
 		container_of(timer, struct tasklet_hrtimer, timer);
 
-	if (hrtimer_is_hres_active(timer)) {
-		tasklet_hi_schedule(&ttimer->tasklet);
-		return HRTIMER_NORESTART;
-	}
-	return ttimer->function(timer);
+	tasklet_hi_schedule(&ttimer->tasklet);
+	return HRTIMER_NORESTART;
 }
 
 /*
@@ -973,7 +974,6 @@ void __init softirq_init(void)
 }
 
 #if defined(CONFIG_SMP) || defined(CONFIG_PREEMPT_RT)
-
 void tasklet_unlock_wait(struct tasklet_struct *t)
 {
 	while (test_bit(TASKLET_STATE_RUN, &(t)->state)) {
@@ -988,10 +988,9 @@ void tasklet_unlock_wait(struct tasklet_struct *t)
 	}
 }
 EXPORT_SYMBOL(tasklet_unlock_wait);
-
 #endif
 
-static int ksoftirqd(void * __data)
+static int run_ksoftirqd(void * __data)
 {
 	/* Priority needs to be below hardirqs */
 	struct sched_param param = { .sched_priority = MAX_USER_RT_PRIO/2 - 1};
@@ -1001,7 +1000,7 @@ static int ksoftirqd(void * __data)
 	int cpu = data->cpu;
 
 	sys_sched_setscheduler(current->pid, SCHED_FIFO, &param);
-	current->flags |= PF_SOFTIRQ;
+	current->extra_flags |= PFE_SOFTIRQ;
 	set_current_state(TASK_INTERRUPTIBLE);
 
 	while (!kthread_should_stop()) {
@@ -1041,7 +1040,7 @@ sleep_more:
 			h = &softirq_vec[data->nr];
 			if (h)
 				h->action(h);
-			rcu_bh_qsctr_inc(data->cpu);
+			rcu_bh_qs(data->cpu);
 
 			local_irq_disable();
 			per_cpu(softirq_running, cpu) &= ~softirq_mask;
@@ -1050,7 +1049,6 @@ sleep_more:
 
 			cond_resched();
 			preempt_disable();
-			rcu_qsctr_inc(data->cpu);
 		}
 		preempt_enable();
 		set_current_state(TASK_INTERRUPTIBLE);
@@ -1138,6 +1136,7 @@ static const char *softirq_names [] =
   [NET_TX_SOFTIRQ]	= "net-tx",
   [NET_RX_SOFTIRQ]	= "net-rx",
   [BLOCK_SOFTIRQ]	= "block",
+  [BLOCK_IOPOLL_SOFTIRQ]= "block-iopoll",
   [TASKLET_SOFTIRQ]	= "tasklet",
   [HRTIMER_SOFTIRQ]	= "hrtimer",
   [RCU_SOFTIRQ]		= "rcu",
@@ -1159,7 +1158,7 @@ static int __cpuinit cpu_callback(struct notifier_block *nfb,
 			per_cpu(ksoftirqd, hotcpu)[i].tsk = NULL;
 		}
 		for (i = 0; i < NR_SOFTIRQS; i++) {
-			p = kthread_create(ksoftirqd,
+			p = kthread_create(run_ksoftirqd,
 					   &per_cpu(ksoftirqd, hotcpu)[i],
 					   "sirq-%s/%d", softirq_names[i],
 					   hotcpu);

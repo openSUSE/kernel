@@ -163,8 +163,7 @@ struct rate_control_ref *rate_control_alloc(const char *name,
 #ifdef CONFIG_MAC80211_DEBUGFS
 	debugfsdir = debugfs_create_dir("rc", local->hw.wiphy->debugfsdir);
 	local->debugfs.rcdir = debugfsdir;
-	local->debugfs.rcname = debugfs_create_file("name", 0400, debugfsdir,
-						    ref, &rcname_ops);
+	debugfs_create_file("name", 0400, debugfsdir, ref, &rcname_ops);
 #endif
 
 	ref->priv = ref->ops->alloc(&local->hw, debugfsdir);
@@ -188,15 +187,42 @@ static void rate_control_release(struct kref *kref)
 	ctrl_ref->ops->free(ctrl_ref->priv);
 
 #ifdef CONFIG_MAC80211_DEBUGFS
-	debugfs_remove(ctrl_ref->local->debugfs.rcname);
-	ctrl_ref->local->debugfs.rcname = NULL;
-	debugfs_remove(ctrl_ref->local->debugfs.rcdir);
+	debugfs_remove_recursive(ctrl_ref->local->debugfs.rcdir);
 	ctrl_ref->local->debugfs.rcdir = NULL;
 #endif
 
 	ieee80211_rate_control_ops_put(ctrl_ref->ops);
 	kfree(ctrl_ref);
 }
+
+static bool rc_no_data_or_no_ack(struct ieee80211_tx_rate_control *txrc)
+{
+	struct sk_buff *skb = txrc->skb;
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
+	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+	__le16 fc;
+
+	fc = hdr->frame_control;
+
+	return ((info->flags & IEEE80211_TX_CTL_NO_ACK) || !ieee80211_is_data(fc));
+}
+
+bool rate_control_send_low(struct ieee80211_sta *sta,
+			   void *priv_sta,
+			   struct ieee80211_tx_rate_control *txrc)
+{
+	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(txrc->skb);
+
+	if (!sta || !priv_sta || rc_no_data_or_no_ack(txrc)) {
+		info->control.rates[0].idx = rate_lowest_index(txrc->sband, sta);
+		info->control.rates[0].count =
+			(info->flags & IEEE80211_TX_CTL_NO_ACK) ?
+			1 : txrc->hw->max_rate_tries;
+		return true;
+	}
+	return false;
+}
+EXPORT_SYMBOL(rate_control_send_low);
 
 void rate_control_get_rate(struct ieee80211_sub_if_data *sdata,
 			   struct sta_info *sta,
@@ -218,6 +244,9 @@ void rate_control_get_rate(struct ieee80211_sub_if_data *sdata,
 		info->control.rates[i].flags = 0;
 		info->control.rates[i].count = 1;
 	}
+
+	if (sdata->local->hw.flags & IEEE80211_HW_HAS_RATE_CONTROL)
+		return;
 
 	if (sta && sdata->force_unicast_rateidx > -1) {
 		info->control.rates[0].idx = sdata->force_unicast_rateidx;
@@ -258,8 +287,15 @@ int ieee80211_init_rate_ctrl_alg(struct ieee80211_local *local,
 	struct rate_control_ref *ref, *old;
 
 	ASSERT_RTNL();
-	if (local->open_count || netif_running(local->mdev))
+
+	if (local->open_count)
 		return -EBUSY;
+
+	if (local->hw.flags & IEEE80211_HW_HAS_RATE_CONTROL) {
+		if (WARN_ON(!local->ops->set_rts_threshold))
+			return -EINVAL;
+		return 0;
+	}
 
 	ref = rate_control_alloc(name, local);
 	if (!ref) {
@@ -279,7 +315,6 @@ int ieee80211_init_rate_ctrl_alg(struct ieee80211_local *local,
 	       "algorithm '%s'\n", wiphy_name(local->hw.wiphy),
 	       ref->ops->name);
 
-
 	return 0;
 }
 
@@ -288,6 +323,10 @@ void rate_control_deinitialize(struct ieee80211_local *local)
 	struct rate_control_ref *ref;
 
 	ref = local->rate_ctrl;
+
+	if (!ref)
+		return;
+
 	local->rate_ctrl = NULL;
 	rate_control_put(ref);
 }

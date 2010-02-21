@@ -1304,19 +1304,70 @@ static int reg_read(struct gspca_dev *gspca_dev,
 	return gspca_dev->usb_buf[0];
 }
 
+/* send 1 or 2 bytes to the sensor via the Synchronous Serial Interface */
+static int ssi_w(struct gspca_dev *gspca_dev,
+		u16 reg, u16 val)
+{
+	struct usb_device *dev = gspca_dev->dev;
+	int ret, retry;
+
+	ret = reg_write(dev, 0x8802, reg >> 8);
+	if (ret < 0)
+		goto out;
+	ret = reg_write(dev, 0x8801, reg & 0x00ff);
+	if (ret < 0)
+		goto out;
+	if ((reg & 0xff00) == 0x1000) {		/* if 2 bytes */
+		ret = reg_write(dev, 0x8805, val & 0x00ff);
+		if (ret < 0)
+			goto out;
+		val >>= 8;
+	}
+	ret = reg_write(dev, 0x8800, val);
+	if (ret < 0)
+		goto out;
+
+	/* poll until not busy */
+	retry = 10;
+	for (;;) {
+		ret = reg_read(gspca_dev, 0x8803);
+		if (ret < 0)
+			break;
+		if (gspca_dev->usb_buf[0] == 0)
+			break;
+		if (--retry <= 0) {
+			PDEBUG(D_ERR, "ssi_w busy %02x",
+					gspca_dev->usb_buf[0]);
+			ret = -1;
+			break;
+		}
+		msleep(8);
+	}
+
+out:
+	return ret;
+}
+
 static int write_vector(struct gspca_dev *gspca_dev,
 			const u16 (*data)[2])
 {
 	struct usb_device *dev = gspca_dev->dev;
-	int ret;
+	int ret = 0;
 
 	while ((*data)[1] != 0) {
-		ret = reg_write(dev, (*data)[1], (*data)[0]);
+		if ((*data)[1] & 0x8000) {
+			if ((*data)[1] == 0xdd00)	/* delay */
+				msleep((*data)[0]);
+			else
+				ret = reg_write(dev, (*data)[1], (*data)[0]);
+		} else {
+			ret = ssi_w(gspca_dev, (*data)[1], (*data)[0]);
+		}
 		if (ret < 0)
-			return ret;
+			break;
 		data++;
 	}
-	return 0;
+	return ret;
 }
 
 /* this function is called at probe time */
@@ -1396,26 +1447,22 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 }
 
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
-			struct gspca_frame *frame,	/* target */
 			u8 *data,			/* isoc packet */
 			int len)			/* iso packet length */
 {
 	switch (data[0]) {
 	case 0:				/* start of frame */
-		frame = gspca_frame_add(gspca_dev, LAST_PACKET, frame,
-					data, 0);
+		gspca_frame_add(gspca_dev, LAST_PACKET, NULL, 0);
 		data += SPCA508_OFFSET_DATA;
 		len -= SPCA508_OFFSET_DATA;
-		gspca_frame_add(gspca_dev, FIRST_PACKET, frame,
-				data, len);
+		gspca_frame_add(gspca_dev, FIRST_PACKET, data, len);
 		break;
 	case 0xff:			/* drop */
 		break;
 	default:
 		data += 1;
 		len -= 1;
-		gspca_frame_add(gspca_dev, INTER_PACKET, frame,
-				data, len);
+		gspca_frame_add(gspca_dev, INTER_PACKET, data, len);
 		break;
 	}
 }

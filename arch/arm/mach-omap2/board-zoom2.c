@@ -12,36 +12,42 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/input.h>
 #include <linux/gpio.h>
-#include <linux/i2c/twl4030.h>
 
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 
-#include <mach/common.h>
-#include <mach/usb.h>
+#include <plat/common.h>
+#include <plat/board.h>
 
-#include "mmc-twl4030.h"
+#include <mach/board-zoom.h>
+
+#include "mux.h"
+#include "sdram-micron-mt46h32m32lf-6.h"
 
 static void __init omap_zoom2_init_irq(void)
 {
-	omap2_init_common_hw(NULL, NULL);
+	omap2_init_common_hw(mt46h32m32lf6_sdrc_params,
+				 mt46h32m32lf6_sdrc_params);
 	omap_init_irq();
 	omap_gpio_init();
 }
 
-static struct omap_uart_config zoom2_uart_config __initdata = {
-	.enabled_uarts	= ((1 << 0) | (1 << 1) | (1 << 2)),
+/* REVISIT: These audio entries can be removed once MFD code is merged */
+#if 0
+
+static struct twl4030_madc_platform_data zoom2_madc_data = {
+	.irq_line	= 1,
 };
 
-static struct omap_board_config_kernel zoom2_config[] __initdata = {
-	{ OMAP_TAG_UART,	&zoom2_uart_config },
+static struct twl4030_codec_audio_data zoom2_audio_data = {
+	.audio_mclk = 26000000,
 };
 
-static struct twl4030_gpio_platform_data zoom2_gpio_data = {
-	.gpio_base	= OMAP_MAX_GPIO_LINES,
-	.irq_base	= TWL4030_GPIO_IRQ_BASE,
-	.irq_end	= TWL4030_GPIO_IRQ_END,
+static struct twl4030_codec_data zoom2_codec_data = {
+	.audio_mclk = 26000000,
+	.audio = &zoom2_audio_data,
 };
 
 static struct twl4030_platform_data zoom2_twldata = {
@@ -49,48 +55,33 @@ static struct twl4030_platform_data zoom2_twldata = {
 	.irq_end	= TWL4030_IRQ_END,
 
 	/* platform_data for children goes here */
+	.bci		= &zoom2_bci_data,
+	.madc		= &zoom2_madc_data,
+	.usb		= &zoom2_usb_data,
 	.gpio		= &zoom2_gpio_data,
+	.keypad		= &zoom2_kp_twl4030_data,
+	.codec		= &zoom2_codec_data,
+	.vmmc1          = &zoom2_vmmc1,
+	.vmmc2          = &zoom2_vmmc2,
+	.vsim           = &zoom2_vsim,
+
 };
 
-static struct i2c_board_info __initdata zoom2_i2c_boardinfo[] = {
-	{
-		I2C_BOARD_INFO("twl4030", 0x48),
-		.flags		= I2C_CLIENT_WAKE,
-		.irq		= INT_34XX_SYS_NIRQ,
-		.platform_data	= &zoom2_twldata,
-	},
+#endif
+
+#ifdef CONFIG_OMAP_MUX
+static struct omap_board_mux board_mux[] __initdata = {
+	{ .reg_offset = OMAP_MUX_TERMINATOR },
 };
-
-static int __init omap_i2c_init(void)
-{
-	omap_register_i2c_bus(1, 2600, zoom2_i2c_boardinfo,
-			ARRAY_SIZE(zoom2_i2c_boardinfo));
-	omap_register_i2c_bus(2, 400, NULL, 0);
-	omap_register_i2c_bus(3, 400, NULL, 0);
-	return 0;
-}
-
-static struct twl4030_hsmmc_info mmc[] __initdata = {
-	{
-		.mmc		= 1,
-		.wires		= 4,
-		.gpio_cd	= -EINVAL,
-		.gpio_wp	= -EINVAL,
-	},
-	{}	/* Terminator */
-};
-
-extern int __init omap_zoom2_debugboard_init(void);
+#else
+#define board_mux	NULL
+#endif
 
 static void __init omap_zoom2_init(void)
 {
-	omap_i2c_init();
-	omap_board_config = zoom2_config;
-	omap_board_config_size = ARRAY_SIZE(zoom2_config);
-	omap_serial_init();
-	omap_zoom2_debugboard_init();
-	twl4030_mmc_init(mmc);
-	usb_musb_init();
+	omap3_mux_init(board_mux, OMAP_PACKAGE_CBB);
+	zoom_peripherals_init();
+	zoom_debugboard_init();
 }
 
 static void __init omap_zoom2_map_io(void)
@@ -101,7 +92,7 @@ static void __init omap_zoom2_map_io(void)
 
 MACHINE_START(OMAP_ZOOM2, "OMAP Zoom2 board")
 	.phys_io	= 0x48000000,
-	.io_pg_offst	= ((0xd8000000) >> 18) & 0xfffc,
+	.io_pg_offst	= ((0xfa000000) >> 18) & 0xfffc,
 	.boot_params	= 0x80000100,
 	.map_io		= omap_zoom2_map_io,
 	.init_irq	= omap_zoom2_init_irq,

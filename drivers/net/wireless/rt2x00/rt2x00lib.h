@@ -1,5 +1,6 @@
 /*
-	Copyright (C) 2004 - 2009 rt2x00 SourceForge Project
+	Copyright (C) 2004 - 2009 Ivo van Doorn <IvDoorn@gmail.com>
+	Copyright (C) 2004 - 2009 Gertjan van Wingerde <gwingerde@gmail.com>
 	<http://rt2x00.serialmonkey.com>
 
 	This program is free software; you can redistribute it and/or modify
@@ -30,10 +31,8 @@
 
 /*
  * Interval defines
- * Both the link tuner as the rfkill will be called once per second.
  */
 #define LINK_TUNE_INTERVAL	round_jiffies_relative(HZ)
-#define RFKILL_POLL_INTERVAL	1000
 
 /*
  * rt2x00_rate: Per rate device information
@@ -90,7 +89,7 @@ void rt2x00lib_config_erp(struct rt2x00_dev *rt2x00dev,
 			  struct rt2x00_intf *intf,
 			  struct ieee80211_bss_conf *conf);
 void rt2x00lib_config_antenna(struct rt2x00_dev *rt2x00dev,
-			      struct antenna_setup *ant);
+			      struct antenna_setup ant);
 void rt2x00lib_config(struct rt2x00_dev *rt2x00dev,
 		      struct ieee80211_conf *conf,
 		      const unsigned int changed_flags);
@@ -122,28 +121,51 @@ void rt2x00queue_unmap_skb(struct rt2x00_dev *rt2x00dev, struct sk_buff *skb);
 void rt2x00queue_free_skb(struct rt2x00_dev *rt2x00dev, struct sk_buff *skb);
 
 /**
- * rt2x00queue_payload_align - Align 802.11 payload to 4-byte boundary
+ * rt2x00queue_align_frame - Align 802.11 frame to 4-byte boundary
  * @skb: The skb to align
- * @l2pad: Should L2 padding be used
+ *
+ * Align the start of the 802.11 frame to a 4-byte boundary, this could
+ * mean the payload is not aligned properly though.
+ */
+void rt2x00queue_align_frame(struct sk_buff *skb);
+
+/**
+ * rt2x00queue_align_payload - Align 802.11 payload to 4-byte boundary
+ * @skb: The skb to align
  * @header_length: Length of 802.11 header
  *
- * This function prepares the @skb to be send to the device or mac80211.
- * If @l2pad is set to true padding will occur between the 802.11 header
- * and payload. Otherwise the padding will be done in front of the 802.11
- * header.
- * When @l2pad is set the function will check for the &SKBDESC_L2_PADDED
- * flag in &skb_frame_desc. If that flag is set, the padding is removed
- * and the flag cleared. Otherwise the padding is added and the flag is set.
+ * Align the 802.11 payload to a 4-byte boundary, this could
+ * mean the header is not aligned properly though.
  */
-void rt2x00queue_payload_align(struct sk_buff *skb,
-			       bool l2pad, unsigned int header_length);
+void rt2x00queue_align_payload(struct sk_buff *skb, unsigned int header_length);
+
+/**
+ * rt2x00queue_insert_l2pad - Align 802.11 header & payload to 4-byte boundary
+ * @skb: The skb to align
+ * @header_length: Length of 802.11 header
+ *
+ * Apply L2 padding to align both header and payload to 4-byte boundary
+ */
+void rt2x00queue_insert_l2pad(struct sk_buff *skb, unsigned int header_length);
+
+/**
+ * rt2x00queue_insert_l2pad - Remove L2 padding from 802.11 frame
+ * @skb: The skb to align
+ * @header_length: Length of 802.11 header
+ *
+ * Remove L2 padding used to align both header and payload to 4-byte boundary,
+ * by removing the L2 padding the header will no longer be 4-byte aligned.
+ */
+void rt2x00queue_remove_l2pad(struct sk_buff *skb, unsigned int header_length);
 
 /**
  * rt2x00queue_write_tx_frame - Write TX frame to hardware
  * @queue: Queue over which the frame should be send
  * @skb: The skb to send
+ * @local: frame is not from mac80211
  */
-int rt2x00queue_write_tx_frame(struct data_queue *queue, struct sk_buff *skb);
+int rt2x00queue_write_tx_frame(struct data_queue *queue, struct sk_buff *skb,
+			       bool local);
 
 /**
  * rt2x00queue_update_beacon - Send new beacon from mac80211 to hardware
@@ -202,19 +224,6 @@ void rt2x00queue_free(struct rt2x00_dev *rt2x00dev);
 void rt2x00link_update_stats(struct rt2x00_dev *rt2x00dev,
 			     struct sk_buff *skb,
 			     struct rxdone_entry_desc *rxdesc);
-
-/**
- * rt2x00link_calculate_signal - Calculate signal quality
- * @rt2x00dev: Pointer to &struct rt2x00_dev.
- * @rssi: RX Frame RSSI
- *
- * Calculate the signal quality of a frame based on the rssi
- * measured during the receiving of the frame and the global
- * link quality statistics measured since the start of the
- * link tuning. The result is a value between 0 and 100 which
- * is an indication of the signal quality.
- */
-int rt2x00link_calculate_signal(struct rt2x00_dev *rt2x00dev, int rssi);
 
 /**
  * rt2x00link_start_tuner - Start periodic link tuner work
@@ -326,7 +335,7 @@ void rt2x00crypto_tx_copy_iv(struct sk_buff *skb,
 void rt2x00crypto_tx_remove_iv(struct sk_buff *skb,
 			       struct txentry_desc *txdesc);
 void rt2x00crypto_tx_insert_iv(struct sk_buff *skb, unsigned int header_length);
-void rt2x00crypto_rx_insert_iv(struct sk_buff *skb, bool l2pad,
+void rt2x00crypto_rx_insert_iv(struct sk_buff *skb,
 			       unsigned int header_length,
 			       struct rxdone_entry_desc *rxdesc);
 #else
@@ -361,7 +370,7 @@ static inline void rt2x00crypto_tx_insert_iv(struct sk_buff *skb,
 {
 }
 
-static inline void rt2x00crypto_rx_insert_iv(struct sk_buff *skb, bool l2pad,
+static inline void rt2x00crypto_rx_insert_iv(struct sk_buff *skb,
 					     unsigned int header_length,
 					     struct rxdone_entry_desc *rxdesc)
 {
@@ -386,28 +395,17 @@ static inline void rt2x00ht_create_tx_descriptor(struct queue_entry *entry,
 /*
  * RFkill handlers.
  */
-#ifdef CONFIG_RT2X00_LIB_RFKILL
-void rt2x00rfkill_register(struct rt2x00_dev *rt2x00dev);
-void rt2x00rfkill_unregister(struct rt2x00_dev *rt2x00dev);
-void rt2x00rfkill_allocate(struct rt2x00_dev *rt2x00dev);
-void rt2x00rfkill_free(struct rt2x00_dev *rt2x00dev);
-#else
 static inline void rt2x00rfkill_register(struct rt2x00_dev *rt2x00dev)
 {
+	if (test_bit(CONFIG_SUPPORT_HW_BUTTON, &rt2x00dev->flags))
+		wiphy_rfkill_start_polling(rt2x00dev->hw->wiphy);
 }
 
 static inline void rt2x00rfkill_unregister(struct rt2x00_dev *rt2x00dev)
 {
+	if (test_bit(CONFIG_SUPPORT_HW_BUTTON, &rt2x00dev->flags))
+		wiphy_rfkill_stop_polling(rt2x00dev->hw->wiphy);
 }
-
-static inline void rt2x00rfkill_allocate(struct rt2x00_dev *rt2x00dev)
-{
-}
-
-static inline void rt2x00rfkill_free(struct rt2x00_dev *rt2x00dev)
-{
-}
-#endif /* CONFIG_RT2X00_LIB_RFKILL */
 
 /*
  * LED handlers

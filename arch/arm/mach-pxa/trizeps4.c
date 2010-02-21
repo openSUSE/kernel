@@ -367,6 +367,9 @@ static struct pxamci_platform_data trizeps4_mci_platform_data = {
 	.exit		= trizeps4_mci_exit,
 	.get_ro		= NULL,	/* write-protection not supported */
 	.setpower 	= NULL,	/* power-switching not supported */
+	.gpio_card_detect = -1,
+	.gpio_card_ro	= -1,
+	.gpio_power	= -1,
 };
 
 /****************************************************************************
@@ -412,6 +415,7 @@ static void trizeps4_irda_transceiver_mode(struct device *dev, int mode)
 }
 
 static struct pxaficp_platform_data trizeps4_ficp_platform_data = {
+	.gpio_pwdown		= -1,
 	.transceiver_cap	= IR_SIRMODE | IR_FIRMODE | IR_OFF,
 	.transceiver_mode	= trizeps4_irda_transceiver_mode,
 	.startup		= trizeps4_irda_startup,
@@ -519,6 +523,10 @@ static void __init trizeps4_init(void)
 		platform_add_devices(trizeps4_devices,
 					ARRAY_SIZE(trizeps4_devices));
 	}
+
+	pxa_set_ffuart_info(NULL);
+	pxa_set_btuart_info(NULL);
+	pxa_set_stuart_info(NULL);
 
 	if (0)	/* dont know how to determine LCD */
 		set_pxa_fb_info(&sharp_lcd);

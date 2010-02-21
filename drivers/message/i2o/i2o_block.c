@@ -925,7 +925,7 @@ static void i2o_block_request_fn(struct request_queue *q)
 };
 
 /* I2O Block device operations definition */
-static struct block_device_operations i2o_block_fops = {
+static const struct block_device_operations i2o_block_fops = {
 	.owner = THIS_MODULE,
 	.open = i2o_block_open,
 	.release = i2o_block_release,
@@ -940,7 +940,7 @@ static struct block_device_operations i2o_block_fops = {
  *	Allocate memory for the i2o_block_device struct, gendisk and request
  *	queue and initialize them as far as no additional information is needed.
  *
- *	Returns a pointer to the allocated I2O Block device on succes or a
+ *	Returns a pointer to the allocated I2O Block device on success or a
  *	negative error code on failure.
  */
 static struct i2o_block_device *i2o_block_device_alloc(void)

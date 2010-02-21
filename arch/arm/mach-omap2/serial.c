@@ -24,18 +24,25 @@
 #include <linux/clk.h>
 #include <linux/io.h>
 
-#include <mach/common.h>
-#include <mach/board.h>
-#include <mach/clock.h>
-#include <mach/control.h>
+#include <plat/common.h>
+#include <plat/board.h>
+#include <plat/clock.h>
+#include <plat/control.h>
 
 #include "prm.h"
 #include "pm.h"
 #include "prm-regbits-34xx.h"
 
+#define UART_OMAP_NO_EMPTY_FIFO_READ_IP_REV	0x52
 #define UART_OMAP_WER		0x17	/* Wake-up enable register */
 
-#define DEFAULT_TIMEOUT (5 * HZ)
+/*
+ * NOTE: By default the serial timeout is disabled as it causes lost characters
+ * over the serial ports. This means that the UART clocks will stay on until
+ * disabled via sysfs. This also causes that any deeper omap sleep states are
+ * blocked. 
+ */
+#define DEFAULT_TIMEOUT 0
 
 struct omap_uart_state {
 	int num;
@@ -73,7 +80,6 @@ static LIST_HEAD(uart_list);
 
 static struct plat_serial8250_port serial_platform_data0[] = {
 	{
-		.membase	= IO_ADDRESS(OMAP_UART1_BASE),
 		.mapbase	= OMAP_UART1_BASE,
 		.irq		= 72,
 		.flags		= UPF_BOOT_AUTOCONF,
@@ -87,7 +93,6 @@ static struct plat_serial8250_port serial_platform_data0[] = {
 
 static struct plat_serial8250_port serial_platform_data1[] = {
 	{
-		.membase	= IO_ADDRESS(OMAP_UART2_BASE),
 		.mapbase	= OMAP_UART2_BASE,
 		.irq		= 73,
 		.flags		= UPF_BOOT_AUTOCONF,
@@ -101,7 +106,6 @@ static struct plat_serial8250_port serial_platform_data1[] = {
 
 static struct plat_serial8250_port serial_platform_data2[] = {
 	{
-		.membase	= IO_ADDRESS(OMAP_UART3_BASE),
 		.mapbase	= OMAP_UART3_BASE,
 		.irq		= 74,
 		.flags		= UPF_BOOT_AUTOCONF,
@@ -112,6 +116,27 @@ static struct plat_serial8250_port serial_platform_data2[] = {
 		.flags		= 0
 	}
 };
+
+#ifdef CONFIG_ARCH_OMAP4
+static struct plat_serial8250_port serial_platform_data3[] = {
+	{
+		.mapbase	= OMAP_UART4_BASE,
+		.irq		= 70,
+		.flags		= UPF_BOOT_AUTOCONF,
+		.iotype		= UPIO_MEM,
+		.regshift	= 2,
+		.uartclk	= OMAP24XX_BASE_BAUD * 16,
+	}, {
+		.flags		= 0
+	}
+};
+#endif
+static inline unsigned int __serial_read_reg(struct uart_port *up,
+					   int offset)
+{
+	offset <<= up->regshift;
+	return (unsigned int)__raw_readb(up->membase + offset);
+}
 
 static inline unsigned int serial_read_reg(struct plat_serial8250_port *up,
 					   int offset)
@@ -143,8 +168,6 @@ static inline void __init omap_uart_reset(struct omap_uart_state *uart)
 }
 
 #if defined(CONFIG_PM) && defined(CONFIG_ARCH_OMAP3)
-
-static int enable_off_mode; /* to be removed by full off-mode patches */
 
 static void omap_uart_save_context(struct omap_uart_state *uart)
 {
@@ -405,7 +428,8 @@ static void omap_uart_idle_init(struct omap_uart_state *uart)
 	uart->timeout = DEFAULT_TIMEOUT;
 	setup_timer(&uart->timer, omap_uart_idle_timer,
 		    (unsigned long) uart);
-	mod_timer(&uart->timer, jiffies + uart->timeout);
+	if (uart->timeout)
+		mod_timer(&uart->timer, jiffies + uart->timeout);
 	omap_uart_smart_idle_enable(uart, 0);
 
 	if (cpu_is_omap34xx()) {
@@ -460,7 +484,7 @@ static void omap_uart_idle_init(struct omap_uart_state *uart)
 		uart->padconf = 0;
 	}
 
-	p->flags |= UPF_SHARE_IRQ;
+	p->irqflags |= IRQF_SHARED;
 	ret = request_irq(p->irq, omap_uart_interrupt, IRQF_SHARED,
 			  "serial idle", (void *)uart);
 	WARN_ON(ret);
@@ -524,7 +548,7 @@ static inline void omap_uart_idle_init(struct omap_uart_state *uart) {}
 #define DEV_CREATE_FILE(dev, attr)
 #endif /* CONFIG_PM */
 
-static struct omap_uart_state omap_uart[OMAP_MAX_NR_PORTS] = {
+static struct omap_uart_state omap_uart[] = {
 	{
 		.pdev = {
 			.name			= "serial8250",
@@ -550,12 +574,40 @@ static struct omap_uart_state omap_uart[OMAP_MAX_NR_PORTS] = {
 			},
 		},
 	},
+#ifdef CONFIG_ARCH_OMAP4
+	{
+		.pdev = {
+			.name			= "serial8250",
+			.id			= 3,
+			.dev			= {
+				.platform_data	= serial_platform_data3,
+			},
+		},
+	},
+#endif
 };
 
-void __init omap_serial_init(void)
+/*
+ * Override the default 8250 read handler: mem_serial_in()
+ * Empty RX fifo read causes an abort on omap3630 and omap4
+ * This function makes sure that an empty rx fifo is not read on these silicons
+ * (OMAP1/2/3430 are not affected)
+ */
+static unsigned int serial_in_override(struct uart_port *up, int offset)
+{
+	if (UART_RX == offset) {
+		unsigned int lsr;
+		lsr = __serial_read_reg(up, UART_LSR);
+		if (!(lsr & UART_LSR_DR))
+			return -EPERM;
+	}
+
+	return __serial_read_reg(up, offset);
+}
+
+void __init omap_serial_early_init(void)
 {
 	int i;
-	const struct omap_uart_config *info;
 	char name[16];
 
 	/*
@@ -564,20 +616,19 @@ void __init omap_serial_init(void)
 	 * if not needed.
 	 */
 
-	info = omap_get_config(OMAP_TAG_UART, struct omap_uart_config);
-
-	if (info == NULL)
-		return;
-
-	for (i = 0; i < OMAP_MAX_NR_PORTS; i++) {
+	for (i = 0; i < ARRAY_SIZE(omap_uart); i++) {
 		struct omap_uart_state *uart = &omap_uart[i];
 		struct platform_device *pdev = &uart->pdev;
 		struct device *dev = &pdev->dev;
 		struct plat_serial8250_port *p = dev->platform_data;
 
-		if (!(info->enabled_uarts & (1 << i))) {
-			p->membase = NULL;
-			p->mapbase = 0;
+		/*
+		 * Module 4KB + L4 interconnect 4KB
+		 * Static mapping, never released
+		 */
+		p->membase = ioremap(p->mapbase, SZ_8K);
+		if (!p->membase) {
+			printk(KERN_ERR "ioremap failed for uart%i\n", i + 1);
 			continue;
 		}
 
@@ -595,27 +646,83 @@ void __init omap_serial_init(void)
 			uart->fck = NULL;
 		}
 
-		if (!uart->ick || !uart->fck)
-			continue;
+		/* FIXME: Remove this once the clkdev is ready */
+		if (!cpu_is_omap44xx()) {
+			if (!uart->ick || !uart->fck)
+				continue;
+		}
 
 		uart->num = i;
 		p->private_data = uart;
 		uart->p = p;
-		list_add_tail(&uart->node, &uart_list);
 
 		if (cpu_is_omap44xx())
 			p->irq += 32;
-
-		omap_uart_enable_clocks(uart);
-		omap_uart_reset(uart);
-		omap_uart_idle_init(uart);
-
-		if (WARN_ON(platform_device_register(pdev)))
-			continue;
-		if ((cpu_is_omap34xx() && uart->padconf) ||
-		    (uart->wk_en && uart->wk_mask)) {
-			device_init_wakeup(dev, true);
-			DEV_CREATE_FILE(dev, &dev_attr_sleep_timeout);
-		}
 	}
+}
+
+/**
+ * omap_serial_init_port() - initialize single serial port
+ * @port: serial port number (0-3)
+ *
+ * This function initialies serial driver for given @port only.
+ * Platforms can call this function instead of omap_serial_init()
+ * if they don't plan to use all available UARTs as serial ports.
+ *
+ * Don't mix calls to omap_serial_init_port() and omap_serial_init(),
+ * use only one of the two.
+ */
+void __init omap_serial_init_port(int port)
+{
+	struct omap_uart_state *uart;
+	struct platform_device *pdev;
+	struct device *dev;
+
+	BUG_ON(port < 0);
+	BUG_ON(port >= ARRAY_SIZE(omap_uart));
+
+	uart = &omap_uart[port];
+	pdev = &uart->pdev;
+	dev = &pdev->dev;
+
+	omap_uart_enable_clocks(uart);
+
+	omap_uart_reset(uart);
+	omap_uart_idle_init(uart);
+
+	list_add_tail(&uart->node, &uart_list);
+
+	if (WARN_ON(platform_device_register(pdev)))
+		return;
+
+	if ((cpu_is_omap34xx() && uart->padconf) ||
+	    (uart->wk_en && uart->wk_mask)) {
+		device_init_wakeup(dev, true);
+		DEV_CREATE_FILE(dev, &dev_attr_sleep_timeout);
+	}
+
+		/* omap44xx: Never read empty UART fifo
+		 * omap3xxx: Never read empty UART fifo on UARTs
+		 * with IP rev >=0x52
+		 */
+		if (cpu_is_omap44xx())
+			uart->p->serial_in = serial_in_override;
+		else if ((serial_read_reg(uart->p, UART_OMAP_MVER) & 0xFF)
+				>= UART_OMAP_NO_EMPTY_FIFO_READ_IP_REV)
+			uart->p->serial_in = serial_in_override;
+}
+
+/**
+ * omap_serial_init() - intialize all supported serial ports
+ *
+ * Initializes all available UARTs as serial ports. Platforms
+ * can call this function when they want to have default behaviour
+ * for serial ports (e.g initialize them all as serial ports).
+ */
+void __init omap_serial_init(void)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(omap_uart); i++)
+		omap_serial_init_port(i);
 }

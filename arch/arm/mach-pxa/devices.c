@@ -8,13 +8,14 @@
 #include <mach/pxafb.h>
 #include <mach/mmc.h>
 #include <mach/irda.h>
-#include <plat/i2c.h>
 #include <mach/ohci.h>
 #include <mach/pxa27x_keypad.h>
 #include <mach/pxa2xx_spi.h>
 #include <mach/camera.h>
 #include <mach/audio.h>
-#include <mach/pxa3xx_nand.h>
+#include <mach/hardware.h>
+#include <plat/i2c.h>
+#include <plat/pxa3xx_nand.h>
 
 #include "devices.h"
 #include "generic.h"
@@ -167,12 +168,17 @@ static struct resource pxa_resource_ffuart[] = {
 	}
 };
 
-struct platform_device pxa_device_ffuart= {
+struct platform_device pxa_device_ffuart = {
 	.name		= "pxa2xx-uart",
 	.id		= 0,
 	.resource	= pxa_resource_ffuart,
 	.num_resources	= ARRAY_SIZE(pxa_resource_ffuart),
 };
+
+void __init pxa_set_ffuart_info(void *info)
+{
+	pxa_register_device(&pxa_device_ffuart, info);
+}
 
 static struct resource pxa_resource_btuart[] = {
 	{
@@ -193,6 +199,11 @@ struct platform_device pxa_device_btuart = {
 	.num_resources	= ARRAY_SIZE(pxa_resource_btuart),
 };
 
+void __init pxa_set_btuart_info(void *info)
+{
+	pxa_register_device(&pxa_device_btuart, info);
+}
+
 static struct resource pxa_resource_stuart[] = {
 	{
 		.start	= 0x40700000,
@@ -212,6 +223,11 @@ struct platform_device pxa_device_stuart = {
 	.num_resources	= ARRAY_SIZE(pxa_resource_stuart),
 };
 
+void __init pxa_set_stuart_info(void *info)
+{
+	pxa_register_device(&pxa_device_stuart, info);
+}
+
 static struct resource pxa_resource_hwuart[] = {
 	{
 		.start	= 0x41600000,
@@ -230,6 +246,14 @@ struct platform_device pxa_device_hwuart = {
 	.resource	= pxa_resource_hwuart,
 	.num_resources	= ARRAY_SIZE(pxa_resource_hwuart),
 };
+
+void __init pxa_set_hwuart_info(void *info)
+{
+	if (cpu_is_pxa255())
+		pxa_register_device(&pxa_device_hwuart, info);
+	else
+		pr_info("UART: Ignoring attempt to register HWUART on non-PXA255 hardware");
+}
 
 static struct resource pxai2c_resources[] = {
 	{
@@ -935,6 +959,33 @@ void __init pxa3xx_set_nand_info(struct pxa3xx_nand_platform_data *info)
 {
 	pxa_register_device(&pxa3xx_device_nand, info);
 }
+
+static struct resource pxa3xx_resources_gcu[] = {
+	{
+		.start	= 0x54000000,
+		.end	= 0x54000fff,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.start	= IRQ_GCU,
+		.end	= IRQ_GCU,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static u64 pxa3xx_gcu_dmamask = DMA_BIT_MASK(32);
+
+struct platform_device pxa3xx_device_gcu = {
+	.name		= "pxa3xx-gcu",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(pxa3xx_resources_gcu),
+	.resource	= pxa3xx_resources_gcu,
+	.dev		= {
+		.dma_mask = &pxa3xx_gcu_dmamask,
+		.coherent_dma_mask = 0xffffffff,
+	},
+};
+
 #endif /* CONFIG_PXA3xx */
 
 /* pxa2xx-spi platform-device ID equals respective SSP platform-device ID + 1.

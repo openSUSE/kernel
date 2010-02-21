@@ -45,10 +45,6 @@ MODULE_DESCRIPTION("NIU ethernet driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(DRV_MODULE_VERSION);
 
-#ifndef DMA_44BIT_MASK
-#define DMA_44BIT_MASK	0x00000fffffffffffULL
-#endif
-
 #ifndef readq
 static u64 readq(void __iomem *reg)
 {
@@ -2848,7 +2844,7 @@ static int tcam_wait_bit(struct niu *np, u64 bit)
 			break;
 		udelay(1);
 	}
-	if (limit < 0)
+	if (limit <= 0)
 		return -ENODEV;
 
 	return 0;
@@ -3545,7 +3541,7 @@ static int niu_process_rx_pkt(struct napi_struct *napi, struct niu *np,
 	rp->rcr_index = index;
 
 	skb_reserve(skb, NET_IP_ALIGN);
-	__pskb_pull_tail(skb, min(len, NIU_RXPULL_MAX));
+	__pskb_pull_tail(skb, min(len, VLAN_ETH_HLEN));
 
 	rp->rx_packets++;
 	rp->rx_bytes += skb->len;
@@ -4015,7 +4011,7 @@ static void niu_xmac_interrupt(struct niu *np)
 		mp->rx_hist_cnt6 += RXMAC_HIST_CNT6_COUNT;
 	if (val & XRXMAC_STATUS_RXHIST7_CNT_EXP)
 		mp->rx_hist_cnt7 += RXMAC_HIST_CNT7_COUNT;
-	if (val & XRXMAC_STAT_MSK_RXOCTET_CNT_EXP)
+	if (val & XRXMAC_STATUS_RXOCTET_CNT_EXP)
 		mp->rx_octets += RXMAC_BT_CNT_COUNT;
 	if (val & XRXMAC_STATUS_CVIOLERR_CNT_EXP)
 		mp->rx_code_violations += RXMAC_CD_VIO_CNT_COUNT;
@@ -5615,7 +5611,7 @@ static void niu_init_tx_mac(struct niu *np)
 	/* The XMAC_MIN register only accepts values for TX min which
 	 * have the low 3 bits cleared.
 	 */
-	BUILD_BUG_ON(min & 0x7);
+	BUG_ON(min & 0x7);
 
 	if (np->flags & NIU_FLAGS_XMAC)
 		niu_init_tx_xmac(np, min, max);
@@ -6657,7 +6653,8 @@ static u64 niu_compute_tx_flags(struct sk_buff *skb, struct ethhdr *ehdr,
 	return ret;
 }
 
-static int niu_start_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t niu_start_xmit(struct sk_buff *skb,
+				  struct net_device *dev)
 {
 	struct niu *np = netdev_priv(dev);
 	unsigned long align, headroom;
@@ -7854,9 +7851,12 @@ static void niu_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 	}
 }
 
-static int niu_get_stats_count(struct net_device *dev)
+static int niu_get_sset_count(struct net_device *dev, int stringset)
 {
 	struct niu *np = netdev_priv(dev);
+
+	if (stringset != ETH_SS_STATS)
+		return -EINVAL;
 
 	return ((np->flags & NIU_FLAGS_XMAC ?
 		 NUM_XMAC_STAT_KEYS :
@@ -7977,7 +7977,7 @@ static const struct ethtool_ops niu_ethtool_ops = {
 	.get_settings		= niu_get_settings,
 	.set_settings		= niu_set_settings,
 	.get_strings		= niu_get_strings,
-	.get_stats_count	= niu_get_stats_count,
+	.get_sset_count		= niu_get_sset_count,
 	.get_ethtool_stats	= niu_get_ethtool_stats,
 	.phys_id		= niu_phys_id,
 	.get_rxnfc		= niu_get_nfc,
@@ -8143,7 +8143,7 @@ static void __devinit niu_vpd_parse_version(struct niu *np)
 	int i;
 
 	for (i = 0; i < len - 5; i++) {
-		if (!strncmp(s + i, "FCode ", 5))
+		if (!strncmp(s + i, "FCode ", 6))
 			break;
 	}
 	if (i >= len - 5)
@@ -9914,7 +9914,7 @@ static int __devinit niu_pci_init_one(struct pci_dev *pdev,
 		  PCI_EXP_DEVCTL_RELAX_EN);
 	pci_write_config_word(pdev, pos + PCI_EXP_DEVCTL, val16);
 
-	dma_mask = DMA_44BIT_MASK;
+	dma_mask = DMA_BIT_MASK(44);
 	err = pci_set_dma_mask(pdev, dma_mask);
 	if (!err) {
 		dev->features |= NETIF_F_HIGHDMA;
@@ -10144,11 +10144,6 @@ static const struct niu_ops niu_phys_ops = {
 	.unmap_single	= niu_phys_unmap_single,
 };
 
-static unsigned long res_size(struct resource *r)
-{
-	return r->end - r->start + 1UL;
-}
-
 static int __devinit niu_of_probe(struct of_device *op,
 				  const struct of_device_id *match)
 {
@@ -10188,7 +10183,7 @@ static int __devinit niu_of_probe(struct of_device *op,
 	dev->features |= (NETIF_F_SG | NETIF_F_HW_CSUM);
 
 	np->regs = of_ioremap(&op->resource[1], 0,
-			      res_size(&op->resource[1]),
+			      resource_size(&op->resource[1]),
 			      "niu regs");
 	if (!np->regs) {
 		dev_err(&op->dev, PFX "Cannot map device registers, "
@@ -10198,7 +10193,7 @@ static int __devinit niu_of_probe(struct of_device *op,
 	}
 
 	np->vir_regs_1 = of_ioremap(&op->resource[2], 0,
-				    res_size(&op->resource[2]),
+				    resource_size(&op->resource[2]),
 				    "niu vregs-1");
 	if (!np->vir_regs_1) {
 		dev_err(&op->dev, PFX "Cannot map device vir registers 1, "
@@ -10208,7 +10203,7 @@ static int __devinit niu_of_probe(struct of_device *op,
 	}
 
 	np->vir_regs_2 = of_ioremap(&op->resource[3], 0,
-				    res_size(&op->resource[3]),
+				    resource_size(&op->resource[3]),
 				    "niu vregs-2");
 	if (!np->vir_regs_2) {
 		dev_err(&op->dev, PFX "Cannot map device vir registers 2, "
@@ -10243,19 +10238,19 @@ static int __devinit niu_of_probe(struct of_device *op,
 err_out_iounmap:
 	if (np->vir_regs_1) {
 		of_iounmap(&op->resource[2], np->vir_regs_1,
-			   res_size(&op->resource[2]));
+			   resource_size(&op->resource[2]));
 		np->vir_regs_1 = NULL;
 	}
 
 	if (np->vir_regs_2) {
 		of_iounmap(&op->resource[3], np->vir_regs_2,
-			   res_size(&op->resource[3]));
+			   resource_size(&op->resource[3]));
 		np->vir_regs_2 = NULL;
 	}
 
 	if (np->regs) {
 		of_iounmap(&op->resource[1], np->regs,
-			   res_size(&op->resource[1]));
+			   resource_size(&op->resource[1]));
 		np->regs = NULL;
 	}
 
@@ -10280,19 +10275,19 @@ static int __devexit niu_of_remove(struct of_device *op)
 
 		if (np->vir_regs_1) {
 			of_iounmap(&op->resource[2], np->vir_regs_1,
-				   res_size(&op->resource[2]));
+				   resource_size(&op->resource[2]));
 			np->vir_regs_1 = NULL;
 		}
 
 		if (np->vir_regs_2) {
 			of_iounmap(&op->resource[3], np->vir_regs_2,
-				   res_size(&op->resource[3]));
+				   resource_size(&op->resource[3]));
 			np->vir_regs_2 = NULL;
 		}
 
 		if (np->regs) {
 			of_iounmap(&op->resource[1], np->regs,
-				   res_size(&op->resource[1]));
+				   resource_size(&op->resource[1]));
 			np->regs = NULL;
 		}
 

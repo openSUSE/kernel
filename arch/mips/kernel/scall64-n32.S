@@ -164,7 +164,7 @@ EXPORT(sysn32_call_table)
 	PTR	sys_connect
 	PTR	sys_accept
 	PTR	sys_sendto
-	PTR	sys_recvfrom
+	PTR	compat_sys_recvfrom
 	PTR	compat_sys_sendmsg		/* 6045 */
 	PTR	compat_sys_recvmsg
 	PTR	sys_shutdown
@@ -272,7 +272,7 @@ EXPORT(sysn32_call_table)
 	PTR	sys_munlockall
 	PTR	sys_vhangup			/* 6150 */
 	PTR	sys_pivot_root
-	PTR	sys_32_sysctl
+	PTR	compat_sys_sysctl
 	PTR	sys_prctl
 	PTR	compat_sys_adjtimex
 	PTR	compat_sys_setrlimit		/* 6155 */
@@ -416,6 +416,7 @@ EXPORT(sysn32_call_table)
 	PTR	sys_preadv
 	PTR	sys_pwritev
 	PTR	compat_sys_rt_tgsigqueueinfo	/* 5295 */
-	PTR	sys_perf_counter_open
+	PTR	sys_perf_event_open
 	PTR	sys_accept4
+	PTR     compat_sys_recvmmsg
 	.size	sysn32_call_table,.-sysn32_call_table

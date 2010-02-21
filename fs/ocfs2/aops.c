@@ -44,6 +44,7 @@
 #include "suballoc.h"
 #include "super.h"
 #include "symlink.h"
+#include "refcounttree.h"
 
 #include "buffer_head_io.h"
 
@@ -126,8 +127,8 @@ bail:
 	return err;
 }
 
-static int ocfs2_get_block(struct inode *inode, sector_t iblock,
-			   struct buffer_head *bh_result, int create)
+int ocfs2_get_block(struct inode *inode, sector_t iblock,
+		    struct buffer_head *bh_result, int create)
 {
 	int err = 0;
 	unsigned int ext_flags;
@@ -546,6 +547,9 @@ bail:
  *
  * called like this: dio->get_blocks(dio->inode, fs_startblk,
  * 					fs_count, map_bh, dio->rw == WRITE);
+ *
+ * Note that we never bother to allocate blocks here, and thus ignore the
+ * create argument.
  */
 static int ocfs2_direct_IO_get_blocks(struct inode *inode, sector_t iblock,
 				     struct buffer_head *bh_result, int create)
@@ -562,14 +566,6 @@ static int ocfs2_direct_IO_get_blocks(struct inode *inode, sector_t iblock,
 
 	inode_blocks = ocfs2_blocks_for_bytes(inode->i_sb, i_size_read(inode));
 
-	/*
-	 * Any write past EOF is not allowed because we'd be extending.
-	 */
-	if (create && (iblock + max_blocks) > inode_blocks) {
-		ret = -EIO;
-		goto bail;
-	}
-
 	/* This figures out the size of the next contiguous block, and
 	 * our logical offset */
 	ret = ocfs2_extent_map_get_blocks(inode, iblock, &p_blkno,
@@ -581,15 +577,8 @@ static int ocfs2_direct_IO_get_blocks(struct inode *inode, sector_t iblock,
 		goto bail;
 	}
 
-	if (!ocfs2_sparse_alloc(OCFS2_SB(inode->i_sb)) && !p_blkno && create) {
-		ocfs2_error(inode->i_sb,
-			    "Inode %llu has a hole at block %llu\n",
-			    (unsigned long long)OCFS2_I(inode)->ip_blkno,
-			    (unsigned long long)iblock);
-		ret = -EROFS;
-		goto bail;
-	}
-
+	/* We should already CoW the refcounted extent. */
+	BUG_ON(ext_flags & OCFS2_EXT_REFCOUNTED);
 	/*
 	 * get_more_blocks() expects us to describe a hole by clearing
 	 * the mapped bit on bh_result().
@@ -598,20 +587,8 @@ static int ocfs2_direct_IO_get_blocks(struct inode *inode, sector_t iblock,
 	 */
 	if (p_blkno && !(ext_flags & OCFS2_EXT_UNWRITTEN))
 		map_bh(bh_result, inode->i_sb, p_blkno);
-	else {
-		/*
-		 * ocfs2_prepare_inode_for_write() should have caught
-		 * the case where we'd be filling a hole and triggered
-		 * a buffered write instead.
-		 */
-		if (create) {
-			ret = -EIO;
-			mlog_errno(ret);
-			goto bail;
-		}
-
+	else
 		clear_buffer_mapped(bh_result);
-	}
 
 	/* make sure we don't map more than max_blocks blocks here as
 	   that's all the kernel will handle at this point. */
@@ -622,7 +599,7 @@ bail:
 	return ret;
 }
 
-/* 
+/*
  * ocfs2_dio_end_io is called by the dio core when a dio is finished.  We're
  * particularly interested in the aio/dio case.  Like the core uses
  * i_alloc_sem, we use the rw_lock DLM lock to protect io on one node from
@@ -687,9 +664,13 @@ static ssize_t ocfs2_direct_IO(int rw,
 	if (OCFS2_I(inode)->ip_dyn_features & OCFS2_INLINE_DATA_FL)
 		return 0;
 
+	/* Fallback to buffered I/O if we are appending. */
+	if (i_size_read(inode) <= offset)
+		return 0;
+
 	ret = blockdev_direct_IO_no_locking(rw, iocb, inode,
 					    inode->i_sb->s_bdev, iov, offset,
-					    nr_segs, 
+					    nr_segs,
 					    ocfs2_direct_IO_get_blocks,
 					    ocfs2_dio_end_io);
 
@@ -1259,7 +1240,8 @@ static int ocfs2_write_cluster(struct address_space *mapping,
 			goto out;
 		}
 	} else if (unwritten) {
-		ocfs2_init_dinode_extent_tree(&et, inode, wc->w_di_bh);
+		ocfs2_init_dinode_extent_tree(&et, INODE_CACHE(inode),
+					      wc->w_di_bh);
 		ret = ocfs2_mark_extent_written(inode, &et,
 						wc->w_handle, cpos, 1, phys,
 						meta_ac, &wc->w_dealloc);
@@ -1448,6 +1430,9 @@ static int ocfs2_populate_write_desc(struct inode *inode,
 				goto out;
 			}
 
+			/* We should already CoW the refcountd extent. */
+			BUG_ON(ext_flags & OCFS2_EXT_REFCOUNTED);
+
 			/*
 			 * Assume worst case - that we're writing in
 			 * the middle of the extent.
@@ -1528,7 +1513,7 @@ static int ocfs2_write_begin_inline(struct address_space *mapping,
 		goto out;
 	}
 
-	ret = ocfs2_journal_access_di(handle, inode, wc->w_di_bh,
+	ret = ocfs2_journal_access_di(handle, INODE_CACHE(inode), wc->w_di_bh,
 				      OCFS2_JOURNAL_ACCESS_WRITE);
 	if (ret) {
 		ocfs2_commit_trans(osb, handle);
@@ -1699,6 +1684,19 @@ int ocfs2_write_begin_nolock(struct address_space *mapping,
 		goto out;
 	}
 
+	ret = ocfs2_check_range_for_refcount(inode, pos, len);
+	if (ret < 0) {
+		mlog_errno(ret);
+		goto out;
+	} else if (ret == 1) {
+		ret = ocfs2_refcount_cow(inode, di_bh,
+					 wc->w_cpos, wc->w_clen, UINT_MAX);
+		if (ret) {
+			mlog_errno(ret);
+			goto out;
+		}
+	}
+
 	ret = ocfs2_populate_write_desc(inode, wc, &clusters_to_alloc,
 					&extents_to_split);
 	if (ret) {
@@ -1726,7 +1724,8 @@ int ocfs2_write_begin_nolock(struct address_space *mapping,
 		     (long long)i_size_read(inode), le32_to_cpu(di->i_clusters),
 		     clusters_to_alloc, extents_to_split);
 
-		ocfs2_init_dinode_extent_tree(&et, inode, wc->w_di_bh);
+		ocfs2_init_dinode_extent_tree(&et, INODE_CACHE(inode),
+					      wc->w_di_bh);
 		ret = ocfs2_lock_allocators(inode, &et,
 					    clusters_to_alloc, extents_to_split,
 					    &data_ac, &meta_ac);
@@ -1773,7 +1772,7 @@ int ocfs2_write_begin_nolock(struct address_space *mapping,
 	 * We don't want this to fail in ocfs2_write_end(), so do it
 	 * here.
 	 */
-	ret = ocfs2_journal_access_di(handle, inode, wc->w_di_bh,
+	ret = ocfs2_journal_access_di(handle, INODE_CACHE(inode), wc->w_di_bh,
 				      OCFS2_JOURNAL_ACCESS_WRITE);
 	if (ret) {
 		mlog_errno(ret);
@@ -1997,4 +1996,5 @@ const struct address_space_operations ocfs2_aops = {
 	.releasepage		= ocfs2_releasepage,
 	.migratepage		= buffer_migrate_page,
 	.is_partially_uptodate	= block_is_partially_uptodate,
+	.error_remove_page	= generic_error_remove_page,
 };

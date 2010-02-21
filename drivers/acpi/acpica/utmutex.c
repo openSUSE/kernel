@@ -84,7 +84,7 @@ acpi_status acpi_ut_mutex_initialize(void)
 	/* Create the spinlocks for use at interrupt level */
 
 	spin_lock_init(acpi_gbl_gpe_lock);
-	atomic_spin_lock_init(acpi_gbl_hardware_lock);
+	raw_spin_lock_init(acpi_gbl_hardware_lock);
 
 	/* Create the reader/writer lock for namespace access */
 

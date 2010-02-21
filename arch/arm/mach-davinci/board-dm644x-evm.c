@@ -9,42 +9,34 @@
  * or implied.
  */
 #include <linux/kernel.h>
-#include <linux/module.h>
 #include <linux/init.h>
 #include <linux/dma-mapping.h>
 #include <linux/platform_device.h>
 #include <linux/gpio.h>
-#include <linux/leds.h>
-#include <linux/memory.h>
-
 #include <linux/i2c.h>
 #include <linux/i2c/pcf857x.h>
 #include <linux/i2c/at24.h>
-#include <linux/etherdevice.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/physmap.h>
-#include <linux/io.h>
 #include <linux/phy.h>
 #include <linux/clk.h>
+#include <linux/videodev2.h>
 
-#include <asm/setup.h>
+#include <media/tvp514x.h>
+
 #include <asm/mach-types.h>
-
 #include <asm/mach/arch.h>
-#include <asm/mach/map.h>
-#include <asm/mach/flash.h>
 
 #include <mach/dm644x.h>
 #include <mach/common.h>
 #include <mach/i2c.h>
 #include <mach/serial.h>
 #include <mach/mux.h>
-#include <mach/psc.h>
 #include <mach/nand.h>
 #include <mach/mmc.h>
-#include <mach/emac.h>
+#include <mach/usb.h>
 
 #define DM644X_EVM_PHY_MASK		(0x2)
 #define DM644X_EVM_MDIO_FREQUENCY	(2200000) /* PHY bus frequency */
@@ -194,6 +186,73 @@ static struct platform_device davinci_fb_device = {
 	.num_resources = 0,
 };
 
+static struct tvp514x_platform_data tvp5146_pdata = {
+	.clk_polarity = 0,
+	.hs_polarity = 1,
+	.vs_polarity = 1
+};
+
+#define TVP514X_STD_ALL	(V4L2_STD_NTSC | V4L2_STD_PAL)
+/* Inputs available at the TVP5146 */
+static struct v4l2_input tvp5146_inputs[] = {
+	{
+		.index = 0,
+		.name = "Composite",
+		.type = V4L2_INPUT_TYPE_CAMERA,
+		.std = TVP514X_STD_ALL,
+	},
+	{
+		.index = 1,
+		.name = "S-Video",
+		.type = V4L2_INPUT_TYPE_CAMERA,
+		.std = TVP514X_STD_ALL,
+	},
+};
+
+/*
+ * this is the route info for connecting each input to decoder
+ * ouput that goes to vpfe. There is a one to one correspondence
+ * with tvp5146_inputs
+ */
+static struct vpfe_route tvp5146_routes[] = {
+	{
+		.input = INPUT_CVBS_VI2B,
+		.output = OUTPUT_10BIT_422_EMBEDDED_SYNC,
+	},
+	{
+		.input = INPUT_SVIDEO_VI2C_VI1C,
+		.output = OUTPUT_10BIT_422_EMBEDDED_SYNC,
+	},
+};
+
+static struct vpfe_subdev_info vpfe_sub_devs[] = {
+	{
+		.name = "tvp5146",
+		.grp_id = 0,
+		.num_inputs = ARRAY_SIZE(tvp5146_inputs),
+		.inputs = tvp5146_inputs,
+		.routes = tvp5146_routes,
+		.can_route = 1,
+		.ccdc_if_params = {
+			.if_type = VPFE_BT656,
+			.hdpol = VPFE_PINPOL_POSITIVE,
+			.vdpol = VPFE_PINPOL_POSITIVE,
+		},
+		.board_info = {
+			I2C_BOARD_INFO("tvp5146", 0x5d),
+			.platform_data = &tvp5146_pdata,
+		},
+	},
+};
+
+static struct vpfe_config vpfe_cfg = {
+	.num_subdevs = ARRAY_SIZE(vpfe_sub_devs),
+	.i2c_adapter_id = 1,
+	.sub_devs = vpfe_sub_devs,
+	.card_name = "DM6446 EVM",
+	.ccdc = "DM6446 CCDC",
+};
+
 static struct platform_device rtc_dev = {
 	.name           = "rtc_davinci_evm",
 	.id             = -1,
@@ -224,6 +283,8 @@ static struct platform_device ide_dev = {
 		.coherent_dma_mask      = DMA_BIT_MASK(32),
 	},
 };
+
+static struct snd_platform_data dm644x_evm_snd_data;
 
 /*----------------------------------------------------------------------*/
 
@@ -406,7 +467,7 @@ evm_u35_setup(struct i2c_client *client, int gpio, unsigned ngpio, void *c)
 	/* irlml6401 switches over 1A, in under 8 msec;
 	 * now it can be managed by nDRV_VBUS ...
 	 */
-	setup_usb(500, 8);
+	davinci_setup_usb(1000, 8);
 
 	return 0;
 }
@@ -557,10 +618,9 @@ static struct i2c_board_info __initdata i2c_info[] =  {
 		I2C_BOARD_INFO("24c256", 0x50),
 		.platform_data	= &eeprom_info,
 	},
-	/* ALSO:
-	 * - tvl320aic33 audio codec (0x1b)
-	 * - tvp5146 video decoder (0x5d)
-	 */
+	{
+		I2C_BOARD_INFO("tlv320aic33", 0x1b),
+	},
 };
 
 /* The msp430 uses a slow bitbanged I2C implementation (ergo 20 KHz),
@@ -590,6 +650,8 @@ static struct davinci_uart_config uart_config __initdata = {
 static void __init
 davinci_evm_map_io(void)
 {
+	/* setup input configuration for VPFE input devices */
+	dm644x_set_vpfe_config(&vpfe_cfg);
 	dm644x_init();
 }
 
@@ -666,6 +728,7 @@ static __init void davinci_evm_init(void)
 	davinci_setup_mmc(0, &dm6446evm_mmc_config);
 
 	davinci_serial_init(&uart_config);
+	dm644x_init_asp(&dm644x_evm_snd_data);
 
 	soc_info->emac_pdata->phy_mask = DM644X_EVM_PHY_MASK;
 	soc_info->emac_pdata->mdio_max_freq = DM644X_EVM_MDIO_FREQUENCY;

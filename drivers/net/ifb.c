@@ -59,7 +59,7 @@ struct ifb_private {
 static int numifbs = 2;
 
 static void ri_tasklet(unsigned long dev);
-static int ifb_xmit(struct sk_buff *skb, struct net_device *dev);
+static netdev_tx_t ifb_xmit(struct sk_buff *skb, struct net_device *dev);
 static int ifb_open(struct net_device *dev);
 static int ifb_close(struct net_device *dev);
 
@@ -98,13 +98,16 @@ static void ri_tasklet(unsigned long dev)
 		stats->tx_packets++;
 		stats->tx_bytes +=skb->len;
 
-		skb->dev = __dev_get_by_index(&init_net, skb->iif);
+		rcu_read_lock();
+		skb->dev = dev_get_by_index_rcu(&init_net, skb->skb_iif);
 		if (!skb->dev) {
+			rcu_read_unlock();
 			dev_kfree_skb(skb);
 			stats->tx_dropped++;
 			break;
 		}
-		skb->iif = _dev->ifindex;
+		rcu_read_unlock();
+		skb->skb_iif = _dev->ifindex;
 
 		if (from & AT_EGRESS) {
 			dp->st_rx_frm_egr++;
@@ -160,20 +163,19 @@ static void ifb_setup(struct net_device *dev)
 	random_ether_addr(dev->dev_addr);
 }
 
-static int ifb_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t ifb_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct ifb_private *dp = netdev_priv(dev);
 	struct net_device_stats *stats = &dev->stats;
-	int ret = 0;
 	u32 from = G_TC_FROM(skb->tc_verd);
 
 	stats->rx_packets++;
 	stats->rx_bytes+=skb->len;
 
-	if (!(from & (AT_INGRESS|AT_EGRESS)) || !skb->iif) {
+	if (!(from & (AT_INGRESS|AT_EGRESS)) || !skb->skb_iif) {
 		dev_kfree_skb(skb);
 		stats->rx_dropped++;
-		return ret;
+		return NETDEV_TX_OK;
 	}
 
 	if (skb_queue_len(&dp->rq) >= dev->tx_queue_len) {
@@ -187,7 +189,7 @@ static int ifb_xmit(struct sk_buff *skb, struct net_device *dev)
 		tasklet_schedule(&dp->ifb_tasklet);
 	}
 
-	return ret;
+	return NETDEV_TX_OK;
 }
 
 static int ifb_close(struct net_device *dev)

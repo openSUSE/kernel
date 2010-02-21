@@ -197,10 +197,10 @@ timer_interrupt (int irq, void *dev_id)
 			 * another CPU. We need to avoid to SMP race by acquiring the
 			 * xtime_lock.
 			 */
-			write_atomic_seqlock(&xtime_lock);
+			write_raw_seqlock(&xtime_lock);
 			do_timer(1);
 			local_cpu_data->itm_next = new_itm;
-			write_atomic_sequnlock(&xtime_lock);
+			write_raw_sequnlock(&xtime_lock);
 		} else
 			local_cpu_data->itm_next = new_itm;
 
@@ -473,15 +473,15 @@ void update_vsyscall_tz(void)
 {
 }
 
-void update_vsyscall(struct timespec *wall, struct clocksource *c)
+void update_vsyscall(struct timespec *wall, struct clocksource *c, u32 mult)
 {
         unsigned long flags;
 
-	write_atomic_seqlock_irqsave(&fsyscall_gtod_data.lock, flags);
+	write_raw_seqlock_irqsave(&fsyscall_gtod_data.lock, flags);
 
         /* copy fsyscall clock data */
         fsyscall_gtod_data.clk_mask = c->mask;
-        fsyscall_gtod_data.clk_mult = c->mult;
+        fsyscall_gtod_data.clk_mult = mult;
         fsyscall_gtod_data.clk_shift = c->shift;
         fsyscall_gtod_data.clk_fsys_mmio = c->fsys_mmio;
         fsyscall_gtod_data.clk_cycle_last = c->cycle_last;
@@ -500,6 +500,6 @@ void update_vsyscall(struct timespec *wall, struct clocksource *c)
 		fsyscall_gtod_data.monotonic_time.tv_sec++;
 	}
 
-	write_atomic_sequnlock_irqrestore(&fsyscall_gtod_data.lock, flags);
+	write_raw_sequnlock_irqrestore(&fsyscall_gtod_data.lock, flags);
 }
 

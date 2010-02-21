@@ -77,14 +77,14 @@
 #include <linux/list.h>
 
 struct spinlock;
-struct atomic_spinlock;
+struct raw_spinlock;
 
 struct plist_head {
 	struct list_head prio_list;
 	struct list_head node_list;
 #ifdef CONFIG_DEBUG_PI_LIST
-	struct atomic_spinlock *alock;
-	struct spinlock *slock;
+	struct raw_spinlock *rawlock;
+	struct spinlock *spinlock;
 #endif
 };
 
@@ -94,11 +94,11 @@ struct plist_node {
 };
 
 #ifdef CONFIG_DEBUG_PI_LIST
-# define PLIST_HEAD_LOCK_INIT(_lock)		.slock = _lock
-# define PLIST_HEAD_LOCK_INIT_ATOMIC(_lock)	.alock = _lock
+# define PLIST_HEAD_LOCK_INIT(_lock)		.spinlock = _lock
+# define PLIST_HEAD_LOCK_INIT_RAW(_lock)	.rawlock = _lock
 #else
 # define PLIST_HEAD_LOCK_INIT(_lock)
-# define PLIST_HEAD_LOCK_INIT_ATOMIC(_lock)
+# define PLIST_HEAD_LOCK_INIT_RAW(_lock)
 #endif
 
 #define _PLIST_HEAD_INIT(head)				\
@@ -117,14 +117,14 @@ struct plist_node {
 }
 
 /**
- * PLIST_HEAD_INIT_ATOMIC - static struct plist_head initializer
+ * PLIST_HEAD_INIT_RAW - static struct plist_head initializer
  * @head:	struct plist_head variable name
  * @_lock:	lock to initialize for this list
  */
-#define PLIST_HEAD_INIT_ATOMIC(head, _lock)		\
+#define PLIST_HEAD_INIT_RAW(head, _lock)		\
 {							\
 	_PLIST_HEAD_INIT(head),				\
-	PLIST_HEAD_LOCK_INIT_ATOMIC(&(_lock))		\
+	PLIST_HEAD_LOCK_INIT_RAW(&(_lock))		\
 }
 
 /**
@@ -141,7 +141,7 @@ struct plist_node {
 /**
  * plist_head_init - dynamic struct plist_head initializer
  * @head:	&struct plist_head pointer
- * @lock:	list spinlock, remembered for debugging
+ * @lock:	spinlock protecting the list (debugging)
  */
 static inline void
 plist_head_init(struct plist_head *head, struct spinlock *lock)
@@ -149,24 +149,24 @@ plist_head_init(struct plist_head *head, struct spinlock *lock)
 	INIT_LIST_HEAD(&head->prio_list);
 	INIT_LIST_HEAD(&head->node_list);
 #ifdef CONFIG_DEBUG_PI_LIST
-	head->slock = lock;
-	head->alock = NULL;
+	head->spinlock = lock;
+	head->rawlock = NULL;
 #endif
 }
 
 /**
- * plist_head_init_atomic - dynamic struct plist_head initializer
+ * plist_head_init_raw - dynamic struct plist_head initializer
  * @head:	&struct plist_head pointer
- * @lock:	list atomic_spinlock, remembered for debugging
+ * @lock:	raw_spinlock protecting the list (debugging)
  */
 static inline void
-plist_head_init_atomic(struct plist_head *head, struct atomic_spinlock *lock)
+plist_head_init_raw(struct plist_head *head, struct raw_spinlock *lock)
 {
 	INIT_LIST_HEAD(&head->prio_list);
 	INIT_LIST_HEAD(&head->node_list);
 #ifdef CONFIG_DEBUG_PI_LIST
-	head->alock = lock;
-	head->slock = NULL;
+	head->rawlock = lock;
+	head->spinlock = NULL;
 #endif
 }
 

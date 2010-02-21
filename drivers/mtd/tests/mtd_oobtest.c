@@ -343,7 +343,6 @@ static int scan_for_bad_eraseblocks(void)
 		printk(PRINT_PREF "error: cannot allocate memory\n");
 		return -ENOMEM;
 	}
-	memset(bbt, 0 , ebcnt);
 
 	printk(PRINT_PREF "scanning for bad eraseblocks\n");
 	for (i = 0; i < ebcnt; ++i) {
@@ -392,7 +391,6 @@ static int __init mtd_oobtest_init(void)
 	       mtd->writesize, ebcnt, pgcnt, mtd->oobsize);
 
 	err = -ENOMEM;
-	mtd->erasesize = mtd->erasesize;
 	readbuf = kmalloc(mtd->erasesize, GFP_KERNEL);
 	if (!readbuf) {
 		printk(PRINT_PREF "error: cannot allocate memory\n");
@@ -476,18 +474,10 @@ static int __init mtd_oobtest_init(void)
 	use_len_max = mtd->ecclayout->oobavail;
 	vary_offset = 1;
 	simple_srand(5);
-	printk(PRINT_PREF "writing OOBs of whole device\n");
-	for (i = 0; i < ebcnt; ++i) {
-		if (bbt[i])
-			continue;
-		err = write_eraseblock(i);
-		if (err)
-			goto out;
-		if (i % 256 == 0)
-			printk(PRINT_PREF "written up to eraseblock %u\n", i);
-		cond_resched();
-	}
-	printk(PRINT_PREF "written %u eraseblocks\n", i);
+
+	err = write_whole_device();
+	if (err)
+		goto out;
 
 	/* Check all eraseblocks */
 	use_offset = 0;
@@ -512,7 +502,7 @@ static int __init mtd_oobtest_init(void)
 		goto out;
 
 	addr0 = 0;
-	for (i = 0; bbt[i] && i < ebcnt; ++i)
+	for (i = 0; i < ebcnt && bbt[i]; ++i)
 		addr0 += mtd->erasesize;
 
 	/* Attempt to write off end of OOB */

@@ -50,6 +50,7 @@ rb_insert_callchain(struct rb_root *root, struct callchain_node *chain,
 			else
 				p = &(*p)->rb_right;
 			break;
+		case CHAIN_NONE:
 		default:
 			break;
 		}
@@ -143,6 +144,7 @@ int register_callchain_param(struct callchain_param *param)
 	case CHAIN_FLAT:
 		param->sort = sort_chain_flat;
 		break;
+	case CHAIN_NONE:
 	default:
 		return -1;
 	}
@@ -204,7 +206,7 @@ fill_node(struct callchain_node *node, struct ip_callchain *chain,
 	}
 	node->val_nr = chain->nr - start;
 	if (!node->val_nr)
-		printf("Warning: empty node in callchain tree\n");
+		pr_warning("Warning: empty node in callchain tree\n");
 }
 
 static void

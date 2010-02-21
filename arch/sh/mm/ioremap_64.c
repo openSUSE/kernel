@@ -94,7 +94,6 @@ static struct resource *shmedia_find_resource(struct resource *root,
 static void __iomem *shmedia_alloc_io(unsigned long phys, unsigned long size,
 				      const char *name, unsigned long flags)
 {
-	static int printed_full;
 	struct xresource *xres;
 	struct resource *res;
 	char *tack;
@@ -108,11 +107,8 @@ static void __iomem *shmedia_alloc_io(unsigned long phys, unsigned long size,
 		tack = xres->xname;
 		res = &xres->xres;
 	} else {
-		if (!printed_full) {
-			printk(KERN_NOTICE "%s: done with statics, "
+		printk_once(KERN_NOTICE "%s: done with statics, "
 			       "switching to kmalloc\n", __func__);
-			printed_full = 1;
-		}
 		tlen = strlen(name);
 		tack = kmalloc(sizeof(struct resource) + tlen + 1, GFP_KERNEL);
 		if (!tack)
@@ -262,15 +258,15 @@ static void shmedia_unmapioaddr(unsigned long vaddr)
 	pte_clear(&init_mm, vaddr, ptep);
 }
 
-void __iomem *__ioremap(unsigned long offset, unsigned long size,
-			unsigned long flags)
+void __iomem *__ioremap_caller(unsigned long offset, unsigned long size,
+			       unsigned long flags, void *caller)
 {
 	char name[14];
 
 	sprintf(name, "phys_%08x", (u32)offset);
 	return shmedia_alloc_io(offset, size, name, flags);
 }
-EXPORT_SYMBOL(__ioremap);
+EXPORT_SYMBOL(__ioremap_caller);
 
 void __iounmap(void __iomem *virtual)
 {

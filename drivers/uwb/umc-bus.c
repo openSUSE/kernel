@@ -62,11 +62,11 @@ int umc_controller_reset(struct umc_dev *umc)
 	struct device *parent = umc->dev.parent;
 	int ret = 0;
 
-	if (mutex_trylock(&parent->mutex))
+	if (!mutex_trylock(&parent->mutex))
 		return -EAGAIN;
 	ret = device_for_each_child(parent, parent, umc_bus_pre_reset_helper);
 	if (ret >= 0)
-		device_for_each_child(parent, parent, umc_bus_post_reset_helper);
+		ret = device_for_each_child(parent, parent, umc_bus_post_reset_helper);
 	mutex_unlock(&parent->mutex);
 
 	return ret;

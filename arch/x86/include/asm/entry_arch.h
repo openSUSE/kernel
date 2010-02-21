@@ -34,7 +34,7 @@ BUILD_INTERRUPT3(invalidate_interrupt7,INVALIDATE_TLB_VECTOR_START+7,
 		 smp_invalidate_interrupt)
 #endif
 
-BUILD_INTERRUPT(generic_interrupt, GENERIC_INTERRUPT_VECTOR)
+BUILD_INTERRUPT(x86_platform_ipi, X86_PLATFORM_IPI_VECTOR)
 
 /*
  * every pentium local APIC has two 'local interrupts', with a
@@ -49,7 +49,7 @@ BUILD_INTERRUPT(apic_timer_interrupt,LOCAL_TIMER_VECTOR)
 BUILD_INTERRUPT(error_interrupt,ERROR_APIC_VECTOR)
 BUILD_INTERRUPT(spurious_interrupt,SPURIOUS_APIC_VECTOR)
 
-#ifdef CONFIG_PERF_COUNTERS
+#ifdef CONFIG_PERF_EVENTS
 BUILD_INTERRUPT(perf_pending_interrupt, LOCAL_PENDING_VECTOR)
 #endif
 
@@ -61,7 +61,7 @@ BUILD_INTERRUPT(thermal_interrupt,THERMAL_APIC_VECTOR)
 BUILD_INTERRUPT(threshold_interrupt,THRESHOLD_APIC_VECTOR)
 #endif
 
-#ifdef CONFIG_X86_NEW_MCE
+#ifdef CONFIG_X86_MCE
 BUILD_INTERRUPT(mce_self_interrupt,MCE_SELF_VECTOR)
 #endif
 

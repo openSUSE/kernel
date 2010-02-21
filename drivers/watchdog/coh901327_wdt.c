@@ -110,7 +110,7 @@ static void coh901327_enable(u16 timeout)
 	 * Wait 3 32 kHz cycles for it to take effect
 	 */
 	freq = clk_get_rate(clk);
-	delay_ns = (1000000000 + freq - 1) / freq; /* Freq to ns and round up */
+	delay_ns = DIV_ROUND_UP(1000000000, freq); /* Freq to ns and round up */
 	delay_ns = 3 * delay_ns; /* Wait 3 cycles */
 	ndelay(delay_ns);
 	/* Enable the watchdog interrupt */
@@ -508,7 +508,7 @@ void coh901327_watchdog_reset(void)
 	 * deactivating the watchdog before it is shut down by it.
 	 *
 	 * NOTE: on future versions of the watchdog, this restriction is
-	 * gone: the watchdog will be reloaded with a defaul value (1 min)
+	 * gone: the watchdog will be reloaded with a default value (1 min)
 	 * instead of last value, and you can conveniently set the watchdog
 	 * timeout to 10ms (value = 1) without any problems.
 	 */

@@ -212,7 +212,7 @@ struct ape_dev {
 	int msi_enabled;
 	/* whether this driver could obtain the regions */
 	int got_regions;
-	/* irq line succesfully requested by this driver, -1 otherwise */
+	/* irq line successfully requested by this driver, -1 otherwise */
 	int irq_line;
 	/* board revision */
 	u8 revision;
@@ -336,7 +336,7 @@ static int __devinit map_bars(struct ape_dev *ape, struct pci_dev *dev)
 		printk(KERN_DEBUG "BAR[%d] mapped at 0x%p with length %lu(/%lu).\n", i,
 		ape->bar[i], bar_min_len[i], bar_length);
 	}
-	/* succesfully mapped all required BAR regions */
+	/* successfully mapped all required BAR regions */
 	rc = 0;
 	goto success;
 fail:
@@ -550,7 +550,7 @@ static int __devinit dma_test(struct ape_dev *ape, struct pci_dev *dev)
 #if 0
 		*(u32 *)(buffer_virt + i) = i / PAGE_SIZE + 1;
 #else
-		*(u32 *)(buffer_virt + i) = (buffer_virt + i);
+		*(u32 *)(buffer_virt + i) = (u32)(unsigned long)(buffer_virt + i);
 #endif
 #if 0
   compare((u32 *)buffer_virt, (u32 *)(buffer_virt + 2 * PAGE_SIZE), 8192);
@@ -911,7 +911,7 @@ static int __devinit probe(struct pci_dev *dev, const struct pci_device_id *id)
 	/* perform DMA engines loop back test */
 	rc = dma_test(ape, dev);
 	(void)rc;
-	/* succesfully took the device */
+	/* successfully took the device */
 	rc = 0;
 	printk(KERN_DEBUG "probe() successful.\n");
 	goto end;

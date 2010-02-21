@@ -473,7 +473,7 @@ static int esp_init_authenc(struct xfrm_state *x)
 		}
 
 		err = crypto_aead_setauthsize(
-			aead, aalg_desc->uinfo.auth.icv_truncbits / 8);
+			aead, x->aalg->alg_trunc_len / 8);
 		if (err)
 			goto free_key;
 	}
@@ -558,7 +558,7 @@ static const struct xfrm_type esp6_type =
 	.hdr_offset	= xfrm6_find_1stfragopt,
 };
 
-static struct inet6_protocol esp6_protocol = {
+static const struct inet6_protocol esp6_protocol = {
 	.handler 	=	xfrm6_rcv,
 	.err_handler	=	esp6_err,
 	.flags		=	INET6_PROTO_NOPOLICY,

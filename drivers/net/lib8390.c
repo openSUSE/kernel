@@ -299,7 +299,8 @@ static void __ei_tx_timeout(struct net_device *dev)
  * Sends a packet to an 8390 network device.
  */
 
-static int __ei_start_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t __ei_start_xmit(struct sk_buff *skb,
+				   struct net_device *dev)
 {
 	unsigned long e8390_base = dev->base_addr;
 	struct ei_device *ei_local = (struct ei_device *) netdev_priv(dev);
@@ -414,7 +415,7 @@ static int __ei_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	dev_kfree_skb (skb);
 	dev->stats.tx_bytes += send_length;
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /**
@@ -463,8 +464,8 @@ static irqreturn_t __ei_interrupt(int irq, void *dev_id)
 			   ei_inb_p(e8390_base + EN0_ISR));
 
 	/* !!Assumption!! -- we stay in page 0.	 Don't break this. */
-	while ((interrupts = ei_inb_p(e8390_base + EN0_ISR)) != 0
-		   && ++nr_serviced < MAX_SERVICE)
+	while ((interrupts = ei_inb_p(e8390_base + EN0_ISR)) != 0 &&
+	       ++nr_serviced < MAX_SERVICE)
 	{
 		if (!netif_running(dev)) {
 			printk(KERN_WARNING "%s: interrupt from stopped card\n", dev->name);
@@ -720,10 +721,10 @@ static void ei_receive(struct net_device *dev)
 		/* Check for bogosity warned by 3c503 book: the status byte is never
 		   written.  This happened a lot during testing! This code should be
 		   cleaned up someday. */
-		if (rx_frame.next != next_frame
-			&& rx_frame.next != next_frame + 1
-			&& rx_frame.next != next_frame - num_rx_pages
-			&& rx_frame.next != next_frame + 1 - num_rx_pages) {
+		if (rx_frame.next != next_frame &&
+		    rx_frame.next != next_frame + 1 &&
+		    rx_frame.next != next_frame - num_rx_pages &&
+		    rx_frame.next != next_frame + 1 - num_rx_pages) {
 			ei_local->current_page = rxing_page;
 			ei_outb(ei_local->current_page-1, e8390_base+EN0_BOUNDARY);
 			dev->stats.rx_errors++;

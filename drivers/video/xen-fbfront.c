@@ -25,7 +25,10 @@
 #include <linux/module.h>
 #include <linux/vmalloc.h>
 #include <linux/mm.h>
+
 #include <asm/xen/hypervisor.h>
+
+#include <xen/xen.h>
 #include <xen/events.h>
 #include <xen/page.h>
 #include <xen/interface/io/fbif.h>
@@ -440,7 +443,7 @@ static int __devinit xenfb_probe(struct xenbus_device *dev,
 	fb_info->fix.type = FB_TYPE_PACKED_PIXELS;
 	fb_info->fix.accel = FB_ACCEL_NONE;
 
-	fb_info->flags = FBINFO_FLAG_DEFAULT;
+	fb_info->flags = FBINFO_FLAG_DEFAULT | FBINFO_VIRTFB;
 
 	ret = fb_alloc_cmap(&fb_info->cmap, 256, 0);
 	if (ret < 0) {
@@ -487,12 +490,12 @@ xenfb_make_preferred_console(void)
 	if (console_set_on_cmdline)
 		return;
 
-	acquire_console_sem();
+	acquire_console_mutex();
 	for (c = console_drivers; c; c = c->next) {
 		if (!strcmp(c->name, "tty") && c->index == 0)
 			break;
 	}
-	release_console_sem();
+	release_console_mutex();
 	if (c) {
 		unregister_console(c);
 		c->flags |= CON_CONSDEV;

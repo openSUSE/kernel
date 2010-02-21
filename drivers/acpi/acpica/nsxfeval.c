@@ -190,7 +190,7 @@ acpi_evaluate_object(acpi_handle handle,
 
 	/* Convert and validate the device handle */
 
-	info->prefix_node = acpi_ns_map_handle_to_node(handle);
+	info->prefix_node = acpi_ns_validate_handle(handle);
 	if (!info->prefix_node) {
 		status = AE_BAD_PARAMETER;
 		goto cleanup;
@@ -433,8 +433,11 @@ static void acpi_ns_resolve_references(struct acpi_evaluate_info *info)
  * PARAMETERS:  Type                - acpi_object_type to search for
  *              start_object        - Handle in namespace where search begins
  *              max_depth           - Depth to which search is to reach
- *              user_function       - Called when an object of "Type" is found
- *              Context             - Passed to user function
+ *              pre_order_visit     - Called during tree pre-order visit
+ *                                    when an object of "Type" is found
+ *              post_order_visit    - Called during tree post-order visit
+ *                                    when an object of "Type" is found
+ *              Context             - Passed to user function(s) above
  *              return_value        - Location where return value of
  *                                    user_function is put if terminated early
  *
@@ -443,16 +446,16 @@ static void acpi_ns_resolve_references(struct acpi_evaluate_info *info)
  *
  * DESCRIPTION: Performs a modified depth-first walk of the namespace tree,
  *              starting (and ending) at the object specified by start_handle.
- *              The user_function is called whenever an object that matches
- *              the type parameter is found.  If the user function returns
+ *              The callback function is called whenever an object that matches
+ *              the type parameter is found. If the callback function returns
  *              a non-zero value, the search is terminated immediately and this
  *              value is returned to the caller.
  *
  *              The point of this procedure is to provide a generic namespace
  *              walk routine that can be called from multiple places to
- *              provide multiple services;  the User Function can be tailored
- *              to each task, whether it is a print function, a compare
- *              function, etc.
+ *              provide multiple services; the callback function(s) can be
+ *              tailored to each task, whether it is a print function,
+ *              a compare function, etc.
  *
  ******************************************************************************/
 
@@ -460,7 +463,8 @@ acpi_status
 acpi_walk_namespace(acpi_object_type type,
 		    acpi_handle start_object,
 		    u32 max_depth,
-		    acpi_walk_callback user_function,
+		    acpi_walk_callback pre_order_visit,
+		    acpi_walk_callback post_order_visit,
 		    void *context, void **return_value)
 {
 	acpi_status status;
@@ -469,7 +473,8 @@ acpi_walk_namespace(acpi_object_type type,
 
 	/* Parameter validation */
 
-	if ((type > ACPI_TYPE_LOCAL_MAX) || (!max_depth) || (!user_function)) {
+	if ((type > ACPI_TYPE_LOCAL_MAX) ||
+	    (!max_depth) || (!pre_order_visit && !post_order_visit)) {
 		return_ACPI_STATUS(AE_BAD_PARAMETER);
 	}
 
@@ -501,8 +506,9 @@ acpi_walk_namespace(acpi_object_type type,
 	}
 
 	status = acpi_ns_walk_namespace(type, start_object, max_depth,
-					ACPI_NS_WALK_UNLOCK, user_function,
-					context, return_value);
+					ACPI_NS_WALK_UNLOCK, pre_order_visit,
+					post_order_visit, context,
+					return_value);
 
 	(void)acpi_ut_release_mutex(ACPI_MTX_NAMESPACE);
 
@@ -535,17 +541,18 @@ acpi_ns_get_device_callback(acpi_handle obj_handle,
 	acpi_status status;
 	struct acpi_namespace_node *node;
 	u32 flags;
-	struct acpica_device_id hid;
-	struct acpi_compatible_id_list *cid;
+	struct acpica_device_id *hid;
+	struct acpica_device_id_list *cid;
 	u32 i;
-	int found;
+	u8 found;
+	int no_match;
 
 	status = acpi_ut_acquire_mutex(ACPI_MTX_NAMESPACE);
 	if (ACPI_FAILURE(status)) {
 		return (status);
 	}
 
-	node = acpi_ns_map_handle_to_node(obj_handle);
+	node = acpi_ns_validate_handle(obj_handle);
 	status = acpi_ut_release_mutex(ACPI_MTX_NAMESPACE);
 	if (ACPI_FAILURE(status)) {
 		return (status);
@@ -582,10 +589,14 @@ acpi_ns_get_device_callback(acpi_handle obj_handle,
 			return (AE_CTRL_DEPTH);
 		}
 
-		if (ACPI_STRNCMP(hid.value, info->hid, sizeof(hid.value)) != 0) {
+		no_match = ACPI_STRCMP(hid->string, info->hid);
+		ACPI_FREE(hid);
 
-			/* Get the list of Compatible IDs */
-
+		if (no_match) {
+			/*
+			 * HID does not match, attempt match within the
+			 * list of Compatible IDs (CIDs)
+			 */
 			status = acpi_ut_execute_CID(node, &cid);
 			if (status == AE_NOT_FOUND) {
 				return (AE_OK);
@@ -597,10 +608,8 @@ acpi_ns_get_device_callback(acpi_handle obj_handle,
 
 			found = 0;
 			for (i = 0; i < cid->count; i++) {
-				if (ACPI_STRNCMP(cid->id[i].value, info->hid,
-						 sizeof(struct
-							acpi_compatible_id)) ==
-				    0) {
+				if (ACPI_STRCMP(cid->ids[i].string, info->hid)
+				    == 0) {
 					found = 1;
 					break;
 				}
@@ -678,8 +687,8 @@ acpi_get_devices(const char *HID,
 
 	status = acpi_ns_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
 					ACPI_UINT32_MAX, ACPI_NS_WALK_UNLOCK,
-					acpi_ns_get_device_callback, &info,
-					return_value);
+					acpi_ns_get_device_callback, NULL,
+					&info, return_value);
 
 	(void)acpi_ut_release_mutex(ACPI_MTX_NAMESPACE);
 	return_ACPI_STATUS(status);
@@ -720,7 +729,7 @@ acpi_attach_data(acpi_handle obj_handle,
 
 	/* Convert and validate the handle */
 
-	node = acpi_ns_map_handle_to_node(obj_handle);
+	node = acpi_ns_validate_handle(obj_handle);
 	if (!node) {
 		status = AE_BAD_PARAMETER;
 		goto unlock_and_exit;
@@ -766,7 +775,7 @@ acpi_detach_data(acpi_handle obj_handle, acpi_object_handler handler)
 
 	/* Convert and validate the handle */
 
-	node = acpi_ns_map_handle_to_node(obj_handle);
+	node = acpi_ns_validate_handle(obj_handle);
 	if (!node) {
 		status = AE_BAD_PARAMETER;
 		goto unlock_and_exit;
@@ -813,7 +822,7 @@ acpi_get_data(acpi_handle obj_handle, acpi_object_handler handler, void **data)
 
 	/* Convert and validate the handle */
 
-	node = acpi_ns_map_handle_to_node(obj_handle);
+	node = acpi_ns_validate_handle(obj_handle);
 	if (!node) {
 		status = AE_BAD_PARAMETER;
 		goto unlock_and_exit;

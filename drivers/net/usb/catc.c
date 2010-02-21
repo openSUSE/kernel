@@ -411,7 +411,8 @@ static void catc_tx_done(struct urb *urb)
 	spin_unlock_irqrestore(&catc->tx_lock, flags);
 }
 
-static int catc_start_xmit(struct sk_buff *skb, struct net_device *netdev)
+static netdev_tx_t catc_start_xmit(struct sk_buff *skb,
+					 struct net_device *netdev)
 {
 	struct catc *catc = netdev_priv(netdev);
 	unsigned long flags;
@@ -435,8 +436,8 @@ static int catc_start_xmit(struct sk_buff *skb, struct net_device *netdev)
 			clear_bit(TX_RUNNING, &catc->flags);
 	}
 
-	if ((catc->is_f5u011 && catc->tx_ptr)
-	     || (catc->tx_ptr >= ((TX_MAX_BURST - 1) * (PKT_SZ + 2))))
+	if ((catc->is_f5u011 && catc->tx_ptr) ||
+	    (catc->tx_ptr >= ((TX_MAX_BURST - 1) * (PKT_SZ + 2))))
 		netif_stop_queue(netdev);
 
 	spin_unlock_irqrestore(&catc->tx_lock, flags);
@@ -448,7 +449,7 @@ static int catc_start_xmit(struct sk_buff *skb, struct net_device *netdev)
 
 	dev_kfree_skb(skb);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 static void catc_tx_timeout(struct net_device *netdev)
@@ -697,7 +698,7 @@ static int catc_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	return 0;
 }
 
-static struct ethtool_ops ops = {
+static const struct ethtool_ops ops = {
 	.get_drvinfo = catc_get_drvinfo,
 	.get_settings = catc_get_settings,
 	.get_link = ethtool_op_get_link

@@ -461,7 +461,7 @@ int i_APCI3200_GetChannelCalibrationValue(struct comedi_device *dev,
 	if (s_BoardInfos[dev->minor].i_ConnectionType == 1) {
 		/* if diff */
 
-		if ((ui_Channel_num >= 0) && (ui_Channel_num <= 1))
+		if (ui_Channel_num <= 1)
 			i_DiffChannel = ui_Channel_num, i_Module = 0;
 		else if ((ui_Channel_num >= 2) && (ui_Channel_num <= 3))
 			i_DiffChannel = ui_Channel_num - 2, i_Module = 1;
@@ -2669,7 +2669,7 @@ int i_APCI3200_CommandTestAnalogInput(struct comedi_device *dev, struct comedi_s
 			err++;
 			printk("\nThe Delay time base selection is in error\n");
 		}
-		if (ui_DelayTime < 1 && ui_DelayTime > 1023) {
+		if (ui_DelayTime < 1 || ui_DelayTime > 1023) {
 			err++;
 			printk("\nThe Delay time value is in error\n");
 		}

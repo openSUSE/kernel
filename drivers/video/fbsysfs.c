@@ -88,11 +88,11 @@ static int activate(struct fb_info *fb_info, struct fb_var_screeninfo *var)
 	int err;
 
 	var->activate |= FB_ACTIVATE_FORCE;
-	acquire_console_sem();
+	acquire_console_mutex();
 	fb_info->flags |= FBINFO_MISC_USEREVENT;
 	err = fb_set_var(fb_info, var);
 	fb_info->flags &= ~FBINFO_MISC_USEREVENT;
-	release_console_sem();
+	release_console_mutex();
 	if (err)
 		return err;
 	return 0;
@@ -173,7 +173,7 @@ static ssize_t store_modes(struct device *device,
 	if (i * sizeof(struct fb_videomode) != count)
 		return -EINVAL;
 
-	acquire_console_sem();
+	acquire_console_mutex();
 	list_splice(&fb_info->modelist, &old_list);
 	fb_videomode_to_modelist((const struct fb_videomode *)buf, i,
 				 &fb_info->modelist);
@@ -183,7 +183,7 @@ static ssize_t store_modes(struct device *device,
 	} else
 		fb_destroy_modelist(&old_list);
 
-	release_console_sem();
+	release_console_mutex();
 
 	return 0;
 }
@@ -299,11 +299,11 @@ static ssize_t store_blank(struct device *device,
 	char *last = NULL;
 	int err;
 
-	acquire_console_sem();
+	acquire_console_mutex();
 	fb_info->flags |= FBINFO_MISC_USEREVENT;
 	err = fb_blank(fb_info, simple_strtoul(buf, &last, 0));
 	fb_info->flags &= ~FBINFO_MISC_USEREVENT;
-	release_console_sem();
+	release_console_mutex();
 	if (err < 0)
 		return err;
 	return count;
@@ -362,9 +362,9 @@ static ssize_t store_pan(struct device *device,
 		return -EINVAL;
 	var.yoffset = simple_strtoul(last, &last, 0);
 
-	acquire_console_sem();
+	acquire_console_mutex();
 	err = fb_pan_display(fb_info, &var);
-	release_console_sem();
+	release_console_mutex();
 
 	if (err < 0)
 		return err;
@@ -397,9 +397,9 @@ static ssize_t store_fbstate(struct device *device,
 
 	state = simple_strtoul(buf, &last, 0);
 
-	acquire_console_sem();
+	acquire_console_mutex();
 	fb_set_suspend(fb_info, (int)state);
-	release_console_sem();
+	release_console_mutex();
 
 	return count;
 }

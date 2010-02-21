@@ -103,7 +103,7 @@ static int mlx4_ib_query_device(struct ib_device *ibdev,
 		props->device_cap_flags |= IB_DEVICE_UD_AV_PORT_ENFORCE;
 	if (dev->dev->caps.flags & MLX4_DEV_CAP_FLAG_IPOIB_CSUM)
 		props->device_cap_flags |= IB_DEVICE_UD_IP_CSUM;
-	if (dev->dev->caps.max_gso_sz)
+	if (dev->dev->caps.max_gso_sz && dev->dev->caps.flags & MLX4_DEV_CAP_FLAG_BLH)
 		props->device_cap_flags |= IB_DEVICE_UD_TSO;
 	if (dev->dev->caps.bmme_flags & MLX4_BMME_FLAG_RESERVED_LKEY)
 		props->device_cap_flags |= IB_DEVICE_LOCAL_DMA_LKEY;
@@ -342,6 +342,9 @@ static struct ib_ucontext *mlx4_ib_alloc_ucontext(struct ib_device *ibdev,
 	struct mlx4_ib_alloc_ucontext_resp resp;
 	int err;
 
+	if (!dev->ib_active)
+		return ERR_PTR(-EAGAIN);
+
 	resp.qp_tab_size      = dev->dev->caps.num_qps;
 	resp.bf_reg_size      = dev->dev->caps.bf_reg_size;
 	resp.bf_regs_per_page = dev->dev->caps.bf_regs_per_page;
@@ -540,15 +543,11 @@ static struct device_attribute *mlx4_class_attributes[] = {
 
 static void *mlx4_ib_add(struct mlx4_dev *dev)
 {
-	static int mlx4_ib_version_printed;
 	struct mlx4_ib_dev *ibdev;
 	int num_ports = 0;
 	int i;
 
-	if (!mlx4_ib_version_printed) {
-		printk(KERN_INFO "%s", mlx4_ib_version);
-		++mlx4_ib_version_printed;
-	}
+	printk_once(KERN_INFO "%s", mlx4_ib_version);
 
 	mlx4_foreach_port(i, dev, MLX4_PORT_TYPE_IB)
 		num_ports++;
@@ -673,6 +672,8 @@ static void *mlx4_ib_add(struct mlx4_dev *dev)
 			goto err_reg;
 	}
 
+	ibdev->ib_active = true;
+
 	return ibdev;
 
 err_reg:
@@ -729,6 +730,7 @@ static void mlx4_ib_event(struct mlx4_dev *dev, void *ibdev_ptr,
 		break;
 
 	case MLX4_DEV_EVENT_CATASTROPHIC_ERROR:
+		ibdev->ib_active = false;
 		ibev.event = IB_EVENT_DEVICE_FATAL;
 		break;
 

@@ -23,8 +23,8 @@
 #include <linux/memory_hotplug.h>
 #include <linux/lmb.h>
 
+#include <asm/cell-regs.h>
 #include <asm/firmware.h>
-#include <asm/iommu.h>
 #include <asm/prom.h>
 #include <asm/udbg.h>
 #include <asm/lv1call.h>
@@ -34,7 +34,7 @@
 #if defined(DEBUG)
 #define DBG udbg_printf
 #else
-#define DBG pr_debug
+#define DBG pr_devel
 #endif
 
 enum {

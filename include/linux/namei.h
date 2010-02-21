@@ -40,7 +40,7 @@ enum {LAST_NORM, LAST_ROOT, LAST_DOT, LAST_DOTDOT, LAST_BIND};
  *  - follow links at the end
  *  - require a directory
  *  - ending slashes ok even for nonexistent files
- *  - internal "there are more path compnents" flag
+ *  - internal "there are more path components" flag
  *  - locked when lookup done with dcache_lock held
  *  - dentry cache is untrusted; force a real lookup
  */
@@ -72,11 +72,8 @@ extern int vfs_path_lookup(struct dentry *, struct vfsmount *,
 
 extern struct file *lookup_instantiate_filp(struct nameidata *nd, struct dentry *dentry,
 		int (*open)(struct inode *, struct file *));
-extern struct file *nameidata_to_filp(struct nameidata *nd, int flags);
-extern void release_open_intent(struct nameidata *);
 
 extern struct dentry *lookup_one_len(const char *, struct dentry *, int);
-extern struct dentry *lookup_one_noperm(const char *, struct dentry *);
 
 extern int follow_down(struct path *);
 extern int follow_up(struct path *);

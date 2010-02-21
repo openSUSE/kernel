@@ -232,6 +232,9 @@ qla2x00_sysfs_write_optrom_ctl(struct kobject *kobj,
 	if (off)
 		return 0;
 
+	if (unlikely(pci_channel_offline(ha->pdev)))
+		return 0;
+
 	if (sscanf(buf, "%d:%x:%x", &val, &start, &size) < 1)
 		return -EINVAL;
 	if (start > ha->optrom_size)
@@ -379,6 +382,9 @@ qla2x00_sysfs_read_vpd(struct kobject *kobj,
 	    struct device, kobj)));
 	struct qla_hw_data *ha = vha->hw;
 
+	if (unlikely(pci_channel_offline(ha->pdev)))
+		return 0;
+
 	if (!capable(CAP_SYS_ADMIN))
 		return 0;
 
@@ -397,6 +403,9 @@ qla2x00_sysfs_write_vpd(struct kobject *kobj,
 	    struct device, kobj)));
 	struct qla_hw_data *ha = vha->hw;
 	uint8_t *tmp_data;
+
+	if (unlikely(pci_channel_offline(ha->pdev)))
+		return 0;
 
 	if (!capable(CAP_SYS_ADMIN) || off != 0 || count != ha->vpd_size ||
 	    !ha->isp_ops->write_nvram)
@@ -1238,10 +1247,11 @@ qla2x00_fw_state_show(struct device *dev, struct device_attribute *attr,
     char *buf)
 {
 	scsi_qla_host_t *vha = shost_priv(class_to_shost(dev));
-	int rval;
+	int rval = QLA_FUNCTION_FAILED;
 	uint16_t state[5];
 
-	rval = qla2x00_get_firmware_state(vha, state);
+	if (!vha->hw->flags.eeh_busy)
+		rval = qla2x00_get_firmware_state(vha, state);
 	if (rval != QLA_SUCCESS)
 		memset(state, -1, sizeof(state));
 
@@ -1452,10 +1462,13 @@ qla2x00_dev_loss_tmo_callbk(struct fc_rport *rport)
 	if (!fcport)
 		return;
 
-	if (unlikely(pci_channel_offline(fcport->vha->hw->pdev)))
+	if (test_bit(ABORT_ISP_ACTIVE, &fcport->vha->dpc_flags))
+		return;
+
+	if (unlikely(pci_channel_offline(fcport->vha->hw->pdev))) {
 		qla2x00_abort_all_cmds(fcport->vha, DID_NO_CONNECT << 16);
-	else
-		qla2x00_abort_fcport_cmds(fcport);
+		return;
+	}
 
 	/*
 	 * Transport has effectively 'deleted' the rport, clear
@@ -1473,6 +1486,9 @@ qla2x00_terminate_rport_io(struct fc_rport *rport)
 	fc_port_t *fcport = *(fc_port_t **)rport->dd_data;
 
 	if (!fcport)
+		return;
+
+	if (test_bit(ABORT_ISP_ACTIVE, &fcport->vha->dpc_flags))
 		return;
 
 	if (unlikely(pci_channel_offline(fcport->vha->hw->pdev))) {
@@ -1514,6 +1530,12 @@ qla2x00_get_fc_host_stats(struct Scsi_Host *shost)
 
 	pfc_host_stat = &ha->fc_host_stat;
 	memset(pfc_host_stat, -1, sizeof(struct fc_host_statistics));
+
+	if (test_bit(UNLOADING, &vha->dpc_flags))
+		goto done;
+
+	if (unlikely(pci_channel_offline(ha->pdev)))
+		goto done;
 
 	stats = dma_pool_alloc(ha->s_dma_pool, GFP_KERNEL, &stats_dma);
 	if (stats == NULL) {
@@ -1654,7 +1676,8 @@ qla24xx_vport_create(struct fc_vport *fc_vport, bool disable)
 			fc_vport_set_state(fc_vport, FC_VPORT_LINKDOWN);
 	}
 
-	if (scsi_add_host(vha->host, &fc_vport->dev)) {
+	if (scsi_add_host_with_dma(vha->host, &fc_vport->dev,
+				   &ha->pdev->dev)) {
 		DEBUG15(printk("scsi(%ld): scsi_add_host failure for VP[%d].\n",
 			vha->host_no, vha->vp_idx));
 		goto vport_create_failed_2;
@@ -1670,7 +1693,7 @@ qla24xx_vport_create(struct fc_vport *fc_vport, bool disable)
 
 	qla24xx_vport_disable(fc_vport, disable);
 
-	if (ql2xmultique_tag) {
+	if (ha->flags.cpu_affinity_enabled) {
 		req = ha->req_q_map[1];
 		goto vport_queue;
 	} else if (ql2xmaxqueues == 1 || !ha->npiv_info)
@@ -1736,6 +1759,11 @@ qla24xx_vport_delete(struct fc_vport *fc_vport)
 
 	qla24xx_deallocate_vp_id(vha);
 
+	mutex_lock(&ha->vport_lock);
+	ha->cur_vport_count--;
+	clear_bit(vha->vp_idx, ha->vp_idx_map);
+	mutex_unlock(&ha->vport_lock);
+
 	if (vha->timer_active) {
 		qla2x00_vp_stop_timer(vha);
 		DEBUG15(printk ("scsi(%ld): timer for the vport[%d] = %p "
@@ -1743,7 +1771,7 @@ qla24xx_vport_delete(struct fc_vport *fc_vport)
 		    vha->host_no, vha->vp_idx, vha));
         }
 
-	if (vha->req->id && !ql2xmultique_tag) {
+	if (vha->req->id && !ha->flags.cpu_affinity_enabled) {
 		if (qla25xx_delete_req_que(vha, vha->req) != QLA_SUCCESS)
 			qla_printk(KERN_WARNING, ha,
 				"Queue delete failed.\n");

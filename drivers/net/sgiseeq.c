@@ -365,11 +365,10 @@ static inline void sgiseeq_rx(struct net_device *dev, struct sgiseeq_private *sp
 					}
 					skb_reserve(newskb, 2);
 				} else {
-					skb = netdev_alloc_skb(dev, len + 2);
-					if (skb) {
-						skb_reserve(skb, 2);
+					skb = netdev_alloc_skb_ip_align(dev, len);
+					if (skb)
 						skb_copy_to_linear_data(skb, rd->skb->data, len);
-					}
+
 					newskb = rd->skb;
 				}
 memory_squeeze:
@@ -594,7 +593,7 @@ static int sgiseeq_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	len = skb->len;
 	if (len < ETH_ZLEN) {
 		if (skb_padto(skb, ETH_ZLEN))
-			return 0;
+			return NETDEV_TX_OK;
 		len = ETH_ZLEN;
 	}
 
@@ -642,7 +641,7 @@ static int sgiseeq_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		netif_stop_queue(dev);
 	spin_unlock_irqrestore(&sp->tx_lock, flags);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 static void timeout(struct net_device *dev)
@@ -720,7 +719,7 @@ static const struct net_device_ops sgiseeq_netdev_ops = {
 	.ndo_validate_addr	= eth_validate_addr,
 };
 
-static int __init sgiseeq_probe(struct platform_device *pdev)
+static int __devinit sgiseeq_probe(struct platform_device *pdev)
 {
 	struct sgiseeq_platform_data *pd = pdev->dev.platform_data;
 	struct hpc3_regs *hpcregs = pd->hpc;
@@ -826,7 +825,7 @@ static int __exit sgiseeq_remove(struct platform_device *pdev)
 
 static struct platform_driver sgiseeq_driver = {
 	.probe	= sgiseeq_probe,
-	.remove	= __devexit_p(sgiseeq_remove),
+	.remove	= __exit_p(sgiseeq_remove),
 	.driver = {
 		.name	= "sgiseeq",
 		.owner	= THIS_MODULE,

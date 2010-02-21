@@ -112,14 +112,13 @@ void __init mem_init(void)
 	       "Memory: %luk/%luk available"
 	       " (%dk kernel code, %dk reserved, %dk data, %dk init,"
 	       " %ldk highmem)\n",
-	       (unsigned long) nr_free_pages() << (PAGE_SHIFT - 10),
+	       nr_free_pages() << (PAGE_SHIFT - 10),
 	       max_mapnr << (PAGE_SHIFT - 10),
 	       codesize >> 10,
 	       reservedpages << (PAGE_SHIFT - 10),
 	       datasize >> 10,
 	       initsize >> 10,
-	       (unsigned long) (totalhigh_pages << (PAGE_SHIFT - 10))
-	       );
+	       totalhigh_pages << (PAGE_SHIFT - 10));
 }
 
 /*

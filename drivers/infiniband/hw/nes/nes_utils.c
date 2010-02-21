@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006 - 2009 Intel-NE, Inc.  All rights reserved.
+ * Copyright (c) 2006 - 2009 Intel Corporation.  All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -183,6 +183,9 @@ int nes_read_eeprom_values(struct nes_device *nesdev, struct nes_adapter *nesada
 		} else if (((major_ver == 2) && (minor_ver > 21)) || ((major_ver > 2) && (major_ver != 255))) {
 			nesadapter->virtwq = 1;
 		}
+		if (((major_ver == 3) && (minor_ver >= 16)) || (major_ver > 3))
+			nesadapter->send_term_ok = 1;
+
 		nesadapter->firmware_version = (((u32)(u8)(eeprom_data>>8))  <<  16) +
 				(u32)((u8)eeprom_data);
 
@@ -548,7 +551,7 @@ struct nes_cqp_request *nes_get_cqp_request(struct nes_device *nesdev)
 		spin_unlock_irqrestore(&nesdev->cqp.lock, flags);
 	}
 	if (cqp_request == NULL) {
-		cqp_request = kzalloc(sizeof(struct nes_cqp_request), GFP_KERNEL);
+		cqp_request = kzalloc(sizeof(struct nes_cqp_request), GFP_ATOMIC);
 		if (cqp_request) {
 			cqp_request->dynamic = 1;
 			INIT_LIST_HEAD(&cqp_request->list);

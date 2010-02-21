@@ -91,27 +91,35 @@ config SECURITY_PATH
 	  implement pathname based access controls.
 	  If you are unsure how to answer this question, answer N.
 
-config SECURITY_FILE_CAPABILITIES
-	bool "File POSIX Capabilities"
-	default n
+config INTEL_TXT
+	bool "Enable Intel(R) Trusted Execution Technology (Intel(R) TXT)"
+	depends on HAVE_INTEL_TXT
 	help
-	  This enables filesystem capabilities, allowing you to give
-	  binaries a subset of root's powers without using setuid 0.
+	  This option enables support for booting the kernel with the
+	  Trusted Boot (tboot) module. This will utilize
+	  Intel(R) Trusted Execution Technology to perform a measured launch
+	  of the kernel. If the system does not support Intel(R) TXT, this
+	  will have no effect.
 
-	  If in doubt, answer N.
+	  Intel TXT will provide higher assurance of system configuration and
+	  initial state as well as data reset protection.  This is used to
+	  create a robust initial kernel measurement and verification, which
+	  helps to ensure that kernel security mechanisms are functioning
+	  correctly. This level of protection requires a root of trust outside
+	  of the kernel itself.
 
-config SECURITY_ROOTPLUG
-	bool "Root Plug Support"
-	depends on USB=y && SECURITY
-	help
-	  This is a sample LSM module that should only be used as such.
-	  It prevents any programs running with egid == 0 if a specific
-	  USB device is not present in the system.
+	  Intel TXT also helps solve real end user concerns about having
+	  confidence that their hardware is running the VMM or kernel that
+	  it was configured with, especially since they may be responsible for
+	  providing such assurances to VMs and services running on it.
 
-	  See <http://www.linuxjournal.com/article.php?sid=6279> for
-	  more information about this module.
+	  See <http://www.intel.com/technology/security/> for more information
+	  about Intel(R) TXT.
+	  See <http://tboot.sourceforge.net> for more information about tboot.
+	  See Documentation/intel_txt.txt for a description of how to enable
+	  Intel TXT support in a kernel boot.
 
-	  If you are unsure how to answer this question, answer N.
+	  If you are unsure as to whether this is required, answer N.
 
 config LSM_MMAP_MIN_ADDR
 	int "Low address space for LSM to protect from user allocation"
@@ -134,6 +142,38 @@ source security/smack/Kconfig
 source security/tomoyo/Kconfig
 
 source security/integrity/ima/Kconfig
+
+choice
+	prompt "Default security module"
+	default DEFAULT_SECURITY_SELINUX if SECURITY_SELINUX
+	default DEFAULT_SECURITY_SMACK if SECURITY_SMACK
+	default DEFAULT_SECURITY_TOMOYO if SECURITY_TOMOYO
+	default DEFAULT_SECURITY_DAC
+
+	help
+	  Select the security module that will be used by default if the
+	  kernel parameter security= is not specified.
+
+	config DEFAULT_SECURITY_SELINUX
+		bool "SELinux" if SECURITY_SELINUX=y
+
+	config DEFAULT_SECURITY_SMACK
+		bool "Simplified Mandatory Access Control" if SECURITY_SMACK=y
+
+	config DEFAULT_SECURITY_TOMOYO
+		bool "TOMOYO" if SECURITY_TOMOYO=y
+
+	config DEFAULT_SECURITY_DAC
+		bool "Unix Discretionary Access Controls"
+
+endchoice
+
+config DEFAULT_SECURITY
+	string
+	default "selinux" if DEFAULT_SECURITY_SELINUX
+	default "smack" if DEFAULT_SECURITY_SMACK
+	default "tomoyo" if DEFAULT_SECURITY_TOMOYO
+	default "" if DEFAULT_SECURITY_DAC
 
 endmenu
 

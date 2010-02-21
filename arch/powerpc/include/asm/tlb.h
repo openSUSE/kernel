@@ -25,8 +25,6 @@
 
 #include <linux/pagemap.h>
 
-struct mmu_gather;
-
 #define tlb_start_vma(tlb, vma)	do { } while (0)
 #define tlb_end_vma(tlb, vma)	do { } while (0)
 
@@ -40,54 +38,22 @@ struct arch_mmu_gather {
 
 #define ARCH_MMU_GATHER_INIT (struct arch_mmu_gather){ .batch = NULL, }
 
-#if !defined(CONFIG_PPC_STD_MMU)
-
-#define tlb_flush(tlb)			flush_tlb_mm((tlb)->mm)
-
-#elif defined(__powerpc64__)
-
-extern void pte_free_finish(struct mmu_gather *tlb);
-
-static inline void tlb_flush(struct mmu_gather *tlb)
-{
-	struct ppc64_tlb_batch *tlbbatch = &get_cpu_var(ppc64_tlb_batch);
-
-	/* If there's a TLB batch pending, then we must flush it because the
-	 * pages are going to be freed and we really don't want to have a CPU
-	 * access a freed page because it has a stale TLB
-	 */
-	if (tlbbatch->index) {
-		__flush_tlb_pending(tlbbatch);
-	}
-
-	put_cpu_var(ppc64_tlb_batch);
-	pte_free_finish(tlb);
-}
-
-#else
-
 extern void tlb_flush(struct mmu_gather *tlb);
-
-#endif
 
 /* Get the generic bits... */
 #include <asm-generic/tlb.h>
 
-#if !defined(CONFIG_PPC_STD_MMU) || defined(__powerpc64__)
-
-#define __tlb_remove_tlb_entry(tlb, pte, address) do { } while (0)
-
-#else
 extern void flush_hash_entry(struct mm_struct *mm, pte_t *ptep,
 			     unsigned long address);
 
 static inline void __tlb_remove_tlb_entry(struct mmu_gather *tlb, pte_t *ptep,
-					unsigned long address)
+					  unsigned long address)
 {
+#ifdef CONFIG_PPC_STD_MMU_32
 	if (pte_val(*ptep) & _PAGE_HASHPTE)
 		flush_hash_entry(tlb->mm, ptep, address);
+#endif
 }
 
-#endif
 #endif /* __KERNEL__ */
 #endif /* __ASM_POWERPC_TLB_H */

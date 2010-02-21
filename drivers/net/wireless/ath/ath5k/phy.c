@@ -117,7 +117,7 @@ static unsigned int ath5k_hw_rfb_op(struct ath5k_hw *ah,
 
 /*
  * This code is used to optimize rf gain on different environments
- * (temprature mostly) based on feedback from a power detector.
+ * (temperature mostly) based on feedback from a power detector.
  *
  * It's only used on RF5111 and RF5112, later RF chips seem to have
  * auto adjustment on hw -notice they have a much smaller BANK 7 and
@@ -740,13 +740,22 @@ int ath5k_hw_rfregs_init(struct ath5k_hw *ah, struct ieee80211_channel *channel,
 						AR5K_RF_XPD_GAIN, true);
 
 		} else {
-			/* TODO: Set high and low gain bits */
-			ath5k_hw_rfb_op(ah, rf_regs,
-						ee->ee_x_gain[ee_mode],
+			u8 *pdg_curve_to_idx = ee->ee_pdc_to_idx[ee_mode];
+			if (ee->ee_pd_gains[ee_mode] > 1) {
+				ath5k_hw_rfb_op(ah, rf_regs,
+						pdg_curve_to_idx[0],
 						AR5K_RF_PD_GAIN_LO, true);
-			ath5k_hw_rfb_op(ah, rf_regs,
-						ee->ee_x_gain[ee_mode],
+				ath5k_hw_rfb_op(ah, rf_regs,
+						pdg_curve_to_idx[1],
 						AR5K_RF_PD_GAIN_HI, true);
+			} else {
+				ath5k_hw_rfb_op(ah, rf_regs,
+						pdg_curve_to_idx[0],
+						AR5K_RF_PD_GAIN_LO, true);
+				ath5k_hw_rfb_op(ah, rf_regs,
+						pdg_curve_to_idx[0],
+						AR5K_RF_PD_GAIN_HI, true);
+			}
 
 			/* Lower synth voltage on Rev 2 */
 			ath5k_hw_rfb_op(ah, rf_regs, 2,
@@ -1085,8 +1094,7 @@ int ath5k_hw_channel(struct ath5k_hw *ah, struct ieee80211_channel *channel)
 				AR5K_PHY_CCKTXCTL_WORLD);
 	}
 
-	ah->ah_current_channel.center_freq = channel->center_freq;
-	ah->ah_current_channel.hw_value = channel->hw_value;
+	ah->ah_current_channel = channel;
 	ah->ah_turbo = channel->hw_value == CHANNEL_T ? true : false;
 
 	return 0;
@@ -1096,74 +1104,168 @@ int ath5k_hw_channel(struct ath5k_hw *ah, struct ieee80211_channel *channel)
   PHY calibration
 \*****************/
 
-/**
- * ath5k_hw_noise_floor_calibration - perform PHY noise floor calibration
- *
- * @ah: struct ath5k_hw pointer we are operating on
- * @freq: the channel frequency, just used for error logging
- *
- * This function performs a noise floor calibration of the PHY and waits for
- * it to complete. Then the noise floor value is compared to some maximum
- * noise floor we consider valid.
- *
- * Note that this is different from what the madwifi HAL does: it reads the
- * noise floor and afterwards initiates the calibration. Since the noise floor
- * calibration can take some time to finish, depending on the current channel
- * use, that avoids the occasional timeout warnings we are seeing now.
- *
- * See the following link for an Atheros patent on noise floor calibration:
- * http://patft.uspto.gov/netacgi/nph-Parser?Sect1=PTO1&Sect2=HITOFF&d=PALL \
- * &p=1&u=%2Fnetahtml%2FPTO%2Fsrchnum.htm&r=1&f=G&l=50&s1=7245893.PN.&OS=PN/7
- *
- * XXX: Since during noise floor calibration antennas are detached according to
- * the patent, we should stop tx queues here.
- */
-int
-ath5k_hw_noise_floor_calibration(struct ath5k_hw *ah, short freq)
+void
+ath5k_hw_calibration_poll(struct ath5k_hw *ah)
 {
-	int ret;
-	unsigned int i;
-	s32 noise_floor;
+	/* Calibration interval in jiffies */
+	unsigned long cal_intval;
 
-	/*
-	 * Enable noise floor calibration
-	 */
-	AR5K_REG_ENABLE_BITS(ah, AR5K_PHY_AGCCTL,
-				AR5K_PHY_AGCCTL_NF);
+	cal_intval = msecs_to_jiffies(ah->ah_cal_intval * 1000);
 
-	ret = ath5k_hw_register_timeout(ah, AR5K_PHY_AGCCTL,
-			AR5K_PHY_AGCCTL_NF, 0, false);
-	if (ret) {
-		ATH5K_ERR(ah->ah_sc,
-			"noise floor calibration timeout (%uMHz)\n", freq);
-		return -EAGAIN;
+	/* Initialize timestamp if needed */
+	if (!ah->ah_cal_tstamp)
+		ah->ah_cal_tstamp = jiffies;
+
+	/* For now we always do full calibration
+	 * Mark software interrupt mask and fire software
+	 * interrupt (bit gets auto-cleared) */
+	if (time_is_before_eq_jiffies(ah->ah_cal_tstamp + cal_intval)) {
+		ah->ah_cal_tstamp = jiffies;
+		ah->ah_swi_mask = AR5K_SWI_FULL_CALIBRATION;
+		AR5K_REG_ENABLE_BITS(ah, AR5K_CR, AR5K_CR_SWI);
 	}
+}
 
-	/* Wait until the noise floor is calibrated and read the value */
-	for (i = 20; i > 0; i--) {
-		mdelay(1);
-		noise_floor = ath5k_hw_reg_read(ah, AR5K_PHY_NF);
-		noise_floor = AR5K_PHY_NF_RVAL(noise_floor);
-		if (noise_floor & AR5K_PHY_NF_ACTIVE) {
-			noise_floor = AR5K_PHY_NF_AVAL(noise_floor);
+static int sign_extend(int val, const int nbits)
+{
+	int order = BIT(nbits-1);
+	return (val ^ order) - order;
+}
 
-			if (noise_floor <= AR5K_TUNE_NOISE_FLOOR)
-				break;
+static s32 ath5k_hw_read_measured_noise_floor(struct ath5k_hw *ah)
+{
+	s32 val;
+
+	val = ath5k_hw_reg_read(ah, AR5K_PHY_NF);
+	return sign_extend(AR5K_REG_MS(val, AR5K_PHY_NF_MINCCA_PWR), 9);
+}
+
+void ath5k_hw_init_nfcal_hist(struct ath5k_hw *ah)
+{
+	int i;
+
+	ah->ah_nfcal_hist.index = 0;
+	for (i = 0; i < ATH5K_NF_CAL_HIST_MAX; i++)
+		ah->ah_nfcal_hist.nfval[i] = AR5K_TUNE_CCA_MAX_GOOD_VALUE;
+}
+
+static void ath5k_hw_update_nfcal_hist(struct ath5k_hw *ah, s16 noise_floor)
+{
+	struct ath5k_nfcal_hist *hist = &ah->ah_nfcal_hist;
+	hist->index = (hist->index + 1) & (ATH5K_NF_CAL_HIST_MAX-1);
+	hist->nfval[hist->index] = noise_floor;
+}
+
+static s16 ath5k_hw_get_median_noise_floor(struct ath5k_hw *ah)
+{
+	s16 sort[ATH5K_NF_CAL_HIST_MAX];
+	s16 tmp;
+	int i, j;
+
+	memcpy(sort, ah->ah_nfcal_hist.nfval, sizeof(sort));
+	for (i = 0; i < ATH5K_NF_CAL_HIST_MAX - 1; i++) {
+		for (j = 1; j < ATH5K_NF_CAL_HIST_MAX - i; j++) {
+			if (sort[j] > sort[j-1]) {
+				tmp = sort[j];
+				sort[j] = sort[j-1];
+				sort[j-1] = tmp;
+			}
 		}
 	}
+	for (i = 0; i < ATH5K_NF_CAL_HIST_MAX; i++) {
+		ATH5K_DBG(ah->ah_sc, ATH5K_DEBUG_CALIBRATE,
+			"cal %d:%d\n", i, sort[i]);
+	}
+	return sort[(ATH5K_NF_CAL_HIST_MAX-1) / 2];
+}
 
-	ATH5K_DBG_UNLIMIT(ah->ah_sc, ATH5K_DEBUG_CALIBRATE,
-		"noise floor %d\n", noise_floor);
+/*
+ * When we tell the hardware to perform a noise floor calibration
+ * by setting the AR5K_PHY_AGCCTL_NF bit, it will periodically
+ * sample-and-hold the minimum noise level seen at the antennas.
+ * This value is then stored in a ring buffer of recently measured
+ * noise floor values so we have a moving window of the last few
+ * samples.
+ *
+ * The median of the values in the history is then loaded into the
+ * hardware for its own use for RSSI and CCA measurements.
+ */
+void ath5k_hw_update_noise_floor(struct ath5k_hw *ah)
+{
+	struct ath5k_eeprom_info *ee = &ah->ah_capabilities.cap_eeprom;
+	u32 val;
+	s16 nf, threshold;
+	u8 ee_mode;
 
-	if (noise_floor > AR5K_TUNE_NOISE_FLOOR) {
-		ATH5K_ERR(ah->ah_sc,
-			"noise floor calibration failed (%uMHz)\n", freq);
-		return -EAGAIN;
+	/* keep last value if calibration hasn't completed */
+	if (ath5k_hw_reg_read(ah, AR5K_PHY_AGCCTL) & AR5K_PHY_AGCCTL_NF) {
+		ATH5K_DBG(ah->ah_sc, ATH5K_DEBUG_CALIBRATE,
+			"NF did not complete in calibration window\n");
+
+		return;
 	}
 
-	ah->ah_noise_floor = noise_floor;
+	switch (ah->ah_current_channel->hw_value & CHANNEL_MODES) {
+	case CHANNEL_A:
+	case CHANNEL_T:
+	case CHANNEL_XR:
+		ee_mode = AR5K_EEPROM_MODE_11A;
+		break;
+	case CHANNEL_G:
+	case CHANNEL_TG:
+		ee_mode = AR5K_EEPROM_MODE_11G;
+		break;
+	default:
+	case CHANNEL_B:
+		ee_mode = AR5K_EEPROM_MODE_11B;
+		break;
+	}
 
-	return 0;
+
+	/* completed NF calibration, test threshold */
+	nf = ath5k_hw_read_measured_noise_floor(ah);
+	threshold = ee->ee_noise_floor_thr[ee_mode];
+
+	if (nf > threshold) {
+		ATH5K_DBG(ah->ah_sc, ATH5K_DEBUG_CALIBRATE,
+			"noise floor failure detected; "
+			"read %d, threshold %d\n",
+			nf, threshold);
+
+		nf = AR5K_TUNE_CCA_MAX_GOOD_VALUE;
+	}
+
+	ath5k_hw_update_nfcal_hist(ah, nf);
+	nf = ath5k_hw_get_median_noise_floor(ah);
+
+	/* load noise floor (in .5 dBm) so the hardware will use it */
+	val = ath5k_hw_reg_read(ah, AR5K_PHY_NF) & ~AR5K_PHY_NF_M;
+	val |= (nf * 2) & AR5K_PHY_NF_M;
+	ath5k_hw_reg_write(ah, val, AR5K_PHY_NF);
+
+	AR5K_REG_MASKED_BITS(ah, AR5K_PHY_AGCCTL, AR5K_PHY_AGCCTL_NF,
+		~(AR5K_PHY_AGCCTL_NF_EN | AR5K_PHY_AGCCTL_NF_NOUPDATE));
+
+	ath5k_hw_register_timeout(ah, AR5K_PHY_AGCCTL, AR5K_PHY_AGCCTL_NF,
+		0, false);
+
+	/*
+	 * Load a high max CCA Power value (-50 dBm in .5 dBm units)
+	 * so that we're not capped by the median we just loaded.
+	 * This will be used as the initial value for the next noise
+	 * floor calibration.
+	 */
+	val = (val & ~AR5K_PHY_NF_M) | ((-50 * 2) & AR5K_PHY_NF_M);
+	ath5k_hw_reg_write(ah, val, AR5K_PHY_NF);
+	AR5K_REG_ENABLE_BITS(ah, AR5K_PHY_AGCCTL,
+		AR5K_PHY_AGCCTL_NF_EN |
+		AR5K_PHY_AGCCTL_NF_NOUPDATE |
+		AR5K_PHY_AGCCTL_NF);
+
+	ah->ah_noise_floor = nf;
+
+	ATH5K_DBG(ah->ah_sc, ATH5K_DEBUG_CALIBRATE,
+		"noise floor calibrated: %d\n", nf);
 }
 
 /*
@@ -1256,7 +1358,7 @@ static int ath5k_hw_rf5110_calibrate(struct ath5k_hw *ah,
 		return ret;
 	}
 
-	ath5k_hw_noise_floor_calibration(ah, channel->center_freq);
+	ath5k_hw_update_noise_floor(ah);
 
 	/*
 	 * Re-enable RX/TX and beacons
@@ -1297,7 +1399,7 @@ static int ath5k_hw_rf511x_calibrate(struct ath5k_hw *ah,
 	if (i_coffd == 0 || q_coffd == 0)
 		goto done;
 
-	i_coff = ((-iq_corr) / i_coffd) & 0x3f;
+	i_coff = ((-iq_corr) / i_coffd);
 
 	/* Boundary check */
 	if (i_coff > 31)
@@ -1305,7 +1407,7 @@ static int ath5k_hw_rf511x_calibrate(struct ath5k_hw *ah,
 	if (i_coff < -32)
 		i_coff = -32;
 
-	q_coff = (((s32)i_pwr / q_coffd) - 128) & 0x1f;
+	q_coff = (((s32)i_pwr / q_coffd) - 128);
 
 	/* Boundary check */
 	if (q_coff > 15)
@@ -1329,7 +1431,7 @@ done:
 	 * since noise floor calibration interrupts rx path while I/Q
 	 * calibration doesn't. We don't need to run noise floor calibration
 	 * as often as I/Q calibration.*/
-	ath5k_hw_noise_floor_calibration(ah, channel->center_freq);
+	ath5k_hw_update_noise_floor(ah);
 
 	/* Initiate a gain_F calibration */
 	ath5k_hw_request_rfgain_probe(ah);
@@ -1731,7 +1833,7 @@ ath5k_hw_set_fast_div(struct ath5k_hw *ah, u8 ee_mode, bool enable)
 void
 ath5k_hw_set_antenna_mode(struct ath5k_hw *ah, u8 ant_mode)
 {
-	struct ieee80211_channel *channel = &ah->ah_current_channel;
+	struct ieee80211_channel *channel = ah->ah_current_channel;
 	bool use_def_for_tx, update_def_on_tx, use_def_for_rts, fast_div;
 	bool use_def_for_sg;
 	u8 def_ant, tx_ant, ee_mode;
@@ -1897,8 +1999,9 @@ ath5k_get_linear_pcdac_min(const u8 *stepL, const u8 *stepR,
 	s16 min_pwrL, min_pwrR;
 	s16 pwr_i;
 
-	if (WARN_ON(stepL[0] == stepL[1] || stepR[0] == stepR[1]))
-		return 0;
+	/* Some vendors write the same pcdac value twice !!! */
+	if (stepL[0] == stepL[1] || stepR[0] == stepR[1])
+		return max(pwrL[0], pwrR[0]);
 
 	if (pwrL[0] == pwrL[1])
 		min_pwrL = pwrL[0];
@@ -2166,6 +2269,7 @@ static void
 ath5k_get_max_ctl_power(struct ath5k_hw *ah,
 			struct ieee80211_channel *channel)
 {
+	struct ath_regulatory *regulatory = ath5k_hw_regulatory(ah);
 	struct ath5k_eeprom_info *ee = &ah->ah_capabilities.cap_eeprom;
 	struct ath5k_edge_power *rep = ee->ee_ctl_pwr;
 	u8 *ctl_val = ee->ee_ctl;
@@ -2176,7 +2280,7 @@ ath5k_get_max_ctl_power(struct ath5k_hw *ah,
 	u8 ctl_idx = 0xFF;
 	u32 target = channel->center_freq;
 
-	ctl_mode = ath_regd_get_band_ctl(&ah->ah_regulatory, channel->band);
+	ctl_mode = ath_regd_get_band_ctl(regulatory, channel->band);
 
 	switch (channel->hw_value & CHANNEL_MODES) {
 	case CHANNEL_A:
@@ -2642,7 +2746,7 @@ ath5k_setup_channel_powertable(struct ath5k_hw *ah,
 		/* Fill curves in reverse order
 		 * from lower power (max gain)
 		 * to higher power. Use curve -> idx
-		 * backmaping we did on eeprom init */
+		 * backmapping we did on eeprom init */
 		u8 idx = pdg_curve_to_idx[pdg];
 
 		/* Grab the needed curves by index */
@@ -2744,7 +2848,7 @@ ath5k_setup_channel_powertable(struct ath5k_hw *ah,
 	/* Now we have a set of curves for this
 	 * channel on tmpL (x range is table_max - table_min
 	 * and y values are tmpL[pdg][]) sorted in the same
-	 * order as EEPROM (because we've used the backmaping).
+	 * order as EEPROM (because we've used the backmapping).
 	 * So for RF5112 it's from higher power to lower power
 	 * and for RF2413 it's from lower power to higher power.
 	 * For RF5111 we only have one curve. */
@@ -2921,8 +3025,6 @@ ath5k_hw_txpower(struct ath5k_hw *ah, struct ieee80211_channel *channel,
 		ATH5K_ERR(ah->ah_sc, "invalid tx power: %u\n", txpower);
 		return -EINVAL;
 	}
-	if (txpower == 0)
-		txpower = AR5K_TUNE_DEFAULT_TXPOWER;
 
 	/* Reset TX power values */
 	memset(&ah->ah_txpower, 0, sizeof(ah->ah_txpower));
@@ -3011,7 +3113,7 @@ ath5k_hw_txpower(struct ath5k_hw *ah, struct ieee80211_channel *channel,
 int ath5k_hw_set_txpower_limit(struct ath5k_hw *ah, u8 txpower)
 {
 	/*Just a try M.F.*/
-	struct ieee80211_channel *channel = &ah->ah_current_channel;
+	struct ieee80211_channel *channel = ah->ah_current_channel;
 	u8 ee_mode;
 
 	ATH5K_TRACE(ah->ah_sc);

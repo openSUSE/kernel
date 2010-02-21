@@ -4,8 +4,8 @@
  *  Copyright (c) 1999 Andreas Gal
  *  Copyright (c) 2000-2005 Vojtech Pavlik <vojtech@suse.cz>
  *  Copyright (c) 2005 Michael Haboustak <mike-@cinci.rr.com> for Concept2, Inc
- *  Copyright (c) 2006-2008 Jiri Kosina
  *  Copyright (c) 2007-2008 Oliver Neukum
+ *  Copyright (c) 2006-2009 Jiri Kosina
  */
 
 /*
@@ -41,8 +41,6 @@
  * Version Information
  */
 
-#define DRIVER_VERSION "v2.6"
-#define DRIVER_AUTHOR "Andreas Gal, Vojtech Pavlik, Jiri Kosina"
 #define DRIVER_DESC "USB HID core driver"
 #define DRIVER_LICENSE "GPL"
 
@@ -489,7 +487,8 @@ static void hid_ctrl(struct urb *urb)
 	wake_up(&usbhid->wait);
 }
 
-void __usbhid_submit_report(struct hid_device *hid, struct hid_report *report, unsigned char dir)
+static void __usbhid_submit_report(struct hid_device *hid, struct hid_report *report,
+				   unsigned char dir)
 {
 	int head;
 	struct usbhid_device *usbhid = hid->driver_data;
@@ -885,11 +884,6 @@ static int usbhid_parse(struct hid_device *hid)
 		goto err;
 	}
 
-	dbg_hid("report descriptor (size %u, read %d) = ", rsize, n);
-	for (n = 0; n < rsize; n++)
-		dbg_hid_line(" %02x", (unsigned char) rdesc[n]);
-	dbg_hid_line("\n");
-
 	ret = hid_parse_report(hid, rdesc, rsize);
 	kfree(rdesc);
 	if (ret) {
@@ -986,7 +980,6 @@ static int usbhid_start(struct hid_device *hid)
 	setup_timer(&usbhid->io_retry, hid_retry_timeout, (unsigned long) hid);
 
 	spin_lock_init(&usbhid->lock);
-	spin_lock_init(&usbhid->lock);
 
 	usbhid->intf = intf;
 	usbhid->ifnum = interface->desc.bInterfaceNumber;
@@ -1003,8 +996,8 @@ static int usbhid_start(struct hid_device *hid)
 	usbhid->urbctrl->transfer_dma = usbhid->ctrlbuf_dma;
 	usbhid->urbctrl->transfer_flags |= (URB_NO_TRANSFER_DMA_MAP | URB_NO_SETUP_DMA_MAP);
 
-	usbhid_init_reports(hid);
-	hid_dump_device(hid);
+	if (!(hid->quirks & HID_QUIRK_NO_INIT_REPORTS))
+		usbhid_init_reports(hid);
 
 	set_bit(HID_STARTED, &usbhid->iofl);
 
@@ -1047,13 +1040,6 @@ static void usbhid_stop(struct hid_device *hid)
 
 	hid_cancel_delayed_stuff(usbhid);
 
-	if (hid->claimed & HID_CLAIMED_INPUT)
-		hidinput_disconnect(hid);
-	if (hid->claimed & HID_CLAIMED_HIDDEV)
-		hiddev_disconnect(hid);
-	if (hid->claimed & HID_CLAIMED_HIDRAW)
-		hidraw_disconnect(hid);
-
 	hid->claimed = 0;
 
 	usb_free_urb(usbhid->urbin);
@@ -1091,7 +1077,7 @@ static struct hid_ll_driver usb_hid_driver = {
 	.hidinput_input_event = usb_hidinput_input_event,
 };
 
-static int hid_probe(struct usb_interface *intf, const struct usb_device_id *id)
+static int usbhid_probe(struct usb_interface *intf, const struct usb_device_id *id)
 {
 	struct usb_host_interface *interface = intf->cur_altsetting;
 	struct usb_device *dev = interface_to_usbdev(intf);
@@ -1123,6 +1109,7 @@ static int hid_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	hid->ff_init = hid_pidff_init;
 #ifdef CONFIG_USB_HIDDEV
 	hid->hiddev_connect = hiddev_connect;
+	hid->hiddev_disconnect = hiddev_disconnect;
 	hid->hiddev_hid_event = hiddev_hid_event;
 	hid->hiddev_report_event = hiddev_report_event;
 #endif
@@ -1183,7 +1170,7 @@ err:
 	return ret;
 }
 
-static void hid_disconnect(struct usb_interface *intf)
+static void usbhid_disconnect(struct usb_interface *intf)
 {
 	struct hid_device *hid = usb_get_intfdata(intf);
 	struct usbhid_device *usbhid;
@@ -1266,10 +1253,9 @@ static int hid_suspend(struct usb_interface *intf, pm_message_t message)
 {
 	struct hid_device *hid = usb_get_intfdata(intf);
 	struct usbhid_device *usbhid = hid->driver_data;
-	struct usb_device *udev = interface_to_usbdev(intf);
 	int status;
 
-	if (udev->auto_pm) {
+	if (message.event & PM_EVENT_AUTO) {
 		spin_lock_irq(&usbhid->lock);	/* Sync with error handler */
 		if (!test_bit(HID_RESET_PENDING, &usbhid->iofl)
 		    && !test_bit(HID_CLEAR_HALT, &usbhid->iofl)
@@ -1294,7 +1280,7 @@ static int hid_suspend(struct usb_interface *intf, pm_message_t message)
 			return -EIO;
 	}
 
-	if (!ignoreled && udev->auto_pm) {
+	if (!ignoreled && (message.event & PM_EVENT_AUTO)) {
 		spin_lock_irq(&usbhid->lock);
 		if (test_bit(HID_LED_ON, &usbhid->iofl)) {
 			spin_unlock_irq(&usbhid->lock);
@@ -1307,7 +1293,8 @@ static int hid_suspend(struct usb_interface *intf, pm_message_t message)
 	hid_cancel_delayed_stuff(usbhid);
 	hid_cease_io(usbhid);
 
-	if (udev->auto_pm && test_bit(HID_KEYS_PRESSED, &usbhid->iofl)) {
+	if ((message.event & PM_EVENT_AUTO) &&
+			test_bit(HID_KEYS_PRESSED, &usbhid->iofl)) {
 		/* lost race against keypresses */
 		status = hid_start_in(hid);
 		if (status < 0)
@@ -1365,8 +1352,8 @@ MODULE_DEVICE_TABLE (usb, hid_usb_ids);
 
 static struct usb_driver hid_driver = {
 	.name =		"usbhid",
-	.probe =	hid_probe,
-	.disconnect =	hid_disconnect,
+	.probe =	usbhid_probe,
+	.disconnect =	usbhid_disconnect,
 #ifdef CONFIG_PM
 	.suspend =	hid_suspend,
 	.resume =	hid_resume,
@@ -1407,8 +1394,7 @@ static int __init hid_init(void)
 	retval = usb_register(&hid_driver);
 	if (retval)
 		goto usb_register_fail;
-	printk(KERN_INFO KBUILD_MODNAME ": " DRIVER_VERSION ":"
-			DRIVER_DESC "\n");
+	printk(KERN_INFO KBUILD_MODNAME ": " DRIVER_DESC "\n");
 
 	return 0;
 usb_register_fail:
@@ -1435,6 +1421,8 @@ static void __exit hid_exit(void)
 module_init(hid_init);
 module_exit(hid_exit);
 
-MODULE_AUTHOR(DRIVER_AUTHOR);
+MODULE_AUTHOR("Andreas Gal");
+MODULE_AUTHOR("Vojtech Pavlik");
+MODULE_AUTHOR("Jiri Kosina");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE(DRIVER_LICENSE);

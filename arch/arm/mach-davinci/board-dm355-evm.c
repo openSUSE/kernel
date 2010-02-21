@@ -9,34 +9,29 @@
  * or implied.
  */
 #include <linux/kernel.h>
-#include <linux/module.h>
 #include <linux/init.h>
-#include <linux/dma-mapping.h>
+#include <linux/err.h>
 #include <linux/platform_device.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/nand.h>
 #include <linux/i2c.h>
-#include <linux/io.h>
 #include <linux/gpio.h>
 #include <linux/clk.h>
+#include <linux/videodev2.h>
+#include <media/tvp514x.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/eeprom.h>
 
-#include <asm/setup.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
-#include <asm/mach/map.h>
-#include <asm/mach/flash.h>
 
-#include <mach/hardware.h>
 #include <mach/dm355.h>
-#include <mach/psc.h>
-#include <mach/common.h>
 #include <mach/i2c.h>
 #include <mach/serial.h>
 #include <mach/nand.h>
 #include <mach/mmc.h>
+#include <mach/usb.h>
 
 #define DAVINCI_ASYNC_EMIF_CONTROL_BASE		0x01e10000
 #define DAVINCI_ASYNC_EMIF_DATA_CE0_BASE	0x02000000
@@ -84,8 +79,9 @@ static struct davinci_nand_pdata davinci_nand_data = {
 	.mask_chipsel		= BIT(14),
 	.parts			= davinci_nand_partitions,
 	.nr_parts		= ARRAY_SIZE(davinci_nand_partitions),
-	.ecc_mode		= NAND_ECC_HW_SYNDROME,
+	.ecc_mode		= NAND_ECC_HW,
 	.options		= NAND_USE_FLASH_BBT,
+	.ecc_bits		= 4,
 };
 
 static struct resource davinci_nand_resources[] = {
@@ -117,6 +113,8 @@ static struct davinci_i2c_platform_data i2c_pdata = {
 	.bus_delay	= 0	/* usec */,
 };
 
+static struct snd_platform_data dm355_evm_snd_data;
+
 static int dm355evm_mmc_gpios = -EINVAL;
 
 static void dm355evm_mmcsd_gpios(unsigned gpio)
@@ -134,11 +132,11 @@ static void dm355evm_mmcsd_gpios(unsigned gpio)
 }
 
 static struct i2c_board_info dm355evm_i2c_info[] = {
-	{ I2C_BOARD_INFO("dm355evm_msp", 0x25),
+	{	I2C_BOARD_INFO("dm355evm_msp", 0x25),
 		.platform_data = dm355evm_mmcsd_gpios,
-		/* plus irq */ },
-	/* { I2C_BOARD_INFO("tlv320aic3x", 0x1b), }, */
-	/* { I2C_BOARD_INFO("tvp5146", 0x5d), }, */
+	},
+	/* { plus irq  }, */
+	{ I2C_BOARD_INFO("tlv320aic33", 0x1b), },
 };
 
 static void __init evm_init_i2c(void)
@@ -177,6 +175,73 @@ static struct platform_device dm355evm_dm9000 = {
 	.num_resources	= ARRAY_SIZE(dm355evm_dm9000_rsrc),
 };
 
+static struct tvp514x_platform_data tvp5146_pdata = {
+	.clk_polarity = 0,
+	.hs_polarity = 1,
+	.vs_polarity = 1
+};
+
+#define TVP514X_STD_ALL	(V4L2_STD_NTSC | V4L2_STD_PAL)
+/* Inputs available at the TVP5146 */
+static struct v4l2_input tvp5146_inputs[] = {
+	{
+		.index = 0,
+		.name = "Composite",
+		.type = V4L2_INPUT_TYPE_CAMERA,
+		.std = TVP514X_STD_ALL,
+	},
+	{
+		.index = 1,
+		.name = "S-Video",
+		.type = V4L2_INPUT_TYPE_CAMERA,
+		.std = TVP514X_STD_ALL,
+	},
+};
+
+/*
+ * this is the route info for connecting each input to decoder
+ * ouput that goes to vpfe. There is a one to one correspondence
+ * with tvp5146_inputs
+ */
+static struct vpfe_route tvp5146_routes[] = {
+	{
+		.input = INPUT_CVBS_VI2B,
+		.output = OUTPUT_10BIT_422_EMBEDDED_SYNC,
+	},
+	{
+		.input = INPUT_SVIDEO_VI2C_VI1C,
+		.output = OUTPUT_10BIT_422_EMBEDDED_SYNC,
+	},
+};
+
+static struct vpfe_subdev_info vpfe_sub_devs[] = {
+	{
+		.name = "tvp5146",
+		.grp_id = 0,
+		.num_inputs = ARRAY_SIZE(tvp5146_inputs),
+		.inputs = tvp5146_inputs,
+		.routes = tvp5146_routes,
+		.can_route = 1,
+		.ccdc_if_params = {
+			.if_type = VPFE_BT656,
+			.hdpol = VPFE_PINPOL_POSITIVE,
+			.vdpol = VPFE_PINPOL_POSITIVE,
+		},
+		.board_info = {
+			I2C_BOARD_INFO("tvp5146", 0x5d),
+			.platform_data = &tvp5146_pdata,
+		},
+	}
+};
+
+static struct vpfe_config vpfe_cfg = {
+	.num_subdevs = ARRAY_SIZE(vpfe_sub_devs),
+	.i2c_adapter_id = 1,
+	.sub_devs = vpfe_sub_devs,
+	.card_name = "DM355 EVM",
+	.ccdc = "DM355 CCDC",
+};
+
 static struct platform_device *davinci_evm_devices[] __initdata = {
 	&dm355evm_dm9000,
 	&davinci_nand_device,
@@ -188,6 +253,8 @@ static struct davinci_uart_config uart_config __initdata = {
 
 static void __init dm355_evm_map_io(void)
 {
+	/* setup input configuration for VPFE input devices */
+	dm355_set_vpfe_config(&vpfe_cfg);
 	dm355_init();
 }
 
@@ -272,13 +339,16 @@ static __init void dm355_evm_init(void)
 	gpio_request(2, "usb_id_toggle");
 	gpio_direction_output(2, USB_ID_VALUE);
 	/* irlml6401 switches over 1A in under 8 msec */
-	setup_usb(500, 8);
+	davinci_setup_usb(1000, 8);
 
 	davinci_setup_mmc(0, &dm355evm_mmc_config);
 	davinci_setup_mmc(1, &dm355evm_mmc_config);
 
 	dm355_init_spi0(BIT(0), dm355_evm_spi_info,
 			ARRAY_SIZE(dm355_evm_spi_info));
+
+	/* DM335 EVM uses ASP1; line-out is a stereo mini-jack */
+	dm355_init_asp1(ASP1_TX_EVT_EN | ASP1_RX_EVT_EN, &dm355_evm_snd_data);
 }
 
 static __init void dm355_evm_irq_init(void)

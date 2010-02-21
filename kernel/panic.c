@@ -10,6 +10,7 @@
  */
 #include <linux/debug_locks.h>
 #include <linux/interrupt.h>
+#include <linux/kmsg_dump.h>
 #include <linux/kallsyms.h>
 #include <linux/notifier.h>
 #include <linux/module.h>
@@ -81,6 +82,8 @@ NORET_TYPE void panic(const char * fmt, ...)
 	 */
 	crash_kexec(NULL);
 
+	kmsg_dump(KMSG_DUMP_PANIC);
+
 	/*
 	 * Note smp_send_stop is the usual smp shutdown function, which
 	 * unfortunately means it may not be hardened to work in a panic
@@ -89,6 +92,8 @@ NORET_TYPE void panic(const char * fmt, ...)
 	smp_send_stop();
 
 	atomic_notifier_call_chain(&panic_notifier_list, 0, buf);
+
+	bust_spinlocks(0);
 
 	if (!panic_blink)
 		panic_blink = no_blink;
@@ -136,7 +141,6 @@ NORET_TYPE void panic(const char * fmt, ...)
 		mdelay(1);
 		i++;
 	}
-	bust_spinlocks(0);
 }
 
 EXPORT_SYMBOL(panic);
@@ -177,7 +181,7 @@ static const struct tnt tnts[] = {
  *  'W' - Taint on warning.
  *  'C' - modules from drivers/staging are loaded.
  *
- *	The string is overwritten by the next call to print_taint().
+ *	The string is overwritten by the next call to print_tainted().
  */
 const char *print_tainted(void)
 {
@@ -338,6 +342,7 @@ void oops_exit(void)
 {
 	do_oops_enter_exit();
 	print_oops_end_marker();
+	kmsg_dump(KMSG_DUMP_OOPS);
 }
 
 #ifdef WANT_WARN_ON_SLOWPATH

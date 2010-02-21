@@ -312,9 +312,9 @@ int paste_selection(struct tty_struct *tty)
 	struct  tty_ldisc *ld;
 	DECLARE_WAITQUEUE(wait, current);
 
-	acquire_console_sem();
+	acquire_console_mutex();
 	poke_blanked_console();
-	release_console_sem();
+	release_console_mutex();
 
 	ld = tty_ldisc_ref_wait(tty);
 	

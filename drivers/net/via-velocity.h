@@ -29,9 +29,10 @@
 
 #define VELOCITY_NAME          "via-velocity"
 #define VELOCITY_FULL_DRV_NAM  "VIA Networking Velocity Family Gigabit Ethernet Adapter Driver"
-#define VELOCITY_VERSION       "1.14"
+#define VELOCITY_VERSION       "1.15"
 
 #define VELOCITY_IO_SIZE	256
+#define VELOCITY_NAPI_WEIGHT	64
 
 #define PKT_BUF_SZ          1540
 
@@ -96,8 +97,8 @@
  * Bits in the CSM register
  */
 
-#define CSM_IPOK            0x40	//IP Checkusm validatiaon ok
-#define CSM_TUPOK           0x20	//TCP/UDP Checkusm validatiaon ok
+#define CSM_IPOK            0x40	//IP Checksum validation ok
+#define CSM_TUPOK           0x20	//TCP/UDP Checksum validation ok
 #define CSM_FRAG            0x10	//Fragment IP datagram
 #define CSM_IPKT            0x04	//Received an IP packet
 #define CSM_TCPKT           0x02	//Received a TCP packet
@@ -819,7 +820,7 @@ enum  velocity_owner {
  *	Bits in the EECSR register
  */
 
-#define EECSR_EMBP          0x40	/* eeprom embeded programming */
+#define EECSR_EMBP          0x40	/* eeprom embedded programming */
 #define EECSR_RELOAD        0x20	/* eeprom content reload */
 #define EECSR_DPM           0x10	/* eeprom direct programming */
 #define EECSR_ECS           0x08	/* eeprom CS pin */
@@ -1005,7 +1006,8 @@ struct mac_regs {
 
 	volatile __le32 RDBaseLo;	/* 0x38 */
 	volatile __le16 RDIdx;		/* 0x3C */
-	volatile __le16 reserved_3E;
+	volatile u8 TQETMR;		/* 0x3E, VT3216 and above only */
+	volatile u8 RQETMR;		/* 0x3F, VT3216 and above only */
 
 	volatile __le32 TDBaseLo[4];	/* 0x40 */
 
@@ -1421,7 +1423,6 @@ enum velocity_msg_level {
  */
 
 #define     VELOCITY_FLAGS_TAGGING         0x00000001UL
-#define     VELOCITY_FLAGS_TX_CSUM         0x00000002UL
 #define     VELOCITY_FLAGS_RX_CSUM         0x00000004UL
 #define     VELOCITY_FLAGS_IP_ALIGN        0x00000008UL
 #define     VELOCITY_FLAGS_VAL_PKT_LEN     0x00000010UL
@@ -1491,6 +1492,10 @@ struct velocity_opt {
 	int rx_bandwidth_hi;
 	int rx_bandwidth_lo;
 	int rx_bandwidth_en;
+	int rxqueue_timer;
+	int txqueue_timer;
+	int tx_intsup;
+	int rx_intsup;
 	u32 flags;
 };
 
@@ -1499,8 +1504,6 @@ struct velocity_opt {
 #define GET_RD_BY_IDX(vptr, idx)   (vptr->rd_ring[idx])
 
 struct velocity_info {
-	struct list_head list;
-
 	struct pci_dev *pdev;
 	struct net_device *dev;
 
@@ -1559,6 +1562,8 @@ struct velocity_info {
 	u32 ticks;
 
 	u8 rev_id;
+
+	struct napi_struct napi;
 };
 
 /**

@@ -33,6 +33,7 @@
 #include "s5h1409.h"
 #include "mt352.h"
 #include "mt352_priv.h" /* FIXME */
+#include "tda1002x.h"
 
 MODULE_DESCRIPTION("driver for em28xx based DVB cards");
 MODULE_AUTHOR("Mauro Carvalho Chehab <mchehab@infradead.org>");
@@ -295,6 +296,11 @@ static struct mt352_config terratec_xs_mt352_cfg = {
 	.demod_init = mt352_terratec_xs_init,
 };
 
+static struct tda10023_config em28xx_tda10023_config = {
+	.demod_address = 0x0c,
+	.invert = 1,
+};
+
 /* ------------------------------------------------------------------ */
 
 static int attach_xc3028(u8 addr, struct em28xx *dev)
@@ -307,22 +313,20 @@ static int attach_xc3028(u8 addr, struct em28xx *dev)
 	cfg.i2c_addr  = addr;
 
 	if (!dev->dvb->frontend) {
-		printk(KERN_ERR "%s/2: dvb frontend not attached. "
-				"Can't attach xc3028\n",
-		       dev->name);
+		em28xx_errdev("/2: dvb frontend not attached. "
+				"Can't attach xc3028\n");
 		return -EINVAL;
 	}
 
 	fe = dvb_attach(xc2028_attach, dev->dvb->frontend, &cfg);
 	if (!fe) {
-		printk(KERN_ERR "%s/2: xc3028 attach failed\n",
-		       dev->name);
+		em28xx_errdev("/2: xc3028 attach failed\n");
 		dvb_frontend_detach(dev->dvb->frontend);
 		dev->dvb->frontend = NULL;
 		return -EINVAL;
 	}
 
-	printk(KERN_INFO "%s/2: xc3028 attached\n", dev->name);
+	em28xx_info("%s/2: xc3028 attached\n", dev->name);
 
 	return 0;
 }
@@ -457,7 +461,7 @@ static int dvb_init(struct em28xx *dev)
 	dvb = kzalloc(sizeof(struct em28xx_dvb), GFP_KERNEL);
 
 	if (dvb == NULL) {
-		printk(KERN_INFO "em28xx_dvb: memory allocation failed\n");
+		em28xx_info("em28xx_dvb: memory allocation failed\n");
 		return -ENOMEM;
 	}
 	dev->dvb = dvb;
@@ -487,6 +491,7 @@ static int dvb_init(struct em28xx *dev)
 		}
 		break;
 	case EM2880_BOARD_HAUPPAUGE_WINTV_HVR_900:
+	case EM2882_BOARD_TERRATEC_HYBRID_XS:
 	case EM2880_BOARD_EMPIRE_DUAL_TV:
 		dvb->frontend = dvb_attach(zl10353_attach,
 					   &em28xx_zl10353_xc3028_no_i2c_gate,
@@ -549,16 +554,26 @@ static int dvb_init(struct em28xx *dev)
 		}
 		break;
 #endif
+	case EM2870_BOARD_REDDO_DVB_C_USB_BOX:
+		/* Philips CU1216L NIM (Philips TDA10023 + Infineon TUA6034) */
+		dvb->frontend = dvb_attach(tda10023_attach,
+			&em28xx_tda10023_config,
+			&dev->i2c_adap, 0x48);
+		if (dvb->frontend) {
+			if (!dvb_attach(simple_tuner_attach, dvb->frontend,
+				&dev->i2c_adap, 0x60, TUNER_PHILIPS_CU1216L)) {
+				result = -EINVAL;
+				goto out_free;
+			}
+		}
+		break;
 	default:
-		printk(KERN_ERR "%s/2: The frontend of your DVB/ATSC card"
-				" isn't supported yet\n",
-		       dev->name);
+		em28xx_errdev("/2: The frontend of your DVB/ATSC card"
+				" isn't supported yet\n");
 		break;
 	}
 	if (NULL == dvb->frontend) {
-		printk(KERN_ERR
-		       "%s/2: frontend initialization failed\n",
-		       dev->name);
+		em28xx_errdev("/2: frontend initialization failed\n");
 		result = -EINVAL;
 		goto out_free;
 	}
@@ -572,7 +587,7 @@ static int dvb_init(struct em28xx *dev)
 		goto out_free;
 
 	em28xx_set_mode(dev, EM28XX_SUSPEND);
-	printk(KERN_INFO "Successfully loaded em28xx-dvb\n");
+	em28xx_info("Successfully loaded em28xx-dvb\n");
 	return 0;
 
 out_free:

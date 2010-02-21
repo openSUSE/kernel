@@ -27,7 +27,7 @@ static int pci_conf1_read(unsigned int seg, unsigned int bus,
 		return -EINVAL;
 	}
 
-	atomic_spin_lock_irqsave(&pci_config_lock, flags);
+	raw_spin_lock_irqsave(&pci_config_lock, flags);
 
 	outl(PCI_CONF1_ADDRESS(bus, devfn, reg), 0xCF8);
 
@@ -43,7 +43,7 @@ static int pci_conf1_read(unsigned int seg, unsigned int bus,
 		break;
 	}
 
-	atomic_spin_unlock_irqrestore(&pci_config_lock, flags);
+	raw_spin_unlock_irqrestore(&pci_config_lock, flags);
 
 	return 0;
 }
@@ -56,7 +56,7 @@ static int pci_conf1_write(unsigned int seg, unsigned int bus,
 	if ((bus > 255) || (devfn > 255) || (reg > 4095))
 		return -EINVAL;
 
-	atomic_spin_lock_irqsave(&pci_config_lock, flags);
+	raw_spin_lock_irqsave(&pci_config_lock, flags);
 
 	outl(PCI_CONF1_ADDRESS(bus, devfn, reg), 0xCF8);
 
@@ -72,7 +72,7 @@ static int pci_conf1_write(unsigned int seg, unsigned int bus,
 		break;
 	}
 
-	atomic_spin_unlock_irqrestore(&pci_config_lock, flags);
+	raw_spin_unlock_irqrestore(&pci_config_lock, flags);
 
 	return 0;
 }
@@ -108,7 +108,7 @@ static int pci_conf2_read(unsigned int seg, unsigned int bus,
 	if (dev & 0x10) 
 		return PCIBIOS_DEVICE_NOT_FOUND;
 
-	atomic_spin_lock_irqsave(&pci_config_lock, flags);
+	raw_spin_lock_irqsave(&pci_config_lock, flags);
 
 	outb((u8)(0xF0 | (fn << 1)), 0xCF8);
 	outb((u8)bus, 0xCFA);
@@ -127,7 +127,7 @@ static int pci_conf2_read(unsigned int seg, unsigned int bus,
 
 	outb(0, 0xCF8);
 
-	atomic_spin_unlock_irqrestore(&pci_config_lock, flags);
+	raw_spin_unlock_irqrestore(&pci_config_lock, flags);
 
 	return 0;
 }
@@ -147,7 +147,7 @@ static int pci_conf2_write(unsigned int seg, unsigned int bus,
 	if (dev & 0x10) 
 		return PCIBIOS_DEVICE_NOT_FOUND;
 
-	atomic_spin_lock_irqsave(&pci_config_lock, flags);
+	raw_spin_lock_irqsave(&pci_config_lock, flags);
 
 	outb((u8)(0xF0 | (fn << 1)), 0xCF8);
 	outb((u8)bus, 0xCFA);
@@ -166,7 +166,7 @@ static int pci_conf2_write(unsigned int seg, unsigned int bus,
 
 	outb(0, 0xCF8);    
 
-	atomic_spin_unlock_irqrestore(&pci_config_lock, flags);
+	raw_spin_unlock_irqrestore(&pci_config_lock, flags);
 
 	return 0;
 }
@@ -192,13 +192,14 @@ struct pci_raw_ops pci_direct_conf2 = {
 static int __init pci_sanity_check(struct pci_raw_ops *o)
 {
 	u32 x = 0;
-	int devfn;
+	int year, devfn;
 
 	if (pci_probe & PCI_NO_CHECKS)
 		return 1;
 	/* Assume Type 1 works for newer systems.
 	   This handles machines that don't have anything on PCI Bus 0. */
-	if (dmi_get_year(DMI_BIOS_DATE) >= 2001)
+	dmi_get_date(DMI_BIOS_DATE, &year, NULL, NULL);
+	if (year >= 2001)
 		return 1;
 
 	for (devfn = 0; devfn < 0x100; devfn++) {
@@ -223,23 +224,23 @@ static int __init pci_check_type1(void)
 	unsigned int tmp;
 	int works = 0;
 
-	atomic_spin_lock_irqsave(&pci_config_lock, flags);
+	raw_spin_lock_irqsave(&pci_config_lock, flags);
 
 	outb(0x01, 0xCFB);
 	tmp = inl(0xCF8);
 	outl(0x80000000, 0xCF8);
 
 	if (inl(0xCF8) == 0x80000000) {
-		atomic_spin_unlock_irqrestore(&pci_config_lock, flags);
+		raw_spin_unlock_irqrestore(&pci_config_lock, flags);
 
 		if (pci_sanity_check(&pci_direct_conf1))
 			works = 1;
 
-		atomic_spin_lock_irqsave(&pci_config_lock, flags);
+		raw_spin_lock_irqsave(&pci_config_lock, flags);
 	}
 	outl(tmp, 0xCF8);
 
-	atomic_spin_unlock_irqrestore(&pci_config_lock, flags);
+	raw_spin_unlock_irqrestore(&pci_config_lock, flags);
 
 	return works;
 }
@@ -249,19 +250,19 @@ static int __init pci_check_type2(void)
 	unsigned long flags;
 	int works = 0;
 
-	atomic_spin_lock_irqsave(&pci_config_lock, flags);
+	raw_spin_lock_irqsave(&pci_config_lock, flags);
 
 	outb(0x00, 0xCFB);
 	outb(0x00, 0xCF8);
 	outb(0x00, 0xCFA);
 
 	if (inb(0xCF8) == 0x00 && inb(0xCFA) == 0x00) {
-		atomic_spin_unlock_irqrestore(&pci_config_lock, flags);
+		raw_spin_unlock_irqrestore(&pci_config_lock, flags);
 
 		if (pci_sanity_check(&pci_direct_conf2))
 			works = 1;
 	} else
-		atomic_spin_unlock_irqrestore(&pci_config_lock, flags);
+		raw_spin_unlock_irqrestore(&pci_config_lock, flags);
 
 	return works;
 }

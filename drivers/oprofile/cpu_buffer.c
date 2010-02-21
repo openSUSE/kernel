@@ -21,7 +21,6 @@
 
 #include <linux/sched.h>
 #include <linux/oprofile.h>
-#include <linux/vmalloc.h>
 #include <linux/errno.h>
 
 #include "event_buffer.h"
@@ -48,7 +47,7 @@
  */
 static struct ring_buffer *op_ring_buffer_read;
 static struct ring_buffer *op_ring_buffer_write;
-DEFINE_PER_CPU(struct oprofile_cpu_buffer, cpu_buffer);
+DEFINE_PER_CPU(struct oprofile_cpu_buffer, op_cpu_buffer);
 
 static void wq_sync_buffer(struct work_struct *work);
 
@@ -62,8 +61,7 @@ unsigned long oprofile_get_cpu_buffer_size(void)
 
 void oprofile_cpu_buffer_inc_smpl_lost(void)
 {
-	struct oprofile_cpu_buffer *cpu_buf
-		= &__get_cpu_var(cpu_buffer);
+	struct oprofile_cpu_buffer *cpu_buf = &__get_cpu_var(op_cpu_buffer);
 
 	cpu_buf->sample_lost_overflow++;
 }
@@ -96,7 +94,7 @@ int alloc_cpu_buffers(void)
 		goto fail;
 
 	for_each_possible_cpu(i) {
-		struct oprofile_cpu_buffer *b = &per_cpu(cpu_buffer, i);
+		struct oprofile_cpu_buffer *b = &per_cpu(op_cpu_buffer, i);
 
 		b->last_task = NULL;
 		b->last_is_kernel = -1;
@@ -123,7 +121,7 @@ void start_cpu_work(void)
 	work_enabled = 1;
 
 	for_each_online_cpu(i) {
-		struct oprofile_cpu_buffer *b = &per_cpu(cpu_buffer, i);
+		struct oprofile_cpu_buffer *b = &per_cpu(op_cpu_buffer, i);
 
 		/*
 		 * Spread the work by 1 jiffy per cpu so they dont all
@@ -140,7 +138,7 @@ void end_cpu_work(void)
 	work_enabled = 0;
 
 	for_each_online_cpu(i) {
-		struct oprofile_cpu_buffer *b = &per_cpu(cpu_buffer, i);
+		struct oprofile_cpu_buffer *b = &per_cpu(op_cpu_buffer, i);
 
 		cancel_delayed_work(&b->work);
 	}
@@ -331,7 +329,7 @@ static inline void
 __oprofile_add_ext_sample(unsigned long pc, struct pt_regs * const regs,
 			  unsigned long event, int is_kernel)
 {
-	struct oprofile_cpu_buffer *cpu_buf = &__get_cpu_var(cpu_buffer);
+	struct oprofile_cpu_buffer *cpu_buf = &__get_cpu_var(op_cpu_buffer);
 	unsigned long backtrace = oprofile_backtrace_depth;
 
 	/*
@@ -376,7 +374,7 @@ oprofile_write_reserve(struct op_entry *entry, struct pt_regs * const regs,
 {
 	struct op_sample *sample;
 	int is_kernel = !user_mode(regs);
-	struct oprofile_cpu_buffer *cpu_buf = &__get_cpu_var(cpu_buffer);
+	struct oprofile_cpu_buffer *cpu_buf = &__get_cpu_var(op_cpu_buffer);
 
 	cpu_buf->sample_received++;
 
@@ -407,6 +405,21 @@ int oprofile_add_data(struct op_entry *entry, unsigned long val)
 	return op_cpu_buffer_add_data(entry, val);
 }
 
+int oprofile_add_data64(struct op_entry *entry, u64 val)
+{
+	if (!entry->event)
+		return 0;
+	if (op_cpu_buffer_get_size(entry) < 2)
+		/*
+		 * the function returns 0 to indicate a too small
+		 * buffer, even if there is some space left
+		 */
+		return 0;
+	if (!op_cpu_buffer_add_data(entry, (u32)val))
+		return 0;
+	return op_cpu_buffer_add_data(entry, (u32)(val >> 32));
+}
+
 int oprofile_write_commit(struct op_entry *entry)
 {
 	if (!entry->event)
@@ -416,13 +429,13 @@ int oprofile_write_commit(struct op_entry *entry)
 
 void oprofile_add_pc(unsigned long pc, int is_kernel, unsigned long event)
 {
-	struct oprofile_cpu_buffer *cpu_buf = &__get_cpu_var(cpu_buffer);
+	struct oprofile_cpu_buffer *cpu_buf = &__get_cpu_var(op_cpu_buffer);
 	log_sample(cpu_buf, pc, 0, is_kernel, event);
 }
 
 void oprofile_add_trace(unsigned long pc)
 {
-	struct oprofile_cpu_buffer *cpu_buf = &__get_cpu_var(cpu_buffer);
+	struct oprofile_cpu_buffer *cpu_buf = &__get_cpu_var(op_cpu_buffer);
 
 	if (!cpu_buf->tracing)
 		return;

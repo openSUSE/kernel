@@ -182,16 +182,16 @@ bfin_jc_circ_write(const unsigned char *buf, int count)
 }
 
 #ifndef CONFIG_BFIN_JTAG_COMM_CONSOLE
-# define acquire_console_sem()
-# define release_console_sem()
+# define acquire_console_mutex()
+# define release_console_mutex()
 #endif
 static int
 bfin_jc_write(struct tty_struct *tty, const unsigned char *buf, int count)
 {
 	int i;
-	acquire_console_sem();
+	acquire_console_mutex();
 	i = bfin_jc_circ_write(buf, count);
-	release_console_sem();
+	release_console_mutex();
 	wake_up_process(bfin_jc_kthread);
 	return i;
 }
@@ -226,7 +226,7 @@ bfin_jc_wait_until_sent(struct tty_struct *tty, int timeout)
 	}
 }
 
-static struct tty_operations bfin_jc_ops = {
+static const struct tty_operations bfin_jc_ops = {
 	.open            = bfin_jc_open,
 	.close           = bfin_jc_close,
 	.write           = bfin_jc_write,

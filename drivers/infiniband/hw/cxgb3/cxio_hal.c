@@ -589,7 +589,7 @@ static int cxio_hal_destroy_ctrl_qp(struct cxio_rdev *rdev_p)
 
 /* write len bytes of data into addr (32B aligned address)
  * If data is NULL, clear len byte of memory to zero.
- * caller aquires the ctrl_qp lock before the call
+ * caller acquires the ctrl_qp lock before the call
  */
 static int cxio_hal_ctrl_qp_write_mem(struct cxio_rdev *rdev_p, u32 addr,
 				      u32 len, void *data)
@@ -852,7 +852,9 @@ int cxio_rdma_init(struct cxio_rdev *rdev_p, struct t3_rdma_init_attr *attr)
 	wqe->qpcaps = attr->qpcaps;
 	wqe->ulpdu_size = cpu_to_be16(attr->tcp_emss);
 	wqe->rqe_count = cpu_to_be16(attr->rqe_count);
-	wqe->flags_rtr_type = cpu_to_be16(attr->flags|V_RTR_TYPE(attr->rtr_type));
+	wqe->flags_rtr_type = cpu_to_be16(attr->flags |
+					  V_RTR_TYPE(attr->rtr_type) |
+					  V_CHAN(attr->chan));
 	wqe->ord = cpu_to_be32(attr->ord);
 	wqe->ird = cpu_to_be32(attr->ird);
 	wqe->qp_dma_addr = cpu_to_be64(attr->qp_dma_addr);
@@ -1032,6 +1034,7 @@ err3:
 err2:
 	cxio_hal_destroy_ctrl_qp(rdev_p);
 err1:
+	rdev_p->t3cdev_p->ulp = NULL;
 	list_del(&rdev_p->entry);
 	return err;
 }

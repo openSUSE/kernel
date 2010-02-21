@@ -32,7 +32,7 @@
 #include <linux/init.h>
 
 #include <asm/abs_addr.h>
-#include <asm/iommu.h>
+#include <asm/cell-regs.h>
 #include <asm/lv1call.h>
 #include <asm/ps3av.h>
 #include <asm/ps3fb.h>
@@ -513,9 +513,9 @@ static int ps3fb_release(struct fb_info *info, int user)
 	if (atomic_dec_and_test(&ps3fb.f_count)) {
 		if (atomic_read(&ps3fb.ext_flip)) {
 			atomic_set(&ps3fb.ext_flip, 0);
-			if (!try_acquire_console_sem()) {
+			if (!try_acquire_console_mutex()) {
 				ps3fb_sync(info, 0);	/* single buffer */
-				release_console_sem();
+				release_console_mutex();
 			}
 		}
 	}
@@ -830,14 +830,14 @@ static int ps3fb_ioctl(struct fb_info *info, unsigned int cmd,
 			if (vmode) {
 				var = info->var;
 				fb_videomode_to_var(&var, vmode);
-				acquire_console_sem();
+				acquire_console_mutex();
 				info->flags |= FBINFO_MISC_USEREVENT;
 				/* Force, in case only special bits changed */
 				var.activate |= FB_ACTIVATE_FORCE;
 				par->new_mode_id = val;
 				retval = fb_set_var(info, &var);
 				info->flags &= ~FBINFO_MISC_USEREVENT;
-				release_console_sem();
+				release_console_mutex();
 			}
 			break;
 		}
@@ -881,9 +881,9 @@ static int ps3fb_ioctl(struct fb_info *info, unsigned int cmd,
 			break;
 
 		dev_dbg(info->device, "PS3FB_IOCTL_FSEL:%d\n", val);
-		acquire_console_sem();
+		acquire_console_mutex();
 		retval = ps3fb_sync(info, val);
-		release_console_sem();
+		release_console_mutex();
 		break;
 
 	default:
@@ -903,9 +903,9 @@ static int ps3fbd(void *arg)
 		set_current_state(TASK_INTERRUPTIBLE);
 		if (ps3fb.is_kicked) {
 			ps3fb.is_kicked = 0;
-			acquire_console_sem();
+			acquire_console_mutex();
 			ps3fb_sync(info, 0);	/* single buffer */
-			release_console_sem();
+			release_console_mutex();
 		}
 		schedule();
 	}

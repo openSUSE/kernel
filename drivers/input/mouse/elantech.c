@@ -420,6 +420,7 @@ static void elantech_set_input_params(struct psmouse *psmouse)
 
 	__set_bit(EV_KEY, dev->evbit);
 	__set_bit(EV_ABS, dev->evbit);
+	__clear_bit(EV_REL, dev->evbit);
 
 	__set_bit(BTN_LEFT, dev->keybit);
 	__set_bit(BTN_RIGHT, dev->keybit);
@@ -553,7 +554,7 @@ static struct attribute_group elantech_attr_group = {
 /*
  * Use magic knock to detect Elantech touchpad
  */
-int elantech_detect(struct psmouse *psmouse, int set_properties)
+int elantech_detect(struct psmouse *psmouse, bool set_properties)
 {
 	struct ps2dev *ps2dev = &psmouse->ps2dev;
 	unsigned char param[3];
