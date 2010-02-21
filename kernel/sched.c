@@ -1479,7 +1479,8 @@ static const u32 prio_to_wmult[40] = {
  /*  15 */ 119304647, 148102320, 186737708, 238609294, 286331153,
 };
 
-static void activate_task(struct rq *rq, struct task_struct *p, int wakeup);
+static void activate_task(struct rq *rq, struct task_struct *p, int wakeup,
+			  bool head);
 
 /*
  * runqueue iterator, to support SMP load-balancing between different
@@ -2052,12 +2053,13 @@ static int effective_prio(struct task_struct *p)
 /*
  * activate_task - move a task to the runqueue.
  */
-static void activate_task(struct rq *rq, struct task_struct *p, int wakeup)
+static void
+activate_task(struct rq *rq, struct task_struct *p, int wakeup, bool head)
 {
 	if (task_contributes_to_load(p))
 		rq->nr_uninterruptible--;
 
-	enqueue_task(rq, p, wakeup, false);
+	enqueue_task(rq, p, wakeup, head);
 	inc_nr_running(rq);
 }
 
@@ -2554,7 +2556,7 @@ out_activate:
 		schedstat_inc(p, se.nr_wakeups_local);
 	else
 		schedstat_inc(p, se.nr_wakeups_remote);
-	activate_task(rq, p, 1);
+	activate_task(rq, p, 1, false);
 	success = 1;
 
 	/*
@@ -2821,7 +2823,7 @@ void wake_up_new_task(struct task_struct *p, unsigned long clone_flags)
 	BUG_ON(p->state != TASK_WAKING);
 	p->state = TASK_RUNNING;
 	update_rq_clock(rq);
-	activate_task(rq, p, 0);
+	activate_task(rq, p, 0, false);
 	trace_sched_wakeup_new(rq, p, 1);
 	check_preempt_curr(rq, p, WF_FORK);
 #ifdef CONFIG_SMP
@@ -3390,7 +3392,7 @@ static void pull_task(struct rq *src_rq, struct task_struct *p,
 {
 	deactivate_task(src_rq, p, 0);
 	set_task_cpu(p, this_cpu);
-	activate_task(this_rq, p, 0);
+	activate_task(this_rq, p, 0, false);
 	check_preempt_curr(this_rq, p, 0);
 }
 
@@ -6712,7 +6714,7 @@ recheck:
 	if (running)
 		p->sched_class->set_curr_task(rq);
 	if (on_rq) {
-		activate_task(rq, p, 0);
+		activate_task(rq, p, 0, false);
 
 		check_class_changed(rq, p, prev_class, oldprio, running);
 	}
@@ -7625,7 +7627,7 @@ static int __migrate_task(struct task_struct *p, int src_cpu, int dest_cpu)
 	if (p->se.on_rq) {
 		deactivate_task(rq_src, p, 0);
 		set_task_cpu(p, dest_cpu);
-		activate_task(rq_dest, p, 0);
+		activate_task(rq_dest, p, 0, false);
 		check_preempt_curr(rq_dest, p, 0);
 	}
 done:
@@ -7793,7 +7795,7 @@ void sched_idle_next(void)
 	__setscheduler(rq, p, SCHED_FIFO, MAX_RT_PRIO-1);
 
 	update_rq_clock(rq);
-	activate_task(rq, p, 0);
+	activate_task(rq, p, 0, false);
 
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 }
@@ -10147,7 +10149,7 @@ static void normalize_task(struct rq *rq, struct task_struct *p)
 		deactivate_task(rq, p, 0);
 	__setscheduler(rq, p, SCHED_NORMAL, 0);
 	if (on_rq) {
-		activate_task(rq, p, 0);
+		activate_task(rq, p, 0, false);
 		resched_task(rq->curr);
 	}
 }

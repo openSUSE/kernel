@@ -1418,7 +1418,7 @@ static int push_rt_task(struct rq *rq)
 
 	deactivate_task(rq, next_task, 0);
 	set_task_cpu(next_task, lowest_rq->cpu);
-	activate_task(lowest_rq, next_task, 0);
+	activate_task(lowest_rq, next_task, 0, false);
 
 	resched_task(lowest_rq->curr);
 
@@ -1501,7 +1501,7 @@ static int pull_rt_task(struct rq *this_rq)
 
 			deactivate_task(src_rq, p, 0);
 			set_task_cpu(p, this_cpu);
-			activate_task(this_rq, p, 0);
+			activate_task(this_rq, p, 0, false);
 			/*
 			 * We continue with the search, just in
 			 * case there's an even higher prio task
