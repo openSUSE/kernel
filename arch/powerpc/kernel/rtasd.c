@@ -209,7 +209,7 @@ void pSeries_log_error(char *buf, unsigned int err_type, int fatal)
 		break;
 	case ERR_TYPE_KERNEL_PANIC:
 	default:
-		WARN_ON_ONCE(!irqs_disabled()); /* @@@ DEBUG @@@ */
+		WARN_ON_ONCE_NONRT(!irqs_disabled()); /* @@@ DEBUG @@@ */
 		spin_unlock_irqrestore(&rtasd_log_lock, s);
 		return;
 	}
@@ -231,7 +231,7 @@ void pSeries_log_error(char *buf, unsigned int err_type, int fatal)
 	/* Check to see if we need to or have stopped logging */
 	if (fatal || !logging_enabled) {
 		logging_enabled = 0;
-		WARN_ON_ONCE(!irqs_disabled()); /* @@@ DEBUG @@@ */
+		WARN_ON_ONCE_NONRT(!irqs_disabled()); /* @@@ DEBUG @@@ */
 		spin_unlock_irqrestore(&rtasd_log_lock, s);
 		return;
 	}
@@ -254,13 +254,13 @@ void pSeries_log_error(char *buf, unsigned int err_type, int fatal)
 		else
 			rtas_log_start += 1;
 
-		WARN_ON_ONCE(!irqs_disabled()); /* @@@ DEBUG @@@ */
+		WARN_ON_ONCE_NONRT(!irqs_disabled()); /* @@@ DEBUG @@@ */
 		spin_unlock_irqrestore(&rtasd_log_lock, s);
 		wake_up_interruptible(&rtas_log_wait);
 		break;
 	case ERR_TYPE_KERNEL_PANIC:
 	default:
-		WARN_ON_ONCE(!irqs_disabled()); /* @@@ DEBUG @@@ */
+		WARN_ON_ONCE_NONRT(!irqs_disabled()); /* @@@ DEBUG @@@ */
 		spin_unlock_irqrestore(&rtasd_log_lock, s);
 		return;
 	}
