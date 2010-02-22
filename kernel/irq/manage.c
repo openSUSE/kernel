@@ -621,7 +621,7 @@ static int irq_thread(void *data)
 	struct sched_param param = { .sched_priority = MAX_USER_RT_PRIO/2, };
 	struct irqaction *action = data;
 	struct irq_desc *desc = irq_to_desc(action->irq);
-	int wake, oneshot = desc->status & IRQ_ONESHOT;
+	int wake;
 
 	sched_setscheduler(current, SCHED_FIFO, &param);
 	current->extra_flags |= PFE_HARDIRQ;
@@ -649,7 +649,7 @@ static int irq_thread(void *data)
 
 			action->thread_fn(action->irq, action->dev_id);
 
-			if (oneshot)
+			if (desc->status & IRQ_ONESHOT)
 				irq_finalize_oneshot(action->irq, desc, action);
 		}
 
