@@ -377,8 +377,8 @@ int mnt_want_write(struct vfsmount *mnt)
 	 * held by mnt_make_readonly(). Works on !RT as well.
 	 */
 	while (mnt->mnt_flags & MNT_WRITE_HOLD) {
-		spin_lock(&vfsmount_lock);
-		spin_unlock(&vfsmount_lock);
+		vfsmount_write_lock();
+		vfsmount_write_unlock();
 	}
 	/*
 	 * After the slowpath clears MNT_WRITE_HOLD, mnt_is_readonly will
