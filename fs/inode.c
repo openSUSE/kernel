@@ -691,10 +691,10 @@ static void inode_sb_list_add(struct inode *inode, struct super_block *sb)
 #else
 	list = &sb->s_files;
 #endif
+	put_cpu_var(inode_cpulock);
 	spin_lock(lock);
 	list_add_rcu(&inode->i_sb_list, list);
 	spin_unlock(lock);
-	put_cpu_var(inode_cpulock);
 }
 
 void inode_sb_list_del(struct inode *inode)

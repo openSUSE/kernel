@@ -345,11 +345,11 @@ void file_sb_list_add(struct file *file, struct super_block *sb)
 #else
 	list = &sb->s_files;
 #endif
+	put_cpu_var(files_cpulock);
 	spin_lock(lock);
 	BUG_ON(!list_empty(&file->f_u.fu_list));
 	list_add(&file->f_u.fu_list, list);
 	spin_unlock(lock);
-	put_cpu_var(files_cpulock);
 }
 
 void file_sb_list_del(struct file *file)
