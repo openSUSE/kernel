@@ -757,7 +757,9 @@ void mntput_no_expire(struct vfsmount *mnt)
 			vfsmount_read_unlock(cpu);
 			goto repeat;
 		}
+		preempt_disable();
 		dec_mnt_count(mnt);
+		preempt_enable();
 		vfsmount_read_unlock(cpu);
 
 		return;
@@ -766,7 +768,9 @@ void mntput_no_expire(struct vfsmount *mnt)
 repeat:
 	vfsmount_write_lock();
 	BUG_ON(mnt->mnt_flags & MNT_MOUNTED);
+	preempt_disable();
 	dec_mnt_count(mnt);
+	preempt_enable();
 	if (count_mnt_count(mnt)) {
 		vfsmount_write_unlock();
 		return;
@@ -819,7 +823,9 @@ void mnt_unpin(struct vfsmount *mnt)
 {
 	vfsmount_write_lock();
 	if (mnt->mnt_pinned) {
-		inc_mnt_count(mnt);
+		preempt_disable();
+		dec_mnt_count(mnt);
+		preempt_enable();
 		mnt->mnt_pinned--;
 	}
 	vfsmount_write_unlock();
