@@ -96,7 +96,7 @@ struct dentry {
 	 *
 	 * XXX: d_sb for revalidate needs to be duplicated into a d_flag.
 	 */
-	unsigned int d_count;		/* protected by d_lock */
+	atomic_t d_count;
 	unsigned int d_flags;		/* protected by d_lock */
 	spinlock_t d_lock;		/* per dentry lock */
 	seqcount_t d_seq;		/* per dentry seqlock */
@@ -329,16 +329,14 @@ extern char *dentry_path(struct dentry *, char *, int);
 static inline struct dentry *dget_dlock(struct dentry *dentry)
 {
 	if (dentry)
-		dentry->d_count++;
+		atomic_inc(&dentry->d_count);
 	return dentry;
 }
 
 static inline struct dentry *dget(struct dentry *dentry)
 {
 	if (dentry) {
-		spin_lock(&dentry->d_lock);
 		dget_dlock(dentry);
-		spin_unlock(&dentry->d_lock);
 	}
 	return dentry;
 }

@@ -570,7 +570,7 @@ restart:
 		spin_lock(&active->d_lock);
 
 		/* Already gone? */
-		if (active->d_count == 0)
+		if (atomic_read(&dentry->d_count) == 0)
 			goto next;
 
 		if (active->d_inode && IS_DEADDIR(active->d_inode)) {

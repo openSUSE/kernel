@@ -121,7 +121,7 @@ static void d_callback(struct rcu_head *head)
  */
 static void d_free(struct dentry *dentry)
 {
-	BUG_ON(dentry->d_count);
+	BUG_ON(atomic_read(&dentry->d_count));
 	if (dentry->d_op && dentry->d_op->d_release)
 		dentry->d_op->d_release(dentry);
 	/* if dentry was never inserted into hash, immediate free is OK */
@@ -261,15 +261,13 @@ EXPORT_SYMBOL(d_drop);
 
 static inline struct dentry *__dget_dlock(struct dentry *dentry)
 {
-	dentry->d_count++;
+	atomic_inc(&dentry->d_count);
 	return dentry;
 }
 
 static inline struct dentry *__dget(struct dentry *dentry)
 {
-	spin_lock(&dentry->d_lock);
 	__dget_dlock(dentry);
-	spin_unlock(&dentry->d_lock);
 	return dentry;
 }
 
@@ -283,15 +281,15 @@ repeat:
 	if (!ret)
 		goto out;
 	if (dentry == ret) {
-		ret->d_count++;
+		atomic_inc(&ret->d_count);
 		goto out;
 	}
 	if (!spin_trylock(&ret->d_lock)) {
 		spin_unlock(&dentry->d_lock);
 		goto repeat;
 	}
-	BUG_ON(!ret->d_count);
-	ret->d_count++;
+	BUG_ON(!atomic_read(&ret->d_count));
+	atomic_inc(&ret->d_count);
 	spin_unlock(&ret->d_lock);
 out:
 	spin_unlock(&dentry->d_lock);
@@ -337,15 +335,12 @@ void dput(struct dentry *dentry)
 		return;
 
 repeat:
-	if (dentry->d_count == 1)
+	if (atomic_read(&dentry->d_count) == 1)
 		might_sleep();
-	spin_lock(&dentry->d_lock);
-	BUG_ON(!dentry->d_count);
-	if (dentry->d_count > 1) {
-		dentry->d_count--;
-		spin_unlock(&dentry->d_lock);
+
+	if (!atomic_dec_and_lock(&dentry->d_count, &dentry->d_lock))
 		return;
-	}
+
 
 	/*
 	 * AV: ->d_delete() is _NOT_ allowed to block now.
@@ -363,7 +358,6 @@ repeat:
   		dentry->d_flags |= DCACHE_REFERENCED;
 		dentry_lru_add(dentry);
   	}
-	dentry->d_count--;
 	spin_unlock(&dentry->d_lock);
 	return;
 
@@ -386,8 +380,7 @@ relock2:
 			goto relock2;
 		}
 	}
-	dentry->d_count--;
-	if (dentry->d_count) {
+	if (atomic_read(&dentry->d_count)) {
 		/* This case should be fine */
 		spin_unlock(&dentry->d_lock);
 		if (parent && parent != dentry)
@@ -445,7 +438,7 @@ int d_invalidate(struct dentry * dentry)
 	 * we might still populate it if it was a
 	 * working directory or similar).
 	 */
-	if (dentry->d_count > 1) {
+	if (atomic_read(&dentry->d_count) > 1) {
 		if (dentry->d_inode && S_ISDIR(dentry->d_inode->i_mode)) {
 			spin_unlock(&dentry->d_lock);
 			return -EBUSY;
@@ -527,7 +520,7 @@ restart:
 	spin_lock(&inode->i_lock);
 	list_for_each_entry(dentry, &inode->i_dentry, d_alias) {
 		spin_lock(&dentry->d_lock);
-		if (!dentry->d_count) {
+		if (!atomic_read(&dentry->d_count)) {
 			__dget_dlock(dentry);
 			__d_drop(dentry);
 			spin_unlock(&dentry->d_lock);
@@ -572,8 +565,8 @@ again:
 			}
 			parent = dentry->d_parent;
 		}
-		dentry->d_count--;
-		if (dentry->d_count) {
+		atomic_dec(&dentry->d_count);
+		if (atomic_read(&dentry->d_count)) {
 			if (parent)
 				spin_unlock(&parent->d_lock);
 			spin_unlock(&dentry->d_lock);
@@ -664,7 +657,7 @@ again1:
 		 * the LRU because of laziness during lookup.  Do not free
 		 * it - just keep it off the LRU list.
 		 */
-		if (dentry->d_count) {
+		if (atomic_read(&dentry->d_count)) {
 			__dentry_lru_del_init(dentry);
 			spin_unlock(&dentry->d_lock);
 			continue;
@@ -831,7 +824,7 @@ static void shrink_dcache_for_umount_subtree(struct dentry *dentry)
 		do {
 			struct inode *inode;
 
-			if (dentry->d_count != 0) {
+			if (atomic_read(&dentry->d_count) != 0) {
 				printk(KERN_ERR
 				       "BUG: Dentry %p{i=%lx,n=%s}"
 				       " still in use (%d)"
@@ -840,7 +833,7 @@ static void shrink_dcache_for_umount_subtree(struct dentry *dentry)
 				       dentry->d_inode ?
 				       dentry->d_inode->i_ino : 0UL,
 				       dentry->d_name.name,
-				       dentry->d_count,
+				       atomic_read(&dentry->d_count),
 				       dentry->d_sb->s_type->name,
 				       dentry->d_sb->s_id);
 				BUG();
@@ -852,7 +845,7 @@ static void shrink_dcache_for_umount_subtree(struct dentry *dentry)
 			} else {
 				parent = dentry->d_parent;
 				spin_lock(&parent->d_lock);
-				parent->d_count--;
+				atomic_dec(&parent->d_count);
 				list_del(&dentry->d_u.d_child);
 				spin_unlock(&parent->d_lock);
 			}
@@ -909,7 +902,7 @@ void shrink_dcache_for_umount(struct super_block *sb)
 	dentry = sb->s_root;
 	sb->s_root = NULL;
 	spin_lock(&dentry->d_lock);
-	dentry->d_count--;
+	atomic_dec(&dentry->d_count);
 	spin_unlock(&dentry->d_lock);
 	shrink_dcache_for_umount_subtree(dentry);
 
@@ -1046,7 +1039,7 @@ resume:
 		 * move only zero ref count dentries to the end 
 		 * of the unused list for prune_dcache
 		 */
-		if (!dentry->d_count) {
+		if (!atomic_read(&dentry->d_count)) {
 			dentry_lru_add_tail(dentry);
 			found++;
 		}
@@ -1185,7 +1178,7 @@ struct dentry *d_alloc(struct dentry * parent, const struct qstr *name)
 	memcpy(dname, name->name, name->len);
 	dname[name->len] = 0;
 
-	dentry->d_count = 1;
+	atomic_set(&dentry->d_count, 1);
 	dentry->d_flags = DCACHE_UNHASHED;
 	spin_lock_init(&dentry->d_lock);
 	seqcount_init(&dentry->d_seq);
@@ -1631,7 +1624,7 @@ struct dentry * __d_lookup(struct dentry * parent, struct qstr * name)
 				goto next;
 		}
 
-		dentry->d_count++;
+		atomic_inc(&dentry->d_count);
 		found = dentry;
 		spin_unlock(&dentry->d_lock);
 		break;
@@ -1817,7 +1810,7 @@ again:
 	spin_lock(&dentry->d_lock);
 	inode = dentry->d_inode;
 	isdir = S_ISDIR(inode->i_mode);
-	if (dentry->d_count == 1) {
+	if (atomic_read(&dentry->d_count) == 1) {
 		if (inode && !spin_trylock(&inode->i_lock)) {
 			spin_unlock(&dentry->d_lock);
 			goto again;
@@ -2060,7 +2053,7 @@ static struct dentry *__d_unalias(struct dentry *dentry, struct dentry *alias)
 {
 	struct mutex *m1 = NULL, *m2 = NULL;
 	struct dentry *ret;
-	struct inode *inode;
+	struct inode *inode = NULL;
 
 	/* If alias and dentry share a parent, then no extra locks required */
 	if (alias->d_parent == dentry->d_parent)
@@ -2583,7 +2576,7 @@ resume:
 			spin_acquire(&this_parent->d_lock.dep_map, 0, 1, _RET_IP_);
 			goto repeat;
 		}
-		dentry->d_count--;
+		atomic_dec(&dentry->d_count);
 		spin_unlock(&dentry->d_lock);
 	}
 	if (this_parent != root) {
@@ -2591,7 +2584,7 @@ resume:
 		struct dentry *child;
 
 		tmp = this_parent->d_parent;
-		this_parent->d_count--;
+		atomic_dec(&this_parent->d_count);
 		rcu_read_lock();
 		spin_unlock(&this_parent->d_lock);
 		child = this_parent;
