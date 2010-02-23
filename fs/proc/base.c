@@ -650,15 +650,17 @@ static unsigned mounts_poll(struct file *file, poll_table *wait)
 	struct proc_mounts *p = file->private_data;
 	struct mnt_namespace *ns = p->ns;
 	unsigned res = POLLIN | POLLRDNORM;
+	int cpu = get_cpu();
+	put_cpu();
 
 	poll_wait(file, &ns->poll, wait);
 
-	vfsmount_read_lock();
+	vfsmount_read_lock(cpu);
 	if (p->event != ns->event) {
 		p->event = ns->event;
 		res |= POLLERR | POLLPRI;
 	}
-	vfsmount_read_unlock();
+	vfsmount_read_unlock(cpu);
 
 	return res;
 }

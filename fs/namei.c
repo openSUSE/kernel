@@ -675,16 +675,18 @@ int follow_up(struct path *path)
 {
 	struct vfsmount *parent;
 	struct dentry *mountpoint;
+	int cpu = get_cpu();
+	put_cpu();
 
-	vfsmount_read_lock();
+	vfsmount_read_lock(cpu);
 	parent = path->mnt->mnt_parent;
 	if (parent == path->mnt) {
-		vfsmount_read_unlock();
+		vfsmount_read_unlock(cpu);
 		return 0;
 	}
 	mntget(parent);
 	mountpoint = dget(path->mnt->mnt_mountpoint);
-	vfsmount_read_unlock();
+	vfsmount_read_unlock(cpu);
 	dput(path->dentry);
 	path->dentry = mountpoint;
 	mntput(path->mnt);
@@ -760,6 +762,8 @@ int follow_down(struct path *path)
 
 static __always_inline void follow_dotdot(struct nameidata *nd)
 {
+	int cpu = get_cpu();
+	put_cpu();
 	set_root(nd);
 
 	while(1) {
@@ -775,15 +779,15 @@ static __always_inline void follow_dotdot(struct nameidata *nd)
 			dput(old);
 			break;
 		}
-		vfsmount_read_lock();
+		vfsmount_read_lock(cpu);
 		parent = nd->path.mnt->mnt_parent;
 		if (parent == nd->path.mnt) {
-			vfsmount_read_unlock();
+			vfsmount_read_unlock(cpu);
 			break;
 		}
 		mntget(parent);
 		nd->path.dentry = dget(nd->path.mnt->mnt_mountpoint);
-		vfsmount_read_unlock();
+		vfsmount_read_unlock(cpu);
 		dput(old);
 		mntput(nd->path.mnt);
 		nd->path.mnt = parent;
@@ -1365,20 +1369,22 @@ static int do_path_lookup(int dfd, const char *name,
 				unsigned int flags, struct nameidata *nd)
 {
 	int retval;
+	int cpu = get_cpu();
+	put_cpu();
 
-	vfsmount_read_lock();
+	vfsmount_read_lock(cpu);
 	rcu_read_lock();
 	retval = path_init_rcu(dfd, name, flags, nd);
 	if (unlikely(retval)) {
 		rcu_read_unlock();
-		vfsmount_read_unlock();
+		vfsmount_read_unlock(cpu);
 		return retval;
 	}
 	retval = path_walk_rcu(name, nd);
 	rcu_read_unlock();
 	if (likely(!retval))
 		mntget(nd->path.mnt);
-	vfsmount_read_unlock();
+	vfsmount_read_unlock(cpu);
 	if (likely(!retval)) {
 		if (unlikely(!audit_dummy_context())) {
 			if (nd->path.dentry && nd->path.dentry->d_inode)

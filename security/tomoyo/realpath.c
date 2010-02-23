@@ -93,19 +93,21 @@ int tomoyo_realpath_from_path2(struct path *path, char *newname,
 		struct path root;
 		struct path ns_root = { };
 		struct path tmp;
+		int cpu = get_cpu();
+		put_cpu();
 
 		read_lock(&current->fs->lock);
 		root = current->fs->root;
 		path_get(&root);
 		read_unlock(&current->fs->lock);
-		vfsmount_read_lock();
+		vfsmount_read_lock(cpu);
 		if (root.mnt && root.mnt->mnt_ns)
 			ns_root.mnt = mntget(root.mnt->mnt_ns->root);
 		if (ns_root.mnt)
 			ns_root.dentry = dget(ns_root.mnt->mnt_root);
 		tmp = ns_root;
 		sp = __d_path(path, &tmp, newname, newname_len);
-		vfsmount_read_unlock();
+		vfsmount_read_unlock(cpu);
 		path_put(&root);
 		path_put(&ns_root);
 		/* Prepend "/proc" prefix if using internal proc vfs mount. */

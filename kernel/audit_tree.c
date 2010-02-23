@@ -720,6 +720,8 @@ int audit_tag_tree(char *old, char *new)
 	struct vfsmount *mnt;
 	struct dentry *dentry;
 	int err;
+	int cpu = get_cpu();
+	put_cpu();
 
 	err = kern_path(new, 0, &path);
 	if (err)
@@ -761,15 +763,15 @@ int audit_tag_tree(char *old, char *new)
 			continue;
 		}
 
-		vfsmount_read_lock();
+		vfsmount_read_lock(cpu);
 		if (!is_under(mnt, dentry, &path)) {
-			vfsmount_read_unlock();
+			vfsmount_read_unlock(cpu);
 			path_put(&path);
 			put_tree(tree);
 			mutex_lock(&audit_filter_mutex);
 			continue;
 		}
-		vfsmount_read_unlock();
+		vfsmount_read_unlock(cpu);
 		path_put(&path);
 
 		list_for_each_entry(p, &list, mnt_list) {

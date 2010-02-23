@@ -84,8 +84,8 @@ static inline int *get_mnt_writers_ptr(struct vfsmount *mnt)
 
 struct file; /* forward dec */
 
-extern void vfsmount_read_lock(void);
-extern void vfsmount_read_unlock(void);
+extern void vfsmount_read_lock(int cpu);
+extern void vfsmount_read_unlock(int cpu);
 extern void vfsmount_write_lock(void);
 extern void vfsmount_write_unlock(void);
 

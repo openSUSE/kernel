@@ -2335,6 +2335,8 @@ char *d_path(const struct path *path, char *buf, int buflen)
 	char *res;
 	struct path root;
 	struct path tmp;
+	int cpu = get_cpu();
+	put_cpu();
 
 	/*
 	 * We have various synthetic filesystems that never get mounted.  On
@@ -2351,10 +2353,10 @@ char *d_path(const struct path *path, char *buf, int buflen)
 	path_get(&root);
 	read_unlock(&current->fs->lock);
 
-	vfsmount_read_lock();
+	vfsmount_read_lock(cpu);
 	tmp = root;
 	res = __d_path(path, &tmp, buf, buflen);
-	vfsmount_read_unlock();
+	vfsmount_read_unlock(cpu);
 
 	path_put(&root);
 	return res;
@@ -2389,13 +2391,15 @@ char *dentry_path(struct dentry *dentry, char *buf, int buflen)
 	char *end;
 	char *retval;
 	unsigned seq;
+	int cpu = get_cpu();
+	put_cpu();
 
 rename_retry:
 	end = buf + buflen;
 	prepend(&end, &buflen, "\0", 1);
 
 	seq = read_seqbegin(&rename_lock);
-	vfsmount_read_lock();
+	vfsmount_read_lock(cpu);
 	rcu_read_lock(); /* protect parent */
 	spin_lock(&dentry->d_lock);
 unlinked:
@@ -2426,7 +2430,7 @@ unlinked:
 out:
 	spin_unlock(&dentry->d_lock);
 	rcu_read_unlock();
-	vfsmount_read_unlock();
+	vfsmount_read_unlock(cpu);
 	if (read_seqretry(&rename_lock, seq))
 		goto rename_retry;
 	return retval;
@@ -2458,6 +2462,8 @@ SYSCALL_DEFINE2(getcwd, char __user *, buf, unsigned long, size)
 	int error;
 	struct path pwd, root;
 	char *page = (char *) __get_free_page(GFP_USER);
+	int cpu = get_cpu();
+	put_cpu();
 
 	if (!page)
 		return -ENOMEM;
@@ -2470,7 +2476,7 @@ SYSCALL_DEFINE2(getcwd, char __user *, buf, unsigned long, size)
 	read_unlock(&current->fs->lock);
 
 	error = -ENOENT;
-	vfsmount_read_lock();
+	vfsmount_read_lock(cpu);
 	spin_lock(&pwd.dentry->d_lock);
 	if (!d_unlinked(pwd.dentry)) {
 		unsigned long len;
@@ -2480,7 +2486,7 @@ SYSCALL_DEFINE2(getcwd, char __user *, buf, unsigned long, size)
 		spin_unlock(&pwd.dentry->d_lock);
 		/* XXX: race here, have to close (eg. return unlinked from __d_path) */
 		cwd = __d_path(&pwd, &tmp, page, PAGE_SIZE);
-		vfsmount_read_unlock();
+		vfsmount_read_unlock(cpu);
 
 		error = PTR_ERR(cwd);
 		if (IS_ERR(cwd))
@@ -2495,7 +2501,7 @@ SYSCALL_DEFINE2(getcwd, char __user *, buf, unsigned long, size)
 		}
 	} else {
 		spin_unlock(&pwd.dentry->d_lock);
-		vfsmount_read_unlock();
+		vfsmount_read_unlock(cpu);
 	}
 
 out:
