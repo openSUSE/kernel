@@ -218,12 +218,9 @@ void notrace latency_hist(int latency_type, int cpu, unsigned long latency,
 
 static void *l_start(struct seq_file *m, loff_t *pos)
 {
-	loff_t *index_ptr = kmalloc(sizeof(loff_t), GFP_KERNEL);
+	loff_t *index_ptr = NULL;
 	loff_t index = *pos;
 	struct hist_data *my_hist = m->private;
-
-	if (!index_ptr)
-		return NULL;
 
 	if (index == 0) {
 		char minstr[32], avgstr[32], maxstr[32];
@@ -263,10 +260,12 @@ static void *l_start(struct seq_file *m, loff_t *pos)
 			   MAX_ENTRY_NUM - my_hist->offset,
 			   "samples");
 	}
-	if (index >= MAX_ENTRY_NUM)
-		return NULL;
+	if (index < MAX_ENTRY_NUM) {
+		index_ptr = kmalloc(sizeof(loff_t), GFP_KERNEL);
+		if (index_ptr)
+			*index_ptr = index;
+	}
 
-	*index_ptr = index;
 	return index_ptr;
 }
 
