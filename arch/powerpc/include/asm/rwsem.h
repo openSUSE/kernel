@@ -30,7 +30,7 @@ struct rw_anon_semaphore {
 #define RWSEM_WAITING_BIAS		(-0x00010000)
 #define RWSEM_ACTIVE_READ_BIAS		RWSEM_ACTIVE_BIAS
 #define RWSEM_ACTIVE_WRITE_BIAS		(RWSEM_WAITING_BIAS + RWSEM_ACTIVE_BIAS)
-	spinlock_t		wait_lock;
+	raw_spinlock_t		wait_lock;
 	struct list_head	wait_list;
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	struct lockdep_map	dep_map;
@@ -44,7 +44,7 @@ struct rw_anon_semaphore {
 #endif
 
 #define __RWSEM_ANON_INITIALIZER(name) \
-	{ RWSEM_UNLOCKED_VALUE, __SPIN_LOCK_UNLOCKED((name).wait_lock), \
+	{ RWSEM_UNLOCKED_VALUE, __RAW_SPIN_LOCK_UNLOCKED((name).wait_lock), \
 	  LIST_HEAD_INIT((name).wait_list) __RWSEM_ANON_DEP_MAP_INIT(name) }
 
 #define DECLARE_ANON_RWSEM(name)		\
@@ -178,7 +178,7 @@ static inline int anon_rwsem_is_locked(struct rw_anon_semaphore *sem)
 struct rw_semaphore {
 	/* XXX this should be able to be an atomic_t  -- paulus */
 	signed int		count;
-	spinlock_t		wait_lock;
+	raw_spinlock_t		wait_lock;
 	struct list_head	wait_list;
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	struct lockdep_map	dep_map;
@@ -192,7 +192,7 @@ struct rw_semaphore {
 #endif
 
 #define __RWSEM_INITIALIZER(name) \
-	{ RWSEM_UNLOCKED_VALUE, __SPIN_LOCK_UNLOCKED((name).wait_lock), \
+	{ RWSEM_UNLOCKED_VALUE, __RAW_SPIN_LOCK_UNLOCKED((name).wait_lock), \
 	  LIST_HEAD_INIT((name).wait_list) __RWSEM_DEP_MAP_INIT(name) }
 
 #define DECLARE_RWSEM(name)		\
