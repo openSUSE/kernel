@@ -442,13 +442,19 @@ static ssize_t do_pid(struct file *file, const char __user *ubuf,
 static ssize_t
 show_maxlatproc(struct file *file, char __user *ubuf, size_t cnt, loff_t *ppos)
 {
-	char buf[1024];
 	int r;
 	struct maxlatproc_data *mp = file->private_data;
+	int strmaxlen = TASK_COMM_LEN + 32;
+	char *buf = kmalloc(strmaxlen, GFP_KERNEL);
 
-	r = snprintf(buf, sizeof(buf), "%d %d %ld %s\n",
+	if (buf == NULL)
+		return -ENOMEM;
+
+	r = snprintf(buf, strmaxlen, "%d %d %ld %s\n",
 	    mp->pid, MAX_RT_PRIO-1 - mp->prio, mp->latency, mp->comm);
-	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
+	r = simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
+	kfree(buf);
+	return r;
 }
 #endif
 
