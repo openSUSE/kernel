@@ -1615,6 +1615,9 @@ struct task_struct {
 	unsigned long trace;
 	/* bitmask of trace recursion */
 	unsigned long trace_recursion;
+#ifdef CONFIG_WAKEUP_LATENCY_HIST
+	u64 preempt_timestamp_hist;
+#endif
 #endif /* CONFIG_TRACING */
 	unsigned long stack_start;
 #ifdef CONFIG_CGROUP_MEM_RES_CTLR /* memcg uses this to do batch job */
