@@ -7155,7 +7155,7 @@ EXPORT_SYMBOL(__cond_resched_softirq);
  */
 int __sched cond_resched_softirq_context(void)
 {
-	WARN_ON_ONCE(!in_softirq());
+	WARN_ON_ONCE(!in_softirq() && !(current->extra_flags & PFE_SOFTIRQ));
 
 	if (softirq_need_resched() && system_state == SYSTEM_RUNNING) {
 		raw_local_irq_disable();

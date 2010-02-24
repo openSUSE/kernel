@@ -563,15 +563,20 @@ irq_wait_for_interrupt(struct irq_desc *desc, struct irqaction *action)
  * handler finished. unmask if the interrupt has not been disabled and
  * is marked MASKED.
  */
-static void irq_finalize_oneshot(unsigned int irq, struct irq_desc *desc)
+static void irq_finalize_oneshot(unsigned int irq, struct irq_desc *desc,
+				 struct irqaction *action)
 {
 	chip_bus_lock(irq, desc);
+#ifndef CONFIG_PREEMPT_RT
 	raw_spin_lock_irq(&desc->lock);
 	if (!(desc->status & IRQ_DISABLED) && (desc->status & IRQ_MASKED)) {
 		desc->status &= ~IRQ_MASKED;
 		desc->chip->unmask(irq);
 	}
 	raw_spin_unlock_irq(&desc->lock);
+#else
+	preempt_hardirq_thread_done(desc, action);
+#endif
 	chip_bus_sync_unlock(irq, desc);
 }
 
@@ -616,7 +621,7 @@ static int irq_thread(void *data)
 	struct sched_param param = { .sched_priority = MAX_USER_RT_PRIO/2, };
 	struct irqaction *action = data;
 	struct irq_desc *desc = irq_to_desc(action->irq);
-	int wake, oneshot = desc->status & IRQ_ONESHOT;
+	int wake;
 
 	sched_setscheduler(current, SCHED_FIFO, &param);
 	current->extra_flags |= PFE_HARDIRQ;
@@ -644,8 +649,8 @@ static int irq_thread(void *data)
 
 			action->thread_fn(action->irq, action->dev_id);
 
-			if (oneshot)
-				irq_finalize_oneshot(action->irq, desc);
+			if (desc->status & IRQ_ONESHOT)
+				irq_finalize_oneshot(action->irq, desc, action);
 		}
 
 		wake = atomic_dec_and_test(&desc->threads_active);

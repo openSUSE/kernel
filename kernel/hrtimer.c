@@ -49,6 +49,7 @@
 #include <asm/uaccess.h>
 
 #include <trace/events/timer.h>
+#include <trace/events/hist.h>
 
 /*
  * The timer bases:
@@ -1416,6 +1417,8 @@ static inline int hrtimer_rt_defer(struct hrtimer *timer) { return 0; }
 
 #ifdef CONFIG_HIGH_RES_TIMERS
 
+static enum hrtimer_restart hrtimer_wakeup(struct hrtimer *timer);
+
 /*
  * High resolution timer interrupt
  * Called with interrupts disabled
@@ -1457,6 +1460,14 @@ retry:
 			struct hrtimer *timer;
 
 			timer = rb_entry(node, struct hrtimer, node);
+
+			trace_hrtimer_interrupt(raw_smp_processor_id(),
+			    ktime_to_ns(ktime_sub(
+				hrtimer_get_expires(timer), basenow)),
+			    current,
+			    timer->function == hrtimer_wakeup ?
+			    container_of(timer, struct hrtimer_sleeper,
+				timer)->task : NULL);
 
 			/*
 			 * The immediate goal for using the softexpires is

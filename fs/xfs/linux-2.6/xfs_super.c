@@ -1110,7 +1110,7 @@ xfs_fs_clear_inode(
 	 * (and basically indicate what we are doing), we explicitly
 	 * re-init the iolock here.
 	 */
-	ASSERT(!rwsem_is_locked(&ip->i_iolock.mr_lock));
+	ASSERT(!anon_rwsem_is_locked(&ip->i_iolock.mr_lock));
 	mrlock_init(&ip->i_iolock, MRLOCK_BARRIER, "xfsio", ip->i_ino);
 
 	xfs_inactive(ip);

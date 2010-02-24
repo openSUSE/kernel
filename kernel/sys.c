@@ -223,6 +223,7 @@ SYSCALL_DEFINE2(getpriority, int, which, int, who)
 	if (which > PRIO_USER || which < PRIO_PROCESS)
 		return -EINVAL;
 
+	rcu_read_lock();
 	read_lock(&tasklist_lock);
 	switch (which) {
 		case PRIO_PROCESS:
@@ -268,6 +269,7 @@ SYSCALL_DEFINE2(getpriority, int, which, int, who)
 	}
 out_unlock:
 	read_unlock(&tasklist_lock);
+	rcu_read_unlock();
 
 	return retval;
 }

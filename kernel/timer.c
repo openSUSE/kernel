@@ -1278,6 +1278,7 @@ static void run_timer_softirq(struct softirq_action *h)
 
 	printk_tick();
 	hrtimer_run_pending();
+	perf_event_do_pending_softirq();
 
 	if (time_after_eq(jiffies, base->timer_jiffies))
 		__run_timers(base);

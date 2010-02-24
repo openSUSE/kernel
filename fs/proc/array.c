@@ -129,22 +129,23 @@ static inline void task_name(struct seq_file *m, struct task_struct *p)
 
 /*
  * The task state array is a strange "bitmap" of
- * reasons to sleep. Thus "running" is zero, and
- * you can test for combinations of others with
+ * reasons to sleep. Thus, the first element is zero,
+ * and you can test for combinations of others with
  * simple bit tests.
  */
+#define TASK_STATE_X(num) TASK_STATE_##num " (" DESCR_TASK_STATE_##num ")"
 static const char *task_state_array[] = {
-	"R (running)",		/*   0 */
-	"M (running-mutex)",	/*   1 */
-	"S (sleeping)",		/*   2 */
-	"D (disk sleep)",	/*   4 */
-	"T (stopped)",		/*   8 */
-	"t (tracing stop)",	/*  16 */
-	"Z (zombie)",		/*  32 */
-	"X (dead)",		/*  64 */
-	"x (dead)",		/* 128 */
-	"K (wakekill)",		/* 256 */
-	"W (waking)",		/* 512 */
+	TASK_STATE_X(0),
+	TASK_STATE_X(1),
+	TASK_STATE_X(2),
+	TASK_STATE_X(4),
+	TASK_STATE_X(8),
+	TASK_STATE_X(16),
+	TASK_STATE_X(32),
+	TASK_STATE_X(64),
+	TASK_STATE_X(128),
+	TASK_STATE_X(256),
+	TASK_STATE_X(512)
 };
 
 static inline const char *get_task_state(struct task_struct *tsk)

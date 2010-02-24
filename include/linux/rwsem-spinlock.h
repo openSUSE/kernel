@@ -33,7 +33,7 @@ struct rwsem_waiter;
  */
 struct rw_anon_semaphore {
 	__s32			activity;
-	spinlock_t		wait_lock;
+	raw_spinlock_t		wait_lock;
 	struct list_head	wait_list;
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	struct lockdep_map dep_map;
@@ -47,7 +47,7 @@ struct rw_anon_semaphore {
 #endif
 
 #define __RWSEM_ANON_INITIALIZER(name) \
-{ 0, __SPIN_LOCK_UNLOCKED(name.wait_lock), LIST_HEAD_INIT((name).wait_list) \
+{ 0, __RAW_SPIN_LOCK_UNLOCKED(name.wait_lock), LIST_HEAD_INIT((name).wait_list) \
   __RWSEM_ANON_DEP_MAP_INIT(name) }
 
 #define DECLARE_ANON_RWSEM(name) \
@@ -89,7 +89,7 @@ extern void __downgrade_write(struct rw_anon_semaphore *sem);
  */
 struct rw_semaphore {
 	__s32			activity;
-	spinlock_t		wait_lock;
+	raw_spinlock_t		wait_lock;
 	struct list_head	wait_list;
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	struct lockdep_map dep_map;
@@ -103,7 +103,7 @@ struct rw_semaphore {
 #endif
 
 #define __RWSEM_INITIALIZER(name) \
-{ 0, __SPIN_LOCK_UNLOCKED(name.wait_lock), LIST_HEAD_INIT((name).wait_list) \
+{ 0, __RAW_SPIN_LOCK_UNLOCKED(name.wait_lock), LIST_HEAD_INIT((name).wait_list) \
   __RWSEM_DEP_MAP_INIT(name) }
 
 #define DECLARE_RWSEM(name) \
