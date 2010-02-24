@@ -191,7 +191,9 @@ extern struct mutex kernel_sem;
 
 /*
  * Task state bitmask. NOTE! These bits are also
- * encoded in fs/proc/array.c: get_task_state().
+ * used in fs/proc/array.c: get_task_state() and
+ * in include/trace/events/sched.h in the
+ * sched_switch trace event.
  *
  * We have two separate sets of flags: task->state
  * is about runnability, while task->exit_state are
@@ -200,21 +202,59 @@ extern struct mutex kernel_sem;
  * mistake.
  */
 #define TASK_RUNNING		0
+#define TASK_STATE_0		"R"
+#define DESCR_TASK_STATE_0	"running"
+
 #define TASK_RUNNING_MUTEX	1
+#define TASK_STATE_1		"M"
+#define DESCR_TASK_STATE_1	"running-mutex"
+
 #define TASK_INTERRUPTIBLE	2
+#define TASK_STATE_2		"S"
+#define DESCR_TASK_STATE_2	"sleeping"
+
 #define TASK_UNINTERRUPTIBLE	4
+#define TASK_STATE_4		"D"
+#define DESCR_TASK_STATE_4	"disk sleep"
+
 #define __TASK_STOPPED		8
+#define TASK_STATE_8		"T"
+#define DESCR_TASK_STATE_8	"stopped"
+
 #define __TASK_TRACED		16
+#define TASK_STATE_16		"t"
+#define DESCR_TASK_STATE_16	"tracing stop"
+
 /* in tsk->exit_state */
 #define EXIT_ZOMBIE		32
+#define TASK_STATE_32		"Z"
+#define DESCR_TASK_STATE_32	"zombie"
+
 #define EXIT_DEAD		64
+#define TASK_STATE_64		"X"
+#define DESCR_TASK_STATE_64	"dead"
+
 /* in tsk->state again */
 #define TASK_DEAD		128
+#define TASK_STATE_128		"x"
+#define DESCR_TASK_STATE_128	"dead"
+
 #define TASK_WAKEKILL		256
+#define TASK_STATE_256		"K"
+#define DESCR_TASK_STATE_256	"wakekill"
+
 #define TASK_WAKING		512
+#define TASK_STATE_512		"W"
+#define DESCR_TASK_STATE_512	"waking"
+
 #define TASK_STATE_MAX		1024
 
-#define TASK_STATE_TO_CHAR_STR "RMSDTtZXxKW"
+#define TASK_STATE_TO_CHAR_STR \
+  TASK_STATE_0 TASK_STATE_1 TASK_STATE_2 TASK_STATE_4 TASK_STATE_8 \
+  TASK_STATE_16 TASK_STATE_32 TASK_STATE_64 TASK_STATE_128 TASK_STATE_256 \
+  TASK_STATE_512
+
+#define TASK_STATE_MAX		1024
 
 extern char ___assert_task_state[1 - 2*!!(
 		sizeof(TASK_STATE_TO_CHAR_STR)-1 != ilog2(TASK_STATE_MAX)+1)];
