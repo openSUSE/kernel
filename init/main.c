@@ -928,6 +928,9 @@ static int __init kernel_init(void * unused)
 #ifdef CONFIG_PREEMPT_TRACER
 	printk(KERN_ERR "*        CONFIG_PREEMPT_TRACER                                              *\n");
 #endif
+#ifdef CONFIG_STACK_TRACER
+	printk(KERN_ERR "*        CONFIG_STACK_TRACER                                                *\n");
+#endif
 #if defined(CONFIG_FTRACE) && !defined(CONFIG_FTRACE_MCOUNT_RECORD)
 	printk(KERN_ERR "*        CONFIG_FTRACE                                                      *\n");
 #endif
