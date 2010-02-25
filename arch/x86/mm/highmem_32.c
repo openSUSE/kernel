@@ -19,16 +19,6 @@ void kunmap(struct page *page)
 	kunmap_high(page);
 }
 
-void kunmap_virt(void *ptr)
-{
-	struct page *page;
-
-	if ((unsigned long)ptr < PKMAP_ADDR(0))
-		return;
-	page = pte_page(pkmap_page_table[PKMAP_NR((unsigned long)ptr)]);
-	kunmap(page);
-}
-
 struct page *kmap_to_page(void *ptr)
 {
 	struct page *page;
@@ -66,6 +56,23 @@ void *__kmap_atomic_prot(struct page *page, enum km_type type, pgprot_t prot)
 	vaddr = __fix_to_virt(FIX_KMAP_BEGIN + idx);
 	WARN_ON(!pte_none(*(kmap_pte-idx)));
 	set_pte(kmap_pte-idx, mk_pte(page, prot));
+
+	return (void *)vaddr;
+}
+
+void *__kmap_atomic_prot_pfn(unsigned long pfn, enum km_type type, pgprot_t prot)
+{
+	enum fixed_addresses idx;
+	unsigned long vaddr;
+
+	preempt_disable();
+	pagefault_disable();
+
+	debug_kmap_atomic(type);
+	idx = type + KM_TYPE_NR * smp_processor_id();
+	vaddr = __fix_to_virt(FIX_KMAP_BEGIN + idx);
+	set_pte(kmap_pte - idx, pfn_pte(pfn, prot));
+	arch_flush_lazy_mmu_mode();
 
 	return (void *)vaddr;
 }
