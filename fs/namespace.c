@@ -1731,6 +1731,7 @@ static int do_remount(struct path *path, int flags, int mnt_flags,
 	if (!err) {
 		vfsmount_write_lock();
 		mnt_flags |= path->mnt->mnt_flags & MNT_PNODE_MASK;
+		mnt_flags |= path->mnt->mnt_flags & MNT_MOUNTED;
 		path->mnt->mnt_flags = mnt_flags;
 		vfsmount_write_unlock();
 	}
