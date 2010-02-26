@@ -66,7 +66,13 @@ unsigned int nr_free_highpages (void)
  *  1 means its free for use - either mapped or not.
  *  n means that there are (n-1) current users of it.
  */
-static atomic_t pkmap_count[LAST_PKMAP];
+
+struct pkmap_state {
+	atomic_t count;
+	int	 pfn;
+};
+
+static struct pkmap_state pkmap[LAST_PKMAP];
 static atomic_t pkmap_hand;
 static atomic_t pkmap_free;
 static atomic_t pkmap_users;
@@ -105,24 +111,25 @@ static DECLARE_WAIT_QUEUE_HEAD(pkmap_wait);
  */
 static int pkmap_try_free(int pos)
 {
-	if (atomic_cmpxchg(&pkmap_count[pos], 1, 0) != 1)
+	if (atomic_cmpxchg(&pkmap[pos].count, 1, 0) != 1)
 		return -1;
 	atomic_dec(&pkmap_free);
 	/*
 	 * TODO: add a young bit to make it CLOCK
 	 */
 	if (!pte_none(pkmap_page_table[pos])) {
-		struct page *page = pte_page(pkmap_page_table[pos]);
 		unsigned long addr = PKMAP_ADDR(pos);
 		pte_t *ptep = &pkmap_page_table[pos];
 
-		VM_BUG_ON(addr != (unsigned long)page_address(page));
+		if (!pkmap[pos].pfn) {
+			struct page *page = pte_page(pkmap_page_table[pos]);
+			VM_BUG_ON(addr != (unsigned long)page_address(page));
+			if (!__set_page_address(page, NULL, pos))
+				BUG();
+			flush_kernel_dcache_page(page);
+		}
 
-		if (!__set_page_address(page, NULL, pos))
-			BUG();
-		flush_kernel_dcache_page(page);
 		pte_clear(&init_mm, addr, ptep);
-
 
 		return 1;
 	}
@@ -187,7 +194,7 @@ got_one:
 				continue;
 
 			if (!flush) {
-				atomic_t *counter = &pkmap_count[pos2];
+				atomic_t *counter = &pkmap[pos2].count;
 				VM_BUG_ON(atomic_read(counter) != 0);
 				atomic_set(counter, 2);
 				pkmap_put(counter);
@@ -197,7 +204,7 @@ got_one:
 		flush_tlb_kernel_range(PKMAP_ADDR(0), PKMAP_ADDR(LAST_PKMAP));
 
 		for (i = 0; i < nr; i++) {
-			atomic_t *counter = &pkmap_count[entries[i]];
+			atomic_t *counter = &pkmap[entries[i]].count;
 			VM_BUG_ON(atomic_read(counter) != 0);
 			atomic_set(counter, 2);
 			pkmap_put(counter);
@@ -207,32 +214,51 @@ got_one:
 	return pos;
 }
 
-static unsigned long pkmap_insert(struct page *page)
+static unsigned long pkmap_insert(unsigned long pfn, pgprot_t prot)
 {
 	int pos = pkmap_get_free();
 	unsigned long vaddr = PKMAP_ADDR(pos);
 	pte_t *ptep = &pkmap_page_table[pos];
-	pte_t entry = mk_pte(page, kmap_prot);
-	atomic_t *counter = &pkmap_count[pos];
+	pte_t entry = pfn_pte(pfn, prot);
+	atomic_t *counter = &pkmap[pos].count;
 
 	VM_BUG_ON(atomic_read(counter) != 0);
-
 	set_pte_at(&init_mm, vaddr, ptep, entry);
-	if (unlikely(!__set_page_address(page, (void *)vaddr, pos))) {
+
+	pkmap[pos].pfn =
+		!(pgprot_val(prot) == pgprot_val(kmap_prot) && pfn_valid(pfn));
+
+	if (!pkmap[pos].pfn) {
+		struct page *page = pfn_to_page(pfn);
+
+		if (unlikely(!__set_page_address(page, (void *)vaddr, pos))) {
+			/*
+			 * concurrent pkmap_inserts for this page -
+			 * the other won the race, release this entry.
+			 *
+			 * we can still clear the pte without a tlb flush since
+			 * it couldn't have been used yet.
+			 */
+			pte_clear(&init_mm, vaddr, ptep);
+			VM_BUG_ON(atomic_read(counter) != 0);
+			atomic_set(counter, 2);
+			pkmap_put(counter);
+			return 0;
+		}
+	} else {
+#ifdef ARCH_NEEDS_KMAP_HIGH_GET
 		/*
-		 * concurrent pkmap_inserts for this page -
-		 * the other won the race, release this entry.
+		 * non-default prot and pure pfn memory doesn't
+		 * get map deduplication, nor a working page_address
 		 *
-		 * we can still clear the pte without a tlb flush since
-		 * it couldn't have been used yet.
+		 * this also makes it incompatible with
+		 * ARCH_NEEDS_KMAP_HIGH_GET
 		 */
-		pte_clear(&init_mm, vaddr, ptep);
-		VM_BUG_ON(atomic_read(counter) != 0);
-		atomic_set(counter, 2);
-		pkmap_put(counter);
-		vaddr = 0;
-	} else
-		atomic_set(counter, 2);
+		BUG();
+#endif
+	}
+
+	atomic_set(counter, 2);
 
 	return vaddr;
 }
@@ -313,20 +339,17 @@ static void kunmap_account(void)
 	wake_up(&pkmap_wait);
 }
 
-void *kmap_high(struct page *page)
+void *kmap_get(struct page *page)
 {
 	unsigned long vaddr;
-
-
-	kmap_account();
 again:
 	vaddr = (unsigned long)page_address(page);
 	if (vaddr) {
-		atomic_t *counter = &pkmap_count[PKMAP_NR(vaddr)];
+		atomic_t *counter = &pkmap[PKMAP_NR(vaddr)].count;
 		if (atomic_inc_not_zero(counter)) {
 			/*
-			 * atomic_inc_not_zero implies a (memory) barrier on success
-			 * so page address will be reloaded.
+			 * atomic_inc_not_zero implies a (memory) barrier on
+			 * success so page address will be reloaded.
 			 */
 			unsigned long vaddr2 = (unsigned long)page_address(page);
 			if (likely(vaddr == vaddr2))
@@ -341,18 +364,48 @@ again:
 			 * reused.
 			 */
 			pkmap_put(counter);
-			goto again;
 		}
-	}
-
-	vaddr = pkmap_insert(page);
-	if (!vaddr)
 		goto again;
+	}
+	return (void *)vaddr;
+}
+
+void *kmap_high(struct page *page)
+{
+	unsigned long vaddr;
+
+	kmap_account();
+
+again:
+	vaddr = (unsigned long)kmap_get(page);
+	if (!vaddr) {
+		vaddr = pkmap_insert(page_to_pfn(page), kmap_prot);
+		if (!vaddr)
+			goto again;
+	}
 
 	return (void *)vaddr;
 }
 
 EXPORT_SYMBOL(kmap_high);
+
+void *kmap_pfn_prot(unsigned long pfn, pgprot_t prot)
+{
+	unsigned long vaddr;
+
+	if (pgprot_val(prot) == pgprot_val(kmap_prot) &&
+			pfn_valid(pfn) && PageHighMem(pfn_to_page(pfn)))
+		return kmap_high(pfn_to_page(pfn));
+
+	kmap_account();
+
+	vaddr = pkmap_insert(pfn, prot);
+	BUG_ON(!vaddr);
+
+	return (void *)vaddr;
+}
+
+EXPORT_SYMBOL(kmap_pfn_prot);
 
 #ifdef ARCH_NEEDS_KMAP_HIGH_GET
 /**
@@ -370,21 +423,26 @@ void *kmap_high_get(struct page *page)
 	unsigned long vaddr, flags;
 
 	lock_kmap_any(flags);
-	vaddr = (unsigned long)page_address(page);
-	if (vaddr) {
-		BUG_ON(pkmap_count[PKMAP_NR(vaddr)] < 1);
-		pkmap_count[PKMAP_NR(vaddr)]++;
-	}
+	vaddr = (unsigned long)kmap_get(page);
 	unlock_kmap_any(flags);
-	return (void*) vaddr;
+	return (void *)vaddr;
 }
 #endif
 
- void kunmap_high(struct page *page)
+void kunmap_virt(void *ptr)
+{
+	unsigned long vaddr = (unsigned long)ptr;
+	if (vaddr < PKMAP_ADDR(0) || vaddr >= PKMAP_ADDR(LAST_PKMAP))
+		return;
+	pkmap_put(&pkmap[PKMAP_NR(vaddr)].count);
+	kunmap_account();
+}
+
+void kunmap_high(struct page *page)
 {
 	unsigned long vaddr = (unsigned long)page_address(page);
 	BUG_ON(!vaddr);
-	pkmap_put(&pkmap_count[PKMAP_NR(vaddr)]);
+	pkmap_put(&pkmap[PKMAP_NR(vaddr)].count);
 	kunmap_account();
 }
 
@@ -539,8 +597,8 @@ void __init page_address_init(void)
 #ifdef CONFIG_HIGHMEM
 	int i;
 
-	for (i = 0; i < ARRAY_SIZE(pkmap_count); i++)
-		atomic_set(&pkmap_count[i], 1);
+	for (i = 0; i < ARRAY_SIZE(pkmap); i++)
+		atomic_set(&pkmap[i].count, 1);
 	atomic_set(&pkmap_hand, 0);
 	atomic_set(&pkmap_free, LAST_PKMAP);
 	atomic_set(&pkmap_users, 0);
