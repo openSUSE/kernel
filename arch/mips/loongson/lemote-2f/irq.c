@@ -31,7 +31,7 @@
  * The generic i8259_irq() make the kernel hang on booting.  Since we cannot
  * get the irq via the IRR directly, we access the ISR instead.
  */
-int mach_i8259_irq(void)
+inline int mach_i8259_irq(void)
 {
 	int irq, isr;
 
@@ -63,7 +63,7 @@ int mach_i8259_irq(void)
 }
 EXPORT_SYMBOL(mach_i8259_irq);
 
-static void i8259_irqdispatch(void)
+static inline void i8259_irqdispatch(void)
 {
 	int irq;
 
@@ -74,7 +74,7 @@ static void i8259_irqdispatch(void)
 		spurious_interrupt();
 }
 
-void mach_irq_dispatch(unsigned int pending)
+inline void mach_irq_dispatch(unsigned int pending)
 {
 	if (pending & CAUSEF_IP7)
 		do_IRQ(LOONGSON_TIMER_IRQ);
@@ -83,10 +83,10 @@ void mach_irq_dispatch(unsigned int pending)
 		do_IRQ(LOONGSON2_PERFCNT_IRQ);
 #endif
 		bonito_irqdispatch();
-	} else if (pending & CAUSEF_IP3)	/* CPU UART */
-		do_IRQ(LOONGSON_UART_IRQ);
-	else if (pending & CAUSEF_IP2)	/* South Bridge */
+	} else if (pending & CAUSEF_IP2)	/* South Bridge */
 		i8259_irqdispatch();
+	else if (pending & CAUSEF_IP3)	/* CPU UART */
+		do_IRQ(LOONGSON_UART_IRQ);
 	else
 		spurious_interrupt();
 }
