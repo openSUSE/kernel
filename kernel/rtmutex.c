@@ -757,8 +757,9 @@ rt_set_current_blocked_state(unsigned long saved_state)
 	 * saved_state. Now we can ignore further wakeups as we will
 	 * return in state running from our "spin" sleep.
 	 */
-	if (saved_state == TASK_INTERRUPTIBLE)
-		block_state = TASK_INTERRUPTIBLE;
+	if (saved_state == TASK_INTERRUPTIBLE ||
+		saved_state == TASK_STOPPED)
+		block_state = saved_state;
 	else
 		block_state = TASK_UNINTERRUPTIBLE;
 
