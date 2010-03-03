@@ -531,7 +531,7 @@ static int __set_page_address(struct page *page, void *virtual, int pos)
 	struct page_address_map *pam;
 
 	VM_BUG_ON(!PageHighMem(page));
-	VM_BUG_ON(atomic_read(&pkmap_count[pos]) != 0);
+	VM_BUG_ON(atomic_read(&pkmap[pos].count) != 0);
 	VM_BUG_ON(pos < 0 || pos >= LAST_PKMAP);
 
 	pas = page_slot(page);
