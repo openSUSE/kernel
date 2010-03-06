@@ -109,6 +109,7 @@ clkevt32k_mode(enum clock_event_mode mode, struct clock_event_device *dev)
 	last_crtr = read_CRTR();
 	switch (mode) {
 	case CLOCK_EVT_MODE_PERIODIC:
+		setup_irq(AT91_ID_SYS, &at91rm9200_timer_irq);
 		/* PIT for periodic irqs; fixed rate of 1/HZ */
 		irqmask = AT91_ST_PITS;
 		at91_sys_write(AT91_ST_PIMR, LATCH);
@@ -122,6 +123,7 @@ clkevt32k_mode(enum clock_event_mode mode, struct clock_event_device *dev)
 		break;
 	case CLOCK_EVT_MODE_SHUTDOWN:
 	case CLOCK_EVT_MODE_UNUSED:
+		remove_irq(AT91_ID_SYS, &at91rm9200_timer_irq);
 	case CLOCK_EVT_MODE_RESUME:
 		irqmask = 0;
 		break;
