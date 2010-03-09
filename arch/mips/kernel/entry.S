@@ -145,11 +145,8 @@ work_pending:
 	andi	t0, a2, _TIF_NEED_RESCHED # a2 is preloaded with TI_FLAGS
 	beqz	t0, work_notifysig
 work_resched:
-	jal	schedule
+	jal	__schedule
 
-	local_irq_disable		# make sure need_resched and
-					# signals dont change between
-					# sampling and return
 	LONG_L	a2, TI_FLAGS($28)
 	andi	t0, a2, _TIF_WORK_MASK	# is there any work to be done
 					# other than syscall tracing?
