@@ -42,6 +42,7 @@ asmlinkage void mach_irq_dispatch(unsigned int pending)
 static struct irqaction cascade_irqaction = {
 	.handler = no_action,
 	.name = "cascade",
+	.flags = IRQF_NODELAY,
 };
 
 void __init set_irq_trigger_mode(void)
