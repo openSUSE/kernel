@@ -64,7 +64,7 @@ config CS5536
 
 config CS5536_MFGPT
 	bool "CS5536 MFGPT Timer"
-	depends on CS5536
+	depends on CS5536 && !PREEMPT_RT
 	select MIPS_EXTERNAL_TIMER
 	help
 	  This option enables the mfgpt0 timer of AMD CS5536.
