@@ -97,8 +97,9 @@ asmlinkage void plat_irq_dispatch(struct pt_regs *regs)
 }
 
 static struct irqaction cascade_msp = {
-	.handler = no_action,
-	.name	 = "MSP cascade"
+	.handler= no_action,
+	.name	= "MSP cascade",
+	.flags	= IRQF_NODELAY,
 };
 
 

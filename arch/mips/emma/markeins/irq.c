@@ -182,7 +182,7 @@ void emma2rh_gpio_irq_init(void)
 
 static struct irqaction irq_cascade = {
 	   .handler = no_action,
-	   .flags = 0,
+	   .flags = IRQF_NODELAY,
 	   .name = "cascade",
 	   .dev_id = NULL,
 	   .next = NULL,
