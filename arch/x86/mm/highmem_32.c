@@ -60,23 +60,6 @@ void *__kmap_atomic_prot(struct page *page, enum km_type type, pgprot_t prot)
 	return (void *)vaddr;
 }
 
-void *__kmap_atomic_prot_pfn(unsigned long pfn, enum km_type type, pgprot_t prot)
-{
-	enum fixed_addresses idx;
-	unsigned long vaddr;
-
-	preempt_disable();
-	pagefault_disable();
-
-	debug_kmap_atomic(type);
-	idx = type + KM_TYPE_NR * smp_processor_id();
-	vaddr = __fix_to_virt(FIX_KMAP_BEGIN + idx);
-	set_pte(kmap_pte - idx, pfn_pte(pfn, prot));
-	arch_flush_lazy_mmu_mode();
-
-	return (void *)vaddr;
-}
-
 void *__kmap_atomic_direct(struct page *page, enum km_type type)
 {
 	return __kmap_atomic_prot(page, type, kmap_prot);
@@ -85,30 +68,6 @@ void *__kmap_atomic_direct(struct page *page, enum km_type type)
 void *__kmap_atomic(struct page *page, enum km_type type)
 {
 	return kmap_atomic_prot(page, type, kmap_prot);
-}
-
-void __kunmap_atomic(void *kvaddr, enum km_type type)
-{
-	unsigned long vaddr = (unsigned long) kvaddr & PAGE_MASK;
-	enum fixed_addresses idx = type + KM_TYPE_NR*smp_processor_id();
-
-	/*
-	 * Force other mappings to Oops if they'll try to access this pte
-	 * without first remap it.  Keeping stale mappings around is a bad idea
-	 * also, in case the page changes cacheability attributes or becomes
-	 * a protected page in a hypervisor.
-	 */
-	if (vaddr == __fix_to_virt(FIX_KMAP_BEGIN+idx))
-		kpte_clear_flush(kmap_pte-idx, vaddr);
-	else {
-#ifdef CONFIG_DEBUG_HIGHMEM
-		BUG_ON(vaddr < PAGE_OFFSET);
-		BUG_ON(vaddr >= (unsigned long)high_memory);
-#endif
-	}
-
-	pagefault_enable();
-	preempt_enable();
 }
 
 /*
@@ -139,7 +98,6 @@ EXPORT_SYMBOL(kmap);
 EXPORT_SYMBOL(kunmap);
 EXPORT_SYMBOL(kunmap_virt);
 EXPORT_SYMBOL(__kmap_atomic);
-EXPORT_SYMBOL(__kunmap_atomic);
 EXPORT_SYMBOL(__kmap_atomic_prot);
 EXPORT_SYMBOL(__kmap_atomic_to_page);
 
