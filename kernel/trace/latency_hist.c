@@ -401,7 +401,8 @@ latency_hist_reset(struct file *file, const char __user *a,
 	return size;
 }
 
-#ifdef CONFIG_WAKEUP_LATENCY_HIST
+#if defined(CONFIG_WAKEUP_LATENCY_HIST) || \
+    defined(CONFIG_MISSED_TIMER_OFFSETS_HIST)
 static ssize_t
 show_pid(struct file *file, char __user *ubuf, size_t cnt, loff_t *ppos)
 {
