@@ -26,6 +26,7 @@
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>
+#include <asm/bootinfo.h>
 
 void SELECT_MASK(ide_drive_t *drive, int mask)
 {
@@ -299,6 +300,11 @@ static const char *nien_quirk_list[] = {
 void ide_check_nien_quirk_list(ide_drive_t *drive)
 {
 	const char **list, *m = (char *)&drive->id[ATA_ID_PROD];
+
+#ifdef CONFIG_FUJITSU_QUIRKS
+	if (mips_machtype != MACH_LEMOTE_YL2F89)
+		return;
+#endif
 
 	for (list = nien_quirk_list; *list != NULL; list++)
 		if (strstr(m, *list) != NULL) {
