@@ -83,17 +83,3 @@ config LOONGSON_UART_BASE
 	bool
 	default y
 	depends on EARLY_PRINTK || SERIAL_8250
-
-config FUJITSU_QUIRKS
-	bool "Enable the quirks of fujitsu disk on some old FuLoong-2F series"
-	default n
-	depends on LEMOTE_MACH2F
-	help
-	  This option enables the quirks of fujitsu disk on some old FuLoong-2F
-	  series(6002, 6003), If you want to use the libata, this option must
-	  be enabled, otherwise, the kernel will report "IRQ #14 nobody cared".
-	  but for the old IDE driver, this option is not needed and for some
-	  new FuLoong-2F series(6004, 6005, 6014, 6015), this must be disabled
-	  to avoid the kernel hang on booting.
-
-	  If unsure, say N.
