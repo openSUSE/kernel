@@ -360,14 +360,12 @@ static int sock_alloc_file(struct socket *sock, struct file **f, int flags)
 	if (unlikely(fd < 0))
 		return fd;
 
-	path.dentry = d_alloc(NULL, &name);
+	path.dentry = d_alloc(sock_mnt->mnt_sb->s_root, &name);
 	if (unlikely(!path.dentry)) {
 		put_unused_fd(fd);
 		return -ENOMEM;
 	}
 	path.mnt = mntget(sock_mnt);
-	path.dentry->d_parent = path.dentry;
-	path.dentry->d_flags |= DCACHE_DISCONNECTED;
 
 	path.dentry->d_op = &sockfs_dentry_operations;
 	d_instantiate(path.dentry, SOCK_INODE(sock));
