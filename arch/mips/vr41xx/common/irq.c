@@ -33,6 +33,7 @@ static irq_cascade_t irq_cascade[NR_IRQS] __cacheline_aligned;
 static struct irqaction cascade_irqaction = {
 	.handler	= no_action,
 	.name		= "cascade",
+	.flags		= IRQF_NODELAY,
 };
 
 int cascade_irq(unsigned int irq, int (*get_irq)(unsigned int))

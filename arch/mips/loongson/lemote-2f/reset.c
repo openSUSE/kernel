@@ -25,8 +25,9 @@
 static void reset_cpu(void)
 {
 	/*
-	 * reset cpu to full speed, this is needed when enabling cpu frequency
-	 * scalling
+	 * reset cpu to full speed, this is needed to avoid the machine reboot
+	 * very slowly for the cpu speed may be set as a low level when the
+	 * support of cpu frequency scaling is enabled.
 	 */
 	LOONGSON_CHIPCFG0 |= 0x7;
 }

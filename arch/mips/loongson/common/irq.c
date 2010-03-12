@@ -14,7 +14,7 @@
 /*
  * the first level int-handler will jump here if it is a bonito irq
  */
-void bonito_irqdispatch(void)
+inline void bonito_irqdispatch(void)
 {
 	u32 int_status;
 	int i;

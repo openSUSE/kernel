@@ -31,14 +31,14 @@
  * The generic i8259_irq() make the kernel hang on booting.  Since we cannot
  * get the irq via the IRR directly, we access the ISR instead.
  */
-int mach_i8259_irq(void)
+inline int mach_i8259_irq(void)
 {
 	int irq, isr;
 
 	irq = -1;
 
 	if ((LOONGSON_INTISR & LOONGSON_INTEN) & LOONGSON_INT_BIT_INT0) {
-		spin_lock(&i8259A_lock);
+		raw_spin_lock(&i8259A_lock);
 		isr = inb(PIC_MASTER_CMD) &
 			~inb(PIC_MASTER_IMR) & ~(1 << PIC_CASCADE_IR);
 		if (!isr)
@@ -56,14 +56,14 @@ int mach_i8259_irq(void)
 			if (~inb(PIC_MASTER_ISR) & 0x80)
 				irq = -1;
 		}
-		spin_unlock(&i8259A_lock);
+		raw_spin_unlock(&i8259A_lock);
 	}
 
 	return irq;
 }
 EXPORT_SYMBOL(mach_i8259_irq);
 
-static void i8259_irqdispatch(void)
+static inline void i8259_irqdispatch(void)
 {
 	int irq;
 
@@ -74,7 +74,7 @@ static void i8259_irqdispatch(void)
 		spurious_interrupt();
 }
 
-void mach_irq_dispatch(unsigned int pending)
+inline void mach_irq_dispatch(unsigned int pending)
 {
 	if (pending & CAUSEF_IP7)
 		do_IRQ(LOONGSON_TIMER_IRQ);
@@ -83,10 +83,10 @@ void mach_irq_dispatch(unsigned int pending)
 		do_IRQ(LOONGSON2_PERFCNT_IRQ);
 #endif
 		bonito_irqdispatch();
-	} else if (pending & CAUSEF_IP3)	/* CPU UART */
-		do_IRQ(LOONGSON_UART_IRQ);
-	else if (pending & CAUSEF_IP2)	/* South Bridge */
+	} else if (pending & CAUSEF_IP2)	/* South Bridge */
 		i8259_irqdispatch();
+	else if (pending & CAUSEF_IP3)	/* CPU UART */
+		do_IRQ(LOONGSON_UART_IRQ);
 	else
 		spurious_interrupt();
 }
@@ -106,12 +106,13 @@ static irqreturn_t ip6_action(int cpl, void *dev_id)
 struct irqaction ip6_irqaction = {
 	.handler = ip6_action,
 	.name = "cascade",
-	.flags = IRQF_SHARED,
+	.flags = IRQF_SHARED | IRQF_NODELAY,
 };
 
 struct irqaction cascade_irqaction = {
 	.handler = no_action,
 	.name = "cascade",
+	.flags = IRQF_NODELAY,
 };
 
 void __init mach_init_irq(void)

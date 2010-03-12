@@ -14,7 +14,7 @@
 
 #include <loongson.h>
 
-static void i8259_irqdispatch(void)
+static inline void i8259_irqdispatch(void)
 {
 	int irq;
 
@@ -25,16 +25,18 @@ static void i8259_irqdispatch(void)
 		spurious_interrupt();
 }
 
-asmlinkage void mach_irq_dispatch(unsigned int pending)
+inline void mach_irq_dispatch(unsigned int pending)
 {
 	if (pending & CAUSEF_IP7)
 		do_IRQ(MIPS_CPU_IRQ_BASE + 7);
-	else if (pending & CAUSEF_IP6) /* perf counter loverflow */
-		do_IRQ(LOONGSON2_PERFCNT_IRQ);
-	else if (pending & CAUSEF_IP5)
-		i8259_irqdispatch();
 	else if (pending & CAUSEF_IP2)
 		bonito_irqdispatch();
+	else if (pending & CAUSEF_IP5)
+		i8259_irqdispatch();
+#ifdef CONFIG_OPROFILE
+	else if (pending & CAUSEF_IP6) /* perf counter loverflow */
+		do_IRQ(LOONGSON2_PERFCNT_IRQ);
+#endif
 	else
 		spurious_interrupt();
 }
@@ -42,6 +44,7 @@ asmlinkage void mach_irq_dispatch(unsigned int pending)
 static struct irqaction cascade_irqaction = {
 	.handler = no_action,
 	.name = "cascade",
+	.flags = IRQF_NODELAY,
 };
 
 void __init set_irq_trigger_mode(void)

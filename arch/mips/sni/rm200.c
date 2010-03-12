@@ -361,6 +361,7 @@ void sni_rm200_init_8259A(void)
 static struct irqaction sni_rm200_irq2 = {
 	.handler = no_action,
 	.name = "cascade",
+	.flags = IRQF_NODELAY,
 };
 
 static struct resource sni_rm200_pic1_resource = {
