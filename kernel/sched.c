@@ -851,7 +851,11 @@ late_initcall(sched_init_debug);
  * Number of tasks to iterate in a single balance run.
  * Limited because this is done with IRQs disabled.
  */
+#ifndef CONFIG_PREEMPT
 const_debug unsigned int sysctl_sched_nr_migrate = 32;
+#else
+const_debug unsigned int sysctl_sched_nr_migrate = 8;
+#endif
 
 /*
  * ratelimit for updating the group shares.
@@ -3490,6 +3494,10 @@ next:
 	 */
 	if (idle == CPU_NEWLY_IDLE)
 		goto out;
+
+	if (raw_spin_is_contended(&this_rq->lock) ||
+	    raw_spin_is_contended(&busiest->lock))
+		goto out;
 #endif
 
 	/*
@@ -3545,6 +3553,10 @@ static int move_tasks(struct rq *this_rq, int this_cpu, struct rq *busiest,
 		 * the critical section.
 		 */
 		if (idle == CPU_NEWLY_IDLE && this_rq->nr_running)
+			break;
+
+		if (raw_spin_is_contended(&this_rq->lock) ||
+		    raw_spin_is_contended(&busiest->lock))
 			break;
 #endif
 	} while (class && max_load_move > total_load_moved);
