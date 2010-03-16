@@ -494,6 +494,13 @@
 #define RATOC_PRODUCT_ID_USB60F	0xb020
 
 /*
+ * Contec products (http://www.contec.com)
+ * Submitted by Daniel Sangorrin
+ */
+#define CONTEC_VID		0x06CE	/* Vendor ID */
+#define CONTEC_COM1USBH_PID	0x8311	/* COM-1(USB)H */
+
+/*
  * Definitions for B&B Electronics products.
  */
 #define BANDB_VID		0x0856	/* B&B Electronics Vendor ID */
@@ -1002,3 +1009,11 @@
 #define EVO_8U232AM_PID	0x02FF	/* Evolution robotics RCM2 (FT232AM)*/
 #define EVO_HYBRID_PID		0x0302	/* Evolution robotics RCM4 PID (FT232BM)*/
 #define EVO_RCM4_PID		0x0303	/* Evolution robotics RCM4 PID */
+
+/*
+ * MJS Gadgets HD Radio / XM Radio / Sirius Radio interfaces (using VID 0x0403)
+ */
+#define MJSG_GENERIC_PID	0x9378
+#define MJSG_SR_RADIO_PID	0x9379
+#define MJSG_XM_RADIO_PID	0x937A
+#define MJSG_HD_RADIO_PID	0x937C

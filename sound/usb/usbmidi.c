@@ -1162,10 +1162,22 @@ static int snd_usbmidi_out_endpoint_create(struct snd_usb_midi* umidi,
 		pipe = usb_sndintpipe(umidi->dev, ep_info->out_ep);
 	else
 		pipe = usb_sndbulkpipe(umidi->dev, ep_info->out_ep);
-	if (umidi->usb_id == USB_ID(0x0a92, 0x1020)) /* ESI M4U */
-		ep->max_transfer = 4;
-	else
+	switch (umidi->usb_id) {
+	default:
 		ep->max_transfer = usb_maxpacket(umidi->dev, pipe, 1);
+		break;
+		/*
+		 * Various chips declare a packet size larger than 4 bytes, but
+		 * do not actually work with larger packets:
+		 */
+	case USB_ID(0x0a92, 0x1020): /* ESI M4U */
+	case USB_ID(0x1430, 0x474b): /* RedOctane GH MIDI INTERFACE */
+	case USB_ID(0x15ca, 0x0101): /* Textech USB Midi Cable */
+	case USB_ID(0x15ca, 0x1806): /* Textech USB Midi Cable */
+	case USB_ID(0x1a86, 0x752d): /* QinHeng CH345 "USB2.0-MIDI" */
+		ep->max_transfer = 4;
+		break;
+	}
 	for (i = 0; i < OUTPUT_URBS; ++i) {
 		buffer = usb_buffer_alloc(umidi->dev,
 					  ep->max_transfer, GFP_KERNEL,
@@ -1407,6 +1419,12 @@ static struct port_info {
 	EXTERNAL_PORT(0x086a, 0x0001, 8, "%s Broadcast"),
 	EXTERNAL_PORT(0x086a, 0x0002, 8, "%s Broadcast"),
 	EXTERNAL_PORT(0x086a, 0x0003, 4, "%s Broadcast"),
+	/* Access Music Virus TI */
+	EXTERNAL_PORT(0x133e, 0x0815, 0, "%s MIDI"),
+	PORT_INFO(0x133e, 0x0815, 1, "%s Synth", 0,
+		SNDRV_SEQ_PORT_TYPE_MIDI_GENERIC |
+		SNDRV_SEQ_PORT_TYPE_HARDWARE |
+		SNDRV_SEQ_PORT_TYPE_SYNTHESIZER),
 };
 
 static struct port_info *find_port_info(struct snd_usb_midi* umidi, int number)
