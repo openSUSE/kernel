@@ -97,8 +97,7 @@ void __kunmap_atomic(void *kvaddr, enum km_type type)
 }
 EXPORT_SYMBOL(__kunmap_atomic);
 
-
-#ifndef CONFIG_PREEMPT_RT
+#if !defined(CONFIG_PREEMPT_RT) || defined(CONFIG_HIGHMEM)
 
 # ifndef CONFIG_HIGHMEM
 #  define kmap_atomic_prot_pfn(pfn, type, prot) \
