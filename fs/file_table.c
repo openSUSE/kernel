@@ -22,6 +22,7 @@
 #include <linux/sysctl.h>
 #include <linux/percpu_counter.h>
 #include <linux/ima.h>
+#include <linux/percpu.h>
 
 #include <asm/atomic.h>
 
@@ -32,7 +33,7 @@ struct files_stat_struct files_stat = {
 	.max_files = NR_FILE
 };
 
-static __cacheline_aligned_in_smp DEFINE_SPINLOCK(files_lock);
+static DEFINE_PER_CPU(spinlock_t, files_cpulock);
 
 /* SLAB cache for file structures */
 static struct kmem_cache *filp_cachep __read_mostly;
@@ -330,42 +331,101 @@ void put_filp(struct file *file)
 
 void file_sb_list_add(struct file *file, struct super_block *sb)
 {
-	spin_lock(&files_lock);
+	spinlock_t *lock;
+	struct list_head *list;
+#ifdef CONFIG_SMP
+	int cpu;
+#endif
+
+	lock = &get_cpu_var(files_cpulock);
+#ifdef CONFIG_SMP
+	cpu = smp_processor_id();
+	list = per_cpu_ptr(sb->s_files, cpu);
+	file->f_sb_list_cpu = cpu;
+#else
+	list = &sb->s_files;
+#endif
+	spin_lock(lock);
 	BUG_ON(!list_empty(&file->f_u.fu_list));
-	list_add(&file->f_u.fu_list, &sb->s_files);
-	spin_unlock(&files_lock);
+	list_add(&file->f_u.fu_list, list);
+	spin_unlock(lock);
+	put_cpu_var(files_cpulock);
 }
 
 void file_sb_list_del(struct file *file)
 {
 	if (!list_empty(&file->f_u.fu_list)) {
-		spin_lock(&files_lock);
+		spinlock_t *lock;
+
+#ifdef CONFIG_SMP
+		lock = &per_cpu(files_cpulock, file->f_sb_list_cpu);
+#else
+		lock = &__get_cpu_var(files_cpulock);
+#endif
+		spin_lock(lock);
 		list_del_init(&file->f_u.fu_list);
-		spin_unlock(&files_lock);
+		spin_unlock(lock);
+	}
+}
+
+static void file_list_lock_all(void)
+{
+	int i;
+	int nr = 0;
+
+	for_each_possible_cpu(i) {
+		spinlock_t *lock;
+
+		lock = &per_cpu(files_cpulock, i);
+		spin_lock_nested(lock, nr);
+		nr++;
+	}
+}
+
+static void file_list_unlock_all(void)
+{
+	int i;
+
+	for_each_possible_cpu(i) {
+		spinlock_t *lock;
+
+		lock = &per_cpu(files_cpulock, i);
+		spin_unlock(lock);
 	}
 }
 
 int fs_may_remount_ro(struct super_block *sb)
 {
-	struct file *file;
+	int i;
 
 	/* Check that no files are currently opened for writing. */
-	spin_lock(&files_lock);
-	list_for_each_entry(file, &sb->s_files, f_u.fu_list) {
-		struct inode *inode = file->f_path.dentry->d_inode;
+	file_list_lock_all();
+	for_each_possible_cpu(i) {
+		struct file *file;
+		struct list_head *list;
 
-		/* File with pending delete? */
-		if (inode->i_nlink == 0)
-			goto too_bad;
+#ifdef CONFIG_SMP
+		list = per_cpu_ptr(sb->s_files, i);
+#else
+		list = &sb->s_files;
+#endif
+		list_for_each_entry(file, list, f_u.fu_list) {
+			struct inode *inode = file->f_path.dentry->d_inode;
 
-		/* Writeable file? */
-		if (S_ISREG(inode->i_mode) && (file->f_mode & FMODE_WRITE))
-			goto too_bad;
+			/* File with pending delete? */
+			if (inode->i_nlink == 0)
+				goto too_bad;
+
+			/* Writeable file? */
+			if (S_ISREG(inode->i_mode) &&
+					(file->f_mode & FMODE_WRITE))
+				goto too_bad;
+		}
 	}
-	spin_unlock(&files_lock);
+	file_list_unlock_all();
 	return 1; /* Tis' cool bro. */
 too_bad:
-	spin_unlock(&files_lock);
+	file_list_unlock_all();
 	return 0;
 }
 
@@ -378,37 +438,48 @@ too_bad:
  */
 void mark_files_ro(struct super_block *sb)
 {
-	struct file *f;
+	int i;
 
 retry:
-	spin_lock(&files_lock);
-	list_for_each_entry(f, &sb->s_files, f_u.fu_list) {
-		struct vfsmount *mnt;
-		if (!S_ISREG(f->f_path.dentry->d_inode->i_mode))
-		       continue;
-		if (!file_count(f))
-			continue;
-		if (!(f->f_mode & FMODE_WRITE))
-			continue;
-		spin_lock(&f->f_lock);
-		f->f_mode &= ~FMODE_WRITE;
-		spin_unlock(&f->f_lock);
-		if (file_check_writeable(f) != 0)
-			continue;
-		file_release_write(f);
-		mnt = mntget(f->f_path.mnt);
-		/* This can sleep, so we can't hold the spinlock. */
-		spin_unlock(&files_lock);
-		mnt_drop_write(mnt);
-		mntput(mnt);
-		goto retry;
+	file_list_lock_all();
+	for_each_possible_cpu(i) {
+		struct file *f;
+		struct list_head *list;
+
+#ifdef CONFIG_SMP
+		list = per_cpu_ptr(sb->s_files, i);
+#else
+		list = &sb->s_files;
+#endif
+		list_for_each_entry(f, list, f_u.fu_list) {
+			struct vfsmount *mnt;
+			if (!S_ISREG(f->f_path.dentry->d_inode->i_mode))
+			       continue;
+			if (!file_count(f))
+				continue;
+			if (!(f->f_mode & FMODE_WRITE))
+				continue;
+			spin_lock(&f->f_lock);
+			f->f_mode &= ~FMODE_WRITE;
+			spin_unlock(&f->f_lock);
+			if (file_check_writeable(f) != 0)
+				continue;
+			file_release_write(f);
+			mnt = mntget(f->f_path.mnt);
+			/* This can sleep, so we can't hold the spinlock. */
+			file_list_unlock_all();
+			mnt_drop_write(mnt);
+			mntput(mnt);
+			goto retry;
+		}
 	}
-	spin_unlock(&files_lock);
+	file_list_unlock_all();
 }
 
 void __init files_init(unsigned long mempages)
 { 
 	int n; 
+	int i;
 
 	filp_cachep = kmem_cache_create("filp", sizeof(struct file), 0,
 			SLAB_HWCACHE_ALIGN | SLAB_PANIC, NULL);
@@ -423,5 +494,7 @@ void __init files_init(unsigned long mempages)
 	if (files_stat.max_files < NR_FILE)
 		files_stat.max_files = NR_FILE;
 	files_defer_init();
+	for_each_possible_cpu(i)
+		spin_lock_init(&per_cpu(files_cpulock, i));
 	percpu_counter_init(&nr_files, 0);
 } 
