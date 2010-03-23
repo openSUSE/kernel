@@ -948,9 +948,6 @@ struct file {
 	unsigned long f_mnt_write_state;
 #endif
 };
-extern spinlock_t files_lock;
-#define file_list_lock() spin_lock(&files_lock);
-#define file_list_unlock() spin_unlock(&files_lock);
 
 #define get_file(x)	atomic_long_inc(&(x)->f_count)
 #define file_count(x)	atomic_long_read(&(x)->f_count)
@@ -2037,6 +2034,7 @@ extern const struct file_operations read_pipefifo_fops;
 extern const struct file_operations write_pipefifo_fops;
 extern const struct file_operations rdwr_pipefifo_fops;
 
+extern void mark_files_ro(struct super_block *sb);
 extern int fs_may_remount_ro(struct super_block *);
 
 #ifdef CONFIG_BLOCK
@@ -2183,8 +2181,9 @@ static inline void insert_inode_hash(struct inode *inode) {
 	__insert_inode_hash(inode, inode->i_ino);
 }
 
-extern void file_move(struct file *f, struct list_head *list);
-extern void file_kill(struct file *f);
+extern struct file * get_empty_filp(void);
+extern void file_sb_list_add(struct file *f, struct super_block *sb);
+extern void file_sb_list_del(struct file *f);
 #ifdef CONFIG_BLOCK
 struct bio;
 extern void submit_bio(int, struct bio *);
