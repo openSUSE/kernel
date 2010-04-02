@@ -360,6 +360,23 @@ static inline void mask_ack_irq(struct irq_desc *desc, int irq)
 		if (desc->chip->ack)
 			desc->chip->ack(irq);
 	}
+	desc->status |= IRQ_MASKED;
+}
+
+static inline void mask_irq(struct irq_desc *desc, int irq)
+{
+	if (desc->chip->mask) {
+		desc->chip->mask(irq);
+		desc->status |= IRQ_MASKED;
+	}
+}
+
+static inline void unmask_irq(struct irq_desc *desc, int irq)
+{
+	if (desc->chip->unmask) {
+		desc->chip->unmask(irq);
+		desc->status &= ~IRQ_MASKED;
+	}
 }
 
 /*
@@ -485,10 +502,8 @@ handle_level_irq(unsigned int irq, struct irq_desc *desc)
 	raw_spin_lock(&desc->lock);
 	desc->status &= ~IRQ_INPROGRESS;
 
-	if (unlikely(desc->status & IRQ_ONESHOT))
-		desc->status |= IRQ_MASKED;
-	else if (!(desc->status & IRQ_DISABLED) && desc->chip->unmask)
-		desc->chip->unmask(irq);
+	if (!(desc->status & (IRQ_DISABLED | IRQ_ONESHOT)))
+		unmask_irq(desc, irq);
 out_unlock:
 	raw_spin_unlock(&desc->lock);
 }
@@ -525,8 +540,7 @@ handle_fasteoi_irq(unsigned int irq, struct irq_desc *desc)
 	action = desc->action;
 	if (unlikely(!action || (desc->status & IRQ_DISABLED))) {
 		desc->status |= IRQ_PENDING;
-		if (desc->chip->mask)
-			desc->chip->mask(irq);
+		mask_irq(desc, irq);
 		goto out;
 	}
 
@@ -602,7 +616,7 @@ handle_edge_irq(unsigned int irq, struct irq_desc *desc)
 		irqreturn_t action_ret;
 
 		if (unlikely(!action)) {
-			desc->chip->mask(irq);
+			mask_irq(desc, irq);
 			goto out_unlock;
 		}
 
@@ -614,8 +628,7 @@ handle_edge_irq(unsigned int irq, struct irq_desc *desc)
 		if (unlikely((desc->status &
 			       (IRQ_PENDING | IRQ_MASKED | IRQ_DISABLED)) ==
 			      (IRQ_PENDING | IRQ_MASKED))) {
-			desc->chip->unmask(irq);
-			desc->status &= ~IRQ_MASKED;
+			unmask_irq(desc, irq);
 		}
 
 		desc->status &= ~IRQ_PENDING;
