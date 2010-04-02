@@ -375,15 +375,18 @@ END(ret_from_exception)
 ENTRY(resume_kernel)
 	DISABLE_INTERRUPTS(CLBR_ANY)
 	cmpl $0,TI_preempt_count(%ebp)	# non-zero preempt_count ?
-	jnz restore_nocheck
+	jnz restore_nocheck_trace
 need_resched:
 	movl TI_flags(%ebp), %ecx	# need_resched set ?
 	testb $_TIF_NEED_RESCHED, %cl
-	jz restore_nocheck
+	jz restore_nocheck_trace
 	testl $X86_EFLAGS_IF,PT_EFLAGS(%esp)	# interrupts off (exception path) ?
-	jz restore_nocheck
+	jz restore_nocheck_trace
 	call preempt_schedule_irq
 	jmp need_resched
+restore_nocheck_trace:
+	TRACE_IRQS_IRET
+	jmp restore_nocheck
 END(resume_kernel)
 #endif
 	CFI_ENDPROC
