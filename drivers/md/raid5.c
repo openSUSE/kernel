@@ -1149,8 +1149,9 @@ static void __raid_run_ops(struct stripe_head *sh, unsigned long ops_request)
 	struct raid5_percpu *percpu;
 	unsigned long cpu;
 
-	cpu = get_cpu();
+	cpu = raw_smp_processor_id();
 	percpu = per_cpu_ptr(conf->percpu, cpu);
+	spin_lock(&percpu->lock);
 	if (test_bit(STRIPE_OP_BIOFILL, &ops_request)) {
 		ops_run_biofill(sh);
 		overlap_clear++;
@@ -1202,7 +1203,7 @@ static void __raid_run_ops(struct stripe_head *sh, unsigned long ops_request)
 			if (test_and_clear_bit(R5_Overlap, &dev->flags))
 				wake_up(&sh->raid_conf->wait_for_overlap);
 		}
-	put_cpu();
+	spin_unlock(&percpu->lock);
 }
 
 #ifdef CONFIG_MULTICORE_RAID456
