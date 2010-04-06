@@ -49,7 +49,7 @@ struct uic {
 	int index;
 	int dcrbase;
 
-	spinlock_t lock;
+	raw_spinlock_t lock;
 
 	/* The remapper for this UIC */
 	struct irq_host	*irqhost;
@@ -64,14 +64,14 @@ static void uic_unmask_irq(unsigned int virq)
 	u32 er, sr;
 
 	sr = 1 << (31-src);
-	spin_lock_irqsave(&uic->lock, flags);
+	raw_spin_lock_irqsave(&uic->lock, flags);
 	/* ack level-triggered interrupts here */
 	if (desc->status & IRQ_LEVEL)
 		mtdcr(uic->dcrbase + UIC_SR, sr);
 	er = mfdcr(uic->dcrbase + UIC_ER);
 	er |= sr;
 	mtdcr(uic->dcrbase + UIC_ER, er);
-	spin_unlock_irqrestore(&uic->lock, flags);
+	raw_spin_unlock_irqrestore(&uic->lock, flags);
 }
 
 static void uic_mask_irq(unsigned int virq)
@@ -81,11 +81,11 @@ static void uic_mask_irq(unsigned int virq)
 	unsigned long flags;
 	u32 er;
 
-	spin_lock_irqsave(&uic->lock, flags);
+	raw_spin_lock_irqsave(&uic->lock, flags);
 	er = mfdcr(uic->dcrbase + UIC_ER);
 	er &= ~(1 << (31 - src));
 	mtdcr(uic->dcrbase + UIC_ER, er);
-	spin_unlock_irqrestore(&uic->lock, flags);
+	raw_spin_unlock_irqrestore(&uic->lock, flags);
 }
 
 static void uic_ack_irq(unsigned int virq)
@@ -94,9 +94,9 @@ static void uic_ack_irq(unsigned int virq)
 	unsigned int src = uic_irq_to_hw(virq);
 	unsigned long flags;
 
-	spin_lock_irqsave(&uic->lock, flags);
+	raw_spin_lock_irqsave(&uic->lock, flags);
 	mtdcr(uic->dcrbase + UIC_SR, 1 << (31-src));
-	spin_unlock_irqrestore(&uic->lock, flags);
+	raw_spin_unlock_irqrestore(&uic->lock, flags);
 }
 
 static void uic_mask_ack_irq(unsigned int virq)
@@ -108,7 +108,7 @@ static void uic_mask_ack_irq(unsigned int virq)
 	u32 er, sr;
 
 	sr = 1 << (31-src);
-	spin_lock_irqsave(&uic->lock, flags);
+	raw_spin_lock_irqsave(&uic->lock, flags);
 	er = mfdcr(uic->dcrbase + UIC_ER);
 	er &= ~sr;
 	mtdcr(uic->dcrbase + UIC_ER, er);
@@ -122,7 +122,7 @@ static void uic_mask_ack_irq(unsigned int virq)
 	 */
 	if (!(desc->status & IRQ_LEVEL))
 		mtdcr(uic->dcrbase + UIC_SR, sr);
-	spin_unlock_irqrestore(&uic->lock, flags);
+	raw_spin_unlock_irqrestore(&uic->lock, flags);
 }
 
 static int uic_set_irq_type(unsigned int virq, unsigned int flow_type)
@@ -157,7 +157,7 @@ static int uic_set_irq_type(unsigned int virq, unsigned int flow_type)
 
 	mask = ~(1 << (31 - src));
 
-	spin_lock_irqsave(&uic->lock, flags);
+	raw_spin_lock_irqsave(&uic->lock, flags);
 	tr = mfdcr(uic->dcrbase + UIC_TR);
 	pr = mfdcr(uic->dcrbase + UIC_PR);
 	tr = (tr & mask) | (trigger << (31-src));
@@ -171,7 +171,7 @@ static int uic_set_irq_type(unsigned int virq, unsigned int flow_type)
 	if (!trigger)
 		desc->status |= IRQ_LEVEL;
 
-	spin_unlock_irqrestore(&uic->lock, flags);
+	raw_spin_unlock_irqrestore(&uic->lock, flags);
 
 	return 0;
 }
@@ -262,7 +262,7 @@ static struct uic * __init uic_init_one(struct device_node *node)
 	if (! uic)
 		return NULL; /* FIXME: panic? */
 
-	spin_lock_init(&uic->lock);
+	raw_spin_lock_init(&uic->lock);
 	indexp = of_get_property(node, "cell-index", &len);
 	if (!indexp || (len != sizeof(u32))) {
 		printk(KERN_ERR "uic: Device node %s has missing or invalid "
