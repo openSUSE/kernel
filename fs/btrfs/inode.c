@@ -1991,8 +1991,14 @@ void btrfs_add_delayed_iput(struct inode *inode)
 	struct btrfs_fs_info *fs_info = BTRFS_I(inode)->root->fs_info;
 	struct delayed_iput *delayed;
 
-	if (atomic_add_unless(&inode->i_count, -1, 1))
+	spin_lock(&inode->i_lock);
+	if (inode->i_count == 1) {
+		spin_unlock(&inode->i_lock);
 		return;
+	}
+	inode->i_count--;
+	spin_unlock(&inode->i_lock);
+
 
 	delayed = kmalloc(sizeof(*delayed), GFP_NOFS | __GFP_NOFAIL);
 	delayed->inode = inode;
@@ -3600,8 +3606,14 @@ again:
 		objectid = entry->vfs_inode.i_ino + 1;
 		inode = igrab(&entry->vfs_inode);
 		if (inode) {
+			int count;
 			spin_unlock(&root->inode_lock);
-			if (atomic_read(&inode->i_count) > 1)
+
+			spin_lock(&inode->i_lock);
+			count = inode->i_count;
+			spin_unlock(&inode->i_lock);
+
+			if (count > 1)
 				d_prune_aliases(inode);
 			/*
 			 * btrfs_drop_inode will remove it from
