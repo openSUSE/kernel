@@ -1553,7 +1553,7 @@ void stop_gfar(struct net_device *dev)
 
 
 	/* Lock it down */
-	local_irq_save(flags);
+	local_irq_save_nort(flags);
 	lock_tx_qs(priv);
 	lock_rx_qs(priv);
 
@@ -1561,7 +1561,7 @@ void stop_gfar(struct net_device *dev)
 
 	unlock_rx_qs(priv);
 	unlock_tx_qs(priv);
-	local_irq_restore(flags);
+	local_irq_restore_nort(flags);
 
 	/* Free the IRQs */
 	if (priv->device_flags & FSL_GIANFAR_DEV_HAS_MULTI_INTR) {
