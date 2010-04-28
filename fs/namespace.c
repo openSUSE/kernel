@@ -1377,6 +1377,13 @@ struct vfsmount *copy_tree(struct vfsmount *mnt, struct dentry *dentry,
 		goto Enomem;
 	q->mnt_mountpoint = mnt->mnt_mountpoint;
 
+	/*
+	 * We don't call attach_mnt on a cloned rootfs, so set it as
+	 * mounted here.
+	 */
+	WARN_ON(q->mnt_flags & MNT_MOUNTED);
+	q->mnt_flags |= MNT_MOUNTED;
+
 	p = mnt;
 	list_for_each_entry(r, &mnt->mnt_mounts, mnt_child) {
 		if (!is_subdir(r->mnt_mountpoint, dentry))
