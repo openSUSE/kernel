@@ -2513,20 +2513,29 @@ void put_mnt_ns(struct mnt_namespace *ns)
 {
 	struct vfsmount *root;
 	LIST_HEAD(umount_list);
-	spinlock_t *lock;
 
-	lock = &get_cpu_var(vfsmount_lock);
-	if (!atomic_dec_and_lock(&ns->count, lock)) {
-		put_cpu_var(vfsmount_lock);
+	/*
+	 * We open code this to avoid vfsmount_write_lock() in case of
+	 * ns->count > 1
+	 */
+	if (atomic_add_unless(&ns->count, -1, 1))
+		return;
+
+	/*
+	 * Do the full locking here as it's likely that ns->count will
+	 * drop to zero and we have to take namespace_sem and all vfs
+	 * mount locks anyway for umount_tree().
+	 */
+	down_write(&namespace_sem);
+	vfsmount_write_lock();
+	if (!atomic_dec_and_test(&ns->count)) {
+		vfsmount_write_unlock();
+		up_write(&namespace_sem);
 		return;
 	}
 	root = ns->root;
 	ns->root = NULL;
-	spin_unlock(lock);
-	put_cpu_var(vfsmount_lock);
 
-	down_write(&namespace_sem);
-	vfsmount_write_lock();
 	umount_tree(root, 0, &umount_list);
 	vfsmount_write_unlock();
 	up_write(&namespace_sem);
