@@ -1233,7 +1233,7 @@ static int do_umount(struct vfsmount *mnt, int flags)
 		 */
 		vfsmount_write_lock();
 		if (count_mnt_count(mnt) != 2) {
-			vfsmount_write_lock();
+			vfsmount_write_unlock();
 			return -EBUSY;
 		}
 		vfsmount_write_unlock();
