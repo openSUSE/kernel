@@ -265,6 +265,7 @@ int get_sb_pseudo(struct file_system_type *fs_type, char *name,
 	d_instantiate(dentry, root);
 	s->s_root = dentry;
 	s->s_flags |= MS_ACTIVE;
+	WARN_ON(mnt->mnt_flags & MNT_MOUNTED);
 	mnt->mnt_flags |= MNT_MOUNTED;
 	simple_set_mnt(mnt, s);
 	return 0;

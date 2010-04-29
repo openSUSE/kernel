@@ -99,6 +99,7 @@ struct dentry {
 	atomic_t d_count;
 	unsigned int d_flags;		/* protected by d_lock */
 	spinlock_t d_lock;		/* per dentry lock */
+	int d_mounted;
 	seqcount_t d_seq;		/* per dentry seqlock */
 	struct inode *d_inode;		/* Where the name belongs to - NULL is
 					 * negative */
@@ -364,7 +365,7 @@ extern void dput(struct dentry *);
 
 static inline int d_mountpoint(struct dentry *dentry)
 {
-	return dentry->d_flags & DCACHE_MOUNTED;
+	return dentry->d_mounted;
 }
 
 extern struct vfsmount *lookup_mnt(struct path *);
