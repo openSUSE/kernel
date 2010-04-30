@@ -689,7 +689,7 @@ static void inode_sb_list_add(struct inode *inode, struct super_block *sb)
 	list = per_cpu_ptr(sb->s_inodes, cpu);
 	inode->i_sb_list_cpu = cpu;
 #else
-	list = &sb->s_files;
+	list = &sb->s_inodes;
 #endif
 	put_cpu_var(inode_cpulock);
 	spin_lock(lock);
