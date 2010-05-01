@@ -352,48 +352,44 @@ repeat:
 		}
 	}
 	/* Unreachable? Get rid of it */
- 	if (d_unhashed(dentry))
+	if (d_unhashed(dentry))
 		goto kill_it;
-  	if (list_empty(&dentry->d_lru)) {
-  		dentry->d_flags |= DCACHE_REFERENCED;
+	if (list_empty(&dentry->d_lru)) {
+		dentry->d_flags |= DCACHE_REFERENCED;
 		dentry_lru_add(dentry);
-  	}
+	}
 	spin_unlock(&dentry->d_lock);
 	return;
 
-relock1:
-	spin_lock(&dentry->d_lock);
 kill_it:
 	inode = dentry->d_inode;
-	if (inode) {
-		if (!spin_trylock(&inode->i_lock)) {
-relock2:
-			spin_unlock(&dentry->d_lock);
-			goto relock1;
-		}
-	}
+	if (inode && !spin_trylock(&inode->i_lock))
+		goto retry;
+
 	parent = dentry->d_parent;
-	if (parent && parent != dentry) {
-		if (!spin_trylock(&parent->d_lock)) {
-			if (inode)
-				spin_unlock(&inode->i_lock);
-			goto relock2;
-		}
-	}
-	if (atomic_read(&dentry->d_count)) {
-		/* This case should be fine */
-		spin_unlock(&dentry->d_lock);
-		if (parent && parent != dentry)
-			spin_unlock(&parent->d_lock);
+	if (parent && parent != dentry && !spin_trylock(&parent->d_lock)) {
 		if (inode)
 			spin_unlock(&inode->i_lock);
-		return;
+		goto retry;
 	}
+
 	/* if dentry was on the d_lru list delete it from there */
 	dentry_lru_del(dentry);
 	dentry = d_kill(dentry);
 	if (dentry)
 		goto repeat;
+	return;
+
+retry:
+	/*
+	 * We are about to drop dentry->d_lock. dentry->d_count is 0
+	 * so it could be freed by someone else and leave us with a
+	 * stale pointer. Prevent this by increasing d_count before
+	 * dropping d_lock.
+	 */
+	atomic_inc(&dentry->d_count);
+	spin_unlock(&dentry->d_lock);
+	goto repeat;
 }
 
 /**
