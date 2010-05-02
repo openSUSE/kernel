@@ -915,7 +915,7 @@ static int __init kernel_init(void * unused)
 		defined(CONFIG_INTERRUPT_OFF_HIST) +	\
 		defined(CONFIG_PREEMPT_OFF_HIST) +	\
 		defined(CONFIG_DEBUG_SLAB) +		\
-		defined(CONFIG_PREEMPT_OFF_HIST) +	\
+		defined(CONFIG_DEBUG_PAGEALLOC) +	\
 		defined(CONFIG_LOCKDEP) +		\
 		(defined(CONFIG_FUNCTION_TRACER) -	\
 		 defined(CONFIG_FTRACE_MCOUNT_RECORD)))
