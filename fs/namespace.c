@@ -754,7 +754,7 @@ void mntput_no_expire(struct vfsmount *mnt)
 	put_cpu();
 	if (likely(mnt->mnt_flags & MNT_MOUNTED)) {
 		vfsmount_read_lock(cpu);
-		if (unlikely(!mnt->mnt_flags & MNT_MOUNTED)) {
+		if (unlikely(!(mnt->mnt_flags & MNT_MOUNTED))) {
 			vfsmount_read_unlock(cpu);
 			goto repeat;
 		}
