@@ -438,12 +438,10 @@ static int autofs4_revalidate(struct dentry *dentry, struct nameidata *nd)
 	}
 
 	/* Check for a non-mountpoint directory with no contents */
-	spin_lock(&autofs4_lock);
 	if (S_ISDIR(dentry->d_inode->i_mode) &&
 	    !d_mountpoint(dentry) && list_empty(&dentry->d_subdirs)) {
 		DPRINTK("dentry=%p %.*s, emptydir",
 			 dentry, dentry->d_name.len, dentry->d_name.name);
-		spin_unlock(&autofs4_lock);
 
 		if (autofs4_need_mount(flags) || current->link_count) {
 			int status;
