@@ -317,7 +317,6 @@ static void *autofs4_follow_link(struct dentry *dentry, struct nameidata *nd)
 	 * multi-mount with no root mount offset. So don't try to
 	 * mount it again.
 	 */
-	spin_lock(&autofs4_lock);
 	spin_lock(&dentry->d_lock);
 	if (ino->flags & AUTOFS_INF_PENDING ||
 	    (!d_mountpoint(dentry) && list_empty(&dentry->d_subdirs))) {
