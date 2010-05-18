@@ -1264,8 +1264,8 @@ static int ehea_reg_interrupts(struct net_device *dev)
 			 "%s-queue%d", dev->name, i);
 		ret = ibmebus_request_irq(pr->eq->attr.ist1,
 					  ehea_recv_irq_handler,
-					  IRQF_DISABLED, pr->int_send_name,
-					  pr);
+					  IRQF_DISABLED | IRQF_NODELAY,
+					  pr->int_send_name, pr);
 		if (ret) {
 			ehea_error("failed registering irq for ehea_queue "
 				   "port_res_nr:%d, ist=%X", i,
