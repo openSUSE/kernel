@@ -1675,9 +1675,13 @@ static int do_loopback(struct path *path, char *old_name,
 		goto out;
 
 	err = -ENOMEM;
-	if (recurse)
+	if (recurse) {
 		mnt = copy_tree(old_path.mnt, old_path.dentry, 0);
-	else
+		/* Annoying. Since we graft the rootfs, we need to unmark
+		 * it as mounted. */
+		WARN_ON(!(mnt->mnt_flags & MNT_MOUNTED));
+		mnt->mnt_flags &= ~MNT_MOUNTED;
+	} else
 		mnt = clone_mnt(old_path.mnt, old_path.dentry, 0);
 
 	if (!mnt)
