@@ -3608,8 +3608,10 @@ void lockdep_init(void)
 	for (i = 0; i < CHAINHASH_SIZE; i++)
 		INIT_LIST_HEAD(chainhash_table + i);
 
+#ifdef CONFIG_LOCK_KERNEL
 	/* Hack alert ! */
 	lockdep_set_novalidate_class(&kernel_sem);
+#endif
 
 	lockdep_initialized = 1;
 }

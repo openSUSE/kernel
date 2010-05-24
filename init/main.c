@@ -629,9 +629,13 @@ asmlinkage void __init start_kernel(void)
 		 * the lockdep state, so release the one known lock and
 		 * acquire it again after the self-test is done.
 		 */
+#ifdef CONFIG_LOCK_KERNEL
 		mutex_release(&kernel_sem.dep_map, 1, _THIS_IP_);
+#endif
 		locking_selftest();
+#ifdef CONFIG_LOCK_KERNEL
 		mutex_acquire(&kernel_sem.dep_map, 0, 0, _THIS_IP_);
+#endif
 	}
 
 #ifdef CONFIG_BLK_DEV_INITRD
