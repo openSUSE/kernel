@@ -1087,15 +1087,6 @@ void release_console_mutex(void)
 	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
 	mutex_unlock(&console_mutex);
 
-	/*
-	 * On PREEMPT_RT kernels __wake_up may sleep, so wake syslogd
-	 * up only if we are in a preemptible section. We normally dont
-	 * printk from non-preemptible sections so this is for the emergency
-	 * case only.
-	 */
-#ifdef CONFIG_PREEMPT_RT
-	if (!in_atomic() && !irqs_disabled())
-#endif
 	if (wake_klogd)
 		wake_up_klogd();
 }
