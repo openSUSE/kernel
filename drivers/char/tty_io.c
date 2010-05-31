@@ -1884,6 +1884,7 @@ got_driver:
 		 */
 		if (filp->f_op == &hung_up_tty_fops)
 			filp->f_op = &tty_fops;
+		unlock_kernel();
 		goto retry_open;
 	}
 	unlock_kernel();
