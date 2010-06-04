@@ -1052,12 +1052,12 @@ resume:
 
 		/*
 		 * Descend a level if the d_subdirs list is non-empty.
+		 * Note that we keep a hold on the parent lock while
+		 * we descend, so we don't have to reacquire it on
+		 * ascend.
 		 */
 		if (!list_empty(&dentry->d_subdirs)) {
-			spin_unlock(&this_parent->d_lock);
-			spin_release(&dentry->d_lock.dep_map, 1, _RET_IP_);
 			this_parent = dentry;
-			spin_acquire(&this_parent->d_lock.dep_map, 0, 1, _RET_IP_);
 			goto repeat;
 		}
 
@@ -1071,25 +1071,20 @@ resume:
 		struct dentry *child;
 
 		tmp = this_parent->d_parent;
-		rcu_read_lock();
-		spin_unlock(&this_parent->d_lock);
 		child = this_parent;
-		this_parent = tmp;
-		spin_lock(&this_parent->d_lock);
-		/* might go back up the wrong parent if we have had a rename
-		 * or deletion */
-		if (this_parent != child->d_parent ||
-				// d_unlinked(this_parent) || XXX
-				read_seqretry(&rename_lock, seq)) {
-			spin_unlock(&this_parent->d_lock);
-			rcu_read_unlock();
-			goto rename_retry;
-		}
-		rcu_read_unlock();
 		next = child->d_u.d_child.next;
+		spin_unlock(&this_parent->d_lock);
+		this_parent = tmp;
 		goto resume;
 	}
+
 out:
+	/* Make sure we unlock all the way back up the tree */
+	while (this_parent != parent) {
+		struct dentry *tmp = this_parent->d_parent;
+		spin_unlock(&this_parent->d_lock);
+		this_parent = tmp;
+	}
 	spin_unlock(&this_parent->d_lock);
 	if (read_seqretry(&rename_lock, seq))
 		goto rename_retry;
