@@ -201,6 +201,7 @@ d_iput:		no		no       yes
      /* Parent inode is watched by some fsnotify listener */
 
 #define DCACHE_MOUNTED		0x0100	/* is a mountpoint */
+#define DCACHE_GENOCIDE		0x0200	/* being genocided */
 
 extern seqlock_t rename_lock;
 
