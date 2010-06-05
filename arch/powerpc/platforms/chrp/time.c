@@ -83,7 +83,7 @@ int chrp_set_rtc_time(struct rtc_time *tmarg)
 	unsigned char save_control, save_freq_select;
 	struct rtc_time tm = *tmarg;
 
-#if CONFIG_PREEMPT_RT
+#ifdef CONFIG_PREEMPT_RT
 	if (!spin_trylock(&rtc_lock))
 		return -1;
 #else
