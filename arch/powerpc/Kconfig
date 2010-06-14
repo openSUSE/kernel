@@ -385,6 +385,7 @@ config IRQ_ALL_CPUS
 
 config SPARSE_IRQ
 	bool "Support sparse irq numbering"
+	depends on !PREEMPT_RT
 	default y
 	help
 	  This enables support for sparse irqs. This is useful for distro
