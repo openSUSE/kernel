@@ -120,6 +120,14 @@ static int do_signal_pending(sigset_t *oldset, struct pt_regs *regs)
 	int ret;
 	int is32 = is_32bit_task();
 
+#ifdef CONFIG_PREEMPT_RT
+	/*
+	 * Fully-preemptible kernel does not need interrupts disabled:
+	 */
+	local_irq_enable();
+	preempt_check_resched();
+#endif
+
 	if (current_thread_info()->local_flags & _TLF_RESTORE_SIGMASK)
 		oldset = &current->saved_sigmask;
 	else if (!oldset)
