@@ -34,7 +34,7 @@ MODULE_VERSION(DCA_VERSION);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Intel Corporation");
 
-static DEFINE_SPINLOCK(dca_lock);
+static DEFINE_RAW_SPINLOCK(dca_lock);
 
 static LIST_HEAD(dca_domains);
 
@@ -87,13 +87,6 @@ static struct dca_domain *dca_get_domain(struct device *dev)
 
 	rc = dca_pci_rc_from_dev(dev);
 	domain = dca_find_domain(rc);
-
-	if (!domain) {
-		domain = dca_allocate_domain(rc);
-		if (domain)
-			list_add(&domain->node, &dca_domains);
-	}
-
 	return domain;
 }
 
@@ -139,19 +132,19 @@ int dca_add_requester(struct device *dev)
 	if (!dev)
 		return -EFAULT;
 
-	spin_lock_irqsave(&dca_lock, flags);
+	raw_spin_lock_irqsave(&dca_lock, flags);
 
 	/* check if the requester has not been added already */
 	dca = dca_find_provider_by_dev(dev);
 	if (dca) {
-		spin_unlock_irqrestore(&dca_lock, flags);
+		raw_spin_unlock_irqrestore(&dca_lock, flags);
 		return -EEXIST;
 	}
 
 	pci_rc = dca_pci_rc_from_dev(dev);
 	domain = dca_find_domain(pci_rc);
 	if (!domain) {
-		spin_unlock_irqrestore(&dca_lock, flags);
+		raw_spin_unlock_irqrestore(&dca_lock, flags);
 		return -ENODEV;
 	}
 
@@ -161,17 +154,17 @@ int dca_add_requester(struct device *dev)
 			break;
 	}
 
-	spin_unlock_irqrestore(&dca_lock, flags);
+	raw_spin_unlock_irqrestore(&dca_lock, flags);
 
 	if (slot < 0)
 		return slot;
 
 	err = dca_sysfs_add_req(dca, dev, slot);
 	if (err) {
-		spin_lock_irqsave(&dca_lock, flags);
+		raw_spin_lock_irqsave(&dca_lock, flags);
 		if (dca == dca_find_provider_by_dev(dev))
 			dca->ops->remove_requester(dca, dev);
-		spin_unlock_irqrestore(&dca_lock, flags);
+		raw_spin_unlock_irqrestore(&dca_lock, flags);
 		return err;
 	}
 
@@ -192,14 +185,14 @@ int dca_remove_requester(struct device *dev)
 	if (!dev)
 		return -EFAULT;
 
-	spin_lock_irqsave(&dca_lock, flags);
+	raw_spin_lock_irqsave(&dca_lock, flags);
 	dca = dca_find_provider_by_dev(dev);
 	if (!dca) {
-		spin_unlock_irqrestore(&dca_lock, flags);
+		raw_spin_unlock_irqrestore(&dca_lock, flags);
 		return -ENODEV;
 	}
 	slot = dca->ops->remove_requester(dca, dev);
-	spin_unlock_irqrestore(&dca_lock, flags);
+	raw_spin_unlock_irqrestore(&dca_lock, flags);
 
 	if (slot < 0)
 		return slot;
@@ -221,16 +214,16 @@ u8 dca_common_get_tag(struct device *dev, int cpu)
 	u8 tag;
 	unsigned long flags;
 
-	spin_lock_irqsave(&dca_lock, flags);
+	raw_spin_lock_irqsave(&dca_lock, flags);
 
 	dca = dca_find_provider_by_dev(dev);
 	if (!dca) {
-		spin_unlock_irqrestore(&dca_lock, flags);
+		raw_spin_unlock_irqrestore(&dca_lock, flags);
 		return -ENODEV;
 	}
 	tag = dca->ops->get_tag(dca, dev, cpu);
 
-	spin_unlock_irqrestore(&dca_lock, flags);
+	raw_spin_unlock_irqrestore(&dca_lock, flags);
 	return tag;
 }
 
@@ -303,23 +296,36 @@ int register_dca_provider(struct dca_provider *dca, struct device *dev)
 {
 	int err;
 	unsigned long flags;
-	struct dca_domain *domain;
+	struct dca_domain *domain, *newdomain = NULL;
 
 	err = dca_sysfs_add_provider(dca, dev);
 	if (err)
 		return err;
 
-	spin_lock_irqsave(&dca_lock, flags);
+	raw_spin_lock_irqsave(&dca_lock, flags);
 	domain = dca_get_domain(dev);
 	if (!domain) {
-		spin_unlock_irqrestore(&dca_lock, flags);
-		return -ENODEV;
+		raw_spin_unlock_irqrestore(&dca_lock, flags);
+
+		newdomain = dca_allocate_domain(rc);
+		if (!newdomain)
+			return -ENODEV;
+
+		raw_spin_lock_irqsave(&dca_lock, flags);
+		/* Recheck, we might have raced after dropping the lock */
+		domain = dca_get_domain(dev);
+		if (!domain) {
+			domain = newdomain;
+			newdomain = NULL;
+			list_add(&domain->node, &dca_domains);
+		}
 	}
 	list_add(&dca->node, &domain->dca_providers);
-	spin_unlock_irqrestore(&dca_lock, flags);
+	raw_spin_unlock_irqrestore(&dca_lock, flags);
 
 	blocking_notifier_call_chain(&dca_provider_chain,
 				     DCA_PROVIDER_ADD, NULL);
+	kfree(newdomain);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(register_dca_provider);
@@ -337,7 +343,7 @@ void unregister_dca_provider(struct dca_provider *dca, struct device *dev)
 	blocking_notifier_call_chain(&dca_provider_chain,
 				     DCA_PROVIDER_REMOVE, NULL);
 
-	spin_lock_irqsave(&dca_lock, flags);
+	raw_spin_lock_irqsave(&dca_lock, flags);
 
 	list_del(&dca->node);
 
@@ -346,7 +352,7 @@ void unregister_dca_provider(struct dca_provider *dca, struct device *dev)
 	if (list_empty(&domain->dca_providers))
 		dca_free_domain(domain);
 
-	spin_unlock_irqrestore(&dca_lock, flags);
+	raw_spin_unlock_irqrestore(&dca_lock, flags);
 
 	dca_sysfs_remove_provider(dca);
 }
