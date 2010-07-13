@@ -1183,7 +1183,12 @@ static int __init xt_init(void)
 
 	for_each_possible_cpu(i) {
 		struct xt_info_lock *lock = &per_cpu(xt_info_locks, i);
+
+#ifndef CONFIG_PREEMPT_RT
 		spin_lock_init(&lock->lock);
+#else
+		rwlock_init(&lock->lock);
+#endif
 		lock->readers = 0;
 	}
 

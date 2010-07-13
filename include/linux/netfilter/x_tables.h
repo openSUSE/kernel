@@ -439,7 +439,11 @@ extern void xt_free_table_info(struct xt_table_info *info);
  *  necessary for reading the counters.
  */
 struct xt_info_lock {
+#ifndef CONFIG_PREEMPT_RT
 	spinlock_t lock;
+#else
+	rwlock_t lock;
+#endif
 	unsigned char readers;
 };
 DECLARE_PER_CPU(struct xt_info_lock, xt_info_locks);
@@ -466,11 +470,14 @@ static inline int xt_info_rdlock_bh(void)
 	preempt_disable_rt();
 	cpu = smp_processor_id();
 	lock = &per_cpu(xt_info_locks, cpu);
-	if (likely(!lock->readers++)) {
-		preempt_enable_rt();
-		spin_lock(&lock->lock);
-	} else
-		preempt_enable_rt();
+
+#ifndef CONFIG_PREEMPT_RT
+	if (likely(!--lock->readers))
+		spin_unlock(&lock->lock);
+#else
+	preempt_enable_rt();
+	read_lock(&lock->lock);
+#endif
 	return cpu;
 }
 
@@ -478,13 +485,14 @@ static inline void xt_info_rdunlock_bh(int cpu)
 {
 	struct xt_info_lock *lock = &per_cpu(xt_info_locks, cpu);
 
-	preempt_disable_rt();
-
+#ifndef CONFIG_PREEMPT_RT
 	if (likely(!--lock->readers)) {
 		preempt_enable_rt();
 		spin_unlock(&lock->lock);
-	} else
-		preempt_enable_rt();
+	}
+#else
+	read_unlock(&lock->lock);
+#endif
 
 	local_bh_enable();
 }
@@ -496,12 +504,20 @@ static inline void xt_info_rdunlock_bh(int cpu)
  */
 static inline void xt_info_wrlock(unsigned int cpu)
 {
+#ifndef CONFIG_PREEMPT_RT
 	spin_lock(&per_cpu(xt_info_locks, cpu).lock);
+#else
+	write_lock(&per_cpu(xt_info_locks, cpu).lock);
+#endif
 }
 
 static inline void xt_info_wrunlock(unsigned int cpu)
 {
+#ifndef CONFIG_PREEMPT_RT
 	spin_unlock(&per_cpu(xt_info_locks, cpu).lock);
+#else
+	write_unlock(&per_cpu(xt_info_locks, cpu).lock);
+#endif
 }
 
 /*
