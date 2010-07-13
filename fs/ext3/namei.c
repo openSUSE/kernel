@@ -2246,9 +2246,7 @@ retry:
 
 	inode->i_ctime = CURRENT_TIME_SEC;
 	inc_nlink(inode);
-	spin_lock(&inode->i_lock);
-	inode->i_count++;
-	spin_unlock(&inode->i_lock);
+	atomic_inc(&inode->i_count);
 
 	err = ext3_add_entry(handle, dentry, inode);
 	if (!err) {

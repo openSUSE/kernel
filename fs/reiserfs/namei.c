@@ -1151,9 +1151,7 @@ static int reiserfs_link(struct dentry *old_dentry, struct inode *dir,
 	inode->i_ctime = CURRENT_TIME_SEC;
 	reiserfs_update_sd(&th, inode);
 
-	spin_lock(&inode->i_lock);
-	inode->i_count++;
-	spin_unlock(&inode->i_lock);
+	atomic_inc(&inode->i_count);
 	d_instantiate(dentry, inode);
 	retval = journal_end(&th, dir->i_sb, jbegin_count);
 	reiserfs_write_unlock(dir->i_sb);

@@ -400,7 +400,7 @@ static void remove_dir(struct dentry * d)
 		simple_rmdir(parent->d_inode,d);
 
 	pr_debug(" o %s removing done (%d)\n",d->d_name.name,
-				atomic_read(&d->d_count));
+		 atomic_read(&d->d_count));
 
 	dput(parent);
 }

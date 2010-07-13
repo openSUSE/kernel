@@ -14,11 +14,6 @@
 
 #include <asm/uaccess.h>
 
-static inline int simple_positive(struct dentry *dentry)
-{
-	return dentry->d_inode && !d_unhashed(dentry);
-}
-
 int simple_getattr(struct vfsmount *mnt, struct dentry *dentry,
 		   struct kstat *stat)
 {
@@ -84,8 +79,7 @@ int dcache_dir_close(struct inode *inode, struct file *file)
 
 loff_t dcache_dir_lseek(struct file *file, loff_t offset, int origin)
 {
-	struct dentry *dentry = file->f_path.dentry;
-	mutex_lock(&dentry->d_inode->i_mutex);
+	mutex_lock(&file->f_path.dentry->d_inode->i_mutex);
 	switch (origin) {
 		case 1:
 			offset += file->f_pos;
@@ -93,7 +87,7 @@ loff_t dcache_dir_lseek(struct file *file, loff_t offset, int origin)
 			if (offset >= 0)
 				break;
 		default:
-			mutex_unlock(&dentry->d_inode->i_mutex);
+			mutex_unlock(&file->f_path.dentry->d_inode->i_mutex);
 			return -EINVAL;
 	}
 	if (offset != file->f_pos) {
@@ -103,27 +97,21 @@ loff_t dcache_dir_lseek(struct file *file, loff_t offset, int origin)
 			struct dentry *cursor = file->private_data;
 			loff_t n = file->f_pos - 2;
 
-			spin_lock(&dentry->d_lock);
-			spin_lock_nested(&cursor->d_lock, DENTRY_D_LOCK_NESTED);
+			spin_lock(&dcache_lock);
 			list_del(&cursor->d_u.d_child);
-			spin_unlock(&cursor->d_lock);
-			p = dentry->d_subdirs.next;
-			while (n && p != &dentry->d_subdirs) {
+			p = file->f_path.dentry->d_subdirs.next;
+			while (n && p != &file->f_path.dentry->d_subdirs) {
 				struct dentry *next;
 				next = list_entry(p, struct dentry, d_u.d_child);
-				spin_lock_nested(&next->d_lock, DENTRY_D_LOCK_NESTED);
-				if (simple_positive(next))
+				if (!d_unhashed(next) && next->d_inode)
 					n--;
-				spin_unlock(&next->d_lock);
 				p = p->next;
 			}
-			spin_lock_nested(&cursor->d_lock, DENTRY_D_LOCK_NESTED);
 			list_add_tail(&cursor->d_u.d_child, p);
-			spin_unlock(&cursor->d_lock);
-			spin_unlock(&dentry->d_lock);
+			spin_unlock(&dcache_lock);
 		}
 	}
-	mutex_unlock(&dentry->d_inode->i_mutex);
+	mutex_unlock(&file->f_path.dentry->d_inode->i_mutex);
 	return offset;
 }
 
@@ -163,38 +151,29 @@ int dcache_readdir(struct file * filp, void * dirent, filldir_t filldir)
 			i++;
 			/* fallthrough */
 		default:
-			spin_lock(&dentry->d_lock);
-			if (filp->f_pos == 2) {
-				spin_lock_nested(&cursor->d_lock, DENTRY_D_LOCK_NESTED);
+			spin_lock(&dcache_lock);
+			if (filp->f_pos == 2)
 				list_move(q, &dentry->d_subdirs);
-				spin_unlock(&cursor->d_lock);
-			}
 
 			for (p=q->next; p != &dentry->d_subdirs; p=p->next) {
 				struct dentry *next;
 				next = list_entry(p, struct dentry, d_u.d_child);
-				spin_lock_nested(&next->d_lock, DENTRY_D_LOCK_NESTED);
-				if (!simple_positive(next)) {
-					spin_unlock(&next->d_lock);
+				if (d_unhashed(next) || !next->d_inode)
 					continue;
-				}
 
-				spin_unlock(&next->d_lock);
-				spin_unlock(&dentry->d_lock);
+				spin_unlock(&dcache_lock);
 				if (filldir(dirent, next->d_name.name, 
 					    next->d_name.len, filp->f_pos, 
 					    next->d_inode->i_ino, 
 					    dt_type(next->d_inode)) < 0)
 					return 0;
-				spin_lock(&dentry->d_lock);
-				spin_lock_nested(&next->d_lock, DENTRY_D_LOCK_NESTED);
+				spin_lock(&dcache_lock);
 				/* next is still alive */
 				list_move(q, p);
-				spin_unlock(&next->d_lock);
 				p = q;
 				filp->f_pos++;
 			}
-			spin_unlock(&dentry->d_lock);
+			spin_unlock(&dcache_lock);
 	}
 	return 0;
 }
@@ -265,8 +244,6 @@ int get_sb_pseudo(struct file_system_type *fs_type, char *name,
 	d_instantiate(dentry, root);
 	s->s_root = dentry;
 	s->s_flags |= MS_ACTIVE;
-	WARN_ON(mnt->mnt_flags & MNT_MOUNTED);
-	mnt->mnt_flags |= MNT_MOUNTED;
 	simple_set_mnt(mnt, s);
 	return 0;
 
@@ -281,12 +258,15 @@ int simple_link(struct dentry *old_dentry, struct inode *dir, struct dentry *den
 
 	inode->i_ctime = dir->i_ctime = dir->i_mtime = CURRENT_TIME;
 	inc_nlink(inode);
-	spin_lock(&inode->i_lock);
-	inode->i_count++;
-	spin_unlock(&inode->i_lock);
+	atomic_inc(&inode->i_count);
 	dget(dentry);
 	d_instantiate(dentry, inode);
 	return 0;
+}
+
+static inline int simple_positive(struct dentry *dentry)
+{
+	return dentry->d_inode && !d_unhashed(dentry);
 }
 
 int simple_empty(struct dentry *dentry)
@@ -294,18 +274,13 @@ int simple_empty(struct dentry *dentry)
 	struct dentry *child;
 	int ret = 0;
 
-	spin_lock(&dentry->d_lock);
-	list_for_each_entry(child, &dentry->d_subdirs, d_u.d_child) {
-		spin_lock_nested(&child->d_lock, DENTRY_D_LOCK_NESTED);
-		if (simple_positive(child)) {
-			spin_unlock(&child->d_lock);
+	spin_lock(&dcache_lock);
+	list_for_each_entry(child, &dentry->d_subdirs, d_u.d_child)
+		if (simple_positive(child))
 			goto out;
-		}
-		spin_unlock(&child->d_lock);
-	}
 	ret = 1;
 out:
-	spin_unlock(&dentry->d_lock);
+	spin_unlock(&dcache_lock);
 	return ret;
 }
 

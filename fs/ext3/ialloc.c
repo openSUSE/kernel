@@ -100,9 +100,9 @@ void ext3_free_inode (handle_t *handle, struct inode * inode)
 	struct ext3_sb_info *sbi;
 	int fatal = 0, err;
 
-	if (inode->i_count > 1) {
+	if (atomic_read(&inode->i_count) > 1) {
 		printk ("ext3_free_inode: inode has count=%d\n",
-					inode->i_count);
+					atomic_read(&inode->i_count));
 		return;
 	}
 	if (inode->i_nlink) {

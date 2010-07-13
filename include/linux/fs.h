@@ -406,8 +406,6 @@ extern struct files_stat_struct files_stat;
 extern int get_max_files(void);
 extern int sysctl_nr_open;
 extern struct inodes_stat_t inodes_stat;
-extern struct percpu_counter nr_inodes;
-extern int get_nr_inodes(void);
 extern int leases_enable, lease_break_time;
 #ifdef CONFIG_DNOTIFY
 extern int dir_notify_enable;
@@ -727,15 +725,9 @@ struct inode {
 	struct hlist_node	i_hash;
 	struct list_head	i_list;		/* backing dev IO list */
 	struct list_head	i_sb_list;
-	union {
-		struct list_head	i_dentry;
-		struct rcu_head		i_rcu;
-	};
+	struct list_head	i_dentry;
 	unsigned long		i_ino;
-#ifdef CONFIG_SMP
-	int			i_sb_list_cpu;
-#endif
-	unsigned int		i_count;
+	atomic_t		i_count;
 	unsigned int		i_nlink;
 	uid_t			i_uid;
 	gid_t			i_gid;
@@ -932,9 +924,6 @@ struct file {
 #define f_vfsmnt	f_path.mnt
 	const struct file_operations	*f_op;
 	spinlock_t		f_lock;  /* f_ep_links, f_flags, no IRQ */
-#ifdef CONFIG_SMP
-	int			f_sb_list_cpu;
-#endif
 	atomic_long_t		f_count;
 	unsigned int 		f_flags;
 	fmode_t			f_mode;
@@ -959,6 +948,9 @@ struct file {
 	unsigned long f_mnt_write_state;
 #endif
 };
+extern spinlock_t files_lock;
+#define file_list_lock() spin_lock(&files_lock);
+#define file_list_unlock() spin_unlock(&files_lock);
 
 #define get_file(x)	atomic_long_inc(&(x)->f_count)
 #define file_count(x)	atomic_long_read(&(x)->f_count)
@@ -1347,17 +1339,9 @@ struct super_block {
 #endif
 	struct xattr_handler	**s_xattr;
 
-	struct hlist_head	s_anon;		/* anonymous dentries for (nfs) exporting */
-#ifdef CONFIG_SMP
-	struct list_head	*s_inodes;
-#else
 	struct list_head	s_inodes;	/* all inodes */
-#endif
-#ifdef CONFIG_SMP
-	struct list_head	*s_files;
-#else
+	struct hlist_head	s_anon;		/* anonymous dentries for (nfs) exporting */
 	struct list_head	s_files;
-#endif
 	/* s_dentry_lru and s_nr_dentry_unused are protected by dcache_lock */
 	struct list_head	s_dentry_lru;	/* unused dentry lru */
 	int			s_nr_dentry_unused;	/* # of dentry on lru */
@@ -2053,7 +2037,6 @@ extern const struct file_operations read_pipefifo_fops;
 extern const struct file_operations write_pipefifo_fops;
 extern const struct file_operations rdwr_pipefifo_fops;
 
-extern void mark_files_ro(struct super_block *sb);
 extern int fs_may_remount_ro(struct super_block *);
 
 #ifdef CONFIG_BLOCK
@@ -2185,6 +2168,7 @@ extern int insert_inode_locked4(struct inode *, unsigned long, int (*test)(struc
 extern int insert_inode_locked(struct inode *);
 extern void unlock_new_inode(struct inode *);
 
+extern void __iget(struct inode * inode);
 extern void iget_failed(struct inode *);
 extern void clear_inode(struct inode *);
 extern void destroy_inode(struct inode *);
@@ -2193,17 +2177,14 @@ extern struct inode *new_inode(struct super_block *);
 extern int should_remove_suid(struct dentry *);
 extern int file_remove_suid(struct file *);
 
-extern void inode_sb_list_del(struct inode *inode);
 extern void __insert_inode_hash(struct inode *, unsigned long hashval);
-extern void __remove_inode_hash(struct inode *);
 extern void remove_inode_hash(struct inode *);
 static inline void insert_inode_hash(struct inode *inode) {
 	__insert_inode_hash(inode, inode->i_ino);
 }
 
-extern struct file * get_empty_filp(void);
-extern void file_sb_list_add(struct file *f, struct super_block *sb);
-extern void file_sb_list_del(struct file *f);
+extern void file_move(struct file *f, struct list_head *list);
+extern void file_kill(struct file *f);
 #ifdef CONFIG_BLOCK
 struct bio;
 extern void submit_bio(int, struct bio *);
@@ -2404,20 +2385,10 @@ extern int generic_show_options(struct seq_file *m, struct vfsmount *mnt);
 extern void save_mount_options(struct super_block *sb, char *options);
 extern void replace_mount_options(struct super_block *sb, char *options);
 
-static inline void __iget(struct inode *inode)
-{
-	assert_spin_locked(&inode->i_lock);
-	inode->i_count++;
-}
-
 static inline ino_t parent_ino(struct dentry *dentry)
 {
 	ino_t res;
 
-	/*
-	 * Don't strictly need d_lock here? If the parent ino could change
-	 * then surely we'd have a deeper race in the caller?
-	 */
 	spin_lock(&dentry->d_lock);
 	res = dentry->d_parent->d_inode->i_ino;
 	spin_unlock(&dentry->d_lock);
@@ -2493,8 +2464,7 @@ ssize_t simple_attr_write(struct file *file, const char __user *buf,
 struct ctl_table;
 int proc_nr_files(struct ctl_table *table, int write,
 		  void __user *buffer, size_t *lenp, loff_t *ppos);
-int proc_nr_inodes(struct ctl_table *table, int write,
-		   void __user *buffer, size_t *lenp, loff_t *ppos);
+
 int __init get_filesystem_list(char *buf);
 
 #define ACC_MODE(x) ("\004\002\006\006"[(x)&O_ACCMODE])

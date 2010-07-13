@@ -396,7 +396,7 @@ nfs_fhget(struct super_block *sb, struct nfs_fh *fh, struct nfs_fattr *fattr)
 	dprintk("NFS: nfs_fhget(%s/%Ld ct=%d)\n",
 		inode->i_sb->s_id,
 		(long long)NFS_FILEID(inode),
-		inode->i_count);
+		atomic_read(&inode->i_count));
 
 out:
 	return inode;
@@ -1153,7 +1153,7 @@ static int nfs_update_inode(struct inode *inode, struct nfs_fattr *fattr)
 
 	dfprintk(VFS, "NFS: %s(%s/%ld ct=%d info=0x%x)\n",
 			__func__, inode->i_sb->s_id, inode->i_ino,
-			inode->i_count, fattr->valid);
+			atomic_read(&inode->i_count), fattr->valid);
 
 	if ((fattr->valid & NFS_ATTR_FATTR_FILEID) && nfsi->fileid != fattr->fileid)
 		goto out_fileid;
@@ -1395,16 +1395,9 @@ struct inode *nfs_alloc_inode(struct super_block *sb)
 	return &nfsi->vfs_inode;
 }
 
-static void nfs_i_callback(struct rcu_head *head)
-{
-	struct inode *inode = container_of(head, struct inode, i_rcu);
-	INIT_LIST_HEAD(&inode->i_dentry);
-	kmem_cache_free(nfs_inode_cachep, NFS_I(inode));
-}
-
 void nfs_destroy_inode(struct inode *inode)
 {
-	call_rcu(&inode->i_rcu, nfs_i_callback);
+	kmem_cache_free(nfs_inode_cachep, NFS_I(inode));
 }
 
 static inline void nfs4_init_once(struct nfs_inode *nfsi)

@@ -185,25 +185,23 @@ static void set_dentry_child_flags(struct inode *inode, int watched)
 {
 	struct dentry *alias;
 
-	spin_lock(&inode->i_lock);
+	spin_lock(&dcache_lock);
 	list_for_each_entry(alias, &inode->i_dentry, d_alias) {
 		struct dentry *child;
 
-		spin_lock(&alias->d_lock);
 		list_for_each_entry(child, &alias->d_subdirs, d_u.d_child) {
 			if (!child->d_inode)
 				continue;
 
-			spin_lock_nested(&child->d_lock, DENTRY_D_LOCK_NESTED);
+			spin_lock(&child->d_lock);
 			if (watched)
 				child->d_flags |= DCACHE_INOTIFY_PARENT_WATCHED;
 			else
 				child->d_flags &=~DCACHE_INOTIFY_PARENT_WATCHED;
 			spin_unlock(&child->d_lock);
 		}
-		spin_unlock(&alias->d_lock);
 	}
-	spin_unlock(&inode->i_lock);
+	spin_unlock(&dcache_lock);
 }
 
 /*
@@ -271,7 +269,6 @@ void inotify_d_instantiate(struct dentry *entry, struct inode *inode)
 	if (!inode)
 		return;
 
-	/* XXX: need parent lock in place of dcache_lock? */
 	spin_lock(&entry->d_lock);
 	parent = entry->d_parent;
 	if (parent->d_inode && inotify_inode_watched(parent->d_inode))
@@ -286,7 +283,6 @@ void inotify_d_move(struct dentry *entry)
 {
 	struct dentry *parent;
 
-	/* XXX: need parent lock in place of dcache_lock? */
 	parent = entry->d_parent;
 	if (inotify_inode_watched(parent->d_inode))
 		entry->d_flags |= DCACHE_INOTIFY_PARENT_WATCHED;
@@ -343,28 +339,18 @@ void inotify_dentry_parent_queue_event(struct dentry *dentry, u32 mask,
 	if (!(dentry->d_flags & DCACHE_INOTIFY_PARENT_WATCHED))
 		return;
 
-again:
 	spin_lock(&dentry->d_lock);
 	parent = dentry->d_parent;
-	if (parent != dentry && !spin_trylock(&parent->d_lock)) {
-		spin_unlock(&dentry->d_lock);
-		goto again;
-	}
 	inode = parent->d_inode;
 
 	if (inotify_inode_watched(inode)) {
-		dget_dlock(parent);
+		dget(parent);
 		spin_unlock(&dentry->d_lock);
-		if (parent != dentry)
-			spin_unlock(&parent->d_lock);
 		inotify_inode_queue_event(inode, mask, cookie, name,
 					  dentry->d_inode);
 		dput(parent);
-	} else {
+	} else
 		spin_unlock(&dentry->d_lock);
-		if (parent != dentry)
-			spin_unlock(&parent->d_lock);
-	}
 }
 EXPORT_SYMBOL_GPL(inotify_dentry_parent_queue_event);
 
@@ -385,86 +371,76 @@ EXPORT_SYMBOL_GPL(inotify_get_cookie);
  * of inodes, and with iprune_mutex held, keeping shrink_icache_memory() at bay.
  * We temporarily drop inode_lock, however, and CAN block.
  */
-void inotify_unmount_inodes(struct super_block *sb)
+void inotify_unmount_inodes(struct list_head *list)
 {
-	int i;
+	struct inode *inode, *next_i, *need_iput = NULL;
 
-	for_each_possible_cpu(i) {
-		struct inode *inode, *next_i, *need_iput = NULL;
-		struct list_head *list;
-#ifdef CONFIG_SMP
-                list = per_cpu_ptr(sb->s_inodes, i);
-#else
-                list = &sb->s_inodes;
-#endif
+	list_for_each_entry_safe(inode, next_i, list, i_sb_list) {
+		struct inotify_watch *watch, *next_w;
+		struct inode *need_iput_tmp;
+		struct list_head *watches;
 
-		list_for_each_entry_safe(inode, next_i, list, i_sb_list) {
-			struct inotify_watch *watch, *next_w;
-			struct inode *need_iput_tmp;
-			struct list_head *watches;
+		/*
+		 * We cannot __iget() an inode in state I_CLEAR, I_FREEING,
+		 * I_WILL_FREE, or I_NEW which is fine because by that point
+		 * the inode cannot have any associated watches.
+		 */
+		if (inode->i_state & (I_CLEAR|I_FREEING|I_WILL_FREE|I_NEW))
+			continue;
 
-			spin_lock(&inode->i_lock);
-			/*
-			 * We cannot __iget() an inode in state I_CLEAR, I_FREEING,
-			 * I_WILL_FREE, or I_NEW which is fine because by that point
-			 * the inode cannot have any associated watches.
-			 */
-			if (inode->i_state & (I_CLEAR|I_FREEING|I_WILL_FREE|I_NEW)) {
-				spin_unlock(&inode->i_lock);
-				continue;
-			}
+		/*
+		 * If i_count is zero, the inode cannot have any watches and
+		 * doing an __iget/iput with MS_ACTIVE clear would actually
+		 * evict all inodes with zero i_count from icache which is
+		 * unnecessarily violent and may in fact be illegal to do.
+		 */
+		if (!atomic_read(&inode->i_count))
+			continue;
 
-			/*
-			 * If i_count is zero, the inode cannot have any watches and
-			 * doing an __iget/iput with MS_ACTIVE clear would actually
-			 * evict all inodes with zero i_count from icache which is
-			 * unnecessarily violent and may in fact be illegal to do.
-			 */
-			if (!inode->i_count) {
-				spin_unlock(&inode->i_lock);
-				continue;
-			}
-
-			need_iput_tmp = need_iput;
-			need_iput = NULL;
-			/* In case inotify_remove_watch_locked() drops a reference. */
-			if (inode != need_iput_tmp) {
-				__iget(inode);
-			} else
-				need_iput_tmp = NULL;
-
-			spin_unlock(&inode->i_lock);
-
-			/* In case the dropping of a reference would nuke next_i. */
-			if (&next_i->i_sb_list != list) {
-				spin_lock(&next_i->i_lock);
-				if (next_i->i_count &&
-					!(next_i->i_state &
-						(I_CLEAR|I_FREEING|I_WILL_FREE))) {
-					__iget(next_i);
-					need_iput = next_i;
-				}
-				spin_unlock(&next_i->i_lock);
-			}
-
-			if (need_iput_tmp)
-				iput(need_iput_tmp);
-
-			/* for each watch, send IN_UNMOUNT and then remove it */
-			mutex_lock(&inode->inotify_mutex);
-			watches = &inode->inotify_watches;
-			list_for_each_entry_safe(watch, next_w, watches, i_list) {
-				struct inotify_handle *ih = watch->ih;
-				get_inotify_watch(watch);
-				mutex_lock(&ih->mutex);
-				ih->in_ops->handle_event(watch, watch->wd, IN_UNMOUNT, 0, NULL, NULL);
-				inotify_remove_watch_locked(ih, watch);
-				mutex_unlock(&ih->mutex);
-				put_inotify_watch(watch);
-			}
-			mutex_unlock(&inode->inotify_mutex);
-			iput(inode);
+		need_iput_tmp = need_iput;
+		need_iput = NULL;
+		/* In case inotify_remove_watch_locked() drops a reference. */
+		if (inode != need_iput_tmp)
+			__iget(inode);
+		else
+			need_iput_tmp = NULL;
+		/* In case the dropping of a reference would nuke next_i. */
+		if ((&next_i->i_sb_list != list) &&
+				atomic_read(&next_i->i_count) &&
+				!(next_i->i_state & (I_CLEAR | I_FREEING |
+					I_WILL_FREE))) {
+			__iget(next_i);
+			need_iput = next_i;
 		}
+
+		/*
+		 * We can safely drop inode_lock here because we hold
+		 * references on both inode and next_i.  Also no new inodes
+		 * will be added since the umount has begun.  Finally,
+		 * iprune_mutex keeps shrink_icache_memory() away.
+		 */
+		spin_unlock(&inode_lock);
+
+		if (need_iput_tmp)
+			iput(need_iput_tmp);
+
+		/* for each watch, send IN_UNMOUNT and then remove it */
+		mutex_lock(&inode->inotify_mutex);
+		watches = &inode->inotify_watches;
+		list_for_each_entry_safe(watch, next_w, watches, i_list) {
+			struct inotify_handle *ih= watch->ih;
+			get_inotify_watch(watch);
+			mutex_lock(&ih->mutex);
+			ih->in_ops->handle_event(watch, watch->wd, IN_UNMOUNT, 0,
+						 NULL, NULL);
+			inotify_remove_watch_locked(ih, watch);
+			mutex_unlock(&ih->mutex);
+			put_inotify_watch(watch);
+		}
+		mutex_unlock(&inode->inotify_mutex);
+		iput(inode);		
+
+		spin_lock(&inode_lock);
 	}
 }
 EXPORT_SYMBOL_GPL(inotify_unmount_inodes);

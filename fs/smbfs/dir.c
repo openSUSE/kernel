@@ -405,7 +405,6 @@ void
 smb_renew_times(struct dentry * dentry)
 {
 	dget(dentry);
-again:
 	spin_lock(&dentry->d_lock);
 	for (;;) {
 		struct dentry *parent;
@@ -414,13 +413,8 @@ again:
 		if (IS_ROOT(dentry))
 			break;
 		parent = dentry->d_parent;
-		if (!spin_trylock(&parent->d_lock)) {
-			spin_unlock(&dentry->d_lock);
-			goto again;
-		}
-		dget_dlock(parent);
+		dget(parent);
 		spin_unlock(&dentry->d_lock);
-		spin_unlock(&parent->d_lock);
 		dput(dentry);
 		dentry = parent;
 		spin_lock(&dentry->d_lock);

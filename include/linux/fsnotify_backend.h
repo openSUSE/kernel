@@ -276,10 +276,10 @@ static inline void __fsnotify_update_dcache_flags(struct dentry *dentry)
 {
 	struct dentry *parent;
 
+	assert_spin_locked(&dcache_lock);
 	assert_spin_locked(&dentry->d_lock);
 
 	parent = dentry->d_parent;
-	/* XXX: after dcache_lock removal, there is a race with parent->d_inode and fsnotify_inode_watches_children. must fix */
 	if (parent->d_inode && fsnotify_inode_watches_children(parent->d_inode))
 		dentry->d_flags |= DCACHE_FSNOTIFY_PARENT_WATCHED;
 	else
@@ -288,11 +288,14 @@ static inline void __fsnotify_update_dcache_flags(struct dentry *dentry)
 
 /*
  * fsnotify_d_instantiate - instantiate a dentry for inode
+ * Called with dcache_lock held.
  */
 static inline void __fsnotify_d_instantiate(struct dentry *dentry, struct inode *inode)
 {
 	if (!inode)
 		return;
+
+	assert_spin_locked(&dcache_lock);
 
 	spin_lock(&dentry->d_lock);
 	__fsnotify_update_dcache_flags(dentry);
@@ -344,7 +347,7 @@ extern void fsnotify_destroy_mark_by_entry(struct fsnotify_mark_entry *entry);
 extern void fsnotify_clear_marks_by_group(struct fsnotify_group *group);
 extern void fsnotify_get_mark(struct fsnotify_mark_entry *entry);
 extern void fsnotify_put_mark(struct fsnotify_mark_entry *entry);
-extern void fsnotify_unmount_inodes(struct super_block *sb);
+extern void fsnotify_unmount_inodes(struct list_head *list);
 
 /* put here because inotify does some weird stuff when destroying watches */
 extern struct fsnotify_event *fsnotify_create_event(struct inode *to_tell, __u32 mask,
@@ -374,7 +377,7 @@ static inline u32 fsnotify_get_cookie(void)
 	return 0;
 }
 
-static inline void fsnotify_unmount_inodes(struct super_block *sb)
+static inline void fsnotify_unmount_inodes(struct list_head *list)
 {}
 
 #endif	/* CONFIG_FSNOTIFY */

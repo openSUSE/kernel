@@ -831,9 +831,7 @@ static int jfs_link(struct dentry *old_dentry,
 	ip->i_ctime = CURRENT_TIME;
 	dir->i_ctime = dir->i_mtime = CURRENT_TIME;
 	mark_inode_dirty(dir);
-	spin_lock(&ip->i_lock);
-	ip->i_count++;
-	spin_unlock(&ip->i_lock);
+	atomic_inc(&ip->i_count);
 
 	iplist[0] = ip;
 	iplist[1] = dir;

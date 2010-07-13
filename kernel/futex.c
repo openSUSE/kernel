@@ -168,9 +168,7 @@ static void get_futex_key_refs(union futex_key *key)
 
 	switch (key->both.offset & (FUT_OFF_INODE|FUT_OFF_MMSHARED)) {
 	case FUT_OFF_INODE:
-		spin_lock(&key->shared.inode->i_lock);
-		key->shared.inode->i_count++;
-		spin_unlock(&key->shared.inode->i_lock);
+		atomic_inc(&key->shared.inode->i_count);
 		break;
 	case FUT_OFF_MMSHARED:
 		atomic_inc(&key->private.mm->mm_count);

@@ -237,16 +237,9 @@ static struct inode *mqueue_alloc_inode(struct super_block *sb)
 	return &ei->vfs_inode;
 }
 
-static void mqueue_i_callback(struct rcu_head *head)
-{
-	struct inode *inode = container_of(head, struct inode, i_rcu);
-	INIT_LIST_HEAD(&inode->i_dentry);
-	kmem_cache_free(mqueue_inode_cachep, MQUEUE_I(inode));
-}
-
 static void mqueue_destroy_inode(struct inode *inode)
 {
-	call_rcu(&inode->i_rcu, mqueue_i_callback);
+	kmem_cache_free(mqueue_inode_cachep, MQUEUE_I(inode));
 }
 
 static void mqueue_delete_inode(struct inode *inode)
@@ -769,11 +762,8 @@ SYSCALL_DEFINE1(mq_unlink, const char __user *, u_name)
 	}
 
 	inode = dentry->d_inode;
-	if (inode) {
-		spin_lock(&inode->i_lock);
-		inode->i_count++;
-		spin_unlock(&inode->i_lock);
-	}
+	if (inode)
+		atomic_inc(&inode->i_count);
 	err = mnt_want_write(ipc_ns->mq_mnt);
 	if (err)
 		goto out_err;

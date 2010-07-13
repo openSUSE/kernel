@@ -5,7 +5,6 @@
 #include <linux/list.h>
 #include <linux/rculist.h>
 #include <linux/spinlock.h>
-#include <linux/seqlock.h>
 #include <linux/cache.h>
 #include <linux/rcupdate.h>
 
@@ -38,8 +37,8 @@ struct qstr {
 };
 
 struct dentry_stat_t {
-	int nr_dentry;		/* unused */
-	int nr_unused;		/* protected by dcache_lru_lock */
+	int nr_dentry;
+	int nr_unused;
 	int age_limit;          /* age in seconds */
 	int want_pages;         /* pages requested by system */
 	int dummy[2];
@@ -88,30 +87,20 @@ full_name_hash(const unsigned char *name, unsigned int len)
 #endif
 
 struct dentry {
-	/*
-	 * The following 64 bytes of fields (on 64-bit) fit into a 64 byte
-	 * cacheline. They are critical for path lookups. We can do most
-	 * path lookups in 2 cachelines (these + name string) if we have
-	 * correct sizing and alignment here.
-	 *
-	 * XXX: d_sb for revalidate needs to be duplicated into a d_flag.
-	 */
 	atomic_t d_count;
 	unsigned int d_flags;		/* protected by d_lock */
 	spinlock_t d_lock;		/* per dentry lock */
 	int d_mounted;
-	seqcount_t d_seq;		/* per dentry seqlock */
 	struct inode *d_inode;		/* Where the name belongs to - NULL is
 					 * negative */
+	/*
+	 * The next three fields are touched by __d_lookup.  Place them here
+	 * so they all fit in a cache line.
+	 */
 	struct hlist_node d_hash;	/* lookup hash list */
 	struct dentry *d_parent;	/* parent directory */
 	struct qstr d_name;
-	const struct dentry_operations *d_op;
 
-	/*
-	 * The following 64 bytes of lists tend to be required for tree
-	 * manipulation, not required for lookups.
-	 */
 	struct list_head d_lru;		/* LRU list */
 	/*
 	 * d_child and d_rcu can share memory
@@ -122,14 +111,10 @@ struct dentry {
 	} d_u;
 	struct list_head d_subdirs;	/* our children */
 	struct list_head d_alias;	/* inode alias list */
-
-	/*
-	 * These following fields may be needed by some types of lookups, and
-	 * d_iname is likely to be required too, so keep them together.
-	 */
+	unsigned long d_time;		/* used by d_revalidate */
+	const struct dentry_operations *d_op;
 	struct super_block *d_sb;	/* The root of the dentry tree */
 	void *d_fsdata;			/* fs-specific data */
-	unsigned long d_time;		/* used by d_revalidate */
 
 	unsigned char d_iname[DNAME_INLINE_LEN_MIN];	/* small names */
 };
@@ -165,44 +150,43 @@ struct dentry_operations {
 
 /*
 locking rules:
-		big lock	d_lock   may block
-d_revalidate:	no		no       yes
-d_hash		no		no       yes
-d_compare:	no		yes      no
-d_delete:	no		no       no
-d_release:	no		no       yes
-d_iput:		no		no       yes
+		big lock	dcache_lock	d_lock   may block
+d_revalidate:	no		no		no       yes
+d_hash		no		no		no       yes
+d_compare:	no		yes		yes      no
+d_delete:	no		yes		no       no
+d_release:	no		no		no       yes
+d_iput:		no		no		no       yes
  */
 
 /* d_flags entries */
 #define DCACHE_AUTOFS_PENDING 0x0001    /* autofs: "under construction" */
-#define DCACHE_NFSFS_RENAMED  0x0002
-     /* this dentry has been "silly renamed" and has to be deleted on the last
-      * dput() */
-
-#define	DCACHE_DISCONNECTED	0x0004
-     /* This dentry is possibly not currently connected to the dcache tree, in
-      * which case its parent will either be itself, or will have this flag as
-      * well.  nfsd will not use a dentry with this bit set, but will first
-      * endeavour to clear the bit either by discovering that it is connected,
-      * or by performing lookup operations.   Any filesystem which supports
-      * nfsd_operations MUST have a lookup function which, if it finds a
-      * directory inode with a DCACHE_DISCONNECTED dentry, will d_move that
-      * dentry into place and return that dentry rather than the passed one,
-      * typically using d_splice_alias. */
+#define DCACHE_NFSFS_RENAMED  0x0002    /* this dentry has been "silly
+					 * renamed" and has to be
+					 * deleted on the last dput()
+					 */
+#define	DCACHE_DISCONNECTED 0x0004
+     /* This dentry is possibly not currently connected to the dcache tree,
+      * in which case its parent will either be itself, or will have this
+      * flag as well.  nfsd will not use a dentry with this bit set, but will
+      * first endeavour to clear the bit either by discovering that it is
+      * connected, or by performing lookup operations.   Any filesystem which
+      * supports nfsd_operations MUST have a lookup function which, if it finds
+      * a directory inode with a DCACHE_DISCONNECTED dentry, will d_move
+      * that dentry into place and return that dentry rather than the passed one,
+      * typically using d_splice_alias.
+      */
 
 #define DCACHE_REFERENCED	0x0008  /* Recently used, don't discard. */
 #define DCACHE_UNHASHED		0x0010	
-#define DCACHE_INOTIFY_PARENT_WATCHED 0x0020
-     /* Parent inode is watched by inotify */
+
+#define DCACHE_INOTIFY_PARENT_WATCHED	0x0020 /* Parent inode is watched by inotify */
 
 #define DCACHE_COOKIE		0x0040	/* For use by dcookie subsystem */
-#define DCACHE_FSNOTIFY_PARENT_WATCHED 0x0080
-     /* Parent inode is watched by some fsnotify listener */
 
-#define DCACHE_MOUNTED		0x0100	/* is a mountpoint */
-#define DCACHE_GENOCIDE		0x0200	/* being genocided */
+#define DCACHE_FSNOTIFY_PARENT_WATCHED	0x0080 /* Parent inode is watched by some fsnotify listener */
 
+extern spinlock_t dcache_lock;
 extern seqlock_t rename_lock;
 
 /**
@@ -220,8 +204,23 @@ extern seqlock_t rename_lock;
  *
  * __d_drop requires dentry->d_lock.
  */
-void d_drop(struct dentry *dentry);
-void __d_drop(struct dentry *dentry);
+
+static inline void __d_drop(struct dentry *dentry)
+{
+	if (!(dentry->d_flags & DCACHE_UNHASHED)) {
+		dentry->d_flags |= DCACHE_UNHASHED;
+		hlist_del_rcu(&dentry->d_hash);
+	}
+}
+
+static inline void d_drop(struct dentry *dentry)
+{
+	spin_lock(&dcache_lock);
+	spin_lock(&dentry->d_lock);
+ 	__d_drop(dentry);
+	spin_unlock(&dentry->d_lock);
+	spin_unlock(&dcache_lock);
+}
 
 static inline int dname_external(struct dentry *dentry)
 {
@@ -300,11 +299,9 @@ extern void d_move(struct dentry *, struct dentry *);
 extern struct dentry *d_ancestor(struct dentry *, struct dentry *);
 
 /* appendix may either be NULL or be used for transname suffixes */
-extern struct dentry *d_lookup(struct dentry *, struct qstr *);
-extern struct dentry *__d_lookup(struct dentry *, struct qstr *);
-extern struct dentry *d_lookup_rcu(struct dentry *, struct qstr *);
-extern struct dentry *__d_lookup_rcu(struct dentry *, struct qstr *);
-extern struct dentry *d_hash_and_lookup(struct dentry *, struct qstr *);
+extern struct dentry * d_lookup(struct dentry *, struct qstr *);
+extern struct dentry * __d_lookup(struct dentry *, struct qstr *);
+extern struct dentry * d_hash_and_lookup(struct dentry *, struct qstr *);
 
 /* validate "insecure" dentry pointer */
 extern int d_validate(struct dentry *, struct dentry *);
@@ -321,29 +318,28 @@ extern char *dentry_path(struct dentry *, char *, int);
 /* Allocation counts.. */
 
 /**
- *	dget, dget_dlock -	get a reference to a dentry
+ *	dget, dget_locked	-	get a reference to a dentry
  *	@dentry: dentry to get a reference to
  *
  *	Given a dentry or %NULL pointer increment the reference count
  *	if appropriate and return the dentry. A dentry will not be 
- *	destroyed when it has references.
+ *	destroyed when it has references. dget() should never be
+ *	called for dentries with zero reference counter. For these cases
+ *	(preferably none, functions in dcache.c are sufficient for normal
+ *	needs and they take necessary precautions) you should hold dcache_lock
+ *	and call dget_locked() instead of dget().
  */
-static inline struct dentry *dget_dlock(struct dentry *dentry)
-{
-	if (dentry)
-		atomic_inc(&dentry->d_count);
-	return dentry;
-}
-
+ 
 static inline struct dentry *dget(struct dentry *dentry)
 {
 	if (dentry) {
-		dget_dlock(dentry);
+		BUG_ON(!atomic_read(&dentry->d_count));
+		atomic_inc(&dentry->d_count);
 	}
 	return dentry;
 }
 
-extern struct dentry *dget_parent(struct dentry *dentry);
+extern struct dentry * dget_locked(struct dentry *);
 
 /**
  *	d_unhashed -	is dentry hashed
@@ -360,6 +356,16 @@ static inline int d_unhashed(struct dentry *dentry)
 static inline int d_unlinked(struct dentry *dentry)
 {
 	return d_unhashed(dentry) && !IS_ROOT(dentry);
+}
+
+static inline struct dentry *dget_parent(struct dentry *dentry)
+{
+	struct dentry *ret;
+
+	spin_lock(&dentry->d_lock);
+	ret = dget(dentry->d_parent);
+	spin_unlock(&dentry->d_lock);
+	return ret;
 }
 
 extern void dput(struct dentry *);

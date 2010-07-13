@@ -1054,9 +1054,7 @@ static void create_done(struct exofs_io_state *ios, void *p)
 
 	set_obj_created(oi);
 
-	spin_lock(&inode->i_lock);
-	inode->i_count--;
-	spin_unlock(&inode->i_lock);
+	atomic_dec(&inode->i_count);
 	wake_up(&oi->i_wq);
 }
 
@@ -1118,18 +1116,14 @@ struct inode *exofs_new_inode(struct inode *dir, int mode)
 	/* increment the refcount so that the inode will still be around when we
 	 * reach the callback
 	 */
-	spin_lock(&inode->i_lock);
-	inode->i_count++;
-	spin_unlock(&inode->i_lock);
+	atomic_inc(&inode->i_count);
 
 	ios->done = create_done;
 	ios->private = inode;
 	ios->cred = oi->i_cred;
 	ret = exofs_sbi_create(ios);
 	if (ret) {
-		spin_lock(&inode->i_lock);
-		inode->i_count--;
-		spin_unlock(&inode->i_lock);
+		atomic_dec(&inode->i_count);
 		exofs_put_io_state(ios);
 		return ERR_PTR(ret);
 	}

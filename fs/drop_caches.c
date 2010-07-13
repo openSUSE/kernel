@@ -14,35 +14,23 @@ int sysctl_drop_caches;
 
 static void drop_pagecache_sb(struct super_block *sb)
 {
-	int i;
+	struct inode *inode, *toput_inode = NULL;
 
-	for_each_possible_cpu(i) {
-		struct inode *inode, *toput_inode = NULL;
-		struct list_head *list;
-#ifdef CONFIG_SMP
-                list = per_cpu_ptr(sb->s_inodes, i);
-#else
-                list = &sb->s_inodes;
-#endif
-		rcu_read_lock();
-		list_for_each_entry_rcu(inode, list, i_sb_list) {
-			spin_lock(&inode->i_lock);
-			if (inode->i_state & (I_FREEING|I_CLEAR|I_WILL_FREE|I_NEW)
-					|| inode->i_mapping->nrpages == 0) {
-				spin_unlock(&inode->i_lock);
-				continue;
-			}
-			__iget(inode);
-			spin_unlock(&inode->i_lock);
-			rcu_read_unlock();
-			invalidate_mapping_pages(inode->i_mapping, 0, -1);
-			iput(toput_inode);
-			toput_inode = inode;
-			rcu_read_lock();
-		}
-		rcu_read_unlock();
+	spin_lock(&inode_lock);
+	list_for_each_entry(inode, &sb->s_inodes, i_sb_list) {
+		if (inode->i_state & (I_FREEING|I_CLEAR|I_WILL_FREE|I_NEW))
+			continue;
+		if (inode->i_mapping->nrpages == 0)
+			continue;
+		__iget(inode);
+		spin_unlock(&inode_lock);
+		invalidate_mapping_pages(inode->i_mapping, 0, -1);
 		iput(toput_inode);
+		toput_inode = inode;
+		spin_lock(&inode_lock);
 	}
+	spin_unlock(&inode_lock);
+	iput(toput_inode);
 }
 
 static void drop_pagecache(void)

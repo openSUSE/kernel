@@ -31,12 +31,10 @@ struct mnt_namespace;
 
 #define MNT_SHRINKABLE	0x100
 #define MNT_WRITE_HOLD	0x200
-#define MNT_MOUNTED	0x400
 
 #define MNT_SHARED	0x1000	/* if the vfsmount is a shared mount */
 #define MNT_UNBINDABLE	0x2000	/* if the vfsmount is a unbindable mount */
 #define MNT_PNODE_MASK	0x3000	/* propagation flag mask */
-
 
 struct vfsmount {
 	struct list_head mnt_hash;
@@ -58,6 +56,12 @@ struct vfsmount {
 	struct mnt_namespace *mnt_ns;	/* containing namespace */
 	int mnt_id;			/* mount identifier */
 	int mnt_group_id;		/* peer group identifier */
+	/*
+	 * We put mnt_count & mnt_expiry_mark at the end of struct vfsmount
+	 * to let these frequently modified fields in a separate cache line
+	 * (so that reads of mnt_flags wont ping-pong on SMP machines)
+	 */
+	atomic_t mnt_count;
 	int mnt_expiry_mark;		/* true if marked for expiry */
 	int mnt_pinned;
 	int mnt_ghosts;
@@ -65,11 +69,6 @@ struct vfsmount {
 	int *mnt_writers;
 #else
 	int mnt_writers;
-#endif
-#ifdef CONFIG_SMP
-	int *mnt_count;
-#else
-	int mnt_count;
 #endif
 };
 
@@ -82,27 +81,31 @@ static inline int *get_mnt_writers_ptr(struct vfsmount *mnt)
 #endif
 }
 
+static inline struct vfsmount *mntget(struct vfsmount *mnt)
+{
+	if (mnt)
+		atomic_inc(&mnt->mnt_count);
+	return mnt;
+}
+
 struct file; /* forward dec */
-
-extern void vfsmount_read_lock(int cpu);
-extern void vfsmount_read_unlock(int cpu);
-extern void vfsmount_write_lock(void);
-extern void vfsmount_write_unlock(void);
-
-extern unsigned int count_mnt_count(struct vfsmount *mnt);
 
 extern int mnt_want_write(struct vfsmount *mnt);
 extern int mnt_want_write_file(struct file *file);
 extern int mnt_clone_write(struct vfsmount *mnt);
 extern void mnt_drop_write(struct vfsmount *mnt);
-
 extern void mntput_no_expire(struct vfsmount *mnt);
-extern struct vfsmount *mntget(struct vfsmount *mnt);
-extern void mntput(struct vfsmount *mnt);
-
 extern void mnt_pin(struct vfsmount *mnt);
 extern void mnt_unpin(struct vfsmount *mnt);
 extern int __mnt_is_readonly(struct vfsmount *mnt);
+
+static inline void mntput(struct vfsmount *mnt)
+{
+	if (mnt) {
+		mnt->mnt_expiry_mark = 0;
+		mntput_no_expire(mnt);
+	}
+}
 
 extern struct vfsmount *do_kern_mount(const char *fstype, int flags,
 				      const char *name, void *data);
@@ -120,6 +123,7 @@ extern int do_add_mount(struct vfsmount *newmnt, struct path *path,
 
 extern void mark_mounts_for_expiry(struct list_head *mounts);
 
+extern spinlock_t vfsmount_lock;
 extern dev_t name_to_dev_t(char *name);
 
 #endif /* _LINUX_MOUNT_H */

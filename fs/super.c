@@ -62,41 +62,10 @@ static struct super_block *alloc_super(struct file_system_type *type)
 			s = NULL;
 			goto out;
 		}
-#ifdef CONFIG_SMP
-		s->s_files = alloc_percpu(struct list_head);
-		if (!s->s_files) {
-			security_sb_free(s);
-			kfree(s);
-			s = NULL;
-			goto out;
-		} else {
-			int i;
-
-			for_each_possible_cpu(i)
-				INIT_LIST_HEAD(per_cpu_ptr(s->s_files, i));
-		}
-#else
 		INIT_LIST_HEAD(&s->s_files);
-#endif
-#ifdef CONFIG_SMP
-		s->s_inodes = alloc_percpu(struct list_head);
-		if (!s->s_inodes) {
-			free_percpu(s->s_files);
-			security_sb_free(s);
-			kfree(s);
-			s = NULL;
-			goto out;
-		} else {
-			int i;
-
-			for_each_possible_cpu(i)
-				INIT_LIST_HEAD(per_cpu_ptr(s->s_inodes, i));
-		}
-#else
-		INIT_LIST_HEAD(&s->s_inodes);
-#endif
 		INIT_LIST_HEAD(&s->s_instances);
 		INIT_HLIST_HEAD(&s->s_anon);
+		INIT_LIST_HEAD(&s->s_inodes);
 		INIT_LIST_HEAD(&s->s_dentry_lru);
 		init_rwsem(&s->s_umount);
 		mutex_init(&s->s_lock);
@@ -148,10 +117,6 @@ out:
  */
 static inline void destroy_super(struct super_block *s)
 {
-#ifdef CONFIG_SMP
-	free_percpu(s->s_inodes);
-	free_percpu(s->s_files);
-#endif
 	security_sb_free(s);
 	kfree(s->s_subtype);
 	kfree(s->s_options);
@@ -603,7 +568,7 @@ out:
 int do_remount_sb(struct super_block *sb, int flags, void *data, int force)
 {
 	int retval;
-	int remount_rw, remount_ro;
+	int remount_rw;
 
 	if (sb->s_frozen != SB_UNFROZEN)
 		return -EBUSY;
@@ -618,12 +583,9 @@ int do_remount_sb(struct super_block *sb, int flags, void *data, int force)
 	shrink_dcache_sb(sb);
 	sync_filesystem(sb);
 
-	remount_ro = (flags & MS_RDONLY) && !(sb->s_flags & MS_RDONLY);
-	remount_rw = !(flags & MS_RDONLY) && (sb->s_flags & MS_RDONLY);
-
 	/* If we are remounting RDONLY and current sb is read/write,
 	   make sure there are no rw files opened */
-	if (remount_ro) {
+	if ((flags & MS_RDONLY) && !(sb->s_flags & MS_RDONLY)) {
 		if (force)
 			mark_files_ro(sb);
 		else if (!fs_may_remount_ro(sb))
@@ -632,6 +594,7 @@ int do_remount_sb(struct super_block *sb, int flags, void *data, int force)
 		if (retval < 0 && retval != -ENOSYS)
 			return -EBUSY;
 	}
+	remount_rw = !(flags & MS_RDONLY) && (sb->s_flags & MS_RDONLY);
 
 	if (sb->s_op->remount_fs) {
 		retval = sb->s_op->remount_fs(sb, &flags, data);
@@ -641,14 +604,6 @@ int do_remount_sb(struct super_block *sb, int flags, void *data, int force)
 	sb->s_flags = (sb->s_flags & ~MS_RMT_MASK) | (flags & MS_RMT_MASK);
 	if (remount_rw)
 		vfs_dq_quota_on_remount(sb);
-	 /* Some filesystems modify their metadata via some other path
-	    than the bdev buffer cache (eg. use a private mapping, or
-	    directories in pagecache, etc). Also file data modifications
-	    go via their own mappings. So If we try to mount readonly
-	    then copy the filesystem from bdev, we could get stale data,
-	    so invalidate it to give a best effort at coherency. */
-	if (remount_ro && sb->s_bdev)
-		invalidate_bdev(sb->s_bdev);
 	return 0;
 }
 

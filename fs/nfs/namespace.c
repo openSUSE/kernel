@@ -48,17 +48,12 @@ char *nfs_path(const char *base,
 	       const struct dentry *dentry,
 	       char *buffer, ssize_t buflen)
 {
-	char *end;
+	char *end = buffer+buflen;
 	int namelen;
-	unsigned seq;
 
-rename_retry:
-	end = buffer+buflen;
 	*--end = '\0';
 	buflen--;
-
-	seq = read_seqbegin(&rename_lock);
-	rcu_read_lock();
+	spin_lock(&dcache_lock);
 	while (!IS_ROOT(dentry) && dentry != droot) {
 		namelen = dentry->d_name.len;
 		buflen -= namelen + 1;
@@ -69,9 +64,7 @@ rename_retry:
 		*--end = '/';
 		dentry = dentry->d_parent;
 	}
-	rcu_read_unlock();
-	if (read_seqretry(&rename_lock, seq))
-		goto rename_retry;
+	spin_unlock(&dcache_lock);
 	if (*end != '/') {
 		if (--buflen < 0)
 			goto Elong;
@@ -88,9 +81,7 @@ rename_retry:
 	memcpy(end, base, namelen);
 	return end;
 Elong_unlock:
-	rcu_read_unlock();
-	if (read_seqretry(&rename_lock, seq))
-		goto rename_retry;
+	spin_unlock(&dcache_lock);
 Elong:
 	return ERR_PTR(-ENAMETOOLONG);
 }

@@ -263,17 +263,10 @@ static struct inode *sock_alloc_inode(struct super_block *sb)
 	return &ei->vfs_inode;
 }
 
-static void sock_i_callback(struct rcu_head *head)
-{
-	struct inode *inode = container_of(head, struct inode, i_rcu);
-	INIT_LIST_HEAD(&inode->i_dentry);
-	kmem_cache_free(sock_inode_cachep,
-			container_of(inode, struct socket_alloc, vfs_inode));
-}
-
 static void sock_destroy_inode(struct inode *inode)
 {
-	call_rcu(&inode->i_rcu, sock_i_callback);
+	kmem_cache_free(sock_inode_cachep,
+			container_of(inode, struct socket_alloc, vfs_inode));
 }
 
 static void init_once(void *foo)
@@ -375,9 +368,7 @@ static int sock_alloc_file(struct socket *sock, struct file **f, int flags)
 		  &socket_file_ops);
 	if (unlikely(!file)) {
 		/* drop dentry, keep inode */
-		spin_lock(&path.dentry->d_inode->i_lock);
-		path.dentry->d_inode->i_count++;
-		spin_unlock(&path.dentry->d_inode->i_lock);
+		atomic_inc(&path.dentry->d_inode->i_count);
 		path_put(&path);
 		put_unused_fd(fd);
 		return -ENFILE;

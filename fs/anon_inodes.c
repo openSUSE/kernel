@@ -115,9 +115,7 @@ struct file *anon_inode_getfile(const char *name,
 	 * so we can avoid doing an igrab() and we can use an open-coded
 	 * atomic_inc().
 	 */
-	spin_lock(&anon_inode_inode->i_lock);
-	anon_inode_inode->i_count++;
-	spin_unlock(&anon_inode_inode->i_lock);
+	atomic_inc(&anon_inode_inode->i_count);
 
 	path.dentry->d_op = &anon_inodefs_dentry_operations;
 	d_instantiate(path.dentry, anon_inode_inode);

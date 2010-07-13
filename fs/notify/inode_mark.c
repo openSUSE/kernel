@@ -362,75 +362,65 @@ int fsnotify_add_mark(struct fsnotify_mark_entry *entry,
  * of inodes, and with iprune_mutex held, keeping shrink_icache_memory() at bay.
  * We temporarily drop inode_lock, however, and CAN block.
  */
-void fsnotify_unmount_inodes(struct super_block *sb)
+void fsnotify_unmount_inodes(struct list_head *list)
 {
-	int i;
+	struct inode *inode, *next_i, *need_iput = NULL;
 
-	for_each_possible_cpu(i) {
-		struct inode *inode, *next_i, *need_iput = NULL;
-		struct list_head *list;
-#ifdef CONFIG_SMP
-                list = per_cpu_ptr(sb->s_inodes, i);
-#else
-                list = &sb->s_inodes;
-#endif
+	list_for_each_entry_safe(inode, next_i, list, i_sb_list) {
+		struct inode *need_iput_tmp;
 
-		list_for_each_entry_safe(inode, next_i, list, i_sb_list) {
-			struct inode *need_iput_tmp;
+		/*
+		 * We cannot __iget() an inode in state I_CLEAR, I_FREEING,
+		 * I_WILL_FREE, or I_NEW which is fine because by that point
+		 * the inode cannot have any associated watches.
+		 */
+		if (inode->i_state & (I_CLEAR|I_FREEING|I_WILL_FREE|I_NEW))
+			continue;
 
-			spin_lock(&inode->i_lock);
-			/*
-			 * We cannot __iget() an inode in state I_CLEAR, I_FREEING,
-			 * I_WILL_FREE, or I_NEW which is fine because by that point
-			 * the inode cannot have any associated watches.
-			 */
-			if (inode->i_state & (I_CLEAR|I_FREEING|I_WILL_FREE|I_NEW)) {
-				spin_unlock(&inode->i_lock);
-				continue;
-			}
+		/*
+		 * If i_count is zero, the inode cannot have any watches and
+		 * doing an __iget/iput with MS_ACTIVE clear would actually
+		 * evict all inodes with zero i_count from icache which is
+		 * unnecessarily violent and may in fact be illegal to do.
+		 */
+		if (!atomic_read(&inode->i_count))
+			continue;
 
-			/*
-			 * If i_count is zero, the inode cannot have any watches and
-			 * doing an __iget/iput with MS_ACTIVE clear would actually
-			 * evict all inodes with zero i_count from icache which is
-			 * unnecessarily violent and may in fact be illegal to do.
-			 */
-			if (!inode->i_count) {
-				spin_unlock(&inode->i_lock);
-				continue;
-			}
+		need_iput_tmp = need_iput;
+		need_iput = NULL;
 
-			need_iput_tmp = need_iput;
-			need_iput = NULL;
+		/* In case fsnotify_inode_delete() drops a reference. */
+		if (inode != need_iput_tmp)
+			__iget(inode);
+		else
+			need_iput_tmp = NULL;
 
-			/* In case fsnotify_inode_delete() drops a reference. */
-			if (inode != need_iput_tmp) {
-				__iget(inode);
-			} else
-				need_iput_tmp = NULL;
-			spin_unlock(&inode->i_lock);
-
-			/* In case the dropping of a reference would nuke next_i. */
-			if (&next_i->i_sb_list != list) {
-				spin_lock(&next_i->i_lock);
-				if (next_i->i_count &&
-					!(next_i->i_state &
-						(I_CLEAR | I_FREEING | I_WILL_FREE))) {
-					__iget(next_i);
-					need_iput = next_i;
-				}
-				spin_unlock(&next_i->i_lock);
-			}
-
-			if (need_iput_tmp)
-				iput(need_iput_tmp);
-
-			/* for each watch, send FS_UNMOUNT and then remove it */
-			fsnotify(inode, FS_UNMOUNT, inode, FSNOTIFY_EVENT_INODE, NULL, 0);
-
-			fsnotify_inode_delete(inode);
-
-			iput(inode);
+		/* In case the dropping of a reference would nuke next_i. */
+		if ((&next_i->i_sb_list != list) &&
+		    atomic_read(&next_i->i_count) &&
+		    !(next_i->i_state & (I_CLEAR | I_FREEING | I_WILL_FREE))) {
+			__iget(next_i);
+			need_iput = next_i;
 		}
+
+		/*
+		 * We can safely drop inode_lock here because we hold
+		 * references on both inode and next_i.  Also no new inodes
+		 * will be added since the umount has begun.  Finally,
+		 * iprune_mutex keeps shrink_icache_memory() away.
+		 */
+		spin_unlock(&inode_lock);
+
+		if (need_iput_tmp)
+			iput(need_iput_tmp);
+
+		/* for each watch, send FS_UNMOUNT and then remove it */
+		fsnotify(inode, FS_UNMOUNT, inode, FSNOTIFY_EVENT_INODE, NULL, 0);
+
+		fsnotify_inode_delete(inode);
+
+		iput(inode);
+
+		spin_lock(&inode_lock);
 	}
 }

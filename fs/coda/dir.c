@@ -302,9 +302,7 @@ static int coda_link(struct dentry *source_de, struct inode *dir_inode,
 	}
 
 	coda_dir_update_mtime(dir_inode);
-	spin_lock(&inode->i_lock);
-	inode->i_count++;
-	spin_unlock(&inode->i_lock);
+	atomic_inc(&inode->i_count);
 	d_instantiate(de, inode);
 	inc_nlink(inode);
 

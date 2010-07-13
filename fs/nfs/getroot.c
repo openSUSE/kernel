@@ -55,9 +55,7 @@ static int nfs_superblock_set_dummy_root(struct super_block *sb, struct inode *i
 			return -ENOMEM;
 		}
 		/* Circumvent igrab(): we know the inode is not being freed */
-		spin_lock(&inode->i_lock);
-		inode->i_count++;
-		spin_unlock(&inode->i_lock);
+		atomic_inc(&inode->i_count);
 		/*
 		 * Ensure that this dentry is invisible to d_find_alias().
 		 * Otherwise, it may be spliced into the tree by
@@ -66,11 +64,9 @@ static int nfs_superblock_set_dummy_root(struct super_block *sb, struct inode *i
 		 * This again causes shrink_dcache_for_umount_subtree() to
 		 * Oops, since the test for IS_ROOT() will fail.
 		 */
-		spin_lock(&sb->s_root->d_inode->i_lock);
-		spin_lock(&sb->s_root->d_lock);
+		spin_lock(&dcache_lock);
 		list_del_init(&sb->s_root->d_alias);
-		spin_unlock(&sb->s_root->d_lock);
-		spin_unlock(&sb->s_root->d_inode->i_lock);
+		spin_unlock(&dcache_lock);
 	}
 	return 0;
 }

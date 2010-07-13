@@ -253,9 +253,7 @@ out_parent:
 	gfs2_holder_uninit(ghs);
 	gfs2_holder_uninit(ghs + 1);
 	if (!error) {
-		spin_lock(&inode->i_lock);
-		inode->i_count++;
-		spin_unlock(&inode->i_lock);
+		atomic_inc(&inode->i_count);
 		d_instantiate(dentry, inode);
 		mark_inode_dirty(inode);
 	}
