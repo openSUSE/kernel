@@ -269,6 +269,8 @@ static int create_image(int platform_mode)
 
 	local_irq_disable();
 
+	system_state = SYSTEM_SUSPEND;
+
 	error = sysdev_suspend(PMSG_FREEZE);
 	if (error) {
 		printk(KERN_ERR "PM: Some system devices failed to power down, "
@@ -297,6 +299,7 @@ static int create_image(int platform_mode)
 	 */
 
  Enable_irqs:
+	system_state = SYSTEM_RUNNING;
 	local_irq_enable();
 
  Enable_cpus:
@@ -389,6 +392,7 @@ static int resume_target_kernel(bool platform_mode)
 		goto Enable_cpus;
 
 	local_irq_disable();
+	system_state = SYSTEM_SUSPEND;
 
 	error = sysdev_suspend(PMSG_QUIESCE);
 	if (error)
@@ -420,6 +424,7 @@ static int resume_target_kernel(bool platform_mode)
 	sysdev_resume();
 
  Enable_irqs:
+	system_state = SYSTEM_RUNNING;
 	local_irq_enable();
 
  Enable_cpus:
@@ -501,6 +506,7 @@ int hibernation_platform_enter(void)
 		goto Platform_finish;
 
 	local_irq_disable();
+	system_state = SYSTEM_SUSPEND;
 	sysdev_suspend(PMSG_HIBERNATE);
 	hibernation_ops->enter();
 	/* We should never get here */
