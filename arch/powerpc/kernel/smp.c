@@ -541,6 +541,9 @@ int __devinit start_secondary(void *unused)
 	of_node_put(l2_cache);
 	ipi_call_unlock();
 
+	while (!cpumask_test_cpu(smp_processor_id(), cpu_active_mask))
+		cpu_relax();
+
 	local_irq_enable();
 
 	cpu_idle();
