@@ -307,7 +307,7 @@ int register_dca_provider(struct dca_provider *dca, struct device *dev)
 	if (!domain) {
 		raw_spin_unlock_irqrestore(&dca_lock, flags);
 
-		newdomain = dca_allocate_domain(rc);
+		newdomain = dca_allocate_domain(dca_pci_rc_from_dev(dev));
 		if (!newdomain)
 			return -ENODEV;
 
