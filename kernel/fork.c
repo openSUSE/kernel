@@ -1803,24 +1803,26 @@ int unshare_files(struct files_struct **displaced)
 	return 0;
 }
 
-static int mmdrop_complete(void)
+static int mmdrop_complete(int cpu)
 {
 	struct list_head *head;
 	int ret = 0;
 
-	head = &get_cpu_var(delayed_drop_list);
+	preempt_disable();
+	head = &per_cpu(delayed_drop_list, cpu);
 	while (!list_empty(head)) {
 		struct mm_struct *mm = list_entry(head->next,
 					struct mm_struct, delayed_drop);
 		list_del(&mm->delayed_drop);
-		put_cpu_var(delayed_drop_list);
+		preempt_enable();
 
 		__mmdrop(mm);
 		ret = 1;
 
-		head = &get_cpu_var(delayed_drop_list);
+		preempt_disable();
+		head = &per_cpu(delayed_drop_list, cpu);
 	}
-	put_cpu_var(delayed_drop_list);
+	preempt_enable();
 
 	return ret;
 }
@@ -1829,7 +1831,7 @@ static int mmdrop_complete(void)
  * We dont want to do complex work from the scheduler, thus
  * we delay the work to a per-CPU worker thread:
  */
-void  __mmdrop_delayed(struct mm_struct *mm)
+void  __mmdrop_delayed(struct mm_struct *mm, int wake)
 {
 	struct task_struct *desched_task;
 	struct list_head *head;
@@ -1837,7 +1839,7 @@ void  __mmdrop_delayed(struct mm_struct *mm)
 	head = &get_cpu_var(delayed_drop_list);
 	list_add_tail(&mm->delayed_drop, head);
 	desched_task = __get_cpu_var(desched_task);
-	if (desched_task)
+	if (desched_task && wake)
 		wake_up_process(desched_task);
 	put_cpu_var(delayed_drop_list);
 }
@@ -1852,13 +1854,16 @@ static void takeover_delayed_drop(int hotcpu)
 				struct mm_struct, delayed_drop);
 
 		list_del(&mm->delayed_drop);
-		__mmdrop_delayed(mm);
+		__mmdrop_delayed(mm, 1);
 	}
 }
 #endif
 
 static int desched_thread(void * __bind_cpu)
 {
+
+	int cpu = (unsigned long)__bind_cpu;
+
 	set_user_nice(current, -10);
 	current->flags |= PF_NOFREEZE;
 	current->extra_flags |= PFE_SOFTIRQ;
@@ -1867,7 +1872,7 @@ static int desched_thread(void * __bind_cpu)
 
 	while (!kthread_should_stop()) {
 
-		if (mmdrop_complete())
+		if (mmdrop_complete(cpu))
 			continue;
 		schedule();
 
