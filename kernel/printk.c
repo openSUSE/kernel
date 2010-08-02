@@ -797,9 +797,11 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 	 * will release 'logbuf_lock' regardless of whether it
 	 * actually gets the mutex or not.
 	 */
-	if (acquire_console_mutex_for_printk(this_cpu))
+	if (acquire_console_mutex_for_printk(this_cpu)) {
+		raw_local_irq_restore(flags);
 		release_console_mutex();
-
+		raw_local_irq_save(flags);
+	}
 	lockdep_on();
 out:
 	raw_local_irq_restore(flags);
@@ -1069,7 +1071,7 @@ void release_console_mutex(void)
 		/*
 		 * on PREEMPT_RT, call console drivers with
 		 * interrupts enabled (if printk was called
-		 * with interrupts disabled):
+		 * with interrupts enabled):
 		 */
 #ifdef CONFIG_PREEMPT_RT
 		raw_spin_unlock_irqrestore(&logbuf_lock, flags);
