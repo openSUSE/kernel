@@ -13,6 +13,7 @@
  */
 #define MAXMEM_PFN	PFN_DOWN(MAXMEM)
 #define MAX_NONPAE_PFN	(1 << 20)
+#define MAX_SANE_PAE_PFN	(1 << 22)
 
 #endif /* __i386__ */
 

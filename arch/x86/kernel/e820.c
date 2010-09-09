@@ -1136,6 +1136,17 @@ static unsigned long __init e820_end_pfn(unsigned long limit_pfn, unsigned type)
 
 		if (start_pfn >= limit_pfn)
 			continue;
+#ifdef CONFIG_X86_32
+		if (end_pfn > MAX_SANE_PAE_PFN) {
+			last_pfn = MAX_SANE_PAE_PFN;
+			printk(KERN_WARNING
+				"WARNING: Running a 32 bit kernel with more "
+				"than 16 GB RAM is not supported on MRG RT.\n"
+				"Using only 16 GB. To take advantage of all "
+				"of your RAM, use a x86_64 kernel.\n");
+			break;
+		}
+#endif
 		if (end_pfn > limit_pfn) {
 			last_pfn = limit_pfn;
 			break;
