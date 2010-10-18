@@ -36,14 +36,20 @@ Effective latencies are actually occuring during wakeup of a process. To
 determine effective latencies, the kernel stores the time stamp when a
 process is scheduled to be woken up, and determines the duration of the
 wakeup time shortly before control is passed over to this process. Note
-that the apparent latency in user space may be considerably longer,
-since
-i) interrupts may be disabled preventing the scheduler from initiating
-the wakeup mechanism, and
-ii) the process may be interrupted after control is passed over to it
-but before user space execution takes place.
-- Configuration item (in the Kernel hacking/Tracers submenu)
+that the apparent latency in user space may be somewhat longer, since the
+process may be interrupted after control is passed over to it but before
+the execution in user space takes place. Simply measuring the interval
+between enqueuing and wakeup may also not appropriate in cases when a
+process is scheduled as a result of a timer expiration. The timer may have
+missed its deadline, e.g. due to disabled interrupts, but this latency
+would not be registered. Therefore, the offsets of missed timers are
+recorded in a separate histogram. If both wakeup latency and missed timer
+offsets are configured and enabled, a third histogram may be enabled that
+records the overall latency as a sum of the timer latency, if any, and the
+wakeup latency. This histogram is called "timerandwakeup".
+- Configuration items (in the Kernel hacking/Tracers submenu)
   CONFIG_WAKEUP_LATENCY
+  CONFIG_MISSED_TIMER_OFSETS
 
 
 * Usage
@@ -59,30 +65,34 @@ from shell command line level, or add
 nodev	/sys			sysfs	defaults	0 0
 nodev	/sys/kernel/debug	debugfs	defaults	0 0
 
-to the file /etc/fstab. All latency histogram related files are
+to the file /etc/fstab. All latency histogram related files are then
 available in the directory /sys/kernel/debug/tracing/latency_hist. A
 particular histogram type is enabled by writing non-zero to the related
 variable in the /sys/kernel/debug/tracing/latency_hist/enable directory.
 Select "preemptirqsoff" for the histograms of potential sources of
-latencies and "wakeup" for histograms of effective latencies. The
+latencies and "wakeup" for histograms of effective latencies etc. The
 histogram data - one per CPU - are available in the files
 
 /sys/kernel/debug/tracing/latency_hist/preemptoff/CPUx
 /sys/kernel/debug/tracing/latency_hist/irqsoff/CPUx
 /sys/kernel/debug/tracing/latency_hist/preemptirqsoff/CPUx
-/sys/kernel/debug/tracing/latency_hist/wakeup/CPUx.
+/sys/kernel/debug/tracing/latency_hist/wakeup/CPUx
+/sys/kernel/debug/tracing/latency_hist/wakeup/sharedprio/CPUx
+/sys/kernel/debug/tracing/latency_hist/missed_timer_offsets/CPUx
+/sys/kernel/debug/tracing/latency_hist/timerandwakeup/CPUx
 
 The histograms are reset by writing non-zero to the file "reset" in a
 particular latency directory. To reset all latency data, use
 
 #!/bin/sh
 
-HISTDIR=/sys/kernel/debug/tracing/latency_hist
+TRACINGDIR=/sys/kernel/debug/tracing
+HISTDIR=$TRACINGDIR/latency_hist
 
 if test -d $HISTDIR
 then
   cd $HISTDIR
-  for i in */reset
+  for i in `find . | grep /reset$`
   do
     echo 1 >$i
   done
@@ -138,7 +148,7 @@ grep -v " 0$" /sys/kernel/debug/tracing/latency_hist/preemptoff/CPU0
 To only collect wakeup latency data of a particular process, write the
 PID of the requested process to
 
-/sys/kernel/debug/tracing/latency_hist/wakeup/pid.
+/sys/kernel/debug/tracing/latency_hist/wakeup/pid
 
 PIDs are not considered, if this variable is set to 0.
 

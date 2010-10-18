@@ -267,10 +267,24 @@ config WAKEUP_LATENCY_HIST
 
 	      /sys/kernel/debug/tracing/latency_hist/wakeup/sharedprio
 
+	  If both Scheduling Latency Histogram and Missed Timer Offsets
+	  Histogram are selected, additional histogram data will be collected
+	  that contain, in addition to the wakeup latency, the timer latency, in
+	  case the wakeup was triggered by an expired timer. These histograms
+	  are available in the
+
+	      /sys/kernel/debug/tracing/latency_hist/timerandwakeup
+
+	  directory. They reflect the apparent interrupt and scheduling latency
+	  and are best suitable to determine the worst-case latency of a given
+	  system. To enable these histograms, write a non-zero number to
+
+	      /sys/kernel/debug/tracing/latency_hist/enable/timerandwakeup
+
 config MISSED_TIMER_OFFSETS_HIST
 	depends on GENERIC_TIME
 	select GENERIC_TRACER
-	bool "Missed timer offsets histogram"
+	bool "Missed Timer Offsets Histogram"
 	help
 	  Generate a histogram of missed timer offsets in microseconds. The
 	  histograms are disabled by default. To enable them, write a non-zero
@@ -281,6 +295,20 @@ config MISSED_TIMER_OFFSETS_HIST
 	  The histogram data will be located in the debug file system at
 
 	      /sys/kernel/debug/tracing/latency_hist/missed_timer_offsets
+
+	  If both Scheduling Latency Histogram and Missed Timer Offsets
+	  Histogram are selected, additional histogram data will be collected
+	  that contain, in addition to the wakeup latency, the timer latency, in
+	  case the wakeup was triggered by an expired timer. These histograms
+	  are available in the
+
+	      /sys/kernel/debug/tracing/latency_hist/timerandwakeup
+
+	  directory. They reflect the apparent interrupt and scheduling latency
+	  and are best suitable to determine the worst-case latency of a given
+	  system. To enable these histograms, write a non-zero number to
+
+	      /sys/kernel/debug/tracing/latency_hist/enable/timerandwakeup
 
 config SYSPROF_TRACER
 	bool "Sysprof Tracer"
