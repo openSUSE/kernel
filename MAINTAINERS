@@ -2212,6 +2212,13 @@ W:	bluesmoke.sourceforge.net
 S:	Maintained
 F:	drivers/edac/i5400_edac.c
 
+EDAC-I7300
+M:	Mauro Carvalho Chehab <mchehab@redhat.com>
+L:	linux-edac@vger.kernel.org
+W:	bluesmoke.sourceforge.net
+S:	Maintained
+F:	drivers/edac/i7300_edac.c
+
 EDAC-I7CORE
 M:	Mauro Carvalho Chehab <mchehab@redhat.com>
 L:	linux-edac@vger.kernel.org
@@ -3434,7 +3441,7 @@ F:	scripts/package/
 
 KERNEL JANITORS
 L:	kernel-janitors@vger.kernel.org
-W:	http://janitor.kernelnewbies.org/
+W:	http://kernelnewbies.org/KernelJanitors
 S:	Odd Fixes
 
 KERNEL NFSD, SUNRPC, AND LOCKD SERVERS
@@ -4453,6 +4460,15 @@ L:	linux-i2c@vger.kernel.org
 S:	Maintained
 F:	drivers/i2c/busses/i2c-pasemi.c
 
+PADATA PARALLEL EXECUTION MECHANISM
+M:	Steffen Klassert <steffen.klassert@secunet.com>
+L:	linux-kernel@vger.kernel.org
+L:	linux-crypto@vger.kernel.org
+S:	Maintained
+F:	kernel/padata.c
+F:	include/linux/padata.h
+F:	Documentation/padata.txt
+
 PANASONIC LAPTOP ACPI EXTRAS DRIVER
 M:	Harald Welte <laforge@gnumonks.org>
 L:	platform-driver-x86@vger.kernel.org
@@ -4532,6 +4548,12 @@ S:	Maintained
 F:	drivers/leds/leds-pca9532.c
 F:	include/linux/leds-pca9532.h
 
+PCA9541 I2C BUS MASTER SELECTOR DRIVER
+M:	Guenter Roeck <guenter.roeck@ericsson.com>
+L:	linux-i2c@vger.kernel.org
+S:	Maintained
+F:	drivers/i2c/muxes/pca9541.c
+
 PCA9564/PCA9665 I2C BUS DRIVER
 M:	Wolfram Sang <w.sang@pengutronix.de>
 L:	linux-i2c@vger.kernel.org
@@ -4579,6 +4601,13 @@ M:	Don Fry <pcnet32@verizon.net>
 L:	netdev@vger.kernel.org
 S:	Maintained
 F:	drivers/net/pcnet32.c
+
+PCRYPT PARALLEL CRYPTO ENGINE
+M:	Steffen Klassert <steffen.klassert@secunet.com>
+L:	linux-crypto@vger.kernel.org
+S:	Maintained
+F:	crypto/pcrypt.c
+F:	include/crypto/pcrypt.h
 
 PER-TASK DELAY ACCOUNTING
 M:	Balbir Singh <balbir@linux.vnet.ibm.com>

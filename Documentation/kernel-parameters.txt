@@ -1131,8 +1131,12 @@ and is between 256 and 4096 characters. It is defined in the file
 	kvm.oos_shadow=	[KVM] Disable out-of-sync shadow paging.
 			Default is 1 (enabled)
 
-	kvm-amd.nested=	[KVM,AMD] Allow nested virtualization in KVM/SVM.
+	kvm.mmu_audit=	[KVM] This is a R/W parameter which allows audit
+			KVM MMU at runtime.
 			Default is 0 (off)
+
+	kvm-amd.nested=	[KVM,AMD] Allow nested virtualization in KVM/SVM.
+			Default is 1 (enabled)
 
 	kvm-amd.npt=	[KVM,AMD] Disable nested paging (virtualized MMU)
 			for all guests.
@@ -1698,6 +1702,8 @@ and is between 256 and 4096 characters. It is defined in the file
 
 	nojitter	[IA64] Disables jitter checking for ITC timers.
 
+	no-kvmclock	[X86,KVM] Disable paravirtualized KVM clock driver
+
 	nolapic		[X86-32,APIC] Do not enable or use the local APIC.
 
 	nolapic_timer	[X86-32,APIC] Do not use the local APIC timer.
@@ -1718,7 +1724,7 @@ and is between 256 and 4096 characters. It is defined in the file
 	norandmaps	Don't use address space randomization.  Equivalent to
 			echo 0 > /proc/sys/kernel/randomize_va_space
 
-	noreplace-paravirt	[X86-32,PV_OPS] Don't patch paravirt_ops
+	noreplace-paravirt	[X86,IA-64,PV_OPS] Don't patch paravirt_ops
 
 	noreplace-smp	[X86-32,SMP] Don't replace SMP instructions
 			with UP alternatives
