@@ -235,11 +235,8 @@ static void locks_copy_private(struct file_lock *new, struct file_lock *fl)
 			fl->fl_ops->fl_copy_lock(new, fl);
 		new->fl_ops = fl->fl_ops;
 	}
-	if (fl->fl_lmops) {
-		if (fl->fl_lmops->fl_copy_lock)
-			fl->fl_lmops->fl_copy_lock(new, fl);
+	if (fl->fl_lmops)
 		new->fl_lmops = fl->fl_lmops;
-	}
 }
 
 /*
@@ -1428,8 +1425,9 @@ int generic_setlease(struct file *filp, long arg, struct file_lock **flp)
 		goto out;
 
 	if (my_before != NULL) {
-		*flp = *my_before;
 		error = lease->fl_lmops->fl_change(my_before, arg);
+		if (!error)
+			*flp = *my_before;
 		goto out;
 	}
 
@@ -1444,8 +1442,6 @@ int generic_setlease(struct file *filp, long arg, struct file_lock **flp)
 	return 0;
 
 out:
-	if (arg != F_UNLCK)
-		locks_free_lock(lease);
 	return error;
 }
 EXPORT_SYMBOL(generic_setlease);
@@ -1524,8 +1520,11 @@ static int do_fcntl_add_lease(unsigned int fd, struct file *filp, long arg)
 	}
 	lock_flocks();
 	error = __vfs_setlease(filp, arg, &fl);
-	if (error)
-		goto out_unlock;
+	if (error) {
+		unlock_flocks();
+		locks_free_lock(fl);
+		goto out_free_fasync;
+	}
 
 	/*
 	 * fasync_insert_entry() returns the old entry if any.
@@ -1541,12 +1540,12 @@ static int do_fcntl_add_lease(unsigned int fd, struct file *filp, long arg)
 		fl->fl_type = F_UNLCK | F_INPROGRESS;
 		fl->fl_break_time = jiffies - 10;
 		time_out_leases(inode);
-		goto out_unlock;
+	} else {
+		error = __f_setown(filp, task_pid(current), PIDTYPE_PID, 0);
 	}
-
-	error = __f_setown(filp, task_pid(current), PIDTYPE_PID, 0);
-out_unlock:
 	unlock_flocks();
+
+out_free_fasync:
 	if (new)
 		fasync_free(new);
 	return error;
