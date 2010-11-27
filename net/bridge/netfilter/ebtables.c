@@ -153,7 +153,7 @@ unsigned int ebt_do_table (unsigned int hook, struct sk_buff *skb,
    const struct net_device *in, const struct net_device *out,
    struct ebt_table *table)
 {
-	int i, nentries;
+	int i, nentries, cpu;
 	struct ebt_entry *point;
 	struct ebt_counter *counter_base, *cb_base;
 	struct ebt_entry_target *t;
@@ -174,12 +174,14 @@ unsigned int ebt_do_table (unsigned int hook, struct sk_buff *skb,
 
 	read_lock_bh(&table->lock);
 	private = table->private;
-	cb_base = COUNTER_BASE(private->counters, private->nentries,
-	   smp_processor_id());
+	preempt_disable_rt();
+	cpu = smp_processor_id();
+	cb_base = COUNTER_BASE(private->counters, private->nentries, cpu);
 	if (private->chainstack)
-		cs = private->chainstack[smp_processor_id()];
+		cs = private->chainstack[cpu];
 	else
 		cs = NULL;
+	preempt_enable_rt();
 	chaininfo = private->hook_entry[hook];
 	nentries = private->hook_entry[hook]->nentries;
 	point = (struct ebt_entry *)(private->hook_entry[hook]->data);
