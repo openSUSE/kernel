@@ -88,6 +88,7 @@
 #include <linux/fs.h>
 #include <linux/delay.h>
 #include <linux/types.h>
+#include <linux/smp_lock.h>
 
 /*vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
 #if defined(EASYCAP_IS_VIDEODEV_CLIENT)
