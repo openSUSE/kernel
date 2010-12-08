@@ -1121,6 +1121,15 @@ static void drain_local_pages_work(struct work_struct *wrk)
 }
 #endif
 
+#ifdef CONFIG_PREEMPT_RT
+extern struct task_struct *kthreadd_task;
+
+static inline int is_kthreadd(struct task_struct *p)
+{
+	return p == kthreadd_task;
+}
+#endif
+
 /*
  * Spill all the per-cpu pages from all CPUs back into the buddy allocator
  */
@@ -1146,7 +1155,7 @@ void drain_all_pages(void)
 	 *
 	 * And yes, this is one big hack.  Please fix ;-)
 	 */
-	if (sizeof(void *)*nr_cpu_ids < PAGE_SIZE)
+	if (!is_kthreadd(current) && sizeof(void *)*nr_cpu_ids < PAGE_SIZE)
 		schedule_on_each_cpu(drain_local_pages_work);
 	else {
 		static int once;
