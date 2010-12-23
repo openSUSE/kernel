@@ -829,6 +829,11 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 	raw_spin_lock_irqsave(&lock->wait_lock, flags);
 	init_lists(lock);
 
+	if (do_try_to_take_rt_mutex(lock, STEAL_LATERAL)) {
+		raw_spin_unlock_irqrestore(&lock->wait_lock, flags);
+		return;
+	}
+
 	BUG_ON(rt_mutex_owner(lock) == current);
 
 	/*
