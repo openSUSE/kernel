@@ -821,6 +821,7 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 	struct rt_mutex_waiter waiter;
 	unsigned long saved_state, flags;
 	struct task_struct *orig_owner;
+	int saved_lock_depth;
 
 	debug_rt_mutex_init_waiter(&waiter);
 	waiter.task = NULL;
@@ -843,8 +844,14 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 	 */
 	saved_state = rt_set_current_blocked_state(current->state);
 
+	/*
+	 * Prevent schedule() to drop BKL, while waiting for
+	 * the lock ! We restore lock_depth when we come back.
+	 */
+	saved_lock_depth = current->lock_depth;
+	current->lock_depth = -1;
+
 	for (;;) {
-		int saved_lock_depth = current->lock_depth;
 
 		/* Try to acquire the lock */
 		if (do_try_to_take_rt_mutex(lock, STEAL_LATERAL))
@@ -863,11 +870,6 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 				continue;
 		}
 
-		/*
-		 * Prevent schedule() to drop BKL, while waiting for
-		 * the lock ! We restore lock_depth when we come back.
-		 */
-		current->lock_depth = -1;
 		orig_owner = rt_mutex_owner(lock);
 		get_task_struct(orig_owner);
 		raw_spin_unlock_irqrestore(&lock->wait_lock, flags);
@@ -883,9 +885,9 @@ rt_spin_lock_slowlock(struct rt_mutex *lock)
 			put_task_struct(orig_owner);
 
 		raw_spin_lock_irqsave(&lock->wait_lock, flags);
-		current->lock_depth = saved_lock_depth;
 		saved_state = rt_set_current_blocked_state(saved_state);
 	}
+	current->lock_depth = saved_lock_depth;
 
 	rt_restore_current_state(saved_state);
 
