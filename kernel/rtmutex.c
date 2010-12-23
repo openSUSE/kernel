@@ -554,33 +554,8 @@ static void wakeup_next_waiter(struct rt_mutex *lock, int savestate)
 	 */
 	if (!savestate)
 		wake_up_process(pendowner);
-	else {
-		/*
-		 * We can skip the actual (expensive) wakeup if the
-		 * waiter is already running, but we have to be careful
-		 * of race conditions because they may be about to sleep.
-		 *
-		 * The waiter-side protocol has the following pattern:
-		 * 1: Set state != RUNNING
-		 * 2: Conditionally sleep if waiter->task != NULL;
-		 *
-		 * And the owner-side has the following:
-		 * A: Set waiter->task = NULL
-		 * B: Conditionally wake if the state != RUNNING
-		 *
-		 * As long as we ensure 1->2 order, and A->B order, we
-		 * will never miss a wakeup.
-		 *
-		 * Therefore, this barrier ensures that waiter->task = NULL
-		 * is visible before we test the pendowner->state.  The
-		 * corresponding barrier is in the sleep logic.
-		 */
-		smp_mb();
-
-		/* If !RUNNING && !RUNNING_MUTEX */
-		if (pendowner->state & ~TASK_RUNNING_MUTEX)
-			wake_up_process_mutex(pendowner);
-	}
+	else
+		wake_up_process_mutex(pendowner);
 
 	rt_mutex_set_owner(lock, pendowner, RT_MUTEX_OWNER_PENDING);
 
