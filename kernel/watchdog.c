@@ -57,6 +57,8 @@ static int __init hardlockup_panic_setup(char *str)
 {
 	if (!strncmp(str, "panic", 5))
 		hardlockup_panic = 1;
+	else if (!strncmp(str, "0", 1))
+		no_watchdog = 1;
 	return 1;
 }
 __setup("nmi_watchdog=", hardlockup_panic_setup);
@@ -307,7 +309,7 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
  */
 static int watchdog(void *unused)
 {
-	struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
+	static struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
 	struct hrtimer *hrtimer = &__raw_get_cpu_var(watchdog_hrtimer);
 
 	sched_setscheduler(current, SCHED_FIFO, &param);
@@ -548,13 +550,13 @@ static struct notifier_block __cpuinitdata cpu_nfb = {
 	.notifier_call = cpu_callback
 };
 
-static int __init spawn_watchdog_task(void)
+void __init lockup_detector_init(void)
 {
 	void *cpu = (void *)(long)smp_processor_id();
 	int err;
 
 	if (no_watchdog)
-		return 0;
+		return;
 
 	err = cpu_callback(&cpu_nfb, CPU_UP_PREPARE, cpu);
 	WARN_ON(notifier_to_errno(err));
@@ -562,6 +564,5 @@ static int __init spawn_watchdog_task(void)
 	cpu_callback(&cpu_nfb, CPU_ONLINE, cpu);
 	register_cpu_notifier(&cpu_nfb);
 
-	return 0;
+	return;
 }
-early_initcall(spawn_watchdog_task);
