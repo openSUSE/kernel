@@ -1205,11 +1205,11 @@ static void rt2800_config_channel(struct rt2x00_dev *rt2x00dev,
 	u8 bbp;
 
 	if (rf->channel <= 14) {
-		info->default_power1 = TXPOWER_G_TO_DEV(info->default_power1);
-		info->default_power2 = TXPOWER_G_TO_DEV(info->default_power2);
+		info->tx_power1 = TXPOWER_G_TO_DEV(info->tx_power1);
+		info->tx_power2 = TXPOWER_G_TO_DEV(info->tx_power2);
 	} else {
-		info->default_power1 = TXPOWER_A_TO_DEV(info->default_power1);
-		info->default_power2 = TXPOWER_A_TO_DEV(info->default_power2);
+		info->tx_power1 = TXPOWER_A_TO_DEV(info->tx_power1);
+		info->tx_power2 = TXPOWER_A_TO_DEV(info->tx_power2);
 	}
 
 	if (rt2x00_rf(rt2x00dev, RF2020) ||
