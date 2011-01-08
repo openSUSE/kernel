@@ -829,12 +829,12 @@ static void init_reap_node(int cpu)
 
 static void next_reap_node(void)
 {
-	int node = __get_cpu_var(slab_reap_node);
+	int node = __this_cpu_read(slab_reap_node);
 
 	node = next_node(node, node_online_map);
 	if (unlikely(node >= MAX_NUMNODES))
 		node = first_node(node_online_map);
-	__get_cpu_var(slab_reap_node) = node;
+	__this_cpu_write(slab_reap_node, node);
 }
 
 #else
@@ -1012,7 +1012,7 @@ static void __drain_alien_cache(struct kmem_cache *cachep,
  */
 static void reap_alien(struct kmem_cache *cachep, struct kmem_list3 *l3)
 {
-	int node = __get_cpu_var(slab_reap_node);
+	int node = __this_cpu_read(slab_reap_node);
 
 	if (l3->alien) {
 		struct array_cache *ac = l3->alien[node];
@@ -1293,7 +1293,7 @@ static int __cpuinit cpuup_callback(struct notifier_block *nfb,
 		 * anything expensive but will only modify reap_work
 		 * and reschedule the timer.
 		*/
-		cancel_rearming_delayed_work(&per_cpu(slab_reap_work, cpu));
+		cancel_delayed_work_sync(&per_cpu(slab_reap_work, cpu));
 		/* Now the cache_reaper is guaranteed to be not running. */
 		per_cpu(slab_reap_work, cpu).work.func = NULL;
   		break;
