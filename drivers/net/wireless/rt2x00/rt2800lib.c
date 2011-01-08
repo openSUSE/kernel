@@ -1125,7 +1125,8 @@ static void rt2800_config_channel_rf2xxx(struct rt2x00_dev *rt2x00dev,
 		if (info->default_power1 < 0)
 			info->default_power1 += 7;
 
-		rt2x00_set_field32(&rf->rf3, RF3_TXPOWER_A, info->default_power1);
+		rt2x00_set_field32(&rf->rf3, RF3_TXPOWER_A,
+				   TXPOWER_A_TO_DEV(info->default_power1));
 
 		rt2x00_set_field32(&rf->rf4, RF4_TXPOWER_A_7DBM_BOOST,
 				   (info->default_power2 >= 0));
@@ -1133,10 +1134,13 @@ static void rt2800_config_channel_rf2xxx(struct rt2x00_dev *rt2x00dev,
 		if (info->default_power2 < 0)
 			info->default_power2 += 7;
 
-		rt2x00_set_field32(&rf->rf4, RF4_TXPOWER_A, info->default_power2);
+		rt2x00_set_field32(&rf->rf4, RF4_TXPOWER_A,
+				   TXPOWER_A_TO_DEV(info->default_power2));
 	} else {
-		rt2x00_set_field32(&rf->rf3, RF3_TXPOWER_G, info->default_power1);
-		rt2x00_set_field32(&rf->rf4, RF4_TXPOWER_G, info->default_power2);
+		rt2x00_set_field32(&rf->rf3, RF3_TXPOWER_G,
+				   TXPOWER_G_TO_DEV(info->default_power1));
+		rt2x00_set_field32(&rf->rf4, RF4_TXPOWER_G,
+				   TXPOWER_G_TO_DEV(info->default_power2));
 	}
 
 	rt2x00_set_field32(&rf->rf4, RF4_HT40, conf_is_ht40(conf));
@@ -1204,19 +1208,10 @@ static void rt2800_config_channel(struct rt2x00_dev *rt2x00dev,
 	unsigned int tx_pin;
 	u8 bbp;
 
-	if (rf->channel <= 14) {
-		info->tx_power1 = TXPOWER_G_TO_DEV(info->tx_power1);
-		info->tx_power2 = TXPOWER_G_TO_DEV(info->tx_power2);
-	} else {
-		info->tx_power1 = TXPOWER_A_TO_DEV(info->tx_power1);
-		info->tx_power2 = TXPOWER_A_TO_DEV(info->tx_power2);
-	}
-
 	if (rt2x00_rf(rt2x00dev, RF2020) ||
 	    rt2x00_rf(rt2x00dev, RF3020) ||
 	    rt2x00_rf(rt2x00dev, RF3021) ||
-	    rt2x00_rf(rt2x00dev, RF3022) ||
-	    rt2x00_rf(rt2x00dev, RF3052))
+	    rt2x00_rf(rt2x00dev, RF3022))
 		rt2800_config_channel_rf3xxx(rt2x00dev, conf, rf, info);
 	else
 		rt2800_config_channel_rf2xxx(rt2x00dev, conf, rf, info);
