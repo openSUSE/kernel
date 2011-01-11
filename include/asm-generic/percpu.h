@@ -84,8 +84,6 @@ extern void setup_per_cpu_areas(void);
 #define __raw_get_cpu_var(var)			per_cpu_var(var)
 #define __get_cpu_lock(var, cpu)		__per_cpu_var_lock(var)
 #define __get_cpu_var_locked(var, cpu)		__per_cpu_var_lock_var(var)
-#define __get_cpu_var(var)			per_cpu_var(var)
-#define __raw_get_cpu_var(var)			per_cpu_var(var)
 #define this_cpu_ptr(ptr) per_cpu_ptr(ptr, 0)
 #define __this_cpu_ptr(ptr) this_cpu_ptr(ptr)
 
