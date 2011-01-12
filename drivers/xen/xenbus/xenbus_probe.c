@@ -82,10 +82,14 @@
 
 int xen_store_evtchn;
 #if !defined(CONFIG_XEN) && !defined(MODULE)
-EXPORT_SYMBOL(xen_store_evtchn);
+EXPORT_SYMBOL_GPL(xen_store_evtchn);
 #endif
 
 struct xenstore_domain_interface *xen_store_interface;
+#if !defined(CONFIG_XEN) && !defined(MODULE)
+EXPORT_SYMBOL_GPL(xen_store_interface);
+#endif
+
 static unsigned long xen_store_mfn;
 
 extern struct mutex xenwatch_mutex;
@@ -1041,7 +1045,7 @@ static int xsd_port_read(char *page, char **start, off_t off,
 }
 #endif
 
-#if defined(CONFIG_XEN) || defined(MODULE)
+#if defined(CONFIG_XEN_XENBUS_DEV) || defined(MODULE)
 int xenbus_conn(domid_t remote_dom, unsigned long *grant_ref, evtchn_port_t *local_port)
 {
 	struct evtchn_alloc_unbound alloc_unbound;
@@ -1050,7 +1054,7 @@ int xenbus_conn(domid_t remote_dom, unsigned long *grant_ref, evtchn_port_t *loc
 	BUG_ON(atomic_read(&xenbus_xsd_state) != XENBUS_XSD_FOREIGN_INIT);
 	BUG_ON(!is_initial_xendomain());
 
-#if defined(CONFIG_PROC_FS) && defined(CONFIG_XEN_PRIVILEGED_GUEST)
+#ifdef CONFIG_XEN_PRIVILEGED_GUEST
 	remove_xen_proc_entry("xsd_kva");
 	remove_xen_proc_entry("xsd_port");
 #endif
@@ -1098,9 +1102,7 @@ int __devinit xenbus_init(void)
 #endif
 {
 	int err = 0;
-#if defined(CONFIG_XEN) || defined(MODULE)
 	unsigned long page = 0;
-#endif
 
 	DPRINTK("");
 
@@ -1118,10 +1120,9 @@ int __devinit xenbus_init(void)
 	 * Domain0 doesn't have a store_evtchn or store_mfn yet.
 	 */
 	if (is_initial_xendomain()) {
-#if defined(CONFIG_XEN) || defined(MODULE)
 		struct evtchn_alloc_unbound alloc_unbound;
 
-		/* Allocate page. */
+		/* Allocate Xenstore page */
 		page = get_zeroed_page(GFP_KERNEL);
 		if (!page)
 			return -ENOMEM;
@@ -1155,9 +1156,6 @@ int __devinit xenbus_init(void)
 		xsd_port_intf = create_xen_proc_entry("xsd_port", 0400);
 		if (xsd_port_intf)
 			xsd_port_intf->read_proc = xsd_port_read;
-#endif
-#else
-		/* dom0 not yet supported */
 #endif
 		xen_store_interface = mfn_to_virt(xen_store_mfn);
 	} else {
@@ -1238,17 +1236,14 @@ int __devinit xenbus_init(void)
 	return 0;
 
  err:
-#if defined(CONFIG_XEN) || defined(MODULE)
-	if (page)
-		free_page(page);
-#endif
-
 	/*
 	 * Do not unregister the xenbus front/backend buses here. The buses
 	 * must exist because front/backend drivers will use them when they are
 	 * registered.
 	 */
 
+	if (page != 0)
+		free_page(page);
 	return err;
 }
 

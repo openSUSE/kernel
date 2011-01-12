@@ -34,6 +34,7 @@ static DECLARE_RWSEM(teardown_sem);
 static int connect_rings(struct backend_info *);
 static void connect(struct backend_info *);
 static void backend_create_netif(struct backend_info *be);
+static void netback_disconnect(struct device *, int);
 
 static int netback_remove(struct xenbus_device *dev)
 {
@@ -41,21 +42,27 @@ static int netback_remove(struct xenbus_device *dev)
 
 	netback_remove_accelerators(be, dev);
 
+	netback_disconnect(&dev->dev, 1);
+	kfree(be);
+	return 0;
+}
+
+static void netback_disconnect(struct device *xbdev_dev, int clear)
+{
+	struct backend_info *be = dev_get_drvdata(xbdev_dev);
+
 	if (be->netif)
-		kobject_uevent(&dev->dev.kobj, KOBJ_OFFLINE);
+		kobject_uevent(&xbdev_dev->kobj, KOBJ_OFFLINE);
 
 	down_write(&teardown_sem);
 	if (be->netif) {
 		netif_disconnect(be->netif);
 		be->netif = NULL;
 	}
-	dev_set_drvdata(&dev->dev, NULL);
+	if (clear)
+		dev_set_drvdata(xbdev_dev, NULL);
 	up_write(&teardown_sem);
-	kfree(be);
-
-	return 0;
 }
-
 
 /**
  * Entry point to this code when a new device is created.  Allocate the basic
@@ -238,17 +245,15 @@ static void frontend_changed(struct xenbus_device *dev,
 	case XenbusStateConnected:
 		if (dev->state == XenbusStateConnected)
 			break;
+
+		/* backend_create_netif() is idempotent */
 		backend_create_netif(be);
 		if (be->netif)
 			connect(be);
 		break;
 
 	case XenbusStateClosing:
-		if (be->netif) {
-			kobject_uevent(&dev->dev.kobj, KOBJ_OFFLINE);
-			netif_disconnect(be->netif);
-			be->netif = NULL;
-		}
+		netback_disconnect(&dev->dev, 0);
 		xenbus_switch_state(dev, XenbusStateClosing);
 		break;
 
@@ -258,6 +263,7 @@ static void frontend_changed(struct xenbus_device *dev,
 			break;
 		/* fall through if not online */
 	case XenbusStateUnknown:
+		/* implies netback_disconnect() via netback_remove() */
 		device_unregister(&dev->dev);
 		break;
 

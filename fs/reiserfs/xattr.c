@@ -418,13 +418,11 @@ static inline __u32 xattr_hash(const char *msg, int len)
 
 int reiserfs_commit_write(struct file *f, struct page *page,
 			  unsigned from, unsigned to);
-int reiserfs_prepare_write(struct file *f, struct page *page,
-			   unsigned from, unsigned to);
 
 static void update_ctime(struct inode *inode)
 {
 	struct timespec now = current_fs_time(inode->i_sb);
-	if (hlist_unhashed(&inode->i_hash) || !inode->i_nlink ||
+	if (inode_unhashed(inode) || !inode->i_nlink ||
 	    timespec_equal(&inode->i_ctime, &now))
 		return;
 
@@ -532,8 +530,7 @@ reiserfs_xattr_set_handle(struct reiserfs_transaction_handle *th,
 			rxh->h_hash = cpu_to_le32(xahash);
 		}
 
-		err = reiserfs_prepare_write(NULL, page, page_offset,
-					    page_offset + chunk + skip);
+		err = __reiserfs_write_begin(page, page_offset, chunk + skip);
 		if (!err) {
 			if (buffer)
 				memcpy(data + skip, buffer + buffer_pos, chunk);
@@ -1049,4 +1046,25 @@ error:
 		s->s_flags &= ~MS_POSIXACL;
 
 	return err;
+}
+
+void reiserfs_xattr_shutdown(struct super_block *s)
+{
+	struct dentry *priv_root = REISERFS_SB(s)->priv_root;
+
+	if (REISERFS_SB(s)->xattr_root) {
+		dput(REISERFS_SB(s)->xattr_root);
+		REISERFS_SB(s)->xattr_root = NULL;
+	}
+
+	if (priv_root) {
+		dput(priv_root);
+		REISERFS_SB(s)->priv_root = NULL;
+
+		/* This will drop the final reference to priv_root and
+		 * clean up anything that was deleted during the call in
+		 * generic_shutdown_super(). */
+		shrink_dcache_for_umount_subtree(priv_root);
+		sync_filesystem(s);
+	}
 }

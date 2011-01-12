@@ -17,7 +17,7 @@
 
 #include <asm/processor.h>
 #include <linux/smp.h>
-#include <asm/k8.h>
+#include <asm/amd_nb.h>
 #include <asm/smp.h>
 
 #define LVL_1_INST	1
@@ -307,7 +307,7 @@ struct _cache_attr {
 	ssize_t (*store)(struct _cpuid4_info *, const char *, size_t count);
 };
 
-#if defined(CONFIG_CPU_SUP_AMD) && !defined(CONFIG_XEN)
+#if defined(CONFIG_AMD_NB) && !defined(CONFIG_XEN)
 
 /*
  * L3 cache descriptors
@@ -328,6 +328,7 @@ static void __cpuinit amd_calc_l3_indices(struct amd_l3_cache *l3)
 	l3->subcaches[3] = sc3 = !(val & BIT(12)) + !(val & BIT(13));
 
 	l3->indices = (max(max(max(sc0, sc1), sc2), sc3) << 10) - 1;
+	l3->indices = (max(max3(sc0, sc1, sc2), sc3) << 10) - 1;
 }
 
 static struct amd_l3_cache * __cpuinit amd_init_l3_cache(int node)
@@ -370,7 +371,7 @@ static void __cpuinit amd_check_l3_disable(struct _cpuid4_info_regs *this_leaf,
 			return;
 
 	/* not in virtualized environments */
-	if (num_k8_northbridges == 0)
+	if (k8_northbridges.num == 0)
 		return;
 
 	/*
@@ -378,7 +379,7 @@ static void __cpuinit amd_check_l3_disable(struct _cpuid4_info_regs *this_leaf,
 	 * never freed but this is done only on shutdown so it doesn't matter.
 	 */
 	if (!l3_caches) {
-		int size = num_k8_northbridges * sizeof(struct amd_l3_cache *);
+		int size = k8_northbridges.num * sizeof(struct amd_l3_cache *);
 
 		l3_caches = kzalloc(size, GFP_ATOMIC);
 		if (!l3_caches)
@@ -557,12 +558,12 @@ static struct _cache_attr cache_disable_0 = __ATTR(cache_disable_0, 0644,
 static struct _cache_attr cache_disable_1 = __ATTR(cache_disable_1, 0644,
 		show_cache_disable_1, store_cache_disable_1);
 
-#else	/* CONFIG_CPU_SUP_AMD */
+#else	/* CONFIG_AMD_NB */
 static void __cpuinit
 amd_check_l3_disable(struct _cpuid4_info_regs *this_leaf, int index)
 {
 };
-#endif /* CONFIG_CPU_SUP_AMD */
+#endif /* CONFIG_AMD_NB */
 
 static int
 __cpuinit cpuid4_cache_lookup_regs(int index,
@@ -1005,7 +1006,7 @@ static struct attribute *default_attrs[] = {
 
 static struct attribute *default_l3_attrs[] = {
 	DEFAULT_SYSFS_CACHE_ATTRS,
-#if defined(CONFIG_CPU_SUP_AMD) && !defined(CONFIG_XEN)
+#if defined(CONFIG_AMD_NB) && !defined(CONFIG_XEN)
 	&cache_disable_0.attr,
 	&cache_disable_1.attr,
 #endif

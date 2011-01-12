@@ -79,8 +79,8 @@ static struct sysdev_class __cpuinitdata spinlock_sysclass = {
 };
 
 static struct sys_device __cpuinitdata device_spinlock = {
-	.id		= 0,
-	.cls		= &spinlock_sysclass
+	.id	= 0,
+	.cls	= &spinlock_sysclass
 };
 
 static int __init spinlock_register(void)
@@ -181,7 +181,7 @@ bool xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
 				 */
 				arch_spinlock_t *lock = other->lock;
 
-				raw_local_irq_disable();
+				arch_local_irq_disable();
 				while (lock->cur == other->ticket) {
 					unsigned int token;
 					bool kick, free;
@@ -203,7 +203,7 @@ bool xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
 		}
 
 		/*
-		 * No need to use raw_local_irq_restore() here, as the
+		 * No need to use arch_local_irq_restore() here, as the
 		 * intended event processing will happen with the poll
 		 * call.
 		 */
@@ -229,7 +229,7 @@ bool xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
 	other = spinning.prev;
 	percpu_write(_spinning, other);
 	rm_lock = &__get_cpu_var(spinning_rm_lock);
-	raw_local_irq_disable();
+	arch_local_irq_disable();
 	arch_write_lock(rm_lock);
 	arch_write_unlock(rm_lock);
 	*ptok = lock->cur | (spinning.ticket << TICKET_SHIFT);
@@ -251,7 +251,7 @@ bool xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
 			if (lock->cur == other->ticket)
 				lock->owner = cpu;
 		}
-	raw_local_irq_restore(upcall_mask);
+	arch_local_irq_restore(upcall_mask);
 
 	return rc;
 }
@@ -263,14 +263,14 @@ void xen_spin_kick(arch_spinlock_t *lock, unsigned int token)
 	token &= (1U << TICKET_SHIFT) - 1;
 	for_each_online_cpu(cpu) {
 		arch_rwlock_t *rm_lock;
-		unsigned long flags;
+		unsigned int flags;
 		struct spinning *spinning;
 
 		if (cpu == raw_smp_processor_id())
 			continue;
 
 		rm_lock = &per_cpu(spinning_rm_lock, cpu);
-		raw_local_irq_save(flags);
+		flags = arch_local_irq_save();
 		arch_read_lock(rm_lock);
 
 		spinning = per_cpu(_spinning, cpu);
@@ -282,7 +282,7 @@ void xen_spin_kick(arch_spinlock_t *lock, unsigned int token)
 		}
 
 		arch_read_unlock(rm_lock);
-		raw_local_irq_restore(flags);
+		arch_local_irq_restore(flags);
 
 		if (unlikely(spinning)) {
 			notify_remote_via_evtchn(per_cpu(poll_evtchn, cpu));

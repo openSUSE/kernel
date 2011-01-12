@@ -334,6 +334,18 @@ static void tap_backend_changed(struct xenbus_watch *watch,
 	tap_update_blkif_status(be->blkif);
 }
 
+
+static void blkif_disconnect(blkif_t *blkif)
+{
+	if (blkif->xenblkd) {
+		kthread_stop(blkif->xenblkd);
+		blkif->xenblkd = NULL;
+	}
+
+	/* idempotent */
+	tap_blkif_free(blkif);
+}
+
 /**
  * Callback received when the frontend's state changes.
  */
@@ -362,6 +374,11 @@ static void tap_frontend_changed(struct xenbus_device *dev,
 		if (dev->state == XenbusStateConnected)
 			break;
 
+		/* Enforce precondition before potential leak point.
+		 * blkif_disconnect() is idempotent.
+		 */
+		blkif_disconnect(be->blkif);
+
 		err = connect_ring(be);
 		if (err)
 			break;
@@ -369,11 +386,7 @@ static void tap_frontend_changed(struct xenbus_device *dev,
 		break;
 
 	case XenbusStateClosing:
-		if (be->blkif->xenblkd) {
-			kthread_stop(be->blkif->xenblkd);
-			be->blkif->xenblkd = NULL;
-		}
-		tap_blkif_free(be->blkif);
+		blkif_disconnect(be->blkif);
 		xenbus_switch_state(dev, XenbusStateClosing);
 		break;
 
@@ -383,6 +396,9 @@ static void tap_frontend_changed(struct xenbus_device *dev,
 			break;
 		/* fall through if not online */
 	case XenbusStateUnknown:
+		/* Implies the effects of blkif_disconnect() via
+		 * blktap_remove().
+		 */
 		device_unregister(&dev->dev);
 		break;
 

@@ -21,10 +21,6 @@ config XEN_PRIVILEGED_GUEST
 config XEN_UNPRIVILEGED_GUEST
 	def_bool !XEN_PRIVILEGED_GUEST
 	select PM
-	select PM_SLEEP
-	select PM_SLEEP_SMP if SMP
-	select PM_RUNTIME if PCI
-	select PM_OPS if PCI
 	select SUSPEND
 
 config XEN_PRIVCMD
@@ -487,6 +483,7 @@ config XEN_PLATFORM_PCI
 
 config SWIOTLB_XEN
 	def_bool y
-	depends on PARAVIRT_XEN && SWIOTLB
+	depends on PARAVIRT_XEN && PCI
+	select SWIOTLB
 
 endmenu

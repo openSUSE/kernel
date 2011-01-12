@@ -26,7 +26,7 @@
 #include <media/v4l2-ioctl.h>
 #include "hdpvr.h"
 
-#define BULK_URB_TIMEOUT 1250 /* 1.25 seconds */
+#define BULK_URB_TIMEOUT   90 /* 0.09 seconds */
 
 #define print_buffer_status() { \
 		v4l2_dbg(MSG_BUFFER, hdpvr_debug, &dev->v4l2_dev,	\
@@ -338,8 +338,6 @@ static int hdpvr_stop_streaming(struct hdpvr_device *dev)
 					     dev->bulk_in_endpointAddr),
 			     buf, dev->bulk_in_size, &actual_length,
 			     BULK_URB_TIMEOUT)) {
-		/* wait */
-		msleep(5);
 		v4l2_dbg(MSG_BUFFER, hdpvr_debug, &dev->v4l2_dev,
 			 "%2d: got %d bytes\n", c, actual_length);
 	}

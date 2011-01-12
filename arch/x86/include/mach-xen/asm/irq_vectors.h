@@ -12,7 +12,12 @@
 #define CALL_FUNCTION_VECTOR		1
 #define CALL_FUNC_SINGLE_VECTOR		2
 #define REBOOT_VECTOR			3
+#ifdef CONFIG_IRQ_WORK
+#define IRQ_WORK_VECTOR			4
+#define NR_IPIS				5
+#else
 #define NR_IPIS				4
+#endif
 
 /*
  * The maximum number of vectors supported by i386 processors

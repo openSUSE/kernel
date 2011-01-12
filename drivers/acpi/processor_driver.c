@@ -40,8 +40,10 @@
 #include <linux/pm.h>
 #include <linux/cpufreq.h>
 #include <linux/cpu.h>
+#ifdef CONFIG_ACPI_PROCFS
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
+#endif
 #include <linux/dmi.h>
 #include <linux/moduleparam.h>
 #include <linux/cpuidle.h>
@@ -84,7 +86,7 @@ MODULE_LICENSE("GPL");
 static int acpi_processor_add(struct acpi_device *device);
 static int acpi_processor_remove(struct acpi_device *device, int type);
 static void acpi_processor_notify(struct acpi_device *device, u32 event);
-static acpi_status acpi_processor_hotadd_init(acpi_handle handle, int *p_cpu);
+static acpi_status acpi_processor_hotadd_init(struct acpi_processor *pr);
 static int acpi_processor_handle_eject(struct acpi_processor *pr);
 
 
@@ -244,6 +246,7 @@ static int acpi_processor_errata(struct acpi_processor *pr)
 	return result;
 }
 
+#ifdef CONFIG_ACPI_PROCFS
 static struct proc_dir_entry *acpi_processor_dir = NULL;
 
 static int __cpuinit acpi_processor_add_fs(struct acpi_device *device)
@@ -280,7 +283,16 @@ static int acpi_processor_remove_fs(struct acpi_device *device)
 
 	return 0;
 }
-
+#else
+static inline int acpi_processor_add_fs(struct acpi_device *device)
+{
+	return 0;
+}
+static inline int acpi_processor_remove_fs(struct acpi_device *device)
+{
+	return 0;
+}
+#endif
 /* --------------------------------------------------------------------------
                                  Driver Interface
    -------------------------------------------------------------------------- */
@@ -363,8 +375,7 @@ static int acpi_processor_get_info(struct acpi_device *device)
 	 *  they are physically not present.
 	 */
 	if (pr->id == -1) {
-		if (ACPI_FAILURE
-		    (acpi_processor_hotadd_init(pr->handle, &pr->id)) &&
+		if (ACPI_FAILURE(acpi_processor_hotadd_init(pr)) &&
 		    acpi_get_cpuid(pr->handle, ~device_declaration,
 				   pr->acpi_id) < 0) {
 			return -ENODEV;
@@ -831,11 +842,24 @@ processor_walk_namespace_cb(acpi_handle handle,
 	return (AE_OK);
 }
 
-static acpi_status acpi_processor_hotadd_init(acpi_handle handle, int *p_cpu)
+static acpi_status acpi_processor_hotadd_init(struct acpi_processor *pr)
 {
+	acpi_handle handle = pr->handle;
+	int *p_cpu = &pr->id;
+
+#ifdef CONFIG_XEN
+	if (xen_pcpu_index(pr->acpi_id, 1) != -1)
+		return AE_OK;
+#endif
 
 	if (!is_processor_present(handle)) {
 		return AE_ERROR;
+	}
+
+	if (processor_cntl_external()) {
+		processor_notify_external(pr, PROCESSOR_HOTPLUG,
+					  HOTPLUG_TYPE_ADD);
+		return AE_OK;
 	}
 
 	if (acpi_map_lsapic(handle, p_cpu))
@@ -851,10 +875,11 @@ static acpi_status acpi_processor_hotadd_init(acpi_handle handle, int *p_cpu)
 
 static int acpi_processor_handle_eject(struct acpi_processor *pr)
 {
-#ifdef CONFIG_XEN
-	if (pr->id == -1)
+	if (processor_cntl_external()) {
+		processor_notify_external(pr, PROCESSOR_HOTPLUG,
+					  HOTPLUG_TYPE_REMOVE);
 		return (0);
-#endif
+	}
 
 	if (cpu_online(pr->id))
 		cpu_down(pr->id);
@@ -864,7 +889,7 @@ static int acpi_processor_handle_eject(struct acpi_processor *pr)
 	return (0);
 }
 #else
-static acpi_status acpi_processor_hotadd_init(acpi_handle handle, int *p_cpu)
+static acpi_status acpi_processor_hotadd_init(struct acpi_processor *pr)
 {
 	return AE_ERROR;
 }
@@ -915,9 +940,11 @@ static int __init acpi_processor_init(void)
 
 	memset(&errata, 0, sizeof(errata));
 
+#ifdef CONFIG_ACPI_PROCFS
 	acpi_processor_dir = proc_mkdir(ACPI_PROCESSOR_CLASS, acpi_root_dir);
 	if (!acpi_processor_dir)
 		return -ENOMEM;
+#endif
 
 #ifdef CONFIG_CPU_IDLE
 	if (!cpuidle_register_driver(&acpi_idle_driver)) {
@@ -946,7 +973,9 @@ static int __init acpi_processor_init(void)
 out_cpuidle:
 	cpuidle_unregister_driver(&acpi_idle_driver);
 
+#ifdef CONFIG_ACPI_PROCFS
 	remove_proc_entry(ACPI_PROCESSOR_CLASS, acpi_root_dir);
+#endif
 
 	return result;
 }
@@ -966,14 +995,14 @@ static void __exit acpi_processor_exit(void)
 
 	cpuidle_unregister_driver(&acpi_idle_driver);
 
+#ifdef CONFIG_ACPI_PROCFS
 	remove_proc_entry(ACPI_PROCESSOR_CLASS, acpi_root_dir);
+#endif
 
 	return;
 }
 
 module_init(acpi_processor_init);
 module_exit(acpi_processor_exit);
-
-EXPORT_SYMBOL(acpi_processor_set_thermal_limit);
 
 MODULE_ALIAS("processor");

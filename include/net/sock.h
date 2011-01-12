@@ -302,7 +302,7 @@ struct sock {
 	const struct cred	*sk_peer_cred;
 	long			sk_rcvtimeo;
 	long			sk_sndtimeo;
-	struct sk_filter      	*sk_filter;
+	struct sk_filter __rcu	*sk_filter;
 	void			*sk_protinfo;
 	struct timer_list	sk_timer;
 	ktime_t			sk_stamp;
@@ -805,6 +805,7 @@ struct proto {
 	void			(*unhash)(struct sock *sk);
 	void			(*rehash)(struct sock *sk);
 	int			(*get_port)(struct sock *sk, unsigned short snum);
+	void			(*clear_sk)(struct sock *sk, int size);
 
 	/* Keeping track of sockets in use */
 #ifdef CONFIG_PROC_FS
@@ -813,7 +814,7 @@ struct proto {
 
 	/* Memory pressure */
 	void			(*enter_memory_pressure)(struct sock *sk);
-	atomic_t		*memory_allocated;	/* Current allocated memory. */
+	atomic_long_t		*memory_allocated;	/* Current allocated memory. */
 	struct percpu_counter	*sockets_allocated;	/* Current number of sockets. */
 	/*
 	 * Pressure flag: try to collapse.
@@ -822,7 +823,7 @@ struct proto {
 	 * is strict, actions are advisory and have some latency.
 	 */
 	int			*memory_pressure;
-	int			*sysctl_mem;
+	long			*sysctl_mem;
 	int			*sysctl_wmem;
 	int			*sysctl_rmem;
 	int			max_header;
@@ -902,6 +903,8 @@ static inline void __sk_prot_rehash(struct sock *sk)
 	sk->sk_prot->unhash(sk);
 	sk->sk_prot->hash(sk);
 }
+
+void sk_prot_clear_portaddr_nulls(struct sock *sk, int size);
 
 /* About 10 seconds */
 #define SOCK_DESTROY_TIME (10*HZ)
@@ -1612,7 +1615,11 @@ static inline void sk_wake_async(struct sock *sk, int how, int band)
 }
 
 #define SOCK_MIN_SNDBUF 2048
-#define SOCK_MIN_RCVBUF 256
+/*
+ * Since sk_rmem_alloc sums skb->truesize, even a small frame might need
+ * sizeof(sk_buff) + MTU + padding, unless net driver perform copybreak
+ */
+#define SOCK_MIN_RCVBUF (2048 + sizeof(struct sk_buff))
 
 static inline void sk_stream_moderate_sndbuf(struct sock *sk)
 {
@@ -1724,17 +1731,13 @@ static inline void sock_recv_ts_and_drops(struct msghdr *msg, struct sock *sk,
 
 /**
  * sock_tx_timestamp - checks whether the outgoing packet is to be time stamped
- * @msg:	outgoing packet
  * @sk:		socket sending this packet
- * @shtx:	filled with instructions for time stamping
+ * @tx_flags:	filled with instructions for time stamping
  *
  * Currently only depends on SOCK_TIMESTAMPING* flags. Returns error code if
  * parameters are invalid.
  */
-extern int sock_tx_timestamp(struct msghdr *msg,
-			     struct sock *sk,
-			     union skb_shared_tx *shtx);
-
+extern int sock_tx_timestamp(struct sock *sk, __u8 *tx_flags);
 
 /**
  * sk_eat_skb - Release a skb if it is no longer needed

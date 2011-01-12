@@ -4,6 +4,7 @@
 #include <asm/smp-processor-id.h>
 
 #ifndef __ASSEMBLY__
+#include <linux/types.h>
 #include <xen/interface/vcpu.h>
 /*
  * The use of 'barrier' in the following reflects their use as local-lock
@@ -44,19 +45,19 @@ do {								\
 		force_evtchn_callback();			\
 } while (0)
 
-#define __raw_local_save_flags() xen_save_fl()
+#define arch_local_save_flags() xen_save_fl()
 
-#define raw_local_irq_restore(flags) xen_restore_fl(flags)
+#define arch_local_irq_restore(flags) xen_restore_fl(flags)
 
-#define raw_local_irq_disable()	xen_irq_disable()
+#define arch_local_irq_disable()	xen_irq_disable()
 
-#define raw_local_irq_enable() xen_irq_enable()
+#define arch_local_irq_enable() xen_irq_enable()
 
 /*
  * Used in the idle loop; sti takes one instruction cycle
  * to complete:
  */
-#define raw_safe_halt HYPERVISOR_block
+#define arch_safe_halt HYPERVISOR_block
 
 /*
  * Used when interrupts are already enabled or to
@@ -70,11 +71,11 @@ do {								\
 /*
  * For spinlocks, etc:
  */
-#define __raw_local_irq_save()						\
+#define arch_local_irq_save()						\
 ({									\
-	unsigned long flags = __raw_local_save_flags();			\
+	unsigned long flags = arch_local_save_flags();			\
 									\
-	raw_local_irq_disable();					\
+	arch_local_irq_disable();					\
 									\
 	flags;								\
 })
@@ -154,22 +155,16 @@ sysexit_ecrit:	/**** END OF SYSEXIT CRITICAL REGION ****/		; \
 #endif /* __ASSEMBLY__ */
 
 #ifndef __ASSEMBLY__
-#define raw_local_save_flags(flags)				\
-	do { (flags) = __raw_local_save_flags(); } while (0)
-
-#define raw_local_irq_save(flags)				\
-	do { (flags) = __raw_local_irq_save(); } while (0)
-
-static inline int raw_irqs_disabled_flags(unsigned long flags)
+static inline int arch_irqs_disabled_flags(unsigned long flags)
 {
 	return (flags != 0);
 }
 
-#define raw_irqs_disabled()						\
+#define arch_irqs_disabled()						\
 ({									\
-	unsigned long flags = __raw_local_save_flags();			\
+	unsigned long flags = arch_local_save_flags();			\
 									\
-	raw_irqs_disabled_flags(flags);					\
+	arch_irqs_disabled_flags(flags);				\
 })
 
 #else

@@ -2,6 +2,7 @@
 #include <linux/initrd.h>
 #include <linux/ioport.h>
 #include <linux/swap.h>
+#include <linux/memblock.h>
 #include <linux/bootmem.h>
 
 #include <asm/cacheflush.h>
@@ -341,18 +342,9 @@ unsigned long __init_refok init_memory_mapping(unsigned long start,
 
 	if (!after_bootmem && e820_table_top > e820_table_start) {
 #ifdef CONFIG_X86_64
-		if (xen_start_info->mfn_list < __START_KERNEL_map
-		    && e820_table_start <= xen_start_info->first_p2m_pfn
-		    && e820_table_top > xen_start_info->first_p2m_pfn) {
-			reserve_early(e820_table_start << PAGE_SHIFT,
-				      xen_start_info->first_p2m_pfn
-				      << PAGE_SHIFT,
-				      "PGTABLE");
-			e820_table_start = xen_start_info->first_p2m_pfn
-					 + xen_start_info->nr_p2m_frames;
-		}
+		reserve_pgtable_low();
 #endif
-		reserve_early(e820_table_start << PAGE_SHIFT,
+		memblock_x86_reserve_range(e820_table_start << PAGE_SHIFT,
 			      e820_table_top << PAGE_SHIFT, "PGTABLE");
 	}
 

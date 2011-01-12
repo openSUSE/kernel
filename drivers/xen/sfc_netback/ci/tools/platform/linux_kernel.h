@@ -54,7 +54,6 @@
 #include <linux/in6.h>
 #include <linux/spinlock.h>
 #include <linux/highmem.h>
-#include <linux/smp_lock.h>
 #include <linux/ctype.h>
 #include <linux/uio.h>
 #include <asm/current.h>

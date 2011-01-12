@@ -35,10 +35,13 @@
  */
 
 #include "common.h"
+#include <linux/if_vlan.h>
 #include <linux/kthread.h>
 #include <linux/vmalloc.h>
+#include <net/tcp.h>
 #include <xen/balloon.h>
 #include <xen/interface/memory.h>
+#include <xen/net-util.h>
 
 /*define NETBE_DEBUG_INTERRUPT*/
 
@@ -115,10 +118,11 @@ static inline unsigned int netif_page_index(const struct page *pg)
 /*
  * This is the amount of packet we copy rather than map, so that the
  * guest can't fiddle with the contents of the headers while we do
- * packet processing on them (netfilter, routing, etc). 72 is enough
- * to cover TCP+IP headers including options.
+ * packet processing on them (netfilter, routing, etc).
  */
-#define PKT_PROT_LEN 72
+#define PKT_PROT_LEN    (ETH_HLEN + VLAN_HLEN + \
+			 sizeof(struct iphdr) + MAX_IPOPTLEN + \
+			 sizeof(struct tcphdr) + MAX_TCP_OPTION_SPACE)
 
 #define MASK_PEND_IDX(_i) ((_i)&(MAX_PENDING_REQS-1))
 
@@ -313,7 +317,6 @@ int netif_be_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		/* Copy only the header fields we use in this driver. */
 		nskb->dev = skb->dev;
 		nskb->ip_summed = skb->ip_summed;
-		nskb->proto_data_valid = skb->proto_data_valid;
 		dev_kfree_skb(skb);
 		skb = nskb;
 	}
@@ -351,7 +354,7 @@ int netif_be_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	return NETDEV_TX_OK;
 
  drop:
-	netif->stats.tx_dropped++;
+	dev->stats.tx_dropped++;
 	dev_kfree_skb(skb);
 	return NETDEV_TX_OK;
 }
@@ -705,16 +708,20 @@ static void net_rx_action(unsigned long group)
 			netbk_free_pages(nr_frags, netbk->meta + npo.meta_cons + 1);
 		}
 
-		netif->stats.tx_bytes += skb->len;
-		netif->stats.tx_packets++;
+		skb->dev->stats.tx_bytes += skb->len;
+		skb->dev->stats.tx_packets++;
 
 		id = netbk->meta[npo.meta_cons].id;
 		flags = nr_frags ? NETRXF_more_data : 0;
 
-		if (skb->ip_summed == CHECKSUM_PARTIAL) /* local packet? */
+		switch (skb->ip_summed) {
+		case CHECKSUM_PARTIAL: /* local packet? */
 			flags |= NETRXF_csum_blank | NETRXF_data_validated;
-		else if (skb->proto_data_valid) /* remote but checksummed? */
+			break;
+		case CHECKSUM_UNNECESSARY: /* remote but checksummed? */
 			flags |= NETRXF_data_validated;
+			break;
+		}
 
 		if (netbk->meta[npo.meta_cons].copy)
 			offset = 0;
@@ -804,12 +811,6 @@ static void netbk_tx_pending_timeout(unsigned long group)
 		wake_up(&xen_netbk[group].netbk_action_wq);
 	else
 		tasklet_schedule(&xen_netbk[group].net_tx_tasklet);
-}
-
-struct net_device_stats *netif_be_get_stats(struct net_device *dev)
-{
-	netif_t *netif = netdev_priv(dev);
-	return &netif->stats;
 }
 
 static int __on_net_schedule_list(netif_t *netif)
@@ -953,7 +954,6 @@ inline static void net_tx_action_dealloc(struct xen_netbk *netbk)
 	u16 pending_idx;
 	pending_ring_idx_t dc, dp;
 	netif_t *netif;
-	int ret;
 	LIST_HEAD(list);
 
 	dc = netbk->dealloc_cons;
@@ -990,11 +990,18 @@ inline static void net_tx_action_dealloc(struct xen_netbk *netbk)
 			gop++;
 		}
 
-		if (netbk_copy_skb_mode != NETBK_DELAYED_COPY_SKB ||
-		    list_empty(&netbk->pending_inuse_head))
-			break;
+	} while (dp != netbk->dealloc_prod);
 
-		/* Copy any entries that have been pending for too long. */
+	netbk->dealloc_cons = dc;
+
+	if (HYPERVISOR_grant_table_op(GNTTABOP_unmap_grant_ref,
+				      netbk->tx_unmap_ops,
+				      gop - netbk->tx_unmap_ops))
+		BUG();
+
+	/* Copy any entries that have been pending for too long. */
+	if (netbk_copy_skb_mode == NETBK_DELAYED_COPY_SKB &&
+	    !list_empty(&netbk->pending_inuse_head)) {
 		list_for_each_entry_safe(inuse, n, &netbk->pending_inuse_head, list) {
 			struct pending_tx_info *pending_tx_info
 				= netbk->pending_tx_info;
@@ -1019,14 +1026,7 @@ inline static void net_tx_action_dealloc(struct xen_netbk *netbk)
 
 			break;
 		}
-	} while (dp != netbk->dealloc_prod);
-
-	netbk->dealloc_cons = dc;
-
-	ret = HYPERVISOR_grant_table_op(
-		GNTTABOP_unmap_grant_ref, netbk->tx_unmap_ops,
-		gop - netbk->tx_unmap_ops);
-	BUG_ON(ret);
+	}
 
 	list_for_each_entry_safe(inuse, n, &list, list) {
 		struct pending_tx_info *pending_tx_info =
@@ -1475,17 +1475,20 @@ static void net_tx_action(unsigned long group)
 
 	mop = netbk->tx_map_ops;
 	while ((skb = __skb_dequeue(&netbk->tx_queue)) != NULL) {
+		struct net_device *dev;
 		netif_tx_request_t *txp;
 
 		pending_idx = *((u16 *)skb->data);
-		netif = netbk->pending_tx_info[pending_idx].netif;
-		txp = &netbk->pending_tx_info[pending_idx].req;
+		netif       = netbk->pending_tx_info[pending_idx].netif;
+		dev         = netif->dev;
+		txp         = &netbk->pending_tx_info[pending_idx].req;
 
 		/* Check the remap error code. */
 		if (unlikely(netbk_tx_check_mop(netbk, skb, &mop))) {
 			DPRINTK("netback grant failed.\n");
 			skb_shinfo(skb)->nr_frags = 0;
 			kfree_skb(skb);
+			dev->stats.rx_dropped++;
 			continue;
 		}
 
@@ -1502,18 +1505,12 @@ static void net_tx_action(unsigned long group)
 			netif_idx_release(netbk, pending_idx);
 		}
 
-		/*
-		 * Old frontends do not assert data_validated but we
-		 * can infer it from csum_blank so test both flags.
-		 */
-		if (txp->flags & (NETTXF_data_validated|NETTXF_csum_blank)) {
+		if (txp->flags & NETTXF_csum_blank)
+			skb->ip_summed = CHECKSUM_PARTIAL;
+		else if (txp->flags & NETTXF_data_validated)
 			skb->ip_summed = CHECKSUM_UNNECESSARY;
-			skb->proto_data_valid = 1;
-		} else {
+		else
 			skb->ip_summed = CHECKSUM_NONE;
-			skb->proto_data_valid = 0;
-		}
-		skb->proto_csum_blank = !!(txp->flags & NETTXF_csum_blank);
 
 		netbk_fill_frags(netbk, skb);
 
@@ -1527,24 +1524,35 @@ static void net_tx_action(unsigned long group)
 			__pskb_pull_tail(skb, target - skb_headlen(skb));
 		}
 
-		skb->dev      = netif->dev;
-		skb->protocol = eth_type_trans(skb, skb->dev);
+		skb->dev      = dev;
+		skb->protocol = eth_type_trans(skb, dev);
 
-		netif->stats.rx_bytes += skb->len;
-		netif->stats.rx_packets++;
+		if (skb->ip_summed == CHECKSUM_PARTIAL
+		    ? skb_checksum_setup(skb) : skb_is_gso(skb)) {
+			DPRINTK("%s\n", skb->ip_summed == CHECKSUM_PARTIAL
+				? "Can't setup checksum in net_tx_action"
+				: "Dropping GSO w/o CHECKSUM_PARTIAL skb");
+			kfree_skb(skb);
+			dev->stats.rx_errors++;
+			continue;
+		}
 
 		if (unlikely(netbk_copy_skb_mode == NETBK_ALWAYS_COPY_SKB) &&
 		    unlikely(skb_linearize(skb))) {
 			DPRINTK("Can't linearize skb in net_tx_action.\n");
 			kfree_skb(skb);
+			dev->stats.rx_errors++;
 			continue;
 		}
+
+		dev->stats.rx_bytes += skb->len;
+		dev->stats.rx_packets++;
 
 		if (use_kthreads)
 			netif_rx_ni(skb);
 		else
 			netif_rx(skb);
-		netif->dev->last_rx = jiffies;
+		dev->last_rx = jiffies;
 	}
 
  out:
@@ -1719,6 +1727,10 @@ static inline int rx_work_todo(struct xen_netbk *netbk)
 static inline int tx_work_todo(struct xen_netbk *netbk)
 {
 	if (netbk->dealloc_cons != netbk->dealloc_prod)
+		return 1;
+
+	if (netbk_copy_skb_mode == NETBK_DELAYED_COPY_SKB &&
+	    !list_empty(&netbk->pending_inuse_head))
 		return 1;
 
 	if (nr_pending_reqs(netbk) + MAX_SKB_FRAGS < MAX_PENDING_REQS &&

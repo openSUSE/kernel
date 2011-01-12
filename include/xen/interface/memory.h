@@ -198,6 +198,7 @@ struct xen_machphys_mapping {
     xen_ulong_t v_start, v_end; /* Start and end virtual addresses.   */
     xen_ulong_t max_mfn;        /* Maximum MFN that can be looked up. */
 };
+DEFINE_GUEST_HANDLE_STRUCT(xen_machphys_mapping);
 typedef struct xen_machphys_mapping xen_machphys_mapping_t;
 DEFINE_XEN_GUEST_HANDLE(xen_machphys_mapping_t);
 
@@ -235,7 +236,7 @@ DEFINE_XEN_GUEST_HANDLE(xen_add_to_physmap_t);
 /*
  * Returns the pseudo-physical memory map as it was when the domain
  * was started (specified by XENMEM_set_memory_map).
- * arg == addr of xen_memory_map_t.
+ * arg == addr of struct xen_memory_map.
  */
 #define XENMEM_memory_map           9
 struct xen_memory_map {
@@ -252,13 +253,14 @@ struct xen_memory_map {
      */
     XEN_GUEST_HANDLE(void) buffer;
 };
+DEFINE_GUEST_HANDLE_STRUCT(xen_memory_map);
 typedef struct xen_memory_map xen_memory_map_t;
 DEFINE_XEN_GUEST_HANDLE(xen_memory_map_t);
 
 /*
  * Returns the real physical memory map. Passes the same structure as
  * XENMEM_memory_map.
- * arg == addr of xen_memory_map_t.
+ * arg == addr of struct xen_memory_map.
  */
 #define XENMEM_machine_memory_map   10
 

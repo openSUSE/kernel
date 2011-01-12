@@ -33,7 +33,7 @@ int modparam_nohwcrypt;
 module_param_named(nohwcrypt, modparam_nohwcrypt, int, 0444);
 MODULE_PARM_DESC(nohwcrypt, "Disable hardware encryption");
 
-int led_blink = 1;
+int led_blink;
 module_param_named(blink, led_blink, int, 0444);
 MODULE_PARM_DESC(blink, "Enable LED blink on activity");
 
@@ -211,7 +211,7 @@ static void setup_ht_cap(struct ath_softc *sc,
 	else
 		max_streams = 2;
 
-	if (AR_SREV_9280_10_OR_LATER(ah)) {
+	if (AR_SREV_9280_20_OR_LATER(ah)) {
 		if (max_streams >= 2)
 			ht_info->cap |= IEEE80211_HT_CAP_TX_STBC;
 		ht_info->cap |= (1 << IEEE80211_HT_CAP_RX_STBC_SHIFT);
@@ -381,7 +381,7 @@ static void ath9k_init_crypto(struct ath_softc *sc)
 	 * reset the contents on initial power up.
 	 */
 	for (i = 0; i < common->keymax; i++)
-		ath9k_hw_keyreset(sc->sc_ah, (u16) i);
+		ath_hw_keyreset(common, (u16) i);
 
 	/*
 	 * Check whether the separate key cache entries
@@ -389,8 +389,8 @@ static void ath9k_init_crypto(struct ath_softc *sc)
 	 * With split mic keys the number of stations is limited
 	 * to 27 otherwise 59.
 	 */
-	if (!(sc->sc_ah->misc_mode & AR_PCU_MIC_NEW_LOC_ENA))
-		common->splitmic = 1;
+	if (sc->sc_ah->misc_mode & AR_PCU_MIC_NEW_LOC_ENA)
+		common->crypt_caps |= ATH_CRYPT_CAP_MIC_COMBINED;
 }
 
 static int ath9k_init_btcoex(struct ath_softc *sc)
@@ -481,7 +481,11 @@ static int ath9k_init_channels_rates(struct ath_softc *sc)
 {
 	void *channels;
 
-	if (test_bit(ATH9K_MODE_11G, sc->sc_ah->caps.wireless_modes)) {
+	BUILD_BUG_ON(ARRAY_SIZE(ath9k_2ghz_chantable) +
+		     ARRAY_SIZE(ath9k_5ghz_chantable) !=
+		     ATH9K_NUM_CHANNELS);
+
+	if (sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_2GHZ) {
 		channels = kmemdup(ath9k_2ghz_chantable,
 			sizeof(ath9k_2ghz_chantable), GFP_KERNEL);
 		if (!channels)
@@ -496,7 +500,7 @@ static int ath9k_init_channels_rates(struct ath_softc *sc)
 			ARRAY_SIZE(ath9k_legacy_rates);
 	}
 
-	if (test_bit(ATH9K_MODE_11A, sc->sc_ah->caps.wireless_modes)) {
+	if (sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_5GHZ) {
 		channels = kmemdup(ath9k_5ghz_chantable,
 			sizeof(ath9k_5ghz_chantable), GFP_KERNEL);
 		if (!channels) {
@@ -522,7 +526,6 @@ static void ath9k_init_misc(struct ath_softc *sc)
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 	int i = 0;
 
-	common->ani.noise_floor = ATH_DEFAULT_NOISE_FLOOR;
 	setup_timer(&common->ani.timer, ath_ani_calibrate, (unsigned long)sc);
 
 	sc->config.txpowlimit = ATH_TXPOWER_MAX;
@@ -538,8 +541,7 @@ static void ath9k_init_misc(struct ath_softc *sc)
 	ath9k_hw_set_diversity(sc->sc_ah, true);
 	sc->rx.defant = ath9k_hw_getdefantenna(sc->sc_ah);
 
-	if (sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_BSSIDMASK)
-		memcpy(common->bssidmask, ath_bcast_mac, ETH_ALEN);
+	memcpy(common->bssidmask, ath_bcast_mac, ETH_ALEN);
 
 	sc->beacon.slottime = ATH9K_SLOT_TIME_9;
 
@@ -547,6 +549,9 @@ static void ath9k_init_misc(struct ath_softc *sc)
 		sc->beacon.bslot[i] = NULL;
 		sc->beacon.bslot_aphy[i] = NULL;
 	}
+
+	if (sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_ANT_DIV_COMB)
+		sc->ant_comb.count = ATH_ANT_DIV_COMB_INIT_COUNT;
 }
 
 static int ath9k_init_softc(u16 devid, struct ath_softc *sc, u16 subsysid,
@@ -572,6 +577,7 @@ static int ath9k_init_softc(u16 devid, struct ath_softc *sc, u16 subsysid,
 	common->hw = sc->hw;
 	common->priv = sc;
 	common->debug_mask = ath9k_debug;
+	spin_lock_init(&common->cc_lock);
 
 	spin_lock_init(&sc->wiphy_lock);
 	spin_lock_init(&sc->sc_resetlock);
@@ -655,7 +661,10 @@ void ath9k_set_hw_capab(struct ath_softc *sc, struct ieee80211_hw *hw)
 		hw->flags |= IEEE80211_HW_MFP_CAPABLE;
 
 	hw->wiphy->interface_modes =
+		BIT(NL80211_IFTYPE_P2P_GO) |
+		BIT(NL80211_IFTYPE_P2P_CLIENT) |
 		BIT(NL80211_IFTYPE_AP) |
+		BIT(NL80211_IFTYPE_WDS) |
 		BIT(NL80211_IFTYPE_STATION) |
 		BIT(NL80211_IFTYPE_ADHOC) |
 		BIT(NL80211_IFTYPE_MESH_POINT);
@@ -671,19 +680,21 @@ void ath9k_set_hw_capab(struct ath_softc *sc, struct ieee80211_hw *hw)
 	hw->sta_data_size = sizeof(struct ath_node);
 	hw->vif_data_size = sizeof(struct ath_vif);
 
+#ifdef CONFIG_ATH9K_RATE_CONTROL
 	hw->rate_control_algorithm = "ath9k_rate_control";
+#endif
 
-	if (test_bit(ATH9K_MODE_11G, sc->sc_ah->caps.wireless_modes))
+	if (sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_2GHZ)
 		hw->wiphy->bands[IEEE80211_BAND_2GHZ] =
 			&sc->sbands[IEEE80211_BAND_2GHZ];
-	if (test_bit(ATH9K_MODE_11A, sc->sc_ah->caps.wireless_modes))
+	if (sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_5GHZ)
 		hw->wiphy->bands[IEEE80211_BAND_5GHZ] =
 			&sc->sbands[IEEE80211_BAND_5GHZ];
 
 	if (sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_HT) {
-		if (test_bit(ATH9K_MODE_11G, sc->sc_ah->caps.wireless_modes))
+		if (sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_2GHZ)
 			setup_ht_cap(sc, &sc->sbands[IEEE80211_BAND_2GHZ].ht_cap);
-		if (test_bit(ATH9K_MODE_11A, sc->sc_ah->caps.wireless_modes))
+		if (sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_5GHZ)
 			setup_ht_cap(sc, &sc->sbands[IEEE80211_BAND_5GHZ].ht_cap);
 	}
 
@@ -746,6 +757,9 @@ int ath9k_init_device(u16 devid, struct ath_softc *sc, u16 subsysid,
 
 	ath_init_leds(sc);
 	ath_start_rfkill_poll(sc);
+
+	pm_qos_add_request(&sc->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
+			   PM_QOS_DEFAULT_VALUE);
 
 	return 0;
 
@@ -815,6 +829,7 @@ void ath9k_deinit_device(struct ath_softc *sc)
 	}
 
 	ieee80211_unregister_hw(hw);
+	pm_qos_remove_request(&sc->pm_qos_req);
 	ath_rx_cleanup(sc);
 	ath_tx_cleanup(sc);
 	ath9k_deinit_softc(sc);

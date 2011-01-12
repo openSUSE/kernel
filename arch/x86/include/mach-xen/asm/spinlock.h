@@ -209,15 +209,15 @@ static inline int __ticket_spin_is_contended(arch_spinlock_t *lock)
 static __always_inline void __ticket_spin_lock(arch_spinlock_t *lock)
 {
 	unsigned int token, count;
-	unsigned int flags = __raw_local_irq_save();
+	unsigned int flags = arch_local_irq_save();
 	bool free;
 
 	__ticket_spin_lock_preamble;
 	if (likely(free))
-		raw_local_irq_restore(flags);
+		arch_local_irq_restore(flags);
 	else {
 		token = xen_spin_adjust(lock, token);
-		raw_local_irq_restore(flags);
+		arch_local_irq_restore(flags);
 		do {
 			count = __ticket_spin_count(lock);
 			__ticket_spin_lock_body;

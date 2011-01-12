@@ -181,9 +181,69 @@ static int xen_tx_notifier(struct acpi_processor *pr, int action)
 {
 	return -EINVAL;
 }
+
 static int xen_hotplug_notifier(struct acpi_processor *pr, int event)
 {
-	return -EINVAL;
+	int ret = -EINVAL;
+#ifdef CONFIG_ACPI_HOTPLUG_CPU
+	acpi_status status = 0;
+	acpi_object_type type;
+	uint32_t apic_id;
+	int device_decl = 0;
+	unsigned long long pxm;
+	xen_platform_op_t op = {
+		.interface_version  = XENPF_INTERFACE_VERSION,
+	};
+
+	status = acpi_get_type(pr->handle, &type);
+	if (ACPI_FAILURE(status)) {
+		pr_warning("can't get object type for acpi_id %#x\n",
+			   pr->acpi_id);
+		return -ENXIO;
+	}
+
+	switch (type) {
+	case ACPI_TYPE_PROCESSOR:
+		break;
+	case ACPI_TYPE_DEVICE:
+		device_decl = 1;
+		break;
+	default:
+		pr_warning("unsupported object type %#x for acpi_id %#x\n",
+			   type, pr->acpi_id);
+		return -EOPNOTSUPP;
+	}
+
+	apic_id = acpi_get_cpuid(pr->handle, ~device_decl, pr->acpi_id);
+	if (apic_id < 0) {
+		pr_warning("can't get apic_id for acpi_id %#x\n",
+			   pr->acpi_id);
+		return -ENODATA;
+	}
+
+	status = acpi_evaluate_integer(pr->handle, "_PXM", NULL, &pxm);
+	if (ACPI_FAILURE(status)) {
+		pr_warning("can't get pxm for acpi_id %#x\n",
+			   pr->acpi_id);
+		return -ENODATA;
+	}
+
+	switch (event) {
+	case HOTPLUG_TYPE_ADD:
+		op.cmd = XENPF_cpu_hotadd;
+		op.u.cpu_add.apic_id = apic_id;
+		op.u.cpu_add.acpi_id = pr->acpi_id;
+		op.u.cpu_add.pxm = pxm;
+		ret = HYPERVISOR_platform_op(&op);
+		break;
+	case HOTPLUG_TYPE_REMOVE:
+		pr_warning("Xen doesn't support CPU hot remove\n");
+		ret = -EOPNOTSUPP;
+		break;
+	}
+#endif
+
+	return ret;
 }
 
 static struct processor_extcntl_ops xen_extcntl_ops = {
@@ -194,8 +254,10 @@ static int __init init_extcntl(void)
 {
 	unsigned int pmbits = (xen_start_info->flags & SIF_PM_MASK) >> 8;
 
+#ifndef CONFIG_ACPI_HOTPLUG_CPU
 	if (!pmbits)
 		return 0;
+#endif
 	if (pmbits & XEN_PROCESSOR_PM_CX)
 		xen_extcntl_ops.pm_ops[PM_TYPE_IDLE] = xen_cx_notifier;
 	if (pmbits & XEN_PROCESSOR_PM_PX)

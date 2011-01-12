@@ -30,7 +30,7 @@
 #include <linux/kernel.h>
 #include <linux/kernel_stat.h>
 #include <linux/math64.h>
-#include <asm/xen/hypervisor.h>
+#include <asm/hypervisor.h>
 #include <xen/clock.h>
 #include <xen/evtchn.h>
 #include <xen/interface/vcpu.h>

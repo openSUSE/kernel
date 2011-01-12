@@ -41,7 +41,6 @@
  */
 
 #include <linux/linkage.h>
-#include <linux/stringify.h>
 #include <asm/segment.h>
 #include <asm/cache.h>
 #include <asm/errno.h>
@@ -205,23 +204,17 @@ NMI_MASK = 0x80000000
 	.macro FAKE_STACK_FRAME child_rip
 	/* push in order ss, rsp, eflags, cs, rip */
 	xorl %eax, %eax
-	pushq $__KERNEL_DS /* ss */
-	CFI_ADJUST_CFA_OFFSET	8
+	pushq_cfi $__KERNEL_DS /* ss */
 	/*CFI_REL_OFFSET	ss,0*/
-	pushq %rax /* rsp */
-	CFI_ADJUST_CFA_OFFSET	8
+	pushq_cfi %rax /* rsp */
 	CFI_REL_OFFSET	rsp,0
-	pushq $X86_EFLAGS_IF /* eflags - interrupts on */
-	CFI_ADJUST_CFA_OFFSET	8
+	pushq_cfi $X86_EFLAGS_IF /* eflags - interrupts on */
 	/*CFI_REL_OFFSET	rflags,0*/
-	pushq $__KERNEL_CS /* cs */
-	CFI_ADJUST_CFA_OFFSET	8
+	pushq_cfi $__KERNEL_CS /* cs */
 	/*CFI_REL_OFFSET	cs,0*/
-	pushq \child_rip /* rip */
-	CFI_ADJUST_CFA_OFFSET	8
+	pushq_cfi \child_rip /* rip */
 	CFI_REL_OFFSET	rip,0
-	pushq	%rax /* orig rax */
-	CFI_ADJUST_CFA_OFFSET	8
+	pushq_cfi %rax /* orig rax */
 	.endm
 
 	.macro UNFAKE_STACK_FRAME
@@ -230,20 +223,13 @@ NMI_MASK = 0x80000000
 	.endm
 
 /*
- * initial frame state for interrupts (and exceptions without error code)
- */
-	.macro EMPTY_FRAME offset=0
-	CFI_STARTPROC simple
-	CFI_SIGNAL_FRAME
-	CFI_DEF_CFA rsp,\offset
-	.endm
-
-/*
  * initial frame state for syscall
  */
 	.macro BASIC_FRAME start=1 offset=0
 	.if \start
-	EMPTY_FRAME __stringify(SS+8+\offset-RIP)
+	CFI_STARTPROC simple
+	CFI_SIGNAL_FRAME
+	CFI_DEF_CFA rsp, SS+8+\offset-RIP
 	.else
 	CFI_DEF_CFA_OFFSET SS+8+\offset-RIP
 	.endif
@@ -272,7 +258,7 @@ NMI_MASK = 0x80000000
  * with vector already pushed)
  */
 	.macro XCPT_FRAME start=1 offset=0
-	INTR_FRAME \start, __stringify(RIP+\offset-ORIG_RAX)
+	INTR_FRAME \start, RIP+\offset-ORIG_RAX
 	.endm
 
 /*
@@ -280,7 +266,7 @@ NMI_MASK = 0x80000000
  */
 	.macro PARTIAL_FRAME start=1 offset=0
 	.if \start >= 0
-	XCPT_FRAME 2*\start, __stringify(ORIG_RAX+\offset-ARGOFFSET)
+	XCPT_FRAME 2*\start, ORIG_RAX+\offset-ARGOFFSET
 	.endif
 	CFI_REL_OFFSET rdi, RDI+\offset-ARGOFFSET
 	CFI_REL_OFFSET rsi, RSI+\offset-ARGOFFSET
@@ -298,7 +284,7 @@ NMI_MASK = 0x80000000
  */
 	.macro DEFAULT_FRAME start=1 offset=0
 	.if \start >= -1
-	PARTIAL_FRAME \start, __stringify(R11+\offset-R15)
+	PARTIAL_FRAME \start, R11+\offset-R15
 	.endif
 	CFI_REL_OFFSET rbx, RBX+\offset
 	CFI_REL_OFFSET rbp, RBP+\offset
@@ -337,18 +323,19 @@ NMI_MASK = 0x80000000
 
 #ifndef CONFIG_XEN
 /* save partial stack frame */
+	.pushsection .kprobes.text, "ax"
 ENTRY(save_args)
-	XCPT_FRAME offset=__stringify(ORIG_RAX-ARGOFFSET+16)
+	XCPT_FRAME offset=ORIG_RAX-ARGOFFSET+16
 	cld
 	movq %rdi, RDI+16-ARGOFFSET(%rsp)
 	movq %rsi, RSI+16-ARGOFFSET(%rsp)
 	movq %rdx, RDX+16-ARGOFFSET(%rsp)
 	movq %rcx, RCX+16-ARGOFFSET(%rsp)
-	movq_cfi rax, __stringify(RAX+16-ARGOFFSET)
+	movq_cfi rax, RAX+16-ARGOFFSET
 	movq  %r8,  R8+16-ARGOFFSET(%rsp)
 	movq  %r9,  R9+16-ARGOFFSET(%rsp)
 	movq %r10, R10+16-ARGOFFSET(%rsp)
-	movq_cfi r11, __stringify(R11+16-ARGOFFSET)
+	movq_cfi r11, R11+16-ARGOFFSET
 
 	leaq -ARGOFFSET+16(%rsp),%rdi	/* arg1 for handler */
 	movq_cfi rbp, 8		/* push %rbp */
@@ -377,6 +364,7 @@ ENTRY(save_args)
 	ret
 	CFI_ENDPROC
 END(save_args)
+	.popsection
 #endif
 
 ENTRY(save_rest)
@@ -398,18 +386,18 @@ END(save_rest)
 /* save complete stack frame */
 	.pushsection .kprobes.text, "ax"
 ENTRY(save_paranoid)
-	XCPT_FRAME offset=__stringify(ORIG_RAX-R15+8)
+	XCPT_FRAME offset=ORIG_RAX-R15+8
 	cld
 	movq %rdi, RDI+8(%rsp)
 	movq %rsi, RSI+8(%rsp)
-	movq_cfi rdx, __stringify(RDX+8)
-	movq_cfi rcx, __stringify(RCX+8)
-	movq_cfi rax, __stringify(RAX+8)
+	movq_cfi rdx, RDX+8
+	movq_cfi rcx, RCX+8
+	movq_cfi rax, RAX+8
 	movq %r8, R8+8(%rsp)
 	movq %r9, R9+8(%rsp)
 	movq %r10, R10+8(%rsp)
 	movq %r11, R11+8(%rsp)
-	movq_cfi rbx, __stringify(RBX+8)
+	movq_cfi rbx, RBX+8
 	movq %rbp, RBP+8(%rsp)
 	movq %r12, R12+8(%rsp)
 	movq %r13, R13+8(%rsp)
@@ -438,10 +426,8 @@ ENTRY(ret_from_fork)
 
 	LOCK ; btr $TIF_FORK,TI_flags(%r8)
 
-	push kernel_eflags(%rip)
-	CFI_ADJUST_CFA_OFFSET 8
-	popf					# reset kernel eflags
-	CFI_ADJUST_CFA_OFFSET -8
+	pushq_cfi kernel_eflags(%rip)
+	popfq_cfi				# reset kernel eflags
 
 	call schedule_tail			# rdi: 'prev' task parameter
 
@@ -537,11 +523,9 @@ sysret_careful:
 	jnc sysret_signal
 	TRACE_IRQS_ON
 	ENABLE_INTERRUPTS(CLBR_NONE)
-	pushq %rdi
-	CFI_ADJUST_CFA_OFFSET 8
+	pushq_cfi %rdi
 	call schedule
-	popq  %rdi
-	CFI_ADJUST_CFA_OFFSET -8
+	popq_cfi %rdi
 	jmp sysret_check
 
 	/* Handle a signal */
@@ -654,11 +638,9 @@ int_careful:
 	jnc  int_very_careful
 	TRACE_IRQS_ON
 	ENABLE_INTERRUPTS(CLBR_NONE)
-	pushq %rdi
-	CFI_ADJUST_CFA_OFFSET 8
+	pushq_cfi %rdi
 	call schedule
-	popq %rdi
-	CFI_ADJUST_CFA_OFFSET -8
+	popq_cfi %rdi
 	DISABLE_INTERRUPTS(CLBR_NONE)
 	TRACE_IRQS_OFF
 	jmp int_with_check
@@ -672,12 +654,10 @@ int_check_syscall_exit_work:
 	/* Check for syscall exit trace */
 	testl $_TIF_WORK_SYSCALL_EXIT,%edx
 	jz int_signal
-	pushq %rdi
-	CFI_ADJUST_CFA_OFFSET 8
+	pushq_cfi %rdi
 	leaq 8(%rsp),%rdi	# &ptregs -> arg1
 	call syscall_trace_leave
-	popq %rdi
-	CFI_ADJUST_CFA_OFFSET -8
+	popq_cfi %rdi
 	andl $~(_TIF_WORK_SYSCALL_EXIT|_TIF_SYSCALL_EMU),%edi
 	jmp int_restore_rest
 
@@ -722,12 +702,12 @@ END(\label)
 ENTRY(ptregscall_common)
 	DEFAULT_FRAME 1 8	/* offset 8: return address */
 	RESTORE_TOP_OF_STACK %r11, 8
-	movq_cfi_restore __stringify(R15+8), r15
-	movq_cfi_restore __stringify(R14+8), r14
-	movq_cfi_restore __stringify(R13+8), r13
-	movq_cfi_restore __stringify(R12+8), r12
-	movq_cfi_restore __stringify(RBP+8), rbp
-	movq_cfi_restore __stringify(RBX+8), rbx
+	movq_cfi_restore R15+8, r15
+	movq_cfi_restore R14+8, r14
+	movq_cfi_restore R13+8, r13
+	movq_cfi_restore R12+8, r12
+	movq_cfi_restore RBP+8, rbp
+	movq_cfi_restore RBX+8, rbx
 	ret $REST_SKIP		/* pop extended registers */
 	CFI_ENDPROC
 END(ptregscall_common)
@@ -796,11 +776,9 @@ retint_careful:
 	jnc   retint_signal
 	TRACE_IRQS_ON
 	ENABLE_INTERRUPTS(CLBR_NONE)
-	pushq %rdi
-	CFI_ADJUST_CFA_OFFSET	8
+	pushq_cfi %rdi
 	call  schedule
-	popq %rdi
-	CFI_ADJUST_CFA_OFFSET	-8
+	popq_cfi %rdi
 	GET_THREAD_INFO(%rcx)
 	DISABLE_INTERRUPTS(CLBR_NONE)
 	TRACE_IRQS_OFF
@@ -846,8 +824,7 @@ END(retint_check)
 .macro apicinterrupt num sym do_sym
 ENTRY(\sym)
 	INTR_FRAME
-	pushq $~(\num)
-	CFI_ADJUST_CFA_OFFSET 8
+	pushq_cfi $~(\num)
 	interrupt \do_sym
 	jmp error_entry
 	CFI_ENDPROC
@@ -871,22 +848,10 @@ apicinterrupt X86_PLATFORM_IPI_VECTOR \
 	x86_platform_ipi smp_x86_platform_ipi
 
 #ifdef CONFIG_SMP
-apicinterrupt INVALIDATE_TLB_VECTOR_START+0 \
-	invalidate_interrupt0 smp_invalidate_interrupt
-apicinterrupt INVALIDATE_TLB_VECTOR_START+1 \
-	invalidate_interrupt1 smp_invalidate_interrupt
-apicinterrupt INVALIDATE_TLB_VECTOR_START+2 \
-	invalidate_interrupt2 smp_invalidate_interrupt
-apicinterrupt INVALIDATE_TLB_VECTOR_START+3 \
-	invalidate_interrupt3 smp_invalidate_interrupt
-apicinterrupt INVALIDATE_TLB_VECTOR_START+4 \
-	invalidate_interrupt4 smp_invalidate_interrupt
-apicinterrupt INVALIDATE_TLB_VECTOR_START+5 \
-	invalidate_interrupt5 smp_invalidate_interrupt
-apicinterrupt INVALIDATE_TLB_VECTOR_START+6 \
-	invalidate_interrupt6 smp_invalidate_interrupt
-apicinterrupt INVALIDATE_TLB_VECTOR_START+7 \
-	invalidate_interrupt7 smp_invalidate_interrupt
+.irpc idx, "01234567"
+apicinterrupt (INVALIDATE_TLB_VECTOR_START)+\idx \
+	invalidate_interrupt\idx smp_invalidate_interrupt
+.endr
 #endif
 
 apicinterrupt THRESHOLD_APIC_VECTOR \
@@ -913,9 +878,9 @@ apicinterrupt ERROR_APIC_VECTOR \
 apicinterrupt SPURIOUS_APIC_VECTOR \
 	spurious_interrupt smp_spurious_interrupt
 
-#ifdef CONFIG_PERF_EVENTS
-apicinterrupt LOCAL_PENDING_VECTOR \
-	perf_pending_interrupt smp_perf_pending_interrupt
+#ifdef CONFIG_IRQ_WORK
+apicinterrupt IRQ_WORK_VECTOR \
+	irq_work_interrupt smp_irq_work_interrupt
 #endif
 #endif /* !CONFIG_XEN */
 
@@ -930,8 +895,8 @@ ENTRY(\sym)
         movq 8(%rsp),%r11
 	CFI_RESTORE r11
 	movq $-1,8(%rsp)	/* ORIG_RAX: no syscall to restart */
-	subq $ORIG_RAX-R15-8, %rsp
-	CFI_ADJUST_CFA_OFFSET ORIG_RAX-R15-8
+	subq $ORIG_RAX-R15-1*8,%rsp
+	CFI_ADJUST_CFA_OFFSET ORIG_RAX-R15-1*8
 	call error_entry
 	DEFAULT_FRAME -1
 	movq %rsp,%rdi		/* pt_regs pointer */
@@ -957,7 +922,7 @@ ENTRY(\sym)
 	CFI_RESTORE rcx
         movq 8(%rsp),%r11
 	CFI_RESTORE r11
-	subq $ORIG_RAX-R15-2*8, %rsp
+	subq $ORIG_RAX-R15-2*8,%rsp
 	CFI_ADJUST_CFA_OFFSET ORIG_RAX-R15-2*8
 	call error_entry
 	DEFAULT_FRAME -1
@@ -1078,8 +1043,7 @@ ENTRY(failsafe_callback)
 	CFI_RESTORE r11
 	addq $0x30,%rsp
 	CFI_ADJUST_CFA_OFFSET -0x30
-	pushq $0
-	CFI_ADJUST_CFA_OFFSET 8
+	pushq_cfi $0
 	SAVE_ALL
 	jmp error_exit
 	CFI_ENDPROC
@@ -1147,8 +1111,7 @@ END(kernel_execve)
 /* Call softirq on interrupt stack. Interrupts are off. */
 ENTRY(call_softirq)
 	CFI_STARTPROC
-	push %rbp
-	CFI_ADJUST_CFA_OFFSET	8
+	pushq_cfi %rbp
 	CFI_REL_OFFSET rbp,0
 	mov  %rsp,%rbp
 	CFI_DEF_CFA_REGISTER rbp
@@ -1157,6 +1120,7 @@ ENTRY(call_softirq)
 	push  %rbp			# backlink for old unwinder
 	call __do_softirq
 	leaveq
+	CFI_RESTORE		rbp
 	CFI_DEF_CFA_REGISTER	rsp
 	CFI_ADJUST_CFA_OFFSET   -8
 	decl PER_CPU_VAR(irq_count)
@@ -1280,7 +1244,7 @@ END(paranoid_exit)
  * returns in "no swapgs flag" in %ebx.
  */
 ENTRY(error_entry)
-	XCPT_FRAME start=2 offset=__stringify(ORIG_RAX-R15+8)
+	XCPT_FRAME start=2 offset=ORIG_RAX-R15+8
 	/* oldrax contains error code */
 	cld
 	movq %rdi, RDI+8(%rsp)
@@ -1292,7 +1256,7 @@ ENTRY(error_entry)
 	movq  %r9,  R9+8(%rsp)
 	movq %r10, R10+8(%rsp)
 	movq %r11, R11+8(%rsp)
-	movq_cfi rbx, __stringify(RBX+8)
+	movq_cfi rbx, RBX+8
 	movq %rbp, RBP+8(%rsp)
 	movq %r12, R12+8(%rsp)
 	movq %r13, R13+8(%rsp)
@@ -1376,11 +1340,9 @@ END(do_nmi_callback)
 #ifndef CONFIG_IA32_EMULATION
 ENTRY(ignore_sysret)
 	INTR_FRAME
-	popq %rcx
-	CFI_ADJUST_CFA_OFFSET -8
+	popq_cfi %rcx
 	CFI_RESTORE rcx
-	popq %r11
-	CFI_ADJUST_CFA_OFFSET -8
+	popq_cfi %r11
 	CFI_RESTORE r11
 	mov $-ENOSYS,%eax
 	HYPERVISOR_IRET 0

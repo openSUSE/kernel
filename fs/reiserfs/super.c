@@ -28,7 +28,6 @@
 #include <linux/mount.h>
 #include <linux/namei.h>
 #include <linux/crc32.h>
-#include <linux/smp_lock.h>
 
 struct file_system_type reiserfs_fs_type;
 
@@ -451,21 +450,30 @@ int remove_save_link(struct inode *inode, int truncate)
 	return journal_end(&th, inode->i_sb, JOURNAL_PER_BALANCE_CNT);
 }
 
+/*
+ * Detach the priv root from the root. Technically this becomes anonymous
+ * but we don't want it added to the anon list. This is necessary to
+ * work around shrink_dcache_for_umount BUG'ing on the xattr dentries if
+ * we don't clean them up before the call and Oopsing on cleaning up
+ * xattrs during inode deletion if we do.
+ */
+static void detach_privroot(struct super_block *s)
+{
+	struct dentry *root = REISERFS_SB(s)->priv_root;
+	if (!root)
+		return;
+
+	d_drop(root);
+	dput(root->d_parent);
+	spin_lock(&dcache_lock);
+	list_del_init(&root->d_u.d_child);
+	root->d_parent = root;
+	spin_unlock(&dcache_lock);
+}
+
 static void reiserfs_kill_sb(struct super_block *s)
 {
-	if (REISERFS_SB(s)) {
-		if (REISERFS_SB(s)->xattr_root) {
-			d_invalidate(REISERFS_SB(s)->xattr_root);
-			dput(REISERFS_SB(s)->xattr_root);
-			REISERFS_SB(s)->xattr_root = NULL;
-		}
-		if (REISERFS_SB(s)->priv_root) {
-			d_invalidate(REISERFS_SB(s)->priv_root);
-			dput(REISERFS_SB(s)->priv_root);
-			REISERFS_SB(s)->priv_root = NULL;
-		}
-	}
-
+	detach_privroot(s);
 	kill_block_super(s);
 }
 
@@ -473,6 +481,8 @@ static void reiserfs_put_super(struct super_block *s)
 {
 	struct reiserfs_transaction_handle th;
 	th.t_trans_id = 0;
+
+	reiserfs_xattr_shutdown(s);
 
 	dquot_disable(s, -1, DQUOT_USAGE_ENABLED | DQUOT_LIMITS_ENABLED);
 
@@ -2225,12 +2235,11 @@ out:
 
 #endif
 
-static int get_super_block(struct file_system_type *fs_type,
+static struct dentry *get_super_block(struct file_system_type *fs_type,
 			   int flags, const char *dev_name,
-			   void *data, struct vfsmount *mnt)
+			   void *data)
 {
-	return get_sb_bdev(fs_type, flags, dev_name, data, reiserfs_fill_super,
-			   mnt);
+	return mount_bdev(fs_type, flags, dev_name, data, reiserfs_fill_super);
 }
 
 static int __init init_reiserfs_fs(void)
@@ -2265,7 +2274,7 @@ static void __exit exit_reiserfs_fs(void)
 struct file_system_type reiserfs_fs_type = {
 	.owner = THIS_MODULE,
 	.name = "reiserfs",
-	.get_sb = get_super_block,
+	.mount = get_super_block,
 	.kill_sb = reiserfs_kill_sb,
 	.fs_flags = FS_REQUIRES_DEV,
 };

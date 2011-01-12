@@ -155,13 +155,18 @@ EXPORT_SYMBOL_GPL(__remove_from_page_cache);
 void remove_from_page_cache(struct page *page)
 {
 	struct address_space *mapping = page->mapping;
+	void (*freepage)(struct page *);
 
 	BUG_ON(!PageLocked(page));
 
+	freepage = mapping->a_ops->freepage;
 	spin_lock_irq(&mapping->tree_lock);
 	__remove_from_page_cache(page);
 	spin_unlock_irq(&mapping->tree_lock);
 	mem_cgroup_uncharge_cache_page(page);
+
+	if (freepage)
+		freepage(page);
 }
 EXPORT_SYMBOL(remove_from_page_cache);
 
@@ -622,6 +627,19 @@ void __lock_page_nosync(struct page *page)
 	DEFINE_WAIT_BIT(wait, &page->flags, PG_locked);
 	__wait_on_bit_lock(page_waitqueue(page), &wait, __sleep_on_page_lock,
 							TASK_UNINTERRUPTIBLE);
+}
+
+int __lock_page_or_retry(struct page *page, struct mm_struct *mm,
+			 unsigned int flags)
+{
+	if (!(flags & FAULT_FLAG_ALLOW_RETRY)) {
+		__lock_page(page);
+		return 1;
+	} else {
+		up_read(&mm->mmap_sem);
+		wait_on_page_locked(page);
+		return 0;
+	}
 }
 
 /**
@@ -1549,24 +1567,29 @@ int filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 		 * waiting for the lock.
 		 */
 		do_async_mmap_readahead(vma, ra, file, page, offset);
-		lock_page(page);
-
-		/* Did it get truncated? */
-		if (unlikely(page->mapping != mapping)) {
-			unlock_page(page);
-			put_page(page);
-			goto no_cached_page;
-		}
 	} else {
 		/* No page in the page cache at all */
 		do_sync_mmap_readahead(vma, ra, file, offset);
 		count_vm_event(PGMAJFAULT);
 		ret = VM_FAULT_MAJOR;
 retry_find:
-		page = find_lock_page(mapping, offset);
+		page = find_get_page(mapping, offset);
 		if (!page)
 			goto no_cached_page;
 	}
+
+	if (!lock_page_or_retry(page, vma->vm_mm, vmf->flags)) {
+		page_cache_release(page);
+		return ret | VM_FAULT_RETRY;
+	}
+
+	/* Did it get truncated? */
+	if (unlikely(page->mapping != mapping)) {
+		unlock_page(page);
+		put_page(page);
+		goto retry_find;
+	}
+	VM_BUG_ON(page->index != offset);
 
 	/*
 	 * We have a locked page in the page cache, now we need to check
@@ -2187,12 +2210,12 @@ generic_file_direct_write(struct kiocb *iocb, const struct iovec *iov,
 	}
 
 	if (written > 0) {
-		loff_t end = pos + written;
-		if (end > i_size_read(inode) && !S_ISBLK(inode->i_mode)) {
-			i_size_write(inode,  end);
+		pos += written;
+		if (pos > i_size_read(inode) && !S_ISBLK(inode->i_mode)) {
+			i_size_write(inode, pos);
 			mark_inode_dirty(inode);
 		}
-		*ppos = end;
+		*ppos = pos;
 	}
 out:
 	return written;

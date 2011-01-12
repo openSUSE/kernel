@@ -57,8 +57,8 @@ typedef unsigned int RING_IDX;
 /*
  * The same for passing in an actual pointer instead of a name tag.
  */
-#define __RING_SIZE(_s, _sz)						\
-	(__RD32(((_sz) - (long)&(_s)->ring + (long)(_s)) / sizeof((_s)->ring[0])))
+#define __RING_SIZE(_s, _sz) \
+    (__RD32(((_sz) - (long)(_s)->ring + (long)(_s)) / sizeof((_s)->ring[0])))
 
 /*
  * Macros to make the correct C datatypes for a new kind of ring.
@@ -88,10 +88,10 @@ typedef unsigned int RING_IDX;
  * Initializing the back follows similarly (note that only the front
  * initializes the shared ring):
  *
- *     struct mytag_back_ring back_ring;
- *     BACK_RING_INIT(&back_ring, (struct mytag_sring *)shared_page,
- *		      PAGE_SIZE);
+ *     mytag_back_ring_t back_ring;
+ *     BACK_RING_INIT(&back_ring, (mytag_sring_t *)shared_page, PAGE_SIZE);
  */
+
 #define DEFINE_RING_TYPES(__name, __req_t, __rsp_t)                     \
                                                                         \
 /* Shared ring entry */                                                 \

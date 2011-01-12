@@ -15,6 +15,7 @@
 #include <linux/percpu.h>
 #include <linux/start_kernel.h>
 #include <linux/io.h>
+#include <linux/memblock.h>
 
 #include <asm/processor.h>
 #include <asm/proto.h>
@@ -119,15 +120,27 @@ void __init x86_64_start_reservations(char *real_mode_data)
 {
 	copy_bootdata(__va(real_mode_data));
 
-	reserve_early(__pa_symbol(&_text), __pa_symbol(&__bss_stop), "TEXT DATA BSS");
+	memblock_init();
+
+	memblock_x86_reserve_range(__pa_symbol(&_text), __pa_symbol(&__bss_stop), "TEXT DATA BSS");
+
+#ifdef CONFIG_BLK_DEV_INITRD
+	/* Reserve INITRD if needed. */
+	if (xen_start_info->flags & SIF_MOD_START_PFN) {
+		reserve_pfn_range(xen_start_info->mod_start,
+				  PFN_UP(xen_start_info->mod_len),
+				  "RAMDISK");
+		xen_initrd_start = xen_start_info->mod_start << PAGE_SHIFT;
+	} else if (xen_start_info->mod_start)
+		xen_initrd_start = __pa(xen_start_info->mod_start);
+#endif
 
 	if (xen_feature(XENFEAT_auto_translated_physmap))
 		xen_start_info->mfn_list = ~0UL;
 	else if (xen_start_info->mfn_list < __START_KERNEL_map)
-		reserve_early(xen_start_info->first_p2m_pfn << PAGE_SHIFT,
-			      (xen_start_info->first_p2m_pfn
-			       + xen_start_info->nr_p2m_frames) << PAGE_SHIFT,
-			      "INITP2M");
+		reserve_pfn_range(xen_start_info->first_p2m_pfn,
+				  xen_start_info->nr_p2m_frames,
+				  "INITP2M");
 
 	/*
 	 * At this point everything still needed from the boot loader

@@ -462,6 +462,7 @@ static const struct file_operations blktap_fops = {
 	.unlocked_ioctl = blktap_ioctl,
 	.open    = blktap_open,
 	.release = blktap_release,
+	.llseek  = no_llseek,
 	.mmap    = blktap_mmap,
 };
 
@@ -594,6 +595,8 @@ static int blktap_open(struct inode *inode, struct file *filp)
 	tap_blkif_t *info;
 	int i;
 	
+	nonseekable_open(inode, filp);
+
 	/* ctrl device, treat differently */
 	if (!idx)
 		return 0;
@@ -1458,7 +1461,7 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 		operation = WRITE;
 		break;
 	case BLKIF_OP_WRITE_BARRIER:
-		operation = WRITE_BARRIER;
+		operation = WRITE_FLUSH_FUA;
 		break;
 	default:
 		operation = 0; /* make gcc happy */
@@ -1671,7 +1674,7 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 
 	if (operation == READ)
 		blkif->st_rd_sect += nr_sects;
-	else if (operation == WRITE)
+	else
 		blkif->st_wr_sect += nr_sects;
 
 	return;

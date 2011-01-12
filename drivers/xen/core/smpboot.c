@@ -11,7 +11,6 @@
 #include <linux/mm.h>
 #include <linux/sched.h>
 #include <linux/kernel_stat.h>
-#include <linux/smp_lock.h>
 #include <linux/irq.h>
 #include <linux/bootmem.h>
 #include <linux/notifier.h>
@@ -67,28 +66,35 @@ void __init prefill_possible_map(void)
 
 static irqreturn_t ipi_interrupt(int irq, void *dev_id)
 {
-	static void(*const handlers[])(struct pt_regs *) = {
+	static void (*const handlers[])(struct pt_regs *) = {
 		[RESCHEDULE_VECTOR] = smp_reschedule_interrupt,
 		[CALL_FUNCTION_VECTOR] = smp_call_function_interrupt,
 		[CALL_FUNC_SINGLE_VECTOR] = smp_call_function_single_interrupt,
 		[REBOOT_VECTOR] = smp_reboot_interrupt,
+#ifdef CONFIG_IRQ_WORK
+		[IRQ_WORK_VECTOR] = smp_irq_work_interrupt,
+#endif
 	};
 	unsigned long *pending = __get_cpu_var(ipi_pending);
-	unsigned int ipi = find_first_bit(pending, NR_IPIS);
 	struct pt_regs *regs = get_irq_regs();
 	irqreturn_t ret = IRQ_NONE;
 
-	while (ipi < NR_IPIS) {
-		clear_bit(ipi, pending);
-		handlers[ipi](regs);
-		ret = IRQ_HANDLED;
+	for (;;) {
+		unsigned int ipi = find_first_bit(pending, NR_IPIS);
 
-		ipi = find_next_bit(pending, NR_IPIS, ipi);
-		if (unlikely(ipi >= NR_IPIS))
+		if (ipi >= NR_IPIS) {
+			clear_ipi_evtchn();
 			ipi = find_first_bit(pending, NR_IPIS);
+		}
+		if (ipi >= NR_IPIS)
+			return ret;
+		ret = IRQ_HANDLED;
+		do {
+			clear_bit(ipi, pending);
+			handlers[ipi](regs);
+			ipi = find_next_bit(pending, NR_IPIS, ipi);
+		} while (ipi < NR_IPIS);
 	}
-
-	return ret;
 }
 
 static int __cpuinit xen_smp_intr_init(unsigned int cpu)
@@ -372,7 +378,6 @@ void __ref play_dead(void)
 	idle_task_exit();
 	local_irq_disable();
 	cpumask_clear_cpu(smp_processor_id(), cpu_initialized_mask);
-	cpumask_clear_cpu(smp_processor_id(), vcpu_initialized_mask);
 	preempt_enable_no_resched();
 	VOID(HYPERVISOR_vcpu_op(VCPUOP_down, smp_processor_id(), NULL));
 #ifdef CONFIG_HOTPLUG_CPU

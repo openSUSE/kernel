@@ -497,7 +497,19 @@ static inline void pgd_list_del(pgd_t *pgd)
 #define UNSHARED_PTRS_PER_PGD				\
 	(SHARED_KERNEL_PMD ? KERNEL_PGD_BOUNDARY : PTRS_PER_PGD)
 
-static void pgd_ctor(pgd_t *pgd)
+
+static void pgd_set_mm(pgd_t *pgd, struct mm_struct *mm)
+{
+	BUILD_BUG_ON(sizeof(virt_to_page(pgd)->index) < sizeof(mm));
+	virt_to_page(pgd)->index = (pgoff_t)mm;
+}
+
+struct mm_struct *pgd_page_get_mm(struct page *page)
+{
+	return (struct mm_struct *)page->index;
+}
+
+static void pgd_ctor(struct mm_struct *mm, pgd_t *pgd)
 {
 	pgd_test_and_unpin(pgd);
 
@@ -510,10 +522,6 @@ static void pgd_ctor(pgd_t *pgd)
 		clone_pgd_range(pgd + KERNEL_PGD_BOUNDARY,
 				swapper_pg_dir + KERNEL_PGD_BOUNDARY,
 				KERNEL_PGD_PTRS);
-		paravirt_alloc_pmd_clone(__pa(pgd) >> PAGE_SHIFT,
-					 __pa(swapper_pg_dir) >> PAGE_SHIFT,
-					 KERNEL_PGD_BOUNDARY,
-					 KERNEL_PGD_PTRS);
 	}
 
 #ifdef CONFIG_X86_64
@@ -523,8 +531,10 @@ static void pgd_ctor(pgd_t *pgd)
 #endif
 
 	/* list required to sync kernel mapping updates */
-	if (!SHARED_KERNEL_PMD)
+	if (!SHARED_KERNEL_PMD) {
+		pgd_set_mm(pgd, mm);
 		pgd_list_add(pgd);
+	}
 }
 
 static void pgd_dtor(pgd_t *pgd)
@@ -690,7 +700,8 @@ static inline pgd_t *user_pgd_alloc(pgd_t *pgd)
 		pgd_t *upgd = (void *)__get_free_page(PGALLOC_GFP);
 
 		if (upgd)
-			virt_to_page(pgd)->index = (long)upgd;
+			set_page_private(virt_to_page(pgd),
+					 (unsigned long)upgd);
 		else {
 			free_page((unsigned long)pgd);
 			pgd = NULL;
@@ -703,7 +714,7 @@ static inline pgd_t *user_pgd_alloc(pgd_t *pgd)
 static inline void user_pgd_free(pgd_t *pgd)
 {
 #ifdef CONFIG_X86_64
-	free_page(virt_to_page(pgd)->index);
+	free_page(page_private(virt_to_page(pgd)));
 #endif
 }
 
@@ -742,11 +753,8 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 	}
 #endif
 
-	pgd_ctor(pgd);
+	pgd_ctor(mm, pgd);
 	pgd_prepopulate_pmd(mm, pgd, pmds);
-
-	/* Store a back link for vmalloc_sync_all(). */
-	set_page_private(virt_to_page(pgd), (unsigned long)mm);
 
 	spin_unlock_irqrestore(&pgd_lock, flags);
 

@@ -1628,20 +1628,6 @@ static int fuse_ioctl_copy_user(struct page **pages, struct iovec *iov,
 	return 0;
 }
 
-/* Make sure iov_length() won't overflow */
-static int fuse_verify_ioctl_iov(struct iovec *iov, size_t count)
-{
-	size_t n;
-	u32 max = FUSE_MAX_PAGES_PER_REQ << PAGE_SHIFT;
-
-	for (n = 0; n < count; n++) {
-		if (iov->iov_len > (size_t) max)
-			return -ENOMEM;
-		max -= iov->iov_len;
-	}
-	return 0;
-}
-
 /*
  * CUSE servers compiled on 32bit broke on 64bit kernels because the
  * ABI was defined to be 'struct iovec' which is different on 32bit
@@ -1677,6 +1663,20 @@ static int fuse_copy_ioctl_iovec(struct iovec *dst, void *src,
 		return -EIO;
 
 	memcpy(dst, src, transferred);
+	return 0;
+}
+
+/* Make sure iov_length() won't overflow */
+static int fuse_verify_ioctl_iov(struct iovec *iov, size_t count)
+{
+	size_t n;
+	u32 max = FUSE_MAX_PAGES_PER_REQ << PAGE_SHIFT;
+
+	for (n = 0; n < count; n++) {
+		if (iov->iov_len > (size_t) max)
+			return -ENOMEM;
+		max -= iov->iov_len;
+	}
 	return 0;
 }
 

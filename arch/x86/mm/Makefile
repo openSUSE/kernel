@@ -29,4 +29,6 @@ obj-$(CONFIG_ACPI_NUMA)		+= srat_$(BITS).o
 obj-$(CONFIG_XEN)		+= hypervisor.o
 disabled-obj-$(CONFIG_XEN)	:= tlb.o
 
+obj-$(CONFIG_HAVE_MEMBLOCK)		+= memblock.o
+
 obj-$(CONFIG_MEMTEST)		+= memtest.o

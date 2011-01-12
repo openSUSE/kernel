@@ -17,6 +17,7 @@
 #include <linux/init.h>
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
+#include <linux/highmem.h>
 
 #include <asm/memory.h>
 #include <asm/highmem.h>
@@ -198,7 +199,7 @@ __dma_alloc_remap(struct page *page, size_t size, gfp_t gfp, pgprot_t prot)
 	 * fragmentation of the DMA space, and also prevents allocations
 	 * smaller than a section from crossing a section boundary.
 	 */
-	bit = fls(size - 1) + 1;
+	bit = fls(size - 1);
 	if (bit > SECTION_SHIFT)
 		bit = SECTION_SHIFT;
 	align = 1 << bit;
@@ -480,10 +481,10 @@ static void dma_cache_maint_page(struct page *page, unsigned long offset,
 				op(vaddr, len, dir);
 				kunmap_high(page);
 			} else if (cache_is_vipt()) {
-				pte_t saved_pte;
-				vaddr = kmap_high_l1_vipt(page, &saved_pte);
+				/* unmapped pages might still be cached */
+				vaddr = kmap_atomic(page);
 				op(vaddr + offset, len, dir);
-				kunmap_high_l1_vipt(page, saved_pte);
+				kunmap_atomic(vaddr);
 			}
 		} else {
 			vaddr = page_address(page) + offset;
@@ -523,6 +524,12 @@ void ___dma_page_dev_to_cpu(struct page *page, unsigned long off,
 		outer_inv_range(paddr, paddr + size);
 
 	dma_cache_maint_page(page, off, size, dir, dmac_unmap_area);
+
+	/*
+	 * Mark the D-cache clean for this page to avoid extra flushing.
+	 */
+	if (dir != DMA_TO_DEVICE && off == 0 && size >= PAGE_SIZE)
+		set_bit(PG_dcache_clean, &page->flags);
 }
 EXPORT_SYMBOL(___dma_page_dev_to_cpu);
 

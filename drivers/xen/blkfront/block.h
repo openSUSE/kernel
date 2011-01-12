@@ -83,7 +83,7 @@ struct xlbd_major_info
 
 struct blk_shadow {
 	blkif_request_t req;
-	unsigned long request;
+	struct request *request;
 	unsigned long frame[BLKIF_MAX_SEGMENTS_PER_REQUEST];
 };
 
@@ -111,7 +111,7 @@ struct blkfront_info
 	struct gnttab_free_callback callback;
 	struct blk_shadow shadow[BLK_RING_SIZE];
 	unsigned long shadow_free;
-	int feature_barrier;
+	int feature_flush;
 	int is_ready;
 
 	/**
@@ -146,7 +146,7 @@ extern void do_blkif_request (struct request_queue *rq);
 int xlvbd_add(blkif_sector_t capacity, int device,
 	      u16 vdisk_info, u16 sector_size, struct blkfront_info *info);
 void xlvbd_del(struct blkfront_info *info);
-int xlvbd_barrier(struct blkfront_info *info);
+void xlvbd_flush(struct blkfront_info *info);
 
 #ifdef CONFIG_SYSFS
 int xlvbd_sysfs_addif(struct blkfront_info *info);

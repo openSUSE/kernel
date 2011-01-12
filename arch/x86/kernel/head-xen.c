@@ -1,5 +1,6 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
+#include <linux/memblock.h>
 #include <linux/pci.h>
 
 #include <asm/setup.h>
@@ -53,7 +54,7 @@ void __init reserve_ebda_region(void)
 		lowmem = 0x9f000;
 
 	/* reserve all memory between lowmem and the 1MB mark */
-	reserve_early_overlap_ok(lowmem, 0x100000, "BIOS reserved");
+	memblock_x86_reserve_range(lowmem, 0x100000, "* BIOS reserved");
 }
 #else /* CONFIG_XEN */
 #include <linux/module.h>
@@ -73,6 +74,8 @@ extern void nmi(void);
 #else
 #define CALLBACK_ADDR(fn) { __KERNEL_CS, (unsigned long)(fn) }
 #endif
+
+unsigned long __initdata xen_initrd_start;
 
 unsigned long *__read_mostly machine_to_phys_mapping =
 	(void *)MACH2PHYS_VIRT_START;
@@ -103,10 +106,12 @@ void __init xen_start_kernel(void)
 	WARN_ON(HYPERVISOR_vm_assist(VMASST_CMD_enable,
 				     VMASST_TYPE_writable_pagetables));
 
-	reserve_early(ALIGN(__pa_symbol(&_end), PAGE_SIZE),
-		      __pa(xen_start_info->pt_base)
-		      + (xen_start_info->nr_pt_frames << PAGE_SHIFT),
-		      "Xen provided");
+	memblock_init();
+	memblock_x86_reserve_range(ALIGN(__pa_symbol(&_end), PAGE_SIZE),
+				   __pa(xen_start_info->pt_base)
+				   + (xen_start_info->nr_pt_frames
+				      << PAGE_SHIFT),
+				   "Xen provided");
 
 #ifdef CONFIG_X86_32
 {

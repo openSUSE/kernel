@@ -1,6 +1,8 @@
 obj-$(CONFIG_PARAVIRT_XEN)	+= grant-table.o features.o events.o manage.o
+xen-biomerge-$(CONFIG_PARAVIRT_XEN) := biomerge.o
 xen-hotplug-$(CONFIG_PARAVIRT_XEN) := cpu_hotplug.o
 xen-balloon-$(CONFIG_PARAVIRT_XEN) := balloon.o
+xen-evtchn-name-$(CONFIG_PARAVIRT_XEN) := xen-evtchn
 
 xen-balloon-$(CONFIG_XEN)	:= balloon/
 obj-$(CONFIG_XEN)		+= core/
@@ -9,6 +11,7 @@ obj-y				+= xenbus/
 obj-$(CONFIG_XEN)		+= char/
 
 xen-backend-$(CONFIG_XEN_BACKEND)	:= util.o
+xen-evtchn-name-$(CONFIG_XEN)		:= evtchn
 
 nostackp := $(call cc-option, -fno-stack-protector)
 ifeq ($(CONFIG_PARAVIRT_XEN),y)
@@ -16,14 +19,19 @@ CFLAGS_features.o			:= $(nostackp)
 endif
 
 obj-$(CONFIG_XEN)			+= features.o $(xen-backend-y) $(xen-backend-m)
+obj-$(CONFIG_BLOCK)			+= $(xen-biomerge-y)
 obj-$(CONFIG_HOTPLUG_CPU)		+= $(xen-hotplug-y)
 obj-$(CONFIG_XEN_XENCOMM)		+= xencomm.o
 obj-$(CONFIG_XEN_BALLOON)		+= $(xen-balloon-y)
-obj-$(CONFIG_XEN_DEV_EVTCHN)		+= evtchn.o
+obj-$(CONFIG_XEN_DEV_EVTCHN)		+= $(xen-evtchn-name-y).o
 obj-$(CONFIG_XENFS)			+= xenfs/
 obj-$(CONFIG_XEN_SYS_HYPERVISOR)	+= sys-hypervisor.o
 obj-$(CONFIG_XEN_PLATFORM_PCI)		+= platform-pci.o
 obj-$(CONFIG_SWIOTLB_XEN)		+= swiotlb-xen.o
+obj-$(CONFIG_XEN_DOM0)			+= pci.o
+
+xen-evtchn-y				:= evtchn.o
+
 obj-$(CONFIG_XEN_BLKDEV_BACKEND)	+= blkback/
 obj-$(CONFIG_XEN_BLKDEV_TAP)		+= blktap/
 obj-$(CONFIG_XEN_BLKDEV_TAP2)           += blktap2/

@@ -28,6 +28,8 @@ extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
 extern spinlock_t pgd_lock;
 extern struct list_head pgd_list;
 
+extern struct mm_struct *pgd_page_get_mm(struct page *page);
+
 #define set_pte(ptep, pte)		xen_set_pte(ptep, pte)
 #define set_pte_at(mm, addr, ptep, pte)	xen_set_pte_at(mm, addr, ptep, pte)
 
@@ -636,6 +638,8 @@ static inline void ptep_set_wrprotect(struct mm_struct *mm,
 	if (pte_write(pte))
 		set_pte_at(mm, addr, ptep, pte_wrprotect(pte));
 }
+
+#define flush_tlb_fix_spurious_fault(vma, address)
 
 /*
  * clone_pgd_range(pgd_t *dst, pgd_t *src, int count);

@@ -59,7 +59,6 @@ void foo(void)
 	OFFSET(TI_exec_domain, thread_info, exec_domain);
 	OFFSET(TI_flags, thread_info, flags);
 	OFFSET(TI_status, thread_info, status);
-	OFFSET(TI_cpu, thread_info, cpu);
 	OFFSET(TI_preempt_count, thread_info, preempt_count);
 	OFFSET(TI_addr_limit, thread_info, addr_limit);
 	OFFSET(TI_restart_block, thread_info, restart_block);
@@ -109,9 +108,7 @@ void foo(void)
 
 	DEFINE(PAGE_SIZE_asm, PAGE_SIZE);
 	DEFINE(PAGE_SHIFT_asm, PAGE_SHIFT);
-	DEFINE(PTRS_PER_PTE, PTRS_PER_PTE);
-	DEFINE(PTRS_PER_PMD, PTRS_PER_PMD);
-	DEFINE(PTRS_PER_PGD, PTRS_PER_PGD);
+	DEFINE(THREAD_SIZE_asm, THREAD_SIZE);
 
 	OFFSET(crypto_tfm_ctx_offset, crypto_tfm, __crt_ctx);
 

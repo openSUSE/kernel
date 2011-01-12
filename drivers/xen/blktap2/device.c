@@ -516,8 +516,8 @@ blktap_map_foreign(struct blktap *tap,
 				WARN_ON(table->grants[grant].status == GNTST_eagain);
 				BTERR("invalid user buffer: could not remap it\n");
 				err |= 1;
+				table->grants[grant].handle = INVALID_GRANT_HANDLE;
 			}
-			table->grants[grant].handle = INVALID_GRANT_HANDLE;
 			request->handles[i].user = table->grants[grant].handle;
 			grant++;
 		}
@@ -850,7 +850,7 @@ blktap_device_run_queue(struct blktap *tap)
 			continue;
 		}
 
-		if (req->cmd_flags & REQ_HARDBARRIER) {
+		if (req->cmd_flags & (REQ_FLUSH|REQ_FUA)) {
 			blk_start_request(req);
 			__blk_end_request_all(req, -EOPNOTSUPP);
 			continue;
@@ -887,7 +887,7 @@ blktap_device_run_queue(struct blktap *tap)
 		blk_start_request(req);
 
 		spin_unlock_irq(&dev->lock);
-		down_read(&tap->tap_sem);
+		down_write(&tap->tap_sem);
 
 		err = blktap_device_process_request(tap, request, req);
 		if (!err)
@@ -897,7 +897,7 @@ blktap_device_run_queue(struct blktap *tap)
 			blktap_request_free(tap, request);
 		}
 
-		up_read(&tap->tap_sem);
+		up_write(&tap->tap_sem);
 		spin_lock_irq(&dev->lock);
 	}
 

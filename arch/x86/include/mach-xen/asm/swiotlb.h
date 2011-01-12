@@ -1,8 +1,6 @@
 #include_next <asm/swiotlb.h>
 
-#ifdef CONFIG_SWIOTLB
-#define pci_swiotlb_detect() 1
-#else
+#ifndef CONFIG_SWIOTLB
 #define swiotlb_init(verbose) ((void)(verbose))
 #endif
 

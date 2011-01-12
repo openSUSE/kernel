@@ -105,7 +105,7 @@ static inline pgd_t *__user_pgd(pgd_t *pgd)
 	if (unlikely(((unsigned long)pgd & PAGE_MASK)
 		     == (unsigned long)init_level4_pgt))
 		return NULL;
-	return (pgd_t *)(virt_to_page(pgd)->index
+	return (pgd_t *)(virt_to_page(pgd)->private
 			 + ((unsigned long)pgd & ~PAGE_MASK));
 }
 
@@ -125,6 +125,8 @@ static inline void xen_set_pgd(pgd_t *pgdp, pgd_t pgd)
 #define __pte_mfn(_pte) (((_pte).pte & PTE_PFN_MASK) >> PAGE_SHIFT)
 
 extern unsigned long early_arbitrary_virt_to_mfn(void *va);
+
+extern void sync_global_pgds(unsigned long start, unsigned long end);
 
 /*
  * Conversion functions: convert a page and protection to a page entry,
@@ -149,9 +151,7 @@ static inline int pgd_large(pgd_t pgd) { return 0; }
 
 /* x86-64 always has all page tables mapped. */
 #define pte_offset_map(dir, address) pte_offset_kernel((dir), (address))
-#define pte_offset_map_nested(dir, address) pte_offset_kernel((dir), (address))
 #define pte_unmap(pte) ((void)(pte))/* NOP */
-#define pte_unmap_nested(pte) ((void)(pte)) /* NOP */
 
 #define update_mmu_cache(vma, address, ptep) do { } while (0)
 

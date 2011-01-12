@@ -62,13 +62,17 @@ MODULE_PARM_DESC(nloopbacks, "Number of netback-loopback devices to create");
 
 struct net_private {
 	struct net_device *loopback_dev;
-	struct net_device_stats stats;
+	int loop_idx;
 };
+
+static inline struct net_private *loopback_priv(struct net_device *dev)
+{
+	return netdev_priv(dev);
+}
 
 static int loopback_open(struct net_device *dev)
 {
-	struct net_private *np = netdev_priv(dev);
-	memset(&np->stats, 0, sizeof(np->stats));
+	memset(&dev->stats, 0, sizeof(dev->stats));
 	netif_start_queue(dev);
 	return 0;
 }
@@ -129,10 +133,8 @@ static int skb_remove_foreign_references(struct sk_buff *skb)
 
 static int loopback_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
-	struct net_private *np = netdev_priv(dev);
-
 	if (!skb_remove_foreign_references(skb)) {
-		np->stats.tx_dropped++;
+		dev->stats.tx_dropped++;
 		dev_kfree_skb(skb);
 		return NETDEV_TX_OK;
 	}
@@ -142,25 +144,14 @@ static int loopback_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	skb_orphan(skb);
 
-	np->stats.tx_bytes += skb->len;
-	np->stats.tx_packets++;
+	dev->stats.tx_bytes += skb->len;
+	dev->stats.tx_packets++;
 
 	/* Switch to loopback context. */
-	dev = np->loopback_dev;
-	np  = netdev_priv(dev);
+	dev = loopback_priv(dev)->loopback_dev;
 
-	np->stats.rx_bytes += skb->len;
-	np->stats.rx_packets++;
-
-	if (skb->ip_summed == CHECKSUM_PARTIAL) {
-		/* Defer checksum calculation. */
-		skb->proto_csum_blank = 1;
-		/* Must be a local packet: assert its integrity. */
-		skb->proto_data_valid = 1;
-	}
-
-	skb->ip_summed = skb->proto_data_valid ?
-		CHECKSUM_UNNECESSARY : CHECKSUM_NONE;
+	dev->stats.rx_bytes += skb->len;
+	dev->stats.rx_packets++;
 
 	skb->pkt_type = PACKET_HOST; /* overridden by eth_type_trans() */
 	skb->protocol = eth_type_trans(skb, dev);
@@ -176,14 +167,17 @@ static int loopback_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	return NETDEV_TX_OK;
 }
 
-static struct net_device_stats *loopback_get_stats(struct net_device *dev)
+static void get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 {
-	struct net_private *np = netdev_priv(dev);
-	return &np->stats;
+	strcpy(info->driver, "netloop");
+	snprintf(info->bus_info, ETHTOOL_BUSINFO_LEN, "vif-0-%d",
+		 loopback_priv(dev)->loop_idx);
 }
 
 static const struct ethtool_ops network_ethtool_ops =
 {
+	.get_drvinfo = get_drvinfo,
+
 	.get_tx_csum = ethtool_op_get_tx_csum,
 	.set_tx_csum = ethtool_op_set_tx_csum,
 	.get_sg = ethtool_op_get_sg,
@@ -207,14 +201,16 @@ static const struct net_device_ops loopback_netdev_ops = {
 	.ndo_start_xmit         = loopback_start_xmit,
 	.ndo_set_multicast_list = loopback_set_multicast_list,
 	.ndo_change_mtu	        = NULL, /* allow arbitrary mtu */
-	.ndo_get_stats          = loopback_get_stats,
 };
 
-static void loopback_construct(struct net_device *dev, struct net_device *lo)
+static void loopback_construct(struct net_device *dev, struct net_device *lo,
+			       int loop_idx)
 {
-	struct net_private *np = netdev_priv(dev);
+	struct net_private *np = loopback_priv(dev);
 
 	np->loopback_dev     = lo;
+	np->loop_idx         = loop_idx;
+
 	dev->netdev_ops      = &loopback_netdev_ops;
 	dev->tx_queue_len    = 0;
 
@@ -253,8 +249,8 @@ static int __init make_loopback(int i)
 	if (!dev2)
 		goto fail_netdev2;
 
-	loopback_construct(dev1, dev2);
-	loopback_construct(dev2, dev1);
+	loopback_construct(dev1, dev2, i);
+	loopback_construct(dev2, dev1, i);
 
 	/*
 	 * Initialise a dummy MAC address for the 'dummy backend' interface. We
@@ -281,23 +277,6 @@ static int __init make_loopback(int i)
 	return err;
 }
 
-static void __exit clean_loopback(int i)
-{
-	struct net_device *dev1, *dev2;
-	char dev_name[IFNAMSIZ];
-
-	sprintf(dev_name, "vif0.%d", i);
-	dev1 = dev_get_by_name(&init_net, dev_name);
-	sprintf(dev_name, "veth%d", i);
-	dev2 = dev_get_by_name(&init_net, dev_name);
-	if (dev1 && dev2) {
-		unregister_netdev(dev2);
-		unregister_netdev(dev1);
-		free_netdev(dev2);
-		free_netdev(dev1);
-	}
-}
-
 static int __init loopback_init(void)
 {
 	int i, err = 0;
@@ -313,15 +292,5 @@ static int __init loopback_init(void)
 }
 
 module_init(loopback_init);
-
-static void __exit loopback_exit(void)
-{
-	int i;
-
-	for (i = nloopbacks; i-- > 0; )
-		clean_loopback(i);
-}
-
-module_exit(loopback_exit);
 
 MODULE_LICENSE("Dual BSD/GPL");

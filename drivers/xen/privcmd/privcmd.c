@@ -14,7 +14,6 @@
 #include <linux/mm.h>
 #include <linux/mman.h>
 #include <linux/swap.h>
-#include <linux/smp_lock.h>
 #include <linux/highmem.h>
 #include <linux/pagemap.h>
 #include <linux/seq_file.h>
@@ -425,7 +424,8 @@ static int privcmd_mmap(struct file * file, struct vm_area_struct * vma)
 	if (xen_feature(XENFEAT_auto_translated_physmap))
 		return -ENOSYS;
 
-	/* DONTCOPY is essential for Xen as copy_page_range is broken. */
+	/* DONTCOPY is essential for Xen because copy_page_range doesn't know
+	 * how to recreate these mappings */
 	vma->vm_flags |= VM_RESERVED | VM_IO | VM_PFNMAP | VM_DONTCOPY;
 	vma->vm_ops = &privcmd_vm_ops;
 	vma->vm_private_data = NULL;
@@ -435,6 +435,8 @@ static int privcmd_mmap(struct file * file, struct vm_area_struct * vma)
 #endif
 
 static const struct file_operations privcmd_file_ops = {
+	.open = nonseekable_open,
+	.llseek = no_llseek,
 	.unlocked_ioctl = privcmd_ioctl,
 #ifdef CONFIG_XEN_PRIVILEGED_GUEST
 	.mmap = privcmd_mmap,

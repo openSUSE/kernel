@@ -62,6 +62,7 @@
 #include <asm/uaccess.h>
 #include <xen/interface/grant_table.h>
 #include <xen/gnttab.h>
+#include <xen/net-util.h>
 
 struct netfront_cb {
 	struct page *page;
@@ -607,12 +608,10 @@ int netfront_check_queue_ready(struct net_device *dev)
 }
 EXPORT_SYMBOL(netfront_check_queue_ready);
 
-
 static int network_open(struct net_device *dev)
 {
 	struct netfront_info *np = netdev_priv(dev);
 
-	memset(&np->stats, 0, sizeof(np->stats));
 	napi_enable(&np->napi);
 
 	spin_lock_bh(&np->rx_lock);
@@ -980,10 +979,8 @@ static int network_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	if (skb->ip_summed == CHECKSUM_PARTIAL) /* local packet? */
 		tx->flags |= NETTXF_csum_blank | NETTXF_data_validated;
-#ifdef CONFIG_XEN
-	if (skb->proto_data_valid) /* remote but checksummed? */
+	else if (skb->ip_summed == CHECKSUM_UNNECESSARY)
 		tx->flags |= NETTXF_data_validated;
-#endif
 
 #if HAVE_TSO
 	if (skb_shinfo(skb)->gso_size) {
@@ -1015,8 +1012,8 @@ static int network_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (notify)
 		notify_remote_via_irq(np->irq);
 
-	np->stats.tx_bytes += skb->len;
-	np->stats.tx_packets++;
+	dev->stats.tx_bytes += skb->len;
+	dev->stats.tx_packets++;
 	dev->trans_start = jiffies;
 
 	/* Note: It is not safe to access skb after network_tx_buf_gc()! */
@@ -1030,7 +1027,7 @@ static int network_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	return NETDEV_TX_OK;
 
  drop:
-	np->stats.tx_dropped++;
+	dev->stats.tx_dropped++;
 	dev_kfree_skb(skb);
 	return NETDEV_TX_OK;
 }
@@ -1347,7 +1344,7 @@ static int netif_poll(struct napi_struct *napi, int budget)
 err:	
 			while ((skb = __skb_dequeue(&tmpq)))
 				__skb_queue_tail(&errq, skb);
-			np->stats.rx_errors++;
+			dev->stats.rx_errors++;
 			i = np->rx.rsp_cons;
 			continue;
 		}
@@ -1408,20 +1405,15 @@ err:
 		skb->truesize += skb->data_len - (RX_COPY_THRESHOLD - len);
 		skb->len += skb->data_len;
 
-		/*
-		 * Old backends do not assert data_validated but we
-		 * can infer it from csum_blank so test both flags.
-		 */
-		if (rx->flags & (NETRXF_data_validated|NETRXF_csum_blank))
+		if (rx->flags & NETRXF_csum_blank)
+			skb->ip_summed = CHECKSUM_PARTIAL;
+		else if (rx->flags & NETRXF_data_validated)
 			skb->ip_summed = CHECKSUM_UNNECESSARY;
 		else
 			skb->ip_summed = CHECKSUM_NONE;
-#ifdef CONFIG_XEN
-		skb->proto_data_valid = (skb->ip_summed != CHECKSUM_NONE);
-		skb->proto_csum_blank = !!(rx->flags & NETRXF_csum_blank);
-#endif
-		np->stats.rx_packets++;
-		np->stats.rx_bytes += skb->len;
+
+		dev->stats.rx_packets++;
+		dev->stats.rx_bytes += skb->len;
 
 		__skb_queue_tail(&rxq, skb);
 
@@ -1462,6 +1454,13 @@ err:
 
 		/* Ethernet work: Delayed to here as it peeks the header. */
 		skb->protocol = eth_type_trans(skb, dev);
+
+		if (skb->ip_summed == CHECKSUM_PARTIAL
+		    ? skb_checksum_setup(skb) : skb_is_gso(skb)) {
+			kfree_skb(skb);
+			dev->stats.rx_errors++;
+			continue;
+		}
 
 		/* Pass it up. */
 		netif_receive_skb(skb);
@@ -1666,10 +1665,8 @@ static int network_close(struct net_device *dev)
 
 static struct net_device_stats *network_get_stats(struct net_device *dev)
 {
-	struct netfront_info *np = netdev_priv(dev);
-
-	netfront_accelerator_call_get_stats(np, dev);
-	return &np->stats;
+	netfront_accelerator_call_get_stats(dev);
+	return &dev->stats;
 }
 
 static int xennet_set_mac_address(struct net_device *dev, void *p)
@@ -2165,7 +2162,7 @@ static int __init netif_init(void)
 	}
 
 	if (!MODPARM_rx_flip && !MODPARM_rx_copy)
-		MODPARM_rx_flip = 1; /* Default is to flip. */
+		MODPARM_rx_copy = 1; /* Default is to copy. */
 #endif
 
 	netif_init_accel();

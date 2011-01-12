@@ -56,6 +56,7 @@
 #include <linux/async.h>
 #include <linux/percpu.h>
 #include <linux/kmemleak.h>
+#include <linux/jump_label.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/module.h>
@@ -1871,6 +1872,7 @@ static void layout_sections(struct module *mod, struct load_info *info)
 			    || strstarts(sname, ".init"))
 				continue;
 			s->sh_entsize = get_offset(mod, &mod->core_size, s, i);
+			DEBUGP("\t%s\n", name);
 		}
 		if (m == 0)
 			mod->core_text_size = mod->core_size;
@@ -2132,7 +2134,7 @@ static inline void layout_symtab(struct module *mod, struct load_info *info)
 {
 }
 
-static void add_kallsyms(struct module *mod, struct load_info *info)
+static void add_kallsyms(struct module *mod, const struct load_info *info)
 {
 }
 #endif /* CONFIG_KALLSYMS */
@@ -2407,6 +2409,11 @@ static void find_module_sections(struct module *mod, struct load_info *info)
 					sizeof(*mod->tracepoints),
 					&mod->num_tracepoints);
 #endif
+#ifdef HAVE_JUMP_LABEL
+	mod->jump_entries = section_objs(info, "__jump_table",
+					sizeof(*mod->jump_entries),
+					&mod->num_jump_entries);
+#endif
 #ifdef CONFIG_EVENT_TRACING
 	mod->trace_events = section_objs(info, "_ftrace_events",
 					 sizeof(*mod->trace_events),
@@ -2417,6 +2424,18 @@ static void find_module_sections(struct module *mod, struct load_info *info)
 	 */
 	kmemleak_scan_area(mod->trace_events, sizeof(*mod->trace_events) *
 			   mod->num_trace_events, GFP_KERNEL);
+#endif
+#ifdef CONFIG_TRACING
+	mod->trace_bprintk_fmt_start = section_objs(info, "__trace_printk_fmt",
+					 sizeof(*mod->trace_bprintk_fmt_start),
+					 &mod->num_trace_bprintk_fmt);
+	/*
+	 * This section contains pointers to allocated objects in the trace
+	 * code and not scanning it leads to false positives.
+	 */
+	kmemleak_scan_area(mod->trace_bprintk_fmt_start,
+			   sizeof(*mod->trace_bprintk_fmt_start) *
+			   mod->num_trace_bprintk_fmt, GFP_KERNEL);
 #endif
 #ifdef CONFIG_FTRACE_MCOUNT_RECORD
 	/* sechdrs[0].sh_size is always zero */
@@ -2489,8 +2508,8 @@ static int move_module(struct module *mod, struct load_info *info)
 			memcpy(dest, (void *)shdr->sh_addr, shdr->sh_size);
 		/* Update sh_addr to point to copy in image. */
 		shdr->sh_addr = (unsigned long)dest;
-		DEBUGP("\t0x%p %s\n",
-		       (void *)shdr->sh_addr, info->secstrings + shdr->sh_name);
+		DEBUGP("\t0x%lx %s\n",
+		       shdr->sh_addr, info->secstrings + shdr->sh_name);
 	}
 
 	return 0;
@@ -2728,7 +2747,6 @@ static struct module *load_module(void __user *umod,
 	list_add_rcu(&mod->list, &modules);
 	mutex_unlock(&module_mutex);
 
-	ddebug_module_parse_args(mod->name, mod->args, mod->kp, mod->num_kp);
 	/* Module is ready to execute: parsing args may do that. */
 	err = parse_args(mod->name, mod->args, mod->kp, mod->num_kp, NULL);
 	if (err < 0)

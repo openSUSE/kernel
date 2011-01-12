@@ -37,6 +37,7 @@ obj-$(CONFIG_BLK_DEV_HD)	+= hd.o
 
 obj-$(CONFIG_PARAVIRT_XEN_BLKDEV_FRONTEND) += xen-blkfront.o
 obj-$(CONFIG_BLK_DEV_DRBD)     += drbd/
+obj-$(CONFIG_BLK_DEV_RBD)     += rbd.o
 
 obj-$(CONFIG_CIPHER_TWOFISH)	+= loop_fish2.o
 

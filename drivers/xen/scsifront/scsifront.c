@@ -315,20 +315,21 @@ big_to_sg:
 	return ref_cnt;
 }
 
-static int scsifront_queuecommand(struct scsi_cmnd *sc,
-				  void (*done)(struct scsi_cmnd *))
+static int scsifront_queuecommand(struct Scsi_Host *shost,
+				  struct scsi_cmnd *sc)
 {
-	struct vscsifrnt_info *info =
-		(struct vscsifrnt_info *) sc->device->host->hostdata;
+	struct vscsifrnt_info *info = shost_priv(shost);
 	vscsiif_request_t *ring_req;
+	unsigned long flags;
 	int ref_cnt;
 	uint16_t rqid;
 
+	spin_lock_irqsave(shost->host_lock, flags);
 	if (RING_FULL(&info->ring)) {
-		goto out_host_busy;
+		spin_unlock_irqrestore(shost->host_lock, flags);
+		return SCSI_MLQUEUE_HOST_BUSY;
 	}
 
-	sc->scsi_done = done;
 	sc->result    = 0;
 
 	ring_req          = scsifront_pre_request(info);
@@ -357,26 +358,20 @@ static int scsifront_queuecommand(struct scsi_cmnd *sc,
 	ref_cnt = map_data_for_request(info, sc, ring_req, rqid);
 	if (ref_cnt < 0) {
 		add_id_to_freelist(info, rqid);
+		spin_unlock_irqrestore(shost->host_lock, flags);
 		if (ref_cnt == (-ENOMEM))
-			goto out_host_busy;
-		else {
-			sc->result = (DID_ERROR << 16);
-			goto out_fail_command;
-		}
+			return SCSI_MLQUEUE_HOST_BUSY;
+		sc->result = (DID_ERROR << 16);
+		sc->scsi_done(sc);
+		return 0;
 	}
 
 	ring_req->nr_segments          = (uint8_t)ref_cnt;
 	info->shadow[rqid].nr_segments = ref_cnt;
 
 	scsifront_do_request(info);
+	spin_unlock_irqrestore(shost->host_lock, flags);
 
-	return 0;
-
-out_host_busy:
-	return SCSI_MLQUEUE_HOST_BUSY;
-
-out_fail_command:
-	done(sc);
 	return 0;
 }
 
@@ -390,8 +385,7 @@ static int scsifront_eh_abort_handler(struct scsi_cmnd *sc)
 static int scsifront_dev_reset_handler(struct scsi_cmnd *sc)
 {
 	struct Scsi_Host *host = sc->device->host;
-	struct vscsifrnt_info *info =
-		(struct vscsifrnt_info *) sc->device->host->hostdata;
+	struct vscsifrnt_info *info = shost_priv(host);
 
 	vscsiif_request_t *ring_req;
 	uint16_t rqid;

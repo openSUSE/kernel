@@ -101,7 +101,7 @@ static inline void hci_uart_tx_complete(struct hci_uart *hu, int pkt_type)
 		break;
 
 	case HCI_SCODATA_PKT:
-		hdev->stat.cmd_tx++;
+		hdev->stat.sco_tx++;
 		break;
 	}
 }
@@ -311,8 +311,10 @@ static void hci_uart_tty_close(struct tty_struct *tty)
 
 		if (test_and_clear_bit(HCI_UART_PROTO_SET, &hu->flags)) {
 			hu->proto->close(hu);
-			hci_unregister_dev(hdev);
-			hci_free_dev(hdev);
+			if (hdev) {
+				hci_unregister_dev(hdev);
+				hci_free_dev(hdev);
+			}
 		}
 	}
 }

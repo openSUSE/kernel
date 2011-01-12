@@ -57,7 +57,7 @@ struct smp_ops {
 	void (*smp_prepare_cpus)(unsigned max_cpus);
 	void (*smp_cpus_done)(unsigned max_cpus);
 
-	void (*smp_send_stop)(void);
+	void (*stop_other_cpus)(int wait);
 	void (*smp_send_reschedule)(int cpu);
 
 	int (*cpu_up)(unsigned cpu);
@@ -76,7 +76,12 @@ extern struct smp_ops smp_ops;
 
 static inline void smp_send_stop(void)
 {
-	smp_ops.smp_send_stop();
+	smp_ops.stop_other_cpus(0);
+}
+
+static inline void stop_other_cpus(void)
+{
+	smp_ops.stop_other_cpus(1);
 }
 
 static inline void smp_prepare_boot_cpu(void)
@@ -148,12 +153,16 @@ void smp_store_cpu_info(int id);
 
 extern int __cpu_disable(void);
 extern void __cpu_die(unsigned int cpu);
-void xen_smp_send_stop(void);
+void xen_stop_other_cpus(int wait);
 void xen_smp_send_reschedule(int cpu);
 void xen_send_call_func_ipi(const struct cpumask *mask);
 void xen_send_call_func_single_ipi(int cpu);
 
-#define smp_send_stop		xen_smp_send_stop
+static inline void smp_send_stop(void)
+{
+	xen_stop_other_cpus(0);
+}
+
 #define smp_send_reschedule	xen_smp_send_reschedule
 #define arch_send_call_function_single_ipi	xen_send_call_func_single_ipi
 #define arch_send_call_function_ipi_mask	xen_send_call_func_ipi

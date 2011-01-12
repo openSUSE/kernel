@@ -503,6 +503,8 @@ static inline void xen_convert_psd_pack(struct xen_psd_package *xpsd,
 	xpsd->num_processors = apsd->num_processors;
 }
 
+extern int xen_pcpu_hotplug(int type);
+extern int xen_pcpu_index(uint32_t id, bool is_acpiid);
 #endif /* CONFIG_XEN */
 
 #endif

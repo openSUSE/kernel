@@ -39,7 +39,6 @@
 #include <linux/mm.h>
 #include <linux/swap.h>
 #include <linux/mman.h>
-#include <linux/smp_lock.h>
 #include <linux/pagemap.h>
 #include <linux/bootmem.h>
 #include <linux/highmem.h>

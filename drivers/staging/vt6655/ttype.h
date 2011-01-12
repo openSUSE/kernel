@@ -40,13 +40,6 @@
 #define TxInSleep
 #endif
 
-//2007-0809-01<Add>by MikeLiu
-#ifndef  update_BssList
-#define update_BssList
-#endif
-
-
-
 #ifndef WPA_SM_Transtatus
 #define WPA_SM_Transtatus
 #endif

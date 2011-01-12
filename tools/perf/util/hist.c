@@ -87,7 +87,7 @@ static void hist_entry__add_cpumode_period(struct hist_entry *self,
 
 static struct hist_entry *hist_entry__new(struct hist_entry *template)
 {
-	size_t callchain_size = symbol_conf.use_callchain ? sizeof(struct callchain_node) : 0;
+	size_t callchain_size = symbol_conf.use_callchain ? sizeof(struct callchain_root) : 0;
 	struct hist_entry *self = malloc(sizeof(*self) + callchain_size);
 
 	if (self != NULL) {
@@ -226,6 +226,8 @@ static bool collapse__insert_entry(struct rb_root *root, struct hist_entry *he)
 
 		if (!cmp) {
 			iter->period += he->period;
+			if (symbol_conf.use_callchain)
+				callchain_merge(iter->callchain, he->callchain);
 			hist_entry__free(he);
 			return false;
 		}
@@ -354,7 +356,7 @@ static size_t ipchain__fprintf_graph_line(FILE *fp, int depth, int depth_mask,
 
 static size_t ipchain__fprintf_graph(FILE *fp, struct callchain_list *chain,
 				     int depth, int depth_mask, int period,
-				     u64 total_samples, int hits,
+				     u64 total_samples, u64 hits,
 				     int left_margin)
 {
 	int i;

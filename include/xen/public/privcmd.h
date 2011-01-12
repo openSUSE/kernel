@@ -34,6 +34,7 @@
 #define __LINUX_PUBLIC_PRIVCMD_H__
 
 #include <linux/types.h>
+#include <linux/compiler.h>
 
 typedef struct privcmd_hypercall
 {

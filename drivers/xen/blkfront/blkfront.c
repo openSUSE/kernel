@@ -369,20 +369,23 @@ static void connect(struct blkfront_info *info)
 	/*
 	 * If there's no "feature-barrier" defined, then it means
 	 * we're dealing with a very old backend which writes
-	 * synchronously; draining will do what needs to get done.
+	 * synchronously; nothing to do.
 	 *
-	 * If there are barriers, then we can do full queued writes
-	 * with tagged barriers.
-	 *
-	 * If barriers are not supported, then there's no much we can
-	 * do, so just set ordering to NONE.
+	 * If there are barriers, then we use flush.
 	 */
-	if (err)
-		info->feature_barrier = QUEUE_ORDERED_DRAIN;
-	else if (barrier)
-		info->feature_barrier = QUEUE_ORDERED_TAG;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,37)
+	if (!err && barrier)
+		info->feature_flush = REQ_FLUSH | REQ_FUA;
 	else
-		info->feature_barrier = QUEUE_ORDERED_NONE;
+		info->feature_flush = 0;
+#else
+	if (err)
+		info->feature_flush = QUEUE_ORDERED_DRAIN;
+	else if (barrier)
+		info->feature_flush = QUEUE_ORDERED_TAG;
+	else
+		info->feature_flush = QUEUE_ORDERED_NONE;
+#endif
 
 	err = xlvbd_add(sectors, info->vdevice, binfo, sector_size, info);
 	if (err) {
@@ -481,7 +484,7 @@ static inline void ADD_ID_TO_FREELIST(
 	struct blkfront_info *info, unsigned long id)
 {
 	info->shadow[id].req.id  = info->shadow_free;
-	info->shadow[id].request = 0;
+	info->shadow[id].request = NULL;
 	info->shadow_free = id;
 }
 
@@ -662,14 +665,11 @@ int blkif_getgeo(struct block_device *bd, struct hd_geometry *hg)
 
 
 /*
- * blkif_queue_request
+ * Generate a Xen blkfront IO request from a blk layer request.  Reads
+ * and writes are handled as expected.  Since we lack a loose flush
+ * request, we map flushes into a full ordered barrier.
  *
- * request block io
- *
- * id: for guest use only.
- * operation: BLKIF_OP_{READ,WRITE,PROBE}
- * buffer: buffer to read/write into. this should be a
- *   virtual address in the guest os.
+ * @req: a request struct
  */
 static int blkif_queue_request(struct request *req)
 {
@@ -698,7 +698,7 @@ static int blkif_queue_request(struct request *req)
 	/* Fill out a communications ring structure. */
 	ring_req = RING_GET_REQUEST(&info->ring, info->ring.req_prod_pvt);
 	id = GET_ID_FROM_FREELIST(info);
-	info->shadow[id].request = (unsigned long)req;
+	info->shadow[id].request = req;
 
 	ring_req->id = id;
 	ring_req->sector_number = (blkif_sector_t)blk_rq_pos(req);
@@ -706,7 +706,11 @@ static int blkif_queue_request(struct request *req)
 
 	ring_req->operation = rq_data_dir(req) ?
 		BLKIF_OP_WRITE : BLKIF_OP_READ;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,37)
+	if (req->cmd_flags & (REQ_FLUSH | REQ_FUA))
+#else
 	if (req->cmd_flags & REQ_HARDBARRIER)
+#endif
 		ring_req->operation = BLKIF_OP_WRITE_BARRIER;
 	if (req->cmd_type == REQ_TYPE_BLOCK_PC)
 		ring_req->operation = BLKIF_OP_PACKET;
@@ -820,7 +824,7 @@ static irqreturn_t blkif_int(int irq, void *dev_id)
 
 		bret = RING_GET_RESPONSE(&info->ring, i);
 		id   = bret->id;
-		req  = (struct request *)info->shadow[id].request;
+		req  = info->shadow[id].request;
 
 		blkif_completion(&info->shadow[id]);
 
@@ -834,8 +838,23 @@ static irqreturn_t blkif_int(int irq, void *dev_id)
 					   " write barrier op failed\n",
 					   info->gd->disk_name);
 				ret = -EOPNOTSUPP;
-				info->feature_barrier = QUEUE_ORDERED_NONE;
-			        xlvbd_barrier(info);
+			}
+			if (unlikely(bret->status == BLKIF_RSP_ERROR &&
+				     info->shadow[id].req.nr_segments == 0)) {
+				pr_warning("blkfront: %s:"
+					   " empty write barrier op failed\n",
+					   info->gd->disk_name);
+				ret = -EOPNOTSUPP;
+			}
+			if (unlikely(ret)) {
+				if (ret == -EOPNOTSUPP)
+					ret = 0;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,37)
+				info->feature_flush = 0;
+#else
+				info->feature_flush = QUEUE_ORDERED_NONE;
+#endif
+			        xlvbd_flush(info);
 			}
 			/* fall through */
 		case BLKIF_OP_READ:
@@ -927,7 +946,7 @@ static int blkif_recover(struct blkfront_info *info)
 	/* Stage 3: Find pending requests and requeue them. */
 	for (i = 0; i < BLK_RING_SIZE; i++) {
 		/* Not in use? */
-		if (copy[i].request == 0)
+		if (!copy[i].request)
 			continue;
 
 		/* Grab a request slot and copy shadow state into it. */
@@ -945,8 +964,7 @@ static int blkif_recover(struct blkfront_info *info)
 				req->seg[j].gref,
 				info->xbdev->otherend_id,
 				pfn_to_mfn(info->shadow[req->id].frame[j]),
-				rq_data_dir((struct request *)
-					    info->shadow[req->id].request) ?
+				rq_data_dir(info->shadow[req->id].request) ?
 				GTF_readonly : 0);
 		info->shadow[req->id].req = *req;
 

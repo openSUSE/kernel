@@ -11,8 +11,8 @@
 #include <asm/iommu.h>
 #include <asm/gart.h>
 #include <asm/calgary.h>
-#include <asm/amd_iommu.h>
 #include <asm/x86_init.h>
+#include <asm/iommu_table.h>
 
 static int forbid_dac __read_mostly;
 
@@ -43,6 +43,8 @@ int iommu_detected __read_mostly = 0;
  * guests and not for driver dma translation.
  */
 int iommu_pass_through __read_mostly;
+
+extern struct iommu_table_entry __iommu_table[], __iommu_table_end[];
 
 /* Dummy device used for NULL arguments (normally ISA). */
 struct device x86_dma_fallback_dev = {
@@ -142,7 +144,10 @@ static struct dma_map_ops swiotlb_dma_ops = {
 	.dma_supported = swiotlb_dma_supported
 };
 
-#define pci_xen_swiotlb_detect() 1
+static int __init pci_xen_swiotlb_detect(void)
+{
+	return 1;
+}
 
 static void __init pci_xen_swiotlb_init(void)
 {
@@ -153,26 +158,28 @@ static void __init pci_xen_swiotlb_init(void)
 	}
 }
 
+IOMMU_INIT_FINISH(pci_xen_swiotlb_detect, NULL, pci_xen_swiotlb_init, NULL);
+
 void __init pci_iommu_alloc(void)
 {
+	struct iommu_table_entry *p;
+
 	/* free the range so iommu could get some range less than 4G */
 	dma32_free_bootmem();
 
-	if (pci_xen_swiotlb_detect() || pci_swiotlb_detect())
-		goto out;
+	sort_iommu_table(__iommu_table, __iommu_table_end);
+	check_iommu_entries(__iommu_table, __iommu_table_end);
 
-	gart_iommu_hole_init();
-
-	detect_calgary();
-
-	detect_intel_iommu();
-
-	/* needs to be called after gart_iommu_hole_init */
-	amd_iommu_detect();
-out:
-	pci_xen_swiotlb_init();
+	for (p = __iommu_table; p < __iommu_table_end; p++) {
+		if (p && p->detect && p->detect() > 0) {
+			p->flags |= IOMMU_DETECTED;
+			if (p->early_init)
+				p->early_init();
+			if (p->flags & IOMMU_FINISH_IF_DETECTED)
+				break;
+		}
+	}
 }
-
 void *dma_generic_alloc_coherent(struct device *dev, size_t size,
 				 dma_addr_t *dma_addr, gfp_t flag)
 {
@@ -375,6 +382,7 @@ EXPORT_SYMBOL(dma_supported);
 
 static int __init pci_iommu_init(void)
 {
+	struct iommu_table_entry *p;
 	dma_debug_init(PREALLOC_DMA_DEBUG_ENTRIES);
 
 #ifdef CONFIG_PCI
@@ -382,14 +390,10 @@ static int __init pci_iommu_init(void)
 #endif
 	x86_init.iommu.iommu_init();
 
-#ifndef CONFIG_XEN
-	if (swiotlb || xen_swiotlb) {
-		printk(KERN_INFO "PCI-DMA: "
-		       "Using software bounce buffering for IO (SWIOTLB)\n");
-		swiotlb_print_info();
-	} else
-		swiotlb_free();
-#endif
+	for (p = __iommu_table; p < __iommu_table_end; p++) {
+		if (p && (p->flags & IOMMU_DETECTED) && p->late_init)
+			p->late_init();
+	}
 
 	return 0;
 }

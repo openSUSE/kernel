@@ -486,7 +486,7 @@ static void __init emergency_stack_init(void)
 	 * bringup, we need to get at them in real mode. This means they
 	 * must also be within the RMO region.
 	 */
-	limit = min(slb0_limit(), memblock.rmo_size);
+	limit = min(slb0_limit(), ppc64_rma_size);
 
 	for_each_possible_cpu(i) {
 		unsigned long sp;
@@ -497,9 +497,8 @@ static void __init emergency_stack_init(void)
 }
 
 /*
- * Called into from start_kernel, after lock_kernel has been called.
- * Initializes bootmem, which is unsed to manage page allocation until
- * mem_init is called.
+ * Called into from start_kernel this initializes bootmem, which is used
+ * to manage page allocation until mem_init is called.
  */
 void __init setup_arch(char **cmdline_p)
 {

@@ -110,6 +110,8 @@ struct cpuinfo_x86 {
 	u16			phys_proc_id;
 	/* Core id: */
 	u16			cpu_core_id;
+	/* Compute unit id */
+	u8			compute_unit_id;
 	/* Index into per_cpu list: */
 	u16			cpu_index;
 #endif
@@ -602,7 +604,7 @@ extern unsigned long		mmu_cr4_features;
 
 static inline void set_in_cr4(unsigned long mask)
 {
-	unsigned cr4;
+	unsigned long cr4;
 
 	mmu_cr4_features |= mask;
 	cr4 = read_cr4();
@@ -612,7 +614,7 @@ static inline void set_in_cr4(unsigned long mask)
 
 static inline void clear_in_cr4(unsigned long mask)
 {
-	unsigned cr4;
+	unsigned long cr4;
 
 	mmu_cr4_features &= ~mask;
 	cr4 = read_cr4();

@@ -58,7 +58,7 @@ const char *xenbus_strstate(enum xenbus_state state)
 		[ XenbusStateInitialised  ] = "Initialised",
 		[ XenbusStateConnected    ] = "Connected",
 		[ XenbusStateClosing      ] = "Closing",
-		[ XenbusStateClosed	  ] = "Closed",
+		[ XenbusStateClosed       ] = "Closed",
 		[ XenbusStateReconfiguring ] = "Reconfiguring",
 		[ XenbusStateReconfigured ] = "Reconfigured",
 	};

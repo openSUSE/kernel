@@ -54,8 +54,10 @@ static bool can_beacon_sec_chan(struct wiphy *wiphy,
 	switch (channel_type) {
 	case NL80211_CHAN_HT40PLUS:
 		diff = 20;
+		break;
 	case NL80211_CHAN_HT40MINUS:
 		diff = -20;
+		break;
 	default:
 		return false;
 	}
@@ -102,7 +104,8 @@ int cfg80211_set_freq(struct cfg80211_registered_device *rdev,
 	if (wdev && (wdev->iftype == NL80211_IFTYPE_ADHOC ||
 		     wdev->iftype == NL80211_IFTYPE_AP ||
 		     wdev->iftype == NL80211_IFTYPE_AP_VLAN ||
-		     wdev->iftype == NL80211_IFTYPE_MESH_POINT)) {
+		     wdev->iftype == NL80211_IFTYPE_MESH_POINT ||
+		     wdev->iftype == NL80211_IFTYPE_P2P_GO)) {
 		switch (channel_type) {
 		case NL80211_CHAN_HT40PLUS:
 		case NL80211_CHAN_HT40MINUS:

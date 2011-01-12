@@ -58,6 +58,7 @@ struct irq_cfg {
 #endif
 	};
 };
+struct irq_cfg *alloc_irq_and_cfg_at(unsigned int at, int node);
 #endif
 
 /*
@@ -223,6 +224,7 @@ int irq_to_evtchn_port(int irq);
 
 #if defined(CONFIG_SMP) && !defined(MODULE) && defined(CONFIG_X86)
 void notify_remote_via_ipi(unsigned int ipi, unsigned int cpu);
+void clear_ipi_evtchn(void);
 #endif
 
 #endif /* __ASM_EVTCHN_H__ */

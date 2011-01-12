@@ -175,9 +175,9 @@ static void ath_tx_update_baw(struct ath_softc *sc, struct ath_atx_tid *tid,
 	index  = ATH_BA_INDEX(tid->seq_start, seqno);
 	cindex = (tid->baw_head + index) & (ATH_TID_MAX_BUFS - 1);
 
-	tid->tx_buf[cindex] = NULL;
+	__clear_bit(cindex, tid->tx_buf);
 
-	while (tid->baw_head != tid->baw_tail && !tid->tx_buf[tid->baw_head]) {
+	while (tid->baw_head != tid->baw_tail && !test_bit(tid->baw_head, tid->tx_buf)) {
 		INCR(tid->seq_start, IEEE80211_SEQ_MAX);
 		INCR(tid->baw_head, ATH_TID_MAX_BUFS);
 	}
@@ -193,9 +193,7 @@ static void ath_tx_addto_baw(struct ath_softc *sc, struct ath_atx_tid *tid,
 
 	index  = ATH_BA_INDEX(tid->seq_start, bf->bf_seqno);
 	cindex = (tid->baw_head + index) & (ATH_TID_MAX_BUFS - 1);
-
-	BUG_ON(tid->tx_buf[cindex] != NULL);
-	tid->tx_buf[cindex] = bf;
+	__set_bit(cindex, tid->tx_buf);
 
 	if (index >= ((tid->baw_tail - tid->baw_head) &
 		(ATH_TID_MAX_BUFS - 1))) {
@@ -296,7 +294,6 @@ static struct ath_buf* ath_clone_txbuf(struct ath_softc *sc, struct ath_buf *bf)
 	tbf->bf_buf_addr = bf->bf_buf_addr;
 	memcpy(tbf->bf_desc, bf->bf_desc, sc->sc_ah->caps.tx_desc_len);
 	tbf->bf_state = bf->bf_state;
-	tbf->bf_dmacontext = bf->bf_dmacontext;
 
 	return tbf;
 }
@@ -332,8 +329,7 @@ static void ath_tx_complete_aggr(struct ath_softc *sc, struct ath_txq *txq,
 
 	rcu_read_lock();
 
-	/* XXX: use ieee80211_find_sta! */
-	sta = ieee80211_find_sta_by_hw(hw, hdr->addr1);
+	sta = ieee80211_find_sta_by_ifaddr(hw, hdr->addr1, hdr->addr2);
 	if (!sta) {
 		rcu_read_unlock();
 
@@ -677,6 +673,7 @@ static enum ATH_AGGR_STATUS ath_tx_form_aggr(struct ath_softc *sc,
 	u16 aggr_limit = 0, al = 0, bpad = 0,
 		al_delta, h_baw = tid->baw_size / 2;
 	enum ATH_AGGR_STATUS status = ATH_AGGR_DONE;
+	struct ieee80211_tx_info *tx_info;
 
 	bf_first = list_first_entry(&tid->buf_q, struct ath_buf, list);
 
@@ -702,6 +699,11 @@ static enum ATH_AGGR_STATUS ath_tx_form_aggr(struct ath_softc *sc,
 			status = ATH_AGGR_LIMITED;
 			break;
 		}
+
+		tx_info = IEEE80211_SKB_CB(bf->bf_mpdu);
+		if (nframes && ((tx_info->flags & IEEE80211_TX_CTL_RATE_CTRL_PROBE) ||
+			!(tx_info->control.rates[0].flags & IEEE80211_TX_RC_MCS)))
+			break;
 
 		/* do not exceed subframe limit */
 		if (nframes >= min((int)h_baw, ATH_AMPDU_SUBFRAME_DEFAULT)) {
@@ -858,20 +860,6 @@ void ath_tx_aggr_resume(struct ath_softc *sc, struct ieee80211_sta *sta, u16 tid
 		txtid->state &= ~AGGR_ADDBA_PROGRESS;
 		ath_tx_resume_tid(sc, txtid);
 	}
-}
-
-bool ath_tx_aggr_check(struct ath_softc *sc, struct ath_node *an, u8 tidno)
-{
-	struct ath_atx_tid *txtid;
-
-	if (!(sc->sc_flags & SC_OP_TXAGGR))
-		return false;
-
-	txtid = ATH_AN_2_TID(an, tidno);
-
-	if (!(txtid->state & (AGGR_ADDBA_COMPLETE | AGGR_ADDBA_PROGRESS)))
-			return true;
-	return false;
 }
 
 /********************/
@@ -1132,7 +1120,7 @@ void ath_draintxq(struct ath_softc *sc, struct ath_txq *txq, bool retry_tx)
 	}
 }
 
-void ath_drain_all_txq(struct ath_softc *sc, bool retry_tx)
+bool ath_drain_all_txq(struct ath_softc *sc, bool retry_tx)
 {
 	struct ath_hw *ah = sc->sc_ah;
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
@@ -1140,7 +1128,7 @@ void ath_drain_all_txq(struct ath_softc *sc, bool retry_tx)
 	int i, npend = 0;
 
 	if (sc->sc_flags & SC_OP_INVALID)
-		return;
+		return true;
 
 	/* Stop beacon queue */
 	ath9k_hw_stoptxdma(sc->sc_ah, sc->beacon.beaconq);
@@ -1154,25 +1142,15 @@ void ath_drain_all_txq(struct ath_softc *sc, bool retry_tx)
 		}
 	}
 
-	if (npend) {
-		int r;
-
-		ath_print(common, ATH_DBG_FATAL,
-			  "Failed to stop TX DMA. Resetting hardware!\n");
-
-		spin_lock_bh(&sc->sc_resetlock);
-		r = ath9k_hw_reset(ah, sc->sc_ah->curchan, ah->caldata, false);
-		if (r)
-			ath_print(common, ATH_DBG_FATAL,
-				  "Unable to reset hardware; reset status %d\n",
-				  r);
-		spin_unlock_bh(&sc->sc_resetlock);
-	}
+	if (npend)
+		ath_print(common, ATH_DBG_FATAL, "Failed to stop TX DMA!\n");
 
 	for (i = 0; i < ATH9K_NUM_TX_QUEUES; i++) {
 		if (ATH_TXQ_SETUP(sc, i))
 			ath_draintxq(sc, &sc->tx.txq[i], retry_tx);
 	}
+
+	return !npend;
 }
 
 void ath_tx_cleanupq(struct ath_softc *sc, struct ath_txq *txq)
@@ -1403,22 +1381,6 @@ static enum ath9k_pkt_type get_hw_packet_type(struct sk_buff *skb)
 		htype = ATH9K_PKT_TYPE_NORMAL;
 
 	return htype;
-}
-
-static int get_hw_crypto_keytype(struct sk_buff *skb)
-{
-	struct ieee80211_tx_info *tx_info = IEEE80211_SKB_CB(skb);
-
-	if (tx_info->control.hw_key) {
-		if (tx_info->control.hw_key->alg == ALG_WEP)
-			return ATH9K_KEY_TYPE_WEP;
-		else if (tx_info->control.hw_key->alg == ALG_TKIP)
-			return ATH9K_KEY_TYPE_TKIP;
-		else if (tx_info->control.hw_key->alg == ALG_CCMP)
-			return ATH9K_KEY_TYPE_AES;
-	}
-
-	return ATH9K_KEY_TYPE_CLEAR;
 }
 
 static void assign_aggr_tid_seqno(struct sk_buff *skb,
@@ -1659,7 +1621,7 @@ static int ath_tx_setup_buffer(struct ieee80211_hw *hw, struct ath_buf *bf,
 		bf->bf_state.bfs_paprd_timestamp = jiffies;
 	bf->bf_flags = setup_tx_flags(skb, use_ldpc);
 
-	bf->bf_keytype = get_hw_crypto_keytype(skb);
+	bf->bf_keytype = ath9k_cmn_get_hw_crypto_keytype(skb);
 	if (bf->bf_keytype != ATH9K_KEY_TYPE_CLEAR) {
 		bf->bf_frmlen += tx_info->control.hw_key->icv_len;
 		bf->bf_keyix = tx_info->control.hw_key->hw_key_idx;
@@ -1673,23 +1635,15 @@ static int ath_tx_setup_buffer(struct ieee80211_hw *hw, struct ath_buf *bf,
 
 	bf->bf_mpdu = skb;
 
-	bf->bf_dmacontext = dma_map_single(sc->dev, skb->data,
-					   skb->len, DMA_TO_DEVICE);
-	if (unlikely(dma_mapping_error(sc->dev, bf->bf_dmacontext))) {
+	bf->bf_buf_addr = dma_map_single(sc->dev, skb->data,
+					 skb->len, DMA_TO_DEVICE);
+	if (unlikely(dma_mapping_error(sc->dev, bf->bf_buf_addr))) {
 		bf->bf_mpdu = NULL;
+		bf->bf_buf_addr = 0;
 		ath_print(ath9k_hw_common(sc->sc_ah), ATH_DBG_FATAL,
 			  "dma_mapping_error() on TX\n");
 		return -ENOMEM;
 	}
-
-	bf->bf_buf_addr = bf->bf_dmacontext;
-
-	/* tag if this is a nullfunc frame to enable PS when AP acks it */
-	if (ieee80211_is_nullfunc(fc) && ieee80211_has_pm(fc)) {
-		bf->bf_isnullfunc = true;
-		sc->ps_flags &= ~PS_NULLFUNC_COMPLETED;
-	} else
-		bf->bf_isnullfunc = false;
 
 	bf->bf_tx_aborted = false;
 
@@ -1954,7 +1908,8 @@ static void ath_tx_complete_buf(struct ath_softc *sc, struct ath_buf *bf,
 			tx_flags |= ATH_TX_XRETRY;
 	}
 
-	dma_unmap_single(sc->dev, bf->bf_dmacontext, skb->len, DMA_TO_DEVICE);
+	dma_unmap_single(sc->dev, bf->bf_buf_addr, skb->len, DMA_TO_DEVICE);
+	bf->bf_buf_addr = 0;
 
 	if (bf->bf_state.bfs_paprd) {
 		if (time_after(jiffies,
@@ -1964,9 +1919,13 @@ static void ath_tx_complete_buf(struct ath_softc *sc, struct ath_buf *bf,
 		else
 			complete(&sc->paprd_complete);
 	} else {
-		ath_tx_complete(sc, skb, bf->aphy, tx_flags);
 		ath_debug_stat_tx(sc, txq, bf, ts);
+		ath_tx_complete(sc, skb, bf->aphy, tx_flags);
 	}
+	/* At this point, skb (bf->bf_mpdu) is consumed...make sure we don't
+	 * accidentally reference it later.
+	 */
+	bf->bf_mpdu = NULL;
 
 	/*
 	 * Return the list of ath_buf of this mpdu to free queue
@@ -2122,18 +2081,6 @@ static void ath_tx_processq(struct ath_softc *sc, struct ath_txq *txq)
 		}
 
 		/*
-		 * We now know the nullfunc frame has been ACKed so we
-		 * can disable RX.
-		 */
-		if (bf->bf_isnullfunc &&
-		    (ts.ts_status & ATH9K_TX_ACKED)) {
-			if ((sc->ps_flags & PS_ENABLED))
-				ath9k_enable_ps(sc);
-			else
-				sc->ps_flags |= PS_NULLFUNC_COMPLETED;
-		}
-
-		/*
 		 * Remove ath_buf's of the same transmit unit from txq,
 		 * however leave the last descriptor back as the holding
 		 * descriptor for hw.
@@ -2275,17 +2222,6 @@ void ath_tx_edma_tasklet(struct ath_softc *sc)
 		spin_unlock_bh(&txq->axq_lock);
 
 		txok = !(txs.ts_status & ATH9K_TXERR_MASK);
-
-		/*
-		 * Make sure null func frame is acked before configuring
-		 * hw into ps mode.
-		 */
-		if (bf->bf_isnullfunc && txok) {
-			if ((sc->ps_flags & PS_ENABLED))
-				ath9k_enable_ps(sc);
-			else
-				sc->ps_flags |= PS_NULLFUNC_COMPLETED;
-		}
 
 		if (!bf_isampdu(bf)) {
 			if (txs.ts_status & ATH9K_TXERR_XRETRY)

@@ -12,11 +12,12 @@ void pnp_unregister_protocol(struct pnp_protocol *protocol);
 
 #define PNP_EISA_ID_MASK 0x7fffffff
 void pnp_eisa_id_to_string(u32 id, char *str);
-struct pnp_dev *pnp_alloc_dev(struct pnp_protocol *, int id, char *pnpid);
+struct pnp_dev *pnp_alloc_dev(struct pnp_protocol *, int id,
+			      const char *pnpid);
 struct pnp_card *pnp_alloc_card(struct pnp_protocol *, int id, char *pnpid);
 
 int pnp_add_device(struct pnp_dev *dev);
-struct pnp_id *pnp_add_id(struct pnp_dev *dev, char *id);
+struct pnp_id *pnp_add_id(struct pnp_dev *dev, const char *id);
 
 int pnp_add_card(struct pnp_card *card);
 void pnp_remove_card(struct pnp_card *card);
@@ -170,16 +171,12 @@ struct pnp_resource *pnp_add_bus_resource(struct pnp_dev *dev,
 					  resource_size_t start,
 					  resource_size_t end);
 
-#if defined(CONFIG_DYNAMIC_DEBUG)
-#define pnp_dbg(dev, format, arg...)					\
-	({ dev_dbg(dev, format, ## arg); 0; })
-#else
-#if defined(CONFIG_PNP_DEBUG_MESSAGES)
 extern int pnp_debug;
+
+#if defined(CONFIG_PNP_DEBUG_MESSAGES)
 #define pnp_dbg(dev, format, arg...)					\
 	({ if (pnp_debug) dev_printk(KERN_DEBUG, dev, format, ## arg); 0; })
 #else
 #define pnp_dbg(dev, format, arg...)					\
 	({ if (0) dev_printk(KERN_DEBUG, dev, format, ## arg); 0; })
-#endif
 #endif

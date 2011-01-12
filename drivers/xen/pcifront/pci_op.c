@@ -594,9 +594,9 @@ static pci_ers_result_t pcifront_common_process( int cmd, struct pcifront_device
 	result = PCI_ERS_RESULT_NONE;
 
 	pcidev = pci_get_bus_and_slot(bus, devfn);
-	if (!pcidev || !pcidev->driver){
-		dev_err(&pcidev->dev, 
-			"device or driver is NULL\n");
+	if (!pcidev || !pcidev->driver) {
+		pci_dev_put(pcidev);
+		dev_err(&pdev->xdev->dev, "AER device or driver is NULL\n");
 		return result;
 	}
 	pdrv = pcidev->driver;

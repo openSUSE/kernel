@@ -14,6 +14,8 @@
 #include <linux/moduleparam.h>
 #include <linux/timer.h>
 
+#include "internals.h"
+
 static int irqfixup __read_mostly;
 
 #define POLL_SPURIOUS_IRQ_INTERVAL (HZ/10)
@@ -78,8 +80,8 @@ static int try_one_irq(int irq, struct irq_desc *desc)
 	 * If we did actual work for the real IRQ line we must let the
 	 * IRQ controller clean up too
 	 */
-	if (work && desc->chip && desc->chip->end)
-		desc->chip->end(irq);
+	if (work)
+		irq_end(irq, desc);
 	raw_spin_unlock(&desc->lock);
 
 	return ok;
@@ -213,17 +215,9 @@ try_misrouted_irq(unsigned int irq, struct irq_desc *desc,
 	return action && (action->flags & IRQF_IRQPOLL);
 }
 
-/*
- * The parameter "only_fixup" means that the function should be only executed
- * if this parameter is set either to false or to true simultaneously with
- * irqfixup enabled.
- */
 void note_interrupt(unsigned int irq, struct irq_desc *desc,
-		    irqreturn_t action_ret, bool only_fixup)
+		    irqreturn_t action_ret)
 {
-	if (only_fixup && irqfixup == 0)
-		return;
-
 	if (unlikely(action_ret != IRQ_HANDLED)) {
 		/*
 		 * If we are seeing only the odd spurious IRQ caused by
@@ -262,7 +256,7 @@ void note_interrupt(unsigned int irq, struct irq_desc *desc,
 		printk(KERN_EMERG "Disabling IRQ #%d\n", irq);
 		desc->status |= IRQ_DISABLED | IRQ_SPURIOUS_DISABLED;
 		desc->depth++;
-		desc->chip->disable(irq);
+		desc->irq_data.chip->irq_disable(&desc->irq_data);
 
 		mod_timer(&poll_spurious_irq_timer,
 			  jiffies + POLL_SPURIOUS_IRQ_INTERVAL);
