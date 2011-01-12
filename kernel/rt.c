@@ -208,7 +208,7 @@ int __lockfunc rt_read_trylock(rwlock_t *rwlock)
 	 * but not when read_depth == 0 which means that the lock is
 	 * write locked.
 	 */
-	if (rt_mutex_real_owner(lock) != current)
+	if (rt_mutex_owner(lock) != current)
 		ret = rt_mutex_trylock(lock);
 	else if (!rwlock->read_depth)
 		ret = 0;
@@ -238,7 +238,7 @@ void __lockfunc rt_read_lock(rwlock_t *rwlock)
 	/*
 	 * recursive read locks succeed when current owns the lock
 	 */
-	if (rt_mutex_real_owner(lock) != current)
+	if (rt_mutex_owner(lock) != current)
 		__rt_spin_lock(lock);
 	rwlock->read_depth++;
 }
@@ -318,7 +318,7 @@ EXPORT_SYMBOL(rt_up_read);
  */
 void  rt_downgrade_write(struct rw_semaphore *rwsem)
 {
-	BUG_ON(rt_mutex_real_owner(&rwsem->lock) != current);
+	BUG_ON(rt_mutex_owner(&rwsem->lock) != current);
 	rwsem->read_depth = 1;
 }
 EXPORT_SYMBOL(rt_downgrade_write);
@@ -357,7 +357,7 @@ int  rt_down_read_trylock(struct rw_semaphore *rwsem)
 	 * but not when read_depth == 0 which means that the rwsem is
 	 * write locked.
 	 */
-	if (rt_mutex_real_owner(lock) != current)
+	if (rt_mutex_owner(lock) != current)
 		ret = rt_mutex_trylock(&rwsem->lock);
 	else if (!rwsem->read_depth)
 		ret = 0;
@@ -376,7 +376,7 @@ static void __rt_down_read(struct rw_semaphore *rwsem, int subclass)
 
 	rwsem_acquire_read(&rwsem->dep_map, subclass, 0, _RET_IP_);
 
-	if (rt_mutex_real_owner(lock) != current)
+	if (rt_mutex_owner(lock) != current)
 		rt_mutex_lock(&rwsem->lock);
 	rwsem->read_depth++;
 }
