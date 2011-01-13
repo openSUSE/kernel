@@ -13,6 +13,7 @@
 #include <linux/errno.h>
 
 struct device;
+struct gpio;
 struct gpio_chip;
 
 /*
@@ -29,7 +30,18 @@ static inline int gpio_is_valid(int number)
 	return 0;
 }
 
-static inline int gpio_request(unsigned gpio, const char *label)
+static inline int __must_check gpio_request(unsigned gpio, const char *label)
+{
+	return -ENOSYS;
+}
+
+static inline int __must_check gpio_request_one(unsigned gpio,
+					unsigned long flags, const char *label)
+{
+	return -ENOSYS;
+}
+
+static inline int __must_check gpio_request_array(struct gpio *array, size_t num)
 {
 	return -ENOSYS;
 }
@@ -42,12 +54,20 @@ static inline void gpio_free(unsigned gpio)
 	WARN_ON(1);
 }
 
-static inline int gpio_direction_input(unsigned gpio)
+static inline void gpio_free_array(struct gpio *array, size_t num)
+{
+	might_sleep();
+
+	/* GPIO can never have been requested */
+	WARN_ON(1);
+}
+
+static inline int __must_check gpio_direction_input(unsigned gpio)
 {
 	return -ENOSYS;
 }
 
-static inline int gpio_direction_output(unsigned gpio, int value)
+static inline int __must_check gpio_direction_output(unsigned gpio, int value)
 {
 	return -ENOSYS;
 }
