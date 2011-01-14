@@ -479,6 +479,14 @@ static int nameidata_dentry_drop_rcu(struct nameidata *nd, struct dentry *dentry
 	struct fs_struct *fs = current->fs;
 	struct dentry *parent = nd->path.dentry;
 
+	/*
+	 * It can be possible to revalidate the dentry that we started
+	 * the path walk with. force_reval_path may also revalidate the
+	 * dentry already committed to the nameidata.
+	 */
+	if (unlikely(parent == dentry))
+		return nameidata_drop_rcu(nd);
+
 	BUG_ON(!(nd->flags & LOOKUP_RCU));
 	if (nd->root.mnt) {
 		spin_lock(&fs->lock);
@@ -583,6 +591,13 @@ void release_open_intent(struct nameidata *nd)
 		fput(nd->intent.open.file);
 }
 
+/*
+ * Call d_revalidate and handle filesystems that request rcu-walk
+ * to be dropped. This may be called and return in rcu-walk mode,
+ * regardless of success or error. If -ECHILD is returned, the caller
+ * must return -ECHILD back up the path walk stack so path walk may
+ * be restarted in ref-walk mode.
+ */
 static int d_revalidate(struct dentry *dentry, struct nameidata *nd)
 {
 	int status;
@@ -673,6 +688,9 @@ force_reval_path(struct path *path, struct nameidata *nd)
 		return 0;
 
 	if (!status) {
+		/* Don't d_invalidate in rcu-walk mode */
+		if (nameidata_drop_rcu(nd))
+			return -ECHILD;
 		d_invalidate(dentry);
 		status = -ESTALE;
 	}
@@ -761,7 +779,8 @@ static void path_put_conditional(struct path *path, struct nameidata *nd)
 		mntput(path->mnt);
 }
 
-static inline void path_to_nameidata(struct path *path, struct nameidata *nd)
+static inline void path_to_nameidata(const struct path *path,
+					struct nameidata *nd)
 {
 	if (!(nd->flags & LOOKUP_RCU)) {
 		dput(nd->path.dentry);
@@ -773,20 +792,20 @@ static inline void path_to_nameidata(struct path *path, struct nameidata *nd)
 }
 
 static __always_inline int
-__do_follow_link(struct path *path, struct nameidata *nd, void **p)
+__do_follow_link(const struct path *link, struct nameidata *nd, void **p)
 {
 	int error;
-	struct dentry *dentry = path->dentry;
+	struct dentry *dentry = link->dentry;
 
-	touch_atime(path->mnt, dentry);
+	touch_atime(link->mnt, dentry);
 	nd_set_link(nd, NULL);
 
-	if (path->mnt != nd->path.mnt) {
-		path_to_nameidata(path, nd);
+	if (link->mnt != nd->path.mnt) {
+		path_to_nameidata(link, nd);
 		nd->inode = nd->path.dentry->d_inode;
 		dget(dentry);
 	}
-	mntget(path->mnt);
+	mntget(link->mnt);
 
 	nd->last_type = LAST_BIND;
 	*p = dentry->d_inode->i_op->follow_link(dentry, nd);
@@ -2105,11 +2124,13 @@ static struct file *do_last(struct nameidata *nd, struct path *path,
 		dir = nd->path.dentry;
 	case LAST_DOT:
 		if (need_reval_dot(dir)) {
-			error = d_revalidate(nd->path.dentry, nd);
-			if (!error)
-				error = -ESTALE;
-			if (error < 0)
+			int status = d_revalidate(nd->path.dentry, nd);
+			if (!status)
+				status = -ESTALE;
+			if (status < 0) {
+				error = status;
 				goto exit;
+			}
 		}
 		/* fallthrough */
 	case LAST_ROOT:
@@ -2328,11 +2349,12 @@ reval:
 	nd.flags = flags;
 	filp = do_last(&nd, &path, open_flag, acc_mode, mode, pathname);
 	while (unlikely(!filp)) { /* trailing symlink */
-		struct path holder;
+		struct path link = path;
+		struct inode *linki = link.dentry->d_inode;
 		void *cookie;
 		error = -ELOOP;
 		/* S_ISDIR part is a temporary automount kludge */
-		if (!(nd.flags & LOOKUP_FOLLOW) && !S_ISDIR(nd.inode->i_mode))
+		if (!(nd.flags & LOOKUP_FOLLOW) && !S_ISDIR(linki->i_mode))
 			goto exit_dput;
 		if (count++ == 32)
 			goto exit_dput;
@@ -2348,23 +2370,22 @@ reval:
 		 * just set LAST_BIND.
 		 */
 		nd.flags |= LOOKUP_PARENT;
-		error = security_inode_follow_link(path.dentry, &nd);
+		error = security_inode_follow_link(link.dentry, &nd);
 		if (error)
 			goto exit_dput;
-		error = __do_follow_link(&path, &nd, &cookie);
+		error = __do_follow_link(&link, &nd, &cookie);
 		if (unlikely(error)) {
-			if (!IS_ERR(cookie) && nd.inode->i_op->put_link)
-				nd.inode->i_op->put_link(path.dentry, &nd, cookie);
+			if (!IS_ERR(cookie) && linki->i_op->put_link)
+				linki->i_op->put_link(link.dentry, &nd, cookie);
 			/* nd.path had been dropped */
-			nd.path = path;
+			nd.path = link;
 			goto out_path;
 		}
-		holder = path;
 		nd.flags &= ~LOOKUP_PARENT;
 		filp = do_last(&nd, &path, open_flag, acc_mode, mode, pathname);
-		if (nd.inode->i_op->put_link)
-			nd.inode->i_op->put_link(holder.dentry, &nd, cookie);
-		path_put(&holder);
+		if (linki->i_op->put_link)
+			linki->i_op->put_link(link.dentry, &nd, cookie);
+		path_put(&link);
 	}
 out:
 	if (nd.root.mnt)
