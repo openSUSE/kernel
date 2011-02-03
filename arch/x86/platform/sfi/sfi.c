@@ -31,7 +31,8 @@
 #include <asm/setup.h>
 #include <asm/apic.h>
 
-#if defined(CONFIG_X86_LOCAL_APIC) && !defined(CONFIG_XEN)
+#ifdef CONFIG_X86_LOCAL_APIC
+#ifndef CONFIG_XEN
 static unsigned long sfi_lapic_addr __initdata = APIC_DEFAULT_PHYS_BASE;
 
 static void __init mp_sfi_register_lapic_address(unsigned long address)
@@ -58,6 +59,10 @@ static void __cpuinit mp_sfi_register_lapic(u8 id)
 
 	generic_processor_info(id, GET_APIC_VERSION(apic_read(APIC_LVR)));
 }
+#else
+#define mp_sfi_register_lapic(id)
+#define mp_sfi_register_lapic_address(address)
+#endif
 
 static int __init sfi_parse_cpus(struct sfi_table_header *table)
 {
@@ -112,7 +117,7 @@ static int __init sfi_parse_ioapic(struct sfi_table_header *table)
  */
 int __init sfi_platform_init(void)
 {
-#if defined(CONFIG_X86_LOCAL_APIC) && !defined(CONFIG_XEN)
+#ifdef CONFIG_X86_LOCAL_APIC
 	mp_sfi_register_lapic_address(sfi_lapic_addr);
 	sfi_table_parse(SFI_SIG_CPUS, NULL, NULL, sfi_parse_cpus);
 #endif

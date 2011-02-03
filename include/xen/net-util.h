@@ -16,8 +16,8 @@ static inline int skb_checksum_setup(struct sk_buff *skb)
 	if (skb->protocol != htons(ETH_P_IP))
 		goto out;
 
-	iph = ip_hdr(skb);
-	th = skb_network_header(skb) + 4 * iph->ihl;
+	iph = (void *)skb->data;
+	th = skb->data + 4 * iph->ihl;
 	if (th >= skb_tail_pointer(skb))
 		goto out;
 
@@ -33,7 +33,7 @@ static inline int skb_checksum_setup(struct sk_buff *skb)
 		if (net_ratelimit())
 			pr_err("Attempting to checksum a non-"
 			       "TCP/UDP packet, dropping a protocol"
-			       " %d packet", iph->protocol);
+			       " %d packet\n", iph->protocol);
 		goto out;
 	}
 

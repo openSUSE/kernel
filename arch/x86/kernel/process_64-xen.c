@@ -47,9 +47,7 @@
 #include <asm/i387.h>
 #include <asm/mmu_context.h>
 #include <asm/prctl.h>
-#include <xen/interface/platform.h>
 #include <xen/interface/physdev.h>
-#include <xen/interface/vcpu.h>
 #include <asm/desc.h>
 #include <asm/proto.h>
 #include <asm/hardirq.h>
@@ -59,8 +57,6 @@
 #include <asm/debugreg.h>
 
 #include <trace/events/power.h>
-
-#include <xen/cpu_hotplug.h>
 
 asmlinkage extern void ret_from_fork(void);
 

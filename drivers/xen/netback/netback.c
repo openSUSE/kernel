@@ -1524,11 +1524,10 @@ static void net_tx_action(unsigned long group)
 			__pskb_pull_tail(skb, target - skb_headlen(skb));
 		}
 
-		skb->dev      = dev;
 		skb->protocol = eth_type_trans(skb, dev);
 
 		if (skb->ip_summed == CHECKSUM_PARTIAL
-		    ? skb_checksum_setup(skb) : skb_is_gso(skb)) {
+		    ? skb_checksum_setup(skb) : 0 /* ??? skb_is_gso(skb) */) {
 			DPRINTK("%s\n", skb->ip_summed == CHECKSUM_PARTIAL
 				? "Can't setup checksum in net_tx_action"
 				: "Dropping GSO w/o CHECKSUM_PARTIAL skb");

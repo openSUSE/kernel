@@ -324,6 +324,11 @@ static int scsifront_queuecommand(struct Scsi_Host *shost,
 	int ref_cnt;
 	uint16_t rqid;
 
+/* debug printk to identify more missing scsi commands
+	printk(KERN_INFO "scsicmd: len=%i, 0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x",sc->cmd_len,
+		sc->cmnd[0],sc->cmnd[1],sc->cmnd[2],sc->cmnd[3],sc->cmnd[4],
+		sc->cmnd[5],sc->cmnd[6],sc->cmnd[7],sc->cmnd[8],sc->cmnd[9]);
+*/
 	spin_lock_irqsave(shost->host_lock, flags);
 	if (RING_FULL(&info->ring)) {
 		spin_unlock_irqrestore(shost->host_lock, flags);

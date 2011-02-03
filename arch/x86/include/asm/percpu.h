@@ -282,7 +282,7 @@ do {									\
 #define percpu_xor(var, val)		percpu_to_op("xor", var, val)
 #define percpu_inc(var)		percpu_unary_op("inc", var)
 #define percpu_xchg(var, val)		percpu_xchg_op("xchg", var, val)
-#if defined(CONFIG_X86_XADD) || defined(CONFIG_X86_64)
+#ifdef CONFIG_X86_XADD
 #define percpu_xadd(var, val)		percpu_xchg_op("xadd", var, val)
 #endif
 

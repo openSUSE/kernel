@@ -71,10 +71,8 @@ static inline int invalid_vm86_irq(int irq)
 # define CPU_VECTOR_LIMIT		PIRQ_MAX(32 * NR_CPUS)
 #endif
 
-#ifdef CONFIG_X86_IO_APIC
-# if !defined(NR_CPUS) || !defined(MAX_IO_APICS)
-/* nothing */
-# elif defined(CONFIG_SPARSE_IRQ)
+#if defined(CONFIG_X86_IO_APIC)
+# ifdef CONFIG_SPARSE_IRQ
 #  define NR_PIRQS					\
 	(CPU_VECTOR_LIMIT > IO_APIC_VECTOR_LIMIT ?	\
 		(NR_VECTORS + CPU_VECTOR_LIMIT)  :	\
