@@ -27,7 +27,7 @@ obj-$(CONFIG_K8_NUMA)		+= k8topology_64.o
 obj-$(CONFIG_ACPI_NUMA)		+= srat_$(BITS).o
 
 obj-$(CONFIG_XEN)		+= hypervisor.o
-disabled-obj-$(CONFIG_XEN)	:= tlb.o
+disabled-obj-$(CONFIG_XEN)	:= gup.o tlb.o
 
 obj-$(CONFIG_HAVE_MEMBLOCK)		+= memblock.o
 

@@ -57,11 +57,6 @@ void machine_power_off(void)
 	HYPERVISOR_shutdown(SHUTDOWN_poweroff);
 }
 
-int reboot_thru_bios = 0;	/* for dmi_scan.c */
-EXPORT_SYMBOL(machine_restart);
-EXPORT_SYMBOL(machine_halt);
-EXPORT_SYMBOL(machine_power_off);
-
 #ifdef CONFIG_PM_SLEEP
 static void pre_suspend(void)
 {

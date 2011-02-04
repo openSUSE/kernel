@@ -471,6 +471,12 @@ static void blk_release_queue(struct kobject *kobj)
 
 	blk_sync_queue(q);
 
+	/* It's possible that blk_release_queue will be called on allocated
+	 * but never initilalized queue. Fall back to our embedded per-queue
+	 * locks in this case. */
+	if (!q->queue_lock)
+		q->queue_lock = &q->__queue_lock;
+
 	blk_throtl_exit(q);
 
 	if (rl->rq_pool)

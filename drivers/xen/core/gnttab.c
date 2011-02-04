@@ -815,7 +815,12 @@ static int gnttab_expand(unsigned int req_entries)
 	return rc;
 }
 
-int __devinit gnttab_init(void)
+#ifdef CONFIG_XEN
+static int __init
+#else
+int __devinit
+#endif
+gnttab_init(void)
 {
 	int i;
 	unsigned int max_nr_glist_frames, nr_glist_frames;

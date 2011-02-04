@@ -790,7 +790,6 @@ static void  netfront_accel_vi_rx_complete(netfront_accel_vnic *vnic,
 	}
 
 	net_dev = vnic->net_dev;
-	skb->dev = net_dev;
 	skb->protocol = eth_type_trans(skb, net_dev);
 	/* CHECKSUM_UNNECESSARY as hardware has done it already */
 	skb->ip_summed = CHECKSUM_UNNECESSARY;

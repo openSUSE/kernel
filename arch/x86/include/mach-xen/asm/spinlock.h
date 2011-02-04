@@ -45,8 +45,8 @@
 
 int xen_spinlock_init(unsigned int cpu);
 void xen_spinlock_cleanup(unsigned int cpu);
-bool xen_spin_wait(arch_spinlock_t *, unsigned int *token,
-		   unsigned int flags);
+unsigned int xen_spin_wait(arch_spinlock_t *, unsigned int *token,
+			   unsigned int flags);
 unsigned int xen_spin_adjust(const arch_spinlock_t *, unsigned int token);
 void xen_spin_kick(arch_spinlock_t *, unsigned int token);
 
@@ -218,11 +218,11 @@ static __always_inline void __ticket_spin_lock(arch_spinlock_t *lock)
 	else {
 		token = xen_spin_adjust(lock, token);
 		arch_local_irq_restore(flags);
+		count = __ticket_spin_count(lock);
 		do {
-			count = __ticket_spin_count(lock);
 			__ticket_spin_lock_body;
 		} while (unlikely(!count)
-			 && !xen_spin_wait(lock, &token, flags));
+			 && (count = xen_spin_wait(lock, &token, flags)));
 	}
 	lock->owner = raw_smp_processor_id();
 }
@@ -236,11 +236,11 @@ static __always_inline void __ticket_spin_lock_flags(arch_spinlock_t *lock,
 	__ticket_spin_lock_preamble;
 	if (unlikely(!free)) {
 		token = xen_spin_adjust(lock, token);
+		count = __ticket_spin_count(lock);
 		do {
-			count = __ticket_spin_count(lock);
 			__ticket_spin_lock_body;
 		} while (unlikely(!count)
-			 && !xen_spin_wait(lock, &token, flags));
+			 && (count = xen_spin_wait(lock, &token, flags)));
 	}
 	lock->owner = raw_smp_processor_id();
 }
