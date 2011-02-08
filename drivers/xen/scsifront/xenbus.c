@@ -27,7 +27,11 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
- 
+
+/*
+* Patched to support >2TB drives
+* 2010, Samuel Kvasnica, IMS Nanofabrication AG
+*/
 
 #include <linux/version.h>
 #include <linux/slab.h>
@@ -220,6 +224,7 @@ static int scsifront_probe(struct xenbus_device *dev,
 	host->max_channel = 0;
 	host->max_lun     = VSCSIIF_MAX_LUN;
 	host->max_sectors = (VSCSIIF_SG_TABLESIZE - 1) * PAGE_SIZE / 512;
+	host->max_cmd_len = VSCSIIF_MAX_COMMAND_SIZE;
 
 	err = scsi_add_host(host, &dev->dev);
 	if (err) {

@@ -1456,7 +1456,7 @@ err:
 		skb->protocol = eth_type_trans(skb, dev);
 
 		if (skb->ip_summed == CHECKSUM_PARTIAL
-		    ? skb_checksum_setup(skb) : skb_is_gso(skb)) {
+		    ? skb_checksum_setup(skb) : 0 /* ??? skb_is_gso(skb) */) {
 			kfree_skb(skb);
 			dev->stats.rx_errors++;
 			continue;

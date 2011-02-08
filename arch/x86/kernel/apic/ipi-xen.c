@@ -21,30 +21,6 @@
 
 #include <xen/evtchn.h>
 
-static void __send_IPI_shortcut(unsigned int shortcut, int vector)
-{
-	unsigned int cpu;
-
-	switch (shortcut) {
-	case APIC_DEST_SELF:
-		notify_remote_via_ipi(vector, smp_processor_id());
-		break;
-	case APIC_DEST_ALLBUT:
-		for_each_online_cpu(cpu)
-			if (cpu != smp_processor_id())
-				notify_remote_via_ipi(vector, cpu);
-		break;
-	case APIC_DEST_ALLINC:
-		for_each_online_cpu(cpu)
-			notify_remote_via_ipi(vector, cpu);
-		break;
-	default:
-		printk("XXXXXX __send_IPI_shortcut %08x vector %d\n", shortcut,
-		       vector);
-		break;
-	}
-}
-
 void xen_send_IPI_mask_allbutself(const struct cpumask *cpumask, int vector)
 {
 	unsigned int cpu;
@@ -72,15 +48,15 @@ void xen_send_IPI_mask(const struct cpumask *cpumask, int vector)
 
 void xen_send_IPI_allbutself(int vector)
 {
-	__send_IPI_shortcut(APIC_DEST_ALLBUT, vector);
+	xen_send_IPI_mask_allbutself(cpu_online_mask, vector);
 }
 
 void xen_send_IPI_all(int vector)
 {
-	__send_IPI_shortcut(APIC_DEST_ALLINC, vector);
+	xen_send_IPI_mask(cpu_online_mask, vector);
 }
 
 void xen_send_IPI_self(int vector)
 {
-	__send_IPI_shortcut(APIC_DEST_SELF, vector);
+	notify_remote_via_ipi(vector, smp_processor_id());
 }

@@ -189,7 +189,7 @@ static irqreturn_t timer_interrupt(int irq, void *dev_id)
 
 	if (stolen >= NS_PER_TICK)
 		account_steal_ticks(div_u64_rem(stolen, NS_PER_TICK,
-				&__get_cpu_var(xen_residual_stolen)));
+				    &__get_cpu_var(xen_residual_stolen)));
 	else
 		percpu_write(xen_residual_stolen, stolen > 0 ? stolen : 0);
 
@@ -198,7 +198,7 @@ static irqreturn_t timer_interrupt(int irq, void *dev_id)
 
 	if (blocked >= NS_PER_TICK)
 		account_idle_ticks(div_u64_rem(blocked, NS_PER_TICK,
-				&__get_cpu_var(xen_residual_blocked)));
+				   &__get_cpu_var(xen_residual_blocked)));
 	else
 		percpu_write(xen_residual_blocked, blocked > 0 ? blocked : 0);
 

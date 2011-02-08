@@ -122,8 +122,8 @@ unsigned int xen_spin_adjust(const arch_spinlock_t *lock, unsigned int token)
 	return spin_adjust(percpu_read(_spinning), lock, token);
 }
 
-bool xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
-                   unsigned int flags)
+unsigned int xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
+			   unsigned int flags)
 {
 	unsigned int cpu = raw_smp_processor_id();
 	bool rc;
@@ -133,7 +133,7 @@ bool xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
 
 	/* If kicker interrupt not initialized yet, just spin. */
 	if (unlikely(!cpu_online(cpu)) || unlikely(!percpu_read(poll_evtchn)))
-		return false;
+		return UINT_MAX;
 
 	/* announce we're spinning */
 	spinning.ticket = *ptok >> TICKET_SHIFT;
@@ -232,17 +232,18 @@ bool xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
 	arch_local_irq_disable();
 	arch_write_lock(rm_lock);
 	arch_write_unlock(rm_lock);
-	*ptok = lock->cur | (spinning.ticket << TICKET_SHIFT);
 
 	/*
 	 * Obtain new tickets for (or acquire) all those locks where
 	 * above we avoided acquiring them.
 	 */
-	for (; other; other = other->prev)
-		if (!(other->ticket + 1)) {
+	if (other) {
+		do {
 			unsigned int token;
 			bool free;
 
+			if (other->ticket + 1)
+				continue;
 			lock = other->lock;
 			__ticket_spin_lock_preamble;
 			if (!free)
@@ -250,10 +251,14 @@ bool xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
 			other->ticket = token >> TICKET_SHIFT;
 			if (lock->cur == other->ticket)
 				lock->owner = cpu;
-		}
-	arch_local_irq_restore(upcall_mask);
+		} while ((other = other->prev) != NULL);
+		lock = spinning.lock;
+	}
 
-	return rc;
+	arch_local_irq_restore(upcall_mask);
+	*ptok = lock->cur | (spinning.ticket << TICKET_SHIFT);
+
+	return rc ? 0 : __ticket_spin_count(lock);
 }
 
 void xen_spin_kick(arch_spinlock_t *lock, unsigned int token)
