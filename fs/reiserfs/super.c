@@ -459,7 +459,11 @@ int remove_save_link(struct inode *inode, int truncate)
  */
 static void detach_privroot(struct super_block *s)
 {
-	struct dentry *root = REISERFS_SB(s)->priv_root;
+	struct dentry *root;
+	if (!REISERFS_SB(s))
+		return;
+
+	root = REISERFS_SB(s)->priv_root;
 	if (!root)
 		return;
 
