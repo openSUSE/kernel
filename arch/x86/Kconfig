@@ -2175,6 +2175,7 @@ config OLPC
 	depends on !XEN # due to selecting OLPC_OPENFIRMWARE
 	select GPIOLIB
 	select OLPC_OPENFIRMWARE
+	depends on !X86_64 && !X86_PAE
 	---help---
 	  Add support for detecting the unique features of the OLPC
 	  XO hardware.

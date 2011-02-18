@@ -801,10 +801,10 @@ void mtrr_aps_init(void)
 		return;
 
 	/*
- 	 * Check if someone has requested the delay of AP MTRR initialization,
- 	 * by doing set_mtrr_aps_delayed_init(), prior to this point. If not,
- 	 * then we are done.
- 	 */
+	 * Check if someone has requested the delay of AP MTRR initialization,
+	 * by doing set_mtrr_aps_delayed_init(), prior to this point. If not,
+	 * then we are done.
+	 */
 	if (!mtrr_aps_delayed_init)
 		return;
 

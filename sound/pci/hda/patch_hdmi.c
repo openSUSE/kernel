@@ -31,9 +31,14 @@
 #include <linux/init.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
+#include <linux/moduleparam.h>
 #include <sound/core.h>
 #include "hda_codec.h"
 #include "hda_local.h"
+
+static bool static_hdmi_pcm;
+module_param(static_hdmi_pcm, bool, 0644);
+MODULE_PARM_DESC(static_hdmi_pcm, "Don't restrict PCM parameters per ELD info");
 
 /*
  * The HDMI/DisplayPort configuration can be highly dynamic. A graphics device
@@ -829,7 +834,7 @@ static int hdmi_pcm_open(struct hda_pcm_stream *hinfo,
 		*codec_pars = *hinfo;
 
 	eld = &spec->sink_eld[idx];
-	if (eld->sad_count > 0) {
+	if (!static_hdmi_pcm && eld->eld_valid && eld->sad_count > 0) {
 		hdmi_eld_update_pcm_info(eld, hinfo, codec_pars);
 		if (hinfo->channels_min > hinfo->channels_max ||
 		    !hinfo->rates || !hinfo->formats)
@@ -1167,11 +1172,53 @@ static int nvhdmi_7x_init(struct hda_codec *codec)
 	return 0;
 }
 
+static unsigned int channels_2_6_8[] = {
+	2, 6, 8
+};
+
+static unsigned int channels_2_8[] = {
+	2, 8
+};
+
+static struct snd_pcm_hw_constraint_list hw_constraints_2_6_8_channels = {
+	.count = ARRAY_SIZE(channels_2_6_8),
+	.list = channels_2_6_8,
+	.mask = 0,
+};
+
+static struct snd_pcm_hw_constraint_list hw_constraints_2_8_channels = {
+	.count = ARRAY_SIZE(channels_2_8),
+	.list = channels_2_8,
+	.mask = 0,
+};
+
 static int simple_playback_pcm_open(struct hda_pcm_stream *hinfo,
 				    struct hda_codec *codec,
 				    struct snd_pcm_substream *substream)
 {
 	struct hdmi_spec *spec = codec->spec;
+	struct snd_pcm_hw_constraint_list *hw_constraints_channels = NULL;
+
+	switch (codec->preset->id) {
+	case 0x10de0002:
+	case 0x10de0003:
+	case 0x10de0005:
+	case 0x10de0006:
+		hw_constraints_channels = &hw_constraints_2_8_channels;
+		break;
+	case 0x10de0007:
+		hw_constraints_channels = &hw_constraints_2_6_8_channels;
+		break;
+	default:
+		break;
+	}
+
+	if (hw_constraints_channels != NULL) {
+		snd_pcm_hw_constraint_list(substream->runtime, 0,
+				SNDRV_PCM_HW_PARAM_CHANNELS,
+				hw_constraints_channels);
+	}
+
 	return snd_hda_multi_out_dig_open(codec, &spec->multiout);
 }
 

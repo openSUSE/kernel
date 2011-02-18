@@ -4545,7 +4545,7 @@ EXPORT_SYMBOL(wait_for_completion_interruptible);
  * This waits for either a completion of a specific task to be signaled or for a
  * specified timeout to expire. It is interruptible. The timeout is in jiffies.
  */
-unsigned long __sched
+long __sched
 wait_for_completion_interruptible_timeout(struct completion *x,
 					  unsigned long timeout)
 {
@@ -4578,7 +4578,7 @@ EXPORT_SYMBOL(wait_for_completion_killable);
  * signaled or for a specified timeout to expire. It can be
  * interrupted by a kill signal. The timeout is in jiffies.
  */
-unsigned long __sched
+long __sched
 wait_for_completion_killable_timeout(struct completion *x,
 				     unsigned long timeout)
 {
@@ -9202,11 +9202,9 @@ static void
 cpu_cgroup_exit(struct cgroup_subsys *ss, struct task_struct *task)
 {
 	/*
-	 * cgroup_exit() is called in the copy_process failure path.
-	 * The task isn't hashed, and we don't want to make autogroup
-	 * dig into a freed signal_struct, so just go away.
-	 *
-	 * XXX: why are cgroup methods diddling unattached tasks?
+	 * cgroup_exit() is called in the copy_process() failure path.
+	 * Ignore this case since the task hasn't ran yet, this avoids
+	 * trying to poke a half freed task state from generic code.
 	 */
 	if (!(task->flags & PF_EXITING))
 		return;
