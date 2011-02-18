@@ -290,6 +290,10 @@ static int ath_pci_resume(struct pci_dev *pdev)
 			    AR_GPIO_OUTPUT_MUX_AS_OUTPUT);
 	ath9k_hw_set_gpio(sc->sc_ah, sc->sc_ah->led_pin, 1);
 
+	sc->ps_idle = true;
+	ath9k_set_wiphy_idle(aphy, true);
+	ath_radio_disable(sc, hw);
+
 	return 0;
 }
 
