@@ -1399,8 +1399,13 @@ bool iwl_good_ack_health(struct iwl_priv *priv, struct iwl_rx_packet *pkt)
 	if (priv->_agn.agg_tids_count)
 		return true;
 
-	cur = &pkt->u.stats.tx;
-	old = &priv->_agn.statistics.tx;
+	if (priv->cfg->bt_params && priv->cfg->bt_params->bt_statistics) {
+		cur = &pkt->u.stats_bt.tx;
+		old = &priv->_agn.statistics_bt.tx;
+	} else {
+		cur = &pkt->u.stats.tx;
+		old = &priv->_agn.statistics.tx;
+	}
 
 	actual_delta = le32_to_cpu(cur->actual_ack_cnt) -
 		       le32_to_cpu(old->actual_ack_cnt);
