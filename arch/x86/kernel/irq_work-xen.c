@@ -7,6 +7,7 @@
 #include <linux/hardirq.h>
 #include <asm/ipi.h>
 
+#ifdef CONFIG_SMP
 void smp_irq_work_interrupt(struct pt_regs *regs)
 {
 	inc_irq_stat(apic_irq_work_irqs);
@@ -17,3 +18,4 @@ void arch_irq_work_raise(void)
 {
 	xen_send_IPI_self(IRQ_WORK_VECTOR);
 }
+#endif

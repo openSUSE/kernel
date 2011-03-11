@@ -1434,7 +1434,7 @@ int irq_ignore_unhandled(unsigned int irq)
 	return !!(irq_status.flags & XENIRQSTAT_shared);
 }
 
-#ifndef PER_CPU_IPI_IRQ
+#if defined(CONFIG_SMP) && !defined(PER_CPU_IPI_IRQ)
 void notify_remote_via_ipi(unsigned int ipi, unsigned int cpu)
 {
 	int evtchn = per_cpu(ipi_evtchn, cpu);
@@ -1772,8 +1772,7 @@ struct irq_cfg *alloc_irq_and_cfg_at(unsigned int at, int node)
 
 	return cfg;
 #else
-	BUG();
-	return NULL;
+	return irq_cfg(at);
 #endif
 }
 

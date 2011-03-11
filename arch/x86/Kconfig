@@ -2172,7 +2172,6 @@ config SCx200HR_TIMER
 
 config OLPC
 	bool "One Laptop Per Child support"
-	depends on !XEN # due to selecting OLPC_OPENFIRMWARE
 	select GPIOLIB
 	select OLPC_OPENFIRMWARE
 	depends on !X86_64 && !X86_PAE
