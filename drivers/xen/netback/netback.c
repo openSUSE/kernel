@@ -271,7 +271,7 @@ static struct sk_buff *netbk_copy_skb(struct sk_buff *skb)
 
 static inline int netbk_max_required_rx_slots(netif_t *netif)
 {
-	if (netif->features & (NETIF_F_SG|NETIF_F_TSO))
+	if (netif->can_sg || netif->gso)
 		return MAX_SKB_FRAGS + 2; /* header + extra_info + frags */
 	return 1; /* all in one */
 }

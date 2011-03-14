@@ -90,8 +90,6 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 		BUG_ON(!xen_feature(XENFEAT_writable_page_tables) &&
 		       !PagePinned(virt_to_page(next->pgd)));
 
-		/* stop flush ipis for the previous mm */
-		cpumask_clear_cpu(cpu, mm_cpumask(prev));
 #if defined(CONFIG_SMP) && !defined(CONFIG_XEN) /* XEN: no lazy tlb */
 		percpu_write(cpu_tlbstate.state, TLBSTATE_OK);
 		percpu_write(cpu_tlbstate.active_mm, next);
@@ -123,6 +121,9 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 		}
 
 		BUG_ON(HYPERVISOR_mmuext_op(_op, op-_op, NULL, DOMID_SELF));
+
+		/* stop TLB flushes for the previous mm */
+		cpumask_clear_cpu(cpu, mm_cpumask(prev));
 	}
 #if defined(CONFIG_SMP) && !defined(CONFIG_XEN) /* XEN: no lazy tlb */
 	else {

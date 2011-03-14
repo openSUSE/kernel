@@ -1127,11 +1127,8 @@ static void alc_automute_speaker(struct hda_codec *codec, int pinctl)
 		nid = spec->autocfg.hp_pins[i];
 		if (!nid)
 			break;
-		if (snd_hda_jack_detect(codec, nid)) {
-			spec->jack_present = 1;
-			break;
-		}
-		alc_report_jack(codec, spec->autocfg.hp_pins[i]);
+		alc_report_jack(codec, nid);
+		spec->jack_present |= snd_hda_jack_detect(codec, nid);
 	}
 
 	mute = spec->jack_present ? HDA_AMP_MUTE : 0;
@@ -1682,6 +1679,8 @@ struct alc_fixup {
 	unsigned int sku;
 	const struct alc_pincfg *pins;
 	const struct hda_verb *verbs;
+	void (*func)(struct hda_codec *codec, const struct alc_fixup *fix,
+		     int pre_init);
 };
 
 static void alc_pick_fixup(struct hda_codec *codec,
@@ -1720,6 +1719,13 @@ static void alc_pick_fixup(struct hda_codec *codec,
 			    codec->chip_name, quirk->name);
 #endif
 		add_verb(codec->spec, fix->verbs);
+	}
+	if (fix->func) {
+#ifdef CONFIG_SND_DEBUG_VERBOSE
+		snd_printdd(KERN_INFO "hda_codec: %s: Apply fix-func for %s\n",
+			    codec->chip_name, quirk->name);
+#endif
+		fix->func(codec, fix, pre_init);
 	}
 }
 
@@ -1981,6 +1987,7 @@ static struct hda_verb alc888_acer_aspire_4930g_verbs[] = {
 	{0x15, AC_VERB_SET_PIN_WIDGET_CONTROL, PIN_OUT},
 	{0x15, AC_VERB_SET_AMP_GAIN_MUTE, AMP_OUT_UNMUTE},
 	{0x15, AC_VERB_SET_CONNECT_SEL, 0x00},
+	{0x15, AC_VERB_SET_EAPD_BTLENABLE, 2},
 	{ }
 };
 
@@ -2188,6 +2195,28 @@ static struct snd_kcontrol_new alc888_base_mixer[] = {
 	HDA_CODEC_MUTE("Line Playback Switch", 0x0b, 0x02, HDA_INPUT),
 	HDA_CODEC_VOLUME("Mic Playback Volume", 0x0b, 0x0, HDA_INPUT),
 	HDA_CODEC_VOLUME("Mic Boost", 0x18, 0, HDA_INPUT),
+	HDA_CODEC_MUTE("Mic Playback Switch", 0x0b, 0x0, HDA_INPUT),
+	{ } /* end */
+};
+
+static struct snd_kcontrol_new alc888_acer_aspire_4930g_mixer[] = {
+	HDA_CODEC_VOLUME("Front Playback Volume", 0x0c, 0x0, HDA_OUTPUT),
+	HDA_BIND_MUTE("Front Playback Switch", 0x0c, 2, HDA_INPUT),
+	HDA_CODEC_VOLUME("Surround Playback Volume", 0x0d, 0x0, HDA_OUTPUT),
+	HDA_BIND_MUTE("Surround Playback Switch", 0x0d, 2, HDA_INPUT),
+	HDA_CODEC_VOLUME_MONO("Center Playback Volume", 0x0e, 1, 0x0,
+		HDA_OUTPUT),
+	HDA_BIND_MUTE_MONO("Center Playback Switch", 0x0e, 1, 2, HDA_INPUT),
+	HDA_CODEC_VOLUME_MONO("LFE Playback Volume", 0x0e, 2, 0x0, HDA_OUTPUT),
+	HDA_BIND_MUTE_MONO("LFE Playback Switch", 0x0e, 2, 2, HDA_INPUT),
+	HDA_CODEC_VOLUME_MONO("Internal LFE Playback Volume", 0x0f, 1, 0x0, HDA_OUTPUT),
+	HDA_BIND_MUTE_MONO("Internal LFE Playback Switch", 0x0f, 1, 2, HDA_INPUT),
+	HDA_CODEC_VOLUME("CD Playback Volume", 0x0b, 0x04, HDA_INPUT),
+	HDA_CODEC_MUTE("CD Playback Switch", 0x0b, 0x04, HDA_INPUT),
+	HDA_CODEC_VOLUME("Line Playback Volume", 0x0b, 0x02, HDA_INPUT),
+	HDA_CODEC_MUTE("Line Playback Switch", 0x0b, 0x02, HDA_INPUT),
+	HDA_CODEC_VOLUME("Mic Playback Volume", 0x0b, 0x0, HDA_INPUT),
+	HDA_CODEC_VOLUME("Mic Boost Volume", 0x18, 0, HDA_INPUT),
 	HDA_CODEC_MUTE("Mic Playback Switch", 0x0b, 0x0, HDA_INPUT),
 	{ } /* end */
 };
@@ -5023,6 +5052,27 @@ static int alc880_auto_fill_dac_nids(struct alc_spec *spec,
 	return 0;
 }
 
+static const char *alc_get_line_out_pfx(const struct auto_pin_cfg *cfg,
+					bool can_be_master)
+{
+	if (!cfg->hp_outs && !cfg->speaker_outs && can_be_master)
+		return "Master";
+
+	switch (cfg->line_out_type) {
+	case AUTO_PIN_SPEAKER_OUT:
+		if (cfg->line_outs == 1)
+			return "Speaker";
+		break;
+	case AUTO_PIN_HP_OUT:
+		return "Headphone";
+	default:
+		if (cfg->line_outs == 1)
+			return "PCM";
+		break;
+	}
+	return NULL;
+}
+
 /* add playback controls from the parsed DAC table */
 static int alc880_auto_create_multi_out_ctls(struct alc_spec *spec,
 					     const struct auto_pin_cfg *cfg)
@@ -5030,6 +5080,7 @@ static int alc880_auto_create_multi_out_ctls(struct alc_spec *spec,
 	static const char *chname[4] = {
 		"Front", "Surround", NULL /*CLFE*/, "Side"
 	};
+	const char *pfx = alc_get_line_out_pfx(cfg, false);
 	hda_nid_t nid;
 	int i, err;
 
@@ -5037,7 +5088,7 @@ static int alc880_auto_create_multi_out_ctls(struct alc_spec *spec,
 		if (!spec->multiout.dac_nids[i])
 			continue;
 		nid = alc880_idx_to_mixer(alc880_dac_to_idx(spec->multiout.dac_nids[i]));
-		if (i == 2) {
+		if (!pfx && i == 2) {
 			/* Center/LFE */
 			err = add_pb_vol_ctrl(spec, ALC_CTL_WIDGET_VOL,
 					      "Center",
@@ -5064,18 +5115,20 @@ static int alc880_auto_create_multi_out_ctls(struct alc_spec *spec,
 			if (err < 0)
 				return err;
 		} else {
-			const char *pfx;
-			if (cfg->line_outs == 1 &&
-			    cfg->line_out_type == AUTO_PIN_SPEAKER_OUT)
-				pfx = "Speaker";
-			else
-				pfx = chname[i];
-			err = add_pb_vol_ctrl(spec, ALC_CTL_WIDGET_VOL, pfx,
+			const char *name = pfx;
+			int index = i;
+			if (!name) {
+				name = chname[i];
+				index = 0;
+			}
+			err = __add_pb_vol_ctrl(spec, ALC_CTL_WIDGET_VOL,
+						name, index,
 					  HDA_COMPOSE_AMP_VAL(nid, 3, 0,
 							      HDA_OUTPUT));
 			if (err < 0)
 				return err;
-			err = add_pb_sw_ctrl(spec, ALC_CTL_BIND_MUTE, pfx,
+			err = __add_pb_sw_ctrl(spec, ALC_CTL_BIND_MUTE,
+					       name, index,
 					  HDA_COMPOSE_AMP_VAL(nid, 3, 2,
 							      HDA_INPUT));
 			if (err < 0)
@@ -10279,7 +10332,7 @@ static struct alc_config_preset alc882_presets[] = {
 		.init_hook = alc_automute_amp,
 	},
 	[ALC888_ACER_ASPIRE_4930G] = {
-		.mixers = { alc888_base_mixer,
+		.mixers = { alc888_acer_aspire_4930g_mixer,
 				alc883_chmode_mixer },
 		.init_verbs = { alc883_init_verbs, alc880_gpio1_init_verbs,
 				alc888_acer_aspire_4930g_verbs },
@@ -10661,6 +10714,7 @@ static struct alc_config_preset alc882_presets[] = {
  */
 enum {
 	PINFIX_ABIT_AW9D_MAX,
+	PINFIX_LENOVO_Y530,
 	PINFIX_PB_M5210,
 	PINFIX_ACER_ASPIRE_7736,
 };
@@ -10671,6 +10725,13 @@ static const struct alc_fixup alc882_fixups[] = {
 			{ 0x15, 0x01080104 }, /* side */
 			{ 0x16, 0x01011012 }, /* rear */
 			{ 0x17, 0x01016011 }, /* clfe */
+			{ }
+		}
+	},
+	[PINFIX_LENOVO_Y530] = {
+		.pins = (const struct alc_pincfg[]) {
+			{ 0x15, 0x99130112 }, /* rear int speakers */
+			{ 0x16, 0x99130111 }, /* subwoofer */
 			{ }
 		}
 	},
@@ -10687,6 +10748,7 @@ static const struct alc_fixup alc882_fixups[] = {
 
 static struct snd_pci_quirk alc882_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x1025, 0x0155, "Packard-Bell M5120", PINFIX_PB_M5210),
+	SND_PCI_QUIRK(0x17aa, 0x3a0d, "Lenovo Y530", PINFIX_LENOVO_Y530),
 	SND_PCI_QUIRK(0x147b, 0x107a, "Abit AW9D-MAX", PINFIX_ABIT_AW9D_MAX),
 	SND_PCI_QUIRK(0x1025, 0x0296, "Acer Aspire 7736z", PINFIX_ACER_ASPIRE_7736),
 	{}
@@ -10739,23 +10801,28 @@ static void alc882_auto_init_hp_out(struct hda_codec *codec)
 	hda_nid_t pin, dac;
 	int i;
 
-	for (i = 0; i < ARRAY_SIZE(spec->autocfg.hp_pins); i++) {
-		pin = spec->autocfg.hp_pins[i];
-		if (!pin)
-			break;
-		dac = spec->multiout.hp_nid;
-		if (!dac)
-			dac = spec->multiout.dac_nids[0]; /* to front */
-		alc882_auto_set_output_and_unmute(codec, pin, PIN_HP, dac);
+	if (spec->autocfg.line_out_type != AUTO_PIN_HP_OUT) {
+		for (i = 0; i < ARRAY_SIZE(spec->autocfg.hp_pins); i++) {
+			pin = spec->autocfg.hp_pins[i];
+			if (!pin)
+				break;
+			dac = spec->multiout.hp_nid;
+			if (!dac)
+				dac = spec->multiout.dac_nids[0]; /* to front */
+			alc882_auto_set_output_and_unmute(codec, pin, PIN_HP, dac);
+		}
 	}
-	for (i = 0; i < ARRAY_SIZE(spec->autocfg.speaker_pins); i++) {
-		pin = spec->autocfg.speaker_pins[i];
-		if (!pin)
-			break;
-		dac = spec->multiout.extra_out_nid[0];
-		if (!dac)
-			dac = spec->multiout.dac_nids[0]; /* to front */
-		alc882_auto_set_output_and_unmute(codec, pin, PIN_OUT, dac);
+
+	if (spec->autocfg.line_out_type != AUTO_PIN_SPEAKER_OUT) {
+		for (i = 0; i < ARRAY_SIZE(spec->autocfg.speaker_pins); i++) {
+			pin = spec->autocfg.speaker_pins[i];
+			if (!pin)
+				break;
+			dac = spec->multiout.extra_out_nid[0];
+			if (!dac)
+				dac = spec->multiout.dac_nids[0]; /* to front */
+			alc882_auto_set_output_and_unmute(codec, pin, PIN_OUT, dac);
+		}
 	}
 }
 
@@ -12089,13 +12156,8 @@ static int alc262_auto_create_multi_out_ctls(struct alc_spec *spec,
 	spec->multiout.dac_nids = spec->private_dac_nids;
 	spec->multiout.dac_nids[0] = 2;
 
-	if (!cfg->speaker_pins[0] && !cfg->hp_pins[0])
-		pfx = "Master";
-	else if (cfg->line_out_type == AUTO_PIN_SPEAKER_OUT)
-		pfx = "Speaker";
-	else if (cfg->line_out_type == AUTO_PIN_HP_OUT)
-		pfx = "Headphone";
-	else
+	pfx = alc_get_line_out_pfx(cfg, true);
+	if (!pfx)
 		pfx = "Front";
 	for (i = 0; i < 2; i++) {
 		err = alc262_add_out_sw_ctl(spec, cfg->line_out_pins[i], pfx, i);
@@ -14804,12 +14866,25 @@ static int alc269_resume(struct hda_codec *codec)
 }
 #endif /* SND_HDA_NEEDS_RESUME */
 
+static void alc269_fixup_hweq(struct hda_codec *codec,
+			       const struct alc_fixup *fix, int pre_init)
+{
+	int coef;
+
+	if (pre_init)
+		return;
+	coef = alc_read_coef_idx(codec, 0x1e);
+	alc_write_coef_idx(codec, 0x1e, coef | 0x80);
+}
+
 enum {
 	ALC269_FIXUP_SONY_VAIO,
 	ALC275_FIX_SONY_VAIO_GPIO2,
 	ALC269_FIXUP_DELL_M101Z,
 	ALC269_FIXUP_SKU_IGNORE,
 	ALC269_FIXUP_ASUS_G73JW,
+	ALC269_FIXUP_LENOVO_EAPD,
+	ALC275_FIXUP_SONY_HWEQ,
 };
 
 static const struct alc_fixup alc269_fixups[] = {
@@ -14845,17 +14920,37 @@ static const struct alc_fixup alc269_fixups[] = {
 			{ }
 		}
 	},
+	[ALC269_FIXUP_LENOVO_EAPD] = {
+		.verbs = (const struct hda_verb[]) {
+			{0x14, AC_VERB_SET_EAPD_BTLENABLE, 0},
+			{}
+		}
+	},
+	[ALC275_FIXUP_SONY_HWEQ] = {
+		.func = alc269_fixup_hweq,
+		.verbs = (const struct hda_verb[]) {
+			{0x01, AC_VERB_SET_GPIO_MASK, 0x04},
+			{0x01, AC_VERB_SET_GPIO_DIRECTION, 0x04},
+			{0x01, AC_VERB_SET_GPIO_DATA, 0x00},
+			{0x19, AC_VERB_SET_PIN_WIDGET_CONTROL, PIN_VREFGRD},
+			{ }
+		}
+	}
 };
 
 static struct snd_pci_quirk alc269_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x104d, 0x9073, "Sony VAIO", ALC275_FIX_SONY_VAIO_GPIO2),
-	SND_PCI_QUIRK(0x104d, 0x907b, "Sony VAIO", ALC275_FIX_SONY_VAIO_GPIO2),
-	SND_PCI_QUIRK(0x104d, 0x9084, "Sony VAIO", ALC275_FIX_SONY_VAIO_GPIO2),
+	SND_PCI_QUIRK(0x104d, 0x907b, "Sony VAIO", ALC275_FIXUP_SONY_HWEQ),
+	SND_PCI_QUIRK(0x104d, 0x9084, "Sony VAIO", ALC275_FIXUP_SONY_HWEQ),
 	SND_PCI_QUIRK_VENDOR(0x104d, "Sony VAIO", ALC269_FIXUP_SONY_VAIO),
 	SND_PCI_QUIRK(0x1028, 0x0470, "Dell M101z", ALC269_FIXUP_DELL_M101Z),
-	SND_PCI_QUIRK(0x17aa, 0x21b8, "Thinkpad Edge 14", ALC269_FIXUP_SKU_IGNORE),
 	SND_PCI_QUIRK(0x17aa, 0x20f2, "Thinkpad SL410/510", ALC269_FIXUP_SKU_IGNORE),
+	SND_PCI_QUIRK(0x17aa, 0x215e, "Thinkpad L512", ALC269_FIXUP_SKU_IGNORE),
+	SND_PCI_QUIRK(0x17aa, 0x21b8, "Thinkpad Edge 14", ALC269_FIXUP_SKU_IGNORE),
+	SND_PCI_QUIRK(0x17aa, 0x21ca, "Thinkpad L412", ALC269_FIXUP_SKU_IGNORE),
+	SND_PCI_QUIRK(0x17aa, 0x21e9, "Thinkpad Edge 15", ALC269_FIXUP_SKU_IGNORE),
 	SND_PCI_QUIRK(0x1043, 0x1a13, "Asus G73Jw", ALC269_FIXUP_ASUS_G73JW),
+	SND_PCI_QUIRK(0x17aa, 0x9e54, "LENOVO NB", ALC269_FIXUP_LENOVO_EAPD),
 	{}
 };
 
@@ -14887,7 +14982,7 @@ static struct snd_pci_quirk alc269_cfg_tbl[] = {
 	SND_PCI_QUIRK(0x1043, 0x11e3, "ASUS U33Jc", ALC269VB_AMIC),
 	SND_PCI_QUIRK(0x1043, 0x1273, "ASUS UL80Jt", ALC269VB_AMIC),
 	SND_PCI_QUIRK(0x1043, 0x1283, "ASUS U53Jc", ALC269_AMIC),
-	SND_PCI_QUIRK(0x1043, 0x12b3, "ASUS N82Jv", ALC269_AMIC),
+	SND_PCI_QUIRK(0x1043, 0x12b3, "ASUS N82JV", ALC269VB_AMIC),
 	SND_PCI_QUIRK(0x1043, 0x12d3, "ASUS N61Jv", ALC269_AMIC),
 	SND_PCI_QUIRK(0x1043, 0x13a3, "ASUS UL30Vt", ALC269_AMIC),
 	SND_PCI_QUIRK(0x1043, 0x1373, "ASUS G73JX", ALC269_AMIC),
@@ -15890,12 +15985,15 @@ static int alc861_auto_fill_dac_nids(struct hda_codec *codec,
 	return 0;
 }
 
-static int alc861_create_out_sw(struct hda_codec *codec, const char *pfx,
-				hda_nid_t nid, unsigned int chs)
+static int __alc861_create_out_sw(struct hda_codec *codec, const char *pfx,
+				  hda_nid_t nid, int idx, unsigned int chs)
 {
-	return add_pb_sw_ctrl(codec->spec, ALC_CTL_WIDGET_MUTE, pfx,
+	return __add_pb_sw_ctrl(codec->spec, ALC_CTL_WIDGET_MUTE, pfx, idx,
 			   HDA_COMPOSE_AMP_VAL(nid, chs, 0, HDA_OUTPUT));
 }
+
+#define alc861_create_out_sw(codec, pfx, nid, chs) \
+	__alc861_create_out_sw(codec, pfx, nid, 0, chs)
 
 /* add playback controls from the parsed DAC table */
 static int alc861_auto_create_multi_out_ctls(struct hda_codec *codec,
@@ -15905,26 +16003,15 @@ static int alc861_auto_create_multi_out_ctls(struct hda_codec *codec,
 	static const char *chname[4] = {
 		"Front", "Surround", NULL /*CLFE*/, "Side"
 	};
+	const char *pfx = alc_get_line_out_pfx(cfg, true);
 	hda_nid_t nid;
 	int i, err;
-
-	if (cfg->line_outs == 1) {
-		const char *pfx = NULL;
-		if (!cfg->hp_outs)
-			pfx = "Master";
-		else if (cfg->line_out_type == AUTO_PIN_SPEAKER_OUT)
-			pfx = "Speaker";
-		if (pfx) {
-			nid = spec->multiout.dac_nids[0];
-			return alc861_create_out_sw(codec, pfx, nid, 3);
-		}
-	}
 
 	for (i = 0; i < cfg->line_outs; i++) {
 		nid = spec->multiout.dac_nids[i];
 		if (!nid)
 			continue;
-		if (i == 2) {
+		if (!pfx && i == 2) {
 			/* Center/LFE */
 			err = alc861_create_out_sw(codec, "Center", nid, 1);
 			if (err < 0)
@@ -15933,7 +16020,10 @@ static int alc861_auto_create_multi_out_ctls(struct hda_codec *codec,
 			if (err < 0)
 				return err;
 		} else {
-			err = alc861_create_out_sw(codec, chname[i], nid, 3);
+			const char *name = pfx;
+			if (!name)
+				name = chname[i];
+			err = __alc861_create_out_sw(codec, name, nid, i, 3);
 			if (err < 0)
 				return err;
 		}
@@ -17050,6 +17140,7 @@ static int alc861vd_auto_create_multi_out_ctls(struct alc_spec *spec,
 					     const struct auto_pin_cfg *cfg)
 {
 	static const char *chname[4] = {"Front", "Surround", "CLFE", "Side"};
+	const char *pfx = alc_get_line_out_pfx(cfg, true);
 	hda_nid_t nid_v, nid_s;
 	int i, err;
 
@@ -17063,7 +17154,7 @@ static int alc861vd_auto_create_multi_out_ctls(struct alc_spec *spec,
 				alc880_dac_to_idx(
 					spec->multiout.dac_nids[i]));
 
-		if (i == 2) {
+		if (!pfx && i == 2) {
 			/* Center/LFE */
 			err = add_pb_vol_ctrl(spec, ALC_CTL_WIDGET_VOL,
 					      "Center",
@@ -17090,24 +17181,17 @@ static int alc861vd_auto_create_multi_out_ctls(struct alc_spec *spec,
 			if (err < 0)
 				return err;
 		} else {
-			const char *pfx;
-			if (cfg->line_outs == 1 &&
-			    cfg->line_out_type == AUTO_PIN_SPEAKER_OUT) {
-				if (!cfg->hp_pins)
-					pfx = "Speaker";
-				else
-					pfx = "PCM";
-			} else
-				pfx = chname[i];
-			err = add_pb_vol_ctrl(spec, ALC_CTL_WIDGET_VOL, pfx,
+			const char *name = pfx;
+			if (!name)
+				name = chname[i];
+			err = __add_pb_vol_ctrl(spec, ALC_CTL_WIDGET_VOL,
+						name, i,
 					  HDA_COMPOSE_AMP_VAL(nid_v, 3, 0,
 							      HDA_OUTPUT));
 			if (err < 0)
 				return err;
-			if (cfg->line_outs == 1 &&
-			    cfg->line_out_type == AUTO_PIN_SPEAKER_OUT)
-				pfx = "Speaker";
-			err = add_pb_sw_ctrl(spec, ALC_CTL_BIND_MUTE, pfx,
+			err = __add_pb_sw_ctrl(spec, ALC_CTL_BIND_MUTE,
+					       name, i,
 					  HDA_COMPOSE_AMP_VAL(nid_s, 3, 2,
 							      HDA_INPUT));
 			if (err < 0)
@@ -19095,20 +19179,24 @@ static int alc662_auto_fill_dac_nids(struct hda_codec *codec,
 	return 0;
 }
 
-static inline int alc662_add_vol_ctl(struct alc_spec *spec, const char *pfx,
-			      hda_nid_t nid, unsigned int chs)
+static inline int __alc662_add_vol_ctl(struct alc_spec *spec, const char *pfx,
+				       hda_nid_t nid, int idx, unsigned int chs)
 {
-	return add_pb_vol_ctrl(spec, ALC_CTL_WIDGET_VOL, pfx,
+	return __add_pb_vol_ctrl(spec, ALC_CTL_WIDGET_VOL, pfx, idx,
 			   HDA_COMPOSE_AMP_VAL(nid, chs, 0, HDA_OUTPUT));
 }
 
-static inline int alc662_add_sw_ctl(struct alc_spec *spec, const char *pfx,
-			     hda_nid_t nid, unsigned int chs)
+static inline int __alc662_add_sw_ctl(struct alc_spec *spec, const char *pfx,
+				      hda_nid_t nid, int idx, unsigned int chs)
 {
-	return add_pb_sw_ctrl(spec, ALC_CTL_WIDGET_MUTE, pfx,
+	return __add_pb_sw_ctrl(spec, ALC_CTL_WIDGET_MUTE, pfx, idx,
 			   HDA_COMPOSE_AMP_VAL(nid, chs, 0, HDA_INPUT));
 }
 
+#define alc662_add_vol_ctl(spec, pfx, nid, chs) \
+	__alc662_add_vol_ctl(spec, pfx, nid, 0, chs)
+#define alc662_add_sw_ctl(spec, pfx, nid, chs) \
+	__alc662_add_sw_ctl(spec, pfx, nid, 0, chs)
 #define alc662_add_stereo_vol(spec, pfx, nid) \
 	alc662_add_vol_ctl(spec, pfx, nid, 3)
 #define alc662_add_stereo_sw(spec, pfx, nid) \
@@ -19122,6 +19210,7 @@ static int alc662_auto_create_multi_out_ctls(struct hda_codec *codec,
 	static const char *chname[4] = {
 		"Front", "Surround", NULL /*CLFE*/, "Side"
 	};
+	const char *pfx = alc_get_line_out_pfx(cfg, true);
 	hda_nid_t nid, mix;
 	int i, err;
 
@@ -19132,7 +19221,7 @@ static int alc662_auto_create_multi_out_ctls(struct hda_codec *codec,
 		mix = alc662_dac_to_mix(codec, cfg->line_out_pins[i], nid);
 		if (!mix)
 			continue;
-		if (i == 2) {
+		if (!pfx && i == 2) {
 			/* Center/LFE */
 			err = alc662_add_vol_ctl(spec, "Center", nid, 1);
 			if (err < 0)
@@ -19147,22 +19236,13 @@ static int alc662_auto_create_multi_out_ctls(struct hda_codec *codec,
 			if (err < 0)
 				return err;
 		} else {
-			const char *pfx;
-			if (cfg->line_outs == 1 &&
-			    cfg->line_out_type == AUTO_PIN_SPEAKER_OUT) {
-				if (cfg->hp_outs)
-					pfx = "Speaker";
-				else
-					pfx = "PCM";
-			} else
-				pfx = chname[i];
-			err = alc662_add_vol_ctl(spec, pfx, nid, 3);
+			const char *name = pfx;
+			if (!name)
+				name = chname[i];
+			err = __alc662_add_vol_ctl(spec, name, nid, i, 3);
 			if (err < 0)
 				return err;
-			if (cfg->line_outs == 1 &&
-			    cfg->line_out_type == AUTO_PIN_SPEAKER_OUT)
-				pfx = "Speaker";
-			err = alc662_add_sw_ctl(spec, pfx, mix, 3);
+			err = __alc662_add_sw_ctl(spec, name, mix, i, 3);
 			if (err < 0)
 				return err;
 		}

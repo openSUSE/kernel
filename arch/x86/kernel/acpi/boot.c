@@ -70,16 +70,17 @@ int acpi_strict;
 
 u8 acpi_sci_flags __initdata;
 int acpi_sci_override_gsi __initdata;
-int acpi_fix_pin2_polarity __initdata;
 #ifndef CONFIG_XEN
 int acpi_skip_timer_override __initdata;
 int acpi_use_timer_override __initdata;
+int acpi_fix_pin2_polarity __initdata;
 
 #ifdef CONFIG_X86_LOCAL_APIC
 static u64 acpi_lapic_addr __initdata = APIC_DEFAULT_PHYS_BASE;
 #endif
 #else
 #define acpi_skip_timer_override 0
+#define acpi_fix_pin2_polarity 0
 #endif
 
 #ifndef __HAVE_ARCH_CMPXCHG
