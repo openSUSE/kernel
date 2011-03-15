@@ -34,7 +34,7 @@ extern void smp_trap_init(trap_info_t *);
 
 cpumask_var_t vcpu_initialized_mask;
 
-DEFINE_PER_CPU(struct cpuinfo_x86, cpu_info);
+DEFINE_PER_CPU_READ_MOSTLY(struct cpuinfo_x86, cpu_info);
 EXPORT_PER_CPU_SYMBOL(cpu_info);
 
 static int __read_mostly ipi_irq = -1;
@@ -144,7 +144,7 @@ static void __cpuinit xen_smp_intr_exit(unsigned int cpu)
 static void __cpuinit cpu_bringup(void)
 {
 	cpu_init();
-	identify_secondary_cpu(&current_cpu_data);
+	identify_secondary_cpu(__this_cpu_ptr(&cpu_info));
 	touch_softlockup_watchdog();
 	preempt_disable();
 	xen_setup_cpu_clockevents();

@@ -447,8 +447,10 @@ void scsiback_emulation_init(void)
 	/*NO_EMULATE(PERSISTENT_RESERVE_IN); *//*0x5e*/
 	/*NO_EMULATE(PERSISTENT_RESERVE_OUT); *//*0x5f*/
 	/*           REPORT_LUNS             *//*0xa0*//*Full emulaiton*/
+#ifdef MAINTENANCE_IN
 	NO_EMULATE(MAINTENANCE_IN);           /*0xa3*/ /* IFT alua */
 	NO_EMULATE(MAINTENANCE_OUT);       /*0xa4*/ /* IFT alua */
+#endif
 	NO_EMULATE(MOVE_MEDIUM);           /*0xa5*/ /* ch */
 	NO_EMULATE(EXCHANGE_MEDIUM);       /*0xa6*/ /* ch */
 	/*NO_EMULATE(READ_12);               *//*0xa8*/

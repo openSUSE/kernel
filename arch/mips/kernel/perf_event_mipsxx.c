@@ -696,7 +696,7 @@ static int mipsxx_pmu_handle_shared_irq(void)
 	 * interrupt, not NMI.
 	 */
 	if (handled == IRQ_HANDLED)
-		perf_event_do_pending();
+		irq_work_run();
 
 #ifdef CONFIG_MIPS_MT_SMP
 	read_unlock(&pmuint_rwlock);
@@ -1045,8 +1045,10 @@ init_hw_perf_events(void)
 			"CPU, irq %d%s\n", mipspmu->name, counters, irq,
 			irq < 0 ? " (share with timer interrupt)" : "");
 
+	perf_pmu_register(&pmu, "cpu", PERF_TYPE_RAW);
+
 	return 0;
 }
-arch_initcall(init_hw_perf_events);
+early_initcall(init_hw_perf_events);
 
 #endif /* defined(CONFIG_CPU_MIPS32)... */

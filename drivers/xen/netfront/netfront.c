@@ -132,17 +132,18 @@ static inline int skb_gso_ok(struct sk_buff *skb, int features)
         return (features & NETIF_F_TSO);
 }
 
-static inline int netif_needs_gso(struct net_device *dev, struct sk_buff *skb)
+#define netif_skb_features(skb) ((skb)->dev->features)
+static inline int netif_needs_gso(struct sk_buff *skb, int features)
 {
         return skb_is_gso(skb) &&
-               (!skb_gso_ok(skb, dev->features) ||
+               (!skb_gso_ok(skb, features) ||
                 unlikely(skb->ip_summed != CHECKSUM_PARTIAL));
 }
 #else
 #define HAVE_GSO			0
 #define HAVE_TSO			0
 #define HAVE_CSUM_OFFLOAD		0
-#define netif_needs_gso(dev, skb)	0
+#define netif_needs_gso(skb, feat)	0
 #define dev_disable_gso_features(dev)	((void)0)
 #define ethtool_op_set_tso(dev, data)	(-ENOSYS)
 #endif
@@ -952,7 +953,7 @@ static int network_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	if (unlikely(!netfront_carrier_ok(np) ||
 		     (frags > 1 && !xennet_can_sg(dev)) ||
-		     netif_needs_gso(dev, skb))) {
+		     netif_needs_gso(skb, netif_skb_features(skb)))) {
 		spin_unlock_irq(&np->tx_lock);
 		goto drop;
 	}
@@ -1455,10 +1456,8 @@ err:
 		/* Ethernet work: Delayed to here as it peeks the header. */
 		skb->protocol = eth_type_trans(skb, dev);
 
-		if (skb->ip_summed == CHECKSUM_PARTIAL
-		    ? skb_checksum_setup(skb) : 0 /* ??? skb_is_gso(skb) */) {
+		if (skb_checksum_setup(skb, &np->rx_gso_csum_fixups)) {
 			kfree_skb(skb);
-			dev->stats.rx_errors++;
 			continue;
 		}
 
@@ -1748,6 +1747,48 @@ static void xennet_set_features(struct net_device *dev)
 		xennet_set_tso(dev, 1);
 }
 
+static const struct xennet_stat {
+	char name[ETH_GSTRING_LEN];
+	u16 offset;
+} xennet_stats[] = {
+	{
+		"rx_gso_csum_fixups",
+		offsetof(struct netfront_info, rx_gso_csum_fixups)
+	},
+};
+
+static int xennet_get_sset_count(struct net_device *dev, int sset)
+{
+	switch (sset) {
+	case ETH_SS_STATS:
+		return ARRAY_SIZE(xennet_stats);
+	}
+	return -EOPNOTSUPP;
+}
+
+static void xennet_get_ethtool_stats(struct net_device *dev,
+				     struct ethtool_stats *stats, u64 *data)
+{
+	void *np = netdev_priv(dev);
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(xennet_stats); i++)
+		data[i] = *(unsigned int *)(np + xennet_stats[i].offset);
+}
+
+static void xennet_get_strings(struct net_device *dev, u32 stringset, u8 *data)
+{
+	unsigned int i;
+
+	switch (stringset) {
+	case ETH_SS_STATS:
+		for (i = 0; i < ARRAY_SIZE(xennet_stats); i++)
+			memcpy(data + i * ETH_GSTRING_LEN,
+			       xennet_stats[i].name, ETH_GSTRING_LEN);
+		break;
+	}
+}
+
 static void netfront_get_drvinfo(struct net_device *dev,
 				 struct ethtool_drvinfo *info)
 {
@@ -1873,6 +1914,10 @@ static const struct ethtool_ops network_ethtool_ops =
 	.set_tso = xennet_set_tso,
 #endif
 	.get_link = ethtool_op_get_link,
+
+	.get_sset_count = xennet_get_sset_count,
+	.get_ethtool_stats = xennet_get_ethtool_stats,
+	.get_strings = xennet_get_strings,
 };
 
 #ifdef CONFIG_SYSFS

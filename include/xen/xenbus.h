@@ -105,7 +105,7 @@ struct xenbus_driver {
 	void (*otherend_changed)(struct xenbus_device *dev,
 				 enum xenbus_state backend_state);
 	int (*remove)(struct xenbus_device *dev);
-#if !defined(CONFIG_XEN) && !defined(MODULE)
+#if !defined(CONFIG_XEN) && !defined(HAVE_XEN_PLATFORM_COMPAT_H)
 	int (*suspend)(struct xenbus_device *dev, pm_message_t state);
 #else
 	int (*suspend)(struct xenbus_device *dev);
@@ -330,7 +330,7 @@ void xenbus_dev_error(struct xenbus_device *dev, int err, const char *fmt,
 void xenbus_dev_fatal(struct xenbus_device *dev, int err, const char *fmt,
 		      ...);
 
-#if defined(CONFIG_XEN) || defined(MODULE)
+#if defined(CONFIG_XEN) || defined(HAVE_XEN_PLATFORM_COMPAT_H)
 int xenbus_dev_init(void);
 #endif
 

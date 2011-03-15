@@ -69,13 +69,17 @@ struct cpuinfo_x86 {
 	char			wp_works_ok;	/* It doesn't on 386's */
 
 	/* Problems on some 486Dx4's and old 386's: */
+#ifndef CONFIG_XEN
 	char			hlt_works_ok;
+#endif
 	char			hard_math;
+#ifndef CONFIG_XEN
 	char			rfu;
 	char			fdiv_bug;
 	char			f00f_bug;
 	char			coma_bug;
 	char			pad0;
+#endif
 #else
 	/* Number of 4K pages in DTLB/ITLB combined(in pages): */
 	int			x86_tlbsize;
@@ -148,17 +152,16 @@ extern __u32			cpu_caps_set[NCAPINTS];
 #ifdef CONFIG_SMP
 DECLARE_PER_CPU_SHARED_ALIGNED(struct cpuinfo_x86, cpu_info);
 #define cpu_data(cpu)		per_cpu(cpu_info, cpu)
-#define current_cpu_data	__get_cpu_var(cpu_info)
 #else
+#define cpu_info		boot_cpu_data
 #define cpu_data(cpu)		boot_cpu_data
-#define current_cpu_data	boot_cpu_data
 #endif
 
 extern const struct seq_operations cpuinfo_op;
 
 static inline int hlt_works(int cpu)
 {
-#ifdef CONFIG_X86_32
+#if defined(CONFIG_X86_32) && !defined(CONFIG_XEN)
 	return cpu_data(cpu).hlt_works_ok;
 #else
 	return 1;
@@ -530,7 +533,7 @@ native_load_sp0(struct tss_struct *tss, struct thread_struct *thread)
 #endif
 
 #define __cpuid			xen_cpuid
-#define paravirt_enabled()	0
+#define paravirt_enabled()	1
 
 /*
  * These special macros can be used to get or set a debugging register
@@ -712,9 +715,10 @@ extern void select_idle_routine(const struct cpuinfo_x86 *c);
 extern void init_c1e_mask(void);
 
 extern unsigned long		boot_option_idle_override;
-extern unsigned long		idle_halt;
-extern unsigned long		idle_nomwait;
 extern bool			c1e_detected;
+
+enum idle_boot_override {IDLE_NO_OVERRIDE=0, IDLE_HALT, IDLE_NOMWAIT,
+			 IDLE_POLL, IDLE_FORCE_MWAIT};
 
 extern void enable_sep_cpu(void);
 extern int sysenter_setup(void);
@@ -852,7 +856,7 @@ extern unsigned long thread_saved_pc(struct task_struct *tsk);
 /*
  * The below -8 is to reserve 8 bytes on top of the ring0 stack.
  * This is necessary to guarantee that the entire "struct pt_regs"
- * is accessable even if the CPU haven't stored the SS/ESP registers
+ * is accessible even if the CPU haven't stored the SS/ESP registers
  * on the stack (interrupt gate does not save these registers
  * when switching to the same priv ring).
  * Therefore beware: accessing the ss/esp fields of the

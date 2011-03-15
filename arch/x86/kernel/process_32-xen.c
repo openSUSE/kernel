@@ -59,8 +59,6 @@
 #include <asm/syscalls.h>
 #include <asm/debugreg.h>
 
-#include <trace/events/power.h>
-
 asmlinkage void ret_from_fork(void) __asm__("ret_from_fork");
 asmlinkage void cstar_ret_from_fork(void) __asm__("cstar_ret_from_fork");
 
@@ -116,8 +114,6 @@ void cpu_idle(void)
 			stop_critical_timings();
 			xen_idle();
 			start_critical_timings();
-
-			trace_power_end(smp_processor_id());
 		}
 		tick_nohz_restart_sched_tick();
 		preempt_enable_no_resched();

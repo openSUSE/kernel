@@ -627,6 +627,18 @@ static void pSeries_lpar_flush_hash_range(unsigned long number, int local)
 		spin_unlock_irqrestore(&pSeries_lpar_tlbie_lock, flags);
 }
 
+static int __init disable_bulk_remove(char *str)
+{
+	if (strcmp(str, "off") == 0 &&
+	    firmware_has_feature(FW_FEATURE_BULK_REMOVE)) {
+			printk(KERN_INFO "Disabling BULK_REMOVE firmware feature");
+			powerpc_firmware_features &= ~FW_FEATURE_BULK_REMOVE;
+	}
+	return 1;
+}
+
+__setup("bulk_remove=", disable_bulk_remove);
+
 void __init hpte_init_lpar(void)
 {
 	ppc_md.hpte_invalidate	= pSeries_lpar_hpte_invalidate;
@@ -701,7 +713,7 @@ EXPORT_SYMBOL(arch_free_page);
 /* NB: reg/unreg are called while guarded with the tracepoints_mutex */
 extern long hcall_tracepoint_refcount;
 
-/*
+/* 
  * Since the tracing code might execute hcalls we need to guard against
  * recursion. One example of this are spinlocks calling H_YIELD on
  * shared processor partitions.

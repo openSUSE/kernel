@@ -19,6 +19,7 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include <linux/io.h>
 
 #include <linux/delay.h>
 #include <linux/gpio.h>
@@ -245,6 +246,11 @@ static int __devinit jz_battery_probe(struct platform_device *pdev)
 	struct jz_battery_platform_data *pdata = pdev->dev.parent->platform_data;
 	struct jz_battery *jz_battery;
 	struct power_supply *battery;
+
+	if (!pdata) {
+		dev_err(&pdev->dev, "No platform_data supplied\n");
+		return -ENXIO;
+	}
 
 	jz_battery = kzalloc(sizeof(*jz_battery), GFP_KERNEL);
 	if (!jz_battery) {

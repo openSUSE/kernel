@@ -24,7 +24,7 @@ acpi-y				+= atomicio.o
 # sleep related files
 acpi-y				+= wakeup.o
 acpi-y				+= sleep.o
-acpi-$(CONFIG_ACPI_SLEEP)	+= proc.o
+acpi-$(CONFIG_ACPI_SLEEP)	+= proc.o nvs.o
 
 
 #
@@ -70,5 +70,6 @@ processor-$(CONFIG_CPU_FREQ)	+= processor_perflib.o
 processor-$(CONFIG_PROCESSOR_EXTERNAL_CONTROL) += processor_perflib.o processor_extcntl.o
 
 obj-$(CONFIG_ACPI_PROCESSOR_AGGREGATOR) += acpi_pad.o
+obj-$(CONFIG_ACPI_IPMI)		+= acpi_ipmi.o
 
 obj-$(CONFIG_ACPI_APEI)		+= apei/

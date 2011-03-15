@@ -33,7 +33,7 @@
 
 #include "blk.h"
 
-EXPORT_TRACEPOINT_SYMBOL_GPL(block_remap);
+EXPORT_TRACEPOINT_SYMBOL_GPL(block_bio_remap);
 EXPORT_TRACEPOINT_SYMBOL_GPL(block_rq_remap);
 EXPORT_TRACEPOINT_SYMBOL_GPL(block_bio_complete);
 
@@ -70,7 +70,7 @@ static void drive_stat_acct(struct request *rq, int new_io)
 		part_stat_inc(cpu, part, merges[rw]);
 	} else {
 		part = disk_map_sector_rcu(rq->rq_disk, blk_rq_pos(rq));
-		if (!kref_test_and_get(&part->ref)) {
+		if (!hd_struct_try_get(part)) {
 			/*
 			 * The partition is already being removed,
 			 * the request will be accounted on the disk only
@@ -80,7 +80,7 @@ static void drive_stat_acct(struct request *rq, int new_io)
 			 * it as any other partition.
 			 */
 			part = &rq->rq_disk->part0;
-			kref_get(&part->ref);
+			hd_struct_get(part);
 		}
 		part_round_stats(cpu, part);
 		part_inc_in_flight(part, rw);
@@ -1345,9 +1345,9 @@ static inline void blk_partition_remap(struct bio *bio)
 		bio->bi_sector += p->start_sect;
 		bio->bi_bdev = bdev->bd_contains;
 
-		trace_block_remap(bdev_get_queue(bio->bi_bdev), bio,
-				    bdev->bd_dev,
-				    bio->bi_sector - p->start_sect);
+		trace_block_bio_remap(bdev_get_queue(bio->bi_bdev), bio,
+				      bdev->bd_dev,
+				      bio->bi_sector - p->start_sect);
 	}
 }
 
@@ -1516,7 +1516,7 @@ static inline void __generic_make_request(struct bio *bio)
 			goto end_io;
 
 		if (old_sector != -1)
-			trace_block_remap(q, bio, old_dev, old_sector);
+			trace_block_bio_remap(q, bio, old_dev, old_sector);
 
 		old_sector = bio->bi_sector;
 		old_dev = bio->bi_bdev->bd_dev;
@@ -1819,7 +1819,7 @@ static void blk_account_io_done(struct request *req)
 		part_round_stats(cpu, part);
 		part_dec_in_flight(part, rw);
 
-		kref_put(&part->ref, __delete_partition);
+		hd_struct_put(part);
 		part_stat_unlock();
 	}
 }
@@ -2616,7 +2616,9 @@ int __init blk_dev_init(void)
 	BUILD_BUG_ON(__REQ_NR_BITS > 8 *
 			sizeof(((struct request *)0)->cmd_flags));
 
-	kblockd_workqueue = create_workqueue("kblockd");
+	/* used for unplugging and affects IO latency/throughput - HIGHPRI */
+	kblockd_workqueue = alloc_workqueue("kblockd",
+					    WQ_MEM_RECLAIM | WQ_HIGHPRI, 0);
 	if (!kblockd_workqueue)
 		panic("Failed to create kblockd\n");
 

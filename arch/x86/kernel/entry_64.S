@@ -300,19 +300,23 @@ ENDPROC(native_usergs_sysret64)
 /* save partial stack frame */
 	.pushsection .kprobes.text, "ax"
 ENTRY(save_args)
-	XCPT_FRAME offset=ORIG_RAX-ARGOFFSET+16
+	XCPT_FRAME offset=ORIG_RAX-RBP+8
 	cld
-	movq_cfi rdi, RDI+16-ARGOFFSET
-	movq %rsi, RSI+16-ARGOFFSET(%rsp)
-	movq %rdx, RDX+16-ARGOFFSET(%rsp)
-	movq %rcx, RCX+16-ARGOFFSET(%rsp)
-	movq_cfi rax, RAX+16-ARGOFFSET
-	movq  %r8,  R8+16-ARGOFFSET(%rsp)
-	movq  %r9,  R9+16-ARGOFFSET(%rsp)
-	movq %r10, R10+16-ARGOFFSET(%rsp)
-	movq %r11, R11+16-ARGOFFSET(%rsp)
+	/*
+	 * start from rbp in pt_regs and jump over
+	 * return address.
+	 */
+	movq_cfi rdi, RDI+8-RBP
+	movq %rsi, RSI+8-RBP(%rsp)
+	movq %rdx, RDX+8-RBP(%rsp)
+	movq %rcx, RCX+8-RBP(%rsp)
+	movq_cfi rax, RAX+8-RBP
+	movq  %r8,  R8+8-RBP(%rsp)
+	movq  %r9,  R9+8-RBP(%rsp)
+	movq %r10, R10+8-RBP(%rsp)
+	movq %r11, R11+8-RBP(%rsp)
 
-	leaq -ARGOFFSET+16(%rsp),%rdi	/* arg1 for handler */
+	leaq -RBP+8(%rsp),%rdi	/* arg1 for handler */
 	movq_cfi rbp, 8		/* push %rbp */
 	leaq 8(%rsp), %rbp		/* mov %rsp, %ebp */
 	CFI_DEF_CFA_REGISTER rbp
@@ -786,10 +790,11 @@ END(interrupt)
 
 /* 0(%rsp): ~(interrupt number) */
 	.macro interrupt func
-	subq $ORIG_RAX-ARGOFFSET+8, %rsp
-	CFI_ADJUST_CFA_OFFSET ORIG_RAX-ARGOFFSET+8
+	/* reserve pt_regs for scratch regs and rbp */
+	subq $ORIG_RAX-RBP, %rsp
+	CFI_ADJUST_CFA_OFFSET ORIG_RAX-RBP
 	call save_args
-	PARTIAL_FRAME -1 8
+	PARTIAL_FRAME -1 ARGOFFSET-RBP
 	CFI_REL_OFFSET rbp, 0
 	CFI_DEF_CFA_REGISTER rbp
 	call \func
@@ -816,6 +821,10 @@ ret_from_intr:
 	leaveq
 	CFI_RESTORE		rbp
 	CFI_DEF_CFA_REGISTER	rsp
+	CFI_ADJUST_CFA_OFFSET	-8
+
+	/* we did not save rbx, restore only from ARGOFFSET */
+	addq $8, %rsp
 	CFI_ADJUST_CFA_OFFSET	-8
 exit_intr:
 	GET_THREAD_INFO(%rcx)
@@ -1361,6 +1370,9 @@ errorentry xen_stack_segment do_stack_segment
 #endif
 errorentry general_protection do_general_protection
 errorentry page_fault do_page_fault
+#ifdef CONFIG_KVM_GUEST
+errorentry async_page_fault do_async_page_fault
+#endif
 #ifdef CONFIG_X86_MCE
 paranoidzeroentry machine_check *machine_check_vector(%rip)
 #endif

@@ -43,9 +43,7 @@
 #ifdef CONFIG_PARAVIRT_XEN
 #define is_running_on_xen() xen_domain()
 #define is_initial_xendomain() xen_initial_domain()
-#endif
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,26)
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,26)
 #define dev_name(dev) ((dev)->bus_id)
 #endif
 
@@ -69,11 +67,15 @@ struct xen_bus_type
 	int error;
 	unsigned int levels;
 	int (*get_bus_id)(char bus_id[XEN_BUS_ID_SIZE], const char *nodename);
-	int (*probe)(const char *type, const char *dir);
-	struct bus_type bus;
-#if defined(CONFIG_XEN) || defined(MODULE)
+	int (*probe)(struct xen_bus_type *bus, const char *type,
+		     const char *dir);
+#if !defined(CONFIG_XEN) && !defined(HAVE_XEN_PLATFORM_COMPAT_H)
+	void (*otherend_changed)(struct xenbus_watch *watch, const char **vec,
+				 unsigned int len);
+#else
 	struct device dev;
 #endif
+	struct bus_type bus;
 };
 
 extern int xenbus_match(struct device *_dev, struct device_driver *_drv);
@@ -89,5 +91,17 @@ extern int xenbus_probe_node(struct xen_bus_type *bus,
 extern int xenbus_probe_devices(struct xen_bus_type *bus);
 
 extern void xenbus_dev_changed(const char *node, struct xen_bus_type *bus);
+
+extern void xenbus_dev_shutdown(struct device *_dev);
+
+extern int xenbus_dev_suspend(struct device *dev, pm_message_t state);
+extern int xenbus_dev_resume(struct device *dev);
+
+extern void xenbus_otherend_changed(struct xenbus_watch *watch,
+				    const char **vec, unsigned int len,
+				    int ignore_on_shutdown);
+
+extern int xenbus_read_otherend_details(struct xenbus_device *xendev,
+					char *id_node, char *path_node);
 
 #endif

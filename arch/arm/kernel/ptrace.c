@@ -996,10 +996,10 @@ static int ptrace_gethbpregs(struct task_struct *tsk, long num,
 		while (!(arch_ctrl.len & 0x1))
 			arch_ctrl.len >>= 1;
 
-		if (idx & 0x1)
-			reg = encode_ctrl_reg(arch_ctrl);
-		else
+		if (num & 0x1)
 			reg = bp->attr.bp_addr;
+		else
+			reg = encode_ctrl_reg(arch_ctrl);
 	}
 
 put:
@@ -1060,8 +1060,8 @@ static int ptrace_sethbpregs(struct task_struct *tsk, long num,
 			goto out;
 
 		if ((gen_type & implied_type) != gen_type) {
-				ret = -EINVAL;
-				goto out;
+			ret = -EINVAL;
+			goto out;
 		}
 
 		attr.bp_len	= gen_len;

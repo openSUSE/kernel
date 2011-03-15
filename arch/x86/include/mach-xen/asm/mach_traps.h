@@ -9,7 +9,11 @@
 #include <linux/bitops.h>
 #include <xen/interface/nmi.h>
 
-static inline void clear_mem_error(unsigned char reason) {}
+#define NMI_REASON_SERR		0x80
+#define NMI_REASON_IOCHK	0x40
+#define NMI_REASON_MASK		(NMI_REASON_SERR | NMI_REASON_IOCHK)
+
+static inline void clear_serr_error(unsigned char reason) {}
 static inline void clear_io_check_error(unsigned char reason) {}
 
 static inline unsigned char get_nmi_reason(void)
@@ -21,9 +25,9 @@ static inline unsigned char get_nmi_reason(void)
 	 * port 0x61.
 	 */
 	if (test_bit(_XEN_NMIREASON_io_error, &s->arch.nmi_reason))
-		reason |= 0x40;
+		reason |= NMI_REASON_IOCHK;
 	if (test_bit(_XEN_NMIREASON_parity_error, &s->arch.nmi_reason))
-		reason |= 0x80;
+		reason |= NMI_REASON_SERR;
 
         return reason;
 }

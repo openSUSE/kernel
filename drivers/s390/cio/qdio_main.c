@@ -14,6 +14,7 @@
 #include <linux/timer.h>
 #include <linux/delay.h>
 #include <linux/gfp.h>
+#include <linux/kernel_stat.h>
 #include <asm/atomic.h>
 #include <asm/debug.h>
 #include <asm/qdio.h>
@@ -285,9 +286,6 @@ static inline int qdio_siga_sync(struct qdio_q *q, unsigned int output,
 	unsigned int fc = QDIO_SIGA_SYNC;
 	int cc;
 
-	if (!need_siga_sync(q))
-		return 0;
-
 	DBF_DEV_EVENT(DBF_INFO, q->irq_ptr, "siga-s:%1d", q->nr);
 	qperf_inc(q, siga_sync);
 
@@ -297,7 +295,7 @@ static inline int qdio_siga_sync(struct qdio_q *q, unsigned int output,
 	}
 
 	cc = do_siga_sync(schid, output, input, fc);
-	if (cc)
+	if (unlikely(cc))
 		DBF_ERROR("%4x SIGA-S:%2d", SCH_NO(q), cc);
 	return cc;
 }
@@ -310,25 +308,12 @@ static inline int qdio_siga_sync_q(struct qdio_q *q)
 		return qdio_siga_sync(q, q->mask, 0);
 }
 
-static inline int qdio_siga_sync_out(struct qdio_q *q)
-{
-	return qdio_siga_sync(q, ~0U, 0);
-}
-
-static inline int qdio_siga_sync_all(struct qdio_q *q)
-{
-	return qdio_siga_sync(q, ~0U, ~0U);
-}
-
 static int qdio_siga_output(struct qdio_q *q, unsigned int *busy_bit)
 {
 	unsigned long schid = *((u32 *) &q->irq_ptr->schid);
 	unsigned int fc = QDIO_SIGA_WRITE;
 	u64 start_time = 0;
 	int cc;
-
-	if (q->u.out.use_enh_siga)
-		fc = 3;
 
 	if (is_qebsm(q)) {
 		schid = q->irq_ptr->sch_token;
@@ -338,7 +323,7 @@ again:
 	cc = do_siga_output(schid, q->mask, busy_bit, fc);
 
 	/* hipersocket busy condition */
-	if (*busy_bit) {
+	if (unlikely(*busy_bit)) {
 		WARN_ON(queue_type(q) != QDIO_IQDIO_QFMT || cc != 2);
 
 		if (!start_time) {
@@ -366,26 +351,28 @@ static inline int qdio_siga_input(struct qdio_q *q)
 	}
 
 	cc = do_siga_input(schid, q->mask, fc);
-	if (cc)
+	if (unlikely(cc))
 		DBF_ERROR("%4x SIGA-R:%2d", SCH_NO(q), cc);
 	return cc;
 }
 
-static inline void qdio_sync_after_thinint(struct qdio_q *q)
+#define qdio_siga_sync_out(q) qdio_siga_sync(q, ~0U, 0)
+#define qdio_siga_sync_all(q) qdio_siga_sync(q, ~0U, ~0U)
+
+static inline void qdio_sync_queues(struct qdio_q *q)
 {
-	if (pci_out_supported(q)) {
-		if (need_siga_sync_thinint(q))
-			qdio_siga_sync_all(q);
-		else if (need_siga_sync_out_thinint(q))
-			qdio_siga_sync_out(q);
-	} else
+	/* PCI capable outbound queues will also be scanned so sync them too */
+	if (pci_out_supported(q))
+		qdio_siga_sync_all(q);
+	else
 		qdio_siga_sync_q(q);
 }
 
 int debug_get_buf_state(struct qdio_q *q, unsigned int bufnr,
 			unsigned char *state)
 {
-	qdio_siga_sync_q(q);
+	if (need_siga_sync(q))
+		qdio_siga_sync_q(q);
 	return get_buf_states(q, bufnr, state, 1, 0);
 }
 
@@ -489,7 +476,7 @@ static inline void inbound_primed(struct qdio_q *q, int count)
 static int get_inbound_buffer_frontier(struct qdio_q *q)
 {
 	int count, stop;
-	unsigned char state;
+	unsigned char state = 0;
 
 	/*
 	 * Don't check 128 buffers, as otherwise qdio_inbound_q_moved
@@ -562,7 +549,8 @@ static inline int qdio_inbound_q_done(struct qdio_q *q)
 	if (!atomic_read(&q->nr_buf_used))
 		return 1;
 
-	qdio_siga_sync_q(q);
+	if (need_siga_sync(q))
+		qdio_siga_sync_q(q);
 	get_buf_state(q, q->first_to_check, &state, 0);
 
 	if (state == SLSB_P_INPUT_PRIMED || state == SLSB_P_INPUT_ERROR)
@@ -655,11 +643,14 @@ void qdio_inbound_processing(unsigned long data)
 static int get_outbound_buffer_frontier(struct qdio_q *q)
 {
 	int count, stop;
-	unsigned char state;
+	unsigned char state = 0;
 
-	if (((queue_type(q) != QDIO_IQDIO_QFMT) && !pci_out_supported(q)) ||
-	    (queue_type(q) == QDIO_IQDIO_QFMT && multicast_outbound(q)))
-		qdio_siga_sync_q(q);
+	if (need_siga_sync(q))
+		if (((queue_type(q) != QDIO_IQDIO_QFMT) &&
+		    !pci_out_supported(q)) ||
+		    (queue_type(q) == QDIO_IQDIO_QFMT &&
+		    multicast_outbound(q)))
+			qdio_siga_sync_q(q);
 
 	/*
 	 * Don't check 128 buffers, as otherwise qdio_inbound_q_moved
@@ -831,7 +822,8 @@ static inline void qdio_check_outbound_after_thinint(struct qdio_q *q)
 static void __tiqdio_inbound_processing(struct qdio_q *q)
 {
 	qperf_inc(q, tasklet_inbound);
-	qdio_sync_after_thinint(q);
+	if (need_siga_sync(q) && need_siga_sync_after_ai(q))
+		qdio_sync_queues(q);
 
 	/*
 	 * The interrupt could be caused by a PCI request. Check the
@@ -911,16 +903,14 @@ static void qdio_int_handler_pci(struct qdio_irq *irq_ptr)
 			tasklet_schedule(&q->tasklet);
 	}
 
-	if (!(irq_ptr->qib.ac & QIB_AC_OUTBOUND_PCI_SUPPORTED))
+	if (!pci_out_supported(q))
 		return;
 
 	for_each_output_queue(irq_ptr, q, i) {
 		if (qdio_outbound_q_done(q))
 			continue;
-
-		if (!siga_syncs_out_pci(q))
+		if (need_siga_sync(q) && need_siga_sync_out_after_pci(q))
 			qdio_siga_sync_q(q);
-
 		tasklet_schedule(&q->tasklet);
 	}
 }
@@ -983,6 +973,7 @@ void qdio_int_handler(struct ccw_device *cdev, unsigned long intparm,
 		return;
 	}
 
+	kstat_cpu(smp_processor_id()).irqs[IOINT_QDI]++;
 	if (irq_ptr->perf_stat_enabled)
 		irq_ptr->perf_stat.qdio_int++;
 
@@ -1286,7 +1277,6 @@ int qdio_establish(struct qdio_initialize *init_data)
 	}
 
 	qdio_setup_ssqd_info(irq_ptr);
-	DBF_EVENT("qDmmwc:%2x", irq_ptr->ssqd_desc.mmwc);
 	DBF_EVENT("qib ac:%4x", irq_ptr->qib.ac);
 
 	/* qebsm is now setup if available, initialize buffer states */
@@ -1458,52 +1448,38 @@ static int handle_outbound(struct qdio_q *q, unsigned int callflags,
 	used = atomic_add_return(count, &q->nr_buf_used);
 	BUG_ON(used > QDIO_MAX_BUFFERS_PER_Q);
 
+	if (used == QDIO_MAX_BUFFERS_PER_Q)
+		qperf_inc(q, outbound_queue_full);
+
 	if (callflags & QDIO_FLAG_PCI_OUT) {
 		q->u.out.pci_out_enabled = 1;
 		qperf_inc(q, pci_request_int);
-	}
-	else
+	} else
 		q->u.out.pci_out_enabled = 0;
 
 	if (queue_type(q) == QDIO_IQDIO_QFMT) {
-		if (multicast_outbound(q))
+		/* One SIGA-W per buffer required for unicast HiperSockets. */
+		WARN_ON_ONCE(count > 1 && !multicast_outbound(q));
+
+		rc = qdio_kick_outbound_q(q);
+	} else if (need_siga_sync(q)) {
+		rc = qdio_siga_sync_q(q);
+	} else {
+		/* try to fast requeue buffers */
+		get_buf_state(q, prev_buf(bufnr), &state, 0);
+		if (state != SLSB_CU_OUTPUT_PRIMED)
 			rc = qdio_kick_outbound_q(q);
 		else
-			if ((q->irq_ptr->ssqd_desc.mmwc > 1) &&
-			    (count > 1) &&
-			    (count <= q->irq_ptr->ssqd_desc.mmwc)) {
-				/* exploit enhanced SIGA */
-				q->u.out.use_enh_siga = 1;
-				rc = qdio_kick_outbound_q(q);
-			} else {
-				/*
-				* One siga-w per buffer required for unicast
-				* HiperSockets.
-				*/
-				q->u.out.use_enh_siga = 0;
-				while (count--) {
-					rc = qdio_kick_outbound_q(q);
-					if (rc)
-						goto out;
-				}
-			}
-		goto out;
+			qperf_inc(q, fast_requeue);
 	}
 
-	if (need_siga_sync(q)) {
-		qdio_siga_sync_q(q);
-		goto out;
-	}
-
-	/* try to fast requeue buffers */
-	get_buf_state(q, prev_buf(bufnr), &state, 0);
-	if (state != SLSB_CU_OUTPUT_PRIMED)
-		rc = qdio_kick_outbound_q(q);
+	/* in case of SIGA errors we must process the error immediately */
+	if (used >= q->u.out.scan_threshold || rc)
+		tasklet_schedule(&q->tasklet);
 	else
-		qperf_inc(q, fast_requeue);
-
-out:
-	tasklet_schedule(&q->tasklet);
+		/* free the SBALs in case of no further traffic */
+		if (!timer_pending(&q->u.out.timer))
+			mod_timer(&q->u.out.timer, jiffies + HZ);
 	return rc;
 }
 
@@ -1563,7 +1539,7 @@ int qdio_start_irq(struct ccw_device *cdev, int nr)
 
 	WARN_ON(queue_irqs_enabled(q));
 
-	if (!shared_ind(q->irq_ptr))
+	if (!shared_ind(q->irq_ptr->dsci))
 		xchg(q->irq_ptr->dsci, 0);
 
 	qdio_stop_polling(q);
@@ -1573,7 +1549,7 @@ int qdio_start_irq(struct ccw_device *cdev, int nr)
 	 * We need to check again to not lose initiative after
 	 * resetting the ACK state.
 	 */
-	if (!shared_ind(q->irq_ptr) && *q->irq_ptr->dsci)
+	if (!shared_ind(q->irq_ptr->dsci) && *q->irq_ptr->dsci)
 		goto rescan;
 	if (!qdio_inbound_q_done(q))
 		goto rescan;
@@ -1613,12 +1589,14 @@ int qdio_get_next_buffers(struct ccw_device *cdev, int nr, int *bufnr,
 	q = irq_ptr->input_qs[nr];
 	WARN_ON(queue_irqs_enabled(q));
 
-	qdio_sync_after_thinint(q);
-
 	/*
-	 * The interrupt could be caused by a PCI request. Check the
-	 * PCI capable outbound queues.
+	 * Cannot rely on automatic sync after interrupt since queues may
+	 * also be examined without interrupt.
 	 */
+	if (need_siga_sync(q))
+		qdio_sync_queues(q);
+
+	/* check the PCI capable outbound queues. */
 	qdio_check_outbound_after_thinint(q);
 
 	if (!qdio_inbound_q_moved(q))

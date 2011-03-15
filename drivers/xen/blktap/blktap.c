@@ -134,20 +134,14 @@ module_param(debug_lvl, int, 0644);
 
 /*
  * Each outstanding request that we've passed to the lower device layers has a 
- * 'pending_req' allocated to it. Each buffer_head that completes decrements 
- * the pendcnt towards zero. When it hits zero, the specified domain has a 
- * response queued for it, with the saved 'id' passed back.
+ * 'pending_req' allocated to it.
  */
 typedef struct {
 	blkif_t       *blkif;
 	u64            id;
 	unsigned short mem_idx;
-	int            nr_pages;
-	atomic_t       pendcnt;
-	unsigned short operation;
-	int            status;
+	unsigned short nr_pages;
 	struct list_head free_list;
-	int            inuse;
 } pending_req_t;
 
 static pending_req_t *pending_reqs[MAX_PENDING_REQS];
@@ -994,10 +988,8 @@ static pending_req_t* alloc_req(void)
 		list_del(&req->free_list);
 	}
 
-	if (req) {
-		req->inuse = 1;
+	if (req)
 		alloc_pending_reqs++;
-	}
 	spin_unlock_irqrestore(&pending_free_lock, flags);
 
 	return req;
@@ -1011,7 +1003,6 @@ static void free_req(pending_req_t *req)
 	spin_lock_irqsave(&pending_free_lock, flags);
 
 	alloc_pending_reqs--;
-	req->inuse = 0;
 	if (mmap_lock && (req->mem_idx == mmap_alloc-1)) {
 		mmap_inuse--;
 		if (mmap_inuse == 0) mmap_req_del(mmap_alloc-1);
@@ -1422,35 +1413,17 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 				 blkif_request_t *req,
 				 pending_req_t *pending_req)
 {
-	extern void ll_rw_block(int rw, int nr, struct buffer_head * bhs[]);
-	int op, operation;
 	struct gnttab_map_grant_ref map[BLKIF_MAX_SEGMENTS_PER_REQUEST*2];
 	unsigned int nseg;
-	int ret, i, nr_sects = 0;
+	int ret, i, op, nr_sects = 0;
 	tap_blkif_t *info;
 	blkif_request_t *target;
 	unsigned int mmap_idx = pending_req->mem_idx;
 	unsigned int pending_idx = RTN_PEND_IDX(pending_req, mmap_idx);
 	unsigned int usr_idx;
+	uint32_t flags;
 	struct mm_struct *mm;
 	struct vm_area_struct *vma = NULL;
-
-	switch (req->operation) {
-	case BLKIF_OP_PACKET:
-		/* Fall through */
-	case BLKIF_OP_READ:
-		operation = READ;
-		break;
-	case BLKIF_OP_WRITE:
-		operation = WRITE;
-		break;
-	case BLKIF_OP_WRITE_BARRIER:
-		operation = WRITE_FLUSH_FUA;
-		break;
-	default:
-		operation = 0; /* make gcc happy */
-		BUG();
-	}
 
 	if (blkif->dev_num < 0 || blkif->dev_num >= MAX_TAP_DEV)
 		goto fail_response;
@@ -1468,7 +1441,7 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 
 	/* Check that number of segments is sane. */
 	nseg = req->nr_segments;
-	if ( unlikely(nseg == 0) || 
+	if (unlikely(nseg == 0 && req->operation != BLKIF_OP_WRITE_BARRIER) ||
 	    unlikely(nseg > BLKIF_MAX_SEGMENTS_PER_REQUEST) ) {
 		WPRINTK("Bad number of segments in request (%d)\n", nseg);
 		goto fail_response;
@@ -1491,9 +1464,16 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 
 	pending_req->blkif     = blkif;
 	pending_req->id        = req->id;
-	pending_req->operation = req->operation;
-	pending_req->status    = BLKIF_RSP_OKAY;
 	pending_req->nr_pages  = nseg;
+
+	flags = GNTMAP_host_map;
+	switch (req->operation) {
+	case BLKIF_OP_WRITE:
+	case BLKIF_OP_WRITE_BARRIER:
+		flags |= GNTMAP_readonly;
+		break;
+	}
+
 	op = 0;
 	mm = info->mm;
 	if (!xen_feature(XENFEAT_auto_translated_physmap))
@@ -1502,14 +1482,10 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 		unsigned long uvaddr;
 		unsigned long kvaddr;
 		uint64_t ptep;
-		uint32_t flags;
 
 		uvaddr = MMAP_VADDR(info->user_vstart, usr_idx, i);
 		kvaddr = idx_to_kaddr(mmap_idx, pending_idx, i);
 
-		flags = GNTMAP_host_map;
-		if (operation != READ)
-			flags |= GNTMAP_readonly;
 		gnttab_set_map_op(&map[op], kvaddr, flags,
 				  req->seg[i].gref, blkif->domid);
 		op++;
@@ -1523,11 +1499,9 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 				goto fail_flush;
 			}
 
-			flags = GNTMAP_host_map | GNTMAP_application_map
-				| GNTMAP_contains_pte;
-			if (operation != READ)
-				flags |= GNTMAP_readonly;
-			gnttab_set_map_op(&map[op], ptep, flags,
+			gnttab_set_map_op(&map[op], ptep,
+					  flags | GNTMAP_application_map
+						| GNTMAP_contains_pte,
 					  req->seg[i].gref, blkif->domid);
 			op++;
 		}
@@ -1657,10 +1631,15 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 	wmb(); /* blktap_poll() reads req_prod_pvt asynchronously */
 	info->ufe_ring.req_prod_pvt++;
 
-	if (operation == READ)
+	switch (req->operation) {
+	case BLKIF_OP_READ:
 		blkif->st_rd_sect += nr_sects;
-	else
+		break;
+	case BLKIF_OP_WRITE:
+	case BLKIF_OP_WRITE_BARRIER:
 		blkif->st_wr_sect += nr_sects;
+		break;
+	}
 
 	return;
 

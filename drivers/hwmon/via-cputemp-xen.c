@@ -21,6 +21,8 @@
  * 02110-1301 USA.
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
@@ -224,15 +226,14 @@ static int via_cputemp_device_add(unsigned int cpu)
 		goto exit_entry_free;
 
 	if (pdev_entry->x86_model > 0x0f) {
-		printk(KERN_WARNING DRVNAME ": Unknown CPU "
-		       "model 0x%x\n", pdev_entry->x86_model);
+		pr_warn("Unknown CPU model 0x%x\n", pdev_entry->x86_model);
 		goto exit_entry_free;
 	}
 
 	pdev = platform_device_alloc(DRVNAME, cpu);
 	if (!pdev) {
 		err = -ENOMEM;
-		printk(KERN_ERR DRVNAME ": Device allocation failed\n");
+		pr_err("Device allocation failed\n");
 		goto exit_entry_free;
 	}
 
@@ -241,8 +242,7 @@ static int via_cputemp_device_add(unsigned int cpu)
 
 	err = platform_device_add(pdev);
 	if (err) {
-		printk(KERN_ERR DRVNAME ": Device addition failed (%d)\n",
-		       err);
+		pr_err("Device addition failed (%d)\n", err);
 		goto exit_device_put;
 	}
 
@@ -268,8 +268,9 @@ static void via_cputemp_device_remove(unsigned int cpu)
 		if (p->pdev->id == cpu) {
 			platform_device_unregister(p->pdev);
 			list_del(&p->list);
+			mutex_unlock(&pdev_list_mutex);
 			kfree(p);
-			break;
+			return;
 		}
 	}
 	mutex_unlock(&pdev_list_mutex);

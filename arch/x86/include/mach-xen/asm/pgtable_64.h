@@ -65,15 +65,6 @@ static inline void xen_set_pte_atomic(pte_t *ptep, pte_t pte)
 	xen_set_pte(ptep, pte);
 }
 
-#ifdef CONFIG_SMP
-static inline pte_t xen_ptep_get_and_clear(pte_t *xp, pte_t ret)
-{
-	return __pte_ma(xchg(&xp->pte, 0));
-}
-#else
-#define xen_ptep_get_and_clear(xp, pte) xen_local_ptep_get_and_clear(xp, pte)
-#endif
-
 static inline void xen_set_pmd(pmd_t *pmdp, pmd_t pmd)
 {
 	xen_l2_entry_update(pmdp, pmd);
@@ -86,6 +77,26 @@ static inline void xen_set_pmd(pmd_t *pmdp, pmd_t pmd)
 	? set_pmd(__pmdp, xen_make_pmd(0))	\
 	: (void)(*__pmdp = xen_make_pmd(0));	\
 })
+
+#ifdef CONFIG_SMP
+static inline pte_t xen_ptep_get_and_clear(pte_t *xp, pte_t ret)
+{
+	return __pte_ma(xchg(&xp->pte, 0));
+}
+#else
+#define xen_ptep_get_and_clear(xp, pte) xen_local_ptep_get_and_clear(xp, pte)
+#endif
+
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+#ifdef CONFIG_SMP
+static inline pmd_t xen_pmdp_get_and_clear(pmd_t *xp)
+{
+	return xen_make_pmd(xchg(&xp->pmd, 0));
+}
+#else
+#define xen_pmdp_get_and_clear(xp) xen_local_pmdp_get_and_clear(xp)
+#endif
+#endif
 
 static inline void xen_set_pud(pud_t *pudp, pud_t pud)
 {
@@ -192,6 +203,7 @@ extern void cleanup_highmap(void);
 #define	kc_offset_to_vaddr(o) ((o) | ~__VIRTUAL_MASK)
 
 #define __HAVE_ARCH_PTE_SAME
+
 #endif /* !__ASSEMBLY__ */
 
 #endif /* _ASM_X86_PGTABLE_64_H */

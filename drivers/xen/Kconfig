@@ -19,7 +19,8 @@ config XEN_PRIVILEGED_GUEST
 	  Support for privileged operation (domain 0)
 
 config XEN_UNPRIVILEGED_GUEST
-	def_bool !XEN_PRIVILEGED_GUEST
+	def_bool y
+	depends on !XEN_PRIVILEGED_GUEST
 	select PM
 	select SUSPEND
 
@@ -47,7 +48,7 @@ config XEN_BACKEND
 
 config XEN_BLKDEV_BACKEND
 	tristate "Block-device backend driver"
-        depends on XEN_BACKEND
+	depends on BLOCK && XEN_BACKEND
 	default XEN_BACKEND
 	select XEN_DOMCTL
 	help
@@ -57,7 +58,7 @@ config XEN_BLKDEV_BACKEND
 
 config XEN_BLKDEV_TAP
 	tristate "Block-device tap backend driver"
-	depends on XEN_BACKEND
+	depends on BLOCK && XEN_BACKEND
 	default XEN_BACKEND
 	select XEN_DOMCTL
 	help
@@ -70,7 +71,7 @@ config XEN_BLKDEV_TAP
 
 config XEN_BLKDEV_TAP2
 	tristate "Block-device tap backend driver 2"
-	depends on XEN_BACKEND
+	depends on BLOCK && XEN_BACKEND
 	default XEN_BACKEND
 	help
 	  The block tap driver is an alternative to the block back driver
@@ -350,6 +351,9 @@ choice
 	config XEN_COMPAT_040000_AND_LATER
 		bool "4.0.0 and later"
 
+	config XEN_COMPAT_040100_AND_LATER
+		bool "4.1.0 and later"
+
 	config XEN_COMPAT_LATEST_ONLY
 		bool "no compatibility code"
 
@@ -358,6 +362,7 @@ endchoice
 config XEN_COMPAT
 	hex
 	default 0xffffff if XEN_COMPAT_LATEST_ONLY
+	default 0x040100 if XEN_COMPAT_040100_AND_LATER
 	default 0x040000 if XEN_COMPAT_040000_AND_LATER
 	default 0x030400 if XEN_COMPAT_030400_AND_LATER
 	default 0x030300 if XEN_COMPAT_030300_AND_LATER
@@ -384,9 +389,6 @@ endmenu
 config HAVE_IRQ_IGNORE_UNHANDLED
 	def_bool y
 
-config IRQ_PER_CPU
-	bool
-
 config ARCH_HAS_WALK_MEMORY
 	def_bool y
 	depends on X86
@@ -394,9 +396,6 @@ config ARCH_HAS_WALK_MEMORY
 config XEN_SMPBOOT
 	def_bool y
 	depends on SMP && !PPC_XEN
-
-config XEN_XENCOMM
-	bool
 
 config XEN_DEVMEM
 	def_bool y
@@ -437,6 +436,14 @@ config XEN_DEV_EVTCHN
 	  firing.
 	  If in doubt, say yes.
 
+config PARAVIRT_XEN_BACKEND
+	bool "Backend driver support"
+	depends on XEN_DOM0
+	default y
+	help
+	  Support for backend device drivers that provide I/O services
+	  to other virtual machines.
+
 config XENFS
 	tristate "Xen filesystem"
 	depends on PARAVIRT_XEN
@@ -471,9 +478,19 @@ config XEN_SYS_HYPERVISOR
 	 virtual environment, /sys/hypervisor will still be present,
 	 but will have no xen contents.
 
+config XEN_XENBUS_FRONTEND
+	tristate
+
+config XEN_GNTDEV
+	tristate "userspace grant access device driver"
+	depends on PARAVIRT_XEN
+	select MMU_NOTIFIER
+	help
+	  Allows userspace processes to use grants.
+
 config XEN_PLATFORM_PCI
 	tristate "xen platform pci device driver"
-	depends on XEN_PVHVM
+	depends on XEN_PVHVM && PCI
 	default m
 	help
 	  Driver for the Xen PCI Platform device: it is responsible for
@@ -485,5 +502,8 @@ config SWIOTLB_XEN
 	def_bool y
 	depends on PARAVIRT_XEN && PCI
 	select SWIOTLB
+
+config XEN_XENCOMM
+	bool
 
 endmenu

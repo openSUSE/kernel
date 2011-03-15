@@ -471,8 +471,9 @@ bool radeon_combios_check_hardcoded_edid(struct radeon_device *rdev)
 	return true;
 }
 
+/* this is used for atom LCDs as well */
 struct edid *
-radeon_combios_get_hardcoded_edid(struct radeon_device *rdev)
+radeon_bios_get_hardcoded_edid(struct radeon_device *rdev)
 {
 	if (rdev->mode_info.bios_hardcoded_edid)
 		return rdev->mode_info.bios_hardcoded_edid;
@@ -2487,6 +2488,17 @@ void radeon_combios_get_power_modes(struct radeon_device *rdev)
 	int state_index = 0;
 
 	rdev->pm.default_power_state_index = -1;
+
+	/* allocate 2 power states */
+	rdev->pm.power_state = kzalloc(sizeof(struct radeon_power_state) * 2, GFP_KERNEL);
+	if (!rdev->pm.power_state) {
+		rdev->pm.default_power_state_index = state_index;
+		rdev->pm.num_power_states = 0;
+
+		rdev->pm.current_power_state_index = rdev->pm.default_power_state_index;
+		rdev->pm.current_clock_mode_index = 0;
+		return;
+	}
 
 	if (rdev->flags & RADEON_IS_MOBILITY) {
 		offset = combios_get_table_offset(dev, COMBIOS_POWERPLAY_INFO_TABLE);

@@ -98,7 +98,8 @@ typedef struct netif_st {
 	struct timer_list tx_queue_timeout;
 
 	/* Statistics */
-	int nr_copied_skbs;
+	unsigned long nr_copied_skbs;
+	unsigned long rx_gso_csum_fixups;
 
 	/* Miscellaneous private stuff. */
 	struct list_head list;  /* scheduling list */

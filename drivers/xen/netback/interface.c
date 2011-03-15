@@ -192,6 +192,7 @@ static const struct netif_stat {
 	u16 offset;
 } netbk_stats[] = {
 	{ "copied_skbs", offsetof(netif_t, nr_copied_skbs) },
+	{ "rx_gso_csum_fixups", offsetof(netif_t, rx_gso_csum_fixups) },
 };
 
 static int netbk_get_sset_count(struct net_device *dev, int sset)
@@ -200,7 +201,7 @@ static int netbk_get_sset_count(struct net_device *dev, int sset)
 	case ETH_SS_STATS:
 		return ARRAY_SIZE(netbk_stats);
 	}
-	return -EINVAL;
+	return -EOPNOTSUPP;
 }
 
 static void netbk_get_ethtool_stats(struct net_device *dev,

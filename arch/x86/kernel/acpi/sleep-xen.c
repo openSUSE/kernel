@@ -12,10 +12,8 @@
 #include <linux/cpumask.h>
 #include <asm/segment.h>
 #include <asm/desc.h>
-
-#ifdef CONFIG_X86_32
 #include <asm/pgtable.h>
-#endif
+#include <asm/cacheflush.h>
 
 #include "realmode/wakeup.h"
 #include "sleep.h"
@@ -103,7 +101,7 @@ int acpi_save_state_mem(void)
 #else /* CONFIG_64BIT */
 	header->trampoline_segment = setup_trampoline() >> 4;
 #ifdef CONFIG_SMP
-	stack_start.sp = temp_stack + sizeof(temp_stack);
+	stack_start = (unsigned long)temp_stack + sizeof(temp_stack);
 	early_gdt_descr.address =
 			(unsigned long)get_cpu_gdt_table(smp_processor_id());
 	initial_gs = per_cpu_offset(smp_processor_id());
@@ -155,8 +153,17 @@ void __init acpi_reserve_wakeup_memory(void)
 #endif
 }
 
-
 #ifndef CONFIG_ACPI_PV_SLEEP
+int __init acpi_configure_wakeup_memory(void)
+{
+	if (acpi_realmode)
+		set_memory_x(acpi_realmode, WAKEUP_SIZE >> PAGE_SHIFT);
+
+	return 0;
+}
+arch_initcall(acpi_configure_wakeup_memory);
+
+
 static int __init acpi_sleep_setup(char *str)
 {
 	while ((str != NULL) && (*str != '\0')) {

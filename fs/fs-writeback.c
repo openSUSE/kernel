@@ -169,6 +169,7 @@ void bdi_start_background_writeback(struct backing_dev_info *bdi)
 	 * We just wake up the flusher thread. It will perform background
 	 * writeback as soon as there is no other work to do.
 	 */
+	trace_writeback_wake_background(bdi);
 	spin_lock_bh(&bdi->wb_lock);
 	bdi_wakeup_flusher(bdi);
 	spin_unlock_bh(&bdi->wb_lock);
@@ -1258,7 +1259,7 @@ EXPORT_SYMBOL(writeback_inodes_sb_nr_if_idle);
  * @sb: the superblock
  *
  * This function writes and waits on any dirty inode belonging to this
- * super_block. The number of pages synced is returned.
+ * super_block.
  */
 void sync_inodes_sb(struct super_block *sb)
 {
@@ -1336,11 +1337,11 @@ int sync_inode(struct inode *inode, struct writeback_control *wbc)
 EXPORT_SYMBOL(sync_inode);
 
 /**
- * sync_inode - write an inode to disk
+ * sync_inode_metadata - write an inode to disk
  * @inode: the inode to sync
  * @wait: wait for I/O to complete.
  *
- * Write an inode to disk and adjust it's dirty state after completion.
+ * Write an inode to disk and adjust its dirty state after completion.
  *
  * Note: only writes the actual inode, no associated data or other metadata.
  */

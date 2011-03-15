@@ -325,19 +325,23 @@ NMI_MASK = 0x80000000
 /* save partial stack frame */
 	.pushsection .kprobes.text, "ax"
 ENTRY(save_args)
-	XCPT_FRAME offset=ORIG_RAX-ARGOFFSET+16
+	XCPT_FRAME offset=ORIG_RAX-RBP+8
 	cld
-	movq_cfi rdi, RDI+16-ARGOFFSET
-	movq %rsi, RSI+16-ARGOFFSET(%rsp)
-	movq %rdx, RDX+16-ARGOFFSET(%rsp)
-	movq %rcx, RCX+16-ARGOFFSET(%rsp)
-	movq_cfi rax, RAX+16-ARGOFFSET
-	movq  %r8,  R8+16-ARGOFFSET(%rsp)
-	movq  %r9,  R9+16-ARGOFFSET(%rsp)
-	movq %r10, R10+16-ARGOFFSET(%rsp)
-	movq %r11, R11+16-ARGOFFSET(%rsp)
+	/*
+	 * start from rbp in pt_regs and jump over
+	 * return address.
+	 */
+	movq_cfi rdi, RDI+8-RBP
+	movq %rsi, RSI+8-RBP(%rsp)
+	movq %rdx, RDX+8-RBP(%rsp)
+	movq %rcx, RCX+8-RBP(%rsp)
+	movq_cfi rax, RAX+8-RBP
+	movq  %r8,  R8+8-RBP(%rsp)
+	movq  %r9,  R9+8-RBP(%rsp)
+	movq %r10, R10+8-RBP(%rsp)
+	movq %r11, R11+8-RBP(%rsp)
 
-	leaq -ARGOFFSET+16(%rsp),%rdi	/* arg1 for handler */
+	leaq -RBP+8(%rsp),%rdi	/* arg1 for handler */
 	movq_cfi rbp, 8		/* push %rbp */
 	leaq 8(%rsp), %rbp		/* mov %rsp, %ebp */
 	CFI_DEF_CFA_REGISTER rbp
@@ -1173,6 +1177,9 @@ paranoidzeroentry_ist int3 do_int3 DEBUG_STACK
 paranoiderrorentry stack_segment do_stack_segment
 errorentry general_protection do_general_protection
 errorentry page_fault do_page_fault
+#ifdef CONFIG_KVM_GUEST
+errorentry async_page_fault do_async_page_fault
+#endif
 #ifdef CONFIG_X86_MCE
 paranoidzeroentry machine_check *machine_check_vector(%rip)
 #endif

@@ -760,7 +760,7 @@ blktap_device_close_bdev(struct blktap *tap)
 	dev = &tap->device;
 
 	if (dev->bdev)
-		blkdev_put(dev->bdev);
+		blkdev_put(dev->bdev, FMODE_WRITE|FMODE_EXCL);
 
 	dev->bdev = NULL;
 	clear_bit(BLKTAP_PASSTHROUGH, &tap->dev_inuse);
@@ -774,7 +774,7 @@ blktap_device_open_bdev(struct blktap *tap, u32 pdev)
 
 	dev = &tap->device;
 
-	bdev = open_by_devnum(pdev, FMODE_WRITE);
+	bdev = blkdev_get_by_dev(pdev, FMODE_WRITE|FMODE_EXCL, tap);
 	if (IS_ERR(bdev)) {
 		BTERR("opening device %x:%x failed: %ld\n",
 		      MAJOR(pdev), MINOR(pdev), PTR_ERR(bdev));
@@ -784,7 +784,7 @@ blktap_device_open_bdev(struct blktap *tap, u32 pdev)
 	if (!bdev->bd_disk) {
 		BTERR("device %x:%x doesn't exist\n",
 		      MAJOR(pdev), MINOR(pdev));
-		blkdev_put(dev->bdev);
+		blkdev_put(bdev, FMODE_WRITE|FMODE_EXCL);
 		return -ENOENT;
 	}
 

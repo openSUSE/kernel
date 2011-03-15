@@ -163,20 +163,15 @@ int create_lookup_pte_addr(struct mm_struct *mm,
 
 EXPORT_SYMBOL(create_lookup_pte_addr);
 
-static int noop_fn(
-	pte_t *pte, struct page *pmd_page, unsigned long addr, void *data)
-{
-	return 0;
-}
-
-int touch_pte_range(struct mm_struct *mm,
-		    unsigned long address,
-		    unsigned long size)
-{
-	return apply_to_page_range(mm, address, size, noop_fn, NULL);
-}
-
-EXPORT_SYMBOL(touch_pte_range);
+#ifdef CONFIG_MODULES
+/*
+ * Force the implementation of ioremap_page_range() to be pulled in from
+ * lib/lib.a even if there is no other reference from the core kernel to it
+ * (native uses it in __ioremap_caller()), so that it gets exported.
+ */
+static void *const __section(.discard.ioremap) __used
+_ioremap_page_range = ioremap_page_range;
+#endif
 
 /*
  * Fix up the linear direct mapping of the kernel to avoid cache attribute

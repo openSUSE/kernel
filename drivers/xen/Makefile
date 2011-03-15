@@ -24,17 +24,21 @@ obj-$(CONFIG_HOTPLUG_CPU)		+= $(xen-hotplug-y)
 obj-$(CONFIG_XEN_XENCOMM)		+= xencomm.o
 obj-$(CONFIG_XEN_BALLOON)		+= $(xen-balloon-y)
 obj-$(CONFIG_XEN_DEV_EVTCHN)		+= $(xen-evtchn-name-y).o
+obj-$(CONFIG_XEN_GNTDEV)		+= xen-gntdev.o
 obj-$(CONFIG_XENFS)			+= xenfs/
 obj-$(CONFIG_XEN_SYS_HYPERVISOR)	+= sys-hypervisor.o
-obj-$(CONFIG_XEN_PLATFORM_PCI)		+= platform-pci.o
+obj-$(CONFIG_XEN_PLATFORM_PCI)		+= xen-platform-pci.o
 obj-$(CONFIG_SWIOTLB_XEN)		+= swiotlb-xen.o
 obj-$(CONFIG_XEN_DOM0)			+= pci.o
 
 xen-evtchn-y				:= evtchn.o
+xen-gntdev-y				:= gntdev.o
+
+xen-platform-pci-y			:= platform-pci.o
 
 obj-$(CONFIG_XEN_BLKDEV_BACKEND)	+= blkback/
 obj-$(CONFIG_XEN_BLKDEV_TAP)		+= blktap/
-obj-$(CONFIG_XEN_BLKDEV_TAP2)           += blktap2/
+obj-$(CONFIG_XEN_BLKDEV_TAP2)		+= blktap2/ blktap2-new/
 obj-$(CONFIG_XEN_NETDEV_BACKEND)	+= netback/
 obj-$(CONFIG_XEN_TPMDEV_BACKEND)	+= tpmback/
 obj-$(CONFIG_XEN_BLKDEV_FRONTEND)	+= blkfront/

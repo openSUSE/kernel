@@ -34,6 +34,4 @@
 
 #endif
 
-static inline void init_hw_perf_events(void) {}
-
 #endif /* _ASM_X86_PERF_EVENT_H */

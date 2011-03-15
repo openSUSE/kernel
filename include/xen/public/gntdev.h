@@ -66,7 +66,7 @@ struct ioctl_gntdev_map_grant_ref {
  * before this ioctl is called, or an error will result.
  */
 #define IOCTL_GNTDEV_UNMAP_GRANT_REF \
-_IOC(_IOC_NONE, 'G', 1, sizeof(struct ioctl_gntdev_unmap_grant_ref))       
+_IOC(_IOC_NONE, 'G', 1, sizeof(struct ioctl_gntdev_unmap_grant_ref))
 struct ioctl_gntdev_unmap_grant_ref {
 	/* IN parameters */
 	/* The offset was returned by the corresponding map operation. */

@@ -24,6 +24,7 @@
 #include <linux/string.h>
 #include <linux/backing-dev.h>
 #include <linux/mpage.h>
+#include <linux/falloc.h>
 #include <linux/swap.h>
 #include <linux/writeback.h>
 #include <linux/statfs.h>
@@ -69,6 +70,19 @@ static noinline int btrfs_copy_from_user(loff_t pos, int num_pages,
 
 		/* Flush processor's dcache for this page */
 		flush_dcache_page(page);
+
+		/*
+		 * if we get a partial write, we can end up with
+		 * partially up to date pages.  These add
+		 * a lot of complexity, so make sure they don't
+		 * happen by forcing this copy to be retried.
+		 *
+		 * The rest of the btrfs_file_write code will fall
+		 * back to page at a time copies after we return 0.
+		 */
+		if (!PageUptodate(page) && copied < count)
+			copied = 0;
+
 		iov_iter_advance(i, copied);
 		write_bytes -= copied;
 		total_copied += copied;
@@ -185,6 +199,7 @@ int btrfs_drop_extent_cache(struct inode *inode, u64 start, u64 end,
 			split = alloc_extent_map(GFP_NOFS);
 		if (!split2)
 			split2 = alloc_extent_map(GFP_NOFS);
+		BUG_ON(!split || !split2);
 
 		write_lock(&em_tree->lock);
 		em = lookup_extent_mapping(em_tree, start, len);
@@ -224,6 +239,7 @@ int btrfs_drop_extent_cache(struct inode *inode, u64 start, u64 end,
 
 			split->bdev = em->bdev;
 			split->flags = flags;
+			split->compress_type = em->compress_type;
 			ret = add_extent_mapping(em_tree, split);
 			BUG_ON(ret);
 			free_extent_map(split);
@@ -238,6 +254,7 @@ int btrfs_drop_extent_cache(struct inode *inode, u64 start, u64 end,
 			split->len = em->start + em->len - (start + len);
 			split->bdev = em->bdev;
 			split->flags = flags;
+			split->compress_type = em->compress_type;
 
 			if (compressed) {
 				split->block_len = em->block_len;
@@ -759,6 +776,27 @@ out:
 }
 
 /*
+ * on error we return an unlocked page and the error value
+ * on success we return a locked page and 0
+ */
+static int prepare_uptodate_page(struct page *page, u64 pos)
+{
+	int ret = 0;
+
+	if ((pos & (PAGE_CACHE_SIZE - 1)) && !PageUptodate(page)) {
+		ret = btrfs_readpage(NULL, page);
+		if (ret)
+			return ret;
+		lock_page(page);
+		if (!PageUptodate(page)) {
+			unlock_page(page);
+			return -EIO;
+		}
+	}
+	return 0;
+}
+
+/*
  * this gets pages into the page cache and locks them down, it also properly
  * waits for data=ordered extents to finish before allowing the pages to be
  * modified.
@@ -773,6 +811,7 @@ static noinline int prepare_pages(struct btrfs_root *root, struct file *file,
 	unsigned long index = pos >> PAGE_CACHE_SHIFT;
 	struct inode *inode = fdentry(file)->d_inode;
 	int err = 0;
+	int faili = 0;
 	u64 start_pos;
 	u64 last_pos;
 
@@ -790,11 +829,24 @@ again:
 	for (i = 0; i < num_pages; i++) {
 		pages[i] = grab_cache_page(inode->i_mapping, index + i);
 		if (!pages[i]) {
+			faili = i - 1;
 			err = -ENOMEM;
-			BUG_ON(1);
+			goto fail;
+		}
+
+		if (i == 0)
+			err = prepare_uptodate_page(pages[i], pos);
+		if (i == num_pages - 1)
+			err = prepare_uptodate_page(pages[i],
+						    pos + write_bytes);
+		if (err) {
+			page_cache_release(pages[i]);
+			faili = i - 1;
+			goto fail;
 		}
 		wait_on_page_writeback(pages[i]);
 	}
+	err = 0;
 	if (start_pos < inode->i_size) {
 		struct btrfs_ordered_extent *ordered;
 		lock_extent_bits(&BTRFS_I(inode)->io_tree,
@@ -834,6 +886,14 @@ again:
 		WARN_ON(!PageLocked(pages[i]));
 	}
 	return 0;
+fail:
+	while (faili >= 0) {
+		unlock_page(pages[faili]);
+		page_cache_release(pages[faili]);
+		faili--;
+	}
+	return err;
+
 }
 
 static ssize_t btrfs_file_aio_write(struct kiocb *iocb,
@@ -843,7 +903,6 @@ static ssize_t btrfs_file_aio_write(struct kiocb *iocb,
 	struct file *file = iocb->ki_filp;
 	struct inode *inode = fdentry(file)->d_inode;
 	struct btrfs_root *root = BTRFS_I(inode)->root;
-	struct page *pinned[2];
 	struct page **pages = NULL;
 	struct iov_iter i;
 	loff_t *ppos = &iocb->ki_pos;
@@ -863,9 +922,6 @@ static ssize_t btrfs_file_aio_write(struct kiocb *iocb,
 
 	will_write = ((file->f_flags & O_DSYNC) || IS_SYNC(inode) ||
 		      (file->f_flags & O_DIRECT));
-
-	pinned[0] = NULL;
-	pinned[1] = NULL;
 
 	start_pos = pos;
 
@@ -889,6 +945,17 @@ static ssize_t btrfs_file_aio_write(struct kiocb *iocb,
 	err = file_remove_suid(file);
 	if (err)
 		goto out;
+
+	/*
+	 * If BTRFS flips readonly due to some impossible error
+	 * (fs_info->fs_state now has BTRFS_SUPER_FLAG_ERROR),
+	 * although we have opened a file as writable, we have
+	 * to stop this write operation to ensure FS consistency.
+	 */
+	if (root->fs_info->fs_state & BTRFS_SUPER_FLAG_ERROR) {
+		err = -EROFS;
+		goto out;
+	}
 
 	file_update_time(file);
 	BTRFS_I(inode)->sequence++;
@@ -932,6 +999,10 @@ static ssize_t btrfs_file_aio_write(struct kiocb *iocb,
 		     PAGE_CACHE_SIZE, PAGE_CACHE_SIZE /
 		     (sizeof(struct page *)));
 	pages = kmalloc(nrptrs * sizeof(struct page *), GFP_KERNEL);
+	if (!pages) {
+		ret = -ENOMEM;
+		goto out;
+	}
 
 	/* generic_write_checks can change our pos */
 	start_pos = pos;
@@ -939,39 +1010,13 @@ static ssize_t btrfs_file_aio_write(struct kiocb *iocb,
 	first_index = pos >> PAGE_CACHE_SHIFT;
 	last_index = (pos + iov_iter_count(&i)) >> PAGE_CACHE_SHIFT;
 
-	/*
-	 * there are lots of better ways to do this, but this code
-	 * makes sure the first and last page in the file range are
-	 * up to date and ready for cow
-	 */
-	if ((pos & (PAGE_CACHE_SIZE - 1))) {
-		pinned[0] = grab_cache_page(inode->i_mapping, first_index);
-		if (!PageUptodate(pinned[0])) {
-			ret = btrfs_readpage(NULL, pinned[0]);
-			BUG_ON(ret);
-			wait_on_page_locked(pinned[0]);
-		} else {
-			unlock_page(pinned[0]);
-		}
-	}
-	if ((pos + iov_iter_count(&i)) & (PAGE_CACHE_SIZE - 1)) {
-		pinned[1] = grab_cache_page(inode->i_mapping, last_index);
-		if (!PageUptodate(pinned[1])) {
-			ret = btrfs_readpage(NULL, pinned[1]);
-			BUG_ON(ret);
-			wait_on_page_locked(pinned[1]);
-		} else {
-			unlock_page(pinned[1]);
-		}
-	}
-
 	while (iov_iter_count(&i) > 0) {
 		size_t offset = pos & (PAGE_CACHE_SIZE - 1);
 		size_t write_bytes = min(iov_iter_count(&i),
 					 nrptrs * (size_t)PAGE_CACHE_SIZE -
 					 offset);
-		size_t num_pages = (write_bytes + PAGE_CACHE_SIZE - 1) >>
-					PAGE_CACHE_SHIFT;
+		size_t num_pages = (write_bytes + offset +
+				    PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
 
 		WARN_ON(num_pages > nrptrs);
 		memset(pages, 0, sizeof(struct page *) * nrptrs);
@@ -1001,8 +1046,20 @@ static ssize_t btrfs_file_aio_write(struct kiocb *iocb,
 
 		copied = btrfs_copy_from_user(pos, num_pages,
 					   write_bytes, pages, &i);
-		dirty_pages = (copied + PAGE_CACHE_SIZE - 1) >>
-					PAGE_CACHE_SHIFT;
+
+		/*
+		 * if we have trouble faulting in the pages, fall
+		 * back to one page at a time
+		 */
+		if (copied < write_bytes)
+			nrptrs = 1;
+
+		if (copied == 0)
+			dirty_pages = 0;
+		else
+			dirty_pages = (copied + offset +
+				       PAGE_CACHE_SIZE - 1) >>
+				       PAGE_CACHE_SHIFT;
 
 		if (num_pages > dirty_pages) {
 			if (copied > 0)
@@ -1046,10 +1103,6 @@ out:
 		err = ret;
 
 	kfree(pages);
-	if (pinned[0])
-		page_cache_release(pinned[0]);
-	if (pinned[1])
-		page_cache_release(pinned[1]);
 	*ppos = pos;
 
 	/*
@@ -1237,6 +1290,117 @@ static int btrfs_file_mmap(struct file	*filp, struct vm_area_struct *vma)
 	return 0;
 }
 
+static long btrfs_fallocate(struct file *file, int mode,
+			    loff_t offset, loff_t len)
+{
+	struct inode *inode = file->f_path.dentry->d_inode;
+	struct extent_state *cached_state = NULL;
+	u64 cur_offset;
+	u64 last_byte;
+	u64 alloc_start;
+	u64 alloc_end;
+	u64 alloc_hint = 0;
+	u64 locked_end;
+	u64 mask = BTRFS_I(inode)->root->sectorsize - 1;
+	struct extent_map *em;
+	int ret;
+
+	alloc_start = offset & ~mask;
+	alloc_end =  (offset + len + mask) & ~mask;
+
+	/* We only support the FALLOC_FL_KEEP_SIZE mode */
+	if (mode & ~FALLOC_FL_KEEP_SIZE)
+		return -EOPNOTSUPP;
+
+	/*
+	 * wait for ordered IO before we have any locks.  We'll loop again
+	 * below with the locks held.
+	 */
+	btrfs_wait_ordered_range(inode, alloc_start, alloc_end - alloc_start);
+
+	mutex_lock(&inode->i_mutex);
+	ret = inode_newsize_ok(inode, alloc_end);
+	if (ret)
+		goto out;
+
+	if (alloc_start > inode->i_size) {
+		ret = btrfs_cont_expand(inode, alloc_start);
+		if (ret)
+			goto out;
+	}
+
+	ret = btrfs_check_data_free_space(inode, alloc_end - alloc_start);
+	if (ret)
+		goto out;
+
+	locked_end = alloc_end - 1;
+	while (1) {
+		struct btrfs_ordered_extent *ordered;
+
+		/* the extent lock is ordered inside the running
+		 * transaction
+		 */
+		lock_extent_bits(&BTRFS_I(inode)->io_tree, alloc_start,
+				 locked_end, 0, &cached_state, GFP_NOFS);
+		ordered = btrfs_lookup_first_ordered_extent(inode,
+							    alloc_end - 1);
+		if (ordered &&
+		    ordered->file_offset + ordered->len > alloc_start &&
+		    ordered->file_offset < alloc_end) {
+			btrfs_put_ordered_extent(ordered);
+			unlock_extent_cached(&BTRFS_I(inode)->io_tree,
+					     alloc_start, locked_end,
+					     &cached_state, GFP_NOFS);
+			/*
+			 * we can't wait on the range with the transaction
+			 * running or with the extent lock held
+			 */
+			btrfs_wait_ordered_range(inode, alloc_start,
+						 alloc_end - alloc_start);
+		} else {
+			if (ordered)
+				btrfs_put_ordered_extent(ordered);
+			break;
+		}
+	}
+
+	cur_offset = alloc_start;
+	while (1) {
+		em = btrfs_get_extent(inode, NULL, 0, cur_offset,
+				      alloc_end - cur_offset, 0);
+		BUG_ON(IS_ERR(em) || !em);
+		last_byte = min(extent_map_end(em), alloc_end);
+		last_byte = (last_byte + mask) & ~mask;
+		if (em->block_start == EXTENT_MAP_HOLE ||
+		    (cur_offset >= inode->i_size &&
+		     !test_bit(EXTENT_FLAG_PREALLOC, &em->flags))) {
+			ret = btrfs_prealloc_file_range(inode, mode, cur_offset,
+							last_byte - cur_offset,
+							1 << inode->i_blkbits,
+							offset + len,
+							&alloc_hint);
+			if (ret < 0) {
+				free_extent_map(em);
+				break;
+			}
+		}
+		free_extent_map(em);
+
+		cur_offset = last_byte;
+		if (cur_offset >= alloc_end) {
+			ret = 0;
+			break;
+		}
+	}
+	unlock_extent_cached(&BTRFS_I(inode)->io_tree, alloc_start, locked_end,
+			     &cached_state, GFP_NOFS);
+
+	btrfs_free_reserved_data_space(inode, alloc_end - alloc_start);
+out:
+	mutex_unlock(&inode->i_mutex);
+	return ret;
+}
+
 const struct file_operations btrfs_file_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= do_sync_read,
@@ -1248,6 +1412,7 @@ const struct file_operations btrfs_file_operations = {
 	.open		= generic_file_open,
 	.release	= btrfs_release_file,
 	.fsync		= btrfs_sync_file,
+	.fallocate	= btrfs_fallocate,
 	.unlocked_ioctl	= btrfs_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl	= btrfs_ioctl,
