@@ -69,11 +69,6 @@ config BROKEN_ON_SMP
 	depends on BROKEN || !SMP
 	default y
 
-config LOCK_KERNEL
-	bool
-	depends on (SMP || PREEMPT) && BKL
-	default y
-
 config INIT_ENV_ARG_LIMIT
 	int
 	default 32 if !UML
@@ -836,7 +831,7 @@ config MM_OWNER
 	bool
 
 config SYSFS_DEPRECATED
-	bool "enable deprecated sysfs features to support old userspace tools"
+	bool "Enable deprecated sysfs features to support old userspace tools"
 	depends on SYSFS
 	default n
 	help
@@ -859,7 +854,7 @@ config SYSFS_DEPRECATED
 	  need to say Y here.
 
 config SYSFS_DEPRECATED_V2
-	bool "enabled deprecated sysfs features by default"
+	bool "Enable deprecated sysfs features by default"
 	default n
 	depends on SYSFS
 	depends on SYSFS_DEPRECATED

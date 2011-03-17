@@ -801,8 +801,7 @@ struct inode {
 #endif
 
 #ifdef CONFIG_IMA
-	/* protected by i_lock */
-	unsigned int		i_readcount; /* struct files open RO */
+	atomic_t		i_readcount; /* struct files open RO */
 #endif
 	atomic_t		i_writecount;
 #ifdef CONFIG_SECURITY
@@ -1632,6 +1631,8 @@ struct super_operations {
 	void (*umount_begin) (struct super_block *);
 
 	int (*show_options)(struct seq_file *, struct vfsmount *);
+	int (*show_devname)(struct seq_file *, struct vfsmount *);
+	int (*show_path)(struct seq_file *, struct vfsmount *);
 	int (*show_stats)(struct seq_file *, struct vfsmount *);
 #ifdef CONFIG_QUOTA
 	ssize_t (*quota_read)(struct super_block *, int, char *, size_t, loff_t);
@@ -1795,8 +1796,6 @@ int sync_inode_metadata(struct inode *inode, int wait);
 struct file_system_type {
 	const char *name;
 	int fs_flags;
-	int (*get_sb) (struct file_system_type *, int,
-		       const char *, void *, struct vfsmount *);
 	struct dentry *(*mount) (struct file_system_type *, int,
 		       const char *, void *);
 	void (*kill_sb) (struct super_block *);
@@ -1819,24 +1818,12 @@ extern struct dentry *mount_ns(struct file_system_type *fs_type, int flags,
 extern struct dentry *mount_bdev(struct file_system_type *fs_type,
 	int flags, const char *dev_name, void *data,
 	int (*fill_super)(struct super_block *, void *, int));
-extern int get_sb_bdev(struct file_system_type *fs_type,
-	int flags, const char *dev_name, void *data,
-	int (*fill_super)(struct super_block *, void *, int),
-	struct vfsmount *mnt);
 extern struct dentry *mount_single(struct file_system_type *fs_type,
 	int flags, void *data,
 	int (*fill_super)(struct super_block *, void *, int));
-extern int get_sb_single(struct file_system_type *fs_type,
-	int flags, void *data,
-	int (*fill_super)(struct super_block *, void *, int),
-	struct vfsmount *mnt);
 extern struct dentry *mount_nodev(struct file_system_type *fs_type,
 	int flags, void *data,
 	int (*fill_super)(struct super_block *, void *, int));
-extern int get_sb_nodev(struct file_system_type *fs_type,
-	int flags, void *data,
-	int (*fill_super)(struct super_block *, void *, int),
-	struct vfsmount *mnt);
 void generic_shutdown_super(struct super_block *sb);
 void kill_block_super(struct super_block *sb);
 void kill_anon_super(struct super_block *sb);
@@ -2215,6 +2202,26 @@ static inline void allow_write_access(struct file *file)
 	if (file)
 		atomic_inc(&file->f_path.dentry->d_inode->i_writecount);
 }
+#ifdef CONFIG_IMA
+static inline void i_readcount_dec(struct inode *inode)
+{
+	BUG_ON(!atomic_read(&inode->i_readcount));
+	atomic_dec(&inode->i_readcount);
+}
+static inline void i_readcount_inc(struct inode *inode)
+{
+	atomic_inc(&inode->i_readcount);
+}
+#else
+static inline void i_readcount_dec(struct inode *inode)
+{
+	return;
+}
+static inline void i_readcount_inc(struct inode *inode)
+{
+	return;
+}
+#endif
 extern int do_pipe_flags(int *, int);
 extern struct file *create_read_pipe(struct file *f, int flags);
 extern struct file *create_write_pipe(int flags);

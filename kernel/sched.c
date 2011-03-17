@@ -32,7 +32,6 @@
 #include <linux/init.h>
 #include <linux/uaccess.h>
 #include <linux/highmem.h>
-#include <linux/smp_lock.h>
 #include <asm/mmu_context.h>
 #include <linux/interrupt.h>
 #include <linux/capability.h>
@@ -661,10 +660,9 @@ static void update_rq_clock(struct rq *rq)
 #endif
 
 /**
- * runqueue_is_locked
+ * runqueue_is_locked - Returns true if the current cpu runqueue is locked
  * @cpu: the processor in question.
  *
- * Returns true if the current cpu runqueue is locked.
  * This interface allows printk to be called with the runqueue lock
  * held and know whether or not it is OK to wake up the klogd.
  */
@@ -4087,9 +4085,6 @@ need_resched:
 	rcu_note_context_switch(cpu);
 	prev = rq->curr;
 
-	release_kernel_lock(prev);
-need_resched_nonpreemptible:
-
 	schedule_debug(prev);
 
 	if (sched_feat(HRTICK))
@@ -4148,9 +4143,6 @@ need_resched_nonpreemptible:
 		raw_spin_unlock_irq(&rq->lock);
 
 	post_schedule(rq);
-
-	if (unlikely(reacquire_kernel_lock(prev)))
-		goto need_resched_nonpreemptible;
 
 	preempt_enable_no_resched();
 	if (need_resched())
@@ -8278,7 +8270,7 @@ static inline int preempt_count_equals(int preempt_offset)
 {
 	int nested = (preempt_count() & ~PREEMPT_ACTIVE) + rcu_preempt_depth();
 
-	return (nested == PREEMPT_INATOMIC_BASE + preempt_offset);
+	return (nested == preempt_offset);
 }
 
 void __might_sleep(const char *file, int line, int preempt_offset)
