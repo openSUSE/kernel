@@ -1,7 +1,7 @@
 VERSION = 2
 PATCHLEVEL = 6
 SUBLEVEL = 38
-EXTRAVERSION =-4148-g054cfaa
+EXTRAVERSION =-6439-g5bab188
 NAME = Flesh-Eating Bats with Fangs
 
 # *DOCUMENTATION*
@@ -666,7 +666,7 @@ export MODLIB
 #  INSTALL_MOD_STRIP, if defined, will cause modules to be
 #  stripped after they are installed.  If INSTALL_MOD_STRIP is '1', then
 #  the default option --strip-debug will be used.  Otherwise,
-#  INSTALL_MOD_STRIP will used as the options to the strip command.
+#  INSTALL_MOD_STRIP value will be used as the options to the strip command.
 
 ifdef INSTALL_MOD_STRIP
 ifeq ($(INSTALL_MOD_STRIP),1)
