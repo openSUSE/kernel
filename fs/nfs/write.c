@@ -502,7 +502,8 @@ static void
 nfs_mark_request_dirty(struct nfs_page *req)
 {
 	__set_page_dirty_nobuffers(req->wb_page);
-	__mark_inode_dirty(req->wb_page->mapping->host, I_DIRTY_DATASYNC);
+	__mark_inode_dirty(page_file_mapping(req->wb_page)->host,
+							I_DIRTY_DATASYNC);
 }
 
 #if defined(CONFIG_NFS_V3) || defined(CONFIG_NFS_V4)
@@ -744,11 +745,21 @@ static int nfs_writepage_setup(struct nfs_open_context *ctx, struct page *page,
 	req = nfs_setup_write_request(ctx, page, offset, count);
 	if (IS_ERR(req))
 		return PTR_ERR(req);
-	nfs_mark_request_dirty(req);
+
+	/*
+	 * There is no need to mark swapfile requests as dirty like normal
+	 * writepage requests as page dirtying and cleaning is managed
+	 * from the mm. If a PageSwapCache page is marked dirty like this,
+	 * it will still be dirty after kswapd calls writepage and may
+	 * never be released
+	 */
+	if (!PageSwapCache(page))
+		nfs_mark_request_dirty(req);
 	/* Update file length */
 	nfs_grow_file(page, offset, count);
 	nfs_mark_uptodate(page, req->wb_pgbase, req->wb_bytes);
-	nfs_mark_request_dirty(req);
+	if (!PageSwapCache(page))
+		nfs_mark_request_dirty(req);
 	nfs_clear_page_tag_locked(req);
 	return 0;
 }
@@ -1591,7 +1602,7 @@ int nfs_wb_page_cancel(struct inode *inode, struct page *page)
  */
 int nfs_wb_page(struct inode *inode, struct page *page)
 {
-	loff_t range_start = page_offset(page);
+	loff_t range_start = page_file_offset(page);
 	loff_t range_end = range_start + (loff_t)(PAGE_CACHE_SIZE - 1);
 	struct writeback_control wbc = {
 		.sync_mode = WB_SYNC_ALL,
