@@ -464,7 +464,7 @@ void radeon_compute_pll(struct radeon_pll *pll,
 		max_fractional_feed_div = pll->max_frac_feedback_div;
 	}
 
-	for (post_div = min_post_div; post_div <= max_post_div; ++post_div) {
+	for (post_div = max_post_div; post_div >= min_post_div; --post_div) {
 		uint32_t ref_div;
 
 		if ((pll->flags & RADEON_PLL_NO_ODD_POST_DIV) && (post_div & 1))
@@ -578,6 +578,10 @@ void radeon_compute_pll(struct radeon_pll *pll,
 	*frac_fb_div_p = best_frac_feedback_div;
 	*ref_div_p = best_ref_div;
 	*post_div_p = best_post_div;
+	DRM_DEBUG_KMS("%d %d, pll dividers - fb: %d.%d ref: %d, post %d\n",
+		      freq, best_freq / 1000, best_feedback_div, best_frac_feedback_div,
+		      best_ref_div, best_post_div);
+
 }
 
 void radeon_compute_pll_avivo(struct radeon_pll *pll,

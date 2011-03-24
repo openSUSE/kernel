@@ -209,6 +209,31 @@ void exit_creds(struct task_struct *tsk)
 	}
 }
 
+/**
+ * get_task_cred - Get another task's objective credentials
+ * @task: The task to query
+ *
+ * Get the objective credentials of a task, pinning them so that they can't go
+ * away.  Accessing a task's credentials directly is not permitted.
+ *
+ * The caller must also make sure task doesn't get deleted, either by holding a
+ * ref on task or by holding tasklist_lock to prevent it from being unlinked.
+ */
+const struct cred *get_task_cred(struct task_struct *task)
+{
+	const struct cred *cred;
+
+	rcu_read_lock();
+
+	do {
+		cred = __task_cred((task));
+		BUG_ON(!cred);
+	} while (!atomic_inc_not_zero(&((struct cred *)cred)->usage));
+
+	rcu_read_unlock();
+	return cred;
+}
+
 /*
  * Allocate blank credentials, such that the credentials can be filled in at a
  * later date without risk of ENOMEM.
@@ -231,13 +256,13 @@ struct cred *cred_alloc_blank(void)
 #endif
 
 	atomic_set(&new->usage, 1);
+#ifdef CONFIG_DEBUG_CREDENTIALS
+	new->magic = CRED_MAGIC;
+#endif
 
 	if (security_cred_alloc_blank(new, GFP_KERNEL) < 0)
 		goto error;
 
-#ifdef CONFIG_DEBUG_CREDENTIALS
-	new->magic = CRED_MAGIC;
-#endif
 	return new;
 
 error:
@@ -696,6 +721,8 @@ struct cred *prepare_kernel_cred(struct task_struct *daemon)
 	validate_creds(old);
 
 	*new = *old;
+	atomic_set(&new->usage, 1);
+	set_cred_subscribers(new, 0);
 	get_uid(new->user);
 	get_group_info(new->group_info);
 
@@ -713,8 +740,6 @@ struct cred *prepare_kernel_cred(struct task_struct *daemon)
 	if (security_prepare_creds(new, old, GFP_KERNEL) < 0)
 		goto error;
 
-	atomic_set(&new->usage, 1);
-	set_cred_subscribers(new, 0);
 	put_cred(old);
 	validate_creds(new);
 	return new;
@@ -787,7 +812,11 @@ bool creds_are_invalid(const struct cred *cred)
 	if (cred->magic != CRED_MAGIC)
 		return true;
 #ifdef CONFIG_SECURITY_SELINUX
-	if (selinux_is_enabled()) {
+	/*
+	 * cred->security == NULL if security_cred_alloc_blank() or
+	 * security_prepare_creds() returned an error.
+	 */
+	if (selinux_is_enabled() && cred->security) {
 		if ((unsigned long) cred->security < PAGE_SIZE)
 			return true;
 		if ((*(u32 *)cred->security & 0xffffff00) ==

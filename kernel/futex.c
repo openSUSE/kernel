@@ -1373,7 +1373,6 @@ static inline struct futex_hash_bucket *queue_lock(struct futex_q *q)
 {
 	struct futex_hash_bucket *hb;
 
-	get_futex_key_refs(&q->key);
 	hb = hash_futex(&q->key);
 	q->lock_ptr = &hb->lock;
 
@@ -1385,7 +1384,6 @@ static inline void
 queue_unlock(struct futex_q *q, struct futex_hash_bucket *hb)
 {
 	spin_unlock(&hb->lock);
-	drop_futex_key_refs(&q->key);
 }
 
 /**
@@ -1490,8 +1488,6 @@ static void unqueue_me_pi(struct futex_q *q)
 	q->pi_state = NULL;
 
 	spin_unlock(q->lock_ptr);
-
-	drop_futex_key_refs(&q->key);
 }
 
 /*
@@ -1822,7 +1818,10 @@ static int futex_wait(u32 __user *uaddr, int fshared,
 	}
 
 retry:
-	/* Prepare to wait on uaddr. */
+	/*
+	 * Prepare to wait on uaddr. On success, holds hb lock and increments
+	 * q.key refs.
+	 */
 	ret = futex_wait_setup(uaddr, val, fshared, &q, &hb);
 	if (ret)
 		goto out;
@@ -1832,24 +1831,23 @@ retry:
 
 	/* If we were woken (and unqueued), we succeeded, whatever. */
 	ret = 0;
+	/* unqueue_me() drops q.key ref */
 	if (!unqueue_me(&q))
-		goto out_put_key;
+		goto out;
 	ret = -ETIMEDOUT;
 	if (to && !to->task)
-		goto out_put_key;
+		goto out;
 
 	/*
 	 * We expect signal_pending(current), but we might be the
 	 * victim of a spurious wakeup as well.
 	 */
-	if (!signal_pending(current)) {
-		put_futex_key(fshared, &q.key);
+	if (!signal_pending(current))
 		goto retry;
-	}
 
 	ret = -ERESTARTSYS;
 	if (!abs_time)
-		goto out_put_key;
+		goto out;
 
 	restart = &current_thread_info()->restart_block;
 	restart->fn = futex_wait_restart;
@@ -1866,8 +1864,6 @@ retry:
 
 	ret = -ERESTART_RESTARTBLOCK;
 
-out_put_key:
-	put_futex_key(fshared, &q.key);
 out:
 	if (to) {
 		hrtimer_cancel(&to->timer);
@@ -2246,7 +2242,10 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, int fshared,
 	q.rt_waiter = &rt_waiter;
 	q.requeue_pi_key = &key2;
 
-	/* Prepare to wait on uaddr. */
+	/*
+	 * Prepare to wait on uaddr. On success, increments q.key (key1) ref
+	 * count.
+	 */
 	ret = futex_wait_setup(uaddr, val, fshared, &q, &hb);
 	if (ret)
 		goto out_key2;
@@ -2299,7 +2298,8 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, int fshared,
 	 * acquired uaddr2 on our behalf.  If pi_blocked_on was
 	 * non-null above, we may be racing with a requeue.  Do not
 	 * rely on q->lock_ptr to be hb2->lock until after blocking on
-	 * hb->lock or hb2->lock.
+	 * hb->lock or hb2->lock. The futex_requeue dropped our key1
+	 * reference and incremented our key2 reference count.
 	 */
 	hb2 = hash_futex(&key2);
 

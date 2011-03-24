@@ -56,6 +56,7 @@
 #define FTDI_OPENDCC_SNIFFER_PID	0xBFD9
 #define FTDI_OPENDCC_THROTTLE_PID	0xBFDA
 #define FTDI_OPENDCC_GATEWAY_PID	0xBFDB
+#define FTDI_OPENDCC_GBM_PID	0xBFDC
 
 /*
  * RR-CirKits LocoBuffer USB (http://www.rr-cirkits.com)
@@ -116,6 +117,9 @@
 #define XSENS_CONVERTER_5_PID	0xD38D
 #define XSENS_CONVERTER_6_PID	0xD38E
 #define XSENS_CONVERTER_7_PID	0xD38F
+
+/* Vardaan Enterprises Serial Interface VEUSB422R3 */
+#define FTDI_VARDAAN_PID	0xF070
 
 /*
  * NDI (www.ndigital.com) product ids
@@ -494,6 +498,12 @@
 #define RATOC_PRODUCT_ID_USB60F	0xb020
 
 /*
+ * Acton Research Corp.
+ */
+#define ACTON_VID		0x0647	/* Vendor ID */
+#define ACTON_SPECTRAPRO_PID	0x0100
+
+/*
  * Contec products (http://www.contec.com)
  * Submitted by Daniel Sangorrin
  */
@@ -552,11 +562,23 @@
 #define OCT_US101_PID		0x0421	/* OCT US101 USB to RS-232 */
 
 /*
- * Icom ID-1 digital transceiver
+ * Definitions for Icom Inc. devices
  */
-
-#define ICOM_ID1_VID            0x0C26
-#define ICOM_ID1_PID            0x0004
+#define ICOM_VID		0x0C26 /* Icom vendor ID */
+/* Note: ID-1 is a communications tranceiver for HAM-radio operators */
+#define ICOM_ID_1_PID		0x0004 /* ID-1 USB to RS-232 */
+/* Note: OPC is an Optional cable to connect an Icom Tranceiver */
+#define ICOM_OPC_U_UC_PID	0x0018 /* OPC-478UC, OPC-1122U cloning cable */
+/* Note: ID-RP* devices are Icom Repeater Devices for HAM-radio */
+#define ICOM_ID_RP2C1_PID	0x0009 /* ID-RP2C Asset 1 to RS-232 */
+#define ICOM_ID_RP2C2_PID	0x000A /* ID-RP2C Asset 2 to RS-232 */
+#define ICOM_ID_RP2D_PID	0x000B /* ID-RP2D configuration port*/
+#define ICOM_ID_RP2VT_PID	0x000C /* ID-RP2V Transmit config port */
+#define ICOM_ID_RP2VR_PID	0x000D /* ID-RP2V Receive config port */
+#define ICOM_ID_RP4KVT_PID	0x0010 /* ID-RP4000V Transmit config port */
+#define ICOM_ID_RP4KVR_PID	0x0011 /* ID-RP4000V Receive config port */
+#define ICOM_ID_RP2KVT_PID	0x0012 /* ID-RP2000V Transmit config port */
+#define ICOM_ID_RP2KVR_PID	0x0013 /* ID-RP2000V Receive config port */
 
 /*
  * GN Otometrics (http://www.otometrics.com)
@@ -707,6 +729,7 @@
  */
 #define RTSYSTEMS_VID			0x2100	/* Vendor ID */
 #define RTSYSTEMS_SERIAL_VX7_PID	0x9e52	/* Serial converter for VX-7 Radios using FT232RL */
+#define RTSYSTEMS_CT29B_PID		0x9e54	/* CT29B Radio Cable */
 
 /*
  * Bayer Ascensia Contour blood glucose meter USB-converter cable.
@@ -998,14 +1021,45 @@
 #define WHT_PID			0x0004 /* Wireless Handheld Terminal */
 
 /*
+ * STMicroelectonics
+ */
+#define ST_VID			0x0483
+#define ST_STMCLT1030_PID	0x3747 /* ST Micro Connect Lite STMCLT1030 */
+
+/*
  * Papouch products (http://www.papouch.com/)
  * Submitted by Folkert van Heusden
  */
 
 #define PAPOUCH_VID			0x5050	/* Vendor ID */
+#define PAPOUCH_SB485_PID		0x0100	/* Papouch SB485 USB-485/422 Converter */
+#define PAPOUCH_AP485_PID		0x0101	/* AP485 USB-RS485 Converter */
+#define PAPOUCH_SB422_PID		0x0102	/* Papouch SB422 USB-RS422 Converter  */
+#define PAPOUCH_SB485_2_PID		0x0103	/* Papouch SB485 USB-485/422 Converter */
+#define PAPOUCH_AP485_2_PID		0x0104	/* AP485 USB-RS485 Converter */
+#define PAPOUCH_SB422_2_PID		0x0105	/* Papouch SB422 USB-RS422 Converter  */
+#define PAPOUCH_SB485S_PID		0x0106	/* Papouch SB485S USB-485/422 Converter */
+#define PAPOUCH_SB485C_PID		0x0107	/* Papouch SB485C USB-485/422 Converter */
+#define PAPOUCH_LEC_PID			0x0300	/* LEC USB Converter */
+#define PAPOUCH_SB232_PID		0x0301	/* Papouch SB232 USB-RS232 Converter */
 #define PAPOUCH_TMU_PID			0x0400	/* TMU USB Thermometer */
-#define PAPOUCH_QUIDO4x4_PID		0x0900	/* Quido 4/4 Module */
+#define PAPOUCH_IRAMP_PID		0x0500	/* Papouch IRAmp Duplex */
+#define PAPOUCH_DRAK5_PID		0x0700	/* Papouch DRAK5 */
+#define PAPOUCH_QUIDO8x8_PID		0x0800	/* Papouch Quido 8/8 Module */
+#define PAPOUCH_QUIDO4x4_PID		0x0900	/* Papouch Quido 4/4 Module */
+#define PAPOUCH_QUIDO2x2_PID		0x0a00	/* Papouch Quido 2/2 Module */
+#define PAPOUCH_QUIDO10x1_PID		0x0b00	/* Papouch Quido 10/1 Module */
+#define PAPOUCH_QUIDO30x3_PID		0x0c00	/* Papouch Quido 30/3 Module */
+#define PAPOUCH_QUIDO60x3_PID		0x0d00	/* Papouch Quido 60(100)/3 Module */
+#define PAPOUCH_QUIDO2x16_PID		0x0e00	/* Papouch Quido 2/16 Module */
+#define PAPOUCH_QUIDO3x32_PID		0x0f00	/* Papouch Quido 3/32 Module */
+#define PAPOUCH_DRAK6_PID		0x1000	/* Papouch DRAK6 */
+#define PAPOUCH_UPSUSB_PID		0x8000	/* Papouch UPS-USB adapter */
+#define PAPOUCH_MU_PID			0x8001	/* MU controller */
+#define PAPOUCH_SIMUKEY_PID		0x8002	/* Papouch SimuKey */
 #define PAPOUCH_AD4USB_PID		0x8003	/* AD4USB Measurement Module */
+#define PAPOUCH_GMUX_PID		0x8004	/* Papouch GOLIATH MUX */
+#define PAPOUCH_GMSR_PID		0x8005	/* Papouch GOLIATH MSR */
 
 /*
  * Marvell SheevaPlug

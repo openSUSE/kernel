@@ -1952,7 +1952,7 @@ ext4_ext_in_cache(struct inode *inode, ext4_lblk_t block,
 
 	BUG_ON(cex->ec_type != EXT4_EXT_CACHE_GAP &&
 			cex->ec_type != EXT4_EXT_CACHE_EXTENT);
-	if (block >= cex->ec_block && block < cex->ec_block + cex->ec_len) {
+	if (in_range(block, cex->ec_block, cex->ec_len)) {
 		ex->ee_block = cpu_to_le32(cex->ec_block);
 		ext4_ext_store_pblock(ex, cex->ec_start);
 		ex->ee_len = cpu_to_le16(cex->ec_len);
@@ -3258,7 +3258,7 @@ int ext4_ext_get_blocks(handle_t *handle, struct inode *inode,
 		 */
 		ee_len = ext4_ext_get_actual_len(ex);
 		/* if found extent covers block, simply return it */
-		if (iblock >= ee_block && iblock < ee_block + ee_len) {
+		if (in_range(iblock, ee_block, ee_len)) {
 			newblock = iblock - ee_block + ee_start;
 			/* number of remaining blocks in the extent */
 			allocated = ee_len - (iblock - ee_block);
@@ -3545,6 +3545,11 @@ long ext4_fallocate(struct inode *inode, int mode, loff_t offset, loff_t len)
 	 */
 	credits = ext4_chunk_trans_blocks(inode, max_blocks);
 	mutex_lock(&inode->i_mutex);
+	ret = inode_newsize_ok(inode, (len + offset));
+	if (ret) {
+		mutex_unlock(&inode->i_mutex);
+		return ret;
+	}
 retry:
 	while (ret >= 0 && ret < max_blocks) {
 		block = block + ret;

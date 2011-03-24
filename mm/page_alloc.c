@@ -575,14 +575,13 @@ static void free_pcppages_bulk(struct zone *zone, int count,
 {
 	int migratetype = 0;
 	unsigned long flags;
+	int to_free = count;
 
 	spin_lock_irqsave(&zone->lock, flags);
 	zone_clear_flag(zone, ZONE_ALL_UNRECLAIMABLE);
 	zone->pages_scanned = 0;
 
-	__mod_zone_page_state(zone, NR_FREE_PAGES, count);
-
-	for (migratetype =0; migratetype < MIGRATE_PCPTYPES; migratetype++) {
+	for (migratetype = 0; migratetype < MIGRATE_PCPTYPES; migratetype++) {
 		struct list_head *list = &pcp->lists[migratetype];
 
 		while (!list_empty(list)) {
@@ -597,10 +596,11 @@ static void free_pcppages_bulk(struct zone *zone, int count,
 #ifdef CONFIG_PREEMPT_RT
 			cond_resched_lock(&zone->lock);
 #endif
-			count--;
+			to_free--;
 		}
 	}
-	WARN_ON(count != 0);
+	WARN_ON(to_free != 0);
+	__mod_zone_page_state(zone, NR_FREE_PAGES, count);
 	spin_unlock_irqrestore(&zone->lock, flags);
 }
 
@@ -649,8 +649,8 @@ static void free_one_page(struct zone *zone, struct page *page, int order,
 	zone_clear_flag(zone, ZONE_ALL_UNRECLAIMABLE);
 	zone->pages_scanned = 0;
 
-	__mod_zone_page_state(zone, NR_FREE_PAGES, 1 << order);
 	__free_one_page(page, zone, order, migratetype);
+	__mod_zone_page_state(zone, NR_FREE_PAGES, 1 << order);
 	spin_unlock_irqrestore(&zone->lock, flags);
 }
 
@@ -1501,7 +1501,7 @@ int zone_watermark_ok(struct zone *z, int order, unsigned long mark,
 {
 	/* free_pages my go negative - that's OK */
 	long min = mark;
-	long free_pages = zone_page_state(z, NR_FREE_PAGES) - (1 << order) + 1;
+	long free_pages = zone_nr_free_pages(z) - (1 << order) + 1;
 	int o;
 
 	if (alloc_flags & ALLOC_HIGH)
@@ -1827,6 +1827,7 @@ __alloc_pages_direct_reclaim(gfp_t gfp_mask, unsigned int order,
 	struct page *page = NULL;
 	struct reclaim_state reclaim_state;
 	struct task_struct *p = current;
+	bool drained = false;
 
 	cond_resched();
 
@@ -1845,14 +1846,25 @@ __alloc_pages_direct_reclaim(gfp_t gfp_mask, unsigned int order,
 
 	cond_resched();
 
-	if (order != 0)
-		drain_all_pages();
+	if (unlikely(!(*did_some_progress)))
+		return NULL;
 
-	if (likely(*did_some_progress))
-		page = get_page_from_freelist(gfp_mask, nodemask, order,
+retry:
+	page = get_page_from_freelist(gfp_mask, nodemask, order,
 					zonelist, high_zoneidx,
 					alloc_flags, preferred_zone,
 					migratetype);
+
+	/*
+	 * If an allocation failed after direct reclaim, it could be because
+	 * pages are pinned on the per-cpu lists. Drain them and try again
+	 */
+	if (!page && !drained) {
+		drain_all_pages();
+		drained = true;
+		goto retry;
+	}
+
 	return page;
 }
 
@@ -2384,7 +2396,7 @@ void show_free_areas(void)
 			" all_unreclaimable? %s"
 			"\n",
 			zone->name,
-			K(zone_page_state(zone, NR_FREE_PAGES)),
+			K(zone_nr_free_pages(zone)),
 			K(min_wmark_pages(zone)),
 			K(low_wmark_pages(zone)),
 			K(high_wmark_pages(zone)),

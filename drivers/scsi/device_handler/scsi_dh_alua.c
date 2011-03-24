@@ -281,7 +281,8 @@ static void stpg_endio(struct request *req, int error)
 			    print_alua_state(h->state));
 	}
 done:
-	blk_put_request(req);
+	req->end_io_data = NULL;
+	__blk_put_request(req->q, req);
 	if (h->callback_fn) {
 		h->callback_fn(h->callback_data, err);
 		h->callback_fn = h->callback_data = NULL;
@@ -717,6 +718,8 @@ static const struct scsi_dh_devlist alua_dev_list[] = {
 	{"IBM", "2145" },
 	{"Pillar", "Axiom" },
 	{"Intel", "Multi-Flex"},
+	{"NETAPP", "LUN"},
+	{"AIX", "NVDISK"},
 	{NULL, NULL}
 };
 

@@ -53,7 +53,7 @@ struct rt_reg_pair RT30xx_RFRegTable[] = {
 	,
 	{RF_R06, 0x02}
 	,
-	{RF_R07, 0x70}
+	{RF_R07, 0x60}
 	,
 	{RF_R09, 0x0F}
 	,
@@ -444,7 +444,7 @@ void RT30xxReverseRFSleepModeSetup(struct rt_rtmp_adapter *pAd)
 
 		/* VCO_IC, RF R7 register Bit 4 & Bit 5 to 1 */
 		RT30xxReadRFRegister(pAd, RF_R07, &RFValue);
-		RFValue |= 0x30;
+		RFValue |= 0x20;
 		RT30xxWriteRFRegister(pAd, RF_R07, RFValue);
 
 		/* Idoh, RF R9 register Bit 1, Bit 2 & Bit 3 to 1 */

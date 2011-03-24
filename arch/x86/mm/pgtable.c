@@ -153,16 +153,13 @@ void pud_populate(struct mm_struct *mm, pud_t *pudp, pmd_t *pmd)
 	   reserved at the pmd (PDPT) level. */
 	set_pud(pudp, __pud(__pa(pmd) | _PAGE_PRESENT));
 
-	preempt_disable();
 	/*
 	 * According to Intel App note "TLBs, Paging-Structure Caches,
 	 * and Their Invalidation", April 2007, document 317080-001,
 	 * section 8.1: in PAE mode we explicitly have to flush the
 	 * TLB via cr3 if the top-level pgd is changed...
 	 */
-	if (mm == current->active_mm)
-		write_cr3(read_cr3());
-	preempt_enable();
+	flush_tlb_mm(mm);
 }
 #else  /* !CONFIG_X86_PAE */
 

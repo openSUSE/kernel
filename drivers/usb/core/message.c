@@ -1181,13 +1181,6 @@ void usb_disable_device(struct usb_device *dev, int skip_ep0)
 {
 	int i;
 
-	dev_dbg(&dev->dev, "%s nuking %s URBs\n", __func__,
-		skip_ep0 ? "non-ep0" : "all");
-	for (i = skip_ep0; i < 16; ++i) {
-		usb_disable_endpoint(dev, i, true);
-		usb_disable_endpoint(dev, i + USB_DIR_IN, true);
-	}
-
 	/* getting rid of interfaces will disconnect
 	 * any drivers bound to them (a key side effect)
 	 */
@@ -1216,6 +1209,13 @@ void usb_disable_device(struct usb_device *dev, int skip_ep0)
 		dev->actconfig = NULL;
 		if (dev->state == USB_STATE_CONFIGURED)
 			usb_set_device_state(dev, USB_STATE_ADDRESS);
+	}
+
+	dev_dbg(&dev->dev, "%s nuking %s URBs\n", __func__,
+		skip_ep0 ? "non-ep0" : "all");
+	for (i = skip_ep0; i < 16; ++i) {
+		usb_disable_endpoint(dev, i, true);
+		usb_disable_endpoint(dev, i + USB_DIR_IN, true);
 	}
 }
 
@@ -1843,6 +1843,7 @@ free_interfaces:
 		intf->dev.groups = usb_interface_groups;
 		intf->dev.dma_mask = dev->dev.dma_mask;
 		INIT_WORK(&intf->reset_ws, __usb_queue_reset_device);
+		intf->minor = -1;
 		device_initialize(&intf->dev);
 		mark_quiesced(intf);
 		dev_set_name(&intf->dev, "%d-%s:%d.%d",

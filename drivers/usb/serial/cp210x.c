@@ -51,11 +51,11 @@ static void cp210x_break_ctl(struct tty_struct *, int);
 static int cp210x_startup(struct usb_serial *);
 static void cp210x_disconnect(struct usb_serial *);
 static void cp210x_dtr_rts(struct usb_serial_port *p, int on);
-static int cp210x_carrier_raised(struct usb_serial_port *p);
 
 static int debug;
 
 static struct usb_device_id id_table [] = {
+	{ USB_DEVICE(0x045B, 0x0053) }, /* Renesas RX610 RX-Stick */
 	{ USB_DEVICE(0x0471, 0x066A) }, /* AKTAKOM ACE-1001 cable */
 	{ USB_DEVICE(0x0489, 0xE000) }, /* Pirelli Broadband S.p.A, DP-L10 SIP/GSM Mobile */
 	{ USB_DEVICE(0x0745, 0x1000) }, /* CipherLab USB CCD Barcode Scanner 1000 */
@@ -87,7 +87,6 @@ static struct usb_device_id id_table [] = {
 	{ USB_DEVICE(0x10C4, 0x8115) }, /* Arygon NFC/Mifare Reader */
 	{ USB_DEVICE(0x10C4, 0x813D) }, /* Burnside Telecom Deskmobile */
 	{ USB_DEVICE(0x10C4, 0x813F) }, /* Tams Master Easy Control */
-	{ USB_DEVICE(0x10C4, 0x8149) }, /* West Mountain Radio Computerized Battery Analyzer */
 	{ USB_DEVICE(0x10C4, 0x814A) }, /* West Mountain Radio RIGblaster P&P */
 	{ USB_DEVICE(0x10C4, 0x814B) }, /* West Mountain Radio RIGtalk */
 	{ USB_DEVICE(0x10C4, 0x815E) }, /* Helicomm IP-Link 1220-DVM */
@@ -109,7 +108,9 @@ static struct usb_device_id id_table [] = {
 	{ USB_DEVICE(0x10C4, 0x8341) }, /* Siemens MC35PU GPRS Modem */
 	{ USB_DEVICE(0x10C4, 0x8382) }, /* Cygnal Integrated Products, Inc. */
 	{ USB_DEVICE(0x10C4, 0x83A8) }, /* Amber Wireless AMB2560 */
+	{ USB_DEVICE(0x10C4, 0x83D8) }, /* DekTec DTA Plus VHF/UHF Booster/Attenuator */
 	{ USB_DEVICE(0x10C4, 0x8411) }, /* Kyocera GPS Module */
+	{ USB_DEVICE(0x10C4, 0x8418) }, /* IRZ Automation Teleport SG-10 GSM/GPRS Modem */
 	{ USB_DEVICE(0x10C4, 0x846E) }, /* BEI USB Sensor Interface (VCP) */
 	{ USB_DEVICE(0x10C4, 0xEA60) }, /* Silicon Labs factory default */
 	{ USB_DEVICE(0x10C4, 0xEA61) }, /* Silicon Labs factory default */
@@ -127,6 +128,7 @@ static struct usb_device_id id_table [] = {
 	{ USB_DEVICE(0x17F4, 0xAAAA) }, /* Wavesense Jazz blood glucose meter */
 	{ USB_DEVICE(0x1843, 0x0200) }, /* Vaisala USB Instrument Cable */
 	{ USB_DEVICE(0x18EF, 0xE00F) }, /* ELV USB-I2C-Interface */
+	{ USB_DEVICE(0x1BE3, 0x07A6) }, /* WAGO 750-923 USB Service Cable */
 	{ USB_DEVICE(0x413C, 0x9500) }, /* DW700 GPS USB interface */
 	{ } /* Terminating Entry */
 };
@@ -157,8 +159,7 @@ static struct usb_serial_driver cp210x_device = {
 	.tiocmset		= cp210x_tiocmset,
 	.attach			= cp210x_startup,
 	.disconnect		= cp210x_disconnect,
-	.dtr_rts		= cp210x_dtr_rts,
-	.carrier_raised		= cp210x_carrier_raised
+	.dtr_rts		= cp210x_dtr_rts
 };
 
 /* Config request types */
@@ -790,15 +791,6 @@ static int cp210x_tiocmget (struct tty_struct *tty, struct file *file)
 	dbg("%s - control = 0x%.2x", __func__, control);
 
 	return result;
-}
-
-static int cp210x_carrier_raised(struct usb_serial_port *p)
-{
-	unsigned int control;
-	cp210x_get_config(p, CP210X_GET_MDMSTS, &control, 1);
-	if (control & CONTROL_DCD)
-		return 1;
-	return 0;
 }
 
 static void cp210x_break_ctl (struct tty_struct *tty, int break_state)

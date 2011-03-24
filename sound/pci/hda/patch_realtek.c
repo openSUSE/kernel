@@ -4037,6 +4037,7 @@ static struct snd_pci_quirk alc880_cfg_tbl[] = {
 	SND_PCI_QUIRK(0x1734, 0x10b0, "Fujitsu", ALC880_FUJITSU),
 	SND_PCI_QUIRK(0x1854, 0x0018, "LG LW20", ALC880_LG_LW),
 	SND_PCI_QUIRK(0x1854, 0x003b, "LG", ALC880_LG),
+	SND_PCI_QUIRK(0x1854, 0x005f, "LG P1 Express", ALC880_LG),
 	SND_PCI_QUIRK(0x1854, 0x0068, "LG w1", ALC880_LG),
 	SND_PCI_QUIRK(0x1854, 0x0077, "LG LW25", ALC880_LG_LW),
 	SND_PCI_QUIRK(0x19db, 0x4188, "TCL S700", ALC880_TCL_S700),
@@ -17670,6 +17671,8 @@ static inline hda_nid_t alc662_mix_to_dac(hda_nid_t nid)
 		return 0x02;
 	else if (nid >= 0x0c && nid <= 0x0e)
 		return nid - 0x0c + 0x02;
+	else if (nid == 0x26) /* ALC887-VD has this DAC too */
+		return 0x25;
 	else
 		return 0;
 }
@@ -17678,7 +17681,7 @@ static inline hda_nid_t alc662_mix_to_dac(hda_nid_t nid)
 static hda_nid_t alc662_dac_to_mix(struct hda_codec *codec, hda_nid_t pin,
 				   hda_nid_t dac)
 {
-	hda_nid_t mix[4];
+	hda_nid_t mix[5];
 	int i, num;
 
 	num = snd_hda_get_connections(codec, pin, mix, ARRAY_SIZE(mix));
@@ -18077,7 +18080,10 @@ static int patch_alc888(struct hda_codec *codec)
 {
 	if ((alc_read_coef_idx(codec, 0) & 0x00f0)==0x0030){
 		kfree(codec->chip_name);
-		codec->chip_name = kstrdup("ALC888-VD", GFP_KERNEL);
+		if (codec->vendor_id == 0x10ec0887)
+			codec->chip_name = kstrdup("ALC887-VD", GFP_KERNEL);
+		else
+			codec->chip_name = kstrdup("ALC888-VD", GFP_KERNEL);
 		if (!codec->chip_name) {
 			alc_free(codec);
 			return -ENOMEM;
@@ -18117,7 +18123,7 @@ static struct hda_codec_preset snd_hda_preset_realtek[] = {
 	{ .id = 0x10ec0885, .rev = 0x100103, .name = "ALC889A",
 	  .patch = patch_alc882 },
 	{ .id = 0x10ec0885, .name = "ALC885", .patch = patch_alc882 },
-	{ .id = 0x10ec0887, .name = "ALC887", .patch = patch_alc882 },
+	{ .id = 0x10ec0887, .name = "ALC887", .patch = patch_alc888 },
 	{ .id = 0x10ec0888, .rev = 0x100101, .name = "ALC1200",
 	  .patch = patch_alc882 },
 	{ .id = 0x10ec0888, .name = "ALC888", .patch = patch_alc888 },
