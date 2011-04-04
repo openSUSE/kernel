@@ -1060,6 +1060,7 @@ static int via_mux_enum_put(struct snd_kcontrol *kcontrol,
 	struct hda_codec *codec = snd_kcontrol_chip(kcontrol);
 	struct via_spec *spec = codec->spec;
 	unsigned int adc_idx = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id);
+	int ret;
 
 	if (!spec->mux_nids[adc_idx])
 		return -EINVAL;
@@ -1068,12 +1069,14 @@ static int via_mux_enum_put(struct snd_kcontrol *kcontrol,
 			       AC_VERB_GET_POWER_STATE, 0x00) != AC_PWRST_D0)
 		snd_hda_codec_write(codec, spec->mux_nids[adc_idx], 0,
 				    AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
+
+	ret = snd_hda_input_mux_put(codec, spec->input_mux, ucontrol,
+				     spec->mux_nids[adc_idx],
+				     &spec->cur_mux[adc_idx]);
 	/* update jack power state */
 	set_jack_power_state(codec);
 
-	return snd_hda_input_mux_put(codec, spec->input_mux, ucontrol,
-				     spec->mux_nids[adc_idx],
-				     &spec->cur_mux[adc_idx]);
+	return ret;
 }
 
 static int via_independent_hp_info(struct snd_kcontrol *kcontrol,
@@ -1261,6 +1264,11 @@ static void mute_aa_path(struct hda_codec *codec, int mute)
 		nid_mixer = 0x16;
 		start_idx = 2;
 		end_idx = 4;
+		break;
+	case VT1718S:
+		nid_mixer = 0x21;
+		start_idx = 1;
+		end_idx = 3;
 		break;
 	default:
 		return;
