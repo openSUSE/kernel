@@ -930,7 +930,9 @@ static notrace void probe_hrtimer_interrupt(int cpu, long long latency_ns,
     struct task_struct *curr, struct task_struct *task)
 {
 	if (latency_ns <= 0 && task != NULL && rt_task(task) &&
-	    task->prio < curr->prio) {
+	    (task->prio < curr->prio ||
+	    (task->prio == curr->prio &&
+	    !test_cpu_mask(cpu, &task->cpus_allowed)))) {
 		unsigned long latency;
 
 		if (missed_timer_offsets_pid) {
