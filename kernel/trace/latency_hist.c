@@ -101,6 +101,7 @@ struct maxlatproc_data {
 	int current_prio;
 	long latency;
 	long timeroffset;
+	cycle_t timestamp;
 };
 #endif
 
@@ -151,7 +152,8 @@ static DEFINE_PER_CPU(struct maxlatproc_data, timerandwakeup_maxlatproc);
 #endif
 
 void notrace latency_hist(int latency_type, int cpu, unsigned long latency,
-			  unsigned long timeroffset, struct task_struct *p)
+			  unsigned long timeroffset, cycle_t stop,
+			  struct task_struct *p)
 {
 	struct hist_data *my_hist;
 #if defined(CONFIG_WAKEUP_LATENCY_HIST) || \
@@ -238,6 +240,7 @@ void notrace latency_hist(int latency_type, int cpu, unsigned long latency,
 			mp->current_prio = current->prio;
 			mp->latency = latency;
 			mp->timeroffset = timeroffset;
+			mp->timestamp = stop;
 		}
 #endif
 		my_hist->max_lat = latency;
@@ -358,6 +361,7 @@ static void clear_maxlatprocdata(struct maxlatproc_data *mp)
 	mp->comm[0] = mp->current_comm[0] = '\0';
 	mp->prio = mp->current_prio = mp->current_pid =
 	    mp->latency = mp->timeroffset = -1;
+	mp->timestamp = 0;
 }
 
 static void hist_reset(struct hist_data *hist)
@@ -488,16 +492,23 @@ show_maxlatproc(struct file *file, char __user *ubuf, size_t cnt, loff_t *ppos)
 {
 	int r;
 	struct maxlatproc_data *mp = file->private_data;
-	int strmaxlen = (TASK_COMM_LEN * 2) + (6 * 8);
+	int strmaxlen = (TASK_COMM_LEN * 2) + (8 * 8);
+	unsigned long long t;
+	unsigned long usecs, secs;
 	char *buf = kmalloc(strmaxlen, GFP_KERNEL);
 
 	if (buf == NULL)
 		return -ENOMEM;
 
+	t = ns2usecs(mp->timestamp);
+	usecs = do_div(t, USEC_PER_SEC);
+	secs = (unsigned long) t;
+
 	r = snprintf(buf, strmaxlen,
-	    "%d %d %ld (%ld) %s <- %d %d %s\n", mp->pid,
+	    "%d %d %ld (%ld) %s <- %d %d %s %lu.%06lu\n", mp->pid,
 	    MAX_RT_PRIO-1 - mp->prio, mp->latency, mp->timeroffset, mp->comm,
-	    mp->current_pid, MAX_RT_PRIO-1 - mp->current_prio, mp->current_comm);
+	    mp->current_pid, MAX_RT_PRIO-1 - mp->current_prio, mp->current_comm,
+	    secs, usecs);
 	r = simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
 	kfree(buf);
 	return r;
@@ -772,7 +783,7 @@ static notrace void probe_preemptirqsoff_hist(int reason, int starthist)
 				    nsecs_to_usecs(stop - start);
 
 				latency_hist(IRQSOFF_LATENCY, cpu, latency, 0,
-				    NULL);
+				    stop, NULL);
 			}
 			per_cpu(hist_irqsoff_counting, cpu) = 0;
 		}
@@ -790,7 +801,7 @@ static notrace void probe_preemptirqsoff_hist(int reason, int starthist)
 				    nsecs_to_usecs(stop - start);
 
 				latency_hist(PREEMPTOFF_LATENCY, cpu, latency,
-				    0, NULL);
+				    0, stop, NULL);
 			}
 			per_cpu(hist_preemptoff_counting, cpu) = 0;
 		}
@@ -808,7 +819,7 @@ static notrace void probe_preemptirqsoff_hist(int reason, int starthist)
 				unsigned long latency =
 				    nsecs_to_usecs(stop - start);
 				latency_hist(PREEMPTIRQSOFF_LATENCY, cpu,
-				    latency, 0, NULL);
+				    latency, 0, stop, NULL);
 			}
 			per_cpu(hist_preemptirqsoff_counting, cpu) = 0;
 		}
@@ -918,15 +929,16 @@ static notrace void probe_wakeup_latency_hist_stop(struct rq *rq,
 	latency = nsecs_to_usecs(stop - next->preempt_timestamp_hist);
 
 	if (per_cpu(wakeup_sharedprio, cpu)) {
-		latency_hist(WAKEUP_LATENCY_SHAREDPRIO, cpu, latency, 0, next);
+		latency_hist(WAKEUP_LATENCY_SHAREDPRIO, cpu, latency, 0, stop,
+		    next);
 		per_cpu(wakeup_sharedprio, cpu) = 0;
 	} else {
-		latency_hist(WAKEUP_LATENCY, cpu, latency, 0, next);
+		latency_hist(WAKEUP_LATENCY, cpu, latency, 0, stop, next);
 #ifdef CONFIG_MISSED_TIMER_OFFSETS_HIST
 		if (timerandwakeup_enabled_data.enabled) {
 			latency_hist(TIMERANDWAKEUP_LATENCY, cpu,
 			    next->timer_offset + latency, next->timer_offset,
-			    next);
+			    stop, next);
 		}
 #endif
 	}
@@ -951,6 +963,7 @@ static notrace void probe_hrtimer_interrupt(int cpu, long long latency_ns,
 	    (task->prio == curr->prio &&
 	    !cpumask_test_cpu(cpu, &task->cpus_allowed)))) {
 		unsigned long latency;
+		cycle_t now;
 
 		if (missed_timer_offsets_pid) {
 			if (likely(missed_timer_offsets_pid !=
@@ -958,8 +971,10 @@ static notrace void probe_hrtimer_interrupt(int cpu, long long latency_ns,
 				return;
 		}
 
+		now = ftrace_now(cpu);
 		latency = (unsigned long) div_s64(-latency_ns, 1000);
-		latency_hist(MISSED_TIMER_OFFSETS, cpu, latency, latency, task);
+		latency_hist(MISSED_TIMER_OFFSETS, cpu, latency, latency, now,
+		    task);
 #ifdef CONFIG_WAKEUP_LATENCY_HIST
 		task->timer_offset = latency;
 #endif
