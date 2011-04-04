@@ -104,10 +104,16 @@ static cycle_t mx3_get_cycles(struct clocksource *cs)
 	return __raw_readl(timer_base + MX3_TCN);
 }
 
+/* dummy used before clocks are enabled*/
+static cycle_t get_cycles_dummy(struct clocksource *cs)
+{
+	return 0;
+}
+
 static struct clocksource clocksource_mxc = {
 	.name 		= "mxc_timer1",
 	.rating		= 200,
-	.read		= mx1_2_get_cycles,
+	.read		= get_cycles_dummy,
 	.mask		= CLOCKSOURCE_MASK(32),
 	.shift 		= 20,
 	.flags		= CLOCK_SOURCE_IS_CONTINUOUS,
@@ -119,6 +125,8 @@ static int __init mxc_clocksource_init(struct clk *timer_clk)
 
 	if (cpu_is_mx3() || cpu_is_mx25())
 		clocksource_mxc.read = mx3_get_cycles;
+	else
+		clocksource_mxc.read = mx1_2_get_cycles;
 
 	clocksource_mxc.mult = clocksource_hz2mult(c,
 					clocksource_mxc.shift);
