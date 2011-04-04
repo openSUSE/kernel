@@ -97,6 +97,7 @@ struct maxlatproc_data {
 	int pid;
 	int prio;
 	long latency;
+	long timeroffset;
 };
 #endif
 
@@ -147,7 +148,7 @@ static DEFINE_PER_CPU(struct maxlatproc_data, timerandwakeup_maxlatproc);
 #endif
 
 void notrace latency_hist(int latency_type, int cpu, unsigned long latency,
-			  struct task_struct *p)
+			  unsigned long timeroffset, struct task_struct *p)
 {
 	struct hist_data *my_hist;
 #if defined(CONFIG_WAKEUP_LATENCY_HIST) || \
@@ -229,6 +230,7 @@ void notrace latency_hist(int latency_type, int cpu, unsigned long latency,
 			mp->pid = task_pid_nr(p);
 			mp->prio = p->prio;
 			mp->latency = latency;
+			mp->timeroffset = timeroffset;
 		}
 #endif
 		my_hist->max_lat = latency;
@@ -422,7 +424,7 @@ latency_hist_reset(struct file *file, const char __user *a,
 		    latency_type == MISSED_TIMER_OFFSETS ||
 		    latency_type == TIMERANDWAKEUP_LATENCY) {
 			mp->comm[0] = '\0';
-			mp->prio = mp->pid = mp->latency = -1;
+			mp->prio = mp->pid = mp->latency = mp->timeroffset = -1;
 		}
 #endif
 	}
@@ -480,8 +482,9 @@ show_maxlatproc(struct file *file, char __user *ubuf, size_t cnt, loff_t *ppos)
 	if (buf == NULL)
 		return -ENOMEM;
 
-	r = snprintf(buf, strmaxlen, "%d %d %ld %s\n",
-	    mp->pid, MAX_RT_PRIO-1 - mp->prio, mp->latency, mp->comm);
+	r = snprintf(buf, strmaxlen, "%d %d %ld (%ld) %s\n",
+	    mp->pid, MAX_RT_PRIO-1 - mp->prio, mp->latency, mp->timeroffset,
+	    mp->comm);
 	r = simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
 	kfree(buf);
 	return r;
@@ -755,7 +758,7 @@ static notrace void probe_preemptirqsoff_hist(int reason, int starthist)
 				unsigned long latency =
 				    nsecs_to_usecs(stop - start);
 
-				latency_hist(IRQSOFF_LATENCY, cpu, latency,
+				latency_hist(IRQSOFF_LATENCY, cpu, latency, 0,
 				    NULL);
 			}
 			per_cpu(hist_irqsoff_counting, cpu) = 0;
@@ -774,7 +777,7 @@ static notrace void probe_preemptirqsoff_hist(int reason, int starthist)
 				    nsecs_to_usecs(stop - start);
 
 				latency_hist(PREEMPTOFF_LATENCY, cpu, latency,
-				    NULL);
+				    0, NULL);
 			}
 			per_cpu(hist_preemptoff_counting, cpu) = 0;
 		}
@@ -792,7 +795,7 @@ static notrace void probe_preemptirqsoff_hist(int reason, int starthist)
 				unsigned long latency =
 				    nsecs_to_usecs(stop - start);
 				latency_hist(PREEMPTIRQSOFF_LATENCY, cpu,
-				    latency, NULL);
+				    latency, 0, NULL);
 			}
 			per_cpu(hist_preemptirqsoff_counting, cpu) = 0;
 		}
@@ -902,14 +905,15 @@ static notrace void probe_wakeup_latency_hist_stop(struct rq *rq,
 	latency = nsecs_to_usecs(stop - next->preempt_timestamp_hist);
 
 	if (per_cpu(wakeup_sharedprio, cpu)) {
-		latency_hist(WAKEUP_LATENCY_SHAREDPRIO, cpu, latency, next);
+		latency_hist(WAKEUP_LATENCY_SHAREDPRIO, cpu, latency, 0, next);
 		per_cpu(wakeup_sharedprio, cpu) = 0;
 	} else {
-		latency_hist(WAKEUP_LATENCY, cpu, latency, next);
+		latency_hist(WAKEUP_LATENCY, cpu, latency, 0, next);
 #ifdef CONFIG_MISSED_TIMER_OFFSETS_HIST
 		if (timerandwakeup_enabled_data.enabled) {
 			latency_hist(TIMERANDWAKEUP_LATENCY, cpu,
-			    next->timer_offset + latency, next);
+			    next->timer_offset + latency, next->timer_offset,
+			    next);
 		}
 #endif
 	}
@@ -932,7 +936,7 @@ static notrace void probe_hrtimer_interrupt(int cpu, long long latency_ns,
 	if (latency_ns <= 0 && task != NULL && rt_task(task) &&
 	    (task->prio < curr->prio ||
 	    (task->prio == curr->prio &&
-	    !test_cpu_mask(cpu, &task->cpus_allowed)))) {
+	    !cpumask_test_cpu(cpu, &task->cpus_allowed)))) {
 		unsigned long latency;
 
 		if (missed_timer_offsets_pid) {
@@ -942,7 +946,7 @@ static notrace void probe_hrtimer_interrupt(int cpu, long long latency_ns,
 		}
 
 		latency = (unsigned long) div_s64(-latency_ns, 1000);
-		latency_hist(MISSED_TIMER_OFFSETS, cpu, latency, task);
+		latency_hist(MISSED_TIMER_OFFSETS, cpu, latency, latency, task);
 #ifdef CONFIG_WAKEUP_LATENCY_HIST
 		task->timer_offset = latency;
 #endif
@@ -1050,12 +1054,12 @@ static __init int latency_hist_init(void)
 		mp = &per_cpu(wakeup_maxlatproc, i);
 		entry = debugfs_create_file(name, 0444, dentry, mp,
 		    &maxlatproc_fops);
-		mp->prio = mp->pid = mp->latency = -1;
+		mp->prio = mp->pid = mp->latency = mp->timeroffset = -1;
 
 		mp = &per_cpu(wakeup_maxlatproc_sharedprio, i);
 		entry = debugfs_create_file(name, 0444, dentry_sharedprio, mp,
 		    &maxlatproc_fops);
-		mp->prio = mp->pid = mp->latency = -1;
+		mp->prio = mp->pid = mp->latency = mp->timeroffset = -1;
 	}
 	entry = debugfs_create_file("pid", 0644, dentry,
 	    (void *)&wakeup_pid, &pid_fops);
@@ -1083,7 +1087,7 @@ static __init int latency_hist_init(void)
 		mp = &per_cpu(missed_timer_offsets_maxlatproc, i);
 		entry = debugfs_create_file(name, 0444, dentry, mp,
 		    &maxlatproc_fops);
-		mp->prio = mp->pid = mp->latency = -1;
+		mp->prio = mp->pid = mp->latency = mp->timeroffset = -1;
 	}
 	entry = debugfs_create_file("pid", 0644, dentry,
 	    (void *)&missed_timer_offsets_pid, &pid_fops);
@@ -1111,7 +1115,7 @@ static __init int latency_hist_init(void)
 		mp = &per_cpu(timerandwakeup_maxlatproc, i);
 		entry = debugfs_create_file(name, 0444, dentry, mp,
 		    &maxlatproc_fops);
-		mp->prio = mp->pid = mp->latency = -1;
+		mp->prio = mp->pid = mp->latency = mp->timeroffset = -1;
 	}
 	entry = debugfs_create_file("reset", 0644, dentry,
 	    (void *)TIMERANDWAKEUP_LATENCY, &latency_hist_reset_fops);

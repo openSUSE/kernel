@@ -161,6 +161,11 @@ latency that occurred in a particular CPU are available in the file
 /sys/kernel/debug/tracing/latency_hist/wakeup/max_latency-CPUx.
 
 The format of the data is
-<PID> <Priority> <Latency> <Command>
+<PID> <Priority> <Latency> (<Timeroffset>) <Command>
+
+The value of <Timeroffset> is only relevant in the combined timer
+and wakeup latency recording. In the wakeup recording, it is
+always 0, in the missed_timer_offsets recording, it is the same
+as <Latency>.
 
 These data are also reset when the wakeup histogram ist reset.
