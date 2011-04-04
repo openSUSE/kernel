@@ -26,6 +26,7 @@
 #include <linux/clockchips.h>
 #include <linux/clk.h>
 
+#include <asm/sched_clock.h>
 #include <mach/hardware.h>
 #include <asm/mach/time.h>
 #include <mach/common.h>
@@ -119,6 +120,22 @@ static struct clocksource clocksource_mxc = {
 	.flags		= CLOCK_SOURCE_IS_CONTINUOUS,
 };
 
+static DEFINE_CLOCK_DATA(cd);
+
+unsigned long long notrace sched_clock(void)
+{
+	cycle_t cyc = clocksource_mxc.read(NULL);
+
+	return cyc_to_sched_clock(&cd, cyc, (u32)~0);
+}
+
+static void notrace mxc_update_sched_clock(void)
+{
+	cycle_t cyc = clocksource_mxc.read(NULL);
+
+	update_sched_clock(&cd, cyc, (u32)~0);
+}
+
 static int __init mxc_clocksource_init(struct clk *timer_clk)
 {
 	unsigned int c = clk_get_rate(timer_clk);
@@ -130,6 +147,7 @@ static int __init mxc_clocksource_init(struct clk *timer_clk)
 
 	clocksource_mxc.mult = clocksource_hz2mult(c,
 					clocksource_mxc.shift);
+	init_sched_clock(&cd, mxc_update_sched_clock, 32, c);
 	clocksource_register(&clocksource_mxc);
 
 	return 0;
