@@ -94,8 +94,11 @@ static struct enable_data preemptirqsoff_enabled_data = {
     defined(CONFIG_MISSED_TIMER_OFFSETS_HIST)
 struct maxlatproc_data {
 	char comm[FIELD_SIZEOF(struct task_struct, comm)];
+	char current_comm[FIELD_SIZEOF(struct task_struct, comm)];
 	int pid;
+	int current_pid;
 	int prio;
+	int current_prio;
 	long latency;
 	long timeroffset;
 };
@@ -227,8 +230,12 @@ void notrace latency_hist(int latency_type, int cpu, unsigned long latency,
 		    latency_type == MISSED_TIMER_OFFSETS ||
 		    latency_type == TIMERANDWAKEUP_LATENCY) {
 			strncpy(mp->comm, p->comm, sizeof(mp->comm));
+			strncpy(mp->current_comm, current->comm,
+			    sizeof(mp->current_comm));
 			mp->pid = task_pid_nr(p);
+			mp->current_pid = task_pid_nr(current);
 			mp->prio = p->prio;
+			mp->current_prio = current->prio;
 			mp->latency = latency;
 			mp->timeroffset = timeroffset;
 		}
@@ -346,6 +353,13 @@ static struct file_operations latency_hist_fops = {
 	.release = seq_release,
 };
 
+static void clear_maxlatprocdata(struct maxlatproc_data *mp)
+{
+	mp->comm[0] = mp->current_comm[0] = '\0';
+	mp->prio = mp->current_prio = mp->current_pid =
+	    mp->latency = mp->timeroffset = -1;
+}
+
 static void hist_reset(struct hist_data *hist)
 {
 	atomic_dec(&hist->hist_mode);
@@ -422,10 +436,8 @@ latency_hist_reset(struct file *file, const char __user *a,
 		if (latency_type == WAKEUP_LATENCY ||
 		    latency_type == WAKEUP_LATENCY_SHAREDPRIO ||
 		    latency_type == MISSED_TIMER_OFFSETS ||
-		    latency_type == TIMERANDWAKEUP_LATENCY) {
-			mp->comm[0] = '\0';
-			mp->prio = mp->pid = mp->latency = mp->timeroffset = -1;
-		}
+		    latency_type == TIMERANDWAKEUP_LATENCY)
+			clear_maxlatprocdata(mp);
 #endif
 	}
 
@@ -476,15 +488,16 @@ show_maxlatproc(struct file *file, char __user *ubuf, size_t cnt, loff_t *ppos)
 {
 	int r;
 	struct maxlatproc_data *mp = file->private_data;
-	int strmaxlen = TASK_COMM_LEN + 32;
+	int strmaxlen = (TASK_COMM_LEN * 2) + (6 * 8);
 	char *buf = kmalloc(strmaxlen, GFP_KERNEL);
 
 	if (buf == NULL)
 		return -ENOMEM;
 
-	r = snprintf(buf, strmaxlen, "%d %d %ld (%ld) %s\n",
-	    mp->pid, MAX_RT_PRIO-1 - mp->prio, mp->latency, mp->timeroffset,
-	    mp->comm);
+	r = snprintf(buf, strmaxlen,
+	    "%d %d %ld (%ld) %s <- %d %d %s\n", mp->pid,
+	    MAX_RT_PRIO-1 - mp->prio, mp->latency, mp->timeroffset, mp->comm,
+	    mp->current_pid, MAX_RT_PRIO-1 - mp->current_prio, mp->current_comm);
 	r = simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
 	kfree(buf);
 	return r;
@@ -1054,12 +1067,12 @@ static __init int latency_hist_init(void)
 		mp = &per_cpu(wakeup_maxlatproc, i);
 		entry = debugfs_create_file(name, 0444, dentry, mp,
 		    &maxlatproc_fops);
-		mp->prio = mp->pid = mp->latency = mp->timeroffset = -1;
+		clear_maxlatprocdata(mp);
 
 		mp = &per_cpu(wakeup_maxlatproc_sharedprio, i);
 		entry = debugfs_create_file(name, 0444, dentry_sharedprio, mp,
 		    &maxlatproc_fops);
-		mp->prio = mp->pid = mp->latency = mp->timeroffset = -1;
+		clear_maxlatprocdata(mp);
 	}
 	entry = debugfs_create_file("pid", 0644, dentry,
 	    (void *)&wakeup_pid, &pid_fops);
@@ -1087,7 +1100,7 @@ static __init int latency_hist_init(void)
 		mp = &per_cpu(missed_timer_offsets_maxlatproc, i);
 		entry = debugfs_create_file(name, 0444, dentry, mp,
 		    &maxlatproc_fops);
-		mp->prio = mp->pid = mp->latency = mp->timeroffset = -1;
+		clear_maxlatprocdata(mp);
 	}
 	entry = debugfs_create_file("pid", 0644, dentry,
 	    (void *)&missed_timer_offsets_pid, &pid_fops);
@@ -1115,7 +1128,7 @@ static __init int latency_hist_init(void)
 		mp = &per_cpu(timerandwakeup_maxlatproc, i);
 		entry = debugfs_create_file(name, 0444, dentry, mp,
 		    &maxlatproc_fops);
-		mp->prio = mp->pid = mp->latency = mp->timeroffset = -1;
+		clear_maxlatprocdata(mp);
 	}
 	entry = debugfs_create_file("reset", 0644, dentry,
 	    (void *)TIMERANDWAKEUP_LATENCY, &latency_hist_reset_fops);
