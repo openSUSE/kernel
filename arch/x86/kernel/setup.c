@@ -297,9 +297,6 @@ static void __init init_gbpages(void)
 static inline void init_gbpages(void)
 {
 }
-static void __init cleanup_highmap(void)
-{
-}
 #endif
 
 static void __init reserve_brk(void)
@@ -909,7 +906,6 @@ void __init setup_arch(char **cmdline_p)
 		max_low_pfn = max_pfn;
 
 	high_memory = (void *)__va(max_pfn * PAGE_SIZE - 1) + 1;
-	mmu_cr4_features = read_cr4();
 #endif
 
 	/*
@@ -925,8 +921,6 @@ void __init setup_arch(char **cmdline_p)
 	 *  brk area.
 	 */
 	reserve_brk();
-
-	cleanup_highmap();
 
 	memblock.current_limit = get_max_mapped();
 	memblock_x86_fill();
