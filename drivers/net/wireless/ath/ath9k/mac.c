@@ -690,17 +690,23 @@ int ath9k_hw_rxprocdesc(struct ath_hw *ah, struct ath_desc *ds,
 		rs->rs_flags |= ATH9K_RX_DECRYPT_BUSY;
 
 	if ((ads.ds_rxstatus8 & AR_RxFrameOK) == 0) {
+		/*
+		 * Treat these errors as mutually exclusive to avoid spurious
+		 * extra error reports from the hardware. If a CRC error is
+		 * reported, then decryption and MIC errors are irrelevant,
+		 * the frame is going to be dropped either way
+		 */
 		if (ads.ds_rxstatus8 & AR_CRCErr)
 			rs->rs_status |= ATH9K_RXERR_CRC;
-		if (ads.ds_rxstatus8 & AR_PHYErr) {
+		else if (ads.ds_rxstatus8 & AR_PHYErr) {
 			rs->rs_status |= ATH9K_RXERR_PHY;
 			phyerr = MS(ads.ds_rxstatus8, AR_PHYErrCode);
 			rs->rs_phyerr = phyerr;
-		}
-		if (ads.ds_rxstatus8 & AR_DecryptCRCErr)
+		} else if (ads.ds_rxstatus8 & AR_DecryptCRCErr)
 			rs->rs_status |= ATH9K_RXERR_DECRYPT;
-		if (ads.ds_rxstatus8 & AR_MichaelErr)
+		else if (ads.ds_rxstatus8 & AR_MichaelErr)
 			rs->rs_status |= ATH9K_RXERR_MIC;
+
 		if (ads.ds_rxstatus8 & AR_KeyMiss)
 			rs->rs_status |= ATH9K_RXERR_DECRYPT;
 	}
@@ -770,12 +776,19 @@ void ath9k_hw_abortpcurecv(struct ath_hw *ah)
 }
 EXPORT_SYMBOL(ath9k_hw_abortpcurecv);
 
-bool ath9k_hw_stopdmarecv(struct ath_hw *ah)
+bool ath9k_hw_stopdmarecv(struct ath_hw *ah, bool *reset)
 {
 #define AH_RX_STOP_DMA_TIMEOUT 10000   /* usec */
 #define AH_RX_TIME_QUANTUM     100     /* usec */
 	struct ath_common *common = ath9k_hw_common(ah);
+	u32 mac_status, last_mac_status = 0;
 	int i;
+
+	/* Enable access to the DMA observation bus */
+	REG_WRITE(ah, AR_MACMISC,
+		  ((AR_MACMISC_DMA_OBS_LINE_8 << AR_MACMISC_DMA_OBS_S) |
+		   (AR_MACMISC_MISC_OBS_BUS_1 <<
+		    AR_MACMISC_MISC_OBS_BUS_MSB_S)));
 
 	REG_WRITE(ah, AR_CR, AR_CR_RXD);
 
@@ -783,15 +796,27 @@ bool ath9k_hw_stopdmarecv(struct ath_hw *ah)
 	for (i = AH_RX_STOP_DMA_TIMEOUT / AH_TIME_QUANTUM; i != 0; i--) {
 		if ((REG_READ(ah, AR_CR) & AR_CR_RXE) == 0)
 			break;
+
+		if (!AR_SREV_9300_20_OR_LATER(ah)) {
+			mac_status = REG_READ(ah, AR_DMADBG_7) & 0x7f0;
+			if (mac_status == 0x1c0 && mac_status == last_mac_status) {
+				*reset = true;
+				break;
+			}
+
+			last_mac_status = mac_status;
+		}
+
 		udelay(AH_TIME_QUANTUM);
 	}
 
 	if (i == 0) {
 		ath_err(common,
-			"DMA failed to stop in %d ms AR_CR=0x%08x AR_DIAG_SW=0x%08x\n",
+			"DMA failed to stop in %d ms AR_CR=0x%08x AR_DIAG_SW=0x%08x DMADBG_7=0x%08x\n",
 			AH_RX_STOP_DMA_TIMEOUT / 1000,
 			REG_READ(ah, AR_CR),
-			REG_READ(ah, AR_DIAG_SW));
+			REG_READ(ah, AR_DIAG_SW),
+			REG_READ(ah, AR_DMADBG_7));
 		return false;
 	} else {
 		return true;
