@@ -166,7 +166,7 @@ static int caif_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	err = sk_filter(sk, skb);
 	if (err)
 		return err;
-	if (!sk_rmem_schedule(sk, skb) && rx_flow_is_on(cf_sk)) {
+	if (!sk_rmem_schedule(sk, skb->truesize) && rx_flow_is_on(cf_sk)) {
 		set_rx_flow_off(cf_sk);
 		pr_debug("sending flow OFF due to rmem_schedule\n");
 		dbfs_atomic_inc(&cnt.num_rx_flow_off);
@@ -852,7 +852,7 @@ static int caif_connect(struct socket *sock, struct sockaddr *uaddr,
 	sock->state = SS_CONNECTING;
 	sk->sk_state = CAIF_CONNECTING;
 
-	/* Check priority value comming from socket */
+	/* Check priority value coming from socket */
 	/* if priority value is out of range it will be ajusted */
 	if (cf_sk->sk.sk_priority > CAIF_PRIO_MAX)
 		cf_sk->conn_req.priority = CAIF_PRIO_MAX;

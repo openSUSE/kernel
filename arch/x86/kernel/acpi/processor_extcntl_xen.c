@@ -197,8 +197,8 @@ static int xen_hotplug_notifier(struct acpi_processor *pr, int event)
 
 	status = acpi_get_type(pr->handle, &type);
 	if (ACPI_FAILURE(status)) {
-		pr_warning("can't get object type for acpi_id %#x\n",
-			   pr->acpi_id);
+		pr_warn("can't get object type for acpi_id %#x\n",
+			pr->acpi_id);
 		return -ENXIO;
 	}
 
@@ -209,22 +209,20 @@ static int xen_hotplug_notifier(struct acpi_processor *pr, int event)
 		device_decl = 1;
 		break;
 	default:
-		pr_warning("unsupported object type %#x for acpi_id %#x\n",
-			   type, pr->acpi_id);
+		pr_warn("unsupported object type %#x for acpi_id %#x\n",
+			type, pr->acpi_id);
 		return -EOPNOTSUPP;
 	}
 
 	apic_id = acpi_get_cpuid(pr->handle, ~device_decl, pr->acpi_id);
 	if (apic_id < 0) {
-		pr_warning("can't get apic_id for acpi_id %#x\n",
-			   pr->acpi_id);
+		pr_warn("can't get apic_id for acpi_id %#x\n", pr->acpi_id);
 		return -ENODATA;
 	}
 
 	status = acpi_evaluate_integer(pr->handle, "_PXM", NULL, &pxm);
 	if (ACPI_FAILURE(status)) {
-		pr_warning("can't get pxm for acpi_id %#x\n",
-			   pr->acpi_id);
+		pr_warn("can't get pxm for acpi_id %#x\n", pr->acpi_id);
 		return -ENODATA;
 	}
 
@@ -237,7 +235,7 @@ static int xen_hotplug_notifier(struct acpi_processor *pr, int event)
 		ret = HYPERVISOR_platform_op(&op);
 		break;
 	case HOTPLUG_TYPE_REMOVE:
-		pr_warning("Xen doesn't support CPU hot remove\n");
+		pr_warn("Xen doesn't support CPU hot remove\n");
 		ret = -EOPNOTSUPP;
 		break;
 	}

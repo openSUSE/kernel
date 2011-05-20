@@ -38,6 +38,7 @@
 #include <linux/mm.h>
 #include <linux/seq_file.h> /* for seq_printf */
 #include <linux/slab.h>
+#include <linux/dma-mapping.h>
 
 #include <asm/atomic.h>
 
@@ -497,6 +498,19 @@ static int ttm_alloc_new_pages(struct list_head *pages, gfp_t gfp_flags,
 	for (i = 0, cpages = 0; i < count; ++i) {
 		p = alloc_page(gfp_flags);
 
+#ifdef CONFIG_XEN
+		if (p && (gfp_flags & __GFP_DMA32)) {
+			r = xen_limit_pages_to_max_mfn(p, 0, 32);
+			if (r) {
+				__free_page(p);
+				printk(KERN_ERR TTM_PFX
+				       "Cannot restrict page (%d).", r);
+				p = NULL;
+			} else if (gfp_flags & __GFP_ZERO)
+				clear_page(page_address(p));
+		}
+#endif
+
 		if (!p) {
 			printk(KERN_ERR TTM_PFX "Unable to get page %u.\n", i);
 
@@ -513,21 +527,6 @@ static int ttm_alloc_new_pages(struct list_head *pages, gfp_t gfp_flags,
 			r = -ENOMEM;
 			goto out;
 		}
-
-#ifdef CONFIG_XEN
-		if (gfp_flags & __GFP_DMA32) {
-			r = xen_limit_pages_to_max_mfn(p, 0, 32);
-
-			if (r) {
-				__free_page(p);
-				printk(KERN_ERR TTM_PFX
-				       "Cannot restrict page (%d).", r);
-				break;
-			}
-			if (gfp_flags & __GFP_ZERO)
-				clear_page(page_address(p));
-		}
-#endif
 
 #ifdef CONFIG_HIGHMEM
 		/* gfp flags of highmem page should never be dma32 so we
@@ -677,7 +676,8 @@ out:
  * cached pages.
  */
 int ttm_get_pages(struct list_head *pages, int flags,
-		enum ttm_caching_state cstate, unsigned count)
+		  enum ttm_caching_state cstate, unsigned count,
+		  dma_addr_t *dma_address)
 {
 	struct ttm_page_pool *pool = ttm_get_pool(flags, cstate);
 	struct page *p = NULL;
@@ -703,22 +703,6 @@ int ttm_get_pages(struct list_head *pages, int flags,
 				       "Unable to allocate page.");
 				return -ENOMEM;
 			}
-
-#ifdef CONFIG_XEN
-			if (flags & TTM_PAGE_FLAG_DMA32) {
-				int rc = xen_limit_pages_to_max_mfn(p, 0, 32);
-
-				if (rc) {
-					__free_page(p);
-					printk(KERN_ERR TTM_PFX
-					       "Unable to restrict page (%d).",
-					       rc);
-					return rc;
-				}
-				if (flags & TTM_PAGE_FLAG_ZERO_ALLOC)
-					clear_page(page_address(p));
-			}
-#endif
 
 			list_add(&p->lru, pages);
 		}
@@ -751,7 +735,7 @@ int ttm_get_pages(struct list_head *pages, int flags,
 			printk(KERN_ERR TTM_PFX
 			       "Failed to allocate extra pages "
 			       "for large request.");
-			ttm_put_pages(pages, 0, flags, cstate);
+			ttm_put_pages(pages, 0, flags, cstate, NULL);
 			return r;
 		}
 	}
@@ -762,7 +746,7 @@ int ttm_get_pages(struct list_head *pages, int flags,
 
 /* Put all pages in pages list to correct pool to wait for reuse */
 void ttm_put_pages(struct list_head *pages, unsigned page_count, int flags,
-		enum ttm_caching_state cstate)
+		   enum ttm_caching_state cstate, dma_addr_t *dma_address)
 {
 	unsigned long irq_flags;
 	struct ttm_page_pool *pool = ttm_get_pool(flags, cstate);

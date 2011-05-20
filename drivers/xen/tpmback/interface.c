@@ -14,7 +14,9 @@
 #include "common.h"
 #include <linux/delay.h>
 #include <linux/err.h>
+#include <linux/vmalloc.h>
 #include <xen/balloon.h>
+#include <xen/evtchn.h>
 #include <xen/gnttab.h>
 
 static struct kmem_cache *tpmif_cachep;
@@ -78,68 +80,30 @@ tpmif_t *tpmif_find(domid_t domid, struct backend_info *bi)
 	return alloc_tpmif(domid, bi);
 }
 
-static int map_frontend_page(tpmif_t *tpmif, unsigned long shared_page)
+int tpmif_map(tpmif_t *tpmif, grant_ref_t ring_ref, evtchn_port_t evtchn)
 {
-	struct gnttab_map_grant_ref op;
-	int ret;
-
-	gnttab_set_map_op(&op, (unsigned long)tpmif->tx_area->addr,
-			  GNTMAP_host_map, shared_page, tpmif->domid);
-
-	gnttab_check_GNTST_eagain_do_while(GNTTABOP_map_grant_ref, &op);
-
-	if (op.status != GNTST_okay) {
-		DPRINTK(" Grant table operation failure %d!\n", (int)op.status);
-		ret = -EINVAL;
-	} else {
-		tpmif->shmem_ref = shared_page;
-		tpmif->shmem_handle = op.handle;
-		ret = 0;
-	}
-
-	return ret;
-}
-
-static void unmap_frontend_page(tpmif_t *tpmif)
-{
-	struct gnttab_unmap_grant_ref op;
-
-	gnttab_set_unmap_op(&op, (unsigned long)tpmif->tx_area->addr,
-			    GNTMAP_host_map, tpmif->shmem_handle);
-
-	if (HYPERVISOR_grant_table_op(GNTTABOP_unmap_grant_ref, &op, 1))
-		BUG();
-}
-
-int tpmif_map(tpmif_t *tpmif, unsigned long shared_page, unsigned int evtchn)
-{
+	struct vm_struct *area;
 	int err;
 
 	if (tpmif->irq)
 		return 0;
 
-	if ((tpmif->tx_area = alloc_vm_area(PAGE_SIZE)) == NULL)
-		return -ENOMEM;
+	area = xenbus_map_ring_valloc(tpmif->bi->dev, ring_ref);
+	if (IS_ERR(area))
+		return PTR_ERR(area);
+	tpmif->tx_area = area;
 
-	err = map_frontend_page(tpmif, shared_page);
-	if (err) {
-		free_vm_area(tpmif->tx_area);
-		return err;
-	}
-
-	tpmif->tx = (tpmif_tx_interface_t *)tpmif->tx_area->addr;
+	tpmif->tx = (tpmif_tx_interface_t *)area->addr;
 	clear_page(tpmif->tx);
 
 	err = bind_interdomain_evtchn_to_irqhandler(
 		tpmif->domid, evtchn, tpmif_be_int, 0, tpmif->devname, tpmif);
 	if (err < 0) {
-		unmap_frontend_page(tpmif);
-		free_vm_area(tpmif->tx_area);
+		xenbus_unmap_ring_vfree(tpmif->bi->dev, area);
 		return err;
 	}
 	tpmif->irq = err;
 
-	tpmif->shmem_ref = shared_page;
 	tpmif->active = 1;
 
 	return 0;
@@ -150,10 +114,8 @@ void tpmif_disconnect_complete(tpmif_t *tpmif)
 	if (tpmif->irq)
 		unbind_from_irqhandler(tpmif->irq, tpmif);
 
-	if (tpmif->tx) {
-		unmap_frontend_page(tpmif);
-		free_vm_area(tpmif->tx_area);
-	}
+	if (tpmif->tx)
+		xenbus_unmap_ring_vfree(tpmif->bi->dev, tpmif->tx_area);
 
 	free_tpmif(tpmif);
 }

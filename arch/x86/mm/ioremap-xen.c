@@ -138,11 +138,6 @@ int direct_kernel_remap_pfn_range(unsigned long address,
 }
 EXPORT_SYMBOL(direct_kernel_remap_pfn_range);
 
-int page_is_ram(unsigned long pagenr)
-{
-	return pagenr < max_pfn;
-}
-
 static int lookup_pte_fn(
 	pte_t *pte, struct page *pmd_page, unsigned long addr, void *data)
 {
@@ -761,6 +756,12 @@ void __init __iomem *
 early_memremap(resource_size_t phys_addr, unsigned long size)
 {
 	return __early_ioremap(phys_to_machine(phys_addr), size, PAGE_KERNEL);
+}
+
+void __init __iomem *
+early_memremap_ro(resource_size_t phys_addr, unsigned long size)
+{
+	return __early_ioremap(phys_to_machine(phys_addr), size, PAGE_KERNEL_RO);
 }
 
 void __init early_iounmap(void __iomem *addr, unsigned long size)

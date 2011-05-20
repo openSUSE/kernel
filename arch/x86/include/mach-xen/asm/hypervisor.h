@@ -147,6 +147,8 @@ struct page;
 int xen_limit_pages_to_max_mfn(
 	struct page *pages, unsigned int order, unsigned int address_bits);
 
+bool __cold hypervisor_oom(void);
+
 /* Turn jiffies into Xen system time. */
 u64 jiffies_to_st(unsigned long jiffies);
 

@@ -115,7 +115,6 @@ DEFINE_XEN_GUEST_HANDLE(xen_pfn_t);
 
 /* New sched_op hypercall introduced in 0x00030101. */
 #if __XEN_INTERFACE_VERSION__ < 0x00030101 || (defined(CONFIG_PARAVIRT_XEN) && !defined(HAVE_XEN_PLATFORM_COMPAT_H))
-#undef __HYPERVISOR_sched_op
 #define __HYPERVISOR_sched_op __HYPERVISOR_sched_op_compat
 #else
 #define __HYPERVISOR_sched_op __HYPERVISOR_sched_op_new

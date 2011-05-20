@@ -21,21 +21,6 @@
 #include <xen/xenbus.h>
 #include "common.h"
 
-struct backend_info
-{
-	struct xenbus_device *dev;
-
-	/* our communications channel */
-	tpmif_t *tpmif;
-
-	long int frontend_id;
-	long int instance; // instance of TPM
-	u8 is_instance_set;// whether instance number has been set
-
-	/* watch front end for changes */
-	struct xenbus_watch backend_watch;
-};
-
 static void maybe_connect(struct backend_info *be);
 static void connect(struct backend_info *be);
 static int connect_ring(struct backend_info *be);

@@ -105,7 +105,7 @@ static void xen_hotadd_mem_dpc(struct work_struct *work)
 		entry = list_entry(elem, struct xen_hotmem_entry, hotmem_list);
 		ret = xen_hyper_addmem(entry);
 		if (ret)
-			pr_warning("xen addmem failed with %x\n", ret);
+			pr_warn("xen addmem failed with %x\n", ret);
 		free_hotmem_entry(entry);
 		xen_hotmem.entry_nr--;
 	}

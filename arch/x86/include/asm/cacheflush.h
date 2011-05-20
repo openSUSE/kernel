@@ -71,7 +71,7 @@ static inline void set_page_memtype(struct page *pg, unsigned long memtype) { }
  * Read/Write    : ReadOnly, ReadWrite
  * Presence      : NotPresent
  *
- * Within a catagory, the attributes are mutually exclusive.
+ * Within a category, the attributes are mutually exclusive.
  *
  * The implementation of this API will take care of various aspects that
  * are associated with changing such attributes, such as:
@@ -101,7 +101,6 @@ int set_memory_x(unsigned long addr, int numpages);
 int set_memory_nx(unsigned long addr, int numpages);
 int set_memory_ro(unsigned long addr, int numpages);
 int set_memory_rw(unsigned long addr, int numpages);
-int set_memory_rw_force(unsigned long addr, int numpages);
 int set_memory_np(unsigned long addr, int numpages);
 int set_memory_4k(unsigned long addr, int numpages);
 
@@ -139,14 +138,12 @@ int set_pages_x(struct page *page, int numpages);
 int set_pages_nx(struct page *page, int numpages);
 int set_pages_ro(struct page *page, int numpages);
 int set_pages_rw(struct page *page, int numpages);
-int set_pages_rw_force(struct page *page, int numpages);
 
 
 void clflush_cache_range(void *addr, unsigned int size);
 
 #ifdef CONFIG_DEBUG_RODATA
 void mark_rodata_ro(void);
-void mark_rodata_rw(void);
 extern const int rodata_test_data;
 extern int kernel_set_to_readonly;
 void set_kernel_text_rw(void);

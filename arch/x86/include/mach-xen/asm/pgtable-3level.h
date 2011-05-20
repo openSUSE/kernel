@@ -34,11 +34,6 @@ static inline void xen_set_pte(pte_t *ptep, pte_t pte)
 	ptep->pte_low = pte.pte_low;
 }
 
-static inline void xen_set_pte_atomic(pte_t *ptep, pte_t pte)
-{
-	set_64bit((unsigned long long *)(ptep), __pte_val(pte));
-}
-
 static inline void xen_set_pmd(pmd_t *pmdp, pmd_t pmd)
 {
 	xen_l2_entry_update(pmdp, pmd);
@@ -71,8 +66,6 @@ static inline void __xen_pte_clear(pte_t *ptep)
 
 static inline void __xen_pud_clear(pud_t *pudp)
 {
-	pgdval_t pgd;
-
 	set_pud(pudp, __pud(0));
 
 	/*
@@ -81,13 +74,10 @@ static inline void __xen_pud_clear(pud_t *pudp)
 	 * section 8.1: in PAE mode we explicitly have to flush the
 	 * TLB via cr3 if the top-level pgd is changed...
 	 *
-	 * Make sure the pud entry we're updating is within the
-	 * current pgd to avoid unnecessary TLB flushes.
+	 * Currently all places where pud_clear() is called either have
+	 * flush_tlb_mm() followed or don't need TLB flush (x86_64 code or
+	 * pud_clear_bad()), so we don't need TLB flush here.
 	 */
-	pgd = read_cr3();
-	if (__pa(pudp) >= pgd && __pa(pudp) <
-	    (pgd + sizeof(pgd_t)*PTRS_PER_PGD))
-		xen_tlb_flush();
 }
 
 #define xen_pud_clear(pudp)			\

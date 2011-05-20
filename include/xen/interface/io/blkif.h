@@ -89,7 +89,7 @@
  * or not it is worthwhile for the frontend to attempt trim requests.
  * If a backend does not recognise BLKIF_OP_TRIM, it should *not*
  * create the "feature-trim" node!
- * 
+ *
  * Trim operation is a request for the underlying block device to mark
  * extents to be erased. Trim operations are passed with sector_number as the
  * sector index to begin trim operations at and nr_sectors as the number of
@@ -127,8 +127,17 @@ struct blkif_request {
     uint8_t        nr_segments;  /* number of segments                   */
     blkif_vdev_t   handle;       /* only for read/write requests         */
     uint64_t       id;           /* private guest value, echoed in resp  */
+#if !defined(CONFIG_PARAVIRT_XEN) || defined(HAVE_XEN_PLATFORM_COMPAT_H)
     blkif_sector_t sector_number;/* start sector idx on disk (r/w only)  */
     struct blkif_request_segment seg[BLKIF_MAX_SEGMENTS_PER_REQUEST];
+#else
+    union {
+        struct blkif_request_rw {
+            blkif_sector_t sector_number;/* start sector idx on disk (r/w only) */
+            struct blkif_request_segment seg[BLKIF_MAX_SEGMENTS_PER_REQUEST];
+        } rw;
+    } u;
+#endif
 };
 typedef struct blkif_request blkif_request_t;
 
@@ -172,5 +181,26 @@ DEFINE_RING_TYPES(blkif, struct blkif_request, struct blkif_response);
 #define VDISK_CDROM        0x1
 #define VDISK_REMOVABLE    0x2
 #define VDISK_READONLY     0x4
+
+/* Xen-defined major numbers for virtual disks, they look strangely
+ * familiar */
+#define XEN_IDE0_MAJOR	3
+#define XEN_IDE1_MAJOR	22
+#define XEN_SCSI_DISK0_MAJOR	8
+#define XEN_SCSI_DISK1_MAJOR	65
+#define XEN_SCSI_DISK2_MAJOR	66
+#define XEN_SCSI_DISK3_MAJOR	67
+#define XEN_SCSI_DISK4_MAJOR	68
+#define XEN_SCSI_DISK5_MAJOR	69
+#define XEN_SCSI_DISK6_MAJOR	70
+#define XEN_SCSI_DISK7_MAJOR	71
+#define XEN_SCSI_DISK8_MAJOR	128
+#define XEN_SCSI_DISK9_MAJOR	129
+#define XEN_SCSI_DISK10_MAJOR	130
+#define XEN_SCSI_DISK11_MAJOR	131
+#define XEN_SCSI_DISK12_MAJOR	132
+#define XEN_SCSI_DISK13_MAJOR	133
+#define XEN_SCSI_DISK14_MAJOR	134
+#define XEN_SCSI_DISK15_MAJOR	135
 
 #endif /* __XEN_PUBLIC_IO_BLKIF_H__ */

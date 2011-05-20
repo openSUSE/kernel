@@ -559,14 +559,15 @@ static ssize_t store_companion(struct device *dev,
 }
 static DEVICE_ATTR(companion, 0644, show_companion, store_companion);
 
-static inline void create_companion_file(struct ehci_hcd *ehci)
+static inline int create_companion_file(struct ehci_hcd *ehci)
 {
-	int	i;
+	int	i = 0;
 
 	/* with integrated TT there is no companion! */
 	if (!ehci_is_TDI(ehci))
 		i = device_create_file(ehci_to_hcd(ehci)->self.controller,
 				       &dev_attr_companion);
+	return i;
 }
 
 static inline void remove_companion_file(struct ehci_hcd *ehci)
@@ -716,8 +717,8 @@ ehci_hub_descriptor (
 	desc->bDescLength = 7 + 2 * temp;
 
 	/* two bitmaps:  ports removable, and usb 1.0 legacy PortPwrCtrlMask */
-	memset (&desc->bitmap [0], 0, temp);
-	memset (&desc->bitmap [temp], 0xff, temp);
+	memset(&desc->u.hs.DeviceRemovable[0], 0, temp);
+	memset(&desc->u.hs.DeviceRemovable[temp], 0xff, temp);
 
 	temp = 0x0008;			/* per-port overcurrent reporting */
 	if (HCS_PPC (ehci->hcs_params))

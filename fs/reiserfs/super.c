@@ -393,7 +393,7 @@ void add_save_link(struct reiserfs_transaction_handle *th,
 	/* body of "save" link */
 	link = INODE_PKEY(inode)->k_dir_id;
 
-	/* put "save" link inot tree, don't charge quota to anyone */
+	/* put "save" link into tree, don't charge quota to anyone */
 	retval =
 	    reiserfs_insert_item(th, &path, &key, &ih, NULL, (char *)&link);
 	if (retval) {
@@ -1332,18 +1332,6 @@ out_err:
 	return err;
 }
 
-static inline loff_t
-reiserfs_max_file_offset(struct super_block *sb)
-{
-	/* Limited by stat_data->sd_blocks, 2^32-1 blocks */
-	loff_t fs_max = ((u64)sb->s_blocksize << 32) - sb->s_blocksize;
-
-	/* Limited by 32-bit MAX_LFS_FILESIZE */
-	loff_t page_cache_max = (((u64)PAGE_CACHE_SIZE << 31)-1);
-
-	return min(fs_max, page_cache_max);
-}
-
 static int read_super_block(struct super_block *s, int offset)
 {
 	struct buffer_head *bh;
@@ -1433,7 +1421,10 @@ static int read_super_block(struct super_block *s, int offset)
 	s->dq_op = &reiserfs_quota_operations;
 #endif
 
-	s->s_maxbytes = reiserfs_max_file_offset(s);
+	/* new format is limited by the 32 bit wide i_blocks field, want to
+	 ** be one full block below that.
+	 */
+	s->s_maxbytes = (512LL << 32) - s->s_blocksize;
 	return 0;
 }
 
@@ -2120,7 +2111,7 @@ out:
 
 /* Read data from quotafile - avoid pagecache and such because we cannot afford
  * acquiring the locks... As quota files are never truncated and quota code
- * itself serializes the operations (and noone else should touch the files)
+ * itself serializes the operations (and no one else should touch the files)
  * we don't have to be afraid of races */
 static ssize_t reiserfs_quota_read(struct super_block *sb, int type, char *data,
 				   size_t len, loff_t off)

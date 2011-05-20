@@ -41,6 +41,8 @@
 #include <linux/list.h>
 #include <linux/delay.h>
 #include <xen/balloon.h>
+#include <xen/evtchn.h>
+#include <xen/gnttab.h>
 #include <asm/hypervisor.h>
 #include "common.h"
 
@@ -147,8 +149,6 @@ static void unplug_queue(blkif_t *blkif)
 {
 	if (blkif->plug == NULL)
 		return;
-	if (blkif->plug->unplug_fn)
-		blkif->plug->unplug_fn(blkif->plug);
 	kobject_put(&blkif->plug->kobj);
 	blkif->plug = NULL;
 }

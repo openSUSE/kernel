@@ -46,6 +46,8 @@
 #include "common.h"
 #include <xen/balloon.h>
 #include <xen/driver_util.h>
+#include <xen/evtchn.h>
+#include <xen/gnttab.h>
 #include <linux/kernel.h>
 #include <linux/fs.h>
 #include <linux/mm.h>

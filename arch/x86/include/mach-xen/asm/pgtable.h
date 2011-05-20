@@ -34,9 +34,6 @@ extern struct mm_struct *pgd_page_get_mm(struct page *page);
 #define set_pte_at(mm, addr, ptep, pte)	xen_set_pte_at(mm, addr, ptep, pte)
 #define set_pmd_at(mm, addr, pmdp, pmd)	xen_set_pmd_at(mm, addr, pmdp, pmd)
 
-#define set_pte_atomic(ptep, pte)					\
-	xen_set_pte_atomic(ptep, pte)
-
 #define set_pmd(pmdp, pmd)		xen_set_pmd(pmdp, pmd)
 
 #ifndef __PAGETABLE_PUD_FOLDED

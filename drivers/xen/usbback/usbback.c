@@ -45,6 +45,8 @@
 
 #include <linux/mm.h>
 #include <xen/balloon.h>
+#include <xen/evtchn.h>
+#include <xen/gnttab.h>
 #include "usbback.h"
 
 #if 0

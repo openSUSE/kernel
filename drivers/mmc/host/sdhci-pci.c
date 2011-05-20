@@ -908,9 +908,6 @@ static struct sdhci_pci_slot * __devinit sdhci_pci_probe_slot(
 {
 	struct sdhci_pci_slot *slot;
 	struct sdhci_host *host;
-
-	resource_size_t addr;
-
 	int ret;
 
 	if (!(pci_resource_flags(pdev, bar) & IORESOURCE_MEM)) {
@@ -957,7 +954,6 @@ static struct sdhci_pci_slot * __devinit sdhci_pci_probe_slot(
 		goto free;
 	}
 
-	addr = pci_resource_start(pdev, bar);
 	host->ioaddr = pci_ioremap_bar(pdev, bar);
 	if (!host->ioaddr) {
 		dev_err(&pdev->dev, "failed to remap registers\n");
@@ -1021,16 +1017,14 @@ static int __devinit sdhci_pci_probe(struct pci_dev *pdev,
 	struct sdhci_pci_chip *chip;
 	struct sdhci_pci_slot *slot;
 
-	u8 slots, rev, first_bar;
+	u8 slots, first_bar;
 	int ret, i;
 
 	BUG_ON(pdev == NULL);
 	BUG_ON(ent == NULL);
 
-	pci_read_config_byte(pdev, PCI_CLASS_REVISION, &rev);
-
 	dev_info(&pdev->dev, "SDHCI controller found [%04x:%04x] (rev %x)\n",
-		 (int)pdev->vendor, (int)pdev->device, (int)rev);
+		 (int)pdev->vendor, (int)pdev->device, (int)pdev->revision);
 
 	ret = pci_read_config_byte(pdev, PCI_SLOT_INFO, &slots);
 	if (ret)

@@ -32,16 +32,11 @@
 #include <linux/interrupt.h>
 #include <linux/slab.h>
 #include <linux/blkdev.h>
-#include <linux/vmalloc.h>
 #include <linux/wait.h>
-#include <asm/io.h>
-#include <asm/setup.h>
-#include <asm/pgalloc.h>
-#include <xen/evtchn.h>
 #include <asm/hypervisor.h>
 #include <xen/blkif.h>
-#include <xen/gnttab.h>
 #include <xen/xenbus.h>
+#include <xen/interface/event_channel.h>
 #include "blkback-pagemap.h"
 
 
@@ -94,9 +89,6 @@ typedef struct blkif_st {
 	int                 st_wr_sect;
 
 	wait_queue_head_t waiting_to_free;
-
-	grant_handle_t shmem_handle;
-	grant_ref_t    shmem_ref;
 } blkif_t;
 
 struct backend_info
@@ -113,7 +105,7 @@ struct backend_info
 blkif_t *blkif_alloc(domid_t domid);
 void blkif_disconnect(blkif_t *blkif);
 void blkif_free(blkif_t *blkif);
-int blkif_map(blkif_t *blkif, unsigned long shared_page, unsigned int evtchn);
+int blkif_map(blkif_t *blkif, grant_ref_t, evtchn_port_t);
 void vbd_resize(blkif_t *blkif);
 
 #define blkif_get(_b) (atomic_inc(&(_b)->refcnt))

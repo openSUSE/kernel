@@ -59,4 +59,11 @@ static inline int is_xenstored_ready(void)
 	return s == XENBUS_XSD_FOREIGN_READY || s == XENBUS_XSD_LOCAL_READY;
 }
 
+#if defined(CONFIG_XEN_XENBUS_DEV) && defined(CONFIG_XEN_PRIVILEGED_GUEST)
+#include <xen/interface/event_channel.h>
+#include <xen/interface/grant_table.h>
+
+int xenbus_conn(domid_t, grant_ref_t *, evtchn_port_t *);
+#endif
+
 #endif /* _XENBUS_COMMS_H */

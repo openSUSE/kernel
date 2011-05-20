@@ -148,7 +148,7 @@ static struct list_head	ownerstr_hashtbl[OWNER_HASH_SIZE];
 /* hash table for nfs4_file */
 #define FILE_HASH_BITS                   8
 #define FILE_HASH_SIZE                  (1 << FILE_HASH_BITS)
-#define FILE_HASH_MASK                  (FILE_HASH_SIZE - 1)
+
 /* hash table for (open)nfs4_stateid */
 #define STATEID_HASH_BITS              10
 #define STATEID_HASH_SIZE              (1 << STATEID_HASH_BITS)
@@ -612,7 +612,8 @@ static void init_forechannel_attrs(struct nfsd4_channel_attrs *new, struct nfsd4
 	u32 maxrpc = nfsd_serv->sv_max_mesg;
 
 	new->maxreqs = numslots;
-	new->maxresp_cached = slotsize + NFSD_MIN_HDR_SEQ_SZ;
+	new->maxresp_cached = min_t(u32, req->maxresp_cached,
+					slotsize + NFSD_MIN_HDR_SEQ_SZ);
 	new->maxreq_sz = min_t(u32, req->maxreq_sz, maxrpc);
 	new->maxresp_sz = min_t(u32, req->maxresp_sz, maxrpc);
 	new->maxops = min_t(u32, req->maxops, NFSD_MAX_OPS_PER_COMPOUND);
@@ -3058,7 +3059,7 @@ check_special_stateids(svc_fh *current_fh, stateid_t *stateid, int flags)
 	if (ONE_STATEID(stateid) && (flags & RD_STATE))
 		return nfs_ok;
 	else if (locks_in_grace()) {
-		/* Answer in remaining cases depends on existance of
+		/* Answer in remaining cases depends on existence of
 		 * conflicting state; so we must wait out the grace period. */
 		return nfserr_grace;
 	} else if (flags & WR_STATE)
@@ -3678,7 +3679,7 @@ find_lockstateowner_str(struct inode *inode, clientid_t *clid,
 /*
  * Alloc a lock owner structure.
  * Called in nfsd4_lock - therefore, OPEN and OPEN_CONFIRM (if needed) has 
- * occured. 
+ * occurred. 
  *
  * strhashval = lock_ownerstr_hashval 
  */

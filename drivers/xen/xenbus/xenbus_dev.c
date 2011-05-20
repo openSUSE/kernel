@@ -397,12 +397,10 @@ static unsigned int xenbus_dev_poll(struct file *file, poll_table *wait)
 	return 0;
 }
 
-#ifdef HAVE_UNLOCKED_IOCTL
+#ifdef CONFIG_XEN_PRIVILEGED_GUEST
 static long xenbus_dev_ioctl(struct file *file,
                              unsigned int cmd, unsigned long data)
 {
-	extern int xenbus_conn(domid_t remote_dom, int *grant_ref,
-	                       evtchn_port_t *local_port);
 	void __user *udata = (void __user *) data;
 	int ret = -ENOTTY;
 	
@@ -456,12 +454,18 @@ static const struct file_operations xenbus_dev_file_ops = {
 	.release = xenbus_dev_release,
 	.llseek = no_llseek,
 	.poll = xenbus_dev_poll,
-#ifdef HAVE_UNLOCKED_IOCTL
+#ifdef CONFIG_XEN_PRIVILEGED_GUEST
 	.unlocked_ioctl = xenbus_dev_ioctl
 #endif
 };
 
-int xenbus_dev_init(void)
+int
+#ifndef MODULE
+__init
+#else
+__devinit
+#endif
+xenbus_dev_init(void)
 {
 	xenbus_dev_intf = create_xen_proc_entry("xenbus", 0400);
 	if (xenbus_dev_intf)

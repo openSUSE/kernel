@@ -263,12 +263,12 @@ void __init reserve_pgtable_low(void)
 
 		if (!range->nr)
 			break;
-		if (e820_table_start <= range->pfn
-		    && e820_table_top > range->pfn) {
-			memblock_x86_reserve_range(e820_table_start << PAGE_SHIFT,
+		if (pgt_buf_start <= range->pfn
+		    && pgt_buf_top > range->pfn) {
+			memblock_x86_reserve_range(pgt_buf_start << PAGE_SHIFT,
 						   range->pfn << PAGE_SHIFT,
 						   "PGTABLE");
-			e820_table_start = range->pfn + range->nr;
+			pgt_buf_start = range->pfn + range->nr;
 		}
 	}
 }
@@ -277,18 +277,18 @@ static __init unsigned long get_table_end(void)
 {
 	unsigned int i;
 
-	BUG_ON(!e820_table_end);
+	BUG_ON(!pgt_buf_end);
 	for (i = 0; i < ARRAY_SIZE(reserved_pfn_ranges); ++i) {
 		struct reserved_pfn_range *range = reserved_pfn_ranges + i;
 
 		if (!range->nr)
 			break;
-		if (e820_table_end == range->pfn) {
-			e820_table_end += range->nr;
-			e820_table_top += range->nr;
+		if (pgt_buf_end == range->pfn) {
+			pgt_buf_end += range->nr;
+			pgt_buf_top += range->nr;
 		}
 	}
-	return e820_table_end++;
+	return pgt_buf_end++;
 }
 
 /*
@@ -301,7 +301,7 @@ static __ref void *spp_getpage(void)
 
 	if (after_bootmem)
 		ptr = (void *) get_zeroed_page(GFP_ATOMIC | __GFP_NOTRACK);
-	else if (e820_table_end < e820_table_top) {
+	else if (pgt_buf_end < pgt_buf_top) {
 		ptr = __va(get_table_end() << PAGE_SHIFT);
 		clear_page(ptr);
 	} else
@@ -465,18 +465,18 @@ void __init init_extra_mapping_uc(unsigned long phys, unsigned long size)
  * to the compile time generated pmds. This results in invalid pmds up
  * to the point where we hit the physaddr 0 mapping.
  *
- * We limit the mappings to the region from _text to _end.  _end is
- * rounded up to the 2MB boundary. This catches the invalid pmds as
+ * We limit the mappings to the region from _text to _brk_end.  _brk_end
+ * is rounded up to the 2MB boundary. This catches the invalid pmds as
  * well, as they are located before _text:
  */
 void __init cleanup_highmap(void)
 {
 	unsigned long vaddr = __START_KERNEL_map;
-	unsigned long end = roundup((unsigned long)_end, PMD_SIZE) - 1;
+	unsigned long vaddr_end = __START_KERNEL_map + (max_pfn_mapped << PAGE_SHIFT);
+	unsigned long end = roundup((unsigned long)_brk_end, PMD_SIZE) - 1;
 	pmd_t *pmd = level2_kernel_pgt;
-	pmd_t *last_pmd = pmd + PTRS_PER_PMD;
 
-	for (; pmd < last_pmd; pmd++, vaddr += PMD_SIZE) {
+	for (; vaddr + PMD_SIZE - 1 < vaddr_end; pmd++, vaddr += PMD_SIZE) {
 		if (pmd_none(*pmd))
 			continue;
 		if (vaddr < (unsigned long) _text || vaddr > end)
@@ -498,7 +498,7 @@ static __ref void *alloc_low_page(unsigned long *phys)
 	}
 
 	pfn = get_table_end();
-	if (pfn >= e820_table_top)
+	if (pfn >= pgt_buf_top)
 		panic("alloc_low_page: ran out of memory");
 
 	adr = early_memremap(pfn * PAGE_SIZE, PAGE_SIZE);
@@ -507,12 +507,28 @@ static __ref void *alloc_low_page(unsigned long *phys)
 	return adr;
 }
 
+static __ref void *map_low_page(void *virt)
+{
+	void *adr;
+	unsigned long phys, left;
+
+	if (after_bootmem)
+		return virt;
+
+	phys = __pa(virt);
+	left = phys & (PAGE_SIZE - 1);
+	adr = early_memremap_ro(phys & PAGE_MASK, PAGE_SIZE);
+	adr = (void *)(((unsigned long)adr) | left);
+
+	return adr;
+}
+
 static __ref void unmap_low_page(void *adr)
 {
 	if (after_bootmem)
 		return;
 
-	early_iounmap(adr, PAGE_SIZE);
+	early_iounmap((void *)((unsigned long)adr & PAGE_MASK), PAGE_SIZE);
 }
 
 static inline int __meminit make_readonly(unsigned long paddr)
@@ -523,8 +539,8 @@ static inline int __meminit make_readonly(unsigned long paddr)
 	/* Make new page tables read-only on the first pass. */
 	if (!xen_feature(XENFEAT_writable_page_tables)
 	    && !max_pfn_mapped
-	    && (paddr >= (e820_table_start << PAGE_SHIFT))) {
-		unsigned long top = e820_table_top;
+	    && (paddr >= (pgt_buf_start << PAGE_SHIFT))) {
+		unsigned long top = pgt_buf_top;
 		unsigned int i;
 
 		/* Account for the ranges get_table_end() skips. */
@@ -534,7 +550,7 @@ static inline int __meminit make_readonly(unsigned long paddr)
 			range = reserved_pfn_ranges + i;
 			if (!range->nr)
 				continue;
-			if (e820_table_end <= range->pfn && top > range->pfn) {
+			if (pgt_buf_end <= range->pfn && top > range->pfn) {
 				if (paddr > (range->pfn << PAGE_SHIFT)
 				    && paddr < ((range->pfn + range->nr)
 					        << PAGE_SHIFT))
@@ -548,7 +564,7 @@ static inline int __meminit make_readonly(unsigned long paddr)
 	/* Make old page tables read-only. */
 	if (!xen_feature(XENFEAT_writable_page_tables)
 	    && (paddr >= (xen_start_info->pt_base - __START_KERNEL_map))
-	    && (paddr < (e820_table_end << PAGE_SHIFT)))
+	    && (paddr < (pgt_buf_end << PAGE_SHIFT)))
 		readonly = 1;
 	/* Make P->M table (and its page tables) read-only. */
 	if (!xen_feature(XENFEAT_writable_page_tables)
@@ -624,16 +640,6 @@ phys_pte_init(pte_t *pte_page, unsigned long addr, unsigned long end,
 }
 
 static unsigned long __meminit
-phys_pte_update(pmd_t *pmd, unsigned long address, unsigned long end,
-		pgprot_t prot)
-{
-	pte_t *pte = (pte_t *)pmd_page_vaddr(*pmd);
-
-	BUG_ON(!max_pfn_mapped);
-	return phys_pte_init(pte, address, end, prot);
-}
-
-static unsigned long __meminit
 phys_pmd_init(pmd_t *pmd_page, unsigned long address, unsigned long end,
 	      unsigned long page_size_mask, pgprot_t prot)
 {
@@ -654,8 +660,10 @@ phys_pmd_init(pmd_t *pmd_page, unsigned long address, unsigned long end,
 		if (__pmd_val(*pmd)) {
 			if (!pmd_large(*pmd)) {
 				spin_lock(&init_mm.page_table_lock);
-				last_map_addr = phys_pte_update(pmd, address,
+				pte = map_low_page((pte_t *)pmd_page_vaddr(*pmd));
+				last_map_addr = phys_pte_init(pte, address,
 								end, prot);
+				unmap_low_page(pte);
 				spin_unlock(&init_mm.page_table_lock);
 				continue;
 			}
@@ -709,19 +717,6 @@ phys_pmd_init(pmd_t *pmd_page, unsigned long address, unsigned long end,
 }
 
 static unsigned long __meminit
-phys_pmd_update(pud_t *pud, unsigned long address, unsigned long end,
-		unsigned long page_size_mask, pgprot_t prot)
-{
-	pmd_t *pmd = pmd_offset(pud, 0);
-	unsigned long last_map_addr;
-
-	BUG_ON(!max_pfn_mapped);
-	last_map_addr = phys_pmd_init(pmd, address, end, page_size_mask, prot);
-	__flush_tlb_all();
-	return last_map_addr;
-}
-
-static unsigned long __meminit
 phys_pud_init(pud_t *pud_page, unsigned long addr, unsigned long end,
 			 unsigned long page_size_mask)
 {
@@ -740,8 +735,11 @@ phys_pud_init(pud_t *pud_page, unsigned long addr, unsigned long end,
 
 		if (__pud_val(*pud)) {
 			if (!pud_large(*pud)) {
-				last_map_addr = phys_pmd_update(pud, addr, end,
+				pmd = map_low_page(pmd_offset(pud, 0));
+				last_map_addr = phys_pmd_init(pmd, addr, end,
 							 page_size_mask, prot);
+				unmap_low_page(pmd);
+				__flush_tlb_all();
 				continue;
 			}
 			/*
@@ -782,9 +780,15 @@ phys_pud_init(pud_t *pud_page, unsigned long addr, unsigned long end,
 			if (max_pfn_mapped)
 				make_page_readonly(__va(pmd_phys),
 						   XENFEAT_writable_page_tables);
-			if (page_size_mask & (1 << PG_LEVEL_NUM))
-				xen_l3_entry_update(pud, __pud(pmd_phys | _PAGE_TABLE));
-			else
+			if (page_size_mask & (1 << PG_LEVEL_NUM)) {
+				mmu_update_t u;
+
+				u.ptr = arbitrary_virt_to_machine(pud);
+				u.val = phys_to_machine(pmd_phys) | _PAGE_TABLE;
+				if (HYPERVISOR_mmu_update(&u, 1, NULL,
+							  DOMID_SELF) < 0)
+					BUG();
+			} else
 				*pud = __pud(pmd_phys | _PAGE_TABLE);
 		} else {
 			spin_lock(&init_mm.page_table_lock);
@@ -797,17 +801,6 @@ phys_pud_init(pud_t *pud_page, unsigned long addr, unsigned long end,
 	update_page_count(PG_LEVEL_1G, pages);
 
 	return last_map_addr;
-}
-
-static unsigned long __meminit
-phys_pud_update(pgd_t *pgd, unsigned long addr, unsigned long end,
-		 unsigned long page_size_mask)
-{
-	pud_t *pud;
-
-	pud = (pud_t *)pgd_page_vaddr(*pgd);
-
-	return phys_pud_init(pud, addr, end, page_size_mask | (1 << PG_LEVEL_NUM));
 }
 
 void __init xen_init_pt(void)
@@ -913,15 +906,15 @@ void __init xen_finish_init_mapping(void)
 
 	/* Destroy the Xen-created mappings beyond the kernel image. */
 	start = PAGE_ALIGN(_brk_end);
-	end   = __START_KERNEL_map + (e820_table_start << PAGE_SHIFT);
+	end   = __START_KERNEL_map + (pgt_buf_start << PAGE_SHIFT);
 	for (; start < end; start += PAGE_SIZE)
 		if (HYPERVISOR_update_va_mapping(start, __pte_ma(0), 0))
 			BUG();
 
-	WARN(e820_table_end != e820_table_top, "start=%lx cur=%lx top=%lx\n",
-	     e820_table_start, e820_table_end, e820_table_top);
-	if (e820_table_end > e820_table_top)
-		e820_table_top = e820_table_end;
+	WARN(pgt_buf_end != pgt_buf_top, "start=%lx cur=%lx top=%lx\n",
+	     pgt_buf_start, pgt_buf_end, pgt_buf_top);
+	if (pgt_buf_end > pgt_buf_top)
+		pgt_buf_top = pgt_buf_end;
 }
 
 unsigned long __meminit
@@ -947,8 +940,10 @@ kernel_physical_mapping_init(unsigned long start,
 			next = end;
 
 		if (__pgd_val(*pgd)) {
-			last_map_addr = phys_pud_update(pgd, __pa(start),
-						 __pa(end), page_size_mask);
+			pud = map_low_page((pud_t *)pgd_page_vaddr(*pgd));
+			last_map_addr = phys_pud_init(pud, __pa(start),
+				__pa(end), page_size_mask | (1 << PG_LEVEL_NUM));
+			unmap_low_page(pud);
 			continue;
 		}
 
@@ -977,14 +972,13 @@ kernel_physical_mapping_init(unsigned long start,
 }
 
 #ifndef CONFIG_NUMA
-void __init initmem_init(unsigned long start_pfn, unsigned long end_pfn,
-				int acpi, int k8)
+void __init initmem_init(void)
 {
-	memblock_x86_register_active_regions(0, start_pfn, end_pfn);
+	memblock_x86_register_active_regions(0, 0, max_pfn);
 #ifdef CONFIG_XEN
-	if (end_pfn > xen_start_info->nr_pages)
+	if (max_pfn > xen_start_info->nr_pages)
 		memblock_x86_reserve_range(xen_start_info->nr_pages << PAGE_SHIFT,
-					   end_pfn << PAGE_SHIFT, "BALLOON");
+					   max_pfn << PAGE_SHIFT, "BALLOON");
 #endif
 }
 #endif
@@ -1161,7 +1155,6 @@ void set_kernel_text_ro(void)
 	set_memory_ro(start, (end - start) >> PAGE_SHIFT);
 }
 
-static int initmem_freed __read_mostly = 0;
 void mark_rodata_ro(void)
 {
 	unsigned long start = PFN_ALIGN(_text);
@@ -1194,33 +1187,15 @@ void mark_rodata_ro(void)
 	set_memory_ro(start, (end-start) >> PAGE_SHIFT);
 #endif
 
-	if (!initmem_freed) {
-		initmem_freed = 1;
-		free_init_pages("unused kernel memory",
-				(unsigned long)
-				 page_address(virt_to_page(text_end)),
-				(unsigned long)
+	free_init_pages("unused kernel memory",
+			(unsigned long) page_address(virt_to_page(text_end)),
+			(unsigned long)
 				 page_address(virt_to_page(rodata_start)));
-		free_init_pages("unused kernel memory",
-				(unsigned long)
-				 page_address(virt_to_page(rodata_end)),
-				(unsigned long)
-				 page_address(virt_to_page(data_start)));
-	}
+	free_init_pages("unused kernel memory",
+			(unsigned long) page_address(virt_to_page(rodata_end)),
+			(unsigned long) page_address(virt_to_page(data_start)));
 }
-EXPORT_SYMBOL_GPL(mark_rodata_ro);
 
-void mark_rodata_rw(void)
-{
-	unsigned long rodata_start =
-		((unsigned long)__start_rodata + PAGE_SIZE - 1) & PAGE_MASK;
-	unsigned long end = (unsigned long) &__end_rodata;
-
-	printk(KERN_INFO "Write enabling the kernel read-only data: %luk\n",
-	       (end - rodata_start) >> 10);
-	set_memory_rw_force(rodata_start, (end - rodata_start) >> PAGE_SHIFT);
-}
-EXPORT_SYMBOL_GPL(mark_rodata_rw);
 #endif
 
 int kern_addr_valid(unsigned long addr)
@@ -1281,18 +1256,18 @@ static struct vm_area_struct gate_vma = {
 	.vm_flags	= VM_READ | VM_EXEC
 };
 
-struct vm_area_struct *get_gate_vma(struct task_struct *tsk)
+struct vm_area_struct *get_gate_vma(struct mm_struct *mm)
 {
 #ifdef CONFIG_IA32_EMULATION
-	if (test_tsk_thread_flag(tsk, TIF_IA32))
+	if (!mm || mm->context.ia32_compat)
 		return NULL;
 #endif
 	return &gate_vma;
 }
 
-int in_gate_area(struct task_struct *task, unsigned long addr)
+int in_gate_area(struct mm_struct *mm, unsigned long addr)
 {
-	struct vm_area_struct *vma = get_gate_vma(task);
+	struct vm_area_struct *vma = get_gate_vma(mm);
 
 	if (!vma)
 		return 0;
@@ -1301,11 +1276,11 @@ int in_gate_area(struct task_struct *task, unsigned long addr)
 }
 
 /*
- * Use this when you have no reliable task/vma, typically from interrupt
- * context. It is less reliable than using the task's vma and may give
- * false positives:
+ * Use this when you have no reliable mm, typically from interrupt
+ * context. It is less reliable than using a task's mm and may give
+ * false positives.
  */
-int in_gate_area_no_task(unsigned long addr)
+int in_gate_area_no_mm(unsigned long addr)
 {
 	return (addr >= VSYSCALL_START) && (addr < VSYSCALL_END);
 }
@@ -1318,6 +1293,19 @@ const char *arch_vma_name(struct vm_area_struct *vma)
 		return "[vsyscall]";
 	return NULL;
 }
+
+#ifdef CONFIG_X86_UV
+#define MIN_MEMORY_BLOCK_SIZE   (1 << SECTION_SIZE_BITS)
+
+unsigned long memory_block_size_bytes(void)
+{
+	if (is_uv_system()) {
+		printk(KERN_INFO "UV: memory block size 2GB\n");
+		return 2UL * 1024 * 1024 * 1024;
+	}
+	return MIN_MEMORY_BLOCK_SIZE;
+}
+#endif
 
 #ifdef CONFIG_SPARSEMEM_VMEMMAP
 /*

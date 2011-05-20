@@ -90,7 +90,6 @@
 #include <linux/proc_fs.h>
 #include <linux/init.h>
 #include <linux/module.h>
-#include <linux/smp_lock.h>
 #include <linux/device.h>
 #include <linux/wait.h>
 #include <linux/bitops.h>
@@ -2137,7 +2136,7 @@ done:
  *	actually has driver level meaning and triggers a VC resize.
  *
  *	Locking:
- *		Driver dependant. The default do_resize method takes the
+ *		Driver dependent. The default do_resize method takes the
  *	tty termios mutex and ctrl_lock. The console takes its own lock
  *	then calls into the default method.
  */
@@ -2158,7 +2157,7 @@ static int tiocswinsz(struct tty_struct *tty, struct winsize __user *arg)
  *	tioccons	-	allow admin to move logical console
  *	@file: the file to become console
  *
- *	Allow the adminstrator to move the redirected console device
+ *	Allow the administrator to move the redirected console device
  *
  *	Locking: uses redirect_lock to guard the redirect information
  */
@@ -2293,7 +2292,7 @@ EXPORT_SYMBOL_GPL(tty_get_pgrp);
 /**
  *	tiocgpgrp		-	get process group
  *	@tty: tty passed by user
- *	@real_tty: tty side of the tty pased by the user if a pty else the tty
+ *	@real_tty: tty side of the tty passed by the user if a pty else the tty
  *	@p: returned pid
  *
  *	Obtain the process group of the tty. If there is no process group
@@ -2370,7 +2369,7 @@ out_unlock:
 /**
  *	tiocgsid		-	get session id
  *	@tty: tty passed by user
- *	@real_tty: tty side of the tty pased by the user if a pty else the tty
+ *	@real_tty: tty side of the tty passed by the user if a pty else the tty
  *	@p: pointer to returned session id
  *
  *	Obtain the session id of the tty. If there is no session
@@ -2467,12 +2466,12 @@ out:
  *	Locking: none (up to the driver)
  */
 
-static int tty_tiocmget(struct tty_struct *tty, struct file *file, int __user *p)
+static int tty_tiocmget(struct tty_struct *tty, int __user *p)
 {
 	int retval = -EINVAL;
 
 	if (tty->ops->tiocmget) {
-		retval = tty->ops->tiocmget(tty, file);
+		retval = tty->ops->tiocmget(tty);
 
 		if (retval >= 0)
 			retval = put_user(retval, p);
@@ -2483,7 +2482,6 @@ static int tty_tiocmget(struct tty_struct *tty, struct file *file, int __user *p
 /**
  *	tty_tiocmset		-	set modem status
  *	@tty: tty device
- *	@file: user file pointer
  *	@cmd: command - clear bits, set bits or set all
  *	@p: pointer to desired bits
  *
@@ -2493,7 +2491,7 @@ static int tty_tiocmget(struct tty_struct *tty, struct file *file, int __user *p
  *	Locking: none (up to the driver)
  */
 
-static int tty_tiocmset(struct tty_struct *tty, struct file *file, unsigned int cmd,
+static int tty_tiocmset(struct tty_struct *tty, unsigned int cmd,
 	     unsigned __user *p)
 {
 	int retval;
@@ -2520,7 +2518,7 @@ static int tty_tiocmset(struct tty_struct *tty, struct file *file, unsigned int 
 	}
 	set &= TIOCM_DTR|TIOCM_RTS|TIOCM_OUT1|TIOCM_OUT2|TIOCM_LOOP;
 	clear &= TIOCM_DTR|TIOCM_RTS|TIOCM_OUT1|TIOCM_OUT2|TIOCM_LOOP;
-	return tty->ops->tiocmset(tty, file, set, clear);
+	return tty->ops->tiocmset(tty, set, clear);
 }
 
 static int tty_tiocgicount(struct tty_struct *tty, void __user *arg)
@@ -2629,6 +2627,11 @@ long tty_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return put_user(tty->ldisc->ops->num, (int __user *)p);
 	case TIOCSETD:
 		return tiocsetd(tty, p);
+	case TIOCVHANGUP:
+		if (!capable(CAP_SYS_ADMIN))
+			return -EPERM;
+		tty_vhangup(tty);
+		return 0;
 	case TIOCGDEV:
 	{
 		unsigned int ret = new_encode_dev(tty_devnum(real_tty));
@@ -2657,11 +2660,11 @@ long tty_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return send_break(tty, arg ? arg*100 : 250);
 
 	case TIOCMGET:
-		return tty_tiocmget(tty, file, p);
+		return tty_tiocmget(tty, p);
 	case TIOCMSET:
 	case TIOCMBIC:
 	case TIOCMBIS:
-		return tty_tiocmset(tty, file, cmd, p);
+		return tty_tiocmset(tty, cmd, p);
 	case TIOCGICOUNT:
 		retval = tty_tiocgicount(tty, p);
 		/* For the moment allow fall through to the old method */
@@ -2679,7 +2682,7 @@ long tty_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	}
 	if (tty->ops->ioctl) {
-		retval = (tty->ops->ioctl)(tty, file, cmd, arg);
+		retval = (tty->ops->ioctl)(tty, cmd, arg);
 		if (retval != -ENOIOCTLCMD)
 			return retval;
 	}
@@ -2707,7 +2710,7 @@ static long tty_compat_ioctl(struct file *file, unsigned int cmd,
 		return -EINVAL;
 
 	if (tty->ops->compat_ioctl) {
-		retval = (tty->ops->compat_ioctl)(tty, file, cmd, arg);
+		retval = (tty->ops->compat_ioctl)(tty, cmd, arg);
 		if (retval != -ENOIOCTLCMD)
 			return retval;
 	}

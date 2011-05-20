@@ -105,10 +105,8 @@ struct xenbus_driver {
 	void (*otherend_changed)(struct xenbus_device *dev,
 				 enum xenbus_state backend_state);
 	int (*remove)(struct xenbus_device *dev);
-#if !defined(CONFIG_XEN) && !defined(HAVE_XEN_PLATFORM_COMPAT_H)
-	int (*suspend)(struct xenbus_device *dev, pm_message_t state);
-#else
 	int (*suspend)(struct xenbus_device *dev);
+#if defined(CONFIG_XEN) || defined(HAVE_XEN_PLATFORM_COMPAT_H)
 	int (*suspend_cancel)(struct xenbus_device *dev);
 #endif
 	int (*resume)(struct xenbus_device *dev);
@@ -255,7 +253,6 @@ int xenbus_watch_pathfmt(struct xenbus_device *dev, struct xenbus_watch *watch,
  */
 int xenbus_switch_state(struct xenbus_device *dev, enum xenbus_state new_state);
 
-
 /**
  * Grant access to the given ring_mfn to the peer of the given device.  Return
  * 0 on success, or -errno on error.  On error, the device will switch to
@@ -263,34 +260,28 @@ int xenbus_switch_state(struct xenbus_device *dev, enum xenbus_state new_state);
  */
 int xenbus_grant_ring(struct xenbus_device *dev, unsigned long ring_mfn);
 
-
 /**
  * Map a page of memory into this domain from another domain's grant table.
  * xenbus_map_ring_valloc allocates a page of virtual address space, maps the
  * page to that address, and sets *vaddr to that address.
- * xenbus_map_ring does not allocate the virtual address space (you must do
- * this yourself!). It only maps in the page to the specified address.
  * Returns 0 on success, and GNTST_* (see xen/include/interface/grant_table.h)
  * or -ENOMEM on error. If an error is returned, device will switch to
  * XenbusStateClosing and the error message will be saved in XenStore.
  */
 struct vm_struct *xenbus_map_ring_valloc(struct xenbus_device *dev,
-					 int gnt_ref);
-int xenbus_map_ring(struct xenbus_device *dev, int gnt_ref,
+					 grant_ref_t ref);
+int xenbus_map_ring(struct xenbus_device *dev, grant_ref_t gnt_ref,
 			   grant_handle_t *handle, void *vaddr);
 
-
 /**
- * Unmap a page of memory in this domain that was imported from another domain.
- * Use xenbus_unmap_ring_vfree if you mapped in your memory with
- * xenbus_map_ring_valloc (it will free the virtual address space).
+ * Unmap a page of memory in this domain that was imported from another domain
+ * and free the virtual address space.
  * Returns 0 on success and returns GNTST_* on error
  * (see xen/include/interface/grant_table.h).
  */
 int xenbus_unmap_ring_vfree(struct xenbus_device *dev, struct vm_struct *);
 int xenbus_unmap_ring(struct xenbus_device *dev,
 		      grant_handle_t handle, void *vaddr);
-
 
 /**
  * Allocate an event channel for the given xenbus_device, assigning the newly

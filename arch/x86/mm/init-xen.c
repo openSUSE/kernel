@@ -19,9 +19,9 @@
 
 DEFINE_PER_CPU(struct mmu_gather, mmu_gathers);
 
-unsigned long __meminitdata e820_table_start;
-unsigned long __meminitdata e820_table_end;
-unsigned long __meminitdata e820_table_top;
+unsigned long __meminitdata pgt_buf_start;
+unsigned long __meminitdata pgt_buf_end;
+unsigned long __meminitdata pgt_buf_top;
 
 int after_bootmem;
 
@@ -72,21 +72,14 @@ static void __init find_early_table_space(unsigned long end, int use_pse,
 #ifdef CONFIG_X86_32
 	/* for fixmap */
 	tables += roundup(__end_of_fixed_addresses * sizeof(pte_t), PAGE_SIZE);
-#endif
 
-	/*
-	 * RED-PEN putting page tables only on node 0 could
-	 * cause a hotspot and fill up ZONE_DMA. The page tables
-	 * need roughly 0.5KB per GB.
-	 */
-#ifdef CONFIG_X86_32
-	e820_table_start = extend_init_mapping(tables);
-	e820_table_end = e820_table_start;
+	pgt_buf_start = extend_init_mapping(tables);
+	pgt_buf_end = pgt_buf_start;
 #else /* CONFIG_X86_64 */
-	if (!e820_table_top) {
-		e820_table_start = (__pa(xen_start_info->pt_base) >> PAGE_SHIFT) +
+	if (!pgt_buf_top) {
+		pgt_buf_start = (__pa(xen_start_info->pt_base) >> PAGE_SHIFT) +
 			xen_start_info->nr_pt_frames;
-		e820_table_end = e820_table_start;
+		pgt_buf_end = pgt_buf_start;
 	} else {
 		/*
 		 * [table_start, table_top) gets passed to reserve_early(),
@@ -94,16 +87,16 @@ static void __init find_early_table_space(unsigned long end, int use_pse,
 		 * to allocate from there. table_end possibly being below
 		 * table_start is otoh not a problem.
 		 */
-		e820_table_start = e820_table_top;
+		pgt_buf_start = pgt_buf_top;
 	}
 #endif
-	if (e820_table_start == -1UL)
+	if (pgt_buf_start == -1UL)
 		panic("Cannot find space for the kernel page tables");
 
-	e820_table_top = e820_table_start + (tables >> PAGE_SHIFT);
+	pgt_buf_top = pgt_buf_start + (tables >> PAGE_SHIFT);
 
 	printk(KERN_DEBUG "kernel direct mapping tables up to %lx @ %lx-%lx\n",
-		end, e820_table_start << PAGE_SHIFT, e820_table_top << PAGE_SHIFT);
+		end, pgt_buf_start << PAGE_SHIFT, pgt_buf_top << PAGE_SHIFT);
 }
 
 struct map_range {
@@ -303,7 +296,7 @@ unsigned long __init_refok init_memory_mapping(unsigned long start,
 		}
 
 		/* Blow away any spurious initial mappings. */
-		va = __START_KERNEL_map + (e820_table_start << PAGE_SHIFT);
+		va = __START_KERNEL_map + (pgt_buf_start << PAGE_SHIFT);
 
 		addr = page[pgd_index(va)];
 		page = addr_to_page(addr);
@@ -329,23 +322,23 @@ unsigned long __init_refok init_memory_mapping(unsigned long start,
 #endif
 
 #ifdef CONFIG_X86_64
-	BUG_ON(e820_table_end > e820_table_top);
+	BUG_ON(pgt_buf_end > pgt_buf_top);
 	if (!start)
 		xen_finish_init_mapping();
 	else
 #endif
-	if (e820_table_end < e820_table_top)
+	if (pgt_buf_end < pgt_buf_top)
 		/* Disable the 'table_end' allocator. */
-		e820_table_top = e820_table_end;
+		pgt_buf_top = pgt_buf_end;
 
 	__flush_tlb_all();
 
-	if (!after_bootmem && e820_table_top > e820_table_start) {
+	if (!after_bootmem && pgt_buf_top > pgt_buf_start) {
 #ifdef CONFIG_X86_64
 		reserve_pgtable_low();
 #endif
-		memblock_x86_reserve_range(e820_table_start << PAGE_SHIFT,
-			      e820_table_top << PAGE_SHIFT, "PGTABLE");
+		memblock_x86_reserve_range(pgt_buf_start << PAGE_SHIFT,
+				 pgt_buf_top << PAGE_SHIFT, "PGTABLE");
 	}
 
 	if (!after_bootmem)

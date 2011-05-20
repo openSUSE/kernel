@@ -121,6 +121,7 @@ config AIRO_CS
 	select WEXT_SPY
 	select WEXT_PRIV
 	select CRYPTO
+	select CRYPTO_AES
 	---help---
 	  This is the standard Linux driver to support Cisco/Aironet PCMCIA
 	  802.11 wireless cards.  This driver is the same as the Aironet
@@ -273,6 +274,7 @@ source "drivers/net/wireless/b43legacy/Kconfig"
 source "drivers/net/wireless/hostap/Kconfig"
 source "drivers/net/wireless/ipw2x00/Kconfig"
 source "drivers/net/wireless/iwlwifi/Kconfig"
+source "drivers/net/wireless/iwlegacy/Kconfig"
 source "drivers/net/wireless/iwmc3200wifi/Kconfig"
 source "drivers/net/wireless/libertas/Kconfig"
 source "drivers/net/wireless/orinoco/Kconfig"

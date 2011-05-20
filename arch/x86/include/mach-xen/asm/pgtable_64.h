@@ -60,11 +60,6 @@ static inline void xen_set_pte(pte_t *ptep, pte_t pte)
 	*ptep = pte;
 }
 
-static inline void xen_set_pte_atomic(pte_t *ptep, pte_t pte)
-{
-	xen_set_pte(ptep, pte);
-}
-
 static inline void xen_set_pmd(pmd_t *pmdp, pmd_t pmd)
 {
 	xen_l2_entry_update(pmdp, pmd);
@@ -187,7 +182,6 @@ static inline int pgd_large(pgd_t pgd) { return 0; }
 #define __swp_entry_to_pte(x)		((pte_t) { .pte = (x).val })
 
 extern int kern_addr_valid(unsigned long addr);
-extern void cleanup_highmap(void);
 
 #define HAVE_ARCH_UNMAPPED_AREA
 #define HAVE_ARCH_UNMAPPED_AREA_TOPDOWN

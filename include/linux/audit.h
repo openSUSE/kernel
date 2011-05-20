@@ -103,6 +103,8 @@
 #define AUDIT_BPRM_FCAPS	1321	/* Information about fcaps increasing perms */
 #define AUDIT_CAPSET		1322	/* Record showing argument to sys_capset */
 #define AUDIT_MMAP		1323	/* Record showing descriptor and flags in mmap */
+#define AUDIT_NETFILTER_PKT	1324	/* Packets traversing netfilter chains */
+#define AUDIT_NETFILTER_CFG	1325	/* Netfilter chain modifications */
 
 #define AUDIT_AVC		1400	/* SE Linux avc denial or grant */
 #define AUDIT_SELINUX_ERR	1401	/* Internal SE Linux Errors */
@@ -587,9 +589,6 @@ extern void		    audit_log(struct audit_context *ctx, gfp_t gfp_mask,
 				      __attribute__((format(printf,4,5)));
 
 extern struct audit_buffer *audit_log_start(struct audit_context *ctx, gfp_t gfp_mask, int type);
-extern void 		    audit_log_vformat(struct audit_buffer *ab,
-					const char *fmt, va_list args)
-			    __attribute__((format(printf,2,0)));
 extern void		    audit_log_format(struct audit_buffer *ab,
 					     const char *fmt, ...)
 			    __attribute__((format(printf,2,3)));

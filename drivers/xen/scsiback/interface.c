@@ -38,6 +38,7 @@
 #include <xen/evtchn.h>
 #include <linux/kthread.h>
 #include <linux/delay.h>
+#include <linux/vmalloc.h>
 
 
 static struct kmem_cache *scsiback_cachep;
@@ -59,46 +60,10 @@ struct vscsibk_info *vscsibk_info_alloc(domid_t domid)
 	return info;
 }
 
-static int map_frontend_page( struct vscsibk_info *info,
-				unsigned long ring_ref)
+int scsiback_init_sring(struct vscsibk_info *info, grant_ref_t ring_ref,
+			evtchn_port_t evtchn)
 {
-	struct gnttab_map_grant_ref op;
-	int ret;
-
-	gnttab_set_map_op(&op, (unsigned long)info->ring_area->addr,
-				GNTMAP_host_map, ring_ref,
-				info->domid);
-	gnttab_check_GNTST_eagain_do_while(GNTTABOP_map_grant_ref, &op);
-
-	if (op.status != GNTST_okay) {
-		pr_err("scsiback: Grant table operation failure %d!\n",
-		       (int)op.status);
-		ret = -EINVAL;
-	} else {
-		info->shmem_ref    = ring_ref;
-		info->shmem_handle = op.handle;
-		ret = 0;
-	}
-
-	return ret;
-}
-
-static void unmap_frontend_page(struct vscsibk_info *info)
-{
-	struct gnttab_unmap_grant_ref op;
-	int err;
-
-	gnttab_set_unmap_op(&op, (unsigned long)info->ring_area->addr,
-				GNTMAP_host_map, info->shmem_handle);
-
-	err = HYPERVISOR_grant_table_op(GNTTABOP_unmap_grant_ref, &op, 1);
-	BUG_ON(err);
-
-}
-
-int scsiback_init_sring(struct vscsibk_info *info,
-		unsigned long ring_ref, unsigned int evtchn)
-{
+	struct vm_struct *area;
 	struct vscsiif_sring *sring;
 	int err;
 
@@ -107,15 +72,12 @@ int scsiback_init_sring(struct vscsibk_info *info,
 		return -1;
 	}
 
-	info->ring_area = alloc_vm_area(PAGE_SIZE);
-	if (!info)
-		return -ENOMEM;
+	area = xenbus_map_ring_valloc(info->dev, ring_ref);
+	if (IS_ERR(area))
+		return PTR_ERR(area);
+	info->ring_area = area;
 
-	err = map_frontend_page(info, ring_ref);
-	if (err)
-		goto free_vm;
-
-	sring = (struct vscsiif_sring *) info->ring_area->addr;
+	sring = (struct vscsiif_sring *)area->addr;
 	BACK_RING_INIT(&info->ring, sring, PAGE_SIZE);
 
 	err = bind_interdomain_evtchn_to_irqhandler(
@@ -130,9 +92,7 @@ int scsiback_init_sring(struct vscsibk_info *info,
 	return 0;
 
 unmap_page:
-	unmap_frontend_page(info);
-free_vm:
-	free_vm_area(info->ring_area);
+	xenbus_unmap_ring_vfree(info->dev, area);
 
 	return err;
 }
@@ -153,8 +113,7 @@ void scsiback_disconnect(struct vscsibk_info *info)
 	}
 
 	if (info->ring.sring) {
-		unmap_frontend_page(info);
-		free_vm_area(info->ring_area);
+		xenbus_unmap_ring_vfree(info->dev, info->ring_area);
 		info->ring.sring = NULL;
 	}
 }

@@ -188,7 +188,7 @@ static int blktap_remove(struct xenbus_device *dev)
 		if (be->blkif->xenblkd)
 			kthread_stop(be->blkif->xenblkd);
 		signal_tapdisk(be->blkif->dev_num);
-		tap_blkif_free(be->blkif);
+		tap_blkif_free(be->blkif, dev);
 		tap_blkif_kmem_cache_free(be->blkif);
 		be->blkif = NULL;
 	}
@@ -343,7 +343,7 @@ static void blkif_disconnect(blkif_t *blkif)
 	}
 
 	/* idempotent */
-	tap_blkif_free(blkif);
+	tap_blkif_free(blkif, blkif->be->dev);
 }
 
 /**
@@ -495,7 +495,7 @@ static int connect_ring(struct backend_info *be)
 		ring_ref, evtchn, be->blkif->blk_protocol, protocol);
 
 	/* Map the shared frame, irq etc. */
-	err = tap_blkif_map(be->blkif, ring_ref, evtchn);
+	err = tap_blkif_map(be->blkif, dev, ring_ref, evtchn);
 	if (err) {
 		xenbus_dev_fatal(dev, err, "mapping ring-ref %lu port %u",
 				 ring_ref, evtchn);

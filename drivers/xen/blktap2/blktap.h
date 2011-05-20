@@ -28,8 +28,6 @@ extern int blktap_debug_level;
 
 #define BLKTAP2_DEV_DIR "xen/blktap-2/"
 
-#define MAX_BLKTAP_DEVICE            256
-
 #define BLKTAP_CONTROL               1
 #define BLKTAP_RING_FD               2
 #define BLKTAP_RING_VMA              3
@@ -188,7 +186,7 @@ struct blktap {
 	struct blktap_statistics       stats;
 };
 
-extern struct blktap *blktaps[MAX_BLKTAP_DEVICE];
+extern struct blktap *blktaps[];
 
 static inline int
 blktap_active(struct blktap *tap)

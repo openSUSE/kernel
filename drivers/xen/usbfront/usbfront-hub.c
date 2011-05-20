@@ -271,8 +271,8 @@ static void xenhcd_hub_descriptor(struct usbfront_info *info,
 	desc->bDescLength = 7 + 2 * temp;
 
 	/* bitmaps for DeviceRemovable and PortPwrCtrlMask */
-	memset(&desc->bitmap[0], 0, temp);
-	memset(&desc->bitmap[temp], 0xff, temp);
+	memset(&desc->u.hs.DeviceRemovable[0], 0, temp);
+	memset(&desc->u.hs.DeviceRemovable[temp], 0xff, temp);
 
 	/* per-port over current reporting and no power switching */
 	temp = 0x000a;

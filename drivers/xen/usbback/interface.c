@@ -43,8 +43,9 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#include <linux/delay.h>
+#include <linux/vmalloc.h>
 #include "usbback.h"
+#include <xen/evtchn.h>
 
 static LIST_HEAD(usbif_list);
 static DEFINE_SPINLOCK(usbif_list_lock);
@@ -101,85 +102,27 @@ usbif_t *usbif_alloc(domid_t domid, unsigned int handle)
 	return usbif;
 }
 
-static int map_frontend_pages(usbif_t *usbif,
-				grant_ref_t urb_ring_ref,
-				grant_ref_t conn_ring_ref)
-{
-	struct gnttab_map_grant_ref op;
-
-	gnttab_set_map_op(&op, (unsigned long)usbif->urb_ring_area->addr,
-			  GNTMAP_host_map, urb_ring_ref, usbif->domid);
-
-	gnttab_check_GNTST_eagain_do_while(GNTTABOP_map_grant_ref, &op);
-
-	if (op.status != GNTST_okay) {
-		pr_err("grant table failure mapping urb_ring_ref %d\n",
-		       (int)op.status);
-		return -EINVAL;
-	}
-
-	usbif->urb_shmem_ref = urb_ring_ref;
-	usbif->urb_shmem_handle = op.handle;
-
-	gnttab_set_map_op(&op, (unsigned long)usbif->conn_ring_area->addr,
-			  GNTMAP_host_map, conn_ring_ref, usbif->domid);
-
-	gnttab_check_GNTST_eagain_do_while(GNTTABOP_map_grant_ref, &op);
-
-	if (op.status != GNTST_okay) {
-		struct gnttab_unmap_grant_ref unop;
-		gnttab_set_unmap_op(&unop,
-				(unsigned long) usbif->urb_ring_area->addr,
-				GNTMAP_host_map, usbif->urb_shmem_handle);
-		VOID(HYPERVISOR_grant_table_op(GNTTABOP_unmap_grant_ref, &unop,
-				1));
-		pr_err("grant table failure mapping conn_ring_ref %d\n",
-		       (int)op.status);
-		return -EINVAL;
-	}
-
-	usbif->conn_shmem_ref = conn_ring_ref;
-	usbif->conn_shmem_handle = op.handle;
-
-	return 0;
-}
-
-static void unmap_frontend_pages(usbif_t *usbif)
-{
-	struct gnttab_unmap_grant_ref op;
-
-	gnttab_set_unmap_op(&op, (unsigned long)usbif->urb_ring_area->addr,
-			    GNTMAP_host_map, usbif->urb_shmem_handle);
-
-	if (HYPERVISOR_grant_table_op(GNTTABOP_unmap_grant_ref, &op, 1))
-		BUG();
-
-	gnttab_set_unmap_op(&op, (unsigned long)usbif->conn_ring_area->addr,
-			    GNTMAP_host_map, usbif->conn_shmem_handle);
-
-	if (HYPERVISOR_grant_table_op(GNTTABOP_unmap_grant_ref, &op, 1))
-		BUG();
-}
-
-int usbif_map(usbif_t *usbif, unsigned long urb_ring_ref,
-		unsigned long conn_ring_ref, unsigned int evtchn)
+int usbif_map(usbif_t *usbif, grant_ref_t urb_ring_ref,
+	      grant_ref_t conn_ring_ref, evtchn_port_t evtchn)
 {
 	int err = -ENOMEM;
-
+	struct vm_struct *area;
 	usbif_urb_sring_t *urb_sring;
 	usbif_conn_sring_t *conn_sring;
 
 	if (usbif->irq)
 		return 0;
 
-	if ((usbif->urb_ring_area = alloc_vm_area(PAGE_SIZE)) == NULL)
-		return err;
-	if ((usbif->conn_ring_area = alloc_vm_area(PAGE_SIZE)) == NULL)
+	area = xenbus_map_ring_valloc(usbif->xbdev, urb_ring_ref);
+	if (IS_ERR(area))
+		return PTR_ERR(area);
+	usbif->urb_ring_area = area;
+	area = xenbus_map_ring_valloc(usbif->xbdev, conn_ring_ref);
+	if (IS_ERR(area)) {
+		err = PTR_ERR(area);
 		goto fail_alloc;
-
-	err = map_frontend_pages(usbif, urb_ring_ref, conn_ring_ref);
-	if (err)
-		goto fail_map;
+	}
+	usbif->conn_ring_area = area;
 
 	err = bind_interdomain_evtchn_to_irqhandler(
 			usbif->domid, evtchn, usbbk_be_int, 0,
@@ -197,11 +140,9 @@ int usbif_map(usbif_t *usbif, unsigned long urb_ring_ref,
 	return 0;
 
 fail_evtchn:
-	unmap_frontend_pages(usbif);
-fail_map:
-	free_vm_area(usbif->conn_ring_area);
+	xenbus_unmap_ring_vfree(usbif->xbdev, usbif->conn_ring_area);
 fail_alloc:
-	free_vm_area(usbif->urb_ring_area);
+	xenbus_unmap_ring_vfree(usbif->xbdev, usbif->urb_ring_area);
 
 	return err;
 }
@@ -231,9 +172,8 @@ void usbif_disconnect(usbif_t *usbif)
 	}
 
 	if (usbif->urb_ring.sring) {
-		unmap_frontend_pages(usbif);
-		free_vm_area(usbif->urb_ring_area);
-		free_vm_area(usbif->conn_ring_area);
+		xenbus_unmap_ring_vfree(usbif->xbdev, usbif->urb_ring_area);
+		xenbus_unmap_ring_vfree(usbif->xbdev, usbif->conn_ring_area);
 		usbif->urb_ring.sring = NULL;
 		usbif->conn_ring.sring = NULL;
 	}

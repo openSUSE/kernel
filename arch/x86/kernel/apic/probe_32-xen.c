@@ -43,7 +43,6 @@ static struct apic apic_xen = {
 	.target_cpus			= default_target_cpus,
 
 	.phys_pkg_id			= xen_phys_pkg_id,
-	.mps_oem_check			= NULL,
 
 #ifdef CONFIG_SMP
 	.send_IPI_mask			= xen_send_IPI_mask,

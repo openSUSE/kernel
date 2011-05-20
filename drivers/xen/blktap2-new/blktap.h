@@ -27,8 +27,6 @@ extern int blktap_device_major;
 
 #define BLKTAP2_DEV_DIR "xen/blktap-2/"
 
-#define MAX_BLKTAP_DEVICE            1024
-
 #define BLKTAP_DEVICE                4
 #define BLKTAP_DEVICE_CLOSED         5
 #define BLKTAP_SHUTDOWN_REQUESTED    8

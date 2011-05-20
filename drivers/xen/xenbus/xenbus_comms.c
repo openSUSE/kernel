@@ -52,12 +52,12 @@
 
 static int xenbus_irq;
 
-static DECLARE_WORK(probe_work, xenbus_probe);
-
 static DECLARE_WAIT_QUEUE_HEAD(xb_waitq);
 
 static irqreturn_t wake_waiting(int irq, void *unused)
 {
+#ifdef CONFIG_XEN_PRIVILEGED_GUEST
+	static DECLARE_WORK(probe_work, xenbus_probe);
 	int old, new;
 
 	old = atomic_read(&xenbus_xsd_state);
@@ -85,6 +85,7 @@ static irqreturn_t wake_waiting(int irq, void *unused)
 		schedule_work(&probe_work);
 
 wake:
+#endif
 	wake_up(&xb_waitq);
 	return IRQ_HANDLED;
 }
@@ -245,7 +246,9 @@ int xb_init_comms(void)
 		pr_warning("XENBUS response ring is not quiescent"
 			   " (%08x:%08x): fixing up\n",
 			   intf->rsp_cons, intf->rsp_prod);
-		intf->rsp_cons = intf->rsp_prod;
+		/* breaks kdump */
+		if (!reset_devices)
+			intf->rsp_cons = intf->rsp_prod;
 	}
 
 #if defined(CONFIG_XEN) || defined(MODULE)

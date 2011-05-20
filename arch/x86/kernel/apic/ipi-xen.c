@@ -4,6 +4,7 @@
 #include <asm/smp.h>
 #include <asm/ipi.h>
 
+#ifdef CONFIG_SMP
 #include <xen/evtchn.h>
 
 void xen_send_IPI_mask_allbutself(const struct cpumask *cpumask, int vector)
@@ -39,3 +40,4 @@ void xen_send_IPI_self(int vector)
 {
 	notify_remote_via_ipi(vector, smp_processor_id());
 }
+#endif

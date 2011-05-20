@@ -44,9 +44,11 @@
 #include <xen/interface/vcpu.h>
 #include <linux/module.h>
 #include <linux/percpu.h>
-#include <linux/highmem.h>
 #include <asm/tlbflush.h>
 #include <linux/highmem.h>
+#ifdef CONFIG_X86_32
+#include <linux/bootmem.h> /* for max_pfn */
+#endif
 
 EXPORT_SYMBOL(hypercall_page);
 
@@ -916,9 +918,9 @@ void xen_destroy_contiguous_region(unsigned long vstart, unsigned int order)
 			unsigned int j = 0;
 
 			if (!page) {
-				pr_warning("Xen and kernel out of memory"
-					   " while trying to release an order"
-					   " %u contiguous region\n", order);
+				pr_warn("Xen and kernel out of memory"
+					" while trying to release an order"
+					" %u contiguous region\n", order);
 				break;
 			}
 			pfn = page_to_pfn(page);
@@ -1208,6 +1210,21 @@ int xen_limit_pages_to_max_mfn(
 	return 0;
 }
 EXPORT_SYMBOL_GPL(xen_limit_pages_to_max_mfn);
+
+bool hypervisor_oom(void)
+{
+	WARN_ONCE(1, "Hypervisor is out of memory");
+	return false;//temp
+}
+
+int walk_system_ram_range(unsigned long start_pfn, unsigned long nr_pages,
+			  void *arg, int (*func)(unsigned long, unsigned long,
+						 void *))
+{
+	return start_pfn < max_pfn && nr_pages
+	       ? func(start_pfn, min(max_pfn - start_pfn, nr_pages), arg)
+	       : -1;
+}
 
 int write_ldt_entry(struct desc_struct *ldt, int entry, const void *desc)
 {

@@ -63,9 +63,9 @@ void __cpuinit xen_spinlock_cleanup(unsigned int cpu)
 }
 
 #ifdef CONFIG_PM_SLEEP
-#include <linux/sysdev.h>
+#include <linux/syscore_ops.h>
 
-static int __cpuinit spinlock_resume(struct sys_device *dev)
+static void __cpuinit spinlock_resume(void)
 {
 	unsigned int cpu;
 
@@ -73,31 +73,17 @@ static int __cpuinit spinlock_resume(struct sys_device *dev)
 		per_cpu(poll_evtchn, cpu) = 0;
 		xen_spinlock_init(cpu);
 	}
-
-	return 0;
 }
 
-static struct sysdev_class __cpuinitdata spinlock_sysclass = {
-	.name	= "spinlock",
+static struct syscore_ops __cpuinitdata spinlock_syscore_ops = {
 	.resume	= spinlock_resume
-};
-
-static struct sys_device __cpuinitdata device_spinlock = {
-	.id	= 0,
-	.cls	= &spinlock_sysclass
 };
 
 static int __init spinlock_register(void)
 {
-	int rc;
-
-	if (is_initial_xendomain())
-		return 0;
-
-	rc = sysdev_class_register(&spinlock_sysclass);
-	if (!rc)
-		rc = sysdev_register(&device_spinlock);
-	return rc;
+	if (!is_initial_xendomain())
+		register_syscore_ops(&spinlock_syscore_ops);
+	return 0;
 }
 core_initcall(spinlock_register);
 #endif

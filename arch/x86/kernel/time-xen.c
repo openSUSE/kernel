@@ -169,7 +169,7 @@ static u64 get_nsec_offset(struct shadow_time_info *shadow)
 	return scale_delta(delta, shadow->tsc_to_nsec_mul, shadow->tsc_shift);
 }
 
-static inline u64 processed_system_time(void)
+static inline u64 processed_system_time(u64 jiffies_64)
 {
 	return (jiffies_64 - jiffies_bias) * NS_PER_TICK + system_time_bias;
 }
@@ -190,7 +190,7 @@ static void update_wallclock(void)
 	} while ((s->wc_version & 1) | (shadow_tv_version ^ s->wc_version));
 
 	if (!independent_wallclock) {
-		u64 tmp = processed_system_time();
+		u64 tmp = processed_system_time(get_jiffies_64());
 		long nsec = do_div(tmp, NSEC_PER_SEC);
 		struct timespec tv;
 
@@ -257,25 +257,20 @@ static void sync_xen_wallclock(unsigned long dummy);
 static DEFINE_TIMER(sync_xen_wallclock_timer, sync_xen_wallclock, 0, 0);
 static void sync_xen_wallclock(unsigned long dummy)
 {
-	struct timespec now;
-	unsigned long seq;
+	struct timespec now, ignore;
 	struct xen_platform_op op;
 
 	BUG_ON(!is_initial_xendomain());
 	if (!ntp_synced() || independent_wallclock)
 		return;
 
-	do {
-		seq = read_seqbegin(&xtime_lock);
-		now = __current_kernel_time();
-	} while (read_seqretry(&xtime_lock, seq));
-
+	get_xtime_and_monotonic_and_sleep_offset(&now, &ignore, &ignore);
 	set_normalized_timespec(&now, now.tv_sec, now.tv_nsec);
 
 	op.cmd = XENPF_settime;
 	op.u.settime.secs        = now.tv_sec;
 	op.u.settime.nsecs       = now.tv_nsec;
-	op.u.settime.system_time = processed_system_time();
+	op.u.settime.system_time = processed_system_time(get_jiffies_64());
 	WARN_ON(HYPERVISOR_platform_op(&op));
 
 	update_wallclock();
@@ -434,7 +429,6 @@ static cycle_t xen_clocksource_read(struct clocksource *cs)
 /* No locking required. Interrupts are disabled on all CPUs. */
 static void xen_clocksource_resume(struct clocksource *cs)
 {
-	unsigned long seq;
 	unsigned int cpu;
 
 	init_cpu_khz();
@@ -442,10 +436,7 @@ static void xen_clocksource_resume(struct clocksource *cs)
 	for_each_online_cpu(cpu)
 		get_time_values_from_xen(cpu);
 
-	do {
-		seq = read_seqbegin(&xtime_lock);
-		jiffies_bias = jiffies_64;
-	} while (read_seqretry(&xtime_lock, seq));
+	jiffies_bias = get_jiffies_64();
 	system_time_bias = per_cpu(shadow_time, 0).system_timestamp;
 
 	cs_last = xen_local_clock();
@@ -540,27 +531,20 @@ void __init time_init(void)
 /* Convert jiffies to system time. */
 u64 jiffies_to_st(unsigned long j)
 {
-	unsigned long seq;
-	long delta;
-	u64 st;
+	u64 j64 = get_jiffies_64();
+	long delta = j - (unsigned long)j64;
 
-	do {
-		seq = read_seqbegin(&xtime_lock);
-		delta = j - jiffies;
-		if (delta < 1) {
-			/* Triggers in some wrap-around cases, but that's okay:
-			 * we just end up with a shorter timeout. */
-			st = processed_system_time() + NS_PER_TICK;
-		} else if (((unsigned long)delta >> (BITS_PER_LONG-3)) != 0) {
-			/* Very long timeout means there is no pending timer.
-			 * We indicate this to Xen by passing zero timeout. */
-			st = 0;
-		} else {
-			st = processed_system_time() + delta * (u64)NS_PER_TICK;
-		}
-	} while (read_seqretry(&xtime_lock, seq));
+	if (delta < 1)
+		/* Triggers in some wrap-around cases, but that's okay:
+		 * we just end up with a shorter timeout. */
+		return processed_system_time(j64) + NS_PER_TICK;
 
-	return st;
+	if (((unsigned long)delta >> (BITS_PER_LONG-3)) != 0)
+		/* Very long timeout means there is no pending timer.
+		 * We indicate this to Xen by passing zero timeout. */
+		return 0;
+
+	return processed_system_time(j64) + delta * (u64)NS_PER_TICK;
 }
 EXPORT_SYMBOL(jiffies_to_st);
 

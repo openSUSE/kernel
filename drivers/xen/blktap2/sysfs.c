@@ -409,7 +409,7 @@ blktap_sysfs_show_devices(struct class *class, struct class_attribute *attr,
 	struct blktap *tap;
 
 	ret = 0;
-	for (i = 0; i < MAX_BLKTAP_DEVICE; i++) {
+	for (i = 0; i < CONFIG_XEN_NR_TAP2_DEVICES; i++) {
 		tap = blktaps[i];
 		if (!tap)
 			continue;

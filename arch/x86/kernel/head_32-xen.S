@@ -91,7 +91,7 @@ ENTRY(startup_32)
 	movl $__HYPERVISOR_update_va_mapping, %eax
 	int $0x82
 
-	movl $(PAGE_SIZE_asm / 8), %ecx
+	movl $(PAGE_SIZE / 8), %ecx
 	movl %esp, %ebx
 	movl $__HYPERVISOR_set_gdt, %eax
 	int $0x82
@@ -120,7 +120,7 @@ ENTRY(hypercall_page)
  * BSS section
  */
 __PAGE_ALIGNED_BSS
-	.align PAGE_SIZE_asm
+	.align PAGE_SIZE
 ENTRY(swapper_pg_fixmap)
 	.fill 1024,4,0
 ENTRY(empty_zero_page)

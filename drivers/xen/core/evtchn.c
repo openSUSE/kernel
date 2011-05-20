@@ -33,7 +33,6 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/irq.h>
-#include <linux/irqdesc.h>
 #include <linux/interrupt.h>
 #include <linux/sched.h>
 #include <linux/kernel_stat.h>
@@ -48,6 +47,7 @@
 #include <xen/interface/physdev.h>
 #include <asm/hypervisor.h>
 #include <linux/mc146818rtc.h> /* RTC_IRQ */
+#include "../../../kernel/irq/internals.h" /* IRQS_AUTODETECT, IRQS_PENDING */
 
 /*
  * This lock protects updates to the following mapping and reference-count
@@ -121,7 +121,7 @@ static struct irq_cfg _irq_cfg[] = {
 static inline struct irq_cfg *__pure irq_cfg(unsigned int irq)
 {
 #ifdef CONFIG_SPARSE_IRQ
-	return get_irq_chip_data(irq);
+	return irq_get_chip_data(irq);
 #else
 	return irq < NR_IRQS ? _irq_cfg + irq : NULL;
 #endif
@@ -266,12 +266,12 @@ static void bind_evtchn_to_cpu(unsigned int chn, unsigned int cpu)
 	BUG_ON(!test_bit(chn, s->evtchn_mask));
 
 	if (irq != -1) {
-		struct irq_desc *desc = irq_to_desc(irq);
+		struct irq_data *data = irq_get_irq_data(irq);
 
-		if (!(desc->status & IRQ_PER_CPU))
-			cpumask_copy(desc->irq_data.affinity, cpumask_of(cpu));
+		if (!irqd_is_per_cpu(data))
+			cpumask_copy(data->affinity, cpumask_of(cpu));
 		else
-			cpumask_set_cpu(cpu, desc->irq_data.affinity);
+			cpumask_set_cpu(cpu, data->affinity);
 	}
 
 	clear_bit(chn, per_cpu(cpu_evtchn_mask, cpu_evtchn[chn]));
@@ -510,12 +510,12 @@ static int find_unbound_irq(unsigned int node, struct irq_cfg **pcfg,
 
 	for (irq = DYNIRQ_BASE; irq < nr_irqs; irq++) {
 		struct irq_cfg *cfg = alloc_irq_and_cfg_at(irq, node);
-		struct irq_desc *desc = irq_to_desc(irq);
+		struct irq_data *data = irq_get_irq_data(irq);
 
 		if (unlikely(!cfg))
 			return -ENOMEM;
-		if (desc->irq_data.chip != &no_irq_chip &&
-		    desc->irq_data.chip != chip)
+		if (data->chip != &no_irq_chip &&
+		    data->chip != chip)
 			continue;
 
 		if (!cfg->bindcount) {
@@ -523,7 +523,7 @@ static int find_unbound_irq(unsigned int node, struct irq_cfg **pcfg,
 			const char *name;
 
 			*pcfg = cfg;
-			desc->status |= IRQ_NOPROBE;
+			irq_set_noprobe(irq);
 			if (!percpu) {
 				handle = handle_fasteoi_irq;
 				name = "fasteoi";
@@ -531,7 +531,7 @@ static int find_unbound_irq(unsigned int node, struct irq_cfg **pcfg,
 				handle = handle_percpu_irq;
 				name = "percpu";
 			}
-			set_irq_chip_and_handler_name(irq, chip,
+			irq_set_chip_and_handler_name(irq, chip,
 						      handle, name);
 			return irq;
 		}
@@ -709,7 +709,6 @@ static int bind_ipi_to_irq(unsigned int ipi, unsigned int cpu)
 
 static void unbind_from_irq(unsigned int irq)
 {
-	unsigned int cpu;
 	struct irq_cfg *cfg = irq_cfg(irq);
 	int evtchn = evtchn_from_irq_cfg(cfg);
 
@@ -728,9 +727,13 @@ static void unbind_from_irq(unsigned int irq)
 			per_cpu(virq_to_irq, cpu_from_evtchn(evtchn))
 				[index_from_irq_cfg(cfg)] = -1;
 #ifndef PER_CPU_VIRQ_IRQ
-			for_each_possible_cpu(cpu)
-				per_cpu(virq_to_evtchn, cpu)
-					[index_from_irq_cfg(cfg)] = 0;
+			{
+				unsigned int cpu;
+
+				for_each_possible_cpu(cpu)
+					per_cpu(virq_to_evtchn, cpu)
+						[index_from_irq_cfg(cfg)] = 0;
+			}
 #endif
 			break;
 #if defined(CONFIG_SMP) && defined(PER_CPU_IPI_IRQ)
@@ -749,17 +752,7 @@ static void unbind_from_irq(unsigned int irq)
 		evtchn_to_irq[evtchn] = -1;
 		cfg->info = IRQ_UNBOUND;
 
-		/* Zap stats across IRQ changes of use. */
-		for_each_possible_cpu(cpu) {
-#ifdef CONFIG_GENERIC_HARDIRQS
-			struct irq_desc *desc = irq_to_desc(irq);
-
-			if (desc->kstat_irqs)
-				*per_cpu_ptr(desc->kstat_irqs, cpu) = 0;
-#else
-			kstat_cpu(cpu).irqs[irq] = 0;
-#endif
-		}
+		dynamic_irq_cleanup(irq);
 	}
 
 	spin_unlock(&irq_mapping_update_lock);
@@ -1249,8 +1242,8 @@ static unsigned int startup_dynirq(struct irq_data *data)
 
 static void end_dynirq(struct irq_data *data)
 {
-	if (!(irq_to_desc(data->irq)->status & IRQ_DISABLED)) {
-		move_masked_irq(data->irq);
+	if (!irqd_irq_disabled(data)) {
+		irq_move_masked_irq(data);
 		unmask_dynirq(data);
 	}
 }
@@ -1346,7 +1339,7 @@ static void enable_pirq(struct irq_data *data)
 	/* NB. We are happy to share unless we are probing. */
 	bind_pirq.flags = (pirq < nr_pirqs
 			   && test_and_clear_bit(pirq, probing_pirq))
-			  || (irq_to_desc(irq)->status & IRQ_AUTODETECT)
+			  || (irq_to_desc(irq)->istate & IRQS_AUTODETECT)
 			  ? 0 : BIND_PIRQ__WILL_SHARE;
 	if (HYPERVISOR_event_channel_op(EVTCHNOP_bind_pirq, &bind_pirq) != 0) {
 		if (bind_pirq.flags)
@@ -1403,14 +1396,13 @@ static void unmask_pirq(struct irq_data *data)
 
 static void end_pirq(struct irq_data *data)
 {
-	const struct irq_desc *desc = irq_to_desc(data->irq);
+	bool disabled = irqd_irq_disabled(data);
 
-	if ((desc->status & (IRQ_DISABLED|IRQ_PENDING)) ==
-	    (IRQ_DISABLED|IRQ_PENDING))
+	if (disabled && (irq_to_desc(data->irq)->istate & IRQS_PENDING))
 		shutdown_pirq(data);
 	else {
-		if (!(desc->status & IRQ_DISABLED))
-			move_masked_irq(data->irq);
+		if (!disabled)
+			irq_move_masked_irq(data);
 		unmask_pirq(data);
 	}
 }
@@ -1454,8 +1446,8 @@ void notify_remote_via_ipi(unsigned int ipi, unsigned int cpu)
 		int rc = HYPERVISOR_vcpu_op(VCPUOP_send_nmi, cpu, NULL);
 
 		if (rc && !printed)
-			pr_warning("Unable (%d) to send NMI to CPU#%u\n",
-				   printed = rc, cpu);
+			pr_warn("Unable (%d) to send NMI to CPU#%u\n",
+				printed = rc, cpu);
 		return;
 	}
 #endif
@@ -1577,7 +1569,7 @@ int xen_test_irq_pending(int irq)
 }
 
 #ifdef CONFIG_PM_SLEEP
-#include <linux/sysdev.h>
+#include <linux/syscore_ops.h>
 
 static void restore_cpu_virqs(unsigned int cpu)
 {
@@ -1631,6 +1623,7 @@ static void restore_cpu_ipis(unsigned int cpu)
 {
 #ifdef CONFIG_SMP
 	struct evtchn_bind_ipi bind_ipi;
+	struct irq_data *data;
 	int evtchn;
 #ifdef PER_CPU_IPI_IRQ
 	int ipi, irq;
@@ -1646,7 +1639,8 @@ static void restore_cpu_ipis(unsigned int cpu)
 			return;
 #endif
 
-		BUG_ON(irq_cfg(irq)->info != mk_irq_info(IRQT_IPI, ipi, 0));
+		data = irq_get_irq_data(irq);
+		BUG_ON(irq_data_cfg(data)->info != mk_irq_info(IRQT_IPI, ipi, 0));
 
 		/* Get a new binding from Xen. */
 		bind_ipi.vcpu = cpu;
@@ -1658,14 +1652,14 @@ static void restore_cpu_ipis(unsigned int cpu)
 		/* Record the new mapping. */
 		evtchn_to_irq[evtchn] = irq;
 #ifdef PER_CPU_IPI_IRQ
-		irq_cfg(irq)->info = mk_irq_info(IRQT_IPI, ipi, evtchn);
+		irq_data_cfg(data)->info = mk_irq_info(IRQT_IPI, ipi, evtchn);
 #else
 		per_cpu(ipi_evtchn, cpu) = evtchn;
 #endif
 		bind_evtchn_to_cpu(evtchn, cpu);
 
 		/* Ready for use. */
-		if (!(irq_to_desc(irq)->status & IRQ_DISABLED))
+		if (!irqd_irq_disabled(data))
 			unmask_evtchn(evtchn);
 #ifdef PER_CPU_IPI_IRQ
 	}
@@ -1676,7 +1670,7 @@ static void restore_cpu_ipis(unsigned int cpu)
 #endif /* CONFIG_SMP */
 }
 
-static int evtchn_resume(struct sys_device *dev)
+static void evtchn_resume(void)
 {
 	unsigned int cpu, irq, evtchn;
 	struct evtchn_status status;
@@ -1693,7 +1687,7 @@ static int evtchn_resume(struct sys_device *dev)
 	if (status.status == EVTCHNSTAT_virq
 	    && status.vcpu == smp_processor_id()
 	    && status.u.virq == VIRQ_TIMER)
-		return 0;
+		return;
 
 	init_evtchn_cpu_bindings();
 
@@ -1733,31 +1727,17 @@ static int evtchn_resume(struct sys_device *dev)
 		restore_cpu_virqs(cpu);
 		restore_cpu_ipis(cpu);
 	}
-
-	return 0;
 }
 
-static struct sysdev_class evtchn_sysclass = {
-	.name	= "evtchn",
+static struct syscore_ops evtchn_syscore_ops = {
 	.resume	= evtchn_resume,
-};
-
-static struct sys_device device_evtchn = {
-	.id	= 0,
-	.cls	= &evtchn_sysclass,
 };
 
 static int __init evtchn_register(void)
 {
-	int err;
-
-	if (is_initial_xendomain())
-		return 0;
-
-	err = sysdev_class_register(&evtchn_sysclass);
-	if (!err)
-		err = sysdev_register(&device_evtchn);
-	return err;
+	if (!is_initial_xendomain())
+		register_syscore_ops(&evtchn_syscore_ops);
+	return 0;
 }
 core_initcall(evtchn_register);
 #endif
@@ -1767,7 +1747,7 @@ int __init arch_early_irq_init(void)
 	unsigned int i;
 
 	for (i = 0; i < ARRAY_SIZE(_irq_cfg); i++)
-		set_irq_chip_data(i, _irq_cfg + i);
+		irq_set_chip_data(i, _irq_cfg + i);
 
 	return 0;
 }
@@ -1780,7 +1760,7 @@ struct irq_cfg *alloc_irq_and_cfg_at(unsigned int at, int node)
 	if (res < 0) {
 		if (res != -EEXIST)
 			return NULL;
-		cfg = get_irq_chip_data(at);
+		cfg = irq_get_chip_data(at);
 		if (cfg)
 			return cfg;
 	}
@@ -1791,7 +1771,7 @@ struct irq_cfg *alloc_irq_and_cfg_at(unsigned int at, int node)
 
 	cfg = kzalloc(sizeof(*cfg), GFP_KERNEL);
 	if (cfg)
-		set_irq_chip_data(at, cfg);
+		irq_set_chip_data(at, cfg);
 	else
 		irq_free_desc(at);
 
@@ -1870,7 +1850,7 @@ void evtchn_register_pirq(int irq)
 	if (identity_mapped_irq(irq) || type_from_irq_cfg(cfg) != IRQT_UNBOUND)
 		return;
 	cfg->info = mk_irq_info(IRQT_PIRQ, irq, 0);
-	set_irq_chip_and_handler_name(irq, &pirq_chip, handle_fasteoi_irq,
+	irq_set_chip_and_handler_name(irq, &pirq_chip, handle_fasteoi_irq,
 				      "fasteoi");
 }
 
@@ -1920,7 +1900,7 @@ int evtchn_map_pirq(int irq, int xen_pirq)
 		spin_unlock(&irq_alloc_lock);
 		if (irq < PIRQ_BASE)
 			return -ENOSPC;
-		set_irq_chip_and_handler_name(irq, &pirq_chip,
+		irq_set_chip_and_handler_name(irq, &pirq_chip,
 					      handle_fasteoi_irq, "fasteoi");
 #endif
 	} else if (!xen_pirq) {
@@ -1934,7 +1914,7 @@ int evtchn_map_pirq(int irq, int xen_pirq)
 		 * when a driver didn't free_irq() its MSI(-X) IRQ(s), which
 		 * then causes a warning in dynamic_irq_cleanup().
 		 */
-		set_irq_chip_and_handler(irq, NULL, NULL);
+		irq_set_chip_and_handler(irq, NULL, NULL);
 		cfg->info = IRQ_UNBOUND;
 #ifdef CONFIG_SPARSE_IRQ
 		cfg->bindcount--;
@@ -1995,8 +1975,8 @@ void __init xen_init_IRQ(void)
 
 #ifndef CONFIG_SPARSE_IRQ
 	for (i = DYNIRQ_BASE; i < (DYNIRQ_BASE + NR_DYNIRQS); i++) {
-		irq_to_desc(i)->status |= IRQ_NOPROBE;
-		set_irq_chip_and_handler_name(i, &dynirq_chip,
+		irq_set_noprobe(i);
+		irq_set_chip_and_handler_name(i, &dynirq_chip,
 					      handle_fasteoi_irq, "fasteoi");
 	}
 
@@ -2013,7 +1993,7 @@ void __init xen_init_IRQ(void)
 			continue;
 #endif
 
-		set_irq_chip_and_handler_name(i, &pirq_chip,
+		irq_set_chip_and_handler_name(i, &pirq_chip,
 					      handle_fasteoi_irq, "fasteoi");
 	}
 }

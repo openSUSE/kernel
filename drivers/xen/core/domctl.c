@@ -239,8 +239,8 @@ int xen_guest_address_size(int domid)
 #endif
 
 	ret = BITS_PER_LONG;
-	pr_warning("v%d...%d domctls failed, assuming dom%d is native: %d\n",
-		   low, XEN_DOMCTL_INTERFACE_VERSION, domid, ret);
+	pr_warn("v%d...%d domctls failed, assuming dom%d is native: %d\n",
+		low, XEN_DOMCTL_INTERFACE_VERSION, domid, ret);
 
 	return ret;
 }

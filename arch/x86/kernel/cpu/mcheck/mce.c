@@ -21,6 +21,7 @@
 #include <linux/percpu.h>
 #include <linux/string.h>
 #include <linux/sysdev.h>
+#include <linux/syscore_ops.h>
 #include <linux/delay.h>
 #include <linux/ctype.h>
 #include <linux/sched.h>
@@ -885,7 +886,7 @@ reset:
  * Check if the address reported by the CPU is in a format we can parse.
  * It would be possible to add code for most other cases, but all would
  * be somewhat complicated (e.g. segment offset would require an instruction
- * parser). So only support physical addresses upto page granuality for now.
+ * parser). So only support physical addresses up to page granuality for now.
  */
 static int mce_usable_address(struct mce *m)
 {
@@ -1640,7 +1641,7 @@ out:
 static unsigned int mce_poll(struct file *file, poll_table *wait)
 {
 	poll_wait(file, &mce_wait, wait);
-	if (rcu_dereference_check_mce(mcelog.next))
+	if (rcu_access_index(mcelog.next))
 		return POLLIN | POLLRDNORM;
 	if (!mce_apei_read_done && apei_check_mce())
 		return POLLIN | POLLRDNORM;
@@ -1764,14 +1765,14 @@ static int mce_disable_error_reporting(void)
 	return 0;
 }
 
-static int mce_suspend(struct sys_device *dev, pm_message_t state)
+static int mce_suspend(void)
 {
 	return mce_disable_error_reporting();
 }
 
-static int mce_shutdown(struct sys_device *dev)
+static void mce_shutdown(void)
 {
-	return mce_disable_error_reporting();
+	mce_disable_error_reporting();
 }
 
 /*
@@ -1779,13 +1780,17 @@ static int mce_shutdown(struct sys_device *dev)
  * Only one CPU is active at this time, the others get re-added later using
  * CPU hotplug:
  */
-static int mce_resume(struct sys_device *dev)
+static void mce_resume(void)
 {
 	__mcheck_cpu_init_generic();
 	__mcheck_cpu_init_vendor(__this_cpu_ptr(&cpu_info));
-
-	return 0;
 }
+
+static struct syscore_ops mce_syscore_ops = {
+	.suspend	= mce_suspend,
+	.shutdown	= mce_shutdown,
+	.resume		= mce_resume,
+};
 
 static void mce_cpu_restart(void *data)
 {
@@ -1823,9 +1828,6 @@ static void mce_enable_ce(void *all)
 }
 
 static struct sysdev_class mce_sysclass = {
-	.suspend	= mce_suspend,
-	.shutdown	= mce_shutdown,
-	.resume		= mce_resume,
 	.name		= "machinecheck",
 };
 
@@ -2154,6 +2156,7 @@ static __init int mcheck_init_device(void)
 			return err;
 	}
 
+	register_syscore_ops(&mce_syscore_ops);
 	register_hotcpu_notifier(&mce_cpu_notifier);
 	misc_register(&mce_log_device);
 

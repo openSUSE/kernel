@@ -28,7 +28,7 @@ const struct processor_extcntl_ops *processor_extcntl_ops;
 EXPORT_SYMBOL(processor_extcntl_ops);
 #endif
 
-static int set_no_mwait(const struct dmi_system_id *id)
+static int __init set_no_mwait(const struct dmi_system_id *id)
 {
 	printk(KERN_NOTICE PREFIX "%s detected - "
 		"disabling mwait for CPU C-states\n", id->ident);
@@ -36,7 +36,7 @@ static int set_no_mwait(const struct dmi_system_id *id)
 	return 0;
 }
 
-static struct dmi_system_id __cpuinitdata processor_idle_dmi_table[] = {
+static struct dmi_system_id __initdata processor_idle_dmi_table[] = {
 	{
 	set_no_mwait, "Extensa 5220", {
 	DMI_MATCH(DMI_BIOS_VENDOR, "Phoenix Technologies LTD"),
@@ -209,7 +209,7 @@ int acpi_get_cpuid(acpi_handle handle, int type, u32 acpi_id)
 EXPORT_SYMBOL_GPL(acpi_get_cpuid);
 #endif
 
-static bool processor_physically_present(acpi_handle handle)
+static bool __init processor_physically_present(acpi_handle handle)
 {
 	int cpuid, type;
 	u32 acpi_id;
@@ -251,7 +251,7 @@ static bool processor_physically_present(acpi_handle handle)
 	return true;
 }
 
-static void acpi_set_pdc_bits(u32 *buf)
+static void __cpuinit acpi_set_pdc_bits(u32 *buf)
 {
 	buf[0] = ACPI_PDC_REVISION_ID;
 	buf[1] = 1;
@@ -263,7 +263,7 @@ static void acpi_set_pdc_bits(u32 *buf)
 	arch_acpi_set_pdc_bits(buf);
 }
 
-static struct acpi_object_list *acpi_processor_alloc_pdc(void)
+static struct acpi_object_list *__cpuinit acpi_processor_alloc_pdc(void)
 {
 	struct acpi_object_list *obj_list;
 	union acpi_object *obj;
@@ -306,7 +306,7 @@ static struct acpi_object_list *acpi_processor_alloc_pdc(void)
  * _PDC is required for a BIOS-OS handshake for most of the newer
  * ACPI processor features.
  */
-static int
+static int __cpuinit
 acpi_processor_eval_pdc(acpi_handle handle, struct acpi_object_list *pdc_in)
 {
 	acpi_status status = AE_OK;
@@ -334,7 +334,7 @@ acpi_processor_eval_pdc(acpi_handle handle, struct acpi_object_list *pdc_in)
 	return status;
 }
 
-void acpi_processor_set_pdc(acpi_handle handle)
+void __cpuinit acpi_processor_set_pdc(acpi_handle handle)
 {
 	struct acpi_object_list *obj_list;
 
@@ -351,9 +351,8 @@ void acpi_processor_set_pdc(acpi_handle handle)
 	kfree(obj_list->pointer);
 	kfree(obj_list);
 }
-EXPORT_SYMBOL_GPL(acpi_processor_set_pdc);
 
-static acpi_status
+static acpi_status __init
 early_init_pdc(acpi_handle handle, u32 lvl, void *context, void **rv)
 {
 	if (processor_physically_present(handle) == false)

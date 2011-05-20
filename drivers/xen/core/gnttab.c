@@ -711,20 +711,18 @@ EXPORT_SYMBOL(gnttab_post_map_adjust);
 
 #endif /* __HAVE_ARCH_PTE_SPECIAL */
 
-struct sys_device;
-static int gnttab_resume(struct sys_device *dev)
+int gnttab_resume(void)
 {
 	if (max_nr_grant_frames() < nr_grant_frames)
-		return -ENOSYS;
+		return 0;
 	return gnttab_map(0, nr_grant_frames - 1);
 }
-#define gnttab_resume() gnttab_resume(NULL)
 
 #ifdef CONFIG_PM_SLEEP
-#include <linux/sysdev.h>
+#include <linux/syscore_ops.h>
 
 #ifdef CONFIG_X86
-static int gnttab_suspend(struct sys_device *dev, pm_message_t state)
+static int gnttab_suspend(void)
 {
 	apply_to_page_range(&init_mm, (unsigned long)shared,
 			    PAGE_SIZE * nr_grant_frames,
@@ -735,15 +733,15 @@ static int gnttab_suspend(struct sys_device *dev, pm_message_t state)
 #define gnttab_suspend NULL
 #endif
 
-static struct sysdev_class gnttab_sysclass = {
-	.name		= "gnttab",
-	.resume		= gnttab_resume,
-	.suspend	= gnttab_suspend,
-};
+static void _gnttab_resume(void)
+{
+	if (gnttab_resume())
+		BUG();
+}
 
-static struct sys_device device_gnttab = {
-	.id		= 0,
-	.cls		= &gnttab_sysclass,
+static struct syscore_ops gnttab_syscore_ops = {
+	.resume		= _gnttab_resume,
+	.suspend	= gnttab_suspend,
 };
 #endif
 
@@ -829,17 +827,6 @@ gnttab_init(void)
 	if (!is_running_on_xen())
 		return -ENODEV;
 
-#if defined(CONFIG_XEN) && defined(CONFIG_PM_SLEEP)
-	if (!is_initial_xendomain()) {
-		int err = sysdev_class_register(&gnttab_sysclass);
-
-		if (!err)
-			err = sysdev_register(&device_gnttab);
-		if (err)
-			return err;
-	}
-#endif
-
 	nr_grant_frames = 1;
 	boot_max_nr_grant_frames = __max_nr_grant_frames();
 
@@ -882,6 +869,11 @@ gnttab_init(void)
 #error Architecture not yet supported.
 #endif
 	}
+#endif
+
+#if defined(CONFIG_XEN) && defined(CONFIG_PM_SLEEP)
+	if (!is_initial_xendomain())
+		register_syscore_ops(&gnttab_syscore_ops);
 #endif
 
 	return 0;

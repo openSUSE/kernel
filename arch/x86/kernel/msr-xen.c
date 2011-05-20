@@ -187,9 +187,9 @@ static int pmsr_device_create(unsigned int cpu)
 		if ((minor_bias + cpu) >> MINORBITS) {
 			if (!warned) {
 				warned = true;
-				pr_warning("Physical MSRs of CPUs beyond %u"
-					   " will not be accessible\n",
-					   MINORMASK - minor_bias);
+				pr_warn("Physical MSRs of CPUs beyond %u"
+					" will not be accessible\n",
+					MINORMASK - minor_bias);
 			}
 			return -EDOM;
 		}
@@ -199,9 +199,9 @@ static int pmsr_device_create(unsigned int cpu)
 		if (!map) {
 			if (!warned) {
 				warned = true;
-				pr_warning("Physical MSRs of CPUs beyond %u"
-					   " may not be accessible\n",
-					   nr_xen_cpu_ids - 1);
+				pr_warn("Physical MSRs of CPUs beyond %u"
+					" may not be accessible\n",
+					nr_xen_cpu_ids - 1);
 			}
 			return -ENOMEM;
 		}
@@ -314,8 +314,8 @@ out_chrdev:
 			    MINORMASK + 1 - minor_bias, "pcpu/msr");
 out:
 	if (err)
-		pr_warning("msr: can't initialize physical MSR access (%d)\n",
-			   err);
+		pr_warn("msr: can't initialize physical MSR access (%d)\n",
+			err);
 	nr_xen_cpu_ids = 0;
 	kfree(xen_cpu_online_map);
 	return 0;

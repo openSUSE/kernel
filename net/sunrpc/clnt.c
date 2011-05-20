@@ -592,14 +592,20 @@ void rpc_task_set_client(struct rpc_task *task, struct rpc_clnt *clnt)
 		atomic_inc(&clnt->cl_count);
 		if (clnt->cl_softrtry)
 			task->tk_flags |= RPC_TASK_SOFT;
-		if (task->tk_client->cl_xprt->swapper)
-			task->tk_flags |= RPC_TASK_SWAPPER;
 		/* Add to the client's list of all tasks */
 		spin_lock(&clnt->cl_lock);
 		list_add_tail(&task->tk_task, &clnt->cl_tasks);
 		spin_unlock(&clnt->cl_lock);
 	}
 }
+
+void rpc_task_reset_client(struct rpc_task *task, struct rpc_clnt *clnt)
+{
+	rpc_task_release_client(task);
+	rpc_task_set_client(task, clnt);
+}
+EXPORT_SYMBOL_GPL(rpc_task_reset_client);
+
 
 static void
 rpc_task_set_rpc_message(struct rpc_task *task, const struct rpc_message *msg)
@@ -639,12 +645,6 @@ struct rpc_task *rpc_run_task(const struct rpc_task_setup *task_setup_data)
 
 	rpc_task_set_client(task, task_setup_data->rpc_client);
 	rpc_task_set_rpc_message(task, task_setup_data->rpc_message);
-
-	if (task->tk_status != 0) {
-		int ret = task->tk_status;
-		rpc_put_task(task);
-		return ERR_PTR(ret);
-	}
 
 	if (task->tk_action == NULL)
 		rpc_call_start(task);
@@ -1508,7 +1508,10 @@ call_timeout(struct rpc_task *task)
 		if (clnt->cl_chatty)
 			printk(KERN_NOTICE "%s: server %s not responding, timed out\n",
 				clnt->cl_protname, clnt->cl_server);
-		rpc_exit(task, -EIO);
+		if (task->tk_flags & RPC_TASK_TIMEOUT)
+			rpc_exit(task, -ETIMEDOUT);
+		else
+			rpc_exit(task, -EIO);
 		return;
 	}
 

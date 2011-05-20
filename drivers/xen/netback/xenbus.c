@@ -56,7 +56,7 @@ static void netback_disconnect(struct device *xbdev_dev, int clear)
 
 	down_write(&teardown_sem);
 	if (be->netif) {
-		netif_disconnect(be->netif);
+		netif_disconnect(be);
 		be->netif = NULL;
 	}
 	if (clear)
@@ -422,7 +422,7 @@ static int connect_rings(struct backend_info *be)
 	netif_set_features(netif);
 
 	/* Map the shared frame, irq etc. */
-	err = netif_map(netif, tx_ring_ref, rx_ring_ref, evtchn);
+	err = netif_map(be, tx_ring_ref, rx_ring_ref, evtchn);
 	if (err) {
 		xenbus_dev_fatal(dev, err,
 				 "mapping shared-frames %lu/%lu port %u",

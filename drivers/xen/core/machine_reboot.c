@@ -7,6 +7,7 @@
 #include <linux/sysrq.h>
 #include <linux/stringify.h>
 #include <linux/stop_machine.h>
+#include <linux/syscore_ops.h>
 #include <asm/irq.h>
 #include <asm/mmu_context.h>
 #include <xen/evtchn.h>
@@ -156,11 +157,16 @@ static int take_machine_down(void *_suspend)
 {
 	struct suspend *suspend = _suspend;
 	int suspend_cancelled;
+	bool sysdev_suspended = false;
 
 	BUG_ON(!irqs_disabled());
 
 	mm_pin_all();
 	suspend_cancelled = sysdev_suspend(PMSG_SUSPEND);
+	if (!suspend_cancelled)
+		suspend_cancelled = syscore_suspend();
+	else
+		sysdev_suspended = true;
 	if (!suspend_cancelled) {
 		pre_suspend();
 
@@ -177,6 +183,8 @@ static int take_machine_down(void *_suspend)
 	if (!suspend_cancelled)
 		xen_clockevents_resume();
 	if (suspend_cancelled >= 0)
+		syscore_resume();
+	if (sysdev_suspended)
 		sysdev_resume();
 	if (!suspend_cancelled) {
 #ifdef __x86_64__

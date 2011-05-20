@@ -48,16 +48,9 @@
 #include <scsi/scsi_device.h>
 #include <scsi/scsi_dbg.h>
 #include <scsi/scsi_eh.h>
-#include <asm/io.h>
-#include <asm/setup.h>
-#include <asm/pgalloc.h>
-#include <asm/delay.h>
-#include <xen/evtchn.h>
 #include <asm/hypervisor.h>
-#include <xen/gnttab.h>
 #include <xen/xenbus.h>
 #include <xen/interface/io/ring.h>
-#include <xen/interface/grant_table.h>
 #include <xen/interface/io/vscsiif.h>
 
 
@@ -89,8 +82,6 @@ struct vscsibk_info {
 
 	struct vscsiif_back_ring  ring;
 	struct vm_struct *ring_area;
-	grant_handle_t shmem_handle;
-	grant_ref_t shmem_ref;
 
 	spinlock_t ring_lock;
 	atomic_t nr_unreplied_reqs;
@@ -147,14 +138,13 @@ typedef struct {
 #define VSCSI_TYPE_HOST		1
 
 irqreturn_t scsiback_intr(int, void *);
-int scsiback_init_sring(struct vscsibk_info *info,
-		unsigned long ring_ref, unsigned int evtchn);
+int scsiback_init_sring(struct vscsibk_info *, grant_ref_t, evtchn_port_t);
 int scsiback_schedule(void *data);
 
 
 struct vscsibk_info *vscsibk_info_alloc(domid_t domid);
 void scsiback_free(struct vscsibk_info *info);
-void scsiback_disconnect(struct vscsibk_info *info);
+void scsiback_disconnect(struct vscsibk_info *);
 int __init scsiback_interface_init(void);
 void scsiback_interface_exit(void);
 int scsiback_xenbus_init(void);

@@ -32,14 +32,10 @@
 #include <linux/interrupt.h>
 #include <linux/slab.h>
 #include <linux/blkdev.h>
-#include <linux/vmalloc.h>
-#include <asm/io.h>
-#include <asm/setup.h>
-#include <asm/pgalloc.h>
-#include <xen/evtchn.h>
 #include <asm/hypervisor.h>
 #include <xen/blkif.h>
-#include <xen/gnttab.h>
+#include <xen/xenbus.h>
+#include <xen/interface/event_channel.h>
 
 #define DPRINTK(_f, _a...) pr_debug("(file=%s, line=%d) " _f, \
                                     __FILE__ , __LINE__ , ## _a )
@@ -80,19 +76,15 @@ typedef struct blkif_st {
 
 	wait_queue_head_t waiting_to_free;
 
-	grant_handle_t shmem_handle;
-	grant_ref_t    shmem_ref;
-	
 	int		dev_num;
 	uint64_t        sectors;
 } blkif_t;
 
 blkif_t *tap_alloc_blkif(domid_t domid);
-void tap_blkif_free(blkif_t *blkif);
+void tap_blkif_free(blkif_t *, struct xenbus_device *);
 void tap_blkif_kmem_cache_free(blkif_t *blkif);
-int tap_blkif_map(blkif_t *blkif, unsigned long shared_page, 
-		  unsigned int evtchn);
-void tap_blkif_unmap(blkif_t *blkif);
+int tap_blkif_map(blkif_t *, struct xenbus_device *, grant_ref_t,
+		  evtchn_port_t);
 
 #define blkif_get(_b) (atomic_inc(&(_b)->refcnt))
 #define blkif_put(_b)					\

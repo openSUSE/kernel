@@ -521,7 +521,7 @@ blktap_ring_init(void)
 {
 	int err;
 
-	err = __register_chrdev(0, 0, MAX_BLKTAP_DEVICE, "blktap2",
+	err = __register_chrdev(0, 0, CONFIG_XEN_NR_TAP2_DEVICES, "blktap2",
 				&blktap_ring_file_operations);
 	if (err < 0) {
 		BTERR("error registering ring devices: %d\n", err);
@@ -540,7 +540,7 @@ blktap_ring_exit(void)
 	if (!blktap_ring_major)
 		return;
 
-	__unregister_chrdev(blktap_ring_major, 0, MAX_BLKTAP_DEVICE,
+	__unregister_chrdev(blktap_ring_major, 0, CONFIG_XEN_NR_TAP2_DEVICES,
 			    "blktap2");
 
 	blktap_ring_major = 0;

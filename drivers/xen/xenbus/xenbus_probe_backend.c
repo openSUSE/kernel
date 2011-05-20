@@ -246,7 +246,6 @@ static int read_frontend_details(struct xenbus_device *xendev)
 }
 
 #if !defined(CONFIG_XEN) && !defined(HAVE_XEN_PLATFORM_COMPAT_H)
-
 int xenbus_dev_is_online(struct xenbus_device *dev)
 {
 	int rc, val;
@@ -258,6 +257,7 @@ int xenbus_dev_is_online(struct xenbus_device *dev)
 	return val;
 }
 EXPORT_SYMBOL_GPL(xenbus_dev_is_online);
+#endif
 
 int __xenbus_register_backend(struct xenbus_driver *drv,
 			      struct module *owner, const char *mod_name)
@@ -269,17 +269,7 @@ int __xenbus_register_backend(struct xenbus_driver *drv,
 }
 EXPORT_SYMBOL_GPL(__xenbus_register_backend);
 
-#else
-
-int __xenbus_register_backend(struct xenbus_driver *drv,
-			       struct module *owner, const char *mod_name)
-{
-	drv->read_otherend_details = read_frontend_details;
-
-	return xenbus_register_driver_common(drv, &xenbus_backend,
-					     owner, mod_name);
-}
-EXPORT_SYMBOL_GPL(__xenbus_register_backend);
+#if defined(CONFIG_XEN) || defined(HAVE_XEN_PLATFORM_COMPAT_H)
 
 void xenbus_backend_suspend(int (*fn)(struct device *, void *))
 {

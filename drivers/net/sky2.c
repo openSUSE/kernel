@@ -932,7 +932,7 @@ static void sky2_mac_init(struct sky2_hw *hw, unsigned port)
 	sky2_write8(hw, SK_REG(port, TX_GMF_CTRL_T), GMF_RST_CLR);
 	sky2_write16(hw, SK_REG(port, TX_GMF_CTRL_T), GMF_OPER_ON);
 
-	/* On chips without ram buffer, pause is controled by MAC level */
+	/* On chips without ram buffer, pause is controlled by MAC level */
 	if (!(hw->flags & SKY2_HW_RAM_BUFFER)) {
 		/* Pause threshold is scaled by 8 in bytes */
 		if (hw->chip_id == CHIP_ID_YUKON_FE_P &&
@@ -1385,7 +1385,7 @@ static struct sk_buff *sky2_rx_alloc(struct sky2_port *sky2)
 		skb_reserve(skb, NET_IP_ALIGN);
 
 	for (i = 0; i < sky2->rx_nfrags; i++) {
-		struct page *page = netdev_alloc_page(sky2->netdev);
+		struct page *page = alloc_page(GFP_ATOMIC);
 
 		if (!page)
 			goto free_partial;
@@ -2343,8 +2343,8 @@ static struct sk_buff *receive_copy(struct sky2_port *sky2,
 }
 
 /* Adjust length of skb with fragments to match received data */
-static void skb_put_frags(struct sky2_port *sky2, struct sk_buff *skb,
-			  unsigned int hdr_space, unsigned int length)
+static void skb_put_frags(struct sk_buff *skb, unsigned int hdr_space,
+			  unsigned int length)
 {
 	int i, num_frags;
 	unsigned int size;
@@ -2361,11 +2361,15 @@ static void skb_put_frags(struct sky2_port *sky2, struct sk_buff *skb,
 
 		if (length == 0) {
 			/* don't need this page */
-			netdev_free_page(sky2->netdev, frag->page);
+			__free_page(frag->page);
 			--skb_shinfo(skb)->nr_frags;
 		} else {
 			size = min(length, (unsigned) PAGE_SIZE);
-			skb_add_rx_frag(skb, i, frag->page, 0, size);
+
+			frag->size = size;
+			skb->data_len += size;
+			skb->truesize += size;
+			skb->len += size;
 			length -= size;
 		}
 	}
@@ -2393,7 +2397,7 @@ static struct sk_buff *receive_new(struct sky2_port *sky2,
 	*re = nre;
 
 	if (skb_shinfo(skb)->nr_frags)
-		skb_put_frags(sky2, skb, hdr_space, length);
+		skb_put_frags(skb, hdr_space, length);
 	else
 		skb_put(skb, length);
 	return skb;
@@ -3251,7 +3255,7 @@ static void sky2_reset(struct sky2_hw *hw)
 
 /* Take device down (offline).
  * Equivalent to doing dev_stop() but this does not
- * inform upper layers of the transistion.
+ * inform upper layers of the transition.
  */
 static void sky2_detach(struct net_device *dev)
 {
@@ -4979,7 +4983,7 @@ static int sky2_suspend(struct device *dev)
 	return 0;
 }
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 static int sky2_resume(struct device *dev)
 {
 	struct pci_dev *pdev = to_pci_dev(dev);

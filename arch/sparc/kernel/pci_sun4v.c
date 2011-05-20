@@ -843,9 +843,9 @@ static int pci_sun4v_msiq_build_irq(struct pci_pbm_info *pbm,
 				    unsigned long msiqid,
 				    unsigned long devino)
 {
-	unsigned int virt_irq = sun4v_build_irq(pbm->devhandle, devino);
+	unsigned int irq = sun4v_build_irq(pbm->devhandle, devino);
 
-	if (!virt_irq)
+	if (!irq)
 		return -ENOMEM;
 
 	if (pci_sun4v_msiq_setstate(pbm->devhandle, msiqid, HV_MSIQSTATE_IDLE))
@@ -853,7 +853,7 @@ static int pci_sun4v_msiq_build_irq(struct pci_pbm_info *pbm,
 	if (pci_sun4v_msiq_setvalid(pbm->devhandle, msiqid, HV_MSIQ_VALID))
 		return -EINVAL;
 
-	return virt_irq;
+	return irq;
 }
 
 static const struct sparc64_msiq_ops pci_sun4v_msiq_ops = {
@@ -917,8 +917,7 @@ static int __devinit pci_sun4v_pbm_init(struct pci_pbm_info *pbm,
 	return 0;
 }
 
-static int __devinit pci_sun4v_probe(struct platform_device *op,
-				     const struct of_device_id *match)
+static int __devinit pci_sun4v_probe(struct platform_device *op)
 {
 	const struct linux_prom64_registers *regs;
 	static int hvapi_negotiated = 0;
@@ -999,7 +998,7 @@ out_err:
 	return err;
 }
 
-static struct of_device_id __initdata pci_sun4v_match[] = {
+static const struct of_device_id pci_sun4v_match[] = {
 	{
 		.name = "pci",
 		.compatible = "SUNW,sun4v-pci",
@@ -1007,7 +1006,7 @@ static struct of_device_id __initdata pci_sun4v_match[] = {
 	{},
 };
 
-static struct of_platform_driver pci_sun4v_driver = {
+static struct platform_driver pci_sun4v_driver = {
 	.driver = {
 		.name = DRIVER_NAME,
 		.owner = THIS_MODULE,
@@ -1018,7 +1017,7 @@ static struct of_platform_driver pci_sun4v_driver = {
 
 static int __init pci_sun4v_init(void)
 {
-	return of_register_platform_driver(&pci_sun4v_driver);
+	return platform_driver_register(&pci_sun4v_driver);
 }
 
 subsys_initcall(pci_sun4v_init);

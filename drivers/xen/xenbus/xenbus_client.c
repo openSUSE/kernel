@@ -446,7 +446,7 @@ EXPORT_SYMBOL_GPL(xenbus_free_evtchn);
  * or -ENOMEM on error. If an error is returned, device will switch to
  * XenbusStateClosing and the error message will be saved in XenStore.
  */
-int xenbus_map_ring_valloc(struct xenbus_device *dev, int gnt_ref, void **vaddr)
+int xenbus_map_ring_valloc(struct xenbus_device *dev, grant_ref_t gnt_ref, void **vaddr)
 {
 	struct gnttab_map_grant_ref op = {
 		.flags = GNTMAP_host_map,
@@ -497,7 +497,7 @@ EXPORT_SYMBOL_GPL(xenbus_map_ring_valloc);
  * or -ENOMEM on error. If an error is returned, device will switch to
  * XenbusStateClosing and the error message will be saved in XenStore.
  */
-int xenbus_map_ring(struct xenbus_device *dev, int gnt_ref,
+int xenbus_map_ring(struct xenbus_device *dev, grant_ref_t gnt_ref,
 		    grant_handle_t *handle, void *vaddr)
 {
 	struct gnttab_map_grant_ref op = {

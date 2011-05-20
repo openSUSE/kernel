@@ -87,7 +87,7 @@ void exit_thread(void)
 void show_regs(struct pt_regs *regs)
 {
 	show_registers(regs);
-	show_trace(NULL, regs, (unsigned long *)kernel_stack_pointer(regs));
+	show_trace(NULL, regs, (unsigned long *)kernel_stack_pointer(regs), 0);
 }
 
 void show_regs_common(void)
@@ -110,12 +110,9 @@ void show_regs_common(void)
 		init_utsname()->release,
 		(int)strcspn(init_utsname()->version, " "),
 		init_utsname()->version);
-	printk(KERN_CONT " ");
-	printk(KERN_CONT "%s %s", vendor, product);
-	if (board) {
-		printk(KERN_CONT "/");
-		printk(KERN_CONT "%s", board);
-	}
+	printk(KERN_CONT " %s %s", vendor, product);
+	if (board)
+		printk(KERN_CONT "/%s", board);
 	printk(KERN_CONT "\n");
 }
 
@@ -140,7 +137,6 @@ static void hard_disable_TSC(void)
 
 void disable_TSC(void)
 {
-#ifdef CONFIG_SECCOMP_DISABLE_TSC
 	preempt_disable();
 	if (!test_and_set_thread_flag(TIF_NOTSC))
 		/*
@@ -149,7 +145,6 @@ void disable_TSC(void)
 		 */
 		hard_disable_TSC();
 	preempt_enable();
-#endif
 }
 
 static void hard_enable_TSC(void)

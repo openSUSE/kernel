@@ -95,7 +95,7 @@ static int submit_cdrom_cmd(struct blkfront_info *info,
 	struct vcd_generic_command *vgc;
 
 	if (cgc->buffer && cgc->buflen > MAX_PACKET_DATA) {
-		pr_warning("%s() Packet buffer length is to large \n", __func__);
+		pr_warn("%s() Packet buffer length is to large \n", __func__);
 		return -EIO;
 	}
 
@@ -397,8 +397,8 @@ static int xencdrom_block_ioctl(struct block_device *bd, fmode_t mode,
 		ret = submit_cdrom_cmd(info, (struct packet_command *)arg);
 		break;
 	default:
-out:
 		spin_unlock(&vcd->vcd_cdrom_info_lock);
+out:
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28)
 		return blkif_ioctl(inode, file, cmd, arg);
 #else
@@ -471,8 +471,8 @@ void register_vcd(struct blkfront_info *info)
 			CDC_MRW | CDC_MRW_W | CDC_RAM);
 
 	if (register_cdrom(&(vcd->vcd_cdrom_info)) != 0) {
-		pr_warning("%s() Cannot register blkdev as a cdrom %d!\n",
-			   __func__, gd->major);
+		pr_warn("%s() Cannot register blkdev as a cdrom %d!\n",
+			__func__, gd->major);
 		goto err_out;
 	}
 	gd->fops = &xencdrom_bdops;

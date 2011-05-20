@@ -213,7 +213,7 @@ static int pcpu_sysdev_init(struct pcpu *cpu)
 
 	error = sysdev_register(&cpu->sysdev);
 	if (error) {
-		pr_warning("xen_pcpu_add: Failed to register pcpu\n");
+		pr_warn("xen_pcpu_add: Failed to register pcpu\n");
 		kfree(cpu);
 		return -1;
 	}
@@ -316,8 +316,7 @@ static struct pcpu *_sync_pcpu(unsigned int cpu_num, unsigned int *max_id,
 		*result = PCPU_ADDED;
 		pcpu = init_pcpu(info);
 		if (pcpu == NULL) {
-			pr_warning("Failed to init pcpu %x\n",
-				   info->xen_cpuid);
+			pr_warn("Failed to init pcpu %x\n", info->xen_cpuid);
 			*result = -1;
 		}
 	} else {
@@ -327,7 +326,7 @@ static struct pcpu *_sync_pcpu(unsigned int cpu_num, unsigned int *max_id,
 		 * several virq is missed, will it happen?
 		 */
 		if (!same_pcpu(info, pcpu)) {
-			pr_warning("Pcpu %x changed!\n", pcpu->xen_id);
+			pr_warn("Pcpu %x changed!\n", pcpu->xen_id);
 			pcpu->apic_id = info->apic_id;
 			pcpu->acpi_id = info->acpi_id;
 		}
@@ -361,7 +360,7 @@ static int xen_sync_pcpus(void)
 		case PCPU_REMOVED:
 			break;
 		default:
-			pr_warning("Failed to sync pcpu %x\n", cpu_num);
+			pr_warn("Failed to sync pcpu %x\n", cpu_num);
 			break;
 		}
 		cpu_num++;
@@ -382,7 +381,7 @@ static int xen_sync_pcpus(void)
 static void xen_pcpu_dpc(struct work_struct *work)
 {
 	if (xen_sync_pcpus() < 0)
-		pr_warning("xen_pcpu_dpc: Failed to sync pcpu information\n");
+		pr_warn("xen_pcpu_dpc: Failed to sync pcpu information\n");
 }
 static DECLARE_WORK(xen_pcpu_work, xen_pcpu_dpc);
 
@@ -443,8 +442,8 @@ static int __init xen_pcpu_init(void)
 
 	err = sysdev_class_register(&xen_pcpu_sysdev_class);
 	if (err) {
-		pr_warning("xen_pcpu_init: "
-			   "Failed to register sysdev class (%d)\n", err);
+		pr_warn("xen_pcpu_init: "
+			"Failed to register sysdev class (%d)\n", err);
 		return err;
 	}
 
@@ -455,8 +454,8 @@ static int __init xen_pcpu_init(void)
 					      xen_pcpu_interrupt, 0,
 					      "pcpu", NULL);
 	if (err < 0)
-		pr_warning("xen_pcpu_init: "
-			   "Failed to bind pcpu_state virq (%d)\n", err);
+		pr_warn("xen_pcpu_init: "
+			"Failed to bind pcpu_state virq (%d)\n", err);
 
 	return err;
 }

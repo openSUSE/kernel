@@ -8,18 +8,30 @@
 #include <linux/version.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
+#include <linux/mm.h>
 #include <linux/slab.h>
-#include <xen/evtchn.h>
-#include <xen/interface/grant_table.h>
+#include <xen/xenbus.h>
+#include <xen/interface/event_channel.h>
 #include <xen/interface/io/tpmif.h>
-#include <asm/io.h>
-#include <asm/pgalloc.h>
 
 #define DPRINTK(_f, _a...)			\
 	pr_debug("(file=%s, line=%d) " _f,	\
 		 __FILE__ , __LINE__ , ## _a )
 
-struct backend_info;
+struct backend_info
+{
+	struct xenbus_device *dev;
+
+	/* our communications channel */
+	struct tpmif_st *tpmif;
+
+	long int frontend_id;
+	long int instance; // instance of TPM
+	u8 is_instance_set;// whether instance number has been set
+
+	/* watch front end for changes */
+	struct xenbus_watch backend_watch;
+};
 
 typedef struct tpmif_st {
 	struct list_head tpmif_list;
@@ -44,8 +56,6 @@ typedef struct tpmif_st {
 
 	struct backend_info *bi;
 
-	grant_handle_t shmem_handle;
-	grant_ref_t shmem_ref;
 	struct page **mmap_pages;
 
 	char devname[20];
@@ -59,7 +69,7 @@ void tpmif_schedule_work(tpmif_t * tpmif);
 void tpmif_deschedule_work(tpmif_t * tpmif);
 int tpmif_xenbus_init(void);
 void tpmif_xenbus_exit(void);
-int tpmif_map(tpmif_t *tpmif, unsigned long shared_page, unsigned int evtchn);
+int tpmif_map(tpmif_t *, grant_ref_t, evtchn_port_t);
 irqreturn_t tpmif_be_int(int irq, void *dev_id);
 
 long int tpmback_get_instance(struct backend_info *bi);

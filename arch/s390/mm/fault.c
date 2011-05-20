@@ -392,7 +392,7 @@ void __kprobes do_protection_exception(struct pt_regs *regs, long pgm_int_code,
 {
 	int fault;
 
-	/* Protection exception is supressing, decrement psw address. */
+	/* Protection exception is suppressing, decrement psw address. */
 	regs->psw.addr -= (pgm_int_code >> 16);
 	/*
 	 * Check for low-address protection.  This needs to be treated
@@ -543,7 +543,6 @@ static void pfault_interrupt(unsigned int ext_int_code,
 	struct task_struct *tsk;
 	__u16 subcode;
 
-	kstat_cpu(smp_processor_id()).irqs[EXTINT_PFL]++;
 	/*
 	 * Get the external interruption subcode & pfault
 	 * initial/completion signal bit. VM stores this 
@@ -553,6 +552,7 @@ static void pfault_interrupt(unsigned int ext_int_code,
 	subcode = ext_int_code >> 16;
 	if ((subcode & 0xff00) != __SUBCODE_MASK)
 		return;
+	kstat_cpu(smp_processor_id()).irqs[EXTINT_PFL]++;
 
 	/*
 	 * Get the token (= address of the task structure of the affected task).

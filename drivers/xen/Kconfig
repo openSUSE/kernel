@@ -4,7 +4,6 @@
 
 config XEN
 	bool
-	select IRQ_PER_CPU if SMP
 
 if XEN
 config XEN_INTERFACE_VERSION
@@ -80,6 +79,17 @@ config XEN_BLKDEV_TAP2
 	  high-performance block backends, where disk images may be implemented
 	  as files, in memory, or on other hosts across the network.  This
 	  driver can safely coexist with the existing blockback driver.
+
+config XEN_NR_TAP2_DEVICES
+	int "Number of devices the version 2 tap backend driver can handle"
+	range 2 1048575
+	default 1024 if 64BIT
+	default 256
+	depends on XEN_BLKDEV_TAP2
+	help
+	  This sets the number of backend devices the v2 tap backend driver
+	  will be able to handle simultaneously. Note that device 0 is the
+	  control device and hence not available to service guests.
 
 config XEN_BLKBACK_PAGEMAP
 	tristate
@@ -484,9 +494,19 @@ config XEN_XENBUS_FRONTEND
 config XEN_GNTDEV
 	tristate "userspace grant access device driver"
 	depends on PARAVIRT_XEN
+	default m
 	select MMU_NOTIFIER
 	help
 	  Allows userspace processes to use grants.
+
+config XEN_GRANT_DEV_ALLOC
+	tristate "User-space grant reference allocator driver"
+	depends on PARAVIRT_XEN
+	default m
+	help
+	  Allows userspace processes to create pages with access granted
+	  to other domains. This can be used to implement frontend drivers
+	  or as part of an inter-domain shared memory channel.
 
 config XEN_PLATFORM_PCI
 	tristate "xen platform pci device driver"

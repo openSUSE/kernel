@@ -20,6 +20,8 @@
 #define AUDIT_ARCH_I386		(EM_386|__AUDIT_ARCH_LE)
 #define __AUDIT_ARCH_LE	   0x40000000
 
+	.section .entry.text, "ax"
+
 #define IA32_NR_syscalls ((ia32_syscall_end - ia32_sys_call_table)/8)
 
 	.macro IA32_ARG_FIXUP noebp=0
@@ -122,8 +124,7 @@ ENTRY(ia32_sysenter_target)
 	CFI_REL_OFFSET	rcx,0
 	movq	8(%rsp),%r11
 	CFI_RESTORE	r11
-	popq	%rcx
-	CFI_ADJUST_CFA_OFFSET -8
+	popq_cfi %rcx
 	CFI_RESTORE	rcx
  	movl	%ebp,%ebp		/* zero extension */
 	movl	%eax,%eax
@@ -293,8 +294,7 @@ ENTRY(ia32_syscall)
 	CFI_REL_OFFSET	rcx,0
 	movq 8(%rsp),%r11
 	CFI_RESTORE	r11
-	popq %rcx
-	CFI_ADJUST_CFA_OFFSET -8
+	popq_cfi %rcx
 	CFI_RESTORE	rcx
 	movl %eax,%eax
 	movq %rax,(%rsp)
@@ -732,4 +732,8 @@ ia32_sys_call_table:
 	.quad sys_fanotify_init
 	.quad sys32_fanotify_mark
 	.quad sys_prlimit64		/* 340 */
+	.quad sys_name_to_handle_at
+	.quad compat_sys_open_by_handle_at
+	.quad compat_sys_clock_adjtime
+	.quad sys_syncfs
 ia32_syscall_end:

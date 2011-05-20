@@ -554,7 +554,7 @@ struct sctp_ulpevent *sctp_ulpevent_make_send_failed(
 	memcpy(&ssf->ssf_info, &chunk->sinfo, sizeof(struct sctp_sndrcvinfo));
 
 	/* Per TSVWG discussion with Randy. Allow the application to
-	 * ressemble a fragmented message.
+	 * reassemble a fragmented message.
 	 */
 	ssf->ssf_info.sinfo_flags = chunk->chunk_hdr->flags;
 
@@ -702,7 +702,7 @@ struct sctp_ulpevent *sctp_ulpevent_make_rcvmsg(struct sctp_association *asoc,
 	if (rx_count >= asoc->base.sk->sk_rcvbuf) {
 
 		if ((asoc->base.sk->sk_userlocks & SOCK_RCVBUF_LOCK) ||
-		    (!sk_rmem_schedule(asoc->base.sk, chunk->skb)))
+		    (!sk_rmem_schedule(asoc->base.sk, chunk->skb->truesize)))
 			goto fail;
 	}
 

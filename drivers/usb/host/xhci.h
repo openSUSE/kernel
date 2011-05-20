@@ -30,6 +30,7 @@
 
 /* Code sharing between pci-quirks and xhci hcd */
 #include	"xhci-ext-caps.h"
+#include "pci-quirks.h"
 
 /* xHCI PCI Configuration Registers */
 #define XHCI_SBRN_OFFSET	(0x60)
@@ -347,6 +348,9 @@ struct xhci_op_regs {
 #define PORT_DEV_REMOVE	(1 << 30)
 /* Initiate a warm port reset - complete when PORT_WRC is '1' */
 #define PORT_WR		(1 << 31)
+
+/* We mark duplicate entries with -1 */
+#define DUPLICATE_ENTRY ((u8)(-1))
 
 /* Port Power Management Status and Control - port_power_base bitmasks */
 /* Inactivity timer value for transitions into U1, in microseconds.
@@ -873,7 +877,7 @@ struct xhci_transfer_event {
 #define COMP_CMD_ABORT	25
 /* Stopped - transfer was terminated by a stop endpoint command */
 #define COMP_STOP	26
-/* Same as COMP_EP_STOPPED, but the transfered length in the event is invalid */
+/* Same as COMP_EP_STOPPED, but the transferred length in the event is invalid */
 #define COMP_STOP_INVAL	27
 /* Control Abort Error - Debug Capability - control pipe aborted */
 #define COMP_DBG_ABORT	28
@@ -1170,8 +1174,29 @@ struct s3_save {
 	u64	erst_dequeue;
 };
 
+struct xhci_bus_state {
+	unsigned long		bus_suspended;
+	unsigned long		next_statechange;
+
+	/* Port suspend arrays are indexed by the portnum of the fake roothub */
+	/* ports suspend status arrays - max 31 ports for USB2, 15 for USB3 */
+	u32			port_c_suspend;
+	u32			suspended_ports;
+	unsigned long		resume_done[USB_MAXCHILDREN];
+};
+
+static inline unsigned int hcd_index(struct usb_hcd *hcd)
+{
+	if (hcd->speed == HCD_USB3)
+		return 0;
+	else
+		return 1;
+}
+
 /* There is one ehci_hci structure per controller */
 struct xhci_hcd {
+	struct usb_hcd *main_hcd;
+	struct usb_hcd *shared_hcd;
 	/* glue to PCI and HCD framework */
 	struct xhci_cap_regs __iomem *cap_regs;
 	struct xhci_op_regs __iomem *op_regs;
@@ -1233,9 +1258,6 @@ struct xhci_hcd {
 	/* Host controller watchdog timer structures */
 	unsigned int		xhc_state;
 
-	unsigned long		bus_suspended;
-	unsigned long		next_statechange;
-
 	u32			command;
 	struct s3_save		s3;
 /* Host controller is dying - not responding to commands. "I'm not dead yet!"
@@ -1251,18 +1273,16 @@ struct xhci_hcd {
  * There are no reports of xHCI host controllers that display this issue.
  */
 #define XHCI_STATE_DYING	(1 << 0)
+#define XHCI_STATE_HALTED	(1 << 1)
 	/* Statistics */
-	int			noops_submitted;
-	int			noops_handled;
 	int			error_bitmask;
 	unsigned int		quirks;
 #define	XHCI_LINK_TRB_QUIRK	(1 << 0)
 #define XHCI_RESET_EP_QUIRK	(1 << 1)
 #define XHCI_NEC_HOST		(1 << 2)
-	u32			port_c_suspend[8];	/* port suspend change*/
-	u32			suspended_ports[8];	/* which ports are
-							   suspended */
-	unsigned long		resume_done[MAX_HC_PORTS];
+#define XHCI_AMD_PLL_FIX	(1 << 3)
+	/* There are two roothubs to keep track of bus suspend info for */
+	struct xhci_bus_state   bus_state[2];
 	/* Is each xHCI roothub port a USB 3.0, USB 2.0, or USB 1.1 port? */
 	u8			*port_array;
 	/* Array of pointers to USB 3.0 PORTSC registers */
@@ -1273,18 +1293,15 @@ struct xhci_hcd {
 	unsigned int		num_usb2_ports;
 };
 
-/* For testing purposes */
-#define NUM_TEST_NOOPS	0
-
 /* convert between an HCD pointer and the corresponding EHCI_HCD */
 static inline struct xhci_hcd *hcd_to_xhci(struct usb_hcd *hcd)
 {
-	return (struct xhci_hcd *) (hcd->hcd_priv);
+	return *((struct xhci_hcd **) (hcd->hcd_priv));
 }
 
 static inline struct usb_hcd *xhci_to_hcd(struct xhci_hcd *xhci)
 {
-	return container_of((void *) xhci, struct usb_hcd, hcd_priv);
+	return xhci->main_hcd;
 }
 
 #ifdef CONFIG_USB_XHCI_HCD_DEBUGGING
@@ -1480,7 +1497,6 @@ struct xhci_segment *trb_in_td(struct xhci_segment *start_seg,
 		dma_addr_t suspect_dma);
 int xhci_is_vendor_info_code(struct xhci_hcd *xhci, unsigned int trb_comp_code);
 void xhci_ring_cmd_db(struct xhci_hcd *xhci);
-void *xhci_setup_one_noop(struct xhci_hcd *xhci);
 int xhci_queue_slot_control(struct xhci_hcd *xhci, u32 trb_type, u32 slot_id);
 int xhci_queue_address_device(struct xhci_hcd *xhci, dma_addr_t in_ctx_ptr,
 		u32 slot_id);
@@ -1534,7 +1550,8 @@ int xhci_bus_resume(struct usb_hcd *hcd);
 #endif	/* CONFIG_PM */
 
 u32 xhci_port_state_to_neutral(u32 state);
-int xhci_find_slot_id_by_port(struct xhci_hcd *xhci, u16 port);
+int xhci_find_slot_id_by_port(struct usb_hcd *hcd, struct xhci_hcd *xhci,
+		u16 port);
 void xhci_ring_device(struct xhci_hcd *xhci, int slot_id);
 
 /* xHCI contexts */

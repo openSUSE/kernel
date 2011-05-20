@@ -89,7 +89,6 @@
 #include <linux/mutex.h>
 #include <linux/vt_kern.h>
 #include <linux/selection.h>
-#include <linux/smp_lock.h>
 #include <linux/tiocl.h>
 #include <linux/kbd_kern.h>
 #include <linux/consolemap.h>
@@ -2068,18 +2067,6 @@ static void do_con_trol(struct tty_struct *tty, struct vc_data *vc, int c)
 	}
 }
 
-/* This is a temporary buffer used to prepare a tty console write
- * so that we can easily avoid touching user space while holding the
- * console spinlock.  It is allocated in con_init and is shared by
- * this code and the vc_screen read/write tty calls.
- *
- * We have to allocate this statically in the kernel data section
- * since console_init (and thus con_init) are called before any
- * kernel memory allocation is available.
- */
-char con_buf[CON_BUF_SIZE];
-DEFINE_MUTEX(con_buf_mtx);
-
 /* is_double_width() is based on the wcwidth() implementation by
  * Markus Kuhn -- 2007-05-26 (Unicode 5.0)
  * Latest version: http://www.cl.cam.ac.uk/~mgk25/ucs/wcwidth.c
@@ -2157,10 +2144,10 @@ static int do_con_write(struct tty_struct *tty, const unsigned char *buf, int co
 
 	currcons = vc->vc_num;
 	if (!vc_cons_allocated(currcons)) {
-	    /* could this happen? */
-		printk_once("con_write: tty %d not allocated\n", currcons+1);
-	    console_unlock();
-	    return 0;
+		/* could this happen? */
+		pr_warn_once("con_write: tty %d not allocated\n", currcons+1);
+		console_unlock();
+		return 0;
 	}
 
 	himask = vc->vc_hi_font_mask;
@@ -2940,7 +2927,7 @@ static int __init con_init(void)
 	gotoxy(vc, vc->vc_x, vc->vc_y);
 	csi_J(vc, 0);
 	update_screen(vc);
-	printk("Console: %s %s %dx%d",
+	pr_info("Console: %s %s %dx%d",
 		vc->vc_can_do_color ? "colour" : "mono",
 		display_desc, vc->vc_cols, vc->vc_rows);
 	printable = 1;
@@ -3103,7 +3090,7 @@ static int bind_con_driver(const struct consw *csw, int first, int last,
 			clear_buffer_attributes(vc);
 	}
 
-	printk("Console: switching ");
+	pr_info("Console: switching ");
 	if (!deflt)
 		printk("consoles %d-%d ", first+1, last+1);
 	if (j >= 0) {
@@ -3809,7 +3796,8 @@ void do_unblank_screen(int leaving_gfx)
 		return;
 	if (!vc_cons_allocated(fg_console)) {
 		/* impossible */
-		printk("unblank_screen: tty %d not allocated ??\n", fg_console+1);
+		pr_warning("unblank_screen: tty %d not allocated ??\n",
+			   fg_console+1);
 		return;
 	}
 	vc = vc_cons[fg_console].d;
@@ -3975,7 +3963,7 @@ void reset_palette(struct vc_data *vc)
  *  of 32 pixels. Userspace fontdata is stored with 32 bytes (shorts/ints, 
  *  depending on width) reserved for each character which is kinda wasty, but 
  *  this is done in order to maintain compatibility with the EGA/VGA fonts. It 
- *  is upto the actual low-level console-driver convert data into its favorite
+ *  is up to the actual low-level console-driver convert data into its favorite
  *  format (maybe we should add a `fontoffset' field to the `display'
  *  structure so we won't have to convert the fontdata all the time.
  *  /Jes
@@ -4216,27 +4204,29 @@ void vcs_scr_updated(struct vc_data *vc)
 #ifdef CONFIG_BOOTSPLASH
 void con_remap_def_color(struct vc_data *vc, int new_color)
 {
-       unsigned short *sbuf = screenpos(vc, 0, 1);
-       unsigned c, len = vc->vc_screenbuf_size >> 1;
-       int old_color;
+	unsigned short *sbuf = screenpos(vc, 0, 1);
+	unsigned c, len = vc->vc_screenbuf_size >> 1;
+	unsigned int bits, old_color;
 
-       if (sbuf) {
-	       old_color = vc->vc_def_color << 8;
-	       new_color <<= 8;
-	       while(len--) {
-		       c = scr_readw(sbuf);
-		       if (((c ^ old_color) & 0xf000) == 0)
-			     scr_writew(c ^ ((old_color ^ new_color) & 0xf000), sbuf);
-		       *sbuf ^= (old_color ^ new_color) & 0xf000;
-		       if (((c ^ old_color) & 0x0f00) == 0)
-			     scr_writew(c ^ ((old_color ^ new_color) & 0x0f00), sbuf);
-		       *sbuf ^= (old_color ^ new_color) & 0x0f00;
-		       sbuf++;
-	       }
-	       new_color >>= 8;
-       }
-       vc->vc_def_color = vc->vc_color = new_color;
-       update_attr(vc);
+	if (sbuf) {
+		old_color = vc->vc_def_color << 8;
+		new_color <<= 8;
+		while (len--) {
+			c = scr_readw(sbuf);
+			bits = (old_color ^ new_color) & 0xf000;
+			if (((c ^ old_color) & 0xf000) == 0)
+				scr_writew((c ^ bits), sbuf);
+			*sbuf ^= bits;
+			bits = (old_color ^ new_color) & 0x0f00;
+			if (((c ^ old_color) & 0x0f00) == 0)
+				scr_writew((c ^ bits), sbuf);
+			*sbuf ^= bits;
+			sbuf++;
+		}
+		new_color >>= 8;
+	}
+	vc->vc_def_color = vc->vc_color = new_color;
+	update_attr(vc);
 }
 #endif
 

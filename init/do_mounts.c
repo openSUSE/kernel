@@ -186,7 +186,7 @@ dev_t name_to_dev_t(char *name)
 		goto done;
 
 	/*
-	 * try non-existant, but valid partition, which may only exist
+	 * try non-existent, but valid partition, which may only exist
 	 * after revalidating the disk, like partitioned md devices
 	 */
 	while (p > s && isdigit(p[-1]))
@@ -293,7 +293,8 @@ static int __init do_mount_root(char *name, char *fs, int flags, void *data)
 
 	sys_chdir((const char __user __force *)"/root");
 	ROOT_DEV = current->fs->pwd.mnt->mnt_sb->s_dev;
-	printk("VFS: Mounted root (%s filesystem)%s on device %u:%u.\n",
+	printk(KERN_INFO
+	       "VFS: Mounted root (%s filesystem)%s on device %u:%u.\n",
 	       current->fs->pwd.mnt->mnt_sb->s_type->name,
 	       current->fs->pwd.mnt->mnt_sb->s_flags & MS_RDONLY ?
 	       " readonly" : "", MAJOR(ROOT_DEV), MINOR(ROOT_DEV));
@@ -443,7 +444,6 @@ void __init prepare_namespace(void)
 		ssleep(root_delay);
 	}
 
-#if 0
 	/*
 	 * wait for the known devices to complete their probing
 	 *
@@ -452,8 +452,6 @@ void __init prepare_namespace(void)
 	 * for the touchpad of a laptop to initialize.
 	 */
 	wait_for_device_probe();
-#endif
-	async_synchronize_full();
 
 	md_run_setup();
 

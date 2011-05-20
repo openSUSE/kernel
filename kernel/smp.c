@@ -194,7 +194,7 @@ void generic_smp_call_function_interrupt(void)
 	 */
 	list_for_each_entry_rcu(data, &call_function.queue, csd.list) {
 		int refs;
-		void (*func) (void *info);
+		smp_call_func_t func;
 
 		/*
 		 * Since we walk the list without any locks, we might
@@ -214,17 +214,17 @@ void generic_smp_call_function_interrupt(void)
 		if (atomic_read(&data->refs) == 0)
 			continue;
 
-		func = data->csd.func;			/* for later warn */
-		data->csd.func(data->csd.info);
+		func = data->csd.func;		/* save for later warn */
+		func(data->csd.info);
 
 		/*
-		 * If the cpu mask is not still set then it enabled interrupts,
-		 * we took another smp interrupt, and executed the function
-		 * twice on this cpu.  In theory that copy decremented refs.
+		 * If the cpu mask is not still set then func enabled
+		 * interrupts (BUG), and this cpu took another smp call
+		 * function interrupt and executed func(info) twice
+		 * on this cpu.  That nested execution decremented refs.
 		 */
 		if (!cpumask_test_and_clear_cpu(cpu, data->cpumask)) {
-			WARN(1, "%pS enabled interrupts and double executed\n",
-			     func);
+			WARN(1, "%pf enabled interrupts and double executed\n", func);
 			continue;
 		}
 
@@ -603,6 +603,87 @@ void ipi_call_unlock_irq(void)
 	raw_spin_unlock_irq(&call_function.lock);
 }
 #endif /* USE_GENERIC_SMP_HELPERS */
+
+/* Setup configured maximum number of CPUs to activate */
+unsigned int setup_max_cpus = NR_CPUS;
+EXPORT_SYMBOL(setup_max_cpus);
+
+
+/*
+ * Setup routine for controlling SMP activation
+ *
+ * Command-line option of "nosmp" or "maxcpus=0" will disable SMP
+ * activation entirely (the MPS table probe still happens, though).
+ *
+ * Command-line option of "maxcpus=<NUM>", where <NUM> is an integer
+ * greater than 0, limits the maximum number of CPUs activated in
+ * SMP mode to <NUM>.
+ */
+
+void __weak arch_disable_smp_support(void) { }
+
+static int __init nosmp(char *str)
+{
+	setup_max_cpus = 0;
+	arch_disable_smp_support();
+
+	return 0;
+}
+
+early_param("nosmp", nosmp);
+
+/* this is hard limit */
+static int __init nrcpus(char *str)
+{
+	int nr_cpus;
+
+	get_option(&str, &nr_cpus);
+	if (nr_cpus > 0 && nr_cpus < nr_cpu_ids)
+		nr_cpu_ids = nr_cpus;
+
+	return 0;
+}
+
+early_param("nr_cpus", nrcpus);
+
+static int __init maxcpus(char *str)
+{
+	get_option(&str, &setup_max_cpus);
+	if (setup_max_cpus == 0)
+		arch_disable_smp_support();
+
+	return 0;
+}
+
+early_param("maxcpus", maxcpus);
+
+/* Setup number of possible processor ids */
+int nr_cpu_ids __read_mostly = NR_CPUS;
+EXPORT_SYMBOL(nr_cpu_ids);
+
+/* An arch may set nr_cpu_ids earlier if needed, so this would be redundant */
+void __init setup_nr_cpu_ids(void)
+{
+	nr_cpu_ids = find_last_bit(cpumask_bits(cpu_possible_mask),NR_CPUS) + 1;
+}
+
+/* Called by boot processor to activate the rest. */
+void __init smp_init(void)
+{
+	unsigned int cpu;
+
+	/* FIXME: This should be done in userspace --RR */
+	for_each_present_cpu(cpu) {
+		if (num_online_cpus() >= setup_max_cpus)
+			break;
+		if (!cpu_online(cpu))
+			cpu_up(cpu);
+	}
+
+	/* Any cleanup work */
+	printk(KERN_INFO "Brought up %ld CPUs\n", (long)num_online_cpus());
+	smp_cpus_done(setup_max_cpus);
+}
 
 /*
  * Call a function on all processors.  May be used during early boot while

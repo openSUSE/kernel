@@ -35,6 +35,8 @@
 #include <linux/list.h>
 #include <linux/delay.h>
 #include <xen/balloon.h>
+#include <xen/evtchn.h>
+#include <xen/gnttab.h>
 #include <asm/hypervisor.h>
 #include <scsi/scsi.h>
 #include <scsi/scsi_cmnd.h>

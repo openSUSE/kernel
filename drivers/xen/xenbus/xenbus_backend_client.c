@@ -37,7 +37,7 @@
 #include <xen/xenbus.h>
 
 /* Based on Rusty Russell's skeleton driver's map_page */
-struct vm_struct *xenbus_map_ring_valloc(struct xenbus_device *dev, int gnt_ref)
+struct vm_struct *xenbus_map_ring_valloc(struct xenbus_device *dev, grant_ref_t gnt_ref)
 {
 	struct gnttab_map_grant_ref op;
 	struct vm_struct *area;
@@ -68,32 +68,6 @@ struct vm_struct *xenbus_map_ring_valloc(struct xenbus_device *dev, int gnt_ref)
 EXPORT_SYMBOL_GPL(xenbus_map_ring_valloc);
 
 
-int xenbus_map_ring(struct xenbus_device *dev, int gnt_ref,
-		   grant_handle_t *handle, void *vaddr)
-{
-	struct gnttab_map_grant_ref op;
-	int ret;
-	
-	gnttab_set_map_op(&op, (unsigned long)vaddr, GNTMAP_host_map,
-			  gnt_ref, dev->otherend_id);
-
-	gnttab_check_GNTST_eagain_do_while(GNTTABOP_map_grant_ref, &op);
-
-	if (op.status != GNTST_okay) {
-		xenbus_dev_fatal(dev, op.status,
-				 "mapping in shared page %d from domain %d",
-				 gnt_ref, dev->otherend_id);
-		ret = -EINVAL;
-	} else {
-		*handle = op.handle;
-		ret = 0;
-	}
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(xenbus_map_ring);
-
-
 /* Based on Rusty Russell's skeleton driver's unmap_page */
 int xenbus_unmap_ring_vfree(struct xenbus_device *dev, struct vm_struct *area)
 {
@@ -116,25 +90,6 @@ int xenbus_unmap_ring_vfree(struct xenbus_device *dev, struct vm_struct *area)
 }
 EXPORT_SYMBOL_GPL(xenbus_unmap_ring_vfree);
 
-
-int xenbus_unmap_ring(struct xenbus_device *dev,
-		     grant_handle_t handle, void *vaddr)
-{
-	struct gnttab_unmap_grant_ref op;
-
-	gnttab_set_unmap_op(&op, (unsigned long)vaddr, GNTMAP_host_map,
-			    handle);
-	if (HYPERVISOR_grant_table_op(GNTTABOP_unmap_grant_ref, &op, 1))
-		BUG();
-
-	if (op.status != GNTST_okay)
-		xenbus_dev_error(dev, op.status,
-				 "unmapping page at handle %d error %d",
-				 handle, op.status);
-
-	return op.status == GNTST_okay ? 0 : -EINVAL;
-}
-EXPORT_SYMBOL_GPL(xenbus_unmap_ring);
 
 int xenbus_dev_is_online(struct xenbus_device *dev)
 {

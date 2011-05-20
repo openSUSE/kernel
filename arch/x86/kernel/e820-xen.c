@@ -11,6 +11,7 @@
 #include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/init.h>
+#include <linux/crash_dump.h>
 #include <linux/bootmem.h>
 #include <linux/pfn.h>
 #include <linux/suspend.h>
@@ -714,21 +715,15 @@ __init void e820_setup_gap(void)
  * boot_params.e820_map, others are passed via SETUP_E820_EXT node of
  * linked list of struct setup_data, which is parsed here.
  */
-void __init parse_e820_ext(struct setup_data *sdata, unsigned long pa_data)
+void __init parse_e820_ext(struct setup_data *sdata)
 {
-	u32 map_len;
 	int entries;
 	struct e820entry *extmap;
 
 	entries = sdata->len / sizeof(struct e820entry);
-	map_len = sdata->len + sizeof(struct setup_data);
-	if (map_len > PAGE_SIZE)
-		sdata = early_ioremap(pa_data, map_len);
 	extmap = (struct e820entry *)(sdata->data);
 	__append_e820_map(extmap, entries);
 	sanitize_e820_map(e820.map, ARRAY_SIZE(e820.map), &e820.nr_map);
-	if (map_len > PAGE_SIZE)
-		early_iounmap(sdata, map_len);
 	printk(KERN_INFO "extended physical RAM map:\n");
 	_e820_print_map(&e820, "extended");
 }
@@ -942,15 +937,23 @@ static int __init parse_memopt(char *p)
 	if (!p)
 		return -EINVAL;
 
-#ifdef CONFIG_X86_32
+#ifndef CONFIG_XEN
 	if (!strcmp(p, "nopentium")) {
+#ifdef CONFIG_X86_32
 		setup_clear_cpu_cap(X86_FEATURE_PSE);
 		return 0;
+#else
+		printk(KERN_WARNING "mem=nopentium ignored! (only supported on x86_32)\n");
+		return -EINVAL;
+#endif
 	}
 #endif
 
 	userdef = 1;
 	mem_size = memparse(p, &p);
+	/* don't remove all of memory when handling "mem={invalid}" param */
+	if (mem_size == 0)
+		return -EINVAL;
 #ifdef CONFIG_XEN
 	/*
 	 * A little less than 2% of available memory are needed for page
@@ -963,11 +966,11 @@ static int __init parse_memopt(char *p)
 	if ((mem_size >> (PAGE_SHIFT + 5)) > xen_start_info->nr_pages) {
 		u64 size = (u64)xen_start_info->nr_pages << 5;
 
-		pr_warning("mem=%Luk is invalid for an initial"
-			   " allocation of %luk, using %Luk\n",
-			   (unsigned long long)mem_size >> 10,
-			   xen_start_info->nr_pages << (PAGE_SHIFT - 10),
-			   (unsigned long long)size << (PAGE_SHIFT - 10));
+		pr_warn("mem=%Luk is invalid for an initial"
+			" allocation of %luk, using %Luk\n",
+			(unsigned long long)mem_size >> 10,
+			xen_start_info->nr_pages << (PAGE_SHIFT - 10),
+			(unsigned long long)size << (PAGE_SHIFT - 10));
 		mem_size = size << PAGE_SHIFT;
 	}
 #endif
@@ -1202,11 +1205,11 @@ char *__init default_machine_specific_memory_setup(void)
 	if ((maxmem >> (PAGE_SHIFT + 5)) > xen_start_info->nr_pages) {
 		unsigned long long size = (u64)xen_start_info->nr_pages << 5;
 
-		pr_warning("maxmem of %LuM is invalid for an initial"
-			   " allocation of %luM, using %LuM\n",
-			   maxmem >> 20,
-			   xen_start_info->nr_pages >> (20 - PAGE_SHIFT),
-			   size >> (20 - PAGE_SHIFT));
+		pr_warn("maxmem of %LuM is invalid for an initial"
+			" allocation of %luM, using %LuM\n",
+			maxmem >> 20,
+			xen_start_info->nr_pages >> (20 - PAGE_SHIFT),
+			size >> (20 - PAGE_SHIFT));
 		size <<= PAGE_SHIFT;
 		e820_remove_range(size, ULLONG_MAX - size, E820_RAM, 1);
 	}
@@ -1271,7 +1274,7 @@ void __init memblock_x86_fill(void)
 
 void __init memblock_find_dma_reserve(void)
 {
-#ifdef CONFIG_X86_64
+#if defined(CONFIG_X86_64) && !defined(CONFIG_XEN)
 	u64 free_size_pfn;
 	u64 mem_size_pfn;
 	/*

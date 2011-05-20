@@ -192,13 +192,13 @@ int usb_hcd_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 			"Found HC with no IRQ.  Check BIOS/PCI %s setup!\n",
 			pci_name(dev));
 		retval = -ENODEV;
-		goto err1;
+		goto disable_pci;
 	}
 
 	hcd = usb_create_hcd(driver, &dev->dev, pci_name(dev));
 	if (!hcd) {
 		retval = -ENOMEM;
-		goto err1;
+		goto disable_pci;
 	}
 
 	if (driver->flags & HCD_MEMORY) {
@@ -209,13 +209,13 @@ int usb_hcd_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 				driver->description)) {
 			dev_dbg(&dev->dev, "controller already in use\n");
 			retval = -EBUSY;
-			goto err2;
+			goto clear_companion;
 		}
 		hcd->regs = ioremap_nocache(hcd->rsrc_start, hcd->rsrc_len);
 		if (hcd->regs == NULL) {
 			dev_dbg(&dev->dev, "error mapping memory\n");
 			retval = -EFAULT;
-			goto err3;
+			goto release_mem_region;
 		}
 
 	} else {
@@ -236,7 +236,7 @@ int usb_hcd_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 		if (region == PCI_ROM_RESOURCE) {
 			dev_dbg(&dev->dev, "no i/o regions available\n");
 			retval = -EBUSY;
-			goto err2;
+			goto clear_companion;
 		}
 	}
 
@@ -244,24 +244,24 @@ int usb_hcd_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 
 	retval = usb_add_hcd(hcd, dev->irq, IRQF_DISABLED | IRQF_SHARED);
 	if (retval != 0)
-		goto err4;
+		goto unmap_registers;
 	set_hs_companion(dev, hcd);
 
 	if (pci_dev_run_wake(dev))
 		pm_runtime_put_noidle(&dev->dev);
 	return retval;
 
- err4:
+unmap_registers:
 	if (driver->flags & HCD_MEMORY) {
 		iounmap(hcd->regs);
- err3:
+release_mem_region:
 		release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
 	} else
 		release_region(hcd->rsrc_start, hcd->rsrc_len);
- err2:
+clear_companion:
 	clear_hs_companion(dev, hcd);
 	usb_put_hcd(hcd);
- err1:
+disable_pci:
 	pci_disable_device(dev);
 	dev_err(&dev->dev, "init %s fail, %d\n", pci_name(dev), retval);
 	return retval;
@@ -335,7 +335,7 @@ void usb_hcd_pci_shutdown(struct pci_dev *dev)
 }
 EXPORT_SYMBOL_GPL(usb_hcd_pci_shutdown);
 
-#ifdef	CONFIG_PM_OPS
+#ifdef	CONFIG_PM
 
 #ifdef	CONFIG_PPC_PMAC
 static void powermac_set_asic(struct pci_dev *pci_dev, int enable)
@@ -367,6 +367,13 @@ static int check_root_hub_suspended(struct device *dev)
 		dev_warn(dev, "Root hub is not suspended\n");
 		return -EBUSY;
 	}
+	if (hcd->shared_hcd) {
+		hcd = hcd->shared_hcd;
+		if (HCD_RH_RUNNING(hcd)) {
+			dev_warn(dev, "Secondary root hub is not suspended\n");
+			return -EBUSY;
+		}
+	}
 	return 0;
 }
 
@@ -391,11 +398,16 @@ static int suspend_common(struct device *dev, bool do_wakeup)
 		 */
 		if (do_wakeup && HCD_WAKEUP_PENDING(hcd))
 			return -EBUSY;
+		if (do_wakeup && hcd->shared_hcd &&
+				HCD_WAKEUP_PENDING(hcd->shared_hcd))
+			return -EBUSY;
 		retval = hcd->driver->pci_suspend(hcd, do_wakeup);
 		suspend_report_result(hcd->driver->pci_suspend, retval);
 
 		/* Check again in case wakeup raced with pci_suspend */
-		if (retval == 0 && do_wakeup && HCD_WAKEUP_PENDING(hcd)) {
+		if ((retval == 0 && do_wakeup && HCD_WAKEUP_PENDING(hcd)) ||
+				(retval == 0 && do_wakeup && hcd->shared_hcd &&
+				 HCD_WAKEUP_PENDING(hcd->shared_hcd))) {
 			if (hcd->driver->pci_resume)
 				hcd->driver->pci_resume(hcd, false);
 			retval = -EBUSY;
@@ -426,7 +438,9 @@ static int resume_common(struct device *dev, int event)
 	struct usb_hcd		*hcd = pci_get_drvdata(pci_dev);
 	int			retval;
 
-	if (HCD_RH_RUNNING(hcd)) {
+	if (HCD_RH_RUNNING(hcd) ||
+			(hcd->shared_hcd &&
+			 HCD_RH_RUNNING(hcd->shared_hcd))) {
 		dev_dbg(dev, "can't resume, not suspended!\n");
 		return 0;
 	}
@@ -440,6 +454,8 @@ static int resume_common(struct device *dev, int event)
 	pci_set_master(pci_dev);
 
 	clear_bit(HCD_FLAG_SAW_IRQ, &hcd->flags);
+	if (hcd->shared_hcd)
+		clear_bit(HCD_FLAG_SAW_IRQ, &hcd->shared_hcd->flags);
 
 	if (hcd->driver->pci_resume && !HCD_DEAD(hcd)) {
 		if (event != PM_EVENT_AUTO_RESUME)
@@ -449,6 +465,8 @@ static int resume_common(struct device *dev, int event)
 				event == PM_EVENT_RESTORE);
 		if (retval) {
 			dev_err(dev, "PCI post-resume error %d!\n", retval);
+			if (hcd->shared_hcd)
+				usb_hc_died(hcd->shared_hcd);
 			usb_hc_died(hcd);
 		}
 	}
@@ -474,8 +492,9 @@ static int hcd_pci_suspend_noirq(struct device *dev)
 
 	pci_save_state(pci_dev);
 
-	/* If the root hub is dead rather than suspended,
-	 * disallow remote wakeup.
+	/* If the root hub is dead rather than suspended, disallow remote
+	 * wakeup.  usb_hc_died() should ensure that both hosts are marked as
+	 * dying, so we only need to check the primary roothub.
 	 */
 	if (HCD_DEAD(hcd))
 		device_set_wakeup_enable(dev, 0);
@@ -579,4 +598,4 @@ const struct dev_pm_ops usb_hcd_pci_pm_ops = {
 };
 EXPORT_SYMBOL_GPL(usb_hcd_pci_pm_ops);
 
-#endif	/* CONFIG_PM_OPS */
+#endif	/* CONFIG_PM */

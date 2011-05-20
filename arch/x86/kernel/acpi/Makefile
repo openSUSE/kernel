@@ -15,4 +15,4 @@ $(obj)/wakeup_rm.o:    $(obj)/realmode/wakeup.bin
 $(obj)/realmode/wakeup.bin: FORCE
 	$(Q)$(MAKE) $(build)=$(obj)/realmode
 
-disabled-obj-$(CONFIG_XEN)	:= cstate.o wakeup_%.o
+disabled-obj-$(CONFIG_XEN)	:= cstate.o sleep.o wakeup_%.o

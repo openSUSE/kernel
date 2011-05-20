@@ -40,53 +40,53 @@
 
 /*
  * This is the 'wire' format for packets:
- *  Request 1: netif_tx_request -- NETTXF_* (any flags)
- * [Request 2: netif_tx_extra]  (only if request 1 has NETTXF_extra_info)
- * [Request 3: netif_tx_extra]  (only if request 2 has XEN_NETIF_EXTRA_MORE)
- *  Request 4: netif_tx_request -- NETTXF_more_data
- *  Request 5: netif_tx_request -- NETTXF_more_data
+ *  Request 1: xen_netif_tx_request  -- XEN_NETTXF_* (any flags)
+ * [Request 2: xen_netif_extra_info]    (only if request 1 has XEN_NETTXF_extra_info)
+ * [Request 3: xen_netif_extra_info]    (only if request 2 has XEN_NETIF_EXTRA_MORE)
+ *  Request 4: xen_netif_tx_request  -- XEN_NETTXF_more_data
+ *  Request 5: xen_netif_tx_request  -- XEN_NETTXF_more_data
  *  ...
- *  Request N: netif_tx_request -- 0
+ *  Request N: xen_netif_tx_request  -- 0
  */
 
 /* Protocol checksum field is blank in the packet (hardware offload)? */
-#define _NETTXF_csum_blank     (0)
-#define  NETTXF_csum_blank     (1U<<_NETTXF_csum_blank)
+#define _XEN_NETTXF_csum_blank		(0)
+#define  XEN_NETTXF_csum_blank		(1U<<_XEN_NETTXF_csum_blank)
 
 /* Packet data has been validated against protocol checksum. */
-#define _NETTXF_data_validated (1)
-#define  NETTXF_data_validated (1U<<_NETTXF_data_validated)
+#define _XEN_NETTXF_data_validated	(1)
+#define  XEN_NETTXF_data_validated	(1U<<_XEN_NETTXF_data_validated)
 
 /* Packet continues in the next request descriptor. */
-#define _NETTXF_more_data      (2)
-#define  NETTXF_more_data      (1U<<_NETTXF_more_data)
+#define _XEN_NETTXF_more_data		(2)
+#define  XEN_NETTXF_more_data		(1U<<_XEN_NETTXF_more_data)
 
 /* Packet to be followed by extra descriptor(s). */
-#define _NETTXF_extra_info     (3)
-#define  NETTXF_extra_info     (1U<<_NETTXF_extra_info)
+#define _XEN_NETTXF_extra_info		(3)
+#define  XEN_NETTXF_extra_info		(1U<<_XEN_NETTXF_extra_info)
 
 struct netif_tx_request {
     grant_ref_t gref;      /* Reference to buffer page */
     uint16_t offset;       /* Offset within buffer page */
-    uint16_t flags;        /* NETTXF_* */
+    uint16_t flags;        /* XEN_NETTXF_* */
     uint16_t id;           /* Echoed in response message. */
     uint16_t size;         /* Packet size in bytes.       */
 };
 typedef struct netif_tx_request netif_tx_request_t;
 
 /* Types of netif_extra_info descriptors. */
-#define XEN_NETIF_EXTRA_TYPE_NONE      (0)  /* Never used - invalid */
-#define XEN_NETIF_EXTRA_TYPE_GSO       (1)  /* u.gso */
-#define XEN_NETIF_EXTRA_TYPE_MCAST_ADD (2)  /* u.mcast */
-#define XEN_NETIF_EXTRA_TYPE_MCAST_DEL (3)  /* u.mcast */
-#define XEN_NETIF_EXTRA_TYPE_MAX       (4)
+#define XEN_NETIF_EXTRA_TYPE_NONE	(0)  /* Never used - invalid */
+#define XEN_NETIF_EXTRA_TYPE_GSO	(1)  /* u.gso */
+#define XEN_NETIF_EXTRA_TYPE_MCAST_ADD	(2)  /* u.mcast */
+#define XEN_NETIF_EXTRA_TYPE_MCAST_DEL	(3)  /* u.mcast */
+#define XEN_NETIF_EXTRA_TYPE_MAX	(4)
 
-/* netif_extra_info flags. */
-#define _XEN_NETIF_EXTRA_FLAG_MORE (0)
-#define XEN_NETIF_EXTRA_FLAG_MORE  (1U<<_XEN_NETIF_EXTRA_FLAG_MORE)
+/* xen_netif_extra_info flags. */
+#define _XEN_NETIF_EXTRA_FLAG_MORE	(0)
+#define  XEN_NETIF_EXTRA_FLAG_MORE	(1U<<_XEN_NETIF_EXTRA_FLAG_MORE)
 
 /* GSO types - only TCPv4 currently supported. */
-#define XEN_NETIF_GSO_TYPE_TCPV4        (1)
+#define XEN_NETIF_GSO_TYPE_TCPV4	(1)
 
 /*
  * This structure needs to fit within both netif_tx_request and
@@ -145,7 +145,7 @@ typedef struct netif_extra_info netif_extra_info_t;
 
 struct netif_tx_response {
     uint16_t id;
-    int16_t  status;       /* NETIF_RSP_* */
+    int16_t  status;       /* XEN_NETIF_RSP_* */
 };
 typedef struct netif_tx_response netif_tx_response_t;
 
@@ -156,25 +156,29 @@ struct netif_rx_request {
 typedef struct netif_rx_request netif_rx_request_t;
 
 /* Packet data has been validated against protocol checksum. */
-#define _NETRXF_data_validated (0)
-#define  NETRXF_data_validated (1U<<_NETRXF_data_validated)
+#define _XEN_NETRXF_data_validated	(0)
+#define  XEN_NETRXF_data_validated	(1U<<_XEN_NETRXF_data_validated)
 
 /* Protocol checksum field is blank in the packet (hardware offload)? */
-#define _NETRXF_csum_blank     (1)
-#define  NETRXF_csum_blank     (1U<<_NETRXF_csum_blank)
+#define _XEN_NETRXF_csum_blank		(1)
+#define  XEN_NETRXF_csum_blank		(1U<<_XEN_NETRXF_csum_blank)
 
 /* Packet continues in the next request descriptor. */
-#define _NETRXF_more_data      (2)
-#define  NETRXF_more_data      (1U<<_NETRXF_more_data)
+#define _XEN_NETRXF_more_data		(2)
+#define  XEN_NETRXF_more_data		(1U<<_XEN_NETRXF_more_data)
 
 /* Packet to be followed by extra descriptor(s). */
-#define _NETRXF_extra_info     (3)
-#define  NETRXF_extra_info     (1U<<_NETRXF_extra_info)
+#define _XEN_NETRXF_extra_info		(3)
+#define  XEN_NETRXF_extra_info		(1U<<_XEN_NETRXF_extra_info)
+
+/* GSO Prefix descriptor. */
+#define _XEN_NETRXF_gso_prefix		(4)
+#define  XEN_NETRXF_gso_prefix		(1U<<_XEN_NETRXF_gso_prefix)
 
 struct netif_rx_response {
     uint16_t id;
     uint16_t offset;       /* Offset in page of start of received packet  */
-    uint16_t flags;        /* NETRXF_* */
+    uint16_t flags;        /* XEN_NETRXF_* */
     int16_t  status;       /* -ve: BLKIF_RSP_* ; +ve: Rx'ed pkt size. */
 };
 typedef struct netif_rx_response netif_rx_response_t;
@@ -200,10 +204,10 @@ DEFINE_RING_TYPES(xen_netif_rx,
 #define xen_netif_extra_info netif_extra_info
 #endif
 
-#define NETIF_RSP_DROPPED         -2
-#define NETIF_RSP_ERROR           -1
-#define NETIF_RSP_OKAY             0
+#define XEN_NETIF_RSP_DROPPED	-2
+#define XEN_NETIF_RSP_ERROR	-1
+#define XEN_NETIF_RSP_OKAY	 0
 /* No response: used for auxiliary requests (e.g., netif_tx_extra). */
-#define NETIF_RSP_NULL             1
+#define XEN_NETIF_RSP_NULL	 1
 
 #endif

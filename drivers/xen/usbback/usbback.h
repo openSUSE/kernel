@@ -55,10 +55,8 @@
 #include <linux/wait.h>
 #include <linux/list.h>
 #include <linux/kref.h>
-#include <xen/evtchn.h>
-#include <xen/gnttab.h>
-#include <xen/interface/xen.h>
 #include <xen/xenbus.h>
+#include <xen/interface/event_channel.h>
 #include <xen/interface/io/usbif.h>
 
 struct usbstub;
@@ -90,11 +88,6 @@ typedef struct usbif_st {
 	spinlock_t urb_ring_lock;
 	spinlock_t conn_ring_lock;
 	atomic_t refcnt;
-
-	grant_handle_t urb_shmem_handle;
-	grant_ref_t urb_shmem_ref;
-	grant_handle_t conn_shmem_handle;
-	grant_ref_t conn_shmem_ref;
 
 	struct xenbus_watch backend_watch;
 
@@ -139,8 +132,8 @@ struct usbstub {
 usbif_t *usbif_alloc(domid_t domid, unsigned int handle);
 void usbif_disconnect(usbif_t *usbif);
 void usbif_free(usbif_t *usbif);
-int usbif_map(usbif_t *usbif, unsigned long urb_ring_ref,
-		unsigned long conn_ring_ref, unsigned int evtchn);
+int usbif_map(usbif_t *usbif, grant_ref_t urb_ring_ref,
+	      grant_ref_t conn_ring_ref, evtchn_port_t);
 
 #define usbif_get(_b) (atomic_inc(&(_b)->refcnt))
 #define usbif_put(_b) \

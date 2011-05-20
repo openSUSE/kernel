@@ -1103,11 +1103,11 @@ static unsigned long unmap_page_range(struct mmu_gather *tlb,
 	return addr;
 }
 
-#ifdef CONFIG_SMP
-/* zap one pte page at a time */
-#define ZAP_BLOCK_SIZE		(FREE_PTE_NR * PAGE_SIZE)
+#ifdef CONFIG_PREEMPT
+# define ZAP_BLOCK_SIZE	(8 * PAGE_SIZE)
 #else
-#define ZAP_BLOCK_SIZE		(253 * PAGE_SIZE)
+/* No preempt: go for improved straight-line efficiency */
+# define ZAP_BLOCK_SIZE	(1024 * PAGE_SIZE)
 #endif
 
 /**
@@ -1428,11 +1428,59 @@ no_page_table:
 
 static inline int stack_guard_page(struct vm_area_struct *vma, unsigned long addr)
 {
-	return (vma->vm_flags & VM_GROWSDOWN) &&
-		(vma->vm_start == addr) &&
-		!vma_stack_continue(vma->vm_prev, addr);
+	return stack_guard_page_start(vma, addr) ||
+	       stack_guard_page_end(vma, addr+PAGE_SIZE);
 }
 
+/**
+ * __get_user_pages() - pin user pages in memory
+ * @tsk:	task_struct of target task
+ * @mm:		mm_struct of target mm
+ * @start:	starting user address
+ * @nr_pages:	number of pages from start to pin
+ * @gup_flags:	flags modifying pin behaviour
+ * @pages:	array that receives pointers to the pages pinned.
+ *		Should be at least nr_pages long. Or NULL, if caller
+ *		only intends to ensure the pages are faulted in.
+ * @vmas:	array of pointers to vmas corresponding to each page.
+ *		Or NULL if the caller does not require them.
+ * @nonblocking: whether waiting for disk IO or mmap_sem contention
+ *
+ * Returns number of pages pinned. This may be fewer than the number
+ * requested. If nr_pages is 0 or negative, returns 0. If no pages
+ * were pinned, returns -errno. Each page returned must be released
+ * with a put_page() call when it is finished with. vmas will only
+ * remain valid while mmap_sem is held.
+ *
+ * Must be called with mmap_sem held for read or write.
+ *
+ * __get_user_pages walks a process's page tables and takes a reference to
+ * each struct page that each user address corresponds to at a given
+ * instant. That is, it takes the page that would be accessed if a user
+ * thread accesses the given user virtual address at that instant.
+ *
+ * This does not guarantee that the page exists in the user mappings when
+ * __get_user_pages returns, and there may even be a completely different
+ * page there in some cases (eg. if mmapped pagecache has been invalidated
+ * and subsequently re faulted). However it does guarantee that the page
+ * won't be freed completely. And mostly callers simply care that the page
+ * contains data that was valid *at some point in time*. Typically, an IO
+ * or similar operation cannot guarantee anything stronger anyway because
+ * locks can't be held over the syscall boundary.
+ *
+ * If @gup_flags & FOLL_WRITE == 0, the page must not be written to. If
+ * the page is written to, set_page_dirty (or set_page_dirty_lock, as
+ * appropriate) must be called after the page is finished with, and
+ * before put_page is called.
+ *
+ * If @nonblocking != NULL, __get_user_pages will not wait for disk IO
+ * or mmap_sem contention, and if waiting is needed to pin all pages,
+ * *@nonblocking will be set to 0.
+ *
+ * In most cases, get_user_pages or get_user_pages_fast should be used
+ * instead of __get_user_pages. __get_user_pages should be used only if
+ * you need some special @gup_flags.
+ */
 int __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 		     unsigned long start, int nr_pages, unsigned int gup_flags,
 		     struct page **pages, struct vm_area_struct **vmas,
@@ -1460,7 +1508,7 @@ int __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 		struct vm_area_struct *vma;
 
 		vma = find_extend_vma(mm, start);
-		if (!vma && in_gate_area(tsk, start)) {
+		if (!vma && in_gate_area(mm, start)) {
 			unsigned long pg = start & PAGE_MASK;
 			pgd_t *pgd;
 			pud_t *pud;
@@ -1486,7 +1534,7 @@ int __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 				pte_unmap(pte);
 				return i ? : -EFAULT;
 			}
-			vma = get_gate_vma(tsk);
+			vma = get_gate_vma(mm);
 			if (pages) {
 				struct page *page;
 
@@ -1540,12 +1588,6 @@ int __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 			continue;
 		}
 
-		/*
-		 * For mlock, just skip the stack guard page.
-		 */
-		if ((gup_flags & FOLL_MLOCK) && stack_guard_page(vma, start))
-			goto next_page;
-
 		do {
 			struct page *page;
 			unsigned int foll_flags = gup_flags;
@@ -1562,10 +1604,17 @@ int __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 				int ret;
 				unsigned int fault_flags = 0;
 
+				/* For mlock, just skip the stack guard page. */
+				if (foll_flags & FOLL_MLOCK) {
+					if (stack_guard_page(vma, start))
+						goto next_page;
+				}
 				if (foll_flags & FOLL_WRITE)
 					fault_flags |= FAULT_FLAG_WRITE;
 				if (nonblocking)
 					fault_flags |= FAULT_FLAG_ALLOW_RETRY;
+				if (foll_flags & FOLL_NOWAIT)
+					fault_flags |= (FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_RETRY_NOWAIT);
 
 				ret = handle_mm_fault(mm, vma, start,
 							fault_flags);
@@ -1573,19 +1622,30 @@ int __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 				if (ret & VM_FAULT_ERROR) {
 					if (ret & VM_FAULT_OOM)
 						return i ? i : -ENOMEM;
-					if (ret &
-					    (VM_FAULT_HWPOISON|VM_FAULT_HWPOISON_LARGE|
-					     VM_FAULT_SIGBUS))
+					if (ret & (VM_FAULT_HWPOISON |
+						   VM_FAULT_HWPOISON_LARGE)) {
+						if (i)
+							return i;
+						else if (gup_flags & FOLL_HWPOISON)
+							return -EHWPOISON;
+						else
+							return -EFAULT;
+					}
+					if (ret & VM_FAULT_SIGBUS)
 						return i ? i : -EFAULT;
 					BUG();
 				}
-				if (ret & VM_FAULT_MAJOR)
-					tsk->maj_flt++;
-				else
-					tsk->min_flt++;
+
+				if (tsk) {
+					if (ret & VM_FAULT_MAJOR)
+						tsk->maj_flt++;
+					else
+						tsk->min_flt++;
+				}
 
 				if (ret & VM_FAULT_RETRY) {
-					*nonblocking = 0;
+					if (nonblocking)
+						*nonblocking = 0;
 					return i;
 				}
 
@@ -1625,10 +1685,12 @@ next_page:
 	} while (nr_pages);
 	return i;
 }
+EXPORT_SYMBOL(__get_user_pages);
 
 /**
  * get_user_pages() - pin user pages in memory
- * @tsk:	task_struct of target task
+ * @tsk:	the task_struct to use for page fault accounting, or
+ *		NULL if faults are not to be recorded.
  * @mm:		mm_struct of target mm
  * @start:	starting user address
  * @nr_pages:	number of pages from start to pin
@@ -1722,93 +1784,6 @@ struct page *get_dump_page(unsigned long addr)
 	return page;
 }
 #endif /* CONFIG_ELF_CORE */
-
-static int zeromap_pte_range(struct mm_struct *mm, pmd_t *pmd,
-			unsigned long addr, unsigned long end, pgprot_t prot)
-{
-	pte_t *pte;
-	spinlock_t *ptl;
-	int err = 0;
-
-	pte = pte_alloc_map_lock(mm, pmd, addr, &ptl);
-	if (!pte)
-		return -EAGAIN;
-	arch_enter_lazy_mmu_mode();
-	do {
-		pte_t zero_pte;
-
-		if (unlikely(!pte_none(*pte))) {
-			err = -EEXIST;
-			pte++;
-			break;
-		}
-		zero_pte = pte_mkspecial(pfn_pte(my_zero_pfn(addr), prot));
-		zero_pte = pte_wrprotect(zero_pte);
-		set_pte_at(mm, addr, pte, zero_pte);
-	} while (pte++, addr += PAGE_SIZE, addr != end);
-	arch_leave_lazy_mmu_mode();
-	pte_unmap_unlock(pte - 1, ptl);
-	return err;
-}
-
-static inline int zeromap_pmd_range(struct mm_struct *mm, pud_t *pud,
-			unsigned long addr, unsigned long end, pgprot_t prot)
-{
-	pmd_t *pmd;
-	unsigned long next;
-	int err;
-
-	pmd = pmd_alloc(mm, pud, addr);
-	if (!pmd)
-		return -EAGAIN;
-	do {
-		next = pmd_addr_end(addr, end);
-		err = zeromap_pte_range(mm, pmd, addr, next, prot);
-		if (err)
-			break;
-	} while (pmd++, addr = next, addr != end);
-	return err;
-}
-
-static inline int zeromap_pud_range(struct mm_struct *mm, pgd_t *pgd,
-			unsigned long addr, unsigned long end, pgprot_t prot)
-{
-	pud_t *pud;
-	unsigned long next;
-	int err;
-
-	pud = pud_alloc(mm, pgd, addr);
-	if (!pud)
-		return -EAGAIN;
-	do {
-		next = pud_addr_end(addr, end);
-		err = zeromap_pmd_range(mm, pud, addr, next, prot);
-		if (err)
-			break;
-	} while (pud++, addr = next, addr != end);
-	return err;
-}
-
-int zeromap_page_range(struct vm_area_struct *vma,
-			unsigned long addr, unsigned long size, pgprot_t prot)
-{
-	pgd_t *pgd;
-	unsigned long next;
-	unsigned long end = addr + size;
-	struct mm_struct *mm = vma->vm_mm;
-	int err;
-
-	BUG_ON(addr >= end);
-	pgd = pgd_offset(mm, addr);
-	flush_cache_range(vma, addr, end);
-	do {
-		next = pgd_addr_end(addr, end);
-		err = zeromap_pud_range(mm, pgd, addr, next, prot);
-		if (err)
-			break;
-	} while (pgd++, addr = next, addr != end);
-	return err;
-}
 
 pte_t *__get_locked_pte(struct mm_struct *mm, unsigned long addr,
 			spinlock_t **ptl)
@@ -2253,10 +2228,10 @@ EXPORT_SYMBOL_GPL(apply_to_page_range);
  * handle_pte_fault chooses page fault handler according to an entry
  * which was read non-atomically.  Before making any commitment, on
  * those architectures or configurations (e.g. i386 with PAE) which
- * might give a mix of unmatched parts, do_swap_page and do_file_page
+ * might give a mix of unmatched parts, do_swap_page and do_nonlinear_fault
  * must check under lock before unmapping the pte and proceeding
  * (but do_wp_page is only called after already making such a check;
- * and do_anonymous_page and do_no_page can safely check later on).
+ * and do_anonymous_page can safely check later on).
  */
 static inline int pte_unmap_same(struct mm_struct *mm, pmd_t *pmd,
 				pte_t *page_table, pte_t orig_pte)
@@ -2452,7 +2427,7 @@ reuse:
 		 * bit after it clear all dirty ptes, but before a racing
 		 * do_wp_page installs a dirty pte.
 		 *
-		 * do_no_page is protected similarly.
+		 * __do_fault is protected similarly.
 		 */
 		if (!page_mkwrite) {
 			wait_on_page_locked(dirty_page);
@@ -2845,7 +2820,7 @@ static int do_swap_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	swp_entry_t entry;
 	pte_t pte;
 	int locked;
-	struct mem_cgroup *ptr = NULL;
+	struct mem_cgroup *ptr;
 	int exclusive = 0;
 	int ret = 0;
 
@@ -3577,7 +3552,7 @@ static int __init gate_vma_init(void)
 __initcall(gate_vma_init);
 #endif
 
-struct vm_area_struct *get_gate_vma(struct task_struct *tsk)
+struct vm_area_struct *get_gate_vma(struct mm_struct *mm)
 {
 #ifdef AT_SYSINFO_EHDR
 	return &gate_vma;
@@ -3586,7 +3561,7 @@ struct vm_area_struct *get_gate_vma(struct task_struct *tsk)
 #endif
 }
 
-int in_gate_area_no_task(unsigned long addr)
+int in_gate_area_no_mm(unsigned long addr)
 {
 #ifdef AT_SYSINFO_EHDR
 	if ((addr >= FIXADDR_USER_START) && (addr < FIXADDR_USER_END))
@@ -3727,19 +3702,14 @@ int generic_access_phys(struct vm_area_struct *vma, unsigned long addr,
 #endif
 
 /*
- * Access another process' address space.
- * Source/target buffer must be kernel space,
- * Do not walk the page table directly, use get_user_pages
+ * Access another process' address space as given in mm.  If non-NULL, use the
+ * given task for page fault accounting.
  */
-int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, int len, int write)
+static int __access_remote_vm(struct task_struct *tsk, struct mm_struct *mm,
+		unsigned long addr, void *buf, int len, int write)
 {
-	struct mm_struct *mm;
 	struct vm_area_struct *vma;
 	void *old_buf = buf;
-
-	mm = get_task_mm(tsk);
-	if (!mm)
-		return 0;
 
 	down_read(&mm->mmap_sem);
 	/* ignore errors, just check how much was successfully transferred */
@@ -3757,7 +3727,7 @@ int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, in
 			 */
 #ifdef CONFIG_HAVE_IOREMAP_PROT
 			vma = find_vma(mm, addr);
-			if (!vma)
+			if (!vma || vma->vm_start > addr)
 				break;
 			if (vma->vm_ops && vma->vm_ops->access)
 				ret = vma->vm_ops->access(vma, addr, buf,
@@ -3789,9 +3759,45 @@ int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, in
 		addr += bytes;
 	}
 	up_read(&mm->mmap_sem);
-	mmput(mm);
 
 	return buf - old_buf;
+}
+
+/**
+ * access_remote_vm - access another process' address space
+ * @mm:		the mm_struct of the target address space
+ * @addr:	start address to access
+ * @buf:	source or destination buffer
+ * @len:	number of bytes to transfer
+ * @write:	whether the access is a write
+ *
+ * The caller must hold a reference on @mm.
+ */
+int access_remote_vm(struct mm_struct *mm, unsigned long addr,
+		void *buf, int len, int write)
+{
+	return __access_remote_vm(NULL, mm, addr, buf, len, write);
+}
+
+/*
+ * Access another process' address space.
+ * Source/target buffer must be kernel space,
+ * Do not walk the page table directly, use get_user_pages
+ */
+int access_process_vm(struct task_struct *tsk, unsigned long addr,
+		void *buf, int len, int write)
+{
+	struct mm_struct *mm;
+	int ret;
+
+	mm = get_task_mm(tsk);
+	if (!mm)
+		return 0;
+
+	ret = __access_remote_vm(tsk, mm, addr, buf, len, write);
+	mmput(mm);
+
+	return ret;
 }
 
 /*

@@ -33,7 +33,7 @@
 #include "common.h"
 #include <xen/evtchn.h>
 #include <linux/kthread.h>
-#include <linux/delay.h>
+#include <linux/vmalloc.h>
 
 static struct kmem_cache *blkif_cachep;
 
@@ -55,75 +55,39 @@ blkif_t *blkif_alloc(domid_t domid)
 	return blkif;
 }
 
-static int map_frontend_page(blkif_t *blkif, unsigned long shared_page)
+int blkif_map(blkif_t *blkif, grant_ref_t ring_ref, evtchn_port_t evtchn)
 {
-	struct gnttab_map_grant_ref op;
-	int ret;
-
-	gnttab_set_map_op(&op, (unsigned long)blkif->blk_ring_area->addr,
-			  GNTMAP_host_map, shared_page, blkif->domid);
-
-	gnttab_check_GNTST_eagain_do_while(GNTTABOP_map_grant_ref, &op);
-
-	if (op.status == GNTST_okay) {
-		blkif->shmem_ref = shared_page;
-		blkif->shmem_handle = op.handle;
-		ret = 0;
-	} else {
-		DPRINTK(" Grant table operation failure %d!\n", (int)op.status);
-		ret = -EINVAL;
-	}
-
-	return ret;
-}
-
-static void unmap_frontend_page(blkif_t *blkif)
-{
-	struct gnttab_unmap_grant_ref op;
-
-	gnttab_set_unmap_op(&op, (unsigned long)blkif->blk_ring_area->addr,
-			    GNTMAP_host_map, blkif->shmem_handle);
-
-	if (HYPERVISOR_grant_table_op(GNTTABOP_unmap_grant_ref, &op, 1))
-		BUG();
-}
-
-int blkif_map(blkif_t *blkif, unsigned long shared_page, unsigned int evtchn)
-{
+	struct vm_struct *area;
 	int err;
 
 	/* Already connected through? */
 	if (blkif->irq)
 		return 0;
 
-	if ( (blkif->blk_ring_area = alloc_vm_area(PAGE_SIZE)) == NULL )
-		return -ENOMEM;
-
-	err = map_frontend_page(blkif, shared_page);
-	if (err) {
-		free_vm_area(blkif->blk_ring_area);
-		return err;
-	}
+	area = xenbus_map_ring_valloc(blkif->be->dev, ring_ref);
+	if (IS_ERR(area))
+		return PTR_ERR(area);
+	blkif->blk_ring_area = area;
 
 	switch (blkif->blk_protocol) {
 	case BLKIF_PROTOCOL_NATIVE:
 	{
 		blkif_sring_t *sring;
-		sring = (blkif_sring_t *)blkif->blk_ring_area->addr;
+		sring = (blkif_sring_t *)area->addr;
 		BACK_RING_INIT(&blkif->blk_rings.native, sring, PAGE_SIZE);
 		break;
 	}
 	case BLKIF_PROTOCOL_X86_32:
 	{
 		blkif_x86_32_sring_t *sring_x86_32;
-		sring_x86_32 = (blkif_x86_32_sring_t *)blkif->blk_ring_area->addr;
+		sring_x86_32 = (blkif_x86_32_sring_t *)area->addr;
 		BACK_RING_INIT(&blkif->blk_rings.x86_32, sring_x86_32, PAGE_SIZE);
 		break;
 	}
 	case BLKIF_PROTOCOL_X86_64:
 	{
 		blkif_x86_64_sring_t *sring_x86_64;
-		sring_x86_64 = (blkif_x86_64_sring_t *)blkif->blk_ring_area->addr;
+		sring_x86_64 = (blkif_x86_64_sring_t *)area->addr;
 		BACK_RING_INIT(&blkif->blk_rings.x86_64, sring_x86_64, PAGE_SIZE);
 		break;
 	}
@@ -135,8 +99,7 @@ int blkif_map(blkif_t *blkif, unsigned long shared_page, unsigned int evtchn)
 		blkif->domid, evtchn, blkif_be_int, 0, "blkif-backend", blkif);
 	if (err < 0)
 	{
-		unmap_frontend_page(blkif);
-		free_vm_area(blkif->blk_ring_area);
+		xenbus_unmap_ring_vfree(blkif->be->dev, area);
 		blkif->blk_rings.common.sring = NULL;
 		return err;
 	}
@@ -162,8 +125,7 @@ void blkif_disconnect(blkif_t *blkif)
 	}
 
 	if (blkif->blk_rings.common.sring) {
-		unmap_frontend_page(blkif);
-		free_vm_area(blkif->blk_ring_area);
+		xenbus_unmap_ring_vfree(blkif->be->dev, blkif->blk_ring_area);
 		blkif->blk_rings.common.sring = NULL;
 	}
 }

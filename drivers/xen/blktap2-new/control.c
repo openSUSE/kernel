@@ -28,14 +28,14 @@ blktap_control_get_minor(void)
 		if (!blktaps[minor])
 			break;
 
-	if (minor == MAX_BLKTAP_DEVICE)
+	if (minor == CONFIG_XEN_NR_TAP2_DEVICES)
 		goto fail;
 
 	if (minor == blktap_max_minor) {
 		void *p;
 		int n;
 
-		n = min(2 * blktap_max_minor, MAX_BLKTAP_DEVICE);
+		n = min(2 * blktap_max_minor, CONFIG_XEN_NR_TAP2_DEVICES);
 		p = krealloc(blktaps, n * sizeof(blktaps[0]), GFP_KERNEL);
 		if (!p)
 			goto fail;
@@ -149,7 +149,7 @@ blktap_control_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case BLKTAP2_IOCTL_FREE_TAP: {
 		int minor = arg;
 
-		if (minor > MAX_BLKTAP_DEVICE)
+		if (minor > CONFIG_XEN_NR_TAP2_DEVICES)
 			return -EINVAL;
 
 		tap = blktaps[minor];
@@ -230,7 +230,7 @@ blktap_control_init(void)
 
 	control_device = blktap_control.this_device;
 
-	blktap_max_minor = min(64, MAX_BLKTAP_DEVICE);
+	blktap_max_minor = min(64, CONFIG_XEN_NR_TAP2_DEVICES);
 	blktaps = kzalloc(blktap_max_minor * sizeof(blktaps[0]), GFP_KERNEL);
 	if (!blktaps) {
 		BTERR("failed to allocate blktap minor map");
