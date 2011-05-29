@@ -405,6 +405,7 @@ out:
 struct anon_vma *page_lock_anon_vma(struct page *page)
 {
 	struct anon_vma *anon_vma = NULL;
+	struct anon_vma *root_anon_vma;
 	unsigned long anon_mapping;
 
 	rcu_read_lock();
@@ -415,13 +416,15 @@ struct anon_vma *page_lock_anon_vma(struct page *page)
 		goto out;
 
 	anon_vma = (struct anon_vma *) (anon_mapping - PAGE_MAPPING_ANON);
-	if (mutex_trylock(&anon_vma->root->mutex)) {
+	root_anon_vma = ACCESS_ONCE(anon_vma->root);
+	if (mutex_trylock(&root_anon_vma->mutex)) {
 		/*
-		 * If we observe a !0 refcount, then holding the lock ensures
-		 * the anon_vma will not go away, see __put_anon_vma().
+		 * If the page is still mapped, then this anon_vma is still
+		 * its anon_vma, and holding the mutex ensures that it will
+		 * not go away, see __put_anon_vma().
 		 */
-		if (!atomic_read(&anon_vma->refcount)) {
-			anon_vma_unlock(anon_vma);
+		if (!page_mapped(page)) {
+			mutex_unlock(&root_anon_vma->mutex);
 			anon_vma = NULL;
 		}
 		goto out;
@@ -1014,7 +1017,7 @@ void do_page_add_anon_rmap(struct page *page,
 		return;
 
 	VM_BUG_ON(!PageLocked(page));
-	VM_BUG_ON(address < vma->vm_start || address >= vma->vm_end);
+	/* address might be in next vma when migration races vma_adjust */
 	if (first)
 		__page_set_anon_rmap(page, vma, address, exclusive);
 	else
@@ -1709,7 +1712,7 @@ void hugepage_add_anon_rmap(struct page *page,
 
 	BUG_ON(!PageLocked(page));
 	BUG_ON(!anon_vma);
-	BUG_ON(address < vma->vm_start || address >= vma->vm_end);
+	/* address might be in next vma when migration races vma_adjust */
 	first = atomic_inc_and_test(&page->_mapcount);
 	if (first)
 		__hugepage_set_anon_rmap(page, vma, address, 0);
