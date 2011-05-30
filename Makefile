@@ -1,8 +1,8 @@
-VERSION = 2
-PATCHLEVEL = 6
-SUBLEVEL = 39
-EXTRAVERSION =-7541-geee0f25
-NAME = Flesh-Eating Bats with Fangs
+VERSION = 3
+PATCHLEVEL = 0
+SUBLEVEL = 0
+EXTRAVERSION = -rc1-7728-g55922c9
+NAME = Sneaky Weasel
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
