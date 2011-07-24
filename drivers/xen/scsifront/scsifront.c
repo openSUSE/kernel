@@ -330,6 +330,7 @@ static int scsifront_queuecommand(struct Scsi_Host *shost,
 		sc->cmnd[5],sc->cmnd[6],sc->cmnd[7],sc->cmnd[8],sc->cmnd[9]);
 */
 	spin_lock_irqsave(shost->host_lock, flags);
+	scsi_cmd_get_serial(shost, sc);
 	if (RING_FULL(&info->ring)) {
 		spin_unlock_irqrestore(shost->host_lock, flags);
 		return SCSI_MLQUEUE_HOST_BUSY;

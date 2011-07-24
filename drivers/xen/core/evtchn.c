@@ -1427,7 +1427,7 @@ int irq_ignore_unhandled(unsigned int irq)
 {
 	struct physdev_irq_status_query irq_status = { .irq = irq };
 
-	if (!is_running_on_xen())
+	if (!is_running_on_xen() || irq >= nr_pirqs)
 		return 0;
 
 	if (HYPERVISOR_physdev_op(PHYSDEVOP_irq_status_query, &irq_status))

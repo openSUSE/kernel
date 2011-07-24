@@ -2366,6 +2366,9 @@ nfs4_proc_setattr(struct dentry *dentry, struct nfs_fattr *fattr,
 	struct nfs4_state *state = NULL;
 	int status;
 
+	if (pnfs_ld_layoutret_on_setattr(inode))
+		pnfs_return_layout(inode);
+
 	nfs_fattr_init(fattr);
 	
 	/* Search for an existing open(O_WRITE) file */
@@ -3180,6 +3183,11 @@ static int nfs4_proc_pathconf(struct nfs_server *server, struct nfs_fh *fhandle,
 	return err;
 }
 
+void __nfs4_read_done_cb(struct nfs_read_data *data)
+{
+	nfs_invalidate_atime(data->inode);
+}
+
 static int nfs4_read_done_cb(struct rpc_task *task, struct nfs_read_data *data)
 {
 	struct nfs_server *server = NFS_SERVER(data->inode);
@@ -3189,7 +3197,7 @@ static int nfs4_read_done_cb(struct rpc_task *task, struct nfs_read_data *data)
 		return -EAGAIN;
 	}
 
-	nfs_invalidate_atime(data->inode);
+	__nfs4_read_done_cb(data);
 	if (task->tk_status > 0)
 		renew_lease(server, data->timestamp);
 	return 0;
@@ -3203,7 +3211,8 @@ static int nfs4_read_done(struct rpc_task *task, struct nfs_read_data *data)
 	if (!nfs4_sequence_done(task, &data->res.seq_res))
 		return -EAGAIN;
 
-	return data->read_done_cb(task, data);
+	return data->read_done_cb ? data->read_done_cb(task, data) :
+				    nfs4_read_done_cb(task, data);
 }
 
 static void nfs4_proc_read_setup(struct nfs_read_data *data, struct rpc_message *msg)
@@ -3248,7 +3257,8 @@ static int nfs4_write_done(struct rpc_task *task, struct nfs_write_data *data)
 {
 	if (!nfs4_sequence_done(task, &data->res.seq_res))
 		return -EAGAIN;
-	return data->write_done_cb(task, data);
+	return data->write_done_cb ? data->write_done_cb(task, data) :
+		nfs4_write_done_cb(task, data);
 }
 
 /* Reset the the nfs_write_data to send the write to the MDS. */
@@ -5101,7 +5111,6 @@ static void nfs4_init_channel_attrs(struct nfs41_create_session_args *args)
 	if (mxresp_sz == 0)
 		mxresp_sz = NFS_MAX_FILE_IO_SIZE;
 	/* Fore channel attributes */
-	args->fc_attrs.headerpadsz = 0;
 	args->fc_attrs.max_rqst_sz = mxrqst_sz;
 	args->fc_attrs.max_resp_sz = mxresp_sz;
 	args->fc_attrs.max_ops = NFS4_MAX_OPS;
@@ -5114,7 +5123,6 @@ static void nfs4_init_channel_attrs(struct nfs41_create_session_args *args)
 		args->fc_attrs.max_ops, args->fc_attrs.max_reqs);
 
 	/* Back channel attributes */
-	args->bc_attrs.headerpadsz = 0;
 	args->bc_attrs.max_rqst_sz = PAGE_SIZE;
 	args->bc_attrs.max_resp_sz = PAGE_SIZE;
 	args->bc_attrs.max_resp_sz_cached = 0;
@@ -5134,8 +5142,6 @@ static int nfs4_verify_fore_channel_attrs(struct nfs41_create_session_args *args
 	struct nfs4_channel_attrs *sent = &args->fc_attrs;
 	struct nfs4_channel_attrs *rcvd = &session->fc_attrs;
 
-	if (rcvd->headerpadsz > sent->headerpadsz)
-		return -EINVAL;
 	if (rcvd->max_resp_sz > sent->max_resp_sz)
 		return -EINVAL;
 	/*
@@ -5681,6 +5687,88 @@ int nfs4_proc_layoutget(struct nfs4_layoutget *lgp)
 		status = pnfs_layout_process(lgp);
 	rpc_put_task(task);
 	dprintk("<-- %s status=%d\n", __func__, status);
+	return status;
+}
+
+static void
+nfs4_layoutreturn_prepare(struct rpc_task *task, void *calldata)
+{
+	struct nfs4_layoutreturn *lrp = calldata;
+
+	dprintk("--> %s\n", __func__);
+	if (nfs41_setup_sequence(lrp->clp->cl_session, &lrp->args.seq_args,
+				&lrp->res.seq_res, 0, task))
+		return;
+	rpc_call_start(task);
+}
+
+static void nfs4_layoutreturn_done(struct rpc_task *task, void *calldata)
+{
+	struct nfs4_layoutreturn *lrp = calldata;
+	struct nfs_server *server;
+	struct pnfs_layout_hdr *lo = NFS_I(lrp->args.inode)->layout;
+
+	dprintk("--> %s\n", __func__);
+
+	if (!nfs4_sequence_done(task, &lrp->res.seq_res))
+		return;
+
+	server = NFS_SERVER(lrp->args.inode);
+	if (nfs4_async_handle_error(task, server, NULL) == -EAGAIN) {
+		nfs_restart_rpc(task, lrp->clp);
+		return;
+	}
+	spin_lock(&lo->plh_inode->i_lock);
+	if (task->tk_status == 0) {
+		if (lrp->res.lrs_present) {
+			pnfs_set_layout_stateid(lo, &lrp->res.stateid, true);
+		} else
+			BUG_ON(!list_empty(&lo->plh_segs));
+	}
+	lo->plh_block_lgets--;
+	spin_unlock(&lo->plh_inode->i_lock);
+	dprintk("<-- %s\n", __func__);
+}
+
+static void nfs4_layoutreturn_release(void *calldata)
+{
+	struct nfs4_layoutreturn *lrp = calldata;
+
+	dprintk("--> %s\n", __func__);
+	put_layout_hdr(NFS_I(lrp->args.inode)->layout);
+	kfree(calldata);
+	dprintk("<-- %s\n", __func__);
+}
+
+static const struct rpc_call_ops nfs4_layoutreturn_call_ops = {
+	.rpc_call_prepare = nfs4_layoutreturn_prepare,
+	.rpc_call_done = nfs4_layoutreturn_done,
+	.rpc_release = nfs4_layoutreturn_release,
+};
+
+int nfs4_proc_layoutreturn(struct nfs4_layoutreturn *lrp)
+{
+	struct rpc_task *task;
+	struct rpc_message msg = {
+		.rpc_proc = &nfs4_procedures[NFSPROC4_CLNT_LAYOUTRETURN],
+		.rpc_argp = &lrp->args,
+		.rpc_resp = &lrp->res,
+	};
+	struct rpc_task_setup task_setup_data = {
+		.rpc_client = lrp->clp->cl_rpcclient,
+		.rpc_message = &msg,
+		.callback_ops = &nfs4_layoutreturn_call_ops,
+		.callback_data = lrp,
+	};
+	int status;
+
+	dprintk("--> %s\n", __func__);
+	task = rpc_run_task(&task_setup_data);
+	if (IS_ERR(task))
+		return PTR_ERR(task);
+	status = task->tk_status;
+	dprintk("<-- %s status=%d\n", __func__, status);
+	rpc_put_task(task);
 	return status;
 }
 

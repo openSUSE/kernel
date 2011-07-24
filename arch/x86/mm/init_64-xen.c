@@ -646,7 +646,7 @@ phys_pmd_init(pmd_t *pmd_page, unsigned long address, unsigned long end,
 
 	int i = pmd_index(address);
 
-	for (; i < PTRS_PER_PMD; i++, address += PMD_SIZE) {
+	for (; i < PTRS_PER_PMD; i++, address = (address & PMD_MASK) + PMD_SIZE) {
 		unsigned long pte_phys;
 		pmd_t *pmd = pmd_page + pmd_index(address);
 		pte_t *pte;
@@ -703,7 +703,16 @@ phys_pmd_init(pmd_t *pmd_page, unsigned long address, unsigned long end,
 			if (max_pfn_mapped)
 				make_page_readonly(__va(pte_phys),
 						   XENFEAT_writable_page_tables);
-			*pmd = __pmd(pte_phys | _PAGE_TABLE);
+			if (page_size_mask & (1 << PG_LEVEL_NUM)) {
+				mmu_update_t u;
+
+				u.ptr = arbitrary_virt_to_machine(pmd);
+				u.val = phys_to_machine(pte_phys) | _PAGE_TABLE;
+				if (HYPERVISOR_mmu_update(&u, 1, NULL,
+							  DOMID_SELF) < 0)
+					BUG();
+			} else
+				*pmd = __pmd(pte_phys | _PAGE_TABLE);
 		} else {
 			spin_lock(&init_mm.page_table_lock);
 			pmd_populate_kernel(&init_mm, pmd, __va(pte_phys));
@@ -735,7 +744,8 @@ phys_pud_init(pud_t *pud_page, unsigned long addr, unsigned long end,
 			if (!pud_large(*pud)) {
 				pmd = map_low_page(pmd_offset(pud, 0));
 				last_map_addr = phys_pmd_init(pmd, addr, end,
-							 page_size_mask, prot);
+					page_size_mask | (1 << PG_LEVEL_NUM),
+					prot);
 				unmap_low_page(pmd);
 				__flush_tlb_all();
 				continue;
@@ -770,7 +780,8 @@ phys_pud_init(pud_t *pud_page, unsigned long addr, unsigned long end,
 		}
 
 		pmd = alloc_low_page(&pmd_phys);
-		last_map_addr = phys_pmd_init(pmd, addr, end, page_size_mask,
+		last_map_addr = phys_pmd_init(pmd, addr, end,
+					      page_size_mask & ~(1 << PG_LEVEL_NUM),
 					      prot);
 		unmap_low_page(pmd);
 
@@ -986,7 +997,9 @@ void __init paging_init(void)
 	unsigned long max_zone_pfns[MAX_NR_ZONES];
 
 	memset(max_zone_pfns, 0, sizeof(max_zone_pfns));
+#ifdef CONFIG_ZONE_DMA
 	max_zone_pfns[ZONE_DMA] = MAX_DMA_PFN;
+#endif
 	max_zone_pfns[ZONE_DMA32] = MAX_DMA32_PFN;
 	max_zone_pfns[ZONE_NORMAL] = max_pfn;
 
@@ -1050,14 +1063,6 @@ int arch_add_memory(int nid, u64 start, u64 size)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(arch_add_memory);
-
-#if !defined(CONFIG_ACPI_NUMA) && defined(CONFIG_NUMA)
-int memory_add_physaddr_to_nid(u64 start)
-{
-	return 0;
-}
-EXPORT_SYMBOL_GPL(memory_add_physaddr_to_nid);
-#endif
 
 #endif /* CONFIG_MEMORY_HOTPLUG */
 

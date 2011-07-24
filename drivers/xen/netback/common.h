@@ -176,7 +176,6 @@ void netif_accel_init(void);
 
 void netif_disconnect(struct backend_info *be);
 
-void netif_set_features(netif_t *netif);
 netif_t *netif_alloc(struct device *parent, domid_t domid, unsigned int handle);
 int netif_map(struct backend_info *be, grant_ref_t tx_ring_ref,
 	      grant_ref_t rx_ring_ref, evtchn_port_t evtchn);

@@ -21,8 +21,6 @@
 static void __init i386_default_early_setup(void)
 {
 	/* Initialize 32bit specific setup functions */
-	if (is_initial_xendomain())
-		x86_init.resources.probe_roms = probe_roms;
 	x86_init.resources.reserve_resources = i386_reserve_resources;
 #ifndef CONFIG_XEN
 	x86_init.mpparse.setup_ioapic_ids = setup_ioapic_ids_from_mpc;

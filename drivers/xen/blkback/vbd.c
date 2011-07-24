@@ -75,7 +75,6 @@ int vbd_create(blkif_t *blkif, blkif_vdev_t handle, unsigned major,
 	}
 
 	vbd->bdev = bdev;
-	vbd->size = vbd_size(vbd);
 
 	if (vbd->bdev->bd_disk == NULL) {
 		DPRINTK("vbd_creat: device %08x doesn't exist.\n",
@@ -83,6 +82,8 @@ int vbd_create(blkif_t *blkif, blkif_vdev_t handle, unsigned major,
 		vbd_free(vbd);
 		return -ENOENT;
 	}
+
+	vbd->size = vbd_size(vbd);
 
 	if (vbd->bdev->bd_disk->flags & GENHD_FL_CD || cdrom)
 		vbd->type |= VDISK_CDROM;
@@ -114,8 +115,14 @@ int vbd_translate(struct phys_req *req, blkif_t *blkif, int operation)
 	if (vbd->bdev == NULL)
 		goto out;
 
-	if (unlikely((req->sector_number + req->nr_sects) > vbd_sz(vbd)))
-		goto out;
+	if (likely(req->nr_sects)) {
+		blkif_sector_t end = req->sector_number + req->nr_sects;
+
+		if (unlikely(end < req->sector_number))
+			goto out;
+		if (unlikely(end > vbd_sz(vbd)))
+			goto out;
+	}
 
 	req->dev  = vbd->pdevice;
 	req->bdev = vbd->bdev;

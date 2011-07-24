@@ -142,9 +142,9 @@ void pciback_release_pci_dev(struct pciback_device *pdev, struct pci_dev *dev)
 	spin_lock_irqsave(&vpci_dev->lock, flags);
 
 	for (slot = 0; slot < PCI_SLOT_MAX; slot++) {
-		struct pci_dev_entry *e, *tmp;
-		list_for_each_entry_safe(e, tmp, &vpci_dev->dev_list[slot],
-					 list) {
+		struct pci_dev_entry *e;
+
+		list_for_each_entry(e, &vpci_dev->dev_list[slot], list) {
 			if (e->dev == dev) {
 				list_del(&e->list);
 				found_dev = e->dev;

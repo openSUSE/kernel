@@ -362,7 +362,7 @@ static int connect_rings(struct backend_info *be)
 {
 	netif_t *netif = be->netif;
 	struct xenbus_device *dev = be->dev;
-	unsigned long tx_ring_ref, rx_ring_ref;
+	unsigned int tx_ring_ref, rx_ring_ref;
 	unsigned int evtchn, rx_copy;
 	int err;
 	int val;
@@ -370,8 +370,8 @@ static int connect_rings(struct backend_info *be)
 	DPRINTK("");
 
 	err = xenbus_gather(XBT_NIL, dev->otherend,
-			    "tx-ring-ref", "%lu", &tx_ring_ref,
-			    "rx-ring-ref", "%lu", &rx_ring_ref,
+			    "tx-ring-ref", "%u", &tx_ring_ref,
+			    "rx-ring-ref", "%u", &rx_ring_ref,
 			    "event-channel", "%u", &evtchn, NULL);
 	if (err) {
 		xenbus_dev_fatal(dev, err,
@@ -418,14 +418,11 @@ static int connect_rings(struct backend_info *be)
 		val = 0;
 	netif->csum = !val;
 
-	/* Set dev->features */
-	netif_set_features(netif);
-
 	/* Map the shared frame, irq etc. */
 	err = netif_map(be, tx_ring_ref, rx_ring_ref, evtchn);
 	if (err) {
 		xenbus_dev_fatal(dev, err,
-				 "mapping shared-frames %lu/%lu port %u",
+				 "mapping shared-frames %u/%u port %u",
 				 tx_ring_ref, rx_ring_ref, evtchn);
 		return err;
 	}

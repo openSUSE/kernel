@@ -82,6 +82,8 @@ static const char radeon_family_name[][16] = {
 	"CYPRESS",
 	"HEMLOCK",
 	"PALM",
+	"SUMO",
+	"SUMO2",
 	"BARTS",
 	"TURKS",
 	"CAICOS",
@@ -213,6 +215,8 @@ int radeon_wb_init(struct radeon_device *rdev)
 		return r;
 	}
 
+	/* clear wb memory */
+	memset((char *)rdev->wb.wb, 0, RADEON_GPU_PAGE_SIZE);
 	/* disable event_write fences */
 	rdev->wb.use_event = false;
 	/* disabled via module param */
@@ -936,6 +940,9 @@ int radeon_resume_kms(struct drm_device *dev)
 	radeon_fbdev_set_suspend(rdev, 0);
 	console_unlock();
 
+	/* init dig PHYs */
+	if (rdev->is_atom_bios)
+		radeon_atom_encoder_init(rdev);
 	/* reset hpd state */
 	radeon_hpd_init(rdev);
 	/* blat the mode back in */

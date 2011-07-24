@@ -169,7 +169,7 @@ static inline unsigned int acpi_processor_cstate_check(unsigned int max_cstate)
 	    boot_cpu_data.x86_model <= 0x05 &&
 	    boot_cpu_data.x86_mask < 0x0A)
 		return 1;
-	else if (c1e_detected)
+	else if (amd_e400_c1e_detected)
 		return 1;
 	else
 #endif
@@ -215,8 +215,6 @@ static inline void disable_acpi(void) { }
 #ifndef CONFIG_XEN
 #define ARCH_HAS_POWER_INIT	1
 #endif
-
-struct bootnode;
 
 #ifdef CONFIG_ACPI_NUMA
 extern int acpi_numa;

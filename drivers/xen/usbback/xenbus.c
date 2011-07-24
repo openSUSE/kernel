@@ -226,14 +226,12 @@ fail:
 static int connect_rings(usbif_t *usbif)
 {
 	struct xenbus_device *dev = usbif->xbdev;
-	unsigned long urb_ring_ref;
-	unsigned long conn_ring_ref;
-	unsigned int evtchn;
+	unsigned int urb_ring_ref, conn_ring_ref, evtchn;
 	int err;
 
 	err = xenbus_gather(XBT_NIL, dev->otherend,
-			    "urb-ring-ref", "%lu", &urb_ring_ref,
-			    "conn-ring-ref", "%lu", &conn_ring_ref,
+			    "urb-ring-ref", "%u", &urb_ring_ref,
+			    "conn-ring-ref", "%u", &conn_ring_ref,
 			    "event-channel", "%u", &evtchn, NULL);
 	if (err) {
 		xenbus_dev_fatal(dev, err,
@@ -242,14 +240,14 @@ static int connect_rings(usbif_t *usbif)
 		return err;
 	}
 
-	pr_info("usbback: urb-ring-ref %ld, conn-ring-ref %ld,"
-		" event-channel %d\n",
+	pr_info("usbback: urb-ring-ref %u, conn-ring-ref %u,"
+		" event-channel %u\n",
 		urb_ring_ref, conn_ring_ref, evtchn);
 
 	err = usbif_map(usbif, urb_ring_ref, conn_ring_ref, evtchn);
 	if (err) {
 		xenbus_dev_fatal(dev, err,
-				"mapping urb-ring-ref %lu conn-ring-ref %lu port %u",
+				"mapping urb-ring-ref %u conn-ring-ref %u port %u",
 				urb_ring_ref, conn_ring_ref, evtchn);
 		return err;
 	}

@@ -300,25 +300,85 @@ static inline void xen_wbinvd(void)
 	asm volatile("wbinvd": : :"memory");
 }
 
-#define read_cr0()	(xen_read_cr0())
-#define write_cr0(x)	(xen_write_cr0(x))
-#define read_cr2()	(xen_read_cr2())
-#define write_cr2(x)	(xen_write_cr2(x))
-#define read_cr3()	(xen_read_cr3())
-#define write_cr3(x)	(xen_write_cr3(x))
-#define read_cr4()	(xen_read_cr4())
-#define read_cr4_safe()	(xen_read_cr4_safe())
-#define write_cr4(x)	(xen_write_cr4(x))
-#define wbinvd()	(xen_wbinvd())
+static inline unsigned long read_cr0(void)
+{
+	return xen_read_cr0();
+}
+
+static inline void write_cr0(unsigned long x)
+{
+	xen_write_cr0(x);
+}
+
+static inline unsigned long read_cr2(void)
+{
+	return xen_read_cr2();
+}
+
+static inline void write_cr2(unsigned long x)
+{
+	xen_write_cr2(x);
+}
+
+static inline unsigned long read_cr3(void)
+{
+	return xen_read_cr3();
+}
+
+static inline void write_cr3(unsigned long x)
+{
+	xen_write_cr3(x);
+}
+
+static inline unsigned long read_cr4(void)
+{
+	return xen_read_cr4();
+}
+
+static inline unsigned long read_cr4_safe(void)
+{
+	return xen_read_cr4_safe();
+}
+
+static inline void write_cr4(unsigned long x)
+{
+	xen_write_cr4(x);
+}
+
+static inline void wbinvd(void)
+{
+	xen_wbinvd();
+}
+
 #ifdef CONFIG_X86_64
-#define read_cr8()	(xen_read_cr8())
-#define write_cr8(x)	(xen_write_cr8(x))
-#define load_gs_index   xen_load_gs_index
+
+static inline unsigned long read_cr8(void)
+{
+	return xen_read_cr8();
+}
+
+static inline void write_cr8(unsigned long x)
+{
+	xen_write_cr8(x);
+}
+
+static inline void load_gs_index(unsigned selector)
+{
+	xen_load_gs_index(selector);
+}
+
 #endif
 
 /* Clear the 'TS' bit */
-#define clts()		(xen_clts())
-#define stts()		(xen_stts())
+static inline void clts(void)
+{
+	xen_clts();
+}
+
+static inline void stts(void)
+{
+	xen_stts();
+}
 
 #endif /* __KERNEL__ */
 

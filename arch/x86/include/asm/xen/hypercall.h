@@ -45,6 +45,7 @@
 #include <xen/interface/xen.h>
 #include <xen/interface/sched.h>
 #include <xen/interface/physdev.h>
+#include <xen/interface/tmem.h>
 
 /*
  * The hypercall asms have to meet several constraints:
@@ -445,6 +446,13 @@ static inline unsigned long __must_check
 HYPERVISOR_hvm_op(int op, void *arg)
 {
        return _hypercall2(unsigned long, hvm_op, op, arg);
+}
+
+static inline int
+HYPERVISOR_tmem_op(
+	struct tmem_op *op)
+{
+	return _hypercall1(int, tmem_op, op);
 }
 
 static inline void

@@ -111,7 +111,8 @@ struct blkfront_info
 	struct gnttab_free_callback callback;
 	struct blk_shadow shadow[BLK_RING_SIZE];
 	unsigned long shadow_free;
-	int feature_flush;
+	unsigned int feature_flush;
+	unsigned int flush_op;
 	int is_ready;
 
 	/**

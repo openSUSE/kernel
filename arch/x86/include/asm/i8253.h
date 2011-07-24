@@ -6,6 +6,8 @@
 #define PIT_CH0			0x40
 #define PIT_CH2			0x42
 
+#define PIT_LATCH	LATCH
+
 extern raw_spinlock_t i8253_lock;
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS

@@ -105,6 +105,9 @@ void rv770_pm_misc(struct radeon_device *rdev)
 	struct radeon_voltage *voltage = &ps->clock_info[req_cm_idx].voltage;
 
 	if ((voltage->type == VOLTAGE_SW) && voltage->voltage) {
+		/* 0xff01 is a flag rather then an actual voltage */
+		if (voltage->voltage == 0xff01)
+			return;
 		if (voltage->voltage != rdev->pm.current_vddc) {
 			radeon_atom_set_voltage(rdev, voltage->voltage, SET_VOLTAGE_TYPE_ASIC_VDDC);
 			rdev->pm.current_vddc = voltage->voltage;
@@ -1365,6 +1368,7 @@ void rv770_fini(struct radeon_device *rdev)
 	r700_cp_fini(rdev);
 	r600_irq_fini(rdev);
 	radeon_wb_fini(rdev);
+	radeon_ib_pool_fini(rdev);
 	radeon_irq_kms_fini(rdev);
 	rv770_pcie_gart_fini(rdev);
 	rv770_vram_scratch_fini(rdev);

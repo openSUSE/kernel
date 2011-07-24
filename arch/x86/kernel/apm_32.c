@@ -361,6 +361,7 @@ struct apm_user {
  * idle percentage above which bios idle calls are done
  */
 #ifdef CONFIG_APM_CPU_IDLE
+#warning deprecated CONFIG_APM_CPU_IDLE will be deleted in 2012
 #define DEFAULT_IDLE_THRESHOLD	95
 #else
 #define DEFAULT_IDLE_THRESHOLD	100
@@ -374,10 +375,12 @@ static struct {
 	unsigned long	offset;
 	unsigned short	segment;
 } apm_bios_entry;
+#ifdef CONFIG_APM_CPU_IDLE
 static int clock_slowed;
 static int idle_threshold __read_mostly = DEFAULT_IDLE_THRESHOLD;
 static int idle_period __read_mostly = DEFAULT_IDLE_PERIOD;
 static int set_pm_idle;
+#endif
 static int suspends_pending;
 static int standbys_pending;
 static int ignore_sys_suspend;
@@ -806,6 +809,7 @@ static int set_system_power_state(u_short state)
 	return set_power_state(APM_DEVICE_ALL, state);
 }
 
+#ifdef CONFIG_APM_CPU_IDLE
 /**
  *	apm_do_idle	-	perform power saving
  *
@@ -904,6 +908,7 @@ static void apm_cpu_idle(void)
 	unsigned int jiffies_since_last_check = jiffies - last_jiffies;
 	unsigned int bucket;
 
+	WARN_ONCE(1, "deprecated apm_cpu_idle will be deleted in 2012");
 recalc:
 	if (jiffies_since_last_check > IDLE_CALC_LIMIT) {
 		use_apm_idle = 0;
@@ -964,6 +969,7 @@ recalc:
 
 	local_irq_enable();
 }
+#endif
 
 /**
  *	apm_power_off	-	ask the BIOS to power off
@@ -1238,7 +1244,6 @@ static int suspend(int vetoable)
 	dpm_suspend_noirq(PMSG_SUSPEND);
 
 	local_irq_disable();
-	sysdev_suspend(PMSG_SUSPEND);
 	syscore_suspend();
 
 	local_irq_enable();
@@ -1258,7 +1263,6 @@ static int suspend(int vetoable)
 	err = (err == APM_SUCCESS) ? 0 : -EIO;
 
 	syscore_resume();
-	sysdev_resume();
 	local_irq_enable();
 
 	dpm_resume_noirq(PMSG_RESUME);
@@ -1282,7 +1286,6 @@ static void standby(void)
 	dpm_suspend_noirq(PMSG_SUSPEND);
 
 	local_irq_disable();
-	sysdev_suspend(PMSG_SUSPEND);
 	syscore_suspend();
 	local_irq_enable();
 
@@ -1292,7 +1295,6 @@ static void standby(void)
 
 	local_irq_disable();
 	syscore_resume();
-	sysdev_resume();
 	local_irq_enable();
 
 	dpm_resume_noirq(PMSG_RESUME);
@@ -1877,12 +1879,14 @@ static int __init apm_setup(char *str)
 		if ((strncmp(str, "bounce-interval=", 16) == 0) ||
 		    (strncmp(str, "bounce_interval=", 16) == 0))
 			bounce_interval = simple_strtol(str + 16, NULL, 0);
+#ifdef CONFIG_APM_CPU_IDLE
 		if ((strncmp(str, "idle-threshold=", 15) == 0) ||
 		    (strncmp(str, "idle_threshold=", 15) == 0))
 			idle_threshold = simple_strtol(str + 15, NULL, 0);
 		if ((strncmp(str, "idle-period=", 12) == 0) ||
 		    (strncmp(str, "idle_period=", 12) == 0))
 			idle_period = simple_strtol(str + 12, NULL, 0);
+#endif
 		invert = (strncmp(str, "no-", 3) == 0) ||
 			(strncmp(str, "no_", 3) == 0);
 		if (invert)
@@ -2385,6 +2389,7 @@ static int __init apm_init(void)
 	if (misc_register(&apm_device))
 		printk(KERN_WARNING "apm: Could not register misc device.\n");
 
+#ifdef CONFIG_APM_CPU_IDLE
 	if (HZ != 100)
 		idle_period = (idle_period * HZ) / 100;
 	if (idle_threshold < 100) {
@@ -2392,6 +2397,7 @@ static int __init apm_init(void)
 		pm_idle  = apm_cpu_idle;
 		set_pm_idle = 1;
 	}
+#endif
 
 	return 0;
 }
@@ -2400,6 +2406,7 @@ static void __exit apm_exit(void)
 {
 	int error;
 
+#ifdef CONFIG_APM_CPU_IDLE
 	if (set_pm_idle) {
 		pm_idle = original_pm_idle;
 		/*
@@ -2409,6 +2416,7 @@ static void __exit apm_exit(void)
 		 */
 		cpu_idle_wait();
 	}
+#endif
 	if (((apm_info.bios.flags & APM_BIOS_DISENGAGED) == 0)
 	    && (apm_info.connection_version > 0x0100)) {
 		error = apm_engage_power_management(APM_DEVICE_ALL, 0);
@@ -2445,12 +2453,14 @@ MODULE_PARM_DESC(broken_psr, "BIOS has a broken GetPowerStatus call");
 module_param(realmode_power_off, bool, 0444);
 MODULE_PARM_DESC(realmode_power_off,
 		"Switch to real mode before powering off");
+#ifdef CONFIG_APM_CPU_IDLE
 module_param(idle_threshold, int, 0444);
 MODULE_PARM_DESC(idle_threshold,
 	"System idle percentage above which to make APM BIOS idle calls");
 module_param(idle_period, int, 0444);
 MODULE_PARM_DESC(idle_period,
 	"Period (in sec/100) over which to caculate the idle percentage");
+#endif
 module_param(smp, bool, 0444);
 MODULE_PARM_DESC(smp,
 	"Set this to enable APM use on an SMP platform. Use with caution on older systems");

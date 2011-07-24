@@ -310,7 +310,7 @@ enum xenbus_state xenbus_read_driver_state(const char *path);
  * formatted message.
  */
 void xenbus_dev_error(struct xenbus_device *dev, int err, const char *fmt,
-		      ...);
+		      ...) __attribute__((__format__(__printf__, 3, 4)));
 
 
 /***
@@ -319,7 +319,7 @@ void xenbus_dev_error(struct xenbus_device *dev, int err, const char *fmt,
  * closedown of this driver and its peer.
  */
 void xenbus_dev_fatal(struct xenbus_device *dev, int err, const char *fmt,
-		      ...);
+		      ...) __attribute__((__format__(__printf__, 3, 4)));
 
 #if defined(CONFIG_XEN) || defined(HAVE_XEN_PLATFORM_COMPAT_H)
 int xenbus_dev_init(void);

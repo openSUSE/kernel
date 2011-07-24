@@ -1039,7 +1039,7 @@ static void blktap_zap_page_range(struct mm_struct *mm,
 }
 
 static void fast_flush_area(pending_req_t *req, unsigned int k_idx,
-			     unsigned int u_idx, int tapidx)
+			     unsigned int u_idx, tap_blkif_t *info)
 {
 	struct gnttab_unmap_grant_ref unmap[BLKIF_MAX_SEGMENTS_PER_REQUEST*2];
 	unsigned int i, mmap_idx, invcount = 0, locked = 0;
@@ -1047,23 +1047,14 @@ static void fast_flush_area(pending_req_t *req, unsigned int k_idx,
 	uint64_t ptep;
 	int ret;
 	unsigned long uvaddr;
-	tap_blkif_t *info;
-	struct mm_struct *mm;
-	
-
-	if ((tapidx < 0) || (tapidx >= MAX_TAP_DEV)
-	    || !(info = tapfds[tapidx])) {
-		WPRINTK("fast_flush: Couldn't get info!\n");
-		return;
-	}
-
-	mm = info->mm;
+	struct mm_struct *mm = info->mm;
 
 	if (mm != NULL && xen_feature(XENFEAT_auto_translated_physmap)) {
 		down_write(&mm->mmap_sem);
 		blktap_zap_page_range(mm,
 				      MMAP_VADDR(info->user_vstart, u_idx, 0),
 				      req->nr_pages);
+		info->idx_map[u_idx].mem = INVALID_MIDX;
 		up_write(&mm->mmap_sem);
 		return;
 	}
@@ -1121,7 +1112,10 @@ static void fast_flush_area(pending_req_t *req, unsigned int k_idx,
 				      req->nr_pages);
 	}
 
-	if (locked)
+	if (!locked && mm != NULL)
+		down_write(&mm->mmap_sem);
+	info->idx_map[u_idx].mem = INVALID_MIDX;
+	if (mm != NULL)
 		up_write(&mm->mmap_sem);
 }
 
@@ -1257,8 +1251,7 @@ static int blktap_read_ufe_ring(tap_blkif_t *info)
 			offset = (uvaddr - info->rings_vstart) >> PAGE_SHIFT;
 			info->foreign_map.map[offset] = NULL;
 		}
-		fast_flush_area(pending_req, pending_idx, usr_idx, info->minor);
-		info->idx_map[usr_idx].mem = INVALID_MIDX;
+		fast_flush_area(pending_req, pending_idx, usr_idx, info);
 		make_response(blkif, pending_req->id, res.operation,
 			      res.status);
 		blkif_put(pending_req->blkif);
@@ -1647,7 +1640,7 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 
  fail_flush:
 	WPRINTK("Reached Fail_flush\n");
-	fast_flush_area(pending_req, pending_idx, usr_idx, blkif->dev_num);
+	fast_flush_area(pending_req, pending_idx, usr_idx, info);
  fail_response:
 	make_response(blkif, req->id, req->operation, BLKIF_RSP_ERROR);
 	free_req(pending_req);

@@ -618,9 +618,9 @@ EXPORT_SYMBOL_GPL(xenbus_unmap_ring);
  */
 enum xenbus_state xenbus_read_driver_state(const char *path)
 {
-	enum xenbus_state result;
-	int err = xenbus_gather(XBT_NIL, path, "state", "%d", &result, NULL);
-	if (err)
+	int result;
+
+	if (xenbus_scanf(XBT_NIL, path, "state", "%d", &result) != 1)
 		result = XenbusStateUnknown;
 
 	return result;

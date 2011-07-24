@@ -1593,13 +1593,7 @@ int kernel_kexec(void)
 		if (error)
 			goto Enable_cpus;
 		local_irq_disable();
-		/* Suspend system devices */
-		error = sysdev_suspend(PMSG_FREEZE);
-		if (!error) {
-			error = syscore_suspend();
-			if (error)
-				sysdev_resume();
-		}
+		error = syscore_suspend();
 		if (error)
 			goto Enable_irqs;
 	} else
@@ -1615,7 +1609,6 @@ int kernel_kexec(void)
 #ifdef CONFIG_KEXEC_JUMP
 	if (kexec_image->preserve_context) {
 		syscore_resume();
-		sysdev_resume();
  Enable_irqs:
 		local_irq_enable();
  Enable_cpus:

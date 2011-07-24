@@ -957,7 +957,7 @@ inline static void net_tx_action_dealloc(struct xen_netbk *netbk)
 		/* Ensure we see all indices enqueued by netif_idx_release(). */
 		smp_rmb();
 
-		if (MODPARM_permute_returns)
+		if (MODPARM_permute_returns && netbk_nr_groups == 1)
 			permute_dealloc_ring(netbk->dealloc_ring, dc, dp);
 
 		while (dc != dp) {

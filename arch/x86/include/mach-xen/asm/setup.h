@@ -10,6 +10,12 @@ void reserve_pgtable_low(void);
 
 extern unsigned long xen_initrd_start;
 
+#ifdef CONFIG_EFI
+void efi_probe(void);
+#else
+#define efi_probe() ((void)0)
+#endif
+
 #endif
 
 #include_next <asm/setup.h>

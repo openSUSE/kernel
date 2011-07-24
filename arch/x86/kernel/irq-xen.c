@@ -276,8 +276,7 @@ void fixup_irqs(void)
 
 		data = irq_desc_get_irq_data(desc);
 		affinity = data->affinity;
-		if (!irq_has_action(irq) ||
-		    irqd_is_per_cpu(data) ||
+		if (!irq_has_action(irq) || irqd_is_per_cpu(data) ||
 		    cpumask_subset(affinity, cpu_online_mask)) {
 			raw_spin_unlock(&desc->lock);
 			continue;
@@ -300,7 +299,8 @@ void fixup_irqs(void)
 		else if (data->chip != &no_irq_chip && !(warned++))
 			set_affinity = 0;
 
-		if (!irqd_can_move_in_process_context(data) && chip->irq_unmask)
+		if (!irqd_can_move_in_process_context(data) &&
+		    !irqd_irq_disabled(data) && chip->irq_unmask)
 			chip->irq_unmask(data);
 
 		raw_spin_unlock(&desc->lock);

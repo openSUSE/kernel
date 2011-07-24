@@ -202,10 +202,10 @@ static void transaction_resume(void)
 void *xenbus_dev_request_and_reply(struct xsd_sockmsg *msg)
 {
 	void *ret;
-	struct xsd_sockmsg req_msg = *msg;
+	enum xsd_sockmsg_type type = msg->type;
 	int err;
 
-	if (req_msg.type == XS_TRANSACTION_START)
+	if (type == XS_TRANSACTION_START)
 		transaction_start();
 
 	mutex_lock(&xs_state.request_mutex);
@@ -219,9 +219,8 @@ void *xenbus_dev_request_and_reply(struct xsd_sockmsg *msg)
 
 	mutex_unlock(&xs_state.request_mutex);
 
-	if ((req_msg.type == XS_TRANSACTION_END) ||
-	    ((req_msg.type == XS_TRANSACTION_START) &&
-	     (msg->type == XS_ERROR)))
+	if ((type == XS_TRANSACTION_END) ||
+	    ((type == XS_TRANSACTION_START) && (msg->type == XS_ERROR)))
 		transaction_end();
 
 	return ret;

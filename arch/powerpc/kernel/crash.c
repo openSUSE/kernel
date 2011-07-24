@@ -64,9 +64,9 @@ void crash_ipi_callback(struct pt_regs *regs)
 		return;
 
 	hard_irq_disable();
-	if (!cpu_isset(cpu, cpus_in_crash))
+	if (!cpumask_test_cpu(cpu, &cpus_in_crash))
 		crash_save_cpu(regs, cpu);
-	cpu_set(cpu, cpus_in_crash);
+	cpumask_set_cpu(cpu, &cpus_in_crash);
 
 	/*
 	 * Entered via soft-reset - could be the kdump
@@ -77,8 +77,8 @@ void crash_ipi_callback(struct pt_regs *regs)
 	 * Tell the kexec CPU that entered via soft-reset and ready
 	 * to go down.
 	 */
-	if (cpu_isset(cpu, cpus_in_sr)) {
-		cpu_clear(cpu, cpus_in_sr);
+	if (cpumask_test_cpu(cpu, &cpus_in_sr)) {
+		cpumask_clear_cpu(cpu, &cpus_in_sr);
 		atomic_inc(&enter_on_soft_reset);
 	}
 
@@ -87,7 +87,7 @@ void crash_ipi_callback(struct pt_regs *regs)
 	 * This barrier is needed to make sure that all CPUs are stopped.
 	 * If not, soft-reset will be invoked to bring other CPUs.
 	 */
-	while (!cpu_isset(crashing_cpu, cpus_in_crash))
+	while (!cpumask_test_cpu(crashing_cpu, &cpus_in_crash))
 		cpu_relax();
 
 	if (ppc_md.kexec_cpu_down)
@@ -109,7 +109,7 @@ static void crash_soft_reset_check(int cpu)
 {
 	unsigned int ncpus = num_online_cpus() - 1;/* Excluding the panic cpu */
 
-	cpu_clear(cpu, cpus_in_sr);
+	cpumask_clear_cpu(cpu, &cpus_in_sr);
 	while (atomic_read(&enter_on_soft_reset) != ncpus)
 		cpu_relax();
 }
@@ -132,7 +132,7 @@ static void crash_kexec_prepare_cpus(int cpu)
 	 */
 	printk(KERN_EMERG "Sending IPI to other cpus...\n");
 	msecs = 10000;
-	while ((cpus_weight(cpus_in_crash) < ncpus) && (--msecs > 0)) {
+	while ((cpumask_weight(&cpus_in_crash) < ncpus) && (--msecs > 0)) {
 		cpu_relax();
 		mdelay(1);
 	}
@@ -144,26 +144,92 @@ static void crash_kexec_prepare_cpus(int cpu)
 	 * user to do soft reset such that we get all.
 	 * Soft-reset will be used until better mechanism is implemented.
 	 */
-	if (cpus_weight(cpus_in_crash) < ncpus) {
+	if (cpumask_weight(&cpus_in_crash) < ncpus) {
 		printk(KERN_EMERG "done waiting: %d cpu(s) not responding\n",
-			ncpus - cpus_weight(cpus_in_crash));
+			ncpus - cpumask_weight(&cpus_in_crash));
 		printk(KERN_EMERG "Activate soft-reset to stop other cpu(s)\n");
-		cpus_in_sr = CPU_MASK_NONE;
+		cpumask_clear(&cpus_in_sr);
 		atomic_set(&enter_on_soft_reset, 0);
-		while (cpus_weight(cpus_in_crash) < ncpus)
+		while (cpumask_weight(&cpus_in_crash) < ncpus)
 			cpu_relax();
 	}
 	/*
 	 * Make sure all CPUs are entered via soft-reset if the kdump is
 	 * invoked using soft-reset.
 	 */
-	if (cpu_isset(cpu, cpus_in_sr))
+	if (cpumask_test_cpu(cpu, &cpus_in_sr))
 		crash_soft_reset_check(cpu);
 	/* Leave the IPI callback set */
 }
 
+/*
+ * This function will be called by secondary cpus or by kexec cpu
+ * if soft-reset is activated to stop some CPUs.
+ */
+void crash_kexec_secondary(struct pt_regs *regs)
+{
+	int cpu = smp_processor_id();
+	unsigned long flags;
+	int msecs = 5;
+
+	local_irq_save(flags);
+	/* Wait 5ms if the kexec CPU is not entered yet. */
+	while (crashing_cpu < 0) {
+		if (--msecs < 0) {
+			/*
+			 * Either kdump image is not loaded or
+			 * kdump process is not started - Probably xmon
+			 * exited using 'x'(exit and recover) or
+			 * kexec_should_crash() failed for all running tasks.
+			 */
+			cpumask_clear_cpu(cpu, &cpus_in_sr);
+			local_irq_restore(flags);
+			return;
+		}
+		mdelay(1);
+		cpu_relax();
+	}
+	if (cpu == crashing_cpu) {
+		/*
+		 * Panic CPU will enter this func only via soft-reset.
+		 * Wait until all secondary CPUs entered and
+		 * then start kexec boot.
+		 */
+		crash_soft_reset_check(cpu);
+		cpumask_set_cpu(crashing_cpu, &cpus_in_crash);
+		if (ppc_md.kexec_cpu_down)
+			ppc_md.kexec_cpu_down(1, 0);
+		machine_kexec(kexec_crash_image);
+		/* NOTREACHED */
+	}
+	crash_ipi_callback(regs);
+}
+
+#else	/* ! CONFIG_SMP */
+
+static void crash_kexec_prepare_cpus(int cpu)
+{
+	/*
+	 * move the secondarys to us so that we can copy
+	 * the new kernel 0-0x100 safely
+	 *
+	 * do this if kexec in setup.c ?
+	 */
+#ifdef CONFIG_PPC64
+	smp_release_cpus();
+#else
+	/* FIXME */
+#endif
+}
+
+void crash_kexec_secondary(struct pt_regs *regs)
+{
+	cpumask_clear(&cpus_in_sr);
+}
+#endif	/* CONFIG_SMP */
+
 /* wait for all the CPUs to hit real mode but timeout if they don't come in */
-#ifdef CONFIG_PPC_STD_MMU_64
+#if defined(CONFIG_SMP) && defined(CONFIG_PPC_STD_MMU_64)
 static void crash_kexec_wait_realmode(int cpu)
 {
 	unsigned int msecs;
@@ -188,74 +254,9 @@ static void crash_kexec_wait_realmode(int cpu)
 	}
 	mb();
 }
-#endif	/* CONFIG_PPC_STD_MMU_64 */
-
-/*
- * This function will be called by secondary cpus or by kexec cpu
- * if soft-reset is activated to stop some CPUs.
- */
-void crash_kexec_secondary(struct pt_regs *regs)
-{
-	int cpu = smp_processor_id();
-	unsigned long flags;
-	int msecs = 5;
-
-	local_irq_save(flags);
-	/* Wait 5ms if the kexec CPU is not entered yet. */
-	while (crashing_cpu < 0) {
-		if (--msecs < 0) {
-			/*
-			 * Either kdump image is not loaded or
-			 * kdump process is not started - Probably xmon
-			 * exited using 'x'(exit and recover) or
-			 * kexec_should_crash() failed for all running tasks.
-			 */
-			cpu_clear(cpu, cpus_in_sr);
-			local_irq_restore(flags);
-			return;
-		}
-		mdelay(1);
-		cpu_relax();
-	}
-	if (cpu == crashing_cpu) {
-		/*
-		 * Panic CPU will enter this func only via soft-reset.
-		 * Wait until all secondary CPUs entered and
-		 * then start kexec boot.
-		 */
-		crash_soft_reset_check(cpu);
-		cpu_set(crashing_cpu, cpus_in_crash);
-		if (ppc_md.kexec_cpu_down)
-			ppc_md.kexec_cpu_down(1, 0);
-		machine_kexec(kexec_crash_image);
-		/* NOTREACHED */
-	}
-	crash_ipi_callback(regs);
-}
-
-#else	/* ! CONFIG_SMP */
-static inline void crash_kexec_wait_realmode(int cpu) {}
-
-static void crash_kexec_prepare_cpus(int cpu)
-{
-	/*
-	 * move the secondarys to us so that we can copy
-	 * the new kernel 0-0x100 safely
-	 *
-	 * do this if kexec in setup.c ?
-	 */
-#ifdef CONFIG_PPC64
-	smp_release_cpus();
 #else
-	/* FIXME */
-#endif
-}
-
-void crash_kexec_secondary(struct pt_regs *regs)
-{
-	cpus_in_sr = CPU_MASK_NONE;
-}
-#endif	/* CONFIG_SMP */
+static inline void crash_kexec_wait_realmode(int cpu) {}
+#endif	/* CONFIG_SMP && CONFIG_PPC_STD_MMU_64 */
 
 /*
  * Register a function to be called on shutdown.  Only use this if you
@@ -345,7 +346,7 @@ void default_machine_crash_shutdown(struct pt_regs *regs)
 	crashing_cpu = smp_processor_id();
 	crash_save_cpu(regs, crashing_cpu);
 	crash_kexec_prepare_cpus(crashing_cpu);
-	cpu_set(crashing_cpu, cpus_in_crash);
+	cpumask_set_cpu(crashing_cpu, &cpus_in_crash);
 	crash_kexec_wait_realmode(crashing_cpu);
 
 	machine_kexec_mask_interrupts();

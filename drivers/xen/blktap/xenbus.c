@@ -314,7 +314,7 @@ static void tap_backend_changed(struct xenbus_watch *watch,
 	 * and disk info to xenstore
 	 */
 	err = xenbus_gather(XBT_NIL, dev->nodename, "info", "%lu", &info, 
-			    NULL);
+			    "sectors", "%Lu", &be->blkif->sectors, NULL);
 	if (XENBUS_EXIST_ERR(err))
 		return;
 	if (err) {
@@ -323,9 +323,6 @@ static void tap_backend_changed(struct xenbus_watch *watch,
 	}
 
 	DPRINTK("Userspace update on disk info, %lu\n",info);
-
-	err = xenbus_gather(XBT_NIL, dev->nodename, "sectors", "%llu", 
-			    &be->blkif->sectors, NULL);
 
 	/* Associate tap dev with domid*/
 	be->blkif->dev_num = dom_to_devid(be->blkif->domid, be->xenbus_id, 
@@ -442,7 +439,7 @@ again:
 	/* Switch state */
 	err = xenbus_switch_state(dev, XenbusStateConnected);
 	if (err)
-		xenbus_dev_fatal(dev, err, "switching to Connected state",
+		xenbus_dev_fatal(dev, err, "%s: switching to Connected state",
 				 dev->nodename);
 
 	return;
@@ -452,14 +449,13 @@ again:
 static int connect_ring(struct backend_info *be)
 {
 	struct xenbus_device *dev = be->dev;
-	unsigned long ring_ref;
-	unsigned int evtchn;
-	char protocol[64];
+	unsigned int ring_ref, evtchn;
+	char *protocol;
 	int err;
 
 	DPRINTK("%s\n", dev->otherend);
 
-	err = xenbus_gather(XBT_NIL, dev->otherend, "ring-ref", "%lu", 
+	err = xenbus_gather(XBT_NIL, dev->otherend, "ring-ref", "%u",
 			    &ring_ref, "event-channel", "%u", &evtchn, NULL);
 	if (err) {
 		xenbus_dev_fatal(dev, err,
@@ -470,9 +466,9 @@ static int connect_ring(struct backend_info *be)
 
 	be->blkif->blk_protocol = BLKIF_PROTOCOL_NATIVE;
 	err = xenbus_gather(XBT_NIL, dev->otherend, "protocol",
-			    "%63s", protocol, NULL);
+			    NULL, &protocol, NULL);
 	if (err) {
-		strcpy(protocol, "unspecified");
+		protocol = NULL;
 		be->blkif->blk_protocol = xen_guest_blkif_protocol(be->blkif->domid);
 	}
 	else if (0 == strcmp(protocol, XEN_IO_PROTO_ABI_NATIVE))
@@ -481,23 +477,20 @@ static int connect_ring(struct backend_info *be)
 		be->blkif->blk_protocol = BLKIF_PROTOCOL_X86_32;
 	else if (0 == strcmp(protocol, XEN_IO_PROTO_ABI_X86_64))
 		be->blkif->blk_protocol = BLKIF_PROTOCOL_X86_64;
-#if 1 /* maintain compatibility with early sles10-sp1 and paravirt netware betas */
-	else if (0 == strcmp(protocol, "1"))
-		be->blkif->blk_protocol = BLKIF_PROTOCOL_X86_32;
-	else if (0 == strcmp(protocol, "2"))
-		be->blkif->blk_protocol = BLKIF_PROTOCOL_X86_64;
-#endif
 	else {
 		xenbus_dev_fatal(dev, err, "unknown fe protocol %s", protocol);
+		kfree(protocol);
 		return -1;
 	}
-	pr_info("blktap: ring-ref %ld, event-channel %d, protocol %d (%s)\n",
-		ring_ref, evtchn, be->blkif->blk_protocol, protocol);
+	pr_info("blktap: ring-ref %u, event-channel %u, protocol %d (%s)\n",
+		ring_ref, evtchn, be->blkif->blk_protocol,
+		protocol ?: "unspecified");
+	kfree(protocol);
 
 	/* Map the shared frame, irq etc. */
 	err = tap_blkif_map(be->blkif, dev, ring_ref, evtchn);
 	if (err) {
-		xenbus_dev_fatal(dev, err, "mapping ring-ref %lu port %u",
+		xenbus_dev_fatal(dev, err, "mapping ring-ref %u port %u",
 				 ring_ref, evtchn);
 		return err;
 	} 

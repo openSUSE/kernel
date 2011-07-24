@@ -60,13 +60,12 @@ static int __vscsiif_name(struct backend_info *be, char *buf)
 static int scsiback_map(struct backend_info *be)
 {
 	struct xenbus_device *dev = be->dev;
-	unsigned long ring_ref;
-	unsigned int evtchn;
+	unsigned int ring_ref, evtchn;
 	int err;
 	char name[TASK_COMM_LEN];
 
 	err = xenbus_gather(XBT_NIL, dev->otherend,
-			"ring-ref", "%lu", &ring_ref,
+			"ring-ref", "%u", &ring_ref,
 			"event-channel", "%u", &evtchn, NULL);
 	if (err) {
 		xenbus_dev_fatal(dev, err, "reading %s ring", dev->otherend);

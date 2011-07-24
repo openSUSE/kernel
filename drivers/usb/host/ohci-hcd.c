@@ -1,5 +1,7 @@
 /*
- * OHCI HCD (Host Controller Driver) for USB.
+ * Open Host Controller Interface (OHCI) driver for USB.
+ *
+ * Maintainer: Alan Stern <stern@rowland.harvard.edu>
  *
  * (C) Copyright 1999 Roman Weissgaerber <weissg@vienna.at>
  * (C) Copyright 2000-2004 David Brownell <dbrownell@users.sourceforge.net>
@@ -1105,6 +1107,11 @@ MODULE_LICENSE ("GPL");
 #ifdef CONFIG_USB_CNS3XXX_OHCI
 #include "ohci-cns3xxx.c"
 #define PLATFORM_DRIVER		ohci_hcd_cns3xxx_driver
+#endif
+
+#ifdef CONFIG_USB_OHCI_ATH79
+#include "ohci-ath79.c"
+#define PLATFORM_DRIVER		ohci_hcd_ath79_driver
 #endif
 
 #if	!defined(PCI_DRIVER) &&		\

@@ -320,7 +320,7 @@
 #define	CGTS_USER_TCC_DISABLE				0x914C
 #define		TCC_DISABLE_MASK				0xFFFF0000
 #define		TCC_DISABLE_SHIFT				16
-#define	CGTS_SM_CTRL_REG				0x915C
+#define	CGTS_SM_CTRL_REG				0x9150
 #define		OVERRIDE				(1 << 21)
 
 #define	TA_CNTL_AUX					0x9508
@@ -353,7 +353,7 @@
 #define		MULTI_GPU_TILE_SIZE_MASK		0x03000000
 #define		MULTI_GPU_TILE_SIZE_SHIFT		24
 #define		ROW_SIZE(x)             		((x) << 28)
-#define		ROW_SIZE_MASK				0x30000007
+#define		ROW_SIZE_MASK				0x30000000
 #define		ROW_SIZE_SHIFT				28
 #define		NUM_LOWER_PIPES(x)			((x) << 30)
 #define		NUM_LOWER_PIPES_MASK			0x40000000

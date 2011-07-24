@@ -214,6 +214,7 @@ static int setup_device(struct xenbus_device *, struct netfront_info *);
 static struct net_device *create_netdev(struct xenbus_device *);
 
 static void end_access(int, void *);
+static void netif_release_rings(struct netfront_info *);
 static void netif_disconnect_backend(struct netfront_info *);
 
 static int network_connect(struct net_device *);
@@ -532,8 +533,7 @@ static int setup_device(struct xenbus_device *dev, struct netfront_info *info)
 	memcpy(netdev->dev_addr, info->mac, ETH_ALEN);
 
 	err = bind_listening_port_to_irqhandler(
-		dev->otherend_id, netif_int, IRQF_SAMPLE_RANDOM, netdev->name,
-		netdev);
+		dev->otherend_id, netif_int, 0, netdev->name, netdev);
 	if (err < 0)
 		goto fail;
 	info->irq = err;
@@ -541,6 +541,7 @@ static int setup_device(struct xenbus_device *dev, struct netfront_info *info)
 	return 0;
 
  fail:
+	netif_release_rings(info);
 	return err;
 }
 
@@ -1695,58 +1696,6 @@ static int xennet_change_mtu(struct net_device *dev, int mtu)
 	return 0;
 }
 
-static int xennet_set_sg(struct net_device *dev, u32 data)
-{
-	if (data) {
-		struct netfront_info *np = netdev_priv(dev);
-		int val;
-
-		if (xenbus_scanf(XBT_NIL, np->xbdev->otherend, "feature-sg",
-				 "%d", &val) < 0)
-			val = 0;
-		if (!val)
-			return -ENOSYS;
-	} else if (dev->mtu > ETH_DATA_LEN)
-		dev->mtu = ETH_DATA_LEN;
-
-	return ethtool_op_set_sg(dev, data);
-}
-
-static int xennet_set_tso(struct net_device *dev, u32 data)
-{
-	if (data) {
-		struct netfront_info *np = netdev_priv(dev);
-		int val;
-
-		if (xenbus_scanf(XBT_NIL, np->xbdev->otherend,
-				 "feature-gso-tcpv4", "%d", &val) < 0)
-			val = 0;
-		if (!val)
-			return -ENOSYS;
-	}
-
-	return ethtool_op_set_tso(dev, data);
-}
-
-static void xennet_set_features(struct net_device *dev)
-{
-	dev_disable_gso_features(dev);
-	xennet_set_sg(dev, 0);
-
-	/* We need checksum offload to enable scatter/gather and TSO. */
-	if (!(dev->features & NETIF_F_IP_CSUM))
-		return;
-
-	if (xennet_set_sg(dev, 1))
-		return;
-
-	/* Before 2.6.9 TSO seems to be unreliable so do not enable it
-	 * on older kernels.
-	 */
-	if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,9))
-		xennet_set_tso(dev, 1);
-}
-
 static const struct xennet_stat {
 	char name[ETH_GSTRING_LEN];
 	u16 offset;
@@ -1826,7 +1775,9 @@ static int network_connect(struct net_device *dev)
 	if (err)
 		return err;
 
-	xennet_set_features(dev);
+	rtnl_lock();
+	netdev_update_features(dev);
+	rtnl_unlock();
 
 	DPRINTK("device %s has %sing receive path.\n",
 		dev->name, np->copying_receiver ? "copy" : "flipp");
@@ -1905,14 +1856,6 @@ static void netif_uninit(struct net_device *dev)
 static const struct ethtool_ops network_ethtool_ops =
 {
 	.get_drvinfo = netfront_get_drvinfo,
-	.get_tx_csum = ethtool_op_get_tx_csum,
-	.set_tx_csum = ethtool_op_set_tx_csum,
-	.get_sg = ethtool_op_get_sg,
-	.set_sg = xennet_set_sg,
-#if HAVE_TSO
-	.get_tso = ethtool_op_get_tso,
-	.set_tso = xennet_set_tso,
-#endif
 	.get_link = ethtool_op_get_link,
 
 	.get_sset_count = xennet_get_sset_count,
@@ -2057,6 +2000,42 @@ static void network_set_multicast_list(struct net_device *dev)
 {
 }
 
+static u32 xennet_fix_features(struct net_device *dev, u32 features)
+{
+	struct netfront_info *np = netdev_priv(dev);
+	int val;
+
+	if (features & NETIF_F_SG) {
+		if (xenbus_scanf(XBT_NIL, np->xbdev->otherend, "feature-sg",
+				 "%d", &val) < 0)
+			val = 0;
+
+		if (!val)
+			features &= ~NETIF_F_SG;
+	}
+
+	if (features & NETIF_F_TSO) {
+		if (xenbus_scanf(XBT_NIL, np->xbdev->otherend,
+				 "feature-gso-tcpv4", "%d", &val) < 0)
+			val = 0;
+
+		if (!val)
+			features &= ~NETIF_F_TSO;
+	}
+
+	return features;
+}
+
+static int xennet_set_features(struct net_device *dev, u32 features)
+{
+	if (!(features & NETIF_F_SG) && dev->mtu > ETH_DATA_LEN) {
+		netdev_info(dev, "Reducing MTU because no SG offload");
+		dev->mtu = ETH_DATA_LEN;
+	}
+
+	return 0;
+}
+
 static const struct net_device_ops xennet_netdev_ops = {
 	.ndo_uninit             = netif_uninit,
 	.ndo_open               = network_open,
@@ -2065,6 +2044,8 @@ static const struct net_device_ops xennet_netdev_ops = {
 	.ndo_set_multicast_list = network_set_multicast_list,
 	.ndo_set_mac_address    = xennet_set_mac_address,
 	.ndo_validate_addr      = eth_validate_addr,
+	.ndo_fix_features       = xennet_fix_features,
+	.ndo_set_features       = xennet_set_features,
 	.ndo_change_mtu	        = xennet_change_mtu,
 	.ndo_get_stats          = network_get_stats,
 };
@@ -2126,7 +2107,17 @@ static struct net_device * __devinit create_netdev(struct xenbus_device *dev)
 
 	netdev->netdev_ops	= &xennet_netdev_ops;
 	netif_napi_add(netdev, &np->napi, netif_poll, 64);
-	netdev->features        = NETIF_F_IP_CSUM;
+	netdev->features        = NETIF_F_IP_CSUM | NETIF_F_RXCSUM |
+				  NETIF_F_GSO_ROBUST;
+	netdev->hw_features	= NETIF_F_IP_CSUM | NETIF_F_SG | NETIF_F_TSO;
+
+	/*
+         * Assume that all hw features are available for now. This set
+         * will be adjusted by the call to netdev_update_features() in
+         * xennet_connect() which is the earliest point where we can
+         * negotiate with the backend regarding supported features.
+         */
+	netdev->features |= netdev->hw_features;
 
 	SET_ETHTOOL_OPS(netdev, &network_ethtool_ops);
 	SET_NETDEV_DEV(netdev, &dev->dev);
@@ -2144,6 +2135,16 @@ static struct net_device * __devinit create_netdev(struct xenbus_device *dev)
 	return ERR_PTR(err);
 }
 
+static void netif_release_rings(struct netfront_info *info)
+{
+	end_access(info->tx_ring_ref, info->tx.sring);
+	end_access(info->rx_ring_ref, info->rx.sring);
+	info->tx_ring_ref = GRANT_INVALID_REF;
+	info->rx_ring_ref = GRANT_INVALID_REF;
+	info->tx.sring = NULL;
+	info->rx.sring = NULL;
+}
+
 static void netif_disconnect_backend(struct netfront_info *info)
 {
 	/* Stop old i/f to prevent errors whilst we rebuild the state. */
@@ -2157,12 +2158,7 @@ static void netif_disconnect_backend(struct netfront_info *info)
 		unbind_from_irqhandler(info->irq, info->netdev);
 	info->irq = 0;
 
-	end_access(info->tx_ring_ref, info->tx.sring);
-	end_access(info->rx_ring_ref, info->rx.sring);
-	info->tx_ring_ref = GRANT_INVALID_REF;
-	info->rx_ring_ref = GRANT_INVALID_REF;
-	info->tx.sring = NULL;
-	info->rx.sring = NULL;
+	netif_release_rings(info);
 }
 
 

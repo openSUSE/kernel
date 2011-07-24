@@ -135,25 +135,41 @@ static ssize_t xenbus_dev_read(struct file *filp,
 	return i;
 }
 
-static void queue_reply(struct xenbus_dev_data *u,
-			char *data, unsigned int len)
+static int queue_reply(struct list_head *queue,
+		       const void *data, unsigned int len)
 {
 	struct read_buffer *rb;
 
 	if (len == 0)
-		return;
+		return 0;
 
 	rb = kmalloc(sizeof(*rb) + len, GFP_KERNEL);
-	BUG_ON(rb == NULL);
+	if (!rb)
+		return -ENOMEM;
 
 	rb->cons = 0;
 	rb->len = len;
 
 	memcpy(rb->msg, data, len);
 
-	list_add_tail(&rb->list, &u->read_buffers);
+	list_add_tail(&rb->list, queue);
+	return 0;
+}
 
-	wake_up(&u->read_waitq);
+static void queue_flush(struct xenbus_dev_data *u, struct list_head *queue,
+			int err)
+{
+	if (!err) {
+		list_splice_tail(queue, &u->read_buffers);
+		wake_up(&u->read_waitq);
+	} else
+		while (!list_empty(queue)) {
+			struct read_buffer *rb = list_entry(queue->next,
+				struct read_buffer, list);
+
+			list_del(queue->next);
+			kfree(rb);
+		}
 }
 
 struct watch_adapter
@@ -179,7 +195,8 @@ static void watch_fired(struct xenbus_watch *watch,
             container_of(watch, struct watch_adapter, watch);
 	struct xsd_sockmsg hdr;
 	const char *path, *token;
-	int path_len, tok_len, body_len, data_len = 0;
+	int err, path_len, tok_len, body_len, data_len = 0;
+	LIST_HEAD(queue);
 
 	path = vec[XS_WATCH_PATH];
 	token = adap->token;
@@ -194,11 +211,14 @@ static void watch_fired(struct xenbus_watch *watch,
 	hdr.len = body_len;
 
 	mutex_lock(&adap->dev_data->reply_mutex);
-	queue_reply(adap->dev_data, (char *)&hdr, sizeof(hdr));
-	queue_reply(adap->dev_data, (char *)path, path_len);
-	queue_reply(adap->dev_data, (char *)token, tok_len);
-	if (len > 2)
-		queue_reply(adap->dev_data, (char *)vec[2], data_len);
+	err = queue_reply(&queue, &hdr, sizeof(hdr));
+	if (!err)
+		err = queue_reply(&queue, path, path_len);
+	if (!err)
+		err = queue_reply(&queue, token, tok_len);
+	if (!err && len > 2)
+		err = queue_reply(&queue, vec[2], data_len);
+	queue_flush(adap->dev_data, &queue, err);
 	mutex_unlock(&adap->dev_data->reply_mutex);
 }
 
@@ -211,9 +231,10 @@ static ssize_t xenbus_dev_write(struct file *filp,
 	struct xenbus_dev_data *u = filp->private_data;
 	struct xenbus_dev_transaction *trans = NULL;
 	uint32_t msg_type;
-	void *reply;
+	void *reply = NULL;
+	LIST_HEAD(queue);
 	char *path, *token;
-	struct watch_adapter *watch, *tmp_watch;
+	struct watch_adapter *watch;
 	int err, rc = len;
 
 	if (!is_xenstored_ready())
@@ -239,7 +260,7 @@ static ssize_t xenbus_dev_write(struct file *filp,
 	switch (msg_type) {
 	case XS_WATCH:
 	case XS_UNWATCH: {
-		static const char *XS_RESP = "OK";
+		static const char XS_RESP[] = "OK";
 		struct xsd_sockmsg hdr;
 
 		path = u->u.buffer + sizeof(u->u.msg);
@@ -269,8 +290,7 @@ static ssize_t xenbus_dev_write(struct file *filp,
 			
 			list_add(&watch->list, &u->watches);
 		} else {
-			list_for_each_entry_safe(watch, tmp_watch,
-                                                 &u->watches, list) {
+			list_for_each_entry(watch, &u->watches, list) {
 				if (!strcmp(watch->token, token) &&
 				    !strcmp(watch->watch.node, path))
 				{
@@ -283,26 +303,36 @@ static ssize_t xenbus_dev_write(struct file *filp,
 		}
 
 		hdr.type = msg_type;
-		hdr.len = strlen(XS_RESP) + 1;
+		hdr.len = sizeof(XS_RESP);
 		mutex_lock(&u->reply_mutex);
-		queue_reply(u, (char *)&hdr, sizeof(hdr));
-		queue_reply(u, (char *)XS_RESP, hdr.len);
-		mutex_unlock(&u->reply_mutex);
+		err = queue_reply(&queue, &hdr, sizeof(hdr))
+		      ?: queue_reply(&queue, XS_RESP, hdr.len);
 		break;
 	}
 
-	default:
-		if (msg_type == XS_TRANSACTION_START) {
-			trans = kmalloc(sizeof(*trans), GFP_KERNEL);
-			if (!trans) {
-				rc = -ENOMEM;
-				goto out;
-			}
+	case XS_TRANSACTION_START:
+		trans = kmalloc(sizeof(*trans), GFP_KERNEL);
+		if (!trans) {
+			rc = -ENOMEM;
+			goto out;
 		}
+		goto common;
 
+	case XS_TRANSACTION_END:
+		list_for_each_entry(trans, &u->transactions, list)
+			if (trans->handle.id == u->u.msg.tx_id)
+				break;
+		if (&trans->list == &u->transactions) {
+			rc = -ESRCH;
+			goto out;
+		}
+		/* fall through */
+	common:
+	default:
 		reply = xenbus_dev_request_and_reply(&u->u.msg);
 		if (IS_ERR(reply)) {
-			kfree(trans);
+			if (msg_type == XS_TRANSACTION_START)
+				kfree(trans);
 			rc = PTR_ERR(reply);
 			goto out;
 		}
@@ -311,20 +341,20 @@ static ssize_t xenbus_dev_write(struct file *filp,
 			trans->handle.id = simple_strtoul(reply, NULL, 0);
 			list_add(&trans->list, &u->transactions);
 		} else if (msg_type == XS_TRANSACTION_END) {
-			list_for_each_entry(trans, &u->transactions, list)
-				if (trans->handle.id == u->u.msg.tx_id)
-					break;
-			BUG_ON(&trans->list == &u->transactions);
 			list_del(&trans->list);
 			kfree(trans);
 		}
 		mutex_lock(&u->reply_mutex);
-		queue_reply(u, (char *)&u->u.msg, sizeof(u->u.msg));
-		queue_reply(u, (char *)reply, u->u.msg.len);
-		mutex_unlock(&u->reply_mutex);
-		kfree(reply);
+		err = queue_reply(&queue, &u->u.msg, sizeof(u->u.msg))
+		      ?: queue_reply(&queue, reply, u->u.msg.len);
 		break;
 	}
+
+	queue_flush(u, &queue, err);
+	mutex_unlock(&u->reply_mutex);
+	kfree(reply);
+	if (err)
+		rc = err;
 
  out:
 	u->len = 0;

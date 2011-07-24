@@ -72,11 +72,7 @@ static void pre_suspend(void)
 
 static void post_suspend(int suspend_cancelled, int fast_suspend)
 {
-	int i, j, k, fpp;
 	unsigned long shinfo_mfn;
-	extern unsigned long max_pfn;
-	extern unsigned long *pfn_to_mfn_frame_list_list;
-	extern unsigned long **pfn_to_mfn_frame_list;
 
 	if (suspend_cancelled) {
 		xen_start_info->store_mfn =
@@ -84,6 +80,8 @@ static void post_suspend(int suspend_cancelled, int fast_suspend)
 		xen_start_info->console.domU.mfn =
 			pfn_to_mfn(xen_start_info->console.domU.mfn);
 	} else {
+		unsigned int i;
+
 #ifdef CONFIG_SMP
 		cpumask_copy(vcpu_initialized_mask, cpu_online_mask);
 #endif
@@ -113,20 +111,8 @@ static void post_suspend(int suspend_cancelled, int fast_suspend)
 
 	clear_page(empty_zero_page);
 
-	fpp = PAGE_SIZE/sizeof(unsigned long);
-	for (i = 0, j = 0, k = -1; i < max_pfn; i += fpp, j++) {
-		if ((j % fpp) == 0) {
-			k++;
-			pfn_to_mfn_frame_list_list[k] =
-				virt_to_mfn(pfn_to_mfn_frame_list[k]);
-			j = 0;
-		}
-		pfn_to_mfn_frame_list[k][j] =
-			virt_to_mfn(&phys_to_machine_mapping[i]);
-	}
-	HYPERVISOR_shared_info->arch.max_pfn = max_pfn;
-	HYPERVISOR_shared_info->arch.pfn_to_mfn_frame_list_list =
-		virt_to_mfn(pfn_to_mfn_frame_list_list);
+	if (!suspend_cancelled)
+		setup_pfn_to_mfn_frame_list(NULL);
 }
 #endif
 
@@ -157,16 +143,11 @@ static int take_machine_down(void *_suspend)
 {
 	struct suspend *suspend = _suspend;
 	int suspend_cancelled;
-	bool sysdev_suspended = false;
 
 	BUG_ON(!irqs_disabled());
 
 	mm_pin_all();
-	suspend_cancelled = sysdev_suspend(PMSG_SUSPEND);
-	if (!suspend_cancelled)
-		suspend_cancelled = syscore_suspend();
-	else
-		sysdev_suspended = true;
+	suspend_cancelled = syscore_suspend();
 	if (!suspend_cancelled) {
 		pre_suspend();
 
@@ -184,8 +165,6 @@ static int take_machine_down(void *_suspend)
 		xen_clockevents_resume();
 	if (suspend_cancelled >= 0)
 		syscore_resume();
-	if (sysdev_suspended)
-		sysdev_resume();
 	if (!suspend_cancelled) {
 #ifdef __x86_64__
 		/*

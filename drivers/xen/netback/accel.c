@@ -208,10 +208,10 @@ EXPORT_SYMBOL_GPL(netback_connect_accelerator);
  */
 void netback_disconnect_accelerator(int id, const char *eth_name)
 {
-	struct netback_accelerator *accelerator, *next;
+	struct netback_accelerator *accelerator;
 
 	mutex_lock(&accelerators_mutex);
-	list_for_each_entry_safe(accelerator, next, &accelerators_list, link) {
+	list_for_each_entry(accelerator, &accelerators_list, link) {
 		if (!strcmp(eth_name, accelerator->eth_name)) {
 			xenbus_for_each_backend
 				(accelerator, netback_accelerator_remove_backend);

@@ -474,8 +474,11 @@ xlvbd_flush(struct blkfront_info *info)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,37)
 	blk_queue_flush(info->rq, info->feature_flush);
-	pr_info("blkfront: %s: barriers %s\n",
+	pr_info("blkfront: %s: %s: %s\n",
 		info->gd->disk_name,
+		info->flush_op == BLKIF_OP_WRITE_BARRIER ?
+		"barrier" : (info->flush_op == BLKIF_OP_FLUSH_DISKCACHE ?
+			     "flush diskcache" : "barrier or flush"),
 		info->feature_flush ? "enabled" : "disabled");
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,16)
 	int err;

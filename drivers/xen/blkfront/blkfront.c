@@ -328,7 +328,7 @@ static void connect(struct blkfront_info *info)
 	unsigned long long sectors;
 	unsigned long sector_size;
 	unsigned int binfo;
-	int err, barrier;
+	int err, barrier, flush;
 
 	switch (info->connected) {
 	case BLKIF_STATE_CONNECTED:
@@ -338,7 +338,7 @@ static void connect(struct blkfront_info *info)
 		 */
 		err = xenbus_scanf(XBT_NIL, info->xbdev->otherend,
 				   "sectors", "%Lu", &sectors);
-		if (XENBUS_EXIST_ERR(err))
+		if (err != 1)
 			return;
 		pr_info("Setting capacity to %Lu\n", sectors);
 		set_capacity(info->gd, sectors);
@@ -363,9 +363,11 @@ static void connect(struct blkfront_info *info)
 		return;
 	}
 
-	err = xenbus_gather(XBT_NIL, info->xbdev->otherend,
-			    "feature-barrier", "%d", &barrier,
-			    NULL);
+	info->feature_flush = 0;
+	info->flush_op = 0;
+
+	err = xenbus_scanf(XBT_NIL, info->xbdev->otherend,
+			   "feature-barrier", "%d", &barrier);
 	/*
 	 * If there's no "feature-barrier" defined, then it means
 	 * we're dealing with a very old backend which writes
@@ -374,12 +376,22 @@ static void connect(struct blkfront_info *info)
 	 * If there are barriers, then we use flush.
 	 */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,37)
-	if (!err && barrier)
+	if (err > 0 && barrier) {
 		info->feature_flush = REQ_FLUSH | REQ_FUA;
-	else
-		info->feature_flush = 0;
+		info->flush_op = BLKIF_OP_WRITE_BARRIER;
+	}
+	/*
+	 * And if there is "feature-flush-cache" use that above
+	 * barriers.
+	 */
+	err = xenbus_scanf(XBT_NIL, info->xbdev->otherend,
+			   "feature-flush-cache", "%d", &flush);
+	if (err > 0 && flush) {
+		info->feature_flush = REQ_FLUSH;
+		info->flush_op = BLKIF_OP_FLUSH_DISKCACHE;
+	}
 #else
-	if (err)
+	if (err <= 0)
 		info->feature_flush = QUEUE_ORDERED_DRAIN;
 	else if (barrier)
 		info->feature_flush = QUEUE_ORDERED_TAG;
@@ -612,12 +624,11 @@ int blkif_ioctl(struct block_device *bd, fmode_t mode,
 				return -EFAULT;
 		return 0;
 
-	case CDROM_GET_CAPABILITY: {
-		struct gendisk *gd = info->gd;
-		if (gd->flags & GENHD_FL_CD)
+	case CDROM_GET_CAPABILITY:
+		if (info->gd && (info->gd->flags & GENHD_FL_CD))
 			return 0;
 		return -EINVAL;
-	}
+
 	default:
 		if (info->mi && info->gd && info->rq) {
 			switch (info->mi->major) {
@@ -666,8 +677,7 @@ int blkif_getgeo(struct block_device *bd, struct hd_geometry *hg)
 
 /*
  * Generate a Xen blkfront IO request from a blk layer request.  Reads
- * and writes are handled as expected.  Since we lack a loose flush
- * request, we map flushes into a full ordered barrier.
+ * and writes are handled as expected.
  *
  * @req: a request struct
  */
@@ -711,7 +721,7 @@ static int blkif_queue_request(struct request *req)
 #else
 	if (req->cmd_flags & REQ_HARDBARRIER)
 #endif
-		ring_req->operation = BLKIF_OP_WRITE_BARRIER;
+		ring_req->operation = info->flush_op;
 	if (req->cmd_type == REQ_TYPE_BLOCK_PC)
 		ring_req->operation = BLKIF_OP_PACKET;
 
@@ -832,18 +842,21 @@ static irqreturn_t blkif_int(int irq, void *dev_id)
 
 		ret = bret->status == BLKIF_RSP_OKAY ? 0 : -EIO;
 		switch (bret->operation) {
+			const char *what;
+
+		case BLKIF_OP_FLUSH_DISKCACHE:
 		case BLKIF_OP_WRITE_BARRIER:
+			what = bret->operation == BLKIF_OP_WRITE_BARRIER ?
+			       "barrier" : "flush disk cache";
 			if (unlikely(bret->status == BLKIF_RSP_EOPNOTSUPP)) {
-				pr_warning("blkfront: %s:"
-					   " write barrier op failed\n",
-					   info->gd->disk_name);
+				pr_warn("blkfront: %s: write %s op failed\n",
+					what, info->gd->disk_name);
 				ret = -EOPNOTSUPP;
 			}
 			if (unlikely(bret->status == BLKIF_RSP_ERROR &&
 				     info->shadow[id].req.nr_segments == 0)) {
-				pr_warning("blkfront: %s:"
-					   " empty write barrier op failed\n",
-					   info->gd->disk_name);
+				pr_warn("blkfront: %s: empty write %s op failed\n",
+					what, info->gd->disk_name);
 				ret = -EOPNOTSUPP;
 			}
 			if (unlikely(ret)) {

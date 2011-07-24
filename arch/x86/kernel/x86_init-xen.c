@@ -33,7 +33,11 @@ int __init iommu_init_noop(void) { return 0; }
 struct x86_init_ops x86_init __initdata = {
 
 	.resources = {
+#ifdef CONFIG_XEN_PRIVILEGED_GUEST
+		.probe_roms		= probe_roms,
+#else
 		.probe_roms		= x86_init_noop,
+#endif
 		.reserve_resources	= reserve_standard_io_resources,
 		.memory_setup		= default_machine_specific_memory_setup,
 	},
@@ -90,8 +94,8 @@ static int default_i8042_detect(void) { return 1; };
 
 struct x86_platform_ops x86_platform = {
 	.calibrate_tsc			= NULL,
-	.get_wallclock			= mach_get_cmos_time,
-	.set_wallclock			= mach_set_rtc_mmss,
+	.get_wallclock			= xen_read_wallclock,
+	.set_wallclock			= xen_write_wallclock,
 	.is_untracked_pat_range		= is_ISA_range,
 	.i8042_detect			= default_i8042_detect
 };

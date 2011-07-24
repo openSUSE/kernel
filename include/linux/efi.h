@@ -249,7 +249,9 @@ struct efi_memory_map {
  * All runtime access to EFI goes through this structure:
  */
 extern struct efi {
+#ifndef CONFIG_XEN
 	efi_system_table_t *systab;	/* EFI system table */
+#endif
 	unsigned long mps;		/* MPS table */
 	unsigned long acpi;		/* ACPI table  (IA64 ext 0.71) */
 	unsigned long acpi20;		/* ACPI table  (ACPI 2.0) */
@@ -267,8 +269,10 @@ extern struct efi {
 	efi_get_next_variable_t *get_next_variable;
 	efi_set_variable_t *set_variable;
 	efi_get_next_high_mono_count_t *get_next_high_mono_count;
+#ifndef CONFIG_XEN
 	efi_reset_system_t *reset_system;
 	efi_set_virtual_address_map_t *set_virtual_address_map;
+#endif
 } efi;
 
 static inline int
@@ -299,6 +303,7 @@ extern void efi_initialize_iomem_resources(struct resource *code_resource,
 		struct resource *data_resource, struct resource *bss_resource);
 extern unsigned long efi_get_time(void);
 extern int efi_set_rtc_mmss(unsigned long nowtime);
+extern void efi_reserve_boot_services(void);
 extern struct efi_memory_map memmap;
 
 /**

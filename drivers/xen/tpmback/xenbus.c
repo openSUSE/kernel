@@ -210,12 +210,11 @@ abort:
 static int connect_ring(struct backend_info *be)
 {
 	struct xenbus_device *dev = be->dev;
-	unsigned long ring_ref;
-	unsigned int evtchn;
+	unsigned int ring_ref, evtchn;
 	int err;
 
 	err = xenbus_gather(XBT_NIL, dev->otherend,
-			    "ring-ref", "%lu", &ring_ref,
+			    "ring-ref", "%u", &ring_ref,
 			    "event-channel", "%u", &evtchn, NULL);
 	if (err) {
 		xenbus_dev_error(dev, err,
@@ -238,7 +237,7 @@ static int connect_ring(struct backend_info *be)
 		err = tpmif_map(be->tpmif, ring_ref, evtchn);
 		if (err) {
 			xenbus_dev_error(dev, err,
-					 "mapping shared-frame %lu port %u",
+					 "mapping shared-frame %u port %u",
 					 ring_ref, evtchn);
 			return err;
 		}

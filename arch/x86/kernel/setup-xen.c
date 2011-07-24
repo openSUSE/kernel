@@ -133,7 +133,7 @@ static struct notifier_block xen_panic_block = {
 unsigned long *phys_to_machine_mapping;
 EXPORT_SYMBOL(phys_to_machine_mapping);
 
-unsigned long *pfn_to_mfn_frame_list_list, **pfn_to_mfn_frame_list;
+static unsigned long *pfn_to_mfn_frame_list_list, **pfn_to_mfn_frame_list;
 
 /* Raw start-of-day parameters from the hypervisor. */
 start_info_t *xen_start_info;
@@ -174,6 +174,56 @@ struct boot_params __initdata boot_params;
 #else
 struct boot_params boot_params;
 #endif
+#else /* CONFIG_XEN */
+/*
+ * Initialise the list of the frames that specify the list of
+ * frames that make up the p2m table. Used by save/restore and
+ * kexec/crash.
+ */
+#ifdef CONFIG_PM_SLEEP
+void
+#else
+static void __init
+#endif
+setup_pfn_to_mfn_frame_list(typeof(__alloc_bootmem) *__alloc_bootmem)
+{
+	unsigned long i, j, size;
+	unsigned int k, fpp = PAGE_SIZE / sizeof(unsigned long);
+
+	size = (max_pfn + fpp - 1) / fpp;
+	size = (size + fpp - 1) / fpp;
+	++size; /* include a zero terminator for crash tools */
+	size *= sizeof(unsigned long);
+	if (__alloc_bootmem)
+		pfn_to_mfn_frame_list_list = alloc_bootmem_pages(size);
+	if (size > PAGE_SIZE
+	    && xen_create_contiguous_region((unsigned long)
+					    pfn_to_mfn_frame_list_list,
+					    get_order(size), 0))
+		BUG();
+	size -= sizeof(unsigned long);
+	if (__alloc_bootmem)
+		pfn_to_mfn_frame_list = alloc_bootmem(size);
+
+	for (i = j = 0, k = -1; i < max_pfn; i += fpp, j++) {
+		if (j == fpp)
+			j = 0;
+		if (j == 0) {
+			k++;
+			BUG_ON(k * sizeof(unsigned long) >= size);
+			if (__alloc_bootmem)
+				pfn_to_mfn_frame_list[k] =
+					alloc_bootmem_pages(PAGE_SIZE);
+			pfn_to_mfn_frame_list_list[k] =
+				virt_to_mfn(pfn_to_mfn_frame_list[k]);
+		}
+		pfn_to_mfn_frame_list[k][j] =
+			virt_to_mfn(&phys_to_machine_mapping[i]);
+	}
+	HYPERVISOR_shared_info->arch.max_pfn = max_pfn;
+	HYPERVISOR_shared_info->arch.pfn_to_mfn_frame_list_list =
+		virt_to_mfn(pfn_to_mfn_frame_list_list);
+}
 #endif
 
 /*
@@ -758,7 +808,6 @@ early_param("reservelow", parse_reservelow);
 
 void __init setup_arch(char **cmdline_p)
 {
-	unsigned long flags;
 #ifdef CONFIG_XEN
 	unsigned int i;
 	unsigned long p2m_pages;
@@ -870,6 +919,8 @@ void __init setup_arch(char **cmdline_p)
 		                      xen_start_info->console.dom0.info_size);
 		xen_start_info->console.domU.mfn = 0;
 		xen_start_info->console.domU.evtchn = 0;
+
+		efi_probe();
 	} else
 		screen_info.orig_video_isVGA = 0;
 	copy_edid();
@@ -1034,6 +1085,13 @@ void __init setup_arch(char **cmdline_p)
 	memblock.current_limit = get_max_mapped();
 	memblock_x86_fill();
 
+	/*
+	 * The EFI specification says that boot service code won't be called
+	 * after ExitBootServices(). This is, in fact, a lie.
+	 */
+	if (efi_enabled)
+		efi_reserve_boot_services();
+
 	/* preallocate 4k for mptable mpc */
 	early_reserve_e820_mpc_new();
 
@@ -1051,6 +1109,54 @@ void __init setup_arch(char **cmdline_p)
 	init_gbpages();
 
 	/* max_pfn_mapped is updated here */
+#ifdef CONFIG_X86_64_XEN
+	if (xen_start_info->mfn_list < __START_KERNEL_map) {
+		/* Map P2M space only after all usable memory. */
+		unsigned long p2m_start = xen_start_info->first_p2m_pfn;
+		unsigned long p2m_end = p2m_start
+					+ xen_start_info->nr_p2m_frames;
+		unsigned long temp;
+
+		max_low_pfn_mapped = init_memory_mapping(
+			0, min(max_low_pfn, p2m_start) << PAGE_SHIFT);
+		max_pfn_mapped = max_low_pfn_mapped;
+
+		if (p2m_end < max_low_pfn)
+			max_low_pfn_mapped = init_memory_mapping(
+				p2m_end << PAGE_SHIFT,
+				max_low_pfn << PAGE_SHIFT);
+		max_pfn_mapped = max_low_pfn_mapped;
+
+		if (max_low_pfn < p2m_start)
+			max_pfn_mapped = init_memory_mapping(
+				max_low_pfn << PAGE_SHIFT,
+				p2m_start << PAGE_SHIFT);
+
+		if (max(max_low_pfn, p2m_end) < max_pfn)
+			max_pfn_mapped = init_memory_mapping(
+				max(max_low_pfn, p2m_end) << PAGE_SHIFT,
+				max_pfn << PAGE_SHIFT);
+
+		temp = max_pfn_mapped;
+		if (p2m_start < max_low_pfn) {
+			temp = init_memory_mapping(
+				p2m_start << PAGE_SHIFT,
+				min(max_low_pfn, p2m_end) << PAGE_SHIFT);
+			if (temp > max_low_pfn_mapped)
+				max_low_pfn_mapped = temp;
+		}
+
+		if (max_low_pfn < p2m_end)
+			temp = init_memory_mapping(
+				max(max_low_pfn, p2m_start) << PAGE_SHIFT,
+				p2m_end << PAGE_SHIFT);
+		if (temp > max_pfn_mapped)
+			max_pfn_mapped = temp;
+
+		goto init_memory_mapping_done;
+	}
+#endif
+
 	max_low_pfn_mapped = init_memory_mapping(0, max_low_pfn<<PAGE_SHIFT);
 	max_pfn_mapped = max_low_pfn_mapped;
 
@@ -1058,6 +1164,7 @@ void __init setup_arch(char **cmdline_p)
 	if (max_pfn > max_low_pfn) {
 		max_pfn_mapped = init_memory_mapping(1UL<<32,
 						     max_pfn<<PAGE_SHIFT);
+ init_memory_mapping_done:
 		/* can we preseve max_low_pfn ?*/
 		max_low_pfn = max_pfn;
 	}
@@ -1072,6 +1179,8 @@ void __init setup_arch(char **cmdline_p)
 	if (init_ohci1394_dma_early)
 		init_ohci1394_dma_on_all_controllers();
 #endif
+	/* Allocate bigger log buffer */
+	setup_log_buf(1);
 
 	reserve_initrd();
 
@@ -1099,7 +1208,6 @@ void __init setup_arch(char **cmdline_p)
 
 	initmem_init();
 	memblock_find_dma_reserve();
-	dma32_reserve_bootmem();
 
 #ifdef CONFIG_KVM_CLOCK
 	kvmclock_init();
@@ -1158,19 +1266,33 @@ void __init setup_arch(char **cmdline_p)
 		p2m_pages = xen_start_info->nr_pages;
 
 	if (!xen_feature(XENFEAT_auto_translated_physmap)) {
-		unsigned long i, j, size;
-		unsigned int k, fpp;
-
 		/* Make sure we have a large enough P->M table. */
 		phys_to_machine_mapping = alloc_bootmem_pages(
 			max_pfn * sizeof(unsigned long));
+#ifdef CONFIG_X86_32
 		memcpy(phys_to_machine_mapping,
-		       __va(__pa(xen_start_info->mfn_list)),
+		       (unsigned long *)xen_start_info->mfn_list,
 		       p2m_pages * sizeof(unsigned long));
 		memset(phys_to_machine_mapping + p2m_pages, ~0,
 		       (max_pfn - p2m_pages) * sizeof(unsigned long));
+#else /* We must not use memcpy() and memset() here, as they're
+         not capable of dealing with 4Gb or more at a time. */
+		{
+			void *src = __va(__pa(xen_start_info->mfn_list));
+			unsigned long size, *dst = phys_to_machine_mapping;
+			unsigned int fpp = PAGE_SIZE / sizeof(*dst);
 
-#ifdef CONFIG_X86_64
+			for (size = p2m_pages; size >= fpp; size -= fpp) {
+				copy_page(dst, src);
+				src += PAGE_SIZE;
+				dst += fpp;
+			}
+			memcpy(dst, src, size * sizeof(*dst));
+			dst += size;
+			for (size = max_pfn - p2m_pages; size; --size)
+				*dst++ = INVALID_P2M_ENTRY;
+		}
+
 		if (xen_start_info->mfn_list == VMEMMAP_START) {
 			/*
 			 * Since it is well isolated we can (and since it is
@@ -1245,42 +1367,10 @@ void __init setup_arch(char **cmdline_p)
 				PFN_PHYS(PFN_UP(xen_start_info->nr_pages *
 						sizeof(unsigned long))));
 
-
-		/*
-		 * Initialise the list of the frames that specify the list of
-		 * frames that make up the p2m table. Used by save/restore.
-		 */
-		fpp = PAGE_SIZE/sizeof(unsigned long);
-		size = (max_pfn + fpp - 1) / fpp;
-		size = (size + fpp - 1) / fpp;
-		++size; /* include a zero terminator for crash tools */
-		size *= sizeof(unsigned long);
-		pfn_to_mfn_frame_list_list = alloc_bootmem_pages(size);
-		if (size > PAGE_SIZE
-		    && xen_create_contiguous_region((unsigned long)
-						    pfn_to_mfn_frame_list_list,
-						    get_order(size), 0))
-			BUG();
-		size -= sizeof(unsigned long);
-		pfn_to_mfn_frame_list = alloc_bootmem(size);
-
-		for (i = j = 0, k = -1; i < max_pfn; i += fpp, j++) {
-			if (j == fpp)
-				j = 0;
-			if (j == 0) {
-				k++;
-				BUG_ON(k * sizeof(unsigned long) >= size);
-				pfn_to_mfn_frame_list[k] =
-					alloc_bootmem_pages(PAGE_SIZE);
-				pfn_to_mfn_frame_list_list[k] =
-					virt_to_mfn(pfn_to_mfn_frame_list[k]);
-			}
-			pfn_to_mfn_frame_list[k][j] =
-				virt_to_mfn(&phys_to_machine_mapping[i]);
-		}
-		HYPERVISOR_shared_info->arch.max_pfn = max_pfn;
-		HYPERVISOR_shared_info->arch.pfn_to_mfn_frame_list_list =
-			virt_to_mfn(pfn_to_mfn_frame_list_list);
+#ifndef CONFIG_KEXEC
+		if (!is_initial_xendomain())
+#endif
+			setup_pfn_to_mfn_frame_list(__alloc_bootmem);
 	}
 
 	/* Mark all ISA DMA channels in-use - using them wouldn't work. */
@@ -1325,19 +1415,9 @@ void __init setup_arch(char **cmdline_p)
 
 	x86_init.resources.reserve_resources();
 
-#ifndef CONFIG_XEN
-	e820_setup_gap();
-
-#ifdef CONFIG_VT
-#if defined(CONFIG_VGA_CONSOLE)
-	if (!efi_enabled || (efi_mem_type(0xa0000) != EFI_CONVENTIONAL_MEMORY))
-		conswitchp = &vga_con;
-#elif defined(CONFIG_DUMMY_CONSOLE)
-	conswitchp = &dummy_con;
-#endif
-#endif
-#else /* CONFIG_XEN */
+#ifdef CONFIG_XEN
 	if (is_initial_xendomain())
+#endif
 		e820_setup_gap();
 
 #ifdef CONFIG_VT
@@ -1345,20 +1425,22 @@ void __init setup_arch(char **cmdline_p)
 	conswitchp = &dummy_con;
 #endif
 #ifdef CONFIG_VGA_CONSOLE
-	if (is_initial_xendomain())
+#ifdef CONFIG_XEN
+	if (!is_initial_xendomain())
+		;
+	else
+#endif
+	if (!efi_enabled || efi_mem_type(0xa0000) != EFI_CONVENTIONAL_MEMORY)
 		conswitchp = &vga_con;
 #endif
 #endif
-#endif /* CONFIG_XEN */
 	x86_init.oem.banner();
 
 	x86_init.timers.wallclock_init();
 
 	mcheck_init();
 
-	local_irq_save(flags);
-	arch_init_ideal_nop5();
-	local_irq_restore(flags);
+	arch_init_ideal_nops();
 }
 
 #ifdef CONFIG_X86_32

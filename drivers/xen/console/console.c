@@ -315,6 +315,7 @@ void __init dom0_init_screen_info(const struct dom0_vga_console_info *info, size
 		break;
 
 	case XEN_VGATYPE_VESA_LFB:
+	case XEN_VGATYPE_EFI_LFB:
 		if (size < offsetof(struct dom0_vga_console_info,
 		                    u.vesa_lfb.gbl_caps))
 			break;
@@ -333,6 +334,10 @@ void __init dom0_init_screen_info(const struct dom0_vga_console_info *info, size
 		screen_info.blue_pos = info->u.vesa_lfb.blue_pos;
 		screen_info.rsvd_size = info->u.vesa_lfb.rsvd_size;
 		screen_info.rsvd_pos = info->u.vesa_lfb.rsvd_pos;
+		if (info->video_type == XEN_VGATYPE_EFI_LFB) {
+			screen_info.orig_video_isVGA = VIDEO_TYPE_EFI;
+			break;
+		}
 		if (size >= offsetof(struct dom0_vga_console_info,
 		                     u.vesa_lfb.gbl_caps)
 		            + sizeof(info->u.vesa_lfb.gbl_caps))
