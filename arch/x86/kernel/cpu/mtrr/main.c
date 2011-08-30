@@ -144,13 +144,13 @@ struct set_mtrr_data {
 };
 
 /**
- * mtrr_work_handler - Work done in the synchronisation handler. Executed by
- * all the CPUs.
+ * mtrr_rendezvous_handler - Work done in the synchronization handler. Executed
+ * by all the CPUs.
  * @info: pointer to mtrr configuration data
  *
  * Returns nothing.
  */
-static int mtrr_work_handler(void *info)
+static int mtrr_rendezvous_handler(void *info)
 {
 #ifdef CONFIG_SMP
 	struct set_mtrr_data *data = info;
@@ -229,10 +229,10 @@ set_mtrr(unsigned int reg, unsigned long base, unsigned long size, mtrr_type typ
 				      .smp_type = type
 				    };
 
-	stop_machine(mtrr_work_handler, &data, cpu_online_mask);
+	stop_machine(mtrr_rendezvous_handler, &data, cpu_online_mask);
 }
 
-static void set_mtrr_from_offline_cpu(unsigned int reg, unsigned long base,
+static void set_mtrr_from_inactive_cpu(unsigned int reg, unsigned long base,
 				      unsigned long size, mtrr_type type)
 {
 	struct set_mtrr_data data = { .smp_reg = reg,
@@ -241,8 +241,8 @@ static void set_mtrr_from_offline_cpu(unsigned int reg, unsigned long base,
 				      .smp_type = type
 				    };
 
-	stop_machine_from_offline_cpu(mtrr_work_handler, &data,
-				      cpu_callout_mask);
+	stop_machine_from_inactive_cpu(mtrr_rendezvous_handler, &data,
+				       cpu_callout_mask);
 }
 
 /**
@@ -696,7 +696,7 @@ void mtrr_ap_init(void)
 	 *   2. cpu hotadd time. We let mtrr_add/del_page hold cpuhotplug
 	 *      lock to prevent mtrr entry changes
 	 */
-	set_mtrr_from_offline_cpu(~0U, 0, 0, 0);
+	set_mtrr_from_inactive_cpu(~0U, 0, 0, 0);
 }
 
 /**
