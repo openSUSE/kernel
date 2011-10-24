@@ -18,11 +18,15 @@ ifeq ($(CONFIG_PARAVIRT_XEN),y)
 CFLAGS_features.o			:= $(nostackp)
 endif
 
+priv-$(CONFIG_PCI)			:= pci.o
+
 obj-$(CONFIG_XEN)			+= features.o $(xen-backend-y) $(xen-backend-m)
+obj-$(CONFIG_XEN_PRIVILEGED_GUEST)	+= $(priv-y)
 obj-$(CONFIG_BLOCK)			+= $(xen-biomerge-y)
 obj-$(CONFIG_HOTPLUG_CPU)		+= $(xen-hotplug-y)
 obj-$(CONFIG_XEN_XENCOMM)		+= xencomm.o
 obj-$(CONFIG_XEN_BALLOON)		+= $(xen-balloon_y)
+obj-$(CONFIG_XEN_SELFBALLOONING)	+= xen-selfballoon.o
 obj-$(CONFIG_XEN_DEV_EVTCHN)		+= $(xen-evtchn-name-y).o
 obj-$(CONFIG_XEN_GNTDEV)		+= xen-gntdev.o
 obj-$(CONFIG_XENFS)			+= xenfs/
@@ -32,6 +36,7 @@ obj-$(CONFIG_XEN_PLATFORM_PCI)		+= xen-platform-pci.o
 obj-$(CONFIG_XEN_TMEM)			+= tmem.o
 obj-$(CONFIG_SWIOTLB_XEN)		+= swiotlb-xen.o
 obj-$(CONFIG_XEN_DOM0)			+= pci.o
+obj-$(CONFIG_XEN_PCIDEV_BACKEND)	+= xen-pciback/
 
 xen-evtchn-y				:= evtchn.o
 xen-gntdev-y				:= gntdev.o
@@ -46,7 +51,6 @@ obj-$(CONFIG_XEN_NETDEV_BACKEND)	+= netback/
 obj-$(CONFIG_XEN_TPMDEV_BACKEND)	+= tpmback/
 obj-$(CONFIG_XEN_BLKDEV_FRONTEND)	+= blkfront/
 obj-$(CONFIG_XEN_NETDEV_FRONTEND)	+= netfront/
-obj-$(CONFIG_XEN_PCIDEV_BACKEND)	+= pciback/
 obj-$(CONFIG_XEN_PCIDEV_FRONTEND)	+= pcifront/
 obj-$(CONFIG_XEN_FRAMEBUFFER)		+= fbfront/
 obj-$(CONFIG_XEN_KEYBOARD)		+= fbfront/

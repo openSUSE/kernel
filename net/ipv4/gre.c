@@ -17,7 +17,6 @@
 #include <linux/in.h>
 #include <linux/ip.h>
 #include <linux/netdevice.h>
-#include <linux/version.h>
 #include <linux/spinlock.h>
 #include <net/protocol.h>
 #include <net/gre.h>

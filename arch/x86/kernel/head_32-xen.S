@@ -16,6 +16,7 @@
 #include <asm/percpu.h>
 #include <xen/interface/xen.h>
 #include <xen/interface/elfnote.h>
+#include <xen/interface/features.h>
 
 /*
  * References to members of the new_cpu_data structure.
@@ -131,6 +132,18 @@ ENTRY(empty_zero_page)
  */
 .data
 
+#ifdef CONFIG_XEN_UNPRIVILEGED_GUEST
+# define XEN_DOM0_CAP		0
+# define XEN_DOM0_CAP_STR	""
+#else
+# define XEN_DOM0_CAP		(1 << XENFEAT_dom0)
+# if CONFIG_XEN_COMPAT < 0x040200
+#  define XEN_DOM0_CAP_STR	""
+# else
+#  define XEN_DOM0_CAP_STR	"|dom0"
+# endif
+#endif
+
 #if CONFIG_XEN_COMPAT <= 0x030002
 /*
  * __xen_guest information
@@ -184,7 +197,18 @@ ENTRY(empty_zero_page)
 	ELFNOTE(Xen, XEN_ELFNOTE_ENTRY,          .long startup_32)
 	ELFNOTE(Xen, XEN_ELFNOTE_HYPERCALL_PAGE, .long hypercall_page)
 	ELFNOTE(Xen, XEN_ELFNOTE_HV_START_LOW,   .long HYPERVISOR_VIRT_START)
-	ELFNOTE(Xen, XEN_ELFNOTE_FEATURES,       .asciz "writable_page_tables|writable_descriptor_tables|auto_translated_physmap|pae_pgdir_above_4gb|supervisor_mode_kernel")
+	ELFNOTE(Xen, XEN_ELFNOTE_FEATURES,       .ascii "writable_page_tables";
+						 .ascii "|writable_descriptor_tables";
+						 .ascii "|auto_translated_physmap";
+						 .ascii "|pae_pgdir_above_4gb";
+						 .ascii "|supervisor_mode_kernel";
+						 .asciz XEN_DOM0_CAP_STR)
+	ELFNOTE(Xen, XEN_ELFNOTE_SUPPORTED_FEATURES, .long XEN_DOM0_CAP |
+					   (1 << XENFEAT_writable_page_tables) |
+					   (1 << XENFEAT_writable_descriptor_tables) |
+					   (1 << XENFEAT_auto_translated_physmap) |
+					   (1 << XENFEAT_pae_pgdir_above_4gb) |
+					   (1 << XENFEAT_supervisor_mode_kernel))
 #ifdef CONFIG_X86_PAE
 	ELFNOTE(Xen, XEN_ELFNOTE_PAE_MODE,       .asciz "yes")
 	ELFNOTE(Xen, XEN_ELFNOTE_L1_MFN_VALID,   .quad _PAGE_PRESENT, _PAGE_PRESENT)

@@ -135,7 +135,7 @@ ENTRY(ia32_sysenter_target)
 	movq	%r10,8(%rsp)
 	movq	%rax,(%rsp)
 	cld
-	SAVE_ARGS 0,0,1
+	SAVE_ARGS 0,1,0
  	/* no need to do an access_ok check here because rbp has been
  	   32bit zero extended */ 
 1:	movl	(%rbp),%ebp
@@ -206,7 +206,7 @@ ENTRY(ia32_cstar_target)
 	CFI_REL_OFFSET	rip,RIP-RIP+16
 	movl 	%eax,%eax	/* zero extension */
 	movl	RSP-RIP+16(%rsp),%r8d
-	SAVE_ARGS -8,1,1
+	SAVE_ARGS -8,0,0
 	movq	%rax,ORIG_RAX-ARGOFFSET(%rsp)
 	movq	%rbp,RCX-ARGOFFSET(%rsp) /* this lies slightly to ptrace */
 	movl	%ebp,%ecx
@@ -301,7 +301,7 @@ ENTRY(ia32_syscall)
 	cld
 	/* note the registers are not zero extended to the sf.
 	   this could be a problem. */
-	SAVE_ARGS 0,0,1
+	SAVE_ARGS 0,1,0
 	GET_THREAD_INFO(%r10)
 	orl   $TS_COMPAT,TI_status(%r10)
 	testl $_TIF_WORK_SYSCALL_ENTRY,TI_flags(%r10)
@@ -560,7 +560,7 @@ ia32_sys_call_table:
 	.quad sys32_vm86_warning	/* vm86 */ 
 	.quad quiet_ni_syscall	/* query_module */
 	.quad sys_poll
-	.quad compat_sys_nfsservctl
+	.quad quiet_ni_syscall /* old nfsservctl */
 	.quad sys_setresgid16	/* 170 */
 	.quad sys_getresgid16
 	.quad sys_prctl

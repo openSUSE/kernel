@@ -268,8 +268,13 @@ int xenbus_grant_ring(struct xenbus_device *dev, unsigned long ring_mfn);
  * or -ENOMEM on error. If an error is returned, device will switch to
  * XenbusStateClosing and the error message will be saved in XenStore.
  */
+#if defined(CONFIG_XEN) || defined(HAVE_XEN_PLATFORM_COMPAT_H)
 struct vm_struct *xenbus_map_ring_valloc(struct xenbus_device *dev,
 					 grant_ref_t ref);
+#else
+int xenbus_map_ring_valloc(struct xenbus_device *dev,
+			   grant_ref_t gnt_ref, void **vaddr);
+#endif
 int xenbus_map_ring(struct xenbus_device *dev, grant_ref_t gnt_ref,
 			   grant_handle_t *handle, void *vaddr);
 
@@ -279,7 +284,11 @@ int xenbus_map_ring(struct xenbus_device *dev, grant_ref_t gnt_ref,
  * Returns 0 on success and returns GNTST_* on error
  * (see xen/include/interface/grant_table.h).
  */
+#if defined(CONFIG_XEN) || defined(HAVE_XEN_PLATFORM_COMPAT_H)
 int xenbus_unmap_ring_vfree(struct xenbus_device *dev, struct vm_struct *);
+#else
+int xenbus_unmap_ring_vfree(struct xenbus_device *dev, void *vaddr);
+#endif
 int xenbus_unmap_ring(struct xenbus_device *dev,
 		      grant_handle_t handle, void *vaddr);
 

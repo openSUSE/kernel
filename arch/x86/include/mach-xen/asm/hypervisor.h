@@ -37,10 +37,8 @@
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <xen/interface/xen.h>
-#include <xen/interface/platform.h>
 #include <xen/interface/sched.h>
 #include <xen/interface/vcpu.h>
-#include <xen/interface/arch-x86/xen-mca.h>
 #include <asm/percpu.h>
 #include <asm/ptrace.h>
 #include <asm/pgtable_types.h>

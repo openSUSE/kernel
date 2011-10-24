@@ -41,6 +41,10 @@
 # error "please don't include this file directly"
 #endif
 
+#ifdef CONFIG_XEN_PRIVILEGED_GUEST
+# include <xen/interface/platform.h>
+# include <xen/interface/arch-x86/xen-mca.h>
+#endif
 #if CONFIG_XEN_COMPAT <= 0x030002
 # include <linux/string.h> /* memcpy() */
 # include <xen/interface/event_channel.h>
@@ -231,6 +235,7 @@ HYPERVISOR_sched_op(
 	return _hypercall2(int, sched_op, cmd, arg);
 }
 
+#ifdef CONFIG_XEN_PRIVILEGED_GUEST
 static inline int __must_check
 HYPERVISOR_platform_op(
 	struct xen_platform_op *platform_op)
@@ -239,7 +244,6 @@ HYPERVISOR_platform_op(
 	return _hypercall1(int, platform_op, platform_op);
 }
 
-struct xen_mc;
 static inline int __must_check
 HYPERVISOR_mca(
 	struct xen_mc *mc_op)
@@ -247,6 +251,7 @@ HYPERVISOR_mca(
 	mc_op->interface_version = XEN_MCA_INTERFACE_VERSION;
 	return _hypercall1(int, mca, mc_op);
 }
+#endif
 
 static inline int __must_check
 HYPERVISOR_set_debugreg(

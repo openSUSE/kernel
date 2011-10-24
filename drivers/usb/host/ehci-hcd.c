@@ -115,7 +115,7 @@ MODULE_PARM_DESC (ignore_oc, "ignore bogus hardware overcurrent indications");
 /* for link power management(LPM) feature */
 static unsigned int hird;
 module_param(hird, int, S_IRUGO);
-MODULE_PARM_DESC(hird, "host initiated resume duration, +1 for each 75us\n");
+MODULE_PARM_DESC(hird, "host initiated resume duration, +1 for each 75us");
 
 #define	INTR_MASK (STS_IAA | STS_FATAL | STS_PCD | STS_ERR | STS_INT)
 
@@ -338,6 +338,7 @@ static void ehci_work(struct ehci_hcd *ehci);
 #include "ehci-mem.c"
 #include "ehci-q.c"
 #include "ehci-sched.c"
+#include "ehci-sysfs.c"
 
 /*-------------------------------------------------------------------------*/
 
@@ -522,7 +523,7 @@ static void ehci_stop (struct usb_hcd *hcd)
 	ehci_reset (ehci);
 	spin_unlock_irq(&ehci->lock);
 
-	remove_companion_file(ehci);
+	remove_sysfs_files(ehci);
 	remove_debug_files (ehci);
 
 	/* root hub is shut down separately (first, when possible) */
@@ -571,6 +572,12 @@ static int ehci_init(struct usb_hcd *hcd)
 	ehci->iaa_watchdog.data = (unsigned long) ehci;
 
 	hcc_params = ehci_readl(ehci, &ehci->caps->hcc_params);
+
+	/*
+	 * by default set standard 80% (== 100 usec/uframe) max periodic
+	 * bandwidth as required by USB 2.0
+	 */
+	ehci->uframe_periodic_max = 100;
 
 	/*
 	 * hw default: 1K periodic list heads, one per frame.
@@ -756,7 +763,7 @@ static int ehci_run (struct usb_hcd *hcd)
 	 * since the class device isn't created that early.
 	 */
 	create_debug_files(ehci);
-	create_companion_file(ehci);
+	create_sysfs_files(ehci);
 
 	return 0;
 }

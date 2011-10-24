@@ -408,8 +408,11 @@ static int __init pci_iomul_init(void)
 {
 	int error;
 
+	if (!is_initial_xendomain())
+		return -ENODEV;
+
 	error = misc_register(&pci_iomul_miscdev);
-	if (error != 0) {
+	if (error) {
 		pr_alert("Couldn't register /dev/xen/pci_iomul");
 		return error;
 	}

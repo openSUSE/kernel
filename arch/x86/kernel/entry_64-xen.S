@@ -12,6 +12,8 @@
 /*
  * entry.S contains the system-call and fault low-level handling routines.
  *
+ * Some of this is documented in Documentation/x86/entry_64.txt
+ *
  * NOTE: This code handles signal-recognition, which happens every time
  * after an interrupt and after each system call.
  *
@@ -304,6 +306,7 @@ NMI_MASK = 0x80000000
          * with rax, r11, and rcx being taken care of in the hypercall stub.
          */
 	.macro HYPERVISOR_IRET flag
+	.if \flag == 0	# return from syscall always uses the hypercall
 	testb $3,1*8(%rsp)
 	jnz   2f
 	testl $NMI_MASK,2*8(%rsp)
@@ -316,38 +319,36 @@ NMI_MASK = 0x80000000
 	orl   $3,1*8(%rsp)
 	orl   $3,4*8(%rsp)
 1:	iretq
+	.endif
 
 2:	/* Slow iret via hypervisor. */
 	andl  $~NMI_MASK, 2*8(%rsp)
-	pushq $\flag
+	pushq $\flag & VGCF_in_syscall
 	jmp  hypercall_page + (__HYPERVISOR_iret * 32)
 	.endm
 
 #ifndef CONFIG_XEN
 /* save partial stack frame */
-	.pushsection .kprobes.text, "ax"
-ENTRY(save_args)
-	XCPT_FRAME offset=ORIG_RAX-RBP+8
+	.macro SAVE_ARGS_IRQ
 	cld
-	/*
-	 * start from rbp in pt_regs and jump over
-	 * return address.
-	 */
-	movq_cfi rdi, RDI+8-RBP
-	movq %rsi, RSI+8-RBP(%rsp)
-	movq %rdx, RDX+8-RBP(%rsp)
-	movq %rcx, RCX+8-RBP(%rsp)
-	movq_cfi rax, RAX+8-RBP
-	movq  %r8,  R8+8-RBP(%rsp)
-	movq  %r9,  R9+8-RBP(%rsp)
-	movq %r10, R10+8-RBP(%rsp)
-	movq %r11, R11+8-RBP(%rsp)
+	/* start from rbp in pt_regs and jump over */
+	movq_cfi rdi, RDI-RBP
+	movq_cfi rsi, RSI-RBP
+	movq_cfi rdx, RDX-RBP
+	movq_cfi rcx, RCX-RBP
+	movq_cfi rax, RAX-RBP
+	movq_cfi  r8,  R8-RBP
+	movq_cfi  r9,  R9-RBP
+	movq_cfi r10, R10-RBP
+	movq_cfi r11, R11-RBP
 
-	leaq -RBP+8(%rsp),%rdi	/* arg1 for handler */
-	movq_cfi rbp, 8		/* push %rbp */
-	leaq 8(%rsp), %rbp		/* mov %rsp, %ebp */
-	CFI_DEF_CFA_REGISTER rbp
-	CFI_ADJUST_CFA_OFFSET -8
+	/* Save rbp so that we can unwind from get_irq_regs() */
+	movq_cfi rbp, 0
+
+	/* Save previous stack value */
+	movq %rsp, %rsi
+
+	leaq -RBP(%rsp),%rdi	/* arg1 for handler */
 	testl $3, CS(%rdi)
 	je 1f
 	SWAPGS
@@ -359,18 +360,14 @@ ENTRY(save_args)
 	 */
 1:	incl PER_CPU_VAR(irq_count)
 	jne 2f
-	popq %rax			/* move return address... */
 	mov PER_CPU_VAR(irq_stack_ptr),%rsp
-	pushq %rbp			/* backlink for unwinder */
-	pushq %rax			/* ... to the new stack */
-	/*
-	 * We entered an interrupt context - irqs are off:
-	 */
-2:	TRACE_IRQS_OFF
-	ret
-	CFI_ENDPROC
-END(save_args)
-	.popsection
+	EMPTY_FRAME 0
+
+2:	/* Store previous stack value */
+	pushq %rsi
+	/* We entered an interrupt context - irqs are off: */
+	TRACE_IRQS_OFF
+	.endm
 #endif
 
 ENTRY(save_rest)
@@ -487,7 +484,7 @@ END(ret_from_fork)
 ENTRY(system_call)
 	INTR_FRAME start=2 offset=2*8
 	SAVE_ARGS -8,0
-	movq  %rax,ORIG_RAX-ARGOFFSET(%rsp) 
+	movq  %rax,ORIG_RAX-ARGOFFSET(%rsp)
 	GET_THREAD_INFO(%rcx)
 	testl $_TIF_WORK_SYSCALL_ENTRY,TI_flags(%rcx)
 	jnz tracesys
@@ -517,8 +514,9 @@ sysret_check:
 	 * sysretq will re-enable interrupts:
 	 */
 	TRACE_IRQS_ON
-	ENABLE_INTERRUPTS(CLBR_NONE)
-	RESTORE_ARGS 0,8,0
+	RESTORE_ARGS 1,8,0,0
+	xor %ecx,%ecx
+	xor %r11,%r11
         HYPERVISOR_IRET VGCF_IN_SYSCALL
 
 	CFI_RESTORE_STATE
@@ -772,7 +770,7 @@ retint_restore_args:	/* return to kernel space */
 	andb $1,%al			# EAX[0] == IRET_EFLAGS.IF & event_mask
 	jnz restore_all_enable_events	#        != 0 => enable event delivery
 		
-	RESTORE_ARGS 0,8,0
+	RESTORE_ARGS 1,8,1
 	HYPERVISOR_IRET 0
 	
 	/* edi: workmask, edx: work */
@@ -867,11 +865,6 @@ apicinterrupt THRESHOLD_APIC_VECTOR \
 	threshold_interrupt smp_threshold_interrupt
 apicinterrupt THERMAL_APIC_VECTOR \
 	thermal_interrupt smp_thermal_interrupt
-
-#ifdef CONFIG_X86_MCE
-apicinterrupt MCE_SELF_VECTOR \
-	mce_self_interrupt smp_mce_self_interrupt
-#endif
 
 #ifdef CONFIG_SMP
 apicinterrupt CALL_FUNCTION_SINGLE_VECTOR \
@@ -993,7 +986,7 @@ scrit:	/**** START OF CRITICAL REGION ****/
 	__TEST_PENDING
 	CFI_REMEMBER_STATE
 	jnz  14f			# process more events if necessary...
-        RESTORE_ARGS 0,8,0
+        RESTORE_ARGS 1,8,1
         HYPERVISOR_IRET 0
         
 	CFI_RESTORE_STATE
@@ -1357,7 +1350,8 @@ ENTRY(ignore_sysret)
 	popq_cfi %r11
 	CFI_RESTORE r11
 	mov $-ENOSYS,%eax
-	HYPERVISOR_IRET 0
+	# any non-zero value not having VGCF_in_syscall set will do:
+	HYPERVISOR_IRET VGCF_i387_valid
 	CFI_ENDPROC
 END(ignore_sysret)
 #endif

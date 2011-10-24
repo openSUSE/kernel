@@ -255,16 +255,14 @@ static char *pmsr_devnode(struct device *dev, mode_t *mode)
 static int __init msr_init(void)
 {
 	int err;
-	xen_platform_op_t op = {
-		.cmd                   = XENPF_get_cpuinfo,
-		.interface_version     = XENPF_INTERFACE_VERSION,
-		.u.pcpu_info.xen_cpuid = 0
-	};
+	xen_platform_op_t op;
 
 	err = _msr_init();
 	if (err || !is_initial_xendomain())
 		return err;
 
+	op.cmd = XENPF_get_cpuinfo;
+	op.u.pcpu_info.xen_cpuid = 0;
 	do {
 		err = HYPERVISOR_platform_op(&op);
 	} while (err == -EBUSY);

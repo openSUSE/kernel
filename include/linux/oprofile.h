@@ -18,7 +18,7 @@
 #include <linux/init.h>
 #include <linux/errno.h>
 #include <linux/printk.h>
-#include <asm/atomic.h>
+#include <linux/atomic.h>
 #ifdef CONFIG_XEN
 #include <xen/interface/xenoprof.h>
 #endif

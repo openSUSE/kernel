@@ -89,6 +89,26 @@ static int blkfront_probe(struct xenbus_device *dev,
 	int err, vdevice, i;
 	struct blkfront_info *info;
 
+#ifndef CONFIG_XEN /* For HVM guests, do not take over CDROM devices. */
+	char *type;
+
+	type = xenbus_read(XBT_NIL, dev->nodename, "device-type", NULL);
+	if (IS_ERR(type)) {
+		xenbus_dev_fatal(dev, PTR_ERR(type), "reading dev type");
+		return PTR_ERR(type);
+	}
+	if (!strncmp(type, "cdrom", 5)) {
+		/*
+		 * We are handed a cdrom device in a hvm guest; let the
+		 * native cdrom driver handle this device.
+		 */
+		kfree(type);
+		pr_notice("blkfront: ignoring CDROM %s\n", dev->nodename);
+		return -ENXIO;
+	}
+	kfree(type);
+#endif
+
 	/* FIXME: Use dynamic device id if this is not set. */
 	err = xenbus_scanf(XBT_NIL, dev->nodename,
 			   "virtual-device", "%i", &vdevice);
@@ -340,6 +360,13 @@ static void connect(struct blkfront_info *info)
 				   "sectors", "%Lu", &sectors);
 		if (err != 1)
 			return;
+		err = xenbus_scanf(XBT_NIL, info->xbdev->otherend,
+				   "sector-size", "%lu", &sector_size);
+		if (err != 1)
+			sector_size = 0;
+		if (sector_size)
+			blk_queue_logical_block_size(info->gd->queue,
+						     sector_size);
 		pr_info("Setting capacity to %Lu\n", sectors);
 		set_capacity(info->gd, sectors);
 		revalidate_disk(info->gd);
@@ -781,8 +808,10 @@ void do_blkif_request(struct request_queue *rq)
 
 		blk_start_request(req);
 
-		if (req->cmd_type != REQ_TYPE_FS
-		    && req->cmd_type != REQ_TYPE_BLOCK_PC) {
+		if ((req->cmd_type != REQ_TYPE_FS
+		     && req->cmd_type != REQ_TYPE_BLOCK_PC) ||
+		    ((req->cmd_flags & (REQ_FLUSH | REQ_FUA)) &&
+		     !info->flush_op)) {
 			__blk_end_request_all(req, -EIO);
 			continue;
 		}
@@ -847,15 +876,15 @@ static irqreturn_t blkif_int(int irq, void *dev_id)
 		case BLKIF_OP_FLUSH_DISKCACHE:
 		case BLKIF_OP_WRITE_BARRIER:
 			what = bret->operation == BLKIF_OP_WRITE_BARRIER ?
-			       "barrier" : "flush disk cache";
+			       "write barrier" : "flush disk cache";
 			if (unlikely(bret->status == BLKIF_RSP_EOPNOTSUPP)) {
-				pr_warn("blkfront: %s: write %s op failed\n",
+				pr_warn("blkfront: %s: %s op failed\n",
 					what, info->gd->disk_name);
 				ret = -EOPNOTSUPP;
 			}
 			if (unlikely(bret->status == BLKIF_RSP_ERROR &&
 				     info->shadow[id].req.nr_segments == 0)) {
-				pr_warn("blkfront: %s: empty write %s op failed\n",
+				pr_warn("blkfront: %s: empty %s op failed\n",
 					what, info->gd->disk_name);
 				ret = -EOPNOTSUPP;
 			}

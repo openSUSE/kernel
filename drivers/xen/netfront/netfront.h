@@ -48,6 +48,14 @@
 #include <xen/platform-compat.h>
 #endif
 
+struct netfront_stats {
+	u64			rx_packets;
+	u64			tx_packets;
+	u64			rx_bytes;
+	u64			tx_bytes;
+	struct u64_stats_sync	syncp;
+};
+
 /* 
  * Function pointer table for hooks into a network acceleration
  * plugin.  These are called at appropriate points from the netfront
@@ -90,7 +98,8 @@ struct netfront_accel_hooks {
 	 * Get the fastpath network statistics
 	 */
 	int (*get_stats)(struct net_device *dev,
-			 struct net_device_stats *stats);
+			 struct net_device_stats *dev_stats,
+			 struct netfront_stats *link_stats);
 };
 
 
@@ -194,6 +203,7 @@ struct netfront_info {
 	struct mmu_update rx_mmu[NET_RX_RING_SIZE];
 
 	/* Statistics */
+	struct netfront_stats __percpu *stats;
 	unsigned long rx_gso_csum_fixups;
 
 	/* Private pointer to state internal to accelerator module */
@@ -262,7 +272,8 @@ extern
 void netfront_accelerator_call_stop_napi_irq(struct netfront_info *np,
 					     struct net_device *dev);
 extern
-int netfront_accelerator_call_get_stats(struct net_device *dev);
+int netfront_accelerator_call_get_stats(struct netfront_info *np,
+					struct net_device *dev);
 extern
 void netfront_accelerator_add_watch(struct netfront_info *np);
 

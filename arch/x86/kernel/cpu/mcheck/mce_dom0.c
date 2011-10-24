@@ -77,7 +77,6 @@ static irqreturn_t mce_dom0_interrupt(int irq, void *dev_id)
 
 	printk(KERN_DEBUG "MCE_DOM0_LOG: enter dom0 mce vIRQ handler\n");
 	mc_op.cmd = XEN_MC_fetch;
-	mc_op.interface_version = XEN_MCA_INTERFACE_VERSION;
 	set_xen_guest_handle(mc_op.u.mc_fetch.data, g_mi);
 urgent:
 	mc_op.u.mc_fetch.flags = XEN_MC_URGENT;
@@ -144,7 +143,6 @@ int __init bind_virq_for_mce(void)
 
 	/* fetch physical CPU count */
 	mc_op.cmd = XEN_MC_physcpuinfo;
-	mc_op.interface_version = XEN_MCA_INTERFACE_VERSION;
 	set_xen_guest_handle(mc_op.u.mc_physcpuinfo.info, NULL);
 	ret = HYPERVISOR_mca(&mc_op);
 	if (ret) {

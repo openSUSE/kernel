@@ -31,7 +31,7 @@
  */
 
 #include <linux/list.h>
-#include <asm/atomic.h>
+#include <linux/atomic.h>
 #include <xen/xenbus.h>
 #include <linux/mutex.h>
 

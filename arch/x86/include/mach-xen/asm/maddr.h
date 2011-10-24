@@ -27,7 +27,7 @@ extern unsigned long  max_mapnr;
 
 #undef machine_to_phys_mapping
 extern unsigned long *machine_to_phys_mapping;
-extern unsigned int   machine_to_phys_order;
+extern unsigned long  machine_to_phys_nr;
 
 static inline unsigned long pfn_to_mfn(unsigned long pfn)
 {
@@ -54,7 +54,7 @@ static inline unsigned long mfn_to_pfn(unsigned long mfn)
 	if (unlikely(xen_feature(XENFEAT_auto_translated_physmap)))
 		return mfn;
 
-	if (unlikely((mfn >> machine_to_phys_order) != 0))
+	if (unlikely(mfn >= machine_to_phys_nr))
 		return max_mapnr;
 
 	/* The array access can fail (e.g., device space beyond end of RAM). */

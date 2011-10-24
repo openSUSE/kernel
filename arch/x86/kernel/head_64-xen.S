@@ -23,6 +23,7 @@
 #include <asm/dwarf2.h>
 #include <asm/percpu.h>
 #include <xen/interface/elfnote.h>
+#include <xen/interface/features.h>
 
 	__HEAD
 	.code64
@@ -104,6 +105,18 @@ NEXT_PAGE(hypercall_page)
 ENTRY(empty_zero_page)
 	.skip PAGE_SIZE
 
+#ifdef CONFIG_XEN_UNPRIVILEGED_GUEST
+# define XEN_DOM0_CAP		0
+# define XEN_DOM0_CAP_STR	""
+#else
+# define XEN_DOM0_CAP		(1 << XENFEAT_dom0)
+# if CONFIG_XEN_COMPAT < 0x040200
+#  define XEN_DOM0_CAP_STR	""
+# else
+#  define XEN_DOM0_CAP_STR	"|dom0"
+# endif
+#endif
+
 #if CONFIG_XEN_COMPAT <= 0x030002
 /*
  * __xen_guest information
@@ -149,6 +162,15 @@ ENTRY(empty_zero_page)
 	ELFNOTE(Xen, XEN_ELFNOTE_L1_MFN_VALID,   .quad _PAGE_PRESENT, _PAGE_PRESENT)
 	ELFNOTE(Xen, XEN_ELFNOTE_MOD_START_PFN,  .long 1)
 	ELFNOTE(Xen, XEN_ELFNOTE_INIT_P2M,       .quad VMEMMAP_START)
-	ELFNOTE(Xen, XEN_ELFNOTE_FEATURES,       .asciz "writable_page_tables|writable_descriptor_tables|auto_translated_physmap|supervisor_mode_kernel")
+	ELFNOTE(Xen, XEN_ELFNOTE_FEATURES,       .ascii "writable_page_tables";
+						 .ascii "|writable_descriptor_tables";
+						 .ascii "|auto_translated_physmap";
+						 .ascii "|supervisor_mode_kernel";
+						 .asciz XEN_DOM0_CAP_STR)
+	ELFNOTE(Xen, XEN_ELFNOTE_SUPPORTED_FEATURES, .long XEN_DOM0_CAP |
+					   (1 << XENFEAT_writable_page_tables) |
+					   (1 << XENFEAT_writable_descriptor_tables) |
+					   (1 << XENFEAT_auto_translated_physmap) |
+					   (1 << XENFEAT_supervisor_mode_kernel))
 	ELFNOTE(Xen, XEN_ELFNOTE_LOADER,         .asciz "generic")
 	ELFNOTE(Xen, XEN_ELFNOTE_SUSPEND_CANCEL, .long 1)

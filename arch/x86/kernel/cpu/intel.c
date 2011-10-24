@@ -473,6 +473,7 @@ static void __cpuinit init_intel(struct cpuinfo_x86 *c)
 
 	if (cpu_has(c, X86_FEATURE_VMX))
 		detect_vmx_virtcap(c);
+#endif
 
 	/*
 	 * Initialize MSR_IA32_ENERGY_PERF_BIAS if BIOS did not.
@@ -491,7 +492,6 @@ static void __cpuinit init_intel(struct cpuinfo_x86 *c)
 			wrmsrl(MSR_IA32_ENERGY_PERF_BIAS, epb);
 		}
 	}
-#endif
 }
 
 #ifdef CONFIG_X86_32

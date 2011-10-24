@@ -25,6 +25,7 @@
 #include <linux/kernel.h>
 #include <linux/sched.h>
 #include <linux/wait.h>
+#include <linux/delay.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
@@ -49,15 +50,11 @@ int vmbus_connect(void)
 	struct vmbus_channel_initiate_contact *msg;
 	unsigned long flags;
 
-	/* Make sure we are not connecting or connected */
-	if (vmbus_connection.conn_state != DISCONNECTED)
-		return -1;
-
 	/* Initialize the vmbus connection */
 	vmbus_connection.conn_state = CONNECTING;
 	vmbus_connection.work_queue = create_workqueue("hv_vmbus_con");
 	if (!vmbus_connection.work_queue) {
-		ret = -1;
+		ret = -ENOMEM;
 		goto cleanup;
 	}
 
@@ -74,7 +71,7 @@ int vmbus_connect(void)
 	vmbus_connection.int_page =
 	(void *)__get_free_pages(GFP_KERNEL|__GFP_ZERO, 0);
 	if (vmbus_connection.int_page == NULL) {
-		ret = -1;
+		ret = -ENOMEM;
 		goto cleanup;
 	}
 
@@ -90,7 +87,7 @@ int vmbus_connect(void)
 	vmbus_connection.monitor_pages =
 	(void *)__get_free_pages((GFP_KERNEL|__GFP_ZERO), 1);
 	if (vmbus_connection.monitor_pages == NULL) {
-		ret = -1;
+		ret = -ENOMEM;
 		goto cleanup;
 	}
 
@@ -157,7 +154,7 @@ int vmbus_connect(void)
 		pr_err("Unable to connect, "
 			"Version %d not supported by Hyper-V\n",
 			VMBUS_REVISION_NUMBER);
-		ret = -1;
+		ret = -ECONNREFUSED;
 		goto cleanup;
 	}
 
@@ -185,44 +182,6 @@ cleanup:
 	return ret;
 }
 
-/*
- * vmbus_disconnect -
- * Sends a disconnect request on the partition service connection
- */
-int vmbus_disconnect(void)
-{
-	int ret = 0;
-	struct vmbus_channel_message_header *msg;
-
-	/* Make sure we are connected */
-	if (vmbus_connection.conn_state != CONNECTED)
-		return -1;
-
-	msg = kzalloc(sizeof(struct vmbus_channel_message_header), GFP_KERNEL);
-	if (!msg)
-		return -ENOMEM;
-
-	msg->msgtype = CHANNELMSG_UNLOAD;
-
-	ret = vmbus_post_msg(msg,
-			       sizeof(struct vmbus_channel_message_header));
-	if (ret != 0)
-		goto cleanup;
-
-	free_pages((unsigned long)vmbus_connection.int_page, 0);
-	free_pages((unsigned long)vmbus_connection.monitor_pages, 1);
-
-	/* TODO: iterate thru the msg list and free up */
-	destroy_workqueue(vmbus_connection.work_queue);
-
-	vmbus_connection.conn_state = DISCONNECTED;
-
-	pr_info("hv_vmbus disconnected\n");
-
-cleanup:
-	kfree(msg);
-	return ret;
-}
 
 /*
  * relid2channel - Get the channel object given its
@@ -252,8 +211,7 @@ struct vmbus_channel *relid2channel(u32 relid)
 static void process_chn_event(u32 relid)
 {
 	struct vmbus_channel *channel;
-
-	/* ASSERT(relId > 0); */
+	unsigned long flags;
 
 	/*
 	 * Find the channel based on this relid and invokes the
@@ -261,11 +219,27 @@ static void process_chn_event(u32 relid)
 	 */
 	channel = relid2channel(relid);
 
-	if (channel) {
-		vmbus_onchannel_event(channel);
-	} else {
+	if (!channel) {
 		pr_err("channel not found for relid - %u\n", relid);
+		return;
 	}
+
+	/*
+	 * A channel once created is persistent even when there
+	 * is no driver handling the device. An unloading driver
+	 * sets the onchannel_callback to NULL under the
+	 * protection of the channel inbound_lock. Thus, checking
+	 * and invoking the driver specific callback takes care of
+	 * orderly unloading of the driver.
+	 */
+
+	spin_lock_irqsave(&channel->inbound_lock, flags);
+	if (channel->onchannel_callback != NULL)
+		channel->onchannel_callback(channel->channel_callback_context);
+	else
+		pr_err("no channel callback for relid - %u\n", relid);
+
+	spin_unlock_irqrestore(&channel->inbound_lock, flags);
 }
 
 /*
@@ -286,16 +260,17 @@ void vmbus_on_event(unsigned long data)
 		if (!recv_int_page[dword])
 			continue;
 		for (bit = 0; bit < 32; bit++) {
-			if (sync_test_and_clear_bit(bit, (unsigned long *)&recv_int_page[dword])) {
+			if (sync_test_and_clear_bit(bit,
+				(unsigned long *)&recv_int_page[dword])) {
 				relid = (dword << 5) + bit;
 
-				if (relid == 0) {
+				if (relid == 0)
 					/*
 					 * Special case - vmbus
 					 * channel protocol msg
 					 */
 					continue;
-				}
+
 				process_chn_event(relid);
 			}
 		}
@@ -308,10 +283,25 @@ void vmbus_on_event(unsigned long data)
 int vmbus_post_msg(void *buffer, size_t buflen)
 {
 	union hv_connection_id conn_id;
+	int ret = 0;
+	int retries = 0;
 
 	conn_id.asu32 = 0;
 	conn_id.u.id = VMBUS_MESSAGE_CONNECTION_ID;
-	return hv_post_message(conn_id, 1, buffer, buflen);
+
+	/*
+	 * hv_post_message() can have transient failures because of
+	 * insufficient resources. Retry the operation a couple of
+	 * times before giving up.
+	 */
+	while (retries < 3) {
+		ret =  hv_post_message(conn_id, 1, buffer, buflen);
+		if (ret != HV_STATUS_INSUFFICIENT_BUFFERS)
+			return ret;
+		retries++;
+		msleep(100);
+	}
+	return ret;
 }
 
 /*

@@ -37,7 +37,7 @@
 
 unsigned long long vbd_size(struct vbd *vbd)
 {
-	return vbd_sz(vbd);
+	return vbd->bdev ? vbd_sz(vbd) : 0;
 }
 
 unsigned int vbd_info(struct vbd *vbd)
@@ -47,7 +47,7 @@ unsigned int vbd_info(struct vbd *vbd)
 
 unsigned long vbd_secsize(struct vbd *vbd)
 {
-	return bdev_logical_block_size(vbd->bdev);
+	return vbd->bdev ? bdev_logical_block_size(vbd->bdev) : 0;
 }
 
 int vbd_create(blkif_t *blkif, blkif_vdev_t handle, unsigned major,
@@ -55,23 +55,45 @@ int vbd_create(blkif_t *blkif, blkif_vdev_t handle, unsigned major,
 {
 	struct vbd *vbd;
 	struct block_device *bdev;
+	struct request_queue *q;
+	fmode_t mode = FMODE_READ | (readonly ? 0 : FMODE_WRITE | FMODE_EXCL);
 
 	vbd = &blkif->vbd;
 	vbd->handle   = handle; 
 	vbd->readonly = readonly;
-	vbd->type     = 0;
+	vbd->size     = 0;
+	vbd->type     = cdrom ? VDISK_CDROM : 0;
 
 	vbd->pdevice  = MKDEV(major, minor);
 
-	bdev = blkdev_get_by_dev(vbd->pdevice,
-				 FMODE_READ | (vbd->readonly ? 0
-					       : FMODE_WRITE | FMODE_EXCL),
-				 blkif);
+	bdev = blkdev_get_by_dev(vbd->pdevice, mode, blkif);
 
 	if (IS_ERR(bdev)) {
-		DPRINTK("vbd_creat: device %08x could not be opened.\n",
+		if (PTR_ERR(bdev) != -ENOMEDIUM) {
+			DPRINTK("vbd_creat: device %08x could not be opened\n",
+				vbd->pdevice);
+			return -ENOENT;
+		}
+
+		DPRINTK("vbd_creat: device %08x has no medium\n",
 			vbd->pdevice);
-		return -ENOENT;
+		if (cdrom)
+			return -ENOMEDIUM;
+
+		bdev = blkdev_get_by_dev(vbd->pdevice, mode | FMODE_NDELAY,
+					 blkif);
+		if (IS_ERR(bdev))
+			return -ENOMEDIUM;
+
+		if (bdev->bd_disk) {
+			if (bdev->bd_disk->flags & GENHD_FL_CD)
+				vbd->type |= VDISK_CDROM;
+			if (bdev->bd_disk->flags & GENHD_FL_REMOVABLE)
+				vbd->type |= VDISK_REMOVABLE;
+		}
+
+		blkdev_put(bdev, mode);
+		return -ENOMEDIUM;
 	}
 
 	vbd->bdev = bdev;
@@ -85,10 +107,14 @@ int vbd_create(blkif_t *blkif, blkif_vdev_t handle, unsigned major,
 
 	vbd->size = vbd_size(vbd);
 
-	if (vbd->bdev->bd_disk->flags & GENHD_FL_CD || cdrom)
+	if (bdev->bd_disk->flags & GENHD_FL_CD)
 		vbd->type |= VDISK_CDROM;
 	if (vbd->bdev->bd_disk->flags & GENHD_FL_REMOVABLE)
 		vbd->type |= VDISK_REMOVABLE;
+
+	q = bdev_get_queue(bdev);
+	if (q && q->flush_flags)
+		vbd->flush_support = true;
 
 	DPRINTK("Successful creation of handle=%04x (dom=%u)\n",
 		handle, blkif->domid);
@@ -112,8 +138,10 @@ int vbd_translate(struct phys_req *req, blkif_t *blkif, int operation)
 	if ((operation != READ) && vbd->readonly)
 		goto out;
 
-	if (vbd->bdev == NULL)
+	if (vbd->bdev == NULL) {
+		rc = -ENOMEDIUM;
 		goto out;
+	}
 
 	if (likely(req->nr_sects)) {
 		blkif_sector_t end = req->sector_number + req->nr_sects;
@@ -154,6 +182,14 @@ again:
 		pr_warning("Error %d writing new size", err);
 		goto abort;
 	}
+
+	err = xenbus_printf(xbt, dev->nodename, "sector-size", "%lu",
+			    vbd_secsize(vbd));
+	if (err) {
+		pr_warning("Error writing new sector size");
+		goto abort;
+	}
+
 	/*
 	 * Write the current state; we will use this to synchronize
 	 * the front-end. If the current state is "connected" the

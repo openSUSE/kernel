@@ -63,9 +63,8 @@ static void __init find_early_table_space(unsigned long end, int use_pse,
 #ifdef CONFIG_X86_32
 	/* for fixmap */
 	tables += roundup(__end_of_fixed_addresses * sizeof(pte_t), PAGE_SIZE);
-
-	good_end = max_pfn_mapped << PAGE_SHIFT;
 #endif
+	good_end = max_pfn_mapped << PAGE_SHIFT;
 
 	base = memblock_find_in_range(start, good_end, tables, PAGE_SIZE);
 	if (base == MEMBLOCK_ERROR)
@@ -390,6 +389,12 @@ void free_initrd_mem(unsigned long start, unsigned long end)
 	 *   - relocate_initrd()
 	 * So here We can do PAGE_ALIGN() safely to get partial page to be freed
 	 */
+#ifdef CONFIG_ACPI_INITRD_TABLE_OVERRIDE
+	if (acpi_initrd_offset)
+		free_init_pages("initrd memory", start - acpi_initrd_offset,
+				PAGE_ALIGN(end));
+	else
+#endif
 	free_init_pages("initrd memory", start, PAGE_ALIGN(end));
 }
 #endif

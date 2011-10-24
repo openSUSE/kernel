@@ -126,12 +126,29 @@ acpi_tb_add_table(struct acpi_table_desc *table_desc, u32 *table_index)
 	}
 
 	/*
-	 * Originally, we checked the table signature for "SSDT" or "PSDT" here.
-	 * Next, we added support for OEMx tables, signature "OEM".
-	 * Valid tables were encountered with a null signature, so we've just
-	 * given up on validating the signature, since it seems to be a waste
-	 * of code. The original code was removed (05/2008).
+	 * Validate the incoming table signature.
+	 *
+	 * 1) Originally, we checked the table signature for "SSDT" or "PSDT".
+	 * 2) We added support for OEMx tables, signature "OEM".
+	 * 3) Valid tables were encountered with a null signature, so we just
+	 *    gave up on validating the signature, (05/2008).
+	 * 4) We encountered non-AML tables such as the MADT, which caused
+	 *    interpreter errors and kernel faults. So now, we once again allow
+	 *    only "SSDT", "OEMx", and now, also a null signature. (05/2011).
 	 */
+	if ((table_desc->pointer->signature[0] != 0x00) &&
+	    (!ACPI_COMPARE_NAME(table_desc->pointer->signature, ACPI_SIG_SSDT))
+	    && (ACPI_STRNCMP(table_desc->pointer->signature, "OEM", 3))) {
+		ACPI_ERROR((AE_INFO,
+			    "Table has invalid signature [%4.4s] (0x%8.8X), must be SSDT or OEMx",
+			    acpi_ut_valid_acpi_name(*(u32 *)table_desc->
+						    pointer->
+						    signature) ? table_desc->
+			    pointer->signature : "????",
+			    *(u32 *)table_desc->pointer->signature));
+
+		return_ACPI_STATUS(AE_BAD_SIGNATURE);
+	}
 
 	(void)acpi_ut_acquire_mutex(ACPI_MTX_TABLES);
 
@@ -225,6 +242,21 @@ acpi_tb_add_table(struct acpi_table_desc *table_desc, u32 *table_index)
 		table_desc->pointer = override_table;
 		table_desc->length = override_table->length;
 		table_desc->flags = ACPI_TABLE_ORIGIN_OVERRIDE;
+	} else {
+		acpi_physical_address address = 0;
+		u32 table_len = 0;
+		status = acpi_os_phys_table_override(table_desc->pointer,
+						     &address, &table_len);
+		if (ACPI_SUCCESS(status) && table_len && address) {
+			ACPI_INFO((AE_INFO, "%4.4s @ 0x%p "
+				   "Phys table override, replaced with:",
+				   table_desc->pointer->signature,
+				   ACPI_CAST_PTR(void, table_desc->address)));
+			table_desc->address = address;
+			table_desc->pointer = acpi_os_map_memory(address,
+								 table_len);
+			table_desc->length = table_len;
+		}
 	}
 
 	/* Add the table to the global root table list */

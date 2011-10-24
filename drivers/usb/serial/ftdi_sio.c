@@ -156,6 +156,7 @@ static struct ftdi_sio_quirk ftdi_8u2232c_quirk = {
  * /sys/bus/usb/ftdi_sio/new_id, then send patch/report!
  */
 static struct usb_device_id id_table_combined [] = {
+	{ USB_DEVICE(FTDI_VID, FTDI_ZEITCONTROL_TAGTRACE_MIFARE_PID) },
 	{ USB_DEVICE(FTDI_VID, FTDI_CTI_MINI_PID) },
 	{ USB_DEVICE(FTDI_VID, FTDI_CTI_NANO_PID) },
 	{ USB_DEVICE(FTDI_VID, FTDI_AMC232_PID) },
@@ -1211,7 +1212,10 @@ static int change_speed(struct tty_struct *tty, struct usb_serial_port *port)
 	urb_index_value = get_ftdi_divisor(tty, port);
 	urb_value = (__u16)urb_index_value;
 	urb_index = (__u16)(urb_index_value >> 16);
-	if (priv->interface) {	/* FT2232C */
+	if ((priv->chip_type == FT2232C) || (priv->chip_type == FT2232H) ||
+		(priv->chip_type == FT4232H) || (priv->chip_type == FT232H)) {
+		/* Probably the BM type needs the MSB of the encoded fractional
+		 * divider also moved like for the chips above. Any infos? */
 		urb_index = (__u16)((urb_index << 8) | priv->interface);
 	}
 

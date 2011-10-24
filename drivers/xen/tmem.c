@@ -282,8 +282,10 @@ static int tmem_frontswap_put_page(unsigned type, pgoff_t offset,
 		return -1;
 }
 
-/* returns 0 if the page was successfully gotten from frontswap, -1 if
- * was not present (should never happen!) */
+/*
+ * returns 0 if the page was successfully gotten from frontswap, -1 if
+ * was not present (should never happen!)
+ */
 static int tmem_frontswap_get_page(unsigned type, pgoff_t offset,
 				   struct page *page)
 {
@@ -341,7 +343,7 @@ static void tmem_frontswap_init(unsigned ignored)
 		    xen_tmem_new_pool(private, TMEM_POOL_PERSIST, PAGE_SIZE);
 }
 
-static int use_frontswap = 1;
+static int __initdata use_frontswap = 1;
 
 static int __init no_frontswap(char *s)
 {

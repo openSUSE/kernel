@@ -34,7 +34,8 @@
 
 
 /* Amount of space to write to */
-#define BYTES_AVAIL_TO_WRITE(r, w, z) ((w) >= (r)) ? ((z) - ((w) - (r))) : ((r) - (w))
+#define BYTES_AVAIL_TO_WRITE(r, w, z) \
+	((w) >= (r)) ? ((z) - ((w) - (r))) : ((r) - (w))
 
 
 /*
@@ -49,6 +50,8 @@ hv_get_ringbuffer_availbytes(struct hv_ring_buffer_info *rbi,
 			  u32 *read, u32 *write)
 {
 	u32 read_loc, write_loc;
+
+	smp_read_barrier_depends();
 
 	/* Capture the read/write indices before they changed */
 	read_loc = rbi->ring_buffer->read_index;
@@ -388,7 +391,7 @@ int hv_ringbuffer_write(struct hv_ring_buffer_info *outring_info,
 	/* is empty since the read index == write index */
 	if (bytes_avail_towrite <= totalbytes_towrite) {
 		spin_unlock_irqrestore(&outring_info->ring_lock, flags);
-		return -1;
+		return -EAGAIN;
 	}
 
 	/* Write to the ring buffer */
@@ -411,7 +414,7 @@ int hv_ringbuffer_write(struct hv_ring_buffer_info *outring_info,
 					     sizeof(u64));
 
 	/* Make sure we flush all writes before updating the writeIndex */
-	mb();
+	smp_wmb();
 
 	/* Now, update the write location */
 	hv_set_next_write_location(outring_info, next_write_location);
@@ -448,7 +451,7 @@ int hv_ringbuffer_peek(struct hv_ring_buffer_info *Inring_info,
 
 		spin_unlock_irqrestore(&Inring_info->ring_lock, flags);
 
-		return -1;
+		return -EAGAIN;
 	}
 
 	/* Convert to byte offset */
@@ -494,7 +497,7 @@ int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info, void *buffer,
 	if (bytes_avail_toread < buflen) {
 		spin_unlock_irqrestore(&inring_info->ring_lock, flags);
 
-		return -1;
+		return -EAGAIN;
 	}
 
 	next_read_location =
@@ -513,7 +516,7 @@ int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info, void *buffer,
 	/* Make sure all reads are done before we update the read index since */
 	/* the writer may start writing to the read area once the read index */
 	/*is updated */
-	mb();
+	smp_mb();
 
 	/* Update the read index */
 	hv_set_next_read_location(inring_info, next_read_location);

@@ -59,7 +59,7 @@ static void update_blkif_status(blkif_t *blkif)
 	char name[TASK_COMM_LEN];
 
 	/* Not ready to connect? */
-	if (!blkif->irq || !blkif->vbd.bdev)
+	if (!blkif->irq)
 		return;
 
 	/* Already connected? */
@@ -77,12 +77,17 @@ static void update_blkif_status(blkif_t *blkif)
 		return;
 	}
 
-	err = filemap_write_and_wait(blkif->vbd.bdev->bd_inode->i_mapping);
-	if (err) {
-		xenbus_dev_error(blkif->be->dev, err, "block flush");
-		return;
+	if (blkif->vbd.bdev) {
+		struct address_space *mapping
+			= blkif->vbd.bdev->bd_inode->i_mapping;
+
+		err = filemap_write_and_wait(mapping);
+		if (err) {
+			xenbus_dev_error(blkif->be->dev, err, "block flush");
+			return;
+		}
+		invalidate_inode_pages2(mapping);
 	}
-	invalidate_inode_pages2(blkif->vbd.bdev->bd_inode->i_mapping);
 
 	blkif->xenblkd = kthread_run(blkif_schedule, blkif, name);
 	if (IS_ERR(blkif->xenblkd)) {
@@ -120,6 +125,7 @@ VBD_SHOW(oo_req,  "%d\n", be->blkif->st_oo_req);
 VBD_SHOW(rd_req,  "%d\n", be->blkif->st_rd_req);
 VBD_SHOW(wr_req,  "%d\n", be->blkif->st_wr_req);
 VBD_SHOW(br_req,  "%d\n", be->blkif->st_br_req);
+VBD_SHOW(fl_req,  "%d\n", be->blkif->st_fl_req);
 VBD_SHOW(rd_sect, "%d\n", be->blkif->st_rd_sect);
 VBD_SHOW(wr_sect, "%d\n", be->blkif->st_wr_sect);
 
@@ -128,6 +134,7 @@ static struct attribute *vbdstat_attrs[] = {
 	&dev_attr_rd_req.attr,
 	&dev_attr_wr_req.attr,
 	&dev_attr_br_req.attr,
+	&dev_attr_fl_req.attr,
 	&dev_attr_rd_sect.attr,
 	&dev_attr_wr_sect.attr,
 	NULL
@@ -215,6 +222,20 @@ int blkback_barrier(struct xenbus_transaction xbt,
 			    "%d", state);
 	if (err)
 		xenbus_dev_fatal(dev, err, "writing feature-barrier");
+
+	return err;
+}
+
+int blkback_flush_diskcache(struct xenbus_transaction xbt,
+			    struct backend_info *be, int state)
+{
+	struct xenbus_device *dev = be->dev;
+	int err;
+
+	err = xenbus_printf(xbt, dev->nodename, "feature-flush-cache",
+			    "%d", state);
+	if (err)
+		xenbus_dev_fatal(dev, err, "writing feature-flush-cache");
 
 	return err;
 }
@@ -332,7 +353,13 @@ static void backend_changed(struct xenbus_watch *watch,
 
 		err = vbd_create(be->blkif, handle, major, minor,
 				 (NULL == strchr(be->mode, 'w')), cdrom);
-		if (err) {
+		switch (err) {
+		case -ENOMEDIUM:
+			if (be->blkif->vbd.type
+			    & (VDISK_CDROM | VDISK_REMOVABLE))
+		case 0:
+				break;
+		default:
 			be->major = be->minor = 0;
 			xenbus_dev_fatal(dev, err, "creating vbd structure");
 			return;
@@ -391,15 +418,16 @@ static void frontend_changed(struct xenbus_device *dev,
 		err = connect_ring(be);
 		if (err)
 			break;
-		update_blkif_status(be->blkif);
+		if (be->blkif->vbd.bdev)
+			update_blkif_status(be->blkif);
 		break;
 
 	case XenbusStateClosing:
-		blkif_disconnect(be->blkif);
 		xenbus_switch_state(dev, XenbusStateClosing);
 		break;
 
 	case XenbusStateClosed:
+		blkif_disconnect(be->blkif);
 		xenbus_switch_state(dev, XenbusStateClosed);
 		if (xenbus_dev_is_online(dev))
 			break;
@@ -439,6 +467,10 @@ again:
 		xenbus_dev_fatal(dev, err, "starting transaction");
 		return;
 	}
+
+	err = blkback_flush_diskcache(xbt, be, be->blkif->vbd.flush_support);
+	if (err)
+		goto abort;
 
 	err = blkback_barrier(xbt, be, 1);
 	if (err)

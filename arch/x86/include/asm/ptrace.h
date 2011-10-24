@@ -131,6 +131,11 @@ struct pt_regs {
 #ifdef __KERNEL__
 
 #include <linux/init.h>
+#ifdef CONFIG_PARAVIRT
+#include <asm/paravirt_types.h>
+#elif defined(CONFIG_X86_64_XEN)
+#include <xen/interface/xen.h>
+#endif
 
 struct cpuinfo_x86;
 struct task_struct;
@@ -186,6 +191,28 @@ static inline int v8086_mode(struct pt_regs *regs)
 	return 0;	/* No V86 mode support in long mode */
 #endif
 }
+
+#ifdef CONFIG_X86_64
+static inline bool user_64bit_mode(struct pt_regs *regs)
+{
+#if defined(CONFIG_XEN)
+	/*
+	 * On Xen, these are the only long mode CPL 3 selectors.
+	 * We do not allow long mode selectors in the LDT.
+	 */
+	return regs->cs == __USER_CS || regs->cs == FLAT_USER_CS64;
+#elif !defined(CONFIG_PARAVIRT)
+	/*
+	 * On non-paravirt systems, this is the only long mode CPL 3
+	 * selector.  We do not allow long mode selectors in the LDT.
+	 */
+	return regs->cs == __USER_CS;
+#else
+	/* Headers are too twisted for this to go in paravirt.h. */
+	return regs->cs == __USER_CS || regs->cs == pv_info.extra_user_64bit_cs;
+#endif
+}
+#endif
 
 /*
  * X86_32 CPUs don't save ss and esp if the CPU is already in kernel mode

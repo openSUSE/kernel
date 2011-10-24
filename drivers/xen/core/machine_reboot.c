@@ -90,12 +90,14 @@ static void post_suspend(int suspend_cancelled, int fast_suspend)
 
 #ifdef CONFIG_XEN_VCPU_INFO_PLACEMENT
 			if (fast_suspend && i != smp_processor_id()
+			    && cpu_online(i)
 			    && HYPERVISOR_vcpu_op(VCPUOP_down, i, NULL))
 				BUG();
 
 			setup_vcpu_info(i);
 
 			if (fast_suspend && i != smp_processor_id()
+			    && cpu_online(i)
 			    && HYPERVISOR_vcpu_op(VCPUOP_up, i, NULL))
 				BUG();
 #endif

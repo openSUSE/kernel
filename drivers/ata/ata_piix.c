@@ -164,6 +164,7 @@ struct piix_host_priv {
 static int piix_init_one(struct pci_dev *pdev,
 			 const struct pci_device_id *ent);
 static void piix_remove_one(struct pci_dev *pdev);
+static unsigned int piix_pata_read_id(struct ata_device *adev, struct ata_taskfile *tf, u16 *id);
 static int piix_pata_prereset(struct ata_link *link, unsigned long deadline);
 static void piix_set_piomode(struct ata_port *ap, struct ata_device *adev);
 static void piix_set_dmamode(struct ata_port *ap, struct ata_device *adev);
@@ -346,6 +347,7 @@ static struct ata_port_operations piix_pata_ops = {
 	.set_piomode		= piix_set_piomode,
 	.set_dmamode		= piix_set_dmamode,
 	.prereset		= piix_pata_prereset,
+	.read_id		= piix_pata_read_id,
 };
 
 static struct ata_port_operations piix_vmw_ops = {
@@ -619,6 +621,26 @@ MODULE_LICENSE("GPL");
 MODULE_DEVICE_TABLE(pci, piix_pci_tbl);
 MODULE_VERSION(DRV_VERSION);
 
+static int piix_msft_hyperv(void)
+{
+	int hv = 0;
+#if defined(CONFIG_HYPERV_STORAGE) || defined(CONFIG_HYPERV_STORAGE_MODULE)
+	static const struct dmi_system_id hv_dmi_ident[]  = {
+		{
+			.ident = "Hyper-V",
+			.matches = {
+				DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+				DMI_MATCH(DMI_PRODUCT_NAME, "Virtual Machine"),
+				DMI_MATCH(DMI_BOARD_NAME, "Virtual Machine"),
+			},
+		},
+		{ }	/* terminate list */
+	};
+	hv = !!dmi_check_system(hv_dmi_ident);
+#endif
+	return hv;
+}
+
 struct ich_laptop {
 	u16 device;
 	u16 subvendor;
@@ -700,6 +722,26 @@ static int piix_pata_prereset(struct ata_link *link, unsigned long deadline)
 	if (!pci_test_config_bits(pdev, &piix_enable_bits[ap->port_no]))
 		return -ENOENT;
 	return ata_sff_prereset(link, deadline);
+}
+
+static unsigned int piix_pata_read_id(struct ata_device *adev, struct ata_taskfile *tf, u16 *id)
+{
+	unsigned int err_mask = ata_do_dev_read_id(adev, tf, id);
+	/*
+	 * Ignore disks in a hyper-v guest.
+	 * There is no unplug protocol like it is done with xen_emul_unplug= option.
+	 * Emulate the unplug by ignoring disks when the hv_storvsc driver is enabled.
+	 * If the disks are not ignored, they will appear twice: once through
+	 * piix and once through hv_storvsc.
+	 * hv_storvsc can not handle ATAPI devices because they can only be
+	 * accessed through the emulated code path (not through the vm_bus
+	 * channel), the piix driver is still required.
+	 */
+	if (ata_id_is_ata(id) && piix_msft_hyperv()) {
+		ata_dev_printk(adev, KERN_WARNING, "ATA device ignored in Hyper-V guest\n");
+		id[ATA_ID_CONFIG] |= (1 << 15);
+	}
+	return err_mask;
 }
 
 static DEFINE_SPINLOCK(piix_lock);
@@ -1225,8 +1267,9 @@ static int piix_pci_device_resume(struct pci_dev *pdev)
 		 */
 		rc = pci_reenable_device(pdev);
 		if (rc)
-			dev_printk(KERN_ERR, &pdev->dev, "failed to enable "
-				   "device after resume (%d)\n", rc);
+			dev_err(&pdev->dev,
+				"failed to enable device after resume (%d)\n",
+				rc);
 	} else
 		rc = ata_pci_device_do_resume(pdev);
 
@@ -1303,9 +1346,11 @@ static int __devinit piix_check_450nx_errata(struct pci_dev *ata_dev)
 			no_piix_dma = 2;
 	}
 	if (no_piix_dma)
-		dev_printk(KERN_WARNING, &ata_dev->dev, "450NX errata present, disabling IDE DMA.\n");
-	if (no_piix_dma == 2)
-		dev_printk(KERN_WARNING, &ata_dev->dev, "A BIOS update may resolve this.\n");
+		dev_warn(&ata_dev->dev,
+			 "450NX errata present, disabling IDE DMA%s\n",
+			 no_piix_dma == 2 ? " - a BIOS update may resolve this"
+			 : "");
+
 	return no_piix_dma;
 }
 
@@ -1338,37 +1383,36 @@ static const int *__devinit piix_init_sata_map(struct pci_dev *pdev,
 
 	map = map_db->map[map_value & map_db->mask];
 
-	dev_printk(KERN_INFO, &pdev->dev, "MAP [");
+	dev_info(&pdev->dev, "MAP [");
 	for (i = 0; i < 4; i++) {
 		switch (map[i]) {
 		case RV:
 			invalid_map = 1;
-			printk(" XX");
+			pr_cont(" XX");
 			break;
 
 		case NA:
-			printk(" --");
+			pr_cont(" --");
 			break;
 
 		case IDE:
 			WARN_ON((i & 1) || map[i + 1] != IDE);
 			pinfo[i / 2] = piix_port_info[ich_pata_100];
 			i++;
-			printk(" IDE IDE");
+			pr_cont(" IDE IDE");
 			break;
 
 		default:
-			printk(" P%d", map[i]);
+			pr_cont(" P%d", map[i]);
 			if (i & 1)
 				pinfo[i / 2].flags |= ATA_FLAG_SLAVE_POSS;
 			break;
 		}
 	}
-	printk(" ]\n");
+	pr_cont(" ]\n");
 
 	if (invalid_map)
-		dev_printk(KERN_ERR, &pdev->dev,
-			   "invalid MAP value %u\n", map_value);
+		dev_err(&pdev->dev, "invalid MAP value %u\n", map_value);
 
 	return map;
 }
@@ -1398,8 +1442,8 @@ static bool piix_no_sidpr(struct ata_host *host)
 	if (pdev->vendor == PCI_VENDOR_ID_INTEL && pdev->device == 0x2920 &&
 	    pdev->subsystem_vendor == PCI_VENDOR_ID_SAMSUNG &&
 	    pdev->subsystem_device == 0xb049) {
-		dev_printk(KERN_WARNING, host->dev,
-			   "Samsung DB-P70 detected, disabling SIDPR\n");
+		dev_warn(host->dev,
+			 "Samsung DB-P70 detected, disabling SIDPR\n");
 		return true;
 	}
 
@@ -1451,8 +1495,8 @@ static int __devinit piix_init_sidpr(struct ata_host *host)
 		piix_sidpr_scr_read(link0, SCR_CONTROL, &scontrol);
 
 		if ((scontrol & 0xf00) != 0x300) {
-			dev_printk(KERN_INFO, host->dev, "SCR access via "
-				   "SIDPR is available but doesn't work\n");
+			dev_info(host->dev,
+				 "SCR access via SIDPR is available but doesn't work\n");
 			return 0;
 		}
 	}
@@ -1501,8 +1545,7 @@ static void piix_iocfg_bit18_quirk(struct ata_host *host)
 	 * affected systems.
 	 */
 	if (hpriv->saved_iocfg & (1 << 18)) {
-		dev_printk(KERN_INFO, &pdev->dev,
-			   "applying IOCFG bit18 quirk\n");
+		dev_info(&pdev->dev, "applying IOCFG bit18 quirk\n");
 		pci_write_config_dword(pdev, PIIX_IOCFG,
 				       hpriv->saved_iocfg & ~(1 << 18));
 	}
@@ -1561,7 +1604,6 @@ static bool piix_broken_system_poweroff(struct pci_dev *pdev)
 static int __devinit piix_init_one(struct pci_dev *pdev,
 				   const struct pci_device_id *ent)
 {
-	static int printed_version;
 	struct device *dev = &pdev->dev;
 	struct ata_port_info port_info[2];
 	const struct ata_port_info *ppi[] = { &port_info[0], &port_info[1] };
@@ -1571,9 +1613,7 @@ static int __devinit piix_init_one(struct pci_dev *pdev,
 	struct piix_host_priv *hpriv;
 	int rc;
 
-	if (!printed_version++)
-		dev_printk(KERN_DEBUG, &pdev->dev,
-			   "version " DRV_VERSION "\n");
+	ata_print_version_once(&pdev->dev, DRV_VERSION);
 
 	/* no hotplugging support for later devices (FIXME) */
 	if (!in_module_init && ent->driver_data >= ich5_sata)

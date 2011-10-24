@@ -31,6 +31,7 @@
 #include <linux/poison.h>
 #include <linux/dma-mapping.h>
 #include <linux/module.h>
+#include <linux/memory.h>
 #include <linux/memory_hotplug.h>
 #include <linux/nmi.h>
 #include <linux/gfp.h>
@@ -531,7 +532,6 @@ static __ref void unmap_low_page(void *adr)
 
 static inline int __meminit make_readonly(unsigned long paddr)
 {
-	extern char __vsyscall_0;
 	int readonly = 0;
 
 	/* Make new page tables read-only on the first pass. */
@@ -575,16 +575,12 @@ static inline int __meminit make_readonly(unsigned long paddr)
 	/*
 	 * No need for writable mapping of kernel image. This also ensures that
 	 * page and descriptor tables embedded inside don't have writable
-	 * mappings. Exclude the vsyscall area here, allowing alternative
-	 * instruction patching to work. The range must be in sync with that
-	 * passed to reserve_early() (as "TEXT DATA BSS"), since all other
-	 * regions can be allocated from under CONFIG_NO_BOOTMEM and thus must
-	 * be writable.
+	 * mappings. The range must be in sync with that passed to
+	 * reserve_early() (as "TEXT DATA BSS"), since all other regions can be
+	 * allocated from under CONFIG_NO_BOOTMEM and thus must be writable.
 	 */
 	if ((paddr >= __pa_symbol(&_text))
-            && (paddr < (__pa_symbol(__bss_stop) & PAGE_MASK))
-	    && !(paddr >= __pa_symbol(&__vsyscall_0)
-	         && paddr < __pa_symbol(&__vsyscall_0) + PAGE_SIZE))
+            && (paddr < (__pa_symbol(__bss_stop) & PAGE_MASK)))
 		readonly = 1;
 
 	return readonly;
@@ -1219,7 +1215,7 @@ int kern_addr_valid(unsigned long addr)
 	 */
 	if (addr >= (unsigned long)machine_to_phys_mapping &&
 	    addr < (unsigned long)(machine_to_phys_mapping +
-				   (1UL << machine_to_phys_order)))
+				   machine_to_phys_nr))
 		return 1;
 	if (addr >= HYPERVISOR_VIRT_START && addr < HYPERVISOR_VIRT_END)
 		return 0;
@@ -1298,8 +1294,6 @@ const char *arch_vma_name(struct vm_area_struct *vma)
 }
 
 #ifdef CONFIG_X86_UV
-#define MIN_MEMORY_BLOCK_SIZE   (1 << SECTION_SIZE_BITS)
-
 unsigned long memory_block_size_bytes(void)
 {
 	if (is_uv_system()) {

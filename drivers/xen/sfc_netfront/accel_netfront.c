@@ -189,7 +189,8 @@ static int netfront_accel_check_ready(struct net_device *net_dev)
 
 
 static int netfront_accel_get_stats(struct net_device *net_dev,
-				    struct net_device_stats *stats)
+				    struct net_device_stats *devst,
+				    struct netfront_stats *lnkst)
 {
 	netfront_accel_vnic *vnic = NETFRONT_ACCEL_VNIC_FROM_NETDEV(net_dev);
 	struct netfront_accel_netdev_stats now;
@@ -203,17 +204,17 @@ static int netfront_accel_get_stats(struct net_device *net_dev,
 	now.fastpath_tx_bytes  = vnic->netdev_stats.fastpath_tx_bytes;
 	now.fastpath_tx_errors = vnic->netdev_stats.fastpath_tx_errors;
 	
-	stats->rx_packets += (now.fastpath_rx_pkts - 
+	lnkst->rx_packets += (now.fastpath_rx_pkts -
 			      vnic->stats_last_read.fastpath_rx_pkts);
-	stats->rx_bytes   += (now.fastpath_rx_bytes -
+	lnkst->rx_bytes   += (now.fastpath_rx_bytes -
 			      vnic->stats_last_read.fastpath_rx_bytes);
-	stats->rx_errors  += (now.fastpath_rx_errors - 
+	devst->rx_errors  += (now.fastpath_rx_errors -
 			      vnic->stats_last_read.fastpath_rx_errors);
-	stats->tx_packets += (now.fastpath_tx_pkts - 
+	lnkst->tx_packets += (now.fastpath_tx_pkts -
 			      vnic->stats_last_read.fastpath_tx_pkts);
-	stats->tx_bytes   += (now.fastpath_tx_bytes - 
+	lnkst->tx_bytes   += (now.fastpath_tx_bytes -
 			      vnic->stats_last_read.fastpath_tx_bytes);
-	stats->tx_errors  += (now.fastpath_tx_errors - 
+	devst->tx_errors  += (now.fastpath_tx_errors -
 			      vnic->stats_last_read.fastpath_tx_errors);
 	
 	vnic->stats_last_read = now;

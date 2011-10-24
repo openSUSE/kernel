@@ -318,6 +318,8 @@ static int __devexit netfront_remove(struct xenbus_device *dev)
 
 	unregister_netdev(info->netdev);
 
+	free_percpu(info->stats);
+
 	free_netdev(info->netdev);
 
 	return 0;
@@ -925,6 +927,7 @@ static int network_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	unsigned short id;
 	struct netfront_info *np = netdev_priv(dev);
+	struct netfront_stats *stats = this_cpu_ptr(np->stats);
 	struct netif_tx_request *tx;
 	struct netif_extra_info *extra;
 	char *data = skb->data;
@@ -1014,8 +1017,10 @@ static int network_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (notify)
 		notify_remote_via_irq(np->irq);
 
-	dev->stats.tx_bytes += skb->len;
-	dev->stats.tx_packets++;
+	u64_stats_update_begin(&stats->syncp);
+	stats->tx_bytes += skb->len;
+	stats->tx_packets++;
+	u64_stats_update_end(&stats->syncp);
 	dev->trans_start = jiffies;
 
 	/* Note: It is not safe to access skb after network_tx_buf_gc()! */
@@ -1303,6 +1308,7 @@ static int xennet_set_skb_gso(struct sk_buff *skb,
 static int netif_poll(struct napi_struct *napi, int budget)
 {
 	struct netfront_info *np = container_of(napi, struct netfront_info, napi);
+	struct netfront_stats *stats = this_cpu_ptr(np->stats);
 	struct net_device *dev = np->netdev;
 	struct sk_buff *skb;
 	struct netfront_rx_info rinfo;
@@ -1414,8 +1420,10 @@ err:
 		else
 			skb->ip_summed = CHECKSUM_NONE;
 
-		dev->stats.rx_packets++;
-		dev->stats.rx_bytes += skb->len;
+		u64_stats_update_begin(&stats->syncp);
+		stats->rx_packets++;
+		stats->rx_bytes += skb->len;
+		u64_stats_update_end(&stats->syncp);
 
 		__skb_queue_tail(&rxq, skb);
 
@@ -1663,12 +1671,6 @@ static int network_close(struct net_device *dev)
 }
 
 
-static struct net_device_stats *network_get_stats(struct net_device *dev)
-{
-	netfront_accelerator_call_get_stats(dev);
-	return &dev->stats;
-}
-
 static int xennet_set_mac_address(struct net_device *dev, void *p)
 {
 	struct netfront_info *np = netdev_priv(dev);
@@ -1694,6 +1696,40 @@ static int xennet_change_mtu(struct net_device *dev, int mtu)
 		return -EINVAL;
 	dev->mtu = mtu;
 	return 0;
+}
+
+static struct rtnl_link_stats64 *xennet_get_stats64(struct net_device *dev,
+						    struct rtnl_link_stats64 *tot)
+{
+	struct netfront_info *np = netdev_priv(dev);
+	int cpu;
+
+	netfront_accelerator_call_get_stats(np, dev);
+
+	for_each_possible_cpu(cpu) {
+		struct netfront_stats *stats = per_cpu_ptr(np->stats, cpu);
+		u64 rx_packets, rx_bytes, tx_packets, tx_bytes;
+		unsigned int start;
+
+		do {
+			start = u64_stats_fetch_begin_bh(&stats->syncp);
+
+			rx_packets = stats->rx_packets;
+			tx_packets = stats->tx_packets;
+			rx_bytes = stats->rx_bytes;
+			tx_bytes = stats->tx_bytes;
+		} while (u64_stats_fetch_retry_bh(&stats->syncp, start));
+
+		tot->rx_packets += rx_packets;
+		tot->tx_packets += tx_packets;
+		tot->rx_bytes   += rx_bytes;
+		tot->tx_bytes   += tx_bytes;
+	}
+
+	tot->rx_errors  = dev->stats.rx_errors;
+	tot->tx_dropped = dev->stats.tx_dropped;
+
+	return tot;
 }
 
 static const struct xennet_stat {
@@ -2047,7 +2083,7 @@ static const struct net_device_ops xennet_netdev_ops = {
 	.ndo_fix_features       = xennet_fix_features,
 	.ndo_set_features       = xennet_set_features,
 	.ndo_change_mtu	        = xennet_change_mtu,
-	.ndo_get_stats          = network_get_stats,
+	.ndo_get_stats64        = xennet_get_stats64,
 };
 
 static struct net_device * __devinit create_netdev(struct xenbus_device *dev)
@@ -2079,6 +2115,11 @@ static struct net_device * __devinit create_netdev(struct xenbus_device *dev)
 	np->rx_refill_timer.data = (unsigned long)netdev;
 	np->rx_refill_timer.function = rx_refill_timeout;
 
+	err = -ENOMEM;
+	np->stats = alloc_percpu(struct netfront_stats);
+	if (np->stats == NULL)
+		goto exit;
+
 	/* Initialise {tx,rx}_skbs as a free chain containing every entry. */
 	for (i = 0; i <= NET_TX_RING_SIZE; i++) {
 		np->tx_skbs[i] = (void *)((unsigned long) i+1);
@@ -2095,7 +2136,7 @@ static struct net_device * __devinit create_netdev(struct xenbus_device *dev)
 					  &np->gref_tx_head) < 0) {
 		pr_alert("#### netfront can't alloc tx grant refs\n");
 		err = -ENOMEM;
-		goto exit;
+		goto exit_free_stats;
 	}
 	/* A grant for every rx ring slot */
 	if (gnttab_alloc_grant_references(RX_MAX_TARGET,
@@ -2130,6 +2171,8 @@ static struct net_device * __devinit create_netdev(struct xenbus_device *dev)
 
  exit_free_tx:
 	gnttab_free_grant_references(np->gref_tx_head);
+ exit_free_stats:
+	free_percpu(np->stats);
  exit:
 	free_netdev(netdev);
 	return ERR_PTR(err);

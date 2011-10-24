@@ -98,6 +98,7 @@ DEFINE_XEN_GUEST_HANDLE(xen_pfn_t);
 #define __HYPERVISOR_domctl               36
 #define __HYPERVISOR_kexec_op             37
 #define __HYPERVISOR_tmem_op              38
+#define __HYPERVISOR_xc_reserved_op       39 /* reserved for XenClient */
 
 /* Architecture-specific hypercall definitions. */
 #define __HYPERVISOR_arch_0               48
@@ -153,6 +154,7 @@ DEFINE_XEN_GUEST_HANDLE(xen_pfn_t);
 #define VIRQ_CON_RING   8  /* G. (DOM0) Bytes received on console            */
 #define VIRQ_PCPU_STATE 9  /* G. (DOM0) PCPU state changed                   */
 #define VIRQ_MEM_EVENT  10 /* G. (DOM0) A memory event has occured           */
+#define VIRQ_XC_RESERVED 11 /* G. Reserved for XenClient                     */
 
 /* Architecture-specific VIRQ definitions. */
 #define VIRQ_ARCH_0    16
@@ -687,7 +689,7 @@ typedef struct dom0_vga_console_info {
             uint8_t  green_pos, green_size;
             uint8_t  blue_pos, blue_size;
             uint8_t  rsvd_pos, rsvd_size;
-#if __XEN_INTERFACE_VERSION__ >= 0x00030206
+#if __XEN_INTERFACE_VERSION__ >= 0x00030206 || (defined(CONFIG_PARAVIRT_XEN) && !defined(HAVE_XEN_PLATFORM_COMPAT_H))
             /* VESA capabilities (offset 0xa, VESA command 0x4f00). */
             uint32_t gbl_caps;
             /* Mode attributes (offset 0x0, VESA command 0x4f01). */

@@ -810,6 +810,7 @@ static ssize_t
 lpfc_sli4_pdev_reg_request(struct lpfc_hba *phba, uint32_t opcode)
 {
 	struct completion online_compl;
+	struct pci_dev *pdev = phba->pcidev;
 	uint32_t reg_val;
 	int status = 0;
 	int rc;
@@ -822,6 +823,14 @@ lpfc_sli4_pdev_reg_request(struct lpfc_hba *phba, uint32_t opcode)
 	     LPFC_SLI_INTF_IF_TYPE_2))
 		return -EPERM;
 
+	if (!pdev->is_physfn)
+		return -EPERM;
+
+	/* Disable SR-IOV virtual functions if enabled */
+	if (phba->cfg_sriov_nr_virtfn) {
+		pci_disable_sriov(pdev);
+		phba->cfg_sriov_nr_virtfn = 0;
+	}
 	status = lpfc_do_offline(phba, LPFC_EVT_OFFLINE);
 
 	if (status != 0)
@@ -2183,6 +2192,9 @@ MODULE_PARM_DESC(lpfc_enable_npiv, "Enable NPIV functionality");
 lpfc_param_show(enable_npiv);
 lpfc_param_init(enable_npiv, 1, 0, 1);
 static DEVICE_ATTR(lpfc_enable_npiv, S_IRUGO, lpfc_enable_npiv_show, NULL);
+
+LPFC_ATTR_R(fcf_failover_policy, 1, 1, 2,
+	"FCF Fast failover=1 Priority failover=2");
 
 int lpfc_enable_rrq;
 module_param(lpfc_enable_rrq, int, S_IRUGO);
@@ -3766,6 +3778,7 @@ struct device_attribute *lpfc_hba_attrs[] = {
 	&dev_attr_lpfc_fdmi_on,
 	&dev_attr_lpfc_max_luns,
 	&dev_attr_lpfc_enable_npiv,
+	&dev_attr_lpfc_fcf_failover_policy,
 	&dev_attr_lpfc_enable_rrq,
 	&dev_attr_nport_evt_cnt,
 	&dev_attr_board_mode,
@@ -4986,6 +4999,7 @@ lpfc_get_cfgparam(struct lpfc_hba *phba)
 	lpfc_link_speed_init(phba, lpfc_link_speed);
 	lpfc_poll_tmo_init(phba, lpfc_poll_tmo);
 	lpfc_enable_npiv_init(phba, lpfc_enable_npiv);
+	lpfc_fcf_failover_policy_init(phba, lpfc_fcf_failover_policy);
 	lpfc_enable_rrq_init(phba, lpfc_enable_rrq);
 	lpfc_use_msi_init(phba, lpfc_use_msi);
 	lpfc_fcp_imax_init(phba, lpfc_fcp_imax);

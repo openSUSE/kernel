@@ -23,20 +23,27 @@
 #include <linux/sort.h>
 #include <asm/setup.h>
 
+#if defined(CONFIG_HOTPLUG_PCI) || defined(CONFIG_HOTPLUG_PCI_MODULE)
+#define __pcihp_init __devinit
+#else
+#define __pcihp_init __init
+#endif
+
 #define PCI_BUS_MAX		255
 #define PCI_DEV_MAX		31
 
 /* see pci_resource_len */
-static inline resource_size_t pci_iomul_len(const struct resource* r)
+static inline resource_size_t __pcihp_init pci_iomul_len(
+	const struct resource* r)
 {
-	if (r->start == 0 && r->start == r->end)
+	if (!r->start && r->start == r->end)
 		return 0;
 	return r->end - r->start + 1;
 }
 
 #define ROUND_UP(x, a)		(((x) + (a) - 1) & ~((a) - 1))
 /* stolen from pbus_size_io() */
-static unsigned long pdev_size_io(struct pci_dev *pdev)
+static unsigned long __devinit pdev_size_io(struct pci_dev *pdev)
 {
 	unsigned long size = 0, size1 = 0;
 	int i;
@@ -87,7 +94,7 @@ static DEFINE_MUTEX(switch_list_lock);
 /*****************************************************************************/
 int pci_iomul_switch_io_allocated(const struct pci_iomul_switch *sw)
 {
-	return !(sw->io_base == 0 || sw->io_base > sw->io_limit);
+	return sw->io_base && sw->io_base <= sw->io_limit;
 }
 EXPORT_SYMBOL_GPL(pci_iomul_switch_io_allocated);
 
@@ -128,7 +135,7 @@ void pci_iomul_get_lock_switch(struct pci_dev *pdev,
 
 	*swp = pci_iomul_find_switch_locked(pci_domain_nr(pdev->bus),
 					    pci_dev_switch_busnr(pdev));
-	if (*swp == NULL) {
+	if (!*swp) {
 		*slot = NULL;
 		goto out;
 	}
@@ -136,7 +143,7 @@ void pci_iomul_get_lock_switch(struct pci_dev *pdev,
 	mutex_lock(&(*swp)->lock);
 	*slot = pci_iomul_find_slot_locked(*swp, pdev->bus->number,
 					   PCI_SLOT(pdev->devfn));
-	if (*slot == NULL) {
+	if (!*slot) {
 		mutex_unlock(&(*swp)->lock);
 		*swp = NULL;
 	} else {
@@ -147,8 +154,8 @@ out:
 }
 EXPORT_SYMBOL_GPL(pci_iomul_get_lock_switch);
 
-static struct pci_iomul_switch *pci_iomul_switch_alloc(int segment,
-						       uint8_t bus)
+static struct pci_iomul_switch *__devinit pci_iomul_switch_alloc(int segment,
+								 uint8_t bus)
 {
 	struct pci_iomul_switch *sw;
 
@@ -171,14 +178,14 @@ static struct pci_iomul_switch *pci_iomul_switch_alloc(int segment,
 	return sw;
 }
 
-static void pci_iomul_switch_add_locked(struct pci_iomul_switch *sw)
+static void __devinit pci_iomul_switch_add_locked(struct pci_iomul_switch *sw)
 {
 	BUG_ON(!mutex_is_locked(&switch_list_lock));
 	list_add(&sw->list, &switch_list);
 }
 
 #if defined(CONFIG_HOTPLUG_PCI) || defined(CONFIG_HOTPLUG_PCI_MODULE)
-static void pci_iomul_switch_del_locked(struct pci_iomul_switch *sw)
+static void __devinit pci_iomul_switch_del_locked(struct pci_iomul_switch *sw)
 {
 	BUG_ON(!mutex_is_locked(&switch_list_lock));
 	list_del(&sw->list);
@@ -226,32 +233,32 @@ static int __devinit pci_iomul_slot_init(struct pci_dev *pdev,
 	return 0;
 }
 
-static struct pci_iomul_slot *__devinit
-pci_iomul_slot_alloc(struct pci_dev *pdev)
+static struct pci_iomul_slot *__devinit pci_iomul_slot_alloc(
+	struct pci_dev *pdev)
 {
 	struct pci_iomul_slot *slot;
 
 	slot = kzalloc(sizeof(*slot), GFP_KERNEL);
-	if (slot == NULL)
+	if (!slot)
 		return NULL;
 
-	if (pci_iomul_slot_init(pdev, slot) != 0) {
+	if (pci_iomul_slot_init(pdev, slot)) {
 		kfree(slot);
 		return NULL;
 	}
 	return slot;
 }
 
-static void pci_iomul_slot_add_locked(struct pci_iomul_switch *sw,
-				      struct pci_iomul_slot *slot)
+static void __devinit pci_iomul_slot_add_locked(struct pci_iomul_switch *sw,
+						struct pci_iomul_slot *slot)
 {
 	BUG_ON(!mutex_is_locked(&sw->lock));
 	list_add(&slot->sibling, &sw->slots);
 }
 
 #if defined(CONFIG_HOTPLUG_PCI) || defined(CONFIG_HOTPLUG_PCI_MODULE)
-static void pci_iomul_slot_del_locked(struct pci_iomul_switch *sw,
-				       struct pci_iomul_slot *slot)
+static void __devinit pci_iomul_slot_del_locked(struct pci_iomul_switch *sw,
+						struct pci_iomul_slot *slot)
 {
 	BUG_ON(!mutex_is_locked(&sw->lock));
 	list_del(&slot->sibling);
@@ -259,8 +266,8 @@ static void pci_iomul_slot_del_locked(struct pci_iomul_switch *sw,
 #endif
 
 /*****************************************************************************/
-static int pci_get_sbd(const char *str,
-		       int *segment__, uint8_t *bus__, uint8_t *dev__)
+static int __devinit pci_get_sbd(const char *str, int *segment__,
+				 uint8_t *bus__, uint8_t *dev__)
 {
 	int segment;
 	int bus;
@@ -286,9 +293,9 @@ static int pci_get_sbd(const char *str,
 	return 0;
 }
 
-static char iomul_param[COMMAND_LINE_SIZE];
+static char __devinitdata iomul_param[COMMAND_LINE_SIZE];
 #define TOKEN_MAX	10	/* SSSS:BB:DD length is 10 */
-static int pci_is_iomul_dev_param(struct pci_dev *pdev)
+static int __devinit pci_is_iomul_dev_param(struct pci_dev *pdev)
 {
 	int len;
 	char *p;
@@ -298,7 +305,7 @@ static int pci_is_iomul_dev_param(struct pci_dev *pdev)
 		return 1;
 	for (p = &iomul_param[0]; *p != '\0'; p = next_str + 1) {
 		next_str = strchr(p, ',');
-		if (next_str != NULL)
+		if (next_str)
 			len = next_str - p;
 		else
 			len = strlen(p);
@@ -310,13 +317,13 @@ static int pci_is_iomul_dev_param(struct pci_dev *pdev)
 			uint8_t dev;
 
 			strlcpy(tmp, p, len);
-			if (pci_get_sbd(tmp, &seg, &bus, &dev) == 0 &&
+			if (!pci_get_sbd(tmp, &seg, &bus, &dev) &&
 			    pci_domain_nr(pdev->bus) == seg &&
 			    pdev->bus->number == bus &&
 			    PCI_SLOT(pdev->devfn) == dev)
 				return 1;
 		}
-		if (next_str == NULL)
+		if (!next_str)
 			break;
 	}
 
@@ -329,7 +336,7 @@ static int pci_is_iomul_dev_param(struct pci_dev *pdev)
  */
 static int __init pci_iomul_param_setup(char *str)
 {
-	if (strlen(str) >= COMMAND_LINE_SIZE)
+	if (!is_initial_xendomain() || strlen(str) >= COMMAND_LINE_SIZE)
 		return 0;
 
 	/* parse it after pci bus scanning */
@@ -376,7 +383,7 @@ static int __devinit pci_iomul_func_scan(struct pci_dev *pdev,
 	unsigned int i;
 
 	f = kzalloc(sizeof(*f), GFP_KERNEL);
-	if (f == NULL)
+	if (!f)
 		return -ENOMEM;
 
 	f->segment = slot->segment;
@@ -387,7 +394,7 @@ static int __devinit pci_iomul_func_scan(struct pci_dev *pdev,
 	for (i = 0; i < PCI_NUM_BARS; i++) {
 		if (!(pci_resource_flags(pdev, i) & IORESOURCE_IO))
 			continue;
-		if (pci_resource_len(pdev, i) == 0)
+		if (!pci_resource_len(pdev, i))
 			continue;
 
 		f->io_bar |= 1 << i;
@@ -414,13 +421,13 @@ static int __devinit pci_iomul_func_scan(struct pci_dev *pdev,
  * we must prevent those resources from reassigning when pci hot plug.
  * To achieve that, set r->parent to dummy resource.
  */
-static void __devinit pci_iomul_disable_resource(struct resource *r)
+static inline void __devinit pci_iomul_disable_resource(struct resource *r)
 {
 	/* don't allocate this resource */
 	r->flags = 0;
 }
 
-static void __devinit pci_iomul_reenable_resource(
+static void __pcihp_init pci_iomul_reenable_resource(
 	struct resource *dummy_parent, struct resource *r)
 {
 	int ret;
@@ -486,26 +493,25 @@ static void __devinit __quirk_iomul_dealloc_ioresource(
 	struct pci_iomul_func *f;
 	struct pci_iomul_func *__f;
 
-	if (pci_iomul_func_scan(pdev, slot, PCI_FUNC(pdev->devfn)) != 0)
+	if (pci_iomul_func_scan(pdev, slot, PCI_FUNC(pdev->devfn)))
 		return;
 
 	f = slot->func[PCI_FUNC(pdev->devfn)];
-	if (f == NULL)
+	if (!f)
 		return;
 
 	__f = sw->func;
 	/* sw->io_base == 0 means that we are called at boot time.
 	 * != 0 means that we are called by php after boot. */
-	if (sw->io_base == 0 &&
-	    (__f == NULL || __f->io_size < f->io_size)) {
-		if (__f != NULL) {
+	if (!sw->io_base && (!__f || __f->io_size < f->io_size)) {
+		if (__f) {
 			struct pci_bus *__pbus;
 			struct pci_dev *__pdev;
 
 			__pbus = pci_find_bus(__f->segment, __f->bus);
-			BUG_ON(__pbus == NULL);
+			BUG_ON(!__pbus);
 			__pdev = pci_get_slot(__pbus, __f->devfn);
-			BUG_ON(__pdev == NULL);
+			BUG_ON(!__pdev);
 			pci_iomul_fixup_ioresource(__pdev, __f, 0, 1);
 			pci_dev_put(__pdev);
 		}
@@ -532,10 +538,10 @@ static void __devinit quirk_iomul_dealloc_ioresource(struct pci_dev *pdev)
 	mutex_lock(&switch_list_lock);
 	sw = pci_iomul_find_switch_locked(pci_domain_nr(pdev->bus),
 					  pci_dev_switch_busnr(pdev));
-	if (sw == NULL) {
+	if (!sw) {
 		sw = pci_iomul_switch_alloc(pci_domain_nr(pdev->bus),
 					    pci_dev_switch_busnr(pdev));
-		if (sw == NULL) {
+		if (!sw) {
 			mutex_unlock(&switch_list_lock);
 			pr_warn("PCI: can't allocate memory "
 				"for sw of IO multiplexing %s",
@@ -550,9 +556,9 @@ static void __devinit quirk_iomul_dealloc_ioresource(struct pci_dev *pdev)
 	mutex_lock(&sw->lock);
 	slot = pci_iomul_find_slot_locked(sw, pdev->bus->number,
 					  PCI_SLOT(pdev->devfn));
-	if (slot == NULL) {
+	if (!slot) {
 		slot = pci_iomul_slot_alloc(pdev);
-		if (slot == NULL) {
+		if (!slot) {
 			mutex_unlock(&sw->lock);
 			pci_iomul_switch_put(sw);
 			pr_warn("PCI: can't allocate memory "
@@ -574,7 +580,7 @@ static void __devinit quirk_iomul_dealloc_ioresource(struct pci_dev *pdev)
 DECLARE_PCI_FIXUP_HEADER(PCI_ANY_ID, PCI_ANY_ID,
 			 quirk_iomul_dealloc_ioresource);
 
-static void __devinit pci_iomul_read_bridge_io(struct pci_iomul_switch *sw)
+static void __pcihp_init pci_iomul_read_bridge_io(struct pci_iomul_switch *sw)
 {
 	struct pci_iomul_func *f = sw->func;
 
@@ -589,10 +595,10 @@ static void __devinit pci_iomul_read_bridge_io(struct pci_iomul_switch *sw)
 	uint32_t io_limit;
 
 	pbus = pci_find_bus(f->segment, f->bus);
-	BUG_ON(pbus == NULL);
+	BUG_ON(!pbus);
 
 	pdev = pci_get_slot(pbus, f->devfn);
-	BUG_ON(pdev == NULL);
+	BUG_ON(!pdev);
 
 	bridge = pdev->bus->self;
 	pci_read_config_word(bridge, PCI_IO_BASE, &l);
@@ -613,9 +619,9 @@ static void __devinit pci_iomul_read_bridge_io(struct pci_iomul_switch *sw)
 		pci_name(bridge), sw->io_base, sw->io_limit);
 }
 
-static void __devinit pci_iomul_setup_brige(struct pci_dev *bridge,
-					    uint32_t io_base,
-					    uint32_t io_limit)
+static void __pcihp_init pci_iomul_setup_brige(struct pci_dev *bridge,
+					       uint32_t io_base,
+					       uint32_t io_limit)
 {
 	uint16_t cmd;
 
@@ -639,16 +645,16 @@ struct __bar {
 };
 
 /* decending order */
-static int __devinit pci_iomul_bar_cmp(const void *lhs__, const void *rhs__)
+static int __pcihp_init pci_iomul_bar_cmp(const void *lhs__, const void *rhs__)
 {
 	const struct __bar *lhs = (struct __bar*)lhs__;
 	const struct __bar *rhs = (struct __bar*)rhs__;
 	return - (lhs->size - rhs->size);
 }
 
-static void __devinit pci_iomul_setup_dev(struct pci_dev *pdev,
-					  struct pci_iomul_func *f,
-					  uint32_t io_base)
+static void __pcihp_init pci_iomul_setup_dev(struct pci_dev *pdev,
+					     struct pci_iomul_func *f,
+					     uint32_t io_base)
 {
 	struct __bar bars[PCI_NUM_BARS];
 	int i;
@@ -675,7 +681,7 @@ static void __devinit pci_iomul_setup_dev(struct pci_dev *pdev,
 		struct resource *fr = &f->resource[bars[i].bar];
 		r = &pdev->resource[bars[i].bar];
 
-		BUG_ON(r->start != 0);
+		BUG_ON(r->start);
 		r->start += io_base;
 		r->end += io_base;
 
@@ -691,7 +697,7 @@ static void __devinit pci_iomul_setup_dev(struct pci_dev *pdev,
 	}
 }
 
-static void __devinit pci_iomul_release_io_resource(
+static void __pcihp_init pci_iomul_release_io_resource(
 	struct pci_dev *pdev, struct pci_iomul_switch *sw,
 	struct pci_iomul_slot *slot, struct pci_iomul_func *f)
 {
@@ -699,8 +705,8 @@ static void __devinit pci_iomul_release_io_resource(
 	struct resource *r;
 
 	for (i = 0; i < PCI_NUM_BARS; i++) {
-		if (pci_resource_flags(pdev, i) & IORESOURCE_IO &&
-		    pdev->resource[i].parent != NULL) {
+		if ((pci_resource_flags(pdev, i) & IORESOURCE_IO) &&
+		    pdev->resource[i].parent) {
 			r = &pdev->resource[i];
 			f->resource[i] = *r;
 			release_resource(r);
@@ -714,30 +720,31 @@ static void __devinit pci_iomul_release_io_resource(
 		for (i = PCI_BRIDGE_RESOURCES; i < PCI_NUM_RESOURCES; i++) {
 			struct resource *parent = pdev->resource[i].parent;
 
-			if (pci_resource_flags(pdev, i) & IORESOURCE_IO &&
-			    parent != NULL) {
-				r = &pdev->resource[i];
+			if (!(pci_resource_flags(pdev, i) & IORESOURCE_IO) ||
+			    !parent)
+				continue;
 
-				sw->io_resource.flags = r->flags;
-				sw->io_resource.start = sw->io_base;
-				sw->io_resource.end = sw->io_limit;
-				sw->io_resource.name = "PCI IO Multiplexer";
+			r = &pdev->resource[i];
 
-				release_resource(r);
-				pci_iomul_reenable_resource(
-					&slot->dummy_parent[i - PCI_BRIDGE_RESOURCES], r);
+			sw->io_resource.flags = r->flags;
+			sw->io_resource.start = sw->io_base;
+			sw->io_resource.end = sw->io_limit;
+			sw->io_resource.name = "PCI IO Multiplexer";
 
-				if (request_resource(parent,
-						     &sw->io_resource))
-					pr_err("PCI IOMul: can't allocate "
-					       "resource. [0x%x, 0x%x]",
-					       sw->io_base, sw->io_limit);
-			}
+			release_resource(r);
+			pci_iomul_reenable_resource(
+				&slot->dummy_parent[i - PCI_BRIDGE_RESOURCES],
+				r);
+
+			if (request_resource(parent, &sw->io_resource))
+				pr_err("PCI IOMul: can't allocate "
+				       "resource. [0x%x, 0x%x]",
+				       sw->io_base, sw->io_limit);
 		}
 	}
 }
 
-static void __devinit quirk_iomul_reassign_ioresource(struct pci_dev *pdev)
+static void __pcihp_init quirk_iomul_reassign_ioresource(struct pci_dev *pdev)
 {
 	struct pci_iomul_switch *sw;
 	struct pci_iomul_slot *slot;
@@ -745,34 +752,34 @@ static void __devinit quirk_iomul_reassign_ioresource(struct pci_dev *pdev)
 	struct pci_iomul_func *f;
 
 	pci_iomul_get_lock_switch(pdev, &sw, &slot);
-	if (sw == NULL || slot == NULL)
+	if (!sw || !slot)
 		return;
 
-	if (sw->io_base == 0)
+	if (!sw->io_base)
 		pci_iomul_read_bridge_io(sw);
 	if (!pci_iomul_switch_io_allocated(sw))
 		goto out;
 
 	sf = sw->func;
 	f = slot->func[PCI_FUNC(pdev->devfn)];
-	if (f == NULL)
-		/* (sf == NULL || f == NULL) case
-		 * can happen when all the specified devices
-		 * don't have io space
+	if (!f)
+		/*
+		 * (!sf || !f) case can happen when all the
+		 * specified devices don't have io space
 		 */
 		goto out;
 
-	if (sf != NULL &&
+	if (sf &&
 	    (pci_domain_nr(pdev->bus) != sf->segment ||
 	     pdev->bus->number != sf->bus ||
 	     PCI_SLOT(pdev->devfn) != PCI_SLOT(sf->devfn)) &&
-	    PCI_FUNC(pdev->devfn) == 0) {
+	    !PCI_FUNC(pdev->devfn)) {
 		pci_iomul_setup_brige(pdev->bus->self,
 				      sw->io_base, sw->io_limit);
 	}
 
 	BUG_ON(f->io_size > sw->io_limit - sw->io_base + 1);
-	if (/* f == sf */ sf != NULL &&
+	if (/* f == sf */ sf &&
 	    pci_domain_nr(pdev->bus) == sf->segment &&
 	    pdev->bus->number == sf->bus &&
 	    pdev->devfn == sf->devfn)
@@ -784,7 +791,6 @@ out:
 	mutex_unlock(&sw->lock);
 	pci_iomul_switch_put(sw);
 }
-
 DECLARE_PCI_FIXUP_FINAL(PCI_ANY_ID, PCI_ANY_ID,
 			quirk_iomul_reassign_ioresource);
 
@@ -797,7 +803,7 @@ static int __devinit __pci_iomul_notifier_del_device(struct pci_dev *pdev)
 	int i;
 
 	pci_iomul_get_lock_switch(pdev, &sw, &slot);
-	if (sw == NULL || slot == NULL)
+	if (!sw || !slot)
 		return 0;
 
 	if (sw->func == slot->func[PCI_FUNC(pdev->devfn)])
@@ -805,7 +811,7 @@ static int __devinit __pci_iomul_notifier_del_device(struct pci_dev *pdev)
 	kfree(slot->func[PCI_FUNC(pdev->devfn)]);
 	slot->func[PCI_FUNC(pdev->devfn)] = NULL;
 	for (i = 0; i < PCI_NUM_FUNC; i++) {
-		if (slot->func[i] != NULL)
+		if (slot->func[i])
 			goto out;
 	}
 
@@ -825,7 +831,7 @@ static int __devinit __pci_iomul_notifier_del_switch(struct pci_dev *pdev)
 	mutex_lock(&switch_list_lock);
 	sw = pci_iomul_find_switch_locked(pci_domain_nr(pdev->bus),
 					  pdev->bus->number);
-	if (sw == NULL)
+	if (!sw)
 		goto out;
 
 	pci_iomul_switch_del_locked(sw);
@@ -875,13 +881,11 @@ static int __devinit pci_iomul_notifier(struct notifier_block *nb,
 		quirk_iomul_reassign_ioresource(pdev);
 		break;
 	case BUS_NOTIFY_DEL_DEVICE:
-		return pci_iomul_notifier_del_device(pdev);
-	default:
-		/* nothing */
+		pci_iomul_notifier_del_device(pdev);
 		break;
 	}
 
-	return 0;
+	return NOTIFY_DONE;
 }
 
 static struct notifier_block __devinitdata pci_iomul_nb = {
@@ -890,6 +894,9 @@ static struct notifier_block __devinitdata pci_iomul_nb = {
 
 static int __init pci_iomul_hotplug_init(void)
 {
+	if (!is_initial_xendomain())
+		return -ENODEV;
+
 	bus_register_notifier(&pci_bus_type, &pci_iomul_nb);
 	return 0;
 }

@@ -39,7 +39,6 @@ static int create_gpadl_header(
 	u32 size,	/* page-size multiple */
 	struct vmbus_channel_msginfo **msginfo,
 	u32 *messagecount);
-static void dump_vmbus_channel(struct vmbus_channel *channel);
 static void vmbus_setevent(struct vmbus_channel *channel);
 
 /*
@@ -77,15 +76,14 @@ void vmbus_get_debug_info(struct vmbus_channel *channel,
 	struct hv_monitor_page *monitorpage;
 	u8 monitor_group = (u8)channel->offermsg.monitorid / 32;
 	u8 monitor_offset = (u8)channel->offermsg.monitorid % 32;
-	/* u32 monitorBit	= 1 << monitorOffset; */
 
 	debuginfo->relid = channel->offermsg.child_relid;
 	debuginfo->state = channel->state;
 	memcpy(&debuginfo->interfacetype,
-	       &channel->offermsg.offer.if_type, sizeof(struct hv_guid));
+	       &channel->offermsg.offer.if_type, sizeof(uuid_le));
 	memcpy(&debuginfo->interface_instance,
 	       &channel->offermsg.offer.if_instance,
-	       sizeof(struct hv_guid));
+	       sizeof(uuid_le));
 
 	monitorpage = (struct hv_monitor_page *)vmbus_connection.monitor_pages;
 
@@ -120,8 +118,8 @@ int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
 		     u32 recv_ringbuffer_size, void *userdata, u32 userdatalen,
 		     void (*onchannelcallback)(void *context), void *context)
 {
-	struct vmbus_channel_open_channel *openMsg;
-	struct vmbus_channel_msginfo *openInfo = NULL;
+	struct vmbus_channel_open_channel *open_msg;
+	struct vmbus_channel_msginfo *open_info = NULL;
 	void *in, *out;
 	unsigned long flags;
 	int ret, t, err = 0;
@@ -174,24 +172,24 @@ int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
 	}
 
 	/* Create and init the channel open message */
-	openInfo = kmalloc(sizeof(*openInfo) +
+	open_info = kmalloc(sizeof(*open_info) +
 			   sizeof(struct vmbus_channel_open_channel),
 			   GFP_KERNEL);
-	if (!openInfo) {
+	if (!open_info) {
 		err = -ENOMEM;
 		goto errorout;
 	}
 
-	init_completion(&openInfo->waitevent);
+	init_completion(&open_info->waitevent);
 
-	openMsg = (struct vmbus_channel_open_channel *)openInfo->msg;
-	openMsg->header.msgtype = CHANNELMSG_OPENCHANNEL;
-	openMsg->openid = newchannel->offermsg.child_relid; /* FIXME */
-	openMsg->child_relid = newchannel->offermsg.child_relid;
-	openMsg->ringbuffer_gpadlhandle = newchannel->ringbuffer_gpadlhandle;
-	openMsg->downstream_ringbuffer_pageoffset = send_ringbuffer_size >>
+	open_msg = (struct vmbus_channel_open_channel *)open_info->msg;
+	open_msg->header.msgtype = CHANNELMSG_OPENCHANNEL;
+	open_msg->openid = newchannel->offermsg.child_relid;
+	open_msg->child_relid = newchannel->offermsg.child_relid;
+	open_msg->ringbuffer_gpadlhandle = newchannel->ringbuffer_gpadlhandle;
+	open_msg->downstream_ringbuffer_pageoffset = send_ringbuffer_size >>
 						  PAGE_SHIFT;
-	openMsg->server_contextarea_gpadlhandle = 0; /* TODO */
+	open_msg->server_contextarea_gpadlhandle = 0;
 
 	if (userdatalen > MAX_USER_DEFINED_BYTES) {
 		err = -EINVAL;
@@ -199,35 +197,35 @@ int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
 	}
 
 	if (userdatalen)
-		memcpy(openMsg->userdata, userdata, userdatalen);
+		memcpy(open_msg->userdata, userdata, userdatalen);
 
 	spin_lock_irqsave(&vmbus_connection.channelmsg_lock, flags);
-	list_add_tail(&openInfo->msglistentry,
+	list_add_tail(&open_info->msglistentry,
 		      &vmbus_connection.chn_msg_list);
 	spin_unlock_irqrestore(&vmbus_connection.channelmsg_lock, flags);
 
-	ret = vmbus_post_msg(openMsg,
+	ret = vmbus_post_msg(open_msg,
 			       sizeof(struct vmbus_channel_open_channel));
 
 	if (ret != 0)
-		goto Cleanup;
+		goto cleanup;
 
-	t = wait_for_completion_timeout(&openInfo->waitevent, 5*HZ);
+	t = wait_for_completion_timeout(&open_info->waitevent, 5*HZ);
 	if (t == 0) {
 		err = -ETIMEDOUT;
 		goto errorout;
 	}
 
 
-	if (openInfo->response.open_result.status)
-		err = openInfo->response.open_result.status;
+	if (open_info->response.open_result.status)
+		err = open_info->response.open_result.status;
 
-Cleanup:
+cleanup:
 	spin_lock_irqsave(&vmbus_connection.channelmsg_lock, flags);
-	list_del(&openInfo->msglistentry);
+	list_del(&open_info->msglistentry);
 	spin_unlock_irqrestore(&vmbus_connection.channelmsg_lock, flags);
 
-	kfree(openInfo);
+	kfree(open_info);
 	return err;
 
 errorout:
@@ -235,55 +233,10 @@ errorout:
 	hv_ringbuffer_cleanup(&newchannel->inbound);
 	free_pages((unsigned long)out,
 		get_order(send_ringbuffer_size + recv_ringbuffer_size));
-	kfree(openInfo);
+	kfree(open_info);
 	return err;
 }
 EXPORT_SYMBOL_GPL(vmbus_open);
-
-/*
- * dump_gpadl_body - Dump the gpadl body message to the console for
- * debugging purposes.
- */
-static void dump_gpadl_body(struct vmbus_channel_gpadl_body *gpadl, u32 len)
-{
-	int i;
-	int pfncount;
-
-	pfncount = (len - sizeof(struct vmbus_channel_gpadl_body)) /
-		   sizeof(u64);
-
-	DPRINT_DBG(VMBUS, "gpadl body - len %d pfn count %d", len, pfncount);
-
-	for (i = 0; i < pfncount; i++)
-		DPRINT_DBG(VMBUS, "gpadl body  - %d) pfn %llu",
-			   i, gpadl->pfn[i]);
-}
-
-/*
- * dump_gpadl_header - Dump the gpadl header message to the console for
- * debugging purposes.
- */
-static void dump_gpadl_header(struct vmbus_channel_gpadl_header *gpadl)
-{
-	int i, j;
-	int pagecount;
-
-	DPRINT_DBG(VMBUS,
-		   "gpadl header - relid %d, range count %d, range buflen %d",
-		   gpadl->child_relid, gpadl->rangecount, gpadl->range_buflen);
-	for (i = 0; i < gpadl->rangecount; i++) {
-		pagecount = gpadl->range[i].byte_count >> PAGE_SHIFT;
-		pagecount = (pagecount > 26) ? 26 : pagecount;
-
-		DPRINT_DBG(VMBUS, "gpadl range %d - len %d offset %d "
-			   "page count %d", i, gpadl->range[i].byte_count,
-			   gpadl->range[i].byte_offset, pagecount);
-
-		for (j = 0; j < pagecount; j++)
-			DPRINT_DBG(VMBUS, "%d) pfn %llu", j,
-				   gpadl->range[i].pfn_array[j]);
-	}
-}
 
 /*
  * create_gpadl_header - Creates a gpadl for the specified buffer
@@ -356,20 +309,35 @@ static int create_gpadl_header(void *kbuffer, u32 size,
 				  sizeof(struct vmbus_channel_gpadl_body) +
 				  pfncurr * sizeof(u64);
 			msgbody = kzalloc(msgsize, GFP_KERNEL);
-			/* FIXME: we probably need to more if this fails */
-			if (!msgbody)
+
+			if (!msgbody) {
+				struct vmbus_channel_msginfo *pos = NULL;
+				struct vmbus_channel_msginfo *tmp = NULL;
+				/*
+				 * Free up all the allocated messages.
+				 */
+				list_for_each_entry_safe(pos, tmp,
+					&msgheader->submsglist,
+					msglistentry) {
+
+					list_del(&pos->msglistentry);
+					kfree(pos);
+				}
+
 				goto nomem;
+			}
+
 			msgbody->msgsize = msgsize;
 			(*messagecount)++;
 			gpadl_body =
 				(struct vmbus_channel_gpadl_body *)msgbody->msg;
 
 			/*
-			 * FIXME:
 			 * Gpadl is u32 and we are using a pointer which could
 			 * be 64-bit
+			 * This is governed by the guest/host protocol and
+			 * so the hypervisor gurantees that this is ok.
 			 */
-			/* gpadl_body->Gpadl = kbuffer; */
 			for (i = 0; i < pfncurr; i++)
 				gpadl_body->pfn[i] = pfn + pfnsum + i;
 
@@ -423,7 +391,6 @@ int vmbus_establish_gpadl(struct vmbus_channel *channel, void *kbuffer,
 {
 	struct vmbus_channel_gpadl_header *gpadlmsg;
 	struct vmbus_channel_gpadl_body *gpadl_body;
-	/* struct vmbus_channel_gpadl_created *gpadlCreated; */
 	struct vmbus_channel_msginfo *msginfo = NULL;
 	struct vmbus_channel_msginfo *submsginfo;
 	u32 msgcount;
@@ -447,7 +414,6 @@ int vmbus_establish_gpadl(struct vmbus_channel *channel, void *kbuffer,
 	gpadlmsg->child_relid = channel->offermsg.child_relid;
 	gpadlmsg->gpadl = next_gpadl_handle;
 
-	dump_gpadl_header(gpadlmsg);
 
 	spin_lock_irqsave(&vmbus_connection.channelmsg_lock, flags);
 	list_add_tail(&msginfo->msglistentry,
@@ -458,12 +424,11 @@ int vmbus_establish_gpadl(struct vmbus_channel *channel, void *kbuffer,
 	ret = vmbus_post_msg(gpadlmsg, msginfo->msgsize -
 			       sizeof(*msginfo));
 	if (ret != 0)
-		goto Cleanup;
+		goto cleanup;
 
 	if (msgcount > 1) {
 		list_for_each(curr, &msginfo->submsglist) {
 
-			/* FIXME: should this use list_entry() instead ? */
 			submsginfo = (struct vmbus_channel_msginfo *)curr;
 			gpadl_body =
 			     (struct vmbus_channel_gpadl_body *)submsginfo->msg;
@@ -472,24 +437,22 @@ int vmbus_establish_gpadl(struct vmbus_channel *channel, void *kbuffer,
 				CHANNELMSG_GPADL_BODY;
 			gpadl_body->gpadl = next_gpadl_handle;
 
-			dump_gpadl_body(gpadl_body, submsginfo->msgsize -
-				      sizeof(*submsginfo));
 			ret = vmbus_post_msg(gpadl_body,
 					       submsginfo->msgsize -
 					       sizeof(*submsginfo));
 			if (ret != 0)
-				goto Cleanup;
+				goto cleanup;
 
 		}
 	}
-	t = wait_for_completion_timeout(&msginfo->waitevent, HZ);
+	t = wait_for_completion_timeout(&msginfo->waitevent, 5*HZ);
 	BUG_ON(t == 0);
 
 
 	/* At this point, we received the gpadl created msg */
 	*gpadl_handle = gpadlmsg->gpadl;
 
-Cleanup:
+cleanup:
 	spin_lock_irqsave(&vmbus_connection.channelmsg_lock, flags);
 	list_del(&msginfo->msglistentry);
 	spin_unlock_irqrestore(&vmbus_connection.channelmsg_lock, flags);
@@ -508,8 +471,6 @@ int vmbus_teardown_gpadl(struct vmbus_channel *channel, u32 gpadl_handle)
 	struct vmbus_channel_msginfo *info;
 	unsigned long flags;
 	int ret, t;
-
-	/* ASSERT(gpadl_handle != 0); */
 
 	info = kmalloc(sizeof(*info) +
 		       sizeof(struct vmbus_channel_gpadl_teardown), GFP_KERNEL);
@@ -532,7 +493,7 @@ int vmbus_teardown_gpadl(struct vmbus_channel *channel, u32 gpadl_handle)
 			       sizeof(struct vmbus_channel_gpadl_teardown));
 
 	BUG_ON(ret != 0);
-	t = wait_for_completion_timeout(&info->waitevent, HZ);
+	t = wait_for_completion_timeout(&info->waitevent, 5*HZ);
 	BUG_ON(t == 0);
 
 	/* Received a torndown response */
@@ -551,24 +512,18 @@ EXPORT_SYMBOL_GPL(vmbus_teardown_gpadl);
 void vmbus_close(struct vmbus_channel *channel)
 {
 	struct vmbus_channel_close_channel *msg;
-	struct vmbus_channel_msginfo *info;
-	unsigned long flags;
 	int ret;
+	unsigned long flags;
 
 	/* Stop callback and cancel the timer asap */
+	spin_lock_irqsave(&channel->inbound_lock, flags);
 	channel->onchannel_callback = NULL;
-	del_timer_sync(&channel->poll_timer);
+	spin_unlock_irqrestore(&channel->inbound_lock, flags);
 
 	/* Send a closing message */
-	info = kmalloc(sizeof(*info) +
-		       sizeof(struct vmbus_channel_close_channel), GFP_KERNEL);
-        /* FIXME: can't do anything other than return here because the
-	 *        function is void */
-	if (!info)
-		return;
 
+	msg = &channel->close_msg.msg;
 
-	msg = (struct vmbus_channel_close_channel *)info->msg;
 	msg->header.msgtype = CHANNELMSG_CLOSECHANNEL;
 	msg->child_relid = channel->offermsg.child_relid;
 
@@ -580,8 +535,6 @@ void vmbus_close(struct vmbus_channel *channel)
 		vmbus_teardown_gpadl(channel,
 					  channel->ringbuffer_gpadlhandle);
 
-	/* TODO: Send a msg to release the childRelId */
-
 	/* Cleanup the ring buffers for this channel */
 	hv_ringbuffer_cleanup(&channel->outbound);
 	hv_ringbuffer_cleanup(&channel->inbound);
@@ -589,21 +542,7 @@ void vmbus_close(struct vmbus_channel *channel)
 	free_pages((unsigned long)channel->ringbuffer_pages,
 		get_order(channel->ringbuffer_pagecount * PAGE_SIZE));
 
-	kfree(info);
 
-	/*
-	 * If we are closing the channel during an error path in
-	 * opening the channel, don't free the channel since the
-	 * caller will free the channel
-	 */
-
-	if (channel->state == CHANNEL_OPEN_STATE) {
-		spin_lock_irqsave(&vmbus_connection.channel_lock, flags);
-		list_del(&channel->listentry);
-		spin_unlock_irqrestore(&vmbus_connection.channel_lock, flags);
-
-		free_channel(channel);
-	}
 }
 EXPORT_SYMBOL_GPL(vmbus_close);
 
@@ -632,7 +571,6 @@ int vmbus_sendpacket(struct vmbus_channel *channel, const void *buffer,
 	u64 aligned_data = 0;
 	int ret;
 
-	dump_vmbus_channel(channel);
 
 	/* Setup the descriptor */
 	desc.type = type; /* VmbusPacketTypeDataInBand; */
@@ -650,7 +588,6 @@ int vmbus_sendpacket(struct vmbus_channel *channel, const void *buffer,
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3);
 
-	/* TODO: We should determine if this is optional */
 	if (ret == 0 && !hv_get_ringbuffer_interrupt_mask(&channel->outbound))
 		vmbus_setevent(channel);
 
@@ -679,7 +616,6 @@ int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
 	if (pagecount > MAX_PAGE_BUFFER_COUNT)
 		return -EINVAL;
 
-	dump_vmbus_channel(channel);
 
 	/*
 	 * Adjust the size down since vmbus_channel_packet_page_buffer is the
@@ -713,7 +649,6 @@ int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3);
 
-	/* TODO: We should determine if this is optional */
 	if (ret == 0 && !hv_get_ringbuffer_interrupt_mask(&channel->outbound))
 		vmbus_setevent(channel);
 
@@ -739,7 +674,6 @@ int vmbus_sendpacket_multipagebuffer(struct vmbus_channel *channel,
 	u32 pfncount = NUM_PAGES_SPANNED(multi_pagebuffer->offset,
 					 multi_pagebuffer->len);
 
-	dump_vmbus_channel(channel);
 
 	if ((pfncount < 0) || (pfncount > MAX_MULTIPAGE_BUFFER_COUNT))
 		return -EINVAL;
@@ -777,7 +711,6 @@ int vmbus_sendpacket_multipagebuffer(struct vmbus_channel *channel,
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3);
 
-	/* TODO: We should determine if this is optional */
 	if (ret == 0 && !hv_get_ringbuffer_interrupt_mask(&channel->outbound))
 		vmbus_setevent(channel);
 
@@ -805,19 +738,15 @@ int vmbus_recvpacket(struct vmbus_channel *channel, void *buffer,
 	u32 packetlen;
 	u32 userlen;
 	int ret;
-	unsigned long flags;
 
 	*buffer_actual_len = 0;
 	*requestid = 0;
 
-	spin_lock_irqsave(&channel->inbound_lock, flags);
 
 	ret = hv_ringbuffer_peek(&channel->inbound, &desc,
 			     sizeof(struct vmpacket_descriptor));
-	if (ret != 0) {
-		spin_unlock_irqrestore(&channel->inbound_lock, flags);
+	if (ret != 0)
 		return 0;
-	}
 
 	packetlen = desc.len8 << 3;
 	userlen = packetlen - (desc.offset8 << 3);
@@ -825,11 +754,10 @@ int vmbus_recvpacket(struct vmbus_channel *channel, void *buffer,
 	*buffer_actual_len = userlen;
 
 	if (userlen > bufferlen) {
-		spin_unlock_irqrestore(&channel->inbound_lock, flags);
 
 		pr_err("Buffer too small - got %d needs %d\n",
 			   bufferlen, userlen);
-		return -1;
+		return -ETOOSMALL;
 	}
 
 	*requestid = desc.trans_id;
@@ -838,7 +766,6 @@ int vmbus_recvpacket(struct vmbus_channel *channel, void *buffer,
 	ret = hv_ringbuffer_read(&channel->inbound, buffer, userlen,
 			     (desc.offset8 << 3));
 
-	spin_unlock_irqrestore(&channel->inbound_lock, flags);
 
 	return 0;
 }
@@ -855,19 +782,15 @@ int vmbus_recvpacket_raw(struct vmbus_channel *channel, void *buffer,
 	u32 packetlen;
 	u32 userlen;
 	int ret;
-	unsigned long flags;
 
 	*buffer_actual_len = 0;
 	*requestid = 0;
 
-	spin_lock_irqsave(&channel->inbound_lock, flags);
 
 	ret = hv_ringbuffer_peek(&channel->inbound, &desc,
 			     sizeof(struct vmpacket_descriptor));
-	if (ret != 0) {
-		spin_unlock_irqrestore(&channel->inbound_lock, flags);
+	if (ret != 0)
 		return 0;
-	}
 
 
 	packetlen = desc.len8 << 3;
@@ -876,12 +799,10 @@ int vmbus_recvpacket_raw(struct vmbus_channel *channel, void *buffer,
 	*buffer_actual_len = packetlen;
 
 	if (packetlen > bufferlen) {
-		spin_unlock_irqrestore(&channel->inbound_lock, flags);
-
 		pr_err("Buffer too small - needed %d bytes but "
 			"got space for only %d bytes\n",
 			packetlen, bufferlen);
-		return -2;
+		return -ENOBUFS;
 	}
 
 	*requestid = desc.trans_id;
@@ -889,40 +810,6 @@ int vmbus_recvpacket_raw(struct vmbus_channel *channel, void *buffer,
 	/* Copy over the entire packet to the user buffer */
 	ret = hv_ringbuffer_read(&channel->inbound, buffer, packetlen, 0);
 
-	spin_unlock_irqrestore(&channel->inbound_lock, flags);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(vmbus_recvpacket_raw);
-
-/*
- * vmbus_onchannel_event - Channel event callback
- */
-void vmbus_onchannel_event(struct vmbus_channel *channel)
-{
-	dump_vmbus_channel(channel);
-
-	channel->onchannel_callback(channel->channel_callback_context);
-
-	mod_timer(&channel->poll_timer, jiffies + usecs_to_jiffies(100));
-}
-
-/*
- * vmbus_ontimer - Timer event callback
- */
-void vmbus_ontimer(unsigned long data)
-{
-	struct vmbus_channel *channel = (struct vmbus_channel *)data;
-
-	if (channel->onchannel_callback)
-		channel->onchannel_callback(channel->channel_callback_context);
-}
-
-/*
- * dump_vmbus_channel- Dump vmbus channel info to the console
- */
-static void dump_vmbus_channel(struct vmbus_channel *channel)
-{
-	DPRINT_DBG(VMBUS, "Channel (%d)", channel->offermsg.child_relid);
-	hv_dump_ring_info(&channel->outbound, "Outbound ");
-	hv_dump_ring_info(&channel->inbound, "Inbound ");
-}

@@ -76,23 +76,19 @@ EXPORT_SYMBOL_GPL(unregister_pcpu_notifier);
 
 static int xen_pcpu_down(uint32_t xen_id)
 {
-	xen_platform_op_t op = {
-		.cmd			= XENPF_cpu_offline,
-		.interface_version	= XENPF_INTERFACE_VERSION,
-		.u.cpu_ol.cpuid	= xen_id,
-	};
+	xen_platform_op_t op;
 
+	op.cmd = XENPF_cpu_offline;
+	op.u.cpu_ol.cpuid = xen_id;
 	return HYPERVISOR_platform_op(&op);
 }
 
 static int xen_pcpu_up(uint32_t xen_id)
 {
-	xen_platform_op_t op = {
-		.cmd			= XENPF_cpu_online,
-		.interface_version	= XENPF_INTERFACE_VERSION,
-		.u.cpu_ol.cpuid	= xen_id,
-	};
+	xen_platform_op_t op;
 
+	op.cmd = XENPF_cpu_online;
+	op.u.cpu_ol.cpuid = xen_id;
 	return HYPERVISOR_platform_op(&op);
 }
 
@@ -279,14 +275,12 @@ static struct pcpu *_sync_pcpu(unsigned int cpu_num, unsigned int *max_id,
 {
 	struct pcpu *pcpu;
 	struct xenpf_pcpuinfo *info;
-	xen_platform_op_t op = {
-		.cmd                = XENPF_get_cpuinfo,
-		.interface_version  = XENPF_INTERFACE_VERSION,
-	};
+	xen_platform_op_t op;
 	int ret;
 
 	*result = -1;
 
+	op.cmd = XENPF_get_cpuinfo;
 	info = &op.u.pcpu_info;
 	info->xen_cpuid = cpu_num;
 
@@ -405,12 +399,10 @@ EXPORT_SYMBOL_GPL(xen_pcpu_hotplug);
 int xen_pcpu_index(uint32_t id, bool is_acpiid)
 {
 	unsigned int cpu_num, max_id;
-	xen_platform_op_t op = {
-		.cmd                = XENPF_get_cpuinfo,
-		.interface_version  = XENPF_INTERFACE_VERSION,
-	};
+	xen_platform_op_t op;
 	struct xenpf_pcpuinfo *info = &op.u.pcpu_info;
 
+	op.cmd = XENPF_get_cpuinfo;
 	for (max_id = cpu_num = 0; cpu_num <= max_id; ++cpu_num) {
 		int ret;
 

@@ -34,12 +34,6 @@
 
 #include "common.h"
 
-#undef DPRINTK
-#define DPRINTK(_f, _a...) \
-	printk(KERN_DEBUG "(%s() file=%s, line=%d) " _f "\n", \
-	       __func__, __FILE__ , __LINE__ , ##_a )
-
-
 #define MEDIA_PRESENT "media-present"
 
 static void cdrom_media_changed(struct xenbus_watch *, const char **, unsigned int);
@@ -61,7 +55,7 @@ static int cdrom_xenstore_write_media_present(struct backend_info *be)
 		DPRINTK("already written err%d", err);
 		return(0);
 	}
-	media_present = 1;
+	media_present = !!be->blkif->vbd.bdev;
 
 again:
 	err = xenbus_transaction_start(&xbt);
@@ -108,25 +102,24 @@ void cdrom_add_media_watch(struct backend_info *be)
 	DPRINTK("nodename:%s", dev->nodename);
 	if (cdrom_is_type(be)) {
 		DPRINTK("is a cdrom");
-		if ( cdrom_xenstore_write_media_present(be) == 0 ) {
-			DPRINTK( "xenstore wrote OK");
+		if (cdrom_xenstore_write_media_present(be) == 0) {
+			DPRINTK("xenstore wrote OK");
 			err = xenbus_watch_path2(dev, dev->nodename, MEDIA_PRESENT,
 						 &be->cdrom_watch,
 						 cdrom_media_changed);
 			if (err)
-				DPRINTK( "media_present watch add failed" );
+				DPRINTK(MEDIA_PRESENT " watch add failed");
 		}
 	}
 }
 
 /**
- * Callback received when the "media_present" xenstore node is changed
+ * Callback received when the MEDIA_PRESENT xenstore node is changed
  */
 static void cdrom_media_changed(struct xenbus_watch *watch,
 				const char **vec, unsigned int len)
 {
-	int err;
-	unsigned media_present;
+	int err, media_present;
 	struct backend_info *be
 		= container_of(watch, struct backend_info, cdrom_watch);
 	struct xenbus_device *dev = be->dev;
@@ -138,25 +131,24 @@ static void cdrom_media_changed(struct xenbus_watch *watch,
 
 	err = xenbus_scanf(XBT_NIL, dev->nodename, MEDIA_PRESENT, "%d",
 			   &media_present);
-	if (err == 0 || err == -ENOENT) {
-		DPRINTK("xenbus_read of cdrom media_present node error:%d",err);
+	if (err <= 0) {
+		DPRINTK("read of " MEDIA_PRESENT " node error:%d", err);
 		return;
 	}
 
-	if (media_present == 0)
+	if (!media_present)
 		vbd_free(&be->blkif->vbd);
-	else {
+	else if (!be->blkif->vbd.bdev) {
 		char *p = strrchr(dev->otherend, '/') + 1;
 		long handle = simple_strtoul(p, NULL, 0);
 
-		if (!be->blkif->vbd.bdev) {
-			err = vbd_create(be->blkif, handle, be->major, be->minor,
-					 !strchr(be->mode, 'w'), 1);
-			if (err) {
-				be->major = be->minor = 0;
-				xenbus_dev_fatal(dev, err, "creating vbd structure");
-				return;
-			}
+		err = vbd_create(be->blkif, handle, be->major, be->minor,
+				 !strchr(be->mode, 'w'), 1);
+		if (err && err != -ENOMEDIUM) {
+			be->major = be->minor = 0;
+			xenbus_dev_fatal(dev, err, "creating vbd structure");
+			return;
 		}
+		vbd_resize(be->blkif);
 	}
 }

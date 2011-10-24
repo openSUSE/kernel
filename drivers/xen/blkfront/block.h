@@ -41,6 +41,7 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/atomic.h>
 #include <linux/errno.h>
 #include <linux/fs.h>
 #include <linux/hdreg.h>
@@ -53,7 +54,6 @@
 #include <xen/interface/io/blkif.h>
 #include <xen/interface/io/ring.h>
 #include <asm/io.h>
-#include <asm/atomic.h>
 #include <asm/uaccess.h>
 
 #define DPRINTK(_f, _a...) pr_debug(_f, ## _a)

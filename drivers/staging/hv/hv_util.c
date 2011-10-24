@@ -26,15 +26,31 @@
 #include <linux/slab.h>
 #include <linux/sysctl.h>
 #include <linux/reboot.h>
-#include <linux/dmi.h>
-#include <linux/pci.h>
 
 #include "hyperv.h"
 #include "hv_kvp.h"
 
-static u8 *shut_txf_buf;
-static u8 *time_txf_buf;
-static u8 *hbeat_txf_buf;
+
+static void shutdown_onchannelcallback(void *context);
+static struct hv_util_service util_shutdown = {
+	.util_cb = shutdown_onchannelcallback,
+};
+
+static void timesync_onchannelcallback(void *context);
+static struct hv_util_service util_timesynch = {
+	.util_cb = timesync_onchannelcallback,
+};
+
+static void heartbeat_onchannelcallback(void *context);
+static struct hv_util_service util_heartbeat = {
+	.util_cb = heartbeat_onchannelcallback,
+};
+
+static struct hv_util_service util_kvp = {
+	.util_cb = hv_kvp_onchannelcallback,
+	.util_init = hv_kvp_init,
+	.util_deinit = hv_kvp_deinit,
+};
 
 static void shutdown_onchannelcallback(void *context)
 {
@@ -42,6 +58,7 @@ static void shutdown_onchannelcallback(void *context)
 	u32 recvlen;
 	u64 requestid;
 	u8  execute_shutdown = false;
+	u8  *shut_txf_buf = util_shutdown.recv_buffer;
 
 	struct shutdown_msg_data *shutdown_msg;
 
@@ -91,7 +108,7 @@ static void shutdown_onchannelcallback(void *context)
 	}
 
 	if (execute_shutdown == true)
-		orderly_poweroff(false);
+		orderly_poweroff(true);
 }
 
 /*
@@ -109,6 +126,24 @@ static inline void do_adj_guesttime(u64 hosttime)
 }
 
 /*
+ * Set the host time in a process context.
+ */
+
+struct adj_time_work {
+	struct work_struct work;
+	u64	host_time;
+};
+
+static void hv_set_host_time(struct work_struct *work)
+{
+	struct adj_time_work	*wrk;
+
+	wrk = container_of(work, struct adj_time_work, work);
+	do_adj_guesttime(wrk->host_time);
+	kfree(wrk);
+}
+
+/*
  * Synchronize time with host after reboot, restore, etc.
  *
  * ICTIMESYNCFLAG_SYNC flag bit indicates reboot, restore events of the VM.
@@ -121,17 +156,26 @@ static inline void do_adj_guesttime(u64 hosttime)
  */
 static inline void adj_guesttime(u64 hosttime, u8 flags)
 {
+	struct adj_time_work    *wrk;
 	static s32 scnt = 50;
 
+	wrk = kmalloc(sizeof(struct adj_time_work), GFP_ATOMIC);
+	if (wrk == NULL)
+		return;
+
+	wrk->host_time = hosttime;
 	if ((flags & ICTIMESYNCFLAG_SYNC) != 0) {
-		do_adj_guesttime(hosttime);
+		INIT_WORK(&wrk->work, hv_set_host_time);
+		schedule_work(&wrk->work);
 		return;
 	}
 
 	if ((flags & ICTIMESYNCFLAG_SAMPLE) != 0 && scnt > 0) {
 		scnt--;
-		do_adj_guesttime(hosttime);
-	}
+		INIT_WORK(&wrk->work, hv_set_host_time);
+		schedule_work(&wrk->work);
+	} else
+		kfree(wrk);
 }
 
 /*
@@ -144,6 +188,7 @@ static void timesync_onchannelcallback(void *context)
 	u64 requestid;
 	struct icmsg_hdr *icmsghdrp;
 	struct ictimesync_data *timedatap;
+	u8 *time_txf_buf = util_timesynch.recv_buffer;
 
 	vmbus_recvpacket(channel, time_txf_buf,
 			 PAGE_SIZE, &recvlen, &requestid);
@@ -182,6 +227,7 @@ static void heartbeat_onchannelcallback(void *context)
 	u64 requestid;
 	struct icmsg_hdr *icmsghdrp;
 	struct heartbeat_msg_data *heartbeat_msg;
+	u8 *hbeat_txf_buf = util_heartbeat.recv_buffer;
 
 	vmbus_recvpacket(channel, hbeat_txf_buf,
 			 PAGE_SIZE, &recvlen, &requestid);
@@ -210,92 +256,94 @@ static void heartbeat_onchannelcallback(void *context)
 	}
 }
 
-static const struct pci_device_id __initconst
-hv_utils_pci_table[] __maybe_unused = {
-	{ PCI_DEVICE(0x1414, 0x5353) }, /* Hyper-V emulated VGA controller */
-	{ 0 }
-};
-MODULE_DEVICE_TABLE(pci, hv_utils_pci_table);
+static int util_probe(struct hv_device *dev,
+			const struct hv_vmbus_device_id *dev_id)
+{
+	struct hv_util_service *srv =
+		(struct hv_util_service *)dev_id->driver_data;
+	int ret;
 
+	srv->recv_buffer = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	if (!srv->recv_buffer)
+		return -ENOMEM;
+	if (srv->util_init) {
+		ret = srv->util_init(srv);
+		if (ret) {
+			ret = -ENODEV;
+			goto error1;
+		}
+	}
 
-static const struct dmi_system_id __initconst
-hv_utils_dmi_table[] __maybe_unused  = {
-	{
-		.ident = "Hyper-V",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
-			DMI_MATCH(DMI_PRODUCT_NAME, "Virtual Machine"),
-			DMI_MATCH(DMI_BOARD_NAME, "Virtual Machine"),
-		},
-	},
+	ret = vmbus_open(dev->channel, 2 * PAGE_SIZE, 2 * PAGE_SIZE, NULL, 0,
+			srv->util_cb, dev->channel);
+	if (ret)
+		goto error;
+
+	hv_set_drvdata(dev, srv);
+	return 0;
+
+error:
+	if (srv->util_deinit)
+		srv->util_deinit();
+error1:
+	kfree(srv->recv_buffer);
+	return ret;
+}
+
+static int util_remove(struct hv_device *dev)
+{
+	struct hv_util_service *srv = hv_get_drvdata(dev);
+
+	vmbus_close(dev->channel);
+	if (srv->util_deinit)
+		srv->util_deinit();
+	kfree(srv->recv_buffer);
+
+	return 0;
+}
+
+static const struct hv_vmbus_device_id id_table[] = {
+	/* Shutdown guid */
+	{ VMBUS_DEVICE(0x31, 0x60, 0x0B, 0X0E, 0x13, 0x52, 0x34, 0x49,
+		       0x81, 0x8B, 0x38, 0XD9, 0x0C, 0xED, 0x39, 0xDB)
+	  .driver_data = (unsigned long)&util_shutdown },
+	/* Time synch guid */
+	{ VMBUS_DEVICE(0x30, 0xe6, 0x27, 0x95, 0xae, 0xd0, 0x7b, 0x49,
+		       0xad, 0xce, 0xe8, 0x0a, 0xb0, 0x17, 0x5c, 0xaf)
+	  .driver_data = (unsigned long)&util_timesynch },
+	/* Heartbeat guid */
+	{ VMBUS_DEVICE(0x39, 0x4f, 0x16, 0x57, 0x15, 0x91, 0x78, 0x4e,
+		       0xab, 0x55, 0x38, 0x2f, 0x3b, 0xd5, 0x42, 0x2d)
+	  .driver_data = (unsigned long)&util_heartbeat },
+	/* KVP guid */
+	{ VMBUS_DEVICE(0xe7, 0xf4, 0xa0, 0xa9, 0x45, 0x5a, 0x96, 0x4d,
+		       0xb8, 0x27, 0x8a, 0x84, 0x1e, 0x8c, 0x3,  0xe6)
+	  .driver_data = (unsigned long)&util_kvp },
 	{ },
 };
-MODULE_DEVICE_TABLE(dmi, hv_utils_dmi_table);
 
+MODULE_DEVICE_TABLE(vmbus, id_table);
+
+/* The one and only one */
+static  struct hv_driver util_drv = {
+	.name = "hv_util",
+	.id_table = id_table,
+	.probe =  util_probe,
+	.remove =  util_remove,
+};
 
 static int __init init_hyperv_utils(void)
 {
 	pr_info("Registering HyperV Utility Driver\n");
 
-	if (hv_kvp_init())
-		return -ENODEV;
-
-
-	if (!dmi_check_system(hv_utils_dmi_table))
-		return -ENODEV;
-
-	shut_txf_buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
-	time_txf_buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
-	hbeat_txf_buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
-
-	if (!shut_txf_buf || !time_txf_buf || !hbeat_txf_buf) {
-		pr_info("Unable to allocate memory for receive buffer\n");
-		kfree(shut_txf_buf);
-		kfree(time_txf_buf);
-		kfree(hbeat_txf_buf);
-		return -ENOMEM;
-	}
-
-	hv_cb_utils[HV_SHUTDOWN_MSG].callback = &shutdown_onchannelcallback;
-
-	hv_cb_utils[HV_TIMESYNC_MSG].callback = &timesync_onchannelcallback;
-
-	hv_cb_utils[HV_HEARTBEAT_MSG].callback = &heartbeat_onchannelcallback;
-
-	hv_cb_utils[HV_KVP_MSG].callback = &hv_kvp_onchannelcallback;
-
-	return 0;
+	return vmbus_driver_register(&util_drv);
 }
 
 static void exit_hyperv_utils(void)
 {
 	pr_info("De-Registered HyperV Utility Driver\n");
 
-	if (hv_cb_utils[HV_SHUTDOWN_MSG].channel != NULL)
-		hv_cb_utils[HV_SHUTDOWN_MSG].channel->onchannel_callback =
-			&chn_cb_negotiate;
-	hv_cb_utils[HV_SHUTDOWN_MSG].callback = NULL;
-
-	if (hv_cb_utils[HV_TIMESYNC_MSG].channel != NULL)
-		hv_cb_utils[HV_TIMESYNC_MSG].channel->onchannel_callback =
-			&chn_cb_negotiate;
-	hv_cb_utils[HV_TIMESYNC_MSG].callback = NULL;
-
-	if (hv_cb_utils[HV_HEARTBEAT_MSG].channel != NULL)
-		hv_cb_utils[HV_HEARTBEAT_MSG].channel->onchannel_callback =
-			&chn_cb_negotiate;
-	hv_cb_utils[HV_HEARTBEAT_MSG].callback = NULL;
-
-	if (hv_cb_utils[HV_KVP_MSG].channel != NULL)
-		hv_cb_utils[HV_KVP_MSG].channel->onchannel_callback =
-			&chn_cb_negotiate;
-	hv_cb_utils[HV_KVP_MSG].callback = NULL;
-
-	hv_kvp_deinit();
-
-	kfree(shut_txf_buf);
-	kfree(time_txf_buf);
-	kfree(hbeat_txf_buf);
+	vmbus_driver_unregister(&util_drv);
 }
 
 module_init(init_hyperv_utils);

@@ -8,7 +8,7 @@
 #include <asm/cpufeature.h>
 #include <asm/processor.h>
 #include <asm/apicdef.h>
-#include <asm/atomic.h>
+#include <linux/atomic.h>
 #ifndef CONFIG_XEN
 #include <asm/fixmap.h>
 #endif

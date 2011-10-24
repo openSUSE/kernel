@@ -33,6 +33,7 @@
 #include <linux/sched.h>
 #include <linux/hardirq.h>
 #include <linux/mm.h>
+#include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <asm/page.h>
 #include <asm/pgtable.h>
@@ -682,17 +683,70 @@ void xen_set_ldt(const void *ptr, unsigned int ents)
 }
 
 /* Protected by balloon_lock. */
-#define MAX_CONTIG_ORDER 9 /* 2MB */
-static unsigned long discontig_frames[1<<MAX_CONTIG_ORDER];
-static unsigned long limited_frames[1<<MAX_CONTIG_ORDER];
-static multicall_entry_t cr_mcl[1<<MAX_CONTIG_ORDER];
+#define INIT_CONTIG_ORDER 6 /* 256kB */
+static unsigned int __read_mostly max_contig_order = INIT_CONTIG_ORDER;
+static unsigned long __initdata init_df[1U << INIT_CONTIG_ORDER];
+static unsigned long *__refdata discontig_frames = init_df;
+static multicall_entry_t __initdata init_mc[1U << INIT_CONTIG_ORDER];
+static multicall_entry_t *__refdata cr_mcl = init_mc;
+
+static int __init init_contig_order(void)
+{
+	discontig_frames = vmalloc((sizeof(*discontig_frames)
+				    + sizeof(*cr_mcl)) << INIT_CONTIG_ORDER);
+	BUG_ON(!discontig_frames);
+
+	cr_mcl = (void *)(discontig_frames + (1U << INIT_CONTIG_ORDER));
+
+	return 0;
+}
+early_initcall(init_contig_order);
+
+static int check_contig_order(unsigned int order)
+{
+#ifdef CONFIG_64BIT
+	if (unlikely(order >= 32))
+#else
+	if (unlikely(order > BITS_PER_LONG - fls(sizeof(*cr_mcl))))
+#endif
+		return -ENOMEM;
+
+	if (unlikely(order > max_contig_order))
+	{
+		unsigned long *df = __vmalloc((sizeof(*discontig_frames)
+					       + sizeof(*cr_mcl)) << order,
+					      GFP_ATOMIC, PAGE_KERNEL);
+		unsigned long flags;
+
+		if (!df) {
+			vfree(df);
+			return -ENOMEM;
+		}
+		balloon_lock(flags);
+		if (order > max_contig_order) {
+			void *temp = discontig_frames;
+
+			discontig_frames = df;
+			cr_mcl = (void *)(df + (1U << order));
+			df = temp;
+
+			wmb();
+			max_contig_order = order;
+		}
+		balloon_unlock(flags);
+		vfree(df);
+		pr_info("Adjusted maximum contiguous region order to %u\n",
+			order);
+	}
+
+	return 0;
+}
 
 /* Ensure multi-page extents are contiguous in machine memory. */
 int xen_create_contiguous_region(
 	unsigned long vstart, unsigned int order, unsigned int address_bits)
 {
-	unsigned long *in_frames = discontig_frames, out_frame;
-	unsigned long  frame, flags;
+	unsigned long *in_frames, out_frame, frame, flags;
 	unsigned int   i;
 	int            rc, success;
 #ifdef CONFIG_64BIT
@@ -720,8 +774,9 @@ int xen_create_contiguous_region(
 	if (xen_feature(XENFEAT_auto_translated_physmap))
 		return 0;
 
-	if (unlikely(order > MAX_CONTIG_ORDER))
-		return -ENOMEM;
+	rc = check_contig_order(order);
+	if (unlikely(rc))
+		return rc;
 
 #ifdef CONFIG_64BIT
 	if (unlikely(vstart > PAGE_OFFSET + MAXMEM)) {
@@ -736,20 +791,23 @@ int xen_create_contiguous_region(
 			ptep = NULL;
 		if (vstart < __START_KERNEL && ptep)
 			return -EINVAL;
-		if (order > MAX_CONTIG_ORDER - 1)
-			return -ENOMEM;
+		rc = check_contig_order(order + 1);
+		if (unlikely(rc))
+			return rc;
 	}
 #else
 	if (unlikely(vstart + (PAGE_SIZE << order) > (unsigned long)high_memory))
 		return -EINVAL;
 #endif
 
-	set_xen_guest_handle(exchange.in.extent_start, in_frames);
 	set_xen_guest_handle(exchange.out.extent_start, &out_frame);
 
 	scrub_pages((void *)vstart, 1 << order);
 
 	balloon_lock(flags);
+
+	in_frames = discontig_frames;
+	set_xen_guest_handle(exchange.in.extent_start, in_frames);
 
 	/* 1. Zap current PTEs, remembering MFNs. */
 	for (i = 0; i < (1U<<order); i++) {
@@ -828,8 +886,7 @@ EXPORT_SYMBOL_GPL(xen_create_contiguous_region);
 
 void xen_destroy_contiguous_region(unsigned long vstart, unsigned int order)
 {
-	unsigned long *out_frames = discontig_frames, in_frame;
-	unsigned long  frame, flags;
+	unsigned long *out_frames, in_frame, frame, flags;
 	unsigned int   i;
 	int            rc, success;
 	struct xen_memory_exchange exchange = {
@@ -848,15 +905,17 @@ void xen_destroy_contiguous_region(unsigned long vstart, unsigned int order)
 	if (xen_feature(XENFEAT_auto_translated_physmap))
 		return;
 
-	if (unlikely(order > MAX_CONTIG_ORDER))
+	if (unlikely(order > max_contig_order))
 		return;
 
 	set_xen_guest_handle(exchange.in.extent_start, &in_frame);
-	set_xen_guest_handle(exchange.out.extent_start, out_frames);
 
 	scrub_pages((void *)vstart, 1 << order);
 
 	balloon_lock(flags);
+
+	out_frames = discontig_frames;
+	set_xen_guest_handle(exchange.out.extent_start, out_frames);
 
 	/* 1. Find start MFN of contiguous extent. */
 	in_frame = pfn_to_mfn(__pa(vstart) >> PAGE_SHIFT);
@@ -1009,7 +1068,7 @@ int __init early_create_contiguous_region(unsigned long pfn,
 	if (xen_feature(XENFEAT_auto_translated_physmap))
 		return 0;
 
-	if (unlikely(order > MAX_CONTIG_ORDER))
+	if (unlikely(order > max_contig_order))
 		return -ENOMEM;
 
 	for (i = 0; i < (1U << order); ++i) {
@@ -1054,7 +1113,7 @@ int __init early_create_contiguous_region(unsigned long pfn,
 static void undo_limit_pages(struct page *pages, unsigned int order)
 {
 	BUG_ON(xen_feature(XENFEAT_auto_translated_physmap));
-	BUG_ON(order > MAX_CONTIG_ORDER);
+	BUG_ON(order > max_contig_order);
 	xen_limit_pages_to_max_mfn(pages, order, 0);
 	ClearPageForeign(pages);
 	__free_pages(pages, order);
@@ -1063,12 +1122,11 @@ static void undo_limit_pages(struct page *pages, unsigned int order)
 int xen_limit_pages_to_max_mfn(
 	struct page *pages, unsigned int order, unsigned int address_bits)
 {
-	unsigned long flags, frame;
-	unsigned long *in_frames = discontig_frames, *out_frames = limited_frames;
+	unsigned long flags, frame, *limit_map, _limit_map;
+	unsigned long *in_frames, *out_frames;
 	struct page *page;
 	unsigned int i, n, nr_mcl;
 	int rc, success;
-	DECLARE_BITMAP(limit_map, 1 << MAX_CONTIG_ORDER);
 
 	struct xen_memory_exchange exchange = {
 		.in = {
@@ -1085,22 +1143,29 @@ int xen_limit_pages_to_max_mfn(
 	if (xen_feature(XENFEAT_auto_translated_physmap))
 		return 0;
 
-	if (unlikely(order > MAX_CONTIG_ORDER))
-		return -ENOMEM;
+	if (address_bits && address_bits < PAGE_SHIFT)
+		return -EINVAL;
 
-	if (address_bits) {
-		if (address_bits < PAGE_SHIFT)
-			return -EINVAL;
+	rc = check_contig_order(order + 1);
+	if (unlikely(rc))
+		return rc;
+
+	if (BITS_PER_LONG >> order) {
+		limit_map = kmalloc(BITS_TO_LONGS(1U << order)
+				    * sizeof(*limit_map), GFP_ATOMIC);
+		if (unlikely(!limit_map))
+			return -ENOMEM;
+	} else
+		limit_map = &_limit_map;
+
+	if (address_bits)
 		bitmap_zero(limit_map, 1U << order);
-	} else if (order) {
+	else if (order) {
 		BUILD_BUG_ON(sizeof(pages->index) != sizeof(*limit_map));
 		for (i = 0; i < BITS_TO_LONGS(1U << order); ++i)
 			limit_map[i] = pages[i + 1].index;
 	} else
 		__set_bit(0, limit_map);
-
-	set_xen_guest_handle(exchange.in.extent_start, in_frames);
-	set_xen_guest_handle(exchange.out.extent_start, out_frames);
 
 	/* 0. Scrub the pages. */
 	for (i = 0, n = 0; i < 1U<<order ; i++) {
@@ -1121,13 +1186,21 @@ int xen_limit_pages_to_max_mfn(
 		}
 #endif
 	}
-	if (bitmap_empty(limit_map, 1U << order))
+	if (bitmap_empty(limit_map, 1U << order)) {
+		if (limit_map != &_limit_map)
+			kfree(limit_map);
 		return 0;
+	}
 
 	if (n)
 		kmap_flush_unused();
 
 	balloon_lock(flags);
+
+	in_frames = discontig_frames;
+	set_xen_guest_handle(exchange.in.extent_start, in_frames);
+	out_frames = in_frames + (1U << order);
+	set_xen_guest_handle(exchange.out.extent_start, out_frames);
 
 	/* 1. Zap current PTEs (if any), remembering MFNs. */
 	for (i = 0, n = 0, nr_mcl = 0; i < (1U<<order); i++) {
@@ -1195,10 +1268,7 @@ int xen_limit_pages_to_max_mfn(
 
 	balloon_unlock(flags);
 
-	if (!success)
-		return -ENOMEM;
-
-	if (address_bits) {
+	if (success && address_bits) {
 		if (order) {
 			BUILD_BUG_ON(sizeof(*limit_map) != sizeof(pages->index));
 			for (i = 0; i < BITS_TO_LONGS(1U << order); ++i)
@@ -1207,7 +1277,10 @@ int xen_limit_pages_to_max_mfn(
 		SetPageForeign(pages, undo_limit_pages);
 	}
 
-	return 0;
+	if (limit_map != &_limit_map)
+		kfree(limit_map);
+
+	return success ? 0 : -ENOMEM;
 }
 EXPORT_SYMBOL_GPL(xen_limit_pages_to_max_mfn);
 

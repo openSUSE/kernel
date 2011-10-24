@@ -194,14 +194,17 @@ static void fast_flush_area(pending_req_t *req)
 
 static void print_stats(blkif_t *blkif)
 {
-	printk(KERN_DEBUG "%s: oo %3d  |  rd %4d  |  wr %4d  |  br %4d |  pk %4d\n",
+	printk(KERN_DEBUG "%s: oo %3d  |  rd %4d  |  wr %4d  |  br %4d"
+	       "  |  fl %4d  |  pk %4d\n",
 	       current->comm, blkif->st_oo_req,
-	       blkif->st_rd_req, blkif->st_wr_req, blkif->st_br_req,
-	       blkif->st_pk_req);
+	       blkif->st_rd_req, blkif->st_wr_req,
+	       blkif->st_br_req, blkif->st_fl_req, blkif->st_pk_req);
 	blkif->st_print = jiffies + msecs_to_jiffies(10 * 1000);
 	blkif->st_rd_req = 0;
 	blkif->st_wr_req = 0;
 	blkif->st_oo_req = 0;
+	blkif->st_br_req = 0;
+	blkif->st_fl_req = 0;
 	blkif->st_pk_req = 0;
 }
 
@@ -264,6 +267,11 @@ static void __end_block_io_op(pending_req_t *pending_req, int error)
 		DPRINTK("blkback: write barrier op failed, not supported\n");
 		blkback_barrier(XBT_NIL, pending_req->blkif->be, 0);
 		status = BLKIF_RSP_EOPNOTSUPP;
+	} else if ((pending_req->operation == BLKIF_OP_FLUSH_DISKCACHE) &&
+		   (error == -EOPNOTSUPP)) {
+		DPRINTK("blkback: flush diskcache op failed, not supported\n");
+		blkback_flush_diskcache(XBT_NIL, pending_req->blkif->be, 0);
+		status = BLKIF_RSP_EOPNOTSUPP;
 	} else if (error) {
 		DPRINTK("Buffer not up-to-date at end of operation, "
 			"error=%d\n", error);
@@ -308,7 +316,7 @@ irqreturn_t blkif_be_int(int irq, void *dev_id)
  * DOWNWARD CALLS -- These interface with the block-device layer proper.
  */
 
-static int do_block_io_op(blkif_t *blkif)
+static int _do_block_io_op(blkif_t *blkif)
 {
 	blkif_back_rings_t *blk_rings = &blkif->blk_rings;
 	blkif_request_t req;
@@ -357,14 +365,9 @@ static int do_block_io_op(blkif_t *blkif)
 
 		switch (req.operation) {
 		case BLKIF_OP_READ:
-			blkif->st_rd_req++;
-			dispatch_rw_block_io(blkif, &req, pending_req);
-			break;
-		case BLKIF_OP_WRITE_BARRIER:
-			blkif->st_br_req++;
-			/* fall through */
 		case BLKIF_OP_WRITE:
-			blkif->st_wr_req++;
+		case BLKIF_OP_WRITE_BARRIER:
+		case BLKIF_OP_FLUSH_DISKCACHE:
 			dispatch_rw_block_io(blkif, &req, pending_req);
 			break;
 		case BLKIF_OP_PACKET:
@@ -393,6 +396,23 @@ static int do_block_io_op(blkif_t *blkif)
 	return more_to_do;
 }
 
+static int
+do_block_io_op(blkif_t *blkif)
+{
+	blkif_back_rings_t *blk_rings = &blkif->blk_rings;
+	int more_to_do;
+
+	do {
+		more_to_do = _do_block_io_op(blkif);
+		if (more_to_do)
+			break;
+
+		RING_FINAL_CHECK_FOR_REQUESTS(&blk_rings->common, more_to_do);
+	} while (more_to_do);
+
+	return more_to_do;
+}
+
 static void dispatch_rw_block_io(blkif_t *blkif,
 				 blkif_request_t *req,
 				 pending_req_t *pending_req)
@@ -410,13 +430,20 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 
 	switch (req->operation) {
 	case BLKIF_OP_READ:
+		blkif->st_rd_req++;
 		operation = READ;
 		break;
 	case BLKIF_OP_WRITE:
+		blkif->st_wr_req++;
 		operation = WRITE;
 		break;
 	case BLKIF_OP_WRITE_BARRIER:
+		blkif->st_br_req++;
 		operation = WRITE_FLUSH_FUA;
+		break;
+	case BLKIF_OP_FLUSH_DISKCACHE:
+		blkif->st_fl_req++;
+		operation = WRITE_FLUSH;
 		break;
 	default:
 		operation = 0; /* make gcc happy */
@@ -425,7 +452,7 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 
 	/* Check that number of segments is sane. */
 	nseg = req->nr_segments;
-	if (unlikely(nseg == 0 && req->operation != BLKIF_OP_WRITE_BARRIER) ||
+	if (unlikely(nseg == 0 && !(operation & REQ_FLUSH)) ||
 	    unlikely(nseg > BLKIF_MAX_SEGMENTS_PER_REQUEST)) {
 		DPRINTK("Bad number of segments in request (%d)\n", nseg);
 		goto fail_response;
@@ -583,7 +610,6 @@ static void make_response(blkif_t *blkif, u64 id,
 	blkif_response_t  resp;
 	unsigned long     flags;
 	blkif_back_rings_t *blk_rings = &blkif->blk_rings;
-	int more_to_do = 0;
 	int notify;
 
 	resp.id        = id;
@@ -610,22 +636,8 @@ static void make_response(blkif_t *blkif, u64 id,
 	}
 	blk_rings->common.rsp_prod_pvt++;
 	RING_PUSH_RESPONSES_AND_CHECK_NOTIFY(&blk_rings->common, notify);
-	if (blk_rings->common.rsp_prod_pvt == blk_rings->common.req_cons) {
-		/*
-		 * Tail check for pending requests. Allows frontend to avoid
-		 * notifications if requests are already in flight (lower
-		 * overheads and promotes batching).
-		 */
-		RING_FINAL_CHECK_FOR_REQUESTS(&blk_rings->common, more_to_do);
-
-	} else if (RING_HAS_UNCONSUMED_REQUESTS(&blk_rings->common)) {
-		more_to_do = 1;
-	}
-
 	spin_unlock_irqrestore(&blkif->blk_ring_lock, flags);
 
-	if (more_to_do)
-		blkif_notify_work(blkif);
 	if (notify)
 		notify_remote_via_irq(blkif->irq);
 }
@@ -676,3 +688,4 @@ static int __init blkif_init(void)
 module_init(blkif_init);
 
 MODULE_LICENSE("Dual BSD/GPL");
+MODULE_ALIAS("xen-backend:vbd");

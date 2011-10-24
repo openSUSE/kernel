@@ -81,24 +81,25 @@ unsigned long __initdata xen_initrd_start;
 unsigned long *__read_mostly machine_to_phys_mapping =
 	(void *)MACH2PHYS_VIRT_START;
 EXPORT_SYMBOL(machine_to_phys_mapping);
-unsigned int __read_mostly machine_to_phys_order;
-EXPORT_SYMBOL(machine_to_phys_order);
+unsigned long __read_mostly machine_to_phys_nr;
+EXPORT_SYMBOL(machine_to_phys_nr);
 
 void __init xen_start_kernel(void)
 {
 	unsigned int i;
 	struct xen_machphys_mapping mapping;
-	unsigned long machine_to_phys_nr_ents;
 
 	xen_setup_features();
 
 	if (HYPERVISOR_memory_op(XENMEM_machphys_mapping, &mapping) == 0) {
 		machine_to_phys_mapping = (unsigned long *)mapping.v_start;
-		machine_to_phys_nr_ents = mapping.max_mfn + 1;
+		machine_to_phys_nr = mapping.max_mfn + 1;
 	} else
-		machine_to_phys_nr_ents = MACH2PHYS_NR_ENTRIES;
-	while ((1UL << machine_to_phys_order) < machine_to_phys_nr_ents )
-		machine_to_phys_order++;
+		machine_to_phys_nr = MACH2PHYS_NR_ENTRIES;
+#ifdef CONFIG_X86_32
+	WARN_ON(machine_to_phys_mapping + (machine_to_phys_nr - 1)
+		< machine_to_phys_mapping);
+#endif
 
 	if (!xen_feature(XENFEAT_auto_translated_physmap))
 		phys_to_machine_mapping =

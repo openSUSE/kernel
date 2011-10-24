@@ -38,7 +38,7 @@
 #define TRC_MEM      0x0010f000    /* Xen memory trace         */
 #define TRC_PV       0x0020f000    /* Xen PV traces            */
 #define TRC_SHADOW   0x0040f000    /* Xen shadow tracing       */
-#define TRC_PM       0x0080f000    /* Xen power management trace */
+#define TRC_HW       0x0080f000    /* Xen hardware-related traces */
 #define TRC_GUEST    0x0800f000    /* Guest-generated traces   */
 #define TRC_ALL      0x0ffff000
 #define TRC_HD_TO_EVENT(x) ((x)&0x0fffffff)
@@ -57,11 +57,14 @@
 #define TRC_SCHED_CLASS     0x00022000   /* Scheduler-specific    */
 #define TRC_SCHED_VERBOSE   0x00028000   /* More inclusive scheduling */
 
+/* Trace classes for Hardware */
+#define TRC_HW_PM           0x00801000   /* Power management traces */
+#define TRC_HW_IRQ          0x00802000   /* Traces relating to the handling of IRQs */
+
 /* Trace events per class */
 #define TRC_LOST_RECORDS        (TRC_GEN + 1)
 #define TRC_TRACE_WRAP_BUFFER  (TRC_GEN + 2)
 #define TRC_TRACE_CPU_CHANGE    (TRC_GEN + 3)
-#define TRC_TRACE_IRQ           (TRC_GEN + 4)
 
 #define TRC_SCHED_RUNSTATE_CHANGE   (TRC_SCHED_MIN + 1)
 #define TRC_SCHED_CONTINUE_RUNNING  (TRC_SCHED_MIN + 2)
@@ -165,14 +168,21 @@
 #define TRC_HVM_IOPORT_WRITE    (TRC_HVM_HANDLER + 0x216)
 #define TRC_HVM_IOMEM_WRITE     (TRC_HVM_HANDLER + 0x217)
 
-/* trace subclasses for power management */
-#define TRC_PM_FREQ     0x00801000      /* xen cpu freq events */
-#define TRC_PM_IDLE     0x00802000      /* xen cpu idle events */
-
 /* trace events for per class */
-#define TRC_PM_FREQ_CHANGE      (TRC_PM_FREQ + 0x01)
-#define TRC_PM_IDLE_ENTRY       (TRC_PM_IDLE + 0x01)
-#define TRC_PM_IDLE_EXIT        (TRC_PM_IDLE + 0x02)
+#define TRC_PM_FREQ_CHANGE      (TRC_HW_PM + 0x01)
+#define TRC_PM_IDLE_ENTRY       (TRC_HW_PM + 0x02)
+#define TRC_PM_IDLE_EXIT        (TRC_HW_PM + 0x03)
+
+/* Trace events for IRQs */
+#define TRC_HW_IRQ_MOVE_CLEANUP_DELAY (TRC_HW_IRQ + 0x1)
+#define TRC_HW_IRQ_MOVE_CLEANUP       (TRC_HW_IRQ + 0x2)
+#define TRC_HW_IRQ_BIND_VECTOR        (TRC_HW_IRQ + 0x3)
+#define TRC_HW_IRQ_CLEAR_VECTOR       (TRC_HW_IRQ + 0x4)
+#define TRC_HW_IRQ_MOVE_FINISH        (TRC_HW_IRQ + 0x5)
+#define TRC_HW_IRQ_ASSIGN_VECTOR      (TRC_HW_IRQ + 0x6)
+#define TRC_HW_IRQ_UNMAPPED_VECTOR    (TRC_HW_IRQ + 0x7)
+#define TRC_HW_IRQ_HANDLED            (TRC_HW_IRQ + 0x8)
+
 
 /* This structure represents a single trace buffer record. */
 struct t_rec {

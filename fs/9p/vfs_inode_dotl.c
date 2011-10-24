@@ -259,7 +259,7 @@ v9fs_vfs_create_dotl(struct inode *dir, struct dentry *dentry, int omode,
 	int err = 0;
 	gid_t gid;
 	int flags;
-	mode_t mode;
+	umode_t mode;
 	char *name = NULL;
 	struct file *filp;
 	struct p9_qid qid;
@@ -271,8 +271,8 @@ v9fs_vfs_create_dotl(struct inode *dir, struct dentry *dentry, int omode,
 	struct posix_acl *pacl = NULL, *dacl = NULL;
 
 	v9ses = v9fs_inode2v9ses(dir);
-	if (nd && nd->flags & LOOKUP_OPEN)
-		flags = nd->intent.open.flags - 1;
+	if (nd)
+		flags = nd->intent.open.flags;
 	else {
 		/*
 		 * create call without LOOKUP_OPEN is due
@@ -402,7 +402,7 @@ static int v9fs_vfs_mkdir_dotl(struct inode *dir,
 	struct p9_fid *fid = NULL, *dfid = NULL;
 	gid_t gid;
 	char *name;
-	mode_t mode;
+	umode_t mode;
 	struct inode *inode;
 	struct p9_qid qid;
 	struct dentry *dir_dentry;
@@ -805,7 +805,7 @@ v9fs_vfs_mknod_dotl(struct inode *dir, struct dentry *dentry, int omode,
 	int err;
 	gid_t gid;
 	char *name;
-	mode_t mode;
+	umode_t mode;
 	struct v9fs_session_info *v9ses;
 	struct p9_fid *fid = NULL, *dfid = NULL;
 	struct inode *inode;
@@ -977,7 +977,7 @@ const struct inode_operations v9fs_dir_inode_operations_dotl = {
 	.getxattr = generic_getxattr,
 	.removexattr = generic_removexattr,
 	.listxattr = v9fs_listxattr,
-	.check_acl = v9fs_check_acl,
+	.get_acl = v9fs_iop_get_acl,
 };
 
 const struct inode_operations v9fs_file_inode_operations_dotl = {
@@ -987,7 +987,7 @@ const struct inode_operations v9fs_file_inode_operations_dotl = {
 	.getxattr = generic_getxattr,
 	.removexattr = generic_removexattr,
 	.listxattr = v9fs_listxattr,
-	.check_acl = v9fs_check_acl,
+	.get_acl = v9fs_iop_get_acl,
 };
 
 const struct inode_operations v9fs_symlink_inode_operations_dotl = {

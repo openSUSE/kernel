@@ -13,7 +13,7 @@
 #include <xen/interface/io/pciif.h>
 #include <linux/interrupt.h>
 #include <xen/pcifront.h>
-#include <asm/atomic.h>
+#include <linux/atomic.h>
 #include <linux/workqueue.h>
 
 struct pci_bus_entry {

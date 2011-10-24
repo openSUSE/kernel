@@ -431,7 +431,7 @@ int xenbus_free_evtchn(struct xenbus_device *dev, int port)
 EXPORT_SYMBOL_GPL(xenbus_free_evtchn);
 
 
-#if 0 /* !defined(CONFIG_XEN) && !defined(MODULE) */
+#if !defined(CONFIG_XEN) && !defined(MODULE)
 /**
  * xenbus_map_ring_valloc
  * @dev: xenbus device

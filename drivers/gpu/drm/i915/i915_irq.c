@@ -364,10 +364,12 @@ static void notify_ring(struct drm_device *dev,
 
 	ring->irq_seqno = seqno;
 	wake_up_all(&ring->irq_queue);
-
-	dev_priv->hangcheck_count = 0;
-	mod_timer(&dev_priv->hangcheck_timer,
-		  jiffies + msecs_to_jiffies(DRM_I915_HANGCHECK_PERIOD));
+	if (i915_enable_hangcheck) {
+		dev_priv->hangcheck_count = 0;
+		mod_timer(&dev_priv->hangcheck_timer,
+			  jiffies +
+			  msecs_to_jiffies(DRM_I915_HANGCHECK_PERIOD));
+	}
 }
 
 static void gen6_pm_rps_work(struct work_struct *work)
@@ -1667,6 +1669,9 @@ void i915_hangcheck_elapsed(unsigned long data)
 	uint32_t acthd, instdone, instdone1;
 	bool err = false;
 
+	if (!i915_enable_hangcheck)
+		return;
+
 	/* If all work is done then ACTHD clearly hasn't advanced. */
 	if (i915_hangcheck_ring_idle(&dev_priv->ring[RCS], &err) &&
 	    i915_hangcheck_ring_idle(&dev_priv->ring[VCS], &err) &&
@@ -2053,8 +2058,10 @@ void intel_irq_init(struct drm_device *dev)
 		dev->driver->get_vblank_counter = gm45_get_vblank_counter;
 	}
 
-
-	dev->driver->get_vblank_timestamp = i915_get_vblank_timestamp;
+	if (drm_core_check_feature(dev, DRIVER_MODESET))
+		dev->driver->get_vblank_timestamp = i915_get_vblank_timestamp;
+	else
+		dev->driver->get_vblank_timestamp = NULL;
 	dev->driver->get_scanout_position = i915_get_crtc_scanoutpos;
 
 	if (IS_IVYBRIDGE(dev)) {

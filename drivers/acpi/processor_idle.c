@@ -527,7 +527,7 @@ static int acpi_processor_get_power_info_cst(struct acpi_processor *pr)
 			  current_count));
 
 	/* Validate number of power states discovered */
-	if (current_count < 2)
+	if (current_count < (processor_pm_external() ? 1 : 2))
 		status = -EFAULT;
 
       end:

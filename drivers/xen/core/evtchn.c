@@ -38,7 +38,7 @@
 #include <linux/kernel_stat.h>
 #include <linux/ftrace.h>
 #include <linux/version.h>
-#include <asm/atomic.h>
+#include <linux/atomic.h>
 #include <asm/system.h>
 #include <asm/ptrace.h>
 #include <asm/synch_bitops.h>

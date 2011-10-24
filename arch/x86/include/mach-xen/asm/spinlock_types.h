@@ -51,10 +51,6 @@ typedef union {
 
 #define __ARCH_SPIN_LOCK_UNLOCKED	{ 0 }
 
-typedef struct {
-	unsigned int lock;
-} arch_rwlock_t;
-
-#define __ARCH_RW_LOCK_UNLOCKED		{ RW_LOCK_BIAS }
+#include <asm/rwlock.h>
 
 #endif /* _ASM_X86_SPINLOCK_TYPES_H */

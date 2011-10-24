@@ -79,7 +79,6 @@ void set_mtrr_ops(const struct mtrr_ops *ops)
 static int have_wrcomb(void)
 {
 	struct pci_dev *dev;
-	u8 rev;
 
 	dev = pci_get_class(PCI_CLASS_BRIDGE_HOST << 8, NULL);
 	if (dev != NULL) {
@@ -89,13 +88,11 @@ static int have_wrcomb(void)
 		 * chipsets to be tagged
 		 */
 		if (dev->vendor == PCI_VENDOR_ID_SERVERWORKS &&
-		    dev->device == PCI_DEVICE_ID_SERVERWORKS_LE) {
-			pci_read_config_byte(dev, PCI_CLASS_REVISION, &rev);
-			if (rev <= 5) {
-				pr_info("mtrr: Serverworks LE rev < 6 detected. Write-combining disabled.\n");
-				pci_dev_put(dev);
-				return 0;
-			}
+		    dev->device == PCI_DEVICE_ID_SERVERWORKS_LE &&
+		    dev->revision <= 5) {
+			pr_info("mtrr: Serverworks LE rev < 6 detected. Write-combining disabled.\n");
+			pci_dev_put(dev);
+			return 0;
 		}
 		/*
 		 * Intel 450NX errata # 23. Non ascending cacheline evictions to
@@ -152,7 +149,6 @@ struct set_mtrr_data {
  */
 static int mtrr_rendezvous_handler(void *info)
 {
-#ifdef CONFIG_SMP
 	struct set_mtrr_data *data = info;
 
 	/*
@@ -174,7 +170,6 @@ static int mtrr_rendezvous_handler(void *info)
 	} else if (mtrr_aps_delayed_init || !cpu_online(smp_processor_id())) {
 		mtrr_if->set_all();
 	}
-#endif
 	return 0;
 }
 

@@ -48,6 +48,7 @@ struct vbd {
 	blkif_vdev_t   handle;      /* what the domain refers to this vbd as */
 	unsigned char  readonly;    /* Non-zero -> read-only */
 	unsigned char  type;        /* VDISK_xxx */
+	bool           flush_support;
 	u32            pdevice;     /* phys device that this vbd maps to */
 	struct block_device *bdev;
 	sector_t       size;        /* Cached size parameter */
@@ -84,6 +85,7 @@ typedef struct blkif_st {
 	int                 st_wr_req;
 	int                 st_oo_req;
 	int                 st_br_req;
+	int                 st_fl_req;
 	int                 st_pk_req;
 	int                 st_rd_sect;
 	int                 st_wr_sect;
@@ -142,6 +144,8 @@ int blkif_schedule(void *arg);
 
 int blkback_barrier(struct xenbus_transaction xbt,
 		    struct backend_info *be, int state);
+int blkback_flush_diskcache(struct xenbus_transaction,
+			    struct backend_info *, int state);
 
 /* cdrom media change */
 void cdrom_add_media_watch(struct backend_info *be);

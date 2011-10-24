@@ -191,9 +191,7 @@ static int xen_hotplug_notifier(struct acpi_processor *pr, int event)
 	uint32_t apic_id;
 	int device_decl = 0;
 	unsigned long long pxm;
-	xen_platform_op_t op = {
-		.interface_version  = XENPF_INTERFACE_VERSION,
-	};
+	xen_platform_op_t op;
 
 	status = acpi_get_type(pr->handle, &type);
 	if (ACPI_FAILURE(status)) {
@@ -271,11 +269,9 @@ arch_initcall(init_extcntl);
 
 unsigned int cpufreq_quick_get(unsigned int cpu)
 {
-	xen_platform_op_t op = {
-		.cmd			= XENPF_get_cpu_freq,
-		.interface_version	= XENPF_INTERFACE_VERSION,
-		.u.get_cpu_freq.vcpu	= cpu
-	};
+	xen_platform_op_t op;
 
+	op.cmd = XENPF_get_cpu_freq;
+	op.u.get_cpu_freq.vcpu = cpu;
 	return HYPERVISOR_platform_op(&op) == 0 ? op.u.get_cpu_freq.freq : 0;
 }

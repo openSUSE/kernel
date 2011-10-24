@@ -34,6 +34,7 @@
 #include <linux/etherdevice.h>
 #include <linux/skbuff.h>
 #include <linux/init.h>
+#include <linux/interrupt.h>
 #include <linux/mm.h>
 #include <linux/pm.h>
 #include <linux/ethtool.h>
@@ -42,7 +43,7 @@
 #include <linux/ipv6.h>
 #include <linux/slab.h>
 #include <asm/hvcall.h>
-#include <asm/atomic.h>
+#include <linux/atomic.h>
 #include <asm/vio.h>
 #include <asm/iommu.h>
 #include <asm/firmware.h>
@@ -635,8 +636,8 @@ static int ibmveth_open(struct net_device *netdev)
 		netdev_err(netdev, "unable to request irq 0x%x, rc %d\n",
 			   netdev->irq, rc);
 		do {
-			rc = h_free_logical_lan(adapter->vdev->unit_address);
-		} while (H_IS_LONG_BUSY(rc) || (rc == H_BUSY));
+			lpar_rc = h_free_logical_lan(adapter->vdev->unit_address);
+		} while (H_IS_LONG_BUSY(lpar_rc) || (lpar_rc == H_BUSY));
 
 		goto err_out;
 	}
@@ -756,7 +757,7 @@ static int ibmveth_set_csum_offload(struct net_device *dev, u32 data)
 	struct ibmveth_adapter *adapter = netdev_priv(dev);
 	unsigned long set_attr, clr_attr, ret_attr;
 	unsigned long set_attr6, clr_attr6;
-	long ret, ret6;
+	long ret, ret4, ret6;
 	int rc1 = 0, rc2 = 0;
 	int restart = 0;
 
@@ -769,6 +770,8 @@ static int ibmveth_set_csum_offload(struct net_device *dev, u32 data)
 
 	set_attr = 0;
 	clr_attr = 0;
+	set_attr6 = 0;
+	clr_attr6 = 0;
 
 	if (data) {
 		set_attr = IBMVETH_ILLAN_IPV4_TCP_CSUM;
@@ -783,16 +786,20 @@ static int ibmveth_set_csum_offload(struct net_device *dev, u32 data)
 	if (ret == H_SUCCESS && !(ret_attr & IBMVETH_ILLAN_ACTIVE_TRUNK) &&
 	    !(ret_attr & IBMVETH_ILLAN_TRUNK_PRI_MASK) &&
 	    (ret_attr & IBMVETH_ILLAN_PADDED_PKT_CSUM)) {
-		ret = h_illan_attributes(adapter->vdev->unit_address, clr_attr,
+		ret4 = h_illan_attributes(adapter->vdev->unit_address, clr_attr,
 					 set_attr, &ret_attr);
 
-		if (ret != H_SUCCESS) {
+		if (ret4 != H_SUCCESS) {
 			netdev_err(dev, "unable to change IPv4 checksum "
 					"offload settings. %d rc=%ld\n",
-					data, ret);
+					data, ret4);
 
-			ret = h_illan_attributes(adapter->vdev->unit_address,
-						 set_attr, clr_attr, &ret_attr);
+			h_illan_attributes(adapter->vdev->unit_address,
+					   set_attr, clr_attr, &ret_attr);
+
+			if (data == 1)
+				dev->features &= ~NETIF_F_IP_CSUM;
+
 		} else {
 			adapter->fw_ipv4_csum_support = data;
 		}
@@ -803,15 +810,18 @@ static int ibmveth_set_csum_offload(struct net_device *dev, u32 data)
 		if (ret6 != H_SUCCESS) {
 			netdev_err(dev, "unable to change IPv6 checksum "
 					"offload settings. %d rc=%ld\n",
-					data, ret);
+					data, ret6);
 
-			ret = h_illan_attributes(adapter->vdev->unit_address,
-						 set_attr6, clr_attr6,
-						 &ret_attr);
+			h_illan_attributes(adapter->vdev->unit_address,
+					   set_attr6, clr_attr6, &ret_attr);
+
+			if (data == 1)
+				dev->features &= ~NETIF_F_IPV6_CSUM;
+
 		} else
 			adapter->fw_ipv6_csum_support = data;
 
-		if (ret == H_SUCCESS || ret6 == H_SUCCESS)
+		if (ret4 == H_SUCCESS || ret6 == H_SUCCESS)
 			adapter->rx_csum = data;
 		else
 			rc1 = -EIO;

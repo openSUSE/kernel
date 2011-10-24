@@ -173,10 +173,7 @@ exit:
 
 int acpi_get_cpuid(acpi_handle handle, int type, u32 acpi_id)
 {
-#ifdef CONFIG_SMP
-	int i = 0;
-#endif
-	int apic_id = -1;
+	int i = 0, apic_id = -1;
 
 	if (type < 0) {
 		if (!processor_cntl_external())
@@ -317,19 +314,31 @@ acpi_processor_eval_pdc(acpi_handle handle, struct acpi_object_list *pdc_in)
 {
 	acpi_status status = AE_OK;
 
+#ifndef CONFIG_XEN
 	if (boot_option_idle_override == IDLE_NOMWAIT) {
 		/*
 		 * If mwait is disabled for CPU C-states, the C2C3_FFH access
 		 * mode will be disabled in the parameter of _PDC object.
 		 * Of course C1_FFH access mode will also be disabled.
 		 */
+#else
+	{
+		struct xen_platform_op op;
+#endif
 		union acpi_object *obj;
 		u32 *buffer = NULL;
 
 		obj = pdc_in->pointer;
 		buffer = (u32 *)(obj->buffer.pointer);
+#ifndef CONFIG_XEN
 		buffer[2] &= ~(ACPI_PDC_C_C2C3_FFH | ACPI_PDC_C_C1_FFH);
-
+#else
+		op.cmd = XENPF_set_processor_pminfo;
+		op.u.set_pminfo.id = -1;
+		op.u.set_pminfo.type = XEN_PM_PDC;
+		set_xen_guest_handle(op.u.set_pminfo.u.pdc, buffer);
+		VOID(HYPERVISOR_platform_op(&op));
+#endif
 	}
 	status = acpi_evaluate_object(handle, "_PDC", pdc_in, NULL);
 

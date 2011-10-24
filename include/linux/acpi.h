@@ -76,6 +76,10 @@ typedef int (*acpi_table_handler) (struct acpi_table_header *table);
 
 typedef int (*acpi_table_entry_handler) (struct acpi_subtable_header *header, const unsigned long end);
 
+#ifdef CONFIG_ACPI_INITRD_TABLE_OVERRIDE
+int __init acpi_initrd_table_override(void *start_addr, void *end_addr);
+#endif
+
 char * __acpi_map_table (unsigned long phys_addr, unsigned long size);
 void __acpi_unmap_table(char *map, unsigned long size);
 int early_acpi_boot_init(void);
@@ -238,7 +242,6 @@ extern int acpi_paddr_to_node(u64 start_addr, u64 size);
 extern int pnpacpi_disabled;
 
 #define PXM_INVAL	(-1)
-#define NID_INVAL	(-1)
 
 int acpi_check_resource_conflict(const struct resource *res);
 
@@ -281,6 +284,8 @@ acpi_status acpi_run_osc(acpi_handle handle, struct acpi_osc_context *context);
 #define OSC_SB_PR3_SUPPORT		4
 #define OSC_SB_CPUHP_OST_SUPPORT	8
 #define OSC_SB_APEI_SUPPORT		16
+
+extern bool osc_sb_apei_support_acked;
 
 /* PCI defined _OSC bits */
 /* _OSC DW1 Definition (OS Support Fields) */
