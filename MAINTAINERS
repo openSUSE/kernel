@@ -511,8 +511,8 @@ M:	Joerg Roedel <joerg.roedel@amd.com>
 L:	iommu@lists.linux-foundation.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/joro/linux-2.6-iommu.git
 S:	Supported
-F:	arch/x86/kernel/amd_iommu*.c
-F:	arch/x86/include/asm/amd_iommu*.h
+F:	drivers/iommu/amd_iommu*.[ch]
+F:	include/linux/amd-iommu.h
 
 AMD MICROCODE UPDATE SUPPORT
 M:	Andreas Herrmann <andreas.herrmann3@amd.com>
@@ -4302,8 +4302,9 @@ F:	include/linux/mm.h
 F:	mm/
 
 MEMORY RESOURCE CONTROLLER
+M:	Johannes Weiner <hannes@cmpxchg.org>
+M:	Michal Hocko <mhocko@suse.cz>
 M:	Balbir Singh <bsingharora@gmail.com>
-M:	Daisuke Nishimura <nishimura@mxp.nes.nec.co.jp>
 M:	KAMEZAWA Hiroyuki <kamezawa.hiroyu@jp.fujitsu.com>
 L:	cgroups@vger.kernel.org
 L:	linux-mm@kvack.org
