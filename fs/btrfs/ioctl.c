@@ -2973,6 +2973,81 @@ static int build_ino_list(u64 inum, u64 offset, u64 root, void *ctx)
 	return 0;
 }
 
+/*
+ * Returns the compressed size of an inode in 512 byte blocks.
+ * Count the on-disk space used by extents starting in range [start, end),
+ * inline data are rounded up to sector, ie. 512.
+ *
+ * The range is start inclusive and end exclusive so it can be used to
+ * determine compressed size of a given extent by its start and start of the
+ * next extent easily, without counting length.
+ * Whole file is specified as start = 0, end = (u64)-1
+ */
+static long btrfs_ioctl_compsize(struct file *file, void __user *argp)
+{
+	struct inode *inode = fdentry(file)->d_inode;
+	struct btrfs_ioctl_compr_size_args compr_args;
+	u64 len;
+	u64 compressed_size = 0;
+	u64 offset = 0;
+
+	if (S_ISDIR(inode->i_mode))
+		return -EISDIR;
+
+	if (copy_from_user(&compr_args, argp,
+				sizeof(struct btrfs_ioctl_compr_size_args)))
+		return -EFAULT;
+
+	if (compr_args.start < compr_args.end)
+		return -EINVAL;
+
+	mutex_lock(&inode->i_mutex);
+
+	offset = compr_args.start;
+	if (inode->i_size > compr_args.end)
+		len = compr_args.end;
+	else
+		len = inode->i_size;
+
+	/*
+	 * do any pending delalloc/csum calc on inode, one way or
+	 * another, and lock file content
+	 */
+	btrfs_wait_ordered_range(inode, compr_args.start, len);
+
+	while (offset < len) {
+		struct extent_map *em;
+
+		em = btrfs_get_extent(inode, NULL, 0, offset, 1, 0);
+		if (IS_ERR_OR_NULL(em))
+			goto error;
+		if (em->block_len != (u64)-1)
+			compressed_size += em->block_len;
+		else if (em->block_start == EXTENT_MAP_INLINE) {
+			compressed_size += ALIGN(em->len, 512);
+		}
+		offset += em->len;
+		free_extent_map(em);
+	}
+	mutex_unlock(&inode->i_mutex);
+
+	unlock_extent(&BTRFS_I(inode)->io_tree, compr_args.start, len, GFP_NOFS);
+
+	compr_args.size = compressed_size >> 9;
+
+	if (copy_to_user(argp, &compr_args, sizeof(struct
+					btrfs_ioctl_compr_size_args)))
+		return -EFAULT;
+
+	return 0;
+
+error:
+	mutex_unlock(&inode->i_mutex);
+	unlock_extent(&BTRFS_I(inode)->io_tree, compr_args.start, len, GFP_NOFS);
+
+	return -EIO;
+}
+
 static long btrfs_ioctl_logical_to_ino(struct btrfs_root *root,
 					void __user *arg)
 {
@@ -3111,6 +3186,8 @@ long btrfs_ioctl(struct file *file, unsigned int
 		return btrfs_ioctl_scrub_cancel(root, argp);
 	case BTRFS_IOC_SCRUB_PROGRESS:
 		return btrfs_ioctl_scrub_progress(root, argp);
+	case BTRFS_IOC_COMPR_SIZE:
+		return btrfs_ioctl_compsize(file, argp);
 	}
 
 	return -ENOTTY;

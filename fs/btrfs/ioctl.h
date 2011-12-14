@@ -217,6 +217,15 @@ struct btrfs_ioctl_logical_ino_args {
 	__u64				inodes;
 };
 
+struct btrfs_ioctl_compr_size_args {
+	/* Range start, inclusive */
+	__u64				start;		/* in */
+	/* Range end, exclusive */
+	__u64				end;		/* in */
+	__u64				size;		/* out */
+	__u64				reserved[2];
+};
+
 #define BTRFS_IOC_SNAP_CREATE _IOW(BTRFS_IOCTL_MAGIC, 1, \
 				   struct btrfs_ioctl_vol_args)
 #define BTRFS_IOC_DEFRAG _IOW(BTRFS_IOCTL_MAGIC, 2, \
@@ -276,5 +285,7 @@ struct btrfs_ioctl_logical_ino_args {
 					struct btrfs_ioctl_ino_path_args)
 #define BTRFS_IOC_LOGICAL_INO _IOWR(BTRFS_IOCTL_MAGIC, 36, \
 					struct btrfs_ioctl_ino_path_args)
+#define BTRFS_IOC_COMPR_SIZE _IOR(BTRFS_IOCTL_MAGIC, 51, \
+				struct btrfs_ioctl_compr_size_args)
 
 #endif
