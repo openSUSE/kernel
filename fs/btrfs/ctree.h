@@ -1074,6 +1074,7 @@ struct btrfs_fs_info {
 	struct btrfs_workers endio_freespace_worker;
 	struct btrfs_workers submit_workers;
 	struct btrfs_workers caching_workers;
+	struct btrfs_workers readahead_workers;
 
 	/*
 	 * fixup workers take dirty pages that didn't properly go through
@@ -1157,6 +1158,11 @@ struct btrfs_fs_info {
 	u64 fs_state;
 
 	struct btrfs_delayed_root *delayed_root;
+
+
+	/* readahead tree */
+	spinlock_t reada_lock;
+	struct radix_tree_root reada_tree;
 
 	/* next backup root to be overwritten */
 	int backup_root_index;
