@@ -620,7 +620,7 @@ out:
 
 static int btree_io_failed_hook(struct bio *failed_bio,
 			 struct page *page, u64 start, u64 end,
-			 struct extent_state *state)
+			 u64 mirror_num, struct extent_state *state)
 {
 	struct extent_io_tree *tree;
 	unsigned long len;
