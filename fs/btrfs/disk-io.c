@@ -2095,7 +2095,7 @@ struct btrfs_root *open_ctree(struct super_block *sb,
 	 * In the long term, we'll store the compression type in the super
 	 * block, and it'll be used for per file compression control.
 	 */
-	fs_info->compress_type = BTRFS_COMPRESS_ZLIB;
+	fs_info->compress_type = BTRFS_COMPRESS_LZO;
 
 	ret = btrfs_parse_options(tree_root, options);
 	if (ret) {

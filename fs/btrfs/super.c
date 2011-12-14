@@ -271,12 +271,12 @@ int btrfs_parse_options(struct btrfs_root *root, char *options)
 		case Opt_compress_type:
 			if (token == Opt_compress ||
 			    token == Opt_compress_force ||
-			    strcmp(args[0].from, "zlib") == 0) {
-				compress_type = "zlib";
-				info->compress_type = BTRFS_COMPRESS_ZLIB;
-			} else if (strcmp(args[0].from, "lzo") == 0) {
+			    strcmp(args[0].from, "lzo") == 0) {
 				compress_type = "lzo";
 				info->compress_type = BTRFS_COMPRESS_LZO;
+			} else if (strcmp(args[0].from, "zlib") == 0) {
+				compress_type = "zlib";
+				info->compress_type = BTRFS_COMPRESS_ZLIB;
 			} else {
 				ret = -EINVAL;
 				goto out;

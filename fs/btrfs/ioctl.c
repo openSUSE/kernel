@@ -994,7 +994,7 @@ int btrfs_defrag_file(struct inode *inode, struct file *file,
 	unsigned long ra_index = 0;
 	int ret;
 	int defrag_count = 0;
-	int compress_type = BTRFS_COMPRESS_ZLIB;
+	int compress_type = BTRFS_COMPRESS_LZO;
 	int extent_thresh = range->extent_thresh;
 	int max_cluster = (256 * 1024) >> PAGE_CACHE_SHIFT;
 	int cluster = max_cluster;
