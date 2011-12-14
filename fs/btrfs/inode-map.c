@@ -482,7 +482,9 @@ again:
 	/* Just to make sure we have enough space */
 	prealloc += 8 * PAGE_CACHE_SIZE;
 
+	mutex_lock(&inode->i_mutex);
 	ret = btrfs_delalloc_reserve_space(inode, prealloc);
+	mutex_unlock(&inode->i_mutex);
 	if (ret)
 		goto out_put;
 
