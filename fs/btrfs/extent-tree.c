@@ -4209,11 +4209,11 @@ int btrfs_delalloc_reserve_metadata(struct inode *inode, u64 num_bytes)
 	int flush = 1;
 	int ret;
 
-	/* Need to be holding the i_mutex here */
-	WARN_ON(!mutex_is_locked(&inode->i_mutex));
-
+	/* Need to be holding the i_mutex here if we aren't free space cache */
 	if (btrfs_is_free_space_inode(root, inode))
 		flush = 0;
+	else
+		WARN_ON(!mutex_is_locked(&inode->i_mutex));
 
 	if (flush && btrfs_transaction_in_commit(root->fs_info))
 		schedule_timeout(1);

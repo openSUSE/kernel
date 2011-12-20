@@ -219,11 +219,12 @@ struct btrfs_ioctl_logical_ino_args {
 
 struct btrfs_ioctl_compr_size_args {
 	/* Range start, inclusive */
-	__u64				start;		/* in */
+	__u64	start;				/* in */
 	/* Range end, exclusive */
-	__u64				end;		/* in */
-	__u64				size;		/* out */
-	__u64				reserved[2];
+	__u64	end;				/* in */
+	__u64	size;				/* out */
+	__u64	compressed_size;		/* out */
+	__u64	reserved[2];
 };
 
 #define BTRFS_IOC_SNAP_CREATE _IOW(BTRFS_IOCTL_MAGIC, 1, \

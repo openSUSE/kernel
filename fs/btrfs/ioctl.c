@@ -2983,12 +2983,13 @@ static int build_ino_list(u64 inum, u64 offset, u64 root, void *ctx)
  * next extent easily, without counting length.
  * Whole file is specified as start = 0, end = (u64)-1
  */
-static long btrfs_ioctl_compsize(struct file *file, void __user *argp)
+static long btrfs_ioctl_compr_size(struct file *file, void __user *argp)
 {
 	struct inode *inode = fdentry(file)->d_inode;
 	struct btrfs_ioctl_compr_size_args compr_args;
 	u64 len;
 	u64 compressed_size = 0;
+	u64 size = 0;
 	u64 offset = 0;
 
 	if (S_ISDIR(inode->i_mode))
@@ -2998,7 +2999,7 @@ static long btrfs_ioctl_compsize(struct file *file, void __user *argp)
 				sizeof(struct btrfs_ioctl_compr_size_args)))
 		return -EFAULT;
 
-	if (compr_args.start < compr_args.end)
+	if (compr_args.start > compr_args.end)
 		return -EINVAL;
 
 	mutex_lock(&inode->i_mutex);
@@ -3015,35 +3016,39 @@ static long btrfs_ioctl_compsize(struct file *file, void __user *argp)
 	 */
 	btrfs_wait_ordered_range(inode, compr_args.start, len);
 
+	lock_extent(&BTRFS_I(inode)->io_tree, compr_args.start, len, GFP_NOFS);
+
 	while (offset < len) {
 		struct extent_map *em;
 
 		em = btrfs_get_extent(inode, NULL, 0, offset, 1, 0);
 		if (IS_ERR_OR_NULL(em))
 			goto error;
-		if (em->block_len != (u64)-1)
+		if (em->block_len != (u64)-1) {
 			compressed_size += em->block_len;
-		else if (em->block_start == EXTENT_MAP_INLINE) {
+			size += ALIGN(em->len, inode->i_sb->s_blocksize);
+		} else if (em->block_start == EXTENT_MAP_INLINE) {
 			compressed_size += ALIGN(em->len, 512);
+			size += ALIGN(em->len, 512);
 		}
 		offset += em->len;
 		free_extent_map(em);
 	}
+	unlock_extent(&BTRFS_I(inode)->io_tree, compr_args.start, len, GFP_NOFS);
 	mutex_unlock(&inode->i_mutex);
 
-	unlock_extent(&BTRFS_I(inode)->io_tree, compr_args.start, len, GFP_NOFS);
+	compr_args.size = size >> 9;
+	compr_args.compressed_size = compressed_size >> 9;
 
-	compr_args.size = compressed_size >> 9;
-
-	if (copy_to_user(argp, &compr_args, sizeof(struct
-					btrfs_ioctl_compr_size_args)))
+	if (copy_to_user(argp, &compr_args,
+				sizeof(struct btrfs_ioctl_compr_size_args)))
 		return -EFAULT;
 
 	return 0;
 
 error:
-	mutex_unlock(&inode->i_mutex);
 	unlock_extent(&BTRFS_I(inode)->io_tree, compr_args.start, len, GFP_NOFS);
+	mutex_unlock(&inode->i_mutex);
 
 	return -EIO;
 }
@@ -3187,7 +3192,7 @@ long btrfs_ioctl(struct file *file, unsigned int
 	case BTRFS_IOC_SCRUB_PROGRESS:
 		return btrfs_ioctl_scrub_progress(root, argp);
 	case BTRFS_IOC_COMPR_SIZE:
-		return btrfs_ioctl_compsize(file, argp);
+		return btrfs_ioctl_compr_size(file, argp);
 	}
 
 	return -ENOTTY;
