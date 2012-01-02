@@ -220,7 +220,15 @@ static void show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
 
 	if (file) {
 		struct inode *inode = vma->vm_file->f_path.dentry->d_inode;
-		dev = get_maps_dev(inode);
+
+		if (inode->i_sb->s_magic == BTRFS_SUPER_MAGIC) {
+			struct kstat stat;
+
+			vfs_getattr(file->f_path.mnt, file->f_path.dentry, &stat);
+			dev = stat.dev;
+		} else {
+			dev = inode->i_sb->s_dev;
+		}
 		ino = inode->i_ino;
 		pgoff = ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
 	}
