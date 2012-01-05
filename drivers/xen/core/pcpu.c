@@ -2,7 +2,8 @@
  * pcpu.c - management physical cpu in dom0 environment
  */
 #include <linux/acpi.h>
-#include <linux/cpu.h>
+#include <linux/err.h>
+#include <linux/export.h>
 #include <linux/interrupt.h>
 #include <linux/kobject.h>
 #include <linux/list.h>
@@ -108,6 +109,9 @@ static ssize_t store_online(struct sys_device *dev,
 	struct pcpu *cpu = container_of(dev, struct pcpu, sysdev);
 	ssize_t ret;
 
+	if (!count)
+		return -EINVAL;
+
 	switch (buf[0]) {
 	case '0':
 		ret = xen_pcpu_down(cpu->xen_id);
@@ -205,18 +209,14 @@ static int xen_pcpu_online_check(struct xenpf_pcpuinfo *info,
 
 static int pcpu_sysdev_init(struct pcpu *cpu)
 {
-	int error;
+	int err = sysdev_register(&cpu->sysdev);
 
-	error = sysdev_register(&cpu->sysdev);
-	if (error) {
-		pr_warn("xen_pcpu_add: Failed to register pcpu\n");
-		kfree(cpu);
-		return -1;
+	if (!err) {
+		sysdev_create_file(&cpu->sysdev, &attr_online);
+		sysdev_create_file(&cpu->sysdev, &attr_apic_id);
+		sysdev_create_file(&cpu->sysdev, &attr_acpi_id);
 	}
-	sysdev_create_file(&cpu->sysdev, &attr_online);
-	sysdev_create_file(&cpu->sysdev, &attr_apic_id);
-	sysdev_create_file(&cpu->sysdev, &attr_acpi_id);
-	return 0;
+	return err;
 }
 
 static struct pcpu *get_pcpu(unsigned int xen_id)
@@ -233,14 +233,15 @@ static struct pcpu *get_pcpu(unsigned int xen_id)
 static struct pcpu *init_pcpu(struct xenpf_pcpuinfo *info)
 {
 	struct pcpu *pcpu;
+	int err;
 
 	if (info->flags & XEN_PCPU_FLAGS_INVALID)
-		return NULL;
+		return ERR_PTR(-EINVAL);
 
 	/* The PCPU is just added */
 	pcpu = kzalloc(sizeof(struct pcpu), GFP_KERNEL);
 	if (!pcpu)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	INIT_LIST_HEAD(&pcpu->pcpu_list);
 	pcpu->xen_id = info->xen_cpuid;
@@ -251,9 +252,10 @@ static struct pcpu *init_pcpu(struct xenpf_pcpuinfo *info)
 	pcpu->sysdev.cls = &xen_pcpu_sysdev_class;
 	pcpu->sysdev.id = info->xen_cpuid;
 
-	if (pcpu_sysdev_init(pcpu)) {
+	err = pcpu_sysdev_init(pcpu);
+	if (err) {
 		kfree(pcpu);
-		return NULL;
+		return ERR_PTR(err);
 	}
 
 	list_add_tail(&pcpu->pcpu_list, &xen_pcpus);
@@ -270,15 +272,12 @@ static struct pcpu *init_pcpu(struct xenpf_pcpuinfo *info)
  * 0: No changes
  * > 0: State changed
  */
-static struct pcpu *_sync_pcpu(unsigned int cpu_num, unsigned int *max_id,
-			       int *result)
+static int _sync_pcpu(unsigned int cpu_num, unsigned int *max_id)
 {
 	struct pcpu *pcpu;
 	struct xenpf_pcpuinfo *info;
 	xen_platform_op_t op;
 	int ret;
-
-	*result = -1;
 
 	op.cmd = XENPF_get_cpuinfo;
 	info = &op.u.pcpu_info;
@@ -288,7 +287,7 @@ static struct pcpu *_sync_pcpu(unsigned int cpu_num, unsigned int *max_id,
 		ret = HYPERVISOR_platform_op(&op);
 	} while (ret == -EBUSY);
 	if (ret)
-		return NULL;
+		return ret;
 
 	if (max_id)
 		*max_id = op.u.pcpu_info.max_present;
@@ -297,37 +296,35 @@ static struct pcpu *_sync_pcpu(unsigned int cpu_num, unsigned int *max_id,
 
 	if (info->flags & XEN_PCPU_FLAGS_INVALID) {
 		/* The pcpu has been removed */
-		*result = PCPU_NO_CHANGE;
 		if (pcpu) {
 			xen_pcpu_free(pcpu);
-			*result = PCPU_REMOVED;
+			return PCPU_REMOVED;
 		}
-		return NULL;
+		return PCPU_NO_CHANGE;
 	}
 
 
 	if (!pcpu) {
-		*result = PCPU_ADDED;
 		pcpu = init_pcpu(info);
-		if (pcpu == NULL) {
-			pr_warn("Failed to init pcpu %x\n", info->xen_cpuid);
-			*result = -1;
-		}
-	} else {
-		*result = PCPU_NO_CHANGE;
-		/*
-		 * Old PCPU is replaced with a new pcpu, this means
-		 * several virq is missed, will it happen?
-		 */
-		if (!same_pcpu(info, pcpu)) {
-			pr_warn("Pcpu %x changed!\n", pcpu->xen_id);
-			pcpu->apic_id = info->apic_id;
-			pcpu->acpi_id = info->acpi_id;
-		}
-		if (xen_pcpu_online_check(info, pcpu))
-			*result = PCPU_ONLINE_OFFLINE;
+		if (!IS_ERR(pcpu))
+			return PCPU_ADDED;
+		pr_warn("Failed to init pCPU %#x (%ld)\n",
+			info->xen_cpuid, PTR_ERR(pcpu));
+		return PTR_ERR(pcpu);
 	}
-	return pcpu;
+
+	if (!same_pcpu(info, pcpu)) {
+		/*
+		 * Old pCPU is replaced by a new one, which means
+		 * several vIRQ-s were missed - can this happen?
+		 */
+		pr_warn("pCPU %#x changed!\n", pcpu->xen_id);
+		pcpu->apic_id = info->apic_id;
+		pcpu->acpi_id = info->acpi_id;
+	}
+	if (xen_pcpu_online_check(info, pcpu))
+		return PCPU_ONLINE_OFFLINE;
+	return PCPU_NO_CHANGE;
 }
 
 /*
@@ -340,12 +337,11 @@ static int xen_sync_pcpus(void)
 	 */
 	unsigned int cpu_num = 0, max_id = 0;
 	int result = 0;
-	struct pcpu *pcpu;
 
 	get_pcpu_lock();
 
 	while ((result >= 0) && (cpu_num <= max_id)) {
-		pcpu = _sync_pcpu(cpu_num, &max_id, &result);
+		result = _sync_pcpu(cpu_num, &max_id);
 
 		switch (result)	{
 		case PCPU_NO_CHANGE:
@@ -354,14 +350,14 @@ static int xen_sync_pcpus(void)
 		case PCPU_REMOVED:
 			break;
 		default:
-			pr_warn("Failed to sync pcpu %x\n", cpu_num);
+			pr_warn("Failed to sync pcpu %#x\n", cpu_num);
 			break;
 		}
 		cpu_num++;
 	}
 
 	if (result < 0) {
-		struct pcpu *tmp;
+		struct pcpu *pcpu, *tmp;
 
 		list_for_each_entry_safe(pcpu, tmp, &xen_pcpus, pcpu_list)
 			xen_pcpu_free(pcpu);
@@ -369,7 +365,7 @@ static int xen_sync_pcpus(void)
 
 	put_pcpu_lock();
 
-	return 0;
+	return result;
 }
 
 static void xen_pcpu_dpc(struct work_struct *work)

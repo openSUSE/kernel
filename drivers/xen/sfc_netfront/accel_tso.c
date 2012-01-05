@@ -376,8 +376,8 @@ int netfront_accel_enqueue_skb_tso(netfront_accel_vnic *vnic,
 		BUG_ON(skb_shinfo(skb)->nr_frags < 1);
 		frag_i = 0;
 		f = &skb_shinfo(skb)->frags[frag_i];
-		tso_get_fragment(&state, f->size, 
-				 page_address(f->page) + f->page_offset);
+		tso_get_fragment(&state, skb_frag_size(f),
+				 page_address(skb_frag_page(f)) + f->page_offset);
 	} else {
 		int hl = state.p.header_length;
 		tso_get_fragment(&state,  skb_headlen(skb) - hl, 
@@ -400,8 +400,8 @@ int netfront_accel_enqueue_skb_tso(netfront_accel_vnic *vnic,
 				/* End of payload reached. */
 				break;
 			f = &skb_shinfo(skb)->frags[frag_i];
-			tso_get_fragment(&state, f->size,
-					 page_address(f->page) +
+			tso_get_fragment(&state, skb_frag_size(f),
+					 page_address(skb_frag_page(f)) +
 					 f->page_offset);
 		}
 

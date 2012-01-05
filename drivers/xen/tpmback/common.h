@@ -5,7 +5,6 @@
 #ifndef __TPM__BACKEND__COMMON_H__
 #define __TPM__BACKEND__COMMON_H__
 
-#include <linux/version.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/mm.h>

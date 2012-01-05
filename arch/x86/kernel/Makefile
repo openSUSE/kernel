@@ -19,7 +19,7 @@ endif
 
 obj-y			:= process_$(BITS).o signal.o entry_$(BITS).o
 obj-y			+= traps.o irq.o irq_$(BITS).o dumpstack_$(BITS).o
-obj-y			+= time.o ioport.o ldt.o dumpstack.o
+obj-y			+= time.o ioport.o ldt.o dumpstack.o nmi.o
 obj-y			+= setup.o x86_init.o i8259.o irqinit.o jump_label.o
 obj-$(CONFIG_IRQ_WORK)  += irq_work.o
 obj-y			+= probe_roms.o
@@ -113,6 +113,7 @@ ifeq ($(CONFIG_X86_64),y)
 	obj-y				+= vsmp_64.o
 endif
 
-disabled-obj-$(CONFIG_XEN) := crash.o early-quirks.o hpet.o i8253.o i8259.o \
-	irqinit.o pci-swiotlb.o reboot.o smpboot.o trampoline%.o tsc.o tsc_sync.o vsmp_64.o
+disabled-obj-$(CONFIG_XEN) := crash.o early-quirks.o hpet.o i8237.o i8253.o \
+	i8259.o irqinit.o pci-swiotlb.o reboot.o smpboot.o trampoline%.o \
+	tsc.o tsc_sync.o vsmp_64.o
 disabled-obj-$(CONFIG_XEN_UNPRIVILEGED_GUEST) += probe_roms.o

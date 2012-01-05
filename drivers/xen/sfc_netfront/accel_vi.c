@@ -482,8 +482,9 @@ netfront_accel_enqueue_skb_multi(netfront_accel_vnic *vnic, struct sk_buff *skb)
 				/* End of payload reached. */
 				break;
 			f = &skb_shinfo(skb)->frags[frag_i];
-			state.ifc.len = f->size;
-			state.ifc.addr = page_address(f->page) + f->page_offset;
+			state.ifc.len = skb_frag_size(f);
+			state.ifc.addr = page_address(skb_frag_page(f))
+					 + f->page_offset;
 		}
 
 		/* Start a new buffer? */

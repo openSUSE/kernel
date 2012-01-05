@@ -46,12 +46,21 @@ struct blkif_x86_32_request {
 	blkif_sector_t sector_number;/* start sector idx on disk (r/w only)  */
 	struct blkif_request_segment seg[BLKIF_MAX_SEGMENTS_PER_REQUEST];
 };
+struct blkif_x86_32_discard {
+	uint8_t        operation;    /* BLKIF_OP_DISCARD                     */
+	uint8_t        reserved;     /*                                      */
+	blkif_vdev_t   handle;       /* same as for read/write requests      */
+	uint64_t       id;           /* private guest value, echoed in resp  */
+	blkif_sector_t sector_number;/* start sector idx on disk             */
+	uint64_t       nr_sectors;   /* number of contiguous sectors         */
+};
 struct blkif_x86_32_response {
 	uint64_t        id;              /* copied from request */
 	uint8_t         operation;       /* copied from request */
 	int16_t         status;          /* BLKIF_RSP_???       */
 };
 typedef struct blkif_x86_32_request blkif_x86_32_request_t;
+typedef struct blkif_x86_32_discard blkif_x86_32_discard_t;
 typedef struct blkif_x86_32_response blkif_x86_32_response_t;
 #pragma pack(pop)
 
@@ -64,12 +73,21 @@ struct blkif_x86_64_request {
 	blkif_sector_t sector_number;/* start sector idx on disk (r/w only)  */
 	struct blkif_request_segment seg[BLKIF_MAX_SEGMENTS_PER_REQUEST];
 };
+struct blkif_x86_64_discard {
+	uint8_t        operation;    /* BLKIF_OP_DISCARD                     */
+	uint8_t        reserved;     /*                                      */
+	blkif_vdev_t   handle;       /* sane as for read/write requests      */
+	uint64_t       __attribute__((__aligned__(8))) id;
+	blkif_sector_t sector_number;/* start sector idx on disk             */
+	uint64_t       nr_sectors;   /* number of contiguous sectors         */
+};
 struct blkif_x86_64_response {
 	uint64_t       __attribute__((__aligned__(8))) id;
 	uint8_t         operation;       /* copied from request */
 	int16_t         status;          /* BLKIF_RSP_???       */
 };
 typedef struct blkif_x86_64_request blkif_x86_64_request_t;
+typedef struct blkif_x86_64_discard blkif_x86_64_discard_t;
 typedef struct blkif_x86_64_response blkif_x86_64_response_t;
 
 DEFINE_RING_TYPES(blkif_common, struct blkif_common_request, struct blkif_common_response);
@@ -99,6 +117,13 @@ static void inline blkif_get_x86_32_req(blkif_request_t *dst, blkif_x86_32_reque
 	dst->id = src->id;
 	dst->sector_number = src->sector_number;
 	barrier();
+	if (unlikely(dst->operation == BLKIF_OP_DISCARD)) {
+		blkif_request_discard_t *d = (void *)dst;
+		const blkif_x86_32_discard_t *s = (const void *)src;
+
+		d->nr_sectors = s->nr_sectors;
+		return;
+	}
 	if (n > dst->nr_segments)
 		n = dst->nr_segments;
 	for (i = 0; i < n; i++)
@@ -114,6 +139,13 @@ static void inline blkif_get_x86_64_req(blkif_request_t *dst, blkif_x86_64_reque
 	dst->id = src->id;
 	dst->sector_number = src->sector_number;
 	barrier();
+	if (unlikely(dst->operation == BLKIF_OP_DISCARD)) {
+		blkif_request_discard_t *d = (void *)dst;
+		const blkif_x86_64_discard_t *s = (const void *)src;
+
+		d->nr_sectors = s->nr_sectors;
+		return;
+	}
 	if (n > dst->nr_segments)
 		n = dst->nr_segments;
 	for (i = 0; i < n; i++)

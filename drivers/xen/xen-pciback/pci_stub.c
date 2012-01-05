@@ -227,6 +227,8 @@ void pcistub_put_pci_dev(struct pci_dev *dev)
 	}
 
 	spin_unlock_irqrestore(&pcistub_devices_lock, flags);
+	if (WARN_ON(!found_psdev))
+		return;
 
 	/*hold this lock for avoiding breaking link between
 	* pcistub and xen_pcibk when AER is in processing
@@ -535,12 +537,7 @@ static void kill_domain_by_device(struct pcistub_device *psdev)
 	int err;
 	char nodename[PCI_NODENAME_MAX];
 
-	if (!psdev) {
-		dev_err(&psdev->dev->dev,
-			"device is NULL when do AER recovery/kill_domain\n");
-		return;
-	}
-
+	BUG_ON(!psdev);
 	snprintf(nodename, PCI_NODENAME_MAX, "/local/domain/0/backend/pci/%d/0",
 		psdev->pdev->xdev->otherend_id);
 
@@ -1128,7 +1125,8 @@ out:
 		err = count;
 	return err;
 }
-static DRIVER_ATTR(irq_handler_state, S_IWUSR, NULL, pcistub_irq_handler_switch);
+static DRIVER_ATTR(irq_handler_state, S_IWUSR, NULL,
+		   pcistub_irq_handler_switch);
 #endif
 
 static ssize_t pcistub_quirk_add(struct device_driver *drv, const char *buf,
@@ -1193,7 +1191,8 @@ out:
 
 	return count;
 }
-static DRIVER_ATTR(quirks, S_IRUSR | S_IWUSR, pcistub_quirk_show, pcistub_quirk_add);
+static DRIVER_ATTR(quirks, S_IRUSR | S_IWUSR, pcistub_quirk_show,
+		   pcistub_quirk_add);
 
 static ssize_t permissive_add(struct device_driver *drv, const char *buf,
 			      size_t count)
@@ -1258,7 +1257,8 @@ static ssize_t permissive_show(struct device_driver *drv, char *buf)
 	spin_unlock_irqrestore(&pcistub_devices_lock, flags);
 	return count;
 }
-static DRIVER_ATTR(permissive, S_IRUSR | S_IWUSR, permissive_show, permissive_add);
+static DRIVER_ATTR(permissive, S_IRUSR | S_IWUSR, permissive_show,
+		   permissive_add);
 
 #if defined(CONFIG_XEN) && defined(CONFIG_PCI_MSI)
 static int xen_pcibk_get_owner(struct pci_dev *dev)
@@ -1284,12 +1284,12 @@ static void pcistub_exit(void)
 	driver_remove_file(&xen_pcibk_pci_driver.driver, &driver_attr_quirks);
 	driver_remove_file(&xen_pcibk_pci_driver.driver,
 			   &driver_attr_permissive);
-#ifndef CONFIG_XEN
+#if !defined(CONFIG_XEN)
 	driver_remove_file(&xen_pcibk_pci_driver.driver,
 			   &driver_attr_irq_handlers);
 	driver_remove_file(&xen_pcibk_pci_driver.driver,
 			   &driver_attr_irq_handler_state);
-#else
+#elif defined(CONFIG_PCI_MSI)
 	WARN_ON(unregister_msi_get_owner(xen_pcibk_get_owner));
 #endif
 	pci_unregister_driver(&xen_pcibk_pci_driver);
@@ -1350,15 +1350,16 @@ static int __init pcistub_init(void)
 		err = driver_create_file(&xen_pcibk_pci_driver.driver,
 					 &driver_attr_permissive);
 
+#if !defined(CONFIG_XEN)
 	if (!err)
-#ifdef CONFIG_XEN
-		err = register_msi_get_owner(xen_pcibk_get_owner);
-#else
 		err = driver_create_file(&xen_pcibk_pci_driver.driver,
 					 &driver_attr_irq_handlers);
 	if (!err)
 		err = driver_create_file(&xen_pcibk_pci_driver.driver,
 					&driver_attr_irq_handler_state);
+#elif defined(CONFIG_PCI_MSI)
+	if (!err)
+		err = register_msi_get_owner(xen_pcibk_get_owner);
 #endif
 	if (err)
 		pcistub_exit();

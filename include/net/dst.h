@@ -53,6 +53,7 @@ struct dst_entry {
 #define DST_NOHASH		0x0008
 #define DST_NOCACHE		0x0010
 #define DST_NOCOUNT		0x0020
+#define DST_NOPEER		0x0040
 
 	short			error;
 	short			obsolete;
@@ -205,12 +206,7 @@ dst_feature(const struct dst_entry *dst, u32 feature)
 
 static inline u32 dst_mtu(const struct dst_entry *dst)
 {
-	u32 mtu = dst_metric_raw(dst, RTAX_MTU);
-
-	if (!mtu)
-		mtu = dst->ops->default_mtu(dst);
-
-	return mtu;
+	return dst->ops->mtu(dst);
 }
 
 /* RTT metrics are stored in milliseconds for user ABI, but used as jiffies */
@@ -325,7 +321,14 @@ static inline void skb_dst_force(struct sk_buff *skb)
 static inline void __skb_tunnel_rx(struct sk_buff *skb, struct net_device *dev)
 {
 	skb->dev = dev;
-	skb->rxhash = 0;
+
+	/*
+	 * Clear rxhash so that we can recalulate the hash for the
+	 * encapsulated packet, unless we have already determine the hash
+	 * over the L4 4-tuple.
+	 */
+	if (!skb->l4_rxhash)
+		skb->rxhash = 0;
 	skb_set_queue_mapping(skb, 0);
 	skb_dst_drop(skb);
 	nf_reset(skb);

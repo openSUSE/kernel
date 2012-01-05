@@ -18,7 +18,6 @@
 */
 
 #include <stdarg.h>
-#include <linux/module.h>
 #include <linux/kthread.h>
 #include "common.h"
 #include "../core/domctl.h"
@@ -126,6 +125,7 @@ VBD_SHOW(rd_req,  "%d\n", be->blkif->st_rd_req);
 VBD_SHOW(wr_req,  "%d\n", be->blkif->st_wr_req);
 VBD_SHOW(br_req,  "%d\n", be->blkif->st_br_req);
 VBD_SHOW(fl_req,  "%d\n", be->blkif->st_fl_req);
+VBD_SHOW(ds_req,  "%d\n", be->blkif->st_ds_req);
 VBD_SHOW(rd_sect, "%d\n", be->blkif->st_rd_sect);
 VBD_SHOW(wr_sect, "%d\n", be->blkif->st_wr_sect);
 
@@ -135,6 +135,7 @@ static struct attribute *vbdstat_attrs[] = {
 	&dev_attr_wr_req.attr,
 	&dev_attr_br_req.attr,
 	&dev_attr_fl_req.attr,
+	&dev_attr_ds_req.attr,
 	&dev_attr_rd_sect.attr,
 	&dev_attr_wr_sect.attr,
 	NULL
@@ -237,6 +238,62 @@ int blkback_flush_diskcache(struct xenbus_transaction xbt,
 	if (err)
 		xenbus_dev_fatal(dev, err, "writing feature-flush-cache");
 
+	return err;
+}
+
+static int xen_blkbk_discard(struct xenbus_transaction xbt,
+			     struct backend_info *be)
+{
+	struct xenbus_device *dev = be->dev;
+	blkif_t *blkif = be->blkif;
+	char *type;
+	int err;
+	int state = 0;
+
+	type = xenbus_read(XBT_NIL, dev->nodename, "type", NULL);
+	if (!IS_ERR(type)) {
+		if (strncmp(type, "file", 4) == 0) {
+			state = 1;
+			blkif->blk_backend_type = BLKIF_BACKEND_FILE;
+		}
+		if (strncmp(type, "phy", 3) == 0) {
+			struct request_queue *q;
+
+			q = bdev_get_queue(blkif->vbd.bdev);
+			if (blk_queue_discard(q)) {
+				err = xenbus_printf(xbt, dev->nodename,
+					"discard-granularity", "%u",
+					q->limits.discard_granularity);
+				if (err) {
+					xenbus_dev_fatal(dev, err,
+						"writing discard-granularity");
+					goto kfree;
+				}
+				err = xenbus_printf(xbt, dev->nodename,
+					"discard-alignment", "%u",
+					q->limits.discard_alignment);
+				if (err) {
+					xenbus_dev_fatal(dev, err,
+						"writing discard-alignment");
+					goto kfree;
+				}
+				state = 1;
+				blkif->blk_backend_type = BLKIF_BACKEND_PHY;
+			}
+		}
+	} else {
+		err = PTR_ERR(type);
+		xenbus_dev_fatal(dev, err, "reading type");
+		goto out;
+	}
+
+	err = xenbus_printf(xbt, dev->nodename, "feature-discard",
+			    "%d", state);
+	if (err)
+		xenbus_dev_fatal(dev, err, "writing feature-discard");
+kfree:
+	kfree(type);
+out:
 	return err;
 }
 
@@ -472,9 +529,11 @@ again:
 	if (err)
 		goto abort;
 
-	err = blkback_barrier(xbt, be, 1);
+	err = blkback_barrier(xbt, be, be->blkif->vbd.flush_support);
 	if (err)
 		goto abort;
+
+	err = xen_blkbk_discard(xbt, be);
 
 	err = xenbus_printf(xbt, dev->nodename, "sectors", "%llu",
 			    vbd_size(&be->blkif->vbd));
@@ -578,18 +637,14 @@ static const struct xenbus_device_id blkback_ids[] = {
 	{ "" }
 };
 
-
-static struct xenbus_driver blkback = {
-	.name = "vbd",
-	.ids = blkback_ids,
+static DEFINE_XENBUS_DRIVER(blkback, ,
 	.probe = blkback_probe,
 	.remove = blkback_remove,
 	.otherend_changed = frontend_changed
-};
+);
 
 
 void blkif_xenbus_init(void)
 {
-	if (xenbus_register_backend(&blkback))
-		BUG();
+	WARN_ON(xenbus_register_backend(&blkback_driver));
 }

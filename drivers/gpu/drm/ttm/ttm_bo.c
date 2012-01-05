@@ -574,10 +574,16 @@ retry:
 		return ret;
 
 	spin_lock(&glob->lru_lock);
+
+	if (unlikely(list_empty(&bo->ddestroy))) {
+		spin_unlock(&glob->lru_lock);
+		return 0;
+	}
+
 	ret = ttm_bo_reserve_locked(bo, interruptible,
 				    no_wait_reserve, false, 0);
 
-	if (unlikely(ret != 0) || list_empty(&bo->ddestroy)) {
+	if (unlikely(ret != 0)) {
 		spin_unlock(&glob->lru_lock);
 		return ret;
 	}
@@ -1293,6 +1299,7 @@ int ttm_bo_create(struct ttm_bo_device *bdev,
 
 	return ret;
 }
+EXPORT_SYMBOL(ttm_bo_create);
 
 static int ttm_bo_force_list_clean(struct ttm_bo_device *bdev,
 					unsigned mem_type, bool allow_errors)

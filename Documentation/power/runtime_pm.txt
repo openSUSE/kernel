@@ -43,21 +43,34 @@ struct dev_pm_ops {
 	...
 };
 
-The ->runtime_suspend(), ->runtime_resume() and ->runtime_idle() callbacks are
-executed by the PM core for either the device type, or the class (if the device
-type's struct dev_pm_ops object does not exist), or the bus type (if the
-device type's and class' struct dev_pm_ops objects do not exist) of the given
-device (this allows device types to override callbacks provided by bus types or
-classes if necessary).  The bus type, device type and class callbacks are
-referred to as subsystem-level callbacks in what follows.
+The ->runtime_suspend(), ->runtime_resume() and ->runtime_idle() callbacks
+are executed by the PM core for the device's subsystem that may be either of
+the following:
+
+  1. PM domain of the device, if the device's PM domain object, dev->pm_domain,
+     is present.
+
+  2. Device type of the device, if both dev->type and dev->type->pm are present.
+
+  3. Device class of the device, if both dev->class and dev->class->pm are
+     present.
+
+  4. Bus type of the device, if both dev->bus and dev->bus->pm are present.
+
+The PM core always checks which callback to use in the order given above, so the
+priority order of callbacks from high to low is: PM domain, device type, class
+and bus type.  Moreover, the high-priority one will always take precedence over
+a low-priority one.  The PM domain, bus type, device type and class callbacks
+are referred to as subsystem-level callbacks in what follows.
 
 By default, the callbacks are always invoked in process context with interrupts
 enabled.  However, subsystems can use the pm_runtime_irq_safe() helper function
-to tell the PM core that a device's ->runtime_suspend() and ->runtime_resume()
-callbacks should be invoked in atomic context with interrupts disabled.
-This implies that these callback routines must not block or sleep, but it also
-means that the synchronous helper functions listed at the end of Section 4 can
-be used within an interrupt handler or in an atomic context.
+to tell the PM core that their ->runtime_suspend(), ->runtime_resume() and
+->runtime_idle() callbacks may be invoked in atomic context with interrupts
+disabled for a given device.  This implies that the callback routines in
+question must not block or sleep, but it also means that the synchronous helper
+functions listed at the end of Section 4 may be used for that device within an
+interrupt handler or generally in an atomic context.
 
 The subsystem-level suspend callback is _entirely_ _responsible_ for handling
 the suspend of the device as appropriate, which may, but need not include
@@ -477,12 +490,14 @@ pm_runtime_autosuspend_expiration()
 If pm_runtime_irq_safe() has been called for a device then the following helper
 functions may also be used in interrupt context:
 
+pm_runtime_idle()
 pm_runtime_suspend()
 pm_runtime_autosuspend()
 pm_runtime_resume()
 pm_runtime_get_sync()
 pm_runtime_put_sync()
 pm_runtime_put_sync_suspend()
+pm_runtime_put_sync_autosuspend()
 
 5. Runtime PM Initialization, Device Probing and Removal
 

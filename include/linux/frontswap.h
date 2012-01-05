@@ -3,13 +3,14 @@
 
 #include <linux/swap.h>
 #include <linux/mm.h>
+#include <linux/bitops.h>
 
 struct frontswap_ops {
 	void (*init)(unsigned);
 	int (*put_page)(unsigned, pgoff_t, struct page *);
 	int (*get_page)(unsigned, pgoff_t, struct page *);
-	void (*flush_page)(unsigned, pgoff_t);
-	void (*flush_area)(unsigned);
+	void (*invalidate_page)(unsigned, pgoff_t);
+	void (*invalidate_area)(unsigned);
 };
 
 extern int frontswap_enabled;
@@ -21,8 +22,8 @@ extern unsigned long frontswap_curr_pages(void);
 extern void __frontswap_init(unsigned type);
 extern int __frontswap_put_page(struct page *page);
 extern int __frontswap_get_page(struct page *page);
-extern void __frontswap_flush_page(unsigned, pgoff_t);
-extern void __frontswap_flush_area(unsigned);
+extern void __frontswap_invalidate_page(unsigned, pgoff_t);
+extern void __frontswap_invalidate_area(unsigned);
 
 #ifdef CONFIG_FRONTSWAP
 
@@ -104,16 +105,16 @@ static inline int frontswap_get_page(struct page *page)
 	return ret;
 }
 
-static inline void frontswap_flush_page(unsigned type, pgoff_t offset)
+static inline void frontswap_invalidate_page(unsigned type, pgoff_t offset)
 {
 	if (frontswap_enabled)
-		__frontswap_flush_page(type, offset);
+		__frontswap_invalidate_page(type, offset);
 }
 
-static inline void frontswap_flush_area(unsigned type)
+static inline void frontswap_invalidate_area(unsigned type)
 {
 	if (frontswap_enabled)
-		__frontswap_flush_area(type);
+		__frontswap_invalidate_area(type);
 }
 
 static inline void frontswap_init(unsigned type)

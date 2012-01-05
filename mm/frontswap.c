@@ -13,7 +13,6 @@
 
 #include <linux/mm.h>
 #include <linux/mman.h>
-#include <linux/sysctl.h>
 #include <linux/swap.h>
 #include <linux/swapops.h>
 #include <linux/proc_fs.h>
@@ -21,6 +20,7 @@
 #include <linux/capability.h>
 #include <linux/module.h>
 #include <linux/uaccess.h>
+#include <linux/debugfs.h>
 #include <linux/frontswap.h>
 #include <linux/swapfile.h>
 
@@ -28,24 +28,25 @@
  * frontswap_ops is set by frontswap_register_ops to contain the pointers
  * to the frontswap "backend" implementation functions.
  */
-static struct frontswap_ops frontswap_ops;
+static struct frontswap_ops frontswap_ops __read_mostly;
 
 /*
  * This global enablement flag reduces overhead on systems where frontswap_ops
  * has not been registered, so is preferred to the slower alternative: a
  * function call that checks a non-global.
  */
-int frontswap_enabled;
+int frontswap_enabled __read_mostly;
 EXPORT_SYMBOL(frontswap_enabled);
 
 /*
- * Useful stats available in /sys/kernel/mm/frontswap.  These are for
- * information only so are not protected against increment/decrement races.
+ * Counters available via /sys/kernel/debug/frontswap (if debugfs is
+ * properly configured.  These are for information only so are not protected
+ * against increment races.
  */
-static unsigned long frontswap_gets;
-static unsigned long frontswap_succ_puts;
-static unsigned long frontswap_failed_puts;
-static unsigned long frontswap_flushes;
+static u64 frontswap_gets;
+static u64 frontswap_succ_puts;
+static u64 frontswap_failed_puts;
+static u64 frontswap_invalidates;
 
 /*
  * Register operations for frontswap, returning previous thus allowing
@@ -78,8 +79,8 @@ EXPORT_SYMBOL(__frontswap_init);
  * "Put" data from a page to frontswap and associate it with the page's
  * swaptype and offset.  Page must be locked and in the swap cache.
  * If frontswap already contains a page with matching swaptype and
- * offset, the frontswap implmentation may either overwrite the data
- * and return success or flush the page from frontswap and return failure
+ * offset, the frontswap implmentation may either overwrite the data and
+ * return success or invalidate the page from frontswap and return failure
  */
 int __frontswap_put_page(struct page *page)
 {
@@ -101,7 +102,7 @@ int __frontswap_put_page(struct page *page)
 			atomic_inc(&sis->frontswap_pages);
 	} else if (dup) {
 		/*
-		  failed dup always results in automatic flush of
+		  failed dup always results in automatic invalidate of
 		  the (older) page from frontswap
 		 */
 		frontswap_clear(sis, offset);
@@ -137,97 +138,92 @@ int __frontswap_get_page(struct page *page)
 EXPORT_SYMBOL(__frontswap_get_page);
 
 /*
- * Flush any data from frontswap associated with the specified swaptype
+ * Invalidate any data from frontswap associated with the specified swaptype
  * and offset so that a subsequent "get" will fail.
  */
-void __frontswap_flush_page(unsigned type, pgoff_t offset)
+void __frontswap_invalidate_page(unsigned type, pgoff_t offset)
 {
 	struct swap_info_struct *sis = swap_info[type];
 
 	BUG_ON(sis == NULL);
 	if (frontswap_test(sis, offset)) {
-		(*frontswap_ops.flush_page)(type, offset);
+		(*frontswap_ops.invalidate_page)(type, offset);
 		atomic_dec(&sis->frontswap_pages);
 		frontswap_clear(sis, offset);
-		frontswap_flushes++;
+		frontswap_invalidates++;
 	}
 }
-EXPORT_SYMBOL(__frontswap_flush_page);
+EXPORT_SYMBOL(__frontswap_invalidate_page);
 
 /*
- * Flush all data from frontswap associated with all offsets for the
+ * Invalidate all data from frontswap associated with all offsets for the
  * specified swaptype.
  */
-void __frontswap_flush_area(unsigned type)
+void __frontswap_invalidate_area(unsigned type)
 {
 	struct swap_info_struct *sis = swap_info[type];
 
 	BUG_ON(sis == NULL);
 	if (sis->frontswap_map == NULL)
 		return;
-	(*frontswap_ops.flush_area)(type);
+	(*frontswap_ops.invalidate_area)(type);
 	atomic_set(&sis->frontswap_pages, 0);
 	memset(sis->frontswap_map, 0, sis->max / sizeof(long));
 }
-EXPORT_SYMBOL(__frontswap_flush_area);
+EXPORT_SYMBOL(__frontswap_invalidate_area);
 
 /*
  * Frontswap, like a true swap device, may unnecessarily retain pages
  * under certain circumstances; "shrink" frontswap is essentially a
  * "partial swapoff" and works by calling try_to_unuse to attempt to
  * unuse enough frontswap pages to attempt to -- subject to memory
- * constraints -- reduce the number of pages in frontswap
+ * constraints -- reduce the number of pages in frontswap to the
+ * number given in the parameter target_pages.
  */
 void frontswap_shrink(unsigned long target_pages)
 {
-	int wrapped = 0;
+	struct swap_info_struct *si = NULL;
+	int si_frontswap_pages;
+	unsigned long total_pages = 0, total_pages_to_unuse;
+	unsigned long pages = 0, pages_to_unuse = 0;
+	int type;
 	bool locked = false;
 
-	/* try a few times to maximize chance of try_to_unuse success */
-	for (wrapped = 0; wrapped < 3; wrapped++) {
-
-		struct swap_info_struct *si = NULL;
-		int si_frontswap_pages;
-		unsigned long total_pages = 0, total_pages_to_unuse;
-		unsigned long pages = 0, pages_to_unuse = 0;
-		int type;
-
-		/*
-		 * we don't want to hold swap_lock while doing a very
-		 * lengthy try_to_unuse, but swap_list may change
-		 * so restart scan from swap_list.head each time
-		 */
-		spin_lock(&swap_lock);
-		locked = true;
-		total_pages = 0;
-		for (type = swap_list.head; type >= 0; type = si->next) {
-			si = swap_info[type];
-			total_pages += atomic_read(&si->frontswap_pages);
-		}
-		if (total_pages <= target_pages)
-			goto out;
-		total_pages_to_unuse = total_pages - target_pages;
-		for (type = swap_list.head; type >= 0; type = si->next) {
-			si = swap_info[type];
-			si_frontswap_pages = atomic_read(&si->frontswap_pages);
-			if (total_pages_to_unuse < si_frontswap_pages)
-				pages = pages_to_unuse = total_pages_to_unuse;
-			else {
-				pages = si_frontswap_pages;
-				pages_to_unuse = 0; /* unuse all */
-			}
-			if (security_vm_enough_memory_kern(pages))
-				continue;
-			vm_unacct_memory(pages);
-			break;
-		}
-		if (type < 0)
-			goto out;
-		locked = false;
-		spin_unlock(&swap_lock);
-		try_to_unuse(type, true, pages_to_unuse);
+	/*
+	 * we don't want to hold swap_lock while doing a very
+	 * lengthy try_to_unuse, but swap_list may change
+	 * so restart scan from swap_list.head each time
+	 */
+	spin_lock(&swap_lock);
+	locked = true;
+	total_pages = 0;
+	for (type = swap_list.head; type >= 0; type = si->next) {
+		si = swap_info[type];
+		total_pages += atomic_read(&si->frontswap_pages);
 	}
-
+	if (total_pages <= target_pages)
+		goto out;
+	total_pages_to_unuse = total_pages - target_pages;
+	for (type = swap_list.head; type >= 0; type = si->next) {
+		si = swap_info[type];
+		si_frontswap_pages = atomic_read(&si->frontswap_pages);
+		if (total_pages_to_unuse < si_frontswap_pages)
+			pages = pages_to_unuse = total_pages_to_unuse;
+		else {
+			pages = si_frontswap_pages;
+			pages_to_unuse = 0; /* unuse all */
+		}
+		/* ensure there is enough RAM to fetch pages from frontswap */
+		if (security_vm_enough_memory_kern(pages))
+			continue;
+		vm_unacct_memory(pages);
+		break;
+	}
+	if (type < 0)
+		goto out;
+	locked = false;
+	spin_unlock(&swap_lock);
+	try_to_unuse(type, true, pages_to_unuse);
 out:
 	if (locked)
 		spin_unlock(&swap_lock);
@@ -236,9 +232,9 @@ out:
 EXPORT_SYMBOL(frontswap_shrink);
 
 /*
- * Count and return the number of pages frontswap pages across all
- * swap devices.  This is exported so that a kernel module can
- * determine current usage without reading sysfs.
+ * Count and return the number of frontswap pages across all
+ * swap devices.  This is exported so that backend drivers can
+ * determine current usage without reading debugfs.
  */
 unsigned long frontswap_curr_pages(void)
 {
@@ -249,103 +245,28 @@ unsigned long frontswap_curr_pages(void)
 	spin_lock(&swap_lock);
 	for (type = swap_list.head; type >= 0; type = si->next) {
 		si = swap_info[type];
-		if (si != NULL)
-			totalpages += atomic_read(&si->frontswap_pages);
+		totalpages += atomic_read(&si->frontswap_pages);
 	}
 	spin_unlock(&swap_lock);
 	return totalpages;
 }
 EXPORT_SYMBOL(frontswap_curr_pages);
 
-#ifdef CONFIG_SYSFS
-
-/* see Documentation/ABI/xxx/sysfs-kernel-mm-frontswap */
-
-#define FRONTSWAP_ATTR_RO(_name) \
-	static struct kobj_attribute _name##_attr = __ATTR_RO(_name)
-#define FRONTSWAP_ATTR(_name) \
-	static struct kobj_attribute _name##_attr = \
-		__ATTR(_name, 0644, _name##_show, _name##_store)
-
-static ssize_t curr_pages_show(struct kobject *kobj,
-			       struct kobj_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%lu\n", frontswap_curr_pages());
-}
-
-static ssize_t curr_pages_store(struct kobject *kobj,
-			       struct kobj_attribute *attr,
-			       const char *buf, size_t count)
-{
-	unsigned long target_pages;
-
-	if (strict_strtoul(buf, 10, &target_pages))
-		return -EINVAL;
-
-	frontswap_shrink(target_pages);
-
-	return count;
-}
-FRONTSWAP_ATTR(curr_pages);
-
-static ssize_t succ_puts_show(struct kobject *kobj,
-			       struct kobj_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%lu\n", frontswap_succ_puts);
-}
-FRONTSWAP_ATTR_RO(succ_puts);
-
-static ssize_t failed_puts_show(struct kobject *kobj,
-			       struct kobj_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%lu\n", frontswap_failed_puts);
-}
-FRONTSWAP_ATTR_RO(failed_puts);
-
-static ssize_t gets_show(struct kobject *kobj,
-			       struct kobj_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%lu\n", frontswap_gets);
-}
-FRONTSWAP_ATTR_RO(gets);
-
-static ssize_t flushes_show(struct kobject *kobj,
-			       struct kobj_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%lu\n", frontswap_flushes);
-}
-FRONTSWAP_ATTR_RO(flushes);
-
-static struct attribute *frontswap_attrs[] = {
-	&curr_pages_attr.attr,
-	&succ_puts_attr.attr,
-	&failed_puts_attr.attr,
-	&gets_attr.attr,
-	&flushes_attr.attr,
-	NULL,
-};
-
-static struct attribute_group frontswap_attr_group = {
-	.attrs = frontswap_attrs,
-	.name = "frontswap",
-};
-
-#endif /* CONFIG_SYSFS */
-
 static int __init init_frontswap(void)
 {
 	int err = 0;
 
-#ifdef CONFIG_SYSFS
-	err = sysfs_create_group(mm_kobj, &frontswap_attr_group);
-#endif /* CONFIG_SYSFS */
+#ifdef CONFIG_DEBUG_FS
+	struct dentry *root = debugfs_create_dir("frontswap", NULL);
+	if (root == NULL)
+		return -ENXIO;
+	debugfs_create_u64("gets", S_IRUGO, root, &frontswap_gets);
+	debugfs_create_u64("succ_puts", S_IRUGO, root, &frontswap_succ_puts);
+	debugfs_create_u64("puts", S_IRUGO, root, &frontswap_failed_puts);
+	debugfs_create_u64("invalidates", S_IRUGO,
+				root, &frontswap_invalidates);
+#endif
 	return err;
 }
 
-static void __exit exit_frontswap(void)
-{
-	frontswap_shrink(0UL);
-}
-
 module_init(init_frontswap);
-module_exit(exit_frontswap);

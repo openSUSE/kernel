@@ -19,7 +19,7 @@
 
 #include "iomulti.h"
 #include "pci.h"
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/sort.h>
 #include <asm/setup.h>
 

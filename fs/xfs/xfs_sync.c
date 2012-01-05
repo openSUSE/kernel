@@ -227,21 +227,17 @@ xfs_sync_inode_data(
 	int			error = 0;
 
 	if (!mapping_tagged(mapping, PAGECACHE_TAG_DIRTY))
-		goto out_wait;
+		return 0;
 
 	if (!xfs_ilock_nowait(ip, XFS_IOLOCK_SHARED)) {
 		if (flags & SYNC_TRYLOCK)
-			goto out_wait;
+			return 0;
 		xfs_ilock(ip, XFS_IOLOCK_SHARED);
 	}
 
 	error = xfs_flush_pages(ip, 0, -1, (flags & SYNC_WAIT) ?
 				0 : XBF_ASYNC, FI_NONE);
 	xfs_iunlock(ip, XFS_IOLOCK_SHARED);
-
- out_wait:
-	if (flags & SYNC_WAIT)
-		xfs_ioend_wait(ip);
 	return error;
 }
 
@@ -322,6 +318,7 @@ xfs_sync_fsdata(
 	struct xfs_mount	*mp)
 {
 	struct xfs_buf		*bp;
+	int			error;
 
 	/*
 	 * If the buffer is pinned then push on the log so we won't get stuck
@@ -334,8 +331,35 @@ xfs_sync_fsdata(
 	bp = xfs_getsb(mp, 0);
 	if (xfs_buf_ispinned(bp))
 		xfs_log_force(mp, 0);
+	error = xfs_bwrite(bp);
+	xfs_buf_relse(bp);
+	return error;
+}
 
-	return xfs_bwrite(mp, bp);
+int
+xfs_log_dirty_inode(
+	struct xfs_inode	*ip,
+	struct xfs_perag	*pag,
+	int			flags)
+{
+	struct xfs_mount	*mp = ip->i_mount;
+	struct xfs_trans	*tp;
+	int			error;
+
+	if (!ip->i_update_core)
+		return 0;
+
+	tp = xfs_trans_alloc(mp, XFS_TRANS_FSYNC_TS);
+	error = xfs_trans_reserve(tp, 0, XFS_FSYNC_TS_LOG_RES(mp), 0, 0, 0);
+	if (error) {
+		xfs_trans_cancel(tp, 0);
+		return error;
+	}
+
+	xfs_ilock(ip, XFS_ILOCK_EXCL);
+	xfs_trans_ijoin(tp, ip, XFS_ILOCK_EXCL);
+	xfs_trans_log_inode(tp, ip, XFS_ILOG_CORE);
+	return xfs_trans_commit(tp, 0);
 }
 
 /*
@@ -361,6 +385,16 @@ xfs_quiesce_data(
 {
 	int			error, error2 = 0;
 
+	/*
+	 * Log all pending size and timestamp updates.  The vfs writeback
+	 * code is supposed to do this, but due to its overagressive
+	 * livelock detection it will skip inodes where appending writes
+	 * were written out in the first non-blocking sync phase if their
+	 * completion took long enough that it happened after taking the
+	 * timestamp for the cut-off in the blocking phase.
+	 */
+	xfs_inode_ag_iterator(mp, xfs_log_dirty_inode, 0);
+
 	xfs_qm_sync(mp, SYNC_TRYLOCK);
 	xfs_qm_sync(mp, SYNC_WAIT);
 
@@ -379,7 +413,7 @@ xfs_quiesce_data(
 
 	/* flush data-only devices */
 	if (mp->m_rtdev_targp)
-		XFS_bflush(mp->m_rtdev_targp);
+		xfs_flush_buftarg(mp->m_rtdev_targp, 1);
 
 	return error ? error : error2;
 }
@@ -772,6 +806,17 @@ restart:
 	if (!xfs_iflock_nowait(ip)) {
 		if (!(sync_mode & SYNC_WAIT))
 			goto out;
+
+		/*
+		 * If we only have a single dirty inode in a cluster there is
+		 * a fair chance that the AIL push may have pushed it into
+		 * the buffer, but xfsbufd won't touch it until 30 seconds
+		 * from now, and thus we will lock up here.
+		 *
+		 * Promote the inode buffer to the front of the delwri list
+		 * and wake up xfsbufd now.
+		 */
+		xfs_promote_inode(ip);
 		xfs_iflock(ip);
 	}
 

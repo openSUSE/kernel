@@ -31,7 +31,7 @@
  */
 
 #include <linux/err.h>
-#include <linux/delay.h>
+#include <linux/module.h>
 #include <linux/vmalloc.h>
 #include <xen/gnttab.h>
 #include <xen/xenbus.h>
@@ -42,7 +42,7 @@ struct vm_struct *xenbus_map_ring_valloc(struct xenbus_device *dev, grant_ref_t 
 	struct gnttab_map_grant_ref op;
 	struct vm_struct *area;
 
-	area = alloc_vm_area(PAGE_SIZE);
+	area = alloc_vm_area(PAGE_SIZE, NULL);
 	if (!area)
 		return ERR_PTR(-ENOMEM);
 

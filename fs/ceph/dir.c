@@ -108,7 +108,7 @@ static unsigned fpos_off(loff_t p)
  * falling back to a "normal" sync readdir if any dentries in the dir
  * are dropped.
  *
- * I_COMPLETE tells indicates we have all dentries in the dir.  It is
+ * D_COMPLETE tells indicates we have all dentries in the dir.  It is
  * defined IFF we hold CEPH_CAP_FILE_SHARED (which will be revoked by
  * the MDS if/when the directory is modified).
  */
@@ -199,8 +199,8 @@ more:
 	filp->f_pos++;
 
 	/* make sure a dentry wasn't dropped while we didn't have parent lock */
-	if (!ceph_i_test(dir, CEPH_I_COMPLETE)) {
-		dout(" lost I_COMPLETE on %p; falling back to mds\n", dir);
+	if (!ceph_dir_test_complete(dir)) {
+		dout(" lost D_COMPLETE on %p; falling back to mds\n", dir);
 		err = -EAGAIN;
 		goto out;
 	}
@@ -281,18 +281,18 @@ static int ceph_readdir(struct file *filp, void *dirent, filldir_t filldir)
 	}
 
 	/* can we use the dcache? */
-	spin_lock(&inode->i_lock);
+	spin_lock(&ci->i_ceph_lock);
 	if ((filp->f_pos == 2 || fi->dentry) &&
 	    !ceph_test_mount_opt(fsc, NOASYNCREADDIR) &&
 	    ceph_snap(inode) != CEPH_SNAPDIR &&
-	    (ci->i_ceph_flags & CEPH_I_COMPLETE) &&
+	    ceph_dir_test_complete(inode) &&
 	    __ceph_caps_issued_mask(ci, CEPH_CAP_FILE_SHARED, 1)) {
-		spin_unlock(&inode->i_lock);
+		spin_unlock(&ci->i_ceph_lock);
 		err = __dcache_readdir(filp, dirent, filldir);
 		if (err != -EAGAIN)
 			return err;
 	} else {
-		spin_unlock(&inode->i_lock);
+		spin_unlock(&ci->i_ceph_lock);
 	}
 	if (fi->dentry) {
 		err = note_last_dentry(fi, fi->dentry->d_name.name,
@@ -351,7 +351,7 @@ more:
 
 		if (!req->r_did_prepopulate) {
 			dout("readdir !did_prepopulate");
-			fi->dir_release_count--;    /* preclude I_COMPLETE */
+			fi->dir_release_count--;    /* preclude D_COMPLETE */
 		}
 
 		/* note next offset and last dentry name */
@@ -428,13 +428,12 @@ more:
 	 * were released during the whole readdir, and we should have
 	 * the complete dir contents in our cache.
 	 */
-	spin_lock(&inode->i_lock);
+	spin_lock(&ci->i_ceph_lock);
 	if (ci->i_release_count == fi->dir_release_count) {
-		dout(" marking %p complete\n", inode);
-		/* ci->i_ceph_flags |= CEPH_I_COMPLETE; */
+		ceph_dir_set_complete(inode);
 		ci->i_max_offset = filp->f_pos;
 	}
-	spin_unlock(&inode->i_lock);
+	spin_unlock(&ci->i_ceph_lock);
 
 	dout("readdir %p filp %p done.\n", inode, filp);
 	return 0;
@@ -608,21 +607,21 @@ static struct dentry *ceph_lookup(struct inode *dir, struct dentry *dentry,
 		struct ceph_inode_info *ci = ceph_inode(dir);
 		struct ceph_dentry_info *di = ceph_dentry(dentry);
 
-		spin_lock(&dir->i_lock);
+		spin_lock(&ci->i_ceph_lock);
 		dout(" dir %p flags are %d\n", dir, ci->i_ceph_flags);
 		if (strncmp(dentry->d_name.name,
 			    fsc->mount_options->snapdir_name,
 			    dentry->d_name.len) &&
 		    !is_root_ceph_dentry(dir, dentry) &&
-		    (ci->i_ceph_flags & CEPH_I_COMPLETE) &&
+		    ceph_dir_test_complete(dir) &&
 		    (__ceph_caps_issued_mask(ci, CEPH_CAP_FILE_SHARED, 1))) {
-			spin_unlock(&dir->i_lock);
+			spin_unlock(&ci->i_ceph_lock);
 			dout(" dir %p complete, -ENOENT\n", dir);
 			d_add(dentry, NULL);
 			di->lease_shared_gen = ci->i_shared_gen;
 			return NULL;
 		}
-		spin_unlock(&dir->i_lock);
+		spin_unlock(&ci->i_ceph_lock);
 	}
 
 	op = ceph_snap(dir) == CEPH_SNAPDIR ?
@@ -842,12 +841,12 @@ static int drop_caps_for_unlink(struct inode *inode)
 	struct ceph_inode_info *ci = ceph_inode(inode);
 	int drop = CEPH_CAP_LINK_SHARED | CEPH_CAP_LINK_EXCL;
 
-	spin_lock(&inode->i_lock);
+	spin_lock(&ci->i_ceph_lock);
 	if (inode->i_nlink == 1) {
 		drop |= ~(__ceph_caps_wanted(ci) | CEPH_CAP_PIN);
 		ci->i_ceph_flags |= CEPH_I_NODELAY;
 	}
-	spin_unlock(&inode->i_lock);
+	spin_unlock(&ci->i_ceph_lock);
 	return drop;
 }
 
@@ -934,7 +933,7 @@ static int ceph_rename(struct inode *old_dir, struct dentry *old_dentry,
 		 */
 
 		/* d_move screws up d_subdirs order */
-		ceph_i_clear(new_dir, CEPH_I_COMPLETE);
+		ceph_dir_clear_complete(new_dir);
 
 		d_move(old_dentry, new_dentry);
 
@@ -1016,10 +1015,10 @@ static int dir_lease_is_valid(struct inode *dir, struct dentry *dentry)
 	struct ceph_dentry_info *di = ceph_dentry(dentry);
 	int valid = 0;
 
-	spin_lock(&dir->i_lock);
+	spin_lock(&ci->i_ceph_lock);
 	if (ci->i_shared_gen == di->lease_shared_gen)
 		valid = __ceph_caps_issued_mask(ci, CEPH_CAP_FILE_SHARED, 1);
-	spin_unlock(&dir->i_lock);
+	spin_unlock(&ci->i_ceph_lock);
 	dout("dir_lease_is_valid dir %p v%u dentry %p v%u = %d\n",
 	     dir, (unsigned)ci->i_shared_gen, dentry,
 	     (unsigned)di->lease_shared_gen, valid);
@@ -1092,7 +1091,52 @@ static int ceph_snapdir_d_revalidate(struct dentry *dentry,
 	return 1;
 }
 
+/*
+ * Set/clear/test dir complete flag on the dir's dentry.
+ */
+void ceph_dir_set_complete(struct inode *inode)
+{
+	/* not yet implemented */
+}
 
+void ceph_dir_clear_complete(struct inode *inode)
+{
+	/* not yet implemented */
+}
+
+bool ceph_dir_test_complete(struct inode *inode)
+{
+	/* not yet implemented */
+	return false;
+}
+
+/*
+ * When the VFS prunes a dentry from the cache, we need to clear the
+ * complete flag on the parent directory.
+ *
+ * Called under dentry->d_lock.
+ */
+static void ceph_d_prune(struct dentry *dentry)
+{
+	struct ceph_dentry_info *di;
+
+	dout("ceph_d_prune %p\n", dentry);
+
+	/* do we have a valid parent? */
+	if (!dentry->d_parent || IS_ROOT(dentry))
+		return;
+
+	/* if we are not hashed, we don't affect D_COMPLETE */
+	if (d_unhashed(dentry))
+		return;
+
+	/*
+	 * we hold d_lock, so d_parent is stable, and d_fsdata is never
+	 * cleared until d_release
+	 */
+	di = ceph_dentry(dentry->d_parent);
+	clear_bit(CEPH_D_COMPLETE, &di->flags);
+}
 
 /*
  * read() on a dir.  This weird interface hack only works if mounted
@@ -1306,6 +1350,7 @@ const struct inode_operations ceph_dir_iops = {
 const struct dentry_operations ceph_dentry_ops = {
 	.d_revalidate = ceph_d_revalidate,
 	.d_release = ceph_d_release,
+	.d_prune = ceph_d_prune,
 };
 
 const struct dentry_operations ceph_snapdir_dentry_ops = {
@@ -1315,4 +1360,5 @@ const struct dentry_operations ceph_snapdir_dentry_ops = {
 
 const struct dentry_operations ceph_snap_dentry_ops = {
 	.d_release = ceph_d_release,
+	.d_prune = ceph_d_prune,
 };

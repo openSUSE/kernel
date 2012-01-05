@@ -10,10 +10,7 @@
 #include <net/tcp.h>
 
 #define TARGET_CORE_MOD_VERSION		"v4.1.0-rc1-ml"
-#define SHUTDOWN_SIGS	(sigmask(SIGKILL)|sigmask(SIGINT)|sigmask(SIGABRT))
 
-/* Used by transport_generic_allocate_iovecs() */
-#define TRANSPORT_IOV_DATA_BUFFER		5
 /* Maximum Number of LUNs per Target Portal Group */
 /* Don't raise above 511 or REPORT_LUNS needs to handle >1 page */
 #define TRANSPORT_MAX_LUNS_PER_TPG		256
@@ -75,32 +72,25 @@ enum transport_tpg_type_table {
 };
 
 /* Used for generate timer flags */
-enum timer_flags_table {
-	TF_RUNNING	= 0x01,
-	TF_STOP		= 0x02,
+enum se_task_flags {
+	TF_ACTIVE		= (1 << 0),
+	TF_SENT			= (1 << 1),
+	TF_REQUEST_STOP		= (1 << 2),
 };
 
 /* Special transport agnostic struct se_cmd->t_states */
 enum transport_state_table {
 	TRANSPORT_NO_STATE	= 0,
 	TRANSPORT_NEW_CMD	= 1,
-	TRANSPORT_DEFERRED_CMD	= 2,
 	TRANSPORT_WRITE_PENDING	= 3,
 	TRANSPORT_PROCESS_WRITE	= 4,
 	TRANSPORT_PROCESSING	= 5,
-	TRANSPORT_COMPLETE_OK	= 6,
-	TRANSPORT_COMPLETE_FAILURE = 7,
-	TRANSPORT_COMPLETE_TIMEOUT = 8,
+	TRANSPORT_COMPLETE	= 6,
 	TRANSPORT_PROCESS_TMR	= 9,
-	TRANSPORT_TMR_COMPLETE	= 10,
 	TRANSPORT_ISTATE_PROCESSING = 11,
-	TRANSPORT_ISTATE_PROCESSED = 12,
-	TRANSPORT_KILL		= 13,
-	TRANSPORT_REMOVE	= 14,
-	TRANSPORT_FREE		= 15,
 	TRANSPORT_NEW_CMD_MAP	= 16,
-	TRANSPORT_FREE_CMD_INTR = 17,
 	TRANSPORT_COMPLETE_QF_WP = 18,
+	TRANSPORT_COMPLETE_QF_OK = 19,
 };
 
 /* Used for struct se_cmd->se_cmd_flags */
@@ -113,9 +103,10 @@ enum se_cmd_flags_table {
 	SCF_SCSI_NON_DATA_CDB		= 0x00000040,
 	SCF_SCSI_CDB_EXCEPTION		= 0x00000080,
 	SCF_SCSI_RESERVATION_CONFLICT	= 0x00000100,
-	SCF_SE_CMD_FAILED		= 0x00000400,
+	SCF_FUA				= 0x00000200,
 	SCF_SE_LUN_CMD			= 0x00000800,
 	SCF_SE_ALLOW_EOO		= 0x00001000,
+	SCF_BIDI			= 0x00002000,
 	SCF_SENT_CHECK_CONDITION	= 0x00004000,
 	SCF_OVERFLOW_BIT		= 0x00008000,
 	SCF_UNDERFLOW_BIT		= 0x00010000,
@@ -124,8 +115,6 @@ enum se_cmd_flags_table {
 	SCF_DELAYED_CMD_FROM_SAM_ATTR	= 0x00080000,
 	SCF_UNUSED			= 0x00100000,
 	SCF_PASSTHROUGH_SG_TO_MEM_NOALLOC = 0x00400000,
-	SCF_EMULATE_CDB_ASYNC		= 0x01000000,
-	SCF_EMULATE_QUEUE_FULL		= 0x02000000,
 };
 
 /* struct se_dev_entry->lun_flags and struct se_lun->lun_access */
@@ -166,6 +155,7 @@ enum tcm_sense_reason_table {
 	TCM_CHECK_CONDITION_ABORT_CMD		= 0x0d,
 	TCM_CHECK_CONDITION_UNIT_ATTENTION	= 0x0e,
 	TCM_CHECK_CONDITION_NOT_READY		= 0x0f,
+	TCM_RESERVATION_CONFLICT		= 0x10,
 };
 
 struct se_obj {
@@ -223,7 +213,6 @@ struct t10_alua_lu_gp {
 	u16	lu_gp_id;
 	int	lu_gp_valid_id;
 	u32	lu_gp_members;
-	atomic_t lu_gp_shutdown;
 	atomic_t lu_gp_ref_cnt;
 	spinlock_t lu_gp_lock;
 	struct config_group lu_gp_group;
@@ -401,34 +390,22 @@ struct se_queue_obj {
 } ____cacheline_aligned;
 
 struct se_task {
-	unsigned char	task_sense;
-	struct scatterlist *task_sg;
-	u32		task_sg_nents;
-	struct scatterlist *task_sg_bidi;
-	u8		task_scsi_status;
-	u8		task_flags;
-	int		task_error_status;
-	int		task_state_flags;
-	bool		task_padded_sg;
 	unsigned long long	task_lba;
-	u32		task_no;
-	u32		task_sectors;
-	u32		task_size;
+	u32			task_sectors;
+	u32			task_size;
+	struct se_cmd		*task_se_cmd;
+	struct scatterlist	*task_sg;
+	u32			task_sg_nents;
+	u16			task_flags;
+	u8			task_sense;
+	u8			task_scsi_status;
+	int			task_error_status;
 	enum dma_data_direction	task_data_direction;
-	struct se_cmd *task_se_cmd;
-	struct se_device	*se_dev;
+	atomic_t		task_state_active;
+	struct list_head	t_list;
+	struct list_head	t_execute_list;
+	struct list_head	t_state_list;
 	struct completion	task_stop_comp;
-	atomic_t	task_active;
-	atomic_t	task_execute_queue;
-	atomic_t	task_timeout;
-	atomic_t	task_sent;
-	atomic_t	task_stop;
-	atomic_t	task_state_active;
-	struct timer_list	task_timer;
-	struct se_device *se_obj_ptr;
-	struct list_head t_list;
-	struct list_head t_execute_list;
-	struct list_head t_state_list;
 } ____cacheline_aligned;
 
 struct se_cmd {
@@ -446,10 +423,9 @@ struct se_cmd {
 	int			sam_task_attr;
 	/* Transport protocol dependent state, see transport_state_table */
 	enum transport_state_table t_state;
-	/* Transport protocol dependent state for out of order CmdSNs */
-	int			deferred_t_state;
-	/* Transport specific error status */
-	int			transport_error_status;
+	/* Used to signal cmd->se_tfo->check_release_cmd() usage per cmd */
+	unsigned		check_release:1;
+	unsigned		cmd_wait_set:1;
 	/* See se_cmd_flags_table */
 	u32			se_cmd_flags;
 	u32			se_ordered_id;
@@ -461,41 +437,33 @@ struct se_cmd {
 	u32			orig_fe_lun;
 	/* Persistent Reservation key */
 	u64			pr_res_key;
-	atomic_t                transport_sent;
 	/* Used for sense data */
 	void			*sense_buffer;
 	struct list_head	se_delayed_node;
-	struct list_head	se_ordered_node;
 	struct list_head	se_lun_node;
 	struct list_head	se_qf_node;
 	struct se_device      *se_dev;
 	struct se_dev_entry   *se_deve;
-	struct se_device	*se_obj_ptr;
-	struct se_device	*se_orig_obj_ptr;
 	struct se_lun		*se_lun;
 	/* Only used for internal passthrough and legacy TCM fabric modules */
 	struct se_session	*se_sess;
 	struct se_tmr_req	*se_tmr_req;
 	struct list_head	se_queue_node;
+	struct list_head	se_cmd_list;
+	struct completion	cmd_wait_comp;
 	struct target_core_fabric_ops *se_tfo;
-	int (*transport_emulate_cdb)(struct se_cmd *);
-	void (*transport_split_cdb)(unsigned long long, u32, unsigned char *);
-	void (*transport_wait_for_tasks)(struct se_cmd *, int, int);
+	int (*execute_task)(struct se_task *);
 	void (*transport_complete_callback)(struct se_cmd *);
-	int (*transport_qf_callback)(struct se_cmd *);
 
 	unsigned char		*t_task_cdb;
 	unsigned char		__t_task_cdb[TCM_MAX_COMMAND_SIZE];
 	unsigned long long	t_task_lba;
 	int			t_tasks_failed;
-	int			t_tasks_fua;
-	bool			t_tasks_bidi;
 	u32			t_tasks_sg_chained_no;
 	atomic_t		t_fe_count;
 	atomic_t		t_se_count;
 	atomic_t		t_task_cdbs_left;
 	atomic_t		t_task_cdbs_ex_left;
-	atomic_t		t_task_cdbs_timeout_left;
 	atomic_t		t_task_cdbs_sent;
 	atomic_t		t_transport_aborted;
 	atomic_t		t_transport_active;
@@ -503,7 +471,6 @@ struct se_cmd {
 	atomic_t		t_transport_queue_active;
 	atomic_t		t_transport_sent;
 	atomic_t		t_transport_stop;
-	atomic_t		t_transport_timeout;
 	atomic_t		transport_dev_active;
 	atomic_t		transport_lun_active;
 	atomic_t		transport_lun_fe_stop;
@@ -514,13 +481,7 @@ struct se_cmd {
 	struct completion	transport_lun_stop_comp;
 	struct scatterlist	*t_tasks_sg_chained;
 
-	/*
-	 * Used for pre-registered fabric SGL passthrough WRITE and READ
-	 * with the special SCF_PASSTHROUGH_CONTIG_TO_SG case for TCM_Loop
-	 * and other HW target mode fabric modules.
-	 */
-	struct scatterlist	*t_task_pt_sgl;
-	u32			t_task_pt_sgl_num;
+	struct work_struct	work;
 
 	struct scatterlist	*t_data_sg;
 	unsigned int		t_data_nents;
@@ -587,12 +548,16 @@ struct se_node_acl {
 } ____cacheline_aligned;
 
 struct se_session {
+	unsigned		sess_tearing_down:1;
 	u64			sess_bin_isid;
 	struct se_node_acl	*se_node_acl;
 	struct se_portal_group *se_tpg;
 	void			*fabric_sess_ptr;
 	struct list_head	sess_list;
 	struct list_head	sess_acl_list;
+	struct list_head	sess_cmd_list;
+	struct list_head	sess_wait_list;
+	spinlock_t		sess_cmd_lock;
 } ____cacheline_aligned;
 
 struct se_device;
@@ -670,7 +635,6 @@ struct se_dev_attrib {
 	u32		optimal_sectors;
 	u32		hw_queue_depth;
 	u32		queue_depth;
-	u32		task_timeout;
 	u32		max_unmap_lba_count;
 	u32		max_unmap_block_desc_count;
 	u32		unmap_granularity;
@@ -705,7 +669,6 @@ struct se_subsystem_dev {
 	struct t10_reservation t10_pr;
 	spinlock_t      se_dev_lock;
 	void            *se_dev_su_ptr;
-	struct list_head se_dev_node;
 	struct config_group se_dev_group;
 	/* For T10 Reservations */
 	struct config_group se_dev_pr_group;
@@ -714,9 +677,6 @@ struct se_subsystem_dev {
 } ____cacheline_aligned;
 
 struct se_device {
-	/* Set to 1 if thread is NOT sleeping on thread_sem */
-	u8			thread_active;
-	u8			dev_status_timer_flags;
 	/* RELATIVE TARGET PORT IDENTIFER Counter */
 	u16			dev_rpti_counter;
 	/* Used for SAM Task Attribute ordering */
@@ -741,14 +701,10 @@ struct se_device {
 	u64			write_bytes;
 	spinlock_t		stats_lock;
 	/* Active commands on this virtual SE device */
-	atomic_t		active_cmds;
 	atomic_t		simple_cmds;
 	atomic_t		depth_left;
 	atomic_t		dev_ordered_id;
-	atomic_t		dev_tur_active;
 	atomic_t		execute_tasks;
-	atomic_t		dev_status_thr_count;
-	atomic_t		dev_hoq_count;
 	atomic_t		dev_ordered_sync;
 	atomic_t		dev_qf_count;
 	struct se_obj		dev_obj;
@@ -756,14 +712,9 @@ struct se_device {
 	struct se_obj		dev_export_obj;
 	struct se_queue_obj	dev_queue_obj;
 	spinlock_t		delayed_cmd_lock;
-	spinlock_t		ordered_cmd_lock;
 	spinlock_t		execute_task_lock;
-	spinlock_t		state_task_lock;
-	spinlock_t		dev_alua_lock;
 	spinlock_t		dev_reservation_lock;
-	spinlock_t		dev_state_lock;
 	spinlock_t		dev_status_lock;
-	spinlock_t		dev_status_thr_lock;
 	spinlock_t		se_port_lock;
 	spinlock_t		se_tmr_lock;
 	spinlock_t		qf_cmd_lock;
@@ -775,14 +726,10 @@ struct se_device {
 	struct t10_pr_registration *dev_pr_res_holder;
 	struct list_head	dev_sep_list;
 	struct list_head	dev_tmr_list;
-	struct timer_list	dev_status_timer;
 	/* Pointer to descriptor for processing thread */
 	struct task_struct	*process_thread;
-	pid_t			process_thread_pid;
-	struct task_struct		*dev_mgmt_thread;
 	struct work_struct	qf_work_queue;
 	struct list_head	delayed_cmd_list;
-	struct list_head	ordered_cmd_list;
 	struct list_head	execute_task_list;
 	struct list_head	state_task_list;
 	struct list_head	qf_cmd_list;
@@ -793,8 +740,6 @@ struct se_device {
 	struct se_subsystem_api *transport;
 	/* Linked list for struct se_hba struct se_device list */
 	struct list_head	dev_list;
-	/* Linked list for struct se_global->g_se_dev_list */
-	struct list_head	g_se_dev_list;
 }  ____cacheline_aligned;
 
 struct se_hba {
@@ -856,7 +801,6 @@ struct se_port {
 	u32		sep_index;
 	struct scsi_port_stats sep_stats;
 	/* Used for ALUA Target Port Groups membership */
-	atomic_t	sep_tg_pt_gp_active;
 	atomic_t	sep_tg_pt_secondary_offline;
 	/* Used for PR ALL_TG_PT=1 */
 	atomic_t	sep_tg_pt_ref_cnt;

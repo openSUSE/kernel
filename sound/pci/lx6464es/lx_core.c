@@ -78,7 +78,8 @@ unsigned long lx_dsp_reg_read(struct lx6464es *chip, int port)
 	return ioread32(address);
 }
 
-void lx_dsp_reg_readbuf(struct lx6464es *chip, int port, u32 *data, u32 len)
+static void lx_dsp_reg_readbuf(struct lx6464es *chip, int port, u32 *data,
+			       u32 len)
 {
 	u32 __iomem *address = lx_dsp_register(chip, port);
 	int i;
@@ -95,8 +96,8 @@ void lx_dsp_reg_write(struct lx6464es *chip, int port, unsigned data)
 	iowrite32(data, address);
 }
 
-void lx_dsp_reg_writebuf(struct lx6464es *chip, int port, const u32 *data,
-			 u32 len)
+static void lx_dsp_reg_writebuf(struct lx6464es *chip, int port,
+				const u32 *data, u32 len)
 {
 	u32 __iomem *address = lx_dsp_register(chip, port);
 	int i;

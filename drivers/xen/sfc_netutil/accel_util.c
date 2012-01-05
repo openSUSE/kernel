@@ -24,7 +24,7 @@
 
 #include <linux/slab.h>
 #include <linux/if_ether.h>
-#include <linux/delay.h>
+#include <linux/module.h>
 #include <asm/io.h>
 #include <asm/pgtable.h>
 #include <asm/hypercall.h>
@@ -154,7 +154,7 @@ static void *net_accel_map_grants_valloc(struct xenbus_device *dev,
 	void *addr;
 	int i, j, rc;
 
-	vm  = alloc_vm_area(PAGE_SIZE * npages);
+	vm  = alloc_vm_area(PAGE_SIZE * npages, NULL);
 	if (vm == NULL) {
 		EPRINTK("No memory from alloc_vm_area.\n");
 		return NULL;

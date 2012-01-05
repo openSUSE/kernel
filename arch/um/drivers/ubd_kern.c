@@ -46,7 +46,6 @@
 #include "asm/tlbflush.h"
 #include "mem_user.h"
 #include "kern_util.h"
-#include "kern.h"
 #include "mconsole_kern.h"
 #include "init.h"
 #include "irq_user.h"
@@ -54,7 +53,6 @@
 #include "ubd_user.h"
 #include "os.h"
 #include "mem.h"
-#include "mem_kern.h"
 #include "cow.h"
 
 enum ubd_req { UBD_READ, UBD_WRITE };

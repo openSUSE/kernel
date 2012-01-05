@@ -209,8 +209,8 @@ static int xen_pcibk_attach(struct xen_pcibk_device *pdev)
 	int gnt_ref, remote_evtchn;
 	char *magic = NULL;
 
-	mutex_lock(&pdev->dev_lock);
 
+	mutex_lock(&pdev->dev_lock);
 	/* Make sure we only do this setup once */
 	if (xenbus_read_driver_state(pdev->xdev->nodename) !=
 	    XenbusStateInitialised)
@@ -310,6 +310,7 @@ static int xen_pcibk_export_device(struct xen_pcibk_device *pdev,
 	if (err)
 		goto out;
 
+	dev->dev_flags |= PCI_DEV_FLAGS_ASSIGNED;
 #ifndef CONFIG_XEN
 	dev_dbg(&dev->dev, "registering for %d\n", pdev->xdev->otherend_id);
 	if (xen_register_device_domain_owner(dev,
@@ -351,6 +352,7 @@ static int xen_pcibk_remove_device(struct xen_pcibk_device *pdev,
 		goto out;
 	}
 
+	dev->dev_flags &= ~PCI_DEV_FLAGS_ASSIGNED;
 #ifndef CONFIG_XEN
 	dev_dbg(&dev->dev, "unregistering for %d\n", pdev->xdev->otherend_id);
 	xen_unregister_device_domain_owner(dev);
@@ -715,7 +717,6 @@ out:
 	if (!err)
 		/* see if pcifront is already configured (if not, we'll wait) */
 		xen_pcibk_attach(pdev);
-
 	return err;
 }
 
@@ -780,18 +781,16 @@ static int xen_pcibk_xenbus_remove(struct xenbus_device *dev)
 	return 0;
 }
 
-static const struct xenbus_device_id xenpci_ids[] = {
+static const struct xenbus_device_id pciback_ids[] = {
 	{"pci"},
 	{""},
 };
 
-static struct xenbus_driver xenbus_xen_pcibk_driver = {
-	.name			= DRV_NAME,
-	.ids			= xenpci_ids,
+static DEFINE_XENBUS_DRIVER(pciback, "pciback",
 	.probe			= xen_pcibk_xenbus_probe,
 	.remove			= xen_pcibk_xenbus_remove,
 	.otherend_changed	= xen_pcibk_frontend_changed,
-};
+);
 
 const struct xen_pcibk_backend *__read_mostly xen_pcibk_backend;
 static const struct xen_pcibk_backend *__initdata xen_pcibk_backends[] = {
@@ -820,11 +819,11 @@ int __init xen_pcibk_xenbus_register(void)
 		}
 	}
 	pr_info(DRV_NAME ": backend is %s\n", xen_pcibk_backend->name);
-	return xenbus_register_backend(&xenbus_xen_pcibk_driver);
+	return xenbus_register_backend(&pciback_driver);
 }
 
 void __exit xen_pcibk_xenbus_unregister(void)
 {
 	destroy_workqueue(xen_pcibk_wq);
-	xenbus_unregister_driver(&xenbus_xen_pcibk_driver);
+	xenbus_unregister_driver(&pciback_driver);
 }

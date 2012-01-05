@@ -226,6 +226,7 @@ static struct backlight_device *backlight_device;
 static struct mutex sabi_mutex;
 static struct platform_device *sdev;
 static struct rfkill *rfk;
+static bool has_stepping_quirk;
 
 static int force;
 module_param(force, bool, 0);
@@ -382,12 +383,57 @@ static void set_brightness(u8 user_brightness)
 {
 	u8 user_level = user_brightness + sabi_config->min_brightness;
 
+	if (has_stepping_quirk && user_level != 0) {
+		/*
+		 * short circuit if the specified level is what's already set
+		 * to prevent the screen from flickering needlessly
+		 */
+		if (user_brightness == read_brightness())
+			return;
+
+		sabi_set_command(sabi_config->commands.set_brightness, 0);
+	}
+
 	sabi_set_command(sabi_config->commands.set_brightness, user_level);
 }
 
 static int get_brightness(struct backlight_device *bd)
 {
 	return (int)read_brightness();
+}
+
+static void check_for_stepping_quirk(void)
+{
+	u8 initial_level;
+	u8 check_level;
+	u8 orig_level = read_brightness();
+
+	/*
+	 * Some laptops exhibit the strange behaviour of stepping toward
+	 * (rather than setting) the brightness except when changing to/from
+	 * brightness level 0. This behaviour is checked for here and worked
+	 * around in set_brightness.
+	 */
+
+	if (orig_level == 0)
+		set_brightness(1);
+
+	initial_level = read_brightness();
+
+	if (initial_level <= 2)
+		check_level = initial_level + 2;
+	else
+		check_level = initial_level - 2;
+
+	has_stepping_quirk = false;
+	set_brightness(check_level);
+
+	if (read_brightness() != check_level) {
+		has_stepping_quirk = true;
+		pr_info("enabled workaround for brightness stepping quirk\n");
+	}
+
+	set_brightness(orig_level);
 }
 
 static int update_status(struct backlight_device *bd)
@@ -623,6 +669,16 @@ static struct dmi_system_id __initdata samsung_dmi_table[] = {
 		.callback = dmi_check_cb,
 	},
 	{
+		.ident = "N220",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR,
+					"SAMSUNG ELECTRONICS CO., LTD."),
+			DMI_MATCH(DMI_PRODUCT_NAME, "N220"),
+			DMI_MATCH(DMI_BOARD_NAME, "N220"),
+		},
+		.callback = dmi_check_cb,
+	},
+	{
 		.ident = "N150/N210/N220/N230",
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR,
@@ -697,21 +753,30 @@ static struct dmi_system_id __initdata samsung_dmi_table[] = {
 		},
 		.callback = dmi_check_cb,
 	},
-		{
-		.ident = "X520",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "SAMSUNG ELECTRONICS CO., LTD."),
-			DMI_MATCH(DMI_PRODUCT_NAME, "X520"),
-			DMI_MATCH(DMI_BOARD_NAME, "X520"),
-		},
-		.callback = dmi_check_cb,
-	},
 	{
 		.ident = "R528/R728",
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "SAMSUNG ELECTRONICS CO., LTD."),
 			DMI_MATCH(DMI_PRODUCT_NAME, "R528/R728"),
 			DMI_MATCH(DMI_BOARD_NAME, "R528/R728"),
+		},
+		.callback = dmi_check_cb,
+	},
+	{
+		.ident = "NC210/NC110",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "SAMSUNG ELECTRONICS CO., LTD."),
+			DMI_MATCH(DMI_PRODUCT_NAME, "NC210/NC110"),
+			DMI_MATCH(DMI_BOARD_NAME, "NC210/NC110"),
+		},
+		.callback = dmi_check_cb,
+	},
+		{
+		.ident = "X520",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "SAMSUNG ELECTRONICS CO., LTD."),
+			DMI_MATCH(DMI_PRODUCT_NAME, "X520"),
+			DMI_MATCH(DMI_BOARD_NAME, "X520"),
 		},
 		.callback = dmi_check_cb,
 	},
@@ -822,6 +887,9 @@ static int __init samsung_init(void)
 			goto error_no_platform;
 		}
 	}
+
+	/* Check for stepping quirk */
+	check_for_stepping_quirk();
 
 	/* knock up a platform device to hang stuff off of */
 	sdev = platform_device_register_simple("samsung", -1, NULL, 0);

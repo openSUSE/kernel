@@ -12,11 +12,6 @@ SCHED_FEAT(GENTLE_FAIR_SLEEPERS, 1)
 SCHED_FEAT(START_DEBIT, 1)
 
 /*
- * Should wakeups try to preempt running tasks.
- */
-SCHED_FEAT(WAKEUP_PREEMPT, 1)
-
-/*
  * Based on load and program behaviour, see if it makes sense to place
  * a newly woken task on the same cpu as the task that woke it --
  * improve cache locality. Typically used with SYNC wakeups as
@@ -72,3 +67,4 @@ SCHED_FEAT(NONTASK_POWER, 1)
 SCHED_FEAT(TTWU_QUEUE, 1)
 
 SCHED_FEAT(FORCE_SD_OVERLAP, 0)
+SCHED_FEAT(RT_RUNTIME_SHARE, 1)

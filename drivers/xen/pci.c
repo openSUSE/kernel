@@ -127,7 +127,7 @@ static int xen_add_device(struct device *dev)
 			&manage_pci_ext);
 	} else {
 		struct physdev_manage_pci manage_pci = {
-			.bus 	= pci_dev->bus->number,
+			.bus	= pci_dev->bus->number,
 			.devfn	= pci_dev->devfn,
 		};
 
@@ -171,18 +171,22 @@ static int xen_pci_notifier(struct notifier_block *nb,
 			    unsigned long action, void *data)
 {
 	struct device *dev = data;
+	int r = 0;
 
 	switch (action) {
 	case BUS_NOTIFY_ADD_DEVICE:
-		xen_add_device(dev);
+		r = xen_add_device(dev);
 		break;
 	case BUS_NOTIFY_DEL_DEVICE:
-		xen_remove_device(dev);
+		r = xen_remove_device(dev);
 		break;
 	default:
 		return NOTIFY_DONE;
 	}
-
+	if (r)
+		dev_err(dev, "Failed to %s - passthrough or MSI/MSI-X might fail!\n",
+			action == BUS_NOTIFY_ADD_DEVICE ? "add" :
+			(action == BUS_NOTIFY_DEL_DEVICE ? "delete" : "?"));
 	return NOTIFY_OK;
 }
 

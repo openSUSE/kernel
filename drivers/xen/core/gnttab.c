@@ -31,7 +31,7 @@
  * IN THE SOFTWARE.
  */
 
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/slab.h>
 #include <linux/sched.h>
 #include <linux/mm.h>
@@ -460,7 +460,7 @@ static int unmap_pte_fn(pte_t *pte, struct page *pmd_page,
 void *arch_gnttab_alloc_shared(unsigned long *frames)
 {
 	struct vm_struct *area;
-	area = alloc_vm_area(PAGE_SIZE * max_nr_grant_frames());
+	area = alloc_vm_area(PAGE_SIZE * max_nr_grant_frames(), NULL);
 	BUG_ON(area == NULL);
 	return area->addr;
 }

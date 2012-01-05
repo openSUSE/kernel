@@ -15,6 +15,7 @@
 #include <linux/kvm_host.h>
 #include <linux/slab.h>
 #include <linux/err.h>
+#include <linux/export.h>
 
 #include <asm/reg.h>
 #include <asm/cputable.h>
@@ -72,6 +73,8 @@ int kvmppc_core_vcpu_setup(struct kvm_vcpu *vcpu)
 
 	/* Since booke kvm only support one core, update all vcpus' PIR to 0 */
 	vcpu->vcpu_id = 0;
+
+	vcpu->arch.cpu_type = KVM_CPU_E500V2;
 
 	return 0;
 }

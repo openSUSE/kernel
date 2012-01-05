@@ -12,6 +12,7 @@
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/time.h>
+#include <linux/export.h>
 #include <linux/sysctl.h>
 #include <linux/percpu.h>
 #include <linux/kernel_stat.h>

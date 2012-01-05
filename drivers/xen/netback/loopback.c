@@ -109,7 +109,7 @@ static int skb_remove_foreign_references(struct sk_buff *skb)
 		return 0;
 
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
-		pfn = page_to_pfn(skb_shinfo(skb)->frags[i].page);
+		pfn = page_to_pfn(skb_frag_page(&skb_shinfo(skb)->frags[i]));
 		if (!is_foreign(pfn))
 			continue;
 		
@@ -121,11 +121,11 @@ static int skb_remove_foreign_references(struct sk_buff *skb)
 		off = skb_shinfo(skb)->frags[i].page_offset;
 		memcpy(page_address(page) + off,
 		       vaddr + off,
-		       skb_shinfo(skb)->frags[i].size);
+		       skb_frag_size(&skb_shinfo(skb)->frags[i]));
 		kunmap_skb_frag(vaddr);
 
-		put_page(skb_shinfo(skb)->frags[i].page);
-		skb_shinfo(skb)->frags[i].page = page;
+		skb_frag_unref(skb, i);
+		skb_frag_set_page(skb, i, page);
 	}
 
 	return 1;
@@ -185,19 +185,10 @@ static const struct ethtool_ops network_ethtool_ops =
 	.get_link = ethtool_op_get_link,
 };
 
-/*
- * Nothing to do here. Virtual interface is point-to-point and the
- * physical interface is probably promiscuous anyway.
- */
-static void loopback_set_multicast_list(struct net_device *dev)
-{
-}
-
 static const struct net_device_ops loopback_netdev_ops = {
 	.ndo_open               = loopback_open,
 	.ndo_stop               = loopback_close,
 	.ndo_start_xmit         = loopback_start_xmit,
-	.ndo_set_multicast_list = loopback_set_multicast_list,
 	.ndo_change_mtu	        = NULL, /* allow arbitrary mtu */
 };
 

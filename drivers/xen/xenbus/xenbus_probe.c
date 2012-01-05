@@ -48,6 +48,7 @@
 #include <linux/mutex.h>
 #include <linux/io.h>
 #include <linux/slab.h>
+#include <linux/module.h>
 
 #include <asm/page.h>
 #include <asm/pgtable.h>
@@ -364,23 +365,14 @@ void xenbus_dev_shutdown(struct device *_dev)
 PARAVIRT_EXPORT_SYMBOL(xenbus_dev_shutdown);
 
 int xenbus_register_driver_common(struct xenbus_driver *drv,
-				  struct xen_bus_type *bus,
-				  struct module *owner,
-				  const char *mod_name)
+				  struct xen_bus_type *bus)
 {
 	int ret;
 
 	if (bus->error)
 		return bus->error;
 
-	drv->driver.name = drv->name;
 	drv->driver.bus = &bus->bus;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,10)
-	drv->driver.owner = owner;
-#endif
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,21)
-	drv->driver.mod_name = mod_name;
-#endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,16)
 	drv->driver.probe = xenbus_dev_probe;
 	drv->driver.remove = xenbus_dev_remove;
@@ -400,8 +392,7 @@ void xenbus_unregister_driver(struct xenbus_driver *drv)
 }
 EXPORT_SYMBOL_GPL(xenbus_unregister_driver);
 
-struct xb_find_info
-{
+struct xb_find_info {
 	struct xenbus_device *dev;
 	const char *nodename;
 };
@@ -662,15 +653,13 @@ static struct xen_bus_type xenbus_frontend = {
 	},
 };
 
-int __xenbus_register_frontend(struct xenbus_driver *drv,
-			       struct module *owner, const char *mod_name)
+int xenbus_register_frontend(struct xenbus_driver *drv)
 {
 	int ret;
 
 	drv->read_otherend_details = read_backend_details;
 
-	ret = xenbus_register_driver_common(drv, &xenbus_frontend,
-					    owner, mod_name);
+	ret = xenbus_register_driver_common(drv, &xenbus_frontend);
 	if (ret)
 		return ret;
 
@@ -679,7 +668,7 @@ int __xenbus_register_frontend(struct xenbus_driver *drv,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(__xenbus_register_frontend);
+EXPORT_SYMBOL_GPL(xenbus_register_frontend);
 
 #endif
 
@@ -1236,6 +1225,45 @@ fail0:
 #endif
 #endif /* CONFIG_XEN_PRIVILEGED_GUEST */
 
+/* Set up event channel for xenstored which is run as a local process
+ * (this is normally used only in dom0)
+ */
+static int __init xenstored_local_init(void)
+{
+	int err = 0;
+	unsigned long page = 0;
+	struct evtchn_alloc_unbound alloc_unbound;
+
+	/* Allocate Xenstore page */
+	page = get_zeroed_page(GFP_KERNEL);
+	if (!page)
+		goto out_err;
+
+	xen_store_mfn = xen_start_info->store_mfn =
+		pfn_to_mfn(virt_to_phys((void *)page) >>
+			   PAGE_SHIFT);
+
+	/* Next allocate a local port which xenstored can bind to */
+	alloc_unbound.dom        = DOMID_SELF;
+	alloc_unbound.remote_dom = DOMID_SELF;
+
+	err = HYPERVISOR_event_channel_op(EVTCHNOP_alloc_unbound,
+					  &alloc_unbound);
+	if (err == -ENOSYS)
+		goto out_err;
+
+	BUG_ON(err);
+	xen_store_evtchn = xen_start_info->store_evtchn =
+		alloc_unbound.port;
+
+	return 0;
+
+ out_err:
+	if (page != 0)
+		free_page(page);
+	return err;
+}
+
 #ifndef MODULE
 static int __init
 #else
@@ -1244,7 +1272,6 @@ int __devinit
 xenbus_init(void)
 {
 	int err = 0;
-	unsigned long page = 0;
 
 	DPRINTK("");
 
@@ -1258,35 +1285,14 @@ xenbus_init(void)
 		pr_warning("XENBUS: Error registering frontend bus: %i\n",
 			   xenbus_frontend.error);
 	xenbus_backend_bus_register();
-#endif
 
 	/*
 	 * Domain0 doesn't have a store_evtchn or store_mfn yet.
 	 */
 	if (is_initial_xendomain()) {
-		struct evtchn_alloc_unbound alloc_unbound;
-
-		/* Allocate Xenstore page */
-		page = get_zeroed_page(GFP_KERNEL);
-		if (!page)
-			return -ENOMEM;
-
-		xen_store_mfn = xen_start_info->store_mfn =
-			pfn_to_mfn(virt_to_phys((void *)page) >>
-				   PAGE_SHIFT);
-
-		/* Next allocate a local port which xenstored can bind to */
-		alloc_unbound.dom        = DOMID_SELF;
-		alloc_unbound.remote_dom = DOMID_SELF;
-
-		err = HYPERVISOR_event_channel_op(EVTCHNOP_alloc_unbound,
-						  &alloc_unbound);
-		if (err == -ENOSYS)
-			goto err;
-
-		BUG_ON(err);
-		xen_store_evtchn = xen_start_info->store_evtchn =
-			alloc_unbound.port;
+		err = xenstored_local_init();
+		if (err)
+			goto out_error;
 
 #if defined(CONFIG_PROC_FS) && defined(CONFIG_XEN_PRIVILEGED_GUEST)
 		/* And finally publish the above info in /proc/xen */
@@ -1304,44 +1310,58 @@ xenbus_init(void)
 #endif
 		xen_store_interface = mfn_to_virt(xen_store_mfn);
 	} else {
-#if !defined(CONFIG_XEN) && !defined(MODULE)
-		if (xen_hvm_domain()) {
-#endif
 #ifndef CONFIG_XEN
-			uint64_t v = 0;
+		uint64_t v = 0;
 
-			err = hvm_get_parameter(HVM_PARAM_STORE_EVTCHN, &v);
-			if (err)
-				goto err;
-			xen_store_evtchn = (int)v;
-			err = hvm_get_parameter(HVM_PARAM_STORE_PFN, &v);
-			if (err)
-				goto err;
-			xen_store_mfn = (unsigned long)v;
-			xen_store_interface = ioremap(xen_store_mfn << PAGE_SHIFT,
-						      PAGE_SIZE);
-#endif
-#if !defined(CONFIG_XEN) && !defined(MODULE)
-		} else {
+		err = hvm_get_parameter(HVM_PARAM_STORE_EVTCHN, &v);
+		if (err)
+			goto out_error;
+		xen_store_evtchn = (int)v;
+		err = hvm_get_parameter(HVM_PARAM_STORE_PFN, &v);
+		if (err)
+			goto out_error;
+		xen_store_mfn = (unsigned long)v;
+		xen_store_interface = ioremap(xen_store_mfn << PAGE_SHIFT,
+					      PAGE_SIZE);
 #endif
 #ifndef MODULE
-			xen_store_evtchn = xen_start_info->store_evtchn;
-			xen_store_mfn = xen_start_info->store_mfn;
-			xen_store_interface = mfn_to_virt(xen_store_mfn);
-#endif
-#if !defined(CONFIG_XEN) && !defined(MODULE)
-		}
+		xen_store_evtchn = xen_start_info->store_evtchn;
+		xen_store_mfn = xen_start_info->store_mfn;
+		xen_store_interface = mfn_to_virt(xen_store_mfn);
 #endif
 		atomic_set(&xenbus_xsd_state, XENBUS_XSD_FOREIGN_READY);
 
 		/* Initialize the shared memory rings to talk to xenstored */
 		err = xb_init_comms();
 		if (err)
-			goto err;
+			goto out_error;
 	}
 
-#if defined(CONFIG_XEN) || defined(MODULE)
 	xenbus_dev_init();
+#else /* !defined(CONFIG_XEN) && !defined(MODULE) */
+	if (xen_hvm_domain()) {
+		uint64_t v = 0;
+		err = hvm_get_parameter(HVM_PARAM_STORE_EVTCHN, &v);
+		if (err)
+			goto out_error;
+		xen_store_evtchn = (int)v;
+		err = hvm_get_parameter(HVM_PARAM_STORE_PFN, &v);
+		if (err)
+			goto out_error;
+		xen_store_mfn = (unsigned long)v;
+		xen_store_interface = ioremap(xen_store_mfn << PAGE_SHIFT, PAGE_SIZE);
+	} else {
+		xen_store_evtchn = xen_start_info->store_evtchn;
+		xen_store_mfn = xen_start_info->store_mfn;
+		if (xen_store_evtchn)
+			atomic_set(&xenbus_xsd_state, XENBUS_XSD_FOREIGN_READY);
+		else {
+			err = xenstored_local_init();
+			if (err)
+				goto out_error;
+		}
+		xen_store_interface = mfn_to_virt(xen_store_mfn);
+	}
 #endif
 
 	/* Initialize the interface to xenstore. */
@@ -1349,7 +1369,7 @@ xenbus_init(void)
 	if (err) {
 		pr_warning("XENBUS: Error initializing xenstore comms: %i\n",
 			   err);
-		goto err;
+		goto out_error;
 	}
 
 #if defined(CONFIG_XEN) || defined(MODULE)
@@ -1378,16 +1398,12 @@ xenbus_init(void)
 
 	return 0;
 
- err:
+out_error:
 	/*
 	 * Do not unregister the xenbus front/backend buses here. The buses
 	 * must exist because front/backend drivers will use them when they are
 	 * registered.
 	 */
-
-	if (page != 0)
-		free_page(page);
-
 	return err;
 }
 

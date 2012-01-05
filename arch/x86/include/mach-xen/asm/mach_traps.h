@@ -16,7 +16,7 @@
 static inline void clear_serr_error(unsigned char reason) {}
 static inline void clear_io_check_error(unsigned char reason) {}
 
-static inline unsigned char get_nmi_reason(void)
+static inline unsigned char xen_get_nmi_reason(void)
 {
 	shared_info_t *s = HYPERVISOR_shared_info;
 	unsigned char reason = 0;

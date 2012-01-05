@@ -23,7 +23,8 @@
  *
  * configfs Copyright (C) 2005 Oracle.  All rights reserved.
  *
- * Please see Documentation/filesystems/configfs.txt for more information.
+ * Please see Documentation/filesystems/configfs/configfs.txt for more
+ * information.
  */
 
 #undef DEBUG
@@ -291,7 +292,7 @@ int __init configfs_inode_init(void)
 	return bdi_init(&configfs_backing_dev_info);
 }
 
-void __exit configfs_inode_exit(void)
+void configfs_inode_exit(void)
 {
 	bdi_destroy(&configfs_backing_dev_info);
 }

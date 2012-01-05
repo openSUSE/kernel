@@ -1,8 +1,7 @@
-#include <linux/version.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/unistd.h>
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/reboot.h>
 #include <linux/sysrq.h>
 #include <linux/stringify.h>

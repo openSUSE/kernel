@@ -733,18 +733,22 @@ static int nfs_show_options(struct seq_file *m, struct vfsmount *mnt)
 
 	return 0;
 }
+
+#ifdef CONFIG_NFS_V4
 #ifdef CONFIG_NFS_V4_1
-void show_sessions(struct seq_file *m, struct nfs_server *server)
+static void show_sessions(struct seq_file *m, struct nfs_server *server)
 {
 	if (nfs4_has_session(server->nfs_client))
 		seq_printf(m, ",sessions");
 }
 #else
-void show_sessions(struct seq_file *m, struct nfs_server *server) {}
+static void show_sessions(struct seq_file *m, struct nfs_server *server) {}
+#endif
 #endif
 
+#ifdef CONFIG_NFS_V4
 #ifdef CONFIG_NFS_V4_1
-void show_pnfs(struct seq_file *m, struct nfs_server *server)
+static void show_pnfs(struct seq_file *m, struct nfs_server *server)
 {
 	seq_printf(m, ",pnfs=");
 	if (server->pnfs_curr_ld)
@@ -752,9 +756,10 @@ void show_pnfs(struct seq_file *m, struct nfs_server *server)
 	else
 		seq_printf(m, "not configured");
 }
-#else  /* CONFIG_NFS_V4_1 */
-void show_pnfs(struct seq_file *m, struct nfs_server *server) {}
-#endif /* CONFIG_NFS_V4_1 */
+#else
+static void show_pnfs(struct seq_file *m, struct nfs_server *server) {}
+#endif
+#endif
 
 static int nfs_show_devname(struct seq_file *m, struct vfsmount *mnt)
 {
@@ -2782,43 +2787,18 @@ static void nfs_referral_loop_unprotect(void)
 static struct dentry *nfs_follow_remote_path(struct vfsmount *root_mnt,
 		const char *export_path)
 {
-	struct mnt_namespace *ns_private;
-	struct super_block *s;
 	struct dentry *dentry;
-	struct path path;
-	int ret;
+	int ret = nfs_referral_loop_protect();
 
-	ns_private = create_mnt_ns(root_mnt);
-	ret = PTR_ERR(ns_private);
-	if (IS_ERR(ns_private))
-		goto out_mntput;
+	if (ret) {
+		mntput(root_mnt);
+		return ERR_PTR(ret);
+	}
 
-	ret = nfs_referral_loop_protect();
-	if (ret != 0)
-		goto out_put_mnt_ns;
-
-	ret = vfs_path_lookup(root_mnt->mnt_root, root_mnt,
-			export_path, LOOKUP_FOLLOW|LOOKUP_AUTOMOUNT, &path);
-
+	dentry = mount_subtree(root_mnt, export_path);
 	nfs_referral_loop_unprotect();
-	put_mnt_ns(ns_private);
 
-	if (ret != 0)
-		goto out_err;
-
-	s = path.mnt->mnt_sb;
-	atomic_inc(&s->s_active);
-	dentry = dget(path.dentry);
-
-	path_put(&path);
-	down_write(&s->s_umount);
 	return dentry;
-out_put_mnt_ns:
-	put_mnt_ns(ns_private);
-out_mntput:
-	mntput(root_mnt);
-out_err:
-	return ERR_PTR(ret);
 }
 
 static struct dentry *nfs4_try_mount(int flags, const char *dev_name,

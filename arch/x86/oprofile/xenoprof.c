@@ -87,7 +87,7 @@ int xenoprof_arch_map_shared_buffer(struct xenoprof_get_buffer * get_buffer,
 
 	npages = (get_buffer->bufsize * get_buffer->nbuf - 1) / PAGE_SIZE + 1;
 
-	area = alloc_vm_area(npages * PAGE_SIZE);
+	area = alloc_vm_area(npages * PAGE_SIZE, NULL);
 	if (area == NULL)
 		return -ENOMEM;
 
@@ -119,7 +119,7 @@ int xenoprof_arch_set_passive(struct xenoprof_passive * pdomain,
 
 	npages = (pdomain->bufsize * pdomain->nbuf - 1) / PAGE_SIZE + 1;
 
-	area = alloc_vm_area(npages * PAGE_SIZE);
+	area = alloc_vm_area(npages * PAGE_SIZE, NULL);
 	if (area == NULL) {
 		ret = -ENOMEM;
 		goto out;

@@ -68,12 +68,15 @@ static netif_rx_response_t *make_rx_response(netif_t *netif,
 static void net_tx_action(unsigned long group);
 static void net_rx_action(unsigned long group);
 
-static inline unsigned long idx_to_pfn(struct xen_netbk *netbk, unsigned int idx)
+/* Discriminate from any valid pending_idx value. */
+#define INVALID_PENDING_IDX 0xffff
+
+static inline unsigned long idx_to_pfn(struct xen_netbk *netbk, u16 idx)
 {
 	return page_to_pfn(netbk->mmap_pages[idx]);
 }
 
-static inline unsigned long idx_to_kaddr(struct xen_netbk *netbk, unsigned int idx)
+static inline unsigned long idx_to_kaddr(struct xen_netbk *netbk, u16 idx)
 {
 	return (unsigned long)pfn_to_kaddr(idx_to_pfn(netbk, idx));
 }
@@ -115,6 +118,16 @@ static inline unsigned int netif_page_index(const struct page *pg)
 	union page_ext ext = { .mapping = pg->mapping };
 
 	return ext.e.idx;
+}
+
+static u16 frag_get_pending_idx(const skb_frag_t *frag)
+{
+	return (u16)frag->page_offset;
+}
+
+static void frag_set_pending_idx(skb_frag_t *frag, u16 pending_idx)
+{
+	frag->page_offset = pending_idx;
 }
 
 /*
@@ -253,9 +266,7 @@ static struct sk_buff *netbk_copy_skb(struct sk_buff *skb)
 		ret = skb_copy_bits(skb, offset, page_address(page), copy);
 		BUG_ON(ret);
 
-		ninfo->frags[ninfo->nr_frags].page = page;
-		ninfo->frags[ninfo->nr_frags].page_offset = 0;
-		ninfo->frags[ninfo->nr_frags].size = copy;
+		__skb_fill_page_desc(nskb, ninfo->nr_frags, page, 0, copy);
 		ninfo->nr_frags++;
 
 		offset += copy;
@@ -505,8 +516,8 @@ static void netbk_gop_skb(struct sk_buff *skb,
 		meta = npo->meta + npo->meta_prod++;
 		meta->frag = skb_shinfo(skb)->frags[i];
 		meta->id = netbk_gop_frag(netif, meta, i + extra, npo,
-					  meta->frag.page,
-					  meta->frag.size,
+					  skb_frag_page(&meta->frag),
+					  skb_frag_size(&meta->frag),
 					  meta->frag.page_offset);
 	}
 
@@ -528,7 +539,7 @@ static inline void netbk_free_pages(int nr_frags, struct netbk_rx_meta *meta)
 	int i;
 
 	for (i = 0; i < nr_frags; i++)
-		put_page(meta[i].frag.page);
+		put_page(skb_frag_page(&meta[i].frag));
 }
 
 /* This is a twin to netbk_gop_skb.  Assume that netbk_gop_skb was
@@ -1107,11 +1118,11 @@ static gnttab_map_grant_ref_t *netbk_get_requests(netif_t *netif,
 {
 	struct skb_shared_info *shinfo = skb_shinfo(skb);
 	skb_frag_t *frags = shinfo->frags;
-	unsigned long pending_idx = *((u16 *)skb->data);
+	u16 pending_idx = *(u16 *)skb->data;
 	int i, start;
 
 	/* Skip first skb fragment if it is on same page as header fragment. */
-	start = ((unsigned long)shinfo->frags[0].page == pending_idx);
+	start = (frag_get_pending_idx(frags) == pending_idx);
 
 	for (i = start; i < shinfo->nr_frags; i++, txp++) {
 		struct xen_netbk *netbk = &xen_netbk[GET_GROUP_INDEX(netif)];
@@ -1128,7 +1139,7 @@ static gnttab_map_grant_ref_t *netbk_get_requests(netif_t *netif,
 		memcpy(&pending_tx_info[pending_idx].req, txp, sizeof(*txp));
 		netif_get(netif);
 		pending_tx_info[pending_idx].netif = netif;
-		frags[i].page = (void *)pending_idx;
+		frag_set_pending_idx(&frags[i], pending_idx);
 	}
 
 	return mop;
@@ -1138,7 +1149,7 @@ static int netbk_tx_check_mop(struct xen_netbk *netbk, struct sk_buff *skb,
 			      gnttab_map_grant_ref_t **mopp)
 {
 	gnttab_map_grant_ref_t *mop = *mopp;
-	int pending_idx = *((u16 *)skb->data);
+	u16 pending_idx = *(u16 *)skb->data;
 	struct pending_tx_info *pending_tx_info = netbk->pending_tx_info;
 	netif_t *netif = pending_tx_info[pending_idx].netif;
 	netif_tx_request_t *txp;
@@ -1162,13 +1173,13 @@ static int netbk_tx_check_mop(struct xen_netbk *netbk, struct sk_buff *skb,
 	}
 
 	/* Skip first skb fragment if it is on same page as header fragment. */
-	start = ((unsigned long)shinfo->frags[0].page == pending_idx);
+	start = (frag_get_pending_idx(shinfo->frags) == pending_idx);
 
 	for (i = start; i < nr_frags; i++) {
 		int j, newerr;
 		pending_ring_idx_t index;
 
-		pending_idx = (unsigned long)shinfo->frags[i].page;
+		pending_idx = frag_get_pending_idx(&shinfo->frags[i]);
 
 		/* Check error status: if okay then remember grant handle. */
 		newerr = (++mop)->status;
@@ -1197,7 +1208,7 @@ static int netbk_tx_check_mop(struct xen_netbk *netbk, struct sk_buff *skb,
 		pending_idx = *((u16 *)skb->data);
 		netif_idx_release(netbk, pending_idx);
 		for (j = start; j < i; j++) {
-			pending_idx = (unsigned long)shinfo->frags[i].page;
+			pending_idx = frag_get_pending_idx(&shinfo->frags[j]);
 			netif_idx_release(netbk, pending_idx);
 		}
 
@@ -1216,20 +1227,16 @@ static void netbk_fill_frags(struct xen_netbk *netbk, struct sk_buff *skb)
 	int i;
 
 	for (i = 0; i < nr_frags; i++) {
-		skb_frag_t *frag = shinfo->frags + i;
 		netif_tx_request_t *txp;
-		unsigned long pending_idx;
-
-		pending_idx = (unsigned long)frag->page;
+		u16 pending_idx = frag_get_pending_idx(shinfo->frags + i);
 
 		netbk->pending_inuse[pending_idx].alloc_time = jiffies;
 		list_add_tail(&netbk->pending_inuse[pending_idx].list,
 			      &netbk->pending_inuse_head);
 
 		txp = &netbk->pending_tx_info[pending_idx].req;
-		frag->page = netbk->mmap_pages[pending_idx];
-		frag->size = txp->size;
-		frag->page_offset = txp->offset;
+		__skb_fill_page_desc(skb, i, netbk->mmap_pages[pending_idx],
+				     txp->offset, txp->size);
 
 		skb->len += txp->size;
 		skb->data_len += txp->size;
@@ -1433,14 +1440,11 @@ static void net_tx_action(unsigned long group)
 		__skb_put(skb, data_len);
 
 		skb_shinfo(skb)->nr_frags = ret;
-		if (data_len < txreq.size) {
+		if (data_len < txreq.size)
 			skb_shinfo(skb)->nr_frags++;
-			skb_shinfo(skb)->frags[0].page =
-				(void *)(unsigned long)pending_idx;
-		} else {
-			/* Discriminate from any valid pending_idx value. */
-			skb_shinfo(skb)->frags[0].page = (void *)~0UL;
-		}
+		else
+			pending_idx = INVALID_PENDING_IDX;
+		frag_set_pending_idx(skb_shinfo(skb)->frags, pending_idx);
 
 		__skb_queue_tail(&netbk->tx_queue, skb);
 
@@ -1828,7 +1832,8 @@ static int __init netback_init(void)
 				goto failed_init;
 			}
 			if (bind_threads)
-				kthread_bind(netbk->task, group);
+				kthread_bind(netbk->task,
+					     group % num_online_cpus());
 			wake_up_process(netbk->task);
 		} else {
 			tasklet_init(&netbk->net_tx_tasklet, net_tx_action, group);

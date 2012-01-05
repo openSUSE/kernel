@@ -638,7 +638,7 @@ static u32 atombios_adjust_pll(struct drm_crtc *crtc,
 				if (ss_enabled && ss->percentage)
 					args.v3.sInput.ucDispPllConfig |=
 						DISPPLL_CONFIG_SS_ENABLE;
-				if (encoder_mode == ATOM_ENCODER_MODE_DP) {
+				if (ENCODER_MODE_IS_DP(encoder_mode)) {
 					args.v3.sInput.ucDispPllConfig |=
 						DISPPLL_CONFIG_COHERENT_MODE;
 					/* 16200 or 27000 */
@@ -930,6 +930,7 @@ static void atombios_crtc_set_pll(struct drm_crtc *crtc, struct drm_display_mode
 		bpc = connector->display_info.bpc;
 
 		switch (encoder_mode) {
+		case ATOM_ENCODER_MODE_DP_MST:
 		case ATOM_ENCODER_MODE_DP:
 			/* DP/eDP */
 			dp_clock = dig_connector->dp_clock / 10;
@@ -1106,9 +1107,40 @@ static int dce4_crtc_do_set_base(struct drm_crtc *crtc,
 		return -EINVAL;
 	}
 
-	if (tiling_flags & RADEON_TILING_MACRO)
+	if (tiling_flags & RADEON_TILING_MACRO) {
+		if (rdev->family >= CHIP_CAYMAN)
+			tmp = rdev->config.cayman.tile_config;
+		else
+			tmp = rdev->config.evergreen.tile_config;
+
+		switch ((tmp & 0xf0) >> 4) {
+		case 0: /* 4 banks */
+			fb_format |= EVERGREEN_GRPH_NUM_BANKS(EVERGREEN_ADDR_SURF_4_BANK);
+			break;
+		case 1: /* 8 banks */
+		default:
+			fb_format |= EVERGREEN_GRPH_NUM_BANKS(EVERGREEN_ADDR_SURF_8_BANK);
+			break;
+		case 2: /* 16 banks */
+			fb_format |= EVERGREEN_GRPH_NUM_BANKS(EVERGREEN_ADDR_SURF_16_BANK);
+			break;
+		}
+
+		switch ((tmp & 0xf000) >> 12) {
+		case 0: /* 1KB rows */
+		default:
+			fb_format |= EVERGREEN_GRPH_TILE_SPLIT(EVERGREEN_ADDR_SURF_TILE_SPLIT_1KB);
+			break;
+		case 1: /* 2KB rows */
+			fb_format |= EVERGREEN_GRPH_TILE_SPLIT(EVERGREEN_ADDR_SURF_TILE_SPLIT_2KB);
+			break;
+		case 2: /* 4KB rows */
+			fb_format |= EVERGREEN_GRPH_TILE_SPLIT(EVERGREEN_ADDR_SURF_TILE_SPLIT_4KB);
+			break;
+		}
+
 		fb_format |= EVERGREEN_GRPH_ARRAY_MODE(EVERGREEN_GRPH_ARRAY_2D_TILED_THIN1);
-	else if (tiling_flags & RADEON_TILING_MICRO)
+	} else if (tiling_flags & RADEON_TILING_MICRO)
 		fb_format |= EVERGREEN_GRPH_ARRAY_MODE(EVERGREEN_GRPH_ARRAY_1D_TILED_THIN1);
 
 	switch (radeon_crtc->crtc_id) {
@@ -1435,7 +1467,7 @@ static int radeon_atom_pick_pll(struct drm_crtc *crtc)
 				 * PPLL/DCPLL programming and only program the DP DTO for the
 				 * crtc virtual pixel clock.
 				 */
-				if (atombios_get_encoder_mode(test_encoder) == ATOM_ENCODER_MODE_DP) {
+				if (ENCODER_MODE_IS_DP(atombios_get_encoder_mode(test_encoder))) {
 					if (ASIC_IS_DCE5(rdev) || rdev->clock.dp_extclk)
 						return ATOM_PPLL_INVALID;
 				}
@@ -1521,12 +1553,6 @@ static bool atombios_crtc_mode_fixup(struct drm_crtc *crtc,
 				     struct drm_display_mode *mode,
 				     struct drm_display_mode *adjusted_mode)
 {
-	struct drm_device *dev = crtc->dev;
-	struct radeon_device *rdev = dev->dev_private;
-
-	/* adjust pm to upcoming mode change */
-	radeon_pm_compute_clocks(rdev);
-
 	if (!radeon_crtc_scaling_mode_fixup(crtc, mode, adjusted_mode))
 		return false;
 	return true;

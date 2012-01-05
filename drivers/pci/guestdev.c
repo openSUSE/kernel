@@ -21,7 +21,7 @@
 #include <linux/list.h>
 #include <linux/mm.h>
 #include <linux/pci.h>
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/string.h>
 #include <linux/acpi.h>
 #include <asm/setup.h>

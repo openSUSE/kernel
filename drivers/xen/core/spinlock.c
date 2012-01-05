@@ -9,9 +9,9 @@
 
 #ifdef TICKET_SHIFT
 
+#include <linux/export.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
-#include <linux/module.h>
 #include <asm/hardirq.h>
 #include <xen/clock.h>
 #include <xen/evtchn.h>
@@ -88,9 +88,9 @@ static int __init spinlock_register(void)
 core_initcall(spinlock_register);
 #endif
 
-static unsigned int spin_adjust(struct spinning *spinning,
-				const arch_spinlock_t *lock,
-				unsigned int token)
+static struct __raw_tickets spin_adjust(struct spinning *spinning,
+					const arch_spinlock_t *lock,
+					struct __raw_tickets token)
 {
 	for (; spinning; spinning = spinning->prev)
 		if (spinning->lock == lock) {
@@ -98,21 +98,21 @@ static unsigned int spin_adjust(struct spinning *spinning,
 
 			if (unlikely(!(ticket + 1)))
 				break;
-			spinning->ticket = token >> TICKET_SHIFT;
-			token = (token & ((1 << TICKET_SHIFT) - 1))
-				| (ticket << TICKET_SHIFT);
+			spinning->ticket = token.tail;
+			token.tail = ticket;
 			break;
 		}
 
 	return token;
 }
 
-unsigned int xen_spin_adjust(const arch_spinlock_t *lock, unsigned int token)
+struct __raw_tickets xen_spin_adjust(const arch_spinlock_t *lock,
+				     struct __raw_tickets token)
 {
 	return spin_adjust(percpu_read(_spinning), lock, token);
 }
 
-unsigned int xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
+unsigned int xen_spin_wait(arch_spinlock_t *lock, struct __raw_tickets *ptok,
 			   unsigned int flags)
 {
 	unsigned int rm_idx, cpu = raw_smp_processor_id();
@@ -125,7 +125,7 @@ unsigned int xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
 		return UINT_MAX;
 
 	/* announce we're spinning */
-	spinning.ticket = *ptok >> TICKET_SHIFT;
+	spinning.ticket = ptok->tail;
 	spinning.lock = lock;
 	spinning.prev = percpu_read(_spinning);
 	smp_wmb();
@@ -141,7 +141,7 @@ unsigned int xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
 		 * Check again to make sure it didn't become free while
 		 * we weren't looking.
 		 */
-		if (lock->cur == spinning.ticket) {
+		if (lock->tickets.head == spinning.ticket) {
 			lock->owner = cpu;
 			/*
 			 * If we interrupted another spinlock while it was
@@ -171,21 +171,26 @@ unsigned int xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
 				arch_spinlock_t *lock = other->lock;
 
 				arch_local_irq_disable();
-				while (lock->cur == other->ticket) {
-					unsigned int token;
-					bool kick, free;
+				while (lock->tickets.head == other->ticket) {
+					struct __raw_tickets token;
 
 					other->ticket = -1;
-					__ticket_spin_unlock_body;
-					if (!kick)
+					asm volatile(UNLOCK_LOCK_PREFIX
+						     "inc" UNLOCK_SUFFIX(0) " %0"
+						     : "+m" (lock->tickets.head)
+						     : : "memory", "cc");
+					token = ACCESS_ONCE(lock->tickets);
+					if (token.head == token.tail)
 						break;
-					xen_spin_kick(lock, token);
-					__ticket_spin_lock_preamble;
-					if (!free)
+					xen_spin_kick(lock, token.head);
+					token = xadd(&lock->tickets,
+						     ((struct __raw_tickets)
+						      { .tail = 1 }));
+					if (token.head != token.tail)
 						token = spin_adjust(
 							other->prev, lock,
 							token);
-					other->ticket = token >> TICKET_SHIFT;
+					other->ticket = token.tail;
 					smp_mb();
 				}
 			}
@@ -221,7 +226,7 @@ unsigned int xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
 	rm_idx = percpu_read(rm_seq.idx);
 	smp_wmb();
 	percpu_write(rm_seq.idx, rm_idx + 1);
-	mb();
+	smp_mb();
 
 	/*
 	 * Obtain new tickets for (or acquire) all those locks where
@@ -229,17 +234,17 @@ unsigned int xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
 	 */
 	if (other) {
 		do {
-			unsigned int token;
-			bool free;
+			struct __raw_tickets token;
 
 			if (other->ticket + 1)
 				continue;
 			lock = other->lock;
-			__ticket_spin_lock_preamble;
-			if (!free)
+			token = xadd(&lock->tickets,
+				     ((struct __raw_tickets){ .tail = 1 }));
+			if (token.head != token.tail)
 				token = spin_adjust(other->prev, lock, token);
-			other->ticket = token >> TICKET_SHIFT;
-			if (lock->cur == other->ticket)
+			other->ticket = token.tail;
+			if (lock->tickets.head == other->ticket)
 				lock->owner = cpu;
 		} while ((other = other->prev) != NULL);
 		lock = spinning.lock;
@@ -249,29 +254,29 @@ unsigned int xen_spin_wait(arch_spinlock_t *lock, unsigned int *ptok,
 	while (percpu_read(rm_seq.ctr[rm_idx].counter))
 		cpu_relax();
 	arch_local_irq_restore(upcall_mask);
-	*ptok = lock->cur | (spinning.ticket << TICKET_SHIFT);
+	ptok->head = lock->tickets.head;
+	ptok->tail = spinning.ticket;
 
 	return rc ? 0 : __ticket_spin_count(lock);
 }
 
-void xen_spin_kick(arch_spinlock_t *lock, unsigned int token)
+void xen_spin_kick(arch_spinlock_t *lock, __ticket_t ticket)
 {
-	unsigned int cpu = raw_smp_processor_id(), ancor = cpu;
+	unsigned int cpu = raw_smp_processor_id(), anchor = cpu;
 
 	if (unlikely(!cpu_online(cpu)))
-		cpu = -1, ancor = nr_cpu_ids;
+		cpu = -1, anchor = nr_cpu_ids;
 
-	token &= (1U << TICKET_SHIFT) - 1;
-	while ((cpu = cpumask_next(cpu, cpu_online_mask)) != ancor) {
+	while ((cpu = cpumask_next(cpu, cpu_online_mask)) != anchor) {
 		unsigned int flags;
 		atomic_t *rm_ctr;
 		struct spinning *spinning;
 
 		if (cpu >= nr_cpu_ids) {
-			if (ancor == nr_cpu_ids)
+			if (anchor == nr_cpu_ids)
 				return;
 			cpu = cpumask_first(cpu_online_mask);
-			if (cpu == ancor)
+			if (cpu == anchor)
 				return;
 		}
 
@@ -294,7 +299,8 @@ void xen_spin_kick(arch_spinlock_t *lock, unsigned int token)
 		}
 
 		while (spinning) {
-			if (spinning->lock == lock && spinning->ticket == token)
+			if (spinning->lock == lock &&
+			    spinning->ticket == ticket)
 				break;
 			spinning = spinning->prev;
 		}

@@ -1,18 +1,9 @@
 /*
- * Copyright (C) 2010 OKI SEMICONDUCTOR CO., LTD.
+ * Copyright (C) 2011 LAPIS Semiconductor Co., Ltd.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; version 2 of the License.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307, USA.
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #include <linux/kernel.h>
@@ -948,7 +939,7 @@ static void pch_udc_ep_enable(struct pch_udc_ep *ep,
 	else
 		buff_size = UDC_EPOUT_BUFF_SIZE;
 	pch_udc_ep_set_bufsz(ep, buff_size, ep->in);
-	pch_udc_ep_set_maxpkt(ep, le16_to_cpu(desc->wMaxPacketSize));
+	pch_udc_ep_set_maxpkt(ep, usb_endpoint_maxp(desc));
 	pch_udc_ep_set_nak(ep);
 	pch_udc_ep_fifo_flush(ep, ep->in);
 	/* Configure the endpoint */
@@ -958,7 +949,7 @@ static void pch_udc_ep_enable(struct pch_udc_ep *ep,
 	      (cfg->cur_cfg << UDC_CSR_NE_CFG_SHIFT) |
 	      (cfg->cur_intf << UDC_CSR_NE_INTF_SHIFT) |
 	      (cfg->cur_alt << UDC_CSR_NE_ALT_SHIFT) |
-	      le16_to_cpu(desc->wMaxPacketSize) << UDC_CSR_NE_MAX_PKT_SHIFT;
+	      usb_endpoint_maxp(desc) << UDC_CSR_NE_MAX_PKT_SHIFT;
 
 	if (ep->in)
 		pch_udc_write_csr(ep->dev, val, UDC_EPIN_IDX(ep->num));
@@ -1467,7 +1458,7 @@ static int pch_udc_pcd_ep_enable(struct usb_ep *usbep,
 	ep->desc = desc;
 	ep->halted = 0;
 	pch_udc_ep_enable(ep, &ep->dev->cfg_data, desc);
-	ep->ep.maxpacket = le16_to_cpu(desc->wMaxPacketSize);
+	ep->ep.maxpacket = usb_endpoint_maxp(desc);
 	pch_udc_enable_ep_interrupts(ep->dev, PCH_UDC_EPINT(ep->in, ep->num));
 	spin_unlock_irqrestore(&dev->lock, iflags);
 	return 0;
@@ -3014,5 +3005,5 @@ static void __exit pch_udc_pci_exit(void)
 module_exit(pch_udc_pci_exit);
 
 MODULE_DESCRIPTION("Intel EG20T USB Device Controller");
-MODULE_AUTHOR("OKI SEMICONDUCTOR, <toshiharu-linux@dsn.okisemi.com>");
+MODULE_AUTHOR("LAPIS Semiconductor, <tomoya-linux@dsn.lapis-semi.com>");
 MODULE_LICENSE("GPL");

@@ -1160,7 +1160,6 @@ struct btrfs_fs_info {
 
 	struct btrfs_delayed_root *delayed_root;
 
-
 	/* readahead tree */
 	spinlock_t reada_lock;
 	struct radix_tree_root reada_tree;

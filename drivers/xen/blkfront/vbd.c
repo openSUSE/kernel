@@ -300,6 +300,7 @@ static int
 xlvbd_init_blk_queue(struct gendisk *gd, u16 sector_size)
 {
 	struct request_queue *rq;
+	struct blkfront_info *info = gd->private_data;
 
 	rq = blk_init_queue(do_blkif_request, &blkif_io_lock);
 	if (rq == NULL)
@@ -308,6 +309,13 @@ xlvbd_init_blk_queue(struct gendisk *gd, u16 sector_size)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
 	queue_flag_set_unlocked(QUEUE_FLAG_VIRT, rq);
 #endif
+
+	if (info->feature_discard) {
+		queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, rq);
+		blk_queue_max_discard_sectors(rq, get_capacity(gd));
+		rq->limits.discard_granularity = info->discard_granularity;
+		rq->limits.discard_alignment = info->discard_alignment;
+	}
 
 	/* Hard sector size and max sectors impersonate the equiv. hardware. */
 	blk_queue_logical_block_size(rq, sector_size);

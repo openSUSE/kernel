@@ -445,8 +445,8 @@ int netfront_accel_vi_poll(netfront_accel_vnic *vnic, int rx_packets);
 			} else {					\
 				skb_frag_t *fragment;			\
 				fragment = &skb_shinfo(skb)->frags[frag_idx]; \
-				frag_len = fragment->size;		\
-				frag_data = ((void*)page_address(fragment->page) \
+				frag_len = skb_frag_size(fragment);	\
+				frag_data = ((void*)page_address(skb_frag_page(fragment)) \
 					     + fragment->page_offset);	\
 			};						\
 			frag_idx++;					\

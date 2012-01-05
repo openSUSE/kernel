@@ -22,6 +22,7 @@
  */
 
 #include <linux/slab.h>
+#include <linux/module.h>
 #include <scsi/scsi_dh.h>
 #include "../scsi_priv.h"
 
@@ -440,7 +441,7 @@ int scsi_dh_activate(struct request_queue *q, activate_complete fn, void *data)
 	struct device *dev = NULL;
 
 	spin_lock_irqsave(q->queue_lock, flags);
-	sdev = q->queuedata;
+	sdev = scsi_device_from_queue(q);
 	if (!sdev) {
 		spin_unlock_irqrestore(q->queue_lock, flags);
 		err = SCSI_DH_NOSYS;
@@ -492,7 +493,7 @@ int scsi_dh_set_params(struct request_queue *q, const char *params)
 	struct scsi_device_handler *scsi_dh = NULL;
 
 	spin_lock_irqsave(q->queue_lock, flags);
-	sdev = scsi_device_from_queue(q);
+	sdev = q->queuedata;
 	if (sdev && sdev->scsi_dh_data)
 		scsi_dh = sdev->scsi_dh_data->scsi_dh;
 	if (scsi_dh && scsi_dh->set_params && get_device(&sdev->sdev_gendev))

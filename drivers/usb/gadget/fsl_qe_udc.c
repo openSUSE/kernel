@@ -540,7 +540,7 @@ static int qe_ep_init(struct qe_udc *udc,
 	int reval = 0;
 	u16 max = 0;
 
-	max = le16_to_cpu(desc->wMaxPacketSize);
+	max = usb_endpoint_maxp(desc);
 
 	/* check the max package size validate for this endpoint */
 	/* Refer to USB2.0 spec table 9-13,
@@ -2336,8 +2336,7 @@ static int fsl_qe_start(struct usb_gadget_driver *driver,
 	if (!udc_controller)
 		return -ENODEV;
 
-	if (!driver || (driver->speed != USB_SPEED_FULL
-			&& driver->speed != USB_SPEED_HIGH)
+	if (!driver || driver->speed < USB_SPEED_FULL
 			|| !bind || !driver->disconnect || !driver->setup)
 		return -EINVAL;
 

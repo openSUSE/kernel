@@ -7,8 +7,8 @@
  *  published by the Free Software Foundation.
  */
 
+#include <linux/init.h>
 #include <linux/kernel.h>
-#include <linux/module.h>
 #include <linux/kobject.h>
 #include <xen/hypervisor_sysfs.h>
 #include <asm/hypervisor.h>

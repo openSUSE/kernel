@@ -27,6 +27,7 @@
 #include <linux/platform_data/pxa_sdhci.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
+#include <linux/module.h>
 #include "sdhci.h"
 #include "sdhci-pltfm.h"
 
@@ -263,13 +264,10 @@ static struct platform_driver sdhci_pxav3_driver = {
 	.driver		= {
 		.name	= "sdhci-pxav3",
 		.owner	= THIS_MODULE,
+		.pm	= SDHCI_PLTFM_PMOPS,
 	},
 	.probe		= sdhci_pxav3_probe,
 	.remove		= __devexit_p(sdhci_pxav3_remove),
-#ifdef CONFIG_PM
-	.suspend	= sdhci_pltfm_suspend,
-	.resume		= sdhci_pltfm_resume,
-#endif
 };
 static int __init sdhci_pxav3_init(void)
 {

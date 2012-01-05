@@ -43,7 +43,7 @@
 #include <xen/features.h>
 #include <xen/interface/memory.h>
 #include <xen/interface/vcpu.h>
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/percpu.h>
 #include <asm/tlbflush.h>
 #include <linux/highmem.h>
@@ -1116,6 +1116,7 @@ static void undo_limit_pages(struct page *pages, unsigned int order)
 	BUG_ON(order > max_contig_order);
 	xen_limit_pages_to_max_mfn(pages, order, 0);
 	ClearPageForeign(pages);
+	init_page_count(pages);
 	__free_pages(pages, order);
 }
 

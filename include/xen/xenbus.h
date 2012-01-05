@@ -37,10 +37,12 @@
 #include <linux/device.h>
 #include <linux/notifier.h>
 #include <linux/mutex.h>
+#include <linux/export.h>
 #include <linux/completion.h>
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/err.h>
+#include <linux/version.h>
 #include <xen/interface/xen.h>
 #include <xen/interface/grant_table.h>
 #include <xen/interface/io/xenbus.h>
@@ -98,7 +100,6 @@ struct xenbus_device_id
 
 /* A xenbus driver. */
 struct xenbus_driver {
-	const char *name;
 	const struct xenbus_device_id *ids;
 	int (*probe)(struct xenbus_device *dev,
 		     const struct xenbus_device_id *id);
@@ -116,30 +117,27 @@ struct xenbus_driver {
 	int (*is_ready)(struct xenbus_device *dev);
 };
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,10)
+# define XENBUS_DRIVER_SET_OWNER(mod) .driver.owner = mod,
+#else
+# define XENBUS_DRIVER_SET_OWNER(mod)
+#endif
+
+#define DEFINE_XENBUS_DRIVER(var, drvname, methods...)		\
+struct xenbus_driver var ## _driver = {				\
+	.driver.name = drvname + 0 ?: var ## _ids->devicetype,	\
+	.driver.mod_name = KBUILD_MODNAME,			\
+	XENBUS_DRIVER_SET_OWNER(THIS_MODULE)			\
+	.ids = var ## _ids, ## methods				\
+}
+
 static inline struct xenbus_driver *to_xenbus_driver(struct device_driver *drv)
 {
 	return container_of(drv, struct xenbus_driver, driver);
 }
 
-int __must_check __xenbus_register_frontend(struct xenbus_driver *drv,
-					    struct module *owner,
-					    const char *mod_name);
-
-static inline int __must_check
-xenbus_register_frontend(struct xenbus_driver *drv)
-{
-	return __xenbus_register_frontend(drv, THIS_MODULE, KBUILD_MODNAME);
-}
-
-int __must_check __xenbus_register_backend(struct xenbus_driver *drv,
-					   struct module *owner,
-					   const char *mod_name);
-static inline int __must_check
-xenbus_register_backend(struct xenbus_driver *drv)
-{
-	return __xenbus_register_backend(drv, THIS_MODULE, KBUILD_MODNAME);
-}
-
+int __must_check xenbus_register_frontend(struct xenbus_driver *drv);
+int __must_check xenbus_register_backend(struct xenbus_driver *drv);
 void xenbus_unregister_driver(struct xenbus_driver *drv);
 
 struct xenbus_transaction
@@ -170,9 +168,9 @@ int xenbus_scanf(struct xenbus_transaction t,
 	__attribute__((format(scanf, 4, 5)));
 
 /* Single printf and write: returns -errno or 0. */
+__printf(4, 5)
 int xenbus_printf(struct xenbus_transaction t,
-		  const char *dir, const char *node, const char *fmt, ...)
-	__attribute__((format(printf, 4, 5)));
+		  const char *dir, const char *node, const char *fmt, ...);
 
 /* Generic read function: NULL-terminated triples of name,
  * sprintf-style type string, and pointer. Returns 0 or errno.*/
@@ -239,11 +237,11 @@ int xenbus_watch_path2(struct xenbus_device *dev, const char *path,
 		       void (*callback)(struct xenbus_watch *,
 					const char **, unsigned int));
 #else
+__printf(4, 5)
 int xenbus_watch_pathfmt(struct xenbus_device *dev, struct xenbus_watch *watch,
 			 void (*callback)(struct xenbus_watch *,
 					  const char **, unsigned int),
-			 const char *pathfmt, ...)
-	__attribute__ ((format (printf, 4, 5)));
+			 const char *pathfmt, ...);
 #endif
 
 /**
@@ -319,8 +317,7 @@ enum xenbus_state xenbus_read_driver_state(const char *path);
  * formatted message.
  */
 void xenbus_dev_error(struct xenbus_device *dev, int err, const char *fmt,
-		      ...) __attribute__((__format__(__printf__, 3, 4)));
-
+		      ...) __printf(3, 4);
 
 /***
  * Equivalent to xenbus_dev_error(dev, err, fmt, args), followed by
@@ -328,7 +325,7 @@ void xenbus_dev_error(struct xenbus_device *dev, int err, const char *fmt,
  * closedown of this driver and its peer.
  */
 void xenbus_dev_fatal(struct xenbus_device *dev, int err, const char *fmt,
-		      ...) __attribute__((__format__(__printf__, 3, 4)));
+		      ...) __printf(3, 4);
 
 #if defined(CONFIG_XEN) || defined(HAVE_XEN_PLATFORM_COMPAT_H)
 int xenbus_dev_init(void);

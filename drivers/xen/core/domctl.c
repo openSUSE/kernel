@@ -187,14 +187,17 @@ union xen_sysctl {
 			struct xen_sysctl_pm_op_v7 pm_op;
 		};
 	} v7;
-	/* v8: Xen 4.1+ */
+	/*
+	 * v8: Xen 4.1.x
+	 * v9: Xen 4.2+
+	 */
 	struct {
 		uint32_t cmd;
 		uint32_t interface_version;
 		union {
 			struct xen_sysctl_topologyinfo_v8 topologyinfo;
 		};
-	} v8;
+	} v8, v9;
 };
 
 /* The actual code comes here */
@@ -356,8 +359,8 @@ int xen_set_physical_cpu_affinity(int pcpu)
 
 		rc = get_vcpuaffinity(BITS_PER_PAGE, oldmap);
 		if (!rc) {
-			void *newmap = kzalloc(BITS_TO_LONGS(pcpu + 1)
-					       * sizeof(long), GFP_KERNEL);
+			void *newmap = kcalloc(BITS_TO_LONGS(pcpu + 1),
+					       sizeof(long), GFP_KERNEL);
 
 			if (newmap) {
 				__set_bit(pcpu, newmap);
@@ -419,8 +422,12 @@ int xen_get_topology_info(unsigned int cpu, u32 *core, u32 *sock, u32 *node)
 	nr = sysctl.v##ver.topologyinfo.max_cpu_index + 1;		\
 } while (0)
 
-	BUILD_BUG_ON(XEN_SYSCTL_INTERFACE_VERSION > 8);
-	topologyinfo(8);
+	BUILD_BUG_ON(XEN_SYSCTL_INTERFACE_VERSION > 9);
+	topologyinfo(9);
+#if CONFIG_XEN_COMPAT < 0x040200
+	if (rc)
+		topologyinfo(8);
+#endif
 
 #if CONFIG_XEN_COMPAT < 0x040100
 #define pm_op_cputopo(ver) do {						\

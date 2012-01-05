@@ -31,7 +31,7 @@ int dib0700_get_version(struct dvb_usb_device *d, u32 *hwversion,
 	int ret;
 
 	if (mutex_lock_interruptible(&d->usb_mutex) < 0) {
-		deb_info("could not acquire lock");
+		err("could not acquire lock");
 		return 0;
 	}
 
@@ -117,7 +117,7 @@ int dib0700_set_gpio(struct dvb_usb_device *d, enum dib07x0_gpios gpio, u8 gpio_
 	int ret;
 
 	if (mutex_lock_interruptible(&d->usb_mutex) < 0) {
-		deb_info("could not acquire lock");
+		err("could not acquire lock");
 		return 0;
 	}
 
@@ -138,7 +138,7 @@ static int dib0700_set_usb_xfer_len(struct dvb_usb_device *d, u16 nb_ts_packets)
 
 	if (st->fw_version >= 0x10201) {
 		if (mutex_lock_interruptible(&d->usb_mutex) < 0) {
-			deb_info("could not acquire lock");
+			err("could not acquire lock");
 			return 0;
 		}
 
@@ -227,7 +227,7 @@ static int dib0700_i2c_xfer_new(struct i2c_adapter *adap, struct i2c_msg *msg,
 		} else {
 			/* Write request */
 			if (mutex_lock_interruptible(&d->usb_mutex) < 0) {
-				deb_info("could not acquire lock");
+				err("could not acquire lock");
 				return 0;
 			}
 			st->buf[0] = REQUEST_NEW_I2C_WRITE;
@@ -273,7 +273,7 @@ static int dib0700_i2c_xfer_legacy(struct i2c_adapter *adap,
 	if (mutex_lock_interruptible(&d->i2c_mutex) < 0)
 		return -EAGAIN;
 	if (mutex_lock_interruptible(&d->usb_mutex) < 0) {
-		deb_info("could not acquire lock");
+		err("could not acquire lock");
 		return 0;
 	}
 
@@ -368,7 +368,7 @@ static int dib0700_set_clock(struct dvb_usb_device *d, u8 en_pll,
 	int ret;
 
 	if (mutex_lock_interruptible(&d->usb_mutex) < 0) {
-		deb_info("could not acquire lock");
+		err("could not acquire lock");
 		return 0;
 	}
 
@@ -400,7 +400,7 @@ int dib0700_set_i2c_speed(struct dvb_usb_device *d, u16 scl_kHz)
 		return -EINVAL;
 
 	if (mutex_lock_interruptible(&d->usb_mutex) < 0) {
-		deb_info("could not acquire lock");
+		err("could not acquire lock");
 		return 0;
 	}
 
@@ -528,13 +528,13 @@ int dib0700_download_firmware(struct usb_device *udev, const struct firmware *fw
 		for (adap_num = 0; adap_num < dib0700_devices[i].num_adapters;
 				adap_num++) {
 			if (fw_version >= 0x10201) {
-				dib0700_devices[i].adapter[adap_num].stream.u.bulk.buffersize = 188*nb_packet_buffer_size;
+				dib0700_devices[i].adapter[adap_num].fe[0].stream.u.bulk.buffersize = 188*nb_packet_buffer_size;
 			} else {
 				/* for fw version older than 1.20.1,
 				 * the buffersize has to be n times 512 */
-				dib0700_devices[i].adapter[adap_num].stream.u.bulk.buffersize = ((188*nb_packet_buffer_size+188/2)/512)*512;
-				if (dib0700_devices[i].adapter[adap_num].stream.u.bulk.buffersize < 512)
-					dib0700_devices[i].adapter[adap_num].stream.u.bulk.buffersize = 512;
+				dib0700_devices[i].adapter[adap_num].fe[0].stream.u.bulk.buffersize = ((188*nb_packet_buffer_size+188/2)/512)*512;
+				if (dib0700_devices[i].adapter[adap_num].fe[0].stream.u.bulk.buffersize < 512)
+					dib0700_devices[i].adapter[adap_num].fe[0].stream.u.bulk.buffersize = 512;
 			}
 		}
 	}
@@ -560,7 +560,7 @@ int dib0700_streaming_ctrl(struct dvb_usb_adapter *adap, int onoff)
 	}
 
 	if (mutex_lock_interruptible(&adap->dev->usb_mutex) < 0) {
-		deb_info("could not acquire lock");
+		err("could not acquire lock");
 		return 0;
 	}
 
@@ -579,18 +579,18 @@ int dib0700_streaming_ctrl(struct dvb_usb_adapter *adap, int onoff)
 	deb_info("modifying (%d) streaming state for %d\n", onoff, adap->id);
 
 	st->channel_state &= ~0x3;
-	if ((adap->stream.props.endpoint != 2)
-			&& (adap->stream.props.endpoint != 3)) {
-		deb_info("the endpoint number (%i) is not correct, use the adapter id instead", adap->stream.props.endpoint);
+	if ((adap->fe_adap[0].stream.props.endpoint != 2)
+			&& (adap->fe_adap[0].stream.props.endpoint != 3)) {
+		deb_info("the endpoint number (%i) is not correct, use the adapter id instead", adap->fe_adap[0].stream.props.endpoint);
 		if (onoff)
 			st->channel_state |=	1 << (adap->id);
 		else
 			st->channel_state |=	1 << ~(adap->id);
 	} else {
 		if (onoff)
-			st->channel_state |=	1 << (adap->stream.props.endpoint-2);
+			st->channel_state |=	1 << (adap->fe_adap[0].stream.props.endpoint-2);
 		else
-			st->channel_state |=	1 << (3-adap->stream.props.endpoint);
+			st->channel_state |=	1 << (3-adap->fe_adap[0].stream.props.endpoint);
 	}
 
 	st->buf[2] |= st->channel_state;
@@ -610,7 +610,7 @@ int dib0700_change_protocol(struct rc_dev *rc, u64 rc_type)
 	int new_proto, ret;
 
 	if (mutex_lock_interruptible(&d->usb_mutex) < 0) {
-		deb_info("could not acquire lock");
+		err("could not acquire lock");
 		return 0;
 	}
 

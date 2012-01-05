@@ -17,7 +17,6 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 */
 #include <stdarg.h>
-#include <linux/module.h>
 #include <xen/xenbus.h>
 #include "common.h"
 
@@ -251,22 +250,19 @@ static const struct xenbus_device_id tpmback_ids[] = {
 	{ "" }
 };
 
-
-static struct xenbus_driver tpmback = {
-	.name = "vtpm",
-	.ids = tpmback_ids,
+static DEFINE_XENBUS_DRIVER(tpmback, ,
 	.probe = tpmback_probe,
 	.remove = tpmback_remove,
 	.otherend_changed = frontend_changed,
-};
+);
 
 
 int tpmif_xenbus_init(void)
 {
-	return xenbus_register_backend(&tpmback);
+	return xenbus_register_backend(&tpmback_driver);
 }
 
 void tpmif_xenbus_exit(void)
 {
-	xenbus_unregister_driver(&tpmback);
+	xenbus_unregister_driver(&tpmback_driver);
 }

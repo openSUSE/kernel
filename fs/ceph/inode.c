@@ -9,7 +9,6 @@
 #include <linux/namei.h>
 #include <linux/writeback.h>
 #include <linux/vmalloc.h>
-#include <linux/pagevec.h>
 
 #include "super.h"
 #include "mds_client.h"
@@ -298,6 +297,8 @@ struct inode *ceph_alloc_inode(struct super_block *sb)
 
 	dout("alloc_inode %p\n", &ci->vfs_inode);
 
+	spin_lock_init(&ci->i_ceph_lock);
+
 	ci->i_version = 0;
 	ci->i_time_warp_seq = 0;
 	ci->i_ceph_flags = 0;
@@ -584,7 +585,7 @@ static int fill_inode(struct inode *inode,
 			       iinfo->xattr_len);
 	}
 
-	spin_lock(&inode->i_lock);
+	spin_lock(&ci->i_ceph_lock);
 
 	/*
 	 * provided version will be odd if inode value is projected,
@@ -619,7 +620,7 @@ static int fill_inode(struct inode *inode,
 	}
 
 	if ((issued & CEPH_CAP_LINK_EXCL) == 0)
-		inode->i_nlink = le32_to_cpu(info->nlink);
+		set_nlink(inode, le32_to_cpu(info->nlink));
 
 	/* be careful with mtime, atime, size */
 	ceph_decode_timespec(&atime, &info->atime);
@@ -681,7 +682,7 @@ static int fill_inode(struct inode *inode,
 			char *sym;
 
 			BUG_ON(symlen != inode->i_size);
-			spin_unlock(&inode->i_lock);
+			spin_unlock(&ci->i_ceph_lock);
 
 			err = -ENOMEM;
 			sym = kmalloc(symlen+1, GFP_NOFS);
@@ -690,7 +691,7 @@ static int fill_inode(struct inode *inode,
 			memcpy(sym, iinfo->symlink, symlen);
 			sym[symlen] = 0;
 
-			spin_lock(&inode->i_lock);
+			spin_lock(&ci->i_ceph_lock);
 			if (!ci->i_symlink)
 				ci->i_symlink = sym;
 			else
@@ -716,7 +717,7 @@ static int fill_inode(struct inode *inode,
 	}
 
 no_change:
-	spin_unlock(&inode->i_lock);
+	spin_unlock(&ci->i_ceph_lock);
 
 	/* queue truncate if we saw i_size decrease */
 	if (queue_trunc)
@@ -751,13 +752,13 @@ no_change:
 				     info->cap.flags,
 				     caps_reservation);
 		} else {
-			spin_lock(&inode->i_lock);
+			spin_lock(&ci->i_ceph_lock);
 			dout(" %p got snap_caps %s\n", inode,
 			     ceph_cap_string(le32_to_cpu(info->cap.caps)));
 			ci->i_snap_caps |= le32_to_cpu(info->cap.caps);
 			if (cap_fmode >= 0)
 				__ceph_get_fmode(ci, cap_fmode);
-			spin_unlock(&inode->i_lock);
+			spin_unlock(&ci->i_ceph_lock);
 		}
 	} else if (cap_fmode >= 0) {
 		pr_warning("mds issued no caps on %llx.%llx\n",
@@ -772,9 +773,9 @@ no_change:
 	    ceph_snap(inode) == CEPH_NOSNAP &&
 	    (le32_to_cpu(info->cap.caps) & CEPH_CAP_FILE_SHARED) &&
 	    (issued & CEPH_CAP_FILE_EXCL) == 0 &&
-	    (ci->i_ceph_flags & CEPH_I_COMPLETE) == 0) {
+	    !ceph_dir_test_complete(inode)) {
 		dout(" marking %p complete (empty)\n", inode);
-		/* ci->i_ceph_flags |= CEPH_I_COMPLETE; */
+		ceph_dir_set_complete(inode);
 		ci->i_max_offset = 2;
 	}
 
@@ -850,19 +851,20 @@ static void ceph_set_dentry_offset(struct dentry *dn)
 {
 	struct dentry *dir = dn->d_parent;
 	struct inode *inode = dir->d_inode;
+	struct ceph_inode_info *ci = ceph_inode(inode);
 	struct ceph_dentry_info *di;
 
 	BUG_ON(!inode);
 
 	di = ceph_dentry(dn);
 
-	spin_lock(&inode->i_lock);
-	if ((ceph_inode(inode)->i_ceph_flags & CEPH_I_COMPLETE) == 0) {
-		spin_unlock(&inode->i_lock);
+	spin_lock(&ci->i_ceph_lock);
+	if (!ceph_dir_test_complete(inode)) {
+		spin_unlock(&ci->i_ceph_lock);
 		return;
 	}
 	di->offset = ceph_inode(inode)->i_max_offset++;
-	spin_unlock(&inode->i_lock);
+	spin_unlock(&ci->i_ceph_lock);
 
 	spin_lock(&dir->d_lock);
 	spin_lock_nested(&dn->d_lock, DENTRY_D_LOCK_NESTED);
@@ -1057,7 +1059,7 @@ int ceph_fill_trace(struct super_block *sb, struct ceph_mds_request *req,
 			 * d_move() puts the renamed dentry at the end of
 			 * d_subdirs.  We need to assign it an appropriate
 			 * directory offset so we can behave when holding
-			 * I_COMPLETE.
+			 * D_COMPLETE.
 			 */
 			ceph_set_dentry_offset(req->r_old_dentry);
 			dout("dn %p gets new offset %lld\n", req->r_old_dentry, 
@@ -1309,7 +1311,7 @@ int ceph_inode_set_size(struct inode *inode, loff_t size)
 	struct ceph_inode_info *ci = ceph_inode(inode);
 	int ret = 0;
 
-	spin_lock(&inode->i_lock);
+	spin_lock(&ci->i_ceph_lock);
 	dout("set_size %p %llu -> %llu\n", inode, inode->i_size, size);
 	inode->i_size = size;
 	inode->i_blocks = (size + (1 << 9) - 1) >> 9;
@@ -1319,7 +1321,7 @@ int ceph_inode_set_size(struct inode *inode, loff_t size)
 	    (ci->i_reported_size << 1) < ci->i_max_size)
 		ret = 1;
 
-	spin_unlock(&inode->i_lock);
+	spin_unlock(&ci->i_ceph_lock);
 	return ret;
 }
 
@@ -1329,12 +1331,13 @@ int ceph_inode_set_size(struct inode *inode, loff_t size)
  */
 void ceph_queue_writeback(struct inode *inode)
 {
+	ihold(inode);
 	if (queue_work(ceph_inode_to_client(inode)->wb_wq,
 		       &ceph_inode(inode)->i_wb_work)) {
 		dout("ceph_queue_writeback %p\n", inode);
-		ihold(inode);
 	} else {
 		dout("ceph_queue_writeback %p failed\n", inode);
+		iput(inode);
 	}
 }
 
@@ -1354,55 +1357,13 @@ static void ceph_writeback_work(struct work_struct *work)
  */
 void ceph_queue_invalidate(struct inode *inode)
 {
+	ihold(inode);
 	if (queue_work(ceph_inode_to_client(inode)->pg_inv_wq,
 		       &ceph_inode(inode)->i_pg_inv_work)) {
 		dout("ceph_queue_invalidate %p\n", inode);
-		ihold(inode);
 	} else {
 		dout("ceph_queue_invalidate %p failed\n", inode);
-	}
-}
-
-/*
- * invalidate any pages that are not dirty or under writeback.  this
- * includes pages that are clean and mapped.
- */
-static void ceph_invalidate_nondirty_pages(struct address_space *mapping)
-{
-	struct pagevec pvec;
-	pgoff_t next = 0;
-	int i;
-
-	pagevec_init(&pvec, 0);
-	while (pagevec_lookup(&pvec, mapping, next, PAGEVEC_SIZE)) {
-		for (i = 0; i < pagevec_count(&pvec); i++) {
-			struct page *page = pvec.pages[i];
-			pgoff_t index;
-			int skip_page =
-				(PageDirty(page) || PageWriteback(page));
-
-			if (!skip_page)
-				skip_page = !trylock_page(page);
-
-			/*
-			 * We really shouldn't be looking at the ->index of an
-			 * unlocked page.  But we're not allowed to lock these
-			 * pages.  So we rely upon nobody altering the ->index
-			 * of this (pinned-by-us) page.
-			 */
-			index = page->index;
-			if (index > next)
-				next = index;
-			next++;
-
-			if (skip_page)
-				continue;
-
-			generic_error_remove_page(mapping, page);
-			unlock_page(page);
-		}
-		pagevec_release(&pvec);
-		cond_resched();
+		iput(inode);
 	}
 }
 
@@ -1418,20 +1379,20 @@ static void ceph_invalidate_work(struct work_struct *work)
 	u32 orig_gen;
 	int check = 0;
 
-	spin_lock(&inode->i_lock);
+	spin_lock(&ci->i_ceph_lock);
 	dout("invalidate_pages %p gen %d revoking %d\n", inode,
 	     ci->i_rdcache_gen, ci->i_rdcache_revoking);
 	if (ci->i_rdcache_revoking != ci->i_rdcache_gen) {
 		/* nevermind! */
-		spin_unlock(&inode->i_lock);
+		spin_unlock(&ci->i_ceph_lock);
 		goto out;
 	}
 	orig_gen = ci->i_rdcache_gen;
-	spin_unlock(&inode->i_lock);
+	spin_unlock(&ci->i_ceph_lock);
 
-	ceph_invalidate_nondirty_pages(inode->i_mapping);
+	truncate_inode_pages(&inode->i_data, 0);
 
-	spin_lock(&inode->i_lock);
+	spin_lock(&ci->i_ceph_lock);
 	if (orig_gen == ci->i_rdcache_gen &&
 	    orig_gen == ci->i_rdcache_revoking) {
 		dout("invalidate_pages %p gen %d successful\n", inode,
@@ -1443,7 +1404,7 @@ static void ceph_invalidate_work(struct work_struct *work)
 		     inode, orig_gen, ci->i_rdcache_gen,
 		     ci->i_rdcache_revoking);
 	}
-	spin_unlock(&inode->i_lock);
+	spin_unlock(&ci->i_ceph_lock);
 
 	if (check)
 		ceph_check_caps(ci, 0, NULL);
@@ -1478,13 +1439,14 @@ void ceph_queue_vmtruncate(struct inode *inode)
 {
 	struct ceph_inode_info *ci = ceph_inode(inode);
 
+	ihold(inode);
 	if (queue_work(ceph_sb_to_client(inode->i_sb)->trunc_wq,
 		       &ci->i_vmtruncate_work)) {
 		dout("ceph_queue_vmtruncate %p\n", inode);
-		ihold(inode);
 	} else {
 		dout("ceph_queue_vmtruncate %p failed, pending=%d\n",
 		     inode, ci->i_truncate_pending);
+		iput(inode);
 	}
 }
 
@@ -1501,10 +1463,10 @@ void __ceph_do_pending_vmtruncate(struct inode *inode)
 	int wrbuffer_refs, wake = 0;
 
 retry:
-	spin_lock(&inode->i_lock);
+	spin_lock(&ci->i_ceph_lock);
 	if (ci->i_truncate_pending == 0) {
 		dout("__do_pending_vmtruncate %p none pending\n", inode);
-		spin_unlock(&inode->i_lock);
+		spin_unlock(&ci->i_ceph_lock);
 		return;
 	}
 
@@ -1515,7 +1477,7 @@ retry:
 	if (ci->i_wrbuffer_ref_head < ci->i_wrbuffer_ref) {
 		dout("__do_pending_vmtruncate %p flushing snaps first\n",
 		     inode);
-		spin_unlock(&inode->i_lock);
+		spin_unlock(&ci->i_ceph_lock);
 		filemap_write_and_wait_range(&inode->i_data, 0,
 					     inode->i_sb->s_maxbytes);
 		goto retry;
@@ -1525,15 +1487,15 @@ retry:
 	wrbuffer_refs = ci->i_wrbuffer_ref;
 	dout("__do_pending_vmtruncate %p (%d) to %lld\n", inode,
 	     ci->i_truncate_pending, to);
-	spin_unlock(&inode->i_lock);
+	spin_unlock(&ci->i_ceph_lock);
 
 	truncate_inode_pages(inode->i_mapping, to);
 
-	spin_lock(&inode->i_lock);
+	spin_lock(&ci->i_ceph_lock);
 	ci->i_truncate_pending--;
 	if (ci->i_truncate_pending == 0)
 		wake = 1;
-	spin_unlock(&inode->i_lock);
+	spin_unlock(&ci->i_ceph_lock);
 
 	if (wrbuffer_refs == 0)
 		ceph_check_caps(ci, CHECK_CAPS_AUTHONLY, NULL);
@@ -1588,7 +1550,7 @@ int ceph_setattr(struct dentry *dentry, struct iattr *attr)
 	if (IS_ERR(req))
 		return PTR_ERR(req);
 
-	spin_lock(&inode->i_lock);
+	spin_lock(&ci->i_ceph_lock);
 	issued = __ceph_caps_issued(ci, NULL);
 	dout("setattr %p issued %s\n", inode, ceph_cap_string(issued));
 
@@ -1736,7 +1698,7 @@ int ceph_setattr(struct dentry *dentry, struct iattr *attr)
 	}
 
 	release &= issued;
-	spin_unlock(&inode->i_lock);
+	spin_unlock(&ci->i_ceph_lock);
 
 	if (inode_dirty_flags)
 		__mark_inode_dirty(inode, inode_dirty_flags);
@@ -1758,7 +1720,7 @@ int ceph_setattr(struct dentry *dentry, struct iattr *attr)
 	__ceph_do_pending_vmtruncate(inode);
 	return err;
 out:
-	spin_unlock(&inode->i_lock);
+	spin_unlock(&ci->i_ceph_lock);
 	ceph_mdsc_put_request(req);
 	return err;
 }

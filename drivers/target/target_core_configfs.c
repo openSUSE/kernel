@@ -23,7 +23,6 @@
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
-#include <linux/version.h>
 #include <generated/utsrelease.h>
 #include <linux/utsname.h>
 #include <linux/init.h>
@@ -67,9 +66,6 @@ struct target_core_configfs_attribute {
 static struct config_group target_core_hbagroup;
 static struct config_group alua_group;
 static struct config_group alua_lu_gps_group;
-
-static DEFINE_SPINLOCK(se_device_lock);
-static LIST_HEAD(se_dev_list);
 
 static inline struct se_hba *
 item_to_hba(struct config_item *item)
@@ -132,14 +128,6 @@ static struct config_group *target_core_register_fabric(
 
 	pr_debug("Target_Core_ConfigFS: REGISTER -> group: %p name:"
 			" %s\n", group, name);
-	/*
-	 * Ensure that TCM subsystem plugins are loaded at this point for
-	 * using the RAMDISK_DR virtual LUN 0 and all other struct se_port
-	 * LUN symlinks.
-	 */
-	if (transport_subsystem_check_init() < 0)
-		return ERR_PTR(-EINVAL);
-
 	/*
 	 * Below are some hardcoded request_module() calls to automatically
 	 * local fabric modules when the following is called:
@@ -725,9 +713,6 @@ SE_DEV_ATTR_RO(hw_queue_depth);
 DEF_DEV_ATTRIB(queue_depth);
 SE_DEV_ATTR(queue_depth, S_IRUGO | S_IWUSR);
 
-DEF_DEV_ATTRIB(task_timeout);
-SE_DEV_ATTR(task_timeout, S_IRUGO | S_IWUSR);
-
 DEF_DEV_ATTRIB(max_unmap_lba_count);
 SE_DEV_ATTR(max_unmap_lba_count, S_IRUGO | S_IWUSR);
 
@@ -761,7 +746,6 @@ static struct configfs_attribute *target_core_dev_attrib_attrs[] = {
 	&target_core_dev_attrib_optimal_sectors.attr,
 	&target_core_dev_attrib_hw_queue_depth.attr,
 	&target_core_dev_attrib_queue_depth.attr,
-	&target_core_dev_attrib_task_timeout.attr,
 	&target_core_dev_attrib_max_unmap_lba_count.attr,
 	&target_core_dev_attrib_max_unmap_block_desc_count.attr,
 	&target_core_dev_attrib_unmap_granularity.attr,
@@ -2754,7 +2738,6 @@ static struct config_group *target_core_make_subdev(
 				" struct se_subsystem_dev\n");
 		goto unlock;
 	}
-	INIT_LIST_HEAD(&se_dev->se_dev_node);
 	INIT_LIST_HEAD(&se_dev->t10_wwn.t10_vpd_list);
 	spin_lock_init(&se_dev->t10_wwn.t10_vpd_lock);
 	INIT_LIST_HEAD(&se_dev->t10_pr.registration_list);
@@ -2790,9 +2773,6 @@ static struct config_group *target_core_make_subdev(
 			" from allocate_virtdevice()\n");
 		goto out;
 	}
-	spin_lock(&se_device_lock);
-	list_add_tail(&se_dev->se_dev_node, &se_dev_list);
-	spin_unlock(&se_device_lock);
 
 	config_group_init_type_name(&se_dev->se_dev_group, name,
 			&target_core_dev_cit);
@@ -2886,10 +2866,6 @@ static void target_core_drop_subdev(
 
 	mutex_lock(&hba->hba_access_mutex);
 	t = hba->transport;
-
-	spin_lock(&se_device_lock);
-	list_del(&se_dev->se_dev_node);
-	spin_unlock(&se_device_lock);
 
 	dev_stat_grp = &se_dev->dev_stat_grps.stat_group;
 	for (i = 0; dev_stat_grp->default_groups[i]; i++) {
@@ -3080,8 +3056,7 @@ static struct config_group *target_core_call_addhbatotarget(
 	/*
 	 * Load up TCM subsystem plugins if they have not already been loaded.
 	 */
-	if (transport_subsystem_check_init() < 0)
-		return ERR_PTR(-EINVAL);
+	transport_subsystem_check_init();
 
 	hba = core_alloc_hba(se_plugin_str, plugin_dep_id, 0);
 	if (IS_ERR(hba))

@@ -416,7 +416,7 @@ static int __iter_shared_inline_ref(struct btrfs_fs_info *fs_info,
 	struct extent_buffer *eb;
 	int slot;
 	int nritems;
-	int ret = -EIO;
+	int ret;
 	int found = 0;
 
 	eb = read_tree_block(fs_info->tree_root, logical,

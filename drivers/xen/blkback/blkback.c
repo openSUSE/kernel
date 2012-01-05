@@ -39,6 +39,7 @@
 #include <linux/kthread.h>
 #include <linux/freezer.h>
 #include <linux/list.h>
+#include <linux/module.h>
 #include <linux/delay.h>
 #include <xen/balloon.h>
 #include <xen/evtchn.h>
@@ -195,16 +196,18 @@ static void fast_flush_area(pending_req_t *req)
 static void print_stats(blkif_t *blkif)
 {
 	printk(KERN_DEBUG "%s: oo %3d  |  rd %4d  |  wr %4d  |  br %4d"
-	       "  |  fl %4d  |  pk %4d\n",
+	       "  |  fl %4d  |  ds %4d  |  pk %4d\n",
 	       current->comm, blkif->st_oo_req,
 	       blkif->st_rd_req, blkif->st_wr_req,
-	       blkif->st_br_req, blkif->st_fl_req, blkif->st_pk_req);
+	       blkif->st_br_req, blkif->st_fl_req,
+	       blkif->st_ds_req, blkif->st_pk_req);
 	blkif->st_print = jiffies + msecs_to_jiffies(10 * 1000);
 	blkif->st_rd_req = 0;
 	blkif->st_wr_req = 0;
 	blkif->st_oo_req = 0;
 	blkif->st_br_req = 0;
 	blkif->st_fl_req = 0;
+	blkif->st_ds_req = 0;
 	blkif->st_pk_req = 0;
 }
 
@@ -253,24 +256,63 @@ int blkif_schedule(void *arg)
 	return 0;
 }
 
+static void do_discard(blkif_t *blkif, struct blkif_request_discard *req)
+{
+	int err = -EOPNOTSUPP;
+	int status = BLKIF_RSP_OKAY;
+	struct block_device *bdev = blkif->vbd.bdev;
+
+	if (blkif->blk_backend_type == BLKIF_BACKEND_PHY ||
+	    blkif->blk_backend_type == BLKIF_BACKEND_FILE)
+		err = blkdev_issue_discard(bdev, req->sector_number,
+					   req->nr_sectors, GFP_KERNEL, 0);
+
+	if (err == -EOPNOTSUPP) {
+		DPRINTK("discard op failed, not supported\n");
+		status = BLKIF_RSP_EOPNOTSUPP;
+	} else if (err)
+		status = BLKIF_RSP_ERROR;
+
+	make_response(blkif, req->id, req->operation, status);
+}
+
+static void drain_io(blkif_t *blkif)
+{
+	atomic_set(&blkif->drain, 1);
+	do {
+		/* The initial value is one, and one refcnt taken at the
+		 * start of the blkif_schedule thread. */
+		if (atomic_read(&blkif->refcnt) <= 2)
+			break;
+
+		wait_for_completion_interruptible_timeout(
+				&blkif->drain_complete, HZ);
+
+		if (!atomic_read(&blkif->drain))
+			break;
+	} while (!kthread_should_stop());
+	atomic_set(&blkif->drain, 0);
+}
+
 /******************************************************************
  * COMPLETION CALLBACK -- Called as bh->b_end_io()
  */
 
 static void __end_block_io_op(pending_req_t *pending_req, int error)
 {
+	blkif_t *blkif = pending_req->blkif;
 	int status = BLKIF_RSP_OKAY;
 
 	/* An error fails the entire request. */
 	if ((pending_req->operation == BLKIF_OP_WRITE_BARRIER) &&
 	    (error == -EOPNOTSUPP)) {
 		DPRINTK("blkback: write barrier op failed, not supported\n");
-		blkback_barrier(XBT_NIL, pending_req->blkif->be, 0);
+		blkback_barrier(XBT_NIL, blkif->be, 0);
 		status = BLKIF_RSP_EOPNOTSUPP;
 	} else if ((pending_req->operation == BLKIF_OP_FLUSH_DISKCACHE) &&
 		   (error == -EOPNOTSUPP)) {
 		DPRINTK("blkback: flush diskcache op failed, not supported\n");
-		blkback_flush_diskcache(XBT_NIL, pending_req->blkif->be, 0);
+		blkback_flush_diskcache(XBT_NIL, blkif->be, 0);
 		status = BLKIF_RSP_EOPNOTSUPP;
 	} else if (error) {
 		DPRINTK("Buffer not up-to-date at end of operation, "
@@ -280,10 +322,13 @@ static void __end_block_io_op(pending_req_t *pending_req, int error)
 
 	if (atomic_dec_and_test(&pending_req->pendcnt)) {
 		fast_flush_area(pending_req);
-		make_response(pending_req->blkif, pending_req->id,
+		make_response(blkif, pending_req->id,
 			      pending_req->operation, status);
-		blkif_put(pending_req->blkif);
+		blkif_put(blkif);
 		free_req(pending_req);
+		if (atomic_read(&blkif->drain)
+		    && atomic_read(&blkif->refcnt) <= 2)
+			complete(&blkif->drain_complete);
 	}
 }
 
@@ -368,6 +413,7 @@ static int _do_block_io_op(blkif_t *blkif)
 		case BLKIF_OP_WRITE:
 		case BLKIF_OP_WRITE_BARRIER:
 		case BLKIF_OP_FLUSH_DISKCACHE:
+		case BLKIF_OP_DISCARD:
 			dispatch_rw_block_io(blkif, &req, pending_req);
 			break;
 		case BLKIF_OP_PACKET:
@@ -445,6 +491,10 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 		blkif->st_fl_req++;
 		operation = WRITE_FLUSH;
 		break;
+	case BLKIF_OP_DISCARD:
+		blkif->st_ds_req++;
+		operation = REQ_DISCARD;
+		break;
 	default:
 		operation = 0; /* make gcc happy */
 		BUG();
@@ -452,7 +502,8 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 
 	/* Check that number of segments is sane. */
 	nseg = req->nr_segments;
-	if (unlikely(nseg == 0 && !(operation & REQ_FLUSH)) ||
+	if (unlikely(nseg == 0 ? !(operation & (REQ_FLUSH|REQ_DISCARD)) :
+				 operation & REQ_DISCARD) ||
 	    unlikely(nseg > BLKIF_MAX_SEGMENTS_PER_REQUEST)) {
 		DPRINTK("Bad number of segments in request (%d)\n", nseg);
 		goto fail_response;
@@ -524,6 +575,12 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 		goto fail_flush;
 	}
 
+	/* Wait on all outstanding I/O's and once that has been completed
+	 * issue the WRITE_FLUSH.
+	 */
+	if (req->operation == BLKIF_OP_WRITE_BARRIER)
+		drain_io(blkif);
+
 	plug_queue(blkif, preq.bdev);
 	atomic_set(&pending_req->pendcnt, 1);
 	blkif_get(blkif);
@@ -560,6 +617,13 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 	}
 
 	if (!bio) {
+		if (operation == REQ_DISCARD) {
+			do_discard(blkif, (void *)req);
+			blkif_put(blkif);
+			free_req(pending_req);
+			return;
+		}
+
 		BUG_ON(!(operation & (REQ_FLUSH|REQ_FUA)));
 		bio = bio_alloc(GFP_KERNEL, 0);
 		if (unlikely(bio == NULL))

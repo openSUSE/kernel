@@ -143,7 +143,7 @@ MODULE_PARM_DESC(ql2xmultique_tag,
 		"Set it to 1 to turn on the cpu affinity.");
 
 int ql2xfwloadbin;
-module_param(ql2xfwloadbin, int, S_IRUGO);
+module_param(ql2xfwloadbin, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(ql2xfwloadbin,
 		"Option to specify location from which to load ISP firmware:.\n"
 		" 2 -- load firmware via the request_firmware() (hotplug).\n"
@@ -158,11 +158,11 @@ MODULE_PARM_DESC(ql2xetsenable,
 		"Default is 0 - skip ETS enablement.");
 
 int ql2xdbwr = 1;
-module_param(ql2xdbwr, int, S_IRUGO);
+module_param(ql2xdbwr, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(ql2xdbwr,
-	"Option to specify scheme for request queue posting.\n"
-	" 0 -- Regular doorbell.\n"
-	" 1 -- CAMRAM doorbell (faster).\n");
+		"Option to specify scheme for request queue posting.\n"
+		" 0 -- Regular doorbell.\n"
+		" 1 -- CAMRAM doorbell (faster).\n");
 
 int ql2xtargetreset = 1;
 module_param(ql2xtargetreset, int, S_IRUGO);
@@ -183,17 +183,30 @@ MODULE_PARM_DESC(ql2xasynctmfenable,
 		"Default is 0 - Issue TM IOCBs via mailbox mechanism.");
 
 int ql2xdontresethba;
-module_param(ql2xdontresethba, int, S_IRUGO);
+module_param(ql2xdontresethba, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(ql2xdontresethba,
-	"Option to specify reset behaviour.\n"
-	" 0 (Default) -- Reset on failure.\n"
-	" 1 -- Do not reset on failure.\n");
+		"Option to specify reset behaviour.\n"
+		" 0 (Default) -- Reset on failure.\n"
+		" 1 -- Do not reset on failure.\n");
 
 uint ql2xmaxlun = MAX_LUNS;
 module_param(ql2xmaxlun, uint, S_IRUGO);
 MODULE_PARM_DESC(ql2xmaxlun,
 		"Defines the maximum LU number to register with the SCSI "
 		"midlayer. Default is 65535.");
+
+int ql2xmdcapmask = 0x1F;
+module_param(ql2xmdcapmask, int, S_IRUGO);
+MODULE_PARM_DESC(ql2xmdcapmask,
+		"Set the Minidump driver capture mask level. "
+		"Default is 0x7F - Can be set to 0x3, 0x7, 0xF, 0x1F, 0x7F.");
+
+int ql2xmdenable = 1;
+module_param(ql2xmdenable, int, S_IRUGO);
+MODULE_PARM_DESC(ql2xmdenable,
+		"Enable/disable MiniDump. "
+		"0 - MiniDump disabled. "
+		"1 (Default) - MiniDump enabled.");
 
 /*
  * SCSI host template entry points
@@ -410,6 +423,7 @@ fail2:
 	qla25xx_delete_queues(vha);
 	destroy_workqueue(ha->wq);
 	ha->wq = NULL;
+	vha->req = ha->req_q_map[0];
 fail:
 	ha->mqenable = 0;
 	kfree(ha->req_q_map);
@@ -801,49 +815,6 @@ qla2x00_wait_for_chip_reset(scsi_qla_host_t *vha)
 	return return_status;
 }
 
-/*
- * qla2x00_wait_for_loop_ready
- *    Wait for MAX_LOOP_TIMEOUT(5 min) value for loop
- *    to be in LOOP_READY state.
- * Input:
- *     ha - pointer to host adapter structure
- *
- * Note:
- *    Does context switching-Release SPIN_LOCK
- *    (if any) before calling this routine.
- *
- *
- * Return:
- *    Success (LOOP_READY) : 0
- *    Failed  (LOOP_NOT_READY) : 1
- */
-static inline int
-qla2x00_wait_for_loop_ready(scsi_qla_host_t *vha)
-{
-	int 	 return_status = QLA_SUCCESS;
-	unsigned long loop_timeout ;
-	struct qla_hw_data *ha = vha->hw;
-	scsi_qla_host_t *base_vha = pci_get_drvdata(ha->pdev);
-
-	/* wait for 5 min at the max for loop to be ready */
-	loop_timeout = jiffies + (MAX_LOOP_TIMEOUT * HZ);
-
-	while ((!atomic_read(&base_vha->loop_down_timer) &&
-	    atomic_read(&base_vha->loop_state) == LOOP_DOWN) ||
-	    atomic_read(&base_vha->loop_state) != LOOP_READY) {
-		if (atomic_read(&base_vha->loop_state) == LOOP_DEAD) {
-			return_status = QLA_FUNCTION_FAILED;
-			break;
-		}
-		msleep(1000);
-		if (time_after_eq(jiffies, loop_timeout)) {
-			return_status = QLA_FUNCTION_FAILED;
-			break;
-		}
-	}
-	return (return_status);
-}
-
 static void
 sp_get(struct srb *sp)
 {
@@ -1022,12 +993,6 @@ __qla2xxx_eh_generic_reset(char *name, enum nexus_wait_type type,
 		    "Wait for hba online failed for cmd=%p.\n", cmd);
 		goto eh_reset_failed;
 	}
-	err = 1;
-	if (qla2x00_wait_for_loop_ready(vha) != QLA_SUCCESS) {
-		ql_log(ql_log_warn, vha, 0x800b,
-		    "Wait for loop ready failed for cmd=%p.\n", cmd);
-		goto eh_reset_failed;
-	}
 	err = 2;
 	if (do_reset(fcport, cmd->device->lun, cmd->request->cpu + 1)
 		!= QLA_SUCCESS) {
@@ -1124,10 +1089,9 @@ qla2xxx_eh_bus_reset(struct scsi_cmnd *cmd)
 		goto eh_bus_reset_done;
 	}
 
-	if (qla2x00_wait_for_loop_ready(vha) == QLA_SUCCESS) {
-		if (qla2x00_loop_reset(vha) == QLA_SUCCESS)
-			ret = SUCCESS;
-	}
+	if (qla2x00_loop_reset(vha) == QLA_SUCCESS)
+		ret = SUCCESS;
+
 	if (ret == FAILED)
 		goto eh_bus_reset_done;
 
@@ -1193,15 +1157,6 @@ qla2xxx_eh_host_reset(struct scsi_cmnd *cmd)
 	if (qla2x00_wait_for_reset_ready(vha) != QLA_SUCCESS)
 		goto eh_host_reset_lock;
 
-	/*
-	 * Fixme-may be dpc thread is active and processing
-	 * loop_resync,so wait a while for it to
-	 * be completed and then issue big hammer.Otherwise
-	 * it may cause I/O failure as big hammer marks the
-	 * devices as lost kicking of the port_down_timer
-	 * while dpc is stuck for the mailbox to complete.
-	 */
-	qla2x00_wait_for_loop_ready(vha);
 	if (vha != base_vha) {
 		if (qla2x00_vp_abort_isp(vha))
 			goto eh_host_reset_lock;
@@ -1284,16 +1239,13 @@ qla2x00_loop_reset(scsi_qla_host_t *vha)
 		atomic_set(&vha->loop_state, LOOP_DOWN);
 		atomic_set(&vha->loop_down_timer, LOOP_DOWN_TIME);
 		qla2x00_mark_all_devices_lost(vha, 0);
-		qla2x00_wait_for_loop_ready(vha);
 	}
 
 	if (ha->flags.enable_lip_reset) {
 		ret = qla2x00_lip_reset(vha);
-		if (ret != QLA_SUCCESS) {
+		if (ret != QLA_SUCCESS)
 			ql_dbg(ql_dbg_taskm, vha, 0x802e,
 			    "lip_reset failed (%d).\n", ret);
-		} else
-			qla2x00_wait_for_loop_ready(vha);
 	}
 
 	/* Issue marker command only when we are going to start the I/O */
@@ -1750,9 +1702,9 @@ static struct isp_operations qla82xx_isp_ops = {
 	.read_nvram		= qla24xx_read_nvram_data,
 	.write_nvram		= qla24xx_write_nvram_data,
 	.fw_dump		= qla24xx_fw_dump,
-	.beacon_on		= qla24xx_beacon_on,
-	.beacon_off		= qla24xx_beacon_off,
-	.beacon_blink		= qla24xx_beacon_blink,
+	.beacon_on		= qla82xx_beacon_on,
+	.beacon_off		= qla82xx_beacon_off,
+	.beacon_blink		= NULL,
 	.read_optrom		= qla82xx_read_optrom_data,
 	.write_optrom		= qla82xx_write_optrom_data,
 	.get_flash_version	= qla24xx_get_flash_version,
@@ -2669,6 +2621,8 @@ qla2x00_free_device(scsi_qla_host_t *vha)
 	qla2x00_free_fcports(vha);
 
 	qla2x00_mem_free(ha);
+
+	qla82xx_md_free(vha);
 
 	qla2x00_free_queues(ha);
 }
@@ -3903,8 +3857,11 @@ qla2x00_timer(scsi_qla_host_t *vha)
 
 	/* Check if beacon LED needs to be blinked for physical host only */
 	if (!vha->vp_idx && (ha->beacon_blink_led == 1)) {
-		set_bit(BEACON_BLINK_NEEDED, &vha->dpc_flags);
-		start_dpc++;
+		/* There is no beacon_blink function for ISP82xx */
+		if (!IS_QLA82XX(ha)) {
+			set_bit(BEACON_BLINK_NEEDED, &vha->dpc_flags);
+			start_dpc++;
+		}
 	}
 
 	/* Process any deferred work. */
@@ -4052,13 +4009,8 @@ qla2xxx_pci_error_detected(struct pci_dev *pdev, pci_channel_state_t state)
 		/* For ISP82XX complete any pending mailbox cmd */
 		if (IS_QLA82XX(ha)) {
 			ha->flags.isp82xx_fw_hung = 1;
-			if (ha->flags.mbox_busy) {
-				ha->flags.mbox_int = 1;
-				ql_dbg(ql_dbg_aer, vha, 0x9001,
-				    "Due to pci channel io frozen, doing premature "
-				    "completion of mbx command.\n");
-				complete(&ha->mbx_intr_comp);
-			}
+			ql_dbg(ql_dbg_aer, vha, 0x9001, "Pci channel io frozen\n");
+			qla82xx_clear_pending_mbx(vha);
 		}
 		qla2x00_free_irqs(vha);
 		pci_disable_device(pdev);

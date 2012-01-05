@@ -248,7 +248,6 @@ struct physdev_get_free_pirq {
     /* OUT */
     uint32_t pirq;
 };
-
 typedef struct physdev_get_free_pirq physdev_get_free_pirq_t;
 DEFINE_XEN_GUEST_HANDLE(physdev_get_free_pirq_t);
 

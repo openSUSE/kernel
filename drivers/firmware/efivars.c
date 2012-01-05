@@ -457,7 +457,8 @@ static int efi_pstore_close(struct pstore_info *psi)
 }
 
 static ssize_t efi_pstore_read(u64 *id, enum pstore_type_id *type,
-			       struct timespec *timespec, struct pstore_info *psi)
+			       struct timespec *timespec,
+			       char **buf, struct pstore_info *psi)
 {
 	efi_guid_t vendor = LINUX_EFI_CRASH_GUID;
 	struct efivars *efivars = psi->data;
@@ -478,7 +479,11 @@ static ssize_t efi_pstore_read(u64 *id, enum pstore_type_id *type,
 				timespec->tv_nsec = 0;
 				get_var_data_locked(efivars, &efivars->walk_entry->var);
 				size = efivars->walk_entry->var.DataSize;
-				memcpy(psi->buf, efivars->walk_entry->var.Data, size);
+				*buf = kmalloc(size, GFP_KERNEL);
+				if (*buf == NULL)
+					return -ENOMEM;
+				memcpy(*buf, efivars->walk_entry->var.Data,
+				       size);
 				efivars->walk_entry = list_entry(efivars->walk_entry->list.next,
 					           struct efivar_entry, list);
 				return size;
@@ -490,8 +495,8 @@ static ssize_t efi_pstore_read(u64 *id, enum pstore_type_id *type,
 	return 0;
 }
 
-static u64 efi_pstore_write(enum pstore_type_id type, unsigned int part,
-			    size_t size, struct pstore_info *psi)
+static int efi_pstore_write(enum pstore_type_id type, u64 *id,
+		unsigned int part, size_t size, struct pstore_info *psi)
 {
 	char name[DUMP_NAME_LEN];
 	char stub_name[DUMP_NAME_LEN];
@@ -499,7 +504,7 @@ static u64 efi_pstore_write(enum pstore_type_id type, unsigned int part,
 	efi_guid_t vendor = LINUX_EFI_CRASH_GUID;
 	struct efivars *efivars = psi->data;
 	struct efivar_entry *entry, *found = NULL;
-	int i;
+	int i, ret = 0;
 
 	sprintf(stub_name, "dump-type%u-%u-", type, part);
 	sprintf(name, "%s%lu", stub_name, get_seconds());
@@ -548,18 +553,19 @@ static u64 efi_pstore_write(enum pstore_type_id type, unsigned int part,
 		efivar_unregister(found);
 
 	if (size)
-		efivar_create_sysfs_entry(efivars,
+		ret = efivar_create_sysfs_entry(efivars,
 					  utf16_strsize(efi_name,
 							DUMP_NAME_LEN * 2),
 					  efi_name, &vendor);
 
-	return part;
+	*id = part;
+	return ret;
 };
 
 static int efi_pstore_erase(enum pstore_type_id type, u64 id,
 			    struct pstore_info *psi)
 {
-	efi_pstore_write(type, id, 0, psi);
+	efi_pstore_write(type, &id, (unsigned int)id, 0, psi);
 
 	return 0;
 }
@@ -575,13 +581,14 @@ static int efi_pstore_close(struct pstore_info *psi)
 }
 
 static ssize_t efi_pstore_read(u64 *id, enum pstore_type_id *type,
-			       struct timespec *time, struct pstore_info *psi)
+			       struct timespec *timespec,
+			       char **buf, struct pstore_info *psi)
 {
 	return -1;
 }
 
-static u64 efi_pstore_write(enum pstore_type_id type, unsigned int part,
-			    size_t size, struct pstore_info *psi)
+static int efi_pstore_write(enum pstore_type_id type, u64 *id,
+		unsigned int part, size_t size, struct pstore_info *psi)
 {
 	return 0;
 }
@@ -978,7 +985,7 @@ int register_efivars(struct efivars *efivars,
 	if (efivars->efi_pstore_info.buf) {
 		efivars->efi_pstore_info.bufsize = 1024;
 		efivars->efi_pstore_info.data = efivars;
-		mutex_init(&efivars->efi_pstore_info.buf_mutex);
+		spin_lock_init(&efivars->efi_pstore_info.buf_lock);
 		pstore_register(&efivars->efi_pstore_info);
 	}
 

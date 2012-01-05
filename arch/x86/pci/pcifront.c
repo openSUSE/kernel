@@ -4,7 +4,6 @@
  *
  *   Author: Ryan Wilson <hap9@epoch.ncsc.mil>
  */
-#include <linux/module.h>
 #include <linux/init.h>
 #include <linux/irq.h>
 #include <linux/pci.h>

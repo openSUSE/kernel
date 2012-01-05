@@ -65,22 +65,13 @@ static inline int invalid_vm86_irq(int irq)
 		   ? (n) : (1 << (PAGE_SHIFT + 3)) - NR_VECTORS)
 
 #define IO_APIC_VECTOR_LIMIT		PIRQ_MAX(32 * MAX_IO_APICS)
-
-#ifdef CONFIG_SPARSE_IRQ
-# define CPU_VECTOR_LIMIT		PIRQ_MAX(64 * NR_CPUS)
-#else
-# define CPU_VECTOR_LIMIT		PIRQ_MAX(32 * NR_CPUS)
-#endif
+#define CPU_VECTOR_LIMIT		PIRQ_MAX(64 * NR_CPUS)
 
 #if defined(CONFIG_X86_IO_APIC)
-# ifdef CONFIG_SPARSE_IRQ
-#  define NR_PIRQS			(NR_VECTORS + IO_APIC_VECTOR_LIMIT)
-# else
-#  define NR_PIRQS					\
-	(CPU_VECTOR_LIMIT < IO_APIC_VECTOR_LIMIT ?	\
+# define NR_PIRQS					\
+	(CPU_VECTOR_LIMIT > IO_APIC_VECTOR_LIMIT ?	\
 		(NR_VECTORS + CPU_VECTOR_LIMIT)  :	\
 		(NR_VECTORS + IO_APIC_VECTOR_LIMIT))
-# endif
 #elif defined(CONFIG_XEN_PCIDEV_FRONTEND)
 # define NR_PIRQS			(NR_VECTORS + CPU_VECTOR_LIMIT)
 #else /* !CONFIG_X86_IO_APIC: */

@@ -26,12 +26,14 @@
 #include <linux/msi.h>
 #include <linux/irqreturn.h>
 
+struct acpi_dmar_header;
+
 /* DMAR Flags */
 #define DMAR_INTR_REMAP		0x1
 #define DMAR_X2APIC_OPT_OUT	0x2
 
 struct intel_iommu;
-#if defined(CONFIG_DMAR) || defined(CONFIG_INTR_REMAP)
+#ifdef CONFIG_DMAR_TABLE
 extern struct acpi_table_header *dmar_tbl;
 struct dmar_drhd_unit {
 	struct list_head list;		/* list of drhd units	*/
@@ -81,7 +83,7 @@ static inline int enable_drhd_fault_handling(void)
 {
 	return -1;
 }
-#endif /* !CONFIG_DMAR && !CONFIG_INTR_REMAP */
+#endif /* !CONFIG_DMAR_TABLE */
 
 struct irte {
 	union {
@@ -112,7 +114,7 @@ struct irte {
 	};
 };
 
-#ifdef CONFIG_INTR_REMAP
+#ifdef CONFIG_IRQ_REMAP
 extern int intr_remapping_enabled;
 extern int intr_remapping_supported(void);
 extern int enable_intr_remapping(void);
@@ -214,7 +216,7 @@ extern int dmar_set_interrupt(struct intel_iommu *iommu);
 extern irqreturn_t dmar_fault(int irq, void *dev_id);
 extern int arch_setup_dmar_msi(unsigned int irq);
 
-#ifdef CONFIG_DMAR
+#ifdef CONFIG_INTEL_IOMMU
 extern int iommu_detected, no_iommu;
 extern struct list_head dmar_rmrr_units;
 struct dmar_rmrr_unit {
@@ -237,9 +239,26 @@ struct dmar_atsr_unit {
 	u8 include_all:1;		/* include all ports */
 };
 
+int dmar_parse_rmrr_atsr_dev(void);
+extern int dmar_parse_one_rmrr(struct acpi_dmar_header *header);
+extern int dmar_parse_one_atsr(struct acpi_dmar_header *header);
+extern int dmar_parse_dev_scope(void *start, void *end, int *cnt,
+				struct pci_dev ***devices, u16 segment);
 extern int intel_iommu_init(void);
-#else /* !CONFIG_DMAR: */
+#else /* !CONFIG_INTEL_IOMMU: */
 static inline int intel_iommu_init(void) { return -ENODEV; }
-#endif /* CONFIG_DMAR */
+static inline int dmar_parse_one_rmrr(struct acpi_dmar_header *header)
+{
+	return 0;
+}
+static inline int dmar_parse_one_atsr(struct acpi_dmar_header *header)
+{
+	return 0;
+}
+static inline int dmar_parse_rmrr_atsr_dev(void)
+{
+	return 0;
+}
+#endif /* CONFIG_INTEL_IOMMU */
 
 #endif /* __DMAR_H__ */

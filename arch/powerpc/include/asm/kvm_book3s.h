@@ -139,15 +139,14 @@ extern void kvmppc_giveup_ext(struct kvm_vcpu *vcpu, ulong msr);
 extern int kvmppc_emulate_paired_single(struct kvm_run *run, struct kvm_vcpu *vcpu);
 extern pfn_t kvmppc_gfn_to_pfn(struct kvm_vcpu *vcpu, gfn_t gfn);
 
-extern void kvmppc_handler_lowmem_trampoline(void);
-extern void kvmppc_handler_trampoline_enter(void);
-extern void kvmppc_rmcall(ulong srr0, ulong srr1);
+extern void kvmppc_entry_trampoline(void);
 extern void kvmppc_hv_entry_trampoline(void);
 extern void kvmppc_load_up_fpu(void);
 extern void kvmppc_load_up_altivec(void);
 extern void kvmppc_load_up_vsx(void);
 extern u32 kvmppc_alignment_dsisr(struct kvm_vcpu *vcpu, unsigned int inst);
 extern ulong kvmppc_alignment_dar(struct kvm_vcpu *vcpu, unsigned int inst);
+extern int kvmppc_h_pr(struct kvm_vcpu *vcpu, unsigned long cmd);
 
 static inline struct kvmppc_vcpu_book3s *to_book3s(struct kvm_vcpu *vcpu)
 {

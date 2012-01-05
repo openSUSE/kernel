@@ -89,6 +89,10 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		seq_printf(m, "stepping\t: %d\n", c->x86_mask);
 	else
 		seq_printf(m, "stepping\t: unknown\n");
+#ifndef CONFIG_XEN
+	if (c->microcode)
+		seq_printf(m, "microcode\t: 0x%x\n", c->microcode);
+#endif
 
 	if (cpu_has(c, X86_FEATURE_TSC)) {
 		unsigned int freq = cpufreq_quick_get(cpu);

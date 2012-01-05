@@ -54,6 +54,7 @@
 #include <linux/delay.h>
 #include <linux/nfs_fs.h>
 #include <linux/slab.h>
+#include <linux/export.h>
 #include <net/net_namespace.h>
 #include <net/arp.h>
 #include <net/ip.h>
@@ -251,6 +252,10 @@ static int __init ic_open_devs(void)
 				dev->name, able, d->xid));
 		}
 	}
+
+	/* no point in waiting if we could not bring up at least one device */
+	if (!ic_first_dev)
+		goto have_carrier;
 
 	/* wait for a carrier on at least one device */
 	start = jiffies;

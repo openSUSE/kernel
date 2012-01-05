@@ -27,8 +27,6 @@
 #ifndef __BLKIF__BACKEND__COMMON_H__
 #define __BLKIF__BACKEND__COMMON_H__
 
-#include <linux/version.h>
-#include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/slab.h>
 #include <linux/blkdev.h>
@@ -43,6 +41,11 @@
 #define DPRINTK(_f, _a...)			\
 	pr_debug("(file=%s, line=%d) " _f,	\
 		 __FILE__ , __LINE__ , ## _a )
+
+enum blkif_backend_type {
+	BLKIF_BACKEND_PHY  = 1,
+	BLKIF_BACKEND_FILE = 2,
+};
 
 struct vbd {
 	blkif_vdev_t   handle;      /* what the domain refers to this vbd as */
@@ -64,6 +67,7 @@ typedef struct blkif_st {
 	unsigned int      irq;
 	/* Comms information. */
 	enum blkif_protocol blk_protocol;
+	enum blkif_backend_type blk_backend_type;
 	blkif_back_rings_t blk_rings;
 	struct vm_struct *blk_ring_area;
 	/* The VBD attached to this interface. */
@@ -75,6 +79,9 @@ typedef struct blkif_st {
 	atomic_t         refcnt;
 
 	wait_queue_head_t   wq;
+	/* for barrier (drain) requests */
+	struct completion   drain_complete;
+	atomic_t            drain;
 	struct task_struct  *xenblkd;
 	unsigned int        waiting_reqs;
 	struct request_queue *plug;
@@ -86,6 +93,7 @@ typedef struct blkif_st {
 	int                 st_oo_req;
 	int                 st_br_req;
 	int                 st_fl_req;
+	int                 st_ds_req;
 	int                 st_pk_req;
 	int                 st_rd_sect;
 	int                 st_wr_sect;
@@ -128,7 +136,7 @@ unsigned long vbd_secsize(struct vbd *vbd);
 
 struct phys_req {
 	unsigned short       dev;
-	unsigned short       nr_sects;
+	blkif_sector_t       nr_sects;
 	struct block_device *bdev;
 	blkif_sector_t       sector_number;
 };

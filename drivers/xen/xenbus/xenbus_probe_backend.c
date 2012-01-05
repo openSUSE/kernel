@@ -44,6 +44,7 @@
 #include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/notifier.h>
+#include <linux/export.h>
 
 #include <asm/page.h>
 #include <asm/pgtable.h>
@@ -116,8 +117,6 @@ static int xenbus_uevent_backend(struct device *dev,
 
 	xdev = to_xenbus_device(dev);
 	bus = container_of(xdev->dev.bus, struct xen_bus_type, bus);
-	if (xdev == NULL)
-		return -ENODEV;
 
 	if (add_uevent_var(env, "MODALIAS=xen-backend:%s", xdev->devicetype))
 		return -ENOMEM;
@@ -258,15 +257,13 @@ int xenbus_dev_is_online(struct xenbus_device *dev)
 EXPORT_SYMBOL_GPL(xenbus_dev_is_online);
 #endif
 
-int __xenbus_register_backend(struct xenbus_driver *drv,
-			      struct module *owner, const char *mod_name)
+int xenbus_register_backend(struct xenbus_driver *drv)
 {
 	drv->read_otherend_details = read_frontend_details;
 
-	return xenbus_register_driver_common(drv, &xenbus_backend,
-					     owner, mod_name);
+	return xenbus_register_driver_common(drv, &xenbus_backend);
 }
-EXPORT_SYMBOL_GPL(__xenbus_register_backend);
+EXPORT_SYMBOL_GPL(xenbus_register_backend);
 
 #if defined(CONFIG_XEN) || defined(HAVE_XEN_PLATFORM_COMPAT_H)
 

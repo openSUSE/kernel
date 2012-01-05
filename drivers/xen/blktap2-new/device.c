@@ -2,6 +2,7 @@
 #include <linux/blkdev.h>
 #include <linux/cdrom.h>
 #include <linux/hdreg.h>
+#include <linux/module.h>
 #include <scsi/scsi.h>
 #include <scsi/scsi_ioctl.h>
 

@@ -3,7 +3,6 @@
 #include <linux/cdrom.h>
 #include <linux/hdreg.h>
 #include <linux/module.h>
-#include <linux/version.h>
 #include <asm/tlbflush.h>
 
 #include <scsi/scsi.h>
@@ -94,26 +93,6 @@ blktap_device_ioctl(struct block_device *bd, fmode_t mode,
 		      command, (long)argument);
 
 	switch (command) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,16)
-	case HDIO_GETGEO: {
-		struct hd_geometry geo;
-		int ret;
-
-                if (!argument)
-                        return -EINVAL;
-
-		geo.start = get_start_sect(bd);
-		ret = blktap_device_getgeo(bd, &geo);
-		if (ret)
-			return ret;
-
-		if (copy_to_user((struct hd_geometry __user *)argument, &geo,
-				 sizeof(geo)))
-                        return -EFAULT;
-
-                return 0;
-	}
-#endif
 	case CDROMMULTISESSION:
 		BTDBG("FIXME: support multisession CDs later\n");
 		for (i = 0; i < sizeof(struct cdrom_multisession); i++)
@@ -144,9 +123,7 @@ static const struct block_device_operations blktap_device_file_operations = {
 	.open      = blktap_device_open,
 	.release   = blktap_device_release,
 	.ioctl     = blktap_device_ioctl,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,16)
 	.getgeo    = blktap_device_getgeo
-#endif
 };
 
 static int
@@ -1141,11 +1118,7 @@ blktap_device_create(struct blktap *tap)
 	if (!rq)
 		goto error;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,10)
 	elevator_init(rq, "noop");
-#else
-	elevator_init(rq, &elevator_noop);
-#endif
 
 	gd->queue     = rq;
 	rq->queuedata = dev;

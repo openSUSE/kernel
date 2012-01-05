@@ -37,7 +37,9 @@
 #else
 #include <linux/types.h>
 #include <linux/vmalloc.h>
+#include <linux/export.h>
 #include <asm/xen/hypervisor.h>
+#include <asm/xen/page.h>
 #include <xen/interface/xen.h>
 #include <xen/interface/event_channel.h>
 #include <xen/events.h>
@@ -449,25 +451,26 @@ EXPORT_SYMBOL_GPL(xenbus_free_evtchn);
 int xenbus_map_ring_valloc(struct xenbus_device *dev, grant_ref_t gnt_ref, void **vaddr)
 {
 	struct gnttab_map_grant_ref op = {
-		.flags = GNTMAP_host_map,
+		.flags = GNTMAP_host_map | GNTMAP_contains_pte,
 		.ref   = gnt_ref,
 		.dom   = dev->otherend_id,
 	};
 	struct vm_struct *area;
+	pte_t *pte;
 
 	*vaddr = NULL;
 
-	area = xen_alloc_vm_area(PAGE_SIZE);
+	area = alloc_vm_area(PAGE_SIZE, &pte);
 	if (!area)
 		return -ENOMEM;
 
-	op.host_addr = (unsigned long)area->addr;
+	op.host_addr = arbitrary_virt_to_machine(pte).maddr;
 
 	if (HYPERVISOR_grant_table_op(GNTTABOP_map_grant_ref, &op, 1))
 		BUG();
 
 	if (op.status != GNTST_okay) {
-		xen_free_vm_area(area);
+		free_vm_area(area);
 		xenbus_dev_fatal(dev, op.status,
 				 "mapping in shared page %d from domain %d",
 				 gnt_ref, dev->otherend_id);
@@ -540,6 +543,7 @@ int xenbus_unmap_ring_vfree(struct xenbus_device *dev, void *vaddr)
 	struct gnttab_unmap_grant_ref op = {
 		.host_addr = (unsigned long)vaddr,
 	};
+	unsigned int level;
 
 	/* It'd be nice if linux/vmalloc.h provided a find_vm_area(void *addr)
 	 * method so that we don't have to muck with vmalloc internals here.
@@ -561,12 +565,14 @@ int xenbus_unmap_ring_vfree(struct xenbus_device *dev, void *vaddr)
 	}
 
 	op.handle = (grant_handle_t)area->phys_addr;
+	op.host_addr = arbitrary_virt_to_machine(
+		lookup_address((unsigned long)vaddr, &level)).maddr;
 
 	if (HYPERVISOR_grant_table_op(GNTTABOP_unmap_grant_ref, &op, 1))
 		BUG();
 
 	if (op.status == GNTST_okay)
-		xen_free_vm_area(area);
+		free_vm_area(area);
 	else
 		xenbus_dev_error(dev, op.status,
 				 "unmapping page at handle %d error %d",

@@ -48,10 +48,11 @@
 
 int xen_spinlock_init(unsigned int cpu);
 void xen_spinlock_cleanup(unsigned int cpu);
-unsigned int xen_spin_wait(arch_spinlock_t *, unsigned int *token,
+unsigned int xen_spin_wait(arch_spinlock_t *, struct __raw_tickets *,
 			   unsigned int flags);
-unsigned int xen_spin_adjust(const arch_spinlock_t *, unsigned int token);
-void xen_spin_kick(arch_spinlock_t *, unsigned int token);
+struct __raw_tickets xen_spin_adjust(const arch_spinlock_t *,
+				     struct __raw_tickets);
+void xen_spin_kick(arch_spinlock_t *, __ticket_t);
 
 /*
  * Ticket locks are conceptually two parts, one indicating the current head of
@@ -65,205 +66,110 @@ void xen_spin_kick(arch_spinlock_t *, unsigned int token);
  * issues and should be optimal for the uncontended case. Note the tail must be
  * in the high part, because a wide xadd increment of the low part would carry
  * up and contaminate the high part.
- *
- * With fewer than 2^8 possible CPUs, we can use x86's partial registers to
- * save some instructions and make the code more elegant. There really isn't
- * much between them in performance though, especially as locks are out of line.
  */
-#if TICKET_SHIFT == 8
-#define __ticket_spin_lock_preamble \
-	asm(LOCK_PREFIX "xaddw %w0, %2\n\t" \
-	    "cmpb %h0, %b0\n\t" \
-	    "sete %1" \
-	    : "=&Q" (token), "=qm" (free), "+m" (lock->slock) \
-	    : "0" (0x0100) \
-	    : "memory", "cc")
-#define __ticket_spin_lock_body \
-	asm("1:\t" \
-	    "cmpb %h0, %b0\n\t" \
-	    "je 2f\n\t" \
-	    "decl %1\n\t" \
-	    "jz 2f\n\t" \
-	    "rep ; nop\n\t" \
-	    "movb %2, %b0\n\t" \
-	    /* don't need lfence here, because loads are in-order */ \
-	    "jmp 1b\n" \
-	    "2:" \
-	    : "+Q" (token), "+g" (count) \
-	    : "m" (lock->slock) \
-	    : "memory", "cc")
-#define __ticket_spin_unlock_body \
-	asm(UNLOCK_LOCK_PREFIX "incb %2\n\t" \
-	    "movzwl %2, %0\n\t" \
-	    "cmpb %h0, %b0\n\t" \
-	    "setne %1" \
-	    : "=&Q" (token), "=qm" (kick), "+m" (lock->slock) \
-	    : \
-	    : "memory", "cc")
-
-static __always_inline int __ticket_spin_trylock(arch_spinlock_t *lock)
-{
-	int tmp, new;
-
-	asm("movzwl %2, %0\n\t"
-	    "cmpb %h0, %b0\n\t"
-	    "leal 0x100(%" REG_PTR_MODE "0), %1\n\t"
-	    "jne 1f\n\t"
-	    LOCK_PREFIX "cmpxchgw %w1, %2\n\t"
-	    "1:\t"
-	    "sete %b1\n\t"
-	    "movzbl %b1, %0\n\t"
-	    : "=&a" (tmp), "=&q" (new), "+m" (lock->slock)
-	    :
-	    : "memory", "cc");
-
-	if (tmp)
-		lock->owner = raw_smp_processor_id();
-
-	return tmp;
-}
-#elif TICKET_SHIFT == 16
-#define __ticket_spin_lock_preamble \
-	do { \
-		unsigned int tmp; \
-		asm(LOCK_PREFIX "xaddl %0, %2\n\t" \
-		    "shldl $16, %0, %3\n\t" \
-		    "cmpw %w3, %w0\n\t" \
-		    "sete %1" \
-		    : "=&r" (token), "=qm" (free), "+m" (lock->slock), \
-		      "=&g" (tmp) \
-		    : "0" (0x00010000) \
-		    : "memory", "cc"); \
-	} while (0)
-#define __ticket_spin_lock_body \
-	do { \
-		unsigned int tmp; \
-		asm("shldl $16, %0, %2\n" \
-		    "1:\t" \
-		    "cmpw %w2, %w0\n\t" \
-		    "je 2f\n\t" \
-		    "decl %1\n\t" \
-		    "jz 2f\n\t" \
-		    "rep ; nop\n\t" \
-		    "movw %3, %w0\n\t" \
-		    /* don't need lfence here, because loads are in-order */ \
-		    "jmp 1b\n" \
-		    "2:" \
-		    : "+r" (token), "+g" (count), "=&g" (tmp) \
-		    : "m" (lock->slock) \
-		    : "memory", "cc"); \
-	} while (0)
-#define __ticket_spin_unlock_body \
-	do { \
-		unsigned int tmp; \
-		asm(UNLOCK_LOCK_PREFIX "incw %2\n\t" \
-		    "movl %2, %0\n\t" \
-		    "shldl $16, %0, %3\n\t" \
-		    "cmpw %w3, %w0\n\t" \
-		    "setne %1" \
-		    : "=&r" (token), "=qm" (kick), "+m" (lock->slock), \
-		      "=&r" (tmp) \
-		    : \
-		    : "memory", "cc"); \
-	} while (0)
-
-static __always_inline int __ticket_spin_trylock(arch_spinlock_t *lock)
-{
-	int tmp;
-	int new;
-
-	asm("movl %2, %0\n\t"
-	    "movl %0, %1\n\t"
-	    "roll $16, %0\n\t"
-	    "cmpl %0, %1\n\t"
-	    "leal 0x00010000(%" REG_PTR_MODE "0), %1\n\t"
-	    "jne 1f\n\t"
-	    LOCK_PREFIX "cmpxchgl %1, %2\n"
-	    "1:\t"
-	    "sete %b1\n\t"
-	    "movzbl %b1, %0\n\t"
-	    : "=&a" (tmp), "=&q" (new), "+m" (lock->slock)
-	    :
-	    : "memory", "cc");
-
-	if (tmp)
-		lock->owner = raw_smp_processor_id();
-
-	return tmp;
-}
-#endif
-
 #define __ticket_spin_count(lock) (vcpu_running((lock)->owner) ? 1 << 10 : 1)
-
-static inline int __ticket_spin_is_locked(arch_spinlock_t *lock)
-{
-	int tmp = ACCESS_ONCE(lock->slock);
-
-	return !!(((tmp >> TICKET_SHIFT) ^ tmp) & ((1 << TICKET_SHIFT) - 1));
-}
-
-static inline int __ticket_spin_is_contended(arch_spinlock_t *lock)
-{
-	int tmp = ACCESS_ONCE(lock->slock);
-
-	return (((tmp >> TICKET_SHIFT) - tmp) & ((1 << TICKET_SHIFT) - 1)) > 1;
-}
 
 static __always_inline void __ticket_spin_lock(arch_spinlock_t *lock)
 {
-	unsigned int token, count;
-	unsigned int flags = arch_local_irq_save();
-	bool free;
+	struct __raw_tickets inc = { .tail = 1 };
+	unsigned int count, flags = arch_local_irq_save();
 
-	__ticket_spin_lock_preamble;
-	if (likely(free))
+	inc = xadd(&lock->tickets, inc);
+	if (likely(inc.head == inc.tail))
 		arch_local_irq_restore(flags);
 	else {
-		token = xen_spin_adjust(lock, token);
+		inc = xen_spin_adjust(lock, inc);
 		arch_local_irq_restore(flags);
 		count = __ticket_spin_count(lock);
 		do {
-			__ticket_spin_lock_body;
+			while (inc.head != inc.tail && --count) {
+				cpu_relax();
+				inc.head = ACCESS_ONCE(lock->tickets.head);
+			}
 		} while (unlikely(!count)
-			 && (count = xen_spin_wait(lock, &token, flags)));
+			 && (count = xen_spin_wait(lock, &inc, flags)));
 	}
+	barrier();		/* make sure nothing creeps before the lock is taken */
 	lock->owner = raw_smp_processor_id();
 }
 
 static __always_inline void __ticket_spin_lock_flags(arch_spinlock_t *lock,
 						     unsigned long flags)
 {
-	unsigned int token, count;
-	bool free;
+	struct __raw_tickets inc = { .tail = 1 };
+	unsigned int count;
 
-	__ticket_spin_lock_preamble;
-	if (unlikely(!free)) {
-		token = xen_spin_adjust(lock, token);
+	inc = xadd(&lock->tickets, inc);
+	if (unlikely(inc.head != inc.tail)) {
+		inc = xen_spin_adjust(lock, inc);
 		count = __ticket_spin_count(lock);
 		do {
-			__ticket_spin_lock_body;
+			while (inc.head != inc.tail && --count) {
+				cpu_relax();
+				inc.head = ACCESS_ONCE(lock->tickets.head);
+			}
 		} while (unlikely(!count)
-			 && (count = xen_spin_wait(lock, &token, flags)));
+			 && (count = xen_spin_wait(lock, &inc, flags)));
 	}
+	barrier();		/* make sure nothing creeps before the lock is taken */
 	lock->owner = raw_smp_processor_id();
+}
+
+static __always_inline int __ticket_spin_trylock(arch_spinlock_t *lock)
+{
+	arch_spinlock_t old, new;
+
+	old.tickets = ACCESS_ONCE(lock->tickets);
+	if (old.tickets.head != old.tickets.tail)
+		return 0;
+
+	new.head_tail = old.head_tail + (1 << TICKET_SHIFT);
+
+	/* cmpxchg is a full barrier, so nothing can move before it */
+	if (cmpxchg(&lock->head_tail, old.head_tail, new.head_tail) != old.head_tail)
+		return 0;
+	lock->owner = raw_smp_processor_id();
+	return 1;
 }
 
 static __always_inline void __ticket_spin_unlock(arch_spinlock_t *lock)
 {
-	unsigned int token;
-	bool kick;
+	register struct __raw_tickets new;
 
-	__ticket_spin_unlock_body;
-	if (kick)
-		xen_spin_kick(lock, token);
+#if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
+# define UNLOCK_SUFFIX(n) "%z" #n
+#elif TICKET_SHIFT == 8
+# define UNLOCK_SUFFIX(n) "b"
+#elif TICKET_SHIFT == 16
+# define UNLOCK_SUFFIX(n) "w"
+#endif
+	asm volatile(UNLOCK_LOCK_PREFIX "inc" UNLOCK_SUFFIX(0) " %0"
+		     : "+m" (lock->tickets.head)
+		     :
+		     : "memory", "cc");
+#ifndef XEN_SPINLOCK_SOURCE
+# undef UNLOCK_SUFFIX
+# undef UNLOCK_LOCK_PREFIX
+# undef __ticket_spin_count
+#endif
+	new = ACCESS_ONCE(lock->tickets);
+	if (new.head != new.tail)
+		xen_spin_kick(lock, new.head);
 }
 
-#ifndef XEN_SPINLOCK_SOURCE
-#undef __ticket_spin_lock_preamble
-#undef __ticket_spin_lock_body
-#undef __ticket_spin_unlock_body
-#undef __ticket_spin_count
-#endif
+static inline int __ticket_spin_is_locked(arch_spinlock_t *lock)
+{
+	struct __raw_tickets tmp = ACCESS_ONCE(lock->tickets);
+
+	return !!(tmp.tail ^ tmp.head);
+}
+
+static inline int __ticket_spin_is_contended(arch_spinlock_t *lock)
+{
+	struct __raw_tickets tmp = ACCESS_ONCE(lock->tickets);
+
+	return ((tmp.tail - tmp.head) & TICKET_MASK) > 1;
+}
 
 #define __arch_spin(n) __ticket_spin_##n
 

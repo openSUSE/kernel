@@ -338,6 +338,32 @@ static void backend_changed(struct xenbus_device *dev,
 
 /* ** Connection ** */
 
+static void blkfront_setup_discard(struct blkfront_info *info)
+{
+	int err;
+	char *type;
+	unsigned int discard_granularity;
+	unsigned int discard_alignment;
+
+	type = xenbus_read(XBT_NIL, info->xbdev->otherend, "type", NULL);
+	if (IS_ERR(type))
+		return;
+
+	if (strncmp(type, "phy", 3) == 0) {
+		err = xenbus_gather(XBT_NIL, info->xbdev->otherend,
+			"discard-granularity", "%u", &discard_granularity,
+			"discard-alignment", "%u", &discard_alignment,
+			NULL);
+		if (!err) {
+			info->feature_discard = 1;
+			info->discard_granularity = discard_granularity;
+			info->discard_alignment = discard_alignment;
+		}
+	} else if (strncmp(type, "file", 4) == 0)
+		info->feature_discard = 1;
+
+	kfree(type);
+}
 
 /*
  * Invoked when the backend is finally 'ready' (and has told produced
@@ -348,7 +374,7 @@ static void connect(struct blkfront_info *info)
 	unsigned long long sectors;
 	unsigned long sector_size;
 	unsigned int binfo;
-	int err, barrier, flush;
+	int err, barrier, flush, discard;
 
 	switch (info->connected) {
 	case BLKIF_STATE_CONNECTED:
@@ -425,6 +451,12 @@ static void connect(struct blkfront_info *info)
 	else
 		info->feature_flush = QUEUE_ORDERED_NONE;
 #endif
+
+	err = xenbus_scanf(XBT_NIL, info->xbdev->otherend,
+			   "feature-discard", "%d", &discard);
+
+	if (err > 0 && discard)
+		blkfront_setup_discard(info);
 
 	err = xlvbd_add(sectors, info->vdevice, binfo, sector_size, info);
 	if (err) {
@@ -752,9 +784,17 @@ static int blkif_queue_request(struct request *req)
 	if (req->cmd_type == REQ_TYPE_BLOCK_PC)
 		ring_req->operation = BLKIF_OP_PACKET;
 
-	ring_req->nr_segments = blk_rq_map_sg(req->q, req, info->sg);
-	BUG_ON(ring_req->nr_segments > BLKIF_MAX_SEGMENTS_PER_REQUEST);
-	for_each_sg(info->sg, sg, ring_req->nr_segments, i) {
+	if (unlikely(req->cmd_flags & REQ_DISCARD)) {
+		struct blkif_request_discard *discard = (void *)ring_req;
+
+		/* id, sector_number and handle are set above. */
+		discard->operation = BLKIF_OP_DISCARD;
+		discard->flag = 0;
+		discard->nr_sectors = blk_rq_sectors(req);
+	} else {
+		ring_req->nr_segments = blk_rq_map_sg(req->q, req, info->sg);
+		BUG_ON(ring_req->nr_segments > BLKIF_MAX_SEGMENTS_PER_REQUEST);
+		for_each_sg(info->sg, sg, ring_req->nr_segments, i) {
 			buffer_mfn = page_to_phys(sg_page(sg)) >> PAGE_SHIFT;
 			fsect = sg->offset >> 9;
 			lsect = fsect + (sg->length >> 9) - 1;
@@ -774,6 +814,7 @@ static int blkif_queue_request(struct request *req)
 					.gref       = ref,
 					.first_sect = fsect,
 					.last_sect  = lsect };
+		}
 	}
 
 	info->ring.req_prod_pvt++;
@@ -906,6 +947,18 @@ static irqreturn_t blkif_int(int irq, void *dev_id)
 				DPRINTK("Bad return from blkdev data "
 					"request: %x\n", bret->status);
 
+			__blk_end_request_all(req, ret);
+			break;
+		case BLKIF_OP_DISCARD:
+			if (unlikely(bret->status == BLKIF_RSP_EOPNOTSUPP)) {
+				struct request_queue *rq = info->rq;
+
+				pr_warn("blkfront: %s: discard op failed\n",
+					info->gd->disk_name);
+				ret = -EOPNOTSUPP;
+				info->feature_discard = 0;
+				queue_flag_clear(QUEUE_FLAG_DISCARD, rq);
+			}
 			__blk_end_request_all(req, ret);
 			break;
 		default:
@@ -1050,15 +1103,13 @@ static const struct xenbus_device_id blkfront_ids[] = {
 };
 MODULE_ALIAS("xen:vbd");
 
-static struct xenbus_driver blkfront = {
-	.name = "vbd",
-	.ids = blkfront_ids,
+static DEFINE_XENBUS_DRIVER(blkfront, ,
 	.probe = blkfront_probe,
 	.remove = blkfront_remove,
 	.resume = blkfront_resume,
 	.otherend_changed = backend_changed,
 	.is_ready = blkfront_is_ready,
-};
+);
 
 
 static int __init xlblk_init(void)
@@ -1066,14 +1117,14 @@ static int __init xlblk_init(void)
 	if (!is_running_on_xen())
 		return -ENODEV;
 
-	return xenbus_register_frontend(&blkfront);
+	return xenbus_register_frontend(&blkfront_driver);
 }
 module_init(xlblk_init);
 
 
 static void __exit xlblk_exit(void)
 {
-	return xenbus_unregister_driver(&blkfront);
+	return xenbus_unregister_driver(&blkfront_driver);
 }
 module_exit(xlblk_exit);
 

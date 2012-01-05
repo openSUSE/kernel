@@ -35,7 +35,6 @@
  */
 
 #include <stdarg.h>
-#include <linux/module.h>
 #include <linux/kthread.h>
 #include <xen/xenbus.h>
 #include "common.h"
@@ -507,18 +506,14 @@ static const struct xenbus_device_id blktap_ids[] = {
 	{ "" }
 };
 
-
-static struct xenbus_driver blktap = {
-	.name = "tap",
-	.ids = blktap_ids,
+static DEFINE_XENBUS_DRIVER(blktap, ,
 	.probe = blktap_probe,
 	.remove = blktap_remove,
 	.otherend_changed = tap_frontend_changed
-};
+);
 
 
 void tap_blkif_xenbus_init(void)
 {
-	if (xenbus_register_backend(&blktap))
-		BUG();
+	WARN_ON(xenbus_register_backend(&blktap_driver));
 }

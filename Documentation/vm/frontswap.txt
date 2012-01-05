@@ -18,10 +18,10 @@ with the specified swap device number (aka "type").  A "put_page" will
 copy the page to transcendent memory and associate it with the type and
 offset associated with the page. A "get_page" will copy the page, if found,
 from transcendent memory into kernel memory, but will NOT remove the page
-from from transcendent memory.  A "flush_page" will remove the page from
-transcendent memory and a "flush_area" will remove ALL pages associated
-with the swap type (e.g., like swapoff) and notify the "device" to refuse
-further puts with that swap type.
+from from transcendent memory.  An "invalidate_page" will remove the page
+from transcendent memory and an "invalidate_area" will remove ALL pages
+associated with the swap type (e.g., like swapoff) and notify the "device"
+to refuse further puts with that swap type.
 
 Once a page is successfully put, a matching get on the page will normally
 succeed.  So when the kernel finds itself in a situation where it needs
@@ -33,23 +33,19 @@ page can be written to swap as usual.
 
 Note that if a page is put and the page already exists in transcendent memory
 (a "duplicate" put), either the put succeeds and the data is overwritten,
-or the put fails AND the page is flushed.  This ensures stale data may
+or the put fails AND the page is invalidated.  This ensures stale data may
 never be obtained from frontswap.
 
-Monitoring and control of frontswap is done by sysfs files in the
-/sys/kernel/mm/frontswap directory.  The effectiveness of frontswap can
-be measured (across all swap devices) with:
+If properly configured, monitoring of frontswap is done via debugfs in
+the /sys/kernel/debug/frontswap directory.  The effectiveness of
+frontswap can be measured (across all swap devices) with:
 
-curr_pages	- number of pages currently contained in frontswap
 failed_puts	- how many put attempts have failed
 gets		- how many gets were attempted (all should succeed)
 succ_puts	- how many put attempts have succeeded
-flushes		- how many flushes were attempted
+invalidates	- how many invalidates were attempted
 
-The number of pages currently contained in frontswap can be reduced by root by
-writing an integer target to curr_pages, which results in a "partial swapoff",
-thus reducing the number of frontswap pages to that target if memory
-constraints permit.
+A backend implementation may provide additional metrics.
 
 FAQ
 
@@ -188,7 +184,7 @@ where data is compressed and the original 4K page has been compressed
 to 1K.  Now an attempt is made to overwrite the page with data that
 is non-compressible and so would take the entire 4K.  But the backend
 has no more space.  In this case, the put must be rejected.  Whenever
-frontswap rejects a put that would overwrite, it also must flush
+frontswap rejects a put that would overwrite, it also must invalidate
 the old data and ensure that it is no longer accessible.  Since the
 swap subsystem then writes the new data to the read swap device,
 this is the correct course of action to ensure coherency.
@@ -199,10 +195,9 @@ When the (non-frontswap) swap subsystem swaps out a page to a real
 swap device, that page is only taking up low-value pre-allocated disk
 space.  But if frontswap has placed a page in transcendent memory, that
 page may be taking up valuable real estate.  The frontswap_shrink
-routine allows a process outside of the swap subsystem (such as
-a userland service via the sysfs interface, or a kernel thread)
-to force pages out of the memory managed by frontswap and back into
-kernel-addressable memory.
+routine allows code outside of the swap subsystem (such as Xen tmem
+or zcache or some future tmem backend) to force pages out of the memory
+managed by frontswap and back into kernel-addressable memory.
 
 7) Why does the frontswap patch create the new include file swapfile.h?
 
@@ -212,4 +207,4 @@ static and global.  This seemed a reasonable compromise:  Define
 them as global but declare them in a new include file that isn't
 included by the large number of source files that include swap.h.
 
-Dan Magenheimer, last updated August 8, 2011
+Dan Magenheimer, last updated September 12, 2011

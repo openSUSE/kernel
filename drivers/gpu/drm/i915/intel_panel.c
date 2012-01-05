@@ -84,7 +84,7 @@ intel_pch_panel_fitting(struct drm_device *dev,
 			if (scaled_width > scaled_height) { /* pillar */
 				width = scaled_height / mode->vdisplay;
 				if (width & 1)
-				    	width++;
+					width++;
 				x = (adjusted_mode->hdisplay - width + 1) / 2;
 				y = 0;
 				height = adjusted_mode->vdisplay;
@@ -178,13 +178,10 @@ u32 intel_panel_get_max_backlight(struct drm_device *dev)
 	if (HAS_PCH_SPLIT(dev)) {
 		max >>= 16;
 	} else {
-		if (IS_PINEVIEW(dev)) {
+		if (INTEL_INFO(dev)->gen < 4)
 			max >>= 17;
-		} else {
+		else
 			max >>= 16;
-			if (INTEL_INFO(dev)->gen < 4)
-				max &= ~1;
-		}
 
 		if (is_backlight_combination_mode(dev))
 			max *= 0xff;
@@ -203,13 +200,12 @@ u32 intel_panel_get_backlight(struct drm_device *dev)
 		val = I915_READ(BLC_PWM_CPU_CTL) & BACKLIGHT_DUTY_CYCLE_MASK;
 	} else {
 		val = I915_READ(BLC_PWM_CTL) & BACKLIGHT_DUTY_CYCLE_MASK;
-		if (IS_PINEVIEW(dev))
+		if (INTEL_INFO(dev)->gen < 4)
 			val >>= 1;
 
-		if (is_backlight_combination_mode(dev)){
+		if (is_backlight_combination_mode(dev)) {
 			u8 lbpc;
 
-			val &= ~1;
 			pci_read_config_byte(dev->pdev, PCI_LBPC, &lbpc);
 			val *= lbpc;
 		}
@@ -236,7 +232,7 @@ static void intel_panel_actually_set_backlight(struct drm_device *dev, u32 level
 	if (HAS_PCH_SPLIT(dev))
 		return intel_pch_panel_set_backlight(dev, level);
 
-	if (is_backlight_combination_mode(dev)){
+	if (is_backlight_combination_mode(dev)) {
 		u32 max = intel_panel_get_max_backlight(dev);
 		u8 lbpc;
 
@@ -246,11 +242,9 @@ static void intel_panel_actually_set_backlight(struct drm_device *dev, u32 level
 	}
 
 	tmp = I915_READ(BLC_PWM_CTL);
-	if (IS_PINEVIEW(dev)) {
-		tmp &= ~(BACKLIGHT_DUTY_CYCLE_MASK - 1);
+	if (INTEL_INFO(dev)->gen < 4) 
 		level <<= 1;
-	} else
-		tmp &= ~BACKLIGHT_DUTY_CYCLE_MASK;
+	tmp &= ~BACKLIGHT_DUTY_CYCLE_MASK;
 	I915_WRITE(BLC_PWM_CTL, tmp | level);
 }
 

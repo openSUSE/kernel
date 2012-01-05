@@ -110,7 +110,7 @@ struct pdev_entry {
 
 struct cpu_info {
 	struct platform_device *pdev;
-	u32 cpuid_6_eax, ucode_rev;
+	u32 cpuid_6_eax, microcode;
 	u32 phys_proc_id, cpu_core_id;
 	u8 x86_model, x86_mask;
 };
@@ -381,17 +381,10 @@ static int chk_ucode_version(unsigned int cpu, const struct cpu_info *c)
 	 * Readings might stop update when processor visited too deep sleep,
 	 * fixed for stepping D0 (6EC).
 	 */
-	if (c->x86_model == 0xe && c->x86_mask < 0xc) {
-		/* check for microcode update */
-		if (!(c->ucode_rev + 1)) {
-			pr_err("Cannot determine microcode revision of "
-			       "CPU#%u!\n", cpu);
-			return -ENODEV;
-		} else if (c->ucode_rev < 0x39) {
-			pr_err("Errata AE18 not fixed, update BIOS or "
-			       "microcode of the CPU!\n");
-			return -ENODEV;
-		}
+	if (c->x86_model == 0xe && c->x86_mask < 0xc && c->microcode < 0x39) {
+		pr_err("Errata AE18 not fixed, update BIOS or "
+		       "microcode of the CPU!\n");
+		return -ENODEV;
 	}
 	return 0;
 }
@@ -677,8 +670,8 @@ static void get_cpuid_info(void *arg)
 	    || !info->x86_model
 	    || wrmsr_safe(MSR_IA32_UCODE_REV, 0, 0) < 0
 	    || (sync_core(), rdmsr_safe(MSR_IA32_UCODE_REV,
-					&val, &info->ucode_rev)) < 0)
-		info->ucode_rev = ~0;
+					&val, &info->microcode)) < 0)
+		info->microcode = 0;
 
 	info->cpuid_6_eax = cpuid_eax(0) >= 6 ? cpuid_eax(6) : 0;
 }

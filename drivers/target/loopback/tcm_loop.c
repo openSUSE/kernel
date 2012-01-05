@@ -113,11 +113,9 @@ static struct se_cmd *tcm_loop_allocate_core_cmd(
 			scsi_bufflen(sc), sc->sc_data_direction, sam_task_attr,
 			&tl_cmd->tl_sense_buf[0]);
 
-	/*
-	 * Signal BIDI usage with T_TASK(cmd)->t_tasks_bidi
-	 */
 	if (scsi_bidi_cmnd(sc))
-		se_cmd->t_tasks_bidi = 1;
+		se_cmd->se_cmd_flags |= SCF_BIDI;
+
 	/*
 	 * Locate the struct se_lun pointer and attach it to struct se_cmd
 	 */
@@ -148,27 +146,13 @@ static int tcm_loop_new_cmd_map(struct se_cmd *se_cmd)
 	 * Allocate the necessary tasks to complete the received CDB+data
 	 */
 	ret = transport_generic_allocate_tasks(se_cmd, sc->cmnd);
-	if (ret == -ENOMEM) {
-		/* Out of Resources */
-		return PYX_TRANSPORT_LU_COMM_FAILURE;
-	} else if (ret == -EINVAL) {
-		/*
-		 * Handle case for SAM_STAT_RESERVATION_CONFLICT
-		 */
-		if (se_cmd->se_cmd_flags & SCF_SCSI_RESERVATION_CONFLICT)
-			return PYX_TRANSPORT_RESERVATION_CONFLICT;
-		/*
-		 * Otherwise, return SAM_STAT_CHECK_CONDITION and return
-		 * sense data.
-		 */
-		return PYX_TRANSPORT_USE_SENSE_REASON;
-	}
-
+	if (ret != 0)
+		return ret;
 	/*
 	 * For BIDI commands, pass in the extra READ buffer
 	 * to transport_generic_map_mem_to_cmd() below..
 	 */
-	if (se_cmd->t_tasks_bidi) {
+	if (se_cmd->se_cmd_flags & SCF_BIDI) {
 		struct scsi_data_buffer *sdb = scsi_in(sc);
 
 		sgl_bidi = sdb->table.sgl;
@@ -194,18 +178,14 @@ static int tcm_loop_new_cmd_map(struct se_cmd *se_cmd)
 	}
 
 	/* Tell the core about our preallocated memory */
-	ret = transport_generic_map_mem_to_cmd(se_cmd, scsi_sglist(sc),
+	return transport_generic_map_mem_to_cmd(se_cmd, scsi_sglist(sc),
 			scsi_sg_count(sc), sgl_bidi, sgl_bidi_count);
-	if (ret < 0)
-		return PYX_TRANSPORT_LU_COMM_FAILURE;
-
-	return 0;
 }
 
 /*
  * Called from struct target_core_fabric_ops->check_stop_free()
  */
-static void tcm_loop_check_stop_free(struct se_cmd *se_cmd)
+static int tcm_loop_check_stop_free(struct se_cmd *se_cmd)
 {
 	/*
 	 * Do not release struct se_cmd's containing a valid TMR
@@ -213,12 +193,13 @@ static void tcm_loop_check_stop_free(struct se_cmd *se_cmd)
 	 * with transport_generic_free_cmd().
 	 */
 	if (se_cmd->se_tmr_req)
-		return;
+		return 0;
 	/*
 	 * Release the struct se_cmd, which will make a callback to release
 	 * struct tcm_loop_cmd * in tcm_loop_deallocate_core_cmd()
 	 */
-	transport_generic_free_cmd(se_cmd, 0, 0);
+	transport_generic_free_cmd(se_cmd, 0);
+	return 1;
 }
 
 static void tcm_loop_release_cmd(struct se_cmd *se_cmd)
@@ -308,6 +289,15 @@ static int tcm_loop_queuecommand(
 	 */
 	tl_hba = *(struct tcm_loop_hba **)shost_priv(sc->device->host);
 	tl_tpg = &tl_hba->tl_hba_tpgs[sc->device->id];
+	/*
+	 * Ensure that this tl_tpg reference from the incoming sc->device->id
+	 * has already been configured via tcm_loop_make_naa_tpg().
+	 */
+	if (!tl_tpg->tl_hba) {
+		set_host_byte(sc, DID_NO_CONNECT);
+		sc->scsi_done(sc);
+		return 0;
+	}
 	se_tpg = &tl_tpg->tl_se_tpg;
 	/*
 	 * Determine the SAM Task Attribute and allocate tl_cmd and
@@ -384,7 +374,7 @@ static int tcm_loop_device_reset(struct scsi_cmnd *sc)
 	 * Allocate the LUN_RESET TMR
 	 */
 	se_cmd->se_tmr_req = core_tmr_alloc_req(se_cmd, tl_tmr,
-				TMR_LUN_RESET);
+						TMR_LUN_RESET, GFP_KERNEL);
 	if (IS_ERR(se_cmd->se_tmr_req))
 		goto release;
 	/*
@@ -406,7 +396,7 @@ static int tcm_loop_device_reset(struct scsi_cmnd *sc)
 		SUCCESS : FAILED;
 release:
 	if (se_cmd)
-		transport_generic_free_cmd(se_cmd, 1, 0);
+		transport_generic_free_cmd(se_cmd, 1);
 	else
 		kmem_cache_free(tcm_loop_cmd_cache, tl_cmd);
 	kfree(tl_tmr);
@@ -1263,6 +1253,9 @@ void tcm_loop_drop_naa_tpg(
 	 */
 	core_tpg_deregister(se_tpg);
 
+	tl_tpg->tl_hba = NULL;
+	tl_tpg->tl_tpgt = 0;
+
 	pr_debug("TCM_Loop_ConfigFS: Deallocated Emulated %s"
 		" Target Port %s,t,0x%04x\n", tcm_loop_dump_proto_id(tl_hba),
 		config_item_name(&wwn->wwn_group.cg_item), tpgt);
@@ -1347,17 +1340,16 @@ void tcm_loop_drop_scsi_hba(
 {
 	struct tcm_loop_hba *tl_hba = container_of(wwn,
 				struct tcm_loop_hba, tl_hba_wwn);
-	int host_no = tl_hba->sh->host_no;
+
+	pr_debug("TCM_Loop_ConfigFS: Deallocating emulated Target"
+		" SAS Address: %s at Linux/SCSI Host ID: %d\n",
+		tl_hba->tl_wwn_address, tl_hba->sh->host_no);
 	/*
 	 * Call device_unregister() on the original tl_hba->dev.
 	 * tcm_loop_fabric_scsi.c:tcm_loop_release_adapter() will
 	 * release *tl_hba;
 	 */
 	device_unregister(&tl_hba->dev);
-
-	pr_debug("TCM_Loop_ConfigFS: Deallocated emulated Target"
-		" SAS Address: %s at Linux/SCSI Host ID: %d\n",
-		config_item_name(&wwn->wwn_group.cg_item), host_no);
 }
 
 /* Start items for tcm_loop_cit */

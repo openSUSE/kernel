@@ -1,7 +1,6 @@
-#include <linux/version.h>
 #include <linux/kernel.h>
 #include <linux/unistd.h>
-#include <linux/module.h>
+#include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/reboot.h>
 #include <linux/sched.h>
@@ -17,8 +16,6 @@
 #include <xen/platform-compat.h>
 #undef handle_sysrq
 #endif
-
-MODULE_LICENSE("Dual BSD/GPL");
 
 #define SHUTDOWN_INVALID  -1
 #define SHUTDOWN_POWEROFF  0

@@ -42,6 +42,7 @@
 #include <linux/kthread.h>
 #include <linux/freezer.h>
 #include <linux/list.h>
+#include <linux/module.h>
 #include <asm/hypervisor.h>
 #include "common.h"
 #include <xen/balloon.h>
