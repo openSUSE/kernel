@@ -1124,13 +1124,6 @@ S:	Supported
 F:	arch/arm/mach-shmobile/
 F:	drivers/sh/
 
-ARM/TELECHIPS ARM ARCHITECTURE
-M:	"Hans J. Koch" <hjk@hansjkoch.de>
-L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
-S:	Maintained
-F:	arch/arm/plat-tcc/
-F:	arch/arm/mach-tcc8k/
-
 ARM/TECHNOLOGIC SYSTEMS TS7250 MACHINE SUPPORT
 M:	Lennert Buytenhek <kernel@wantstofly.org>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
@@ -4011,7 +4004,7 @@ M:	Josh Boyer <jwboyer@gmail.com>
 M:	Matt Porter <mporter@kernel.crashing.org>
 W:	http://www.penguinppc.org/
 L:	linuxppc-dev@lists.ozlabs.org
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jwboyer/powerpc-4xx.git
+T:	git git://git.infradead.org/users/jwboyer/powerpc-4xx.git
 S:	Maintained
 F:	arch/powerpc/platforms/40x/
 F:	arch/powerpc/platforms/44x/
@@ -4854,6 +4847,14 @@ S:	Maintained
 T:	git git://openrisc.net/~jonas/linux
 F:	arch/openrisc
 
+OPENVSWITCH
+M:	Jesse Gross <jesse@nicira.com>
+L:	dev@openvswitch.org
+W:	http://openvswitch.org
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jesse/openvswitch.git
+S:	Maintained
+F:	net/openvswitch/
+
 OPL4 DRIVER
 M:	Clemens Ladisch <clemens@ladisch.de>
 L:	alsa-devel@alsa-project.org (moderated for non-subscribers)
@@ -5373,6 +5374,7 @@ S:	Supported
 F:	drivers/scsi/qla4xxx/
 
 QLOGIC QLA3XXX NETWORK DRIVER
+M:	Jitendra Kalsaria <jitendra.kalsaria@qlogic.com>
 M:	Ron Mercer <ron.mercer@qlogic.com>
 M:	linux-driver@qlogic.com
 L:	netdev@vger.kernel.org
@@ -5892,7 +5894,6 @@ F:	drivers/net/ethernet/emulex/benet/
 
 SFC NETWORK DRIVER
 M:	Solarflare linux maintainers <linux-net-drivers@solarflare.com>
-M:	Steve Hodgson <shodgson@solarflare.com>
 M:	Ben Hutchings <bhutchings@solarflare.com>
 L:	netdev@vger.kernel.org
 S:	Supported
@@ -6499,6 +6500,13 @@ M:	"Hung Hing Lun, Mike" <hlhung3i@gmail.com>
 W:	http://tcp-lp-mod.sourceforge.net/
 S:	Maintained
 F:	net/ipv4/tcp_lp.c
+
+TEAM DRIVER
+M:	Jiri Pirko <jpirko@redhat.com>
+L:	netdev@vger.kernel.org
+S:	Supported
+F:	drivers/net/team/
+F:	include/linux/if_team.h
 
 TEGRA SUPPORT
 M:	Colin Cross <ccross@android.com>
