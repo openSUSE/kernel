@@ -2912,6 +2912,7 @@ F:	include/linux/gigaset_dev.h
 
 GPIO SUBSYSTEM
 M:	Grant Likely <grant.likely@secretlab.ca>
+M:	Linus Walleij <linus.walleij@stericsson.com>
 S:	Maintained
 T:	git git://git.secretlab.ca/git/linux-2.6.git
 F:	Documentation/gpio.txt
@@ -6259,7 +6260,7 @@ F:	arch/alpha/kernel/srm_env.c
 
 STABLE BRANCH
 M:	Greg Kroah-Hartman <greg@kroah.com>
-L:	stable@kernel.org
+L:	stable@vger.kernel.org
 S:	Maintained
 
 STAGING SUBSYSTEM
