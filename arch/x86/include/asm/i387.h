@@ -29,6 +29,7 @@ extern unsigned int sig_xstate_size;
 extern void fpu_init(void);
 extern void mxcsr_feature_mask_init(void);
 extern int init_fpu(struct task_struct *child);
+extern void __math_state_restore(struct task_struct *);
 extern void math_state_restore(void);
 extern int dump_fpu(struct pt_regs *, struct user_i387_struct *);
 
@@ -212,9 +213,10 @@ static inline void fpu_fxsave(struct fpu *fpu)
 #endif	/* CONFIG_X86_64 */
 
 /*
- * These must be called with preempt disabled
+ * These must be called with preempt disabled. Returns
+ * 'true' if the FPU state is still intact.
  */
-static inline void fpu_save_init(struct fpu *fpu)
+static inline int fpu_save_init(struct fpu *fpu)
 {
 	if (use_xsave()) {
 		fpu_xsave(fpu);
@@ -223,22 +225,33 @@ static inline void fpu_save_init(struct fpu *fpu)
 		 * xsave header may indicate the init state of the FP.
 		 */
 		if (!(fpu->state->xsave.xsave_hdr.xstate_bv & XSTATE_FP))
-			return;
+			return 1;
 	} else if (use_fxsr()) {
 		fpu_fxsave(fpu);
 	} else {
 		asm volatile("fnsave %[fx]; fwait"
 			     : [fx] "=m" (fpu->state->fsave));
-		return;
+		return 0;
 	}
 
-	if (unlikely(fpu->state->fxsave.swd & X87_FSW_ES))
+	/*
+	 * If exceptions are pending, we need to clear them so
+	 * that we don't randomly get exceptions later.
+	 *
+	 * FIXME! Is this perhaps only true for the old-style
+	 * irq13 case? Maybe we could leave the x87 state
+	 * intact otherwise?
+	 */
+	if (unlikely(fpu->state->fxsave.swd & X87_FSW_ES)) {
 		asm volatile("fnclex");
+		return 0;
+	}
+	return 1;
 }
 
-static inline void __save_init_fpu(struct task_struct *tsk)
+static inline int __save_init_fpu(struct task_struct *tsk)
 {
-	fpu_save_init(&tsk->thread.fpu);
+	return fpu_save_init(&tsk->thread.fpu);
 }
 
 static inline int fpu_fxrstor_checking(struct fpu *fpu)
@@ -264,21 +277,21 @@ static inline int restore_fpu_checking(struct task_struct *tsk)
  * be preemption protection *and* they need to be
  * properly paired with the CR0.TS changes!
  */
-static inline int __thread_has_fpu(struct thread_info *ti)
+static inline int __thread_has_fpu(struct task_struct *tsk)
 {
-	return ti->status & TS_USEDFPU;
+	return tsk->thread.has_fpu;
 }
 
 /* Must be paired with an 'stts' after! */
-static inline void __thread_clear_has_fpu(struct thread_info *ti)
+static inline void __thread_clear_has_fpu(struct task_struct *tsk)
 {
-	ti->status &= ~TS_USEDFPU;
+	tsk->thread.has_fpu = 0;
 }
 
 /* Must be paired with a 'clts' before! */
-static inline void __thread_set_has_fpu(struct thread_info *ti)
+static inline void __thread_set_has_fpu(struct task_struct *tsk)
 {
-	ti->status |= TS_USEDFPU;
+	tsk->thread.has_fpu = 1;
 }
 
 /*
@@ -288,16 +301,84 @@ static inline void __thread_set_has_fpu(struct thread_info *ti)
  * These generally need preemption protection to work,
  * do try to avoid using these on their own.
  */
-static inline void __thread_fpu_end(struct thread_info *ti)
+static inline void __thread_fpu_end(struct task_struct *tsk)
 {
-	__thread_clear_has_fpu(ti);
+	__thread_clear_has_fpu(tsk);
 	stts();
 }
 
-static inline void __thread_fpu_begin(struct thread_info *ti)
+static inline void __thread_fpu_begin(struct task_struct *tsk)
 {
 	clts();
-	__thread_set_has_fpu(ti);
+	__thread_set_has_fpu(tsk);
+}
+
+/*
+ * FPU state switching for scheduling.
+ *
+ * This is a two-stage process:
+ *
+ *  - switch_fpu_prepare() saves the old state and
+ *    sets the new state of the CR0.TS bit. This is
+ *    done within the context of the old process.
+ *
+ *  - switch_fpu_finish() restores the new state as
+ *    necessary.
+ */
+typedef struct { int preload; } fpu_switch_t;
+
+/*
+ * FIXME! We could do a totally lazy restore, but we need to
+ * add a per-cpu "this was the task that last touched the FPU
+ * on this CPU" variable, and the task needs to have a "I last
+ * touched the FPU on this CPU" and check them.
+ *
+ * We don't do that yet, so "fpu_lazy_restore()" always returns
+ * false, but some day..
+ */
+#define fpu_lazy_restore(tsk) (0)
+#define fpu_lazy_state_intact(tsk) do { } while (0)
+
+static inline fpu_switch_t switch_fpu_prepare(struct task_struct *old, struct task_struct *new)
+{
+	fpu_switch_t fpu;
+
+	fpu.preload = tsk_used_math(new) && new->fpu_counter > 5;
+	if (__thread_has_fpu(old)) {
+		if (__save_init_fpu(old))
+			fpu_lazy_state_intact(old);
+		__thread_clear_has_fpu(old);
+		old->fpu_counter++;
+
+		/* Don't change CR0.TS if we just switch! */
+		if (fpu.preload) {
+			__thread_set_has_fpu(new);
+			prefetch(new->thread.fpu.state);
+		} else
+			stts();
+	} else {
+		old->fpu_counter = 0;
+		if (fpu.preload) {
+			if (fpu_lazy_restore(new))
+				fpu.preload = 0;
+			else
+				prefetch(new->thread.fpu.state);
+			__thread_fpu_begin(new);
+		}
+	}
+	return fpu;
+}
+
+/*
+ * By the time this gets called, we've already cleared CR0.TS and
+ * given the process the FPU if we are going to preload the FPU
+ * state - all we need to do is to conditionally restore the register
+ * state itself.
+ */
+static inline void switch_fpu_finish(struct task_struct *new, fpu_switch_t fpu)
+{
+	if (fpu.preload)
+		__math_state_restore(new);
 }
 
 /*
@@ -306,23 +387,14 @@ static inline void __thread_fpu_begin(struct thread_info *ti)
 extern int save_i387_xstate(void __user *buf);
 extern int restore_i387_xstate(void __user *buf);
 
-static inline void __unlazy_fpu(struct task_struct *tsk)
-{
-	if (__thread_has_fpu(task_thread_info(tsk))) {
-		__save_init_fpu(tsk);
-		__thread_fpu_end(task_thread_info(tsk));
-	} else
-		tsk->fpu_counter = 0;
-}
-
 static inline void __clear_fpu(struct task_struct *tsk)
 {
-	if (__thread_has_fpu(task_thread_info(tsk))) {
+	if (__thread_has_fpu(tsk)) {
 		/* Ignore delayed exceptions from user space */
 		asm volatile("1: fwait\n"
 			     "2:\n"
 			     _ASM_EXTABLE(1b, 2b));
-		__thread_fpu_end(task_thread_info(tsk));
+		__thread_fpu_end(tsk);
 	}
 }
 
@@ -337,7 +409,7 @@ static inline void __clear_fpu(struct task_struct *tsk)
  */
 static inline bool interrupted_kernel_fpu_idle(void)
 {
-	return !__thread_has_fpu(current_thread_info()) &&
+	return !__thread_has_fpu(current) &&
 		(read_cr0() & X86_CR0_TS);
 }
 
@@ -371,12 +443,12 @@ static inline bool irq_fpu_usable(void)
 
 static inline void kernel_fpu_begin(void)
 {
-	struct thread_info *me = current_thread_info();
+	struct task_struct *me = current;
 
 	WARN_ON_ONCE(!irq_fpu_usable());
 	preempt_disable();
 	if (__thread_has_fpu(me)) {
-		__save_init_fpu(me->task);
+		__save_init_fpu(me);
 		__thread_clear_has_fpu(me);
 		/* We do 'stts()' in kernel_fpu_end() */
 	} else
@@ -441,13 +513,13 @@ static inline void irq_ts_restore(int TS_state)
  */
 static inline int user_has_fpu(void)
 {
-	return __thread_has_fpu(current_thread_info());
+	return __thread_has_fpu(current);
 }
 
 static inline void user_fpu_end(void)
 {
 	preempt_disable();
-	__thread_fpu_end(current_thread_info());
+	__thread_fpu_end(current);
 	preempt_enable();
 }
 
@@ -455,7 +527,7 @@ static inline void user_fpu_begin(void)
 {
 	preempt_disable();
 	if (!user_has_fpu())
-		__thread_fpu_begin(current_thread_info());
+		__thread_fpu_begin(current);
 	preempt_enable();
 }
 
@@ -464,17 +536,21 @@ static inline void user_fpu_begin(void)
  */
 static inline void save_init_fpu(struct task_struct *tsk)
 {
-	WARN_ON_ONCE(!__thread_has_fpu(task_thread_info(tsk)));
+	WARN_ON_ONCE(!__thread_has_fpu(tsk));
 	preempt_disable();
 	__save_init_fpu(tsk);
-	__thread_fpu_end(task_thread_info(tsk));
+	__thread_fpu_end(tsk);
 	preempt_enable();
 }
 
 static inline void unlazy_fpu(struct task_struct *tsk)
 {
 	preempt_disable();
-	__unlazy_fpu(tsk);
+	if (__thread_has_fpu(tsk)) {
+		__save_init_fpu(tsk);
+		__thread_fpu_end(tsk);
+	} else
+		tsk->fpu_counter = 0;
 	preempt_enable();
 }
 
