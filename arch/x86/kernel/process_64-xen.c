@@ -392,7 +392,7 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 #ifndef CONFIG_X86_NO_TSS
 	struct tss_struct *tss = &per_cpu(init_tss, cpu);
 #endif
-	bool preload_fpu;
+	fpu_switch_t fpu;
 #if CONFIG_XEN_COMPAT > 0x030002
 	struct physdev_set_iopl iopl_op;
 	struct physdev_set_iobitmap iobmp_op;
@@ -403,40 +403,7 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 #endif
 	multicall_entry_t _mcl[8], *mcl = _mcl;
 
-	/*
-	 * If the task has used fpu the last 5 timeslices, just do a full
-	 * restore of the math state immediately to avoid the trap; the
-	 * chances of needing FPU soon are obviously high now
-	 */
-	preload_fpu = tsk_used_math(next_p) && next_p->fpu_counter > 5;
-
-	/* we're going to use this soon, after a few expensive things */
-	if (preload_fpu)
-		prefetch(next->fpu.state);
-
-	/*
-	 * This is basically '__unlazy_fpu', except that we queue a
-	 * multicall to indicate FPU task switch, rather than
-	 * synchronously trapping to Xen.
-	 * The AMD workaround requires it to be after DS reload, or
-	 * after DS has been cleared, which we do in __prepare_arch_switch.
-	 */
-	if (task_thread_info(prev_p)->status & TS_USEDFPU) {
-		__save_init_fpu(prev_p); /* _not_ save_init_fpu() */
-		if (!preload_fpu) {
-			mcl->op      = __HYPERVISOR_fpu_taskswitch;
-			mcl->args[0] = 1;
-			mcl++;
-		}
-	} else
-		prev_p->fpu_counter = 0;
-
-	/* Make sure cpu is ready for new context */
-	if (preload_fpu) {
-		mcl->op      = __HYPERVISOR_fpu_taskswitch;
-		mcl->args[0] = 0;
-		mcl++;
-	}
+	fpu = xen_switch_fpu_prepare(prev_p, next_p, cpu, &mcl);
 
 	/*
 	 * Reload sp0.
@@ -539,6 +506,8 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	if (next->gs)
 		WARN_ON(HYPERVISOR_set_segment_base(SEGBASE_GS_USER, next->gs));
 
+	switch_fpu_finish(next_p, fpu);
+
 	/*
 	 * Switch the PDA context.
 	 */
@@ -554,13 +523,6 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	if (unlikely(task_thread_info(next_p)->flags & _TIF_WORK_CTXSW_NEXT ||
 		     task_thread_info(prev_p)->flags & _TIF_WORK_CTXSW_PREV))
 		__switch_to_xtra(prev_p, next_p);
-
-	/*
-	 * Preload the FPU context, now that we've determined that the
-	 * task is likely to be using it.
-	 */
-	if (preload_fpu)
-		__math_state_restore();
 
 	return prev_p;
 }

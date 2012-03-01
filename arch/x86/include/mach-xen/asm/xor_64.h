@@ -1,6 +1,8 @@
 #ifndef _ASM_X86_XOR_64_H
 #define _ASM_X86_XOR_64_H
 
+#include <asm/i387.h>
+
 /*
  * x86-64 changes / gcc fixes from Andi Kleen.
  * Copyright 2002 Andi Kleen, SuSE Labs.
@@ -18,7 +20,7 @@ typedef struct {
 #define XMMS_SAVE				\
 do {						\
 	preempt_disable();			\
-	if (!(current_thread_info()->status & TS_USEDFPU))	\
+	if (!__thread_has_fpu(current))		\
 		clts();				\
 	asm volatile(				\
 		"movups %%xmm0,(%1)	;\n\t"	\
@@ -41,7 +43,7 @@ do {						\
 		:				\
 		: "r" (cr0), "r" (xmm_save)	\
 		: "memory");			\
-	if (!(current_thread_info()->status & TS_USEDFPU))	\
+	if (!__thread_has_fpu(current))		\
 		stts();				\
 	preempt_enable();			\
 } while (0)

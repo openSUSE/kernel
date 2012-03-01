@@ -109,7 +109,7 @@ struct cpuinfo_x86 {
 	u16			initial_apicid;
 #endif
 	u16			x86_clflush_size;
-#ifdef CONFIG_X86_HT
+#ifndef CONFIG_XEN
 	/* number of cores as seen by the OS: */
 	u16			booted_cores;
 	/* Physical processor id: */
@@ -119,10 +119,8 @@ struct cpuinfo_x86 {
 	/* Compute unit id */
 	u8			compute_unit_id;
 #endif
-#ifdef CONFIG_SMP
 	/* Index into per_cpu list: */
 	u16			cpu_index;
-#endif
 #ifndef CONFIG_XEN
 	u32			microcode;
 #endif
@@ -394,6 +392,8 @@ union thread_xstate {
 };
 
 struct fpu {
+	unsigned int last_cpu;
+	unsigned int has_fpu;
 	union thread_xstate *state;
 };
 
@@ -475,6 +475,7 @@ struct thread_struct {
 	unsigned long		trap_no;
 	unsigned long		error_code;
 	/* floating point and extended processor state */
+	unsigned long		has_fpu;
 	struct fpu		fpu;
 #ifdef CONFIG_X86_32
 	/* Virtual 86 mode info */
