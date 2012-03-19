@@ -48,7 +48,8 @@ static DEFINE_SPINLOCK(task_mortuary);
 static void process_task_mortuary(void);
 
 #ifdef CONFIG_XEN
-static int cpu_current_domain[NR_CPUS];
+#include <linux/percpu.h>
+static DEFINE_PER_CPU(int, current_domain) = COORDINATOR_DOMAIN;
 #endif
 
 /* Take ownership of the task struct and place it on the
@@ -159,11 +160,10 @@ int sync_start(void)
 {
 	int err;
 #ifdef CONFIG_XEN
-	int i;
+	unsigned int cpu;
 
-	for (i = 0; i < NR_CPUS; i++) {
-		cpu_current_domain[i] = COORDINATOR_DOMAIN;
-	}
+	for_each_online_cpu(cpu)
+		per_cpu(current_domain, cpu) = COORDINATOR_DOMAIN;
 #endif
 
 	if (!zalloc_cpumask_var(&marked_cpus, GFP_KERNEL))
@@ -551,8 +551,8 @@ void sync_buffer(int cpu)
 #ifdef CONFIG_XEN
 	/* We need to assign the first samples in this CPU buffer to the
 	   same domain that we were processing at the last sync_buffer */
-	if (cpu_current_domain[cpu] != COORDINATOR_DOMAIN)
-		add_domain_switch(cpu_current_domain[cpu]);
+	if (per_cpu(current_domain, cpu) != COORDINATOR_DOMAIN)
+		add_domain_switch(per_cpu(current_domain, cpu));
 #endif
 
 	op_cpu_buffer_reset(cpu);
@@ -590,7 +590,7 @@ void sync_buffer(int cpu)
 #ifdef CONFIG_XEN
 			if ((flags & DOMAIN_SWITCH)
 			    && op_cpu_buffer_get_data(&entry, &val)) {
-				cpu_current_domain[cpu] = val;
+				per_cpu(current_domain, cpu) = val;
 				add_domain_switch(val);
 			}
 #endif
@@ -600,7 +600,7 @@ void sync_buffer(int cpu)
 		}
 
 #ifdef CONFIG_XEN
-		if (cpu_current_domain[cpu] != COORDINATOR_DOMAIN) {
+		if (per_cpu(current_domain, cpu) != COORDINATOR_DOMAIN) {
 			add_sample_entry(sample->eip, sample->event);
 			continue;
 		}
@@ -623,7 +623,7 @@ void sync_buffer(int cpu)
 
 #ifdef CONFIG_XEN
 	/* We reset domain to COORDINATOR at each CPU switch */
-	if (cpu_current_domain[cpu] != COORDINATOR_DOMAIN)
+	if (per_cpu(current_domain, cpu) != COORDINATOR_DOMAIN)
 		add_domain_switch(COORDINATOR_DOMAIN);
 #endif
 

@@ -152,8 +152,9 @@ static int __copy_to_sg(struct scatterlist *sgl, unsigned int nr_sg,
 	return -ENOMEM;
 }
 
-static int __copy_from_sg(struct scatterlist *sgl, unsigned int nr_sg,
-		 void *buf, unsigned int buflen)
+static int __maybe_unused __copy_from_sg(struct scatterlist *sgl,
+					 unsigned int nr_sg, void *buf,
+					 unsigned int buflen)
 {
 	struct scatterlist *sg;
 	void *from;

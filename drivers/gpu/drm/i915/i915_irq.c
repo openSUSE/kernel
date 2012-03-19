@@ -1205,7 +1205,7 @@ static void i915_pageflip_stall_check(struct drm_device *dev, int pipe)
 	} else {
 		int dspaddr = DSPADDR(intel_crtc->plane);
 		stall_detected = I915_READ(dspaddr) == (obj->gtt_offset +
-							crtc->y * crtc->fb->pitch +
+							crtc->y * crtc->fb->pitches[0] +
 							crtc->x * crtc->fb->bits_per_pixel/8);
 	}
 
@@ -1649,13 +1649,6 @@ static bool kick_ring(struct intel_ring_buffer *ring)
 		I915_WRITE_CTL(ring, tmp);
 		return true;
 	}
-	if (IS_GEN6(dev) &&
-	    (tmp & RING_WAIT_SEMAPHORE)) {
-		DRM_ERROR("Kicking stuck semaphore on %s\n",
-			  ring->name);
-		I915_WRITE_CTL(ring, tmp);
-		return true;
-	}
 	return false;
 }
 
@@ -1758,7 +1751,8 @@ static void ironlake_irq_preinstall(struct drm_device *dev)
 		INIT_WORK(&dev_priv->rps_work, gen6_pm_rps_work);
 
 	I915_WRITE(HWSTAM, 0xeffe);
-	if (IS_GEN6(dev) || IS_GEN7(dev)) {
+
+	if (IS_GEN6(dev)) {
 		/* Workaround stalls observed on Sandy Bridge GPUs by
 		 * making the blitter command streamer generate a
 		 * write to the Hardware Status Page for

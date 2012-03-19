@@ -49,9 +49,10 @@ enum blkif_backend_type {
 
 struct vbd {
 	blkif_vdev_t   handle;      /* what the domain refers to this vbd as */
-	unsigned char  readonly;    /* Non-zero -> read-only */
+	fmode_t        mode;        /* FMODE_xxx */
 	unsigned char  type;        /* VDISK_xxx */
 	bool           flush_support;
+	bool           discard_secure;
 	u32            pdevice;     /* phys device that this vbd maps to */
 	struct block_device *bdev;
 	sector_t       size;        /* Cached size parameter */
@@ -127,11 +128,10 @@ void vbd_resize(blkif_t *blkif);
 
 /* Create a vbd. */
 int vbd_create(blkif_t *blkif, blkif_vdev_t vdevice, unsigned major,
-	       unsigned minor, int readonly, int cdrom);
+	       unsigned minor, fmode_t mode, bool cdrom);
 void vbd_free(struct vbd *vbd);
 
 unsigned long long vbd_size(struct vbd *vbd);
-unsigned int vbd_info(struct vbd *vbd);
 unsigned long vbd_secsize(struct vbd *vbd);
 
 struct phys_req {

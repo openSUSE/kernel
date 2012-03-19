@@ -364,7 +364,7 @@ void xen_machine_kexec_unload(struct kimage *image)
  * stop all CPUs and kexec. That is it combines machine_shutdown()
  * and machine_kexec() in Linux kexec terms.
  */
-NORET_TYPE void machine_kexec(struct kimage *image)
+void __noreturn machine_kexec(struct kimage *image)
 {
 	xen_kexec_exec_t xke;
 

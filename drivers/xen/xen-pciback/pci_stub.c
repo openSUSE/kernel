@@ -106,6 +106,7 @@ static void pcistub_device_release(struct kref *kref)
 	kfree(pci_get_drvdata(psdev->dev));
 	pci_set_drvdata(psdev->dev, NULL);
 
+	psdev->dev->dev_flags &= ~PCI_DEV_FLAGS_ASSIGNED;
 	pci_dev_put(psdev->dev);
 
 	kfree(psdev);
@@ -241,6 +242,10 @@ void pcistub_put_pci_dev(struct pci_dev *dev)
 	xen_pcibk_config_free_dyn_fields(found_psdev->dev);
 	xen_pcibk_config_reset_dev(found_psdev->dev);
 
+#ifndef CONFIG_XEN
+	xen_unregister_device_domain_owner(found_psdev->dev);
+#endif
+
 	spin_lock_irqsave(&found_psdev->lock, flags);
 	found_psdev->pdev = NULL;
 	spin_unlock_irqrestore(&found_psdev->lock, flags);
@@ -344,6 +349,7 @@ static int __devinit pcistub_init_device(struct pci_dev *dev)
 	dev_dbg(&dev->dev, "reset device\n");
 	xen_pcibk_reset_device(dev);
 
+	dev->dev_flags |= PCI_DEV_FLAGS_ASSIGNED;
 	return 0;
 
 config_release:
@@ -905,7 +911,7 @@ static inline int str_to_quirk(const char *buf, int *domain, int *bus, int
 	int err;
 
 	err =
-	    sscanf(buf, " %04x:%02x:%02x.%1x-%08x:%1x:%08x", domain, bus, slot,
+	    sscanf(buf, " %04x:%02x:%02x.%d-%08x:%1x:%08x", domain, bus, slot,
 		   func, reg, size, mask);
 	if (err == 7)
 		return 0;
@@ -925,7 +931,7 @@ static int pcistub_device_id_add(int domain, int bus, int slot, int func)
 	pci_dev_id->bus = bus;
 	pci_dev_id->devfn = PCI_DEVFN(slot, func);
 
-	pr_debug(DRV_NAME ": wants to seize %04x:%02x:%02x.%01x\n",
+	pr_debug(DRV_NAME ": wants to seize %04x:%02x:%02x.%d\n",
 		 domain, bus, slot, func);
 
 	spin_lock_irqsave(&device_ids_lock, flags);
@@ -955,7 +961,7 @@ static int pcistub_device_id_remove(int domain, int bus, int slot, int func)
 
 			err = 0;
 
-			pr_debug(DRV_NAME ": removed %04x:%02x:%02x.%01x from "
+			pr_debug(DRV_NAME ": removed %04x:%02x:%02x.%d from "
 				 "seize list\n", domain, bus, slot, func);
 		}
 	}
@@ -1050,7 +1056,7 @@ static ssize_t pcistub_slot_show(struct device_driver *drv, char *buf)
 			break;
 
 		count += scnprintf(buf + count, PAGE_SIZE - count,
-				   "%04x:%02x:%02x.%01x\n",
+				   "%04x:%02x:%02x.%d\n",
 				   pci_dev_id->domain, pci_dev_id->bus,
 				   PCI_SLOT(pci_dev_id->devfn),
 				   PCI_FUNC(pci_dev_id->devfn));

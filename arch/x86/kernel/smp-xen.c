@@ -28,6 +28,7 @@
 #include <asm/mmu_context.h>
 #include <asm/proto.h>
 #include <asm/ipi.h>
+#include <asm/nmi.h>
 #include <xen/evtchn.h>
 /*
  *	Some notes on x86 processor bugs affecting SMP operation:
@@ -132,6 +133,20 @@ void xen_send_call_func_ipi(const struct cpumask *mask)
 	xen_send_IPI_mask_allbutself(mask, CALL_FUNCTION_VECTOR);
 }
 
+static atomic_t stopping_cpu = ATOMIC_INIT(-1);
+static bool __read_mostly xen_smp_disable_nmi_ipi;
+
+static int smp_stop_nmi_callback(unsigned int val, struct pt_regs *regs)
+{
+	/* We are registered on stopping cpu too, avoid spurious NMI */
+	if (raw_smp_processor_id() == atomic_read(&stopping_cpu))
+		return NMI_HANDLED;
+
+	stop_this_cpu(NULL);
+
+	return NMI_HANDLED;
+}
+
 /*
  * this function calls the 'stop' function on all other CPUs in the system.
  */
@@ -156,7 +171,27 @@ void xen_stop_other_cpus(int wait)
 	 * currently)
 	 */
 	if (num_online_cpus() > 1) {
-		xen_send_IPI_allbutself(REBOOT_VECTOR);
+		unsigned int vector = REBOOT_VECTOR;
+
+		if (!xen_smp_disable_nmi_ipi) {
+			/* did someone beat us here? */
+			if (atomic_cmpxchg(&stopping_cpu, -1,
+					   safe_smp_processor_id()) != -1)
+				return;
+
+			if (register_nmi_handler(NMI_LOCAL,
+						 smp_stop_nmi_callback,
+						 NMI_FLAG_FIRST, "smp_stop"))
+				/* Note: we ignore failures here */
+				return;
+
+			/* sync above data before sending NMI */
+			wmb();
+
+			vector = NMI_VECTOR;
+		}
+
+		xen_send_IPI_allbutself(vector);
 
 		/*
 		 * Don't wait longer than a second if the caller
@@ -192,3 +227,11 @@ void smp_call_function_single_interrupt(struct pt_regs *regs)
 	generic_smp_call_function_single_interrupt();
 	inc_irq_stat(irq_call_count);
 }
+
+static int __init nonmi_ipi_setup(char *str)
+{
+        xen_smp_disable_nmi_ipi = true;
+        return 1;
+}
+
+__setup("nonmi_ipi", nonmi_ipi_setup);

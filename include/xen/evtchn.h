@@ -40,7 +40,7 @@
 #include <linux/interrupt.h>
 #include <asm/hypervisor.h>
 #include <asm/ptrace.h>
-#include <asm/synch_bitops.h>
+#include <asm/sync_bitops.h>
 #include <xen/interface/event_channel.h>
 #include <linux/smp.h>
 
@@ -59,6 +59,7 @@ struct irq_cfg {
 	};
 };
 struct irq_cfg *alloc_irq_and_cfg_at(unsigned int at, int node);
+static inline int evtchn_make_refcounted(unsigned int evtchn) { return 0; }
 #endif
 
 /*
@@ -160,25 +161,25 @@ unsigned int irq_from_evtchn(unsigned int port);
 static inline int test_and_set_evtchn_mask(int port)
 {
 	shared_info_t *s = HYPERVISOR_shared_info;
-	return synch_test_and_set_bit(port, s->evtchn_mask);
+	return sync_test_and_set_bit(port, s->evtchn_mask);
 }
 
 static inline void clear_evtchn(int port)
 {
 	shared_info_t *s = HYPERVISOR_shared_info;
-	synch_clear_bit(port, s->evtchn_pending);
+	sync_clear_bit(port, s->evtchn_pending);
 }
 
 static inline void set_evtchn(int port)
 {
 	shared_info_t *s = HYPERVISOR_shared_info;
-	synch_set_bit(port, s->evtchn_pending);
+	sync_set_bit(port, s->evtchn_pending);
 }
 
 static inline int test_evtchn(int port)
 {
 	shared_info_t *s = HYPERVISOR_shared_info;
-	return synch_test_bit(port, s->evtchn_pending);
+	return sync_test_bit(port, s->evtchn_pending);
 }
 
 static inline void notify_remote_via_evtchn(int port)

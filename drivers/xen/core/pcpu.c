@@ -8,7 +8,6 @@
 #include <linux/kobject.h>
 #include <linux/list.h>
 #include <linux/spinlock.h>
-#include <linux/sysdev.h>
 #include <asm/hypervisor.h>
 #include <xen/interface/platform.h>
 #include <xen/evtchn.h>
@@ -17,8 +16,7 @@
 
 struct pcpu {
 	struct list_head pcpu_list;
-	struct sys_device sysdev;
-	uint32_t xen_id;
+	struct device dev;
 	uint32_t apic_id;
 	uint32_t acpi_id;
 	uint32_t flags;
@@ -41,7 +39,7 @@ static BLOCKING_NOTIFIER_HEAD(pcpu_chain);
 
 static inline void *notifier_param(const struct pcpu *pcpu)
 {
-	return (void *)(unsigned long)pcpu->xen_id;
+	return (void *)(unsigned long)pcpu->dev.id;
 }
 
 int register_pcpu_notifier(struct notifier_block *nb)
@@ -93,20 +91,19 @@ static int xen_pcpu_up(uint32_t xen_id)
 	return HYPERVISOR_platform_op(&op);
 }
 
-static ssize_t show_online(struct sys_device *dev,
-			   struct sysdev_attribute *attr,
+static ssize_t show_online(struct device *dev,
+			   struct device_attribute *attr,
 			   char *buf)
 {
-	struct pcpu *cpu = container_of(dev, struct pcpu, sysdev);
+	struct pcpu *cpu = container_of(dev, struct pcpu, dev);
 
 	return sprintf(buf, "%d\n", xen_pcpu_online(cpu->flags));
 }
 
-static ssize_t store_online(struct sys_device *dev,
-			    struct sysdev_attribute *attr,
+static ssize_t store_online(struct device *dev,
+			    struct device_attribute *attr,
 			    const char *buf, size_t count)
 {
-	struct pcpu *cpu = container_of(dev, struct pcpu, sysdev);
 	ssize_t ret;
 
 	if (!count)
@@ -114,10 +111,10 @@ static ssize_t store_online(struct sys_device *dev,
 
 	switch (buf[0]) {
 	case '0':
-		ret = xen_pcpu_down(cpu->xen_id);
+		ret = xen_pcpu_down(dev->id);
 		break;
 	case '1':
-		ret = xen_pcpu_up(cpu->xen_id);
+		ret = xen_pcpu_up(dev->id);
 		break;
 	default:
 		ret = -EINVAL;
@@ -128,30 +125,31 @@ static ssize_t store_online(struct sys_device *dev,
 	return ret;
 }
 
-static SYSDEV_ATTR(online, 0644, show_online, store_online);
+static DEVICE_ATTR(online, 0644, show_online, store_online);
 
-static ssize_t show_apicid(struct sys_device *dev,
-			   struct sysdev_attribute *attr,
+static ssize_t show_apicid(struct device *dev,
+			   struct device_attribute *attr,
 			   char *buf)
 {
-	struct pcpu *cpu = container_of(dev, struct pcpu, sysdev);
+	struct pcpu *cpu = container_of(dev, struct pcpu, dev);
 
 	return sprintf(buf, "%#x\n", cpu->apic_id);
 }
-static SYSDEV_ATTR(apic_id, 0444, show_apicid, NULL);
+static DEVICE_ATTR(apic_id, 0444, show_apicid, NULL);
 
-static ssize_t show_acpiid(struct sys_device *dev,
-			   struct sysdev_attribute *attr,
+static ssize_t show_acpiid(struct device *dev,
+			   struct device_attribute *attr,
 			   char *buf)
 {
-	struct pcpu *cpu = container_of(dev, struct pcpu, sysdev);
+	struct pcpu *cpu = container_of(dev, struct pcpu, dev);
 
 	return sprintf(buf, "%#x\n", cpu->acpi_id);
 }
-static SYSDEV_ATTR(acpi_id, 0444, show_acpiid, NULL);
+static DEVICE_ATTR(acpi_id, 0444, show_acpiid, NULL);
 
-static struct sysdev_class xen_pcpu_sysdev_class = {
+static struct bus_type xen_pcpu_subsys = {
 	.name = "xen_pcpu",
+	.dev_name = "xen_pcpu",
 };
 
 static int xen_pcpu_free(struct pcpu *pcpu)
@@ -159,10 +157,10 @@ static int xen_pcpu_free(struct pcpu *pcpu)
 	if (!pcpu)
 		return 0;
 
-	sysdev_remove_file(&pcpu->sysdev, &attr_online);
-	sysdev_remove_file(&pcpu->sysdev, &attr_apic_id);
-	sysdev_remove_file(&pcpu->sysdev, &attr_acpi_id);
-	sysdev_unregister(&pcpu->sysdev);
+	device_remove_file(&pcpu->dev, &dev_attr_online);
+	device_remove_file(&pcpu->dev, &dev_attr_apic_id);
+	device_remove_file(&pcpu->dev, &dev_attr_acpi_id);
+	device_unregister(&pcpu->dev);
 	list_del(&pcpu->pcpu_list);
 	kfree(pcpu);
 
@@ -173,7 +171,7 @@ static inline int same_pcpu(struct xenpf_pcpuinfo *info,
 			    struct pcpu *pcpu)
 {
 	return (pcpu->apic_id == info->apic_id) &&
-		(pcpu->xen_id == info->xen_cpuid);
+		(pcpu->dev.id == info->xen_cpuid);
 }
 
 /*
@@ -184,7 +182,7 @@ static int xen_pcpu_online_check(struct xenpf_pcpuinfo *info,
 {
 	int result = 0;
 
-	if (info->xen_cpuid != pcpu->xen_id)
+	if (info->xen_cpuid != pcpu->dev.id)
 		return 0;
 
 	if (xen_pcpu_online(info->flags) && !xen_pcpu_online(pcpu->flags)) {
@@ -192,7 +190,7 @@ static int xen_pcpu_online_check(struct xenpf_pcpuinfo *info,
 		pcpu->flags |= XEN_PCPU_FLAGS_ONLINE;
 		blocking_notifier_call_chain(&pcpu_chain, CPU_ONLINE,
 					     notifier_param(pcpu));
-		kobject_uevent(&pcpu->sysdev.kobj, KOBJ_ONLINE);
+		kobject_uevent(&pcpu->dev.kobj, KOBJ_ONLINE);
 		result = 1;
 	} else if (!xen_pcpu_online(info->flags) &&
 		   xen_pcpu_online(pcpu->flags))  {
@@ -200,21 +198,21 @@ static int xen_pcpu_online_check(struct xenpf_pcpuinfo *info,
 		pcpu->flags &= ~XEN_PCPU_FLAGS_ONLINE;
 		blocking_notifier_call_chain(&pcpu_chain, CPU_DEAD,
 					     notifier_param(pcpu));
-		kobject_uevent(&pcpu->sysdev.kobj, KOBJ_OFFLINE);
+		kobject_uevent(&pcpu->dev.kobj, KOBJ_OFFLINE);
 		result = 1;
 	}
 
 	return result;
 }
 
-static int pcpu_sysdev_init(struct pcpu *cpu)
+static int pcpu_dev_init(struct pcpu *cpu)
 {
-	int err = sysdev_register(&cpu->sysdev);
+	int err = device_register(&cpu->dev);
 
 	if (!err) {
-		sysdev_create_file(&cpu->sysdev, &attr_online);
-		sysdev_create_file(&cpu->sysdev, &attr_apic_id);
-		sysdev_create_file(&cpu->sysdev, &attr_acpi_id);
+		device_create_file(&cpu->dev, &dev_attr_online);
+		device_create_file(&cpu->dev, &dev_attr_apic_id);
+		device_create_file(&cpu->dev, &dev_attr_acpi_id);
 	}
 	return err;
 }
@@ -224,7 +222,7 @@ static struct pcpu *get_pcpu(unsigned int xen_id)
 	struct pcpu *pcpu;
 
 	list_for_each_entry(pcpu, &xen_pcpus, pcpu_list)
-		if (pcpu->xen_id == xen_id)
+		if (pcpu->dev.id == xen_id)
 			return pcpu;
 
 	return NULL;
@@ -244,15 +242,14 @@ static struct pcpu *init_pcpu(struct xenpf_pcpuinfo *info)
 		return ERR_PTR(-ENOMEM);
 
 	INIT_LIST_HEAD(&pcpu->pcpu_list);
-	pcpu->xen_id = info->xen_cpuid;
 	pcpu->apic_id = info->apic_id;
 	pcpu->acpi_id = info->acpi_id;
 	pcpu->flags = info->flags;
 
-	pcpu->sysdev.cls = &xen_pcpu_sysdev_class;
-	pcpu->sysdev.id = info->xen_cpuid;
+	pcpu->dev.bus = &xen_pcpu_subsys;
+	pcpu->dev.id = info->xen_cpuid;
 
-	err = pcpu_sysdev_init(pcpu);
+	err = pcpu_dev_init(pcpu);
 	if (err) {
 		kfree(pcpu);
 		return ERR_PTR(err);
@@ -318,7 +315,7 @@ static int _sync_pcpu(unsigned int cpu_num, unsigned int *max_id)
 		 * Old pCPU is replaced by a new one, which means
 		 * several vIRQ-s were missed - can this happen?
 		 */
-		pr_warn("pCPU %#x changed!\n", pcpu->xen_id);
+		pr_warn("pCPU %#x changed!\n", pcpu->dev.id);
 		pcpu->apic_id = info->apic_id;
 		pcpu->acpi_id = info->acpi_id;
 	}
@@ -428,10 +425,10 @@ static int __init xen_pcpu_init(void)
 	if (!is_initial_xendomain())
 		return 0;
 
-	err = sysdev_class_register(&xen_pcpu_sysdev_class);
+	err = subsys_system_register(&xen_pcpu_subsys, NULL);
 	if (err) {
 		pr_warn("xen_pcpu_init: "
-			"Failed to register sysdev class (%d)\n", err);
+			"Failed to register subsys (%d)\n", err);
 		return err;
 	}
 
@@ -443,7 +440,7 @@ static int __init xen_pcpu_init(void)
 					      "pcpu", NULL);
 	if (err < 0)
 		pr_warn("xen_pcpu_init: "
-			"Failed to bind pcpu_state virq (%d)\n", err);
+			"Failed to bind virq (%d)\n", err);
 
 	return err;
 }

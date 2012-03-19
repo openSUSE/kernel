@@ -48,11 +48,16 @@
 
 int xen_spinlock_init(unsigned int cpu);
 void xen_spinlock_cleanup(unsigned int cpu);
-unsigned int xen_spin_wait(arch_spinlock_t *, struct __raw_tickets *,
-			   unsigned int flags);
+#if CONFIG_XEN_SPINLOCK_ACQUIRE_NESTING
 struct __raw_tickets xen_spin_adjust(const arch_spinlock_t *,
 				     struct __raw_tickets);
-void xen_spin_kick(const arch_spinlock_t *, __ticket_t);
+#else
+#define xen_spin_adjust(lock, raw_tickets) (raw_tickets)
+#define xen_spin_wait(l, t, f) xen_spin_wait(l, t)
+#endif
+unsigned int xen_spin_wait(arch_spinlock_t *, struct __raw_tickets *,
+			   unsigned int flags);
+void xen_spin_kick(const arch_spinlock_t *, unsigned int ticket);
 
 /*
  * Ticket locks are conceptually two parts, one indicating the current head of
@@ -69,6 +74,7 @@ void xen_spin_kick(const arch_spinlock_t *, __ticket_t);
  */
 #define __spin_count_dec(c, l) (vcpu_running((l)->owner) ? --(c) : ((c) >>= 1))
 
+#if CONFIG_XEN_SPINLOCK_ACQUIRE_NESTING
 static __always_inline void __ticket_spin_lock(arch_spinlock_t *lock)
 {
 	struct __raw_tickets inc = { .tail = 1 };
@@ -93,17 +99,20 @@ static __always_inline void __ticket_spin_lock(arch_spinlock_t *lock)
 	barrier();		/* make sure nothing creeps before the lock is taken */
 	lock->owner = raw_smp_processor_id();
 }
+#else
+#define __ticket_spin_lock(lock) __ticket_spin_lock_flags(lock, -1)
+#endif
 
 static __always_inline void __ticket_spin_lock_flags(arch_spinlock_t *lock,
 						     unsigned long flags)
 {
 	struct __raw_tickets inc = { .tail = 1 };
-	unsigned int count;
 
 	inc = xadd(&lock->tickets, inc);
 	if (unlikely(inc.head != inc.tail)) {
+		unsigned int count = 1 << 12;
+
 		inc = xen_spin_adjust(lock, inc);
-		count = 1 << 12;
 		do {
 			while (inc.head != inc.tail
 			       && __spin_count_dec(count, lock)) {
@@ -121,16 +130,15 @@ static __always_inline void __ticket_spin_lock_flags(arch_spinlock_t *lock,
 
 static __always_inline int __ticket_spin_trylock(arch_spinlock_t *lock)
 {
-	arch_spinlock_t old, new;
+	arch_spinlock_t old;
 
 	old.tickets = ACCESS_ONCE(lock->tickets);
 	if (old.tickets.head != old.tickets.tail)
 		return 0;
 
-	new.head_tail = old.head_tail + (1 << TICKET_SHIFT);
-
 	/* cmpxchg is a full barrier, so nothing can move before it */
-	if (cmpxchg(&lock->head_tail, old.head_tail, new.head_tail) != old.head_tail)
+	if (cmpxchg(&lock->head_tail, old.head_tail,
+		    old.head_tail + (1 << TICKET_SHIFT)) != old.head_tail)
 		return 0;
 	lock->owner = raw_smp_processor_id();
 	return 1;
@@ -140,19 +148,8 @@ static __always_inline void __ticket_spin_unlock(arch_spinlock_t *lock)
 {
 	register struct __raw_tickets new;
 
-#if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
-# define UNLOCK_SUFFIX(n) "%z" #n
-#elif TICKET_SHIFT == 8
-# define UNLOCK_SUFFIX(n) "b"
-#elif TICKET_SHIFT == 16
-# define UNLOCK_SUFFIX(n) "w"
-#endif
-	asm volatile(UNLOCK_LOCK_PREFIX "inc" UNLOCK_SUFFIX(0) " %0"
-		     : "+m" (lock->tickets.head)
-		     :
-		     : "memory", "cc");
-#ifndef XEN_SPINLOCK_SOURCE
-# undef UNLOCK_SUFFIX
+	__add(&lock->tickets.head, 1, UNLOCK_LOCK_PREFIX);
+#if !defined(XEN_SPINLOCK_SOURCE) || !CONFIG_XEN_SPINLOCK_ACQUIRE_NESTING
 # undef UNLOCK_LOCK_PREFIX
 #endif
 	new = ACCESS_ONCE(lock->tickets);
@@ -164,14 +161,14 @@ static inline int __ticket_spin_is_locked(arch_spinlock_t *lock)
 {
 	struct __raw_tickets tmp = ACCESS_ONCE(lock->tickets);
 
-	return !!(tmp.tail ^ tmp.head);
+	return tmp.tail != tmp.head;
 }
 
 static inline int __ticket_spin_is_contended(arch_spinlock_t *lock)
 {
 	struct __raw_tickets tmp = ACCESS_ONCE(lock->tickets);
 
-	return ((tmp.tail - tmp.head) & TICKET_MASK) > 1;
+	return (__ticket_t)(tmp.tail - tmp.head) > 1;
 }
 
 #define __arch_spin(n) __ticket_spin_##n
@@ -229,6 +226,15 @@ static inline void __byte_spin_unlock(arch_spinlock_t *lock)
 #define __arch_spin(n) __byte_spin_##n
 
 #endif /* TICKET_SHIFT */
+
+#if defined(CONFIG_XEN_SPINLOCK_ACQUIRE_NESTING) \
+    && CONFIG_XEN_SPINLOCK_ACQUIRE_NESTING
+void xen_spin_irq_enter(void);
+void xen_spin_irq_exit(void);
+#else
+static inline void xen_spin_irq_enter(void) {}
+static inline void xen_spin_irq_exit(void) {}
+#endif
 
 static inline int arch_spin_is_locked(arch_spinlock_t *lock)
 {

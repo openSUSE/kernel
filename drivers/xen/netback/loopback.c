@@ -175,13 +175,6 @@ static void get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 static const struct ethtool_ops network_ethtool_ops =
 {
 	.get_drvinfo = get_drvinfo,
-
-	.get_tx_csum = ethtool_op_get_tx_csum,
-	.set_tx_csum = ethtool_op_set_tx_csum,
-	.get_sg = ethtool_op_get_sg,
-	.set_sg = ethtool_op_set_sg,
-	.get_tso = ethtool_op_get_tso,
-	.set_tso = ethtool_op_set_tso,
 	.get_link = ethtool_op_get_link,
 };
 

@@ -60,7 +60,6 @@
 
 #define MAXIMUM_OUTSTANDING_BLOCK_REQS \
     (BLKIF_MAX_SEGMENTS_PER_REQUEST * BLK_RING_SIZE)
-#define GRANT_INVALID_REF	0
 
 static void connect(struct blkfront_info *);
 static void blkfront_closing(struct blkfront_info *);
@@ -128,6 +127,8 @@ static int blkfront_probe(struct xenbus_device *dev,
 		return -ENOMEM;
 	}
 
+	spin_lock_init(&info->io_lock);
+	mutex_init(&info->mutex);
 	info->xbdev = dev;
 	info->vdevice = vdevice;
 	info->connected = BLKIF_STATE_DISCONNECTED;
@@ -305,13 +306,18 @@ static void backend_changed(struct xenbus_device *dev,
 		break;
 
 	case XenbusStateClosing:
-		if (!info->gd) {
-			xenbus_frontend_closed(dev);
+		mutex_lock(&info->mutex);
+		if (dev->state == XenbusStateClosing) {
+			mutex_unlock(&info->mutex);
 			break;
 		}
-		bd = bdget_disk(info->gd, 0);
+
+		bd = info->gd ? bdget_disk(info->gd, 0) : NULL;
+
+		mutex_unlock(&info->mutex);
+
 		if (bd == NULL) {
-			xenbus_dev_fatal(dev, -ENODEV, "bdget failed");
+			xenbus_frontend_closed(dev);
 			break;
 		}
 
@@ -320,10 +326,11 @@ static void backend_changed(struct xenbus_device *dev,
 #else
 		mutex_lock(&bd->bd_mutex);
 #endif
-		if (info->users > 0)
+		if (bd->bd_openers) {
 			xenbus_dev_error(dev, -EBUSY,
 					 "Device in use; refusing to close");
-		else
+			xenbus_switch_state(dev, XenbusStateClosing);
+		} else
 			blkfront_closing(info);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,17)
 		up(&bd->bd_sem);
@@ -344,11 +351,13 @@ static void blkfront_setup_discard(struct blkfront_info *info)
 	char *type;
 	unsigned int discard_granularity;
 	unsigned int discard_alignment;
+	int discard_secure;
 
 	type = xenbus_read(XBT_NIL, info->xbdev->otherend, "type", NULL);
 	if (IS_ERR(type))
 		return;
 
+	info->feature_secdiscard = 0;
 	if (strncmp(type, "phy", 3) == 0) {
 		err = xenbus_gather(XBT_NIL, info->xbdev->otherend,
 			"discard-granularity", "%u", &discard_granularity,
@@ -359,6 +368,10 @@ static void blkfront_setup_discard(struct blkfront_info *info)
 			info->discard_granularity = discard_granularity;
 			info->discard_alignment = discard_alignment;
 		}
+		err = xenbus_scanf(XBT_NIL, info->xbdev->otherend,
+			    "discard-secure", "%d", &discard_secure);
+		if (err == 1)
+			info->feature_secdiscard = discard_secure;
 	} else if (strncmp(type, "file", 4) == 0)
 		info->feature_discard = 1;
 
@@ -475,10 +488,10 @@ static void connect(struct blkfront_info *info)
 	(void)xenbus_switch_state(info->xbdev, XenbusStateConnected);
 
 	/* Kick pending requests. */
-	spin_lock_irq(&blkif_io_lock);
+	spin_lock_irq(&info->io_lock);
 	info->connected = BLKIF_STATE_CONNECTED;
 	kick_pending_request_queues(info);
-	spin_unlock_irq(&blkif_io_lock);
+	spin_unlock_irq(&info->io_lock);
 
 	add_disk(info->gd);
 
@@ -502,12 +515,12 @@ static void blkfront_closing(struct blkfront_info *info)
 	if (info->rq == NULL)
 		goto out;
 
-	spin_lock_irqsave(&blkif_io_lock, flags);
+	spin_lock_irqsave(&info->io_lock, flags);
 	/* No more blkif_request(). */
 	blk_stop_queue(info->rq);
 	/* No more gnttab callback work. */
 	gnttab_cancel_free_callback(&info->callback);
-	spin_unlock_irqrestore(&blkif_io_lock, flags);
+	spin_unlock_irqrestore(&info->io_lock, flags);
 
 	/* Flush gnttab callback work. Must be done with no locks held. */
 	flush_work_sync(&info->work);
@@ -527,15 +540,54 @@ static void blkfront_closing(struct blkfront_info *info)
 static int blkfront_remove(struct xenbus_device *dev)
 {
 	struct blkfront_info *info = dev_get_drvdata(&dev->dev);
+	struct block_device *bd;
+	struct gendisk *disk;
 
 	DPRINTK("blkfront_remove: %s removed\n", dev->nodename);
 
 	blkif_free(info, 0);
 
-	if(info->users == 0)
+	mutex_lock(&info->mutex);
+
+	disk = info->gd;
+	bd = disk ? bdget_disk(disk, 0) : NULL;
+
+	info->xbdev = NULL;
+	mutex_unlock(&info->mutex);
+
+	if (!bd) {
 		kfree(info);
-	else
-		info->xbdev = NULL;
+		return 0;
+	}
+
+	/*
+	 * The xbdev was removed before we reached the Closed
+	 * state. See if it's safe to remove the disk. If the bdev
+	 * isn't closed yet, we let release take care of it.
+	 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,17)
+	down(&bd->bd_sem);
+#else
+	mutex_lock(&bd->bd_mutex);
+#endif
+	info = disk->private_data;
+
+	dev_warn(disk_to_dev(disk),
+		 "%s was hot-unplugged, %d stale handles\n",
+		 dev->nodename, bd->bd_openers);
+
+	if (info && !bd->bd_openers) {
+		blkfront_closing(info);
+		disk->private_data = NULL;
+		kfree(info);
+	}
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,17)
+	up(&bd->bd_sem);
+#else
+	mutex_unlock(&bd->bd_mutex);
+#endif
+	bdput(bd);
 
 	return 0;
 }
@@ -582,10 +634,10 @@ static void kick_pending_request_queues(struct blkfront_info *info)
 static void blkif_restart_queue(struct work_struct *arg)
 {
 	struct blkfront_info *info = container_of(arg, struct blkfront_info, work);
-	spin_lock_irq(&blkif_io_lock);
+	spin_lock_irq(&info->io_lock);
 	if (info->connected == BLKIF_STATE_CONNECTED)
 		kick_pending_request_queues(info);
-	spin_unlock_irq(&blkif_io_lock);
+	spin_unlock_irq(&info->io_lock);
 }
 
 static void blkif_restart_queue_callback(void *arg)
@@ -603,11 +655,22 @@ int blkif_open(struct block_device *bd, fmode_t mode)
 {
 #endif
 	struct blkfront_info *info = bd->bd_disk->private_data;
+	int err = 0;
 
-	if (!info->xbdev)
-		return -ENODEV;
-	info->users++;
-	return 0;
+	if (!info)
+		/* xbdev gone */
+		err = -ERESTARTSYS;
+	else {
+		mutex_lock(&info->mutex);
+
+		if (!info->gd)
+			/* xbdev is closed */
+			err = -ERESTARTSYS;
+
+		mutex_unlock(&info->mutex);
+	}
+
+	return err;
 }
 
 
@@ -620,21 +683,36 @@ int blkif_release(struct gendisk *disk, fmode_t mode)
 {
 #endif
 	struct blkfront_info *info = disk->private_data;
+	struct xenbus_device *xbdev;
+	struct block_device *bd = bdget_disk(disk, 0);
 
-	info->users--;
-	if (info->users == 0) {
-		/* Check whether we have been instructed to close.  We will
-		   have ignored this request initially, as the device was
-		   still mounted. */
-		struct xenbus_device * dev = info->xbdev;
+	bdput(bd);
+	if (bd->bd_openers)
+		return 0;
 
-		if (!dev) {
-			blkfront_closing(info);
-			kfree(info);
-		} else if (xenbus_read_driver_state(dev->otherend)
-			   == XenbusStateClosing && info->is_ready)
-			blkfront_closing(info);
+	/*
+	 * Check if we have been instructed to close. We will have
+	 * deferred this request, because the bdev was still open.
+	 */
+	mutex_lock(&info->mutex);
+	xbdev = info->xbdev;
+
+	if (xbdev && xbdev->state == XenbusStateClosing) {
+		/* pending switch to state closed */
+		dev_info(disk_to_dev(disk), "releasing disk\n");
+		blkfront_closing(info);
+ 	}
+
+	mutex_unlock(&info->mutex);
+
+	if (!xbdev) {
+		/* sudden device removal */
+		dev_info(disk_to_dev(disk), "releasing disk\n");
+		blkfront_closing(info);
+		disk->private_data = NULL;
+		kfree(info);
 	}
+
 	return 0;
 }
 
@@ -702,10 +780,13 @@ int blkif_ioctl(struct block_device *bd, fmode_t mode,
 				return scsi_cmd_ioctl(filep, info->rq,
 						      info->gd, command,
 						      (void __user *)argument);
-#else
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(3,3,0)
 				return scsi_cmd_ioctl(info->rq, info->gd,
 						      mode, command,
 						      (void __user *)argument);
+#else
+				return scsi_cmd_blk_ioctl(bd, mode, command,
+							  (void __user *)argument);
 #endif
 			}
 		}
@@ -784,13 +865,15 @@ static int blkif_queue_request(struct request *req)
 	if (req->cmd_type == REQ_TYPE_BLOCK_PC)
 		ring_req->operation = BLKIF_OP_PACKET;
 
-	if (unlikely(req->cmd_flags & REQ_DISCARD)) {
+	if (unlikely(req->cmd_flags & (REQ_DISCARD | REQ_SECURE))) {
 		struct blkif_request_discard *discard = (void *)ring_req;
 
 		/* id, sector_number and handle are set above. */
 		discard->operation = BLKIF_OP_DISCARD;
 		discard->flag = 0;
 		discard->nr_sectors = blk_rq_sectors(req);
+		if ((req->cmd_flags & REQ_SECURE) && info->feature_secdiscard)
+			discard->flag = BLKIF_DISCARD_SECURE;
 	} else {
 		ring_req->nr_segments = blk_rq_map_sg(req->q, req, info->sg);
 		BUG_ON(ring_req->nr_segments > BLKIF_MAX_SEGMENTS_PER_REQUEST);
@@ -849,10 +932,12 @@ void do_blkif_request(struct request_queue *rq)
 
 		blk_start_request(req);
 
-		if ((req->cmd_type != REQ_TYPE_FS
-		     && req->cmd_type != REQ_TYPE_BLOCK_PC) ||
+		if ((req->cmd_type != REQ_TYPE_FS &&
+		     (req->cmd_type != REQ_TYPE_BLOCK_PC || req->cmd_len)) ||
 		    ((req->cmd_flags & (REQ_FLUSH | REQ_FUA)) &&
 		     !info->flush_op)) {
+			req->errors = (DID_ERROR << 16) |
+				      (DRIVER_INVALID << 24);
 			__blk_end_request_all(req, -EIO);
 			continue;
 		}
@@ -887,10 +972,10 @@ static irqreturn_t blkif_int(int irq, void *dev_id)
 	unsigned long flags;
 	struct blkfront_info *info = (struct blkfront_info *)dev_id;
 
-	spin_lock_irqsave(&blkif_io_lock, flags);
+	spin_lock_irqsave(&info->io_lock, flags);
 
 	if (unlikely(info->connected != BLKIF_STATE_CONNECTED)) {
-		spin_unlock_irqrestore(&blkif_io_lock, flags);
+		spin_unlock_irqrestore(&info->io_lock, flags);
 		return IRQ_HANDLED;
 	}
 
@@ -957,7 +1042,9 @@ static irqreturn_t blkif_int(int irq, void *dev_id)
 					info->gd->disk_name);
 				ret = -EOPNOTSUPP;
 				info->feature_discard = 0;
+				info->feature_secdiscard = 0;
 				queue_flag_clear(QUEUE_FLAG_DISCARD, rq);
+				queue_flag_clear(QUEUE_FLAG_SECDISCARD, rq);
 			}
 			__blk_end_request_all(req, ret);
 			break;
@@ -978,7 +1065,7 @@ static irqreturn_t blkif_int(int irq, void *dev_id)
 
 	kick_pending_request_queues(info);
 
-	spin_unlock_irqrestore(&blkif_io_lock, flags);
+	spin_unlock_irqrestore(&info->io_lock, flags);
 
 	return IRQ_HANDLED;
 }
@@ -986,7 +1073,7 @@ static irqreturn_t blkif_int(int irq, void *dev_id)
 static void blkif_free(struct blkfront_info *info, int suspend)
 {
 	/* Prevent new requests being issued until we fix things up. */
-	spin_lock_irq(&blkif_io_lock);
+	spin_lock_irq(&info->io_lock);
 	info->connected = suspend ?
 		BLKIF_STATE_SUSPENDED : BLKIF_STATE_DISCONNECTED;
 	/* No more blkif_request(). */
@@ -994,7 +1081,7 @@ static void blkif_free(struct blkfront_info *info, int suspend)
 		blk_stop_queue(info->rq);
 	/* No more gnttab callback work. */
 	gnttab_cancel_free_callback(&info->callback);
-	spin_unlock_irq(&blkif_io_lock);
+	spin_unlock_irq(&info->io_lock);
 
 	/* Flush gnttab callback work. Must be done with no locks held. */
 	flush_work_sync(&info->work);
@@ -1014,6 +1101,9 @@ static void blkif_free(struct blkfront_info *info, int suspend)
 static void blkif_completion(struct blk_shadow *s)
 {
 	int i;
+
+	if (s->req.operation == BLKIF_OP_DISCARD)
+		return;
 	for (i = 0; i < s->req.nr_segments; i++)
 		gnttab_end_foreign_access(s->req.seg[i].gref, 0UL);
 }
@@ -1070,7 +1160,7 @@ static int blkif_recover(struct blkfront_info *info)
 
 	(void)xenbus_switch_state(info->xbdev, XenbusStateConnected);
 
-	spin_lock_irq(&blkif_io_lock);
+	spin_lock_irq(&info->io_lock);
 
 	/* Now safe for us to use the shared ring */
 	info->connected = BLKIF_STATE_CONNECTED;
@@ -1081,7 +1171,7 @@ static int blkif_recover(struct blkfront_info *info)
 	/* Kick any other new requests queued since we resumed */
 	kick_pending_request_queues(info);
 
-	spin_unlock_irq(&blkif_io_lock);
+	spin_unlock_irq(&info->io_lock);
 
 	return 0;
 }
@@ -1124,7 +1214,8 @@ module_init(xlblk_init);
 
 static void __exit xlblk_exit(void)
 {
-	return xenbus_unregister_driver(&blkfront_driver);
+	xenbus_unregister_driver(&blkfront_driver);
+	xlbd_release_major_info();
 }
 module_exit(xlblk_exit);
 

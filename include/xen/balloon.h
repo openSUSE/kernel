@@ -90,16 +90,16 @@ int alloc_xenballooned_pages(int nr_pages, struct page **pages,
 		bool highmem);
 void free_xenballooned_pages(int nr_pages, struct page **pages);
 
-struct sys_device;
+#endif /* CONFIG_PARAVIRT_XEN */
+
+struct device;
 #ifdef CONFIG_XEN_SELFBALLOONING
-extern int register_xen_selfballooning(struct sys_device *sysdev);
+extern int register_xen_selfballooning(struct device *dev);
 #else
-static inline int register_xen_selfballooning(struct sys_device *sysdev)
+static inline int register_xen_selfballooning(struct device *dev)
 {
 	return -ENOSYS;
 }
 #endif
-
-#endif /* CONFIG_PARAVIRT_XEN */
 
 #endif /* __XEN_BALLOON_H__ */

@@ -301,7 +301,7 @@ static int init_ring_common(struct intel_ring_buffer *ring)
 
 	I915_WRITE_CTL(ring,
 			((ring->size - PAGE_SIZE) & RING_NR_PAGES)
-			| RING_REPORT_64K | RING_VALID);
+			| RING_VALID);
 
 	/* If the head is still not zero, the ring is dead */
 	if ((I915_READ_CTL(ring) & RING_VALID) == 0 ||
@@ -412,6 +412,11 @@ static int init_render_ring(struct intel_ring_buffer *ring)
 		ret = init_pipe_control(ring);
 		if (ret)
 			return ret;
+	}
+
+	if (INTEL_INFO(dev)->gen >= 6) {
+		I915_WRITE(INSTPM,
+			   INSTPM_FORCE_ORDERING << 16 | INSTPM_FORCE_ORDERING);
 	}
 
 	return ret;
@@ -1127,21 +1132,18 @@ int intel_wait_ring_buffer(struct intel_ring_buffer *ring, int n)
 	struct drm_device *dev = ring->dev;
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	unsigned long end;
-	u32 head;
-
-	/* If the reported head position has wrapped or hasn't advanced,
-	 * fallback to the slow and accurate path.
-	 */
-	head = intel_read_status_page(ring, 4);
-	if (head > ring->head) {
-		ring->head = head;
-		ring->space = ring_space(ring);
-		if (ring->space >= n)
-			return 0;
-	}
 
 	trace_i915_ring_wait_begin(ring);
-	end = jiffies + 3 * HZ;
+	if (drm_core_check_feature(dev, DRIVER_GEM))
+		/* With GEM the hangcheck timer should kick us out of the loop,
+		 * leaving it early runs the risk of corrupting GEM state (due
+		 * to running on almost untested codepaths). But on resume
+		 * timers don't work yet, so prevent a complete hang in that
+		 * case by choosing an insanely large timeout. */
+		end = jiffies + 60 * HZ;
+	else
+		end = jiffies + 3 * HZ;
+
 	do {
 		ring->head = I915_READ_HEAD(ring);
 		ring->space = ring_space(ring);

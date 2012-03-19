@@ -40,29 +40,28 @@ unsigned long long vbd_size(struct vbd *vbd)
 	return vbd->bdev ? vbd_sz(vbd) : 0;
 }
 
-unsigned int vbd_info(struct vbd *vbd)
-{
-	return vbd->type | (vbd->readonly?VDISK_READONLY:0);
-}
-
 unsigned long vbd_secsize(struct vbd *vbd)
 {
 	return vbd->bdev ? bdev_logical_block_size(vbd->bdev) : 0;
 }
 
 int vbd_create(blkif_t *blkif, blkif_vdev_t handle, unsigned major,
-	       unsigned minor, int readonly, int cdrom)
+	       unsigned minor, fmode_t mode, bool cdrom)
 {
 	struct vbd *vbd;
 	struct block_device *bdev;
 	struct request_queue *q;
-	fmode_t mode = FMODE_READ | (readonly ? 0 : FMODE_WRITE | FMODE_EXCL);
 
 	vbd = &blkif->vbd;
 	vbd->handle   = handle; 
-	vbd->readonly = readonly;
 	vbd->size     = 0;
 	vbd->type     = cdrom ? VDISK_CDROM : 0;
+
+	if (!(mode & FMODE_WRITE)) {
+		mode &= ~FMODE_EXCL; /* xend doesn't even allow mode="r!" */
+		vbd->type |= VDISK_READONLY;
+	}
+	vbd->mode = mode;
 
 	vbd->pdevice  = MKDEV(major, minor);
 
@@ -116,6 +115,9 @@ int vbd_create(blkif_t *blkif, blkif_vdev_t handle, unsigned major,
 	if (q && q->flush_flags)
 		vbd->flush_support = true;
 
+	if (q && blk_queue_secdiscard(q))
+		vbd->discard_secure = true;
+
 	DPRINTK("Successful creation of handle=%04x (dom=%u)\n",
 		handle, blkif->domid);
 	return 0;
@@ -124,9 +126,7 @@ int vbd_create(blkif_t *blkif, blkif_vdev_t handle, unsigned major,
 void vbd_free(struct vbd *vbd)
 {
 	if (vbd->bdev)
-		blkdev_put(vbd->bdev,
-			   FMODE_READ | (vbd->readonly ? 0
-					 : FMODE_WRITE | FMODE_EXCL));
+		blkdev_put(vbd->bdev, vbd->mode);
 	vbd->bdev = NULL;
 }
 
@@ -135,7 +135,7 @@ int vbd_translate(struct phys_req *req, blkif_t *blkif, int operation)
 	struct vbd *vbd = &blkif->vbd;
 	int rc = -EACCES;
 
-	if ((operation != READ) && vbd->readonly)
+	if ((operation != READ) && !(vbd->mode & FMODE_WRITE))
 		goto out;
 
 	if (vbd->bdev == NULL) {

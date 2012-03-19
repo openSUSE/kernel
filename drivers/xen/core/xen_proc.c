@@ -17,6 +17,8 @@ create_xen_proc_entry(const char *name, mode_t mode)
 }
 
 #ifdef MODULE
+#include <linux/export.h>
+
 EXPORT_SYMBOL_GPL(create_xen_proc_entry); 
 #elif defined(CONFIG_XEN_PRIVILEGED_GUEST)
 

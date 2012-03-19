@@ -19,7 +19,6 @@
 #include <linux/posix-timers.h>
 #include <linux/cpufreq.h>
 #include <linux/clocksource.h>
-#include <linux/sysdev.h>
 
 #include <asm/vsyscall.h>
 #include <asm/delay.h>

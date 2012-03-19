@@ -228,6 +228,9 @@ static inline void map_compat_vdso(int map)
 #else  /* CONFIG_X86_32 */
 
 #define vdso32_sysenter()	(boot_cpu_has(X86_FEATURE_SEP))
+#ifndef TIF_CSTAR
+#define vdso32_syscall()	0
+#else
 #define vdso32_syscall()	(boot_cpu_has(X86_FEATURE_SYSCALL32))
 
 extern asmlinkage void ia32pv_cstar_target(void);
@@ -235,6 +238,7 @@ static const struct callback_register __cpuinitconst cstar = {
 	.type = CALLBACKTYPE_syscall32,
 	.address = { __KERNEL_CS, (unsigned long)ia32pv_cstar_target },
 };
+#endif
 
 void __cpuinit enable_sep_cpu(void)
 {
@@ -244,11 +248,13 @@ void __cpuinit enable_sep_cpu(void)
 		.address = { __KERNEL_CS, (unsigned long)ia32pv_sysenter_target },
 	};
 
+#ifdef TIF_CSTAR
 	if (vdso32_syscall()) {
 		if (HYPERVISOR_callback_op(CALLBACKOP_register, &cstar) != 0)
 			BUG();
 		return;
 	}
+#endif
 
 	if (!vdso32_sysenter())
 		return;
@@ -322,10 +328,13 @@ int __init sysenter_setup(void)
 	gate_vma_init();
 
 	if (boot_cpu_has(X86_FEATURE_SYSCALL)) {
+# ifdef TIF_CSTAR
 		if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD
 		    && HYPERVISOR_callback_op(CALLBACKOP_register, &cstar) == 0)
 			setup_force_cpu_cap(X86_FEATURE_SYSCALL32);
-		else {
+		else
+# endif
+		{
 			setup_clear_cpu_cap(X86_FEATURE_SYSCALL);
 			setup_clear_cpu_cap(X86_FEATURE_SYSCALL32);
 		}

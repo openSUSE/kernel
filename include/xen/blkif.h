@@ -48,7 +48,7 @@ struct blkif_x86_32_request {
 };
 struct blkif_x86_32_discard {
 	uint8_t        operation;    /* BLKIF_OP_DISCARD                     */
-	uint8_t        reserved;     /*                                      */
+	uint8_t        flag;         /* BLKIF_DISCARD_*                      */
 	blkif_vdev_t   handle;       /* same as for read/write requests      */
 	uint64_t       id;           /* private guest value, echoed in resp  */
 	blkif_sector_t sector_number;/* start sector idx on disk             */
@@ -75,7 +75,7 @@ struct blkif_x86_64_request {
 };
 struct blkif_x86_64_discard {
 	uint8_t        operation;    /* BLKIF_OP_DISCARD                     */
-	uint8_t        reserved;     /*                                      */
+	uint8_t        flag;         /* BLKIF_DISCARD_*                      */
 	blkif_vdev_t   handle;       /* sane as for read/write requests      */
 	uint64_t       __attribute__((__aligned__(8))) id;
 	blkif_sector_t sector_number;/* start sector idx on disk             */
@@ -121,6 +121,8 @@ static void inline blkif_get_x86_32_req(blkif_request_t *dst, blkif_x86_32_reque
 		blkif_request_discard_t *d = (void *)dst;
 		const blkif_x86_32_discard_t *s = (const void *)src;
 
+		/* We should be doing "d->flag = s->flag;" but the
+		 * copying of nr_segments does it for us already. */
 		d->nr_sectors = s->nr_sectors;
 		return;
 	}
@@ -143,6 +145,8 @@ static void inline blkif_get_x86_64_req(blkif_request_t *dst, blkif_x86_64_reque
 		blkif_request_discard_t *d = (void *)dst;
 		const blkif_x86_64_discard_t *s = (const void *)src;
 
+		/* We should be doing "d->flag = s->flag" but the
+		 * copying of nr_segments does it for us already. */
 		d->nr_sectors = s->nr_sectors;
 		return;
 	}

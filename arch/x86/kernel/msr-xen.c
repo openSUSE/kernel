@@ -246,7 +246,7 @@ static struct notifier_block pmsr_cpu_notifier = {
 	.notifier_call = pmsr_cpu_callback,
 };
 
-static char *pmsr_devnode(struct device *dev, mode_t *mode)
+static char *pmsr_devnode(struct device *dev, umode_t *mode)
 {
 	return kasprintf(GFP_KERNEL, "xen/cpu/%u/msr",
 			 MINOR(dev->devt) - minor_bias);

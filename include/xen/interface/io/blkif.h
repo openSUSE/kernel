@@ -127,7 +127,7 @@
 
 /*
  * Maximum scatter/gather segments per request.
- * This is carefully chosen so that sizeof(blkif_ring_t) <= PAGE_SIZE.
+ * This is carefully chosen so that sizeof(struct blkif_ring) <= PAGE_SIZE.
  * NB. This could be 12 if the ring indexes weren't stored in the same page.
  */
 #define BLKIF_MAX_SEGMENTS_PER_REQUEST 11
@@ -148,25 +148,40 @@ struct blkif_request_segment {
 
 struct blkif_request {
     uint8_t        operation;    /* BLKIF_OP_???                         */
+#if !defined(CONFIG_PARAVIRT_XEN) || defined(HAVE_XEN_PLATFORM_COMPAT_H)
     uint8_t        nr_segments;  /* number of segments                   */
     blkif_vdev_t   handle;       /* only for read/write requests         */
     uint64_t       id;           /* private guest value, echoed in resp  */
-#if !defined(CONFIG_PARAVIRT_XEN) || defined(HAVE_XEN_PLATFORM_COMPAT_H)
     blkif_sector_t sector_number;/* start sector idx on disk (r/w only)  */
     struct blkif_request_segment seg[BLKIF_MAX_SEGMENTS_PER_REQUEST];
+};
 #else
     union {
-        struct blkif_request_rw {
+        struct __attribute__((__packed__)) blkif_request_rw {
+            uint8_t        nr_segments;  /* number of segments                  */
+            blkif_vdev_t   handle;       /* only for read/write requests        */
+#ifdef CONFIG_X86_64
+            uint32_t       _pad1;        /* offsetof(blkif_request,u.rw.id) == 8 */
+#endif
+            uint64_t       id;           /* private guest value, echoed in resp */
             blkif_sector_t sector_number;/* start sector idx on disk (r/w only) */
             struct blkif_request_segment seg[BLKIF_MAX_SEGMENTS_PER_REQUEST];
         } rw;
-        struct blkif_request_discard {
+        struct __attribute__((__packed__)) blkif_request_discard {
+            uint8_t        flag;         /* BLKIF_DISCARD_SECURE or zero.        */
+#define BLKIF_DISCARD_SECURE (1<<0)      /* ignored if discard-secure=0          */
+            blkif_vdev_t   _pad1;        /* only for read/write requests         */
+#ifdef CONFIG_X86_64
+            uint32_t       _pad2;        /* offsetof(blkif_req..,u.discard.id)==8*/
+#endif
+            uint64_t       id;           /* private guest value, echoed in resp  */
             blkif_sector_t sector_number;
-            uint64_t nr_sectors;
+            uint64_t       nr_sectors;
+            uint8_t        _pad3;
         } discard;
     } u;
+} __attribute__((__packed__));
 #endif
-};
 typedef struct blkif_request blkif_request_t;
 
 #if !defined(CONFIG_PARAVIRT_XEN) || defined(HAVE_XEN_PLATFORM_COMPAT_H)

@@ -263,9 +263,15 @@ static void do_discard(blkif_t *blkif, struct blkif_request_discard *req)
 	struct block_device *bdev = blkif->vbd.bdev;
 
 	if (blkif->blk_backend_type == BLKIF_BACKEND_PHY ||
-	    blkif->blk_backend_type == BLKIF_BACKEND_FILE)
+	    blkif->blk_backend_type == BLKIF_BACKEND_FILE) {
+		unsigned long secure = (blkif->vbd.discard_secure &&
+			(req->flag & BLKIF_DISCARD_SECURE)) ?
+			BLKDEV_DISCARD_SECURE : 0;
+
 		err = blkdev_issue_discard(bdev, req->sector_number,
-					   req->nr_sectors, GFP_KERNEL, 0);
+					   req->nr_sectors, GFP_KERNEL,
+					   secure);
+	}
 
 	if (err == -EOPNOTSUPP) {
 		DPRINTK("discard op failed, not supported\n");
@@ -468,7 +474,7 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 	struct { 
 		unsigned long buf; unsigned int nsec;
 	} seg[BLKIF_MAX_SEGMENTS_PER_REQUEST];
-	unsigned int nseg;
+	unsigned int nseg = req->nr_segments;
 	struct bio *bio = NULL;
 	uint32_t flags;
 	int ret, i;
@@ -494,6 +500,7 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 	case BLKIF_OP_DISCARD:
 		blkif->st_ds_req++;
 		operation = REQ_DISCARD;
+		nseg = 0;
 		break;
 	default:
 		operation = 0; /* make gcc happy */
@@ -501,9 +508,7 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 	}
 
 	/* Check that number of segments is sane. */
-	nseg = req->nr_segments;
-	if (unlikely(nseg == 0 ? !(operation & (REQ_FLUSH|REQ_DISCARD)) :
-				 operation & REQ_DISCARD) ||
+	if (unlikely(nseg == 0 && !(operation & (REQ_FLUSH|REQ_DISCARD))) ||
 	    unlikely(nseg > BLKIF_MAX_SEGMENTS_PER_REQUEST)) {
 		DPRINTK("Bad number of segments in request (%d)\n", nseg);
 		goto fail_response;

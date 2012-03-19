@@ -683,7 +683,7 @@ static int __init scsiback_init(void)
 		pending_grant_handles[i] = SCSIBACK_INVALID_HANDLE;
 
 	if (scsiback_interface_init() < 0)
-		goto out_of_kmem;
+		goto out_of_memory;
 
 	INIT_LIST_HEAD(&pending_free);
 
@@ -691,15 +691,13 @@ static int __init scsiback_init(void)
 		list_add_tail(&pending_reqs[i].free_list, &pending_free);
 
 	if (scsiback_xenbus_init())
-		goto out_of_xenbus;
+		goto out_interface;
 
 	scsiback_emulation_init();
 
 	return 0;
 
-out_of_xenbus:
-	scsiback_xenbus_unregister();
-out_of_kmem:
+out_interface:
 	scsiback_interface_exit();
 out_of_memory:
 	kfree(pending_reqs);

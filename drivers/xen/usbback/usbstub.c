@@ -110,7 +110,7 @@ int portid_add(const char *busid,
 	portid->handle = handle;
 	portid->portnum = portnum;
 
-	strncpy(portid->phys_bus, busid, USBBACK_BUS_ID_SIZE);
+	strlcpy(portid->phys_bus, busid, USBBACK_BUS_ID_SIZE);
 
 	spin_lock_irqsave(&port_list_lock, flags);
 	list_add(&portid->id_list, &port_list);

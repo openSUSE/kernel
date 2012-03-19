@@ -25,6 +25,7 @@
 #include <linux/wl12xx.h>
 #include <linux/export.h>
 
+#include "debug.h"
 #include "acx.h"
 #include "reg.h"
 #include "boot.h"

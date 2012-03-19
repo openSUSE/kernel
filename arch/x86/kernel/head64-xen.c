@@ -117,16 +117,14 @@ void __init x86_64_start_reservations(char *real_mode_data)
 {
 	copy_bootdata(__va(real_mode_data));
 
-	memblock_init();
-
-	memblock_x86_reserve_range(__pa_symbol(&_text), __pa_symbol(&__bss_stop), "TEXT DATA BSS");
+	memblock_reserve(__pa_symbol(&_text),
+			 __pa_symbol(&__bss_stop) - __pa_symbol(&_text));
 
 #ifdef CONFIG_BLK_DEV_INITRD
 	/* Reserve INITRD if needed. */
 	if (xen_start_info->flags & SIF_MOD_START_PFN) {
 		reserve_pfn_range(xen_start_info->mod_start,
-				  PFN_UP(xen_start_info->mod_len),
-				  "RAMDISK");
+				  PFN_UP(xen_start_info->mod_len));
 		xen_initrd_start = xen_start_info->mod_start << PAGE_SHIFT;
 	} else if (xen_start_info->mod_start)
 		xen_initrd_start = __pa(xen_start_info->mod_start);
@@ -136,8 +134,7 @@ void __init x86_64_start_reservations(char *real_mode_data)
 		xen_start_info->mfn_list = ~0UL;
 	else if (xen_start_info->mfn_list < __START_KERNEL_map)
 		reserve_pfn_range(xen_start_info->first_p2m_pfn,
-				  xen_start_info->nr_p2m_frames,
-				  "INITP2M");
+				  xen_start_info->nr_p2m_frames);
 
 	/*
 	 * At this point everything still needed from the boot loader

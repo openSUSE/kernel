@@ -190,7 +190,6 @@ static void __cpuinit trap_init_f00f_bug(void)
 
 static void __cpuinit intel_smp_check(struct cpuinfo_x86 *c)
 {
-#ifdef CONFIG_SMP
 	/* calling is from identify_secondary_cpu() ? */
 	if (!c->cpu_index)
 		return;
@@ -207,7 +206,6 @@ static void __cpuinit intel_smp_check(struct cpuinfo_x86 *c)
 		WARN_ONCE(1, "WARNING: SMP operation may be unreliable"
 				    "with B stepping processors.\n");
 	}
-#endif
 }
 
 static void __cpuinit intel_workarounds(struct cpuinfo_x86 *c)

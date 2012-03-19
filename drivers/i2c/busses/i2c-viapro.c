@@ -91,7 +91,7 @@ static unsigned short SMBHSTCFG = 0xD2;
 
 /* If force is set to anything different from 0, we forcibly enable the
    VT596. DANGEROUS! */
-static int force;
+static bool force;
 module_param(force, bool, 0);
 MODULE_PARM_DESC(force, "Forcibly enable the SMBus. DANGEROUS!");
 
@@ -441,7 +441,7 @@ release_region:
 	return error;
 }
 
-static const struct pci_device_id vt596_ids[] = {
+static DEFINE_PCI_DEVICE_TABLE(vt596_ids) = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_VIA, PCI_DEVICE_ID_VIA_82C596_3),
 	  .driver_data = SMBBA1 },
 	{ PCI_DEVICE(PCI_VENDOR_ID_VIA, PCI_DEVICE_ID_VIA_82C596B_3),

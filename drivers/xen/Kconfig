@@ -23,10 +23,6 @@ config XEN_UNPRIVILEGED_GUEST
 	select PM
 	select SUSPEND
 
-config XEN_PRIVCMD
-	def_bool y
-	depends on PROC_FS
-
 config XEN_DOMCTL
 	tristate
 
@@ -266,14 +262,6 @@ config XEN_DISABLE_SERIAL
 	  Disable serial port drivers, allowing the Xen console driver
 	  to provide a serial console at ttyS0.
 
-config XEN_SYSFS
-	tristate "Export Xen attributes in sysfs"
-	depends on SYSFS
-	select SYS_HYPERVISOR
-	default y
-	help
-	  Xen hypervisor attributes will show up under /sys/hypervisor/.
-
 config XEN_NR_GUEST_DEVICES
 	int "Number of guest devices"
 	range 0 4032 if 64BIT
@@ -355,6 +343,21 @@ config XEN_SMPBOOT
 	def_bool y
 	depends on SMP && !PPC_XEN
 
+config XEN_SPINLOCK_ACQUIRE_NESTING
+	int "maximum nesting level for acquiring spin locks"
+	# Xen versions prior to 3.2.x have a race condition with HYPERVISOR_poll().
+	depends on !XEN_COMPAT_030002_AND_LATER
+	depends on !XEN_COMPAT_030004_AND_LATER
+	depends on !XEN_COMPAT_030100_AND_LATER
+	range 0 3 if EXPERIMENTAL
+	range 0 1
+	default 0
+	help
+	  IRQ-safe spin lock acquire operations can re-enable interrupts
+	  before entering polling mode, to reduce interrupt latencies.
+	  This option specifies how many times this can be done for each
+	  individual spin lock (0 disables this behavior).
+
 config XEN_DEVMEM
 	def_bool y
 
@@ -374,8 +377,7 @@ config XEN_BALLOON
 
 config XEN_SELFBALLOONING
 	bool "Dynamically self-balloon kernel memory to target"
-	depends on PARAVIRT_XEN && XEN_BALLOON && CLEANCACHE && SWAP && XEN_TMEM
-	default n
+	depends on XEN_BALLOON && CLEANCACHE && SWAP && XEN_TMEM
 	help
 	  Self-ballooning dynamically balloons available kernel memory driven
 	  by the current usage of anonymous memory ("committed AS") and
@@ -452,6 +454,7 @@ config PARAVIRT_XEN_BACKEND
 config XENFS
 	tristate "Xen filesystem"
 	depends on PARAVIRT_XEN
+	select XEN_PRIVCMD
 	default y
 	help
 	  The xen filesystem provides a way for domains to share
@@ -474,7 +477,7 @@ config XEN_COMPAT_XENFS
 
 config XEN_SYS_HYPERVISOR
        bool "Create xen entries under /sys/hypervisor"
-       depends on PARAVIRT_XEN && SYSFS
+       depends on SYSFS
        select SYS_HYPERVISOR
        default y
        help
@@ -626,5 +629,11 @@ config XEN_PCIDEV_BACKEND_CONTROLLER
 	  use this mode.
 
 endmenu
+
+config XEN_PRIVCMD
+	tristate
+	depends on PARAVIRT_XEN || (XEN && PROC_FS)
+	default y if XEN
+	default m
 
 endmenu

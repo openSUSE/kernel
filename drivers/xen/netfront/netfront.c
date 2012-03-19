@@ -81,15 +81,15 @@ struct netfront_cb {
  * For paravirtualised guests, flipping is the default.
  */
 #ifdef CONFIG_XEN
-static int MODPARM_rx_copy = 0;
+static bool MODPARM_rx_copy;
 module_param_named(rx_copy, MODPARM_rx_copy, bool, 0);
 MODULE_PARM_DESC(rx_copy, "Copy packets from network card (rather than flip)");
-static int MODPARM_rx_flip = 0;
+static bool MODPARM_rx_flip;
 module_param_named(rx_flip, MODPARM_rx_flip, bool, 0);
 MODULE_PARM_DESC(rx_flip, "Flip packets from network card (rather than copy)");
 #else
-static const int MODPARM_rx_copy = 1;
-static const int MODPARM_rx_flip = 0;
+# define MODPARM_rx_copy true
+# define MODPARM_rx_flip false
 #endif
 
 #define RX_COPY_THRESHOLD 256
@@ -147,8 +147,6 @@ static inline int netif_needs_gso(struct sk_buff *skb, int features)
 #define dev_disable_gso_features(dev)	((void)0)
 #define ethtool_op_set_tso(dev, data)	(-ENOSYS)
 #endif
-
-#define GRANT_INVALID_REF	0
 
 struct netfront_rx_info {
 	struct netif_rx_response rx;
@@ -231,7 +229,7 @@ static void xennet_sysfs_delif(struct net_device *netdev);
 #define xennet_sysfs_delif(dev) do { } while(0)
 #endif
 
-static inline int xennet_can_sg(struct net_device *dev)
+static inline bool xennet_can_sg(struct net_device *dev)
 {
 	return dev->features & NETIF_F_SG;
 }
@@ -1783,7 +1781,8 @@ static void netfront_get_drvinfo(struct net_device *dev,
 				 struct ethtool_drvinfo *info)
 {
 	strcpy(info->driver, "netfront");
-	strcpy(info->bus_info, dev_name(dev->dev.parent));
+	strlcpy(info->bus_info, dev_name(dev->dev.parent),
+		ARRAY_SIZE(info->bus_info));
 }
 
 static int network_connect(struct net_device *dev)
@@ -2041,7 +2040,8 @@ static void network_set_multicast_list(struct net_device *dev)
 {
 }
 
-static u32 xennet_fix_features(struct net_device *dev, u32 features)
+static netdev_features_t xennet_fix_features(struct net_device *dev,
+					     netdev_features_t features)
 {
 	struct netfront_info *np = netdev_priv(dev);
 	int val;
@@ -2067,7 +2067,8 @@ static u32 xennet_fix_features(struct net_device *dev, u32 features)
 	return features;
 }
 
-static int xennet_set_features(struct net_device *dev, u32 features)
+static int xennet_set_features(struct net_device *dev,
+			       netdev_features_t features)
 {
 	if (!(features & NETIF_F_SG) && dev->mtu > ETH_DATA_LEN) {
 		netdev_info(dev, "Reducing MTU because no SG offload");
@@ -2248,7 +2249,7 @@ static int __init netif_init(void)
 	}
 
 	if (!MODPARM_rx_flip && !MODPARM_rx_copy)
-		MODPARM_rx_copy = 1; /* Default is to copy. */
+		MODPARM_rx_copy = true; /* Default is to copy. */
 #endif
 
 	netif_init_accel();

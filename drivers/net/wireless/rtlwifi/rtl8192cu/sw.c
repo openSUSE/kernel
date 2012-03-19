@@ -57,9 +57,9 @@ static int rtl92cu_init_sw_vars(struct ieee80211_hw *hw)
 	const struct firmware *firmware;
 	int err;
 
-	rtlpriv->dm.dm_initialgain_enable = 1;
+	rtlpriv->dm.dm_initialgain_enable = true;
 	rtlpriv->dm.dm_flag = 0;
-	rtlpriv->dm.disable_framebursting = 0;
+	rtlpriv->dm.disable_framebursting = false;
 	rtlpriv->dm.thermalvalue = 0;
 	rtlpriv->dbg.global_debuglevel = rtlpriv->cfg->mod_params->debug;
 	rtlpriv->rtlhal.pfirmware = vmalloc(0x4000);
@@ -384,15 +384,4 @@ static struct usb_driver rtl8192cu_driver = {
 #endif
 };
 
-static int __init rtl8192cu_init(void)
-{
-	return usb_register(&rtl8192cu_driver);
-}
-
-static void __exit rtl8192cu_exit(void)
-{
-	usb_deregister(&rtl8192cu_driver);
-}
-
-module_init(rtl8192cu_init);
-module_exit(rtl8192cu_exit);
+module_usb_driver(rtl8192cu_driver);

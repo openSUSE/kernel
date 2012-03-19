@@ -70,12 +70,12 @@ blktap_sysfs_set_name(struct device *dev, struct device_attribute *attr,
 		goto out;
 	}
 
-	if (strnlen(buf, BLKTAP2_MAX_MESSAGE_LEN) >= BLKTAP2_MAX_MESSAGE_LEN) {
+	if (strnlen(buf, size) >= size) {
 		err = -EINVAL;
 		goto out;
 	}
 
-	snprintf(tap->params.name, sizeof(tap->params.name) - 1, "%s", buf);
+	strlcpy(tap->params.name, buf, size);
 	err = size;
 
 out:
@@ -439,7 +439,7 @@ blktap_sysfs_free(void)
 	class_destroy(class);
 }
 
-static char *blktap_devnode(struct device *dev, mode_t *mode)
+static char *blktap_devnode(struct device *dev, umode_t *mode)
 {
 	return kasprintf(GFP_KERNEL, BLKTAP2_DEV_DIR "blktap%u",
 			 MINOR(dev->devt));

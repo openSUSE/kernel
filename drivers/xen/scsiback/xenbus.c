@@ -364,12 +364,12 @@ static DEFINE_XENBUS_DRIVER(scsiback, ,
 	.otherend_changed	= scsiback_frontend_changed
 );
 
-int scsiback_xenbus_init(void)
+int __init scsiback_xenbus_init(void)
 {
 	return xenbus_register_backend(&scsiback_driver);
 }
 
-void scsiback_xenbus_unregister(void)
+void __exit scsiback_xenbus_unregister(void)
 {
 	xenbus_unregister_driver(&scsiback_driver);
 }

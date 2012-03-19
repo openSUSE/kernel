@@ -24,8 +24,6 @@
  * IN THE SOFTWARE.
  */
 
-#define REVISION "$Revision: 1.0 $"
-
 #include <linux/module.h>
 #include <linux/blkdev.h>
 #include <linux/list.h>
@@ -75,7 +73,7 @@ static void submit_message(struct blkfront_info *info, void *sp)
 	req->flags |= REQ_BLOCK_PC;
 #endif
 	req->__sector = 0;
-	req->__data_len = PAGE_SIZE;
+	req->cmd_len = 0;
 	req->timeout = 60*HZ;
 
 	blk_execute_rq(req->q, info->gd, req, 1);
@@ -89,7 +87,6 @@ static int submit_cdrom_cmd(struct blkfront_info *info,
 {
 	int ret = 0;
 	struct page *page;
-	size_t size;
 	union xen_block_packet *sp;
 	struct xen_cdrom_packet *xcp;
 	struct vcd_generic_command *vgc;
@@ -105,7 +102,6 @@ static int submit_cdrom_cmd(struct blkfront_info *info,
 		return -ENOMEM;
 	}
 
-	size = PAGE_SIZE;
 	sp = page_address(page);
 	xcp = &(sp->xcp);
 	xcp->type = XEN_TYPE_CDROM_PACKET;
@@ -132,12 +128,10 @@ static int submit_cdrom_cmd(struct blkfront_info *info,
 	if (xcp->ret)
 		ret = xcp->err;
 
-	if (cgc->sense) {
+	if (cgc->sense)
 		memcpy(cgc->sense, (char *)sp + PACKET_SENSE_OFFSET, sizeof(struct request_sense));
-	}
-	if (cgc->buffer && cgc->buflen) {
+	if (cgc->buffer && cgc->buflen)
 		memcpy(cgc->buffer, (char *)sp + PACKET_BUFFER_OFFSET, cgc->buflen);
-	}
 
 	__free_page(page);
 	return ret;
@@ -221,7 +215,6 @@ static int xencdrom_media_changed(struct cdrom_device_info *cdi, int disc_nr)
 
 static int xencdrom_tray_move(struct cdrom_device_info *cdi, int position)
 {
-	int ret;
 	struct packet_command cgc;
 	struct blkfront_info *info;
 
@@ -232,13 +225,12 @@ static int xencdrom_tray_move(struct cdrom_device_info *cdi, int position)
 		cgc.cmd[4] = 2;
 	else
 		cgc.cmd[4] = 3;
-	ret = submit_cdrom_cmd(info, &cgc);
-	return ret;
+
+	return submit_cdrom_cmd(info, &cgc);
 }
 
 static int xencdrom_lock_door(struct cdrom_device_info *cdi, int lock)
 {
-	int ret = 0;
 	struct blkfront_info *info;
 	struct packet_command cgc;
 
@@ -246,20 +238,14 @@ static int xencdrom_lock_door(struct cdrom_device_info *cdi, int lock)
 	init_cdrom_command(&cgc, NULL, 0, CGC_DATA_NONE);
 	cgc.cmd[0] = GPCMD_PREVENT_ALLOW_MEDIUM_REMOVAL;
 	cgc.cmd[4] = lock;
-	ret = submit_cdrom_cmd(info, &cgc);
-	return ret;
+
+	return submit_cdrom_cmd(info, &cgc);
 }
 
 static int xencdrom_packet(struct cdrom_device_info *cdi,
-		struct packet_command *cgc)
+			   struct packet_command *cgc)
 {
-	int ret = -EIO;
-	struct blkfront_info *info;
-
-	info = cdi->disk->private_data;
-	ret = submit_cdrom_cmd(info, cgc);
-	cgc->stat = ret;
-	return ret;
+	return cgc->stat = submit_cdrom_cmd(cdi->disk->private_data, cgc);
 }
 
 static int xencdrom_audio_ioctl(struct cdrom_device_info *cdi, unsigned int cmd,
@@ -323,9 +309,9 @@ static int xencdrom_block_open(struct block_device *bd, fmode_t mode)
 #else
 		ret = cdrom_open(&vcd->vcd_cdrom_info, bd, mode);
 #endif
-		info->users = vcd->vcd_cdrom_info.use_count;
 		spin_unlock(&vcd->vcd_cdrom_info_lock);
 	}
+
 	return ret;
 }
 
@@ -349,7 +335,6 @@ static int xencdrom_block_release(struct gendisk *gd, fmode_t mode)
 #endif
 		spin_unlock(&vcd->vcd_cdrom_info_lock);
 		if (vcd->vcd_cdrom_info.use_count == 0) {
-			info->users = 1;
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28)
 			blkif_release(inode, file);
 #else
@@ -357,6 +342,7 @@ static int xencdrom_block_release(struct gendisk *gd, fmode_t mode)
 #endif
 		}
 	}
+
 	return ret;
 }
 
@@ -393,9 +379,13 @@ static int xencdrom_block_ioctl(struct block_device *bd, fmode_t mode,
 	case CDROM_SET_OPTIONS:
 		ret = vcd->vcd_cdrom_info.options;
 		break;
-	case CDROM_SEND_PACKET:
-		ret = submit_cdrom_cmd(info, (struct packet_command *)arg);
+	case CDROM_SEND_PACKET: {
+		struct packet_command cgc;
+
+		ret = copy_from_user(&cgc, (void __user *)arg, sizeof(cgc))
+		      ? -EFAULT : submit_cdrom_cmd(info, &cgc);
 		break;
+	}
 	default:
 		spin_unlock(&vcd->vcd_cdrom_info_lock);
 out:
@@ -406,6 +396,7 @@ out:
 #endif
 	}
 	spin_unlock(&vcd->vcd_cdrom_info_lock);
+
 	return ret;
 }
 
@@ -414,7 +405,6 @@ static int xencdrom_block_media_changed(struct gendisk *disk)
 {
 	struct vcd_disk *vcd;
 	struct vcd_disk *ret_vcd = NULL;
-	int ret = 0;
 
 	spin_lock(&vcd_disks_lock);
 	list_for_each_entry(vcd, &vcd_disks, vcd_entry) {
@@ -424,10 +414,8 @@ static int xencdrom_block_media_changed(struct gendisk *disk)
 		}
 	}
 	spin_unlock(&vcd_disks_lock);
-	if (ret_vcd) {
-		ret = cdrom_media_changed(&ret_vcd->vcd_cdrom_info);
-	}
-	return ret;
+
+	return ret_vcd ? cdrom_media_changed(&ret_vcd->vcd_cdrom_info) : 0;
 }
 
 static const struct block_device_operations xencdrom_bdops =
@@ -449,9 +437,8 @@ void register_vcd(struct blkfront_info *info)
 		goto out;
 
 	/* Make sure we have backend support */
-	if (!xencdrom_supported(info)) {
+	if (!xencdrom_supported(info))
 		goto out;
-	}
 
 	/* Create new vcd_disk and fill in cdrom_info */
 	vcd = kzalloc(sizeof(*vcd), GFP_KERNEL);
@@ -461,11 +448,12 @@ void register_vcd(struct blkfront_info *info)
 	}
 	spin_lock_init(&vcd->vcd_cdrom_info_lock);
 
-	vcd->vcd_cdrom_info.ops	= &xencdrom_dops;
+	vcd->vcd_cdrom_info.ops = &xencdrom_dops;
 	vcd->vcd_cdrom_info.speed = 4;
 	vcd->vcd_cdrom_info.capacity = 1;
-	vcd->vcd_cdrom_info.options	= 0;
-	strcpy(vcd->vcd_cdrom_info.name, gd->disk_name);
+	vcd->vcd_cdrom_info.options = 0;
+	strlcpy(vcd->vcd_cdrom_info.name, gd->disk_name,
+		ARRAY_SIZE(vcd->vcd_cdrom_info.name));
 	vcd->vcd_cdrom_info.mask = (CDC_CD_RW | CDC_DVD_R | CDC_DVD_RAM |
 			CDC_SELECT_DISC | CDC_SELECT_SPEED |
 			CDC_MRW | CDC_MRW_W | CDC_RAM);
@@ -504,4 +492,3 @@ void unregister_vcd(struct blkfront_info *info) {
 	}
 	spin_unlock(&vcd_disks_lock);
 }
-

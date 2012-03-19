@@ -84,10 +84,10 @@
 #endif
 
 int xen_store_evtchn;
-PARAVIRT_EXPORT_SYMBOL(xen_store_evtchn);
+EXPORT_SYMBOL_GPL(xen_store_evtchn);
 
 struct xenstore_domain_interface *xen_store_interface;
-PARAVIRT_EXPORT_SYMBOL(xen_store_interface);
+EXPORT_SYMBOL_GPL(xen_store_interface);
 
 static unsigned long xen_store_mfn;
 
@@ -319,10 +319,11 @@ int xenbus_dev_remove(struct device *_dev)
 	DPRINTK("%s", dev->nodename);
 
 	free_otherend_watch(dev);
-	free_otherend_details(dev);
 
 	if (drv->remove)
 		drv->remove(dev);
+
+	free_otherend_details(dev);
 
 	xenbus_switch_state(dev, XenbusStateClosed);
 	return 0;
@@ -1339,6 +1340,8 @@ xenbus_init(void)
 
 	xenbus_dev_init();
 #else /* !defined(CONFIG_XEN) && !defined(MODULE) */
+	xenbus_ring_ops_init();
+
 	if (xen_hvm_domain()) {
 		uint64_t v = 0;
 		err = hvm_get_parameter(HVM_PARAM_STORE_EVTCHN, &v);

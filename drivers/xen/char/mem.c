@@ -9,18 +9,10 @@
  */
 
 #include <linux/mm.h>
-#include <linux/miscdevice.h>
-#include <linux/slab.h>
-#include <linux/vmalloc.h>
-#include <linux/mman.h>
-#include <linux/random.h>
 #include <linux/init.h>
-#include <linux/raw.h>
-#include <linux/tty.h>
+#include <linux/fs.h>
 #include <linux/capability.h>
 #include <linux/ptrace.h>
-#include <linux/device.h>
-#include <asm/pgalloc.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/hypervisor.h>

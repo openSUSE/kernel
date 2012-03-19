@@ -310,19 +310,20 @@ dotraplinkage void __kprobes do_int3(struct pt_regs *regs, long error_code)
 			== NOTIFY_STOP)
 		return;
 #endif /* CONFIG_KGDB_LOW_LEVEL_TRAP */
-#ifdef CONFIG_KPROBES
+
 	if (notify_die(DIE_INT3, "int3", regs, error_code, 3, SIGTRAP)
 			== NOTIFY_STOP)
 		return;
-#else
-	if (notify_die(DIE_TRAP, "int3", regs, error_code, 3, SIGTRAP)
-			== NOTIFY_STOP)
-		return;
-#endif
 
+	/*
+	 * Let others (NMI) know that the debug stack is in use
+	 * as we may switch to the interrupt stack.
+	 */
+	debug_stack_usage_inc();
 	preempt_conditional_sti(regs);
 	do_trap(3, SIGTRAP, "int3", regs, error_code, NULL);
 	preempt_conditional_cli(regs);
+	debug_stack_usage_dec();
 }
 
 #if defined(CONFIG_X86_64) && !defined(CONFIG_XEN)
@@ -415,6 +416,12 @@ dotraplinkage void __kprobes do_debug(struct pt_regs *regs, long error_code)
 							SIGTRAP) == NOTIFY_STOP)
 		return;
 
+	/*
+	 * Let others (NMI) know that the debug stack is in use
+	 * as we may switch to the interrupt stack.
+	 */
+	debug_stack_usage_inc();
+
 	/* It's safe to allow irq's after DR6 has been saved */
 	preempt_conditional_sti(regs);
 
@@ -422,6 +429,7 @@ dotraplinkage void __kprobes do_debug(struct pt_regs *regs, long error_code)
 		handle_vm86_trap((struct kernel_vm86_regs *) regs,
 				error_code, 1);
 		preempt_conditional_cli(regs);
+		debug_stack_usage_dec();
 		return;
 	}
 
@@ -441,6 +449,7 @@ dotraplinkage void __kprobes do_debug(struct pt_regs *regs, long error_code)
 	if (tsk->thread.debugreg6 & (DR_STEP | DR_TRAP_BITS) || user_icebp)
 		send_sigtrap(tsk, regs, error_code, si_code);
 	preempt_conditional_cli(regs);
+	debug_stack_usage_dec();
 
 	return;
 }
@@ -568,23 +577,6 @@ asmlinkage void __attribute__((weak)) smp_threshold_interrupt(void)
 #endif /* CONFIG_XEN */
 
 /*
- * This gets called with the process already owning the
- * FPU state, and with CR0.TS cleared. It just needs to
- * restore the FPU register state.
- */
-void __math_state_restore(struct task_struct *tsk)
-{
-	/*
-	 * Paranoid restore. send a SIGSEGV if we fail to restore the state.
-	 */
-	if (unlikely(restore_fpu_checking(tsk))) {
-		__thread_fpu_end(tsk);
-		force_sig(SIGSEGV, tsk);
-		return;
-	}
-}
-
-/*
  * 'math_state_restore()' saves the current math information in the
  * old math state array, and gets the new ones from the current task
  *
@@ -614,7 +606,14 @@ void math_state_restore(void)
 	}
 
 	xen_thread_fpu_begin(tsk, NULL);
-	__math_state_restore(tsk);
+	/*
+	 * Paranoid restore. send a SIGSEGV if we fail to restore the state.
+	 */
+	if (unlikely(restore_fpu_checking(tsk))) {
+		__thread_fpu_end(tsk);
+		force_sig(SIGSEGV, tsk);
+		return;
+	}
 
 	tsk->fpu_counter++;
 }
@@ -725,6 +724,12 @@ void __init trap_init(void)
 	cpu_init();
 
 	x86_init.irqs.trap_init();
+
+#if defined(CONFIG_X86_64) && !defined(CONFIG_X86_NO_IDT)
+	memcpy(&nmi_idt_table, &idt_table, IDT_ENTRIES * 16);
+	set_nmi_gate(1, &debug);
+	set_nmi_gate(3, &int3);
+#endif
 }
 
 void __cpuinit smp_trap_init(trap_info_t *trap_ctxt)

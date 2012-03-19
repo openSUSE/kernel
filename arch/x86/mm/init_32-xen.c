@@ -463,23 +463,17 @@ static void __init add_one_highpage_init(struct page *page)
 void __init add_highpages_with_active_regions(int nid,
 			 unsigned long start_pfn, unsigned long end_pfn)
 {
-	struct range *range;
-	int nr_range;
-	int i;
+	phys_addr_t start, end;
+	u64 i;
 
-	nr_range = __get_free_all_memory_range(&range, nid, start_pfn, end_pfn);
-
-	for (i = 0; i < nr_range; i++) {
-		struct page *page;
-		int node_pfn;
-
-		for (node_pfn = range[i].start; node_pfn < range[i].end;
-		     node_pfn++) {
-			if (!pfn_valid(node_pfn))
-				continue;
-			page = pfn_to_page(node_pfn);
-			add_one_highpage_init(page);
-		}
+	for_each_free_mem_range(i, nid, &start, &end, NULL) {
+		unsigned long pfn = clamp_t(unsigned long, PFN_UP(start),
+					    start_pfn, end_pfn);
+		unsigned long e_pfn = clamp_t(unsigned long, PFN_DOWN(end),
+					      start_pfn, end_pfn);
+		for ( ; pfn < e_pfn; pfn++)
+			if (pfn_valid(pfn))
+				add_one_highpage_init(pfn_to_page(pfn));
 	}
 }
 #else
@@ -652,18 +646,18 @@ void __init initmem_init(void)
 	highstart_pfn = highend_pfn = max_pfn;
 	if (max_pfn > max_low_pfn)
 		highstart_pfn = max_low_pfn;
-	memblock_x86_register_active_regions(0, 0, highend_pfn);
-	sparse_memory_present_with_active_regions(0);
 	printk(KERN_NOTICE "%ldMB HIGHMEM available.\n",
 		pages_to_mb(highend_pfn - highstart_pfn));
 	num_physpages = highend_pfn;
 	high_memory = (void *) __va(highstart_pfn * PAGE_SIZE - 1) + 1;
 #else
-	memblock_x86_register_active_regions(0, 0, max_low_pfn);
-	sparse_memory_present_with_active_regions(0);
 	num_physpages = max_low_pfn;
 	high_memory = (void *) __va(max_low_pfn * PAGE_SIZE - 1) + 1;
 #endif
+
+	memblock_set_node(0, (phys_addr_t)ULLONG_MAX, 0);
+	sparse_memory_present_with_active_regions(0);
+
 #ifdef CONFIG_FLATMEM
 	max_mapnr = num_physpages;
 #endif
@@ -676,32 +670,8 @@ void __init initmem_init(void)
 }
 #endif /* !CONFIG_NEED_MULTIPLE_NODES */
 
-static void __init zone_sizes_init(void)
-{
-	unsigned long max_zone_pfns[MAX_NR_ZONES];
-	memset(max_zone_pfns, 0, sizeof(max_zone_pfns));
-#ifdef CONFIG_ZONE_DMA
-	max_zone_pfns[ZONE_DMA] =
-		virt_to_phys((char *)MAX_DMA_ADDRESS) >> PAGE_SHIFT;
-#endif
-	max_zone_pfns[ZONE_NORMAL] = max_low_pfn;
-#ifdef CONFIG_HIGHMEM
-	max_zone_pfns[ZONE_HIGHMEM] = highend_pfn;
-#endif
-
-	free_area_init_nodes(max_zone_pfns);
-
-	xen_init_pgd_pin();
-}
-
 void __init setup_bootmem_allocator(void)
 {
-#ifdef CONFIG_XEN
-	if (max_low_pfn > xen_start_info->nr_pages)
-		memblock_x86_reserve_range(xen_start_info->nr_pages << PAGE_SHIFT,
-					   max_low_pfn << PAGE_SHIFT, "BALLOON");
-#endif
-
 	printk(KERN_INFO "  mapped low ram: 0 - %08lx\n",
 		 max_pfn_mapped<<PAGE_SHIFT);
 	printk(KERN_INFO "  low ram: 0 - %08lx\n", max_low_pfn<<PAGE_SHIFT);
@@ -755,8 +725,7 @@ unsigned long __init extend_init_mapping(unsigned long tables_space)
 	}
 
 	if (start_pfn > start)
-		memblock_x86_reserve_range(start << PAGE_SHIFT,
-					   start_pfn << PAGE_SHIFT, "INITMAP");
+		memblock_reserve(PFN_PHYS(start), PFN_PHYS(start_pfn - start));
 
 	return start_pfn;
 }
@@ -823,6 +792,17 @@ void __init mem_init(void)
 #ifdef CONFIG_FLATMEM
 	BUG_ON(!mem_map);
 #endif
+	/*
+	 * With CONFIG_DEBUG_PAGEALLOC initialization of highmem pages has to
+	 * be done before free_all_bootmem(). Memblock use free low memory for
+	 * temporary data (see find_range_array()) and for this purpose can use
+	 * pages that was already passed to the buddy allocator, hence marked as
+	 * not accessible in the page tables when compiled with
+	 * CONFIG_DEBUG_PAGEALLOC. Otherwise order of initialization is not
+	 * important here.
+	 */
+	set_highmem_pages_init();
+
 	/* this will put all low memory onto the freelists */
 	totalram_pages += free_all_bootmem();
 	/* XEN: init low-mem pages outside initial allocation. */
@@ -838,8 +818,6 @@ void __init mem_init(void)
 		 */
 		if (page_is_ram(tmp) && PageReserved(pfn_to_page(tmp)))
 			reservedpages++;
-
-	set_highmem_pages_init();
 
 	codesize =  (unsigned long) &_etext - (unsigned long) &_text;
 	datasize =  (unsigned long) &_edata - (unsigned long) &_etext;

@@ -742,8 +742,12 @@ struct xen_domctl_mem_event_op {
     uint32_t       op;           /* XEN_DOMCTL_MEM_EVENT_OP_*_* */
     uint32_t       mode;         /* XEN_DOMCTL_MEM_EVENT_OP_* */
 
-    /* OP_ENABLE */
-    uint64_aligned_t shared_addr;  /* IN:  Virtual address of shared page */
+    union {
+        /* OP_ENABLE IN:  Virtual address of shared page */
+        uint64_aligned_t shared_addr;  
+        /* PAGING_PREP IN: buffer to immediately fill page in */
+        uint64_aligned_t buffer;
+    } u;
     uint64_aligned_t ring_addr;    /* IN:  Virtual address of ring page */
 
     /* Other OPs */
@@ -767,9 +771,23 @@ DEFINE_XEN_GUEST_HANDLE(xen_domctl_mem_event_op_t);
 #define XEN_DOMCTL_MEM_EVENT_OP_SHARING_DEBUG_GFN      5
 #define XEN_DOMCTL_MEM_EVENT_OP_SHARING_DEBUG_MFN      6
 #define XEN_DOMCTL_MEM_EVENT_OP_SHARING_DEBUG_GREF     7
+#define XEN_DOMCTL_MEM_EVENT_OP_SHARING_ADD_PHYSMAP    8
 
 #define XEN_DOMCTL_MEM_SHARING_S_HANDLE_INVALID  (-10)
 #define XEN_DOMCTL_MEM_SHARING_C_HANDLE_INVALID  (-9)
+
+/* The following allows sharing of grant refs. This is useful
+ * for sharing utilities sitting as "filters" in IO backends
+ * (e.g. memshr + blktap(2)). The IO backend is only exposed 
+ * to grant references, and this allows sharing of the grefs */
+#define XEN_DOMCTL_MEM_SHARING_FIELD_IS_GREF_FLAG   (1ULL << 62)
+
+#define XEN_DOMCTL_MEM_SHARING_FIELD_MAKE_GREF(field, val)  \
+    (field) = (XEN_DOMCTL_MEM_SHARING_FIELD_IS_GREF_FLAG | val)
+#define XEN_DOMCTL_MEM_SHARING_FIELD_IS_GREF(field)         \
+    ((field) & XEN_DOMCTL_MEM_SHARING_FIELD_IS_GREF_FLAG)
+#define XEN_DOMCTL_MEM_SHARING_FIELD_GET_GREF(field)        \
+    ((field) & (~XEN_DOMCTL_MEM_SHARING_FIELD_IS_GREF_FLAG))
 
 struct xen_domctl_mem_sharing_op {
     uint8_t op; /* XEN_DOMCTL_MEM_EVENT_OP_* */
@@ -784,8 +802,11 @@ struct xen_domctl_mem_sharing_op {
             } u;
             uint64_aligned_t  handle;     /* OUT: the handle           */
         } nominate;
-        struct mem_sharing_op_share {     /* OP_SHARE */
+        struct mem_sharing_op_share {     /* OP_SHARE/ADD_PHYSMAP */
+            uint64_aligned_t source_gfn;    /* IN: the gfn of the source page */
             uint64_aligned_t source_handle; /* IN: handle to the source page */
+            domid_t          client_domain; /* IN: the client domain id */
+            uint64_aligned_t client_gfn;    /* IN: the client gfn */
             uint64_aligned_t client_handle; /* IN: handle to the client page */
         } share; 
         struct mem_sharing_op_debug {     /* OP_DEBUG_xxx */
@@ -799,6 +820,21 @@ struct xen_domctl_mem_sharing_op {
 };
 typedef struct xen_domctl_mem_sharing_op xen_domctl_mem_sharing_op_t;
 DEFINE_XEN_GUEST_HANDLE(xen_domctl_mem_sharing_op_t);
+
+struct xen_domctl_audit_p2m {
+    /* OUT error counts */
+    uint64_t orphans;
+    uint64_t m2p_bad;
+    uint64_t p2m_bad;
+};
+typedef struct xen_domctl_audit_p2m xen_domctl_audit_p2m_t;
+DEFINE_XEN_GUEST_HANDLE(xen_domctl_audit_p2m_t);
+
+struct xen_domctl_set_virq_handler {
+    uint32_t virq; /* IN */
+};
+typedef struct xen_domctl_set_virq_handler xen_domctl_set_virq_handler_t;
+DEFINE_XEN_GUEST_HANDLE(xen_domctl_set_virq_handler_t);
 
 #if defined(__i386__) || defined(__x86_64__)
 /* XEN_DOMCTL_setvcpuextstate */
@@ -898,6 +934,8 @@ struct xen_domctl {
 #define XEN_DOMCTL_setvcpuextstate               62
 #define XEN_DOMCTL_getvcpuextstate               63
 #define XEN_DOMCTL_set_access_required           64
+#define XEN_DOMCTL_audit_p2m                     65
+#define XEN_DOMCTL_set_virq_handler              66
 #define XEN_DOMCTL_gdbsx_guestmemio            1000
 #define XEN_DOMCTL_gdbsx_pausevcpu             1001
 #define XEN_DOMCTL_gdbsx_unpausevcpu           1002
@@ -951,6 +989,8 @@ struct xen_domctl {
         struct xen_domctl_vcpuextstate      vcpuextstate;
 #endif
         struct xen_domctl_set_access_required access_required;
+        struct xen_domctl_audit_p2m         audit_p2m;
+        struct xen_domctl_set_virq_handler  set_virq_handler;
         struct xen_domctl_gdbsx_memio       gdbsx_guest_memio;
         struct xen_domctl_gdbsx_pauseunp_vcpu gdbsx_pauseunp_vcpu;
         struct xen_domctl_gdbsx_domstatus   gdbsx_domstatus;

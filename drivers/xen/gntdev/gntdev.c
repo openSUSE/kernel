@@ -21,19 +21,15 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/fs.h>
-#include <linux/device.h>
+#include <linux/miscdevice.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
-#include <linux/mman.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>
 #include <xen/gnttab.h>
 #include <asm/hypervisor.h>
 #include <xen/balloon.h>
 #include <xen/evtchn.h>
-#include <xen/driver_util.h>
-
-#include <linux/types.h>
 #include <xen/public/gntdev.h>
 
 
@@ -160,11 +156,6 @@ static struct vm_operations_struct gntdev_vmops = {
 	.close = gntdev_vma_close,
 	.zap_pte = gntdev_clear_pte
 };
-
-/* Global variables. */
-
-/* The driver major number, for use when unregistering the driver. */
-static int gntdev_major;
 
 /* Memory mapping functions
  * ------------------------
@@ -374,43 +365,28 @@ nomem_out:
 
 /* Interface functions. */
 
-static char *gntdev_devnode(struct device *dev, mode_t *mode)
-{
-	return kstrdup("xen/" GNTDEV_NAME, GFP_KERNEL);
-}
-
-static struct device_type gntdev_type = {
-	.devnode = gntdev_devnode
+static struct miscdevice gntdev_miscdev = {
+	.minor        = MISC_DYNAMIC_MINOR,
+	.name         = GNTDEV_NAME,
+	.nodename     = "xen/" GNTDEV_NAME,
+	.fops         = &gntdev_fops,
 };
 
 /* Initialises the driver. Called when the module is loaded. */
 static int __init gntdev_init(void)
 {
-	struct device *device;
+	int err;
 
 	if (!is_running_on_xen()) {
 		pr_err("You must be running Xen to use gntdev\n");
 		return -ENODEV;
 	}
 
-	gntdev_major = __register_chrdev(0, 0, 1, GNTDEV_NAME, &gntdev_fops);
-	if (gntdev_major < 0)
+	err = misc_register(&gntdev_miscdev);
+	if (err)
 	{
 		pr_err("Could not register gntdev device\n");
-		return -ENOMEM;
-	}
-
-	/* Note that if the sysfs code fails, we will still initialise the
-	 * device, and output the major number so that the device can be
-	 * created manually using mknod.
-	 */
-	device = xen_class_device_create(&gntdev_type, NULL,
-					 MKDEV(gntdev_major, 0),
-					 NULL, GNTDEV_NAME);
-	if (IS_ERR(device)) {
-		pr_err("Error creating gntdev device in xen_class\n");
-		pr_err("gntdev created, major number = %d\n", gntdev_major);
-		return 0;
+		return err;
 	}
 
 	return 0;
@@ -420,10 +396,7 @@ static int __init gntdev_init(void)
  */
 static void __exit gntdev_exit(void)
 {
-	struct class *class;
-	if ((class = get_xen_class()) != NULL)
-		device_destroy(class, MKDEV(gntdev_major, 0));
-	__unregister_chrdev(gntdev_major, 0, 1, GNTDEV_NAME);
+	misc_deregister(&gntdev_miscdev);
 }
 
 /* Called when the device is opened. */
@@ -432,8 +405,6 @@ static int gntdev_open(struct inode *inode, struct file *flip)
 	gntdev_file_private_data_t *private_data;
 
 	nonseekable_open(inode, flip);
-
-	try_module_get(THIS_MODULE);
 
 	/* Allocate space for the per-instance private data. */
 	private_data = kmalloc(sizeof(*private_data), GFP_KERNEL);
@@ -473,7 +444,6 @@ static int gntdev_release(struct inode *inode, struct file *flip)
 			kfree(private_data->free_list);
 		kfree(private_data);
 	}
-	module_put(THIS_MODULE);
 	return 0;
 }
 

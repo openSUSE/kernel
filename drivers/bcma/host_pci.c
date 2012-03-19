@@ -21,48 +21,58 @@ static void bcma_host_pci_switch_core(struct bcma_device *core)
 	pr_debug("Switched to core: 0x%X\n", core->id.id);
 }
 
-static u8 bcma_host_pci_read8(struct bcma_device *core, u16 offset)
+/* Provides access to the requested core. Returns base offset that has to be
+ * used. It makes use of fixed windows when possible. */
+static u16 bcma_host_pci_provide_access_to_core(struct bcma_device *core)
 {
+	switch (core->id.id) {
+	case BCMA_CORE_CHIPCOMMON:
+		return 3 * BCMA_CORE_SIZE;
+	case BCMA_CORE_PCIE:
+		return 2 * BCMA_CORE_SIZE;
+	}
+
 	if (core->bus->mapped_core != core)
 		bcma_host_pci_switch_core(core);
+	return 0;
+}
+
+static u8 bcma_host_pci_read8(struct bcma_device *core, u16 offset)
+{
+	offset += bcma_host_pci_provide_access_to_core(core);
 	return ioread8(core->bus->mmio + offset);
 }
 
 static u16 bcma_host_pci_read16(struct bcma_device *core, u16 offset)
 {
-	if (core->bus->mapped_core != core)
-		bcma_host_pci_switch_core(core);
+	offset += bcma_host_pci_provide_access_to_core(core);
 	return ioread16(core->bus->mmio + offset);
 }
 
 static u32 bcma_host_pci_read32(struct bcma_device *core, u16 offset)
 {
-	if (core->bus->mapped_core != core)
-		bcma_host_pci_switch_core(core);
+	offset += bcma_host_pci_provide_access_to_core(core);
 	return ioread32(core->bus->mmio + offset);
 }
 
 static void bcma_host_pci_write8(struct bcma_device *core, u16 offset,
 				 u8 value)
 {
-	if (core->bus->mapped_core != core)
-		bcma_host_pci_switch_core(core);
+	offset += bcma_host_pci_provide_access_to_core(core);
 	iowrite8(value, core->bus->mmio + offset);
 }
 
 static void bcma_host_pci_write16(struct bcma_device *core, u16 offset,
 				 u16 value)
 {
-	if (core->bus->mapped_core != core)
-		bcma_host_pci_switch_core(core);
+	offset += bcma_host_pci_provide_access_to_core(core);
 	iowrite16(value, core->bus->mmio + offset);
 }
 
 static void bcma_host_pci_write32(struct bcma_device *core, u16 offset,
 				 u32 value)
 {
-	if (core->bus->mapped_core != core)
-		bcma_host_pci_switch_core(core);
+	offset += bcma_host_pci_provide_access_to_core(core);
 	iowrite32(value, core->bus->mmio + offset);
 }
 
@@ -225,41 +235,32 @@ static void bcma_host_pci_remove(struct pci_dev *dev)
 }
 
 #ifdef CONFIG_PM
-static int bcma_host_pci_suspend(struct pci_dev *dev, pm_message_t state)
+static int bcma_host_pci_suspend(struct device *dev)
 {
-	struct bcma_bus *bus = pci_get_drvdata(dev);
-
-	/* Host specific */
-	pci_save_state(dev);
-	pci_disable_device(dev);
-	pci_set_power_state(dev, pci_choose_state(dev, state));
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct bcma_bus *bus = pci_get_drvdata(pdev);
 
 	bus->mapped_core = NULL;
-	return 0;
+
+	return bcma_bus_suspend(bus);
 }
 
-static int bcma_host_pci_resume(struct pci_dev *dev)
+static int bcma_host_pci_resume(struct device *dev)
 {
-	struct bcma_bus *bus = pci_get_drvdata(dev);
-	int err;
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct bcma_bus *bus = pci_get_drvdata(pdev);
 
-	/* Host specific */
-	pci_set_power_state(dev, 0);
-	err = pci_enable_device(dev);
-	if (err)
-		return err;
-	pci_restore_state(dev);
-
-	/* Bus specific */
-	err = bcma_bus_resume(bus);
-	if (err)
-		return err;
-
-	return 0;
+	return bcma_bus_resume(bus);
 }
+
+static SIMPLE_DEV_PM_OPS(bcma_pm_ops, bcma_host_pci_suspend,
+			 bcma_host_pci_resume);
+#define BCMA_PM_OPS	(&bcma_pm_ops)
+
 #else /* CONFIG_PM */
-# define bcma_host_pci_suspend	NULL
-# define bcma_host_pci_resume	NULL
+
+#define BCMA_PM_OPS     NULL
+
 #endif /* CONFIG_PM */
 
 static DEFINE_PCI_DEVICE_TABLE(bcma_pci_bridge_tbl) = {
@@ -277,8 +278,7 @@ static struct pci_driver bcma_pci_bridge_driver = {
 	.id_table = bcma_pci_bridge_tbl,
 	.probe = bcma_host_pci_probe,
 	.remove = bcma_host_pci_remove,
-	.suspend = bcma_host_pci_suspend,
-	.resume = bcma_host_pci_resume,
+	.driver.pm = BCMA_PM_OPS,
 };
 
 int __init bcma_host_pci_init(void)

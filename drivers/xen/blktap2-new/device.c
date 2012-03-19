@@ -246,6 +246,8 @@ blktap_device_run_queue(struct blktap *tap)
 			break;
 
 		if (rq->cmd_type != REQ_TYPE_FS) {
+			rq->errors = (DID_ERROR << 16) |
+				     (DRIVER_INVALID << 24);
 			__blktap_end_queued_rq(rq, -EOPNOTSUPP);
 			continue;
 		}
@@ -425,7 +427,7 @@ blktap_device_destroy_sync(struct blktap *tap)
 		   !blktap_device_try_destroy(tap));
 }
 
-static char *blktap_devnode(struct gendisk *gd, mode_t *mode)
+static char *blktap_devnode(struct gendisk *gd, umode_t *mode)
 {
 	return kasprintf(GFP_KERNEL, BLKTAP2_DEV_DIR "tapdev%u",
 			 gd->first_minor);
@@ -490,8 +492,7 @@ blktap_device_create(struct blktap *tap, struct blktap_params *params)
 	blktap_device_configure(tap, params);
 	add_disk(gd);
 
-	if (params->name[0])
-		strncpy(tap->name, params->name, sizeof(tap->name)-1);
+	strlcpy(tap->name, params->name, ARRAY_SIZE(tap->name));
 
 	set_bit(BLKTAP_DEVICE, &tap->dev_inuse);
 

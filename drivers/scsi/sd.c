@@ -50,6 +50,7 @@
 #include <linux/string_helpers.h>
 #include <linux/async.h>
 #include <linux/slab.h>
+#include <linux/pm_runtime.h>
 #include <asm/uaccess.h>
 #include <asm/unaligned.h>
 
@@ -1274,7 +1275,7 @@ static int sd_compat_ioctl(struct block_device *bdev, fmode_t mode,
 
 	ret = scsi_verify_blk_ioctl(bdev, cmd);
 	if (ret < 0)
-		return -ENOIOCTLCMD;
+		return ret;
 
 	/*
 	 * If we are in the middle of error recovery, don't let anyone
@@ -2545,6 +2546,20 @@ static void sd_probe_async(void *data, async_cookie_t cookie)
 	put_device(&sdkp->dev);
 }
 
+static int sd_get_index(int *index)
+{
+	int error = -ENOMEM;
+	do {
+		if (!ida_pre_get(&sd_index_ida, GFP_KERNEL))
+			break;
+
+		spin_lock(&sd_index_lock);
+		error = ida_get_new(&sd_index_ida, index);
+		spin_unlock(&sd_index_lock);
+	} while (error == -EAGAIN);
+
+	return error;
+}
 /**
  *	sd_probe - called during driver initialization and whenever a
  *	new scsi device is attached to the system. It is called once
@@ -2587,15 +2602,7 @@ static int sd_probe(struct device *dev)
 	if (!gd)
 		goto out_free;
 
-	do {
-		if (!ida_pre_get(&sd_index_ida, GFP_KERNEL))
-			goto out_put;
-
-		spin_lock(&sd_index_lock);
-		error = ida_get_new(&sd_index_ida, &index);
-		spin_unlock(&sd_index_lock);
-	} while (error == -EAGAIN);
-
+	error = sd_get_index(&index);
 	if (error) {
 		sdev_printk(KERN_WARNING, sdp, "sd_probe: memory exhausted.\n");
 		goto out_put;
@@ -2747,6 +2754,9 @@ static void sd_shutdown(struct device *dev)
 	if (!sdkp)
 		return;         /* this can happen */
 
+	if (pm_runtime_suspended(dev))
+		goto exit;
+
 	if (sdkp->WCE) {
 		sd_printk(KERN_NOTICE, sdkp, "Synchronizing SCSI cache\n");
 		sd_sync_cache(sdkp);
@@ -2757,6 +2767,7 @@ static void sd_shutdown(struct device *dev)
 		sd_start_stop_device(sdkp, 0);
 	}
 
+exit:
 	scsi_disk_put(sdkp);
 }
 
@@ -2801,6 +2812,42 @@ done:
 	return ret;
 }
 
+/*
+* Each major represents 16 disks. A minor is used for the disk itself and 15
+* partitions. Mark each disk busy so that sd_probe can not reclaim this major.
+*/
+static int __init init_sd_ida(int *error)
+{
+	int *index, i, j, err;
+
+	index = kmalloc(SD_MAJORS * (256 / SD_MINORS) * sizeof(int), GFP_KERNEL);
+	if (!index)
+		return -ENOMEM;
+
+	/* Mark minors for all majors as busy */
+	for (i = 0; i < SD_MAJORS; i++)
+	{
+		for (j = 0; j < (256 / SD_MINORS); j++) {
+			err = sd_get_index(&index[i * (256 / SD_MINORS) + j]);
+			if (err) {
+				kfree(index);
+				return err;
+			}
+		}
+	}
+
+	/* Mark minors for claimed majors as free */
+	for (i = 0; i < SD_MAJORS; i++)
+	{
+		if (error[i])
+			continue;
+		for (j = 0; j < (256 / SD_MINORS); j++)
+			ida_remove(&sd_index_ida, index[i * (256 / SD_MINORS) + j]);
+	}
+	kfree(index);
+	return 0;
+}
+
 /**
  *	init_sd - entry point for this driver (both when built in or when
  *	a module).
@@ -2810,15 +2857,25 @@ done:
 static int __init init_sd(void)
 {
 	int majors = 0, i, err;
+	int error[SD_MAJORS];
 
 	SCSI_LOG_HLQUEUE(3, printk("init_sd: sd driver entry point\n"));
 
 	for (i = 0; i < SD_MAJORS; i++)
-		if (register_blkdev(sd_major(i), "sd") == 0)
+	{
+		error[i] = register_blkdev(sd_major(i), "sd");
+		if (error[i] == 0)
 			majors++;
+	}
 
 	if (!majors)
 		return -ENODEV;
+
+	if (majors < SD_MAJORS) {
+		err = init_sd_ida(error);
+		if (err)
+			return err;
+	}
 
 	err = class_register(&sd_disk_class);
 	if (err)

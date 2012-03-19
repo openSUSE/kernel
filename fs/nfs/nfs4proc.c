@@ -52,9 +52,11 @@
 #include <linux/namei.h>
 #include <linux/mount.h>
 #include <linux/module.h>
+#include <linux/nfs_idmap.h>
 #include <linux/sunrpc/bc_xprt.h>
 #include <linux/xattr.h>
 #include <linux/utsname.h>
+#include <linux/freezer.h>
 
 #include "nfs4_fs.h"
 #include "delegation.h"
@@ -243,7 +245,7 @@ static int nfs4_delay(struct rpc_clnt *clnt, long *timeout)
 		*timeout = NFS4_POLL_RETRY_MIN;
 	if (*timeout > NFS4_POLL_RETRY_MAX)
 		*timeout = NFS4_POLL_RETRY_MAX;
-	schedule_timeout_killable(*timeout);
+	freezable_schedule_timeout_killable(*timeout);
 	if (fatal_signal_pending(current))
 		res = -ERESTARTSYS;
 	*timeout <<= 1;
@@ -363,9 +365,8 @@ static void renew_lease(const struct nfs_server *server, unsigned long timestamp
  * Must be called while holding tbl->slot_tbl_lock
  */
 static void
-nfs4_free_slot(struct nfs4_slot_table *tbl, struct nfs4_slot *free_slot)
+nfs4_free_slot(struct nfs4_slot_table *tbl, u8 free_slotid)
 {
-	int free_slotid = free_slot - tbl->slots;
 	int slotid = free_slotid;
 
 	BUG_ON(slotid < 0 || slotid >= NFS4_MAX_SLOT_TABLE);
@@ -430,7 +431,7 @@ static void nfs41_sequence_free_slot(struct nfs4_sequence_res *res)
 	}
 
 	spin_lock(&tbl->slot_tbl_lock);
-	nfs4_free_slot(tbl, res->sr_slot);
+	nfs4_free_slot(tbl, res->sr_slot - tbl->slots);
 	nfs4_check_drain_fc_complete(res->sr_session);
 	spin_unlock(&tbl->slot_tbl_lock);
 	res->sr_slot = NULL;
@@ -553,13 +554,10 @@ int nfs41_setup_sequence(struct nfs4_session *session,
 	spin_lock(&tbl->slot_tbl_lock);
 	if (test_bit(NFS4_SESSION_DRAINING, &session->session_state) &&
 	    !rpc_task_has_priority(task, RPC_PRIORITY_PRIVILEGED)) {
-		/*
-		 * The state manager will wait until the slot table is empty.
-		 * Schedule the reset thread
-		 */
+		/* The state manager will wait until the slot table is empty */
 		rpc_sleep_on(&tbl->slot_tbl_waitq, task, NULL);
 		spin_unlock(&tbl->slot_tbl_lock);
-		dprintk("%s Schedule Session Reset\n", __func__);
+		dprintk("%s session is draining\n", __func__);
 		return -EAGAIN;
 	}
 
@@ -764,6 +762,8 @@ struct nfs4_opendata {
 	struct nfs_openres o_res;
 	struct nfs_open_confirmargs c_arg;
 	struct nfs_open_confirmres c_res;
+	struct nfs4_string owner_name;
+	struct nfs4_string group_name;
 	struct nfs_fattr f_attr;
 	struct nfs_fattr dir_attr;
 	struct dentry *dir;
@@ -787,6 +787,7 @@ static void nfs4_init_opendata_res(struct nfs4_opendata *p)
 	p->o_res.server = p->o_arg.server;
 	nfs_fattr_init(&p->f_attr);
 	nfs_fattr_init(&p->dir_attr);
+	nfs_fattr_init_names(&p->f_attr, &p->owner_name, &p->group_name);
 }
 
 static struct nfs4_opendata *nfs4_opendata_alloc(struct dentry *dentry,
@@ -818,6 +819,7 @@ static struct nfs4_opendata *nfs4_opendata_alloc(struct dentry *dentry,
 	p->o_arg.name = &dentry->d_name;
 	p->o_arg.server = server;
 	p->o_arg.bitmask = server->attr_bitmask;
+	p->o_arg.dir_bitmask = server->cache_consistency_bitmask;
 	p->o_arg.claim = NFS4_OPEN_CLAIM_NULL;
 	if (flags & O_CREAT) {
 		u32 *s;
@@ -854,6 +856,7 @@ static void nfs4_opendata_free(struct kref *kref)
 	dput(p->dir);
 	dput(p->dentry);
 	nfs_sb_deactive(sb);
+	nfs_fattr_free_names(&p->f_attr);
 	kfree(p);
 }
 
@@ -1578,6 +1581,8 @@ static int _nfs4_recover_proc_open(struct nfs4_opendata *data)
 	if (status != 0 || !data->rpc_done)
 		return status;
 
+	nfs_fattr_map_and_free_names(NFS_SERVER(dir), &data->f_attr);
+
 	nfs_refresh_inode(dir, o_res->dir_attr);
 
 	if (o_res->rflags & NFS4_OPEN_RESULT_CONFIRM) {
@@ -1609,6 +1614,8 @@ static int _nfs4_proc_open(struct nfs4_opendata *data)
 			return -ENOENT;
 		return status;
 	}
+
+	nfs_fattr_map_and_free_names(server, &data->f_attr);
 
 	if (o_arg->open_flags & O_CREAT) {
 		update_changeattr(dir, &o_res->cinfo);
@@ -3580,7 +3587,7 @@ static ssize_t __nfs4_get_acl_uncached(struct inode *inode, void *buf, size_t bu
 		res.acl_flags |= NFS4_ACL_LEN_REQUEST;
 	resp_buf = page_address(pages[0]);
 
-	dprintk("%s  buf %p buflen %ld npages %d args.acl_len %ld\n",
+	dprintk("%s  buf %p buflen %zu npages %d args.acl_len %zu\n",
 		__func__, buf, buflen, npages, args.acl_len);
 	ret = nfs4_call_sync(NFS_SERVER(inode)->client, NFS_SERVER(inode),
 			     &msg, &args.seq_args, &res.seq_res, 0);
@@ -3976,7 +3983,7 @@ int nfs4_proc_delegreturn(struct inode *inode, struct rpc_cred *cred, const nfs4
 static unsigned long
 nfs4_set_lock_task_retry(unsigned long timeout)
 {
-	schedule_timeout_killable(timeout);
+	freezable_schedule_timeout_killable(timeout);
 	timeout <<= 1;
 	if (timeout > NFS4_LOCK_MAXTIMEOUT)
 		return NFS4_LOCK_MAXTIMEOUT;
@@ -5004,59 +5011,58 @@ int nfs4_proc_get_lease_time(struct nfs_client *clp, struct nfs_fsinfo *fsinfo)
 	return status;
 }
 
+static struct nfs4_slot *nfs4_alloc_slots(u32 max_slots, gfp_t gfp_flags)
+{
+	return kcalloc(max_slots, sizeof(struct nfs4_slot), gfp_flags);
+}
+
+static void nfs4_add_and_init_slots(struct nfs4_slot_table *tbl,
+		struct nfs4_slot *new,
+		u32 max_slots,
+		u32 ivalue)
+{
+	struct nfs4_slot *old = NULL;
+	u32 i;
+
+	spin_lock(&tbl->slot_tbl_lock);
+	if (new) {
+		old = tbl->slots;
+		tbl->slots = new;
+		tbl->max_slots = max_slots;
+	}
+	tbl->highest_used_slotid = -1;	/* no slot is currently used */
+	for (i = 0; i < tbl->max_slots; i++)
+		tbl->slots[i].seq_nr = ivalue;
+	spin_unlock(&tbl->slot_tbl_lock);
+	kfree(old);
+}
+
 /*
- * Reset a slot table
+ * (re)Initialise a slot table
  */
-static int nfs4_reset_slot_table(struct nfs4_slot_table *tbl, u32 max_reqs,
-				 int ivalue)
+static int nfs4_realloc_slot_table(struct nfs4_slot_table *tbl, u32 max_reqs,
+				 u32 ivalue)
 {
 	struct nfs4_slot *new = NULL;
-	int i;
-	int ret = 0;
+	int ret = -ENOMEM;
 
 	dprintk("--> %s: max_reqs=%u, tbl->max_slots %d\n", __func__,
 		max_reqs, tbl->max_slots);
 
 	/* Does the newly negotiated max_reqs match the existing slot table? */
 	if (max_reqs != tbl->max_slots) {
-		ret = -ENOMEM;
-		new = kmalloc(max_reqs * sizeof(struct nfs4_slot),
-			      GFP_NOFS);
+		new = nfs4_alloc_slots(max_reqs, GFP_NOFS);
 		if (!new)
 			goto out;
-		ret = 0;
-		kfree(tbl->slots);
 	}
-	spin_lock(&tbl->slot_tbl_lock);
-	if (new) {
-		tbl->slots = new;
-		tbl->max_slots = max_reqs;
-	}
-	for (i = 0; i < tbl->max_slots; ++i)
-		tbl->slots[i].seq_nr = ivalue;
-	spin_unlock(&tbl->slot_tbl_lock);
+	ret = 0;
+
+	nfs4_add_and_init_slots(tbl, new, max_reqs, ivalue);
 	dprintk("%s: tbl=%p slots=%p max_slots=%d\n", __func__,
 		tbl, tbl->slots, tbl->max_slots);
 out:
 	dprintk("<-- %s: return %d\n", __func__, ret);
 	return ret;
-}
-
-/*
- * Reset the forechannel and backchannel slot tables
- */
-static int nfs4_reset_slot_tables(struct nfs4_session *session)
-{
-	int status;
-
-	status = nfs4_reset_slot_table(&session->fc_slot_table,
-			session->fc_attrs.max_reqs, 1);
-	if (status)
-		return status;
-
-	status = nfs4_reset_slot_table(&session->bc_slot_table,
-			session->bc_attrs.max_reqs, 0);
-	return status;
 }
 
 /* Destroy the slot table */
@@ -5074,59 +5080,26 @@ static void nfs4_destroy_slot_tables(struct nfs4_session *session)
 }
 
 /*
- * Initialize slot table
+ * Initialize or reset the forechannel and backchannel tables
  */
-static int nfs4_init_slot_table(struct nfs4_slot_table *tbl,
-		int max_slots, int ivalue)
-{
-	struct nfs4_slot *slot;
-	int ret = -ENOMEM;
-
-	BUG_ON(max_slots > NFS4_MAX_SLOT_TABLE);
-
-	dprintk("--> %s: max_reqs=%u\n", __func__, max_slots);
-
-	slot = kcalloc(max_slots, sizeof(struct nfs4_slot), GFP_NOFS);
-	if (!slot)
-		goto out;
-	ret = 0;
-
-	spin_lock(&tbl->slot_tbl_lock);
-	tbl->max_slots = max_slots;
-	tbl->slots = slot;
-	tbl->highest_used_slotid = -1;  /* no slot is currently used */
-	spin_unlock(&tbl->slot_tbl_lock);
-	dprintk("%s: tbl=%p slots=%p max_slots=%d\n", __func__,
-		tbl, tbl->slots, tbl->max_slots);
-out:
-	dprintk("<-- %s: return %d\n", __func__, ret);
-	return ret;
-}
-
-/*
- * Initialize the forechannel and backchannel tables
- */
-static int nfs4_init_slot_tables(struct nfs4_session *session)
+static int nfs4_setup_session_slot_tables(struct nfs4_session *ses)
 {
 	struct nfs4_slot_table *tbl;
-	int status = 0;
+	int status;
 
-	tbl = &session->fc_slot_table;
-	if (tbl->slots == NULL) {
-		status = nfs4_init_slot_table(tbl,
-				session->fc_attrs.max_reqs, 1);
-		if (status)
-			return status;
-	}
-
-	tbl = &session->bc_slot_table;
-	if (tbl->slots == NULL) {
-		status = nfs4_init_slot_table(tbl,
-				session->bc_attrs.max_reqs, 0);
-		if (status)
-			nfs4_destroy_slot_tables(session);
-	}
-
+	dprintk("--> %s\n", __func__);
+	/* Fore channel */
+	tbl = &ses->fc_slot_table;
+	status = nfs4_realloc_slot_table(tbl, ses->fc_attrs.max_reqs, 1);
+	if (status) /* -ENOMEM */
+		return status;
+	/* Back channel */
+	tbl = &ses->bc_slot_table;
+	status = nfs4_realloc_slot_table(tbl, ses->bc_attrs.max_reqs, 0);
+	if (status && tbl->slots == NULL)
+		/* Fore and back channel share a connection so get
+		 * both slot tables or neither */
+		nfs4_destroy_slot_tables(ses);
 	return status;
 }
 
@@ -5314,13 +5287,9 @@ int nfs4_proc_create_session(struct nfs_client *clp)
 	if (status)
 		goto out;
 
-	/* Init and reset the fore channel */
-	status = nfs4_init_slot_tables(session);
-	dprintk("slot table initialization returned %d\n", status);
-	if (status)
-		goto out;
-	status = nfs4_reset_slot_tables(session);
-	dprintk("slot table reset returned %d\n", status);
+	/* Init or reset the session slot tables */
+	status = nfs4_setup_session_slot_tables(session);
+	dprintk("slot table setup returned %d\n", status);
 	if (status)
 		goto out;
 

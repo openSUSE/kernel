@@ -117,7 +117,8 @@ static int netbk_change_mtu(struct net_device *dev, int mtu)
 	return 0;
 }
 
-static u32 netbk_fix_features(struct net_device *dev, u32 features)
+static netdev_features_t netbk_fix_features(struct net_device *dev,
+					    netdev_features_t features)
 {
 	netif_t *netif = netdev_priv(dev);
 
@@ -135,7 +136,8 @@ static void netbk_get_drvinfo(struct net_device *dev,
 			      struct ethtool_drvinfo *info)
 {
 	strcpy(info->driver, "netbk");
-	strcpy(info->bus_info, dev_name(dev->dev.parent));
+	strlcpy(info->bus_info, dev_name(dev->dev.parent),
+		ARRAY_SIZE(info->bus_info));
 }
 
 static const struct netif_stat {

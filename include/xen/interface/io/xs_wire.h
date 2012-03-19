@@ -121,7 +121,4 @@ struct xenstore_domain_interface {
 #define XENSTORE_ABS_PATH_MAX 3072
 #define XENSTORE_REL_PATH_MAX 2048
 
-/* Violating this is very bad.  See docs/misc/xenstore.txt. */
-#define XENSTORE_PAYLOAD_MAX 4096
-
 #endif /* _XS_WIRE_H */

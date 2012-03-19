@@ -6,6 +6,7 @@
 
 #include <linux/writeback.h>
 #include <linux/tracepoint.h>
+#include <trace/events/gfpflags.h>
 
 struct btrfs_root;
 struct btrfs_fs_info;
@@ -54,6 +55,8 @@ struct extent_buffer;
 	{ BTRFS_BLOCK_GROUP_RAID1,	"RAID1"}, \
 	{ BTRFS_BLOCK_GROUP_DUP,	"DUP"}, \
 	{ BTRFS_BLOCK_GROUP_RAID10,	"RAID10"}
+
+#define BTRFS_UUID_SIZE 16
 
 TRACE_EVENT(btrfs_transaction_commit,
 
@@ -632,6 +635,34 @@ TRACE_EVENT(btrfs_cow_block,
 		  __entry->cow_level)
 );
 
+TRACE_EVENT(btrfs_space_reservation,
+
+	TP_PROTO(struct btrfs_fs_info *fs_info, char *type, u64 val,
+		 u64 bytes, int reserve),
+
+	TP_ARGS(fs_info, type, val, bytes, reserve),
+
+	TP_STRUCT__entry(
+		__array(	u8,	fsid,	BTRFS_UUID_SIZE	)
+		__string(	type,	type			)
+		__field(	u64,	val			)
+		__field(	u64,	bytes			)
+		__field(	int,	reserve			)
+	),
+
+	TP_fast_assign(
+		memcpy(__entry->fsid, fs_info->fsid, BTRFS_UUID_SIZE);
+		__assign_str(type, type);
+		__entry->val		= val;
+		__entry->bytes		= bytes;
+		__entry->reserve	= reserve;
+	),
+
+	TP_printk("%pU: %s: %Lu %s %Lu", __entry->fsid, __get_str(type),
+		  __entry->val, __entry->reserve ? "reserve" : "release",
+		  __entry->bytes)
+);
+
 DECLARE_EVENT_CLASS(btrfs__reserved_extent,
 
 	TP_PROTO(struct btrfs_root *root, u64 start, u64 len),
@@ -830,6 +861,49 @@ TRACE_EVENT(btrfs_setup_cluster,
 		  __print_flags((unsigned long)__entry->flags, "|",
 				BTRFS_GROUP_FLAGS), __entry->start,
 		  __entry->size, __entry->max_size, __entry->bitmap)
+);
+
+struct extent_state;
+TRACE_EVENT(alloc_extent_state,
+
+	TP_PROTO(struct extent_state *state, gfp_t mask, unsigned long IP),
+
+	TP_ARGS(state, mask, IP),
+
+	TP_STRUCT__entry(
+		__field(struct extent_state *, state)
+		__field(gfp_t, mask)
+		__field(unsigned long, ip)
+	),
+
+	TP_fast_assign(
+		__entry->state	= state,
+		__entry->mask	= mask,
+		__entry->ip	= IP
+	),
+
+	TP_printk("state=%p; mask = %s; caller = %pF", __entry->state,
+		  show_gfp_flags(__entry->mask), (void *)__entry->ip)
+);
+
+TRACE_EVENT(free_extent_state,
+
+	TP_PROTO(struct extent_state *state, unsigned long IP),
+
+	TP_ARGS(state, IP),
+
+	TP_STRUCT__entry(
+		__field(struct extent_state *, state)
+		__field(unsigned long, ip)
+	),
+
+	TP_fast_assign(
+		__entry->state	= state,
+		__entry->ip = IP
+	),
+
+	TP_printk(" state=%p; caller = %pF", __entry->state,
+		  (void *)__entry->ip)
 );
 
 #endif /* _TRACE_BTRFS_H */

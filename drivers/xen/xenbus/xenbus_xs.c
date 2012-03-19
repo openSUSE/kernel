@@ -630,11 +630,17 @@ static struct xenbus_watch *find_watch(const char *token)
 static void xs_reset_watches(void)
 {
 #ifdef MODULE
-	int err;
+	int err, supported = 0;
+
+	err = xenbus_scanf(XBT_NIL, "control",
+			   "platform-feature-xs_reset_watches", "%d",
+			   &supported);
+	if (err != 1 || !supported)
+		return;
 
 	err = xs_error(xs_single(XBT_NIL, XS_RESET_WATCHES, "", NULL));
 	if (err && err != -EEXIST)
-		printk(KERN_WARNING "xs_reset_watches failed: %d\n", err);
+		pr_warning("xs_reset_watches failed: %d\n", err);
 #endif
 }
 
@@ -863,12 +869,6 @@ static int process_msg(void)
 	err = xb_read(&msg->hdr, sizeof(msg->hdr));
 	if (err) {
 		kfree(msg);
-		goto out;
-	}
-
-	if (msg->hdr.len > XENSTORE_PAYLOAD_MAX) {
-		kfree(msg);
-		err = -EINVAL;
 		goto out;
 	}
 

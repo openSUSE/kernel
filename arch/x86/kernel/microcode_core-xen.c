@@ -39,6 +39,7 @@
 
 #include <asm/microcode.h>
 #include <asm/processor.h>
+#include <asm/cpu_device_id.h>
 
 #include <xen/pcpu.h>
 
@@ -185,13 +186,17 @@ static int request_microcode(const char *name)
 	return error;
 }
 
-static const char amd_fw_name[] = "amd-ucode/microcode_amd.bin";
+static const char amd_uc_name[] = "amd-ucode/microcode_amd.bin";
+static const char amd_uc_fmt[] = "amd-ucode/microcode_amd_fam%x.bin";
+static const char intel_uc_fmt[] = "intel-ucode/%02x-%02x-%02x";
 
 static int ucode_cpu_callback(struct notifier_block *nfb,
 			      unsigned long action, void *hcpu)
 {
 	unsigned int cpu = (unsigned long)hcpu;
 	struct xen_platform_op op;
+	char buf[36];
+	const char *uc_name = buf;
 
 	switch (action) {
 	case CPU_ONLINE:
@@ -204,17 +209,21 @@ static int ucode_cpu_callback(struct notifier_block *nfb,
 		    && op.u.pcpu_version.stepping == boot_cpu_data.x86_mask)
 			break;
 		if (strncmp(op.u.pcpu_version.vendor_id,
-			    "GenuineIntel", 12) == 0) {
-			char buf[32];
-
-			sprintf(buf, "intel-ucode/%02x-%02x-%02x",
-				op.u.pcpu_version.family,
-				op.u.pcpu_version.model,
-				op.u.pcpu_version.stepping);
-			request_microcode(buf);
-		} else if (strncmp(op.u.pcpu_version.vendor_id,
-				   "AuthenicAMD", 12) == 0)
-			request_microcode(amd_fw_name);
+			    "GenuineIntel", 12) == 0)
+			snprintf(buf, sizeof(buf), intel_uc_fmt,
+				 op.u.pcpu_version.family,
+				 op.u.pcpu_version.model,
+				 op.u.pcpu_version.stepping);
+		else if (strncmp(op.u.pcpu_version.vendor_id,
+				 "AuthenicAMD", 12) == 0) {
+			if (op.u.pcpu_version.family >= 0x15)
+				snprintf(buf, sizeof(buf), amd_uc_fmt,
+					 op.u.pcpu_version.family);
+			else
+				uc_name = amd_uc_name;
+		} else
+			break;
+		request_microcode(uc_name);
 		break;
 	}
 
@@ -225,19 +234,32 @@ static struct notifier_block ucode_cpu_notifier = {
 	.notifier_call = ucode_cpu_callback
 };
 
+#ifdef MODULE
+/* Autoload on Intel and AMD systems */
+static const struct x86_cpu_id microcode_id[] = {
+	{ X86_VENDOR_INTEL, X86_FAMILY_ANY, X86_MODEL_ANY, },
+	{ X86_VENDOR_AMD, X86_FAMILY_ANY, X86_MODEL_ANY, },
+	{}
+};
+MODULE_DEVICE_TABLE(x86cpu, microcode_id);
+#endif
+
 static int __init microcode_init(void)
 {
 	const struct cpuinfo_x86 *c = &boot_cpu_data;
-	char buf[32];
+	char buf[36];
 	const char *fw_name = buf;
 	int error;
 
 	if (c->x86_vendor == X86_VENDOR_INTEL)
-		sprintf(buf, "intel-ucode/%02x-%02x-%02x",
-			c->x86, c->x86_model, c->x86_mask);
-	else if (c->x86_vendor == X86_VENDOR_AMD)
-		fw_name = amd_fw_name;
-	else {
+		snprintf(buf, sizeof(buf), intel_uc_fmt,
+			 c->x86, c->x86_model, c->x86_mask);
+	else if (c->x86_vendor == X86_VENDOR_AMD) {
+		if (c->x86 >= 0x15)
+			snprintf(buf, sizeof(buf), amd_uc_fmt, c->x86);
+		else
+			fw_name = amd_uc_name;
+	} else {
 		pr_err("no support for this CPU vendor\n");
 		return -ENODEV;
 	}

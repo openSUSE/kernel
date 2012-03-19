@@ -3,6 +3,7 @@
 #include <linux/cdrom.h>
 #include <linux/hdreg.h>
 #include <linux/module.h>
+#include <scsi/scsi.h>
 #include <asm/tlbflush.h>
 
 #include <scsi/scsi.h>
@@ -823,6 +824,8 @@ blktap_device_run_queue(struct blktap *tap)
 	while ((req = blk_peek_request(rq)) != NULL) {
 		if (req->cmd_type != REQ_TYPE_FS) {
 			blk_start_request(req);
+			req->errors = (DID_ERROR << 16) |
+				      (DRIVER_INVALID << 24);
 			__blk_end_request_all(req, -EIO);
 			continue;
 		}
@@ -911,10 +914,14 @@ blktap_device_do_request(struct request_queue *rq)
 
 fail:
 	while ((req = blk_fetch_request(rq))) {
-		BTERR("device closed: failing secs %llu - %llu\n",
-		      (unsigned long long)blk_rq_pos(req),
-		      (unsigned long long)blk_rq_pos(req)
-		      + blk_rq_cur_sectors(req));
+		if (req->cmd_type != REQ_TYPE_FS) {
+			unsigned long long sec = blk_rq_pos(req);
+
+			BTERR("device closed: failing secs %#Lx-%#Lx\n",
+			      sec, sec + blk_rq_sectors(req) - 1);
+		} else
+			req->errors = (DID_ERROR << 16)
+				      | (DRIVER_INVALID << 24);
 		__blk_end_request_all(req, -EIO);
 	}
 }
@@ -1067,7 +1074,7 @@ blktap_device_destroy(struct blktap *tap)
 	return 0;
 }
 
-static char *blktap_devnode(struct gendisk *gd, mode_t *mode)
+static char *blktap_devnode(struct gendisk *gd, umode_t *mode)
 {
 	return kasprintf(GFP_KERNEL, BLKTAP2_DEV_DIR "tapdev%u",
 			 gd->first_minor);

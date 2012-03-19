@@ -58,6 +58,7 @@
 #include <asm/processor-flags.h>
 #include <asm/ftrace.h>
 #include <asm/percpu.h>
+#include <linux/err.h>
 #include <xen/interface/xen.h>
 #include <xen/interface/features.h>
 
@@ -212,7 +213,7 @@ NMI_MASK = 0x80000000
 	/*CFI_REL_OFFSET	ss,0*/
 	pushq_cfi %rax /* rsp */
 	CFI_REL_OFFSET	rsp,0
-	pushq_cfi $X86_EFLAGS_IF /* eflags - interrupts on */
+	pushq_cfi $(X86_EFLAGS_IF|X86_EFLAGS_BIT1) /* eflags - interrupts on */
 	/*CFI_REL_OFFSET	rflags,0*/
 	pushq_cfi $__KERNEL_CS /* cs */
 	/*CFI_REL_OFFSET	cs,0*/
@@ -444,8 +445,11 @@ ENTRY(ret_from_fork)
 	RESTORE_REST
 
 	testl $3, CS-ARGOFFSET(%rsp)		# from kernel_thread?
-	je   int_ret_from_sys_call
-
+	jnz  1f
+	/* Need to set the proper %ss (not NULL) for ring 3 iretq */
+	movl $__KERNEL_DS,SS-ARGOFFSET(%rsp)
+	jmp  retint_restore_args
+1:
 	testl $_TIF_IA32, TI_flags(%rcx)	# 32-bit compat task needs IRET
 	jnz  int_ret_from_sys_call
 
@@ -490,8 +494,7 @@ ENTRY(system_call)
 	INTR_FRAME start=2 offset=2*8
 	SAVE_ARGS -8,0
 	movq  %rax,ORIG_RAX-ARGOFFSET(%rsp)
-	GET_THREAD_INFO(%rcx)
-	testl $_TIF_WORK_SYSCALL_ENTRY,TI_flags(%rcx)
+	testl $_TIF_WORK_SYSCALL_ENTRY,TI_flags+THREAD_INFO(%rsp,RIP-ARGOFFSET)
 	jnz tracesys
 system_call_fastpath:
 	cmpq $__NR_syscall_max,%rax
@@ -508,10 +511,9 @@ ret_from_sys_call:
 	/* edi:	flagmask */
 sysret_check:
 	LOCKDEP_SYS_EXIT
-	GET_THREAD_INFO(%rcx)
 	DISABLE_INTERRUPTS(CLBR_NONE)
 	TRACE_IRQS_OFF
-	movl TI_flags(%rcx),%edx
+	movl TI_flags+THREAD_INFO(%rsp,RIP-ARGOFFSET),%edx
 	andl %edi,%edx
 	jnz  sysret_careful
 	CFI_REMEMBER_STATE
@@ -560,7 +562,7 @@ badsys:
 #ifdef CONFIG_AUDITSYSCALL
 	/*
 	 * Fast path for syscall audit without full syscall trace.
-	 * We just call audit_syscall_entry() directly, and then
+	 * We just call __audit_syscall_entry() directly, and then
 	 * jump back to the normal fast path.
 	 */
 auditsys:
@@ -570,22 +572,21 @@ auditsys:
 	movq %rdi,%rdx			/* 3rd arg: 1st syscall arg */
 	movq %rax,%rsi			/* 2nd arg: syscall number */
 	movl $AUDIT_ARCH_X86_64,%edi	/* 1st arg: audit arch */
-	call audit_syscall_entry
+	call __audit_syscall_entry
 	LOAD_ARGS 0		/* reload call-clobbered registers */
 	jmp system_call_fastpath
 
 	/*
-	 * Return fast path for syscall audit.  Call audit_syscall_exit()
+	 * Return fast path for syscall audit.  Call __audit_syscall_exit()
 	 * directly and then jump back to the fast path with TIF_SYSCALL_AUDIT
 	 * masked off.
 	 */
 sysret_audit:
 	movq RAX-ARGOFFSET(%rsp),%rsi	/* second arg, syscall return value */
-	cmpq $0,%rsi		/* is it < 0? */
-	setl %al		/* 1 if so, 0 if not */
+	cmpq $-MAX_ERRNO,%rsi	/* is it < -MAX_ERRNO? */
+	setbe %al		/* 1 if so, 0 if not */
 	movzbl %al,%edi		/* zero-extend that into %edi */
-	inc %edi /* first arg, 0->1(AUDITSC_SUCCESS), 1->2(AUDITSC_FAILURE) */
-	call audit_syscall_exit
+	call __audit_syscall_exit
 	movl $(_TIF_ALLWORK_MASK & ~_TIF_SYSCALL_AUDIT),%edi
 	jmp sysret_check
 #endif	/* CONFIG_AUDITSYSCALL */
@@ -593,7 +594,7 @@ sysret_audit:
 	/* Do syscall tracing */
 tracesys:
 #ifdef CONFIG_AUDITSYSCALL
-	testl $(_TIF_WORK_SYSCALL_ENTRY & ~_TIF_SYSCALL_AUDIT),TI_flags(%rcx)
+	testl $(_TIF_WORK_SYSCALL_ENTRY & ~_TIF_SYSCALL_AUDIT),TI_flags+THREAD_INFO(%rsp,RIP-ARGOFFSET)
 	jz auditsys
 #endif
 	SAVE_REST
@@ -622,12 +623,6 @@ tracesys:
 GLOBAL(int_ret_from_sys_call)
 	DISABLE_INTERRUPTS(CLBR_NONE)
 	TRACE_IRQS_OFF
-	testb $3,CS-ARGOFFSET(%rsp)
-        jnz 1f
-        /* Need to set the proper %ss (not NULL) for ring 3 iretq */
-        movl $__KERNEL_DS,SS-ARGOFFSET(%rsp)
-        jmp retint_restore_args   # retrun from ring3 kernel
-1:              
 	movl $_TIF_ALLWORK_MASK,%edi
 	/* edi:	mask to check */
 GLOBAL(int_with_check)
@@ -857,13 +852,21 @@ apicinterrupt X86_PLATFORM_IPI_VECTOR \
 	x86_platform_ipi smp_x86_platform_ipi
 
 #ifdef CONFIG_SMP
-.irp idx,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15, \
+	ALIGN
+	INTR_FRAME
+.irp idx,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15, \
 	16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31
 .if NUM_INVALIDATE_TLB_VECTORS > \idx
-apicinterrupt (INVALIDATE_TLB_VECTOR_START)+\idx \
-	invalidate_interrupt\idx smp_invalidate_interrupt
+ENTRY(invalidate_interrupt\idx)
+	pushq_cfi $~(INVALIDATE_TLB_VECTOR_START+\idx)
+	jmp .Lcommon_invalidate_interrupt0
+	CFI_ADJUST_CFA_OFFSET -8
+END(invalidate_interrupt\idx)
 .endif
 .endr
+	CFI_ENDPROC
+apicinterrupt INVALIDATE_TLB_VECTOR_START, \
+	invalidate_interrupt0, smp_invalidate_interrupt
 #endif
 
 apicinterrupt THRESHOLD_APIC_VECTOR \
@@ -1331,13 +1334,28 @@ ENTRY(error_exit)
 END(error_exit)
 
 
+#define extern #
+#include <asm-generic/percpu.h>
+
+.pushsection PER_CPU_BASE_SECTION, "aw", @progbits
+in_NMI:	.byte	0
+.popsection
+
 do_nmi_callback:
 	CFI_STARTPROC
 	addq $8, %rsp
 	CFI_ENDPROC
 	DEFAULT_FRAME
+	orb  $1, PER_CPU_VAR(in_NMI)
+	js   1f
+0:
+	movb $0x80, PER_CPU_VAR(in_NMI)
 	call do_nmi
+	movl $0x80, %eax
+	cmpxchgb %ah, PER_CPU_VAR(in_NMI)
+	jne  0b
 	orl  $NMI_MASK,EFLAGS(%rsp)
+1:
 	RESTORE_REST
 	DISABLE_INTERRUPTS(CLBR_NONE)
 	TRACE_IRQS_OFF

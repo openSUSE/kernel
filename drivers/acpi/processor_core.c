@@ -205,7 +205,7 @@ int acpi_get_cpuid(acpi_handle handle, int type, u32 acpi_id)
 		 * Ignores apic_id and always return 0 for CPU0's handle.
 		 * Return -1 for other CPU's handle.
 		 */
-		if (acpi_id == 0)
+		if (acpi_id == 0 && !i)
 			return acpi_id;
 		else
 			return apic_id;

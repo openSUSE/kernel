@@ -36,7 +36,7 @@
 #include <linux/usb/usbnet.h>
 #include <linux/slab.h>
 
-#define DRIVER_VERSION "08-Nov-2011"
+#define DRIVER_VERSION "22-Dec-2011"
 #define DRIVER_NAME "asix"
 
 /* ASIX AX8817X based USB 2.0 Ethernet Devices */
@@ -689,6 +689,10 @@ asix_get_wol(struct net_device *net, struct ethtool_wolinfo *wolinfo)
 	}
 	wolinfo->supported = WAKE_PHY | WAKE_MAGIC;
 	wolinfo->wolopts = 0;
+	if (opt & AX_MONITOR_LINK)
+		wolinfo->wolopts |= WAKE_PHY;
+	if (opt & AX_MONITOR_MAGIC)
+		wolinfo->wolopts |= WAKE_MAGIC;
 }
 
 static int
@@ -1156,7 +1160,7 @@ static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
 	return 0;
 }
 
-static struct ethtool_ops ax88178_ethtool_ops = {
+static const struct ethtool_ops ax88178_ethtool_ops = {
 	.get_drvinfo		= asix_get_drvinfo,
 	.get_link		= asix_get_link,
 	.get_msglevel		= usbnet_get_msglevel,
@@ -1595,6 +1599,10 @@ static const struct usb_device_id	products [] = {
 	USB_DEVICE (0x6189, 0x182d),
 	.driver_info =  (unsigned long) &ax8817x_info,
 }, {
+	// Sitecom LN-031 "USB 2.0 10/100/1000 Ethernet adapter"
+	USB_DEVICE (0x0df6, 0x0056),
+	.driver_info =  (unsigned long) &ax88178_info,
+}, {
 	// corega FEther USB2-TX
 	USB_DEVICE (0x07aa, 0x0017),
 	.driver_info =  (unsigned long) &ax8817x_info,
@@ -1689,17 +1697,7 @@ static struct usb_driver asix_driver = {
 	.supports_autosuspend = 1,
 };
 
-static int __init asix_init(void)
-{
- 	return usb_register(&asix_driver);
-}
-module_init(asix_init);
-
-static void __exit asix_exit(void)
-{
- 	usb_deregister(&asix_driver);
-}
-module_exit(asix_exit);
+module_usb_driver(asix_driver);
 
 MODULE_AUTHOR("David Hollis");
 MODULE_VERSION(DRIVER_VERSION);

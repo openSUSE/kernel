@@ -54,10 +54,10 @@ void __init reserve_ebda_region(void)
 		lowmem = 0x9f000;
 
 	/* reserve all memory between lowmem and the 1MB mark */
-	memblock_x86_reserve_range(lowmem, 0x100000, "* BIOS reserved");
+	memblock_reserve(lowmem, 0x100000 - lowmem);
 }
 #else /* CONFIG_XEN */
-#include <linux/module.h>
+#include <linux/export.h>
 #include <asm/fixmap.h>
 #include <asm/mc146818rtc.h>
 #include <asm/pgtable.h>
@@ -108,12 +108,9 @@ void __init xen_start_kernel(void)
 	WARN_ON(HYPERVISOR_vm_assist(VMASST_CMD_enable,
 				     VMASST_TYPE_writable_pagetables));
 
-	memblock_init();
-	memblock_x86_reserve_range(ALIGN(__pa_symbol(&_end), PAGE_SIZE),
-				   __pa(xen_start_info->pt_base)
-				   + (xen_start_info->nr_pt_frames
-				      << PAGE_SHIFT),
-				   "Xen provided");
+	memblock_reserve(ALIGN(__pa_symbol(&_end), PAGE_SIZE),
+			 __pa(xen_start_info->pt_base)
+			 + PFN_PHYS(xen_start_info->nr_pt_frames));
 
 #ifdef CONFIG_X86_32
 {

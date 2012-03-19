@@ -3,8 +3,10 @@ xen-biomerge-$(CONFIG_PARAVIRT_XEN) := biomerge.o
 xen-hotplug-$(CONFIG_PARAVIRT_XEN) := cpu_hotplug.o
 xen-balloon_$(CONFIG_PARAVIRT_XEN) := xen-balloon.o
 xen-evtchn-name-$(CONFIG_PARAVIRT_XEN) := xen-evtchn
+xen-privcmd_$(CONFIG_PARAVIRT_XEN) := xen-privcmd.o
 
 xen-balloon_$(CONFIG_XEN)	:= balloon/
+xen-privcmd_$(CONFIG_XEN)	:= privcmd/
 obj-$(CONFIG_XEN)		+= core/
 obj-$(CONFIG_XEN)		+= console/
 obj-y				+= xenbus/
@@ -37,10 +39,12 @@ obj-$(CONFIG_XEN_TMEM)			+= tmem.o
 obj-$(CONFIG_SWIOTLB_XEN)		+= swiotlb-xen.o
 obj-$(CONFIG_XEN_DOM0)			+= pci.o
 obj-$(CONFIG_XEN_PCIDEV_BACKEND)	+= xen-pciback/
+obj-$(CONFIG_XEN_PRIVCMD)		+= $(xen-privcmd_y)
 
 xen-evtchn-y				:= evtchn.o
 xen-gntdev-y				:= gntdev.o
 xen-gntalloc-y				:= gntalloc.o
+xen-privcmd-y				:= privcmd.o
 
 obj-$(CONFIG_XEN_BLKDEV_BACKEND)	+= blkback/
 obj-$(CONFIG_XEN_BLKDEV_TAP)		+= blktap/
@@ -58,7 +62,6 @@ obj-$(CONFIG_XEN_SCSI_BACKEND)		+= scsiback/
 obj-$(CONFIG_XEN_SCSI_FRONTEND)		+= scsifront/
 obj-$(CONFIG_XEN_USB_BACKEND)		+= usbback/
 obj-$(CONFIG_XEN_USB_FRONTEND)		+= usbfront/
-obj-$(CONFIG_XEN_PRIVCMD)	+= privcmd/
 obj-$(CONFIG_XEN_GRANT_DEV)	+= gntdev/
 obj-$(CONFIG_XEN_NETDEV_ACCEL_SFC_UTIL)		+= sfc_netutil/
 obj-$(CONFIG_XEN_NETDEV_ACCEL_SFC_FRONTEND)	+= sfc_netfront/

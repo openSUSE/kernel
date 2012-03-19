@@ -93,65 +93,69 @@ typedef struct netif_tx_request netif_tx_request_t;
  * netif_rx_response for compatibility.
  */
 struct netif_extra_info {
-    uint8_t type;  /* XEN_NETIF_EXTRA_TYPE_* */
-    uint8_t flags; /* XEN_NETIF_EXTRA_FLAG_* */
+	uint8_t type;  /* XEN_NETIF_EXTRA_TYPE_* */
+	uint8_t flags; /* XEN_NETIF_EXTRA_FLAG_* */
 
-    union {
-        /*
-         * XEN_NETIF_EXTRA_TYPE_GSO:
-         */
-        struct {
-            /*
-             * Maximum payload size of each segment. For example, for TCP this
-             * is just the path MSS.
-             */
-            uint16_t size;
+	union {
+		/*
+		 * XEN_NETIF_EXTRA_TYPE_GSO:
+		 */
+		struct {
+			/*
+			 * Maximum payload size of each segment. For
+			 * example, for TCP this is just the path MSS.
+			 */
+			uint16_t size;
 
-            /*
-             * GSO type. This determines the protocol of the packet and any
-             * extra features required to segment the packet properly.
-             */
-            uint8_t type; /* XEN_NETIF_GSO_TYPE_* */
+			/*
+			 * GSO type. This determines the protocol of
+			 * the packet and any extra features required
+			 * to segment the packet properly.
+			 */
+			uint8_t type; /* XEN_NETIF_GSO_TYPE_* */
 
-            /* Future expansion. */
-            uint8_t pad;
+			/* Future expansion. */
+			uint8_t pad;
 
-            /*
-             * GSO features. This specifies any extra GSO features required
-             * to process this packet, such as ECN support for TCPv4.
-             */
-            uint16_t features; /* XEN_NETIF_GSO_FEAT_* */
-        } gso;
+			/*
+			 * GSO features. This specifies any extra GSO
+			 * features required to process this packet,
+			 * such as ECN support for TCPv4.
+			 */
+			uint16_t features; /* XEN_NETIF_GSO_FEAT_* */
+		} gso;
 
-        /*
-         * XEN_NETIF_EXTRA_TYPE_MCAST_{ADD,DEL}:
-         * Backend advertises availability via 'feature-multicast-control'
-         * xenbus node containing value '1'.
-         * Frontend requests this feature by advertising
-         * 'request-multicast-control' xenbus node containing value '1'.
-         * If multicast control is requested then multicast flooding is
-         * disabled and the frontend must explicitly register its interest
-         * in multicast groups using dummy transmit requests containing
-         * MCAST_{ADD,DEL} extra-info fragments.
-         */
-        struct {
-            uint8_t addr[6]; /* Address to add/remove. */
-        } mcast;
+		/*
+		 * XEN_NETIF_EXTRA_TYPE_MCAST_{ADD,DEL}:
+		 * Backend advertises availability via
+		 * 'feature-multicast-control' xenbus node containing value
+		 * '1'.
+		 * Frontend requests this feature by advertising
+		 * 'request-multicast-control' xenbus node containing value
+		 * '1'. If multicast control is requested then multicast
+		 * flooding is disabled and the frontend must explicitly
+		 * register its interest in multicast groups using dummy
+		 * transmit requests containing MCAST_{ADD,DEL} extra-info
+		 * fragments.
+		 */
+		struct {
+			uint8_t addr[6]; /* Address to add/remove. */
+		} mcast;
 
-        uint16_t pad[3];
-    } u;
+		uint16_t pad[3];
+	} u;
 };
 typedef struct netif_extra_info netif_extra_info_t;
 
 struct netif_tx_response {
-    uint16_t id;
-    int16_t  status;       /* XEN_NETIF_RSP_* */
+	uint16_t id;
+	int16_t  status;       /* XEN_NETIF_RSP_* */
 };
 typedef struct netif_tx_response netif_tx_response_t;
 
 struct netif_rx_request {
-    uint16_t    id;        /* Echoed in response message.        */
-    grant_ref_t gref;      /* Reference to incoming granted frame */
+	uint16_t    id;        /* Echoed in response message.        */
+	grant_ref_t gref;      /* Reference to incoming granted frame */
 };
 typedef struct netif_rx_request netif_rx_request_t;
 

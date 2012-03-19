@@ -187,7 +187,7 @@ struct netfront_info {
 	struct sk_buff *tx_skbs[NET_TX_RING_SIZE+1];
 	struct sk_buff *rx_skbs[NET_RX_RING_SIZE];
 
-#define TX_MAX_TARGET min_t(int, NET_RX_RING_SIZE, 256)
+#define TX_MAX_TARGET min_t(int, NET_TX_RING_SIZE, 256)
 	grant_ref_t gref_tx_head;
 	grant_ref_t grant_tx_ref[NET_TX_RING_SIZE + 1];
 	grant_ref_t gref_rx_head;

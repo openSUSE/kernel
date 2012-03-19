@@ -12,11 +12,6 @@
 #include <linux/string.h>
 #include <linux/errno.h>
 #include <linux/mm.h>
-#include <linux/mman.h>
-#include <linux/swap.h>
-#include <linux/highmem.h>
-#include <linux/pagemap.h>
-#include <linux/seq_file.h>
 #include <asm/hypervisor.h>
 
 #include <asm/pgalloc.h>

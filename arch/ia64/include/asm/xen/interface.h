@@ -67,8 +67,6 @@
 #define set_xen_guest_handle(hnd, val)	do { (hnd).p = val; } while (0)
 
 #ifndef __ASSEMBLY__
-__DEFINE_XEN_GUEST_HANDLE(u64, unsigned long);
-
 typedef unsigned long xen_ulong_t;
 typedef unsigned long xen_pfn_t;
 #define PRI_xen_pfn	"lx"

@@ -25,7 +25,7 @@ static int local_cpu_hotplug_request(void)
 	return (current->mm != NULL);
 }
 
-static void __cpuinit vcpu_hotplug(unsigned int cpu, struct sys_device *dev)
+static void __cpuinit vcpu_hotplug(unsigned int cpu, struct device *dev)
 {
 	int err;
 	char dir[32], state[32];
@@ -63,7 +63,7 @@ static void __cpuinit handle_vcpu_hotplug_event(
 
 	if ((cpustr = strstr(node, "cpu/")) != NULL) {
 		sscanf(cpustr, "cpu/%u", &cpu);
-		vcpu_hotplug(cpu, get_cpu_sysdev(cpu));
+		vcpu_hotplug(cpu, get_cpu_device(cpu));
 	}
 }
 
@@ -96,7 +96,7 @@ static int __cpuinit setup_cpu_watcher(struct notifier_block *notifier,
 
 	if (!is_initial_xendomain()) {
 		for_each_possible_cpu(i)
-			vcpu_hotplug(i, get_cpu_sysdev(i));
+			vcpu_hotplug(i, get_cpu_device(i));
 		pr_info("Brought up %ld CPUs\n", (long)num_online_cpus());
 	}
 

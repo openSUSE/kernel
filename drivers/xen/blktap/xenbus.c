@@ -70,24 +70,22 @@ static int strsep_len(const char *str, char c, unsigned int len)
                                 return i;
                         len--;
                 }
-        return (len == 0) ? i : -ERANGE;
+        return -ERANGE;
 }
 
 static long get_id(const char *str)
 {
-        int len,end;
+	int len;
         const char *ptr;
-        char *tptr, num[10];
+	char num[10];
 	
         len = strsep_len(str, '/', 2);
-        end = strlen(str);
-        if ( (len < 0) || (end < 0) ) return -1;
+	if (len < 0)
+		return -1;
 	
         ptr = str + len + 1;
-        strncpy(num,ptr,end - len);
-        tptr = num + (end - (len + 1));
-        *tptr = '\0';
-	DPRINTK("Get_id called for %s (%s)\n",str,num);
+	strlcpy(num, ptr, ARRAY_SIZE(num));
+	DPRINTK("get_id(%s) -> %s\n", str, num);
 	
         return simple_strtol(num, NULL, 10);
 }				
@@ -150,7 +148,7 @@ static struct attribute *tapstat_attrs[] = {
 	NULL
 };
 
-static struct attribute_group tapstat_group = {
+static const struct attribute_group tapstat_group = {
 	.name = "statistics",
 	.attrs = tapstat_attrs,
 };

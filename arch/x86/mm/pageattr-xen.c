@@ -1083,7 +1083,7 @@ out_err:
 }
 EXPORT_SYMBOL(set_memory_uc);
 
-int _set_memory_array(unsigned long *addr, int addrinarray,
+static int _set_memory_array(unsigned long *addr, int addrinarray,
 		unsigned long new_type)
 {
 	int i, j;
@@ -1417,12 +1417,6 @@ void kernel_map_pages(struct page *page, int numpages, int enable)
 		debug_check_no_locks_freed(page_address(page),
 					   numpages * PAGE_SIZE);
 	}
-
-	/*
-	 * If page allocator is not up yet then do not call c_p_a():
-	 */
-	if (!debug_pagealloc_enabled)
-		return;
 
 	/*
 	 * The return value is ignored as the calls cannot fail.

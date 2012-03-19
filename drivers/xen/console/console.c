@@ -358,7 +358,6 @@ void __init dom0_init_screen_info(const struct dom0_vga_console_info *info, size
 			 ((_tty)->index != (xc_num - 1)))
 
 static struct ktermios *xencons_termios[MAX_NR_CONSOLES];
-static struct ktermios *xencons_termios_locked[MAX_NR_CONSOLES];
 static struct tty_struct *xencons_tty;
 static int xencons_priv_irq;
 static char x_char;
@@ -696,7 +695,6 @@ static int __init xencons_init(void)
 		TTY_DRIVER_REAL_RAW |
 		TTY_DRIVER_RESET_TERMIOS;
 	DRV(xencons_driver)->termios         = xencons_termios;
-	DRV(xencons_driver)->termios_locked  = xencons_termios_locked;
 
 	switch (xc_mode) {
 	case XC_XVC:

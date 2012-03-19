@@ -11,7 +11,6 @@
 #include <xen/gnttab.h>
 #include "pcifront.h"
 
-#define INVALID_GRANT_REF (0)
 #define INVALID_EVTCHN    (-1)
 
 static struct pcifront_device *alloc_pdev(struct xenbus_device *xdev)
@@ -43,7 +42,7 @@ static struct pcifront_device *alloc_pdev(struct xenbus_device *xdev)
 	spin_lock_init(&pdev->sh_info_lock);
 
 	pdev->evtchn = INVALID_EVTCHN;
-	pdev->gnt_ref = INVALID_GRANT_REF;
+	pdev->gnt_ref = GRANT_INVALID_REF;
 	pdev->irq = -1;
 
 	INIT_WORK(&pdev->op_work, pcifront_do_aer);
@@ -69,7 +68,7 @@ static void free_pdev(struct pcifront_device *pdev)
 	if (pdev->evtchn != INVALID_EVTCHN)
 		xenbus_free_evtchn(pdev->xdev, pdev->evtchn);
 
-	if (pdev->gnt_ref != INVALID_GRANT_REF)
+	if (pdev->gnt_ref != GRANT_INVALID_REF)
 		gnttab_end_foreign_access(pdev->gnt_ref,
 					  (unsigned long)pdev->sh_info);
 	else
@@ -372,7 +371,7 @@ static int pcifront_detach_devices(struct pcifront_device *pdev)
 		pci_dev = pci_get_slot(pci_bus, PCI_DEVFN(slot, func));
 		if(!pci_dev) {
 			dev_dbg(&pdev->xdev->dev,
-				"Cannot get PCI device %04x:%02x:%02x.%02x\n",
+				"Cannot get PCI device %04x:%02x:%02x.%u\n",
 				domain, bus, slot, func);
 			continue;
 		}
@@ -380,7 +379,7 @@ static int pcifront_detach_devices(struct pcifront_device *pdev)
 		pci_dev_put(pci_dev);
 
 		dev_dbg(&pdev->xdev->dev,
-			"PCI device %04x:%02x:%02x.%02x removed.\n",
+			"PCI device %04x:%02x:%02x.%u removed.\n",
 			domain, bus, slot, func);
 	}
 

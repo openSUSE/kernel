@@ -42,6 +42,7 @@
  */
 
 #include <linux/linkage.h>
+#include <linux/err.h>
 #include <asm/thread_info.h>
 #include <asm/irqflags.h>
 #include <asm/errno.h>
@@ -81,8 +82,6 @@
  * Allowing a register to be clobbered can shrink the paravirt replacement
  * enough to patch inline, increasing performance.
  */
-
-#define nr_syscalls ((syscall_table_size)/4)
 
 /* Pseudo-eflags. */
 NMI_MASK	= 0x80000000
@@ -427,7 +426,7 @@ sysenter_past_esp:
 	testl $_TIF_WORK_SYSCALL_ENTRY,TI_flags(%ebp)
 	jnz sysenter_audit
 sysenter_do_call:
-	cmpl $(nr_syscalls), %eax
+	cmpl $(NR_syscalls), %eax
 	jae syscall_badsys
 	call *sys_call_table(,%eax,4)
 	movl %eax,PT_EAX(%esp)
@@ -462,7 +461,7 @@ sysenter_audit:
 	movl %ebx,%ecx			/* 3rd arg: 1st syscall arg */
 	movl %eax,%edx			/* 2nd arg: syscall number */
 	movl $AUDIT_ARCH_I386,%eax	/* 1st arg: audit arch */
-	call audit_syscall_entry
+	call __audit_syscall_entry
 	pushl_cfi %ebx
 	movl PT_EAX(%esp),%eax		/* reload syscall number */
 	jmp sysenter_do_call
@@ -473,11 +472,10 @@ sysexit_audit:
 	TRACE_IRQS_ON
 	ENABLE_INTERRUPTS(CLBR_ANY)
 	movl %eax,%edx		/* second arg, syscall return value */
-	cmpl $0,%eax		/* is it < 0? */
-	setl %al		/* 1 if so, 0 if not */
+	cmpl $-MAX_ERRNO,%eax	/* is it an error ? */
+	setbe %al		/* 1 if so, 0 if not */
 	movzbl %al,%eax		/* zero-extend that */
-	inc %eax /* first arg, 0->1(AUDITSC_SUCCESS), 1->2(AUDITSC_FAILURE) */
-	call audit_syscall_exit
+	call __audit_syscall_exit
 	DISABLE_INTERRUPTS(CLBR_ANY)
 	TRACE_IRQS_OFF
 	movl TI_flags(%ebp), %ecx
@@ -533,9 +531,10 @@ ENTRY(system_call)
 	pushl_cfi %eax			# save orig_eax
 	SAVE_ALL
 	GET_THREAD_INFO(%ebp)
+					# system call tracing in operation / emulation
 	testl $_TIF_WORK_SYSCALL_ENTRY,TI_flags(%ebp)
 	jnz syscall_trace_entry
-	cmpl $(nr_syscalls), %eax
+	cmpl $(NR_syscalls), %eax
 	jae syscall_badsys
 syscall_call:
 	call *sys_call_table(,%eax,4)
@@ -696,6 +695,8 @@ work_notifysig:				# deal with pending signals and
 	movl %esp, %eax
 	jne work_notifysig_v86		# returning to kernel-space or
 					# vm86-space
+	TRACE_IRQS_ON
+	ENABLE_INTERRUPTS(CLBR_NONE)
 	xorl %edx, %edx
 	call do_notify_resume
 	jmp resume_userspace_sig
@@ -709,6 +710,8 @@ work_notifysig_v86:
 #else
 	movl %esp, %eax
 #endif
+	TRACE_IRQS_ON
+	ENABLE_INTERRUPTS(CLBR_NONE)
 	xorl %edx, %edx
 	call do_notify_resume
 	jmp resume_userspace_sig
@@ -721,7 +724,7 @@ syscall_trace_entry:
 	movl %esp, %eax
 	call syscall_trace_enter
 	/* What it returned is what we'll actually use.  */
-	cmpl $(nr_syscalls), %eax
+	cmpl $(NR_syscalls), %eax
 	jnae syscall_call
 	jmp syscall_exit
 END(syscall_trace_entry)
@@ -761,29 +764,28 @@ END(syscall_badsys)
  * System calls that need a pt_regs pointer.
  */
 #define PTREGSCALL0(name) \
-	ALIGN; \
-ptregs_##name: \
+ENTRY(ptregs_##name) ;  \
 	leal 4(%esp),%eax; \
-	jmp sys_##name;
+	jmp sys_##name; \
+ENDPROC(ptregs_##name)
 
 #define PTREGSCALL1(name) \
-	ALIGN; \
-ptregs_##name: \
+ENTRY(ptregs_##name) ; \
 	leal 4(%esp),%edx; \
 	movl (PT_EBX+4)(%esp),%eax; \
-	jmp sys_##name;
+	jmp sys_##name; \
+ENDPROC(ptregs_##name)
 
 #define PTREGSCALL2(name) \
-	ALIGN; \
-ptregs_##name: \
+ENTRY(ptregs_##name) ; \
 	leal 4(%esp),%ecx; \
 	movl (PT_ECX+4)(%esp),%edx; \
 	movl (PT_EBX+4)(%esp),%eax; \
-	jmp sys_##name;
+	jmp sys_##name; \
+ENDPROC(ptregs_##name)
 
 #define PTREGSCALL3(name) \
-	ALIGN; \
-ptregs_##name: \
+ENTRY(ptregs_##name) ; \
 	CFI_STARTPROC; \
 	leal 4(%esp),%eax; \
 	pushl_cfi %eax; \
@@ -808,8 +810,7 @@ PTREGSCALL2(vm86)
 PTREGSCALL1(vm86old)
 
 /* Clone is an oddball.  The 4th arg is in %edi */
-	ALIGN;
-ptregs_clone:
+ENTRY(ptregs_clone)
 	CFI_STARTPROC
 	leal 4(%esp),%eax
 	pushl_cfi %eax
@@ -1381,6 +1382,7 @@ return_to_handler:
 	jmp *%ecx
 #endif
 
+#ifdef TIF_CSTAR
 	# pv syscall call handler stub
 ENTRY(ia32pv_cstar_target)
 	RING0_INT_FRAME
@@ -1405,7 +1407,7 @@ ENTRY(ia32pv_cstar_target)
 	GET_THREAD_INFO(%ebp)
 	testl $_TIF_WORK_SYSCALL_ENTRY,TI_flags(%ebp)
 	jnz cstar_trace_entry
-	cmpl $nr_syscalls,%eax
+	cmpl $NR_syscalls,%eax
 	jae cstar_badsys
 .Lcstar_call:
 	btl %eax,cstar_special
@@ -1420,7 +1422,7 @@ ENTRY(ia32pv_cstar_target)
 	movl PT_ECX(%esp),%ecx
 	movl %ecx,PT_EBP(%esp)		# put user EBP back in place
 	jmp syscall_call
-cstar_set_tif:
+GLOBAL(cstar_set_tif)
 	movl $cstar_clear_tif,(%esp)	# replace return address
 	LOCK_PREFIX
 	orl $_TIF_CSTAR,TI_flags(%ebp)
@@ -1432,7 +1434,7 @@ cstar_clear_tif:
 	jmp .Lcstar_exit
 cstar_trace_entry:
 	movl $-ENOSYS,PT_EAX(%esp)
-	cmpl $nr_syscalls,%eax
+	cmpl $NR_syscalls,%eax
 	jae 1f
 	btl %eax,cstar_special
 	jc .Lcstar_trace_special
@@ -1443,7 +1445,7 @@ cstar_trace_entry:
 	LOCK_PREFIX
 	andl $~_TIF_CSTAR,TI_flags(%ebp)
 	/* What it returned is what we'll actually use.  */
-	cmpl $nr_syscalls,%eax
+	cmpl $NR_syscalls,%eax
 	jb .Lcstar_call
 	jmp .Lcstar_exit
 .Lcstar_trace_special:
@@ -1452,7 +1454,7 @@ cstar_trace_entry:
 	movl %ecx,PT_EBP(%esp)		# put user EBP back in place
 	call syscall_trace_enter
 	/* What it returned is what we'll actually use.  */
-	cmpl $nr_syscalls,%eax
+	cmpl $NR_syscalls,%eax
 	jb syscall_call
 	jmp syscall_exit
 cstar_badsys:
@@ -1479,18 +1481,15 @@ ENTRY(cstar_ret_from_fork)
 	andl $~_TIF_CSTAR,TI_flags(%ebp)
 	jmp ret_from_fork
 	CFI_ENDPROC
-END(ret_from_fork)
-
-.section .rodata,"a"
-#include "syscall_table_32.S"
-
-syscall_table_size=(.-sys_call_table)
+END(cstar_ret_from_fork)
 
 #include <asm/unistd.h>
+.pushsection .rodata,"a"
+.balign 4
 cstar_special:
 nr=0
 mask=0
-.rept nr_syscalls+31
+.rept NR_syscalls+31
  .irp n, __NR_sigreturn, __NR_rt_sigreturn
   .if nr == \n
    mask = mask | (1 << (\n & 31))
@@ -1502,15 +1501,8 @@ mask=0
   mask = 0
  .endif
 .endr
-#define	sys_call_table cstar_call_table
-#define	sys_fork cstar_set_tif
-#define	sys_clone cstar_set_tif
-#define	sys_vfork cstar_set_tif
-#include "syscall_table_32.S"
-#undef	sys_call_table
-#undef	sys_fork
-#undef	sys_clone
-#undef	sys_vfork
+.popsection
+#endif /* TIF_CSTAR */
 
 /*
  * Some functions should be protected against kprobes

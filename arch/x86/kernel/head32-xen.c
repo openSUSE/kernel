@@ -47,9 +47,8 @@ void __init i386_start_kernel(void)
 	BUG_ON(pte_index(hypervisor_virt_start));
 #endif
 
-	memblock_init();
-
-	memblock_x86_reserve_range(__pa_symbol(&_text), __pa_symbol(&__bss_stop), "TEXT DATA BSS");
+	memblock_reserve(__pa_symbol(&_text),
+			 __pa_symbol(&__bss_stop) - __pa_symbol(&_text));
 
 #ifndef CONFIG_XEN
 #ifdef CONFIG_BLK_DEV_INITRD
@@ -59,7 +58,7 @@ void __init i386_start_kernel(void)
 		u64 ramdisk_image = boot_params.hdr.ramdisk_image;
 		u64 ramdisk_size  = boot_params.hdr.ramdisk_size;
 		u64 ramdisk_end   = PAGE_ALIGN(ramdisk_image + ramdisk_size);
-		memblock_x86_reserve_range(ramdisk_image, ramdisk_end, "RAMDISK");
+		memblock_reserve(ramdisk_image, ramdisk_end - ramdisk_image);
 	}
 #endif
 

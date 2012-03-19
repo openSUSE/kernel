@@ -128,7 +128,7 @@ int gpmi_init(struct gpmi_nand_data *this)
 	struct resources *r = &this->resources;
 	int ret;
 
-	ret = clk_enable(r->clock);
+	ret = clk_prepare_enable(r->clock);
 	if (ret)
 		goto err_out;
 	ret = gpmi_reset_block(r->gpmi_regs, false);
@@ -148,7 +148,7 @@ int gpmi_init(struct gpmi_nand_data *this)
 	/* Select BCH ECC. */
 	writel(BM_GPMI_CTRL1_BCH_MODE, r->gpmi_regs + HW_GPMI_CTRL1_SET);
 
-	clk_disable(r->clock);
+	clk_disable_unprepare(r->clock);
 	return 0;
 err_out:
 	return ret;
@@ -204,7 +204,7 @@ int bch_set_geometry(struct gpmi_nand_data *this)
 	ecc_strength  = bch_geo->ecc_strength >> 1;
 	page_size     = bch_geo->page_size;
 
-	ret = clk_enable(r->clock);
+	ret = clk_prepare_enable(r->clock);
 	if (ret)
 		goto err_out;
 
@@ -239,7 +239,7 @@ int bch_set_geometry(struct gpmi_nand_data *this)
 	writel(BM_BCH_CTRL_COMPLETE_IRQ_EN,
 				r->bch_regs + HW_BCH_CTRL_SET);
 
-	clk_disable(r->clock);
+	clk_disable_unprepare(r->clock);
 	return 0;
 err_out:
 	return ret;
@@ -714,7 +714,7 @@ void gpmi_begin(struct gpmi_nand_data *this)
 	int ret;
 
 	/* Enable the clock. */
-	ret = clk_enable(r->clock);
+	ret = clk_prepare_enable(r->clock);
 	if (ret) {
 		pr_err("We failed in enable the clk\n");
 		goto err_out;
@@ -783,7 +783,7 @@ err_out:
 void gpmi_end(struct gpmi_nand_data *this)
 {
 	struct resources *r = &this->resources;
-	clk_disable(r->clock);
+	clk_disable_unprepare(r->clock);
 }
 
 /* Clears a BCH interrupt. */
@@ -837,7 +837,7 @@ int gpmi_send_command(struct gpmi_nand_data *this)
 	pio[1] = pio[2] = 0;
 	desc = channel->device->device_prep_slave_sg(channel,
 					(struct scatterlist *)pio,
-					ARRAY_SIZE(pio), DMA_NONE, 0);
+					ARRAY_SIZE(pio), DMA_TRANS_NONE, 0);
 	if (!desc) {
 		pr_err("step 1 error\n");
 		return -1;
@@ -849,7 +849,7 @@ int gpmi_send_command(struct gpmi_nand_data *this)
 	sg_init_one(sgl, this->cmd_buffer, this->command_length);
 	dma_map_sg(this->dev, sgl, 1, DMA_TO_DEVICE);
 	desc = channel->device->device_prep_slave_sg(channel,
-					sgl, 1, DMA_TO_DEVICE, 1);
+					sgl, 1, DMA_MEM_TO_DEV, 1);
 	if (!desc) {
 		pr_err("step 2 error\n");
 		return -1;
@@ -882,7 +882,7 @@ int gpmi_send_data(struct gpmi_nand_data *this)
 	pio[1] = 0;
 	desc = channel->device->device_prep_slave_sg(channel,
 					(struct scatterlist *)pio,
-					ARRAY_SIZE(pio), DMA_NONE, 0);
+					ARRAY_SIZE(pio), DMA_TRANS_NONE, 0);
 	if (!desc) {
 		pr_err("step 1 error\n");
 		return -1;
@@ -891,7 +891,7 @@ int gpmi_send_data(struct gpmi_nand_data *this)
 	/* [2] send DMA request */
 	prepare_data_dma(this, DMA_TO_DEVICE);
 	desc = channel->device->device_prep_slave_sg(channel, &this->data_sgl,
-						1, DMA_TO_DEVICE, 1);
+						1, DMA_MEM_TO_DEV, 1);
 	if (!desc) {
 		pr_err("step 2 error\n");
 		return -1;
@@ -918,7 +918,7 @@ int gpmi_read_data(struct gpmi_nand_data *this)
 	pio[1] = 0;
 	desc = channel->device->device_prep_slave_sg(channel,
 					(struct scatterlist *)pio,
-					ARRAY_SIZE(pio), DMA_NONE, 0);
+					ARRAY_SIZE(pio), DMA_TRANS_NONE, 0);
 	if (!desc) {
 		pr_err("step 1 error\n");
 		return -1;
@@ -927,7 +927,7 @@ int gpmi_read_data(struct gpmi_nand_data *this)
 	/* [2] : send DMA request */
 	prepare_data_dma(this, DMA_FROM_DEVICE);
 	desc = channel->device->device_prep_slave_sg(channel, &this->data_sgl,
-						1, DMA_FROM_DEVICE, 1);
+						1, DMA_DEV_TO_MEM, 1);
 	if (!desc) {
 		pr_err("step 2 error\n");
 		return -1;
@@ -974,7 +974,7 @@ int gpmi_send_page(struct gpmi_nand_data *this,
 
 	desc = channel->device->device_prep_slave_sg(channel,
 					(struct scatterlist *)pio,
-					ARRAY_SIZE(pio), DMA_NONE, 0);
+					ARRAY_SIZE(pio), DMA_TRANS_NONE, 0);
 	if (!desc) {
 		pr_err("step 2 error\n");
 		return -1;
@@ -1008,7 +1008,8 @@ int gpmi_read_page(struct gpmi_nand_data *this,
 		| BF_GPMI_CTRL0_XFER_COUNT(0);
 	pio[1] = 0;
 	desc = channel->device->device_prep_slave_sg(channel,
-				(struct scatterlist *)pio, 2, DMA_NONE, 0);
+				(struct scatterlist *)pio, 2,
+				DMA_TRANS_NONE, 0);
 	if (!desc) {
 		pr_err("step 1 error\n");
 		return -1;
@@ -1037,7 +1038,7 @@ int gpmi_read_page(struct gpmi_nand_data *this,
 	pio[5] = auxiliary;
 	desc = channel->device->device_prep_slave_sg(channel,
 					(struct scatterlist *)pio,
-					ARRAY_SIZE(pio), DMA_NONE, 1);
+					ARRAY_SIZE(pio), DMA_TRANS_NONE, 1);
 	if (!desc) {
 		pr_err("step 2 error\n");
 		return -1;
@@ -1055,7 +1056,8 @@ int gpmi_read_page(struct gpmi_nand_data *this,
 		| BF_GPMI_CTRL0_XFER_COUNT(geo->page_size);
 	pio[1] = 0;
 	desc = channel->device->device_prep_slave_sg(channel,
-				(struct scatterlist *)pio, 2, DMA_NONE, 1);
+				(struct scatterlist *)pio, 2,
+				DMA_TRANS_NONE, 1);
 	if (!desc) {
 		pr_err("step 3 error\n");
 		return -1;

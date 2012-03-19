@@ -143,7 +143,7 @@ static void cdrom_media_changed(struct xenbus_watch *watch,
 		long handle = simple_strtoul(p, NULL, 0);
 
 		err = vbd_create(be->blkif, handle, be->major, be->minor,
-				 !strchr(be->mode, 'w'), 1);
+				 be->blkif->vbd.mode, true);
 		if (err && err != -ENOMEDIUM) {
 			be->major = be->minor = 0;
 			xenbus_dev_fatal(dev, err, "creating vbd structure");

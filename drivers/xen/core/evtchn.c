@@ -40,7 +40,7 @@
 #include <linux/atomic.h>
 #include <asm/system.h>
 #include <asm/ptrace.h>
-#include <asm/synch_bitops.h>
+#include <asm/sync_bitops.h>
 #include <xen/evtchn.h>
 #include <xen/interface/event_channel.h>
 #include <xen/interface/physdev.h>
@@ -361,22 +361,24 @@ static DEFINE_PER_CPU(unsigned int, current_l2i);
 /* NB. Interrupts are disabled on entry. */
 asmlinkage void __irq_entry evtchn_do_upcall(struct pt_regs *regs)
 {
-	struct pt_regs     *old_regs = set_irq_regs(regs);
 	unsigned long       l1, l2;
 	unsigned long       masked_l1, masked_l2;
 	unsigned int        l1i, l2i, start_l1i, start_l2i, port, i;
 	int                 irq;
+	struct pt_regs     *old_regs;
 
-	exit_idle();
+	/* Nested invocations bail immediately. */
+	if (unlikely(this_cpu_inc_return(upcall_count) != 1))
+		return;
+
+	old_regs = set_irq_regs(regs);
+	xen_spin_irq_enter();
 	irq_enter();
+	exit_idle();
 
 	do {
 		/* Avoid a callback storm when we reenable delivery. */
 		vcpu_info_write(evtchn_upcall_pending, 0);
-
-		/* Nested invocations bail immediately. */
-		if (unlikely(this_cpu_inc_return(upcall_count) != 1))
-			break;
 
 #ifndef CONFIG_X86 /* No need for a barrier -- XCHG is a barrier on x86. */
 		/* Clear master flag /before/ clearing selector flag. */
@@ -479,9 +481,11 @@ asmlinkage void __irq_entry evtchn_do_upcall(struct pt_regs *regs)
 		}
 
 		/* If there were nested callbacks then we have more to do. */
-	} while (unlikely(this_cpu_xchg(upcall_count, 0) != 1));
+	} while (unlikely(this_cpu_xchg(upcall_count, 1) != 1));
 
+	this_cpu_write(upcall_count, 0);
 	irq_exit();
+	xen_spin_irq_exit();
 	set_irq_regs(old_regs);
 }
 
@@ -840,8 +844,10 @@ done:
 	spin_unlock(&irq_mapping_update_lock);
 
 	if (free_action) {
+		cpumask_t *cpus = free_action->cpus;
+
 		free_irq(irq, free_action->action.dev_id);
-		free_percpu_irqaction(free_action);
+		free_cpumask_var(cpus);
 	}
 }
 EXPORT_SYMBOL_GPL(unbind_from_per_cpu_irq);
@@ -1424,12 +1430,11 @@ void notify_remote_via_ipi(unsigned int ipi, unsigned int cpu)
 
 #ifdef NMI_VECTOR
 	if (ipi == NMI_VECTOR) {
-		static int __read_mostly printed;
 		int rc = HYPERVISOR_vcpu_op(VCPUOP_send_nmi, cpu, NULL);
 
-		if (rc && !printed)
-			pr_warn("Unable (%d) to send NMI to CPU#%u\n",
-				printed = rc, cpu);
+		if (rc)
+			pr_warn_once("Unable (%d) to send NMI to CPU#%u\n",
+				     rc, cpu);
 		return;
 	}
 #endif
@@ -1501,7 +1506,7 @@ EXPORT_SYMBOL_GPL(irq_to_evtchn_port);
 void mask_evtchn(int port)
 {
 	shared_info_t *s = HYPERVISOR_shared_info;
-	synch_set_bit(port, s->evtchn_mask);
+	sync_set_bit(port, s->evtchn_mask);
 }
 EXPORT_SYMBOL_GPL(mask_evtchn);
 
@@ -1519,14 +1524,14 @@ void unmask_evtchn(int port)
 		return;
 	}
 
-	synch_clear_bit(port, s->evtchn_mask);
+	sync_clear_bit(port, s->evtchn_mask);
 
 	/* Did we miss an interrupt 'edge'? Re-fire if so. */
-	if (synch_test_bit(port, s->evtchn_pending)) {
+	if (sync_test_bit(port, s->evtchn_pending)) {
 		vcpu_info_t *v = current_vcpu_info();
 
-		if (!synch_test_and_set_bit(port / BITS_PER_LONG,
-					    &v->evtchn_pending_sel))
+		if (!sync_test_and_set_bit(port / BITS_PER_LONG,
+					   &v->evtchn_pending_sel))
 			v->evtchn_upcall_pending = 1;
 	}
 }
@@ -1539,7 +1544,7 @@ void disable_all_local_evtchn(void)
 
 	for (i = 0; i < NR_EVENT_CHANNELS; ++i)
 		if (cpu_from_evtchn(i) == cpu)
-			synch_set_bit(i, &s->evtchn_mask[0]);
+			sync_set_bit(i, &s->evtchn_mask[0]);
 }
 
 /* Test an irq's pending state. */
@@ -1748,8 +1753,10 @@ struct irq_cfg *alloc_irq_and_cfg_at(unsigned int at, int node)
 	}
 
 #ifdef CONFIG_SPARSE_IRQ
+#ifdef CONFIG_SMP
 	/* By default all event channels notify CPU#0. */
 	cpumask_copy(irq_get_irq_data(at)->affinity, cpumask_of(0));
+#endif
 
 	cfg = kzalloc(sizeof(*cfg), GFP_KERNEL);
 	if (cfg)
@@ -1764,6 +1771,10 @@ struct irq_cfg *alloc_irq_and_cfg_at(unsigned int at, int node)
 }
 
 #ifdef CONFIG_SPARSE_IRQ
+#ifdef CONFIG_X86_IO_APIC
+#include <asm/io_apic.h>
+#endif
+
 int nr_pirqs = NR_PIRQS;
 EXPORT_SYMBOL_GPL(nr_pirqs);
 

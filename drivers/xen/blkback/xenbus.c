@@ -141,7 +141,7 @@ static struct attribute *vbdstat_attrs[] = {
 	NULL
 };
 
-static struct attribute_group vbdstat_group = {
+static const struct attribute_group vbdstat_group = {
 	.name = "statistics",
 	.attrs = vbdstat_attrs,
 };
@@ -280,6 +280,15 @@ static int xen_blkbk_discard(struct xenbus_transaction xbt,
 				state = 1;
 				blkif->blk_backend_type = BLKIF_BACKEND_PHY;
 			}
+			/* Optional. */
+			err = xenbus_printf(xbt, dev->nodename,
+					    "discard-secure", "%d",
+					    blkif->vbd.discard_secure);
+			if (err) {
+				xenbus_dev_fatal(dev, err,
+						 "writing discard-secure");
+				goto kfree;
+			}
 		}
 	} else {
 		err = PTR_ERR(type);
@@ -409,7 +418,10 @@ static void backend_changed(struct xenbus_watch *watch,
 		be->minor = minor;
 
 		err = vbd_create(be->blkif, handle, major, minor,
-				 (NULL == strchr(be->mode, 'w')), cdrom);
+				 FMODE_READ
+				 | (strchr(be->mode, 'w') ? FMODE_WRITE : 0)
+				 | (strchr(be->mode, '!') ? 0 : FMODE_EXCL),
+				 cdrom);
 		switch (err) {
 		case -ENOMEDIUM:
 			if (be->blkif->vbd.type
@@ -480,13 +492,11 @@ static void frontend_changed(struct xenbus_device *dev,
 		break;
 
 	case XenbusStateClosing:
-		xenbus_switch_state(dev, XenbusStateClosing);
-		break;
-
 	case XenbusStateClosed:
 		blkif_disconnect(be->blkif);
-		xenbus_switch_state(dev, XenbusStateClosed);
-		if (xenbus_dev_is_online(dev))
+		xenbus_switch_state(dev, frontend_state);
+		if (frontend_state != XenbusStateClosed ||
+		    xenbus_dev_is_online(dev))
 			break;
 		/* fall through if not online */
 	case XenbusStateUnknown:
@@ -545,7 +555,7 @@ again:
 
 	/* FIXME: use a typename instead */
 	err = xenbus_printf(xbt, dev->nodename, "info", "%u",
-			    vbd_info(&be->blkif->vbd));
+			    be->blkif->vbd.type);
 	if (err) {
 		xenbus_dev_fatal(dev, err, "writing %s/info",
 				 dev->nodename);

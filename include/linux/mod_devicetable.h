@@ -542,4 +542,43 @@ struct isapnp_device_id {
 	kernel_ulong_t driver_data;	/* data private to the driver */
 };
 
+/**
+ * struct amba_id - identifies a device on an AMBA bus
+ * @id: The significant bits if the hardware device ID
+ * @mask: Bitmask specifying which bits of the id field are significant when
+ *	matching.  A driver binds to a device when ((hardware device ID) & mask)
+ *	== id.
+ * @data: Private data used by the driver.
+ */
+struct amba_id {
+	unsigned int		id;
+	unsigned int		mask;
+#ifndef __KERNEL__
+	kernel_ulong_t		data;
+#else
+	void			*data;
+#endif
+};
+
+/*
+ * Match x86 CPUs for CPU specific drivers.
+ * See documentation of "x86_match_cpu" for details.
+ */
+
+struct x86_cpu_id {
+	__u16 vendor;
+	__u16 family;
+	__u16 model;
+	__u16 feature;	/* bit index */
+	kernel_ulong_t driver_data;
+};
+
+#define X86_FEATURE_MATCH(x) \
+	{ X86_VENDOR_ANY, X86_FAMILY_ANY, X86_MODEL_ANY, x }
+
+#define X86_VENDOR_ANY 0xffff
+#define X86_FAMILY_ANY 0
+#define X86_MODEL_ANY  0
+#define X86_FEATURE_ANY 0	/* Same as FPU, you can't test for that */
+
 #endif /* LINUX_MOD_DEVICETABLE_H */

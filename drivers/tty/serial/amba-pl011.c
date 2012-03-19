@@ -159,6 +159,7 @@ struct uart_amba_port {
 	unsigned int		fifosize;	/* vendor-specific */
 	unsigned int		lcrh_tx;	/* vendor-specific */
 	unsigned int		lcrh_rx;	/* vendor-specific */
+	unsigned int		old_cr;		/* state during shutdown */
 	bool			autorts;
 	char			type[12];
 	bool			interrupt_may_hang; /* vendor-specific */
@@ -268,7 +269,7 @@ static void pl011_dma_probe_initcall(struct uart_amba_port *uap)
 	struct dma_slave_config tx_conf = {
 		.dst_addr = uap->port.mapbase + UART01x_DR,
 		.dst_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE,
-		.direction = DMA_TO_DEVICE,
+		.direction = DMA_MEM_TO_DEV,
 		.dst_maxburst = uap->fifosize >> 1,
 	};
 	struct dma_chan *chan;
@@ -301,7 +302,7 @@ static void pl011_dma_probe_initcall(struct uart_amba_port *uap)
 		struct dma_slave_config rx_conf = {
 			.src_addr = uap->port.mapbase + UART01x_DR,
 			.src_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE,
-			.direction = DMA_FROM_DEVICE,
+			.direction = DMA_DEV_TO_MEM,
 			.src_maxburst = uap->fifosize >> 1,
 		};
 
@@ -480,7 +481,7 @@ static int pl011_dma_tx_refill(struct uart_amba_port *uap)
 		return -EBUSY;
 	}
 
-	desc = dma_dev->device_prep_slave_sg(chan, &dmatx->sg, 1, DMA_TO_DEVICE,
+	desc = dma_dev->device_prep_slave_sg(chan, &dmatx->sg, 1, DMA_MEM_TO_DEV,
 					     DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
 	if (!desc) {
 		dma_unmap_sg(dma_dev->dev, &dmatx->sg, 1, DMA_TO_DEVICE);
@@ -676,7 +677,7 @@ static int pl011_dma_rx_trigger_dma(struct uart_amba_port *uap)
 		&uap->dmarx.sgbuf_b : &uap->dmarx.sgbuf_a;
 	dma_dev = rxchan->device;
 	desc = rxchan->device->device_prep_slave_sg(rxchan, &sgbuf->sg, 1,
-					DMA_FROM_DEVICE,
+					DMA_DEV_TO_MEM,
 					DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
 	/*
 	 * If the DMA engine is busy and cannot prepare a
@@ -1411,7 +1412,9 @@ static int pl011_startup(struct uart_port *port)
 	while (readw(uap->port.membase + UART01x_FR) & UART01x_FR_BUSY)
 		barrier();
 
-	cr = UART01x_CR_UARTEN | UART011_CR_RXE | UART011_CR_TXE;
+	/* restore RTS and DTR */
+	cr = uap->old_cr & (UART011_CR_RTS | UART011_CR_DTR);
+	cr |= UART01x_CR_UARTEN | UART011_CR_RXE | UART011_CR_TXE;
 	writew(cr, uap->port.membase + UART011_CR);
 
 	/* Clear pending error interrupts */
@@ -1469,6 +1472,7 @@ static void pl011_shutdown_channel(struct uart_amba_port *uap,
 static void pl011_shutdown(struct uart_port *port)
 {
 	struct uart_amba_port *uap = (struct uart_amba_port *)port;
+	unsigned int cr;
 
 	/*
 	 * disable all interrupts
@@ -1488,9 +1492,16 @@ static void pl011_shutdown(struct uart_port *port)
 
 	/*
 	 * disable the port
+	 * disable the port. It should not disable RTS and DTR.
+	 * Also RTS and DTR state should be preserved to restore
+	 * it during startup().
 	 */
 	uap->autorts = false;
-	writew(UART01x_CR_UARTEN | UART011_CR_TXE, uap->port.membase + UART011_CR);
+	cr = readw(uap->port.membase + UART011_CR);
+	uap->old_cr = cr;
+	cr &= UART011_CR_RTS | UART011_CR_DTR;
+	cr |= UART01x_CR_UARTEN | UART011_CR_TXE;
+	writew(cr, uap->port.membase + UART011_CR);
 
 	/*
 	 * disable break condition and fifos
@@ -1919,6 +1930,7 @@ static int pl011_probe(struct amba_device *dev, const struct amba_id *id)
 	uap->vendor = vendor;
 	uap->lcrh_rx = vendor->lcrh_rx;
 	uap->lcrh_tx = vendor->lcrh_tx;
+	uap->old_cr = 0;
 	uap->fifosize = vendor->fifosize;
 	uap->interrupt_may_hang = vendor->interrupt_may_hang;
 	uap->port.dev = &dev->dev;
@@ -2007,6 +2019,8 @@ static struct amba_id pl011_ids[] = {
 	},
 	{ 0, 0 },
 };
+
+MODULE_DEVICE_TABLE(amba, pl011_ids);
 
 static struct amba_driver pl011_driver = {
 	.drv = {

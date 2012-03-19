@@ -11,7 +11,6 @@
 #include <linux/sched.h>
 #include <linux/kernel_stat.h>
 #include <linux/irq.h>
-#include <linux/bootmem.h>
 #include <linux/notifier.h>
 #include <linux/cpu.h>
 #include <linux/percpu.h>
@@ -374,12 +373,12 @@ int __cpuinit __cpu_up(unsigned int cpu)
 
 void __ref play_dead(void)
 {
+#ifdef CONFIG_HOTPLUG_CPU
 	idle_task_exit();
 	local_irq_disable();
 	cpumask_clear_cpu(smp_processor_id(), cpu_initialized_mask);
 	preempt_enable_no_resched();
 	VOID(HYPERVISOR_vcpu_op(VCPUOP_down, smp_processor_id(), NULL));
-#ifdef CONFIG_HOTPLUG_CPU
 	cpu_bringup();
 #else
 	BUG();
@@ -388,6 +387,7 @@ void __ref play_dead(void)
 
 void __init smp_cpus_done(unsigned int max_cpus)
 {
+	nmi_selftest();
 }
 
 #ifndef CONFIG_X86_LOCAL_APIC

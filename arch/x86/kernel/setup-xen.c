@@ -386,7 +386,8 @@ static void __init cleanup_highmap(void)
 static void __init reserve_brk(void)
 {
 	if (_brk_end > _brk_start)
-		memblock_x86_reserve_range(__pa(_brk_start), __pa(_brk_end), "BRK");
+		memblock_reserve(__pa(_brk_start),
+				 __pa(_brk_end) - __pa(_brk_start));
 
 	/* Mark brk area as locked down and no longer taking any
 	   new allocations */
@@ -412,13 +413,13 @@ static void __init relocate_initrd(void)
 	ramdisk_here = memblock_find_in_range(0, end_of_lowmem, area_size,
 					 PAGE_SIZE);
 
-	if (ramdisk_here == MEMBLOCK_ERROR)
+	if (!ramdisk_here)
 		panic("Cannot find place for new RAMDISK of size %lld\n",
 			 ramdisk_size);
 
 	/* Note: this includes all the lowmem currently occupied by
 	   the initrd, we rely on that fact to keep the data intact. */
-	memblock_x86_reserve_range(ramdisk_here, ramdisk_here + area_size, "NEW RAMDISK");
+	memblock_reserve(ramdisk_here, area_size);
 	initrd_start = ramdisk_here + PAGE_OFFSET;
 	initrd_end   = initrd_start + ramdisk_size;
 	printk(KERN_INFO "Allocated new RAMDISK: %08llx - %08llx\n",
@@ -491,7 +492,7 @@ static void __init reserve_initrd(void)
 	initrd_start = 0;
 
 	if (ramdisk_size >= (end_of_lowmem>>1)) {
-		memblock_x86_free_range(ramdisk_image, ramdisk_end);
+		memblock_free(ramdisk_image, ramdisk_end - ramdisk_image);
 		printk(KERN_ERR "initrd too large to handle, "
 		       "disabling initrd\n");
 		return;
@@ -514,7 +515,7 @@ static void __init reserve_initrd(void)
 #endif
 	} else {
 		relocate_initrd();
-		memblock_x86_free_range(ramdisk_image, ramdisk_end);
+		memblock_free(ramdisk_image, ramdisk_end - ramdisk_image);
 	}
 #ifdef CONFIG_ACPI_INITRD_TABLE_OVERRIDE
 	acpi_initrd_offset = acpi_initrd_table_override((void *)initrd_start,
@@ -604,15 +605,13 @@ static void __init memblock_x86_reserve_range_setup_data(void)
 #ifndef CONFIG_XEN
 	struct setup_data *data;
 	u64 pa_data;
-	char buf[32];
 
 	if (boot_params.hdr.version < 0x0209)
 		return;
 	pa_data = boot_params.hdr.setup_data;
 	while (pa_data) {
 		data = early_memremap(pa_data, sizeof(*data));
-		sprintf(buf, "setup data %x", data->type);
-		memblock_x86_reserve_range(pa_data, pa_data+sizeof(*data)+data->len, buf);
+		memblock_reserve(pa_data, sizeof(*data) + data->len);
 		pa_data = data->next;
 		early_iounmap(data, sizeof(*data));
 	}
@@ -670,7 +669,7 @@ static void __init reserve_crashkernel(void)
 		crash_base = memblock_find_in_range(alignment,
 			       CRASH_KERNEL_ADDR_MAX, crash_size, alignment);
 
-		if (crash_base == MEMBLOCK_ERROR) {
+		if (!crash_base) {
 			pr_info("crashkernel reservation failed - No suitable area found.\n");
 			return;
 		}
@@ -684,7 +683,7 @@ static void __init reserve_crashkernel(void)
 			return;
 		}
 	}
-	memblock_x86_reserve_range(crash_base, crash_base + crash_size, "CRASH KERNEL");
+	memblock_reserve(crash_base, crash_size);
 
 	printk(KERN_INFO "Reserving %ldMB of memory at %ldMB "
 			"for crashkernel (System RAM: %ldMB)\n",
@@ -748,7 +747,7 @@ static __init void reserve_ibft_region(void)
 
 #ifndef CONFIG_XEN
 	if (size)
-		memblock_x86_reserve_range(addr, addr + size, "* ibft");
+		memblock_reserve(addr, size);
 #endif
 }
 
@@ -898,12 +897,7 @@ void __init setup_arch(char **cmdline_p)
 #endif
 #ifdef CONFIG_EFI
 	if (!strncmp((char *)&boot_params.efi_info.efi_loader_signature,
-#ifdef CONFIG_X86_32
-		     "EL32",
-#else
-		     "EL64",
-#endif
-	 4)) {
+		     EFI_LOADER_SIGNATURE, 4)) {
 		efi_enabled = 1;
 		efi_memblock_x86_reserve_range();
 	}
@@ -1268,8 +1262,7 @@ void __init setup_arch(char **cmdline_p)
 		ret = HYPERVISOR_memory_op(XENMEM_decrease_reservation,
 					   &reservation);
 		BUG_ON(ret != difference);
-	}
-	else if (max_pfn > xen_start_info->nr_pages)
+	} else if (max_pfn > xen_start_info->nr_pages)
 		p2m_pages = xen_start_info->nr_pages;
 
 	if (!xen_feature(XENFEAT_auto_translated_physmap)) {
@@ -1280,9 +1273,7 @@ void __init setup_arch(char **cmdline_p)
 		memcpy(phys_to_machine_mapping,
 		       (unsigned long *)xen_start_info->mfn_list,
 		       p2m_pages * sizeof(unsigned long));
-		memset(phys_to_machine_mapping + p2m_pages, ~0,
-		       (max_pfn - p2m_pages) * sizeof(unsigned long));
-#else /* We must not use memcpy() and memset() here, as they're
+#else /* We must not use memcpy() for the full range here, as it's
          not capable of dealing with 4Gb or more at a time. */
 		{
 			void *src = __va(__pa(xen_start_info->mfn_list));
@@ -1295,11 +1286,11 @@ void __init setup_arch(char **cmdline_p)
 				dst += fpp;
 			}
 			memcpy(dst, src, size * sizeof(*dst));
-			dst += size;
-			for (size = max_pfn - p2m_pages; size; --size)
-				*dst++ = INVALID_P2M_ENTRY;
 		}
-
+#endif
+		memset(phys_to_machine_mapping + p2m_pages, ~0,
+		       (max_pfn - p2m_pages) * sizeof(unsigned long));
+#ifdef CONFIG_X86_64
 		if (xen_start_info->mfn_list == VMEMMAP_START) {
 			/*
 			 * Since it is well isolated we can (and since it is
@@ -1372,8 +1363,8 @@ void __init setup_arch(char **cmdline_p)
 				    < __START_KERNEL_map))
 #endif
 			free_bootmem(__pa(xen_start_info->mfn_list),
-				PFN_PHYS(PFN_UP(xen_start_info->nr_pages *
-						sizeof(unsigned long))));
+				     PFN_PHYS(PFN_UP(xen_start_info->nr_pages *
+						     sizeof(unsigned long))));
 
 #ifndef CONFIG_KEXEC
 		if (!is_initial_xendomain())

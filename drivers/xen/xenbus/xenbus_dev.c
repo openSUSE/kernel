@@ -270,18 +270,24 @@ static ssize_t xenbus_dev_write(struct file *filp,
 			goto out;
 		}
 		token++;
+		if (memchr(token, 0, u->u.msg.len - (token - path)) == NULL) {
+			rc = -EILSEQ;
+			goto out;
+		}
 
 		if (msg_type == XS_WATCH) {
 			watch = kzalloc(sizeof(*watch), GFP_KERNEL);
-			watch->watch.node = kmalloc(strlen(path)+1,
-                                                    GFP_KERNEL);
-			strcpy((char *)watch->watch.node, path);
+			if (watch == NULL) {
+				rc = -ENOMEM;
+				goto out;
+			}
+			watch->watch.node = kstrdup(path, GFP_KERNEL);
 			watch->watch.callback = watch_fired;
-			watch->token = kmalloc(strlen(token)+1, GFP_KERNEL);
-			strcpy(watch->token, token);
+			watch->token = kstrdup(token, GFP_KERNEL);
 			watch->dev_data = u;
 
-			err = register_xenbus_watch(&watch->watch);
+			err = watch->watch.node && watch->token
+			      ? register_xenbus_watch(&watch->watch) : -ENOMEM;
 			if (err) {
 				free_watch_adapter(watch);
 				rc = err;

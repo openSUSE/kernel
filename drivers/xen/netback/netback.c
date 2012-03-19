@@ -148,10 +148,10 @@ static inline pending_ring_idx_t nr_pending_reqs(const struct xen_netbk *netbk)
 }
 
 /* Setting this allows the safe use of this driver without netloop. */
-static int MODPARM_copy_skb = 1;
+static bool MODPARM_copy_skb = true;
 module_param_named(copy_skb, MODPARM_copy_skb, bool, 0);
 MODULE_PARM_DESC(copy_skb, "Copy data received from netfront without netloop");
-static int MODPARM_permute_returns = 0;
+static bool MODPARM_permute_returns;
 module_param_named(permute_returns, MODPARM_permute_returns, bool, S_IRUSR|S_IWUSR);
 MODULE_PARM_DESC(permute_returns, "Randomly permute the order in which TX responses are sent to the frontend");
 module_param_named(groups, netbk_nr_groups, uint, 0);

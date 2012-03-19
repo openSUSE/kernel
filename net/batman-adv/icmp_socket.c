@@ -186,12 +186,7 @@ static ssize_t bat_socket_write(struct file *file, const char __user *buff,
 	skb_reserve(skb, sizeof(struct ethhdr));
 	icmp_packet = (struct icmp_packet_rr *)skb_put(skb, packet_len);
 
-	if (!access_ok(VERIFY_READ, buff, packet_len)) {
-		len = -EFAULT;
-		goto free_skb;
-	}
-
-	if (__copy_from_user(icmp_packet, buff, packet_len)) {
+	if (copy_from_user(icmp_packet, buff, packet_len)) {
 		len = -EFAULT;
 		goto free_skb;
 	}
@@ -216,7 +211,7 @@ static ssize_t bat_socket_write(struct file *file, const char __user *buff,
 
 	if (icmp_packet->version != COMPAT_VERSION) {
 		icmp_packet->msg_type = PARAMETER_PROBLEM;
-		icmp_packet->ttl = COMPAT_VERSION;
+		icmp_packet->version = COMPAT_VERSION;
 		bat_socket_add_packet(socket_client, icmp_packet, packet_len);
 		goto free_skb;
 	}

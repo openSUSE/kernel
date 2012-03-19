@@ -277,7 +277,7 @@ static inline unsigned int OFFSET_TO_SEG(unsigned long offset)
     } while(0)
 
 
-static char *blktap_devnode(struct device *dev, mode_t *mode)
+static char *blktap_devnode(struct device *dev, umode_t *mode)
 {
 	return kasprintf(GFP_KERNEL, "xen/blktap%u", MINOR(dev->devt));
 }

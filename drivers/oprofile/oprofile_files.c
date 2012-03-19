@@ -186,13 +186,22 @@ static const struct file_operations dump_fops = {
 
 #define TMPBUFSIZE 512
 
-static unsigned int adomains = 0;
-static int active_domains[MAX_OPROF_DOMAINS + 1];
-static DEFINE_MUTEX(adom_mutex);
+struct domain_data {
+    unsigned int nr;
+    int ids[MAX_OPROF_DOMAINS + 1];
+    struct mutex mutex;
+    int (*set)(int[], unsigned int);
+};
+#define DEFINE_DOMAIN_DATA(what) \
+	struct domain_data what##_domains = { \
+		.mutex = __MUTEX_INITIALIZER(what##_domains.mutex), \
+		.set = oprofile_set_##what \
+	}
 
-static ssize_t adomain_write(struct file * file, char const __user * buf,
-			     size_t count, loff_t * offset)
+static ssize_t domain_write(struct file *filp, char const __user *buf,
+			    size_t count, loff_t *offset)
 {
+	struct domain_data *dom = filp->private_data;
 	char *tmpbuf;
 	char *startp, *endp;
 	int i;
@@ -213,7 +222,7 @@ static ssize_t adomain_write(struct file * file, char const __user * buf,
 	}
 	tmpbuf[count] = 0;
 
-	mutex_lock(&adom_mutex);
+	mutex_lock(&dom->mutex);
 
 	startp = tmpbuf;
 	/* Parse one more than MAX_OPROF_DOMAINS, for easy error checking */
@@ -223,31 +232,32 @@ static ssize_t adomain_write(struct file * file, char const __user * buf,
 			break;
 		while (ispunct(*endp) || isspace(*endp))
 			endp++;
-		active_domains[i] = val;
-		if (active_domains[i] != val)
+		dom->ids[i] = val;
+		if (dom->ids[i] != val)
 			/* Overflow, force error below */
 			i = MAX_OPROF_DOMAINS + 1;
 		startp = endp;
 	}
 	/* Force error on trailing junk */
-	adomains = *startp ? MAX_OPROF_DOMAINS + 1 : i;
+	dom->nr = *startp ? MAX_OPROF_DOMAINS + 1 : i;
 
 	kfree(tmpbuf);
 
-	if (adomains > MAX_OPROF_DOMAINS
-	    || oprofile_set_active(active_domains, adomains)) {
-		adomains = 0;
+	if (dom->nr > MAX_OPROF_DOMAINS
+	    || dom->set(dom->ids, dom->nr)) {
+		dom->nr = 0;
 		retval = -EINVAL;
 	}
 
-	mutex_unlock(&adom_mutex);
+	mutex_unlock(&dom->mutex);
 	return retval;
 }
 
-static ssize_t adomain_read(struct file * file, char __user * buf,
-			    size_t count, loff_t * offset)
+static ssize_t domain_read(struct file *filp, char __user *buf,
+			    size_t count, loff_t *offset)
 {
-	char * tmpbuf;
+	struct domain_data *dom = filp->private_data;
+	char *tmpbuf;
 	size_t len;
 	int i;
 	ssize_t retval;
@@ -255,18 +265,18 @@ static ssize_t adomain_read(struct file * file, char __user * buf,
 	if (!(tmpbuf = kmalloc(TMPBUFSIZE, GFP_KERNEL)))
 		return -ENOMEM;
 
-	mutex_lock(&adom_mutex);
+	mutex_lock(&dom->mutex);
 
 	len = 0;
-	for (i = 0; i < adomains; i++)
+	for (i = 0; i < dom->nr; i++)
 		len += snprintf(tmpbuf + len,
 				len < TMPBUFSIZE ? TMPBUFSIZE - len : 0,
-				"%u ", active_domains[i]);
+				"%u ", dom->ids[i]);
 	WARN_ON(len > TMPBUFSIZE);
 	if (len != 0 && len <= TMPBUFSIZE)
 		tmpbuf[len-1] = '\n';
 
-	mutex_unlock(&adom_mutex);
+	mutex_unlock(&dom->mutex);
 
 	retval = simple_read_from_buffer(buf, count, offset, tmpbuf, len);
 
@@ -274,103 +284,34 @@ static ssize_t adomain_read(struct file * file, char __user * buf,
 	return retval;
 }
 
+static DEFINE_DOMAIN_DATA(active);
+
+static int adomain_open(struct inode *inode, struct file *filp)
+{
+	filp->private_data = &active_domains;
+	return 0;
+}
 
 static const struct file_operations active_domain_ops = {
-	.read		= adomain_read,
-	.write		= adomain_write,
+	.open		= adomain_open,
+	.read		= domain_read,
+	.write		= domain_write,
+	.llseek		= default_llseek,
 };
 
-static unsigned int pdomains = 0;
-static int passive_domains[MAX_OPROF_DOMAINS];
-static DEFINE_MUTEX(pdom_mutex);
+static DEFINE_DOMAIN_DATA(passive);
 
-static ssize_t pdomain_write(struct file * file, char const __user * buf,
-			     size_t count, loff_t * offset)
+static int pdomain_open(struct inode *inode, struct file *filp)
 {
-	char *tmpbuf;
-	char *startp, *endp;
-	int i;
-	unsigned long val;
-	ssize_t retval = count;
-
-	if (*offset)
-		return -EINVAL;
-	if (count > TMPBUFSIZE - 1)
-		return -EINVAL;
-
-	if (!(tmpbuf = kmalloc(TMPBUFSIZE, GFP_KERNEL)))
-		return -ENOMEM;
-
-	if (copy_from_user(tmpbuf, buf, count)) {
-		kfree(tmpbuf);
-		return -EFAULT;
-	}
-	tmpbuf[count] = 0;
-
-	mutex_lock(&pdom_mutex);
-
-	startp = tmpbuf;
-	/* Parse one more than MAX_OPROF_DOMAINS, for easy error checking */
-	for (i = 0; i <= MAX_OPROF_DOMAINS; i++) {
-		val = simple_strtoul(startp, &endp, 0);
-		if (endp == startp)
-			break;
-		while (ispunct(*endp) || isspace(*endp))
-			endp++;
-		passive_domains[i] = val;
-		if (passive_domains[i] != val)
-			/* Overflow, force error below */
-			i = MAX_OPROF_DOMAINS + 1;
-		startp = endp;
-	}
-	/* Force error on trailing junk */
-	pdomains = *startp ? MAX_OPROF_DOMAINS + 1 : i;
-
-	kfree(tmpbuf);
-
-	if (pdomains > MAX_OPROF_DOMAINS
-	    || oprofile_set_passive(passive_domains, pdomains)) {
-		pdomains = 0;
-		retval = -EINVAL;
-	}
-
-	mutex_unlock(&pdom_mutex);
-	return retval;
-}
-
-static ssize_t pdomain_read(struct file * file, char __user * buf,
-			    size_t count, loff_t * offset)
-{
-	char * tmpbuf;
-	size_t len;
-	int i;
-	ssize_t retval;
-
-	if (!(tmpbuf = kmalloc(TMPBUFSIZE, GFP_KERNEL)))
-		return -ENOMEM;
-
-	mutex_lock(&pdom_mutex);
-
-	len = 0;
-	for (i = 0; i < pdomains; i++)
-		len += snprintf(tmpbuf + len,
-				len < TMPBUFSIZE ? TMPBUFSIZE - len : 0,
-				"%u ", passive_domains[i]);
-	WARN_ON(len > TMPBUFSIZE);
-	if (len != 0 && len <= TMPBUFSIZE)
-		tmpbuf[len-1] = '\n';
-
-	mutex_unlock(&pdom_mutex);
-
-	retval = simple_read_from_buffer(buf, count, offset, tmpbuf, len);
-
-	kfree(tmpbuf);
-	return retval;
+	filp->private_data = &passive_domains;
+	return 0;
 }
 
 static const struct file_operations passive_domain_ops = {
-	.read		= pdomain_read,
-	.write		= pdomain_write,
+	.open		= pdomain_open,
+	.read		= domain_read,
+	.write		= domain_write,
+	.llseek		= default_llseek,
 };
 
 #endif /* CONFIG_XEN */
