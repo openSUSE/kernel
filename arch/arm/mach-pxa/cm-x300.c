@@ -714,7 +714,6 @@ struct da9030_battery_info cm_x300_battery_info = {
 
 static struct regulator_consumer_supply buck2_consumers[] = {
 	{
-		.dev = NULL,
 		.supply = "vcc_core",
 	},
 };
@@ -854,6 +853,7 @@ static void __init cm_x300_fixup(struct tag *tags, char **cmdline,
 MACHINE_START(CM_X300, "CM-X300 module")
 	.atag_offset	= 0x100,
 	.map_io		= pxa3xx_map_io,
+	.nr_irqs	= PXA_NR_IRQS,
 	.init_irq	= pxa3xx_init_irq,
 	.handle_irq	= pxa3xx_handle_irq,
 	.timer		= &pxa_timer,
