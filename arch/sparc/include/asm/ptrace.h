@@ -165,6 +165,7 @@ struct sparc_stackf {
 #ifdef __KERNEL__
 
 #include <linux/threads.h>
+#include <asm/switch_to.h>
 
 static inline int pt_regs_trap_type(struct pt_regs *regs)
 {
@@ -240,6 +241,7 @@ extern unsigned long profile_pc(struct pt_regs *);
 #ifndef __ASSEMBLY__
 
 #ifdef __KERNEL__
+#include <asm/switch_to.h>
 
 static inline bool pt_regs_is_syscall(struct pt_regs *regs)
 {
