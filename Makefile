@@ -1,7 +1,7 @@
 VERSION = 3
 PATCHLEVEL = 4
 SUBLEVEL = 0
-EXTRAVERSION = -rc7-92-g42ea7d7
+EXTRAVERSION = -rc7-106-gb1dab2f
 NAME = Saber-toothed Squirrel
 
 # *DOCUMENTATION*
