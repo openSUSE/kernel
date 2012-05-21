@@ -244,8 +244,8 @@ void swsusp_show_speed(struct timeval *start, struct timeval *stop,
  * create_image - Create a hibernation image.
  * @platform_mode: Whether or not to use the platform driver.
  *
- * Execute device drivers' .freeze_noirq() callbacks, create a hibernation image
- * and execute the drivers' .thaw_noirq() callbacks.
+ * Execute device drivers' "late" and "noirq" freeze callbacks, create a
+ * hibernation image and run the drivers' "noirq" and "early" thaw callbacks.
  *
  * Control reappears in this routine after the subsequent restore.
  */
@@ -253,7 +253,7 @@ static int create_image(int platform_mode)
 {
 	int error;
 
-	error = dpm_suspend_noirq(PMSG_FREEZE);
+	error = dpm_suspend_end(PMSG_FREEZE);
 	if (error) {
 		printk(KERN_ERR "PM: Some devices failed to power down, "
 			"aborting hibernation\n");
@@ -305,7 +305,7 @@ static int create_image(int platform_mode)
  Platform_finish:
 	platform_finish(platform_mode);
 
-	dpm_resume_noirq(in_suspend ?
+	dpm_resume_start(in_suspend ?
 		(error ? PMSG_RECOVER : PMSG_THAW) : PMSG_RESTORE);
 
 	return error;
@@ -342,13 +342,13 @@ int hibernation_snapshot(int platform_mode)
 		 * successful freezer test.
 		 */
 		freezer_test_done = true;
-		goto Cleanup;
+		goto Thaw;
 	}
 
 	error = dpm_prepare(PMSG_FREEZE);
 	if (error) {
 		dpm_complete(PMSG_RECOVER);
-		goto Cleanup;
+		goto Thaw;
 	}
 
 	suspend_console();
@@ -384,6 +384,8 @@ int hibernation_snapshot(int platform_mode)
 	platform_end(platform_mode);
 	return error;
 
+ Thaw:
+	thaw_kernel_threads();
  Cleanup:
 	swsusp_free();
 	goto Close;
@@ -393,16 +395,16 @@ int hibernation_snapshot(int platform_mode)
  * resume_target_kernel - Restore system state from a hibernation image.
  * @platform_mode: Whether or not to use the platform driver.
  *
- * Execute device drivers' .freeze_noirq() callbacks, restore the contents of
- * highmem that have not been restored yet from the image and run the low-level
- * code that will restore the remaining contents of memory and switch to the
- * just restored target kernel.
+ * Execute device drivers' "noirq" and "late" freeze callbacks, restore the
+ * contents of highmem that have not been restored yet from the image and run
+ * the low-level code that will restore the remaining contents of memory and
+ * switch to the just restored target kernel.
  */
 static int resume_target_kernel(bool platform_mode)
 {
 	int error;
 
-	error = dpm_suspend_noirq(PMSG_QUIESCE);
+	error = dpm_suspend_end(PMSG_QUIESCE);
 	if (error) {
 		printk(KERN_ERR "PM: Some devices failed to power down, "
 			"aborting resume\n");
@@ -459,7 +461,7 @@ static int resume_target_kernel(bool platform_mode)
  Cleanup:
 	platform_restore_cleanup(platform_mode);
 
-	dpm_resume_noirq(PMSG_RECOVER);
+	dpm_resume_start(PMSG_RECOVER);
 
 	return error;
 }
@@ -517,7 +519,7 @@ int hibernation_platform_enter(void)
 		goto Resume_devices;
 	}
 
-	error = dpm_suspend_noirq(PMSG_HIBERNATE);
+	error = dpm_suspend_end(PMSG_HIBERNATE);
 	if (error)
 		goto Resume_devices;
 
@@ -548,7 +550,7 @@ int hibernation_platform_enter(void)
  Platform_finish:
 	hibernation_ops->finish();
 
-	dpm_resume_noirq(PMSG_RESTORE);
+	dpm_resume_start(PMSG_RESTORE);
 
  Resume_devices:
 	entering_platform_hibernation = false;
@@ -622,12 +624,8 @@ int hibernate(void)
 		goto Free_bitmaps;
 
 	error = hibernation_snapshot(hibernation_mode == HIBERNATION_PLATFORM);
-	if (error)
+	if (error || freezer_test_done)
 		goto Thaw;
-	if (freezer_test_done) {
-		freezer_test_done = false;
-		goto Thaw;
-	}
 
 	if (in_suspend) {
 		unsigned int flags = 0;
@@ -652,6 +650,10 @@ int hibernate(void)
 
  Thaw:
 	thaw_processes();
+
+	/* Don't bother checking whether freezer_test_done is true */
+	freezer_test_done = false;
+
  Free_bitmaps:
 	free_basic_memory_bitmaps();
  Exit:

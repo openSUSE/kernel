@@ -256,30 +256,6 @@ int blkif_schedule(void *arg)
 	return 0;
 }
 
-static void do_discard(blkif_t *blkif, struct blkif_request_discard *req)
-{
-	int status = BLKIF_RSP_OKAY;
-	unsigned long secure = (blkif->vbd.discard_secure &&
-				(req->flag & BLKIF_DISCARD_SECURE)) ?
-			       BLKDEV_DISCARD_SECURE : 0;
-
-	switch (blkdev_issue_discard(blkif->vbd.bdev, req->sector_number,
-				     req->nr_sectors, GFP_KERNEL, secure))
-	{
-	case 0:
-		break;
-	case -EOPNOTSUPP:
-		DPRINTK("discard op failed, not supported\n");
-		status = BLKIF_RSP_EOPNOTSUPP;
-		break;
-	default:
-		status = BLKIF_RSP_ERROR;
-		break;
-	}
-
-	make_response(blkif, req->id, req->operation, status);
-}
-
 static void drain_io(blkif_t *blkif)
 {
 	atomic_set(&blkif->drain, 1);
@@ -328,11 +304,11 @@ static void __end_block_io_op(pending_req_t *pending_req, int error)
 		fast_flush_area(pending_req);
 		make_response(blkif, pending_req->id,
 			      pending_req->operation, status);
-		blkif_put(blkif);
 		free_req(pending_req);
 		if (atomic_read(&blkif->drain)
 		    && atomic_read(&blkif->refcnt) <= 2)
 			complete(&blkif->drain_complete);
+		blkif_put(blkif);
 	}
 }
 
@@ -365,38 +341,69 @@ irqreturn_t blkif_be_int(int irq, void *dev_id)
  * DOWNWARD CALLS -- These interface with the block-device layer proper.
  */
 
+static void dispatch_discard(blkif_t *blkif, struct blkif_request_discard *req)
+{
+	unsigned long secure = (blkif->vbd.discard_secure &&
+				(req->flag & BLKIF_DISCARD_SECURE)) ?
+			       BLKDEV_DISCARD_SECURE : 0;
+	struct phys_req preq;
+	int status;
+
+	blkif->st_ds_req++;
+
+	preq.dev           = req->handle;
+	preq.sector_number = req->sector_number;
+	preq.nr_sects      = req->nr_sectors;
+
+	if (vbd_translate(&preq, blkif, REQ_DISCARD) != 0) {
+		DPRINTK("access denied: discard of [%Lu,%Lu) on dev=%04x\n",
+			preq.sector_number,
+			preq.sector_number + preq.nr_sects, preq.dev);
+		make_response(blkif, req->id, req->operation, BLKIF_RSP_ERROR);
+		msleep(1); /* back off a bit */
+		return;
+	}
+
+	plug_queue(blkif, preq.bdev);
+
+	switch (blkdev_issue_discard(preq.bdev, preq.sector_number,
+				     preq.nr_sects, GFP_KERNEL, secure)) {
+	case 0:
+		status = BLKIF_RSP_OKAY;
+		break;
+	case -EOPNOTSUPP:
+		DPRINTK("discard op failed, not supported\n");
+		status = BLKIF_RSP_EOPNOTSUPP;
+		break;
+	default:
+		status = BLKIF_RSP_ERROR;
+		break;
+	}
+
+	make_response(blkif, req->id, req->operation, status);
+}
+
 static int _do_block_io_op(blkif_t *blkif)
 {
 	blkif_back_rings_t *blk_rings = &blkif->blk_rings;
 	blkif_request_t req;
 	pending_req_t *pending_req;
 	RING_IDX rc, rp;
-	int more_to_do = 0;
 
 	rc = blk_rings->common.req_cons;
 	rp = blk_rings->common.sring->req_prod;
 	rmb(); /* Ensure we see queued requests up to 'rp'. */
 
-	while ((rc != rp)) {
-
+	while (rc != rp) {
 		if (RING_REQUEST_CONS_OVERFLOW(&blk_rings->common, rc))
 			break;
 
-		if (kthread_should_stop()) {
-			more_to_do = 1;
-			break;
-		}
-
-		pending_req = alloc_req();
-		if (NULL == pending_req) {
-			blkif->st_oo_req++;
-			more_to_do = 1;
-			break;
-		}
+		if (kthread_should_stop())
+			return 1;
 
 		switch (blkif->blk_protocol) {
 		case BLKIF_PROTOCOL_NATIVE:
-			memcpy(&req, RING_GET_REQUEST(&blk_rings->native, rc), sizeof(req));
+			req = *RING_GET_REQUEST(&blk_rings->native, rc);
 			break;
 		case BLKIF_PROTOCOL_X86_32:
 			blkif_get_x86_32_req(&req, RING_GET_REQUEST(&blk_rings->x86_32, rc));
@@ -406,36 +413,53 @@ static int _do_block_io_op(blkif_t *blkif)
 			break;
 		default:
 			BUG();
+			return 0; /* make compiler happy */
 		}
-		blk_rings->common.req_cons = ++rc; /* before make_response() */
 
-		/* Apply all sanity checks to /private copy/ of request. */
-		barrier();
+		++rc;
 
 		switch (req.operation) {
 		case BLKIF_OP_READ:
 		case BLKIF_OP_WRITE:
 		case BLKIF_OP_WRITE_BARRIER:
 		case BLKIF_OP_FLUSH_DISKCACHE:
-		case BLKIF_OP_DISCARD:
+			pending_req = alloc_req();
+			if (!pending_req) {
+				blkif->st_oo_req++;
+				return 1;
+			}
+
+			/* before make_response() */
+			blk_rings->common.req_cons = rc;
+
+			/* Apply all sanity checks to /private copy/ of request. */
+			barrier();
+
 			dispatch_rw_block_io(blkif, &req, pending_req);
 			break;
+		case BLKIF_OP_DISCARD:
+			blk_rings->common.req_cons = rc;
+			barrier();
+			dispatch_discard(blkif, (void *)&req);
+			break;
 		case BLKIF_OP_PACKET:
-			DPRINTK("error: block operation BLKIF_OP_PACKET not implemented\n");
+			blk_rings->common.req_cons = rc;
+			barrier();
 			blkif->st_pk_req++;
+			DPRINTK("error: block operation BLKIF_OP_PACKET not implemented\n");
 			make_response(blkif, req.id, req.operation,
 				      BLKIF_RSP_ERROR);
-			free_req(pending_req);
 			break;
 		default:
 			/* A good sign something is wrong: sleep for a while to
 			 * avoid excessive CPU consumption by a bad guest. */
 			msleep(1);
+			blk_rings->common.req_cons = rc;
+			barrier();
 			DPRINTK("error: unknown block io operation [%d]\n",
 				req.operation);
 			make_response(blkif, req.id, req.operation,
 				      BLKIF_RSP_ERROR);
-			free_req(pending_req);
 			break;
 		}
 
@@ -443,7 +467,7 @@ static int _do_block_io_op(blkif_t *blkif)
 		cond_resched();
 	}
 
-	return more_to_do;
+	return 0;
 }
 
 static int
@@ -472,7 +496,7 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 	struct { 
 		unsigned long buf; unsigned int nsec;
 	} seg[BLKIF_MAX_SEGMENTS_PER_REQUEST];
-	unsigned int nseg = req->nr_segments;
+	unsigned int nseg;
 	struct bio *bio = NULL;
 	uint32_t flags;
 	int ret, i;
@@ -495,18 +519,14 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 		blkif->st_fl_req++;
 		operation = WRITE_FLUSH;
 		break;
-	case BLKIF_OP_DISCARD:
-		blkif->st_ds_req++;
-		operation = REQ_DISCARD;
-		nseg = 0;
-		break;
 	default:
 		operation = 0; /* make gcc happy */
 		BUG();
 	}
 
 	/* Check that number of segments is sane. */
-	if (unlikely(nseg == 0 && !(operation & (REQ_FLUSH|REQ_DISCARD))) ||
+	nseg = req->nr_segments;
+	if (unlikely(nseg == 0 && !(operation & REQ_FLUSH)) ||
 	    unlikely(nseg > BLKIF_MAX_SEGMENTS_PER_REQUEST)) {
 		DPRINTK("Bad number of segments in request (%d)\n", nseg);
 		goto fail_response;
@@ -620,13 +640,6 @@ static void dispatch_rw_block_io(blkif_t *blkif,
 	}
 
 	if (!bio) {
-		if (operation == REQ_DISCARD) {
-			do_discard(blkif, (void *)req);
-			blkif_put(blkif);
-			free_req(pending_req);
-			return;
-		}
-
 		BUG_ON(!(operation & (REQ_FLUSH|REQ_FUA)));
 		bio = bio_alloc(GFP_KERNEL, 0);
 		if (unlikely(bio == NULL))

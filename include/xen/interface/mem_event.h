@@ -30,11 +30,6 @@
 #include "xen.h"
 #include "io/ring.h"
 
-/* Memory event type */
-#define MEM_EVENT_TYPE_SHARED   0
-#define MEM_EVENT_TYPE_PAGING   1
-#define MEM_EVENT_TYPE_ACCESS   2
-
 /* Memory event flags */
 #define MEM_EVENT_FLAG_VCPU_PAUSED  (1 << 0)
 #define MEM_EVENT_FLAG_DROP_PAGE    (1 << 1)
@@ -51,13 +46,8 @@
 #define MEM_EVENT_REASON_INT3        5    /* int3 was hit: gla/gfn are RIP */
 #define MEM_EVENT_REASON_SINGLESTEP  6    /* single step was invoked: gla/gfn are RIP */
 
-typedef struct mem_event_shared_page {
-    uint32_t port;
-} mem_event_shared_page_t;
-
 typedef struct mem_event_st {
-    uint16_t type;
-    uint16_t flags;
+    uint32_t flags;
     uint32_t vcpu_id;
 
     uint64_t gfn;

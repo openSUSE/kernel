@@ -26,6 +26,8 @@
  *	Skip non-WB memory and ignore empty memory ranges.
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/efi.h>
@@ -44,7 +46,6 @@
 #include <xen/interface/platform.h>
 
 #define EFI_DEBUG	1
-#define PFX 		"EFI: "
 
 int __read_mostly efi_enabled;
 EXPORT_SYMBOL(efi_enabled);
@@ -320,7 +321,7 @@ int efi_set_rtc_mmss(unsigned long nowtime)
 
 	status = efi.get_time(&eft, &cap);
 	if (status != EFI_SUCCESS) {
-		printk(KERN_ERR "Oops: efitime: can't read time!\n");
+		pr_err("Oops: efitime: can't read time!\n");
 		return -1;
 	}
 
@@ -334,7 +335,7 @@ int efi_set_rtc_mmss(unsigned long nowtime)
 
 	status = efi.set_time(&eft);
 	if (status != EFI_SUCCESS) {
-		printk(KERN_ERR "Oops: efitime: can't write time!\n");
+		pr_err("Oops: efitime: can't write time!\n");
 		return -1;
 	}
 	return 0;
@@ -348,7 +349,7 @@ unsigned long efi_get_time(void)
 
 	status = efi.get_time(&eft, &cap);
 	if (status != EFI_SUCCESS) {
-		printk(KERN_ERR "Oops: efitime: can't read time!\n");
+		pr_err("Oops: efitime: can't read time!\n");
 		return mach_get_cmos_time();
 	}
 
@@ -372,9 +373,56 @@ void __init efi_probe(void)
 
 void __init efi_reserve_boot_services(void) { }
 
+static int __init efi_config_init(u64 tables, unsigned int nr_tables)
+{
+	void *config_tables, *tablep;
+	unsigned int i, sz = sizeof(efi_config_table_t);
+
+	/*
+	 * Let's see what config tables the firmware passed to us.
+	 */
+	config_tables = early_ioremap(tables, nr_tables * sz);
+	if (config_tables == NULL) {
+		pr_err("Could not map Configuration table!\n");
+		return -ENOMEM;
+	}
+
+	tablep = config_tables;
+	pr_info("");
+	for (i = 0; i < nr_tables; i++) {
+		efi_guid_t guid;
+		unsigned long table;
+
+		guid = ((efi_config_table_t *)tablep)->guid;
+		table = ((efi_config_table_t *)tablep)->table;
+		if (!efi_guidcmp(guid, MPS_TABLE_GUID)) {
+			efi.mps = table;
+			pr_cont(" MPS=0x%lx ", table);
+		} else if (!efi_guidcmp(guid, ACPI_20_TABLE_GUID)) {
+			efi.acpi20 = table;
+			pr_cont(" ACPI 2.0=0x%lx ", table);
+		} else if (!efi_guidcmp(guid, ACPI_TABLE_GUID)) {
+			efi.acpi = table;
+			pr_cont(" ACPI=0x%lx ", table);
+		} else if (!efi_guidcmp(guid, SMBIOS_TABLE_GUID)) {
+			efi.smbios = table;
+			pr_cont(" SMBIOS=0x%lx ", table);
+		} else if (!efi_guidcmp(guid, HCDP_TABLE_GUID)) {
+			efi.hcdp = table;
+			pr_cont(" HCDP=0x%lx ", table);
+		} else if (!efi_guidcmp(guid, UGA_IO_PROTOCOL_GUID)) {
+			efi.uga = table;
+			pr_cont(" UGA=0x%lx ", table);
+		}
+		tablep += sz;
+	}
+	pr_cont("\n");
+	early_iounmap(config_tables, nr_tables * sz);
+	return 0;
+}
+
 void __init efi_init(void)
 {
-	efi_config_table_t *config_tables;
 	efi_char16_t c16[100];
 	char vendor[ARRAY_SIZE(c16)] = "unknown";
 	int ret, i;
@@ -396,65 +444,31 @@ void __init efi_init(void)
 			vendor[i] = c16[i];
 		vendor[i] = '\0';
 	} else
-		printk(KERN_ERR PFX "Could not get the firmware vendor!\n");
+		pr_err("Could not get the firmware vendor!\n");
 
 	op.u.firmware_info.index = XEN_FW_EFI_VERSION;
 	ret = HYPERVISOR_platform_op(&op);
 	if (!ret)
-		printk(KERN_INFO "EFI v%u.%.02u by %s\n",
-		       info->version >> 16,
-		       info->version & 0xffff, vendor);
+		pr_info("EFI v%u.%.02u by %s\n",
+			info->version >> 16,
+			info->version & 0xffff, vendor);
 	else
-		printk(KERN_ERR PFX "Could not get EFI revision!\n");
+		pr_err("Could not get EFI revision!\n");
 
 	op.u.firmware_info.index = XEN_FW_EFI_RT_VERSION;
 	ret = HYPERVISOR_platform_op(&op);
 	if (!ret)
 		efi.runtime_version = info->version;
 	else
-		pr_warn(PFX "Could not get runtime services revision.\n");
+		pr_warn("Could not get runtime services revision.\n");
 
-	/*
-	 * Let's see what config tables the firmware passed to us.
-	 */
 	op.u.firmware_info.index = XEN_FW_EFI_CONFIG_TABLE;
 	if (HYPERVISOR_platform_op(&op))
 		BUG();
-	config_tables = early_ioremap(
-		info->cfg.addr,
-		info->cfg.nent * sizeof(efi_config_table_t));
-	if (config_tables == NULL)
-		panic("Could not map EFI Configuration Table!\n");
-
-	printk(KERN_INFO);
-	for (i = 0; i < info->cfg.nent; i++) {
-		if (!efi_guidcmp(config_tables[i].guid, MPS_TABLE_GUID)) {
-			efi.mps = config_tables[i].table;
-			printk(" MPS=0x%lx ", config_tables[i].table);
-		} else if (!efi_guidcmp(config_tables[i].guid,
-					ACPI_20_TABLE_GUID)) {
-			efi.acpi20 = config_tables[i].table;
-			printk(" ACPI 2.0=0x%lx ", config_tables[i].table);
-		} else if (!efi_guidcmp(config_tables[i].guid,
-					ACPI_TABLE_GUID)) {
-			efi.acpi = config_tables[i].table;
-			printk(" ACPI=0x%lx ", config_tables[i].table);
-		} else if (!efi_guidcmp(config_tables[i].guid,
-					SMBIOS_TABLE_GUID)) {
-			efi.smbios = config_tables[i].table;
-			printk(" SMBIOS=0x%lx ", config_tables[i].table);
-		} else if (!efi_guidcmp(config_tables[i].guid,
-					HCDP_TABLE_GUID)) {
-			efi.hcdp = config_tables[i].table;
-			printk(" HCDP=0x%lx ", config_tables[i].table);
-		} else if (!efi_guidcmp(config_tables[i].guid,
-					UGA_IO_PROTOCOL_GUID)) {
-			efi.uga = config_tables[i].table;
-			printk(" UGA=0x%lx ", config_tables[i].table);
-		}
+	if (efi_config_init(info->cfg.addr, info->cfg.nent)) {
+		efi_enabled = 0;
+		return;
 	}
-	printk("\n");
-	early_iounmap(config_tables, info->cfg.nent * sizeof(efi_config_table_t));
 
 	x86_platform.get_wallclock = efi_get_time;
 	x86_platform.set_wallclock = efi_set_rtc_mmss;
@@ -470,7 +484,7 @@ static struct platform_device rtc_efi_dev = {
 static int __init rtc_init(void)
 {
 	if (efi_enabled && platform_device_register(&rtc_efi_dev) < 0)
-		printk(KERN_ERR "unable to register rtc device...\n");
+		pr_err("unable to register rtc device...\n");
 
 	/* not necessarily an error */
 	return 0;

@@ -269,7 +269,7 @@ int xen_pcibk_enable_msix(struct xen_pcibk_device *pdev,
 		dev_data->ack_intr = 0;
 #endif
 
-	return result;
+	return result > 0 ? 0 : result;
 }
 
 static

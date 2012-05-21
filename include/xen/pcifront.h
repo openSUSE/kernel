@@ -24,14 +24,6 @@ pcifront_get_pdev(struct pcifront_sd *sd)
 	return sd->pdev;
 }
 
-static inline void pcifront_init_sd(struct pcifront_sd *sd,
-				    unsigned int domain, unsigned int bus,
-				    struct pcifront_device *pdev)
-{
-	sd->domain = domain;
-	sd->pdev = pdev;
-}
-
 static inline void pcifront_setup_root_resources(struct pci_bus *bus,
 						 struct pcifront_sd *sd)
 {

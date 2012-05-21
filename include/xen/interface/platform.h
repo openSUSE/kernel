@@ -434,7 +434,7 @@ struct xenpf_set_processor_pminfo {
 #ifdef CONFIG_XEN
 	} u;
 #else
-     };
+	};
 #endif
 };
 DEFINE_GUEST_HANDLE_STRUCT(xenpf_set_processor_pminfo);
@@ -443,17 +443,17 @@ DEFINE_XEN_GUEST_HANDLE(xenpf_set_processor_pminfo_t);
 
 #define XENPF_get_cpuinfo 55
 struct xenpf_pcpuinfo {
-    /* IN */
-    uint32_t xen_cpuid;
-    /* OUT */
-    /* The maxium cpu_id that is present */
-    uint32_t max_present;
+	/* IN */
+	uint32_t xen_cpuid;
+	/* OUT */
+	/* The maxium cpu_id that is present */
+	uint32_t max_present;
 #define XEN_PCPU_FLAGS_ONLINE   1
-    /* Correponding xen_cpuid is not present*/
+	/* Correponding xen_cpuid is not present*/
 #define XEN_PCPU_FLAGS_INVALID  2
-    uint32_t flags;
-    uint32_t apic_id;
-    uint32_t acpi_id;
+	uint32_t flags;
+	uint32_t apic_id;
+	uint32_t acpi_id;
 };
 typedef struct xenpf_pcpuinfo xenpf_pcpuinfo_t;
 DEFINE_XEN_GUEST_HANDLE(xenpf_pcpuinfo_t);
@@ -499,6 +499,20 @@ struct xenpf_mem_hotadd
     uint32_t flags;
 };
 
+#define XENPF_core_parking  60
+
+#define XEN_CORE_PARKING_SET 1
+#define XEN_CORE_PARKING_GET 2
+struct xenpf_core_parking {
+    /* IN variables */
+    uint32_t type;
+    /* IN variables:  set cpu nums expected to be idled */
+    /* OUT variables: get cpu nums actually be idled */
+    uint32_t idle_nums;
+};
+typedef struct xenpf_core_parking xenpf_core_parking_t;
+DEFINE_XEN_GUEST_HANDLE(xenpf_core_parking_t);
+
 #define XENPF_get_cpu_freq        ('N' << 24)
 #define XENPF_get_cpu_freq_min    (XENPF_get_cpu_freq + 1)
 #define XENPF_get_cpu_freq_max    (XENPF_get_cpu_freq_min + 1)
@@ -530,6 +544,7 @@ struct xen_platform_op {
 		struct xenpf_cpu_ol            cpu_ol;
 		struct xenpf_cpu_hotadd        cpu_add;
 		struct xenpf_mem_hotadd        mem_add;
+		struct xenpf_core_parking      core_parking;
 		struct xenpf_get_cpu_freq      get_cpu_freq;
 		uint8_t                        pad[128];
 	} u;

@@ -30,14 +30,14 @@
 
 static void __iomem *l2x0_base;
 static DEFINE_RAW_SPINLOCK(l2x0_lock);
-static uint32_t l2x0_way_mask;	/* Bitmask of active ways */
-static uint32_t l2x0_size;
+static u32 l2x0_way_mask;	/* Bitmask of active ways */
+static u32 l2x0_size;
 static unsigned long sync_reg_offset = L2X0_CACHE_SYNC;
 
 struct l2x0_regs l2x0_saved_regs;
 
 struct l2x0_of_data {
-	void (*setup)(const struct device_node *, __u32 *, __u32 *);
+	void (*setup)(const struct device_node *, u32 *, u32 *);
 	void (*save)(void);
 	void (*resume)(void);
 };
@@ -287,7 +287,7 @@ static void l2x0_disable(void)
 	raw_spin_unlock_irqrestore(&l2x0_lock, flags);
 }
 
-static void l2x0_unlock(__u32 cache_id)
+static void l2x0_unlock(u32 cache_id)
 {
 	int lockregs;
 	int i;
@@ -306,11 +306,11 @@ static void l2x0_unlock(__u32 cache_id)
 	}
 }
 
-void __init l2x0_init(void __iomem *base, __u32 aux_val, __u32 aux_mask)
+void __init l2x0_init(void __iomem *base, u32 aux_val, u32 aux_mask)
 {
-	__u32 aux;
-	__u32 cache_id;
-	__u32 way_size = 0;
+	u32 aux;
+	u32 cache_id;
+	u32 way_size = 0;
 	int ways;
 	const char *type;
 
@@ -391,7 +391,7 @@ void __init l2x0_init(void __iomem *base, __u32 aux_val, __u32 aux_mask)
 
 #ifdef CONFIG_OF
 static void __init l2x0_of_setup(const struct device_node *np,
-				 __u32 *aux_val, __u32 *aux_mask)
+				 u32 *aux_val, u32 *aux_mask)
 {
 	u32 data[2] = { 0, 0 };
 	u32 tag = 0;
@@ -425,7 +425,7 @@ static void __init l2x0_of_setup(const struct device_node *np,
 }
 
 static void __init pl310_of_setup(const struct device_node *np,
-				  __u32 *aux_val, __u32 *aux_mask)
+				  u32 *aux_val, u32 *aux_mask)
 {
 	u32 data[3] = { 0, 0, 0 };
 	u32 tag[3] = { 0, 0, 0 };
@@ -551,7 +551,7 @@ static const struct of_device_id l2x0_ids[] __initconst = {
 	{}
 };
 
-int __init l2x0_of_init(__u32 aux_val, __u32 aux_mask)
+int __init l2x0_of_init(u32 aux_val, u32 aux_mask)
 {
 	struct device_node *np;
 	struct l2x0_of_data *data;

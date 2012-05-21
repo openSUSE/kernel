@@ -73,8 +73,10 @@ loop:
 
 	cur_trans = root->fs_info->running_transaction;
 	if (cur_trans) {
-		if (cur_trans->aborted)
+		if (cur_trans->aborted) {
+			spin_unlock(&root->fs_info->trans_lock);
 			return cur_trans->aborted;
+		}
 		atomic_inc(&cur_trans->use_count);
 		atomic_inc(&cur_trans->num_writers);
 		cur_trans->num_joined++;
@@ -337,8 +339,7 @@ again:
 
 	if (num_bytes) {
 		trace_btrfs_space_reservation(root->fs_info, "transaction",
-					      (u64)(unsigned long)h,
-					      num_bytes, 1);
+					      h->transid, num_bytes, 1);
 		h->block_rsv = &root->fs_info->trans_block_rsv;
 		h->bytes_reserved = num_bytes;
 	}
@@ -481,6 +482,7 @@ static int __btrfs_end_transaction(struct btrfs_trans_handle *trans,
 	struct btrfs_transaction *cur_trans = trans->transaction;
 	struct btrfs_fs_info *info = root->fs_info;
 	int count = 0;
+	int err = 0;
 
 	if (--trans->use_count) {
 		trans->block_rsv = trans->orig_rsv;
@@ -533,18 +535,18 @@ static int __btrfs_end_transaction(struct btrfs_trans_handle *trans,
 
 	if (current->journal_info == trans)
 		current->journal_info = NULL;
-	memset(trans, 0, sizeof(*trans));
-	kmem_cache_free(btrfs_trans_handle_cachep, trans);
 
 	if (throttle)
 		btrfs_run_delayed_iputs(root);
 
 	if (trans->aborted ||
 	    root->fs_info->fs_state & BTRFS_SUPER_FLAG_ERROR) {
-		return -EIO;
+		err = -EIO;
 	}
 
-	return 0;
+	memset(trans, 0, sizeof(*trans));
+	kmem_cache_free(btrfs_trans_handle_cachep, trans);
+	return err;
 }
 
 int btrfs_end_transaction(struct btrfs_trans_handle *trans,
@@ -949,18 +951,19 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 				dentry->d_name.name, dentry->d_name.len,
 				parent_inode, &key,
 				BTRFS_FT_DIR, index);
-	if (ret) {
+	if (ret == -EEXIST) {
 		pending->error = -EEXIST;
 		dput(parent);
 		goto fail;
-	} else if (ret)
-		goto abort_trans;
+	} else if (ret) {
+		goto abort_trans_dput;
+	}
 
 	btrfs_i_size_write(parent_inode, parent_inode->i_size +
 					 dentry->d_name.len * 2);
 	ret = btrfs_update_inode(trans, parent_root, parent_inode);
 	if (ret)
-		goto abort_trans;
+		goto abort_trans_dput;
 
 	/*
 	 * pull in the delayed directory update
@@ -969,8 +972,10 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 	 * snapshot
 	 */
 	ret = btrfs_run_delayed_items(trans, root);
-	if (ret) /* Transaction aborted */
+	if (ret) { /* Transaction aborted */
+		dput(parent);
 		goto fail;
+	}
 
 	record_root_in_trans(trans, root);
 	btrfs_set_root_last_snapshot(&root->root_item, trans->transid);
@@ -986,17 +991,20 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 
 	old = btrfs_lock_root_node(root);
 	ret = btrfs_cow_block(trans, root, old, NULL, 0, &old);
-	if (ret)
-		goto abort_trans;
+	if (ret) {
+		btrfs_tree_unlock(old);
+		free_extent_buffer(old);
+		goto abort_trans_dput;
+	}
 
 	btrfs_set_lock_blocking(old);
 
 	ret = btrfs_copy_root(trans, root, old, &tmp, objectid);
-	if (ret)
-		goto abort_trans;
-
+	/* clean up in any case */
 	btrfs_tree_unlock(old);
 	free_extent_buffer(old);
+	if (ret)
+		goto abort_trans_dput;
 
 	/* see comments in should_cow_block() */
 	root->force_cow = 1;
@@ -1009,7 +1017,7 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 	btrfs_tree_unlock(tmp);
 	free_extent_buffer(tmp);
 	if (ret)
-		goto abort_trans;
+		goto abort_trans_dput;
 
 	/*
 	 * insert root back/forward references
@@ -1018,14 +1026,16 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 				 parent_root->root_key.objectid,
 				 btrfs_ino(parent_inode), index,
 				 dentry->d_name.name, dentry->d_name.len);
+	dput(parent);
 	if (ret)
 		goto fail;
-	dput(parent);
 
 	key.offset = (u64)-1;
 	pending->snap = btrfs_read_fs_root_no_name(root->fs_info, &key);
-	if (IS_ERR(pending->snap))
+	if (IS_ERR(pending->snap)) {
+		ret = PTR_ERR(pending->snap);
 		goto abort_trans;
+	}
 
 	ret = btrfs_reloc_post_snapshot(trans, pending);
 	if (ret)
@@ -1037,6 +1047,8 @@ fail:
 	btrfs_block_rsv_release(root, &pending->block_rsv, (u64)-1);
 	return ret;
 
+abort_trans_dput:
+	dput(parent);
 abort_trans:
 	btrfs_abort_transaction(trans, root, ret);
 	goto fail;
@@ -1390,6 +1402,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans,
 	ret = commit_fs_roots(trans, root);
 	if (ret) {
 		mutex_unlock(&root->fs_info->tree_log_mutex);
+		mutex_unlock(&root->fs_info->reloc_mutex);
 		goto cleanup_transaction;
 	}
 
@@ -1401,6 +1414,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans,
 	ret = commit_cowonly_roots(trans, root);
 	if (ret) {
 		mutex_unlock(&root->fs_info->tree_log_mutex);
+		mutex_unlock(&root->fs_info->reloc_mutex);
 		goto cleanup_transaction;
 	}
 

@@ -357,7 +357,7 @@ static int decrease_reservation(unsigned long nr_pages)
 
 		if (!PageHighMem(page)) {
 			v = phys_to_virt(pfn << PAGE_SHIFT);
-			scrub_pages(v, 1);
+			xen_scrub_pages(v, 1);
 #ifdef CONFIG_XEN
 			ret = HYPERVISOR_update_va_mapping(
 				(unsigned long)v, __pte_ma(0), 0);
@@ -367,7 +367,7 @@ static int decrease_reservation(unsigned long nr_pages)
 #ifdef CONFIG_XEN_SCRUB_PAGES
 		else {
 			v = kmap(page);
-			scrub_pages(v, 1);
+			xen_scrub_pages(v, 1);
 			kunmap(page);
 		}
 #endif
@@ -688,7 +688,7 @@ struct page **alloc_empty_pages_and_pagevec(int nr_pages)
 			goto err;
 
 		v = page_address(page);
-		scrub_pages(v, 1);
+		xen_scrub_pages(v, 1);
 
 		balloon_lock(flags);
 

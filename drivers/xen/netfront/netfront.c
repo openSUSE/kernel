@@ -934,7 +934,7 @@ static int network_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	char *data = skb->data;
 	RING_IDX i;
 	grant_ref_t ref;
-	unsigned long mfn;
+	unsigned long mfn, flags;
 	int notify;
 	int frags = skb_shinfo(skb)->nr_frags;
 	unsigned int offset = offset_in_page(data);
@@ -954,12 +954,12 @@ static int network_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		goto drop;
 	}
 
-	spin_lock_irq(&np->tx_lock);
+	spin_lock_irqsave(&np->tx_lock, flags);
 
 	if (unlikely(!netfront_carrier_ok(np) ||
 		     (frags > 1 && !xennet_can_sg(dev)) ||
 		     netif_needs_gso(skb, netif_skb_features(skb)))) {
-		spin_unlock_irq(&np->tx_lock);
+		spin_unlock_irqrestore(&np->tx_lock, flags);
 		goto drop;
 	}
 
@@ -1030,7 +1030,7 @@ static int network_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (!netfront_tx_slot_available(np))
 		netif_stop_queue(dev);
 
-	spin_unlock_irq(&np->tx_lock);
+	spin_unlock_irqrestore(&np->tx_lock, flags);
 
 	return NETDEV_TX_OK;
 
@@ -2078,6 +2078,13 @@ static int xennet_set_features(struct net_device *dev,
 	return 0;
 }
 
+#ifdef CONFIG_NET_POLL_CONTROLLER
+static void xennet_poll_controller(struct net_device *dev)
+{
+	netif_int(0, dev);
+}
+#endif
+
 static const struct net_device_ops xennet_netdev_ops = {
 	.ndo_uninit             = netif_uninit,
 	.ndo_open               = network_open,
@@ -2088,6 +2095,9 @@ static const struct net_device_ops xennet_netdev_ops = {
 	.ndo_validate_addr      = eth_validate_addr,
 	.ndo_fix_features       = xennet_fix_features,
 	.ndo_set_features       = xennet_set_features,
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	.ndo_poll_controller = xennet_poll_controller,
+#endif
 	.ndo_change_mtu	        = xennet_change_mtu,
 	.ndo_get_stats64        = xennet_get_stats64,
 };
@@ -2099,10 +2109,8 @@ static struct net_device * __devinit create_netdev(struct xenbus_device *dev)
 	struct netfront_info *np = NULL;
 
 	netdev = alloc_etherdev(sizeof(struct netfront_info));
-	if (!netdev) {
-		pr_warning("%s: alloc_etherdev failed\n", __FUNCTION__);
+	if (!netdev)
 		return ERR_PTR(-ENOMEM);
-	}
 
 	np                   = netdev_priv(netdev);
 	np->xbdev            = dev;

@@ -91,10 +91,10 @@ void __init adjust_boot_vcpu_info(void)
 	 * hence we must swap the underlying MFNs of the two pages holding old
 	 * and new vcpu_info of the boot CPU.
 	 *
-	 * Do *not* use __get_cpu_var() or percpu_{write,...}() here, as the per-
-	 * CPU segment didn't get reloaded yet. Using percpu_read(), as in
-	 * arch_use_lazy_mmu_mode(), though undesirable, is safe except for the
-	 * accesses to variables that were updated in setup_percpu_areas().
+	 * Do *not* use __get_cpu_var() or this_cpu_{write,...}() here, as the
+	 * per-CPU segment didn't get reloaded yet. Using this_cpu_read(), as
+	 * in arch_use_lazy_mmu_mode(), though undesirable, is safe except for
+	 * the accesses to variables that were updated in setup_percpu_areas().
 	 */
 	lpte = lookup_address((unsigned long)&vcpu_info
 			      + (__per_cpu_load - __per_cpu_start),
@@ -802,7 +802,7 @@ int xen_create_contiguous_region(
 
 	set_xen_guest_handle(exchange.out.extent_start, &out_frame);
 
-	scrub_pages((void *)vstart, 1 << order);
+	xen_scrub_pages((void *)vstart, 1 << order);
 
 	balloon_lock(flags);
 
@@ -910,7 +910,7 @@ void xen_destroy_contiguous_region(unsigned long vstart, unsigned int order)
 
 	set_xen_guest_handle(exchange.in.extent_start, &in_frame);
 
-	scrub_pages((void *)vstart, 1 << order);
+	xen_scrub_pages((void *)vstart, 1 << order);
 
 	balloon_lock(flags);
 
@@ -989,14 +989,14 @@ void xen_destroy_contiguous_region(unsigned long vstart, unsigned int order)
 			if (!PageHighMem(page)) {
 				void *v = __va(pfn << PAGE_SHIFT);
 
-				scrub_pages(v, 1);
+				xen_scrub_pages(v, 1);
 				MULTI_update_va_mapping(cr_mcl + j, (unsigned long)v,
 							__pte_ma(0), UVMF_INVLPG|UVMF_ALL);
 				++j;
 			}
 #ifdef CONFIG_XEN_SCRUB_PAGES
 			else {
-				scrub_pages(kmap(page), 1);
+				xen_scrub_pages(kmap(page), 1);
 				kunmap(page);
 				kmap_flush_unused();
 			}
@@ -1178,10 +1178,10 @@ int xen_limit_pages_to_max_mfn(
 		}
 
 		if (!PageHighMem(page))
-			scrub_pages(page_address(page), 1);
+			xen_scrub_pages(page_address(page), 1);
 #ifdef CONFIG_XEN_SCRUB_PAGES
 		else {
-			scrub_pages(kmap(page), 1);
+			xen_scrub_pages(kmap(page), 1);
 			kunmap(page);
 			++n;
 		}

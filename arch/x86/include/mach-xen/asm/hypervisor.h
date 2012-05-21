@@ -39,9 +39,9 @@
 #include <xen/interface/xen.h>
 #include <xen/interface/sched.h>
 #include <xen/interface/vcpu.h>
-#include <asm/percpu.h>
 #include <asm/ptrace.h>
 #include <asm/pgtable_types.h>
+#include <asm/smp-processor-id.h>
 
 extern shared_info_t *HYPERVISOR_shared_info;
 
@@ -151,9 +151,9 @@ bool __cold hypervisor_oom(void);
 u64 jiffies_to_st(unsigned long jiffies);
 
 #ifdef CONFIG_XEN_SCRUB_PAGES
-void scrub_pages(void *, unsigned int);
+void xen_scrub_pages(void *, unsigned int);
 #else
-#define scrub_pages(_p,_n) ((void)0)
+#define xen_scrub_pages(_p,_n) ((void)0)
 #endif
 
 #if defined(CONFIG_XEN) && !defined(MODULE)

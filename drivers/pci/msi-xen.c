@@ -36,19 +36,21 @@ static int pci_seg_supported = 1;
 static LIST_HEAD(msi_dev_head);
 DEFINE_SPINLOCK(msi_dev_lock);
 
-struct msi_dev_list {
-	struct pci_dev *dev;
-	struct list_head list;
-	spinlock_t pirq_list_lock;
-	struct list_head pirq_list_head;
-	/* Store default pre-assigned irq */
-	unsigned int default_irq;
-};
-
 struct msi_pirq_entry {
 	struct list_head list;
 	int pirq;
 	int entry_nr;
+	struct msi_dev_list *dev_entry;
+	struct kobject kobj;
+};
+
+struct msi_dev_list {
+	struct pci_dev *dev;
+	spinlock_t pirq_list_lock;
+	/* Store default pre-assigned irq */
+	unsigned int default_irq;
+	domid_t owner;
+	struct msi_pirq_entry e;
 };
 
 /* Arch hooks */
@@ -88,6 +90,21 @@ static void msix_set_enable(struct pci_dev *dev, int enable)
 	}
 }
 
+static int (*get_owner)(struct pci_dev *dev);
+
+static domid_t msi_get_dev_owner(struct pci_dev *dev)
+{
+	int owner;
+
+	if (is_initial_xendomain()
+	    && get_owner && (owner = get_owner(dev)) >= 0) {
+		dev_info(&dev->dev, "get owner: %u\n", owner);
+		return owner;
+	}
+
+	return DOMID_SELF;
+}
+
 static struct msi_dev_list *get_msi_dev_pirq_list(struct pci_dev *dev)
 {
 	struct msi_dev_list *msi_dev_list, *ret = NULL;
@@ -95,12 +112,14 @@ static struct msi_dev_list *get_msi_dev_pirq_list(struct pci_dev *dev)
 
 	spin_lock_irqsave(&msi_dev_lock, flags);
 
-	list_for_each_entry(msi_dev_list, &msi_dev_head, list)
+	list_for_each_entry(msi_dev_list, &msi_dev_head, e.list)
 		if ( msi_dev_list->dev == dev )
 			ret = msi_dev_list;
 
 	if ( ret ) {
 		spin_unlock_irqrestore(&msi_dev_lock, flags);
+		if (ret->owner == DOMID_IO)
+			ret->owner = msi_get_dev_owner(dev);
 		return ret;
 	}
 
@@ -115,8 +134,10 @@ static struct msi_dev_list *get_msi_dev_pirq_list(struct pci_dev *dev)
 
 	ret->dev = dev;
 	spin_lock_init(&ret->pirq_list_lock);
-	INIT_LIST_HEAD(&ret->pirq_list_head);
-	list_add_tail(&ret->list, &msi_dev_head);
+	ret->owner = msi_get_dev_owner(dev);
+	ret->e.entry_nr = -1;
+	ret->e.dev_entry = ret;
+	list_add_tail(&ret->e.list, &msi_dev_head);
 	spin_unlock_irqrestore(&msi_dev_lock, flags);
 	return ret;
 }
@@ -131,8 +152,10 @@ static int attach_pirq_entry(int pirq, int entry_nr,
 		return -ENOMEM;
 	entry->pirq = pirq;
 	entry->entry_nr = entry_nr;
+	entry->dev_entry = msi_dev_entry;
+	memset(&entry->kobj, 0, sizeof(entry->kobj));
 	spin_lock_irqsave(&msi_dev_entry->pirq_list_lock, flags);
-	list_add_tail(&entry->list, &msi_dev_entry->pirq_list_head);
+	list_add_tail(&entry->list, &msi_dev_entry->dev->msi_list);
 	spin_unlock_irqrestore(&msi_dev_entry->pirq_list_lock, flags);
 	return 0;
 }
@@ -143,7 +166,7 @@ static void detach_pirq_entry(int entry_nr,
 	unsigned long flags;
 	struct msi_pirq_entry *pirq_entry;
 
-	list_for_each_entry(pirq_entry, &msi_dev_entry->pirq_list_head, list) {
+	list_for_each_entry(pirq_entry, &msi_dev_entry->dev->msi_list, list) {
 		if (pirq_entry->entry_nr == entry_nr) {
 			spin_lock_irqsave(&msi_dev_entry->pirq_list_lock, flags);
 			list_del(&pirq_entry->list);
@@ -158,8 +181,6 @@ static void detach_pirq_entry(int entry_nr,
 /*
  * pciback will provide device's owner
  */
-static int (*get_owner)(struct pci_dev *dev);
-
 int register_msi_get_owner(int (*func)(struct pci_dev *dev))
 {
 	if (get_owner) {
@@ -179,29 +200,15 @@ int unregister_msi_get_owner(int (*func)(struct pci_dev *dev))
 	return 0;
 }
 EXPORT_SYMBOL(unregister_msi_get_owner);
-
-static int msi_get_dev_owner(struct pci_dev *dev)
-{
-	int owner;
-
-	BUG_ON(!is_initial_xendomain());
-	if (get_owner && (owner = get_owner(dev)) >= 0) {
-		dev_info(&dev->dev, "get owner: %x \n", owner);
-		return owner;
-	}
-
-	return DOMID_SELF;
-}
-#else
-#define msi_get_dev_owner(dev) ({ BUG(); DOMID_SELF; })
 #endif
 
-static int msi_unmap_pirq(struct pci_dev *dev, int pirq)
+static int msi_unmap_pirq(struct pci_dev *dev, int pirq, domid_t owner,
+			  struct kobject *kobj)
 {
 	struct physdev_unmap_pirq unmap;
 	int rc;
 
-	unmap.domid = msi_get_dev_owner(dev);
+	unmap.domid = owner;
 	/* See comments in msi_map_vector, input parameter pirq means
 	 * irq number only if the device belongs to dom0 itself.
 	 */
@@ -213,6 +220,16 @@ static int msi_unmap_pirq(struct pci_dev *dev, int pirq)
 
 	if (rc < 0)
 		return rc;
+
+	/*
+	 * Its possible that we get into this path when populate_msi_sysfs()
+	 * fails, which means the entries were not registered with sysfs.
+	 * In that case don't unregister them.
+	 */
+	if (kobj->parent) {
+		kobject_del(kobj);
+		kobject_put(kobj);
+	}
 
 	if (unmap.domid == DOMID_SELF)
 		evtchn_map_pirq(pirq, 0);
@@ -239,13 +256,11 @@ static u64 find_table_base(struct pci_dev *dev, int pos)
 /*
  * Protected by msi_lock
  */
-static int msi_map_vector(struct pci_dev *dev, int entry_nr, u64 table_base)
+static int msi_map_vector(struct pci_dev *dev, int entry_nr, u64 table_base,
+			  domid_t domid)
 {
 	struct physdev_map_pirq map_irq;
 	int rc = -EINVAL;
-	domid_t domid = DOMID_SELF;
-
-	domid = msi_get_dev_owner(dev);
 
 	map_irq.domid = domid;
 	map_irq.type = MAP_PIRQ_TYPE_MSI_SEG;
@@ -344,6 +359,142 @@ void pci_restore_msi_state(struct pci_dev *dev)
 }
 EXPORT_SYMBOL_GPL(pci_restore_msi_state);
 
+
+#define to_msi_attr(obj) container_of(obj, struct msi_attribute, attr)
+#define to_pirq_entry(obj) container_of(obj, struct msi_pirq_entry, kobj)
+
+struct msi_attribute {
+	struct attribute        attr;
+	ssize_t (*show)(struct msi_pirq_entry *, struct msi_attribute *,
+			char *buf);
+	ssize_t (*store)(struct msi_pirq_entry *, struct msi_attribute *,
+			 const char *buf, size_t count);
+};
+
+static ssize_t show_msi_mode(struct msi_pirq_entry *entry,
+			     struct msi_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s\n", entry->entry_nr >= 0 ? "msix" : "msi");
+}
+
+static ssize_t show_xen_irq(struct msi_pirq_entry *entry,
+			    struct msi_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", entry->dev_entry->owner == DOMID_SELF
+				    ? evtchn_get_xen_pirq(entry->pirq)
+				    : entry->pirq);
+}
+
+static ssize_t msi_irq_attr_show(struct kobject *kobj,
+				 struct attribute *attr, char *buf)
+{
+	struct msi_attribute *attribute = to_msi_attr(attr);
+	struct msi_pirq_entry *entry = to_pirq_entry(kobj);
+
+	if (!attribute->show)
+		return -EIO;
+
+	return attribute->show(entry, attribute, buf);
+}
+
+static const struct sysfs_ops msi_irq_sysfs_ops = {
+	.show = msi_irq_attr_show,
+};
+
+static struct msi_attribute mode_attribute =
+	__ATTR(mode, S_IRUGO, show_msi_mode, NULL);
+
+static struct msi_attribute xen_irq_attribute =
+	__ATTR(xen_irq, S_IRUGO, show_xen_irq, NULL);
+
+static struct attribute *msi_irq_default_attrs[] = {
+	&mode_attribute.attr,
+	&xen_irq_attribute.attr,
+	NULL
+};
+
+static struct attribute *msi_pirq_default_attrs[] = {
+	&mode_attribute.attr,
+	NULL
+};
+
+static void msi_kobj_release(struct kobject *kobj)
+{
+	struct msi_dev_list *entry = to_pirq_entry(kobj)->dev_entry;
+
+	pci_dev_put(entry->dev);
+}
+
+static struct kobj_type msi_irq_ktype = {
+	.release = msi_kobj_release,
+	.sysfs_ops = &msi_irq_sysfs_ops,
+	.default_attrs = msi_irq_default_attrs,
+};
+
+static struct kobj_type msi_pirq_ktype = {
+	.release = msi_kobj_release,
+	.sysfs_ops = &msi_irq_sysfs_ops,
+	.default_attrs = msi_pirq_default_attrs,
+};
+
+static int populate_msi_sysfs(struct pci_dev *pdev)
+{
+	struct msi_dev_list *dev_entry = get_msi_dev_pirq_list(pdev);
+	domid_t owner = dev_entry->owner;
+	struct msi_pirq_entry *pirq_entry;
+	struct kobject *kobj;
+	int ret;
+	int count = 0;
+
+	pdev->msi_kset = kset_create_and_add("msi_irqs", NULL, &pdev->dev.kobj);
+	if (!pdev->msi_kset)
+		return -ENOMEM;
+
+	if (pdev->msi_enabled) {
+		kobj = &dev_entry->e.kobj;
+		kobj->kset = pdev->msi_kset;
+		pci_dev_get(pdev);
+		if (owner == DOMID_SELF)
+			ret = kobject_init_and_add(kobj, &msi_irq_ktype, NULL,
+						   "%u", pdev->irq);
+		else
+			ret = kobject_init_and_add(kobj, &msi_pirq_ktype, NULL,
+						   "xen-%u", pdev->irq);
+		if (ret)
+			pci_dev_put(pdev);
+		return ret;
+	}
+
+	list_for_each_entry(pirq_entry, &pdev->msi_list, list) {
+		kobj = &pirq_entry->kobj;
+		kobj->kset = pdev->msi_kset;
+		pci_dev_get(pdev);
+		if (owner == DOMID_SELF)
+			ret = kobject_init_and_add(kobj, &msi_irq_ktype, NULL,
+						   "%u", pirq_entry->pirq);
+		else
+			ret = kobject_init_and_add(kobj, &msi_pirq_ktype, NULL,
+						   "xen-%u", pirq_entry->pirq);
+		if (ret)
+			goto out_unroll;
+
+		count++;
+	}
+
+	return 0;
+
+out_unroll:
+	pci_dev_put(pdev);
+	list_for_each_entry(pirq_entry, &pdev->msi_list, list) {
+		if (!count)
+			break;
+		kobject_del(&pirq_entry->kobj);
+		kobject_put(&pirq_entry->kobj);
+		count--;
+	}
+	return ret;
+}
+
 /**
  * msi_capability_init - configure device's MSI capability structure
  * @dev: pointer to the pci_dev data structure of MSI device function
@@ -357,6 +508,7 @@ EXPORT_SYMBOL_GPL(pci_restore_msi_state);
  */
 static int msi_capability_init(struct pci_dev *dev, int nvec)
 {
+	struct msi_dev_list *dev_entry = get_msi_dev_pirq_list(dev);
 	int pos, pirq;
 	u16 control;
 
@@ -365,8 +517,7 @@ static int msi_capability_init(struct pci_dev *dev, int nvec)
 
 	pci_read_config_word(dev, msi_control_reg(pos), &control);
 
-	WARN_ON(nvec > 1); /* XXX */
-	pirq = msi_map_vector(dev, 0, 0);
+	pirq = msi_map_vector(dev, 0, 0, dev_entry->owner);
 	if (pirq < 0)
 		return -EBUSY;
 
@@ -375,7 +526,8 @@ static int msi_capability_init(struct pci_dev *dev, int nvec)
 	msi_set_enable(dev, pos, 1);
 	dev->msi_enabled = 1;
 
-	dev->irq = pirq;
+	dev->irq = dev_entry->e.pirq = pirq;
+	populate_msi_sysfs(dev);
 	return 0;
 }
 
@@ -424,7 +576,7 @@ static int msix_capability_init(struct pci_dev *dev,
 
 	for (i = 0; i < nvec; i++) {
 		mapped = 0;
-		list_for_each_entry(pirq_entry, &msi_dev_entry->pirq_list_head, list) {
+		list_for_each_entry(pirq_entry, &dev->msi_list, list) {
 			if (pirq_entry->entry_nr == entries[i].entry) {
 				dev_warn(&dev->dev,
 					 "msix entry %d was not freed\n",
@@ -436,7 +588,8 @@ static int msix_capability_init(struct pci_dev *dev,
 		}
 		if (mapped)
 			continue;
-		pirq = msi_map_vector(dev, entries[i].entry, table_base);
+		pirq = msi_map_vector(dev, entries[i].entry, table_base,
+				      msi_dev_entry->owner);
 		if (pirq < 0)
 			break;
 		attach_pirq_entry(pirq, entries[i].entry, msi_dev_entry);
@@ -446,7 +599,12 @@ static int msix_capability_init(struct pci_dev *dev,
 	if (i != nvec) {
 		int avail = i - 1;
 		for (j = --i; j >= 0; j--) {
-			msi_unmap_pirq(dev, entries[j].vector);
+			list_for_each_entry(pirq_entry, &dev->msi_list, list)
+				if (pirq_entry->entry_nr == entries[i].entry)
+					break;
+			msi_unmap_pirq(dev, entries[j].vector,
+				       msi_dev_entry->owner,
+				       &pirq_entry->kobj);
 			detach_pirq_entry(entries[j].entry, msi_dev_entry);
 			entries[j].vector = 0;
 		}
@@ -461,6 +619,7 @@ static int msix_capability_init(struct pci_dev *dev,
 	/* Set MSI-X enabled bits and unmask the function */
 	pci_intx_for_msi(dev, 0);
 	dev->msix_enabled = 1;
+	populate_msi_sysfs(dev);
 
 	control &= ~PCI_MSIX_FLAGS_MASKALL;
 	pci_write_config_word(dev, pos + PCI_MSIX_FLAGS, control);
@@ -540,7 +699,7 @@ int pci_enable_msi_block(struct pci_dev *dev, unsigned int nvec)
 	if (!pos)
 		return -EINVAL;
 	pci_read_config_word(dev, pos + PCI_MSI_FLAGS, &msgctl);
-	maxvec = 1 << ((msgctl & PCI_MSI_FLAGS_QMASK) >> 1);
+	maxvec = 1 /* XXX << ((msgctl & PCI_MSI_FLAGS_QMASK) >> 1) */;
 	if (nvec > maxvec)
 		return maxvec;
 
@@ -553,7 +712,6 @@ int pci_enable_msi_block(struct pci_dev *dev, unsigned int nvec)
 		int ret;
 
 		temp = dev->irq;
-		WARN_ON(nvec > 1); /* XXX */
 		ret = pci_frontend_enable_msi(dev);
 		if (ret)
 			return ret;
@@ -561,7 +719,7 @@ int pci_enable_msi_block(struct pci_dev *dev, unsigned int nvec)
 		dev->irq = evtchn_map_pirq(-1, dev->irq);
 		dev->msi_enabled = 1;
 		msi_dev_entry->default_irq = temp;
-
+		populate_msi_sysfs(dev);
 		return ret;
 #else
 		return -EOPNOTSUPP;
@@ -607,7 +765,10 @@ void pci_msi_shutdown(struct pci_dev *dev)
 	pirq = dev->irq;
 	/* Restore dev->irq to its default pin-assertion vector */
 	dev->irq = msi_dev_entry->default_irq;
-	msi_unmap_pirq(dev, pirq);
+	msi_unmap_pirq(dev, pirq, msi_dev_entry->owner,
+		       &msi_dev_entry->e.kobj);
+	msi_dev_entry->owner = DOMID_IO;
+	memset(&msi_dev_entry->e.kobj, 0, sizeof(msi_dev_entry->e.kobj));
 
 	/* Disable MSI mode */
 	pos = pci_find_capability(dev, PCI_CAP_ID_MSI);
@@ -619,6 +780,8 @@ void pci_msi_shutdown(struct pci_dev *dev)
 void pci_disable_msi(struct pci_dev *dev)
 {
 	pci_msi_shutdown(dev);
+	kset_unregister(dev->msi_kset);
+	dev->msi_kset = NULL;
 }
 EXPORT_SYMBOL(pci_disable_msi);
 
@@ -683,7 +846,7 @@ int pci_enable_msix(struct pci_dev *dev, struct msix_entry *entries, int nvec)
 		for (i = 0; i < nvec; i++) {
 			int mapped = 0;
 
-			list_for_each_entry(pirq_entry, &msi_dev_entry->pirq_list_head, list) {
+			list_for_each_entry(pirq_entry, &dev->msi_list, list) {
 				if (pirq_entry->entry_nr == entries[i].entry) {
 					irq = pirq_entry->pirq;
 					BUG_ON(entries[i].vector != evtchn_get_xen_pirq(irq));
@@ -698,6 +861,7 @@ int pci_enable_msix(struct pci_dev *dev, struct msix_entry *entries, int nvec)
 			attach_pirq_entry(irq, entries[i].entry, msi_dev_entry);
 			entries[i].vector = irq;
 		}
+		populate_msi_sysfs(dev);
 		return 0;
 #else
 		return -EOPNOTSUPP;
@@ -765,6 +929,8 @@ void pci_msix_shutdown(struct pci_dev *dev)
 void pci_disable_msix(struct pci_dev *dev)
 {
 	pci_msix_shutdown(dev);
+	kset_unregister(dev->msi_kset);
+	dev->msi_kset = NULL;
 }
 EXPORT_SYMBOL(pci_disable_msix);
 
@@ -789,17 +955,18 @@ void msi_remove_pci_irq_vectors(struct pci_dev *dev)
 	msi_dev_entry = get_msi_dev_pirq_list(dev);
 
 	spin_lock_irqsave(&msi_dev_entry->pirq_list_lock, flags);
-	if (!list_empty(&msi_dev_entry->pirq_list_head))
-		list_for_each_entry_safe(pirq_entry, tmp,
-		                         &msi_dev_entry->pirq_list_head, list) {
-			if (is_initial_xendomain())
-				msi_unmap_pirq(dev, pirq_entry->pirq);
-			else
-				evtchn_map_pirq(pirq_entry->pirq, 0);
-			list_del(&pirq_entry->list);
-			kfree(pirq_entry);
-		}
+	list_for_each_entry_safe(pirq_entry, tmp, &dev->msi_list, list) {
+		if (is_initial_xendomain())
+			msi_unmap_pirq(dev, pirq_entry->pirq,
+				       msi_dev_entry->owner,
+				       &pirq_entry->kobj);
+		else
+			evtchn_map_pirq(pirq_entry->pirq, 0);
+		list_del(&pirq_entry->list);
+		kfree(pirq_entry);
+	}
 	spin_unlock_irqrestore(&msi_dev_entry->pirq_list_lock, flags);
+	msi_dev_entry->owner = DOMID_IO;
 	dev->irq = msi_dev_entry->default_irq;
 }
 
@@ -823,10 +990,8 @@ EXPORT_SYMBOL(pci_msi_enabled);
 void pci_msi_init_pci_dev(struct pci_dev *dev)
 {
 	int pos;
-
-#ifndef CONFIG_XEN
 	INIT_LIST_HEAD(&dev->msi_list);
-#endif
+
 	/* Disable the msi hardware to avoid screaming interrupts
 	 * during boot.  This is the power on reset default so
 	 * usually this should be a noop.

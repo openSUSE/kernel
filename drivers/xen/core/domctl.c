@@ -350,7 +350,7 @@ int xen_set_physical_cpu_affinity(int pcpu)
 		if (pcpu > BITS_PER_PAGE)
 			return -ERANGE;
 
-		if (percpu_read(saved_pcpu_affinity))
+		if (this_cpu_read(saved_pcpu_affinity))
 			return -EBUSY;
 
 		oldmap = (void *)get_zeroed_page(GFP_KERNEL);
@@ -371,16 +371,16 @@ int xen_set_physical_cpu_affinity(int pcpu)
 		}
 
 		if (!rc)
-			percpu_write(saved_pcpu_affinity, oldmap);
+			this_cpu_write(saved_pcpu_affinity, oldmap);
 		else
 			free_page((unsigned long)oldmap);
 	} else {
-		if (!percpu_read(saved_pcpu_affinity))
+		if (!this_cpu_read(saved_pcpu_affinity))
 			return 0;
 		rc = set_vcpuaffinity(BITS_PER_PAGE,
-				      percpu_read(saved_pcpu_affinity));
-		free_page((unsigned long)percpu_read(saved_pcpu_affinity));
-		percpu_write(saved_pcpu_affinity, NULL);
+				      this_cpu_read(saved_pcpu_affinity));
+		free_page((unsigned long)this_cpu_read(saved_pcpu_affinity));
+		this_cpu_write(saved_pcpu_affinity, NULL);
 	}
 
 	return rc;

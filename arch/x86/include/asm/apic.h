@@ -13,7 +13,6 @@
 #include <asm/fixmap.h>
 #endif
 #include <asm/mpspec.h>
-#include <asm/system.h>
 #include <asm/msr.h>
 
 #ifndef CONFIG_XEN
@@ -300,6 +299,7 @@ struct apic {
 #ifndef CONFIG_XEN
 	int (*probe)(void);
 	int (*acpi_madt_oem_check)(char *oem_id, char *oem_table_id);
+	int (*apic_id_valid)(int apicid);
 	int (*apic_id_registered)(void);
 #endif
 
@@ -554,6 +554,11 @@ static inline unsigned int read_apic_id(void)
 	reg = apic_read(APIC_ID);
 
 	return apic->get_apic_id(reg);
+}
+
+static inline int default_apic_id_valid(int apicid)
+{
+	return (apicid < 255);
 }
 
 extern void default_setup_apic_routing(void);

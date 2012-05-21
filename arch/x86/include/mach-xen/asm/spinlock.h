@@ -227,15 +227,6 @@ static inline void __byte_spin_unlock(arch_spinlock_t *lock)
 
 #endif /* TICKET_SHIFT */
 
-#if defined(CONFIG_XEN_SPINLOCK_ACQUIRE_NESTING) \
-    && CONFIG_XEN_SPINLOCK_ACQUIRE_NESTING
-void xen_spin_irq_enter(void);
-void xen_spin_irq_exit(void);
-#else
-static inline void xen_spin_irq_enter(void) {}
-static inline void xen_spin_irq_exit(void) {}
-#endif
-
 static inline int arch_spin_is_locked(arch_spinlock_t *lock)
 {
 	return __arch_spin(is_locked)(lock);

@@ -15,11 +15,11 @@
 static int verbose_request = 0;
 module_param(verbose_request, int, 0644);
 
-#ifdef __ia64__
 static void pcifront_init_sd(struct pcifront_sd *sd,
 			     unsigned int domain, unsigned int bus,
 			     struct pcifront_device *pdev)
 {
+#ifdef __ia64__
 	int err, i, j, k, len, root_num, res_count;
 	struct acpi_resource res;
 	unsigned int d, b, byte;
@@ -66,7 +66,8 @@ static void pcifront_init_sd(struct pcifront_sd *sd,
 		return; /* No resources, nothing to do */
 
 	if (magic != (sizeof(res) * 2) + 1) {
-		pr_warning("pcifront: resource magic mismatch\n");
+		dev_warn(&pdev->xdev->dev,
+			 "pcifront: resource magic mismatch\n");
 		return;
 	}
 
@@ -104,9 +105,9 @@ static void pcifront_init_sd(struct pcifront_sd *sd,
 		err = xenbus_scanf(XBT_NIL, pdev->xdev->otherend, str,
 				   "%s", buf);
 		if (err != 1) {
-			pr_warning("pcifront: error reading "
-				   "resource %d on bus %04x:%02x\n",
-				   j, domain, bus);
+			dev_warn(&pdev->xdev->dev,
+				 "pcifront: error reading resource %d on bus %04x:%02x\n",
+				 j, domain, bus);
 			continue;
 		}
 
@@ -128,8 +129,11 @@ static void pcifront_init_sd(struct pcifront_sd *sd,
 		sd->windows++;
 	}
 	kfree(buf);
-}
+#else
+	sd->domain = domain;
+	sd->pdev = pdev;
 #endif
+}
 
 static int errno_to_pcibios_err(int errno)
 {
@@ -215,8 +219,7 @@ static int do_pci_op(struct pcifront_device *pdev, struct xen_pci_op *op)
 	*/
 	if (test_bit(_XEN_PCIB_active, 
 			(unsigned long*)&pdev->sh_info->flags)) {
-		dev_err(&pdev->xdev->dev, 
-			"schedule aer pcifront service\n");
+		dev_info(&pdev->xdev->dev, "schedule aer pcifront service\n");
 		schedule_pcifront_aer_op(pdev);
 	}
 
@@ -230,9 +233,9 @@ static int do_pci_op(struct pcifront_device *pdev, struct xen_pci_op *op)
 
 /* Access to this function is spinlocked in drivers/pci/access.c */
 static int pcifront_bus_read(struct pci_bus *bus, unsigned int devfn,
-			     int where, int size, u32 * val)
+			     int where, int size, u32 *val)
 {
-	int err = 0;
+	int err;
 	struct xen_pci_op op = {
 		.cmd    = XEN_PCI_OP_conf_read,
 		.domain = pci_domain_nr(bus),
@@ -245,24 +248,24 @@ static int pcifront_bus_read(struct pci_bus *bus, unsigned int devfn,
 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
 
 	if (verbose_request)
-		dev_info(&pdev->xdev->dev,
-			 "read dev=%04x:%02x:%02x.%u - offset %x size %d\n",
-			 pci_domain_nr(bus), bus->number, PCI_SLOT(devfn),
-			 PCI_FUNC(devfn), where, size);
+		dev_info(&pdev->xdev->dev, "read %02x.%u offset %x size %d\n",
+			 PCI_SLOT(devfn), PCI_FUNC(devfn), where, size);
 
 	err = do_pci_op(pdev, &op);
 
 	if (likely(!err)) {
 		if (verbose_request)
-			dev_info(&pdev->xdev->dev, "read got back value %x\n",
-				 op.value);
+			dev_info(&pdev->xdev->dev, "read %02x.%u = %x\n",
+				 PCI_SLOT(devfn), PCI_FUNC(devfn), op.value);
 
 		*val = op.value;
 	} else if (err == -ENODEV) {
 		/* No device here, pretend that it just returned 0 */
 		err = 0;
 		*val = 0;
-	}
+	} else if (verbose_request)
+		dev_info(&pdev->xdev->dev, "read %02x.%u -> %d\n",
+			 PCI_SLOT(devfn), PCI_FUNC(devfn), err);
 
 	return errno_to_pcibios_err(err);
 }
@@ -285,15 +288,13 @@ static int pcifront_bus_write(struct pci_bus *bus, unsigned int devfn,
 
 	if (verbose_request)
 		dev_info(&pdev->xdev->dev,
-			 "write dev=%04x:%02x:%02x.%u - "
-			 "offset %x size %d val %x\n",
-			 pci_domain_nr(bus), bus->number,
+			 "write %02x.%u offset %x size %d val %x\n",
 			 PCI_SLOT(devfn), PCI_FUNC(devfn), where, size, val);
 
 	return errno_to_pcibios_err(do_pci_op(pdev, &op));
 }
 
-struct pci_ops pcifront_bus_ops = {
+static struct pci_ops pcifront_bus_ops = {
 	.read = pcifront_bus_read,
 	.write = pcifront_bus_write,
 };
@@ -315,8 +316,9 @@ int pci_frontend_enable_msix(struct pci_dev *dev,
 	struct pcifront_sd *sd = dev->bus->sysdata;
 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
 
-	if (nvec > SH_INFO_MAX_VEC) {
-		pr_warning("too many vectors (%#x) for pci frontend\n", nvec);
+	if (nvec < 0 || nvec > SH_INFO_MAX_VEC) {
+		dev_err(&dev->dev, "too many (%d) vectors for pci frontend\n",
+			nvec);
 		return -EINVAL;
 	}
 
@@ -330,22 +332,20 @@ int pci_frontend_enable_msix(struct pci_dev *dev,
 	if (!err) {
 		if (!op.value) {
 			/* we get the result */
-			for ( i = 0; i < nvec; i++)
+			for (i = 0; i < nvec; i++)
 				entries[i].vector = op.msix_entries[i].vector;
-			return 0;
+		} else {
+			dev_err(&dev->dev, "enable MSI-X => %#x\n", op.value);
+			err = op.value;
 		}
-		else {
-			pr_err("enable msix get value %#x\n", op.value);
-			return op.value;
-		}
+	} else {
+		dev_err(&dev->dev, "enable MSI-X -> %d\n", err);
+		err = -EINVAL;
 	}
-	else {
-		pr_err("enable msix err %#x\n", err);
-		return err;
-	}
+	return err;
 }
 
-void pci_frontend_disable_msix(struct pci_dev* dev)
+void pci_frontend_disable_msix(struct pci_dev *dev)
 {
 	int err;
 	struct xen_pci_op op = {
@@ -361,7 +361,7 @@ void pci_frontend_disable_msix(struct pci_dev* dev)
 
 	/* What should do for error ? */
 	if (err)
-		pr_err("disable msix err %#x\n", err);
+		dev_err(&dev->dev, "disable MSI-X -> %d\n", err);
 }
 
 int pci_frontend_enable_msi(struct pci_dev *dev)
@@ -377,18 +377,16 @@ int pci_frontend_enable_msi(struct pci_dev *dev)
 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
 
 	err = do_pci_op(pdev, &op);
-	if (likely(!err)) {
+	if (likely(!err))
 		dev->irq = op.value;
-	}
 	else {
-		pr_err("pci frontend enable msi failed for dev %x:%x\n",
-		       op.bus, op.devfn);
+		dev_err(&dev->dev, "enable MSI -> %d\n", err);
 		err = -EINVAL;
 	}
 	return err;
 }
 
-void pci_frontend_disable_msi(struct pci_dev* dev)
+void pci_frontend_disable_msi(struct pci_dev *dev)
 {
 	int err;
 	struct xen_pci_op op = {
@@ -401,16 +399,10 @@ void pci_frontend_disable_msi(struct pci_dev* dev)
 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
 
 	err = do_pci_op(pdev, &op);
-	if (err == XEN_PCI_ERR_dev_not_found) {
-		/* XXX No response from backend, what shall we do? */
-		pr_err("no response from backend for disable MSI\n");
-		return;
-	}
 	if (likely(!err))
 		dev->irq = op.value;
 	else
-		/* how can pciback notify us fail? */
-		pr_err("got bogus response from backend\n");
+		dev_err(&dev->dev, "disable MSI -> %d\n", err);
 }
 #endif /* CONFIG_PCI_MSI */
 
@@ -438,18 +430,17 @@ int __devinit pcifront_scan_root(struct pcifront_device *pdev,
 				 unsigned int domain, unsigned int bus)
 {
 	struct pci_bus *b;
-	struct pcifront_sd *sd = NULL;
-	struct pci_bus_entry *bus_entry = NULL;
+	struct pcifront_sd *sd;
+	struct pci_bus_entry *bus_entry;
 	int err = 0;
 
 #ifndef CONFIG_PCI_DOMAINS
 	if (domain != 0) {
 		dev_err(&pdev->xdev->dev,
-			"PCI Root in non-zero PCI Domain! domain=%d\n", domain);
+			"PCI root in non-zero domain %x!\n", domain);
 		dev_err(&pdev->xdev->dev,
 			"Please compile with CONFIG_PCI_DOMAINS\n");
-		err = -EINVAL;
-		goto err_out;
+		return -EINVAL;
 	}
 #endif
 
@@ -502,7 +493,7 @@ int __devinit pcifront_rescan_root(struct pcifront_device *pdev,
 #ifndef CONFIG_PCI_DOMAINS
 	if (domain != 0) {
 		dev_err(&pdev->xdev->dev,
-			"PCI Root in non-zero PCI Domain! domain=%d\n", domain);
+			"PCI root in non-zero domain %x\n", domain);
 		dev_err(&pdev->xdev->dev,
 			"Please compile with CONFIG_PCI_DOMAINS\n");
 		return -EINVAL;
@@ -531,8 +522,9 @@ int __devinit pcifront_rescan_root(struct pcifront_device *pdev,
 
 		d = pci_scan_single_device(b, devfn);
 		if (d)
-			dev_info(&pdev->xdev->dev, "New device on "
-				 "%04x:%02x:%02x.%u found.\n", domain, bus,
+			dev_info(&pdev->xdev->dev,
+				 "New device on %04x:%02x:%02x.%u\n",
+				 domain, bus,
 				 PCI_SLOT(devfn), PCI_FUNC(devfn));
 	}
 
@@ -553,7 +545,7 @@ static void free_root_bus_devs(struct pci_bus *bus)
 		dev = container_of(bus->devices.next, struct pci_dev,
 				   bus_list);
 		dev_dbg(&dev->dev, "removing device\n");
-		pci_remove_bus_device(dev);
+		pci_stop_and_remove_bus_device(dev);
 	}
 }
 
@@ -580,17 +572,15 @@ void pcifront_free_roots(struct pcifront_device *pdev)
 static pci_ers_result_t pcifront_common_process( int cmd, struct pcifront_device *pdev,
 	pci_channel_state_t state)
 {
-	pci_ers_result_t result;
+	pci_ers_result_t result = PCI_ERS_RESULT_NONE;
 	struct pci_driver *pdrv;
 	int bus = pdev->sh_info->aer_op.bus;
 	int devfn = pdev->sh_info->aer_op.devfn;
 	struct pci_dev *pcidev;
-	int flag = 0;
 
 	dev_dbg(&pdev->xdev->dev, 
-		"pcifront AER process: cmd %x (bus:%x, devfn%x)",
+		"pcifront AER process: cmd %x (bus %x devfn %x)",
 		cmd, bus, devfn);
-	result = PCI_ERS_RESULT_NONE;
 
 	pcidev = pci_get_bus_and_slot(bus, devfn);
 	if (!pcidev || !pcidev->driver) {
@@ -600,36 +590,32 @@ static pci_ers_result_t pcifront_common_process( int cmd, struct pcifront_device
 	}
 	pdrv = pcidev->driver;
 
-	if (get_driver(&pdrv->driver)) {
-		if (pdrv->err_handler && pdrv->err_handler->error_detected) {
-			dev_dbg(&pcidev->dev,
-				"trying to call AER service\n");
-			if (pcidev) {
-				flag = 1;
-				switch(cmd) {
-				case XEN_PCI_OP_aer_detected:
-					result = pdrv->err_handler->error_detected(pcidev, state);
-					break;
-				case XEN_PCI_OP_aer_mmio:
-					result = pdrv->err_handler->mmio_enabled(pcidev);
-					break;
-				case XEN_PCI_OP_aer_slotreset:
-					result = pdrv->err_handler->slot_reset(pcidev);
-					break;
-				case XEN_PCI_OP_aer_resume:
-					pdrv->err_handler->resume(pcidev);
-					break;
-				default:
-					dev_err(&pdev->xdev->dev,
-						"bad request in aer recovery operation!\n");
-
-				}
-			}
+	if (pdrv->err_handler) {
+		dev_dbg(&pcidev->dev, "trying to call AER service\n");
+		switch(cmd) {
+		case XEN_PCI_OP_aer_detected:
+			if (pdrv->err_handler->error_detected)
+				result = pdrv->err_handler->error_detected(pcidev, state);
+			break;
+		case XEN_PCI_OP_aer_mmio:
+			if (pdrv->err_handler->mmio_enabled)
+				result = pdrv->err_handler->mmio_enabled(pcidev);
+			break;
+		case XEN_PCI_OP_aer_slotreset:
+			if (pdrv->err_handler->slot_reset)
+				result = pdrv->err_handler->slot_reset(pcidev);
+			break;
+		case XEN_PCI_OP_aer_resume:
+			if (pdrv->err_handler->resume)
+				pdrv->err_handler->resume(pcidev);
+			break;
+		default:
+			dev_err(&pdev->xdev->dev,
+				"bad request %x in aer recovery operation!\n",
+				cmd);
+			break;
 		}
-		put_driver(&pdrv->driver);
 	}
-	if (!flag)
-		result = PCI_ERS_RESULT_NONE;
 
 	return result;
 }

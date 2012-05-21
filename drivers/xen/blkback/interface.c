@@ -72,29 +72,22 @@ int blkif_map(blkif_t *blkif, grant_ref_t ring_ref, evtchn_port_t evtchn)
 	blkif->blk_ring_area = area;
 
 	switch (blkif->blk_protocol) {
+#define BLKBK_RING_INIT(p) ({ \
+		struct blkif_##p##_sring *sring = area->addr; \
+		BACK_RING_INIT(&blkif->blk_rings.p, sring, PAGE_SIZE); \
+	})
 	case BLKIF_PROTOCOL_NATIVE:
-	{
-		blkif_sring_t *sring;
-		sring = (blkif_sring_t *)area->addr;
-		BACK_RING_INIT(&blkif->blk_rings.native, sring, PAGE_SIZE);
+		BLKBK_RING_INIT(native);
 		break;
-	}
 	case BLKIF_PROTOCOL_X86_32:
-	{
-		blkif_x86_32_sring_t *sring_x86_32;
-		sring_x86_32 = (blkif_x86_32_sring_t *)area->addr;
-		BACK_RING_INIT(&blkif->blk_rings.x86_32, sring_x86_32, PAGE_SIZE);
+		BLKBK_RING_INIT(x86_32);
 		break;
-	}
 	case BLKIF_PROTOCOL_X86_64:
-	{
-		blkif_x86_64_sring_t *sring_x86_64;
-		sring_x86_64 = (blkif_x86_64_sring_t *)area->addr;
-		BACK_RING_INIT(&blkif->blk_rings.x86_64, sring_x86_64, PAGE_SIZE);
+		BLKBK_RING_INIT(x86_64);
 		break;
-	}
 	default:
 		BUG();
+#undef BLKBK_RING_INIT
 	}
 
 	err = bind_interdomain_evtchn_to_irqhandler(

@@ -36,13 +36,13 @@
 #define DRV_NAME "cxgb3"
 /* Driver version */
 #ifndef CONFIG_XEN
-#define DRV_VERSION "1.1.4-ko"
+#define DRV_VERSION "1.1.5-ko"
 #else
-#define DRV_VERSION "1.1.4-xen-ko"
+#define DRV_VERSION "1.1.5-xen-ko"
 #endif
 
 /* Firmware version */
 #define FW_VERSION_MAJOR 7
-#define FW_VERSION_MINOR 10
+#define FW_VERSION_MINOR 12
 #define FW_VERSION_MICRO 0
 #endif				/* __CHELSIO_VERSION_H */

@@ -218,7 +218,7 @@ int __xen_suspend(int fast_suspend, void (*resume_notifier)(int))
 	if (fast_suspend) {
 		xenbus_suspend();
 
-		if (_check(dpm_suspend_noirq, PMSG_SUSPEND)) {
+		if (_check(dpm_suspend_end, PMSG_SUSPEND)) {
 			xenbus_suspend_cancel();
 			dpm_resume_end(PMSG_RESUME);
 			pr_err("%s() failed: %d\n", what, err);
@@ -235,9 +235,9 @@ int __xen_suspend(int fast_suspend, void (*resume_notifier)(int))
 		for (;;) {
 			xenbus_suspend();
 
-			if (!_check(dpm_suspend_noirq, PMSG_SUSPEND)
+			if (!_check(dpm_suspend_end, PMSG_SUSPEND)
 			    && _check(smp_suspend))
-				dpm_resume_noirq(PMSG_RESUME);
+				dpm_resume_start(PMSG_RESUME);
 			if (err) {
 				xenbus_suspend_cancel();
 				dpm_resume_end(PMSG_RESUME);
@@ -252,7 +252,7 @@ int __xen_suspend(int fast_suspend, void (*resume_notifier)(int))
 
 			preempt_enable();
 
-			dpm_resume_noirq(PMSG_RESUME);
+			dpm_resume_start(PMSG_RESUME);
 
 			xenbus_suspend_cancel();
 		}
@@ -262,7 +262,7 @@ int __xen_suspend(int fast_suspend, void (*resume_notifier)(int))
 		local_irq_enable();
 	}
 
-	dpm_resume_noirq(PMSG_RESUME);
+	dpm_resume_start(PMSG_RESUME);
 
 	if (err >= 0) {
 		suspend_cancelled = err;

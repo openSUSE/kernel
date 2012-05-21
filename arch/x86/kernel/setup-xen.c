@@ -90,7 +90,6 @@
 #include <asm/processor.h>
 #include <asm/bugs.h>
 
-#include <asm/system.h>
 #include <asm/vsyscall.h>
 #include <asm/cpu.h>
 #include <asm/desc.h>
@@ -625,15 +624,6 @@ static void __init memblock_x86_reserve_range_setup_data(void)
 
 #ifdef CONFIG_KEXEC
 
-static inline unsigned long long get_total_mem(void)
-{
-	unsigned long long total;
-
-	total = max_pfn - min_low_pfn;
-
-	return total << PAGE_SHIFT;
-}
-
 /*
  * Keep the crash kernel below this limit.  On 32 bits earlier kernels
  * would limit the kernel to the low 512 MiB due to mapping restrictions.
@@ -652,7 +642,7 @@ static void __init reserve_crashkernel(void)
 	unsigned long long crash_size, crash_base;
 	int ret;
 
-	total_mem = get_total_mem();
+	total_mem = memblock_phys_mem_size();
 
 	ret = parse_crashkernel(boot_command_line, total_mem,
 			&crash_size, &crash_base);
@@ -897,10 +887,16 @@ void __init setup_arch(char **cmdline_p)
 #endif
 #ifdef CONFIG_EFI
 	if (!strncmp((char *)&boot_params.efi_info.efi_loader_signature,
-		     EFI_LOADER_SIGNATURE, 4)) {
+		     "EL32", 4)) {
 		efi_enabled = 1;
-		efi_memblock_x86_reserve_range();
+		efi_64bit = false;
+	} else if (!strncmp((char *)&boot_params.efi_info.efi_loader_signature,
+		     "EL64", 4)) {
+		efi_enabled = 1;
+		efi_64bit = true;
 	}
+	if (efi_enabled && efi_memblock_x86_reserve_range())
+		efi_enabled = 0;
 #endif
 #else /* CONFIG_XEN */
 #ifdef CONFIG_X86_32
@@ -1239,6 +1235,9 @@ void __init setup_arch(char **cmdline_p)
 #ifdef CONFIG_XEN
 #ifdef CONFIG_KEXEC
 	xen_machine_kexec_setup_resources();
+# define kexec_enabled() (crashk_res.start < crashk_res.end)
+#else
+# define kexec_enabled() 0
 #endif
 	p2m_pages = max_pfn;
 	if (xen_start_info->nr_pages > max_pfn) {
@@ -1269,25 +1268,9 @@ void __init setup_arch(char **cmdline_p)
 		/* Make sure we have a large enough P->M table. */
 		phys_to_machine_mapping = alloc_bootmem_pages(
 			max_pfn * sizeof(unsigned long));
-#ifdef CONFIG_X86_32
 		memcpy(phys_to_machine_mapping,
-		       (unsigned long *)xen_start_info->mfn_list,
+		       __va(__pa(xen_start_info->mfn_list)),
 		       p2m_pages * sizeof(unsigned long));
-#else /* We must not use memcpy() for the full range here, as it's
-         not capable of dealing with 4Gb or more at a time. */
-		{
-			void *src = __va(__pa(xen_start_info->mfn_list));
-			unsigned long size, *dst = phys_to_machine_mapping;
-			unsigned int fpp = PAGE_SIZE / sizeof(*dst);
-
-			for (size = p2m_pages; size >= fpp; size -= fpp) {
-				copy_page(dst, src);
-				src += PAGE_SIZE;
-				dst += fpp;
-			}
-			memcpy(dst, src, size * sizeof(*dst));
-		}
-#endif
 		memset(phys_to_machine_mapping + p2m_pages, ~0,
 		       (max_pfn - p2m_pages) * sizeof(unsigned long));
 #ifdef CONFIG_X86_64
@@ -1303,7 +1286,7 @@ void __init setup_arch(char **cmdline_p)
 
 			BUILD_BUG_ON(VMEMMAP_START & ~PGDIR_MASK);
 			xen_l4_entry_update(pgd, __pgd(0));
-			for(;;) {
+			do {
 				pud_t *pud = pud_page + pud_index(va);
 
 				if (pud_none(*pud))
@@ -1349,16 +1332,14 @@ void __init setup_arch(char **cmdline_p)
 						XENFEAT_writable_page_tables);
 					free_bootmem(__pa((unsigned long)pmd
 							  & PAGE_MASK),
-						PAGE_SIZE);
+						     PAGE_SIZE);
 				}
-				if (!pud_index(va))
-					break;
-			}
+			} while (pud_index(va));
 			ClearPagePinned(virt_to_page(pud_page));
 			make_page_writable(pud_page,
-				XENFEAT_writable_page_tables);
+					   XENFEAT_writable_page_tables);
 			free_bootmem(__pa((unsigned long)pud_page & PAGE_MASK),
-				PAGE_SIZE);
+				     PAGE_SIZE);
 		} else if (!WARN_ON(xen_start_info->mfn_list
 				    < __START_KERNEL_map))
 #endif
@@ -1366,9 +1347,7 @@ void __init setup_arch(char **cmdline_p)
 				     PFN_PHYS(PFN_UP(xen_start_info->nr_pages *
 						     sizeof(unsigned long))));
 
-#ifndef CONFIG_KEXEC
-		if (!is_initial_xendomain())
-#endif
+		if (!is_initial_xendomain() || kexec_enabled())
 			setup_pfn_to_mfn_frame_list(__alloc_bootmem);
 	}
 

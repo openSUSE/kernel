@@ -326,7 +326,8 @@ static struct rb_node *tree_search(struct rb_root *root, u64 bytenr)
 	return NULL;
 }
 
-static void backref_tree_panic(struct rb_node *rb_node, int errno, u64 bytenr)
+void backref_tree_panic(struct rb_node *rb_node, int errno,
+					  u64 bytenr)
 {
 
 	struct btrfs_fs_info *fs_info = NULL;
@@ -1278,7 +1279,9 @@ static int __update_reloc_root(struct btrfs_root *root, int del)
 		if (rb_node)
 			backref_tree_panic(rb_node, -EEXIST, node->bytenr);
 	} else {
+		spin_lock(&root->fs_info->trans_lock);
 		list_del_init(&root->root_list);
+		spin_unlock(&root->fs_info->trans_lock);
 		kfree(node);
 	}
 	return 0;
@@ -3810,7 +3813,7 @@ restart:
 
 		ret = btrfs_block_rsv_check(rc->extent_root, rc->block_rsv, 5);
 		if (ret < 0) {
-			if (ret != -EAGAIN) {
+			if (ret != -ENOSPC) {
 				err = ret;
 				WARN_ON(1);
 				break;

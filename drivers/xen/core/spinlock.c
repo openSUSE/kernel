@@ -245,7 +245,8 @@ unsigned int xen_spin_wait(arch_spinlock_t *lock, struct __raw_tickets *ptok,
 	struct spinning spinning;
 
 	/* If kicker interrupt not initialized yet, just spin. */
-	if (unlikely(!cpu_online(cpu)) || unlikely(!percpu_read(poll_evtchn)))
+	if (unlikely(!cpu_online(cpu))
+	    || unlikely(!this_cpu_read(poll_evtchn)))
 		return UINT_MAX;
 
 	/* announce we're spinning */

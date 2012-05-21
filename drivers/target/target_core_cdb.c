@@ -456,7 +456,7 @@ target_emulate_evpd_b0(struct se_cmd *cmd, unsigned char *buf)
 	/*
 	 * Set MAXIMUM TRANSFER LENGTH
 	 */
-	put_unaligned_be32(dev->se_sub_dev->se_dev_attrib.max_sectors, &buf[8]);
+	put_unaligned_be32(dev->se_sub_dev->se_dev_attrib.fabric_max_sectors, &buf[8]);
 
 	/*
 	 * Set OPTIMAL TRANSFER LENGTH
@@ -694,11 +694,6 @@ int target_emulate_readcapacity(struct se_task *task)
 	buf[5] = (dev->se_sub_dev->se_dev_attrib.block_size >> 16) & 0xff;
 	buf[6] = (dev->se_sub_dev->se_dev_attrib.block_size >> 8) & 0xff;
 	buf[7] = dev->se_sub_dev->se_dev_attrib.block_size & 0xff;
-	/*
-	 * Set max 32-bit blocks to signal SERVICE ACTION READ_CAPACITY_16
-	*/
-	if (dev->se_sub_dev->se_dev_attrib.emulate_tpu || dev->se_sub_dev->se_dev_attrib.emulate_tpws)
-		put_unaligned_be32(0xFFFFFFFF, &buf[0]);
 
 	transport_kunmap_data_sg(cmd);
 

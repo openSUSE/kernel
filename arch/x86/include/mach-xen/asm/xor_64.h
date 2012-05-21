@@ -1,7 +1,7 @@
 #ifndef _ASM_X86_XOR_64_H
 #define _ASM_X86_XOR_64_H
 
-#include <asm/i387.h>
+#include <asm/fpu-internal.h>
 
 /*
  * x86-64 changes / gcc fixes from Andi Kleen.

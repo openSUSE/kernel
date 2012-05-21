@@ -16,6 +16,8 @@
 #include <linux/interrupt.h>
 #include <linux/kernel_stat.h>
 
+#include <trace/events/irq.h>
+
 #include "internals.h"
 
 /**
@@ -87,6 +89,7 @@ int irq_set_handler_data(unsigned int irq, void *data)
 }
 EXPORT_SYMBOL(irq_set_handler_data);
 
+#ifndef CONFIG_XEN
 /**
  *	irq_set_msi_desc - set MSI descriptor data for an irq
  *	@irq:	Interrupt number
@@ -107,6 +110,7 @@ int irq_set_msi_desc(unsigned int irq, struct msi_desc *entry)
 	irq_put_desc_unlock(desc, flags);
 	return 0;
 }
+#endif
 
 /**
  *	irq_set_chip_data - set irq chip data for an irq
@@ -516,6 +520,7 @@ handle_edge_irq(unsigned int irq, struct irq_desc *desc)
 out_unlock:
 	raw_spin_unlock(&desc->lock);
 }
+EXPORT_SYMBOL(handle_edge_irq);
 
 #ifdef CONFIG_IRQ_EDGE_EOI_HANDLER
 /**

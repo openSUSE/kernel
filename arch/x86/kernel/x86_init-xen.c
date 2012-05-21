@@ -8,6 +8,7 @@
 #include <linux/ioport.h>
 #include <linux/list.h>
 #include <linux/module.h>
+#include <linux/pci.h>
 #include <linux/spinlock_types.h>
 #include <linux/threads.h>
 

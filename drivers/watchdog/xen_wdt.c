@@ -10,9 +10,10 @@
  *	2 of the License, or (at your option) any later version.
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #define DRV_NAME	"wdt"
 #define DRV_VERSION	"0.01"
-#define pr_fmt(fmt)	KBUILD_MODNAME ": " fmt
 
 #include <linux/bug.h>
 #include <linux/errno.h>

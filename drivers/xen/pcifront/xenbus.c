@@ -375,7 +375,7 @@ static int pcifront_detach_devices(struct pcifront_device *pdev)
 				domain, bus, slot, func);
 			continue;
 		}
-		pci_remove_bus_device(pci_dev);
+		pci_stop_and_remove_bus_device(pci_dev);
 		pci_dev_put(pci_dev);
 
 		dev_dbg(&pdev->xdev->dev,

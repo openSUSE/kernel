@@ -5,7 +5,7 @@
 #include <linux/sched.h>
 
 #include <asm/processor.h>
-#include <asm/system.h>
+#include <asm/special_insns.h>
 
 #define __flush_tlb() xen_tlb_flush()
 #define __flush_tlb_global() xen_tlb_flush()

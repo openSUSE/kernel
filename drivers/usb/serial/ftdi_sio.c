@@ -866,7 +866,6 @@ static struct usb_driver ftdi_driver = {
 	.probe =	usb_serial_probe,
 	.disconnect =	usb_serial_disconnect,
 	.id_table =	id_table_combined,
-	.no_dynamic_id =	1,
 };
 
 static const char *ftdi_chip_name[] = {
@@ -925,7 +924,6 @@ static struct usb_serial_driver ftdi_sio_device = {
 		.name =		"ftdi_sio",
 	},
 	.description =		"FTDI USB Serial Device",
-	.usb_driver = 		&ftdi_driver,
 	.id_table =		id_table_combined,
 	.num_ports =		1,
 	.bulk_in_size =		512,
@@ -946,6 +944,10 @@ static struct usb_serial_driver ftdi_sio_device = {
 	.ioctl =		ftdi_ioctl,
 	.set_termios =		ftdi_set_termios,
 	.break_ctl =		ftdi_break_ctl,
+};
+
+static struct usb_serial_driver * const serial_drivers[] = {
+	&ftdi_sio_device, NULL
 };
 
 
@@ -1724,7 +1726,8 @@ static void ftdi_HE_TIRA1_setup(struct ftdi_private *priv)
 
 /*
  * Module parameter to control latency timer for NDI FTDI-based USB devices.
- * If this value is not set in modprobe.conf.local its value will be set to 1ms.
+ * If this value is not set in /etc/modprobe.d/ its value will be set
+ * to 1ms.
  */
 static int ndi_latency_timer = 1;
 
@@ -2442,19 +2445,10 @@ static int __init ftdi_init(void)
 		id_table_combined[i].idVendor = vendor;
 		id_table_combined[i].idProduct = product;
 	}
-	retval = usb_serial_register(&ftdi_sio_device);
-	if (retval)
-		goto failed_sio_register;
-	retval = usb_register(&ftdi_driver);
-	if (retval)
-		goto failed_usb_register;
-
-	printk(KERN_INFO KBUILD_MODNAME ": " DRIVER_VERSION ":"
-	       DRIVER_DESC "\n");
-	return 0;
-failed_usb_register:
-	usb_serial_deregister(&ftdi_sio_device);
-failed_sio_register:
+	retval = usb_serial_register_drivers(&ftdi_driver, serial_drivers);
+	if (retval == 0)
+		printk(KERN_INFO KBUILD_MODNAME ": " DRIVER_VERSION ":"
+			       DRIVER_DESC "\n");
 	return retval;
 }
 
@@ -2462,8 +2456,7 @@ static void __exit ftdi_exit(void)
 {
 	dbg("%s", __func__);
 
-	usb_deregister(&ftdi_driver);
-	usb_serial_deregister(&ftdi_sio_device);
+	usb_serial_deregister_drivers(&ftdi_driver, serial_drivers);
 }
 
 

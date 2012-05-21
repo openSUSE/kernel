@@ -214,7 +214,7 @@ void frontswap_shrink(unsigned long target_pages)
 			pages_to_unuse = 0; /* unuse all */
 		}
 		/* ensure there is enough RAM to fetch pages from frontswap */
-		if (security_vm_enough_memory_kern(pages))
+		if (security_vm_enough_memory_mm(current->mm, pages))
 			continue;
 		vm_unacct_memory(pages);
 		break;

@@ -355,6 +355,10 @@ int __cpuinit __cpu_up(unsigned int cpu)
 	if (rc)
 		return rc;
 
+	rc = xen_smp_intr_init(cpu);
+	if (rc)
+		return rc;
+
 	cpu_initialize_context(cpu);
 
 	if (num_online_cpus() == 1)
@@ -362,10 +366,6 @@ int __cpuinit __cpu_up(unsigned int cpu)
 
 	/* This must be done before setting cpu_online_map */
 	wmb();
-
-	rc = xen_smp_intr_init(cpu);
-	if (rc)
-		return rc;
 
 	rc = HYPERVISOR_vcpu_op(VCPUOP_up, cpu, NULL);
 	if (!rc) {

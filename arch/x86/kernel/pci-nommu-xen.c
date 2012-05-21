@@ -1,6 +1,4 @@
 #include <linux/dma-mapping.h>
-#include <linux/dmar.h>
-#include <linux/bootmem.h>
 #include <linux/pci.h>
 
 #include <xen/gnttab.h>
@@ -102,8 +100,8 @@ static int nommu_dma_supported(struct device *hwdev, u64 mask)
 }
 
 struct dma_map_ops nommu_dma_ops = {
-	.alloc_coherent		= dma_generic_alloc_coherent,
-	.free_coherent		= dma_generic_free_coherent,
+	.alloc			= dma_generic_alloc_coherent,
+	.free			= dma_generic_free_coherent,
 	.map_page		= gnttab_map_page,
 	.unmap_page		= gnttab_unmap_page,
 	.map_sg			= gnttab_map_sg,

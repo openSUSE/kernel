@@ -273,7 +273,7 @@ void ext4_da_update_reserve_space(struct inode *inode,
 	trace_ext4_da_update_reserve_space(inode, used, quota_claim);
 	if (unlikely(used > ei->i_reserved_data_blocks)) {
 		ext4_msg(inode->i_sb, KERN_NOTICE, "%s: ino %lu, used %d "
-			 "with only %d reserved data blocks\n",
+			 "with only %d reserved data blocks",
 			 __func__, inode->i_ino, used,
 			 ei->i_reserved_data_blocks);
 		WARN_ON(1);
@@ -1166,7 +1166,7 @@ static void ext4_da_release_space(struct inode *inode, int to_free)
 		 */
 		ext4_msg(inode->i_sb, KERN_NOTICE, "ext4_da_release_space: "
 			 "ino %lu, to_free %d with only %d reserved "
-			 "data blocks\n", inode->i_ino, to_free,
+			 "data blocks", inode->i_ino, to_free,
 			 ei->i_reserved_data_blocks);
 		WARN_ON(1);
 		to_free = ei->i_reserved_data_blocks;
@@ -1429,20 +1429,22 @@ static void ext4_da_block_invalidatepages(struct mpage_da_data *mpd)
 static void ext4_print_free_blocks(struct inode *inode)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
-	printk(KERN_CRIT "Total free blocks count %lld\n",
+	struct super_block *sb = inode->i_sb;
+
+	ext4_msg(sb, KERN_CRIT, "Total free blocks count %lld",
 	       EXT4_C2B(EXT4_SB(inode->i_sb),
 			ext4_count_free_clusters(inode->i_sb)));
-	printk(KERN_CRIT "Free/Dirty block details\n");
-	printk(KERN_CRIT "free_blocks=%lld\n",
+	ext4_msg(sb, KERN_CRIT, "Free/Dirty block details");
+	ext4_msg(sb, KERN_CRIT, "free_blocks=%lld",
 	       (long long) EXT4_C2B(EXT4_SB(inode->i_sb),
 		percpu_counter_sum(&sbi->s_freeclusters_counter)));
-	printk(KERN_CRIT "dirty_blocks=%lld\n",
+	ext4_msg(sb, KERN_CRIT, "dirty_blocks=%lld",
 	       (long long) EXT4_C2B(EXT4_SB(inode->i_sb),
 		percpu_counter_sum(&sbi->s_dirtyclusters_counter)));
-	printk(KERN_CRIT "Block reservation details\n");
-	printk(KERN_CRIT "i_reserved_data_blocks=%u\n",
-	       EXT4_I(inode)->i_reserved_data_blocks);
-	printk(KERN_CRIT "i_reserved_meta_blocks=%u\n",
+	ext4_msg(sb, KERN_CRIT, "Block reservation details");
+	ext4_msg(sb, KERN_CRIT, "i_reserved_data_blocks=%u",
+		 EXT4_I(inode)->i_reserved_data_blocks);
+	ext4_msg(sb, KERN_CRIT, "i_reserved_meta_blocks=%u",
 	       EXT4_I(inode)->i_reserved_meta_blocks);
 	return;
 }
@@ -2765,7 +2767,7 @@ static void ext4_end_io_dio(struct kiocb *iocb, loff_t offset,
 		goto out;
 
 	ext_debug("ext4_end_io_dio(): io_end 0x%p "
-		  "for inode %lu, iocb 0x%p, offset %llu, size %llu\n",
+		  "for inode %lu, iocb 0x%p, offset %llu, size %zd\n",
  		  iocb->private, io_end->inode->i_ino, iocb, offset,
 		  size);
 
@@ -2810,8 +2812,9 @@ static void ext4_end_io_buffer_write(struct buffer_head *bh, int uptodate)
 		goto out;
 
 	if (!(io_end->inode->i_sb->s_flags & MS_ACTIVE)) {
-		printk("sb umounted, discard end_io request for inode %lu\n",
-			io_end->inode->i_ino);
+		ext4_msg(io_end->inode->i_sb, KERN_INFO,
+			 "sb umounted, discard end_io request for inode %lu",
+			 io_end->inode->i_ino);
 		ext4_free_io_end(io_end);
 		goto out;
 	}
@@ -2942,7 +2945,7 @@ static ssize_t ext4_ext_direct_IO(int rw, struct kiocb *iocb,
 					 ext4_get_block_write,
 					 ext4_end_io_dio,
 					 NULL,
-					 DIO_LOCKING | DIO_SKIP_HOLES);
+					 DIO_LOCKING);
 		if (iocb->private)
 			EXT4_I(inode)->cur_aio_dio = NULL;
 		/*
@@ -3338,16 +3341,16 @@ int ext4_punch_hole(struct file *file, loff_t offset, loff_t length)
 {
 	struct inode *inode = file->f_path.dentry->d_inode;
 	if (!S_ISREG(inode->i_mode))
-		return -ENOTSUPP;
+		return -EOPNOTSUPP;
 
 	if (!ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)) {
 		/* TODO: Add support for non extent hole punching */
-		return -ENOTSUPP;
+		return -EOPNOTSUPP;
 	}
 
 	if (EXT4_SB(inode->i_sb)->s_cluster_ratio > 1) {
 		/* TODO: Add support for bigalloc file systems */
-		return -ENOTSUPP;
+		return -EOPNOTSUPP;
 	}
 
 	return ext4_ext_punch_hole(file, offset, length);
@@ -3936,10 +3939,8 @@ static int ext4_do_update_inode(handle_t *handle,
 			ext4_update_dynamic_rev(sb);
 			EXT4_SET_RO_COMPAT_FEATURE(sb,
 					EXT4_FEATURE_RO_COMPAT_LARGE_FILE);
-			sb->s_dirt = 1;
 			ext4_handle_sync(handle);
-			err = ext4_handle_dirty_metadata(handle, NULL,
-					EXT4_SB(sb)->s_sbh);
+			err = ext4_handle_dirty_super(handle, sb);
 		}
 	}
 	raw_inode->i_generation = cpu_to_le32(inode->i_generation);
@@ -4168,11 +4169,9 @@ int ext4_setattr(struct dentry *dentry, struct iattr *attr)
 	}
 
 	if (attr->ia_valid & ATTR_SIZE) {
-		if (attr->ia_size != i_size_read(inode)) {
+		if (attr->ia_size != i_size_read(inode))
 			truncate_setsize(inode, attr->ia_size);
-			ext4_truncate(inode);
-		} else if (ext4_test_inode_flag(inode, EXT4_INODE_EOFBLOCKS))
-			ext4_truncate(inode);
+		ext4_truncate(inode);
 	}
 
 	if (!rc) {
@@ -4333,7 +4332,7 @@ int ext4_mark_iloc_dirty(handle_t *handle,
 {
 	int err = 0;
 
-	if (test_opt(inode->i_sb, I_VERSION))
+	if (IS_I_VERSION(inode))
 		inode_inc_iversion(inode);
 
 	/* the do_update_inode consumes one bh->b_count */

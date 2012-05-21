@@ -18,7 +18,8 @@ static inline phys_addr_t dma_to_phys(struct device *dev, dma_addr_t daddr)
 	return machine_to_phys(daddr);
 }
 
-void dma_generic_free_coherent(struct device *, size_t, void *, dma_addr_t);
+void dma_generic_free_coherent(struct device *, size_t, void *, dma_addr_t,
+			       struct dma_attrs *);
 
 extern int range_straddles_page_boundary(paddr_t p, size_t size);
 

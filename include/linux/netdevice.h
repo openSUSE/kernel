@@ -33,12 +33,12 @@
 #ifdef __KERNEL__
 #include <linux/pm_qos.h>
 #include <linux/timer.h>
+#include <linux/bug.h>
 #include <linux/delay.h>
 #include <linux/atomic.h>
 #include <asm/cache.h>
 #include <asm/byteorder.h>
 
-#include <linux/device.h>
 #include <linux/percpu.h>
 #include <linux/rculist.h>
 #include <linux/dmaengine.h>
@@ -56,6 +56,7 @@
 #include <linux/netdev_features.h>
 
 struct netpoll_info;
+struct device;
 struct phy_device;
 /* 802.11 specific */
 struct wireless_dev;
@@ -214,8 +215,8 @@ enum {
 #include <linux/skbuff.h>
 
 #ifdef CONFIG_RPS
-#include <linux/jump_label.h>
-extern struct jump_label_key rps_needed;
+#include <linux/static_key.h>
+extern struct static_key rps_needed;
 #endif
 
 struct neighbour;
@@ -417,7 +418,7 @@ typedef rx_handler_result_t rx_handler_func_t(struct sk_buff **pskb);
 
 extern void __napi_schedule(struct napi_struct *n);
 
-static inline int napi_disable_pending(struct napi_struct *n)
+static inline bool napi_disable_pending(struct napi_struct *n)
 {
 	return test_bit(NAPI_STATE_DISABLE, &n->state);
 }
@@ -431,7 +432,7 @@ static inline int napi_disable_pending(struct napi_struct *n)
  * insure only one NAPI poll instance runs.  We also make
  * sure there is no pending NAPI disable.
  */
-static inline int napi_schedule_prep(struct napi_struct *n)
+static inline bool napi_schedule_prep(struct napi_struct *n)
 {
 	return !napi_disable_pending(n) &&
 		!test_and_set_bit(NAPI_STATE_SCHED, &n->state);
@@ -451,13 +452,13 @@ static inline void napi_schedule(struct napi_struct *n)
 }
 
 /* Try to reschedule poll. Called by dev->poll() after napi_complete().  */
-static inline int napi_reschedule(struct napi_struct *napi)
+static inline bool napi_reschedule(struct napi_struct *napi)
 {
 	if (napi_schedule_prep(napi)) {
 		__napi_schedule(napi);
-		return 1;
+		return true;
 	}
-	return 0;
+	return false;
 }
 
 /**
@@ -1082,7 +1083,8 @@ struct net_device {
 	const struct header_ops *header_ops;
 
 	unsigned int		flags;	/* interface flags (a la BSD)	*/
-	unsigned int		priv_flags; /* Like 'flags' but invisible to userspace. */
+	unsigned int		priv_flags; /* Like 'flags' but invisible to userspace.
+					     * See if.h for definitions. */
 	unsigned short		gflags;
 	unsigned short		padded;	/* How much padding added by alloc_netdev() */
 
@@ -1400,15 +1402,6 @@ static inline bool netdev_uses_dsa_tags(struct net_device *dev)
 
 	return 0;
 }
-
-#ifndef CONFIG_NET_NS
-static inline void skb_set_dev(struct sk_buff *skb, struct net_device *dev)
-{
-	skb->dev = dev;
-}
-#else /* CONFIG_NET_NS */
-void skb_set_dev(struct sk_buff *skb, struct net_device *dev);
-#endif
 
 static inline bool netdev_uses_trailer_tags(struct net_device *dev)
 {
@@ -1867,7 +1860,7 @@ static inline void netif_tx_stop_all_queues(struct net_device *dev)
 	}
 }
 
-static inline int netif_tx_queue_stopped(const struct netdev_queue *dev_queue)
+static inline bool netif_tx_queue_stopped(const struct netdev_queue *dev_queue)
 {
 	return test_bit(__QUEUE_STATE_DRV_XOFF, &dev_queue->state);
 }
@@ -1878,17 +1871,17 @@ static inline int netif_tx_queue_stopped(const struct netdev_queue *dev_queue)
  *
  *	Test if transmit queue on device is currently unable to send.
  */
-static inline int netif_queue_stopped(const struct net_device *dev)
+static inline bool netif_queue_stopped(const struct net_device *dev)
 {
 	return netif_tx_queue_stopped(netdev_get_tx_queue(dev, 0));
 }
 
-static inline int netif_xmit_stopped(const struct netdev_queue *dev_queue)
+static inline bool netif_xmit_stopped(const struct netdev_queue *dev_queue)
 {
 	return dev_queue->state & QUEUE_STATE_ANY_XOFF;
 }
 
-static inline int netif_xmit_frozen_or_stopped(const struct netdev_queue *dev_queue)
+static inline bool netif_xmit_frozen_or_stopped(const struct netdev_queue *dev_queue)
 {
 	return dev_queue->state & QUEUE_STATE_ANY_XOFF_OR_FROZEN;
 }
@@ -1971,7 +1964,7 @@ static inline void netdev_reset_queue(struct net_device *dev_queue)
  *
  *	Test if the device has been brought up.
  */
-static inline int netif_running(const struct net_device *dev)
+static inline bool netif_running(const struct net_device *dev)
 {
 	return test_bit(__LINK_STATE_START, &dev->state);
 }
@@ -2021,16 +2014,16 @@ static inline void netif_stop_subqueue(struct net_device *dev, u16 queue_index)
  *
  * Check individual transmit queue of a device with multiple transmit queues.
  */
-static inline int __netif_subqueue_stopped(const struct net_device *dev,
-					 u16 queue_index)
+static inline bool __netif_subqueue_stopped(const struct net_device *dev,
+					    u16 queue_index)
 {
 	struct netdev_queue *txq = netdev_get_tx_queue(dev, queue_index);
 
 	return netif_tx_queue_stopped(txq);
 }
 
-static inline int netif_subqueue_stopped(const struct net_device *dev,
-					 struct sk_buff *skb)
+static inline bool netif_subqueue_stopped(const struct net_device *dev,
+					  struct sk_buff *skb)
 {
 	return __netif_subqueue_stopped(dev, skb_get_queue_mapping(skb));
 }
@@ -2069,7 +2062,7 @@ static inline u16 skb_tx_hash(const struct net_device *dev,
  *
  * Check if device has multiple transmit queues
  */
-static inline int netif_is_multiqueue(const struct net_device *dev)
+static inline bool netif_is_multiqueue(const struct net_device *dev)
 {
 	return dev->num_tx_queues > 1;
 }
@@ -2139,7 +2132,7 @@ extern int netdev_rx_handler_register(struct net_device *dev,
 				      void *rx_handler_data);
 extern void netdev_rx_handler_unregister(struct net_device *dev);
 
-extern int		dev_valid_name(const char *name);
+extern bool		dev_valid_name(const char *name);
 extern int		dev_ioctl(struct net *net, unsigned int cmd, void __user *);
 extern int		dev_ethtool(struct net *net, struct ifreq *);
 extern unsigned		dev_get_flags(const struct net_device *);
@@ -2205,7 +2198,7 @@ extern void linkwatch_forget_dev(struct net_device *dev);
  *
  * Check if carrier is present on device
  */
-static inline int netif_carrier_ok(const struct net_device *dev)
+static inline bool netif_carrier_ok(const struct net_device *dev)
 {
 	return !test_bit(__LINK_STATE_NOCARRIER, &dev->state);
 }
@@ -2257,7 +2250,7 @@ static inline void netif_dormant_off(struct net_device *dev)
  *
  * Check if carrier is present on device
  */
-static inline int netif_dormant(const struct net_device *dev)
+static inline bool netif_dormant(const struct net_device *dev)
 {
 	return test_bit(__LINK_STATE_DORMANT, &dev->state);
 }
@@ -2269,7 +2262,7 @@ static inline int netif_dormant(const struct net_device *dev)
  *
  * Check if carrier is operational
  */
-static inline int netif_oper_up(const struct net_device *dev)
+static inline bool netif_oper_up(const struct net_device *dev)
 {
 	return (dev->operstate == IF_OPER_UP ||
 		dev->operstate == IF_OPER_UNKNOWN /* backward compat */);
@@ -2281,7 +2274,7 @@ static inline int netif_oper_up(const struct net_device *dev)
  *
  * Check if device has not been removed from system.
  */
-static inline int netif_device_present(struct net_device *dev)
+static inline bool netif_device_present(struct net_device *dev)
 {
 	return test_bit(__LINK_STATE_PRESENT, &dev->state);
 }
@@ -2351,9 +2344,9 @@ static inline void __netif_tx_lock_bh(struct netdev_queue *txq)
 	txq->xmit_lock_owner = smp_processor_id();
 }
 
-static inline int __netif_tx_trylock(struct netdev_queue *txq)
+static inline bool __netif_tx_trylock(struct netdev_queue *txq)
 {
-	int ok = spin_trylock(&txq->_xmit_lock);
+	bool ok = spin_trylock(&txq->_xmit_lock);
 	if (likely(ok))
 		txq->xmit_lock_owner = smp_processor_id();
 	return ok;
@@ -2574,6 +2567,8 @@ extern void		dev_load(struct net *net, const char *name);
 extern void		dev_mcast_init(void);
 extern struct rtnl_link_stats64 *dev_get_stats(struct net_device *dev,
 					       struct rtnl_link_stats64 *storage);
+extern void netdev_stats_to_stats64(struct rtnl_link_stats64 *stats64,
+				    const struct net_device_stats *netdev_stats);
 
 extern int		netdev_max_backlog;
 extern int		netdev_tstamp_prequeue;
@@ -2627,7 +2622,7 @@ void netif_stacked_transfer_operstate(const struct net_device *rootdev,
 
 netdev_features_t netif_skb_features(struct sk_buff *skb);
 
-static inline int net_gso_ok(netdev_features_t features, int gso_type)
+static inline bool net_gso_ok(netdev_features_t features, int gso_type)
 {
 	netdev_features_t feature = gso_type << NETIF_F_GSO_SHIFT;
 
@@ -2642,17 +2637,18 @@ static inline int net_gso_ok(netdev_features_t features, int gso_type)
 	return (features & feature) == feature;
 }
 
-static inline int skb_gso_ok(struct sk_buff *skb, netdev_features_t features)
+static inline bool skb_gso_ok(struct sk_buff *skb, netdev_features_t features)
 {
 	return net_gso_ok(features, skb_shinfo(skb)->gso_type) &&
 	       (!skb_has_frag_list(skb) || (features & NETIF_F_FRAGLIST));
 }
 
-static inline int netif_needs_gso(struct sk_buff *skb,
-	netdev_features_t features)
+static inline bool netif_needs_gso(struct sk_buff *skb,
+				   netdev_features_t features)
 {
 	return skb_is_gso(skb) && (!skb_gso_ok(skb, features) ||
-		unlikely(skb->ip_summed != CHECKSUM_PARTIAL));
+		unlikely((skb->ip_summed != CHECKSUM_PARTIAL) &&
+			 (skb->ip_summed != CHECKSUM_UNNECESSARY)));
 }
 
 static inline void netif_set_gso_max_size(struct net_device *dev,
@@ -2661,9 +2657,14 @@ static inline void netif_set_gso_max_size(struct net_device *dev,
 	dev->gso_max_size = size;
 }
 
-static inline int netif_is_bond_slave(struct net_device *dev)
+static inline bool netif_is_bond_slave(struct net_device *dev)
 {
 	return dev->flags & IFF_SLAVE && dev->priv_flags & IFF_BONDING;
+}
+
+static inline bool netif_supports_nofcs(struct net_device *dev)
+{
+	return dev->priv_flags & IFF_SUPP_NOFCS;
 }
 
 extern struct pernet_operations __net_initdata loopback_net_ops;
@@ -2703,14 +2704,14 @@ int netdev_info(const struct net_device *dev, const char *format, ...);
 #define MODULE_ALIAS_NETDEV(device) \
 	MODULE_ALIAS("netdev-" device)
 
-#if defined(DEBUG)
-#define netdev_dbg(__dev, format, args...)			\
-	netdev_printk(KERN_DEBUG, __dev, format, ##args)
-#elif defined(CONFIG_DYNAMIC_DEBUG)
+#if defined(CONFIG_DYNAMIC_DEBUG)
 #define netdev_dbg(__dev, format, args...)			\
 do {								\
 	dynamic_netdev_dbg(__dev, format, ##args);		\
 } while (0)
+#elif defined(DEBUG)
+#define netdev_dbg(__dev, format, args...)			\
+	netdev_printk(KERN_DEBUG, __dev, format, ##args)
 #else
 #define netdev_dbg(__dev, format, args...)			\
 ({								\

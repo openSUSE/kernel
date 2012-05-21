@@ -1,6 +1,5 @@
 #include <linux/dma-mapping.h>
 #include <linux/dma-debug.h>
-#include <linux/dmar.h>
 #include <linux/export.h>
 #include <linux/bootmem.h>
 #include <linux/gfp.h>
@@ -10,8 +9,6 @@
 #include <asm/proto.h>
 #include <asm/dma.h>
 #include <asm/iommu.h>
-#include <asm/gart.h>
-#include <asm/calgary.h>
 #include <asm/x86_init.h>
 #include <asm/iommu_table.h>
 
@@ -81,8 +78,8 @@ int dma_set_mask(struct device *dev, u64 mask)
 EXPORT_SYMBOL(dma_set_mask);
 
 static struct dma_map_ops swiotlb_dma_ops = {
-	.alloc_coherent = dma_generic_alloc_coherent,
-	.free_coherent = dma_generic_free_coherent,
+	.alloc = dma_generic_alloc_coherent,
+	.free = dma_generic_free_coherent,
 	.mapping_error = swiotlb_dma_mapping_error,
 	.map_page = swiotlb_map_page,
 	.unmap_page = swiotlb_unmap_page,
@@ -129,7 +126,8 @@ void __init pci_iommu_alloc(void)
 	}
 }
 void *dma_generic_alloc_coherent(struct device *dev, size_t size,
-				 dma_addr_t *dma_addr, gfp_t flag)
+				 dma_addr_t *dma_addr, gfp_t flag,
+				 struct dma_attrs *attrs)
 {
 	unsigned long dma_mask;
 	struct page *page;
@@ -182,7 +180,7 @@ again:
 
 #ifdef CONFIG_XEN
 void dma_generic_free_coherent(struct device *dev, size_t size, void *vaddr,
-			       dma_addr_t dma_addr)
+			       dma_addr_t dma_addr, struct dma_attrs *attrs)
 {
 	unsigned int order = get_order(size);
 	unsigned long va = (unsigned long)vaddr;
@@ -247,9 +245,9 @@ static __init int iommu_setup(char *p)
 			iommu_pass_through = 1;
 		if (!strncmp(p, "group_mf", 8))
 			iommu_group_mf = 1;
-#endif
 
 		gart_parse_options(p);
+#endif
 
 #ifdef CONFIG_CALGARY_IOMMU
 		if (!strncmp(p, "calgary", 7))
@@ -357,10 +355,11 @@ rootfs_initcall(pci_iommu_init);
 
 static __devinit void via_no_dac(struct pci_dev *dev)
 {
-	if ((dev->class >> 8) == PCI_CLASS_BRIDGE_PCI && forbid_dac == 0) {
+	if (forbid_dac == 0) {
 		dev_info(&dev->dev, "disabling DAC on VIA PCI bridge\n");
 		forbid_dac = 1;
 	}
 }
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_VIA, PCI_ANY_ID, via_no_dac);
+DECLARE_PCI_FIXUP_CLASS_FINAL(PCI_VENDOR_ID_VIA, PCI_ANY_ID,
+				PCI_CLASS_BRIDGE_PCI, 8, via_no_dac);
 #endif

@@ -214,7 +214,7 @@ static void get_time_values_from_xen(unsigned int cpu)
 static inline int time_values_up_to_date(void)
 {
 	rmb();
-	return percpu_read(shadow_time.version) == vcpu_info_read(time.version);
+	return this_cpu_read(shadow_time.version) == vcpu_info_read(time.version);
 }
 
 #ifdef CONFIG_XEN_PRIVILEGED_GUEST

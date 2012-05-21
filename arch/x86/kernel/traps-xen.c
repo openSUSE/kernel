@@ -50,10 +50,10 @@
 #include <asm/processor.h>
 #include <asm/debugreg.h>
 #include <linux/atomic.h>
-#include <asm/system.h>
 #include <asm/traps.h>
 #include <asm/desc.h>
 #include <asm/i387.h>
+#include <asm/fpu-internal.h>
 #include <asm/mce.h>
 
 #include <asm/mach_traps.h>
@@ -123,7 +123,7 @@ do_trap(int trapnr, int signr, char *str, struct pt_regs *regs,
 		 * traps 0, 1, 3, 4, and 5 should be forwarded to vm86.
 		 * On nmi (interrupt 2), do_trap should not be called.
 		 */
-		if (trapnr < 6)
+		if (trapnr < X86_TRAP_UD)
 			goto vm86_trap;
 		goto trap_signal;
 	}
@@ -136,7 +136,7 @@ do_trap(int trapnr, int signr, char *str, struct pt_regs *regs,
 trap_signal:
 #endif
 	/*
-	 * We want error_code and trap_no set for userspace faults and
+	 * We want error_code and trap_nr set for userspace faults and
 	 * kernelspace faults which result in die(), but not
 	 * kernelspace faults which are fixed up.  die() gives the
 	 * process no chance to handle the signal and notice the
@@ -145,7 +145,7 @@ trap_signal:
 	 * delivered, faults.  See also do_general_protection below.
 	 */
 	tsk->thread.error_code = error_code;
-	tsk->thread.trap_no = trapnr;
+	tsk->thread.trap_nr = trapnr;
 
 #ifdef CONFIG_X86_64
 	if (show_unhandled_signals && unhandled_signal(tsk, signr) &&
@@ -168,7 +168,7 @@ trap_signal:
 kernel_trap:
 	if (!fixup_exception(regs)) {
 		tsk->thread.error_code = error_code;
-		tsk->thread.trap_no = trapnr;
+		tsk->thread.trap_nr = trapnr;
 		die(str, regs, error_code);
 	}
 	return;
@@ -207,27 +207,31 @@ dotraplinkage void do_##name(struct pt_regs *regs, long error_code)	\
 	do_trap(trapnr, signr, str, regs, error_code, &info);		\
 }
 
-DO_ERROR_INFO(0, SIGFPE, "divide error", divide_error, FPE_INTDIV, regs->ip)
-DO_ERROR(4, SIGSEGV, "overflow", overflow)
-DO_ERROR(5, SIGSEGV, "bounds", bounds)
-DO_ERROR_INFO(6, SIGILL, "invalid opcode", invalid_op, ILL_ILLOPN, regs->ip)
-DO_ERROR(9, SIGFPE, "coprocessor segment overrun", coprocessor_segment_overrun)
-DO_ERROR(10, SIGSEGV, "invalid TSS", invalid_TSS)
-DO_ERROR(11, SIGBUS, "segment not present", segment_not_present)
+DO_ERROR_INFO(X86_TRAP_DE, SIGFPE, "divide error", divide_error, FPE_INTDIV,
+		regs->ip)
+DO_ERROR(X86_TRAP_OF, SIGSEGV, "overflow", overflow)
+DO_ERROR(X86_TRAP_BR, SIGSEGV, "bounds", bounds)
+DO_ERROR_INFO(X86_TRAP_UD, SIGILL, "invalid opcode", invalid_op, ILL_ILLOPN,
+		regs->ip)
+DO_ERROR(X86_TRAP_OLD_MF, SIGFPE, "coprocessor segment overrun",
+		coprocessor_segment_overrun)
+DO_ERROR(X86_TRAP_TS, SIGSEGV, "invalid TSS", invalid_TSS)
+DO_ERROR(X86_TRAP_NP, SIGBUS, "segment not present", segment_not_present)
 #ifdef CONFIG_X86_32
-DO_ERROR(12, SIGBUS, "stack segment", stack_segment)
+DO_ERROR(X86_TRAP_SS, SIGBUS, "stack segment", stack_segment)
 #endif
-DO_ERROR_INFO(17, SIGBUS, "alignment check", alignment_check, BUS_ADRALN, 0)
+DO_ERROR_INFO(X86_TRAP_AC, SIGBUS, "alignment check", alignment_check,
+		BUS_ADRALN, 0)
 
 #ifdef CONFIG_X86_64
 /* Runs on IST stack */
 dotraplinkage void do_stack_segment(struct pt_regs *regs, long error_code)
 {
 	if (notify_die(DIE_TRAP, "stack segment", regs, error_code,
-			12, SIGBUS) == NOTIFY_STOP)
+			X86_TRAP_SS, SIGBUS) == NOTIFY_STOP)
 		return;
 	preempt_conditional_sti(regs);
-	do_trap(12, SIGBUS, "stack segment", regs, error_code, NULL);
+	do_trap(X86_TRAP_SS, SIGBUS, "stack segment", regs, error_code, NULL);
 	preempt_conditional_cli(regs);
 }
 
@@ -237,10 +241,10 @@ dotraplinkage void do_double_fault(struct pt_regs *regs, long error_code)
 	struct task_struct *tsk = current;
 
 	/* Return not checked because double check cannot be ignored */
-	notify_die(DIE_TRAP, str, regs, error_code, 8, SIGSEGV);
+	notify_die(DIE_TRAP, str, regs, error_code, X86_TRAP_DF, SIGSEGV);
 
 	tsk->thread.error_code = error_code;
-	tsk->thread.trap_no = 8;
+	tsk->thread.trap_nr = X86_TRAP_DF;
 
 	/*
 	 * This is always a kernel trap and never fixable (and thus must
@@ -268,7 +272,7 @@ do_general_protection(struct pt_regs *regs, long error_code)
 		goto gp_in_kernel;
 
 	tsk->thread.error_code = error_code;
-	tsk->thread.trap_no = 13;
+	tsk->thread.trap_nr = X86_TRAP_GP;
 
 	if (show_unhandled_signals && unhandled_signal(tsk, SIGSEGV) &&
 			printk_ratelimit()) {
@@ -295,9 +299,9 @@ gp_in_kernel:
 		return;
 
 	tsk->thread.error_code = error_code;
-	tsk->thread.trap_no = 13;
-	if (notify_die(DIE_GPF, "general protection fault", regs,
-				error_code, 13, SIGSEGV) == NOTIFY_STOP)
+	tsk->thread.trap_nr = X86_TRAP_GP;
+	if (notify_die(DIE_GPF, "general protection fault", regs, error_code,
+			X86_TRAP_GP, SIGSEGV) == NOTIFY_STOP)
 		return;
 	die("general protection fault", regs, error_code);
 }
@@ -306,13 +310,13 @@ gp_in_kernel:
 dotraplinkage void __kprobes do_int3(struct pt_regs *regs, long error_code)
 {
 #ifdef CONFIG_KGDB_LOW_LEVEL_TRAP
-	if (kgdb_ll_trap(DIE_INT3, "int3", regs, error_code, 3, SIGTRAP)
-			== NOTIFY_STOP)
+	if (kgdb_ll_trap(DIE_INT3, "int3", regs, error_code, X86_TRAP_BP,
+				SIGTRAP) == NOTIFY_STOP)
 		return;
 #endif /* CONFIG_KGDB_LOW_LEVEL_TRAP */
 
-	if (notify_die(DIE_INT3, "int3", regs, error_code, 3, SIGTRAP)
-			== NOTIFY_STOP)
+	if (notify_die(DIE_INT3, "int3", regs, error_code, X86_TRAP_BP,
+			SIGTRAP) == NOTIFY_STOP)
 		return;
 
 	/*
@@ -321,7 +325,7 @@ dotraplinkage void __kprobes do_int3(struct pt_regs *regs, long error_code)
 	 */
 	debug_stack_usage_inc();
 	preempt_conditional_sti(regs);
-	do_trap(3, SIGTRAP, "int3", regs, error_code, NULL);
+	do_trap(X86_TRAP_BP, SIGTRAP, "int3", regs, error_code, NULL);
 	preempt_conditional_cli(regs);
 	debug_stack_usage_dec();
 }
@@ -426,8 +430,8 @@ dotraplinkage void __kprobes do_debug(struct pt_regs *regs, long error_code)
 	preempt_conditional_sti(regs);
 
 	if (regs->flags & X86_VM_MASK) {
-		handle_vm86_trap((struct kernel_vm86_regs *) regs,
-				error_code, 1);
+		handle_vm86_trap((struct kernel_vm86_regs *) regs, error_code,
+					X86_TRAP_DB);
 		preempt_conditional_cli(regs);
 		debug_stack_usage_dec();
 		return;
@@ -464,7 +468,8 @@ void math_error(struct pt_regs *regs, int error_code, int trapnr)
 	struct task_struct *task = current;
 	siginfo_t info;
 	unsigned short err;
-	char *str = (trapnr == 16) ? "fpu exception" : "simd exception";
+	char *str = (trapnr == X86_TRAP_MF) ? "fpu exception" :
+						"simd exception";
 
 	if (notify_die(DIE_TRAP, str, regs, error_code, trapnr, SIGFPE) == NOTIFY_STOP)
 		return;
@@ -474,7 +479,7 @@ void math_error(struct pt_regs *regs, int error_code, int trapnr)
 	{
 		if (!fixup_exception(regs)) {
 			task->thread.error_code = error_code;
-			task->thread.trap_no = trapnr;
+			task->thread.trap_nr = trapnr;
 			die(str, regs, error_code);
 		}
 		return;
@@ -484,12 +489,12 @@ void math_error(struct pt_regs *regs, int error_code, int trapnr)
 	 * Save the info for the exception handler and clear the error.
 	 */
 	save_init_fpu(task);
-	task->thread.trap_no = trapnr;
+	task->thread.trap_nr = trapnr;
 	task->thread.error_code = error_code;
 	info.si_signo = SIGFPE;
 	info.si_errno = 0;
 	info.si_addr = (void __user *)regs->ip;
-	if (trapnr == 16) {
+	if (trapnr == X86_TRAP_MF) {
 		unsigned short cwd, swd;
 		/*
 		 * (~cwd & swd) will mask out exceptions that are not set to unmasked
@@ -533,10 +538,11 @@ void math_error(struct pt_regs *regs, int error_code, int trapnr)
 		info.si_code = FPE_FLTRES;
 	} else {
 		/*
-		 * If we're using IRQ 13, or supposedly even some trap 16
-		 * implementations, it's possible we get a spurious trap...
+		 * If we're using IRQ 13, or supposedly even some trap
+		 * X86_TRAP_MF implementations, it's possible
+		 * we get a spurious trap, which is not an error.
 		 */
-		return;		/* Spurious trap, no error */
+		return;
 	}
 	force_sig_info(SIGFPE, &info, task);
 }
@@ -547,13 +553,13 @@ dotraplinkage void do_coprocessor_error(struct pt_regs *regs, long error_code)
 	ignore_fpu_irq = 1;
 #endif
 
-	math_error(regs, error_code, 16);
+	math_error(regs, error_code, X86_TRAP_MF);
 }
 
 dotraplinkage void
 do_simd_coprocessor_error(struct pt_regs *regs, long error_code)
 {
-	math_error(regs, error_code, 19);
+	math_error(regs, error_code, X86_TRAP_XF);
 }
 
 #ifndef CONFIG_XEN
@@ -649,10 +655,11 @@ dotraplinkage void do_iret_error(struct pt_regs *regs, long error_code)
 	info.si_errno = 0;
 	info.si_code = ILL_BADSTK;
 	info.si_addr = NULL;
-	if (notify_die(DIE_TRAP, "iret exception",
-			regs, error_code, 32, SIGILL) == NOTIFY_STOP)
+	if (notify_die(DIE_TRAP, "iret exception", regs, error_code,
+			X86_TRAP_IRET, SIGILL) == NOTIFY_STOP)
 		return;
-	do_trap(32, SIGILL, "iret exception", regs, error_code, &info);
+	do_trap(X86_TRAP_IRET, SIGILL, "iret exception", regs, error_code,
+		&info);
 }
 #endif
 
@@ -666,38 +673,38 @@ dotraplinkage void do_iret_error(struct pt_regs *regs, long error_code)
 #define X 4
 #endif
 static const trap_info_t __initconst early_trap_table[] = {
-	{  1, 0|4, __KERNEL_CS, (unsigned long)debug			},
-	{  3, 3|4, __KERNEL_CS, (unsigned long)int3			},
-	{ 14, 0|4, __KERNEL_CS, (unsigned long)page_fault		},
-	{  0, 0,	   0, 0						}
+	{ X86_TRAP_DB, 0|4, __KERNEL_CS, (unsigned long)debug			},
+	{ X86_TRAP_BP, 3|4, __KERNEL_CS, (unsigned long)int3			},
+	{ X86_TRAP_PF, 0|4, __KERNEL_CS, (unsigned long)page_fault		},
+	{ }
 };
 static const trap_info_t __cpuinitconst trap_table[] = {
-	{  0, 0|X, __KERNEL_CS, (unsigned long)divide_error		},
-	{  1, 0|4, __KERNEL_CS, (unsigned long)debug			},
-	{  3, 3|4, __KERNEL_CS, (unsigned long)int3			},
-	{  4, 3|X, __KERNEL_CS, (unsigned long)overflow			},
-	{  5, 0|X, __KERNEL_CS, (unsigned long)bounds			},
-	{  6, 0|X, __KERNEL_CS, (unsigned long)invalid_op		},
-	{  7, 0|4, __KERNEL_CS, (unsigned long)device_not_available	},
-	{  9, 0|X, __KERNEL_CS, (unsigned long)coprocessor_segment_overrun },
-	{ 10, 0|X, __KERNEL_CS, (unsigned long)invalid_TSS		},
-	{ 11, 0|X, __KERNEL_CS, (unsigned long)segment_not_present	},
-	{ 12, 0|X, __KERNEL_CS, (unsigned long)stack_segment		},
-	{ 13, 0|X, __KERNEL_CS, (unsigned long)general_protection	},
-	{ 14, 0|4, __KERNEL_CS, (unsigned long)page_fault		},
-	{ 16, 0|X, __KERNEL_CS, (unsigned long)coprocessor_error	},
-	{ 17, 0|X, __KERNEL_CS, (unsigned long)alignment_check		},
+	{ X86_TRAP_DE, 0|X, __KERNEL_CS, (unsigned long)divide_error		},
+	{ X86_TRAP_DB, 0|4, __KERNEL_CS, (unsigned long)debug			},
+	{ X86_TRAP_BP, 3|4, __KERNEL_CS, (unsigned long)int3			},
+	{ X86_TRAP_OF, 3|X, __KERNEL_CS, (unsigned long)overflow		},
+	{ X86_TRAP_BR, 0|X, __KERNEL_CS, (unsigned long)bounds			},
+	{ X86_TRAP_UD, 0|X, __KERNEL_CS, (unsigned long)invalid_op		},
+	{ X86_TRAP_NM, 0|4, __KERNEL_CS, (unsigned long)device_not_available	},
+	{ X86_TRAP_OLD_MF, 0|X, __KERNEL_CS, (unsigned long)coprocessor_segment_overrun },
+	{ X86_TRAP_TS, 0|X, __KERNEL_CS, (unsigned long)invalid_TSS		},
+	{ X86_TRAP_NP, 0|X, __KERNEL_CS, (unsigned long)segment_not_present	},
+	{ X86_TRAP_SS, 0|X, __KERNEL_CS, (unsigned long)stack_segment		},
+	{ X86_TRAP_GP, 0|X, __KERNEL_CS, (unsigned long)general_protection	},
+	{ X86_TRAP_PF, 0|4, __KERNEL_CS, (unsigned long)page_fault		},
+	{ X86_TRAP_MF, 0|X, __KERNEL_CS, (unsigned long)coprocessor_error	},
+	{ X86_TRAP_AC, 0|X, __KERNEL_CS, (unsigned long)alignment_check		},
 #ifdef CONFIG_X86_MCE
-	{ 18, 0|X, __KERNEL_CS, (unsigned long)machine_check		},
+	{ X86_TRAP_MC, 0|X, __KERNEL_CS, (unsigned long)machine_check		},
 #endif
-	{ 19, 0|X, __KERNEL_CS, (unsigned long)simd_coprocessor_error	},
+	{ X86_TRAP_XF, 0|X, __KERNEL_CS, (unsigned long)simd_coprocessor_error	},
 #ifdef CONFIG_X86_32
-	{ 15, 0, __KERNEL_CS, (unsigned long)fixup_4gb_segment		},
+	{ X86_TRAP_SPURIOUS, 0, __KERNEL_CS, (unsigned long)fixup_4gb_segment	},
 	{ SYSCALL_VECTOR,  3, __KERNEL_CS, (unsigned long)system_call	},
 #elif defined(CONFIG_IA32_EMULATION)
 	{ IA32_SYSCALL_VECTOR, 3, __KERNEL_CS, (unsigned long)ia32_syscall },
 #endif
-	{  0, 0,	   0, 0						}
+	{ }
 };
 
 /* Set of traps needed for early debugging. */
@@ -724,12 +731,6 @@ void __init trap_init(void)
 	cpu_init();
 
 	x86_init.irqs.trap_init();
-
-#if defined(CONFIG_X86_64) && !defined(CONFIG_X86_NO_IDT)
-	memcpy(&nmi_idt_table, &idt_table, IDT_ENTRIES * 16);
-	set_nmi_gate(1, &debug);
-	set_nmi_gate(3, &int3);
-#endif
 }
 
 void __cpuinit smp_trap_init(trap_info_t *trap_ctxt)

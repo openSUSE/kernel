@@ -90,6 +90,7 @@ typedef struct blkif_x86_64_request blkif_x86_64_request_t;
 typedef struct blkif_x86_64_discard blkif_x86_64_discard_t;
 typedef struct blkif_x86_64_response blkif_x86_64_response_t;
 
+#define blkif_native_sring blkif_sring
 DEFINE_RING_TYPES(blkif_common, struct blkif_common_request, struct blkif_common_response);
 DEFINE_RING_TYPES(blkif_x86_32, struct blkif_x86_32_request, struct blkif_x86_32_response);
 DEFINE_RING_TYPES(blkif_x86_64, struct blkif_x86_64_request, struct blkif_x86_64_response);

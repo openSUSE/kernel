@@ -567,19 +567,19 @@ static int connect_ring(struct backend_info *be)
 	}
 
 	be->blkif->blk_protocol = BLKIF_PROTOCOL_NATIVE;
-	err = xenbus_gather(XBT_NIL, dev->otherend, "protocol",
-			    NULL, &protocol, NULL);
-	if (err) {
+	protocol = xenbus_read(XBT_NIL, dev->otherend, "protocol", NULL);
+	if (IS_ERR(protocol)) {
 		protocol = NULL;
 		be->blkif->blk_protocol = xen_guest_blkif_protocol(be->blkif->domid);
-	}
-	else if (0 == strcmp(protocol, XEN_IO_PROTO_ABI_NATIVE))
-		be->blkif->blk_protocol = BLKIF_PROTOCOL_NATIVE;
-	else if (0 == strcmp(protocol, XEN_IO_PROTO_ABI_X86_32))
+#ifndef CONFIG_X86_32
+	} else if (0 == strcmp(protocol, XEN_IO_PROTO_ABI_X86_32)) {
 		be->blkif->blk_protocol = BLKIF_PROTOCOL_X86_32;
-	else if (0 == strcmp(protocol, XEN_IO_PROTO_ABI_X86_64))
+#endif
+#ifndef CONFIG_X86_64
+	} else if (0 == strcmp(protocol, XEN_IO_PROTO_ABI_X86_64)) {
 		be->blkif->blk_protocol = BLKIF_PROTOCOL_X86_64;
-	else {
+#endif
+	} else if (0 != strcmp(protocol, XEN_IO_PROTO_ABI_NATIVE)) {
 		xenbus_dev_fatal(dev, err, "unknown fe protocol %s", protocol);
 		kfree(protocol);
 		return -1;

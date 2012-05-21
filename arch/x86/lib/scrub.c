@@ -2,7 +2,7 @@
 #include <asm/page.h>
 #include <asm/processor.h>
 
-void scrub_pages(void *v, unsigned int count)
+void xen_scrub_pages(void *v, unsigned int count)
 {
 	if (likely(cpu_has_xmm2)) {
 		unsigned long n = count * (PAGE_SIZE / sizeof(long) / 4);

@@ -231,8 +231,8 @@ int __cpuinit local_setup_timer(unsigned int cpu)
 		return evt->irq;
 	BUG_ON(per_cpu(xen_clock_event.irq, 0) != evt->irq);
 
-	evt->set_mode = percpu_read(xen_clock_event.set_mode);
-	evt->set_next_event = percpu_read(xen_clock_event.set_next_event);
+	evt->set_mode = this_cpu_read(xen_clock_event.set_mode);
+	evt->set_next_event = this_cpu_read(xen_clock_event.set_next_event);
 
 	return 0;
 }
@@ -250,7 +250,7 @@ void xen_clockevents_resume(void)
 {
 	unsigned int cpu;
 
-	if (percpu_read(xen_clock_event.set_mode) != vcpuop_set_mode)
+	if (__this_cpu_read(xen_clock_event.set_mode) != vcpuop_set_mode)
 		return;
 
 	for_each_online_cpu(cpu) {

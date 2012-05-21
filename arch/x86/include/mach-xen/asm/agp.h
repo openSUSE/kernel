@@ -3,7 +3,7 @@
 
 #include <asm/pgtable.h>
 #include <asm/cacheflush.h>
-#include <asm/system.h>
+#include <asm/special_insns.h>
 
 /*
  * Functions to keep the agpgart mappings coherent with the MMU. The

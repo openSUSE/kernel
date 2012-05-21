@@ -246,6 +246,18 @@ static struct processor_extcntl_ops xen_extcntl_ops = {
 	.hotplug		= xen_hotplug_notifier,
 };
 
+static int xen_sleep(u8 sleep_state, u32 pm1a_ctrl, u32 pm1b_ctrl)
+{
+	int err = acpi_notify_hypervisor_state(sleep_state,
+					       pm1a_ctrl, pm1b_ctrl);
+
+	if (!err)
+		return 1;
+
+	pr_err("ACPI: Hypervisor failure [%d]\n", err);
+	return -1;
+}
+
 static int __init init_extcntl(void)
 {
 	unsigned int pmbits = (xen_start_info->flags & SIF_PM_MASK) >> 8;
@@ -262,6 +274,8 @@ static int __init init_extcntl(void)
 		xen_extcntl_ops.pm_ops[PM_TYPE_THR] = xen_tx_notifier;
 
 	processor_extcntl_ops = &xen_extcntl_ops;
+
+	acpi_os_set_prepare_sleep(xen_sleep);
 
 	return 0;
 }

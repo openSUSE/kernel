@@ -148,7 +148,7 @@ static int dtv_property_legacy_params_sync(struct dvb_frontend *fe,
 
 static bool has_get_frontend(struct dvb_frontend *fe)
 {
-	return fe->ops.get_frontend;
+	return fe->ops.get_frontend != NULL;
 }
 
 /*
@@ -1921,6 +1921,10 @@ static int dtv_set_frontend(struct dvb_frontend *fe)
 	} else {
 		/* default values */
 		switch (c->delivery_system) {
+		case SYS_DVBS:
+		case SYS_DVBS2:
+		case SYS_ISDBS:
+		case SYS_TURBO:
 		case SYS_DVBC_ANNEX_A:
 		case SYS_DVBC_ANNEX_C:
 			fepriv->min_delay = HZ / 20;

@@ -559,7 +559,7 @@ struct xen_domctl_ext_vcpucontext {
     uint32_t         vcpu;
     /*
      * SET: Size of struct (IN)
-     * GET: Size of struct (OUT)
+     * GET: Size of struct (OUT, up to 128 bytes)
      */
     uint32_t         size;
 #if defined(__i386__) || defined(__x86_64__)
@@ -571,6 +571,7 @@ struct xen_domctl_ext_vcpucontext {
     uint16_t         sysenter_callback_cs;
     uint8_t          syscall32_disables_events;
     uint8_t          sysenter_disables_events;
+    uint64_aligned_t mcg_cap;
 #endif
 };
 typedef struct xen_domctl_ext_vcpucontext xen_domctl_ext_vcpucontext_t;
@@ -710,48 +711,61 @@ struct xen_domctl_gdbsx_domstatus {
 /* XEN_DOMCTL_mem_event_op */
 
 /*
-* Domain memory paging
- * Page memory in and out. 
+ * Domain memory paging
+ * Page memory in and out.
+ * Domctl interface to set up and tear down the 
+ * pager<->hypervisor interface. Use XENMEM_paging_op*
+ * to perform per-page operations.
  */
 #define XEN_DOMCTL_MEM_EVENT_OP_PAGING            1
 
 #define XEN_DOMCTL_MEM_EVENT_OP_PAGING_ENABLE     0
 #define XEN_DOMCTL_MEM_EVENT_OP_PAGING_DISABLE    1
-#define XEN_DOMCTL_MEM_EVENT_OP_PAGING_NOMINATE   2
-#define XEN_DOMCTL_MEM_EVENT_OP_PAGING_EVICT      3
-#define XEN_DOMCTL_MEM_EVENT_OP_PAGING_PREP       4
-#define XEN_DOMCTL_MEM_EVENT_OP_PAGING_RESUME     5
 
 /*
  * Access permissions.
  *
+ * As with paging, use the domctl for teardown/setup of the
+ * helper<->hypervisor interface.
+ *
  * There are HVM hypercalls to set the per-page access permissions of every
  * page in a domain.  When one of these permissions--independent, read, 
  * write, and execute--is violated, the VCPU is paused and a memory event 
- * is sent with what happened.  (See public/mem_event.h)  The memory event 
- * handler can then resume the VCPU and redo the access with an 
- * ACCESS_RESUME mode for the following domctl.
+ * is sent with what happened.  (See public/mem_event.h) .
+ *
+ * The memory event handler can then resume the VCPU and redo the access 
+ * with a XENMEM_access_op_resume hypercall.
  */
 #define XEN_DOMCTL_MEM_EVENT_OP_ACCESS            2
 
 #define XEN_DOMCTL_MEM_EVENT_OP_ACCESS_ENABLE     0
 #define XEN_DOMCTL_MEM_EVENT_OP_ACCESS_DISABLE    1
-#define XEN_DOMCTL_MEM_EVENT_OP_ACCESS_RESUME     2
 
+/*
+ * Sharing ENOMEM helper.
+ *
+ * As with paging, use the domctl for teardown/setup of the
+ * helper<->hypervisor interface.
+ *
+ * If setup, this ring is used to communicate failed allocations
+ * in the unshare path. XENMEM_sharing_op_resume is used to wake up
+ * vcpus that could not unshare.
+ *
+ * Note that shring can be turned on (as per the domctl below)
+ * *without* this ring being setup.
+ */
+#define XEN_DOMCTL_MEM_EVENT_OP_SHARING           3
+
+#define XEN_DOMCTL_MEM_EVENT_OP_SHARING_ENABLE    0
+#define XEN_DOMCTL_MEM_EVENT_OP_SHARING_DISABLE   1
+
+/* Use for teardown/setup of helper<->hypervisor interface for paging, 
+ * access and sharing.*/
 struct xen_domctl_mem_event_op {
     uint32_t       op;           /* XEN_DOMCTL_MEM_EVENT_OP_*_* */
     uint32_t       mode;         /* XEN_DOMCTL_MEM_EVENT_OP_* */
 
-    union {
-        /* OP_ENABLE IN:  Virtual address of shared page */
-        uint64_aligned_t shared_addr;  
-        /* PAGING_PREP IN: buffer to immediately fill page in */
-        uint64_aligned_t buffer;
-    } u;
-    uint64_aligned_t ring_addr;    /* IN:  Virtual address of ring page */
-
-    /* Other OPs */
-    uint64_aligned_t gfn;          /* IN:  gfn of page being operated on */
+    uint32_t port;              /* OUT: event channel for ring */
 };
 typedef struct xen_domctl_mem_event_op xen_domctl_mem_event_op_t;
 DEFINE_XEN_GUEST_HANDLE(xen_domctl_mem_event_op_t);
@@ -759,63 +773,15 @@ DEFINE_XEN_GUEST_HANDLE(xen_domctl_mem_event_op_t);
 /*
  * Memory sharing operations
  */
-/* XEN_DOMCTL_mem_sharing_op */
-
-#define XEN_DOMCTL_MEM_EVENT_OP_SHARING                3
-
-#define XEN_DOMCTL_MEM_EVENT_OP_SHARING_CONTROL        0
-#define XEN_DOMCTL_MEM_EVENT_OP_SHARING_NOMINATE_GFN   1
-#define XEN_DOMCTL_MEM_EVENT_OP_SHARING_NOMINATE_GREF  2
-#define XEN_DOMCTL_MEM_EVENT_OP_SHARING_SHARE          3
-#define XEN_DOMCTL_MEM_EVENT_OP_SHARING_RESUME         4
-#define XEN_DOMCTL_MEM_EVENT_OP_SHARING_DEBUG_GFN      5
-#define XEN_DOMCTL_MEM_EVENT_OP_SHARING_DEBUG_MFN      6
-#define XEN_DOMCTL_MEM_EVENT_OP_SHARING_DEBUG_GREF     7
-#define XEN_DOMCTL_MEM_EVENT_OP_SHARING_ADD_PHYSMAP    8
-
-#define XEN_DOMCTL_MEM_SHARING_S_HANDLE_INVALID  (-10)
-#define XEN_DOMCTL_MEM_SHARING_C_HANDLE_INVALID  (-9)
-
-/* The following allows sharing of grant refs. This is useful
- * for sharing utilities sitting as "filters" in IO backends
- * (e.g. memshr + blktap(2)). The IO backend is only exposed 
- * to grant references, and this allows sharing of the grefs */
-#define XEN_DOMCTL_MEM_SHARING_FIELD_IS_GREF_FLAG   (1ULL << 62)
-
-#define XEN_DOMCTL_MEM_SHARING_FIELD_MAKE_GREF(field, val)  \
-    (field) = (XEN_DOMCTL_MEM_SHARING_FIELD_IS_GREF_FLAG | val)
-#define XEN_DOMCTL_MEM_SHARING_FIELD_IS_GREF(field)         \
-    ((field) & XEN_DOMCTL_MEM_SHARING_FIELD_IS_GREF_FLAG)
-#define XEN_DOMCTL_MEM_SHARING_FIELD_GET_GREF(field)        \
-    ((field) & (~XEN_DOMCTL_MEM_SHARING_FIELD_IS_GREF_FLAG))
+/* XEN_DOMCTL_mem_sharing_op.
+ * The CONTROL sub-domctl is used for bringup/teardown. */
+#define XEN_DOMCTL_MEM_SHARING_CONTROL          0
 
 struct xen_domctl_mem_sharing_op {
-    uint8_t op; /* XEN_DOMCTL_MEM_EVENT_OP_* */
+    uint8_t op; /* XEN_DOMCTL_MEM_SHARING_* */
 
     union {
-        uint8_t enable;                   /* OP_CONTROL                */
-
-        struct mem_sharing_op_nominate {  /* OP_NOMINATE_xxx           */
-            union {
-                uint64_aligned_t gfn;     /* IN: gfn to nominate       */
-                uint32_t      grant_ref;  /* IN: grant ref to nominate */
-            } u;
-            uint64_aligned_t  handle;     /* OUT: the handle           */
-        } nominate;
-        struct mem_sharing_op_share {     /* OP_SHARE/ADD_PHYSMAP */
-            uint64_aligned_t source_gfn;    /* IN: the gfn of the source page */
-            uint64_aligned_t source_handle; /* IN: handle to the source page */
-            domid_t          client_domain; /* IN: the client domain id */
-            uint64_aligned_t client_gfn;    /* IN: the client gfn */
-            uint64_aligned_t client_handle; /* IN: handle to the client page */
-        } share; 
-        struct mem_sharing_op_debug {     /* OP_DEBUG_xxx */
-            union {
-                uint64_aligned_t gfn;      /* IN: gfn to debug          */
-                uint64_aligned_t mfn;      /* IN: mfn to debug          */
-                grant_ref_t    gref;       /* IN: gref to debug         */
-            } u;
-        } debug;
+        uint8_t enable;                   /* CONTROL */
     } u;
 };
 typedef struct xen_domctl_mem_sharing_op xen_domctl_mem_sharing_op_t;

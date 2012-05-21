@@ -1771,10 +1771,8 @@ static int __init netback_init(void)
 	do {
 		xen_netbk = vzalloc(netbk_nr_groups * sizeof(*xen_netbk));
 	} while (!xen_netbk && (netbk_nr_groups >>= 1));
-	if (!xen_netbk) {
-		pr_err("%s: out of memory\n", __func__);
+	if (!xen_netbk)
 		return -ENOMEM;
-	}
 	if (group && netbk_nr_groups != group)
 		pr_warn("netback: only using %u (instead of %u) groups\n",
 			netbk_nr_groups, group);

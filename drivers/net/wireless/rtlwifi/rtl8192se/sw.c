@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright(c) 2009-2010  Realtek Corporation.
+ * Copyright(c) 2009-2012  Realtek Corporation.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -27,11 +27,6 @@
  *
  *****************************************************************************/
 
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-
-#include <linux/vmalloc.h>
-#include <linux/module.h>
-
 #include "../wifi.h"
 #include "../core.h"
 #include "../pci.h"
@@ -46,6 +41,8 @@
 #include "sw.h"
 #include "trx.h"
 #include "led.h"
+
+#include <linux/module.h>
 
 static void rtl92s_init_aspm_vars(struct ieee80211_hw *hw)
 {
@@ -101,7 +98,7 @@ static void rtl92se_fw_cb(const struct firmware *firmware, void *context)
 	int err;
 
 	RT_TRACE(rtlpriv, COMP_ERR, DBG_LOUD,
-			 ("Firmware callback routine entered!\n"));
+			 "Firmware callback routine entered!\n");
 	complete(&rtlpriv->firmware_loading_complete);
 	if (!firmware) {
 		pr_err("Firmware %s not available\n", rtlpriv->cfg->fw_name);
@@ -110,7 +107,8 @@ static void rtl92se_fw_cb(const struct firmware *firmware, void *context)
 	}
 	if (firmware->size > rtlpriv->max_fw_size) {
 		RT_TRACE(rtlpriv, COMP_ERR, DBG_EMERG,
-			 ("Firmware is too big!\n"));
+			 "Firmware is too big!\n");
+		rtlpriv->max_fw_size = 0;
 		release_firmware(firmware);
 		return;
 	}
@@ -122,7 +120,7 @@ static void rtl92se_fw_cb(const struct firmware *firmware, void *context)
 	err = ieee80211_register_hw(hw);
 	if (err) {
 		RT_TRACE(rtlpriv, COMP_ERR, DBG_EMERG,
-			 ("Can't register mac80211 hw\n"));
+			 "Can't register mac80211 hw\n");
 		return;
 	} else {
 		rtlpriv->mac80211.mac80211_registered = 1;
@@ -211,9 +209,9 @@ static int rtl92s_init_sw_vars(struct ieee80211_hw *hw)
 	rtlpriv->psc.swctrl_lps = rtlpriv->cfg->mod_params->swctrl_lps;
 	rtlpriv->psc.fwctrl_lps = rtlpriv->cfg->mod_params->fwctrl_lps;
 	if (!rtlpriv->psc.inactiveps)
-		pr_info("rtl8192ce: Power Save off (module option)\n");
+		pr_info("Power Save off (module option)\n");
 	if (!rtlpriv->psc.fwctrl_lps)
-		pr_info("rtl8192ce: FW Power Save off (module option)\n");
+		pr_info("FW Power Save off (module option)\n");
 	rtlpriv->psc.reg_fwctrl_lps = 3;
 	rtlpriv->psc.reg_max_lps_awakeintvl = 5;
 	/* for ASPM, you can close aspm through
@@ -229,13 +227,10 @@ static int rtl92s_init_sw_vars(struct ieee80211_hw *hw)
 
 	/* for firmware buf */
 	rtlpriv->rtlhal.pfirmware = vzalloc(sizeof(struct rt_firmware));
-	if (!rtlpriv->rtlhal.pfirmware) {
-		RT_TRACE(rtlpriv, COMP_ERR, DBG_EMERG,
-			 ("Can't alloc buffer for fw.\n"));
+	if (!rtlpriv->rtlhal.pfirmware)
 		return 1;
-	}
 
-	rtlpriv->max_fw_size = sizeof(struct rt_firmware);
+	rtlpriv->max_fw_size = RTL8190_MAX_RAW_FIRMWARE_CODE_SIZE;
 
 	pr_info("Driver for Realtek RTL8192SE/RTL8191SE\n"
 		"Loading firmware %s\n", rtlpriv->cfg->fw_name);
@@ -245,7 +240,7 @@ static int rtl92s_init_sw_vars(struct ieee80211_hw *hw)
 				      rtl92se_fw_cb);
 	if (err) {
 		RT_TRACE(rtlpriv, COMP_ERR, DBG_EMERG,
-			 ("Failed to request firmware!\n"));
+			 "Failed to request firmware!\n");
 		return 1;
 	}
 
@@ -461,7 +456,7 @@ static int __init rtl92se_module_init(void)
 
 	ret = pci_register_driver(&rtl92se_driver);
 	if (ret)
-		RT_ASSERT(false, (": No device found\n"));
+		RT_ASSERT(false, "No device found\n");
 
 	return ret;
 }
