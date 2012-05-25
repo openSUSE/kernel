@@ -2398,10 +2398,10 @@ F:	drivers/gpu/drm/
 F:	include/drm/
 
 INTEL DRM DRIVERS (excluding Poulsbo, Moorestown and derivative chipsets)
-M:	Keith Packard <keithp@keithp.com>
+M:	Daniel Vetter <daniel.vetter@ffwll.ch>
 L:	intel-gfx@lists.freedesktop.org (subscribers-only)
 L:	dri-devel@lists.freedesktop.org
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/keithp/linux.git
+T:	git git://people.freedesktop.org/~danvet/drm-intel
 S:	Supported
 F:	drivers/gpu/drm/i915
 F:	include/drm/i915*
@@ -2717,6 +2717,13 @@ L:	lm-sensors@lm-sensors.org
 S:	Maintained
 F:	Documentation/hwmon/f71805f
 F:	drivers/hwmon/f71805f.c
+
+FC0011 TUNER DRIVER
+M:	Michael Buesch <m@bues.ch>
+L:	linux-media@vger.kernel.org
+S:	Maintained
+F:	drivers/media/common/tuners/fc0011.h
+F:	drivers/media/common/tuners/fc0011.c
 
 FANOTIFY
 M:	Eric Paris <eparis@redhat.com>
@@ -3458,6 +3465,8 @@ Q:	http://patchwork.kernel.org/project/linux-input/list/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/dtor/input.git
 S:	Maintained
 F:	drivers/input/
+F:	include/linux/input.h
+F:	include/linux/input/
 
 INPUT MULTITOUCH (MT) PROTOCOL
 M:	Henrik Rydberg <rydberg@euromail.se>
@@ -7191,7 +7200,7 @@ F:	include/linux/usb/usbnet.h
 
 USB VIDEO CLASS
 M:	Laurent Pinchart <laurent.pinchart@ideasonboard.com>
-L:	linux-uvc-devel@lists.berlios.de (subscribers-only)
+L:	linux-uvc-devel@lists.sourceforge.net (subscribers-only)
 L:	linux-media@vger.kernel.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/mchehab/linux-media.git
 W:	http://www.ideasonboard.org/uvc/
@@ -7614,7 +7623,7 @@ XFS FILESYSTEM
 P:	Silicon Graphics Inc
 M:	Ben Myers <bpm@sgi.com>
 M:	Alex Elder <elder@kernel.org>
-M:	xfs-masters@oss.sgi.com
+M:	xfs@oss.sgi.com
 L:	xfs@oss.sgi.com
 W:	http://oss.sgi.com/projects/xfs
 T:	git git://oss.sgi.com/xfs/xfs.git
