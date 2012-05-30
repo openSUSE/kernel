@@ -3232,10 +3232,8 @@ F:	include/linux/clockchips.h
 F:	include/linux/hrtimer.h
 
 HIGH-SPEED SCC DRIVER FOR AX.25
-M:	Klaus Kudielka <klaus.kudielka@ieee.org>
 L:	linux-hams@vger.kernel.org
-W:	http://www.nt.tuwien.ac.at/~kkudielk/Linux/
-S:	Maintained
+S:	Orphan
 F:	drivers/net/hamradio/dmascc.c
 F:	drivers/net/hamradio/scc.c
 
@@ -3381,6 +3379,12 @@ M:	Dave Jeffery <ipslinux@adaptec.com>
 W:	http://www.developer.ibm.com/welcome/netfinity/serveraid.html
 S:	Supported
 F:	drivers/scsi/ips.*
+
+ICH LPC AND GPIO DRIVER
+M:	Peter Tyser <ptyser@xes-inc.com>
+S:	Maintained
+F:	drivers/mfd/lpc_ich.c
+F:	drivers/gpio/gpio-ich.c
 
 IDE SUBSYSTEM
 M:	"David S. Miller" <davem@davemloft.net>
@@ -4504,12 +4508,6 @@ M:	Pavel Pisa <ppisa@pikron.com>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 F:	drivers/mmc/host/imxmmc.*
-
-MOUSE AND MISC DEVICES [GENERAL]
-M:	Alessandro Rubini <rubini@ipvvis.unipv.it>
-S:	Maintained
-F:	drivers/input/mouse/
-F:	include/linux/gpio_mouse.h
 
 MOXA SMARTIO/INDUSTIO/INTELLIO SERIAL CARD
 M:	Jiri Slaby <jirislaby@gmail.com>
