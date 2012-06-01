@@ -5337,7 +5337,7 @@ M:	David Woodhouse <dwmw2@infradead.org>
 T:	git git://git.infradead.org/battery-2.6.git
 S:	Maintained
 F:	include/linux/power_supply.h
-F:	drivers/power/power_supply*
+F:	drivers/power/
 
 PNP SUPPORT
 M:	Adam Belay <abelay@mit.edu>
@@ -6657,7 +6657,7 @@ F:	include/linux/taskstats*
 F:	kernel/taskstats.c
 
 TC CLASSIFIER
-M:	Jamal Hadi Salim <hadi@cyberus.ca>
+M:	Jamal Hadi Salim <jhs@mojatatu.com>
 L:	netdev@vger.kernel.org
 S:	Maintained
 F:	include/linux/pkt_cls.h
