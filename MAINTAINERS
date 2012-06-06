@@ -4103,6 +4103,8 @@ F:	drivers/scsi/53c700*
 LED SUBSYSTEM
 M:	Bryan Wu <bryan.wu@canonical.com>
 M:	Richard Purdie <rpurdie@rpsys.net>
+L:	linux-leds@vger.kernel.org
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/cooloney/linux-leds.git
 S:	Maintained
 F:	drivers/leds/
 F:	include/linux/leds.h
@@ -7298,11 +7300,11 @@ F:	Documentation/DocBook/uio-howto.tmpl
 F:	drivers/uio/
 F:	include/linux/uio*.h
 
-UTIL-LINUX-NG PACKAGE
+UTIL-LINUX PACKAGE
 M:	Karel Zak <kzak@redhat.com>
-L:	util-linux-ng@vger.kernel.org
-W:	http://kernel.org/~kzak/util-linux-ng/
-T:	git git://git.kernel.org/pub/scm/utils/util-linux-ng/util-linux-ng.git
+L:	util-linux@vger.kernel.org
+W:	http://en.wikipedia.org/wiki/Util-linux
+T:	git git://git.kernel.org/pub/scm/utils/util-linux/util-linux.git
 S:	Maintained
 
 UVESAFB DRIVER
