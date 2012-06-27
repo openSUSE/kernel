@@ -611,6 +611,7 @@ void math_state_restore(void)
 		local_irq_disable();
 	}
 
+	/* NB. 'clts' is done for us by Xen during virtual trap. */
 	xen_thread_fpu_begin(tsk, NULL);
 	/*
 	 * Paranoid restore. send a SIGSEGV if we fail to restore the state.
@@ -623,7 +624,6 @@ void math_state_restore(void)
 
 	tsk->fpu_counter++;
 }
-EXPORT_SYMBOL_GPL(math_state_restore);
 
 dotraplinkage void __kprobes
 do_device_not_available(struct pt_regs *regs, long error_code)

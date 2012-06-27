@@ -5,9 +5,10 @@
 #include <linux/edd.h>
 #include <video/edid.h>
 #include <xen/interface/platform.h>
+#include <xen/firmware.h>
 #include <asm/hypervisor.h>
 
-#if defined(CONFIG_EDD) || defined(CONFIG_EDD_MODULE)
+#if IS_ENABLED(CONFIG_EDD)
 void __init copy_edd(void)
 {
 	int ret;

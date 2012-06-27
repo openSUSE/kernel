@@ -34,6 +34,7 @@
 #include <linux/slab.h>
 #include <linux/irq.h>
 #include <linux/interrupt.h>
+#include <linux/kconfig.h>
 #include <linux/sched.h>
 #include <linux/kernel_stat.h>
 #include <linux/ftrace.h>
@@ -1478,7 +1479,7 @@ void notify_remote_via_irq(int irq)
 }
 EXPORT_SYMBOL_GPL(notify_remote_via_irq);
 
-#if defined(CONFIG_XEN_BACKEND) || defined(CONFIG_XEN_BACKEND_MODULE)
+#if IS_ENABLED(CONFIG_XEN_BACKEND)
 int multi_notify_remote_via_irq(multicall_entry_t *mcl, int irq)
 {
 	const struct irq_cfg *cfg = irq_cfg(irq);
@@ -1690,7 +1691,8 @@ static void evtchn_resume(void)
 		struct physdev_pirq_eoi_gmfn eoi_gmfn;
 
 		eoi_gmfn.gmfn = virt_to_machine(pirq_needs_eoi) >> PAGE_SHIFT;
-		if (HYPERVISOR_physdev_op(PHYSDEVOP_pirq_eoi_gmfn, &eoi_gmfn))
+		if (HYPERVISOR_physdev_op(PHYSDEVOP_pirq_eoi_gmfn_v1,
+					  &eoi_gmfn))
 			BUG();
 	}
 
@@ -1967,7 +1969,7 @@ void __init xen_init_IRQ(void)
 	pirq_needs_eoi = (void *)__get_free_pages(GFP_KERNEL|__GFP_ZERO, i);
 	BUILD_BUG_ON(NR_PIRQS > PAGE_SIZE * 8);
  	eoi_gmfn.gmfn = virt_to_machine(pirq_needs_eoi) >> PAGE_SHIFT;
-	if (HYPERVISOR_physdev_op(PHYSDEVOP_pirq_eoi_gmfn, &eoi_gmfn) == 0)
+	if (HYPERVISOR_physdev_op(PHYSDEVOP_pirq_eoi_gmfn_v1, &eoi_gmfn) == 0)
 		pirq_eoi_does_unmask = true;
 
 	/* No event channels are 'live' right now. */

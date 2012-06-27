@@ -5688,6 +5688,11 @@ static struct trace_print_flags pageflag_names[] = {
 #ifdef CONFIG_MEMORY_FAILURE
 	{1UL << PG_hwpoison,		"hwpoison"	},
 #endif
+#ifdef CONFIG_XEN
+	{1UL << PG_foreign,		"foreign"	},
+/*	{1UL << PG_netback,		"netback"	}, */
+	{1UL << PG_blkback,		"blkback"	},
+#endif
 	{-1UL,				NULL		},
 };
 

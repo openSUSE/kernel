@@ -1252,8 +1252,6 @@ void __init setup_arch(char **cmdline_p)
 		 * kernel parameter); shrink reservation with the HV
 		 */
 		struct xen_memory_reservation reservation = {
-			.address_bits = 0,
-			.extent_order = 0,
 			.domid = DOMID_SELF
 		};
 		unsigned int difference;
