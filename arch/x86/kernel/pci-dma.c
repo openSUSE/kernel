@@ -100,18 +100,14 @@ void *dma_generic_alloc_coherent(struct device *dev, size_t size,
 				 struct dma_attrs *attrs)
 {
 	unsigned long dma_mask;
-	struct page *page = NULL;
-	unsigned int count = PAGE_ALIGN(size) >> PAGE_SHIFT;
+	struct page *page;
 	dma_addr_t addr;
 
 	dma_mask = dma_alloc_coherent_mask(dev, flag);
 
 	flag |= __GFP_ZERO;
 again:
-	if (!(flag & GFP_ATOMIC))
-		page = dma_alloc_from_contiguous(dev, count, get_order(size));
-	if (!page)
-		page = alloc_pages_node(dev_to_node(dev), flag, get_order(size));
+	page = alloc_pages_node(dev_to_node(dev), flag, get_order(size));
 	if (!page)
 		return NULL;
 
@@ -129,16 +125,6 @@ again:
 
 	*dma_addr = addr;
 	return page_address(page);
-}
-
-void dma_generic_free_coherent(struct device *dev, size_t size, void *vaddr,
-			       dma_addr_t dma_addr)
-{
-	unsigned int count = PAGE_ALIGN(size) >> PAGE_SHIFT;
-	struct page *page = virt_to_page(vaddr);
-
-	if (!dma_release_from_contiguous(dev, page, count))
-		free_pages((unsigned long)vaddr, get_order(size));
 }
 
 /*
