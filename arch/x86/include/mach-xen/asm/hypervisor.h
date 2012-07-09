@@ -366,6 +366,14 @@ MULTI_mmu_update(multicall_entry_t *mcl, mmu_update_t *req,
 }
 
 static inline void
+MULTI_memory_op(multicall_entry_t *mcl, unsigned int cmd, void *arg)
+{
+	mcl->op = __HYPERVISOR_memory_op;
+	mcl->args[0] = cmd;
+	mcl->args[1] = (unsigned long)arg;
+}
+
+static inline void
 MULTI_grant_table_op(multicall_entry_t *mcl, unsigned int cmd,
 		     void *uop, unsigned int count)
 {
@@ -378,8 +386,15 @@ MULTI_grant_table_op(multicall_entry_t *mcl, unsigned int cmd,
 #else /* !defined(CONFIG_XEN) */
 
 /* Multicalls not supported for HVM guests. */
-#define MULTI_update_va_mapping(a,b,c,d) ((void)0)
-#define MULTI_grant_table_op(a,b,c,d) ((void)0)
+static inline void MULTI_bug(multicall_entry_t *mcl, ...)
+{
+	BUG_ON(mcl);
+}
+
+#define MULTI_update_va_mapping	MULTI_bug
+#define MULTI_mmu_update	MULTI_bug
+#define MULTI_memory_op		MULTI_bug
+#define MULTI_grant_table_op	MULTI_bug
 
 #endif
 

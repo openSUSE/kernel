@@ -8,7 +8,7 @@ config XEN
 if XEN
 config XEN_INTERFACE_VERSION
 	hex
-	default 0x00030207
+	default 0x00040200
 
 menu "XEN"
 
