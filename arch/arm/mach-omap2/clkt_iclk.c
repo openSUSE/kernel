@@ -21,6 +21,7 @@
 #include "clock2xxx.h"
 #include "cm2xxx_3xxx.h"
 #include "cm-regbits-24xx.h"
+#include "clockdomain.h"
 
 /* Private functions */
 
@@ -34,6 +35,16 @@ void omap2_clkt_iclk_allow_idle(struct clk *clk)
 	v = __raw_readl((__force void __iomem *)r);
 	v |= (1 << clk->enable_bit);
 	__raw_writel(v, (__force void __iomem *)r);
+
+	/* Remove this clock from parent clockdomain usecounts */
+	if (clk->usecount && clk->clkdm)
+		clkdm_usecount_dec(clk->clkdm);
+
+	/*
+	 * Mark as autoidle, so we continue to ignore this clock in
+	 * parent clkdm usecount calculations
+	 */
+	clk->autoidle = true;
 }
 
 /* XXX */
@@ -46,6 +57,16 @@ void omap2_clkt_iclk_deny_idle(struct clk *clk)
 	v = __raw_readl((__force void __iomem *)r);
 	v &= ~(1 << clk->enable_bit);
 	__raw_writel(v, (__force void __iomem *)r);
+
+	/* Add clock back to parent clockdomain usecount */
+	if (clk->usecount && clk->clkdm)
+		clkdm_usecount_inc(clk->clkdm);
+
+	/*
+	 * Disable autoidle flag so further clkdm usecounts take this
+	 * clock into account
+	 */
+	clk->autoidle = false;
 }
 
 /* Public data */

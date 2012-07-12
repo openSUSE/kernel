@@ -47,6 +47,7 @@ enum {
 static LIST_HEAD(pwrdm_list);
 
 static struct pwrdm_ops *arch_pwrdm;
+static struct powerdomain *mpu_pwrdm, *core_pwrdm;
 
 /* Private functions */
 
@@ -991,14 +992,38 @@ int pwrdm_clkdm_state_switch(struct clockdomain *clkdm)
 	return -EINVAL;
 }
 
+void pwrdm_clkdm_enable(struct powerdomain *pwrdm)
+{
+	if (!pwrdm)
+		return;
+
+	if (atomic_inc_return(&pwrdm->usecount) == 1)
+		voltdm_pwrdm_enable(pwrdm->voltdm.ptr);
+}
+
+void pwrdm_clkdm_disable(struct powerdomain *pwrdm)
+{
+	if (!pwrdm)
+		return;
+
+	if (!atomic_dec_return(&pwrdm->usecount))
+		voltdm_pwrdm_disable(pwrdm->voltdm.ptr);
+}
+
 int pwrdm_pre_transition(void)
 {
 	pwrdm_for_each(_pwrdm_pre_transition_cb, NULL);
+	/* Decrease mpu / core usecounts to indicate we are entering idle */
+	pwrdm_clkdm_disable(mpu_pwrdm);
+	pwrdm_clkdm_disable(core_pwrdm);
 	return 0;
 }
 
 int pwrdm_post_transition(void)
 {
+	/* Increase mpu / core usecounts to indicate we are leaving idle */
+	pwrdm_clkdm_enable(mpu_pwrdm);
+	pwrdm_clkdm_enable(core_pwrdm);
 	pwrdm_for_each(_pwrdm_post_transition_cb, NULL);
 	return 0;
 }
@@ -1078,3 +1103,36 @@ bool pwrdm_can_ever_lose_context(struct powerdomain *pwrdm)
 
 	return 0;
 }
+
+/**
+ * pwrdm_usecount_init - initialize special powerdomain usecounts
+ *
+ * Initializes usecounts for the powerdomains that have static
+ * dependencies with MPU idle cycle, namely mpu_pwrdm and core_pwrdm.
+ * These powerdomains will get their usecounts increased / decreased
+ * each sleep cycle so that they reach 0 just before entering wfi,
+ * and are increased to 1 just after it. This allows the dependent
+ * voltage domains to follow idle cycle properly and trigger their
+ * callbacks for sleep / wakeup.
+ */
+static int __init pwrdm_usecount_init(void)
+{
+	mpu_pwrdm = pwrdm_lookup("mpu_pwrdm");
+	if (!mpu_pwrdm) {
+		pr_err("%s: failed to get mpu_pwrdm\n", __func__);
+		return -EINVAL;
+	}
+
+	pwrdm_clkdm_enable(mpu_pwrdm);
+
+	core_pwrdm = pwrdm_lookup("core_pwrdm");
+	if (!core_pwrdm) {
+		pr_err("%s: failed to get core_pwrdm\n", __func__);
+		return -EINVAL;
+	}
+
+	pwrdm_clkdm_enable(core_pwrdm);
+
+	return 0;
+}
+late_initcall(pwrdm_usecount_init);
