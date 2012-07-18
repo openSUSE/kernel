@@ -11,14 +11,23 @@
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/bug.h>
+#include <linux/clk.h>
+#include <linux/io.h>
+#include <linux/string.h>
+
+#include <asm/div64.h>
 
 #include <plat/cpu.h>
+#include <plat/prcm.h>
 
+#include "iomap.h"
 #include "voltage.h"
 #include "vc.h"
 #include "prm-regbits-34xx.h"
 #include "prm-regbits-44xx.h"
 #include "prm44xx.h"
+#include "scrm44xx.h"
+#include "pm.h"
 
 /**
  * struct omap_vc_channel_cfg - describe the cfg_channel bitfield
@@ -137,6 +146,8 @@ int omap_vc_pre_scale(struct voltagedomain *voltdm,
 	vc_cmdval |= (*target_vsel << vc->common->cmd_on_shift);
 	voltdm->write(vc_cmdval, vc->cmdval_reg);
 
+	voltdm->vc_param->on = target_volt;
+
 	omap_vp_update_errorgain(voltdm, target_volt);
 
 	return 0;
@@ -204,44 +215,380 @@ int omap_vc_bypass_scale(struct voltagedomain *voltdm,
 	return 0;
 }
 
-static void __init omap3_vfsm_init(struct voltagedomain *voltdm)
+/* Convert microsecond value to number of 32kHz clock cycles */
+static u32 omap_usec_to_32k(u32 usec)
+{
+	/* DIV_ROUND_UP expanded to 64bit to avoid overflow */
+	u64 val = 32768ULL * (u64)usec + 1000000ULL - 1;
+	do_div(val, 1000000ULL);
+	return val;
+}
+
+/* Set oscillator setup time for omap3 */
+static void omap3_set_clksetup(u32 usec, struct voltagedomain *voltdm)
+{
+	voltdm->write(omap_usec_to_32k(usec), OMAP3_PRM_CLKSETUP_OFFSET);
+}
+
+/**
+ * omap3_set_i2c_timings - sets i2c sleep timings for a channel
+ * @voltdm: channel to configure
+ * @off_mode: select whether retention or off mode values used
+ *
+ * Calculates and sets up voltage controller to use I2C based
+ * voltage scaling for sleep modes. This can be used for either off mode
+ * or retention. Off mode has additionally an option to use sys_off_mode
+ * pad, which uses a global signal to program the whole power IC to
+ * off-mode.
+ */
+static void omap3_set_i2c_timings(struct voltagedomain *voltdm, bool off_mode)
+{
+	unsigned long voltsetup1;
+	u32 tgt_volt;
+
+	if (off_mode)
+		tgt_volt = voltdm->vc_param->off;
+	else
+		tgt_volt = voltdm->vc_param->ret;
+
+	voltsetup1 = (voltdm->vc_param->on - tgt_volt) /
+			voltdm->pmic->slew_rate;
+
+	voltsetup1 = voltsetup1 * voltdm->sys_clk.rate / 8 / 1000000 + 1;
+
+	voltdm->rmw(voltdm->vfsm->voltsetup_mask,
+		voltsetup1 << __ffs(voltdm->vfsm->voltsetup_mask),
+		voltdm->vfsm->voltsetup_reg);
+}
+
+/**
+ * omap3_set_off_timings - sets off-mode timings for a channel
+ * @voltdm: channel to configure
+ *
+ * Calculates and sets up off-mode timings for a channel. Off-mode
+ * can use either I2C based voltage scaling, or alternatively
+ * sys_off_mode pad can be used to send a global command to power IC.
+ * This function first checks which mode is being used, and calls
+ * omap3_set_i2c_timings() if the system is using I2C control mode.
+ * sys_off_mode has the additional benefit that voltages can be
+ * scaled to zero volt level with TWL4030 / TWL5030, I2C can only
+ * scale to 600mV.
+ */
+static void omap3_set_off_timings(struct voltagedomain *voltdm)
+{
+	unsigned long clksetup;
+	unsigned long voltsetup2;
+	unsigned long voltsetup2_old;
+	u32 val;
+
+	/* check if sys_off_mode is used to control off-mode voltages */
+	val = voltdm->read(OMAP3_PRM_VOLTCTRL_OFFSET);
+	if (!(val & OMAP3430_SEL_OFF_MASK)) {
+		/* No, omap is controlling them over I2C */
+		omap3_set_i2c_timings(voltdm, true);
+		return;
+	}
+
+	clksetup = voltdm->read(OMAP3_PRM_CLKSETUP_OFFSET);
+
+	/* voltsetup 2 in us */
+	voltsetup2 = voltdm->vc_param->on / voltdm->pmic->slew_rate;
+
+	/* convert to 32k clk cycles */
+	voltsetup2 = DIV_ROUND_UP(voltsetup2 * 32768, 1000000);
+
+	voltsetup2_old = voltdm->read(OMAP3_PRM_VOLTSETUP2_OFFSET);
+
+	/*
+	 * Update voltsetup2 if higher than current value (needed because
+	 * we have multiple channels with different ramp times), also
+	 * update voltoffset always to value recommended by TRM
+	 */
+	if (voltsetup2 > voltsetup2_old) {
+		voltdm->write(voltsetup2, OMAP3_PRM_VOLTSETUP2_OFFSET);
+		voltdm->write(clksetup - voltsetup2,
+			OMAP3_PRM_VOLTOFFSET_OFFSET);
+	} else
+		voltdm->write(clksetup - voltsetup2_old,
+			OMAP3_PRM_VOLTOFFSET_OFFSET);
+
+	/*
+	 * omap is not controlling voltage scaling during off-mode,
+	 * thus set voltsetup1 to 0
+	 */
+	voltdm->rmw(voltdm->vfsm->voltsetup_mask, 0,
+		voltdm->vfsm->voltsetup_reg);
+}
+
+/**
+ * omap3_set_core_ret_timings - set retention timings for core domain
+ * @voltdm: pointer for core voltagedomain struct
+ *
+ * This function is called once core domain is ready to enter
+ * retention. This sets the values for the global setup variables like
+ * oscillator setup time, and the ramp times for voltages.
+ */
+static void omap3_set_core_ret_timings(struct voltagedomain *voltdm)
 {
 	/*
-	 * Voltage Manager FSM parameters init
-	 * XXX This data should be passed in from the board file
+	 * Oscillator is not shut down in retention, thus set minimal
+	 * clock setup time
 	 */
-	voltdm->write(OMAP3_CLKSETUP, OMAP3_PRM_CLKSETUP_OFFSET);
-	voltdm->write(OMAP3_VOLTOFFSET, OMAP3_PRM_VOLTOFFSET_OFFSET);
-	voltdm->write(OMAP3_VOLTSETUP2, OMAP3_PRM_VOLTSETUP2_OFFSET);
+	omap3_set_clksetup(1, voltdm);
+
+	/*
+	 * Reset voltsetup 2 and voltoffset when entering retention
+	 * as they are only used when pmic is controlling voltages
+	 */
+	voltdm->write(0, OMAP3_PRM_VOLTSETUP2_OFFSET);
+	voltdm->write(0, OMAP3_PRM_VOLTOFFSET_OFFSET);
+	omap3_set_i2c_timings(voltdm, false);
+}
+
+/**
+ * omap3_set_core_off_timings - set off timings for core domain
+ * @voltdm: pointer for core voltagedomain struct
+ *
+ * This function is called once core domain is ready to enter off-mode.
+ * This sets the values for the global setup variables like oscillator
+ * setup time, and the ramp times for voltages.
+ */
+static void omap3_set_core_off_timings(struct voltagedomain *voltdm)
+{
+	u32 tstart, tshut;
+
+	omap_pm_get_oscillator(&tstart, &tshut);
+	omap3_set_clksetup(tstart, voltdm);
+	omap3_set_off_timings(voltdm);
+}
+
+/**
+ * omap3_vc_channel_sleep - idle callback for a voltagedomain
+ * @voltdm: voltage channel that is entering idle
+ *
+ * Prepares voltage channel for entering idle. This gets called from
+ * the voltagedomain code once the usecount for the domain reaches zero.
+ * Function checks the target sleep mode and configures the channel
+ * accordingly.
+ */
+static void omap3_vc_channel_sleep(struct voltagedomain *voltdm)
+{
+	/* Set off timings if entering off */
+	if (voltdm->target_state == PWRDM_POWER_OFF)
+		omap3_set_off_timings(voltdm);
+	else
+		omap3_set_i2c_timings(voltdm, false);
+}
+
+/**
+ * omap3_vc_core_sleep - idle callback for core voltagedomain
+ * @voltdm: pointer to core voltagedomain struct
+ *
+ * Prepares core voltagedomain for idle. This checks the target sleep
+ * mode of the device (highest sleep mode of all powerdomains), and
+ * sets up the device according to this either for retention, sleep
+ * or off-mode.
+ */
+static void omap3_vc_core_sleep(struct voltagedomain *voltdm)
+{
+	u8 mode;
+
+	switch (voltdm->target_state) {
+	case PWRDM_POWER_OFF:
+		mode = OMAP3430_AUTO_OFF_MASK;
+		break;
+	case PWRDM_POWER_RET:
+		mode = OMAP3430_AUTO_RET_MASK;
+		break;
+	default:
+		mode = OMAP3430_AUTO_SLEEP_MASK;
+		break;
+	}
+
+	if (mode == OMAP3430_AUTO_OFF_MASK)
+		omap3_set_core_off_timings(voltdm);
+	else
+		omap3_set_core_ret_timings(voltdm);
+
+	voltdm->rmw(OMAP3430_AUTO_OFF_MASK | OMAP3430_AUTO_RET_MASK |
+		    OMAP3430_AUTO_SLEEP_MASK, mode,
+		    OMAP3_PRM_VOLTCTRL_OFFSET);
+}
+
+/**
+ * omap3_vc_core_wakeup - wakeup callback for core domain
+ * @voltdm: pointer to core voltagedomain struct
+ *
+ * Resumes core voltagedomain from idle. Callback from voltagedomain
+ * code once usecount reaches non-zero value.
+ */
+static void omap3_vc_core_wakeup(struct voltagedomain *voltdm)
+{
+	voltdm->rmw(OMAP3430_AUTO_OFF_MASK | OMAP3430_AUTO_RET_MASK |
+		    OMAP3430_AUTO_SLEEP_MASK, 0, OMAP3_PRM_VOLTCTRL_OFFSET);
 }
 
 static void __init omap3_vc_init_channel(struct voltagedomain *voltdm)
 {
-	static bool is_initialized;
-
-	if (is_initialized)
-		return;
-
-	omap3_vfsm_init(voltdm);
-
-	is_initialized = true;
+	/*
+	 * Set up voltagedomain callbacks for idle / resume and init
+	 * channel for retention voltage levels.
+	 */
+	if (!strcmp(voltdm->name, "core")) {
+		voltdm->sleep = omap3_vc_core_sleep;
+		voltdm->wakeup = omap3_vc_core_wakeup;
+		omap3_set_core_ret_timings(voltdm);
+	} else {
+		voltdm->sleep = omap3_vc_channel_sleep;
+		omap3_set_i2c_timings(voltdm, false);
+	}
 }
 
+/**
+ * omap4_calc_volt_ramp - calculates voltage ramping delays on omap4
+ * @voltdm: channel to calculate values for
+ * @voltage_diff: voltage difference in microvolts
+ *
+ * Calculates voltage ramp prescaler + counter values for a voltage
+ * difference on omap4. Returns a field value suitable for writing to
+ * VOLTSETUP register for a channel in following format:
+ * bits[8:9] prescaler ... bits[0:5] counter. See OMAP4 TRM for reference.
+ */
+static u32 omap4_calc_volt_ramp(struct voltagedomain *voltdm, u32 voltage_diff)
+{
+	u32 prescaler;
+	u32 cycles;
+	u32 time;
+
+	time = voltage_diff / voltdm->pmic->slew_rate;
+
+	cycles = voltdm->sys_clk.rate / 1000 * time / 1000;
+
+	cycles /= 64;
+	prescaler = 0;
+
+	/* shift to next prescaler until no overflow */
+
+	/* scale for div 256 = 64 * 4 */
+	if (cycles > 63) {
+		cycles /= 4;
+		prescaler++;
+	}
+
+	/* scale for div 512 = 256 * 2 */
+	if (cycles > 63) {
+		cycles /= 2;
+		prescaler++;
+	}
+
+	/* scale for div 2048 = 512 * 4 */
+	if (cycles > 63) {
+		cycles /= 4;
+		prescaler++;
+	}
+
+	/* check for overflow => invalid ramp time */
+	if (cycles > 63) {
+		pr_warning("%s: invalid setuptime for vdd_%s\n", __func__,
+			voltdm->name);
+		return 0;
+	}
+
+	cycles++;
+
+	return (prescaler << OMAP4430_RAMP_UP_PRESCAL_SHIFT) |
+		(cycles << OMAP4430_RAMP_UP_COUNT_SHIFT);
+}
+
+/**
+ * omap4_usec_to_val_scrm - convert microsecond value to SCRM module bitfield
+ * @usec: microseconds
+ * @shift: number of bits to shift left
+ * @mask: bitfield mask
+ *
+ * Converts microsecond value to OMAP4 SCRM bitfield. Bitfield is
+ * shifted to requested position, and checked agains the mask value.
+ * If larger, forced to the max value of the field (i.e. the mask itself.)
+ * Returns the SCRM bitfield value.
+ */
+static u32 omap4_usec_to_val_scrm(u32 usec, int shift, u32 mask)
+{
+	u32 val;
+
+	val = omap_usec_to_32k(usec) << shift;
+
+	/* Check for overflow, if yes, force to max value */
+	if (val > mask)
+		val = mask;
+
+	return val;
+}
+
+/**
+ * omap4_set_timings - set voltage ramp timings for a channel
+ * @voltdm: channel to configure
+ * @off_mode: whether off-mode values are used
+ *
+ * Calculates and sets the voltage ramp up / down values for a channel.
+ */
+static void omap4_set_timings(struct voltagedomain *voltdm, bool off_mode)
+{
+	u32 val;
+	u32 ramp;
+	u32 tstart, tshut;
+
+	/* configure the setup times */
+	val = voltdm->read(voltdm->vfsm->voltsetup_reg);
+
+	if (off_mode)
+		ramp = omap4_calc_volt_ramp(voltdm,
+			voltdm->vc_param->on - voltdm->vc_param->off);
+	else
+		ramp = omap4_calc_volt_ramp(voltdm,
+			voltdm->vc_param->on - voltdm->vc_param->ret);
+
+	if (!ramp)
+		return;
+
+	val |= ramp << OMAP4430_RAMP_DOWN_COUNT_SHIFT;
+
+	val |= ramp << OMAP4430_RAMP_UP_COUNT_SHIFT;
+
+	voltdm->write(val, voltdm->vfsm->voltsetup_reg);
+
+	omap_pm_get_oscillator(&tstart, &tshut);
+
+	val = omap4_usec_to_val_scrm(tstart, OMAP4_SETUPTIME_SHIFT,
+		OMAP4_SETUPTIME_MASK);
+	val |= omap4_usec_to_val_scrm(tshut, OMAP4_DOWNTIME_SHIFT,
+		OMAP4_DOWNTIME_MASK);
+
+	__raw_writel(val, OMAP4_SCRM_CLKSETUPTIME);
+
+	tstart = voltdm->pmic->startup_time;
+	tshut = voltdm->pmic->shutdown_time;
+
+	if (tstart && tshut) {
+		val = omap4_usec_to_val_scrm(tstart, OMAP4_WAKEUPTIME_SHIFT,
+			OMAP4_WAKEUPTIME_MASK);
+		val |= omap4_usec_to_val_scrm(tshut, OMAP4_SLEEPTIME_SHIFT,
+			OMAP4_SLEEPTIME_MASK);
+		__raw_writel(val, OMAP4_SCRM_PMICSETUPTIME);
+	}
+}
 
 /* OMAP4 specific voltage init functions */
 static void __init omap4_vc_init_channel(struct voltagedomain *voltdm)
 {
-	static bool is_initialized;
 	u32 vc_val;
 
-	if (is_initialized)
-		return;
+	omap4_set_timings(voltdm, true);
 
 	/* XXX These are magic numbers and do not belong! */
-	vc_val = (0x60 << OMAP4430_SCLL_SHIFT | 0x26 << OMAP4430_SCLH_SHIFT);
+	vc_val = (0x28 << OMAP4430_SCLL_SHIFT | 0x2c << OMAP4430_SCLH_SHIFT);
+	vc_val |= (0x0b << OMAP4430_HSSCLL_SHIFT);
+	vc_val |= (0x0 << OMAP4430_HSSCLH_SHIFT);
 	voltdm->write(vc_val, OMAP4_PRM_VC_CFG_I2C_CLK_OFFSET);
-
-	is_initialized = true;
 }
 
 /**
@@ -286,6 +633,30 @@ static void __init omap_vc_i2c_init(struct voltagedomain *voltdm)
 	initialized = true;
 }
 
+/**
+ * omap_vc_calc_vsel - calculate vsel value for a channel
+ * @voltdm: channel to calculate value for
+ * @uvolt: microvolt value to convert to vsel
+ *
+ * Converts a microvolt value to vsel value for the used PMIC.
+ * This checks whether the microvolt value is out of bounds, and
+ * adjusts the value accordingly. If unsupported value detected,
+ * warning is thrown.
+ */
+static u8 omap_vc_calc_vsel(struct voltagedomain *voltdm, u32 uvolt)
+{
+	if (voltdm->pmic->vddmin > uvolt)
+		uvolt = voltdm->pmic->vddmin;
+	if (voltdm->pmic->vddmax < uvolt) {
+		WARN(1, "%s: voltage not supported by pmic: %u vs max %u\n",
+			__func__, uvolt, voltdm->pmic->vddmax);
+		/* Lets try maximum value anyway */
+		uvolt = voltdm->pmic->vddmax;
+	}
+
+	return voltdm->pmic->uv_to_vsel(uvolt);
+}
+
 void __init omap_vc_init_channel(struct voltagedomain *voltdm)
 {
 	struct omap_vc_channel *vc = voltdm->vc;
@@ -313,7 +684,6 @@ void __init omap_vc_init_channel(struct voltagedomain *voltdm)
 	vc->i2c_slave_addr = voltdm->pmic->i2c_slave_addr;
 	vc->volt_reg_addr = voltdm->pmic->volt_reg_addr;
 	vc->cmd_reg_addr = voltdm->pmic->cmd_reg_addr;
-	vc->setup_time = voltdm->pmic->volt_setup_time;
 
 	/* Configure the i2c slave address for this VC */
 	voltdm->rmw(vc->smps_sa_mask,
@@ -337,10 +707,11 @@ void __init omap_vc_init_channel(struct voltagedomain *voltdm)
 	}
 
 	/* Set up the on, inactive, retention and off voltage */
-	on_vsel = voltdm->pmic->uv_to_vsel(voltdm->pmic->on_volt);
-	onlp_vsel = voltdm->pmic->uv_to_vsel(voltdm->pmic->onlp_volt);
-	ret_vsel = voltdm->pmic->uv_to_vsel(voltdm->pmic->ret_volt);
-	off_vsel = voltdm->pmic->uv_to_vsel(voltdm->pmic->off_volt);
+	on_vsel = omap_vc_calc_vsel(voltdm, voltdm->vc_param->on);
+	onlp_vsel = omap_vc_calc_vsel(voltdm, voltdm->vc_param->onlp);
+	ret_vsel = omap_vc_calc_vsel(voltdm, voltdm->vc_param->ret);
+	off_vsel = omap_vc_calc_vsel(voltdm, voltdm->vc_param->off);
+
 	val = ((on_vsel << vc->common->cmd_on_shift) |
 	       (onlp_vsel << vc->common->cmd_onlp_shift) |
 	       (ret_vsel << vc->common->cmd_ret_shift) |
@@ -350,11 +721,6 @@ void __init omap_vc_init_channel(struct voltagedomain *voltdm)
 
 	/* Channel configuration */
 	omap_vc_config_channel(voltdm);
-
-	/* Configure the setup times */
-	voltdm->rmw(voltdm->vfsm->voltsetup_mask,
-		    vc->setup_time << __ffs(voltdm->vfsm->voltsetup_mask),
-		    voltdm->vfsm->voltsetup_reg);
 
 	omap_vc_i2c_init(voltdm);
 

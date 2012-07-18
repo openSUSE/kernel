@@ -434,6 +434,7 @@ static struct clk dpll3_ck = {
 	.round_rate	= &omap2_dpll_round_rate,
 	.clkdm_name	= "dpll3_clkdm",
 	.recalc		= &omap3_dpll_recalc,
+	.autoidle	= true,
 };
 
 /*
@@ -610,13 +611,14 @@ static struct dpll_data dpll4_dd_3630 __initdata = {
 
 static struct clk dpll4_ck = {
 	.name		= "dpll4_ck",
-	.ops		= &clkops_omap3_noncore_dpll_ops,
+	.ops		= &clkops_omap3_core_dpll_ops,
 	.parent		= &sys_ck,
 	.dpll_data	= &dpll4_dd,
 	.round_rate	= &omap2_dpll_round_rate,
 	.set_rate	= &omap3_dpll4_set_rate,
 	.clkdm_name	= "dpll4_clkdm",
 	.recalc		= &omap3_dpll_recalc,
+	.autoidle	= true,
 };
 
 /*
@@ -1750,6 +1752,7 @@ static struct clk sdrc_ick = {
 	.flags		= ENABLE_ON_INIT,
 	.clkdm_name	= "core_l3_clkdm",
 	.recalc		= &followparent_recalc,
+	.autoidle	= true,
 };
 
 static struct clk gpmc_fck = {

@@ -483,6 +483,38 @@ static void __init beagle_opp_init(void)
 		return;
 	}
 
+	if (omap3_beagle_version == OMAP3BEAGLE_BOARD_C4) {
+		struct device *mpu_dev, *iva_dev;
+
+		mpu_dev = omap_device_get_by_hwmod_name("mpu");
+		iva_dev = omap_device_get_by_hwmod_name("iva");
+
+		if (!mpu_dev || !iva_dev) {
+			pr_err("%s: Aiee.. no mpu/dsp devices? %p %p\n",
+				__func__, mpu_dev, iva_dev);
+			return;
+		}
+		/* Enable MPU 720MHz opp */
+		r = opp_enable(mpu_dev, 720000000);
+
+		/* Enable IVA 520MHz opp */
+		r |= opp_enable(iva_dev, 520000000);
+
+		if (r) {
+			pr_err("%s: failed to enable higher opp %d\n",
+				__func__, r);
+			/*
+			 * Cleanup - disable the higher freqs - we dont care
+			 * about the results
+			 */
+			opp_disable(mpu_dev, 720000000);
+			opp_disable(iva_dev, 520000000);
+		}
+
+		/* Set oscillator startup time to 10ms, shutdown not used */
+		omap_pm_setup_oscillator(10000, ULONG_MAX);
+	}
+
 	/* Custom OPP enabled for all xM versions */
 	if (cpu_is_omap3630()) {
 		struct device *mpu_dev, *iva_dev;

@@ -334,6 +334,7 @@ config MACH_OMAP_4430SDP
 	select OMAP_PACKAGE_CBL
 	select OMAP_PACKAGE_CBS
 	select REGULATOR_FIXED_VOLTAGE if REGULATOR
+	select OMAP_TPS6236X
 
 config MACH_OMAP4_PANDA
 	bool "OMAP4 Panda Board"
@@ -342,6 +343,7 @@ config MACH_OMAP4_PANDA
 	select OMAP_PACKAGE_CBL
 	select OMAP_PACKAGE_CBS
 	select REGULATOR_FIXED_VOLTAGE if REGULATOR
+	select OMAP_TPS6236X
 
 config OMAP3_EMU
 	bool "OMAP3 debugging peripherals"
@@ -384,6 +386,13 @@ config OMAP4_ERRATA_I688
 	  In MPU case, L3 T2ASYNC FIFO and DDR T2ASYNC FIFO needs to be drained.
 	  IO barrier ensure that there is no synchronisation loss on initiators
 	  operating on both interconnect port simultaneously.
+
+config OMAP_TPS6236X
+	bool "OMAP4 support for TPS6236X power IC"
+	help
+	  TPS62361 is a PMIC used with OMAP4460 to supply MPU VDD voltage.
+	  Rest of the VDDs continue to be supplied via TWL6030.
+
 endmenu
 
 endif

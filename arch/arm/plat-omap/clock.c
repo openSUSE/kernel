@@ -282,6 +282,12 @@ int clk_register(struct clk *clk)
 		list_add(&clk->sibling, &root_clks);
 
 	list_add(&clk->node, &clocks);
+	/*
+	 * If clock has no ops, it is handled by hardware and thus will
+	 * idle automatically
+	 */
+	if (clk->ops == &clkops_null)
+		clk->autoidle = true;
 	if (clk->init)
 		clk->init(clk);
 	mutex_unlock(&clocks_mutex);
@@ -353,6 +359,36 @@ int omap_clk_enable_autoidle_all(void)
 	spin_unlock_irqrestore(&clockfw_lock, flags);
 
 	return 0;
+}
+
+/**
+ * omap_clk_for_each - call a function for each registered clock
+ * @fn: pointer to callback function
+ * @data: void * data to pass to callback function
+ *
+ * Call @fn for each registered clock, passing @data to each function.
+ * @fn must return 0 for success or any other value for failure. If
+ * @fn returns non-zero, the iteration across clocks will stop and
+ * the non-zero return value will be passed to the caller of
+ * omap_clk_for_each(). @fn is called with clockfw_lock held.
+ */
+int omap_clk_for_each(int (*fn)(struct clk *clk, void *user), void *user)
+{
+	struct clk *c;
+	unsigned long flags;
+	int ret = 0;
+
+	spin_lock_irqsave(&clockfw_lock, flags);
+
+	list_for_each_entry(c, &clocks, node) {
+		ret = fn(c, user);
+		if (ret)
+			break;
+	}
+
+	spin_unlock_irqrestore(&clockfw_lock, flags);
+
+	return ret;
 }
 
 int omap_clk_disable_autoidle_all(void)

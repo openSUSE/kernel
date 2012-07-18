@@ -62,10 +62,16 @@ inline void omap3_pm_init_cpuidle(struct cpuidle_params *cpuidle_board_params)
 extern int omap3_pm_get_suspend_state(struct powerdomain *pwrdm);
 extern int omap3_pm_set_suspend_state(struct powerdomain *pwrdm, int state);
 
+struct clk;
+
 #ifdef CONFIG_PM_DEBUG
 extern u32 enable_off_mode;
+extern void pm_dbg_dump_pwrdm(struct powerdomain *pwrdm);
+extern void pm_dbg_dump_voltdm(struct voltagedomain *voltdm);
 #else
 #define enable_off_mode 0
+static inline void pm_dbg_dump_pwrdm(struct powerdomain *pwrdm) { }
+static inline void pm_dbg_dump_voltdm(struct voltagedomain *voltdm) { }
 #endif
 
 #if defined(CONFIG_PM_DEBUG) && defined(CONFIG_DEBUG_FS)
@@ -122,18 +128,21 @@ static inline void omap_enable_smartreflex_on_init(void) {}
 #endif
 
 #ifdef CONFIG_TWL4030_CORE
-extern int omap3_twl_init(void);
-extern int omap4_twl_init(void);
+extern int omap_twl_init(void);
 extern int omap3_twl_set_sr_bit(bool enable);
 #else
-static inline int omap3_twl_init(void)
+static inline int omap_twl_init(void)
 {
 	return -EINVAL;
 }
-static inline int omap4_twl_init(void)
-{
-	return -EINVAL;
-}
+#endif
+
+#ifdef CONFIG_PM
+extern void omap_pm_setup_oscillator(u32 tstart, u32 tshut);
+extern void omap_pm_get_oscillator(u32 *tstart, u32 *tshut);
+#else
+static inline void omap_pm_setup_oscillator(u32 tstart, u32 tshut) { }
+static inline void omap_pm_get_oscillator(u32 *tstart, u32 *tshut) { }
 #endif
 
 #endif
