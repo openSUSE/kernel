@@ -113,6 +113,9 @@ void btrfs_update_iflags(struct inode *inode)
 		inode->i_flags |= S_NOATIME;
 	if (ip->flags & BTRFS_INODE_DIRSYNC)
 		inode->i_flags |= S_DIRSYNC;
+
+	if (btrfs_root_readonly(ip->root))
+		inode->i_flags |= S_NOATIME;
 }
 
 /*
