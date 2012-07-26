@@ -157,6 +157,13 @@ flags_out:
 		if (!inode_owner_or_capable(inode))
 			return -EPERM;
 
+		if (EXT4_HAS_RO_COMPAT_FEATURE(inode->i_sb,
+				EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)) {
+			ext4_warning(sb, "Setting inode version is not "
+				     "supported with metadata_csum enabled.");
+			return -ENOTTY;
+		}
+
 		err = mnt_want_write_file(filp);
 		if (err)
 			return err;
@@ -261,7 +268,6 @@ group_extend_out:
 		err = ext4_move_extents(filp, donor_filp, me.orig_start,
 					me.donor_start, me.len, &me.moved_len);
 		mnt_drop_write_file(filp);
-		mnt_drop_write(filp->f_path.mnt);
 
 		if (copy_to_user((struct move_extent __user *)arg,
 				 &me, sizeof(me)))

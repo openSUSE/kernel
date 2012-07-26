@@ -32,32 +32,12 @@
 #include "twl-common.h"
 #include "pm.h"
 #include "voltage.h"
+#include "mux.h"
 
 static struct i2c_board_info __initdata pmic_i2c_board_info = {
 	.addr		= 0x48,
 	.flags		= I2C_CLIENT_WAKE,
 };
-
-static int twl_set_voltage(void *data, int target_uV)
-{
-	struct voltagedomain *voltdm = (struct voltagedomain *)data;
-	struct omap_volt_data *volt_data = voltdm->volt_data;
-
-	while (1) {
-		if (!volt_data->volt_nominal)
-			return -EINVAL;
-		if (volt_data->volt_nominal >= target_uV)
-			break;
-		volt_data++;
-	}
-	return voltdm_scale(voltdm, volt_data->volt_nominal);
-}
-
-static int twl_get_voltage(void *data)
-{
-	struct voltagedomain *voltdm = (struct voltagedomain *)data;
-	return voltdm_get_voltage(voltdm);
-}
 
 static struct i2c_board_info __initdata omap4_i2c1_board_info[] = {
 	{
@@ -68,6 +48,18 @@ static struct i2c_board_info __initdata omap4_i2c1_board_info[] = {
 		I2C_BOARD_INFO("twl6040", 0x4b),
 	},
 };
+
+static int twl_set_voltage(void *data, int target_uV)
+{
+	struct voltagedomain *voltdm = (struct voltagedomain *)data;
+	return voltdm_scale(voltdm, target_uV);
+}
+
+static int twl_get_voltage(void *data)
+{
+	struct voltagedomain *voltdm = (struct voltagedomain *)data;
+	return voltdm_get_voltage(voltdm);
+}
 
 void __init omap_pmic_init(int bus, u32 clkrate,
 			   const char *pmic_type, int pmic_irq,
@@ -86,6 +78,7 @@ void __init omap4_pmic_init(const char *pmic_type,
 		    struct twl6040_platform_data *twl6040_data, int twl6040_irq)
 {
 	/* PMIC part*/
+	omap_mux_init_signal("sys_nirq1", OMAP_PIN_INPUT_PULLUP | OMAP_PIN_OFF_WAKEUPENABLE);
 	strncpy(omap4_i2c1_board_info[0].type, pmic_type,
 		sizeof(omap4_i2c1_board_info[0].type));
 	omap4_i2c1_board_info[0].irq = OMAP44XX_IRQ_SYS_1N;
@@ -102,11 +95,10 @@ void __init omap4_pmic_init(const char *pmic_type,
 void __init omap_pmic_late_init(void)
 {
 	/* Init the OMAP TWL parameters (if PMIC has been registerd) */
-	if (!pmic_i2c_board_info.irq && !omap4_i2c1_board_info[0].irq)
-		return;
-
-	omap_twl_init();
-	omap_tps6236x_init();
+	if (pmic_i2c_board_info.irq)
+		omap3_twl_init();
+	if (omap4_i2c1_board_info[0].irq)
+		omap4_twl_init();
 }
 
 #if defined(CONFIG_ARCH_OMAP3)
@@ -276,6 +268,7 @@ static struct regulator_init_data omap4_vdac_idata = {
 		.valid_ops_mask		= REGULATOR_CHANGE_MODE
 					| REGULATOR_CHANGE_STATUS,
 	},
+	.supply_regulator	= "V2V1",
 };
 
 static struct regulator_init_data omap4_vaux2_idata = {
@@ -366,6 +359,7 @@ static struct regulator_init_data omap4_vcxio_idata = {
 	},
 	.num_consumer_supplies	= ARRAY_SIZE(omap4_vcxio_supply),
 	.consumer_supplies	= omap4_vcxio_supply,
+	.supply_regulator	= "V2V1",
 };
 
 static struct regulator_init_data omap4_vusb_idata = {
@@ -449,6 +443,41 @@ static struct twl_regulator_driver_data omap4_vdd3_drvdata = {
 	.set_voltage = twl_set_voltage,
 };
 
+static struct regulator_consumer_supply omap4_v1v8_supply[] = {
+	REGULATOR_SUPPLY("vio", "1-004b"),
+};
+
+static struct regulator_init_data omap4_v1v8_idata = {
+	.constraints = {
+		.min_uV			= 1800000,
+		.max_uV			= 1800000,
+		.valid_modes_mask	= REGULATOR_MODE_NORMAL
+					| REGULATOR_MODE_STANDBY,
+		.valid_ops_mask		= REGULATOR_CHANGE_MODE
+					| REGULATOR_CHANGE_STATUS,
+		.always_on		= true,
+	},
+	.num_consumer_supplies	= ARRAY_SIZE(omap4_v1v8_supply),
+	.consumer_supplies	= omap4_v1v8_supply,
+};
+
+static struct regulator_consumer_supply omap4_v2v1_supply[] = {
+	REGULATOR_SUPPLY("v2v1", "1-004b"),
+};
+
+static struct regulator_init_data omap4_v2v1_idata = {
+	.constraints = {
+		.min_uV			= 2100000,
+		.max_uV			= 2100000,
+		.valid_modes_mask	= REGULATOR_MODE_NORMAL
+					| REGULATOR_MODE_STANDBY,
+		.valid_ops_mask		= REGULATOR_CHANGE_MODE
+					| REGULATOR_CHANGE_STATUS,
+	},
+	.num_consumer_supplies	= ARRAY_SIZE(omap4_v2v1_supply),
+	.consumer_supplies	= omap4_v2v1_supply,
+};
+
 void __init omap4_pmic_get_config(struct twl4030_platform_data *pmic_data,
 				  u32 pdata_flags, u32 regulators_flags)
 {
@@ -507,57 +536,11 @@ void __init omap4_pmic_get_config(struct twl4030_platform_data *pmic_data,
 	if (regulators_flags & TWL_COMMON_REGULATOR_CLK32KG &&
 	    !pmic_data->clk32kg)
 		pmic_data->clk32kg = &omap4_clk32kg_idata;
+
+	if (regulators_flags & TWL_COMMON_REGULATOR_V1V8 && !pmic_data->v1v8)
+		pmic_data->v1v8 = &omap4_v1v8_idata;
+
+	if (regulators_flags & TWL_COMMON_REGULATOR_V2V1 && !pmic_data->v2v1)
+		pmic_data->v2v1 = &omap4_v2v1_idata;
 }
 #endif /* CONFIG_ARCH_OMAP4 */
-
-/**
- * omap_pmic_register_data() - Register the PMIC information to OMAP mapping
- * @omap_pmic_maps:    array ending with a empty element representing the maps
- */
-int __init omap_pmic_register_data(struct omap_pmic_map *map)
-{
-	struct voltagedomain *voltdm;
-	int r;
-
-	if (!map)
-		return 0;
-
-	while (map->name) {
-		if (cpu_is_omap34xx() && !(map->cpu & PMIC_CPU_OMAP3))
-			goto next;
-
-		if (cpu_is_omap443x() && !(map->cpu & PMIC_CPU_OMAP4430))
-			goto next;
-
-		if (cpu_is_omap446x() && !(map->cpu & PMIC_CPU_OMAP4460))
-			goto next;
-
-		voltdm = voltdm_lookup(map->name);
-		if (IS_ERR_OR_NULL(voltdm)) {
-			pr_err("%s: unable to find map %s\n", __func__,
-				map->name);
-			goto next;
-		}
-		if (IS_ERR_OR_NULL(map->pmic_data)) {
-			pr_warning("%s: domain[%s] has no pmic data\n",
-					__func__, map->name);
-			goto next;
-		}
-
-		r = omap_voltage_register_pmic(voltdm, map->pmic_data);
-		if (r) {
-			pr_warning("%s: domain[%s] register returned %d\n",
-					__func__, map->name, r);
-			goto next;
-		}
-		if (map->special_action) {
-			r = map->special_action(voltdm);
-			WARN(r, "%s: domain[%s] action returned %d\n", __func__,
-				map->name, r);
-		}
-next:
-		map++;
-	}
-
-	return 0;
-}

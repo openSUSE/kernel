@@ -253,7 +253,7 @@ static inline unsigned long active_evtchns(unsigned int idx)
 	shared_info_t *sh = HYPERVISOR_shared_info;
 
 	return (sh->evtchn_pending[idx] &
-		percpu_read(cpu_evtchn_mask[idx]) &
+		this_cpu_read(cpu_evtchn_mask[idx]) &
 		~sh->evtchn_mask[idx]);
 }
 
@@ -402,7 +402,7 @@ asmlinkage void __irq_entry evtchn_do_upcall(struct pt_regs *regs)
 		 * have just woken from a long idle period.
 		 */
 #ifdef PER_CPU_VIRQ_IRQ
-		if ((irq = percpu_read(virq_to_irq[VIRQ_TIMER])) != -1) {
+		if ((irq = __this_cpu_read(virq_to_irq[VIRQ_TIMER])) != -1) {
 			port = evtchn_from_irq(irq);
 #else
 		port = __this_cpu_read(virq_to_evtchn[VIRQ_TIMER]);
@@ -425,8 +425,8 @@ asmlinkage void __irq_entry evtchn_do_upcall(struct pt_regs *regs)
 
 		l1 = vcpu_info_xchg(evtchn_pending_sel, 0);
 
-		start_l1i = l1i = percpu_read(current_l1i);
-		start_l2i = percpu_read(current_l2i);
+		start_l1i = l1i = __this_cpu_read(current_l1i);
+		start_l2i = __this_cpu_read(current_l2i);
 
 		for (i = 0; l1 != 0; i++) {
 			masked_l1 = l1 & ((~0UL) << l1i);
@@ -475,9 +475,9 @@ asmlinkage void __irq_entry evtchn_do_upcall(struct pt_regs *regs)
 				l2i = (l2i + 1) % BITS_PER_LONG;
 
 				/* Next caller starts at last processed + 1 */
-				percpu_write(current_l1i,
+				__this_cpu_write(current_l1i,
 					l2i ? l1i : (l1i + 1) % BITS_PER_LONG);
-				percpu_write(current_l2i, l2i);
+				__this_cpu_write(current_l2i, l2i);
 
 			} while (l2i != 0);
 

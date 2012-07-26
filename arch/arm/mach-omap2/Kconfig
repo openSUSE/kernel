@@ -17,6 +17,7 @@ config ARCH_OMAP2PLUS_TYPICAL
 	select MENELAUS if ARCH_OMAP2
 	select TWL4030_CORE if ARCH_OMAP3 || ARCH_OMAP4
 	select TWL4030_POWER if ARCH_OMAP3 || ARCH_OMAP4
+	select HIGHMEM
 	help
 	  Compile a kernel suitable for booting most boards
 
@@ -77,12 +78,12 @@ config SOC_OMAP3430
 	default y
 	select ARCH_OMAP_OTG
 
-config SOC_OMAPTI81XX
+config SOC_TI81XX
 	bool "TI81XX support"
 	depends on ARCH_OMAP3
 	default y
 
-config SOC_OMAPAM33XX
+config SOC_AM33XX
 	bool "AM33XX support"
 	depends on ARCH_OMAP3
 	default y
@@ -319,12 +320,12 @@ config MACH_OMAP_3630SDP
 
 config MACH_TI8168EVM
 	bool "TI8168 Evaluation Module"
-	depends on SOC_OMAPTI81XX
+	depends on SOC_TI81XX
 	default y
 
 config MACH_TI8148EVM
 	bool "TI8148 Evaluation Module"
-	depends on SOC_OMAPTI81XX
+	depends on SOC_TI81XX
 	default y
 
 config MACH_OMAP_4430SDP
@@ -334,7 +335,6 @@ config MACH_OMAP_4430SDP
 	select OMAP_PACKAGE_CBL
 	select OMAP_PACKAGE_CBS
 	select REGULATOR_FIXED_VOLTAGE if REGULATOR
-	select OMAP_TPS6236X
 
 config MACH_OMAP4_PANDA
 	bool "OMAP4 Panda Board"
@@ -343,7 +343,6 @@ config MACH_OMAP4_PANDA
 	select OMAP_PACKAGE_CBL
 	select OMAP_PACKAGE_CBS
 	select REGULATOR_FIXED_VOLTAGE if REGULATOR
-	select OMAP_TPS6236X
 
 config OMAP3_EMU
 	bool "OMAP3 debugging peripherals"
@@ -386,13 +385,6 @@ config OMAP4_ERRATA_I688
 	  In MPU case, L3 T2ASYNC FIFO and DDR T2ASYNC FIFO needs to be drained.
 	  IO barrier ensure that there is no synchronisation loss on initiators
 	  operating on both interconnect port simultaneously.
-
-config OMAP_TPS6236X
-	bool "OMAP4 support for TPS6236X power IC"
-	help
-	  TPS62361 is a PMIC used with OMAP4460 to supply MPU VDD voltage.
-	  Rest of the VDDs continue to be supplied via TWL6030.
-
 endmenu
 
 endif

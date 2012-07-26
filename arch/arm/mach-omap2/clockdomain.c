@@ -840,7 +840,7 @@ void clkdm_allow_idle(struct clockdomain *clkdm)
 	spin_lock_irqsave(&clkdm->lock, flags);
 	clkdm->_flags |= _CLKDM_FLAG_HWSUP_ENABLED;
 	arch_clkdm->clkdm_allow_idle(clkdm);
-	pwrdm_clkdm_state_switch(clkdm);
+	pwrdm_state_switch(clkdm->pwrdm.ptr);
 	spin_unlock_irqrestore(&clkdm->lock, flags);
 }
 
@@ -907,28 +907,6 @@ bool clkdm_in_hwsup(struct clockdomain *clkdm)
 
 /* Clockdomain-to-clock/hwmod framework interface code */
 
-int clkdm_usecount_inc(struct clockdomain *clkdm)
-{
-	int usecount;
-
-	usecount = atomic_inc_return(&clkdm->usecount);
-
-	if (usecount == 1)
-		pwrdm_clkdm_enable(clkdm->pwrdm.ptr);
-	return usecount;
-}
-
-int clkdm_usecount_dec(struct clockdomain *clkdm)
-{
-	int usecount;
-
-	usecount = atomic_dec_return(&clkdm->usecount);
-
-	if (usecount == 0)
-		pwrdm_clkdm_disable(clkdm->pwrdm.ptr);
-	return usecount;
-}
-
 static int _clkdm_clk_hwmod_enable(struct clockdomain *clkdm)
 {
 	unsigned long flags;
@@ -941,16 +919,12 @@ static int _clkdm_clk_hwmod_enable(struct clockdomain *clkdm)
 	 * should be called for every clock instance or hwmod that is
 	 * enabled, so the clkdm can be force woken up.
 	 */
-	if ((clkdm_usecount_inc(clkdm) > 1) && autodeps)
-		return 0;
-
-	if (clkdm->flags & CLKDM_NO_MANUAL_TRANS)
+	if ((atomic_inc_return(&clkdm->usecount) > 1) && autodeps)
 		return 0;
 
 	spin_lock_irqsave(&clkdm->lock, flags);
 	arch_clkdm->clkdm_clk_enable(clkdm);
-	pwrdm_wait_transition(clkdm->pwrdm.ptr);
-	pwrdm_clkdm_state_switch(clkdm);
+	pwrdm_state_switch(clkdm->pwrdm.ptr);
 	spin_unlock_irqrestore(&clkdm->lock, flags);
 
 	pr_debug("clockdomain: clkdm %s: enabled\n", clkdm->name);
@@ -970,15 +944,12 @@ static int _clkdm_clk_hwmod_disable(struct clockdomain *clkdm)
 		return -ERANGE;
 	}
 
-	if (clkdm_usecount_dec(clkdm) > 0)
-		return 0;
-
-	if (clkdm->flags & CLKDM_NO_MANUAL_TRANS)
+	if (atomic_dec_return(&clkdm->usecount) > 0)
 		return 0;
 
 	spin_lock_irqsave(&clkdm->lock, flags);
 	arch_clkdm->clkdm_clk_disable(clkdm);
-	pwrdm_clkdm_state_switch(clkdm);
+	pwrdm_state_switch(clkdm->pwrdm.ptr);
 	spin_unlock_irqrestore(&clkdm->lock, flags);
 
 	pr_debug("clockdomain: clkdm %s: disabled\n", clkdm->name);
@@ -1010,10 +981,6 @@ int clkdm_clk_enable(struct clockdomain *clkdm, struct clk *clk)
 	if (!clk)
 		return -EINVAL;
 
-	/* If autoidle clock, do not update clkdm usecounts */
-	if (clk->autoidle)
-		return 0;
-
 	return _clkdm_clk_hwmod_enable(clkdm);
 }
 
@@ -1039,10 +1006,6 @@ int clkdm_clk_disable(struct clockdomain *clkdm, struct clk *clk)
 
 	if (!clk)
 		return -EINVAL;
-
-	/* If autoidle clock, do not update clkdm usecounts */
-	if (clk->autoidle)
-		return 0;
 
 	return _clkdm_clk_hwmod_disable(clkdm);
 }

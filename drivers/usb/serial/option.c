@@ -1271,18 +1271,6 @@ static const struct usb_device_id option_ids[] = {
 };
 MODULE_DEVICE_TABLE(usb, option_ids);
 
-static struct usb_driver option_driver = {
-	.name       = "option",
-	.probe      = usb_serial_probe,
-	.disconnect = usb_serial_disconnect,
-#ifdef CONFIG_PM
-	.suspend    = usb_serial_suspend,
-	.resume     = usb_serial_resume,
-	.supports_autosuspend =	1,
-#endif
-	.id_table   = option_ids,
-};
-
 /* The card has three separate interfaces, which the serial driver
  * recognizes separately, thus num_port=1.
  */
@@ -1322,7 +1310,7 @@ static struct usb_serial_driver * const serial_drivers[] = {
 
 static bool debug;
 
-module_usb_serial_driver(option_driver, serial_drivers);
+module_usb_serial_driver(serial_drivers, option_ids);
 
 static bool is_blacklisted(const u8 ifnum, enum option_blacklist_reason reason,
 			   const struct option_blacklist_info *blacklist)
@@ -1407,7 +1395,6 @@ static void option_instat_callback(struct urb *urb)
 	struct usb_wwan_port_private *portdata =
 					usb_get_serial_port_data(port);
 
-	dbg("%s", __func__);
 	dbg("%s: urb %p port %p has data %p", __func__, urb, port, portdata);
 
 	if (status == 0) {
@@ -1445,7 +1432,7 @@ static void option_instat_callback(struct urb *urb)
 				req_pkt->bRequestType, req_pkt->bRequest);
 		}
 	} else
-		err("%s: error %d", __func__, status);
+		dev_err(&port->dev, "%s: error %d\n", __func__, status);
 
 	/* Resubmit urb so we continue receiving IRQ data */
 	if (status != -ESHUTDOWN && status != -ENOENT) {
@@ -1469,7 +1456,6 @@ static int option_send_setup(struct usb_serial_port *port)
 	struct usb_wwan_port_private *portdata;
 	int ifNum = serial->interface->cur_altsetting->desc.bInterfaceNumber;
 	int val = 0;
-	dbg("%s", __func__);
 
 	if (is_blacklisted(ifNum, OPTION_BLACKLIST_SENDSETUP,
 			(struct option_blacklist_info *) intfdata->private)) {

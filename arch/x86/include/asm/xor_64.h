@@ -43,14 +43,14 @@ typedef struct {
 #define XMMS_SAVE				\
 do {						\
 	preempt_disable();			\
+	cr0 = read_cr0();			\
+	clts();					\
 	asm volatile(				\
-		"movq %%cr0,%0		;\n\t"	\
-		"clts			;\n\t"	\
 		"movups %%xmm0,(%1)	;\n\t"	\
 		"movups %%xmm1,0x10(%1)	;\n\t"	\
 		"movups %%xmm2,0x20(%1)	;\n\t"	\
 		"movups %%xmm3,0x30(%1)	;\n\t"	\
-		: "=&r" (cr0)			\
+		: "+r" (cr0)			\
 		: "r" (xmm_save) 		\
 		: "memory");			\
 } while (0)
@@ -63,10 +63,10 @@ do {						\
 		"movups 0x10(%1),%%xmm1	;\n\t"	\
 		"movups 0x20(%1),%%xmm2	;\n\t"	\
 		"movups 0x30(%1),%%xmm3	;\n\t"	\
-		"movq 	%0,%%cr0	;\n\t"	\
 		:				\
 		: "r" (cr0), "r" (xmm_save)	\
 		: "memory");			\
+	write_cr0(cr0);				\
 	preempt_enable();			\
 } while (0)
 
@@ -347,15 +347,21 @@ static struct xor_block_template xor_block_sse = {
 	.do_5 = xor_sse_5,
 };
 
+
+/* Also try the AVX routines */
+#include "xor_avx.h"
+
 #undef XOR_TRY_TEMPLATES
 #define XOR_TRY_TEMPLATES			\
 do {						\
+	AVX_XOR_SPEED;				\
 	xor_speed(&xor_block_sse);		\
 } while (0)
 
 /* We force the use of the SSE xor block because it can write around L2.
    We may also be able to load into the L1 only depending on how the cpu
    deals with a load to a line that is being prefetched.  */
-#define XOR_SELECT_TEMPLATE(FASTEST) (&xor_block_sse)
+#define XOR_SELECT_TEMPLATE(FASTEST) \
+	AVX_SELECT(&xor_block_sse)
 
 #endif /* _ASM_X86_XOR_64_H */

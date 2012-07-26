@@ -154,15 +154,6 @@ static inline u32 read_32bit_tls(struct task_struct *t, int tls)
 	return get_desc_base(&t->thread.tls_array[tls]);
 }
 
-/*
- * This gets called before we allocate a new thread and copy
- * the current task into it.
- */
-void prepare_to_copy(struct task_struct *tsk)
-{
-	unlazy_fpu(tsk);
-}
-
 int copy_thread(unsigned long clone_flags, unsigned long sp,
 		unsigned long unused,
 	struct task_struct *p, struct pt_regs *regs)
@@ -364,8 +355,17 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	BUG_ON(pdo > _pdo + ARRAY_SIZE(_pdo));
 #endif
 	BUG_ON(mcl > _mcl + ARRAY_SIZE(_mcl));
+	if (_mcl->op == __HYPERVISOR_fpu_taskswitch)
+		__this_cpu_write(xen_x86_cr0_upd, X86_CR0_TS);
 	if (unlikely(HYPERVISOR_multicall_check(_mcl, mcl - _mcl, NULL)))
 		BUG();
+	if (_mcl->op == __HYPERVISOR_fpu_taskswitch) {
+		if (_mcl->args[0])
+			__this_cpu_or(xen_x86_cr0, X86_CR0_TS);
+		else
+			__this_cpu_and(xen_x86_cr0, X86_CR0_TS);
+		xen_clear_cr0_upd();
+	}
 
 	/*
 	 * Switch DS and ES.
@@ -410,9 +410,9 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	/*
 	 * Switch the PDA context.
 	 */
-	percpu_write(current_task, next_p);
+	this_cpu_write(current_task, next_p);
 
-	percpu_write(kernel_stack,
+	this_cpu_write(kernel_stack,
 		  (unsigned long)task_stack_page(next_p) +
 		  THREAD_SIZE - KERNEL_STACK_OFFSET);
 

@@ -150,6 +150,13 @@ DEFINE_PER_CPU_PAGE_ALIGNED(struct gdt_page, gdt_page) = { .gdt = {
 } };
 EXPORT_PER_CPU_SYMBOL_GPL(gdt_page);
 
+#ifdef CONFIG_XEN
+DEFINE_PER_CPU(unsigned long, xen_x86_cr0);
+DEFINE_PER_CPU(unsigned long, xen_x86_cr0_upd) = ~0;
+EXPORT_PER_CPU_SYMBOL(xen_x86_cr0);
+EXPORT_PER_CPU_SYMBOL(xen_x86_cr0_upd);
+#endif
+
 static int __init x86_xsave_setup(char *s)
 {
 	setup_clear_cpu_cap(X86_FEATURE_XSAVE);
@@ -389,6 +396,10 @@ void __ref load_percpu_segment(int cpu)
 			(unsigned long)per_cpu(irq_stack_union.gs_base, cpu)))
 		BUG();
 #endif
+#endif
+#ifdef CONFIG_XEN
+	__this_cpu_write(xen_x86_cr0, native_read_cr0());
+	xen_clear_cr0_upd();
 #endif
 	load_stack_canary_segment();
 }
@@ -1182,14 +1193,20 @@ int is_debug_stack(unsigned long addr)
 		 addr > (__get_cpu_var(debug_stack_addr) - DEBUG_STKSZ));
 }
 
+static DEFINE_PER_CPU(u32, debug_stack_use_ctr);
+
 void debug_stack_set_zero(void)
 {
+	this_cpu_inc(debug_stack_use_ctr);
 	load_idt((const struct desc_ptr *)&nmi_idt_descr);
 }
 
 void debug_stack_reset(void)
 {
-	load_idt((const struct desc_ptr *)&idt_descr);
+	if (WARN_ON(!this_cpu_read(debug_stack_use_ctr)))
+		return;
+	if (this_cpu_dec_return(debug_stack_use_ctr) == 0)
+		load_idt((const struct desc_ptr *)&idt_descr);
 }
 #endif
 
@@ -1274,7 +1291,7 @@ void __cpuinit cpu_init(void)
 #endif
 
 #ifdef CONFIG_NUMA
-	if (cpu != 0 && percpu_read(numa_node) == 0 &&
+	if (cpu != 0 && this_cpu_read(numa_node) == 0 &&
 	    early_cpu_to_node(cpu) != NUMA_NO_NODE)
 		set_numa_node(early_cpu_to_node(cpu));
 #endif

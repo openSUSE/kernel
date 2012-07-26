@@ -16,8 +16,8 @@
 #include <linux/err.h>
 #include <linux/io.h>
 #include <linux/spi/spi.h>
-#include <linux/spi/orion_spi.h>
 #include <linux/module.h>
+#include <linux/clk.h>
 #include <asm/unaligned.h>
 
 #define DRIVER_NAME			"orion_spi"
@@ -35,20 +35,13 @@
 #define ORION_SPI_CLK_PRESCALE_MASK	0x1F
 
 struct orion_spi {
-	struct work_struct	work;
-
-	/* Lock access to transfer list.	*/
-	spinlock_t		lock;
-
-	struct list_head	msg_queue;
 	struct spi_master	*master;
 	void __iomem		*base;
 	unsigned int		max_speed;
 	unsigned int		min_speed;
 	struct orion_spi_info	*spi_info;
+	struct clk              *clk;
 };
-
-static struct workqueue_struct *orion_spi_wq;
 
 static inline void __iomem *spi_reg(struct orion_spi *orion_spi, u32 reg)
 {
@@ -104,7 +97,7 @@ static int orion_spi_baudrate_set(struct spi_device *spi, unsigned int speed)
 
 	orion_spi = spi_master_get_devdata(spi->master);
 
-	tclk_hz = orion_spi->spi_info->tclk;
+	tclk_hz = clk_get_rate(orion_spi->clk);
 
 	/*
 	 * the supported rates are: 4,6,8...30
@@ -276,73 +269,53 @@ out:
 }
 
 
-static void orion_spi_work(struct work_struct *work)
+static void orion_spi_work(struct orion_spi *orion_spi, struct spi_message *m)
 {
-	struct orion_spi *orion_spi =
-		container_of(work, struct orion_spi, work);
+	struct spi_device *spi;
+	struct spi_transfer *t = NULL;
+	int par_override = 0;
+	int status = 0;
+	int cs_active = 0;
 
-	spin_lock_irq(&orion_spi->lock);
-	while (!list_empty(&orion_spi->msg_queue)) {
-		struct spi_message *m;
-		struct spi_device *spi;
-		struct spi_transfer *t = NULL;
-		int par_override = 0;
-		int status = 0;
-		int cs_active = 0;
+	spi = m->spi;
 
-		m = container_of(orion_spi->msg_queue.next, struct spi_message,
-				 queue);
+	/* Load defaults */
+	status = orion_spi_setup_transfer(spi, NULL);
+	if (status < 0)
+		goto msg_done;
 
-		list_del_init(&m->queue);
-		spin_unlock_irq(&orion_spi->lock);
-
-		spi = m->spi;
-
-		/* Load defaults */
-		status = orion_spi_setup_transfer(spi, NULL);
-
-		if (status < 0)
-			goto msg_done;
-
-		list_for_each_entry(t, &m->transfers, transfer_list) {
-			if (par_override || t->speed_hz || t->bits_per_word) {
-				par_override = 1;
-				status = orion_spi_setup_transfer(spi, t);
-				if (status < 0)
-					break;
-				if (!t->speed_hz && !t->bits_per_word)
-					par_override = 0;
-			}
-
-			if (!cs_active) {
-				orion_spi_set_cs(orion_spi, 1);
-				cs_active = 1;
-			}
-
-			if (t->len)
-				m->actual_length +=
-					orion_spi_write_read(spi, t);
-
-			if (t->delay_usecs)
-				udelay(t->delay_usecs);
-
-			if (t->cs_change) {
-				orion_spi_set_cs(orion_spi, 0);
-				cs_active = 0;
-			}
+	list_for_each_entry(t, &m->transfers, transfer_list) {
+		if (par_override || t->speed_hz || t->bits_per_word) {
+			par_override = 1;
+			status = orion_spi_setup_transfer(spi, t);
+			if (status < 0)
+				break;
+			if (!t->speed_hz && !t->bits_per_word)
+				par_override = 0;
 		}
 
-msg_done:
-		if (cs_active)
+		if (!cs_active) {
+			orion_spi_set_cs(orion_spi, 1);
+			cs_active = 1;
+		}
+
+		if (t->len)
+			m->actual_length += orion_spi_write_read(spi, t);
+
+		if (t->delay_usecs)
+			udelay(t->delay_usecs);
+
+		if (t->cs_change) {
 			orion_spi_set_cs(orion_spi, 0);
-
-		m->status = status;
-		m->complete(m->context);
-
-		spin_lock_irq(&orion_spi->lock);
+			cs_active = 0;
+		}
 	}
 
-	spin_unlock_irq(&orion_spi->lock);
+msg_done:
+	if (cs_active)
+		orion_spi_set_cs(orion_spi, 0);
+
+	m->status = status;
 }
 
 static int __init orion_spi_reset(struct orion_spi *orion_spi)
@@ -375,23 +348,22 @@ static int orion_spi_setup(struct spi_device *spi)
 	return 0;
 }
 
-static int orion_spi_transfer(struct spi_device *spi, struct spi_message *m)
+static int orion_spi_transfer_one_message(struct spi_master *spi,
+					  struct spi_message *m)
 {
 	struct orion_spi *orion_spi;
 	struct spi_transfer *t = NULL;
-	unsigned long flags;
 
+	orion_spi = spi_master_get_devdata(spi);
 	m->actual_length = 0;
 	m->status = 0;
 
 	/* reject invalid messages and transfers */
-	if (list_empty(&m->transfers) || !m->complete)
+	if (list_empty(&m->transfers))
 		return -EINVAL;
 
-	orion_spi = spi_master_get_devdata(spi->master);
-
 	list_for_each_entry(t, &m->transfers, transfer_list) {
-		unsigned int bits_per_word = spi->bits_per_word;
+		unsigned int bits_per_word = m->spi->bits_per_word;
 
 		if (t->tx_buf == NULL && t->rx_buf == NULL && t->len) {
 			dev_err(&spi->dev,
@@ -429,18 +401,13 @@ static int orion_spi_transfer(struct spi_device *spi, struct spi_message *m)
 		}
 	}
 
-
-	spin_lock_irqsave(&orion_spi->lock, flags);
-	list_add_tail(&m->queue, &orion_spi->msg_queue);
-	queue_work(orion_spi_wq, &orion_spi->work);
-	spin_unlock_irqrestore(&orion_spi->lock, flags);
+	orion_spi_work(orion_spi, m);
+	spi_finalize_current_message(spi);
 
 	return 0;
 msg_rejected:
 	/* Message rejected and not queued */
 	m->status = -EINVAL;
-	if (m->complete)
-		m->complete(m->context);
 	return -EINVAL;
 }
 
@@ -450,6 +417,7 @@ static int __init orion_spi_probe(struct platform_device *pdev)
 	struct orion_spi *spi;
 	struct resource *r;
 	struct orion_spi_info *spi_info;
+	unsigned long tclk_hz;
 	int status = 0;
 
 	spi_info = pdev->dev.platform_data;
@@ -467,7 +435,7 @@ static int __init orion_spi_probe(struct platform_device *pdev)
 	master->mode_bits = 0;
 
 	master->setup = orion_spi_setup;
-	master->transfer = orion_spi_transfer;
+	master->transfer_one_message = orion_spi_transfer_one_message;
 	master->num_chipselect = ORION_NUM_CHIPSELECTS;
 
 	dev_set_drvdata(&pdev->dev, master);
@@ -476,26 +444,30 @@ static int __init orion_spi_probe(struct platform_device *pdev)
 	spi->master = master;
 	spi->spi_info = spi_info;
 
-	spi->max_speed = DIV_ROUND_UP(spi_info->tclk, 4);
-	spi->min_speed = DIV_ROUND_UP(spi_info->tclk, 30);
+	spi->clk = clk_get(&pdev->dev, NULL);
+	if (IS_ERR(spi->clk)) {
+		status = PTR_ERR(spi->clk);
+		goto out;
+	}
+
+	clk_prepare(spi->clk);
+	clk_enable(spi->clk);
+	tclk_hz = clk_get_rate(spi->clk);
+	spi->max_speed = DIV_ROUND_UP(tclk_hz, 4);
+	spi->min_speed = DIV_ROUND_UP(tclk_hz, 30);
 
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (r == NULL) {
 		status = -ENODEV;
-		goto out;
+		goto out_rel_clk;
 	}
 
 	if (!request_mem_region(r->start, resource_size(r),
 				dev_name(&pdev->dev))) {
 		status = -EBUSY;
-		goto out;
+		goto out_rel_clk;
 	}
 	spi->base = ioremap(r->start, SZ_1K);
-
-	INIT_WORK(&spi->work, orion_spi_work);
-
-	spin_lock_init(&spi->lock);
-	INIT_LIST_HEAD(&spi->msg_queue);
 
 	if (orion_spi_reset(spi) < 0)
 		goto out_rel_mem;
@@ -508,7 +480,9 @@ static int __init orion_spi_probe(struct platform_device *pdev)
 
 out_rel_mem:
 	release_mem_region(r->start, resource_size(r));
-
+out_rel_clk:
+	clk_disable_unprepare(spi->clk);
+	clk_put(spi->clk);
 out:
 	spi_master_put(master);
 	return status;
@@ -524,7 +498,8 @@ static int __exit orion_spi_remove(struct platform_device *pdev)
 	master = dev_get_drvdata(&pdev->dev);
 	spi = spi_master_get_devdata(master);
 
-	cancel_work_sync(&spi->work);
+	clk_disable_unprepare(spi->clk);
+	clk_put(spi->clk);
 
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	release_mem_region(r->start, resource_size(r));
@@ -546,21 +521,13 @@ static struct platform_driver orion_spi_driver = {
 
 static int __init orion_spi_init(void)
 {
-	orion_spi_wq = create_singlethread_workqueue(
-				orion_spi_driver.driver.name);
-	if (orion_spi_wq == NULL)
-		return -ENOMEM;
-
 	return platform_driver_probe(&orion_spi_driver, orion_spi_probe);
 }
 module_init(orion_spi_init);
 
 static void __exit orion_spi_exit(void)
 {
-	flush_workqueue(orion_spi_wq);
 	platform_driver_unregister(&orion_spi_driver);
-
-	destroy_workqueue(orion_spi_wq);
 }
 module_exit(orion_spi_exit);
 

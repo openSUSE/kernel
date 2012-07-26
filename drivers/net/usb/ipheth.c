@@ -214,7 +214,8 @@ static void ipheth_rcvbulk_callback(struct urb *urb)
 	case 0:
 		break;
 	default:
-		err("%s: urb status: %d", __func__, status);
+		dev_err(&dev->intf->dev, "%s: urb status: %d\n",
+			__func__, status);
 		return;
 	}
 
@@ -227,7 +228,8 @@ static void ipheth_rcvbulk_callback(struct urb *urb)
 
 	skb = dev_alloc_skb(len);
 	if (!skb) {
-		err("%s: dev_alloc_skb: -ENOMEM", __func__);
+		dev_err(&dev->intf->dev, "%s: dev_alloc_skb: -ENOMEM\n",
+			__func__);
 		dev->net->stats.rx_dropped++;
 		return;
 	}
@@ -256,7 +258,8 @@ static void ipheth_sndbulk_callback(struct urb *urb)
 	    status != -ENOENT &&
 	    status != -ECONNRESET &&
 	    status != -ESHUTDOWN)
-		err("%s: urb status: %d", __func__, status);
+		dev_err(&dev->intf->dev, "%s: urb status: %d\n",
+		__func__, status);
 
 	dev_kfree_skb_irq(dev->tx_skb);
 	netif_wake_queue(dev->net);
@@ -276,7 +279,8 @@ static int ipheth_carrier_set(struct ipheth_device *dev)
 			dev->ctrl_buf, IPHETH_CTRL_BUF_SIZE,
 			IPHETH_CTRL_TIMEOUT);
 	if (retval < 0) {
-		err("%s: usb_control_msg: %d", __func__, retval);
+		dev_err(&dev->intf->dev, "%s: usb_control_msg: %d\n",
+			__func__, retval);
 		return retval;
 	}
 
@@ -313,9 +317,11 @@ static int ipheth_get_macaddr(struct ipheth_device *dev)
 				 IPHETH_CTRL_BUF_SIZE,
 				 IPHETH_CTRL_TIMEOUT);
 	if (retval < 0) {
-		err("%s: usb_control_msg: %d", __func__, retval);
+		dev_err(&dev->intf->dev, "%s: usb_control_msg: %d\n",
+			__func__, retval);
 	} else if (retval < ETH_ALEN) {
-		err("%s: usb_control_msg: short packet: %d bytes",
+		dev_err(&dev->intf->dev,
+			"%s: usb_control_msg: short packet: %d bytes\n",
 			__func__, retval);
 		retval = -EINVAL;
 	} else {
@@ -340,7 +346,8 @@ static int ipheth_rx_submit(struct ipheth_device *dev, gfp_t mem_flags)
 
 	retval = usb_submit_urb(dev->rx_urb, mem_flags);
 	if (retval)
-		err("%s: usb_submit_urb: %d", __func__, retval);
+		dev_err(&dev->intf->dev, "%s: usb_submit_urb: %d\n",
+			__func__, retval);
 	return retval;
 }
 
@@ -401,7 +408,8 @@ static int ipheth_tx(struct sk_buff *skb, struct net_device *net)
 
 	retval = usb_submit_urb(dev->tx_urb, GFP_ATOMIC);
 	if (retval) {
-		err("%s: usb_submit_urb: %d", __func__, retval);
+		dev_err(&dev->intf->dev, "%s: usb_submit_urb: %d\n",
+			__func__, retval);
 		dev->net->stats.tx_errors++;
 		dev_kfree_skb_irq(skb);
 	} else {
@@ -419,7 +427,7 @@ static void ipheth_tx_timeout(struct net_device *net)
 {
 	struct ipheth_device *dev = netdev_priv(net);
 
-	err("%s: TX timeout", __func__);
+	dev_err(&dev->intf->dev, "%s: TX timeout\n", __func__);
 	dev->net->stats.tx_errors++;
 	usb_unlink_urb(dev->tx_urb);
 }
@@ -469,7 +477,7 @@ static int ipheth_probe(struct usb_interface *intf,
 	hintf = usb_altnum_to_altsetting(intf, IPHETH_ALT_INTFNUM);
 	if (hintf == NULL) {
 		retval = -ENODEV;
-		err("Unable to find alternate settings interface");
+		dev_err(&intf->dev, "Unable to find alternate settings interface\n");
 		goto err_endpoints;
 	}
 
@@ -482,7 +490,7 @@ static int ipheth_probe(struct usb_interface *intf,
 	}
 	if (!(dev->bulk_in && dev->bulk_out)) {
 		retval = -ENODEV;
-		err("Unable to find endpoints");
+		dev_err(&intf->dev, "Unable to find endpoints\n");
 		goto err_endpoints;
 	}
 
@@ -500,7 +508,7 @@ static int ipheth_probe(struct usb_interface *intf,
 
 	retval = ipheth_alloc_urbs(dev);
 	if (retval) {
-		err("error allocating urbs: %d", retval);
+		dev_err(&intf->dev, "error allocating urbs: %d\n", retval);
 		goto err_alloc_urbs;
 	}
 
@@ -511,7 +519,7 @@ static int ipheth_probe(struct usb_interface *intf,
 
 	retval = register_netdev(netdev);
 	if (retval) {
-		err("error registering netdev: %d", retval);
+		dev_err(&intf->dev, "error registering netdev: %d\n", retval);
 		retval = -EIO;
 		goto err_register_netdev;
 	}
@@ -551,6 +559,7 @@ static struct usb_driver ipheth_driver = {
 	.probe =	ipheth_probe,
 	.disconnect =	ipheth_disconnect,
 	.id_table =	ipheth_table,
+	.disable_hub_initiated_lpm = 1,
 };
 
 module_usb_driver(ipheth_driver);

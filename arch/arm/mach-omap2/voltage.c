@@ -38,7 +38,6 @@
 
 #include "voltage.h"
 #include "powerdomain.h"
-#include "smartreflex.h"
 
 #include "vc.h"
 #include "vp.h"
@@ -74,7 +73,8 @@ unsigned long voltdm_get_voltage(struct voltagedomain *voltdm)
 int voltdm_scale(struct voltagedomain *voltdm,
 		 unsigned long target_volt)
 {
-	int ret;
+	int ret, i;
+	unsigned long volt = 0;
 
 	if (!voltdm || IS_ERR(voltdm)) {
 		pr_warning("%s: VDD specified does not exist!\n", __func__);
@@ -87,9 +87,23 @@ int voltdm_scale(struct voltagedomain *voltdm,
 		return -ENODATA;
 	}
 
-	ret = voltdm->scale(voltdm, target_volt);
+	/* Adjust voltage to the exact voltage from the OPP table */
+	for (i = 0; voltdm->volt_data[i].volt_nominal != 0; i++) {
+		if (voltdm->volt_data[i].volt_nominal >= target_volt) {
+			volt = voltdm->volt_data[i].volt_nominal;
+			break;
+		}
+	}
+
+	if (!volt) {
+		pr_warning("%s: not scaling. OPP voltage for %lu, not found.\n",
+			   __func__, target_volt);
+		return -EINVAL;
+	}
+
+	ret = voltdm->scale(voltdm, volt);
 	if (!ret)
-		voltdm->nominal_volt = target_volt;
+		voltdm->nominal_volt = volt;
 
 	return ret;
 }
@@ -323,59 +337,6 @@ int voltdm_add_pwrdm(struct voltagedomain *voltdm, struct powerdomain *pwrdm)
 	list_add(&pwrdm->voltdm_node, &voltdm->pwrdm_list);
 
 	return 0;
-}
-
-/**
- * voltdm_pwrdm_enable - increase usecount for a voltagedomain
- * @voltdm: struct voltagedomain * to increase count for
- *
- * Increases usecount for a given voltagedomain. If the usecount reaches
- * 1, the domain is awakened from idle and the function will call the
- * voltagedomain->wakeup callback for this domain, and also enable the
- * smartreflex for the domain.
- */
-void voltdm_pwrdm_enable(struct voltagedomain *voltdm)
-{
-	if (!voltdm)
-		return;
-
-	if (atomic_inc_return(&voltdm->usecount) == 1) {
-		if (voltdm->wakeup)
-			voltdm->wakeup(voltdm);
-		omap_sr_enable(voltdm);
-	}
-}
-
-/**
- * voltdm_pwrdm_disable - decrease usecount for a voltagedomain
- * @voltdm: struct voltagedomain * to decrease count for
- *
- * Decreases the usecount for a given voltagedomain. If the usecount
- * reaches zero, the domain can idle and the function will call the
- * voltagedomain->sleep callback, disable smartreflex for the domain,
- * and calculate the overall target state for the voltagedomain.
- */
-void voltdm_pwrdm_disable(struct voltagedomain *voltdm)
-{
-	int target_state = -EINVAL;
-	int state;
-	struct powerdomain *pwrdm;
-
-	if (!voltdm)
-		return;
-
-	if (!atomic_dec_return(&voltdm->usecount)) {
-		omap_sr_disable(voltdm);
-		/* Determine target state for voltdm */
-		list_for_each_entry(pwrdm, &voltdm->pwrdm_list, voltdm_node) {
-			state = pwrdm_read_next_pwrst(pwrdm);
-			if (state > target_state)
-				target_state = state;
-		}
-		voltdm->target_state = target_state;
-		if (voltdm->sleep)
-			voltdm->sleep(voltdm);
-	}
 }
 
 /**

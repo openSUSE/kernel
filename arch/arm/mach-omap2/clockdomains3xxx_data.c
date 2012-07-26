@@ -53,9 +53,9 @@
  * 3430ES2 PM_WKDEP_SGX: adds IVA2, removes CORE
  */
 static struct clkdm_dep gfx_sgx_3xxx_wkdeps[] = {
-	{ .clkdm_name = "iva2_clkdm", },
-	{ .clkdm_name = "mpu_clkdm", },
-	{ .clkdm_name = "wkup_clkdm", },
+	{ .clkdm_name = "iva2_clkdm" },
+	{ .clkdm_name = "mpu_clkdm" },
+	{ .clkdm_name = "wkup_clkdm" },
 	{ NULL },
 };
 
@@ -232,7 +232,7 @@ static struct clockdomain d2d_clkdm = {
 static struct clockdomain core_l3_3xxx_clkdm = {
 	.name		= "core_l3_clkdm",
 	.pwrdm		= { .name = "core_pwrdm" },
-	.flags		= CLKDM_CAN_HWSUP | CLKDM_NO_MANUAL_TRANS,
+	.flags		= CLKDM_CAN_HWSUP,
 	.dep_bit	= OMAP3430_EN_CORE_SHIFT,
 	.clktrctrl_mask = OMAP3430_CLKTRCTRL_L3_MASK,
 };
@@ -245,7 +245,7 @@ static struct clockdomain core_l3_3xxx_clkdm = {
 static struct clockdomain core_l4_3xxx_clkdm = {
 	.name		= "core_l4_clkdm",
 	.pwrdm		= { .name = "core_pwrdm" },
-	.flags		= CLKDM_CAN_HWSUP | CLKDM_NO_MANUAL_TRANS,
+	.flags		= CLKDM_CAN_HWSUP,
 	.dep_bit	= OMAP3430_EN_CORE_SHIFT,
 	.clktrctrl_mask = OMAP3430_CLKTRCTRL_L4_MASK,
 };
@@ -282,7 +282,7 @@ static struct clockdomain usbhost_clkdm = {
 static struct clockdomain per_clkdm = {
 	.name		= "per_clkdm",
 	.pwrdm		= { .name = "per_pwrdm" },
-	.flags		= CLKDM_CAN_HWSUP_SWSUP | CLKDM_NO_MANUAL_TRANS,
+	.flags		= CLKDM_CAN_HWSUP_SWSUP,
 	.dep_bit	= OMAP3430_EN_PER_SHIFT,
 	.wkdep_srcs	= per_wkdeps,
 	.sleepdep_srcs	= per_sleepdeps,
