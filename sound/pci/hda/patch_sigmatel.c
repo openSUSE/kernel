@@ -102,6 +102,7 @@ enum {
 	STAC_HP_DV7_4000,
 	STAC_HP_ZEPHYR,
 	STAC_92HD83XXX_HP_LED,
+	STAC_92HD83XXX_HP_INV_LED,
 	STAC_92HD83XXX_MODELS
 };
 
@@ -1677,6 +1678,7 @@ static const char * const stac92hd83xxx_models[STAC_92HD83XXX_MODELS] = {
 	[STAC_HP_DV7_4000] = "hp-dv7-4000",
 	[STAC_HP_ZEPHYR] = "hp-zephyr",
 	[STAC_92HD83XXX_HP_LED] = "hp-led",
+	[STAC_92HD83XXX_HP_INV_LED] = "hp-inv-led",
 };
 
 static const struct snd_pci_quirk stac92hd83xxx_cfg_tbl[] = {
@@ -4418,7 +4420,12 @@ static int stac92xx_init(struct hda_codec *codec)
 	snd_hda_jack_report_sync(codec);
 
 	/* sync mute LED */
-	snd_hda_sync_vmaster_hook(&spec->vmaster_mute);
+	if (spec->gpio_led) {
+		if (spec->vmaster_mute.hook)
+			snd_hda_sync_vmaster_hook(&spec->vmaster_mute);
+		else /* the very first init call doesn't have vmaster yet */
+			stac92xx_update_led_status(codec, false);
+	}
 
 	/* sync the power-map */
 	if (spec->num_pwrs)
@@ -5561,6 +5568,9 @@ again:
 		spec->init = stac92hd83xxx_hp_zephyr_init;
 		break;
 	case STAC_92HD83XXX_HP_LED:
+		default_polarity = 0;
+		break;
+	case STAC_92HD83XXX_HP_INV_LED:
 		default_polarity = 1;
 		break;
 	}
