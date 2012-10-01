@@ -1,7 +1,7 @@
 /*
  * wm9712.c  --  ALSA Soc WM9712 codec support
  *
- * Copyright 2006 Wolfson Microelectronics PLC.
+ * Copyright 2006-12 Wolfson Microelectronics PLC.
  * Author: Liam Girdwood <lrg@slimlogic.co.uk>
  *
  *  This program is free software; you can redistribute  it and/or modify it
@@ -148,7 +148,7 @@ SOC_SINGLE("Treble Volume", AC97_MASTER_TONE, 0, 15, 1),
 
 SOC_SINGLE("Capture ADC Switch", AC97_REC_GAIN, 15, 1, 1),
 SOC_ENUM("Capture Volume Steps", wm9712_enum[6]),
-SOC_DOUBLE("Capture Volume", AC97_REC_GAIN, 8, 0, 63, 1),
+SOC_DOUBLE("Capture Volume", AC97_REC_GAIN, 8, 0, 63, 0),
 SOC_SINGLE("Capture ZC Switch", AC97_REC_GAIN, 7, 1, 0),
 
 SOC_SINGLE_TLV("Mic 1 Volume", AC97_MIC, 8, 31, 1, main_tlv),
@@ -634,6 +634,7 @@ static int wm9712_soc_probe(struct snd_soc_codec *codec)
 {
 	int ret = 0;
 
+	codec->control_data = codec;	/* we don't use regmap! */
 	ret = snd_soc_new_ac97_codec(codec, &soc_ac97_ops, 0);
 	if (ret < 0) {
 		printk(KERN_ERR "wm9712: failed to register AC97 codec\n");

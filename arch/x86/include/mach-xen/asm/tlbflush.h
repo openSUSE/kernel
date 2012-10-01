@@ -27,10 +27,6 @@
  *
  * ..but the i386 has somewhat limited tlb flushing capabilities,
  * and page-granular flushes are available only on i486 and up.
- *
- * x86-64 can only flush individual pages or full VMs. For a range flush
- * we always do the full VM. Might be worth trying if for a small
- * range a few INVLPGs in a row are a win.
  */
 
 #ifndef CONFIG_SMP
@@ -59,8 +55,21 @@ static inline void flush_tlb_range(struct vm_area_struct *vma,
 		__flush_tlb();
 }
 
+static inline void flush_tlb_mm_range(struct mm_struct *mm,
+	   unsigned long start, unsigned long end, unsigned long vmflag)
+{
+	if (mm == current->active_mm)
+		__flush_tlb();
+}
+
 static inline void reset_lazy_tlbstate(void)
 {
+}
+
+static inline void flush_tlb_kernel_range(unsigned long start,
+					  unsigned long end)
+{
+	flush_tlb_all();
 }
 
 #else  /* SMP */
@@ -69,18 +78,19 @@ static inline void reset_lazy_tlbstate(void)
 
 #define local_flush_tlb() __flush_tlb()
 
+#define flush_tlb_mm(mm)	flush_tlb_mm_range(mm, 0UL, TLB_FLUSH_ALL, 0UL)
+
+#define flush_tlb_range(vma, start, end)	\
+		flush_tlb_mm_range((vma)->vm_mm, start, end, (vma)->vm_flags)
+
 #define flush_tlb_all xen_tlb_flush_all
 #define flush_tlb_current_task() xen_tlb_flush_mask(mm_cpumask(current->mm))
-#define flush_tlb_mm(mm) xen_tlb_flush_mask(mm_cpumask(mm))
 #define flush_tlb_page(vma, va) xen_invlpg_mask(mm_cpumask((vma)->vm_mm), va)
+extern void flush_tlb_mm_range(struct mm_struct *mm, unsigned long start,
+				unsigned long end, unsigned long vmflag);
+extern void flush_tlb_kernel_range(unsigned long start, unsigned long end);
 
 #define flush_tlb()	flush_tlb_current_task()
-
-static inline void flush_tlb_range(struct vm_area_struct *vma,
-				   unsigned long start, unsigned long end)
-{
-	flush_tlb_mm(vma->vm_mm);
-}
 
 #ifndef CONFIG_XEN
 #define TLBSTATE_OK	1
@@ -100,11 +110,5 @@ static inline void reset_lazy_tlbstate(void)
 #endif
 
 #endif	/* SMP */
-
-static inline void flush_tlb_kernel_range(unsigned long start,
-					  unsigned long end)
-{
-	flush_tlb_all();
-}
 
 #endif /* _ASM_X86_TLBFLUSH_H */

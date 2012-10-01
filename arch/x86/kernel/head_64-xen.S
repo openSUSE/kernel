@@ -85,7 +85,7 @@ NEXT_PAGE(hypercall_page)
 	CFI_REL_OFFSET	rcx,0
 	.skip 2 /* push %r11 */
 	CFI_ADJUST_CFA_OFFSET	8
-	CFI_REL_OFFSET	rcx,0
+	CFI_REL_OFFSET	r11,0
 	.skip 5 /* mov $#,%eax */
 	.skip 2 /* syscall */
 	.skip 2 /* pop %r11 */

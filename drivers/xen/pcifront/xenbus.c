@@ -96,8 +96,7 @@ static int pcifront_publish_info(struct pcifront_device *pdev)
 
 	err = bind_caller_port_to_irqhandler(pdev->evtchn,
 					     pcifront_handler_aer,
-					     IRQF_SAMPLE_RANDOM,
-					     "pcifront", pdev);
+					     0, "pcifront", pdev);
 	if (err < 0) {
 		xenbus_dev_fatal(pdev->xdev, err,
 				 "Failed to bind event channel");

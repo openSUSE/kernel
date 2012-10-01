@@ -234,6 +234,11 @@ void ext4_evict_inode(struct inode *inode)
 	if (is_bad_inode(inode))
 		goto no_delete;
 
+	/*
+	 * Protect us against freezing - iput() caller didn't have to have any
+	 * protection against it
+	 */
+	sb_start_intwrite(inode->i_sb);
 	handle = ext4_journal_start(inode, ext4_blocks_for_truncate(inode)+3);
 	if (IS_ERR(handle)) {
 		ext4_std_error(inode->i_sb, PTR_ERR(handle));
@@ -243,6 +248,7 @@ void ext4_evict_inode(struct inode *inode)
 		 * cleaned up.
 		 */
 		ext4_orphan_del(NULL, inode);
+		sb_end_intwrite(inode->i_sb);
 		goto no_delete;
 	}
 
@@ -274,6 +280,7 @@ void ext4_evict_inode(struct inode *inode)
 		stop_handle:
 			ext4_journal_stop(handle);
 			ext4_orphan_del(NULL, inode);
+			sb_end_intwrite(inode->i_sb);
 			goto no_delete;
 		}
 	}
@@ -302,6 +309,7 @@ void ext4_evict_inode(struct inode *inode)
 	else
 		ext4_free_inode(handle, inode);
 	ext4_journal_stop(handle);
+	sb_end_intwrite(inode->i_sb);
 	return;
 no_delete:
 	ext4_clear_inode(inode);	/* We must guarantee clearing of inode... */
@@ -554,7 +562,8 @@ int ext4_map_blocks(handle_t *handle, struct inode *inode,
 	 * Try to see if we can get the block without requesting a new
 	 * file system block.
 	 */
-	down_read((&EXT4_I(inode)->i_data_sem));
+	if (!(flags & EXT4_GET_BLOCKS_NO_LOCK))
+		down_read((&EXT4_I(inode)->i_data_sem));
 	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)) {
 		retval = ext4_ext_map_blocks(handle, inode, map, flags &
 					     EXT4_GET_BLOCKS_KEEP_SIZE);
@@ -562,7 +571,8 @@ int ext4_map_blocks(handle_t *handle, struct inode *inode,
 		retval = ext4_ind_map_blocks(handle, inode, map, flags &
 					     EXT4_GET_BLOCKS_KEEP_SIZE);
 	}
-	up_read((&EXT4_I(inode)->i_data_sem));
+	if (!(flags & EXT4_GET_BLOCKS_NO_LOCK))
+		up_read((&EXT4_I(inode)->i_data_sem));
 
 	if (retval > 0 && map->m_flags & EXT4_MAP_MAPPED) {
 		int ret = check_block_validity(inode, map);
@@ -1961,7 +1971,7 @@ static void ext4_end_io_buffer_write(struct buffer_head *bh, int uptodate);
  * This function can get called via...
  *   - ext4_da_writepages after taking page lock (have journal handle)
  *   - journal_submit_inode_data_buffers (no journal handle)
- *   - shrink_page_list via pdflush (no journal handle)
+ *   - shrink_page_list via the kswapd/direct reclaim (no journal handle)
  *   - grab_page_cache when doing write_begin (have journal handle)
  *
  * We don't do any block allocation in this function. If we have page with
@@ -2838,6 +2848,32 @@ static int ext4_get_block_write(struct inode *inode, sector_t iblock,
 			       EXT4_GET_BLOCKS_IO_CREATE_EXT);
 }
 
+static int ext4_get_block_write_nolock(struct inode *inode, sector_t iblock,
+		   struct buffer_head *bh_result, int flags)
+{
+	handle_t *handle = ext4_journal_current_handle();
+	struct ext4_map_blocks map;
+	int ret = 0;
+
+	ext4_debug("ext4_get_block_write_nolock: inode %lu, flag %d\n",
+		   inode->i_ino, flags);
+
+	flags = EXT4_GET_BLOCKS_NO_LOCK;
+
+	map.m_lblk = iblock;
+	map.m_len = bh_result->b_size >> inode->i_blkbits;
+
+	ret = ext4_map_blocks(handle, inode, &map, flags);
+	if (ret > 0) {
+		map_bh(bh_result, inode->i_sb, map.m_pblk);
+		bh_result->b_state = (bh_result->b_state & ~EXT4_MAP_FLAGS) |
+					map.m_flags;
+		bh_result->b_size = inode->i_sb->s_blocksize * map.m_len;
+		ret = 0;
+	}
+	return ret;
+}
+
 static void ext4_end_io_dio(struct kiocb *iocb, loff_t offset,
 			    ssize_t size, void *private, int ret,
 			    bool is_async)
@@ -2986,6 +3022,18 @@ static ssize_t ext4_ext_direct_IO(int rw, struct kiocb *iocb,
 
 	loff_t final_size = offset + count;
 	if (rw == WRITE && final_size <= inode->i_size) {
+		int overwrite = 0;
+
+		BUG_ON(iocb->private == NULL);
+
+		/* If we do a overwrite dio, i_mutex locking can be released */
+		overwrite = *((int *)iocb->private);
+
+		if (overwrite) {
+			down_read(&EXT4_I(inode)->i_data_sem);
+			mutex_unlock(&inode->i_mutex);
+		}
+
 		/*
  		 * We could direct write to holes and fallocate.
 		 *
@@ -3011,8 +3059,10 @@ static ssize_t ext4_ext_direct_IO(int rw, struct kiocb *iocb,
 		if (!is_sync_kiocb(iocb)) {
 			ext4_io_end_t *io_end =
 				ext4_init_io_end(inode, GFP_NOFS);
-			if (!io_end)
-				return -ENOMEM;
+			if (!io_end) {
+				ret = -ENOMEM;
+				goto retake_lock;
+			}
 			io_end->flag |= EXT4_IO_END_DIRECT;
 			iocb->private = io_end;
 			/*
@@ -3025,13 +3075,22 @@ static ssize_t ext4_ext_direct_IO(int rw, struct kiocb *iocb,
 			EXT4_I(inode)->cur_aio_dio = iocb->private;
 		}
 
-		ret = __blockdev_direct_IO(rw, iocb, inode,
-					 inode->i_sb->s_bdev, iov,
-					 offset, nr_segs,
-					 ext4_get_block_write,
-					 ext4_end_io_dio,
-					 NULL,
-					 DIO_LOCKING);
+		if (overwrite)
+			ret = __blockdev_direct_IO(rw, iocb, inode,
+						 inode->i_sb->s_bdev, iov,
+						 offset, nr_segs,
+						 ext4_get_block_write_nolock,
+						 ext4_end_io_dio,
+						 NULL,
+						 0);
+		else
+			ret = __blockdev_direct_IO(rw, iocb, inode,
+						 inode->i_sb->s_bdev, iov,
+						 offset, nr_segs,
+						 ext4_get_block_write,
+						 ext4_end_io_dio,
+						 NULL,
+						 DIO_LOCKING);
 		if (iocb->private)
 			EXT4_I(inode)->cur_aio_dio = NULL;
 		/*
@@ -3051,7 +3110,7 @@ static ssize_t ext4_ext_direct_IO(int rw, struct kiocb *iocb,
 		if (ret != -EIOCBQUEUED && ret <= 0 && iocb->private) {
 			ext4_free_io_end(iocb->private);
 			iocb->private = NULL;
-		} else if (ret > 0 && ext4_test_inode_state(inode,
+		} else if (ret > 0 && !overwrite && ext4_test_inode_state(inode,
 						EXT4_STATE_DIO_UNWRITTEN)) {
 			int err;
 			/*
@@ -3064,6 +3123,14 @@ static ssize_t ext4_ext_direct_IO(int rw, struct kiocb *iocb,
 				ret = err;
 			ext4_clear_inode_state(inode, EXT4_STATE_DIO_UNWRITTEN);
 		}
+
+	retake_lock:
+		/* take i_mutex locking again if we do a ovewrite dio */
+		if (overwrite) {
+			up_read(&EXT4_I(inode)->i_data_sem);
+			mutex_lock(&inode->i_mutex);
+		}
+
 		return ret;
 	}
 
@@ -4057,7 +4124,7 @@ static int ext4_do_update_inode(handle_t *handle,
 			EXT4_SET_RO_COMPAT_FEATURE(sb,
 					EXT4_FEATURE_RO_COMPAT_LARGE_FILE);
 			ext4_handle_sync(handle);
-			err = ext4_handle_dirty_super_now(handle, sb);
+			err = ext4_handle_dirty_super(handle, sb);
 		}
 	}
 	raw_inode->i_generation = cpu_to_le32(inode->i_generation);
@@ -4533,14 +4600,6 @@ static int ext4_expand_extra_isize(struct inode *inode,
  * inode out, but prune_icache isn't a user-visible syncing function.
  * Whenever the user wants stuff synced (sys_sync, sys_msync, sys_fsync)
  * we start and wait on commits.
- *
- * Is this efficient/effective?  Well, we're being nice to the system
- * by cleaning up our inodes proactively so they can be reaped
- * without I/O.  But we are potentially leaving up to five seconds'
- * worth of inodes floating about which prune_icache wants us to
- * write out.  One way to fix that would be to get prune_icache()
- * to do a write_super() to free up some memory.  It has the desired
- * effect.
  */
 int ext4_mark_inode_dirty(handle_t *handle, struct inode *inode)
 {
@@ -4731,11 +4790,7 @@ int ext4_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 	get_block_t *get_block;
 	int retries = 0;
 
-	/*
-	 * This check is racy but catches the common case. We rely on
-	 * __block_page_mkwrite() to do a reliable check.
-	 */
-	vfs_check_frozen(inode->i_sb, SB_FREEZE_WRITE);
+	sb_start_pagefault(inode->i_sb);
 	/* Delalloc case is easy... */
 	if (test_opt(inode->i_sb, DELALLOC) &&
 	    !ext4_should_journal_data(inode) &&
@@ -4803,5 +4858,6 @@ retry_alloc:
 out_ret:
 	ret = block_page_mkwrite_return(ret);
 out:
+	sb_end_pagefault(inode->i_sb);
 	return ret;
 }

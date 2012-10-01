@@ -2157,8 +2157,7 @@ static inline void flush_unauthorized_files(const struct cred *cred,
 						get_file(devnull);
 					} else {
 						devnull = dentry_open(
-							dget(selinux_null),
-							mntget(selinuxfs_mount),
+							&selinux_null,
 							O_RDWR, cred);
 						if (IS_ERR(devnull)) {
 							devnull = NULL;
@@ -3186,6 +3185,7 @@ static int selinux_file_fcntl(struct file *file, unsigned int cmd,
 	case F_GETFL:
 	case F_GETOWN:
 	case F_GETSIG:
+	case F_GETOWNER_UIDS:
 		/* Just check FD__USE permission */
 		err = file_has_perm(cred, file, 0);
 		break;
@@ -5768,21 +5768,21 @@ static struct nf_hook_ops selinux_ipv4_ops[] = {
 	{
 		.hook =		selinux_ipv4_postroute,
 		.owner =	THIS_MODULE,
-		.pf =		PF_INET,
+		.pf =		NFPROTO_IPV4,
 		.hooknum =	NF_INET_POST_ROUTING,
 		.priority =	NF_IP_PRI_SELINUX_LAST,
 	},
 	{
 		.hook =		selinux_ipv4_forward,
 		.owner =	THIS_MODULE,
-		.pf =		PF_INET,
+		.pf =		NFPROTO_IPV4,
 		.hooknum =	NF_INET_FORWARD,
 		.priority =	NF_IP_PRI_SELINUX_FIRST,
 	},
 	{
 		.hook =		selinux_ipv4_output,
 		.owner =	THIS_MODULE,
-		.pf =		PF_INET,
+		.pf =		NFPROTO_IPV4,
 		.hooknum =	NF_INET_LOCAL_OUT,
 		.priority =	NF_IP_PRI_SELINUX_FIRST,
 	}
@@ -5794,14 +5794,14 @@ static struct nf_hook_ops selinux_ipv6_ops[] = {
 	{
 		.hook =		selinux_ipv6_postroute,
 		.owner =	THIS_MODULE,
-		.pf =		PF_INET6,
+		.pf =		NFPROTO_IPV6,
 		.hooknum =	NF_INET_POST_ROUTING,
 		.priority =	NF_IP6_PRI_SELINUX_LAST,
 	},
 	{
 		.hook =		selinux_ipv6_forward,
 		.owner =	THIS_MODULE,
-		.pf =		PF_INET6,
+		.pf =		NFPROTO_IPV6,
 		.hooknum =	NF_INET_FORWARD,
 		.priority =	NF_IP6_PRI_SELINUX_FIRST,
 	}

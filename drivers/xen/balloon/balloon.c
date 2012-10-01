@@ -320,7 +320,7 @@ static int increase_reservation(unsigned long nr_pages)
 	if (rc > 0)
 		kswapd_run(0);
 	if (need_zonelists_rebuild)
-		build_all_zonelists(NULL);
+		build_all_zonelists(NULL, NULL);
 	else
 		vm_total_pages = nr_free_pagecache_pages();
 #endif

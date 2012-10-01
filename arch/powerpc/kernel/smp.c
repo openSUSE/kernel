@@ -48,6 +48,7 @@
 #ifdef CONFIG_PPC64
 #include <asm/paca.h>
 #endif
+#include <asm/vdso.h>
 #include <asm/debug.h>
 
 #ifdef DEBUG
@@ -577,8 +578,9 @@ void __devinit start_secondary(void *unused)
 #ifdef CONFIG_PPC64
 	if (system_state == SYSTEM_RUNNING)
 		vdso_data->processorCount++;
+
+	vdso_getcpu_init();
 #endif
-	ipi_call_lock();
 	notify_cpu_starting(cpu);
 	set_cpu_online(cpu, true);
 	/* Update sibling maps */
@@ -608,7 +610,6 @@ void __devinit start_secondary(void *unused)
 		of_node_put(np);
 	}
 	of_node_put(l2_cache);
-	ipi_call_unlock();
 
 	local_irq_enable();
 

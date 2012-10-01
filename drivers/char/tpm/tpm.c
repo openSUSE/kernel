@@ -1282,7 +1282,7 @@ static struct tpm_input_header savestate_header = {
  * We are about to suspend. Save the TPM state
  * so that it can be restored.
  */
-int tpm_pm_suspend(struct device *dev, pm_message_t pm_state)
+int tpm_pm_suspend(struct device *dev)
 {
 	struct tpm_chip *chip = dev_get_drvdata(dev);
 	struct tpm_cmd_t cmd;
@@ -1330,6 +1330,9 @@ EXPORT_SYMBOL_GPL(tpm_pm_resume);
 
 void tpm_dev_vendor_release(struct tpm_chip *chip)
 {
+	if (!chip)
+		return;
+
 	if (chip->vendor.release)
 		chip->vendor.release(chip->dev);
 
@@ -1346,6 +1349,9 @@ EXPORT_SYMBOL_GPL(tpm_dev_vendor_release);
 void tpm_dev_release(struct device *dev)
 {
 	struct tpm_chip *chip = dev_get_drvdata(dev);
+
+	if (!chip)
+		return;
 
 	tpm_dev_vendor_release(chip);
 
@@ -1413,15 +1419,12 @@ struct tpm_chip *tpm_register_hardware(struct device *dev,
 			"unable to misc_register %s, minor %d\n",
 			chip->vendor.miscdev.name,
 			chip->vendor.miscdev.minor);
-		put_device(chip->dev);
-		return NULL;
+		goto put_device;
 	}
 
 	if (sysfs_create_group(&dev->kobj, chip->vendor.attr_group)) {
 		misc_deregister(&chip->vendor.miscdev);
-		put_device(chip->dev);
-
-		return NULL;
+		goto put_device;
 	}
 
 	chip->bios_dir = tpm_bios_log_setup(devname);
@@ -1433,6 +1436,8 @@ struct tpm_chip *tpm_register_hardware(struct device *dev,
 
 	return chip;
 
+put_device:
+	put_device(chip->dev);
 out_free:
 	kfree(chip);
 	kfree(devname);

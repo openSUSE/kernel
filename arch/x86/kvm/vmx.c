@@ -71,7 +71,10 @@ static bool __read_mostly enable_unrestricted_guest = 1;
 module_param_named(unrestricted_guest,
 			enable_unrestricted_guest, bool, S_IRUGO);
 
-static bool __read_mostly emulate_invalid_guest_state = 0;
+static bool __read_mostly enable_ept_ad_bits = 1;
+module_param_named(eptad, enable_ept_ad_bits, bool, S_IRUGO);
+
+static bool __read_mostly emulate_invalid_guest_state = true;
 module_param(emulate_invalid_guest_state, bool, S_IRUGO);
 
 static bool __read_mostly vmm_exclusive = 1;
@@ -793,6 +796,11 @@ static inline bool cpu_has_vmx_ept_4levels(void)
 	return vmx_capability.ept & VMX_EPT_PAGE_WALK_4_BIT;
 }
 
+static inline bool cpu_has_vmx_ept_ad_bits(void)
+{
+	return vmx_capability.ept & VMX_EPT_AD_BIT;
+}
+
 static inline bool cpu_has_vmx_invept_individual_addr(void)
 {
 	return vmx_capability.ept & VMX_EPT_EXTENT_INDIVIDUAL_BIT;
@@ -851,6 +859,12 @@ static inline bool cpu_has_vmx_rdtscp(void)
 {
 	return vmcs_config.cpu_based_2nd_exec_ctrl &
 		SECONDARY_EXEC_RDTSCP;
+}
+
+static inline bool cpu_has_vmx_invpcid(void)
+{
+	return vmcs_config.cpu_based_2nd_exec_ctrl &
+		SECONDARY_EXEC_ENABLE_INVPCID;
 }
 
 static inline bool cpu_has_virtual_nmis(void)
@@ -1736,6 +1750,11 @@ static bool vmx_rdtscp_supported(void)
 	return cpu_has_vmx_rdtscp();
 }
 
+static bool vmx_invpcid_supported(void)
+{
+	return cpu_has_vmx_invpcid() && enable_ept;
+}
+
 /*
  * Swap MSR entry in host/guest MSR entry array.
  */
@@ -2455,7 +2474,8 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf)
 			SECONDARY_EXEC_ENABLE_EPT |
 			SECONDARY_EXEC_UNRESTRICTED_GUEST |
 			SECONDARY_EXEC_PAUSE_LOOP_EXITING |
-			SECONDARY_EXEC_RDTSCP;
+			SECONDARY_EXEC_RDTSCP |
+			SECONDARY_EXEC_ENABLE_INVPCID;
 		if (adjust_vmx_controls(min2, opt2,
 					MSR_IA32_VMX_PROCBASED_CTLS2,
 					&_cpu_based_2nd_exec_control) < 0)
@@ -2642,7 +2662,11 @@ static __init int hardware_setup(void)
 	    !cpu_has_vmx_ept_4levels()) {
 		enable_ept = 0;
 		enable_unrestricted_guest = 0;
+		enable_ept_ad_bits = 0;
 	}
+
+	if (!cpu_has_vmx_ept_ad_bits())
+		enable_ept_ad_bits = 0;
 
 	if (!cpu_has_vmx_unrestricted_guest())
 		enable_unrestricted_guest = 0;
@@ -3028,6 +3052,8 @@ static u64 construct_eptp(unsigned long root_hpa)
 	/* TODO write the value reading from MSR */
 	eptp = VMX_EPT_DEFAULT_MT |
 		VMX_EPT_DEFAULT_GAW << VMX_EPT_GAW_EPTP_SHIFT;
+	if (enable_ept_ad_bits)
+		eptp |= VMX_EPT_AD_ENABLE_BIT;
 	eptp |= (root_hpa & PAGE_MASK);
 
 	return eptp;
@@ -3154,11 +3180,22 @@ static int __vmx_get_cpl(struct kvm_vcpu *vcpu)
 
 static int vmx_get_cpl(struct kvm_vcpu *vcpu)
 {
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	/*
+	 * If we enter real mode with cs.sel & 3 != 0, the normal CPL calculations
+	 * fail; use the cache instead.
+	 */
+	if (unlikely(vmx->emulation_required && emulate_invalid_guest_state)) {
+		return vmx->cpl;
+	}
+
 	if (!test_bit(VCPU_EXREG_CPL, (ulong *)&vcpu->arch.regs_avail)) {
 		__set_bit(VCPU_EXREG_CPL, (ulong *)&vcpu->arch.regs_avail);
-		to_vmx(vcpu)->cpl = __vmx_get_cpl(vcpu);
+		vmx->cpl = __vmx_get_cpl(vcpu);
 	}
-	return to_vmx(vcpu)->cpl;
+
+	return vmx->cpl;
 }
 
 
@@ -3166,7 +3203,7 @@ static u32 vmx_segment_access_rights(struct kvm_segment *var)
 {
 	u32 ar;
 
-	if (var->unusable)
+	if (var->unusable || !var->present)
 		ar = 1 << 16;
 	else {
 		ar = var->type & 15;
@@ -3178,8 +3215,6 @@ static u32 vmx_segment_access_rights(struct kvm_segment *var)
 		ar |= (var->db & 1) << 14;
 		ar |= (var->g & 1) << 15;
 	}
-	if (ar == 0) /* a 0 value means unusable */
-		ar = AR_UNUSABLE_MASK;
 
 	return ar;
 }
@@ -3584,6 +3619,7 @@ static void seg_setup(int seg)
 
 static int alloc_apic_access_page(struct kvm *kvm)
 {
+	struct page *page;
 	struct kvm_userspace_memory_region kvm_userspace_mem;
 	int r = 0;
 
@@ -3598,7 +3634,13 @@ static int alloc_apic_access_page(struct kvm *kvm)
 	if (r)
 		goto out;
 
-	kvm->arch.apic_access_page = gfn_to_page(kvm, 0xfee00);
+	page = gfn_to_page(kvm, 0xfee00);
+	if (is_error_page(page)) {
+		r = -EFAULT;
+		goto out;
+	}
+
+	kvm->arch.apic_access_page = page;
 out:
 	mutex_unlock(&kvm->slots_lock);
 	return r;
@@ -3606,6 +3648,7 @@ out:
 
 static int alloc_identity_pagetable(struct kvm *kvm)
 {
+	struct page *page;
 	struct kvm_userspace_memory_region kvm_userspace_mem;
 	int r = 0;
 
@@ -3621,8 +3664,13 @@ static int alloc_identity_pagetable(struct kvm *kvm)
 	if (r)
 		goto out;
 
-	kvm->arch.ept_identity_pagetable = gfn_to_page(kvm,
-			kvm->arch.ept_identity_map_addr >> PAGE_SHIFT);
+	page = gfn_to_page(kvm, kvm->arch.ept_identity_map_addr >> PAGE_SHIFT);
+	if (is_error_page(page)) {
+		r = -EFAULT;
+		goto out;
+	}
+
+	kvm->arch.ept_identity_pagetable = page;
 out:
 	mutex_unlock(&kvm->slots_lock);
 	return r;
@@ -3770,6 +3818,8 @@ static u32 vmx_secondary_exec_control(struct vcpu_vmx *vmx)
 	if (!enable_ept) {
 		exec_control &= ~SECONDARY_EXEC_ENABLE_EPT;
 		enable_unrestricted_guest = 0;
+		/* Enable INVPCID for non-ept guests may cause performance regression. */
+		exec_control &= ~SECONDARY_EXEC_ENABLE_INVPCID;
 	}
 	if (!enable_unrestricted_guest)
 		exec_control &= ~SECONDARY_EXEC_UNRESTRICTED_GUEST;
@@ -4528,7 +4578,7 @@ static int handle_cr(struct kvm_vcpu *vcpu)
 		break;
 	}
 	vcpu->run->exit_reason = 0;
-	pr_unimpl(vcpu, "unhandled control register: op %d cr %d\n",
+	vcpu_unimpl(vcpu, "unhandled control register: op %d cr %d\n",
 	       (int)(exit_qualification >> 4) & 3, cr);
 	return 0;
 }
@@ -4808,6 +4858,7 @@ static int handle_ept_violation(struct kvm_vcpu *vcpu)
 {
 	unsigned long exit_qualification;
 	gpa_t gpa;
+	u32 error_code;
 	int gla_validity;
 
 	exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
@@ -4832,7 +4883,13 @@ static int handle_ept_violation(struct kvm_vcpu *vcpu)
 
 	gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
 	trace_kvm_page_fault(gpa, exit_qualification);
-	return kvm_mmu_page_fault(vcpu, gpa, exit_qualification & 0x3, NULL, 0);
+
+	/* It is a write fault? */
+	error_code = exit_qualification & (1U << 1);
+	/* ept page table is present? */
+	error_code |= (exit_qualification >> 3) & 0x1;
+
+	return kvm_mmu_page_fault(vcpu, gpa, error_code, NULL, 0);
 }
 
 static u64 ept_rsvd_mask(u64 spte, int level)
@@ -4947,14 +5004,17 @@ static int handle_invalid_guest_state(struct kvm_vcpu *vcpu)
 	int ret = 1;
 	u32 cpu_exec_ctrl;
 	bool intr_window_requested;
+	unsigned count = 130;
 
 	cpu_exec_ctrl = vmcs_read32(CPU_BASED_VM_EXEC_CONTROL);
 	intr_window_requested = cpu_exec_ctrl & CPU_BASED_VIRTUAL_INTR_PENDING;
 
-	while (!guest_state_valid(vcpu)) {
-		if (intr_window_requested
-		    && (kvm_get_rflags(&vmx->vcpu) & X86_EFLAGS_IF))
+	while (!guest_state_valid(vcpu) && count-- != 0) {
+		if (intr_window_requested && vmx_interrupt_allowed(vcpu))
 			return handle_interrupt_window(&vmx->vcpu);
+
+		if (test_bit(KVM_REQ_EVENT, &vcpu->requests))
+			return 1;
 
 		err = emulate_instruction(vcpu, 0);
 
@@ -4963,8 +5023,12 @@ static int handle_invalid_guest_state(struct kvm_vcpu *vcpu)
 			goto out;
 		}
 
-		if (err != EMULATE_DONE)
+		if (err != EMULATE_DONE) {
+			vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+			vcpu->run->internal.suberror = KVM_INTERNAL_ERROR_EMULATION;
+			vcpu->run->internal.ndata = 0;
 			return 0;
+		}
 
 		if (signal_pending(current))
 			goto out;
@@ -4972,7 +5036,7 @@ static int handle_invalid_guest_state(struct kvm_vcpu *vcpu)
 			schedule();
 	}
 
-	vmx->emulation_required = 0;
+	vmx->emulation_required = !guest_state_valid(vcpu);
 out:
 	return ret;
 }
@@ -6519,6 +6583,23 @@ static void vmx_cpuid_update(struct kvm_vcpu *vcpu)
 			}
 		}
 	}
+
+	exec_control = vmcs_read32(SECONDARY_VM_EXEC_CONTROL);
+	/* Exposing INVPCID only when PCID is exposed */
+	best = kvm_find_cpuid_entry(vcpu, 0x7, 0);
+	if (vmx_invpcid_supported() &&
+	    best && (best->ebx & bit(X86_FEATURE_INVPCID)) &&
+	    guest_cpuid_has_pcid(vcpu)) {
+		exec_control |= SECONDARY_EXEC_ENABLE_INVPCID;
+		vmcs_write32(SECONDARY_VM_EXEC_CONTROL,
+			     exec_control);
+	} else {
+		exec_control &= ~SECONDARY_EXEC_ENABLE_INVPCID;
+		vmcs_write32(SECONDARY_VM_EXEC_CONTROL,
+			     exec_control);
+		if (best)
+			best->ebx &= ~bit(X86_FEATURE_INVPCID);
+	}
 }
 
 static void vmx_set_supported_cpuid(u32 func, struct kvm_cpuid_entry2 *entry)
@@ -7253,6 +7334,7 @@ static struct kvm_x86_ops vmx_x86_ops = {
 	.cpuid_update = vmx_cpuid_update,
 
 	.rdtscp_supported = vmx_rdtscp_supported,
+	.invpcid_supported = vmx_invpcid_supported,
 
 	.set_supported_cpuid = vmx_set_supported_cpuid,
 
@@ -7282,23 +7364,21 @@ static int __init vmx_init(void)
 	if (!vmx_io_bitmap_a)
 		return -ENOMEM;
 
+	r = -ENOMEM;
+
 	vmx_io_bitmap_b = (unsigned long *)__get_free_page(GFP_KERNEL);
-	if (!vmx_io_bitmap_b) {
-		r = -ENOMEM;
+	if (!vmx_io_bitmap_b)
 		goto out;
-	}
 
 	vmx_msr_bitmap_legacy = (unsigned long *)__get_free_page(GFP_KERNEL);
-	if (!vmx_msr_bitmap_legacy) {
-		r = -ENOMEM;
+	if (!vmx_msr_bitmap_legacy)
 		goto out1;
-	}
+
 
 	vmx_msr_bitmap_longmode = (unsigned long *)__get_free_page(GFP_KERNEL);
-	if (!vmx_msr_bitmap_longmode) {
-		r = -ENOMEM;
+	if (!vmx_msr_bitmap_longmode)
 		goto out2;
-	}
+
 
 	/*
 	 * Allow direct access to the PC debug port (it is often used for I/O
@@ -7327,8 +7407,10 @@ static int __init vmx_init(void)
 	vmx_disable_intercept_for_msr(MSR_IA32_SYSENTER_EIP, false);
 
 	if (enable_ept) {
-		kvm_mmu_set_mask_ptes(0ull, 0ull, 0ull, 0ull,
-				VMX_EPT_EXECUTABLE_MASK);
+		kvm_mmu_set_mask_ptes(0ull,
+			(enable_ept_ad_bits) ? VMX_EPT_ACCESS_BIT : 0ull,
+			(enable_ept_ad_bits) ? VMX_EPT_DIRTY_BIT : 0ull,
+			0ull, VMX_EPT_EXECUTABLE_MASK);
 		ept_set_mmio_spte_mask();
 		kvm_enable_tdp();
 	} else

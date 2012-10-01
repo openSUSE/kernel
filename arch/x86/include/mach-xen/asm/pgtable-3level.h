@@ -9,14 +9,14 @@
  */
 
 #define pte_ERROR(e)							\
-	printk("%s:%d: bad pte %p(%016Lx pfn %08lx).\n",		\
+	pr_err("%s:%d: bad pte %p(%016Lx pfn %08lx).\n",		\
 	        __FILE__, __LINE__, &(e), __pte_val(e), pte_pfn(e))
 #define pmd_ERROR(e)							\
-	printk("%s:%d: bad pmd %p(%016Lx pfn %08Lx).\n",		\
+	pr_err("%s:%d: bad pmd %p(%016Lx pfn %08Lx).\n",		\
 	       __FILE__, __LINE__, &(e), __pmd_val(e),			\
 	       (pmd_val(e) & PTE_PFN_MASK) >> PAGE_SHIFT)
 #define pgd_ERROR(e)							\
-	printk("%s:%d: bad pgd %p(%016Lx pfn %08Lx).\n",		\
+	pr_err("%s:%d: bad pgd %p(%016Lx pfn %08Lx).\n",		\
 	       __FILE__, __LINE__, &(e), __pgd_val(e),			\
 	       (pgd_val(e) & PTE_PFN_MASK) >> PAGE_SHIFT)
 

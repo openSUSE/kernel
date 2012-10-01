@@ -109,7 +109,7 @@ static int setup_rings(struct xenbus_device *dev,
 	info->conn_ring_ref = err;
 
 	err = bind_listening_port_to_irqhandler(
-		dev->otherend_id, xenhcd_int, IRQF_SAMPLE_RANDOM, "usbif", info);
+		dev->otherend_id, xenhcd_int, 0, "usbif", info);
 	if (err <= 0) {
 		xenbus_dev_fatal(dev, err,
 				 "bind_listening_port_to_irqhandler");

@@ -4166,7 +4166,7 @@ static int raid_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	 * Make sure that dm core only hands maximum io size
 	 * length down and pays attention to io boundaries.
 	 */
-	ti->split_io = rs->set.io_size;
+	ti->max_io_len = rs->set.io_size;
 	ti->private = rs;
 
 	/* Initialize work queue to handle this RAID set's io. */
@@ -4340,7 +4340,7 @@ static void raid_devel_stats(struct dm_target *ti, char *result,
 }
 
 static int raid_status(struct dm_target *ti, status_type_t type,
-		       char *result, unsigned maxlen)
+		       unsigned status_flags, char *result, unsigned maxlen)
 {
 	unsigned p, sz = 0;
 	char buf[BDEVNAME_SIZE];

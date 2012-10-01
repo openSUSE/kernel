@@ -34,17 +34,17 @@ extern pgd_t init_level4_pgt[];
 extern void paging_init(void);
 
 #define pte_ERROR(e)							\
-	printk("%s:%d: bad pte %p(%016lx pfn %010lx).\n",		\
+	pr_err("%s:%d: bad pte %p(%016lx pfn %010lx).\n",		\
 	       __FILE__, __LINE__, &(e), __pte_val(e), pte_pfn(e))
 #define pmd_ERROR(e)							\
-	printk("%s:%d: bad pmd %p(%016lx pfn %010lx).\n",		\
+	pr_err("%s:%d: bad pmd %p(%016lx pfn %010lx).\n",		\
 	       __FILE__, __LINE__, &(e), __pmd_val(e), pmd_pfn(e))
 #define pud_ERROR(e)							\
-	printk("%s:%d: bad pud %p(%016lx pfn %010Lx).\n",		\
+	pr_err("%s:%d: bad pud %p(%016lx pfn %010Lx).\n",		\
 	       __FILE__, __LINE__, &(e), __pud_val(e),			\
 	       (pud_val(e) & __PHYSICAL_MASK) >> PAGE_SHIFT)
 #define pgd_ERROR(e)							\
-	printk("%s:%d: bad pgd %p(%016lx pfn %010Lx).\n",		\
+	pr_err("%s:%d: bad pgd %p(%016lx pfn %010Lx).\n",		\
 	       __FILE__, __LINE__, &(e), __pgd_val(e),			\
 	       (pgd_val(e) & __PHYSICAL_MASK) >> PAGE_SHIFT)
 

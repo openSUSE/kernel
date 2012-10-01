@@ -227,7 +227,6 @@ struct vm_operations_struct {
 	 */
 	int (*access)(struct vm_area_struct *vma, unsigned long addr,
 		      void *buf, int len, int write);
-
 #ifdef CONFIG_XEN
 	/* Area-specific function for clearing the PTE at @ptep. Returns the
 	 * original value of @ptep. */
@@ -237,7 +236,6 @@ struct vm_operations_struct {
 	/* called before close() to indicate no more pages should be mapped */
 	void (*unmap)(struct vm_area_struct *area);
 #endif
-
 #ifdef CONFIG_NUMA
 	/*
 	 * set_policy() op must add a reference to any non-NULL @new mempolicy
@@ -827,6 +825,17 @@ static inline void *page_rmapping(struct page *page)
 	return (void *)((unsigned long)page->mapping & ~PAGE_MAPPING_FLAGS);
 }
 
+extern struct address_space *__page_file_mapping(struct page *);
+
+static inline
+struct address_space *page_file_mapping(struct page *page)
+{
+	if (unlikely(PageSwapCache(page)))
+		return __page_file_mapping(page);
+
+	return page->mapping;
+}
+
 static inline int PageAnon(struct page *page)
 {
 	return ((unsigned long)page->mapping & PAGE_MAPPING_ANON) != 0;
@@ -840,6 +849,20 @@ static inline pgoff_t page_index(struct page *page)
 {
 	if (unlikely(PageSwapCache(page)))
 		return page_private(page);
+	return page->index;
+}
+
+extern pgoff_t __page_file_index(struct page *page);
+
+/*
+ * Return the file index of the page. Regular pagecache pages use ->index
+ * whereas swapcache pages use swp_offset(->private)
+ */
+static inline pgoff_t page_file_index(struct page *page)
+{
+	if (unlikely(PageSwapCache(page)))
+		return __page_file_index(page);
+
 	return page->index;
 }
 
@@ -1016,6 +1039,10 @@ int get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 			struct page **pages, struct vm_area_struct **vmas);
 int get_user_pages_fast(unsigned long start, int nr_pages, int write,
 			struct page **pages);
+struct kvec;
+int get_kernel_pages(const struct kvec *iov, int nr_pages, int write,
+			struct page **pages);
+int get_kernel_page(unsigned long start, int write, struct page **pages);
 struct page *get_dump_page(unsigned long addr);
 
 extern int try_to_release_page(struct page * page, gfp_t gfp_mask);
@@ -1353,6 +1380,7 @@ void warn_alloc_failed(gfp_t gfp_mask, int order, const char *fmt, ...);
 extern void setup_per_cpu_pageset(void);
 
 extern void zone_pcp_update(struct zone *zone);
+extern void zone_pcp_reset(struct zone *zone);
 
 /* nommu.c */
 extern atomic_long_t mmap_pages_allocated;
@@ -1433,6 +1461,7 @@ extern void truncate_inode_pages_range(struct address_space *,
 
 /* generic vm_area_ops exported for stackable file systems */
 extern int filemap_fault(struct vm_area_struct *, struct vm_fault *);
+extern int filemap_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf);
 
 /* mm/page-writeback.c */
 int write_one_page(struct page *page, int wait);
@@ -1554,6 +1583,7 @@ void vm_stat_account(struct mm_struct *, unsigned long, struct file *, long);
 static inline void vm_stat_account(struct mm_struct *mm,
 			unsigned long flags, struct file *file, long pages)
 {
+	mm->total_vm += pages;
 }
 #endif /* CONFIG_PROC_FS */
 

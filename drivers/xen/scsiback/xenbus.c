@@ -99,7 +99,7 @@ struct scsi_device *scsiback_get_scsi_device(struct ids_tuple *phy)
 	struct scsi_device *sdev = NULL;
 
 	shost = scsi_host_lookup(phy->hst);
-	if (IS_ERR(shost)) {
+	if (!shost) {
 		pr_err("scsiback: host%d doesn't exist\n", phy->hst);
 		return NULL;
 	}

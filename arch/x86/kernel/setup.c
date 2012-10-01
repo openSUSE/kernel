@@ -941,6 +941,8 @@ void __init setup_arch(char **cmdline_p)
 
 	reserve_initrd();
 
+	acpi_initrd_override((void *)initrd_start, initrd_end - initrd_start);
+
 	reserve_crashkernel();
 
 	vsmp_init();
@@ -1030,8 +1032,6 @@ void __init setup_arch(char **cmdline_p)
 	x86_init.oem.banner();
 
 	x86_init.timers.wallclock_init();
-
-	x86_platform.wallclock_init();
 
 	mcheck_init();
 

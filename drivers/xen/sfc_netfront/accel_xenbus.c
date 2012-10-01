@@ -356,7 +356,7 @@ static int vnic_setup_domU_shared_state(struct xenbus_device *dev,
 	/* Create xenbus msg event channel */
 	err = bind_listening_port_to_irqhandler
 		(dev->otherend_id, netfront_accel_msg_channel_irq_from_bend,
-		 IRQF_SAMPLE_RANDOM, "vnicctrl", vnic);
+		 0, "vnicctrl", vnic);
 	if (err < 0) {
 		EPRINTK("Couldn't bind msg event channel\n");
 		goto fail_msg_irq;
@@ -367,7 +367,7 @@ static int vnic_setup_domU_shared_state(struct xenbus_device *dev,
 	/* Create xenbus net event channel */
 	err = bind_listening_port_to_irqhandler
 		(dev->otherend_id, netfront_accel_net_channel_irq_from_bend,
-		 IRQF_SAMPLE_RANDOM, "vnicfront", vnic);
+		 0, "vnicfront", vnic);
 	if (err < 0) {
 		EPRINTK("Couldn't bind net event channel\n");
 		goto fail_net_irq;

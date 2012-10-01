@@ -185,7 +185,7 @@ config MEFFICEON
 
 config MWINCHIPC6
 	bool "Winchip-C6"
-	depends on X86_32
+	depends on X86_32 && !XEN
 	---help---
 	  Select this for an IDT Winchip C6 chip.  Linux and GCC
 	  treat this chip as a 586TSC with some extended instructions
@@ -193,7 +193,7 @@ config MWINCHIPC6
 
 config MWINCHIP3D
 	bool "Winchip-2/Winchip-2A/Winchip-3"
-	depends on X86_32
+	depends on X86_32 && !XEN
 	---help---
 	  Select this for an IDT Winchip-2, 2A or 3.  Linux and GCC
 	  treat this chip as a 586TSC with some extended instructions
@@ -203,7 +203,7 @@ config MWINCHIP3D
 
 config MELAN
 	bool "AMD Elan"
-	depends on X86_32
+	depends on X86_32 && !XEN
 	---help---
 	  Select this for an AMD Elan processor.
 
@@ -211,19 +211,19 @@ config MELAN
 
 config MGEODEGX1
 	bool "GeodeGX1"
-	depends on X86_32
+	depends on X86_32 && !XEN
 	---help---
 	  Select this for a Geode GX1 (Cyrix MediaGX) chip.
 
 config MGEODE_LX
 	bool "Geode GX/LX"
-	depends on X86_32
+	depends on X86_32 && !XEN
 	---help---
 	  Select this for AMD Geode GX and LX processors.
 
 config MCYRIXIII
 	bool "CyrixIII/VIA-C3"
-	depends on X86_32
+	depends on X86_32 && !XEN
 	---help---
 	  Select this for a Cyrix III or C3 chip.  Presently Linux and GCC
 	  treat this chip as a generic 586. Whilst the CPU is 686 class,

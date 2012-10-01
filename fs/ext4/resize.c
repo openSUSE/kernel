@@ -798,7 +798,7 @@ static int add_new_gdb(handle_t *handle, struct inode *inode,
 	ext4_kvfree(o_group_desc);
 
 	le16_add_cpu(&es->s_reserved_gdt_blocks, -1);
-	err = ext4_handle_dirty_super_now(handle, sb);
+	err = ext4_handle_dirty_super(handle, sb);
 	if (err)
 		ext4_std_error(sb, err);
 
@@ -1197,7 +1197,7 @@ static void ext4_update_super(struct super_block *sb,
 	struct ext4_new_group_data *group_data = flex_gd->groups;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	struct ext4_super_block *es = sbi->s_es;
-	int i, ret;
+	int i;
 
 	BUG_ON(flex_gd->count == 0 || group_data == NULL);
 	/*

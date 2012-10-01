@@ -1,5 +1,5 @@
 /*
- *    Copyright IBM Corp. 2007,2011
+ *    Copyright IBM Corp. 2007, 2011
  *    Author(s): Martin Schwidefsky <schwidefsky@de.ibm.com>
  */
 
@@ -796,7 +796,7 @@ int s390_enable_sie(void)
 	struct mm_struct *mm, *old_mm;
 
 	/* Do we have switched amode? If no, we cannot do sie */
-	if (user_mode == HOME_SPACE_MODE)
+	if (addressing_mode == HOME_SPACE_MODE)
 		return -EINVAL;
 
 	/* Do we have pgstes? if yes, we are done */

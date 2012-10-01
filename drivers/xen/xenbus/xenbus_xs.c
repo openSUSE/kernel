@@ -631,8 +631,13 @@ static struct xenbus_watch *find_watch(const char *token)
 
 static void xs_reset_watches(void)
 {
-#ifdef MODULE
+#if defined(CONFIG_PARAVIRT_XEN) || defined(MODULE)
 	int err, supported = 0;
+
+#ifdef CONFIG_PARAVIRT_XEN
+	if (!xen_hvm_domain())
+		return;
+#endif
 
 	err = xenbus_scanf(XBT_NIL, "control",
 			   "platform-feature-xs_reset_watches", "%d",

@@ -510,20 +510,12 @@ static void __init reserve_initrd(void)
 #ifdef CONFIG_X86_64_XEN
 		initrd_below_start_ok = 1;
 #endif
-	} else {
-		relocate_initrd();
-		memblock_free(ramdisk_image, ramdisk_end - ramdisk_image);
-	}
-#ifdef CONFIG_ACPI_INITRD_TABLE_OVERRIDE
-	acpi_initrd_offset = acpi_initrd_table_override((void *)initrd_start,
-							(void *)initrd_end);
-	if (!acpi_initrd_offset)
 		return;
-	printk(KERN_INFO "Found acpi tables of size: %lu at 0x%lx\n",
-	       acpi_initrd_offset, initrd_start);
-	initrd_start += acpi_initrd_offset;
-	return;
-#endif
+	}
+
+	relocate_initrd();
+
+	memblock_free(ramdisk_image, ramdisk_end - ramdisk_image);
 }
 #else
 static void __init reserve_initrd(void)
@@ -1418,8 +1410,6 @@ void __init setup_arch(char **cmdline_p)
 	x86_init.oem.banner();
 
 	x86_init.timers.wallclock_init();
-
-	x86_platform.wallclock_init();
 
 	mcheck_init();
 

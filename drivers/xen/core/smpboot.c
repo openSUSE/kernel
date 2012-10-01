@@ -148,9 +148,8 @@ static void __cpuinit cpu_bringup(void)
 	xen_setup_cpu_clockevents();
 	cpu = smp_processor_id();
 	notify_cpu_starting(cpu);
-	ipi_call_lock_irq();
 	set_cpu_online(cpu, true);
-	ipi_call_unlock_irq();
+	local_irq_enable();
 }
 
 static void __cpuinit cpu_bringup_and_idle(void)

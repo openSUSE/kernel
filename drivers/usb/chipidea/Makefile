@@ -5,10 +5,8 @@ ci_hdrc-$(CONFIG_USB_CHIPIDEA_UDC)	+= udc.o
 ci_hdrc-$(CONFIG_USB_CHIPIDEA_HOST)	+= host.o
 ci_hdrc-$(CONFIG_USB_CHIPIDEA_DEBUG)	+= debug.o
 
-ifneq ($(CONFIG_PCI),)
-	obj-$(CONFIG_USB_CHIPIDEA)	+= ci13xxx_pci.o
-endif
+# Glue/Bridge layers go here
 
-ifneq ($(CONFIG_ARCH_MSM),)
-	obj-$(CONFIG_USB_CHIPIDEA)	+= ci13xxx_msm.o
-endif
+obj-$(CONFIG_USB_CHIPIDEA)	+= ci13xxx_msm.o
+obj-$(CONFIG_USB_CHIPIDEA_PCI)	+= ci13xxx_pci.o
+obj-$(CONFIG_USB_CHIPIDEA_IMX)	+= ci13xxx_imx.o

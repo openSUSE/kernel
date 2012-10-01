@@ -1402,8 +1402,10 @@ static int iscsit_handle_data_out(struct iscsi_conn *conn, unsigned char *buf)
 		spin_unlock_bh(&cmd->istate_lock);
 
 		iscsit_stop_dataout_timer(cmd);
-		return (!ooo_cmdsn) ? transport_generic_handle_data(
-					&cmd->se_cmd) : 0;
+		if (ooo_cmdsn)
+			return 0;
+		target_execute_cmd(&cmd->se_cmd);
+		return 0;
 	} else /* DATAOUT_CANNOT_RECOVER */
 		return -1;
 
@@ -2672,7 +2674,7 @@ static int iscsit_send_logout_response(
 		 */
 		logout_conn = iscsit_get_conn_from_cid_rcfr(sess,
 				cmd->logout_cid);
-		if ((logout_conn)) {
+		if (logout_conn) {
 			iscsit_connection_reinstatement_rcfr(logout_conn);
 			iscsit_dec_conn_usage_count(logout_conn);
 		}

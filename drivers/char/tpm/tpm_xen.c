@@ -462,7 +462,7 @@ static int tpmif_connect(struct xenbus_device *dev,
 	tp->backend_id = domid;
 
 	err = bind_listening_port_to_irqhandler(
-		domid, tpmif_int, IRQF_SAMPLE_RANDOM, "tpmif", tp);
+		domid, tpmif_int, 0, "tpmif", tp);
 	if (err <= 0) {
 		WPRINTK("bind_listening_port_to_irqhandler failed "
 			"(err=%d)\n", err);

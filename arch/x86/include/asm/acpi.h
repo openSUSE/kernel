@@ -120,7 +120,7 @@ static inline void acpi_disable_pci(void)
 
 /* Low-level suspend routine. */
 #ifdef CONFIG_ACPI_PV_SLEEP
-#define acpi_suspend_lowlevel() acpi_enter_sleep_state(ACPI_STATE_S3, 0)
+#define acpi_suspend_lowlevel() acpi_enter_sleep_state(ACPI_STATE_S3)
 #else
 extern int acpi_suspend_lowlevel(void);
 #endif

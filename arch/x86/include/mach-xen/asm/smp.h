@@ -31,12 +31,12 @@ static inline bool cpu_has_ht_siblings(void)
 	return has_siblings;
 }
 
-DECLARE_PER_CPU(cpumask_var_t, cpu_sibling_map);
-DECLARE_PER_CPU(cpumask_var_t, cpu_core_map);
+DECLARE_PER_CPU_READ_MOSTLY(cpumask_var_t, cpu_sibling_map);
+DECLARE_PER_CPU_READ_MOSTLY(cpumask_var_t, cpu_core_map);
 /* cpus sharing the last level cache: */
-DECLARE_PER_CPU(cpumask_var_t, cpu_llc_shared_map);
-DECLARE_PER_CPU(u16, cpu_llc_id);
-DECLARE_PER_CPU(int, cpu_number);
+DECLARE_PER_CPU_READ_MOSTLY(cpumask_var_t, cpu_llc_shared_map);
+DECLARE_PER_CPU_READ_MOSTLY(u16, cpu_llc_id);
+DECLARE_PER_CPU_READ_MOSTLY(int, cpu_number);
 #endif
 
 static inline const struct cpumask *cpu_sibling_mask(int cpu)
@@ -55,10 +55,10 @@ static inline struct cpumask *cpu_llc_shared_mask(int cpu)
 	return per_cpu(cpu_llc_shared_map, cpu);
 }
 
-DECLARE_EARLY_PER_CPU(u16, x86_cpu_to_apicid);
-DECLARE_EARLY_PER_CPU(u16, x86_bios_cpu_apicid);
+DECLARE_EARLY_PER_CPU_READ_MOSTLY(u16, x86_cpu_to_apicid);
+DECLARE_EARLY_PER_CPU_READ_MOSTLY(u16, x86_bios_cpu_apicid);
 #if defined(CONFIG_X86_LOCAL_APIC) && defined(CONFIG_X86_32)
-DECLARE_EARLY_PER_CPU(int, x86_cpu_to_logical_apicid);
+DECLARE_EARLY_PER_CPU_READ_MOSTLY(int, x86_cpu_to_logical_apicid);
 #endif
 #endif
 
@@ -191,11 +191,6 @@ void play_dead(void);
 
 #endif /* CONFIG_XEN */
 
-/* We don't mark CPUs online until __cpu_up(), so we need another measure */
-static inline int num_booting_cpus(void)
-{
-	return cpumask_weight(cpu_callout_mask);
-}
 #elif /* !CONFIG_SMP && */ !defined(CONFIG_XEN)
 #define wbinvd_on_cpu(cpu)     wbinvd()
 static inline int wbinvd_on_all_cpus(void)

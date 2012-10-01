@@ -2,27 +2,34 @@
 #define __KERNEL_PRINTK__
 
 #include <linux/init.h>
+#include <linux/kern_levels.h>
 
 extern const char linux_banner[];
 extern const char linux_proc_banner[];
 
-#define KERN_EMERG	"<0>"	/* system is unusable			*/
-#define KERN_ALERT	"<1>"	/* action must be taken immediately	*/
-#define KERN_CRIT	"<2>"	/* critical conditions			*/
-#define KERN_ERR	"<3>"	/* error conditions			*/
-#define KERN_WARNING	"<4>"	/* warning conditions			*/
-#define KERN_NOTICE	"<5>"	/* normal but significant condition	*/
-#define KERN_INFO	"<6>"	/* informational			*/
-#define KERN_DEBUG	"<7>"	/* debug-level messages			*/
+static inline int printk_get_level(const char *buffer)
+{
+	if (buffer[0] == KERN_SOH_ASCII && buffer[1]) {
+		switch (buffer[1]) {
+		case '0' ... '7':
+		case 'd':	/* KERN_DEFAULT */
+			return buffer[1];
+		}
+	}
+	return 0;
+}
 
-/* Use the default kernel loglevel */
-#define KERN_DEFAULT	"<d>"
-/*
- * Annotation for a "continued" line of log printout (only done after a
- * line that had no enclosing \n). Only to be used by core/arch code
- * during early bootup (a continued line is not SMP-safe otherwise).
- */
-#define KERN_CONT	"<c>"
+static inline const char *printk_skip_level(const char *buffer)
+{
+	if (printk_get_level(buffer)) {
+		switch (buffer[1]) {
+		case '0' ... '7':
+		case 'd':	/* KERN_DEFAULT */
+			return buffer + 2;
+		}
+	}
+	return buffer;
+}
 
 extern int console_printk[];
 
@@ -178,17 +185,22 @@ extern void dump_stack(void) __cold;
 /* generate magic string for scripts/kmsg-doc to parse */
 #define pr_printk_hash(level, format, ...) \
 	__KMSG_PRINT(level _FMT_ format _ARGS_ #__VA_ARGS__ _END_)
+#define __pr_printk_hash pr_printk_hash
 
 #elif defined(CONFIG_KMSG_IDS) && defined(KMSG_COMPONENT)
 
 int printk_hash(const char *, const char *, ...);
 #define pr_printk_hash(level, format, ...) \
 	printk_hash(level KMSG_COMPONENT ".%06x" ": ", format, ##__VA_ARGS__)
+#define __pr_printk_hash(level, format, ...) \
+	printk_hash(level, format, ##__VA_ARGS__)
 
 #else /* !defined(CONFIG_KMSG_IDS) */
 
 #define pr_printk_hash(level, format, ...) \
 	printk(level pr_fmt(format), ##__VA_ARGS__)
+#define __pr_printk_hash(level, format, ...) \
+	printk(level format, ##__VA_ARGS__)
 
 #endif
 
@@ -208,7 +220,7 @@ int printk_hash(const char *, const char *, ...);
 #define pr_info(fmt, ...) \
 	pr_printk_hash(KERN_INFO, fmt, ##__VA_ARGS__)
 #define pr_cont(fmt, ...) \
-	pr_printk_hash(KERN_CONT, fmt, ##__VA_ARGS__)
+	__pr_printk_hash(KERN_CONT, fmt, ##__VA_ARGS__)
 
 /* pr_devel() should produce zero code unless DEBUG is defined */
 #ifdef DEBUG

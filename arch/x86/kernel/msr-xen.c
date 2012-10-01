@@ -217,7 +217,7 @@ static int pmsr_device_create(unsigned int cpu)
 	set_bit(cpu, xen_cpu_online_map);
 	dev = device_create(pmsr_class, NULL, PMSR_DEV(cpu), NULL,
 			    "pmsr%d", cpu);
-	return IS_ERR(dev) ? PTR_ERR(dev) : 0;
+	return PTR_RET(dev);
 }
 
 static void pmsr_device_destroy(unsigned int cpu)
