@@ -39,7 +39,7 @@
 #include <linux/of_gpio.h>
 #include <linux/pinctrl/consumer.h>
 
-#include <mach/spi.h>
+#include <linux/platform_data/spi-imx.h>
 
 #define DRIVER_NAME "spi_imx"
 
@@ -97,7 +97,7 @@ struct spi_imx_data {
 	const void *tx_buf;
 	unsigned int txfifo; /* number of words pushed in tx FIFO */
 
-	struct spi_imx_devtype_data *devtype_data;
+	const struct spi_imx_devtype_data *devtype_data;
 	int chipselect[0];
 };
 

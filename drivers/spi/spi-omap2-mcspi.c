@@ -42,7 +42,7 @@
 #include <linux/spi/spi.h>
 
 #include <plat/clock.h>
-#include <plat/mcspi.h>
+#include <linux/platform_data/spi-omap2-mcspi.h>
 
 #define OMAP2_MCSPI_MAX_FREQ		48000000
 #define SPI_AUTOSUSPEND_TIMEOUT		2000
@@ -1116,7 +1116,7 @@ MODULE_DEVICE_TABLE(of, omap_mcspi_of_match);
 static int __devinit omap2_mcspi_probe(struct platform_device *pdev)
 {
 	struct spi_master	*master;
-	struct omap2_mcspi_platform_config *pdata;
+	const struct omap2_mcspi_platform_config *pdata;
 	struct omap2_mcspi	*mcspi;
 	struct resource		*r;
 	int			status = 0, i;
