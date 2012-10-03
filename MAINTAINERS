@@ -1650,7 +1650,6 @@ F:	drivers/bcma/
 F:	include/linux/bcma/
 
 BROCADE BFA FC SCSI DRIVER
-M:	Jing Huang <huangj@brocade.com>
 M:	Krishna C Gudipati <kgudipat@brocade.com>
 L:	linux-scsi@vger.kernel.org
 S:	Supported
@@ -3438,6 +3437,13 @@ L:	netdev@vger.kernel.org
 S:	Supported
 F:	drivers/net/ethernet/ibm/ibmveth.*
 
+IBM Power Virtual SCSI/FC Device Drivers
+M:	Robert Jennings <rcj@linux.vnet.ibm.com>
+L:	linux-scsi@vger.kernel.org
+S:	Supported
+F:	drivers/scsi/ibmvscsi/
+X:	drivers/scsi/ibmvscsi/ibmvstgt.c
+
 IBM ServeRAID RAID DRIVER
 P:	Jack Hammer
 M:	Dave Jeffery <ipslinux@adaptec.com>
@@ -4806,6 +4812,7 @@ M:	Lauro Ramos Venancio <lauro.venancio@openbossa.org>
 M:	Aloisio Almeida Jr <aloisio.almeida@openbossa.org>
 M:	Samuel Ortiz <sameo@linux.intel.com>
 L:	linux-wireless@vger.kernel.org
+L:	linux-nfc@lists.01.org (moderated for non-subscribers)
 S:	Maintained
 F:	net/nfc/
 F:	include/linux/nfc.h

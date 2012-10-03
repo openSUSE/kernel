@@ -405,6 +405,7 @@ static inline void arch_pick_mmap_layout(struct mm_struct *mm) {}
 
 extern void set_dumpable(struct mm_struct *mm, int value);
 extern int get_dumpable(struct mm_struct *mm);
+extern int __get_dumpable(unsigned long mm_flags);
 
 /* get/set_dumpable() values */
 #define SUID_DUMPABLE_DISABLED	0
@@ -1414,7 +1415,7 @@ struct task_struct {
 
 	struct audit_context *audit_context;
 #ifdef CONFIG_AUDITSYSCALL
-	uid_t loginuid;
+	kuid_t loginuid;
 	unsigned int sessionid;
 #endif
 	struct seccomp seccomp;
@@ -1526,6 +1527,9 @@ struct task_struct {
 	 * cache last used pipe for splice
 	 */
 	struct pipe_inode_info *splice_pipe;
+
+	struct page_frag task_frag;
+
 #ifdef	CONFIG_TASK_DELAY_ACCT
 	struct task_delay_info *delays;
 #endif
