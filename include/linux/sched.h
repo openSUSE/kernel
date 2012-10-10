@@ -671,7 +671,6 @@ struct signal_struct {
 	struct rw_semaphore group_rwsem;
 #endif
 
-	int oom_adj;		/* OOM kill score adjustment (bit shift) */
 	int oom_score_adj;	/* OOM kill score adjustment */
 	int oom_score_adj_min;	/* OOM kill score adjustment minimum value.
 				 * Only settable by CAP_SYS_RESOURCE. */
@@ -2333,6 +2332,9 @@ extern int do_execve(const char *,
 		     const char __user * const __user *, struct pt_regs *);
 extern long do_fork(unsigned long, unsigned long, struct pt_regs *, unsigned long, int __user *, int __user *);
 struct task_struct *fork_idle(int);
+#ifdef CONFIG_GENERIC_KERNEL_THREAD
+extern pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags);
+#endif
 
 extern void set_task_comm(struct task_struct *tsk, char *from);
 extern char *get_task_comm(char *to, struct task_struct *tsk);

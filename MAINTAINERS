@@ -1544,7 +1544,7 @@ S:	Supported
 F:	drivers/rtc/rtc-bfin.c
 
 BLACKFIN SDH DRIVER
-M:	Cliff Cai <cliff.cai@analog.com>
+M:	Sonic Zhang <sonic.zhang@analog.com>
 L:	uclinux-dist-devel@blackfin.uclinux.org
 W:	http://blackfin.uclinux.org
 S:	Supported
@@ -5207,8 +5207,10 @@ S:	Maintained
 F:	drivers/mmc/host/omap.c
 
 OMAP HS MMC SUPPORT
+M:	Venkatraman S <svenkatr@ti.com>
+L:	linux-mmc@vger.kernel.org
 L:	linux-omap@vger.kernel.org
-S:	Orphan
+S:	Maintained
 F:	drivers/mmc/host/omap_hsmmc.c
 
 OMAP RANDOM NUMBER GENERATOR SUPPORT
@@ -7039,6 +7041,14 @@ S:	Maintained
 F:	Documentation/svga.txt
 F:	arch/x86/boot/video*
 
+SWIOTLB SUBSYSTEM
+M:	Konrad Rzeszutek Wilk <konrad.wilk@oracle.com>
+L:	linux-kernel@vger.kernel.org
+S:	Supported
+F:	lib/swiotlb.c
+F:	arch/*/kernel/pci-swiotlb.c
+F:	include/linux/swiotlb.h
+
 SYSV FILESYSTEM
 M:	Christoph Hellwig <hch@infradead.org>
 S:	Maintained
@@ -7170,6 +7180,8 @@ F:	drivers/char/tlclk.c
 
 TENSILICA XTENSA PORT (xtensa)
 M:	Chris Zankel <chris@zankel.net>
+M:	Max Filippov <jcmvbkbc@gmail.com>
+L:	linux-xtensa@linux-xtensa.org
 S:	Maintained
 F:	arch/xtensa/
 

@@ -10,9 +10,9 @@ struct pt_regs;
 
 struct task_struct;
 
-#include "asm/ptrace.h"
-#include "registers.h"
-#include "sysdep/archsetjmp.h"
+#include <asm/ptrace.h>
+#include <registers.h>
+#include <sysdep/archsetjmp.h>
 
 #include <linux/prefetch.h>
 
@@ -62,8 +62,6 @@ struct thread_struct {
 static inline void release_thread(struct task_struct *task)
 {
 }
-
-extern int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
 
 extern unsigned long thread_saved_pc(struct task_struct *t);
 

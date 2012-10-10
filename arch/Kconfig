@@ -271,6 +271,9 @@ config ARCH_WANT_OLD_COMPAT_IPC
 	select ARCH_WANT_COMPAT_IPC_PARSE_VERSION
 	bool
 
+config GENERIC_KERNEL_THREAD
+	bool
+
 config HAVE_ARCH_SECCOMP_FILTER
 	bool
 	help
@@ -312,5 +315,8 @@ config HAVE_IRQ_TIME_ACCOUNTING
 	help
 	  Archs need to ensure they use a high enough resolution clock to
 	  support irq time accounting and then call enable_sched_clock_irqtime().
+
+config HAVE_ARCH_TRANSPARENT_HUGEPAGE
+	bool
 
 source "kernel/gcov/Kconfig"
