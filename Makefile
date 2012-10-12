@@ -1,7 +1,7 @@
 VERSION = 3
 PATCHLEVEL = 6
 SUBLEVEL = 0
-EXTRAVERSION =-10146-g12250d8
+EXTRAVERSION =-10596-g4f1cd91
 NAME = Terrified Chipmunk
 
 # *DOCUMENTATION*
@@ -664,22 +664,9 @@ ifeq ($(shell $(CONFIG_SHELL) $(srctree)/scripts/gcc-goto.sh $(CC)), y)
 endif
 
 # Add user supplied CPPFLAGS, AFLAGS and CFLAGS as the last assignments
-# But warn user when we do so
-warn-assign = \
-$(warning "WARNING: Appending $$K$(1) ($(K$(1))) from $(origin K$(1)) to kernel $$$(1)")
-
-ifneq ($(KCPPFLAGS),)
-        $(call warn-assign,CPPFLAGS)
-        KBUILD_CPPFLAGS += $(KCPPFLAGS)
-endif
-ifneq ($(KAFLAGS),)
-        $(call warn-assign,AFLAGS)
-        KBUILD_AFLAGS += $(KAFLAGS)
-endif
-ifneq ($(KCFLAGS),)
-        $(call warn-assign,CFLAGS)
-        KBUILD_CFLAGS += $(KCFLAGS)
-endif
+KBUILD_CPPFLAGS += $(KCPPFLAGS)
+KBUILD_AFLAGS += $(KAFLAGS)
+KBUILD_CFLAGS += $(KCFLAGS)
 
 # Use --build-id when available.
 LDFLAGS_BUILD_ID = $(patsubst -Wl$(comma)%,%,\
