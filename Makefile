@@ -1,7 +1,7 @@
 VERSION = 3
 PATCHLEVEL = 7
 SUBLEVEL = 0
-EXTRAVERSION = -rc1-78-g8d2b6b3
+EXTRAVERSION = -rc1-102-g43c422e
 NAME = Terrified Chipmunk
 
 # *DOCUMENTATION*
@@ -437,7 +437,9 @@ endif
 PHONY += asm-generic
 asm-generic:
 	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.asm-generic \
-	            obj=arch/$(SRCARCH)/include/generated/asm
+	            src=asm obj=arch/$(SRCARCH)/include/generated/asm
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.asm-generic \
+	            src=uapi/asm obj=arch/$(SRCARCH)/include/generated/uapi/asm
 
 # To make sure we do not include .config for any of the *config targets
 # catch them early, and hand them over to scripts/kconfig/Makefile
