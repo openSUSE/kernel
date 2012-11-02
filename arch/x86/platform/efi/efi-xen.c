@@ -372,6 +372,7 @@ void __init efi_probe(void)
 }
 
 void __init efi_reserve_boot_services(void) { }
+void __init efi_free_boot_services(void) { }
 
 static int __init efi_config_init(u64 tables, unsigned int nr_tables)
 {
