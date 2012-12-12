@@ -1237,6 +1237,7 @@ F:	drivers/video/wm8505fb*
 F:	drivers/video/wmt_ge_rops.*
 F:	drivers/tty/serial/vt8500_serial.c
 F:	drivers/rtc/rtc-vt8500-c
+F:	drivers/mmc/host/wmt-sdmmc.c
 
 ARM/ZIPIT Z2 SUPPORT
 M:	Marek Vasut <marek.vasut@gmail.com>
@@ -1367,14 +1368,6 @@ W:	http://linux-atm.sourceforge.net
 S:	Maintained
 F:	drivers/atm/
 F:	include/linux/atm*
-
-ATMEL AT91 MCI DRIVER
-M:	Ludovic Desroches <ludovic.desroches@atmel.com>
-L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
-W:	http://www.atmel.com/products/AT91/
-W:	http://www.at91.com/
-S:	Maintained
-F:	drivers/mmc/host/at91_mci.c
 
 ATMEL AT91 / AT32 MCI DRIVER
 M:	Ludovic Desroches <ludovic.desroches@atmel.com>
@@ -1994,7 +1987,6 @@ F:	fs/coda/
 F:	include/linux/coda*.h
 
 COMMON CLK FRAMEWORK
-M:	Mike Turquette <mturquette@ti.com>
 M:	Mike Turquette <mturquette@linaro.org>
 L:	linux-arm-kernel@lists.infradead.org (same as CLK API & CLKDEV)
 T:	git git://git.linaro.org/people/mturquette/linux.git
@@ -3604,7 +3596,6 @@ S:	Maintained
 F:	drivers/hv/
 F:	drivers/hid/hid-hyperv.c
 F:	drivers/net/hyperv/
-F:	drivers/staging/hv/
 
 I2C OVER PARALLEL PORT
 M:	Jean Delvare <khali@linux-fr.org>
@@ -3796,6 +3787,15 @@ M:	Matthieu Castet <castet.matthieu@free.fr>
 M:	Stanislaw Gruszka <stf_xl@wp.pl>
 S:	Maintained
 F:	drivers/usb/atm/ueagle-atm.c
+
+INDUSTRY PACK SUBSYSTEM (IPACK)
+M:	Samuel Iglesias Gonsalvez <siglesias@igalia.com>
+M:	Jens Taprogge <jens.taprogge@taprogge.org>
+M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+L:	industrypack-devel@lists.sourceforge.net
+W:	http://industrypack.sourceforge.net
+S:	Maintained
+F:	drivers/ipack/
 
 INTEGRITY MEASUREMENT ARCHITECTURE (IMA)
 M:	Mimi Zohar <zohar@us.ibm.com>
@@ -5696,6 +5696,12 @@ S:	Maintained
 F:	drivers/pinctrl/
 F:	include/linux/pinctrl/
 
+PIN CONTROLLER - ATMEL AT91
+M:	Jean-Christophe Plagniol-Villard <plagnioj@jcrosoft.com>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+S:	Maintained
+F:	drivers/pinctrl/pinctrl-at91.c
+
 PIN CONTROLLER - ST SPEAR
 M:	Viresh Kumar <viresh.linux@gmail.com>
 L:	spear-devel@list.st.com
@@ -7424,6 +7430,7 @@ K:	^Subject:.*(?i)trivial
 
 TTY LAYER
 M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+M:	Jiri Slaby <jslaby@suse.cz>
 S:	Supported
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/tty.git
 F:	drivers/tty/
@@ -7579,12 +7586,6 @@ L:	linux-usb@vger.kernel.org
 L:	linux-scsi@vger.kernel.org
 S:	Supported
 F:	drivers/usb/storage/uas.c
-
-USB BLOCK DRIVER (UB ub)
-M:	Pete Zaitcev <zaitcev@redhat.com>
-L:	linux-usb@vger.kernel.org
-S:	Supported
-F:	drivers/block/ub.c
 
 USB CDC ETHERNET DRIVER
 M:	Oliver Neukum <oliver@neukum.org>
