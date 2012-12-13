@@ -23,7 +23,10 @@
 #include <linux/mfd/max8997.h>
 #include <linux/lcd.h>
 #include <linux/rfkill-gpio.h>
+#include <linux/platform_data/i2c-s3c2410.h>
 #include <linux/platform_data/s3c-hsotg.h>
+#include <linux/platform_data/usb-ehci-s5p.h>
+#include <linux/platform_data/usb-exynos.h>
 
 #include <asm/mach/arch.h>
 #include <asm/hardware/gic.h>
@@ -36,8 +39,6 @@
 #include <plat/cpu.h>
 #include <plat/devs.h>
 #include <plat/sdhci.h>
-#include <linux/platform_data/i2c-s3c2410.h>
-#include <linux/platform_data/usb-ehci-s5p.h>
 #include <plat/clock.h>
 #include <plat/gpio-cfg.h>
 #include <plat/backlight.h>
@@ -45,7 +46,6 @@
 #include <plat/mfc.h>
 #include <plat/hdmi.h>
 
-#include <linux/platform_data/usb-exynos.h>
 #include <mach/map.h>
 
 #include <drm/exynos_drm.h>
@@ -100,6 +100,7 @@ static struct regulator_consumer_supply __initdata ldo3_consumer[] = {
 	REGULATOR_SUPPLY("vddcore", "s5p-mipi-csis.0"), /* MIPI */
 	REGULATOR_SUPPLY("vdd", "exynos4-hdmi"), /* HDMI */
 	REGULATOR_SUPPLY("vdd_pll", "exynos4-hdmi"), /* HDMI */
+	REGULATOR_SUPPLY("vusb_a", "s3c-hsotg"), /* OTG */
 };
 static struct regulator_consumer_supply __initdata ldo6_consumer[] = {
 	REGULATOR_SUPPLY("vddio", "s5p-mipi-csis.0"), /* MIPI */
@@ -110,6 +111,7 @@ static struct regulator_consumer_supply __initdata ldo7_consumer[] = {
 static struct regulator_consumer_supply __initdata ldo8_consumer[] = {
 	REGULATOR_SUPPLY("vdd", "s5p-adc"), /* ADC */
 	REGULATOR_SUPPLY("vdd_osc", "exynos4-hdmi"), /* HDMI */
+	REGULATOR_SUPPLY("vusb_d", "s3c-hsotg"), /* OTG */
 };
 static struct regulator_consumer_supply __initdata ldo9_consumer[] = {
 	REGULATOR_SUPPLY("dvdd", "swb-a31"), /* AR6003 WLAN & CSR 8810 BT */

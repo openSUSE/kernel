@@ -882,7 +882,7 @@ static int __fsi_set_round_rate(struct clk *clk, long rate, int enable)
 static int fsi_b_set_rate(struct device *dev, int rate, int enable)
 {
 	struct clk *fsib_clk;
-	struct clk *fdiv_clk = &sh7372_fsidivb_clk;
+	struct clk *fdiv_clk = clk_get(NULL, "fsidivb");
 	long fsib_rate = 0;
 	long fdiv_rate = 0;
 	int ackmd_bpfmd;
@@ -1651,7 +1651,12 @@ static void __init mackerel_init(void)
 	pm_clk_add(&hdmi_lcdc_device.dev, "hdmi");
 }
 
-MACHINE_START(MACKEREL, "mackerel")
+static const char *mackerel_boards_compat_dt[] __initdata = {
+	"renesas,mackerel",
+	NULL,
+};
+
+DT_MACHINE_START(MACKEREL_DT, "mackerel")
 	.map_io		= sh7372_map_io,
 	.init_early	= sh7372_add_early_devices,
 	.init_irq	= sh7372_init_irq,
@@ -1659,4 +1664,5 @@ MACHINE_START(MACKEREL, "mackerel")
 	.init_machine	= mackerel_init,
 	.init_late	= sh7372_pm_init_late,
 	.timer		= &shmobile_timer,
+	.dt_compat  = mackerel_boards_compat_dt,
 MACHINE_END

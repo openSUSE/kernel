@@ -1129,7 +1129,6 @@ static void posix_cpu_timers_init(struct task_struct *tsk)
  */
 static struct task_struct *copy_process(unsigned long clone_flags,
 					unsigned long stack_start,
-					struct pt_regs *regs,
 					unsigned long stack_size,
 					int __user *child_tidptr,
 					struct pid *pid,
@@ -1137,7 +1136,6 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 {
 	int retval;
 	struct task_struct *p;
-	int cgroup_callbacks_done = 0;
 
 	if ((clone_flags & (CLONE_NEWNS|CLONE_FS)) == (CLONE_NEWNS|CLONE_FS))
 		return ERR_PTR(-EINVAL);
@@ -1322,7 +1320,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	retval = copy_io(clone_flags, p);
 	if (retval)
 		goto bad_fork_cleanup_namespaces;
-	retval = copy_thread(clone_flags, stack_start, stack_size, p, regs);
+	retval = copy_thread(clone_flags, stack_start, stack_size, p);
 	if (retval)
 		goto bad_fork_cleanup_io;
 
@@ -1394,12 +1392,6 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	p->group_leader = p;
 	INIT_LIST_HEAD(&p->thread_group);
 	p->task_works = NULL;
-
-	/* Now that the task is set up, run cgroup callbacks if
-	 * necessary. We need to run them before the task is visible
-	 * on the tasklist. */
-	cgroup_fork_callbacks(p);
-	cgroup_callbacks_done = 1;
 
 	/* Need tasklist lock for parent etc handling! */
 	write_lock_irq(&tasklist_lock);
@@ -1505,7 +1497,7 @@ bad_fork_cleanup_cgroup:
 #endif
 	if (clone_flags & CLONE_THREAD)
 		threadgroup_change_end(current);
-	cgroup_exit(p, cgroup_callbacks_done);
+	cgroup_exit(p, 0);
 	delayacct_tsk_free(p);
 	module_put(task_thread_info(p)->exec_domain->module);
 bad_fork_cleanup_count:
@@ -1515,12 +1507,6 @@ bad_fork_free:
 	free_task(p);
 fork_out:
 	return ERR_PTR(retval);
-}
-
-noinline struct pt_regs * __cpuinit __attribute__((weak)) idle_regs(struct pt_regs *regs)
-{
-	memset(regs, 0, sizeof(struct pt_regs));
-	return regs;
 }
 
 static inline void init_idle_pids(struct pid_link *links)
@@ -1536,10 +1522,7 @@ static inline void init_idle_pids(struct pid_link *links)
 struct task_struct * __cpuinit fork_idle(int cpu)
 {
 	struct task_struct *task;
-	struct pt_regs regs;
-
-	task = copy_process(CLONE_VM, 0, idle_regs(&regs), 0, NULL,
-			    &init_struct_pid, 0);
+	task = copy_process(CLONE_VM, 0, 0, NULL, &init_struct_pid, 0);
 	if (!IS_ERR(task)) {
 		init_idle_pids(task->pids);
 		init_idle(task, cpu);
@@ -1556,7 +1539,6 @@ struct task_struct * __cpuinit fork_idle(int cpu)
  */
 long do_fork(unsigned long clone_flags,
 	      unsigned long stack_start,
-	      struct pt_regs *regs,
 	      unsigned long stack_size,
 	      int __user *parent_tidptr,
 	      int __user *child_tidptr)
@@ -1586,7 +1568,7 @@ long do_fork(unsigned long clone_flags,
 	 * requested, no event is reported; otherwise, report if the event
 	 * for the type of forking is enabled.
 	 */
-	if (!(clone_flags & CLONE_UNTRACED) && likely(user_mode(regs))) {
+	if (!(clone_flags & CLONE_UNTRACED)) {
 		if (clone_flags & CLONE_VFORK)
 			trace = PTRACE_EVENT_VFORK;
 		else if ((clone_flags & CSIGNAL) != SIGCHLD)
@@ -1598,7 +1580,7 @@ long do_fork(unsigned long clone_flags,
 			trace = 0;
 	}
 
-	p = copy_process(clone_flags, stack_start, regs, stack_size,
+	p = copy_process(clone_flags, stack_start, stack_size,
 			 child_tidptr, NULL, trace);
 	/*
 	 * Do this prior waking up the new thread - the thread pointer
@@ -1642,8 +1624,51 @@ long do_fork(unsigned long clone_flags,
  */
 pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 {
-	return do_fork(flags|CLONE_VM|CLONE_UNTRACED, (unsigned long)fn, NULL,
+	return do_fork(flags|CLONE_VM|CLONE_UNTRACED, (unsigned long)fn,
 		(unsigned long)arg, NULL, NULL);
+}
+#endif
+
+#ifdef __ARCH_WANT_SYS_FORK
+SYSCALL_DEFINE0(fork)
+{
+#ifdef CONFIG_MMU
+	return do_fork(SIGCHLD, 0, 0, NULL, NULL);
+#else
+	/* can not support in nommu mode */
+	return(-EINVAL);
+#endif
+}
+#endif
+
+#ifdef __ARCH_WANT_SYS_VFORK
+SYSCALL_DEFINE0(vfork)
+{
+	return do_fork(CLONE_VFORK | CLONE_VM | SIGCHLD, 0, 
+			0, NULL, NULL);
+}
+#endif
+
+#ifdef __ARCH_WANT_SYS_CLONE
+#ifdef CONFIG_CLONE_BACKWARDS
+SYSCALL_DEFINE5(clone, unsigned long, clone_flags, unsigned long, newsp,
+		 int __user *, parent_tidptr,
+		 int, tls_val,
+		 int __user *, child_tidptr)
+#elif defined(CONFIG_CLONE_BACKWARDS2)
+SYSCALL_DEFINE5(clone, unsigned long, newsp, unsigned long, clone_flags,
+		 int __user *, parent_tidptr,
+		 int __user *, child_tidptr,
+		 int, tls_val)
+#else
+SYSCALL_DEFINE5(clone, unsigned long, clone_flags, unsigned long, newsp,
+		 int __user *, parent_tidptr,
+		 int __user *, child_tidptr,
+		 int, tls_val)
+#endif
+{
+	return do_fork(clone_flags, newsp, 0,
+		parent_tidptr, child_tidptr);
 }
 #endif
 

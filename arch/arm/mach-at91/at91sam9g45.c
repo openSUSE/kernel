@@ -18,10 +18,10 @@
 #include <asm/mach/map.h>
 #include <asm/system_misc.h>
 #include <mach/at91sam9g45.h>
-#include <mach/at91_aic.h>
 #include <mach/at91_pmc.h>
 #include <mach/cpu.h>
 
+#include "at91_aic.h"
 #include "soc.h"
 #include "generic.h"
 #include "clock.h"
@@ -351,7 +351,6 @@ static struct at91_gpio_bank at91sam9g45_gpio[] __initdata = {
 static void __init at91sam9g45_map_io(void)
 {
 	at91_init_sram(0, AT91SAM9G45_SRAM_BASE, AT91SAM9G45_SRAM_SIZE);
-	init_consistent_dma_size(SZ_4M);
 }
 
 static void __init at91sam9g45_ioremap_registers(void)
