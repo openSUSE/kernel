@@ -146,15 +146,6 @@ struct platform_device s3c_device_camif = {
 
 /* ASOC DMA */
 
-struct platform_device samsung_asoc_dma = {
-	.name		= "samsung-audio",
-	.id		= -1,
-	.dev		= {
-		.dma_mask		= &samsung_device_dma_mask,
-		.coherent_dma_mask	= DMA_BIT_MASK(32),
-	}
-};
-
 struct platform_device samsung_asoc_idma = {
 	.name		= "samsung-idma",
 	.id		= -1,
@@ -929,6 +920,7 @@ struct platform_device s5p_device_mfc_r = {
 		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	},
 };
+
 #endif /* CONFIG_S5P_DEV_MFC */
 
 /* MIPI CSIS */

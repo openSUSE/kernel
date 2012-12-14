@@ -24,7 +24,7 @@
 #include <asm/mach-types.h>
 #include <asm/mach/map.h>
 
-#include <plat-omap/dma-omap.h>
+#include <linux/omap-dma.h>
 
 #include "iomap.h"
 #include "omap_hwmod.h"
@@ -200,6 +200,16 @@ static struct resource omap3isp_resources[] = {
 	{
 		.start		= OMAP3630_ISP_CSI2C_REGS2_BASE,
 		.end		= OMAP3630_ISP_CSI2C_REGS2_END,
+		.flags		= IORESOURCE_MEM,
+	},
+	{
+		.start		= OMAP343X_CTRL_BASE + OMAP343X_CONTROL_CSIRXFE,
+		.end		= OMAP343X_CTRL_BASE + OMAP343X_CONTROL_CSIRXFE + 3,
+		.flags		= IORESOURCE_MEM,
+	},
+	{
+		.start		= OMAP343X_CTRL_BASE + OMAP3630_CONTROL_CAMERA_PHY_CTRL,
+		.end		= OMAP343X_CTRL_BASE + OMAP3630_CONTROL_CAMERA_PHY_CTRL + 3,
 		.flags		= IORESOURCE_MEM,
 	},
 	{

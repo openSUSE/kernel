@@ -565,15 +565,10 @@ static int ab8500_irq_init(struct ab8500 *ab8500, struct device_node *np)
 	else
 		num_irqs = AB8500_NR_IRQS;
 
-	if (ab8500->irq_base) {
-		ab8500->domain = irq_domain_add_legacy(
-			NULL, num_irqs, ab8500->irq_base,
-			0, &ab8500_irq_ops, ab8500);
-	}
-	else {
-		ab8500->domain = irq_domain_add_linear(
-			np, num_irqs, &ab8500_irq_ops, ab8500);
-	}
+	/* If ->irq_base is zero this will give a linear mapping */
+	ab8500->domain = irq_domain_add_simple(NULL,
+			num_irqs, ab8500->irq_base,
+			&ab8500_irq_ops, ab8500);
 
 	if (!ab8500->domain) {
 		dev_err(ab8500->dev, "Failed to create irqdomain\n");
@@ -1041,23 +1036,43 @@ static struct mfd_cell abx500_common_devs[] = {
 static struct mfd_cell ab8500_bm_devs[] = {
 	{
 		.name = "ab8500-charger",
+		.of_compatible = "stericsson,ab8500-charger",
 		.num_resources = ARRAY_SIZE(ab8500_charger_resources),
 		.resources = ab8500_charger_resources,
+#ifndef CONFIG_OF
+		.platform_data = &ab8500_bm_data,
+		.pdata_size = sizeof(ab8500_bm_data),
+#endif
 	},
 	{
 		.name = "ab8500-btemp",
+		.of_compatible = "stericsson,ab8500-btemp",
 		.num_resources = ARRAY_SIZE(ab8500_btemp_resources),
 		.resources = ab8500_btemp_resources,
+#ifndef CONFIG_OF
+		.platform_data = &ab8500_bm_data,
+		.pdata_size = sizeof(ab8500_bm_data),
+#endif
 	},
 	{
 		.name = "ab8500-fg",
+		.of_compatible = "stericsson,ab8500-fg",
 		.num_resources = ARRAY_SIZE(ab8500_fg_resources),
 		.resources = ab8500_fg_resources,
+#ifndef CONFIG_OF
+		.platform_data = &ab8500_bm_data,
+		.pdata_size = sizeof(ab8500_bm_data),
+#endif
 	},
 	{
 		.name = "ab8500-chargalg",
+		.of_compatible = "stericsson,ab8500-chargalg",
 		.num_resources = ARRAY_SIZE(ab8500_chargalg_resources),
 		.resources = ab8500_chargalg_resources,
+#ifndef CONFIG_OF
+		.platform_data = &ab8500_bm_data,
+		.pdata_size = sizeof(ab8500_bm_data),
+#endif
 	},
 };
 

@@ -29,6 +29,7 @@
 		tcb0 = &tcb0;
 		tcb1 = &tcb1;
 		i2c0 = &i2c0;
+		ssc0 = &ssc0;
 	};
 	cpus {
 		cpu@0 {
@@ -445,6 +446,13 @@
 				status = "disabled";
 			};
 
+			ssc0: ssc@fffbc000 {
+				compatible = "atmel,at91rm9200-ssc";
+				reg = <0xfffbc000 0x4000>;
+				interrupts = <14 4 5>;
+				status = "disabled";
+			};
+
 			adc0: adc@fffe0000 {
 				compatible = "atmel,at91sam9260-adc";
 				reg = <0xfffe0000 0x100>;
@@ -478,6 +486,12 @@
 					trigger-value = <0x13>;
 					trigger-external;
 				};
+			};
+
+			watchdog@fffffd40 {
+				compatible = "atmel,at91sam9260-wdt";
+				reg = <0xfffffd40 0x10>;
+				status = "disabled";
 			};
 		};
 

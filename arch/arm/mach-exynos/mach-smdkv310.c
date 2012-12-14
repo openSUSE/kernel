@@ -300,9 +300,6 @@ static struct platform_device *smdkv310_devices[] __initdata = {
 	&s5p_device_fimc_md,
 	&s5p_device_g2d,
 	&s5p_device_jpeg,
-#ifdef CONFIG_DRM_EXYNOS
-	&exynos_device_drm,
-#endif
 	&exynos4_device_ac97,
 	&exynos4_device_i2s0,
 	&exynos4_device_ohci,
@@ -311,7 +308,6 @@ static struct platform_device *smdkv310_devices[] __initdata = {
 	&s5p_device_mfc_l,
 	&s5p_device_mfc_r,
 	&exynos4_device_spdif,
-	&samsung_asoc_dma,
 	&samsung_asoc_idma,
 	&s5p_device_fimd0,
 	&smdkv310_device_audio,

@@ -19,18 +19,21 @@
 #include <linux/cpumask.h>
 #include <linux/platform_device.h>
 #include <linux/clk.h>
+#include <linux/clk/zynq.h>
+#include <linux/of_address.h>
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
 #include <linux/of.h>
 
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
+#include <asm/mach/time.h>
 #include <asm/mach-types.h>
 #include <asm/page.h>
+#include <asm/pgtable.h>
 #include <asm/hardware/gic.h>
 #include <asm/hardware/cache-l2x0.h>
 
-#include <mach/zynq_soc.h>
 #include "common.h"
 
 static struct of_device_id zynq_of_bus_ids[] __initdata = {
@@ -65,32 +68,36 @@ static void __init xilinx_irq_init(void)
 	of_irq_init(irq_match);
 }
 
-/* The minimum devices needed to be mapped before the VM system is up and
- * running include the GIC, UART and Timer Counter.
+#define SCU_PERIPH_PHYS		0xF8F00000
+#define SCU_PERIPH_SIZE		SZ_8K
+#define SCU_PERIPH_VIRT		(VMALLOC_END - SCU_PERIPH_SIZE)
+
+static struct map_desc scu_desc __initdata = {
+	.virtual	= SCU_PERIPH_VIRT,
+	.pfn		= __phys_to_pfn(SCU_PERIPH_PHYS),
+	.length		= SCU_PERIPH_SIZE,
+	.type		= MT_DEVICE,
+};
+
+static void __init xilinx_zynq_timer_init(void)
+{
+	struct device_node *np;
+	void __iomem *slcr;
+
+	np = of_find_compatible_node(NULL, NULL, "xlnx,zynq-slcr");
+	slcr = of_iomap(np, 0);
+	WARN_ON(!slcr);
+
+	xilinx_zynq_clocks_init(slcr);
+
+	xttcpss_timer_init();
+}
+
+/*
+ * Instantiate and initialize the system timer structure
  */
-
-static struct map_desc io_desc[] __initdata = {
-	{
-		.virtual	= TTC0_VIRT,
-		.pfn		= __phys_to_pfn(TTC0_PHYS),
-		.length		= TTC0_SIZE,
-		.type		= MT_DEVICE,
-	}, {
-		.virtual	= SCU_PERIPH_VIRT,
-		.pfn		= __phys_to_pfn(SCU_PERIPH_PHYS),
-		.length		= SCU_PERIPH_SIZE,
-		.type		= MT_DEVICE,
-	},
-
-#ifdef CONFIG_DEBUG_LL
-	{
-		.virtual	= UART0_VIRT,
-		.pfn		= __phys_to_pfn(UART0_PHYS),
-		.length		= UART0_SIZE,
-		.type		= MT_DEVICE,
-	},
-#endif
-
+static struct sys_timer xttcpss_sys_timer = {
+	.init		= xilinx_zynq_timer_init,
 };
 
 /**
@@ -98,11 +105,13 @@ static struct map_desc io_desc[] __initdata = {
  */
 static void __init xilinx_map_io(void)
 {
-	iotable_init(io_desc, ARRAY_SIZE(io_desc));
+	debug_ll_io_init();
+	iotable_init(&scu_desc, 1);
 }
 
 static const char *xilinx_dt_match[] = {
-	"xlnx,zynq-ep107",
+	"xlnx,zynq-zc702",
+	"xlnx,zynq-7000",
 	NULL
 };
 
