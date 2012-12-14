@@ -390,7 +390,11 @@ struct gnttab_setup_table {
     uint32_t nr_frames;
     /* OUT parameters. */
     int16_t  status;              /* => enum grant_status */
+#if !defined(CONFIG_PARAVIRT_XEN) && __XEN_INTERFACE_VERSION__ < 0x00040300
     XEN_GUEST_HANDLE(ulong) frame_list;
+#else
+    XEN_GUEST_HANDLE(xen_pfn_t) frame_list;
+#endif
 };
 DEFINE_GUEST_HANDLE_STRUCT(gnttab_setup_table);
 typedef struct gnttab_setup_table gnttab_setup_table_t;

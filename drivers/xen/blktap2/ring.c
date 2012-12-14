@@ -325,9 +325,7 @@ blktap_ring_mmap(struct file *filp, struct vm_area_struct *vma)
 	/* Mark this VM as containing foreign pages, and set up mappings. */
 	ring->foreign_map.map = map;
 	vma->vm_private_data = &ring->foreign_map;
-	vma->vm_flags |= VM_FOREIGN;
-	vma->vm_flags |= VM_DONTCOPY;
-	vma->vm_flags |= VM_RESERVED;
+	vma->vm_flags |= VM_FOREIGN | VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP;
 	vma->vm_ops = &blktap_ring_vm_operations;
 
 #ifdef CONFIG_X86

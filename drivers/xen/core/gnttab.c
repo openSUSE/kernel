@@ -300,6 +300,31 @@ void gnttab_end_foreign_access(grant_ref_t ref, unsigned long page)
 }
 EXPORT_SYMBOL_GPL(gnttab_end_foreign_access);
 
+void gnttab_multi_end_foreign_access(unsigned int nr, grant_ref_t refs[],
+				     struct page *pages[])
+{
+	for (; nr--; ++refs) {
+		if (*refs != GRANT_INVALID_REF) {
+			if (gnttab_end_foreign_access_ref(*refs))
+				put_free_entry(*refs);
+			else if (pages) {
+				gnttab_add_deferred(*refs, *pages);
+				*pages = NULL;
+			} else
+				gnttab_add_deferred(*refs, NULL);
+			*refs = GRANT_INVALID_REF;
+		}
+		if (pages) {
+			if (*pages) {
+				__free_page(*pages);
+				*pages = NULL;
+			}
+			++pages;
+		}
+	}
+}
+EXPORT_SYMBOL_GPL(gnttab_multi_end_foreign_access);
+
 int gnttab_grant_foreign_transfer(domid_t domid, unsigned long pfn)
 {
 	int ref;
@@ -711,6 +736,8 @@ void __gnttab_dma_map_page(struct page *page)
 
 	if (!is_running_on_xen() || !PageForeign(page))
 		return;
+
+	BUG_ON(PageCompound(page));
 
 	do {
 		seq = read_seqbegin(&gnttab_dma_lock);

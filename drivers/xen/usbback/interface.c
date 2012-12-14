@@ -113,11 +113,11 @@ int usbif_map(usbif_t *usbif, grant_ref_t urb_ring_ref,
 	if (usbif->irq)
 		return 0;
 
-	area = xenbus_map_ring_valloc(usbif->xbdev, urb_ring_ref);
+	area = xenbus_map_ring_valloc(usbif->xbdev, &urb_ring_ref, 1);
 	if (IS_ERR(area))
 		return PTR_ERR(area);
 	usbif->urb_ring_area = area;
-	area = xenbus_map_ring_valloc(usbif->xbdev, conn_ring_ref);
+	area = xenbus_map_ring_valloc(usbif->xbdev, &conn_ring_ref, 1);
 	if (IS_ERR(area)) {
 		err = PTR_ERR(area);
 		goto fail_alloc;

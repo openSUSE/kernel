@@ -457,7 +457,7 @@ static int xenfb_mmap(struct fb_info *fb_info, struct vm_area_struct *vma)
 	mutex_unlock(&info->mm_lock);
 
 	vma->vm_ops = &xenfb_vm_ops;
-	vma->vm_flags |= (VM_DONTEXPAND | VM_RESERVED);
+	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
 	vma->vm_private_data = map;
 
 	return 0;

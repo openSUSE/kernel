@@ -85,7 +85,7 @@ notrace static long vdso_fallback_gtod(struct timeval *tv, struct timezone *tz)
 
 
 #ifndef CONFIG_XEN
-notrace static inline long vgetns(void)
+notrace static inline u64 vgetsns(void)
 {
 	long v;
 	cycles_t cycles;
@@ -96,21 +96,24 @@ notrace static inline long vgetns(void)
 	else
 		return 0;
 	v = (cycles - gtod->clock.cycle_last) & gtod->clock.mask;
-	return (v * gtod->clock.mult) >> gtod->clock.shift;
+	return v * gtod->clock.mult;
 }
 
 /* Code size doesn't matter (vdso is 4k anyway) and this is faster. */
 notrace static int __always_inline do_realtime(struct timespec *ts)
 {
-	unsigned long seq, ns;
+	unsigned long seq;
+	u64 ns;
 	int mode;
 
+	ts->tv_nsec = 0;
 	do {
 		seq = read_seqcount_begin(&gtod->seq);
 		mode = gtod->clock.vclock_mode;
 		ts->tv_sec = gtod->wall_time_sec;
-		ts->tv_nsec = gtod->wall_time_nsec;
-		ns = vgetns();
+		ns = gtod->wall_time_snsec;
+		ns += vgetsns();
+		ns >>= gtod->clock.shift;
 	} while (unlikely(read_seqcount_retry(&gtod->seq, seq)));
 
 	timespec_add_ns(ts, ns);
@@ -119,15 +122,18 @@ notrace static int __always_inline do_realtime(struct timespec *ts)
 
 notrace static int do_monotonic(struct timespec *ts)
 {
-	unsigned long seq, ns;
+	unsigned long seq;
+	u64 ns;
 	int mode;
 
+	ts->tv_nsec = 0;
 	do {
 		seq = read_seqcount_begin(&gtod->seq);
 		mode = gtod->clock.vclock_mode;
 		ts->tv_sec = gtod->monotonic_time_sec;
-		ts->tv_nsec = gtod->monotonic_time_nsec;
-		ns = vgetns();
+		ns = gtod->monotonic_time_snsec;
+		ns += vgetsns();
+		ns >>= gtod->clock.shift;
 	} while (unlikely(read_seqcount_retry(&gtod->seq, seq)));
 	timespec_add_ns(ts, ns);
 

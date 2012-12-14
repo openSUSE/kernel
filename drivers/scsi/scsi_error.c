@@ -870,7 +870,6 @@ static int scsi_send_eh_cmnd(struct scsi_cmnd *scmd, unsigned char *cmnd,
 			     int cmnd_size, int timeout, unsigned sense_bytes)
 {
 	struct scsi_device *sdev = scmd->device;
-	struct scsi_driver *sdrv = scsi_cmd_to_driver(scmd);
 	struct Scsi_Host *shost = sdev->host;
 	DECLARE_COMPLETION_ONSTACK(done);
 	unsigned long timeleft;
@@ -926,8 +925,11 @@ static int scsi_send_eh_cmnd(struct scsi_cmnd *scmd, unsigned char *cmnd,
 
 	scsi_eh_restore_cmnd(scmd, &ses);
 
-	if (sdrv && sdrv->eh_action)
-		rtn = sdrv->eh_action(scmd, cmnd, cmnd_size, rtn);
+	if (scmd->request->cmd_type != REQ_TYPE_BLOCK_PC) {
+		struct scsi_driver *sdrv = scsi_cmd_to_driver(scmd);
+		if (sdrv->eh_action)
+			rtn = sdrv->eh_action(scmd, cmnd, cmnd_size, rtn);
+	}
 
 	return rtn;
 }
@@ -1602,6 +1604,31 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 		}
 	case DID_RESET:
 		return SUCCESS;
+#ifdef CONFIG_XEN /* Shouldn't this be done always?
+		   *
+		   * Overall, shouldn't the return value of this function be
+		   * the same when called twice in immediate succession?
+		   */
+	case DID_TARGET_FAILURE:
+		/*
+		 * scsi_check_sense(scmd) returning TARGET_ERROR gets
+		 * converted to DID_TARGET_FAILURE below, so if that
+		 * happened on the backend side, the frontend side
+		 * handling here would otherwise cause error handling to be
+		 * invoked from scsi_softirq_done().
+		 */
+		if (msg_byte(scmd->result) == COMMAND_COMPLETE &&
+		    status_byte(scmd->result) == CHECK_CONDITION &&
+		    scsi_check_sense(scmd) == TARGET_ERROR)
+			return SUCCESS;
+		return FAILED;
+	case DID_NEXUS_FAILURE:
+		/* Similarly for the respective conversion above/below. */
+		if (msg_byte(scmd->result) == COMMAND_COMPLETE &&
+		    status_byte(scmd->result) == RESERVATION_CONFLICT)
+			break;
+		/* fallthrough */
+#endif
 	default:
 		return FAILED;
 	}

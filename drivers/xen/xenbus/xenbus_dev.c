@@ -240,7 +240,7 @@ static ssize_t xenbus_dev_write(struct file *filp,
 	if (!is_xenstored_ready())
 		return -ENODEV;
 
-	if ((len + u->len) > sizeof(u->u.buffer)) {
+	if (len > sizeof(u->u.buffer) - u->len) {
 		rc = -EINVAL;
 		goto out;
 	}

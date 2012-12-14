@@ -31,6 +31,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/efi.h>
+#include <linux/efi-bgrt.h>
 #include <linux/export.h>
 #include <linux/platform_device.h>
 #include <linux/spinlock.h>
@@ -151,7 +152,8 @@ static efi_status_t xen_efi_get_variable(efi_char16_t *name,
 		return EFI_UNSUPPORTED;
 
 	*data_size = call.u.get_variable.size;
-	*attr = call.misc;
+	if (attr)
+		*attr = call.misc;
 
 	return call.status;
 }
@@ -474,6 +476,13 @@ void __init efi_init(void)
 	x86_platform.get_wallclock = efi_get_time;
 	x86_platform.set_wallclock = efi_set_rtc_mmss;
 }
+
+void __init efi_late_init(void)
+{
+	efi_bgrt_init();
+}
+
+void __iomem *efi_lookup_mapped_addr(u64 phys_addr) { return NULL; }
 
 void __init efi_enter_virtual_mode(void) { }
 

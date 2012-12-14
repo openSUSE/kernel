@@ -674,7 +674,6 @@ static void __reschedule_timeout(int drive, const char *message)
 
 	if (drive == current_reqD)
 		drive = current_drive;
-	__cancel_delayed_work(&fd_timeout);
 
 	if (drive < 0 || drive >= N_DRIVE) {
 		delay = 20UL * HZ;
@@ -682,7 +681,7 @@ static void __reschedule_timeout(int drive, const char *message)
 	} else
 		delay = UDP->timeout;
 
-	queue_delayed_work(floppy_wq, &fd_timeout, delay);
+	mod_delayed_work(floppy_wq, &fd_timeout, delay);
 	if (UDP->flags & FD_DEBUG)
 		DPRINT("reschedule timeout %s\n", message);
 	timeout_message = message;
@@ -893,7 +892,7 @@ static void unlock_fdc(void)
 
 	raw_cmd = NULL;
 	command_status = FD_COMMAND_NONE;
-	__cancel_delayed_work(&fd_timeout);
+	cancel_delayed_work(&fd_timeout);
 	do_floppy = NULL;
 	cont = NULL;
 	clear_bit(0, &fdc_busy);
@@ -4112,12 +4111,19 @@ static struct platform_driver floppy_driver = {
 
 static struct platform_device floppy_device[N_DRIVE];
 
+static bool floppy_available(int drive)
+{
+	if (!(allowed_drive_mask & (1 << drive)))
+		return false;
+	if (fdc_state[FDC(drive)].version == FDC_NONE)
+		return false;
+	return true;
+}
+
 static struct kobject *floppy_find(dev_t dev, int *part, void *data)
 {
 	int drive = (*part & 3) | ((*part & 0x80) >> 5);
-	if (drive >= N_DRIVE ||
-	    !(allowed_drive_mask & (1 << drive)) ||
-	    fdc_state[FDC(drive)].version == FDC_NONE)
+	if (drive >= N_DRIVE || !floppy_available(drive))
 		return NULL;
 	if (((*part >> 2) & 0x1f) >= ARRAY_SIZE(floppy_type))
 		return NULL;
@@ -4127,8 +4133,7 @@ static struct kobject *floppy_find(dev_t dev, int *part, void *data)
 
 static int __init do_floppy_init(void)
 {
-	int i, unit, drive;
-	int err, dr;
+	int i, unit, drive, err;
 
 	set_debugt();
 	interruptjiffies = resultjiffies = jiffies;
@@ -4144,29 +4149,28 @@ static int __init do_floppy_init(void)
 	if (!floppy_wq)
 		return -ENOMEM;
 
-	for (dr = 0; dr < N_DRIVE; dr++) {
-		disks[dr] = alloc_disk(1);
-		if (!disks[dr]) {
+	for (drive = 0; drive < N_DRIVE; drive++) {
+		disks[drive] = alloc_disk(1);
+		if (!disks[drive]) {
 			err = -ENOMEM;
 			goto out_put_disk;
 		}
 
-		disks[dr]->queue = blk_init_queue(do_fd_request, &floppy_lock);
-		if (!disks[dr]->queue) {
-			put_disk(disks[dr]);
+		disks[drive]->queue = blk_init_queue(do_fd_request, &floppy_lock);
+		if (!disks[drive]->queue) {
 			err = -ENOMEM;
 			goto out_put_disk;
 		}
 
-		blk_queue_max_hw_sectors(disks[dr]->queue, 64);
-		disks[dr]->major = FLOPPY_MAJOR;
-		disks[dr]->first_minor = TOMINOR(dr);
-		disks[dr]->fops = &floppy_fops;
-		sprintf(disks[dr]->disk_name, "fd%d", dr);
+		blk_queue_max_hw_sectors(disks[drive]->queue, 64);
+		disks[drive]->major = FLOPPY_MAJOR;
+		disks[drive]->first_minor = TOMINOR(drive);
+		disks[drive]->fops = &floppy_fops;
+		sprintf(disks[drive]->disk_name, "fd%d", drive);
 
-		init_timer(&motor_off_timer[dr]);
-		motor_off_timer[dr].data = dr;
-		motor_off_timer[dr].function = motor_off_callback;
+		init_timer(&motor_off_timer[drive]);
+		motor_off_timer[drive].data = drive;
+		motor_off_timer[drive].function = motor_off_callback;
 	}
 
 	err = register_blkdev(FLOPPY_MAJOR, "fd");
@@ -4284,9 +4288,7 @@ static int __init do_floppy_init(void)
 	}
 
 	for (drive = 0; drive < N_DRIVE; drive++) {
-		if (!(allowed_drive_mask & (1 << drive)))
-			continue;
-		if (fdc_state[FDC(drive)].version == FDC_NONE)
+		if (!floppy_available(drive))
 			continue;
 
 		floppy_device[drive].name = floppy_device_name;
@@ -4315,8 +4317,7 @@ out_unreg_platform_dev:
 	platform_device_unregister(&floppy_device[drive]);
 out_remove_drives:
 	while (drive--) {
-		if ((allowed_drive_mask & (1 << drive)) &&
-		    fdc_state[FDC(drive)].version != FDC_NONE) {
+		if (floppy_available(drive)) {
 			del_gendisk(disks[drive]);
 			device_remove_file(&floppy_device[drive].dev, &dev_attr_cmos);
 			platform_device_unregister(&floppy_device[drive]);
@@ -4331,19 +4332,17 @@ out_unreg_region:
 out_unreg_blkdev:
 	unregister_blkdev(FLOPPY_MAJOR, "fd");
 out_put_disk:
-	while (dr--) {
-		del_timer_sync(&motor_off_timer[dr]);
-		if (disks[dr]->queue) {
-			blk_cleanup_queue(disks[dr]->queue);
-			/*
-			 * put_disk() is not paired with add_disk() and
-			 * will put queue reference one extra time. fix it.
-			 */
-			disks[dr]->queue = NULL;
-		}
-		put_disk(disks[dr]);
-	}
 	destroy_workqueue(floppy_wq);
+	for (drive = 0; drive < N_DRIVE; drive++) {
+		if (!disks[drive])
+			break;
+		if (disks[drive]->queue) {
+			del_timer_sync(&motor_off_timer[drive]);
+			blk_cleanup_queue(disks[drive]->queue);
+			disks[drive]->queue = NULL;
+		}
+		put_disk(disks[drive]);
+	}
 	return err;
 }
 
@@ -4558,11 +4557,12 @@ static void __exit floppy_module_exit(void)
 	unregister_blkdev(FLOPPY_MAJOR, "fd");
 	platform_driver_unregister(&floppy_driver);
 
+	destroy_workqueue(floppy_wq);
+
 	for (drive = 0; drive < N_DRIVE; drive++) {
 		del_timer_sync(&motor_off_timer[drive]);
 
-		if ((allowed_drive_mask & (1 << drive)) &&
-		    fdc_state[FDC(drive)].version != FDC_NONE) {
+		if (floppy_available(drive)) {
 			del_gendisk(disks[drive]);
 			device_remove_file(&floppy_device[drive].dev, &dev_attr_cmos);
 			platform_device_unregister(&floppy_device[drive]);
@@ -4582,7 +4582,6 @@ static void __exit floppy_module_exit(void)
 
 	cancel_delayed_work_sync(&fd_timeout);
 	cancel_delayed_work_sync(&fd_timer);
-	destroy_workqueue(floppy_wq);
 
 	if (atomic_read(&usage_count))
 		floppy_release_irq_and_dma();

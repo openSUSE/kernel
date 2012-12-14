@@ -1,30 +1,30 @@
-#if defined(CONFIG_PARAVIRT_XEN) || !defined(__KERNEL__)
-#include "public/evtchn.h"
+#ifdef CONFIG_PARAVIRT_XEN
+#include <xen/public/evtchn.h>
 #else
 /******************************************************************************
  * evtchn.h
- *
+ * 
  * Communication via Xen event channels.
  * Also definitions for the device that demuxes notifications to userspace.
- *
- * Copyright (c) 2003-2005, K A Fraser
- *
+ * 
+ * Copyright (c) 2004-2005, K A Fraser
+ * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation; or, when distributed
  * separately from the Linux kernel or incorporated into other
  * software packages, subject to the following license:
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this source file (the "Software"), to deal in the Software without
  * restriction, including without limitation the rights to use, copy, modify,
  * merge, publish, distribute, sublicense, and/or sell copies of the Software,
  * and to permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE

@@ -492,7 +492,7 @@ static void sci_controller_process_completions(struct isci_host *ihost)
 	u32 event_cycle;
 
 	dev_dbg(&ihost->pdev->dev,
-		"%s: completion queue begining get:0x%08x\n",
+		"%s: completion queue beginning get:0x%08x\n",
 		__func__,
 		ihost->completion_queue_get);
 
@@ -1044,7 +1044,7 @@ static enum sci_status sci_controller_start(struct isci_host *ihost,
 	return SCI_SUCCESS;
 }
 
-void isci_host_scan_start(struct Scsi_Host *shost)
+void isci_host_start(struct Scsi_Host *shost)
 {
 	struct isci_host *ihost = SHOST_TO_SAS_HA(shost)->lldd_ha;
 	unsigned long tmo = sci_controller_get_suggested_start_timeout(ihost);
@@ -1122,10 +1122,16 @@ void isci_host_completion_routine(unsigned long data)
 	sci_controller_completion_handler(ihost);
 	spin_unlock_irq(&ihost->scic_lock);
 
-	/* the coalesence timeout doubles at each encoding step, so
+	/*
+	 * we subtract SCI_MAX_PORTS to account for the number of dummy TCs
+	 * issued for hardware issue workaround
+	 */
+	active = isci_tci_active(ihost) - SCI_MAX_PORTS;
+
+	/*
+	 * the coalesence timeout doubles at each encoding step, so
 	 * update it based on the ilog2 value of the outstanding requests
 	 */
-	active = isci_tci_active(ihost);
 	writel(SMU_ICC_GEN_VAL(NUMBER, active) |
 	       SMU_ICC_GEN_VAL(TIMER, ISCI_COALESCE_BASE + ilog2(active)),
 	       &ihost->smu_registers->interrupt_coalesce_control);
@@ -1975,7 +1981,7 @@ static void sci_controller_afe_initialization(struct isci_host *ihost)
 	}
 
 	for (phy_id = 0; phy_id < SCI_MAX_PHYS; phy_id++) {
-		struct scu_afe_transceiver *xcvr = &afe->scu_afe_xcvr[phy_id];
+		struct scu_afe_transceiver __iomem *xcvr = &afe->scu_afe_xcvr[phy_id];
 		const struct sci_phy_oem_params *oem_phy = &oem->phys[phy_id];
 		int cable_length_long =
 			is_long_cable(phy_id, cable_selection_mask);

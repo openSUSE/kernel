@@ -481,9 +481,9 @@ typedef struct blkif_request_discard blkif_request_discard_t;
 #endif
 
 struct blkif_response {
-    uint64_t        id;              /* copied from request */
-    uint8_t         operation;       /* copied from request */
-    int16_t         status;          /* BLKIF_RSP_???       */
+	uint64_t        id;              /* copied from request */
+	uint8_t         operation;       /* copied from request */
+	int16_t         status;          /* BLKIF_RSP_???       */
 };
 typedef struct blkif_response blkif_response_t;
 
@@ -500,6 +500,7 @@ typedef struct blkif_response blkif_response_t;
 /*
  * Generate blkif ring structures and types.
  */
+
 DEFINE_RING_TYPES(blkif, struct blkif_request, struct blkif_response);
 
 #define VDISK_CDROM        0x1

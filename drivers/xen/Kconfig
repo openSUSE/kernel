@@ -334,6 +334,17 @@ config XEN_VCPU_INFO_PLACEMENT
 	  This allows faster access to the per-vCPU shared info
 	  structure.
 
+config XEN_ADVANCED_COMPRESSION
+	def_bool y
+#	depends on XEN && (XEN_UNPRIVILEGED_GUEST || X86) && (XEN_COMPAT >= 0x040000)
+	depends on XEN && (XEN_UNPRIVILEGED_GUEST || X86)
+	depends on !XEN_COMPAT_030002_AND_LATER
+	depends on !XEN_COMPAT_030004_AND_LATER
+	depends on !XEN_COMPAT_030100_AND_LATER
+	depends on !XEN_COMPAT_030200_AND_LATER
+	depends on !XEN_COMPAT_030300_AND_LATER
+	depends on !XEN_COMPAT_030400_AND_LATER
+
 endmenu
 
 config HAVE_IRQ_IGNORE_UNHANDLED
@@ -373,7 +384,7 @@ menu "Xen driver support"
 
 config XEN_BALLOON
 	bool "Xen memory balloon driver" if PARAVIRT_XEN
-	depends on PARAVIRT_XEN || !PPC_XEN
+	depends on (PARAVIRT_XEN && !ARM) || !PPC_XEN
 	default y
 	help
 	  The balloon driver allows the Xen domain to request more memory from
@@ -521,6 +532,7 @@ config XEN_XENCOMM
 
 config XEN_TMEM
 	bool
+	depends on !ARM
 	default y if (CLEANCACHE || FRONTSWAP)
 	help
 	  Shim to interface in-kernel Transcendent Memory hooks

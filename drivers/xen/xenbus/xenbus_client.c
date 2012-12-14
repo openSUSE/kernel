@@ -382,6 +382,30 @@ int xenbus_grant_ring(struct xenbus_device *dev, unsigned long ring_mfn)
 }
 EXPORT_SYMBOL_GPL(xenbus_grant_ring);
 
+int xenbus_multi_grant_ring(struct xenbus_device *dev, unsigned int nr,
+			    struct page *pages[], grant_ref_t refs[])
+{
+	unsigned int i;
+	int err = -EINVAL;
+
+	for (i = 0; i < nr; ++i) {
+		unsigned long pfn = page_to_pfn(pages[i]);
+
+		err = gnttab_grant_foreign_access(dev->otherend_id,
+						  pfn_to_mfn(pfn), 0);
+		if (err < 0) {
+			xenbus_dev_fatal(dev, err,
+					 "granting access to ring page #%u",
+					 i);
+			break;
+		}
+		refs[i] = err;
+	}
+
+	return err;
+}
+EXPORT_SYMBOL_GPL(xenbus_multi_grant_ring);
+
 
 /**
  * Allocate an event channel for the given xenbus_device, assigning the newly
@@ -504,8 +528,7 @@ static int xenbus_map_ring_valloc_pv(struct xenbus_device *dev,
 
 	op.host_addr = arbitrary_virt_to_machine(pte).maddr;
 
-	if (HYPERVISOR_grant_table_op(GNTTABOP_map_grant_ref, &op, 1))
-		BUG();
+	gnttab_batch_map(&op, 1);
 
 	if (op.status != GNTST_okay) {
 		free_vm_area(area);
@@ -586,8 +609,7 @@ int xenbus_map_ring(struct xenbus_device *dev, grant_ref_t gnt_ref,
 	gnttab_set_map_op(&op, (unsigned long)vaddr, GNTMAP_host_map, gnt_ref,
 			  dev->otherend_id);
 
-	if (HYPERVISOR_grant_table_op(GNTTABOP_map_grant_ref, &op, 1))
-		BUG();
+	gnttab_batch_map(&op, 1);
 
 	if (op.status != GNTST_okay) {
 		xenbus_dev_fatal(dev, op.status,

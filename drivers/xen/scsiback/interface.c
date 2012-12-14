@@ -72,7 +72,7 @@ int scsiback_init_sring(struct vscsibk_info *info, grant_ref_t ring_ref,
 		return -1;
 	}
 
-	area = xenbus_map_ring_valloc(info->dev, ring_ref);
+	area = xenbus_map_ring_valloc(info->dev, &ring_ref, 1);
 	if (IS_ERR(area))
 		return PTR_ERR(area);
 	info->ring_area = area;

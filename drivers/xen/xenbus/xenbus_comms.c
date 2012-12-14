@@ -271,7 +271,7 @@ int xb_init_comms(void)
 	} else {
 		err = bind_evtchn_to_irqhandler(xen_store_evtchn, wake_waiting,
 						0, "xenbus", &xb_waitq);
-		if (err <= 0) {
+		if (err < 0) {
 			pr_err("XENBUS request irq failed %i\n", err);
 			return err;
 		}

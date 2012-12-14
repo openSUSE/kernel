@@ -28,6 +28,8 @@
 #ifndef __XEN_PUBLIC_VERSION_H__
 #define __XEN_PUBLIC_VERSION_H__
 
+#include "xen.h"
+
 /* NB. All ops return zero on success, except XENVER_{version,pagesize} */
 
 /* arg == NULL; returns major:minor (16:16). */
@@ -67,7 +69,7 @@ struct xen_changeset_info {
 
 #define XENVER_platform_parameters 5
 struct xen_platform_parameters {
-    unsigned long virt_start;
+    xen_ulong_t virt_start;
 };
 typedef struct xen_platform_parameters xen_platform_parameters_t;
 

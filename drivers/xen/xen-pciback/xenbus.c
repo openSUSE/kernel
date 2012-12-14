@@ -170,7 +170,7 @@ static int xen_pcibk_do_attach(struct xen_pcibk_device *pdev, int gnt_ref,
 	err = xenbus_map_ring_valloc(pdev->xdev, gnt_ref, &vaddr);
 	if (err < 0) {
 #else
-	area = xenbus_map_ring_valloc(pdev->xdev, gnt_ref);
+	area = xenbus_map_ring_valloc(pdev->xdev, &gnt_ref, 1);
 	if (IS_ERR(area)) {
 		err = PTR_ERR(area);
 #endif

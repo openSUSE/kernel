@@ -40,6 +40,7 @@
 #include <linux/freezer.h>
 #include <linux/list.h>
 #include <linux/module.h>
+#include <linux/string.h>
 #include <linux/delay.h>
 #include <xen/balloon.h>
 #include <xen/evtchn.h>
@@ -56,9 +57,10 @@
  * 
  * This will increase the chances of being able to write whole tracks.
  * 64 should be enough to keep us competitive with Linux.
+ * 128 is required to make blkif_max_ring_page_order = 2 a useful default.
  */
-static int blkif_reqs = 64;
-module_param_named(reqs, blkif_reqs, int, 0);
+static unsigned int blkif_reqs = 4 * BITS_PER_LONG;
+module_param_named(reqs, blkif_reqs, uint, 0444);
 MODULE_PARM_DESC(reqs, "Number of blkback requests to allocate");
 
 /* Run-time switchable: /sys/module/blkback/parameters/ */
@@ -66,6 +68,33 @@ static unsigned int log_stats = 0;
 static unsigned int debug_lvl = 0;
 module_param(log_stats, int, 0644);
 module_param(debug_lvl, int, 0644);
+
+/* Order of maximum shared ring size advertised to the front end. */
+unsigned int blkif_max_ring_page_order/* XXX = sizeof(long) / 4*/;
+
+static int set_max_ring_order(const char *buf, struct kernel_param *kp)
+{
+	unsigned long order;
+	int err = strict_strtoul(buf, 0, &order);
+
+	if (err || order > BLKIF_MAX_RING_PAGE_ORDER)
+		return -EINVAL;
+
+	if (blkif_reqs < BLK_RING_SIZE(order))
+		pr_warn("WARNING: I/O request space (%u reqs) < ring order %lu, "
+			"consider increasing " KBUILD_MODNAME ".reqs to >= %lu.\n",
+			blkif_reqs, order,
+			roundup_pow_of_two(BLK_RING_SIZE(order)));
+
+	blkif_max_ring_page_order = order;
+
+	return 0;
+}
+
+module_param_call(max_ring_page_order,
+		  set_max_ring_order, param_get_uint,
+		  &blkif_max_ring_page_order, 0644);
+MODULE_PARM_DESC(max_ring_order, "log2 of maximum ring size (in pages)");
 
 /*
  * Each outstanding request that we've passed to the lower device layers has a 

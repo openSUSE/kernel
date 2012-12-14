@@ -81,7 +81,10 @@ struct blk_shadow {
 	unsigned long frame[BLKIF_MAX_SEGMENTS_PER_REQUEST];
 };
 
-#define BLK_RING_SIZE __CONST_RING_SIZE(blkif, PAGE_SIZE)
+#define BLK_MAX_RING_PAGE_ORDER 4U
+#define BLK_MAX_RING_PAGES (1U << BLK_MAX_RING_PAGE_ORDER)
+#define BLK_MAX_RING_SIZE __CONST_RING_SIZE(blkif, \
+					    BLK_MAX_RING_PAGES * PAGE_SIZE)
 
 /*
  * We have one of these per vbd, whether ide, scsi or 'other'.  They
@@ -96,7 +99,7 @@ struct blkfront_info
 	int vdevice;
 	blkif_vdev_t handle;
 	int connected;
-	int ring_ref;
+	unsigned int ring_size;
 	blkif_front_ring_t ring;
 	spinlock_t io_lock;
 	struct scatterlist sg[BLKIF_MAX_SEGMENTS_PER_REQUEST];
@@ -105,7 +108,10 @@ struct blkfront_info
 	struct request_queue *rq;
 	struct work_struct work;
 	struct gnttab_free_callback callback;
-	struct blk_shadow shadow[BLK_RING_SIZE];
+	struct blk_shadow shadow[BLK_MAX_RING_SIZE];
+	struct list_head resume_list;
+	grant_ref_t ring_refs[BLK_MAX_RING_PAGES];
+	struct page *ring_pages[BLK_MAX_RING_PAGES];
 	unsigned long shadow_free;
 	unsigned int feature_flush;
 	unsigned int flush_op;

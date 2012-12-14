@@ -21,6 +21,7 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 
+#include <xen/interface/physdev.h>
 #include <xen/evtchn.h>
 
 #include "pci.h"

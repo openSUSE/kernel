@@ -32,36 +32,88 @@
 
 #include <linux/err.h>
 #include <linux/module.h>
+#include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <xen/gnttab.h>
 #include <xen/xenbus.h>
 
-/* Based on Rusty Russell's skeleton driver's map_page */
-struct vm_struct *xenbus_map_ring_valloc(struct xenbus_device *dev, grant_ref_t gnt_ref)
+static int unmap_ring_vfree(struct xenbus_device *dev, struct vm_struct *area,
+			    unsigned int nr, grant_handle_t handles[])
 {
-	struct gnttab_map_grant_ref op;
-	struct vm_struct *area;
+	unsigned int i;
+	int err = 0;
 
-	area = alloc_vm_area(PAGE_SIZE, NULL);
-	if (!area)
+	for (i = 0; i < nr; ++i) {
+		struct gnttab_unmap_grant_ref op;
+
+		gnttab_set_unmap_op(&op,
+				    (unsigned long)area->addr + i * PAGE_SIZE,
+				    GNTMAP_host_map, handles[i]);
+
+		if (HYPERVISOR_grant_table_op(GNTTABOP_unmap_grant_ref,
+					      &op, 1))
+			BUG();
+		if (op.status == GNTST_okay)
+			continue;
+
+		xenbus_dev_error(dev, op.status,
+				 "unmapping page %u (handle %#x)",
+				 i, handles[i]);
+		err = -EINVAL;
+	}
+
+	if (!err) {
+		free_vm_area(area);
+		kfree(handles);
+	}
+
+	return err;
+}
+
+/* Based on Rusty Russell's skeleton driver's map_page */
+struct vm_struct *xenbus_map_ring_valloc(struct xenbus_device *dev,
+					 const grant_ref_t refs[],
+					 unsigned int nr)
+{
+	grant_handle_t *handles = kmalloc(nr * sizeof(*handles), GFP_KERNEL);
+	struct vm_struct *area;
+	unsigned int i;
+
+	if (!handles)
 		return ERR_PTR(-ENOMEM);
 
-	gnttab_set_map_op(&op, (unsigned long)area->addr, GNTMAP_host_map,
-			  gnt_ref, dev->otherend_id);
-	
-	gnttab_check_GNTST_eagain_do_while(GNTTABOP_map_grant_ref, &op);
+	area = alloc_vm_area(nr * PAGE_SIZE, NULL);
+	if (!area) {
+		kfree(handles);
+		return ERR_PTR(-ENOMEM);
+	}
 
-	if (op.status != GNTST_okay) {
-		free_vm_area(area);
+	for (i = 0; i < nr; ++i) {
+		struct gnttab_map_grant_ref op;
+
+		gnttab_set_map_op(&op,
+				  (unsigned long)area->addr + i * PAGE_SIZE,
+				  GNTMAP_host_map, refs[i],
+				  dev->otherend_id);
+	
+		gnttab_check_GNTST_eagain_do_while(GNTTABOP_map_grant_ref,
+						   &op);
+
+		if (op.status == GNTST_okay) {
+			handles[i] = op.handle;
+			continue;
+		}
+
+		unmap_ring_vfree(dev, area, i, handles);
 		xenbus_dev_fatal(dev, op.status,
-				 "mapping in shared page %d from domain %d",
-				 gnt_ref, dev->otherend_id);
+				 "mapping page %u (ref %#x, dom%d)",
+				 i, refs[i], dev->otherend_id);
 		BUG_ON(!IS_ERR(ERR_PTR(op.status)));
 		return ERR_PTR(-EINVAL);
 	}
 
-	/* Stuff the handle in an unused field */
-	area->phys_addr = (unsigned long)op.handle;
+	/* Stuff the handle array in an unused field. */
+	area->phys_addr = (unsigned long)handles;
 
 	return area;
 }
@@ -71,22 +123,9 @@ EXPORT_SYMBOL_GPL(xenbus_map_ring_valloc);
 /* Based on Rusty Russell's skeleton driver's unmap_page */
 int xenbus_unmap_ring_vfree(struct xenbus_device *dev, struct vm_struct *area)
 {
-	struct gnttab_unmap_grant_ref op;
-
-	gnttab_set_unmap_op(&op, (unsigned long)area->addr, GNTMAP_host_map,
-			    (grant_handle_t)area->phys_addr);
-
-	if (HYPERVISOR_grant_table_op(GNTTABOP_unmap_grant_ref, &op, 1))
-		BUG();
-
-	if (op.status == GNTST_okay)
-		free_vm_area(area);
-	else
-		xenbus_dev_error(dev, op.status,
-				 "unmapping page at handle %d error %d",
-				 (int16_t)area->phys_addr, op.status);
-
-	return op.status == GNTST_okay ? 0 : -EINVAL;
+	return unmap_ring_vfree(dev, area,
+				get_vm_area_size(area) >> PAGE_SHIFT,
+				(void *)(unsigned long)area->phys_addr);
 }
 EXPORT_SYMBOL_GPL(xenbus_unmap_ring_vfree);
 

@@ -39,4 +39,6 @@
 
 #endif
 
+#define arch_perf_out_copy_user copy_from_user_nmi
+
 #endif /* _ASM_X86_PERF_EVENT_H */

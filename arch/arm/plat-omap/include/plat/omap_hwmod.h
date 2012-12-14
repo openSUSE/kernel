@@ -2,7 +2,7 @@
  * omap_hwmod macros, structures
  *
  * Copyright (C) 2009-2011 Nokia Corporation
- * Copyright (C) 2011 Texas Instruments, Inc.
+ * Copyright (C) 2012 Texas Instruments, Inc.
  * Paul Walmsley
  *
  * Created in collaboration with (alphabetical order): Benoît Cousson,
@@ -384,21 +384,38 @@ struct omap_hwmod_omap2_prcm {
 	u8 idlest_stdby_bit;
 };
 
+/*
+ * Possible values for struct omap_hwmod_omap4_prcm.flags
+ *
+ * HWMOD_OMAP4_NO_CONTEXT_LOSS_BIT: Some IP blocks don't have a PRCM
+ *     module-level context loss register associated with them; this
+ *     flag bit should be set in those cases
+ */
+#define HWMOD_OMAP4_NO_CONTEXT_LOSS_BIT		(1 << 0)
 
 /**
  * struct omap_hwmod_omap4_prcm - OMAP4-specific PRCM data
  * @clkctrl_reg: PRCM address of the clock control register
  * @rstctrl_reg: address of the XXX_RSTCTRL register located in the PRM
+ * @lostcontext_mask: bitmask for selecting bits from RM_*_CONTEXT register
  * @rstst_reg: (AM33XX only) address of the XXX_RSTST register in the PRM
  * @submodule_wkdep_bit: bit shift of the WKDEP range
+ * @flags: PRCM register capabilities for this IP block
+ *
+ * If @lostcontext_mask is not defined, context loss check code uses
+ * whole register without masking. @lostcontext_mask should only be
+ * defined in cases where @context_offs register is shared by two or
+ * more hwmods.
  */
 struct omap_hwmod_omap4_prcm {
 	u16		clkctrl_offs;
 	u16		rstctrl_offs;
 	u16		rstst_offs;
 	u16		context_offs;
+	u32		lostcontext_mask;
 	u8		submodule_wkdep_bit;
 	u8		modulemode;
+	u8		flags;
 };
 
 
@@ -426,6 +443,11 @@ struct omap_hwmod_omap4_prcm {
  *     in order to complete the reset. Optional clocks will be disabled
  *     again after the reset.
  * HWMOD_16BIT_REG: Module has 16bit registers
+ * HWMOD_EXT_OPT_MAIN_CLK: The only main functional clock source for
+ *     this IP block comes from an off-chip source and is not always
+ *     enabled.  This prevents the hwmod code from being able to
+ *     enable and reset the IP block early.  XXX Eventually it should
+ *     be possible to query the clock framework for this information.
  */
 #define HWMOD_SWSUP_SIDLE			(1 << 0)
 #define HWMOD_SWSUP_MSTANDBY			(1 << 1)
@@ -436,6 +458,7 @@ struct omap_hwmod_omap4_prcm {
 #define HWMOD_NO_IDLEST				(1 << 6)
 #define HWMOD_CONTROL_OPT_CLKS_IN_RESET		(1 << 7)
 #define HWMOD_16BIT_REG				(1 << 8)
+#define HWMOD_EXT_OPT_MAIN_CLK			(1 << 9)
 
 /*
  * omap_hwmod._int_flags definitions
@@ -591,9 +614,7 @@ int omap_hwmod_for_each(int (*fn)(struct omap_hwmod *oh, void *data),
 int __init omap_hwmod_setup_one(const char *name);
 
 int omap_hwmod_enable(struct omap_hwmod *oh);
-int _omap_hwmod_enable(struct omap_hwmod *oh);
 int omap_hwmod_idle(struct omap_hwmod *oh);
-int _omap_hwmod_idle(struct omap_hwmod *oh);
 int omap_hwmod_shutdown(struct omap_hwmod *oh);
 
 int omap_hwmod_assert_hardreset(struct omap_hwmod *oh, const char *name);
@@ -615,6 +636,7 @@ int omap_hwmod_softreset(struct omap_hwmod *oh);
 
 int omap_hwmod_count_resources(struct omap_hwmod *oh);
 int omap_hwmod_fill_resources(struct omap_hwmod *oh, struct resource *res);
+int omap_hwmod_fill_dma_resources(struct omap_hwmod *oh, struct resource *res);
 int omap_hwmod_get_resource_byname(struct omap_hwmod *oh, unsigned int type,
 				   const char *name, struct resource *res);
 
@@ -625,11 +647,6 @@ int omap_hwmod_add_initiator_dep(struct omap_hwmod *oh,
 				 struct omap_hwmod *init_oh);
 int omap_hwmod_del_initiator_dep(struct omap_hwmod *oh,
 				 struct omap_hwmod *init_oh);
-
-int omap_hwmod_set_clockact_both(struct omap_hwmod *oh);
-int omap_hwmod_set_clockact_main(struct omap_hwmod *oh);
-int omap_hwmod_set_clockact_iclk(struct omap_hwmod *oh);
-int omap_hwmod_set_clockact_none(struct omap_hwmod *oh);
 
 int omap_hwmod_enable_wakeup(struct omap_hwmod *oh);
 int omap_hwmod_disable_wakeup(struct omap_hwmod *oh);
@@ -658,6 +675,7 @@ extern int omap2420_hwmod_init(void);
 extern int omap2430_hwmod_init(void);
 extern int omap3xxx_hwmod_init(void);
 extern int omap44xx_hwmod_init(void);
+extern int am33xx_hwmod_init(void);
 
 extern int __init omap_hwmod_register_links(struct omap_hwmod_ocp_if **ois);
 

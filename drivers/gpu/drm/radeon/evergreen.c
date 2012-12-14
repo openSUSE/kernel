@@ -24,10 +24,10 @@
 #include <linux/firmware.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
-#include "drmP.h"
+#include <drm/drmP.h>
 #include "radeon.h"
 #include "radeon_asic.h"
-#include "radeon_drm.h"
+#include <drm/radeon_drm.h>
 #include "evergreend.h"
 #include "atom.h"
 #include "avivod.h"
@@ -87,13 +87,9 @@ void evergreen_tiling_fields(unsigned tiling_flags, unsigned *bankw,
 void evergreen_fix_pci_max_read_req_size(struct radeon_device *rdev)
 {
 	u16 ctl, v;
-	int cap, err;
+	int err;
 
-	cap = pci_pcie_cap(rdev->pdev);
-	if (!cap)
-		return;
-
-	err = pci_read_config_word(rdev->pdev, cap + PCI_EXP_DEVCTL, &ctl);
+	err = pcie_capability_read_word(rdev->pdev, PCI_EXP_DEVCTL, &ctl);
 	if (err)
 		return;
 
@@ -105,7 +101,7 @@ void evergreen_fix_pci_max_read_req_size(struct radeon_device *rdev)
 	if ((v == 0) || (v == 6) || (v == 7)) {
 		ctl &= ~PCI_EXP_DEVCTL_READRQ;
 		ctl |= (2 << 12);
-		pci_write_config_word(rdev->pdev, cap + PCI_EXP_DEVCTL, ctl);
+		pcie_capability_write_word(rdev->pdev, PCI_EXP_DEVCTL, ctl);
 	}
 }
 
@@ -323,6 +319,64 @@ void sumo_pm_init_profile(struct radeon_device *rdev)
 	rdev->pm.profiles[PM_PROFILE_HIGH_MH_IDX].dpms_off_cm_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_HIGH_MH_IDX].dpms_on_cm_idx =
 		rdev->pm.power_state[idx].num_clock_modes - 1;
+}
+
+/**
+ * btc_pm_init_profile - Initialize power profiles callback.
+ *
+ * @rdev: radeon_device pointer
+ *
+ * Initialize the power states used in profile mode
+ * (BTC, cayman).
+ * Used for profile mode only.
+ */
+void btc_pm_init_profile(struct radeon_device *rdev)
+{
+	int idx;
+
+	/* default */
+	rdev->pm.profiles[PM_PROFILE_DEFAULT_IDX].dpms_off_ps_idx = rdev->pm.default_power_state_index;
+	rdev->pm.profiles[PM_PROFILE_DEFAULT_IDX].dpms_on_ps_idx = rdev->pm.default_power_state_index;
+	rdev->pm.profiles[PM_PROFILE_DEFAULT_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_DEFAULT_IDX].dpms_on_cm_idx = 2;
+	/* starting with BTC, there is one state that is used for both
+	 * MH and SH.  Difference is that we always use the high clock index for
+	 * mclk.
+	 */
+	if (rdev->flags & RADEON_IS_MOBILITY)
+		idx = radeon_pm_get_type_index(rdev, POWER_STATE_TYPE_BATTERY, 0);
+	else
+		idx = radeon_pm_get_type_index(rdev, POWER_STATE_TYPE_PERFORMANCE, 0);
+	/* low sh */
+	rdev->pm.profiles[PM_PROFILE_LOW_SH_IDX].dpms_off_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_LOW_SH_IDX].dpms_on_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_LOW_SH_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_LOW_SH_IDX].dpms_on_cm_idx = 0;
+	/* mid sh */
+	rdev->pm.profiles[PM_PROFILE_MID_SH_IDX].dpms_off_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_MID_SH_IDX].dpms_on_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_MID_SH_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_MID_SH_IDX].dpms_on_cm_idx = 1;
+	/* high sh */
+	rdev->pm.profiles[PM_PROFILE_HIGH_SH_IDX].dpms_off_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_HIGH_SH_IDX].dpms_on_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_HIGH_SH_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_HIGH_SH_IDX].dpms_on_cm_idx = 2;
+	/* low mh */
+	rdev->pm.profiles[PM_PROFILE_LOW_MH_IDX].dpms_off_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_LOW_MH_IDX].dpms_on_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_LOW_MH_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_LOW_MH_IDX].dpms_on_cm_idx = 0;
+	/* mid mh */
+	rdev->pm.profiles[PM_PROFILE_MID_MH_IDX].dpms_off_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_MID_MH_IDX].dpms_on_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_MID_MH_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_MID_MH_IDX].dpms_on_cm_idx = 1;
+	/* high mh */
+	rdev->pm.profiles[PM_PROFILE_HIGH_MH_IDX].dpms_off_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_HIGH_MH_IDX].dpms_on_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_HIGH_MH_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_HIGH_MH_IDX].dpms_on_cm_idx = 2;
 }
 
 /**
@@ -1121,7 +1175,7 @@ void evergreen_pcie_gart_tlb_flush(struct radeon_device *rdev)
 	}
 }
 
-int evergreen_pcie_gart_enable(struct radeon_device *rdev)
+static int evergreen_pcie_gart_enable(struct radeon_device *rdev)
 {
 	u32 tmp;
 	int r;
@@ -1180,7 +1234,7 @@ int evergreen_pcie_gart_enable(struct radeon_device *rdev)
 	return 0;
 }
 
-void evergreen_pcie_gart_disable(struct radeon_device *rdev)
+static void evergreen_pcie_gart_disable(struct radeon_device *rdev)
 {
 	u32 tmp;
 
@@ -1205,7 +1259,7 @@ void evergreen_pcie_gart_disable(struct radeon_device *rdev)
 	radeon_gart_table_vram_unpin(rdev);
 }
 
-void evergreen_pcie_gart_fini(struct radeon_device *rdev)
+static void evergreen_pcie_gart_fini(struct radeon_device *rdev)
 {
 	evergreen_pcie_gart_disable(rdev);
 	radeon_gart_table_vram_free(rdev);
@@ -1213,7 +1267,7 @@ void evergreen_pcie_gart_fini(struct radeon_device *rdev)
 }
 
 
-void evergreen_agp_enable(struct radeon_device *rdev)
+static void evergreen_agp_enable(struct radeon_device *rdev)
 {
 	u32 tmp;
 
@@ -1320,7 +1374,7 @@ void evergreen_mc_resume(struct radeon_device *rdev, struct evergreen_mc_save *s
 	WREG32(BIF_FB_EN, FB_READ_EN | FB_WRITE_EN);
 
 	for (i = 0; i < rdev->num_crtc; i++) {
-		if (save->crtc_enabled) {
+		if (save->crtc_enabled[i]) {
 			if (ASIC_IS_DCE6(rdev)) {
 				tmp = RREG32(EVERGREEN_CRTC_BLANK_CONTROL + crtc_offsets[i]);
 				tmp |= EVERGREEN_CRTC_BLANK_DATA_EN;
@@ -1558,7 +1612,7 @@ static int evergreen_cp_start(struct radeon_device *rdev)
 	return 0;
 }
 
-int evergreen_cp_resume(struct radeon_device *rdev)
+static int evergreen_cp_resume(struct radeon_device *rdev)
 {
 	struct radeon_ring *ring = &rdev->ring[RADEON_RING_TYPE_GFX_INDEX];
 	u32 tmp;
@@ -2334,22 +2388,10 @@ int evergreen_asic_reset(struct radeon_device *rdev)
 
 u32 evergreen_get_vblank_counter(struct radeon_device *rdev, int crtc)
 {
-	switch (crtc) {
-	case 0:
-		return RREG32(CRTC_STATUS_FRAME_COUNT + EVERGREEN_CRTC0_REGISTER_OFFSET);
-	case 1:
-		return RREG32(CRTC_STATUS_FRAME_COUNT + EVERGREEN_CRTC1_REGISTER_OFFSET);
-	case 2:
-		return RREG32(CRTC_STATUS_FRAME_COUNT + EVERGREEN_CRTC2_REGISTER_OFFSET);
-	case 3:
-		return RREG32(CRTC_STATUS_FRAME_COUNT + EVERGREEN_CRTC3_REGISTER_OFFSET);
-	case 4:
-		return RREG32(CRTC_STATUS_FRAME_COUNT + EVERGREEN_CRTC4_REGISTER_OFFSET);
-	case 5:
-		return RREG32(CRTC_STATUS_FRAME_COUNT + EVERGREEN_CRTC5_REGISTER_OFFSET);
-	default:
+	if (crtc >= rdev->num_crtc)
 		return 0;
-	}
+	else
+		return RREG32(CRTC_STATUS_FRAME_COUNT + crtc_offsets[crtc]);
 }
 
 void evergreen_disable_interrupt_state(struct radeon_device *rdev)
@@ -2542,10 +2584,6 @@ int evergreen_irq_set(struct radeon_device *rdev)
 		DRM_DEBUG("evergreen_irq_set: hdmi 5\n");
 		afmt6 |= AFMT_AZ_FORMAT_WTRIG_MASK;
 	}
-	if (rdev->irq.gui_idle) {
-		DRM_DEBUG("gui idle\n");
-		grbm_int_cntl |= GUI_IDLE_INT_ENABLE;
-	}
 
 	if (rdev->family >= CHIP_CAYMAN) {
 		cayman_cp_int_cntl_setup(rdev, 0, cp_int_cntl);
@@ -2727,7 +2765,7 @@ static void evergreen_irq_ack(struct radeon_device *rdev)
 	}
 }
 
-void evergreen_irq_disable(struct radeon_device *rdev)
+static void evergreen_irq_disable(struct radeon_device *rdev)
 {
 	r600_disable_interrupts(rdev);
 	/* Wait and acknowledge irq */
@@ -3080,7 +3118,6 @@ restart_ih:
 			break;
 		case 233: /* GUI IDLE */
 			DRM_DEBUG("IH: GUI idle\n");
-			wake_up(&rdev->irq.idle_queue);
 			break;
 		default:
 			DRM_DEBUG("Unhandled interrupt: %d %d\n", src_id, src_data);
@@ -3396,9 +3433,14 @@ void evergreen_pcie_gen2_enable(struct radeon_device *rdev)
 	if (!(mask & DRM_PCIE_SPEED_50))
 		return;
 
+	speed_cntl = RREG32_PCIE_P(PCIE_LC_SPEED_CNTL);
+	if (speed_cntl & LC_CURRENT_DATA_RATE) {
+		DRM_INFO("PCIE gen 2 link speeds already enabled\n");
+		return;
+	}
+
 	DRM_INFO("enabling PCIE gen 2 link speeds, disable with radeon.pcie_gen2=0\n");
 
-	speed_cntl = RREG32_PCIE_P(PCIE_LC_SPEED_CNTL);
 	if ((speed_cntl & LC_OTHER_SIDE_EVER_SENT_GEN2) ||
 	    (speed_cntl & LC_OTHER_SIDE_SUPPORTS_GEN2)) {
 

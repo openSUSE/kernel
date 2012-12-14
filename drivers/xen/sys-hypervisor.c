@@ -11,6 +11,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/kobject.h>
+#include <linux/err.h>
 
 #if defined(CONFIG_XEN) || defined(MODULE)
 #include <asm/hypervisor.h>
@@ -120,7 +121,8 @@ static void xen_sysfs_version_destroy(void)
 
 /* UUID */
 
-static ssize_t uuid_show(struct hyp_sysfs_attr *attr, char *buffer)
+#if !defined(CONFIG_XEN) || CONFIG_XEN_COMPAT < 0x030100
+static ssize_t uuid_show_fallback(struct hyp_sysfs_attr *attr, char *buffer)
 {
 	char *vm, *val;
 	int ret;
@@ -137,6 +139,20 @@ static ssize_t uuid_show(struct hyp_sysfs_attr *attr, char *buffer)
 		return PTR_ERR(val);
 	ret = sprintf(buffer, "%s\n", val);
 	kfree(val);
+	return ret;
+}
+#else
+# define uuid_show_fallback(attr, buf) ret
+#endif
+
+static ssize_t uuid_show(struct hyp_sysfs_attr *attr, char *buffer)
+{
+	xen_domain_handle_t uuid;
+	int ret;
+	ret = HYPERVISOR_xen_version(XENVER_guest_handle, uuid);
+	if (ret)
+		return uuid_show_fallback(attr, buffer);
+	ret = sprintf(buffer, "%pU\n", uuid);
 	return ret;
 }
 
@@ -278,7 +294,8 @@ static ssize_t virtual_start_show(struct hyp_sysfs_attr *attr, char *buffer)
 		ret = HYPERVISOR_xen_version(XENVER_platform_parameters,
 					     parms);
 		if (!ret)
-			ret = sprintf(buffer, "%lx\n", parms->virt_start);
+			ret = sprintf(buffer, "%"PRI_xen_ulong"\n",
+				      parms->virt_start);
 		kfree(parms);
 	}
 

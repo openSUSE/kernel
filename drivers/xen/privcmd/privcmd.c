@@ -262,11 +262,11 @@ static long privcmd_ioctl(struct file *file,
 				if(rc < 0) {
 					if (rc == -ENOENT)
 					{
-						*mfn |= 0x80000000U;
+						*mfn |= PRIVCMD_MMAPBATCH_PAGED_ERROR;
 						paged_out = 1;
 					}
 					else
-						*mfn |= 0xf0000000U;
+						*mfn |= PRIVCMD_MMAPBATCH_MFN_ERROR;
 					ret++;
 				}
 				mfn++; i++; addr += PAGE_SIZE;
@@ -421,7 +421,8 @@ static int privcmd_mmap(struct file * file, struct vm_area_struct * vma)
 
 	/* DONTCOPY is essential for Xen because copy_page_range doesn't know
 	 * how to recreate these mappings */
-	vma->vm_flags |= VM_RESERVED | VM_IO | VM_PFNMAP | VM_DONTCOPY;
+	vma->vm_flags |= VM_IO | VM_PFNMAP | VM_DONTCOPY | VM_DONTEXPAND |
+			 VM_DONTDUMP;
 	vma->vm_ops = &privcmd_vm_ops;
 	vma->vm_private_data = NULL;
 

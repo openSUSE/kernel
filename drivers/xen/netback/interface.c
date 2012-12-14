@@ -281,11 +281,11 @@ int netif_map(struct backend_info *be, grant_ref_t tx_ring_ref,
 	if (netif->irq)
 		return 0;
 
-	area = xenbus_map_ring_valloc(be->dev, tx_ring_ref);
+	area = xenbus_map_ring_valloc(be->dev, &tx_ring_ref, 1);
 	if (IS_ERR(area))
 		return PTR_ERR(area);
 	netif->tx_comms_area = area;
-	area = xenbus_map_ring_valloc(be->dev, rx_ring_ref);
+	area = xenbus_map_ring_valloc(be->dev, &rx_ring_ref, 1);
 	if (IS_ERR(area)) {
 		err = PTR_ERR(area);
 		goto err_rx;

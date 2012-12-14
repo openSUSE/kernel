@@ -26,6 +26,7 @@
 #else
 #include <asm/hypervisor.h>
 #endif
+#include <xen/tmem.h>
 
 
 struct tmem_pool_uuid {

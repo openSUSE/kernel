@@ -70,6 +70,7 @@ do {									\
  * tables contain all the necessary information.
  */
 #define update_mmu_cache(vma, address, ptep) do { } while (0)
+#define update_mmu_cache_pmd(vma, address, pmd) do { } while (0)
 
 void make_lowmem_page_readonly(void *va, unsigned int feature);
 void make_lowmem_page_writable(void *va, unsigned int feature);

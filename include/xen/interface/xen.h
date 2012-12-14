@@ -28,9 +28,6 @@
 #define __XEN_PUBLIC_XEN_H__
 
 #include "xen-compat.h"
-#ifdef CONFIG_PARAVIRT_XEN
-#include <asm/pvclock-abi.h>
-#endif
 
 #if defined(CONFIG_PARAVIRT_XEN) && !defined(HAVE_XEN_PLATFORM_COMPAT_H)
 #include <asm/xen/interface.h>
@@ -661,14 +658,14 @@ struct shared_info {
 	 * their gettimeofday() syscall on this wallclock-base value.
 	 */
 #ifdef CONFIG_PARAVIRT_XEN
-    struct pvclock_wall_clock wc;
+	struct pvclock_wall_clock wc;
 #else
-    uint32_t wc_version;      /* Version counter: see vcpu_time_info_t. */
-    uint32_t wc_sec;          /* Secs  00:00:00 UTC, Jan 1, 1970.  */
-    uint32_t wc_nsec;         /* Nsecs 00:00:00 UTC, Jan 1, 1970.  */
+	uint32_t wc_version;      /* Version counter: see vcpu_time_info_t. */
+	uint32_t wc_sec;          /* Secs  00:00:00 UTC, Jan 1, 1970.  */
+	uint32_t wc_nsec;         /* Nsecs 00:00:00 UTC, Jan 1, 1970.  */
 #endif
 
-    struct arch_shared_info arch;
+	struct arch_shared_info arch;
 
 };
 #ifndef __XEN__

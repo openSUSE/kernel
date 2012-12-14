@@ -258,6 +258,9 @@ int xenbus_switch_state(struct xenbus_device *dev, enum xenbus_state new_state);
  */
 int xenbus_grant_ring(struct xenbus_device *dev, unsigned long ring_mfn);
 
+int xenbus_multi_grant_ring(struct xenbus_device *, unsigned int nr,
+			    struct page *[], grant_ref_t []);
+
 /**
  * Map a page of memory into this domain from another domain's grant table.
  * xenbus_map_ring_valloc allocates a page of virtual address space, maps the
@@ -268,7 +271,8 @@ int xenbus_grant_ring(struct xenbus_device *dev, unsigned long ring_mfn);
  */
 #if defined(CONFIG_XEN) || defined(HAVE_XEN_PLATFORM_COMPAT_H)
 struct vm_struct *xenbus_map_ring_valloc(struct xenbus_device *dev,
-					 grant_ref_t ref);
+					 const grant_ref_t refs[],
+					 unsigned int nr_refs);
 #else
 int xenbus_map_ring_valloc(struct xenbus_device *dev,
 			   grant_ref_t gnt_ref, void **vaddr);

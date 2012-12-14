@@ -17,6 +17,7 @@
 #include <linux/cpu.h>
 #include <linux/smp.h>
 #include <linux/mm.h>
+#include <asm/sysinfo.h>
 
 #define PTF_HORIZONTAL	(0UL)
 #define PTF_VERTICAL	(1UL)
@@ -39,13 +40,11 @@ static DEFINE_SPINLOCK(topology_lock);
 static struct mask_info core_info;
 cpumask_t cpu_core_map[NR_CPUS];
 unsigned char cpu_core_id[NR_CPUS];
+unsigned char cpu_socket_id[NR_CPUS];
 
 static struct mask_info book_info;
 cpumask_t cpu_book_map[NR_CPUS];
 unsigned char cpu_book_id[NR_CPUS];
-
-/* smp_cpu_state_mutex must be held when accessing this array */
-int cpu_polarization[NR_CPUS];
 
 static cpumask_t cpu_group_map(struct mask_info *info, unsigned int cpu)
 {
@@ -75,10 +74,7 @@ static struct mask_info *add_cpus_to_mask(struct topology_cpu *tl_cpu,
 {
 	unsigned int cpu;
 
-	for (cpu = find_first_bit(&tl_cpu->mask[0], TOPOLOGY_CPU_BITS);
-	     cpu < TOPOLOGY_CPU_BITS;
-	     cpu = find_next_bit(&tl_cpu->mask[0], TOPOLOGY_CPU_BITS, cpu + 1))
-	{
+	for_each_set_bit(cpu, &tl_cpu->mask[0], TOPOLOGY_CPU_BITS) {
 		unsigned int rcpu;
 		int lcpu;
 
@@ -88,13 +84,14 @@ static struct mask_info *add_cpus_to_mask(struct topology_cpu *tl_cpu,
 			cpumask_set_cpu(lcpu, &book->mask);
 			cpu_book_id[lcpu] = book->id;
 			cpumask_set_cpu(lcpu, &core->mask);
+			cpu_core_id[lcpu] = rcpu;
 			if (one_core_per_cpu) {
-				cpu_core_id[lcpu] = rcpu;
+				cpu_socket_id[lcpu] = rcpu;
 				core = core->next;
 			} else {
-				cpu_core_id[lcpu] = core->id;
+				cpu_socket_id[lcpu] = core->id;
 			}
-			cpu_set_polarization(lcpu, tl_cpu->pp);
+			smp_cpu_set_polarization(lcpu, tl_cpu->pp);
 		}
 	}
 	return core;
@@ -201,7 +198,7 @@ static void topology_update_polarization_simple(void)
 
 	mutex_lock(&smp_cpu_state_mutex);
 	for_each_possible_cpu(cpu)
-		cpu_set_polarization(cpu, POLARIZATION_HRZ);
+		smp_cpu_set_polarization(cpu, POLARIZATION_HRZ);
 	mutex_unlock(&smp_cpu_state_mutex);
 }
 
@@ -231,7 +228,7 @@ int topology_set_cpu_management(int fc)
 	if (rc)
 		return -EBUSY;
 	for_each_possible_cpu(cpu)
-		cpu_set_polarization(cpu, POLARIZATION_UNKNOWN);
+		smp_cpu_set_polarization(cpu, POLARIZATION_UNKNOWN);
 	return rc;
 }
 
@@ -250,12 +247,10 @@ static void update_cpu_core_map(void)
 
 void store_topology(struct sysinfo_15_1_x *info)
 {
-	int rc;
-
-	rc = stsi(info, 15, 1, 3);
-	if (rc != -ENOSYS)
-		return;
-	stsi(info, 15, 1, 2);
+	if (topology_max_mnest >= 3)
+		stsi(info, 15, 1, 3);
+	else
+		stsi(info, 15, 1, 2);
 }
 
 int arch_update_cpu_topology(void)
@@ -415,7 +410,7 @@ static ssize_t cpu_polarization_show(struct device *dev,
 	ssize_t count;
 
 	mutex_lock(&smp_cpu_state_mutex);
-	switch (cpu_read_polarization(cpu)) {
+	switch (smp_cpu_get_polarization(cpu)) {
 	case POLARIZATION_HRZ:
 		count = sprintf(buf, "horizontal\n");
 		break;

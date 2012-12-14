@@ -88,7 +88,7 @@ int tpmif_map(tpmif_t *tpmif, grant_ref_t ring_ref, evtchn_port_t evtchn)
 	if (tpmif->irq)
 		return 0;
 
-	area = xenbus_map_ring_valloc(tpmif->bi->dev, ring_ref);
+	area = xenbus_map_ring_valloc(tpmif->bi->dev, &ring_ref, 1);
 	if (IS_ERR(area))
 		return PTR_ERR(area);
 	tpmif->tx_area = area;

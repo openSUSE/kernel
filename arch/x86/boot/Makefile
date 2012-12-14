@@ -35,10 +35,13 @@ setup-y		+= video-vga.o
 setup-y		+= video-vesa.o
 setup-y		+= video-bios.o
 
+setup-$(CONFIG_XEN) := header.o version.o
+
 targets		+= $(setup-y)
 hostprogs-y	:= mkcpustr tools/build
 
-HOST_EXTRACFLAGS += -I$(srctree)/tools/include $(LINUXINCLUDE) \
+HOST_EXTRACFLAGS += -I$(srctree)/tools/include \
+		    -include include/generated/autoconf.h \
 	            -D__EXPORTED_HEADERS__
 
 $(obj)/cpu.o: $(obj)/cpustr.h
@@ -53,7 +56,7 @@ $(obj)/cpustr.h: $(obj)/mkcpustr FORCE
 
 # How to compile the 16-bit code.  Note we always compile for -march=i386,
 # that way we can complain to the user if the CPU is insufficient.
-KBUILD_CFLAGS	:= $(LINUXINCLUDE) -g -Os -D_SETUP -D__KERNEL__ \
+KBUILD_CFLAGS	:= $(USERINCLUDE) -g -Os -D_SETUP -D__KERNEL__ \
 		   -DDISABLE_BRANCH_PROFILING \
 		   -Wall -Wstrict-prototypes \
 		   -march=i386 -mregparm=3 \
@@ -198,7 +201,7 @@ $(obj)/vmlinux-stripped: OBJCOPYFLAGS := -g --strip-unneeded
 $(obj)/vmlinux-stripped: vmlinux FORCE
 	$(call if_changed,objcopy)
 
-ifndef CONFIG_XEN
+ifneq ($(CONFIG_XEN)-$(CONFIG_XEN_BZIMAGE),y-)
 bzImage := bzImage
 else
 bzImage := vmlinuz

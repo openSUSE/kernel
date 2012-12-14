@@ -24,9 +24,10 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/ads7846.h>
 
-#include <plat/mcspi.h>
-#include <plat/nand.h>
+#include <linux/platform_data/spi-omap2-mcspi.h>
+#include <linux/platform_data/mtd-nand-omap2.h>
 
+#include "common.h"
 #include "common-board-devices.h"
 
 #if defined(CONFIG_TOUCHSCREEN_ADS7846) || \
@@ -63,29 +64,35 @@ void __init omap_ads7846_init(int bus_num, int gpio_pendown, int gpio_debounce,
 	struct spi_board_info *spi_bi = &ads7846_spi_board_info;
 	int err;
 
-	err = gpio_request_one(gpio_pendown, GPIOF_IN, "TSPenDown");
-	if (err) {
-		pr_err("Couldn't obtain gpio for TSPenDown: %d\n", err);
-		return;
-	}
+	/*
+	 * If a board defines get_pendown_state() function, request the pendown
+	 * GPIO and set the GPIO debounce time.
+	 * If a board does not define the get_pendown_state() function, then
+	 * the ads7846 driver will setup the pendown GPIO itself.
+	 */
+	if (board_pdata && board_pdata->get_pendown_state) {
+		err = gpio_request_one(gpio_pendown, GPIOF_IN, "TSPenDown");
+		if (err) {
+			pr_err("Couldn't obtain gpio for TSPenDown: %d\n", err);
+			return;
+		}
 
-	if (gpio_debounce)
-		gpio_set_debounce(gpio_pendown, gpio_debounce);
+		if (gpio_debounce)
+			gpio_set_debounce(gpio_pendown, gpio_debounce);
+
+		gpio_export(gpio_pendown, 0);
+	}
 
 	spi_bi->bus_num	= bus_num;
 	spi_bi->irq	= gpio_to_irq(gpio_pendown);
 
+	ads7846_config.gpio_pendown = gpio_pendown;
+
 	if (board_pdata) {
 		board_pdata->gpio_pendown = gpio_pendown;
+		board_pdata->gpio_pendown_debounce = gpio_debounce;
 		spi_bi->platform_data = board_pdata;
-		if (board_pdata->get_pendown_state)
-			gpio_export(gpio_pendown, 0);
-	} else {
-		ads7846_config.gpio_pendown = gpio_pendown;
 	}
-
-	if (!board_pdata || (board_pdata && !board_pdata->get_pendown_state))
-		gpio_free(gpio_pendown);
 
 	spi_register_board_info(&ads7846_spi_board_info, 1);
 }
@@ -119,8 +126,7 @@ void __init omap_nand_flash_init(int options, struct mtd_partition *parts,
 	}
 
 	if (nandcs > GPMC_CS_NUM) {
-		printk(KERN_INFO "NAND: Unable to find configuration "
-				 "in GPMC\n ");
+		pr_info("NAND: Unable to find configuration in GPMC\n");
 		return;
 	}
 

@@ -1256,6 +1256,9 @@ void __init memblock_x86_fill(void)
 				 PFN_PHYS(max_pfn - xen_start_info->nr_pages));
 #endif
 
+	/* throw away partial pages */
+	memblock_trim_memory(PAGE_SIZE);
+
 	memblock_dump_all();
 }
 

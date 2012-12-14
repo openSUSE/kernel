@@ -54,7 +54,9 @@ struct vbd {
 	sector_t       size;        /* Cached size parameter */
 };
 
-struct backend_info;
+#define BLKIF_MAX_RING_PAGE_ORDER 4
+#define BLKIF_MAX_RING_PAGES (1 << BLKIF_MAX_RING_PAGE_ORDER)
+#define BLK_RING_SIZE(order) __CONST_RING_SIZE(blkif, PAGE_SIZE << (order))
 
 typedef struct blkif_st {
 	/* Unique identifier for this interface. */
@@ -108,10 +110,14 @@ struct backend_info
 	char *mode;
 };
 
+extern unsigned int blkif_max_ring_page_order;
+
 blkif_t *blkif_alloc(domid_t domid);
 void blkif_disconnect(blkif_t *blkif);
 void blkif_free(blkif_t *blkif);
-int blkif_map(blkif_t *blkif, grant_ref_t, evtchn_port_t);
+unsigned int blkif_ring_size(enum blkif_protocol, unsigned int);
+int blkif_map(blkif_t *blkif, const grant_ref_t [],
+	      unsigned int nr_refs, evtchn_port_t);
 void vbd_resize(blkif_t *blkif);
 
 #define blkif_get(_b) (atomic_inc(&(_b)->refcnt))

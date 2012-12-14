@@ -168,9 +168,7 @@ u64 arch_irq_stat_cpu(unsigned int cpu)
 #ifdef CONFIG_SMP
 	sum += irq_stats(cpu)->irq_resched_count;
 	sum += irq_stats(cpu)->irq_call_count;
-#ifndef CONFIG_XEN
-	sum += irq_stats(cpu)->irq_tlb_count;
-#else
+#ifdef CONFIG_XEN
 	sum += irq_stats(cpu)->irq_lock_count;
 #endif
 #endif

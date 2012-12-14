@@ -57,6 +57,7 @@
 #include <asm/cpufeature.h>
 #include <asm/alternative-asm.h>
 #include <asm/asm.h>
+#include <asm/smap.h>
 #include <xen/interface/xen.h>
 
 /* Avoid __ASSEMBLER__'ifying <linux/audit.h> just for this.  */
@@ -302,6 +303,21 @@ ENTRY(ret_from_fork)
 	CFI_ENDPROC
 END(ret_from_fork)
 
+ENTRY(ret_from_kernel_thread)
+	CFI_STARTPROC
+	pushl_cfi %eax
+	call schedule_tail
+	GET_THREAD_INFO(%ebp)
+	popl_cfi %eax
+	pushl_cfi $0x0202		# Reset kernel eflags
+	popfl_cfi
+	movl PT_EBP(%esp),%eax
+	call *PT_EBX(%esp)
+	movl $0,PT_EAX(%esp)
+	jmp syscall_exit
+	CFI_ENDPROC
+ENDPROC(ret_from_kernel_thread)
+
 /*
  * Interrupt exit functions should be protected against kprobes
  */
@@ -326,8 +342,7 @@ ret_from_intr:
 	andl $(X86_EFLAGS_VM | SEGMENT_RPL_MASK), %eax
 #else
 	/*
-	 * We can be coming here from a syscall done in the kernel space,
-	 * e.g. a failed kernel_execve().
+	 * We can be coming here from child spawned by kernel_thread().
 	 */
 	movl PT_CS(%esp), %eax
 	andl $SEGMENT_RPL_MASK, %eax
@@ -411,7 +426,9 @@ sysenter_past_esp:
  */
 	cmpl $__PAGE_OFFSET-3,%ebp
 	jae syscall_fault
+	ASM_STAC
 1:	movl (%ebp),%ebp
+	ASM_CLAC
 	movl %ebp,PT_EBP(%esp)
 	_ASM_EXTABLE(1b,syscall_fault)
 
@@ -517,6 +534,7 @@ ENDPROC(ia32pv_sysenter_target)
 	# system call handler stub
 ENTRY(system_call)
 	RING0_INT_FRAME			# can't unwind into user space anyway
+	ASM_CLAC
 	pushl_cfi %eax			# save orig_eax
 	SAVE_ALL
 	GET_THREAD_INFO(%ebp)
@@ -678,22 +696,7 @@ work_notifysig:				# deal with pending signals and
 	movl %esp, %eax
 	jne work_notifysig_v86		# returning to kernel-space or
 					# vm86-space
-	TRACE_IRQS_ON
-	ENABLE_INTERRUPTS(CLBR_NONE)
-	movb PT_CS(%esp), %bl
-	andb $SEGMENT_RPL_MASK, %bl
-	cmpb $USER_RPL, %bl
-	jb resume_kernel
-	xorl %edx, %edx
-	call do_notify_resume
-	jmp resume_userspace
-
-	ALIGN
-work_notifysig_v86:
-	pushl_cfi %ecx			# save ti_flags for do_notify_resume
-	call save_v86_state		# %eax contains pt_regs pointer
-	popl_cfi %ecx
-	movl %eax, %esp
+1:
 #else
 	movl %esp, %eax
 #endif
@@ -706,6 +709,16 @@ work_notifysig_v86:
 	xorl %edx, %edx
 	call do_notify_resume
 	jmp resume_userspace
+
+#ifdef CONFIG_VM86
+	ALIGN
+work_notifysig_v86:
+	pushl_cfi %ecx			# save ti_flags for do_notify_resume
+	call save_v86_state		# %eax contains pt_regs pointer
+	popl_cfi %ecx
+	movl %eax, %esp
+	jmp 1b
+#endif
 END(work_pending)
 
 	# perform syscall exit tracing
@@ -736,6 +749,7 @@ END(syscall_exit_work)
 
 	RING0_INT_FRAME			# can't unwind into user space anyway
 syscall_fault:
+	ASM_CLAC
 	GET_THREAD_INFO(%ebp)
 	movl $-EFAULT,PT_EAX(%esp)
 	jmp resume_userspace
@@ -793,7 +807,6 @@ ENDPROC(ptregs_##name)
 PTREGSCALL1(iopl)
 PTREGSCALL0(fork)
 PTREGSCALL0(vfork)
-PTREGSCALL3(execve)
 PTREGSCALL2(sigaltstack)
 PTREGSCALL0(sigreturn)
 PTREGSCALL0(rt_sigreturn)
@@ -892,6 +905,7 @@ END(interrupt)
  */
 	.p2align CONFIG_X86_L1_CACHE_SHIFT
 common_interrupt:
+	ASM_CLAC
 	addl $-0x80,(%esp)	/* Adjust vector into the [-256,-1] range */
 	SAVE_ALL
 	TRACE_IRQS_OFF
@@ -908,6 +922,7 @@ ENDPROC(common_interrupt)
 #define BUILD_INTERRUPT3(name, nr, fn)	\
 ENTRY(name)				\
 	RING0_INT_FRAME;		\
+	ASM_CLAC;			\
 	pushl_cfi $~(nr);		\
 	SAVE_ALL;			\
 	TRACE_IRQS_OFF			\
@@ -945,7 +960,8 @@ ENDPROC(name)
 # so we can simply throw away the new one.
 ENTRY(hypervisor_callback)
 	RING0_INT_FRAME
-	pushl_cfi %eax
+	ASM_CLAC
+	pushl_cfi $-1
 	SAVE_ALL
 	movl PT_CS(%esp),%ecx
 	movl PT_EIP(%esp),%eax
@@ -1032,6 +1048,7 @@ critical_fixup_table:
 # to pop the stack frame we end up in an infinite loop of failsafe callbacks.
 # We distinguish between categories by maintaining a status value in EAX.
 ENTRY(failsafe_callback)
+	ASM_CLAC
 	pushl %eax
 	movl $1,%eax
 1:	mov 4(%esp),%ds
@@ -1045,7 +1062,7 @@ ENTRY(failsafe_callback)
 	jmp iret_exc
 5:	addl $16,%esp		# EAX == 0 => Category 1 (Bad segment)
 	RING0_INT_FRAME
-	pushl $0
+	pushl_cfi $-1
 	SAVE_ALL
 	jmp ret_from_exception
 .section .fixup,"ax";		\
@@ -1071,6 +1088,7 @@ ENTRY(failsafe_callback)
 
 ENTRY(coprocessor_error)
 	RING0_INT_FRAME
+	ASM_CLAC
 	pushl_cfi $0
 	pushl_cfi $do_coprocessor_error
 	jmp error_code
@@ -1079,6 +1097,7 @@ END(coprocessor_error)
 
 ENTRY(simd_coprocessor_error)
 	RING0_INT_FRAME
+	ASM_CLAC
 	pushl_cfi $0
 #ifdef CONFIG_X86_INVD_BUG
 	/* AMD 486 bug: invd from userspace calls exception 19 instead of #GP */
@@ -1100,6 +1119,7 @@ END(simd_coprocessor_error)
 
 ENTRY(device_not_available)
 	RING0_INT_FRAME
+	ASM_CLAC
 	pushl_cfi $-1			# mark this as an int
 	pushl_cfi $do_device_not_available
 	jmp error_code
@@ -1120,6 +1140,7 @@ END(native_irq_enable_sysexit)
 
 ENTRY(overflow)
 	RING0_INT_FRAME
+	ASM_CLAC
 	pushl_cfi $0
 	pushl_cfi $do_overflow
 	jmp error_code
@@ -1128,6 +1149,7 @@ END(overflow)
 
 ENTRY(bounds)
 	RING0_INT_FRAME
+	ASM_CLAC
 	pushl_cfi $0
 	pushl_cfi $do_bounds
 	jmp error_code
@@ -1136,6 +1158,7 @@ END(bounds)
 
 ENTRY(invalid_op)
 	RING0_INT_FRAME
+	ASM_CLAC
 	pushl_cfi $0
 	pushl_cfi $do_invalid_op
 	jmp error_code
@@ -1144,6 +1167,7 @@ END(invalid_op)
 
 ENTRY(coprocessor_segment_overrun)
 	RING0_INT_FRAME
+	ASM_CLAC
 	pushl_cfi $0
 	pushl_cfi $do_coprocessor_segment_overrun
 	jmp error_code
@@ -1152,6 +1176,7 @@ END(coprocessor_segment_overrun)
 
 ENTRY(invalid_TSS)
 	RING0_EC_FRAME
+	ASM_CLAC
 	pushl_cfi $do_invalid_TSS
 	jmp error_code
 	CFI_ENDPROC
@@ -1159,6 +1184,7 @@ END(invalid_TSS)
 
 ENTRY(segment_not_present)
 	RING0_EC_FRAME
+	ASM_CLAC
 	pushl_cfi $do_segment_not_present
 	jmp error_code
 	CFI_ENDPROC
@@ -1166,6 +1192,7 @@ END(segment_not_present)
 
 ENTRY(stack_segment)
 	RING0_EC_FRAME
+	ASM_CLAC
 	pushl_cfi $do_stack_segment
 	jmp error_code
 	CFI_ENDPROC
@@ -1173,6 +1200,7 @@ END(stack_segment)
 
 ENTRY(alignment_check)
 	RING0_EC_FRAME
+	ASM_CLAC
 	pushl_cfi $do_alignment_check
 	jmp error_code
 	CFI_ENDPROC
@@ -1180,6 +1208,7 @@ END(alignment_check)
 
 ENTRY(divide_error)
 	RING0_INT_FRAME
+	ASM_CLAC
 	pushl_cfi $0			# no error code
 	pushl_cfi $do_divide_error
 	jmp error_code
@@ -1189,6 +1218,7 @@ END(divide_error)
 #ifdef CONFIG_X86_MCE
 ENTRY(machine_check)
 	RING0_INT_FRAME
+	ASM_CLAC
 	pushl_cfi $0
 	pushl_cfi machine_check_vector
 	jmp error_code
@@ -1199,6 +1229,7 @@ END(machine_check)
 #ifndef CONFIG_XEN
 ENTRY(spurious_interrupt_bug)
 	RING0_INT_FRAME
+	ASM_CLAC
 	pushl_cfi $0
 	pushl_cfi $do_spurious_interrupt_bug
 	jmp error_code
@@ -1252,16 +1283,6 @@ ENTRY(arch_unwind_init_running)
 ENDPROC(arch_unwind_init_running)
 #endif
 
-ENTRY(kernel_thread_helper)
-	pushl $0		# fake return address for unwinder
-	CFI_STARTPROC
-	movl %edi,%eax
-	call *%esi
-	call do_exit
-	ud2			# padding for call trace
-	CFI_ENDPROC
-ENDPROC(kernel_thread_helper)
-
 #ifdef CONFIG_FUNCTION_TRACER
 #ifdef CONFIG_DYNAMIC_FTRACE
 
@@ -1276,17 +1297,21 @@ ENTRY(ftrace_caller)
 	pushl %eax
 	pushl %ecx
 	pushl %edx
-	movl 0xc(%esp), %eax
+	pushl $0	/* Pass NULL as regs pointer */
+	movl 4*4(%esp), %eax
 	movl 0x4(%ebp), %edx
+	leal function_trace_op, %ecx
 	subl $MCOUNT_INSN_SIZE, %eax
 
 .globl ftrace_call
 ftrace_call:
 	call ftrace_stub
 
+	addl $4,%esp	/* skip NULL pointer */
 	popl %edx
 	popl %ecx
 	popl %eax
+ftrace_ret:
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 .globl ftrace_graph_call
 ftrace_graph_call:
@@ -1298,6 +1323,71 @@ ftrace_stub:
 	ret
 END(ftrace_caller)
 
+ENTRY(ftrace_regs_caller)
+	pushf	/* push flags before compare (in cs location) */
+	cmpl $0, function_trace_stop
+	jne ftrace_restore_flags
+
+	/*
+	 * i386 does not save SS and ESP when coming from kernel.
+	 * Instead, to get sp, &regs->sp is used (see ptrace.h).
+	 * Unfortunately, that means eflags must be at the same location
+	 * as the current return ip is. We move the return ip into the
+	 * ip location, and move flags into the return ip location.
+	 */
+	pushl 4(%esp)	/* save return ip into ip slot */
+
+	pushl $0	/* Load 0 into orig_ax */
+	pushl %gs
+	pushl %fs
+	pushl %es
+	pushl %ds
+	pushl %eax
+	pushl %ebp
+	pushl %edi
+	pushl %esi
+	pushl %edx
+	pushl %ecx
+	pushl %ebx
+
+	movl 13*4(%esp), %eax	/* Get the saved flags */
+	movl %eax, 14*4(%esp)	/* Move saved flags into regs->flags location */
+				/* clobbering return ip */
+	movl $__KERNEL_CS,13*4(%esp)
+
+	movl 12*4(%esp), %eax	/* Load ip (1st parameter) */
+	subl $MCOUNT_INSN_SIZE, %eax	/* Adjust ip */
+	movl 0x4(%ebp), %edx	/* Load parent ip (2nd parameter) */
+	leal function_trace_op, %ecx /* Save ftrace_pos in 3rd parameter */
+	pushl %esp		/* Save pt_regs as 4th parameter */
+
+GLOBAL(ftrace_regs_call)
+	call ftrace_stub
+
+	addl $4, %esp		/* Skip pt_regs */
+	movl 14*4(%esp), %eax	/* Move flags back into cs */
+	movl %eax, 13*4(%esp)	/* Needed to keep addl from modifying flags */
+	movl 12*4(%esp), %eax	/* Get return ip from regs->ip */
+	movl %eax, 14*4(%esp)	/* Put return ip back for ret */
+
+	popl %ebx
+	popl %ecx
+	popl %edx
+	popl %esi
+	popl %edi
+	popl %ebp
+	popl %eax
+	popl %ds
+	popl %es
+	popl %fs
+	popl %gs
+	addl $8, %esp		/* Skip orig_ax and ip */
+	popf			/* Pop flags at end (no addl to corrupt flags) */
+	jmp ftrace_ret
+
+ftrace_restore_flags:
+	popf
+	jmp  ftrace_stub
 #else /* ! CONFIG_DYNAMIC_FTRACE */
 
 ENTRY(mcount)
@@ -1338,9 +1428,6 @@ END(mcount)
 
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 ENTRY(ftrace_graph_caller)
-	cmpl $0, function_trace_stop
-	jne ftrace_stub
-
 	pushl %eax
 	pushl %ecx
 	pushl %edx
@@ -1371,6 +1458,7 @@ return_to_handler:
 	# pv syscall call handler stub
 ENTRY(ia32pv_cstar_target)
 	RING0_INT_FRAME
+	ASM_CLAC
 	movl $__USER_DS,16(%esp)
 	movl %ebp,%ecx
 	movl $__USER_CS,4(%esp)
@@ -1493,6 +1581,7 @@ mask=0
 
 ENTRY(page_fault)
 	RING0_EC_FRAME
+	ASM_CLAC
 	pushl_cfi $do_page_fault
 	ALIGN
 error_code:
@@ -1567,6 +1656,7 @@ END(page_fault)
 
 ENTRY(debug)
 	RING0_INT_FRAME
+	ASM_CLAC
 #ifndef CONFIG_XEN
 	cmpl $ia32_sysenter_target,(%esp)
 	jne debug_stack_correct
@@ -1593,6 +1683,7 @@ END(debug)
  */
 ENTRY(nmi)
 	RING0_INT_FRAME
+	ASM_CLAC
 	pushl_cfi %eax
 #ifndef CONFIG_XEN
 	movl %ss, %eax
@@ -1672,6 +1763,7 @@ END(nmi)
 
 ENTRY(int3)
 	RING0_INT_FRAME
+	ASM_CLAC
 	pushl_cfi $-1			# mark this as an int
 	SAVE_ALL
 	TRACE_IRQS_OFF
@@ -1692,6 +1784,7 @@ END(general_protection)
 #ifdef CONFIG_KVM_GUEST
 ENTRY(async_page_fault)
 	RING0_EC_FRAME
+	ASM_CLAC
 	pushl_cfi $do_async_page_fault
 	jmp error_code
 	CFI_ENDPROC

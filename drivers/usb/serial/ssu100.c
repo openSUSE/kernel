@@ -46,8 +46,6 @@
 #define FULLPWRBIT          0x00000080
 #define NEXT_BOARD_POWER_BIT        0x00000004
 
-static bool debug;
-
 /* Version Information */
 #define DRIVER_VERSION "v0.1"
 #define DRIVER_DESC "Quatech SSU-100 USB to Serial Driver"
@@ -128,7 +126,7 @@ static inline int update_mctrl(struct usb_device *dev, unsigned int set,
 	int result;
 
 	if (((set | clear) & (TIOCM_DTR | TIOCM_RTS)) == 0) {
-		dbg("%s - DTR|RTS not being set|cleared", __func__);
+		dev_dbg(&dev->dev, "%s - DTR|RTS not being set|cleared\n", __func__);
 		return 0;	/* no change */
 	}
 
@@ -141,7 +139,7 @@ static inline int update_mctrl(struct usb_device *dev, unsigned int set,
 
 	result = ssu100_setregister(dev, 0, UART_MCR, urb_value);
 	if (result < 0)
-		dbg("%s Error from MODEM_CTRL urb", __func__);
+		dev_dbg(&dev->dev, "%s Error from MODEM_CTRL urb\n", __func__);
 
 	return result;
 }
@@ -157,7 +155,7 @@ static int ssu100_initdevice(struct usb_device *dev)
 
 	result = ssu100_getdevice(dev, data);
 	if (result < 0) {
-		dbg("%s - get_device failed %i", __func__, result);
+		dev_dbg(&dev->dev, "%s - get_device failed %i\n", __func__, result);
 		goto out;
 	}
 
@@ -165,25 +163,25 @@ static int ssu100_initdevice(struct usb_device *dev)
 
 	result = ssu100_setdevice(dev, data);
 	if (result < 0) {
-		dbg("%s - setdevice failed %i", __func__, result);
+		dev_dbg(&dev->dev, "%s - setdevice failed %i\n", __func__, result);
 		goto out;
 	}
 
 	result = ssu100_control_msg(dev, QT_GET_SET_PREBUF_TRIG_LVL, 128, 0);
 	if (result < 0) {
-		dbg("%s - set prebuffer level failed %i", __func__, result);
+		dev_dbg(&dev->dev, "%s - set prebuffer level failed %i\n", __func__, result);
 		goto out;
 	}
 
 	result = ssu100_control_msg(dev, QT_SET_ATF, ATC_DISABLED, 0);
 	if (result < 0) {
-		dbg("%s - set ATFprebuffer level failed %i", __func__, result);
+		dev_dbg(&dev->dev, "%s - set ATFprebuffer level failed %i\n", __func__, result);
 		goto out;
 	}
 
 	result = ssu100_getdevice(dev, data);
 	if (result < 0) {
-		dbg("%s - get_device failed %i", __func__, result);
+		dev_dbg(&dev->dev, "%s - get_device failed %i\n", __func__, result);
 		goto out;
 	}
 
@@ -194,7 +192,7 @@ static int ssu100_initdevice(struct usb_device *dev)
 
 	result = ssu100_setdevice(dev, data);
 	if (result < 0) {
-		dbg("%s - setdevice failed %i", __func__, result);
+		dev_dbg(&dev->dev, "%s - setdevice failed %i\n", __func__, result);
 		goto out;
 	}
 
@@ -209,7 +207,7 @@ static void ssu100_set_termios(struct tty_struct *tty,
 			       struct ktermios *old_termios)
 {
 	struct usb_device *dev = port->serial->dev;
-	struct ktermios *termios = tty->termios;
+	struct ktermios *termios = &tty->termios;
 	u16 baud, divisor, remainder;
 	unsigned int cflag = termios->c_cflag;
 	u16 urb_value = 0; /* will hold the new flags */
@@ -242,7 +240,7 @@ static void ssu100_set_termios(struct tty_struct *tty,
 	if (!baud)
 		baud = 9600;
 
-	dbg("%s - got baud = %d\n", __func__, baud);
+	dev_dbg(&port->dev, "%s - got baud = %d\n", __func__, baud);
 
 
 	divisor = MAX_BAUD_RATE / baud;
@@ -254,7 +252,7 @@ static void ssu100_set_termios(struct tty_struct *tty,
 
 	result = ssu100_control_msg(dev, QT_GET_SET_UART, divisor, urb_value);
 	if (result < 0)
-		dbg("%s - set uart failed", __func__);
+		dev_dbg(&port->dev, "%s - set uart failed\n", __func__);
 
 	if (cflag & CRTSCTS)
 		result = ssu100_control_msg(dev, QT_HW_FLOW_CONTROL_MASK,
@@ -263,7 +261,7 @@ static void ssu100_set_termios(struct tty_struct *tty,
 		result = ssu100_control_msg(dev, QT_HW_FLOW_CONTROL_MASK,
 					    0, 0);
 	if (result < 0)
-		dbg("%s - set HW flow control failed", __func__);
+		dev_dbg(&port->dev, "%s - set HW flow control failed\n", __func__);
 
 	if (I_IXOFF(tty) || I_IXON(tty)) {
 		u16 x = ((u16)(START_CHAR(tty) << 8) | (u16)(STOP_CHAR(tty)));
@@ -275,7 +273,7 @@ static void ssu100_set_termios(struct tty_struct *tty,
 					    0, 0);
 
 	if (result < 0)
-		dbg("%s - set SW flow control failed", __func__);
+		dev_dbg(&port->dev, "%s - set SW flow control failed\n", __func__);
 
 }
 
@@ -297,7 +295,7 @@ static int ssu100_open(struct tty_struct *tty, struct usb_serial_port *port)
 				 QT_TRANSFER_IN, 0x01,
 				 0, data, 2, 300);
 	if (result < 0) {
-		dbg("%s - open failed %i", __func__, result);
+		dev_dbg(&port->dev, "%s - open failed %i\n", __func__, result);
 		kfree(data);
 		return result;
 	}
@@ -312,10 +310,10 @@ static int ssu100_open(struct tty_struct *tty, struct usb_serial_port *port)
 /* set to 9600 */
 	result = ssu100_control_msg(dev, QT_GET_SET_UART, 0x30, 0x0300);
 	if (result < 0)
-		dbg("%s - set uart failed", __func__);
+		dev_dbg(&port->dev, "%s - set uart failed\n", __func__);
 
 	if (tty)
-		ssu100_set_termios(tty, port, tty->termios);
+		ssu100_set_termios(tty, port, &tty->termios);
 
 	return usb_serial_generic_open(tty, port);
 }
@@ -416,7 +414,7 @@ static int ssu100_ioctl(struct tty_struct *tty,
 {
 	struct usb_serial_port *port = tty->driver_data;
 
-	dbg("%s cmd 0x%04x", __func__, cmd);
+	dev_dbg(&port->dev, "%s cmd 0x%04x\n", __func__, cmd);
 
 	switch (cmd) {
 	case TIOCGSERIAL:
@@ -430,7 +428,7 @@ static int ssu100_ioctl(struct tty_struct *tty,
 		break;
 	}
 
-	dbg("%s arg not supported", __func__);
+	dev_dbg(&port->dev, "%s arg not supported\n", __func__);
 
 	return -ENOIOCTLCMD;
 }
@@ -674,6 +672,3 @@ module_usb_serial_driver(serial_drivers, id_table);
 
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
-
-module_param(debug, bool, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(debug, "Debug enabled or not");

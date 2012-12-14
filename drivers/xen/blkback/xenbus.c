@@ -309,6 +309,11 @@ static int blkback_probe(struct xenbus_device *dev,
 	if (err)
 		goto fail;
 
+	err = xenbus_printf(XBT_NIL, dev->nodename, "max-ring-page-order",
+			    "%u", blkif_max_ring_page_order);
+	if (err)
+		xenbus_dev_error(dev, err, "writing max-ring-page-order");
+
 	err = xenbus_switch_state(dev, XenbusStateInitWait);
 	if (err)
 		goto fail;
@@ -551,49 +556,92 @@ again:
 static int connect_ring(struct backend_info *be)
 {
 	struct xenbus_device *dev = be->dev;
-	unsigned int ring_ref, evtchn;
+	unsigned int ring_ref[BLKIF_MAX_RING_PAGES], evtchn, ring_size;
 	char *protocol;
 	int err;
 
 	DPRINTK("%s", dev->otherend);
 
-	err = xenbus_gather(XBT_NIL, dev->otherend, "ring-ref", "%u", &ring_ref,
-			    "event-channel", "%u", &evtchn, NULL);
-	if (err) {
-		xenbus_dev_fatal(dev, err,
-				 "reading %s/ring-ref and event-channel",
+	err = xenbus_scanf(XBT_NIL, dev->otherend, "event-channel", "%u",
+			   &evtchn);
+	if (err != 1) {
+		xenbus_dev_fatal(dev, -EINVAL, "reading %s/event-channel",
 				 dev->otherend);
-		return err;
+		return -EINVAL;
 	}
+
+	pr_info("blkback: event-channel %u\n", evtchn);
 
 	be->blkif->blk_protocol = BLKIF_PROTOCOL_NATIVE;
 	protocol = xenbus_read(XBT_NIL, dev->otherend, "protocol", NULL);
 	if (IS_ERR(protocol)) {
 		protocol = NULL;
 		be->blkif->blk_protocol = xen_guest_blkif_protocol(be->blkif->domid);
+	}
 #ifndef CONFIG_X86_32
-	} else if (0 == strcmp(protocol, XEN_IO_PROTO_ABI_X86_32)) {
+	else if (0 == strcmp(protocol, XEN_IO_PROTO_ABI_X86_32))
 		be->blkif->blk_protocol = BLKIF_PROTOCOL_X86_32;
 #endif
 #ifndef CONFIG_X86_64
-	} else if (0 == strcmp(protocol, XEN_IO_PROTO_ABI_X86_64)) {
+	else if (0 == strcmp(protocol, XEN_IO_PROTO_ABI_X86_64))
 		be->blkif->blk_protocol = BLKIF_PROTOCOL_X86_64;
 #endif
-	} else if (0 != strcmp(protocol, XEN_IO_PROTO_ABI_NATIVE)) {
-		xenbus_dev_fatal(dev, err, "unknown fe protocol %s", protocol);
+	else if (0 != strcmp(protocol, XEN_IO_PROTO_ABI_NATIVE)) {
+		xenbus_dev_fatal(dev, -EINVAL, "unknown fe protocol %s",
+				 protocol);
 		kfree(protocol);
-		return -1;
+		return -EINVAL;
 	}
-	pr_info("blkback: ring-ref %u, event-channel %u, protocol %d (%s)\n",
-		ring_ref, evtchn, be->blkif->blk_protocol,
-		protocol ?: "unspecified");
+
+	pr_info("blkback: protocol %d (%s)\n",
+		be->blkif->blk_protocol, protocol ?: "unspecified");
 	kfree(protocol);
 
+	err = xenbus_scanf(XBT_NIL, dev->otherend, "ring-page-order", "%u",
+			   &ring_size);
+	if (err != 1) {
+		err = xenbus_scanf(XBT_NIL, dev->otherend, "ring-ref",
+				   "%u", ring_ref);
+		if (err != 1) {
+			xenbus_dev_fatal(dev, -EINVAL, "reading %s/ring-ref",
+					 dev->otherend);
+			return -EINVAL;
+		}
+		pr_info("blkback: ring-ref %u\n", *ring_ref);
+		ring_size = 1;
+	} else if (ring_size > blkif_max_ring_page_order) {
+		xenbus_dev_fatal(dev, -EINVAL,
+				 "%s/ring-page-order (%u) too big",
+				 dev->otherend, ring_size);
+		return -EINVAL;
+	} else {
+		unsigned int i;
+
+		ring_size = blkif_ring_size(be->blkif->blk_protocol,
+					    1U << ring_size);
+
+		for (i = 0; i < ring_size; i++) {
+			char ring_ref_name[16];
+
+			snprintf(ring_ref_name, sizeof (ring_ref_name),
+				 "ring-ref%u", i);
+			err = xenbus_scanf(XBT_NIL, dev->otherend,
+					   ring_ref_name, "%u",
+					   ring_ref + i);
+			if (err != 1) {
+				xenbus_dev_fatal(dev, -EINVAL, "reading %s/%s",
+						 dev->otherend, ring_ref_name);
+				return -EINVAL;
+			}
+
+			pr_info("blkback: ring-ref%u %u\n", i, ring_ref[i]);
+		}
+	}
+
 	/* Map the shared frame, irq etc. */
-	err = blkif_map(be->blkif, ring_ref, evtchn);
+	err = blkif_map(be->blkif, ring_ref, ring_size, evtchn);
 	if (err) {
-		xenbus_dev_fatal(dev, err, "mapping ring-ref %u port %u",
-				 ring_ref, evtchn);
+		xenbus_dev_fatal(dev, err, "mapping ring-refs and evtchn");
 		return err;
 	}
 

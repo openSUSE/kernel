@@ -1104,7 +1104,6 @@ static irqreturn_t sh_mmcif_irqt(int irq, void *dev_id)
 {
 	struct sh_mmcif_host *host = dev_id;
 	struct mmc_request *mrq = host->mrq;
-	struct mmc_data *data = mrq->data;
 
 	cancel_delayed_work_sync(&host->timeout_work);
 
@@ -1152,13 +1151,14 @@ static irqreturn_t sh_mmcif_irqt(int irq, void *dev_id)
 	case MMCIF_WAIT_FOR_READ_END:
 	case MMCIF_WAIT_FOR_WRITE_END:
 		if (host->sd_error)
-			data->error = sh_mmcif_error_manage(host);
+			mrq->data->error = sh_mmcif_error_manage(host);
 		break;
 	default:
 		BUG();
 	}
 
 	if (host->wait_for != MMCIF_WAIT_FOR_STOP) {
+		struct mmc_data *data = mrq->data;
 		if (!mrq->cmd->error && data && !data->error)
 			data->bytes_xfered =
 				data->blocks * data->blksz;
@@ -1213,7 +1213,9 @@ static irqreturn_t sh_mmcif_intr(int irq, void *dev_id)
 		sh_mmcif_writel(host->addr, MMCIF_CE_INT, ~INT_BUFRE);
 		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, MASK_MBUFRE);
 	} else if (state & INT_DTRANE) {
-		sh_mmcif_writel(host->addr, MMCIF_CE_INT, ~INT_DTRANE);
+		sh_mmcif_writel(host->addr, MMCIF_CE_INT,
+			~(INT_CMD12DRE | INT_CMD12RBE |
+			  INT_CMD12CRE | INT_DTRANE));
 		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, MASK_MDTRANE);
 	} else if (state & INT_CMD12RBE) {
 		sh_mmcif_writel(host->addr, MMCIF_CE_INT,
@@ -1228,10 +1230,6 @@ static irqreturn_t sh_mmcif_intr(int irq, void *dev_id)
 	if (err) {
 		host->sd_error = true;
 		dev_dbg(&host->pd->dev, "int err state = %08x\n", state);
-	}
-	if (host->state == STATE_IDLE) {
-		dev_info(&host->pd->dev, "Spurious IRQ status 0x%x", state);
-		return IRQ_HANDLED;
 	}
 	if (state & ~(INT_CMD12RBE | INT_CMD12CRE)) {
 		if (!host->dma_active)

@@ -701,7 +701,7 @@ fail_config_watch:
 	 * Flush the scheduled work queue before freeing bend to get
 	 * rid of any pending netback_accel_msg_rx_handler()
 	 */
-	flush_work_sync(&bend->handle_msg);
+	flush_work(&bend->handle_msg);
 
 	mutex_lock(&bend->bend_mutex);
 	net_accel_update_state(dev, XenbusStateUnknown);
@@ -781,7 +781,7 @@ int netback_accel_remove(struct xenbus_device *dev)
 	 * Flush the scheduled work queue before freeing bend to get
 	 * rid of any pending netback_accel_msg_rx_handler()
 	 */
-	flush_work_sync(&bend->handle_msg);
+	flush_work(&bend->handle_msg);
 
 	mutex_lock(&bend->bend_mutex);
 

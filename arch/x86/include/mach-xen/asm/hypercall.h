@@ -45,11 +45,6 @@
 # include <xen/interface/platform.h>
 # include <xen/interface/arch-x86/xen-mca.h>
 #endif
-#if CONFIG_XEN_COMPAT <= 0x030002
-# include <linux/string.h> /* memcpy() */
-# include <xen/interface/event_channel.h>
-# include <xen/interface/physdev.h>
-#endif
 
 #ifdef CONFIG_XEN
 #define HYPERCALL_ASM_OPERAND "%c"

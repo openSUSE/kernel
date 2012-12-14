@@ -1,6 +1,8 @@
 #ifndef _ASM_X86_XEN_CMPXCHG_32_H
 #define _ASM_X86_XEN_CMPXCHG_32_H
 
+#include_next <asm/cmpxchg_32.h>
+
 static inline u64 get_64bit(const volatile u64 *ptr)
 {
 	u64 res;

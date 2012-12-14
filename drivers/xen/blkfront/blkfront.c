@@ -40,7 +40,9 @@
 #include <linux/cdrom.h>
 #include <linux/sched.h>
 #include <linux/interrupt.h>
+#include <linux/log2.h>
 #include <linux/scatterlist.h>
+#include <linux/vmalloc.h>
 #include <scsi/scsi.h>
 #include <xen/evtchn.h>
 #include <xen/xenbus.h>
@@ -54,12 +56,15 @@
 #include <xen/platform-compat.h>
 #endif
 
+struct blk_resume_entry {
+	struct list_head list;
+	struct blk_shadow copy;
+};
+
 #define BLKIF_STATE_DISCONNECTED 0
 #define BLKIF_STATE_CONNECTED    1
 #define BLKIF_STATE_SUSPENDED    2
 
-#define MAXIMUM_OUTSTANDING_BLOCK_REQS \
-    (BLKIF_MAX_SEGMENTS_PER_REQUEST * BLK_RING_SIZE)
 
 static void connect(struct blkfront_info *);
 static void blkfront_closing(struct blkfront_info *);
@@ -71,7 +76,8 @@ static void kick_pending_request_queues(struct blkfront_info *);
 
 static irqreturn_t blkif_int(int irq, void *dev_id);
 static void blkif_restart_queue(struct work_struct *arg);
-static int blkif_recover(struct blkfront_info *);
+static int blkif_recover(struct blkfront_info *, unsigned int old_ring_size,
+			 unsigned int new_ring_size);
 static void blkif_completion(struct blk_shadow *);
 static void blkif_free(struct blkfront_info *, int);
 
@@ -85,8 +91,9 @@ static void blkif_free(struct blkfront_info *, int);
 static int blkfront_probe(struct xenbus_device *dev,
 			  const struct xenbus_device_id *id)
 {
-	int err, vdevice, i;
+	int err, vdevice;
 	struct blkfront_info *info;
+	enum xenbus_state backend_state;
 
 #ifndef CONFIG_XEN /* For HVM guests, do not take over CDROM devices. */
 	char *type;
@@ -133,14 +140,20 @@ static int blkfront_probe(struct xenbus_device *dev,
 	info->vdevice = vdevice;
 	info->connected = BLKIF_STATE_DISCONNECTED;
 	INIT_WORK(&info->work, blkif_restart_queue);
-
-	for (i = 0; i < BLK_RING_SIZE; i++)
-		info->shadow[i].req.id = i+1;
-	info->shadow[BLK_RING_SIZE-1].req.id = 0x0fffffff;
+	INIT_LIST_HEAD(&info->resume_list);
 
 	/* Front end dir is a number, which is used as the id. */
 	info->handle = simple_strtoul(strrchr(dev->nodename,'/')+1, NULL, 0);
 	dev_set_drvdata(&dev->dev, info);
+
+	backend_state = xenbus_read_driver_state(dev->otherend);
+	/*
+	 * XenbusStateInitWait would be the correct state to enter here,
+	 * but (at least) blkback considers this a fatal error.
+	 */
+	xenbus_switch_state(dev, XenbusStateInitialising);
+	if (backend_state != XenbusStateInitWait)
+		return 0;
 
 	err = talk_to_backend(dev, info);
 	if (err) {
@@ -162,27 +175,72 @@ static int blkfront_probe(struct xenbus_device *dev,
 static int blkfront_resume(struct xenbus_device *dev)
 {
 	struct blkfront_info *info = dev_get_drvdata(&dev->dev);
-	int err;
+	enum xenbus_state backend_state;
 
 	DPRINTK("blkfront_resume: %s\n", dev->nodename);
 
 	blkif_free(info, info->connected == BLKIF_STATE_CONNECTED);
 
-	err = talk_to_backend(dev, info);
-	if (info->connected == BLKIF_STATE_SUSPENDED && !err)
-		err = blkif_recover(info);
+	backend_state = xenbus_read_driver_state(dev->otherend);
+	/* See respective comment in blkfront_probe(). */
+	xenbus_switch_state(dev, XenbusStateInitialising);
+	if (backend_state != XenbusStateInitWait)
+		return 0;
 
-	return err;
+	return talk_to_backend(dev, info);
 }
 
+
+static void shadow_init(struct blk_shadow *shadow, unsigned int ring_size)
+{
+	unsigned int i = 0;
+
+	WARN_ON(!ring_size);
+	while (++i < ring_size)
+		shadow[i - 1].req.id = i;
+	shadow[i - 1].req.id = 0x0fffffff;
+}
 
 /* Common code used when first setting up, and when resuming. */
 static int talk_to_backend(struct xenbus_device *dev,
 			   struct blkfront_info *info)
 {
-	const char *message = NULL;
+	unsigned int ring_size, ring_order;
+	unsigned int old_ring_size = RING_SIZE(&info->ring);
+	const char *what = NULL;
 	struct xenbus_transaction xbt;
 	int err;
+
+	if (dev->state >= XenbusStateInitialised)
+		return 0;
+
+	err = xenbus_scanf(XBT_NIL, dev->otherend,
+			   "max-ring-pages", "%u", &ring_size);
+	if (err != 1)
+		ring_size = 0;
+	else if (!ring_size)
+		pr_warn("blkfront: %s: zero max-ring-pages\n", dev->nodename);
+	err = xenbus_scanf(XBT_NIL, dev->otherend,
+			   "max-ring-page-order", "%u", &ring_order);
+	if (err != 1)
+		ring_order = ring_size ? ilog2(ring_size) : 0;
+	else if (!ring_size)
+		/* nothing */;
+	else if ((ring_size - 1) >> ring_order)
+		pr_warn("blkfront: %s: max-ring-pages (%#x) inconsistent with"
+			" max-ring-page-order (%u)\n",
+			dev->nodename, ring_size, ring_order);
+	else
+		ring_order = ilog2(ring_size);
+
+	if (ring_order > BLK_MAX_RING_PAGE_ORDER)
+		ring_order = BLK_MAX_RING_PAGE_ORDER;
+	/*
+	 * While for larger rings not all pages are actually used, be on the
+	 * safe side and set up a full power of two to please as many backends
+	 * as possible.
+	 */
+	info->ring_size = ring_size = 1U << ring_order;
 
 	/* Create shared ring, alloc event channel. */
 	err = setup_blkring(dev, info);
@@ -196,24 +254,45 @@ again:
 		goto destroy_blkring;
 	}
 
-	err = xenbus_printf(xbt, dev->nodename,
-			    "ring-ref","%u", info->ring_ref);
-	if (err) {
-		message = "writing ring-ref";
-		goto abort_transaction;
-	}
-	err = xenbus_printf(xbt, dev->nodename, "event-channel", "%u",
+	if (ring_size == 1) {
+		what = "ring-ref";
+		err = xenbus_printf(xbt, dev->nodename, what, "%u",
+				    info->ring_refs[0]);
+		if (err)
+			goto abort_transaction;
+	} else {
+		unsigned int i;
+		char buf[16];
+
+		what = "ring-page-order";
+		err = xenbus_printf(xbt, dev->nodename, what, "%u",
+				    ring_order);
+		if (err)
+			goto abort_transaction;
+		what = "num-ring-pages";
+		err = xenbus_printf(xbt, dev->nodename, what, "%u", ring_size);
+		if (err)
+			goto abort_transaction;
+		what = buf;
+		for (i = 0; i < ring_size; i++) {
+			snprintf(buf, sizeof(buf), "ring-ref%u", i);
+			err = xenbus_printf(xbt, dev->nodename, what, "%u",
+					    info->ring_refs[i]);
+			if (err)
+				goto abort_transaction;
+		}
+ 	}
+
+	what = "event-channel";
+	err = xenbus_printf(xbt, dev->nodename, what, "%u",
 			    irq_to_evtchn_port(info->irq));
-	if (err) {
-		message = "writing event-channel";
+	if (err)
 		goto abort_transaction;
-	}
-	err = xenbus_printf(xbt, dev->nodename, "protocol", "%s",
+	what = "protocol";
+	err = xenbus_printf(xbt, dev->nodename, what, "%s",
 			    XEN_IO_PROTO_ABI_NATIVE);
-	if (err) {
-		message = "writing protocol";
+	if (err)
 		goto abort_transaction;
-	}
 
 	err = xenbus_transaction_end(xbt, 0);
 	if (err) {
@@ -225,12 +304,27 @@ again:
 
 	xenbus_switch_state(dev, XenbusStateInitialised);
 
+	ring_size = RING_SIZE(&info->ring);
+	switch (info->connected) {
+	case BLKIF_STATE_DISCONNECTED:
+		shadow_init(info->shadow, ring_size);
+		break;
+	case BLKIF_STATE_SUSPENDED:
+		err = blkif_recover(info, old_ring_size, ring_size);
+		if (err)
+			goto out;
+		break;
+	}
+
+	pr_info("blkfront: %s: ring-pages=%u nr_ents=%u\n",
+		dev->nodename, info->ring_size, ring_size);
+
 	return 0;
 
  abort_transaction:
 	xenbus_transaction_end(xbt, 1);
-	if (message)
-		xenbus_dev_fatal(dev, err, "%s", message);
+	if (what)
+		xenbus_dev_fatal(dev, err, "writing %s", what);
  destroy_blkring:
 	blkif_free(info, 0);
  out:
@@ -243,26 +337,35 @@ static int setup_blkring(struct xenbus_device *dev,
 {
 	blkif_sring_t *sring;
 	int err;
+	unsigned int nr;
 
-	info->ring_ref = GRANT_INVALID_REF;
+	for (nr = 0; nr < info->ring_size; nr++) {
+		info->ring_refs[nr] = GRANT_INVALID_REF;
+		info->ring_pages[nr] = alloc_page(GFP_NOIO | __GFP_HIGH
+						 | __GFP_HIGHMEM);
+		if (!info->ring_pages[nr])
+			break;
+	}
 
-	sring = (blkif_sring_t *)__get_free_page(GFP_NOIO | __GFP_HIGH);
+	sring = nr == info->ring_size
+		? vmap(info->ring_pages, nr, VM_MAP, PAGE_KERNEL)
+		: NULL;
 	if (!sring) {
+		while (nr--)
+			__free_page(info->ring_pages[nr]);
 		xenbus_dev_fatal(dev, -ENOMEM, "allocating shared ring");
 		return -ENOMEM;
 	}
 	SHARED_RING_INIT(sring);
-	FRONT_RING_INIT(&info->ring, sring, PAGE_SIZE);
+	FRONT_RING_INIT(&info->ring, sring,
+			(unsigned long)info->ring_size << PAGE_SHIFT);
 
 	sg_init_table(info->sg, BLKIF_MAX_SEGMENTS_PER_REQUEST);
 
-	err = xenbus_grant_ring(dev, virt_to_mfn(info->ring.sring));
-	if (err < 0) {
-		free_page((unsigned long)sring);
-		info->ring.sring = NULL;
+	err = xenbus_multi_grant_ring(dev, nr, info->ring_pages,
+				      info->ring_refs);
+	if (err < 0)
 		goto fail;
-	}
-	info->ring_ref = err;
 
 	err = bind_listening_port_to_irqhandler(
 		dev->otherend_id, blkif_int, 0, "blkif", info);
@@ -293,11 +396,17 @@ static void backend_changed(struct xenbus_device *dev,
 
 	switch (backend_state) {
 	case XenbusStateInitialising:
-	case XenbusStateInitWait:
 	case XenbusStateInitialised:
 	case XenbusStateReconfiguring:
 	case XenbusStateReconfigured:
 	case XenbusStateUnknown:
+		break;
+
+	case XenbusStateInitWait:
+		if (talk_to_backend(dev, info)) {
+			dev_set_drvdata(&dev->dev, NULL);
+			kfree(info);
+		}
 		break;
 
 	case XenbusStateConnected:
@@ -526,7 +635,7 @@ static void blkfront_closing(struct blkfront_info *info)
 	spin_unlock_irqrestore(&info->io_lock, flags);
 
 	/* Flush gnttab callback work. Must be done with no locks held. */
-	flush_work_sync(&info->work);
+	flush_work(&info->work);
 
 	xlvbd_sysfs_delif(info);
 
@@ -600,7 +709,7 @@ static inline int GET_ID_FROM_FREELIST(
 	struct blkfront_info *info)
 {
 	unsigned long free = info->shadow_free;
-	BUG_ON(free >= BLK_RING_SIZE);
+	BUG_ON(free >= RING_SIZE(&info->ring));
 	info->shadow_free = info->shadow[free].req.id;
 	info->shadow[free].req.id = 0x0fffffee; /* debug */
 	return free;
@@ -648,6 +757,44 @@ static inline void flush_requests(struct blkfront_info *info)
 
 static void kick_pending_request_queues(struct blkfront_info *info)
 {
+	bool queued = false;
+
+	/* Recover stage 3: Re-queue pending requests. */
+	while (!list_empty(&info->resume_list) && !RING_FULL(&info->ring)) {
+		/* Grab a request slot and copy shadow state into it. */
+		struct blk_resume_entry *ent =
+			list_first_entry(&info->resume_list,
+					 struct blk_resume_entry, list);
+		blkif_request_t *req =
+			RING_GET_REQUEST(&info->ring, info->ring.req_prod_pvt);
+		unsigned int i;
+
+		*req = ent->copy.req;
+
+		/* We get a new request id, and must reset the shadow state. */
+		req->id = GET_ID_FROM_FREELIST(info);
+		info->shadow[req->id] = ent->copy;
+		info->shadow[req->id].req.id = req->id;
+
+		/* Rewrite any grant references invalidated by susp/resume. */
+		for (i = 0; i < req->nr_segments; i++)
+			gnttab_grant_foreign_access_ref(req->seg[i].gref,
+				info->xbdev->otherend_id,
+				pfn_to_mfn(ent->copy.frame[i]),
+				rq_data_dir(ent->copy.request) ?
+				GTF_readonly : 0);
+
+		info->ring.req_prod_pvt++;
+		queued = true;
+
+		__list_del_entry(&ent->list);
+		kfree(ent);
+	}
+
+	/* Send off requeued requests */
+	if (queued)
+		flush_requests(info);
+
 	if (!RING_FULL(&info->ring)) {
 		/* Re-enable calldowns. */
 		blk_start_queue(info->rq);
@@ -1013,11 +1160,11 @@ static irqreturn_t blkif_int(int irq, void *dev_id)
 		int ret;
 
 		bret = RING_GET_RESPONSE(&info->ring, i);
-		if (unlikely(bret->id >= BLK_RING_SIZE)) {
+		if (unlikely(bret->id >= RING_SIZE(&info->ring))) {
 			/*
 			 * The backend has messed up and given us an id that
 			 * we would never have given to it (we stamp it up to
-			 * BLK_RING_SIZE - see GET_ID_FROM_FREELIST()).
+			 * RING_SIZE() - see GET_ID_FROM_FREELIST()).
 			 */
 			pr_warning("%s: response to %s has incorrect id (%#Lx)\n",
 				   info->gd->disk_name,
@@ -1127,15 +1274,13 @@ static void blkif_free(struct blkfront_info *info, int suspend)
 	spin_unlock_irq(&info->io_lock);
 
 	/* Flush gnttab callback work. Must be done with no locks held. */
-	flush_work_sync(&info->work);
+	flush_work(&info->work);
 
 	/* Free resources associated with old device channel. */
-	if (info->ring_ref != GRANT_INVALID_REF) {
-		gnttab_end_foreign_access(info->ring_ref, 
-					  (unsigned long)info->ring.sring);
-		info->ring_ref = GRANT_INVALID_REF;
-		info->ring.sring = NULL;
-	}
+	vunmap(info->ring.sring);
+	info->ring.sring = NULL;
+	gnttab_multi_end_foreign_access(info->ring_size,
+					info->ring_refs, info->ring_pages);
 	if (info->irq)
 		unbind_from_irqhandler(info->irq, info);
 	info->irq = 0;
@@ -1151,55 +1296,41 @@ static void blkif_completion(struct blk_shadow *s)
 		gnttab_end_foreign_access(s->req.seg[i].gref, 0UL);
 }
 
-static int blkif_recover(struct blkfront_info *info)
+static int blkif_recover(struct blkfront_info *info,
+			 unsigned int old_ring_size,
+			 unsigned int ring_size)
 {
-	int i;
-	blkif_request_t *req;
-	struct blk_shadow *copy;
-	int j;
+	unsigned int i;
+	struct blk_resume_entry *ent;
+	LIST_HEAD(list);
 
 	/* Stage 1: Make a safe copy of the shadow state. */
-	copy = kmemdup(info->shadow, sizeof(info->shadow),
-		       GFP_NOIO | __GFP_NOFAIL | __GFP_HIGH);
-	if (!copy)
+	for (i = 0; i < old_ring_size; i++) {
+		/* Not in use? */
+		if (!info->shadow[i].request)
+			continue;
+		ent = kmalloc(sizeof(*ent),
+			      GFP_NOIO | __GFP_NOFAIL | __GFP_HIGH);
+		if (!ent)
+			break;
+		ent->copy = info->shadow[i];
+		list_add_tail(&ent->list, &list);
+	}
+	if (i < old_ring_size) {
+		while (!list_empty(&list)) {
+			ent = list_first_entry(&list, struct blk_resume_entry,
+					       list);
+			__list_del_entry(&ent->list);
+			kfree(ent);
+		}
 		return -ENOMEM;
+	}
+	list_splice_tail(&list, &info->resume_list);
 
 	/* Stage 2: Set up free list. */
 	memset(&info->shadow, 0, sizeof(info->shadow));
-	for (i = 0; i < BLK_RING_SIZE; i++)
-		info->shadow[i].req.id = i+1;
+	shadow_init(info->shadow, ring_size);
 	info->shadow_free = info->ring.req_prod_pvt;
-	info->shadow[BLK_RING_SIZE-1].req.id = 0x0fffffff;
-
-	/* Stage 3: Find pending requests and requeue them. */
-	for (i = 0; i < BLK_RING_SIZE; i++) {
-		/* Not in use? */
-		if (!copy[i].request)
-			continue;
-
-		/* Grab a request slot and copy shadow state into it. */
-		req = RING_GET_REQUEST(
-			&info->ring, info->ring.req_prod_pvt);
-		*req = copy[i].req;
-
-		/* We get a new request id, and must reset the shadow state. */
-		req->id = GET_ID_FROM_FREELIST(info);
-		memcpy(&info->shadow[req->id], &copy[i], sizeof(copy[i]));
-
-		/* Rewrite any grant references invalidated by susp/resume. */
-		for (j = 0; j < req->nr_segments; j++)
-			gnttab_grant_foreign_access_ref(
-				req->seg[j].gref,
-				info->xbdev->otherend_id,
-				pfn_to_mfn(info->shadow[req->id].frame[j]),
-				rq_data_dir(info->shadow[req->id].request) ?
-				GTF_readonly : 0);
-		info->shadow[req->id].req = *req;
-
-		info->ring.req_prod_pvt++;
-	}
-
-	kfree(copy);
 
 	(void)xenbus_switch_state(info->xbdev, XenbusStateConnected);
 
@@ -1207,9 +1338,6 @@ static int blkif_recover(struct blkfront_info *info)
 
 	/* Now safe for us to use the shared ring */
 	info->connected = BLKIF_STATE_CONNECTED;
-
-	/* Send off requeued requests */
-	flush_requests(info);
 
 	/* Kick any other new requests queued since we resumed */
 	kick_pending_request_queues(info);

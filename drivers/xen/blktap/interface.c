@@ -65,7 +65,7 @@ int tap_blkif_map(blkif_t *blkif, struct xenbus_device *dev,
 	if (blkif->irq)
 		return 0;
 
-	area = xenbus_map_ring_valloc(dev, ring_ref);
+	area = xenbus_map_ring_valloc(dev, &ring_ref, 1);
 	if (IS_ERR(area))
 		return PTR_ERR(area);
 	blkif->blk_ring_area = area;

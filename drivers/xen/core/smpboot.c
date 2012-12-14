@@ -325,9 +325,6 @@ void __cpuinit __cpu_die(unsigned int cpu)
 	}
 
 	xen_smp_intr_exit(cpu);
-
-	if (num_online_cpus() == 1)
-		alternatives_smp_switch(0);
 }
 
 #endif /* CONFIG_HOTPLUG_CPU */
@@ -354,7 +351,7 @@ int __cpuinit __cpu_up(unsigned int cpu, struct task_struct *idle)
 	cpu_initialize_context(cpu, idle->thread.sp0);
 
 	if (num_online_cpus() == 1)
-		alternatives_smp_switch(1);
+		alternatives_enable_smp();
 
 	/* This must be done before setting cpu_online_map */
 	wmb();
@@ -372,11 +369,8 @@ int __cpuinit __cpu_up(unsigned int cpu, struct task_struct *idle)
 		}
 	}
 
-	if (rc) {
+	if (rc)
 		xen_smp_intr_exit(cpu);
-		if (num_online_cpus() == 1)
-			alternatives_smp_switch(0);
-	}
 
 	return rc;
 }

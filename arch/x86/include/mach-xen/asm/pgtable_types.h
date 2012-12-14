@@ -190,7 +190,7 @@ extern unsigned int __kernel_page_user;
 #ifdef CONFIG_X86_32
 # include <asm/pgtable_32_types.h>
 #else
-# include "pgtable_64_types.h"
+# include <asm/pgtable_64_types.h>
 #endif
 
 #ifndef __ASSEMBLY__
@@ -361,6 +361,7 @@ int phys_mem_access_prot_allowed(struct file *file, unsigned long pfn,
 void set_pte_vaddr(unsigned long vaddr, pte_t pte);
 
 extern void xen_pagetable_reserve(u64 start, u64 end);
+#define xen_pagetable_init        paging_init
 
 struct seq_file;
 extern void arch_report_meminfo(struct seq_file *m);

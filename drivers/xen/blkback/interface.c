@@ -57,8 +57,30 @@ blkif_t *blkif_alloc(domid_t domid)
 	return blkif;
 }
 
-int blkif_map(blkif_t *blkif, grant_ref_t ring_ref, evtchn_port_t evtchn)
+unsigned int blkif_ring_size(enum blkif_protocol protocol,
+			     unsigned int ring_size)
 {
+	unsigned long size = (unsigned long)ring_size << PAGE_SHIFT;
+
+#define BLKBK_RING_SIZE(p) PFN_UP(offsetof(struct blkif_##p##_sring, \
+		ring[__CONST_RING_SIZE(blkif_##p, size)]))
+	switch (protocol) {
+	case BLKIF_PROTOCOL_NATIVE:
+		return BLKBK_RING_SIZE(native);
+	case BLKIF_PROTOCOL_X86_32:
+		return BLKBK_RING_SIZE(x86_32);
+	case BLKIF_PROTOCOL_X86_64:
+		return BLKBK_RING_SIZE(x86_64);
+	}
+#undef BLKBK_RING_SIZE
+	BUG();
+	return 0;
+}
+
+int blkif_map(blkif_t *blkif, const grant_ref_t ring_ref[],
+	      unsigned int nr_refs, evtchn_port_t evtchn)
+{
+	unsigned long size = (unsigned long)nr_refs << PAGE_SHIFT;
 	struct vm_struct *area;
 	int err;
 
@@ -66,7 +88,7 @@ int blkif_map(blkif_t *blkif, grant_ref_t ring_ref, evtchn_port_t evtchn)
 	if (blkif->irq)
 		return 0;
 
-	area = xenbus_map_ring_valloc(blkif->be->dev, ring_ref);
+	area = xenbus_map_ring_valloc(blkif->be->dev, ring_ref, nr_refs);
 	if (IS_ERR(area))
 		return PTR_ERR(area);
 	blkif->blk_ring_area = area;
@@ -74,7 +96,7 @@ int blkif_map(blkif_t *blkif, grant_ref_t ring_ref, evtchn_port_t evtchn)
 	switch (blkif->blk_protocol) {
 #define BLKBK_RING_INIT(p) ({ \
 		struct blkif_##p##_sring *sring = area->addr; \
-		BACK_RING_INIT(&blkif->blk_rings.p, sring, PAGE_SIZE); \
+		BACK_RING_INIT(&blkif->blk_rings.p, sring, size); \
 	})
 	case BLKIF_PROTOCOL_NATIVE:
 		BLKBK_RING_INIT(native);

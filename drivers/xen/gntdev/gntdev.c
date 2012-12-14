@@ -514,7 +514,7 @@ static int gntdev_mmap (struct file *flip, struct vm_area_struct *vma)
 	vma->vm_flags |= VM_FOREIGN;
 
 	/* This flag prevents Bad PTE errors when the memory is unmapped. */
-	vma->vm_flags |= VM_RESERVED;
+	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
 
 	/* This flag prevents this VM area being copied on a fork(). A better
 	 * behaviour might be to explicitly carry out the appropriate mappings

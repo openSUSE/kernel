@@ -140,8 +140,7 @@ static inline unsigned long pmd_pfn(pmd_t pmd)
 
 static inline int pmd_large(pmd_t pte)
 {
-	return (pmd_flags(pte) & (_PAGE_PSE | _PAGE_PRESENT)) ==
-		(_PAGE_PSE | _PAGE_PRESENT);
+	return pmd_flags(pte) & _PAGE_PSE;
 }
 
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
@@ -382,9 +381,9 @@ pte_t *populate_extra_pte(unsigned long vaddr);
 #endif	/* __ASSEMBLY__ */
 
 #ifdef CONFIG_X86_32
-# include "pgtable_32.h"
+# include <asm/pgtable_32.h>
 #else
-# include "pgtable_64.h"
+# include <asm/pgtable_64.h>
 #endif
 
 #ifndef __ASSEMBLY__
@@ -418,7 +417,13 @@ static inline int pmd_present(pmd_t pmd)
    can temporarily clear it. */
 	return __pmd_val(pmd) != 0;
 #else
-	return pmd_flags(pmd) & _PAGE_PRESENT;
+	/*
+	 * Checking for _PAGE_PSE is needed too because
+	 * split_huge_page will temporarily clear the present bit (but
+	 * the _PAGE_PSE flag will remain set at all times while the
+	 * _PAGE_PRESENT bit is clear).
+	 */
+	return pmd_flags(pmd) & (_PAGE_PRESENT | _PAGE_PROTNONE | _PAGE_PSE);
 #endif
 }
 
@@ -866,18 +871,18 @@ void make_pages_writable(void *va, unsigned int nr, unsigned int feature);
 
 struct vm_area_struct;
 
-int direct_remap_pfn_range(struct vm_area_struct *vma,
+int direct_remap_pfn_range(struct vm_area_struct *,
                            unsigned long address,
-                           phys_addr_t mfn,
+                           unsigned long mfn,
                            unsigned long size,
-                           pgprot_t prot,
-                           domid_t  domid);
+                           pgprot_t,
+                           domid_t);
 int direct_kernel_remap_pfn_range(unsigned long address,
 				  unsigned long mfn,
 				  unsigned long size,
-				  pgprot_t prot,
-				  domid_t  domid);
-int create_lookup_pte_addr(struct mm_struct *mm,
+				  pgprot_t,
+				  domid_t);
+int create_lookup_pte_addr(struct mm_struct *,
                            unsigned long address,
                            uint64_t *ptep);
 
