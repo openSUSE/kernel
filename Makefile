@@ -1,7 +1,7 @@
 VERSION = 3
 PATCHLEVEL = 7
 SUBLEVEL = 0
-EXTRAVERSION =-10833-g752451f
+EXTRAVERSION =-11091-gf01af9f
 NAME = Terrified Chipmunk
 
 # *DOCUMENTATION*
@@ -980,6 +980,12 @@ PHONY += _modinst_post
 _modinst_post: _modinst_
 	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.fwinst obj=firmware __fw_modinst
 	$(call cmd,depmod)
+
+ifeq ($(CONFIG_MODULE_SIG), y)
+PHONY += modules_sign
+modules_sign:
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.modsign
+endif
 
 else # CONFIG_MODULES
 
