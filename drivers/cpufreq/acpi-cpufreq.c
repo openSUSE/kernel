@@ -72,13 +72,6 @@ struct acpi_cpufreq_data {
 	unsigned int cpu_feature;
 };
 
-static const struct x86_cpu_id acpi_cpufreq_ids[] = {
-	/* Enhanced Speed Step */
-	X86_FEATURE_MATCH(X86_FEATURE_EST),
-	{}
-};
-MODULE_DEVICE_TABLE(x86cpu, acpi_cpufreq_ids);
-
 static DEFINE_PER_CPU(struct acpi_cpufreq_data *, acfreq_data);
 
 /* acpi_perf_data is a pointer to percpu data. */
@@ -1036,5 +1029,12 @@ MODULE_PARM_DESC(acpi_pstate_strict,
 
 late_initcall(acpi_cpufreq_init);
 module_exit(acpi_cpufreq_exit);
+
+static const struct x86_cpu_id acpi_cpufreq_ids[] = {
+	X86_FEATURE_MATCH(X86_FEATURE_ACPI),
+	X86_FEATURE_MATCH(X86_FEATURE_HW_PSTATE),
+	{}
+};
+MODULE_DEVICE_TABLE(x86cpu, acpi_cpufreq_ids);
 
 MODULE_ALIAS("acpi");
