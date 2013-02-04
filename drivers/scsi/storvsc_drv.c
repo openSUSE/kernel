@@ -467,6 +467,7 @@ static struct scatterlist *create_bounce_buffer(struct scatterlist *sgl,
 	if (!bounce_sgl)
 		return NULL;
 
+	sg_init_table(bounce_sgl, num_pages);
 	for (i = 0; i < num_pages; i++) {
 		page_buf = alloc_page(GFP_ATOMIC);
 		if (!page_buf)
@@ -1155,6 +1156,8 @@ static int storvsc_device_configure(struct scsi_device *sdevice)
 
 	blk_queue_bounce_limit(sdevice->request_queue, BLK_BOUNCE_ANY);
 
+	sdevice->no_write_same = 1;
+
 	return 0;
 }
 
@@ -1237,6 +1240,8 @@ static bool storvsc_scsi_cmd_ok(struct scsi_cmnd *scmnd)
 	u8 scsi_op = scmnd->cmnd[0];
 
 	switch (scsi_op) {
+	/* the host does not handle WRITE_SAME, log accident usage */
+	case WRITE_SAME:
 	/*
 	 * smartd sends this command and the host does not handle
 	 * this. So, don't send it.
