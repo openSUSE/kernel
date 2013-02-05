@@ -66,8 +66,7 @@
 #include <xen/net-util.h>
 
 struct netfront_cb {
-	struct page *page;
-	unsigned offset;
+	unsigned int pull_to;
 };
 
 #define NETFRONT_SKB_CB(skb)	((struct netfront_cb *)((skb)->cb))
@@ -1361,7 +1360,6 @@ static int netif_poll(struct napi_struct *napi, int budget)
 	struct sk_buff_head errq;
 	struct sk_buff_head tmpq;
 	unsigned long flags;
-	unsigned int len;
 	int pages_flipped = 0;
 	int err;
 
@@ -1410,49 +1408,21 @@ err:
 			}
 		}
 
-		NETFRONT_SKB_CB(skb)->page =
-			skb_frag_page(skb_shinfo(skb)->frags);
-		NETFRONT_SKB_CB(skb)->offset = rx->offset;
+		NETFRONT_SKB_CB(skb)->pull_to = rx->status;
+		if (NETFRONT_SKB_CB(skb)->pull_to > RX_COPY_THRESHOLD)
+			NETFRONT_SKB_CB(skb)->pull_to = RX_COPY_THRESHOLD;
 
-		len = rx->status;
-		if (len > RX_COPY_THRESHOLD)
-			len = RX_COPY_THRESHOLD;
-		skb_put(skb, len);
-
-		if (rx->status > len) {
-			skb_shinfo(skb)->frags[0].page_offset =
-				rx->offset + len;
-			skb_frag_size_set(skb_shinfo(skb)->frags,
-					  rx->status - len);
-			skb->data_len = rx->status - len;
-		} else {
-			__skb_fill_page_desc(skb, 0, NULL, 0, 0);
-			skb_shinfo(skb)->nr_frags = 0;
-		}
+		skb_shinfo(skb)->frags[0].page_offset = rx->offset;
+		skb_frag_size_set(skb_shinfo(skb)->frags, rx->status);
+		skb->data_len = rx->status;
 
 		i = xennet_fill_frags(np, skb, &tmpq);
 
 		/*
-		 * Truesize must approximates the size of true data plus
-		 * any supervisor overheads. Adding hypervisor overheads
-		 * has been shown to significantly reduce achievable
-		 * bandwidth with the default receive buffer size. It is
-		 * therefore not wise to account for it here.
-		 *
-		 * After alloc_skb(RX_COPY_THRESHOLD), truesize is set to
-		 * RX_COPY_THRESHOLD + the supervisor overheads. Here, we
-		 * add the size of the data pulled in xennet_fill_frags().
-		 *
-		 * We also adjust for any unused space in the main data
-		 * area by subtracting (RX_COPY_THRESHOLD - len). This is
-		 * especially important with drivers which split incoming
-		 * packets into header and data, using only 66 bytes of
-		 * the main data area (see the e1000 driver for example.)
-		 * On such systems, without this last adjustement, our
-		 * achievable receive throughout using the standard receive
-		 * buffer size was cut by 25%(!!!).
-		 */
-		skb->truesize += skb->data_len - (RX_COPY_THRESHOLD - len);
+                 * Truesize is the actual allocation size, even if the
+                 * allocation is only partially used.
+                 */
+		skb->truesize += PAGE_SIZE * skb_shinfo(skb)->nr_frags;
 		skb->len += skb->data_len;
 
 		if (rx->flags & XEN_NETRXF_csum_blank)
@@ -1492,14 +1462,9 @@ err:
 	__skb_queue_purge(&errq);
 
 	while ((skb = __skb_dequeue(&rxq)) != NULL) {
-		struct page *page = NETFRONT_SKB_CB(skb)->page;
-		void *vaddr = page_address(page);
-		unsigned offset = NETFRONT_SKB_CB(skb)->offset;
+		unsigned int pull_to = NETFRONT_SKB_CB(skb)->pull_to;
 
-		memcpy(skb->data, vaddr + offset, skb_headlen(skb));
-
-		if (page != skb_frag_page(skb_shinfo(skb)->frags))
-			__free_page(page);
+		__pskb_pull_tail(skb, pull_to - skb_headlen(skb));
 
 		/* Ethernet work: Delayed to here as it peeks the header. */
 		skb->protocol = eth_type_trans(skb, dev);
