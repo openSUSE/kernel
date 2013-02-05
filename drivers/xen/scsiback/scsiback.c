@@ -56,8 +56,8 @@ static unsigned int vscsiif_reqs = 128;
 module_param_named(reqs, vscsiif_reqs, uint, 0);
 MODULE_PARM_DESC(reqs, "Number of scsiback requests to allocate");
 
-static unsigned int log_print_stat = 0;
-module_param(log_print_stat, int, 0644);
+static bool log_print_stat;
+module_param(log_print_stat, bool, 0644);
 
 #define SCSIBACK_INVALID_HANDLE (~0)
 
@@ -215,10 +215,8 @@ static void scsiback_cmd_done(struct request *req, int uptodate)
 	resid        = blk_rq_bytes(req);
 	errors       = req->errors;
 
-	if (errors != 0) {
-		if (log_print_stat)
-			scsiback_print_status(sense_buffer, errors, pending_req);
-	}
+	if (errors && log_print_stat)
+		scsiback_print_status(sense_buffer, errors, pending_req);
 
 	/* The Host mode is through as for Emulation. */
 	if (pending_req->info->feature != VSCSI_TYPE_HOST)
@@ -588,39 +586,35 @@ static int _scsiback_do_cmd_fn(struct vscsibk_info *info)
 
 		err = prepare_pending_reqs(info, ring_req,
 						pending_req);
-		if (err == -EINVAL) {
-			scsiback_do_resp_with_sense(NULL, (DRIVER_ERROR << 24),
-				0, pending_req);
-			continue;
-		} else if (err == -ENODEV) {
-			scsiback_do_resp_with_sense(NULL, (DID_NO_CONNECT << 16),
-				0, pending_req);
-			continue;
-		}
-
-		if (pending_req->act == VSCSIIF_ACT_SCSI_CDB) {
-
+		switch (err ?: pending_req->act) {
+		case VSCSIIF_ACT_SCSI_CDB:
 			/* The Host mode is through as for Emulation. */
 			if (info->feature == VSCSI_TYPE_HOST)
 				scsiback_cmd_exec(pending_req);
 			else
 				scsiback_req_emulation_or_cmdexec(pending_req);
-
-		} else if (pending_req->act == VSCSIIF_ACT_SCSI_RESET) {
+			break;
+		case VSCSIIF_ACT_SCSI_RESET:
 			scsiback_device_reset_exec(pending_req);
-		} else {
-			pr_err("scsiback: invalid parameter for request\n");
-			scsiback_do_resp_with_sense(NULL, (DRIVER_ERROR << 24),
-				0, pending_req);
-			continue;
+			break;
+		default:
+			if(!err && printk_ratelimit())
+				pr_err("scsiback: invalid request\n");
+			scsiback_do_resp_with_sense(NULL, DRIVER_ERROR << 24,
+						    0, pending_req);
+			break;
+		case -ENODEV:
+			scsiback_do_resp_with_sense(NULL, DID_NO_CONNECT << 16,
+						    0, pending_req);
+			break;
 		}
+
+		/* Yield point for this unbounded loop. */
+		cond_resched();
 	}
 
 	if (RING_HAS_UNCONSUMED_REQUESTS(ring))
 		more_to_do = 1;
-
-	/* Yield point for this unbounded loop. */
-	cond_resched();
 
 	return more_to_do;
 }

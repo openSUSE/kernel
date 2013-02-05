@@ -191,17 +191,20 @@ static int check_mfn(struct xen_netbk *netbk, unsigned int nr)
 	return netbk->alloc_index >= nr ? 0 : -ENOMEM;
 }
 
-static void netbk_schedule(struct xen_netbk *netbk)
+static void netbk_rx_schedule(struct xen_netbk *netbk)
+{
+	if (use_kthreads)
+		wake_up(&netbk->netbk_action_wq);
+	else
+		tasklet_schedule(&netbk->net_rx_tasklet);
+}
+
+static void netbk_tx_schedule(struct xen_netbk *netbk)
 {
 	if (use_kthreads)
 		wake_up(&netbk->netbk_action_wq);
 	else
 		tasklet_schedule(&netbk->net_tx_tasklet);
-}
-
-static void netbk_schedule_group(unsigned long group)
-{
-	netbk_schedule(&xen_netbk[group]);
 }
 
 static inline void maybe_schedule_tx_action(unsigned int group)
@@ -211,7 +214,7 @@ static inline void maybe_schedule_tx_action(unsigned int group)
 	smp_mb();
 	if ((nr_pending_reqs(netbk) < (MAX_PENDING_REQS/2)) &&
 	    !list_empty(&netbk->schedule_list))
-		netbk_schedule(netbk);
+		netbk_tx_schedule(netbk);
 }
 
 static struct sk_buff *netbk_copy_skb(struct sk_buff *skb)
@@ -391,7 +394,7 @@ int netif_be_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	netbk = &xen_netbk[group];
 	skb_queue_tail(&netbk->rx_queue, skb);
-	netbk_schedule(netbk);
+	netbk_rx_schedule(netbk);
 
 	return NETDEV_TX_OK;
 
@@ -844,11 +847,21 @@ static void net_rx_action(unsigned long group)
 	/* More work to do? */
 	if (!skb_queue_empty(&netbk->rx_queue) &&
 	    !timer_pending(&netbk->net_timer))
-		netbk_schedule(netbk);
+		netbk_rx_schedule(netbk);
 #if 0
 	else
 		xen_network_done_notify();
 #endif
+}
+
+static void net_alarm(unsigned long group)
+{
+	netbk_rx_schedule(&xen_netbk[group]);
+}
+
+static void netbk_tx_pending_timeout(unsigned long group)
+{
+	netbk_tx_schedule(&xen_netbk[group]);
 }
 
 static int __on_net_schedule_list(netif_t *netif)
@@ -1094,12 +1107,20 @@ static void netbk_tx_err(netif_t *netif, netif_tx_request_t *txp, RING_IDX end)
 
 	do {
 		make_tx_response(netif, txp, XEN_NETIF_RSP_ERROR);
-		if (cons >= end)
+		if (cons == end)
 			break;
 		txp = RING_GET_REQUEST(&netif->tx, cons++);
 	} while (1);
 	netif->tx.req_cons = cons;
 	netif_schedule_work(netif);
+	netif_put(netif);
+}
+
+static void netbk_fatal_tx_err(netif_t *netif)
+{
+	printk(KERN_ERR "%s: fatal error; disabling device\n",
+	       netif->dev->name);
+	xenvif_carrier_off(netif);
 	netif_put(netif);
 }
 
@@ -1114,19 +1135,25 @@ static int netbk_count_requests(netif_t *netif, netif_tx_request_t *first,
 
 	do {
 		if (frags >= work_to_do) {
-			DPRINTK("Need more frags\n");
+			printk(KERN_ERR "%s: Need more frags\n",
+			       netif->dev->name);
+			netbk_fatal_tx_err(netif);
 			return -frags;
 		}
 
 		if (unlikely(frags >= MAX_SKB_FRAGS)) {
-			DPRINTK("Too many frags\n");
+			printk(KERN_ERR "%s: Too many frags\n",
+			       netif->dev->name);
+			netbk_fatal_tx_err(netif);
 			return -frags;
 		}
 
 		memcpy(txp, RING_GET_REQUEST(&netif->tx, cons + frags),
 		       sizeof(*txp));
 		if (txp->size > first->size) {
-			DPRINTK("Frags galore\n");
+			printk(KERN_ERR "%s: Frag is bigger than frame.\n",
+			       netif->dev->name);
+			netbk_fatal_tx_err(netif);
 			return -frags;
 		}
 
@@ -1134,8 +1161,9 @@ static int netbk_count_requests(netif_t *netif, netif_tx_request_t *first,
 		frags++;
 
 		if (unlikely((txp->offset + txp->size) > PAGE_SIZE)) {
-			DPRINTK("txp->offset: %x, size: %u\n",
-				txp->offset, txp->size);
+			printk(KERN_ERR "%s: txp->offset: %x, size: %u\n",
+			       netif->dev->name, txp->offset, txp->size);
+			netbk_fatal_tx_err(netif);
 			return -frags;
 		}
 	} while ((txp++)->flags & XEN_NETTXF_more_data);
@@ -1284,7 +1312,9 @@ int netbk_get_extras(netif_t *netif, struct netif_extra_info *extras,
 
 	do {
 		if (unlikely(work_to_do-- <= 0)) {
-			DPRINTK("Missing extra info\n");
+			printk(KERN_ERR "%s: Missing extra info\n",
+			       netif->dev->name);
+			netbk_fatal_tx_err(netif);
 			return -EBADR;
 		}
 
@@ -1293,7 +1323,9 @@ int netbk_get_extras(netif_t *netif, struct netif_extra_info *extras,
 		if (unlikely(!extra.type ||
 			     extra.type >= XEN_NETIF_EXTRA_TYPE_MAX)) {
 			netif->tx.req_cons = ++cons;
-			DPRINTK("Invalid extra type: %d\n", extra.type);
+			printk(KERN_ERR "%s: Invalid extra type: %d\n",
+			       netif->dev->name, extra.type);
+			netbk_fatal_tx_err(netif);
 			return -EINVAL;
 		}
 
@@ -1304,16 +1336,21 @@ int netbk_get_extras(netif_t *netif, struct netif_extra_info *extras,
 	return work_to_do;
 }
 
-static int netbk_set_skb_gso(struct sk_buff *skb, struct netif_extra_info *gso)
+static int netbk_set_skb_gso(netif_t *netif, struct sk_buff *skb,
+			     struct netif_extra_info *gso)
 {
 	if (!gso->u.gso.size) {
-		DPRINTK("GSO size must not be zero.\n");
+		printk(KERN_ERR "%s: GSO size must not be zero.\n",
+		       netif->dev->name);
+		netbk_fatal_tx_err(netif);
 		return -EINVAL;
 	}
 
 	/* Currently only TCPv4 S.O. is supported. */
 	if (gso->u.gso.type != XEN_NETIF_GSO_TYPE_TCPV4) {
-		DPRINTK("Bad GSO type %d.\n", gso->u.gso.type);
+		printk(KERN_ERR "%s: Bad GSO type %d.\n",
+		       netif->dev->name, gso->u.gso.type);
+		netbk_fatal_tx_err(netif);
 		return -EINVAL;
 	}
 
@@ -1350,8 +1387,24 @@ static void net_tx_action(unsigned long group)
 	       !list_empty(&netbk->schedule_list)) {
 		/* Get a netif from the list with work to do. */
 		netif = poll_net_schedule_list(netbk);
+		/*
+		 * This can sometimes happen because the test of
+		 * list_empty(net_schedule_list) at the top of the
+		 * loop is unlocked.  Just go back and have another
+		 * look.
+		 */
 		if (!netif)
 			continue;
+
+		if (netif->tx.sring->req_prod - netif->tx.req_cons >
+		    NET_TX_RING_SIZE) {
+			printk(KERN_ERR "%s: Impossible number of requests. "
+			       "req_prod %u, req_cons %u, size %lu\n",
+			       netif->dev->name, netif->tx.sring->req_prod,
+			       netif->tx.req_cons, NET_TX_RING_SIZE);
+			netbk_fatal_tx_err(netif);
+			continue;
+		}
 
 		RING_FINAL_CHECK_FOR_REQUESTS(&netif->tx, work_to_do);
 		if (!work_to_do) {
@@ -1403,17 +1456,14 @@ static void net_tx_action(unsigned long group)
 			work_to_do = netbk_get_extras(netif, extras,
 						      work_to_do);
 			i = netif->tx.req_cons;
-			if (unlikely(work_to_do < 0)) {
-				netbk_tx_err(netif, &txreq, i);
+			if (unlikely(work_to_do < 0))
 				continue;
-			}
 		}
 
 		ret = netbk_count_requests(netif, &txreq, txfrags, work_to_do);
-		if (unlikely(ret < 0)) {
-			netbk_tx_err(netif, &txreq, i - ret);
+		if (unlikely(ret < 0))
 			continue;
-		}
+
 		i += ret;
 
 		if (unlikely(txreq.size < ETH_HLEN)) {
@@ -1424,10 +1474,10 @@ static void net_tx_action(unsigned long group)
 
 		/* No crossing a page as the payload mustn't fragment. */
 		if (unlikely((txreq.offset + txreq.size) > PAGE_SIZE)) {
-			DPRINTK("txreq.offset: %x, size: %u, end: %lu\n", 
-				txreq.offset, txreq.size, 
-				(txreq.offset &~PAGE_MASK) + txreq.size);
-			netbk_tx_err(netif, &txreq, i);
+			printk(KERN_ERR "%s: txreq.offset: %x, size: %u, end: %lu\n",
+			       netif->dev->name, txreq.offset, txreq.size,
+			       (txreq.offset & ~PAGE_MASK) + txreq.size);
+			netbk_fatal_tx_err(netif);
 			continue;
 		}
 
@@ -1452,9 +1502,9 @@ static void net_tx_action(unsigned long group)
 			struct netif_extra_info *gso;
 			gso = &extras[XEN_NETIF_EXTRA_TYPE_GSO - 1];
 
-			if (netbk_set_skb_gso(skb, gso)) {
+			if (netbk_set_skb_gso(netif, skb, gso)) {
+				/* Failure in netbk_set_skb_gso is fatal. */
 				kfree_skb(skb);
-				netbk_tx_err(netif, &txreq, i);
 				continue;
 			}
 		}
@@ -1602,7 +1652,7 @@ static void netif_idx_release(struct xen_netbk *netbk, u16 pending_idx)
 	netbk->dealloc_prod++;
 	spin_unlock_irqrestore(&netbk->release_lock, flags);
 
-	netbk_schedule(netbk);
+	netbk_tx_schedule(netbk);
 }
 
 static void netif_page_release(struct page *page, unsigned int order)
@@ -1820,11 +1870,12 @@ static int __init netback_init(void)
 
 		init_timer(&netbk->net_timer);
 		netbk->net_timer.data = group;
-		netbk->net_timer.function = netbk_schedule_group;
+		netbk->net_timer.function = net_alarm;
 
 		init_timer(&netbk->tx_pending_timer);
 		netbk->tx_pending_timer.data = group;
-		netbk->tx_pending_timer.function = netbk_schedule_group;
+		netbk->tx_pending_timer.function =
+			netbk_tx_pending_timeout;
 
 		netbk->pending_prod = MAX_PENDING_REQS;
 

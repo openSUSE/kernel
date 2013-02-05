@@ -48,8 +48,23 @@
 
 #define EFI_DEBUG	1
 
-int __read_mostly efi_enabled;
+unsigned long x86_efi_facility;
+
+/*
+ * Returns 1 if 'facility' is enabled, 0 otherwise.
+ */
+int efi_enabled(int facility)
+{
+	return test_bit(facility, &x86_efi_facility) != 0;
+}
 EXPORT_SYMBOL(efi_enabled);
+
+static int __init setup_noefi(char *arg)
+{
+	clear_bit(EFI_BOOT, &x86_efi_facility);
+	return 0;
+}
+early_param("noefi", setup_noefi);
 
 #define call op.u.efi_runtime_call
 #define DECLARE_CALL(what) \
@@ -306,13 +321,6 @@ struct efi __read_mostly efi = {
 };
 EXPORT_SYMBOL(efi);
 
-static int __init setup_noefi(char *arg)
-{
-	efi_enabled = 0;
-	return 0;
-}
-early_param("noefi", setup_noefi);
-
 
 int efi_set_rtc_mmss(unsigned long nowtime)
 {
@@ -369,8 +377,13 @@ void __init efi_probe(void)
 		}
 	};
 
-	if (HYPERVISOR_platform_op(&op) == 0)
-		efi_enabled = 1;
+	if (HYPERVISOR_platform_op(&op) == 0) {
+		__set_bit(EFI_BOOT, &x86_efi_facility);
+		__set_bit(EFI_64BIT, &x86_efi_facility);
+		__set_bit(EFI_SYSTEM_TABLES, &x86_efi_facility);
+		__set_bit(EFI_RUNTIME_SERVICES, &x86_efi_facility);
+		__set_bit(EFI_MEMMAP, &x86_efi_facility);
+	}
 }
 
 void __init efi_reserve_boot_services(void) { }
@@ -468,10 +481,10 @@ void __init efi_init(void)
 	op.u.firmware_info.index = XEN_FW_EFI_CONFIG_TABLE;
 	if (HYPERVISOR_platform_op(&op))
 		BUG();
-	if (efi_config_init(info->cfg.addr, info->cfg.nent)) {
-		efi_enabled = 0;
+	if (efi_config_init(info->cfg.addr, info->cfg.nent))
 		return;
-	}
+
+	set_bit(EFI_CONFIG_TABLES, &x86_efi_facility);
 
 	x86_platform.get_wallclock = efi_get_time;
 	x86_platform.set_wallclock = efi_set_rtc_mmss;
@@ -493,7 +506,8 @@ static struct platform_device rtc_efi_dev = {
 
 static int __init rtc_init(void)
 {
-	if (efi_enabled && platform_device_register(&rtc_efi_dev) < 0)
+	if (efi_enabled(EFI_RUNTIME_SERVICES)
+	    && platform_device_register(&rtc_efi_dev) < 0)
 		pr_err("unable to register rtc device...\n");
 
 	/* not necessarily an error */
@@ -508,6 +522,9 @@ u32 efi_mem_type(unsigned long phys_addr)
 {
 	struct xen_platform_op op;
 	union xenpf_efi_info *info = &op.u.firmware_info.u.efi_info;
+
+	if (!efi_enabled(EFI_MEMMAP))
+		return 0;
 
 	op.cmd = XENPF_firmware_info;
 	op.u.firmware_info.type = XEN_FW_EFI_INFO;
