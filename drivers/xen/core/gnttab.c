@@ -928,7 +928,7 @@ static int gnttab_expand(unsigned int req_entries)
 #ifdef CONFIG_XEN
 static int __init
 #else
-int __devinit
+int
 #endif
 gnttab_init(void)
 {

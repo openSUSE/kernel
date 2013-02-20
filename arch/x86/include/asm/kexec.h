@@ -179,6 +179,9 @@ struct kimage_arch {
 };
 #endif
 
+typedef void crash_vmclear_fn(void);
+extern crash_vmclear_fn __rcu *crash_vmclear_loaded_vmcss;
+
 /* Under Xen we need to work with machine addresses. These macros give the
  * machine address of a certain page to the generic kexec code instead of
  * the pseudo physical address which would be given by the default macros.

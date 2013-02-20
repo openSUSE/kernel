@@ -218,6 +218,7 @@ DEFINE_XEN_GUEST_HANDLE(xenpf_efi_runtime_call_t);
 #define  XEN_FW_EFI_VENDOR         2
 #define  XEN_FW_EFI_MEM_INFO       3
 #define  XEN_FW_EFI_RT_VERSION     4
+#define  XEN_FW_EFI_PCI_ROM        5
 #define XEN_FW_KBD_SHIFT_FLAGS    5 /* Int16, Fn02: Get keyboard shift flags. */
 struct xenpf_firmware_info {
 	/* IN variables. */
@@ -267,6 +268,17 @@ struct xenpf_firmware_info {
 				uint64_t attr;
 				uint32_t type;
 			} mem;
+			struct {
+				/* IN variables */
+				uint16_t segment;
+				uint8_t bus;
+				uint8_t devfn;
+				uint16_t vendor;
+				uint16_t devid;
+				/* OUT variables */
+				uint64_t address;
+				xen_ulong_t size;
+			} pci_rom;
 		} efi_info; /* XEN_FW_EFI_INFO */
 
 		/* Int16, Fn02: Get keyboard shift flags. */
@@ -504,17 +516,17 @@ struct xenpf_mem_hotadd
     uint32_t flags;
 };
 
-#define XENPF_core_parking  60
-
-#define XEN_CORE_PARKING_SET 1
-#define XEN_CORE_PARKING_GET 2
+#define XENPF_core_parking     60
 struct xenpf_core_parking {
-    /* IN variables */
-    uint32_t type;
-    /* IN variables:  set cpu nums expected to be idled */
-    /* OUT variables: get cpu nums actually be idled */
-    uint32_t idle_nums;
+	/* IN variables */
+#define XEN_CORE_PARKING_SET   1
+#define XEN_CORE_PARKING_GET   2
+	uint32_t type;
+	/* IN variables:  set cpu nums expected to be idled */
+	/* OUT variables: get cpu nums actually be idled */
+	uint32_t idle_nums;
 };
+DEFINE_GUEST_HANDLE_STRUCT(xenpf_core_parking);
 typedef struct xenpf_core_parking xenpf_core_parking_t;
 DEFINE_XEN_GUEST_HANDLE(xenpf_core_parking_t);
 

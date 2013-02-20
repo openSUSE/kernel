@@ -5,11 +5,11 @@ xen-evtchn-name-$(CONFIG_PARAVIRT_XEN) := xen-evtchn
 xen-privcmd_$(CONFIG_PARAVIRT_XEN) := xen-privcmd.o
 
 ifneq ($(CONFIG_ARM),y)
-obj-$(CONFIG_PARAVIRT_XEN)	+= manage.o balloon.o
+obj-$(CONFIG_PARAVIRT_XEN)	+= manage.o
 obj-$(CONFIG_HOTPLUG_CPU)	+= $(xen-hotplug-y)
 endif
 obj-$(CONFIG_X86)		+= fallback.o
-obj-$(CONFIG_PARAVIRT_XEN)	+= grant-table.o features.o events.o
+obj-$(CONFIG_PARAVIRT_XEN)	+= grant-table.o features.o events.o balloon.o
 
 xen-balloon_$(CONFIG_XEN)	:= balloon/
 xen-privcmd_$(CONFIG_XEN)	:= privcmd/
@@ -33,7 +33,8 @@ obj-$(CONFIG_XEN)			+= features.o $(xen-backend-y) $(xen-backend-m)
 obj-$(CONFIG_XEN_PRIVILEGED_GUEST)	+= $(priv-y)
 dom0-$(CONFIG_PCI) += pci.o
 dom0-$(CONFIG_USB_SUPPORT) += dbgp.o
-dom0-$(CONFIG_ACPI) += acpi.o
+dom0-$(CONFIG_ACPI) += acpi.o $(xen-pad-y)
+xen-pad-$(CONFIG_X86) += xen-acpi-pad.o
 dom0-$(CONFIG_X86) += pcpu.o
 obj-$(CONFIG_XEN_DOM0)			+= $(dom0-y)
 obj-$(CONFIG_BLOCK)			+= $(xen-biomerge-y)

@@ -59,7 +59,7 @@
 #include <asm/ftrace.h>
 #include <asm/percpu.h>
 #include <asm/asm.h>
-#include <asm/rcu.h>
+#include <asm/context_tracking.h>
 #include <asm/smap.h>
 #include <linux/err.h>
 #include <xen/interface/xen.h>
@@ -857,10 +857,25 @@ ENTRY(\label)
 END(\label)
 	.endm
 
-	PTREGSCALL stub_clone, sys_clone, %r8
-	PTREGSCALL stub_fork, sys_fork, %rdi
-	PTREGSCALL stub_vfork, sys_vfork, %rdi
-	PTREGSCALL stub_sigaltstack, sys_sigaltstack, %rdx
+	.macro FORK_LIKE func
+ENTRY(stub_\func)
+	CFI_STARTPROC
+	popq	%r11			/* save return address */
+	PARTIAL_FRAME 0
+	SAVE_REST
+	pushq	%r11			/* put it back on stack */
+	FIXUP_TOP_OF_STACK %r11, 8
+	DEFAULT_FRAME 0 8		/* offset 8: return address */
+	call sys_\func
+	RESTORE_TOP_OF_STACK %r11, 8
+	ret $REST_SKIP		/* pop extended registers */
+	CFI_ENDPROC
+END(stub_\func)
+	.endm
+
+	FORK_LIKE  clone
+	FORK_LIKE  fork
+	FORK_LIKE  vfork
 	PTREGSCALL stub_iopl, sys_iopl, %rsi
 
 ENTRY(ptregscall_common)
@@ -909,8 +924,6 @@ ENTRY(stub_rt_sigreturn)
 END(stub_rt_sigreturn)
 
 #ifdef CONFIG_X86_X32_ABI
-	PTREGSCALL stub_x32_sigaltstack, sys32_sigaltstack, %rdx
-
 ENTRY(stub_x32_rt_sigreturn)
 	CFI_STARTPROC
 	addq $8, %rsp

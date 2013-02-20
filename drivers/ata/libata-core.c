@@ -67,6 +67,7 @@
 #include <linux/cdrom.h>
 #include <linux/ratelimit.h>
 #include <linux/pm_runtime.h>
+#include <linux/platform_device.h>
 
 #include "libata.h"
 #include "libata-transport.h"
@@ -6291,8 +6292,7 @@ void ata_host_detach(struct ata_host *host)
  */
 void ata_pci_remove_one(struct pci_dev *pdev)
 {
-	struct device *dev = &pdev->dev;
-	struct ata_host *host = dev_get_drvdata(dev);
+	struct ata_host *host = pci_get_drvdata(pdev);
 
 	ata_host_detach(host);
 }
@@ -6361,7 +6361,7 @@ int ata_pci_device_do_resume(struct pci_dev *pdev)
 
 int ata_pci_device_suspend(struct pci_dev *pdev, pm_message_t mesg)
 {
-	struct ata_host *host = dev_get_drvdata(&pdev->dev);
+	struct ata_host *host = pci_get_drvdata(pdev);
 	int rc = 0;
 
 	rc = ata_host_suspend(host, mesg);
@@ -6375,7 +6375,7 @@ int ata_pci_device_suspend(struct pci_dev *pdev, pm_message_t mesg)
 
 int ata_pci_device_resume(struct pci_dev *pdev)
 {
-	struct ata_host *host = dev_get_drvdata(&pdev->dev);
+	struct ata_host *host = pci_get_drvdata(pdev);
 	int rc;
 
 	rc = ata_pci_device_do_resume(pdev);
@@ -6386,6 +6386,26 @@ int ata_pci_device_resume(struct pci_dev *pdev)
 #endif /* CONFIG_PM */
 
 #endif /* CONFIG_PCI */
+
+/**
+ *	ata_platform_remove_one - Platform layer callback for device removal
+ *	@pdev: Platform device that was removed
+ *
+ *	Platform layer indicates to libata via this hook that hot-unplug or
+ *	module unload event has occurred.  Detach all ports.  Resource
+ *	release is handled via devres.
+ *
+ *	LOCKING:
+ *	Inherited from platform layer (may sleep).
+ */
+int ata_platform_remove_one(struct platform_device *pdev)
+{
+	struct ata_host *host = platform_get_drvdata(pdev);
+
+	ata_host_detach(host);
+
+	return 0;
+}
 
 static int __init ata_parse_force_one(char **cur,
 				      struct ata_force_ent *force_ent,
@@ -6881,6 +6901,8 @@ EXPORT_SYMBOL_GPL(ata_pci_device_suspend);
 EXPORT_SYMBOL_GPL(ata_pci_device_resume);
 #endif /* CONFIG_PM */
 #endif /* CONFIG_PCI */
+
+EXPORT_SYMBOL_GPL(ata_platform_remove_one);
 
 EXPORT_SYMBOL_GPL(__ata_ehi_push_desc);
 EXPORT_SYMBOL_GPL(ata_ehi_push_desc);

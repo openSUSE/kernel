@@ -252,8 +252,8 @@ typedef struct evtchn_unmask evtchn_unmask_t;
  *  2. Only a sufficiently-privileged domain may specify other than DOMID_SELF.
  */
 struct evtchn_reset {
-    /* IN parameters. */
-    domid_t dom;
+	/* IN parameters. */
+	domid_t dom;
 };
 typedef struct evtchn_reset evtchn_reset_t;
 

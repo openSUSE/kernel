@@ -874,7 +874,7 @@ out:
 	return res;
 }
 
-static loff_t nfs_llseek_dir(struct file *filp, loff_t offset, int origin)
+static loff_t nfs_llseek_dir(struct file *filp, loff_t offset, int whence)
 {
 	struct dentry *dentry = filp->f_path.dentry;
 	struct inode *inode = dentry->d_inode;
@@ -883,10 +883,10 @@ static loff_t nfs_llseek_dir(struct file *filp, loff_t offset, int origin)
 	dfprintk(FILE, "NFS: llseek dir(%s/%s, %lld, %d)\n",
 			dentry->d_parent->d_name.name,
 			dentry->d_name.name,
-			offset, origin);
+			offset, whence);
 
 	mutex_lock(&inode->i_mutex);
-	switch (origin) {
+	switch (whence) {
 		case 1:
 			offset += filp->f_pos;
 		case 0:
@@ -982,10 +982,11 @@ static int nfs_is_exclusive_create(struct inode *dir, unsigned int flags)
  * particular file and the "nocto" mount flag is not set.
  *
  */
-static inline
+static
 int nfs_lookup_verify_inode(struct inode *inode, unsigned int flags)
 {
 	struct nfs_server *server = NFS_SERVER(inode);
+	int ret;
 
 	if (IS_AUTOMOUNT(inode))
 		return 0;
@@ -996,9 +997,13 @@ int nfs_lookup_verify_inode(struct inode *inode, unsigned int flags)
 	if ((flags & LOOKUP_OPEN) && !(server->flags & NFS_MOUNT_NOCTO) &&
 	    (S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode)))
 		goto out_force;
-	return 0;
+out:
+	return (inode->i_nlink == 0) ? -ENOENT : 0;
 out_force:
-	return __nfs_revalidate_inode(server, inode);
+	ret = __nfs_revalidate_inode(server, inode);
+	if (ret != 0)
+		return ret;
+	goto out;
 }
 
 /*

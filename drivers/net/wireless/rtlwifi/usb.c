@@ -639,6 +639,7 @@ static int _rtl_usb_receive(struct ieee80211_hw *hw)
 			RT_TRACE(rtlpriv, COMP_USB, DBG_EMERG,
 				 "Failed to prep_rx_urb!!\n");
 			err = PTR_ERR(skb);
+			usb_free_urb(urb);
 			goto err_out;
 		}
 
@@ -939,7 +940,7 @@ static struct rtl_intf_ops rtl_usb_ops = {
 	.waitq_insert = rtl_usb_tx_chk_waitq_insert,
 };
 
-int __devinit rtl_usb_probe(struct usb_interface *intf,
+int rtl_usb_probe(struct usb_interface *intf,
 			const struct usb_device_id *id)
 {
 	int err;

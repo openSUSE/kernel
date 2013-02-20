@@ -134,10 +134,9 @@ static inline bool freezer_should_skip(struct task_struct *p)
 }
 
 /*
- * These macros are intended to be used whenever you want allow a task that's
- * sleeping in TASK_UNINTERRUPTIBLE or TASK_KILLABLE state to be frozen. Note
- * that neither return any clear indication of whether a freeze event happened
- * while in this function.
+ * These macros are intended to be used whenever you want allow a sleeping
+ * task to be frozen. Note that neither return any clear indication of
+ * whether a freeze event happened while in this function.
  */
 
 /* Like schedule(), but should not block the freezer. */
@@ -211,6 +210,7 @@ static inline int freeze_kernel_threads(void) { return -ENOSYS; }
 static inline void thaw_processes(void) {}
 static inline void thaw_kernel_threads(void) {}
 
+static inline bool try_to_freeze_nowarn(void) { return false; }
 static inline bool try_to_freeze(void) { return false; }
 
 static inline void freezer_do_not_count(void) {}

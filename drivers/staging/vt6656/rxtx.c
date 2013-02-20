@@ -355,7 +355,7 @@ s_vFillTxKey (
         }
         // Append IV after Mac Header
         *pdwIV &= WEP_IV_MASK;//00000000 11111111 11111111 11111111
-        *pdwIV |= (pDevice->byKeyIndex << 30);
+	*pdwIV |= (u32)pDevice->byKeyIndex << 30;
         *pdwIV = cpu_to_le32(*pdwIV);
         pDevice->dwIVCounter++;
         if (pDevice->dwIVCounter > WEP_IV_MASK) {
@@ -1453,12 +1453,10 @@ s_bPacketToWirelessUsb(
 
 
     pvRrvTime = pMICHDR = pvRTS = pvCTS = pvTxDataHd = NULL;
-    if ((bNeedEncryption) && (pTransmitKey != NULL))  {
-        if (((PSKeyTable) (pTransmitKey->pvKeyTable))->bSoftWEP == TRUE) {
-            // WEP 256
-            bSoftWEP = TRUE;
-        }
-    }
+	if (bNeedEncryption && pTransmitKey->pvKeyTable) {
+		if (((PSKeyTable)&pTransmitKey->pvKeyTable)->bSoftWEP == TRUE)
+			bSoftWEP = TRUE; /* WEP 256 */
+	}
 
     pTxBufHead = (PTX_BUFFER) usbPacketBuf;
     memset(pTxBufHead, 0, sizeof(TX_BUFFER));
@@ -3038,11 +3036,6 @@ int nsDMA_tx_packet(PSDevice pDevice, unsigned int uDMAIdx, struct sk_buff *skb)
                 }
             }
 
-            if (pDevice->byCntMeasure == 2) {
-                bNeedDeAuth = TRUE;
-                pDevice->s802_11Counter.TKIPCounterMeasuresInvoked++;
-            }
-
             if (pDevice->bEnableHostWEP) {
                 if ((uNodeIndex != 0) &&
                     (pMgmt->sNodeDBTable[uNodeIndex].dwKeyIndex & PAIRWISE_KEY)) {
@@ -3056,6 +3049,7 @@ int nsDMA_tx_packet(PSDevice pDevice, unsigned int uDMAIdx, struct sk_buff *skb)
 
             if (pTransmitKey == NULL) {
                 DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"return no tx key\n");
+		pContext->bBoolInUse = FALSE;
                 dev_kfree_skb_irq(skb);
                 pStats->tx_dropped++;
                 return STATUS_FAILURE;

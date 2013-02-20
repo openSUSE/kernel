@@ -147,10 +147,8 @@ static const struct file_operations fops_tlbflush = {
 
 static int __init create_tlb_flushall_shift(void)
 {
-	if (cpu_has_invlpg) {
-		debugfs_create_file("tlb_flushall_shift", S_IRUSR | S_IWUSR,
-			arch_debugfs_dir, NULL, &fops_tlbflush);
-	}
+	debugfs_create_file("tlb_flushall_shift", S_IRUSR | S_IWUSR,
+			    arch_debugfs_dir, NULL, &fops_tlbflush);
 	return 0;
 }
 late_initcall(create_tlb_flushall_shift);

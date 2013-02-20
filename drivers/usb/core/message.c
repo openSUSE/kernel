@@ -1540,7 +1540,6 @@ static void usb_release_interface(struct device *dev)
 	kfree(intf);
 }
 
-#ifdef	CONFIG_HOTPLUG
 static int usb_if_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
 	struct usb_device *usb_dev;
@@ -1574,14 +1573,6 @@ static int usb_if_uevent(struct device *dev, struct kobj_uevent_env *env)
 
 	return 0;
 }
-
-#else
-
-static int usb_if_uevent(struct device *dev, struct kobj_uevent_env *env)
-{
-	return -ENODEV;
-}
-#endif	/* CONFIG_HOTPLUG */
 
 struct device_type usb_if_device_type = {
 	.name =		"usb_interface",
@@ -1795,7 +1786,8 @@ free_interfaces:
 	if (dev->actconfig && usb_disable_lpm(dev)) {
 		dev_err(&dev->dev, "%s Failed to disable LPM\n.", __func__);
 		mutex_unlock(hcd->bandwidth_mutex);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto free_interfaces;
 	}
 	ret = usb_hcd_alloc_bandwidth(dev, cp, NULL, NULL);
 	if (ret < 0) {

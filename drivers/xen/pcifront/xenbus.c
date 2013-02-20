@@ -147,7 +147,7 @@ static int pcifront_publish_info(struct pcifront_device *pdev)
 	return err;
 }
 
-static int __devinit pcifront_try_connect(struct pcifront_device *pdev)
+static int pcifront_try_connect(struct pcifront_device *pdev)
 {
 	int err = -EFAULT;
 	int i, num_roots, len;
@@ -243,7 +243,7 @@ static int pcifront_try_disconnect(struct pcifront_device *pdev)
 	return err;
 }
 
-static int __devinit pcifront_attach_devices(struct pcifront_device *pdev)
+static int pcifront_attach_devices(struct pcifront_device *pdev)
 {
 	int err = -EFAULT;
 	int i, num_roots, len;

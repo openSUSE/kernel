@@ -25,7 +25,7 @@
 #include <asm/setup.h>
 
 #if IS_ENABLED(CONFIG_HOTPLUG_PCI)
-#define __pcihp_init __devinit
+#define __pcihp_init
 #else
 #define __pcihp_init __init
 #endif
@@ -44,7 +44,7 @@ static inline resource_size_t __pcihp_init pci_iomul_len(
 
 #define ROUND_UP(x, a)		(((x) + (a) - 1) & ~((a) - 1))
 /* stolen from pbus_size_io() */
-static unsigned long __devinit pdev_size_io(struct pci_dev *pdev)
+static unsigned long pdev_size_io(struct pci_dev *pdev)
 {
 	unsigned long size = 0, size1 = 0;
 	int i;
@@ -155,8 +155,8 @@ out:
 }
 EXPORT_SYMBOL_GPL(pci_iomul_get_lock_switch);
 
-static struct pci_iomul_switch *__devinit pci_iomul_switch_alloc(int segment,
-								 uint8_t bus)
+static struct pci_iomul_switch *pci_iomul_switch_alloc(int segment,
+						       uint8_t bus)
 {
 	struct pci_iomul_switch *sw;
 
@@ -179,22 +179,22 @@ static struct pci_iomul_switch *__devinit pci_iomul_switch_alloc(int segment,
 	return sw;
 }
 
-static void __devinit pci_iomul_switch_add_locked(struct pci_iomul_switch *sw)
+static void pci_iomul_switch_add_locked(struct pci_iomul_switch *sw)
 {
 	BUG_ON(!mutex_is_locked(&switch_list_lock));
 	list_add(&sw->list, &switch_list);
 }
 
 #if IS_ENABLED(CONFIG_HOTPLUG_PCI)
-static void __devinit pci_iomul_switch_del_locked(struct pci_iomul_switch *sw)
+static void pci_iomul_switch_del_locked(struct pci_iomul_switch *sw)
 {
 	BUG_ON(!mutex_is_locked(&switch_list_lock));
 	list_del(&sw->list);
 }
 #endif
 
-static int __devinit pci_iomul_slot_init(struct pci_dev *pdev,
-					 struct pci_iomul_slot *slot)
+static int pci_iomul_slot_init(struct pci_dev *pdev,
+			       struct pci_iomul_slot *slot)
 {
 	u16 rpcap;
 	u16 cap;
@@ -234,8 +234,7 @@ static int __devinit pci_iomul_slot_init(struct pci_dev *pdev,
 	return 0;
 }
 
-static struct pci_iomul_slot *__devinit pci_iomul_slot_alloc(
-	struct pci_dev *pdev)
+static struct pci_iomul_slot *pci_iomul_slot_alloc(struct pci_dev *pdev)
 {
 	struct pci_iomul_slot *slot;
 
@@ -250,16 +249,16 @@ static struct pci_iomul_slot *__devinit pci_iomul_slot_alloc(
 	return slot;
 }
 
-static void __devinit pci_iomul_slot_add_locked(struct pci_iomul_switch *sw,
-						struct pci_iomul_slot *slot)
+static void pci_iomul_slot_add_locked(struct pci_iomul_switch *sw,
+				      struct pci_iomul_slot *slot)
 {
 	BUG_ON(!mutex_is_locked(&sw->lock));
 	list_add(&slot->sibling, &sw->slots);
 }
 
 #if IS_ENABLED(CONFIG_HOTPLUG_PCI)
-static void __devinit pci_iomul_slot_del_locked(struct pci_iomul_switch *sw,
-						struct pci_iomul_slot *slot)
+static void pci_iomul_slot_del_locked(struct pci_iomul_switch *sw,
+				      struct pci_iomul_slot *slot)
 {
 	BUG_ON(!mutex_is_locked(&sw->lock));
 	list_del(&slot->sibling);
@@ -267,36 +266,34 @@ static void __devinit pci_iomul_slot_del_locked(struct pci_iomul_switch *sw,
 #endif
 
 /*****************************************************************************/
-static int __devinit pci_get_sbd(const char *str, int *segment__,
-				 uint8_t *bus__, uint8_t *dev__)
+static int pci_get_sbd(const char *str, int *pseg, uint8_t *pbus,
+		       uint8_t *pdev)
 {
-	int segment;
-	int bus;
-	int dev;
+	int seg, bus, dev;
 
-	if (sscanf(str, "%x:%x:%x", &segment, &bus, &dev) != 3) {
+	if (sscanf(str, "%x:%x:%x", &seg, &bus, &dev) != 3) {
 		if (sscanf(str, "%x:%x", &bus, &dev) == 2)
-			segment = 0;
+			seg = 0;
 		else
 			return -EINVAL;
 	}
 
-	if (segment < 0 || INT_MAX <= segment)
+	if (seg < 0 || INT_MAX <= seg)
 		return -EINVAL;
 	if (bus < 0 || PCI_BUS_MAX < bus)
 		return -EINVAL;
 	if (dev < 0 || PCI_DEV_MAX < dev)
 		return -EINVAL;
 
-	*segment__ = segment;
-	*bus__ = bus;
-	*dev__ = dev;
+	*pseg = seg;
+	*pbus = bus;
+	*pdev = dev;
 	return 0;
 }
 
-static char __devinitdata iomul_param[COMMAND_LINE_SIZE];
+static char iomul_param[COMMAND_LINE_SIZE];
 #define TOKEN_MAX	10	/* SSSS:BB:DD length is 10 */
-static int __devinit pci_is_iomul_dev_param(struct pci_dev *pdev)
+static int pci_is_iomul_dev_param(struct pci_dev *pdev)
 {
 	int len;
 	char *p;
@@ -347,9 +344,8 @@ static int __init pci_iomul_param_setup(char *str)
 __setup("guestiomuldev=", pci_iomul_param_setup);
 
 /*****************************************************************************/
-static void __devinit pci_iomul_set_bridge_io_window(struct pci_dev *bridge,
-						     uint32_t io_base,
-						     uint32_t io_limit)
+static void pci_iomul_set_bridge_io_window(struct pci_dev *bridge,
+					   uint32_t io_base, uint32_t io_limit)
 {
 	uint16_t l;
 	uint32_t upper16;
@@ -370,15 +366,14 @@ static void __devinit pci_iomul_set_bridge_io_window(struct pci_dev *bridge,
 	pci_write_config_dword(bridge, PCI_IO_BASE_UPPER16, upper16);
 }
 
-static void __devinit pci_disable_bridge_io_window(struct pci_dev *bridge)
+static void pci_disable_bridge_io_window(struct pci_dev *bridge)
 {
 	/* set base = 0xffffff limit = 0x0 */
 	pci_iomul_set_bridge_io_window(bridge, 0xffffff, 0);
 }
 
-static int __devinit pci_iomul_func_scan(struct pci_dev *pdev,
-					 struct pci_iomul_slot *slot,
-					 uint8_t func)
+static int pci_iomul_func_scan(struct pci_dev *pdev,
+			       struct pci_iomul_slot *slot, uint8_t func)
 {
 	struct pci_iomul_func *f;
 	unsigned int i;
@@ -422,7 +417,7 @@ static int __devinit pci_iomul_func_scan(struct pci_dev *pdev,
  * we must prevent those resources from reassigning when pci hot plug.
  * To achieve that, set r->parent to dummy resource.
  */
-static inline void __devinit pci_iomul_disable_resource(struct resource *r)
+static inline void pci_iomul_disable_resource(struct resource *r)
 {
 	/* don't allocate this resource */
 	r->flags = 0;
@@ -442,9 +437,9 @@ static void __pcihp_init pci_iomul_reenable_resource(
 	BUG_ON(ret);
 }
 
-static void __devinit pci_iomul_fixup_ioresource(struct pci_dev *pdev,
-						 struct pci_iomul_func *func,
-						 int reassign, int dealloc)
+static void pci_iomul_fixup_ioresource(struct pci_dev *pdev,
+				       struct pci_iomul_func *func,
+				       bool reassign, bool dealloc)
 {
 	uint8_t i;
 	struct resource *r;
@@ -487,9 +482,9 @@ static void __devinit pci_iomul_fixup_ioresource(struct pci_dev *pdev,
 	}
 }
 
-static void __devinit __quirk_iomul_dealloc_ioresource(
-	struct pci_iomul_switch *sw,
-	struct pci_dev *pdev, struct pci_iomul_slot *slot)
+static void __quirk_iomul_dealloc_ioresource(struct pci_iomul_switch *sw,
+					     struct pci_dev *pdev,
+					     struct pci_iomul_slot *slot)
 {
 	struct pci_iomul_func *f;
 	struct pci_iomul_func *__f;
@@ -513,18 +508,17 @@ static void __devinit __quirk_iomul_dealloc_ioresource(
 			BUG_ON(!__pbus);
 			__pdev = pci_get_slot(__pbus, __f->devfn);
 			BUG_ON(!__pdev);
-			pci_iomul_fixup_ioresource(__pdev, __f, 0, 1);
+			pci_iomul_fixup_ioresource(__pdev, __f, false, true);
 			pci_dev_put(__pdev);
 		}
 
-		pci_iomul_fixup_ioresource(pdev, f, 1, 0);
+		pci_iomul_fixup_ioresource(pdev, f, true, false);
 		sw->func = f;
-	} else {
-		pci_iomul_fixup_ioresource(pdev, f, 1, 1);
-	}
+	} else
+		pci_iomul_fixup_ioresource(pdev, f, true, true);
 }
 
-static void __devinit quirk_iomul_dealloc_ioresource(struct pci_dev *pdev)
+static void quirk_iomul_dealloc_ioresource(struct pci_dev *pdev)
 {
 	struct pci_iomul_switch *sw;
 	struct pci_iomul_slot *slot;
@@ -797,7 +791,7 @@ DECLARE_PCI_FIXUP_FINAL(PCI_ANY_ID, PCI_ANY_ID,
 
 /*****************************************************************************/
 #if IS_ENABLED(CONFIG_HOTPLUG_PCI)
-static int __devinit __pci_iomul_notifier_del_device(struct pci_dev *pdev)
+static int __pci_iomul_notifier_del_device(struct pci_dev *pdev)
 {
 	struct pci_iomul_switch *sw;
 	struct pci_iomul_slot *slot;
@@ -825,7 +819,7 @@ out:
 	return 0;
 }
 
-static int __devinit __pci_iomul_notifier_del_switch(struct pci_dev *pdev)
+static int __pci_iomul_notifier_del_switch(struct pci_dev *pdev)
 {
 	struct pci_iomul_switch *sw;
 
@@ -851,7 +845,7 @@ out:
 	return 0;
 }
 
-static int __devinit pci_iomul_notifier_del_device(struct pci_dev *pdev)
+static int pci_iomul_notifier_del_device(struct pci_dev *pdev)
 {
 	int ret;
 	switch (pdev->hdr_type) {
@@ -871,8 +865,8 @@ static int __devinit pci_iomul_notifier_del_device(struct pci_dev *pdev)
 	return ret;
 }
 
-static int __devinit pci_iomul_notifier(struct notifier_block *nb,
-					unsigned long action, void *data)
+static int pci_iomul_notifier(struct notifier_block *nb,
+			      unsigned long action, void *data)
 {
 	struct device *dev = data;
 	struct pci_dev *pdev = to_pci_dev(dev);
@@ -889,7 +883,7 @@ static int __devinit pci_iomul_notifier(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
-static struct notifier_block __devinitdata pci_iomul_nb = {
+static struct notifier_block pci_iomul_nb = {
 	.notifier_call = pci_iomul_notifier,
 };
 

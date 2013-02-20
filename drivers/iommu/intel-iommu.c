@@ -4234,7 +4234,7 @@ static struct iommu_ops intel_iommu_ops = {
 	.pgsize_bitmap	= INTEL_IOMMU_PGSIZES,
 };
 
-static void __devinit quirk_iommu_g4x_gfx(struct pci_dev *dev)
+static void quirk_iommu_g4x_gfx(struct pci_dev *dev)
 {
 	/* G4x/GM45 integrated gfx dmar support is totally busted. */
 	printk(KERN_INFO "DMAR: Disabling IOMMU for graphics on this chipset\n");
@@ -4249,7 +4249,7 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2e30, quirk_iommu_g4x_gfx);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2e40, quirk_iommu_g4x_gfx);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2e90, quirk_iommu_g4x_gfx);
 
-static void __devinit quirk_iommu_rwbf(struct pci_dev *dev)
+static void quirk_iommu_rwbf(struct pci_dev *dev)
 {
 	/*
 	 * Mobile 4 Series Chipset neglects to set RWBF capability,
@@ -4271,7 +4271,7 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2a40, quirk_iommu_rwbf);
 #define GGC_MEMORY_SIZE_3M_VT	(0xa << 8)
 #define GGC_MEMORY_SIZE_4M_VT	(0xb << 8)
 
-static void __devinit quirk_calpella_no_shadow_gtt(struct pci_dev *dev)
+static void quirk_calpella_no_shadow_gtt(struct pci_dev *dev)
 {
 	unsigned short ggc;
 

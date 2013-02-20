@@ -18,6 +18,9 @@
 #include <linux/kernel.h>
 #include <asm/acpi.h>
 #include <asm/page.h>
+#ifdef CONFIG_PARAVIRT_CLOCK
+#include <asm/pvclock.h>
+#endif
 #ifdef CONFIG_X86_32
 #include <linux/threads.h>
 #include <asm/kmap_types.h>
@@ -79,6 +82,10 @@ enum fixed_addresses {
 			    + ((VSYSCALL_END-VSYSCALL_START) >> PAGE_SHIFT) - 1,
 	VVAR_PAGE,
 	VSYSCALL_HPET,
+#endif
+#ifdef CONFIG_PARAVIRT_CLOCK
+	PVCLOCK_FIXMAP_BEGIN,
+	PVCLOCK_FIXMAP_END = PVCLOCK_FIXMAP_BEGIN+PVCLOCK_VSYSCALL_NR_PAGES-1,
 #endif
 	FIX_DBGP_BASE,
 	FIX_EARLYCON_MEM_BASE,

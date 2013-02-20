@@ -556,7 +556,7 @@ static void pgd_dtor(pgd_t *pgd)
  * against pageattr.c; it is the unique case in which a valid change
  * of kernel pagetables can't be lazily synchronized by vmalloc faults.
  * vmalloc faults work because attached pagetables are never freed.
- * -- wli
+ * -- nyc
  */
 
 #ifdef CONFIG_X86_PAE
@@ -793,6 +793,13 @@ pte_t xen_ptep_get_and_clear_full(struct vm_area_struct *vma,
 }
 EXPORT_SYMBOL_GPL(xen_ptep_get_and_clear_full);
 
+/*
+ * Used to set accessed or dirty bits in the page table entries
+ * on other architectures. On x86, the accessed and dirty bits
+ * are tracked by hardware. However, do_wp_page calls this function
+ * to also make the pte writeable at the same time the dirty bit is
+ * set. In that case we do actually need to write the PTE.
+ */
 int ptep_set_access_flags(struct vm_area_struct *vma,
 			  unsigned long address, pte_t *ptep,
 			  pte_t entry, int dirty)
@@ -801,13 +808,11 @@ int ptep_set_access_flags(struct vm_area_struct *vma,
 
 	if (changed && dirty) {
 		if (likely(vma->vm_mm == current->mm)) {
-			if (HYPERVISOR_update_va_mapping(address,
-				entry,
-				uvm_multi(mm_cpumask(vma->vm_mm))|UVMF_INVLPG))
+			if (HYPERVISOR_update_va_mapping(address, entry,
+							 UVMF_NONE))
 				BUG();
 		} else {
 			xen_l1_entry_update(ptep, entry);
-			flush_tlb_page(vma, address);
 		}
 	}
 

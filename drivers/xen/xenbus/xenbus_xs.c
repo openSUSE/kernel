@@ -284,10 +284,8 @@ static void *xs_talkv(struct xenbus_transaction t,
 	}
 
 	if (msg.type != type) {
-		if (printk_ratelimit())
-			pr_warning("XENBUS unexpected type [%d],"
-				   " expected [%d]\n",
-				   msg.type, type);
+		pr_warn_ratelimited("XENBUS unexpected type [%d], expected [%d]\n",
+				    msg.type, type);
 		kfree(ret);
 		return ERR_PTR(-EINVAL);
 	}
@@ -984,8 +982,6 @@ static int xenbus_thread(void *unused)
 int
 #ifndef MODULE
 __init
-#else
-__devinit
 #endif
 xs_init(void)
 {

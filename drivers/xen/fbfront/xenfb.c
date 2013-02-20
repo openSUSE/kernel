@@ -547,8 +547,7 @@ static unsigned long vmalloc_to_mfn(void *address)
 	return pfn_to_mfn(vmalloc_to_pfn(address));
 }
 
-static __devinit void
-xenfb_make_preferred_console(void)
+static void xenfb_make_preferred_console(void)
 {
 	struct console *c;
 
@@ -569,8 +568,8 @@ xenfb_make_preferred_console(void)
 	}
 }
 
-static int __devinit xenfb_probe(struct xenbus_device *dev,
-				 const struct xenbus_device_id *id)
+static int xenfb_probe(struct xenbus_device *dev,
+		       const struct xenbus_device_id *id)
 {
 	struct xenfb_info *info;
 	struct fb_info *fb_info;

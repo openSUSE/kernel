@@ -88,7 +88,6 @@ config XEN_PCIDEV_FRONTEND
 	def_bool y
 	prompt "Xen PCI Frontend" if X86_64 && !XEN_UNPRIVILEGED_GUEST
 	depends on PCI && XEN && (PCI_GOXEN_FE || PCI_GOANY || X86_64)
- 	select HOTPLUG
 	help
 	  The PCI device frontend driver allows the kernel to import arbitrary
 	  PCI devices from a PCI backend to support PCI driver domains.

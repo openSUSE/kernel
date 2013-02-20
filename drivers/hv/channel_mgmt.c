@@ -298,7 +298,6 @@ static const uuid_le hp_devs[] = {
 };
 
 
-#if 0
 /*
  * We use this state to statically distribute the channel interrupt load.
  */
@@ -338,12 +337,8 @@ static u32 get_vp_index(uuid_le *type_guid)
 		return 0;
 	}
 	cur_cpu = (++next_vp % max_cpus);
-	return hv_context.vp_index[cur_cpu];
+	return cur_cpu;
 }
-#else
-/* Legacy IRQs can not be handled on all cpus, bind to cpu 0. */
-static inline u32 get_vp_index(uuid_le *type_guid) { return 0; }
-#endif
 
 /*
  * vmbus_onoffer - Handler for channel offers from vmbus in parent partition.
@@ -353,13 +348,8 @@ static void vmbus_onoffer(struct vmbus_channel_message_header *hdr)
 {
 	struct vmbus_channel_offer_channel *offer;
 	struct vmbus_channel *newchannel;
-	uuid_le *guidtype;
-	uuid_le *guidinstance;
 
 	offer = (struct vmbus_channel_offer_channel *)hdr;
-
-	guidtype = &offer->offer.if_type;
-	guidinstance = &offer->offer.if_instance;
 
 	/* Allocate the channel object and save this offer. */
 	newchannel = alloc_channel();
@@ -587,7 +577,6 @@ static void vmbus_onversion_response(
 {
 	struct vmbus_channel_msginfo *msginfo;
 	struct vmbus_channel_message_header *requestheader;
-	struct vmbus_channel_initiate_contact *initiate;
 	struct vmbus_channel_version_response *version_response;
 	unsigned long flags;
 
@@ -601,8 +590,6 @@ static void vmbus_onversion_response(
 
 		if (requestheader->msgtype ==
 		    CHANNELMSG_INITIATE_CONTACT) {
-			initiate =
-			(struct vmbus_channel_initiate_contact *)requestheader;
 			memcpy(&msginfo->response.version_response,
 			      version_response,
 			      sizeof(struct vmbus_channel_version_response));

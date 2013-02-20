@@ -197,12 +197,6 @@ void read_persistent_clock(struct timespec *ts)
 	ts->tv_nsec = 0;
 }
 
-unsigned long long native_read_tsc(void)
-{
-	return __native_read_tsc();
-}
-EXPORT_SYMBOL(native_read_tsc);
-
 
 #ifndef CONFIG_XEN_UNPRIVILEGED_GUEST
 static struct resource rtc_resources[] = {

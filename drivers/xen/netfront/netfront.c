@@ -205,8 +205,6 @@ static inline grant_ref_t xennet_get_rx_ref(struct netfront_info *np,
 #define DPRINTK(fmt, args...)				\
 	pr_debug("netfront (%s:%d) " fmt,		\
 		 __FUNCTION__, __LINE__, ##args)
-#define IPRINTK(fmt, args...) pr_info("netfront: " fmt, ##args)
-#define WPRINTK(fmt, args...) pr_warning("netfront: " fmt, ##args)
 
 static int setup_device(struct xenbus_device *, struct netfront_info *);
 static struct net_device *create_netdev(struct xenbus_device *);
@@ -237,7 +235,7 @@ static inline bool xennet_can_sg(struct net_device *dev)
 /*
  * Work around net.ipv4.conf.*.arp_notify not being enabled by default.
  */
-static void __devinit netfront_enable_arp_notify(struct netfront_info *info)
+static void netfront_enable_arp_notify(struct netfront_info *info)
 {
 #ifdef CONFIG_INET
 	struct in_device *in_dev;
@@ -258,8 +256,8 @@ static void __devinit netfront_enable_arp_notify(struct netfront_info *info)
  * structures and the ring buffers for communication with the backend, and
  * inform the backend of the appropriate details for those.
  */
-static int __devinit netfront_probe(struct xenbus_device *dev,
-				    const struct xenbus_device_id *id)
+static int netfront_probe(struct xenbus_device *dev,
+			  const struct xenbus_device_id *id)
 {
 	int err;
 	struct net_device *netdev;
@@ -300,7 +298,7 @@ static int __devinit netfront_probe(struct xenbus_device *dev,
 	return err;
 }
 
-static int __devexit netfront_remove(struct xenbus_device *dev)
+static int netfront_remove(struct xenbus_device *dev)
 {
 	struct netfront_info *info = dev_get_drvdata(&dev->dev);
 
@@ -1131,7 +1129,8 @@ int xennet_get_extras(struct netfront_info *np,
 
 		if (unlikely(cons + 1 == rp)) {
 			if (net_ratelimit())
-				WPRINTK("Missing extra info\n");
+				netdev_warn(np->netdev,
+					    "Missing extra info\n");
 			err = -EBADR;
 			break;
 		}
@@ -1142,8 +1141,9 @@ int xennet_get_extras(struct netfront_info *np,
 		if (unlikely(!extra->type ||
 			     extra->type >= XEN_NETIF_EXTRA_TYPE_MAX)) {
 			if (net_ratelimit())
-				WPRINTK("Invalid extra type: %d\n",
-					extra->type);
+				netdev_warn(np->netdev,
+					    "Invalid extra type: %d\n",
+					    extra->type);
 			err = -EINVAL;
 		} else {
 			memcpy(&extras[extra->type - 1], extra,
@@ -1188,8 +1188,9 @@ static int xennet_get_responses(struct netfront_info *np,
 		if (unlikely(rx->status < 0 ||
 			     rx->offset + rx->status > PAGE_SIZE)) {
 			if (net_ratelimit())
-				WPRINTK("rx->offset: %x, size: %u\n",
-					rx->offset, rx->status);
+				netdev_warn(np->netdev,
+					    "rx->offset: %x, size: %u\n",
+					    rx->offset, rx->status);
 			xennet_move_rx_slot(np, skb, ref);
 			err = -EINVAL;
 			goto next;
@@ -1202,7 +1203,9 @@ static int xennet_get_responses(struct netfront_info *np,
 		 */
 		if (ref == GRANT_INVALID_REF) {
 			if (net_ratelimit())
-				WPRINTK("Bad rx response id %d.\n", rx->id);
+				netdev_warn(np->netdev,
+					    "Bad rx response id %d.\n",
+					    rx->id);
 			err = -EINVAL;
 			goto next;
 		}
@@ -1212,9 +1215,9 @@ static int xennet_get_responses(struct netfront_info *np,
 			 * headroom, ... */
 			if (!(mfn = gnttab_end_foreign_transfer_ref(ref))) {
 				if (net_ratelimit())
-					WPRINTK("Unfulfilled rx req "
-						"(id=%d, st=%d).\n",
-						rx->id, rx->status);
+					netdev_warn(np->netdev,
+						    "Unfulfilled rx req (id=%d, st=%d).\n",
+						    rx->id, rx->status);
 				xennet_move_rx_slot(np, skb, ref);
 				err = -ENOMEM;
 				goto next;
@@ -1257,7 +1260,7 @@ next:
 
 		if (cons + frags == rp) {
 			if (net_ratelimit())
-				WPRINTK("Need more frags\n");
+				netdev_warn(np->netdev, "Need more frags\n");
 			err = -ENOENT;
 			break;
 		}
@@ -1270,7 +1273,7 @@ next:
 
 	if (unlikely(frags > max)) {
 		if (net_ratelimit())
-			WPRINTK("Too many frags\n");
+			netdev_warn(np->netdev, "Too many frags\n");
 		err = -E2BIG;
 	}
 
@@ -1316,14 +1319,16 @@ static int xennet_set_skb_gso(struct sk_buff *skb,
 {
 	if (!gso->u.gso.size) {
 		if (net_ratelimit())
-			WPRINTK("GSO size must not be zero.\n");
+			netdev_warn(skb->dev,
+				    "GSO size must not be zero.\n");
 		return -EINVAL;
 	}
 
 	/* Currently only TCPv4 S.O. is supported. */
 	if (gso->u.gso.type != XEN_NETIF_GSO_TYPE_TCPV4) {
 		if (net_ratelimit())
-			WPRINTK("Bad GSO type %d.\n", gso->u.gso.type);
+			netdev_warn(skb->dev, "Bad GSO type %d.\n",
+				    gso->u.gso.type);
 		return -EINVAL;
 	}
 
@@ -1340,7 +1345,7 @@ static int xennet_set_skb_gso(struct sk_buff *skb,
 	return 0;
 #else
 	if (net_ratelimit())
-		WPRINTK("GSO unsupported by this kernel.\n");
+		netdev_warn(skb->dev, "GSO unsupported by this kernel.\n");
 	return -EINVAL;
 #endif
 }
@@ -2101,7 +2106,7 @@ static const struct net_device_ops xennet_netdev_ops = {
 	.ndo_get_stats64        = xennet_get_stats64,
 };
 
-static struct net_device * __devinit create_netdev(struct xenbus_device *dev)
+static struct net_device *create_netdev(struct xenbus_device *dev)
 {
 	int i, err = 0;
 	struct net_device *netdev = NULL;
@@ -2236,7 +2241,7 @@ MODULE_ALIAS("xen:vif");
 
 static DEFINE_XENBUS_DRIVER(netfront, ,
 	.probe = netfront_probe,
-	.remove = __devexit_p(netfront_remove),
+	.remove = netfront_remove,
 	.suspend = netfront_suspend,
 	.suspend_cancel = netfront_suspend_cancel,
 	.resume = netfront_resume,
@@ -2251,7 +2256,7 @@ static int __init netif_init(void)
 
 #ifdef CONFIG_XEN
 	if (MODPARM_rx_flip && MODPARM_rx_copy) {
-		WPRINTK("Cannot specify both rx_copy and rx_flip.\n");
+		pr_warning("Cannot specify both rx_copy and rx_flip.\n");
 		return -EINVAL;
 	}
 
@@ -2261,7 +2266,7 @@ static int __init netif_init(void)
 
 	netif_init_accel();
 
-	IPRINTK("Initialising virtual ethernet driver.\n");
+	pr_info("Initialising virtual ethernet driver.\n");
 
 	return xenbus_register_frontend(&netfront_driver);
 }

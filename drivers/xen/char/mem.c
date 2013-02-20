@@ -63,7 +63,7 @@ static inline int range_is_allowed(unsigned long pfn, unsigned long size)
 static ssize_t read_mem(struct file *file, char __user *buf,
 			size_t count, loff_t *ppos)
 {
-	unsigned long p = *ppos;
+	phys_addr_t p = *ppos;
 	ssize_t read = 0, sz;
 	void __iomem *v;
 
@@ -109,8 +109,8 @@ static ssize_t read_mem(struct file *file, char __user *buf,
 static ssize_t write_mem(struct file *file, const char __user *buf,
 			 size_t count, loff_t *ppos)
 {
-	unsigned long p = *ppos, ignored;
-	ssize_t written = 0, sz;
+	phys_addr_t p = *ppos;
+	ssize_t written = 0, sz, ignored;
 	void __iomem *v;
 
 	while (count > 0) {

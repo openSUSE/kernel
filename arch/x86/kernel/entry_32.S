@@ -774,29 +774,10 @@ ENTRY(ptregs_##name) ; \
 ENDPROC(ptregs_##name)
 
 PTREGSCALL1(iopl)
-PTREGSCALL0(fork)
-PTREGSCALL0(vfork)
-PTREGSCALL2(sigaltstack)
 PTREGSCALL0(sigreturn)
 PTREGSCALL0(rt_sigreturn)
 PTREGSCALL2(vm86)
 PTREGSCALL1(vm86old)
-
-/* Clone is an oddball.  The 4th arg is in %edi */
-ENTRY(ptregs_clone)
-	CFI_STARTPROC
-	leal 4(%esp),%eax
-	pushl_cfi %eax
-	pushl_cfi PT_EDI(%eax)
-	movl PT_EDX(%eax),%ecx
-	movl PT_ECX(%eax),%edx
-	movl PT_EBX(%eax),%eax
-	call sys_clone
-	addl $8,%esp
-	CFI_ADJUST_CFA_OFFSET -8
-	ret
-	CFI_ENDPROC
-ENDPROC(ptregs_clone)
 
 .macro FIXUP_ESPFIX_STACK
 /*
@@ -1145,10 +1126,17 @@ ENTRY(xen_failsafe_callback)
 	_ASM_EXTABLE(4b,9b)
 ENDPROC(xen_failsafe_callback)
 
-BUILD_INTERRUPT3(xen_hvm_callback_vector, XEN_HVM_EVTCHN_CALLBACK,
+BUILD_INTERRUPT3(xen_hvm_callback_vector, HYPERVISOR_CALLBACK_VECTOR,
 		xen_evtchn_do_upcall)
 
 #endif	/* CONFIG_PARAVIRT_XEN */
+
+#if IS_ENABLED(CONFIG_HYPERV)
+
+BUILD_INTERRUPT3(hyperv_callback_vector, HYPERVISOR_CALLBACK_VECTOR,
+	hyperv_vector_handler)
+
+#endif /* CONFIG_HYPERV */
 
 #ifdef CONFIG_FUNCTION_TRACER
 #ifdef CONFIG_DYNAMIC_FTRACE

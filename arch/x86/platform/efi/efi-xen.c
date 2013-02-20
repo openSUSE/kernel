@@ -48,20 +48,20 @@
 
 #define EFI_DEBUG	1
 
-unsigned long x86_efi_facility;
+static unsigned long efi_facility;
 
 /*
  * Returns 1 if 'facility' is enabled, 0 otherwise.
  */
 int efi_enabled(int facility)
 {
-	return test_bit(facility, &x86_efi_facility) != 0;
+	return test_bit(facility, &efi_facility) != 0;
 }
 EXPORT_SYMBOL(efi_enabled);
 
 static int __init setup_noefi(char *arg)
 {
-	clear_bit(EFI_BOOT, &x86_efi_facility);
+	__clear_bit(EFI_BOOT, &efi_facility);
 	return 0;
 }
 early_param("noefi", setup_noefi);
@@ -321,7 +321,6 @@ struct efi __read_mostly efi = {
 };
 EXPORT_SYMBOL(efi);
 
-
 int efi_set_rtc_mmss(unsigned long nowtime)
 {
 	int real_seconds, real_minutes;
@@ -378,11 +377,11 @@ void __init efi_probe(void)
 	};
 
 	if (HYPERVISOR_platform_op(&op) == 0) {
-		__set_bit(EFI_BOOT, &x86_efi_facility);
-		__set_bit(EFI_64BIT, &x86_efi_facility);
-		__set_bit(EFI_SYSTEM_TABLES, &x86_efi_facility);
-		__set_bit(EFI_RUNTIME_SERVICES, &x86_efi_facility);
-		__set_bit(EFI_MEMMAP, &x86_efi_facility);
+		__set_bit(EFI_BOOT, &efi_facility);
+		__set_bit(EFI_64BIT, &efi_facility);
+		__set_bit(EFI_SYSTEM_TABLES, &efi_facility);
+		__set_bit(EFI_RUNTIME_SERVICES, &efi_facility);
+		__set_bit(EFI_MEMMAP, &efi_facility);
 	}
 }
 
@@ -478,16 +477,16 @@ void __init efi_init(void)
 	else
 		pr_warn("Could not get runtime services revision.\n");
 
+	x86_platform.get_wallclock = efi_get_time;
+	x86_platform.set_wallclock = efi_set_rtc_mmss;
+
 	op.u.firmware_info.index = XEN_FW_EFI_CONFIG_TABLE;
 	if (HYPERVISOR_platform_op(&op))
 		BUG();
 	if (efi_config_init(info->cfg.addr, info->cfg.nent))
 		return;
 
-	set_bit(EFI_CONFIG_TABLES, &x86_efi_facility);
-
-	x86_platform.get_wallclock = efi_get_time;
-	x86_platform.set_wallclock = efi_set_rtc_mmss;
+	__set_bit(EFI_CONFIG_TABLES, &efi_facility);
 }
 
 void __init efi_late_init(void)

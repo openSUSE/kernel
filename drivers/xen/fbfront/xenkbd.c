@@ -102,8 +102,7 @@ static irqreturn_t input_handler(int rq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-int __devinit xenkbd_probe(struct xenbus_device *dev,
-			   const struct xenbus_device_id *id)
+int xenkbd_probe(struct xenbus_device *dev, const struct xenbus_device_id *id)
 {
 	int ret, i, abs;
 	struct xenkbd_info *info;

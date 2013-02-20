@@ -1073,8 +1073,6 @@ static void xenbus_reset_state(void)
 void
 #if defined(CONFIG_XEN_UNPRIVILEGED_GUEST)
 __init
-#elif defined(MODULE)
-__devinit
 #endif
 xenbus_probe(struct work_struct *unused)
 {
@@ -1274,7 +1272,7 @@ enum xenstore_init {
 #ifndef MODULE
 static int __init
 #else
-int __devinit
+int
 #endif
 xenbus_init(void)
 {

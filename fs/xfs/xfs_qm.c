@@ -40,6 +40,7 @@
 #include "xfs_utils.h"
 #include "xfs_qm.h"
 #include "xfs_trace.h"
+#include "xfs_icache.h"
 
 /*
  * The global quota manager. There is only one of these for the entire
@@ -891,7 +892,8 @@ xfs_qm_dqiter_bufs(
 	while (blkcnt--) {
 		error = xfs_trans_read_buf(mp, NULL, mp->m_ddev_targp,
 			      XFS_FSB_TO_DADDR(mp, bno),
-			      mp->m_quotainfo->qi_dqchunklen, 0, &bp);
+			      mp->m_quotainfo->qi_dqchunklen, 0, &bp,
+			      &xfs_dquot_buf_ops);
 		if (error)
 			break;
 
@@ -978,7 +980,8 @@ xfs_qm_dqiterate(
 				while (rablkcnt--) {
 					xfs_buf_readahead(mp->m_ddev_targp,
 					       XFS_FSB_TO_DADDR(mp, rablkno),
-					       mp->m_quotainfo->qi_dqchunklen);
+					       mp->m_quotainfo->qi_dqchunklen,
+					       NULL);
 					rablkno++;
 				}
 			}

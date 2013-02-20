@@ -14,7 +14,23 @@
 #include <linux/backing-dev.h>
 #include <linux/sysctl.h>
 #include <linux/sysfs.h>
+#include <linux/balloon_compaction.h>
 #include "internal.h"
+
+#ifdef CONFIG_COMPACTION
+static inline void count_compact_event(enum vm_event_item item)
+{
+	count_vm_event(item);
+}
+
+static inline void count_compact_events(enum vm_event_item item, long delta)
+{
+	count_vm_events(item, delta);
+}
+#else
+#define count_compact_event(item) do { } while (0)
+#define count_compact_events(item, delta) do { } while (0)
+#endif
 
 #if defined CONFIG_COMPACTION || defined CONFIG_CMA
 
@@ -302,6 +318,9 @@ static unsigned long isolate_freepages_block(struct compact_control *cc,
 	if (blockpfn == end_pfn)
 		update_pageblock_skip(cc, valid_page, total_isolated, false);
 
+	count_compact_events(COMPACTFREE_SCANNED, nr_scanned);
+	if (total_isolated)
+		count_compact_events(COMPACTISOLATED, total_isolated);
 	return total_isolated;
 }
 
@@ -511,9 +530,24 @@ isolate_migratepages_range(struct zone *zone, struct compact_control *cc,
 			goto next_pageblock;
 		}
 
-		/* Check may be lockless but that's ok as we recheck later */
-		if (!PageLRU(page))
+		/*
+		 * Check may be lockless but that's ok as we recheck later.
+		 * It's possible to migrate LRU pages and balloon pages
+		 * Skip any other type of page
+		 */
+		if (!PageLRU(page)) {
+			if (unlikely(balloon_page_movable(page))) {
+				if (locked && balloon_page_isolate(page)) {
+					/* Successfully isolated */
+					cc->finished_update_migrate = true;
+					list_add(&page->lru, migratelist);
+					cc->nr_migratepages++;
+					nr_isolated++;
+					goto check_compact_cluster;
+				}
+			}
 			continue;
+		}
 
 		/*
 		 * PageLRU is set. lru_lock normally excludes isolation
@@ -567,6 +601,7 @@ isolate_migratepages_range(struct zone *zone, struct compact_control *cc,
 		cc->nr_migratepages++;
 		nr_isolated++;
 
+check_compact_cluster:
 		/* Avoid isolating too much */
 		if (cc->nr_migratepages == COMPACT_CLUSTER_MAX) {
 			++low_pfn;
@@ -591,6 +626,10 @@ next_pageblock:
 		update_pageblock_skip(cc, valid_page, nr_isolated, true);
 
 	trace_mm_compaction_isolate_migratepages(nr_scanned, nr_isolated);
+
+	count_compact_events(COMPACTMIGRATE_SCANNED, nr_scanned);
+	if (nr_isolated)
+		count_compact_events(COMPACTISOLATED, nr_isolated);
 
 	return low_pfn;
 }
@@ -927,7 +966,7 @@ static int compact_zone(struct zone *zone, struct compact_control *cc)
 		switch (isolate_migratepages(zone, cc)) {
 		case ISOLATE_ABORT:
 			ret = COMPACT_PARTIAL;
-			putback_lru_pages(&cc->migratepages);
+			putback_movable_pages(&cc->migratepages);
 			cc->nr_migratepages = 0;
 			goto out;
 		case ISOLATE_NONE:
@@ -939,20 +978,17 @@ static int compact_zone(struct zone *zone, struct compact_control *cc)
 		nr_migrate = cc->nr_migratepages;
 		err = migrate_pages(&cc->migratepages, compaction_alloc,
 				(unsigned long)cc, false,
-				cc->sync ? MIGRATE_SYNC_LIGHT : MIGRATE_ASYNC);
+				cc->sync ? MIGRATE_SYNC_LIGHT : MIGRATE_ASYNC,
+				MR_COMPACTION);
 		update_nr_listpages(cc);
 		nr_remaining = cc->nr_migratepages;
 
-		count_vm_event(COMPACTBLOCKS);
-		count_vm_events(COMPACTPAGES, nr_migrate - nr_remaining);
-		if (nr_remaining)
-			count_vm_events(COMPACTPAGEFAILED, nr_remaining);
 		trace_mm_compaction_migratepages(nr_migrate - nr_remaining,
 						nr_remaining);
 
-		/* Release LRU pages not migrated */
+		/* Release isolated pages not migrated */
 		if (err) {
-			putback_lru_pages(&cc->migratepages);
+			putback_movable_pages(&cc->migratepages);
 			cc->nr_migratepages = 0;
 			if (err == -ENOMEM) {
 				ret = COMPACT_PARTIAL;
@@ -1024,7 +1060,7 @@ unsigned long try_to_compact_pages(struct zonelist *zonelist,
 	if (!order || !may_enter_fs || !may_perform_io)
 		return rc;
 
-	count_vm_event(COMPACTSTALL);
+	count_compact_event(COMPACTSTALL);
 
 #ifdef CONFIG_CMA
 	if (allocflags_to_migratetype(gfp_mask) == MIGRATE_MOVABLE)

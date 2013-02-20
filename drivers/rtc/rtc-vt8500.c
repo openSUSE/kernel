@@ -137,7 +137,7 @@ static int vt8500_rtc_set_time(struct device *dev, struct rtc_time *tm)
 		return -EINVAL;
 	}
 
-	writel((bin2bcd(tm->tm_year - 100) << DATE_YEAR_S)
+	writel((bin2bcd(tm->tm_year % 100) << DATE_YEAR_S)
 		| (bin2bcd(tm->tm_mon + 1) << DATE_MONTH_S)
 		| (bin2bcd(tm->tm_mday))
 		| ((tm->tm_year >= 200) << DATE_CENTURY_S),
@@ -206,12 +206,13 @@ static const struct rtc_class_ops vt8500_rtc_ops = {
 	.alarm_irq_enable = vt8500_alarm_irq_enable,
 };
 
-static int __devinit vt8500_rtc_probe(struct platform_device *pdev)
+static int vt8500_rtc_probe(struct platform_device *pdev)
 {
 	struct vt8500_rtc *vt8500_rtc;
 	int ret;
 
-	vt8500_rtc = kzalloc(sizeof(struct vt8500_rtc), GFP_KERNEL);
+	vt8500_rtc = devm_kzalloc(&pdev->dev,
+			   sizeof(struct vt8500_rtc), GFP_KERNEL);
 	if (!vt8500_rtc)
 		return -ENOMEM;
 
@@ -221,15 +222,13 @@ static int __devinit vt8500_rtc_probe(struct platform_device *pdev)
 	vt8500_rtc->res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!vt8500_rtc->res) {
 		dev_err(&pdev->dev, "No I/O memory resource defined\n");
-		ret = -ENXIO;
-		goto err_free;
+		return -ENXIO;
 	}
 
 	vt8500_rtc->irq_alarm = platform_get_irq(pdev, 0);
 	if (vt8500_rtc->irq_alarm < 0) {
 		dev_err(&pdev->dev, "No alarm IRQ resource defined\n");
-		ret = -ENXIO;
-		goto err_free;
+		return -ENXIO;
 	}
 
 	vt8500_rtc->res = request_mem_region(vt8500_rtc->res->start,
@@ -237,8 +236,7 @@ static int __devinit vt8500_rtc_probe(struct platform_device *pdev)
 					     "vt8500-rtc");
 	if (vt8500_rtc->res == NULL) {
 		dev_err(&pdev->dev, "failed to request I/O memory\n");
-		ret = -EBUSY;
-		goto err_free;
+		return -EBUSY;
 	}
 
 	vt8500_rtc->regbase = ioremap(vt8500_rtc->res->start,
@@ -279,12 +277,10 @@ err_unmap:
 err_release:
 	release_mem_region(vt8500_rtc->res->start,
 			   resource_size(vt8500_rtc->res));
-err_free:
-	kfree(vt8500_rtc);
 	return ret;
 }
 
-static int __devexit vt8500_rtc_remove(struct platform_device *pdev)
+static int vt8500_rtc_remove(struct platform_device *pdev)
 {
 	struct vt8500_rtc *vt8500_rtc = platform_get_drvdata(pdev);
 
@@ -298,7 +294,6 @@ static int __devexit vt8500_rtc_remove(struct platform_device *pdev)
 	release_mem_region(vt8500_rtc->res->start,
 			   resource_size(vt8500_rtc->res));
 
-	kfree(vt8500_rtc);
 	platform_set_drvdata(pdev, NULL);
 
 	return 0;
@@ -311,7 +306,7 @@ static const struct of_device_id wmt_dt_ids[] = {
 
 static struct platform_driver vt8500_rtc_driver = {
 	.probe		= vt8500_rtc_probe,
-	.remove		= __devexit_p(vt8500_rtc_remove),
+	.remove		= vt8500_rtc_remove,
 	.driver		= {
 		.name	= "vt8500-rtc",
 		.owner	= THIS_MODULE,

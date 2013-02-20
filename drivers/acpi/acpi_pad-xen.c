@@ -57,10 +57,10 @@ static long xen_acpi_pad_idle_cpus_num(void)
 static ssize_t acpi_pad_idlecpus_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
-	unsigned long num;
+	unsigned int num;
 	int err;
 
-	if (strict_strtoul(buf, 0, &num))
+	if (kstrtouint(buf, 0, &num))
 		return -EINVAL;
 	mutex_lock(&xen_cpu_lock);
 	err = xen_acpi_pad_idle_cpus(num);
@@ -162,7 +162,7 @@ static void acpi_pad_notify(acpi_handle handle, u32 event,
 		acpi_pad_handle_notify(handle);
 		break;
 	default:
-		printk(KERN_WARNING "Unsupported event [0x%x]\n", event);
+		pr_warn("Unsupported event [0x%x]\n", event);
 		break;
 	}
 }

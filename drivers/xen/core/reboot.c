@@ -80,7 +80,6 @@ static int xen_suspend(void *__unused)
 {
 	int err, old_state;
 
-	daemonize("suspend");
 	err = set_cpus_allowed_ptr(current, cpumask_of(0));
 	if (err) {
 		pr_err("Xen suspend can't run on CPU0 (%d)\n", err);
@@ -118,8 +117,6 @@ static int xen_suspend(void *__unused)
 	return 0;
 }
 
-#else
-# define xen_suspend NULL
 #endif
 
 static void switch_shutdown_state(int new_state)
@@ -151,9 +148,12 @@ static void __shutdown_handler(struct work_struct *unused)
 {
 	struct task_struct *taskp;
 
-	taskp = kthread_run((shutting_down == SHUTDOWN_SUSPEND) ?
-			    xen_suspend : shutdown_process,
-			    NULL, "shutdown");
+#ifdef CONFIG_PM_SLEEP
+	if (shutting_down == SHUTDOWN_SUSPEND)
+		taskp = kthread_run(xen_suspend, NULL, "suspend");
+	else
+#endif
+		taskp = kthread_run(shutdown_process, NULL, "shutdown");
 
 	if (IS_ERR(taskp)) {
 		pr_warning("Error creating shutdown process (%ld): "

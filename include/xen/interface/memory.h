@@ -213,8 +213,10 @@ DEFINE_XEN_GUEST_HANDLE(xen_machphys_mapping_t);
 #define XENMAPSPACE_shared_info  0 /* shared info page */
 #define XENMAPSPACE_grant_table  1 /* grant table page */
 #define XENMAPSPACE_gmfn         2 /* GMFN */
-#define XENMAPSPACE_gmfn_range   3 /* GMFN range */
-#define XENMAPSPACE_gmfn_foreign 4 /* GMFN from another dom */
+#define XENMAPSPACE_gmfn_range   3 /* GMFN range, XENMEM_add_to_physmap only. */
+#define XENMAPSPACE_gmfn_foreign 4 /* GMFN from another dom,
+				    * XENMEM_add_to_physmap_range only.
+				    */
 /* ` } */
 
 /*
@@ -258,9 +260,10 @@ struct xen_add_to_physmap_range {
     /* Indexes into space being mapped. */
     XEN_GUEST_HANDLE(xen_ulong_t) idxs;
 
-    /* GPFN in domdwhere the source mapping page should appear. */
+    /* GPFN in domid where the source mapping page should appear. */
     XEN_GUEST_HANDLE(xen_pfn_t) gpfns;
 };
+DEFINE_GUEST_HANDLE_STRUCT(xen_add_to_physmap_range);
 typedef struct xen_add_to_physmap_range xen_add_to_physmap_range_t;
 DEFINE_XEN_GUEST_HANDLE(xen_add_to_physmap_range_t);
 
@@ -277,6 +280,7 @@ struct xen_remove_from_physmap {
     /* GPFN of the current mapping of the page. */
     xen_pfn_t     gpfn;
 };
+DEFINE_GUEST_HANDLE_STRUCT(xen_remove_from_physmap);
 typedef struct xen_remove_from_physmap xen_remove_from_physmap_t;
 DEFINE_XEN_GUEST_HANDLE(xen_remove_from_physmap_t);
 

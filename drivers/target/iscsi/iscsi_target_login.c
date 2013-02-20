@@ -254,9 +254,9 @@ static int iscsi_login_zero_tsih_s1(
 		kfree(sess);
 		return -ENOMEM;
 	}
-	spin_lock(&sess_idr_lock);
+	spin_lock_bh(&sess_idr_lock);
 	ret = idr_get_new(&sess_idr, NULL, &sess->session_index);
-	spin_unlock(&sess_idr_lock);
+	spin_unlock_bh(&sess_idr_lock);
 
 	if (ret < 0) {
 		pr_err("idr_get_new() for sess_idr failed\n");
@@ -1118,10 +1118,8 @@ new_sess_out:
 		idr_remove(&sess_idr, conn->sess->session_index);
 		spin_unlock_bh(&sess_idr_lock);
 	}
-	if (conn->sess->sess_ops)
-		kfree(conn->sess->sess_ops);
-	if (conn->sess)
-		kfree(conn->sess);
+	kfree(conn->sess->sess_ops);
+	kfree(conn->sess);
 old_sess_out:
 	iscsi_stop_login_thread_timer(np);
 	/*

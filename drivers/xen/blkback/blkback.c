@@ -70,18 +70,18 @@ module_param(log_stats, bool, 0644);
 module_param(debug_lvl, uint, 0644);
 
 /* Order of maximum shared ring size advertised to the front end. */
-unsigned int blkif_max_ring_page_order/* XXX = sizeof(long) / 4*/;
+unsigned int blkif_max_ring_page_order/* XXX = sizeof(long) / 4 */;
 
 static int set_max_ring_order(const char *buf, struct kernel_param *kp)
 {
-	unsigned long order;
-	int err = strict_strtoul(buf, 0, &order);
+	unsigned int order;
+	int err = kstrtouint(buf, 0, &order);
 
 	if (err || order > BLKIF_MAX_RING_PAGE_ORDER)
 		return -EINVAL;
 
 	if (blkif_reqs < BLK_RING_SIZE(order))
-		pr_warn("WARNING: I/O request space (%u reqs) < ring order %lu, "
+		pr_warn("WARNING: I/O request space (%u reqs) < ring order %u, "
 			"consider increasing " KBUILD_MODNAME ".reqs to >= %lu.\n",
 			blkif_reqs, order,
 			roundup_pow_of_two(BLK_RING_SIZE(order)));
@@ -380,7 +380,6 @@ static void dispatch_discard(blkif_t *blkif, struct blkif_request_discard *req)
 
 	blkif->st_ds_req++;
 
-	preq.dev           = req->handle;
 	preq.sector_number = req->sector_number;
 	preq.nr_sects      = req->nr_sectors;
 

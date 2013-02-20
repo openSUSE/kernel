@@ -498,8 +498,6 @@ static const struct file_operations xenbus_dev_file_ops = {
 int
 #ifndef MODULE
 __init
-#else
-__devinit
 #endif
 xenbus_dev_init(void)
 {

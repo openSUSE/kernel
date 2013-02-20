@@ -671,6 +671,7 @@ redo:
 				chunk->fast_retransmit = SCTP_DONT_FRTX;
 
 			q->empty = 0;
+			q->asoc->stats.rtxchunks++;
 			break;
 		}
 
@@ -880,12 +881,14 @@ static int sctp_outq_flush(struct sctp_outq *q, int rtx_timeout)
 			if (status  != SCTP_XMIT_OK) {
 				/* put the chunk back */
 				list_add(&chunk->list, &q->control_chunk_list);
-			} else if (chunk->chunk_hdr->type == SCTP_CID_FWD_TSN) {
+			} else {
+				asoc->stats.octrlchunks++;
 				/* PR-SCTP C5) If a FORWARD TSN is sent, the
 				 * sender MUST assure that at least one T3-rtx
 				 * timer is running.
 				 */
-				sctp_transport_reset_timers(transport);
+				if (chunk->chunk_hdr->type == SCTP_CID_FWD_TSN)
+					sctp_transport_reset_timers(transport);
 			}
 			break;
 
@@ -1059,6 +1062,10 @@ static int sctp_outq_flush(struct sctp_outq *q, int rtx_timeout)
 				 */
 				if (asoc->state == SCTP_STATE_SHUTDOWN_PENDING)
 					chunk->chunk_hdr->flags |= SCTP_DATA_SACK_IMM;
+				if (chunk->chunk_hdr->flags & SCTP_DATA_UNORDERED)
+					asoc->stats.ouodchunks++;
+				else
+					asoc->stats.oodchunks++;
 
 				break;
 
@@ -1166,6 +1173,7 @@ int sctp_outq_sack(struct sctp_outq *q, struct sctp_chunk *chunk)
 
 	sack_ctsn = ntohl(sack->cum_tsn_ack);
 	gap_ack_blocks = ntohs(sack->num_gap_ack_blocks);
+	asoc->stats.gapcnt += gap_ack_blocks;
 	/*
 	 * SFR-CACC algorithm:
 	 * On receipt of a SACK the sender SHOULD execute the

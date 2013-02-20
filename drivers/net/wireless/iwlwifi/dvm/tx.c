@@ -188,7 +188,7 @@ static void iwlagn_tx_cmd_build_rate(struct iwl_priv *priv,
 	if (info->control.rates[0].flags & IEEE80211_TX_RC_MCS ||
 			(rate_idx < 0) || (rate_idx > IWL_RATE_COUNT_LEGACY))
 		rate_idx = rate_lowest_index(
-				&priv->eeprom_data->bands[info->band], sta);
+				&priv->nvm_data->bands[info->band], sta);
 	/* For 5 GHZ band, remap mac80211 rate indices into driver indices */
 	if (info->band == IEEE80211_BAND_5GHZ)
 		rate_idx += IWL_FIRST_OFDM_RATE;
@@ -207,11 +207,11 @@ static void iwlagn_tx_cmd_build_rate(struct iwl_priv *priv,
 	     priv->bt_full_concurrent) {
 		/* operated as 1x1 in full concurrency mode */
 		priv->mgmt_tx_ant = iwl_toggle_tx_ant(priv, priv->mgmt_tx_ant,
-				first_antenna(priv->eeprom_data->valid_tx_ant));
+				first_antenna(priv->nvm_data->valid_tx_ant));
 	} else
 		priv->mgmt_tx_ant = iwl_toggle_tx_ant(
 					priv, priv->mgmt_tx_ant,
-					priv->eeprom_data->valid_tx_ant);
+					priv->nvm_data->valid_tx_ant);
 	rate_flags |= iwl_ant_idx_to_flags(priv->mgmt_tx_ant);
 
 	/* Set the rate in the TX cmd */
@@ -305,7 +305,7 @@ int iwlagn_tx_skb(struct iwl_priv *priv,
 	u8 hdr_len;
 	u16 len, seq_number = 0;
 	u8 sta_id, tid = IWL_MAX_TID_COUNT;
-	bool is_agg = false;
+	bool is_agg = false, is_data_qos = false;
 	int txq_id;
 
 	if (info->control.vif)
@@ -378,9 +378,6 @@ int iwlagn_tx_skb(struct iwl_priv *priv,
 		iwl_sta_modify_sleep_tx_count(priv, sta_id, 1);
 	}
 
-	if (info->flags & IEEE80211_TX_CTL_AMPDU)
-		is_agg = true;
-
 	dev_cmd = iwl_trans_alloc_tx_cmd(priv->trans);
 
 	if (unlikely(!dev_cmd))
@@ -442,6 +439,10 @@ int iwlagn_tx_skb(struct iwl_priv *priv,
 		hdr->seq_ctrl &= cpu_to_le16(IEEE80211_SCTL_FRAG);
 		hdr->seq_ctrl |= cpu_to_le16(seq_number);
 		seq_number += 0x10;
+
+		if (info->flags & IEEE80211_TX_CTL_AMPDU)
+			is_agg = true;
+		is_data_qos = true;
 	}
 
 	/* Copy MAC header from skb into command buffer */
@@ -474,8 +475,7 @@ int iwlagn_tx_skb(struct iwl_priv *priv,
 	if (iwl_trans_tx(priv->trans, skb, dev_cmd, txq_id))
 		goto drop_unlock_sta;
 
-	if (ieee80211_is_data_qos(fc) && !ieee80211_is_qos_nullfunc(fc) &&
-	    !ieee80211_has_morefrags(fc))
+	if (is_data_qos && !ieee80211_has_morefrags(fc))
 		priv->tid_data[sta_id][tid].seq_number = seq_number;
 
 	spin_unlock(&priv->sta_lock);
@@ -1075,14 +1075,13 @@ static void iwlagn_count_tx_err_status(struct iwl_priv *priv, u16 status)
 
 static void iwlagn_set_tx_status(struct iwl_priv *priv,
 				 struct ieee80211_tx_info *info,
-				 struct iwlagn_tx_resp *tx_resp,
-				 bool is_agg)
+				 struct iwlagn_tx_resp *tx_resp)
 {
-	u16  status = le16_to_cpu(tx_resp->status.status);
+	u16 status = le16_to_cpu(tx_resp->status.status);
+
+	info->flags &= ~IEEE80211_TX_CTL_AMPDU;
 
 	info->status.rates[0].count = tx_resp->failure_frame + 1;
-	if (is_agg)
-		info->flags &= ~IEEE80211_TX_CTL_AMPDU;
 	info->flags |= iwl_tx_status_to_mac80211(status);
 	iwlagn_hwrate_to_tx_control(priv, le32_to_cpu(tx_resp->rate_n_flags),
 				    info);
@@ -1207,7 +1206,7 @@ int iwlagn_rx_reply_tx(struct iwl_priv *priv, struct iwl_rx_cmd_buffer *rxb,
 			if (is_agg && !iwl_is_tx_success(status))
 				info->flags |= IEEE80211_TX_STAT_AMPDU_NO_BACK;
 			iwlagn_set_tx_status(priv, IEEE80211_SKB_CB(skb),
-				     tx_resp, is_agg);
+				     tx_resp);
 			if (!is_agg)
 				iwlagn_non_agg_tx_status(priv, ctx, hdr->addr1);
 

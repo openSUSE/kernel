@@ -587,7 +587,7 @@ static inline void netbk_free_pages(int nr_frags, struct netbk_rx_meta *meta)
    used to set up the operations on the top of
    netrx_pending_operations, which have since been done.  Check that
    they didn't give any errors and advance over them. */
-static int netbk_check_gop(int nr_frags, domid_t domid, struct netrx_pending_operations *npo)
+static int netbk_check_gop(int nr_frags, netif_t *netif, struct netrx_pending_operations *npo)
 {
 	multicall_entry_t *mcl;
 	gnttab_transfer_t *gop;
@@ -602,8 +602,9 @@ static int netbk_check_gop(int nr_frags, domid_t domid, struct netrx_pending_ope
 			if (unlikely(copy_op->status == GNTST_eagain))
 				gnttab_check_GNTST_eagain_while(GNTTABOP_copy, copy_op);
 			if (unlikely(copy_op->status != GNTST_okay)) {
-				DPRINTK("Bad status %d from copy to DOM%d.\n",
-					copy_op->status, domid);
+				netdev_dbg(netif->dev,
+					   "Bad status %d from copy to DOM%d.\n",
+					   copy_op->status, netif->domid);
 				status = XEN_NETIF_RSP_ERROR;
 			}
 		} else {
@@ -616,8 +617,9 @@ static int netbk_check_gop(int nr_frags, domid_t domid, struct netrx_pending_ope
 			gop = npo->trans + npo->trans_cons++;
 			/* Check the reassignment error code. */
 			if (unlikely(gop->status != GNTST_okay)) {
-				DPRINTK("Bad status %d from grant transfer to DOM%u\n",
-					gop->status, domid);
+				netdev_dbg(netif->dev,
+					   "Bad status %d from grant transfer to DOM%u\n",
+					   gop->status, netif->domid);
 				/*
 				 * Page no longer belongs to us unless
 				 * GNTST_bad_page, but that should be
@@ -688,8 +690,7 @@ static void net_rx_action(unsigned long group)
 		    check_mfn(netbk, nr_frags + 1)) {
 			/* Memory squeeze? Back off for an arbitrary while. */
 			if ( net_ratelimit() )
-				WPRINTK("Memory squeeze in netback "
-					"driver.\n");
+				netdev_warn(skb->dev, "memory squeeze\n");
 			mod_timer(&netbk->net_timer, jiffies + HZ);
 			skb_queue_head(&netbk->rx_queue, skb);
 			break;
@@ -751,7 +752,7 @@ static void net_rx_action(unsigned long group)
 
 		netif = netdev_priv(skb->dev);
 
-		status = netbk_check_gop(nr_frags, netif->domid, &npo);
+		status = netbk_check_gop(nr_frags, netif, &npo);
 
 		/* We can't rely on skb_release_data to release the
 		   pages used by fragments for us, since it tries to
@@ -1135,15 +1136,13 @@ static int netbk_count_requests(netif_t *netif, netif_tx_request_t *first,
 
 	do {
 		if (frags >= work_to_do) {
-			printk(KERN_ERR "%s: Need more frags\n",
-			       netif->dev->name);
+			netdev_err(netif->dev, "Need more frags\n");
 			netbk_fatal_tx_err(netif);
 			return -frags;
 		}
 
 		if (unlikely(frags >= MAX_SKB_FRAGS)) {
-			printk(KERN_ERR "%s: Too many frags\n",
-			       netif->dev->name);
+			netdev_err(netif->dev, "Too many frags\n");
 			netbk_fatal_tx_err(netif);
 			return -frags;
 		}
@@ -1151,8 +1150,7 @@ static int netbk_count_requests(netif_t *netif, netif_tx_request_t *first,
 		memcpy(txp, RING_GET_REQUEST(&netif->tx, cons + frags),
 		       sizeof(*txp));
 		if (txp->size > first->size) {
-			printk(KERN_ERR "%s: Frag is bigger than frame.\n",
-			       netif->dev->name);
+			netdev_err(netif->dev, "Frags galore\n");
 			netbk_fatal_tx_err(netif);
 			return -frags;
 		}
@@ -1161,8 +1159,8 @@ static int netbk_count_requests(netif_t *netif, netif_tx_request_t *first,
 		frags++;
 
 		if (unlikely((txp->offset + txp->size) > PAGE_SIZE)) {
-			printk(KERN_ERR "%s: txp->offset: %x, size: %u\n",
-			       netif->dev->name, txp->offset, txp->size);
+			netdev_err(netif->dev, "txp->offset: %x, size: %u\n",
+				   txp->offset, txp->size);
 			netbk_fatal_tx_err(netif);
 			return -frags;
 		}
@@ -1312,8 +1310,7 @@ int netbk_get_extras(netif_t *netif, struct netif_extra_info *extras,
 
 	do {
 		if (unlikely(work_to_do-- <= 0)) {
-			printk(KERN_ERR "%s: Missing extra info\n",
-			       netif->dev->name);
+			netdev_err(netif->dev, "Missing extra info\n");
 			netbk_fatal_tx_err(netif);
 			return -EBADR;
 		}
@@ -1323,8 +1320,8 @@ int netbk_get_extras(netif_t *netif, struct netif_extra_info *extras,
 		if (unlikely(!extra.type ||
 			     extra.type >= XEN_NETIF_EXTRA_TYPE_MAX)) {
 			netif->tx.req_cons = ++cons;
-			printk(KERN_ERR "%s: Invalid extra type: %d\n",
-			       netif->dev->name, extra.type);
+			netdev_dbg(netif->dev, "Invalid extra type: %d\n",
+				   extra.type);
 			netbk_fatal_tx_err(netif);
 			return -EINVAL;
 		}
@@ -1340,16 +1337,14 @@ static int netbk_set_skb_gso(netif_t *netif, struct sk_buff *skb,
 			     struct netif_extra_info *gso)
 {
 	if (!gso->u.gso.size) {
-		printk(KERN_ERR "%s: GSO size must not be zero.\n",
-		       netif->dev->name);
+		netdev_err(skb->dev, "GSO size must not be zero.\n");
 		netbk_fatal_tx_err(netif);
 		return -EINVAL;
 	}
 
 	/* Currently only TCPv4 S.O. is supported. */
 	if (gso->u.gso.type != XEN_NETIF_GSO_TYPE_TCPV4) {
-		printk(KERN_ERR "%s: Bad GSO type %d.\n",
-		       netif->dev->name, gso->u.gso.type);
+		netdev_err(skb->dev, "Bad GSO type %d.\n", gso->u.gso.type);
 		netbk_fatal_tx_err(netif);
 		return -EINVAL;
 	}
@@ -1467,16 +1462,18 @@ static void net_tx_action(unsigned long group)
 		i += ret;
 
 		if (unlikely(txreq.size < ETH_HLEN)) {
-			DPRINTK("Bad packet size: %d\n", txreq.size);
+			netdev_dbg(netif->dev, "Bad packet size: %d\n",
+				   txreq.size);
 			netbk_tx_err(netif, &txreq, i);
 			continue;
 		}
 
 		/* No crossing a page as the payload mustn't fragment. */
 		if (unlikely((txreq.offset + txreq.size) > PAGE_SIZE)) {
-			printk(KERN_ERR "%s: txreq.offset: %x, size: %u, end: %lu\n",
-			       netif->dev->name, txreq.offset, txreq.size,
-			       (txreq.offset & ~PAGE_MASK) + txreq.size);
+			netdev_err(netif->dev,
+				   "txreq.offset: %x, size: %u, end: %lu\n",
+				   txreq.offset, txreq.size,
+				   (txreq.offset & ~PAGE_MASK) + txreq.size);
 			netbk_fatal_tx_err(netif);
 			continue;
 		}
@@ -1490,13 +1487,15 @@ static void net_tx_action(unsigned long group)
 		skb = alloc_skb(data_len + 16 + NET_IP_ALIGN,
 				GFP_ATOMIC | __GFP_NOWARN);
 		if (unlikely(skb == NULL)) {
-			DPRINTK("Can't allocate a skb in start_xmit.\n");
+			netdev_dbg(netif->dev,
+				   "Can't allocate a skb in start_xmit.\n");
 			netbk_tx_err(netif, &txreq, i);
 			break;
 		}
 
 		/* Packets passed to netif_rx() must have some headroom. */
 		skb_reserve(skb, 16 + NET_IP_ALIGN);
+		skb->dev = netif->dev;
 
 		if (extras[XEN_NETIF_EXTRA_TYPE_GSO - 1].type) {
 			struct netif_extra_info *gso;
@@ -1566,7 +1565,7 @@ static void net_tx_action(unsigned long group)
 
 		/* Check the remap error code. */
 		if (unlikely(netbk_tx_check_mop(netbk, skb, &mop))) {
-			DPRINTK("netback grant failed.\n");
+			netdev_dbg(netif->dev, "netback grant failed.\n");
 			skb_shinfo(skb)->nr_frags = 0;
 			kfree_skb(skb);
 			dev->stats.rx_dropped++;
@@ -1608,14 +1607,16 @@ static void net_tx_action(unsigned long group)
 		skb->protocol = eth_type_trans(skb, dev);
 
 		if (skb_checksum_setup(skb, &netif->rx_gso_csum_fixups)) {
-			DPRINTK("Can't setup checksum in net_tx_action\n");
+			netdev_dbg(netif->dev,
+				   "Can't setup checksum in net_tx_action\n");
 			kfree_skb(skb);
 			continue;
 		}
 
 		if (unlikely(netbk_copy_skb_mode == NETBK_ALWAYS_COPY_SKB) &&
 		    unlikely(skb_linearize(skb))) {
-			DPRINTK("Can't linearize skb in net_tx_action.\n");
+			netdev_dbg(netif->dev,
+			           "Can't linearize skb in net_tx_action.\n");
 			kfree_skb(skb);
 			dev->stats.rx_errors++;
 			continue;

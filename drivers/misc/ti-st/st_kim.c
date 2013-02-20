@@ -718,9 +718,9 @@ static const struct file_operations list_debugfs_fops = {
 static struct dentry *kim_debugfs_dir;
 static int kim_probe(struct platform_device *pdev)
 {
-	long status;
 	struct kim_data_s	*kim_gdata;
 	struct ti_st_plat_data	*pdata = pdev->dev.platform_data;
+	int err;
 
 	if ((pdev->id != -1) && (pdev->id < MAX_ST_DEVICES)) {
 		/* multiple devices could exist */
@@ -737,27 +737,28 @@ static int kim_probe(struct platform_device *pdev)
 	}
 	dev_set_drvdata(&pdev->dev, kim_gdata);
 
-	status = st_core_init(&kim_gdata->core_data);
-	if (status != 0) {
+	err = st_core_init(&kim_gdata->core_data);
+	if (err != 0) {
 		pr_err(" ST core init failed");
-		return -EIO;
+		err = -EIO;
+		goto err_core_init;
 	}
 	/* refer to itself */
 	kim_gdata->core_data->kim_data = kim_gdata;
 
 	/* Claim the chip enable nShutdown gpio from the system */
 	kim_gdata->nshutdown = pdata->nshutdown_gpio;
-	status = gpio_request(kim_gdata->nshutdown, "kim");
-	if (unlikely(status)) {
+	err = gpio_request(kim_gdata->nshutdown, "kim");
+	if (unlikely(err)) {
 		pr_err(" gpio %ld request failed ", kim_gdata->nshutdown);
-		return status;
+		return err;
 	}
 
 	/* Configure nShutdown GPIO as output=0 */
-	status = gpio_direction_output(kim_gdata->nshutdown, 0);
-	if (unlikely(status)) {
+	err = gpio_direction_output(kim_gdata->nshutdown, 0);
+	if (unlikely(err)) {
 		pr_err(" unable to configure gpio %ld", kim_gdata->nshutdown);
-		return status;
+		return err;
 	}
 	/* get reference of pdev for request_firmware
 	 */
@@ -765,10 +766,10 @@ static int kim_probe(struct platform_device *pdev)
 	init_completion(&kim_gdata->kim_rcvd);
 	init_completion(&kim_gdata->ldisc_installed);
 
-	status = sysfs_create_group(&pdev->dev.kobj, &uim_attr_grp);
-	if (status) {
+	err = sysfs_create_group(&pdev->dev.kobj, &uim_attr_grp);
+	if (err) {
 		pr_err("failed to create sysfs entries");
-		return status;
+		goto err_sysfs_group;
 	}
 
 	/* copying platform data */
@@ -780,8 +781,8 @@ static int kim_probe(struct platform_device *pdev)
 	kim_debugfs_dir = debugfs_create_dir("ti-st", NULL);
 	if (IS_ERR(kim_debugfs_dir)) {
 		pr_err(" debugfs entries creation failed ");
-		kim_debugfs_dir = NULL;
-		return -EIO;
+		err = -EIO;
+		goto err_debugfs_dir;
 	}
 
 	debugfs_create_file("version", S_IRUGO, kim_debugfs_dir,
@@ -790,6 +791,17 @@ static int kim_probe(struct platform_device *pdev)
 				kim_gdata, &list_debugfs_fops);
 	pr_info(" debugfs entries created ");
 	return 0;
+
+err_debugfs_dir:
+	sysfs_remove_group(&pdev->dev.kobj, &uim_attr_grp);
+
+err_sysfs_group:
+	st_core_exit(kim_gdata->core_data);
+
+err_core_init:
+	kfree(kim_gdata);
+
+	return err;
 }
 
 static int kim_remove(struct platform_device *pdev)

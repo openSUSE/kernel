@@ -168,11 +168,7 @@ int default_check_phys_apicid_present(int phys_apicid)
 }
 #endif
 
-#ifndef CONFIG_DEBUG_BOOT_PARAMS
-struct boot_params __initdata boot_params;
-#else
 struct boot_params boot_params;
-#endif
 #else /* CONFIG_XEN */
 /*
  * Initialise the list of the frames that specify the list of
@@ -742,7 +738,7 @@ static bool __init snb_gfx_workaround_needed(void)
 #ifdef CONFIG_PCI
 	int i;
 	u16 vendor, devid;
-	static const u16 snb_ids[] = {
+	static const __initconst u16 snb_ids[] = {
 		0x0102,
 		0x0112,
 		0x0122,
@@ -775,7 +771,7 @@ static bool __init snb_gfx_workaround_needed(void)
  */
 static void __init trim_snb_memory(void)
 {
-	static const unsigned long bad_pages[] = {
+	static const __initconst unsigned long bad_pages[] = {
 		0x20050000,
 		0x20110000,
 		0x20130000,
