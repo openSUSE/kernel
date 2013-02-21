@@ -670,8 +670,16 @@ F:	drivers/input/serio/ambakmi.*
 F:	include/linux/amba/kmi.h
 
 ARM PRIMECELL MMCI PL180/1 DRIVER
-S:	Orphan
+M:	Russell King <linux@arm.linux.org.uk>
+S:	Maintained
 F:	drivers/mmc/host/mmci.*
+F:	include/linux/amba/mmci.h
+
+ARM PRIMECELL UART PL010 AND PL011 DRIVERS
+M:	Russell King <linux@arm.linux.org.uk>
+S:	Maintained
+F:	drivers/tty/serial/amba-pl01*.c
+F:	include/linux/amba/serial.h
 
 ARM PRIMECELL BUS SUPPORT
 M:	Russell King <linux@arm.linux.org.uk>
@@ -2140,10 +2148,10 @@ S:	Maintained
 F:	tools/power/cpupower
 
 CPUSETS
-M:	Paul Menage <paul@paulmenage.org>
+M:	Li Zefan <lizefan@huawei.com>
 W:	http://www.bullopensource.org/cpuset/
 W:	http://oss.sgi.com/projects/cpusets/
-S:	Supported
+S:	Maintained
 F:	Documentation/cgroups/cpusets.txt
 F:	include/linux/cpuset.h
 F:	kernel/cpuset.c
@@ -2973,11 +2981,6 @@ W:	http://www.linuxfoundation.org/en/Net:Bridge
 S:	Maintained
 F:	include/linux/netfilter_bridge/
 F:	net/bridge/
-
-ETHERTEAM 16I DRIVER
-M:	Mika Kuoppala <miku@iki.fi>
-S:	Maintained
-F:	drivers/net/ethernet/fujitsu/eth16i.c
 
 EXT2 FILE SYSTEM
 M:	Jan Kara <jack@suse.cz>
@@ -4480,6 +4483,15 @@ F:	arch/s390/include/asm/kvm*
 F:	arch/s390/kvm/
 F:	drivers/s390/kvm/
 
+KERNEL VIRTUAL MACHINE (KVM) FOR ARM
+M:	Christoffer Dall <cdall@cs.columbia.edu>
+L:	kvmarm@lists.cs.columbia.edu
+W:	http://systems.cs.columbia.edu/projects/kvm-arm
+S:	Maintained
+F:	arch/arm/include/uapi/asm/kvm*
+F:	arch/arm/include/asm/kvm*
+F:	arch/arm/kvm/
+
 KEXEC
 M:	Eric Biederman <ebiederm@xmission.com>
 W:	http://kernel.org/pub/linux/utils/kernel/kexec/
@@ -5367,13 +5379,6 @@ F:	include/linux/nfs*
 F:	include/linux/sunrpc/
 F:	include/uapi/linux/nfs*
 F:	include/uapi/linux/sunrpc/
-
-NI5010 NETWORK DRIVER
-M:	Jan-Pascal van Best <janpascal@vanbest.org>
-M:	Andreas Mohr <andi@lisas.de>
-L:	netdev@vger.kernel.org
-S:	Maintained
-F:	drivers/net/ethernet/racal/ni5010.*
 
 NILFS2 FILESYSTEM
 M:	KONISHI Ryusuke <konishi.ryusuke@lab.ntt.co.jp>
@@ -7168,6 +7173,7 @@ F:	drivers/clk/spear/
 
 SPI SUBSYSTEM
 M:	Grant Likely <grant.likely@secretlab.ca>
+M:	Mark Brown <broonie@opensource.wolfsonmicro.com>
 L:	spi-devel-general@lists.sourceforge.net
 Q:	http://patchwork.kernel.org/project/spi-devel-general/list/
 T:	git git://git.secretlab.ca/git/linux-2.6.git
@@ -7526,7 +7532,7 @@ S:	Maintained
 F:	drivers/media/tuners/tea5767.*
 
 TEAM DRIVER
-M:	Jiri Pirko <jpirko@redhat.com>
+M:	Jiri Pirko <jiri@resnulli.us>
 L:	netdev@vger.kernel.org
 S:	Supported
 F:	drivers/net/team/
@@ -7611,6 +7617,22 @@ S:	Maintained
 F:	Documentation/backlight/lp855x-driver.txt
 F:	drivers/video/backlight/lp855x_bl.c
 F:	include/linux/platform_data/lp855x.h
+
+TI LP8727 CHARGER DRIVER
+M:	Milo Kim <milo.kim@ti.com>
+S:	Maintained
+F:	drivers/power/lp8727_charger.c
+F:	include/linux/platform_data/lp8727.h
+
+TI LP8788 MFD DRIVER
+M:	Milo Kim <milo.kim@ti.com>
+S:	Maintained
+F:	drivers/iio/adc/lp8788_adc.c
+F:	drivers/leds/leds-lp8788.c
+F:	drivers/mfd/lp8788*.c
+F:	drivers/power/lp8788-charger.c
+F:	drivers/regulator/lp8788-*.c
+F:	include/linux/mfd/lp8788*.h
 
 TI TWL4030 SERIES SOC CODEC DRIVER
 M:	Peter Ujfalusi <peter.ujfalusi@ti.com>
