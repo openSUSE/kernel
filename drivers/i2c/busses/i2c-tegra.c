@@ -29,10 +29,9 @@
 #include <linux/of_i2c.h>
 #include <linux/of_device.h>
 #include <linux/module.h>
+#include <linux/clk/tegra.h>
 
 #include <asm/unaligned.h>
-
-#include <mach/clk.h>
 
 #define TEGRA_I2C_TIMEOUT (msecs_to_jiffies(1000))
 #define BYTES_PER_FIFO_WORD 4
@@ -669,11 +668,9 @@ static int tegra_i2c_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	base = devm_request_and_ioremap(&pdev->dev, res);
-	if (!base) {
-		dev_err(&pdev->dev, "Cannot request/ioremap I2C registers\n");
-		return -EADDRNOTAVAIL;
-	}
+	base = devm_ioremap_resource(&pdev->dev, res);
+	if (IS_ERR(base))
+		return PTR_ERR(base);
 
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (!res) {

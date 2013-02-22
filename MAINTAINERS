@@ -1256,12 +1256,17 @@ M:	Tony Prisk <linux@prisktech.co.nz>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 F:	arch/arm/mach-vt8500/
+F:	drivers/clocksource/vt8500_timer.c
+F:	drivers/gpio/gpio-vt8500.c
+F:	drivers/mmc/host/wmt-sdmmc.c
+F:	drivers/pwm/pwm-vt8500.c
+F:	drivers/rtc/rtc-vt8500.c
+F:	drivers/tty/serial/vt8500_serial.c
+F:	drivers/usb/host/ehci-vt8500.c
+F:	drivers/usb/host/uhci-platform.c
 F:	drivers/video/vt8500lcdfb.*
 F:	drivers/video/wm8505fb*
 F:	drivers/video/wmt_ge_rops.*
-F:	drivers/tty/serial/vt8500_serial.c
-F:	drivers/rtc/rtc-vt8500.c
-F:	drivers/mmc/host/wmt-sdmmc.c
 
 ARM/ZIPIT Z2 SUPPORT
 M:	Marek Vasut <marek.vasut@gmail.com>
@@ -1269,6 +1274,14 @@ L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 F:	arch/arm/mach-pxa/z2.c
 F:	arch/arm/mach-pxa/include/mach/z2.h
+
+ARM/ZYNQ ARCHITECTURE
+M:	Michal Simek <michal.simek@xilinx.com>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+W:	http://wiki.xilinx.com
+T:	git git://git.xilinx.com/linux-xlnx.git
+S:	Supported
+F:	arch/arm/mach-zynq/
 
 ARM64 PORT (AARCH64 ARCHITECTURE)
 M:	Catalin Marinas <catalin.marinas@arm.com>
@@ -1943,7 +1956,8 @@ F:	drivers/misc/*
 
 CHECKPATCH
 M:	Andy Whitcroft <apw@canonical.com>
-S:	Supported
+M:	Joe Perches <joe@perches.com>
+S:	Maintained
 F:	scripts/checkpatch.pl
 
 CHINESE DOCUMENTATION
@@ -4218,6 +4232,7 @@ M:	Thomas Gleixner <tglx@linutronix.de>
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/tip/tip.git irq/core
 F:	kernel/irq/
+F:	drivers/irqchip/
 
 IRQ DOMAINS (IRQ NUMBER MAPPING LIBRARY)
 M:	Benjamin Herrenschmidt <benh@kernel.crashing.org>
@@ -5021,6 +5036,10 @@ L:	linux-mm@kvack.org
 W:	http://www.linux-mm.org
 S:	Maintained
 F:	include/linux/mm.h
+F:	include/linux/gfp.h
+F:	include/linux/mmzone.h
+F:	include/linux/memory_hotplug.h
+F:	include/linux/vmalloc.h
 F:	mm/
 
 MEMORY RESOURCE CONTROLLER
@@ -5404,6 +5423,13 @@ W:	http://www.netlab.is.tsukuba.ac.jp/~yokota/izumi/ninja/
 S:	Maintained
 F:	Documentation/scsi/NinjaSCSI.txt
 F:	drivers/scsi/nsp32*
+
+NTB DRIVER
+M:	Jon Mason <jon.mason@intel.com>
+S:	Supported
+F:	drivers/ntb/
+F:	drivers/net/ntb_netdev.c
+F:	include/linux/ntb.h
 
 NTFS FILESYSTEM
 M:	Anton Altaparmakov <anton@tuxera.com>
@@ -6493,7 +6519,7 @@ S:	Supported
 F:	drivers/s390/net/
 
 S390 ZCRYPT DRIVER
-M:	Holger Dengler <hd@linux.vnet.ibm.com>
+M:	Ingo Tuchscherer <ingo.tuchscherer@de.ibm.com>
 M:	linux390@de.ibm.com
 L:	linux-s390@vger.kernel.org
 W:	http://www.ibm.com/developerworks/linux/linux390/
@@ -6815,7 +6841,8 @@ S:	Supported
 F:	drivers/net/ethernet/sfc/
 
 SGI GRU DRIVER
-M:	Jack Steiner <steiner@sgi.com>
+M:	Dimitri Sivanich <sivanich@sgi.com>
+M:	Robin Holt <holt@sgi.com>
 S:	Maintained
 F:	drivers/misc/sgi-gru/
 
@@ -7009,14 +7036,6 @@ M:	Steve Glendinning <steve.glendinning@shawell.net>
 L:	linux-fbdev@vger.kernel.org
 S:	Maintained
 F:	drivers/video/smscufx.c
-
-SN-IA64 (Itanium) SUB-PLATFORM
-M:	Jes Sorensen <jes@sgi.com>
-L:	linux-altix@sgi.com
-L:	linux-ia64@vger.kernel.org
-W:	http://www.sgi.com/altix
-S:	Maintained
-F:	arch/ia64/sn/
 
 SOC-CAMERA V4L2 SUBSYSTEM
 M:	Guennadi Liakhovetski <g.liakhovetski@gmx.de>
@@ -7299,8 +7318,7 @@ S:	Odd Fixes
 F:	drivers/staging/olpc_dcon/
 
 STAGING - OZMO DEVICES USB OVER WIFI DRIVER
-M:	Rupesh Gujare <rgujare@ozmodevices.com>
-M:	Chris Kelly <ckelly@ozmodevices.com>
+M:	Rupesh Gujare <rupesh.gujare@atmel.com>
 S:	Maintained
 F:	drivers/staging/ozwpan/
 
@@ -7585,6 +7603,11 @@ T:      git git://git.kernel.org/pub/scm/linux/kernel/git/rzhang/linux.git
 S:      Supported
 F:      drivers/thermal/
 F:      include/linux/thermal.h
+
+THINGM BLINK(1) USB RGB LED DRIVER
+M:	Vivien Didelot <vivien.didelot@savoirfairelinux.com>
+S:	Maintained
+F:	drivers/hid/hid-thingm.c
 
 THINKPAD ACPI EXTRAS DRIVER
 M:	Henrique de Moraes Holschuh <ibm-acpi@hmh.eng.br>
@@ -7928,9 +7951,10 @@ F:	drivers/net/wireless/ath/ar5523/
 USB ATTACHED SCSI
 M:	Matthew Wilcox <willy@linux.intel.com>
 M:	Sarah Sharp <sarah.a.sharp@linux.intel.com>
+M:	Gerd Hoffmann <kraxel@redhat.com>
 L:	linux-usb@vger.kernel.org
 L:	linux-scsi@vger.kernel.org
-S:	Supported
+S:	Maintained
 F:	drivers/usb/storage/uas.c
 
 USB CDC ETHERNET DRIVER

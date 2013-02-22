@@ -16,7 +16,6 @@
 #include <linux/io.h>
 
 #include <asm/mach/arch.h>
-#include <asm/hardware/gic.h>
 #include <mach/map.h>
 #include <mach/regs-pmu.h>
 
@@ -104,6 +103,12 @@ static const struct of_dev_auxdata exynos5250_auxdata_lookup[] __initconst = {
 	OF_DEV_AUXDATA("samsung,mfc-v6", 0x11000000, "s5p-mfc-v6", NULL),
 	OF_DEV_AUXDATA("samsung,exynos5250-tmu", 0x10060000,
 				"exynos-tmu", NULL),
+	OF_DEV_AUXDATA("samsung,i2s-v5", 0x03830000,
+				"samsung-i2s.0", NULL),
+	OF_DEV_AUXDATA("samsung,i2s-v5", 0x12D60000,
+				"samsung-i2s.1", NULL),
+	OF_DEV_AUXDATA("samsung,i2s-v5", 0x12D70000,
+				"samsung-i2s.2", NULL),
 	{},
 };
 
@@ -179,10 +184,9 @@ DT_MACHINE_START(EXYNOS5_DT, "SAMSUNG EXYNOS5 (Flattened Device Tree)")
 	.init_irq	= exynos5_init_irq,
 	.smp		= smp_ops(exynos_smp_ops),
 	.map_io		= exynos5_dt_map_io,
-	.handle_irq	= gic_handle_irq,
 	.init_machine	= exynos5_dt_machine_init,
 	.init_late	= exynos_init_late,
-	.timer		= &exynos4_timer,
+	.init_time	= exynos4_timer_init,
 	.dt_compat	= exynos5_dt_compat,
 	.restart        = exynos5_restart,
 	.reserve	= exynos5_reserve,

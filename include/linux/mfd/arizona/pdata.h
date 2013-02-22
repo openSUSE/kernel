@@ -62,6 +62,8 @@
 
 #define ARIZONA_MAX_OUTPUT 6
 
+#define ARIZONA_MAX_AIF 3
+
 #define ARIZONA_HAP_ACT_ERM 0
 #define ARIZONA_HAP_ACT_LRA 2
 
@@ -96,8 +98,36 @@ struct arizona_pdata {
 	/** Pin state for GPIO pins */
 	int gpio_defaults[ARIZONA_MAX_GPIO];
 
+	/**
+	 * Maximum number of channels clocks will be generated for,
+	 * useful for systems where and I2S bus with multiple data
+	 * lines is mastered.
+	 */
+	int max_channels_clocked[ARIZONA_MAX_AIF];
+
+	/** GPIO5 is used for jack detection */
+	bool jd_gpio5;
+
+	/** Use the headphone detect circuit to identify the accessory */
+	bool hpdet_acc_id;
+
+	/** GPIO used for mic isolation with HPDET */
+	int hpdet_id_gpio;
+
 	/** GPIO for mic detection polarity */
 	int micd_pol_gpio;
+
+	/** Mic detect ramp rate */
+	int micd_bias_start_time;
+
+	/** Mic detect sample rate */
+	int micd_rate;
+
+	/** Mic detect debounce level */
+	int micd_dbtime;
+
+	/** Force MICBIAS on for mic detect */
+	bool micd_force_micbias;
 
 	/** Headset polarity configurations */
 	struct arizona_micd_config *micd_configs;

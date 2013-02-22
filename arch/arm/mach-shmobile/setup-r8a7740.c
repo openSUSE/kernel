@@ -27,7 +27,6 @@
 #include <linux/serial_sci.h>
 #include <linux/sh_dma.h>
 #include <linux/sh_timer.h>
-#include <linux/dma-mapping.h>
 #include <mach/dma-register.h>
 #include <mach/r8a7740.h>
 #include <mach/pm-rmobile.h>
@@ -66,6 +65,32 @@ static struct map_desc r8a7740_io_desc[] __initdata = {
 void __init r8a7740_map_io(void)
 {
 	iotable_init(r8a7740_io_desc, ARRAY_SIZE(r8a7740_io_desc));
+}
+
+/* PFC */
+static struct resource r8a7740_pfc_resources[] = {
+	[0] = {
+		.start	= 0xe6050000,
+		.end	= 0xe6057fff,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= 0xe605800c,
+		.end	= 0xe605802b,
+		.flags	= IORESOURCE_MEM,
+	}
+};
+
+static struct platform_device r8a7740_pfc_device = {
+	.name		= "pfc-r8a7740",
+	.id		= -1,
+	.resource	= r8a7740_pfc_resources,
+	.num_resources	= ARRAY_SIZE(r8a7740_pfc_resources),
+};
+
+void __init r8a7740_pinmux_init(void)
+{
+	platform_device_register(&r8a7740_pfc_device);
 }
 
 /* SCIFA0 */
@@ -262,6 +287,97 @@ static struct platform_device cmt10_device = {
 	.num_resources	= ARRAY_SIZE(cmt10_resources),
 };
 
+/* TMU */
+static struct sh_timer_config tmu00_platform_data = {
+	.name = "TMU00",
+	.channel_offset = 0x4,
+	.timer_bit = 0,
+	.clockevent_rating = 200,
+};
+
+static struct resource tmu00_resources[] = {
+	[0] = {
+		.name	= "TMU00",
+		.start	= 0xfff80008,
+		.end	= 0xfff80014 - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= intcs_evt2irq(0xe80),
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device tmu00_device = {
+	.name		= "sh_tmu",
+	.id		= 0,
+	.dev = {
+		.platform_data	= &tmu00_platform_data,
+	},
+	.resource	= tmu00_resources,
+	.num_resources	= ARRAY_SIZE(tmu00_resources),
+};
+
+static struct sh_timer_config tmu01_platform_data = {
+	.name = "TMU01",
+	.channel_offset = 0x10,
+	.timer_bit = 1,
+	.clocksource_rating = 200,
+};
+
+static struct resource tmu01_resources[] = {
+	[0] = {
+		.name	= "TMU01",
+		.start	= 0xfff80014,
+		.end	= 0xfff80020 - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= intcs_evt2irq(0xea0),
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device tmu01_device = {
+	.name		= "sh_tmu",
+	.id		= 1,
+	.dev = {
+		.platform_data	= &tmu01_platform_data,
+	},
+	.resource	= tmu01_resources,
+	.num_resources	= ARRAY_SIZE(tmu01_resources),
+};
+
+static struct sh_timer_config tmu02_platform_data = {
+	.name = "TMU02",
+	.channel_offset = 0x1C,
+	.timer_bit = 2,
+	.clocksource_rating = 200,
+};
+
+static struct resource tmu02_resources[] = {
+	[0] = {
+		.name	= "TMU02",
+		.start	= 0xfff80020,
+		.end	= 0xfff8002C - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= intcs_evt2irq(0xec0),
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device tmu02_device = {
+	.name		= "sh_tmu",
+	.id		= 2,
+	.dev = {
+		.platform_data	= &tmu02_platform_data,
+	},
+	.resource	= tmu02_resources,
+	.num_resources	= ARRAY_SIZE(tmu02_resources),
+};
+
 static struct platform_device *r8a7740_early_devices[] __initdata = {
 	&scif0_device,
 	&scif1_device,
@@ -273,6 +389,9 @@ static struct platform_device *r8a7740_early_devices[] __initdata = {
 	&scif7_device,
 	&scifb_device,
 	&cmt10_device,
+	&tmu00_device,
+	&tmu01_device,
+	&tmu02_device,
 };
 
 /* DMA */
@@ -705,12 +824,6 @@ void __init r8a7740_add_standard_devices(void)
 	rmobile_add_device_to_domain("A3SP",	&i2c1_device);
 }
 
-static void __init r8a7740_earlytimer_init(void)
-{
-	r8a7740_clock_init(0);
-	shmobile_earlytimer_init();
-}
-
 void __init r8a7740_add_early_devices(void)
 {
 	early_platform_add_devices(r8a7740_early_devices,
@@ -718,9 +831,6 @@ void __init r8a7740_add_early_devices(void)
 
 	/* setup early console here as well */
 	shmobile_setup_console();
-
-	/* override timer setup with soc-specific code */
-	shmobile_timer.init = r8a7740_earlytimer_init;
 }
 
 #ifdef CONFIG_USE_OF
@@ -763,7 +873,7 @@ DT_MACHINE_START(R8A7740_DT, "Generic R8A7740 (Flattened Device Tree)")
 	.init_irq	= r8a7740_init_irq,
 	.handle_irq	= shmobile_handle_irq_intc,
 	.init_machine	= r8a7740_add_standard_devices_dt,
-	.timer		= &shmobile_timer,
+	.init_time	= shmobile_timer_init,
 	.dt_compat	= r8a7740_boards_compat_dt,
 MACHINE_END
 

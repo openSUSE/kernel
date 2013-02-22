@@ -12,8 +12,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
-
-#include <mach/clk.h>
+#include <linux/clk/tegra.h>
 
 #include "drm.h"
 #include "dc.h"
@@ -764,11 +763,9 @@ static int tegra_dc_probe(struct platform_device *pdev)
 		return -ENXIO;
 	}
 
-	dc->regs = devm_request_and_ioremap(&pdev->dev, regs);
-	if (!dc->regs) {
-		dev_err(&pdev->dev, "failed to remap registers\n");
-		return -ENXIO;
-	}
+	dc->regs = devm_ioremap_resource(&pdev->dev, regs);
+	if (IS_ERR(dc->regs))
+		return PTR_ERR(dc->regs);
 
 	dc->irq = platform_get_irq(pdev, 0);
 	if (dc->irq < 0) {

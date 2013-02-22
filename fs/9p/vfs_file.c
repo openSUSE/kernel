@@ -80,10 +80,6 @@ int v9fs_file_open(struct inode *inode, struct file *file)
 			p9_client_clunk(fid);
 			return err;
 		}
-		if (file->f_flags & O_TRUNC) {
-			i_size_write(inode, 0);
-			inode->i_blocks = 0;
-		}
 		if ((file->f_flags & O_APPEND) &&
 			(!v9fs_proto_dotu(v9ses) && !v9fs_proto_dotl(v9ses)))
 			generic_file_llseek(file, 0, SEEK_END);
@@ -620,6 +616,7 @@ v9fs_vm_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 	lock_page(page);
 	if (page->mapping != inode->i_mapping)
 		goto out_unlock;
+	wait_for_stable_page(page);
 
 	return VM_FAULT_LOCKED;
 out_unlock:
