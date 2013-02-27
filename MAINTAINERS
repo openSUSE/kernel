@@ -3852,6 +3852,13 @@ F:	drivers/i2c/busses/i2c-sis96x.c
 F:	drivers/i2c/busses/i2c-via.c
 F:	drivers/i2c/busses/i2c-viapro.c
 
+I2C/SMBUS ISMT DRIVER
+M:	Seth Heasley <seth.heasley@intel.com>
+M:	Neil Horman <nhorman@tuxdriver.com>
+L:	linux-i2c@vger.kernel.org
+F:	drivers/i2c/busses/i2c-ismt.c
+F:	Documentation/i2c/busses/i2c-ismt
+
 I2C/SMBUS STUB DRIVER
 M:	"Mark M. Hoffman" <mhoffman@lightlink.com>
 L:	linux-i2c@vger.kernel.org
@@ -5692,7 +5699,7 @@ S:	Maintained
 F:	drivers/mmc/host/omap.c
 
 OMAP HS MMC SUPPORT
-M:	Venkatraman S <svenkatr@ti.com>
+M:	Balaji T K <balajitk@ti.com>
 L:	linux-mmc@vger.kernel.org
 L:	linux-omap@vger.kernel.org
 S:	Maintained
@@ -6803,6 +6810,14 @@ S:	Maintained
 F:	include/linux/dw_dmac.h
 F:	drivers/dma/dw_dmac_regs.h
 F:	drivers/dma/dw_dmac.c
+
+SYNOPSYS DESIGNWARE MMC/SD/SDIO DRIVER
+M:	Seungwon Jeon <tgih.jun@samsung.com>
+M:	Jaehoon Chung <jh80.chung@samsung.com>
+L:	linux-mmc@vger.kernel.org
+S:	Maintained
+F:	include/linux/mmc/dw_mmc.h
+F:	drivers/mmc/host/dw_mmc*
 
 TIMEKEEPING, NTP
 M:	John Stultz <john.stultz@linaro.org>
