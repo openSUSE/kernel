@@ -30,6 +30,7 @@
  * IN THE SOFTWARE.
  */
 
+#include <linux/mm.h>
 #include <linux/slab.h>
 #if defined(CONFIG_XEN) || defined(MODULE)
 #include <xen/evtchn.h>
