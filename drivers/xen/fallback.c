@@ -53,7 +53,7 @@ int xen_event_channel_op_compat(int cmd, void *arg)
 }
 EXPORT_SYMBOL_GPL(xen_event_channel_op_compat);
 
-int HYPERVISOR_physdev_op_compat(int cmd, void *arg)
+int xen_physdev_op_compat(int cmd, void *arg)
 {
 	struct physdev_op op;
 	int rc;
@@ -87,5 +87,6 @@ int HYPERVISOR_physdev_op_compat(int cmd, void *arg)
 
 	return rc;
 }
+EXPORT_SYMBOL_GPL(xen_physdev_op_compat);
 
 #endif /* CONFIG_XEN_COMPAT <= 0x030002 */
