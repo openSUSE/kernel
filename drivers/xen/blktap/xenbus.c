@@ -133,16 +133,18 @@ static int blktap_name(blkif_t *blkif, char *buf)
 	}								\
 	static DEVICE_ATTR(name, S_IRUGO, show_##name, NULL)
 
-VBD_SHOW(oo_req,  "%d\n", be->blkif->st_oo_req);
-VBD_SHOW(rd_req,  "%d\n", be->blkif->st_rd_req);
-VBD_SHOW(wr_req,  "%d\n", be->blkif->st_wr_req);
-VBD_SHOW(rd_sect, "%d\n", be->blkif->st_rd_sect);
-VBD_SHOW(wr_sect, "%d\n", be->blkif->st_wr_sect);
+VBD_SHOW(oo_req,  "%lu\n", be->blkif->st_oo_req);
+VBD_SHOW(rd_req,  "%lu\n", be->blkif->st_rd_req);
+VBD_SHOW(wr_req,  "%lu\n", be->blkif->st_wr_req);
+VBD_SHOW(pk_req,  "%lu\n", be->blkif->st_pk_req);
+VBD_SHOW(rd_sect, "%lu\n", be->blkif->st_rd_sect);
+VBD_SHOW(wr_sect, "%lu\n", be->blkif->st_wr_sect);
 
 static struct attribute *tapstat_attrs[] = {
 	&dev_attr_oo_req.attr,
 	&dev_attr_rd_req.attr,
 	&dev_attr_wr_req.attr,
+	&dev_attr_pk_req.attr,
 	&dev_attr_rd_sect.attr,
 	&dev_attr_wr_sect.attr,
 	NULL

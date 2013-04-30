@@ -361,10 +361,12 @@ void xencons_rx(char *buf, unsigned len)
 {
 	int           i;
 	unsigned long flags;
+	struct tty_port *port;
 
 	spin_lock_irqsave(&xencons_lock, flags);
 	if (xencons_tty == NULL)
 		goto out;
+	port = &xencons_ports[xencons_tty->index];
 
 	for (i = 0; i < len; i++) {
 #ifdef CONFIG_MAGIC_SYSRQ
@@ -388,9 +390,9 @@ void xencons_rx(char *buf, unsigned len)
 			}
 		}
 #endif
-		tty_insert_flip_char(xencons_tty, buf[i], 0);
+		tty_insert_flip_char(port, buf[i], 0);
 	}
-	tty_flip_buffer_push(xencons_tty);
+	tty_flip_buffer_push(port);
 
  out:
 	spin_unlock_irqrestore(&xencons_lock, flags);

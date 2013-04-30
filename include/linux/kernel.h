@@ -390,7 +390,6 @@ extern struct pid *session_of_pgrp(struct pid *pgrp);
 unsigned long int_sqrt(unsigned long);
 
 extern void bust_spinlocks(int yes);
-extern void wake_up_klogd(void);
 extern int oops_in_progress;		/* If set, an oops, panic(), BUG() or die() is in progress */
 extern int panic_timeout;
 extern int panic_on_oops;
@@ -401,10 +400,11 @@ extern int unsupported;
 #endif
 extern int sysctl_panic_on_stackoverflow;
 extern const char *print_tainted(void);
-extern void add_taint(unsigned flag);
-#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-extern void add_nonfatal_taint(unsigned flag);
-#endif
+enum lockdep_ok {
+	LOCKDEP_STILL_OK,
+	LOCKDEP_NOW_UNRELIABLE
+};
+extern void add_taint(unsigned flag, enum lockdep_ok);
 extern int test_taint(unsigned flag);
 extern unsigned long get_taint(void);
 extern int root_mountflags;

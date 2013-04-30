@@ -63,7 +63,7 @@ notrace static cycle_t vread_tsc(void)
 
 static notrace cycle_t vread_hpet(void)
 {
-	return readl((const void __iomem *)fix_to_virt(VSYSCALL_HPET) + 0xf0);
+	return readl((const void __iomem *)fix_to_virt(VSYSCALL_HPET) + HPET_COUNTER);
 }
 #endif /* CONFIG_XEN */
 

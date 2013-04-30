@@ -164,7 +164,7 @@ static void make_response(struct xen_blkif *blkif, u64 id,
 
 #define foreach_grant_safe(pos, n, rbtree, node) \
 	for ((pos) = container_of(rb_first((rbtree)), typeof(*(pos)), node), \
-	     (n) = rb_next(&(pos)->node); \
+	     (n) = (&(pos)->node != NULL) ? rb_next(&(pos)->node) : NULL; \
 	     &(pos)->node != NULL; \
 	     (pos) = container_of(n, typeof(*(pos)), node), \
 	     (n) = (&(pos)->node != NULL) ? rb_next(&(pos)->node) : NULL)
@@ -381,8 +381,8 @@ irqreturn_t xen_blkif_be_int(int irq, void *dev_id)
 
 static void print_stats(struct xen_blkif *blkif)
 {
-	pr_info("xen-blkback (%s): oo %3d  |  rd %4d  |  wr %4d  |  f %4d"
-		 "  |  ds %4d\n",
+	pr_info("xen-blkback (%s): oo %3llu  |  rd %4llu  |  wr %4llu  |  f %4llu"
+		 "  |  ds %4llu\n",
 		 current->comm, blkif->st_oo_req,
 		 blkif->st_rd_req, blkif->st_wr_req,
 		 blkif->st_f_req, blkif->st_ds_req);
@@ -442,7 +442,7 @@ int xen_blkif_schedule(void *arg)
 }
 
 struct seg_buf {
-	unsigned long buf;
+	unsigned int offset;
 	unsigned int nsec;
 };
 /*
@@ -621,30 +621,21 @@ static int xen_blkbk_map(struct blkif_request *req,
 				 * If this is a new persistent grant
 				 * save the handler
 				 */
-				persistent_gnts[i]->handle = map[j].handle;
-				persistent_gnts[i]->dev_bus_addr =
-					map[j++].dev_bus_addr;
+				persistent_gnts[i]->handle = map[j++].handle;
 			}
 			pending_handle(pending_req, i) =
 				persistent_gnts[i]->handle;
 
 			if (ret)
 				continue;
-
-			seg[i].buf = persistent_gnts[i]->dev_bus_addr |
-				(req->u.rw.seg[i].first_sect << 9);
 		} else {
-			pending_handle(pending_req, i) = map[j].handle;
+			pending_handle(pending_req, i) = map[j++].handle;
 			bitmap_set(pending_req->unmap_seg, i, 1);
 
-			if (ret) {
-				j++;
+			if (ret)
 				continue;
-			}
-
-			seg[i].buf = map[j++].dev_bus_addr |
-				(req->u.rw.seg[i].first_sect << 9);
 		}
+		seg[i].offset = (req->u.rw.seg[i].first_sect << 9);
 	}
 	return ret;
 }
@@ -904,7 +895,6 @@ static int dispatch_rw_block_io(struct xen_blkif *blkif,
 		goto fail_response;
 	}
 
-	preq.dev           = req->u.rw.handle;
 	preq.sector_number = req->u.rw.sector_number;
 	preq.nr_sects      = 0;
 
@@ -928,7 +918,8 @@ static int dispatch_rw_block_io(struct xen_blkif *blkif,
 		pr_debug(DRV_PFX "access denied: %s of [%llu,%llu] on dev=%04x\n",
 			 operation == READ ? "read" : "write",
 			 preq.sector_number,
-			 preq.sector_number + preq.nr_sects, preq.dev);
+			 preq.sector_number + preq.nr_sects,
+			 blkif->vbd.pdevice);
 		goto fail_response;
 	}
 
@@ -971,7 +962,7 @@ static int dispatch_rw_block_io(struct xen_blkif *blkif,
 		       (bio_add_page(bio,
 				     pages[i],
 				     seg[i].nsec << 9,
-				     seg[i].buf & ~PAGE_MASK) == 0)) {
+				     seg[i].offset) == 0)) {
 
 			bio = bio_alloc(GFP_KERNEL, nseg-i);
 			if (unlikely(bio == NULL))

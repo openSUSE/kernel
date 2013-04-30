@@ -55,7 +55,7 @@ startup_64:
 
 #define NEXT_PAGE(name) \
 	.balign	PAGE_SIZE; \
-ENTRY(name)
+GLOBAL(name)
 
 	__PAGE_ALIGNED_BSS
 NEXT_PAGE(init_level4_pgt)
@@ -126,12 +126,11 @@ NEXT_PAGE(hypercall_page)
 #include <asm/xen-hypercalls.h>
 #undef HYPERCALL
 
-#undef NEXT_PAGE
-
 	__PAGE_ALIGNED_BSS
-	.align PAGE_SIZE
-ENTRY(empty_zero_page)
+NEXT_PAGE(empty_zero_page)
 	.skip PAGE_SIZE
+
+#undef NEXT_PAGE
 
 #ifdef CONFIG_XEN_UNPRIVILEGED_GUEST
 # define XEN_DOM0_CAP		0

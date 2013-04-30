@@ -480,9 +480,6 @@ static int acpi_processor_get_performance_states(struct acpi_processor *pr)
 	return result;
 }
 
-#ifndef CONFIG_PROCESSOR_EXTERNAL_CONTROL
-static
-#endif
 int acpi_processor_get_performance_info(struct acpi_processor *pr)
 {
 	int result = 0;
@@ -527,6 +524,7 @@ int acpi_processor_get_performance_info(struct acpi_processor *pr)
 #endif
 	return result;
 }
+EXPORT_SYMBOL_GPL(acpi_processor_get_performance_info);
 
 #ifdef CONFIG_CPU_FREQ
 int acpi_processor_notify_smm(struct module *calling_module)

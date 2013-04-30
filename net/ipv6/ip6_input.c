@@ -233,7 +233,7 @@ resubmit:
 			if (ipv6_addr_is_multicast(&hdr->daddr) &&
 			    !ipv6_chk_mcast_addr(skb->dev, &hdr->daddr,
 			    &hdr->saddr) &&
-			    !ipv6_is_mld(skb, nexthdr))
+			    !ipv6_is_mld(skb, nexthdr, skb_network_header_len(skb)))
 				goto discard;
 		}
 		if (!(ipprot->flags & INET6_PROTO_NOPOLICY) &&
@@ -253,9 +253,11 @@ resubmit:
 				icmpv6_send(skb, ICMPV6_PARAMPROB,
 					    ICMPV6_UNK_NEXTHDR, nhoff);
 			}
-		} else
+			kfree_skb(skb);
+		} else {
 			IP6_INC_STATS_BH(net, idev, IPSTATS_MIB_INDELIVERS);
-		kfree_skb(skb);
+			consume_skb(skb);
+		}
 	}
 	rcu_read_unlock();
 	return 0;
@@ -302,10 +304,8 @@ int ip6_mc_input(struct sk_buff *skb)
 		struct inet6_skb_parm *opt = IP6CB(skb);
 
 		/* Check for MLD */
-		if (unlikely(opt->ra)) {
+		if (unlikely(opt->flags & IP6SKB_ROUTERALERT)) {
 			/* Check if this is a mld message */
-			u8 *ptr = skb_network_header(skb) + opt->ra;
-			struct icmp6hdr *icmp6;
 			u8 nexthdr = hdr->nexthdr;
 			__be16 frag_off;
 			int offset;
@@ -313,7 +313,7 @@ int ip6_mc_input(struct sk_buff *skb)
 			/* Check if the value of Router Alert
 			 * is for MLD (0x0000).
 			 */
-			if ((ptr[2] | ptr[3]) == 0) {
+			if (opt->ra == htons(IPV6_OPT_ROUTERALERT_MLD)) {
 				deliver = false;
 
 				if (!ipv6_ext_hdr(nexthdr)) {
@@ -325,24 +325,10 @@ int ip6_mc_input(struct sk_buff *skb)
 				if (offset < 0)
 					goto out;
 
-				if (nexthdr != IPPROTO_ICMPV6)
+				if (!ipv6_is_mld(skb, nexthdr, offset))
 					goto out;
 
-				if (!pskb_may_pull(skb, (skb_network_header(skb) +
-						   offset + 1 - skb->data)))
-					goto out;
-
-				icmp6 = (struct icmp6hdr *)(skb_network_header(skb) + offset);
-
-				switch (icmp6->icmp6_type) {
-				case ICMPV6_MGM_QUERY:
-				case ICMPV6_MGM_REPORT:
-				case ICMPV6_MGM_REDUCTION:
-				case ICMPV6_MLD2_REPORT:
-					deliver = true;
-					break;
-				}
-				goto out;
+				deliver = true;
 			}
 			/* unknown RA - process it normally */
 		}

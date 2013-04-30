@@ -30,11 +30,81 @@
 #include <asm/bios_ebda.h>
 
 #ifndef CONFIG_XEN
-static void __init zap_identity_mappings(void)
+/*
+ * Manage page tables very early on.
+ */
+extern pgd_t early_level4_pgt[PTRS_PER_PGD];
+extern pmd_t early_dynamic_pgts[EARLY_DYNAMIC_PAGE_TABLES][PTRS_PER_PMD];
+static unsigned int __initdata next_early_pgt = 2;
+
+/* Wipe all early page tables except for the kernel symbol map */
+static void __init reset_early_page_tables(void)
 {
-	pgd_t *pgd = pgd_offset_k(0UL);
-	pgd_clear(pgd);
-	__flush_tlb_all();
+	unsigned long i;
+
+	for (i = 0; i < PTRS_PER_PGD-1; i++)
+		early_level4_pgt[i].pgd = 0;
+
+	next_early_pgt = 0;
+
+	write_cr3(__pa(early_level4_pgt));
+}
+
+/* Create a new PMD entry */
+int __init early_make_pgtable(unsigned long address)
+{
+	unsigned long physaddr = address - __PAGE_OFFSET;
+	unsigned long i;
+	pgdval_t pgd, *pgd_p;
+	pudval_t pud, *pud_p;
+	pmdval_t pmd, *pmd_p;
+
+	/* Invalid address or early pgt is done ?  */
+	if (physaddr >= MAXMEM || read_cr3() != __pa(early_level4_pgt))
+		return -1;
+
+again:
+	pgd_p = &early_level4_pgt[pgd_index(address)].pgd;
+	pgd = *pgd_p;
+
+	/*
+	 * The use of __START_KERNEL_map rather than __PAGE_OFFSET here is
+	 * critical -- __PAGE_OFFSET would point us back into the dynamic
+	 * range and we might end up looping forever...
+	 */
+	if (pgd)
+		pud_p = (pudval_t *)((pgd & PTE_PFN_MASK) + __START_KERNEL_map - phys_base);
+	else {
+		if (next_early_pgt >= EARLY_DYNAMIC_PAGE_TABLES) {
+			reset_early_page_tables();
+			goto again;
+		}
+
+		pud_p = (pudval_t *)early_dynamic_pgts[next_early_pgt++];
+		for (i = 0; i < PTRS_PER_PUD; i++)
+			pud_p[i] = 0;
+		*pgd_p = (pgdval_t)pud_p - __START_KERNEL_map + phys_base + _KERNPG_TABLE;
+	}
+	pud_p += pud_index(address);
+	pud = *pud_p;
+
+	if (pud)
+		pmd_p = (pmdval_t *)((pud & PTE_PFN_MASK) + __START_KERNEL_map - phys_base);
+	else {
+		if (next_early_pgt >= EARLY_DYNAMIC_PAGE_TABLES) {
+			reset_early_page_tables();
+			goto again;
+		}
+
+		pmd_p = (pmdval_t *)early_dynamic_pgts[next_early_pgt++];
+		for (i = 0; i < PTRS_PER_PMD; i++)
+			pmd_p[i] = 0;
+		*pud_p = (pudval_t)pmd_p - __START_KERNEL_map + phys_base + _KERNPG_TABLE;
+	}
+	pmd = (physaddr & PMD_MASK) + (__PAGE_KERNEL_LARGE & ~_PAGE_GLOBAL);
+	pmd_p[pmd_index(address)] = pmd;
+
+	return 0;
 }
 
 /* Don't add a printk in there. printk relies on the PDA which is not initialized 
@@ -44,16 +114,30 @@ static void __init clear_bss(void)
 	memset(__bss_start, 0,
 	       (unsigned long) __bss_stop - (unsigned long) __bss_start);
 }
+
+static unsigned long get_cmd_line_ptr(void)
+{
+	unsigned long cmd_line_ptr = boot_params.hdr.cmd_line_ptr;
+
+	cmd_line_ptr |= (u64)boot_params.ext_cmd_line_ptr << 32;
+
+	return cmd_line_ptr;
+}
+#else
+const unsigned long phys_base = 0;
 #endif
 
 static void __init copy_bootdata(char *real_mode_data)
 {
 #ifndef CONFIG_XEN
 	char * command_line;
+	unsigned long cmd_line_ptr;
 
 	memcpy(&boot_params, real_mode_data, sizeof boot_params);
-	if (boot_params.hdr.cmd_line_ptr) {
-		command_line = __va(boot_params.hdr.cmd_line_ptr);
+	sanitize_boot_params(&boot_params);
+	cmd_line_ptr = get_cmd_line_ptr();
+	if (cmd_line_ptr) {
+		command_line = __va(cmd_line_ptr);
 		memcpy(boot_command_line, command_line, COMMAND_LINE_SIZE);
 	}
 #else
@@ -88,26 +172,34 @@ void __init x86_64_start_kernel(char * real_mode_data)
 	xen_start_kernel();
 
 #ifndef CONFIG_XEN
+	/* Kill off the identity-map trampoline */
+	reset_early_page_tables();
+
 	/* clear bss before set_intr_gate with early_idt_handler */
 	clear_bss();
 
-	/* Make NULL pointers segfault */
-	zap_identity_mappings();
-
-	for (i = 0; i < NUM_EXCEPTION_VECTORS; i++) {
-#ifdef CONFIG_EARLY_PRINTK
+	for (i = 0; i < NUM_EXCEPTION_VECTORS; i++)
 		set_intr_gate(i, &early_idt_handlers[i]);
-#else
-		set_intr_gate(i, early_idt_handler);
-#endif
-	}
 	load_idt((const struct desc_ptr *)&idt_descr);
+
+	copy_bootdata(__va(real_mode_data));
+
+	/*
+	 * Load microcode early on BSP.
+	 */
+	load_ucode_bsp();
 #endif
 
 	if (console_loglevel == 10)
 		early_printk("Kernel alive\n");
 
+#ifndef CONFIG_XEN
+	clear_page(init_level4_pgt);
+	/* set init_level4_pgt kernel high mapping*/
+	init_level4_pgt[511] = early_level4_pgt[511];
+#else
 	xen_switch_pt();
+#endif
 
 	x86_64_start_reservations(real_mode_data);
 }
@@ -116,30 +208,19 @@ void __init x86_64_start_reservations(char *real_mode_data)
 {
 	copy_bootdata(__va(real_mode_data));
 
-	memblock_reserve(__pa_symbol(&_text),
-			 __pa_symbol(&__bss_stop) - __pa_symbol(&_text));
-
 #ifdef CONFIG_BLK_DEV_INITRD
 	/* Reserve INITRD if needed. */
-	if (xen_start_info->flags & SIF_MOD_START_PFN) {
-		reserve_pfn_range(xen_start_info->mod_start,
-				  PFN_UP(xen_start_info->mod_len));
-		xen_initrd_start = xen_start_info->mod_start << PAGE_SHIFT;
-	} else if (xen_start_info->mod_start)
+	if (xen_start_info->flags & SIF_MOD_START_PFN)
+		xen_initrd_start = PFN_PHYS(xen_start_info->mod_start);
+	else if (xen_start_info->mod_start)
 		xen_initrd_start = __pa(xen_start_info->mod_start);
 #endif
 
 	if (xen_feature(XENFEAT_auto_translated_physmap))
 		xen_start_info->mfn_list = ~0UL;
 	else if (xen_start_info->mfn_list < __START_KERNEL_map)
-		reserve_pfn_range(xen_start_info->first_p2m_pfn,
-				  xen_start_info->nr_p2m_frames);
-
-	/*
-	 * At this point everything still needed from the boot loader
-	 * or BIOS or kernel text should be early reserved or marked not
-	 * RAM in e820. All other memory is free game.
-	 */
+		memblock_reserve(PFN_PHYS(xen_start_info->first_p2m_pfn),
+				 PFN_PHYS(xen_start_info->nr_p2m_frames));
 
 	start_kernel();
 }

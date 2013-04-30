@@ -702,6 +702,11 @@ dotraplinkage void do_iret_error(struct pt_regs *regs, long error_code)
 static const trap_info_t __initconst early_trap_table[] = {
 	{ X86_TRAP_DB, 0|4, __KERNEL_CS, (unsigned long)debug			},
 	{ X86_TRAP_BP, 3|4, __KERNEL_CS, (unsigned long)int3			},
+#ifdef CONFIG_X86_64
+	{ }
+};
+static const trap_info_t __initconst early_trap_pf_table[] = {
+#endif
 	{ X86_TRAP_PF, 0|4, __KERNEL_CS, (unsigned long)page_fault		},
 	{ }
 };
@@ -737,11 +742,20 @@ static const trap_info_t __cpuinitconst trap_table[] = {
 /* Set of traps needed for early debugging. */
 void __init early_trap_init(void)
 {
-	int ret;
+	int ret = HYPERVISOR_set_trap_table(early_trap_table);
 
-	ret = HYPERVISOR_set_trap_table(early_trap_table);
 	if (ret)
 		printk("early set_trap_table failed (%d)\n", ret);
+}
+
+void __init early_trap_pf_init(void)
+{
+#ifdef CONFIG_X86_64
+	int ret = HYPERVISOR_set_trap_table(early_trap_pf_table);
+
+	if (ret)
+		printk("early PF set_trap_table failed (%d)\n", ret);
+#endif
 }
 
 void __init trap_init(void)

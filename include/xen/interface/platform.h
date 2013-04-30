@@ -184,6 +184,7 @@ struct xenpf_efi_runtime_call {
             struct xenpf_efi_guid vendor_guid;
         } get_next_variable_name;
 
+#define XEN_EFI_VARINFO_BOOT_SNAPSHOT       0x00000001
         struct {
             uint32_t attr;
             uint64_t max_store_size;
@@ -505,21 +506,19 @@ DEFINE_GUEST_HANDLE_STRUCT(xenpf_cpu_ol);
 typedef struct xenpf_cpu_ol xenpf_cpu_ol_t;
 DEFINE_XEN_GUEST_HANDLE(xenpf_cpu_ol_t);
 
-#define XENPF_cpu_hotadd    58
-struct xenpf_cpu_hotadd
-{
+#define XENPF_cpu_hotadd	58
+struct xenpf_cpu_hotadd {
 	uint32_t apic_id;
 	uint32_t acpi_id;
 	uint32_t pxm;
 };
 
-#define XENPF_mem_hotadd    59
-struct xenpf_mem_hotadd
-{
-    uint64_t spfn;
-    uint64_t epfn;
-    uint32_t pxm;
-    uint32_t flags;
+#define XENPF_mem_hotadd	59
+struct xenpf_mem_hotadd {
+	uint64_t spfn;
+	uint64_t epfn;
+	uint32_t pxm;
+	uint32_t flags;
 };
 
 #define XENPF_core_parking     60

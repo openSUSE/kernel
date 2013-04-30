@@ -866,6 +866,33 @@ out:
 }
 EXPORT_SYMBOL_GPL(_pnfs_return_layout);
 
+int
+pnfs_commit_and_return_layout(struct inode *inode)
+{
+	struct pnfs_layout_hdr *lo;
+	int ret;
+
+	spin_lock(&inode->i_lock);
+	lo = NFS_I(inode)->layout;
+	if (lo == NULL) {
+		spin_unlock(&inode->i_lock);
+		return 0;
+	}
+	pnfs_get_layout_hdr(lo);
+	/* Block new layoutgets and read/write to ds */
+	lo->plh_block_lgets++;
+	spin_unlock(&inode->i_lock);
+	filemap_fdatawait(inode->i_mapping);
+	ret = pnfs_layoutcommit_inode(inode, true);
+	if (ret == 0)
+		ret = _pnfs_return_layout(inode);
+	spin_lock(&inode->i_lock);
+	lo->plh_block_lgets--;
+	spin_unlock(&inode->i_lock);
+	pnfs_put_layout_hdr(lo);
+	return ret;
+}
+
 bool pnfs_roc(struct inode *ino)
 {
 	struct pnfs_layout_hdr *lo;
@@ -1202,7 +1229,7 @@ pnfs_update_layout(struct inode *ino,
 	struct nfs_client *clp = server->nfs_client;
 	struct pnfs_layout_hdr *lo;
 	struct pnfs_layout_segment *lseg = NULL;
-	bool first = false;
+	bool first;
 
 	if (!pnfs_enabled_sb(NFS_SERVER(ino)))
 		goto out;
@@ -1236,10 +1263,9 @@ pnfs_update_layout(struct inode *ino,
 		goto out_unlock;
 	atomic_inc(&lo->plh_outstanding);
 
-	if (list_empty(&lo->plh_segs))
-		first = true;
-
+	first = list_empty(&lo->plh_layouts) ? true : false;
 	spin_unlock(&ino->i_lock);
+
 	if (first) {
 		/* The lo must be on the clp list if there is any
 		 * chance of a CB_LAYOUTRECALL(FILE) coming in.

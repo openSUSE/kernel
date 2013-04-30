@@ -1646,6 +1646,8 @@ static void restore_cpu_ipis(unsigned int cpu)
 		if (irq == -1
 		    || !VALID_EVTCHN(per_cpu(ipi_evtchn, cpu)))
 			return;
+
+		bitmap_zero(per_cpu(ipi_pending, cpu), NR_IPIS);
 #endif
 
 		data = irq_get_irq_data(irq);

@@ -38,7 +38,7 @@
 #define OFFSET(val,align) ((unsigned long)((val) & ( (align) - 1)))
 
 int swiotlb;
-int swiotlb_force;
+int __initdata swiotlb_force;
 
 /*
  * Used to do a quick range check in swiotlb_tbl_unmap_single and
@@ -109,9 +109,9 @@ setup_io_tlb_npages(char *str)
 	else if (!strcmp(str, "off"))
 		swiotlb_force = -1;
 
-	return 1;
+	return 0;
 }
-__setup("swiotlb=", setup_io_tlb_npages);
+early_param("swiotlb", setup_io_tlb_npages);
 /* make io_tlb_overflow tunable too? */
 
 unsigned long swiotlb_nr_tbl(void)
@@ -120,7 +120,19 @@ unsigned long swiotlb_nr_tbl(void)
 }
 EXPORT_SYMBOL_GPL(swiotlb_nr_tbl);
 
+/* default to 64MB */
+#define IO_TLB_DEFAULT_SIZE (64UL<<20)
+
 #ifndef CONFIG_XEN
+unsigned long swiotlb_size_or_default(void)
+{
+	unsigned long size;
+
+	size = io_tlb_nslabs << IO_TLB_SHIFT;
+
+	return size ? size : (IO_TLB_DEFAULT_SIZE);
+}
+
 /* Note that this doesn't work with highmem page */
 static dma_addr_t swiotlb_virt_to_bus(struct device *hwdev,
 				      volatile void *address)
@@ -129,9 +141,16 @@ static dma_addr_t swiotlb_virt_to_bus(struct device *hwdev,
 }
 #endif
 
+static bool no_iotlb_memory;
+
 void swiotlb_print_info(void)
 {
 	unsigned long bytes = io_tlb_nslabs << IO_TLB_SHIFT;
+
+	if (no_iotlb_memory) {
+		pr_warn("software IO TLB: No low mem\n");
+		return;
+	}
 
 	printk(KERN_INFO "Software IO TLB enabled: \n"
 	       " Aperture:     %lu megabytes\n"
@@ -141,11 +160,23 @@ void swiotlb_print_info(void)
 	       phys_to_virt(io_tlb_start), phys_to_virt(io_tlb_end));
 }
 
-void __init swiotlb_init_with_tbl(char *tlb, unsigned long nslabs, int verbose)
+static const char *__init
+_swiotlb_init_with_tbl(char *tlb, unsigned long nslabs, int verbose)
 {
+	static const char __initconst msg_mem[]
+		= "Cannot allocate SWIOTLB buffer";
+	static const char __initconst msg_buf[]
+		= "No suitable physical memory available for SWIOTLB buffer!\n"
+		  "Use dom0_mem Xen boot parameter to reserve some DMA memory"
+		  " (e.g., dom0_mem=-128M).";
+	static const char __initconst msg_ofl[]
+		= "No suitable physical memory available for SWIOTLB overflow buffer!";
 	void *v_overflow_buffer;
 	unsigned long i, bytes;
 	int rc;
+
+	if (!tlb)
+		return msg_mem;
 
 	bytes = nslabs << IO_TLB_SHIFT;
 
@@ -161,9 +192,7 @@ void __init swiotlb_init_with_tbl(char *tlb, unsigned long nslabs, int verbose)
 		} while (rc && dma_bits++ < max_dma_bits);
 		if (rc) {
 			if (nslabs == 0)
-				panic("No suitable physical memory available for SWIOTLB buffer!\n"
-				      "Use dom0_mem Xen boot parameter to reserve\n"
-				      "some DMA memory (e.g., dom0_mem=-128M).\n");
+				return msg_buf;
 			io_tlb_nslabs = nslabs;
 			i = nslabs << IO_TLB_SHIFT;
 			free_bootmem(io_tlb_start + i, bytes - i);
@@ -182,9 +211,10 @@ void __init swiotlb_init_with_tbl(char *tlb, unsigned long nslabs, int verbose)
 	/*
 	 * Get the overflow emergency buffer
 	 */
-	v_overflow_buffer = alloc_bootmem_pages(PAGE_ALIGN(io_tlb_overflow));
+	v_overflow_buffer = alloc_bootmem_pages_nopanic(
+						PAGE_ALIGN(io_tlb_overflow));
 	if (!v_overflow_buffer)
-		panic("Cannot allocate SWIOTLB overflow buffer!\n");
+		return msg_mem;
 
 	io_tlb_overflow_buffer = __pa(v_overflow_buffer);
 
@@ -198,7 +228,6 @@ void __init swiotlb_init_with_tbl(char *tlb, unsigned long nslabs, int verbose)
 	io_tlb_index = 0;
 	io_tlb_orig_addr = alloc_bootmem_pages(PAGE_ALIGN(io_tlb_nslabs * sizeof(phys_addr_t)));
 
-
 	do {
 		rc = xen_create_contiguous_region(
 			(unsigned long)v_overflow_buffer,
@@ -206,20 +235,45 @@ void __init swiotlb_init_with_tbl(char *tlb, unsigned long nslabs, int verbose)
 			dma_bits);
 	} while (rc && dma_bits++ < max_dma_bits);
 	if (rc)
-		panic("No suitable physical memory available for SWIOTLB overflow buffer!\n");
+		return msg_ofl;
 	if (verbose)
 		swiotlb_print_info();
+
+	return NULL;
 }
 
 /*
  * Statically reserve bounce buffer space and initialize bounce buffer data
  * structures for the software IO TLB used to implement the DMA API.
  */
-static void __init
-swiotlb_init_with_default_size(size_t default_size, int verbose)
+void  __init
+swiotlb_init(int verbose)
 {
+	size_t default_size = IO_TLB_DEFAULT_SIZE;
 	unsigned char *vstart;
 	unsigned long bytes;
+	const char *msg;
+
+	if (swiotlb_force >= 0 && is_running_on_xen()
+	    && is_initial_xendomain()) {
+		/* Domain 0 always has a swiotlb. */
+		unsigned long ram_end;
+
+		ram_end = HYPERVISOR_memory_op(XENMEM_maximum_ram_page, NULL);
+		if (ram_end <= 0x1ffff)
+			default_size = 2 << 20; /* 2MB on <512MB systems */
+		else if (ram_end <= 0x3ffff)
+			default_size = 4 << 20; /* 4MB on <1GB systems */
+		else if (ram_end <= 0x7ffff)
+			default_size = 8 << 20; /* 8MB on <2GB systems */
+		swiotlb_force = swiotlb = 1;
+	} else if (swiotlb_force > 0)
+		swiotlb = 1;
+
+	if (!swiotlb) {
+		pr_info("Software IO TLB disabled\n");
+		return;
+	}
 
 	if (!io_tlb_nslabs) {
 		io_tlb_nslabs = (default_size >> IO_TLB_SHIFT);
@@ -228,42 +282,19 @@ swiotlb_init_with_default_size(size_t default_size, int verbose)
 
 	bytes = io_tlb_nslabs << IO_TLB_SHIFT;
 
-	/*
-	 * Get IO TLB memory from the low pages
-	 */
-	vstart = alloc_bootmem_pages(PAGE_ALIGN(bytes));
-	if (!vstart)
-		panic("Cannot allocate SWIOTLB buffer");
+	/* Get IO TLB memory from the low pages */
+	vstart = alloc_bootmem_pages_nopanic(PAGE_ALIGN(bytes));
+	msg = _swiotlb_init_with_tbl(vstart, io_tlb_nslabs, verbose);
+	if (!msg)
+		return;
 
-	swiotlb_init_with_tbl(vstart, io_tlb_nslabs, verbose);
-}
-
-void __init
-swiotlb_init(int verbose)
-{
-	unsigned long ram_end;
-	size_t defsz = 64 << 20; /* 64MB default size */
-
-	if (swiotlb_force == 1) {
-		swiotlb = 1;
-	} else if ((swiotlb_force != -1) &&
-		   is_running_on_xen() &&
-		   is_initial_xendomain()) {
-		/* Domain 0 always has a swiotlb. */
-		ram_end = HYPERVISOR_memory_op(XENMEM_maximum_ram_page, NULL);
-		if (ram_end <= 0x1ffff)
-			defsz = 2 << 20; /* 2MB on <512MB systems. */
-		else if (ram_end <= 0x3ffff)
-			defsz = 4 << 20; /* 4MB on <1GB systems. */
-		else if (ram_end <= 0x7ffff)
-			defsz = 8 << 20; /* 8MB on <2GB systems. */
-		swiotlb = 1;
-	}
-
-	if (swiotlb)
-		swiotlb_init_with_default_size(defsz, verbose);
-	else
-		printk(KERN_INFO "Software IO TLB disabled\n");
+	if (swiotlb_force > 0)
+		panic(msg);
+	if (io_tlb_start)
+		free_bootmem(io_tlb_start,
+			     PAGE_ALIGN(io_tlb_nslabs << IO_TLB_SHIFT));
+	pr_warn("%s\n", msg);
+	no_iotlb_memory = true;
 }
 
 static inline int range_needs_mapping(phys_addr_t pa, size_t size)
@@ -338,6 +369,9 @@ phys_addr_t swiotlb_tbl_map_single(struct device *hwdev,
 	unsigned long mask;
 	unsigned long offset_slots;
 	unsigned long max_slots;
+
+	if (no_iotlb_memory)
+		panic("Can not allocate SWIOTLB buffer earlier and can't now provide you with the DMA bounce buffer");
 
 	mask = dma_get_seg_boundary(hwdev);
 	offset_slots = -IO_TLB_SEGSIZE;

@@ -23,6 +23,7 @@
 
 #include <xen/interface/physdev.h>
 #include <xen/evtchn.h>
+#include <xen/pcifront.h>
 
 #include "pci.h"
 #include "msi.h"
@@ -689,7 +690,6 @@ static int pci_msi_check_device(struct pci_dev *dev, int nvec, int type)
  * updates the @dev's irq member to the lowest new interrupt number; the
  * other interrupt numbers allocated to this device are consecutive.
  */
-extern int pci_frontend_enable_msi(struct pci_dev *dev);
 int pci_enable_msi_block(struct pci_dev *dev, unsigned int nvec)
 {
 	int temp, status, pos, maxvec;
@@ -744,7 +744,32 @@ int pci_enable_msi_block(struct pci_dev *dev, unsigned int nvec)
 }
 EXPORT_SYMBOL(pci_enable_msi_block);
 
-extern void pci_frontend_disable_msi(struct pci_dev* dev);
+int pci_enable_msi_block_auto(struct pci_dev *dev, unsigned int *maxvec)
+{
+	int ret, pos, nvec;
+	u16 msgctl;
+
+	pos = pci_find_capability(dev, PCI_CAP_ID_MSI);
+	if (!pos)
+		return -EINVAL;
+
+	pci_read_config_word(dev, pos + PCI_MSI_FLAGS, &msgctl);
+	ret = 1 << ((msgctl & PCI_MSI_FLAGS_QMASK) >> 1);
+
+	if (maxvec)
+		*maxvec = ret;
+
+	do {
+		nvec = ret;
+		ret = pci_enable_msi_block(dev, nvec);
+	} while (ret > 0);
+
+	if (ret < 0)
+		return ret;
+	return nvec;
+}
+EXPORT_SYMBOL(pci_enable_msi_block_auto);
+
 void pci_msi_shutdown(struct pci_dev *dev)
 {
 	int pirq, pos;
@@ -818,8 +843,6 @@ int pci_msix_table_size(struct pci_dev *dev)
  * of irqs or MSI-X vectors available. Driver should use the returned value to
  * re-send its request.
  **/
-extern int pci_frontend_enable_msix(struct pci_dev *dev,
-		struct msix_entry *entries, int nvec);
 int pci_enable_msix(struct pci_dev *dev, struct msix_entry *entries, int nvec)
 {
 	int status, nr_entries;
@@ -904,7 +927,6 @@ int pci_enable_msix(struct pci_dev *dev, struct msix_entry *entries, int nvec)
 }
 EXPORT_SYMBOL(pci_enable_msix);
 
-extern void pci_frontend_disable_msix(struct pci_dev* dev);
 void pci_msix_shutdown(struct pci_dev *dev)
 {
 	if (!pci_msi_enable || !dev || !dev->msix_enabled)

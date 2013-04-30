@@ -19,6 +19,7 @@ do {						\
 	xor_speed(&xor_block_32regs);		\
 	xor_speed(&xor_block_32regs_p);		\
 	xor_speed(&xor_block_sse);		\
+	xor_speed(&xor_block_sse_pf64);		\
 	AVX_XOR_SPEED;				\
 } while (0)
 

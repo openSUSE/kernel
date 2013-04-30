@@ -64,10 +64,6 @@ struct x86_init_ops x86_init __initdata = {
 		.banner			= x86_init_noop,
 	},
 
-	.mapping = {
-		.pagetable_reserve		= xen_pagetable_reserve,
-	},
-
 	.paging = {
 		.pagetable_init		= xen_pagetable_init,
 	},

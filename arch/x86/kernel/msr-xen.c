@@ -54,7 +54,7 @@ static ssize_t pmsr_read(struct file *file, char __user *buf,
 	u32 __user *tmp = (u32 __user *) buf;
 	u32 data[2];
 	u32 reg = *ppos;
-	unsigned int cpu = pmsr_minor(file->f_path.dentry->d_inode);
+	unsigned int cpu = pmsr_minor(file_inode(file));
 	int err = 0;
 	ssize_t bytes = 0;
 
@@ -82,7 +82,7 @@ static ssize_t pmsr_write(struct file *file, const char __user *buf,
 	const u32 __user *tmp = (const u32 __user *)buf;
 	u32 data[2];
 	u32 reg = *ppos;
-	unsigned int cpu = pmsr_minor(file->f_path.dentry->d_inode);
+	unsigned int cpu = pmsr_minor(file_inode(file));
 	int err = 0;
 	ssize_t bytes = 0;
 
@@ -108,7 +108,7 @@ static long pmsr_ioctl(struct file *file, unsigned int ioc, unsigned long arg)
 {
 	u32 __user *uregs = (u32 __user *)arg;
 	u32 regs[8];
-	unsigned int cpu = pmsr_minor(file->f_path.dentry->d_inode);
+	unsigned int cpu = pmsr_minor(file_inode(file));
 	int err;
 
 	switch (ioc) {
@@ -154,12 +154,11 @@ static long pmsr_ioctl(struct file *file, unsigned int ioc, unsigned long arg)
 
 static int pmsr_open(struct inode *inode, struct file *file)
 {
-	unsigned int cpu;
+	unsigned int cpu = pmsr_minor(file_inode(file));
 
 	if (!capable(CAP_SYS_RAWIO))
 		return -EPERM;
 
-	cpu = pmsr_minor(file->f_path.dentry->d_inode);
 	if (cpu >= nr_xen_cpu_ids || !test_bit(cpu, xen_cpu_online_map))
 		return -ENXIO;	/* No such CPU */
 

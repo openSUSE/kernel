@@ -67,12 +67,12 @@ typedef struct blkif_st {
 
 	/* statistics */
 	unsigned long       st_print;
-	int                 st_rd_req;
-	int                 st_wr_req;
-	int                 st_oo_req;
-	int                 st_pk_req;
-	int                 st_rd_sect;
-	int                 st_wr_sect;
+	unsigned long       st_rd_req;
+	unsigned long       st_wr_req;
+	unsigned long       st_oo_req;
+	unsigned long       st_pk_req;
+	unsigned long       st_rd_sect;
+	unsigned long       st_wr_sect;
 
 	wait_queue_head_t waiting_to_free;
 

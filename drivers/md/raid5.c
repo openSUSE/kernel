@@ -365,10 +365,9 @@ static struct stripe_head *__find_stripe(struct r5conf *conf, sector_t sector,
 					 short generation)
 {
 	struct stripe_head *sh;
-	struct hlist_node *hn;
 
 	pr_debug("__find_stripe, sector %llu\n", (unsigned long long)sector);
-	hlist_for_each_entry(sh, hn, stripe_hash(conf, sector), hash)
+	hlist_for_each_entry(sh, stripe_hash(conf, sector), hash)
 		if (sh->sector == sector && sh->generation == generation)
 			return sh;
 	pr_debug("__stripe %llu not in cache\n", (unsigned long long)sector);
@@ -1409,7 +1408,7 @@ static void ops_run_check_pq(struct stripe_head *sh, struct raid5_percpu *percpu
 			   &sh->ops.zero_sum_result, percpu->spare_page, &submit);
 }
 
-static void __raid_run_ops(struct stripe_head *sh, unsigned long ops_request)
+static void raid_run_ops(struct stripe_head *sh, unsigned long ops_request)
 {
 	int overlap_clear = 0, i, disks = sh->disks;
 	struct dma_async_tx_descriptor *tx = NULL;
@@ -1474,36 +1473,6 @@ static void __raid_run_ops(struct stripe_head *sh, unsigned long ops_request)
 	put_cpu();
 }
 
-#ifdef CONFIG_MULTICORE_RAID456
-static void async_run_ops(void *param, async_cookie_t cookie)
-{
-	struct stripe_head *sh = param;
-	unsigned long ops_request = sh->ops.request;
-
-	clear_bit_unlock(STRIPE_OPS_REQ_PENDING, &sh->state);
-	wake_up(&sh->ops.wait_for_ops);
-
-	__raid_run_ops(sh, ops_request);
-	release_stripe(sh);
-}
-
-static void raid_run_ops(struct stripe_head *sh, unsigned long ops_request)
-{
-	/* since handle_stripe can be called outside of raid5d context
-	 * we need to ensure sh->ops.request is de-staged before another
-	 * request arrives
-	 */
-	wait_event(sh->ops.wait_for_ops,
-		   !test_and_set_bit_lock(STRIPE_OPS_REQ_PENDING, &sh->state));
-	sh->ops.request = ops_request;
-
-	atomic_inc(&sh->count);
-	async_schedule(async_run_ops, sh);
-}
-#else
-#define raid_run_ops __raid_run_ops
-#endif
-
 static int grow_one_stripe(struct r5conf *conf)
 {
 	struct stripe_head *sh;
@@ -1512,9 +1481,6 @@ static int grow_one_stripe(struct r5conf *conf)
 		return 0;
 
 	sh->raid_conf = conf;
-	#ifdef CONFIG_MULTICORE_RAID456
-	init_waitqueue_head(&sh->ops.wait_for_ops);
-	#endif
 
 	spin_lock_init(&sh->stripe_lock);
 
@@ -1633,9 +1599,6 @@ static int resize_stripes(struct r5conf *conf, int newsize)
 			break;
 
 		nsh->raid_conf = conf;
-		#ifdef CONFIG_MULTICORE_RAID456
-		init_waitqueue_head(&nsh->ops.wait_for_ops);
-		#endif
 		spin_lock_init(&nsh->stripe_lock);
 
 		list_add(&nsh->lru, &newstripes);

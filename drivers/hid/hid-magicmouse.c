@@ -580,23 +580,6 @@ static struct hid_driver magicmouse_driver = {
 	.input_mapping = magicmouse_input_mapping,
 	.input_configured = magicmouse_input_configured,
 };
+module_hid_driver(magicmouse_driver);
 
-static int __init magicmouse_init(void)
-{
-	int ret;
-
-	ret = hid_register_driver(&magicmouse_driver);
-	if (ret)
-		pr_err("can't register magicmouse driver\n");
-
-	return ret;
-}
-
-static void __exit magicmouse_exit(void)
-{
-	hid_unregister_driver(&magicmouse_driver);
-}
-
-module_init(magicmouse_init);
-module_exit(magicmouse_exit);
 MODULE_LICENSE("GPL");

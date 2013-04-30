@@ -51,10 +51,6 @@ static void __init kirkwood_legacy_clk_init(void)
 	orion_clkdev_add("0", "pcie",
 			 of_clk_get_from_provider(&clkspec));
 
-	clkspec.args[0] = CGC_BIT_USB0;
-	orion_clkdev_add(NULL, "orion-ehci.0",
-			 of_clk_get_from_provider(&clkspec));
-
 	clkspec.args[0] = CGC_BIT_PEX1;
 	orion_clkdev_add("1", "pcie",
 			 of_clk_get_from_provider(&clkspec));
@@ -104,12 +100,17 @@ static void __init kirkwood_dt_init(void)
 	/* Setup root of clk tree */
 	kirkwood_of_clk_init();
 
+	kirkwood_cpuidle_init();
+
 #ifdef CONFIG_KEXEC
 	kexec_reinit = kirkwood_enable_pcie;
 #endif
 
 	if (of_machine_is_compatible("globalscale,dreamplug"))
 		dreamplug_init();
+
+	if (of_machine_is_compatible("globalscale,guruplug"))
+		guruplug_dt_init();
 
 	if (of_machine_is_compatible("dlink,dns-kirkwood"))
 		dnskw_init();
@@ -154,14 +155,12 @@ static void __init kirkwood_dt_init(void)
 	if (of_machine_is_compatible("usi,topkick"))
 		usi_topkick_init();
 
-	if (of_machine_is_compatible("zyxel,nsa310"))
-		nsa310_init();
-
 	of_platform_populate(NULL, kirkwood_dt_match_table, NULL, NULL);
 }
 
 static const char * const kirkwood_dt_board_compat[] = {
 	"globalscale,dreamplug",
+	"globalscale,guruplug",
 	"dlink,dns-320",
 	"dlink,dns-325",
 	"iom,iconnect",
@@ -189,7 +188,7 @@ DT_MACHINE_START(KIRKWOOD_DT, "Marvell Kirkwood (Flattened Device Tree)")
 	.map_io		= kirkwood_map_io,
 	.init_early	= kirkwood_init_early,
 	.init_irq	= orion_dt_init_irq,
-	.timer		= &kirkwood_timer,
+	.init_time	= kirkwood_timer_init,
 	.init_machine	= kirkwood_dt_init,
 	.restart	= kirkwood_restart,
 	.dt_compat	= kirkwood_dt_board_compat,

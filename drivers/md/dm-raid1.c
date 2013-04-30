@@ -82,6 +82,9 @@ struct mirror_set {
 	struct mirror mirror[0];
 };
 
+DECLARE_DM_KCOPYD_THROTTLE_WITH_MODULE_PARM(raid1_resync_throttle,
+		"A percentage of time allocated for raid resynchronization");
+
 static void wakeup_mirrord(void *context)
 {
 	struct mirror_set *ms = context;
@@ -1072,8 +1075,8 @@ static int mirror_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	if (r)
 		goto err_free_context;
 
-	ti->num_flush_requests = 1;
-	ti->num_discard_requests = 1;
+	ti->num_flush_bios = 1;
+	ti->num_discard_bios = 1;
 	ti->per_bio_data_size = sizeof(struct dm_raid1_bio_record);
 	ti->discard_zeroes_data_unsupported = true;
 
@@ -1111,7 +1114,7 @@ static int mirror_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		goto err_destroy_wq;
 	}
 
-	ms->kcopyd_client = dm_kcopyd_client_create();
+	ms->kcopyd_client = dm_kcopyd_client_create(&dm_kcopyd_throttle);
 	if (IS_ERR(ms->kcopyd_client)) {
 		r = PTR_ERR(ms->kcopyd_client);
 		goto err_destroy_wq;

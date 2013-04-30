@@ -718,7 +718,7 @@ EXPORT_SYMBOL_GPL(gnttab_copy_grant_page);
 void gnttab_reset_grant_page(struct page *page)
 {
 	init_page_count(page);
-	reset_page_mapcount(page);
+	page_mapcount_reset(page);
 }
 EXPORT_SYMBOL_GPL(gnttab_reset_grant_page);
 

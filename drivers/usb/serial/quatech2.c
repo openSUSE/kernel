@@ -612,7 +612,6 @@ void qt2_process_read_urb(struct urb *urb)
 	struct qt2_serial_private *serial_priv;
 	struct usb_serial_port *port;
 	struct qt2_port_private *port_priv;
-	struct tty_struct *tty;
 	bool escapeflag;
 	unsigned char *ch;
 	int i;
@@ -623,14 +622,10 @@ void qt2_process_read_urb(struct urb *urb)
 		return;
 
 	ch = urb->transfer_buffer;
-	tty = NULL;
 	serial = urb->context;
 	serial_priv = usb_get_serial_data(serial);
 	port = serial->port[serial_priv->current_port];
 	port_priv = usb_get_serial_port_data(port);
-
-	if (port_priv->is_open)
-		tty = tty_port_tty_get(&port->port);
 
 	for (i = 0; i < urb->actual_length; i++) {
 		ch = (unsigned char *)urb->transfer_buffer + i;
@@ -669,10 +664,9 @@ void qt2_process_read_urb(struct urb *urb)
 						 __func__);
 					break;
 				}
-				if (tty) {
-					tty_flip_buffer_push(tty);
-					tty_kref_put(tty);
-				}
+
+				if (port_priv->is_open)
+					tty_flip_buffer_push(&port->port);
 
 				newport = *(ch + 3);
 
@@ -686,10 +680,6 @@ void qt2_process_read_urb(struct urb *urb)
 				serial_priv->current_port = newport;
 				port = serial->port[serial_priv->current_port];
 				port_priv = usb_get_serial_port_data(port);
-				if (port_priv->is_open)
-					tty = tty_port_tty_get(&port->port);
-				else
-					tty = NULL;
 				i += 3;
 				escapeflag = true;
 				break;
@@ -700,8 +690,8 @@ void qt2_process_read_urb(struct urb *urb)
 				escapeflag = true;
 				break;
 			case QT2_CONTROL_ESCAPE:
-				tty_buffer_request_room(tty, 2);
-				tty_insert_flip_string(tty, ch, 2);
+				tty_buffer_request_room(&port->port, 2);
+				tty_insert_flip_string(&port->port, ch, 2);
 				i += 2;
 				escapeflag = true;
 				break;
@@ -715,16 +705,12 @@ void qt2_process_read_urb(struct urb *urb)
 				continue;
 		}
 
-		if (tty) {
-			tty_buffer_request_room(tty, 1);
-			tty_insert_flip_string(tty, ch, 1);
-		}
+		tty_buffer_request_room(&port->port, 1);
+		tty_insert_flip_string(&port->port, ch, 1);
 	}
 
-	if (tty) {
-		tty_flip_buffer_push(tty);
-		tty_kref_put(tty);
-	}
+	if (port_priv->is_open)
+		tty_flip_buffer_push(&port->port);
 }
 
 static void qt2_write_bulk_callback(struct urb *urb)

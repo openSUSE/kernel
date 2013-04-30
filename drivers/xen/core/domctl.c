@@ -79,6 +79,7 @@ union xen_domctl {
 	 * v6: upstream: xen 4.0
 	 * v7: upstream: xen 4.1; sle11 sp1: xen 4.0 + cpupools patches
 	 * v8: upstream: xen 4.2
+	 * v9: upstream: xen 4.3
 	 */
 	struct {
 		uint32_t cmd;
@@ -90,7 +91,7 @@ union xen_domctl {
 			uint64_aligned_t                     dummy_align;
 			uint8_t                              dummy_pad[128];
 		};
-	} v5, v6, v7, v8;
+	} v5, v6, v7, v8, v9;
 };
 
 struct xen_sysctl_physinfo_v6 {
@@ -230,8 +231,11 @@ int xen_guest_address_size(int domid)
 	}								\
 } while (0)
 
-	BUILD_BUG_ON(XEN_DOMCTL_INTERFACE_VERSION > 8);
+	BUILD_BUG_ON(XEN_DOMCTL_INTERFACE_VERSION > 9);
+	guest_address_size(9);
+/* #if CONFIG_XEN_COMPAT < 0x040300 */
 	guest_address_size(8);
+/* #endif */
 #if CONFIG_XEN_COMPAT < 0x040200
 	guest_address_size(7);
 #endif
@@ -286,8 +290,12 @@ static inline int get_vcpuaffinity(unsigned int nr, void *mask)
 	union xen_domctl domctl;
 	int rc;
 
-	BUILD_BUG_ON(XEN_DOMCTL_INTERFACE_VERSION > 8);
-	rc = vcpuaffinity(get, 8);
+	BUILD_BUG_ON(XEN_DOMCTL_INTERFACE_VERSION > 9);
+	rc = vcpuaffinity(get, 9);
+/* #if CONFIG_XEN_COMPAT < 0x040300 */
+	if (rc)
+		rc = vcpuaffinity(get, 8);
+/* #endif */
 #if CONFIG_XEN_COMPAT < 0x040200
 	if (rc)
 		rc = vcpuaffinity(get, 7);
@@ -312,8 +320,12 @@ static inline int set_vcpuaffinity(unsigned int nr, void *mask)
 	union xen_domctl domctl;
 	int rc;
 
-	BUILD_BUG_ON(XEN_DOMCTL_INTERFACE_VERSION > 8);
-	rc = vcpuaffinity(set, 8);
+	BUILD_BUG_ON(XEN_DOMCTL_INTERFACE_VERSION > 9);
+	rc = vcpuaffinity(set, 9);
+/* #if CONFIG_XEN_COMPAT < 0x040300 */
+	if (rc)
+		rc = vcpuaffinity(set, 8);
+/* #endif */
 #if CONFIG_XEN_COMPAT < 0x040200
 	if (rc)
 		rc = vcpuaffinity(set, 7);

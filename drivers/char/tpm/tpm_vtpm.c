@@ -450,6 +450,11 @@ static u8 vtpm_status(struct tpm_chip *chip)
 	return rc;
 }
 
+static bool vtpm_req_canceled(struct tpm_chip *chip, u8 status)
+{
+	return status == STATUS_READY;
+}
+
 static struct file_operations vtpm_ops = {
 	.owner = THIS_MODULE,
 	.llseek = no_llseek,
@@ -492,7 +497,7 @@ static struct tpm_vendor_specific tpm_vtpm = {
 	.status = vtpm_status,
 	.req_complete_mask = STATUS_BUSY | STATUS_DATA_AVAIL,
 	.req_complete_val  = STATUS_DATA_AVAIL,
-	.req_canceled = STATUS_READY,
+	.req_canceled = vtpm_req_canceled,
 	.attr_group = &vtpm_attr_grp,
 	.miscdev = {
 		.fops = &vtpm_ops,

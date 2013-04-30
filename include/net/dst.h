@@ -57,6 +57,7 @@ struct dst_entry {
 #define DST_NOPEER		0x0040
 #define DST_FAKE_RTABLE		0x0080
 #define DST_XFRM_TUNNEL		0x0100
+#define DST_XFRM_QUEUE		0x0200
 
 	unsigned short		pending_confirm;
 
@@ -412,13 +413,15 @@ static inline int dst_neigh_output(struct dst_entry *dst, struct neighbour *n,
 
 static inline struct neighbour *dst_neigh_lookup(const struct dst_entry *dst, const void *daddr)
 {
-	return dst->ops->neigh_lookup(dst, NULL, daddr);
+	struct neighbour *n = dst->ops->neigh_lookup(dst, NULL, daddr);
+	return IS_ERR(n) ? NULL : n;
 }
 
 static inline struct neighbour *dst_neigh_lookup_skb(const struct dst_entry *dst,
 						     struct sk_buff *skb)
 {
-	return dst->ops->neigh_lookup(dst, skb, NULL);
+	struct neighbour *n =  dst->ops->neigh_lookup(dst, skb, NULL);
+	return IS_ERR(n) ? NULL : n;
 }
 
 static inline void dst_link_failure(struct sk_buff *skb)

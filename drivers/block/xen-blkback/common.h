@@ -187,7 +187,6 @@ struct persistent_gnt {
 	struct page *page;
 	grant_ref_t gnt;
 	grant_handle_t handle;
-	uint64_t dev_bus_addr;
 	struct rb_node node;
 };
 
@@ -223,13 +222,13 @@ struct xen_blkif {
 
 	/* statistics */
 	unsigned long		st_print;
-	int			st_rd_req;
-	int			st_wr_req;
-	int			st_oo_req;
-	int			st_f_req;
-	int			st_ds_req;
-	int			st_rd_sect;
-	int			st_wr_sect;
+	unsigned long long			st_rd_req;
+	unsigned long long			st_wr_req;
+	unsigned long long			st_oo_req;
+	unsigned long long			st_f_req;
+	unsigned long long			st_ds_req;
+	unsigned long long			st_rd_sect;
+	unsigned long long			st_wr_sect;
 
 	wait_queue_head_t	waiting_to_free;
 };

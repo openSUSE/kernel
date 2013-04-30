@@ -65,7 +65,7 @@ asmlinkage long sys_ioperm(unsigned long from, unsigned long num, int turn_on)
  * beyond the 0x3ff range: to get the full 65536 ports bitmapped
  * you'd need 8kB of bitmaps/process, which is a bit excessive.
  */
-long sys_iopl(unsigned int level, struct pt_regs *regs)
+SYSCALL_DEFINE1(iopl, unsigned int, level)
 {
 	struct thread_struct *t = &current->thread;
 	unsigned int old = t->iopl >> 12;

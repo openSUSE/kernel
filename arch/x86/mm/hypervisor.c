@@ -168,10 +168,10 @@ static DEFINE_PER_CPU(struct lazy_mmu, lazy_mmu);
 static inline bool use_lazy_mmu_mode(void)
 {
 #ifdef CONFIG_PREEMPT
-	if (!preempt_count())
-		return false;
+# error /* Would need to snapshot preempt_count() in
+         * arch_enter_lazy_mmu_mode(), and compare the value here. */
 #endif
-	return !irq_count();
+	return !preempt_count();
 }
 
 static void multicall_failed(const multicall_entry_t *mc, int rc)

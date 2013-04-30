@@ -1064,7 +1064,7 @@ static int sysfs_readdir(struct file * filp, void * dirent, filldir_t filldir)
 
 static loff_t sysfs_dir_llseek(struct file *file, loff_t offset, int whence)
 {
-	struct inode *inode = file->f_path.dentry->d_inode;
+	struct inode *inode = file_inode(file);
 	loff_t ret;
 
 	mutex_lock(&inode->i_mutex);

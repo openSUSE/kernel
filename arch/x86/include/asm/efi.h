@@ -109,7 +109,18 @@ struct efi_var_bootdata {
 	u64 max_var_size;
 };
 
-#ifndef CONFIG_EFI
+#ifdef CONFIG_EFI
+
+static inline bool efi_is_native(void)
+{
+#ifndef CONFIG_XEN
+	return IS_ENABLED(CONFIG_X86_64) == efi_enabled(EFI_64BIT);
+#else
+	return 1; /* Hypervisor handles the mismatch quite fine. */
+#endif
+}
+
+#else
 /*
  * IF EFI is not configured, have the EFI calls return -ENOSYS.
  */

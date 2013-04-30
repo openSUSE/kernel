@@ -106,7 +106,7 @@ static int aio_setup_ring(struct kioctx *ctx)
 	struct aio_ring *ring;
 	struct aio_ring_info *info = &ctx->ring_info;
 	unsigned nr_events = ctx->max_reqs;
-	unsigned long size;
+	unsigned long size, populate;
 	int nr_pages;
 
 	/* Compensate for the ring buffer's head/tail overlap entry */
@@ -134,7 +134,8 @@ static int aio_setup_ring(struct kioctx *ctx)
 	down_write(&ctx->mm->mmap_sem);
 	info->mmap_base = do_mmap_pgoff(NULL, 0, info->mmap_size, 
 					PROT_READ|PROT_WRITE,
-					MAP_ANONYMOUS|MAP_PRIVATE, 0);
+					MAP_ANONYMOUS|MAP_PRIVATE, 0,
+					&populate);
 	if (IS_ERR((void *)info->mmap_base)) {
 		up_write(&ctx->mm->mmap_sem);
 		info->mmap_size = 0;
@@ -152,6 +153,8 @@ static int aio_setup_ring(struct kioctx *ctx)
 		aio_free_ring(ctx);
 		return -EAGAIN;
 	}
+	if (populate)
+		mm_populate(info->mmap_base, populate);
 
 	ctx->user_id = info->mmap_base;
 
@@ -593,11 +596,10 @@ static struct kioctx *lookup_ioctx(unsigned long ctx_id)
 {
 	struct mm_struct *mm = current->mm;
 	struct kioctx *ctx, *ret = NULL;
-	struct hlist_node *n;
 
 	rcu_read_lock();
 
-	hlist_for_each_entry_rcu(ctx, n, &mm->ioctx_list, list) {
+	hlist_for_each_entry_rcu(ctx, &mm->ioctx_list, list) {
 		/*
 		 * RCU protects us against accessing freed memory but
 		 * we have to be careful not to get a reference when the
@@ -1043,9 +1045,9 @@ static int aio_read_evt(struct kioctx *ioctx, struct io_event *ent)
 	spin_unlock(&info->ring_lock);
 
 out:
-	kunmap_atomic(ring);
 	dprintk("leaving aio_read_evt: %d  h%lu t%lu\n", ret,
 		 (unsigned long)ring->head, (unsigned long)ring->tail);
+	kunmap_atomic(ring);
 	return ret;
 }
 

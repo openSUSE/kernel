@@ -16,6 +16,7 @@
 #include <linux/io.h>
 #include <linux/suspend.h>
 
+#include <asm/init.h>
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
 #include <asm/mmu_context.h>
@@ -23,49 +24,8 @@
 
 #ifdef CONFIG_XEN
 
-/* In the case of Xen, override hypervisor functions to be able to create
- * a regular identity mapping page table...
- */
-
 #include <xen/interface/kexec.h>
 #include <xen/interface/memory.h>
-
-#define x__pmd(x) ((pmd_t) { (x) } )
-#define x__pud(x) ((pud_t) { (x) } )
-#define x__pgd(x) ((pgd_t) { (x) } )
-
-#define x_pmd_val(x)   ((x).pmd)
-#define x_pud_val(x)   ((x).pud)
-#define x_pgd_val(x)   ((x).pgd)
-
-static inline void x_set_pmd(pmd_t *dst, pmd_t val)
-{
-	x_pmd_val(*dst) = x_pmd_val(val);
-}
-
-static inline void x_set_pud(pud_t *dst, pud_t val)
-{
-	x_pud_val(*dst) = phys_to_machine(x_pud_val(val));
-}
-
-static inline void x_pud_clear (pud_t *pud)
-{
-	x_pud_val(*pud) = 0;
-}
-
-static inline void x_set_pgd(pgd_t *dst, pgd_t val)
-{
-	x_pgd_val(*dst) = phys_to_machine(x_pgd_val(val));
-}
-
-static inline void x_pgd_clear (pgd_t * pgd)
-{
-	x_pgd_val(*pgd) = 0;
-}
-
-#define X__PAGE_KERNEL_LARGE_EXEC \
-         _PAGE_PRESENT | _PAGE_RW | _PAGE_DIRTY | _PAGE_ACCESSED | _PAGE_PSE
-#define X_KERNPG_TABLE _PAGE_PRESENT | _PAGE_RW | _PAGE_ACCESSED | _PAGE_DIRTY
 
 #define __ma(x) (pfn_to_mfn(__pa((x)) >> PAGE_SHIFT) << PAGE_SHIFT)
 
@@ -98,137 +58,7 @@ void machine_kexec_setup_load_arg(xen_kexec_image_t *xki, struct kimage *image)
 
 #include "machine_kexec_xen.c"
 
-#else /* CONFIG_XEN */
-
-#define x__pmd(x) __pmd(x)
-#define x__pud(x) __pud(x)
-#define x__pgd(x) __pgd(x)
-
-#define x_set_pmd(x, y) set_pmd(x, y)
-#define x_set_pud(x, y) set_pud(x, y)
-#define x_set_pgd(x, y) set_pgd(x, y)
-
-#define x_pud_clear(x) pud_clear(x)
-#define x_pgd_clear(x) pgd_clear(x)
-
-#define X__PAGE_KERNEL_LARGE_EXEC __PAGE_KERNEL_LARGE_EXEC
-#define X_KERNPG_TABLE _KERNPG_TABLE
-
 #endif /* CONFIG_XEN */
-
-static int init_one_level2_page(struct kimage *image, pgd_t *pgd,
-				unsigned long addr)
-{
-	pud_t *pud;
-	pmd_t *pmd;
-	struct page *page;
-	int result = -ENOMEM;
-
-	addr &= PMD_MASK;
-	pgd += pgd_index(addr);
-	if (!pgd_present(*pgd)) {
-		page = kimage_alloc_control_pages(image, 0);
-		if (!page)
-			goto out;
-		pud = (pud_t *)page_address(page);
-		clear_page(pud);
-		set_pgd(pgd, __pgd(__pa(pud) | _KERNPG_TABLE));
-	}
-	pud = pud_offset(pgd, addr);
-	if (!pud_present(*pud)) {
-		page = kimage_alloc_control_pages(image, 0);
-		if (!page)
-			goto out;
-		pmd = (pmd_t *)page_address(page);
-		clear_page(pmd);
-		set_pud(pud, __pud(__pa(pmd) | _KERNPG_TABLE));
-	}
-	pmd = pmd_offset(pud, addr);
-	if (!pmd_present(*pmd))
-		x_set_pmd(pmd, x__pmd(addr | X__PAGE_KERNEL_LARGE_EXEC));
-	result = 0;
-out:
-	return result;
-}
-
-static void init_level2_page(pmd_t *level2p, unsigned long addr)
-{
-	unsigned long end_addr;
-
-	addr &= PAGE_MASK;
-	end_addr = addr + PUD_SIZE;
-	while (addr < end_addr) {
-		x_set_pmd(level2p++, x__pmd(addr | X__PAGE_KERNEL_LARGE_EXEC));
-		addr += PMD_SIZE;
-	}
-}
-
-static int init_level3_page(struct kimage *image, pud_t *level3p,
-				unsigned long addr, unsigned long last_addr)
-{
-	unsigned long end_addr;
-	int result;
-
-	result = 0;
-	addr &= PAGE_MASK;
-	end_addr = addr + PGDIR_SIZE;
-	while ((addr < last_addr) && (addr < end_addr)) {
-		struct page *page;
-		pmd_t *level2p;
-
-		page = kimage_alloc_control_pages(image, 0);
-		if (!page) {
-			result = -ENOMEM;
-			goto out;
-		}
-		level2p = (pmd_t *)page_address(page);
-		init_level2_page(level2p, addr);
-		x_set_pud(level3p++, x__pud(__pa(level2p) | X_KERNPG_TABLE));
-		addr += PUD_SIZE;
-	}
-	/* clear the unused entries */
-	while (addr < end_addr) {
-		x_pud_clear(level3p++);
-		addr += PUD_SIZE;
-	}
-out:
-	return result;
-}
-
-
-static int init_level4_page(struct kimage *image, pgd_t *level4p,
-				unsigned long addr, unsigned long last_addr)
-{
-	unsigned long end_addr;
-	int result;
-
-	result = 0;
-	addr &= PAGE_MASK;
-	end_addr = addr + (PTRS_PER_PGD * PGDIR_SIZE);
-	while ((addr < last_addr) && (addr < end_addr)) {
-		struct page *page;
-		pud_t *level3p;
-
-		page = kimage_alloc_control_pages(image, 0);
-		if (!page) {
-			result = -ENOMEM;
-			goto out;
-		}
-		level3p = (pud_t *)page_address(page);
-		result = init_level3_page(image, level3p, addr, last_addr);
-		if (result)
-			goto out;
-		x_set_pgd(level4p++, x__pgd(__pa(level3p) | X_KERNPG_TABLE));
-		addr += PGDIR_SIZE;
-	}
-	/* clear the unused entries */
-	while (addr < end_addr) {
-		x_pgd_clear(level4p++);
-		addr += PGDIR_SIZE;
-	}
-out:
-	return result;
-}
 
 static void free_transition_pgtable(struct kimage *image)
 {
@@ -279,28 +109,62 @@ err:
 	return result;
 }
 
+static void *alloc_pgt_page(void *data)
+{
+	struct kimage *image = (struct kimage *)data;
+	struct page *page;
+	void *p = NULL;
+
+	page = kimage_alloc_control_pages(image, 0);
+	if (page) {
+		p = page_address(page);
+		clear_page(p);
+	}
+
+	return p;
+}
 
 static int init_pgtable(struct kimage *image, unsigned long start_pgtable)
 {
+	struct x86_mapping_info info = {
+		.alloc_pgt_page	= alloc_pgt_page,
+		.context	= image,
+		.pmd_flag	= __PAGE_KERNEL_LARGE_EXEC,
+	};
+	unsigned long mstart, mend;
 	pgd_t *level4p;
 	int result;
-	unsigned long x_max_pfn = max_pfn;
-
-#ifdef CONFIG_XEN
-	x_max_pfn = HYPERVISOR_memory_op(XENMEM_maximum_ram_page, NULL);
-#endif
+	int i;
 
 	level4p = (pgd_t *)__va(start_pgtable);
-	result = init_level4_page(image, level4p, 0, x_max_pfn << PAGE_SHIFT);
-	if (result)
-		return result;
+	clear_page(level4p);
+	for (i = 0; i < nr_pfn_mapped; i++) {
+		mstart = pfn_mapped[i].start << PAGE_SHIFT;
+		mend   = pfn_mapped[i].end << PAGE_SHIFT;
+
+		result = kernel_ident_mapping_init(&info,
+						 level4p, mstart, mend);
+		if (result)
+			return result;
+	}
+
 	/*
-	 * image->start may be outside 0 ~ max_pfn, for example when
-	 * jump back to original kernel from kexeced kernel
+	 * segments's mem ranges could be outside 0 ~ max_pfn,
+	 * for example when jump back to original kernel from kexeced kernel.
+	 * or first kernel is booted with user mem map, and second kernel
+	 * could be loaded out of that range.
 	 */
-	result = init_one_level2_page(image, level4p, image->start);
-	if (result)
-		return result;
+	for (i = 0; i < image->nr_segments; i++) {
+		mstart = image->segment[i].mem;
+		mend   = mstart + image->segment[i].memsz;
+
+		result = kernel_ident_mapping_init(&info,
+						 level4p, mstart, mend);
+
+		if (result)
+			return result;
+	}
+
 	return init_transition_pgtable(image, level4p);
 }
 

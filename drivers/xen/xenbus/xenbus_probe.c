@@ -1383,7 +1383,7 @@ xenbus_init(void)
 			goto out_error;
 		xen_store_mfn = (unsigned long)v;
 		xen_store_interface =
-			ioremap(xen_store_mfn << PAGE_SHIFT, PAGE_SIZE);
+			xen_remap(xen_store_mfn << PAGE_SHIFT, PAGE_SIZE);
 		break;
 	default:
 		pr_warn("Xenstore state unknown\n");

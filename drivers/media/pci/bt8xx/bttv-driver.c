@@ -3845,7 +3845,7 @@ bttv_irq_wakeup_video(struct bttv *btv, struct bttv_buffer_set *wakeup,
 {
 	struct timeval ts;
 
-	do_gettimeofday(&ts);
+	v4l2_get_timestamp(&ts);
 
 	if (wakeup->top == wakeup->bottom) {
 		if (NULL != wakeup->top && curr->top != wakeup->top) {
@@ -3888,7 +3888,7 @@ bttv_irq_wakeup_vbi(struct bttv *btv, struct bttv_buffer *wakeup,
 	if (NULL == wakeup)
 		return;
 
-	do_gettimeofday(&ts);
+	v4l2_get_timestamp(&ts);
 	wakeup->vb.ts = ts;
 	wakeup->vb.field_count = btv->field_count;
 	wakeup->vb.state = state;
@@ -3959,7 +3959,7 @@ bttv_irq_wakeup_top(struct bttv *btv)
 	btv->curr.top = NULL;
 	bttv_risc_hook(btv, RISC_SLOT_O_FIELD, NULL, 0);
 
-	do_gettimeofday(&wakeup->vb.ts);
+	v4l2_get_timestamp(&wakeup->vb.ts);
 	wakeup->vb.field_count = btv->field_count;
 	wakeup->vb.state = VIDEOBUF_DONE;
 	wake_up(&wakeup->vb.done);

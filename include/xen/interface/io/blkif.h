@@ -518,6 +518,14 @@ struct blkif_request {
             uint64_t       nr_sectors;
             uint8_t        _pad3;
         } discard;
+	struct __attribute__((__packed__)) blkif_request_other {
+		uint8_t      _pad1;
+		blkif_vdev_t _pad2;        /* only for read/write requests         */
+#ifdef CONFIG_X86_64
+		uint32_t     _pad3;        /* offsetof(blkif_req..,u.other.id)==8*/
+#endif
+		uint64_t     id;           /* private guest value, echoed in resp  */
+	} other;
     } u;
 } __attribute__((__packed__));
 #endif

@@ -1142,7 +1142,7 @@ static void fast_flush_area(pending_req_t *req, unsigned int k_idx,
 
 static void print_stats(blkif_t *blkif)
 {
-	printk(KERN_DEBUG "%s: oo %3d  |  rd %4d  |  wr %4d |  pk %4d\n",
+	printk(KERN_DEBUG "%s: oo %3lu  |  rd %4lu  |  wr %4lu |  pk %4lu\n",
 	       current->comm, blkif->st_oo_req,
 	       blkif->st_rd_req, blkif->st_wr_req, blkif->st_pk_req);
 	blkif->st_print = jiffies + msecs_to_jiffies(10 * 1000);

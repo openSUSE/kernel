@@ -28,7 +28,6 @@
 #include <linux/platform_data/usb-exynos.h>
 
 #include <asm/mach/arch.h>
-#include <asm/hardware/gic.h>
 #include <asm/mach-types.h>
 
 #include <video/platform_lcd.h>
@@ -383,7 +382,7 @@ static void __init smdkv310_reserve(void)
 	s5p_mfc_reserve_mem(0x43000000, 8 << 20, 0x51000000, 8 << 20);
 }
 
-static struct regulator_consumer_supply vddmmc_consumers[] __devinitdata = {
+static struct regulator_consumer_supply vddmmc_consumers[] = {
 	REGULATOR_SUPPLY("vmmc", "s3c-sdhci.0"),
 	REGULATOR_SUPPLY("vmmc", "s3c-sdhci.1"),
 	REGULATOR_SUPPLY("vmmc", "s3c-sdhci.2"),
@@ -436,9 +435,8 @@ MACHINE_START(SMDKV310, "SMDKV310")
 	.smp		= smp_ops(exynos_smp_ops),
 	.init_irq	= exynos4_init_irq,
 	.map_io		= smdkv310_map_io,
-	.handle_irq	= gic_handle_irq,
 	.init_machine	= smdkv310_machine_init,
-	.timer		= &exynos4_timer,
+	.init_time	= exynos4_timer_init,
 	.reserve	= &smdkv310_reserve,
 	.restart	= exynos4_restart,
 MACHINE_END
@@ -449,10 +447,9 @@ MACHINE_START(SMDKC210, "SMDKC210")
 	.smp		= smp_ops(exynos_smp_ops),
 	.init_irq	= exynos4_init_irq,
 	.map_io		= smdkv310_map_io,
-	.handle_irq	= gic_handle_irq,
 	.init_machine	= smdkv310_machine_init,
 	.init_late	= exynos_init_late,
-	.timer		= &exynos4_timer,
+	.init_time	= exynos4_timer_init,
 	.reserve	= &smdkv310_reserve,
 	.restart	= exynos4_restart,
 MACHINE_END

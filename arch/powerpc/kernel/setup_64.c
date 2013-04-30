@@ -186,6 +186,8 @@ static void fixup_boot_paca(void)
 
 void __init early_setup(unsigned long dt_ptr)
 {
+	static __initdata struct paca_struct boot_paca;
+
 	/* -------- printk is _NOT_ safe to use here ! ------- */
 
 	/* Identify CPU type */

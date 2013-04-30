@@ -562,7 +562,7 @@ static int __init evtchn_init(void)
 	/* Create '/dev/xen/evtchn'. */
 	err = misc_register(&evtchn_miscdev);
 	if (err != 0) {
-		pr_alert("Could not register /dev/xen/evtchn\n");
+		printk(KERN_ERR "Could not register /dev/xen/evtchn\n");
 		return err;
 	}
 

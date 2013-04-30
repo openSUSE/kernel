@@ -204,8 +204,8 @@ static void fast_flush_area(pending_req_t *req)
 
 static void print_stats(blkif_t *blkif)
 {
-	printk(KERN_DEBUG "%s: oo %3d  |  rd %4d  |  wr %4d  |  br %4d"
-	       "  |  fl %4d  |  ds %4d  |  pk %4d\n",
+	printk(KERN_DEBUG "%s: oo %3lu  |  rd %4lu  |  wr %4lu  |  br %4lu"
+	       "  |  fl %4lu  |  ds %4lu  |  pk %4lu\n",
 	       current->comm, blkif->st_oo_req,
 	       blkif->st_rd_req, blkif->st_wr_req,
 	       blkif->st_br_req, blkif->st_fl_req,
