@@ -90,6 +90,9 @@ Descriptions of section entries:
 	   F:	drivers/net/*	all files in drivers/net, but not below
 	   F:	*/net/*		all files in "any top level directory"/net
 	   One pattern per line.  Multiple F: lines acceptable.
+	N: Files and directories with regex patterns.
+	   N:	[^a-z]tegra	all files whose path contains the word tegra
+	   One pattern per line.  Multiple N: lines acceptable.
 	X: Files and directories that are NOT maintained, same rules as F:
 	   Files exclusions are tested before file matches.
 	   Can be useful for excluding a specific subdirectory, for instance:
@@ -97,13 +100,12 @@ Descriptions of section entries:
 	   X:	net/ipv6/
 	   matches all files in and below net excluding net/ipv6/
 	K: Keyword perl extended regex pattern to match content in a
-	   patch or file, or an affected filename.  For instance:
+	   patch or file.  For instance:
 	   K: of_get_profile
-	      matches patch or file content, or filenames, that contain
-	      "of_get_profile"
+	      matches patches or files that contain "of_get_profile"
 	   K: \b(printk|pr_(info|err))\b
-	      matches patch or file content, or filenames, that contain one or
-	      more of the words printk, pr_info or pr_err
+	      matches patches or files that contain one or more of the words
+	      printk, pr_info or pr_err
 	   One regex pattern per line.  Multiple K: lines acceptable.
 
 Note: For the hard of thinking, this list is meant to remain in alphabetical
@@ -1031,6 +1033,7 @@ F:	drivers/mmc/host/msm_sdcc.h
 F:	drivers/tty/serial/msm_serial.h
 F:	drivers/tty/serial/msm_serial.c
 F:	drivers/*/pm8???-*
+F:	drivers/ssbi/
 F:	include/linux/mfd/pm8xxx/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/davidb/linux-msm.git
 S:	Maintained
@@ -2441,9 +2444,7 @@ S:	Maintained
 F:	drivers/platform/x86/dell-laptop.c
 
 DELL LAPTOP SMM DRIVER
-M:	Massimo Dal Zotto <dz@debian.org>
-W:	http://www.debian.org/~dz/i8k/
-S:	Maintained
+S:	Orphan
 F:	drivers/char/i8k.c
 F:	include/uapi/linux/i8k.h
 
@@ -2457,6 +2458,12 @@ DELL WMI EXTRAS DRIVER
 M:	Matthew Garrett <mjg59@srcf.ucam.org>
 S:	Maintained
 F:	drivers/platform/x86/dell-wmi.c
+
+DESIGNWARE USB2 DRD IP DRIVER
+M:	Paul Zimmerman <paulz@synopsys.com>
+L:	linux-usb@vger.kernel.org
+S:	Maintained
+F:	drivers/staging/dwc2/
 
 DESIGNWARE USB3 DRD IP DRIVER
 M:	Felipe Balbi <balbi@ti.com>
@@ -3508,7 +3515,7 @@ F:	drivers/isdn/gigaset/
 F:	include/uapi/linux/gigaset_dev.h
 
 GPIO SUBSYSTEM
-M:	Grant Likely <grant.likely@secretlab.ca>
+M:	Grant Likely <grant.likely@linaro.org>
 M:	Linus Walleij <linus.walleij@linaro.org>
 S:	Maintained
 T:	git git://git.secretlab.ca/git/linux-2.6.git
@@ -4341,7 +4348,7 @@ F:	drivers/irqchip/
 
 IRQ DOMAINS (IRQ NUMBER MAPPING LIBRARY)
 M:	Benjamin Herrenschmidt <benh@kernel.crashing.org>
-M:	Grant Likely <grant.likely@secretlab.ca>
+M:	Grant Likely <grant.likely@linaro.org>
 T:	git git://git.secretlab.ca/git/linux-2.6.git irqdomain/next
 S:	Maintained
 F:	Documentation/IRQ-domain.txt
@@ -4828,11 +4835,8 @@ F:	arch/powerpc/platforms/40x/
 F:	arch/powerpc/platforms/44x/
 
 LINUX FOR POWERPC EMBEDDED XILINX VIRTEX
-M:	Grant Likely <grant.likely@secretlab.ca>
-W:	http://wiki.secretlab.ca/index.php/Linux_on_Xilinx_Virtex
 L:	linuxppc-dev@lists.ozlabs.org
-T:	git git://git.secretlab.ca/git/linux-2.6.git
-S:	Maintained
+S:	Unmaintained
 F:	arch/powerpc/*/*virtex*
 F:	arch/powerpc/*/*/*virtex*
 
@@ -5412,6 +5416,13 @@ L:	linux-scsi@vger.kernel.org
 S:	Maintained
 F:	drivers/scsi/NCR_D700.*
 
+NCT6775 HARDWARE MONITOR DRIVER
+M:	Guenter Roeck <linux@roeck-us.net>
+L:	lm-sensors@lm-sensors.org
+S:	Maintained
+F:	Documentation/hwmon/nct6775
+F:	drivers/hwmon/nct6775.c
+
 NETEFFECT IWARP RNIC DRIVER (IW_NES)
 M:	Faisal Latif <faisal.latif@intel.com>
 L:	linux-rdma@vger.kernel.org
@@ -5843,7 +5854,7 @@ F:	Documentation/i2c/busses/i2c-ocores
 F:	drivers/i2c/busses/i2c-ocores.c
 
 OPEN FIRMWARE AND FLATTENED DEVICE TREE
-M:	Grant Likely <grant.likely@secretlab.ca>
+M:	Grant Likely <grant.likely@linaro.org>
 M:	Rob Herring <rob.herring@calxeda.com>
 L:	devicetree-discuss@lists.ozlabs.org (moderated for non-subscribers)
 W:	http://fdt.secretlab.ca
@@ -7467,11 +7478,11 @@ S:	Maintained
 F:	drivers/clk/spear/
 
 SPI SUBSYSTEM
-M:	Grant Likely <grant.likely@secretlab.ca>
 M:	Mark Brown <broonie@kernel.org>
+M:	Grant Likely <grant.likely@linaro.org>
 L:	spi-devel-general@lists.sourceforge.net
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/broonie/spi.git
 Q:	http://patchwork.kernel.org/project/spi-devel-general/list/
-T:	git git://git.secretlab.ca/git/linux-2.6.git
 S:	Maintained
 F:	Documentation/spi/
 F:	drivers/spi/
@@ -7882,7 +7893,7 @@ L:	linux-tegra@vger.kernel.org
 Q:	http://patchwork.ozlabs.org/project/linux-tegra/list/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/swarren/linux-tegra.git
 S:	Supported
-K:	(?i)[^a-z]tegra
+N:	[^a-z]tegra
 
 TEHUTI ETHERNET DRIVER
 M:	Andy Gospodarek <andy@greyhouse.net>
@@ -7924,6 +7935,12 @@ W:	http://thinkwiki.org/wiki/Ibm-acpi
 T:	git git://repo.or.cz/linux-2.6/linux-acpi-2.6/ibm-acpi-2.6.git
 S:	Maintained
 F:	drivers/platform/x86/thinkpad_acpi.c
+
+TI BANDGAP AND THERMAL DRIVER
+M:	Eduardo Valentin <eduardo.valentin@ti.com>
+L:	linux-pm@vger.kernel.org
+S:	Maintained
+F:	drivers/staging/omap-thermal/
 
 TI FLASH MEDIA INTERFACE DRIVER
 M:	Alex Dubov <oakad@yahoo.com>
@@ -8362,9 +8379,10 @@ S:	Maintained
 F:	drivers/usb/serial/option.c
 
 USB PEGASUS DRIVER
-M:	Petko Manolov <petkan@users.sourceforge.net>
+M:	Petko Manolov <petkan@nucleusys.com>
 L:	linux-usb@vger.kernel.org
 L:	netdev@vger.kernel.org
+T:	git git://git.code.sf.net/p/pegasus2/git
 W:	http://pegasus2.sourceforge.net/
 S:	Maintained
 F:	drivers/net/usb/pegasus.*
@@ -8384,9 +8402,10 @@ S:	Supported
 F:	drivers/usb/class/usblp.c
 
 USB RTL8150 DRIVER
-M:	Petko Manolov <petkan@users.sourceforge.net>
+M:	Petko Manolov <petkan@nucleusys.com>
 L:	linux-usb@vger.kernel.org
 L:	netdev@vger.kernel.org
+T:	git git://git.code.sf.net/p/pegasus2/git
 W:	http://pegasus2.sourceforge.net/
 S:	Maintained
 F:	drivers/net/usb/rtl8150.c
@@ -8712,7 +8731,7 @@ F:	drivers/scsi/vmw_pvscsi.c
 F:	drivers/scsi/vmw_pvscsi.h
 
 VOLTAGE AND CURRENT REGULATOR FRAMEWORK
-M:	Liam Girdwood <lrg@ti.com>
+M:	Liam Girdwood <lgirdwood@gmail.com>
 M:	Mark Brown <broonie@kernel.org>
 W:	http://opensource.wolfsonmicro.com/node/15
 W:	http://www.slimlogic.co.uk/?p=48
@@ -8976,9 +8995,7 @@ S:	Maintained
 F:	drivers/net/ethernet/xilinx/xilinx_axienet*
 
 XILINX SYSTEMACE DRIVER
-M:	Grant Likely <grant.likely@secretlab.ca>
-W:	http://www.secretlab.ca/
-S:	Maintained
+S:	Unmaintained
 F:	drivers/block/xsysace.c
 
 XILINX UARTLITE SERIAL DRIVER

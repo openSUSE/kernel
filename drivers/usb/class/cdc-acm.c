@@ -292,7 +292,6 @@ static void acm_ctrl_irq(struct urb *urb)
 {
 	struct acm *acm = urb->context;
 	struct usb_cdc_notification *dr = urb->transfer_buffer;
-	struct tty_struct *tty;
 	unsigned char *data;
 	int newctrl;
 	int retval;
@@ -327,17 +326,12 @@ static void acm_ctrl_irq(struct urb *urb)
 		break;
 
 	case USB_CDC_NOTIFY_SERIAL_STATE:
-		tty = tty_port_tty_get(&acm->port);
 		newctrl = get_unaligned_le16(data);
 
-		if (tty) {
-			if (!acm->clocal &&
-				(acm->ctrlin & ~newctrl & ACM_CTRL_DCD)) {
-				dev_dbg(&acm->control->dev,
-					"%s - calling hangup\n", __func__);
-				tty_hangup(tty);
-			}
-			tty_kref_put(tty);
+		if (!acm->clocal && (acm->ctrlin & ~newctrl & ACM_CTRL_DCD)) {
+			dev_dbg(&acm->control->dev, "%s - calling hangup\n",
+					__func__);
+			tty_port_tty_hangup(&acm->port, false);
 		}
 
 		acm->ctrlin = newctrl;
@@ -475,15 +469,10 @@ static void acm_write_bulk(struct urb *urb)
 static void acm_softint(struct work_struct *work)
 {
 	struct acm *acm = container_of(work, struct acm, work);
-	struct tty_struct *tty;
 
 	dev_vdbg(&acm->data->dev, "%s\n", __func__);
 
-	tty = tty_port_tty_get(&acm->port);
-	if (!tty)
-		return;
-	tty_wakeup(tty);
-	tty_kref_put(tty);
+	tty_port_tty_wakeup(&acm->port);
 }
 
 /*
@@ -838,14 +827,6 @@ static int acm_tty_ioctl(struct tty_struct *tty,
 
 	return rv;
 }
-
-static const __u32 acm_tty_speed[] = {
-	0, 50, 75, 110, 134, 150, 200, 300, 600,
-	1200, 1800, 2400, 4800, 9600, 19200, 38400,
-	57600, 115200, 230400, 460800, 500000, 576000,
-	921600, 1000000, 1152000, 1500000, 2000000,
-	2500000, 3000000, 3500000, 4000000
-};
 
 static void acm_tty_set_termios(struct tty_struct *tty,
 						struct ktermios *termios_old)
@@ -1519,15 +1500,9 @@ err_out:
 static int acm_reset_resume(struct usb_interface *intf)
 {
 	struct acm *acm = usb_get_intfdata(intf);
-	struct tty_struct *tty;
 
-	if (test_bit(ASYNCB_INITIALIZED, &acm->port.flags)) {
-		tty = tty_port_tty_get(&acm->port);
-		if (tty) {
-			tty_hangup(tty);
-			tty_kref_put(tty);
-		}
-	}
+	if (test_bit(ASYNCB_INITIALIZED, &acm->port.flags))
+		tty_port_tty_hangup(&acm->port, false);
 
 	return acm_resume(intf);
 }
