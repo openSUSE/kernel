@@ -1767,7 +1767,7 @@ F:	arch/arm/configs/bcm2835_defconfig
 F:	drivers/*/*bcm2835*
 
 BROADCOM TG3 GIGABIT ETHERNET DRIVER
-M:	Matt Carlson <mcarlson@broadcom.com>
+M:	Nithin Nayak Sujir <nsujir@broadcom.com>
 M:	Michael Chan <mchan@broadcom.com>
 L:	netdev@vger.kernel.org
 S:	Supported
@@ -1889,7 +1889,7 @@ F:	Documentation/video4linux/cafe_ccic
 F:	drivers/media/platform/marvell-ccic/
 
 CAIF NETWORK LAYER
-M:	Sjur Braendeland <sjur.brandeland@stericsson.com>
+M:	Dmitry Tarnyagin <dmitry.tarnyagin@lockless.no>
 L:	netdev@vger.kernel.org
 S:	Supported
 F:	Documentation/networking/caif/
@@ -3025,8 +3025,17 @@ F:	arch/ia64/kernel/efi.c
 F:	arch/x86/boot/compressed/eboot.[ch]
 F:	arch/x86/include/asm/efi.h
 F:	arch/x86/platform/efi/*
-F:	drivers/firmware/efivars.c
+F:	drivers/firmware/efi/*
 F:	include/linux/efi*.h
+
+EFI VARIABLE FILESYSTEM
+M:	Matthew Garrett <matthew.garrett@nebula.com>
+M:	Jeremy Kerr <jk@ozlabs.org>
+M:	Matt Fleming <matt.fleming@intel.com>
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/mfleming/efi.git
+L:	linux-efi@vger.kernel.org
+S:	Maintained
+F:	fs/efivarfs/
 
 EFIFB FRAMEBUFFER DRIVER
 L:	linux-fbdev@vger.kernel.org
@@ -6391,11 +6400,12 @@ S:	Maintained
 T:	git git://git.infradead.org/users/cbou/linux-pstore.git
 F:	fs/pstore/
 F:	include/linux/pstore*
-F:	drivers/firmware/efivars.c
+F:	drivers/firmware/efi/efi-pstore.c
 F:	drivers/acpi/apei/erst.c
 
 PTP HARDWARE CLOCK SUPPORT
 M:	Richard Cochran <richardcochran@gmail.com>
+L:	netdev@vger.kernel.org
 S:	Maintained
 W:	http://linuxptp.sourceforge.net/
 F:	Documentation/ABI/testing/sysfs-ptp
@@ -6527,6 +6537,7 @@ S:	Supported
 F:	drivers/net/ethernet/qlogic/qlcnic/
 
 QLOGIC QLGE 10Gb ETHERNET DRIVER
+M:	Shahed Shaikh <shahed.shaikh@qlogic.com>
 M:	Jitendra Kalsaria <jitendra.kalsaria@qlogic.com>
 M:	Ron Mercer <ron.mercer@qlogic.com>
 M:	linux-driver@qlogic.com
@@ -8627,7 +8638,7 @@ F:	drivers/usb/gadget/*uvc*.c
 F:	drivers/usb/gadget/webcam.c
 
 USB WIRELESS RNDIS DRIVER (rndis_wlan)
-M:	Jussi Kivilinna <jussi.kivilinna@mbnet.fi>
+M:	Jussi Kivilinna <jussi.kivilinna@iki.fi>
 L:	linux-wireless@vger.kernel.org
 S:	Maintained
 F:	drivers/net/wireless/rndis_wlan.c
