@@ -1,7 +1,7 @@
 VERSION = 3
 PATCHLEVEL = 9
 SUBLEVEL = 0
-EXTRAVERSION =-7391-g20b4fb4
+EXTRAVERSION =-8933-gce85722
 NAME = Unicycling Gorilla
 
 # *DOCUMENTATION*
@@ -571,7 +571,7 @@ endif # $(dot-config)
 all: vmlinux
 
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
-KBUILD_CFLAGS	+= -Os
+KBUILD_CFLAGS	+= -Os $(call cc-disable-warning,maybe-uninitialized,)
 else
 KBUILD_CFLAGS	+= -O2
 endif
