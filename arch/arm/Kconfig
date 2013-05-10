@@ -109,9 +109,6 @@ config MIGHT_HAVE_PCI
 config SYS_SUPPORTS_APM_EMULATION
 	bool
 
-config GENERIC_GPIO
-	bool
-
 config HAVE_TCM
 	bool
 	select GENERIC_ALLOCATOR
@@ -900,7 +897,6 @@ config ARCH_MULTI_V7
 	bool "ARMv7 based platforms (Cortex-A, PJ4, Scorpion, Krait)"
 	default y
 	select ARCH_MULTI_V6_V7
-	select ARCH_VEXPRESS
 	select CPU_V7
 
 config ARCH_MULTI_V6_V7
