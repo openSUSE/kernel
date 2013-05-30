@@ -1,7 +1,7 @@
 VERSION = 3
 PATCHLEVEL = 10
 SUBLEVEL = 0
-EXTRAVERSION = -rc3-46-g58f8bbd
+EXTRAVERSION = -rc3-68-gdcdbe33
 NAME = Unicycling Gorilla
 
 # *DOCUMENTATION*
