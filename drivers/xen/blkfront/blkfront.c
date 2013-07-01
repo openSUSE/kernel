@@ -497,8 +497,7 @@ static void blkfront_setup_discard(struct blkfront_info *info)
 static void connect(struct blkfront_info *info)
 {
 	unsigned long long sectors;
-	unsigned long sector_size;
-	unsigned int binfo;
+	unsigned int binfo, sector_size, physical_sector_size;
 	int err, barrier, flush, discard;
 
 	switch (info->connected) {
@@ -512,7 +511,7 @@ static void connect(struct blkfront_info *info)
 		if (err != 1)
 			return;
 		err = xenbus_scanf(XBT_NIL, info->xbdev->otherend,
-				   "sector-size", "%lu", &sector_size);
+				   "sector-size", "%u", &sector_size);
 		if (err != 1)
 			sector_size = 0;
 		if (sector_size)
@@ -532,7 +531,7 @@ static void connect(struct blkfront_info *info)
 	err = xenbus_gather(XBT_NIL, info->xbdev->otherend,
 			    "sectors", "%Lu", &sectors,
 			    "info", "%u", &binfo,
-			    "sector-size", "%lu", &sector_size,
+			    "sector-size", "%u", &sector_size,
 			    NULL);
 	if (err) {
 		xenbus_dev_fatal(info->xbdev, err,
@@ -540,6 +539,16 @@ static void connect(struct blkfront_info *info)
 				 info->xbdev->otherend);
 		return;
 	}
+
+	/*
+	 * physcial-sector-size is a newer field, so old backends may not
+	 * provide this. Assume physical sector size to be the same as
+	 * sector_size in that case.
+	 */
+	err = xenbus_scanf(XBT_NIL, info->xbdev->otherend,
+			   "physical-sector-size", "%u", &physical_sector_size);
+	if (err <= 0)
+		physical_sector_size = sector_size;
 
 	info->feature_flush = 0;
 	info->flush_op = 0;
@@ -583,7 +592,8 @@ static void connect(struct blkfront_info *info)
 	if (err > 0 && discard)
 		blkfront_setup_discard(info);
 
-	err = xlvbd_add(sectors, info->vdevice, binfo, sector_size, info);
+	err = xlvbd_add(sectors, info->vdevice, binfo, sector_size,
+			physical_sector_size, info);
 	if (err) {
 		xenbus_dev_fatal(info->xbdev, err, "xlvbd_add at %s",
 				 info->xbdev->otherend);
@@ -850,9 +860,13 @@ int blkif_open(struct block_device *bd, fmode_t mode)
 int blkif_release(struct inode *inode, struct file *filep)
 {
 	struct gendisk *disk = inode->i_bdev->bd_disk;
-#else
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
 int blkif_release(struct gendisk *disk, fmode_t mode)
 {
+#else
+void blkif_release(struct gendisk *disk, fmode_t mode)
+{
+#define return(n) return
 #endif
 	struct blkfront_info *info = disk->private_data;
 	struct xenbus_device *xbdev;
@@ -860,7 +874,7 @@ int blkif_release(struct gendisk *disk, fmode_t mode)
 
 	bdput(bd);
 	if (bd->bd_openers)
-		return 0;
+		return(0);
 
 	/*
 	 * Check if we have been instructed to close. We will have
@@ -885,7 +899,8 @@ int blkif_release(struct gendisk *disk, fmode_t mode)
 		kfree(info);
 	}
 
-	return 0;
+	return(0);
+#undef return
 }
 
 

@@ -180,7 +180,6 @@ void __init xen_start_kernel(void)
 
 	if (is_initial_xendomain()) {
 		x86_platform.get_wallclock = mach_get_cmos_time;
-		x86_platform.set_wallclock = mach_set_rtc_mmss;
 
 		pci_request_acs();
 	} else

@@ -44,6 +44,7 @@
 #include <linux/kconfig.h>
 #include <linux/slab.h>
 #include <linux/mutex.h>
+#include <linux/seq_file.h>
 #include <xen/xen_proc.h>
 #include <asm/hypervisor.h>
 #include <xen/balloon.h>
@@ -59,10 +60,6 @@
 
 #ifdef HAVE_XEN_PLATFORM_COMPAT_H
 #include <xen/platform-compat.h>
-#endif
-
-#ifdef CONFIG_PROC_FS
-static struct proc_dir_entry *balloon_pde;
 #endif
 
 static DEFINE_MUTEX(balloon_mutex);
@@ -476,8 +473,8 @@ static int balloon_init_watcher(struct notifier_block *notifier,
 }
 
 #ifdef CONFIG_PROC_FS
-static int balloon_write(struct file *file, const char __user *buffer,
-			 unsigned long count, void *data)
+static ssize_t balloon_write(struct file *file, const char __user *buffer,
+                           size_t count, loff_t *ppos)
 {
 	char memstring[64], *endchar;
 	unsigned long long target_bytes;
@@ -500,13 +497,9 @@ static int balloon_write(struct file *file, const char __user *buffer,
 	return count;
 }
 
-static int balloon_read(char *page, char **start, off_t off,
-			int count, int *eof, void *data)
+static int balloon_show(struct seq_file *m, void *v)
 {
-	int len;
-
-	len = sprintf(
-		page,
+	return seq_printf(m,
 		"Current allocation: %8lu kB\n"
 		"Requested target:   %8lu kB\n"
 		"Minimum target:     %8lu kB\n"
@@ -518,11 +511,20 @@ static int balloon_read(char *page, char **start, off_t off,
 		PAGES2KB(balloon_minimum_target()), PAGES2KB(num_physpages),
 		PAGES2KB(bs.balloon_low), PAGES2KB(bs.balloon_high),
 		PAGES2KB(bs.driver_pages));
-
-
-	*eof = 1;
-	return len;
 }
+
+static int balloon_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, balloon_show, PDE_DATA(inode));
+}
+
+static const struct file_operations balloon_fops = {
+	.open = balloon_open,
+	.llseek = seq_lseek,
+	.read = seq_read,
+	.write = balloon_write,
+	.release = single_release
+};
 #endif
 
 static struct notifier_block xenstore_notifier;
@@ -583,13 +585,11 @@ static int __init balloon_init(void)
 	bs.driver_pages  = 0UL;
 
 #ifdef CONFIG_PROC_FS
-	if ((balloon_pde = create_xen_proc_entry("balloon", 0644)) == NULL) {
+	if (!create_xen_proc_entry("balloon", S_IFREG|S_IRUGO|S_IWUSR,
+				   &balloon_fops, NULL)) {
 		WPRINTK("Unable to create /proc/xen/balloon.\n");
 		return -1;
 	}
-
-	balloon_pde->read_proc  = balloon_read;
-	balloon_pde->write_proc = balloon_write;
 #endif
 	balloon_sysfs_init();
 

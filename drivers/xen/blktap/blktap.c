@@ -277,7 +277,8 @@ static inline unsigned int OFFSET_TO_SEG(unsigned long offset)
     } while(0)
 
 
-static char *blktap_devnode(struct device *dev, umode_t *mode)
+static char *blktap_devnode(struct device *dev, umode_t *mode,
+			    kuid_t *uid, kgid_t *gid)
 {
 	return kasprintf(GFP_KERNEL, "xen/blktap%u", MINOR(dev->devt));
 }
@@ -672,6 +673,7 @@ static int blktap_release(struct inode *inode, struct file *filp)
 		if (info->blkif->xenblkd != NULL) {
 			kthread_stop(info->blkif->xenblkd);
 			info->blkif->xenblkd = NULL;
+			wake_up(&info->blkif->shutdown_wq);
 		}
 		info->status = CLEANSHUTDOWN;
 	}
@@ -1176,8 +1178,18 @@ int tap_blkif_schedule(void *arg)
 		blkif->waiting_reqs = 0;
 		smp_mb(); /* clear flag *before* checking for work */
 
-		if (do_block_io_op(blkif))
+		switch (do_block_io_op(blkif)) {
+		case 1:
 			blkif->waiting_reqs = 1;
+		case 0:
+			break;
+		case -EACCES:
+			wait_event_interruptible(blkif->shutdown_wq,
+						 kthread_should_stop());
+			break;
+		default:
+			BUG();
+		}
 
 		if (log_stats && time_after(jiffies, blkif->st_print))
 			print_stats(blkif);
@@ -1333,6 +1345,15 @@ static int _do_block_io_op(blkif_t *blkif)
 			print_dbug = 0;
 		}
 		return 0;
+	}
+
+	if (RING_REQUEST_PROD_OVERFLOW(&blk_rings->common, rp)) {
+		rc = blk_rings->common.rsp_prod_pvt;
+		pr_warning("blktap:"
+			   " Dom%d provided bogus ring requests (%#x - %#x = %u)."
+			   " Halting ring processing on tap%d\n",
+			   blkif->domid, rp, rc, rp - rc, info->minor);
+		return -EACCES;
 	}
 
 	while (rc != rp) {

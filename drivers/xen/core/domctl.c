@@ -190,7 +190,8 @@ union xen_sysctl {
 	} v7;
 	/*
 	 * v8: Xen 4.1.x
-	 * v9: Xen 4.2+
+	 * v9: Xen 4.2.x
+	 * v10: Xen 4.3+
 	 */
 	struct {
 		uint32_t cmd;
@@ -198,7 +199,7 @@ union xen_sysctl {
 		union {
 			struct xen_sysctl_topologyinfo_v8 topologyinfo;
 		};
-	} v8, v9;
+	} v8, v9, v10;
 };
 
 /* The actual code comes here */
@@ -434,8 +435,12 @@ int xen_get_topology_info(unsigned int cpu, u32 *core, u32 *sock, u32 *node)
 	nr = sysctl.v##ver.topologyinfo.max_cpu_index + 1;		\
 } while (0)
 
-	BUILD_BUG_ON(XEN_SYSCTL_INTERFACE_VERSION > 9);
-	topologyinfo(9);
+	BUILD_BUG_ON(XEN_SYSCTL_INTERFACE_VERSION > 10);
+	topologyinfo(10);
+/* #if CONFIG_XEN_COMPAT < 0x040300 */
+	if (rc)
+		topologyinfo(9);
+/* #endif */
 #if CONFIG_XEN_COMPAT < 0x040200
 	if (rc)
 		topologyinfo(8);

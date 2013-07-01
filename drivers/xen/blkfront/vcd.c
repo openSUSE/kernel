@@ -319,13 +319,22 @@ static int xencdrom_block_open(struct block_device *bd, fmode_t mode)
 static int xencdrom_block_release(struct inode *inode, struct file *file)
 {
 	struct gendisk *gd = inode->i_bdev->bd_disk;
-#else
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
 static int xencdrom_block_release(struct gendisk *gd, fmode_t mode)
+{
+#else
+static void xencdrom_block_release(struct gendisk *gd, fmode_t mode)
 {
 #endif
 	struct blkfront_info *info = gd->private_data;
 	struct vcd_disk *vcd;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28)
 	int ret = 0;
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
+# define ret 0
+#else
+# define ret
+#endif
 
 	if ((vcd = xencdrom_get_list_entry(info->gd))) {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28)
@@ -344,6 +353,7 @@ static int xencdrom_block_release(struct gendisk *gd, fmode_t mode)
 	}
 
 	return ret;
+#undef ret
 }
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28)

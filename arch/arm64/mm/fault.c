@@ -57,16 +57,16 @@ void show_pte(struct mm_struct *mm, unsigned long addr)
 		pmd_t *pmd;
 		pte_t *pte;
 
-		if (pgd_none_or_clear_bad(pgd))
+		if (pgd_none(*pgd) || pgd_bad(*pgd))
 			break;
 
 		pud = pud_offset(pgd, addr);
-		if (pud_none_or_clear_bad(pud))
+		if (pud_none(*pud) || pud_bad(*pud))
 			break;
 
 		pmd = pmd_offset(pud, addr);
 		printk(", *pmd=%016llx", pmd_val(*pmd));
-		if (pmd_none_or_clear_bad(pmd))
+		if (pmd_none(*pmd) || pmd_bad(*pmd))
 			break;
 
 		pte = pte_offset_map(pmd, addr);
@@ -113,7 +113,8 @@ static void __do_user_fault(struct task_struct *tsk, unsigned long addr,
 {
 	struct siginfo si;
 
-	if (show_unhandled_signals) {
+	if (show_unhandled_signals && unhandled_signal(tsk, sig) &&
+	    printk_ratelimit()) {
 		pr_info("%s[%d]: unhandled %s (%d) at 0x%08lx, esr 0x%03x\n",
 			tsk->comm, task_pid_nr(tsk), fault_name(esr), sig,
 			addr, esr);

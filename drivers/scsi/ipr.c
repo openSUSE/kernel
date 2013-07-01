@@ -6421,7 +6421,7 @@ static void ipr_build_ata_ioadl64(struct ipr_cmnd *ipr_cmd,
 {
 	u32 ioadl_flags = 0;
 	struct ipr_ioarcb *ioarcb = &ipr_cmd->ioarcb;
-	struct ipr_ioadl64_desc *ioadl64 = ipr_cmd->i.ioadl64;
+	struct ipr_ioadl64_desc *ioadl64 = ipr_cmd->i.ata_ioadl.ioadl64;
 	struct ipr_ioadl64_desc *last_ioadl64 = NULL;
 	int len = qc->nbytes;
 	struct scatterlist *sg;
@@ -6441,7 +6441,7 @@ static void ipr_build_ata_ioadl64(struct ipr_cmnd *ipr_cmd,
 	ioarcb->ioadl_len =
 		cpu_to_be32(sizeof(struct ipr_ioadl64_desc) * ipr_cmd->dma_use_sg);
 	ioarcb->u.sis64_addr_data.data_ioadl_addr =
-		cpu_to_be64(dma_addr + offsetof(struct ipr_cmnd, i.ata_ioadl));
+		cpu_to_be64(dma_addr + offsetof(struct ipr_cmnd, i.ata_ioadl.ioadl64));
 
 	for_each_sg(qc->sg, sg, qc->n_elem, si) {
 		ioadl64->flags = cpu_to_be32(ioadl_flags);
@@ -8980,19 +8980,6 @@ static int ipr_alloc_mem(struct ipr_ioa_cfg *ioa_cfg)
 	if (!ioa_cfg->res_entries)
 		goto out;
 
-	if (ioa_cfg->sis64) {
-		ioa_cfg->target_ids = kzalloc(sizeof(unsigned long) *
-					      BITS_TO_LONGS(ioa_cfg->max_devs_supported), GFP_KERNEL);
-		ioa_cfg->array_ids = kzalloc(sizeof(unsigned long) *
-					     BITS_TO_LONGS(ioa_cfg->max_devs_supported), GFP_KERNEL);
-		ioa_cfg->vset_ids = kzalloc(sizeof(unsigned long) *
-					    BITS_TO_LONGS(ioa_cfg->max_devs_supported), GFP_KERNEL);
-
-		if (!ioa_cfg->target_ids || !ioa_cfg->array_ids
-			|| !ioa_cfg->vset_ids)
-			goto out_free_res_entries;
-	}
-
 	for (i = 0; i < ioa_cfg->max_devs_supported; i++) {
 		list_add_tail(&ioa_cfg->res_entries[i].queue, &ioa_cfg->free_res_q);
 		ioa_cfg->res_entries[i].ioa_cfg = ioa_cfg;
@@ -9089,9 +9076,6 @@ out_free_vpd_cbs:
 			    ioa_cfg->vpd_cbs, ioa_cfg->vpd_cbs_dma);
 out_free_res_entries:
 	kfree(ioa_cfg->res_entries);
-	kfree(ioa_cfg->target_ids);
-	kfree(ioa_cfg->array_ids);
-	kfree(ioa_cfg->vset_ids);
 	goto out;
 }
 

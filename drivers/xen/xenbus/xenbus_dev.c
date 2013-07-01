@@ -90,8 +90,6 @@ struct xenbus_dev_data {
 	struct mutex reply_mutex;
 };
 
-static struct proc_dir_entry *xenbus_dev_intf;
-
 static ssize_t xenbus_dev_read(struct file *filp,
 			       char __user *ubuf,
 			       size_t len, loff_t *ppos)
@@ -501,9 +499,9 @@ __init
 #endif
 xenbus_dev_init(void)
 {
-	xenbus_dev_intf = create_xen_proc_entry("xenbus", 0400);
-	if (xenbus_dev_intf)
-		xenbus_dev_intf->proc_fops = &xenbus_dev_file_ops;
+	if (!create_xen_proc_entry("xenbus", S_IFREG|S_IRUSR,
+				   &xenbus_dev_file_ops, NULL))
+		return -ENOMEM;
 
 	return 0;
 }

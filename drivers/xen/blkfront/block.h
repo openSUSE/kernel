@@ -129,7 +129,11 @@ extern int blkif_ioctl(struct inode *inode, struct file *filep,
 		       unsigned command, unsigned long argument);
 #else
 extern int blkif_open(struct block_device *bdev, fmode_t mode);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
 extern int blkif_release(struct gendisk *disk, fmode_t mode);
+#else
+extern void blkif_release(struct gendisk *disk, fmode_t mode);
+#endif
 extern int blkif_ioctl(struct block_device *bdev, fmode_t mode,
  		       unsigned command, unsigned long argument);
 #endif
@@ -142,8 +146,9 @@ extern void do_blkif_request (struct request_queue *rq);
 /* Note that xlvbd_add doesn't call add_disk for you: you're expected
    to call add_disk on info->gd once the disk is properly connected
    up. */
-int xlvbd_add(blkif_sector_t capacity, int device,
-	      u16 vdisk_info, u16 sector_size, struct blkfront_info *info);
+int xlvbd_add(blkif_sector_t capacity, int device, unsigned int vdisk_info,
+	      unsigned int sector_size, unsigned int physical_sector_size,
+	      struct blkfront_info *);
 void xlvbd_del(struct blkfront_info *info);
 void xlvbd_flush(struct blkfront_info *info);
 

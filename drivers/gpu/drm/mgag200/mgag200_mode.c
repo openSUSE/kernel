@@ -46,29 +46,26 @@ static void mga_crtc_load_lut(struct drm_crtc *crtc)
 
 static inline void mga_wait_vsync(struct mga_device *mdev)
 {
-	unsigned int count = 0;
+	unsigned long timeout = jiffies + HZ/10;
 	unsigned int status = 0;
 
 	do {
 		status = RREG32(MGAREG_Status);
-		count++;
-	} while ((status & 0x08) && (count < 250000));
-	count = 0;
+	} while ((status & 0x08) && time_before(jiffies, timeout));
+	timeout = jiffies + HZ/10;
 	status = 0;
 	do {
 		status = RREG32(MGAREG_Status);
-		count++;
-	} while (!(status & 0x08) && (count < 250000));
+	} while (!(status & 0x08) && time_before(jiffies, timeout));
 }
 
 static inline void mga_wait_busy(struct mga_device *mdev)
 {
-	unsigned int count = 0;
+	unsigned long timeout = jiffies + HZ;
 	unsigned int status = 0;
 	do {
 		status = RREG8(MGAREG_Status + 2);
-		count++;
-	} while ((status & 0x01) && (count < 500000));
+	} while ((status & 0x01) && time_before(jiffies, timeout));
 }
 
 /*
@@ -850,11 +847,7 @@ static int mga_crtc_mode_set(struct drm_crtc *crtc,
 
 
 	for (i = 0; i < sizeof(dacvalue); i++) {
-		if ((i <= 0x03) ||
-		    (i == 0x07) ||
-		    (i == 0x0b) ||
-		    (i == 0x0f) ||
-		    ((i >= 0x13) && (i <= 0x17)) ||
+		if ((i <= 0x17) ||
 		    (i == 0x1b) ||
 		    (i == 0x1c) ||
 		    ((i >= 0x1f) && (i <= 0x29)) ||
@@ -1276,9 +1269,8 @@ static const struct drm_crtc_helper_funcs mga_helper_funcs = {
 };
 
 /* CRTC setup */
-static void mga_crtc_init(struct drm_device *dev)
+static void mga_crtc_init(struct mga_device *mdev)
 {
-	struct mga_device *mdev = dev->dev_private;
 	struct mga_crtc *mga_crtc;
 	int i;
 
@@ -1289,7 +1281,7 @@ static void mga_crtc_init(struct drm_device *dev)
 	if (mga_crtc == NULL)
 		return;
 
-	drm_crtc_init(dev, &mga_crtc->base, &mga_crtc_funcs);
+	drm_crtc_init(mdev->dev, &mga_crtc->base, &mga_crtc_funcs);
 
 	drm_mode_crtc_set_gamma_size(&mga_crtc->base, MGAG200_LUT_SIZE);
 	mdev->mode_info.crtc = mga_crtc;
@@ -1544,7 +1536,7 @@ int mgag200_modeset_init(struct mga_device *mdev)
 
 	mdev->dev->mode_config.fb_base = mdev->mc.vram_base;
 
-	mga_crtc_init(mdev->dev);
+	mga_crtc_init(mdev);
 
 	encoder = mga_encoder_init(mdev->dev);
 	if (!encoder) {

@@ -352,7 +352,8 @@ static char *encode_disk_name(char *ptr, unsigned int n)
 }
 
 static int
-xlvbd_init_blk_queue(struct gendisk *gd, u16 sector_size,
+xlvbd_init_blk_queue(struct gendisk *gd, unsigned int sector_size,
+		     unsigned int physical_sector_size,
 		     struct blkfront_info *info)
 {
 	struct request_queue *rq;
@@ -376,6 +377,7 @@ xlvbd_init_blk_queue(struct gendisk *gd, u16 sector_size,
 
 	/* Hard sector size and max sectors impersonate the equiv. hardware. */
 	blk_queue_logical_block_size(rq, sector_size);
+	blk_queue_physical_block_size(rq, physical_sector_size);
 	blk_queue_max_hw_sectors(rq, 512);
 
 	/* Each segment in a request is up to an aligned page in size. */
@@ -398,8 +400,9 @@ xlvbd_init_blk_queue(struct gendisk *gd, u16 sector_size,
 }
 
 int
-xlvbd_add(blkif_sector_t capacity, int vdevice, u16 vdisk_info,
-	  u16 sector_size, struct blkfront_info *info)
+xlvbd_add(blkif_sector_t capacity, int vdevice, unsigned int vdisk_info,
+	  unsigned int sector_size, unsigned int physical_sector_size,
+	  struct blkfront_info *info)
 {
 	int major, minor;
 	struct gendisk *gd;
@@ -475,7 +478,7 @@ xlvbd_add(blkif_sector_t capacity, int vdevice, u16 vdisk_info,
 	gd->driverfs_dev = &(info->xbdev->dev);
 	set_capacity(gd, capacity);
 
-	if (xlvbd_init_blk_queue(gd, sector_size, info)) {
+	if (xlvbd_init_blk_queue(gd, sector_size, physical_sector_size, info)) {
 		del_gendisk(gd);
 		goto release;
 	}

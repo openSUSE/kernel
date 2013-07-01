@@ -62,6 +62,9 @@ void foo(void)
 	OFFSET(IA32_RT_SIGFRAME_sigcontext, rt_sigframe, uc.uc_mcontext);
 	BLANK();
 
+	OFFSET(saved_context_gdt_desc, saved_context, gdt_desc);
+	BLANK();
+
 #ifndef CONFIG_X86_NO_TSS
 	/* Offset from the sysenter stack to tss.sp0 */
 	DEFINE(SYSENTER_stack_sp0, offsetof(struct tss_struct, x86_tss.sp0) -

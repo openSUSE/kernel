@@ -89,9 +89,7 @@ void update_vsyscall(struct timekeeper *tk)
 	write_seqcount_begin(&vdata->seq);
 
 	/* copy vsyscall data */
-#ifndef CONFIG_XEN
 	vdata->clock.vclock_mode	= tk->clock->archdata.vclock_mode;
-#endif
 	vdata->clock.cycle_last		= tk->clock->cycle_last;
 	vdata->clock.mask		= tk->clock->mask;
 	vdata->clock.mult		= tk->mult;

@@ -1374,7 +1374,7 @@ static int srpt_abort_cmd(struct srpt_send_ioctx *ioctx)
 		target_put_sess_cmd(ioctx->ch->sess, &ioctx->cmd);
 		break;
 	default:
-		WARN_ON("ERROR: unexpected command state");
+		WARN(1, "Unexpected command state (%d)", state);
 		break;
 	}
 
@@ -2352,7 +2352,7 @@ static void srpt_release_channel_work(struct work_struct *w)
 	se_sess = ch->sess;
 	BUG_ON(!se_sess);
 
-	target_wait_for_sess_cmds(se_sess, 0);
+	target_wait_for_sess_cmds(se_sess);
 
 	transport_deregister_session_configfs(se_sess);
 	transport_deregister_session(se_sess);

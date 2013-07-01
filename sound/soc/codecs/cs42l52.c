@@ -193,6 +193,8 @@ static DECLARE_TLV_DB_SCALE(mic_tlv, 1600, 100, 0);
 
 static DECLARE_TLV_DB_SCALE(pga_tlv, -600, 50, 0);
 
+static DECLARE_TLV_DB_SCALE(mix_tlv, -50, 50, 0);
+
 static const unsigned int limiter_tlv[] = {
 	TLV_DB_RANGE_HEAD(2),
 	0, 2, TLV_DB_SCALE_ITEM(-3000, 600, 0),
@@ -225,7 +227,7 @@ static const char * const mic_bias_level_text[] = {
 };
 
 static const struct soc_enum mic_bias_level_enum =
-	SOC_ENUM_SINGLE(CS42L52_IFACE_CTL1, 0,
+	SOC_ENUM_SINGLE(CS42L52_IFACE_CTL2, 0,
 			ARRAY_SIZE(mic_bias_level_text), mic_bias_level_text);
 
 static const char * const cs42l52_mic_text[] = { "Single", "Differential" };
@@ -260,7 +262,7 @@ static const char * const hp_gain_num_text[] = {
 };
 
 static const struct soc_enum hp_gain_enum =
-	SOC_ENUM_SINGLE(CS42L52_PB_CTL1, 4,
+	SOC_ENUM_SINGLE(CS42L52_PB_CTL1, 5,
 		ARRAY_SIZE(hp_gain_num_text), hp_gain_num_text);
 
 static const char * const beep_pitch_text[] = {
@@ -413,7 +415,7 @@ static const struct snd_kcontrol_new cs42l52_snd_controls[] = {
 	SOC_ENUM("Headphone Analog Gain", hp_gain_enum),
 
 	SOC_DOUBLE_R_SX_TLV("Speaker Volume", CS42L52_SPKA_VOL,
-			      CS42L52_SPKB_VOL, 7, 0x1, 0xff, hl_tlv),
+			      CS42L52_SPKB_VOL, 0, 0x1, 0xff, hl_tlv),
 
 	SOC_DOUBLE_R_SX_TLV("Bypass Volume", CS42L52_PASSTHRUA_VOL,
 			      CS42L52_PASSTHRUB_VOL, 6, 0x18, 0x90, pga_tlv),
@@ -441,7 +443,7 @@ static const struct snd_kcontrol_new cs42l52_snd_controls[] = {
 
 	SOC_DOUBLE_R_SX_TLV("PCM Mixer Volume",
 			    CS42L52_PCMA_MIXER_VOL, CS42L52_PCMB_MIXER_VOL,
-				6, 0x7f, 0x19, hl_tlv),
+				0, 0x7f, 0x19, mix_tlv),
 	SOC_DOUBLE_R("PCM Mixer Switch",
 		     CS42L52_PCMA_MIXER_VOL, CS42L52_PCMB_MIXER_VOL, 7, 1, 1),
 

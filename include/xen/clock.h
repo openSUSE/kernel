@@ -3,6 +3,9 @@
 
 void setup_runstate_area(unsigned int cpu);
 
+extern struct pvclock_vsyscall_time_info *pvclock_vsyscall_time;
+void setup_vsyscall_time_area(unsigned int cpu);
+
 unsigned long long xen_local_clock(void);
 void xen_check_wallclock_update(void);
 

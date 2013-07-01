@@ -1018,62 +1018,6 @@ ENTRY(retint_kernel)
 	CFI_ENDPROC
 END(retint_check)
 
-#ifndef CONFIG_XEN
-/*
- * APIC interrupts.
- */
-.macro apicinterrupt num sym do_sym
-ENTRY(\sym)
-	ASM_CLAC
-	INTR_FRAME
-	pushq_cfi $~(\num)
-	interrupt \do_sym
-	jmp error_entry
-	CFI_ENDPROC
-END(\sym)
-.endm
-
-#ifdef CONFIG_SMP
-apicinterrupt IRQ_MOVE_CLEANUP_VECTOR \
-	irq_move_cleanup_interrupt smp_irq_move_cleanup_interrupt
-apicinterrupt REBOOT_VECTOR \
-	reboot_interrupt smp_reboot_interrupt
-#endif
-
-#ifdef CONFIG_X86_UV
-apicinterrupt UV_BAU_MESSAGE \
-	uv_bau_message_intr1 uv_bau_message_interrupt
-#endif
-apicinterrupt LOCAL_TIMER_VECTOR \
-	apic_timer_interrupt smp_apic_timer_interrupt
-apicinterrupt X86_PLATFORM_IPI_VECTOR \
-	x86_platform_ipi smp_x86_platform_ipi
-
-apicinterrupt THRESHOLD_APIC_VECTOR \
-	threshold_interrupt smp_threshold_interrupt
-apicinterrupt THERMAL_APIC_VECTOR \
-	thermal_interrupt smp_thermal_interrupt
-
-#ifdef CONFIG_SMP
-apicinterrupt CALL_FUNCTION_SINGLE_VECTOR \
-	call_function_single_interrupt smp_call_function_single_interrupt
-apicinterrupt CALL_FUNCTION_VECTOR \
-	call_function_interrupt smp_call_function_interrupt
-apicinterrupt RESCHEDULE_VECTOR \
-	reschedule_interrupt smp_reschedule_interrupt
-#endif
-
-apicinterrupt ERROR_APIC_VECTOR \
-	error_interrupt smp_error_interrupt
-apicinterrupt SPURIOUS_APIC_VECTOR \
-	spurious_interrupt smp_spurious_interrupt
-
-#ifdef CONFIG_IRQ_WORK
-apicinterrupt IRQ_WORK_VECTOR \
-	irq_work_interrupt smp_irq_work_interrupt
-#endif
-#endif /* !CONFIG_XEN */
-
 /*
  * Exception entry points.
  */

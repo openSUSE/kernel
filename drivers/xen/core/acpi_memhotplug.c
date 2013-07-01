@@ -183,8 +183,3 @@ static int xen_hotadd_mem_init(void)
 
 	return 0;
 }
-
-static void xen_hotadd_mem_exit(void)
-{
-	flush_scheduled_work();
-}

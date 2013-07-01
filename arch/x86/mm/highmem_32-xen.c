@@ -192,5 +192,4 @@ void __init set_highmem_pages_init(void)
 			init_page_count(pfn_to_page(zone_start_pfn));
 		}
 	}
-	totalram_pages += totalhigh_pages;
 }

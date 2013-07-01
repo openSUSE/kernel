@@ -414,8 +414,7 @@ static int chk_ucode_version(unsigned int cpu, const struct cpu_info *c)
 	 * fixed for stepping D0 (6EC).
 	 */
 	if (c->x86_model == 0xe && c->x86_mask < 0xc && c->microcode < 0x39) {
-		pr_err("Errata AE18 not fixed, update BIOS or "
-		       "microcode of the CPU!\n");
+		pr_err("Errata AE18 not fixed, update BIOS or microcode of the CPU!\n");
 		return -ENODEV;
 	}
 	return 0;

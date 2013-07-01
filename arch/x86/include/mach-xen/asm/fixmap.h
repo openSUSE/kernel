@@ -18,13 +18,11 @@
 #include <linux/kernel.h>
 #include <asm/acpi.h>
 #include <asm/page.h>
-#ifdef CONFIG_PARAVIRT_CLOCK
-#include <asm/pvclock.h>
-#endif
 #ifdef CONFIG_X86_32
 #include <linux/threads.h>
 #include <asm/kmap_types.h>
 #else
+#include <asm/pvclock.h>
 #include <asm/vsyscall.h>
 #endif
 
@@ -112,11 +110,8 @@ enum fixed_addresses {
 	FIX_LI_PCIA,	/* Lithium PCI Bridge A */
 	FIX_LI_PCIB,	/* Lithium PCI Bridge B */
 #endif
-#ifdef CONFIG_X86_F00F_BUG
-	FIX_F00F_IDT,	/* Virtual mapping for IDT */
-#endif
-#ifdef CONFIG_X86_CYCLONE_TIMER
-	FIX_CYCLONE_TIMER, /*cyclone timer register*/
+#ifndef CONFIG_X86_NO_IDT
+	FIX_RO_IDT,	/* Virtual mapping for read-only IDT */
 #endif
 #ifdef CONFIG_X86_32
 	FIX_KMAP_BEGIN,	/* reserved pte's for temporary kernel mappings */

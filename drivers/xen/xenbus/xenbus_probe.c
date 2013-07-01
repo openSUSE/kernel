@@ -43,7 +43,6 @@
 #include <linux/fcntl.h>
 #include <linux/mm.h>
 #include <linux/sched.h>
-#include <linux/proc_fs.h>
 #include <linux/notifier.h>
 #include <linux/mutex.h>
 #include <linux/io.h>
@@ -55,13 +54,15 @@
 #if defined(CONFIG_XEN) || defined(MODULE)
 #include <asm/hypervisor.h>
 #include <xen/xenbus.h>
-#include <xen/xen_proc.h>
 #include <xen/evtchn.h>
 #include <xen/features.h>
 #include <xen/gnttab.h>
 
 #define PARAVIRT_EXPORT_SYMBOL(sym) __typeof__(sym) sym
 #else
+#if defined(CONFIG_XEN_COMPAT_XENFS) && !defined(MODULE)
+#include <linux/proc_fs.h>
+#endif
 #include <asm/xen/hypervisor.h>
 
 #include <xen/xen.h>
@@ -88,6 +89,11 @@ EXPORT_SYMBOL_GPL(xen_store_evtchn);
 
 struct xenstore_domain_interface *xen_store_interface;
 EXPORT_SYMBOL_GPL(xen_store_interface);
+
+#if !defined(CONFIG_XEN) && !defined(MODULE)
+enum xenstore_init xen_store_domain_type;
+EXPORT_SYMBOL_GPL(xen_store_domain_type);
+#endif
 
 static unsigned long xen_store_mfn;
 
@@ -1113,9 +1119,8 @@ device_initcall(xenbus_probe_initcall);
 
 #ifdef CONFIG_XEN_PRIVILEGED_GUEST
 #ifdef CONFIG_PROC_FS
-static struct file_operations xsd_kva_fops;
-static struct proc_dir_entry *xsd_kva_intf;
-static struct proc_dir_entry *xsd_port_intf;
+#include <linux/seq_file.h>
+#include <xen/xen_proc.h>
 
 static int xsd_kva_mmap(struct file *file, struct vm_area_struct *vma)
 {
@@ -1153,25 +1158,40 @@ static int xsd_kva_mmap(struct file *file, struct vm_area_struct *vma)
 	return 0;
 }
 
-static int xsd_kva_read(char *page, char **start, off_t off,
-			int count, int *eof, void *data)
+static int xsd_kva_show(struct seq_file *m, void *v)
 {
-	int len;
-
-	len  = sprintf(page, "0x%p", xen_store_interface);
-	*eof = 1;
-	return len;
+	return seq_printf(m, "0x%p", xen_store_interface);
 }
 
-static int xsd_port_read(char *page, char **start, off_t off,
-			 int count, int *eof, void *data)
+static int xsd_kva_open(struct inode *inode, struct file *file)
 {
-	int len;
-
-	len  = sprintf(page, "%d", xen_store_evtchn);
-	*eof = 1;
-	return len;
+	return single_open(file, xsd_kva_show, PDE_DATA(inode));
 }
+
+static const struct file_operations xsd_kva_fops = {
+	.open = xsd_kva_open,
+	.llseek = seq_lseek,
+	.read = seq_read,
+	.mmap = xsd_kva_mmap,
+	.release = single_release
+};
+
+static int xsd_port_show(struct seq_file *m, void *v)
+{
+	return seq_printf(m, "%d", xen_store_evtchn);
+}
+
+static int xsd_port_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, xsd_port_show, PDE_DATA(inode));
+}
+
+static const struct file_operations xsd_port_fops = {
+	.open = xsd_port_open,
+	.llseek = seq_lseek,
+	.read = seq_read,
+	.release = single_release
+};
 #endif
 
 #ifdef CONFIG_XEN_XENBUS_DEV
@@ -1263,12 +1283,6 @@ static int __init xenstored_local_init(void)
 	return err;
 }
 
-enum xenstore_init {
-	UNKNOWN,
-	PV,
-	HVM,
-	LOCAL,
-};
 #ifndef MODULE
 static int __init
 #else
@@ -1278,8 +1292,8 @@ xenbus_init(void)
 {
 	int err = 0;
 #if !defined(CONFIG_XEN) && !defined(MODULE)
-	enum xenstore_init usage = UNKNOWN;
 	uint64_t v = 0;
+	xen_store_domain_type = XS_UNKNOWN;
 #endif
 
 	DPRINTK("");
@@ -1305,17 +1319,10 @@ xenbus_init(void)
 
 #if defined(CONFIG_PROC_FS) && defined(CONFIG_XEN_PRIVILEGED_GUEST)
 		/* And finally publish the above info in /proc/xen */
-		xsd_kva_intf = create_xen_proc_entry("xsd_kva", 0600);
-		if (xsd_kva_intf) {
-			memcpy(&xsd_kva_fops, xsd_kva_intf->proc_fops,
-			       sizeof(xsd_kva_fops));
-			xsd_kva_fops.mmap = xsd_kva_mmap;
-			xsd_kva_intf->proc_fops = &xsd_kva_fops;
-			xsd_kva_intf->read_proc = xsd_kva_read;
-		}
-		xsd_port_intf = create_xen_proc_entry("xsd_port", 0400);
-		if (xsd_port_intf)
-			xsd_port_intf->read_proc = xsd_port_read;
+		create_xen_proc_entry("xsd_kva", S_IFREG|S_IRUSR|S_IWUSR,
+				      &xsd_kva_fops, NULL);
+		create_xen_proc_entry("xsd_port", S_IFREG|S_IRUSR,
+				      &xsd_port_fops, NULL);
 #endif
 		xen_store_interface = mfn_to_virt(xen_store_mfn);
 	} else {
@@ -1351,29 +1358,29 @@ xenbus_init(void)
 	xenbus_ring_ops_init();
 
 	if (xen_pv_domain())
-		usage = PV;
+		xen_store_domain_type = XS_PV;
 	if (xen_hvm_domain())
-		usage = HVM;
+		xen_store_domain_type = XS_HVM;
 	if (xen_hvm_domain() && xen_initial_domain())
-		usage = LOCAL;
+		xen_store_domain_type = XS_LOCAL;
 	if (xen_pv_domain() && !xen_start_info->store_evtchn)
-		usage = LOCAL;
+		xen_store_domain_type = XS_LOCAL;
 	if (xen_pv_domain() && xen_start_info->store_evtchn)
 		atomic_set(&xenbus_xsd_state, XENBUS_XSD_FOREIGN_READY);
 
-	switch (usage) {
-	case LOCAL:
+	switch (xen_store_domain_type) {
+	case XS_LOCAL:
 		err = xenstored_local_init();
 		if (err)
 			goto out_error;
 		xen_store_interface = mfn_to_virt(xen_store_mfn);
 		break;
-	case PV:
+	case XS_PV:
 		xen_store_evtchn = xen_start_info->store_evtchn;
 		xen_store_mfn = xen_start_info->store_mfn;
 		xen_store_interface = mfn_to_virt(xen_store_mfn);
 		break;
-	case HVM:
+	case XS_HVM:
 		err = hvm_get_parameter(HVM_PARAM_STORE_EVTCHN, &v);
 		if (err)
 			goto out_error;

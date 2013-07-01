@@ -301,7 +301,6 @@ int netif_map(struct backend_info *be, grant_ref_t tx_ring_ref,
 		netif->dev->name, netif);
 	if (err < 0)
 		goto err_hypervisor;
-	BUG_ON(err < DYNIRQ_BASE || err >= DYNIRQ_BASE + NR_DYNIRQS);
 	netif->irq = err;
 	disable_irq(netif->irq);
 

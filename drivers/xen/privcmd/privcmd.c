@@ -8,6 +8,7 @@
 
 #include <linux/kernel.h>
 #include <linux/sched.h>
+#include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/errno.h>
@@ -23,9 +24,6 @@
 #include <xen/interface/xen.h>
 #include <xen/xen_proc.h>
 #include <xen/features.h>
-
-static struct proc_dir_entry *privcmd_intf;
-static struct proc_dir_entry *capabilities_intf;
 
 #ifndef CONFIG_XEN_PRIVILEGED_GUEST
 #define HAVE_ARCH_PRIVCMD_MMAP
@@ -435,35 +433,41 @@ static const struct file_operations privcmd_file_ops = {
 	.llseek = no_llseek,
 	.unlocked_ioctl = privcmd_ioctl,
 #ifdef CONFIG_XEN_PRIVILEGED_GUEST
-	.mmap = privcmd_mmap,
+	.mmap = privcmd_mmap
 #endif
 };
 
-static int capabilities_read(char *page, char **start, off_t off,
-			     int count, int *eof, void *data)
+static int capabilities_show(struct seq_file *m, void *v)
 {
 	int len = 0;
-	*page = 0;
 
 	if (is_initial_xendomain())
-		len = sprintf( page, "control_d\n" );
+		len = seq_printf(m, "control_d\n");
 
-	*eof = 1;
 	return len;
 }
+
+static int capabilities_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, capabilities_show, PDE_DATA(inode));
+}
+
+static const struct file_operations capabilities_fops = {
+	.open = capabilities_open,
+	.llseek = seq_lseek,
+	.read = seq_read,
+	.release = single_release
+};
 
 static int __init privcmd_init(void)
 {
 	if (!is_running_on_xen())
 		return -ENODEV;
 
-	privcmd_intf = create_xen_proc_entry("privcmd", 0400);
-	if (privcmd_intf != NULL)
-		privcmd_intf->proc_fops = &privcmd_file_ops;
-
-	capabilities_intf = create_xen_proc_entry("capabilities", 0400 );
-	if (capabilities_intf != NULL)
-		capabilities_intf->read_proc = capabilities_read;
+	create_xen_proc_entry("privcmd", S_IFREG|S_IRUSR,
+			      &privcmd_file_ops, NULL);
+	create_xen_proc_entry("capabilities", S_IFREG|S_IRUGO,
+			      &capabilities_fops, NULL);
 
 	return 0;
 }

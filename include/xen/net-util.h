@@ -11,7 +11,6 @@ static inline int skb_checksum_setup(struct sk_buff *skb,
 				     unsigned long *fixup_counter)
 {
  	struct iphdr *iph = (void *)skb->data;
-	unsigned char *th;
 	__be16 *csum = NULL;
 	int err = -EPROTO;
 
@@ -33,32 +32,27 @@ static inline int skb_checksum_setup(struct sk_buff *skb,
 	if (skb->protocol != htons(ETH_P_IP))
 		goto out;
 
-	th = skb->data + 4 * iph->ihl;
-	if (th >= skb_tail_pointer(skb))
-		goto out;
-
-	skb->csum_start = th - skb->head;
 	switch (iph->protocol) {
 	case IPPROTO_TCP:
-		skb->csum_offset = offsetof(struct tcphdr, check);
+		if (!skb_partial_csum_set(skb, 4 * iph->ihl,
+					  offsetof(struct tcphdr, check)))
+			goto out;
 		if (csum)
-			csum = &((struct tcphdr *)th)->check;
+			csum = &tcp_hdr(skb)->check;
 		break;
 	case IPPROTO_UDP:
-		skb->csum_offset = offsetof(struct udphdr, check);
+		if (!skb_partial_csum_set(skb, 4 * iph->ihl,
+					  offsetof(struct udphdr, check)))
+			goto out;
 		if (csum)
-			csum = &((struct udphdr *)th)->check;
+			csum = &udp_hdr(skb)->check;
 		break;
 	default:
-		if (net_ratelimit())
-			pr_err("Attempting to checksum a non-"
-			       "TCP/UDP packet, dropping a protocol"
-			       " %d packet\n", iph->protocol);
+		net_err_ratelimited("Attempting to checksum a non-TCP/UDP packet,"
+				    " dropping a protocol %d packet\n",
+				    iph->protocol);
 		goto out;
 	}
-
-	if ((th + skb->csum_offset + sizeof(*csum)) > skb_tail_pointer(skb))
-		goto out;
 
 	if (csum) {
 		*csum = ~csum_tcpudp_magic(iph->saddr, iph->daddr,

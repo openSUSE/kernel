@@ -37,9 +37,9 @@ static void show_cpuinfo_misc(struct seq_file *m, struct cpuinfo_x86 *c)
 		   "cpuid level\t: %d\n"
 		   "wp\t\t: %s\n",
 #ifndef CONFIG_XEN
-		   c->fdiv_bug ? "yes" : "no",
-		   c->f00f_bug ? "yes" : "no",
-		   c->coma_bug ? "yes" : "no",
+		   static_cpu_has_bug(X86_BUG_FDIV) ? "yes" : "no",
+		   static_cpu_has_bug(X86_BUG_F00F) ? "yes" : "no",
+		   static_cpu_has_bug(X86_BUG_COMA) ? "yes" : "no",
 #endif
 		   c->hard_math ? "yes" : "no",
 		   c->hard_math ? "yes" : "no",

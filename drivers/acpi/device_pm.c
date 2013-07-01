@@ -83,27 +83,36 @@ int acpi_device_get_power(struct acpi_device *device, int *state)
 	}
 
 	/*
-	 * Get the device's power state either directly (via _PSC) or
-	 * indirectly (via power resources).
+	 * Get the device's power state from power resources settings and _PSC,
+	 * if available.
 	 */
-	if (device->power.flags.explicit_get) {
-		unsigned long long psc;
-		acpi_status status = acpi_evaluate_integer(device->handle,
-							   "_PSC", NULL, &psc);
-		if (ACPI_FAILURE(status))
-			return -ENODEV;
-
-		result = psc;
-	}
-	/* The test below covers ACPI_STATE_UNKNOWN too. */
-	if (result <= ACPI_STATE_D2) {
-	  ; /* Do nothing. */
-	} else if (device->power.flags.power_resources) {
+	if (device->power.flags.power_resources) {
 		int error = acpi_power_get_inferred_state(device, &result);
 		if (error)
 			return error;
-	} else if (result == ACPI_STATE_D3_HOT) {
-		result = ACPI_STATE_D3;
+	}
+	if (device->power.flags.explicit_get) {
+		acpi_handle handle = device->handle;
+		unsigned long long psc;
+		acpi_status status;
+
+		status = acpi_evaluate_integer(handle, "_PSC", NULL, &psc);
+		if (ACPI_FAILURE(status))
+			return -ENODEV;
+
+		/*
+		 * The power resources settings may indicate a power state
+		 * shallower than the actual power state of the device.
+		 *
+		 * Moreover, on systems predating ACPI 4.0, if the device
+		 * doesn't depend on any power resources and _PSC returns 3,
+		 * that means "power off".  We need to maintain compatibility
+		 * with those systems.
+		 */
+		if (psc > result && psc < ACPI_STATE_D3_COLD)
+			result = psc;
+		else if (result == ACPI_STATE_UNKNOWN)
+			result = psc > ACPI_STATE_D2 ? ACPI_STATE_D3_COLD : psc;
 	}
 
 	/*
@@ -279,6 +288,26 @@ int acpi_bus_init_power(struct acpi_device *device)
 	}
 	device->power.state = state;
 	return 0;
+}
+
+/**
+ * acpi_device_fix_up_power - Force device with missing _PSC into D0.
+ * @device: Device object whose power state is to be fixed up.
+ *
+ * Devices without power resources and _PSC, but having _PS0 and _PS3 defined,
+ * are assumed to be put into D0 by the BIOS.  However, in some cases that may
+ * not be the case and this function should be used then.
+ */
+int acpi_device_fix_up_power(struct acpi_device *device)
+{
+	int ret = 0;
+
+	if (!device->power.flags.power_resources
+	    && !device->power.flags.explicit_get
+	    && device->power.state == ACPI_STATE_D0)
+		ret = acpi_dev_pm_explicit_set(device, ACPI_STATE_D0);
+
+	return ret;
 }
 
 int acpi_bus_update_power(acpi_handle handle, int *state_p)

@@ -54,7 +54,7 @@ blktap_device_open(struct block_device *bd, fmode_t mode)
 	return 0;
 }
 
-static int
+static void
 blktap_device_release(struct gendisk *disk, fmode_t mode)
 {
 	struct blktap_device *dev = disk->private_data;
@@ -63,8 +63,6 @@ blktap_device_release(struct gendisk *disk, fmode_t mode)
 	dev->users--;
 	if (test_bit(BLKTAP_SHUTDOWN_REQUESTED, &tap->dev_inuse))
 		blktap_device_destroy(tap);
-
-	return 0;
 }
 
 static int

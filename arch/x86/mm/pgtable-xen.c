@@ -962,6 +962,7 @@ void xen_set_fixmap(enum fixed_addresses idx, phys_addr_t phys, pgprot_t flags)
 
 	case VSYSCALL_LAST_PAGE ... VSYSCALL_FIRST_PAGE:
 	case VVAR_PAGE:
+	case PVCLOCK_FIXMAP_BEGIN ... PVCLOCK_FIXMAP_END:
 		pte = pfn_pte(phys >> PAGE_SHIFT, flags);
 		set_pte_vaddr_pud(level3_user_pgt, address, pte);
 		break;

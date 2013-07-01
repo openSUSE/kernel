@@ -81,7 +81,6 @@
 #include <asm/timer.h>
 #include <asm/i8259.h>
 #include <asm/sections.h>
-#include <asm/dmi.h>
 #include <asm/io_apic.h>
 #include <asm/ist.h>
 #include <asm/setup_arch.h>
@@ -1177,8 +1176,18 @@ void __init setup_arch(char **cmdline_p)
 	if (efi_enabled(EFI_BOOT))
 		efi_init();
 
-	if (is_initial_xendomain())
+	if (is_initial_xendomain()) {
 		dmi_scan_machine();
+		dmi_set_dump_stack_arch_desc();
+	} else {
+		int ver = HYPERVISOR_xen_version(XENVER_version, NULL);
+		xen_extraversion_t extra;
+
+		if (HYPERVISOR_xen_version(XENVER_extraversion, extra))
+			*extra = 0;
+		dump_stack_set_arch_desc("Xen %d.%d%s PV guest",
+					 ver >> 16, ver & 0xff, extra);
+	}
 
 	/*
 	 * VMware detection requires dmi to be available, so this

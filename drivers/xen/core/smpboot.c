@@ -14,6 +14,7 @@
 #include <linux/notifier.h>
 #include <linux/cpu.h>
 #include <linux/percpu.h>
+#include <linux/tick.h>
 #include <asm/desc.h>
 #include <asm/pgalloc.h>
 #include <xen/clock.h>
@@ -155,7 +156,7 @@ static void __cpuinit cpu_bringup(void)
 static void __cpuinit cpu_bringup_and_idle(void)
 {
 	cpu_bringup();
-	cpu_idle();
+	cpu_startup_entry(CPUHP_ONLINE);
 }
 
 static void __cpuinit cpu_initialize_context(unsigned int cpu,
@@ -337,6 +338,8 @@ int __cpuinit __cpu_up(unsigned int cpu, struct task_struct *idle)
 	if (rc)
 		return rc;
 
+	setup_vsyscall_time_area(cpu);
+
 	rc = xen_smp_intr_init(cpu);
 	if (rc)
 		return rc;
@@ -384,6 +387,7 @@ void __ref play_dead(void)
 	preempt_enable_no_resched();
 	VOID(HYPERVISOR_vcpu_op(VCPUOP_down, smp_processor_id(), NULL));
 	cpu_bringup();
+	tick_nohz_idle_enter();
 #else
 	BUG();
 #endif

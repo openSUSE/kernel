@@ -100,6 +100,9 @@ static void post_suspend(int suspend_cancelled, int fast_suspend)
 			    && HYPERVISOR_vcpu_op(VCPUOP_up, i, NULL))
 				BUG();
 #endif
+
+			if (cpu_online(i))
+				setup_vsyscall_time_area(i);
 		}
 	}
 

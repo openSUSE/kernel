@@ -1,5 +1,5 @@
 /*
- * cpufreq_snb.c: Native P state management for Intel processors
+ * intel_pstate.c: Native P state management for Intel processors
  *
  * (C) Copyright 2012 Intel Corporation
  * Author: Dirk Brandewie <dirk.j.brandewie@intel.com>
@@ -81,10 +81,8 @@ struct cpudata {
 	struct pstate_adjust_policy *pstate_policy;
 	struct pstate_data pstate;
 	struct _pid pid;
-	struct _pid idle_pid;
 
 	int min_pstate_count;
-	int idle_mode;
 
 	u64	prev_aperf;
 	u64	prev_mperf;
@@ -195,19 +193,6 @@ static inline void intel_pstate_busy_pid_reset(struct cpudata *cpu)
 	pid_reset(&cpu->pid,
 		cpu->pstate_policy->setpoint,
 		100,
-		cpu->pstate_policy->deadband,
-		0);
-}
-
-static inline void intel_pstate_idle_pid_reset(struct cpudata *cpu)
-{
-	pid_p_gain_set(&cpu->idle_pid, cpu->pstate_policy->p_gain_pct);
-	pid_d_gain_set(&cpu->idle_pid, cpu->pstate_policy->d_gain_pct);
-	pid_i_gain_set(&cpu->idle_pid, cpu->pstate_policy->i_gain_pct);
-
-	pid_reset(&cpu->idle_pid,
-		75,
-		50,
 		cpu->pstate_policy->deadband,
 		0);
 }
@@ -406,9 +391,8 @@ static void intel_pstate_set_pstate(struct cpudata *cpu, int pstate)
 	if (pstate == cpu->pstate.current_pstate)
 		return;
 
-#ifndef MODULE
 	trace_cpu_frequency(pstate * 100000, cpu->cpu);
-#endif
+
 	cpu->pstate.current_pstate = pstate;
 	wrmsrl(MSR_IA32_PERF_CTL, pstate << 8);
 
@@ -481,16 +465,6 @@ static inline void intel_pstate_set_sample_time(struct cpudata *cpu)
 	mod_timer_pinned(&cpu->timer, jiffies + delay);
 }
 
-static inline void intel_pstate_idle_mode(struct cpudata *cpu)
-{
-	cpu->idle_mode = 1;
-}
-
-static inline void intel_pstate_normal_mode(struct cpudata *cpu)
-{
-	cpu->idle_mode = 0;
-}
-
 static inline int intel_pstate_get_scaled_busy(struct cpudata *cpu)
 {
 	int32_t busy_scaled;
@@ -523,29 +497,6 @@ static inline void intel_pstate_adjust_busy_pstate(struct cpudata *cpu)
 		intel_pstate_pstate_decrease(cpu, steps);
 }
 
-static inline void intel_pstate_adjust_idle_pstate(struct cpudata *cpu)
-{
-	int busy_scaled;
-	struct _pid *pid;
-	int ctl = 0;
-	int steps;
-
-	pid = &cpu->idle_pid;
-
-	busy_scaled = intel_pstate_get_scaled_busy(cpu);
-
-	ctl = pid_calc(pid, 100 - busy_scaled);
-
-	steps = abs(ctl);
-	if (ctl < 0)
-		intel_pstate_pstate_decrease(cpu, steps);
-	else
-		intel_pstate_pstate_increase(cpu, steps);
-
-	if (cpu->pstate.current_pstate == cpu->pstate.min_pstate)
-		intel_pstate_normal_mode(cpu);
-}
-
 static void intel_pstate_timer_func(unsigned long __data)
 {
 	struct cpudata *cpu = (struct cpudata *) __data;
@@ -570,6 +521,7 @@ static void intel_pstate_timer_func(unsigned long __data)
 static const struct x86_cpu_id intel_pstate_cpu_ids[] = {
 	ICPU(0x2a, default_policy),
 	ICPU(0x2d, default_policy),
+	ICPU(0x3a, default_policy),
 	{}
 };
 MODULE_DEVICE_TABLE(x86cpu, intel_pstate_cpu_ids);
@@ -601,7 +553,6 @@ static int intel_pstate_init_cpu(unsigned int cpunum)
 		(unsigned long)cpu;
 	cpu->timer.expires = jiffies + HZ/100;
 	intel_pstate_busy_pid_reset(cpu);
-	intel_pstate_idle_pid_reset(cpu);
 	intel_pstate_sample(cpu);
 	intel_pstate_set_pstate(cpu, cpu->pstate.max_pstate);
 
@@ -627,15 +578,20 @@ static unsigned int intel_pstate_get(unsigned int cpu_num)
 static int intel_pstate_set_policy(struct cpufreq_policy *policy)
 {
 	struct cpudata *cpu;
-	int min, max;
 
 	cpu = all_cpu_data[policy->cpu];
 
 	if (!policy->cpuinfo.max_freq)
 		return -ENODEV;
 
-	intel_pstate_get_min_max(cpu, &min, &max);
-
+	if (policy->policy == CPUFREQ_POLICY_PERFORMANCE) {
+		limits.min_perf_pct = 100;
+		limits.min_perf = int_tofp(1);
+		limits.max_perf_pct = 100;
+		limits.max_perf = int_tofp(1);
+		limits.no_turbo = 0;
+		return 0;
+	}
 	limits.min_perf_pct = (policy->min * 100) / policy->cpuinfo.max_freq;
 	limits.min_perf_pct = clamp_t(int, limits.min_perf_pct, 0 , 100);
 	limits.min_perf = div_fp(int_tofp(limits.min_perf_pct), int_tofp(100));
@@ -644,14 +600,6 @@ static int intel_pstate_set_policy(struct cpufreq_policy *policy)
 	limits.max_policy_pct = clamp_t(int, limits.max_policy_pct, 0 , 100);
 	limits.max_perf_pct = min(limits.max_policy_pct, limits.max_sysfs_pct);
 	limits.max_perf = div_fp(int_tofp(limits.max_perf_pct), int_tofp(100));
-
-	if (policy->policy == CPUFREQ_POLICY_PERFORMANCE) {
-		limits.min_perf_pct = 100;
-		limits.min_perf = int_tofp(1);
-		limits.max_perf_pct = 100;
-		limits.max_perf = int_tofp(1);
-		limits.no_turbo = 0;
-	}
 
 	return 0;
 }
@@ -762,10 +710,9 @@ static int __init intel_pstate_init(void)
 
 	pr_info("Intel P-state driver initializing.\n");
 
-	all_cpu_data = vmalloc(sizeof(void *) * num_possible_cpus());
+	all_cpu_data = vzalloc(sizeof(void *) * num_possible_cpus());
 	if (!all_cpu_data)
 		return -ENOMEM;
-	memset(all_cpu_data, 0, sizeof(void *) * num_possible_cpus());
 
 	rc = cpufreq_register_driver(&intel_pstate_driver);
 	if (rc)

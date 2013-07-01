@@ -578,6 +578,7 @@ data_sock_getname(struct socket *sock, struct sockaddr *addr,
 	lock_sock(sk);
 
 	*addr_len = sizeof(*maddr);
+	maddr->family = AF_ISDN;
 	maddr->dev = _pms(sk)->dev->id;
 	maddr->channel = _pms(sk)->ch.nr;
 	maddr->sapi = _pms(sk)->ch.addr & 0xff;
@@ -611,9 +612,10 @@ data_sock_create(struct net *net, struct socket *sock, int protocol)
 {
 	struct sock *sk;
 
-	if(!capable(CAP_SYS_ADMIN) && (misdn_permitted_gid != current_gid())
-		&& (!in_group_p(misdn_permitted_gid)))
-			return -EPERM;
+	if (!capable(CAP_SYS_ADMIN) &&
+			!gid_eq(misdn_permitted_gid, current_gid()) &&
+			!in_group_p(misdn_permitted_gid))
+		return -EPERM;
 
 	if (sock->type != SOCK_DGRAM)
 		return -ESOCKTNOSUPPORT;
@@ -697,10 +699,10 @@ base_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 	case IMSETDEVNAME:
 	{
 		struct mISDN_devrename dn;
-		if(!capable(CAP_SYS_ADMIN)
-			&& (misdn_permitted_gid != current_gid())
-			&& (!in_group_p(misdn_permitted_gid)))
-				return -EPERM;
+		if (!capable(CAP_SYS_ADMIN) &&
+				!gid_eq(misdn_permitted_gid, current_gid()) &&
+				!in_group_p(misdn_permitted_gid))
+			return -EPERM;
 		if (copy_from_user(&dn, (void __user *)arg,
 				   sizeof(dn))) {
 			err = -EFAULT;

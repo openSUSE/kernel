@@ -26,9 +26,7 @@
 
 #define gtod (&VVAR(vsyscall_gtod_data))
 
-#ifdef CONFIG_XEN
-#define VCLOCK_NONE 0
-#else
+#ifndef CONFIG_XEN
 notrace static cycle_t vread_tsc(void)
 {
 	cycle_t ret;
@@ -155,21 +153,29 @@ notrace static long vdso_fallback_gtod(struct timeval *tv, struct timezone *tz)
 }
 
 
-#ifndef CONFIG_XEN
 notrace static inline u64 vgetsns(int *mode)
 {
 	long v;
 	cycles_t cycles;
-	if (gtod->clock.vclock_mode == VCLOCK_TSC)
+
+	switch (*mode) {
+#ifndef CONFIG_XEN
+	case VCLOCK_TSC:
 		cycles = vread_tsc();
-	else if (gtod->clock.vclock_mode == VCLOCK_HPET)
+		break;
+	case VCLOCK_HPET:
 		cycles = vread_hpet();
-#ifdef CONFIG_PARAVIRT_CLOCK
-	else if (gtod->clock.vclock_mode == VCLOCK_PVCLOCK)
-		cycles = vread_pvclock(mode);
+		break;
 #endif
-	else
+#ifdef CONFIG_PARAVIRT_CLOCK
+	case VCLOCK_PVCLOCK:
+		cycles = vread_pvclock(mode);
+		break;
+#endif
+	default:
+		*mode = VCLOCK_NONE;
 		return 0;
+	}
 	v = (cycles - gtod->clock.cycle_last) & gtod->clock.mask;
 	return v * gtod->clock.mult;
 }
@@ -214,7 +220,6 @@ notrace static int do_monotonic(struct timespec *ts)
 
 	return mode;
 }
-#endif /* CONFIG_XEN */
 
 notrace static int do_realtime_coarse(struct timespec *ts)
 {
@@ -244,14 +249,12 @@ notrace int __vdso_clock_gettime(clockid_t clock, struct timespec *ts)
 	int ret = VCLOCK_NONE;
 
 	switch (clock) {
-#ifndef CONFIG_XEN
 	case CLOCK_REALTIME:
 		ret = do_realtime(ts);
 		break;
 	case CLOCK_MONOTONIC:
 		ret = do_monotonic(ts);
 		break;
-#endif
 	case CLOCK_REALTIME_COARSE:
 		return do_realtime_coarse(ts);
 	case CLOCK_MONOTONIC_COARSE:

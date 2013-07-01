@@ -19,6 +19,7 @@
 #include <linux/posix-timers.h>
 #include <linux/cpufreq.h>
 #include <linux/clocksource.h>
+#include <linux/efi.h>
 
 #include <asm/vsyscall.h>
 #include <asm/delay.h>
@@ -30,6 +31,10 @@
 #include <xen/interface/vcpu.h>
 
 #ifdef CONFIG_X86_64
+#include <asm/pvclock.h>
+#include <asm/vgtod.h>
+
+struct pvclock_vsyscall_time_info *__read_mostly pvclock_vsyscall_time;
 DEFINE_VVAR(volatile unsigned long, jiffies) = INITIAL_JIFFIES;
 #endif
 
@@ -330,6 +335,9 @@ int xen_write_wallclock(unsigned long now)
 	mod_timer(&sync_xen_wallclock_timer, jiffies + 1);
 #endif
 
+	if (efi_enabled(EFI_RUNTIME_SERVICES))
+		return efi_set_rtc_mmss(now);
+
 	return mach_set_rtc_mmss(now);
 }
 
@@ -501,8 +509,42 @@ void setup_runstate_area(unsigned int cpu)
 	}
 }
 
+void setup_vsyscall_time_area(unsigned int cpu)
+{
+#ifdef CONFIG_X86_64
+	if (pvclock_vsyscall_time) {
+		struct vcpu_register_time_memory_area area = {
+			.addr.v = &pvclock_vsyscall_time[cpu].pvti
+		};
+
+		if (HYPERVISOR_vcpu_op(VCPUOP_register_vcpu_time_memory_area,
+				       cpu, &area)) {
+			clocksource_xen.archdata.vclock_mode = VCLOCK_NONE;
+			vsyscall_gtod_data.clock.vclock_mode = VCLOCK_NONE;
+		}
+	}
+#endif
+}
+
 static void __init _late_time_init(void)
 {
+#ifdef CONFIG_X86_64
+	unsigned int size = ALIGN(PVTI_SIZE * NR_CPUS, PAGE_SIZE);
+	struct pvclock_vsyscall_time_info *array
+		= alloc_pages_exact(size, GFP_KERNEL);
+	struct vcpu_register_time_memory_area area = {
+		.addr.v = &array->pvti
+	};
+
+	if (array && pvclock_init_vsyscall(array, size) == 0
+	    && HYPERVISOR_vcpu_op(VCPUOP_register_vcpu_time_memory_area,
+				  0, &area) == 0) {
+		pvclock_vsyscall_time = array;
+		clocksource_xen.archdata.vclock_mode = VCLOCK_PVCLOCK;
+		vsyscall_gtod_data.clock.vclock_mode = VCLOCK_PVCLOCK;
+	} else if (area.addr.v)
+		free_pages_exact(array, size);
+#endif
 	update_wallclock(false);
 	xen_clockevents_init();
 }

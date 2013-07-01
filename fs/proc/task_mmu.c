@@ -11,6 +11,7 @@
 #include <linux/rmap.h>
 #include <linux/swap.h>
 #include <linux/swapops.h>
+#include <linux/magic.h>
 
 #include <asm/elf.h>
 #include <asm/uaccess.h>

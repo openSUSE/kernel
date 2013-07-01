@@ -779,7 +779,6 @@ int vc_allocate(unsigned int currcons)	/* return 0 on success */
 		con_set_default_unimap(vc);
 	    vc->vc_screenbuf = kmalloc(vc->vc_screenbuf_size, GFP_KERNEL);
 	    if (!vc->vc_screenbuf) {
-		tty_port_destroy(&vc->port);
 		kfree(vc);
 		vc_cons[currcons].d = NULL;
 		return -ENOMEM;
@@ -986,26 +985,25 @@ static int vt_resize(struct tty_struct *tty, struct winsize *ws)
 	return ret;
 }
 
-void vc_deallocate(unsigned int currcons)
+struct vc_data *vc_deallocate(unsigned int currcons)
 {
+	struct vc_data *vc = NULL;
+
 	WARN_CONSOLE_UNLOCKED();
 
 	if (vc_cons_allocated(currcons)) {
-		struct vc_data *vc = vc_cons[currcons].d;
-		struct vt_notifier_param param = { .vc = vc };
+		struct vt_notifier_param param;
 
+		param.vc = vc = vc_cons[currcons].d;
 		atomic_notifier_call_chain(&vt_notifier_list, VT_DEALLOCATE, &param);
 		vcs_remove_sysfs(currcons);
 		vc->vc_sw->con_deinit(vc);
 		put_pid(vc->vt_pid);
 		module_put(vc->vc_sw->owner);
 		kfree(vc->vc_screenbuf);
-		if (currcons >= MIN_NR_CONSOLES) {
-			tty_port_destroy(&vc->port);
-			kfree(vc);
-		}
 		vc_cons[currcons].d = NULL;
 	}
+	return vc;
 }
 
 /*
@@ -4246,35 +4244,6 @@ void vcs_scr_updated(struct vc_data *vc)
 {
 	notify_update(vc);
 }
-
-#ifdef CONFIG_BOOTSPLASH
-void con_remap_def_color(struct vc_data *vc, int new_color)
-{
-	unsigned short *sbuf = screenpos(vc, 0, 1);
-	unsigned c, len = vc->vc_screenbuf_size >> 1;
-	unsigned int bits, old_color;
-
-	if (sbuf) {
-		old_color = vc->vc_def_color << 8;
-		new_color <<= 8;
-		while (len--) {
-			c = scr_readw(sbuf);
-			bits = (old_color ^ new_color) & 0xf000;
-			if (((c ^ old_color) & 0xf000) == 0)
-				scr_writew((c ^ bits), sbuf);
-			*sbuf ^= bits;
-			bits = (old_color ^ new_color) & 0x0f00;
-			if (((c ^ old_color) & 0x0f00) == 0)
-				scr_writew((c ^ bits), sbuf);
-			*sbuf ^= bits;
-			sbuf++;
-		}
-		new_color >>= 8;
-	}
-	vc->vc_def_color = vc->vc_color = new_color;
-	update_attr(vc);
-}
-#endif
 
 /*
  *	Visible symbols for modules

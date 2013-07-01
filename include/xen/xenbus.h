@@ -85,6 +85,9 @@ struct xenbus_device {
 	struct device dev;
 	enum xenbus_state state;
 	struct completion down;
+#if !defined(CONFIG_XEN) && !defined(HAVE_XEN_PLATFORM_COMPAT_H)
+	struct work_struct work;
+#endif
 };
 
 static inline struct xenbus_device *to_xenbus_device(struct device *dev)
