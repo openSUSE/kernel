@@ -549,7 +549,7 @@ struct address_space_operations
 -------------------------------
 
 This describes how the VFS can manipulate mapping of a file to page cache in
-your filesystem. As of kernel 2.6.22, the following members are defined:
+your filesystem. The following members are defined:
 
 struct address_space_operations {
 	int (*writepage)(struct page *page, struct writeback_control *wbc);
@@ -566,7 +566,7 @@ struct address_space_operations {
 				loff_t pos, unsigned len, unsigned copied,
 				struct page *page, void *fsdata);
 	sector_t (*bmap)(struct address_space *, sector_t);
-	int (*invalidatepage) (struct page *, unsigned long);
+	void (*invalidatepage) (struct page *, unsigned int, unsigned int);
 	int (*releasepage) (struct page *, int);
 	void (*freepage)(struct page *);
 	ssize_t (*direct_IO)(int, struct kiocb *, const struct iovec *iov,
@@ -685,14 +685,14 @@ struct address_space_operations {
   invalidatepage: If a page has PagePrivate set, then invalidatepage
         will be called when part or all of the page is to be removed
 	from the address space.  This generally corresponds to either a
-	truncation or a complete invalidation of the address space
-	(in the latter case 'offset' will always be 0).
-	Any private data associated with the page should be updated
-	to reflect this truncation.  If offset is 0, then
-	the private data should be released, because the page
-	must be able to be completely discarded.  This may be done by
-        calling the ->releasepage function, but in this case the
-        release MUST succeed.
+	truncation, punch hole  or a complete invalidation of the address
+	space (in the latter case 'offset' will always be 0 and 'length'
+	will be PAGE_CACHE_SIZE). Any private data associated with the page
+	should be updated to reflect this truncation.  If offset is 0 and
+	length is PAGE_CACHE_SIZE, then the private data should be released,
+	because the page must be able to be completely discarded.  This may
+	be done by calling the ->releasepage function, but in this case the
+	release MUST succeed.
 
   releasepage: releasepage is called on PagePrivate pages to indicate
         that the page should be freed if possible.  ->releasepage
@@ -777,7 +777,7 @@ struct file_operations {
 	ssize_t (*write) (struct file *, const char __user *, size_t, loff_t *);
 	ssize_t (*aio_read) (struct kiocb *, const struct iovec *, unsigned long, loff_t);
 	ssize_t (*aio_write) (struct kiocb *, const struct iovec *, unsigned long, loff_t);
-	int (*readdir) (struct file *, void *, filldir_t);
+	int (*iterate) (struct file *, struct dir_context *);
 	unsigned int (*poll) (struct file *, struct poll_table_struct *);
 	long (*unlocked_ioctl) (struct file *, unsigned int, unsigned long);
 	long (*compat_ioctl) (struct file *, unsigned int, unsigned long);
@@ -815,7 +815,7 @@ otherwise noted.
 
   aio_write: called by io_submit(2) and other asynchronous I/O operations
 
-  readdir: called when the VFS needs to read the directory contents
+  iterate: called when the VFS needs to read the directory contents
 
   poll: called by the VFS when a process wants to check if there is
 	activity on this file and (optionally) go to sleep until there
