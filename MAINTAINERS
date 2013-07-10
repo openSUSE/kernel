@@ -180,6 +180,11 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/ericvh/v9fs.git
 S:	Maintained
 F:	Documentation/filesystems/9p.txt
 F:	fs/9p/
+F:	net/9p/
+F:	include/net/9p/
+F:	include/uapi/linux/virtio_9p.h
+F:	include/trace/events/9p.h
+
 
 A8293 MEDIA DRIVER
 M:	Antti Palosaari <crope@iki.fi>
@@ -2327,6 +2332,11 @@ M:	Jaya Kumar <jayakumar.alsa@gmail.com>
 S:	Maintained
 F:	sound/pci/cs5535audio/
 
+CW1200 WLAN driver
+M:     Solomon Peachy <pizza@shaftnet.org>
+S:     Maintained
+F:     drivers/net/wireless/cw1200/
+
 CX18 VIDEO4LINUX DRIVER
 M:	Andy Walls <awalls@md.metrocast.net>
 L:	ivtv-devel@ivtvdriver.org (moderated for non-subscribers)
@@ -2725,12 +2735,14 @@ F:	include/drm/exynos*
 F:	include/uapi/drm/exynos*
 
 DRM DRIVERS FOR NVIDIA TEGRA
-M:	Thierry Reding <thierry.reding@avionic-design.de>
+M:	Thierry Reding <thierry.reding@gmail.com>
+M:	Terje Bergström <tbergstrom@nvidia.com>
 L:	dri-devel@lists.freedesktop.org
 L:	linux-tegra@vger.kernel.org
-T:	git git://gitorious.org/thierryreding/linux.git
+T:	git git://anongit.freedesktop.org/tegra/linux.git
 S:	Maintained
-F:	drivers/gpu/drm/tegra/
+F:	drivers/gpu/host1x/
+F:	include/uapi/drm/tegra_drm.h
 F:	Documentation/devicetree/bindings/gpu/nvidia,tegra20-host1x.txt
 
 DSBR100 USB FM RADIO DRIVER
@@ -9263,6 +9275,13 @@ F:	Documentation/networking/z8530drv.txt
 F:	drivers/net/hamradio/*scc.c
 F:	drivers/net/hamradio/z8530.h
 
+ZBUD COMPRESSED PAGE ALLOCATOR
+M:	Seth Jennings <sjenning@linux.vnet.ibm.com>
+L:	linux-mm@kvack.org
+S:	Maintained
+F:	mm/zbud.c
+F:	include/linux/zbud.h
+
 ZD1211RW WIRELESS DRIVER
 M:	Daniel Drake <dsd@gentoo.org>
 M:	Ulrich Kunitz <kune@deine-taler.de>
@@ -9284,6 +9303,12 @@ ZS DECSTATION Z85C30 SERIAL DRIVER
 M:	"Maciej W. Rozycki" <macro@linux-mips.org>
 S:	Maintained
 F:	drivers/tty/serial/zs.*
+
+ZSWAP COMPRESSED SWAP CACHING
+M:	Seth Jennings <sjenning@linux.vnet.ibm.com>
+L:	linux-mm@kvack.org
+S:	Maintained
+F:	mm/zswap.c
 
 THE REST
 M:	Linus Torvalds <torvalds@linux-foundation.org>
