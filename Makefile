@@ -1,8 +1,8 @@
 VERSION = 3
-PATCHLEVEL = 10
+PATCHLEVEL = 11
 SUBLEVEL = 0
-EXTRAVERSION =-10131-g63345b4
-NAME = Unicycling Gorilla
+EXTRAVERSION = -rc1-8-g47188d3
+NAME = Linux for Workgroups
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
