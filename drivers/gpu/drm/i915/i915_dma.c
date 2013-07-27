@@ -1498,6 +1498,7 @@ int i915_driver_load(struct drm_device *dev, unsigned long flags)
 	spin_lock_init(&dev_priv->irq_lock);
 	spin_lock_init(&dev_priv->gpu_error.lock);
 	spin_lock_init(&dev_priv->rps.lock);
+	spin_lock_init(&dev_priv->gt_lock);
 	spin_lock_init(&dev_priv->backlight.lock);
 	mutex_init(&dev_priv->dpio_lock);
 	mutex_init(&dev_priv->rps.hw_lock);
@@ -1648,7 +1649,7 @@ int i915_driver_load(struct drm_device *dev, unsigned long flags)
 	if (INTEL_INFO(dev)->num_pipes) {
 		/* Must be done after probing outputs */
 		intel_opregion_init(dev);
-		acpi_video_register_with_quirks();
+		acpi_video_register();
 	}
 
 	if (IS_GEN5(dev))
