@@ -205,7 +205,7 @@ static inline int wbinvd_on_all_cpus(void)
 int wbinvd_on_all_cpus(void);
 #endif
 
-extern unsigned disabled_cpus __cpuinitdata;
+extern unsigned disabled_cpus;
 
 #include <asm/smp-processor-id.h>
 

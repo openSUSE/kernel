@@ -4,12 +4,11 @@ xen-balloon_$(CONFIG_PARAVIRT_XEN) := xen-balloon.o
 xen-evtchn-name-$(CONFIG_PARAVIRT_XEN) := xen-evtchn
 xen-privcmd_$(CONFIG_PARAVIRT_XEN) := xen-privcmd.o
 
-ifneq ($(CONFIG_ARM),y)
-obj-$(CONFIG_PARAVIRT_XEN)	+= manage.o
+ifeq ($(filter y, $(CONFIG_ARM) $(CONFIG_ARM64)),)
 obj-$(CONFIG_HOTPLUG_CPU)	+= $(xen-hotplug-y)
 endif
 obj-$(CONFIG_X86)		+= fallback.o
-obj-$(CONFIG_PARAVIRT_XEN)	+= grant-table.o features.o events.o balloon.o
+obj-$(CONFIG_PARAVIRT_XEN)	+= grant-table.o features.o events.o balloon.o manage.o
 
 xen-balloon_$(CONFIG_XEN)	:= balloon/
 xen-privcmd_$(CONFIG_XEN)	:= privcmd/

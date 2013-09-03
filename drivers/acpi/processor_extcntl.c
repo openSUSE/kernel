@@ -67,37 +67,6 @@ static int processor_notify_smm(void)
 	return 0;
 }
 
-int processor_notify_external(struct acpi_processor *pr, int event, int type)
-{
-	int ret = -EINVAL;
-
-	if (!processor_cntl_external())
-		return -EINVAL;
-
-	switch (event) {
-	case PROCESSOR_PM_INIT:
-	case PROCESSOR_PM_CHANGE:
-		if ((type >= PM_TYPE_MAX) ||
-			!processor_extcntl_ops->pm_ops[type])
-			break;
-
-		ret = processor_extcntl_ops->pm_ops[type](pr, event);
-		break;
-#ifdef CONFIG_ACPI_HOTPLUG_CPU
-	case PROCESSOR_HOTPLUG:
-		if (processor_extcntl_ops->hotplug)
-			ret = processor_extcntl_ops->hotplug(pr, type);
-		xen_pcpu_hotplug(type);
-		break;
-#endif
-	default:
-		pr_err("Unsupported processor event %d.\n", event);
-		break;
-	}
-
-	return ret;
-}
-
 /*
  * This is called from ACPI processor init, and targeted to hold
  * some tricky housekeeping jobs to satisfy external control model.

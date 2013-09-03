@@ -55,7 +55,7 @@
 
 BALLOON_SHOW(current_kb, "%lu\n", PAGES2KB(bs.current_pages));
 BALLOON_SHOW(min_kb, "%lu\n", PAGES2KB(balloon_minimum_target()));
-BALLOON_SHOW(max_kb, "%lu\n", PAGES2KB(num_physpages));
+BALLOON_SHOW(max_kb, "%lu\n", PAGES2KB(balloon_num_physpages()));
 BALLOON_SHOW(low_kb, "%lu\n", PAGES2KB(bs.balloon_low));
 BALLOON_SHOW(high_kb, "%lu\n", PAGES2KB(bs.balloon_high));
 BALLOON_SHOW(driver_kb, "%lu\n", PAGES2KB(bs.driver_pages));

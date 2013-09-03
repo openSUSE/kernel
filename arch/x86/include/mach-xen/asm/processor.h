@@ -91,10 +91,10 @@ struct cpuinfo_x86 {
 	char			wp_works_ok;	/* It doesn't on 386's */
 
 	/* Problems on some 486Dx4's and old 386's: */
-	char			hard_math;
 #ifndef CONFIG_XEN
 	char			rfu;
 	char			pad0;
+	char			pad1;
 #endif
 #else
 	/* Number of 4K pages in DTLB/ITLB combined(in pages): */
@@ -175,6 +175,7 @@ extern const struct seq_operations cpuinfo_op;
 #define cache_line_size()	(boot_cpu_data.x86_cache_alignment)
 
 extern void cpu_detect(struct cpuinfo_x86 *c);
+extern void fpu_detect(struct cpuinfo_x86 *c);
 
 extern void early_cpu_init(void);
 extern void identify_boot_cpu(void);
@@ -980,5 +981,5 @@ bool xen_set_default_idle(void);
 #endif
 
 void stop_this_cpu(void *dummy);
-
+void df_debug(struct pt_regs *regs, long error_code);
 #endif /* _ASM_X86_PROCESSOR_H */

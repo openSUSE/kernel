@@ -579,7 +579,7 @@ asmlinkage int arm_syscall(int no, struct pt_regs *regs)
 		return regs->ARM_r0;
 
 	case NR(set_tls):
-		thread->tp_value = regs->ARM_r0;
+		thread->tp_value[0] = regs->ARM_r0;
 		if (tls_emu)
 			return 0;
 		if (has_tls_reg) {
@@ -697,7 +697,7 @@ static int get_tp_trap(struct pt_regs *regs, unsigned int instr)
 	int reg = (instr >> 12) & 15;
 	if (reg == 15)
 		return 1;
-	regs->uregs[reg] = current_thread_info()->tp_value;
+	regs->uregs[reg] = current_thread_info()->tp_value[0];
 	regs->ARM_pc += 4;
 	return 0;
 }
@@ -821,6 +821,7 @@ static void __init kuser_init(void *vectors)
 
 void __init early_trap_init(void *vectors_base)
 {
+#ifndef CONFIG_CPU_V7M
 	unsigned long vectors = (unsigned long)vectors_base;
 	extern char __stubs_start[], __stubs_end[];
 	extern char __vectors_start[], __vectors_end[];
@@ -849,4 +850,11 @@ void __init early_trap_init(void *vectors_base)
 
 	flush_icache_range(vectors, vectors + PAGE_SIZE * 2);
 	modify_domain(DOMAIN_USER, DOMAIN_CLIENT);
+#else /* ifndef CONFIG_CPU_V7M */
+	/*
+	 * on V7-M there is no need to copy the vector table to a dedicated
+	 * memory area. The address is configurable and so a table in the kernel
+	 * image can be used.
+	 */
+#endif
 }

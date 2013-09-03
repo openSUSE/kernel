@@ -262,14 +262,14 @@ static void sync_xen_wallclock(unsigned long dummy);
 static DEFINE_TIMER(sync_xen_wallclock_timer, sync_xen_wallclock, 0, 0);
 static void sync_xen_wallclock(unsigned long dummy)
 {
-	struct timespec now, ignore;
+	struct timespec now;
 	struct xen_platform_op op;
 
 	BUG_ON(!is_initial_xendomain());
 	if (!ntp_synced() || independent_wallclock)
 		return;
 
-	get_xtime_and_monotonic_and_sleep_offset(&now, &ignore, &ignore);
+	now = current_kernel_time();
 	set_normalized_timespec(&now, now.tv_sec, now.tv_nsec);
 
 	op.cmd = XENPF_settime;
@@ -306,7 +306,7 @@ unsigned long long xen_local_clock(void)
 	return time;
 }
 
-unsigned long xen_read_wallclock(void)
+void xen_read_wallclock(struct timespec *now)
 {
 	const shared_info_t *s = HYPERVISOR_shared_info;
 	u32 version, sec, nsec;
@@ -321,12 +321,11 @@ unsigned long xen_read_wallclock(void)
 	} while ((s->wc_version & 1) | (version ^ s->wc_version));
 
 	delta = xen_local_clock() + (u64)sec * NSEC_PER_SEC + nsec;
-	do_div(delta, NSEC_PER_SEC);
-
-	return delta;
+	now->tv_nsec = do_div(delta, NSEC_PER_SEC);
+	now->tv_sec = delta;
 }
 
-int xen_write_wallclock(unsigned long now)
+int xen_write_wallclock(const struct timespec *now)
 {
 	if (!is_initial_xendomain() || independent_wallclock)
 		return 0;

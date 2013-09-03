@@ -44,6 +44,8 @@ void __init i386_start_kernel(void)
 	}
 
 	BUG_ON(pte_index(hypervisor_virt_start));
+
+	set_cpu_cap(&new_cpu_data, X86_FEATURE_FPU);
 #endif
 
 #ifndef CONFIG_XEN

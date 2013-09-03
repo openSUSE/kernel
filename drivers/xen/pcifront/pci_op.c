@@ -364,14 +364,16 @@ void pci_frontend_disable_msix(struct pci_dev *dev)
 		dev_err(&dev->dev, "disable MSI-X -> %d\n", err);
 }
 
-int pci_frontend_enable_msi(struct pci_dev *dev)
+int pci_frontend_enable_msi(struct pci_dev *dev, unsigned int nvec)
 {
 	int err;
 	struct xen_pci_op op = {
-		.cmd    = XEN_PCI_OP_enable_msi,
+		.cmd    = nvec > 1 ? XEN_PCI_OP_enable_multi_msi
+				   : XEN_PCI_OP_enable_msi,
 		.domain = pci_domain_nr(dev->bus),
 		.bus = dev->bus->number,
 		.devfn = dev->devfn,
+		.info = nvec,
 	};
 	struct pcifront_sd *sd = dev->bus->sysdata;
 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
@@ -379,6 +381,8 @@ int pci_frontend_enable_msi(struct pci_dev *dev)
 	err = do_pci_op(pdev, &op);
 	if (likely(!err))
 		dev->irq = op.value;
+	else if (nvec > 1)
+		err = op.info > 1 && op.info < nvec ? op.info : 1;
 	else {
 		dev_err(&dev->dev, "enable MSI -> %d\n", err);
 		err = -EINVAL;

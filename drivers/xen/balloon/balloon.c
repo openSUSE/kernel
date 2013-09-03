@@ -76,14 +76,6 @@ struct balloon_stats balloon_stats;
 /* We increase/decrease in batches which fit in a page */
 static unsigned long frame_list[PAGE_SIZE / sizeof(unsigned long)];
 
-#ifdef CONFIG_HIGHMEM
-#define inc_totalhigh_pages() (totalhigh_pages++)
-#define dec_totalhigh_pages() (totalhigh_pages--)
-#else
-#define inc_totalhigh_pages() ((void)0)
-#define dec_totalhigh_pages() ((void)0)
-#endif
-
 #ifndef CONFIG_XEN
 /*
  * In HVM guests accounting here uses the Xen visible values, but the kernel
@@ -129,12 +121,13 @@ static void balloon_append(struct page *page, int account)
 	if (PageHighMem(page)) {
 		list_add_tail(PAGE_TO_LIST(page), &ballooned_pages);
 		bs.balloon_high++;
-		if (account)
-			dec_totalhigh_pages();
 	} else {
 		list_add(PAGE_TO_LIST(page), &ballooned_pages);
 		bs.balloon_low++;
 	}
+
+	if (account)
+		adjust_managed_page_count(page, -1);
 
 	pfn = page_to_pfn(page);
 	if (account) {
@@ -160,12 +153,12 @@ static struct page *balloon_retrieve(int *was_empty)
 	UNLIST_PAGE(page);
 	BUG_ON(!PageReserved(page));
 
-	if (PageHighMem(page)) {
+	if (PageHighMem(page))
 		bs.balloon_high--;
-		inc_totalhigh_pages();
-	}
 	else
 		bs.balloon_low--;
+	adjust_managed_page_count(page, 1);
+
 	zone = page_zone(page);
 	*was_empty |= !populated_zone(zone);
 	zone->present_pages++;
@@ -213,10 +206,21 @@ static unsigned long current_target(void)
 	return target;
 }
 
+unsigned long balloon_num_physpages(void)
+{
+	unsigned int nid;
+	unsigned long phys_pages = 0;
+
+	for_each_online_node(nid)
+		phys_pages += node_spanned_pages(nid);
+
+	return phys_pages;
+}
+
 unsigned long balloon_minimum_target(void)
 {
 #ifndef CONFIG_XEN
-#define max_pfn num_physpages
+#define max_pfn balloon_num_physpages()
 #endif
 	unsigned long min_pages, curr_pages = current_target();
 
@@ -307,7 +311,6 @@ static int increase_reservation(unsigned long nr_pages)
 	}
 
 	bs.current_pages += rc;
-	totalram_pages = bs.current_pages - totalram_bias;
 
  out:
 	balloon_unlock(flags);
@@ -387,7 +390,6 @@ static int decrease_reservation(unsigned long nr_pages)
 	BUG_ON(ret != nr_pages);
 
 	bs.current_pages -= nr_pages;
-	totalram_pages = bs.current_pages - totalram_bias;
 
 	balloon_unlock(flags);
 
@@ -508,7 +510,8 @@ static int balloon_show(struct seq_file *m, void *v)
 		"High-mem balloon:   %8lu kB\n"
 		"Driver pages:       %8lu kB\n",
 		PAGES2KB(bs.current_pages), PAGES2KB(bs.target_pages), 
-		PAGES2KB(balloon_minimum_target()), PAGES2KB(num_physpages),
+		PAGES2KB(balloon_minimum_target()),
+		PAGES2KB(balloon_num_physpages()),
 		PAGES2KB(bs.balloon_low), PAGES2KB(bs.balloon_high),
 		PAGES2KB(bs.driver_pages));
 }
@@ -718,9 +721,8 @@ struct page **alloc_empty_pages_and_pagevec(int nr_pages)
 			goto err;
 		}
 
-		totalram_pages = --bs.current_pages - totalram_bias;
-		if (PageHighMem(page))
-			dec_totalhigh_pages();
+		--bs.current_pages;
+		adjust_managed_page_count(page, -1);
 		page_zone(page)->present_pages--;
 
 		balloon_unlock(flags);
@@ -790,7 +792,7 @@ void balloon_release_driver_page(struct page *page)
 
 	balloon_lock(flags);
 	balloon_append(page, 1);
-	totalram_pages = --bs.current_pages - totalram_bias;
+	bs.current_pages--;
 	bs.driver_pages--;
 	balloon_unlock(flags);
 

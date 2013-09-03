@@ -44,6 +44,7 @@
  */
 
 #include "usbback.h"
+#include <linux/usb/ch11.h>
 
 static int start_xenusbd(usbif_t *usbif)
 {

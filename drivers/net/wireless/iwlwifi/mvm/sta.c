@@ -64,6 +64,7 @@
 
 #include "mvm.h"
 #include "sta.h"
+#include "rs.h"
 
 static int iwl_mvm_find_free_sta_id(struct iwl_mvm *mvm)
 {
@@ -217,6 +218,8 @@ int iwl_mvm_add_sta(struct iwl_mvm *mvm,
 						      mvmvif->color);
 	mvm_sta->vif = vif;
 	mvm_sta->max_agg_bufsize = LINK_QUAL_AGG_FRAME_LIMIT_DEF;
+	mvm_sta->tx_protection = 0;
+	mvm_sta->tt_tx_protection = false;
 
 	/* HW restart, don't assume the memory has been zeroed */
 	atomic_set(&mvm->pending_frames[sta_id], 0);
@@ -605,6 +608,8 @@ int iwl_mvm_rm_bcast_sta(struct iwl_mvm *mvm, struct iwl_mvm_int_sta *bsta)
 	return ret;
 }
 
+#define IWL_MAX_RX_BA_SESSIONS 16
+
 int iwl_mvm_sta_rx_agg(struct iwl_mvm *mvm, struct ieee80211_sta *sta,
 		       int tid, u16 ssn, bool start)
 {
@@ -614,6 +619,11 @@ int iwl_mvm_sta_rx_agg(struct iwl_mvm *mvm, struct ieee80211_sta *sta,
 	u32 status;
 
 	lockdep_assert_held(&mvm->mutex);
+
+	if (start && mvm->rx_ba_sessions >= IWL_MAX_RX_BA_SESSIONS) {
+		IWL_WARN(mvm, "Not enough RX BA SESSIONS\n");
+		return -ENOSPC;
+	}
 
 	cmd.mac_id_n_color = cpu_to_le32(mvm_sta->mac_id_n_color);
 	cmd.sta_id = mvm_sta->sta_id;
@@ -647,6 +657,14 @@ int iwl_mvm_sta_rx_agg(struct iwl_mvm *mvm, struct ieee80211_sta *sta,
 		IWL_ERR(mvm, "RX BA Session failed %sing, status 0x%x\n",
 			start ? "start" : "stopp", status);
 		break;
+	}
+
+	if (!ret) {
+		if (start)
+			mvm->rx_ba_sessions++;
+		else if (mvm->rx_ba_sessions > 0)
+			/* check that restart flow didn't zero the counter */
+			mvm->rx_ba_sessions--;
 	}
 
 	return ret;
@@ -799,20 +817,22 @@ int iwl_mvm_sta_tx_agg_oper(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 		min(mvmsta->max_agg_bufsize, buf_size);
 	mvmsta->lq_sta.lq.agg_frame_cnt_limit = mvmsta->max_agg_bufsize;
 
+	IWL_DEBUG_HT(mvm, "Tx aggregation enabled on ra = %pM tid = %d\n",
+		     sta->addr, tid);
+
 	if (mvm->cfg->ht_params->use_rts_for_aggregation) {
 		/*
 		 * switch to RTS/CTS if it is the prefer protection
 		 * method for HT traffic
+		 * this function also sends the LQ command
 		 */
-		mvmsta->lq_sta.lq.flags |= LQ_FLAG_SET_STA_TLC_RTS_MSK;
+		return iwl_mvm_tx_protection(mvm, &mvmsta->lq_sta.lq,
+					     mvmsta, true);
 		/*
 		 * TODO: remove the TLC_RTS flag when we tear down the last
 		 * AGG session (agg_tids_count in DVM)
 		 */
 	}
-
-	IWL_DEBUG_HT(mvm, "Tx aggregation enabled on ra = %pM tid = %d\n",
-		     sta->addr, tid);
 
 	return iwl_mvm_send_lq_cmd(mvm, &mvmsta->lq_sta.lq, CMD_ASYNC, false);
 }

@@ -118,6 +118,7 @@ config S390
 	select HAVE_FUNCTION_TRACE_MCOUNT_TEST
 	select HAVE_KERNEL_BZIP2
 	select HAVE_KERNEL_GZIP
+	select HAVE_KERNEL_LZ4
 	select HAVE_KERNEL_LZMA
 	select HAVE_KERNEL_LZO
 	select HAVE_KERNEL_XZ
@@ -302,7 +303,6 @@ config HOTPLUG_CPU
 	def_bool y
 	prompt "Support for hot-pluggable CPUs"
 	depends on SMP
-	select HOTPLUG
 	help
 	  Say Y here to be able to turn CPUs off and on. CPUs
 	  can be controlled through /sys/devices/system/cpu/cpu#.
@@ -719,6 +719,7 @@ config S390_GUEST
 	def_bool y
 	prompt "s390 support for virtio devices"
 	depends on 64BIT
+	select TTY
 	select VIRTUALIZATION
 	select VIRTIO
 	select VIRTIO_CONSOLE

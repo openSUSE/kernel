@@ -63,19 +63,21 @@
 #include <asm/x86_init.h>
 #include <asm/pgalloc.h>
 #include <asm/proto.h>
+
+#ifndef CONFIG_X86_NO_IDT
+/* No need to be aligned, but done to keep all IDTs defined the same way. */
+gate_desc debug_idt_table[NR_VECTORS] __page_aligned_bss;
+#endif
 #else
 #include <asm/processor-flags.h>
 #include <asm/setup.h>
 
 asmlinkage int system_call(void);
+#endif
 
 #ifndef CONFIG_X86_NO_IDT
-/*
- * The IDT has to be page-aligned to simplify the Pentium
- * F0 0F bug workaround.
- */
-gate_desc idt_table[NR_VECTORS] __page_aligned_data = { { { { 0, 0 } } }, };
-#endif
+/* Must be page-aligned because the real IDT is used in a fixmap. */
+gate_desc idt_table[NR_VECTORS] __page_aligned_bss;
 #endif
 
 #ifndef CONFIG_XEN
@@ -258,6 +260,9 @@ dotraplinkage void do_double_fault(struct pt_regs *regs, long error_code)
 	tsk->thread.error_code = error_code;
 	tsk->thread.trap_nr = X86_TRAP_DF;
 
+#ifdef CONFIG_DOUBLEFAULT
+	df_debug(regs, error_code);
+#endif
 	/*
 	 * This is always a kernel trap and never fixable (and thus must
 	 * never return).
@@ -441,7 +446,7 @@ dotraplinkage void __kprobes do_debug(struct pt_regs *regs, long error_code)
 	/* Store the virtualized DR6 value */
 	tsk->thread.debugreg6 = dr6;
 
-	if (notify_die(DIE_DEBUG, "debug", regs, PTR_ERR(&dr6), error_code,
+	if (notify_die(DIE_DEBUG, "debug", regs, (long)&dr6, error_code,
 							SIGTRAP) == NOTIFY_STOP)
 		goto exit;
 
@@ -727,7 +732,7 @@ static const trap_info_t __initconst early_trap_pf_table[] = {
 	{ X86_TRAP_PF, 0|4, __KERNEL_CS, (unsigned long)page_fault		},
 	{ }
 };
-static const trap_info_t __cpuinitconst trap_table[] = {
+static const trap_info_t trap_table[] = {
 	{ X86_TRAP_DE, 0|X, __KERNEL_CS, (unsigned long)divide_error		},
 	{ X86_TRAP_DB, 0|4, __KERNEL_CS, (unsigned long)debug			},
 	{ X86_TRAP_BP, 3|4, __KERNEL_CS, (unsigned long)int3			},
@@ -791,7 +796,7 @@ void __init trap_init(void)
 	x86_init.irqs.trap_init();
 }
 
-void __cpuinit smp_trap_init(trap_info_t *trap_ctxt)
+void smp_trap_init(trap_info_t *trap_ctxt)
 {
 	const trap_info_t *t = trap_table;
 

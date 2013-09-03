@@ -31,12 +31,6 @@ config B43_BCMA
 	depends on B43 && (BCMA = y || BCMA = B43)
 	default y
 
-config B43_BCMA_EXTRA
-	bool "Hardware support that overlaps with the brcmsmac driver"
-	depends on B43_BCMA
-	default n if BRCMSMAC
-	default y
-
 config B43_SSB
 	bool
 	depends on B43 && (SSB = y || SSB = B43)
@@ -111,6 +105,7 @@ config B43_PIO
 config B43_PHY_N
 	bool "Support for 802.11n (N-PHY) devices"
 	depends on B43
+	default y
 	---help---
 	  Support for the N-PHY.
 
@@ -132,6 +127,7 @@ config B43_PHY_LP
 config B43_PHY_HT
 	bool "Support for HT-PHY (high throughput) devices"
 	depends on B43 && B43_BCMA
+	default y
 	---help---
 	  Support for the HT-PHY.
 

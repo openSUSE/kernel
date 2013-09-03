@@ -27,6 +27,38 @@ ACPI_MODULE_NAME("processor_core");
  */
 const struct processor_extcntl_ops *processor_extcntl_ops;
 EXPORT_SYMBOL(processor_extcntl_ops);
+
+int processor_notify_external(struct acpi_processor *pr, int event, int type)
+{
+	int ret = -EINVAL;
+
+	if (!processor_cntl_external())
+		return -EINVAL;
+
+	switch (event) {
+	case PROCESSOR_PM_INIT:
+	case PROCESSOR_PM_CHANGE:
+		if (type >= PM_TYPE_MAX
+		    || !processor_extcntl_ops->pm_ops[type])
+			break;
+
+		ret = processor_extcntl_ops->pm_ops[type](pr, event);
+		break;
+#ifdef CONFIG_ACPI_HOTPLUG_CPU
+	case PROCESSOR_HOTPLUG:
+		if (processor_extcntl_ops->hotplug)
+			ret = processor_extcntl_ops->hotplug(pr, type);
+		xen_pcpu_hotplug(type);
+		break;
+#endif
+	default:
+		pr_err("Unsupported processor event %d.\n", event);
+		break;
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(processor_notify_external);
 #endif
 
 static int __init set_no_mwait(const struct dmi_system_id *id)
@@ -278,7 +310,7 @@ static bool __init processor_physically_present(acpi_handle handle)
 	return true;
 }
 
-static void __cpuinit acpi_set_pdc_bits(u32 *buf)
+static void acpi_set_pdc_bits(u32 *buf)
 {
 	buf[0] = ACPI_PDC_REVISION_ID;
 	buf[1] = 1;
@@ -290,7 +322,7 @@ static void __cpuinit acpi_set_pdc_bits(u32 *buf)
 	arch_acpi_set_pdc_bits(buf);
 }
 
-static struct acpi_object_list *__cpuinit acpi_processor_alloc_pdc(void)
+static struct acpi_object_list *acpi_processor_alloc_pdc(void)
 {
 	struct acpi_object_list *obj_list;
 	union acpi_object *obj;
@@ -333,7 +365,7 @@ static struct acpi_object_list *__cpuinit acpi_processor_alloc_pdc(void)
  * _PDC is required for a BIOS-OS handshake for most of the newer
  * ACPI processor features.
  */
-static int __cpuinit
+static int
 acpi_processor_eval_pdc(acpi_handle handle, struct acpi_object_list *pdc_in)
 {
 	acpi_status status = AE_OK;
@@ -373,7 +405,7 @@ acpi_processor_eval_pdc(acpi_handle handle, struct acpi_object_list *pdc_in)
 	return status;
 }
 
-void __cpuinit acpi_processor_set_pdc(acpi_handle handle)
+void acpi_processor_set_pdc(acpi_handle handle)
 {
 	struct acpi_object_list *obj_list;
 

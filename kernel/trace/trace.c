@@ -115,6 +115,9 @@ cpumask_var_t __read_mostly	tracing_buffer_mask;
 
 enum ftrace_dump_mode ftrace_dump_on_oops;
 
+/* When set, tracing will stop when a WARN*() is hit */
+int __disable_trace_on_warning;
+
 static int tracing_set_tracer(const char *buf);
 
 #define MAX_TRACER_SIZE		100
@@ -149,6 +152,13 @@ static int __init set_ftrace_dump_on_oops(char *str)
 }
 __setup("ftrace_dump_on_oops", set_ftrace_dump_on_oops);
 
+static int __init stop_trace_on_warning(char *str)
+{
+	__disable_trace_on_warning = 1;
+	return 1;
+}
+__setup("traceoff_on_warning=", stop_trace_on_warning);
+
 static int __init boot_alloc_snapshot(char *str)
 {
 	allocate_snapshot = true;
@@ -169,6 +179,7 @@ static int __init set_trace_boot_options(char *str)
 	return 0;
 }
 __setup("trace_options=", set_trace_boot_options);
+
 
 unsigned long long ns2usecs(cycle_t nsec)
 {
@@ -381,7 +392,7 @@ unsigned long trace_flags = TRACE_ITER_PRINT_PARENT | TRACE_ITER_PRINTK |
 	TRACE_ITER_GRAPH_TIME | TRACE_ITER_RECORD_CMD | TRACE_ITER_OVERWRITE |
 	TRACE_ITER_IRQ_INFO | TRACE_ITER_MARKERS | TRACE_ITER_FUNCTION;
 
-void tracer_tracing_on(struct trace_array *tr)
+static void tracer_tracing_on(struct trace_array *tr)
 {
 	if (tr->trace_buffer.buffer)
 		ring_buffer_record_on(tr->trace_buffer.buffer);
@@ -600,7 +611,7 @@ void tracing_snapshot_alloc(void)
 EXPORT_SYMBOL_GPL(tracing_snapshot_alloc);
 #endif /* CONFIG_TRACER_SNAPSHOT */
 
-void tracer_tracing_off(struct trace_array *tr)
+static void tracer_tracing_off(struct trace_array *tr)
 {
 	if (tr->trace_buffer.buffer)
 		ring_buffer_record_off(tr->trace_buffer.buffer);
@@ -631,13 +642,19 @@ void tracing_off(void)
 }
 EXPORT_SYMBOL_GPL(tracing_off);
 
+void disable_trace_on_warning(void)
+{
+	if (__disable_trace_on_warning)
+		tracing_off();
+}
+
 /**
  * tracer_tracing_is_on - show real state of ring buffer enabled
  * @tr : the trace array to know if ring buffer is enabled
  *
  * Shows real state of the ring buffer if it is enabled or not.
  */
-int tracer_tracing_is_on(struct trace_array *tr)
+static int tracer_tracing_is_on(struct trace_array *tr)
 {
 	if (tr->trace_buffer.buffer)
 		return ring_buffer_record_is_on(tr->trace_buffer.buffer);
@@ -1615,15 +1632,6 @@ trace_function(struct trace_array *tr,
 
 	if (!filter_check_discard(call, entry, buffer, event))
 		__buffer_unlock_commit(buffer, event);
-}
-
-void
-ftrace(struct trace_array *tr, struct trace_array_cpu *data,
-       unsigned long ip, unsigned long parent_ip, unsigned long flags,
-       int pc)
-{
-	if (likely(!atomic_read(&data->disabled)))
-		trace_function(tr, ip, parent_ip, flags, pc);
 }
 
 #ifdef CONFIG_STACKTRACE
@@ -2960,7 +2968,7 @@ int tracing_open_generic(struct inode *inode, struct file *filp)
  * Open and update trace_array ref count.
  * Must have the current trace_array passed to it.
  */
-int tracing_open_generic_tr(struct inode *inode, struct file *filp)
+static int tracing_open_generic_tr(struct inode *inode, struct file *filp)
 {
 	struct trace_array *tr = inode->i_private;
 
@@ -3515,14 +3523,14 @@ static const char readme_msg[] =
 	"\n  snapshot\t\t- Like 'trace' but shows the content of the static snapshot buffer\n"
 	"\t\t\t  Read the contents for more information\n"
 #endif
-#ifdef CONFIG_STACKTRACE
+#ifdef CONFIG_STACK_TRACER
 	"  stack_trace\t\t- Shows the max stack trace when active\n"
 	"  stack_max_size\t- Shows current max stack size that was traced\n"
 	"\t\t\t  Write into this file to reset the max size (trigger a new trace)\n"
 #ifdef CONFIG_DYNAMIC_FTRACE
 	"  stack_trace_filter\t- Like set_ftrace_filter but limits what stack_trace traces\n"
 #endif
-#endif /* CONFIG_STACKTRACE */
+#endif /* CONFIG_STACK_TRACER */
 ;
 
 static ssize_t
@@ -5857,17 +5865,6 @@ struct dentry *trace_instance_dir;
 static void
 init_tracer_debugfs(struct trace_array *tr, struct dentry *d_tracer);
 
-static void init_trace_buffers(struct trace_array *tr, struct trace_buffer *buf)
-{
-	int cpu;
-
-	for_each_tracing_cpu(cpu) {
-		memset(per_cpu_ptr(buf->data, cpu), 0, sizeof(struct trace_array_cpu));
-		per_cpu_ptr(buf->data, cpu)->trace_cpu.cpu = cpu;
-		per_cpu_ptr(buf->data, cpu)->trace_cpu.tr = tr;
-	}
-}
-
 static int
 allocate_trace_buffer(struct trace_array *tr, struct trace_buffer *buf, int size)
 {
@@ -5884,8 +5881,6 @@ allocate_trace_buffer(struct trace_array *tr, struct trace_buffer *buf, int size
 		ring_buffer_free(buf->buffer);
 		return -ENOMEM;
 	}
-
-	init_trace_buffers(tr, buf);
 
 	/* Allocate the first page for all buffers */
 	set_buffer_entries(&tr->trace_buffer,
@@ -5952,10 +5947,6 @@ static int new_instance_create(const char *name)
 
 	if (allocate_trace_buffers(tr, trace_buf_size) < 0)
 		goto out_free_tr;
-
-	/* Holder for file callbacks */
-	tr->trace_cpu.cpu = RING_BUFFER_ALL_CPUS;
-	tr->trace_cpu.tr = tr;
 
 	tr->dir = debugfs_create_dir(name, trace_instance_dir);
 	if (!tr->dir)
@@ -6122,7 +6113,7 @@ init_tracer_debugfs(struct trace_array *tr, struct dentry *d_tracer)
 	trace_create_file("buffer_total_size_kb", 0444, d_tracer,
 			  tr, &tracing_total_entries_fops);
 
-	trace_create_file("free_buffer", 0644, d_tracer,
+	trace_create_file("free_buffer", 0200, d_tracer,
 			  tr, &tracing_free_buffer_fops);
 
 	trace_create_file("trace_marker", 0220, d_tracer,
@@ -6429,10 +6420,6 @@ __init static int tracer_alloc_buffers(void)
 	register_die_notifier(&trace_die_notifier);
 
 	global_trace.flags = TRACE_ARRAY_FL_GLOBAL;
-
-	/* Holder for file callbacks */
-	global_trace.trace_cpu.cpu = RING_BUFFER_ALL_CPUS;
-	global_trace.trace_cpu.tr = &global_trace;
 
 	INIT_LIST_HEAD(&global_trace.systems);
 	INIT_LIST_HEAD(&global_trace.events);

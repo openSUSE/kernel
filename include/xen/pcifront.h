@@ -10,7 +10,7 @@
 
 #include <linux/pci.h>
 
-int pci_frontend_enable_msi(struct pci_dev *);
+int pci_frontend_enable_msi(struct pci_dev *, unsigned int nvec);
 void pci_frontend_disable_msi(struct pci_dev *);
 int pci_frontend_enable_msix(struct pci_dev *, struct msix_entry *, int nvec);
 void pci_frontend_disable_msix(struct pci_dev *);

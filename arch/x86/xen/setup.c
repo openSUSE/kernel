@@ -497,7 +497,7 @@ static void __init fiddle_vdso(void)
 #endif
 }
 
-static int __cpuinit register_callback(unsigned type, const void *func)
+static int register_callback(unsigned type, const void *func)
 {
 	struct callback_register callback = {
 		.type = type,
@@ -508,7 +508,7 @@ static int __cpuinit register_callback(unsigned type, const void *func)
 	return HYPERVISOR_callback_op(CALLBACKOP_register, &callback);
 }
 
-void __cpuinit xen_enable_sysenter(void)
+void xen_enable_sysenter(void)
 {
 	int ret;
 	unsigned sysenter_feature;
@@ -527,7 +527,7 @@ void __cpuinit xen_enable_sysenter(void)
 		setup_clear_cpu_cap(sysenter_feature);
 }
 
-void __cpuinit xen_enable_syscall(void)
+void xen_enable_syscall(void)
 {
 #ifdef CONFIG_X86_64
 	int ret;

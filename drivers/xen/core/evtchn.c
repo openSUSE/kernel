@@ -513,10 +513,11 @@ asmlinkage void __irq_entry evtchn_do_upcall(struct pt_regs *regs)
 }
 
 static int find_unbound_irq(unsigned int node, struct irq_cfg **pcfg,
-			    struct irq_chip *chip, bool percpu)
+			    struct irq_chip *chip, unsigned int nr)
 {
 	static int warned;
-	int irq;
+	unsigned int count = 0;
+	int irq, result = -ENOSPC;
 
 	for (irq = DYNIRQ_BASE; irq < nr_irqs; irq++) {
 		struct irq_cfg *cfg = alloc_irq_and_cfg_at(irq, node);
@@ -524,17 +525,23 @@ static int find_unbound_irq(unsigned int node, struct irq_cfg **pcfg,
 
 		if (unlikely(!cfg))
 			return -ENOMEM;
-		if (data->chip != &no_irq_chip &&
-		    data->chip != chip)
-			continue;
 
-		if (!cfg->bindcount) {
+		if ((data->chip == &no_irq_chip || data->chip == chip)
+		    && !cfg->bindcount) {
 			irq_flow_handler_t handle;
 			const char *name;
 
+			if (nr > 1) {
+				if (!count)
+					result = irq;
+				if (++count == nr)
+					break;
+				continue;
+			}
+
 			*pcfg = cfg;
 			irq_set_noprobe(irq);
-			if (!percpu) {
+			if (nr) {
 				handle = handle_fasteoi_irq;
 				name = "fasteoi";
 			} else {
@@ -545,6 +552,18 @@ static int find_unbound_irq(unsigned int node, struct irq_cfg **pcfg,
 						      handle, name);
 			return irq;
 		}
+		count = 0;
+		result = -ENOSPC;
+	}
+
+	if (nr > 1 && count == nr) {
+		BUG_ON(pcfg);
+		for (irq = result; count--; ++irq) {
+			irq_set_noprobe(irq);
+			irq_set_chip_and_handler_name(irq, chip,
+						      handle_fasteoi_irq, "fasteoi");
+		}
+		return result;
 	}
 
 	if (!warned) {
@@ -567,7 +586,7 @@ static int bind_caller_port_to_irq(unsigned int caller_port)
 
 	if ((irq = evtchn_to_irq[caller_port]) == -1) {
 		if ((irq = find_unbound_irq(numa_node_id(), &cfg,
-					    &dynirq_chip, false)) < 0)
+					    &dynirq_chip, 1)) < 0)
 			goto out;
 
 		evtchn_to_irq[caller_port] = irq;
@@ -592,7 +611,7 @@ static int bind_local_port_to_irq(unsigned int local_port)
 	BUG_ON(evtchn_to_irq[local_port] != -1);
 
 	if ((irq = find_unbound_irq(numa_node_id(), &cfg, &dynirq_chip,
-				    false)) < 0) {
+				    1)) < 0) {
 		if (close_evtchn(local_port))
 			BUG();
 		goto out;
@@ -646,7 +665,7 @@ static int bind_virq_to_irq(unsigned int virq, unsigned int cpu)
 
 	if ((irq = per_cpu(virq_to_irq, cpu)[virq]) == -1) {
 		if ((irq = find_unbound_irq(cpu_to_node(cpu), &cfg,
-					    &dynirq_chip, false)) < 0)
+					    &dynirq_chip, 1)) < 0)
 			goto out;
 
 		bind_virq.virq = virq;
@@ -691,7 +710,7 @@ static int bind_ipi_to_irq(unsigned int ipi, unsigned int cpu)
 
 	if ((irq = per_cpu(ipi_to_irq, cpu)[ipi]) == -1) {
 		if ((irq = find_unbound_irq(cpu_to_node(cpu), &cfg,
-					    &dynirq_chip, false)) < 0)
+					    &dynirq_chip, 1)) < 0)
 			goto out;
 
 		bind_ipi.vcpu = cpu;
@@ -1022,7 +1041,7 @@ int bind_virq_to_irqaction(
 		BUG_ON(!retval);
 
 		if ((irq = find_unbound_irq(cpu_to_node(cpu), &cfg,
-					    &dynirq_chip, true)) < 0) {
+					    &dynirq_chip, 0)) < 0) {
 			virq_actions[virq] = cur->next;
 			spin_unlock(&irq_mapping_update_lock);
 			free_percpu_irqaction(new);
@@ -1104,7 +1123,7 @@ int bind_ipi_to_irqhandler(
 	return irq;
 }
 #else
-int __cpuinit bind_ipi_to_irqaction(
+int bind_ipi_to_irqaction(
 	unsigned int cpu,
 	struct irqaction *action)
 {
@@ -1122,7 +1141,7 @@ int __cpuinit bind_ipi_to_irqaction(
 
 	if (ipi_irq < 0) {
 		if ((ipi_irq = find_unbound_irq(cpu_to_node(cpu), &cfg,
-						&dynirq_chip, true)) < 0) {
+						&dynirq_chip, 0)) < 0) {
 			spin_unlock(&irq_mapping_update_lock);
 			return ipi_irq;
 		}
@@ -1873,19 +1892,28 @@ void evtchn_register_pirq(int irq)
 }
 
 #ifdef CONFIG_PCI_MSI
-int evtchn_map_pirq(int irq, int xen_pirq)
+int evtchn_map_pirq(int irq, unsigned int xen_pirq, unsigned int nr)
 {
 	if (irq < 0) {
 #ifdef CONFIG_SPARSE_IRQ
-		struct irq_cfg *cfg;
+		struct irq_cfg *cfg = NULL;
 
+		if (nr <= 0)
+			return -EINVAL;
 		spin_lock(&irq_mapping_update_lock);
-		irq = find_unbound_irq(numa_node_id(), &cfg, &pirq_chip,
-				       false);
+		irq = find_unbound_irq(numa_node_id(), nr == 1 ? &cfg : NULL,
+				       &pirq_chip, nr);
 		if (irq >= 0) {
-			BUG_ON(type_from_irq_cfg(cfg) != IRQT_UNBOUND);
-			cfg->bindcount++;
-			cfg->info = mk_irq_info(IRQT_PIRQ, xen_pirq, 0);
+			unsigned int i;
+
+			for (i = 0; i < nr; ++i) {
+				if (!cfg || i)
+					cfg = irq_cfg(irq + i);
+				BUG_ON(type_from_irq_cfg(cfg) != IRQT_UNBOUND);
+				cfg->bindcount++;
+				cfg->info = mk_irq_info(IRQT_PIRQ,
+							xen_pirq + i, 0);
+			}
 		}
 		spin_unlock(&irq_mapping_update_lock);
 		if (irq < 0)
@@ -1896,6 +1924,8 @@ int evtchn_map_pirq(int irq, int xen_pirq)
 #else
 		static DEFINE_SPINLOCK(irq_alloc_lock);
 
+		if (nr > 1)
+			return -EOPNOTSUPP;
 		irq = PIRQ_BASE + nr_pirqs - 1;
 		spin_lock(&irq_alloc_lock);
 		do {
@@ -1922,29 +1952,37 @@ int evtchn_map_pirq(int irq, int xen_pirq)
 					      handle_fasteoi_irq, "fasteoi");
 #endif
 	} else if (!xen_pirq) {
-		struct irq_cfg *cfg = irq_cfg(irq);
+		while (nr--) {
+			struct irq_cfg *cfg = irq_cfg(irq + nr);
 
-		if (!cfg || unlikely(type_from_irq_cfg(cfg) != IRQT_PIRQ))
-			return -EINVAL;
-		/*
-		 * dynamic_irq_cleanup(irq) would seem to be the correct thing
-		 * here, but cannot be used as we get here also during shutdown
-		 * when a driver didn't free_irq() its MSI(-X) IRQ(s), which
-		 * then causes a warning in dynamic_irq_cleanup().
-		 */
-		irq_set_chip_and_handler(irq, NULL, NULL);
-		cfg->info = IRQ_UNBOUND;
+			if (!cfg
+			    || unlikely(type_from_irq_cfg(cfg) != IRQT_PIRQ))
+				return -EINVAL;
+			/*
+			 * dynamic_irq_cleanup(irq) would seem to be the
+			 * correct thing here, but cannot be used as we get
+			 * here also during shutdown when a driver didn't
+			 * free_irq() its MSI(-X) IRQ(s), which then causes
+			 * a warning in dynamic_irq_cleanup().
+			 */
+			irq_set_chip_and_handler(irq, NULL, NULL);
+			cfg->info = IRQ_UNBOUND;
 #ifdef CONFIG_SPARSE_IRQ
-		cfg->bindcount--;
+			cfg->bindcount--;
 #endif
+		}
 		return 0;
-	} else if (type_from_irq(irq) != IRQT_PIRQ
-		   || index_from_irq(irq) != xen_pirq) {
-		pr_err("IRQ#%d is already mapped to %d:%u - "
-		       "cannot map to PIRQ#%u\n",
-		       irq, type_from_irq(irq), index_from_irq(irq), xen_pirq);
-		return -EINVAL;
-	}
+	} else
+		while (nr--) {
+			if (type_from_irq(irq + nr) == IRQT_PIRQ
+			    && index_from_irq(irq + nr) == xen_pirq + nr)
+				continue;
+			pr_err("IRQ#%u is already mapped to %d:%u - "
+			       "cannot map to PIRQ#%u\n",
+			       irq + nr, type_from_irq(irq + nr),
+			       index_from_irq(irq + nr), xen_pirq + nr);
+			return -EINVAL;
+		}
 	return index_from_irq(irq) ? irq : -EINVAL;
 }
 #endif

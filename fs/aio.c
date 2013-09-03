@@ -44,6 +44,8 @@
 #include <linux/anon_inodes.h>
 #endif
 
+#include "internal.h"
+
 #define AIO_RING_MAGIC			0xa10a10a1
 #define AIO_RING_COMPAT_FEATURES	1
 #define AIO_RING_INCOMPAT_FEATURES	0
@@ -643,7 +645,7 @@ void aio_complete(struct kiocb *iocb, long res, long res2)
 
 	/*
 	 * Add a completion event to the ring buffer. Must be done holding
-	 * ctx->ctx_lock to prevent other code from messing with the tail
+	 * ctx->completion_lock to prevent other code from messing with the tail
 	 * pointer since we might be called from irq context.
 	 */
 	spin_lock_irqsave(&ctx->completion_lock, flags);

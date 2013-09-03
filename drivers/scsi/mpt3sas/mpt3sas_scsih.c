@@ -2,7 +2,7 @@
  * Scsi Host Layer for MPT (Message Passing Technology) based controllers
  *
  * This code is based on drivers/scsi/mpt3sas/mpt3sas_scsih.c
- * Copyright (C) 2012  LSI Corporation
+ * Copyright (C) 2012-2013  LSI Corporation
  *  (mailto:DL-MPTFusionLinux@lsi.com)
  *
  * This program is free software; you can redistribute it and/or
@@ -675,11 +675,12 @@ _scsih_sas_device_add(struct MPT3SAS_ADAPTER *ioc,
 		 * devices while scanning is turned on due to an oops in
 		 * scsi_sysfs_add_sdev()->add_device()->sysfs_addrm_start()
 		 */
-		if (!ioc->is_driver_loading)
+		if (!ioc->is_driver_loading) {
 			mpt3sas_transport_port_remove(ioc,
 			    sas_device->sas_address,
 			    sas_device->sas_address_parent);
-		_scsih_sas_device_remove(ioc, sas_device);
+			_scsih_sas_device_remove(ioc, sas_device);
+		}
 	}
 }
 
@@ -7531,10 +7532,12 @@ _scsih_probe_boot_devices(struct MPT3SAS_ADAPTER *ioc)
 		    sas_address_parent)) {
 			_scsih_sas_device_remove(ioc, sas_device);
 		} else if (!sas_device->starget) {
-			if (!ioc->is_driver_loading)
-				mpt3sas_transport_port_remove(ioc, sas_address,
+			if (!ioc->is_driver_loading) {
+				mpt3sas_transport_port_remove(ioc,
+				    sas_address,
 				    sas_address_parent);
-			_scsih_sas_device_remove(ioc, sas_device);
+				_scsih_sas_device_remove(ioc, sas_device);
+			}
 		}
 	}
 }
@@ -7590,13 +7593,14 @@ _scsih_probe_sas(struct MPT3SAS_ADAPTER *ioc)
 			 * oops in scsi_sysfs_add_sdev()->add_device()->
 			 * sysfs_addrm_start()
 			 */
-			if (!ioc->is_driver_loading)
+			if (!ioc->is_driver_loading) {
 				mpt3sas_transport_port_remove(ioc,
 				    sas_device->sas_address,
 				    sas_device->sas_address_parent);
-			list_del(&sas_device->list);
-			kfree(sas_device);
-			continue;
+				list_del(&sas_device->list);
+				kfree(sas_device);
+				continue;
+			}
 		}
 
 		spin_lock_irqsave(&ioc->sas_device_lock, flags);

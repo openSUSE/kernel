@@ -391,7 +391,7 @@ static void amd_e400_idle(void)
 }
 #endif
 
-void __cpuinit select_idle_routine(const struct cpuinfo_x86 *c)
+void select_idle_routine(const struct cpuinfo_x86 *c)
 {
 #ifndef CONFIG_XEN
 #ifdef CONFIG_SMP

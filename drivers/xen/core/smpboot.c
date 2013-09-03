@@ -96,7 +96,7 @@ static irqreturn_t ipi_interrupt(int irq, void *dev_id)
 	}
 }
 
-static int __cpuinit xen_smp_intr_init(unsigned int cpu)
+static int xen_smp_intr_init(unsigned int cpu)
 {
 	static struct irqaction ipi_action = {
 		.handler = ipi_interrupt,
@@ -129,7 +129,7 @@ static int __cpuinit xen_smp_intr_init(unsigned int cpu)
 	return rc;
 }
 
-static void __cpuinit xen_smp_intr_exit(unsigned int cpu)
+static void xen_smp_intr_exit(unsigned int cpu)
 {
 	if (cpu != 0)
 		local_teardown_timer(cpu);
@@ -138,7 +138,7 @@ static void __cpuinit xen_smp_intr_exit(unsigned int cpu)
 	xen_spinlock_cleanup(cpu);
 }
 
-static void __cpuinit cpu_bringup(void)
+static void cpu_bringup(void)
 {
 	unsigned int cpu;
 
@@ -153,14 +153,13 @@ static void __cpuinit cpu_bringup(void)
 	local_irq_enable();
 }
 
-static void __cpuinit cpu_bringup_and_idle(void)
+static void cpu_bringup_and_idle(void)
 {
 	cpu_bringup();
 	cpu_startup_entry(CPUHP_ONLINE);
 }
 
-static void __cpuinit cpu_initialize_context(unsigned int cpu,
-					     unsigned long sp0)
+static void cpu_initialize_context(unsigned int cpu, unsigned long sp0)
 {
 	/* vcpu_guest_context_t is too large to allocate on the stack.
 	 * Hence we allocate statically and protect it with a lock */
@@ -305,7 +304,7 @@ static int __init initialize_cpu_present_map(void)
 }
 core_initcall(initialize_cpu_present_map);
 
-int __cpuinit __cpu_disable(void)
+int __cpu_disable(void)
 {
 	unsigned int cpu = smp_processor_id();
 
@@ -318,7 +317,7 @@ int __cpuinit __cpu_disable(void)
 	return 0;
 }
 
-void __cpuinit __cpu_die(unsigned int cpu)
+void __cpu_die(unsigned int cpu)
 {
 	while (HYPERVISOR_vcpu_op(VCPUOP_is_up, cpu, NULL)) {
 		current->state = TASK_UNINTERRUPTIBLE;
@@ -330,7 +329,7 @@ void __cpuinit __cpu_die(unsigned int cpu)
 
 #endif /* CONFIG_HOTPLUG_CPU */
 
-int __cpuinit __cpu_up(unsigned int cpu, struct task_struct *idle)
+int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
 	int rc;
 

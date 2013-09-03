@@ -506,6 +506,16 @@ static struct scsi_driver sd_template = {
 };
 
 /*
+ * Dummy kobj_map->probe function.
+ * The default ->probe function will call modprobe, which is
+ * pointless as this module is already loaded.
+ */
+static struct kobject *sd_default_probe(dev_t devt, int *partno, void *data)
+{
+	return NULL;
+}
+
+/*
  * Device no to disk mapping:
  * 
  *       major         disc2     disc  p1
@@ -2946,7 +2956,7 @@ static int sd_probe(struct device *dev)
 	device_initialize(&sdkp->dev);
 	sdkp->dev.parent = dev;
 	sdkp->dev.class = &sd_disk_class;
-	dev_set_name(&sdkp->dev, dev_name(dev));
+	dev_set_name(&sdkp->dev, "%s", dev_name(dev));
 
 	if (device_add(&sdkp->dev))
 		goto out_free_index;
@@ -2985,8 +2995,10 @@ static int sd_probe(struct device *dev)
 static int sd_remove(struct device *dev)
 {
 	struct scsi_disk *sdkp;
+	dev_t devt;
 
 	sdkp = dev_get_drvdata(dev);
+	devt = disk_devt(sdkp->disk);
 	scsi_autopm_get_device(sdkp->device);
 
 	async_synchronize_full_domain(&scsi_sd_probe_domain);
@@ -2995,6 +3007,9 @@ static int sd_remove(struct device *dev)
 	device_del(&sdkp->dev);
 	del_gendisk(sdkp->disk);
 	sd_shutdown(dev);
+
+	blk_register_region(devt, SD_MINORS, NULL,
+			    sd_default_probe, NULL, NULL);
 
 	mutex_lock(&sd_ref_mutex);
 	dev_set_drvdata(dev, NULL);
@@ -3176,11 +3191,12 @@ static int __init init_sd(void)
 
 	SCSI_LOG_HLQUEUE(3, printk("init_sd: sd driver entry point\n"));
 
-	for (i = 0; i < SD_MAJORS; i++)
-	{
+	for (i = 0; i < SD_MAJORS; i++) {
 		error[i] = register_blkdev(sd_major(i), "sd");
 		if (error[i] == 0)
 			majors++;
+		blk_register_region(sd_major(i), SD_MINORS, NULL,
+				    sd_default_probe, NULL, NULL);
 	}
 
 	if (!majors)
@@ -3246,8 +3262,10 @@ static void __exit exit_sd(void)
 
 	class_unregister(&sd_disk_class);
 
-	for (i = 0; i < SD_MAJORS; i++)
+	for (i = 0; i < SD_MAJORS; i++) {
+		blk_unregister_region(sd_major(i), SD_MINORS);
 		unregister_blkdev(sd_major(i), "sd");
+	}
 }
 
 module_init(init_sd);

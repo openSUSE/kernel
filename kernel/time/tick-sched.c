@@ -178,6 +178,12 @@ static bool can_stop_full_tick(void)
 	 */
 	if (!sched_clock_stable) {
 		trace_tick_stop(0, "unstable sched clock\n");
+		/*
+		 * Don't allow the user to think they can get
+		 * full NO_HZ with this machine.
+		 */
+		WARN_ONCE(have_nohz_full_mask,
+			  "NO_HZ FULL will not work with unstable sched clock");
 		return false;
 	}
 #endif
@@ -293,7 +299,7 @@ static int __init tick_nohz_full_setup(char *str)
 }
 __setup("nohz_full=", tick_nohz_full_setup);
 
-static int __cpuinit tick_nohz_cpu_down_callback(struct notifier_block *nfb,
+static int tick_nohz_cpu_down_callback(struct notifier_block *nfb,
 						 unsigned long action,
 						 void *hcpu)
 {
@@ -338,24 +344,12 @@ static int tick_nohz_init_all(void)
 
 void __init tick_nohz_init(void)
 {
-	int cpu;
-
 	if (!have_nohz_full_mask) {
 		if (tick_nohz_init_all() < 0)
 			return;
 	}
 
 	cpu_notifier(tick_nohz_cpu_down_callback, 0);
-
-	/* Make sure full dynticks CPU are also RCU nocbs */
-	for_each_cpu(cpu, nohz_full_mask) {
-		if (!rcu_is_nocb_cpu(cpu)) {
-			pr_warning("NO_HZ: CPU %d is not RCU nocb: "
-				   "cleared from nohz_full range", cpu);
-			cpumask_clear_cpu(cpu, nohz_full_mask);
-		}
-	}
-
 	cpulist_scnprintf(nohz_full_buf, sizeof(nohz_full_buf), nohz_full_mask);
 	pr_info("NO_HZ: Full dynticks CPUs: %s.\n", nohz_full_buf);
 }

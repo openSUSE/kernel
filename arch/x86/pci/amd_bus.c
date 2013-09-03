@@ -313,7 +313,7 @@ static int __init early_fill_mp_bus_info(void)
 #define ENABLE_CF8_EXT_CFG      (1ULL << 46)
 
 #ifndef CONFIG_XEN
-static void __cpuinit enable_pci_io_ecs(void *unused)
+static void enable_pci_io_ecs(void *unused)
 {
 	u64 reg;
 	rdmsrl(MSR_AMD64_NB_CFG, reg);
@@ -323,8 +323,8 @@ static void __cpuinit enable_pci_io_ecs(void *unused)
 	}
 }
 
-static int __cpuinit amd_cpu_notify(struct notifier_block *self,
-				    unsigned long action, void *hcpu)
+static int amd_cpu_notify(struct notifier_block *self, unsigned long action,
+			  void *hcpu)
 {
 	int cpu = (long)hcpu;
 	switch (action) {
@@ -338,7 +338,7 @@ static int __cpuinit amd_cpu_notify(struct notifier_block *self,
 	return NOTIFY_OK;
 }
 
-static struct notifier_block __cpuinitdata amd_cpu_notifier = {
+static struct notifier_block amd_cpu_notifier = {
 	.notifier_call	= amd_cpu_notify,
 };
 #endif /* CONFIG_XEN */

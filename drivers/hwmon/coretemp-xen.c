@@ -587,7 +587,6 @@ static int coretemp_remove(struct platform_device *pdev)
 
 	device_remove_file(&pdev->dev, &pdata->name_attr);
 	hwmon_device_unregister(pdata->hwmon_dev);
-	platform_set_drvdata(pdev, NULL);
 	kfree(pdata);
 	return 0;
 }

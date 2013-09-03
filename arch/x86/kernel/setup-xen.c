@@ -252,14 +252,12 @@ static struct resource bss_resource = {
 
 #ifdef CONFIG_X86_32
 /* cpu data as detected by the assembly code in head.S */
-struct cpuinfo_x86 new_cpu_data __cpuinitdata = {
+struct cpuinfo_x86 new_cpu_data = {
 	.wp_works_ok = 1,
-	.hard_math = 1,
 };
 /* common cpu data for all cpus */
 struct cpuinfo_x86 boot_cpu_data __read_mostly = {
 	.wp_works_ok = 1,
-	.hard_math = 1,
 };
 EXPORT_SYMBOL(boot_cpu_data);
 
@@ -1235,7 +1233,6 @@ void __init setup_arch(char **cmdline_p)
 	/* max_low_pfn get updated here */
 	find_low_pfn_range();
 #else
-	num_physpages = max_pfn;
 	max_mapnr = max_pfn;
 
 #ifdef CONFIG_X86_LOCAL_APIC

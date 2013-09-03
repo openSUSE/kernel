@@ -25,7 +25,7 @@ static int local_cpu_hotplug_request(void)
 	return (current->mm != NULL);
 }
 
-static void __cpuinit vcpu_hotplug(unsigned int cpu, struct device *dev)
+static void vcpu_hotplug(unsigned int cpu, struct device *dev)
 {
 	int err;
 	char dir[16], state[16];
@@ -54,7 +54,7 @@ static void __cpuinit vcpu_hotplug(unsigned int cpu, struct device *dev)
 	}
 }
 
-static void __cpuinit handle_vcpu_hotplug_event(
+static void handle_vcpu_hotplug_event(
 	struct xenbus_watch *watch, const char **vec, unsigned int len)
 {
 	unsigned int cpu;
@@ -83,12 +83,12 @@ static int smpboot_cpu_notify(struct notifier_block *notifier,
 	return NOTIFY_OK;
 }
 
-static int __cpuinit setup_cpu_watcher(struct notifier_block *notifier,
-				       unsigned long event, void *data)
+static int setup_cpu_watcher(struct notifier_block *notifier,
+			      unsigned long event, void *data)
 {
 	unsigned int i;
 
-	static struct xenbus_watch __cpuinitdata cpu_watch = {
+	static struct xenbus_watch cpu_watch = {
 		.node = "cpu",
 		.callback = handle_vcpu_hotplug_event,
 		.flags = XBWF_new_thread };
@@ -107,7 +107,7 @@ static int __init setup_vcpu_hotplug_event(void)
 {
 	static struct notifier_block hotplug_cpu = {
 		.notifier_call = smpboot_cpu_notify };
-	static struct notifier_block __cpuinitdata xsn_cpu = {
+	static struct notifier_block xsn_cpu = {
 		.notifier_call = setup_cpu_watcher };
 
 	if (!is_running_on_xen())
@@ -121,7 +121,7 @@ static int __init setup_vcpu_hotplug_event(void)
 
 arch_initcall(setup_vcpu_hotplug_event);
 
-int __ref smp_suspend(void)
+int smp_suspend(void)
 {
 	unsigned int cpu;
 	int err;
@@ -141,7 +141,7 @@ int __ref smp_suspend(void)
 	return 0;
 }
 
-void __ref smp_resume(void)
+void smp_resume(void)
 {
 	unsigned int cpu;
 

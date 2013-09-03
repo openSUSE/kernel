@@ -26,7 +26,7 @@
  * exists, use it for populating initial_apicid and cpu topology
  * detection.
  */
-void __cpuinit detect_extended_topology(struct cpuinfo_x86 *c)
+void detect_extended_topology(struct cpuinfo_x86 *c)
 {
 #if defined(CONFIG_SMP) && !defined(CONFIG_XEN)
 	unsigned int eax, ebx, ecx, edx, sub_index;

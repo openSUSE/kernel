@@ -394,6 +394,10 @@ setup_return(struct pt_regs *regs, struct ksignal *ksig,
 		if (ksig->ka.sa.sa_flags & SA_SIGINFO)
 			idx += 3;
 
+		/*
+		 * Put the sigreturn code on the stack no matter which return
+		 * mechanism we use in order to remain ABI compliant
+		 */
 		if (__put_user(sigreturn_codes[idx],   rc) ||
 		    __put_user(sigreturn_codes[idx+1], rc+1))
 			return 1;
@@ -401,6 +405,7 @@ setup_return(struct pt_regs *regs, struct ksignal *ksig,
 #ifdef CONFIG_MMU
 		if (cpsr & MODE32_BIT) {
 			struct mm_struct *mm = current->mm;
+
 			/*
 			 * 32-bit code can use the signal return page
 			 * except when the MPU has protected the vectors

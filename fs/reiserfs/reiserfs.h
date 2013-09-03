@@ -13,6 +13,7 @@
 #include <linux/bitops.h>
 #include <linux/proc_fs.h>
 #include <linux/buffer_head.h>
+#include <linux/quotaops.h>
 
 /* the 32 bit compat definitions with int argument */
 #define REISERFS_IOC32_UNPACK		_IOW(0xCD, 1, int)
@@ -630,8 +631,9 @@ static inline int __reiserfs_is_journal_aborted(struct reiserfs_journal
  */
 void reiserfs_write_lock(struct super_block *s);
 void reiserfs_write_unlock(struct super_block *s);
-int reiserfs_write_lock_once(struct super_block *s);
-void reiserfs_write_unlock_once(struct super_block *s, int lock_depth);
+int __must_check reiserfs_write_unlock_nested(struct super_block *s);
+void reiserfs_write_lock_nested(struct super_block *s, int depth);
+void reiserfs_check_lock_nested(struct super_block *s, const char *caller);
 
 #ifdef CONFIG_REISERFS_CHECK
 void reiserfs_lock_check_recursive(struct super_block *s);
@@ -666,33 +668,6 @@ static inline void reiserfs_lock_check_recursive(struct super_block *s) { }
  * - The journal lock
  * - The inode mutex
  */
-static inline void reiserfs_mutex_lock_safe(struct mutex *m,
-			       struct super_block *s)
-{
-	reiserfs_lock_check_recursive(s);
-	reiserfs_write_unlock(s);
-	mutex_lock(m);
-	reiserfs_write_lock(s);
-}
-
-static inline void
-reiserfs_mutex_lock_nested_safe(struct mutex *m, unsigned int subclass,
-			       struct super_block *s)
-{
-	reiserfs_lock_check_recursive(s);
-	reiserfs_write_unlock(s);
-	mutex_lock_nested(m, subclass);
-	reiserfs_write_lock(s);
-}
-
-static inline void
-reiserfs_down_read_safe(struct rw_semaphore *sem, struct super_block *s)
-{
-	reiserfs_lock_check_recursive(s);
-	reiserfs_write_unlock(s);
-	down_read(sem);
-	reiserfs_write_lock(s);
-}
 
 /*
  * When we schedule, we usually want to also release the write lock,
@@ -701,10 +676,20 @@ reiserfs_down_read_safe(struct rw_semaphore *sem, struct super_block *s)
 static inline void reiserfs_cond_resched(struct super_block *s)
 {
 	if (need_resched()) {
-		reiserfs_write_unlock(s);
+		int depth = reiserfs_write_unlock_nested(s);
 		schedule();
-		reiserfs_write_lock(s);
+		reiserfs_write_lock_nested(s, depth);
 	}
+}
+
+static inline void reiserfs_mutex_lock_safe(struct mutex *m,
+                              struct super_block *s)
+{
+	int depth;
+
+	depth = reiserfs_write_unlock_nested(s);
+	mutex_lock(m);
+	reiserfs_write_lock_nested(s, depth);
 }
 
 struct fid;
@@ -2463,6 +2448,15 @@ int reiserfs_commit_for_inode(struct inode *);
 int reiserfs_inode_needs_commit(struct inode *);
 void reiserfs_update_inode_transaction(struct inode *);
 void reiserfs_wait_on_write_block(struct super_block *s);
+static inline void reiserfs_safe_wait_on_write_block(struct super_block *s)
+{
+	int depth;
+
+	depth = reiserfs_write_unlock_nested(s);
+	reiserfs_wait_on_write_block(s);
+	reiserfs_write_lock_nested(s, depth);
+}
+
 void reiserfs_block_writes(struct reiserfs_transaction_handle *th);
 void reiserfs_allow_writes(struct super_block *s);
 void reiserfs_check_lock_depth(struct super_block *s, char *caller);
@@ -2709,7 +2703,7 @@ extern const struct inode_operations reiserfs_dir_inode_operations;
 extern const struct inode_operations reiserfs_symlink_inode_operations;
 extern const struct inode_operations reiserfs_special_inode_operations;
 extern const struct file_operations reiserfs_dir_operations;
-int reiserfs_readdir_dentry(struct dentry *, void *, filldir_t, loff_t *);
+int reiserfs_readdir_inode(struct inode *, struct dir_context *);
 
 /* tail_conversion.c */
 int direct2indirect(struct reiserfs_transaction_handle *, struct inode *,

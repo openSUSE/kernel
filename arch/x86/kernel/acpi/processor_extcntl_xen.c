@@ -267,9 +267,18 @@ static int xen_sleep(u8 sleep_state, u32 val_a, u32 val_b, bool extended)
 	return -1;
 }
 
+static int xen_acpi_suspend_lowlevel(void)
+{
+	acpi_enter_sleep_state(ACPI_STATE_S3);
+	return 0;
+}
+
 static int __init init_extcntl(void)
 {
 	unsigned int pmbits = (xen_start_info->flags & SIF_PM_MASK) >> 8;
+
+	acpi_os_set_prepare_sleep(xen_sleep);
+	acpi_suspend_lowlevel = xen_acpi_suspend_lowlevel;
 
 #ifndef CONFIG_ACPI_HOTPLUG_CPU
 	if (!pmbits)
@@ -283,8 +292,6 @@ static int __init init_extcntl(void)
 		xen_extcntl_ops.pm_ops[PM_TYPE_THR] = xen_tx_notifier;
 
 	processor_extcntl_ops = &xen_extcntl_ops;
-
-	acpi_os_set_prepare_sleep(xen_sleep);
 
 	return 0;
 }

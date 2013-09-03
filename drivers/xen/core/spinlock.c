@@ -42,7 +42,7 @@ static DEFINE_PER_CPU(struct rm_seq, rm_seq);
 static bool __read_mostly nopoll;
 module_param(nopoll, bool, 0);
 
-int __cpuinit xen_spinlock_init(unsigned int cpu)
+int xen_spinlock_init(unsigned int cpu)
 {
 	struct evtchn_bind_ipi bind_ipi;
 	int rc;
@@ -64,7 +64,7 @@ int __cpuinit xen_spinlock_init(unsigned int cpu)
 	return rc;
 }
 
-void __cpuinit xen_spinlock_cleanup(unsigned int cpu)
+void xen_spinlock_cleanup(unsigned int cpu)
 {
 	struct evtchn_close close;
 
@@ -78,7 +78,7 @@ void __cpuinit xen_spinlock_cleanup(unsigned int cpu)
 #ifdef CONFIG_PM_SLEEP
 #include <linux/syscore_ops.h>
 
-static void __cpuinit spinlock_resume(void)
+static void spinlock_resume(void)
 {
 	unsigned int cpu;
 
@@ -88,7 +88,7 @@ static void __cpuinit spinlock_resume(void)
 	}
 }
 
-static struct syscore_ops __cpuinitdata spinlock_syscore_ops = {
+static struct syscore_ops spinlock_syscore_ops = {
 	.resume	= spinlock_resume
 };
 
@@ -193,7 +193,7 @@ void xen_spin_irq_enter(void)
 		 */
 		while (lock->tickets.head == spinning->ticket) {
 			unsigned int ticket = ticket_drop(spinning,
-							  spinning->ticket,
+							  lock->tickets.head,
 							  cpu);
 
 			if (!(ticket + 1))

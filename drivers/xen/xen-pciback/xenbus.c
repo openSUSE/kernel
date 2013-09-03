@@ -3,6 +3,9 @@
  *
  *   Author: Ryan Wilson <hap9@epoch.ncsc.mil>
  */
+
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/list.h>
@@ -804,8 +807,7 @@ int __init xen_pcibk_xenbus_register(void)
 
 	xen_pcibk_wq = create_workqueue("xen_pciback_workqueue");
 	if (!xen_pcibk_wq) {
-		printk(KERN_ERR "%s: create"
-			"xen_pciback_workqueue failed\n", __func__);
+		pr_err("%s: create xen_pciback_workqueue failed\n", __func__);
 		return -EFAULT;
 	}
 	for (i = 0; i < ARRAY_SIZE(xen_pcibk_backends); ++i) {
@@ -816,7 +818,7 @@ int __init xen_pcibk_xenbus_register(void)
 			break;
 		}
 	}
-	pr_info(DRV_NAME ": backend is %s\n", xen_pcibk_backend->name);
+	pr_info("backend is %s\n", xen_pcibk_backend->name);
 	return xenbus_register_backend(&xen_pcibk_driver);
 }
 

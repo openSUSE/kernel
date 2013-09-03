@@ -512,7 +512,6 @@ int devmem_is_allowed(unsigned long pagenr)
 
 void free_init_pages(char *what, unsigned long begin, unsigned long end)
 {
-	unsigned long addr;
 	unsigned long begin_aligned, end_aligned;
 
 	/* Make sure boundaries are page aligned */
@@ -526,8 +525,6 @@ void free_init_pages(char *what, unsigned long begin, unsigned long end)
 
 	if (begin >= end)
 		return;
-
-	addr = begin;
 
 	/*
 	 * If debugging page accesses then do not free this memory but
@@ -547,30 +544,33 @@ void free_init_pages(char *what, unsigned long begin, unsigned long end)
 	set_memory_nx(begin, (end - begin) >> PAGE_SHIFT);
 	set_memory_rw(begin, (end - begin) >> PAGE_SHIFT);
 
-	printk(KERN_INFO "Freeing %s: %luk freed\n", what, (end - begin) >> 10);
-
-	for (; addr < end; addr += PAGE_SIZE) {
-		memset((void *)addr, POISON_FREE_INITMEM, PAGE_SIZE);
 #ifdef CONFIG_X86_64
-		if (addr >= __START_KERNEL_map) {
+	if (begin >= __START_KERNEL_map) {
+		unsigned long addr;
+
+		for (addr = begin; addr < end; addr += PAGE_SIZE) {
+			paddr_t pa = __pa_symbol(addr);
+
 			/* make_readonly() reports all kernel addresses. */
-			if (HYPERVISOR_update_va_mapping((unsigned long)__va(__pa(addr)),
-							 pfn_pte(__pa(addr) >> PAGE_SHIFT,
+			if (HYPERVISOR_update_va_mapping((unsigned long)__va(pa),
+							 pfn_pte(pa >> PAGE_SHIFT,
 								 PAGE_KERNEL),
 							 0))
 				BUG();
 			if (HYPERVISOR_update_va_mapping(addr, __pte(0), 0))
 				BUG();
 		}
-#endif
-		free_reserved_page(virt_to_page(addr));
+		begin = (unsigned long)__va(__pa_symbol(begin));
+		end = (unsigned long)__va(__pa_symbol(end));
 	}
+#endif
+	free_reserved_area((void *)begin, (void *)end, POISON_FREE_INITMEM, what);
 #endif
 }
 
 void free_initmem(void)
 {
-	free_init_pages("unused kernel memory",
+	free_init_pages("unused kernel",
 			(unsigned long)(&__init_begin),
 			(unsigned long)(&__init_end));
 }
@@ -596,7 +596,7 @@ void __init free_initrd_mem(unsigned long start, unsigned long end)
 	 *   - relocate_initrd()
 	 * So here We can do PAGE_ALIGN() safely to get partial page to be freed
 	 */
-	free_init_pages("initrd memory", start, PAGE_ALIGN(end));
+	free_init_pages("initrd", start, PAGE_ALIGN(end));
 }
 #endif
 

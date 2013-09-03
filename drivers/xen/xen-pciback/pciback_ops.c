@@ -3,6 +3,9 @@
  *
  *   Author: Ryan Wilson <hap9@epoch.ncsc.mil>
  */
+
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/module.h>
 #include <linux/wait.h>
 #include <linux/bitops.h>
@@ -144,7 +147,8 @@ void xen_pcibk_reset_device(struct pci_dev *dev)
 #ifdef CONFIG_PCI_MSI
 static
 int xen_pcibk_enable_msi(struct xen_pcibk_device *pdev,
-			 struct pci_dev *dev, struct xen_pci_op *op)
+			 struct pci_dev *dev, struct xen_pci_op *op,
+			 unsigned int nvec)
 {
 #ifndef CONFIG_XEN
 	struct xen_pcibk_dev_data *dev_data;
@@ -154,13 +158,13 @@ int xen_pcibk_enable_msi(struct xen_pcibk_device *pdev,
 	if (unlikely(verbose_request))
 		printk(KERN_DEBUG DRV_NAME ": %s: enable MSI\n", pci_name(dev));
 
-	status = pci_enable_msi(dev);
+	status = pci_enable_msi_block(dev, nvec);
 
 	if (status) {
-		pr_warn_ratelimited(DRV_NAME ": %s: error enabling MSI for guest %u: err %d\n",
+		pr_warn_ratelimited("%s: error enabling MSI for guest %u: err %d\n",
 				    pci_name(dev), pdev->xdev->otherend_id,
 				    status);
-		op->value = 0;
+		op->value = status > 0 && status < nvec ? status : 0;
 		return XEN_PCI_ERR_op_failed;
 	}
 
@@ -258,7 +262,7 @@ int xen_pcibk_enable_msix(struct xen_pcibk_device *pdev,
 						op->msix_entries[i].vector);
 		}
 	} else
-		pr_warn_ratelimited(DRV_NAME ": %s: error enabling MSI-X for guest %u: err %d!\n",
+		pr_warn_ratelimited("%s: error enabling MSI-X for guest %u: err %d!\n",
 				    pci_name(dev), pdev->xdev->otherend_id,
 				    result);
 	kfree(entries);
@@ -364,7 +368,11 @@ void xen_pcibk_do_op(struct work_struct *data)
 			break;
 #ifdef CONFIG_PCI_MSI
 		case XEN_PCI_OP_enable_msi:
-			op->err = xen_pcibk_enable_msi(pdev, dev, op);
+			op->err = xen_pcibk_enable_msi(pdev, dev, op, 1);
+			break;
+		case XEN_PCI_OP_enable_multi_msi:
+			op->err = xen_pcibk_enable_msi(pdev, dev, op,
+						       op->info);
 			break;
 		case XEN_PCI_OP_disable_msi:
 			op->err = xen_pcibk_disable_msi(pdev, dev, op);
@@ -423,7 +431,7 @@ static irqreturn_t xen_pcibk_guest_interrupt(int irq, void *dev_id)
 		dev_data->handled++;
 		if ((dev_data->handled % 1000) == 0) {
 			if (xen_test_irq_shared(irq)) {
-				printk(KERN_INFO "%s IRQ line is not shared "
+				pr_info("%s IRQ line is not shared "
 					"with other domains. Turning ISR off\n",
 					 dev_data->irq_name);
 				dev_data->ack_intr = 0;

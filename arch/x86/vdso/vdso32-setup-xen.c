@@ -202,13 +202,13 @@ static struct page *vdso32_pages[1];
 #define	vdso32_sysenter()	(boot_cpu_has(X86_FEATURE_SYSENTER32))
 #define	vdso32_syscall()	(boot_cpu_has(X86_FEATURE_SYSCALL32))
 
-void __cpuinit syscall32_cpu_init(void)
+void syscall32_cpu_init(void)
 {
-	static const struct callback_register __cpuinitconst cstar = {
+	static const struct callback_register cstar = {
 		.type = CALLBACKTYPE_syscall32,
 		.address = (unsigned long)ia32_cstar_target
 	};
-	static const struct callback_register __cpuinitconst sysenter = {
+	static const struct callback_register sysenter = {
 		.type = CALLBACKTYPE_sysenter,
 		.address = (unsigned long)ia32_sysenter_target
 	};
@@ -234,16 +234,16 @@ static inline void map_compat_vdso(int map)
 #define vdso32_syscall()	(boot_cpu_has(X86_FEATURE_SYSCALL32))
 
 extern asmlinkage void ia32pv_cstar_target(void);
-static const struct callback_register __cpuinitconst cstar = {
+static const struct callback_register cstar = {
 	.type = CALLBACKTYPE_syscall32,
 	.address = { __KERNEL_CS, (unsigned long)ia32pv_cstar_target },
 };
 #endif
 
-void __cpuinit enable_sep_cpu(void)
+void enable_sep_cpu(void)
 {
 	extern asmlinkage void ia32pv_sysenter_target(void);
-	static struct callback_register __cpuinitdata sysenter = {
+	static struct callback_register sysenter = {
 		.type = CALLBACKTYPE_sysenter,
 		.address = { __KERNEL_CS, (unsigned long)ia32pv_sysenter_target },
 	};
@@ -420,7 +420,7 @@ subsys_initcall(sysenter_setup);
 /* Register vsyscall32 into the ABI table */
 #include <linux/sysctl.h>
 
-static ctl_table abi_table2[] = {
+static struct ctl_table abi_table2[] = {
 	{
 		.procname	= "vsyscall32",
 		.data		= &sysctl_vsyscall32,
@@ -431,7 +431,7 @@ static ctl_table abi_table2[] = {
 	{}
 };
 
-static ctl_table abi_root_table2[] = {
+static struct ctl_table abi_root_table2[] = {
 	{
 		.procname = "abi",
 		.mode = 0555,

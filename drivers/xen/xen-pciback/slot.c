@@ -6,6 +6,8 @@
  *   Author: Tristan Gingold <tristan.gingold@bull.net>, from vpci.c
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/spinlock.h>
 #include "pciback.h"
 
@@ -63,8 +65,7 @@ static int _xen_pcibk_add_pci_dev(struct xen_pcibk_device *pdev,
 	for (bus = 0; bus < PCI_BUS_NBR; bus++)
 		for (slot = 0; slot < PCI_SLOT_MAX; slot++) {
 			if (slot_dev->slots[bus][slot] == NULL) {
-				pr_info("pciback: slot: %s: assign to"
-					" virtual slot %d, bus %d\n",
+				pr_info("slot: %s: assign to virtual slot %d, bus %d\n",
 					pci_name(dev), slot, bus);
 				slot_dev->slots[bus][slot] = dev;
 				goto unlock;

@@ -31,6 +31,8 @@
  * IN THE SOFTWARE.
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #define DPRINTK(fmt, args...)				\
 	pr_debug("xenbus_probe (%s:%d) " fmt ".\n",	\
 		 __FUNCTION__, __LINE__, ##args)
@@ -553,7 +555,7 @@ int xenbus_probe_node(struct xen_bus_type *bus,
 
 		err = bus->get_bus_id(devname, xendev->nodename);
 		if (!err)
-			dev_set_name(&xendev->dev, devname);
+			dev_set_name(&xendev->dev, "%s", devname);
 	}
 #else
 	err = bus->get_bus_id(xendev->dev.bus_id, xendev->nodename);
@@ -580,13 +582,13 @@ static int frontend_bus_id(char bus_id[XEN_BUS_ID_SIZE], const char *nodename)
 {
 	nodename = strchr(nodename, '/');
 	if (!nodename || strlen(nodename + 1) >= XEN_BUS_ID_SIZE) {
-		pr_warning("XENBUS: bad frontend %s\n", nodename);
+		pr_warn("bad frontend %s\n", nodename);
 		return -EINVAL;
 	}
 
 	strlcpy(bus_id, nodename + 1, XEN_BUS_ID_SIZE);
 	if (!strchr(bus_id, '/')) {
-		pr_warning("XENBUS: bus_id %s no slash\n", bus_id);
+		pr_warn("bus_id %s no slash\n", bus_id);
 		return -EINVAL;
 	}
 	*strchr(bus_id, '/') = '-';
@@ -818,8 +820,7 @@ int xenbus_dev_suspend(struct device *dev)
 	if (drv->suspend)
 		err = drv->suspend(xdev);
 	if (err)
-		pr_warning("xenbus: suspend %s failed: %i\n",
-			   dev_name(dev), err);
+		pr_warn("suspend %s failed: %i\n", dev_name(dev), err);
 	return 0;
 }
 PARAVIRT_EXPORT_SYMBOL(xenbus_dev_suspend);
@@ -840,8 +841,8 @@ static int __maybe_unused suspend_cancel_dev(struct device *dev, void *data)
 	if (drv->suspend_cancel)
 		err = drv->suspend_cancel(xdev);
 	if (err)
-		pr_warning("xenbus: suspend_cancel %s failed: %i\n",
-			   dev_name(dev), err);
+		pr_warn("suspend_cancel %s failed: %i\n",
+			dev_name(dev), err);
 	return 0;
 }
 
@@ -862,8 +863,8 @@ int xenbus_dev_resume(struct device *dev)
 	drv = to_xenbus_driver(dev->driver);
 	err = talk_to_otherend(xdev);
 	if (err) {
-		pr_warning("xenbus: resume (talk_to_otherend) %s failed: %i\n",
-			   dev_name(dev), err);
+		pr_warn("resume (talk_to_otherend) %s failed: %i\n",
+			dev_name(dev), err);
 		return err;
 	}
 
@@ -872,16 +873,15 @@ int xenbus_dev_resume(struct device *dev)
 	if (drv->resume) {
 		err = drv->resume(xdev);
 		if (err) {
-			pr_warning("xenbus: resume %s failed: %i\n",
-				   dev_name(dev), err);
+			pr_warn("resume %s failed: %i\n", dev_name(dev), err);
 			return err;
 		}
 	}
 
 	err = watch_otherend(xdev);
 	if (err) {
-		pr_warning("xenbus_probe: resume (watch_otherend) %s failed:"
-			   " %d\n", dev_name(dev), err);
+		pr_warn("resume (watch_otherend) %s failed: %d.\n",
+			dev_name(dev), err);
 		return err;
 	}
 
@@ -975,7 +975,7 @@ static void xenbus_reset_wait_for_backend(char *be, int expected)
 	timeout = wait_event_interruptible_timeout(backend_state_wq,
 			backend_state == expected, 5 * HZ);
 	if (timeout <= 0)
-		pr_info("XENBUS: backend %s timed out.\n", be);
+		pr_info("backend %s timed out.\n", be);
 }
 
 /*
@@ -998,7 +998,7 @@ static void xenbus_reset_frontend(char *fe, char *be, int be_state)
 	be_watch.callback = xenbus_reset_backend_state_changed;
 	backend_state = XenbusStateUnknown;
 
-	pr_info("XENBUS: triggering reconnect on %s\n", be);
+	pr_info("triggering reconnect on %s\n", be);
 	register_xenbus_watch(&be_watch);
 
 	/* fall through to forward backend to state XenbusStateInitialising */
@@ -1017,7 +1017,7 @@ static void xenbus_reset_frontend(char *fe, char *be, int be_state)
 	}
 
 	unregister_xenbus_watch(&be_watch);
-	pr_info("XENBUS: reconnect done on %s\n", be);
+	pr_info("reconnect done on %s\n", be);
 	kfree(be_watch.node);
 }
 
@@ -1235,8 +1235,7 @@ int xenbus_conn(domid_t remote_dom, grant_ref_t *grant_ref,
 fail1:
 	rc2 = close_evtchn(xen_store_evtchn);
 	if (rc2 != 0)
-		pr_warning("XENBUS: Error freeing xenstore event channel:"
-			   " %d\n", rc2);
+		pr_warn("Error freeing xenstore event channel: %d\n", rc2);
 fail0:
 	xen_store_evtchn = -1;
 	return rc;
@@ -1305,8 +1304,8 @@ xenbus_init(void)
 	/* Register ourselves with the kernel bus subsystem */
 	xenbus_frontend.error = bus_register(&xenbus_frontend.bus);
 	if (xenbus_frontend.error)
-		pr_warning("XENBUS: Error registering frontend bus: %i\n",
-			   xenbus_frontend.error);
+		pr_warn("Error registering frontend bus: %i\n",
+			xenbus_frontend.error);
 	xenbus_backend_bus_register();
 
 	/*
@@ -1401,8 +1400,7 @@ xenbus_init(void)
 	/* Initialize the interface to xenstore. */
 	err = xs_init();
 	if (err) {
-		pr_warning("XENBUS: Error initializing xenstore comms: %i\n",
-			   err);
+		pr_warn("Error initializing xenstore comms: %i\n", err);
 		goto out_error;
 	}
 
@@ -1412,8 +1410,8 @@ xenbus_init(void)
 		xenbus_frontend.error = device_register(&xenbus_frontend.dev);
 		if (xenbus_frontend.error) {
 			bus_unregister(&xenbus_frontend.bus);
-			pr_warning("XENBUS: Error registering frontend device:"
-				   " %d\n", xenbus_frontend.error);
+			pr_warn("Error registering frontend device: %d\n",
+				xenbus_frontend.error);
 		}
 	}
 	xenbus_backend_device_register();
@@ -1495,8 +1493,7 @@ static int print_device_status(struct device *dev, void *data)
 
 	if (!dev->driver) {
 		/* Information only: is this too noisy? */
-		pr_info("XENBUS: Device with no driver: %s\n",
-			xendev->nodename);
+		pr_info("Device with no driver: %s\n", xendev->nodename);
 		return 0;
 	}
 
@@ -1504,15 +1501,14 @@ static int print_device_status(struct device *dev, void *data)
 		enum xenbus_state rstate = XenbusStateUnknown;
 		if (xendev->otherend)
 			rstate = xenbus_read_driver_state(xendev->otherend);
-		pr_warning("XENBUS: Timeout connecting to device: %s"
-			   " (local state %d, remote state %d)\n",
-			   xendev->nodename, xendev->state, rstate);
+		pr_warn("Timeout connecting to device: %s"
+			" (local state %d, remote state %d)\n",
+			xendev->nodename, xendev->state, rstate);
 	}
 
 	xendrv = to_xenbus_driver(dev->driver);
 	if (xendrv->is_ready && !xendrv->is_ready(xendev))
-		pr_warning("XENBUS: Device not ready: %s\n",
-			   xendev->nodename);
+		pr_warn("Device not ready: %s\n", xendev->nodename);
 
 	return 0;
 }
@@ -1546,10 +1542,9 @@ static void wait_for_devices(struct xenbus_driver *xendrv)
 	while (exists_connecting_device(drv)) {
 		if (time_after(jiffies, start + (seconds_waited+5)*HZ)) {
 			if (!seconds_waited)
-				pr_warning("XENBUS: Waiting for "
-					   "devices to initialise: ");
+				pr_warn("Waiting for devices to initialise: ");
 			seconds_waited += 5;
-			printk("%us...", 300 - seconds_waited);
+			pr_cont("%us...", 300 - seconds_waited);
 			if (seconds_waited == 300)
 				break;
 		}
@@ -1558,7 +1553,7 @@ static void wait_for_devices(struct xenbus_driver *xendrv)
 	}
 
 	if (seconds_waited)
-		printk("\n");
+		pr_cont("\n");
 
 	bus_for_each_dev(&xenbus_frontend.bus, NULL, drv,
 			 print_device_status);

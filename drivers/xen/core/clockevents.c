@@ -208,7 +208,7 @@ static struct irqaction timer_action = {
 	.name    = "timer"
 };
 
-void __cpuinit xen_setup_cpu_clockevents(void)
+void xen_setup_cpu_clockevents(void)
 {
 	unsigned int cpu = smp_processor_id();
 	struct clock_event_device *evt = &per_cpu(xen_clock_event, cpu);
@@ -220,7 +220,7 @@ void __cpuinit xen_setup_cpu_clockevents(void)
 }
 
 #ifdef CONFIG_SMP
-int __cpuinit local_setup_timer(unsigned int cpu)
+int local_setup_timer(unsigned int cpu)
 {
 	struct clock_event_device *evt = &per_cpu(xen_clock_event, cpu);
 
@@ -237,7 +237,7 @@ int __cpuinit local_setup_timer(unsigned int cpu)
 	return 0;
 }
 
-void __cpuinit local_teardown_timer(unsigned int cpu)
+void local_teardown_timer(unsigned int cpu)
 {
 	struct clock_event_device *evt = &per_cpu(xen_clock_event, cpu);
 

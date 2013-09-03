@@ -55,7 +55,7 @@ static inline void xen_stts(void)
  * all loads stores around it, which can hurt performance. Solution is to
  * use a variable and mimic reads and writes to it to enforce serialization
  */
-#define __force_order machine_to_phys_nr
+extern unsigned long __force_order;
 
 static inline unsigned long native_read_cr0(void)
 {

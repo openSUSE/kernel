@@ -675,7 +675,7 @@ s32 efx_filter_insert_filter(struct efx_nic *efx, struct efx_filter_spec *spec,
 		BUILD_BUG_ON(EFX_FILTER_INDEX_UC_DEF != 0);
 		BUILD_BUG_ON(EFX_FILTER_INDEX_MC_DEF !=
 			     EFX_FILTER_MC_DEF - EFX_FILTER_UC_DEF);
-		rep_index = spec->type - EFX_FILTER_INDEX_UC_DEF;
+		rep_index = spec->type - EFX_FILTER_UC_DEF;
 		ins_index = rep_index;
 
 		spin_lock_bh(&state->lock);
@@ -1185,8 +1185,21 @@ int efx_filter_rfs(struct net_device *net_dev, const struct sk_buff *skb,
 
 	nhoff = skb_network_offset(skb);
 
-	if (skb->protocol != htons(ETH_P_IP))
+	if (skb->protocol == htons(ETH_P_8021Q)) {
+		EFX_BUG_ON_PARANOID(skb_headlen(skb) <
+				    nhoff + sizeof(struct vlan_hdr));
+		if (((const struct vlan_hdr *)skb->data + nhoff)->
+		    h_vlan_encapsulated_proto != htons(ETH_P_IP))
+			return -EPROTONOSUPPORT;
+
+		/* This is IP over 802.1q VLAN.  We can't filter on the
+		 * IP 5-tuple and the vlan together, so just strip the
+		 * vlan header and filter on the IP part.
+		 */
+		nhoff += sizeof(struct vlan_hdr);
+	} else if (skb->protocol != htons(ETH_P_IP)) {
 		return -EPROTONOSUPPORT;
+	}
 
 	/* RFS must validate the IP header length before calling us */
 	EFX_BUG_ON_PARANOID(skb_headlen(skb) < nhoff + sizeof(*ip));

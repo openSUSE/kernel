@@ -52,6 +52,7 @@ int balloon_sysfs_init(void);
 void balloon_sysfs_exit(void);
 
 void balloon_set_new_target(unsigned long target);
+unsigned long balloon_num_physpages(void);
 unsigned long balloon_minimum_target(void);
 
 #endif /* __XEN_BALLOON_COMMON_H__ */

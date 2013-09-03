@@ -524,6 +524,7 @@ rx_status_loop:
 					 PCI_DMA_FROMDEVICE);
 		if (dma_mapping_error(&cp->pdev->dev, new_mapping)) {
 			dev->stats.rx_dropped++;
+			kfree_skb(new_skb);
 			goto rx_next;
 		}
 
@@ -1859,7 +1860,7 @@ static int cp_set_eeprom(struct net_device *dev,
 /* Put the board into D3cold state and wait for WakeUp signal */
 static void cp_set_d3_state (struct cp_private *cp)
 {
-	pci_enable_wake (cp->pdev, 0, 1); /* Enable PME# generation */
+	pci_enable_wake(cp->pdev, PCI_D0, 1); /* Enable PME# generation */
 	pci_set_power_state (cp->pdev, PCI_D3hot);
 }
 

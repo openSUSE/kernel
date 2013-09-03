@@ -392,7 +392,7 @@ static int show_journal(struct seq_file *m, void *unused)
 
 static int r_open(struct inode *inode, struct file *file)
 {
-	return single_open(file, PDE_DATA(inode),
+	return single_open(file, PDE_DATA(inode), 
 				proc_get_parent_data(inode));
 }
 

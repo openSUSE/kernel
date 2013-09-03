@@ -153,7 +153,9 @@ static void iwl_mvm_scan_fill_ssids(struct iwl_scan_cmd *cmd,
  * just to notify that this scan is active and not passive.
  * In order to notify the FW of the number of SSIDs we wish to scan (including
  * the zero-length one), we need to set the corresponding bits in chan->type,
- * one for each SSID, and set the active bit (first).
+ * one for each SSID, and set the active bit (first). The first SSID is already
+ * included in the probe template, so we need to set only req->n_ssids - 1 bits
+ * in addition to the first bit.
  */
 static u16 iwl_mvm_get_active_dwell(enum ieee80211_band band, int n_ssids)
 {
@@ -290,12 +292,6 @@ int iwl_mvm_scan_request(struct iwl_mvm *mvm,
 		cmd->type = cpu_to_le32(SCAN_TYPE_DISCOVERY_FORCED);
 	else
 		cmd->type = cpu_to_le32(SCAN_TYPE_FORCED);
-
-	/*
-	 * TODO: This is a WA due to a bug in the FW AUX framework that does not
-	 * properly handle time events that fail to be scheduled
-	 */
-	cmd->type = cpu_to_le32(SCAN_TYPE_FORCED);
 
 	cmd->repeats = cpu_to_le32(1);
 

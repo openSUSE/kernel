@@ -21,8 +21,6 @@
 #include <linux/of.h>
 #include <linux/of_irq.h>
 #include <linux/of_address.h>
-#include <linux/cpuidle.h>
-#include <linux/cpufreq.h>
 
 #include <linux/mm.h>
 
@@ -172,9 +170,10 @@ static void __init xen_percpu_init(void *unused)
 	per_cpu(xen_vcpu, cpu) = vcpup;
 
 	enable_percpu_irq(xen_events_irq, 0);
+	put_cpu();
 }
 
-static void xen_restart(char str, const char *cmd)
+static void xen_restart(enum reboot_mode reboot_mode, const char *cmd)
 {
 	struct sched_shutdown r = { .reason = SHUTDOWN_reboot };
 	int rc;
@@ -276,11 +275,6 @@ static int __init xen_pm_init(void)
 {
 	pm_power_off = xen_power_off;
 	arm_pm_restart = xen_restart;
-	/*
-	 * Making sure board specific code will not set up ops for
-	 * cpu idle and cpu freq
-	 */
-	disable_cpuidle();
 
 	return 0;
 }
@@ -321,4 +315,5 @@ EXPORT_SYMBOL_GPL(HYPERVISOR_hvm_op);
 EXPORT_SYMBOL_GPL(HYPERVISOR_memory_op);
 EXPORT_SYMBOL_GPL(HYPERVISOR_physdev_op);
 EXPORT_SYMBOL_GPL(HYPERVISOR_vcpu_op);
+EXPORT_SYMBOL_GPL(HYPERVISOR_tmem_op);
 EXPORT_SYMBOL_GPL(privcmd_call);

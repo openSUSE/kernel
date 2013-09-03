@@ -841,7 +841,7 @@ static const struct net_device_ops tap_netdev_ops = {
 #endif
 };
 
-static int tun_flow_init(struct tun_struct *tun)
+static void tun_flow_init(struct tun_struct *tun)
 {
 	int i;
 
@@ -852,8 +852,6 @@ static int tun_flow_init(struct tun_struct *tun)
 	setup_timer(&tun->flow_gc_timer, tun_flow_cleanup, (unsigned long)tun);
 	mod_timer(&tun->flow_gc_timer,
 		  round_jiffies_up(jiffies + tun->ageing_time));
-
-	return 0;
 }
 
 static void tun_flow_uninit(struct tun_struct *tun)
@@ -1076,8 +1074,9 @@ static ssize_t tun_get_user(struct tun_struct *tun, struct tun_file *tfile,
 	u32 rxhash;
 
 	if (!(tun->flags & TUN_NO_PI)) {
-		if ((len -= sizeof(pi)) > total_len)
+		if (len < sizeof(pi))
 			return -EINVAL;
+		len -= sizeof(pi);
 
 		if (memcpy_fromiovecend((void *)&pi, iv, 0, sizeof(pi)))
 			return -EFAULT;
@@ -1085,8 +1084,9 @@ static ssize_t tun_get_user(struct tun_struct *tun, struct tun_file *tfile,
 	}
 
 	if (tun->flags & TUN_VNET_HDR) {
-		if ((len -= tun->vnet_hdr_sz) > total_len)
+		if (len < tun->vnet_hdr_sz)
 			return -EINVAL;
+		len -= tun->vnet_hdr_sz;
 
 		if (memcpy_fromiovecend((void *)&gso, iv, offset, sizeof(gso)))
 			return -EFAULT;
@@ -1549,6 +1549,9 @@ static int tun_flags(struct tun_struct *tun)
 	if (tun->flags & TUN_TAP_MQ)
 		flags |= IFF_MULTI_QUEUE;
 
+	if (tun->flags & TUN_PERSIST)
+		flags |= IFF_PERSIST;
+
 	return flags;
 }
 
@@ -1678,10 +1681,7 @@ static int tun_set_iff(struct net *net, struct file *file, struct ifreq *ifr)
 			goto err_free_dev;
 
 		tun_net_init(dev);
-
-		err = tun_flow_init(tun);
-		if (err < 0)
-			goto err_free_dev;
+		tun_flow_init(tun);
 
 		dev->hw_features = NETIF_F_SG | NETIF_F_FRAGLIST |
 			TUN_USER_FEATURES;

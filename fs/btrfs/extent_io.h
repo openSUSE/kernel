@@ -19,6 +19,7 @@
 #define EXTENT_FIRST_DELALLOC (1 << 12)
 #define EXTENT_NEED_WAIT (1 << 13)
 #define EXTENT_DAMAGED (1 << 14)
+#define EXTENT_NORESERVE (1 << 15)
 #define EXTENT_IOBITS (EXTENT_LOCKED | EXTENT_WRITEBACK)
 #define EXTENT_CTLBITS (EXTENT_DO_ACCOUNTING | EXTENT_FIRST_DELALLOC)
 
@@ -293,6 +294,7 @@ static inline unsigned long num_extent_pages(u64 start, u64 len)
 static inline struct page *extent_buffer_page(struct extent_buffer *eb,
 					      unsigned long i)
 {
+	BUG_ON(i >= INLINE_EXTENT_BUFFER_PAGES);
 	return eb->pages[i];
 }
 
