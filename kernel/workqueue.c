@@ -16,9 +16,10 @@
  *
  * This is the generic async execution mechanism.  Work items as are
  * executed in process context.  The worker pool is shared and
- * automatically managed.  There is one worker pool for each CPU and
- * one extra for works which are better served by workers which are
- * not bound to any specific CPU.
+ * automatically managed.  There are two worker pools for each CPU (one for
+ * normal work items and the other for high priority ones) and some extra
+ * pools for workqueues which are not bound to any specific CPU - the
+ * number of these backing pools is dynamic.
  *
  * Please read Documentation/workqueue.txt for details.
  */
@@ -2033,8 +2034,11 @@ static bool maybe_destroy_workers(struct worker_pool *pool)
  * multiple times.  Does GFP_KERNEL allocations.
  *
  * RETURNS:
- * spin_lock_irq(pool->lock) which may be released and regrabbed
- * multiple times.  Does GFP_KERNEL allocations.
+ * %false if the pool don't need management and the caller can safely start
+ * processing works, %true indicates that the function released pool->lock
+ * and reacquired it to perform some management function and that the
+ * conditions that the caller verified while holding the lock before
+ * calling the function might no longer be true.
  */
 static bool manage_workers(struct worker *worker)
 {
@@ -3095,25 +3099,26 @@ static struct workqueue_struct *dev_to_wq(struct device *dev)
 	return wq_dev->wq;
 }
 
-static ssize_t wq_per_cpu_show(struct device *dev,
-			       struct device_attribute *attr, char *buf)
+static ssize_t per_cpu_show(struct device *dev, struct device_attribute *attr,
+			    char *buf)
 {
 	struct workqueue_struct *wq = dev_to_wq(dev);
 
 	return scnprintf(buf, PAGE_SIZE, "%d\n", (bool)!(wq->flags & WQ_UNBOUND));
 }
+static DEVICE_ATTR_RO(per_cpu);
 
-static ssize_t wq_max_active_show(struct device *dev,
-				  struct device_attribute *attr, char *buf)
+static ssize_t max_active_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
 {
 	struct workqueue_struct *wq = dev_to_wq(dev);
 
 	return scnprintf(buf, PAGE_SIZE, "%d\n", wq->saved_max_active);
 }
 
-static ssize_t wq_max_active_store(struct device *dev,
-				   struct device_attribute *attr,
-				   const char *buf, size_t count)
+static ssize_t max_active_store(struct device *dev,
+				struct device_attribute *attr, const char *buf,
+				size_t count)
 {
 	struct workqueue_struct *wq = dev_to_wq(dev);
 	int val;
@@ -3124,12 +3129,14 @@ static ssize_t wq_max_active_store(struct device *dev,
 	workqueue_set_max_active(wq, val);
 	return count;
 }
+static DEVICE_ATTR_RW(max_active);
 
-static struct device_attribute wq_sysfs_attrs[] = {
-	__ATTR(per_cpu, 0444, wq_per_cpu_show, NULL),
-	__ATTR(max_active, 0644, wq_max_active_show, wq_max_active_store),
-	__ATTR_NULL,
+static struct attribute *wq_sysfs_attrs[] = {
+	&dev_attr_per_cpu.attr,
+	&dev_attr_max_active.attr,
+	NULL,
 };
+ATTRIBUTE_GROUPS(wq_sysfs);
 
 static ssize_t wq_pool_ids_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
@@ -3279,7 +3286,7 @@ static struct device_attribute wq_sysfs_unbound_attrs[] = {
 
 static struct bus_type wq_subsys = {
 	.name				= "workqueue",
-	.dev_attrs			= wq_sysfs_attrs,
+	.dev_groups			= wq_sysfs_groups,
 };
 
 static int __init wq_sysfs_init(void)
