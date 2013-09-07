@@ -6315,6 +6315,13 @@ F:	Documentation/PCI/
 F:	drivers/pci/
 F:	include/linux/pci*
 
+PCI DRIVER FOR NVIDIA TEGRA
+M:	Thierry Reding <thierry.reding@gmail.com>
+L:	linux-tegra@vger.kernel.org
+S:	Supported
+F:	Documentation/devicetree/bindings/pci/nvidia,tegra20-pcie.txt
+F:	drivers/pci/host/pci-tegra.c
+
 PCMCIA SUBSYSTEM
 P:	Linux PCMCIA Team
 L:	linux-pcmcia@lists.infradead.org
@@ -6960,6 +6967,14 @@ RICOH R5C592 MEMORYSTICK DRIVER
 M:	Maxim Levitsky <maximlevitsky@gmail.com>
 S:	Maintained
 F:	drivers/memstick/host/r592.*
+
+ROCCAT DRIVERS
+M:	Stefan Achatz <erazor_de@users.sourceforge.net>
+W:	http://sourceforge.net/projects/roccat/
+S:	Maintained
+F:	drivers/hid/hid-roccat*
+F:	include/linux/hid-roccat*
+F:	Documentation/ABI/*/sysfs-driver-hid-roccat*
 
 ROCKETPORT DRIVER
 P:	Comtrol Corp.
@@ -8365,9 +8380,14 @@ M:	Chris Metcalf <cmetcalf@tilera.com>
 W:	http://www.tilera.com/scm/
 S:	Supported
 F:	arch/tile/
-F:	drivers/tty/hvc/hvc_tile.c
-F:	drivers/net/ethernet/tile/
+F:	drivers/char/tile-srom.c
 F:	drivers/edac/tile_edac.c
+F:	drivers/net/ethernet/tile/
+F:	drivers/rtc/rtc-tile.c
+F:	drivers/tty/hvc/hvc_tile.c
+F:	drivers/tty/serial/tilegx.c
+F:	drivers/usb/host/*-tilegx.c
+F:	include/linux/usb/tilegx.h
 
 TLAN NETWORK DRIVER
 M:	Samuel Chessman <chessman@tux.org>
