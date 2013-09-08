@@ -1320,7 +1320,6 @@ L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 F:	arch/arm/mach-vt8500/
 F:	drivers/clocksource/vt8500_timer.c
-F:	drivers/gpio/gpio-vt8500.c
 F:	drivers/i2c/busses/i2c-wmt.c
 F:	drivers/mmc/host/wmt-sdmmc.c
 F:	drivers/pwm/pwm-vt8500.c
@@ -2494,9 +2493,9 @@ S:	Maintained
 F:	drivers/media/common/cypress_firmware*
 
 CYTTSP TOUCHSCREEN DRIVER
-M:	Javier Martinez Canillas <javier@dowhile0.org>
+M:	Ferruh Yigit <fery@cypress.com>
 L:	linux-input@vger.kernel.org
-S:	Maintained
+S:	Supported
 F:	drivers/input/touchscreen/cyttsp*
 F:	include/linux/input/cyttsp.h
 
@@ -4140,6 +4139,13 @@ L:	platform-driver-x86@vger.kernel.org
 W:	http://launchpad.net/ideapad-laptop
 S:	Maintained
 F:	drivers/platform/x86/ideapad-laptop.c
+
+IDEAPAD LAPTOP SLIDEBAR DRIVER
+M:	Andrey Moiseev <o2g.org.ru@gmail.com>
+L:	linux-input@vger.kernel.org
+W:	https://github.com/o2genum/ideapad-slidebar
+S:	Maintained
+F:	drivers/input/misc/ideapad_slidebar.c
 
 IDE/ATAPI DRIVERS
 M:	Borislav Petkov <bp@alien8.de>
@@ -5883,6 +5889,8 @@ F:	drivers/scsi/nsp32*
 NTB DRIVER
 M:	Jon Mason <jon.mason@intel.com>
 S:	Supported
+W:	https://github.com/jonmason/ntb/wiki
+T:	git git://github.com/jonmason/ntb.git
 F:	drivers/ntb/
 F:	drivers/net/ntb_netdev.c
 F:	include/linux/ntb.h
