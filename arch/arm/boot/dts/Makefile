@@ -198,12 +198,16 @@ dtb-$(CONFIG_ARCH_SHMOBILE) += emev2-kzm9d.dtb \
 	emev2-kzm9d-reference.dtb \
 	r8a7740-armadillo800eva.dtb \
 	r8a7778-bockw.dtb \
+	r8a7778-bockw-reference.dtb \
 	r8a7740-armadillo800eva-reference.dtb \
+	r8a7779-marzen.dtb \
 	r8a7779-marzen-reference.dtb \
 	r8a7790-lager.dtb \
+	r8a7790-lager-reference.dtb \
 	sh73a0-kzm9g.dtb \
 	sh73a0-kzm9g-reference.dtb \
 	r8a73a4-ape6evm.dtb \
+	r8a73a4-ape6evm-reference.dtb \
 	sh7372-mackerel.dtb
 dtb-$(CONFIG_ARCH_SHMOBILE_MULTI) += emev2-kzm9d-reference.dtb
 dtb-$(CONFIG_ARCH_SOCFPGA) += socfpga_cyclone5.dtb \
@@ -227,6 +231,7 @@ dtb-$(CONFIG_ARCH_SUNXI) += \
 	sun5i-a10s-olinuxino-micro.dtb \
 	sun5i-a13-olinuxino.dtb \
 	sun6i-a31-colombus.dtb \
+	sun7i-a20-cubieboard2.dtb \
 	sun7i-a20-olinuxino-micro.dtb
 dtb-$(CONFIG_ARCH_TEGRA) += tegra20-harmony.dtb \
 	tegra20-iris-512.dtb \
