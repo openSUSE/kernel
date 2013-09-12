@@ -1,8 +1,8 @@
 VERSION = 3
 PATCHLEVEL = 11
 SUBLEVEL = 0
-EXTRAVERSION =-9031-ga22a0fd
-NAME = Linux for Workgroups
+EXTRAVERSION =-9420-gd5d04bb
+NAME = Suicidal Squirrel
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
