@@ -691,6 +691,7 @@ struct backref_node *build_backref_tree(struct reloc_control *rc,
 	int cowonly;
 	int ret;
 	int err = 0;
+	bool need_check = true;
 
 	path1 = btrfs_alloc_path();
 	path2 = btrfs_alloc_path();
@@ -914,6 +915,7 @@ again:
 			cur->bytenr);
 
 		lower = cur;
+		need_check = true;
 		for (; level < BTRFS_MAX_LEVEL; level++) {
 			if (!path2->nodes[level]) {
 				BUG_ON(btrfs_root_bytenr(&root->root_item) !=
@@ -957,14 +959,12 @@ again:
 
 				/*
 				 * add the block to pending list if we
-				 * need check its backrefs. only block
-				 * at 'cur->level + 1' is added to the
-				 * tail of pending list. this guarantees
-				 * we check backrefs from lower level
-				 * blocks to upper level blocks.
+				 * need check its backrefs, we only do this once
+				 * while walking up a tree as we will catch
+				 * anything else later on.
 				 */
-				if (!upper->checked &&
-				    level == cur->level + 1) {
+				if (!upper->checked && need_check) {
+					need_check = false;
 					list_add_tail(&edge->list[UPPER],
 						      &list);
 				} else
@@ -2314,8 +2314,13 @@ again:
 			BUG_ON(root->reloc_root != reloc_root);
 
 			ret = merge_reloc_root(rc, root);
-			if (ret)
+			if (ret) {
+				__update_reloc_root(reloc_root, 1);
+				free_extent_buffer(reloc_root->node);
+				free_extent_buffer(reloc_root->commit_root);
+				kfree(reloc_root);
 				goto out;
+			}
 		} else {
 			list_del_init(&reloc_root->root_list);
 		}
@@ -3628,7 +3633,7 @@ int add_data_references(struct reloc_control *rc,
 	unsigned long ptr;
 	unsigned long end;
 	u32 blocksize = btrfs_level_size(rc->extent_root, 0);
-	int ret;
+	int ret = 0;
 	int err = 0;
 
 	eb = path->nodes[0];
@@ -3654,6 +3659,10 @@ int add_data_references(struct reloc_control *rc,
 						   eb, dref, blocks);
 		} else {
 			BUG();
+		}
+		if (ret) {
+			err = ret;
+			goto out;
 		}
 		ptr += btrfs_extent_inline_ref_size(key.type);
 	}
@@ -3700,6 +3709,7 @@ int add_data_references(struct reloc_control *rc,
 		}
 		path->slots[0]++;
 	}
+out:
 	btrfs_release_path(path);
 	if (err)
 		free_block_list(blocks);

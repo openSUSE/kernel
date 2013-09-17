@@ -327,7 +327,7 @@ enum {
 static match_table_t tokens = {
 	{Opt_degraded, "degraded"},
 	{Opt_subvol, "subvol=%s"},
-	{Opt_subvolid, "subvolid=%d"},
+	{Opt_subvolid, "subvolid=%s"},
 	{Opt_device, "device=%s"},
 	{Opt_nodatasum, "nodatasum"},
 	{Opt_nodatacow, "nodatacow"},
@@ -654,8 +654,8 @@ static int btrfs_parse_early_options(const char *options, fmode_t flags,
 {
 	substring_t args[MAX_OPT_ARGS];
 	char *device_name, *opts, *orig, *p;
+	char *num = NULL;
 	int error = 0;
-	int intarg;
 
 	if (!options)
 		return 0;
@@ -681,15 +681,17 @@ static int btrfs_parse_early_options(const char *options, fmode_t flags,
 			*subvol_name = match_strdup(&args[0]);
 			break;
 		case Opt_subvolid:
-			intarg = 0;
-			error = match_int(&args[0], &intarg);
-			if (!error) {
+			num = match_strdup(&args[0]);
+			if (num) {
+				*subvol_objectid = memparse(num, NULL);
+				kfree(num);
 				/* we want the original fs_tree */
-				if (!intarg)
+				if (!*subvol_objectid)
 					*subvol_objectid =
 						BTRFS_FS_TREE_OBJECTID;
-				else
-					*subvol_objectid = intarg;
+ 			} else {
+ 				error = -EINVAL;
+ 				goto out;
 			}
 			break;
 		case Opt_subvolrootid:
@@ -940,6 +942,20 @@ static int btrfs_show_options(struct seq_file *seq, struct dentry *dentry)
 		seq_puts(seq, ",inode_cache");
 	if (btrfs_test_opt(root, SKIP_BALANCE))
 		seq_puts(seq, ",skip_balance");
+	if (btrfs_test_opt(root, RECOVERY))
+		seq_puts(seq, ",recovery");
+#ifdef CONFIG_BTRFS_FS_CHECK_INTEGRITY
+	if (btrfs_test_opt(root, CHECK_INTEGRITY_INCLUDING_EXTENT_DATA))
+		seq_puts(seq, ",check_int_data");
+	else if (btrfs_test_opt(root, CHECK_INTEGRITY))
+		seq_puts(seq, ",check_int");
+	if (info->check_integrity_print_mask)
+		seq_printf(seq, ",check_int_print_mask=%d",
+				info->check_integrity_print_mask);
+#endif
+	if (info->metadata_ratio)
+		seq_printf(seq, ",metadata_ratio=%d",
+				info->metadata_ratio);
 	if (btrfs_test_opt(root, PANIC_ON_FATAL_ERROR))
 		seq_puts(seq, ",fatal_errors=panic");
 	return 0;

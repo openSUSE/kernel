@@ -911,7 +911,6 @@ again:
 
 	while (!list_empty(&prefs)) {
 		ref = list_first_entry(&prefs, struct __prelim_ref, list);
-		list_del(&ref->list);
 		WARN_ON(ref->count < 0);
 		if (ref->count && ref->root_id && ref->parent == 0) {
 			/* no parent == root of tree */
@@ -935,8 +934,10 @@ again:
 				}
 				ret = find_extent_in_eb(eb, bytenr,
 							*extent_item_pos, &eie);
-				ref->inode_list = eie;
 				free_extent_buffer(eb);
+				if (ret < 0)
+					goto out;
+				ref->inode_list = eie;
 			}
 			ret = ulist_add_merge(refs, ref->parent,
 					      (uintptr_t)ref->inode_list,
@@ -954,6 +955,7 @@ again:
 				eie->next = ref->inode_list;
 			}
 		}
+		list_del(&ref->list);
 		kfree(ref);
 	}
 

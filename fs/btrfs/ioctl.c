@@ -1722,12 +1722,27 @@ out:
 static noinline int may_destroy_subvol(struct btrfs_root *root)
 {
 	struct btrfs_path *path;
+	struct btrfs_dir_item *di;
 	struct btrfs_key key;
+	u64 dir_id;
 	int ret;
 
 	path = btrfs_alloc_path();
 	if (!path)
 		return -ENOMEM;
+
+	/* Make sure this root isn't set as the default subvol */
+	dir_id = btrfs_super_root_dir(root->fs_info->super_copy);
+	di = btrfs_lookup_dir_item(NULL, root->fs_info->tree_root, path,
+				   dir_id, "default", 7, 0);
+	if (di && !IS_ERR(di)) {
+		btrfs_dir_item_key_to_cpu(path->nodes[0], di, &key);
+		if (key.objectid == root->root_key.objectid) {
+			ret = -ENOTEMPTY;
+			goto out;
+		}
+		btrfs_release_path(path);
+	}
 
 	key.objectid = root->root_key.objectid;
 	key.type = BTRFS_ROOT_REF_KEY;
@@ -1994,25 +2009,29 @@ static noinline int btrfs_search_path_in_tree(struct btrfs_fs_info *info,
 		ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
 		if (ret < 0)
 			goto out;
+		else if (ret > 0) {
+			ret = btrfs_previous_item(root, path, dirid,
+						  BTRFS_INODE_REF_KEY);
+			if (ret < 0)
+				goto out;
+			else if (ret > 0) {
+				ret = -ENOENT;
+				goto out;
+			}
+		}
 
 		l = path->nodes[0];
 		slot = path->slots[0];
-		if (ret > 0 && slot > 0)
-			slot--;
 		btrfs_item_key_to_cpu(l, &key, slot);
-
-		if (ret > 0 && (key.objectid != dirid ||
-				key.type != BTRFS_INODE_REF_KEY)) {
-			ret = -ENOENT;
-			goto out;
-		}
 
 		iref = btrfs_item_ptr(l, slot, struct btrfs_inode_ref);
 		len = btrfs_inode_ref_name_len(l, iref);
 		ptr -= len + 1;
 		total_len += len + 1;
-		if (ptr < name)
+		if (ptr < name) {
+			ret = -ENAMETOOLONG;
 			goto out;
+		}
 
 		*(ptr + len) = '/';
 		read_extent_buffer(l, ptr,(unsigned long)(iref + 1), len);
@@ -2025,8 +2044,6 @@ static noinline int btrfs_search_path_in_tree(struct btrfs_fs_info *info,
 		key.offset = (u64)-1;
 		dirid = key.objectid;
 	}
-	if (ptr < name)
-		goto out;
 	memmove(name, ptr, total_len);
 	name[total_len]='\0';
 	ret = 0;
@@ -4042,18 +4059,22 @@ out:
 static int btrfs_ioctl_get_fslabel(struct file *file, void __user *arg)
 {
 	struct btrfs_root *root = BTRFS_I(file_inode(file))->root;
-	const char *label = root->fs_info->super_copy->label;
-	size_t len = strnlen(label, BTRFS_LABEL_SIZE);
+	size_t len;
 	int ret;
+	char label[BTRFS_LABEL_SIZE];
+
+	spin_lock(&root->fs_info->super_lock);
+	memcpy(label, root->fs_info->super_copy->label, BTRFS_LABEL_SIZE);
+	spin_unlock(&root->fs_info->super_lock);
+
+	len = strnlen(label, BTRFS_LABEL_SIZE);
 
 	if (len == BTRFS_LABEL_SIZE) {
 		pr_warn("btrfs: label is too long, return the first %zu bytes\n",
 			--len);
 	}
 
-	mutex_lock(&root->fs_info->volume_mutex);
 	ret = copy_to_user(arg, label, len);
-	mutex_unlock(&root->fs_info->volume_mutex);
 
 	return ret ? -EFAULT : 0;
 }
@@ -4082,18 +4103,18 @@ static int btrfs_ioctl_set_fslabel(struct file *file, void __user *arg)
 	if (ret)
 		return ret;
 
-	mutex_lock(&root->fs_info->volume_mutex);
 	trans = btrfs_start_transaction(root, 0);
 	if (IS_ERR(trans)) {
 		ret = PTR_ERR(trans);
 		goto out_unlock;
 	}
 
+	spin_lock(&root->fs_info->super_lock);
 	strcpy(super_block->label, label);
+	spin_unlock(&root->fs_info->super_lock);
 	ret = btrfs_end_transaction(trans, root);
 
 out_unlock:
-	mutex_unlock(&root->fs_info->volume_mutex);
 	mnt_drop_write_file(file);
 	return ret;
 }

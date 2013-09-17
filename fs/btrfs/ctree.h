@@ -1188,6 +1188,7 @@ enum btrfs_caching_type {
 	BTRFS_CACHE_STARTED	= 1,
 	BTRFS_CACHE_FAST	= 2,
 	BTRFS_CACHE_FINISHED	= 3,
+	BTRFS_CACHE_ERROR	= 4,
 };
 
 enum btrfs_disk_cache_state {
@@ -1411,6 +1412,13 @@ struct btrfs_fs_info {
 	 * before jumping into the main commit.
 	 */
 	struct mutex ordered_operations_mutex;
+
+	/*
+	 * Same as ordered_operations_mutex except this is for ordered extents
+	 * and not the operations.
+	 */
+	struct mutex ordered_extent_flush_mutex;
+
 	struct rw_semaphore extent_commit_sem;
 
 	struct rw_semaphore cleanup_work_sem;

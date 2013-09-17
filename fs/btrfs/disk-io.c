@@ -1148,6 +1148,10 @@ struct extent_buffer *read_tree_block(struct btrfs_root *root, u64 bytenr,
 		return NULL;
 
 	ret = btree_read_extent_buffer_pages(root, buf, 0, parent_transid);
+	if (ret) {
+		free_extent_buffer(buf);
+		return NULL;
+	}
 	return buf;
 
 }
@@ -2270,6 +2274,7 @@ int open_ctree(struct super_block *sb,
 
 
 	mutex_init(&fs_info->ordered_operations_mutex);
+	mutex_init(&fs_info->ordered_extent_flush_mutex);
 	mutex_init(&fs_info->tree_log_mutex);
 	mutex_init(&fs_info->chunk_mutex);
 	mutex_init(&fs_info->transaction_kthread_mutex);
@@ -3421,6 +3426,8 @@ static void free_fs_root(struct btrfs_root *root)
 {
 	iput(root->cache_inode);
 	WARN_ON(!RB_EMPTY_ROOT(&root->inode_tree));
+	btrfs_free_block_rsv(root, root->orphan_block_rsv);
+	root->orphan_block_rsv = NULL;
 	if (root->anon_dev)
 		free_anon_bdev(root->anon_dev);
 	free_extent_buffer(root->node);
@@ -3572,6 +3579,9 @@ int close_ctree(struct btrfs_root *root)
 	cleanup_srcu_struct(&fs_info->subvol_srcu);
 
 	btrfs_free_stripe_hash_table(fs_info);
+
+	btrfs_free_block_rsv(root, root->orphan_block_rsv);
+	root->orphan_block_rsv = NULL;
 
 	return 0;
 }
