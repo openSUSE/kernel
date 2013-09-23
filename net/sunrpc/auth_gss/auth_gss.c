@@ -75,7 +75,7 @@ static unsigned int gss_key_expire_timeo = GSS_KEY_EXPIRE_TIMEO;
  * using integrity (two 4-byte integers): */
 #define GSS_VERF_SLACK		100
 
-static DEFINE_HASHTABLE(gss_auth_hash_table, 16);
+static DEFINE_HASHTABLE(gss_auth_hash_table, 4);
 static DEFINE_SPINLOCK(gss_auth_hash_lock);
 
 struct gss_pipe {
@@ -1075,6 +1075,15 @@ gss_destroy(struct rpc_auth *auth)
 	kref_put(&gss_auth->kref, gss_free_callback);
 }
 
+/*
+ * Auths may be shared between rpc clients that were cloned from a
+ * common client with the same xprt, if they also share the flavor and
+ * target_name.
+ *
+ * The auth is looked up from the oldest parent sharing the same
+ * cl_xprt, and the auth itself references only that common parent
+ * (which is guaranteed to last as long as any of its descendants).
+ */
 static struct gss_auth *
 gss_auth_find_or_add_hashed(struct rpc_auth_create_args *args,
 		struct rpc_clnt *clnt,
@@ -1088,6 +1097,8 @@ gss_auth_find_or_add_hashed(struct rpc_auth_create_args *args,
 			gss_auth,
 			hash,
 			hashval) {
+		if (gss_auth->client != clnt)
+			continue;
 		if (gss_auth->rpc_auth.au_flavor != args->pseudoflavor)
 			continue;
 		if (gss_auth->target_name != args->target_name) {
