@@ -1160,7 +1160,12 @@ static struct dentry *btrfs_mount(struct file_system_type *fs_type, int flags,
 					 flags & MS_SILENT ? 1 : 0);
 	}
 
-	root = !error ? get_default_root(s, subvol_objectid) : ERR_PTR(error);
+	if (error) {
+		deactivate_locked_super(s);
+		return ERR_PTR(error);
+	}
+
+	root = get_default_root(s, subvol_objectid);
 	if (IS_ERR(root)) {
 		deactivate_locked_super(s);
 		return root;
