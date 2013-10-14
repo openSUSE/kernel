@@ -1158,6 +1158,8 @@ static struct dentry *btrfs_mount(struct file_system_type *fs_type, int flags,
 		btrfs_sb(s)->bdev_holder = fs_type;
 		error = btrfs_fill_super(s, fs_devices, data,
 					 flags & MS_SILENT ? 1 : 0);
+		if (!error)
+			error = btrfs_sysfs_add_one(fs_info);
 	}
 
 	if (error) {
@@ -1169,13 +1171,6 @@ static struct dentry *btrfs_mount(struct file_system_type *fs_type, int flags,
 	if (IS_ERR(root)) {
 		deactivate_locked_super(s);
 		return root;
-	}
-
-	error = btrfs_sysfs_add_one(fs_info);
-	if (error) {
-		dput(root);
-		deactivate_locked_super(s);
-		return ERR_PTR(error);
 	}
 
 	return root;
