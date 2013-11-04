@@ -10,10 +10,11 @@ config ARCH_TEGRA
 	select CPU_V7
 	select GENERIC_CLOCKEVENTS
 	select HAVE_ARM_SCU if SMP
-	select HAVE_ARM_TWD if LOCAL_TIMERS
+	select HAVE_ARM_TWD if SMP
 	select HAVE_CLK
 	select HAVE_SMP
 	select MIGHT_HAVE_CACHE_L2X0
+	select MIGHT_HAVE_PCI
 	select PINCTRL
 	select SOC_BUS
 	select SPARSE_IRQ
@@ -53,16 +54,12 @@ config ARCH_TEGRA_3x_SOC
 config ARCH_TEGRA_114_SOC
 	bool "Enable support for Tegra114 family"
 	select HAVE_ARM_ARCH_TIMER
+	select ARM_ERRATA_798181
 	select ARM_L1_CACHE_SHIFT_6
 	select PINCTRL_TEGRA114
 	help
 	  Support for NVIDIA Tegra T114 processor family, based on the
 	  ARM CortexA15MP CPU
-
-config TEGRA_PCI
-	bool "PCI Express support"
-	depends on ARCH_TEGRA_2x_SOC
-	select PCI
 
 config TEGRA_AHB
 	bool "Enable AHB driver for NVIDIA Tegra SoCs"

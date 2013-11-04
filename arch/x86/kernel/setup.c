@@ -206,9 +206,9 @@ EXPORT_SYMBOL(boot_cpu_data);
 
 
 #if !defined(CONFIG_X86_PAE) || defined(CONFIG_X86_64)
-unsigned long mmu_cr4_features;
+__visible unsigned long mmu_cr4_features;
 #else
-unsigned long mmu_cr4_features = X86_CR4_PAE;
+__visible unsigned long mmu_cr4_features = X86_CR4_PAE;
 #endif
 
 /* Boot loader ID and version as integers, for the benefit of proc_dointvec */
@@ -413,8 +413,6 @@ static void __init reserve_initrd(void)
 	relocate_initrd();
 
 	memblock_free(ramdisk_image, ramdisk_end - ramdisk_image);
-
-	acpi_initrd_override((void *)initrd_start, initrd_end - initrd_start);
 }
 #else
 static void __init early_reserve_initrd(void)
@@ -1069,7 +1067,7 @@ void __init setup_arch(char **cmdline_p)
 
 	cleanup_highmap();
 
-	memblock.current_limit = ISA_END_ADDRESS;
+	memblock_set_current_limit(ISA_END_ADDRESS);
 	memblock_x86_fill();
 
 	/*
@@ -1102,7 +1100,7 @@ void __init setup_arch(char **cmdline_p)
 
 	setup_real_mode();
 
-	memblock.current_limit = get_max_mapped();
+	memblock_set_current_limit(get_max_mapped());
 	dma_contiguous_reserve(0);
 
 	/*
@@ -1117,6 +1115,10 @@ void __init setup_arch(char **cmdline_p)
 	setup_log_buf(1);
 
 	reserve_initrd();
+
+#if defined(CONFIG_ACPI) && defined(CONFIG_BLK_DEV_INITRD)
+	acpi_initrd_override((void *)initrd_start, initrd_end - initrd_start);
+#endif
 
 	reserve_crashkernel();
 

@@ -1451,7 +1451,7 @@ init_configure_mem(struct nvbios_init *init)
 	data = init_rdvgai(init, 0x03c4, 0x01);
 	init_wrvgai(init, 0x03c4, 0x01, data | 0x20);
 
-	while ((addr = nv_ro32(bios, sdata)) != 0xffffffff) {
+	for (; (addr = nv_ro32(bios, sdata)) != 0xffffffff; sdata += 4) {
 		switch (addr) {
 		case 0x10021c: /* CKE_NORMAL */
 		case 0x1002d0: /* CMD_REFRESH */
@@ -2180,7 +2180,7 @@ nvbios_init(struct nouveau_subdev *subdev, bool execute)
 	u16 data;
 
 	if (execute)
-		nv_info(bios, "running init tables\n");
+		nv_suspend(bios, "running init tables\n");
 	while (!ret && (data = (init_script(bios, ++i)))) {
 		struct nvbios_init init = {
 			.subdev = subdev,

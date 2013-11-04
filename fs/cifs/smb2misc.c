@@ -171,6 +171,10 @@ smb2_check_message(char *buf, unsigned int length)
 	if (4 + len != clc_len) {
 		cifs_dbg(FYI, "Calculated size %u length %u mismatch mid %llu\n",
 			 clc_len, 4 + len, mid);
+		/* create failed on symlink */
+		if (command == SMB2_CREATE_HE &&
+		    hdr->Status == STATUS_STOPPED_ON_SYMLINK)
+			return 0;
 		/* Windows 7 server returns 24 bytes more */
 		if (clc_len + 20 == len && command == SMB2_OPLOCK_BREAK_HE)
 			return 0;
@@ -376,23 +380,15 @@ cifs_convert_path_to_utf16(const char *from, struct cifs_sb_info *cifs_sb)
 __le32
 smb2_get_lease_state(struct cifsInodeInfo *cinode)
 {
-	if (cinode->clientCanCacheAll)
-		return SMB2_LEASE_WRITE_CACHING | SMB2_LEASE_READ_CACHING;
-	else if (cinode->clientCanCacheRead)
-		return SMB2_LEASE_READ_CACHING;
-	return 0;
-}
+	__le32 lease = 0;
 
-__u8 smb2_map_lease_to_oplock(__le32 lease_state)
-{
-	if (lease_state & SMB2_LEASE_WRITE_CACHING) {
-		if (lease_state & SMB2_LEASE_HANDLE_CACHING)
-			return SMB2_OPLOCK_LEVEL_BATCH;
-		else
-			return SMB2_OPLOCK_LEVEL_EXCLUSIVE;
-	} else if (lease_state & SMB2_LEASE_READ_CACHING)
-		return SMB2_OPLOCK_LEVEL_II;
-	return 0;
+	if (CIFS_CACHE_WRITE(cinode))
+		lease |= SMB2_LEASE_WRITE_CACHING;
+	if (CIFS_CACHE_HANDLE(cinode))
+		lease |= SMB2_LEASE_HANDLE_CACHING;
+	if (CIFS_CACHE_READ(cinode))
+		lease |= SMB2_LEASE_READ_CACHING;
+	return lease;
 }
 
 struct smb2_lease_break_work {
@@ -424,12 +420,13 @@ smb2_tcon_has_lease(struct cifs_tcon *tcon, struct smb2_lease_break *rsp,
 	__u8 lease_state;
 	struct list_head *tmp;
 	struct cifsFileInfo *cfile;
+	struct TCP_Server_Info *server = tcon->ses->server;
 	struct cifs_pending_open *open;
 	struct cifsInodeInfo *cinode;
 	int ack_req = le32_to_cpu(rsp->Flags &
 				  SMB2_NOTIFY_BREAK_LEASE_FLAG_ACK_REQUIRED);
 
-	lease_state = smb2_map_lease_to_oplock(rsp->NewLeaseState);
+	lease_state = le32_to_cpu(rsp->NewLeaseState);
 
 	list_for_each(tmp, &tcon->openFileList) {
 		cfile = list_entry(tmp, struct cifsFileInfo, tlist);
@@ -443,7 +440,7 @@ smb2_tcon_has_lease(struct cifs_tcon *tcon, struct smb2_lease_break *rsp,
 		cifs_dbg(FYI, "lease key match, lease break 0x%d\n",
 			 le32_to_cpu(rsp->NewLeaseState));
 
-		smb2_set_oplock_level(cinode, lease_state);
+		server->ops->set_oplock_level(cinode, lease_state, 0, NULL);
 
 		if (ack_req)
 			cfile->oplock_break_cancelled = false;
@@ -572,14 +569,15 @@ smb2_is_valid_oplock_break(char *buffer, struct TCP_Server_Info *server)
 				cifs_dbg(FYI, "file id match, oplock break\n");
 				cinode = CIFS_I(cfile->dentry->d_inode);
 
-				if (!cinode->clientCanCacheAll &&
+				if (!CIFS_CACHE_WRITE(cinode) &&
 				    rsp->OplockLevel == SMB2_OPLOCK_LEVEL_NONE)
 					cfile->oplock_break_cancelled = true;
 				else
 					cfile->oplock_break_cancelled = false;
 
-				smb2_set_oplock_level(cinode,
-				  rsp->OplockLevel ? SMB2_OPLOCK_LEVEL_II : 0);
+				server->ops->set_oplock_level(cinode,
+				  rsp->OplockLevel ? SMB2_OPLOCK_LEVEL_II : 0,
+				  0, NULL);
 
 				queue_work(cifsiod_wq, &cfile->oplock_break);
 

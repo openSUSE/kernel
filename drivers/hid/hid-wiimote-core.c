@@ -441,8 +441,7 @@ static __u8 wiimote_cmd_read_ext(struct wiimote_data *wdata, __u8 *rmem)
 	if (ret != 6)
 		return WIIMOTE_EXT_NONE;
 
-	hid_dbg(wdata->hdev, "extension ID: %02x:%02x %02x:%02x %02x:%02x\n",
-		rmem[0], rmem[1], rmem[2], rmem[3], rmem[4], rmem[5]);
+	hid_dbg(wdata->hdev, "extension ID: %6phC\n", rmem);
 
 	if (rmem[0] == 0xff && rmem[1] == 0xff && rmem[2] == 0xff &&
 	    rmem[3] == 0xff && rmem[4] == 0xff && rmem[5] == 0xff)
@@ -512,14 +511,12 @@ static bool wiimote_cmd_read_mp(struct wiimote_data *wdata, __u8 *rmem)
 	if (ret != 6)
 		return false;
 
-	hid_dbg(wdata->hdev, "motion plus ID: %02x:%02x %02x:%02x %02x:%02x\n",
-		rmem[0], rmem[1], rmem[2], rmem[3], rmem[4], rmem[5]);
+	hid_dbg(wdata->hdev, "motion plus ID: %6phC\n", rmem);
 
 	if (rmem[5] == 0x05)
 		return true;
 
-	hid_info(wdata->hdev, "unknown motion plus ID: %02x:%02x %02x:%02x %02x:%02x\n",
-		 rmem[0], rmem[1], rmem[2], rmem[3], rmem[4], rmem[5]);
+	hid_info(wdata->hdev, "unknown motion plus ID: %6phC\n", rmem);
 
 	return false;
 }
@@ -535,8 +532,7 @@ static __u8 wiimote_cmd_read_mp_mapped(struct wiimote_data *wdata)
 	if (ret != 6)
 		return WIIMOTE_MP_NONE;
 
-	hid_dbg(wdata->hdev, "mapped motion plus ID: %02x:%02x %02x:%02x %02x:%02x\n",
-		rmem[0], rmem[1], rmem[2], rmem[3], rmem[4], rmem[5]);
+	hid_dbg(wdata->hdev, "mapped motion plus ID: %6phC\n", rmem);
 
 	if (rmem[0] == 0xff && rmem[1] == 0xff && rmem[2] == 0xff &&
 	    rmem[3] == 0xff && rmem[4] == 0xff && rmem[5] == 0xff)
@@ -838,7 +834,8 @@ static void wiimote_init_set_type(struct wiimote_data *wdata,
 		goto done;
 	}
 
-	if (vendor == USB_VENDOR_ID_NINTENDO) {
+	if (vendor == USB_VENDOR_ID_NINTENDO ||
+	    vendor == USB_VENDOR_ID_NINTENDO2) {
 		if (product == USB_DEVICE_ID_NINTENDO_WIIMOTE) {
 			devtype = WIIMOTE_DEV_GEN10;
 			goto done;
@@ -1128,9 +1125,8 @@ static void wiimote_init_hotplug(struct wiimote_data *wdata)
 		wiimote_ext_unload(wdata);
 
 		if (exttype == WIIMOTE_EXT_UNKNOWN) {
-			hid_info(wdata->hdev, "cannot detect extension; %02x:%02x %02x:%02x %02x:%02x\n",
-				 extdata[0], extdata[1], extdata[2],
-				 extdata[3], extdata[4], extdata[5]);
+			hid_info(wdata->hdev, "cannot detect extension; %6phC\n",
+				 extdata);
 		} else if (exttype == WIIMOTE_EXT_NONE) {
 			spin_lock_irq(&wdata->state.lock);
 			wdata->state.exttype = WIIMOTE_EXT_NONE;
@@ -1859,6 +1855,8 @@ static void wiimote_hid_remove(struct hid_device *hdev)
 
 static const struct hid_device_id wiimote_hid_devices[] = {
 	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_NINTENDO,
+				USB_DEVICE_ID_NINTENDO_WIIMOTE) },
+	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_NINTENDO2,
 				USB_DEVICE_ID_NINTENDO_WIIMOTE) },
 	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_NINTENDO,
 				USB_DEVICE_ID_NINTENDO_WIIMOTE2) },

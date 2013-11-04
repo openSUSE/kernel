@@ -13,7 +13,6 @@
  */
 
 #include <linux/kobject.h>
-#include <linux/kobj_completion.h>
 #include <linux/string.h>
 #include <linux/export.h>
 #include <linux/stat.h>
@@ -546,8 +545,8 @@ static void kobject_cleanup(struct kobject *kobj)
 	struct kobj_type *t = get_ktype(kobj);
 	const char *name = kobj->name;
 
-	pr_debug("kobject: '%s' (%p): %s\n",
-		 kobject_name(kobj), kobj, __func__);
+	pr_debug("kobject: '%s' (%p): %s, parent %p\n",
+		 kobject_name(kobj), kobj, __func__, kobj->parent);
 
 	if (t && !t->release)
 		pr_debug("kobject: '%s' (%p): does not have a release() "
@@ -581,9 +580,25 @@ static void kobject_cleanup(struct kobject *kobj)
 	}
 }
 
+#ifdef CONFIG_DEBUG_KOBJECT_RELEASE
+static void kobject_delayed_cleanup(struct work_struct *work)
+{
+	kobject_cleanup(container_of(to_delayed_work(work),
+				     struct kobject, release));
+}
+#endif
+
 static void kobject_release(struct kref *kref)
 {
-	kobject_cleanup(container_of(kref, struct kobject, kref));
+	struct kobject *kobj = container_of(kref, struct kobject, kref);
+#ifdef CONFIG_DEBUG_KOBJECT_RELEASE
+	pr_info("kobject: '%s' (%p): %s, parent %p (delayed)\n",
+		 kobject_name(kobj), kobj, __func__, kobj->parent);
+	INIT_DELAYED_WORK(&kobj->release, kobject_delayed_cleanup);
+	schedule_delayed_work(&kobj->release, HZ);
+#else
+	kobject_cleanup(kobj);
+#endif
 }
 
 /**
@@ -710,55 +725,7 @@ const struct sysfs_ops kobj_sysfs_ops = {
 	.show	= kobj_attr_show,
 	.store	= kobj_attr_store,
 };
-
-/**
- * kobj_completion_init - initialize a kobj_completion object.
- * @kc: kobj_completion
- * @ktype: type of kobject to initialize
- *
- * kobj_completion structures can be embedded within structures with different
- * lifetime rules.  During the release of the enclosing object, we can
- * wait on the release of the kobject so that we don't free it while it's
- * still busy.
- */
-void kobj_completion_init(struct kobj_completion *kc, struct kobj_type *ktype)
-{
-	init_completion(&kc->kc_unregister);
-	kobject_init(&kc->kc_kobj, ktype);
-}
-EXPORT_SYMBOL_GPL(kobj_completion_init);
-
-/**
- * kobj_completion_release - release a kobj_completion object
- * @kobj: kobject embedded in kobj_completion
- *
- * Used with kobject_release to notify waiters that the kobject has been
- * released.
- */
-void kobj_completion_release(struct kobject *kobj)
-{
-	struct kobj_completion *kc = kobj_to_kobj_completion(kobj);
-	complete(&kc->kc_unregister);
-}
-EXPORT_SYMBOL_GPL(kobj_completion_release);
-
-/**
- * kobj_completion_del_and_wait - release the kobject and wait for it
- * @kc: kobj_completion object to release
- *
- * Delete the kobject from sysfs and drop the reference count.  Then wait
- * until any other outstanding references are also dropped.  This routine
- * is only necessary once other references may have been taken on the
- * kobject.  Typically this happens when the kobject has been published
- * to sysfs via kobject_add.
- */
-void kobj_completion_del_and_wait(struct kobj_completion *kc)
-{
-	kobject_del(&kc->kc_kobj);
-	kobject_put(&kc->kc_kobj);
-	wait_for_completion(&kc->kc_unregister);
-}
-EXPORT_SYMBOL_GPL(kobj_completion_del_and_wait);
+EXPORT_SYMBOL_GPL(kobj_sysfs_ops);
 
 /**
  * kset_register - initialize and add a kset.
@@ -965,6 +932,18 @@ const struct kobj_ns_type_operations *kobj_ns_ops(struct kobject *kobj)
 	return kobj_child_ns_ops(kobj->parent);
 }
 
+bool kobj_ns_current_may_mount(enum kobj_ns_type type)
+{
+	bool may_mount = true;
+
+	spin_lock(&kobj_ns_type_lock);
+	if ((type > KOBJ_NS_TYPE_NONE) && (type < KOBJ_NS_TYPES) &&
+	    kobj_ns_ops_tbl[type])
+		may_mount = kobj_ns_ops_tbl[type]->current_may_mount();
+	spin_unlock(&kobj_ns_type_lock);
+
+	return may_mount;
+}
 
 void *kobj_ns_grab_current(enum kobj_ns_type type)
 {

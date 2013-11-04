@@ -238,7 +238,7 @@ static ssize_t set_min_width(struct device *dev,
 
 	unsigned long val;
 
-	if (strict_strtoul(buf, 0, &val))
+	if (kstrtoul(buf, 0, &val))
 		return -EINVAL;
 
 	if (val > nd->sensor_physical_width)
@@ -273,7 +273,7 @@ static ssize_t set_min_height(struct device *dev,
 
 	unsigned long val;
 
-	if (strict_strtoul(buf, 0, &val))
+	if (kstrtoul(buf, 0, &val))
 		return -EINVAL;
 
 	if (val > nd->sensor_physical_height)
@@ -307,7 +307,7 @@ static ssize_t set_activate_slack(struct device *dev,
 
 	unsigned long val;
 
-	if (strict_strtoul(buf, 0, &val))
+	if (kstrtoul(buf, 0, &val))
 		return -EINVAL;
 
 	if (val > 0x7f)
@@ -342,7 +342,7 @@ static ssize_t set_activation_width(struct device *dev,
 
 	unsigned long val;
 
-	if (strict_strtoul(buf, 0, &val))
+	if (kstrtoul(buf, 0, &val))
 		return -EINVAL;
 
 	if (val > nd->sensor_physical_width)
@@ -378,7 +378,7 @@ static ssize_t set_activation_height(struct device *dev,
 
 	unsigned long val;
 
-	if (strict_strtoul(buf, 0, &val))
+	if (kstrtoul(buf, 0, &val))
 		return -EINVAL;
 
 	if (val > nd->sensor_physical_height)
@@ -412,7 +412,7 @@ static ssize_t set_deactivate_slack(struct device *dev,
 
 	unsigned long val;
 
-	if (strict_strtoul(buf, 0, &val))
+	if (kstrtoul(buf, 0, &val))
 		return -EINVAL;
 
 	/*
