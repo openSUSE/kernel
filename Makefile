@@ -1,7 +1,7 @@
 VERSION = 3
 PATCHLEVEL = 13
 SUBLEVEL = 0
-EXTRAVERSION = -rc1-229-ge7c0d3d
+EXTRAVERSION = -rc1-252-gdda9cc3
 NAME = One Giant Leap for Frogkind
 
 # *DOCUMENTATION*
