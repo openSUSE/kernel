@@ -2514,6 +2514,7 @@ static int may_create_iop(struct inode *dir, int isdir)
  */
 static inline int may_create(struct inode *dir, struct dentry *child, int isdir)
 {
+	audit_inode_child(dir, child, AUDIT_TYPE_CHILD_CREATE);
 	if (child->d_inode)
 		return -EEXIST;
 	if (IS_DEADDIR(dir))
