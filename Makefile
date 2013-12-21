@@ -1,7 +1,7 @@
 VERSION = 3
 PATCHLEVEL = 13
 SUBLEVEL = 0
-EXTRAVERSION = -rc4-199-gf755669
+EXTRAVERSION = -rc4-256-gb7000ad
 NAME = One Giant Leap for Frogkind
 
 # *DOCUMENTATION*
@@ -738,7 +738,9 @@ INITRD_COMPRESS-$(CONFIG_RD_LZMA)  := lzma
 INITRD_COMPRESS-$(CONFIG_RD_XZ)    := xz
 INITRD_COMPRESS-$(CONFIG_RD_LZO)   := lzo
 INITRD_COMPRESS-$(CONFIG_RD_LZ4)   := lz4
-export INITRD_COMPRESS := $(INITRD_COMPRESS-y)
+# do not export INITRD_COMPRESS, since we didn't actually
+# choose a sane default compression above.
+# export INITRD_COMPRESS := $(INITRD_COMPRESS-y)
 
 ifdef CONFIG_MODULE_SIG_ALL
 MODSECKEY = ./signing_key.priv
