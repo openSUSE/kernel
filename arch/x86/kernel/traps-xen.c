@@ -94,7 +94,7 @@ static inline void conditional_sti(struct pt_regs *regs)
 
 static inline void preempt_conditional_sti(struct pt_regs *regs)
 {
-	inc_preempt_count();
+	preempt_count_inc();
 	if (regs->flags & X86_EFLAGS_IF)
 		local_irq_enable();
 }
@@ -109,7 +109,7 @@ static inline void preempt_conditional_cli(struct pt_regs *regs)
 {
 	if (regs->flags & X86_EFLAGS_IF)
 		local_irq_disable();
-	dec_preempt_count();
+	preempt_count_dec();
 }
 
 static int __kprobes
@@ -663,7 +663,7 @@ static void _math_state_restore(void)
 		return;
 	}
 
-	tsk->fpu_counter++;
+	tsk->thread.fpu_counter++;
 }
 
 void math_state_restore(void)
@@ -771,6 +771,33 @@ static const trap_info_t trap_table[] = {
 #endif
 	{ }
 };
+
+#ifdef CONFIG_TRACING
+static const trap_info_t trace_trap_table[] = {
+	{ X86_TRAP_DE, 0|X, __KERNEL_CS, (unsigned long)trace_divide_error	},
+	{ X86_TRAP_BR, 0|X, __KERNEL_CS, (unsigned long)trace_bounds		},
+	{ X86_TRAP_UD, 0|X, __KERNEL_CS, (unsigned long)trace_invalid_op	},
+	{ X86_TRAP_NM, 0|4, __KERNEL_CS, (unsigned long)trace_device_not_available },
+	{ X86_TRAP_OLD_MF, 0|X, __KERNEL_CS, (unsigned long)trace_coprocessor_segment_overrun },
+	{ X86_TRAP_TS, 0|X, __KERNEL_CS, (unsigned long)trace_invalid_TSS	},
+	{ X86_TRAP_NP, 0|X, __KERNEL_CS, (unsigned long)trace_segment_not_present },
+	{ X86_TRAP_GP, 0|X, __KERNEL_CS, (unsigned long)trace_general_protection },
+	{ X86_TRAP_PF, 0|4, __KERNEL_CS, (unsigned long)trace_page_fault	},
+	{ X86_TRAP_MF, 0|X, __KERNEL_CS, (unsigned long)trace_coprocessor_error	},
+	{ X86_TRAP_AC, 0|X, __KERNEL_CS, (unsigned long)trace_alignment_check	},
+	{ X86_TRAP_XF, 0|X, __KERNEL_CS, (unsigned long)trace_simd_coprocessor_error },
+	{ }
+};
+
+void load_current_trap_table(void)
+{
+	const trap_info_t *tt = is_trace_trap_table_enabled()
+				? trace_trap_table : trap_table;
+
+	if (HYPERVISOR_set_trap_table(tt))
+		BUG();
+}
+#endif
 
 /* Set of traps needed for early debugging. */
 void __init early_trap_init(void)

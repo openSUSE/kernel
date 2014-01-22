@@ -1759,19 +1759,13 @@ int is_ignored(int sig)
 static void n_tty_set_termios(struct tty_struct *tty, struct ktermios *old)
 {
 	struct n_tty_data *ldata = tty->disc_data;
-	int canon_change = 1;
 
-	if (old)
-		canon_change = (old->c_lflag ^ tty->termios.c_lflag) & ICANON;
-	if (canon_change) {
+	if (!old || (old->c_lflag ^ tty->termios.c_lflag) & ICANON) {
 		bitmap_zero(ldata->read_flags, N_TTY_BUF_SIZE);
 		ldata->line_start = ldata->canon_head = ldata->read_tail;
 		ldata->erasing = 0;
 		ldata->lnext = 0;
 	}
-
-	if (canon_change && !L_ICANON(tty) && read_cnt(ldata))
-		wake_up_interruptible(&tty->read_wait);
 
 	ldata->icanon = (L_ICANON(tty) != 0);
 
@@ -1827,9 +1821,8 @@ static void n_tty_set_termios(struct tty_struct *tty, struct ktermios *old)
 	 * Fix tty hang when I_IXON(tty) is cleared, but the tty
 	 * been stopped by STOP_CHAR(tty) before it.
 	 */
-	if (!I_IXON(tty) && old && (old->c_iflag & IXON) && !tty->flow_stopped) {
+	if (!I_IXON(tty) && old && (old->c_iflag & IXON) && !tty->flow_stopped)
 		start_tty(tty);
-	}
 
 	/* The termios change make the tty ready for I/O */
 	wake_up_interruptible(&tty->write_wait);
@@ -2263,11 +2256,11 @@ static ssize_t n_tty_read(struct tty_struct *tty, struct file *file,
 	n_tty_set_room(tty);
 	up_read(&tty->termios_rwsem);
 
-	mutex_unlock(&ldata->atomic_read_lock);
 	remove_wait_queue(&tty->read_wait, &wait);
-
 	if (!waitqueue_active(&tty->read_wait))
 		ldata->minimum_to_wake = minimum;
+
+	mutex_unlock(&ldata->atomic_read_lock);
 
 	__set_current_state(TASK_RUNNING);
 	if (b - buf)

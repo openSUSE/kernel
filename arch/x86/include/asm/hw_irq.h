@@ -196,6 +196,9 @@ extern void smp_reboot_interrupt(struct pt_regs *);
 
 #ifndef CONFIG_XEN
 extern void (*__initconst interrupt[NR_VECTORS-FIRST_EXTERNAL_VECTOR])(void);
+#ifdef CONFIG_TRACING
+#define trace_interrupt interrupt
+#endif
 #endif
 
 typedef int vector_irq_t[NR_VECTORS];

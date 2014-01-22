@@ -223,7 +223,7 @@ static struct xen_bus_type xenbus_backend = {
 #ifdef CONFIG_XEN
 		.shutdown	= xenbus_dev_shutdown,
 #endif
-		.dev_attrs	= xenbus_dev_attrs,
+		.dev_groups	= xenbus_dev_groups,
 	},
 };
 

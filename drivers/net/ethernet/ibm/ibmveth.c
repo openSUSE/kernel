@@ -581,7 +581,7 @@ static int ibmveth_open(struct net_device *netdev)
 	adapter->rx_queue.toggle = 1;
 
 	memcpy(&mac_address, netdev->dev_addr, netdev->addr_len);
-	mac_address = mac_address >> 16;
+	mac_address = be64_to_cpu(mac_address) >> 16;
 
 	rxq_desc.fields.flags_len = IBMVETH_BUF_VALID |
 					adapter->rx_queue.queue_len;
@@ -1185,7 +1185,8 @@ static void ibmveth_set_multicast_list(struct net_device *netdev)
 		netdev_for_each_mc_addr(ha, netdev) {
 			/* add the multicast address to the filter table */
 			unsigned long mcast_addr = 0;
-			memcpy(((char *)&mcast_addr)+2, ha->addr, 6);
+			memcpy(((char *)&mcast_addr)+2, ha->addr, ETH_ALEN);
+			mcast_addr = cpu_to_be64(mcast_addr);
 			lpar_rc = h_multicast_ctrl(adapter->vdev->unit_address,
 						   IbmVethMcastAddFilter,
 						   mcast_addr);
@@ -1370,7 +1371,7 @@ static int ibmveth_probe(struct vio_dev *dev, const struct vio_device_id *id)
 	netif_napi_add(netdev, &adapter->napi, ibmveth_poll, 16);
 
 	adapter->mac_addr = 0;
-	memcpy(&adapter->mac_addr, mac_addr_p, 6);
+	memcpy(&adapter->mac_addr, mac_addr_p, ETH_ALEN);
 
 	netdev->irq = dev->irq;
 	netdev->netdev_ops = &ibmveth_netdev_ops;

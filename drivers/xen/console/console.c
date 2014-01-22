@@ -206,8 +206,6 @@ static int __init xen_console_init(void)
 		strcpy(kcons_info.name, "hvc");
 		if (xc_num == -1)
 			xc_num = 0;
-		if (!is_initial_xendomain())
-			add_preferred_console(kcons_info.name, xc_num, NULL);
 		break;
 
 	case XC_SERIAL:
@@ -228,6 +226,8 @@ static int __init xen_console_init(void)
 
 	wbuf = kmalloc(wbuf_size, GFP_KERNEL);
 
+	if (!is_initial_xendomain())
+		add_preferred_console(kcons_info.name, xc_num, NULL);
 	register_console(&kcons_info);
 
  out:

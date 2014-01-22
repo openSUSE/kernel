@@ -57,6 +57,7 @@ static int options[MAX_UNITS];
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/uaccess.h>
+#include <xen/xen_pvonhvm.h>
 
 #include "8390.h"
 
@@ -389,9 +390,7 @@ err_out_free_netdev:
 	free_netdev (dev);
 err_out_free_res:
 	release_region (ioaddr, NE_IO_EXTENT);
-	pci_set_drvdata (pdev, NULL);
 	return -ENODEV;
-
 }
 
 /*
@@ -655,7 +654,6 @@ static void ne2k_pci_remove_one(struct pci_dev *pdev)
 	release_region(dev->base_addr, NE_IO_EXTENT);
 	free_netdev(dev);
 	pci_disable_device(pdev);
-	pci_set_drvdata(pdev, NULL);
 }
 
 #ifdef CONFIG_PM
@@ -707,6 +705,8 @@ static struct pci_driver ne2k_driver = {
 
 static int __init ne2k_pci_init(void)
 {
+	if (xen_pvonhvm_unplugged_nics)
+		return -EBUSY;
 /* when a module, this is printed whether or not devices are found in probe */
 #ifdef MODULE
 	printk(version);

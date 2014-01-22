@@ -564,10 +564,8 @@ static int begin_cmd(struct send_ctx *sctx, int cmd)
 {
 	struct btrfs_cmd_header *hdr;
 
-	if (!sctx->send_buf) {
-		WARN_ON(1);
+	if (WARN_ON(!sctx->send_buf))
 		return -EINVAL;
-	}
 
 	BUG_ON(sctx->send_size);
 
@@ -790,7 +788,7 @@ static int iterate_inode_ref(struct btrfs_root *root, struct btrfs_path *path,
 	if (found_key->type == BTRFS_INODE_REF_KEY) {
 		ptr = (unsigned long)btrfs_item_ptr(eb, slot,
 						    struct btrfs_inode_ref);
-		item = btrfs_item_nr(eb, slot);
+		item = btrfs_item_nr(slot);
 		total = btrfs_item_size(eb, item);
 		elem_size = sizeof(*iref);
 	} else {
@@ -904,7 +902,7 @@ static int iterate_dir_item(struct btrfs_root *root, struct btrfs_path *path,
 
 	eb = path->nodes[0];
 	slot = path->slots[0];
-	item = btrfs_item_nr(eb, slot);
+	item = btrfs_item_nr(slot);
 	di = btrfs_item_ptr(eb, slot, struct btrfs_dir_item);
 	cur = 0;
 	len = 0;
@@ -3904,15 +3902,15 @@ static int is_extent_unchanged(struct send_ctx *sctx,
 	while (key.offset < ekey->offset + left_len) {
 		ei = btrfs_item_ptr(eb, slot, struct btrfs_file_extent_item);
 		right_type = btrfs_file_extent_type(eb, ei);
-		right_disknr = btrfs_file_extent_disk_bytenr(eb, ei);
-		right_len = btrfs_file_extent_num_bytes(eb, ei);
-		right_offset = btrfs_file_extent_offset(eb, ei);
-		right_gen = btrfs_file_extent_generation(eb, ei);
-
 		if (right_type != BTRFS_FILE_EXTENT_REG) {
 			ret = 0;
 			goto out;
 		}
+
+		right_disknr = btrfs_file_extent_disk_bytenr(eb, ei);
+		right_len = btrfs_file_extent_num_bytes(eb, ei);
+		right_offset = btrfs_file_extent_offset(eb, ei);
+		right_gen = btrfs_file_extent_generation(eb, ei);
 
 		/*
 		 * Are we at extent 8? If yes, we know the extent is changed.

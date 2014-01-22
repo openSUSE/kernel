@@ -119,8 +119,8 @@ static int pcifront_publish_info(struct pcifront_device *pdev)
 		err = xenbus_printf(trans, pdev->xdev->nodename,
 				    "event-channel", "%u", pdev->evtchn);
 	if (!err)
-		err = xenbus_printf(trans, pdev->xdev->nodename,
-				    "magic", XEN_PCI_MAGIC);
+		err = xenbus_write(trans, pdev->xdev->nodename, "magic",
+				   XEN_PCI_MAGIC);
 
 	if (err) {
 		xenbus_transaction_end(trans, 1);

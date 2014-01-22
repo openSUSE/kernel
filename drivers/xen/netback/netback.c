@@ -889,8 +889,11 @@ static void net_rx_action(unsigned long group)
 
 		if (netif_queue_stopped(netif->dev) &&
 		    netif_schedulable(netif) &&
-		    !netbk_queue_full(netif))
+		    !netbk_queue_full(netif)) {
+			local_bh_disable();
 			netif_wake_queue(netif->dev);
+			local_bh_enable();
+		}
 
 		if (ret && netif != notify_tail && !netif->rx_notify_link) {
 			if (notify_tail)

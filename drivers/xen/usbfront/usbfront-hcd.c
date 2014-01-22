@@ -77,6 +77,9 @@ static int xenhcd_setup(struct usb_hcd *hcd)
 	init_timer(&info->watchdog);
 	info->watchdog.function = xenhcd_watchdog;
 	info->watchdog.data = (unsigned long) info;
+
+	hcd->has_tt = hcd->driver != &xen_usb11_hc_driver;
+
 	return 0;
 }
 

@@ -610,12 +610,11 @@ static void __init memblock_x86_reserve_range_setup_data(void)
 #endif
 }
 
-#ifndef CONFIG_XEN
 /*
  * --------- Crashkernel reservation ------------------------------
  */
 
-#ifdef CONFIG_KEXEC
+#if defined(CONFIG_KEXEC) && !defined(CONFIG_XEN)
 
 /*
  * Keep the crash kernel below this limit.  On 32 bits earlier kernels
@@ -748,7 +747,6 @@ static void __init reserve_crashkernel(void)
 {
 }
 #endif
-#endif /* CONFIG_XEN */
 
 static struct resource standard_io_resources[] = {
 	{ .name = "dma1", .start = 0x00, .end = 0x1f,
@@ -1171,6 +1169,7 @@ void __init setup_arch(char **cmdline_p)
 
 	if (is_initial_xendomain()) {
 		dmi_scan_machine();
+		dmi_memdev_walk();
 		dmi_set_dump_stack_arch_desc();
 	} else {
 		int ver = HYPERVISOR_xen_version(XENVER_version, NULL);
@@ -1319,11 +1318,7 @@ void __init setup_arch(char **cmdline_p)
 	acpi_initrd_override((void *)initrd_start, initrd_end - initrd_start);
 #endif
 
-#ifndef CONFIG_XEN
-	reserve_crashkernel();
-
 	vsmp_init();
-#endif
 
 	io_delay_init();
 
@@ -1342,6 +1337,13 @@ void __init setup_arch(char **cmdline_p)
 	early_acpi_boot_init();
 
 	initmem_init();
+
+	/*
+	 * Reserve memory for crash kernel after SRAT is parsed so that it
+	 * won't consume hotpluggable memory.
+	 */
+	reserve_crashkernel();
+
 	memblock_find_dma_reserve();
 
 #ifdef CONFIG_KVM_GUEST

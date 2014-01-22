@@ -324,7 +324,7 @@ config HID_LCPOWER
 
 config HID_LENOVO_TPKBD
 	tristate "Lenovo ThinkPad USB Keyboard with TrackPoint"
-	depends on USB_HID
+	depends on HID
 	select NEW_LEDS
 	select LEDS_CLASS
 	---help---
@@ -363,7 +363,6 @@ config LOGITECH_FF
 	  - Logitech WingMan Force 3D
 	  - Logitech Formula Force EX
 	  - Logitech WingMan Formula Force GP
-	  - Logitech MOMO Force wheel
 
 	  and if you want to enable force feedback for them.
 	  Note: if you say N here, this device will still be supported, but without
@@ -440,6 +439,7 @@ config HID_MULTITOUCH
 	  - Chunghwa panels
 	  - CVTouch panels
 	  - Cypress TrueTouch panels
+	  - Elan Microelectronics touch panels
 	  - Elo TouchSystems IntelliTouch Plus panels
 	  - GeneralTouch 'Sensing Win7-TwoFinger' panels
 	  - GoodTouch panels
@@ -618,6 +618,14 @@ config HID_SONY
 	  * Buzz controllers
 	  * Sony PS3 Blue-ray Disk Remote Control (Bluetooth)
 	  * Logitech Harmony adapter for Sony Playstation 3 (Bluetooth)
+
+config SONY_FF
+	bool "Sony PS2/3 accessories force feedback support"
+	depends on HID_SONY
+	select INPUT_FF_MEMLESS
+	---help---
+	Say Y here if you have a Sony PS2/3 accessory and want to enable force
+	feedback support for it.
 
 config HID_SPEEDLINK
 	tristate "Speedlink VAD Cezanne mouse support"

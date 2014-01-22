@@ -1,3 +1,5 @@
+#ifndef CONFIG_X86_NO_IDT
+
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM irq_vectors
 
@@ -72,6 +74,17 @@ DEFINE_IRQ_VECTOR_EVENT(x86_platform_ipi);
 DEFINE_IRQ_VECTOR_EVENT(irq_work);
 
 /*
+ * We must dis-allow sampling irq_work_exit() because perf event sampling
+ * itself can cause irq_work, which would lead to an infinite loop;
+ *
+ *  1) irq_work_exit happens
+ *  2) generates perf sample
+ *  3) generates irq_work
+ *  4) goto 1
+ */
+TRACE_EVENT_PERF_PERM(irq_work_exit, is_sampling_event(p_event) ? -EPERM : 0);
+
+/*
  * call_function - called when entering/exiting a call function interrupt
  * vector handler
  */
@@ -102,3 +115,5 @@ DEFINE_IRQ_VECTOR_EVENT(thermal_apic);
 
 /* This part must be outside protection */
 #include <trace/define_trace.h>
+
+#endif /* CONFIG_X86_NO_IDT */

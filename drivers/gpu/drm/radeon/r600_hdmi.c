@@ -333,8 +333,10 @@ static void dce3_2_afmt_write_speaker_allocation(struct drm_encoder *encoder)
 	return;
 
 	list_for_each_entry(connector, &encoder->dev->mode_config.connector_list, head) {
-		if (connector->encoder == encoder)
+		if (connector->encoder == encoder) {
 			radeon_connector = to_radeon_connector(connector);
+			break;
+		}
 	}
 
 	if (!radeon_connector) {
@@ -386,8 +388,10 @@ static void dce3_2_afmt_write_sad_regs(struct drm_encoder *encoder)
 	};
 
 	list_for_each_entry(connector, &encoder->dev->mode_config.connector_list, head) {
-		if (connector->encoder == encoder)
+		if (connector->encoder == encoder) {
 			radeon_connector = to_radeon_connector(connector);
+			break;
+		}
 	}
 
 	if (!radeon_connector) {
@@ -404,20 +408,30 @@ static void dce3_2_afmt_write_sad_regs(struct drm_encoder *encoder)
 
 	for (i = 0; i < ARRAY_SIZE(eld_reg_to_type); i++) {
 		u32 value = 0;
+		u8 stereo_freqs = 0;
+		int max_channels = -1;
 		int j;
 
 		for (j = 0; j < sad_count; j++) {
 			struct cea_sad *sad = &sads[j];
 
 			if (sad->format == eld_reg_to_type[i][1]) {
-				value = MAX_CHANNELS(sad->channels) |
-					DESCRIPTOR_BYTE_2(sad->byte2) |
-					SUPPORTED_FREQUENCIES(sad->freq);
+				if (sad->channels > max_channels) {
+					value = MAX_CHANNELS(sad->channels) |
+						DESCRIPTOR_BYTE_2(sad->byte2) |
+						SUPPORTED_FREQUENCIES(sad->freq);
+					max_channels = sad->channels;
+				}
+
 				if (sad->format == HDMI_AUDIO_CODING_TYPE_PCM)
-					value |= SUPPORTED_FREQUENCIES_STEREO(sad->freq);
-				break;
+					stereo_freqs |= sad->freq;
+				else
+					break;
 			}
 		}
+
+		value |= SUPPORTED_FREQUENCIES_STEREO(stereo_freqs);
+
 		WREG32(eld_reg_to_type[i][0], value);
 	}
 

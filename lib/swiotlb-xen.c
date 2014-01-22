@@ -35,6 +35,9 @@
 #include <xen/interface/memory.h>
 #include <asm/gnttab_dma.h>
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/swiotlb.h>
+
 #define OFFSET(val,align) ((unsigned long)((val) & ( (align) - 1)))
 
 int swiotlb;
@@ -445,6 +448,7 @@ phys_addr_t swiotlb_tbl_map_single(struct device *hwdev,
 
 not_found:
 	spin_unlock_irqrestore(&io_tlb_lock, flags);
+	dev_warn(hwdev, "swiotlb buffer is full\n");
 	return SWIOTLB_MAP_ERROR;
 found:
 	spin_unlock_irqrestore(&io_tlb_lock, flags);
@@ -602,6 +606,8 @@ dma_addr_t swiotlb_map_page(struct device *dev, struct page *page,
 	if (dma_capable(dev, dev_addr, size) &&
 	    !range_needs_mapping(phys, size))
 		return dev_addr;
+
+	trace_swiotlb_bounced(dev, dev_addr, size, 1);
 
 	/* Oh well, have to allocate and map a bounce buffer. */
 	gnttab_dma_unmap_page(dev_addr);

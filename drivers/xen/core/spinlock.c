@@ -34,7 +34,6 @@ static DEFINE_PER_CPU_READ_MOSTLY(evtchn_port_t, poll_evtchn);
  */
 struct rm_seq {
 	unsigned int idx;
-#define SEQ_REMOVE_BIAS (1 << !!CONFIG_XEN_SPINLOCK_ACQUIRE_NESTING)
 	atomic_t ctr[2];
 };
 static DEFINE_PER_CPU(struct rm_seq, rm_seq);
@@ -101,14 +100,13 @@ static int __init spinlock_register(void)
 core_initcall(spinlock_register);
 #endif
 
-static inline void sequence(unsigned int bias)
+static inline void sequence(void)
 {
-	unsigned int rm_idx = __this_cpu_read(rm_seq.idx);
+	unsigned int rm_idx;
 
 	smp_wmb();
-	__this_cpu_write(rm_seq.idx, (rm_idx + bias) ^ (SEQ_REMOVE_BIAS / 2));
+	rm_idx = (__this_cpu_inc_return(rm_seq.idx) - 1) & 1;
 	smp_mb();
-	rm_idx &= 1;
 	while (__this_cpu_read(rm_seq.ctr[rm_idx].counter))
 		cpu_relax();
 }
@@ -223,7 +221,7 @@ void xen_spin_irq_exit(void)
 	 * to re-obtain a ticket if ticket_drop() completes only after our
 	 * ticket check below).
 	 */
-	sequence(0);
+	sequence();
 
 	/*
 	 * Obtain new tickets for (or acquire) all those locks at the IRQ
@@ -329,7 +327,7 @@ unsigned int xen_spin_wait(arch_spinlock_t *lock, struct __raw_tickets *ptok,
 	__this_cpu_write(_spinning, spinning.prev);
 	if (!CONFIG_XEN_SPINLOCK_ACQUIRE_NESTING)
 		arch_local_irq_disable();
-	sequence(SEQ_REMOVE_BIAS);
+	sequence();
 	arch_local_irq_restore(upcall_mask);
 	smp_rmb();
 	if (lock->tickets.head == spinning.ticket) {
@@ -391,8 +389,7 @@ void xen_spin_kick(const arch_spinlock_t *lock, unsigned int ticket)
 #endif
 			spinning = per_cpu(_spinning, cpu);
 			smp_rmb();
-			if ((rm_idx ^ per_cpu(rm_seq.idx, cpu))
-			    < SEQ_REMOVE_BIAS)
+			if (rm_idx == per_cpu(rm_seq.idx, cpu))
 				break;
 			atomic_dec(rm_ctr);
 			if (!vcpu_running(cpu))

@@ -236,7 +236,7 @@ static u64 find_table_base(struct pci_dev *dev)
 	unsigned long flags;
 
  	pci_read_config_dword(dev, dev->msix_cap + PCI_MSIX_TABLE, &reg);
-	bar = reg & PCI_MSIX_FLAGS_BIRMASK;
+	bar = reg & PCI_MSIX_PBA_BIR;
 
 	flags = pci_resource_flags(dev, bar);
 	if (flags & (IORESOURCE_DISABLED | IORESOURCE_UNSET | IORESOURCE_BUSY))
@@ -645,7 +645,7 @@ static int msix_capability_init(struct pci_dev *dev,
  * @nvec: how many MSIs have been requested ?
  * @type: are we checking for MSI or MSI-X ?
  *
- * Look at global flags, the device itself, and its parent busses
+ * Look at global flags, the device itself, and its parent buses
  * to determine if MSI/-X are supported for the device. If MSI/-X is
  * supported return 0, else return an error code.
  **/
@@ -703,7 +703,7 @@ int pci_enable_msi_block(struct pci_dev *dev, unsigned int nvec)
 	u16 msgctl;
 	struct msi_dev_list *msi_dev_entry = get_msi_dev_pirq_list(dev);
 
-	if (!dev->msi_cap)
+	if (!dev->msi_cap || dev->current_state != PCI_D0)
 		return -EINVAL;
 
 	pci_read_config_word(dev, dev->msi_cap + PCI_MSI_FLAGS, &msgctl);
@@ -762,7 +762,7 @@ int pci_enable_msi_block_auto(struct pci_dev *dev, unsigned int *maxvec)
 	int ret, nvec;
 	u16 msgctl;
 
-	if (!dev->msi_cap)
+	if (!dev->msi_cap || dev->current_state != PCI_D0)
 		return -EINVAL;
 
 	pci_read_config_word(dev, dev->msi_cap + PCI_MSI_FLAGS, &msgctl);
@@ -858,7 +858,7 @@ int pci_enable_msix(struct pci_dev *dev, struct msix_entry *entries, int nvec)
 	int i, j, temp;
 	struct msi_dev_list *msi_dev_entry = get_msi_dev_pirq_list(dev);
 
-	if (!entries || !dev->msix_cap)
+	if (!entries || !dev->msix_cap || dev->current_state != PCI_D0)
 		return -EINVAL;
 
 	if (!is_initial_xendomain()) {

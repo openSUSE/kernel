@@ -64,7 +64,7 @@ again:
 		return(-1);
 	}
 
-	err = xenbus_printf(xbt, dev->nodename, MEDIA_PRESENT, "%d", media_present );
+	err = xenbus_printf(xbt, dev->nodename, MEDIA_PRESENT, "%d", media_present);
 	if (err) {
 		xenbus_dev_fatal(dev, err, "writing %s/%s",
 			 dev->nodename, MEDIA_PRESENT);

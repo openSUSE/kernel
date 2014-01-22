@@ -59,6 +59,13 @@ static efi_char16_t efi_dummy_name[6] = { 'D', 'U', 'M', 'M', 'Y', 0 };
 
 static unsigned long efi_facility;
 
+static __initdata efi_config_table_type_t arch_tables[] = {
+#ifdef CONFIG_X86_UV
+	{UV_SYSTEM_TABLE_GUID, "UVsystab", &efi.uv_systab},
+#endif
+	{NULL_GUID, NULL, NULL},
+};
+
 /*
  * Returns 1 if 'facility' is enabled, 0 otherwise.
  */
@@ -312,30 +319,6 @@ static efi_status_t xen_efi_query_capsule_caps(efi_capsule_header_t **capsules,
 	return call.status;
 }
 
-struct efi __read_mostly efi = {
-	.mps                      = EFI_INVALID_TABLE_ADDR,
-	.acpi                     = EFI_INVALID_TABLE_ADDR,
-	.acpi20                   = EFI_INVALID_TABLE_ADDR,
-	.smbios                   = EFI_INVALID_TABLE_ADDR,
-	.sal_systab               = EFI_INVALID_TABLE_ADDR,
-	.boot_info                = EFI_INVALID_TABLE_ADDR,
-	.hcdp                     = EFI_INVALID_TABLE_ADDR,
-	.uga                      = EFI_INVALID_TABLE_ADDR,
-	.uv_systab                = EFI_INVALID_TABLE_ADDR,
-	.get_time                 = xen_efi_get_time,
-	.set_time                 = xen_efi_set_time,
-	.get_wakeup_time          = xen_efi_get_wakeup_time,
-	.set_wakeup_time          = xen_efi_set_wakeup_time,
-	.get_variable             = xen_efi_get_variable,
-	.get_next_variable        = xen_efi_get_next_variable,
-	.set_variable             = xen_efi_set_variable,
-	.get_next_high_mono_count = xen_efi_get_next_high_mono_count,
-	.query_variable_info      = xen_efi_query_variable_info,
-	.update_capsule           = xen_efi_update_capsule,
-	.query_capsule_caps       = xen_efi_query_capsule_caps,
-};
-EXPORT_SYMBOL(efi);
-
 int efi_set_rtc_mmss(const struct timespec *now)
 {
 	unsigned long nowtime = now->tv_sec;
@@ -402,6 +385,18 @@ void __init efi_probe(void)
 	};
 
 	if (HYPERVISOR_platform_op(&op) == 0) {
+		efi.get_time                 = xen_efi_get_time;
+		efi.set_time                 = xen_efi_set_time;
+		efi.get_wakeup_time          = xen_efi_get_wakeup_time;
+		efi.set_wakeup_time          = xen_efi_set_wakeup_time;
+		efi.get_variable             = xen_efi_get_variable;
+		efi.get_next_variable        = xen_efi_get_next_variable;
+		efi.set_variable             = xen_efi_set_variable;
+		efi.get_next_high_mono_count = xen_efi_get_next_high_mono_count;
+		efi.query_variable_info      = xen_efi_query_variable_info;
+		efi.update_capsule           = xen_efi_update_capsule;
+		efi.query_capsule_caps       = xen_efi_query_capsule_caps;
+
 		__set_bit(EFI_BOOT, &efi_facility);
 #ifdef CONFIG_64BIT
 		__set_bit(EFI_64BIT, &efi_facility);
@@ -414,56 +409,6 @@ void __init efi_probe(void)
 
 void __init efi_reserve_boot_services(void) { }
 void __init efi_free_boot_services(void) { }
-
-static int __init efi_config_init(u64 tables, unsigned int nr_tables)
-{
-	void *config_tables, *tablep;
-	unsigned int i, sz = sizeof(efi_config_table_64_t);
-
-	/*
-	 * Let's see what config tables the firmware passed to us.
-	 */
-	config_tables = early_ioremap(tables, nr_tables * sz);
-	if (config_tables == NULL) {
-		pr_err("Could not map Configuration table!\n");
-		return -ENOMEM;
-	}
-
-	tablep = config_tables;
-	pr_info("");
-	for (i = 0; i < nr_tables; i++) {
-		efi_guid_t guid;
-		u64 table;
-
-		guid = ((efi_config_table_64_t *)tablep)->guid;
-		table = ((efi_config_table_64_t *)tablep)->table;
-		if (table != (unsigned long)table)
-			pr_cont(" [%#Lx]", table);
-		else if (!efi_guidcmp(guid, MPS_TABLE_GUID)) {
-			efi.mps = table;
-			pr_cont(" MPS=%#Lx", table);
-		} else if (!efi_guidcmp(guid, ACPI_20_TABLE_GUID)) {
-			efi.acpi20 = table;
-			pr_cont(" ACPI 2.0=%#Lx", table);
-		} else if (!efi_guidcmp(guid, ACPI_TABLE_GUID)) {
-			efi.acpi = table;
-			pr_cont(" ACPI=%#Lx", table);
-		} else if (!efi_guidcmp(guid, SMBIOS_TABLE_GUID)) {
-			efi.smbios = table;
-			pr_cont(" SMBIOS=%#Lx", table);
-		} else if (!efi_guidcmp(guid, HCDP_TABLE_GUID)) {
-			efi.hcdp = table;
-			pr_cont(" HCDP=%#Lx", table);
-		} else if (!efi_guidcmp(guid, UGA_IO_PROTOCOL_GUID)) {
-			efi.uga = table;
-			pr_cont(" UGA=%#Lx", table);
-		}
-		tablep += sz;
-	}
-	pr_cont("\n");
-	early_iounmap(config_tables, nr_tables * sz);
-	return 0;
-}
 
 void __init efi_init(void)
 {
@@ -511,7 +456,7 @@ void __init efi_init(void)
 	op.u.firmware_info.index = XEN_FW_EFI_CONFIG_TABLE;
 	if (HYPERVISOR_platform_op(&op))
 		BUG();
-	if (efi_config_init(info->cfg.addr, info->cfg.nent))
+	if (efi_config_init(info->cfg.addr, info->cfg.nent, arch_tables))
 		return;
 
 	__set_bit(EFI_CONFIG_TABLES, &efi_facility);
@@ -524,8 +469,6 @@ void __init efi_late_init(void)
 {
 	efi_bgrt_init();
 }
-
-void __iomem *efi_lookup_mapped_addr(u64 phys_addr) { return NULL; }
 
 void __init efi_enter_virtual_mode(void)
 {

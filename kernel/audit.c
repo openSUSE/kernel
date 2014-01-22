@@ -60,7 +60,6 @@
 #ifdef CONFIG_SECURITY
 #include <linux/security.h>
 #endif
-#include <net/netlink.h>
 #include <linux/freezer.h>
 #include <linux/tty.h>
 #include <linux/pid_namespace.h>
@@ -139,6 +138,17 @@ static struct sk_buff_head audit_skb_hold_queue;
 static struct task_struct *kauditd_task;
 static DECLARE_WAIT_QUEUE_HEAD(kauditd_wait);
 static DECLARE_WAIT_QUEUE_HEAD(audit_backlog_wait);
+
+static struct audit_features af = {.vers = AUDIT_FEATURE_VERSION,
+				   .mask = -1,
+				   .features = 0,
+				   .lock = 0,};
+
+static char *audit_feature_names[2] = {
+	"only_unset_loginuid",
+	"loginuid_immutable",
+};
+
 
 /* Serialize requests from userspace. */
 DEFINE_MUTEX(audit_cmd_mutex);
@@ -584,6 +594,8 @@ static int audit_netlink_ok(struct sk_buff *skb, u16 msg_type)
 		return -EOPNOTSUPP;
 	case AUDIT_GET:
 	case AUDIT_SET:
+	case AUDIT_GET_FEATURE:
+	case AUDIT_SET_FEATURE:
 	case AUDIT_LIST_RULES:
 	case AUDIT_ADD_RULE:
 	case AUDIT_DEL_RULE:
@@ -628,6 +640,94 @@ static int audit_log_common_recv_msg(struct audit_buffer **ab, u16 msg_type)
 	return rc;
 }
 
+int is_audit_feature_set(int i)
+{
+	return af.features & AUDIT_FEATURE_TO_MASK(i);
+}
+
+
+static int audit_get_feature(struct sk_buff *skb)
+{
+	u32 seq;
+
+	seq = nlmsg_hdr(skb)->nlmsg_seq;
+
+	audit_send_reply(NETLINK_CB(skb).portid, seq, AUDIT_GET, 0, 0,
+			 &af, sizeof(af));
+
+	return 0;
+}
+
+static void audit_log_feature_change(int which, u32 old_feature, u32 new_feature,
+				     u32 old_lock, u32 new_lock, int res)
+{
+	struct audit_buffer *ab;
+
+	ab = audit_log_start(NULL, GFP_KERNEL, AUDIT_FEATURE_CHANGE);
+	audit_log_format(ab, "feature=%s new=%d old=%d old_lock=%d new_lock=%d res=%d",
+			 audit_feature_names[which], !!old_feature, !!new_feature,
+			 !!old_lock, !!new_lock, res);
+	audit_log_end(ab);
+}
+
+static int audit_set_feature(struct sk_buff *skb)
+{
+	struct audit_features *uaf;
+	int i;
+
+	BUILD_BUG_ON(AUDIT_LAST_FEATURE + 1 > sizeof(audit_feature_names)/sizeof(audit_feature_names[0]));
+	uaf = nlmsg_data(nlmsg_hdr(skb));
+
+	/* if there is ever a version 2 we should handle that here */
+
+	for (i = 0; i <= AUDIT_LAST_FEATURE; i++) {
+		u32 feature = AUDIT_FEATURE_TO_MASK(i);
+		u32 old_feature, new_feature, old_lock, new_lock;
+
+		/* if we are not changing this feature, move along */
+		if (!(feature & uaf->mask))
+			continue;
+
+		old_feature = af.features & feature;
+		new_feature = uaf->features & feature;
+		new_lock = (uaf->lock | af.lock) & feature;
+		old_lock = af.lock & feature;
+
+		/* are we changing a locked feature? */
+		if ((af.lock & feature) && (new_feature != old_feature)) {
+			audit_log_feature_change(i, old_feature, new_feature,
+						 old_lock, new_lock, 0);
+			return -EPERM;
+		}
+	}
+	/* nothing invalid, do the changes */
+	for (i = 0; i <= AUDIT_LAST_FEATURE; i++) {
+		u32 feature = AUDIT_FEATURE_TO_MASK(i);
+		u32 old_feature, new_feature, old_lock, new_lock;
+
+		/* if we are not changing this feature, move along */
+		if (!(feature & uaf->mask))
+			continue;
+
+		old_feature = af.features & feature;
+		new_feature = uaf->features & feature;
+		old_lock = af.lock & feature;
+		new_lock = (uaf->lock | af.lock) & feature;
+
+		if (new_feature != old_feature)
+			audit_log_feature_change(i, old_feature, new_feature,
+						 old_lock, new_lock, 1);
+
+		if (new_feature)
+			af.features |= feature;
+		else
+			af.features &= ~feature;
+		af.lock |= new_lock;
+	}
+
+	return 0;
+}
+
 static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 {
 	u32			seq;
@@ -659,7 +759,7 @@ static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 
 	switch (msg_type) {
 	case AUDIT_GET:
-		status_set.mask		 = 0;
+		memset(&status_set, 0, sizeof(status_set));
 		status_set.enabled	 = audit_enabled;
 		status_set.failure	 = audit_failure;
 		status_set.pid		 = audit_pid;
@@ -700,6 +800,16 @@ static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 		if (status_get->mask & AUDIT_STATUS_BACKLOG_LIMIT)
 			err = audit_set_backlog_limit(status_get->backlog_limit);
 		break;
+	case AUDIT_GET_FEATURE:
+		err = audit_get_feature(skb);
+		if (err)
+			return err;
+		break;
+	case AUDIT_SET_FEATURE:
+		err = audit_set_feature(skb);
+		if (err)
+			return err;
+		break;
 	case AUDIT_USER:
 	case AUDIT_FIRST_USER_MSG ... AUDIT_LAST_USER_MSG:
 	case AUDIT_FIRST_USER_MSG2 ... AUDIT_LAST_USER_MSG2:
@@ -716,7 +826,8 @@ static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 			}
 			audit_log_common_recv_msg(&ab, msg_type);
 			if (msg_type != AUDIT_USER_TTY)
-				audit_log_format(ab, " msg='%.1024s'",
+				audit_log_format(ab, " msg='%.*s'",
+						 AUDIT_MESSAGE_TEXT_MAX,
 						 (char *)data);
 			else {
 				int size;
@@ -819,7 +930,7 @@ static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 		struct task_struct *tsk = current;
 
 		spin_lock(&tsk->sighand->siglock);
-		s.enabled = tsk->signal->audit_tty != 0;
+		s.enabled = tsk->signal->audit_tty;
 		s.log_passwd = tsk->signal->audit_tty_log_passwd;
 		spin_unlock(&tsk->sighand->siglock);
 
@@ -1067,13 +1178,6 @@ static void wait_for_auditd(unsigned long sleep_time)
 	__set_current_state(TASK_RUNNING);
 	remove_wait_queue(&audit_backlog_wait, &wait);
 }
-
-/* Obtain an audit buffer.  This routine does locking to obtain the
- * audit buffer, but then no locking is required for calls to
- * audit_log_*format.  If the tsk is a task that is currently in a
- * syscall, then the syscall is marked as auditable and an audit record
- * will be written at syscall exit.  If there is no associated task, tsk
- * should be NULL. */
 
 /**
  * audit_log_start - obtain an audit buffer
@@ -1390,7 +1494,7 @@ void audit_log_session_info(struct audit_buffer *ab)
 	u32 sessionid = audit_get_sessionid(current);
 	uid_t auid = from_kuid(&init_user_ns, audit_get_loginuid(current));
 
-	audit_log_format(ab, " auid=%u ses=%u\n", auid, sessionid);
+	audit_log_format(ab, " auid=%u ses=%u", auid, sessionid);
 }
 
 void audit_log_key(struct audit_buffer *ab, char *key)

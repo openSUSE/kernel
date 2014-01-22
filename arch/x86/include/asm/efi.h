@@ -113,6 +113,8 @@ static inline bool efi_is_native(void)
 #endif
 }
 
+extern struct console early_efi_console;
+
 #else
 /*
  * IF EFI is not configured, have the EFI calls return -ENOSYS.

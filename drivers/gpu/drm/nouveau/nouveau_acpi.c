@@ -258,7 +258,7 @@ static int nouveau_dsm_pci_probe(struct pci_dev *pdev)
 	acpi_handle dhandle;
 	int retval = 0;
 
-	dhandle = DEVICE_ACPI_HANDLE(&pdev->dev);
+	dhandle = ACPI_HANDLE(&pdev->dev);
 	if (!dhandle)
 		return false;
 
@@ -308,6 +308,16 @@ static bool nouveau_dsm_detect(void)
 
 	/* now do DSM detection */
 	while ((pdev = pci_get_class(PCI_CLASS_DISPLAY_VGA << 8, pdev)) != NULL) {
+		vga_count++;
+
+		retval = nouveau_dsm_pci_probe(pdev);
+		if (retval & NOUVEAU_DSM_HAS_MUX)
+			has_dsm |= 1;
+		if (retval & NOUVEAU_DSM_HAS_OPT)
+			has_optimus = 1;
+	}
+
+	while ((pdev = pci_get_class(PCI_CLASS_DISPLAY_3D << 8, pdev)) != NULL) {
 		vga_count++;
 
 		retval = nouveau_dsm_pci_probe(pdev);
@@ -421,7 +431,7 @@ bool nouveau_acpi_rom_supported(struct pci_dev *pdev)
 	if (!nouveau_dsm_priv.dsm_detected && !nouveau_dsm_priv.optimus_detected)
 		return false;
 
-	dhandle = DEVICE_ACPI_HANDLE(&pdev->dev);
+	dhandle = ACPI_HANDLE(&pdev->dev);
 	if (!dhandle)
 		return false;
 
@@ -455,7 +465,7 @@ nouveau_acpi_edid(struct drm_device *dev, struct drm_connector *connector)
 		return NULL;
 	}
 
-	handle = DEVICE_ACPI_HANDLE(&dev->pdev->dev);
+	handle = ACPI_HANDLE(&dev->pdev->dev);
 	if (!handle)
 		return NULL;
 

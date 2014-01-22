@@ -39,11 +39,14 @@ pgtable_t pte_alloc_one(struct mm_struct *mm, unsigned long address)
 	struct page *pte;
 
 	pte = alloc_pages(__userpte_alloc_gfp, 0);
-	if (pte) {
-		pgtable_page_ctor(pte);
-		SetPageForeign(pte, _pte_free);
-		init_page_count(pte);
+	if (!pte)
+		return NULL;
+	if (!pgtable_page_ctor(pte)) {
+		__free_page(pte);
+		return NULL;
 	}
+	SetPageForeign(pte, _pte_free);
+	init_page_count(pte);
 	return pte;
 }
 
@@ -111,6 +114,10 @@ pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long address)
 	pmd = alloc_pages(PGALLOC_GFP, 0);
 	if (!pmd)
 		return NULL;
+	if (!pgtable_pmd_page_ctor(pmd)) {
+		__free_page(pmd);
+		return NULL;
+	}
 	SetPageForeign(pmd, _pmd_free);
 	init_page_count(pmd);
 	return page_address(pmd);
@@ -130,11 +137,13 @@ void __pmd_free(pgtable_t pmd)
 
 	ClearPageForeign(pmd);
 	init_page_count(pmd);
+	pgtable_pmd_page_dtor(pmd);
 	__free_page(pmd);
 }
 
 void ___pmd_free_tlb(struct mmu_gather *tlb, pmd_t *pmd)
 {
+	struct page *page = virt_to_page(pmd);
 	paravirt_release_pmd(__pa(pmd) >> PAGE_SHIFT);
 	/*
 	 * NOTE! For PAE, any changes to the top page-directory-pointer-table
@@ -143,7 +152,8 @@ void ___pmd_free_tlb(struct mmu_gather *tlb, pmd_t *pmd)
 #ifdef CONFIG_X86_PAE
 	tlb->need_flush_all = 1;
 #endif
-	tlb_remove_page(tlb, virt_to_page(pmd));
+	pgtable_pmd_page_dtor(page);
+	tlb_remove_page(tlb, page);
 }
 
 #if PAGETABLE_LEVELS > 3
@@ -158,8 +168,9 @@ void ___pud_free_tlb(struct mmu_gather *tlb, pud_t *pud)
 static void _pin_lock(struct mm_struct *mm, int lock) {
 	if (lock)
 		spin_lock(&mm->page_table_lock);
-#if USE_SPLIT_PTLOCKS
-	/* While mm->page_table_lock protects us against insertions and
+#if USE_SPLIT_PTE_PTLOCKS
+	/*
+	 * While mm->page_table_lock protects us against insertions and
 	 * removals of higher level page table pages, it doesn't protect
 	 * against updates of pte-s. Such updates, however, require the
 	 * pte pages to be in consistent state (unpinned+writable or

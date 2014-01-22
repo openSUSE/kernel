@@ -107,9 +107,16 @@ static int netback_probe(struct xenbus_device *dev,
 			goto abort_transaction;
 		}
 
+		/* We support partial checksum setup for IPv6 packets */
+		err = xenbus_write(xbt, dev->nodename,
+				   "feature-ipv6-csum-offload", "1");
+		if (err) {
+			message = "writing feature-ipv6-csum-offload";
+			goto abort_transaction;
+		}
+
 		/* We support rx-copy path. */
-		err = xenbus_printf(xbt, dev->nodename,
-				    "feature-rx-copy", "%d", 1);
+		err = xenbus_write(xbt, dev->nodename, "feature-rx-copy", "1");
 		if (err) {
 			message = "writing feature-rx-copy";
 			goto abort_transaction;
@@ -119,8 +126,7 @@ static int netback_probe(struct xenbus_device *dev,
 		 * We don't support rx-flip path (except old guests who don't
 		 * grok this feature flag).
 		 */
-		err = xenbus_printf(xbt, dev->nodename,
-				    "feature-rx-flip", "%d", 0);
+		err = xenbus_write(xbt, dev->nodename, "feature-rx-flip", "0");
 		if (err) {
 			message = "writing feature-rx-flip";
 			goto abort_transaction;
@@ -453,7 +459,12 @@ static int connect_rings(struct backend_info *be)
 	if (xenbus_scanf(XBT_NIL, dev->otherend, "feature-no-csum-offload",
 			 "%d", &val) < 0)
 		val = 0;
-	netif->csum = !val;
+	netif->ip_csum = !val;
+
+	if (xenbus_scanf(XBT_NIL, dev->otherend, "feature-ipv6-csum-offload",
+			 "%d", &val) < 0)
+		val = 0;
+	netif->ipv6_csum = !!val;
 
 	/* Map the shared frame, irq etc. */
 	err = netif_map(be, tx_ring_ref, rx_ring_ref, evtchn);

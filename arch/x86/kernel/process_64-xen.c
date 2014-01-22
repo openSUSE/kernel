@@ -171,7 +171,7 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 	childregs = task_pt_regs(p);
 	p->thread.sp = (unsigned long) childregs;
 	set_tsk_thread_flag(p, TIF_FORK);
-	p->fpu_counter = 0;
+	p->thread.fpu_counter = 0;
 	p->thread.io_bitmap_ptr = NULL;
 
 	savesegment(gs, p->thread.gsindex);
@@ -423,6 +423,14 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	 * Switch the PDA context.
 	 */
 	this_cpu_write(current_task, next_p);
+
+	/*
+	 * If it were not for PREEMPT_ACTIVE we could guarantee that the
+	 * preempt_count of all tasks was equal here and this would not be
+	 * needed.
+	 */
+	task_thread_info(prev_p)->saved_preempt_count = this_cpu_read(__preempt_count);
+	this_cpu_write(__preempt_count, task_thread_info(next_p)->saved_preempt_count);
 
 	this_cpu_write(kernel_stack,
 		  (unsigned long)task_stack_page(next_p) +

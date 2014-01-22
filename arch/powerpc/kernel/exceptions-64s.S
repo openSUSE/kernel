@@ -126,7 +126,7 @@ BEGIN_FTR_SECTION
 	bgt	cr1,.
 	GET_PACA(r13)
 
-#ifdef CONFIG_KVM_BOOK3S_64_HV
+#ifdef CONFIG_KVM_BOOK3S_HV_POSSIBLE
 	li	r0,KVM_HWTHREAD_IN_KERNEL
 	stb	r0,HSTATE_HWTHREAD_STATE(r13)
 	/* Order setting hwthread_state vs. testing hwthread_req */
@@ -148,6 +148,7 @@ END_FTR_SECTION_IFSET(CPU_FTR_HVMODE | CPU_FTR_ARCH_206)
 				 NOTEST, 0x100)
 
 	. = 0x200
+	.globl machine_check_pSeries_1
 machine_check_pSeries_1:
 	/* This is moved out of line as it can be patched by FW, but
 	 * some code path might still want to branch into the original
@@ -328,24 +329,28 @@ hv_doorbell_trampoline:
 	 * trickery is thus necessary
 	 */
 	. = 0xf00
+	.global performance_monitor_pseries_trampoline
 performance_monitor_pseries_trampoline:
 	SET_SCRATCH0(r13)
 	EXCEPTION_PROLOG_0(PACA_EXGEN)
 	b	performance_monitor_pSeries
 
 	. = 0xf20
+	.global altivec_unavailable_pseries_trampoline
 altivec_unavailable_pseries_trampoline:
 	SET_SCRATCH0(r13)
 	EXCEPTION_PROLOG_0(PACA_EXGEN)
 	b	altivec_unavailable_pSeries
 
 	. = 0xf40
+	.global vsx_unavailable_pseries_trampoline
 vsx_unavailable_pseries_trampoline:
 	SET_SCRATCH0(r13)
 	EXCEPTION_PROLOG_0(PACA_EXGEN)
 	b	vsx_unavailable_pSeries
 
 	. = 0xf60
+	.global facility_unavailable_trampoline
 facility_unavailable_trampoline:
 	SET_SCRATCH0(r13)
 	EXCEPTION_PROLOG_0(PACA_EXGEN)
@@ -425,7 +430,7 @@ data_access_check_stab:
 	mfspr	r9,SPRN_DSISR
 	srdi	r10,r10,60
 	rlwimi	r10,r9,16,0x20
-#ifdef CONFIG_KVM_BOOK3S_PR
+#ifdef CONFIG_KVM_BOOK3S_PR_POSSIBLE
 	lbz	r9,HSTATE_IN_GUEST(r13)
 	rlwimi	r10,r9,8,0x300
 #endif
@@ -649,6 +654,32 @@ slb_miss_user_pseries:
 	rfid
 	b	.				/* prevent spec. execution */
 #endif /* __DISABLED__ */
+
+#ifdef CONFIG_KVM_BOOK3S_64_HANDLER
+kvmppc_skip_interrupt:
+	/*
+	 * Here all GPRs are unchanged from when the interrupt happened
+	 * except for r13, which is saved in SPRG_SCRATCH0.
+	 */
+	mfspr	r13, SPRN_SRR0
+	addi	r13, r13, 4
+	mtspr	SPRN_SRR0, r13
+	GET_SCRATCH0(r13)
+	rfid
+	b	.
+
+kvmppc_skip_Hinterrupt:
+	/*
+	 * Here all GPRs are unchanged from when the interrupt happened
+	 * except for r13, which is saved in SPRG_SCRATCH0.
+	 */
+	mfspr	r13, SPRN_HSRR0
+	addi	r13, r13, 4
+	mtspr	SPRN_HSRR0, r13
+	GET_SCRATCH0(r13)
+	hrfid
+	b	.
+#endif
 
 /*
  * Code from here down to __end_handlers is invoked from the

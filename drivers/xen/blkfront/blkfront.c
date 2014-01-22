@@ -289,8 +289,7 @@ again:
 	if (err)
 		goto abort_transaction;
 	what = "protocol";
-	err = xenbus_printf(xbt, dev->nodename, what, "%s",
-			    XEN_IO_PROTO_ABI_NATIVE);
+	err = xenbus_write(xbt, dev->nodename, what, XEN_IO_PROTO_ABI_NATIVE);
 	if (err)
 		goto abort_transaction;
 

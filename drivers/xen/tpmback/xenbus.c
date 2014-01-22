@@ -175,7 +175,6 @@ static void connect(struct backend_info *be)
 	struct xenbus_transaction xbt;
 	int err;
 	struct xenbus_device *dev = be->dev;
-	unsigned long ready = 1;
 
 again:
 	err = xenbus_transaction_start(&xbt);
@@ -184,8 +183,7 @@ again:
 		return;
 	}
 
-	err = xenbus_printf(xbt, be->dev->nodename,
-			    "ready", "%lu", ready);
+	err = xenbus_write(xbt, be->dev->nodename, "ready", "1");
 	if (err) {
 		xenbus_dev_fatal(be->dev, err, "writing 'ready'");
 		goto abort;

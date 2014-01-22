@@ -126,7 +126,7 @@ int xenkbd_probe(struct xenbus_device *dev, const struct xenbus_device_id *id)
 	if (xenbus_scanf(XBT_NIL, dev->otherend, "feature-abs-pointer", "%d", &abs) < 0)
 		abs = 0;
 	if (abs)
-		xenbus_printf(XBT_NIL, dev->nodename, "request-abs-pointer", "1");
+		xenbus_write(XBT_NIL, dev->nodename, "request-abs-pointer", "1");
 
 	/* keyboard */
 	kbd = input_allocate_device();
@@ -293,8 +293,8 @@ static void xenkbd_backend_changed(struct xenbus_device *dev,
 		if (ret < 0)
 			val = 0;
 		if (val) {
-			ret = xenbus_printf(XBT_NIL, info->xbdev->nodename,
-					    "request-abs-pointer", "1");
+			ret = xenbus_write(XBT_NIL, info->xbdev->nodename,
+					   "request-abs-pointer", "1");
 			if (ret)
 				; /* FIXME */
 		}

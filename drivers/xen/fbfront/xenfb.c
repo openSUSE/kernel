@@ -781,11 +781,11 @@ static int xenfb_connect_backend(struct xenbus_device *dev,
 			    irq_to_evtchn_port(irq));
 	if (ret)
 		goto error_xenbus;
-	ret = xenbus_printf(xbt, dev->nodename, "protocol", "%s",
-			    XEN_IO_PROTO_ABI_NATIVE);
+	ret = xenbus_write(xbt, dev->nodename, "protocol",
+			   XEN_IO_PROTO_ABI_NATIVE);
 	if (ret)
 		goto error_xenbus;
-	ret = xenbus_printf(xbt, dev->nodename, "feature-update", "1");
+	ret = xenbus_write(xbt, dev->nodename, "feature-update", "1");
 	if (ret)
 		goto error_xenbus;
 	ret = xenbus_transaction_end(xbt, 0);

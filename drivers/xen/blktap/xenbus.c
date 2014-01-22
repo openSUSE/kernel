@@ -428,7 +428,7 @@ again:
 		return;
 	}
 
-	err = xenbus_printf(xbt, dev->nodename, "feature-barrier",  "1");
+	err = xenbus_write(xbt, dev->nodename, "feature-barrier", "1");
 	if (err) {
 		xenbus_dev_fatal(dev, err, "writing feature-barrier");
 		xenbus_transaction_end(xbt, 1);

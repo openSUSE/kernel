@@ -477,6 +477,9 @@ static ssize_t nodename_show(struct device *dev,
 {
 	return sprintf(buf, "%s\n", to_xenbus_device(dev)->nodename);
 }
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0)
+static DEVICE_ATTR_RO(nodename);
+#endif
 
 static ssize_t devtype_show(struct device *dev,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,13)
@@ -486,6 +489,9 @@ static ssize_t devtype_show(struct device *dev,
 {
 	return sprintf(buf, "%s\n", to_xenbus_device(dev)->devicetype);
 }
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0)
+static DEVICE_ATTR_RO(devtype);
+#endif
 
 static ssize_t modalias_show(struct device *dev,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,13)
@@ -496,14 +502,33 @@ static ssize_t modalias_show(struct device *dev,
 	return sprintf(buf, "%s:%s\n", dev->bus->name,
 		       to_xenbus_device(dev)->devicetype);
 }
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0)
+static DEVICE_ATTR_RO(modalias);
 
-struct device_attribute xenbus_dev_attrs[] = {
+static struct attribute *xenbus_dev_attrs[] = {
+	&dev_attr_nodename.attr,
+	&dev_attr_devtype.attr,
+	&dev_attr_modalias.attr,
+	NULL
+};
+
+static const struct attribute_group xenbus_dev_group = {
+	.attrs = xenbus_dev_attrs,
+};
+
+const struct attribute_group *xenbus_dev_groups[] = {
+	&xenbus_dev_group,
+	NULL
+};
+PARAVIRT_EXPORT_SYMBOL(xenbus_dev_groups);
+#else /* LINUX_VERSION_CODE < KERNEL_VERSION(3,13,0) */
+static struct device_attribute xenbus_dev_attrs[] = {
 	__ATTR_RO(nodename),
 	__ATTR_RO(devtype),
 	__ATTR_RO(modalias),
 	__ATTR_NULL
 };
-PARAVIRT_EXPORT_SYMBOL(xenbus_dev_attrs);
+#endif
 
 int xenbus_probe_node(struct xen_bus_type *bus,
 		      const char *type,
@@ -653,7 +678,9 @@ static struct xen_bus_type xenbus_frontend = {
 		.shutdown  = xenbus_dev_shutdown,
 		.uevent    = xenbus_uevent_frontend,
 #endif
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0)
+		.dev_groups = xenbus_dev_groups,
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
 		.dev_attrs = xenbus_dev_attrs,
 #endif
 	},

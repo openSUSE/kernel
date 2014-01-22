@@ -188,7 +188,6 @@ static int xen_hotplug_notifier(struct acpi_processor *pr, int event)
 #ifdef CONFIG_ACPI_HOTPLUG_CPU
 	acpi_status status = 0;
 	acpi_object_type type;
-	uint32_t apic_id;
 	int device_decl = 0;
 	unsigned long long pxm;
 	xen_platform_op_t op;
@@ -212,9 +211,8 @@ static int xen_hotplug_notifier(struct acpi_processor *pr, int event)
 		return -EOPNOTSUPP;
 	}
 
-	apic_id = acpi_get_cpuid(pr->handle, ~device_decl, pr->acpi_id);
-	if (apic_id < 0) {
-		pr_warn("can't get apic_id for acpi_id %#x\n", pr->acpi_id);
+	if (pr->apic_id == -1) {
+		pr_warn("no valid apic_id for acpi_id %#x\n", pr->acpi_id);
 		return -ENODATA;
 	}
 
@@ -227,7 +225,7 @@ static int xen_hotplug_notifier(struct acpi_processor *pr, int event)
 	switch (event) {
 	case HOTPLUG_TYPE_ADD:
 		op.cmd = XENPF_cpu_hotadd;
-		op.u.cpu_add.apic_id = apic_id;
+		op.u.cpu_add.apic_id = pr->apic_id;
 		op.u.cpu_add.acpi_id = pr->acpi_id;
 		op.u.cpu_add.pxm = pxm;
 		ret = HYPERVISOR_platform_op(&op);

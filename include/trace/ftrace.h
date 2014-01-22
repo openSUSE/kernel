@@ -90,6 +90,10 @@
 #define TRACE_EVENT_FLAGS(name, value)					\
 	__TRACE_EVENT_FLAGS(name, value)
 
+#undef TRACE_EVENT_PERF_PERM
+#define TRACE_EVENT_PERF_PERM(name, expr...)				\
+	__TRACE_EVENT_PERF_PERM(name, expr)
+
 #include TRACE_INCLUDE(TRACE_INCLUDE_FILE)
 
 
@@ -139,6 +143,9 @@
 
 #undef TRACE_EVENT_FLAGS
 #define TRACE_EVENT_FLAGS(event, flag)
+
+#undef TRACE_EVENT_PERF_PERM
+#define TRACE_EVENT_PERF_PERM(event, expr...)
 
 #include TRACE_INCLUDE(TRACE_INCLUDE_FILE)
 
@@ -438,9 +445,8 @@ static inline notrace int ftrace_get_offsets_##call(			\
  *	{ <assign>; }  <-- Here we assign the entries by the __field and
  *			   __array macros.
  *
- *	if (!filter_current_check_discard(buffer, event_call, entry, event))
- *		trace_nowake_buffer_unlock_commit(buffer,
- *						   event, irq_flags, pc);
+ *	if (!filter_check_discard(ftrace_file, entry, buffer, event))
+ *		trace_buffer_unlock_commit(buffer, event, irq_flags, pc);
  * }
  *
  * static struct trace_event ftrace_event_type_<call> = {
@@ -554,7 +560,7 @@ ftrace_raw_event_##call(void *__data, proto)				\
 									\
 	{ assign; }							\
 									\
-	if (!filter_current_check_discard(buffer, event_call, entry, event)) \
+	if (!filter_check_discard(ftrace_file, entry, buffer, event))	\
 		trace_buffer_unlock_commit(buffer, event, irq_flags, pc); \
 }
 /*

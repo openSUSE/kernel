@@ -41,7 +41,8 @@
  * POSSIBILITY OF SUCH DAMAGES.
  */
 
-#include <linux/export.h>
+#define EXPORT_ACPI_INTERFACES
+
 #include <acpi/acpi.h>
 #include "accommon.h"
 
@@ -167,7 +168,7 @@ ACPI_EXPORT_SYMBOL(acpi_set_firmware_waking_vector64)
  *
  ******************************************************************************/
 #ifndef CONFIG_XEN
-acpi_status asmlinkage acpi_enter_sleep_state_s4bios(void)
+acpi_status acpi_enter_sleep_state_s4bios(void)
 {
 	u32 in_value;
 	acpi_status status;
@@ -362,7 +363,7 @@ ACPI_EXPORT_SYMBOL(acpi_enter_sleep_state_prep)
  *              THIS FUNCTION MUST BE CALLED WITH INTERRUPTS DISABLED
  *
  ******************************************************************************/
-acpi_status asmlinkage acpi_enter_sleep_state(u8 sleep_state)
+acpi_status acpi_enter_sleep_state(u8 sleep_state)
 {
 	acpi_status status;
 

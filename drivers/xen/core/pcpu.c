@@ -15,7 +15,7 @@
 #include <acpi/processor.h>
 
 struct pcpu {
-	struct list_head pcpu_list;
+	struct list_head list;
 	struct device dev;
 	uint32_t apic_id;
 	uint32_t acpi_id;
@@ -34,6 +34,7 @@ static DEFINE_MUTEX(xen_pcpu_lock);
 #define put_pcpu_lock() mutex_unlock(&xen_pcpu_lock);
 
 static LIST_HEAD(xen_pcpus);
+static LIST_HEAD(orphan_pcpus);
 
 static BLOCKING_NOTIFIER_HEAD(pcpu_chain);
 
@@ -53,7 +54,7 @@ int register_pcpu_notifier(struct notifier_block *nb)
 	if (!err) {
 		struct pcpu *pcpu;
 
-		list_for_each_entry(pcpu, &xen_pcpus, pcpu_list)
+		list_for_each_entry(pcpu, &xen_pcpus, list)
 			if (xen_pcpu_online(pcpu->flags))
 				nb->notifier_call(nb, CPU_ONLINE,
 						  notifier_param(pcpu));
@@ -147,22 +148,19 @@ static ssize_t show_acpiid(struct device *dev,
 }
 static DEVICE_ATTR(acpi_id, 0444, show_acpiid, NULL);
 
-static struct bus_type xen_pcpu_subsys = {
+struct bus_type xen_pcpu_subsys = {
 	.name = "xen_pcpu",
 	.dev_name = "xen_pcpu",
 };
+EXPORT_SYMBOL_GPL(xen_pcpu_subsys);
 
-static int xen_pcpu_free(struct pcpu *pcpu)
+static int xen_pcpu_remove(struct pcpu *pcpu)
 {
-	if (!pcpu)
-		return 0;
-
 	device_remove_file(&pcpu->dev, &dev_attr_online);
 	device_remove_file(&pcpu->dev, &dev_attr_apic_id);
 	device_remove_file(&pcpu->dev, &dev_attr_acpi_id);
 	device_unregister(&pcpu->dev);
-	list_del(&pcpu->pcpu_list);
-	kfree(pcpu);
+	list_del(&pcpu->list);
 
 	return 0;
 }
@@ -221,27 +219,52 @@ static struct pcpu *get_pcpu(unsigned int xen_id)
 {
 	struct pcpu *pcpu;
 
-	list_for_each_entry(pcpu, &xen_pcpus, pcpu_list)
+	list_for_each_entry(pcpu, &xen_pcpus, list)
 		if (pcpu->dev.id == xen_id)
 			return pcpu;
 
 	return NULL;
 }
 
+#ifdef CONFIG_ACPI
+struct device *get_pcpu_device(unsigned int acpi_id)
+{
+	struct pcpu *pcpu;
+	struct device *dev = NULL;
+
+	get_pcpu_lock();
+	list_for_each_entry(pcpu, &xen_pcpus, list)
+		if (pcpu->acpi_id == acpi_id) {
+			dev = &pcpu->dev;
+			break;
+		}
+	put_pcpu_lock();
+
+	return dev;
+}
+#endif
+
 static struct pcpu *init_pcpu(struct xenpf_pcpuinfo *info)
 {
 	struct pcpu *pcpu;
 	int err;
+	bool found = false;
 
 	if (info->flags & XEN_PCPU_FLAGS_INVALID)
 		return ERR_PTR(-EINVAL);
 
 	/* The PCPU is just added */
-	pcpu = kzalloc(sizeof(struct pcpu), GFP_KERNEL);
+	list_for_each_entry(pcpu, &orphan_pcpus, list)
+		if (pcpu->acpi_id == info->acpi_id) {
+			list_del(&pcpu->list);
+			found = true;
+			break;
+		}
+	if (!found)
+		pcpu = kzalloc(sizeof(struct pcpu), GFP_KERNEL);
 	if (!pcpu)
 		return ERR_PTR(-ENOMEM);
 
-	INIT_LIST_HEAD(&pcpu->pcpu_list);
 	pcpu->apic_id = info->apic_id;
 	pcpu->acpi_id = info->acpi_id;
 	pcpu->flags = info->flags;
@@ -251,11 +274,14 @@ static struct pcpu *init_pcpu(struct xenpf_pcpuinfo *info)
 
 	err = pcpu_dev_init(pcpu);
 	if (err) {
-		kfree(pcpu);
+		if (found)
+			list_add(&pcpu->list, &orphan_pcpus);
+		else
+			kfree(pcpu);
 		return ERR_PTR(err);
 	}
 
-	list_add_tail(&pcpu->pcpu_list, &xen_pcpus);
+	list_add_tail(&pcpu->list, &xen_pcpus);
 	return pcpu;
 }
 
@@ -294,7 +320,8 @@ static int _sync_pcpu(unsigned int cpu_num, unsigned int *max_id)
 	if (info->flags & XEN_PCPU_FLAGS_INVALID) {
 		/* The pcpu has been removed */
 		if (pcpu) {
-			xen_pcpu_free(pcpu);
+			xen_pcpu_remove(pcpu);
+			list_add(&pcpu->list, &orphan_pcpus);
 			return PCPU_REMOVED;
 		}
 		return PCPU_NO_CHANGE;
@@ -327,7 +354,7 @@ static int _sync_pcpu(unsigned int cpu_num, unsigned int *max_id)
 /*
  * Sync dom0's pcpu information with xen hypervisor's
  */
-static int xen_sync_pcpus(void)
+static int xen_sync_pcpus(bool init)
 {
 	/*
 	 * Boot cpu always have cpu_id 0 in xen
@@ -353,11 +380,13 @@ static int xen_sync_pcpus(void)
 		cpu_num++;
 	}
 
-	if (result < 0) {
+	if (result < 0 && init) {
 		struct pcpu *pcpu, *tmp;
 
-		list_for_each_entry_safe(pcpu, tmp, &xen_pcpus, pcpu_list)
-			xen_pcpu_free(pcpu);
+		list_for_each_entry_safe(pcpu, tmp, &xen_pcpus, list) {
+			xen_pcpu_remove(pcpu);
+			kfree(pcpu);
+		}
 	}
 
 	put_pcpu_lock();
@@ -367,7 +396,7 @@ static int xen_sync_pcpus(void)
 
 static void xen_pcpu_dpc(struct work_struct *work)
 {
-	if (xen_sync_pcpus() < 0)
+	if (xen_sync_pcpus(false) < 0)
 		pr_warn("xen_pcpu_dpc: Failed to sync pcpu information\n");
 }
 static DECLARE_WORK(xen_pcpu_work, xen_pcpu_dpc);
@@ -425,6 +454,7 @@ static int __init xen_pcpu_init(void)
 	if (!is_initial_xendomain())
 		return 0;
 
+	xen_pcpu_subsys.match = cpu_subsys.match;
 	err = subsys_system_register(&xen_pcpu_subsys, NULL);
 	if (err) {
 		pr_warn("xen_pcpu_init: "
@@ -432,7 +462,7 @@ static int __init xen_pcpu_init(void)
 		return err;
 	}
 
-	xen_sync_pcpus();
+	xen_sync_pcpus(true);
 
 	if (!list_empty(&xen_pcpus))
 		err = bind_virq_to_irqhandler(VIRQ_PCPU_STATE, 0,
@@ -444,4 +474,4 @@ static int __init xen_pcpu_init(void)
 
 	return err;
 }
-subsys_initcall(xen_pcpu_init);
+arch_initcall(xen_pcpu_init);

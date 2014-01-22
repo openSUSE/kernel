@@ -36,6 +36,8 @@ obj-y			+= tsc.o io_delay.o rtc.o
 obj-y			+= pci-iommu_table.o
 obj-y			+= resource.o
 
+obj-$(CONFIG_PREEMPT)	+= preempt.o
+
 obj-y				+= process.o
 obj-y				+= i387.o xsave.o
 obj-y				+= ptrace.o
@@ -125,6 +127,5 @@ ifeq ($(CONFIG_X86_64),y)
 endif
 
 disabled-obj-$(CONFIG_XEN) := crash.o early-quirks.o i8237.o i8253.o i8259.o \
-	irqinit.o pci-swiotlb.o reboot.o smpboot.o tracepoint.o trampoline%.o \
-	tsc%.o vsmp%.o
+	irqinit.o pci-swiotlb.o reboot.o smpboot.o trampoline%.o tsc%.o vsmp%.o
 disabled-obj-$(CONFIG_XEN_UNPRIVILEGED_GUEST) += probe_roms.o

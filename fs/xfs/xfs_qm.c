@@ -17,31 +17,28 @@
  */
 #include "xfs.h"
 #include "xfs_fs.h"
+#include "xfs_shared.h"
 #include "xfs_format.h"
+#include "xfs_log_format.h"
+#include "xfs_trans_resv.h"
 #include "xfs_bit.h"
-#include "xfs_log.h"
-#include "xfs_trans.h"
 #include "xfs_sb.h"
 #include "xfs_ag.h"
-#include "xfs_alloc.h"
-#include "xfs_quota.h"
 #include "xfs_mount.h"
-#include "xfs_bmap_btree.h"
-#include "xfs_ialloc_btree.h"
-#include "xfs_dinode.h"
 #include "xfs_inode.h"
 #include "xfs_ialloc.h"
 #include "xfs_itable.h"
-#include "xfs_rtalloc.h"
+#include "xfs_quota.h"
 #include "xfs_error.h"
 #include "xfs_bmap.h"
-#include "xfs_attr.h"
-#include "xfs_buf_item.h"
+#include "xfs_bmap_btree.h"
+#include "xfs_trans.h"
 #include "xfs_trans_space.h"
 #include "xfs_qm.h"
 #include "xfs_trace.h"
 #include "xfs_icache.h"
 #include "xfs_cksum.h"
+#include "xfs_dinode.h"
 
 /*
  * The global quota manager. There is only one of these for the entire
@@ -693,20 +690,6 @@ xfs_qm_dqdetach(
 	}
 }
 
-int
-xfs_qm_calc_dquots_per_chunk(
-	struct xfs_mount	*mp,
-	unsigned int		nbblks)	/* basic block units */
-{
-	unsigned int	ndquots;
-
-	ASSERT(nbblks > 0);
-	ndquots = BBTOB(nbblks);
-	do_div(ndquots, sizeof(xfs_dqblk_t));
-
-	return ndquots;
-}
-
 struct xfs_qm_isolate {
 	struct list_head	buffers;
 	struct list_head	dispose;
@@ -887,7 +870,7 @@ xfs_qm_init_quotainfo(
 
 	/* Precalc some constants */
 	qinf->qi_dqchunklen = XFS_FSB_TO_BB(mp, XFS_DQUOT_CLUSTER_SIZE_FSB);
-	qinf->qi_dqperchunk = xfs_qm_calc_dquots_per_chunk(mp,
+	qinf->qi_dqperchunk = xfs_calc_dquots_per_chunk(mp,
 							qinf->qi_dqchunklen);
 
 	mp->m_qflags |= (mp->m_sb.sb_qflags & XFS_ALL_QUOTA_CHKD);
@@ -1121,10 +1104,10 @@ xfs_qm_reset_dqcounts(
 		/*
 		 * Do a sanity check, and if needed, repair the dqblk. Don't
 		 * output any warnings because it's perfectly possible to
-		 * find uninitialised dquot blks. See comment in xfs_qm_dqcheck.
+		 * find uninitialised dquot blks. See comment in xfs_dqcheck.
 		 */
-		(void) xfs_qm_dqcheck(mp, ddq, id+j, type, XFS_QMOPT_DQREPAIR,
-				      "xfs_quotacheck");
+		xfs_dqcheck(mp, ddq, id+j, type, XFS_QMOPT_DQREPAIR,
+			    "xfs_quotacheck");
 		ddq->d_bcount = 0;
 		ddq->d_icount = 0;
 		ddq->d_rtbcount = 0;
@@ -2128,24 +2111,21 @@ xfs_qm_vop_create_dqattach(
 	ASSERT(xfs_isilocked(ip, XFS_ILOCK_EXCL));
 	ASSERT(XFS_IS_QUOTA_RUNNING(mp));
 
-	if (udqp) {
+	if (udqp && XFS_IS_UQUOTA_ON(mp)) {
 		ASSERT(ip->i_udquot == NULL);
-		ASSERT(XFS_IS_UQUOTA_ON(mp));
 		ASSERT(ip->i_d.di_uid == be32_to_cpu(udqp->q_core.d_id));
 
 		ip->i_udquot = xfs_qm_dqhold(udqp);
 		xfs_trans_mod_dquot(tp, udqp, XFS_TRANS_DQ_ICOUNT, 1);
 	}
-	if (gdqp) {
+	if (gdqp && XFS_IS_GQUOTA_ON(mp)) {
 		ASSERT(ip->i_gdquot == NULL);
-		ASSERT(XFS_IS_GQUOTA_ON(mp));
 		ASSERT(ip->i_d.di_gid == be32_to_cpu(gdqp->q_core.d_id));
 		ip->i_gdquot = xfs_qm_dqhold(gdqp);
 		xfs_trans_mod_dquot(tp, gdqp, XFS_TRANS_DQ_ICOUNT, 1);
 	}
-	if (pdqp) {
+	if (pdqp && XFS_IS_PQUOTA_ON(mp)) {
 		ASSERT(ip->i_pdquot == NULL);
-		ASSERT(XFS_IS_PQUOTA_ON(mp));
 		ASSERT(xfs_get_projid(ip) == be32_to_cpu(pdqp->q_core.d_id));
 
 		ip->i_pdquot = xfs_qm_dqhold(pdqp);

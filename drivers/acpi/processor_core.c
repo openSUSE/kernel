@@ -203,21 +203,24 @@ exit:
 	return apic_id;
 }
 
-int acpi_get_cpuid(acpi_handle handle, int type, u32 acpi_id)
+int acpi_get_apicid(acpi_handle handle, int type, u32 acpi_id)
 {
-	int i = 0, apic_id = -1;
-
-	if (type < 0) {
-		if (!processor_cntl_external())
-			return -1;
-		type = ~type;
-		i = 1;
-	}
+	int apic_id;
 
 	apic_id = map_mat_entry(handle, type, acpi_id);
 	if (apic_id == -1)
 		apic_id = map_madt_entry(type, acpi_id);
-	if (apic_id == -1 || i) {
+
+	return apic_id;
+}
+
+int acpi_map_cpuid(int apic_id, u32 acpi_id)
+{
+#if defined(CONFIG_SMP) && !defined(CONFIG_PROCESSOR_EXTERNAL_CONTROL)
+	int i;
+#endif
+
+	if (apic_id == -1) {
 		/*
 		 * On UP processor, there is no _MAT or MADT table.
 		 * So above apic_id is always set to -1.
@@ -238,7 +241,7 @@ int acpi_get_cpuid(acpi_handle handle, int type, u32 acpi_id)
 		 * This should be the case if SMP tables are not found.
 		 * Return -1 for other CPU's handle.
 		 */
-		if (nr_cpu_ids <= 1 && acpi_id == 0 && !i)
+		if (nr_cpu_ids <= 1 && acpi_id == 0)
 			return acpi_id;
 		else
 			return apic_id;
@@ -265,6 +268,15 @@ int acpi_get_cpuid(acpi_handle handle, int type, u32 acpi_id)
 		return apic_id;
 #endif
 	return -1;
+}
+
+int acpi_get_cpuid(acpi_handle handle, int type, u32 acpi_id)
+{
+	int apic_id;
+
+	apic_id = acpi_get_apicid(handle, type, acpi_id);
+
+	return acpi_map_cpuid(apic_id, acpi_id);
 }
 EXPORT_SYMBOL_GPL(acpi_get_cpuid);
 

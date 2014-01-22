@@ -990,10 +990,8 @@ retint_signal:
 	/* Returning to kernel space. Check if we need preemption */
 	/* rcx:	 threadinfo. interrupts off. */
 ENTRY(retint_kernel)
-	cmpl $0,TI_preempt_count(%rcx)
+	cmpl $0,PER_CPU_VAR(__preempt_count)
 	jnz  retint_restore_args
-	bt  $TIF_NEED_RESCHED,TI_flags(%rcx)
-	jnc  retint_restore_args
 	bt   $9,EFLAGS-ARGOFFSET(%rsp)	/* interrupts off? */
 	jnc  retint_restore_args
 	call preempt_schedule_irq
@@ -1055,6 +1053,17 @@ ENTRY(\sym)
 	CFI_ENDPROC
 END(\sym)
 .endm
+
+#ifdef CONFIG_TRACING
+.macro trace_errorentry sym do_sym
+errorentry trace_\sym trace_\do_sym
+errorentry \sym \do_sym
+.endm
+#else
+.macro trace_errorentry sym do_sym
+errorentry \sym \do_sym
+.endm
+#endif
 
 	/* error code is on the stack already */
 .macro paranoiderrorentry sym do_sym
@@ -1184,7 +1193,7 @@ errorentry alignment_check do_alignment_check
 zeroentry simd_coprocessor_error do_simd_coprocessor_error
 
 /* Call softirq on interrupt stack. Interrupts are off. */
-ENTRY(call_softirq)
+ENTRY(do_softirq_own_stack)
 	CFI_STARTPROC
 	pushq_cfi %rbp
 	CFI_REL_OFFSET rbp,0
@@ -1201,7 +1210,7 @@ ENTRY(call_softirq)
 	decl PER_CPU_VAR(irq_count)
 	ret
 	CFI_ENDPROC
-END(call_softirq)
+END(do_softirq_own_stack)
 
 #ifdef CONFIG_STACK_UNWIND
 ENTRY(arch_unwind_init_running)
@@ -1247,7 +1256,7 @@ zeroentry nmi do_nmi_callback
 paranoidzeroentry_ist int3 do_int3 DEBUG_STACK
 paranoiderrorentry stack_segment do_stack_segment
 errorentry general_protection do_general_protection
-errorentry page_fault do_page_fault
+trace_errorentry page_fault do_page_fault
 #ifdef CONFIG_KVM_GUEST
 errorentry async_page_fault do_async_page_fault
 #endif

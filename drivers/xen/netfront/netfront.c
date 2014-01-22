@@ -37,6 +37,7 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/stringify.h>
 #include <linux/errno.h>
 #include <linux/netdevice.h>
 #include <linux/inetdevice.h>
@@ -65,6 +66,7 @@
 #include <xen/interface/grant_table.h>
 #include <xen/gnttab.h>
 #include <xen/net-util.h>
+#include <xen/xen_pvonhvm.h>
 
 struct netfront_cb {
 	unsigned int pull_to;
@@ -99,7 +101,7 @@ MODULE_PARM_DESC(rx_flip, "Flip packets from network card (rather than copy)");
 #if defined(NETIF_F_GSO)
 #define HAVE_GSO			1
 #define HAVE_TSO			1 /* TSO is a subset of GSO */
-#define HAVE_CSUM_OFFLOAD		1
+#define NO_CSUM_OFFLOAD			0
 static inline void dev_disable_gso_features(struct net_device *dev)
 {
 	/* Turn off all GSO bits except ROBUST. */
@@ -115,7 +117,7 @@ static inline void dev_disable_gso_features(struct net_device *dev)
  * with the presence of NETIF_F_TSO but it appears to be a good first
  * approximiation.
  */
-#define HAVE_CSUM_OFFLOAD              0
+#define NO_CSUM_OFFLOAD			1
 
 #define gso_size tso_size
 #define gso_segs tso_segs
@@ -143,7 +145,7 @@ static inline int netif_needs_gso(struct sk_buff *skb, int features)
 #else
 #define HAVE_GSO			0
 #define HAVE_TSO			0
-#define HAVE_CSUM_OFFLOAD		0
+#define NO_CSUM_OFFLOAD			1
 #define netif_needs_gso(skb, feat)	0
 #define dev_disable_gso_features(dev)	((void)0)
 #define ethtool_op_set_tso(dev, data)	(-ENOSYS)
@@ -252,6 +254,34 @@ static void netfront_enable_arp_notify(struct netfront_info *info)
 #endif
 }
 
+static bool netfront_nic_unplugged(struct xenbus_device *dev)
+{
+	bool ret = true;
+#ifndef CONFIG_XEN
+	char *typestr;
+	/*
+	 * For HVM guests:
+	 * - pv driver required if booted with xen_emul_unplug=nics|all
+	 * - native driver required with xen_emul_unplug=ide-disks|never
+	 */
+
+	/* Use pv driver if emulated hardware was unplugged */
+	if (xen_pvonhvm_unplugged_nics)
+		return true;
+
+	typestr  = xenbus_read(XBT_NIL, dev->otherend, "type", NULL);
+
+	/* Assume emulated+pv interface (ioemu+vif) when type property is missing. */
+	if (IS_ERR(typestr))
+		return false;
+
+	/* If the interface is emulated and not unplugged, skip it. */
+	if (strcmp(typestr, "vif_ioem") == 0 || strcmp(typestr, "ioemu") == 0)
+		ret = false;
+	kfree(typestr);
+#endif
+	return ret;
+}
 /**
  * Entry point to this code when a new device is created.  Allocate the basic
  * structures and the ring buffers for communication with the backend, and
@@ -263,6 +293,11 @@ static int netfront_probe(struct xenbus_device *dev,
 	int err;
 	struct net_device *netdev;
 	struct netfront_info *info;
+
+	if (!netfront_nic_unplugged(dev)) {
+		pr_warning("netfront: skipping emulated interface, native driver required\n");
+		return -ENODEV;
+	}
 
 	netdev = create_netdev(dev);
 	if (IS_ERR(netdev)) {
@@ -438,27 +473,38 @@ again:
 		goto abort_transaction;
 	}
 
-	err = xenbus_printf(xbt, dev->nodename, "feature-rx-notify", "%d", 1);
+	err = xenbus_write(xbt, dev->nodename, "feature-rx-notify", "1");
 	if (err) {
 		message = "writing feature-rx-notify";
 		goto abort_transaction;
 	}
 
-	err = xenbus_printf(xbt, dev->nodename, "feature-no-csum-offload",
-			    "%d", !HAVE_CSUM_OFFLOAD);
+	err = xenbus_write(xbt, dev->nodename, "feature-no-csum-offload",
+			   __stringify(NO_CSUM_OFFLOAD));
 	if (err) {
 		message = "writing feature-no-csum-offload";
 		goto abort_transaction;
 	}
 
-	err = xenbus_printf(xbt, dev->nodename, "feature-sg", "%d", 1);
+#ifdef NETIF_F_IPV6_CSUM
+	err = xenbus_write(xbt, dev->nodename, "feature-ipv6-csum-offload",
+			   "1");
+	if (err) {
+		message = "writing feature-ipv6-csum-offload";
+		goto abort_transaction;
+	}
+#else
+#define NETIF_F_IPV6_CSUM 0
+#endif
+
+	err = xenbus_write(xbt, dev->nodename, "feature-sg", "1");
 	if (err) {
 		message = "writing feature-sg";
 		goto abort_transaction;
 	}
 
-	err = xenbus_printf(xbt, dev->nodename, "feature-gso-tcpv4", "%d",
-			    HAVE_TSO);
+	err = xenbus_write(xbt, dev->nodename, "feature-gso-tcpv4",
+			   __stringify(HAVE_TSO));
 	if (err) {
 		message = "writing feature-gso-tcpv4";
 		goto abort_transaction;
@@ -741,12 +787,13 @@ static void network_alloc_rx_buffers(struct net_device *dev)
 		if (!page) {
 			kfree_skb(skb);
 no_skb:
+			/* Could not allocate enough skbuffs. Try again later. */
+			mod_timer(&np->rx_refill_timer,
+				  jiffies + (HZ/10));
+
 			/* Any skbuffs queued for refill? Force them out. */
 			if (i != 0)
 				goto refill;
-			/* Could not allocate any skbuffs. Try again later. */
-			mod_timer(&np->rx_refill_timer,
-				  jiffies + (HZ/10));
 			break;
 		}
 
@@ -1441,11 +1488,6 @@ err:
 		else
 			skb->ip_summed = CHECKSUM_NONE;
 
-		u64_stats_update_begin(&stats->syncp);
-		stats->rx_packets++;
-		stats->rx_bytes += skb->len;
-		u64_stats_update_end(&stats->syncp);
-
 		__skb_queue_tail(&rxq, skb);
 
 		np->rx.rsp_cons = ++i;
@@ -1481,11 +1523,18 @@ err:
 
 		if (skb_checksum_setup(skb, &np->rx_gso_csum_fixups)) {
 			kfree_skb(skb);
+			dev->stats.rx_errors++;
+			--work_done;
 			continue;
 		}
 
+		u64_stats_update_begin(&stats->syncp);
+		stats->rx_packets++;
+		stats->rx_bytes += skb->len;
+		u64_stats_update_end(&stats->syncp);
+
 		/* Pass it up. */
-		netif_receive_skb(skb);
+		napi_gro_receive(napi, skb);
 	}
 
 	/* If we get a callback with very few responses, reduce fill target. */
@@ -1512,6 +1561,8 @@ err:
 	}
 
 	if (work_done < budget) {
+		napi_gro_flush(napi, false);
+
 		local_irq_save(flags);
 
 		RING_FINAL_CHECK_FOR_RESPONSES(&np->rx, more_to_do);
@@ -2074,6 +2125,15 @@ static netdev_features_t xennet_fix_features(struct net_device *dev,
 			features &= ~NETIF_F_TSO;
 	}
 
+	if (features & NETIF_F_IPV6_CSUM) {
+		if (xenbus_scanf(XBT_NIL, np->xbdev->otherend,
+				 "feature-ipv6-csum-offload", "%d", &val) < 0)
+			val = 0;
+
+		if (!val)
+			features &= ~NETIF_F_IPV6_CSUM;
+	}
+
 	return features;
 }
 
@@ -2143,6 +2203,8 @@ static struct net_device *create_netdev(struct xenbus_device *dev)
 	np->stats = alloc_percpu(struct netfront_stats);
 	if (np->stats == NULL)
 		goto exit;
+	for_each_possible_cpu(i)
+		u64_stats_init(&per_cpu_ptr(np->stats, i)->syncp);
 
 	/* Initialise {tx,rx}_skbs as a free chain containing every entry. */
 	for (i = 0; i <= NET_TX_RING_SIZE; i++) {
@@ -2172,9 +2234,9 @@ static struct net_device *create_netdev(struct xenbus_device *dev)
 
 	netdev->netdev_ops	= &xennet_netdev_ops;
 	netif_napi_add(netdev, &np->napi, netif_poll, 64);
-	netdev->features        = NETIF_F_IP_CSUM | NETIF_F_RXCSUM |
-				  NETIF_F_GSO_ROBUST;
-	netdev->hw_features	= NETIF_F_IP_CSUM | NETIF_F_SG | NETIF_F_TSO;
+	netdev->features        = NETIF_F_RXCSUM | NETIF_F_GSO_ROBUST;
+	netdev->hw_features	= NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM
+				  | NETIF_F_SG | NETIF_F_TSO;
 
 	/*
          * Assume that all hw features are available for now. This set

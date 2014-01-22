@@ -95,7 +95,7 @@ static int ipv6_get_l4proto(const struct sk_buff *skb, unsigned int nhoff,
 	return NF_ACCEPT;
 }
 
-static unsigned int ipv6_helper(unsigned int hooknum,
+static unsigned int ipv6_helper(const struct nf_hook_ops *ops,
 				struct sk_buff *skb,
 				const struct net_device *in,
 				const struct net_device *out,
@@ -133,7 +133,7 @@ static unsigned int ipv6_helper(unsigned int hooknum,
 	return helper->help(skb, protoff, ct, ctinfo);
 }
 
-static unsigned int ipv6_confirm(unsigned int hooknum,
+static unsigned int ipv6_confirm(const struct nf_hook_ops *ops,
 				 struct sk_buff *skb,
 				 const struct net_device *in,
 				 const struct net_device *out,
@@ -169,16 +169,16 @@ out:
 	return nf_conntrack_confirm(skb);
 }
 
-static unsigned int ipv6_conntrack_in(unsigned int hooknum,
+static unsigned int ipv6_conntrack_in(const struct nf_hook_ops *ops,
 				      struct sk_buff *skb,
 				      const struct net_device *in,
 				      const struct net_device *out,
 				      int (*okfn)(struct sk_buff *))
 {
-	return nf_conntrack_in(dev_net(in), PF_INET6, hooknum, skb);
+	return nf_conntrack_in(dev_net(in), PF_INET6, ops->hooknum, skb);
 }
 
-static unsigned int ipv6_conntrack_local(unsigned int hooknum,
+static unsigned int ipv6_conntrack_local(const struct nf_hook_ops *ops,
 					 struct sk_buff *skb,
 					 const struct net_device *in,
 					 const struct net_device *out,
@@ -189,7 +189,7 @@ static unsigned int ipv6_conntrack_local(unsigned int hooknum,
 		net_notice_ratelimited("ipv6_conntrack_local: packet too short\n");
 		return NF_ACCEPT;
 	}
-	return nf_conntrack_in(dev_net(out), PF_INET6, hooknum, skb);
+	return nf_conntrack_in(dev_net(out), PF_INET6, ops->hooknum, skb);
 }
 
 static struct nf_hook_ops ipv6_conntrack_ops[] __read_mostly = {
@@ -247,9 +247,9 @@ ipv6_getorigdst(struct sock *sk, int optval, void __user *user, int *len)
 	struct nf_conntrack_tuple tuple = { .src.l3num = NFPROTO_IPV6 };
 	struct nf_conn *ct;
 
-	tuple.src.u3.in6 = inet6->rcv_saddr;
+	tuple.src.u3.in6 = sk->sk_v6_rcv_saddr;
 	tuple.src.u.tcp.port = inet->inet_sport;
-	tuple.dst.u3.in6 = inet6->daddr;
+	tuple.dst.u3.in6 = sk->sk_v6_daddr;
 	tuple.dst.u.tcp.port = inet->inet_dport;
 	tuple.dst.protonum = sk->sk_protocol;
 

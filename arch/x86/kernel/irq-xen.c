@@ -18,10 +18,10 @@
 #include <asm/mce.h>
 #include <asm/hw_irq.h>
 
-#ifndef CONFIG_XEN
 #define CREATE_TRACE_POINTS
 #include <asm/trace/irq_vectors.h>
 
+#ifndef CONFIG_XEN
 atomic_t irq_err_count;
 
 /* Function pointer for generic interrupt vector handling */
