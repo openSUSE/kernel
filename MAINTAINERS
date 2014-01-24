@@ -93,6 +93,11 @@ Descriptions of section entries:
 	N: Files and directories with regex patterns.
 	   N:	[^a-z]tegra	all files whose path contains the word tegra
 	   One pattern per line.  Multiple N: lines acceptable.
+	   scripts/get_maintainer.pl has different behavior for files that
+	   match F: pattern and matches of N: patterns.  By default,
+	   get_maintainer will not look at git log history when an F: pattern
+	   match occurs.  When an N: match occurs, git log history is used
+	   to also notify the people that have git commit signatures.
 	X: Files and directories that are NOT maintained, same rules as F:
 	   Files exclusions are tested before file matches.
 	   Can be useful for excluding a specific subdirectory, for instance:
@@ -538,6 +543,13 @@ F:	drivers/tty/serial/altera_jtaguart.c
 F:	include/linux/altera_uart.h
 F:	include/linux/altera_jtaguart.h
 
+AMD CRYPTOGRAPHIC COPROCESSOR (CCP) DRIVER
+M:	Tom Lendacky <thomas.lendacky@amd.com>
+L:	linux-crypto@vger.kernel.org
+S:	Supported
+F:	drivers/crypto/ccp/
+F:	include/linux/ccp.h
+
 AMD FAM15H PROCESSOR POWER MONITORING DRIVER
 M:	Andreas Herrmann <herrmann.der.user@googlemail.com>
 L:	lm-sensors@lm-sensors.org
@@ -765,7 +777,12 @@ ARM/Allwinner A1X SoC support
 M:	Maxime Ripard <maxime.ripard@free-electrons.com>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
-F:	arch/arm/mach-sunxi/
+N:	sun[x4567]i
+
+ARM/Allwinner SoC Clock Support
+M:	Emilio López <emilio@elopez.com.ar>
+S:	Maintained
+F:	drivers/clk/sunxi/
 
 ARM/ATMEL AT91RM9200 AND AT91SAM ARM ARCHITECTURES
 M:	Andrew Victor <linux@maxim.org.za>
@@ -865,6 +882,12 @@ W:	http://www.arm.linux.org.uk/
 S:	Maintained
 F:	arch/arm/mach-ebsa110/
 F:	drivers/net/ethernet/amd/am79c961a.*
+
+ARM/ENERGY MICRO (SILICON LABS) EFM32 SUPPORT
+M:	Uwe Kleine-König <kernel@pengutronix.de>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+S:	Maintained
+N:	efm32
 
 ARM/EZX SMARTPHONES (A780, A910, A1200, E680, ROKR E2 and ROKR E6)
 M:	Daniel Ribeiro <drwyrm@gmail.com>
@@ -1027,6 +1050,12 @@ M:	Sebastian Hesselbarth <sebastian.hesselbarth@gmail.com>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 F:	arch/arm/mach-mvebu/
+
+ARM/Marvell Berlin SoC support
+M:	Sebastian Hesselbarth <sebastian.hesselbarth@gmail.com>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+S:	Maintained
+F:	arch/arm/mach-berlin/
 
 ARM/Marvell Dove/Kirkwood/MV78xx0/Orion SOC support
 M:	Jason Cooper <jason@lakedaemon.net>
@@ -1321,6 +1350,14 @@ F:	drivers/rtc/rtc-ab8500.c
 F:	drivers/rtc/rtc-pl031.c
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-stericsson.git
 
+ARM/Ux500 CLOCK FRAMEWORK SUPPORT
+M:	Ulf Hansson <ulf.hansson@linaro.org>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+T:	git git://git.linaro.org/people/ulfh/clk.git
+S:	Maintained
+F:	drivers/clk/ux500/
+F:	include/linux/platform_data/clk-ux500.h
+
 ARM/VFP SUPPORT
 M:	Russell King <linux@arm.linux.org.uk>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
@@ -1597,11 +1634,10 @@ S:      Supported
 F:      drivers/scsi/esas2r
 
 AUDIT SUBSYSTEM
-M:	Al Viro <viro@zeniv.linux.org.uk>
 M:	Eric Paris <eparis@redhat.com>
 L:	linux-audit@redhat.com (subscribers-only)
 W:	http://people.redhat.com/sgrubb/audit/
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/viro/audit-current.git
+T:	git git://git.infradead.org/users/eparis/audit.git
 S:	Maintained
 F:	include/linux/audit.h
 F:	include/uapi/linux/audit.h
@@ -3344,7 +3380,6 @@ M:	Jingoo Han <jg1.han@samsung.com>
 L:	linux-fbdev@vger.kernel.org
 S:	Maintained
 F:	drivers/video/exynos/exynos_dp*
-F:	include/video/exynos_dp*
 
 EXYNOS MIPI DISPLAY DRIVERS
 M:	Inki Dae <inki.dae@samsung.com>
@@ -3634,6 +3669,7 @@ W:	http://en.wikipedia.org/wiki/F2FS
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jaegeuk/f2fs.git
 S:	Maintained
 F:	Documentation/filesystems/f2fs.txt
+F:	Documentation/ABI/testing/sysfs-fs-f2fs
 F:	fs/f2fs/
 F:	include/linux/f2fs_fs.h
 
@@ -3953,6 +3989,12 @@ L:	linux-fsdevel@vger.kernel.org
 S:	Orphan
 F:	Documentation/filesystems/hfs.txt
 F:	fs/hfs/
+
+HFSPLUS FILESYSTEM
+L:	linux-fsdevel@vger.kernel.org
+S:	Orphan
+F:	Documentation/filesystems/hfsplus.txt
+F:	fs/hfsplus/
 
 HGA FRAMEBUFFER DRIVER
 M:	Ferenc Bakonyi <fero@drama.obuda.kando.hu>
@@ -7406,6 +7448,12 @@ M:	Andrzej Hajda <a.hajda@samsung.com>
 L:	linux-media@vger.kernel.org
 S:	Supported
 F:	drivers/media/i2c/s5c73m3/*
+
+SAMSUNG SOC CLOCK DRIVERS
+M:	Tomasz Figa <t.figa@samsung.com>
+S:	Supported
+L:	linux-samsung-soc@vger.kernel.org (moderated for non-subscribers)
+F:	drivers/clk/samsung/
 
 SERIAL DRIVERS
 M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
