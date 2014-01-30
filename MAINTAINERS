@@ -309,36 +309,36 @@ F:	sound/pci/ad1889.*
 
 AD525X ANALOG DEVICES DIGITAL POTENTIOMETERS DRIVER
 M:	Michael Hennerich <michael.hennerich@analog.com>
-L:	device-drivers-devel@blackfin.uclinux.org
 W:	http://wiki.analog.com/AD5254
+W:	http://ez.analog.com/community/linux-device-drivers
 S:	Supported
 F:	drivers/misc/ad525x_dpot.c
 
 AD5398 CURRENT REGULATOR DRIVER (AD5398/AD5821)
 M:	Michael Hennerich <michael.hennerich@analog.com>
-L:	device-drivers-devel@blackfin.uclinux.org
 W:	http://wiki.analog.com/AD5398
+W:	http://ez.analog.com/community/linux-device-drivers
 S:	Supported
 F:	drivers/regulator/ad5398.c
 
 AD714X CAPACITANCE TOUCH SENSOR DRIVER (AD7142/3/7/8/7A)
 M:	Michael Hennerich <michael.hennerich@analog.com>
-L:	device-drivers-devel@blackfin.uclinux.org
 W:	http://wiki.analog.com/AD7142
+W:	http://ez.analog.com/community/linux-device-drivers
 S:	Supported
 F:	drivers/input/misc/ad714x.c
 
 AD7877 TOUCHSCREEN DRIVER
 M:	Michael Hennerich <michael.hennerich@analog.com>
-L:	device-drivers-devel@blackfin.uclinux.org
 W:	http://wiki.analog.com/AD7877
+W:	http://ez.analog.com/community/linux-device-drivers
 S:	Supported
 F:	drivers/input/touchscreen/ad7877.c
 
 AD7879 TOUCHSCREEN DRIVER (AD7879/AD7889)
 M:	Michael Hennerich <michael.hennerich@analog.com>
-L:	device-drivers-devel@blackfin.uclinux.org
 W:	http://wiki.analog.com/AD7879
+W:	http://ez.analog.com/community/linux-device-drivers
 S:	Supported
 F:	drivers/input/touchscreen/ad7879.c
 
@@ -347,7 +347,7 @@ M:	Jiri Kosina <jkosina@suse.cz>
 S:	Maintained
 
 ADM1025 HARDWARE MONITOR DRIVER
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	lm-sensors@lm-sensors.org
 S:	Maintained
 F:	Documentation/hwmon/adm1025
@@ -374,8 +374,8 @@ F:	include/media/adp1653.h
 
 ADP5520 BACKLIGHT DRIVER WITH IO EXPANDER (ADP5520/ADP5501)
 M:	Michael Hennerich <michael.hennerich@analog.com>
-L:	device-drivers-devel@blackfin.uclinux.org
 W:	http://wiki.analog.com/ADP5520
+W:	http://ez.analog.com/community/linux-device-drivers
 S:	Supported
 F:	drivers/mfd/adp5520.c
 F:	drivers/video/backlight/adp5520_bl.c
@@ -385,16 +385,16 @@ F:	drivers/input/keyboard/adp5520-keys.c
 
 ADP5588 QWERTY KEYPAD AND IO EXPANDER DRIVER (ADP5588/ADP5587)
 M:	Michael Hennerich <michael.hennerich@analog.com>
-L:	device-drivers-devel@blackfin.uclinux.org
 W:	http://wiki.analog.com/ADP5588
+W:	http://ez.analog.com/community/linux-device-drivers
 S:	Supported
 F:	drivers/input/keyboard/adp5588-keys.c
 F:	drivers/gpio/gpio-adp5588.c
 
 ADP8860 BACKLIGHT DRIVER (ADP8860/ADP8861/ADP8863)
 M:	Michael Hennerich <michael.hennerich@analog.com>
-L:	device-drivers-devel@blackfin.uclinux.org
 W:	http://wiki.analog.com/ADP8860
+W:	http://ez.analog.com/community/linux-device-drivers
 S:	Supported
 F:	drivers/video/backlight/adp8860_bl.c
 
@@ -412,7 +412,7 @@ S:	Maintained
 F:	drivers/macintosh/therm_adt746x.c
 
 ADT7475 HARDWARE MONITOR DRIVER
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	lm-sensors@lm-sensors.org
 S:	Maintained
 F:	Documentation/hwmon/adt7475
@@ -420,8 +420,8 @@ F:	drivers/hwmon/adt7475.c
 
 ADXL34X THREE-AXIS DIGITAL ACCELEROMETER DRIVER (ADXL345/ADXL346)
 M:	Michael Hennerich <michael.hennerich@analog.com>
-L:	device-drivers-devel@blackfin.uclinux.org
 W:	http://wiki.analog.com/ADXL345
+W:	http://ez.analog.com/community/linux-device-drivers
 S:	Supported
 F:	drivers/input/misc/adxl34x.c
 
@@ -627,9 +627,9 @@ F:	drivers/media/i2c/adv7842*
 
 ANALOG DEVICES INC ASOC CODEC DRIVERS
 M:	Lars-Peter Clausen <lars@metafoo.de>
-L:	device-drivers-devel@blackfin.uclinux.org
 L:	alsa-devel@alsa-project.org (moderated for non-subscribers)
 W:	http://wiki.analog.com/
+W:	http://ez.analog.com/community/linux-device-drivers
 S:	Supported
 F:	sound/soc/codecs/adau*
 F:	sound/soc/codecs/adav*
@@ -639,7 +639,7 @@ F:	sound/soc/codecs/ssm*
 F:	sound/soc/codecs/sigmadsp.*
 
 ANALOG DEVICES INC ASOC DRIVERS
-L:	uclinux-dist-devel@blackfin.uclinux.org
+L:	adi-buildroot-devel@lists.sourceforge.net
 L:	alsa-devel@alsa-project.org (moderated for non-subscribers)
 W:	http://blackfin.uclinux.org/
 S:	Supported
@@ -1742,56 +1742,54 @@ F:	fs/bfs/
 F:	include/uapi/linux/bfs_fs.h
 
 BLACKFIN ARCHITECTURE
-M:	Mike Frysinger <vapier@gentoo.org>
-L:	uclinux-dist-devel@blackfin.uclinux.org
+M:	Steven Miao <realmz6@gmail.com>
+L:	adi-buildroot-devel@lists.sourceforge.net
 W:	http://blackfin.uclinux.org
 S:	Supported
 F:	arch/blackfin/
 
 BLACKFIN EMAC DRIVER
-L:	uclinux-dist-devel@blackfin.uclinux.org
+L:	adi-buildroot-devel@lists.sourceforge.net
 W:	http://blackfin.uclinux.org
 S:	Supported
 F:	drivers/net/ethernet/adi/
 
 BLACKFIN RTC DRIVER
-M:	Mike Frysinger <vapier.adi@gmail.com>
-L:	uclinux-dist-devel@blackfin.uclinux.org
+L:	adi-buildroot-devel@lists.sourceforge.net
 W:	http://blackfin.uclinux.org
 S:	Supported
 F:	drivers/rtc/rtc-bfin.c
 
 BLACKFIN SDH DRIVER
 M:	Sonic Zhang <sonic.zhang@analog.com>
-L:	uclinux-dist-devel@blackfin.uclinux.org
+L:	adi-buildroot-devel@lists.sourceforge.net
 W:	http://blackfin.uclinux.org
 S:	Supported
 F:	drivers/mmc/host/bfin_sdh.c
 
 BLACKFIN SERIAL DRIVER
 M:	Sonic Zhang <sonic.zhang@analog.com>
-L:	uclinux-dist-devel@blackfin.uclinux.org
+L:	adi-buildroot-devel@lists.sourceforge.net
 W:	http://blackfin.uclinux.org
 S:	Supported
 F:	drivers/tty/serial/bfin_uart.c
 
 BLACKFIN WATCHDOG DRIVER
-M:	Mike Frysinger <vapier.adi@gmail.com>
-L:	uclinux-dist-devel@blackfin.uclinux.org
+L:	adi-buildroot-devel@lists.sourceforge.net
 W:	http://blackfin.uclinux.org
 S:	Supported
 F:	drivers/watchdog/bfin_wdt.c
 
 BLACKFIN I2C TWI DRIVER
 M:	Sonic Zhang <sonic.zhang@analog.com>
-L:	uclinux-dist-devel@blackfin.uclinux.org
+L:	adi-buildroot-devel@lists.sourceforge.net
 W:	http://blackfin.uclinux.org/
 S:	Supported
 F:	drivers/i2c/busses/i2c-bfin-twi.c
 
 BLACKFIN MEDIA DRIVER
 M:	Scott Jiang <scott.jiang.linux@gmail.com>
-L:	uclinux-dist-devel@blackfin.uclinux.org
+L:	adi-buildroot-devel@lists.sourceforge.net
 W:	http://blackfin.uclinux.org/
 S:	Supported
 F:	drivers/media/platform/blackfin/
@@ -3389,7 +3387,7 @@ F:	drivers/video/exynos/exynos_mipi*
 F:	include/video/exynos_mipi*
 
 F71805F HARDWARE MONITORING DRIVER
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	lm-sensors@lm-sensors.org
 S:	Maintained
 F:	Documentation/hwmon/f71805f
@@ -3916,7 +3914,7 @@ S:	Odd Fixes
 F:	drivers/tty/hvc/
 
 HARDWARE MONITORING
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 M:	Guenter Roeck <linux@roeck-us.net>
 L:	lm-sensors@lm-sensors.org
 W:	http://www.lm-sensors.org/
@@ -4144,7 +4142,7 @@ F:	include/linux/hyperv.h
 F:	tools/hv/
 
 I2C OVER PARALLEL PORT
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	linux-i2c@vger.kernel.org
 S:	Maintained
 F:	Documentation/i2c/busses/i2c-parport
@@ -4153,7 +4151,7 @@ F:	drivers/i2c/busses/i2c-parport.c
 F:	drivers/i2c/busses/i2c-parport-light.c
 
 I2C/SMBUS CONTROLLER DRIVERS FOR PC
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	linux-i2c@vger.kernel.org
 S:	Maintained
 F:	Documentation/i2c/busses/i2c-ali1535
@@ -4194,7 +4192,7 @@ F:	drivers/i2c/busses/i2c-ismt.c
 F:	Documentation/i2c/busses/i2c-ismt
 
 I2C/SMBUS STUB DRIVER
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	linux-i2c@vger.kernel.org
 S:	Maintained
 F:	drivers/i2c/i2c-stub.c
@@ -4213,7 +4211,7 @@ F:	include/uapi/linux/i2c.h
 F:	include/uapi/linux/i2c-*.h
 
 I2C-TAOS-EVM DRIVER
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	linux-i2c@vger.kernel.org
 S:	Maintained
 F:	Documentation/i2c/busses/i2c-taos-evm
@@ -4770,7 +4768,7 @@ S:	Maintained
 F:	drivers/isdn/hardware/eicon/
 
 IT87 HARDWARE MONITORING DRIVER
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	lm-sensors@lm-sensors.org
 S:	Maintained
 F:	Documentation/hwmon/it87
@@ -5140,7 +5138,7 @@ F:	drivers/leds/
 F:	include/linux/leds.h
 
 LEGACY EEPROM DRIVER
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 S:	Maintained
 F:	Documentation/misc-devices/eeprom
 F:	drivers/misc/eeprom/eeprom.c
@@ -5288,21 +5286,21 @@ S:	Maintained
 F:	drivers/hwmon/lm73.c
 
 LM78 HARDWARE MONITOR DRIVER
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	lm-sensors@lm-sensors.org
 S:	Maintained
 F:	Documentation/hwmon/lm78
 F:	drivers/hwmon/lm78.c
 
 LM83 HARDWARE MONITOR DRIVER
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	lm-sensors@lm-sensors.org
 S:	Maintained
 F:	Documentation/hwmon/lm83
 F:	drivers/hwmon/lm83.c
 
 LM90 HARDWARE MONITOR DRIVER
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	lm-sensors@lm-sensors.org
 S:	Maintained
 F:	Documentation/hwmon/lm90
@@ -6495,7 +6493,7 @@ S:	Maintained
 F:	drivers/char/pc8736x_gpio.c
 
 PC87427 HARDWARE MONITORING DRIVER
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	lm-sensors@lm-sensors.org
 S:	Maintained
 F:	Documentation/hwmon/pc87427
@@ -7945,7 +7943,7 @@ F:	Documentation/hwmon/sch5627
 F:	drivers/hwmon/sch5627.c
 
 SMSC47B397 HARDWARE MONITOR DRIVER
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	lm-sensors@lm-sensors.org
 S:	Maintained
 F:	Documentation/hwmon/smsc47b397
@@ -9463,7 +9461,7 @@ F:	Documentation/hwmon/w83793
 F:	drivers/hwmon/w83793.c
 
 W83795 HARDWARE MONITORING DRIVER
-M:	Jean Delvare <khali@linux-fr.org>
+M:	Jean Delvare <jdelvare@suse.de>
 L:	lm-sensors@lm-sensors.org
 S:	Maintained
 F:	drivers/hwmon/w83795.c
