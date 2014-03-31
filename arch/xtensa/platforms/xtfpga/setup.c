@@ -135,11 +135,11 @@ static void __init update_local_mac(struct device_node *node)
 
 static int __init machine_setup(void)
 {
-	struct device_node *serial;
+	struct device_node *clock;
 	struct device_node *eth = NULL;
 
-	for_each_compatible_node(serial, NULL, "ns16550a")
-		update_clock_frequency(serial);
+	for_each_node_by_name(clock, "main-oscillator")
+		update_clock_frequency(clock);
 
 	if ((eth = of_find_compatible_node(eth, NULL, "opencores,ethoc")))
 		update_local_mac(eth);
@@ -168,7 +168,7 @@ void __init platform_calibrate_ccount(void)
 	long clk_freq = 0;
 #ifdef CONFIG_OF
 	struct device_node *cpu =
-		of_find_compatible_node(NULL, NULL, "xtensa,cpu");
+		of_find_compatible_node(NULL, NULL, "cdns,xtensa-cpu");
 	if (cpu) {
 		u32 freq;
 		update_clock_frequency(cpu);
@@ -290,6 +290,7 @@ static int __init xtavnet_init(void)
 	 * knows whether they set it correctly on the DIP switches.
 	 */
 	pr_info("XTFPGA: Ethernet MAC %pM\n", ethoc_pdata.hwaddr);
+	ethoc_pdata.eth_clkfreq = *(long *)XTFPGA_CLKFRQ_VADDR;
 
 	return 0;
 }

@@ -9,16 +9,14 @@
 
 #include "persistent-data/dm-block-manager.h"
 #include "persistent-data/dm-space-map.h"
+#include "persistent-data/dm-space-map-metadata.h"
 
-#define THIN_METADATA_BLOCK_SIZE 4096
+#define THIN_METADATA_BLOCK_SIZE DM_SM_METADATA_BLOCK_SIZE
 
 /*
  * The metadata device is currently limited in size.
- *
- * We have one block of index, which can hold 255 index entries.  Each
- * index entry contains allocation info about 16k metadata blocks.
  */
-#define THIN_METADATA_MAX_SECTORS (255 * (1 << 14) * (THIN_METADATA_BLOCK_SIZE / (1 << SECTOR_SHIFT)))
+#define THIN_METADATA_MAX_SECTORS DM_SM_METADATA_MAX_SECTORS
 
 /*
  * A metadata device larger than 16GB triggers a warning.
@@ -26,6 +24,11 @@
 #define THIN_METADATA_MAX_SECTORS_WARNING (16 * (1024 * 1024 * 1024 >> SECTOR_SHIFT))
 
 /*----------------------------------------------------------------*/
+
+/*
+ * Thin metadata superblock flags.
+ */
+#define THIN_METADATA_NEEDS_CHECK_FLAG (1 << 0)
 
 struct dm_pool_metadata;
 struct dm_thin_device;
@@ -131,7 +134,7 @@ dm_thin_id dm_thin_dev_id(struct dm_thin_device *td);
 
 struct dm_thin_lookup_result {
 	dm_block_t block;
-	unsigned shared:1;
+	bool shared:1;
 };
 
 /*
@@ -203,6 +206,12 @@ int dm_pool_register_metadata_threshold(struct dm_pool_metadata *pmd,
 					dm_block_t threshold,
 					dm_sm_threshold_fn fn,
 					void *context);
+
+/*
+ * Updates the superblock immediately.
+ */
+int dm_pool_metadata_set_needs_check(struct dm_pool_metadata *pmd);
+bool dm_pool_metadata_needs_check(struct dm_pool_metadata *pmd);
 
 /*----------------------------------------------------------------*/
 

@@ -549,7 +549,7 @@ static struct gpio_chip sunxi_pinctrl_gpio_chip = {
 	.of_xlate		= sunxi_pinctrl_gpio_of_xlate,
 	.to_irq			= sunxi_pinctrl_gpio_to_irq,
 	.of_gpio_n_cells	= 3,
-	.can_sleep		= 0,
+	.can_sleep		= false,
 };
 
 static int sunxi_pinctrl_irq_set_type(struct irq_data *d,
@@ -585,7 +585,7 @@ static int sunxi_pinctrl_irq_set_type(struct irq_data *d,
 	spin_lock_irqsave(&pctl->lock, flags);
 
 	regval = readl(pctl->membase + reg);
-	regval &= ~IRQ_CFG_IRQ_MASK;
+	regval &= ~(IRQ_CFG_IRQ_MASK << index);
 	writel(regval | (mode << index), pctl->membase + reg);
 
 	spin_unlock_irqrestore(&pctl->lock, flags);

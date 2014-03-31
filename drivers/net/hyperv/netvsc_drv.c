@@ -11,8 +11,7 @@
  * more details.
  *
  * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc., 59 Temple
- * Place - Suite 330, Boston, MA 02111-1307 USA.
+ * this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Authors:
  *   Haiyang Zhang <haiyangz@microsoft.com>
@@ -443,6 +442,8 @@ static int netvsc_probe(struct hv_device *dev,
 	if (!net)
 		return -ENOMEM;
 
+	netif_carrier_off(net);
+
 	net_device_ctx = netdev_priv(net);
 	net_device_ctx->device_ctx = dev;
 	hv_set_drvdata(dev, net);
@@ -474,6 +475,8 @@ static int netvsc_probe(struct hv_device *dev,
 		pr_err("Unable to register netdev.\n");
 		rndis_filter_device_remove(dev);
 		free_netdev(net);
+	} else {
+		schedule_delayed_work(&net_device_ctx->dwork, 0);
 	}
 
 	return ret;

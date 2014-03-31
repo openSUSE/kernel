@@ -47,8 +47,6 @@ static u16 bits_per_symbol[][2] = {
 	{   260,  540 },     /*  7: 64-QAM 5/6 */
 };
 
-#define IS_HT_RATE(_rate)     ((_rate) & 0x80)
-
 static void ath_tx_send_normal(struct ath_softc *sc, struct ath_txq *txq,
 			       struct ath_atx_tid *tid, struct sk_buff *skb);
 static void ath_tx_complete(struct ath_softc *sc, struct sk_buff *skb,
@@ -174,14 +172,7 @@ static void ath_txq_skb_done(struct ath_softc *sc, struct ath_txq *txq,
 static struct ath_atx_tid *
 ath_get_skb_tid(struct ath_softc *sc, struct ath_node *an, struct sk_buff *skb)
 {
-	struct ieee80211_hdr *hdr;
-	u8 tidno = 0;
-
-	hdr = (struct ieee80211_hdr *) skb->data;
-	if (ieee80211_is_data_qos(hdr->frame_control))
-		tidno = ieee80211_get_qos_ctl(hdr)[0];
-
-	tidno &= IEEE80211_QOS_CTL_TID_MASK;
+	u8 tidno = skb->priority & IEEE80211_QOS_CTL_TID_MASK;
 	return ATH_AN_2_TID(an, tidno);
 }
 
@@ -781,11 +772,6 @@ static u32 ath_lookup_rate(struct ath_softc *sc, struct ath_buf *bf,
 	if (bt_aggr_limit)
 		aggr_limit = bt_aggr_limit;
 
-	/*
-	 * h/w can accept aggregates up to 16 bit lengths (65535).
-	 * The IE, however can hold up to 65536, which shows up here
-	 * as zero. Ignore 65536 since we  are constrained by hw.
-	 */
 	if (tid->an->maxampdu)
 		aggr_limit = min(aggr_limit, tid->an->maxampdu);
 
@@ -1410,8 +1396,8 @@ int ath_tx_aggr_start(struct ath_softc *sc, struct ieee80211_sta *sta,
 	 * has already been added.
 	 */
 	if (sta->ht_cap.ht_supported) {
-		an->maxampdu = 1 << (IEEE80211_HT_MAX_AMPDU_FACTOR +
-				     sta->ht_cap.ampdu_factor);
+		an->maxampdu = (1 << (IEEE80211_HT_MAX_AMPDU_FACTOR +
+				      sta->ht_cap.ampdu_factor)) - 1;
 		density = ath9k_parse_mpdudensity(sta->ht_cap.ampdu_density);
 		an->mpdudensity = density;
 	}
@@ -1792,6 +1778,9 @@ bool ath_drain_all_txq(struct ath_softc *sc)
 		if (!ATH_TXQ_SETUP(sc, i))
 			continue;
 
+		if (!sc->tx.txq[i].axq_depth)
+			continue;
+
 		if (ath9k_hw_numtxpending(ah, sc->tx.txq[i].axq_qnum))
 			npend |= BIT(i);
 	}
@@ -2074,7 +2063,7 @@ static struct ath_buf *ath_tx_setup_buffer(struct ath_softc *sc,
 
 	ATH_TXBUF_RESET(bf);
 
-	if (tid) {
+	if (tid && ieee80211_is_data_present(hdr->frame_control)) {
 		fragno = le16_to_cpu(hdr->seq_ctrl) & IEEE80211_SCTL_FRAG;
 		seqno = tid->seq_next;
 		hdr->seq_ctrl = cpu_to_le16(tid->seq_next << IEEE80211_SEQ_SEQ_SHIFT);
@@ -2197,7 +2186,7 @@ int ath_tx_start(struct ieee80211_hw *hw, struct sk_buff *skb,
 		txq->stopped = true;
 	}
 
-	if (txctl->an)
+	if (txctl->an && ieee80211_is_data_present(hdr->frame_control))
 		tid = ath_get_skb_tid(sc, txctl->an, skb);
 
 	if (info->flags & IEEE80211_TX_CTL_PS_RESPONSE) {
@@ -2756,6 +2745,8 @@ void ath_tx_node_cleanup(struct ath_softc *sc, struct ath_node *an)
 	}
 }
 
+#ifdef CONFIG_ATH9K_TX99
+
 int ath9k_tx99_send(struct ath_softc *sc, struct sk_buff *skb,
 		    struct ath_tx_control *txctl)
 {
@@ -2798,3 +2789,5 @@ int ath9k_tx99_send(struct ath_softc *sc, struct sk_buff *skb,
 
 	return 0;
 }
+
+#endif /* CONFIG_ATH9K_TX99 */

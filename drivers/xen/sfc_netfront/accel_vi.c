@@ -676,13 +676,11 @@ netfront_accel_vi_tx_post(netfront_accel_vnic *vnic, struct sk_buff *skb)
 	VPRINTK("%s: %d bytes, gso %d\n", __FUNCTION__, skb->len, 
 		skb_shinfo(skb)->gso_size);
 	
-	if (skb_shinfo(skb)->gso_size) {
+	if (skb_is_gso(skb))
 		return netfront_accel_enqueue_skb_tso(vnic, skb);
-	}
 
-	if (skb->len <= NETFRONT_ACCEL_TX_BUF_LENGTH) {
+	if (skb->len <= NETFRONT_ACCEL_TX_BUF_LENGTH)
 		return netfront_accel_enqueue_skb_single(vnic, skb);
-	}
 
 	return netfront_accel_enqueue_skb_multi(vnic, skb);
 }
@@ -769,7 +767,7 @@ static void  netfront_accel_vi_rx_complete(netfront_accel_vnic *vnic,
 		spin_unlock_irqrestore(&vnic->table_lock, flags);
 	}
 
-	if (compare_ether_addr(skb->data, vnic->mac)) {
+	if (!ether_addr_equal(skb->data, vnic->mac)) {
 		struct iphdr *ip = (struct iphdr *)(skb->data + ETH_HLEN);
 		u16 port;
 

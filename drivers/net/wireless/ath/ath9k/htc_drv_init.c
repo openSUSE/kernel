@@ -754,7 +754,6 @@ static void ath9k_set_hw_capab(struct ath9k_htc_priv *priv,
 			    WIPHY_FLAG_HAS_REMAIN_ON_CHANNEL;
 
 	hw->queues = 4;
-	hw->channel_change_time = 5000;
 	hw->max_listen_interval = 1;
 
 	hw->vif_data_size = sizeof(struct ath9k_htc_vif);
@@ -1006,6 +1005,8 @@ int ath9k_htc_resume(struct htc_target *htc_handle)
 
 	ret = ath9k_init_htc_services(priv, priv->ah->hw_version.devid,
 				      priv->ah->hw_version.usbdev);
+	ath9k_configure_leds(priv);
+
 	return ret;
 }
 #endif

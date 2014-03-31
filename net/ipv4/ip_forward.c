@@ -63,7 +63,7 @@ static bool ip_gso_exceeds_dst_mtu(const struct sk_buff *skb)
 	if (skb->local_df || !skb_is_gso(skb))
 		return false;
 
-	mtu = dst_mtu(skb_dst(skb));
+	mtu = ip_dst_mtu_maybe_forward(skb_dst(skb), true);
 
 	/* if seglen > mtu, do software segmentation for IP fragmentation on
 	 * output.  DF bit cannot be set since ip_forward would have sent
@@ -122,6 +122,7 @@ static int ip_forward_finish(struct sk_buff *skb)
 
 int ip_forward(struct sk_buff *skb)
 {
+	u32 mtu;
 	struct iphdr *iph;	/* Our header */
 	struct rtable *rt;	/* Route we use */
 	struct ip_options *opt	= &(IPCB(skb)->opt);
@@ -156,10 +157,12 @@ int ip_forward(struct sk_buff *skb)
 	if (opt->is_strictroute && rt->rt_uses_gateway)
 		goto sr_failed;
 
-	if (!ip_may_fragment(skb) && ip_exceeds_mtu(skb, dst_mtu(&rt->dst))) {
+	IPCB(skb)->flags |= IPSKB_FORWARDED;
+	mtu = ip_dst_mtu_maybe_forward(&rt->dst, true);
+	if (!ip_may_fragment(skb) && ip_exceeds_mtu(skb, mtu)) {
 		IP_INC_STATS(dev_net(rt->dst.dev), IPSTATS_MIB_FRAGFAILS);
 		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED,
-			  htonl(dst_mtu(&rt->dst)));
+			  htonl(mtu));
 		goto drop;
 	}
 

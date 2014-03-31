@@ -120,6 +120,7 @@ static int armada_drm_load(struct drm_device *dev, unsigned long flags)
 		return -ENOMEM;
 	}
 
+	platform_set_drvdata(dev->platformdev, dev);
 	dev->dev_private = priv;
 
 	/* Get the implementation specific driver data. */
@@ -373,7 +374,7 @@ static int armada_drm_probe(struct platform_device *pdev)
 
 static int armada_drm_remove(struct platform_device *pdev)
 {
-	drm_platform_exit(&armada_drm_driver, pdev);
+	drm_put_dev(platform_get_drvdata(pdev));
 	return 0;
 }
 
