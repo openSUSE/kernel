@@ -47,6 +47,7 @@ config ARM64
 	select NO_BOOTMEM
 	select OF
 	select OF_EARLY_FLATTREE
+	select OF_RESERVED_MEM
 	select PERF_USE_VMALLOC
 	select POWER_RESET
 	select POWER_SUPPLY
@@ -320,12 +321,6 @@ endmenu
 menu "CPU Power Management"
 
 source "drivers/cpuidle/Kconfig"
-
-source "drivers/cpufreq/Kconfig"
-
-endmenu
-
-menu "Power management options"
 
 source "kernel/power/Kconfig"
 
