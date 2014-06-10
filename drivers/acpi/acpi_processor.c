@@ -170,13 +170,13 @@ static int acpi_processor_hotadd_init(struct acpi_processor *pr)
 	acpi_status status;
 	int ret;
 
+	if (pr->apic_id == -1)
+		return -ENODEV;
+
 #ifdef CONFIG_XEN
 	if (xen_pcpu_index(pr->acpi_id, 1) != -1)
 		return AE_OK;
 #endif
-
-	if (pr->apic_id == -1)
-		return -ENODEV;
 
 	status = acpi_evaluate_integer(pr->handle, "_STA", NULL, &sta);
 	if (ACPI_FAILURE(status) || !(sta & ACPI_STA_DEVICE_PRESENT))

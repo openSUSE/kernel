@@ -99,6 +99,7 @@ static const char radeon_family_name[][16] = {
 	"KAVERI",
 	"KABINI",
 	"HAWAII",
+	"MULLINS",
 	"LAST",
 };
 
@@ -1206,14 +1207,12 @@ int radeon_device_init(struct radeon_device *rdev,
 	r = radeon_gem_init(rdev);
 	if (r)
 		return r;
-	/* initialize vm here */
-	mutex_init(&rdev->vm_manager.lock);
+
 	/* Adjust VM size here.
 	 * Currently set to 4GB ((1 << 20) 4k pages).
 	 * Max GPUVM size for cayman and SI is 40 bits.
 	 */
 	rdev->vm_manager.max_pfn = 1 << 20;
-	INIT_LIST_HEAD(&rdev->vm_manager.lru_vm);
 
 	/* Set asic functions */
 	r = radeon_asic_init(rdev);
@@ -1439,7 +1438,7 @@ int radeon_suspend_kms(struct drm_device *dev, bool suspend, bool fbcon)
 
 	/* unpin the front buffers */
 	list_for_each_entry(crtc, &dev->mode_config.crtc_list, head) {
-		struct radeon_framebuffer *rfb = to_radeon_framebuffer(crtc->fb);
+		struct radeon_framebuffer *rfb = to_radeon_framebuffer(crtc->primary->fb);
 		struct radeon_bo *robj;
 
 		if (rfb == NULL || rfb->obj == NULL) {
@@ -1458,10 +1457,9 @@ int radeon_suspend_kms(struct drm_device *dev, bool suspend, bool fbcon)
 	/* evict vram memory */
 	radeon_bo_evict_vram(rdev);
 
-	mutex_lock(&rdev->ring_lock);
 	/* wait for gpu to finish processing current batch */
 	for (i = 0; i < RADEON_NUM_RINGS; i++) {
-		r = radeon_fence_wait_empty_locked(rdev, i);
+		r = radeon_fence_wait_empty(rdev, i);
 		if (r) {
 			/* delay GPU reset to resume */
 			force_completion = true;
@@ -1470,7 +1468,6 @@ int radeon_suspend_kms(struct drm_device *dev, bool suspend, bool fbcon)
 	if (force_completion) {
 		radeon_fence_driver_force_completion(rdev);
 	}
-	mutex_unlock(&rdev->ring_lock);
 
 	radeon_save_bios_scratch_regs(rdev);
 
@@ -1548,11 +1545,6 @@ int radeon_resume_kms(struct drm_device *dev, bool resume, bool fbcon)
 
 	radeon_restore_bios_scratch_regs(rdev);
 
-	if (fbcon) {
-		radeon_fbdev_set_suspend(rdev, 0);
-		console_unlock();
-	}
-
 	/* init dig PHYs, disp eng pll */
 	if (rdev->is_atom_bios) {
 		radeon_atom_encoder_init(rdev);
@@ -1568,13 +1560,25 @@ int radeon_resume_kms(struct drm_device *dev, bool resume, bool fbcon)
 	/* reset hpd state */
 	radeon_hpd_init(rdev);
 	/* blat the mode back in */
-	drm_helper_resume_force_mode(dev);
-	/* turn on display hw */
-	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
-		drm_helper_connector_dpms(connector, DRM_MODE_DPMS_ON);
+	if (fbcon) {
+		drm_helper_resume_force_mode(dev);
+		/* turn on display hw */
+		list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
+			drm_helper_connector_dpms(connector, DRM_MODE_DPMS_ON);
+		}
 	}
 
 	drm_kms_helper_poll_enable(dev);
+
+	/* set the power state here in case we are a PX system or headless */
+	if ((rdev->pm.pm_method == PM_METHOD_DPM) && rdev->pm.dpm_enabled)
+		radeon_pm_compute_clocks(rdev);
+
+	if (fbcon) {
+		radeon_fbdev_set_suspend(rdev, 0);
+		console_unlock();
+	}
+
 	return 0;
 }
 

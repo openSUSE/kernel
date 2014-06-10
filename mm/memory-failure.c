@@ -145,14 +145,10 @@ static int hwpoison_filter_task(struct page *p)
 		return -EINVAL;
 
 	css = mem_cgroup_css(mem);
-	/* root_mem_cgroup has NULL dentries */
-	if (!css->cgroup->dentry)
-		return -EINVAL;
-
-	ino = css->cgroup->dentry->d_inode->i_ino;
+	ino = cgroup_ino(css->cgroup);
 	css_put(css);
 
-	if (ino != hwpoison_filter_memcg)
+	if (!ino || ino != hwpoison_filter_memcg)
 		return -EINVAL;
 
 	return 0;
@@ -1157,6 +1153,8 @@ int memory_failure(unsigned long pfn, int trapno, int flags)
 	 */
 	if (!PageHWPoison(p)) {
 		printk(KERN_ERR "MCE %#lx: just unpoisoned\n", pfn);
+		atomic_long_sub(nr_pages, &num_poisoned_pages);
+		put_page(hpage);
 		res = 0;
 		goto out;
 	}
