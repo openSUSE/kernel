@@ -1,7 +1,7 @@
 VERSION = 3
 PATCHLEVEL = 16
 SUBLEVEL = 0
-EXTRAVERSION = -rc4-42-g4f440cd
+EXTRAVERSION = -rc4-120-g85d90fa
 NAME = Shuffling Zombie Juror
 
 # *DOCUMENTATION*
@@ -1176,7 +1176,7 @@ distclean: mrproper
 # Packaging of the kernel to various formats
 # ---------------------------------------------------------------------------
 # rpm target kept for backward compatibility
-package-dir	:= $(srctree)/scripts/package
+package-dir	:= scripts/package
 
 %src-pkg: FORCE
 	$(Q)$(MAKE) $(build)=$(package-dir) $@
