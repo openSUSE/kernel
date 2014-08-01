@@ -1,8 +1,8 @@
 VERSION = 3
 PATCHLEVEL = 15
-SUBLEVEL = 7
+SUBLEVEL = 8
 EXTRAVERSION =
-NAME = Shuffling Zombie Juror
+NAME = Double Funky Skunk
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
@@ -689,6 +689,8 @@ ifndef CONFIG_FUNCTION_TRACER
 KBUILD_CFLAGS	+= -fomit-frame-pointer
 endif
 endif
+
+KBUILD_CFLAGS   += $(call cc-option, -fno-var-tracking-assignments)
 
 ifdef CONFIG_UNWIND_INFO
 KBUILD_CFLAGS	+= -fasynchronous-unwind-tables
