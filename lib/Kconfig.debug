@@ -15,7 +15,7 @@ config PRINTK_TIME
 	  The behavior is also controlled by the kernel command line
 	  parameter printk.time=1. See Documentation/kernel-parameters.txt
 
-config DEFAULT_MESSAGE_LOGLEVEL
+config MESSAGE_LOGLEVEL_DEFAULT
 	int "Default message log level (1-7)"
 	range 1 7
 	default "4"
@@ -1535,6 +1535,14 @@ config TEST_STRING_HELPERS
 
 config TEST_KSTRTOX
 	tristate "Test kstrto*() family of functions at runtime"
+
+config TEST_RHASHTABLE
+	bool "Perform selftest on resizable hash table"
+	default n
+	help
+	  Enable this option to test the rhashtable functions at boot.
+
+	  If unsure, say N.
 
 endmenu # runtime tests
 
