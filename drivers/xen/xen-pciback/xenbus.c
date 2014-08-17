@@ -147,6 +147,8 @@ static void free_pdev(struct xen_pcibk_device *pdev)
 
 	xen_pcibk_disconnect(pdev);
 
+	/* N.B. This calls pcistub_put_pci_dev which does the FLR on all
+	 * of the PCIe devices. */
 	xen_pcibk_release_devices(pdev);
 
 	dev_set_drvdata(&pdev->xdev->dev, NULL);
@@ -237,7 +239,8 @@ static int xen_pcibk_attach(struct xen_pcibk_device *pdev)
 	}
 
 	if (magic == NULL || strcmp(magic, XEN_PCI_MAGIC) != 0) {
-		xenbus_dev_fatal(pdev->xdev, -EFAULT,
+		err = magic ? -EILSEQ : -ENODATA;
+		xenbus_dev_fatal(pdev->xdev, err,
 				 "version mismatch (%s/%s) with pcifront - "
 				 "halting " DRV_NAME,
 				 magic, XEN_PCI_MAGIC);
@@ -359,6 +362,8 @@ static int xen_pcibk_remove_device(struct xen_pcibk_device *pdev,
 	xen_unregister_device_domain_owner(dev);
 #endif
 
+	/* N.B. This ends up calling pcistub_put_pci_dev which ends up
+	 * doing the FLR. */
 	xen_pcibk_release_pci_dev(pdev, dev);
 
 out:

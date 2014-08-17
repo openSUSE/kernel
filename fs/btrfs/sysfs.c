@@ -375,11 +375,8 @@ static ssize_t btrfs_label_store(struct kobject *kobj,
 	struct btrfs_root *root = fs_info->fs_root;
 	int ret;
 
-	if (len >= BTRFS_LABEL_SIZE) {
-		pr_err("BTRFS: unable to set label with more than %d bytes\n",
-		       BTRFS_LABEL_SIZE - 1);
+	if (len >= BTRFS_LABEL_SIZE)
 		return -EINVAL;
-	}
 
 	trans = btrfs_start_transaction(root, 0);
 	if (IS_ERR(trans))
@@ -397,8 +394,48 @@ static ssize_t btrfs_label_store(struct kobject *kobj,
 }
 BTRFS_ATTR_RW(label, 0644, btrfs_label_show, btrfs_label_store);
 
+static ssize_t btrfs_no_store(struct kobject *kobj,
+				 struct kobj_attribute *a,
+				 const char *buf, size_t len)
+{
+	return -EPERM;
+}
+
+static ssize_t btrfs_nodesize_show(struct kobject *kobj,
+				struct kobj_attribute *a, char *buf)
+{
+	struct btrfs_fs_info *fs_info = to_fs_info(kobj);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n", fs_info->super_copy->nodesize);
+}
+
+BTRFS_ATTR_RW(nodesize, 0444, btrfs_nodesize_show, btrfs_no_store);
+
+static ssize_t btrfs_sectorsize_show(struct kobject *kobj,
+				struct kobj_attribute *a, char *buf)
+{
+	struct btrfs_fs_info *fs_info = to_fs_info(kobj);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n", fs_info->super_copy->sectorsize);
+}
+
+BTRFS_ATTR_RW(sectorsize, 0444, btrfs_sectorsize_show, btrfs_no_store);
+
+static ssize_t btrfs_clone_alignment_show(struct kobject *kobj,
+				struct kobj_attribute *a, char *buf)
+{
+	struct btrfs_fs_info *fs_info = to_fs_info(kobj);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n", fs_info->super_copy->sectorsize);
+}
+
+BTRFS_ATTR_RW(clone_alignment, 0444, btrfs_clone_alignment_show, btrfs_no_store);
+
 static struct attribute *btrfs_attrs[] = {
 	BTRFS_ATTR_PTR(label),
+	BTRFS_ATTR_PTR(nodesize),
+	BTRFS_ATTR_PTR(sectorsize),
+	BTRFS_ATTR_PTR(clone_alignment),
 	NULL,
 };
 
@@ -568,14 +605,37 @@ static void init_feature_attrs(void)
 	}
 }
 
-static int add_device_membership(struct btrfs_fs_info *fs_info)
+int btrfs_kobj_rm_device(struct btrfs_fs_info *fs_info,
+		struct btrfs_device *one_device)
+{
+	struct hd_struct *disk;
+	struct kobject *disk_kobj;
+
+	if (!fs_info->device_dir_kobj)
+		return -EINVAL;
+
+	if (one_device) {
+		disk = one_device->bdev->bd_part;
+		disk_kobj = &part_to_dev(disk)->kobj;
+
+		sysfs_remove_link(fs_info->device_dir_kobj,
+						disk_kobj->name);
+	}
+
+	return 0;
+}
+
+int btrfs_kobj_add_device(struct btrfs_fs_info *fs_info,
+		struct btrfs_device *one_device)
 {
 	int error = 0;
 	struct btrfs_fs_devices *fs_devices = fs_info->fs_devices;
 	struct btrfs_device *dev;
 
-	fs_info->device_dir_kobj = kobject_create_and_add("devices",
+	if (!fs_info->device_dir_kobj)
+		fs_info->device_dir_kobj = kobject_create_and_add("devices",
 						&fs_info->super_kobj);
+
 	if (!fs_info->device_dir_kobj)
 		return -ENOMEM;
 
@@ -584,6 +644,9 @@ static int add_device_membership(struct btrfs_fs_info *fs_info)
 		struct kobject *disk_kobj;
 
 		if (!dev->bdev)
+			continue;
+
+		if (one_device && one_device != dev)
 			continue;
 
 		disk = dev->bdev->bd_part;
@@ -629,7 +692,7 @@ int btrfs_sysfs_add_one(struct btrfs_fs_info *fs_info)
 	if (error)
 		goto failure;
 
-	error = add_device_membership(fs_info);
+	error = btrfs_kobj_add_device(fs_info, NULL);
 	if (error)
 		goto failure;
 

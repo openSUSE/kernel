@@ -505,13 +505,6 @@ static int cirrus_vga_get_modes(struct drm_connector *connector)
 	return count;
 }
 
-static int cirrus_vga_mode_valid(struct drm_connector *connector,
-				 struct drm_display_mode *mode)
-{
-	/* Any mode we've added is valid */
-	return MODE_OK;
-}
-
 static struct drm_encoder *cirrus_connector_best_encoder(struct drm_connector
 						  *connector)
 {
@@ -546,7 +539,6 @@ static void cirrus_connector_destroy(struct drm_connector *connector)
 
 struct drm_connector_helper_funcs cirrus_vga_connector_helper_funcs = {
 	.get_modes = cirrus_vga_get_modes,
-	.mode_valid = cirrus_vga_mode_valid,
 	.best_encoder = cirrus_connector_best_encoder,
 };
 
@@ -590,7 +582,7 @@ int cirrus_modeset_init(struct cirrus_device *cdev)
 	cdev->dev->mode_config.max_height = CIRRUS_MAX_FB_HEIGHT;
 
 	cdev->dev->mode_config.fb_base = cdev->mc.vram_base;
-	cdev->dev->mode_config.preferred_depth = 16;
+	cdev->dev->mode_config.preferred_depth = 24;
 	/* don't prefer a shadow on virt GPU */
 	cdev->dev->mode_config.prefer_shadow = 0;
 

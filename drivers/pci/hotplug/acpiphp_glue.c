@@ -41,7 +41,6 @@
 
 #define pr_fmt(fmt) "acpiphp_glue: " fmt
 
-#include <linux/init.h>
 #include <linux/module.h>
 
 #include <linux/kernel.h>
@@ -352,11 +351,9 @@ static acpi_status acpiphp_add_context(acpi_handle handle, u32 lvl, void *data,
 			slot->slot = NULL;
 			bridge->nr_slots--;
 			if (retval == -EBUSY)
-				pr_warn("Slot %llu already registered by another "
-					"hotplug driver\n", sun);
+				pr_warn("Slot %llu already registered by another hotplug driver\n", sun);
 			else
-				pr_warn("acpiphp_register_hotplug_slot failed "
-					"(err code = 0x%x)\n", retval);
+				pr_warn("acpiphp_register_hotplug_slot failed (err code = 0x%x)\n", retval);
 		}
 		/* Even if the slot registration fails, we can still use it. */
 	}
@@ -497,7 +494,7 @@ static int acpiphp_rescan_slot(struct acpiphp_slot *slot)
  * This function should be called per *physical slot*,
  * not per each slot object in ACPI namespace.
  */
-static void __ref enable_slot(struct acpiphp_slot *slot)
+static void enable_slot(struct acpiphp_slot *slot)
 {
 	struct pci_dev *dev;
 	struct pci_bus *bus = slot->bus;
@@ -512,8 +509,7 @@ static void __ref enable_slot(struct acpiphp_slot *slot)
 			if (PCI_SLOT(dev->devfn) != slot->device)
 				continue;
 
-			if (dev->hdr_type == PCI_HEADER_TYPE_BRIDGE ||
-			    dev->hdr_type == PCI_HEADER_TYPE_CARDBUS) {
+			if (pci_is_bridge(dev)) {
 				max = pci_scan_bridge(bus, dev, max, pass);
 				if (pass && dev->subordinate) {
 					check_hotplug_bridge(slot, dev);

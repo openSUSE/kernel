@@ -838,10 +838,10 @@ static int tda10071_get_frontend(struct dvb_frontend *fe)
 
 	switch ((buf[1] >> 0) & 0x01) {
 	case 0:
-		c->inversion = INVERSION_OFF;
+		c->inversion = INVERSION_ON;
 		break;
 	case 1:
-		c->inversion = INVERSION_ON;
+		c->inversion = INVERSION_OFF;
 		break;
 	}
 
@@ -860,7 +860,7 @@ static int tda10071_get_frontend(struct dvb_frontend *fe)
 	if (ret)
 		goto error;
 
-	c->symbol_rate = (buf[0] << 16) | (buf[1] << 8) | (buf[2] << 0);
+	c->symbol_rate = ((buf[0] << 16) | (buf[1] << 8) | (buf[2] << 0)) * 1000;
 
 	return ret;
 error:

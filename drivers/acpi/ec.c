@@ -1,11 +1,14 @@
 /*
- *  ec.c - ACPI Embedded Controller Driver (v2.1)
+ *  ec.c - ACPI Embedded Controller Driver (v2.2)
  *
- *  Copyright (C) 2006-2008 Alexey Starikovskiy <astarikovskiy@suse.de>
- *  Copyright (C) 2006 Denis Sadykov <denis.m.sadykov@intel.com>
- *  Copyright (C) 2004 Luming Yu <luming.yu@intel.com>
- *  Copyright (C) 2001, 2002 Andy Grover <andrew.grover@intel.com>
- *  Copyright (C) 2001, 2002 Paul Diefenbaugh <paul.s.diefenbaugh@intel.com>
+ *  Copyright (C) 2001-2014 Intel Corporation
+ *    Author: 2014       Lv Zheng <lv.zheng@intel.com>
+ *            2006, 2007 Alexey Starikovskiy <alexey.y.starikovskiy@intel.com>
+ *            2006       Denis Sadykov <denis.m.sadykov@intel.com>
+ *            2004       Luming Yu <luming.yu@intel.com>
+ *            2001, 2002 Andy Grover <andrew.grover@intel.com>
+ *            2001, 2002 Paul Diefenbaugh <paul.s.diefenbaugh@intel.com>
+ *  Copyright (C) 2008      Alexey Starikovskiy <astarikovskiy@suse.de>
  *
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  *
@@ -52,6 +55,7 @@
 /* EC status register */
 #define ACPI_EC_FLAG_OBF	0x01	/* Output buffer full */
 #define ACPI_EC_FLAG_IBF	0x02	/* Input buffer full */
+#define ACPI_EC_FLAG_CMD	0x08	/* Input buffer contains a command */
 #define ACPI_EC_FLAG_BURST	0x10	/* burst mode */
 #define ACPI_EC_FLAG_SCI	0x20	/* EC-SCI occurred */
 
@@ -130,26 +134,33 @@ static int EC_FLAGS_CLEAR_ON_RESUME; /* Needs acpi_ec_clear() on boot/resume */
 static inline u8 acpi_ec_read_status(struct acpi_ec *ec)
 {
 	u8 x = inb(ec->command_addr);
-	pr_debug("---> status = 0x%2.2x\n", x);
+	pr_debug("EC_SC(R) = 0x%2.2x "
+		 "SCI_EVT=%d BURST=%d CMD=%d IBF=%d OBF=%d\n",
+		 x,
+		 !!(x & ACPI_EC_FLAG_SCI),
+		 !!(x & ACPI_EC_FLAG_BURST),
+		 !!(x & ACPI_EC_FLAG_CMD),
+		 !!(x & ACPI_EC_FLAG_IBF),
+		 !!(x & ACPI_EC_FLAG_OBF));
 	return x;
 }
 
 static inline u8 acpi_ec_read_data(struct acpi_ec *ec)
 {
 	u8 x = inb(ec->data_addr);
-	pr_debug("---> data = 0x%2.2x\n", x);
+	pr_debug("EC_DATA(R) = 0x%2.2x\n", x);
 	return x;
 }
 
 static inline void acpi_ec_write_cmd(struct acpi_ec *ec, u8 command)
 {
-	pr_debug("<--- command = 0x%2.2x\n", command);
+	pr_debug("EC_SC(W) = 0x%2.2x\n", command);
 	outb(command, ec->command_addr);
 }
 
 static inline void acpi_ec_write_data(struct acpi_ec *ec, u8 data)
 {
-	pr_debug("<--- data = 0x%2.2x\n", data);
+	pr_debug("EC_DATA(W) = 0x%2.2x\n", data);
 	outb(data, ec->data_addr);
 }
 
@@ -1058,8 +1069,10 @@ int __init acpi_ec_ecdt_probe(void)
 	/* fall through */
 	}
 
-	if (EC_FLAGS_SKIP_DSDT_SCAN)
+	if (EC_FLAGS_SKIP_DSDT_SCAN) {
+		kfree(saved_ec);
 		return -ENODEV;
+	}
 
 	/* This workaround is needed only on some broken machines,
 	 * which require early EC, but fail to provide ECDT */
@@ -1097,6 +1110,7 @@ install:
 	}
 error:
 	kfree(boot_ec);
+	kfree(saved_ec);
 	boot_ec = NULL;
 	return -ENODEV;
 }

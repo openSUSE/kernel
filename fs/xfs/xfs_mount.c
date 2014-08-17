@@ -708,6 +708,12 @@ xfs_mountfs(
 			mp->m_update_flags |= XFS_SB_VERSIONNUM;
 	}
 
+	/* always use v2 inodes by default now */
+	if (!(mp->m_sb.sb_versionnum & XFS_SB_VERSION_NLINKBIT)) {
+		mp->m_sb.sb_versionnum |= XFS_SB_VERSION_NLINKBIT;
+		mp->m_update_flags |= XFS_SB_VERSIONNUM;
+	}
+
 	/*
 	 * Check if sb_agblocks is aligned at stripe boundary
 	 * If sb_agblocks is NOT aligned turn off m_dalign since
@@ -785,12 +791,11 @@ xfs_mountfs(
 
 	mp->m_dmevmask = 0;	/* not persistent; set after each mount */
 
-	xfs_dir_mount(mp);
-
-	/*
-	 * Initialize the attribute manager's entries.
-	 */
-	mp->m_attr_magicpct = (mp->m_sb.sb_blocksize * 37) / 100;
+	error = xfs_da_mount(mp);
+	if (error) {
+		xfs_warn(mp, "Failed dir/attr init: %d", error);
+		goto out_remove_uuid;
+	}
 
 	/*
 	 * Initialize the precomputed transaction reservations values.
@@ -805,7 +810,7 @@ xfs_mountfs(
 	error = xfs_initialize_perag(mp, sbp->sb_agcount, &mp->m_maxagi);
 	if (error) {
 		xfs_warn(mp, "Failed per-ag init: %d", error);
-		goto out_remove_uuid;
+		goto out_free_dir;
 	}
 
 	if (!sbp->sb_logblocks) {
@@ -980,6 +985,8 @@ xfs_mountfs(
 	xfs_wait_buftarg(mp->m_ddev_targp);
  out_free_perag:
 	xfs_free_perag(mp);
+ out_free_dir:
+	xfs_da_unmount(mp);
  out_remove_uuid:
 	xfs_uuid_unmount(mp);
  out:
@@ -1057,6 +1064,7 @@ xfs_unmountfs(
 				"Freespace may not be correct on next mount.");
 
 	xfs_log_unmount(mp);
+	xfs_da_unmount(mp);
 	xfs_uuid_unmount(mp);
 
 #if defined(DEBUG)

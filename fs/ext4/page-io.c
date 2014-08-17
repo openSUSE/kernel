@@ -422,7 +422,7 @@ int ext4_bio_write_page(struct ext4_io_submit *io,
 	ClearPageError(page);
 
 	/*
-	 * Comments copied from block_write_full_page_endio:
+	 * Comments copied from block_write_full_page:
 	 *
 	 * The page straddles i_size.  It must be zeroed out on each and every
 	 * writepage invocation because it may be mmapped.  "A file is mapped

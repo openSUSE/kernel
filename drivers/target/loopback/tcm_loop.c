@@ -239,6 +239,7 @@ static void tcm_loop_submission_work(struct work_struct *work)
 	return;
 
 out_done:
+	kmem_cache_free(tcm_loop_cmd_cache, tl_cmd);
 	sc->scsi_done(sc);
 	return;
 }
@@ -960,7 +961,7 @@ static int tcm_loop_port_link(
 	struct tcm_loop_hba *tl_hba = tl_tpg->tl_hba;
 
 	atomic_inc(&tl_tpg->tl_tpg_port_count);
-	smp_mb__after_atomic_inc();
+	smp_mb__after_atomic();
 	/*
 	 * Add Linux/SCSI struct scsi_device by HCTL
 	 */
@@ -995,7 +996,7 @@ static void tcm_loop_port_unlink(
 	scsi_device_put(sd);
 
 	atomic_dec(&tl_tpg->tl_tpg_port_count);
-	smp_mb__after_atomic_dec();
+	smp_mb__after_atomic();
 
 	pr_debug("TCM_Loop_ConfigFS: Port Unlink Successful\n");
 }
