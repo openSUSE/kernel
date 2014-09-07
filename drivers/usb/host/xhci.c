@@ -2891,6 +2891,9 @@ void xhci_cleanup_stalled_ring(struct xhci_hcd *xhci,
 			ep_index, ep->stopped_stream, ep->stopped_td,
 			&deq_state);
 
+	if (!deq_state.new_deq_ptr || !deq_state.new_deq_seg)
+		return;
+
 	/* HW with the reset endpoint quirk will use the saved dequeue state to
 	 * issue a configure endpoint command later.
 	 */
@@ -3163,7 +3166,8 @@ int xhci_alloc_streams(struct usb_hcd *hcd, struct usb_device *udev,
 			num_streams);
 
 	/* MaxPSASize value 0 (2 streams) means streams are not supported */
-	if (HCC_MAX_PSA(xhci->hcc_params) < 4) {
+	if ((xhci->quirks & XHCI_BROKEN_STREAMS) ||
+			HCC_MAX_PSA(xhci->hcc_params) < 4) {
 		xhci_dbg(xhci, "xHCI controller does not support streams.\n");
 		return -ENOSYS;
 	}

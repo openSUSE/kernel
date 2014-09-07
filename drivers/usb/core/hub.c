@@ -1728,8 +1728,14 @@ static int hub_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	 * - Change autosuspend delay of hub can avoid unnecessary auto
 	 *   suspend timer for hub, also may decrease power consumption
 	 *   of USB bus.
+	 *
+	 * - If user has indicated to prevent autosuspend by passing
+	 *   usbcore.autosuspend = -1 then keep autosuspend disabled.
 	 */
-	pm_runtime_set_autosuspend_delay(&hdev->dev, 0);
+#ifdef CONFIG_PM_RUNTIME
+	if (hdev->dev.power.autosuspend_delay >= 0)
+		pm_runtime_set_autosuspend_delay(&hdev->dev, 0);
+#endif
 
 	/*
 	 * Hubs have proper suspend/resume support, except for root hubs
@@ -3264,6 +3270,43 @@ static int finish_port_resume(struct usb_device *udev)
 }
 
 /*
+ * There are some SS USB devices which take longer time for link training.
+ * XHCI specs 4.19.4 says that when Link training is successful, port
+ * sets CSC bit to 1. So if SW reads port status before successful link
+ * training, then it will not find device to be present.
+ * USB Analyzer log with such buggy devices show that in some cases
+ * device switch on the RX termination after long delay of host enabling
+ * the VBUS. In few other cases it has been seen that device fails to
+ * negotiate link training in first attempt. It has been
+ * reported till now that few devices take as long as 2000 ms to train
+ * the link after host enabling its VBUS and termination. Following
+ * routine implements a 2000 ms timeout for link training. If in a case
+ * link trains before timeout, loop will exit earlier.
+ *
+ * FIXME: If a device was connected before suspend, but was removed
+ * while system was asleep, then the loop in the following routine will
+ * only exit at timeout.
+ *
+ * This routine should only be called when persist is enabled for a SS
+ * device.
+ */
+static int wait_for_ss_port_enable(struct usb_device *udev,
+		struct usb_hub *hub, int *port1,
+		u16 *portchange, u16 *portstatus)
+{
+	int status = 0, delay_ms = 0;
+
+	while (delay_ms < 2000) {
+		if (status || *portstatus & USB_PORT_STAT_CONNECTION)
+			break;
+		msleep(20);
+		delay_ms += 20;
+		status = hub_port_status(hub, *port1, portstatus, portchange);
+	}
+	return status;
+}
+
+/*
  * usb_port_resume - re-activate a suspended usb device's upstream port
  * @udev: device to re-activate, not a root hub
  * Context: must be able to sleep; device not locked; pm locks held
@@ -3358,6 +3401,10 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 						USB_PORT_FEAT_C_SUSPEND);
 		}
 	}
+
+	if (udev->persist_enabled && hub_is_superspeed(hub->hdev))
+		status = wait_for_ss_port_enable(udev, hub, &port1, &portchange,
+				&portstatus);
 
 	status = check_port_resume_type(udev,
 			hub, port1, status, portchange, portstatus);
@@ -4550,6 +4597,7 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 	struct usb_hcd *hcd = bus_to_hcd(hdev->bus);
 	struct usb_port *port_dev = hub->ports[port1 - 1];
 	struct usb_device *udev = port_dev->child;
+	static int unreliable_port = -1;
 
 	/* Disconnect any existing devices under this port */
 	if (udev) {
@@ -4570,10 +4618,12 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 				USB_PORT_STAT_C_ENABLE)) {
 		status = hub_port_debounce_be_stable(hub, port1);
 		if (status < 0) {
-			if (status != -ENODEV && printk_ratelimit())
-				dev_err(&port_dev->dev,
-						"connect-debounce failed\n");
+			if (status != -ENODEV &&
+				port1 != unreliable_port &&
+				printk_ratelimit())
+				dev_err(&port_dev->dev, "connect-debounce failed\n");
 			portstatus &= ~USB_PORT_STAT_CONNECTION;
+			unreliable_port = port1;
 		} else {
 			portstatus = status;
 		}

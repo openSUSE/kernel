@@ -2148,8 +2148,8 @@ extern ssize_t ext4_ind_direct_IO(int rw, struct kiocb *iocb,
 extern int ext4_ind_calc_metadata_amount(struct inode *inode, sector_t lblock);
 extern int ext4_ind_trans_blocks(struct inode *inode, int nrblocks);
 extern void ext4_ind_truncate(handle_t *, struct inode *inode);
-extern int ext4_free_hole_blocks(handle_t *handle, struct inode *inode,
-				 ext4_lblk_t first, ext4_lblk_t stop);
+extern int ext4_ind_remove_space(handle_t *handle, struct inode *inode,
+				 ext4_lblk_t start, ext4_lblk_t end);
 
 /* ioctl.c */
 extern long ext4_ioctl(struct file *, unsigned int, unsigned long);
@@ -2455,6 +2455,22 @@ static inline void ext4_update_i_disksize(struct inode *inode, loff_t newsize)
 	if (newsize > EXT4_I(inode)->i_disksize)
 		EXT4_I(inode)->i_disksize = newsize;
 	up_write(&EXT4_I(inode)->i_data_sem);
+}
+
+/* Update i_size, i_disksize. Requires i_mutex to avoid races with truncate */
+static inline int ext4_update_inode_size(struct inode *inode, loff_t newsize)
+{
+	int changed = 0;
+
+	if (newsize > inode->i_size) {
+		i_size_write(inode, newsize);
+		changed = 1;
+	}
+	if (newsize > EXT4_I(inode)->i_disksize) {
+		ext4_update_i_disksize(inode, newsize);
+		changed |= 2;
+	}
+	return changed;
 }
 
 struct ext4_group_info {
