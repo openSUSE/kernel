@@ -2200,6 +2200,15 @@ intel_pin_and_fence_fb_obj(struct drm_device *dev,
 	if (need_vtd_wa(dev) && alignment < 256 * 1024)
 		alignment = 256 * 1024;
 
+	/*
+	 * Global gtt pte registers are special registers which actually forward
+	 * writes to a chunk of system memory. Which means that there is no risk
+	 * that the register values disappear as soon as we call
+	 * intel_runtime_pm_put(), so it is correct to wrap only the
+	 * pin/unpin/fence and not more.
+	 */
+	intel_runtime_pm_get(dev_priv);
+
 	dev_priv->mm.interruptible = false;
 	ret = i915_gem_object_pin_to_display_plane(obj, alignment, pipelined);
 	if (ret)
@@ -2217,12 +2226,14 @@ intel_pin_and_fence_fb_obj(struct drm_device *dev,
 	i915_gem_object_pin_fence(obj);
 
 	dev_priv->mm.interruptible = true;
+	intel_runtime_pm_put(dev_priv);
 	return 0;
 
 err_unpin:
 	i915_gem_object_unpin_from_display_plane(obj);
 err_interruptible:
 	dev_priv->mm.interruptible = true;
+	intel_runtime_pm_put(dev_priv);
 	return ret;
 }
 
@@ -8087,6 +8098,15 @@ static int intel_crtc_cursor_set(struct drm_crtc *crtc,
 			goto fail_locked;
 		}
 
+		/*
+		 * Global gtt pte registers are special registers which actually
+		 * forward writes to a chunk of system memory. Which means that
+		 * there is no risk that the register values disappear as soon
+		 * as we call intel_runtime_pm_put(), so it is correct to wrap
+		 * only the pin/unpin/fence and not more.
+		 */
+		intel_runtime_pm_get(dev_priv);
+
 		/* Note that the w/a also requires 2 PTE of padding following
 		 * the bo. We currently fill all unused PTE with the shadow
 		 * page and so we should always have valid PTE following the
@@ -8099,16 +8119,20 @@ static int intel_crtc_cursor_set(struct drm_crtc *crtc,
 		ret = i915_gem_object_pin_to_display_plane(obj, alignment, NULL);
 		if (ret) {
 			DRM_DEBUG_KMS("failed to move cursor bo into the GTT\n");
+			intel_runtime_pm_put(dev_priv);
 			goto fail_locked;
 		}
 
 		ret = i915_gem_object_put_fence(obj);
 		if (ret) {
 			DRM_DEBUG_KMS("failed to release fence for cursor");
+			intel_runtime_pm_put(dev_priv);
 			goto fail_unpin;
 		}
 
 		addr = i915_gem_obj_ggtt_offset(obj);
+
+		intel_runtime_pm_put(dev_priv);
 	} else {
 		int align = IS_I830(dev) ? 16 * 1024 : 256;
 		ret = i915_gem_object_attach_phys(obj, align);
@@ -8319,8 +8343,6 @@ bool intel_get_load_detect_pipe(struct drm_connector *connector,
 		      connector->base.id, connector->name,
 		      encoder->base.id, encoder->name);
 
-	drm_modeset_acquire_init(ctx, 0);
-
 retry:
 	ret = drm_modeset_lock(&config->connection_mutex, ctx);
 	if (ret)
@@ -8359,10 +8381,14 @@ retry:
 		i++;
 		if (!(encoder->possible_crtcs & (1 << i)))
 			continue;
-		if (!possible_crtc->enabled) {
-			crtc = possible_crtc;
-			break;
-		}
+		if (possible_crtc->enabled)
+			continue;
+		/* This can occur when applying the pipe A quirk on resume. */
+		if (to_intel_crtc(possible_crtc)->new_enabled)
+			continue;
+
+		crtc = possible_crtc;
+		break;
 	}
 
 	/*
@@ -8431,15 +8457,11 @@ fail_unlock:
 		goto retry;
 	}
 
-	drm_modeset_drop_locks(ctx);
-	drm_modeset_acquire_fini(ctx);
-
 	return false;
 }
 
 void intel_release_load_detect_pipe(struct drm_connector *connector,
-				    struct intel_load_detect_pipe *old,
-				    struct drm_modeset_acquire_ctx *ctx)
+				    struct intel_load_detect_pipe *old)
 {
 	struct intel_encoder *intel_encoder =
 		intel_attached_encoder(connector);
@@ -8463,17 +8485,12 @@ void intel_release_load_detect_pipe(struct drm_connector *connector,
 			drm_framebuffer_unreference(old->release_fb);
 		}
 
-		goto unlock;
 		return;
 	}
 
 	/* Switch crtc and encoder back off if necessary */
 	if (old->dpms_mode != DRM_MODE_DPMS_ON)
 		connector->funcs->dpms(connector, old->dpms_mode);
-
-unlock:
-	drm_modeset_drop_locks(ctx);
-	drm_modeset_acquire_fini(ctx);
 }
 
 static int i9xx_pll_refclk(struct drm_device *dev,
@@ -9293,6 +9310,8 @@ static int intel_crtc_page_flip(struct drm_crtc *crtc,
 		work->flip_count = I915_READ(PIPE_FLIPCOUNT_GM45(intel_crtc->pipe)) + 1;
 
 	if (IS_VALLEYVIEW(dev)) {
+		ring = &dev_priv->ring[BCS];
+	} else if (IS_IVYBRIDGE(dev)) {
 		ring = &dev_priv->ring[BCS];
 	} else if (INTEL_INFO(dev)->gen >= 7) {
 		ring = obj->ring;
@@ -11671,6 +11690,9 @@ static struct intel_quirk intel_quirks[] = {
 	/* Acer C720 and C720P Chromebooks (Celeron 2955U) have backlights */
 	{ 0x0a06, 0x1025, 0x0a11, quirk_backlight_present },
 
+	/* Acer C720 Chromebook (Core i3 4005U) */
+	{ 0x0a16, 0x1025, 0x0a11, quirk_backlight_present },
+
 	/* Toshiba CB35 Chromebook (Celeron 2955U) */
 	{ 0x0a06, 0x1179, 0x0a88, quirk_backlight_present },
 
@@ -11840,7 +11862,7 @@ static void intel_enable_pipe_a(struct drm_device *dev)
 	struct intel_connector *connector;
 	struct drm_connector *crt = NULL;
 	struct intel_load_detect_pipe load_detect_temp;
-	struct drm_modeset_acquire_ctx ctx;
+	struct drm_modeset_acquire_ctx *ctx = dev->mode_config.acquire_ctx;
 
 	/* We can't just switch on the pipe A, we need to set things up with a
 	 * proper mode and output configuration. As a gross hack, enable pipe A
@@ -11857,10 +11879,8 @@ static void intel_enable_pipe_a(struct drm_device *dev)
 	if (!crt)
 		return;
 
-	if (intel_get_load_detect_pipe(crt, NULL, &load_detect_temp, &ctx))
-		intel_release_load_detect_pipe(crt, &load_detect_temp, &ctx);
-
-
+	if (intel_get_load_detect_pipe(crt, NULL, &load_detect_temp, ctx))
+		intel_release_load_detect_pipe(crt, &load_detect_temp);
 }
 
 static bool
