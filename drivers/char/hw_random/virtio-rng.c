@@ -28,15 +28,15 @@
 static DEFINE_IDA(rng_index_ida);
 
 struct virtrng_info {
-	struct virtio_device *vdev;
 	struct hwrng hwrng;
 	struct virtqueue *vq;
-	unsigned int data_avail;
 	struct completion have_data;
-	bool busy;
 	char name[25];
+	unsigned int data_avail;
 	int index;
+	bool busy;
 	bool hwrng_register_done;
+	bool hwrng_removed;
 };
 
 
@@ -68,6 +68,9 @@ static int virtio_read(struct hwrng *rng, void *buf, size_t size, bool wait)
 {
 	int ret;
 	struct virtrng_info *vi = (struct virtrng_info *)rng->priv;
+
+	if (vi->hwrng_removed)
+		return -ENODEV;
 
 	if (!vi->busy) {
 		vi->busy = true;
@@ -117,6 +120,7 @@ static int probe_common(struct virtio_device *vdev)
 		.cleanup = virtio_cleanup,
 		.priv = (unsigned long)vi,
 		.name = vi->name,
+		.quality = 1000,
 	};
 	vdev->priv = vi;
 
@@ -137,6 +141,9 @@ static void remove_common(struct virtio_device *vdev)
 {
 	struct virtrng_info *vi = vdev->priv;
 
+	vi->hwrng_removed = true;
+	vi->data_avail = 0;
+	complete(&vi->have_data);
 	vdev->config->reset(vdev);
 	vi->busy = false;
 	if (vi->hwrng_register_done)

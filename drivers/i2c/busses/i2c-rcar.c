@@ -566,13 +566,13 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 	init_waitqueue_head(&priv->wait);
 	spin_lock_init(&priv->lock);
 
-	adap			= &priv->adap;
-	adap->nr		= pdev->id;
-	adap->algo		= &rcar_i2c_algo;
-	adap->class		= I2C_CLASS_HWMON | I2C_CLASS_SPD | I2C_CLASS_DEPRECATED;
-	adap->retries		= 3;
-	adap->dev.parent	= dev;
-	adap->dev.of_node	= dev->of_node;
+	adap = &priv->adap;
+	adap->nr = pdev->id;
+	adap->algo = &rcar_i2c_algo;
+	adap->class = I2C_CLASS_DEPRECATED;
+	adap->retries = 3;
+	adap->dev.parent = dev;
+	adap->dev.of_node = dev->of_node;
 	i2c_set_adapdata(adap, priv);
 	strlcpy(adap->name, pdev->name, sizeof(adap->name));
 

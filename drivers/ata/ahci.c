@@ -536,8 +536,7 @@ static void ahci_pci_save_initial_config(struct pci_dev *pdev,
 			  "Disabling your PATA port. Use the boot option 'ahci.marvell_enable=0' to avoid this.\n");
 	}
 
-	ahci_save_initial_config(&pdev->dev, hpriv, force_port_map,
-				 mask_port_map);
+	ahci_save_initial_config(&pdev->dev, hpriv);
 }
 
 static int ahci_pci_reset_controller(struct ata_host *host)
@@ -1339,6 +1338,18 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		ahci_pci_bar = AHCI_PCI_BAR_STA2X11;
 	else if (pdev->vendor == 0x1c44 && pdev->device == 0x8000)
 		ahci_pci_bar = AHCI_PCI_BAR_ENMOTUS;
+
+	/*
+	 * The JMicron chip 361/363 contains one SATA controller and one
+	 * PATA controller,for powering on these both controllers, we must
+	 * follow the sequence one by one, otherwise one of them can not be
+	 * powered on successfully, so here we disable the async suspend
+	 * method for these chips.
+	 */
+	if (pdev->vendor == PCI_VENDOR_ID_JMICRON &&
+		(pdev->device == PCI_DEVICE_ID_JMICRON_JMB363 ||
+		pdev->device == PCI_DEVICE_ID_JMICRON_JMB361))
+		device_disable_async_suspend(&pdev->dev);
 
 	/* acquire resources */
 	rc = pcim_enable_device(pdev);

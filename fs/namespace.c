@@ -16,7 +16,6 @@
 #include <linux/namei.h>
 #include <linux/security.h>
 #include <linux/idr.h>
-#include <linux/acct.h>		/* acct_auto_close_mnt */
 #include <linux/init.h>		/* init_rootfs */
 #include <linux/fs_struct.h>	/* get_fs_root et.al. */
 #include <linux/fsnotify.h>	/* fsnotify_vfsmount_delete */
@@ -784,7 +783,7 @@ static void attach_shadowed(struct mount *mnt,
 			struct mount *shadows)
 {
 	if (shadows) {
-		hlist_add_after_rcu(&shadows->mnt_hash, &mnt->mnt_hash);
+		hlist_add_behind_rcu(&mnt->mnt_hash, &shadows->mnt_hash);
 		list_add(&mnt->mnt_child, &shadows->mnt_child);
 	} else {
 		hlist_add_head_rcu(&mnt->mnt_hash,
@@ -960,7 +959,6 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
 
 static void mntput_no_expire(struct mount *mnt)
 {
-put_again:
 	rcu_read_lock();
 	mnt_add_count(mnt, -1);
 	if (likely(mnt->mnt_ns)) { /* shouldn't be the last one */
@@ -972,14 +970,6 @@ put_again:
 		rcu_read_unlock();
 		unlock_mount_hash();
 		return;
-	}
-	if (unlikely(mnt->mnt_pinned)) {
-		mnt_add_count(mnt, mnt->mnt_pinned + 1);
-		mnt->mnt_pinned = 0;
-		rcu_read_unlock();
-		unlock_mount_hash();
-		acct_auto_close_mnt(&mnt->mnt);
-		goto put_again;
 	}
 	if (unlikely(mnt->mnt.mnt_flags & MNT_DOOMED)) {
 		rcu_read_unlock();
@@ -1003,6 +993,8 @@ put_again:
 	 * so mnt_get_writers() below is safe.
 	 */
 	WARN_ON(mnt_get_writers(mnt));
+	if (unlikely(mnt->mnt_pins.first))
+		mnt_pin_kill(mnt);
 	fsnotify_vfsmount_delete(&mnt->mnt);
 	dput(mnt->mnt.mnt_root);
 	deactivate_super(mnt->mnt.mnt_sb);
@@ -1030,25 +1022,15 @@ struct vfsmount *mntget(struct vfsmount *mnt)
 }
 EXPORT_SYMBOL(mntget);
 
-void mnt_pin(struct vfsmount *mnt)
+struct vfsmount *mnt_clone_internal(struct path *path)
 {
-	lock_mount_hash();
-	real_mount(mnt)->mnt_pinned++;
-	unlock_mount_hash();
+	struct mount *p;
+	p = clone_mnt(real_mount(path->mnt), path->dentry, CL_PRIVATE);
+	if (IS_ERR(p))
+		return ERR_CAST(p);
+	p->mnt.mnt_flags |= MNT_INTERNAL;
+	return &p->mnt;
 }
-EXPORT_SYMBOL(mnt_pin);
-
-void mnt_unpin(struct vfsmount *m)
-{
-	struct mount *mnt = real_mount(m);
-	lock_mount_hash();
-	if (mnt->mnt_pinned) {
-		mnt_add_count(mnt, 1);
-		mnt->mnt_pinned--;
-	}
-	unlock_mount_hash();
-}
-EXPORT_SYMBOL(mnt_unpin);
 
 static inline void mangle(struct seq_file *m, const char *s)
 {
@@ -3069,13 +3051,13 @@ static void *mntns_get(struct task_struct *task)
 	struct mnt_namespace *ns = NULL;
 	struct nsproxy *nsproxy;
 
-	rcu_read_lock();
-	nsproxy = task_nsproxy(task);
+	task_lock(task);
+	nsproxy = task->nsproxy;
 	if (nsproxy) {
 		ns = nsproxy->mnt_ns;
 		get_mnt_ns(ns);
 	}
-	rcu_read_unlock();
+	task_unlock(task);
 
 	return ns;
 }

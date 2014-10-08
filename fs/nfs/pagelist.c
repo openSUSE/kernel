@@ -115,8 +115,8 @@ __nfs_iocounter_wait(struct nfs_io_counter *c)
 		set_bit(NFS_IO_INPROGRESS, &c->flags);
 		if (atomic_read(&c->io_count) == 0)
 			break;
-		ret = nfs_wait_bit_killable(&c->flags);
-	} while (atomic_read(&c->io_count) != 0);
+		ret = nfs_wait_bit_killable(&q.key);
+	} while (atomic_read(&c->io_count) != 0 && !ret);
 	finish_wait(wq, &q.wait);
 	return ret;
 }
@@ -134,12 +134,6 @@ nfs_iocounter_wait(struct nfs_io_counter *c)
 	if (atomic_read(&c->io_count) == 0)
 		return 0;
 	return __nfs_iocounter_wait(c);
-}
-
-static int nfs_wait_bit_uninterruptible(void *word)
-{
-	io_schedule();
-	return 0;
 }
 
 /*
@@ -168,7 +162,6 @@ nfs_page_group_lock(struct nfs_page *req, bool nonblock)
 
 	if (!nonblock)
 		return wait_on_bit_lock(&head->wb_flags, PG_HEADLOCK,
-				nfs_wait_bit_uninterruptible,
 				TASK_UNINTERRUPTIBLE);
 
 	return -EAGAIN;
@@ -188,7 +181,6 @@ nfs_page_group_lock_wait(struct nfs_page *req)
 	WARN_ON_ONCE(head != head->wb_head);
 
 	wait_on_bit(&head->wb_flags, PG_HEADLOCK,
-		nfs_wait_bit_uninterruptible,
 		TASK_UNINTERRUPTIBLE);
 }
 
@@ -467,9 +459,8 @@ void nfs_release_request(struct nfs_page *req)
 int
 nfs_wait_on_request(struct nfs_page *req)
 {
-	return wait_on_bit(&req->wb_flags, PG_BUSY,
-			nfs_wait_bit_uninterruptible,
-			TASK_UNINTERRUPTIBLE);
+	return wait_on_bit_io(&req->wb_flags, PG_BUSY,
+			      TASK_UNINTERRUPTIBLE);
 }
 
 /*
@@ -573,7 +564,7 @@ static void nfs_pgio_rpcsetup(struct nfs_pgio_header *hdr,
 	hdr->res.fattr   = &hdr->fattr;
 	hdr->res.count   = count;
 	hdr->res.eof     = 0;
-	hdr->res.verf    = &hdr->writeverf;
+	hdr->res.verf    = &hdr->verf;
 	nfs_fattr_init(&hdr->fattr);
 }
 
@@ -594,7 +585,6 @@ static void nfs_pgio_prepare(struct rpc_task *task, void *calldata)
 int nfs_initiate_pgio(struct rpc_clnt *clnt, struct nfs_pgio_header *hdr,
 		      const struct rpc_call_ops *call_ops, int how, int flags)
 {
-	struct inode *inode = hdr->inode;
 	struct rpc_task *task;
 	struct rpc_message msg = {
 		.rpc_argp = &hdr->args,
@@ -617,8 +607,8 @@ int nfs_initiate_pgio(struct rpc_clnt *clnt, struct nfs_pgio_header *hdr,
 	dprintk("NFS: %5u initiated pgio call "
 		"(req %s/%llu, %u bytes @ offset %llu)\n",
 		hdr->task.tk_pid,
-		inode->i_sb->s_id,
-		(unsigned long long)NFS_FILEID(inode),
+		hdr->inode->i_sb->s_id,
+		(unsigned long long)NFS_FILEID(hdr->inode),
 		hdr->args.count,
 		(unsigned long long)hdr->args.offset);
 
@@ -1009,7 +999,38 @@ int nfs_pageio_add_request(struct nfs_pageio_descriptor *desc,
 	} while (ret);
 	return ret;
 }
-EXPORT_SYMBOL_GPL(nfs_pageio_add_request);
+
+/*
+ * nfs_pageio_resend - Transfer requests to new descriptor and resend
+ * @hdr - the pgio header to move request from
+ * @desc - the pageio descriptor to add requests to
+ *
+ * Try to move each request (nfs_page) from @hdr to @desc then attempt
+ * to send them.
+ *
+ * Returns 0 on success and < 0 on error.
+ */
+int nfs_pageio_resend(struct nfs_pageio_descriptor *desc,
+		      struct nfs_pgio_header *hdr)
+{
+	LIST_HEAD(failed);
+
+	desc->pg_dreq = hdr->dreq;
+	while (!list_empty(&hdr->pages)) {
+		struct nfs_page *req = nfs_list_entry(hdr->pages.next);
+
+		nfs_list_remove_request(req);
+		if (!nfs_pageio_add_request(desc, req))
+			nfs_list_add_request(req, &failed);
+	}
+	nfs_pageio_complete(desc);
+	if (!list_empty(&failed)) {
+		list_move(&failed, &hdr->pages);
+		return -EIO;
+	}
+	return 0;
+}
+EXPORT_SYMBOL_GPL(nfs_pageio_resend);
 
 /**
  * nfs_pageio_complete - Complete I/O on an nfs_pageio_descriptor
@@ -1025,7 +1046,6 @@ void nfs_pageio_complete(struct nfs_pageio_descriptor *desc)
 			break;
 	}
 }
-EXPORT_SYMBOL_GPL(nfs_pageio_complete);
 
 /**
  * nfs_pageio_cond_complete - Conditional I/O completion

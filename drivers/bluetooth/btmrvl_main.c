@@ -215,6 +215,23 @@ int btmrvl_send_module_cfg_cmd(struct btmrvl_private *priv, u8 subcmd)
 }
 EXPORT_SYMBOL_GPL(btmrvl_send_module_cfg_cmd);
 
+int btmrvl_pscan_window_reporting(struct btmrvl_private *priv, u8 subcmd)
+{
+	struct btmrvl_sdio_card *card = priv->btmrvl_dev.card;
+	int ret;
+
+	if (!card->support_pscan_win_report)
+		return 0;
+
+	ret = btmrvl_send_sync_cmd(priv, BT_CMD_PSCAN_WIN_REPORT_ENABLE,
+				   &subcmd, 1);
+	if (ret)
+		BT_ERR("PSCAN_WIN_REPORT_ENABLE command failed: %#x", ret);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(btmrvl_pscan_window_reporting);
+
 int btmrvl_send_hscfg_cmd(struct btmrvl_private *priv)
 {
 	int ret;
@@ -511,11 +528,36 @@ static int btmrvl_setup(struct hci_dev *hdev)
 
 	btmrvl_cal_data_dt(priv);
 
+	btmrvl_pscan_window_reporting(priv, 0x01);
+
 	priv->btmrvl_dev.psmode = 1;
 	btmrvl_enable_ps(priv);
 
 	priv->btmrvl_dev.gpio_gap = 0xffff;
 	btmrvl_send_hscfg_cmd(priv);
+
+	return 0;
+}
+
+static int btmrvl_set_bdaddr(struct hci_dev *hdev, const bdaddr_t *bdaddr)
+{
+	struct sk_buff *skb;
+	long ret;
+	u8 buf[8];
+
+	buf[0] = MRVL_VENDOR_PKT;
+	buf[1] = sizeof(bdaddr_t);
+	memcpy(buf + 2, bdaddr, sizeof(bdaddr_t));
+
+	skb = __hci_cmd_sync(hdev, BT_CMD_SET_BDADDR, sizeof(buf), buf,
+			     HCI_INIT_TIMEOUT);
+	if (IS_ERR(skb)) {
+		ret = PTR_ERR(skb);
+		BT_ERR("%s: changing btmrvl device address failed (%ld)",
+		       hdev->name, ret);
+		return ret;
+	}
+	kfree_skb(skb);
 
 	return 0;
 }
@@ -613,6 +655,7 @@ int btmrvl_register_hdev(struct btmrvl_private *priv)
 	hdev->flush = btmrvl_flush;
 	hdev->send  = btmrvl_send_frame;
 	hdev->setup = btmrvl_setup;
+	hdev->set_bdaddr = btmrvl_set_bdaddr;
 
 	hdev->dev_type = priv->btmrvl_dev.dev_type;
 
@@ -667,11 +710,16 @@ struct btmrvl_private *btmrvl_add_card(void *card)
 	init_waitqueue_head(&priv->main_thread.wait_q);
 	priv->main_thread.task = kthread_run(btmrvl_service_main_thread,
 				&priv->main_thread, "btmrvl_main_service");
+	if (IS_ERR(priv->main_thread.task))
+		goto err_thread;
 
 	priv->btmrvl_dev.card = card;
 	priv->btmrvl_dev.tx_dnld_rdy = true;
 
 	return priv;
+
+err_thread:
+	btmrvl_free_adapter(priv);
 
 err_adapter:
 	kfree(priv);

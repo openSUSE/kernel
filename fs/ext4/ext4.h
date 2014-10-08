@@ -591,7 +591,6 @@ enum {
 #define EXT4_FREE_BLOCKS_NO_QUOT_UPDATE	0x0008
 #define EXT4_FREE_BLOCKS_NOFREE_FIRST_CLUSTER	0x0010
 #define EXT4_FREE_BLOCKS_NOFREE_LAST_CLUSTER	0x0020
-#define EXT4_FREE_BLOCKS_RESERVE		0x0040
 
 /*
  * ioctl commands
@@ -943,10 +942,6 @@ struct ext4_inode_info {
 
 	/* Precomputed uuid+inum+igen checksum for seeding inode checksums */
 	__u32 i_csum_seed;
-#ifdef CONFIG_EXT4_FS_RICHACL
-	struct richacl   *i_richacl;
-#endif
-
 };
 
 /*
@@ -2033,6 +2028,8 @@ static inline  unsigned char get_dtype(struct super_block *sb, int filetype)
 
 	return ext4_filetype_table[filetype];
 }
+extern int ext4_check_all_de(struct inode *dir, struct buffer_head *bh,
+			     void *buf, int buf_size);
 
 /* fsync.c */
 extern int ext4_sync_file(struct file *, loff_t, loff_t, int);
@@ -2580,7 +2577,6 @@ extern const struct file_operations ext4_file_operations;
 extern loff_t ext4_llseek(struct file *file, loff_t offset, int origin);
 
 /* inline.c */
-extern int ext4_has_inline_data(struct inode *inode);
 extern int ext4_get_max_inline_size(struct inode *inode);
 extern int ext4_find_inline_data_nolock(struct inode *inode);
 extern int ext4_init_inline_data(handle_t *handle, struct inode *inode,
@@ -2645,6 +2641,12 @@ extern int ext4_try_to_evict_inline_data(handle_t *handle,
 extern void ext4_inline_data_truncate(struct inode *inode, int *has_inline);
 
 extern int ext4_convert_inline_data(struct inode *inode);
+
+static inline int ext4_has_inline_data(struct inode *inode)
+{
+	return ext4_test_inode_flag(inode, EXT4_INODE_INLINE_DATA) &&
+	       EXT4_I(inode)->i_inline_off;
+}
 
 /* namei.c */
 extern const struct inode_operations ext4_dir_inode_operations;

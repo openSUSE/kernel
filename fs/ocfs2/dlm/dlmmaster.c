@@ -2039,6 +2039,10 @@ kill:
 	     "and killing the other node now!  This node is OK and can continue.\n");
 	__dlm_print_one_lock_resource(res);
 	spin_unlock(&res->spinlock);
+	spin_lock(&dlm->master_lock);
+	if (mle)
+		__dlm_put_mle(mle);
+	spin_unlock(&dlm->master_lock);
 	spin_unlock(&dlm->spinlock);
 	*ret_data = (void *)res;
 	dlm_put(dlm);
@@ -2405,6 +2409,10 @@ static int dlm_is_lockres_migrateable(struct dlm_ctxt *dlm,
 
 	/* delay migration when the lockres is in MIGRATING state */
 	if (res->state & DLM_LOCK_RES_MIGRATING)
+		return 0;
+
+	/* delay migration when the lockres is in RECOCERING state */
+	if (res->state & DLM_LOCK_RES_RECOVERING)
 		return 0;
 
 	if (res->owner != dlm->node_num)

@@ -1092,10 +1092,10 @@ int follow_down_one(struct path *path)
 }
 EXPORT_SYMBOL(follow_down_one);
 
-static inline bool managed_dentry_might_block(struct dentry *dentry)
+static inline int managed_dentry_rcu(struct dentry *dentry)
 {
-	return (dentry->d_flags & DCACHE_MANAGE_TRANSIT &&
-		dentry->d_op->d_manage(dentry, true) < 0);
+	return (dentry->d_flags & DCACHE_MANAGE_TRANSIT) ?
+		dentry->d_op->d_manage(dentry, true) : 0;
 }
 
 /*
@@ -1111,11 +1111,18 @@ static bool __follow_mount_rcu(struct nameidata *nd, struct path *path,
 		 * Don't forget we might have a non-mountpoint managed dentry
 		 * that wants to block transit.
 		 */
-		if (unlikely(managed_dentry_might_block(path->dentry)))
+		switch (managed_dentry_rcu(path->dentry)) {
+		case -ECHILD:
+		default:
 			return false;
+		case -EISDIR:
+			return true;
+		case 0:
+			break;
+		}
 
 		if (!d_mountpoint(path->dentry))
-			return true;
+			return !(path->dentry->d_flags & DCACHE_NEED_AUTOMOUNT);
 
 		mounted = __lookup_mnt(path->mnt, path->dentry);
 		if (!mounted)
@@ -1131,11 +1138,13 @@ static bool __follow_mount_rcu(struct nameidata *nd, struct path *path,
 		 */
 		*inode = path->dentry->d_inode;
 	}
-	return read_seqretry(&mount_lock, nd->m_seq);
+	return !read_seqretry(&mount_lock, nd->m_seq) &&
+		!(path->dentry->d_flags & DCACHE_NEED_AUTOMOUNT);
 }
 
 static int follow_dotdot_rcu(struct nameidata *nd)
 {
+	struct inode *inode = nd->inode;
 	if (!nd->root.mnt)
 		set_root_rcu(nd);
 
@@ -1149,6 +1158,7 @@ static int follow_dotdot_rcu(struct nameidata *nd)
 			struct dentry *parent = old->d_parent;
 			unsigned seq;
 
+			inode = parent->d_inode;
 			seq = read_seqcount_begin(&parent->d_seq);
 			if (read_seqcount_retry(&old->d_seq, nd->seq))
 				goto failed;
@@ -1158,6 +1168,7 @@ static int follow_dotdot_rcu(struct nameidata *nd)
 		}
 		if (!follow_up_rcu(&nd->path))
 			break;
+		inode = nd->path.dentry->d_inode;
 		nd->seq = read_seqcount_begin(&nd->path.dentry->d_seq);
 	}
 	while (d_mountpoint(nd->path.dentry)) {
@@ -1167,11 +1178,12 @@ static int follow_dotdot_rcu(struct nameidata *nd)
 			break;
 		nd->path.mnt = &mounted->mnt;
 		nd->path.dentry = mounted->mnt.mnt_root;
+		inode = nd->path.dentry->d_inode;
 		nd->seq = read_seqcount_begin(&nd->path.dentry->d_seq);
-		if (!read_seqretry(&mount_lock, nd->m_seq))
+		if (read_seqretry(&mount_lock, nd->m_seq))
 			goto failed;
 	}
-	nd->inode = nd->path.dentry->d_inode;
+	nd->inode = inode;
 	return 0;
 
 failed:
@@ -1405,11 +1417,8 @@ static int lookup_fast(struct nameidata *nd,
 		}
 		path->mnt = mnt;
 		path->dentry = dentry;
-		if (unlikely(!__follow_mount_rcu(nd, path, inode)))
-			goto unlazy;
-		if (unlikely(path->dentry->d_flags & DCACHE_NEED_AUTOMOUNT))
-			goto unlazy;
-		return 0;
+		if (likely(__follow_mount_rcu(nd, path, inode)))
+			return 0;
 unlazy:
 		if (unlazy_walk(nd, dentry))
 			return -ECHILD;
@@ -1666,9 +1675,9 @@ EXPORT_SYMBOL(full_name_hash);
 
 /*
  * Calculate the length and hash of the path component, and
- * return the length of the component;
+ * return the "hash_len" as the result.
  */
-static inline unsigned long hash_name(const char *name, unsigned int *hashp)
+static inline u64 hash_name(const char *name)
 {
 	unsigned long a, b, adata, bdata, mask, hash, len;
 	const struct word_at_a_time constants = WORD_AT_A_TIME_CONSTANTS;
@@ -1688,9 +1697,8 @@ static inline unsigned long hash_name(const char *name, unsigned int *hashp)
 	mask = create_zero_mask(adata | bdata);
 
 	hash += a & zero_bytemask(mask);
-	*hashp = fold_hash(hash);
-
-	return len + find_zero(mask);
+	len += find_zero(mask);
+	return hashlen_create(fold_hash(hash), len);
 }
 
 #else
@@ -1708,7 +1716,7 @@ EXPORT_SYMBOL(full_name_hash);
  * We know there's a real path component here of at least
  * one character.
  */
-static inline unsigned long hash_name(const char *name, unsigned int *hashp)
+static inline u64 hash_name(const char *name)
 {
 	unsigned long hash = init_name_hash();
 	unsigned long len = 0, c;
@@ -1719,8 +1727,7 @@ static inline unsigned long hash_name(const char *name, unsigned int *hashp)
 		hash = partial_name_hash(c, hash);
 		c = (unsigned char)name[len];
 	} while (c && c != '/');
-	*hashp = end_name_hash(hash);
-	return len;
+	return hashlen_create(end_name_hash(hash), len);
 }
 
 #endif
@@ -1745,20 +1752,17 @@ static int link_path_walk(const char *name, struct nameidata *nd)
 
 	/* At this point we know we have a real path component. */
 	for(;;) {
-		struct qstr this;
-		long len;
+		u64 hash_len;
 		int type;
 
 		err = may_lookup(nd);
  		if (err)
 			break;
 
-		len = hash_name(name, &this.hash);
-		this.name = name;
-		this.len = len;
+		hash_len = hash_name(name);
 
 		type = LAST_NORM;
-		if (name[0] == '.') switch (len) {
+		if (name[0] == '.') switch (hashlen_len(hash_len)) {
 			case 2:
 				if (name[1] == '.') {
 					type = LAST_DOTDOT;
@@ -1772,28 +1776,31 @@ static int link_path_walk(const char *name, struct nameidata *nd)
 			struct dentry *parent = nd->path.dentry;
 			nd->flags &= ~LOOKUP_JUMPED;
 			if (unlikely(parent->d_flags & DCACHE_OP_HASH)) {
+				struct qstr this = { { .hash_len = hash_len }, .name = name };
 				err = parent->d_op->d_hash(parent, &this);
 				if (err < 0)
 					break;
+				hash_len = this.hash_len;
+				name = this.name;
 			}
 		}
 
-		nd->last = this;
+		nd->last.hash_len = hash_len;
+		nd->last.name = name;
 		nd->last_type = type;
 
-		if (!name[len])
+		name += hashlen_len(hash_len);
+		if (!*name)
 			return 0;
 		/*
 		 * If it wasn't NUL, we know it was '/'. Skip that
 		 * slash, and continue until no more slashes.
 		 */
 		do {
-			len++;
-		} while (unlikely(name[len] == '/'));
-		if (!name[len])
+			name++;
+		} while (unlikely(*name == '/'));
+		if (!*name)
 			return 0;
-
-		name += len;
 
 		err = walk_component(nd, &next, LOOKUP_FOLLOW);
 		if (err < 0)
@@ -1900,7 +1907,14 @@ static int path_init(int dfd, const char *name, unsigned int flags,
 	}
 
 	nd->inode = nd->path.dentry->d_inode;
-	return 0;
+	if (!(flags & LOOKUP_RCU))
+		return 0;
+	if (likely(!read_seqcount_retry(&nd->path.dentry->d_seq, nd->seq)))
+		return 0;
+	if (!(nd->flags & LOOKUP_ROOT))
+		nd->root.mnt = NULL;
+	rcu_read_unlock();
+	return -ECHILD;
 }
 
 static inline int lookup_last(struct nameidata *nd, struct path *path)
@@ -2387,26 +2401,6 @@ static inline int check_sticky(struct inode *dir, struct inode *inode)
 }
 
 /*
- * Do the directory specific tests of inode_permission() and call the
- * may_delete inode operation.  The may_delete inode operation must do the
- * sticky check when needed.
- */
-static int may_delete_iop(struct inode *dir, struct inode *inode, int replace)
-{
-	int error;
-
-	if (IS_RDONLY(dir))
-		return -EROFS;
-	if (IS_IMMUTABLE(dir))
-		return -EACCES;
-	error = dir->i_op->may_delete(dir, inode, replace);
-	if (!error)
-		error = security_inode_permission(dir, MAY_WRITE | MAY_EXEC);
-
-	return error;
-}
-
-/*
  *	Check whether we can remove a link victim from directory dir, check
  *  whether the type of victim is right.
  *  1. We can't do it if dir is read-only (done in permission())
@@ -2425,8 +2419,7 @@ static int may_delete_iop(struct inode *dir, struct inode *inode, int replace)
  * 10. We don't allow removal of NFS sillyrenamed files; it's handled by
  *     nfs_async_unlink().
  */
-static int may_delete(struct inode *dir, struct dentry *victim,
-		      bool isdir, int replace)
+static int may_delete(struct inode *dir, struct dentry *victim, bool isdir)
 {
 	struct inode *inode = victim->d_inode;
 	int error;
@@ -2437,19 +2430,15 @@ static int may_delete(struct inode *dir, struct dentry *victim,
 
 	BUG_ON(victim->d_parent->d_inode != dir);
 	audit_inode_child(dir, victim, AUDIT_TYPE_CHILD_DELETE);
-	if (dir->i_op->may_delete)
-		error = may_delete_iop(dir, victim->d_inode, replace);
-	else {
-		error = inode_permission(dir, MAY_WRITE | MAY_EXEC);
-		if (!error && check_sticky(dir, victim->d_inode))
-			error = -EPERM;
-	}
+
+	error = inode_permission(dir, MAY_WRITE | MAY_EXEC);
 	if (error)
 		return error;
 	if (IS_APPEND(dir))
 		return -EPERM;
 
-	if (IS_APPEND(inode) || IS_IMMUTABLE(inode) || IS_SWAPFILE(inode))
+	if (check_sticky(dir, inode) || IS_APPEND(inode) ||
+	    IS_IMMUTABLE(inode) || IS_SWAPFILE(inode))
 		return -EPERM;
 	if (isdir) {
 		if (!d_is_dir(victim))
@@ -2465,25 +2454,6 @@ static int may_delete(struct inode *dir, struct dentry *victim,
 	return 0;
 }
 
-/*
- * Do the directory specific tests of inode_permission() and call the
- * may_create inode operation.
- */
-static int may_create_iop(struct inode *dir, int isdir)
-{
-	int error;
-
-	if (IS_RDONLY(dir))
-		return -EROFS;
-	if (IS_IMMUTABLE(dir))
-		return -EACCES;
-	error = dir->i_op->may_create(dir, isdir);
-	if (!error)
-		error = security_inode_permission(dir, MAY_WRITE | MAY_EXEC);
-
-	return error;
-}
-
 /*	Check whether we can create an object with dentry child in directory
  *  dir.
  *  1. We can't do it if child already exists (open has special treatment for
@@ -2492,17 +2462,14 @@ static int may_create_iop(struct inode *dir, int isdir)
  *  3. We should have write and exec permissions on dir
  *  4. We can't do it if dir is immutable (done in permission())
  */
-static inline int may_create(struct inode *dir, struct dentry *child, int isdir)
+static inline int may_create(struct inode *dir, struct dentry *child)
 {
 	audit_inode_child(dir, child, AUDIT_TYPE_CHILD_CREATE);
 	if (child->d_inode)
 		return -EEXIST;
 	if (IS_DEADDIR(dir))
 		return -ENOENT;
-	if (dir->i_op->may_create)
-		return may_create_iop(dir, isdir);
-	else
-		return inode_permission(dir, MAY_WRITE | MAY_EXEC);
+	return inode_permission(dir, MAY_WRITE | MAY_EXEC);
 }
 
 /*
@@ -2552,7 +2519,7 @@ EXPORT_SYMBOL(unlock_rename);
 int vfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 		bool want_excl)
 {
-	int error = may_create(dir, dentry, 0);
+	int error = may_create(dir, dentry);
 	if (error)
 		return error;
 
@@ -2885,7 +2852,7 @@ static int lookup_open(struct nameidata *nd, struct path *path,
 	/* Negative dentry, just create the file */
 	if (!dentry->d_inode && (op->open_flag & O_CREAT)) {
 		umode_t mode = op->mode;
-		if (!IS_ACL(dir->d_inode))
+		if (!IS_POSIXACL(dir->d_inode))
 			mode &= ~current_umask();
 		/*
 		 * This write is needed to ensure that a
@@ -3417,7 +3384,7 @@ EXPORT_SYMBOL(user_path_create);
 
 int vfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev)
 {
-	int error = may_create(dir, dentry, 0);
+	int error = may_create(dir, dentry);
 
 	if (error)
 		return error;
@@ -3476,7 +3443,7 @@ retry:
 	if (IS_ERR(dentry))
 		return PTR_ERR(dentry);
 
-	if (!IS_ACL(path.dentry->d_inode))
+	if (!IS_POSIXACL(path.dentry->d_inode))
 		mode &= ~current_umask();
 	error = security_path_mknod(&path, dentry, mode, dev);
 	if (error)
@@ -3509,7 +3476,7 @@ SYSCALL_DEFINE3(mknod, const char __user *, filename, umode_t, mode, unsigned, d
 
 int vfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
-	int error = may_create(dir, dentry, 1);
+	int error = may_create(dir, dentry);
 	unsigned max_links = dir->i_sb->s_max_links;
 
 	if (error)
@@ -3545,7 +3512,7 @@ retry:
 	if (IS_ERR(dentry))
 		return PTR_ERR(dentry);
 
-	if (!IS_ACL(path.dentry->d_inode))
+	if (!IS_POSIXACL(path.dentry->d_inode))
 		mode &= ~current_umask();
 	error = security_path_mkdir(&path, dentry, mode);
 	if (!error)
@@ -3590,7 +3557,7 @@ EXPORT_SYMBOL(dentry_unhash);
 
 int vfs_rmdir(struct inode *dir, struct dentry *dentry)
 {
-	int error = may_delete(dir, dentry, 1, 0);
+	int error = may_delete(dir, dentry, 1);
 
 	if (error)
 		return error;
@@ -3709,7 +3676,7 @@ SYSCALL_DEFINE1(rmdir, const char __user *, pathname)
 int vfs_unlink(struct inode *dir, struct dentry *dentry, struct inode **delegated_inode)
 {
 	struct inode *target = dentry->d_inode;
-	int error = may_delete(dir, dentry, 0, 0);
+	int error = may_delete(dir, dentry, 0);
 
 	if (error)
 		return error;
@@ -3839,7 +3806,7 @@ SYSCALL_DEFINE1(unlink, const char __user *, pathname)
 
 int vfs_symlink(struct inode *dir, struct dentry *dentry, const char *oldname)
 {
-	int error = may_create(dir, dentry, 0);
+	int error = may_create(dir, dentry);
 
 	if (error)
 		return error;
@@ -3922,7 +3889,7 @@ int vfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *new_de
 	if (!inode)
 		return -ENOENT;
 
-	error = may_create(dir, new_dentry, S_ISDIR(inode->i_mode));
+	error = may_create(dir, new_dentry);
 	if (error)
 		return error;
 
@@ -4071,7 +4038,7 @@ SYSCALL_DEFINE2(link, const char __user *, oldname, const char __user *, newname
  * The worst of all namespace operations - renaming directory. "Perverted"
  * doesn't even start to describe it. Somebody in UCB had a heck of a trip...
  * Problems:
- *	a) we can get into loop creation. Check is done in is_subdir().
+ *	a) we can get into loop creation.
  *	b) race potential - two innocent renames can create a loop together.
  *	   That's where 4.4 screws up. Current fix: serialization on
  *	   sb->s_vfs_rename_mutex. We might be more accurate, but that's another
@@ -4110,24 +4077,24 @@ int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (source == target)
 		return 0;
 
-	error = may_delete(old_dir, old_dentry, is_dir, 0);
+	error = may_delete(old_dir, old_dentry, is_dir);
 	if (error)
 		return error;
 
 	if (!target) {
-		error = may_create(new_dir, new_dentry, is_dir);
+		error = may_create(new_dir, new_dentry);
 	} else {
 		new_is_dir = d_is_dir(new_dentry);
 
 		if (!(flags & RENAME_EXCHANGE))
-			error = may_delete(new_dir, new_dentry, is_dir, 1);
+			error = may_delete(new_dir, new_dentry, is_dir);
 		else
-			error = may_delete(new_dir, new_dentry, new_is_dir, 1);
+			error = may_delete(new_dir, new_dentry, new_is_dir);
 	}
 	if (error)
 		return error;
 
-	if (!old_dir->i_op->rename)
+	if (!old_dir->i_op->rename && !old_dir->i_op->rename2)
 		return -EPERM;
 
 	if (flags && !old_dir->i_op->rename2)
@@ -4186,10 +4153,11 @@ int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		if (error)
 			goto out;
 	}
-	if (!flags) {
+	if (!old_dir->i_op->rename2) {
 		error = old_dir->i_op->rename(old_dir, old_dentry,
 					      new_dir, new_dentry);
 	} else {
+		WARN_ON(old_dir->i_op->rename != NULL);
 		error = old_dir->i_op->rename2(old_dir, old_dentry,
 					       new_dir, new_dentry, flags);
 	}

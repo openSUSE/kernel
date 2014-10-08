@@ -120,7 +120,6 @@ static int cpufreq_transition(struct notifier_block *nb,
 static int tilcdc_unload(struct drm_device *dev)
 {
 	struct tilcdc_drm_private *priv = dev->dev_private;
-	struct tilcdc_module *mod, *cur;
 
 	drm_fbdev_cma_fini(priv->fbdev);
 	drm_kms_helper_poll_fini(dev);
@@ -148,11 +147,6 @@ static int tilcdc_unload(struct drm_device *dev)
 	dev->dev_private = NULL;
 
 	pm_runtime_disable(dev->dev);
-
-	list_for_each_entry_safe(mod, cur, &module_list, list) {
-		DBG("destroying module: %s", mod->name);
-		mod->funcs->destroy(mod);
-	}
 
 	kfree(priv);
 
@@ -635,7 +629,7 @@ static void __exit tilcdc_drm_fini(void)
 	tilcdc_tfp410_fini();
 }
 
-late_initcall(tilcdc_drm_init);
+module_init(tilcdc_drm_init);
 module_exit(tilcdc_drm_fini);
 
 MODULE_AUTHOR("Rob Clark <robdclark@gmail.com");

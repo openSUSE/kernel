@@ -445,7 +445,7 @@ static void bl_end_par_io_write(void *data, int num_se)
 	}
 
 	hdr->task.tk_status = hdr->pnfs_error;
-	hdr->writeverf.committed = NFS_FILE_SYNC;
+	hdr->verf.committed = NFS_FILE_SYNC;
 	INIT_WORK(&hdr->task.u.tk_work, bl_write_cleanup);
 	schedule_work(&hdr->task.u.tk_work);
 }
@@ -1062,7 +1062,7 @@ nfs4_blk_get_deviceinfo(struct nfs_server *server, const struct nfs_fh *fh,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	pages = kzalloc(max_pages * sizeof(struct page *), GFP_NOFS);
+	pages = kcalloc(max_pages, sizeof(struct page *), GFP_NOFS);
 	if (pages == NULL) {
 		kfree(dev);
 		return ERR_PTR(-ENOMEM);

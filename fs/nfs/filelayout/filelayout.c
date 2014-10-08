@@ -97,10 +97,7 @@ static void filelayout_reset_write(struct nfs_pgio_header *hdr)
 			hdr->args.count,
 			(unsigned long long)hdr->args.offset);
 
-		task->tk_status = pnfs_write_done_resend_to_mds(hdr->inode,
-							&hdr->pages,
-							hdr->completion_ops,
-							hdr->dreq);
+		task->tk_status = pnfs_write_done_resend_to_mds(hdr);
 	}
 }
 
@@ -117,10 +114,7 @@ static void filelayout_reset_read(struct nfs_pgio_header *hdr)
 			hdr->args.count,
 			(unsigned long long)hdr->args.offset);
 
-		task->tk_status = pnfs_read_done_resend_to_mds(hdr->inode,
-							&hdr->pages,
-							hdr->completion_ops,
-							hdr->dreq);
+		task->tk_status = pnfs_read_done_resend_to_mds(hdr);
 	}
 }
 
@@ -1040,18 +1034,22 @@ out:
 	pnfs_put_lseg_async(freeme);
 }
 
-static struct list_head *
-filelayout_choose_commit_list(struct nfs_page *req,
-			      struct pnfs_layout_segment *lseg,
-			      struct nfs_commit_info *cinfo)
+static void
+filelayout_mark_request_commit(struct nfs_page *req,
+			       struct pnfs_layout_segment *lseg,
+			       struct nfs_commit_info *cinfo)
+
 {
 	struct nfs4_filelayout_segment *fl = FILELAYOUT_LSEG(lseg);
 	u32 i, j;
 	struct list_head *list;
 	struct pnfs_commit_bucket *buckets;
 
-	if (fl->commit_through_mds)
-		return &cinfo->mds->list;
+	if (fl->commit_through_mds) {
+		list = &cinfo->mds->list;
+		spin_lock(cinfo->lock);
+		goto mds_commit;
+	}
 
 	/* Note that we are calling nfs4_fl_calc_j_index on each page
 	 * that ends up being committed to a data server.  An attractive
@@ -1075,19 +1073,22 @@ filelayout_choose_commit_list(struct nfs_page *req,
 	}
 	set_bit(PG_COMMIT_TO_DS, &req->wb_flags);
 	cinfo->ds->nwritten++;
+
+mds_commit:
+	/* nfs_request_add_commit_list(). We need to add req to list without
+	 * dropping cinfo lock.
+	 */
+	set_bit(PG_CLEAN, &(req)->wb_flags);
+	nfs_list_add_request(req, list);
+	cinfo->mds->ncommit++;
 	spin_unlock(cinfo->lock);
-	return list;
-}
-
-static void
-filelayout_mark_request_commit(struct nfs_page *req,
-			       struct pnfs_layout_segment *lseg,
-			       struct nfs_commit_info *cinfo)
-{
-	struct list_head *list;
-
-	list = filelayout_choose_commit_list(req, lseg, cinfo);
-	nfs_request_add_commit_list(req, list, cinfo);
+	if (!cinfo->dreq) {
+		inc_zone_page_state(req->wb_page, NR_UNSTABLE_NFS);
+		inc_bdi_stat(page_file_mapping(req->wb_page)->backing_dev_info,
+			     BDI_RECLAIMABLE);
+		__mark_inode_dirty(req->wb_context->dentry->d_inode,
+				   I_DIRTY_DATASYNC);
+	}
 }
 
 static u32 calc_ds_index_from_commit(struct pnfs_layout_segment *lseg, u32 i)
@@ -1235,15 +1236,64 @@ restart:
 	spin_unlock(cinfo->lock);
 }
 
+/* filelayout_search_commit_reqs - Search lists in @cinfo for the head reqest
+ *				   for @page
+ * @cinfo - commit info for current inode
+ * @page - page to search for matching head request
+ *
+ * Returns a the head request if one is found, otherwise returns NULL.
+ */
+static struct nfs_page *
+filelayout_search_commit_reqs(struct nfs_commit_info *cinfo, struct page *page)
+{
+	struct nfs_page *freq, *t;
+	struct pnfs_commit_bucket *b;
+	int i;
+
+	/* Linearly search the commit lists for each bucket until a matching
+	 * request is found */
+	for (i = 0, b = cinfo->ds->buckets; i < cinfo->ds->nbuckets; i++, b++) {
+		list_for_each_entry_safe(freq, t, &b->written, wb_list) {
+			if (freq->wb_page == page)
+				return freq->wb_head;
+		}
+		list_for_each_entry_safe(freq, t, &b->committing, wb_list) {
+			if (freq->wb_page == page)
+				return freq->wb_head;
+		}
+	}
+
+	return NULL;
+}
+
+static void filelayout_retry_commit(struct nfs_commit_info *cinfo, int idx)
+{
+	struct pnfs_ds_commit_info *fl_cinfo = cinfo->ds;
+	struct pnfs_commit_bucket *bucket;
+	struct pnfs_layout_segment *freeme;
+	int i;
+
+	for (i = idx; i < fl_cinfo->nbuckets; i++) {
+		bucket = &fl_cinfo->buckets[i];
+		if (list_empty(&bucket->committing))
+			continue;
+		nfs_retry_commit(&bucket->committing, bucket->clseg, cinfo);
+		spin_lock(cinfo->lock);
+		freeme = bucket->clseg;
+		bucket->clseg = NULL;
+		spin_unlock(cinfo->lock);
+		pnfs_put_lseg(freeme);
+	}
+}
+
 static unsigned int
 alloc_ds_commits(struct nfs_commit_info *cinfo, struct list_head *list)
 {
 	struct pnfs_ds_commit_info *fl_cinfo;
 	struct pnfs_commit_bucket *bucket;
 	struct nfs_commit_data *data;
-	int i, j;
+	int i;
 	unsigned int nreq = 0;
-	struct pnfs_layout_segment *freeme;
 
 	fl_cinfo = cinfo->ds;
 	bucket = fl_cinfo->buckets;
@@ -1263,16 +1313,7 @@ alloc_ds_commits(struct nfs_commit_info *cinfo, struct list_head *list)
 	}
 
 	/* Clean up on error */
-	for (j = i; j < fl_cinfo->nbuckets; j++, bucket++) {
-		if (list_empty(&bucket->committing))
-			continue;
-		nfs_retry_commit(&bucket->committing, bucket->clseg, cinfo);
-		spin_lock(cinfo->lock);
-		freeme = bucket->clseg;
-		bucket->clseg = NULL;
-		spin_unlock(cinfo->lock);
-		pnfs_put_lseg(freeme);
-	}
+	filelayout_retry_commit(cinfo, i);
 	/* Caller will clean up entries put on list */
 	return nreq;
 }
@@ -1292,8 +1333,12 @@ filelayout_commit_pagelist(struct inode *inode, struct list_head *mds_pages,
 			data->lseg = NULL;
 			list_add(&data->pages, &list);
 			nreq++;
-		} else
+		} else {
 			nfs_retry_commit(mds_pages, NULL, cinfo);
+			filelayout_retry_commit(cinfo, 0);
+			cinfo->completion_ops->error_cleanup(NFS_I(inode));
+			return -ENOMEM;
+		}
 	}
 
 	nreq += alloc_ds_commits(cinfo, &list);
@@ -1371,6 +1416,7 @@ static struct pnfs_layoutdriver_type filelayout_type = {
 	.clear_request_commit	= filelayout_clear_request_commit,
 	.scan_commit_lists	= filelayout_scan_commit_lists,
 	.recover_commit_reqs	= filelayout_recover_commit_reqs,
+	.search_commit_reqs	= filelayout_search_commit_reqs,
 	.commit_pagelist	= filelayout_commit_pagelist,
 	.read_pagelist		= filelayout_read_pagelist,
 	.write_pagelist		= filelayout_write_pagelist,

@@ -195,7 +195,16 @@ extern struct rpc_clnt *nfs4_find_or_create_ds_client(struct nfs_client *,
 #ifdef CONFIG_PROC_FS
 extern int __init nfs_fs_proc_init(void);
 extern void nfs_fs_proc_exit(void);
+extern int nfs_fs_proc_net_init(struct net *net);
+extern void nfs_fs_proc_net_exit(struct net *net);
 #else
+static inline int nfs_fs_proc_net_init(struct net *net)
+{
+	return 0;
+}
+static inline void nfs_fs_proc_net_exit(struct net *net)
+{
+}
 static inline int nfs_fs_proc_init(void)
 {
 	return 0;
@@ -348,7 +357,7 @@ extern int nfs_drop_inode(struct inode *);
 extern void nfs_clear_inode(struct inode *);
 extern void nfs_evict_inode(struct inode *);
 void nfs_zap_acl_cache(struct inode *inode);
-extern int nfs_wait_bit_killable(void *word);
+extern int nfs_wait_bit_killable(struct wait_bit_key *key);
 
 /* super.c */
 extern const struct super_operations nfs_sops;
@@ -442,6 +451,7 @@ int nfs_scan_commit(struct inode *inode, struct list_head *dst,
 void nfs_mark_request_commit(struct nfs_page *req,
 			     struct pnfs_layout_segment *lseg,
 			     struct nfs_commit_info *cinfo);
+int nfs_write_need_commit(struct nfs_pgio_header *);
 int nfs_generic_commit_list(struct inode *inode, struct list_head *head,
 			    int how, struct nfs_commit_info *cinfo);
 void nfs_retry_commit(struct list_head *page_list,

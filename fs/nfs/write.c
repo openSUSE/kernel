@@ -47,6 +47,8 @@ static const struct nfs_pgio_completion_ops nfs_async_write_completion_ops;
 static const struct nfs_commit_completion_ops nfs_commit_completion_ops;
 static const struct nfs_rw_ops nfs_rw_write_ops;
 static void nfs_clear_request_commit(struct nfs_page *req);
+static void nfs_init_cinfo_from_inode(struct nfs_commit_info *cinfo,
+				      struct inode *inode);
 
 static struct kmem_cache *nfs_wdata_cachep;
 static mempool_t *nfs_wdata_mempool;
@@ -93,6 +95,38 @@ static void nfs_context_set_write_error(struct nfs_open_context *ctx, int error)
 }
 
 /*
+ * nfs_page_search_commits_for_head_request_locked
+ *
+ * Search through commit lists on @inode for the head request for @page.
+ * Must be called while holding the inode (which is cinfo) lock.
+ *
+ * Returns the head request if found, or NULL if not found.
+ */
+static struct nfs_page *
+nfs_page_search_commits_for_head_request_locked(struct nfs_inode *nfsi,
+						struct page *page)
+{
+	struct nfs_page *freq, *t;
+	struct nfs_commit_info cinfo;
+	struct inode *inode = &nfsi->vfs_inode;
+
+	nfs_init_cinfo_from_inode(&cinfo, inode);
+
+	/* search through pnfs commit lists */
+	freq = pnfs_search_commit_reqs(inode, &cinfo, page);
+	if (freq)
+		return freq->wb_head;
+
+	/* Linearly search the commit list for the correct request */
+	list_for_each_entry_safe(freq, t, &cinfo.mds->list, wb_list) {
+		if (freq->wb_page == page)
+			return freq->wb_head;
+	}
+
+	return NULL;
+}
+
+/*
  * nfs_page_find_head_request_locked - find head request associated with @page
  *
  * must be called while holding the inode lock.
@@ -106,21 +140,12 @@ nfs_page_find_head_request_locked(struct nfs_inode *nfsi, struct page *page)
 
 	if (PagePrivate(page))
 		req = (struct nfs_page *)page_private(page);
-	else if (unlikely(PageSwapCache(page))) {
-		struct nfs_page *freq, *t;
-
-		/* Linearly search the commit list for the correct req */
-		list_for_each_entry_safe(freq, t, &nfsi->commit_info.list, wb_list) {
-			if (freq->wb_page == page) {
-				req = freq->wb_head;
-				break;
-			}
-		}
-	}
+	else if (unlikely(PageSwapCache(page)))
+		req = nfs_page_search_commits_for_head_request_locked(nfsi,
+			page);
 
 	if (req) {
 		WARN_ON_ONCE(req->wb_head != req);
-
 		kref_get(&req->wb_kref);
 	}
 
@@ -632,7 +657,7 @@ int nfs_writepages(struct address_space *mapping, struct writeback_control *wbc)
 	int err;
 
 	/* Stop dirtying of new pages while we sync */
-	err = wait_on_bit_lock(bitlock, NFS_INO_FLUSHING,
+	err = wait_on_bit_lock_action(bitlock, NFS_INO_FLUSHING,
 			nfs_wait_bit_killable, TASK_KILLABLE);
 	if (err)
 		goto out_err;
@@ -714,6 +739,8 @@ static void nfs_inode_remove_request(struct nfs_page *req)
 
 	if (test_and_clear_bit(PG_INODE_REF, &req->wb_flags))
 		nfs_release_request(req);
+	else
+		WARN_ON_ONCE(1);
 }
 
 static void
@@ -833,12 +860,11 @@ nfs_clear_request_commit(struct nfs_page *req)
 	}
 }
 
-static inline
 int nfs_write_need_commit(struct nfs_pgio_header *hdr)
 {
-	if (hdr->writeverf.committed == NFS_DATA_SYNC)
+	if (hdr->verf.committed == NFS_DATA_SYNC)
 		return hdr->lseg == NULL;
-	return hdr->writeverf.committed != NFS_FILE_SYNC;
+	return hdr->verf.committed != NFS_FILE_SYNC;
 }
 
 #else
@@ -864,7 +890,6 @@ nfs_clear_request_commit(struct nfs_page *req)
 {
 }
 
-static inline
 int nfs_write_need_commit(struct nfs_pgio_header *hdr)
 {
 	return 0;
@@ -891,11 +916,7 @@ static void nfs_write_completion(struct nfs_pgio_header *hdr)
 			nfs_context_set_write_error(req->wb_context, hdr->error);
 			goto remove_req;
 		}
-		if (test_bit(NFS_IOHDR_NEED_RESCHED, &hdr->flags)) {
-			nfs_mark_request_dirty(req);
-			goto next;
-		}
-		if (test_bit(NFS_IOHDR_NEED_COMMIT, &hdr->flags)) {
+		if (nfs_write_need_commit(hdr)) {
 			memcpy(&req->wb_verf, &hdr->verf.verifier, sizeof(req->wb_verf));
 			nfs_mark_request_commit(req, hdr->lseg, &cinfo);
 			goto next;
@@ -1324,18 +1345,7 @@ void nfs_commit_prepare(struct rpc_task *task, void *calldata)
 
 static void nfs_writeback_release_common(struct nfs_pgio_header *hdr)
 {
-	int status = hdr->task.tk_status;
-
-	if ((status >= 0) && nfs_write_need_commit(hdr)) {
-		spin_lock(&hdr->lock);
-		if (test_bit(NFS_IOHDR_NEED_RESCHED, &hdr->flags))
-			; /* Do nothing */
-		else if (!test_and_set_bit(NFS_IOHDR_NEED_COMMIT, &hdr->flags))
-			memcpy(&hdr->verf, &hdr->writeverf, sizeof(hdr->verf));
-		else if (memcmp(&hdr->verf, &hdr->writeverf, sizeof(hdr->verf)))
-			set_bit(NFS_IOHDR_NEED_RESCHED, &hdr->flags);
-		spin_unlock(&hdr->lock);
-	}
+	/* do nothing! */
 }
 
 /*
@@ -1714,7 +1724,7 @@ int nfs_commit_inode(struct inode *inode, int how)
 			return error;
 		if (!may_wait)
 			goto out_mark_dirty;
-		error = wait_on_bit(&NFS_I(inode)->flags,
+		error = wait_on_bit_action(&NFS_I(inode)->flags,
 				NFS_INO_COMMIT,
 				nfs_wait_bit_killable,
 				TASK_KILLABLE);
