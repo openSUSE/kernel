@@ -455,7 +455,7 @@ int bdi_init(struct backing_dev_info *bdi)
 	bdi_wb_init(&bdi->wb, bdi);
 
 	for (i = 0; i < NR_BDI_STAT_ITEMS; i++) {
-		err = percpu_counter_init(&bdi->bdi_stat[i], 0);
+		err = percpu_counter_init(&bdi->bdi_stat[i], 0, GFP_KERNEL);
 		if (err)
 			goto err;
 	}
@@ -470,7 +470,7 @@ int bdi_init(struct backing_dev_info *bdi)
 	bdi->write_bandwidth = INIT_BW;
 	bdi->avg_write_bandwidth = INIT_BW;
 
-	err = fprop_local_init_percpu(&bdi->completions);
+	err = fprop_local_init_percpu(&bdi->completions, GFP_KERNEL);
 
 	if (err) {
 err:
@@ -631,7 +631,7 @@ long wait_iff_congested(struct zone *zone, int sync, long timeout)
 	 * of sleeping on the congestion queue
 	 */
 	if (atomic_read(&nr_bdi_congested[sync]) == 0 ||
-			!zone_is_reclaim_congested(zone)) {
+	    !test_bit(ZONE_CONGESTED, &zone->flags)) {
 		cond_resched();
 
 		/* In case we scheduled, work out time remaining */
