@@ -501,13 +501,13 @@ asmlinkage __visible void __init start_kernel(void)
 {
 	char *command_line;
 	char *after_dashes;
-	extern const struct kernel_param __start___param[], __stop___param[];
 
 	/*
 	 * Need to run as early as possible, to initialize the
 	 * lockdep hash:
 	 */
 	lockdep_init();
+	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
 	debug_objects_early_init();
 
@@ -583,6 +583,7 @@ asmlinkage __visible void __init start_kernel(void)
 	early_irq_init();
 	init_IRQ();
 	tick_init();
+	rcu_init_nohz();
 	init_timers();
 	hrtimers_init();
 	softirq_init();
@@ -842,7 +843,6 @@ static char *initcall_level_names[] __initdata = {
 
 static void __init do_initcall_level(int level)
 {
-	extern const struct kernel_param __start___param[], __stop___param[];
 	initcall_t *fn;
 
 	strcpy(initcall_command_line, saved_command_line);
