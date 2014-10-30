@@ -1127,9 +1127,8 @@ void __init do_init_bootmem(void)
 	 * even before we online them, so that we can use cpu_to_{node,mem}
 	 * early in boot, cf. smp_prepare_cpus().
 	 */
-	for_each_possible_cpu(cpu) {
-		cpu_numa_callback(&ppc64_numa_nb, CPU_UP_PREPARE,
-				  (void *)(unsigned long)cpu);
+	for_each_present_cpu(cpu) {
+		numa_setup_cpu((unsigned long)cpu);
 	}
 }
 

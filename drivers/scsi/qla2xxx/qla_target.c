@@ -1431,12 +1431,10 @@ static inline void qlt_unmap_sg(struct scsi_qla_host *vha,
 static int qlt_check_reserve_free_req(struct scsi_qla_host *vha,
 	uint32_t req_cnt)
 {
-	struct qla_hw_data *ha = vha->hw;
-	device_reg_t __iomem *reg = ha->iobase;
 	uint32_t cnt;
 
 	if (vha->req->cnt < (req_cnt + 2)) {
-		cnt = (uint16_t)RD_REG_DWORD(&reg->isp24.req_q_out);
+		cnt = (uint16_t)RD_REG_DWORD(vha->req->req_q_out);
 
 		ql_dbg(ql_dbg_tgt, vha, 0xe00a,
 		    "Request ring circled: cnt=%d, vha->->ring_index=%d, "
@@ -3277,6 +3275,7 @@ static int qlt_handle_cmd_for_atio(struct scsi_qla_host *vha,
 			return -ENOMEM;
 
 		memcpy(&op->atio, atio, sizeof(*atio));
+		op->vha = vha;
 		INIT_WORK(&op->work, qlt_create_sess_from_atio);
 		queue_work(qla_tgt_wq, &op->work);
 		return 0;
