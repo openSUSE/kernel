@@ -799,18 +799,26 @@ static int iommu_bus_notifier(struct notifier_block *nb,
 	return 0;
 }
 
-static struct notifier_block iommu_bus_nb = {
-	.notifier_call = iommu_bus_notifier,
-};
-
-static void iommu_bus_init(struct bus_type *bus, const struct iommu_ops *ops)
+static int iommu_bus_init(struct bus_type *bus, const struct iommu_ops *ops)
 {
+	int err;
+	struct notifier_block *nb;
 	struct iommu_callback_data cb = {
 		.ops = ops,
 	};
 
-	bus_register_notifier(bus, &iommu_bus_nb);
-	bus_for_each_dev(bus, NULL, &cb, add_iommu_group);
+	nb = kzalloc(sizeof(struct notifier_block), GFP_KERNEL);
+	if (!nb)
+		return -ENOMEM;
+
+	nb->notifier_call = iommu_bus_notifier;
+
+	err = bus_register_notifier(bus, nb);
+	if (err) {
+		kfree(nb);
+		return err;
+	}
+	return bus_for_each_dev(bus, NULL, &cb, add_iommu_group);
 }
 
 /**
@@ -834,9 +842,7 @@ int bus_set_iommu(struct bus_type *bus, const struct iommu_ops *ops)
 	bus->iommu_ops = ops;
 
 	/* Do IOMMU specific setup for this bus-type */
-	iommu_bus_init(bus, ops);
-
-	return 0;
+	return iommu_bus_init(bus, ops);
 }
 EXPORT_SYMBOL_GPL(bus_set_iommu);
 
@@ -845,6 +851,15 @@ bool iommu_present(struct bus_type *bus)
 	return bus->iommu_ops != NULL;
 }
 EXPORT_SYMBOL_GPL(iommu_present);
+
+bool iommu_capable(struct bus_type *bus, enum iommu_cap cap)
+{
+	if (!bus->iommu_ops || !bus->iommu_ops->capable)
+		return false;
+
+	return bus->iommu_ops->capable(cap);
+}
+EXPORT_SYMBOL_GPL(iommu_capable);
 
 /**
  * iommu_set_fault_handler() - set a fault handler for an iommu domain
@@ -975,16 +990,6 @@ phys_addr_t iommu_iova_to_phys(struct iommu_domain *domain, dma_addr_t iova)
 	return domain->ops->iova_to_phys(domain, iova);
 }
 EXPORT_SYMBOL_GPL(iommu_iova_to_phys);
-
-int iommu_domain_has_cap(struct iommu_domain *domain,
-			 unsigned long cap)
-{
-	if (unlikely(domain->ops->domain_has_cap == NULL))
-		return 0;
-
-	return domain->ops->domain_has_cap(domain, cap);
-}
-EXPORT_SYMBOL_GPL(iommu_domain_has_cap);
 
 static size_t iommu_pgsize(struct iommu_domain *domain,
 			   unsigned long addr_merge, size_t size)

@@ -398,9 +398,6 @@ intel_panel_detect(struct drm_device *dev)
 	}
 }
 
-#define DIV_ROUND_CLOSEST_ULL(ll, d)	\
-({ unsigned long long _tmp = (ll)+(d)/2; do_div(_tmp, d); _tmp; })
-
 /**
  * scale - scale values from one range to another
  *
@@ -753,6 +750,8 @@ void intel_panel_disable_backlight(struct intel_connector *connector)
 
 	spin_lock_irqsave(&dev_priv->backlight_lock, flags);
 
+	if (panel->backlight.device)
+		panel->backlight.device->props.power = FB_BLANK_POWERDOWN;
 	panel->backlight.enabled = false;
 	dev_priv->display.disable_backlight(connector);
 
@@ -959,6 +958,8 @@ void intel_panel_enable_backlight(struct intel_connector *connector)
 
 	dev_priv->display.enable_backlight(connector);
 	panel->backlight.enabled = true;
+	if (panel->backlight.device)
+		panel->backlight.device->props.power = FB_BLANK_UNBLANK;
 
 	spin_unlock_irqrestore(&dev_priv->backlight_lock, flags);
 }
@@ -967,6 +968,7 @@ void intel_panel_enable_backlight(struct intel_connector *connector)
 static int intel_backlight_device_update_status(struct backlight_device *bd)
 {
 	struct intel_connector *connector = bl_get_data(bd);
+	struct intel_panel *panel = &connector->panel;
 	struct drm_device *dev = connector->base.dev;
 
 	drm_modeset_lock(&dev->mode_config.connection_mutex, NULL);
@@ -974,6 +976,23 @@ static int intel_backlight_device_update_status(struct backlight_device *bd)
 		      bd->props.brightness, bd->props.max_brightness);
 	intel_panel_set_backlight(connector, bd->props.brightness,
 				  bd->props.max_brightness);
+
+	/*
+	 * Allow flipping bl_power as a sub-state of enabled. Sadly the
+	 * backlight class device does not make it easy to to differentiate
+	 * between callbacks for brightness and bl_power, so our backlight_power
+	 * callback needs to take this into account.
+	 */
+	if (panel->backlight.enabled) {
+		if (panel->backlight_power) {
+			bool enable = bd->props.power == FB_BLANK_UNBLANK &&
+				bd->props.brightness != 0;
+			panel->backlight_power(connector, enable);
+		}
+	} else {
+		bd->props.power = FB_BLANK_POWERDOWN;
+	}
+
 	drm_modeset_unlock(&dev->mode_config.connection_mutex);
 	return 0;
 }
@@ -1024,6 +1043,11 @@ static int intel_backlight_device_register(struct intel_connector *connector)
 	props.brightness = scale_hw_to_user(connector,
 					    panel->backlight.level,
 					    props.max_brightness);
+
+	if (panel->backlight.enabled)
+		props.power = FB_BLANK_UNBLANK;
+	else
+		props.power = FB_BLANK_POWERDOWN;
 
 	/*
 	 * Note: using the same name independent of the connector prevents
@@ -1218,7 +1242,7 @@ static int vlv_setup_backlight(struct intel_connector *connector)
 	enum pipe pipe;
 	u32 ctl, ctl2, val;
 
-	for_each_pipe(pipe) {
+	for_each_pipe(dev_priv, pipe) {
 		u32 cur_val = I915_READ(VLV_BLC_PWM_CTL(pipe));
 
 		/* Skip if the modulation freq is already set */

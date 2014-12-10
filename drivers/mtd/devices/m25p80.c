@@ -196,7 +196,10 @@ static int m25p_probe(struct spi_device *spi)
 	struct m25p *flash;
 	struct spi_nor *nor;
 	enum read_mode mode = SPI_NOR_NORMAL;
+	char *flash_name = NULL;
 	int ret;
+
+	data = dev_get_platdata(&spi->dev);
 
 	flash = devm_kzalloc(&spi->dev, sizeof(*flash), GFP_KERNEL);
 	if (!flash)
@@ -223,11 +226,24 @@ static int m25p_probe(struct spi_device *spi)
 		mode = SPI_NOR_QUAD;
 	else if (spi->mode & SPI_RX_DUAL)
 		mode = SPI_NOR_DUAL;
-	ret = spi_nor_scan(nor, spi_get_device_id(spi), mode);
+
+	if (data && data->name)
+		flash->mtd.name = data->name;
+
+	/* For some (historical?) reason many platforms provide two different
+	 * names in flash_platform_data: "name" and "type". Quite often name is
+	 * set to "m25p80" and then "type" provides a real chip name.
+	 * If that's the case, respect "type" and ignore a "name".
+	 */
+	if (data && data->type)
+		flash_name = data->type;
+	else
+		flash_name = spi->modalias;
+
+	ret = spi_nor_scan(nor, flash_name, mode);
 	if (ret)
 		return ret;
 
-	data = dev_get_platdata(&spi->dev);
 	ppdata.of_node = spi->dev.of_node;
 
 	return mtd_device_parse_register(&flash->mtd, NULL, &ppdata,
@@ -300,7 +316,7 @@ static struct spi_driver m25p80_driver = {
 		.name	= "m25p80",
 		.owner	= THIS_MODULE,
 	},
-	.id_table	= spi_nor_ids,
+	.id_table	= m25p_ids,
 	.probe	= m25p_probe,
 	.remove	= m25p_remove,
 

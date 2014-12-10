@@ -481,7 +481,7 @@ static void em28xx_copy_video(struct em28xx *dev,
 	lencopy = lencopy > remain ? remain : lencopy;
 
 	if ((char *)startwrite + lencopy > (char *)buf->vb_buf + buf->length) {
-		em28xx_isocdbg("Overflow of %zi bytes past buffer end (1)\n",
+		em28xx_isocdbg("Overflow of %zu bytes past buffer end (1)\n",
 			      ((char *)startwrite + lencopy) -
 			      ((char *)buf->vb_buf + buf->length));
 		remain = (char *)buf->vb_buf + buf->length -
@@ -507,7 +507,7 @@ static void em28xx_copy_video(struct em28xx *dev,
 
 		if ((char *)startwrite + lencopy > (char *)buf->vb_buf +
 		    buf->length) {
-			em28xx_isocdbg("Overflow of %zi bytes past buffer end"
+			em28xx_isocdbg("Overflow of %zu bytes past buffer end"
 				       "(2)\n",
 				       ((char *)startwrite + lencopy) -
 				       ((char *)buf->vb_buf + buf->length));
@@ -721,7 +721,7 @@ static inline void process_frame_data_em25xx(struct em28xx *dev,
 	struct em28xx_buffer    *buf = dev->usb_ctl.vid_buf;
 	struct em28xx_dmaqueue  *dmaq = &dev->vidq;
 	struct em28xx_v4l2      *v4l2 = dev->v4l2;
-	bool frame_end = 0;
+	bool frame_end = false;
 
 	/* Check for header */
 	/* NOTE: at least with bulk transfers, only the first packet
@@ -1720,7 +1720,7 @@ static int vidioc_querycap(struct file *file, void  *priv,
 	else
 		cap->device_caps = V4L2_CAP_READWRITE | V4L2_CAP_VBI_CAPTURE;
 
-	if (dev->audio_mode.has_audio)
+	if (dev->int_audio_type != EM28XX_INT_AUDIO_NONE)
 		cap->device_caps |= V4L2_CAP_AUDIO;
 
 	if (dev->tuner_type != TUNER_ABSENT)
@@ -2305,7 +2305,7 @@ static int em28xx_v4l2_init(struct em28xx *dev)
 	v4l2->v4l2_dev.ctrl_handler = hdl;
 
 	if (dev->board.is_webcam)
-		v4l2->progressive = 1;
+		v4l2->progressive = true;
 
 	/*
 	 * Default format, used for tvp5150 or saa711x output formats
@@ -2511,7 +2511,7 @@ static int em28xx_v4l2_init(struct em28xx *dev)
 		v4l2_disable_ioctl(v4l2->vdev, VIDIOC_G_FREQUENCY);
 		v4l2_disable_ioctl(v4l2->vdev, VIDIOC_S_FREQUENCY);
 	}
-	if (!dev->audio_mode.has_audio) {
+	if (dev->int_audio_type == EM28XX_INT_AUDIO_NONE) {
 		v4l2_disable_ioctl(v4l2->vdev, VIDIOC_G_AUDIO);
 		v4l2_disable_ioctl(v4l2->vdev, VIDIOC_S_AUDIO);
 	}
@@ -2541,7 +2541,7 @@ static int em28xx_v4l2_init(struct em28xx *dev)
 			v4l2_disable_ioctl(v4l2->vbi_dev, VIDIOC_G_FREQUENCY);
 			v4l2_disable_ioctl(v4l2->vbi_dev, VIDIOC_S_FREQUENCY);
 		}
-		if (!dev->audio_mode.has_audio) {
+		if (dev->int_audio_type == EM28XX_INT_AUDIO_NONE) {
 			v4l2_disable_ioctl(v4l2->vbi_dev, VIDIOC_G_AUDIO);
 			v4l2_disable_ioctl(v4l2->vbi_dev, VIDIOC_S_AUDIO);
 		}

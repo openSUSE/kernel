@@ -672,6 +672,7 @@ static int gfs2_create_inode(struct inode *dir, struct dentry *dentry,
 	inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
 	gfs2_set_inode_blocks(inode, 1);
 	munge_mode_uid_gid(dip, inode);
+	check_and_update_goal(dip);
 	ip->i_goal = dip->i_goal;
 	ip->i_diskflags = 0;
 	ip->i_eattr = 0;
@@ -1244,6 +1245,9 @@ static int gfs2_atomic_open(struct inode *dir, struct dentry *dentry,
 	struct dentry *d;
 	bool excl = !!(flags & O_EXCL);
 
+	if (!d_unhashed(dentry))
+		goto skip_lookup;
+
 	d = __gfs2_lookup(dir, dentry, file, opened);
 	if (IS_ERR(d))
 		return PTR_ERR(d);
@@ -1260,6 +1264,8 @@ static int gfs2_atomic_open(struct inode *dir, struct dentry *dentry,
 	}
 
 	BUG_ON(d != NULL);
+
+skip_lookup:
 	if (!(flags & O_CREAT))
 		return -ENOENT;
 

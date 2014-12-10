@@ -1030,6 +1030,7 @@ static struct power_supply psy_default = {
 	.properties = default_charger_props,
 	.num_properties = ARRAY_SIZE(default_charger_props),
 	.get_property = charger_get_property,
+	.no_thermal = true,
 };
 
 /**
@@ -1715,7 +1716,7 @@ static inline struct charger_desc *cm_get_drv_data(struct platform_device *pdev)
 {
 	if (pdev->dev.of_node)
 		return of_cm_parse_desc(&pdev->dev);
-	return (struct charger_desc *)dev_get_platdata(&pdev->dev);
+	return dev_get_platdata(&pdev->dev);
 }
 
 static int charger_manager_probe(struct platform_device *pdev)
@@ -1737,7 +1738,7 @@ static int charger_manager_probe(struct platform_device *pdev)
 		}
 	}
 
-	if (!desc) {
+	if (IS_ERR(desc)) {
 		dev_err(&pdev->dev, "No platform data (desc) found\n");
 		return -ENODEV;
 	}
@@ -1900,6 +1901,13 @@ static int charger_manager_probe(struct platform_device *pdev)
 	 */
 	device_init_wakeup(&pdev->dev, true);
 	device_set_wakeup_capable(&pdev->dev, false);
+
+	/*
+	 * Charger-manager have to check the charging state right after
+	 * tialization of charger-manager and then update current charging
+	 * state.
+	 */
+	cm_monitor();
 
 	schedule_work(&setup_polling);
 

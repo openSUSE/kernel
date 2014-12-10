@@ -1336,6 +1336,7 @@ static void rtsx_usb_init_host(struct rtsx_usb_sdmmc *host)
 		MMC_CAP_MMC_HIGHSPEED | MMC_CAP_BUS_WIDTH_TEST |
 		MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25 | MMC_CAP_UHS_SDR50 |
 		MMC_CAP_NEEDS_POLL;
+	mmc->caps2 = MMC_CAP2_NO_PRESCAN_POWERUP | MMC_CAP2_FULL_PWR_CYCLE;
 
 	mmc->max_current_330 = 400;
 	mmc->max_current_180 = 800;
@@ -1452,7 +1453,6 @@ static struct platform_driver rtsx_usb_sdmmc_driver = {
 	.remove		= rtsx_usb_sdmmc_drv_remove,
 	.id_table       = rtsx_usb_sdmmc_ids,
 	.driver		= {
-		.owner	= THIS_MODULE,
 		.name	= "rtsx_usb_sdmmc",
 	},
 };

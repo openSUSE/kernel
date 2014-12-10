@@ -139,6 +139,15 @@ static int bcm_sysport_set_rx_csum(struct net_device *dev,
 	else
 		reg &= ~RXCHK_SKIP_FCS;
 
+	/* If Broadcom tags are enabled (e.g: using a switch), make
+	 * sure we tell the RXCHK hardware to expect a 4-bytes Broadcom
+	 * tag after the Ethernet MAC Source Address.
+	 */
+	if (netdev_uses_dsa(dev))
+		reg |= RXCHK_BRCM_TAG_EN;
+	else
+		reg &= ~RXCHK_BRCM_TAG_EN;
+
 	rxchk_writel(priv, reg, RXCHK_CONTROL);
 
 	return 0;
@@ -427,7 +436,8 @@ static int bcm_sysport_set_wol(struct net_device *dev,
 	/* Flag the device and relevant IRQ as wakeup capable */
 	if (wol->wolopts) {
 		device_set_wakeup_enable(kdev, 1);
-		enable_irq_wake(priv->wol_irq);
+		if (priv->wol_irq_disabled)
+			enable_irq_wake(priv->wol_irq);
 		priv->wol_irq_disabled = 0;
 	} else {
 		device_set_wakeup_enable(kdev, 0);
@@ -1070,16 +1080,19 @@ static void bcm_sysport_adj_link(struct net_device *dev)
 	if (!phydev->pause)
 		cmd_bits |= CMD_RX_PAUSE_IGNORE | CMD_TX_PAUSE_IGNORE;
 
-	if (changed) {
+	if (!changed)
+		return;
+
+	if (phydev->link) {
 		reg = umac_readl(priv, UMAC_CMD);
 		reg &= ~((CMD_SPEED_MASK << CMD_SPEED_SHIFT) |
 			CMD_HD_EN | CMD_RX_PAUSE_IGNORE |
 			CMD_TX_PAUSE_IGNORE);
 		reg |= cmd_bits;
 		umac_writel(priv, reg, UMAC_CMD);
-
-		phy_print_status(priv->phydev);
 	}
+
+	phy_print_status(priv->phydev);
 }
 
 static int bcm_sysport_init_tx_ring(struct bcm_sysport_priv *priv,
@@ -1097,7 +1110,8 @@ static int bcm_sysport_init_tx_ring(struct bcm_sysport_priv *priv,
 	/* We just need one DMA descriptor which is DMA-able, since writing to
 	 * the port will allocate a new descriptor in its internal linked-list
 	 */
-	p = dma_zalloc_coherent(kdev, 1, &ring->desc_dma, GFP_KERNEL);
+	p = dma_zalloc_coherent(kdev, sizeof(struct dma_desc), &ring->desc_dma,
+				GFP_KERNEL);
 	if (!p) {
 		netif_err(priv, hw, priv->netdev, "DMA alloc failed\n");
 		return -ENOMEM;
@@ -1161,6 +1175,13 @@ static void bcm_sysport_fini_tx_ring(struct bcm_sysport_priv *priv,
 	if (!(reg & TDMA_DISABLED))
 		netdev_warn(priv->netdev, "TDMA not stopped!\n");
 
+	/* ring->cbs is the last part in bcm_sysport_init_tx_ring which could
+	 * fail, so by checking this pointer we know whether the TX ring was
+	 * fully initialized or not.
+	 */
+	if (!ring->cbs)
+		return;
+
 	napi_disable(&ring->napi);
 	netif_napi_del(&ring->napi);
 
@@ -1170,7 +1191,8 @@ static void bcm_sysport_fini_tx_ring(struct bcm_sysport_priv *priv,
 	ring->cbs = NULL;
 
 	if (ring->desc_dma) {
-		dma_free_coherent(kdev, 1, ring->desc_cpu, ring->desc_dma);
+		dma_free_coherent(kdev, sizeof(struct dma_desc),
+				  ring->desc_cpu, ring->desc_dma);
 		ring->desc_dma = 0;
 	}
 	ring->size = 0;

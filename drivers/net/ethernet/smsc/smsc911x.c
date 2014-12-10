@@ -1392,12 +1392,8 @@ static int smsc911x_phy_disable_energy_detect(struct smsc911x_data *pdata)
 		return rc;
 	}
 
-	/*
-	 * If energy is detected the PHY is already awake so is not necessary
-	 * to disable the energy detect power-down mode.
-	 */
-	if ((rc & MII_LAN83C185_EDPWRDOWN) &&
-	    !(rc & MII_LAN83C185_ENERGYON)) {
+	/* Only disable if energy detect mode is already enabled */
+	if (rc & MII_LAN83C185_EDPWRDOWN) {
 		/* Disable energy detect mode for this SMSC Transceivers */
 		rc = phy_write(pdata->phy_dev, MII_LAN83C185_CTRL_STATUS,
 			       rc & (~MII_LAN83C185_EDPWRDOWN));
@@ -1406,8 +1402,8 @@ static int smsc911x_phy_disable_energy_detect(struct smsc911x_data *pdata)
 			SMSC_WARN(pdata, drv, "Failed writing PHY control reg");
 			return rc;
 		}
-
-		mdelay(1);
+		/* Allow PHY to wakeup */
+		mdelay(2);
 	}
 
 	return 0;
@@ -1429,7 +1425,6 @@ static int smsc911x_phy_enable_energy_detect(struct smsc911x_data *pdata)
 
 	/* Only enable if energy detect mode is already disabled */
 	if (!(rc & MII_LAN83C185_EDPWRDOWN)) {
-		mdelay(100);
 		/* Enable energy detect mode for this SMSC Transceivers */
 		rc = phy_write(pdata->phy_dev, MII_LAN83C185_CTRL_STATUS,
 			       rc | MII_LAN83C185_EDPWRDOWN);
@@ -1438,8 +1433,6 @@ static int smsc911x_phy_enable_energy_detect(struct smsc911x_data *pdata)
 			SMSC_WARN(pdata, drv, "Failed writing PHY control reg");
 			return rc;
 		}
-
-		mdelay(1);
 	}
 	return 0;
 }
@@ -2301,7 +2294,6 @@ static int smsc911x_init(struct net_device *dev)
 	if (smsc911x_soft_reset(pdata))
 		return -ENODEV;
 
-	ether_setup(dev);
 	dev->flags |= IFF_MULTICAST;
 	netif_napi_add(dev, &pdata->napi, smsc911x_poll, SMSC_NAPI_WEIGHT);
 	dev->netdev_ops = &smsc911x_netdev_ops;

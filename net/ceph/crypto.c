@@ -571,7 +571,6 @@ struct key_type key_type_ceph = {
 	.preparse	= ceph_key_preparse,
 	.free_preparse	= ceph_key_free_preparse,
 	.instantiate	= generic_key_instantiate,
-	.match		= user_match,
 	.destroy	= ceph_key_destroy,
 };
 
