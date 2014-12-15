@@ -920,6 +920,15 @@ M:	Hubert Feurstein <hubert.feurstein@contec.at>
 S:	Maintained
 F:	arch/arm/mach-ep93xx/micro9.c
 
+ARM/CORESIGHT FRAMEWORK AND DRIVERS
+M:	Mathieu Poirier <mathieu.poirier@linaro.org>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+S:	Maintained
+F:	drivers/coresight/*
+F:	Documentation/trace/coresight.txt
+F:	Documentation/devicetree/bindings/arm/coresight.txt
+F:	Documentation/ABI/testing/sysfs-bus-coresight-devices-*
+
 ARM/CORGI MACHINE SUPPORT
 M:	Richard Purdie <rpurdie@rpsys.net>
 S:	Maintained
@@ -4657,6 +4666,7 @@ W:	https://i2c.wiki.kernel.org/
 Q:	https://patchwork.ozlabs.org/project/linux-i2c/list/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/wsa/linux.git
 S:	Maintained
+F:	Documentation/devicetree/bindings/i2c/
 F:	Documentation/i2c/
 F:	drivers/i2c/
 F:	include/linux/i2c.h
@@ -8025,6 +8035,12 @@ S:	Maintained
 F:	Documentation/serial/rocket.txt
 F:	drivers/tty/rocket*
 
+ROCKETPORT EXPRESS/INFINITY DRIVER
+M:	Kevin Cernekee <cernekee@gmail.com>
+L:	linux-serial@vger.kernel.org
+S:	Odd Fixes
+F:	drivers/tty/serial/rp2.*
+
 ROSE NETWORK LAYER
 M:	Ralf Baechle <ralf@linux-mips.org>
 L:	linux-hams@vger.kernel.org
@@ -10484,6 +10500,13 @@ M:	Borislav Petkov <bp@alien8.de>
 L:	linux-edac@vger.kernel.org
 S:	Maintained
 F:	arch/x86/kernel/cpu/mcheck/*
+
+X86 VDSO
+M:	Andy Lutomirski <luto@amacapital.net>
+L:	linux-kernel@vger.kernel.org
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/tip/tip.git x86/vdso
+S:	Maintained
+F:	arch/x86/vdso/
 
 XC2028/3028 TUNER DRIVER
 M:	Mauro Carvalho Chehab <mchehab@osg.samsung.com>
