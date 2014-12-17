@@ -79,6 +79,7 @@
 #include <linux/random.h>
 #include <linux/list.h>
 #include <linux/integrity.h>
+#include <linux/proc_ns.h>
 
 #include <asm/io.h>
 #include <asm/bugs.h>
@@ -578,6 +579,10 @@ asmlinkage __visible void __init start_kernel(void)
 		local_irq_disable();
 	idr_init_cache();
 	rcu_init();
+
+	/* trace_printk() and trace points may be used after this */
+	trace_init();
+
 	context_tracking_init();
 	radix_tree_init();
 	/* init some links before init_ISA_irqs() */
@@ -661,6 +666,7 @@ asmlinkage __visible void __init start_kernel(void)
 	/* rootfs populating might need page-writeback */
 	page_writeback_init();
 	proc_root_init();
+	nsfs_init();
 	cgroup_init();
 	cpuset_init();
 	taskstats_init_early();
