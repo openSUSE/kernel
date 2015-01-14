@@ -47,11 +47,26 @@ struct gen_pci {
 /* fake sysdata for cheating ARCH's pcibios code */
 static char	gen_sysdata[256];
 
+static struct gen_pci *gen_pci_get_drvdata(struct pci_bus *bus)
+{
+	struct device *dev = bus->dev.parent->parent;
+	struct gen_pci *pci;
+	
+	while (dev) {
+		pci = dev_get_drvdata(dev);
+		if (pci)
+			return pci;
+		dev = dev->parent;
+	}
+
+	return NULL;
+}
+
 static void __iomem *gen_pci_map_cfg_bus_cam(struct pci_bus *bus,
 					     unsigned int devfn,
 					     int where)
 {
-	struct gen_pci *pci = dev_get_drvdata(bus->dev.parent->parent);
+	struct gen_pci *pci = gen_pci_get_drvdata(bus);
 	resource_size_t idx = bus->number - pci->cfg.bus_range.start;
 
 	return pci->cfg.win[idx] + ((devfn << 8) | where);
@@ -66,7 +81,7 @@ static void __iomem *gen_pci_map_cfg_bus_ecam(struct pci_bus *bus,
 					      unsigned int devfn,
 					      int where)
 {
-	struct gen_pci *pci = dev_get_drvdata(bus->dev.parent->parent);
+	struct gen_pci *pci = gen_pci_get_drvdata(bus);
 	resource_size_t idx = bus->number - pci->cfg.bus_range.start;
 
 	return pci->cfg.win[idx] + ((devfn << 12) | where);
@@ -81,7 +96,11 @@ static int gen_pci_config_read(struct pci_bus *bus, unsigned int devfn,
 				int where, int size, u32 *val)
 {
 	void __iomem *addr;
-	struct gen_pci *pci = dev_get_drvdata(bus->dev.parent->parent);
+	struct gen_pci *pci = gen_pci_get_drvdata(bus);
+
+	WARN_ON(!pci);
+	if (!pci)
+		return PCIBIOS_DEVICE_NOT_FOUND;
 
 	addr = pci->cfg.ops->map_bus(bus, devfn, where);
 
@@ -103,7 +122,11 @@ static int gen_pci_config_write(struct pci_bus *bus, unsigned int devfn,
 				 int where, int size, u32 val)
 {
 	void __iomem *addr;
-	struct gen_pci *pci = dev_get_drvdata(bus->dev.parent->parent);
+	struct gen_pci *pci = gen_pci_get_drvdata(bus);
+
+	WARN_ON(!pci);
+	if (!pci)
+		return PCIBIOS_DEVICE_NOT_FOUND;
 
 	addr = pci->cfg.ops->map_bus(bus, devfn, where);
 
