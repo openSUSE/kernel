@@ -3,6 +3,7 @@
 
 #include <linux/kref.h>
 #include <linux/nsproxy.h>
+#include <linux/ns_common.h>
 #include <linux/sched.h>
 #include <linux/err.h>
 
@@ -30,7 +31,7 @@ struct user_namespace {
 	int			level;
 	kuid_t			owner;
 	kgid_t			group;
-	unsigned int		proc_inum;
+	struct ns_common	ns;
 	unsigned long		flags;
 
 	/* Register of per-UID persistent keyrings for this namespace */

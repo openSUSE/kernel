@@ -4,9 +4,37 @@
 #include <rdma/ib_verbs.h>
 #include <rdma/rdma_cm.h>
 
+#define DRV_NAME	"isert"
+#define PFX		DRV_NAME ": "
+
+#define isert_dbg(fmt, arg...)				 \
+	do {						 \
+		if (unlikely(isert_debug_level > 2))	 \
+			printk(KERN_DEBUG PFX "%s: " fmt,\
+				__func__ , ## arg);	 \
+	} while (0)
+
+#define isert_warn(fmt, arg...)				\
+	do {						\
+		if (unlikely(isert_debug_level > 0))	\
+			pr_warn(PFX "%s: " fmt,         \
+				__func__ , ## arg);	\
+	} while (0)
+
+#define isert_info(fmt, arg...)				\
+	do {						\
+		if (unlikely(isert_debug_level > 1))	\
+			pr_info(PFX "%s: " fmt,         \
+				__func__ , ## arg);	\
+	} while (0)
+
+#define isert_err(fmt, arg...) \
+	pr_err(PFX "%s: " fmt, __func__ , ## arg)
+
 #define ISERT_RDMA_LISTEN_BACKLOG	10
 #define ISCSI_ISER_SG_TABLESIZE		256
 #define ISER_FASTREG_LI_WRID		0xffffffffffffffffULL
+#define ISER_BEACON_WRID               0xfffffffffffffffeULL
 
 enum isert_desc_type {
 	ISCSI_TX_CONTROL,
@@ -45,9 +73,6 @@ struct iser_tx_desc {
 	struct ib_sge	tx_sg[2];
 	int		num_sge;
 	struct isert_cmd *isert_cmd;
-	struct llist_node *comp_llnode_batch;
-	struct llist_node comp_llnode;
-	bool		llnode_active;
 	struct ib_send_wr send_wr;
 } __packed;
 
@@ -125,7 +150,6 @@ struct isert_device;
 struct isert_conn {
 	enum iser_conn_state	state;
 	int			post_recv_buf_count;
-	atomic_t		post_send_buf_count;
 	u32			responder_resources;
 	u32			initiator_depth;
 	bool			pi_support;
@@ -158,30 +182,37 @@ struct isert_conn {
 	/* lock to protect fastreg pool */
 	spinlock_t		conn_lock;
 	struct work_struct	release_work;
-#define ISERT_COMP_BATCH_COUNT	8
-	int			conn_comp_batch;
-	struct llist_head	conn_comp_llist;
+	struct ib_recv_wr       beacon;
+	bool                    logout_posted;
 };
 
 #define ISERT_MAX_CQ 64
 
-struct isert_cq_desc {
-	struct isert_device	*device;
-	int			cq_index;
-	struct work_struct	cq_rx_work;
-	struct work_struct	cq_tx_work;
+/**
+ * struct isert_comp - iSER completion context
+ *
+ * @device:     pointer to device handle
+ * @cq:         completion queue
+ * @wcs:        work completion array
+ * @active_qps: Number of active QPs attached
+ *              to completion context
+ * @work:       completion work handle
+ */
+struct isert_comp {
+	struct isert_device     *device;
+	struct ib_cq		*cq;
+	struct ib_wc		 wcs[16];
+	int                      active_qps;
+	struct work_struct	 work;
 };
 
 struct isert_device {
 	int			use_fastreg;
 	bool			pi_capable;
-	int			cqs_used;
 	int			refcount;
-	int			cq_active_qps[ISERT_MAX_CQ];
 	struct ib_device	*ib_device;
-	struct ib_cq		*dev_rx_cq[ISERT_MAX_CQ];
-	struct ib_cq		*dev_tx_cq[ISERT_MAX_CQ];
-	struct isert_cq_desc	*cq_desc;
+	struct isert_comp	*comps;
+	int                     comps_used;
 	struct list_head	dev_node;
 	struct ib_device_attr	dev_attr;
 	int			(*reg_rdma_mem)(struct iscsi_conn *conn,

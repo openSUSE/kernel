@@ -17,6 +17,7 @@
  */
 #undef __XEN_PUBLIC_XEN_H__
 #undef __XEN_PUBLIC_GRANT_TABLE_H__
+#undef __XEN_PUBLIC_MEMORY_H__
 #undef __XEN_TOOLS__
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -102,6 +103,7 @@ union xen_domctl {
 
 	/*
 	 * v10: upstream: xen 4.5
+	 * v11: upstream: xen 4.6
 	 */
 	struct {
 		uint32_t cmd;
@@ -113,7 +115,7 @@ union xen_domctl {
 			uint64_aligned_t                     dummy_align;
 			uint8_t                              dummy_pad[128];
 		};
-	} v10;
+	} v10, v11;
 };
 
 struct xen_sysctl_physinfo_v6 {
@@ -255,8 +257,11 @@ int xen_guest_address_size(int domid)
 	}								\
 } while (0)
 
-	BUILD_BUG_ON(XEN_DOMCTL_INTERFACE_VERSION > 10);
+	BUILD_BUG_ON(XEN_DOMCTL_INTERFACE_VERSION > 11);
+	guest_address_size(11);
+/* #if CONFIG_XEN_COMPAT < 0x040600 */
 	guest_address_size(10);
+/* #endif */
 #if CONFIG_XEN_COMPAT < 0x040500
 	guest_address_size(9);
 #endif
@@ -318,7 +323,7 @@ EXPORT_SYMBOL_GPL(xen_guest_blkif_protocol);
 	domctl.v##ver.interface_version = ver;				\
 	/* domctl.v##ver.domain = 0; */					\
 	domctl.v##ver.vcpu_affinity.vcpu = smp_processor_id();		\
-	domctl.v##ver.vcpu_affinity.flags = 1/*XEN_VCPUAFFINITY_HARD*/;	\
+	domctl.v##ver.vcpu_affinity.flags = XEN_VCPUAFFINITY_HARD;	\
 	domctl.v##ver.vcpu_affinity.cpumap_hard.nr_cpus = nr;		\
 	set_xen_guest_handle(domctl.v##ver.vcpu_affinity.cpumap_hard.bitmap, \
 			     mask);					\
@@ -330,8 +335,12 @@ static inline int get_vcpuaffinity(unsigned int nr, void *mask)
 	union xen_domctl domctl;
 	int rc;
 
-	BUILD_BUG_ON(XEN_DOMCTL_INTERFACE_VERSION > 10);
-	rc = vcpu_hard_affinity(get, 10);
+	BUILD_BUG_ON(XEN_DOMCTL_INTERFACE_VERSION > 11);
+	rc = vcpu_hard_affinity(get, 11);
+/* #if CONFIG_XEN_COMPAT < 0x040600 */
+	if (rc)
+		rc = vcpu_hard_affinity(get, 10);
+/* #endif */
 #if CONFIG_XEN_COMPAT < 0x040500
 	if (rc)
 		rc = vcpuaffinity(get, 9);
@@ -364,8 +373,12 @@ static inline int set_vcpuaffinity(unsigned int nr, void *mask)
 	union xen_domctl domctl;
 	int rc;
 
-	BUILD_BUG_ON(XEN_DOMCTL_INTERFACE_VERSION > 10);
-	rc = vcpu_hard_affinity(set, 10);
+	BUILD_BUG_ON(XEN_DOMCTL_INTERFACE_VERSION > 11);
+	rc = vcpu_hard_affinity(set, 11);
+/* #if CONFIG_XEN_COMPAT < 0x040600 */
+	if (rc)
+		rc = vcpu_hard_affinity(set, 10);
+/* #endif */
 #if CONFIG_XEN_COMPAT < 0x040500
 	if (rc)
 		rc = vcpuaffinity(set, 9);

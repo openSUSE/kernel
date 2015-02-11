@@ -838,7 +838,6 @@ static struct platform_driver pinmux_xway_driver = {
 	.probe	= pinmux_xway_probe,
 	.driver = {
 		.name	= "pinctrl-xway",
-		.owner	= THIS_MODULE,
 		.of_match_table = xway_match,
 	},
 };
