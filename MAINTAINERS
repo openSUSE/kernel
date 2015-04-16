@@ -625,16 +625,16 @@ F:	drivers/iommu/amd_iommu*.[ch]
 F:	include/linux/amd-iommu.h
 
 AMD KFD
-M:      Oded Gabbay <oded.gabbay@amd.com>
-L:      dri-devel@lists.freedesktop.org
-T:      git git://people.freedesktop.org/~gabbayo/linux.git
-S:      Supported
-F:      drivers/gpu/drm/amd/amdkfd/
+M:	Oded Gabbay <oded.gabbay@amd.com>
+L:	dri-devel@lists.freedesktop.org
+T:	git git://people.freedesktop.org/~gabbayo/linux.git
+S:	Supported
+F:	drivers/gpu/drm/amd/amdkfd/
 F:	drivers/gpu/drm/amd/include/cik_structs.h
 F:	drivers/gpu/drm/amd/include/kgd_kfd_interface.h
-F:      drivers/gpu/drm/radeon/radeon_kfd.c
-F:      drivers/gpu/drm/radeon/radeon_kfd.h
-F:      include/uapi/linux/kfd_ioctl.h
+F:	drivers/gpu/drm/radeon/radeon_kfd.c
+F:	drivers/gpu/drm/radeon/radeon_kfd.h
+F:	include/uapi/linux/kfd_ioctl.h
 
 AMD MICROCODE UPDATE SUPPORT
 M:	Borislav Petkov <bp@alien8.de>
@@ -1764,7 +1764,7 @@ S:	Supported
 F:	drivers/tty/serial/atmel_serial.c
 
 ATMEL Audio ALSA driver
-M:	Bo Shen <voice.shen@atmel.com>
+M:	Nicolas Ferre <nicolas.ferre@atmel.com>
 L:	alsa-devel@alsa-project.org (moderated for non-subscribers)
 S:	Supported
 F:	sound/soc/atmel
@@ -1915,16 +1915,14 @@ S:	Maintained
 F:	drivers/media/radio/radio-aztech*
 
 B43 WIRELESS DRIVER
-M:	Stefano Brivio <stefano.brivio@polimi.it>
 L:	linux-wireless@vger.kernel.org
 L:	b43-dev@lists.infradead.org
 W:	http://wireless.kernel.org/en/users/Drivers/b43
-S:	Maintained
+S:	Odd Fixes
 F:	drivers/net/wireless/b43/
 
 B43LEGACY WIRELESS DRIVER
 M:	Larry Finger <Larry.Finger@lwfinger.net>
-M:	Stefano Brivio <stefano.brivio@polimi.it>
 L:	linux-wireless@vger.kernel.org
 L:	b43-dev@lists.infradead.org
 W:	http://wireless.kernel.org/en/users/Drivers/b43
@@ -1967,10 +1965,10 @@ F:	Documentation/filesystems/befs.txt
 F:	fs/befs/
 
 BECKHOFF CX5020 ETHERCAT MASTER DRIVER
-M: Dariusz Marcinkiewicz <reksio@newterm.pl>
-L: netdev@vger.kernel.org
-S: Maintained
-F: drivers/net/ethernet/ec_bhf.c
+M:	Dariusz Marcinkiewicz <reksio@newterm.pl>
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	drivers/net/ethernet/ec_bhf.c
 
 BFS FILE SYSTEM
 M:	"Tigran A. Aivazian" <tigran@aivazian.fsnet.co.uk>
@@ -2825,6 +2823,7 @@ L:	linux-crypto@vger.kernel.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/herbert/crypto-2.6.git
 S:	Maintained
 F:	Documentation/crypto/
+F:	Documentation/DocBook/crypto-API.tmpl
 F:	arch/*/crypto/
 F:	crypto/
 F:	drivers/crypto/
@@ -2895,11 +2894,11 @@ S:	Supported
 F:	drivers/net/ethernet/chelsio/cxgb3/
 
 CXGB3 ISCSI DRIVER (CXGB3I)
-M:      Karen Xie <kxie@chelsio.com>
-L:      linux-scsi@vger.kernel.org
-W:      http://www.chelsio.com
-S:      Supported
-F:      drivers/scsi/cxgbi/cxgb3i
+M:	Karen Xie <kxie@chelsio.com>
+L:	linux-scsi@vger.kernel.org
+W:	http://www.chelsio.com
+S:	Supported
+F:	drivers/scsi/cxgbi/cxgb3i
 
 CXGB3 IWARP RNIC DRIVER (IW_CXGB3)
 M:	Steve Wise <swise@chelsio.com>
@@ -2916,11 +2915,11 @@ S:	Supported
 F:	drivers/net/ethernet/chelsio/cxgb4/
 
 CXGB4 ISCSI DRIVER (CXGB4I)
-M:      Karen Xie <kxie@chelsio.com>
-L:      linux-scsi@vger.kernel.org
-W:      http://www.chelsio.com
-S:      Supported
-F:      drivers/scsi/cxgbi/cxgb4i
+M:	Karen Xie <kxie@chelsio.com>
+L:	linux-scsi@vger.kernel.org
+W:	http://www.chelsio.com
+S:	Supported
+F:	drivers/scsi/cxgbi/cxgb4i
 
 CXGB4 IWARP RNIC DRIVER (IW_CXGB4)
 M:	Steve Wise <swise@chelsio.com>
@@ -5222,7 +5221,7 @@ F:	arch/x86/kernel/tboot.c
 INTEL WIRELESS WIMAX CONNECTION 2400
 M:	Inaky Perez-Gonzalez <inaky.perez-gonzalez@intel.com>
 M:	linux-wimax@intel.com
-L:     wimax@linuxwimax.org (subscribers-only)
+L:	wimax@linuxwimax.org (subscribers-only)
 S:	Supported
 W:	http://linuxwimax.org
 F:	Documentation/wimax/README.i2400m
@@ -5299,6 +5298,13 @@ F:	Documentation/IPMI.txt
 F:	drivers/char/ipmi/
 F:	include/linux/ipmi*
 F:	include/uapi/linux/ipmi*
+
+QCOM AUDIO (ASoC) DRIVERS
+M:	Patrick Lai <plai@codeaurora.org>
+M:	Banajit Goswami <bgoswami@codeaurora.org>
+L:	alsa-devel@alsa-project.org (moderated for non-subscribers)
+S:	Supported
+F:	sound/soc/qcom/
 
 IPS SCSI RAID DRIVER
 M:	Adaptec OEM Raid Solutions <aacraid@adaptec.com>
@@ -5918,7 +5924,7 @@ F:	arch/powerpc/platforms/512x/
 F:	arch/powerpc/platforms/52xx/
 
 LINUX FOR POWERPC EMBEDDED PPC4XX
-M:  Alistair Popple <alistair@popple.id.au>
+M:	Alistair Popple <alistair@popple.id.au>
 M:	Matt Porter <mporter@kernel.crashing.org>
 W:	http://www.penguinppc.org/
 L:	linuxppc-dev@lists.ozlabs.org
@@ -6353,6 +6359,7 @@ F:	drivers/scsi/megaraid/
 
 MELLANOX ETHERNET DRIVER (mlx4_en)
 M:	Amir Vadai <amirv@mellanox.com>
+M:	Ido Shamay <idos@mellanox.com>
 L:	netdev@vger.kernel.org
 S:	Supported
 W:	http://www.mellanox.com
@@ -6390,7 +6397,7 @@ S:	Supported
 F:	drivers/watchdog/mena21_wdt.c
 
 MEN CHAMELEON BUS (mcb)
-M:  	Johannes Thumshirn <johannes.thumshirn@men.de>
+M:	Johannes Thumshirn <johannes.thumshirn@men.de>
 S:	Supported
 F:	drivers/mcb/
 F:	include/linux/mcb.h
@@ -6971,6 +6978,13 @@ T:	git git://git.infradead.org/users/willy/linux-nvme.git
 S:	Supported
 F:	drivers/block/nvme*
 F:	include/linux/nvme.h
+
+NXP-NCI NFC DRIVER
+M:	Clément Perrochaud <clement.perrochaud@effinnov.com>
+R:	Charles Gorand <charles.gorand@effinnov.com>
+L:	linux-nfc@lists.01.org (moderated for non-subscribers)
+S:	Supported
+F:	drivers/nfc/nxp-nci
 
 NXP TDA998X DRM DRIVER
 M:	Russell King <rmk+kernel@arm.linux.org.uk>
@@ -7939,10 +7953,10 @@ L:	rtc-linux@googlegroups.com
 S:	Maintained
 
 QAT DRIVER
-M:      Tadeusz Struk <tadeusz.struk@intel.com>
-L:      qat-linux@intel.com
-S:      Supported
-F:      drivers/crypto/qat/
+M:	Tadeusz Struk <tadeusz.struk@intel.com>
+L:	qat-linux@intel.com
+S:	Supported
+F:	drivers/crypto/qat/
 
 QIB DRIVER
 M:	Mike Marciniszyn <infinipath@intel.com>
@@ -8380,7 +8394,6 @@ F:	block/partitions/ibm.c
 
 S390 NETWORK DRIVERS
 M:	Ursula Braun <ursula.braun@de.ibm.com>
-M:	Frank Blaschka <blaschka@linux.vnet.ibm.com>
 M:	linux390@de.ibm.com
 L:	linux-s390@vger.kernel.org
 W:	http://www.ibm.com/developerworks/linux/linux390/
@@ -9856,7 +9869,7 @@ F:	include/linux/wl12xx.h
 
 TIPC NETWORK LAYER
 M:	Jon Maloy <jon.maloy@ericsson.com>
-M:	Allan Stephens <allan.stephens@windriver.com>
+M:	Ying Xue <ying.xue@windriver.com>
 L:	netdev@vger.kernel.org (core kernel code)
 L:	tipc-discussion@lists.sourceforge.net (user apps, general discussion)
 W:	http://tipc.sourceforge.net/
@@ -9960,6 +9973,7 @@ F:	drivers/media/pci/tw68/
 TPM DEVICE DRIVER
 M:	Peter Huewe <peterhuewe@gmx.de>
 M:	Marcel Selhorst <tpmdd@selhorst.net>
+R:	Jason Gunthorpe <jgunthorpe@obsidianresearch.com>
 W:	http://tpmdd.sourceforge.net
 L:	tpmdd-devel@lists.sourceforge.net (moderated for non-subscribers)
 Q:	git git://github.com/PeterHuewe/linux-tpmdd.git
@@ -10113,11 +10127,11 @@ F:	include/linux/cdrom.h
 F:	include/uapi/linux/cdrom.h
 
 UNISYS S-PAR DRIVERS
-M:     Benjamin Romer <benjamin.romer@unisys.com>
-M:     David Kershner <david.kershner@unisys.com>
-L:     sparmaintainer@unisys.com (Unisys internal)
-S:     Supported
-F:     drivers/staging/unisys/
+M:	Benjamin Romer <benjamin.romer@unisys.com>
+M:	David Kershner <david.kershner@unisys.com>
+L:	sparmaintainer@unisys.com (Unisys internal)
+S:	Supported
+F:	drivers/staging/unisys/
 
 UNIVERSAL FLASH STORAGE HOST CONTROLLER DRIVER
 M:	Vinayak Holikatti <vinholikatti@gmail.com>
@@ -10674,7 +10688,7 @@ F:	drivers/media/rc/winbond-cir.c
 WIMAX STACK
 M:	Inaky Perez-Gonzalez <inaky.perez-gonzalez@intel.com>
 M:	linux-wimax@intel.com
-L:     wimax@linuxwimax.org (subscribers-only)
+L:	wimax@linuxwimax.org (subscribers-only)
 S:	Supported
 W:	http://linuxwimax.org
 F:	Documentation/wimax/README.wimax
@@ -10965,6 +10979,7 @@ L:	linux-mm@kvack.org
 S:	Maintained
 F:	mm/zsmalloc.c
 F:	include/linux/zsmalloc.h
+F:	Documentation/vm/zsmalloc.txt
 
 ZSWAP COMPRESSED SWAP CACHING
 M:	Seth Jennings <sjennings@variantweb.net>
