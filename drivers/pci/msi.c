@@ -41,8 +41,7 @@ static struct irq_domain *pci_msi_get_domain(struct pci_dev *dev)
 {
 	struct irq_domain *domain = NULL;
 
-	if (dev->bus->msi)
-		domain = dev->bus->msi->domain;
+	domain = dev_get_msi_domain(&dev->dev);
 	if (!domain)
 		domain = arch_get_pci_msi_domain(dev);
 
@@ -694,11 +693,16 @@ static void __iomem *msix_map_region(struct pci_dev *dev, unsigned nr_entries)
 {
 	resource_size_t phys_addr;
 	u32 table_offset;
+	unsigned long flags;
 	u8 bir;
 
 	pci_read_config_dword(dev, dev->msix_cap + PCI_MSIX_TABLE,
 			      &table_offset);
 	bir = (u8)(table_offset & PCI_MSIX_TABLE_BIR);
+	flags = pci_resource_flags(dev, bir);
+	if (!flags || (flags & IORESOURCE_UNSET))
+		return NULL;
+
 	table_offset &= PCI_MSIX_TABLE_OFFSET;
 	phys_addr = pci_resource_start(dev, bir) + table_offset;
 

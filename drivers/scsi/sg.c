@@ -763,7 +763,7 @@ static int
 sg_common_write(Sg_fd * sfp, Sg_request * srp,
 		unsigned char *cmnd, int timeout, int blocking)
 {
-	int k, data_dir, at_head;
+	int k, at_head;
 	Sg_device *sdp = sfp->parentdp;
 	sg_io_hdr_t *hp = &srp->header;
 
@@ -793,21 +793,6 @@ sg_common_write(Sg_fd * sfp, Sg_request * srp,
 		return -ENODEV;
 	}
 
-	switch (hp->dxfer_direction) {
-	case SG_DXFER_TO_FROM_DEV:
-	case SG_DXFER_FROM_DEV:
-		data_dir = DMA_FROM_DEVICE;
-		break;
-	case SG_DXFER_TO_DEV:
-		data_dir = DMA_TO_DEVICE;
-		break;
-	case SG_DXFER_UNKNOWN:
-		data_dir = DMA_BIDIRECTIONAL;
-		break;
-	default:
-		data_dir = DMA_NONE;
-		break;
-	}
 	hp->duration = jiffies_to_msecs(jiffies);
 	if (hp->interface_id != '\0' &&	/* v3 (or later) interface */
 	    (SG_FLAG_Q_AT_TAIL & hp->flags))
@@ -1760,22 +1745,19 @@ sg_start_req(Sg_request *srp, unsigned char *cmd)
 	}
 
 	if (iov_count) {
-		int len, size = sizeof(struct sg_iovec) * iov_count;
+		int size = sizeof(struct iovec) * iov_count;
 		struct iovec *iov;
+		struct iov_iter i;
 
 		iov = memdup_user(hp->dxferp, size);
 		if (IS_ERR(iov))
 			return PTR_ERR(iov);
 
-		len = iov_length(iov, iov_count);
-		if (hp->dxfer_len < len) {
-			iov_count = iov_shorten(iov, iov_count, hp->dxfer_len);
-			len = hp->dxfer_len;
-		}
+		iov_iter_init(&i, rw, iov, iov_count,
+			      min_t(size_t, hp->dxfer_len,
+				    iov_length(iov, iov_count)));
 
-		res = blk_rq_map_user_iov(q, rq, md, (struct sg_iovec *)iov,
-					  iov_count,
-					  len, GFP_ATOMIC);
+		res = blk_rq_map_user_iov(q, rq, md, &i, GFP_ATOMIC);
 		kfree(iov);
 	} else
 		res = blk_rq_map_user(q, rq, md, hp->dxferp,

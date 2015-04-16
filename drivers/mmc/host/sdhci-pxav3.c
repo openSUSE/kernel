@@ -62,6 +62,7 @@ struct sdhci_pxa {
 	struct clk *clk_core;
 	struct clk *clk_io;
 	u8	power_mode;
+	void __iomem *sdio3_conf_reg;
 };
 
 /*
@@ -71,6 +72,14 @@ struct sdhci_pxa {
 #define SDHCI_WINDOW_CTRL(i)	(0x80 + ((i) << 3))
 #define SDHCI_WINDOW_BASE(i)	(0x84 + ((i) << 3))
 #define SDHCI_MAX_WIN_NUM	8
+
+/*
+ * Fields below belong to SDIO3 Configuration Register (third register
+ * region for the Armada 38x flavor)
+ */
+
+#define SDIO3_CONF_CLK_INV	BIT(0)
+#define SDIO3_CONF_SD_FB_CLK	BIT(2)
 
 static int mv_conf_mbus_windows(struct platform_device *pdev,
 				const struct mbus_dram_target_info *dram)
@@ -122,16 +131,29 @@ static int armada_38x_quirks(struct platform_device *pdev,
 			     struct sdhci_host *host)
 {
 	struct device_node *np = pdev->dev.of_node;
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_pxa *pxa = pltfm_host->priv;
+	struct resource *res;
 
 	host->quirks |= SDHCI_QUIRK_MISSING_CAPS;
-	/*
-	 * According to erratum 'FE-2946959' both SDR50 and DDR50
-	 * modes require specific clock adjustments in SDIO3
-	 * Configuration register, if the adjustment is not done,
-	 * remove them from the capabilities.
-	 */
-	host->caps1 = sdhci_readl(host, SDHCI_CAPABILITIES_1);
-	host->caps1 &= ~(SDHCI_SUPPORT_SDR50 | SDHCI_SUPPORT_DDR50);
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
+					   "conf-sdio3");
+	if (res) {
+		pxa->sdio3_conf_reg = devm_ioremap_resource(&pdev->dev, res);
+		if (IS_ERR(pxa->sdio3_conf_reg))
+			return PTR_ERR(pxa->sdio3_conf_reg);
+	} else {
+		/*
+		 * According to erratum 'FE-2946959' both SDR50 and DDR50
+		 * modes require specific clock adjustments in SDIO3
+		 * Configuration register, if the adjustment is not done,
+		 * remove them from the capabilities.
+		 */
+		host->caps1 = sdhci_readl(host, SDHCI_CAPABILITIES_1);
+		host->caps1 &= ~(SDHCI_SUPPORT_SDR50 | SDHCI_SUPPORT_DDR50);
+
+		dev_warn(&pdev->dev, "conf-sdio3 register not found: disabling SDR50 and DDR50 modes.\nConsider updating your dtb\n");
+	}
 
 	/*
 	 * According to erratum 'ERR-7878951' Armada 38x SDHCI
@@ -226,6 +248,8 @@ static void pxav3_gen_init_74_clocks(struct sdhci_host *host, u8 power_mode)
 
 static void pxav3_set_uhs_signaling(struct sdhci_host *host, unsigned int uhs)
 {
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_pxa *pxa = pltfm_host->priv;
 	u16 ctrl_2;
 
 	/*
@@ -253,6 +277,24 @@ static void pxav3_set_uhs_signaling(struct sdhci_host *host, unsigned int uhs)
 	case MMC_TIMING_UHS_DDR50:
 		ctrl_2 |= SDHCI_CTRL_UHS_DDR50 | SDHCI_CTRL_VDD_180;
 		break;
+	}
+
+	/*
+	 * Update SDIO3 Configuration register according to erratum
+	 * FE-2946959
+	 */
+	if (pxa->sdio3_conf_reg) {
+		u8 reg_val  = readb(pxa->sdio3_conf_reg);
+
+		if (uhs == MMC_TIMING_UHS_SDR50 ||
+		    uhs == MMC_TIMING_UHS_DDR50) {
+			reg_val &= ~SDIO3_CONF_CLK_INV;
+			reg_val |= SDIO3_CONF_SD_FB_CLK;
+		} else {
+			reg_val |= SDIO3_CONF_CLK_INV;
+			reg_val &= ~SDIO3_CONF_SD_FB_CLK;
+		}
+		writeb(reg_val, pxa->sdio3_conf_reg);
 	}
 
 	sdhci_writew(host, ctrl_2, SDHCI_HOST_CONTROL2);
@@ -433,8 +475,7 @@ err_of_parse:
 err_cd_req:
 err_mbus_win:
 	clk_disable_unprepare(pxa->clk_io);
-	if (!IS_ERR(pxa->clk_core))
-		clk_disable_unprepare(pxa->clk_core);
+	clk_disable_unprepare(pxa->clk_core);
 err_clk_get:
 	sdhci_pltfm_free(pdev);
 	return ret;
@@ -447,12 +488,13 @@ static int sdhci_pxav3_remove(struct platform_device *pdev)
 	struct sdhci_pxa *pxa = pltfm_host->priv;
 
 	pm_runtime_get_sync(&pdev->dev);
-	sdhci_remove_host(host, 1);
 	pm_runtime_disable(&pdev->dev);
+	pm_runtime_put_noidle(&pdev->dev);
+
+	sdhci_remove_host(host, 1);
 
 	clk_disable_unprepare(pxa->clk_io);
-	if (!IS_ERR(pxa->clk_core))
-		clk_disable_unprepare(pxa->clk_core);
+	clk_disable_unprepare(pxa->clk_core);
 
 	sdhci_pltfm_free(pdev);
 

@@ -303,9 +303,7 @@ static int rpc_client_register(struct rpc_clnt *clnt,
 	struct super_block *pipefs_sb;
 	int err;
 
-	err = rpc_clnt_debugfs_register(clnt);
-	if (err)
-		return err;
+	rpc_clnt_debugfs_register(clnt);
 
 	pipefs_sb = rpc_get_sb_net(net);
 	if (pipefs_sb) {
@@ -1826,6 +1824,7 @@ call_connect_status(struct rpc_task *task)
 	case -ECONNABORTED:
 	case -ENETUNREACH:
 	case -EHOSTUNREACH:
+	case -EADDRINUSE:
 	case -ENOBUFS:
 	case -EPIPE:
 		if (RPC_IS_SOFTCONN(task))
@@ -1934,6 +1933,7 @@ call_transmit_status(struct rpc_task *task)
 		}
 	case -ECONNRESET:
 	case -ECONNABORTED:
+	case -EADDRINUSE:
 	case -ENOTCONN:
 	case -ENOBUFS:
 	case -EPIPE:
@@ -2053,6 +2053,7 @@ call_status(struct rpc_task *task)
 	case -ECONNRESET:
 	case -ECONNABORTED:
 		rpc_force_rebind(clnt);
+	case -EADDRINUSE:
 	case -ENOBUFS:
 		rpc_delay(task, 3*HZ);
 	case -EPIPE:

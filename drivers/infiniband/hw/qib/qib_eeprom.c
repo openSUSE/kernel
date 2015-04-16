@@ -153,6 +153,7 @@ void qib_get_eeprom_info(struct qib_devdata *dd)
 
 	if (t && dd0->nguid > 1 && t <= dd0->nguid) {
 		u8 oguid;
+
 		dd->base_guid = dd0->base_guid;
 		bguid = (u8 *) &dd->base_guid;
 
@@ -251,17 +252,17 @@ void qib_get_eeprom_info(struct qib_devdata *dd)
 		 * This board has a Serial-prefix, which is stored
 		 * elsewhere for backward-compatibility.
 		 */
-		memcpy(snp, ifp->if_sprefix, sizeof ifp->if_sprefix);
-		snp[sizeof ifp->if_sprefix] = '\0';
+		memcpy(snp, ifp->if_sprefix, sizeof(ifp->if_sprefix));
+		snp[sizeof(ifp->if_sprefix)] = '\0';
 		len = strlen(snp);
 		snp += len;
-		len = (sizeof dd->serial) - len;
-		if (len > sizeof ifp->if_serial)
-			len = sizeof ifp->if_serial;
+		len = sizeof(dd->serial) - len;
+		if (len > sizeof(ifp->if_serial))
+			len = sizeof(ifp->if_serial);
 		memcpy(snp, ifp->if_serial, len);
-	} else
-		memcpy(dd->serial, ifp->if_serial,
-		       sizeof ifp->if_serial);
+	} else {
+		memcpy(dd->serial, ifp->if_serial, sizeof(ifp->if_serial));
+	}
 	if (!strstr(ifp->if_comment, "Tested successfully"))
 		qib_dev_err(dd,
 			"Board SN %s did not pass functional test: %s\n",

@@ -2073,8 +2073,8 @@ static int rtl8169_set_features(struct net_device *dev,
 
 static inline u32 rtl8169_tx_vlan_tag(struct sk_buff *skb)
 {
-	return (vlan_tx_tag_present(skb)) ?
-		TxVlanTag | swab16(vlan_tx_tag_get(skb)) : 0x00;
+	return (skb_vlan_tag_present(skb)) ?
+		TxVlanTag | swab16(skb_vlan_tag_get(skb)) : 0x00;
 }
 
 static void rtl8169_rx_vlan_tag(struct RxDesc *desc, struct sk_buff *skb)
@@ -2561,7 +2561,7 @@ static int rtl_check_firmware(struct rtl8169_private *tp, struct rtl_fw *rtl_fw)
 	int rc = -EINVAL;
 
 	if (!rtl_fw_format_ok(tp, rtl_fw)) {
-		netif_err(tp, ifup, dev, "invalid firwmare\n");
+		netif_err(tp, ifup, dev, "invalid firmware\n");
 		goto out;
 	}
 
@@ -4915,7 +4915,7 @@ static void r8168c_hw_jumbo_enable(struct rtl8169_private *tp)
 
 	RTL_W8(Config3, RTL_R8(Config3) | Jumbo_En0);
 	RTL_W8(Config4, RTL_R8(Config4) | Jumbo_En1);
-	rtl_tx_performance_tweak(tp->pci_dev, 0x2 << MAX_READ_REQUEST_SHIFT);
+	rtl_tx_performance_tweak(tp->pci_dev, PCI_EXP_DEVCTL_READRQ_512B);
 }
 
 static void r8168c_hw_jumbo_disable(struct rtl8169_private *tp)
@@ -4948,7 +4948,7 @@ static void r8168e_hw_jumbo_enable(struct rtl8169_private *tp)
 	RTL_W8(MaxTxPacketSize, 0x3f);
 	RTL_W8(Config3, RTL_R8(Config3) | Jumbo_En0);
 	RTL_W8(Config4, RTL_R8(Config4) | 0x01);
-	rtl_tx_performance_tweak(tp->pci_dev, 0x2 << MAX_READ_REQUEST_SHIFT);
+	rtl_tx_performance_tweak(tp->pci_dev, PCI_EXP_DEVCTL_READRQ_512B);
 }
 
 static void r8168e_hw_jumbo_disable(struct rtl8169_private *tp)
@@ -4964,7 +4964,7 @@ static void r8168e_hw_jumbo_disable(struct rtl8169_private *tp)
 static void r8168b_0_hw_jumbo_enable(struct rtl8169_private *tp)
 {
 	rtl_tx_performance_tweak(tp->pci_dev,
-		(0x2 << MAX_READ_REQUEST_SHIFT) | PCI_EXP_DEVCTL_NOSNOOP_EN);
+		PCI_EXP_DEVCTL_READRQ_512B | PCI_EXP_DEVCTL_NOSNOOP_EN);
 }
 
 static void r8168b_0_hw_jumbo_disable(struct rtl8169_private *tp)

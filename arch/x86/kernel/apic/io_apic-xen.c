@@ -61,12 +61,16 @@
 
 /* Fake i8259 */
 static void make_8259A_irq(unsigned int irq) { io_apic_irqs &= ~(1UL<<irq); }
-#undef legacy_pic
-const struct legacy_pic xen_legacy_pic = {
+static const struct legacy_pic xen_legacy_pic = {
 	.nr_legacy_irqs = NR_IRQS_LEGACY,
 	.make_irq = make_8259A_irq
 };
-#define legacy_pic (&xen_legacy_pic)
+const struct legacy_pic *legacy_pic = &xen_legacy_pic;
+
+static void make_null_irq(unsigned int irq) {};
+const struct legacy_pic null_legacy_pic = {
+	.make_irq = make_null_irq
+};
 
 unsigned long io_apic_irqs;
 #endif /* CONFIG_XEN */
@@ -1633,7 +1637,10 @@ void __init enable_IO_APIC(void)
 	int i8259_apic, i8259_pin;
 	int apic, pin;
 
-	if (!nr_legacy_irqs())
+	if (skip_ioapic_setup)
+		nr_ioapics = 0;
+
+	if (!nr_legacy_irqs() || !nr_ioapics)
 		return;
 
 	for_each_ioapic_pin(apic, pin) {
@@ -2427,7 +2434,7 @@ static inline void __init check_timer(void)
 	}
 	local_irq_disable();
 	apic_printk(APIC_QUIET, KERN_INFO "..... failed :(.\n");
-	if (x2apic_preenabled)
+	if (apic_is_x2apic_enabled())
 		apic_printk(APIC_QUIET, KERN_INFO
 			    "Perhaps problem with the pre-enabled x2apic mode\n"
 			    "Try booting with x2apic and interrupt-remapping disabled in the bios.\n");
@@ -2508,9 +2515,9 @@ void __init setup_IO_APIC(void)
 {
 	int ioapic;
 
-	/*
-	 * calling enable_IO_APIC() is moved to setup_local_APIC for BP
-	 */
+	if (skip_ioapic_setup || !nr_ioapics)
+		return;
+
 	io_apic_irqs = nr_legacy_irqs() ? ~PIC_IRQS : ~0UL;
 
 	apic_printk(APIC_VERBOSE, "ENABLING IO-APIC IRQs\n");

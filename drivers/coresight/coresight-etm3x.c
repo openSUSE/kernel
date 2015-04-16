@@ -34,14 +34,8 @@
 
 #include "coresight-etm.h"
 
-#ifdef CONFIG_CORESIGHT_SOURCE_ETM_DEFAULT_ENABLE
-static int boot_enable = 1;
-#else
 static int boot_enable;
-#endif
-module_param_named(
-	boot_enable, boot_enable, int, S_IRUGO
-);
+module_param_named(boot_enable, boot_enable, int, S_IRUGO);
 
 /* The number of ETM/PTM currently registered */
 static int etm_count;
@@ -1749,7 +1743,11 @@ static void etm_init_arch_data(void *info)
 
 static void etm_init_default_data(struct etm_drvdata *drvdata)
 {
-	static int etm3x_traceid;
+	/*
+	 * A trace ID of value 0 is invalid, so let's start at some
+	 * random value that fits in 7 bits and will be just as good.
+	 */
+	static int etm3x_traceid = 0x10;
 
 	u32 flags = (1 << 0 | /* instruction execute*/
 		     3 << 3 | /* ARM instruction */

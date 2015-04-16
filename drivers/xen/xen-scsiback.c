@@ -47,6 +47,7 @@
 
 #include <generated/utsrelease.h>
 
+#include <scsi/scsi.h>
 #include <scsi/scsi_dbg.h>
 #include <scsi/scsi_eh.h>
 #include <scsi/scsi_tcq.h>
@@ -227,7 +228,7 @@ static void put_free_pages(struct page **page, int num)
 		return;
 	if (i > scsiback_max_buffer_pages) {
 		n = min(num, i - scsiback_max_buffer_pages);
-		free_xenballooned_pages(n, page + num - n);
+		gnttab_free_pages(n, page + num - n);
 		n = num - n;
 	}
 	spin_lock_irqsave(&free_pages_lock, flags);
@@ -244,7 +245,7 @@ static int get_free_page(struct page **page)
 	spin_lock_irqsave(&free_pages_lock, flags);
 	if (list_empty(&scsiback_free_pages)) {
 		spin_unlock_irqrestore(&free_pages_lock, flags);
-		return alloc_xenballooned_pages(1, page, false);
+		return gnttab_alloc_pages(1, page);
 	}
 	page[0] = list_first_entry(&scsiback_free_pages, struct page, lru);
 	list_del(&page[0]->lru);
@@ -1658,11 +1659,8 @@ static int scsiback_make_nexus(struct scsiback_tpg *tpg,
 			 name);
 		goto out;
 	}
-	/*
-	 * Now register the TCM pvscsi virtual I_T Nexus as active with the
-	 * call to __transport_register_session()
-	 */
-	__transport_register_session(se_tpg, tv_nexus->tvn_se_sess->se_node_acl,
+	/* Now register the TCM pvscsi virtual I_T Nexus as active. */
+	transport_register_session(se_tpg, tv_nexus->tvn_se_sess->se_node_acl,
 			tv_nexus->tvn_se_sess, tv_nexus);
 	tpg->tpg_nexus = tv_nexus;
 
@@ -2104,7 +2102,7 @@ static void __exit scsiback_exit(void)
 	while (free_pages_num) {
 		if (get_free_page(&page))
 			BUG();
-		free_xenballooned_pages(1, &page);
+		gnttab_free_pages(1, &page);
 	}
 	scsiback_deregister_configfs();
 	xenbus_unregister_driver(&scsiback_driver);

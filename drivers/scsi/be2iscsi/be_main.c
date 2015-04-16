@@ -48,7 +48,6 @@ static unsigned int be_iopoll_budget = 10;
 static unsigned int be_max_phys_size = 64;
 static unsigned int enable_msix = 1;
 
-MODULE_DEVICE_TABLE(pci, beiscsi_pci_id_table);
 MODULE_DESCRIPTION(DRV_DESC " " BUILD_STR);
 MODULE_VERSION(BUILD_STR);
 MODULE_AUTHOR("Emulex Corporation");
@@ -5735,9 +5734,9 @@ free_port:
 hba_free:
 	if (phba->msix_enabled)
 		pci_disable_msix(phba->pcidev);
-	iscsi_host_remove(phba->shost);
 	pci_dev_put(phba->pcidev);
 	iscsi_host_free(phba->shost);
+	pci_set_drvdata(pcidev, NULL);
 disable_pci:
 	pci_disable_device(pcidev);
 	return ret;

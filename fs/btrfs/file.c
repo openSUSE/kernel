@@ -1746,7 +1746,7 @@ static ssize_t btrfs_file_write_iter(struct kiocb *iocb,
 
 	mutex_lock(&inode->i_mutex);
 
-	current->backing_dev_info = inode->i_mapping->backing_dev_info;
+	current->backing_dev_info = inode_to_bdi(inode);
 	err = generic_write_checks(file, &pos, &count, S_ISBLK(inode->i_mode));
 	if (err) {
 		mutex_unlock(&inode->i_mutex);
@@ -2081,7 +2081,6 @@ static const struct vm_operations_struct btrfs_file_vm_ops = {
 	.fault		= filemap_fault,
 	.map_pages	= filemap_map_pages,
 	.page_mkwrite	= btrfs_page_mkwrite,
-	.remap_pages	= generic_file_remap_pages,
 };
 
 static int btrfs_file_mmap(struct file	*filp, struct vm_area_struct *vma)
@@ -2276,6 +2275,8 @@ static int btrfs_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	bool same_page;
 	bool no_holes = btrfs_fs_incompat(root->fs_info, NO_HOLES);
 	u64 ino_size;
+	bool truncated_page = false;
+	bool updated_inode = false;
 
 	ret = btrfs_wait_ordered_range(inode, offset, len);
 	if (ret)
@@ -2307,13 +2308,18 @@ static int btrfs_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	 * entire page.
 	 */
 	if (same_page && len < PAGE_CACHE_SIZE) {
-		if (offset < ino_size)
+		if (offset < ino_size) {
+			truncated_page = true;
 			ret = btrfs_truncate_page(inode, offset, len, 0);
+		} else {
+			ret = 0;
+		}
 		goto out_only_mutex;
 	}
 
 	/* zero back part of the first page */
 	if (offset < ino_size) {
+		truncated_page = true;
 		ret = btrfs_truncate_page(inode, offset, 0, 0);
 		if (ret) {
 			mutex_unlock(&inode->i_mutex);
@@ -2349,6 +2355,7 @@ static int btrfs_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 		if (!ret) {
 			/* zero the front end of the last page */
 			if (tail_start + tail_len < ino_size) {
+				truncated_page = true;
 				ret = btrfs_truncate_page(inode,
 						tail_start + tail_len, 0, 1);
 				if (ret)
@@ -2358,8 +2365,8 @@ static int btrfs_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	}
 
 	if (lockend < lockstart) {
-		mutex_unlock(&inode->i_mutex);
-		return 0;
+		ret = 0;
+		goto out_only_mutex;
 	}
 
 	while (1) {
@@ -2507,6 +2514,7 @@ out_trans:
 
 	trans->block_rsv = &root->fs_info->trans_block_rsv;
 	ret = btrfs_update_inode(trans, root, inode);
+	updated_inode = true;
 	btrfs_end_transaction(trans, root);
 	btrfs_btree_balance_dirty(root);
 out_free:
@@ -2516,6 +2524,22 @@ out:
 	unlock_extent_cached(&BTRFS_I(inode)->io_tree, lockstart, lockend,
 			     &cached_state, GFP_NOFS);
 out_only_mutex:
+	if (!updated_inode && truncated_page && !ret && !err) {
+		/*
+		 * If we only end up zeroing part of a page, we still need to
+		 * update the inode item, so that all the time fields are
+		 * updated as well as the necessary btrfs inode in memory fields
+		 * for detecting, at fsync time, if the inode isn't yet in the
+		 * log tree or it's there but not up to date.
+		 */
+		trans = btrfs_start_transaction(root, 1);
+		if (IS_ERR(trans)) {
+			err = PTR_ERR(trans);
+		} else {
+			err = btrfs_update_inode(trans, root, inode);
+			ret = btrfs_end_transaction(trans, root);
+		}
+	}
 	mutex_unlock(&inode->i_mutex);
 	if (ret && !err)
 		err = ret;

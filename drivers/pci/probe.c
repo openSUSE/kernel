@@ -6,6 +6,7 @@
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/pci.h>
+#include <linux/of_pci.h>
 #include <linux/pci_hotplug.h>
 #include <linux/slab.h>
 #include <linux/module.h>
@@ -660,6 +661,21 @@ static void pci_set_bus_speed(struct pci_bus *bus)
 	}
 }
 
+void __weak pcibios_set_phb_msi_domain(struct pci_bus *bus)
+{
+	pci_set_phb_of_msi_domain(bus);
+}
+
+static void pci_set_bus_msi_domain(struct pci_bus *bus)
+{
+	struct pci_dev *bridge = bus->self;
+
+	if (!bridge)
+		pcibios_set_phb_msi_domain(bus);
+	else
+		dev_set_msi_domain(&bus->dev, dev_get_msi_domain(&bridge->dev));
+}
+
 static struct pci_bus *pci_alloc_child_bus(struct pci_bus *parent,
 					   struct pci_dev *bridge, int busnr)
 {
@@ -713,6 +729,7 @@ static struct pci_bus *pci_alloc_child_bus(struct pci_bus *parent,
 	bridge->subordinate = child;
 
 add_dev:
+	pci_set_bus_msi_domain(child);
 	ret = device_register(&child->dev);
 	WARN_ON(ret < 0);
 
@@ -1512,6 +1529,17 @@ static void pci_init_capabilities(struct pci_dev *dev)
 	pci_enable_acs(dev);
 }
 
+static void pci_set_msi_domain(struct pci_dev *dev)
+{
+	/*
+	 * If no domain has been set through the pcibios callback,
+	 * inherit the default from the bus device.
+	 */
+	if (!dev_get_msi_domain(&dev->dev))
+		dev_set_msi_domain(&dev->dev,
+				   dev_get_msi_domain(&dev->bus->dev));
+}
+
 void pci_device_add(struct pci_dev *dev, struct pci_bus *bus)
 {
 	int ret;
@@ -1525,6 +1553,7 @@ void pci_device_add(struct pci_dev *dev, struct pci_bus *bus)
 	dev->dev.dma_mask = &dev->dma_mask;
 	dev->dev.dma_parms = &dev->dma_parms;
 	dev->dev.coherent_dma_mask = 0xffffffffull;
+	of_pci_dma_configure(dev);
 
 	pci_set_dma_max_seg_size(dev, 65536);
 	pci_set_dma_seg_boundary(dev, 0xffffffff);
@@ -1551,6 +1580,9 @@ void pci_device_add(struct pci_dev *dev, struct pci_bus *bus)
 
 	ret = pcibios_add_device(dev);
 	WARN_ON(ret < 0);
+
+	/* Setup MSI irq domain */
+	pci_set_msi_domain(dev);
 
 	/* Notifier could use PCI capabilities */
 	dev->match_driver = false;
@@ -1907,7 +1939,7 @@ struct pci_bus *pci_create_root_bus(struct device *parent, int bus,
 	int error;
 	struct pci_host_bridge *bridge;
 	struct pci_bus *b, *b2;
-	struct pci_host_bridge_window *window, *n;
+	struct resource_entry *window, *n;
 	struct resource *res;
 	resource_size_t offset;
 	char bus_addr[64];
@@ -1949,6 +1981,7 @@ struct pci_bus *pci_create_root_bus(struct device *parent, int bus,
 	b->bridge = get_device(&bridge->dev);
 	device_enable_async_suspend(b->bridge);
 	pci_set_bus_of_node(b);
+	pci_set_bus_msi_domain(b);
 
 	if (!parent)
 		set_dev_node(b->bridge, pcibus_to_node(b));
@@ -1971,8 +2004,8 @@ struct pci_bus *pci_create_root_bus(struct device *parent, int bus,
 		printk(KERN_INFO "PCI host bridge to bus %s\n", dev_name(&b->dev));
 
 	/* Add initial resources to the bus */
-	list_for_each_entry_safe(window, n, resources, list) {
-		list_move_tail(&window->list, &bridge->windows);
+	resource_list_for_each_entry_safe(window, n, resources) {
+		list_move_tail(&window->node, &bridge->windows);
 		res = window->res;
 		offset = window->offset;
 		if (res->flags & IORESOURCE_BUS)
@@ -2072,12 +2105,12 @@ void pci_bus_release_busn_res(struct pci_bus *b)
 struct pci_bus *pci_scan_root_bus(struct device *parent, int bus,
 		struct pci_ops *ops, void *sysdata, struct list_head *resources)
 {
-	struct pci_host_bridge_window *window;
+	struct resource_entry *window;
 	bool found = false;
 	struct pci_bus *b;
 	int max;
 
-	list_for_each_entry(window, resources, list)
+	resource_list_for_each_entry(window, resources)
 		if (window->res->flags & IORESOURCE_BUS) {
 			found = true;
 			break;

@@ -675,6 +675,7 @@ static int acpi_register_gsi_pic(struct device *dev, u32 gsi,
 	return gsi;
 }
 
+#ifdef CONFIG_X86_LOCAL_APIC
 static int acpi_register_gsi_ioapic(struct device *dev, u32 gsi,
 				    int trigger, int polarity)
 {
@@ -697,6 +698,7 @@ static void acpi_unregister_gsi_ioapic(u32 gsi)
 	mutex_unlock(&acpi_ioapic_lock);
 #endif
 }
+#endif
 
 int (*__acpi_register_gsi)(struct device *dev, u32 gsi,
 			   int trigger, int polarity) = acpi_register_gsi_pic;
@@ -871,13 +873,7 @@ int acpi_ioapic_registered(acpi_handle handle, u32 gsi_base)
 
 static int __init acpi_parse_sbf(struct acpi_table_header *table)
 {
-	struct acpi_table_boot *sb;
-
-	sb = (struct acpi_table_boot *)table;
-	if (!sb) {
-		printk(KERN_WARNING PREFIX "Unable to map SBF\n");
-		return -ENODEV;
-	}
+	struct acpi_table_boot *sb = (struct acpi_table_boot *)table;
 
 	sbf_port = sb->cmos_index;	/* Save CMOS port */
 
@@ -891,13 +887,7 @@ static struct resource *hpet_res __initdata;
 
 static int __init acpi_parse_hpet(struct acpi_table_header *table)
 {
-	struct acpi_table_hpet *hpet_tbl;
-
-	hpet_tbl = (struct acpi_table_hpet *)table;
-	if (!hpet_tbl) {
-		printk(KERN_WARNING PREFIX "Unable to map HPET\n");
-		return -ENODEV;
-	}
+	struct acpi_table_hpet *hpet_tbl = (struct acpi_table_hpet *)table;
 
 	if (hpet_tbl->address.space_id != ACPI_SPACE_MEM) {
 		printk(KERN_WARNING PREFIX "HPET timers must be located in "
@@ -1388,6 +1378,26 @@ static int __init force_acpi_rsdt(const struct dmi_system_id *d)
 }
 
 /*
+ * ACPI offers an alternative platform interface model that removes
+ * ACPI hardware requirements for platforms that do not implement
+ * the PC Architecture.
+ *
+ * We initialize the Hardware-reduced ACPI model here:
+ */
+static void __init acpi_reduced_hw_init(void)
+{
+	if (acpi_gbl_reduced_hardware) {
+		/*
+		 * Override x86_init functions and bypass legacy pic
+		 * in Hardware-reduced ACPI mode
+		 */
+		x86_init.timers.timer_init	= x86_init_noop;
+		x86_init.irqs.pre_vector_init	= x86_init_noop;
+		legacy_pic			= &null_legacy_pic;
+	}
+}
+
+/*
  * If your system is blacklisted here, but you find that acpi=force
  * works for you, please contact linux-acpi@vger.kernel.org
  */
@@ -1613,6 +1623,11 @@ int __init early_acpi_boot_init(void)
 	 * Process the Multiple APIC Description Table (MADT), if present
 	 */
 	early_acpi_process_madt();
+
+	/*
+	 * Hardware-reduced ACPI mode initialization:
+	 */
+	acpi_reduced_hw_init();
 
 	return 0;
 }
