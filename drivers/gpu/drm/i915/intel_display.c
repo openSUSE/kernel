@@ -10022,6 +10022,13 @@ static int intel_queue_mmio_flip(struct drm_device *dev,
 				 uint32_t flags)
 {
 	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
+	int ret;
+
+	if (obj->last_write_req) {
+		ret = i915_gem_check_olr(obj->last_write_req);
+		if (ret)
+			return ret;
+	}
 
 	i915_gem_request_assign(&intel_crtc->mmio_flip.req,
 				obj->last_write_req);
