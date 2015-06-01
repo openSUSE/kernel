@@ -1,7 +1,7 @@
 VERSION = 4
 PATCHLEVEL = 1
 SUBLEVEL = 0
-EXTRAVERSION = -rc5-161-gaaa20fc
+EXTRAVERSION = -rc6
 NAME = Hurr durr I'ma sheep
 
 # *DOCUMENTATION*
