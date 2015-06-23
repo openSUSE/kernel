@@ -20,6 +20,8 @@
 #define ISCSIT_MIN_TAGS			16
 #define ISCSIT_EXTRA_TAGS		8
 #define ISCSIT_TCP_BACKLOG		256
+#define ISCSI_RX_THREAD_NAME		"iscsi_trx"
+#define ISCSI_TX_THREAD_NAME		"iscsi_ttx"
 
 /* struct iscsi_node_attrib sanity values */
 #define NA_DATAOUT_TIMEOUT		3
@@ -60,6 +62,7 @@
 #define TA_CACHE_CORE_NPS		0
 /* T10 protection information disabled by default */
 #define TA_DEFAULT_T10_PI		0
+#define TA_DEFAULT_FABRIC_PROT_TYPE	0
 
 #define ISCSI_IOV_DATA_BUFFER		5
 
@@ -600,8 +603,6 @@ struct iscsi_conn {
 	struct iscsi_tpg_np	*tpg_np;
 	/* Pointer to parent session */
 	struct iscsi_session	*sess;
-	/* Pointer to thread_set in use for this conn's threads */
-	struct iscsi_thread_set	*thread_set;
 	int			bitmap_id;
 	int			rx_thread_active;
 	struct task_struct	*rx_thread;
@@ -772,6 +773,7 @@ struct iscsi_tpg_attrib {
 	u32			demo_mode_discovery;
 	u32			default_erl;
 	u8			t10_pi;
+	u32			fabric_prot_type;
 	struct iscsi_portal_group *tpg;
 };
 
@@ -877,8 +879,6 @@ struct iscsit_global {
 	u32			auth_id;
 	u32			inactive_ts;
 #define ISCSIT_BITMAP_BITS	262144
-	/* Thread Set bitmap count */
-	int			ts_bitmap_count;
 	/* Thread Set bitmap pointer */
 	unsigned long		*ts_bitmap;
 	spinlock_t		ts_bitmap_lock;

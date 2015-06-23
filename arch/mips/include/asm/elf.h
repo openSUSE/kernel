@@ -11,6 +11,9 @@
 #include <linux/fs.h>
 #include <uapi/linux/elf.h>
 
+#include <asm/cpu-info.h>
+#include <asm/current.h>
+
 /* ELF header e_flags defines. */
 /* MIPS architecture level. */
 #define EF_MIPS_ARCH_1		0x00000000	/* -mips1 code.	 */
@@ -300,6 +303,8 @@ do {									\
 	mips_set_personality_fp(state);					\
 									\
 	current->thread.abi = &mips_abi;				\
+									\
+	current->thread.fpu.fcr31 = boot_cpu_data.fpu_csr31;		\
 } while (0)
 
 #endif /* CONFIG_32BIT */
@@ -361,6 +366,8 @@ do {									\
 	else								\
 		current->thread.abi = &mips_abi;			\
 									\
+	current->thread.fpu.fcr31 = boot_cpu_data.fpu_csr31;		\
+									\
 	p = personality(current->personality);				\
 	if (p != PER_LINUX32 && p != PER_LINUX)				\
 		set_personality(PER_LINUX);				\
@@ -414,10 +421,6 @@ extern const char *__elf_platform;
 struct linux_binprm;
 extern int arch_setup_additional_pages(struct linux_binprm *bprm,
 				       int uses_interp);
-
-struct mm_struct;
-extern unsigned long arch_randomize_brk(struct mm_struct *mm);
-#define arch_randomize_brk arch_randomize_brk
 
 struct arch_elf_state {
 	int fp_abi;

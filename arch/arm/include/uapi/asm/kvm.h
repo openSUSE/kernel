@@ -205,6 +205,9 @@ struct kvm_arch_memory_slot {
 #define KVM_ARM_IRQ_GIC_MAX		127
 #endif
 
+/* One single KVM irqchip, ie. the VGIC */
+#define KVM_NR_IRQCHIPS          1
+
 /* PSCI interface */
 #define KVM_PSCI_FN_BASE		0x95c1ba5e
 #define KVM_PSCI_FN(n)			(KVM_PSCI_FN_BASE + (n))
