@@ -332,9 +332,6 @@ int acpi_check_region(resource_size_t start, resource_size_t n,
 
 int acpi_resources_are_enforced(void);
 
-int acpi_reserve_region(u64 start, unsigned int length, u8 space_id,
-			unsigned long flags, char *desc);
-
 int acpi_pci_get_root_seg_bbn(char *hid, char *uid, int *seg, int *bbn);
 
 #ifdef CONFIG_HIBERNATION
@@ -530,13 +527,6 @@ static inline int acpi_check_region(resource_size_t start, resource_size_t n,
 				    const char *name)
 {
 	return 0;
-}
-
-static inline int acpi_reserve_region(u64 start, unsigned int length,
-				      u8 space_id, unsigned long flags,
-				      char *desc)
-{
-	return -ENXIO;
 }
 
 struct acpi_table_header;
