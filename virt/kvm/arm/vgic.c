@@ -26,8 +26,6 @@
 #include <linux/of_irq.h>
 #include <linux/uaccess.h>
 
-#include <linux/irqchip/arm-gic.h>
-
 #include <asm/kvm_emulate.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_mmu.h>
@@ -2139,9 +2137,6 @@ int kvm_vgic_hyp_init(void)
 		kvm_err("Cannot register vgic CPU notifier\n");
 		goto out_free_irq;
 	}
-
-	/* Callback into for arch code for setup */
-	vgic_arch_setup(vgic);
 
 	on_each_cpu(vgic_init_maintenance_interrupt, NULL, 1);
 

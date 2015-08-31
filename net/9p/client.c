@@ -1541,6 +1541,7 @@ p9_client_read(struct p9_fid *fid, u64 offset, struct iov_iter *to, int *err)
 	struct p9_client *clnt = fid->clnt;
 	struct p9_req_t *req;
 	int total = 0;
+	*err = 0;
 
 	p9_debug(P9_DEBUG_9P, ">>> TREAD fid %d offset %llu %d\n",
 		   fid->fid, (unsigned long long) offset, (int)iov_iter_count(to));
@@ -1583,6 +1584,10 @@ p9_client_read(struct p9_fid *fid, u64 offset, struct iov_iter *to, int *err)
 			p9_free_req(clnt, req);
 			break;
 		}
+		if (rsize < count) {
+			pr_err("bogus RREAD count (%d > %d)\n", count, rsize);
+			count = rsize;
+		}
 
 		p9_debug(P9_DEBUG_9P, "<<< RREAD count %d\n", count);
 		if (!count) {
@@ -1616,6 +1621,7 @@ p9_client_write(struct p9_fid *fid, u64 offset, struct iov_iter *from, int *err)
 	struct p9_client *clnt = fid->clnt;
 	struct p9_req_t *req;
 	int total = 0;
+	*err = 0;
 
 	p9_debug(P9_DEBUG_9P, ">>> TWRITE fid %d offset %llu count %zd\n",
 				fid->fid, (unsigned long long) offset,
@@ -1649,6 +1655,10 @@ p9_client_write(struct p9_fid *fid, u64 offset, struct iov_iter *from, int *err)
 			trace_9p_protocol_dump(clnt, req->rc);
 			p9_free_req(clnt, req);
 			break;
+		}
+		if (rsize < count) {
+			pr_err("bogus RWRITE count (%d > %d)\n", count, rsize);
+			count = rsize;
 		}
 
 		p9_debug(P9_DEBUG_9P, "<<< RWRITE count %d\n", count);

@@ -20,11 +20,6 @@
 
 #include "internal.h"
 
-static inline int simple_positive(struct dentry *dentry)
-{
-	return d_really_is_positive(dentry) && !d_unhashed(dentry);
-}
-
 int simple_getattr(struct vfsmount *mnt, struct dentry *dentry,
 		   struct kstat *stat)
 {
@@ -1024,14 +1019,17 @@ int noop_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 }
 EXPORT_SYMBOL(noop_fsync);
 
-void kfree_put_link(struct dentry *dentry, struct nameidata *nd,
-				void *cookie)
+void kfree_put_link(struct inode *unused, void *cookie)
 {
-	char *s = nd_get_link(nd);
-	if (!IS_ERR(s))
-		kfree(s);
+	kfree(cookie);
 }
 EXPORT_SYMBOL(kfree_put_link);
+
+void free_page_put_link(struct inode *unused, void *cookie)
+{
+	free_page((unsigned long) cookie);
+}
+EXPORT_SYMBOL(free_page_put_link);
 
 /*
  * nop .set_page_dirty method so that people can use .page_mkwrite on
@@ -1094,6 +1092,17 @@ simple_nosetlease(struct file *filp, long arg, struct file_lock **flp,
 }
 EXPORT_SYMBOL(simple_nosetlease);
 
+const char *simple_follow_link(struct dentry *dentry, void **cookie)
+{
+	return d_inode(dentry)->i_link;
+}
+EXPORT_SYMBOL(simple_follow_link);
+
+const struct inode_operations simple_symlink_inode_operations = {
+	.follow_link = simple_follow_link,
+	.readlink = generic_readlink
+};
+EXPORT_SYMBOL(simple_symlink_inode_operations);
 
 /*
  * Operations for a permanently empty directory.

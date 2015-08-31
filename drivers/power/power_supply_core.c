@@ -446,6 +446,45 @@ struct power_supply *power_supply_get_by_phandle(struct device_node *np,
 	return psy;
 }
 EXPORT_SYMBOL_GPL(power_supply_get_by_phandle);
+
+static void devm_power_supply_put(struct device *dev, void *res)
+{
+	struct power_supply **psy = res;
+
+	power_supply_put(*psy);
+}
+
+/**
+ * devm_power_supply_get_by_phandle() - Resource managed version of
+ *  power_supply_get_by_phandle()
+ * @dev: Pointer to device holding phandle property
+ * @phandle_name: Name of property holding a power supply phandle
+ *
+ * Return: On success returns a reference to a power supply with
+ * matching name equals to value under @property, NULL or ERR_PTR otherwise.
+ */
+struct power_supply *devm_power_supply_get_by_phandle(struct device *dev,
+						      const char *property)
+{
+	struct power_supply **ptr, *psy;
+
+	if (!dev->of_node)
+		return ERR_PTR(-ENODEV);
+
+	ptr = devres_alloc(devm_power_supply_put, sizeof(*ptr), GFP_KERNEL);
+	if (!ptr)
+		return ERR_PTR(-ENOMEM);
+
+	psy = power_supply_get_by_phandle(dev->of_node, property);
+	if (IS_ERR_OR_NULL(psy)) {
+		devres_free(ptr);
+	} else {
+		*ptr = psy;
+		devres_add(dev, ptr);
+	}
+	return psy;
+}
+EXPORT_SYMBOL_GPL(devm_power_supply_get_by_phandle);
 #endif /* CONFIG_OF */
 
 int power_supply_get_property(struct power_supply *psy,
@@ -785,7 +824,7 @@ struct power_supply *__must_check power_supply_register(struct device *parent,
 EXPORT_SYMBOL_GPL(power_supply_register);
 
 /**
- * power_supply_register() - Register new non-waking-source power supply
+ * power_supply_register_no_ws() - Register new non-waking-source power supply
  * @parent:	Device to be a parent of power supply's device, usually
  *		the device which probe function calls this
  * @desc:	Description of power supply, must be valid through whole
@@ -815,7 +854,7 @@ static void devm_power_supply_release(struct device *dev, void *res)
 }
 
 /**
- * power_supply_register() - Register managed power supply
+ * devm_power_supply_register() - Register managed power supply
  * @parent:	Device to be a parent of power supply's device, usually
  *		the device which probe function calls this
  * @desc:	Description of power supply, must be valid through whole
@@ -851,7 +890,7 @@ devm_power_supply_register(struct device *parent,
 EXPORT_SYMBOL_GPL(devm_power_supply_register);
 
 /**
- * power_supply_register() - Register managed non-waking-source power supply
+ * devm_power_supply_register_no_ws() - Register managed non-waking-source power supply
  * @parent:	Device to be a parent of power supply's device, usually
  *		the device which probe function calls this
  * @desc:	Description of power supply, must be valid through whole

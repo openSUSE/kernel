@@ -541,7 +541,7 @@ static int read_balance(struct r1conf *conf, struct r1bio *r1_bio, int *max_sect
 
 	if ((conf->mddev->recovery_cp < this_sector + sectors) ||
 	    (mddev_is_clustered(conf->mddev) &&
-	    md_cluster_ops->area_resyncing(conf->mddev, this_sector,
+	    md_cluster_ops->area_resyncing(conf->mddev, READ, this_sector,
 		    this_sector + sectors)))
 		choose_first = 1;
 	else
@@ -745,7 +745,7 @@ static int raid1_congested(struct mddev *mddev, int bits)
 	struct r1conf *conf = mddev->private;
 	int i, ret = 0;
 
-	if ((bits & (1 << BDI_async_congested)) &&
+	if ((bits & (1 << WB_async_congested)) &&
 	    conf->pending_count >= max_queued_requests)
 		return 1;
 
@@ -760,7 +760,7 @@ static int raid1_congested(struct mddev *mddev, int bits)
 			/* Note the '|| 1' - when read_balance prefers
 			 * non-congested targets, it can be removed
 			 */
-			if ((bits & (1<<BDI_async_congested)) || 1)
+			if ((bits & (1 << WB_async_congested)) || 1)
 				ret |= bdi_congested(&q->backing_dev_info, bits);
 			else
 				ret &= bdi_congested(&q->backing_dev_info, bits);
@@ -1111,7 +1111,8 @@ static void make_request(struct mddev *mddev, struct bio * bio)
 	    ((bio_end_sector(bio) > mddev->suspend_lo &&
 	    bio->bi_iter.bi_sector < mddev->suspend_hi) ||
 	    (mddev_is_clustered(mddev) &&
-	     md_cluster_ops->area_resyncing(mddev, bio->bi_iter.bi_sector, bio_end_sector(bio))))) {
+	     md_cluster_ops->area_resyncing(mddev, WRITE,
+		     bio->bi_iter.bi_sector, bio_end_sector(bio))))) {
 		/* As the suspend_* range is controlled by
 		 * userspace, we want an interruptible
 		 * wait.
@@ -1124,7 +1125,7 @@ static void make_request(struct mddev *mddev, struct bio * bio)
 			if (bio_end_sector(bio) <= mddev->suspend_lo ||
 			    bio->bi_iter.bi_sector >= mddev->suspend_hi ||
 			    (mddev_is_clustered(mddev) &&
-			     !md_cluster_ops->area_resyncing(mddev,
+			     !md_cluster_ops->area_resyncing(mddev, WRITE,
 				     bio->bi_iter.bi_sector, bio_end_sector(bio))))
 				break;
 			schedule();

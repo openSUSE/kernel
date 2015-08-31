@@ -369,7 +369,7 @@ badframe:
 	if (show_unhandled_signals)
 		pr_info_ratelimited("%s[%d]: bad frame in %s: pc=%08llx sp=%08llx\n",
 				    current->comm, task_pid_nr(current), __func__,
-				    regs->pc, regs->sp);
+				    regs->pc, regs->compat_sp);
 	force_sig(SIGSEGV, current);
 	return 0;
 }
@@ -406,7 +406,7 @@ badframe:
 	if (show_unhandled_signals)
 		pr_info_ratelimited("%s[%d]: bad frame in %s: pc=%08llx sp=%08llx\n",
 				    current->comm, task_pid_nr(current), __func__,
-				    regs->pc, regs->sp);
+				    regs->pc, regs->compat_sp);
 	force_sig(SIGSEGV, current);
 	return 0;
 }

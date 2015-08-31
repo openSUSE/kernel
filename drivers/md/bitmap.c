@@ -559,6 +559,7 @@ static int bitmap_read_sb(struct bitmap *bitmap)
 	unsigned long sectors_reserved = 0;
 	int err = -EINVAL;
 	struct page *sb_page;
+	loff_t offset = bitmap->mddev->bitmap_info.offset;
 
 	if (!bitmap->storage.file && !bitmap->mddev->bitmap_info.offset) {
 		chunksize = 128 * 1024 * 1024;
@@ -585,9 +586,9 @@ re_read:
 		bm_blocks = ((bm_blocks+7) >> 3) + sizeof(bitmap_super_t);
 		/* to 4k blocks */
 		bm_blocks = DIV_ROUND_UP_SECTOR_T(bm_blocks, 4096);
-		bitmap->mddev->bitmap_info.offset += bitmap->cluster_slot * (bm_blocks << 3);
+		offset = bitmap->mddev->bitmap_info.offset + (bitmap->cluster_slot * (bm_blocks << 3));
 		pr_info("%s:%d bm slot: %d offset: %llu\n", __func__, __LINE__,
-			bitmap->cluster_slot, (unsigned long long)bitmap->mddev->bitmap_info.offset);
+			bitmap->cluster_slot, offset);
 	}
 
 	if (bitmap->storage.file) {
@@ -598,7 +599,7 @@ re_read:
 				bitmap, bytes, sb_page);
 	} else {
 		err = read_sb_page(bitmap->mddev,
-				   bitmap->mddev->bitmap_info.offset,
+				   offset,
 				   sb_page,
 				   0, sizeof(bitmap_super_t));
 	}
@@ -680,7 +681,7 @@ out:
 	kunmap_atomic(sb);
 	/* Assiging chunksize is required for "re_read" */
 	bitmap->mddev->bitmap_info.chunksize = chunksize;
-	if (nodes && (bitmap->cluster_slot < 0)) {
+	if (err == 0 && nodes && (bitmap->cluster_slot < 0)) {
 		err = md_setup_cluster(bitmap->mddev, nodes);
 		if (err) {
 			pr_err("%s: Could not setup cluster service (%d)\n",
@@ -848,7 +849,7 @@ static void bitmap_file_kick(struct bitmap *bitmap)
 		if (bitmap->storage.file) {
 			path = kmalloc(PAGE_SIZE, GFP_KERNEL);
 			if (path)
-				ptr = d_path(&bitmap->storage.file->f_path,
+				ptr = file_path(bitmap->storage.file,
 					     path, PAGE_SIZE);
 
 			printk(KERN_ALERT
@@ -1875,10 +1876,6 @@ int bitmap_copy_from_slot(struct mddev *mddev, int slot,
 	if (IS_ERR(bitmap))
 		return PTR_ERR(bitmap);
 
-	rv = bitmap_read_sb(bitmap);
-	if (rv)
-		goto err;
-
 	rv = bitmap_init_from_disk(bitmap, 0);
 	if (rv)
 		goto err;
@@ -1936,7 +1933,7 @@ void bitmap_status(struct seq_file *seq, struct bitmap *bitmap)
 		   chunk_kb ? "KB" : "B");
 	if (bitmap->storage.file) {
 		seq_printf(seq, ", file: ");
-		seq_path(seq, &bitmap->storage.file->f_path, " \t\n");
+		seq_file_path(seq, bitmap->storage.file, " \t\n");
 	}
 
 	seq_printf(seq, "\n");
