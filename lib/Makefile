@@ -39,6 +39,8 @@ obj-$(CONFIG_TEST_KSTRTOX) += test-kstrtox.o
 obj-$(CONFIG_TEST_LKM) += test_module.o
 obj-$(CONFIG_TEST_RHASHTABLE) += test_rhashtable.o
 obj-$(CONFIG_TEST_USER_COPY) += test_user_copy.o
+obj-$(CONFIG_TEST_STATIC_KEYS) += test_static_keys.o
+obj-$(CONFIG_TEST_STATIC_KEYS) += test_static_key_base.o
 
 ifeq ($(CONFIG_DEBUG_KOBJECT),y)
 CFLAGS_kobject.o += -DDEBUG
@@ -137,8 +139,6 @@ obj-$(CONFIG_GENERIC_CSUM) += checksum.o
 obj-$(CONFIG_GENERIC_ATOMIC64) += atomic64.o
 
 obj-$(CONFIG_ATOMIC64_SELFTEST) += atomic64_test.o
-
-obj-$(CONFIG_AVERAGE) += average.o
 
 obj-$(CONFIG_CPU_RMAP) += cpu_rmap.o
 
