@@ -228,6 +228,39 @@ ENTRY(ret_from_fork)
 	jmp	syscall_exit
 END(ret_from_fork)
 
+#ifdef CONFIG_STACK_UNWIND
+ENTRY(arch_unwind_init_running)
+	movl	4(%esp), %edx
+	movl	(%esp), %ecx
+	leal	4(%esp), %eax
+	movl	%ebx, PT_EBX(%edx)
+	xorl	%ebx, %ebx
+	movl	%ebx, PT_ECX(%edx)
+	movl	%ebx, PT_EDX(%edx)
+	movl	%esi, PT_ESI(%edx)
+	movl	%edi, PT_EDI(%edx)
+	movl	%ebp, PT_EBP(%edx)
+	movl	%ebx, PT_EAX(%edx)
+	movl	$__USER_DS, PT_DS(%edx)
+	movl	$__USER_DS, PT_ES(%edx)
+	movl	$__KERNEL_PERCPU, PT_FS(%edx)
+	movl	$__KERNEL_STACK_CANARY, PT_GS(%edx)
+	movl	%eax, PT_OLDESP(%edx)
+	movl	16(%esp), %eax
+	movl	%ebx, PT_ORIG_EAX(%edx)
+	movl	%ecx, PT_EIP(%edx)
+	movl	12(%esp), %ecx
+	movl	$__KERNEL_CS, PT_CS(%edx)
+	movl	%eax, 12(%esp)
+	movl	8(%esp), %eax
+	movl	%ecx, 8(%esp)
+	movl	%ebx, PT_EFLAGS(%edx)
+	movl	PT_EBX(%edx), %ebx
+	movl	$__KERNEL_DS, PT_OLDSS(%edx)
+	jmpl	*%eax
+ENDPROC(arch_unwind_init_running)
+#endif
+
 ENTRY(ret_from_kernel_thread)
 	pushl	%eax
 	call	schedule_tail

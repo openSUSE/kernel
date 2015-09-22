@@ -762,6 +762,38 @@ ENTRY(do_softirq_own_stack)
 	ret
 END(do_softirq_own_stack)
 
+#ifdef CONFIG_STACK_UNWIND
+ENTRY(arch_unwind_init_running)
+	movq	%r15, R15(%rdi)
+	movq	%r14, R14(%rdi)
+	xchgq	%rsi, %rdx
+	movq	%r13, R13(%rdi)
+	movq	%r12, R12(%rdi)
+	xorl	%eax, %eax
+	movq	%rbp, RBP(%rdi)
+	movq	%rbx, RBX(%rdi)
+	movq	(%rsp), %r9
+	xchgq	%rdx, %rcx
+	movq	%rax, R11(%rdi)
+	movq	%rax, R10(%rdi)
+	movq	%rax, R9(%rdi)
+	movq	%rax, R8(%rdi)
+	movq	%rax, RAX(%rdi)
+	movq	%rax, RCX(%rdi)
+	movq	%rax, RDX(%rdi)
+	movq	%rax, RSI(%rdi)
+	movq	%rax, RDI(%rdi)
+	movq	%rax, ORIG_RAX(%rdi)
+	movq	%r9, RIP(%rdi)
+	leaq	8(%rsp), %r9
+	movq	$__KERNEL_CS, CS(%rdi)
+	movq	%rax, EFLAGS(%rdi)
+	movq	%r9, RSP(%rdi)
+	movq	$__KERNEL_DS, SS(%rdi)
+	jmpq	*%rcx
+END(arch_unwind_init_running)
+#endif
+
 idtentry debug			do_debug		has_error_code=0
 idtentry nmi			do_nmi_callback		has_error_code=0
 idtentry int3			do_int3			has_error_code=0
