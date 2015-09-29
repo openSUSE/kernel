@@ -829,14 +829,14 @@ static int isp_pipeline_link_notify(struct media_link *link, u32 flags,
 	int ret;
 
 	if (notification == MEDIA_DEV_NOTIFY_POST_LINK_CH &&
-	    !(link->flags & MEDIA_LNK_FL_ENABLED)) {
+	    !(flags & MEDIA_LNK_FL_ENABLED)) {
 		/* Powering off entities is assumed to never fail. */
 		isp_pipeline_pm_power(source, -sink_use);
 		isp_pipeline_pm_power(sink, -source_use);
 		return 0;
 	}
 
-	if (notification == MEDIA_DEV_NOTIFY_POST_LINK_CH &&
+	if (notification == MEDIA_DEV_NOTIFY_PRE_LINK_CH &&
 		(flags & MEDIA_LNK_FL_ENABLED)) {
 
 		ret = isp_pipeline_pm_power(source, sink_use);
@@ -2000,10 +2000,8 @@ static int isp_register_entities(struct isp_device *isp)
 	ret = v4l2_device_register_subdev_nodes(&isp->v4l2_dev);
 
 done:
-	if (ret < 0) {
+	if (ret < 0)
 		isp_unregister_entities(isp);
-		v4l2_async_notifier_unregister(&isp->notifier);
-	}
 
 	return ret;
 }
@@ -2423,10 +2421,6 @@ static int isp_probe(struct platform_device *pdev)
 		ret = isp_of_parse_nodes(&pdev->dev, &isp->notifier);
 		if (ret < 0)
 			return ret;
-		ret = v4l2_async_notifier_register(&isp->v4l2_dev,
-						   &isp->notifier);
-		if (ret)
-			return ret;
 	} else {
 		isp->pdata = pdev->dev.platform_data;
 		isp->syscon = syscon_regmap_lookup_by_pdevname("syscon.0");
@@ -2557,18 +2551,27 @@ static int isp_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto error_iommu;
 
-	isp->notifier.bound = isp_subdev_notifier_bound;
-	isp->notifier.complete = isp_subdev_notifier_complete;
-
 	ret = isp_register_entities(isp);
 	if (ret < 0)
 		goto error_modules;
+
+	if (IS_ENABLED(CONFIG_OF) && pdev->dev.of_node) {
+		isp->notifier.bound = isp_subdev_notifier_bound;
+		isp->notifier.complete = isp_subdev_notifier_complete;
+
+		ret = v4l2_async_notifier_register(&isp->v4l2_dev,
+						   &isp->notifier);
+		if (ret)
+			goto error_register_entities;
+	}
 
 	isp_core_init(isp, 1);
 	omap3isp_put(isp);
 
 	return 0;
 
+error_register_entities:
+	isp_unregister_entities(isp);
 error_modules:
 	isp_cleanup_modules(isp);
 error_iommu:

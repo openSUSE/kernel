@@ -171,6 +171,8 @@ static void llt_ndlc_rcv_queue(struct llt_ndlc *ndlc)
 		if ((pcb & PCB_TYPE_MASK) == PCB_TYPE_SUPERVISOR) {
 			switch (pcb & PCB_SYNC_MASK) {
 			case PCB_SYNC_ACK:
+				skb = skb_dequeue(&ndlc->ack_pending_q);
+				kfree_skb(skb);
 				del_timer_sync(&ndlc->t1_timer);
 				del_timer_sync(&ndlc->t2_timer);
 				ndlc->t2_active = false;
@@ -196,8 +198,10 @@ static void llt_ndlc_rcv_queue(struct llt_ndlc *ndlc)
 				kfree_skb(skb);
 				break;
 			}
-		} else {
+		} else if ((pcb & PCB_TYPE_MASK) == PCB_TYPE_DATAFRAME) {
 			nci_recv_frame(ndlc->ndev, skb);
+		} else {
+			kfree_skb(skb);
 		}
 	}
 }

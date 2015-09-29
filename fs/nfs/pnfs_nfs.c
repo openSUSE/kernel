@@ -359,26 +359,31 @@ same_sockaddr(struct sockaddr *addr1, struct sockaddr *addr2)
 	return false;
 }
 
+/*
+ * Checks if 'dsaddrs1' contains a subset of 'dsaddrs2'. If it does,
+ * declare a match.
+ */
 static bool
 _same_data_server_addrs_locked(const struct list_head *dsaddrs1,
 			       const struct list_head *dsaddrs2)
 {
 	struct nfs4_pnfs_ds_addr *da1, *da2;
+	struct sockaddr *sa1, *sa2;
+	bool match = false;
 
-	/* step through both lists, comparing as we go */
-	for (da1 = list_first_entry(dsaddrs1, typeof(*da1), da_node),
-	     da2 = list_first_entry(dsaddrs2, typeof(*da2), da_node);
-	     da1 != NULL && da2 != NULL;
-	     da1 = list_entry(da1->da_node.next, typeof(*da1), da_node),
-	     da2 = list_entry(da2->da_node.next, typeof(*da2), da_node)) {
-		if (!same_sockaddr((struct sockaddr *)&da1->da_addr,
-				   (struct sockaddr *)&da2->da_addr))
-			return false;
+	list_for_each_entry(da1, dsaddrs1, da_node) {
+		sa1 = (struct sockaddr *)&da1->da_addr;
+		match = false;
+		list_for_each_entry(da2, dsaddrs2, da_node) {
+			sa2 = (struct sockaddr *)&da2->da_addr;
+			match = same_sockaddr(sa1, sa2);
+			if (match)
+				break;
+		}
+		if (!match)
+			break;
 	}
-	if (da1 == NULL && da2 == NULL)
-		return true;
-
-	return false;
+	return match;
 }
 
 /*
@@ -863,9 +868,10 @@ pnfs_layout_mark_request_commit(struct nfs_page *req,
 	}
 	set_bit(PG_COMMIT_TO_DS, &req->wb_flags);
 	cinfo->ds->nwritten++;
-	spin_unlock(cinfo->lock);
 
-	nfs_request_add_commit_list(req, list, cinfo);
+	nfs_request_add_commit_list_locked(req, list, cinfo);
+	spin_unlock(cinfo->lock);
+	nfs_mark_page_unstable(req->wb_page, cinfo);
 }
 EXPORT_SYMBOL_GPL(pnfs_layout_mark_request_commit);
 
