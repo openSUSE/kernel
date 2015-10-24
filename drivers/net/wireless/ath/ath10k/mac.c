@@ -591,11 +591,19 @@ ath10k_mac_get_any_chandef_iter(struct ieee80211_hw *hw,
 static int ath10k_peer_create(struct ath10k *ar, u32 vdev_id, const u8 *addr,
 			      enum wmi_peer_type peer_type)
 {
+	struct ath10k_vif *arvif;
+	int num_peers = 0;
 	int ret;
 
 	lockdep_assert_held(&ar->conf_mutex);
 
-	if (ar->num_peers >= ar->max_num_peers)
+	num_peers = ar->num_peers;
+
+	/* Each vdev consumes a peer entry as well */
+	list_for_each_entry(arvif, &ar->arvifs, list)
+		num_peers++;
+
+	if (num_peers >= ar->max_num_peers)
 		return -ENOBUFS;
 
 	ret = ath10k_wmi_peer_create(ar, vdev_id, addr, peer_type);
@@ -2995,6 +3003,8 @@ void ath10k_mac_tx_unlock(struct ath10k *ar, int reason)
 						   IEEE80211_IFACE_ITER_RESUME_ALL,
 						   ath10k_mac_tx_unlock_iter,
 						   ar);
+
+	ieee80211_wake_queue(ar->hw, ar->hw->offchannel_tx_hw_queue);
 }
 
 void ath10k_mac_vif_tx_lock(struct ath10k_vif *arvif, int reason)
@@ -3034,38 +3044,16 @@ static void ath10k_mac_vif_handle_tx_pause(struct ath10k_vif *arvif,
 
 	lockdep_assert_held(&ar->htt.tx_lock);
 
-	switch (pause_id) {
-	case WMI_TLV_TX_PAUSE_ID_MCC:
-	case WMI_TLV_TX_PAUSE_ID_P2P_CLI_NOA:
-	case WMI_TLV_TX_PAUSE_ID_P2P_GO_PS:
-	case WMI_TLV_TX_PAUSE_ID_AP_PS:
-	case WMI_TLV_TX_PAUSE_ID_IBSS_PS:
-		switch (action) {
-		case WMI_TLV_TX_PAUSE_ACTION_STOP:
-			ath10k_mac_vif_tx_lock(arvif, pause_id);
-			break;
-		case WMI_TLV_TX_PAUSE_ACTION_WAKE:
-			ath10k_mac_vif_tx_unlock(arvif, pause_id);
-			break;
-		default:
-			ath10k_warn(ar, "received unknown tx pause action %d on vdev %i, ignoring\n",
-				    action, arvif->vdev_id);
-			break;
-		}
+	switch (action) {
+	case WMI_TLV_TX_PAUSE_ACTION_STOP:
+		ath10k_mac_vif_tx_lock(arvif, pause_id);
 		break;
-	case WMI_TLV_TX_PAUSE_ID_AP_PEER_PS:
-	case WMI_TLV_TX_PAUSE_ID_AP_PEER_UAPSD:
-	case WMI_TLV_TX_PAUSE_ID_STA_ADD_BA:
-	case WMI_TLV_TX_PAUSE_ID_HOST:
+	case WMI_TLV_TX_PAUSE_ACTION_WAKE:
+		ath10k_mac_vif_tx_unlock(arvif, pause_id);
+		break;
 	default:
-		/* FIXME: Some pause_ids aren't vdev specific. Instead they
-		 * target peer_id and tid. Implementing these could improve
-		 * traffic scheduling fairness across multiple connected
-		 * stations in AP/IBSS modes.
-		 */
-		ath10k_dbg(ar, ATH10K_DBG_MAC,
-			   "mac ignoring unsupported tx pause vdev %i id %d\n",
-			   arvif->vdev_id, pause_id);
+		ath10k_warn(ar, "received unknown tx pause action %d on vdev %i, ignoring\n",
+			    action, arvif->vdev_id);
 		break;
 	}
 }
@@ -3082,12 +3070,15 @@ static void ath10k_mac_handle_tx_pause_iter(void *data, u8 *mac,
 	struct ath10k_vif *arvif = ath10k_vif_to_arvif(vif);
 	struct ath10k_mac_tx_pause *arg = data;
 
+	if (arvif->vdev_id != arg->vdev_id)
+		return;
+
 	ath10k_mac_vif_handle_tx_pause(arvif, arg->pause_id, arg->action);
 }
 
-void ath10k_mac_handle_tx_pause(struct ath10k *ar, u32 vdev_id,
-				enum wmi_tlv_tx_pause_id pause_id,
-				enum wmi_tlv_tx_pause_action action)
+void ath10k_mac_handle_tx_pause_vdev(struct ath10k *ar, u32 vdev_id,
+				     enum wmi_tlv_tx_pause_id pause_id,
+				     enum wmi_tlv_tx_pause_action action)
 {
 	struct ath10k_mac_tx_pause arg = {
 		.vdev_id = vdev_id,
@@ -4080,6 +4071,11 @@ static int ath10k_add_interface(struct ieee80211_hw *hw,
 		       sizeof(arvif->bitrate_mask.control[i].vht_mcs));
 	}
 
+	if (ar->num_peers >= ar->max_num_peers) {
+		ath10k_warn(ar, "refusing vdev creation due to insufficient peer entry resources in firmware\n");
+		return -ENOBUFS;
+	}
+
 	if (ar->free_vdev_map == 0) {
 		ath10k_warn(ar, "Free vdev map is empty, no more interfaces allowed.\n");
 		ret = -EBUSY;
@@ -4286,6 +4282,11 @@ static int ath10k_add_interface(struct ieee80211_hw *hw,
 			goto err_peer_delete;
 		}
 	}
+
+	spin_lock_bh(&ar->htt.tx_lock);
+	if (!ar->tx_paused)
+		ieee80211_wake_queue(ar->hw, arvif->vdev_id);
+	spin_unlock_bh(&ar->htt.tx_lock);
 
 	mutex_unlock(&ar->conf_mutex);
 	return 0;
@@ -5561,6 +5562,21 @@ static int ath10k_set_rts_threshold(struct ieee80211_hw *hw, u32 value)
 	return ret;
 }
 
+static int ath10k_mac_op_set_frag_threshold(struct ieee80211_hw *hw, u32 value)
+{
+	/* Even though there's a WMI enum for fragmentation threshold no known
+	 * firmware actually implements it. Moreover it is not possible to rely
+	 * frame fragmentation to mac80211 because firmware clears the "more
+	 * fragments" bit in frame control making it impossible for remote
+	 * devices to reassemble frames.
+	 *
+	 * Hence implement a dummy callback just to say fragmentation isn't
+	 * supported. This effectively prevents mac80211 from doing frame
+	 * fragmentation in software.
+	 */
+	return -EOPNOTSUPP;
+}
+
 static void ath10k_flush(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			 u32 queues, bool drop)
 {
@@ -6395,6 +6411,7 @@ static const struct ieee80211_ops ath10k_ops = {
 	.remain_on_channel		= ath10k_remain_on_channel,
 	.cancel_remain_on_channel	= ath10k_cancel_remain_on_channel,
 	.set_rts_threshold		= ath10k_set_rts_threshold,
+	.set_frag_threshold		= ath10k_mac_op_set_frag_threshold,
 	.flush				= ath10k_flush,
 	.tx_last_beacon			= ath10k_tx_last_beacon,
 	.set_antenna			= ath10k_set_antenna,
