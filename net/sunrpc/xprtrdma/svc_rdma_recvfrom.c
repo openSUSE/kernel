@@ -115,15 +115,6 @@ static void rdma_build_arg_xdr(struct svc_rqst *rqstp,
 	rqstp->rq_arg.tail[0].iov_len = 0;
 }
 
-static int rdma_read_max_sge(struct svcxprt_rdma *xprt, int sge_count)
-{
-	if (!rdma_cap_read_multi_sge(xprt->sc_cm_id->device,
-				     xprt->sc_cm_id->port_num))
-		return 1;
-	else
-		return min_t(int, sge_count, xprt->sc_max_sge);
-}
-
 /* Issue an RDMA_READ using the local lkey to map the data sink */
 int rdma_read_chunk_lcl(struct svcxprt_rdma *xprt,
 			struct svc_rqst *rqstp,
@@ -144,8 +135,7 @@ int rdma_read_chunk_lcl(struct svcxprt_rdma *xprt,
 
 	ctxt->direction = DMA_FROM_DEVICE;
 	ctxt->read_hdr = head;
-	pages_needed =
-		min_t(int, pages_needed, rdma_read_max_sge(xprt, pages_needed));
+	pages_needed = min_t(int, pages_needed, xprt->sc_max_sge_rd);
 	read = min_t(int, (pages_needed << PAGE_SHIFT) - *page_offset,
 		     rs_length);
 
@@ -543,7 +533,7 @@ static int rdma_read_complete(struct svc_rqst *rqstp,
 	rqstp->rq_arg.page_base = head->arg.page_base;
 
 	/* rq_respages starts after the last arg page */
-	rqstp->rq_respages = &rqstp->rq_arg.pages[page_no];
+	rqstp->rq_respages = &rqstp->rq_pages[page_no];
 	rqstp->rq_next_page = rqstp->rq_respages + 1;
 
 	/* Rebuild rq_arg head and tail. */

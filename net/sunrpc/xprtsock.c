@@ -777,7 +777,6 @@ static void xs_sock_mark_closed(struct rpc_xprt *xprt)
 	xs_sock_reset_connection_flags(xprt);
 	/* Mark transport as closed and wake up all pending tasks */
 	xprt_disconnect_done(xprt);
-	xprt_force_disconnect(xprt);
 }
 
 /**
@@ -821,6 +820,8 @@ static void xs_reset_transport(struct sock_xprt *transport)
 
 	if (atomic_read(&transport->xprt.swapper))
 		sk_clear_memalloc(sk);
+
+	kernel_sock_shutdown(sock, SHUT_RDWR);
 
 	write_lock_bh(&sk->sk_callback_lock);
 	transport->inet = NULL;
@@ -879,8 +880,11 @@ static void xs_xprt_free(struct rpc_xprt *xprt)
  */
 static void xs_destroy(struct rpc_xprt *xprt)
 {
+	struct sock_xprt *transport = container_of(xprt,
+			struct sock_xprt, xprt);
 	dprintk("RPC:       xs_destroy xprt %p\n", xprt);
 
+	cancel_delayed_work_sync(&transport->connect_worker);
 	xs_close(xprt);
 	xs_xprt_free(xprt);
 	module_put(THIS_MODULE);
@@ -1872,7 +1876,7 @@ static int xs_local_finish_connecting(struct rpc_xprt *xprt,
 		sk->sk_data_ready = xs_local_data_ready;
 		sk->sk_write_space = xs_udp_write_space;
 		sk->sk_error_report = xs_error_report;
-		sk->sk_allocation = GFP_ATOMIC;
+		sk->sk_allocation = GFP_NOIO;
 
 		xprt_clear_connected(xprt);
 
@@ -2057,7 +2061,7 @@ static void xs_udp_finish_connecting(struct rpc_xprt *xprt, struct socket *sock)
 		sk->sk_user_data = xprt;
 		sk->sk_data_ready = xs_udp_data_ready;
 		sk->sk_write_space = xs_udp_write_space;
-		sk->sk_allocation = GFP_ATOMIC;
+		sk->sk_allocation = GFP_NOIO;
 
 		xprt_set_connected(xprt);
 
@@ -2159,7 +2163,7 @@ static int xs_tcp_finish_connecting(struct rpc_xprt *xprt, struct socket *sock)
 		sk->sk_state_change = xs_tcp_state_change;
 		sk->sk_write_space = xs_tcp_write_space;
 		sk->sk_error_report = xs_error_report;
-		sk->sk_allocation = GFP_ATOMIC;
+		sk->sk_allocation = GFP_NOIO;
 
 		/* socket options */
 		sock_reset_flag(sk, SOCK_LINGER);

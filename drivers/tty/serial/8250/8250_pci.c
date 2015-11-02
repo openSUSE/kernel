@@ -1417,6 +1417,10 @@ byt_set_termios(struct uart_port *p, struct ktermios *termios,
 	reg |= BYT_PRV_CLK_EN | BYT_PRV_CLK_UPDATE;
 	writel(reg, p->membase + BYT_PRV_CLK);
 
+	p->status &= ~UPSTAT_AUTOCTS;
+	if (termios->c_cflag & CRTSCTS)
+		p->status |= UPSTAT_AUTOCTS;
+
 	serial8250_do_set_termios(p, termios, old);
 }
 
@@ -1685,11 +1689,65 @@ pci_brcm_trumanage_setup(struct serial_private *priv,
 	return ret;
 }
 
+/* RTS will control by MCR if this bit is 0 */
+#define FINTEK_RTS_CONTROL_BY_HW	BIT(4)
+/* only worked with FINTEK_RTS_CONTROL_BY_HW on */
+#define FINTEK_RTS_INVERT		BIT(5)
+
+/* We should do proper H/W transceiver setting before change to RS485 mode */
+static int pci_fintek_rs485_config(struct uart_port *port,
+			       struct serial_rs485 *rs485)
+{
+	u8 setting;
+	u8 *index = (u8 *) port->private_data;
+	struct pci_dev *pci_dev = container_of(port->dev, struct pci_dev,
+						dev);
+
+	pci_read_config_byte(pci_dev, 0x40 + 8 * *index + 7, &setting);
+
+	if (!rs485)
+		rs485 = &port->rs485;
+	else if (rs485->flags & SER_RS485_ENABLED)
+		memset(rs485->padding, 0, sizeof(rs485->padding));
+	else
+		memset(rs485, 0, sizeof(*rs485));
+
+	/* F81504/508/512 not support RTS delay before or after send */
+	rs485->flags &= SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND;
+
+	if (rs485->flags & SER_RS485_ENABLED) {
+		/* Enable RTS H/W control mode */
+		setting |= FINTEK_RTS_CONTROL_BY_HW;
+
+		if (rs485->flags & SER_RS485_RTS_ON_SEND) {
+			/* RTS driving high on TX */
+			setting &= ~FINTEK_RTS_INVERT;
+		} else {
+			/* RTS driving low on TX */
+			setting |= FINTEK_RTS_INVERT;
+		}
+
+		rs485->delay_rts_after_send = 0;
+		rs485->delay_rts_before_send = 0;
+	} else {
+		/* Disable RTS H/W control mode */
+		setting &= ~(FINTEK_RTS_CONTROL_BY_HW | FINTEK_RTS_INVERT);
+	}
+
+	pci_write_config_byte(pci_dev, 0x40 + 8 * *index + 7, setting);
+
+	if (rs485 != &port->rs485)
+		port->rs485 = *rs485;
+
+	return 0;
+}
+
 static int pci_fintek_setup(struct serial_private *priv,
 			    const struct pciserial_board *board,
 			    struct uart_8250_port *port, int idx)
 {
 	struct pci_dev *pdev = priv->dev;
+	u8 *data;
 	u8 config_base;
 	u16 iobase;
 
@@ -1702,6 +1760,15 @@ static int pci_fintek_setup(struct serial_private *priv,
 
 	port->port.iotype = UPIO_PORT;
 	port->port.iobase = iobase;
+	port->port.rs485_config = pci_fintek_rs485_config;
+
+	data = devm_kzalloc(&pdev->dev, sizeof(u8), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	/* preserve index in PCI configuration space */
+	*data = idx;
+	port->port.private_data = data;
 
 	return 0;
 }
@@ -1712,6 +1779,8 @@ static int pci_fintek_init(struct pci_dev *dev)
 	u32 max_port, i;
 	u32 bar_data[3];
 	u8 config_base;
+	struct serial_private *priv = pci_get_drvdata(dev);
+	struct uart_8250_port *port;
 
 	switch (dev->device) {
 	case 0x1104: /* 4 ports */
@@ -1752,6 +1821,19 @@ static int pci_fintek_init(struct pci_dev *dev)
 				(u8)((iobase & 0xff00) >> 8));
 
 		pci_write_config_byte(dev, config_base + 0x06, dev->irq);
+
+		if (priv) {
+			/* re-apply RS232/485 mode when
+			 * pciserial_resume_ports()
+			 */
+			port = serial8250_get_port(priv->line[i]);
+			pci_fintek_rs485_config(&port->port, NULL);
+		} else {
+			/* First init without port data
+			 * force init to RS232 Mode
+			 */
+			pci_write_config_byte(dev, config_base + 0x07, 0x01);
+		}
 	}
 
 	return max_port;

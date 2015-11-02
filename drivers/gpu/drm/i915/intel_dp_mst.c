@@ -173,6 +173,11 @@ static void intel_mst_pre_enable_dp(struct intel_encoder *encoder)
 		return;
 	}
 
+	/* MST encoders are bound to a crtc, not to a connector,
+	 * force the mapping here for get_hw_state.
+	 */
+	found->encoder = encoder;
+
 	DRM_DEBUG_KMS("%d\n", intel_dp->active_mst_links);
 	intel_mst->port = found->port;
 
@@ -333,7 +338,7 @@ intel_dp_mst_connector_destroy(struct drm_connector *connector)
 }
 
 static const struct drm_connector_funcs intel_dp_mst_connector_funcs = {
-	.dpms = intel_connector_dpms,
+	.dpms = drm_atomic_helper_connector_dpms,
 	.detect = intel_dp_mst_detect,
 	.fill_modes = drm_helper_probe_single_connector_modes,
 	.set_property = intel_dp_mst_set_property,
@@ -400,7 +405,7 @@ static const struct drm_encoder_funcs intel_dp_mst_enc_funcs = {
 
 static bool intel_dp_mst_get_hw_state(struct intel_connector *connector)
 {
-	if (connector->encoder) {
+	if (connector->encoder && connector->base.state->crtc) {
 		enum pipe pipe;
 		if (!connector->encoder->get_hw_state(connector->encoder, &pipe))
 			return false;
@@ -411,7 +416,7 @@ static bool intel_dp_mst_get_hw_state(struct intel_connector *connector)
 
 static void intel_connector_add_to_fbdev(struct intel_connector *connector)
 {
-#ifdef CONFIG_DRM_I915_FBDEV
+#ifdef CONFIG_DRM_FBDEV_EMULATION
 	struct drm_i915_private *dev_priv = to_i915(connector->base.dev);
 	drm_fb_helper_add_one_connector(&dev_priv->fbdev->helper, &connector->base);
 #endif
@@ -419,7 +424,7 @@ static void intel_connector_add_to_fbdev(struct intel_connector *connector)
 
 static void intel_connector_remove_from_fbdev(struct intel_connector *connector)
 {
-#ifdef CONFIG_DRM_I915_FBDEV
+#ifdef CONFIG_DRM_FBDEV_EMULATION
 	struct drm_i915_private *dev_priv = to_i915(connector->base.dev);
 	drm_fb_helper_remove_one_connector(&dev_priv->fbdev->helper, &connector->base);
 #endif
@@ -457,12 +462,17 @@ static struct drm_connector *intel_dp_add_mst_connector(struct drm_dp_mst_topolo
 	drm_object_attach_property(&connector->base, dev->mode_config.tile_property, 0);
 
 	drm_mode_connector_set_path_property(connector, pathprop);
-	drm_reinit_primary_mode_group(dev);
-	mutex_lock(&dev->mode_config.mutex);
-	intel_connector_add_to_fbdev(intel_connector);
-	mutex_unlock(&dev->mode_config.mutex);
-	drm_connector_register(&intel_connector->base);
 	return connector;
+}
+
+static void intel_dp_register_mst_connector(struct drm_connector *connector)
+{
+	struct intel_connector *intel_connector = to_intel_connector(connector);
+	struct drm_device *dev = connector->dev;
+	drm_modeset_lock_all(dev);
+	intel_connector_add_to_fbdev(intel_connector);
+	drm_modeset_unlock_all(dev);
+	drm_connector_register(&intel_connector->base);
 }
 
 static void intel_dp_destroy_mst_connector(struct drm_dp_mst_topology_mgr *mgr,
@@ -470,19 +480,28 @@ static void intel_dp_destroy_mst_connector(struct drm_dp_mst_topology_mgr *mgr,
 {
 	struct intel_connector *intel_connector = to_intel_connector(connector);
 	struct drm_device *dev = connector->dev;
+
 	/* need to nuke the connector */
-	mutex_lock(&dev->mode_config.mutex);
-	intel_connector_dpms(connector, DRM_MODE_DPMS_OFF);
-	mutex_unlock(&dev->mode_config.mutex);
+	drm_modeset_lock_all(dev);
+	if (connector->state->crtc) {
+		struct drm_mode_set set;
+		int ret;
+
+		memset(&set, 0, sizeof(set));
+		set.crtc = connector->state->crtc,
+
+		ret = drm_atomic_helper_set_config(&set);
+
+		WARN(ret, "Disabling mst crtc failed with %i\n", ret);
+	}
+	drm_modeset_unlock_all(dev);
 
 	intel_connector->unregister(intel_connector);
 
-	mutex_lock(&dev->mode_config.mutex);
+	drm_modeset_lock_all(dev);
 	intel_connector_remove_from_fbdev(intel_connector);
 	drm_connector_cleanup(connector);
-	mutex_unlock(&dev->mode_config.mutex);
-
-	drm_reinit_primary_mode_group(dev);
+	drm_modeset_unlock_all(dev);
 
 	kfree(intel_connector);
 	DRM_DEBUG_KMS("\n");
@@ -499,6 +518,7 @@ static void intel_dp_mst_hotplug(struct drm_dp_mst_topology_mgr *mgr)
 
 static struct drm_dp_mst_topology_cbs mst_cbs = {
 	.add_connector = intel_dp_add_mst_connector,
+	.register_connector = intel_dp_register_mst_connector,
 	.destroy_connector = intel_dp_destroy_mst_connector,
 	.hotplug = intel_dp_mst_hotplug,
 };

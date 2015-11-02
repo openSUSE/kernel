@@ -17,10 +17,6 @@
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  *  General Public License for more details.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
- *
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  *
  * TBD: 
@@ -502,8 +498,7 @@ int __init acpi_irq_penalty_init(void)
 			    PIRQ_PENALTY_PCI_POSSIBLE;
 		}
 	}
-	/* Add a penalty for the SCI */
-	acpi_irq_penalty[acpi_gbl_FADT.sci_interrupt] += PIRQ_PENALTY_PCI_USING;
+
 	return 0;
 }
 
@@ -556,6 +551,13 @@ static int acpi_pci_link_allocate(struct acpi_pci_link *link)
 			    acpi_irq_penalty[link->irq.possible[i]])
 				irq = link->irq.possible[i];
 		}
+	}
+	if (acpi_irq_penalty[irq] >= PIRQ_PENALTY_ISA_ALWAYS) {
+		printk(KERN_ERR PREFIX "No IRQ available for %s [%s]. "
+			    "Try pci=noacpi or acpi=off\n",
+			    acpi_device_name(link->device),
+			    acpi_device_bid(link->device));
+		return -ENODEV;
 	}
 
 	/* Attempt to enable the link device at this IRQ. */
@@ -823,6 +825,12 @@ void acpi_penalize_isa_irq(int irq, int active)
 		else
 			acpi_irq_penalty[irq] += PIRQ_PENALTY_PCI_USING;
 	}
+}
+
+bool acpi_isa_irq_available(int irq)
+{
+	return irq >= 0 && (irq >= ARRAY_SIZE(acpi_irq_penalty) ||
+			    acpi_irq_penalty[irq] < PIRQ_PENALTY_ISA_ALWAYS);
 }
 
 /*

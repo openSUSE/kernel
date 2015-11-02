@@ -100,7 +100,7 @@ static int pmu_set_power_domain(int pd, bool on)
 		ret = pmu_power_domain_is_on(pd);
 		if (ret < 0) {
 			pr_err("%s: could not read power domain state\n",
-				 __func__);
+			       __func__);
 			return ret;
 		}
 	}
@@ -129,7 +129,7 @@ static int rockchip_boot_secondary(unsigned int cpu, struct task_struct *idle)
 
 	if (cpu >= ncores) {
 		pr_err("%s: cpu %d outside maximum number of cpus %d\n",
-							__func__, cpu, ncores);
+		       __func__, cpu, ncores);
 		return -ENXIO;
 	}
 
@@ -139,7 +139,8 @@ static int rockchip_boot_secondary(unsigned int cpu, struct task_struct *idle)
 		return ret;
 
 	if (read_cpuid_part() != ARM_CPU_PART_CORTEX_A9) {
-		/* We communicate with the bootrom to active the cpus other
+		/*
+		 * We communicate with the bootrom to active the cpus other
 		 * than cpu0, after a blob of initialize code, they will
 		 * stay at wfe state, once they are actived, they will check
 		 * the mailbox:
@@ -148,7 +149,7 @@ static int rockchip_boot_secondary(unsigned int cpu, struct task_struct *idle)
 		 * The cpu0 need to wait the other cpus other than cpu0 entering
 		 * the wfe state.The wait time is affected by many aspects.
 		 * (e.g: cpu frequency, bootrom frequency, sram frequency, ...)
-		 * */
+		 */
 		mdelay(1); /* ensure the cpus other than cpu0 to startup */
 
 		writel(virt_to_phys(secondary_startup), sram_base_addr + 8);
@@ -320,6 +321,13 @@ static void __init rockchip_smp_prepare_cpus(unsigned int max_cpus)
 #ifdef CONFIG_HOTPLUG_CPU
 static int rockchip_cpu_kill(unsigned int cpu)
 {
+	/*
+	 * We need a delay here to ensure that the dying CPU can finish
+	 * executing v7_coherency_exit() and reach the WFI/WFE state
+	 * prior to having the power domain disabled.
+	 */
+	mdelay(1);
+
 	pmu_set_power_domain(0 + cpu, false);
 	return 1;
 }
@@ -327,7 +335,7 @@ static int rockchip_cpu_kill(unsigned int cpu)
 static void rockchip_cpu_die(unsigned int cpu)
 {
 	v7_exit_coherency_flush(louis);
-	while(1)
+	while (1)
 		cpu_do_idle();
 }
 #endif
@@ -340,4 +348,5 @@ static struct smp_operations rockchip_smp_ops __initdata = {
 	.cpu_die		= rockchip_cpu_die,
 #endif
 };
+
 CPU_METHOD_OF_DECLARE(rk3066_smp, "rockchip,rk3066-smp", &rockchip_smp_ops);
