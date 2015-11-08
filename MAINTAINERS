@@ -2757,9 +2757,10 @@ S:	Supported
 F:	drivers/net/ethernet/cisco/enic/
 
 CISCO VIC LOW LATENCY NIC DRIVER
-M:	Upinder Malhi <umalhi@cisco.com>
+M:	Christian Benvenuti <benve@cisco.com>
+M:	Dave Goodell <dgoodell@cisco.com>
 S:	Supported
-F:	drivers/infiniband/hw/usnic
+F:	drivers/infiniband/hw/usnic/
 
 CIRRUS LOGIC EP93XX ETHERNET DRIVER
 M:	Hartley Sweeten <hsweeten@visionengravers.com>
@@ -4208,7 +4209,10 @@ L:	linux-kernel@vger.kernel.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/chanwoo/extcon.git
 S:	Maintained
 F:	drivers/extcon/
+F:	include/linux/extcon/
+F:	include/linux/extcon.h
 F:	Documentation/extcon/
+F:	Documentation/devicetree/bindings/extcon/
 
 EXYNOS DP DRIVER
 M:	Jingoo Han <jingoohan1@gmail.com>
@@ -7489,6 +7493,7 @@ S:	Supported
 F:	Documentation/filesystems/nilfs2.txt
 F:	fs/nilfs2/
 F:	include/linux/nilfs2_fs.h
+F:	include/trace/events/nilfs2.h
 
 NINJA SCSI-3 / NINJA SCSI-32Bi (16bit/CardBus) PCMCIA SCSI HOST ADAPTER DRIVER
 M:	YOKOTA Hiroshi <yokota@netlab.is.tsukuba.ac.jp>
