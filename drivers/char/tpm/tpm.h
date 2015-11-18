@@ -386,16 +386,6 @@ extern struct class *tpm_class;
 extern dev_t tpm_devt;
 extern const struct file_operations tpm_fops;
 
-static inline void *chip_get_private(const struct tpm_chip *chip)
-{
-	return chip->vendor.priv;
-}
-
-static inline void chip_set_private(struct tpm_chip *chip, void *priv)
-{
-	chip->vendor.priv = priv;
-}
-
 ssize_t	tpm_getcap(struct device *, __be32, cap_t *, const char *);
 ssize_t tpm_transmit(struct tpm_chip *chip, const char *buf,
 		     size_t bufsiz);

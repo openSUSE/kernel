@@ -12,7 +12,6 @@
 #include <linux/module.h>
 #include <linux/cpumask.h>
 #include <linux/pci-aspm.h>
-#include <xen/xen.h>
 #include <asm-generic/pci-bridge.h>
 #include "pci.h"
 
@@ -1149,22 +1148,13 @@ void pci_msi_setup_pci_dev(struct pci_dev *dev)
 	 * Disable the MSI hardware to avoid screaming interrupts
 	 * during boot.  This is the power on reset default so
 	 * usually this should be a noop.
-	 *
-	 * But on a Xen host don't do this for
-	 * - IOMMUs which the hypervisor is in control of (and hence has
-	 *   already enabled on purpose),
-	 * - unprivileged domains.
 	 */
-	if (xen_initial_domain()
-	    && (dev->class >> 8) == PCI_CLASS_SYSTEM_IOMMU
-	    && dev->vendor == PCI_VENDOR_ID_AMD)
-		return;
 	dev->msi_cap = pci_find_capability(dev, PCI_CAP_ID_MSI);
-	if (dev->msi_cap && xen_initial_domain())
+	if (dev->msi_cap)
 		pci_msi_set_enable(dev, 0);
 
 	dev->msix_cap = pci_find_capability(dev, PCI_CAP_ID_MSIX);
-	if (dev->msix_cap && xen_initial_domain())
+	if (dev->msix_cap)
 		pci_msix_clear_and_set_ctrl(dev, PCI_MSIX_FLAGS_ENABLE, 0);
 }
 
@@ -1619,11 +1609,6 @@ static void pci_init_capabilities(struct pci_dev *dev)
 	/* Vital Product Data */
 	pci_vpd_pci22_init(dev);
 
-#ifdef CONFIG_XEN
-	if (!is_initial_xendomain())
-		return;
-#endif
-
 	/* Alternative Routing-ID Forwarding */
 	pci_configure_ari(dev);
 
@@ -1742,10 +1727,6 @@ static unsigned next_fn(struct pci_bus *bus, struct pci_dev *dev, unsigned fn)
 	/* dev may be NULL for non-contiguous multifunction devices */
 	if (!dev || dev->multifunction)
 		return (fn + 1) % 8;
-#ifdef pcibios_scan_all_fns
-	if (pcibios_scan_all_fns(bus, dev->devfn))
-		return (fn + 1) % 8;
-#endif
 
 	return 0;
 }
@@ -1784,12 +1765,9 @@ int pci_scan_slot(struct pci_bus *bus, int devfn)
 		return 0; /* Already scanned the entire slot */
 
 	dev = pci_scan_single_device(bus, devfn);
-	if (!dev) {
-#ifdef pcibios_scan_all_fns
-		if (!pcibios_scan_all_fns(bus, devfn))
-#endif
+	if (!dev)
 		return 0;
-	} else if (!dev->is_added)
+	if (!dev->is_added)
 		nr++;
 
 	for (fn = next_fn(bus, dev, 0); fn > 0; fn = next_fn(bus, dev, fn)) {

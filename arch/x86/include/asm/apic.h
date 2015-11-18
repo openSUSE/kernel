@@ -9,16 +9,12 @@
 #include <asm/processor.h>
 #include <asm/apicdef.h>
 #include <linux/atomic.h>
-#ifndef CONFIG_XEN
 #include <asm/fixmap.h>
-#endif
 #include <asm/mpspec.h>
 #include <asm/msr.h>
 #include <asm/idle.h>
 
-#ifndef CONFIG_XEN
 #define ARCH_APICTIMER_STOPS_ON_C3	1
-#endif
 
 /*
  * Debugging macros
@@ -50,7 +46,6 @@ static inline void generic_apic_probe(void)
 #ifdef CONFIG_X86_LOCAL_APIC
 
 extern unsigned int apic_verbosity;
-#ifndef CONFIG_XEN
 extern int local_apic_timer_c2_ok;
 
 extern int disable_apic;
@@ -119,8 +114,6 @@ static inline bool apic_is_x2apic_enabled(void)
 		return false;
 	return msr & X2APIC_ENABLE;
 }
-
-#endif /* CONFIG_XEN */
 
 #ifdef CONFIG_X86_X2APIC
 /*
@@ -215,11 +208,7 @@ extern void sync_Arb_IDs(void);
 extern void init_bsp_APIC(void);
 extern void setup_local_APIC(void);
 extern void init_apic_mappings(void);
-#ifndef CONFIG_XEN
 void register_lapic_address(unsigned long address);
-#else
-#define register_lapic_address(address)
-#endif
 extern void setup_boot_APIC_clock(void);
 extern void setup_secondary_APIC_clock(void);
 extern int APIC_init_uniprocessor(void);
@@ -278,19 +267,16 @@ static inline void disable_local_APIC(void) { }
 struct apic {
 	char *name;
 
-#ifndef CONFIG_XEN
 	int (*probe)(void);
 	int (*acpi_madt_oem_check)(char *oem_id, char *oem_table_id);
 	int (*apic_id_valid)(int apicid);
 	int (*apic_id_registered)(void);
-#endif
 
 	u32 irq_delivery_mode;
 	u32 irq_dest_mode;
 
 	const struct cpumask *(*target_cpus)(void);
 
-#ifndef CONFIG_XEN
 	int disable_esr;
 
 	int dest_logical;
@@ -306,10 +292,8 @@ struct apic {
 	int (*cpu_present_to_apicid)(int mps_cpu);
 	void (*apicid_to_cpu_present)(int phys_apicid, physid_mask_t *retmap);
 	int (*check_phys_apicid_present)(int phys_apicid);
-#endif
 	int (*phys_pkg_id)(int cpuid_apic, int index_msb);
 
-#ifndef CONFIG_XEN
 	unsigned int (*get_apic_id)(unsigned long x);
 	unsigned long (*set_apic_id)(unsigned int id);
 	unsigned long apic_id_mask;
@@ -317,7 +301,6 @@ struct apic {
 	int (*cpu_mask_to_apicid_and)(const struct cpumask *cpumask,
 				      const struct cpumask *andmask,
 				      unsigned int *apicid);
-#endif
 
 	/* ipi */
 	void (*send_IPI_mask)(const struct cpumask *mask, int vector);
@@ -327,7 +310,6 @@ struct apic {
 	void (*send_IPI_all)(int vector);
 	void (*send_IPI_self)(int vector);
 
-#ifndef CONFIG_XEN
 	/* wakeup_secondary_cpu */
 	int (*wakeup_secondary_cpu)(int apicid, unsigned long start_eip);
 
@@ -362,7 +344,6 @@ struct apic {
 	 */
 	int (*x86_32_early_logical_apicid)(int cpu);
 #endif
-#endif /* CONFIG_XEN */
 };
 
 /*
@@ -371,8 +352,6 @@ struct apic {
  * early probing process which one it picks - and then sticks to it):
  */
 extern struct apic *apic;
-
-#ifndef CONFIG_XEN
 
 /*
  * APIC drivers are probed based on how they are listed in the .apicdrivers
@@ -489,7 +468,6 @@ extern int default_check_phys_apicid_present(int phys_apicid);
 
 extern void generic_bigsmp_probe(void);
 
-#endif /* CONFIG_XEN */
 
 #ifdef CONFIG_X86_LOCAL_APIC
 
@@ -510,8 +488,6 @@ static inline const struct cpumask *online_target_cpus(void)
 {
 	return cpu_online_mask;
 }
-
-#ifndef CONFIG_XEN
 
 DECLARE_EARLY_PER_CPU_READ_MOSTLY(u16, x86_bios_cpu_apicid);
 
@@ -650,8 +626,6 @@ extern int default_cpu_present_to_apicid(int mps_cpu);
 extern int default_check_phys_apicid_present(int phys_apicid);
 #endif
 
-#endif /* CONFIG_XEN */
-
 #endif /* CONFIG_X86_LOCAL_APIC */
 extern void irq_enter(void);
 extern void irq_exit(void);
@@ -662,7 +636,6 @@ static inline void entering_irq(void)
 	exit_idle();
 }
 
-#ifndef CONFIG_XEN
 static inline void entering_ack_irq(void)
 {
 	ack_APIC_irq();
@@ -674,21 +647,18 @@ static inline void ipi_entering_ack_irq(void)
 	ack_APIC_irq();
 	irq_enter();
 }
-#endif
 
 static inline void exiting_irq(void)
 {
 	irq_exit();
 }
 
-#ifndef CONFIG_XEN
 static inline void exiting_ack_irq(void)
 {
 	irq_exit();
 	/* Ack only at the end to avoid potential reentry */
 	ack_APIC_irq();
 }
-#endif
 
 extern void ioapic_zap_locks(void);
 

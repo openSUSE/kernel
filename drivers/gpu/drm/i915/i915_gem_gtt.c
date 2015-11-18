@@ -125,7 +125,7 @@ static int sanitize_enable_ppgtt(struct drm_device *dev, int enable_ppgtt)
 	if (enable_ppgtt == 2 && has_full_ppgtt)
 		return 2;
 
-#if defined(CONFIG_INTEL_IOMMU) || defined(CONFIG_XEN)
+#ifdef CONFIG_INTEL_IOMMU
 	/* Disable ppgtt on SNB if VT-d is on. */
 	if (INTEL_INFO(dev)->gen == 6 && intel_iommu_gfx_mapped) {
 		DRM_INFO("Disabling PPGTT because VT-d is on\n");
@@ -1703,12 +1703,13 @@ void  i915_ppgtt_release(struct kref *kref)
 	kfree(ppgtt);
 }
 
+extern int intel_iommu_gfx_mapped;
 /* Certain Gen5 chipsets require require idling the GPU before
  * unmapping anything from the GTT when VT-d is enabled.
  */
 static bool needs_idle_maps(struct drm_device *dev)
 {
-#if defined(CONFIG_INTEL_IOMMU) || defined(CONFIG_XEN)
+#ifdef CONFIG_INTEL_IOMMU
 	/* Query intel_iommu to see if we need the workaround. Presumably that
 	 * was loaded first.
 	 */

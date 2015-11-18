@@ -6,8 +6,6 @@
 
 #include <linux/sched.h>
 
-static int x86_noxsave_setup(char *);
-
 /*
  * Initialize the TS bit in CR0 according to the style of context-switches
  * we are using:
@@ -66,7 +64,7 @@ void fpu__init_cpu(void)
  * Set the X86_FEATURE_FPU CPU-capability bit based on
  * trying to execute an actual sequence of FPU instructions:
  */
-static void __init fpu__init_system_early_generic(struct cpuinfo_x86 *c)
+static void fpu__init_system_early_generic(struct cpuinfo_x86 *c)
 {
 	unsigned long cr0;
 	u16 fsw, fcw;
@@ -91,10 +89,6 @@ static void __init fpu__init_system_early_generic(struct cpuinfo_x86 *c)
 		for (;;)
 			asm volatile("hlt");
 	}
-#endif
-#ifdef CONFIG_XEN
-	if (!cpu_has_xsave)
-		x86_noxsave_setup("");
 #endif
 }
 

@@ -933,13 +933,6 @@ static bool free_pages_prepare(struct page *page, unsigned int order)
 	bool compound = PageCompound(page);
 	int i, bad = 0;
 
-#ifdef CONFIG_XEN
-	if (PageForeign(page)) {
-		PageForeignDestructor(page, order);
-		return false;
-	}
-#endif
-
 	VM_BUG_ON_PAGE(PageTail(page), page);
 	VM_BUG_ON_PAGE(compound && compound_order(page) != order, page);
 
@@ -6219,22 +6212,6 @@ static void __setup_per_zone_wmarks(void)
 		setup_zone_migrate_reserve(zone);
 		spin_unlock_irqrestore(&zone->lock, flags);
 	}
-
-#ifdef CONFIG_XEN
-	for_each_populated_zone(zone) {
-		unsigned int cpu;
-
-		for_each_online_cpu(cpu) {
-			unsigned long high;
-
-			high = percpu_pagelist_fraction
-			       ? zone->present_pages / percpu_pagelist_fraction
-			       : 5 * zone_batchsize(zone);
-			pageset_set_high(per_cpu_ptr(zone->pageset, cpu),
-					 high);
-		}
-	}
-#endif
 
 	/* update totalreserve_pages */
 	calculate_totalreserve_pages();

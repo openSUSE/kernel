@@ -369,19 +369,14 @@ struct pci_dev {
 	struct bin_attribute *res_attr[DEVICE_COUNT_RESOURCE]; /* sysfs file for resources */
 	struct bin_attribute *res_attr_wc[DEVICE_COUNT_RESOURCE]; /* sysfs file for WC mapping of resources */
 #ifdef CONFIG_PCI_MSI
-#ifdef CONFIG_XEN
-	struct list_head msi_list;
-#endif
 	const struct attribute_group **msi_irq_groups;
 #endif
 	struct pci_vpd *vpd;
-#ifdef CONFIG_PCI_IOV /* doesn't imply CONFIG_PCI_ATS when CONFIG_XEN */
+#ifdef CONFIG_PCI_ATS
 	union {
 		struct pci_sriov *sriov;	/* SR-IOV capability related */
 		struct pci_dev *physfn;	/* the PF this VF is associated with */
 	};
-#endif
-#ifdef CONFIG_PCI_ATS
 	u16		ats_cap;	/* ATS Capability offset */
 	u8		ats_stu;	/* ATS Smallest Translation Unit */
 	atomic_t	ats_ref_cnt;	/* number of VFs with ATS enabled */
@@ -1046,9 +1041,6 @@ void pci_update_resource(struct pci_dev *dev, int resno);
 int __must_check pci_assign_resource(struct pci_dev *dev, int i);
 int __must_check pci_reassign_resource(struct pci_dev *dev, int i, resource_size_t add_size, resource_size_t align);
 int pci_select_bars(struct pci_dev *dev, unsigned long flags);
-#ifdef CONFIG_XEN
-void pci_restore_bars(struct pci_dev *);
-#endif
 bool pci_device_is_present(struct pci_dev *pdev);
 void pci_ignore_hotplug(struct pci_dev *dev);
 
@@ -1274,10 +1266,6 @@ static inline int pci_enable_msix_exact(struct pci_dev *dev,
 		return rc;
 	return 0;
 }
-#ifdef CONFIG_XEN
-int register_msi_get_owner(int (*func)(struct pci_dev *dev));
-int unregister_msi_get_owner(int (*func)(struct pci_dev *dev));
-#endif
 #else
 static inline int pci_msi_vec_count(struct pci_dev *dev) { return -ENOSYS; }
 static inline void pci_msi_shutdown(struct pci_dev *dev) { }
@@ -1972,11 +1960,4 @@ static inline bool pci_ari_enabled(struct pci_bus *bus)
 {
 	return bus->self && bus->self->ari_enabled;
 }
-
-#ifdef CONFIG_PCI_GUESTDEV
-int pci_is_guestdev(struct pci_dev *dev);
-#else
-#define pci_is_guestdev(dev)	0
-#endif
-
 #endif /* LINUX_PCI_H */

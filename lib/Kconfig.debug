@@ -1838,7 +1838,7 @@ config TEST_UDELAY
 
 config MEMTEST
 	bool "Memtest"
-	depends on HAVE_MEMBLOCK && !XEN
+	depends on HAVE_MEMBLOCK
 	---help---
 	  This option adds a kernel parameter 'memtest', which allows memtest
 	  to be set.

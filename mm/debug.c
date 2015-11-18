@@ -52,11 +52,6 @@ static const struct trace_print_flags pageflag_names[] = {
 	{1UL << PG_young,		"young"		},
 	{1UL << PG_idle,		"idle"		},
 #endif
-#ifdef CONFIG_XEN
-	{1UL << PG_foreign,		"foreign"	},
-/*	{1UL << PG_netback,		"netback"	}, */
-	{1UL << PG_blkback,		"blkback"	},
-#endif
 };
 
 static void dump_flags(unsigned long flags,

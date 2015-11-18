@@ -488,32 +488,7 @@ long __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 				goto next_page;
 			}
 
-			if (!vma)
-				return i ? : -EFAULT;
-#ifdef CONFIG_XEN
-			if (vma->vm_flags & VM_FOREIGN) {
-				struct vm_foreign_map *foreign_map =
-					vma->vm_private_data;
-				struct page **map = foreign_map->map;
-				int offset = (start - vma->vm_start) >> PAGE_SHIFT;
-
-				if (map[offset] != NULL) {
-				        if (pages) {
-				                struct page *page = map[offset];
-
-						pages[i] = page;
-						get_page(page);
-					}
-					if (vmas)
-						vmas[i] = vma;
-					i++;
-					start += PAGE_SIZE;
-					nr_pages--;
-					continue;
-				}
-			}
-#endif
-			if (check_vma_flags(vma, gup_flags))
+			if (!vma || check_vma_flags(vma, gup_flags))
 				return i ? : -EFAULT;
 			if (is_vm_hugetlb_page(vma)) {
 				i = follow_hugetlb_page(mm, vma, pages, vmas,

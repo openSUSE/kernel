@@ -286,7 +286,7 @@ int i915_gem_init_stolen(struct drm_device *dev)
 
 	mutex_init(&dev_priv->mm.stolen_lock);
 
-#if defined(CONFIG_INTEL_IOMMU) || defined(CONFIG_XEN)
+#ifdef CONFIG_INTEL_IOMMU
 	if (intel_iommu_gfx_mapped && INTEL_INFO(dev)->gen < 8) {
 		DRM_INFO("DMAR active, disabling use of stolen memory\n");
 		return 0;

@@ -906,7 +906,7 @@ ENTRY(arch_unwind_init_running)
 END(arch_unwind_init_running)
 #endif
 
-#ifdef CONFIG_PARAVIRT_XEN
+#ifdef CONFIG_XEN
 idtentry xen_hypervisor_callback xen_do_hypervisor_callback has_error_code=0
 
 /*
@@ -990,7 +990,7 @@ END(xen_failsafe_callback)
 apicinterrupt3 HYPERVISOR_CALLBACK_VECTOR \
 	xen_hvm_callback_vector xen_evtchn_do_upcall
 
-#endif /* CONFIG_PARAVIRT_XEN */
+#endif /* CONFIG_XEN */
 
 #if IS_ENABLED(CONFIG_HYPERV)
 apicinterrupt3 HYPERVISOR_CALLBACK_VECTOR \
@@ -1001,7 +1001,7 @@ idtentry debug			do_debug		has_error_code=0	paranoid=1 shift_ist=DEBUG_STACK
 idtentry int3			do_int3			has_error_code=0	paranoid=1 shift_ist=DEBUG_STACK
 idtentry stack_segment		do_stack_segment	has_error_code=1
 
-#ifdef CONFIG_PARAVIRT_XEN
+#ifdef CONFIG_XEN
 idtentry xen_debug		do_debug		has_error_code=0
 idtentry xen_int3		do_int3			has_error_code=0
 idtentry xen_stack_segment	do_stack_segment	has_error_code=1

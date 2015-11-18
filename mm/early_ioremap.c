@@ -165,17 +165,6 @@ void __init early_iounmap(void __iomem *addr, unsigned long size)
 	enum fixed_addresses idx;
 	int i, slot;
 
-#if defined(CONFIG_XEN) && defined(CONFIG_X86)
-	/*
-	 * early_ioremap special-cases the PCI/ISA range by not instantiating a
-	 * vm_area and by simply returning an address into the kernel mapping
-	 * of ISA space.   So handle that here.
-	 */
-	if ((unsigned long)addr >= fix_to_virt(FIX_ISAMAP_BEGIN)
-	    && (unsigned long)addr < fix_to_virt(FIX_ISAMAP_END - 1))
-		return;
-
-#endif
 	slot = -1;
 	for (i = 0; i < FIX_BTMAPS_SLOTS; i++) {
 		if (prev_map[i] == addr) {
@@ -219,11 +208,6 @@ void __init early_iounmap(void __iomem *addr, unsigned long size)
 void __init __iomem *
 early_ioremap(resource_size_t phys_addr, unsigned long size)
 {
-#if defined(CONFIG_XEN) && defined(CONFIG_X86)
-	/* Don't remap the low PCI/ISA area, it's always mapped. */
-	if (is_initial_xendomain() && is_ISA_range(phys_addr, phys_addr + size - 1))
-		return (__force void __iomem *)isa_bus_to_virt((unsigned long)phys_addr);
-#endif
 	return __early_ioremap(phys_addr, size, FIXMAP_PAGE_IO);
 }
 
@@ -231,24 +215,14 @@ early_ioremap(resource_size_t phys_addr, unsigned long size)
 void __init *
 early_memremap(resource_size_t phys_addr, unsigned long size)
 {
-#ifndef CONFIG_XEN
 	return (__force void *)__early_ioremap(phys_addr, size,
 					       FIXMAP_PAGE_NORMAL);
-#else
-	return (__force void *)__early_ioremap(phys_to_machine(phys_addr),
-					       size, FIXMAP_PAGE_NORMAL);
-#endif
 }
 #ifdef FIXMAP_PAGE_RO
 void __init *
 early_memremap_ro(resource_size_t phys_addr, unsigned long size)
 {
-#ifndef CONFIG_XEN
 	return (__force void *)__early_ioremap(phys_addr, size, FIXMAP_PAGE_RO);
-#else
-	return (__force void *)__early_ioremap(phys_to_machine(phys_addr),
-					       size, FIXMAP_PAGE_RO);
-#endif
 }
 #endif
 

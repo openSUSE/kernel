@@ -581,15 +581,15 @@ config SCSI_FLASHPOINT
 
 config VMWARE_PVSCSI
 	tristate "VMware PVSCSI driver support"
-	depends on PCI && SCSI && !XEN && X86
+	depends on PCI && SCSI && X86
 	help
 	  This driver supports VMware's para virtualized SCSI HBA.
 	  To compile this driver as a module, choose M here: the
 	  module will be called vmw_pvscsi.
 
-config PARAVIRT_XEN_SCSI_FRONTEND
+config XEN_SCSI_FRONTEND
 	tristate "XEN SCSI frontend driver"
-	depends on SCSI && PARAVIRT_XEN
+	depends on SCSI && XEN
 	select XEN_XENBUS_FRONTEND
 	help
 	  The XEN SCSI frontend driver allows the kernel to access SCSI Devices

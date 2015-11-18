@@ -438,21 +438,4 @@ void ioat_kobject_add(struct ioatdma_device *ioat_dma, struct kobj_type *type);
 void ioat_kobject_del(struct ioatdma_device *ioat_dma);
 int ioat_dma_setup_interrupts(struct ioatdma_device *ioat_dma);
 void ioat_stop(struct ioatdma_chan *ioat_chan);
-
-#ifndef CONFIG_XEN
-void ioat_remove_dca_provider(struct pci_dev *);
-#else
-static inline void ioat_remove_dca_provider(struct pci_dev *pdev)
-{
-	struct ioatdma_device *device = pci_get_drvdata(pdev);
-	BUG_ON(device->dca);
-}
-static inline struct dca_provider *
-__ioat_dca_init(struct pci_dev *pdev, void __iomem *iobase)
-{
-	return NULL;
-}
-#define ioat_dca_init __ioat_dca_init
-#endif
-
 #endif /* IOATDMA_H */

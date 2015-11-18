@@ -22,7 +22,6 @@ vdso_img-$(VDSOX32-y)		+= x32
 vdso_img-$(VDSO32-y)		+= 32-int80
 vdso_img-$(CONFIG_IA32_EMULATION)	+= 32-syscall
 vdso_img-$(VDSO32-y)		+= 32-sysenter
-vdso_img-$(CONFIG_X86_XEN)	+= 32-syscall
 
 obj-$(VDSO32-y)			+= vdso32-setup.o
 
@@ -129,7 +128,6 @@ $(obj)/vdsox32.so.dbg: $(src)/vdsox32.lds $(vobjx32s) FORCE
 vdso32.so-$(VDSO32-y)		+= int80
 vdso32.so-$(CONFIG_IA32_EMULATION)	+= syscall
 vdso32.so-$(VDSO32-y)		+= sysenter
-vdso32.so-$(CONFIG_X86_XEN)	+= syscall
 
 vdso32-images			= $(vdso32.so-y:%=vdso32-%.so)
 

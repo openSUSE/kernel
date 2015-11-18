@@ -274,9 +274,6 @@ static inline bool rwsem_try_write_lock(long count, struct rw_semaphore *sem)
 }
 
 #ifdef CONFIG_RWSEM_SPIN_ON_OWNER
-#ifndef arch_cpu_is_running
-#define arch_cpu_is_running(cpu) true
-#endif
 /*
  * Try to acquire write lock before the writer has been put on wait queue.
  */
@@ -321,8 +318,7 @@ static inline bool rwsem_can_spin_on_owner(struct rw_semaphore *sem)
 		goto done;
 	}
 
-	ret = owner->on_cpu &&
-	      arch_cpu_is_running(task_thread_info(owner)->cpu);
+	ret = owner->on_cpu;
 done:
 	rcu_read_unlock();
 	return ret;
@@ -344,9 +340,7 @@ bool rwsem_spin_on_owner(struct rw_semaphore *sem, struct task_struct *owner)
 		barrier();
 
 		/* abort spinning when need_resched or owner is not running */
-		if (!owner->on_cpu ||
-		    !arch_cpu_is_running(task_thread_info(owner)->cpu) ||
-		    need_resched()) {
+		if (!owner->on_cpu || need_resched()) {
 			rcu_read_unlock();
 			return false;
 		}

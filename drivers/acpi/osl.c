@@ -337,8 +337,6 @@ acpi_map_lookup_virt(void __iomem *virt, acpi_size size)
 #if defined(CONFIG_IA64) || defined(CONFIG_ARM64)
 /* ioremap will take care of cache attributes */
 #define should_use_kmap(pfn)   0
-#elif defined(CONFIG_XEN)
-#define should_use_kmap(mfn)   pfn_valid(pfn = mfn_to_local_pfn(mfn))
 #else
 #define should_use_kmap(pfn)   page_is_ram(pfn)
 #endif

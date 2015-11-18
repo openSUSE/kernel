@@ -20,7 +20,7 @@ static inline enum paravirt_lazy_mode paravirt_get_lazy_mode(void)
 
 extern struct dma_map_ops *xen_dma_ops;
 
-#ifdef CONFIG_PARAVIRT_XEN
+#ifdef CONFIG_XEN
 void __init xen_early_init(void);
 #else
 static inline void xen_early_init(void) { return; }

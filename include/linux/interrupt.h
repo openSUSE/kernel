@@ -361,12 +361,6 @@ static inline int disable_irq_wake(unsigned int irq)
 	return irq_set_irq_wake(irq, 0);
 }
 
-#ifdef CONFIG_HAVE_IRQ_IGNORE_UNHANDLED
-int irq_ignore_unhandled(unsigned int irq);
-#else
-#define irq_ignore_unhandled(irq) 0
-#endif
-
 /*
  * irq_get_irqchip_state/irq_set_irqchip_state specific flags
  */

@@ -607,12 +607,8 @@ static void show_smap_vma_flags(struct seq_file *m, struct vm_area_struct *vma)
 		[ilog2(VM_SOFTDIRTY)]	= "sd",
 #endif
 		[ilog2(VM_MIXEDMAP)]	= "mm",
-#ifndef CONFIG_XEN
 		[ilog2(VM_HUGEPAGE)]	= "hg",
 		[ilog2(VM_NOHUGEPAGE)]	= "nh",
-#else
-		[ilog2(VM_FOREIGN)]	= "fo",
-#endif
 		[ilog2(VM_MERGEABLE)]	= "mg",
 		[ilog2(VM_UFFD_MISSING)]= "um",
 		[ilog2(VM_UFFD_WP)]	= "uw",

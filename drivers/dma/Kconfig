@@ -242,7 +242,7 @@ config INTEL_IOATDMA
 	depends on PCI && X86_64
 	select DMA_ENGINE
 	select DMA_ENGINE_RAID
-	select DCA if !XEN
+	select DCA
 	help
 	  Enable support for the Intel(R) I/OAT DMA engine present
 	  in recent Intel Xeon chipsets.

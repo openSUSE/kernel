@@ -95,11 +95,7 @@ struct service_hndl {
 
 static inline int get_current_node(void)
 {
-#ifndef CONFIG_XEN
 	return topology_physical_package_id(smp_processor_id());
-#else
-	return 0;
-#endif
 }
 
 int adf_service_register(struct service_hndl *service);

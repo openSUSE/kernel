@@ -77,7 +77,6 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/uaccess.h>
-#include <xen/xen_pvonhvm.h>
 
 /* These identify the driver base version and may not be removed. */
 static char version[] =
@@ -1879,9 +1878,6 @@ static int cp_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 	void __iomem *regs;
 	resource_size_t pciaddr;
 	unsigned int addr_len, i, pci_using_dac;
-
-	if (xen_pvonhvm_unplugged_nics)
-		return -EBUSY;
 
 	pr_info_once("%s", version);
 

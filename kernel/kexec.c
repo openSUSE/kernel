@@ -205,13 +205,6 @@ SYSCALL_DEFINE4(kexec_load, unsigned long, entry, unsigned long, nr_segments,
 		if (flags & KEXEC_ON_CRASH)
 			crash_unmap_reserved_pages();
 	}
-#ifdef CONFIG_XEN
-	if (image) {
-		result = xen_machine_kexec_load(image);
-		if (result)
-			goto out;
-	}
-#endif
 	/* Install the new kernel, and  Uninstall the old */
 	image = xchg(dest_image, image);
 

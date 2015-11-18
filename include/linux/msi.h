@@ -4,8 +4,6 @@
 #include <linux/kobject.h>
 #include <linux/list.h>
 
-#ifndef CONFIG_XEN
-
 struct msi_msg {
 	u32	address_lo;	/* low 32 bits of msi message address */
 	u32	address_hi;	/* high 32 bits of msi message address */
@@ -167,9 +165,6 @@ struct msi_controller {
 			 struct msi_desc *desc);
 	void (*teardown_irq)(struct msi_controller *chip, unsigned int irq);
 };
-#else /* CONFIG_XEN */
-struct msi_msg;
-#endif /* CONFIG_XEN */
 
 #ifdef CONFIG_GENERIC_MSI_IRQ_DOMAIN
 
