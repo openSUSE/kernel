@@ -51,7 +51,7 @@ void dump_trace(struct task_struct *task, struct pt_regs *regs,
 
 	bp = stack_frame(task, regs);
 	if (try_stack_unwind(task, regs, &stack, &bp, ops, data))
-		return;
+		goto putcpu;
 
 	if (!stack) {
 		unsigned long dummy;
@@ -90,6 +90,7 @@ void dump_trace(struct task_struct *task, struct pt_regs *regs,
 			break;
 		touch_nmi_watchdog();
 	}
+putcpu:
 	put_cpu();
 }
 EXPORT_SYMBOL(dump_trace);

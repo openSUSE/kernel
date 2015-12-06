@@ -165,10 +165,8 @@ void dump_trace(struct task_struct *task, struct pt_regs *regs,
 		task = current;
 
 	bp = stack_frame(task, regs);
-	if (try_stack_unwind(task, regs, &stack, &bp, ops, data)) {
-		put_cpu();
-		return;
-	}
+	if (try_stack_unwind(task, regs, &stack, &bp, ops, data))
+		goto putcpu;
 
 	if (!stack) {
 		if (regs)
@@ -248,6 +246,7 @@ void dump_trace(struct task_struct *task, struct pt_regs *regs,
 	 * This handles the process stack:
 	 */
 	bp = ops->walk_stack(tinfo, stack, bp, ops, data, NULL, &graph);
+putcpu:
 	put_cpu();
 }
 EXPORT_SYMBOL(dump_trace);
