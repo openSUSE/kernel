@@ -42,7 +42,7 @@ void dump_trace(struct task_struct *task, struct pt_regs *regs,
 		unsigned long *stack, unsigned long bp,
 		const struct stacktrace_ops *ops, void *data)
 {
-	const unsigned cpu = get_cpu();
+	unsigned cpu;
 	int graph = 0;
 	u32 *prev_esp;
 
@@ -51,7 +51,7 @@ void dump_trace(struct task_struct *task, struct pt_regs *regs,
 
 	bp = stack_frame(task, regs);
 	if (try_stack_unwind(task, regs, &stack, &bp, ops, data))
-		goto putcpu;
+		return;
 
 	if (!stack) {
 		unsigned long dummy;
@@ -64,6 +64,7 @@ void dump_trace(struct task_struct *task, struct pt_regs *regs,
 	if (!bp)
 		bp = stack_frame(task, regs);
 
+	cpu = get_cpu();
 	for (;;) {
 		struct thread_info *context;
 		void *end_stack;
@@ -90,7 +91,6 @@ void dump_trace(struct task_struct *task, struct pt_regs *regs,
 			break;
 		touch_nmi_watchdog();
 	}
-putcpu:
 	put_cpu();
 }
 EXPORT_SYMBOL(dump_trace);
