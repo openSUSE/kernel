@@ -6225,9 +6225,11 @@ static void intel_crtc_disable_noatomic(struct drm_crtc *crtc)
 	if (to_intel_plane_state(crtc->primary->state)->visible) {
 		intel_crtc_wait_for_pending_flips(crtc);
 		intel_pre_disable_primary(crtc);
+
+		intel_crtc_disable_planes(crtc, 1 << drm_plane_index(crtc->primary));
+		to_intel_plane_state(crtc->primary->state)->visible = false;
 	}
 
-	intel_crtc_disable_planes(crtc, crtc->state->plane_mask);
 	dev_priv->display.crtc_disable(crtc);
 	intel_disable_shared_dpll(intel_crtc);
 
