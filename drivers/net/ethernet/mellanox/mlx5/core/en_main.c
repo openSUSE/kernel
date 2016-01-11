@@ -442,12 +442,12 @@ static void mlx5e_disable_rq(struct mlx5e_rq *rq)
 
 static int mlx5e_wait_for_min_rx_wqes(struct mlx5e_rq *rq)
 {
+	unsigned long exp_time = jiffies + msecs_to_jiffies(20000);
 	struct mlx5e_channel *c = rq->channel;
 	struct mlx5e_priv *priv = c->priv;
 	struct mlx5_wq_ll *wq = &rq->wq;
-	int i;
 
-	for (i = 0; i < 1000; i++) {
+	while (time_before(jiffies, exp_time)) {
 		if (wq->cur_sz >= priv->params.min_rx_wqes)
 			return 0;
 
@@ -1449,6 +1449,12 @@ int mlx5e_close_locked(struct net_device *netdev)
 {
 	struct mlx5e_priv *priv = netdev_priv(netdev);
 
+	/* May already be CLOSED in case a previous configuration operation
+	 * (e.g RX/TX queue size change) that involves close&open failed.
+	 */
+	if (!test_bit(MLX5E_STATE_OPENED, &priv->state))
+		return 0;
+
 	clear_bit(MLX5E_STATE_OPENED, &priv->state);
 
 	mlx5e_redirect_rqts(priv);
@@ -1882,7 +1888,7 @@ static int mlx5e_set_features(struct net_device *netdev,
 			mlx5e_disable_vlan_filter(priv);
 	}
 
-	return 0;
+	return err;
 }
 
 static int mlx5e_change_mtu(struct net_device *netdev, int new_mtu)
@@ -1894,6 +1900,8 @@ static int mlx5e_change_mtu(struct net_device *netdev, int new_mtu)
 	int err = 0;
 
 	mlx5_query_port_max_mtu(mdev, &max_mtu, 1);
+
+	max_mtu = MLX5E_HW2SW_MTU(max_mtu);
 
 	if (new_mtu > max_mtu) {
 		netdev_err(netdev,
@@ -2046,6 +2054,7 @@ static void mlx5e_build_netdev(struct net_device *netdev)
 		netdev->vlan_features    |= NETIF_F_LRO;
 
 	netdev->hw_features       = netdev->vlan_features;
+	netdev->hw_features      |= NETIF_F_HW_VLAN_CTAG_TX;
 	netdev->hw_features      |= NETIF_F_HW_VLAN_CTAG_RX;
 	netdev->hw_features      |= NETIF_F_HW_VLAN_CTAG_FILTER;
 
@@ -2089,8 +2098,7 @@ static void *mlx5e_create_netdev(struct mlx5_core_dev *mdev)
 {
 	struct net_device *netdev;
 	struct mlx5e_priv *priv;
-	int nch = min_t(int, mdev->priv.eq_table.num_comp_vectors,
-			MLX5E_MAX_NUM_CHANNELS);
+	int nch = mlx5e_get_max_num_channels(mdev);
 	int err;
 
 	if (mlx5e_check_required_hca_cap(mdev))

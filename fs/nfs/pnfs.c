@@ -1466,11 +1466,11 @@ static bool pnfs_within_mdsthreshold(struct nfs_open_context *ctx,
 }
 
 /* stop waiting if someone clears NFS_LAYOUT_RETRY_LAYOUTGET bit. */
-static int pnfs_layoutget_retry_bit_wait(struct wait_bit_key *key)
+static int pnfs_layoutget_retry_bit_wait(struct wait_bit_key *key, int mode)
 {
 	if (!test_bit(NFS_LAYOUT_RETRY_LAYOUTGET, key->flags))
 		return 1;
-	return nfs_wait_bit_killable(key);
+	return nfs_wait_bit_killable(key, mode);
 }
 
 static bool pnfs_prepare_to_retry_layoutget(struct pnfs_layout_hdr *lo)
@@ -1918,12 +1918,13 @@ static void pnfs_ld_handle_write_error(struct nfs_pgio_header *hdr)
  */
 void pnfs_ld_write_done(struct nfs_pgio_header *hdr)
 {
-	trace_nfs4_pnfs_write(hdr, hdr->pnfs_error);
-	if (!hdr->pnfs_error) {
+	if (likely(!hdr->pnfs_error)) {
 		pnfs_set_layoutcommit(hdr->inode, hdr->lseg,
 				hdr->mds_offset + hdr->res.count);
 		hdr->mds_ops->rpc_call_done(&hdr->task, hdr);
-	} else
+	}
+	trace_nfs4_pnfs_write(hdr, hdr->pnfs_error);
+	if (unlikely(hdr->pnfs_error))
 		pnfs_ld_handle_write_error(hdr);
 	hdr->mds_ops->rpc_release(hdr);
 }
@@ -2034,11 +2035,12 @@ static void pnfs_ld_handle_read_error(struct nfs_pgio_header *hdr)
  */
 void pnfs_ld_read_done(struct nfs_pgio_header *hdr)
 {
-	trace_nfs4_pnfs_read(hdr, hdr->pnfs_error);
 	if (likely(!hdr->pnfs_error)) {
 		__nfs4_read_done_cb(hdr);
 		hdr->mds_ops->rpc_call_done(&hdr->task, hdr);
-	} else
+	}
+	trace_nfs4_pnfs_read(hdr, hdr->pnfs_error);
+	if (unlikely(hdr->pnfs_error))
 		pnfs_ld_handle_read_error(hdr);
 	hdr->mds_ops->rpc_release(hdr);
 }
