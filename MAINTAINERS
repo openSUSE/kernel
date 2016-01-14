@@ -2767,7 +2767,7 @@ S:	Maintained
 F:	Documentation/zh_CN/
 
 CHIPIDEA USB HIGH SPEED DUAL ROLE CONTROLLER
-M:	Peter Chen <Peter.Chen@freescale.com>
+M:	Peter Chen <Peter.Chen@nxp.com>
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/peter.chen/usb.git
 L:	linux-usb@vger.kernel.org
 S:	Maintained
@@ -5037,6 +5037,13 @@ F:	include/linux/hippidevice.h
 F:	include/uapi/linux/if_hippi.h
 F:	net/802/hippi.c
 F:	drivers/net/hippi/
+
+HISILICON SAS Controller
+M:	John Garry <john.garry@huawei.com>
+W:	http://www.hisilicon.com
+S:	Supported
+F:	drivers/scsi/hisi_sas/
+F:	Documentation/devicetree/bindings/scsi/hisilicon-sas.txt
 
 HOST AP DRIVER
 M:	Jouni Malinen <j@w1.fi>
@@ -8992,6 +8999,12 @@ L:	linux-sh@vger.kernel.org
 F:	drivers/net/ethernet/renesas/
 F:	include/linux/sh_eth.h
 
+RENESAS USB2 PHY DRIVER
+M:	Yoshihiro Shimoda <yoshihiro.shimoda.uh@renesas.com>
+L:	linux-sh@vger.kernel.org
+S:	Maintained
+F:	drivers/phy/phy-rcar-gen3-usb2.c
+
 RESET CONTROLLER FRAMEWORK
 M:	Philipp Zabel <p.zabel@pengutronix.de>
 S:	Maintained
@@ -11188,7 +11201,7 @@ F:	Documentation/usb/ohci.txt
 F:	drivers/usb/host/ohci*
 
 USB OTG FSM (Finite State Machine)
-M:	Peter Chen <Peter.Chen@freescale.com>
+M:	Peter Chen <Peter.Chen@nxp.com>
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/peter.chen/usb.git
 L:	linux-usb@vger.kernel.org
 S:	Maintained
