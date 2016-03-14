@@ -350,6 +350,9 @@ static umode_t region_visible(struct kobject *kobj, struct attribute *a, int n)
 	struct nd_interleave_set *nd_set = nd_region->nd_set;
 	int type = nd_region_to_nstype(nd_region);
 
+	if (!is_nd_pmem(dev) && a == &dev_attr_pfn_seed.attr)
+		return 0;
+
 	if (a != &dev_attr_set_cookie.attr
 			&& a != &dev_attr_available_size.attr)
 		return a->mode;
@@ -429,6 +432,13 @@ static void nd_region_notify_driver_action(struct nvdimm_bus *nvdimm_bus,
 		if (nd_region->ns_seed == &nd_btt->ndns->dev &&
 				is_nd_blk(dev->parent))
 			nd_region_create_blk_seed(nd_region);
+		nvdimm_bus_unlock(dev);
+	}
+	if (is_nd_pfn(dev) && probe) {
+		nd_region = to_nd_region(dev->parent);
+		nvdimm_bus_lock(dev);
+		if (nd_region->pfn_seed == dev)
+			nd_region_create_pfn_seed(nd_region);
 		nvdimm_bus_unlock(dev);
 	}
 }

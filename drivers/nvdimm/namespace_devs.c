@@ -157,20 +157,10 @@ const char *nvdimm_namespace_disk_name(struct nd_namespace_common *ndns,
 	struct nd_region *nd_region = to_nd_region(ndns->dev.parent);
 	const char *suffix = NULL;
 
-	if (ndns->claim) {
-		if (is_nd_btt(ndns->claim))
-			suffix = "s";
-		else if (is_nd_pfn(ndns->claim))
-			suffix = "m";
-		else
-			dev_WARN_ONCE(&ndns->dev, 1,
-					"unknown claim type by %s\n",
-					dev_name(ndns->claim));
-	}
+	if (ndns->claim && is_nd_btt(ndns->claim))
+		suffix = "s";
 
 	if (is_namespace_pmem(&ndns->dev) || is_namespace_io(&ndns->dev)) {
-		if (!suffix && pmem_should_map_pages(&ndns->dev))
-			suffix = "m";
 		sprintf(name, "pmem%d%s", nd_region->id, suffix ? suffix : "");
 	} else if (is_namespace_blk(&ndns->dev)) {
 		struct nd_namespace_blk *nsblk;
@@ -844,6 +834,15 @@ static void nd_namespace_pmem_set_size(struct nd_region *nd_region,
 	res->end = nd_region->ndr_start + size - 1;
 }
 
+static bool uuid_not_set(const u8 *uuid, struct device *dev, const char *where)
+{
+	if (!uuid) {
+		dev_dbg(dev, "%s: uuid not set\n", where);
+		return true;
+	}
+	return false;
+}
+
 static ssize_t __size_store(struct device *dev, unsigned long long val)
 {
 	resource_size_t allocated = 0, available = 0;
@@ -873,8 +872,12 @@ static ssize_t __size_store(struct device *dev, unsigned long long val)
 	 * We need a uuid for the allocation-label and dimm(s) on which
 	 * to store the label.
 	 */
-	if (!uuid || nd_region->ndr_mappings == 0)
+	if (uuid_not_set(uuid, dev, __func__))
 		return -ENXIO;
+	if (nd_region->ndr_mappings == 0) {
+		dev_dbg(dev, "%s: not associated with dimm(s)\n", __func__);
+		return -ENXIO;
+	}
 
 	div_u64_rem(val, SZ_4K * nd_region->ndr_mappings, &remainder);
 	if (remainder) {
@@ -1264,6 +1267,31 @@ static ssize_t holder_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(holder);
 
+static ssize_t mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct nd_namespace_common *ndns = to_ndns(dev);
+	struct device *claim;
+	char *mode;
+	ssize_t rc;
+
+	device_lock(dev);
+	claim = ndns->claim;
+	if (claim && is_nd_btt(claim))
+		mode = "safe";
+	else if (claim && is_nd_pfn(claim))
+		mode = "memory";
+	else if (!claim && pmem_should_map_pages(dev))
+		mode = "memory";
+	else
+		mode = "raw";
+	rc = sprintf(buf, "%s\n", mode);
+	device_unlock(dev);
+
+	return rc;
+}
+static DEVICE_ATTR_RO(mode);
+
 static ssize_t force_raw_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t len)
 {
@@ -1287,6 +1315,7 @@ static DEVICE_ATTR_RW(force_raw);
 static struct attribute *nd_namespace_attributes[] = {
 	&dev_attr_nstype.attr,
 	&dev_attr_size.attr,
+	&dev_attr_mode.attr,
 	&dev_attr_uuid.attr,
 	&dev_attr_holder.attr,
 	&dev_attr_resource.attr,
@@ -1320,7 +1349,8 @@ static umode_t namespace_visible(struct kobject *kobj,
 
 	if (a == &dev_attr_nstype.attr || a == &dev_attr_size.attr
 			|| a == &dev_attr_holder.attr
-			|| a == &dev_attr_force_raw.attr)
+			|| a == &dev_attr_force_raw.attr
+			|| a == &dev_attr_mode.attr)
 		return a->mode;
 
 	return 0;
@@ -1396,14 +1426,19 @@ struct nd_namespace_common *nvdimm_namespace_common_probe(struct device *dev)
 		struct nd_namespace_pmem *nspm;
 
 		nspm = to_nd_namespace_pmem(&ndns->dev);
-		if (!nspm->uuid) {
-			dev_dbg(&ndns->dev, "%s: uuid not set\n", __func__);
+		if (uuid_not_set(nspm->uuid, &ndns->dev, __func__))
 			return ERR_PTR(-ENODEV);
-		}
 	} else if (is_namespace_blk(&ndns->dev)) {
 		struct nd_namespace_blk *nsblk;
 
 		nsblk = to_nd_namespace_blk(&ndns->dev);
+		if (uuid_not_set(nsblk->uuid, &ndns->dev, __func__))
+			return ERR_PTR(-ENODEV);
+		if (!nsblk->lbasize) {
+			dev_dbg(&ndns->dev, "%s: sector size not set\n",
+				__func__);
+			return ERR_PTR(-ENODEV);
+		}
 		if (!nd_namespace_blk_validate(nsblk))
 			return ERR_PTR(-ENODEV);
 	}
@@ -1740,6 +1775,18 @@ void nd_region_create_blk_seed(struct nd_region *nd_region)
 		dev_err(&nd_region->dev, "failed to create blk namespace\n");
 	else
 		nd_device_register(nd_region->ns_seed);
+}
+
+void nd_region_create_pfn_seed(struct nd_region *nd_region)
+{
+	WARN_ON(!is_nvdimm_bus_locked(&nd_region->dev));
+	nd_region->pfn_seed = nd_pfn_create(nd_region);
+	/*
+	 * Seed creation failures are not fatal, provisioning is simply
+	 * disabled until memory becomes available
+	 */
+	if (!nd_region->pfn_seed)
+		dev_err(&nd_region->dev, "failed to create pfn namespace\n");
 }
 
 void nd_region_create_btt_seed(struct nd_region *nd_region)

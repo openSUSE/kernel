@@ -717,7 +717,7 @@ static struct attribute *hwmon_attributes[] = {
 static umode_t hwmon_attributes_visible(struct kobject *kobj,
 					struct attribute *attr, int index)
 {
-	struct device *dev = container_of(kobj, struct device, kobj);
+	struct device *dev = kobj_to_dev(kobj);
 	struct radeon_device *rdev = dev_get_drvdata(dev);
 	umode_t effective_mode = attr->mode;
 
@@ -1079,6 +1079,8 @@ force:
 
 	/* update display watermarks based on new power state */
 	radeon_bandwidth_update(rdev);
+	/* update displays */
+	radeon_dpm_display_configuration_changed(rdev);
 
 	/* wait for the rings to drain */
 	for (i = 0; i < RADEON_NUM_RINGS; i++) {
@@ -1094,9 +1096,6 @@ force:
 	rdev->pm.dpm.current_ps = rdev->pm.dpm.requested_ps;
 
 	radeon_dpm_post_set_power_state(rdev);
-
-	/* update displays */
-	radeon_dpm_display_configuration_changed(rdev);
 
 	rdev->pm.dpm.current_active_crtcs = rdev->pm.dpm.new_active_crtcs;
 	rdev->pm.dpm.current_active_crtc_count = rdev->pm.dpm.new_active_crtc_count;

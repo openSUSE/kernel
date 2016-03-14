@@ -56,7 +56,6 @@ static struct hc_driver __read_mostly xhci_pci_hc_driver;
 static int xhci_pci_setup(struct usb_hcd *hcd);
 
 static const struct xhci_driver_overrides xhci_pci_overrides __initconst = {
-	.extra_priv_size = sizeof(struct xhci_hcd),
 	.reset = xhci_pci_setup,
 };
 
@@ -158,6 +157,10 @@ static void xhci_pci_quirks(struct device *dev, struct xhci_hcd *xhci)
 		 pdev->device == PCI_DEVICE_ID_INTEL_CHERRYVIEW_XHCI ||
 		 pdev->device == PCI_DEVICE_ID_INTEL_BROXTON_M_XHCI)) {
 		xhci->quirks |= XHCI_PME_STUCK_QUIRK;
+	}
+	if (pdev->vendor == PCI_VENDOR_ID_INTEL &&
+		 pdev->device == PCI_DEVICE_ID_INTEL_CHERRYVIEW_XHCI) {
+		xhci->quirks |= XHCI_SSIC_PORT_UNUSED;
 	}
 	if (pdev->vendor == PCI_VENDOR_ID_ETRON &&
 			pdev->device == PCI_DEVICE_ID_EJ168) {
@@ -317,46 +320,47 @@ static void xhci_pci_remove(struct pci_dev *dev)
  * SSIC PORT need to be marked as "unused" before putting xHCI
  * into D3. After D3 exit, the SSIC port need to be marked as "used".
  * Without this change, xHCI might not enter D3 state.
- * Make sure PME works on some Intel xHCI controllers by writing 1 to clear
- * the Internal PME flag bit in vendor specific PMCTRL register at offset 0x80a4
  */
-static void xhci_pme_quirk(struct usb_hcd *hcd, bool suspend)
+static void xhci_ssic_port_unused_quirk(struct usb_hcd *hcd, bool suspend)
 {
 	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
-	struct pci_dev		*pdev = to_pci_dev(hcd->self.controller);
 	u32 val;
 	void __iomem *reg;
 	int i;
 
-	if (pdev->vendor == PCI_VENDOR_ID_INTEL &&
-		 pdev->device == PCI_DEVICE_ID_INTEL_CHERRYVIEW_XHCI) {
+	for (i = 0; i < SSIC_PORT_NUM; i++) {
+		reg = (void __iomem *) xhci->cap_regs +
+				SSIC_PORT_CFG2 +
+				i * SSIC_PORT_CFG2_OFFSET;
 
-		for (i = 0; i < SSIC_PORT_NUM; i++) {
-			reg = (void __iomem *) xhci->cap_regs +
-					SSIC_PORT_CFG2 +
-					i * SSIC_PORT_CFG2_OFFSET;
+		/* Notify SSIC that SSIC profile programming is not done. */
+		val = readl(reg) & ~PROG_DONE;
+		writel(val, reg);
 
-			/*
-			 * Notify SSIC that SSIC profile programming
-			 * is not done.
-			 */
-			val = readl(reg) & ~PROG_DONE;
-			writel(val, reg);
+		/* Mark SSIC port as unused(suspend) or used(resume) */
+		val = readl(reg);
+		if (suspend)
+			val |= SSIC_PORT_UNUSED;
+		else
+			val &= ~SSIC_PORT_UNUSED;
+		writel(val, reg);
 
-			/* Mark SSIC port as unused(suspend) or used(resume) */
-			val = readl(reg);
-			if (suspend)
-				val |= SSIC_PORT_UNUSED;
-			else
-				val &= ~SSIC_PORT_UNUSED;
-			writel(val, reg);
-
-			/* Notify SSIC that SSIC profile programming is done */
-			val = readl(reg) | PROG_DONE;
-			writel(val, reg);
-			readl(reg);
-		}
+		/* Notify SSIC that SSIC profile programming is done */
+		val = readl(reg) | PROG_DONE;
+		writel(val, reg);
+		readl(reg);
 	}
+}
+
+/*
+ * Make sure PME works on some Intel xHCI controllers by writing 1 to clear
+ * the Internal PME flag bit in vendor specific PMCTRL register at offset 0x80a4
+ */
+static void xhci_pme_quirk(struct usb_hcd *hcd)
+{
+	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
+	void __iomem *reg;
+	u32 val;
 
 	reg = (void __iomem *) xhci->cap_regs + 0x80a4;
 	val = readl(reg);
@@ -368,6 +372,7 @@ static int xhci_pci_suspend(struct usb_hcd *hcd, bool do_wakeup)
 {
 	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
 	struct pci_dev		*pdev = to_pci_dev(hcd->self.controller);
+	int			ret;
 
 	/*
 	 * Systems with the TI redriver that loses port status change events
@@ -377,9 +382,16 @@ static int xhci_pci_suspend(struct usb_hcd *hcd, bool do_wakeup)
 		pdev->no_d3cold = true;
 
 	if (xhci->quirks & XHCI_PME_STUCK_QUIRK)
-		xhci_pme_quirk(hcd, true);
+		xhci_pme_quirk(hcd);
 
-	return xhci_suspend(xhci, do_wakeup);
+	if (xhci->quirks & XHCI_SSIC_PORT_UNUSED)
+		xhci_ssic_port_unused_quirk(hcd, true);
+
+	ret = xhci_suspend(xhci, do_wakeup);
+	if (ret && (xhci->quirks & XHCI_SSIC_PORT_UNUSED))
+		xhci_ssic_port_unused_quirk(hcd, false);
+
+	return ret;
 }
 
 static int xhci_pci_resume(struct usb_hcd *hcd, bool hibernated)
@@ -409,8 +421,11 @@ static int xhci_pci_resume(struct usb_hcd *hcd, bool hibernated)
 	if (pdev->vendor == PCI_VENDOR_ID_INTEL)
 		usb_enable_intel_xhci_ports(pdev);
 
+	if (xhci->quirks & XHCI_SSIC_PORT_UNUSED)
+		xhci_ssic_port_unused_quirk(hcd, false);
+
 	if (xhci->quirks & XHCI_PME_STUCK_QUIRK)
-		xhci_pme_quirk(hcd, false);
+		xhci_pme_quirk(hcd);
 
 	retval = xhci_resume(xhci, hibernated);
 	return retval;

@@ -320,11 +320,6 @@ static inline void bio_get_last_bvec(struct bio *bio, struct bio_vec *bv)
 	struct bvec_iter iter = bio->bi_iter;
 	int idx;
 
-	if (!bio_flagged(bio, BIO_CLONED)) {
-		*bv = bio->bi_io_vec[bio->bi_vcnt - 1];
-		return;
-	}
-
 	if (unlikely(!bio_multiple_segments(bio))) {
 		*bv = bio_iovec(bio);
 		return;
@@ -355,16 +350,6 @@ enum bip_flags {
 	BIP_IP_CHECKSUM		= 1 << 4, /* IP checksum */
 };
 
-#if defined(CONFIG_BLK_DEV_INTEGRITY)
-
-static inline struct bio_integrity_payload *bio_integrity(struct bio *bio)
-{
-	if (bio->bi_rw & REQ_INTEGRITY)
-		return bio->bi_integrity;
-
-	return NULL;
-}
-
 /*
  * bio integrity payload
  */
@@ -385,6 +370,16 @@ struct bio_integrity_payload {
 	struct bio_vec		*bip_vec;
 	struct bio_vec		bip_inline_vecs[0];/* embedded bvec array */
 };
+
+#if defined(CONFIG_BLK_DEV_INTEGRITY)
+
+static inline struct bio_integrity_payload *bio_integrity(struct bio *bio)
+{
+	if (bio->bi_rw & REQ_INTEGRITY)
+		return bio->bi_integrity;
+
+	return NULL;
+}
 
 static inline bool bio_integrity_flagged(struct bio *bio, enum bip_flags flag)
 {
@@ -830,6 +825,18 @@ static inline void bio_integrity_init(void)
 static inline bool bio_integrity_flagged(struct bio *bio, enum bip_flags flag)
 {
 	return false;
+}
+
+static inline void *bio_integrity_alloc(struct bio * bio, gfp_t gfp,
+								unsigned int nr)
+{
+	return ERR_PTR(-EINVAL);
+}
+
+static inline int bio_integrity_add_page(struct bio *bio, struct page *page,
+					unsigned int len, unsigned int offset)
+{
+	return 0;
 }
 
 #endif /* CONFIG_BLK_DEV_INTEGRITY */

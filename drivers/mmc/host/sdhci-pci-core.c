@@ -1495,7 +1495,7 @@ static int sdhci_pci_resume(struct device *dev)
 
 static int sdhci_pci_runtime_suspend(struct device *dev)
 {
-	struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
+	struct pci_dev *pdev = to_pci_dev(dev);
 	struct sdhci_pci_chip *chip;
 	struct sdhci_pci_slot *slot;
 	int i, ret;
@@ -1531,7 +1531,7 @@ err_pci_runtime_suspend:
 
 static int sdhci_pci_runtime_resume(struct device *dev)
 {
-	struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
+	struct pci_dev *pdev = to_pci_dev(dev);
 	struct sdhci_pci_chip *chip;
 	struct sdhci_pci_slot *slot;
 	int i, ret;

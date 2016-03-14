@@ -875,7 +875,7 @@ int submit_bio_wait(int rw, struct bio *bio)
 	bio->bi_private = &ret;
 	bio->bi_end_io = submit_bio_wait_endio;
 	submit_bio(rw, bio);
-	wait_for_completion(&ret.event);
+	wait_for_completion_io(&ret.event);
 
 	return ret.error;
 }
@@ -1129,7 +1129,7 @@ struct bio *bio_copy_user_iov(struct request_queue *q,
 	int i, ret;
 	int nr_pages = 0;
 	unsigned int len = iter->count;
-	unsigned int offset = map_data ? map_data->offset & ~PAGE_MASK : 0;
+	unsigned int offset = map_data ? offset_in_page(map_data->offset) : 0;
 
 	for (i = 0; i < iter->nr_segs; i++) {
 		unsigned long uaddr;
@@ -1308,7 +1308,7 @@ struct bio *bio_map_user_iov(struct request_queue *q,
 			goto out_unmap;
 		}
 
-		offset = uaddr & ~PAGE_MASK;
+		offset = offset_in_page(uaddr);
 		for (j = cur_page; j < page_limit; j++) {
 			unsigned int bytes = PAGE_SIZE - offset;
 

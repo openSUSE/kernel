@@ -3324,7 +3324,7 @@ static int finish_port_resume(struct usb_device *udev)
 /*
  * There are some SS USB devices which take longer time for link training.
  * XHCI specs 4.19.4 says that when Link training is successful, port
- * sets CSC bit to 1. So if SW reads port status before successful link
+ * sets CCS bit to 1. So if SW reads port status before successful link
  * training, then it will not find device to be present.
  * USB Analyzer log with such buggy devices show that in some cases
  * device switch on the RX termination after long delay of host enabling
@@ -3335,14 +3335,17 @@ static int finish_port_resume(struct usb_device *udev)
  * routine implements a 2000 ms timeout for link training. If in a case
  * link trains before timeout, loop will exit earlier.
  *
+ * There are also some 2.0 hard drive based devices and 3.0 thumb
+ * drives that, when plugged into a 2.0 only port, take a long
+ * time to set CCS after VBUS enable.
+ *
  * FIXME: If a device was connected before suspend, but was removed
  * while system was asleep, then the loop in the following routine will
  * only exit at timeout.
  *
- * This routine should only be called when persist is enabled for a SS
- * device.
+ * This routine should only be called when persist is enabled.
  */
-static int wait_for_ss_port_enable(struct usb_device *udev,
+static int wait_for_connected(struct usb_device *udev,
 		struct usb_hub *hub, int *port1,
 		u16 *portchange, u16 *portstatus)
 {
@@ -3355,6 +3358,7 @@ static int wait_for_ss_port_enable(struct usb_device *udev,
 		delay_ms += 20;
 		status = hub_port_status(hub, *port1, portstatus, portchange);
 	}
+	dev_dbg(&udev->dev, "Waited %dms for CONNECT\n", delay_ms);
 	return status;
 }
 
@@ -3454,8 +3458,8 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 		}
 	}
 
-	if (udev->persist_enabled && hub_is_superspeed(hub->hdev))
-		status = wait_for_ss_port_enable(udev, hub, &port1, &portchange,
+	if (udev->persist_enabled)
+		status = wait_for_connected(udev, hub, &port1, &portchange,
 				&portstatus);
 
 	status = check_port_resume_type(udev,
@@ -4040,6 +4044,8 @@ EXPORT_SYMBOL_GPL(usb_unlocked_disable_lpm);
 void usb_enable_lpm(struct usb_device *udev)
 {
 	struct usb_hcd *hcd;
+	struct usb_hub *hub;
+	struct usb_port *port_dev;
 
 	if (!udev || !udev->parent ||
 			udev->speed != USB_SPEED_SUPER ||
@@ -4059,8 +4065,17 @@ void usb_enable_lpm(struct usb_device *udev)
 	if (udev->lpm_disable_count > 0)
 		return;
 
-	usb_enable_link_state(hcd, udev, USB3_LPM_U1);
-	usb_enable_link_state(hcd, udev, USB3_LPM_U2);
+	hub = usb_hub_to_struct_hub(udev->parent);
+	if (!hub)
+		return;
+
+	port_dev = hub->ports[udev->portnum - 1];
+
+	if (port_dev->usb3_lpm_u1_permit)
+		usb_enable_link_state(hcd, udev, USB3_LPM_U1);
+
+	if (port_dev->usb3_lpm_u2_permit)
+		usb_enable_link_state(hcd, udev, USB3_LPM_U2);
 }
 EXPORT_SYMBOL_GPL(usb_enable_lpm);
 
@@ -5386,6 +5401,7 @@ static int usb_reset_and_verify_device(struct usb_device *udev)
 	}
 
 	bos = udev->bos;
+	udev->bos = NULL;
 
 	for (i = 0; i < SET_CONFIG_TRIES; ++i) {
 
@@ -5478,11 +5494,8 @@ done:
 	usb_set_usb2_hardware_lpm(udev, 1);
 	usb_unlocked_enable_lpm(udev);
 	usb_enable_ltm(udev);
-	/* release the new BOS descriptor allocated  by hub_port_init() */
-	if (udev->bos != bos) {
-		usb_release_bos_descriptor(udev);
-		udev->bos = bos;
-	}
+	usb_release_bos_descriptor(udev);
+	udev->bos = bos;
 	return 0;
 
 re_enumerate:

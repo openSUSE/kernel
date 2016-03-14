@@ -222,12 +222,13 @@ static int intelfb_create(struct drm_fb_helper *helper,
 	 * This also validates that any existing fb inherited from the
 	 * BIOS is suitable for own access.
 	 */
-	ret = intel_pin_and_fence_fb_obj(NULL, &ifbdev->fb->base, NULL, NULL, NULL);
+	ret = intel_pin_and_fence_fb_obj(NULL, &ifbdev->fb->base, NULL);
 	if (ret)
 		goto out_unlock;
 
 	info = drm_fb_helper_alloc_fbi(helper);
 	if (IS_ERR(info)) {
+		DRM_ERROR("Failed to allocate fb_info\n");
 		ret = PTR_ERR(info);
 		goto out_unpin;
 	}
@@ -254,6 +255,7 @@ static int intelfb_create(struct drm_fb_helper *helper,
 		ioremap_wc(dev_priv->gtt.mappable_base + i915_gem_obj_ggtt_offset(obj),
 			   size);
 	if (!info->screen_base) {
+		DRM_ERROR("Failed to remap framebuffer into virtual memory\n");
 		ret = -ENOSPC;
 		goto out_destroy_fbi;
 	}
@@ -286,7 +288,6 @@ out_destroy_fbi:
 	drm_fb_helper_release_fbi(helper);
 out_unpin:
 	i915_gem_object_ggtt_unpin(obj);
-	drm_gem_object_unreference(&obj->base);
 out_unlock:
 	mutex_unlock(&dev->struct_mutex);
 	return ret;
@@ -535,8 +536,10 @@ static void intel_fbdev_destroy(struct drm_device *dev,
 
 	drm_fb_helper_fini(&ifbdev->helper);
 
-	drm_framebuffer_unregister_private(&ifbdev->fb->base);
-	drm_framebuffer_remove(&ifbdev->fb->base);
+	if (ifbdev->fb) {
+		drm_framebuffer_unregister_private(&ifbdev->fb->base);
+		drm_framebuffer_remove(&ifbdev->fb->base);
+	}
 }
 
 /*
@@ -711,13 +714,20 @@ int intel_fbdev_init(struct drm_device *dev)
 	return 0;
 }
 
-void intel_fbdev_initial_config(void *data, async_cookie_t cookie)
+static void intel_fbdev_initial_config(void *data, async_cookie_t cookie)
 {
 	struct drm_i915_private *dev_priv = data;
 	struct intel_fbdev *ifbdev = dev_priv->fbdev;
 
 	/* Due to peculiar init order wrt to hpd handling this is separate. */
-	drm_fb_helper_initial_config(&ifbdev->helper, ifbdev->preferred_bpp);
+	if (drm_fb_helper_initial_config(&ifbdev->helper,
+					 ifbdev->preferred_bpp))
+		intel_fbdev_fini(dev_priv->dev);
+}
+
+void intel_fbdev_initial_config_async(struct drm_device *dev)
+{
+	async_schedule(intel_fbdev_initial_config, to_i915(dev));
 }
 
 void intel_fbdev_fini(struct drm_device *dev)
@@ -728,7 +738,8 @@ void intel_fbdev_fini(struct drm_device *dev)
 
 	flush_work(&dev_priv->fbdev_suspend_work);
 
-	async_synchronize_full();
+	if (!current_is_async())
+		async_synchronize_full();
 	intel_fbdev_destroy(dev, dev_priv->fbdev);
 	kfree(dev_priv->fbdev);
 	dev_priv->fbdev = NULL;

@@ -346,6 +346,8 @@ static size_t switchdev_obj_size(const struct switchdev_obj *obj)
 		return sizeof(struct switchdev_obj_ipv4_fib);
 	case SWITCHDEV_OBJ_ID_PORT_FDB:
 		return sizeof(struct switchdev_obj_port_fdb);
+	case SWITCHDEV_OBJ_ID_PORT_MDB:
+		return sizeof(struct switchdev_obj_port_mdb);
 	default:
 		BUG();
 	}
@@ -724,6 +726,7 @@ static int switchdev_port_vlan_fill(struct sk_buff *skb, struct net_device *dev,
 				    u32 filter_mask)
 {
 	struct switchdev_vlan_dump dump = {
+		.vlan.obj.orig_dev = dev,
 		.vlan.obj.id = SWITCHDEV_OBJ_ID_PORT_VLAN,
 		.skb = skb,
 		.filter_mask = filter_mask,
@@ -758,6 +761,7 @@ int switchdev_port_bridge_getlink(struct sk_buff *skb, u32 pid, u32 seq,
 				  int nlflags)
 {
 	struct switchdev_attr attr = {
+		.orig_dev = dev,
 		.id = SWITCHDEV_ATTR_ID_PORT_BRIDGE_FLAGS,
 	};
 	u16 mode = BRIDGE_MODE_UNDEF;
@@ -779,6 +783,7 @@ static int switchdev_port_br_setflag(struct net_device *dev,
 				     unsigned long brport_flag)
 {
 	struct switchdev_attr attr = {
+		.orig_dev = dev,
 		.id = SWITCHDEV_ATTR_ID_PORT_BRIDGE_FLAGS,
 	};
 	u8 flag = nla_get_u8(nlattr);
@@ -854,6 +859,7 @@ static int switchdev_port_br_afspec(struct net_device *dev,
 	struct nlattr *attr;
 	struct bridge_vlan_info *vinfo;
 	struct switchdev_obj_port_vlan vlan = {
+		.obj.orig_dev = dev,
 		.obj.id = SWITCHDEV_OBJ_ID_PORT_VLAN,
 	};
 	int rem;
@@ -976,6 +982,7 @@ int switchdev_port_fdb_add(struct ndmsg *ndm, struct nlattr *tb[],
 			   u16 vid, u16 nlm_flags)
 {
 	struct switchdev_obj_port_fdb fdb = {
+		.obj.orig_dev = dev,
 		.obj.id = SWITCHDEV_OBJ_ID_PORT_FDB,
 		.vid = vid,
 	};
@@ -1001,6 +1008,7 @@ int switchdev_port_fdb_del(struct ndmsg *ndm, struct nlattr *tb[],
 			   u16 vid)
 {
 	struct switchdev_obj_port_fdb fdb = {
+		.obj.orig_dev = dev,
 		.obj.id = SWITCHDEV_OBJ_ID_PORT_FDB,
 		.vid = vid,
 	};
@@ -1078,14 +1086,18 @@ int switchdev_port_fdb_dump(struct sk_buff *skb, struct netlink_callback *cb,
 			    struct net_device *filter_dev, int idx)
 {
 	struct switchdev_fdb_dump dump = {
+		.fdb.obj.orig_dev = dev,
 		.fdb.obj.id = SWITCHDEV_OBJ_ID_PORT_FDB,
 		.dev = dev,
 		.skb = skb,
 		.cb = cb,
 		.idx = idx,
 	};
+	int err;
 
-	switchdev_port_obj_dump(dev, &dump.fdb.obj, switchdev_port_fdb_dump_cb);
+	err = switchdev_port_obj_dump(dev, &dump.fdb.obj,
+				      switchdev_port_fdb_dump_cb);
+	cb->args[1] = err;
 	return dump.idx;
 }
 EXPORT_SYMBOL_GPL(switchdev_port_fdb_dump);
@@ -1136,6 +1148,7 @@ static struct net_device *switchdev_get_dev_by_nhs(struct fib_info *fi)
 		if (!dev)
 			return NULL;
 
+		attr.orig_dev = dev;
 		if (switchdev_port_attr_get(dev, &attr))
 			return NULL;
 
@@ -1195,6 +1208,7 @@ int switchdev_fib_ipv4_add(u32 dst, int dst_len, struct fib_info *fi,
 	if (!dev)
 		return 0;
 
+	ipv4_fib.obj.orig_dev = dev;
 	err = switchdev_port_obj_add(dev, &ipv4_fib.obj);
 	if (!err)
 		fi->fib_flags |= RTNH_F_OFFLOAD;
@@ -1239,6 +1253,7 @@ int switchdev_fib_ipv4_del(u32 dst, int dst_len, struct fib_info *fi,
 	if (!dev)
 		return 0;
 
+	ipv4_fib.obj.orig_dev = dev;
 	err = switchdev_port_obj_del(dev, &ipv4_fib.obj);
 	if (!err)
 		fi->fib_flags &= ~RTNH_F_OFFLOAD;
@@ -1271,10 +1286,12 @@ static bool switchdev_port_same_parent_id(struct net_device *a,
 					  struct net_device *b)
 {
 	struct switchdev_attr a_attr = {
+		.orig_dev = a,
 		.id = SWITCHDEV_ATTR_ID_PORT_PARENT_ID,
 		.flags = SWITCHDEV_F_NO_RECURSE,
 	};
 	struct switchdev_attr b_attr = {
+		.orig_dev = b,
 		.id = SWITCHDEV_ATTR_ID_PORT_PARENT_ID,
 		.flags = SWITCHDEV_F_NO_RECURSE,
 	};

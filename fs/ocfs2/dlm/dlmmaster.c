@@ -2388,8 +2388,8 @@ static void dlm_deref_lockres_worker(struct dlm_work_item *item, void *data)
 
 	spin_lock(&res->spinlock);
 	BUG_ON(res->state & DLM_LOCK_RES_DROPPING_REF);
+	__dlm_wait_on_lockres_flags(res, DLM_LOCK_RES_SETREF_INPROG);
 	if (test_bit(node, res->refmap)) {
-		__dlm_wait_on_lockres_flags(res, DLM_LOCK_RES_SETREF_INPROG);
 		dlm_lockres_clear_refmap_bit(dlm, res, node);
 		cleared = 1;
 	}
@@ -2549,7 +2549,7 @@ static int dlm_migrate_lockres(struct dlm_ctxt *dlm,
 	}
 
 fail:
-	if (oldmle) {
+	if (ret != -EEXIST && oldmle) {
 		/* master is known, detach if not already detached */
 		dlm_mle_detach_hb_events(dlm, oldmle);
 		dlm_put_mle(oldmle);
@@ -3045,7 +3045,7 @@ int dlm_migrate_request_handler(struct o2net_msg *msg, u32 len, void *data,
 	int ret = 0;
 
 	if (!dlm_grab(dlm))
-		return -EINVAL;
+		return 0;
 
 	name = migrate->name;
 	namelen = migrate->namelen;
@@ -3136,7 +3136,8 @@ static int dlm_add_migration_mle(struct dlm_ctxt *dlm,
 				mlog(0, "tried to migrate %.*s, but some "
 				     "process beat me to it\n",
 				     namelen, name);
-				ret = -EEXIST;
+				spin_unlock(&tmp->spinlock);
+				return -EEXIST;
 			} else {
 				/* bad.  2 NODES are trying to migrate! */
 				mlog(ML_ERROR, "migration error  mle: "

@@ -1025,24 +1025,15 @@ static struct device_type mc_attr_type = {
  */
 int __init edac_mc_sysfs_init(void)
 {
-	struct bus_type *edac_subsys;
 	int err;
-
-	/* get the /sys/devices/system/edac subsys reference */
-	edac_subsys = edac_get_sysfs_subsys();
-	if (edac_subsys == NULL) {
-		edac_dbg(1, "no edac_subsys\n");
-		err = -EINVAL;
-		goto out;
-	}
 
 	mci_pdev = kzalloc(sizeof(*mci_pdev), GFP_KERNEL);
 	if (!mci_pdev) {
 		err = -ENOMEM;
-		goto out_put_sysfs;
+		goto out;
 	}
 
-	mci_pdev->bus = edac_subsys;
+	mci_pdev->bus = edac_get_sysfs_subsys();
 	mci_pdev->type = &mc_attr_type;
 	device_initialize(mci_pdev);
 	dev_set_name(mci_pdev, "mc");
@@ -1057,8 +1048,6 @@ int __init edac_mc_sysfs_init(void)
 
  out_dev_free:
 	kfree(mci_pdev);
- out_put_sysfs:
-	edac_put_sysfs_subsys();
  out:
 	return err;
 }
@@ -1066,5 +1055,4 @@ int __init edac_mc_sysfs_init(void)
 void edac_mc_sysfs_exit(void)
 {
 	device_unregister(mci_pdev);
-	edac_put_sysfs_subsys();
 }

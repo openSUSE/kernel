@@ -251,6 +251,14 @@ static void  __create_mapping(struct mm_struct *mm, pgd_t *pgd,
 {
 	unsigned long addr, length, end, next;
 
+	/*
+	 * If the virtual and physical address don't have the same offset
+	 * within a page, we cannot map the region as the caller expects.
+	 */
+	if (WARN_ON((phys ^ virt) & ~PAGE_MASK))
+		return;
+
+	phys &= PAGE_MASK;
 	addr = virt & PAGE_MASK;
 	length = PAGE_ALIGN(size + (virt & ~PAGE_MASK));
 
@@ -280,7 +288,7 @@ static void __init create_mapping(phys_addr_t phys, unsigned long virt,
 			&phys, virt);
 		return;
 	}
-	__create_mapping(&init_mm, pgd_offset_k(virt & PAGE_MASK), phys, virt,
+	__create_mapping(&init_mm, pgd_offset_k(virt), phys, virt,
 			 size, prot, early_alloc);
 }
 
@@ -301,7 +309,7 @@ static void create_mapping_late(phys_addr_t phys, unsigned long virt,
 		return;
 	}
 
-	return __create_mapping(&init_mm, pgd_offset_k(virt & PAGE_MASK),
+	return __create_mapping(&init_mm, pgd_offset_k(virt),
 				phys, virt, size, prot, late_alloc);
 }
 
@@ -372,6 +380,8 @@ static void __init map_mem(void)
 
 		if (start >= end)
 			break;
+		if (memblock_is_nomap(reg))
+			continue;
 
 		if (ARM64_SWAPPER_USES_SECTION_MAPS) {
 			/*

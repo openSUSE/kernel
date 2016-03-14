@@ -953,6 +953,7 @@ static ssize_t environ_read(struct file *file, char __user *buf,
 	unsigned long src = *ppos;
 	int ret = 0;
 	struct mm_struct *mm = file->private_data;
+	unsigned long env_start, env_end;
 
 	if (!mm)
 		return 0;
@@ -964,19 +965,25 @@ static ssize_t environ_read(struct file *file, char __user *buf,
 	ret = 0;
 	if (!atomic_inc_not_zero(&mm->mm_users))
 		goto free;
+
+	down_read(&mm->mmap_sem);
+	env_start = mm->env_start;
+	env_end = mm->env_end;
+	up_read(&mm->mmap_sem);
+
 	while (count > 0) {
 		size_t this_len, max_len;
 		int retval;
 
-		if (src >= (mm->env_end - mm->env_start))
+		if (src >= (env_end - env_start))
 			break;
 
-		this_len = mm->env_end - (mm->env_start + src);
+		this_len = env_end - (env_start + src);
 
 		max_len = min_t(size_t, PAGE_SIZE, count);
 		this_len = min(max_len, this_len);
 
-		retval = access_remote_vm(mm, (mm->env_start + src),
+		retval = access_remote_vm(mm, (env_start + src),
 			page, this_len, 0);
 
 		if (retval <= 0) {
@@ -1565,11 +1572,15 @@ static int proc_exe_link(struct dentry *dentry, struct path *exe_path)
 		return -ENOENT;
 }
 
-static const char *proc_pid_follow_link(struct dentry *dentry, void **cookie)
+static const char *proc_pid_get_link(struct dentry *dentry,
+				     struct inode *inode,
+				     struct delayed_call *done)
 {
-	struct inode *inode = d_inode(dentry);
 	struct path path;
 	int error = -EACCES;
+
+	if (!dentry)
+		return ERR_PTR(-ECHILD);
 
 	/* Are we allowed to snoop on the tasks file descriptors? */
 	if (!proc_fd_access_allowed(inode))
@@ -1631,7 +1642,7 @@ out:
 
 const struct inode_operations proc_pid_link_inode_operations = {
 	.readlink	= proc_pid_readlink,
-	.follow_link	= proc_pid_follow_link,
+	.get_link	= proc_pid_get_link,
 	.setattr	= proc_setattr,
 };
 
@@ -1896,7 +1907,7 @@ static const struct dentry_operations tid_map_files_dentry_operations = {
 	.d_delete	= pid_delete_dentry,
 };
 
-static int proc_map_files_get_link(struct dentry *dentry, struct path *path)
+static int map_files_get_link(struct dentry *dentry, struct path *path)
 {
 	unsigned long vm_start, vm_end;
 	struct vm_area_struct *vma;
@@ -1946,20 +1957,22 @@ struct map_files_info {
  * path to the file in question.
  */
 static const char *
-proc_map_files_follow_link(struct dentry *dentry, void **cookie)
+proc_map_files_get_link(struct dentry *dentry,
+			struct inode *inode,
+		        struct delayed_call *done)
 {
 	if (!capable(CAP_SYS_ADMIN))
 		return ERR_PTR(-EPERM);
 
-	return proc_pid_follow_link(dentry, NULL);
+	return proc_pid_get_link(dentry, inode, done);
 }
 
 /*
- * Identical to proc_pid_link_inode_operations except for follow_link()
+ * Identical to proc_pid_link_inode_operations except for get_link()
  */
 static const struct inode_operations proc_map_files_link_inode_operations = {
 	.readlink	= proc_pid_readlink,
-	.follow_link	= proc_map_files_follow_link,
+	.get_link	= proc_map_files_get_link,
 	.setattr	= proc_setattr,
 };
 
@@ -1976,7 +1989,7 @@ proc_map_files_instantiate(struct inode *dir, struct dentry *dentry,
 		return -ENOENT;
 
 	ei = PROC_I(inode);
-	ei->op.proc_get_link = proc_map_files_get_link;
+	ei->op.proc_get_link = map_files_get_link;
 
 	inode->i_op = &proc_map_files_link_inode_operations;
 	inode->i_size = 64;
@@ -2360,7 +2373,7 @@ static ssize_t proc_pid_attr_write(struct file * file, const char __user * buf,
 				   size_t count, loff_t *ppos)
 {
 	struct inode * inode = file_inode(file);
-	char *page;
+	void *page;
 	ssize_t length;
 	struct task_struct *task = get_proc_task(inode);
 
@@ -2375,14 +2388,11 @@ static ssize_t proc_pid_attr_write(struct file * file, const char __user * buf,
 	if (*ppos != 0)
 		goto out;
 
-	length = -ENOMEM;
-	page = (char*)__get_free_page(GFP_TEMPORARY);
-	if (!page)
+	page = memdup_user(buf, count);
+	if (IS_ERR(page)) {
+		length = PTR_ERR(page);
 		goto out;
-
-	length = -EFAULT;
-	if (copy_from_user(page, buf, count))
-		goto out_free;
+	}
 
 	/* Guard against adverse ptrace interaction */
 	length = mutex_lock_interruptible(&task->signal->cred_guard_mutex);
@@ -2391,10 +2401,10 @@ static ssize_t proc_pid_attr_write(struct file * file, const char __user * buf,
 
 	length = security_setprocattr(task,
 				      (char*)file->f_path.dentry->d_name.name,
-				      (void*)page, count);
+				      page, count);
 	mutex_unlock(&task->signal->cred_guard_mutex);
 out_free:
-	free_page((unsigned long) page);
+	kfree(page);
 out:
 	put_task_struct(task);
 out_no_task:

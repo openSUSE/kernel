@@ -28,7 +28,6 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/async.h>
 #include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_fb_helper.h>
@@ -170,6 +169,9 @@ static int i915_getparam(struct drm_device *dev, void *data,
 	case I915_PARAM_HAS_RESOURCE_STREAMER:
 		value = HAS_RESOURCE_STREAMER(dev);
 		break;
+	case I915_PARAM_HAS_EXEC_SOFTPIN:
+		value = 1;
+		break;
 	default:
 		DRM_DEBUG("Unknown parameter %d\n", param->param);
 		return -EINVAL;
@@ -257,7 +259,7 @@ intel_setup_mchbar(struct drm_device *dev)
 	u32 temp;
 	bool enabled;
 
-	if (IS_VALLEYVIEW(dev))
+	if (IS_VALLEYVIEW(dev) || IS_CHERRYVIEW(dev))
 		return;
 
 	dev_priv->mchbar_need_disable = false;
@@ -338,7 +340,7 @@ static void i915_switcheroo_set_state(struct pci_dev *pdev, enum vga_switcheroo_
 		i915_resume_switcheroo(dev);
 		dev->switch_power_state = DRM_SWITCH_POWER_ON;
 	} else {
-		pr_err("switched off\n");
+		pr_info("switched off\n");
 		dev->switch_power_state = DRM_SWITCH_POWER_CHANGING;
 		i915_suspend_switcheroo(dev, pmm);
 		dev->switch_power_state = DRM_SWITCH_POWER_OFF;
@@ -368,7 +370,7 @@ static int i915_load_modeset_init(struct drm_device *dev)
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	int ret;
 
-	ret = intel_parse_bios(dev);
+	ret = intel_bios_init(dev_priv);
 	if (ret)
 		DRM_INFO("failed to find VBIOS tables\n");
 
@@ -396,7 +398,9 @@ static int i915_load_modeset_init(struct drm_device *dev)
 	if (ret)
 		goto cleanup_vga_switcheroo;
 
-	intel_power_domains_init_hw(dev_priv);
+	intel_power_domains_init_hw(dev_priv, false);
+
+	intel_csr_ucode_init(dev_priv);
 
 	ret = intel_irq_install(dev_priv);
 	if (ret)
@@ -439,7 +443,7 @@ static int i915_load_modeset_init(struct drm_device *dev)
 	 * scanning against hotplug events. Hence do this first and ignore the
 	 * tiny window where we will loose hotplug notifactions.
 	 */
-	async_schedule(intel_fbdev_initial_config, dev_priv);
+	intel_fbdev_initial_config_async(dev);
 
 	drm_kms_helper_poll_init(dev);
 
@@ -666,7 +670,8 @@ static void gen9_sseu_info_init(struct drm_device *dev)
 	 * supports EU power gating on devices with more than one EU
 	 * pair per subslice.
 	*/
-	info->has_slice_pg = (IS_SKYLAKE(dev) && (info->slice_total > 1));
+	info->has_slice_pg = ((IS_SKYLAKE(dev) || IS_KABYLAKE(dev)) &&
+			       (info->slice_total > 1));
 	info->has_subslice_pg = (IS_BROXTON(dev) && (info->subslice_total > 1));
 	info->has_eu_pg = (info->eu_per_subslice > 2);
 }
@@ -780,7 +785,7 @@ static void intel_device_info_runtime_init(struct drm_device *dev)
 		info->num_sprites[PIPE_A] = 2;
 		info->num_sprites[PIPE_B] = 2;
 		info->num_sprites[PIPE_C] = 1;
-	} else if (IS_VALLEYVIEW(dev))
+	} else if (IS_VALLEYVIEW(dev) || IS_CHERRYVIEW(dev))
 		for_each_pipe(dev_priv, pipe)
 			info->num_sprites[pipe] = 2;
 	else
@@ -792,7 +797,7 @@ static void intel_device_info_runtime_init(struct drm_device *dev)
 		info->num_pipes = 0;
 	} else if (info->num_pipes > 0 &&
 		   (INTEL_INFO(dev)->gen == 7 || INTEL_INFO(dev)->gen == 8) &&
-		   !IS_VALLEYVIEW(dev)) {
+		   HAS_PCH_SPLIT(dev)) {
 		u32 fuse_strap = I915_READ(FUSE_STRAP);
 		u32 sfuse_strap = I915_READ(SFUSE_STRAP);
 
@@ -837,9 +842,6 @@ static void intel_device_info_runtime_init(struct drm_device *dev)
 
 static void intel_init_dpio(struct drm_i915_private *dev_priv)
 {
-	if (!IS_VALLEYVIEW(dev_priv))
-		return;
-
 	/*
 	 * IOSF_PORT_DPIO is used for VLV x2 PHY (DP/HDMI B and C),
 	 * CHV x1 PHY (DP/HDMI D)
@@ -848,7 +850,7 @@ static void intel_init_dpio(struct drm_i915_private *dev_priv)
 	if (IS_CHERRYVIEW(dev_priv)) {
 		DPIO_PHY_IOSF_PORT(DPIO_PHY0) = IOSF_PORT_DPIO_2;
 		DPIO_PHY_IOSF_PORT(DPIO_PHY1) = IOSF_PORT_DPIO;
-	} else {
+	} else if (IS_VALLEYVIEW(dev_priv)) {
 		DPIO_PHY_IOSF_PORT(DPIO_PHY0) = IOSF_PORT_DPIO;
 	}
 }
@@ -893,10 +895,11 @@ int i915_driver_load(struct drm_device *dev, unsigned long flags)
 	spin_lock_init(&dev_priv->mmio_flip_lock);
 	mutex_init(&dev_priv->sb_lock);
 	mutex_init(&dev_priv->modeset_restore_lock);
-	mutex_init(&dev_priv->csr_lock);
 	mutex_init(&dev_priv->av_mutex);
 
 	intel_pm_setup(dev);
+
+	intel_runtime_pm_get(dev_priv);
 
 	intel_display_crc_init(dev);
 
@@ -939,9 +942,6 @@ int i915_driver_load(struct drm_device *dev, unsigned long flags)
 	intel_detect_pch(dev);
 
 	intel_uncore_init(dev);
-
-	/* Load CSR Firmware for SKL */
-	intel_csr_ucode_init(dev);
 
 	ret = i915_gem_gtt_init(dev);
 	if (ret)
@@ -1089,6 +1089,8 @@ int i915_driver_load(struct drm_device *dev, unsigned long flags)
 
 	i915_audio_component_init(dev_priv);
 
+	intel_runtime_pm_put(dev_priv);
+
 	return 0;
 
 out_power_well:
@@ -1114,7 +1116,7 @@ out_mtrrfree:
 out_gtt:
 	i915_global_gtt_cleanup(dev);
 out_freecsr:
-	intel_csr_ucode_fini(dev);
+	intel_csr_ucode_fini(dev_priv);
 	intel_uncore_fini(dev);
 	pci_iounmap(dev->pdev, dev_priv->regs);
 put_bridge:
@@ -1123,6 +1125,9 @@ free_priv:
 	kmem_cache_destroy(dev_priv->requests);
 	kmem_cache_destroy(dev_priv->vmas);
 	kmem_cache_destroy(dev_priv->objects);
+
+	intel_runtime_pm_put(dev_priv);
+
 	kfree(dev_priv);
 	return ret;
 }
@@ -1131,6 +1136,8 @@ int i915_driver_unload(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	int ret;
+
+	intel_fbdev_fini(dev);
 
 	i915_audio_component_cleanup(dev_priv);
 
@@ -1153,8 +1160,6 @@ int i915_driver_unload(struct drm_device *dev)
 	arch_phys_wc_del(dev_priv->gtt.mtrr);
 
 	acpi_video_unregister();
-
-	intel_fbdev_fini(dev);
 
 	drm_vblank_cleanup(dev);
 
@@ -1197,7 +1202,7 @@ int i915_driver_unload(struct drm_device *dev)
 	intel_fbc_cleanup_cfb(dev_priv);
 	i915_gem_cleanup_stolen(dev);
 
-	intel_csr_ucode_fini(dev);
+	intel_csr_ucode_fini(dev_priv);
 
 	intel_teardown_mchbar(dev);
 
@@ -1264,8 +1269,6 @@ void i915_driver_postclose(struct drm_device *dev, struct drm_file *file)
 {
 	struct drm_i915_file_private *file_priv = file->driver_priv;
 
-	if (file_priv && file_priv->bsd_ring)
-		file_priv->bsd_ring = NULL;
 	kfree(file_priv);
 }
 
