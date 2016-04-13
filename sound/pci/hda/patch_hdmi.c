@@ -1670,11 +1670,10 @@ static void sync_eld_via_acomp(struct hda_codec *codec,
 	int size;
 
 	mutex_lock(&per_pin->lock);
+	eld->monitor_present = false;
 	size = snd_hdac_acomp_get_eld(&codec->bus->core, per_pin->pin_nid,
 				      &eld->monitor_present, eld->eld_buffer,
 				      ELD_MAX_SIZE);
-	if (size < 0)
-		goto unlock;
 	if (size > 0) {
 		size = min(size, ELD_MAX_SIZE);
 		if (snd_hdmi_parse_eld(codec, &eld->info,
@@ -2470,9 +2469,15 @@ static int patch_generic_hdmi(struct hda_codec *codec)
 	/* Try to bind with i915 for Intel HSW+ codecs (if not done yet) */
 	if ((codec->core.vendor_id >> 16) == 0x8086 &&
 	    is_haswell_plus(codec)) {
+#if 0
+		/* on-demand binding leads to an unbalanced refcount when
+		 * both i915 and hda drivers are probed concurrently;
+		 * disabled temporarily for now
+		 */
 		if (!codec->bus->core.audio_component)
 			if (!snd_hdac_i915_init(&codec->bus->core))
 				spec->i915_bound = true;
+#endif
 		/* use i915 audio component notifier for hotplug */
 		if (codec->bus->core.audio_component)
 			spec->use_acomp_notifier = true;
@@ -3676,6 +3681,7 @@ HDA_CODEC_ENTRY(0x10de0070, "GPU 70 HDMI/DP",	patch_nvhdmi),
 HDA_CODEC_ENTRY(0x10de0071, "GPU 71 HDMI/DP",	patch_nvhdmi),
 HDA_CODEC_ENTRY(0x10de0072, "GPU 72 HDMI/DP",	patch_nvhdmi),
 HDA_CODEC_ENTRY(0x10de007d, "GPU 7d HDMI/DP",	patch_nvhdmi),
+HDA_CODEC_ENTRY(0x10de0082, "GPU 82 HDMI/DP",	patch_nvhdmi),
 HDA_CODEC_ENTRY(0x10de0083, "GPU 83 HDMI/DP",	patch_nvhdmi),
 HDA_CODEC_ENTRY(0x10de8001, "MCP73 HDMI",	patch_nvhdmi_2ch),
 HDA_CODEC_ENTRY(0x11069f80, "VX900 HDMI/DP",	patch_via_hdmi),
