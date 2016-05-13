@@ -1222,15 +1222,8 @@ static inline unsigned long zap_pmd_range(struct mmu_gather *tlb,
 		next = pmd_addr_end(addr, end);
 		if (pmd_trans_huge(*pmd) || pmd_devmap(*pmd)) {
 			if (next - addr != HPAGE_PMD_SIZE) {
-#ifdef CONFIG_DEBUG_VM
-				if (!rwsem_is_locked(&tlb->mm->mmap_sem)) {
-					pr_err("%s: mmap_sem is unlocked! addr=0x%lx end=0x%lx vma->vm_start=0x%lx vma->vm_end=0x%lx\n",
-						__func__, addr, end,
-						vma->vm_start,
-						vma->vm_end);
-					BUG();
-				}
-#endif
+				VM_BUG_ON_VMA(vma_is_anonymous(vma) &&
+				    !rwsem_is_locked(&tlb->mm->mmap_sem), vma);
 				split_huge_pmd(vma, pmd, addr);
 			} else if (zap_huge_pmd(tlb, vma, pmd, addr))
 				goto next;
@@ -2380,6 +2373,7 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	 * not dirty accountable.
 	 */
 	if (PageAnon(old_page) && !PageKsm(old_page)) {
+		int total_mapcount;
 		if (!trylock_page(old_page)) {
 			get_page(old_page);
 			pte_unmap_unlock(page_table, ptl);
@@ -2394,13 +2388,18 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct *vma,
 			}
 			put_page(old_page);
 		}
-		if (reuse_swap_page(old_page)) {
-			/*
-			 * The page is all ours.  Move it to our anon_vma so
-			 * the rmap code will not search our parent or siblings.
-			 * Protected against the rmap code by the page lock.
-			 */
-			page_move_anon_rmap(old_page, vma, address);
+		if (reuse_swap_page(old_page, &total_mapcount)) {
+			if (total_mapcount == 1) {
+				/*
+				 * The page is all ours. Move it to
+				 * our anon_vma so the rmap code will
+				 * not search our parent or siblings.
+				 * Protected against the rmap code by
+				 * the page lock.
+				 */
+				page_move_anon_rmap(compound_head(old_page),
+						    vma, address);
+			}
 			unlock_page(old_page);
 			return wp_page_reuse(mm, vma, address, page_table, ptl,
 					     orig_pte, old_page, 0, 0);
@@ -2624,7 +2623,7 @@ static int do_swap_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	inc_mm_counter_fast(mm, MM_ANONPAGES);
 	dec_mm_counter_fast(mm, MM_SWAPENTS);
 	pte = mk_pte(page, vma->vm_page_prot);
-	if ((flags & FAULT_FLAG_WRITE) && reuse_swap_page(page)) {
+	if ((flags & FAULT_FLAG_WRITE) && reuse_swap_page(page, NULL)) {
 		pte = maybe_mkwrite(pte_mkdirty(pte), vma);
 		flags &= ~FAULT_FLAG_WRITE;
 		ret |= VM_FAULT_WRITE;

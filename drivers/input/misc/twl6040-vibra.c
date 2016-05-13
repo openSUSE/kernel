@@ -181,6 +181,14 @@ static void vibra_play_work(struct work_struct *work)
 {
 	struct vibra_info *info = container_of(work,
 				struct vibra_info, play_work);
+	int ret;
+
+	/* Do not allow effect, while the routing is set to use audio */
+	ret = twl6040_get_vibralr_status(info->twl6040);
+	if (ret & TWL6040_VIBSEL) {
+		dev_info(info->dev, "Vibra is configured for audio\n");
+		return;
+	}
 
 	mutex_lock(&info->mutex);
 
@@ -199,14 +207,6 @@ static int vibra_play(struct input_dev *input, void *data,
 		      struct ff_effect *effect)
 {
 	struct vibra_info *info = input_get_drvdata(input);
-	int ret;
-
-	/* Do not allow effect, while the routing is set to use audio */
-	ret = twl6040_get_vibralr_status(info->twl6040);
-	if (ret & TWL6040_VIBSEL) {
-		dev_info(&input->dev, "Vibra is configured for audio\n");
-		return -EBUSY;
-	}
 
 	info->weak_speed = effect->u.rumble.weak_magnitude;
 	info->strong_speed = effect->u.rumble.strong_magnitude;
@@ -257,6 +257,7 @@ static int twl6040_vibra_probe(struct platform_device *pdev)
 	int vddvibr_uV = 0;
 	int error;
 
+	of_node_get(twl6040_core_dev->of_node);
 	twl6040_core_node = of_find_node_by_name(twl6040_core_dev->of_node,
 						 "vibra");
 	if (!twl6040_core_node) {
