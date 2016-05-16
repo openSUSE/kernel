@@ -2051,7 +2051,7 @@ static int exec_drive_taskfile(struct driver_data *dd,
 					 outbuf,
 					 taskout,
 					 DMA_TO_DEVICE);
-		if (outbuf_dma == 0) {
+		if (pci_dma_mapping_error(dd->pdev, outbuf_dma)) {
 			err = -ENOMEM;
 			goto abort;
 		}
@@ -2068,7 +2068,7 @@ static int exec_drive_taskfile(struct driver_data *dd,
 		inbuf_dma = pci_map_single(dd->pdev,
 					 inbuf,
 					 taskin, DMA_FROM_DEVICE);
-		if (inbuf_dma == 0) {
+		if (pci_dma_mapping_error(dd->pdev, inbuf_dma)) {
 			err = -ENOMEM;
 			goto abort;
 		}
@@ -3878,7 +3878,6 @@ static enum blk_eh_timer_return mtip_cmd_timeout(struct request *req,
 								bool reserved)
 {
 	struct driver_data *dd = req->q->queuedata;
-	int ret = BLK_EH_RESET_TIMER;
 
 	if (reserved)
 		goto exit_handler;
@@ -3891,7 +3890,7 @@ static enum blk_eh_timer_return mtip_cmd_timeout(struct request *req,
 
 	wake_up_interruptible(&dd->port->svc_wait);
 exit_handler:
-	return ret;
+	return BLK_EH_RESET_TIMER;
 }
 
 static struct blk_mq_ops mtip_mq_ops = {

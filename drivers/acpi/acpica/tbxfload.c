@@ -47,6 +47,7 @@
 #include "accommon.h"
 #include "acnamesp.h"
 #include "actables.h"
+#include "acevents.h"
 
 #define _COMPONENT          ACPI_TABLES
 ACPI_MODULE_NAME("tbxfload")
@@ -67,6 +68,25 @@ acpi_status __init acpi_load_tables(void)
 	acpi_status status;
 
 	ACPI_FUNCTION_TRACE(acpi_load_tables);
+
+	/*
+	 * Install the default operation region handlers. These are the
+	 * handlers that are defined by the ACPI specification to be
+	 * "always accessible" -- namely, system_memory, system_IO, and
+	 * PCI_Config. This also means that no _REG methods need to be
+	 * run for these address spaces. We need to have these handlers
+	 * installed before any AML code can be executed, especially any
+	 * module-level code (11/2015).
+	 * Note that we allow OSPMs to install their own region handlers
+	 * between acpi_initialize_subsystem() and acpi_load_tables() to use
+	 * their customized default region handlers.
+	 */
+	status = acpi_ev_install_region_handlers();
+	if (ACPI_FAILURE(status) && status != AE_ALREADY_EXISTS) {
+		ACPI_EXCEPTION((AE_INFO, status,
+				"During Region initialization"));
+		return_ACPI_STATUS(status);
+	}
 
 	/* Load the namespace from the tables */
 
@@ -96,7 +116,7 @@ acpi_status __init acpi_load_tables(void)
 		}
 	}
 
-	acpi_gbl_reg_methods_enabled = TRUE;
+	acpi_gbl_namespace_initialized = TRUE;
 	return_ACPI_STATUS(status);
 }
 
@@ -220,9 +240,7 @@ acpi_status acpi_tb_load_namespace(void)
 	}
 
 	if (!tables_failed) {
-		ACPI_INFO((AE_INFO,
-			   "%u ACPI AML tables successfully acquired and loaded\n",
-			   tables_loaded));
+		ACPI_INFO(("%u ACPI AML tables successfully acquired and loaded\n", tables_loaded));
 	} else {
 		ACPI_ERROR((AE_INFO,
 			    "%u table load failures, %u successful",
@@ -315,7 +333,7 @@ acpi_status acpi_load_table(struct acpi_table_header *table)
 
 	/* Install the table and load it into the namespace */
 
-	ACPI_INFO((AE_INFO, "Host-directed Dynamic ACPI Table Load:"));
+	ACPI_INFO(("Host-directed Dynamic ACPI Table Load:"));
 	(void)acpi_ut_acquire_mutex(ACPI_MTX_TABLES);
 
 	status = acpi_tb_install_standard_table(ACPI_PTR_TO_PHYSADDR(table),

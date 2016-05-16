@@ -92,6 +92,9 @@ mwifiex_reset_connect_state(struct mwifiex_private *priv, u16 reason_code)
 	priv->is_data_rate_auto = true;
 	priv->data_rate = 0;
 
+	priv->assoc_resp_ht_param = 0;
+	priv->ht_param_present = false;
+
 	if ((GET_BSS_ROLE(priv) == MWIFIEX_BSS_ROLE_STA ||
 	     GET_BSS_ROLE(priv) == MWIFIEX_BSS_ROLE_UAP) && priv->hist_data)
 		mwifiex_hist_data_reset(priv);
@@ -686,6 +689,13 @@ int mwifiex_process_sta_event(struct mwifiex_private *priv)
 		mwifiex_dbg(adapter, EVENT, "event: BGS_REPORT\n");
 		ret = mwifiex_send_cmd(priv, HostCmd_CMD_802_11_BG_SCAN_QUERY,
 				       HostCmd_ACT_GEN_GET, 0, NULL, false);
+		break;
+
+	case EVENT_BG_SCAN_STOPPED:
+		dev_dbg(adapter->dev, "event: BGS_STOPPED\n");
+		cfg80211_sched_scan_stopped(priv->wdev.wiphy);
+		if (priv->sched_scanning)
+			priv->sched_scanning = false;
 		break;
 
 	case EVENT_PORT_RELEASE:
