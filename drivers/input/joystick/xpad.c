@@ -457,6 +457,10 @@ static void xpad_process_packet(struct usb_xpad *xpad, u16 cmd, unsigned char *d
 static void xpad360_process_packet(struct usb_xpad *xpad, struct input_dev *dev,
 				   u16 cmd, unsigned char *data)
 {
+	/* valid pad data */
+	if (data[0] != 0x00)
+		return;
+
 	/* digital pad */
 	if (xpad->mapping & MAP_DPAD_TO_BUTTONS) {
 		/* dpad as buttons (left, right, up, down) */
@@ -756,6 +760,7 @@ static bool xpad_prepare_next_out_packet(struct usb_xpad *xpad)
 	if (packet) {
 		memcpy(xpad->odata, packet->data, packet->len);
 		xpad->irq_out->transfer_buffer_length = packet->len;
+		packet->pending = false;
 		return true;
 	}
 
@@ -797,7 +802,6 @@ static void xpad_irq_out(struct urb *urb)
 	switch (status) {
 	case 0:
 		/* success */
-		xpad->out_packets[xpad->last_out_packet].pending = false;
 		xpad->irq_out_active = xpad_prepare_next_out_packet(xpad);
 		break;
 
