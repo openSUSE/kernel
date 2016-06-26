@@ -438,7 +438,6 @@ static void gpiodevice_release(struct device *dev)
 {
 	struct gpio_device *gdev = dev_get_drvdata(dev);
 
-	cdev_del(&gdev->chrdev);
 	list_del(&gdev->list);
 	ida_simple_remove(&gpio_ida, gdev->id);
 	kfree(gdev->label);
@@ -471,7 +470,6 @@ static int gpiochip_setup_dev(struct gpio_device *gdev)
 
 	/* From this point, the .release() function cleans up gpio_device */
 	gdev->dev.release = gpiodevice_release;
-	get_device(&gdev->dev);
 	pr_debug("%s: registered GPIOs %d to %d on device: %s (%s)\n",
 		 __func__, gdev->base, gdev->base + gdev->ngpio - 1,
 		 dev_name(&gdev->dev), gdev->chip->label ? : "generic");
@@ -742,6 +740,8 @@ void gpiochip_remove(struct gpio_chip *chip)
 	 * be removed, else it will be dangling until the last user is
 	 * gone.
 	 */
+	cdev_del(&gdev->chrdev);
+	device_del(&gdev->dev);
 	put_device(&gdev->dev);
 }
 EXPORT_SYMBOL_GPL(gpiochip_remove);
@@ -841,7 +841,7 @@ struct gpio_chip *gpiochip_find(void *data,
 
 	spin_lock_irqsave(&gpio_lock, flags);
 	list_for_each_entry(gdev, &gpio_devices, list)
-		if (match(gdev->chip, data))
+		if (gdev->chip && match(gdev->chip, data))
 			break;
 
 	/* No match? */
@@ -1339,10 +1339,13 @@ done:
 /*
  * This descriptor validation needs to be inserted verbatim into each
  * function taking a descriptor, so we need to use a preprocessor
- * macro to avoid endless duplication.
+ * macro to avoid endless duplication. If the desc is NULL it is an
+ * optional GPIO and calls should just bail out.
  */
 #define VALIDATE_DESC(desc) do { \
-	if (!desc || !desc->gdev) { \
+	if (!desc) \
+		return 0; \
+	if (!desc->gdev) { \
 		pr_warn("%s: invalid GPIO\n", __func__); \
 		return -EINVAL; \
 	} \
@@ -1353,7 +1356,9 @@ done:
 	} } while (0)
 
 #define VALIDATE_DESC_VOID(desc) do { \
-	if (!desc || !desc->gdev) { \
+	if (!desc) \
+		return; \
+	if (!desc->gdev) { \
 		pr_warn("%s: invalid GPIO\n", __func__); \
 		return; \
 	} \
@@ -2001,7 +2006,14 @@ int gpiod_to_irq(const struct gpio_desc *desc)
 	struct gpio_chip	*chip;
 	int			offset;
 
-	VALIDATE_DESC(desc);
+	/*
+	 * Cannot VALIDATE_DESC() here as gpiod_to_irq() consumer semantics
+	 * requires this function to not return zero on an invalid descriptor
+	 * but rather a negative error number.
+	 */
+	if (!desc || !desc->gdev || !desc->gdev->chip)
+		return -EINVAL;
+
 	chip = desc->gdev->chip;
 	offset = gpio_chip_hwgpio(desc);
 	return chip->to_irq ? chip->to_irq(chip, offset) : -ENXIO;
