@@ -1669,7 +1669,6 @@ F:	arch/arm/boot/dts/sh*
 F:	arch/arm/configs/shmobile_defconfig
 F:	arch/arm/include/debug/renesas-scif.S
 F:	arch/arm/mach-shmobile/
-F:	drivers/sh/
 F:	drivers/soc/renesas/
 F:	include/linux/soc/renesas/
 
@@ -5788,7 +5787,9 @@ R:	Hartmut Knaack <knaack.h@gmx.de>
 R:	Lars-Peter Clausen <lars@metafoo.de>
 R:	Peter Meerwald-Stadler <pmeerw@pmeerw.net>
 L:	linux-iio@vger.kernel.org
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jic23/iio.git
 S:	Maintained
+F:	Documentation/devicetree/bindings/iio/
 F:	drivers/iio/
 F:	drivers/staging/iio/
 F:	include/linux/iio/
@@ -6970,7 +6971,7 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jikos/livepatching.git
 LINUX KERNEL DUMP TEST MODULE (LKDTM)
 M:	Kees Cook <keescook@chromium.org>
 S:	Maintained
-F:	drivers/misc/lkdtm.c
+F:	drivers/misc/lkdtm*
 
 LLC (802.2)
 M:	Arnaldo Carvalho de Melo <acme@ghostprotocols.net>
@@ -10001,6 +10002,7 @@ SERIAL DRIVERS
 M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
 L:	linux-serial@vger.kernel.org
 S:	Maintained
+F:	Documentation/devicetree/bindings/serial/
 F:	drivers/tty/serial/
 
 SYNOPSYS DESIGNWARE DMAC DRIVER
@@ -10861,6 +10863,7 @@ STAGING - INDUSTRIAL IO
 M:	Jonathan Cameron <jic23@kernel.org>
 L:	linux-iio@vger.kernel.org
 S:	Odd Fixes
+F:	Documentation/devicetree/bindings/staging/iio/
 F:	drivers/staging/iio/
 
 STAGING - LIRC (LINUX INFRARED REMOTE CONTROL) DRIVERS
