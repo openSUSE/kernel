@@ -48,7 +48,7 @@
 
 
 /** Overview:
- *  EEH, or "Extended Error Handling" is a PCI bridge technology for
+ *  EEH, or "Enhanced Error Handling" is a PCI bridge technology for
  *  dealing with PCI bus errors that can't be dealt with within the
  *  usual PCI framework, except by check-stopping the CPU.  Systems
  *  that are designed for high-availability/reliability cannot afford
@@ -1336,14 +1336,11 @@ static int eeh_pe_change_owner(struct eeh_pe *pe)
 			    id->subdevice != pdev->subsystem_device)
 				continue;
 
-			goto reset;
+			return eeh_pe_reset_and_recover(pe);
 		}
 	}
 
 	return eeh_unfreeze_pe(pe, true);
-
-reset:
-	return eeh_pe_reset_and_recover(pe);
 }
 
 /**

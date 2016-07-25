@@ -97,8 +97,8 @@ static struct imx_drm_crtc *imx_drm_find_crtc(struct drm_crtc *crtc)
 	return NULL;
 }
 
-int imx_drm_set_bus_format_pins(struct drm_encoder *encoder, u32 bus_format,
-		int hsync_pin, int vsync_pin)
+int imx_drm_set_bus_config(struct drm_encoder *encoder, u32 bus_format,
+		int hsync_pin, int vsync_pin, u32 bus_flags)
 {
 	struct imx_drm_crtc_helper_funcs *helper;
 	struct imx_drm_crtc *imx_crtc;
@@ -110,14 +110,17 @@ int imx_drm_set_bus_format_pins(struct drm_encoder *encoder, u32 bus_format,
 	helper = &imx_crtc->imx_drm_helper_funcs;
 	if (helper->set_interface_pix_fmt)
 		return helper->set_interface_pix_fmt(encoder->crtc,
-					bus_format, hsync_pin, vsync_pin);
+					bus_format, hsync_pin, vsync_pin,
+					bus_flags);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(imx_drm_set_bus_format_pins);
+EXPORT_SYMBOL_GPL(imx_drm_set_bus_config);
 
 int imx_drm_set_bus_format(struct drm_encoder *encoder, u32 bus_format)
 {
-	return imx_drm_set_bus_format_pins(encoder, bus_format, 2, 3);
+	return imx_drm_set_bus_config(encoder, bus_format, 2, 3,
+				      DRM_BUS_FLAG_DE_HIGH |
+				      DRM_BUS_FLAG_PIXDATA_NEGEDGE);
 }
 EXPORT_SYMBOL_GPL(imx_drm_set_bus_format);
 
@@ -252,13 +255,6 @@ static int imx_drm_driver_load(struct drm_device *drm, unsigned long flags)
 	ret = drm_vblank_init(drm, MAX_CRTC);
 	if (ret)
 		goto err_kms;
-
-	/*
-	 * with vblank_disable_allowed = true, vblank interrupt will be
-	 * disabled by drm timer once a current process gives up ownership
-	 * of vblank event. (after drm_vblank_put function is called)
-	 */
-	drm->vblank_disable_allowed = true;
 
 	platform_set_drvdata(drm->platformdev, drm);
 
@@ -412,7 +408,7 @@ static struct drm_driver imx_drm_driver = {
 	.unload			= imx_drm_driver_unload,
 	.lastclose		= imx_drm_driver_lastclose,
 	.set_busid		= drm_platform_set_busid,
-	.gem_free_object	= drm_gem_cma_free_object,
+	.gem_free_object_unlocked = drm_gem_cma_free_object,
 	.gem_vm_ops		= &drm_gem_cma_vm_ops,
 	.dumb_create		= drm_gem_cma_dumb_create,
 	.dumb_map_offset	= drm_gem_cma_dumb_map_offset,

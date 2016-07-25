@@ -386,6 +386,7 @@ struct vmw_private {
 	spinlock_t hw_lock;
 	spinlock_t cap_lock;
 	bool has_dx;
+	bool assume_16bpp;
 
 	/*
 	 * VGA registers.
@@ -1235,4 +1236,10 @@ static inline void vmw_mmio_write(u32 value, u32 *addr)
 {
 	WRITE_ONCE(*addr, value);
 }
+
+/**
+ * Add vmw_msg module function
+ */
+extern int vmw_host_log(const char *log);
+
 #endif

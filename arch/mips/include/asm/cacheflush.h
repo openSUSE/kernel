@@ -126,6 +126,7 @@ static inline void kunmap_noncoherent(void)
 static inline void flush_kernel_dcache_page(struct page *page)
 {
 	BUG_ON(cpu_has_dc_aliases && PageHighMem(page));
+	flush_dcache_page(page);
 }
 
 /*

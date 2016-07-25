@@ -106,7 +106,7 @@ static int aac_alloc_comm(struct aac_dev *dev, void **commaddr, unsigned long co
 	init->InitStructRevision = cpu_to_le32(ADAPTER_INIT_STRUCT_REVISION);
 	if (dev->max_fib_size != sizeof(struct hw_fib))
 		init->InitStructRevision = cpu_to_le32(ADAPTER_INIT_STRUCT_REVISION_4);
-	init->Sa_MSIXVectors = cpu_to_le32(Sa_MINIPORT_REVISION);
+	init->Sa_MSIXVectors = cpu_to_le32(SA_INIT_NUM_MSIXVECTORS);
 	init->fsrev = cpu_to_le32(dev->fsrev);
 
 	/*
@@ -393,21 +393,8 @@ void aac_define_int_mode(struct aac_dev *dev)
 			msi_count = i;
 		} else {
 			dev->msi_enabled = 0;
-			printk(KERN_ERR "%s%d: MSIX not supported!! Will try MSI 0x%x.\n",
-					dev->name, dev->id, i);
-		}
-	}
-
-	if (!dev->msi_enabled) {
-		msi_count = 1;
-		i = pci_enable_msi(dev->pdev);
-
-		if (!i) {
-			dev->msi_enabled = 1;
-			dev->msi = 1;
-		} else {
-			printk(KERN_ERR "%s%d: MSI not supported!! Will try INTx 0x%x.\n",
-					dev->name, dev->id, i);
+			dev_err(&dev->pdev->dev,
+			"MSIX not supported!! Will try INTX 0x%x.\n", i);
 		}
 	}
 

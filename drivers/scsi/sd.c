@@ -137,15 +137,15 @@ static const char *sd_cache_types[] = {
 
 static void sd_set_flush_flag(struct scsi_disk *sdkp)
 {
-	unsigned flush = 0;
+	bool wc = false, fua = false;
 
 	if (sdkp->WCE) {
-		flush |= REQ_FLUSH;
+		wc = true;
 		if (sdkp->DPOFUA)
-			flush |= REQ_FUA;
+			fua = true;
 	}
 
-	blk_queue_flush(sdkp->disk->queue, flush);
+	blk_queue_write_cache(sdkp->disk->queue, wc, fua);
 }
 
 static ssize_t
@@ -779,7 +779,7 @@ static int sd_setup_discard_cmnd(struct scsi_cmnd *cmd)
 	 * discarded on disk. This allows us to report completion on the full
 	 * amount of blocks described by the request.
 	 */
-	blk_add_request_payload(rq, page, len);
+	blk_add_request_payload(rq, page, 0, len);
 	ret = scsi_init_io(cmd);
 	rq->__data_len = nr_bytes;
 
@@ -1398,11 +1398,15 @@ static int media_not_present(struct scsi_disk *sdkp,
  **/
 static unsigned int sd_check_events(struct gendisk *disk, unsigned int clearing)
 {
-	struct scsi_disk *sdkp = scsi_disk(disk);
-	struct scsi_device *sdp = sdkp->device;
+	struct scsi_disk *sdkp = scsi_disk_get(disk);
+	struct scsi_device *sdp;
 	struct scsi_sense_hdr *sshdr = NULL;
 	int retval;
 
+	if (!sdkp)
+		return 0;
+
+	sdp = sdkp->device;
 	SCSI_LOG_HLQUEUE(3, sd_printk(KERN_INFO, sdkp, "sd_check_events\n"));
 
 	/*
@@ -1459,6 +1463,7 @@ out:
 	kfree(sshdr);
 	retval = sdp->changed ? DISK_EVENT_MEDIA_CHANGE : 0;
 	sdp->changed = 0;
+	scsi_disk_put(sdkp);
 	return retval;
 }
 
@@ -2861,10 +2866,10 @@ static int sd_revalidate_disk(struct gendisk *disk)
 	if (sdkp->opt_xfer_blocks &&
 	    sdkp->opt_xfer_blocks <= dev_max &&
 	    sdkp->opt_xfer_blocks <= SD_DEF_XFER_BLOCKS &&
-	    sdkp->opt_xfer_blocks * sdp->sector_size >= PAGE_SIZE)
-		rw_max = q->limits.io_opt =
-			sdkp->opt_xfer_blocks * sdp->sector_size;
-	else
+	    logical_to_bytes(sdp, sdkp->opt_xfer_blocks) >= PAGE_SIZE) {
+		q->limits.io_opt = logical_to_bytes(sdp, sdkp->opt_xfer_blocks);
+		rw_max = logical_to_sectors(sdp, sdkp->opt_xfer_blocks);
+	} else
 		rw_max = BLK_DEF_MAX_SECTORS;
 
 	/* Combine with controller limits */
@@ -3002,20 +3007,6 @@ static void sd_probe_async(void *data, async_cookie_t cookie)
 	put_device(&sdkp->dev);
 }
 
-static int sd_get_index(int *index)
-{
-	int error = -ENOMEM;
-	do {
-		if (!ida_pre_get(&sd_index_ida, GFP_KERNEL))
-			break;
-
-		spin_lock(&sd_index_lock);
-		error = ida_get_new(&sd_index_ida, index);
-		spin_unlock(&sd_index_lock);
-	} while (error == -EAGAIN);
-
-	return error;
-}
 /**
  *	sd_probe - called during driver initialization and whenever a
  *	new scsi device is attached to the system. It is called once
@@ -3059,7 +3050,15 @@ static int sd_probe(struct device *dev)
 	if (!gd)
 		goto out_free;
 
-	error = sd_get_index(&index);
+	do {
+		if (!ida_pre_get(&sd_index_ida, GFP_KERNEL))
+			goto out_put;
+
+		spin_lock(&sd_index_lock);
+		error = ida_get_new(&sd_index_ida, &index);
+		spin_unlock(&sd_index_lock);
+	} while (error == -EAGAIN);
+
 	if (error) {
 		sdev_printk(KERN_WARNING, sdp, "sd_probe: memory exhausted.\n");
 		goto out_put;
@@ -3294,42 +3293,6 @@ static int sd_resume(struct device *dev)
 	return sd_start_stop_device(sdkp, 1);
 }
 
-/*
-* Each major represents 16 disks. A minor is used for the disk itself and 15
-* partitions. Mark each disk busy so that sd_probe can not reclaim this major.
-*/
-static int __init init_sd_ida(int *error)
-{
-	int *index, i, j, err;
-
-	index = kmalloc(SD_MAJORS * (256 / SD_MINORS) * sizeof(int), GFP_KERNEL);
-	if (!index)
-		return -ENOMEM;
-
-	/* Mark minors for all majors as busy */
-	for (i = 0; i < SD_MAJORS; i++)
-	{
-		for (j = 0; j < (256 / SD_MINORS); j++) {
-			err = sd_get_index(&index[i * (256 / SD_MINORS) + j]);
-			if (err) {
-				kfree(index);
-				return err;
-			}
-		}
-	}
-
-	/* Mark minors for claimed majors as free */
-	for (i = 0; i < SD_MAJORS; i++)
-	{
-		if (error[i])
-			continue;
-		for (j = 0; j < (256 / SD_MINORS); j++)
-			ida_remove(&sd_index_ida, index[i * (256 / SD_MINORS) + j]);
-	}
-	kfree(index);
-	return 0;
-}
-
 /**
  *	init_sd - entry point for this driver (both when built in or when
  *	a module).
@@ -3339,26 +3302,19 @@ static int __init init_sd_ida(int *error)
 static int __init init_sd(void)
 {
 	int majors = 0, i, err;
-	int error[SD_MAJORS];
 
 	SCSI_LOG_HLQUEUE(3, printk("init_sd: sd driver entry point\n"));
 
 	for (i = 0; i < SD_MAJORS; i++) {
-		error[i] = register_blkdev(sd_major(i), "sd");
-		if (error[i] == 0)
-			majors++;
+		if (register_blkdev(sd_major(i), "sd") != 0)
+			continue;
+		majors++;
 		blk_register_region(sd_major(i), SD_MINORS, NULL,
 				    sd_default_probe, NULL, NULL);
 	}
 
 	if (!majors)
 		return -ENODEV;
-
-	if (majors < SD_MAJORS) {
-		err = init_sd_ida(error);
-		if (err)
-			return err;
-	}
 
 	err = class_register(&sd_disk_class);
 	if (err)

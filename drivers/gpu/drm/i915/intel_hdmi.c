@@ -638,7 +638,7 @@ static bool intel_hdmi_set_gcp_infoframe(struct drm_encoder *encoder)
 		reg = HSW_TVIDEO_DIP_GCP(crtc->config->cpu_transcoder);
 	else if (IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv))
 		reg = VLV_TVIDEO_DIP_GCP(crtc->pipe);
-	else if (HAS_PCH_SPLIT(dev_priv->dev))
+	else if (HAS_PCH_SPLIT(dev_priv))
 		reg = TVIDEO_DIP_GCP(crtc->pipe);
 	else
 		return false;
@@ -970,10 +970,9 @@ static void intel_hdmi_get_config(struct intel_encoder *encoder,
 	if (pipe_config->pixel_multiplier)
 		dotclock /= pipe_config->pixel_multiplier;
 
-	if (HAS_PCH_SPLIT(dev_priv->dev))
-		ironlake_check_encoder_dotclock(pipe_config, dotclock);
-
 	pipe_config->base.adjusted_mode.crtc_clock = dotclock;
+
+	pipe_config->lane_count = 4;
 }
 
 static void intel_enable_hdmi_audio(struct intel_encoder *encoder)
@@ -1375,6 +1374,8 @@ bool intel_hdmi_compute_config(struct intel_encoder *encoder,
 	/* Set user selected PAR to incoming mode's member */
 	adjusted_mode->picture_aspect_ratio = intel_hdmi->aspect_ratio;
 
+	pipe_config->lane_count = 4;
+
 	return true;
 }
 
@@ -1395,16 +1396,38 @@ intel_hdmi_unset_edid(struct drm_connector *connector)
 }
 
 static void
-intel_hdmi_dp_dual_mode_detect(struct drm_connector *connector)
+intel_hdmi_dp_dual_mode_detect(struct drm_connector *connector, bool has_edid)
 {
 	struct drm_i915_private *dev_priv = to_i915(connector->dev);
 	struct intel_hdmi *hdmi = intel_attached_hdmi(connector);
+	enum port port = hdmi_to_dig_port(hdmi)->port;
 	struct i2c_adapter *adapter =
 		intel_gmbus_get_adapter(dev_priv, hdmi->ddc_bus);
 	enum drm_dp_dual_mode_type type = drm_dp_dual_mode_detect(adapter);
 
-	if (type == DRM_DP_DUAL_MODE_NONE ||
-	    type == DRM_DP_DUAL_MODE_UNKNOWN)
+	/*
+	 * Type 1 DVI adaptors are not required to implement any
+	 * registers, so we can't always detect their presence.
+	 * Ideally we should be able to check the state of the
+	 * CONFIG1 pin, but no such luck on our hardware.
+	 *
+	 * The only method left to us is to check the VBT to see
+	 * if the port is a dual mode capable DP port. But let's
+	 * only do that when we sucesfully read the EDID, to avoid
+	 * confusing log messages about DP dual mode adaptors when
+	 * there's nothing connected to the port.
+	 */
+	if (type == DRM_DP_DUAL_MODE_UNKNOWN) {
+		if (has_edid &&
+		    intel_bios_is_port_dp_dual_mode(dev_priv, port)) {
+			DRM_DEBUG_KMS("Assuming DP dual mode adaptor presence based on VBT\n");
+			type = DRM_DP_DUAL_MODE_TYPE1_DVI;
+		} else {
+			type = DRM_DP_DUAL_MODE_NONE;
+		}
+	}
+
+	if (type == DRM_DP_DUAL_MODE_NONE)
 		return;
 
 	hdmi->dp_dual_mode.type = type;
@@ -1431,7 +1454,7 @@ intel_hdmi_set_edid(struct drm_connector *connector, bool force)
 				    intel_gmbus_get_adapter(dev_priv,
 				    intel_hdmi->ddc_bus));
 
-		intel_hdmi_dp_dual_mode_detect(connector);
+		intel_hdmi_dp_dual_mode_detect(connector, edid != NULL);
 
 		intel_display_power_put(dev_priv, POWER_DOMAIN_GMBUS);
 	}
@@ -2118,6 +2141,9 @@ void intel_hdmi_init_connector(struct intel_digital_port *intel_dig_port,
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	enum port port = intel_dig_port->port;
 	uint8_t alternate_ddc_pin;
+
+	DRM_DEBUG_KMS("Adding HDMI connector on port %c\n",
+		      port_name(port));
 
 	if (WARN(intel_dig_port->max_lanes < 4,
 		 "Not enough lanes (%d) for HDMI on port %c\n",

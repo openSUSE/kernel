@@ -58,8 +58,7 @@
 #include <linux/parser.h>
 
 static const struct super_operations xfs_super_operations;
-static kmem_zone_t *xfs_ioend_zone;
-mempool_t *xfs_ioend_pool;
+struct bio_set *xfs_ioend_bioset;
 
 static struct kset *xfs_kset;		/* top-level xfs sysfs dir */
 #ifdef DEBUG
@@ -350,6 +349,7 @@ xfs_parseargs(
 		case Opt_pqnoenforce:
 			mp->m_qflags |= (XFS_PQUOTA_ACCT | XFS_PQUOTA_ACTIVE);
 			mp->m_qflags &= ~XFS_PQUOTA_ENFD;
+			break;
 		case Opt_gquota:
 		case Opt_grpquota:
 			mp->m_qflags |= (XFS_GQUOTA_ACCT | XFS_GQUOTA_ACTIVE |
@@ -1555,14 +1555,12 @@ xfs_fs_fill_super(
 
 	if (mp->m_flags & XFS_MOUNT_DAX) {
 		xfs_warn(mp,
-	"DAX enabled. Warning: EXPERIMENTAL, use at your own risk");
-		if (sb->s_blocksize != PAGE_SIZE) {
+		"DAX enabled. Warning: EXPERIMENTAL, use at your own risk");
+
+		error = bdev_dax_supported(sb, sb->s_blocksize);
+		if (error) {
 			xfs_alert(mp,
-		"Filesystem block size invalid for DAX Turning DAX off.");
-			mp->m_flags &= ~XFS_MOUNT_DAX;
-		} else if (!sb->s_bdev->bd_disk->fops->direct_access) {
-			xfs_alert(mp,
-		"Block device does not support DAX Turning DAX off.");
+			"DAX unsupported by block device. Turning off DAX.");
 			mp->m_flags &= ~XFS_MOUNT_DAX;
 		}
 	}
@@ -1684,20 +1682,15 @@ MODULE_ALIAS_FS("xfs");
 STATIC int __init
 xfs_init_zones(void)
 {
-
-	xfs_ioend_zone = kmem_zone_init(sizeof(xfs_ioend_t), "xfs_ioend");
-	if (!xfs_ioend_zone)
+	xfs_ioend_bioset = bioset_create(4 * MAX_BUF_PER_PAGE,
+			offsetof(struct xfs_ioend, io_inline_bio));
+	if (!xfs_ioend_bioset)
 		goto out;
-
-	xfs_ioend_pool = mempool_create_slab_pool(4 * MAX_BUF_PER_PAGE,
-						  xfs_ioend_zone);
-	if (!xfs_ioend_pool)
-		goto out_destroy_ioend_zone;
 
 	xfs_log_ticket_zone = kmem_zone_init(sizeof(xlog_ticket_t),
 						"xfs_log_ticket");
 	if (!xfs_log_ticket_zone)
-		goto out_destroy_ioend_pool;
+		goto out_free_ioend_bioset;
 
 	xfs_bmap_free_item_zone = kmem_zone_init(sizeof(xfs_bmap_free_item_t),
 						"xfs_bmap_free_item");
@@ -1793,10 +1786,8 @@ xfs_init_zones(void)
 	kmem_zone_destroy(xfs_bmap_free_item_zone);
  out_destroy_log_ticket_zone:
 	kmem_zone_destroy(xfs_log_ticket_zone);
- out_destroy_ioend_pool:
-	mempool_destroy(xfs_ioend_pool);
- out_destroy_ioend_zone:
-	kmem_zone_destroy(xfs_ioend_zone);
+ out_free_ioend_bioset:
+	bioset_free(xfs_ioend_bioset);
  out:
 	return -ENOMEM;
 }
@@ -1822,9 +1813,7 @@ xfs_destroy_zones(void)
 	kmem_zone_destroy(xfs_btree_cur_zone);
 	kmem_zone_destroy(xfs_bmap_free_item_zone);
 	kmem_zone_destroy(xfs_log_ticket_zone);
-	mempool_destroy(xfs_ioend_pool);
-	kmem_zone_destroy(xfs_ioend_zone);
-
+	bioset_free(xfs_ioend_bioset);
 }
 
 STATIC int __init
