@@ -3494,6 +3494,7 @@ F:	Documentation/ABI/testing/sysfs-class-cxl
 CXLFLASH (IBM Coherent Accelerator Processor Interface CAPI Flash) SCSI DRIVER
 M:	Manoj N. Kumar <manoj@linux.vnet.ibm.com>
 M:	Matthew R. Ochs <mrochs@linux.vnet.ibm.com>
+M:	Uma Krishnan <ukrishn@linux.vnet.ibm.com>
 L:	linux-scsi@vger.kernel.org
 S:	Supported
 F:	drivers/scsi/cxlflash/
@@ -8340,6 +8341,7 @@ F:	drivers/ntb/
 F:	drivers/net/ntb_netdev.c
 F:	include/linux/ntb.h
 F:	include/linux/ntb_transport.h
+F:	tools/testing/selftests/ntb/
 
 NTB INTEL DRIVER
 M:	Jon Mason <jdmason@kudzu.us>
@@ -9828,10 +9830,14 @@ L:	rtc-linux@googlegroups.com
 Q:	http://patchwork.ozlabs.org/project/rtc-linux/list/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/abelloni/linux.git
 S:	Maintained
+F:	Documentation/devicetree/bindings/rtc/
 F:	Documentation/rtc.txt
 F:	drivers/rtc/
 F:	include/linux/rtc.h
 F:	include/uapi/linux/rtc.h
+F:	include/linux/rtc/
+F:	include/linux/platform_data/rtc-*
+F:	tools/testing/selftests/timers/rtctest.c
 
 REALTEK AUDIO CODECS
 M:	Bard Liao <bardliao@realtek.com>
