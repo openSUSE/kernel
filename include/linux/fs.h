@@ -2480,12 +2480,11 @@ extern void init_special_inode(struct inode *, umode_t, dev_t);
 extern void make_bad_inode(struct inode *);
 extern bool is_bad_inode(struct inode *);
 
+#ifdef CONFIG_BLOCK
 static inline bool op_is_write(unsigned int op)
 {
 	return op == REQ_OP_READ ? false : true;
 }
-
-#ifdef CONFIG_BLOCK
 
 /*
  * return data direction, READ or WRITE
@@ -2748,11 +2747,6 @@ extern struct inode *new_inode(struct super_block *sb);
 extern void free_inode_nonrcu(struct inode *inode);
 extern int should_remove_suid(struct dentry *);
 extern int file_remove_privs(struct file *);
-extern int dentry_needs_remove_privs(struct dentry *dentry);
-static inline int file_needs_remove_privs(struct file *file)
-{
-	return dentry_needs_remove_privs(file->f_path.dentry);
-}
 
 extern void __insert_inode_hash(struct inode *, unsigned long hashval);
 static inline void insert_inode_hash(struct inode *inode)
