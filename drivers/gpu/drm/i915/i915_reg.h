@@ -1672,6 +1672,9 @@ enum skl_disp_power_wells {
 
 #define GEN7_TLB_RD_ADDR	_MMIO(0x4700)
 
+#define GEN9_GAMT_ECO_REG_RW_IA _MMIO(0x4ab0)
+#define   GAMT_ECO_ENABLE_IN_PLACE_DECOMPRESS	(1<<18)
+
 #define GAMT_CHKN_BIT_REG	_MMIO(0x4ab8)
 #define   GAMT_CHKN_DISABLE_DYNAMIC_CREDIT_SHARING	(1<<28)
 
@@ -7535,6 +7538,8 @@ enum skl_disp_power_wells {
 /* For each transcoder, we need to select the corresponding port clock */
 #define  TRANS_CLK_SEL_DISABLED		(0x0<<29)
 #define  TRANS_CLK_SEL_PORT(x)		(((x)+1)<<29)
+
+#define CDCLK_FREQ			_MMIO(0x46200)
 
 #define CDCLK_FREQ			_MMIO(0x46200)
 

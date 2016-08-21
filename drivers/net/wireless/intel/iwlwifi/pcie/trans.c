@@ -801,6 +801,8 @@ static int iwl_pcie_load_cpu_sections_8000(struct iwl_trans *trans,
 
 	*first_ucode_section = last_read_idx;
 
+	iwl_enable_interrupts(trans);
+
 	if (cpu == 1)
 		iwl_write_direct32(trans, FH_UCODE_LOAD_STATUS, 0xFFFF);
 	else
@@ -980,6 +982,8 @@ static int iwl_pcie_load_given_ucode(struct iwl_trans *trans,
 		iwl_pcie_apply_destination(trans);
 	}
 
+	iwl_enable_interrupts(trans);
+
 	/* release CPU reset */
 	iwl_write32(trans, CSR_RESET, 0);
 
@@ -1033,9 +1037,7 @@ static void _iwl_trans_pcie_stop_device(struct iwl_trans *trans, bool low_power)
 	was_hw_rfkill = iwl_is_rfkill_set(trans);
 
 	/* tell the device to stop sending interrupts */
-	spin_lock(&trans_pcie->irq_lock);
 	iwl_disable_interrupts(trans);
-	spin_unlock(&trans_pcie->irq_lock);
 
 	/* device going down, Stop using ICT table */
 	iwl_pcie_disable_ict(trans);
@@ -1079,9 +1081,7 @@ static void _iwl_trans_pcie_stop_device(struct iwl_trans *trans, bool low_power)
 	 * the time, unless the interrupt is ACKed even if the interrupt
 	 * should be masked. Re-ACK all the interrupts here.
 	 */
-	spin_lock(&trans_pcie->irq_lock);
 	iwl_disable_interrupts(trans);
-	spin_unlock(&trans_pcie->irq_lock);
 
 	/* clear all status bits */
 	clear_bit(STATUS_SYNC_HCMD_ACTIVE, &trans->status);
@@ -1215,7 +1215,6 @@ static int iwl_trans_pcie_start_fw(struct iwl_trans *trans,
 		ret = iwl_pcie_load_given_ucode_8000(trans, fw);
 	else
 		ret = iwl_pcie_load_given_ucode(trans, fw);
-	iwl_enable_interrupts(trans);
 
 	/* re-check RF-Kill state since we may have missed the interrupt */
 	hw_rfkill = iwl_is_rfkill_set(trans);
@@ -1567,15 +1566,11 @@ static void iwl_trans_pcie_op_mode_leave(struct iwl_trans *trans)
 	mutex_lock(&trans_pcie->mutex);
 
 	/* disable interrupts - don't enable HW RF kill interrupt */
-	spin_lock(&trans_pcie->irq_lock);
 	iwl_disable_interrupts(trans);
-	spin_unlock(&trans_pcie->irq_lock);
 
 	iwl_pcie_apm_stop(trans, true);
 
-	spin_lock(&trans_pcie->irq_lock);
 	iwl_disable_interrupts(trans);
-	spin_unlock(&trans_pcie->irq_lock);
 
 	iwl_pcie_disable_ict(trans);
 
