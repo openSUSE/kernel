@@ -281,6 +281,9 @@ struct i915_hotplug {
 	u32 short_port_mask;
 	struct work_struct dig_port_work;
 
+	struct work_struct poll_init_work;
+	bool poll_enabled;
+
 	/*
 	 * if we get a HPD irq from DP and a HPD irq from non-DP
 	 * the non-DP HPD could block the workqueue on a mode config
@@ -2791,6 +2794,8 @@ void intel_hpd_init(struct drm_i915_private *dev_priv);
 void intel_hpd_init_work(struct drm_i915_private *dev_priv);
 void intel_hpd_cancel_work(struct drm_i915_private *dev_priv);
 bool intel_hpd_pin_to_port(enum hpd_pin pin, enum port *port);
+bool intel_hpd_disable(struct drm_i915_private *dev_priv, enum hpd_pin pin);
+void intel_hpd_enable(struct drm_i915_private *dev_priv, enum hpd_pin pin);
 
 /* i915_irq.c */
 void i915_queue_hangcheck(struct drm_device *dev);
