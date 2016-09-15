@@ -95,10 +95,15 @@ static int create_encryption_context_from_policy(struct inode *inode,
 int fscrypt_process_policy(struct inode *inode,
 				const struct fscrypt_policy *policy)
 {
+	if (!inode_owner_or_capable(inode))
+		return -EACCES;
+
 	if (policy->version != 0)
 		return -EINVAL;
 
 	if (!inode_has_encryption_context(inode)) {
+		if (!S_ISDIR(inode->i_mode))
+			return -EINVAL;
 		if (!inode->i_sb->s_cop->empty_dir)
 			return -EOPNOTSUPP;
 		if (!inode->i_sb->s_cop->empty_dir(inode))
