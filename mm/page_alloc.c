@@ -3253,6 +3253,7 @@ __alloc_pages_direct_compact(gfp_t gfp_mask, unsigned int order,
 
 	return NULL;
 }
+
 #else
 static inline struct page *
 __alloc_pages_direct_compact(gfp_t gfp_mask, unsigned int order,
@@ -3262,6 +3263,7 @@ __alloc_pages_direct_compact(gfp_t gfp_mask, unsigned int order,
 	*compact_result = COMPACT_SKIPPED;
 	return NULL;
 }
+
 #endif /* CONFIG_COMPACTION */
 
 static inline bool
