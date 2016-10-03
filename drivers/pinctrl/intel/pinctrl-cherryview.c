@@ -1108,6 +1108,27 @@ static int chv_config_set_pull(struct chv_pinctrl *pctrl, unsigned pin,
 	return 0;
 }
 
+static int chv_config_set_oden(struct chv_pinctrl *pctrl, unsigned int pin,
+			       bool enable)
+{
+	void __iomem *reg = chv_padreg(pctrl, pin, CHV_PADCTRL1);
+	unsigned long flags;
+	u32 ctrl1;
+
+	raw_spin_lock_irqsave(&chv_lock, flags);
+	ctrl1 = readl(reg);
+
+	if (enable)
+		ctrl1 |= CHV_PADCTRL1_ODEN;
+	else
+		ctrl1 &= ~CHV_PADCTRL1_ODEN;
+
+	chv_writel(ctrl1, reg);
+	raw_spin_unlock_irqrestore(&chv_lock, flags);
+
+	return 0;
+}
+
 static int chv_config_set(struct pinctrl_dev *pctldev, unsigned pin,
 			  unsigned long *configs, unsigned nconfigs)
 {
@@ -1132,6 +1153,18 @@ static int chv_config_set(struct pinctrl_dev *pctldev, unsigned pin,
 				return ret;
 			break;
 
+		case PIN_CONFIG_DRIVE_PUSH_PULL:
+			ret = chv_config_set_oden(pctrl, pin, false);
+			if (ret)
+				return ret;
+			break;
+
+		case PIN_CONFIG_DRIVE_OPEN_DRAIN:
+			ret = chv_config_set_oden(pctrl, pin, true);
+			if (ret)
+				return ret;
+			break;
+
 		default:
 			return -ENOTSUPP;
 		}
@@ -1143,10 +1176,52 @@ static int chv_config_set(struct pinctrl_dev *pctldev, unsigned pin,
 	return 0;
 }
 
+static int chv_config_group_get(struct pinctrl_dev *pctldev,
+				unsigned int group,
+				unsigned long *config)
+{
+	const unsigned int *pins;
+	unsigned int npins;
+	int ret;
+
+	ret = chv_get_group_pins(pctldev, group, &pins, &npins);
+	if (ret)
+		return ret;
+
+	ret = chv_config_get(pctldev, pins[0], config);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static int chv_config_group_set(struct pinctrl_dev *pctldev,
+				unsigned int group, unsigned long *configs,
+				unsigned int num_configs)
+{
+	const unsigned int *pins;
+	unsigned int npins;
+	int i, ret;
+
+	ret = chv_get_group_pins(pctldev, group, &pins, &npins);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < npins; i++) {
+		ret = chv_config_set(pctldev, pins[i], configs, num_configs);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 static const struct pinconf_ops chv_pinconf_ops = {
 	.is_generic = true,
 	.pin_config_set = chv_config_set,
 	.pin_config_get = chv_config_get,
+	.pin_config_group_get = chv_config_group_get,
+	.pin_config_group_set = chv_config_group_set,
 };
 
 static struct pinctrl_desc chv_pinctrl_desc = {
@@ -1464,12 +1539,11 @@ static int chv_gpio_probe(struct chv_pinctrl *pctrl, int irq)
 		offset += range->npins;
 	}
 
-	/* Mask and clear all interrupts */
-	chv_writel(0, pctrl->regs + CHV_INTMASK);
+	/* Clear all interrupts */
 	chv_writel(0xffff, pctrl->regs + CHV_INTSTAT);
 
 	ret = gpiochip_irqchip_add(chip, &chv_gpio_irqchip, 0,
-				   handle_simple_irq, IRQ_TYPE_NONE);
+				   handle_bad_irq, IRQ_TYPE_NONE);
 	if (ret) {
 		dev_err(pctrl->dev, "failed to add IRQ chip\n");
 		goto fail;

@@ -61,6 +61,13 @@ extern int hibernation_snapshot(int platform_mode);
 extern int hibernation_restore(int platform_mode);
 extern int hibernation_platform_enter(void);
 
+#ifdef CONFIG_DEBUG_RODATA
+/* kernel/power/snapshot.c */
+extern void enable_restore_image_protection(void);
+#else
+static inline void enable_restore_image_protection(void) {}
+#endif /* CONFIG_DEBUG_RODATA */
+
 #else /* !CONFIG_HIBERNATION */
 
 static inline void hibernate_reserved_size_init(void) {}
@@ -202,6 +209,8 @@ static inline void suspend_test_finish(const char *label) {}
 
 #ifdef CONFIG_PM_SLEEP
 /* kernel/power/main.c */
+extern int __pm_notifier_call_chain(unsigned long val, int nr_to_call,
+				    int *nr_calls);
 extern int pm_notifier_call_chain(unsigned long val);
 #endif
 

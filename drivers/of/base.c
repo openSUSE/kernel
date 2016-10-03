@@ -17,6 +17,9 @@
  *      as published by the Free Software Foundation; either version
  *      2 of the License, or (at your option) any later version.
  */
+
+#define pr_fmt(fmt)	"OF: " fmt
+
 #include <linux/console.h>
 #include <linux/ctype.h>
 #include <linux/cpu.h>
@@ -130,7 +133,7 @@ static const char *safe_name(struct kobject *kobj, const char *orig_name)
 	if (name == orig_name) {
 		name = kstrdup(orig_name, GFP_KERNEL);
 	} else {
-		pr_warn("device-tree: Duplicate name in %s, renamed to \"%s\"\n",
+		pr_warn("Duplicate name in %s, renamed to \"%s\"\n",
 			kobject_name(kobj), name);
 	}
 	return name;
@@ -204,7 +207,7 @@ void __init of_core_init(void)
 	of_kset = kset_create_and_add("devicetree", NULL, firmware_kobj);
 	if (!of_kset) {
 		mutex_unlock(&of_mutex);
-		pr_err("devicetree: failed to register existing nodes\n");
+		pr_err("failed to register existing nodes\n");
 		return;
 	}
 	for_each_of_allnodes(np)
@@ -498,6 +501,28 @@ int of_device_is_compatible(const struct device_node *device,
 	return res;
 }
 EXPORT_SYMBOL(of_device_is_compatible);
+
+/** Checks if the device is compatible with any of the entries in
+ *  a NULL terminated array of strings. Returns the best match
+ *  score or 0.
+ */
+int of_device_compatible_match(struct device_node *device,
+			       const char *const *compat)
+{
+	unsigned int tmp, score = 0;
+
+	if (!compat)
+		return 0;
+
+	while (*compat) {
+		tmp = of_device_is_compatible(device, *compat);
+		if (tmp > score)
+			score = tmp;
+		compat++;
+	}
+
+	return score;
+}
 
 /**
  * of_machine_is_compatible - Test root of device tree for a given compatible value
@@ -1606,8 +1631,7 @@ static int __of_parse_phandle_with_args(const struct device_node *np,
 	 */
 
  err:
-	if (it.node)
-		of_node_put(it.node);
+	of_node_put(it.node);
 	return rc;
 }
 
@@ -2269,8 +2293,8 @@ struct device_node *of_graph_get_next_endpoint(const struct device_node *parent,
 		of_node_put(node);
 
 		if (!port) {
-			pr_err("%s(): no port node found in %s\n",
-			       __func__, parent->full_name);
+			pr_err("graph: no port node found in %s\n",
+			       parent->full_name);
 			return NULL;
 		}
 	} else {

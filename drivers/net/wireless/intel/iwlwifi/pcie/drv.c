@@ -516,6 +516,9 @@ static const struct pci_device_id iwl_hw_card_ids[] = {
 	{IWL_PCI_DEVICE(0x2526, 0x1420, iwl5165_2ac_cfg)},
 	{IWL_PCI_DEVICE(0x9DF0, 0x0710, iwl5165_2ac_cfg)},
 	{IWL_PCI_DEVICE(0x9DF0, 0x2A10, iwl5165_2ac_cfg)},
+
+/* a000 Series */
+	{IWL_PCI_DEVICE(0x2720, 0x0A10, iwla000_2ac_cfg)},
 #endif /* CONFIG_IWLMVM */
 
 	{0}
@@ -607,7 +610,6 @@ static int iwl_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	const struct iwl_cfg *cfg_7265d __maybe_unused = NULL;
 	const struct iwl_cfg *cfg_9260lc __maybe_unused = NULL;
 	struct iwl_trans *iwl_trans;
-	struct iwl_trans_pcie *trans_pcie;
 	int ret;
 
 	iwl_trans = iwl_trans_pcie_alloc(pdev, ent, cfg);
@@ -645,12 +647,10 @@ static int iwl_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 #endif
 
 	pci_set_drvdata(pdev, iwl_trans);
+	iwl_trans->drv = iwl_drv_start(iwl_trans, cfg);
 
-	trans_pcie = IWL_TRANS_GET_PCIE_TRANS(iwl_trans);
-	trans_pcie->drv = iwl_drv_start(iwl_trans, cfg);
-
-	if (IS_ERR(trans_pcie->drv)) {
-		ret = PTR_ERR(trans_pcie->drv);
+	if (IS_ERR(iwl_trans->drv)) {
+		ret = PTR_ERR(iwl_trans->drv);
 		goto out_free_trans;
 	}
 
@@ -689,7 +689,7 @@ static int iwl_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	return 0;
 
 out_free_drv:
-	iwl_drv_stop(trans_pcie->drv);
+	iwl_drv_stop(iwl_trans->drv);
 out_free_trans:
 	iwl_trans_pcie_free(iwl_trans);
 	return ret;
@@ -698,7 +698,6 @@ out_free_trans:
 static void iwl_pci_remove(struct pci_dev *pdev)
 {
 	struct iwl_trans *trans = pci_get_drvdata(pdev);
-	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 
 	/* if RTPM was in use, restore it to the state before probe */
 	if (trans->runtime_pm_mode != IWL_PLAT_PM_MODE_DISABLED) {
@@ -709,7 +708,7 @@ static void iwl_pci_remove(struct pci_dev *pdev)
 		pm_runtime_forbid(trans->dev);
 	}
 
-	iwl_drv_stop(trans_pcie->drv);
+	iwl_drv_stop(trans->drv);
 
 	iwl_trans_pcie_free(trans);
 }

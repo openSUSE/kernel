@@ -890,7 +890,7 @@ static int cifs_ci_hash(const struct dentry *dentry, struct qstr *q)
 	wchar_t c;
 	int i, charlen;
 
-	hash = init_name_hash();
+	hash = init_name_hash(dentry);
 	for (i = 0; i < q->len; i += charlen) {
 		charlen = codepage->char2uni(&q->name[i], q->len - i, &c);
 		/* error out if we can't convert the character */
@@ -903,10 +903,10 @@ static int cifs_ci_hash(const struct dentry *dentry, struct qstr *q)
 	return 0;
 }
 
-static int cifs_ci_compare(const struct dentry *parent, const struct dentry *dentry,
+static int cifs_ci_compare(const struct dentry *dentry,
 		unsigned int len, const char *str, const struct qstr *name)
 {
-	struct nls_table *codepage = CIFS_SB(parent->d_sb)->local_nls;
+	struct nls_table *codepage = CIFS_SB(dentry->d_sb)->local_nls;
 	wchar_t c1, c2;
 	int i, l1, l2;
 
