@@ -88,6 +88,11 @@ static void unmap_region(struct mm_struct *mm,
  *		w: (no) no	w: (no) no	w: (copy) copy	w: (no) no
  *		x: (no) no	x: (no) yes	x: (no) yes	x: (yes) yes
  *
+ * On arm64, PROT_EXEC has the following behaviour for both MAP_SHARED and
+ * MAP_PRIVATE:
+ *								r: (no) no
+ *								w: (no) no
+ *								x: (yes) yes
  */
 pgprot_t protection_map[16] = {
 	__P000, __P001, __P010, __P011, __P100, __P101, __P110, __P111,
@@ -3061,6 +3066,14 @@ static struct vm_area_struct *__install_special_mapping(
 out:
 	kmem_cache_free(vm_area_cachep, vma);
 	return ERR_PTR(ret);
+}
+
+bool vma_is_special_mapping(const struct vm_area_struct *vma,
+	const struct vm_special_mapping *sm)
+{
+	return vma->vm_private_data == sm &&
+		(vma->vm_ops == &special_mapping_vmops ||
+		 vma->vm_ops == &legacy_special_mapping_vmops);
 }
 
 /*

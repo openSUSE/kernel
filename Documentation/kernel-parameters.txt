@@ -698,6 +698,15 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 			loops can be debugged more effectively on production
 			systems.
 
+	clocksource.arm_arch_timer.fsl-a008585=
+			[ARM64]
+			Format: <bool>
+			Enable/disable the workaround of Freescale/NXP
+			erratum A-008585.  This can be useful for KVM
+			guests, if the guest device tree doesn't show the
+			erratum.  If unspecified, the workaround is
+			enabled based on the device tree.
+
 	clearcpuid=BITNUM [X86]
 			Disable CPUID feature X for the kernel. See
 			arch/x86/include/asm/cpufeatures.h for the valid bit
@@ -1045,11 +1054,12 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 			determined by the stdout-path property in device
 			tree's chosen node.
 
-		cdns,<addr>
-			Start an early, polled-mode console on a cadence serial
-			port at the specified address. The cadence serial port
-			must already be setup and configured. Options are not
-			yet supported.
+		cdns,<addr>[,options]
+			Start an early, polled-mode console on a Cadence
+			(xuartps) serial port at the specified address. Only
+			supported option is baud rate. If baud rate is not
+			specified, the serial port must already be setup and
+			configured.
 
 		uart[8250],io,<addr>[,options]
 		uart[8250],mmio,<addr>[,options]
@@ -4238,6 +4248,8 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 				u = IGNORE_UAS (don't bind to the uas driver);
 				w = NO_WP_DETECT (don't test whether the
 					medium is write-protected).
+				y = ALWAYS_SYNC (issue a SYNCHRONIZE_CACHE
+					even if the device claims no cache)
 			Example: quirks=0419:aaf5:rl,0421:0433:rc
 
 	user_debug=	[KNL,ARM]

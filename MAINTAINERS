@@ -913,15 +913,17 @@ F:	arch/arm/include/asm/floppy.h
 
 ARM PMU PROFILING AND DEBUGGING
 M:	Will Deacon <will.deacon@arm.com>
-R:	Mark Rutland <mark.rutland@arm.com>
+M:	Mark Rutland <mark.rutland@arm.com>
 S:	Maintained
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 F:	arch/arm*/kernel/perf_*
 F:	arch/arm/oprofile/common.c
 F:	arch/arm*/kernel/hw_breakpoint.c
 F:	arch/arm*/include/asm/hw_breakpoint.h
 F:	arch/arm*/include/asm/perf_event.h
-F:	drivers/perf/arm_pmu.c
+F:	drivers/perf/*
 F:	include/linux/perf/arm_pmu.h
+F:	Documentation/devicetree/bindings/arm/pmu.txt
 
 ARM PORT
 M:	Russell King <linux@armlinux.org.uk>
@@ -1123,6 +1125,11 @@ F:	drivers/hwtracing/coresight/*
 F:	Documentation/trace/coresight.txt
 F:	Documentation/devicetree/bindings/arm/coresight.txt
 F:	Documentation/ABI/testing/sysfs-bus-coresight-devices-*
+F:	tools/perf/arch/arm/util/pmu.c
+F:	tools/perf/arch/arm/util/auxtrace.c
+F:	tools/perf/arch/arm/util/cs-etm.c
+F:	tools/perf/arch/arm/util/cs-etm.h
+F:	tools/perf/util/cs-etm.h
 
 ARM/CORGI MACHINE SUPPORT
 M:	Richard Purdie <rpurdie@rpsys.net>
@@ -2113,11 +2120,6 @@ ATMEL AT91 / AT32 MCI DRIVER
 M:	Ludovic Desroches <ludovic.desroches@atmel.com>
 S:	Maintained
 F:	drivers/mmc/host/atmel-mci.c
-
-ATMEL AT91 / AT32 SERIAL DRIVER
-M:	Nicolas Ferre <nicolas.ferre@atmel.com>
-S:	Supported
-F:	drivers/tty/serial/atmel_serial.c
 
 ATMEL AT91 SAMA5D2-Compatible Shutdown Controller
 M:	Nicolas Ferre <nicolas.ferre@atmel.com>
@@ -3282,6 +3284,7 @@ L:	linux-pm@vger.kernel.org
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/rafael/linux-pm.git
 T:	git git://git.linaro.org/people/vireshk/linux.git (For ARM Updates)
+F:	Documentation/cpu-freq/
 F:	drivers/cpufreq/
 F:	include/linux/cpufreq.h
 
@@ -4584,6 +4587,13 @@ M:	Peter Jones <pjones@redhat.com>
 S:	Maintained
 F:	drivers/video/fbdev/efifb.c
 
+EFI TEST DRIVER
+L:	linux-efi@vger.kernel.org
+M:	Ivan Hu <ivan.hu@canonical.com>
+M:	Matt Fleming <matt@codeblueprint.co.uk>
+S:	Maintained
+F:	drivers/firmware/efi/test/
+
 EFS FILESYSTEM
 W:	http://aeschi.ch.eu.org/efs/
 S:	Orphan
@@ -4851,6 +4861,7 @@ F:	tools/firewire/
 
 FIRMWARE LOADER (request_firmware)
 M:	Ming Lei <ming.lei@canonical.com>
+M:	Luis R. Rodriguez <mcgrof@kernel.org>
 L:	linux-kernel@vger.kernel.org
 S:	Maintained
 F:	Documentation/firmware_class/
@@ -7443,9 +7454,8 @@ F:	Documentation/hwmon/max20751
 F:	drivers/hwmon/max20751.c
 
 MAX6650 HARDWARE MONITOR AND FAN CONTROLLER DRIVER
-M:	"Hans J. Koch" <hjk@hansjkoch.de>
 L:	linux-hwmon@vger.kernel.org
-S:	Maintained
+S:	Orphan
 F:	Documentation/hwmon/max6650
 F:	drivers/hwmon/max6650.c
 
@@ -7668,6 +7678,12 @@ W:	http://www.mellanox.com
 Q:	http://patchwork.ozlabs.org/project/netdev/list/
 F:	drivers/net/ethernet/mellanox/mlxsw/
 
+MELLANOX PLATFORM DRIVER
+M:      Vadim Pasternak <vadimp@mellanox.com>
+L:      platform-driver-x86@vger.kernel.org
+S:      Supported
+F:      arch/x86/platform/mellanox/mlx-platform.c
+
 SOFT-ROCE DRIVER (rxe)
 M:	Moni Shoua <monis@mellanox.com>
 L:	linux-rdma@vger.kernel.org
@@ -7752,6 +7768,12 @@ W:	http://www.monstr.eu/fdt/
 T:	git git://git.monstr.eu/linux-2.6-microblaze.git
 S:	Supported
 F:	arch/microblaze/
+
+MICROCHIP / ATMEL AT91 / AT32 SERIAL DRIVER
+M:	Richard Genoud <richard.genoud@gmail.com>
+S:	Maintained
+F:	drivers/tty/serial/atmel_serial.c
+F:	include/linux/atmel_serial.h
 
 MICROSOFT SURFACE PRO 3 BUTTON DRIVER
 M:	Chen Yu <yu.c.chen@intel.com>
@@ -8857,6 +8879,7 @@ S:	Supported
 F:	Documentation/virtual/paravirt_ops.txt
 F:	arch/*/kernel/paravirt*
 F:	arch/*/include/asm/paravirt.h
+F:	include/linux/hypervisor.h
 
 PARIDE DRIVERS FOR PARALLEL PORT IDE DEVICES
 M:	Tim Waugh <tim@cyberelk.net>
@@ -12193,7 +12216,7 @@ S:	Maintained
 F:	drivers/net/usb/lan78xx.*
 
 USB MASS STORAGE DRIVER
-M:	Matthew Dharm <mdharm-usb@one-eyed-alien.net>
+M:	Alan Stern <stern@rowland.harvard.edu>
 L:	linux-usb@vger.kernel.org
 L:	usb-storage@lists.one-eyed-alien.net
 S:	Maintained
@@ -12277,6 +12300,7 @@ F:	drivers/net/usb/rtl8150.c
 USB SERIAL SUBSYSTEM
 M:	Johan Hovold <johan@kernel.org>
 L:	linux-usb@vger.kernel.org
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/johan/usb-serial.git
 S:	Maintained
 F:	Documentation/usb/usb-serial.txt
 F:	drivers/usb/serial/
@@ -12396,7 +12420,6 @@ F:	fs/hostfs/
 F:	fs/hppfs/
 
 USERSPACE I/O (UIO)
-M:	"Hans J. Koch" <hjk@hansjkoch.de>
 M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/char-misc.git

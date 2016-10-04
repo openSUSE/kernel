@@ -448,6 +448,8 @@ static inline void io_schedule(void)
 	io_schedule_timeout(MAX_SCHEDULE_TIMEOUT);
 }
 
+void __noreturn do_task_dead(void);
+
 struct nsproxy;
 struct user_namespace;
 
@@ -1022,7 +1024,8 @@ extern void wake_up_q(struct wake_q_head *head);
 #define SD_BALANCE_FORK		0x0008	/* Balance on fork, clone */
 #define SD_BALANCE_WAKE		0x0010  /* Balance on wakeup */
 #define SD_WAKE_AFFINE		0x0020	/* Wake task to waking CPU */
-#define SD_SHARE_CPUCAPACITY	0x0080	/* Domain members share cpu power */
+#define SD_ASYM_CPUCAPACITY	0x0040  /* Groups have different max cpu capacities */
+#define SD_SHARE_CPUCAPACITY	0x0080	/* Domain members share cpu capacity */
 #define SD_SHARE_POWERDOMAIN	0x0100	/* Domain members share power domain */
 #define SD_SHARE_PKG_RESOURCES	0x0200	/* Domain members share cpu pkg resources */
 #define SD_SERIALIZE		0x0400	/* Only a single load balancing instance */
@@ -1064,6 +1067,12 @@ extern int sched_domain_level_max;
 
 struct sched_group;
 
+struct sched_domain_shared {
+	atomic_t	ref;
+	atomic_t	nr_busy_cpus;
+	int		has_idle_cores;
+};
+
 struct sched_domain {
 	/* These fields must be setup */
 	struct sched_domain *parent;	/* top domain must be null terminated */
@@ -1093,6 +1102,8 @@ struct sched_domain {
 	/* idle_balance() stats */
 	u64 max_newidle_lb_cost;
 	unsigned long next_decay_max_lb_cost;
+
+	u64 avg_scan_cost;		/* select_idle_sibling */
 
 #ifdef CONFIG_SCHEDSTATS
 	/* load_balance() stats */
@@ -1132,6 +1143,7 @@ struct sched_domain {
 		void *private;		/* used during construction */
 		struct rcu_head rcu;	/* used during destruction */
 	};
+	struct sched_domain_shared *shared;
 
 	unsigned int span_weight;
 	/*
@@ -1165,6 +1177,7 @@ typedef int (*sched_domain_flags_f)(void);
 
 struct sd_data {
 	struct sched_domain **__percpu sd;
+	struct sched_domain_shared **__percpu sds;
 	struct sched_group **__percpu sg;
 	struct sched_group_capacity **__percpu sgc;
 };
@@ -1458,6 +1471,13 @@ struct tlbflush_unmap_batch {
 };
 
 struct task_struct {
+#ifdef CONFIG_THREAD_INFO_IN_TASK
+	/*
+	 * For reasons of header soup (see current_thread_info()), this
+	 * must be the first element of task_struct.
+	 */
+	struct thread_info thread_info;
+#endif
 	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
 	void *stack;
 	atomic_t usage;
@@ -1467,6 +1487,9 @@ struct task_struct {
 #ifdef CONFIG_SMP
 	struct llist_node wake_entry;
 	int on_cpu;
+#ifdef CONFIG_THREAD_INFO_IN_TASK
+	unsigned int cpu;	/* current CPU */
+#endif
 	unsigned int wakee_flips;
 	unsigned long wakee_flip_decay_ts;
 	struct task_struct *last_wakee;
@@ -1923,6 +1946,13 @@ struct task_struct {
 #ifdef CONFIG_MMU
 	struct task_struct *oom_reaper_list;
 #endif
+#ifdef CONFIG_VMAP_STACK
+	struct vm_struct *stack_vm_area;
+#endif
+#ifdef CONFIG_THREAD_INFO_IN_TASK
+	/* A live task holds one reference. */
+	atomic_t stack_refcount;
+#endif
 /* CPU-specific state of this task */
 	struct thread_struct thread;
 /*
@@ -1937,6 +1967,18 @@ struct task_struct {
 extern int arch_task_struct_size __read_mostly;
 #else
 # define arch_task_struct_size (sizeof(struct task_struct))
+#endif
+
+#ifdef CONFIG_VMAP_STACK
+static inline struct vm_struct *task_stack_vm_area(const struct task_struct *t)
+{
+	return t->stack_vm_area;
+}
+#else
+static inline struct vm_struct *task_stack_vm_area(const struct task_struct *t)
+{
+	return NULL;
+}
 #endif
 
 /* Future-safe accessor for struct task_struct's cpus_allowed. */
@@ -2568,12 +2610,14 @@ static inline bool is_idle_task(const struct task_struct *p)
 	return p->pid == 0;
 }
 extern struct task_struct *curr_task(int cpu);
-extern void set_curr_task(int cpu, struct task_struct *p);
+extern void ia64_set_curr_task(int cpu, struct task_struct *p);
 
 void yield(void);
 
 union thread_union {
+#ifndef CONFIG_THREAD_INFO_IN_TASK
 	struct thread_info thread_info;
+#endif
 	unsigned long stack[THREAD_SIZE/sizeof(long)];
 };
 
@@ -3061,10 +3105,34 @@ static inline void threadgroup_change_end(struct task_struct *tsk)
 	cgroup_threadgroup_change_end(tsk);
 }
 
-#ifndef __HAVE_THREAD_FUNCTIONS
+#ifdef CONFIG_THREAD_INFO_IN_TASK
+
+static inline struct thread_info *task_thread_info(struct task_struct *task)
+{
+	return &task->thread_info;
+}
+
+/*
+ * When accessing the stack of a non-current task that might exit, use
+ * try_get_task_stack() instead.  task_stack_page will return a pointer
+ * that could get freed out from under you.
+ */
+static inline void *task_stack_page(const struct task_struct *task)
+{
+	return task->stack;
+}
+
+#define setup_thread_stack(new,old)	do { } while(0)
+
+static inline unsigned long *end_of_stack(const struct task_struct *task)
+{
+	return task->stack;
+}
+
+#elif !defined(__HAVE_THREAD_FUNCTIONS)
 
 #define task_thread_info(task)	((struct thread_info *)(task)->stack)
-#define task_stack_page(task)	((task)->stack)
+#define task_stack_page(task)	((void *)(task)->stack)
 
 static inline void setup_thread_stack(struct task_struct *p, struct task_struct *org)
 {
@@ -3091,6 +3159,24 @@ static inline unsigned long *end_of_stack(struct task_struct *p)
 }
 
 #endif
+
+#ifdef CONFIG_THREAD_INFO_IN_TASK
+static inline void *try_get_task_stack(struct task_struct *tsk)
+{
+	return atomic_inc_not_zero(&tsk->stack_refcount) ?
+		task_stack_page(tsk) : NULL;
+}
+
+extern void put_task_stack(struct task_struct *tsk);
+#else
+static inline void *try_get_task_stack(struct task_struct *tsk)
+{
+	return task_stack_page(tsk);
+}
+
+static inline void put_task_stack(struct task_struct *tsk) {}
+#endif
+
 #define task_stack_end_corrupted(task) \
 		(*(end_of_stack(task)) != STACK_END_MAGIC)
 
@@ -3206,7 +3292,11 @@ static inline int signal_pending_state(long state, struct task_struct *p)
  * cond_resched_lock() will drop the spinlock before scheduling,
  * cond_resched_softirq() will enable bhs before scheduling.
  */
+#ifndef CONFIG_PREEMPT
 extern int _cond_resched(void);
+#else
+static inline int _cond_resched(void) { return 0; }
+#endif
 
 #define cond_resched() ({			\
 	___might_sleep(__FILE__, __LINE__, 0);	\
@@ -3233,6 +3323,15 @@ static inline void cond_resched_rcu(void)
 	rcu_read_unlock();
 	cond_resched();
 	rcu_read_lock();
+#endif
+}
+
+static inline unsigned long get_preempt_disable_ip(struct task_struct *p)
+{
+#ifdef CONFIG_DEBUG_PREEMPT
+	return p->preempt_disable_ip;
+#else
+	return 0;
 #endif
 }
 
@@ -3364,7 +3463,11 @@ static inline void ptrace_signal_wake_up(struct task_struct *t, bool resume)
 
 static inline unsigned int task_cpu(const struct task_struct *p)
 {
+#ifdef CONFIG_THREAD_INFO_IN_TASK
+	return p->cpu;
+#else
 	return task_thread_info(p)->cpu;
+#endif
 }
 
 static inline int task_node(const struct task_struct *p)
@@ -3469,15 +3572,20 @@ static inline unsigned long rlimit_max(unsigned int limit)
 	return task_rlimit_max(current, limit);
 }
 
+#define SCHED_CPUFREQ_RT	(1U << 0)
+#define SCHED_CPUFREQ_DL	(1U << 1)
+#define SCHED_CPUFREQ_IOWAIT	(1U << 2)
+
+#define SCHED_CPUFREQ_RT_DL	(SCHED_CPUFREQ_RT | SCHED_CPUFREQ_DL)
+
 #ifdef CONFIG_CPU_FREQ
 struct update_util_data {
-	void (*func)(struct update_util_data *data,
-		     u64 time, unsigned long util, unsigned long max);
+       void (*func)(struct update_util_data *data, u64 time, unsigned int flags);
 };
 
 void cpufreq_add_update_util_hook(int cpu, struct update_util_data *data,
-			void (*func)(struct update_util_data *data, u64 time,
-				     unsigned long util, unsigned long max));
+                       void (*func)(struct update_util_data *data, u64 time,
+				    unsigned int flags));
 void cpufreq_remove_update_util_hook(int cpu);
 #endif /* CONFIG_CPU_FREQ */
 
