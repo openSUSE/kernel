@@ -1847,6 +1847,7 @@ F:	arch/arm/mach-uniphier/
 F:	arch/arm/mm/cache-uniphier.c
 F:	arch/arm64/boot/dts/socionext/
 F:	drivers/bus/uniphier-system-bus.c
+F:	drivers/clk/uniphier/
 F:	drivers/i2c/busses/i2c-uniphier*
 F:	drivers/pinctrl/uniphier/
 F:	drivers/tty/serial/8250/8250_uniphier.c
@@ -3138,7 +3139,7 @@ L:	cocci@systeme.lip6.fr (moderated for non-subscribers)
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/mmarek/kbuild.git misc
 W:	http://coccinelle.lip6.fr/
 S:	Supported
-F:	Documentation/coccinelle.txt
+F:	Documentation/dev-tools/coccinelle.rst
 F:	scripts/coccinelle/
 F:	scripts/coccicheck
 
@@ -3164,6 +3165,7 @@ COMMON CLK FRAMEWORK
 M:	Michael Turquette <mturquette@baylibre.com>
 M:	Stephen Boyd <sboyd@codeaurora.org>
 L:	linux-clk@vger.kernel.org
+Q:	http://patchwork.kernel.org/project/linux-clk/list/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/clk/linux.git
 S:	Maintained
 F:	Documentation/devicetree/bindings/clock/
@@ -4408,7 +4410,6 @@ F:	Documentation/filesystems/ecryptfs.txt
 F:	fs/ecryptfs/
 
 EDAC-CORE
-M:	Doug Thompson <dougthompson@xmission.com>
 M:	Borislav Petkov <bp@alien8.de>
 M:	Mauro Carvalho Chehab <mchehab@s-opensource.com>
 M:	Mauro Carvalho Chehab <mchehab@kernel.org>
@@ -4421,14 +4422,12 @@ F:	drivers/edac/
 F:	include/linux/edac.h
 
 EDAC-AMD64
-M:	Doug Thompson <dougthompson@xmission.com>
 M:	Borislav Petkov <bp@alien8.de>
 L:	linux-edac@vger.kernel.org
 S:	Maintained
 F:	drivers/edac/amd64_edac*
 
 EDAC-CALXEDA
-M:	Doug Thompson <dougthompson@xmission.com>
 M:	Robert Richter <rric@kernel.org>
 L:	linux-edac@vger.kernel.org
 S:	Maintained
@@ -4444,16 +4443,20 @@ F:	drivers/edac/octeon_edac*
 
 EDAC-E752X
 M:	Mark Gross <mark.gross@intel.com>
-M:	Doug Thompson <dougthompson@xmission.com>
 L:	linux-edac@vger.kernel.org
 S:	Maintained
 F:	drivers/edac/e752x_edac.c
 
 EDAC-E7XXX
-M:	Doug Thompson <dougthompson@xmission.com>
 L:	linux-edac@vger.kernel.org
 S:	Maintained
 F:	drivers/edac/e7xxx_edac.c
+
+EDAC-FSL_DDR
+M:	York Sun <york.sun@nxp.com>
+L:	linux-edac@vger.kernel.org
+S:	Maintained
+F:	drivers/edac/fsl_ddr_edac.*
 
 EDAC-GHES
 M:	Mauro Carvalho Chehab <mchehab@s-opensource.com>
@@ -4469,13 +4472,11 @@ S:	Maintained
 F:	drivers/edac/i82443bxgx_edac.c
 
 EDAC-I3000
-M:	Jason Uhlenkott <juhlenko@akamai.com>
 L:	linux-edac@vger.kernel.org
-S:	Maintained
+S:	Orphan
 F:	drivers/edac/i3000_edac.c
 
 EDAC-I5000
-M:	Doug Thompson <dougthompson@xmission.com>
 L:	linux-edac@vger.kernel.org
 S:	Maintained
 F:	drivers/edac/i5000_edac.c
@@ -5147,7 +5148,7 @@ GCOV BASED KERNEL PROFILING
 M:	Peter Oberparleiter <oberpar@linux.vnet.ibm.com>
 S:	Maintained
 F:	kernel/gcov/
-F:	Documentation/gcov.txt
+F:	Documentation/dev-tools/gcov.rst
 
 GDT SCSI DISK ARRAY CONTROLLER DRIVER
 M:	Achim Leubner <achim_leubner@adaptec.com>
@@ -5635,7 +5636,7 @@ M:	Sebastian Reichel <sre@kernel.org>
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/sre/linux-hsi.git
 S:	Maintained
 F:	Documentation/ABI/testing/sysfs-bus-hsi
-F:	Documentation/hsi.txt
+F:	Documentation/device-drivers/serial-interfaces.rst
 F:	drivers/hsi/
 F:	include/linux/hsi/
 F:	include/uapi/linux/hsi/
@@ -6616,7 +6617,7 @@ L:	kasan-dev@googlegroups.com
 S:	Maintained
 F:	arch/*/include/asm/kasan.h
 F:	arch/*/mm/kasan_init*
-F:	Documentation/kasan.txt
+F:	Documentation/dev-tools/kasan.rst
 F:	include/linux/kasan*.h
 F:	lib/test_kasan.c
 F:	mm/kasan/
@@ -6832,7 +6833,7 @@ KMEMCHECK
 M:	Vegard Nossum <vegardno@ifi.uio.no>
 M:	Pekka Enberg <penberg@kernel.org>
 S:	Maintained
-F:	Documentation/kmemcheck.txt
+F:	Documentation/dev-tools/kmemcheck.rst
 F:	arch/x86/include/asm/kmemcheck.h
 F:	arch/x86/mm/kmemcheck/
 F:	include/linux/kmemcheck.h
@@ -6841,7 +6842,7 @@ F:	mm/kmemcheck.c
 KMEMLEAK
 M:	Catalin Marinas <catalin.marinas@arm.com>
 S:	Maintained
-F:	Documentation/kmemleak.txt
+F:	Documentation/dev-tools/kmemleak.rst
 F:	include/linux/kmemleak.h
 F:	mm/kmemleak.c
 F:	mm/kmemleak-test.c
@@ -7677,6 +7678,13 @@ S:	Supported
 W:	http://www.mellanox.com
 Q:	http://patchwork.ozlabs.org/project/netdev/list/
 F:	drivers/net/ethernet/mellanox/mlxsw/
+
+MELLANOX MLXCPLD LED DRIVER
+M:	Vadim Pasternak <vadimp@mellanox.com>
+L:	linux-leds@vger.kernel.org
+S:	Supported
+F:	drivers/leds/leds-mlxcpld.c
+F:	Documentation/leds/leds-mlxcpld.txt
 
 MELLANOX PLATFORM DRIVER
 M:      Vadim Pasternak <vadimp@mellanox.com>
@@ -9943,6 +9951,12 @@ F:	drivers/rpmsg/
 F:	Documentation/rpmsg.txt
 F:	include/linux/rpmsg.h
 
+RENESAS CLOCK DRIVERS
+M:	Geert Uytterhoeven <geert+renesas@glider.be>
+L:	linux-renesas-soc@vger.kernel.org
+S:	Supported
+F:	drivers/clk/renesas/
+
 RENESAS ETHERNET DRIVERS
 R:	Sergei Shtylyov <sergei.shtylyov@cogentembedded.com>
 L:	netdev@vger.kernel.org
@@ -10121,8 +10135,8 @@ S:	Supported
 F:	drivers/s390/cio/
 
 S390 DASD DRIVER
-M:	Stefan Weinhuber <wein@de.ibm.com>
-M:	Stefan Haberland <stefan.haberland@de.ibm.com>
+M:	Stefan Haberland <sth@linux.vnet.ibm.com>
+M:	Jan Hoeppner <hoeppner@linux.vnet.ibm.com>
 L:	linux-s390@vger.kernel.org
 W:	http://www.ibm.com/developerworks/linux/linux390/
 S:	Supported
@@ -10286,9 +10300,12 @@ F:	drivers/nfc/s3fwrn5
 SAMSUNG SOC CLOCK DRIVERS
 M:	Sylwester Nawrocki <s.nawrocki@samsung.com>
 M:	Tomasz Figa <tomasz.figa@gmail.com>
+M:	Chanwoo Choi <cw00.choi@samsung.com>
 S:	Supported
 L:	linux-samsung-soc@vger.kernel.org (moderated for non-subscribers)
 F:	drivers/clk/samsung/
+F:	include/dt-bindings/clock/exynos*.h
+F:	Documentation/devicetree/bindings/clock/exynos*.txt
 
 SAMSUNG SPI DRIVERS
 M:	Kukjin Kim <kgene@kernel.org>
@@ -11147,6 +11164,7 @@ F:	Documentation/spi/
 F:	drivers/spi/
 F:	include/linux/spi/
 F:	include/uapi/linux/spi/
+F:	tools/spi/
 
 SPIDERNET NETWORK DRIVER for CELL
 M:	Ishizaki Kou <kou.ishizaki@toshiba.co.jp>
