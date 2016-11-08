@@ -304,11 +304,15 @@ struct fc_host_statistics *fc_get_host_stats(struct Scsi_Host *shost)
 	unsigned int cpu;
 	u64 fcp_in_bytes = 0;
 	u64 fcp_out_bytes = 0;
+	unsigned long boot_time = lport->boot_time;
 
 	fc_stats = &lport->host_stats;
 	memset(fc_stats, 0, sizeof(struct fc_host_statistics));
 
-	fc_stats->seconds_since_last_reset = (lport->boot_time - jiffies) / HZ;
+	if (boot_time > jiffies)
+		fc_stats->seconds_since_last_reset = (boot_time - jiffies) / HZ;
+	else
+		fc_stats->seconds_since_last_reset = (jiffies - boot_time) / HZ;
 
 	for_each_possible_cpu(cpu) {
 		struct fc_stats *stats;
