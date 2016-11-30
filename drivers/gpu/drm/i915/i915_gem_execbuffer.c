@@ -1079,6 +1079,12 @@ i915_gem_validate_context(struct drm_device *dev, struct drm_file *file,
 	return ctx;
 }
 
+static bool gpu_write_needs_clflush(struct drm_i915_gem_object *obj)
+{
+	return !(obj->cache_level == I915_CACHE_NONE ||
+		 obj->cache_level == I915_CACHE_WT);
+}
+
 void
 i915_gem_execbuffer_move_to_active(struct list_head *vmas,
 				   struct drm_i915_gem_request *req)
@@ -1106,6 +1112,8 @@ i915_gem_execbuffer_move_to_active(struct list_head *vmas,
 
 			/* update for the implicit flush after a batch */
 			obj->base.write_domain &= ~I915_GEM_GPU_DOMAINS;
+			if (!obj->cache_dirty && gpu_write_needs_clflush(obj))
+				obj->cache_dirty = true;
 		}
 		if (entry->flags & EXEC_OBJECT_NEEDS_FENCE) {
 			i915_gem_request_assign(&obj->last_fenced_req, req);
