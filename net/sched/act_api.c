@@ -595,9 +595,19 @@ err_out:
 	return ERR_PTR(err);
 }
 
-int tcf_action_init(struct net *net, struct nlattr *nla,
-				  struct nlattr *est, char *name, int ovr,
-				  int bind, struct list_head *actions)
+static void cleanup_a(struct list_head *actions, int ovr)
+{
+	struct tc_action *a;
+
+	if (!ovr)
+		return;
+
+	list_for_each_entry(a, actions, list)
+		a->tcfa_refcnt--;
+}
+
+int tcf_action_init(struct net *net, struct nlattr *nla, struct nlattr *est,
+		    char *name, int ovr, int bind, struct list_head *actions)
 {
 	struct nlattr *tb[TCA_ACT_MAX_PRIO + 1];
 	struct tc_action *act;
@@ -615,8 +625,15 @@ int tcf_action_init(struct net *net, struct nlattr *nla,
 			goto err;
 		}
 		act->order = i;
+		if (ovr)
+			act->tcfa_refcnt++;
 		list_add_tail(&act->list, actions);
 	}
+
+	/* Remove the temp refcnt which was necessary to protect against
+	 * destroying an existing action which was being replaced
+	 */
+	cleanup_a(actions, ovr);
 	return 0;
 
 err:
@@ -886,6 +903,8 @@ tca_action_gd(struct net *net, struct nlattr *nla, struct nlmsghdr *n,
 			goto err;
 		}
 		act->order = i;
+		if (event == RTM_GETACTION)
+			act->tcfa_refcnt++;
 		list_add_tail(&act->list, &actions);
 	}
 
@@ -926,9 +945,8 @@ tcf_add_notify(struct net *net, struct nlmsghdr *n, struct list_head *actions,
 	return err;
 }
 
-static int
-tcf_action_add(struct net *net, struct nlattr *nla, struct nlmsghdr *n,
-	       u32 portid, int ovr)
+static int tcf_action_add(struct net *net, struct nlattr *nla,
+			  struct nlmsghdr *n, u32 portid, int ovr)
 {
 	int ret = 0;
 	LIST_HEAD(actions);
@@ -991,8 +1009,7 @@ replay:
 	return ret;
 }
 
-static struct nlattr *
-find_dump_kind(const struct nlmsghdr *n)
+static struct nlattr *find_dump_kind(const struct nlmsghdr *n)
 {
 	struct nlattr *tb1, *tb2[TCA_ACT_MAX + 1];
 	struct nlattr *tb[TCA_ACT_MAX_PRIO + 1];
@@ -1011,16 +1028,14 @@ find_dump_kind(const struct nlmsghdr *n)
 
 	if (tb[1] == NULL)
 		return NULL;
-	if (nla_parse(tb2, TCA_ACT_MAX, nla_data(tb[1]),
-		      nla_len(tb[1]), NULL) < 0)
+	if (nla_parse_nested(tb2, TCA_ACT_MAX, tb[1], NULL) < 0)
 		return NULL;
 	kind = tb2[TCA_ACT_KIND];
 
 	return kind;
 }
 
-static int
-tc_dump_action(struct sk_buff *skb, struct netlink_callback *cb)
+static int tc_dump_action(struct sk_buff *skb, struct netlink_callback *cb)
 {
 	struct net *net = sock_net(skb->sk);
 	struct nlmsghdr *nlh;

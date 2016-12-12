@@ -824,7 +824,7 @@ static void ath10k_peer_cleanup(struct ath10k *ar, u32 vdev_id)
 		 */
 		for (i = 0; i < ARRAY_SIZE(ar->peer_map); i++) {
 			if (ar->peer_map[i] == peer) {
-				ath10k_warn(ar, "removing stale peer_map entry for %pM (ptr %p idx %d)\n",
+				ath10k_warn(ar, "removing stale peer_map entry for %pM (ptr %pK idx %d)\n",
 					    peer->addr, peer, i);
 				ar->peer_map[i] = NULL;
 			}
@@ -2793,7 +2793,7 @@ static void ath10k_bss_disassoc(struct ieee80211_hw *hw,
 
 	ret = ath10k_wmi_vdev_down(ar, arvif->vdev_id);
 	if (ret)
-		ath10k_warn(ar, "faield to down vdev %i: %d\n",
+		ath10k_warn(ar, "failed to down vdev %i: %d\n",
 			    arvif->vdev_id, ret);
 
 	arvif->def_wep_key_idx = -1;
@@ -3255,6 +3255,8 @@ ath10k_mac_tx_h_get_txmode(struct ath10k *ar,
 	if (ar->htt.target_version_major < 3 &&
 	    (ieee80211_is_nullfunc(fc) || ieee80211_is_qos_nullfunc(fc)) &&
 	    !test_bit(ATH10K_FW_FEATURE_HAS_WMI_MGMT_TX,
+		      ar->running_fw->fw_file.fw_features) &&
+	    !test_bit(ATH10K_FW_FEATURE_SKIP_NULL_FUNC_WAR,
 		      ar->running_fw->fw_file.fw_features))
 		return ATH10K_HW_TXRX_MGMT;
 
@@ -3524,7 +3526,7 @@ static int ath10k_mac_tx(struct ath10k *ar,
 
 	if (info->flags & IEEE80211_TX_CTL_TX_OFFCHAN) {
 		if (!ath10k_mac_tx_frm_has_freq(ar)) {
-			ath10k_dbg(ar, ATH10K_DBG_MAC, "queued offchannel skb %p\n",
+			ath10k_dbg(ar, ATH10K_DBG_MAC, "queued offchannel skb %pK\n",
 				   skb);
 
 			skb_queue_tail(&ar->offchan_tx_queue, skb);
@@ -3586,7 +3588,7 @@ void ath10k_offchan_tx_work(struct work_struct *work)
 
 		mutex_lock(&ar->conf_mutex);
 
-		ath10k_dbg(ar, ATH10K_DBG_MAC, "mac offchannel skb %p\n",
+		ath10k_dbg(ar, ATH10K_DBG_MAC, "mac offchannel skb %pK\n",
 			   skb);
 
 		hdr = (struct ieee80211_hdr *)skb->data;
@@ -3643,7 +3645,7 @@ void ath10k_offchan_tx_work(struct work_struct *work)
 		time_left =
 		wait_for_completion_timeout(&ar->offchan_tx_completed, 3 * HZ);
 		if (time_left == 0)
-			ath10k_warn(ar, "timed out waiting for offchannel skb %p\n",
+			ath10k_warn(ar, "timed out waiting for offchannel skb %pK\n",
 				    skb);
 
 		if (!peer && tmp_peer_created) {
@@ -3914,7 +3916,7 @@ void __ath10k_scan_finish(struct ath10k *ar)
 		ar->scan.roc_freq = 0;
 		ath10k_offchan_tx_purge(ar);
 		cancel_delayed_work(&ar->scan.timeout);
-		complete_all(&ar->scan.completed);
+		complete(&ar->scan.completed);
 		break;
 	}
 }
@@ -4120,13 +4122,29 @@ static void ath10k_mac_op_wake_tx_queue(struct ieee80211_hw *hw,
 {
 	struct ath10k *ar = hw->priv;
 	struct ath10k_txq *artxq = (void *)txq->drv_priv;
+	struct ieee80211_txq *f_txq;
+	struct ath10k_txq *f_artxq;
+	int ret = 0;
+	int max = 16;
 
 	spin_lock_bh(&ar->txqs_lock);
 	if (list_empty(&artxq->list))
 		list_add_tail(&artxq->list, &ar->txqs);
+
+	f_artxq = list_first_entry(&ar->txqs, struct ath10k_txq, list);
+	f_txq = container_of((void *)f_artxq, struct ieee80211_txq, drv_priv);
+	list_del_init(&f_artxq->list);
+
+	while (ath10k_mac_tx_can_push(hw, f_txq) && max--) {
+		ret = ath10k_mac_tx_push_txq(hw, f_txq);
+		if (ret)
+			break;
+	}
+	if (ret != -ENOENT)
+		list_add_tail(&f_artxq->list, &ar->txqs);
 	spin_unlock_bh(&ar->txqs_lock);
 
-	ath10k_mac_tx_push_pending(ar);
+	ath10k_htt_tx_txq_update(hw, f_txq);
 	ath10k_htt_tx_txq_update(hw, txq);
 }
 
@@ -5206,7 +5224,7 @@ static void ath10k_configure_filter(struct ieee80211_hw *hw,
 
 	ret = ath10k_monitor_recalc(ar);
 	if (ret)
-		ath10k_warn(ar, "failed to recalc montior: %d\n", ret);
+		ath10k_warn(ar, "failed to recalc monitor: %d\n", ret);
 
 	mutex_unlock(&ar->conf_mutex);
 }
@@ -6004,8 +6022,8 @@ static int ath10k_sta_state(struct ieee80211_hw *hw,
 		 * Existing station deletion.
 		 */
 		ath10k_dbg(ar, ATH10K_DBG_MAC,
-			   "mac vdev %d peer delete %pM (sta gone)\n",
-			   arvif->vdev_id, sta->addr);
+			   "mac vdev %d peer delete %pM sta %pK (sta gone)\n",
+			   arvif->vdev_id, sta->addr, sta);
 
 		ret = ath10k_peer_delete(ar, arvif->vdev_id, sta->addr);
 		if (ret)
@@ -6021,7 +6039,7 @@ static int ath10k_sta_state(struct ieee80211_hw *hw,
 				continue;
 
 			if (peer->sta == sta) {
-				ath10k_warn(ar, "found sta peer %pM (ptr %p id %d) entry on vdev %i after it was supposedly removed\n",
+				ath10k_warn(ar, "found sta peer %pM (ptr %pK id %d) entry on vdev %i after it was supposedly removed\n",
 					    sta->addr, peer, i, arvif->vdev_id);
 				peer->sta = NULL;
 
@@ -7154,7 +7172,7 @@ ath10k_mac_op_add_chanctx(struct ieee80211_hw *hw,
 	struct ath10k *ar = hw->priv;
 
 	ath10k_dbg(ar, ATH10K_DBG_MAC,
-		   "mac chanctx add freq %hu width %d ptr %p\n",
+		   "mac chanctx add freq %hu width %d ptr %pK\n",
 		   ctx->def.chan->center_freq, ctx->def.width, ctx);
 
 	mutex_lock(&ar->conf_mutex);
@@ -7178,7 +7196,7 @@ ath10k_mac_op_remove_chanctx(struct ieee80211_hw *hw,
 	struct ath10k *ar = hw->priv;
 
 	ath10k_dbg(ar, ATH10K_DBG_MAC,
-		   "mac chanctx remove freq %hu width %d ptr %p\n",
+		   "mac chanctx remove freq %hu width %d ptr %pK\n",
 		   ctx->def.chan->center_freq, ctx->def.width, ctx);
 
 	mutex_lock(&ar->conf_mutex);
@@ -7243,7 +7261,7 @@ ath10k_mac_op_change_chanctx(struct ieee80211_hw *hw,
 	mutex_lock(&ar->conf_mutex);
 
 	ath10k_dbg(ar, ATH10K_DBG_MAC,
-		   "mac chanctx change freq %hu width %d ptr %p changed %x\n",
+		   "mac chanctx change freq %hu width %d ptr %pK changed %x\n",
 		   ctx->def.chan->center_freq, ctx->def.width, ctx, changed);
 
 	/* This shouldn't really happen because channel switching should use
@@ -7301,7 +7319,7 @@ ath10k_mac_op_assign_vif_chanctx(struct ieee80211_hw *hw,
 	mutex_lock(&ar->conf_mutex);
 
 	ath10k_dbg(ar, ATH10K_DBG_MAC,
-		   "mac chanctx assign ptr %p vdev_id %i\n",
+		   "mac chanctx assign ptr %pK vdev_id %i\n",
 		   ctx, arvif->vdev_id);
 
 	if (WARN_ON(arvif->is_started)) {
@@ -7362,7 +7380,7 @@ ath10k_mac_op_unassign_vif_chanctx(struct ieee80211_hw *hw,
 	mutex_lock(&ar->conf_mutex);
 
 	ath10k_dbg(ar, ATH10K_DBG_MAC,
-		   "mac chanctx unassign ptr %p vdev_id %i\n",
+		   "mac chanctx unassign ptr %pK vdev_id %i\n",
 		   ctx, arvif->vdev_id);
 
 	WARN_ON(!arvif->is_started);

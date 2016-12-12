@@ -154,6 +154,7 @@ struct tipc_bearer {
 	u32 identity;
 	struct tipc_link_req *link_req;
 	char net_plane;
+	unsigned long up;
 };
 
 struct tipc_bearer_names {
@@ -184,6 +185,7 @@ int tipc_nl_bearer_enable(struct sk_buff *skb, struct genl_info *info);
 int tipc_nl_bearer_dump(struct sk_buff *skb, struct netlink_callback *cb);
 int tipc_nl_bearer_get(struct sk_buff *skb, struct genl_info *info);
 int tipc_nl_bearer_set(struct sk_buff *skb, struct genl_info *info);
+int tipc_nl_bearer_add(struct sk_buff *skb, struct genl_info *info);
 
 int tipc_nl_media_dump(struct sk_buff *skb, struct netlink_callback *cb);
 int tipc_nl_media_get(struct sk_buff *skb, struct genl_info *info);

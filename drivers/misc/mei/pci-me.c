@@ -220,8 +220,6 @@ static int mei_me_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	pci_set_drvdata(pdev, dev);
 
-	schedule_delayed_work(&dev->timer_work, HZ);
-
 	/*
 	* For not wake-able HW runtime pm framework
 	* can't be used on pci device level.
@@ -403,6 +401,9 @@ static int mei_me_pm_runtime_suspend(struct device *device)
 
 	dev_dbg(&pdev->dev, "rpm: me: runtime suspend ret=%d\n", ret);
 
+	if (ret && ret != -EAGAIN)
+		schedule_work(&dev->reset_work);
+
 	return ret;
 }
 
@@ -425,6 +426,9 @@ static int mei_me_pm_runtime_resume(struct device *device)
 	mutex_unlock(&dev->device_lock);
 
 	dev_dbg(&pdev->dev, "rpm: me: runtime resume ret = %d\n", ret);
+
+	if (ret)
+		schedule_work(&dev->reset_work);
 
 	return ret;
 }

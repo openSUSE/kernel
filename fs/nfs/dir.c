@@ -496,6 +496,14 @@ void nfs_prime_dcache(struct dentry *parent, struct nfs_entry *entry)
 		return;
 	if (!(entry->fattr->valid & NFS_ATTR_FATTR_FSID))
 		return;
+	if (filename.len == 0)
+		return;
+	/* Validate that the name doesn't contain any illegal '\0' */
+	if (strnlen(filename.name, filename.len) != filename.len)
+		return;
+	/* ...or '/' */
+	if (strnchr(filename.name, filename.len, '/'))
+		return;
 	if (filename.name[0] == '.') {
 		if (filename.len == 1)
 			return;
@@ -2019,13 +2027,17 @@ EXPORT_SYMBOL_GPL(nfs_link);
  * the rename.
  */
 int nfs_rename(struct inode *old_dir, struct dentry *old_dentry,
-		      struct inode *new_dir, struct dentry *new_dentry)
+	       struct inode *new_dir, struct dentry *new_dentry,
+	       unsigned int flags)
 {
 	struct inode *old_inode = d_inode(old_dentry);
 	struct inode *new_inode = d_inode(new_dentry);
 	struct dentry *dentry = NULL, *rehash = NULL;
 	struct rpc_task *task;
 	int error = -EBUSY;
+
+	if (flags)
+		return -EINVAL;
 
 	dfprintk(VFS, "NFS: rename(%pd2 -> %pd2, ct=%d)\n",
 		 old_dentry, new_dentry,

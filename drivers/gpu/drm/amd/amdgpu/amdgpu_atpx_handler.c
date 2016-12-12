@@ -29,6 +29,7 @@ struct amdgpu_atpx {
 	acpi_handle handle;
 	struct amdgpu_atpx_functions functions;
 	bool is_hybrid;
+	bool dgpu_req_power_for_displays;
 };
 
 static struct amdgpu_atpx_priv {
@@ -72,6 +73,10 @@ bool amdgpu_has_atpx_dgpu_power_cntl(void) {
 
 bool amdgpu_is_atpx_hybrid(void) {
 	return amdgpu_atpx_priv.atpx.is_hybrid;
+}
+
+bool amdgpu_atpx_dgpu_req_power_for_displays(void) {
+	return amdgpu_atpx_priv.atpx.dgpu_req_power_for_displays;
 }
 
 /**
@@ -208,6 +213,10 @@ static int amdgpu_atpx_validate(struct amdgpu_atpx *atpx)
 		atpx->functions.power_cntl = !amdgpu_atpx_priv.bridge_pm_usable;
 		atpx->is_hybrid = true;
 	}
+
+	atpx->dgpu_req_power_for_displays = false;
+	if (valid_bits & ATPX_DGPU_REQ_POWER_FOR_DISPLAYS)
+		atpx->dgpu_req_power_for_displays = true;
 
 	return 0;
 }

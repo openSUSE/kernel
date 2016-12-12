@@ -87,30 +87,6 @@ void dump_trace(dump_trace_func_t func, void *data, struct task_struct *task,
 }
 EXPORT_SYMBOL_GPL(dump_trace);
 
-struct return_address_data {
-	unsigned long address;
-	int depth;
-};
-
-static int __return_address(void *data, unsigned long address, int reliable)
-{
-	struct return_address_data *rd = data;
-
-	if (rd->depth--)
-		return 0;
-	rd->address = address;
-	return 1;
-}
-
-unsigned long return_address(int depth)
-{
-	struct return_address_data rd = { .depth = depth + 2 };
-
-	dump_trace(__return_address, &rd, NULL, current_stack_pointer());
-	return rd.address;
-}
-EXPORT_SYMBOL_GPL(return_address);
-
 static int show_address(void *data, unsigned long address, int reliable)
 {
 	if (reliable)
@@ -143,14 +119,14 @@ void show_stack(struct task_struct *task, unsigned long *sp)
 		else
 			stack = (unsigned long *)task->thread.ksp;
 	}
+	printk(KERN_DEFAULT "Stack:\n");
 	for (i = 0; i < 20; i++) {
 		if (((addr_t) stack & (THREAD_SIZE-1)) == 0)
 			break;
-		if ((i * sizeof(long) % 32) == 0)
-			printk("%s       ", i == 0 ? "" : "\n");
-		printk("%016lx ", *stack++);
+		if (i % 4 == 0)
+			printk(KERN_DEFAULT "       ");
+		pr_cont("%016lx%c", *stack++, i % 4 == 3 ? '\n' : ' ');
 	}
-	printk("\n");
 	show_trace(task, (unsigned long)sp);
 }
 
@@ -168,13 +144,13 @@ void show_registers(struct pt_regs *regs)
 	mode = user_mode(regs) ? "User" : "Krnl";
 	printk("%s PSW : %p %p", mode, (void *)regs->psw.mask, (void *)regs->psw.addr);
 	if (!user_mode(regs))
-		printk(" (%pSR)", (void *)regs->psw.addr);
-	printk("\n");
+		pr_cont(" (%pSR)", (void *)regs->psw.addr);
+	pr_cont("\n");
 	printk("           R:%x T:%x IO:%x EX:%x Key:%x M:%x W:%x "
 	       "P:%x AS:%x CC:%x PM:%x", psw->r, psw->t, psw->i, psw->e,
 	       psw->key, psw->m, psw->w, psw->p, psw->as, psw->cc, psw->pm);
-	printk(" RI:%x EA:%x", psw->ri, psw->eaba);
-	printk("\n%s GPRS: %016lx %016lx %016lx %016lx\n", mode,
+	pr_cont(" RI:%x EA:%x\n", psw->ri, psw->eaba);
+	printk("%s GPRS: %016lx %016lx %016lx %016lx\n", mode,
 	       regs->gprs[0], regs->gprs[1], regs->gprs[2], regs->gprs[3]);
 	printk("           %016lx %016lx %016lx %016lx\n",
 	       regs->gprs[4], regs->gprs[5], regs->gprs[6], regs->gprs[7]);
@@ -210,14 +186,14 @@ void die(struct pt_regs *regs, const char *str)
 	printk("%s: %04x ilc:%d [#%d] ", str, regs->int_code & 0xffff,
 	       regs->int_code >> 17, ++die_counter);
 #ifdef CONFIG_PREEMPT
-	printk("PREEMPT ");
+	pr_cont("PREEMPT ");
 #endif
 #ifdef CONFIG_SMP
-	printk("SMP ");
+	pr_cont("SMP ");
 #endif
 	if (debug_pagealloc_enabled())
-		printk("DEBUG_PAGEALLOC");
-	printk("\n");
+		pr_cont("DEBUG_PAGEALLOC");
+	pr_cont("\n");
 	notify_die(DIE_OOPS, str, regs, 0, regs->int_code & 0xffff, SIGSEGV);
 	print_modules();
 	show_regs(regs);

@@ -2444,8 +2444,16 @@ static int __clk_core_init(struct clk_core *core)
 	hlist_for_each_entry_safe(orphan, tmp2, &clk_orphan_list, child_node) {
 		struct clk_core *parent = __clk_init_parent(orphan);
 
-		if (parent)
-			clk_core_reparent(orphan, parent);
+		/*
+		 * we could call __clk_set_parent, but that would result in a
+		 * redundant call to the .set_rate op, if it exists
+		 */
+		if (parent) {
+			__clk_set_parent_before(orphan, parent);
+			__clk_set_parent_after(orphan, parent, NULL);
+			__clk_recalc_accuracies(orphan);
+			__clk_recalc_rates(orphan, 0);
+		}
 	}
 
 	/*
@@ -2486,7 +2494,7 @@ struct clk *__clk_create_clk(struct clk_hw *hw, const char *dev_id,
 
 	/* This is to allow this function to be chained to others */
 	if (IS_ERR_OR_NULL(hw))
-		return (struct clk *) hw;
+		return ERR_CAST(hw);
 
 	clk = kzalloc(sizeof(*clk), GFP_KERNEL);
 	if (!clk)
@@ -3161,19 +3169,14 @@ __of_clk_get_hw_from_provider(struct of_clk_provider *provider,
 			      struct of_phandle_args *clkspec)
 {
 	struct clk *clk;
-	struct clk_hw *hw = ERR_PTR(-EPROBE_DEFER);
 
-	if (provider->get_hw) {
-		hw = provider->get_hw(clkspec, provider->data);
-	} else if (provider->get) {
-		clk = provider->get(clkspec, provider->data);
-		if (!IS_ERR(clk))
-			hw = __clk_get_hw(clk);
-		else
-			hw = ERR_CAST(clk);
-	}
+	if (provider->get_hw)
+		return provider->get_hw(clkspec, provider->data);
 
-	return hw;
+	clk = provider->get(clkspec, provider->data);
+	if (IS_ERR(clk))
+		return ERR_CAST(clk);
+	return __clk_get_hw(clk);
 }
 
 struct clk *__of_clk_get_from_provider(struct of_phandle_args *clkspec,
@@ -3446,6 +3449,10 @@ void __init of_clk_init(const struct of_device_id *matches)
 		list_for_each_entry_safe(clk_provider, next,
 					&clk_provider_list, node) {
 			if (force || parent_ready(clk_provider->np)) {
+
+				/* Don't populate platform devices */
+				of_node_set_flag(clk_provider->np,
+						 OF_POPULATED);
 
 				clk_provider->clk_init_cb(clk_provider->np);
 				of_clk_set_defaults(clk_provider->np, true);

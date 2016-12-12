@@ -168,12 +168,11 @@ static void mv_cesa_ahash_std_step(struct ahash_request *req)
 	mv_cesa_adjust_op(engine, &creq->op_tmpl);
 	memcpy_toio(engine->sram, &creq->op_tmpl, sizeof(creq->op_tmpl));
 
-	digsize = crypto_ahash_digestsize(crypto_ahash_reqtfm(req));
-	for (i = 0; i < digsize / 4; i++)
-		writel_relaxed(creq->state[i], engine->regs + CESA_IVDIG(i));
-
-	mv_cesa_adjust_op(engine, &creq->op_tmpl);
-	memcpy_toio(engine->sram, &creq->op_tmpl, sizeof(creq->op_tmpl));
+	if (!sreq->offset) {
+		digsize = crypto_ahash_digestsize(crypto_ahash_reqtfm(req));
+		for (i = 0; i < digsize / 4; i++)
+			writel_relaxed(creq->state[i], engine->regs + CESA_IVDIG(i));
+	}
 
 	if (creq->cache_ptr)
 		memcpy_toio(engine->sram + CESA_SA_DATA_SRAM_OFFSET,
@@ -374,7 +373,7 @@ static const struct mv_cesa_req_ops mv_cesa_ahash_req_ops = {
 	.complete = mv_cesa_ahash_complete,
 };
 
-static int mv_cesa_ahash_init(struct ahash_request *req,
+static void mv_cesa_ahash_init(struct ahash_request *req,
 			      struct mv_cesa_op_ctx *tmpl, bool algo_le)
 {
 	struct mv_cesa_ahash_req *creq = ahash_request_ctx(req);
@@ -390,8 +389,6 @@ static int mv_cesa_ahash_init(struct ahash_request *req,
 	creq->op_tmpl = *tmpl;
 	creq->len = 0;
 	creq->algo_le = algo_le;
-
-	return 0;
 }
 
 static inline int mv_cesa_ahash_cra_init(struct crypto_tfm *tfm)
@@ -405,15 +402,16 @@ static inline int mv_cesa_ahash_cra_init(struct crypto_tfm *tfm)
 	return 0;
 }
 
-static int mv_cesa_ahash_cache_req(struct ahash_request *req, bool *cached)
+static bool mv_cesa_ahash_cache_req(struct ahash_request *req)
 {
 	struct mv_cesa_ahash_req *creq = ahash_request_ctx(req);
+	bool cached = false;
 
-	if (creq->cache_ptr + req->nbytes < 64 && !creq->last_req) {
-		*cached = true;
+	if (creq->cache_ptr + req->nbytes < CESA_MAX_HASH_BLOCK_SIZE && !creq->last_req) {
+		cached = true;
 
 		if (!req->nbytes)
-			return 0;
+			return cached;
 
 		sg_pcopy_to_buffer(req->src, creq->src_nents,
 				   creq->cache + creq->cache_ptr,
@@ -422,7 +420,7 @@ static int mv_cesa_ahash_cache_req(struct ahash_request *req, bool *cached)
 		creq->cache_ptr += req->nbytes;
 	}
 
-	return 0;
+	return cached;
 }
 
 static struct mv_cesa_op_ctx *
@@ -455,7 +453,6 @@ mv_cesa_dma_add_frag(struct mv_cesa_tdma_chain *chain,
 
 static int
 mv_cesa_ahash_dma_add_cache(struct mv_cesa_tdma_chain *chain,
-			    struct mv_cesa_ahash_dma_iter *dma_iter,
 			    struct mv_cesa_ahash_req *creq,
 			    gfp_t flags)
 {
@@ -586,7 +583,7 @@ static int mv_cesa_ahash_dma_req_init(struct ahash_request *req)
 	 * Add the cache (left-over data from a previous block) first.
 	 * This will never overflow the SRAM size.
 	 */
-	ret = mv_cesa_ahash_dma_add_cache(&basereq->chain, &iter, creq, flags);
+	ret = mv_cesa_ahash_dma_add_cache(&basereq->chain, creq, flags);
 	if (ret)
 		goto err_free_tdma;
 
@@ -668,7 +665,6 @@ err:
 static int mv_cesa_ahash_req_init(struct ahash_request *req, bool *cached)
 {
 	struct mv_cesa_ahash_req *creq = ahash_request_ctx(req);
-	int ret;
 
 	creq->src_nents = sg_nents_for_len(req->src, req->nbytes);
 	if (creq->src_nents < 0) {
@@ -676,17 +672,15 @@ static int mv_cesa_ahash_req_init(struct ahash_request *req, bool *cached)
 		return creq->src_nents;
 	}
 
-	ret = mv_cesa_ahash_cache_req(req, cached);
-	if (ret)
-		return ret;
+	*cached = mv_cesa_ahash_cache_req(req);
 
 	if (*cached)
 		return 0;
 
 	if (cesa_dev->caps->has_tdma)
-		ret = mv_cesa_ahash_dma_req_init(req);
-
-	return ret;
+		return mv_cesa_ahash_dma_req_init(req);
+	else
+		return 0;
 }
 
 static int mv_cesa_ahash_queue_req(struct ahash_request *req)

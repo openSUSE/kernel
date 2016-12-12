@@ -671,8 +671,10 @@ static int eeh_reset_device(struct eeh_pe *pe, struct pci_bus *bus,
 
 	/* Clear frozen state */
 	rc = eeh_clear_pe_frozen_state(pe, false);
-	if (rc)
+	if (rc) {
+		pci_unlock_rescan_remove();
 		return rc;
+	}
 
 	/* Give the system 5 seconds to finish running the user-space
 	 * hotplug shutdown scripts, e.g. ifdown for ethernet.  Yes,
@@ -993,6 +995,8 @@ static void eeh_handle_special_event(void)
 
 				/* Notify all devices to be down */
 				eeh_pe_state_clear(pe, EEH_PE_PRI_BUS);
+				eeh_pe_dev_traverse(pe,
+					eeh_report_failure, NULL);
 				bus = eeh_pe_bus_get(phb_pe);
 				if (!bus) {
 					pr_err("%s: Cannot find PCI bus for "
@@ -1002,8 +1006,6 @@ static void eeh_handle_special_event(void)
 					       pe->addr);
 					break;
 				}
-				eeh_pe_dev_traverse(pe,
-					eeh_report_failure, NULL);
 				pci_hp_remove_devices(bus);
 			}
 			pci_unlock_rescan_remove();

@@ -45,8 +45,6 @@
 #include <linux/utsname.h>
 #include <linux/ctype.h>
 #include <linux/uio.h>
-#include <linux/jhash.h>
-#include <linux/device.h>
 
 #include <asm/uaccess.h>
 #include <asm/sections.h>
@@ -657,11 +655,8 @@ static ssize_t msg_print_ext_header(char *buf, size_t size,
 	 * better readable output. 'c' in the record flags mark the first
 	 * fragment of a line, '+' the following.
 	 */
-	if (msg->flags & LOG_CONT && !(prev_flags & LOG_CONT))
-		cont = 'c';
-	else if ((msg->flags & LOG_CONT) ||
-		 ((prev_flags & LOG_CONT) && !(msg->flags & LOG_PREFIX)))
-		cont = '+';
+	if (msg->flags & LOG_CONT)
+		cont = (prev_flags & LOG_CONT) ? '+' : 'c';
 
 	return scnprintf(buf, size, "%u,%llu,%llu,%c;",
 		       (msg->facility << 3) | msg->level, seq, ts_usec, cont);
@@ -1645,35 +1640,33 @@ static struct cont {
 	bool flushed:1;			/* buffer sealed and committed */
 } cont;
 
-static void cont_flush(enum log_flags flags)
+static void cont_flush(void)
 {
 	if (cont.flushed)
 		return;
 	if (cont.len == 0)
 		return;
-
 	if (cont.cons) {
 		/*
 		 * If a fragment of this line was directly flushed to the
 		 * console; wait for the console to pick up the rest of the
 		 * line. LOG_NOCONS suppresses a duplicated output.
 		 */
-		log_store(cont.facility, cont.level, flags | LOG_NOCONS,
+		log_store(cont.facility, cont.level, cont.flags | LOG_NOCONS,
 			  cont.ts_nsec, NULL, 0, cont.buf, cont.len);
-		cont.flags = flags;
 		cont.flushed = true;
 	} else {
 		/*
 		 * If no fragment of this line ever reached the console,
 		 * just submit it to the store and free the buffer.
 		 */
-		log_store(cont.facility, cont.level, flags, 0,
+		log_store(cont.facility, cont.level, cont.flags, 0,
 			  NULL, 0, cont.buf, cont.len);
 		cont.len = 0;
 	}
 }
 
-static bool cont_add(int facility, int level, const char *text, size_t len)
+static bool cont_add(int facility, int level, enum log_flags flags, const char *text, size_t len)
 {
 	if (cont.len && cont.flushed)
 		return false;
@@ -1684,7 +1677,7 @@ static bool cont_add(int facility, int level, const char *text, size_t len)
 	 * the line gets too long, split it up in separate records.
 	 */
 	if (nr_ext_console_drivers || cont.len + len > sizeof(cont.buf)) {
-		cont_flush(LOG_CONT);
+		cont_flush();
 		return false;
 	}
 
@@ -1693,7 +1686,7 @@ static bool cont_add(int facility, int level, const char *text, size_t len)
 		cont.level = level;
 		cont.owner = current;
 		cont.ts_nsec = local_clock();
-		cont.flags = 0;
+		cont.flags = flags;
 		cont.cons = 0;
 		cont.flushed = false;
 	}
@@ -1701,8 +1694,15 @@ static bool cont_add(int facility, int level, const char *text, size_t len)
 	memcpy(cont.buf + cont.len, text, len);
 	cont.len += len;
 
+	// The original flags come from the first line,
+	// but later continuations can add a newline.
+	if (flags & LOG_NEWLINE) {
+		cont.flags |= LOG_NEWLINE;
+		cont_flush();
+	}
+
 	if (cont.len > (sizeof(cont.buf) * 80) / 100)
-		cont_flush(LOG_CONT);
+		cont_flush();
 
 	return true;
 }
@@ -1733,6 +1733,35 @@ static size_t cont_print_text(char *text, size_t size)
 		cont.len = 0;
 	}
 	return textlen;
+}
+
+static size_t log_output(int facility, int level, enum log_flags lflags, const char *dict, size_t dictlen, char *text, size_t text_len)
+{
+	/*
+	 * If an earlier line was buffered, and we're a continuation
+	 * write from the same process, try to add it to the buffer.
+	 */
+	if (cont.len) {
+		if (cont.owner == current && (lflags & LOG_CONT)) {
+			if (cont_add(facility, level, lflags, text, text_len))
+				return text_len;
+		}
+		/* Otherwise, make sure it's flushed */
+		cont_flush();
+	}
+
+	/* Skip empty continuation lines that couldn't be added - they just flush */
+	if (!text_len && (lflags & LOG_CONT))
+		return 0;
+
+	/* If it doesn't end in a newline, try to buffer the current line */
+	if (!(lflags & LOG_NEWLINE)) {
+		if (cont_add(facility, level, lflags, text, text_len))
+			return text_len;
+	}
+
+	/* Store it in the record log */
+	return log_store(facility, level, lflags, 0, dict, dictlen, text, text_len);
 }
 
 asmlinkage int vprintk_emit(int facility, int level,
@@ -1821,10 +1850,9 @@ asmlinkage int vprintk_emit(int facility, int level,
 
 	/* strip kernel syslog prefix and extract log level or control flags */
 	if (facility == 0) {
-		int kern_level = printk_get_level(text);
+		int kern_level;
 
-		if (kern_level) {
-			const char *end_of_header = printk_skip_level(text);
+		while ((kern_level = printk_get_level(text)) != 0) {
 			switch (kern_level) {
 			case '0' ... '7':
 				if (level == LOGLEVEL_DEFAULT)
@@ -1832,14 +1860,13 @@ asmlinkage int vprintk_emit(int facility, int level,
 				/* fallthrough */
 			case 'd':	/* KERN_DEFAULT */
 				lflags |= LOG_PREFIX;
+				break;
+			case 'c':	/* KERN_CONT */
+				lflags |= LOG_CONT;
 			}
-			/*
-			 * No need to check length here because vscnprintf
-			 * put '\0' at the end of the string. Only valid and
-			 * newly printed level is detected.
-			 */
-			text_len -= end_of_header - text;
-			text = (char *)end_of_header;
+
+			text_len -= 2;
+			text += 2;
 		}
 	}
 
@@ -1849,45 +1876,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 	if (dict)
 		lflags |= LOG_PREFIX|LOG_NEWLINE;
 
-	if (!(lflags & LOG_NEWLINE)) {
-		/*
-		 * Flush the conflicting buffer. An earlier newline was missing,
-		 * or another task also prints continuation lines.
-		 */
-		if (cont.len && (lflags & LOG_PREFIX || cont.owner != current))
-			cont_flush(LOG_NEWLINE);
-
-		/* buffer line if possible, otherwise store it right away */
-		if (cont_add(facility, level, text, text_len))
-			printed_len += text_len;
-		else
-			printed_len += log_store(facility, level,
-						 lflags | LOG_CONT, 0,
-						 dict, dictlen, text, text_len);
-	} else {
-		bool stored = false;
-
-		/*
-		 * If an earlier newline was missing and it was the same task,
-		 * either merge it with the current buffer and flush, or if
-		 * there was a race with interrupts (prefix == true) then just
-		 * flush it out and store this line separately.
-		 * If the preceding printk was from a different task and missed
-		 * a newline, flush and append the newline.
-		 */
-		if (cont.len) {
-			if (cont.owner == current && !(lflags & LOG_PREFIX))
-				stored = cont_add(facility, level, text,
-						  text_len);
-			cont_flush(LOG_NEWLINE);
-		}
-
-		if (stored)
-			printed_len += text_len;
-		else
-			printed_len += log_store(facility, level, lflags, 0,
-						 dict, dictlen, text, text_len);
-	}
+	printed_len += log_output(facility, level, lflags, dict, dictlen, text, text_len);
 
 	logbuf_cpu = UINT_MAX;
 	raw_spin_unlock(&logbuf_lock);
@@ -3261,49 +3250,6 @@ void kmsg_dump_rewind(struct kmsg_dumper *dumper)
 	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
 }
 EXPORT_SYMBOL_GPL(kmsg_dump_rewind);
-
-#ifdef CONFIG_KMSG_IDS
-
-/**
- * printk_hash - print a kernel message include a hash over the message
- * @prefix: message prefix including the ".%06x" for the hash
- * @fmt: format string
- */
-asmlinkage int printk_hash(const char *prefix, const char *fmt, ...)
-{
-	va_list args;
-	int r;
-
-	r = printk(prefix, jhash(fmt, strlen(fmt), 0) & 0xffffff);
-	va_start(args, fmt);
-	r += vprintk(fmt, args);
-	va_end(args);
-
-	return r;
-}
-EXPORT_SYMBOL(printk_hash);
-
-/**
- * printk_dev_hash - print a kernel message include a hash over the message
- * @prefix: message prefix including the ".%06x" for the hash
- * @dev: device this printk is all about
- * @fmt: format string
- */
-asmlinkage int printk_dev_hash(const char *prefix, const char *driver_name,
-			       const char *fmt, ...)
-{
-	va_list args;
-	int r;
-
-	r = printk(prefix, driver_name, jhash(fmt, strlen(fmt), 0) & 0xffffff);
-	va_start(args, fmt);
-	r += vprintk(fmt, args);
-	va_end(args);
-
-	return r;
-}
-EXPORT_SYMBOL(printk_dev_hash);
-#endif
 
 static char dump_stack_arch_desc_str[128];
 

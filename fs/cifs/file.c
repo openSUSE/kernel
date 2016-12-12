@@ -739,6 +739,15 @@ reopen_success:
 	 * to the server to get the new inode info.
 	 */
 
+	/*
+	 * If the server returned a read oplock and we have mandatory brlocks,
+	 * set oplock level to None.
+	 */
+	if (server->ops->is_read_op(oplock) && cifs_has_mand_locks(cinode)) {
+		cifs_dbg(FYI, "Reset oplock val from read to None due to mand locks\n");
+		oplock = 0;
+	}
+
 	server->ops->set_fid(cfile, &cfile->fid, oplock);
 	if (oparms.reconnect)
 		cifs_relock_file(cfile);
@@ -758,6 +767,36 @@ int cifs_close(struct inode *inode, struct file *file)
 
 	/* return code from the ->release op is always ignored */
 	return 0;
+}
+
+void
+cifs_reopen_persistent_handles(struct cifs_tcon *tcon)
+{
+	struct cifsFileInfo *open_file;
+	struct list_head *tmp;
+	struct list_head *tmp1;
+	struct list_head tmp_list;
+
+	cifs_dbg(FYI, "Reopen persistent handles");
+	INIT_LIST_HEAD(&tmp_list);
+
+	/* list all files open on tree connection, reopen resilient handles  */
+	spin_lock(&tcon->open_file_lock);
+	list_for_each(tmp, &tcon->openFileList) {
+		open_file = list_entry(tmp, struct cifsFileInfo, tlist);
+		if (!open_file->invalidHandle)
+			continue;
+		cifsFileInfo_get(open_file);
+		list_add_tail(&open_file->rlist, &tmp_list);
+	}
+	spin_unlock(&tcon->open_file_lock);
+
+	list_for_each_safe(tmp, tmp1, &tmp_list) {
+		open_file = list_entry(tmp, struct cifsFileInfo, rlist);
+		cifs_reopen_file(open_file, false /* do not flush */);
+		list_del_init(&open_file->rlist);
+		cifsFileInfo_put(open_file);
+	}
 }
 
 int cifs_closedir(struct inode *inode, struct file *file)
@@ -1888,7 +1927,7 @@ static int cifs_partialpagewrite(struct page *page, unsigned from, unsigned to)
 					   write_data, to - from, &offset);
 		cifsFileInfo_put(open_file);
 		/* Does mm or vfs already set times? */
-		inode->i_atime = inode->i_mtime = current_fs_time(inode->i_sb);
+		inode->i_atime = inode->i_mtime = current_time(inode);
 		if ((bytes_written > 0) && (offset))
 			rc = 0;
 		else if (bytes_written < 0)
@@ -2488,7 +2527,7 @@ cifs_write_from_iter(loff_t offset, size_t len, struct iov_iter *from,
 	size_t cur_len;
 	unsigned long nr_pages, num_pages, i;
 	struct cifs_writedata *wdata;
-	struct iov_iter saved_from;
+	struct iov_iter saved_from = *from;
 	loff_t saved_offset = offset;
 	pid_t pid;
 	struct TCP_Server_Info *server;
@@ -2499,7 +2538,6 @@ cifs_write_from_iter(loff_t offset, size_t len, struct iov_iter *from,
 		pid = current->tgid;
 
 	server = tlink_tcon(open_file->tlink)->ses->server;
-	memcpy(&saved_from, from, sizeof(struct iov_iter));
 
 	do {
 		unsigned int wsize, credits;
@@ -2561,8 +2599,7 @@ cifs_write_from_iter(loff_t offset, size_t len, struct iov_iter *from,
 			kref_put(&wdata->refcount,
 				 cifs_uncached_writedata_release);
 			if (rc == -EAGAIN) {
-				memcpy(from, &saved_from,
-				       sizeof(struct iov_iter));
+				*from = saved_from;
 				iov_iter_advance(from, offset - saved_offset);
 				continue;
 			}
@@ -2586,7 +2623,7 @@ ssize_t cifs_user_writev(struct kiocb *iocb, struct iov_iter *from)
 	struct cifs_sb_info *cifs_sb;
 	struct cifs_writedata *wdata, *tmp;
 	struct list_head wdata_list;
-	struct iov_iter saved_from;
+	struct iov_iter saved_from = *from;
 	int rc;
 
 	/*
@@ -2606,8 +2643,6 @@ ssize_t cifs_user_writev(struct kiocb *iocb, struct iov_iter *from)
 
 	if (!tcon->ses->server->ops->async_writev)
 		return -ENOSYS;
-
-	memcpy(&saved_from, from, sizeof(struct iov_iter));
 
 	rc = cifs_write_from_iter(iocb->ki_pos, iov_iter_count(from), from,
 				  open_file, cifs_sb, &wdata_list);
@@ -2641,13 +2676,11 @@ restart_loop:
 			/* resend call if it's a retryable error */
 			if (rc == -EAGAIN) {
 				struct list_head tmp_list;
-				struct iov_iter tmp_from;
+				struct iov_iter tmp_from = saved_from;
 
 				INIT_LIST_HEAD(&tmp_list);
 				list_del_init(&wdata->list);
 
-				memcpy(&tmp_from, &saved_from,
-				       sizeof(struct iov_iter));
 				iov_iter_advance(&tmp_from,
 						 wdata->offset - iocb->ki_pos);
 
@@ -3581,7 +3614,7 @@ static int cifs_readpage_worker(struct file *file, struct page *page,
 		cifs_dbg(FYI, "Bytes read %d\n", rc);
 
 	file_inode(file)->i_atime =
-		current_fs_time(file_inode(file)->i_sb);
+		current_time(file_inode(file));
 
 	if (PAGE_SIZE > rc)
 		memset(read_data + rc, 0, PAGE_SIZE - rc);

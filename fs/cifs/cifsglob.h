@@ -75,6 +75,18 @@
 #define SMB_ECHO_INTERVAL_MAX 600
 #define SMB_ECHO_INTERVAL_DEFAULT 60
 
+/*
+ * Default number of credits to keep available for SMB3.
+ * This value is chosen somewhat arbitrarily. The Windows client
+ * defaults to 128 credits, the Windows server allows clients up to
+ * 512 credits (or 8K for later versions), and the NetApp server
+ * does not limit clients at all.  Choose a high enough default value
+ * such that the client shouldn't limit performance, but allow mount
+ * to override (until you approach 64K, where we limit credits to 65000
+ * to reduce possibility of seeing more server credit overflow bugs.
+ */
+#define SMB2_MAX_CREDITS_AVAILABLE 32000
+
 #include "cifspdu.h"
 
 #ifndef XATTR_DOS_ATTRIB
@@ -376,6 +388,8 @@ struct smb_version_operations {
 	int (*calc_signature)(struct smb_rqst *, struct TCP_Server_Info *);
 	int (*set_integrity)(const unsigned int, struct cifs_tcon *tcon,
 			     struct cifsFileInfo *src_file);
+	int (*enum_snapshots)(const unsigned int xid, struct cifs_tcon *tcon,
+			     struct cifsFileInfo *src_file, void __user *);
 	int (*query_mf_symlink)(unsigned int, struct cifs_tcon *,
 				struct cifs_sb_info *, const unsigned char *,
 				char *, unsigned int *);
@@ -464,6 +478,7 @@ struct smb_vol {
 	bool retry:1;
 	bool intr:1;
 	bool setuids:1;
+	bool setuidfromacl:1;
 	bool override_uid:1;
 	bool override_gid:1;
 	bool dynperm:1;
@@ -510,6 +525,7 @@ struct smb_vol {
 	struct sockaddr_storage srcaddr; /* allow binding to a local IP */
 	struct nls_table *local_nls;
 	unsigned int echo_interval; /* echo interval in secs */
+	unsigned int max_credits; /* smb3 max_credits 10 < credits < 60000 */
 };
 
 #define CIFS_MOUNT_MASK (CIFS_MOUNT_NO_PERM | CIFS_MOUNT_SET_UID | \
@@ -567,7 +583,8 @@ struct TCP_Server_Info {
 	bool noblocksnd;		/* use blocking sendmsg */
 	bool noautotune;		/* do not autotune send buf sizes */
 	bool tcp_nodelay;
-	int credits;  /* send no more requests at once */
+	unsigned int credits;  /* send no more requests at once */
+	unsigned int max_credits; /* can override large 32000 default at mnt */
 	unsigned int in_flight;  /* number of requests on the wire to server */
 	spinlock_t req_lock;  /* protect the two values above */
 	struct mutex srv_mutex;
@@ -1049,6 +1066,7 @@ struct cifsFileInfo {
 	kuid_t uid;		/* allows finding which FileInfo structure */
 	__u32 pid;		/* process id who opened file */
 	struct cifs_fid fid;	/* file id from remote */
+	struct list_head rlist; /* reconnect list */
 	/* BB add lock scope info here if needed */ ;
 	/* lock scope id (0 if none) */
 	struct dentry *dentry;
