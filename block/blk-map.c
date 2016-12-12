@@ -118,7 +118,7 @@ int blk_rq_map_user_iov(struct request_queue *q, struct request *rq,
 	struct iov_iter i;
 	int ret;
 
-	if (!iter_is_iovec((struct iov_iter *)iter))
+	if (!iter_is_iovec(iter))
 		goto fail;
 
 	if (map_data)
