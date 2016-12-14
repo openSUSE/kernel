@@ -260,6 +260,12 @@ L:	linux-gpio@vger.kernel.org
 S:	Maintained
 F:	drivers/gpio/gpio-104-idio-16.c
 
+ACCES 104-QUAD-8 IIO DRIVER
+M:	William Breathitt Gray <vilhelm.gray@gmail.com>
+L:	linux-iio@vger.kernel.org
+S:	Maintained
+F:	drivers/iio/counter/104-quad-8.c
+
 ACENIC DRIVER
 M:	Jes Sorensen <jes@trained-monkey.org>
 L:	linux-acenic@sunsite.dk
@@ -803,7 +809,7 @@ S:	Supported
 F:	drivers/iio/*/ad*
 X:	drivers/iio/*/adjd*
 F:	drivers/staging/iio/*/ad*
-F:	staging/iio/trigger/iio-trig-bfin-timer.c
+F:	drivers/staging/iio/trigger/iio-trig-bfin-timer.c
 
 ANALOG DEVICES INC DMA DRIVERS
 M:	Lars-Peter Clausen <lars@metafoo.de>
@@ -1052,6 +1058,7 @@ F:	arch/arm/mach-meson/
 F:	arch/arm/boot/dts/meson*
 F:	arch/arm64/boot/dts/amlogic/
 F: 	drivers/pinctrl/meson/
+F:	drivers/mmc/host/meson*
 N:	meson
 
 ARM/Annapurna Labs ALPINE ARCHITECTURE
@@ -1791,6 +1798,7 @@ F:	drivers/char/hw_random/st-rng.c
 F:	drivers/clocksource/arm_global_timer.c
 F:	drivers/clocksource/clksrc_st_lpc.c
 F:	drivers/cpufreq/sti-cpufreq.c
+F:	drivers/dma/st_fdma*
 F:	drivers/i2c/busses/i2c-st.c
 F:	drivers/media/rc/st_rc.c
 F:	drivers/media/platform/sti/c8sectpfe/
@@ -1801,6 +1809,7 @@ F:	drivers/phy/phy-stih407-usb.c
 F:	drivers/phy/phy-stih41x-usb.c
 F:	drivers/pinctrl/pinctrl-st.c
 F:	drivers/remoteproc/st_remoteproc.c
+F:	drivers/remoteproc/st_slim_rproc.c
 F:	drivers/reset/sti/
 F:	drivers/rtc/rtc-st-lpc.c
 F:	drivers/tty/serial/st-asc.c
@@ -1809,6 +1818,7 @@ F:	drivers/usb/host/ehci-st.c
 F:	drivers/usb/host/ohci-st.c
 F:	drivers/watchdog/st_lpc_wdt.c
 F:	drivers/ata/ahci_st.c
+F:	include/linux/remoteproc/st_slim_rproc.h
 
 ARM/STM32 ARCHITECTURE
 M:	Maxime Coquelin <mcoquelin.stm32@gmail.com>
@@ -2608,6 +2618,7 @@ L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/rpi/linux-rpi.git
 S:	Maintained
 N:	bcm2835
+F:	drivers/staging/vc04_services
 
 BROADCOM BCM47XX MIPS ARCHITECTURE
 M:	Hauke Mehrtens <hauke@hauke-m.de>
@@ -2759,6 +2770,14 @@ L:	linux-mtd@lists.infradead.org
 L:	bcm-kernel-feedback-list@broadcom.com
 S:	Maintained
 F:	drivers/mtd/nand/brcmnand/
+
+BROADCOM STB AVS CPUFREQ DRIVER
+M:	Markus Mayer <mmayer@broadcom.com>
+M:	bcm-kernel-feedback-list@broadcom.com
+L:	linux-pm@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/cpufreq/brcm,stb-avs-cpu-freq.txt
+F:	drivers/cpufreq/brcmstb*
 
 BROADCOM SPECIFIC AMBA DRIVER (BCMA)
 M:	Rafał Miłecki <zajec5@gmail.com>
@@ -3047,6 +3066,12 @@ F:	drivers/usb/host/hwa-hc.c
 F:	drivers/usb/host/whci/
 F:	drivers/usb/wusbcore/
 F:	include/linux/usb/wusb*
+
+HT16K33 LED CONTROLLER DRIVER
+M:	Robin van der Gracht <robin@protonic.nl>
+S:	Maintained
+F:	drivers/auxdisplay/ht16k33.c
+F:	Documentation/devicetree/bindings/display/ht16k33.txt
 
 CFAG12864B LCD DRIVER
 M:	Miguel Ojeda Sandonis <miguel.ojeda.sandonis@gmail.com>
@@ -3352,6 +3377,7 @@ L:	linux-pm@vger.kernel.org
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/rafael/linux-pm.git
 T:	git git://git.linaro.org/people/vireshk/linux.git (For ARM Updates)
+B:	https://bugzilla.kernel.org
 F:	Documentation/cpu-freq/
 F:	drivers/cpufreq/
 F:	include/linux/cpufreq.h
@@ -3391,6 +3417,7 @@ M:	Daniel Lezcano <daniel.lezcano@linaro.org>
 L:	linux-pm@vger.kernel.org
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/rafael/linux-pm.git
+B:	https://bugzilla.kernel.org
 F:	drivers/cpuidle/*
 F:	include/linux/cpuidle.h
 
@@ -3929,7 +3956,7 @@ F:	include/linux/dma-buf*
 F:	include/linux/reservation.h
 F:	include/linux/*fence.h
 F:	Documentation/dma-buf-sharing.txt
-T:	git git://git.linaro.org/people/sumitsemwal/linux-dma-buf.git
+T:	git git://anongit.freedesktop.org/drm/drm-misc
 
 SYNC FILE FRAMEWORK
 M:	Sumit Semwal <sumit.semwal@linaro.org>
@@ -3937,10 +3964,12 @@ R:	Gustavo Padovan <gustavo@padovan.org>
 S:	Maintained
 L:	linux-media@vger.kernel.org
 L:	dri-devel@lists.freedesktop.org
-F:	drivers/dma-buf/sync_file.c
+F:	drivers/dma-buf/sync_*
+F:	drivers/dma-buf/sw_sync.c
 F:	include/linux/sync_file.h
+F:	include/uapi/linux/sync_file.h
 F:	Documentation/sync_file.txt
-T:	git git://git.linaro.org/people/sumitsemwal/linux-dma-buf.git
+T:	git git://anongit.freedesktop.org/drm/drm-misc
 
 DMA GENERIC OFFLOAD ENGINE SUBSYSTEM
 M:	Vinod Koul <vinod.koul@intel.com>
@@ -4040,10 +4069,29 @@ F:	Documentation/gpu/
 F:	include/drm/
 F:	include/uapi/drm/
 
+DRM DRIVERS AND MISC GPU PATCHES
+M:	Daniel Vetter <daniel.vetter@intel.com>
+M:	Jani Nikula <jani.nikula@linux.intel.com>
+M:	Sean Paul <seanpaul@chromium.org>
+W:	https://01.org/linuxgraphics/gfx-docs/maintainer-tools/drm-misc.html
+S:	Maintained
+T:	git git://anongit.freedesktop.org/drm/drm-misc
+F:	Documentation/gpu/
+F:	drivers/gpu/vga/
+F:	drivers/gpu/drm/*
+F:	include/drm/drm*
+F:	include/uapi/drm/drm*
+
 DRM DRIVER FOR AST SERVER GRAPHICS CHIPS
 M:	Dave Airlie <airlied@redhat.com>
 S:	Odd Fixes
 F:	drivers/gpu/drm/ast/
+
+DRM DRIVERS FOR BRIDGE CHIPS
+M:	Archit Taneja <architt@codeaurora.org>
+S:	Maintained
+T:	git git://anongit.freedesktop.org/drm/drm-misc
+F:	drivers/gpu/drm/bridge/
 
 DRM DRIVER FOR BOCHS VIRTUAL GPU
 M:	Gerd Hoffmann <kraxel@redhat.com>
@@ -4080,7 +4128,6 @@ INTEL DRM DRIVERS (excluding Poulsbo, Moorestown and derivative chipsets)
 M:	Daniel Vetter <daniel.vetter@intel.com>
 M:	Jani Nikula <jani.nikula@linux.intel.com>
 L:	intel-gfx@lists.freedesktop.org
-L:	dri-devel@lists.freedesktop.org
 W:	https://01.org/linuxgraphics/
 B:	https://01.org/linuxgraphics/documentation/how-report-bugs
 C:	irc://chat.freenode.net/intel-gfx
@@ -4091,6 +4138,16 @@ F:	drivers/gpu/drm/i915/
 F:	include/drm/i915*
 F:	include/uapi/drm/i915_drm.h
 F:	Documentation/gpu/i915.rst
+
+INTEL GVT-g DRIVERS (Intel GPU Virtualization)
+M:      Zhenyu Wang <zhenyuw@linux.intel.com>
+M:      Zhi Wang <zhi.a.wang@intel.com>
+L:      igvt-g-dev@lists.01.org
+L:      intel-gfx@lists.freedesktop.org
+W:      https://01.org/igvt-g
+T:      git https://github.com/01org/gvt-linux.git
+S:      Supported
+F:      drivers/gpu/drm/i915/gvt/
 
 DRM DRIVERS FOR ATMEL HLCDC
 M:	Boris Brezillon <boris.brezillon@free-electrons.com>
@@ -4105,6 +4162,15 @@ L:	dri-devel@lists.freedesktop.org
 S:	Supported
 F:	drivers/gpu/drm/sun4i/
 F:	Documentation/devicetree/bindings/display/sunxi/sun4i-drm.txt
+
+DRM DRIVERS FOR AMLOGIC SOCS
+M:	Neil Armstrong <narmstrong@baylibre.com>
+L:	dri-devel@lists.freedesktop.org
+L:	linux-amlogic@lists.infradead.org
+W:	http://linux-meson.com/
+S:	Supported
+F:	drivers/gpu/drm/meson/
+F:	Documentation/devicetree/bindings/display/amlogic,meson-vpu.txt
 
 DRM DRIVERS FOR EXYNOS
 M:	Inki Dae <inki.dae@samsung.com>
@@ -4145,6 +4211,7 @@ F:	drivers/gpu/drm/gma500/
 
 DRM DRIVERS FOR HISILICON
 M:	Xinliang Liu <z.liuxinliang@hisilicon.com>
+M:	Rongrong Zou <zourongrong@gmail.com>
 R:	Xinwei Kong <kong.kongxinwei@hisilicon.com>
 R:	Chen Feng <puck.chen@hisilicon.com>
 L:	dri-devel@lists.freedesktop.org
@@ -4269,6 +4336,7 @@ DRM DRIVERS FOR VIVANTE GPU IP
 M:	Lucas Stach <l.stach@pengutronix.de>
 R:	Russell King <linux+etnaviv@armlinux.org.uk>
 R:	Christian Gmeiner <christian.gmeiner@gmail.com>
+L:	etnaviv@lists.freedesktop.org
 L:	dri-devel@lists.freedesktop.org
 S:	Maintained
 F:	drivers/gpu/drm/etnaviv/
@@ -4308,6 +4376,13 @@ L:	dri-devel@lists.freedesktop.org
 S:	Maintained
 F:	drivers/gpu/drm/tilcdc/
 F:	Documentation/devicetree/bindings/display/tilcdc/
+
+DRM DRIVERS FOR ZTE ZX
+M:	Shawn Guo <shawnguo@kernel.org>
+L:	dri-devel@lists.freedesktop.org
+S:	Maintained
+F:	drivers/gpu/drm/zte/
+F:	Documentation/devicetree/bindings/display/zte,vou.txt
 
 DSBR100 USB FM RADIO DRIVER
 M:	Alexey Klimov <klimov.linux@gmail.com>
@@ -4974,7 +5049,9 @@ K:	fmc_d.*register
 FPGA MANAGER FRAMEWORK
 M:	Alan Tull <atull@opensource.altera.com>
 R:	Moritz Fischer <moritz.fischer@ettus.com>
+L:	linux-fpga@vger.kernel.org
 S:	Maintained
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/atull/linux-fpga.git
 F:	drivers/fpga/
 F:	include/linux/fpga/fpga-mgr.h
 W:	http://www.rocketboards.org
@@ -4992,10 +5069,9 @@ F:	drivers/net/wan/dlci.c
 F:	drivers/net/wan/sdla.c
 
 FRAMEBUFFER LAYER
-M:	Tomi Valkeinen <tomi.valkeinen@ti.com>
 L:	linux-fbdev@vger.kernel.org
 Q:	http://patchwork.kernel.org/project/linux-fbdev/list/
-S:	Maintained
+S:	Orphan
 F:	Documentation/fb/
 F:	drivers/video/
 F:	include/video/
@@ -5068,9 +5144,18 @@ S:	Maintained
 F:	drivers/net/ethernet/freescale/fman
 F:	Documentation/devicetree/bindings/powerpc/fsl/fman.txt
 
-FREESCALE QUICC ENGINE LIBRARY
+FREESCALE SOC DRIVERS
+M:	Scott Wood <oss@buserror.net>
 L:	linuxppc-dev@lists.ozlabs.org
-S:	Orphan
+L:	linux-arm-kernel@lists.infradead.org
+S:	Maintained
+F:	drivers/soc/fsl/
+F:	include/linux/fsl/
+
+FREESCALE QUICC ENGINE LIBRARY
+M:	Qiang Zhao <qiang.zhao@nxp.com>
+L:	linuxppc-dev@lists.ozlabs.org
+S:	Maintained
 F:	drivers/soc/fsl/qe/
 F:	include/soc/fsl/*qe*.h
 F:	include/soc/fsl/*ucc*.h
@@ -5121,13 +5206,6 @@ S:	Maintained
 F:	sound/soc/fsl/fsl*
 F:	sound/soc/fsl/imx*
 F:	sound/soc/fsl/mpc8610_hpcd.c
-
-FREESCALE QORIQ MANAGEMENT COMPLEX DRIVER
-M:	"J. German Rivera" <German.Rivera@freescale.com>
-M:	Stuart Yoder <stuart.yoder@nxp.com>
-L:	linux-kernel@vger.kernel.org
-S:	Maintained
-F:	drivers/staging/fsl-mc/
 
 FREEVXFS FILESYSTEM
 M:	Christoph Hellwig <hch@infradead.org>
@@ -5226,6 +5304,7 @@ L:	kernel-hardening@lists.openwall.com
 S:	Maintained
 F:	scripts/gcc-plugins/
 F:	scripts/gcc-plugin.sh
+F:	scripts/Makefile.gcc-plugins
 F:	Documentation/gcc-plugins.txt
 
 GCOV BASED KERNEL PROFILING
@@ -5869,6 +5948,7 @@ F:	drivers/input/serio/hyperv-keyboard.c
 F:	drivers/pci/host/pci-hyperv.c
 F:	drivers/net/hyperv/
 F:	drivers/scsi/storvsc_drv.c
+F:	drivers/uio/uio_hv_generic.c
 F:	drivers/video/fbdev/hyperv_fb.c
 F:	include/linux/hyperv.h
 F:	tools/hv/
@@ -6144,6 +6224,22 @@ L:	linux-media@vger.kernel.org
 S:	Maintained
 F:	drivers/media/rc/iguanair.c
 
+IIO DIGITAL POTENTIOMETER DAC
+M:	Peter Rosin <peda@axentia.se>
+L:	linux-iio@vger.kernel.org
+S:	Maintained
+F:	Documentation/ABI/testing/sysfs-bus-iio-dac-dpot-dac
+F:	Documentation/devicetree/bindings/iio/dac/dpot-dac.txt
+F:	drivers/iio/dac/dpot-dac.c
+
+IIO ENVELOPE DETECTOR
+M:	Peter Rosin <peda@axentia.se>
+L:	linux-iio@vger.kernel.org
+S:	Maintained
+F:	Documentation/ABI/testing/sysfs-bus-iio-adc-envelope-detector
+F:	Documentation/devicetree/bindings/iio/adc/envelope-detector.txt
+F:	drivers/iio/adc/envelope-detector.c
+
 IIO SUBSYSTEM AND DRIVERS
 M:	Jonathan Cameron <jic23@kernel.org>
 R:	Hartmut Knaack <knaack.h@gmx.de>
@@ -6301,9 +6397,11 @@ S:	Maintained
 F:	drivers/platform/x86/intel-vbtn.c
 
 INTEL IDLE DRIVER
+M:	Jacob Pan <jacob.jun.pan@linux.intel.com>
 M:	Len Brown <lenb@kernel.org>
 L:	linux-pm@vger.kernel.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/lenb/linux.git
+B:	https://bugzilla.kernel.org
 S:	Supported
 F:	drivers/idle/intel_idle.c
 
@@ -6522,6 +6620,13 @@ L:	platform-driver-x86@vger.kernel.org
 S:	Maintained
 F:	arch/x86/include/asm/pmc_core.h
 F:	drivers/platform/x86/intel_pmc_core*
+
+INVENSENSE MPU-3050 GYROSCOPE DRIVER
+M:	Linus Walleij <linus.walleij@linaro.org>
+L:	linux-iio@vger.kernel.org
+S:	Maintained
+F:	drivers/iio/gyro/mpu3050*
+F:	Documentation/devicetree/bindings/iio/gyroscope/inv,mpu3050.txt
 
 IOC3 ETHERNET DRIVER
 M:	Ralf Baechle <ralf@linux-mips.org>
@@ -7730,6 +7835,7 @@ MCP4531 MICROCHIP DIGITAL POTENTIOMETER DRIVER
 M:	Peter Rosin <peda@axentia.se>
 L:	linux-iio@vger.kernel.org
 S:	Maintained
+F:	Documentation/ABI/testing/sysfs-bus-iio-potentiometer-mcp4531
 F:	drivers/iio/potentiometer/mcp4531.c
 
 MEASUREMENT COMPUTING CIO-DAC IIO DRIVER
@@ -8294,6 +8400,12 @@ T:	git git://linuxtv.org/mkrufky/tuners.git
 S:	Maintained
 F:	drivers/media/tuners/mxl5007t.*
 
+MXSFB DRM DRIVER
+M:	Marek Vasut <marex@denx.de>
+S:	Supported
+F:	drivers/gpu/drm/mxsfb/
+F:	Documentation/devicetree/bindings/display/mxsfb-drm.txt
+
 MYRICOM MYRI-10G 10GbE DRIVER (MYRI10GE)
 M:	Hyong-Youb Kim <hykim@myri.com>
 L:	netdev@vger.kernel.org
@@ -8699,6 +8811,16 @@ L:	linux-nvme@lists.infradead.org
 S:	Supported
 F:	drivers/nvme/target/
 
+NVM EXPRESS FC TRANSPORT DRIVERS
+M:	James Smart <james.smart@broadcom.com>
+L:	linux-nvme@lists.infradead.org
+S:	Supported
+F:	include/linux/nvme-fc.h
+F:	include/linux/nvme-fc-driver.h
+F:	drivers/nvme/host/fc.c
+F:	drivers/nvme/target/fc.c
+F:	drivers/nvme/target/fcloop.c
+
 NVMEM FRAMEWORK
 M:	Srinivas Kandagatla <srinivas.kandagatla@linaro.org>
 M:	Maxime Ripard <maxime.ripard@free-electrons.com>
@@ -8761,6 +8883,7 @@ F:	drivers/regulator/tps65217-regulator.c
 F:	drivers/regulator/tps65218-regulator.c
 F:	drivers/regulator/tps65910-regulator.c
 F:	drivers/regulator/twl-regulator.c
+F:	drivers/regulator/twl6030-regulator.c
 F:	include/linux/i2c-omap.h
 
 OMAP DEVICE TREE SUPPORT
@@ -9117,7 +9240,7 @@ F:      drivers/misc/panel.c
 
 PARALLEL PORT SUBSYSTEM
 M:	Sudip Mukherjee <sudipm.mukherjee@gmail.com>
-M:	Sudip Mukherjee <sudip@vectorindia.org>
+M:	Sudip Mukherjee <sudip.mukherjee@codethink.co.uk>
 L:	linux-parport@lists.infradead.org (subscribers-only)
 S:	Maintained
 F:	drivers/parport/
@@ -9588,8 +9711,8 @@ F:      arch/mips/boot/dts/pistachio/
 F:      arch/mips/configs/pistachio*_defconfig
 
 PKTCDVD DRIVER
-M:	Jiri Kosina <jikos@kernel.org>
-S:	Maintained
+S:	Orphan
+M:	linux-block@vger.kernel.org
 F:	drivers/block/pktcdvd.c
 F:	include/linux/pktcdvd.h
 F:	include/uapi/linux/pktcdvd.h
@@ -9824,7 +9947,7 @@ F:	drivers/media/usb/pwc/*
 
 PWM FAN DRIVER
 M:	Kamil Debski <kamil@wypas.org>
-M:	Lukasz Majewski <l.majewski@samsung.com>
+M:	Bartlomiej Zolnierkiewicz <b.zolnierkie@samsung.com>
 L:	linux-hwmon@vger.kernel.org
 S:	Supported
 F:	Documentation/devicetree/bindings/hwmon/pwm-fan.txt
@@ -9965,6 +10088,12 @@ S:	Maintained
 F:	fs/qnx4/
 F:	include/uapi/linux/qnx4_fs.h
 F:	include/uapi/linux/qnxtypes.h
+
+QORIQ DPAA2 FSL-MC BUS DRIVER
+M:	Stuart Yoder <stuart.yoder@nxp.com>
+L:	linux-kernel@vger.kernel.org
+S:	Maintained
+F:	drivers/staging/fsl-mc/
 
 QT1010 MEDIA DRIVER
 M:	Antti Palosaari <crope@iki.fi>
@@ -10428,7 +10557,7 @@ F:	arch/s390/pci/
 F:	drivers/pci/hotplug/s390_pci_hpc.c
 
 S390 ZCRYPT DRIVER
-M:	Ingo Tuchscherer <ingo.tuchscherer@de.ibm.com>
+M:	Harald Freudenberger <freude@de.ibm.com>
 L:	linux-s390@vger.kernel.org
 W:	http://www.ibm.com/developerworks/linux/linux390/
 S:	Supported
@@ -10595,7 +10724,7 @@ L:	netdev@vger.kernel.org
 F:	drivers/net/ethernet/samsung/sxgbe/
 
 SAMSUNG THERMAL DRIVER
-M:	Lukasz Majewski <l.majewski@samsung.com>
+M:	Bartlomiej Zolnierkiewicz <b.zolnierkie@samsung.com>
 L:	linux-pm@vger.kernel.org
 L:	linux-samsung-soc@vger.kernel.org
 S:	Supported
@@ -10720,6 +10849,11 @@ M:	Lennox Wu <lennox.wu@gmail.com>
 W:	http://www.sunplus.com
 S:	Supported
 F:	arch/score/
+
+SCR24X CHIP CARD INTERFACE DRIVER
+M:	Lubomir Rintel <lkundrak@v3.sk>
+S:	Supported
+F:	drivers/char/pcmcia/scr24x_cs.c
 
 SYSTEM CONTROL & POWER INTERFACE (SCPI) Message Protocol drivers
 M:	Sudeep Holla <sudeep.holla@arm.com>
@@ -11124,7 +11258,7 @@ F:	include/media/i2c/ov2659.h
 SILICON MOTION SM712 FRAME BUFFER DRIVER
 M:	Sudip Mukherjee <sudipm.mukherjee@gmail.com>
 M:	Teddy Wang <teddy.wang@siliconmotion.com>
-M:	Sudip Mukherjee <sudip@vectorindia.org>
+M:	Sudip Mukherjee <sudip.mukherjee@codethink.co.uk>
 L:	linux-fbdev@vger.kernel.org
 S:	Maintained
 F:	drivers/video/fbdev/sm712*
@@ -11552,16 +11686,10 @@ F:	drivers/staging/rtl8712/
 STAGING - SILICON MOTION SM750 FRAME BUFFER DRIVER
 M:	Sudip Mukherjee <sudipm.mukherjee@gmail.com>
 M:	Teddy Wang <teddy.wang@siliconmotion.com>
-M:	Sudip Mukherjee <sudip@vectorindia.org>
+M:	Sudip Mukherjee <sudip.mukherjee@codethink.co.uk>
 L:	linux-fbdev@vger.kernel.org
 S:	Maintained
 F:	drivers/staging/sm750fb/
-
-STAGING - SLICOSS
-M:	Lior Dotan <liodot@gmail.com>
-M:	Christopher Harrer <charrer@alacritech.com>
-S:	Odd Fixes
-F:	drivers/staging/slicoss/
 
 STAGING - SPEAKUP CONSOLE SPEECH DRIVER
 M:	William Hubbs <w.d.hubbs@gmail.com>
@@ -12776,6 +12904,15 @@ F:	drivers/vfio/
 F:	include/linux/vfio.h
 F:	include/uapi/linux/vfio.h
 
+VFIO MEDIATED DEVICE DRIVERS
+M:	Kirti Wankhede <kwankhede@nvidia.com>
+L:	kvm@vger.kernel.org
+S:	Maintained
+F:	Documentation/vfio-mediated-device.txt
+F:	drivers/vfio/mdev/
+F:	include/linux/mdev.h
+F:	samples/vfio-mdev/
+
 VFIO PLATFORM DRIVER
 M:	Baptiste Reynal <b.reynal@virtualopensystems.com>
 L:	kvm@vger.kernel.org
@@ -13217,7 +13354,6 @@ F:	drivers/media/tuners/tuner-xc2028.*
 
 XEN HYPERVISOR INTERFACE
 M:	Boris Ostrovsky <boris.ostrovsky@oracle.com>
-M:	David Vrabel <david.vrabel@citrix.com>
 M:	Juergen Gross <jgross@suse.com>
 L:	xen-devel@lists.xenproject.org (moderated for non-subscribers)
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/xen/tip.git
