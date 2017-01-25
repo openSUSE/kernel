@@ -13453,6 +13453,7 @@ F:	arch/x86/
 
 X86 PLATFORM DRIVERS
 M:	Darren Hart <dvhart@infradead.org>
+M:	Andy Shevchenko <andy@infradead.org>
 L:	platform-driver-x86@vger.kernel.org
 T:	git git://git.infradead.org/users/dvhart/linux-platform-drivers-x86.git
 S:	Maintained
@@ -13624,6 +13625,7 @@ F:	drivers/net/hamradio/z8530.h
 
 ZBUD COMPRESSED PAGE ALLOCATOR
 M:	Seth Jennings <sjenning@redhat.com>
+M:	Dan Streetman <ddstreet@ieee.org>
 L:	linux-mm@kvack.org
 S:	Maintained
 F:	mm/zbud.c
@@ -13679,6 +13681,7 @@ F:	Documentation/vm/zsmalloc.txt
 
 ZSWAP COMPRESSED SWAP CACHING
 M:	Seth Jennings <sjenning@redhat.com>
+M:	Dan Streetman <ddstreet@ieee.org>
 L:	linux-mm@kvack.org
 S:	Maintained
 F:	mm/zswap.c
