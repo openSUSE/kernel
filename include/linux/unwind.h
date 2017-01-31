@@ -14,7 +14,9 @@
 
 #include <linux/linkage.h>
 
+#ifdef CONFIG_X86
 #include <asm/unwind.h>
+#endif
 
 struct module;
 
