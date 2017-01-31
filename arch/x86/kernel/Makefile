@@ -124,7 +124,7 @@ obj-$(CONFIG_EFI)			+= sysfb_efi.o
 obj-$(CONFIG_PERF_EVENTS)		+= perf_regs.o
 obj-$(CONFIG_TRACING)			+= tracepoint.o
 
-ifdef CONFIG_STACK_UNWIND
+ifdef CONFIG_DWARF_UNWIND
 obj-y					+= unwind_dwarf.o
 KASAN_SANITIZE_unwind_dwarf.o		:= n
 else
