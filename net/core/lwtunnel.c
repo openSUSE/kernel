@@ -40,6 +40,10 @@ static const char *lwtunnel_encap_str(enum lwtunnel_encap_types encap_type)
 		return "MPLS";
 	case LWTUNNEL_ENCAP_ILA:
 		return "ILA";
+	case LWTUNNEL_ENCAP_SEG6:
+		return "SEG6";
+	case LWTUNNEL_ENCAP_BPF:
+		return "BPF";
 	case LWTUNNEL_ENCAP_IP6:
 	case LWTUNNEL_ENCAP_IP:
 	case LWTUNNEL_ENCAP_NONE:
@@ -65,15 +69,6 @@ EXPORT_SYMBOL(lwtunnel_state_alloc);
 
 static const struct lwtunnel_encap_ops __rcu *
 		lwtun_encaps[LWTUNNEL_ENCAP_MAX + 1] __read_mostly;
-
-void lwtstate_free(struct lwtunnel_state *lws)
-{
-	const struct lwtunnel_encap_ops *ops = lwtun_encaps[lws->type];
-
-	kfree(lws);
-	module_put(ops->owner);
-}
-EXPORT_SYMBOL(lwtstate_free);
 
 int lwtunnel_encap_add_ops(const struct lwtunnel_encap_ops *ops,
 			   unsigned int num)
@@ -191,6 +186,20 @@ int lwtunnel_valid_encap_type_attr(struct nlattr *attr, int remaining)
 	return 0;
 }
 EXPORT_SYMBOL(lwtunnel_valid_encap_type_attr);
+
+void lwtstate_free(struct lwtunnel_state *lws)
+{
+	const struct lwtunnel_encap_ops *ops = lwtun_encaps[lws->type];
+
+	if (ops->destroy_state) {
+		ops->destroy_state(lws);
+		kfree_rcu(lws, rcu);
+	} else {
+		kfree(lws);
+	}
+	module_put(ops->owner);
+}
+EXPORT_SYMBOL(lwtstate_free);
 
 int lwtunnel_fill_encap(struct sk_buff *skb, struct lwtunnel_state *lwtstate)
 {

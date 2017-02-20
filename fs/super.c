@@ -154,6 +154,59 @@ static void destroy_super_rcu(struct rcu_head *head)
 	schedule_work(&s->destroy_work);
 }
 
+static bool super_dev_match(struct super_block *sb, dev_t dev)
+{
+	struct super_block_dev *sbdev;
+
+	if (sb->s_dev == dev)
+		return true;
+
+	if (list_empty(&sb->s_sbdevs))
+		return false;
+
+	list_for_each_entry(sbdev, &sb->s_sbdevs, entry)
+		if (sbdev->anon_dev == dev)
+			return true;
+
+	return false;
+}
+
+/* To be used only by btrfs */
+int insert_anon_sbdev(struct super_block *sb, struct super_block_dev *sbdev)
+{
+	int ret;
+
+	ret = get_anon_bdev(&sbdev->anon_dev);
+	if (ret)
+		return ret;
+
+	sbdev->sb = sb;
+
+	spin_lock(&sb_lock);
+	list_add_tail(&sbdev->entry, &sb->s_sbdevs);
+	spin_unlock(&sb_lock);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(insert_anon_sbdev);
+
+/* To be used only by btrfs */
+void remove_anon_sbdev(struct super_block_dev *sbdev)
+{
+	bool remove = false;
+
+	spin_lock(&sb_lock);
+	if (!list_empty(&sbdev->entry)) {
+		remove = true;
+		list_del_init(&sbdev->entry);
+	}
+	spin_unlock(&sb_lock);
+
+	if (remove)
+		free_anon_bdev(sbdev->anon_dev);
+}
+EXPORT_SYMBOL_GPL(remove_anon_sbdev);
+
 /**
  *	destroy_super	-	frees a superblock
  *	@s: superblock to free
@@ -166,6 +219,7 @@ static void destroy_super(struct super_block *s)
 	list_lru_destroy(&s->s_inode_lru);
 	security_sb_free(s);
 	WARN_ON(!list_empty(&s->s_mounts));
+	WARN_ON(!list_empty(&s->s_sbdevs));
 	put_user_ns(s->s_user_ns);
 	kfree(s->s_subtype);
 	kfree(s->s_options);
@@ -215,6 +269,7 @@ static struct super_block *alloc_super(struct file_system_type *type, int flags,
 	spin_lock_init(&s->s_inode_list_lock);
 	INIT_LIST_HEAD(&s->s_inodes_wb);
 	spin_lock_init(&s->s_inode_wblist_lock);
+	INIT_LIST_HEAD(&s->s_sbdevs);
 
 	if (list_lru_init_memcg(&s->s_dentry_lru))
 		goto fail;
@@ -244,7 +299,6 @@ static struct super_block *alloc_super(struct file_system_type *type, int flags,
 	mutex_init(&s->s_vfs_rename_mutex);
 	lockdep_set_class(&s->s_vfs_rename_mutex, &type->s_vfs_rename_key);
 	mutex_init(&s->s_dquot.dqio_mutex);
-	mutex_init(&s->s_dquot.dqonoff_mutex);
 	s->s_maxbytes = MAX_NON_LFS;
 	s->s_op = &default_op;
 	s->s_time_gran = 1000000000;
@@ -558,6 +612,13 @@ void drop_super(struct super_block *sb)
 
 EXPORT_SYMBOL(drop_super);
 
+void drop_super_exclusive(struct super_block *sb)
+{
+	up_write(&sb->s_umount);
+	put_super(sb);
+}
+EXPORT_SYMBOL(drop_super_exclusive);
+
 /**
  *	iterate_supers - call function for all active superblocks
  *	@f: function to call
@@ -628,15 +689,7 @@ void iterate_supers_type(struct file_system_type *type,
 
 EXPORT_SYMBOL(iterate_supers_type);
 
-/**
- *	get_super - get the superblock of a device
- *	@bdev: device to get the superblock for
- *	
- *	Scans the superblock list and finds the superblock of the file system
- *	mounted on the device given. %NULL is returned if no match is found.
- */
-
-struct super_block *get_super(struct block_device *bdev)
+static struct super_block *__get_super(struct block_device *bdev, bool excl)
 {
 	struct super_block *sb;
 
@@ -651,11 +704,17 @@ rescan:
 		if (sb->s_bdev == bdev) {
 			sb->s_count++;
 			spin_unlock(&sb_lock);
-			down_read(&sb->s_umount);
+			if (!excl)
+				down_read(&sb->s_umount);
+			else
+				down_write(&sb->s_umount);
 			/* still alive? */
 			if (sb->s_root && (sb->s_flags & MS_BORN))
 				return sb;
-			up_read(&sb->s_umount);
+			if (!excl)
+				up_read(&sb->s_umount);
+			else
+				up_write(&sb->s_umount);
 			/* nope, got unmounted */
 			spin_lock(&sb_lock);
 			__put_super(sb);
@@ -666,7 +725,35 @@ rescan:
 	return NULL;
 }
 
+/**
+ *	get_super - get the superblock of a device
+ *	@bdev: device to get the superblock for
+ *
+ *	Scans the superblock list and finds the superblock of the file system
+ *	mounted on the device given. %NULL is returned if no match is found.
+ */
+struct super_block *get_super(struct block_device *bdev)
+{
+	return __get_super(bdev, false);
+}
 EXPORT_SYMBOL(get_super);
+
+static struct super_block *__get_super_thawed(struct block_device *bdev,
+					      bool excl)
+{
+	while (1) {
+		struct super_block *s = __get_super(bdev, excl);
+		if (!s || s->s_writers.frozen == SB_UNFROZEN)
+			return s;
+		if (!excl)
+			up_read(&s->s_umount);
+		else
+			up_write(&s->s_umount);
+		wait_event(s->s_writers.wait_unfrozen,
+			   s->s_writers.frozen == SB_UNFROZEN);
+		put_super(s);
+	}
+}
 
 /**
  *	get_super_thawed - get thawed superblock of a device
@@ -679,17 +766,24 @@ EXPORT_SYMBOL(get_super);
  */
 struct super_block *get_super_thawed(struct block_device *bdev)
 {
-	while (1) {
-		struct super_block *s = get_super(bdev);
-		if (!s || s->s_writers.frozen == SB_UNFROZEN)
-			return s;
-		up_read(&s->s_umount);
-		wait_event(s->s_writers.wait_unfrozen,
-			   s->s_writers.frozen == SB_UNFROZEN);
-		put_super(s);
-	}
+	return __get_super_thawed(bdev, false);
 }
 EXPORT_SYMBOL(get_super_thawed);
+
+/**
+ *	get_super_exclusive_thawed - get thawed superblock of a device
+ *	@bdev: device to get the superblock for
+ *
+ *	Scans the superblock list and finds the superblock of the file system
+ *	mounted on the device. The superblock is returned once it is thawed
+ *	(or immediately if it was not frozen) and s_umount semaphore is held
+ *	in exclusive mode. %NULL is returned if no match is found.
+ */
+struct super_block *get_super_exclusive_thawed(struct block_device *bdev)
+{
+	return __get_super_thawed(bdev, true);
+}
+EXPORT_SYMBOL(get_super_exclusive_thawed);
 
 /**
  * get_active_super - get an active reference to the superblock of a device
@@ -731,7 +825,7 @@ rescan:
 	list_for_each_entry(sb, &super_blocks, s_list) {
 		if (hlist_unhashed(&sb->s_instances))
 			continue;
-		if (sb->s_dev ==  dev) {
+		if (super_dev_match(sb, dev)) {
 			sb->s_count++;
 			spin_unlock(&sb_lock);
 			down_read(&sb->s_umount);

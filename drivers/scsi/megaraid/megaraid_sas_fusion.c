@@ -748,6 +748,11 @@ megasas_ioc_init_fusion(struct megasas_instance *instance)
 		goto fail_fw_init;
 	}
 
+	instance->fw_sync_cache_support = (scratch_pad_2 &
+		MR_CAN_HANDLE_SYNC_CACHE_OFFSET) ? 1 : 0;
+	dev_info(&instance->pdev->dev, "FW supports sync cache\t: %s\n",
+		 instance->fw_sync_cache_support ? "Yes" : "No");
+
 	IOCInitMessage =
 	  dma_alloc_coherent(&instance->pdev->dev,
 			     sizeof(struct MPI2_IOC_INIT_REQUEST),
@@ -2463,12 +2468,15 @@ irqreturn_t megasas_isr_fusion(int irq, void *devp)
 			/* Start collecting crash, if DMA bit is done */
 			if ((fw_state == MFI_STATE_FAULT) && dma_state)
 				schedule_work(&instance->crash_init);
-			else if (fw_state == MFI_STATE_FAULT)
-				schedule_work(&instance->work_init);
+			else if (fw_state == MFI_STATE_FAULT) {
+				if (instance->unload == 0)
+					schedule_work(&instance->work_init);
+			}
 		} else if (fw_state == MFI_STATE_FAULT) {
 			dev_warn(&instance->pdev->dev, "Iop2SysDoorbellInt"
 			       "for scsi%d\n", instance->host->host_no);
-			schedule_work(&instance->work_init);
+			if (instance->unload == 0)
+				schedule_work(&instance->work_init);
 		}
 	}
 

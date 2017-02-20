@@ -5,6 +5,7 @@
 #include <linux/list.h>
 #include <linux/rbtree.h>
 #include "event.h"
+#include "map.h"
 #include "symbol.h"
 
 #define HELP_PAD "\t\t\t\t"
@@ -111,6 +112,12 @@ struct callchain_list {
 		bool		unfolded;
 		bool		has_children;
 	};
+	u64			branch_count;
+	u64			predicted_count;
+	u64			abort_count;
+	u64			cycles_count;
+	u64			iter_count;
+	u64			samples_count;
 	char		       *srcline;
 	struct list_head	list;
 };
@@ -125,6 +132,10 @@ struct callchain_cursor_node {
 	u64				ip;
 	struct map			*map;
 	struct symbol			*sym;
+	bool				branch;
+	struct branch_flags		branch_flags;
+	int				nr_loop_iter;
+	int				samples;
 	struct callchain_cursor_node	*next;
 };
 
@@ -174,12 +185,19 @@ int callchain_merge(struct callchain_cursor *cursor,
  */
 static inline void callchain_cursor_reset(struct callchain_cursor *cursor)
 {
+	struct callchain_cursor_node *node;
+
 	cursor->nr = 0;
 	cursor->last = &cursor->first;
+
+	for (node = cursor->first; node != NULL; node = node->next)
+		map__zput(node->map);
 }
 
 int callchain_cursor_append(struct callchain_cursor *cursor, u64 ip,
-			    struct map *map, struct symbol *sym);
+			    struct map *map, struct symbol *sym,
+			    bool branch, struct branch_flags *flags,
+			    int nr_loop_iter, int samples);
 
 /* Close a cursor writing session. Initialize for the reader */
 static inline void callchain_cursor_commit(struct callchain_cursor *cursor)
@@ -203,6 +221,9 @@ static inline void callchain_cursor_advance(struct callchain_cursor *cursor)
 	cursor->curr = cursor->curr->next;
 	cursor->pos++;
 }
+
+int callchain_cursor__copy(struct callchain_cursor *dst,
+			   struct callchain_cursor *src);
 
 struct option;
 struct hist_entry;
@@ -257,8 +278,16 @@ char *callchain_node__scnprintf_value(struct callchain_node *node,
 int callchain_node__fprintf_value(struct callchain_node *node,
 				  FILE *fp, u64 total);
 
+int callchain_list_counts__printf_value(struct callchain_node *node,
+					struct callchain_list *clist,
+					FILE *fp, char *bf, int bfsize);
+
 void free_callchain(struct callchain_root *root);
 void decay_callchain(struct callchain_root *root);
 int callchain_node__make_parent_list(struct callchain_node *node);
+
+int callchain_branch_counts(struct callchain_root *root,
+			    u64 *branch_count, u64 *predicted_count,
+			    u64 *abort_count, u64 *cycles_count);
 
 #endif	/* __PERF_CALLCHAIN_H */

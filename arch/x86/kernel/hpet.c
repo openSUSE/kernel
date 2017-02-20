@@ -792,7 +792,7 @@ static union hpet_lock hpet __cacheline_aligned = {
 	{ .lock = __ARCH_SPIN_LOCK_UNLOCKED, },
 };
 
-static cycle_t read_hpet(struct clocksource *cs)
+static u64 read_hpet(struct clocksource *cs)
 {
 	unsigned long flags;
 	union hpet_lock old, new;
@@ -803,7 +803,7 @@ static cycle_t read_hpet(struct clocksource *cs)
 	 * Read HPET directly if in NMI.
 	 */
 	if (in_nmi())
-		return (cycle_t)hpet_readl(HPET_COUNTER);
+		return (u64)hpet_readl(HPET_COUNTER);
 
 	/*
 	 * Read the current state of the lock and HPET value atomically.
@@ -822,7 +822,7 @@ static cycle_t read_hpet(struct clocksource *cs)
 		WRITE_ONCE(hpet.value, new.value);
 		arch_spin_unlock(&hpet.lock);
 		local_irq_restore(flags);
-		return (cycle_t)new.value;
+		return (u64)new.value;
 	}
 	local_irq_restore(flags);
 
@@ -844,15 +844,15 @@ contended:
 		new.lockval = READ_ONCE(hpet.lockval);
 	} while ((new.value == old.value) && arch_spin_is_locked(&new.lock));
 
-	return (cycle_t)new.value;
+	return (u64)new.value;
 }
 #else
 /*
  * For UP or 32-bit.
  */
-static cycle_t read_hpet(struct clocksource *cs)
+static u64 read_hpet(struct clocksource *cs)
 {
-	return (cycle_t)hpet_readl(HPET_COUNTER);
+	return (u64)hpet_readl(HPET_COUNTER);
 }
 #endif
 
@@ -868,7 +868,7 @@ static struct clocksource clocksource_hpet = {
 static int hpet_clocksource_register(void)
 {
 	u64 start, now;
-	cycle_t t1;
+	u64 t1;
 
 	/* Start the counter */
 	hpet_restart_counter();
@@ -1052,11 +1052,11 @@ static __init int hpet_late_init(void)
 		return 0;
 
 	/* This notifier should be called after workqueue is ready */
-	ret = cpuhp_setup_state(CPUHP_AP_X86_HPET_ONLINE, "AP_X86_HPET_ONLINE",
+	ret = cpuhp_setup_state(CPUHP_AP_X86_HPET_ONLINE, "x86/hpet:online",
 				hpet_cpuhp_online, NULL);
 	if (ret)
 		return ret;
-	ret = cpuhp_setup_state(CPUHP_X86_HPET_DEAD, "X86_HPET_DEAD", NULL,
+	ret = cpuhp_setup_state(CPUHP_X86_HPET_DEAD, "x86/hpet:dead", NULL,
 				hpet_cpuhp_dead);
 	if (ret)
 		goto err_cpuhp;

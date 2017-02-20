@@ -197,7 +197,7 @@ int config_ep_by_speed(struct usb_gadget *g,
 
 ep_found:
 	/* commit results */
-	_ep->maxpacket = usb_endpoint_maxp(chosen_desc) & 0x7ff;
+	_ep->maxpacket = usb_endpoint_maxp(chosen_desc);
 	_ep->desc = chosen_desc;
 	_ep->comp_desc = NULL;
 	_ep->maxburst = 0;
@@ -205,7 +205,7 @@ ep_found:
 
 	if (g->speed == USB_SPEED_HIGH && (usb_endpoint_xfer_isoc(_ep->desc) ||
 				usb_endpoint_xfer_int(_ep->desc)))
-		_ep->mult = ((usb_endpoint_maxp(_ep->desc) & 0x1800) >> 11) + 1;
+		_ep->mult = usb_endpoint_maxp_mult(_ep->desc);
 
 	if (!want_comp_desc)
 		return 0;
@@ -2147,7 +2147,7 @@ int composite_os_desc_req_prepare(struct usb_composite_dev *cdev,
 	cdev->os_desc_req->buf = kmalloc(4096, GFP_KERNEL);
 	if (!cdev->os_desc_req->buf) {
 		ret = -ENOMEM;
-		kfree(cdev->os_desc_req);
+		usb_ep_free_request(ep0, cdev->os_desc_req);
 		goto end;
 	}
 	cdev->os_desc_req->context = cdev;
@@ -2391,18 +2391,8 @@ EXPORT_SYMBOL_GPL(usb_composite_setup_continue);
 
 static char *composite_default_mfr(struct usb_gadget *gadget)
 {
-	char *mfr;
-	int len;
-
-	len = snprintf(NULL, 0, "%s %s with %s", init_utsname()->sysname,
-			init_utsname()->release, gadget->name);
-	len++;
-	mfr = kmalloc(len, GFP_KERNEL);
-	if (!mfr)
-		return NULL;
-	snprintf(mfr, len, "%s %s with %s", init_utsname()->sysname,
-			init_utsname()->release, gadget->name);
-	return mfr;
+	return kasprintf(GFP_KERNEL, "%s %s with %s", init_utsname()->sysname,
+			 init_utsname()->release, gadget->name);
 }
 
 void usb_composite_overwrite_options(struct usb_composite_dev *cdev,

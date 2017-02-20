@@ -200,7 +200,7 @@ static void nvmet_keep_alive_timer(struct work_struct *work)
 	pr_err("ctrl %d keep-alive timer (%d seconds) expired!\n",
 		ctrl->cntlid, ctrl->kato);
 
-	ctrl->ops->delete_ctrl(ctrl);
+	nvmet_ctrl_fatal_error(ctrl);
 }
 
 static void nvmet_start_keep_alive_timer(struct nvmet_ctrl *ctrl)
@@ -619,7 +619,7 @@ u16 nvmet_ctrl_find_get(const char *subsysnqn, const char *hostnqn, u16 cntlid,
 	if (!subsys) {
 		pr_warn("connect request for invalid subsystem %s!\n",
 			subsysnqn);
-		req->rsp->result = IPO_IATTR_CONNECT_DATA(subsysnqn);
+		req->rsp->result.u32 = IPO_IATTR_CONNECT_DATA(subsysnqn);
 		return NVME_SC_CONNECT_INVALID_PARAM | NVME_SC_DNR;
 	}
 
@@ -640,7 +640,7 @@ u16 nvmet_ctrl_find_get(const char *subsysnqn, const char *hostnqn, u16 cntlid,
 
 	pr_warn("could not find controller %d for subsys %s / host %s\n",
 		cntlid, subsysnqn, hostnqn);
-	req->rsp->result = IPO_IATTR_CONNECT_DATA(cntlid);
+	req->rsp->result.u32 = IPO_IATTR_CONNECT_DATA(cntlid);
 	status = NVME_SC_CONNECT_INVALID_PARAM | NVME_SC_DNR;
 
 out:
@@ -702,7 +702,7 @@ u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
 	if (!subsys) {
 		pr_warn("connect request for invalid subsystem %s!\n",
 			subsysnqn);
-		req->rsp->result = IPO_IATTR_CONNECT_DATA(subsysnqn);
+		req->rsp->result.u32 = IPO_IATTR_CONNECT_DATA(subsysnqn);
 		goto out;
 	}
 
@@ -711,7 +711,7 @@ u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
 	if (!nvmet_host_allowed(req, subsys, hostnqn)) {
 		pr_info("connect by host %s for subsystem %s not allowed\n",
 			hostnqn, subsysnqn);
-		req->rsp->result = IPO_IATTR_CONNECT_DATA(hostnqn);
+		req->rsp->result.u32 = IPO_IATTR_CONNECT_DATA(hostnqn);
 		up_read(&nvmet_config_sem);
 		goto out_put_subsystem;
 	}
@@ -815,6 +815,9 @@ static void nvmet_ctrl_free(struct kref *ref)
 	mutex_lock(&subsys->lock);
 	list_del(&ctrl->subsys_entry);
 	mutex_unlock(&subsys->lock);
+
+	flush_work(&ctrl->async_event_work);
+	cancel_work_sync(&ctrl->fatal_err_work);
 
 	ida_simple_remove(&subsys->cntlid_ida, ctrl->cntlid);
 	nvmet_subsys_put(subsys);
@@ -933,6 +936,16 @@ static void nvmet_subsys_free(struct kref *ref)
 	ida_destroy(&subsys->cntlid_ida);
 	kfree(subsys->subsysnqn);
 	kfree(subsys);
+}
+
+void nvmet_subsys_del_ctrls(struct nvmet_subsys *subsys)
+{
+	struct nvmet_ctrl *ctrl;
+
+	mutex_lock(&subsys->lock);
+	list_for_each_entry(ctrl, &subsys->ctrls, subsys_entry)
+		ctrl->ops->delete_ctrl(ctrl);
+	mutex_unlock(&subsys->lock);
 }
 
 void nvmet_subsys_put(struct nvmet_subsys *subsys)

@@ -59,7 +59,9 @@ module_param(fastreg_support, int, 0644);
 MODULE_PARM_DESC(fastreg_support, "Advertise fastreg support (default=1)");
 
 static struct ib_ah *c4iw_ah_create(struct ib_pd *pd,
-				    struct ib_ah_attr *ah_attr)
+				    struct ib_ah_attr *ah_attr,
+				    struct ib_udata *udata)
+
 {
 	return ERR_PTR(-ENOSYS);
 }
@@ -371,16 +373,7 @@ static int c4iw_query_port(struct ib_device *ibdev, u8 port,
 
 	memset(props, 0, sizeof(struct ib_port_attr));
 	props->max_mtu = IB_MTU_4096;
-	if (netdev->mtu >= 4096)
-		props->active_mtu = IB_MTU_4096;
-	else if (netdev->mtu >= 2048)
-		props->active_mtu = IB_MTU_2048;
-	else if (netdev->mtu >= 1024)
-		props->active_mtu = IB_MTU_1024;
-	else if (netdev->mtu >= 512)
-		props->active_mtu = IB_MTU_512;
-	else
-		props->active_mtu = IB_MTU_256;
+	props->active_mtu = ib_mtu_int_to_enum(netdev->mtu);
 
 	if (!netif_carrier_ok(netdev))
 		props->state = IB_PORT_DOWN;
@@ -617,8 +610,6 @@ int c4iw_register_device(struct c4iw_dev *dev)
 	dev->ibdev.uverbs_abi_ver = C4IW_UVERBS_ABI_VERSION;
 	dev->ibdev.get_port_immutable = c4iw_port_immutable;
 	dev->ibdev.get_dev_fw_str = get_dev_fw_str;
-	dev->ibdev.drain_sq = c4iw_drain_sq;
-	dev->ibdev.drain_rq = c4iw_drain_rq;
 
 	dev->ibdev.iwcm = kmalloc(sizeof(struct iw_cm_verbs), GFP_KERNEL);
 	if (!dev->ibdev.iwcm)

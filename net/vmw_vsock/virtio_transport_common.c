@@ -32,7 +32,7 @@ static const struct virtio_transport *virtio_transport_get_ops(void)
 	return container_of(t, struct virtio_transport, transport);
 }
 
-struct virtio_vsock_pkt *
+static struct virtio_vsock_pkt *
 virtio_transport_alloc_pkt(struct virtio_vsock_pkt_info *info,
 			   size_t len,
 			   u32 src_cid,
@@ -82,7 +82,6 @@ out_pkt:
 	kfree(pkt);
 	return NULL;
 }
-EXPORT_SYMBOL_GPL(virtio_transport_alloc_pkt);
 
 static int virtio_transport_send_pkt_info(struct vsock_sock *vsk,
 					  struct virtio_vsock_pkt_info *info)
@@ -619,17 +618,17 @@ static int virtio_transport_reset_no_sock(struct virtio_vsock_pkt *pkt)
 static void virtio_transport_wait_close(struct sock *sk, long timeout)
 {
 	if (timeout) {
-		DEFINE_WAIT(wait);
+		DEFINE_WAIT_FUNC(wait, woken_wake_function);
+
+		add_wait_queue(sk_sleep(sk), &wait);
 
 		do {
-			prepare_to_wait(sk_sleep(sk), &wait,
-					TASK_INTERRUPTIBLE);
 			if (sk_wait_event(sk, &timeout,
-					  sock_flag(sk, SOCK_DONE)))
+					  sock_flag(sk, SOCK_DONE), &wait))
 				break;
 		} while (!signal_pending(current) && timeout);
 
-		finish_wait(sk_sleep(sk), &wait);
+		remove_wait_queue(sk_sleep(sk), &wait);
 	}
 }
 

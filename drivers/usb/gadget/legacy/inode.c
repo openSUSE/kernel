@@ -20,7 +20,7 @@
 #include <linux/uts.h>
 #include <linux/wait.h>
 #include <linux/compiler.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/poll.h>
@@ -667,7 +667,7 @@ ep_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		return -ENOMEM;
 	}
 
-	if (unlikely(copy_from_iter(buf, len, from) != len)) {
+	if (unlikely(!copy_from_iter_full(buf, len, from))) {
 		value = -EFAULT;
 		goto out;
 	}
@@ -1818,7 +1818,6 @@ dev_config (struct file *fd, const char __user *buf, size_t len, loff_t *ptr)
 			|| dev->dev->bDescriptorType != USB_DT_DEVICE
 			|| dev->dev->bNumConfigurations != 1)
 		goto fail;
-	dev->dev->bNumConfigurations = 1;
 	dev->dev->bcdUSB = cpu_to_le16 (0x0200);
 
 	/* triggers gadgetfs_bind(); then we can enumerate. */
