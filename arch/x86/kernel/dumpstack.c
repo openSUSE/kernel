@@ -10,6 +10,8 @@
 #include <linux/kdebug.h>
 #include <linux/module.h>
 #include <linux/ptrace.h>
+#include <linux/sched/debug.h>
+#include <linux/sched/task_stack.h>
 #include <linux/ftrace.h>
 #include <linux/kexec.h>
 #include <linux/bug.h>
@@ -17,7 +19,7 @@
 #include <linux/sysfs.h>
 
 #include <asm/stacktrace.h>
-#include <linux/unwind.h>
+#include <asm/unwind.h>
 
 int panic_on_unrecovered_nmi;
 int panic_on_io_nmi;
@@ -121,13 +123,6 @@ void show_trace_log_lvl(struct task_struct *task, struct pt_regs *regs,
 				continue;
 			}
 
-#if 0
-			pr_info("%s: done=%d\n", __func__, unwind_done(&state));
-			pr_info("%s: st=%p ret=%p\n", __func__, stack,
-					ret_addr_p);
-			pr_info("%s: %pS %pS\n", __func__, (void *)addr,
-				ret_addr_p ? (void *)*ret_addr_p : NULL);
-#endif
 			if (stack == ret_addr_p ||
 					(ret_addr_p && addr == *ret_addr_p))
 				reliable = 1;

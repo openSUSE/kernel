@@ -11,6 +11,9 @@
  */
 #include <linux/errno.h>
 #include <linux/sched.h>
+#include <linux/sched/debug.h>
+#include <linux/sched/task.h>
+#include <linux/sched/task_stack.h>
 #include <linux/tick.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
@@ -50,9 +53,7 @@
 #ifdef CONFIG_HOTPLUG_CPU
 void arch_cpu_idle_dead(void)
 {
-	/* What the heck is this check doing ? */
-	if (!cpumask_test_cpu(smp_processor_id(), &cpu_callin_map))
-		play_dead();
+	play_dead();
 }
 #endif
 
@@ -487,31 +488,52 @@ unsigned long notrace unwind_stack_by_address(unsigned long stack_page,
 					      unsigned long pc,
 					      unsigned long *ra)
 {
+	unsigned long low, high, irq_stack_high;
 	struct mips_frame_info info;
 	unsigned long size, ofs;
+	struct pt_regs *regs;
 	int leaf;
-	extern void ret_from_irq(void);
-	extern void ret_from_exception(void);
 
 	if (!stack_page)
 		return 0;
 
 	/*
-	 * If we reached the bottom of interrupt context,
-	 * return saved pc in pt_regs.
+	 * IRQ stacks start at IRQ_STACK_START
+	 * task stacks at THREAD_SIZE - 32
 	 */
-	if (pc == (unsigned long)ret_from_irq ||
-	    pc == (unsigned long)ret_from_exception) {
-		struct pt_regs *regs;
-		if (*sp >= stack_page &&
-		    *sp + sizeof(*regs) <= stack_page + THREAD_SIZE - 32) {
-			regs = (struct pt_regs *)*sp;
-			pc = regs->cp0_epc;
-			if (!user_mode(regs) && __kernel_text_address(pc)) {
-				*sp = regs->regs[29];
-				*ra = regs->regs[31];
-				return pc;
-			}
+	low = stack_page;
+	if (!preemptible() && on_irq_stack(raw_smp_processor_id(), *sp)) {
+		high = stack_page + IRQ_STACK_START;
+		irq_stack_high = high;
+	} else {
+		high = stack_page + THREAD_SIZE - 32;
+		irq_stack_high = 0;
+	}
+
+	/*
+	 * If we reached the top of the interrupt stack, start unwinding
+	 * the interrupted task stack.
+	 */
+	if (unlikely(*sp == irq_stack_high)) {
+		unsigned long task_sp = *(unsigned long *)*sp;
+
+		/*
+		 * Check that the pointer saved in the IRQ stack head points to
+		 * something within the stack of the current task
+		 */
+		if (!object_is_on_stack((void *)task_sp))
+			return 0;
+
+		/*
+		 * Follow pointer to tasks kernel stack frame where interrupted
+		 * state was saved.
+		 */
+		regs = (struct pt_regs *)task_sp;
+		pc = regs->cp0_epc;
+		if (!user_mode(regs) && __kernel_text_address(pc)) {
+			*sp = regs->regs[29];
+			*ra = regs->regs[31];
+			return pc;
 		}
 		return 0;
 	}
@@ -532,8 +554,7 @@ unsigned long notrace unwind_stack_by_address(unsigned long stack_page,
 	if (leaf < 0)
 		return 0;
 
-	if (*sp < stack_page ||
-	    *sp + info.frame_size > stack_page + THREAD_SIZE - 32)
+	if (*sp < low || *sp + info.frame_size > high)
 		return 0;
 
 	if (leaf)
@@ -731,3 +752,47 @@ int mips_set_process_fp_mode(struct task_struct *task, unsigned int value)
 
 	return 0;
 }
+
+#if defined(CONFIG_32BIT) || defined(CONFIG_MIPS32_O32)
+void mips_dump_regs32(u32 *uregs, const struct pt_regs *regs)
+{
+	unsigned int i;
+
+	for (i = MIPS32_EF_R1; i <= MIPS32_EF_R31; i++) {
+		/* k0/k1 are copied as zero. */
+		if (i == MIPS32_EF_R26 || i == MIPS32_EF_R27)
+			uregs[i] = 0;
+		else
+			uregs[i] = regs->regs[i - MIPS32_EF_R0];
+	}
+
+	uregs[MIPS32_EF_LO] = regs->lo;
+	uregs[MIPS32_EF_HI] = regs->hi;
+	uregs[MIPS32_EF_CP0_EPC] = regs->cp0_epc;
+	uregs[MIPS32_EF_CP0_BADVADDR] = regs->cp0_badvaddr;
+	uregs[MIPS32_EF_CP0_STATUS] = regs->cp0_status;
+	uregs[MIPS32_EF_CP0_CAUSE] = regs->cp0_cause;
+}
+#endif /* CONFIG_32BIT || CONFIG_MIPS32_O32 */
+
+#ifdef CONFIG_64BIT
+void mips_dump_regs64(u64 *uregs, const struct pt_regs *regs)
+{
+	unsigned int i;
+
+	for (i = MIPS64_EF_R1; i <= MIPS64_EF_R31; i++) {
+		/* k0/k1 are copied as zero. */
+		if (i == MIPS64_EF_R26 || i == MIPS64_EF_R27)
+			uregs[i] = 0;
+		else
+			uregs[i] = regs->regs[i - MIPS64_EF_R0];
+	}
+
+	uregs[MIPS64_EF_LO] = regs->lo;
+	uregs[MIPS64_EF_HI] = regs->hi;
+	uregs[MIPS64_EF_CP0_EPC] = regs->cp0_epc;
+	uregs[MIPS64_EF_CP0_BADVADDR] = regs->cp0_badvaddr;
+	uregs[MIPS64_EF_CP0_STATUS] = regs->cp0_status;
+	uregs[MIPS64_EF_CP0_CAUSE] = regs->cp0_cause;
+}
+#endif /* CONFIG_64BIT */

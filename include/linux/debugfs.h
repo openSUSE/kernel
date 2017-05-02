@@ -52,8 +52,7 @@ extern struct srcu_struct debugfs_srcu;
  * Must only be called under the protection established by
  * debugfs_use_file_start().
  */
-static inline const struct file_operations *
-debugfs_real_fops(const struct file *filp)
+static inline const struct file_operations *debugfs_real_fops(const struct file *filp)
 	__must_hold(&debugfs_srcu)
 {
 	/*
@@ -79,6 +78,8 @@ static const struct file_operations __fops = {				\
 }
 
 #if defined(CONFIG_DEBUG_FS)
+
+struct dentry *debugfs_lookup(const char *name, struct dentry *parent);
 
 struct dentry *debugfs_create_file(const char *name, umode_t mode,
 				   struct dentry *parent, void *data,
@@ -181,6 +182,12 @@ ssize_t debugfs_write_file_bool(struct file *file, const char __user *user_buf,
  * so users have a chance to detect if there was a real error or not.  We don't
  * want to duplicate the design decision mistakes of procfs and devfs again.
  */
+
+static inline struct dentry *debugfs_lookup(const char *name,
+					    struct dentry *parent)
+{
+	return ERR_PTR(-ENODEV);
+}
 
 static inline struct dentry *debugfs_create_file(const char *name, umode_t mode,
 					struct dentry *parent, void *data,

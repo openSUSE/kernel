@@ -606,8 +606,8 @@ static int ubifs_readdir(struct file *file, struct dir_context *ctx)
 	}
 
 	while (1) {
-		dbg_gen("feed '%s', ino %llu, new f_pos %#x",
-			dent->name, (unsigned long long)le64_to_cpu(dent->inum),
+		dbg_gen("ino %llu, new f_pos %#x",
+			(unsigned long long)le64_to_cpu(dent->inum),
 			key_hash_flash(c, &dent->key));
 		ubifs_assert(le64_to_cpu(dent->ch.sqnum) >
 			     ubifs_inode(dir)->creat_sqnum);
@@ -1075,8 +1075,10 @@ static int ubifs_mknod(struct inode *dir, struct dentry *dentry,
 	}
 
 	err = fscrypt_setup_filename(dir, &dentry->d_name, 0, &nm);
-	if (err)
+	if (err) {
+		kfree(dev);
 		goto out_budg;
+	}
 
 	sz_change = CALC_DENT_SIZE(fname_len(&nm));
 
@@ -1626,11 +1628,11 @@ static int ubifs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	return do_rename(old_dir, old_dentry, new_dir, new_dentry, flags);
 }
 
-int ubifs_getattr(struct vfsmount *mnt, struct dentry *dentry,
-		  struct kstat *stat)
+int ubifs_getattr(const struct path *path, struct kstat *stat,
+		  u32 request_mask, unsigned int flags)
 {
 	loff_t size;
-	struct inode *inode = d_inode(dentry);
+	struct inode *inode = d_inode(path->dentry);
 	struct ubifs_inode *ui = ubifs_inode(inode);
 
 	mutex_lock(&ui->ui_mutex);

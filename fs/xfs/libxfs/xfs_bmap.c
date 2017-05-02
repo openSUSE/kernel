@@ -740,15 +740,9 @@ xfs_bmap_extents_to_btree(
 	 * Fill in the root.
 	 */
 	block = ifp->if_broot;
-	if (xfs_sb_version_hascrc(&mp->m_sb))
-		xfs_btree_init_block_int(mp, block, XFS_BUF_DADDR_NULL,
-				 XFS_BMAP_CRC_MAGIC, 1, 1, ip->i_ino,
-				 XFS_BTREE_LONG_PTRS | XFS_BTREE_CRC_BLOCKS);
-	else
-		xfs_btree_init_block_int(mp, block, XFS_BUF_DADDR_NULL,
-				 XFS_BMAP_MAGIC, 1, 1, ip->i_ino,
+	xfs_btree_init_block_int(mp, block, XFS_BUF_DADDR_NULL,
+				 XFS_BTNUM_BMAP, 1, 1, ip->i_ino,
 				 XFS_BTREE_LONG_PTRS);
-
 	/*
 	 * Need a cursor.  Can't allocate until bb_level is filled in.
 	 */
@@ -819,13 +813,8 @@ try_another_ag:
 	 */
 	abp->b_ops = &xfs_bmbt_buf_ops;
 	ablock = XFS_BUF_TO_BLOCK(abp);
-	if (xfs_sb_version_hascrc(&mp->m_sb))
-		xfs_btree_init_block_int(mp, ablock, abp->b_bn,
-				XFS_BMAP_CRC_MAGIC, 0, 0, ip->i_ino,
-				XFS_BTREE_LONG_PTRS | XFS_BTREE_CRC_BLOCKS);
-	else
-		xfs_btree_init_block_int(mp, ablock, abp->b_bn,
-				XFS_BMAP_MAGIC, 0, 0, ip->i_ino,
+	xfs_btree_init_block_int(mp, ablock, abp->b_bn,
+				XFS_BTNUM_BMAP, 0, 0, ip->i_ino,
 				XFS_BTREE_LONG_PTRS);
 
 	arp = XFS_BMBT_REC_ADDR(mp, ablock, 1);
@@ -2911,13 +2900,14 @@ xfs_bmap_add_extent_hole_real(
 	ASSERT(!isnullstartblock(new->br_startblock));
 	ASSERT(!bma->cur ||
 	       !(bma->cur->bc_private.b.flags & XFS_BTCUR_BPRV_WASDEL));
-	ASSERT(whichfork != XFS_COW_FORK);
 
 	XFS_STATS_INC(mp, xs_add_exlist);
 
 	state = 0;
 	if (whichfork == XFS_ATTR_FORK)
 		state |= BMAP_ATTRFORK;
+	if (whichfork == XFS_COW_FORK)
+		state |= BMAP_COWFORK;
 
 	/*
 	 * Check and set flags if this segment has a left neighbor.

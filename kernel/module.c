@@ -17,6 +17,7 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 */
 #include <linux/export.h>
+#include <linux/extable.h>
 #include <linux/moduleloader.h>
 #include <linux/trace_events.h>
 #include <linux/init.h>
@@ -37,6 +38,7 @@
 #include <linux/capability.h>
 #include <linux/cpu.h>
 #include <linux/moduleparam.h>
+#include <linux/dwarf.h>
 #include <linux/errno.h>
 #include <linux/err.h>
 #include <linux/vermagic.h>
@@ -45,7 +47,6 @@
 #include <linux/device.h>
 #include <linux/string.h>
 #include <linux/mutex.h>
-#include <linux/unwind.h>
 #include <linux/rculist.h>
 #include <linux/uaccess.h>
 #include <asm/cacheflush.h>
@@ -62,6 +63,7 @@
 #include <linux/pfn.h>
 #include <linux/bsearch.h>
 #include <linux/dynamic_debug.h>
+#include <linux/audit.h>
 #include <uapi/linux/module.h>
 #include "module-internal.h"
 
@@ -75,9 +77,9 @@
 /*
  * Modules' sections will be aligned on page boundaries
  * to ensure complete separation of code and data, but
- * only when CONFIG_DEBUG_SET_MODULE_RONX=y
+ * only when CONFIG_STRICT_MODULE_RWX=y
  */
-#ifdef CONFIG_DEBUG_SET_MODULE_RONX
+#ifdef CONFIG_STRICT_MODULE_RWX
 # define debug_align(X) ALIGN(X, PAGE_SIZE)
 #else
 # define debug_align(X) (X)
@@ -89,14 +91,14 @@
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
 /* Allow unsupported modules switch. */
 #ifdef UNSUPPORTED_MODULES
-int unsupported = UNSUPPORTED_MODULES;
+int suse_unsupported = UNSUPPORTED_MODULES;
 #else
-int unsupported = 2;  /* don't warn when loading unsupported modules. */
+int suse_unsupported = 2;  /* don't warn when loading unsupported modules. */
 #endif
 
 static int __init unsupported_setup(char *str)
 {
-	get_option(&str, &unsupported);
+	get_option(&str, &suse_unsupported);
 	return 1;
 }
 __setup("unsupported=", unsupported_setup);
@@ -1861,7 +1863,7 @@ static int mod_sysfs_setup(struct module *mod,
 	if (mod->taints & (1 << TAINT_EXTERNAL_SUPPORT))
 		add_taint(TAINT_EXTERNAL_SUPPORT, LOCKDEP_STILL_OK);
 	else if (mod->taints & (1 << TAINT_NO_SUPPORT)) {
-		if (unsupported == 0) {
+		if (suse_unsupported == 0) {
 			printk(KERN_WARNING "%s: module not supported by "
 			       "SUSE, refusing to load. To override, echo "
 			       "1 > /proc/sys/kernel/unsupported\n", mod->name);
@@ -1869,7 +1871,7 @@ static int mod_sysfs_setup(struct module *mod,
 			goto out_remove_attrs;
 		}
 		add_taint(TAINT_NO_SUPPORT, LOCKDEP_STILL_OK);
-		if (unsupported == 1) {
+		if (suse_unsupported == 1) {
 			printk(KERN_WARNING "%s: module is not supported by "
 			       "SUSE. Our support organization may not be "
 			       "able to address your support request if it "
@@ -1946,7 +1948,7 @@ static void mod_sysfs_teardown(struct module *mod)
 	mod_sysfs_fini(mod);
 }
 
-#ifdef CONFIG_DEBUG_SET_MODULE_RONX
+#ifdef CONFIG_STRICT_MODULE_RWX
 /*
  * LKM RO/NX protection: protect module's text/ro-data
  * from modification and any data from execution.
@@ -2913,6 +2915,8 @@ static int check_modinfo_livepatch(struct module *mod, struct load_info *info)
 	if (get_modinfo(info, "livepatch")) {
 		mod->klp = true;
 		add_taint_module(mod, TAINT_LIVEPATCH, LOCKDEP_STILL_OK);
+		pr_notice_once("%s: tainting kernel with TAINT_LIVEPATCH\n",
+			       mod->name);
 	}
 
 	return 0;
@@ -3715,6 +3719,8 @@ static int load_module(struct load_info *info, const char __user *uargs,
 		goto free_copy;
 	}
 
+	audit_log_kern_module(mod->name);
+
 	/* Reserve our place in the list. */
 	err = add_unformed_module(mod);
 	if (err)
@@ -3803,7 +3809,7 @@ static int load_module(struct load_info *info, const char __user *uargs,
 		       mod->name, after_dashes);
 	}
 
-	/* Link in to syfs. */
+	/* Link in to sysfs. */
 	err = mod_sysfs_setup(mod, info, mod->kp, mod->num_kp);
 	if (err < 0)
 		goto coming_cleanup;
@@ -4276,22 +4282,23 @@ const struct exception_table_entry *search_module_extables(unsigned long addr)
 	struct module *mod;
 
 	preempt_disable();
-	list_for_each_entry_rcu(mod, &modules, list) {
-		if (mod->state == MODULE_STATE_UNFORMED)
-			continue;
-		if (mod->num_exentries == 0)
-			continue;
+	mod = __module_address(addr);
+	if (!mod)
+		goto out;
 
-		e = search_extable(mod->extable,
-				   mod->extable + mod->num_exentries - 1,
-				   addr);
-		if (e)
-			break;
-	}
+	if (!mod->num_exentries)
+		goto out;
+
+	e = search_extable(mod->extable,
+			   mod->extable + mod->num_exentries - 1,
+			   addr);
+out:
 	preempt_enable();
 
-	/* Now, if we found one, we are running inside it now, hence
-	   we cannot unload the module, hence no refcnt needed. */
+	/*
+	 * Now, if we found one, we are running inside it now, hence
+	 * we cannot unload the module, hence no refcnt needed.
+	 */
 	return e;
 }
 

@@ -18,7 +18,6 @@
 #include <linux/moduleparam.h>
 #include <linux/jump_label.h>
 #include <linux/export.h>
-#include <linux/extable.h>	/* only as arch move module.h -> extable.h */
 #include <linux/rbtree_latch.h>
 
 #include <linux/percpu.h>
@@ -127,13 +126,13 @@ extern void cleanup_module(void);
 
 /* Each module must use one module_init(). */
 #define module_init(initfn)					\
-	static inline initcall_t __inittest(void)		\
+	static inline initcall_t __maybe_unused __inittest(void)		\
 	{ return initfn; }					\
 	int init_module(void) __attribute__((alias(#initfn)));
 
 /* This is only required if you want to be unloadable. */
 #define module_exit(exitfn)					\
-	static inline exitcall_t __exittest(void)		\
+	static inline exitcall_t __maybe_unused __exittest(void)		\
 	{ return exitfn; }					\
 	void cleanup_module(void) __attribute__((alias(#exitfn)));
 
@@ -258,6 +257,7 @@ extern const typeof(name) __mod_##type##__##name##_device_table		\
  * files require multiple MODULE_FIRMWARE() specifiers */
 #define MODULE_FIRMWARE(_firmware) MODULE_INFO(firmware, _firmware)
 
+struct dwarf_table;
 struct notifier_block;
 
 #ifdef CONFIG_MODULES
@@ -281,8 +281,6 @@ enum module_state {
 	MODULE_STATE_GOING,	/* Going away. */
 	MODULE_STATE_UNFORMED,	/* Still setting it up. */
 };
-
-struct module;
 
 struct mod_tree_node {
 	struct module *mod;
@@ -397,7 +395,7 @@ struct module {
 	struct module_layout init_layout;
 
 	/* The handle returned from dwarf_add_table. */
-	void *dwarf_info;
+	struct dwarf_table *dwarf_info;
 
 	/* Arch-specific module values */
 	struct mod_arch_specific arch;
@@ -770,7 +768,7 @@ extern int module_sysfs_initialized;
 
 #define __MODULE_STRING(x) __stringify(x)
 
-#ifdef CONFIG_DEBUG_SET_MODULE_RONX
+#ifdef CONFIG_STRICT_MODULE_RWX
 extern void set_all_modules_text_rw(void);
 extern void set_all_modules_text_ro(void);
 extern void module_enable_ro(const struct module *mod, bool after_init);

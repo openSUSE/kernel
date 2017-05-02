@@ -8,7 +8,8 @@
 #include <linux/crash_dump.h>
 #include <asm/lowcore.h>
 #include <linux/kernel.h>
-#include <linux/module.h>
+#include <linux/init.h>
+#include <linux/mm.h>
 #include <linux/gfp.h>
 #include <linux/slab.h>
 #include <linux/bootmem.h>
@@ -31,6 +32,7 @@ static struct memblock_type oldmem_type = {
 	.max = 1,
 	.total_size = 0,
 	.regions = &oldmem_region,
+	.name = "oldmem",
 };
 
 struct save_area {

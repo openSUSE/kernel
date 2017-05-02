@@ -82,13 +82,6 @@ void ceph_oloc_copy(struct ceph_object_locator *dest,
 void ceph_oloc_destroy(struct ceph_object_locator *oloc);
 
 /*
- * Maximum supported by kernel client object name length
- *
- * (probably outdated: must be >= RBD_MAX_MD_NAME_LEN -- currently 100)
- */
-#define CEPH_MAX_OID_NAME_LEN 100
-
-/*
  * 51-char inline_name is long enough for all cephfs and all but one
  * rbd requests: <imgname> in "<imgname>.rbd"/"rbd_id.<imgname>" can be
  * arbitrarily long (~PAGE_SIZE).  It's done once during rbd map; all
@@ -173,8 +166,8 @@ struct ceph_osdmap {
 	 * the list of osds that store+replicate them. */
 	struct crush_map *crush;
 
-	struct mutex crush_scratch_mutex;
-	int crush_scratch_ary[CEPH_PG_MAX_SIZE * 3];
+	struct mutex crush_workspace_mutex;
+	void *crush_workspace;
 };
 
 static inline bool ceph_osd_exists(struct ceph_osdmap *map, int osd)

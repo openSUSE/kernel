@@ -5,6 +5,7 @@
 #include <linux/kdebug.h>
 #include <linux/mm.h>
 #include <linux/sched.h>
+#include <linux/sched/task.h>
 #include <linux/vmalloc.h>
 
 #include <asm/tlbflush.h>

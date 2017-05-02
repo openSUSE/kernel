@@ -1801,9 +1801,8 @@ int __kprobes emulate_step(struct pt_regs *regs, unsigned int instr)
 	case LARX:
 		if (op.ea & (size - 1))
 			break;		/* can't handle misaligned */
-		err = -EFAULT;
 		if (!address_ok(regs, op.ea, size))
-			goto ldst_done;
+			return 0;
 		err = 0;
 		switch (size) {
 		case 4:
@@ -1824,9 +1823,8 @@ int __kprobes emulate_step(struct pt_regs *regs, unsigned int instr)
 	case STCX:
 		if (op.ea & (size - 1))
 			break;		/* can't handle misaligned */
-		err = -EFAULT;
 		if (!address_ok(regs, op.ea, size))
-			goto ldst_done;
+			return 0;
 		err = 0;
 		switch (size) {
 		case 4:

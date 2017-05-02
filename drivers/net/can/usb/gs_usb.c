@@ -258,7 +258,7 @@ static int gs_cmd_reset(struct gs_usb *gsusb, struct gs_can *gsdev)
 	rc = usb_control_msg(interface_to_usbdev(intf),
 			     usb_sndctrlpipe(interface_to_usbdev(intf), 0),
 			     GS_USB_BREQ_MODE,
-			     USB_DIR_OUT|USB_TYPE_VENDOR|USB_RECIP_INTERFACE,
+			     USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_INTERFACE,
 			     gsdev->channel,
 			     0,
 			     dm,
@@ -432,7 +432,7 @@ static int gs_usb_set_bittiming(struct net_device *netdev)
 	rc = usb_control_msg(interface_to_usbdev(intf),
 			     usb_sndctrlpipe(interface_to_usbdev(intf), 0),
 			     GS_USB_BREQ_BITTIMING,
-			     USB_DIR_OUT|USB_TYPE_VENDOR|USB_RECIP_INTERFACE,
+			     USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_INTERFACE,
 			     dev->channel,
 			     0,
 			     dbt,
@@ -545,7 +545,6 @@ static netdev_tx_t gs_can_start_xmit(struct sk_buff *skb,
 				  sizeof(*hf),
 				  hf,
 				  urb->transfer_dma);
-
 
 		if (rc == -ENODEV) {
 			netif_device_detach(netdev);
@@ -740,13 +739,18 @@ static const struct net_device_ops gs_usb_netdev_ops = {
 static int gs_usb_set_identify(struct net_device *netdev, bool do_identify)
 {
 	struct gs_can *dev = netdev_priv(netdev);
-	struct gs_identify_mode imode;
+	struct gs_identify_mode *imode;
 	int rc;
 
+	imode = kmalloc(sizeof(*imode), GFP_KERNEL);
+
+	if (!imode)
+		return -ENOMEM;
+
 	if (do_identify)
-		imode.mode = GS_CAN_IDENTIFY_ON;
+		imode->mode = GS_CAN_IDENTIFY_ON;
 	else
-		imode.mode = GS_CAN_IDENTIFY_OFF;
+		imode->mode = GS_CAN_IDENTIFY_OFF;
 
 	rc = usb_control_msg(interface_to_usbdev(dev->iface),
 			     usb_sndctrlpipe(interface_to_usbdev(dev->iface),
@@ -756,9 +760,11 @@ static int gs_usb_set_identify(struct net_device *netdev, bool do_identify)
 			     USB_RECIP_INTERFACE,
 			     dev->channel,
 			     0,
-			     &imode,
-			     sizeof(imode),
+			     imode,
+			     sizeof(*imode),
 			     100);
+
+	kfree(imode);
 
 	return (rc > 0) ? 0 : rc;
 }
@@ -804,7 +810,7 @@ static struct gs_can *gs_make_candev(unsigned int channel,
 	rc = usb_control_msg(interface_to_usbdev(intf),
 			     usb_rcvctrlpipe(interface_to_usbdev(intf), 0),
 			     GS_USB_BREQ_BT_CONST,
-			     USB_DIR_IN|USB_TYPE_VENDOR|USB_RECIP_INTERFACE,
+			     USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_INTERFACE,
 			     channel,
 			     0,
 			     bt_const,
@@ -921,7 +927,7 @@ static int gs_usb_probe(struct usb_interface *intf,
 	rc = usb_control_msg(interface_to_usbdev(intf),
 			     usb_sndctrlpipe(interface_to_usbdev(intf), 0),
 			     GS_USB_BREQ_HOST_FORMAT,
-			     USB_DIR_OUT|USB_TYPE_VENDOR|USB_RECIP_INTERFACE,
+			     USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_INTERFACE,
 			     1,
 			     intf->altsetting[0].desc.bInterfaceNumber,
 			     hconf,
@@ -944,7 +950,7 @@ static int gs_usb_probe(struct usb_interface *intf,
 	rc = usb_control_msg(interface_to_usbdev(intf),
 			     usb_rcvctrlpipe(interface_to_usbdev(intf), 0),
 			     GS_USB_BREQ_DEVICE_CONFIG,
-			     USB_DIR_IN|USB_TYPE_VENDOR|USB_RECIP_INTERFACE,
+			     USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_INTERFACE,
 			     1,
 			     intf->altsetting[0].desc.bInterfaceNumber,
 			     dconf,

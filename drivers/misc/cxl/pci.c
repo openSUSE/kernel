@@ -1619,6 +1619,9 @@ static void cxl_pci_remove_adapter(struct cxl *adapter)
 	cxl_sysfs_adapter_remove(adapter);
 	cxl_debugfs_adapter_remove(adapter);
 
+	/* Flush adapter datacache as its about to be removed */
+	cxl_data_cache_flush(adapter);
+
 	cxl_deconfigure_adapter(adapter);
 
 	device_unregister(&adapter->dev);
@@ -1789,15 +1792,14 @@ static pci_ers_result_t cxl_pci_error_detected(struct pci_dev *pdev,
 
 	/* If we're permanently dead, give up. */
 	if (state == pci_channel_io_perm_failure) {
-		/* Tell the AFU drivers; but we don't care what they
-		 * say, we're going away.
-		 */
 		for (i = 0; i < adapter->slices; i++) {
 			afu = adapter->afu[i];
-			/* Only participate in EEH if we are on a virtual PHB */
-			if (afu->phb == NULL)
-				return PCI_ERS_RESULT_NONE;
-			cxl_vphb_error_detected(afu, state);
+			/*
+			 * Tell the AFU drivers; but we don't care what they
+			 * say, we're going away.
+			 */
+			if (afu->phb != NULL)
+				cxl_vphb_error_detected(afu, state);
 		}
 		return PCI_ERS_RESULT_DISCONNECT;
 	}

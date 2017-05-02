@@ -32,8 +32,6 @@
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_crtc_helper.h>
 
-#include "ast_dram_tables.h"
-
 void ast_set_index_reg_mask(struct ast_private *ast,
 			    uint32_t base, uint8_t index,
 			    uint8_t mask, uint8_t val)
@@ -144,7 +142,10 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 		ast->chip = AST1100;
 		DRM_INFO("AST 1180 detected\n");
 	} else {
-		if (dev->pdev->revision >= 0x30) {
+		if (dev->pdev->revision >= 0x40) {
+			ast->chip = AST2500;
+			DRM_INFO("AST 2500 detected\n");
+		} else if (dev->pdev->revision >= 0x30) {
 			ast->chip = AST2400;
 			DRM_INFO("AST 2400 detected\n");
 		} else if (dev->pdev->revision >= 0x20) {
@@ -197,6 +198,9 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 				ast->support_wide_screen = true;
 			if (ast->chip == AST2400 &&
 			    (scu_rev & 0x300) == 0x100) /* ast1400 */
+				ast->support_wide_screen = true;
+			if (ast->chip == AST2500 &&
+			    scu_rev == 0x100)           /* ast2510 */
 				ast->support_wide_screen = true;
 		}
 		break;
@@ -293,7 +297,10 @@ static int ast_get_dram_info(struct drm_device *dev)
 	default:
 		ast->dram_bus_width = 16;
 		ast->dram_type = AST_DRAM_1Gx16;
-		ast->mclk = 396;
+		if (ast->chip == AST2500)
+			ast->mclk = 800;
+		else
+			ast->mclk = 396;
 		return 0;
 	}
 
@@ -302,7 +309,23 @@ static int ast_get_dram_info(struct drm_device *dev)
 	else
 		ast->dram_bus_width = 32;
 
-	if (ast->chip == AST2300 || ast->chip == AST2400) {
+	if (ast->chip == AST2500) {
+		switch (mcr_cfg & 0x03) {
+		case 0:
+			ast->dram_type = AST_DRAM_1Gx16;
+			break;
+		default:
+		case 1:
+			ast->dram_type = AST_DRAM_2Gx16;
+			break;
+		case 2:
+			ast->dram_type = AST_DRAM_4Gx16;
+			break;
+		case 3:
+			ast->dram_type = AST_DRAM_8Gx16;
+			break;
+		}
+	} else if (ast->chip == AST2300 || ast->chip == AST2400) {
 		switch (mcr_cfg & 0x03) {
 		case 0:
 			ast->dram_type = AST_DRAM_512Mx16;
@@ -356,7 +379,7 @@ static int ast_get_dram_info(struct drm_device *dev)
 		div = 0x1;
 		break;
 	}
-	ast->mclk = ref_pll * (num + 2) / (denum + 2) * (div * 1000);
+	ast->mclk = ref_pll * (num + 2) / ((denum + 2) * (div * 1000));
 	return 0;
 }
 
@@ -381,7 +404,7 @@ int ast_framebuffer_init(struct drm_device *dev,
 {
 	int ret;
 
-	drm_helper_mode_fill_fb_struct(&ast_fb->base, mode_cmd);
+	drm_helper_mode_fill_fb_struct(dev, &ast_fb->base, mode_cmd);
 	ast_fb->obj = obj;
 	ret = drm_framebuffer_init(dev, &ast_fb->base, &ast_fb_funcs);
 	if (ret) {
@@ -495,16 +518,18 @@ int ast_driver_load(struct drm_device *dev, unsigned long flags)
 
 	ast_detect_chip(dev, &need_post);
 
+	if (need_post)
+		ast_post_gpu(dev);
+
 	if (ast->chip != AST1180) {
 		ret = ast_get_dram_info(dev);
 		if (ret)
 			goto out_free;
 		ast->vram_size = ast_get_vram_info(dev);
-		DRM_INFO("dram %d %d %d %08x\n", ast->mclk, ast->dram_type, ast->dram_bus_width, ast->vram_size);
+		DRM_INFO("dram MCLK=%u Mhz type=%d bus_width=%d size=%08x\n",
+			 ast->mclk, ast->dram_type,
+			 ast->dram_bus_width, ast->vram_size);
 	}
-
-	if (need_post)
-		ast_post_gpu(dev);
 
 	ret = ast_mm_init(ast);
 	if (ret)
@@ -523,6 +548,7 @@ int ast_driver_load(struct drm_device *dev, unsigned long flags)
 	    ast->chip == AST2200 ||
 	    ast->chip == AST2300 ||
 	    ast->chip == AST2400 ||
+	    ast->chip == AST2500 ||
 	    ast->chip == AST1180) {
 		dev->mode_config.max_width = 1920;
 		dev->mode_config.max_height = 2048;
@@ -546,7 +572,7 @@ out_free:
 	return ret;
 }
 
-int ast_driver_unload(struct drm_device *dev)
+void ast_driver_unload(struct drm_device *dev)
 {
 	struct ast_private *ast = dev->dev_private;
 
@@ -559,7 +585,6 @@ int ast_driver_unload(struct drm_device *dev)
 	pci_iounmap(dev->pdev, ast->ioregs);
 	pci_iounmap(dev->pdev, ast->regs);
 	kfree(ast);
-	return 0;
 }
 
 int ast_gem_create(struct drm_device *dev,
