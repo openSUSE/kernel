@@ -2434,12 +2434,6 @@
 			and gids from such clients.  This is intended to ease
 			migration from NFSv2/v3.
 
-	objlayoutdriver.osd_login_prog=
-			[NFS] [OBJLAYOUT] sets the pathname to the program which
-			is used to automatically discover and login into new
-			osd-targets. Please see:
-			Documentation/filesystems/pnfs.txt for more explanations
-
 	nmi_debug=	[KNL,SH] Specify one or more actions to take
 			when a NMI is triggered.
 			Format: [state][,regs][,debounce][,die]
@@ -3799,6 +3793,14 @@
 	spia_fio_base=
 	spia_pedr=
 	spia_peddr=
+
+	srcutree.exp_holdoff [KNL]
+			Specifies how many nanoseconds must elapse
+			since the end of the last SRCU grace period for
+			a given srcu_struct until the next normal SRCU
+			grace period will be considered for automatic
+			expediting.  Set to zero to disable automatic
+			expediting.
 
 	stacktrace	[FTRACE]
 			Enabled the stack tracer on boot up.
