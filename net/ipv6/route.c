@@ -2804,6 +2804,7 @@ static int fib6_ifdown(struct rt6_info *rt, void *arg)
 	if ((rt->dst.dev == dev || !dev) &&
 	    rt != adn->net->ipv6.ip6_null_entry &&
 	    (rt->rt6i_nsiblings == 0 ||
+	     (dev && netdev_unregistering(dev)) ||
 	     !rt->rt6i_idev->cnf.ignore_routes_with_linkdown))
 		return -1;
 
@@ -2910,7 +2911,8 @@ static int rtm_to_fib6_config(struct sk_buff *skb, struct nlmsghdr *nlh,
 	unsigned int pref;
 	int err;
 
-	err = nlmsg_parse(nlh, sizeof(*rtm), tb, RTA_MAX, rtm_ipv6_policy);
+	err = nlmsg_parse(nlh, sizeof(*rtm), tb, RTA_MAX, rtm_ipv6_policy,
+			  NULL);
 	if (err < 0)
 		goto errout;
 
@@ -3263,7 +3265,8 @@ static int ip6_route_multipath_del(struct fib6_config *cfg)
 	return last_err;
 }
 
-static int inet6_rtm_delroute(struct sk_buff *skb, struct nlmsghdr *nlh)
+static int inet6_rtm_delroute(struct sk_buff *skb, struct nlmsghdr *nlh,
+			      struct netlink_ext_ack *extack)
 {
 	struct fib6_config cfg;
 	int err;
@@ -3280,7 +3283,8 @@ static int inet6_rtm_delroute(struct sk_buff *skb, struct nlmsghdr *nlh)
 	}
 }
 
-static int inet6_rtm_newroute(struct sk_buff *skb, struct nlmsghdr *nlh)
+static int inet6_rtm_newroute(struct sk_buff *skb, struct nlmsghdr *nlh,
+			      struct netlink_ext_ack *extack)
 {
 	struct fib6_config cfg;
 	int err;
@@ -3568,7 +3572,8 @@ int rt6_dump_route(struct rt6_info *rt, void *p_arg)
 		     NLM_F_MULTI);
 }
 
-static int inet6_rtm_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh)
+static int inet6_rtm_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh,
+			      struct netlink_ext_ack *extack)
 {
 	struct net *net = sock_net(in_skb->sk);
 	struct nlattr *tb[RTA_MAX+1];
@@ -3578,7 +3583,8 @@ static int inet6_rtm_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh)
 	struct flowi6 fl6;
 	int err, iif = 0, oif = 0;
 
-	err = nlmsg_parse(nlh, sizeof(*rtm), tb, RTA_MAX, rtm_ipv6_policy);
+	err = nlmsg_parse(nlh, sizeof(*rtm), tb, RTA_MAX, rtm_ipv6_policy,
+			  extack);
 	if (err < 0)
 		goto errout;
 

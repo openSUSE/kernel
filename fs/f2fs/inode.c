@@ -338,7 +338,8 @@ int f2fs_write_inode(struct inode *inode, struct writeback_control *wbc)
 	 * We need to balance fs here to prevent from producing dirty node pages
 	 * during the urgent cleaning time when runing out of free sections.
 	 */
-	if (update_inode_page(inode) && wbc && wbc->nr_to_write)
+	update_inode_page(inode);
+	if (wbc && wbc->nr_to_write)
 		f2fs_balance_fs(sbi, true);
 	return 0;
 }
@@ -371,13 +372,6 @@ void f2fs_evict_inode(struct inode *inode)
 	if (inode->i_nlink || is_bad_inode(inode))
 		goto no_delete;
 
-#ifdef CONFIG_F2FS_FAULT_INJECTION
-	if (time_to_inject(sbi, FAULT_EVICT_INODE)) {
-		f2fs_show_injection_info(FAULT_EVICT_INODE);
-		goto no_delete;
-	}
-#endif
-
 	remove_ino_entry(sbi, inode->i_ino, APPEND_INO);
 	remove_ino_entry(sbi, inode->i_ino, UPDATE_INO);
 
@@ -388,6 +382,12 @@ retry:
 	if (F2FS_HAS_BLOCKS(inode))
 		err = f2fs_truncate(inode);
 
+#ifdef CONFIG_F2FS_FAULT_INJECTION
+	if (time_to_inject(sbi, FAULT_EVICT_INODE)) {
+		f2fs_show_injection_info(FAULT_EVICT_INODE);
+		err = -EIO;
+	}
+#endif
 	if (!err) {
 		f2fs_lock_op(sbi);
 		err = remove_inode_page(inode);
@@ -410,7 +410,10 @@ no_delete:
 	stat_dec_inline_dir(inode);
 	stat_dec_inline_inode(inode);
 
-	invalidate_mapping_pages(NODE_MAPPING(sbi), inode->i_ino, inode->i_ino);
+	/* ino == 0, if f2fs_new_inode() was failed t*/
+	if (inode->i_ino)
+		invalidate_mapping_pages(NODE_MAPPING(sbi), inode->i_ino,
+							inode->i_ino);
 	if (xnid)
 		invalidate_mapping_pages(NODE_MAPPING(sbi), xnid, xnid);
 	if (inode->i_nlink) {

@@ -81,7 +81,7 @@ xfs_zero_extent(
 	return blkdev_issue_zeroout(xfs_find_bdev_for_inode(VFS_I(ip)),
 		block << (mp->m_super->s_blocksize_bits - 9),
 		count_fsb << (mp->m_super->s_blocksize_bits - 9),
-		GFP_NOFS, true);
+		GFP_NOFS, 0);
 }
 
 int
@@ -448,10 +448,9 @@ xfs_getbmap_adjust_shared(
 	next_map->br_blockcount = 0;
 
 	/* Only written data blocks can be shared. */
-	if (!xfs_is_reflink_inode(ip) || whichfork != XFS_DATA_FORK ||
-	    map->br_startblock == DELAYSTARTBLOCK ||
-	    map->br_startblock == HOLESTARTBLOCK ||
-	    ISUNWRITTEN(map))
+	if (!xfs_is_reflink_inode(ip) ||
+	    whichfork != XFS_DATA_FORK ||
+	    !xfs_bmap_is_real_extent(map))
 		return 0;
 
 	agno = XFS_FSB_TO_AGNO(mp, map->br_startblock);
@@ -1211,11 +1210,8 @@ xfs_adjust_extent_unmap_boundaries(
 		return error;
 
 	if (nimap && imap.br_startblock != HOLESTARTBLOCK) {
-		xfs_daddr_t	block;
-
 		ASSERT(imap.br_startblock != DELAYSTARTBLOCK);
-		block = imap.br_startblock;
-		mod = do_div(block, mp->m_sb.sb_rextsize);
+		mod = do_mod(imap.br_startblock, mp->m_sb.sb_rextsize);
 		if (mod)
 			*startoffset_fsb += mp->m_sb.sb_rextsize - mod;
 	}

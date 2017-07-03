@@ -38,7 +38,6 @@
 #include <linux/capability.h>
 #include <linux/cpu.h>
 #include <linux/moduleparam.h>
-#include <linux/dwarf.h>
 #include <linux/errno.h>
 #include <linux/err.h>
 #include <linux/vermagic.h>
@@ -50,6 +49,9 @@
 #include <linux/rculist.h>
 #include <linux/uaccess.h>
 #include <asm/cacheflush.h>
+#ifdef CONFIG_STRICT_MODULE_RWX
+#include <asm/set_memory.h>
+#endif
 #include <asm/mmu_context.h>
 #include <linux/license.h>
 #include <asm/sections.h>
@@ -328,7 +330,7 @@ struct load_info {
 	unsigned long mod_kallsyms_init_off;
 #endif
 	struct {
-		unsigned int sym, str, mod, vers, info, pcpu, dwarf;
+		unsigned int sym, str, mod, vers, info, pcpu;
 	} index;
 };
 
@@ -682,16 +684,7 @@ static void percpu_modcopy(struct module *mod,
 		memcpy(per_cpu_ptr(mod->percpu, cpu), from, size);
 }
 
-/**
- * is_module_percpu_address - test whether address is from module static percpu
- * @addr: address to test
- *
- * Test whether @addr belongs to module static percpu area.
- *
- * RETURNS:
- * %true if @addr is from module static percpu area
- */
-bool is_module_percpu_address(unsigned long addr)
+bool __is_module_percpu_address(unsigned long addr, unsigned long *can_addr)
 {
 	struct module *mod;
 	unsigned int cpu;
@@ -705,9 +698,15 @@ bool is_module_percpu_address(unsigned long addr)
 			continue;
 		for_each_possible_cpu(cpu) {
 			void *start = per_cpu_ptr(mod->percpu, cpu);
+			void *va = (void *)addr;
 
-			if ((void *)addr >= start &&
-			    (void *)addr < start + mod->percpu_size) {
+			if (va >= start && va < start + mod->percpu_size) {
+				if (can_addr) {
+					*can_addr = (unsigned long) (va - start);
+					*can_addr += (unsigned long)
+						per_cpu_ptr(mod->percpu,
+							    get_boot_cpu_id());
+				}
 				preempt_enable();
 				return true;
 			}
@@ -716,6 +715,20 @@ bool is_module_percpu_address(unsigned long addr)
 
 	preempt_enable();
 	return false;
+}
+
+/**
+ * is_module_percpu_address - test whether address is from module static percpu
+ * @addr: address to test
+ *
+ * Test whether @addr belongs to module static percpu area.
+ *
+ * RETURNS:
+ * %true if @addr is from module static percpu area
+ */
+bool is_module_percpu_address(unsigned long addr)
+{
+	return __is_module_percpu_address(addr, NULL);
 }
 
 #else /* ... !CONFIG_SMP */
@@ -749,28 +762,12 @@ bool is_module_percpu_address(unsigned long addr)
 	return false;
 }
 
+bool __is_module_percpu_address(unsigned long addr, unsigned long *can_addr)
+{
+	return false;
+}
+
 #endif /* CONFIG_SMP */
-
-static unsigned int find_dwarf(struct load_info *info)
-{
-	unsigned int section = 0;
-#ifdef ARCH_DWARF_SECTION_NAME
-	section = find_sec(info, ARCH_DWARF_SECTION_NAME);
-	if (section)
-		info->sechdrs[section].sh_flags |= SHF_ALLOC;
-#endif
-	return section;
-}
-
-static void add_dwarf_table(struct module *mod, struct load_info *info)
-{
-	int index = info->index.dwarf;
-
-	/* Size of section 0 is 0, so this is ok if there is no dwarf info. */
-	mod->dwarf_info = dwarf_add_table(mod,
-					  (void *)info->sechdrs[index].sh_addr,
-					  info->sechdrs[index].sh_size);
-}
 
 #define MODINFO_ATTR(field)	\
 static void setup_modinfo_##field(struct module *mod, const char *s)  \
@@ -984,6 +981,8 @@ SYSCALL_DEFINE2(delete_module, const char __user *, name_user,
 	if (strncpy_from_user(name, name_user, MODULE_NAME_LEN-1) < 0)
 		return -EFAULT;
 	name[MODULE_NAME_LEN-1] = '\0';
+
+	audit_log_kern_module(name);
 
 	if (mutex_lock_interruptible(&module_mutex) != 0)
 		return -EINTR;
@@ -2214,8 +2213,6 @@ static void free_module(struct module *mod)
 	/* Remove dynamic debug info */
 	ddebug_remove_module(mod->name);
 
-	dwarf_remove_table(mod->dwarf_info, false);
-
 	/* Arch-specific cleanup. */
 	module_arch_cleanup(mod);
 
@@ -2950,7 +2947,7 @@ static int copy_module_from_user(const void __user *umod, unsigned long len,
 
 	/* Suck in entire file: we'll want most of it. */
 	info->hdr = __vmalloc(info->len,
-			GFP_KERNEL | __GFP_HIGHMEM | __GFP_NOWARN, PAGE_KERNEL);
+			GFP_KERNEL | __GFP_NOWARN, PAGE_KERNEL);
 	if (!info->hdr)
 		return -ENOMEM;
 
@@ -3052,8 +3049,6 @@ static struct module *setup_load_info(struct load_info *info, int flags)
 	}
 
 	info->index.pcpu = find_pcpusec(info);
-
-	info->index.dwarf = find_dwarf(info);
 
 	/* Check module struct version now, before we try to use module. */
 	if (!check_modstruct_version(info->sechdrs, info->index.vers, mod))
@@ -3544,7 +3539,6 @@ static noinline int do_init_module(struct module *mod)
 	/* Drop initial reference. */
 	module_put(mod);
 	trim_init_extable(mod);
-	dwarf_remove_table(mod->dwarf_info, true);
 #ifdef CONFIG_KALLSYMS
 	/* Switch to core kallsyms now init is done: kallsyms may be walking! */
 	rcu_assign_pointer(mod->kallsyms, &mod->core_kallsyms);
@@ -3819,9 +3813,6 @@ static int load_module(struct load_info *info, const char __user *uargs,
 		if (err < 0)
 			goto sysfs_cleanup;
 	}
-
-	/* Initialize dwarf table */
-	add_dwarf_table(mod, info);
 
 	/* Get rid of temporary copy. */
 	free_copy(info);
@@ -4127,7 +4118,7 @@ unsigned long module_kallsyms_lookup_name(const char *name)
 
 	/* Don't lock: we're in enough trouble already. */
 	preempt_disable();
-	if ((colon = strchr(name, ':')) != NULL) {
+	if ((colon = strnchr(name, MODULE_NAME_LEN, ':')) != NULL) {
 		if ((mod = find_module_all(name, colon - name, false)) != NULL)
 			ret = mod_find_symname(mod, colon+1);
 	} else {

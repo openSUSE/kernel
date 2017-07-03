@@ -859,7 +859,6 @@ static void s3c24xx_serial_break_ctl(struct uart_port *port, int break_state)
 static int s3c24xx_serial_request_dma(struct s3c24xx_uart_port *p)
 {
 	struct s3c24xx_uart_dma	*dma = p->dma;
-	unsigned long flags;
 	int ret;
 
 	/* Default slave configuration parameters */
@@ -907,13 +906,9 @@ static int s3c24xx_serial_request_dma(struct s3c24xx_uart_port *p)
 		goto err_free_rx;
 	}
 
-	spin_lock_irqsave(&p->port.lock, flags);
-
 	/* TX buffer */
 	dma->tx_addr = dma_map_single(p->port.dev, p->port.state->xmit.buf,
 				UART_XMIT_SIZE, DMA_TO_DEVICE);
-
-	spin_unlock_irqrestore(&p->port.lock, flags);
 	if (dma_mapping_error(p->port.dev, dma->tx_addr)) {
 		ret = -EIO;
 		goto err_unmap_rx;

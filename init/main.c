@@ -22,13 +22,12 @@
 #include <linux/string.h>
 #include <linux/ctype.h>
 #include <linux/delay.h>
-#include <linux/dwarf.h>
 #include <linux/ioport.h>
 #include <linux/init.h>
 #include <linux/initrd.h>
 #include <linux/bootmem.h>
 #include <linux/acpi.h>
-#include <linux/tty.h>
+#include <linux/console.h>
 #include <linux/nmi.h>
 #include <linux/percpu.h>
 #include <linux/kmod.h>
@@ -491,13 +490,12 @@ asmlinkage __visible void __init start_kernel(void)
 	char *command_line;
 	char *after_dashes;
 
-	dwarf_init();
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
 	debug_objects_early_init();
 
 	/*
-	 * Set up the the initial canary ASAP:
+	 * Set up the initial canary ASAP:
 	 */
 	boot_init_stack_canary();
 
@@ -506,17 +504,16 @@ asmlinkage __visible void __init start_kernel(void)
 	local_irq_disable();
 	early_boot_irqs_disabled = true;
 
-/*
- * Interrupts are still disabled. Do necessary setups, then
- * enable them
- */
+	/*
+	 * Interrupts are still disabled. Do necessary setups, then
+	 * enable them.
+	 */
 	boot_cpu_init();
 	page_address_init();
 	pr_notice("%s", linux_banner);
 	setup_arch(&command_line);
 	mm_init_cpumask(&init_mm);
 	setup_command_line(command_line);
-	dwarf_setup();
 	setup_nr_cpu_ids();
 	setup_per_cpu_areas();
 	boot_cpu_state_init();
@@ -548,6 +545,11 @@ asmlinkage __visible void __init start_kernel(void)
 	trap_init();
 	mm_init();
 
+	ftrace_init();
+
+	/* trace_printk can be enabled here */
+	early_trace_init();
+
 	/*
 	 * Set up the scheduler prior starting any interrupts (such as the
 	 * timer interrupt). Full topology setup happens at smp_init()
@@ -573,7 +575,7 @@ asmlinkage __visible void __init start_kernel(void)
 
 	rcu_init();
 
-	/* trace_printk() and trace points may be used after this */
+	/* Trace events are available after this */
 	trace_init();
 
 	context_tracking_init();
@@ -672,8 +674,6 @@ asmlinkage __visible void __init start_kernel(void)
 	if (efi_enabled(EFI_RUNTIME_SERVICES)) {
 		efi_free_boot_services();
 	}
-
-	ftrace_init();
 
 	/* Do the rest non-__init'ed, we're now alive */
 	rest_init();
@@ -962,6 +962,7 @@ static int __ref kernel_init(void *unused)
 	kernel_init_freeable();
 	/* need to finish all async __init code before freeing the memory */
 	async_synchronize_full();
+	ftrace_free_init_mem();
 	free_initmem();
 	mark_readonly();
 	system_state = SYSTEM_RUNNING;

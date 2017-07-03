@@ -270,11 +270,6 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 	sk->sk_gso_type = SKB_GSO_TCPV6;
 	ip6_dst_store(sk, dst, NULL, NULL);
 
-	if (tcp_death_row->sysctl_tw_recycle &&
-	    !tp->rx_opt.ts_recent_stamp &&
-	    ipv6_addr_equal(&fl6.daddr, &sk->sk_v6_daddr))
-		tcp_fetch_timewait_stamp(sk, dst);
-
 	icsk->icsk_ext_hdr_len = 0;
 	if (opt)
 		icsk->icsk_ext_hdr_len = opt->opt_flen +
@@ -732,11 +727,8 @@ static void tcp_v6_init_req(struct request_sock *req,
 
 static struct dst_entry *tcp_v6_route_req(const struct sock *sk,
 					  struct flowi *fl,
-					  const struct request_sock *req,
-					  bool *strict)
+					  const struct request_sock *req)
 {
-	if (strict)
-		*strict = true;
 	return inet6_csk_route_req(sk, &fl->u.ip6, req, IPPROTO_TCP);
 }
 
@@ -1309,8 +1301,6 @@ static int tcp_v6_do_rcv(struct sock *sk, struct sk_buff *skb)
 			goto discard;
 
 		if (nsk != sk) {
-			sock_rps_save_rxhash(nsk, skb);
-			sk_mark_napi_id(nsk, skb);
 			if (tcp_child_process(sk, nsk, skb))
 				goto reset;
 			if (opt_skb)
@@ -1929,7 +1919,7 @@ struct proto tcpv6_prot = {
 	.sysctl_rmem		= sysctl_tcp_rmem,
 	.max_header		= MAX_TCP_HEADER,
 	.obj_size		= sizeof(struct tcp6_sock),
-	.slab_flags		= SLAB_DESTROY_BY_RCU,
+	.slab_flags		= SLAB_TYPESAFE_BY_RCU,
 	.twsk_prot		= &tcp6_timewait_sock_ops,
 	.rsk_prot		= &tcp6_request_sock_ops,
 	.h.hashinfo		= &tcp_hashinfo,
@@ -1941,8 +1931,9 @@ struct proto tcpv6_prot = {
 	.diag_destroy		= tcp_abort,
 };
 
-static const struct inet6_protocol tcpv6_protocol = {
+static struct inet6_protocol tcpv6_protocol = {
 	.early_demux	=	tcp_v6_early_demux,
+	.early_demux_handler =  tcp_v6_early_demux,
 	.handler	=	tcp_v6_rcv,
 	.err_handler	=	tcp_v6_err,
 	.flags		=	INET6_PROTO_NOPOLICY|INET6_PROTO_FINAL,

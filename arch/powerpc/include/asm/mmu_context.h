@@ -29,9 +29,13 @@ extern void mm_iommu_init(struct mm_struct *mm);
 extern void mm_iommu_cleanup(struct mm_struct *mm);
 extern struct mm_iommu_table_group_mem_t *mm_iommu_lookup(struct mm_struct *mm,
 		unsigned long ua, unsigned long size);
+extern struct mm_iommu_table_group_mem_t *mm_iommu_lookup_rm(
+		struct mm_struct *mm, unsigned long ua, unsigned long size);
 extern struct mm_iommu_table_group_mem_t *mm_iommu_find(struct mm_struct *mm,
 		unsigned long ua, unsigned long entries);
 extern long mm_iommu_ua_to_hpa(struct mm_iommu_table_group_mem_t *mem,
+		unsigned long ua, unsigned long *hpa);
+extern long mm_iommu_ua_to_hpa_rm(struct mm_iommu_table_group_mem_t *mem,
 		unsigned long ua, unsigned long *hpa);
 extern long mm_iommu_mapped_inc(struct mm_iommu_table_group_mem_t *mem);
 extern void mm_iommu_mapped_dec(struct mm_iommu_table_group_mem_t *mem);
@@ -51,7 +55,8 @@ static inline void switch_mmu_context(struct mm_struct *prev,
 	return switch_slb(tsk, next);
 }
 
-extern int __init_new_context(void);
+extern int hash__alloc_context_id(void);
+extern void hash__reserve_context_id(int id);
 extern void __destroy_context(int context_id);
 static inline void mmu_context_init(void) { }
 #else
@@ -172,12 +177,6 @@ static inline void arch_bprm_mm_init(struct mm_struct *mm,
 
 static inline bool arch_vma_access_permitted(struct vm_area_struct *vma,
 		bool write, bool execute, bool foreign)
-{
-	/* by default, allow everything */
-	return true;
-}
-
-static inline bool arch_pte_access_permitted(pte_t pte, bool write)
 {
 	/* by default, allow everything */
 	return true;

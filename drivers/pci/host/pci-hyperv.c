@@ -56,6 +56,7 @@
 #include <asm/apic.h>
 #include <linux/msi.h>
 #include <linux/hyperv.h>
+#include <linux/refcount.h>
 #include <asm/mshyperv.h>
 
 /*
@@ -351,6 +352,7 @@ enum hv_pcibus_state {
 	hv_pcibus_init = 0,
 	hv_pcibus_probed,
 	hv_pcibus_installed,
+	hv_pcibus_removed,
 	hv_pcibus_maximum
 };
 
@@ -422,7 +424,7 @@ enum hv_pcidev_ref_reason {
 struct hv_pci_dev {
 	/* List protected by pci_rescan_remove_lock */
 	struct list_head list_entry;
-	atomic_t refs;
+	refcount_t refs;
 	enum hv_pcichild_state state;
 	struct pci_function_description desc;
 	bool reported_missing;
@@ -1213,9 +1215,11 @@ static int create_root_hv_pci_bus(struct hv_pcibus_device *hbus)
 	hbus->pci_bus->msi = &hbus->msi_chip;
 	hbus->pci_bus->msi->dev = &hbus->hdev->device;
 
+	pci_lock_rescan_remove();
 	pci_scan_child_bus(hbus->pci_bus);
 	pci_bus_assign_resources(hbus->pci_bus);
 	pci_bus_add_devices(hbus->pci_bus);
+	pci_unlock_rescan_remove();
 	hbus->state = hv_pcibus_installed;
 	return 0;
 }
@@ -1259,13 +1263,13 @@ static void q_resource_requirements(void *context, struct pci_response *resp,
 static void get_pcichild(struct hv_pci_dev *hpdev,
 			    enum hv_pcidev_ref_reason reason)
 {
-	atomic_inc(&hpdev->refs);
+	refcount_inc(&hpdev->refs);
 }
 
 static void put_pcichild(struct hv_pci_dev *hpdev,
 			    enum hv_pcidev_ref_reason reason)
 {
-	if (atomic_dec_and_test(&hpdev->refs))
+	if (refcount_dec_and_test(&hpdev->refs))
 		kfree(hpdev);
 }
 
@@ -1319,7 +1323,7 @@ static struct hv_pci_dev *new_pcichild_device(struct hv_pcibus_device *hbus,
 	wait_for_completion(&comp_pkt.host_event);
 
 	hpdev->desc = *desc;
-	get_pcichild(hpdev, hv_pcidev_ref_initial);
+	refcount_set(&hpdev->refs, 1);
 	get_pcichild(hpdev, hv_pcidev_ref_childlist);
 	spin_lock_irqsave(&hbus->device_list_lock, flags);
 
@@ -1509,13 +1513,24 @@ static void pci_devices_present_work(struct work_struct *work)
 		put_pcichild(hpdev, hv_pcidev_ref_initial);
 	}
 
-	/* Tell the core to rescan bus because there may have been changes. */
-	if (hbus->state == hv_pcibus_installed) {
+	switch(hbus->state) {
+	case hv_pcibus_installed:
+		/*
+		* Tell the core to rescan bus
+		* because there may have been changes.
+		*/
 		pci_lock_rescan_remove();
 		pci_scan_child_bus(hbus->pci_bus);
 		pci_unlock_rescan_remove();
-	} else {
+		break;
+
+	case hv_pcibus_init:
+	case hv_pcibus_probed:
 		survey_child_resources(hbus);
+		break;
+
+	default:
+		break;
 	}
 
 	up(&hbus->enum_sem);
@@ -1605,8 +1620,10 @@ static void hv_eject_device_work(struct work_struct *work)
 	pdev = pci_get_domain_bus_and_slot(hpdev->hbus->sysdata.domain, 0,
 					   wslot);
 	if (pdev) {
+		pci_lock_rescan_remove();
 		pci_stop_and_remove_bus_device(pdev);
 		pci_dev_put(pdev);
+		pci_unlock_rescan_remove();
 	}
 
 	spin_lock_irqsave(&hpdev->hbus->device_list_lock, flags);
@@ -2190,6 +2207,7 @@ static int hv_pci_probe(struct hv_device *hdev,
 	hbus = kzalloc(sizeof(*hbus), GFP_KERNEL);
 	if (!hbus)
 		return -ENOMEM;
+	hbus->state = hv_pcibus_init;
 
 	/*
 	 * The PCI bus "domain" is what is called "segment" in ACPI and
@@ -2353,6 +2371,7 @@ static int hv_pci_remove(struct hv_device *hdev)
 		pci_stop_root_bus(hbus->pci_bus);
 		pci_remove_root_bus(hbus->pci_bus);
 		pci_unlock_rescan_remove();
+		hbus->state = hv_pcibus_removed;
 	}
 
 	hv_pci_bus_exit(hdev);

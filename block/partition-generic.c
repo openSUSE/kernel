@@ -16,7 +16,6 @@
 #include <linux/kmod.h>
 #include <linux/ctype.h>
 #include <linux/genhd.h>
-#include <linux/dax.h>
 #include <linux/blktrace_api.h>
 
 #include "partitions/check.h"
@@ -321,8 +320,10 @@ struct hd_struct *add_partition(struct gendisk *disk, int partno,
 
 	if (info) {
 		struct partition_meta_info *pinfo = alloc_part_info(disk);
-		if (!pinfo)
+		if (!pinfo) {
+			err = -ENOMEM;
 			goto out_free_stats;
+		}
 		memcpy(pinfo, info, sizeof(*info));
 		p->info = pinfo;
 	}
@@ -630,24 +631,12 @@ int invalidate_partitions(struct gendisk *disk, struct block_device *bdev)
 	return 0;
 }
 
-static struct page *read_pagecache_sector(struct block_device *bdev, sector_t n)
-{
-	struct address_space *mapping = bdev->bd_inode->i_mapping;
-
-	return read_mapping_page(mapping, (pgoff_t)(n >> (PAGE_SHIFT-9)),
-				 NULL);
-}
-
 unsigned char *read_dev_sector(struct block_device *bdev, sector_t n, Sector *p)
 {
+	struct address_space *mapping = bdev->bd_inode->i_mapping;
 	struct page *page;
 
-	/* don't populate page cache for dax capable devices */
-	if (IS_DAX(bdev->bd_inode))
-		page = read_dax_sector(bdev, n);
-	else
-		page = read_pagecache_sector(bdev, n);
-
+	page = read_mapping_page(mapping, (pgoff_t)(n >> (PAGE_SHIFT-9)), NULL);
 	if (!IS_ERR(page)) {
 		if (PageError(page))
 			goto fail;

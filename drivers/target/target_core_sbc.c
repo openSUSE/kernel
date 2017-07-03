@@ -522,8 +522,8 @@ static sense_reason_t compare_and_write_callback(struct se_cmd *cmd, bool succes
 		goto out;
 	}
 
-	write_sg = kmalloc(sizeof(struct scatterlist) * cmd->t_data_nents,
-			   GFP_KERNEL);
+	write_sg = kmalloc_array(cmd->t_data_nents, sizeof(*write_sg),
+				 GFP_KERNEL);
 	if (!write_sg) {
 		pr_err("Unable to allocate compare_and_write sg\n");
 		ret = TCM_OUT_OF_RESOURCES;
@@ -927,6 +927,7 @@ sbc_parse_cdb(struct se_cmd *cmd, struct sbc_ops *ops)
 		cmd->execute_cmd = sbc_execute_rw;
 		break;
 	case WRITE_16:
+	case WRITE_VERIFY_16:
 		sectors = transport_get_sectors_16(cdb);
 		cmd->t_task_lba = transport_lba_64(cdb);
 

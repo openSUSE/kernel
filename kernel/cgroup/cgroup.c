@@ -189,7 +189,7 @@ static u16 have_canfork_callback __read_mostly;
 
 /* cgroup namespace for init task */
 struct cgroup_namespace init_cgroup_ns = {
-	.count		= { .counter = 2, },
+	.count		= REFCOUNT_INIT(2),
 	.user_ns	= &init_user_ns,
 	.ns.ops		= &cgroupns_operations,
 	.ns.inum	= PROC_CGROUP_INIT_INO,
@@ -559,7 +559,7 @@ EXPORT_SYMBOL_GPL(of_css);
  * haven't been created.
  */
 struct css_set init_css_set = {
-	.refcount		= ATOMIC_INIT(1),
+	.refcount		= REFCOUNT_INIT(1),
 	.tasks			= LIST_HEAD_INIT(init_css_set.tasks),
 	.mg_tasks		= LIST_HEAD_INIT(init_css_set.mg_tasks),
 	.task_iters		= LIST_HEAD_INIT(init_css_set.task_iters),
@@ -729,7 +729,7 @@ void put_css_set_locked(struct css_set *cset)
 
 	lockdep_assert_held(&css_set_lock);
 
-	if (!atomic_dec_and_test(&cset->refcount))
+	if (!refcount_dec_and_test(&cset->refcount))
 		return;
 
 	/* This css_set is dead. unlink it and release cgroup and css refs */
@@ -982,7 +982,7 @@ static struct css_set *find_css_set(struct css_set *old_cset,
 		return NULL;
 	}
 
-	atomic_set(&cset->refcount, 1);
+	refcount_set(&cset->refcount, 1);
 	INIT_LIST_HEAD(&cset->tasks);
 	INIT_LIST_HEAD(&cset->mg_tasks);
 	INIT_LIST_HEAD(&cset->task_iters);
@@ -1645,7 +1645,7 @@ void init_cgroup_root(struct cgroup_root *root, struct cgroup_sb_opts *opts)
 		set_bit(CGRP_CPUSET_CLONE_CHILDREN, &root->cgrp.flags);
 }
 
-int cgroup_setup_root(struct cgroup_root *root, u16 ss_mask)
+int cgroup_setup_root(struct cgroup_root *root, u16 ss_mask, int ref_flags)
 {
 	LIST_HEAD(tmp_links);
 	struct cgroup *root_cgrp = &root->cgrp;
@@ -1661,8 +1661,8 @@ int cgroup_setup_root(struct cgroup_root *root, u16 ss_mask)
 	root_cgrp->id = ret;
 	root_cgrp->ancestor_ids[0] = ret;
 
-	ret = percpu_ref_init(&root_cgrp->self.refcnt, css_release, 0,
-			      GFP_KERNEL);
+	ret = percpu_ref_init(&root_cgrp->self.refcnt, css_release,
+			      ref_flags, GFP_KERNEL);
 	if (ret)
 		goto out;
 
@@ -4523,7 +4523,7 @@ int __init cgroup_init(void)
 	hash_add(css_set_table, &init_css_set.hlist,
 		 css_set_hash(init_css_set.subsys));
 
-	BUG_ON(cgroup_setup_root(&cgrp_dfl_root, 0));
+	BUG_ON(cgroup_setup_root(&cgrp_dfl_root, 0, 0));
 
 	mutex_unlock(&cgroup_mutex);
 

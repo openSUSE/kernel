@@ -203,10 +203,6 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 			tp->write_seq	   = 0;
 	}
 
-	if (tcp_death_row->sysctl_tw_recycle &&
-	    !tp->rx_opt.ts_recent_stamp && fl4->daddr == daddr)
-		tcp_fetch_timewait_stamp(sk, &rt->dst);
-
 	inet->inet_dport = usin->sin_port;
 	sk_daddr_set(sk, daddr);
 
@@ -1222,19 +1218,9 @@ static void tcp_v4_init_req(struct request_sock *req,
 
 static struct dst_entry *tcp_v4_route_req(const struct sock *sk,
 					  struct flowi *fl,
-					  const struct request_sock *req,
-					  bool *strict)
+					  const struct request_sock *req)
 {
-	struct dst_entry *dst = inet_csk_route_req(sk, &fl->u.ip4, req);
-
-	if (strict) {
-		if (fl->u.ip4.daddr == inet_rsk(req)->ir_rmt_addr)
-			*strict = true;
-		else
-			*strict = false;
-	}
-
-	return dst;
+	return inet_csk_route_req(sk, &fl->u.ip4, req);
 }
 
 struct request_sock_ops tcp_request_sock_ops __read_mostly = {
@@ -1429,8 +1415,6 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 		if (!nsk)
 			goto discard;
 		if (nsk != sk) {
-			sock_rps_save_rxhash(nsk, skb);
-			sk_mark_napi_id(nsk, skb);
 			if (tcp_child_process(sk, nsk, skb)) {
 				rsk = nsk;
 				goto reset;
@@ -1876,6 +1860,9 @@ void tcp_v4_destroy_sock(struct sock *sk)
 
 	/* Cleanup up the write buffer. */
 	tcp_write_queue_purge(sk);
+
+	/* Check if we want to disable active TFO */
+	tcp_fastopen_active_disable_ofo_check(sk);
 
 	/* Cleans up our, hopefully empty, out_of_order_queue. */
 	skb_rbtree_purge(&tp->out_of_order_queue);
@@ -2408,7 +2395,7 @@ struct proto tcp_prot = {
 	.sysctl_rmem		= sysctl_tcp_rmem,
 	.max_header		= MAX_TCP_HEADER,
 	.obj_size		= sizeof(struct tcp_sock),
-	.slab_flags		= SLAB_DESTROY_BY_RCU,
+	.slab_flags		= SLAB_TYPESAFE_BY_RCU,
 	.twsk_prot		= &tcp_timewait_sock_ops,
 	.rsk_prot		= &tcp_request_sock_ops,
 	.h.hashinfo		= &tcp_hashinfo,
@@ -2472,7 +2459,6 @@ static int __net_init tcp_sk_init(struct net *net)
 	net->ipv4.sysctl_tcp_tw_reuse = 0;
 
 	cnt = tcp_hashinfo.ehash_mask + 1;
-	net->ipv4.tcp_death_row.sysctl_tw_recycle = 0;
 	net->ipv4.tcp_death_row.sysctl_max_tw_buckets = (cnt + 1) / 2;
 	net->ipv4.tcp_death_row.hashinfo = &tcp_hashinfo;
 

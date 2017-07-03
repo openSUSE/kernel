@@ -287,8 +287,6 @@
 		*(.rodata1)						\
 	}								\
 									\
-	BUG_TABLE							\
-									\
 	/* PCI quirks */						\
 	.pci_fixup        : AT(ADDR(.pci_fixup) - LOAD_OFFSET) {	\
 		VMLINUX_SYMBOL(__start_pci_fixups_early) = .;		\
@@ -407,8 +405,6 @@
 		MEM_KEEP(init.rodata)					\
 		MEM_KEEP(exit.rodata)					\
 	}								\
-									\
-	EH_FRAME							\
 									\
 	/* Built-in module parameters. */				\
 	__param : AT(ADDR(__param) - LOAD_OFFSET) {			\
@@ -570,7 +566,6 @@
 	IRQCHIP_OF_MATCH_TABLE()					\
 	ACPI_PROBE_TABLE(irqchip)					\
 	ACPI_PROBE_TABLE(clksrc)					\
-	ACPI_PROBE_TABLE(iort)						\
 	EARLYCON_TABLE()
 
 #define INIT_TEXT							\
@@ -672,6 +667,24 @@
 	}
 #else
 #define BUG_TABLE
+#endif
+
+#ifdef CONFIG_ORC_UNWINDER
+#define ORC_UNWIND_TABLE						\
+	. = ALIGN(4);							\
+	.orc_unwind_ip : AT(ADDR(.orc_unwind_ip) - LOAD_OFFSET) {	\
+		VMLINUX_SYMBOL(__start_orc_unwind_ip) = .;		\
+		KEEP(*(.orc_unwind_ip))					\
+		VMLINUX_SYMBOL(__stop_orc_ip) = .;			\
+	}								\
+	. = ALIGN(6);							\
+	.orc_unwind : AT(ADDR(.orc_unwind) - LOAD_OFFSET) {		\
+		VMLINUX_SYMBOL(__start_orc_unwind) = .;			\
+		KEEP(*(.orc_unwind))					\
+		VMLINUX_SYMBOL(__stop_orc) = .;				\
+	}
+#else
+#define ORC_UNWIND_TABLE
 #endif
 
 #ifdef CONFIG_PM_TRACE
@@ -859,7 +872,8 @@
 		READ_MOSTLY_DATA(cacheline)				\
 		DATA_DATA						\
 		CONSTRUCTORS						\
-	}
+	}								\
+	BUG_TABLE							\
 
 #define INIT_TEXT_SECTION(inittext_align)				\
 	. = ALIGN(inittext_align);					\
@@ -886,23 +900,3 @@
 	BSS(bss_align)							\
 	. = ALIGN(stop_align);						\
 	VMLINUX_SYMBOL(__bss_stop) = .;
-
-#ifdef CONFIG_DWARF_UNWIND
-#define EH_FRAME							\
-		/* Unwind data binary search table */			\
-		. = ALIGN(8);						\
-		.eh_frame_hdr : AT(ADDR(.eh_frame_hdr) - LOAD_OFFSET) {	\
-			VMLINUX_SYMBOL(__start_unwind_hdr) = .;		\
-			*(.eh_frame_hdr)				\
-			VMLINUX_SYMBOL(__end_unwind_hdr) = .;		\
-		}							\
-		/* Unwind data */					\
-		. = ALIGN(8);						\
-		.eh_frame : AT(ADDR(.eh_frame) - LOAD_OFFSET) {		\
-			VMLINUX_SYMBOL(__start_unwind) = .;		\
-			*(.eh_frame)					\
-			VMLINUX_SYMBOL(__end_unwind) = .;		\
-		}
-#else
-#define EH_FRAME
-#endif

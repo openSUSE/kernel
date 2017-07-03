@@ -418,7 +418,7 @@ struct smb_version_operations {
 	int (*validate_negotiate)(const unsigned int, struct cifs_tcon *);
 	ssize_t (*query_all_EAs)(const unsigned int, struct cifs_tcon *,
 			const unsigned char *, const unsigned char *, char *,
-			size_t, const struct nls_table *, int);
+			size_t, struct cifs_sb_info *);
 	int (*set_EA)(const unsigned int, struct cifs_tcon *, const char *,
 			const char *, const void *, const __u16,
 			const struct nls_table *, int);
@@ -1115,6 +1115,23 @@ struct cifs_io_parms {
 	struct cifs_tcon *tcon;
 };
 
+struct cifs_aio_ctx {
+	struct kref		refcount;
+	struct list_head	list;
+	struct mutex		aio_mutex;
+	struct completion	done;
+	struct iov_iter		iter;
+	struct kiocb		*iocb;
+	struct cifsFileInfo	*cfile;
+	struct bio_vec		*bv;
+	loff_t			pos;
+	unsigned int		npages;
+	ssize_t			rc;
+	unsigned int		len;
+	unsigned int		total_len;
+	bool			should_dirty;
+};
+
 struct cifs_readdata;
 
 /* asynchronous read support */
@@ -1124,6 +1141,7 @@ struct cifs_readdata {
 	struct completion		done;
 	struct cifsFileInfo		*cfile;
 	struct address_space		*mapping;
+	struct cifs_aio_ctx		*ctx;
 	__u64				offset;
 	unsigned int			bytes;
 	unsigned int			got_bytes;
@@ -1154,6 +1172,7 @@ struct cifs_writedata {
 	enum writeback_sync_modes	sync_mode;
 	struct work_struct		work;
 	struct cifsFileInfo		*cfile;
+	struct cifs_aio_ctx		*ctx;
 	__u64				offset;
 	pid_t				pid;
 	unsigned int			bytes;

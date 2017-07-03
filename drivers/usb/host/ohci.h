@@ -439,7 +439,7 @@ struct ohci_hcd {
 
 };
 
-#ifdef CONFIG_PCI
+#ifdef CONFIG_USB_PCI
 static inline int quirk_nec(struct ohci_hcd *ohci)
 {
 	return ohci->flags & OHCI_QUIRK_NEC;

@@ -5,7 +5,7 @@
  */
 
 #include "dm-thin-metadata.h"
-#include "dm-bio-prison.h"
+#include "dm-bio-prison-v1.h"
 #include "dm.h"
 
 #include <linux/device-mapper.h>
@@ -3264,7 +3264,6 @@ static int pool_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	 * them down to the data device.  The thin device's discard
 	 * processing will cause mappings to be removed from the btree.
 	 */
-	ti->discard_zeroes_data_unsupported = true;
 	if (pf.discard_enabled && pf.discard_passdown) {
 		ti->num_discard_bios = 1;
 
@@ -4120,7 +4119,6 @@ static int thin_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	ti->per_io_data_size = sizeof(struct dm_thin_endio_hook);
 
 	/* In case the pool supports discards, pass them on. */
-	ti->discard_zeroes_data_unsupported = true;
 	if (tc->pool->pf.discard_enabled) {
 		ti->discards_supported = true;
 		ti->num_discard_bios = 1;

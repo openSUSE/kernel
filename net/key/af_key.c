@@ -3285,7 +3285,7 @@ static struct xfrm_policy *pfkey_compile_policy(struct sock *sk, int opt,
 		p += pol->sadb_x_policy_len*8;
 		sec_ctx = (struct sadb_x_sec_ctx *)p;
 		if (len < pol->sadb_x_policy_len*8 +
-		    sec_ctx->sadb_x_sec_len) {
+		    sec_ctx->sadb_x_sec_len*8) {
 			*dir = -EINVAL;
 			goto out;
 		}
@@ -3827,7 +3827,6 @@ static inline void pfkey_exit_proc(struct net *net)
 
 static struct xfrm_mgr pfkeyv2_mgr =
 {
-	.id		= "pfkeyv2",
 	.notify		= pfkey_send_notify,
 	.acquire	= pfkey_send_acquire,
 	.compile_policy	= pfkey_compile_policy,

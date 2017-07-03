@@ -1884,6 +1884,7 @@ static int brcmf_pcie_pm_enter_D3(struct device *dev)
 			   BRCMF_PCIE_MBDATA_TIMEOUT);
 	if (!devinfo->mbdata_completed) {
 		brcmf_err("Timeout on response for entering D3 substate\n");
+		brcmf_bus_change_state(bus, BRCMF_BUS_UP);
 		return -EIO;
 	}
 

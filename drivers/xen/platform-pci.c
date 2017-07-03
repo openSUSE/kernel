@@ -67,7 +67,7 @@ static uint64_t get_callback_via(struct pci_dev *pdev)
 	pin = pdev->pin;
 
 	/* We don't know the GSI. Specify the PCI INTx line instead. */
-	return ((uint64_t)0x01 << 56) | /* PCI INTx identifier */
+	return ((uint64_t)0x01 << HVM_CALLBACK_VIA_TYPE_SHIFT) | /* PCI INTx identifier */
 		((uint64_t)pci_domain_nr(pdev->bus) << 32) |
 		((uint64_t)pdev->bus->number << 16) |
 		((uint64_t)(pdev->devfn & 0xff) << 8) |
@@ -90,8 +90,10 @@ static int xen_allocate_irq(struct pci_dev *pdev)
 static int platform_pci_resume(struct pci_dev *pdev)
 {
 	int err;
+
 	if (xen_have_vector_callback)
 		return 0;
+
 	err = xen_set_callback_via(callback_via);
 	if (err) {
 		dev_err(&pdev->dev, "platform_pci_resume failure!\n");
@@ -137,7 +139,6 @@ static int platform_pci_probe(struct pci_dev *pdev,
 
 	platform_mmio = mmio_addr;
 	platform_mmiolen = mmio_len;
-
 	if (!xen_have_vector_callback) {
 		ret = xen_allocate_irq(pdev);
 		if (ret) {

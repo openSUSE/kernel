@@ -41,7 +41,7 @@
 
 extern const struct fsnotify_ops fanotify_fsnotify_ops;
 
-static struct kmem_cache *fanotify_mark_cache __read_mostly;
+struct kmem_cache *fanotify_mark_cache __read_mostly;
 struct kmem_cache *fanotify_event_cachep __read_mostly;
 struct kmem_cache *fanotify_perm_event_cachep __read_mostly;
 
@@ -455,11 +455,6 @@ static const struct file_operations fanotify_fops = {
 	.llseek		= noop_llseek,
 };
 
-static void fanotify_free_mark(struct fsnotify_mark *fsn_mark)
-{
-	kmem_cache_free(fanotify_mark_cache, fsn_mark);
-}
-
 static int fanotify_find_path(int dfd, const char __user *filename,
 			      struct path *path, unsigned int flags)
 {
@@ -521,13 +516,12 @@ static __u32 fanotify_mark_remove_from_mask(struct fsnotify_mark *fsn_mark,
 			tmask &= ~FAN_ONDIR;
 
 		oldmask = fsn_mark->mask;
-		fsnotify_set_mark_mask_locked(fsn_mark, tmask);
+		fsn_mark->mask = tmask;
 	} else {
 		__u32 tmask = fsn_mark->ignored_mask & ~mask;
 		if (flags & FAN_MARK_ONDIR)
 			tmask &= ~FAN_ONDIR;
-
-		fsnotify_set_mark_ignored_mask_locked(fsn_mark, tmask);
+		fsn_mark->ignored_mask = tmask;
 	}
 	*destroy = !(fsn_mark->mask | fsn_mark->ignored_mask);
 	spin_unlock(&fsn_mark->lock);
@@ -544,7 +538,8 @@ static int fanotify_remove_vfsmount_mark(struct fsnotify_group *group,
 	int destroy_mark;
 
 	mutex_lock(&group->mark_mutex);
-	fsn_mark = fsnotify_find_vfsmount_mark(group, mnt);
+	fsn_mark = fsnotify_find_mark(&real_mount(mnt)->mnt_fsnotify_marks,
+				      group);
 	if (!fsn_mark) {
 		mutex_unlock(&group->mark_mutex);
 		return -ENOENT;
@@ -552,6 +547,8 @@ static int fanotify_remove_vfsmount_mark(struct fsnotify_group *group,
 
 	removed = fanotify_mark_remove_from_mask(fsn_mark, mask, flags,
 						 &destroy_mark);
+	if (removed & real_mount(mnt)->mnt_fsnotify_mask)
+		fsnotify_recalc_mask(real_mount(mnt)->mnt_fsnotify_marks);
 	if (destroy_mark)
 		fsnotify_detach_mark(fsn_mark);
 	mutex_unlock(&group->mark_mutex);
@@ -559,9 +556,6 @@ static int fanotify_remove_vfsmount_mark(struct fsnotify_group *group,
 		fsnotify_free_mark(fsn_mark);
 
 	fsnotify_put_mark(fsn_mark);
-	if (removed & real_mount(mnt)->mnt_fsnotify_mask)
-		fsnotify_recalc_vfsmount_mask(mnt);
-
 	return 0;
 }
 
@@ -574,7 +568,7 @@ static int fanotify_remove_inode_mark(struct fsnotify_group *group,
 	int destroy_mark;
 
 	mutex_lock(&group->mark_mutex);
-	fsn_mark = fsnotify_find_inode_mark(group, inode);
+	fsn_mark = fsnotify_find_mark(&inode->i_fsnotify_marks, group);
 	if (!fsn_mark) {
 		mutex_unlock(&group->mark_mutex);
 		return -ENOENT;
@@ -582,16 +576,16 @@ static int fanotify_remove_inode_mark(struct fsnotify_group *group,
 
 	removed = fanotify_mark_remove_from_mask(fsn_mark, mask, flags,
 						 &destroy_mark);
+	if (removed & inode->i_fsnotify_mask)
+		fsnotify_recalc_mask(inode->i_fsnotify_marks);
 	if (destroy_mark)
 		fsnotify_detach_mark(fsn_mark);
 	mutex_unlock(&group->mark_mutex);
 	if (destroy_mark)
 		fsnotify_free_mark(fsn_mark);
 
-	/* matches the fsnotify_find_inode_mark() */
+	/* matches the fsnotify_find_mark() */
 	fsnotify_put_mark(fsn_mark);
-	if (removed & inode->i_fsnotify_mask)
-		fsnotify_recalc_inode_mask(inode);
 
 	return 0;
 }
@@ -610,13 +604,13 @@ static __u32 fanotify_mark_add_to_mask(struct fsnotify_mark *fsn_mark,
 			tmask |= FAN_ONDIR;
 
 		oldmask = fsn_mark->mask;
-		fsnotify_set_mark_mask_locked(fsn_mark, tmask);
+		fsn_mark->mask = tmask;
 	} else {
 		__u32 tmask = fsn_mark->ignored_mask | mask;
 		if (flags & FAN_MARK_ONDIR)
 			tmask |= FAN_ONDIR;
 
-		fsnotify_set_mark_ignored_mask_locked(fsn_mark, tmask);
+		fsn_mark->ignored_mask = tmask;
 		if (flags & FAN_MARK_IGNORED_SURV_MODIFY)
 			fsn_mark->flags |= FSNOTIFY_MARK_FLAG_IGNORED_SURV_MODIFY;
 	}
@@ -639,8 +633,8 @@ static struct fsnotify_mark *fanotify_add_new_mark(struct fsnotify_group *group,
 	if (!mark)
 		return ERR_PTR(-ENOMEM);
 
-	fsnotify_init_mark(mark, fanotify_free_mark);
-	ret = fsnotify_add_mark_locked(mark, group, inode, mnt, 0);
+	fsnotify_init_mark(mark, group);
+	ret = fsnotify_add_mark_locked(mark, inode, mnt, 0);
 	if (ret) {
 		fsnotify_put_mark(mark);
 		return ERR_PTR(ret);
@@ -658,7 +652,8 @@ static int fanotify_add_vfsmount_mark(struct fsnotify_group *group,
 	__u32 added;
 
 	mutex_lock(&group->mark_mutex);
-	fsn_mark = fsnotify_find_vfsmount_mark(group, mnt);
+	fsn_mark = fsnotify_find_mark(&real_mount(mnt)->mnt_fsnotify_marks,
+				      group);
 	if (!fsn_mark) {
 		fsn_mark = fanotify_add_new_mark(group, NULL, mnt);
 		if (IS_ERR(fsn_mark)) {
@@ -667,10 +662,9 @@ static int fanotify_add_vfsmount_mark(struct fsnotify_group *group,
 		}
 	}
 	added = fanotify_mark_add_to_mask(fsn_mark, mask, flags);
-	mutex_unlock(&group->mark_mutex);
-
 	if (added & ~real_mount(mnt)->mnt_fsnotify_mask)
-		fsnotify_recalc_vfsmount_mask(mnt);
+		fsnotify_recalc_mask(real_mount(mnt)->mnt_fsnotify_marks);
+	mutex_unlock(&group->mark_mutex);
 
 	fsnotify_put_mark(fsn_mark);
 	return 0;
@@ -696,7 +690,7 @@ static int fanotify_add_inode_mark(struct fsnotify_group *group,
 		return 0;
 
 	mutex_lock(&group->mark_mutex);
-	fsn_mark = fsnotify_find_inode_mark(group, inode);
+	fsn_mark = fsnotify_find_mark(&inode->i_fsnotify_marks, group);
 	if (!fsn_mark) {
 		fsn_mark = fanotify_add_new_mark(group, inode, NULL);
 		if (IS_ERR(fsn_mark)) {
@@ -705,10 +699,9 @@ static int fanotify_add_inode_mark(struct fsnotify_group *group,
 		}
 	}
 	added = fanotify_mark_add_to_mask(fsn_mark, mask, flags);
-	mutex_unlock(&group->mark_mutex);
-
 	if (added & ~inode->i_fsnotify_mask)
-		fsnotify_recalc_inode_mask(inode);
+		fsnotify_recalc_mask(inode->i_fsnotify_marks);
+	mutex_unlock(&group->mark_mutex);
 
 	fsnotify_put_mark(fsn_mark);
 	return 0;

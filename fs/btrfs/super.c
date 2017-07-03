@@ -1136,6 +1136,13 @@ static int btrfs_fill_super(struct super_block *sb,
 #endif
 	sb->s_flags |= MS_I_VERSION;
 	sb->s_iflags |= SB_I_CGROUPWB;
+
+	err = super_setup_bdi(sb);
+	if (err) {
+		btrfs_err(fs_info, "super_setup_bdi failed");
+		return err;
+	}
+
 	err = open_ctree(sb, fs_devices, (char *)data);
 	if (err) {
 		btrfs_err(fs_info, "open_ctree failed");
@@ -1374,12 +1381,31 @@ static struct dentry *mount_subvol(const char *subvol_name, u64 subvol_objectid,
 	struct vfsmount *mnt = NULL;
 	char *newargs;
 	int ret;
+	static DEFINE_MUTEX(subvol_lock);
 
 	newargs = setup_root_args(data);
 	if (!newargs) {
 		root = ERR_PTR(-ENOMEM);
 		goto out;
 	}
+
+	/*
+	 * Protect against racing mounts of subvolumes with different RO/RW
+	 * flags.  The first vfs_kern_mount could fail with -EBUSY if the rw
+	 * flags do not match with the first and the currently mounted
+	 * subvolume.
+	 *
+	 * To resolve that, we adjust the rw flags and do remount. If another
+	 * mounts goes through the same path and hits the window between the
+	 * adjusted vfs_kern_mount and btrfs_remount, it will fail because of
+	 * the ro/rw mismatch in btrfs_mount.
+	 *
+	 * If the mounts do not race and are serialized externally, everything
+	 * works fine.  The function-local mutex enforces the serialization but
+	 * is otherwise only an ugly workaround due to lack of better
+	 * solutions.
+	 */
+	mutex_lock(&subvol_lock);
 
 	mnt = vfs_kern_mount(&btrfs_fs_type, flags, device_name, newargs);
 	if (PTR_ERR_OR_ZERO(mnt) == -EBUSY) {
@@ -1392,6 +1418,7 @@ static struct dentry *mount_subvol(const char *subvol_name, u64 subvol_objectid,
 			if (IS_ERR(mnt)) {
 				root = ERR_CAST(mnt);
 				mnt = NULL;
+				mutex_unlock(&subvol_lock);
 				goto out;
 			}
 
@@ -1400,10 +1427,13 @@ static struct dentry *mount_subvol(const char *subvol_name, u64 subvol_objectid,
 			up_write(&mnt->mnt_sb->s_umount);
 			if (ret < 0) {
 				root = ERR_PTR(ret);
+				mutex_unlock(&subvol_lock);
 				goto out;
 			}
 		}
 	}
+	mutex_unlock(&subvol_lock);
+
 	if (IS_ERR(mnt)) {
 		root = ERR_CAST(mnt);
 		mnt = NULL;
@@ -1788,8 +1818,7 @@ static int btrfs_remount(struct super_block *sb, int *flags, char *data)
 		}
 
 		if (fs_info->fs_devices->missing_devices >
-		     fs_info->num_tolerated_disk_barrier_failures &&
-		    !(*flags & MS_RDONLY)) {
+		     fs_info->num_tolerated_disk_barrier_failures) {
 			btrfs_warn(fs_info,
 				"too many missing devices, writeable remount is not allowed");
 			ret = -EACCES;
