@@ -3781,8 +3781,8 @@ S:	Supported
 F:	drivers/net/ethernet/chelsio/cxgb4vf/
 
 CXL (IBM Coherent Accelerator Processor Interface CAPI) DRIVER
-M:	Ian Munsie <imunsie@au1.ibm.com>
 M:	Frederic Barrat <fbarrat@linux.vnet.ibm.com>
+M:	Andrew Donnellan <andrew.donnellan@au1.ibm.com>
 L:	linuxppc-dev@lists.ozlabs.org
 S:	Supported
 F:	arch/powerpc/platforms/powernv/pci-cxl.c
@@ -4048,7 +4048,10 @@ W:	http://www.dialog-semiconductor.com/products
 S:	Supported
 F:	Documentation/hwmon/da90??
 F:	Documentation/devicetree/bindings/mfd/da90*.txt
+F:	Documentation/devicetree/bindings/input/da90??-onkey.txt
+F:	Documentation/devicetree/bindings/thermal/da90??-thermal.txt
 F:	Documentation/devicetree/bindings/regulator/da92*.txt
+F:	Documentation/devicetree/bindings/watchdog/da92??-wdt.txt
 F:	Documentation/devicetree/bindings/sound/da[79]*.txt
 F:	drivers/gpio/gpio-da90??.c
 F:	drivers/hwmon/da90??-hwmon.c
@@ -4063,6 +4066,7 @@ F:	drivers/power/supply/da9052-battery.c
 F:	drivers/power/supply/da91??-*.c
 F:	drivers/regulator/da903x.c
 F:	drivers/regulator/da9???-regulator.[ch]
+F:	drivers/thermal/da90??-thermal.c
 F:	drivers/rtc/rtc-da90??.c
 F:	drivers/video/backlight/da90??_bl.c
 F:	drivers/watchdog/da90??_wdt.c
@@ -5065,6 +5069,12 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/kristoffer/linux-hpc.git
 F:	drivers/video/fbdev/s1d13xxxfb.c
 F:	include/video/s1d13xxxfb.h
 
+ERRSEQ ERROR TRACKING INFRASTRUCTURE
+M:	Jeff Layton <jlayton@poochiereds.net>
+S:	Maintained
+F:	lib/errseq.c
+F:	include/linux/errseq.h
+
 ET131X NETWORK DRIVER
 M:	Mark Einon <mark.einon@gmail.com>
 S:	Odd Fixes
@@ -5348,7 +5358,7 @@ S:	Maintained
 F:	drivers/video/fbdev/fsl-diu-fb.*
 
 FREESCALE DMA DRIVER
-M:	Li Yang <leoli@freescale.com>
+M:	Li Yang <leoyang.li@nxp.com>
 M:	Zhang Wei <zw@zh-kernel.org>
 L:	linuxppc-dev@lists.ozlabs.org
 S:	Maintained
@@ -5413,11 +5423,11 @@ S:	Maintained
 F:	drivers/net/ethernet/freescale/dpaa
 
 FREESCALE SOC DRIVERS
-M:	Scott Wood <oss@buserror.net>
+M:	Li Yang <leoyang.li@nxp.com>
 L:	linuxppc-dev@lists.ozlabs.org
 L:	linux-arm-kernel@lists.infradead.org
 S:	Maintained
-F:	Documentation/devicetree/bindings/powerpc/fsl/
+F:	Documentation/devicetree/bindings/soc/fsl/
 F:	drivers/soc/fsl/
 F:	include/linux/fsl/
 
@@ -5430,14 +5440,14 @@ F:	include/soc/fsl/*qe*.h
 F:	include/soc/fsl/*ucc*.h
 
 FREESCALE USB PERIPHERAL DRIVERS
-M:	Li Yang <leoli@freescale.com>
+M:	Li Yang <leoyang.li@nxp.com>
 L:	linux-usb@vger.kernel.org
 L:	linuxppc-dev@lists.ozlabs.org
 S:	Maintained
 F:	drivers/usb/gadget/udc/fsl*
 
 FREESCALE QUICC ENGINE UCC ETHERNET DRIVER
-M:	Li Yang <leoli@freescale.com>
+M:	Li Yang <leoyang.li@nxp.com>
 L:	netdev@vger.kernel.org
 L:	linuxppc-dev@lists.ozlabs.org
 S:	Maintained
@@ -5746,6 +5756,15 @@ F:	include/linux/gpio.h
 F:	include/asm-generic/gpio.h
 F:	include/uapi/linux/gpio.h
 F:	tools/gpio/
+
+GPIO ACPI SUPPORT
+M:	Mika Westerberg <mika.westerberg@linux.intel.com>
+M:	Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+L:	linux-gpio@vger.kernel.org
+L:	linux-acpi@vger.kernel.org
+S:	Maintained
+F:	Documentation/acpi/gpio-properties.txt
+F:	drivers/gpio/gpiolib-acpi.c
 
 GRE DEMULTIPLEXER DRIVER
 M:	Dmitry Kozlov <xeb@mail.ru>
@@ -7324,9 +7343,10 @@ KERNEL SELFTEST FRAMEWORK
 M:	Shuah Khan <shuahkh@osg.samsung.com>
 M:	Shuah Khan <shuah@kernel.org>
 L:	linux-kselftest@vger.kernel.org
-T:	git git://git.kernel.org/pub/scm/shuah/linux-kselftest
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/shuah/linux-kselftest.git
 S:	Maintained
-F:	tools/testing/selftests
+F:	tools/testing/selftests/
+F:	Documentation/dev-tools/kselftest*
 
 KERNEL VIRTUAL MACHINE (KVM)
 M:	Paolo Bonzini <pbonzini@redhat.com>
@@ -7680,9 +7700,7 @@ M:	Ross Zwisler <ross.zwisler@linux.intel.com>
 L:	linux-nvdimm@lists.01.org
 Q:	https://patchwork.kernel.org/project/linux-nvdimm/list/
 S:	Supported
-F:	drivers/nvdimm/pmem.c
-F:	include/linux/pmem.h
-F:	arch/*/include/asm/pmem.h
+F:	drivers/nvdimm/pmem*
 
 LIGHTNVM PLATFORM SUPPORT
 M:	Matias Bjorling <mb@lightnvm.io>
@@ -7773,6 +7791,7 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/scottwood/linux.git
 S:	Maintained
 F:	arch/powerpc/platforms/83xx/
 F:	arch/powerpc/platforms/85xx/
+F:	Documentation/devicetree/bindings/powerpc/fsl/
 
 LINUX FOR POWERPC PA SEMI PWRFICIENT
 L:	linuxppc-dev@lists.ozlabs.org
@@ -9666,6 +9685,7 @@ S:	Maintained
 F:	drivers/of/
 F:	include/linux/of*.h
 F:	scripts/dtc/
+F:	Documentation/ABI/testing/sysfs-firmware-ofw
 
 OPEN FIRMWARE AND FLATTENED DEVICE TREE BINDINGS
 M:	Rob Herring <robh+dt@kernel.org>
@@ -11727,6 +11747,7 @@ F:	kernel/seccomp.c
 F:	include/uapi/linux/seccomp.h
 F:	include/linux/seccomp.h
 F:	tools/testing/selftests/seccomp/*
+F:	tools/testing/selftests/kselftest_harness.h
 F:	Documentation/userspace-api/seccomp_filter.rst
 K:	\bsecure_computing
 K:	\bTIF_SECCOMP\b
@@ -12026,6 +12047,13 @@ T:	git git://linuxtv.org/mhadli/v4l-dvb-davinci_devices.git
 S:	Maintained
 F:	drivers/media/platform/davinci/
 F:	include/media/davinci/
+
+TI DAVINCI SERIES GPIO DRIVER
+M:	Keerthy <j-keerthy@ti.com>
+L:	linux-gpio@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/gpio/gpio-davinci.txt
+F:	drivers/gpio/gpio-davinci.c
 
 TI AM437X VPFE DRIVER
 M:	"Lad, Prabhakar" <prabhakar.csengg@gmail.com>
@@ -12873,6 +12901,8 @@ F:	Documentation/devicetree/bindings/soc/ti/sci-pm-domain.txt
 F:	include/dt-bindings/genpd/k2g.h
 F:	drivers/soc/ti/ti_sci_pm_domains.c
 F:	Documentation/devicetree/bindings/reset/ti,sci-reset.txt
+F:	Documentation/devicetree/bindings/clock/ti,sci-clk.txt
+F:	drivers/clk/keystone/sci-clk.c
 F:	drivers/reset/reset-ti-sci.c
 
 THANKO'S RAREMONO AM/FM/SW RADIO RECEIVER USB DRIVER
@@ -14336,6 +14366,14 @@ M:	Eli Billauer <eli.billauer@gmail.com>
 L:	linux-kernel@vger.kernel.org
 S:	Supported
 F:	drivers/char/xillybus/
+
+XRA1403 GPIO EXPANDER
+M:	Nandor Han <nandor.han@ge.com>
+M:	Semi Malinen <semi.malinen@ge.com>
+L:	linux-gpio@vger.kernel.org
+S:	Maintained
+F:	drivers/gpio/gpio-xra1403.c
+F:	Documentation/devicetree/bindings/gpio/gpio-xra1403.txt
 
 XTENSA XTFPGA PLATFORM SUPPORT
 M:	Max Filippov <jcmvbkbc@gmail.com>
