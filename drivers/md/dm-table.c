@@ -423,7 +423,7 @@ int dm_get_device(struct dm_target *ti, const char *path, fmode_t mode,
 		atomic_set(&dd->count, 0);
 		list_add(&dd->list, &t->devices);
 
-	} else if (dd->dm_dev->mode != (mode | dd->dm_dev->mode)) {
+	} else if (dd->dm_dev->mode != mode) {
 		r = upgrade_mode(dd, mode, t->md);
 		if (r)
 			return r;
