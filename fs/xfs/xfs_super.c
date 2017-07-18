@@ -61,6 +61,10 @@
 #include <linux/kthread.h>
 #include <linux/freezer.h>
 #include <linux/parser.h>
+#include <linux/unsupported-feature.h>
+
+DECLARE_SUSE_UNSUPPORTED_FEATURE(xfs);
+DEFINE_SUSE_UNSUPPORTED_FEATURE(xfs);
 
 static const struct super_operations xfs_super_operations;
 struct bio_set *xfs_ioend_bioset;
@@ -1530,6 +1534,20 @@ xfs_destroy_percpu_counters(
 	percpu_counter_destroy(&mp->m_fdblocks);
 }
 
+int
+xfs_check_unsupported(struct xfs_mount *mp, const char *description)
+{
+	if (mp->m_flags & XFS_MOUNT_RDONLY)
+		return 0;
+
+	if (xfs_allow_unsupported())
+		return 0;
+
+	xfs_alert(mp, "Couldn't mount because of unsupported optional feature %s.  Load module with allow_unsupported=1.",
+		  description);
+	return -EOPNOTSUPP;
+}
+
 STATIC int
 xfs_fs_fill_super(
 	struct super_block	*sb,
@@ -1623,8 +1641,6 @@ xfs_fs_fill_super(
 		sb->s_flags |= MS_I_VERSION;
 
 	if (mp->m_flags & XFS_MOUNT_DAX) {
-		xfs_warn(mp,
-		"DAX enabled. Warning: EXPERIMENTAL, use at your own risk");
 
 		error = bdev_dax_supported(sb, sb->s_blocksize);
 		if (error) {
