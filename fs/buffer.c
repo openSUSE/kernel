@@ -1605,6 +1605,40 @@ void create_empty_buffers(struct page *page,
 }
 EXPORT_SYMBOL(create_empty_buffers);
 
+static void clean_bdev_page_alias(struct page *page, sector_t block,
+				  sector_t len)
+{
+	struct buffer_head *bh;
+	struct buffer_head *head;
+
+	if (!page_has_buffers(page))
+		return;
+	/*
+	 * We use page lock instead of bd_mapping->private_lock
+	 * to pin buffers here since we can afford to sleep and
+	 * it scales better than a global spinlock lock.
+	 */
+	lock_page(page);
+	/* Recheck when the page is locked which pins bhs */
+	if (!page_has_buffers(page))
+		goto unlock_page;
+	head = page_buffers(page);
+	bh = head;
+	do {
+		if (!buffer_mapped(bh) || (bh->b_blocknr < block))
+			goto next;
+		if (bh->b_blocknr >= block + len)
+			break;
+		clear_buffer_dirty(bh);
+		wait_on_buffer(bh);
+		clear_buffer_req(bh);
+next:
+		bh = bh->b_this_page;
+	} while (bh != head);
+unlock_page:
+	unlock_page(page);
+}
+
 /**
  * clean_bdev_aliases: clean a range of buffers in block device
  * @bdev: Block device to clean buffers in
@@ -1633,9 +1667,22 @@ void clean_bdev_aliases(struct block_device *bdev, sector_t block, sector_t len)
 	pgoff_t index = block >> (PAGE_SHIFT - bd_inode->i_blkbits);
 	pgoff_t end;
 	int i;
-	struct buffer_head *bh;
-	struct buffer_head *head;
 
+	/*
+	 * Specialcase a situation with just one block invalidated to avoid
+ 	 * needless radix tree scanning (pagevec_lookup() will scan the radix
+	 * tree until it finds a page which may be far beyond an index we are
+	 * interested in).
+	 */
+	if (len == 1) {
+		struct page *page = find_get_page(bd_mapping, index);
+
+		if (page) {
+			clean_bdev_page_alias(page, block, len);
+			put_page(page);
+		}
+		return;
+	}
 	end = (block + len - 1) >> (PAGE_SHIFT - bd_inode->i_blkbits);
 	pagevec_init(&pvec, 0);
 	while (index <= end && pagevec_lookup(&pvec, bd_mapping, index,
@@ -1646,32 +1693,7 @@ void clean_bdev_aliases(struct block_device *bdev, sector_t block, sector_t len)
 			index = page->index;
 			if (index > end)
 				break;
-			if (!page_has_buffers(page))
-				continue;
-			/*
-			 * We use page lock instead of bd_mapping->private_lock
-			 * to pin buffers here since we can afford to sleep and
-			 * it scales better than a global spinlock lock.
-			 */
-			lock_page(page);
-			/* Recheck when the page is locked which pins bhs */
-			if (!page_has_buffers(page))
-				goto unlock_page;
-			head = page_buffers(page);
-			bh = head;
-			do {
-				if (!buffer_mapped(bh) || (bh->b_blocknr < block))
-					goto next;
-				if (bh->b_blocknr >= block + len)
-					break;
-				clear_buffer_dirty(bh);
-				wait_on_buffer(bh);
-				clear_buffer_req(bh);
-next:
-				bh = bh->b_this_page;
-			} while (bh != head);
-unlock_page:
-			unlock_page(page);
+			clean_bdev_page_alias(page, block, len);
 		}
 		pagevec_release(&pvec);
 		cond_resched();
