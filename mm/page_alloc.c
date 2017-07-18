@@ -5240,6 +5240,30 @@ void __ref build_all_zonelists(pg_data_t *pgdat, struct zone *zone)
 #ifdef CONFIG_NUMA
 	pr_info("Policy zone: %s\n", zone_names[policy_zone]);
 #endif
+
+	/*
+	 * Check normal :movable ratio when memory node hot-remove/mirrored
+	 * memory is enabled
+	 */
+	if (movable_node_is_enabled()) {
+		unsigned long nr_movable = 0;
+
+		for_each_zone(zone) {
+			if (!populated_zone(zone) || zone_idx(zone) != ZONE_MOVABLE)
+				continue;
+
+			nr_movable += zone->managed_pages;
+		}
+
+		/* Warn if lowmem:movable is worse than 1:3 */
+		if ((vm_total_pages >> 2) < nr_movable) {
+			pr_warn("lowmem:movable memory is very high. "
+				"There may be OOM or performance problems if the kernel "
+				"cannot allocate memory as it is all marked "
+				"for movable nodes.\n");
+			WARN_ON_ONCE(1);
+		}
+	}
 }
 
 /*
