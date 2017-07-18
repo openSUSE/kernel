@@ -18,6 +18,7 @@
 
 #include <linux/blkdev.h>
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/buffer_head.h>
 #include <linux/fs.h>
 #include <linux/pagemap.h>
@@ -63,6 +64,8 @@
 #include "qgroup.h"
 #define CREATE_TRACE_POINTS
 #include <trace/events/btrfs.h>
+
+DEFINE_SUSE_UNSUPPORTED_FEATURE(btrfs)
 
 static const struct super_operations btrfs_super_ops;
 static struct file_system_type btrfs_fs_type;
@@ -700,6 +703,11 @@ int btrfs_parse_options(struct btrfs_fs_info *info, char *options,
 			}
 			break;
 		case Opt_inode_cache:
+			if (!btrfs_allow_unsupported) {
+				printk(KERN_WARNING "btrfs: inode_cache is not supported, load module with allow_unsupported=1\n");
+				ret = -EOPNOTSUPP;
+				break;
+			}
 			btrfs_set_pending_and_info(info, INODE_MAP_CACHE,
 					   "enabling inode map caching");
 			break;
@@ -721,6 +729,11 @@ int btrfs_parse_options(struct btrfs_fs_info *info, char *options,
 			btrfs_clear_opt(info->mount_opt, ENOSPC_DEBUG);
 			break;
 		case Opt_defrag:
+			if (!btrfs_allow_unsupported) {
+				printk(KERN_WARNING "btrfs: autodefrag is not supported, load module with allow_unsupported=1\n");
+				ret = -EOPNOTSUPP;
+				break;
+			}
 			btrfs_set_and_info(info, AUTO_DEFRAG,
 					   "enabling auto defrag");
 			break;
@@ -1822,6 +1835,13 @@ static int btrfs_remount(struct super_block *sb, int *flags, char *data)
 			btrfs_warn(fs_info,
 				"too many missing devices, writeable remount is not allowed");
 			ret = -EACCES;
+			goto restore;
+		}
+		if ((btrfs_super_incompat_flags(fs_info->super_copy)
+					& BTRFS_FEATURE_INCOMPAT_RAID56)
+				&& !btrfs_allow_unsupported) {
+			printk(KERN_WARNING "btrfs: cannot remount RW, RAID56 is supported read-only, load module with allow_unsupported=1\n");
+			ret = -EINVAL;
 			goto restore;
 		}
 
