@@ -113,9 +113,53 @@ int __init early_init_dt_scan_fw_dump(unsigned long node,
 	return 1;
 }
 
+/*
+ * If fadump is registered, check if the memory provided
+ * falls within boot memory area.
+ */
+int is_fadump_boot_memory_area(u64 addr, ulong size)
+{
+	if (!fw_dump.dump_registered)
+		return 0;
+
+	return (addr + size) > RMA_START && addr <= fw_dump.boot_memory_size;
+}
+
 int is_fadump_active(void)
 {
 	return fw_dump.dump_active;
+}
+
+/*
+ * Returns 1, if there are no holes in boot memory area,
+ * 0 otherwise.
+ */
+static int is_boot_memory_area_contiguous(void)
+{
+	struct memblock_region *reg;
+	unsigned long tstart, tend;
+	unsigned long start_pfn = PHYS_PFN(RMA_START);
+	unsigned long end_pfn = PHYS_PFN(RMA_START + fw_dump.boot_memory_size);
+	unsigned int ret = 0;
+
+	for_each_memblock(memory, reg) {
+		tstart = max(start_pfn, memblock_region_memory_base_pfn(reg));
+		tend = min(end_pfn, memblock_region_memory_end_pfn(reg));
+		if (tstart < tend) {
+			/* Memory hole from start_pfn to tstart */
+			if (tstart > start_pfn)
+				break;
+
+			if (tend == end_pfn) {
+				ret = 1;
+				break;
+			}
+
+			start_pfn = tend + 1;
+		}
+	}
+
+	return ret;
 }
 
 /* Print firmware assisted dump configurations for debugging purpose. */
@@ -377,9 +421,9 @@ static int __init early_fadump_param(char *p)
 }
 early_param("fadump", early_fadump_param);
 
-static void register_fw_dump(struct fadump_mem_struct *fdm)
+static int register_fw_dump(struct fadump_mem_struct *fdm)
 {
-	int rc;
+	int rc, err;
 	unsigned int wait_time;
 
 	pr_debug("Registering for firmware-assisted kernel dump...\n");
@@ -396,26 +440,39 @@ static void register_fw_dump(struct fadump_mem_struct *fdm)
 
 	} while (wait_time);
 
+	err = -EIO;
 	switch (rc) {
+	default:
+		printk(KERN_ERR "Failed to register firmware-assisted kernel"
+			" dump. Unknown Error(%d).\n", rc);
+		break;
 	case -1:
 		printk(KERN_ERR "Failed to register firmware-assisted kernel"
 			" dump. Hardware Error(%d).\n", rc);
 		break;
 	case -3:
+		if (!is_boot_memory_area_contiguous())
+			pr_err("Can't have holes in boot memory area while "
+			       "registering fadump\n");
+
 		printk(KERN_ERR "Failed to register firmware-assisted kernel"
 			" dump. Parameter Error(%d).\n", rc);
+		err = -EINVAL;
 		break;
 	case -9:
 		printk(KERN_ERR "firmware-assisted kernel dump is already "
 			" registered.");
 		fw_dump.dump_registered = 1;
+		err = -EEXIST;
 		break;
 	case 0:
 		printk(KERN_INFO "firmware-assisted kernel dump registration"
 			" is successful\n");
 		fw_dump.dump_registered = 1;
+		err = 0;
 		break;
 	}
+	return err;
 }
 
 void crash_fadump(struct pt_regs *regs, const char *str)
@@ -831,8 +888,19 @@ static void fadump_setup_crash_memory_ranges(void)
 	for_each_memblock(memory, reg) {
 		start = (unsigned long long)reg->base;
 		end = start + (unsigned long long)reg->size;
-		if (start == RMA_START && end >= fw_dump.boot_memory_size)
-			start = fw_dump.boot_memory_size;
+
+		/*
+		 * skip the first memory chunk that is already added (RMA_START
+		 * through boot_memory_size). This logic needs a relook if and
+		 * when RMA_START changes to a non-zero value.
+		 */
+		BUILD_BUG_ON(RMA_START != 0);
+		if (start < fw_dump.boot_memory_size) {
+			if (end > fw_dump.boot_memory_size)
+				start = fw_dump.boot_memory_size;
+			else
+				continue;
+		}
 
 		/* add this range excluding the reserved dump area. */
 		fadump_exclude_reserved_area(start, end);
@@ -956,7 +1024,7 @@ static unsigned long init_fadump_header(unsigned long addr)
 	return addr;
 }
 
-static void register_fadump(void)
+static int register_fadump(void)
 {
 	unsigned long addr;
 	void *vaddr;
@@ -966,7 +1034,7 @@ static void register_fadump(void)
 	 * assisted dump.
 	 */
 	if (!fw_dump.reserve_dump_area_size)
-		return;
+		return -ENODEV;
 
 	fadump_setup_crash_memory_ranges();
 
@@ -979,7 +1047,7 @@ static void register_fadump(void)
 	fadump_create_elfcore_headers(vaddr);
 
 	/* register the future kernel dump with firmware. */
-	register_fw_dump(&fdm);
+	return register_fw_dump(&fdm);
 }
 
 static int fadump_unregister_dump(struct fadump_mem_struct *fdm)
@@ -1046,28 +1114,71 @@ void fadump_cleanup(void)
 	}
 }
 
+static void fadump_free_reserved_memory(unsigned long start_pfn,
+					unsigned long end_pfn)
+{
+	unsigned long pfn;
+	unsigned long time_limit = jiffies + HZ;
+
+	pr_info("freeing reserved memory (0x%llx - 0x%llx)\n",
+		PFN_PHYS(start_pfn), PFN_PHYS(end_pfn));
+
+	for (pfn = start_pfn; pfn < end_pfn; pfn++) {
+		free_reserved_page(pfn_to_page(pfn));
+
+		if (time_after(jiffies, time_limit)) {
+			cond_resched();
+			time_limit = jiffies + HZ;
+		}
+	}
+}
+
+/*
+ * Skip memory holes and free memory that was actually reserved.
+ */
+static void fadump_release_reserved_area(unsigned long start, unsigned long end)
+{
+	struct memblock_region *reg;
+	unsigned long tstart, tend;
+	unsigned long start_pfn = PHYS_PFN(start);
+	unsigned long end_pfn = PHYS_PFN(end);
+
+	for_each_memblock(memory, reg) {
+		tstart = max(start_pfn, memblock_region_memory_base_pfn(reg));
+		tend = min(end_pfn, memblock_region_memory_end_pfn(reg));
+		if (tstart < tend) {
+			fadump_free_reserved_memory(tstart, tend);
+
+			if (tend == end_pfn)
+				break;
+
+			start_pfn = tend + 1;
+		}
+	}
+}
+
 /*
  * Release the memory that was reserved in early boot to preserve the memory
  * contents. The released memory will be available for general use.
  */
 static void fadump_release_memory(unsigned long begin, unsigned long end)
 {
-	unsigned long addr;
 	unsigned long ra_start, ra_end;
 
 	ra_start = fw_dump.reserve_dump_area_start;
 	ra_end = ra_start + fw_dump.reserve_dump_area_size;
 
-	for (addr = begin; addr < end; addr += PAGE_SIZE) {
-		/*
-		 * exclude the dump reserve area. Will reuse it for next
-		 * fadump registration.
-		 */
-		if (addr <= ra_end && ((addr + PAGE_SIZE) > ra_start))
-			continue;
-
-		free_reserved_page(pfn_to_page(addr >> PAGE_SHIFT));
-	}
+	/*
+	 * exclude the dump reserve area. Will reuse it for next
+	 * fadump registration.
+	 */
+	if (begin < ra_end && end > ra_start) {
+		if (begin < ra_start)
+			fadump_release_reserved_area(begin, ra_start);
+		if (end > ra_end)
+			fadump_release_reserved_area(ra_end, end);
+	} else
+		fadump_release_reserved_area(begin, end);
 }
 
 static void fadump_invalidate_release_mem(void)
@@ -1161,7 +1272,6 @@ static ssize_t fadump_register_store(struct kobject *kobj,
 	switch (buf[0]) {
 	case '0':
 		if (fw_dump.dump_registered == 0) {
-			ret = -EINVAL;
 			goto unlock_out;
 		}
 		/* Un-register Firmware-assisted dump */
@@ -1169,11 +1279,11 @@ static ssize_t fadump_register_store(struct kobject *kobj,
 		break;
 	case '1':
 		if (fw_dump.dump_registered == 1) {
-			ret = -EINVAL;
+			ret = -EEXIST;
 			goto unlock_out;
 		}
 		/* Register Firmware-assisted dump */
-		register_fadump();
+		ret = register_fadump();
 		break;
 	default:
 		ret = -EINVAL;
