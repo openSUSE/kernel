@@ -178,7 +178,7 @@ config MD_FAULTY
 
 
 config MD_CLUSTER
-	tristate "Cluster Support for MD (EXPERIMENTAL)"
+	tristate "Cluster Support for MD"
 	depends on BLK_DEV_MD
 	depends on DLM
 	default n
