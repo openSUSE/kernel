@@ -11003,9 +11003,13 @@ lpfc_sli_abort_iocb(struct lpfc_vport *vport, struct lpfc_sli_ring *pring,
 
 		/* Setup callback routine and issue the command. */
 		abtsiocb->iocb_cmpl = lpfc_sli_abort_fcp_cmpl;
-		ret_val = lpfc_sli_issue_iocb(phba, pring->ringno,
-					      abtsiocb, 0);
-		if (ret_val == IOCB_ERROR) {
+
+		/* In PCI hotplug remove path, pring might be NULL */
+		if (pring)
+			ret_val = lpfc_sli_issue_iocb(phba, pring->ringno,
+						      abtsiocb, 0);
+
+		if (!pring || ret_val == IOCB_ERROR) {
 			lpfc_sli_release_iocbq(phba, abtsiocb);
 			errcnt++;
 			continue;
