@@ -408,6 +408,7 @@ struct sched_rt_entity {
 	/* rq "owned" by this entity/group: */
 	struct rt_rq			*my_q;
 #endif
+	void *suse_kabi_padding;
 };
 
 struct sched_dl_entity {
@@ -1050,6 +1051,7 @@ struct task_struct {
 #ifdef CONFIG_SECURITY
 	/* Used by LSM modules for access restriction: */
 	void				*security;
+	void				*suse_kabi_padding;
 #endif
 	/* CPU-specific state of this task: */
 	struct thread_struct		thread;
