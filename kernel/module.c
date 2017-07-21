@@ -3697,6 +3697,8 @@ static int load_module(struct load_info *info, const char __user *uargs,
 	struct module *mod;
 	long err;
 	char *after_dashes;
+	unsigned long time_start, time_end;
+	unsigned int delta;
 
 	err = module_sig_check(info, flags);
 	if (err)
@@ -3820,7 +3822,22 @@ static int load_module(struct load_info *info, const char __user *uargs,
 	/* Done! */
 	trace_module_load(mod);
 
-	return do_init_module(mod);
+	time_start = jiffies;
+	err = do_init_module(mod);
+	time_end = jiffies;
+
+	delta = jiffies_to_msecs(time_end - time_start);
+
+	/*
+	 * Some subsystems do async probe, some do not, but lets be clear
+	 * about the possibility of both, some subsystems do want to see
+	 * reports about this and address these delays. 5 minutes for now.
+	 */
+	WARN(delta >= 300000,
+	     "Device driver %s initialization / probe took %d ms to complete, report this\n",
+	     mod->name, delta);
+
+	return err;
 
  sysfs_cleanup:
 	mod_sysfs_teardown(mod);
