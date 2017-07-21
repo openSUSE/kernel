@@ -1956,6 +1956,13 @@ int qed_hw_start_fastpath(struct qed_hwfn *p_hwfn)
 	if (!p_ptt)
 		return -EAGAIN;
 
+	/* If roce info is allocated it means roce is initialized and should
+	 * be enabled in searcher.
+	 */
+	if (p_hwfn->p_rdma_info &&
+	    p_hwfn->b_rdma_enabled_in_prs)
+		qed_wr(p_hwfn, p_ptt, p_hwfn->rdma_prs_search_reg, 0x1);
+
 	/* Re-open incoming traffic */
 	qed_wr(p_hwfn, p_ptt, NIG_REG_RX_LLH_BRB_GATE_DNTFWD_PERPF, 0x0);
 	qed_ptt_release(p_hwfn, p_ptt);
@@ -2058,16 +2065,22 @@ static void qed_hw_set_feat(struct qed_hwfn *p_hwfn)
 							 QED_VF_L2_QUE));
 	}
 
+	if (p_hwfn->hw_info.personality == QED_PCI_FCOE)
+		feat_num[QED_FCOE_CQ] =  min_t(u32, sb_cnt_info.sb_cnt,
+					       RESC_NUM(p_hwfn,
+							QED_CMDQS_CQS));
+
 	if (p_hwfn->hw_info.personality == QED_PCI_ISCSI)
 		feat_num[QED_ISCSI_CQ] = min_t(u32, RESC_NUM(p_hwfn, QED_SB),
 					       RESC_NUM(p_hwfn,
 							QED_CMDQS_CQS));
 	DP_VERBOSE(p_hwfn,
 		   NETIF_MSG_PROBE,
-		   "#PF_L2_QUEUES=%d VF_L2_QUEUES=%d #ROCE_CNQ=%d ISCSI_CQ=%d #SBS=%d\n",
+		   "#PF_L2_QUEUES=%d VF_L2_QUEUES=%d #ROCE_CNQ=%d FCOE_CQ=%d ISCSI_CQ=%d #SBS=%d\n",
 		   (int)FEAT_NUM(p_hwfn, QED_PF_L2_QUE),
 		   (int)FEAT_NUM(p_hwfn, QED_VF_L2_QUE),
 		   (int)FEAT_NUM(p_hwfn, QED_RDMA_CNQ),
+		   (int)FEAT_NUM(p_hwfn, QED_FCOE_CQ),
 		   (int)FEAT_NUM(p_hwfn, QED_ISCSI_CQ),
 		   RESC_NUM(p_hwfn, QED_SB));
 }
