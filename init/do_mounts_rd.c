@@ -20,6 +20,7 @@
 
 #include "do_mounts.h"
 #include "../fs/squashfs/squashfs_fs.h"
+#include "../fs/squashfs3/squashfs3_fs.h"
 
 #include <linux/decompress/generic.h>
 
@@ -71,6 +72,7 @@ identify_ramdisk_image(int fd, int start_block, decompress_fn *decompressor)
 	struct romfs_super_block *romfsb;
 	struct cramfs_super *cramfsb;
 	struct squashfs_super_block *squashfsb;
+	struct squashfs3_super_block *squashfs3sb;
 	int nblocks = -1;
 	unsigned char *buf;
 	const char *compress_name;
@@ -84,6 +86,7 @@ identify_ramdisk_image(int fd, int start_block, decompress_fn *decompressor)
 	romfsb = (struct romfs_super_block *) buf;
 	cramfsb = (struct cramfs_super *) buf;
 	squashfsb = (struct squashfs_super_block *) buf;
+	squashfs3sb = (struct squashfs3_super_block *) buf;
 	memset(buf, 0xe5, size);
 
 	/*
@@ -123,12 +126,24 @@ identify_ramdisk_image(int fd, int start_block, decompress_fn *decompressor)
 	}
 
 	/* squashfs is at block zero too */
-	if (le32_to_cpu(squashfsb->s_magic) == SQUASHFS_MAGIC) {
+	if (le32_to_cpu(squashfsb->s_magic) == SQUASHFS_MAGIC &&
+	    le16_to_cpu(squashfsb->s_major) == SQUASHFS_MAJOR) {
 		printk(KERN_NOTICE
 		       "RAMDISK: squashfs filesystem found at block %d\n",
 		       start_block);
 		nblocks = (le64_to_cpu(squashfsb->bytes_used) + BLOCK_SIZE - 1)
 			 >> BLOCK_SIZE_BITS;
+		goto done;
+	}
+	if (squashfs3sb->s_magic == SQUASHFS_MAGIC &&
+	    squashfs3sb->s_major <= 3) {
+		printk(KERN_NOTICE
+		       "RAMDISK: squashfs3 filesystem found at block %d\n",
+		       start_block);
+		if (squashfs3sb->s_major < 3)
+			nblocks = (squashfs3sb->bytes_used_2+BLOCK_SIZE-1)>>BLOCK_SIZE_BITS;
+		else
+			nblocks = (squashfs3sb->bytes_used+BLOCK_SIZE-1)>>BLOCK_SIZE_BITS;
 		goto done;
 	}
 

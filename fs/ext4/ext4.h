@@ -43,6 +43,8 @@
 #ifdef __KERNEL__
 #include <linux/compat.h>
 #endif
+#include <linux/module.h>
+#include <linux/unsupported-feature.h>
 
 /*
  * The fourth extended filesystem constants/structures
@@ -3248,4 +3250,5 @@ extern const struct iomap_ops ext4_iomap_ops;
 #define EFSBADCRC	EBADMSG		/* Bad CRC detected */
 #define EFSCORRUPTED	EUCLEAN		/* Filesystem is corrupted */
 
+DECLARE_SUSE_UNSUPPORTED_FEATURE(ext4);
 #endif	/* _EXT4_H */

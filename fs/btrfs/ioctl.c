@@ -5505,6 +5505,7 @@ long btrfs_ioctl(struct file *file, unsigned int
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	struct btrfs_root *root = BTRFS_I(inode)->root;
 	void __user *argp = (void __user *)arg;
+	int ret = -ENOTTY;
 
 	switch (cmd) {
 	case FS_IOC_GETFLAGS:
@@ -5621,6 +5622,11 @@ long btrfs_ioctl(struct file *file, unsigned int
 	case BTRFS_IOC_QUOTA_RESCAN_WAIT:
 		return btrfs_ioctl_quota_rescan_wait(file, argp);
 	case BTRFS_IOC_DEV_REPLACE:
+		if (!btrfs_allow_unsupported) {
+			printk(KERN_WARNING "btrfs: IOC_DEV_REPLACE is not supported, load module with allow_unsupported=1\n");
+			ret = -EOPNOTSUPP;
+			break;
+		}
 		return btrfs_ioctl_dev_replace(fs_info, argp);
 	case BTRFS_IOC_GET_FSLABEL:
 		return btrfs_ioctl_get_fslabel(file, argp);
@@ -5634,7 +5640,7 @@ long btrfs_ioctl(struct file *file, unsigned int
 		return btrfs_ioctl_set_features(file, argp);
 	}
 
-	return -ENOTTY;
+	return ret;
 }
 
 #ifdef CONFIG_COMPAT

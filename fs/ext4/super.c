@@ -52,6 +52,8 @@
 #include "mballoc.h"
 #include "fsmap.h"
 
+DEFINE_SUSE_UNSUPPORTED_FEATURE(ext4)
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/ext4.h>
 
@@ -2674,6 +2676,28 @@ static unsigned long ext4_get_stripe_size(struct ext4_sb_info *sbi)
 	return ret;
 }
 
+static int
+ext4_check_unsupported_ro(struct super_block *sb, bool allow_ro, bool readonly,
+			  const char *description)
+{
+       if (allow_ro && readonly)
+               return 0;
+
+       if (ext4_allow_unsupported())
+               return 0;
+
+       ext4_msg(sb, KERN_ERR "Couldn't mount %sbecause of SUSE-unsupported optional feature %s.  Load module with allow_unsupported=1.",
+                 description, allow_ro ? "RDWR " : "");
+       return -EINVAL;
+}
+
+static int
+ext4_check_unsupported(struct super_block *sb, const char *description)
+{
+	/* The readonly argument doesn't matter if allow_ro is false */
+	return ext4_check_unsupported_ro(sb, false, false, description);
+}
+
 /*
  * Check whether this filesystem can be mounted based on
  * the features present and the RDONLY/RDWR mount requested.
@@ -2708,6 +2732,16 @@ static int ext4_feature_set_ok(struct super_block *sb, int readonly)
 				~EXT4_FEATURE_RO_COMPAT_SUPP));
 		return 0;
 	}
+
+
+	if (ext4_has_feature_bigalloc(sb) &&
+	    ext4_check_unsupported_ro(sb, true, readonly, "BIGALLOC"))
+		return 0;
+
+	if (ext4_has_feature_metadata_csum(sb) &&
+	    ext4_check_unsupported_ro(sb, true, readonly, "METADATA_CSUM"))
+		return 0;
+
 	/*
 	 * Large file size enabled file system can only be mounted
 	 * read-write on 32-bit systems if kernel is built with CONFIG_LBDAF
@@ -4516,6 +4550,7 @@ static int ext4_load_journal(struct super_block *sb,
 	dev_t journal_dev;
 	int err = 0;
 	int really_read_only;
+	int csum_v1, csum_v2;
 
 	BUG_ON(!ext4_has_feature_journal(sb));
 
@@ -4581,8 +4616,23 @@ static int ext4_load_journal(struct super_block *sb,
 
 	if (err) {
 		ext4_msg(sb, KERN_ERR, "error loading journal");
-		jbd2_journal_destroy(journal);
-		return err;
+		goto out_destroy_journal;
+	}
+
+	csum_v1 = jbd2_journal_check_used_features(journal,
+			JBD2_FEATURE_COMPAT_CHECKSUM, 0, 0);
+	if (csum_v1) {
+		err = ext4_check_unsupported(sb, "CHECKSUM");
+		if (err)
+			goto out_destroy_journal;
+	}
+
+	csum_v2 = jbd2_journal_check_used_features(journal, 0, 0,
+			JBD2_FEATURE_INCOMPAT_CSUM_V2);
+	if (csum_v2) {
+		err = ext4_check_unsupported(sb, "CSUM_V1");
+		if (err)
+			goto out_destroy_journal;
 	}
 
 	EXT4_SB(sb)->s_journal = journal;
@@ -4597,6 +4647,10 @@ static int ext4_load_journal(struct super_block *sb,
 	}
 
 	return 0;
+
+out_destroy_journal:
+	jbd2_journal_destroy(journal);
+	return err;
 }
 
 static int ext4_commit_super(struct super_block *sb, int sync)
