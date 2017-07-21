@@ -891,7 +891,7 @@ static u16 cxgb_select_queue(struct net_device *dev, struct sk_buff *skb,
 	 * The skb's priority is determined via the VLAN Tag Priority Code
 	 * Point field.
 	 */
-	if (cxgb4_dcb_enabled(dev)) {
+	if (cxgb4_dcb_enabled(dev) && !is_kdump_kernel()) {
 		u16 vlan_tci;
 		int err;
 
@@ -2726,6 +2726,16 @@ static int cxgb_setup_tc(struct net_device *dev, u32 handle, __be16 proto,
 	return -EOPNOTSUPP;
 }
 
+static netdev_features_t cxgb_fix_features(struct net_device *dev,
+					   netdev_features_t features)
+{
+	/* Disable GRO, if RX_CSUM is disabled */
+	if (!(features & NETIF_F_RXCSUM))
+		features &= ~NETIF_F_GRO;
+
+	return features;
+}
+
 static const struct net_device_ops cxgb4_netdev_ops = {
 	.ndo_open             = cxgb_open,
 	.ndo_stop             = cxgb_close,
@@ -2747,6 +2757,7 @@ static const struct net_device_ops cxgb4_netdev_ops = {
 #endif /* CONFIG_CHELSIO_T4_FCOE */
 	.ndo_set_tx_maxrate   = cxgb_set_tx_maxrate,
 	.ndo_setup_tc         = cxgb_setup_tc,
+	.ndo_fix_features     = cxgb_fix_features,
 };
 
 #ifdef CONFIG_PCI_IOV
@@ -4018,10 +4029,7 @@ static void cfg_queues(struct adapter *adap)
 
 	/* Reduce memory usage in kdump environment, disable all offload.
 	 */
-	if (is_kdump_kernel()) {
-		adap->params.offload = 0;
-		adap->params.crypto = 0;
-	} else if (is_uld(adap) && t4_uld_mem_alloc(adap)) {
+	if (is_kdump_kernel() || (is_uld(adap) && t4_uld_mem_alloc(adap))) {
 		adap->params.offload = 0;
 		adap->params.crypto = 0;
 	}
@@ -4042,7 +4050,7 @@ static void cfg_queues(struct adapter *adap)
 		struct port_info *pi = adap2pinfo(adap, i);
 
 		pi->first_qset = qidx;
-		pi->nqsets = 8;
+		pi->nqsets = is_kdump_kernel() ? 1 : 8;
 		qidx += pi->nqsets;
 	}
 #else /* !CONFIG_CHELSIO_T4_DCB */
@@ -4054,6 +4062,9 @@ static void cfg_queues(struct adapter *adap)
 		q10g = (MAX_ETH_QSETS - (adap->params.nports - n10g)) / n10g;
 	if (q10g > netif_get_num_default_rss_queues())
 		q10g = netif_get_num_default_rss_queues();
+
+	if (is_kdump_kernel())
+		q10g = 1;
 
 	for_each_port(adap, i) {
 		struct port_info *pi = adap2pinfo(adap, i);
@@ -4959,6 +4970,8 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		adapter->port[i]->dev_port = pi->lport;
 		netif_set_real_num_tx_queues(adapter->port[i], pi->nqsets);
 		netif_set_real_num_rx_queues(adapter->port[i], pi->nqsets);
+
+		netif_carrier_off(adapter->port[i]);
 
 		err = register_netdev(adapter->port[i]);
 		if (err)
