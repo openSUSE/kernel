@@ -450,7 +450,7 @@ struct module {
 	unsigned long *ftrace_callsites;
 #endif
 
-#ifdef CONFIG_LIVEPATCH
+#if defined(CONFIG_LIVEPATCH) || defined(__aarch64__)
 	bool klp; /* Is this a livepatch module? */
 	bool klp_alive;
 
