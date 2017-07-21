@@ -863,8 +863,10 @@ void pstore_get_backend_records(struct pstore_info *psi,
 		record->size = psi->read(record);
 
 		/* No more records left in backend? */
-		if (record->size <= 0)
+		if (record->size <= 0) {
+			kfree(record);
 			break;
+		}
 
 		decompress_record(record);
 		if (flags & PGR_POPULATE)
