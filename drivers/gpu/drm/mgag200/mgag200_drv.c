@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/console.h>
 #include <drm/drmP.h>
+#include <drm/drm_crtc_helper.h>
 
 #include "mgag200_drv.h"
 
@@ -22,13 +23,18 @@
  * functions
  */
 int mgag200_modeset = -1;
+int mgag200_preferred_depth __read_mostly;
 
 MODULE_PARM_DESC(modeset, "Disable/Enable modesetting");
 module_param_named(modeset, mgag200_modeset, int, 0400);
+MODULE_PARM_DESC(preferreddepth, "Set preferred bpp");
+module_param_named(preferreddepth, mgag200_preferred_depth, int, 0400);
 
 static struct drm_driver driver;
 
 static const struct pci_device_id pciidlist[] = {
+	{ PCI_VENDOR_ID_MATROX, 0x520, PCI_ANY_ID, PCI_ANY_ID, 0, 0, G200_PCI },
+	{ PCI_VENDOR_ID_MATROX, 0x521, PCI_ANY_ID, PCI_ANY_ID, 0, 0, G200 },
 	{ PCI_VENDOR_ID_MATROX, 0x522, PCI_ANY_ID, PCI_ANY_ID, 0, 0, G200_SE_A },
 	{ PCI_VENDOR_ID_MATROX, 0x524, PCI_ANY_ID, PCI_ANY_ID, 0, 0, G200_SE_B },
 	{ PCI_VENDOR_ID_MATROX, 0x530, PCI_ANY_ID, PCI_ANY_ID, 0, 0, G200_EV },
@@ -76,6 +82,45 @@ static void mga_pci_remove(struct pci_dev *pdev)
 	drm_put_dev(dev);
 }
 
+#ifdef CONFIG_PM_SLEEP
+static int mgag200_pm_suspend(struct device *dev)
+{
+	struct drm_device *drm_dev = dev_get_drvdata(dev);
+	struct mga_device *mdev = drm_dev->dev_private;
+
+	drm_kms_helper_poll_disable(drm_dev);
+
+	if (mdev->mfbdev) {
+		console_lock();
+		drm_fb_helper_set_suspend(&mdev->mfbdev->helper, 1);
+		console_unlock();
+	}
+
+	return 0;
+}
+
+static int mgag200_pm_resume(struct device *dev)
+{
+	struct drm_device *drm_dev = dev_get_drvdata(dev);
+	struct mga_device *mdev = drm_dev->dev_private;
+
+	drm_helper_resume_force_mode(drm_dev);
+
+	if (mdev->mfbdev) {
+		console_lock();
+		drm_fb_helper_set_suspend(&mdev->mfbdev->helper, 0);
+		console_unlock();
+	}
+
+	drm_kms_helper_poll_enable(drm_dev);
+	return 0;
+}
+#endif
+
+static const struct dev_pm_ops mgag200_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(mgag200_pm_suspend, mgag200_pm_resume)
+};
+
 static const struct file_operations mgag200_driver_fops = {
 	.owner = THIS_MODULE,
 	.open = drm_open,
@@ -111,6 +156,7 @@ static struct pci_driver mgag200_pci_driver = {
 	.id_table = pciidlist,
 	.probe = mga_pci_probe,
 	.remove = mga_pci_remove,
+	.driver.pm = &mgag200_pm_ops,
 };
 
 static int __init mgag200_init(void)
@@ -120,6 +166,14 @@ static int __init mgag200_init(void)
 
 	if (mgag200_modeset == 0)
 		return -EINVAL;
+	switch (mgag200_preferred_depth) {
+	case 0: /* driver default */
+	case 16:
+	case 24:
+		break;
+	default:
+		return -EINVAL;
+	}
 	return drm_pci_init(&driver, &mgag200_pci_driver);
 }
 
