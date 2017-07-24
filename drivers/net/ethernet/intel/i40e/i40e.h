@@ -442,6 +442,7 @@ struct i40e_pf {
 #define I40E_FLAG_CLIENT_L2_CHANGE		BIT_ULL(56)
 #define I40E_FLAG_WOL_MC_MAGIC_PKT_WAKE		BIT_ULL(57)
 #define I40E_FLAG_LEGACY_RX			BIT_ULL(58)
+#define I40E_FLAG_SOURCE_PRUNING_DISABLED       BIT_ULL(59)
 
 	struct i40e_client_instance *cinst;
 	bool stat_offsets_loaded;
