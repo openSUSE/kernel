@@ -175,6 +175,8 @@ struct mga_mc {
 };
 
 enum mga_type {
+	G200_PCI,
+	G200,
 	G200_SE_A,
 	G200_SE_B,
 	G200_WB,
@@ -207,6 +209,8 @@ struct mga_device {
 	int				has_sdram;
 	struct drm_display_mode		mode;
 
+	int preferred_bpp;
+
 	int bpp_shifts[4];
 
 	int fb_mtrr;
@@ -219,6 +223,11 @@ struct mga_device {
 
 	/* SE model number stored in reg 0x1e24 */
 	u32 unique_rev_id;
+	struct  {
+		long ref_clk;
+		long pclk_min;
+		long pclk_max;
+	} bios;
 };
 
 
@@ -250,6 +259,7 @@ void mgag200_modeset_fini(struct mga_device *mdev);
 				/* mgag200_fb.c */
 int mgag200_fbdev_init(struct mga_device *mdev);
 void mgag200_fbdev_fini(struct mga_device *mdev);
+void mgag200_fbdev_set_base(struct mga_device *mdev, unsigned long gpu_addr);
 
 				/* mgag200_main.c */
 int mgag200_framebuffer_init(struct drm_device *dev,
@@ -284,12 +294,10 @@ static inline int mgag200_bo_reserve(struct mgag200_bo *bo, bool no_wait)
 	int ret;
 
 	ret = ttm_bo_reserve(&bo->bo, true, no_wait, NULL);
-	if (ret) {
-		if (ret != -ERESTARTSYS && ret != -EBUSY)
-			DRM_ERROR("reserve failed %p\n", bo);
-		return ret;
-	}
-	return 0;
+	if (ret && ret != -ERESTARTSYS && ret != -EBUSY)
+		DRM_ERROR("reserve failed %p\n", bo);
+
+	return ret;
 }
 
 static inline void mgag200_bo_unreserve(struct mgag200_bo *bo)
@@ -309,5 +317,7 @@ int mgag200_bo_push_sysram(struct mgag200_bo *bo);
 int mga_crtc_cursor_set(struct drm_crtc *crtc, struct drm_file *file_priv,
 						uint32_t handle, uint32_t width, uint32_t height);
 int mga_crtc_cursor_move(struct drm_crtc *crtc, int x, int y);
+
+extern int mgag200_preferred_depth __read_mostly;
 
 #endif				/* __MGAG200_DRV_H__ */
