@@ -863,7 +863,6 @@ void rcu_idle_enter(void)
 	rcu_eqs_enter(false);
 	rcu_sysidle_enter(0);
 }
-EXPORT_SYMBOL_GPL(rcu_idle_enter);
 
 #ifdef CONFIG_NO_HZ_FULL
 /**
@@ -994,7 +993,6 @@ void rcu_idle_exit(void)
 	rcu_sysidle_exit(0);
 	local_irq_restore(flags);
 }
-EXPORT_SYMBOL_GPL(rcu_idle_exit);
 
 #ifdef CONFIG_NO_HZ_FULL
 /**
