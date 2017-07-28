@@ -142,6 +142,9 @@ typedef int (dio_iodone_t)(struct kiocb *iocb, loff_t offset,
 /* File was opened by fanotify and shouldn't generate fanotify events */
 #define FMODE_NONOTIFY		((__force fmode_t)0x4000000)
 
+/* File is capable of returning -EAGAIN if AIO will block */
+#define FMODE_AIO_NOWAIT	((__force fmode_t)0x8000000)
+
 /*
  * Flag for rw_copy_check_uvector and compat_rw_copy_check_uvector
  * that indicates that they should check the contents of the iovec are
@@ -268,6 +271,7 @@ struct writeback_control;
 #define IOCB_DSYNC		(1 << 4)
 #define IOCB_SYNC		(1 << 5)
 #define IOCB_WRITE		(1 << 6)
+#define IOCB_NOWAIT		(1 << 7)
 
 struct kiocb {
 	struct file		*ki_filp;
@@ -2532,6 +2536,8 @@ extern int filemap_fdatawait(struct address_space *);
 extern void filemap_fdatawait_keep_errors(struct address_space *);
 extern int filemap_fdatawait_range(struct address_space *, loff_t lstart,
 				   loff_t lend);
+extern bool filemap_range_has_page(struct address_space *, loff_t lstart,
+				  loff_t lend);
 extern int filemap_write_and_wait(struct address_space *mapping);
 extern int filemap_write_and_wait_range(struct address_space *mapping,
 				        loff_t lstart, loff_t lend);
@@ -3069,6 +3075,25 @@ static inline int iocb_flags(struct file *file)
 	if (file->f_flags & __O_SYNC)
 		res |= IOCB_SYNC;
 	return res;
+}
+
+static inline int kiocb_set_rw_flags(struct kiocb *ki, int flags)
+{
+	if (unlikely(flags & ~RWF_SUPPORTED))
+		return -EOPNOTSUPP;
+
+	if (flags & RWF_NOWAIT) {
+		if (!(ki->ki_filp->f_mode & FMODE_AIO_NOWAIT))
+			return -EOPNOTSUPP;
+		ki->ki_flags |= IOCB_NOWAIT;
+	}
+	if (flags & RWF_HIPRI)
+		ki->ki_flags |= IOCB_HIPRI;
+	if (flags & RWF_DSYNC)
+		ki->ki_flags |= IOCB_DSYNC;
+	if (flags & RWF_SYNC)
+		ki->ki_flags |= (IOCB_DSYNC | IOCB_SYNC);
+	return 0;
 }
 
 static inline ino_t parent_ino(struct dentry *dentry)
