@@ -586,9 +586,8 @@ static int squashfs3_readdir_2(struct file *file, struct dir_context *ctx)
 			if (!dir_emit(ctx, dire->name, dire->size + 1,
 					SQUASHFS3_MK_VFS_INODE(
 					dirh.start_block, dire->offset),
-					squashfs3_filetype_table[dire->type])
-					< 0) {
-				TRACE("Filldir returned less than 0\n");
+					squashfs3_filetype_table[dire->type])) {
+				TRACE("Filldir failed\n");
 				goto finish;
 			}
 			ctx->pos = length;

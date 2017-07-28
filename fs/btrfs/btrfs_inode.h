@@ -231,7 +231,7 @@ static inline void btrfs_insert_inode_hash(struct inode *inode)
 	__insert_inode_hash(inode, h);
 }
 
-static inline u64 btrfs_ino(struct btrfs_inode *inode)
+static inline u64 btrfs_ino(const struct btrfs_inode *inode)
 {
 	u64 ino = inode->location.objectid;
 

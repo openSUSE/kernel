@@ -170,7 +170,6 @@ static void * r1buf_pool_alloc(gfp_t gfp_flags, void *data)
 			resync_get_all_pages(rp);
 		}
 
-		rp->idx = 0;
 		rp->raid_bio = r1_bio;
 		bio->bi_private = rp;
 	}
@@ -1321,7 +1320,6 @@ static void raid1_write_request(struct mddev *mddev, struct bio *bio,
 	 * Continue immediately if no resync is active currently.
 	 */
 
-	md_write_start(mddev, bio); /* wait on superblock update early */
 
 	if ((bio_end_sector(bio) > mddev->suspend_lo &&
 	    bio->bi_iter.bi_sector < mddev->suspend_hi) ||
@@ -1335,7 +1333,7 @@ static void raid1_write_request(struct mddev *mddev, struct bio *bio,
 		 */
 		DEFINE_WAIT(w);
 		for (;;) {
-			flush_signals(current);
+			sigset_t full, old;
 			prepare_to_wait(&conf->wait_barrier,
 					&w, TASK_INTERRUPTIBLE);
 			if (bio_end_sector(bio) <= mddev->suspend_lo ||
@@ -1345,7 +1343,10 @@ static void raid1_write_request(struct mddev *mddev, struct bio *bio,
 				     bio->bi_iter.bi_sector,
 				     bio_end_sector(bio))))
 				break;
+			sigfillset(&full);
+			sigprocmask(SIG_BLOCK, &full, &old);
 			schedule();
+			sigprocmask(SIG_SETMASK, &old, NULL);
 		}
 		finish_wait(&conf->wait_barrier, &w);
 	}
@@ -1550,13 +1551,13 @@ static void raid1_write_request(struct mddev *mddev, struct bio *bio,
 	wake_up(&conf->wait_barrier);
 }
 
-static void raid1_make_request(struct mddev *mddev, struct bio *bio)
+static bool raid1_make_request(struct mddev *mddev, struct bio *bio)
 {
 	sector_t sectors;
 
 	if (unlikely(bio->bi_opf & REQ_PREFLUSH)) {
 		md_flush_request(mddev, bio);
-		return;
+		return true;
 	}
 
 	/*
@@ -1571,8 +1572,12 @@ static void raid1_make_request(struct mddev *mddev, struct bio *bio)
 
 	if (bio_data_dir(bio) == READ)
 		raid1_read_request(mddev, bio, sectors, NULL);
-	else
+	else {
+		if (!md_write_start(mddev,bio))
+			return false;
 		raid1_write_request(mddev, bio, sectors);
+	}
+	return true;
 }
 
 static void raid1_status(struct seq_file *seq, struct mddev *mddev)
@@ -2615,6 +2620,7 @@ static sector_t raid1_sync_request(struct mddev *mddev, sector_t sector_nr,
 	int good_sectors = RESYNC_SECTORS;
 	int min_bad = 0; /* number of sectors that are bad in all devices */
 	int idx = sector_to_idx(sector_nr);
+	int page_idx = 0;
 
 	if (!conf->r1buf_pool)
 		if (init_resync(conf))
@@ -2842,7 +2848,7 @@ static sector_t raid1_sync_request(struct mddev *mddev, sector_t sector_nr,
 			bio = r1_bio->bios[i];
 			rp = get_resync_pages(bio);
 			if (bio->bi_end_io) {
-				page = resync_fetch_page(rp, rp->idx++);
+				page = resync_fetch_page(rp, page_idx);
 
 				/*
 				 * won't fail because the vec table is big
@@ -2854,7 +2860,7 @@ static sector_t raid1_sync_request(struct mddev *mddev, sector_t sector_nr,
 		nr_sectors += len>>9;
 		sector_nr += len>>9;
 		sync_blocks -= (len>>9);
-	} while (get_resync_pages(r1_bio->bios[disk]->bi_private)->idx < RESYNC_PAGES);
+	} while (++page_idx < RESYNC_PAGES);
 
 	r1_bio->sectors = nr_sectors;
 

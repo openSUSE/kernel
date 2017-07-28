@@ -1864,8 +1864,8 @@ static int squashfs3_readdir(struct file *file, struct dir_context *ctx)
 				ctx->pos, i_ino, squashfs3_filetype_table[1]);
 
 		if (!dir_emit(ctx, name, size, i_ino,
-				squashfs3_filetype_table[1]) < 0) {
-				TRACE("Filldir returned less than 0\n");
+				squashfs3_filetype_table[1])) {
+				TRACE("Filldir failed\n");
 			goto finish;
 		}
 		ctx->pos += size;
@@ -1932,8 +1932,8 @@ static int squashfs3_readdir(struct file *file, struct dir_context *ctx)
 
 			if (!dir_emit(ctx, dire->name, dire->size + 1,
 					dirh.inode_number + dire->inode_number,
-					squashfs3_filetype_table[dire->type]) < 0) {
-				TRACE("Filldir returned less than 0\n");
+					squashfs3_filetype_table[dire->type])) {
+				TRACE("Filldir failed\n");
 				goto finish;
 			}
 			ctx->pos = length;
