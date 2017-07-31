@@ -678,7 +678,7 @@ static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 	} while (read_seqretry(&jiffies_lock, seq));
 	ts->last_jiffies = basejiff;
 
-	if (rcu_needs_cpu(basemono, &next_rcu) ||
+	if (sched_needs_cpu(cpu) || rcu_needs_cpu(basemono, &next_rcu) ||
 	    arch_needs_cpu() || irq_work_needs_cpu()) {
 		next_tick = basemono + TICK_NSEC;
 	} else {

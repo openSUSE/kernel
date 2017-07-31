@@ -663,8 +663,13 @@ EXPORT_SYMBOL_GPL(call_rcu);
  * synchronize_rcu() was waiting.  RCU read-side critical sections are
  * delimited by rcu_read_lock() and rcu_read_unlock(), and may be nested.
  *
- * See the description of synchronize_sched() for more detailed information
- * on memory ordering guarantees.
+ * See the description of synchronize_sched() for more detailed
+ * information on memory-ordering guarantees.  However, please note
+ * that -only- the memory-ordering guarantees apply.  For example,
+ * synchronize_rcu() is -not- guaranteed to wait on things like code
+ * protected by preempt_disable(), instead, synchronize_rcu() is -only-
+ * guaranteed to wait on RCU read-side critical sections, that is, sections
+ * of code protected by rcu_read_lock().
  */
 void synchronize_rcu(void)
 {
@@ -1861,7 +1866,7 @@ static void __call_rcu_nocb_enqueue(struct rcu_data *rdp,
 			trace_rcu_nocb_wake(rdp->rsp->name, rdp->cpu,
 					    TPS("WakeEmpty"));
 		} else {
-			WRITE_ONCE(rdp->nocb_defer_wakeup, RCU_NOGP_WAKE);
+			WRITE_ONCE(rdp->nocb_defer_wakeup, RCU_NOCB_WAKE);
 			/* Store ->nocb_defer_wakeup before ->rcu_urgent_qs. */
 			smp_store_release(this_cpu_ptr(&rcu_dynticks.rcu_urgent_qs), true);
 			trace_rcu_nocb_wake(rdp->rsp->name, rdp->cpu,
@@ -1875,7 +1880,7 @@ static void __call_rcu_nocb_enqueue(struct rcu_data *rdp,
 			trace_rcu_nocb_wake(rdp->rsp->name, rdp->cpu,
 					    TPS("WakeOvf"));
 		} else {
-			WRITE_ONCE(rdp->nocb_defer_wakeup, RCU_NOGP_WAKE_FORCE);
+			WRITE_ONCE(rdp->nocb_defer_wakeup, RCU_NOCB_WAKE_FORCE);
 			/* Store ->nocb_defer_wakeup before ->rcu_urgent_qs. */
 			smp_store_release(this_cpu_ptr(&rcu_dynticks.rcu_urgent_qs), true);
 			trace_rcu_nocb_wake(rdp->rsp->name, rdp->cpu,
@@ -2203,8 +2208,8 @@ static void do_nocb_deferred_wakeup(struct rcu_data *rdp)
 	if (!rcu_nocb_need_deferred_wakeup(rdp))
 		return;
 	ndw = READ_ONCE(rdp->nocb_defer_wakeup);
-	WRITE_ONCE(rdp->nocb_defer_wakeup, RCU_NOGP_WAKE_NOT);
-	wake_nocb_leader(rdp, ndw == RCU_NOGP_WAKE_FORCE);
+	WRITE_ONCE(rdp->nocb_defer_wakeup, RCU_NOCB_WAKE_NOT);
+	wake_nocb_leader(rdp, ndw == RCU_NOCB_WAKE_FORCE);
 	trace_rcu_nocb_wake(rdp->rsp->name, rdp->cpu, TPS("DeferredWake"));
 }
 

@@ -25,6 +25,11 @@ static inline void set_cpu_sd_state_idle(void) { }
 #ifdef CONFIG_NO_HZ_COMMON
 void calc_load_enter_idle(void);
 void calc_load_exit_idle(void);
+#ifdef CONFIG_SMP
+extern int sched_needs_cpu(int cpu);
+#else
+static inline int sched_needs_cpu(int cpu) { return 0; }
+#endif
 #else
 static inline void calc_load_enter_idle(void) { }
 static inline void calc_load_exit_idle(void) { }
