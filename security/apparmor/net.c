@@ -15,13 +15,14 @@
 #include "include/apparmor.h"
 #include "include/audit.h"
 #include "include/context.h"
+#include "include/label.h"
 #include "include/net.h"
 #include "include/policy.h"
 
 #include "net_names.h"
 
-struct aa_fs_entry aa_fs_entry_network[] = {
-	AA_FS_FILE_STRING("af_mask", AA_FS_AF_MASK),
+struct aa_sfs_entry aa_sfs_entry_network[] = {
+	AA_SFS_FILE_STRING("af_mask", AA_SFS_AF_MASK),
 	{ }
 };
 
@@ -145,7 +146,7 @@ int aa_net_perm(const char *op, struct aa_profile *profile, u16 family,
  */
 int aa_revalidate_sk(const char *op, struct sock *sk)
 {
-	struct aa_profile *profile;
+	struct aa_label *label;
 	int error = 0;
 
 	/* aa_revalidate_sk should not be called from interrupt context
@@ -154,10 +155,11 @@ int aa_revalidate_sk(const char *op, struct sock *sk)
 	if (in_interrupt())
 		return 0;
 
-	profile = __aa_current_profile();
-	if (!unconfined(profile))
-		error = aa_net_perm(op, profile, sk->sk_family, sk->sk_type,
-				    sk->sk_protocol, sk);
+	label = __begin_current_label_crit_section();
+	if (!unconfined(label))
+		error = aa_net_perm(op, labels_profile(label), sk->sk_family,
+				sk->sk_type, sk->sk_protocol, sk);
+	__end_current_label_crit_section(label);
 
 	return error;
 }
