@@ -69,15 +69,15 @@ enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_L
 /*
  * Minimal preemption granularity for CPU-bound tasks:
  *
- * (default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
+ * (default: 2 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
-unsigned int sysctl_sched_min_granularity		= 750000ULL;
-unsigned int normalized_sysctl_sched_min_granularity	= 750000ULL;
+unsigned int sysctl_sched_min_granularity		= 2000000ULL;
+unsigned int normalized_sysctl_sched_min_granularity	= 2000000ULL;
 
 /*
  * This value is kept at sysctl_sched_latency/sysctl_sched_min_granularity
  */
-static unsigned int sched_nr_latency = 8;
+static unsigned int sched_nr_latency = 3;
 
 /*
  * After fork, child runs first. If set to 0 (default) then
@@ -100,10 +100,10 @@ unsigned int sysctl_sched_compat_yield __read_mostly;
  * and reduces their over-scheduling. Synchronous workloads will still
  * have immediate wakeup/sleep latencies.
  *
- * (default: 1 msec * (1 + ilog(ncpus)), units: nanoseconds)
+ * (default: 2.5 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
-unsigned int sysctl_sched_wakeup_granularity		= 1000000UL;
-unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
+unsigned int sysctl_sched_wakeup_granularity		= 2500000UL;
+unsigned int normalized_sysctl_sched_wakeup_granularity	= 2500000UL;
 
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
@@ -1078,6 +1078,29 @@ unsigned int sysctl_numa_balancing_scan_size = 256;
 /* Scan @scan_size MB every @scan_period after an initial @scan_delay in ms */
 unsigned int sysctl_numa_balancing_scan_delay = 1000;
 
+struct numa_group {
+	atomic_t refcount;
+
+	spinlock_t lock; /* nr_tasks, tasks */
+	int nr_tasks;
+	pid_t gid;
+	int active_nodes;
+
+	struct rcu_head rcu;
+	unsigned long total_faults;
+	unsigned long max_faults_cpu;
+	/*
+	 * Faults_cpu is used to decide whether memory should move
+	 * towards the CPU. As a consequence, these stats are weighted
+	 * more by CPU use than by memory faults.
+	 */
+	unsigned long *faults_cpu;
+	unsigned long faults[0];
+};
+
+static inline unsigned long group_faults_priv(struct numa_group *ng);
+static inline unsigned long group_faults_shared(struct numa_group *ng);
+
 static unsigned int task_nr_scan_windows(struct task_struct *p)
 {
 	unsigned long rss = 0;
@@ -1114,13 +1137,47 @@ static unsigned int task_scan_min(struct task_struct *p)
 	return max_t(unsigned int, floor, scan);
 }
 
+static unsigned int task_scan_start(struct task_struct *p)
+{
+	unsigned long smin = task_scan_min(p);
+	unsigned long period = smin;
+
+	/* Scale the maximum scan period with the amount of shared memory. */
+	if (p->numa_group) {
+		struct numa_group *ng = p->numa_group;
+		unsigned long shared = group_faults_shared(ng);
+		unsigned long private = group_faults_priv(ng);
+
+		period *= atomic_read(&ng->refcount);
+		period *= shared + 1;
+		period /= private + shared + 1;
+	}
+
+	return max(smin, period);
+}
+
 static unsigned int task_scan_max(struct task_struct *p)
 {
-	unsigned int smin = task_scan_min(p);
-	unsigned int smax;
+	unsigned long smin = task_scan_min(p);
+	unsigned long smax;
 
 	/* Watch for min being lower than max due to floor calculations */
 	smax = sysctl_numa_balancing_scan_period_max / task_nr_scan_windows(p);
+
+	/* Scale the maximum scan period with the amount of shared memory. */
+	if (p->numa_group) {
+		struct numa_group *ng = p->numa_group;
+		unsigned long shared = group_faults_shared(ng);
+		unsigned long private = group_faults_priv(ng);
+		unsigned long period = smax;
+
+		period *= atomic_read(&ng->refcount);
+		period *= shared + 1;
+		period /= private + shared + 1;
+
+		smax = max(smax, period);
+	}
+
 	return max(smin, smax);
 }
 
@@ -1135,26 +1192,6 @@ static void account_numa_dequeue(struct rq *rq, struct task_struct *p)
 	rq->nr_numa_running -= (p->numa_preferred_nid != -1);
 	rq->nr_preferred_running -= (p->numa_preferred_nid == task_node(p));
 }
-
-struct numa_group {
-	atomic_t refcount;
-
-	spinlock_t lock; /* nr_tasks, tasks */
-	int nr_tasks;
-	pid_t gid;
-	int active_nodes;
-
-	struct rcu_head rcu;
-	unsigned long total_faults;
-	unsigned long max_faults_cpu;
-	/*
-	 * Faults_cpu is used to decide whether memory should move
-	 * towards the CPU. As a consequence, these stats are weighted
-	 * more by CPU use than by memory faults.
-	 */
-	unsigned long *faults_cpu;
-	unsigned long faults[0];
-};
 
 /* Shared or private faults. */
 #define NR_NUMA_HINT_FAULT_TYPES 2
@@ -1203,6 +1240,30 @@ static inline unsigned long group_faults_cpu(struct numa_group *group, int nid)
 {
 	return group->faults_cpu[task_faults_idx(NUMA_MEM, nid, 0)] +
 		group->faults_cpu[task_faults_idx(NUMA_MEM, nid, 1)];
+}
+
+static inline unsigned long group_faults_priv(struct numa_group *ng)
+{
+	unsigned long faults = 0;
+	int node;
+
+	for_each_online_node(node) {
+		faults += ng->faults[task_faults_idx(NUMA_MEM, node, 1)];
+	}
+
+	return faults;
+}
+
+static inline unsigned long group_faults_shared(struct numa_group *ng)
+{
+	unsigned long faults = 0;
+	int node;
+
+	for_each_online_node(node) {
+		faults += ng->faults[task_faults_idx(NUMA_MEM, node, 0)];
+	}
+
+	return faults;
 }
 
 /*
@@ -1815,7 +1876,7 @@ static int task_numa_migrate(struct task_struct *p)
 	 * Reset the scan period if the task is being rescheduled on an
 	 * alternative node to recheck if the tasks is now properly placed.
 	 */
-	p->numa_scan_period = task_scan_min(p);
+	p->numa_scan_period = task_scan_start(p);
 
 	if (env.best_task == NULL) {
 		ret = migrate_task_to(p, env.best_cpu);
@@ -1899,7 +1960,7 @@ static void update_task_scan_period(struct task_struct *p,
 			unsigned long shared, unsigned long private)
 {
 	unsigned int period_slot;
-	int ratio;
+	int lr_ratio, ps_ratio;
 	int diff;
 
 	unsigned long remote = p->numa_faults_locality[0];
@@ -1929,25 +1990,36 @@ static void update_task_scan_period(struct task_struct *p,
 	 *	 >= NUMA_PERIOD_THRESHOLD scan period increases (scan slower)
 	 */
 	period_slot = DIV_ROUND_UP(p->numa_scan_period, NUMA_PERIOD_SLOTS);
-	ratio = (local * NUMA_PERIOD_SLOTS) / (local + remote);
-	if (ratio >= NUMA_PERIOD_THRESHOLD) {
-		int slot = ratio - NUMA_PERIOD_THRESHOLD;
+	lr_ratio = (local * NUMA_PERIOD_SLOTS) / (local + remote);
+	ps_ratio = (private * NUMA_PERIOD_SLOTS) / (private + shared);
+
+	if (ps_ratio >= NUMA_PERIOD_THRESHOLD) {
+		/*
+		 * Most memory accesses are local. There is no need to
+		 * do fast NUMA scanning, since memory is already local.
+		 */
+		int slot = ps_ratio - NUMA_PERIOD_THRESHOLD;
+		if (!slot)
+			slot = 1;
+		diff = slot * period_slot;
+	} else if (lr_ratio >= NUMA_PERIOD_THRESHOLD) {
+		/*
+		 * Most memory accesses are shared with other tasks.
+		 * There is no point in continuing fast NUMA scanning,
+		 * since other tasks may just move the memory elsewhere.
+		 */
+		int slot = lr_ratio - NUMA_PERIOD_THRESHOLD;
 		if (!slot)
 			slot = 1;
 		diff = slot * period_slot;
 	} else {
-		diff = -(NUMA_PERIOD_THRESHOLD - ratio) * period_slot;
-
 		/*
-		 * Scale scan rate increases based on sharing. There is an
-		 * inverse relationship between the degree of sharing and
-		 * the adjustment made to the scanning period. Broadly
-		 * speaking the intent is that there is little point
-		 * scanning faster if shared accesses dominate as it may
-		 * simply bounce migrations uselessly
+		 * Private memory faults exceed (SLOTS-THRESHOLD)/SLOTS,
+		 * yet they are not on the local NUMA node. Speed up
+		 * NUMA scanning to get the memory moved over.
 		 */
-		ratio = DIV_ROUND_UP(private * NUMA_PERIOD_SLOTS, (private + shared + 1));
-		diff = (diff * ratio) / NUMA_PERIOD_SLOTS;
+		int ratio = max(lr_ratio, ps_ratio);
+		diff = -(NUMA_PERIOD_THRESHOLD - ratio) * period_slot;
 	}
 
 	p->numa_scan_period = clamp(p->numa_scan_period + diff,
@@ -2455,7 +2527,7 @@ void task_numa_work(struct callback_head *work)
 
 	if (p->numa_scan_period == 0) {
 		p->numa_scan_period_max = task_scan_max(p);
-		p->numa_scan_period = task_scan_min(p);
+		p->numa_scan_period = task_scan_start(p);
 	}
 
 	next_scan = now + msecs_to_jiffies(p->numa_scan_period);
@@ -2583,7 +2655,7 @@ void task_tick_numa(struct rq *rq, struct task_struct *curr)
 
 	if (now > curr->node_stamp + period) {
 		if (!curr->node_stamp)
-			curr->numa_scan_period = task_scan_min(curr);
+			curr->numa_scan_period = task_scan_start(curr);
 		curr->node_stamp += period;
 
 		if (!time_before(jiffies, curr->mm->numa_next_scan)) {
