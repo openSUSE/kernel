@@ -408,6 +408,7 @@
 
 /* High-level queue structures */
 #define ARM_SMMU_POLL_TIMEOUT_US	100
+#define ARM_SMMU_CMDQ_DRAIN_TIMEOUT_US	1000000 /* 1s! */
 
 #define MSI_IOVA_BASE			0x8000000
 #define MSI_IOVA_LENGTH			0x100000
@@ -597,6 +598,7 @@ struct arm_smmu_device {
 	u32				features;
 
 #define ARM_SMMU_OPT_SKIP_PREFETCH	(1 << 0)
+#define ARM_SMMU_OPT_PAGE0_REGS_ONLY	(1 << 1)
 	u32				options;
 
 	struct arm_smmu_cmdq		cmdq;
@@ -604,6 +606,7 @@ struct arm_smmu_device {
 	struct arm_smmu_priq		priq;
 
 	int				gerr_irq;
+	int				combined_irq;
 
 	unsigned long			ias; /* IPA */
 	unsigned long			oas; /* PA */
@@ -663,8 +666,19 @@ struct arm_smmu_option_prop {
 
 static struct arm_smmu_option_prop arm_smmu_options[] = {
 	{ ARM_SMMU_OPT_SKIP_PREFETCH, "hisilicon,broken-prefetch-cmd" },
+	{ ARM_SMMU_OPT_PAGE0_REGS_ONLY, "cavium,cn9900-broken-page1-regspace"},
 	{ 0, NULL},
 };
+
+static inline void __iomem *arm_smmu_page1_fixup(unsigned long offset,
+						 struct arm_smmu_device *smmu)
+{
+	if ((offset > SZ_64K) &&
+	    (smmu->options & ARM_SMMU_OPT_PAGE0_REGS_ONLY))
+		offset -= SZ_64K;
+
+	return smmu->base + offset;
+}
 
 static struct arm_smmu_domain *to_smmu_domain(struct iommu_domain *dom)
 {
@@ -737,7 +751,13 @@ static void queue_inc_prod(struct arm_smmu_queue *q)
  */
 static int queue_poll_cons(struct arm_smmu_queue *q, bool drain, bool wfe)
 {
-	ktime_t timeout = ktime_add_us(ktime_get(), ARM_SMMU_POLL_TIMEOUT_US);
+	ktime_t timeout;
+	unsigned int delay = 1;
+
+	/* Wait longer if it's queue drain */
+	timeout = ktime_add_us(ktime_get(), drain ?
+					    ARM_SMMU_CMDQ_DRAIN_TIMEOUT_US :
+					    ARM_SMMU_POLL_TIMEOUT_US);
 
 	while (queue_sync_cons(q), (drain ? !queue_empty(q) : queue_full(q))) {
 		if (ktime_compare(ktime_get(), timeout) > 0)
@@ -747,7 +767,8 @@ static int queue_poll_cons(struct arm_smmu_queue *q, bool drain, bool wfe)
 			wfe();
 		} else {
 			cpu_relax();
-			udelay(1);
+			udelay(delay);
+			delay *= 2;
 		}
 	}
 
@@ -1300,6 +1321,24 @@ static irqreturn_t arm_smmu_gerror_handler(int irq, void *dev)
 
 	writel(gerror, smmu->base + ARM_SMMU_GERRORN);
 	return IRQ_HANDLED;
+}
+
+static irqreturn_t arm_smmu_combined_irq_thread(int irq, void *dev)
+{
+	struct arm_smmu_device *smmu = dev;
+
+	arm_smmu_evtq_thread(irq, dev);
+	if (smmu->features & ARM_SMMU_FEAT_PRI)
+		arm_smmu_priq_thread(irq, dev);
+
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t arm_smmu_combined_irq_handler(int irq, void *dev)
+{
+	arm_smmu_gerror_handler(irq, dev);
+	arm_smmu_cmdq_sync_handler(irq, dev);
+	return IRQ_WAKE_THREAD;
 }
 
 /* IO_PGTABLE API */
@@ -1961,8 +2000,8 @@ static int arm_smmu_init_one_queue(struct arm_smmu_device *smmu,
 		return -ENOMEM;
 	}
 
-	q->prod_reg	= smmu->base + prod_off;
-	q->cons_reg	= smmu->base + cons_off;
+	q->prod_reg	= arm_smmu_page1_fixup(prod_off, smmu);
+	q->cons_reg	= arm_smmu_page1_fixup(cons_off, smmu);
 	q->ent_dwords	= dwords;
 
 	q->q_base  = Q_BASE_RWA;
@@ -2218,18 +2257,9 @@ static void arm_smmu_setup_msis(struct arm_smmu_device *smmu)
 	devm_add_action(dev, arm_smmu_free_msis, dev);
 }
 
-static int arm_smmu_setup_irqs(struct arm_smmu_device *smmu)
+static void arm_smmu_setup_unique_irqs(struct arm_smmu_device *smmu)
 {
-	int ret, irq;
-	u32 irqen_flags = IRQ_CTRL_EVTQ_IRQEN | IRQ_CTRL_GERROR_IRQEN;
-
-	/* Disable IRQs first */
-	ret = arm_smmu_write_reg_sync(smmu, 0, ARM_SMMU_IRQ_CTRL,
-				      ARM_SMMU_IRQ_CTRLACK);
-	if (ret) {
-		dev_err(smmu->dev, "failed to disable irqs\n");
-		return ret;
-	}
+	int irq, ret;
 
 	arm_smmu_setup_msis(smmu);
 
@@ -2272,10 +2302,41 @@ static int arm_smmu_setup_irqs(struct arm_smmu_device *smmu)
 			if (ret < 0)
 				dev_warn(smmu->dev,
 					 "failed to enable priq irq\n");
-			else
-				irqen_flags |= IRQ_CTRL_PRIQ_IRQEN;
 		}
 	}
+}
+
+static int arm_smmu_setup_irqs(struct arm_smmu_device *smmu)
+{
+	int ret, irq;
+	u32 irqen_flags = IRQ_CTRL_EVTQ_IRQEN | IRQ_CTRL_GERROR_IRQEN;
+
+	/* Disable IRQs first */
+	ret = arm_smmu_write_reg_sync(smmu, 0, ARM_SMMU_IRQ_CTRL,
+				      ARM_SMMU_IRQ_CTRLACK);
+	if (ret) {
+		dev_err(smmu->dev, "failed to disable irqs\n");
+		return ret;
+	}
+
+	irq = smmu->combined_irq;
+	if (irq) {
+		/*
+		 * Cavium ThunderX2 implementation doesn't not support unique
+		 * irq lines. Use single irq line for all the SMMUv3 interrupts.
+		 */
+		ret = devm_request_threaded_irq(smmu->dev, irq,
+					arm_smmu_combined_irq_handler,
+					arm_smmu_combined_irq_thread,
+					IRQF_ONESHOT,
+					"arm-smmu-v3-combined-irq", smmu);
+		if (ret < 0)
+			dev_warn(smmu->dev, "failed to enable combined irq\n");
+	} else
+		arm_smmu_setup_unique_irqs(smmu);
+
+	if (smmu->features & ARM_SMMU_FEAT_PRI)
+		irqen_flags |= IRQ_CTRL_PRIQ_IRQEN;
 
 	/* Enable interrupt generation on the SMMU */
 	ret = arm_smmu_write_reg_sync(smmu, irqen_flags,
@@ -2363,8 +2424,10 @@ static int arm_smmu_device_reset(struct arm_smmu_device *smmu, bool bypass)
 
 	/* Event queue */
 	writeq_relaxed(smmu->evtq.q.q_base, smmu->base + ARM_SMMU_EVTQ_BASE);
-	writel_relaxed(smmu->evtq.q.prod, smmu->base + ARM_SMMU_EVTQ_PROD);
-	writel_relaxed(smmu->evtq.q.cons, smmu->base + ARM_SMMU_EVTQ_CONS);
+	writel_relaxed(smmu->evtq.q.prod,
+		       arm_smmu_page1_fixup(ARM_SMMU_EVTQ_PROD, smmu));
+	writel_relaxed(smmu->evtq.q.cons,
+		       arm_smmu_page1_fixup(ARM_SMMU_EVTQ_CONS, smmu));
 
 	enables |= CR0_EVTQEN;
 	ret = arm_smmu_write_reg_sync(smmu, enables, ARM_SMMU_CR0,
@@ -2379,9 +2442,9 @@ static int arm_smmu_device_reset(struct arm_smmu_device *smmu, bool bypass)
 		writeq_relaxed(smmu->priq.q.q_base,
 			       smmu->base + ARM_SMMU_PRIQ_BASE);
 		writel_relaxed(smmu->priq.q.prod,
-			       smmu->base + ARM_SMMU_PRIQ_PROD);
+			       arm_smmu_page1_fixup(ARM_SMMU_PRIQ_PROD, smmu));
 		writel_relaxed(smmu->priq.q.cons,
-			       smmu->base + ARM_SMMU_PRIQ_CONS);
+			       arm_smmu_page1_fixup(ARM_SMMU_PRIQ_CONS, smmu));
 
 		enables |= CR0_PRIQEN;
 		ret = arm_smmu_write_reg_sync(smmu, enables, ARM_SMMU_CR0,
@@ -2605,6 +2668,14 @@ static int arm_smmu_device_hw_probe(struct arm_smmu_device *smmu)
 }
 
 #ifdef CONFIG_ACPI
+static void acpi_smmu_get_options(u32 model, struct arm_smmu_device *smmu)
+{
+	if (model == ACPI_IORT_SMMU_V3_CAVIUM_CN99XX)
+		smmu->options |= ARM_SMMU_OPT_PAGE0_REGS_ONLY;
+
+	dev_notice(smmu->dev, "option mask 0x%x\n", smmu->options);
+}
+
 static int arm_smmu_device_acpi_probe(struct platform_device *pdev,
 				      struct arm_smmu_device *smmu)
 {
@@ -2616,6 +2687,8 @@ static int arm_smmu_device_acpi_probe(struct platform_device *pdev,
 
 	/* Retrieve SMMUv3 specific data */
 	iort_smmu = (struct acpi_iort_smmu_v3 *)node->node_data;
+
+	acpi_smmu_get_options(iort_smmu->model, smmu);
 
 	if (iort_smmu->flags & ACPI_IORT_SMMU_V3_COHACC_OVERRIDE)
 		smmu->features |= ARM_SMMU_FEAT_COHERENCY;
@@ -2652,6 +2725,14 @@ static int arm_smmu_device_dt_probe(struct platform_device *pdev,
 	return ret;
 }
 
+static unsigned long arm_smmu_resource_size(struct arm_smmu_device *smmu)
+{
+	if (smmu->options & ARM_SMMU_OPT_PAGE0_REGS_ONLY)
+		return SZ_64K;
+	else
+		return SZ_128K;
+}
+
 static int arm_smmu_device_probe(struct platform_device *pdev)
 {
 	int irq, ret;
@@ -2668,35 +2749,6 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
 	}
 	smmu->dev = dev;
 
-	/* Base address */
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (resource_size(res) + 1 < SZ_128K) {
-		dev_err(dev, "MMIO region too small (%pr)\n", res);
-		return -EINVAL;
-	}
-	ioaddr = res->start;
-
-	smmu->base = devm_ioremap_resource(dev, res);
-	if (IS_ERR(smmu->base))
-		return PTR_ERR(smmu->base);
-
-	/* Interrupt lines */
-	irq = platform_get_irq_byname(pdev, "eventq");
-	if (irq > 0)
-		smmu->evtq.q.irq = irq;
-
-	irq = platform_get_irq_byname(pdev, "priq");
-	if (irq > 0)
-		smmu->priq.q.irq = irq;
-
-	irq = platform_get_irq_byname(pdev, "cmdq-sync");
-	if (irq > 0)
-		smmu->cmdq.q.irq = irq;
-
-	irq = platform_get_irq_byname(pdev, "gerror");
-	if (irq > 0)
-		smmu->gerr_irq = irq;
-
 	if (dev->of_node) {
 		ret = arm_smmu_device_dt_probe(pdev, smmu);
 	} else {
@@ -2708,6 +2760,40 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
 	/* Set bypass mode according to firmware probing result */
 	bypass = !!ret;
 
+	/* Base address */
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (resource_size(res) + 1 < arm_smmu_resource_size(smmu)) {
+		dev_err(dev, "MMIO region too small (%pr)\n", res);
+		return -EINVAL;
+	}
+	ioaddr = res->start;
+
+	smmu->base = devm_ioremap_resource(dev, res);
+	if (IS_ERR(smmu->base))
+		return PTR_ERR(smmu->base);
+
+	/* Interrupt lines */
+
+	irq = platform_get_irq_byname(pdev, "combined");
+	if (irq > 0)
+		smmu->combined_irq = irq;
+	else {
+		irq = platform_get_irq_byname(pdev, "eventq");
+		if (irq > 0)
+			smmu->evtq.q.irq = irq;
+
+		irq = platform_get_irq_byname(pdev, "priq");
+		if (irq > 0)
+			smmu->priq.q.irq = irq;
+
+		irq = platform_get_irq_byname(pdev, "cmdq-sync");
+		if (irq > 0)
+			smmu->cmdq.q.irq = irq;
+
+		irq = platform_get_irq_byname(pdev, "gerror");
+		if (irq > 0)
+			smmu->gerr_irq = irq;
+	}
 	/* Probe the h/w */
 	ret = arm_smmu_device_hw_probe(smmu);
 	if (ret)
