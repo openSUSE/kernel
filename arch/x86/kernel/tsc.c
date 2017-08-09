@@ -1026,6 +1026,15 @@ static void tsc_cs_mark_unstable(struct clocksource *cs)
 	pr_info("Marking TSC unstable due to clocksource watchdog\n");
 }
 
+static void tsc_cs_tick_stable(struct clocksource *cs)
+{
+	if (tsc_unstable)
+		return;
+
+	if (using_native_sched_clock())
+		sched_clock_tick_stable();
+}
+
 /*
  * .mask MUST be CLOCKSOURCE_MASK(64). See comment above read_tsc()
  */
@@ -1039,6 +1048,7 @@ static struct clocksource clocksource_tsc = {
 	.archdata               = { .vclock_mode = VCLOCK_TSC },
 	.resume			= tsc_resume,
 	.mark_unstable		= tsc_cs_mark_unstable,
+	.tick_stable		= tsc_cs_tick_stable,
 };
 
 void mark_tsc_unstable(char *reason)
