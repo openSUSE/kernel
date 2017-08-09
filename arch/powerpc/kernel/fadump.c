@@ -468,8 +468,7 @@ static int register_fw_dump(struct fadump_mem_struct *fdm)
 	err = -EIO;
 	switch (rc) {
 	default:
-		printk(KERN_ERR "Failed to register firmware-assisted kernel"
-			" dump. Unknown Error(%d).\n", rc);
+		pr_err("Failed to register. Unknown Error(%d).\n", rc);
 		break;
 	case -1:
 		printk(KERN_ERR "Failed to register firmware-assisted kernel"
