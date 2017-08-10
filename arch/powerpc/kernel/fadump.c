@@ -261,16 +261,30 @@ static inline unsigned long fadump_calculate_reserve_size(void)
 
 	/*
 	 * Check if the size is specified through crashkernel= cmdline
-	 * option. If yes, then use that but ignore base as fadump
-	 * reserves memory at end of RAM.
+	 * option. If yes, then use that but ignore base as fadump reserves
+	 * memory at a predefined offset.
 	 */
 	ret = parse_crashkernel(boot_command_line, memblock_phys_mem_size(),
 				&size, &base);
 	if (ret == 0 && size > 0) {
+		unsigned long max_size;
+
 		if (fw_dump.reserve_bootvar)
 			pr_info("Using 'crashkernel=' parameter for memory reservation.\n");
 
 		fw_dump.reserve_bootvar = (unsigned long)size;
+
+		/*
+		 * Adjust if the boot memory size specified is above
+		 * the upper limit.
+		 */
+		max_size = memblock_phys_mem_size() / MAX_BOOT_MEM_RATIO;
+		if (fw_dump.reserve_bootvar > max_size) {
+			fw_dump.reserve_bootvar = max_size;
+			pr_info("Adjusted boot memory size to %luMB\n",
+				(fw_dump.reserve_bootvar >> 20));
+		}
+
 		return fw_dump.reserve_bootvar;
 	} else if (fw_dump.reserve_bootvar) {
 		/*
@@ -281,7 +295,7 @@ static inline unsigned long fadump_calculate_reserve_size(void)
 	}
 
 	/* divide by 20 to get 5% of value */
-	size = memblock_end_of_DRAM() / 20;
+	size = memblock_phys_mem_size() / 20;
 
 	/* round it down in multiples of 256 */
 	size = size & ~0x0FFFFFFFUL;
@@ -468,8 +482,7 @@ static int register_fw_dump(struct fadump_mem_struct *fdm)
 	err = -EIO;
 	switch (rc) {
 	default:
-		printk(KERN_ERR "Failed to register firmware-assisted kernel"
-			" dump. Unknown Error(%d).\n", rc);
+		pr_err("Failed to register. Unknown Error(%d).\n", rc);
 		break;
 	case -1:
 		printk(KERN_ERR "Failed to register firmware-assisted kernel"
@@ -986,8 +999,7 @@ static int fadump_create_elfcore_headers(char *bufp)
 
 	phdr->p_paddr	= fadump_relocate(paddr_vmcoreinfo_note());
 	phdr->p_offset	= phdr->p_paddr;
-	phdr->p_memsz	= vmcoreinfo_max_size;
-	phdr->p_filesz	= vmcoreinfo_max_size;
+	phdr->p_memsz	= phdr->p_filesz = VMCOREINFO_NOTE_SIZE;
 
 	/* Increment number of program headers. */
 	(elf->e_phnum)++;

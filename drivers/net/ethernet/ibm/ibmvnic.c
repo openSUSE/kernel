@@ -111,6 +111,7 @@ static void send_request_map(struct ibmvnic_adapter *, dma_addr_t, __be32, u8);
 static void send_request_unmap(struct ibmvnic_adapter *, u8);
 static void send_login(struct ibmvnic_adapter *adapter);
 static void send_cap_queries(struct ibmvnic_adapter *adapter);
+static int init_sub_crqs(struct ibmvnic_adapter *);
 static int init_sub_crq_irqs(struct ibmvnic_adapter *adapter);
 static int ibmvnic_init(struct ibmvnic_adapter *);
 static void release_crq_queue(struct ibmvnic_adapter *);
@@ -651,6 +652,7 @@ static int ibmvnic_login(struct net_device *netdev)
 	struct ibmvnic_adapter *adapter = netdev_priv(netdev);
 	unsigned long timeout = msecs_to_jiffies(30000);
 	struct device *dev = &adapter->vdev->dev;
+	int rc;
 
 	do {
 		if (adapter->renegotiate) {
@@ -662,6 +664,18 @@ static int ibmvnic_login(struct net_device *netdev)
 			if (!wait_for_completion_timeout(&adapter->init_done,
 							 timeout)) {
 				dev_err(dev, "Capabilities query timeout\n");
+				return -1;
+			}
+			rc = init_sub_crqs(adapter);
+			if (rc) {
+				dev_err(dev,
+					"Initialization of SCRQ's failed\n");
+				return -1;
+			}
+			rc = init_sub_crq_irqs(adapter);
+			if (rc) {
+				dev_err(dev,
+					"Initialization of SCRQ's irqs failed\n");
 				return -1;
 			}
 		}
@@ -1546,7 +1560,8 @@ restart_poll:
 							  rx_comp.correlator);
 		/* do error checking */
 		if (next->rx_comp.rc) {
-			netdev_err(netdev, "rx error %x\n", next->rx_comp.rc);
+			netdev_dbg(netdev, "rx buffer returned with rc %x\n",
+				   be16_to_cpu(next->rx_comp.rc));
 			/* free the entry */
 			next->rx_comp.first = 0;
 			remove_buff_from_pool(adapter, rx_buff);
@@ -3004,7 +3019,6 @@ static void handle_request_cap_rsp(union ibmvnic_crq *crq,
 			 *req_value,
 			 (long int)be64_to_cpu(crq->request_capability_rsp.
 					       number), name);
-		release_sub_crqs(adapter);
 		*req_value = be64_to_cpu(crq->request_capability_rsp.number);
 		ibmvnic_send_req_caps(adapter, 1);
 		return;
@@ -3846,15 +3860,11 @@ static int ibmvnic_resume(struct device *dev)
 {
 	struct net_device *netdev = dev_get_drvdata(dev);
 	struct ibmvnic_adapter *adapter = netdev_priv(netdev);
-	int i;
 
 	if (adapter->state != VNIC_OPEN)
 		return 0;
 
-	/* kick the interrupt handlers just in case we lost an interrupt */
-	for (i = 0; i < adapter->req_rx_queues; i++)
-		ibmvnic_interrupt_rx(adapter->rx_scrq[i]->irq,
-				     adapter->rx_scrq[i]);
+	tasklet_schedule(&adapter->tasklet);
 
 	return 0;
 }
