@@ -34,7 +34,7 @@
 /*
  * Timeout for services such as KVP and fcopy.
  */
-#define HV_UTIL_TIMEOUT 30
+#define HV_UTIL_TIMEOUT 60
 
 /*
  * Timeout for guest-host handshake for services.

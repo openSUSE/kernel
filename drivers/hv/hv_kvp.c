@@ -154,6 +154,7 @@ static void kvp_timeout_func(struct work_struct *dummy)
 	 */
 	kvp_respond_to_host(NULL, HV_E_FAIL);
 
+	pr_info("KVP: timeout after %d seconds\n", HV_UTIL_TIMEOUT);
 	hv_poll_channel(kvp_transaction.recv_channel, kvp_poll_wrapper);
 }
 
@@ -202,7 +203,14 @@ static int kvp_on_msg(void *msg, int len)
 	int	error = 0;
 
 	if (len < sizeof(*message))
+	{
+		static int i = 0;
+		if (!i) {
+			i = 1;
+			pr_err("bug#1039153 %s(%u) %s[%u], len %d msg %d state %d\n", __func__, __LINE__, current->comm, current->pid, len, (int)sizeof(*message), kvp_transaction.state);
+		}
 		return -EINVAL;
+	}
 
 	/*
 	 * If we are negotiating the version information
@@ -215,7 +223,14 @@ static int kvp_on_msg(void *msg, int len)
 
 	/* We didn't send anything to userspace so the reply is spurious */
 	if (kvp_transaction.state < HVUTIL_USERSPACE_REQ)
+	{
+		static int i = 0;
+		if (!i) {
+			i = 1;
+			pr_err("bug#1039153 %s(%u) %s[%u], state %d < %d\n", __func__, __LINE__, current->comm, current->pid, kvp_transaction.state, HVUTIL_USERSPACE_REQ);
+		}
 		return -EINVAL;
+	}
 
 	kvp_transaction.state = HVUTIL_USERSPACE_RECV;
 
