@@ -548,9 +548,12 @@ static int iwl_mvm_get_ctrl_vif_queue(struct iwl_mvm *mvm,
 		 * Handle legacy hostapd as well, where station may be added
 		 * only after assoc. Take care of the case where we send a
 		 * deauth to a station that we don't have.
+		 * Also, disassociate frames might happen, particular with
+		 * reason 7 ("Class 3 frame received from nonassociated STA").
 		 */
 		if (ieee80211_is_probe_resp(fc) || ieee80211_is_auth(fc) ||
-		    ieee80211_is_deauth(fc))
+		    ieee80211_is_deauth(fc) ||
+		    ieee80211_is_disassoc(fc))
 			return mvm->probe_queue;
 		if (info->hw_queue == info->control.vif->cab_queue)
 			return info->hw_queue;
