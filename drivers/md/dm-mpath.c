@@ -126,7 +126,6 @@ static void process_queued_bios(struct work_struct *work);
 #define MPATHF_PG_INIT_DISABLED 4		/* pg_init is not currently allowed */
 #define MPATHF_PG_INIT_REQUIRED 5		/* pg_init needs calling? */
 #define MPATHF_PG_INIT_DELAY_RETRY 6		/* Delay pg_init retry? */
-#define MPATHF_FEATURE_NO_PARTITIONS 7		/* Don't create partitions */
 
 /*-----------------------------------------------
  * Allocation routines
@@ -971,10 +970,6 @@ static int parse_features(struct dm_arg_set *as, struct multipath *m)
 			continue;
 		}
 
-		if (!strcasecmp(arg_name, "no_partitions")) {
-			set_bit(MPATHF_FEATURE_NO_PARTITIONS, &m->flags);
-			continue;
-		}
 		if (!strcasecmp(arg_name, "pg_init_retries") &&
 		    (argc >= 1)) {
 			r = dm_read_arg(_args + 1, as, &m->pg_init_retries, &ti->error);
@@ -1642,7 +1637,6 @@ static void multipath_status(struct dm_target *ti, status_type_t type,
 			      (m->pg_init_retries > 0) * 2 +
 			      (m->pg_init_delay_msecs != DM_PG_INIT_DELAY_DEFAULT) * 2 +
 			      test_bit(MPATHF_RETAIN_ATTACHED_HW_HANDLER, &m->flags) +
-			      test_bit(MPATHF_FEATURE_NO_PARTITIONS, &m->flags) +
 			      (m->queue_mode != DM_TYPE_REQUEST_BASED) * 2);
 
 		if (test_bit(MPATHF_QUEUE_IF_NO_PATH, &m->flags))
@@ -1653,8 +1647,6 @@ static void multipath_status(struct dm_target *ti, status_type_t type,
 			DMEMIT("pg_init_delay_msecs %u ", m->pg_init_delay_msecs);
 		if (test_bit(MPATHF_RETAIN_ATTACHED_HW_HANDLER, &m->flags))
 			DMEMIT("retain_attached_hw_handler ");
-		if (test_bit(MPATHF_FEATURE_NO_PARTITIONS, &m->flags))
-			DMEMIT("no_partitions ");
 		if (m->queue_mode != DM_TYPE_REQUEST_BASED) {
 			switch(m->queue_mode) {
 			case DM_TYPE_BIO_BASED:
