@@ -277,6 +277,18 @@ static void iwl_mvm_rx_agg_session_expired(unsigned long data)
 
 	/* Timer expired */
 	sta = rcu_dereference(ba_data->mvm->fw_id_to_mac_id[ba_data->sta_id]);
+
+	/*
+	 * sta should be valid unless the following happens:
+	 * The firmware asserts which triggers a reconfig flow, but
+	 * the reconfig fails before we set the pointer to sta into
+	 * the fw_id_to_mac_id pointer table. Mac80211 can't stop
+	 * A-MDPU and hence the timer continues to run. Then, the
+	 * timer expires and sta is NULL.
+	 */
+	if (!sta)
+		goto unlock;
+
 	mvm_sta = iwl_mvm_sta_from_mac80211(sta);
 	ieee80211_stop_rx_ba_session_offl(mvm_sta->vif,
 					  sta->addr, ba_data->tid);
@@ -398,7 +410,7 @@ static int iwl_mvm_get_queue_agg_tids(struct iwl_mvm *mvm, int queue)
 	struct iwl_mvm_sta *mvmsta;
 	unsigned long tid_bitmap;
 	unsigned long agg_tids = 0;
-	s8 sta_id;
+	u8 sta_id;
 	int tid;
 
 	lockdep_assert_held(&mvm->mutex);
@@ -979,7 +991,7 @@ static void iwl_mvm_unshare_queue(struct iwl_mvm *mvm, int queue)
 {
 	struct ieee80211_sta *sta;
 	struct iwl_mvm_sta *mvmsta;
-	s8 sta_id;
+	u8 sta_id;
 	int tid = -1;
 	unsigned long tid_bitmap;
 	unsigned int wdg_timeout;
@@ -1389,11 +1401,24 @@ int iwl_mvm_add_sta(struct iwl_mvm *mvm,
 
 	if (iwl_mvm_has_new_rx_api(mvm) &&
 	    !test_bit(IWL_MVM_STATUS_IN_HW_RESTART, &mvm->status)) {
+		int q;
+
 		dup_data = kcalloc(mvm->trans->num_rx_queues,
-				   sizeof(*dup_data),
-				   GFP_KERNEL);
+				   sizeof(*dup_data), GFP_KERNEL);
 		if (!dup_data)
 			return -ENOMEM;
+		/*
+		 * Initialize all the last_seq values to 0xffff which can never
+		 * compare equal to the frame's seq_ctrl in the check in
+		 * iwl_mvm_is_dup() since the lower 4 bits are the fragment
+		 * number and fragmented packets don't reach that function.
+		 *
+		 * This thus allows receiving a packet with seqno 0 and the
+		 * retry bit set as the very first packet on a new TID.
+		 */
+		for (q = 0; q < mvm->trans->num_rx_queues; q++)
+			memset(dup_data[q].last_seq, 0xff,
+			       sizeof(dup_data[q].last_seq));
 		mvm_sta->dup_data = dup_data;
 	}
 
@@ -1960,7 +1985,8 @@ int iwl_mvm_send_add_bcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 						IWL_MAX_TID_COUNT,
 						wdg_timeout);
 
-		if (vif->type == NL80211_IFTYPE_AP)
+		if (vif->type == NL80211_IFTYPE_AP ||
+		    vif->type == NL80211_IFTYPE_ADHOC)
 			mvm->probe_queue = queue;
 		else if (vif->type == NL80211_IFTYPE_P2P_DEVICE)
 			mvm->p2p_dev_queue = queue;

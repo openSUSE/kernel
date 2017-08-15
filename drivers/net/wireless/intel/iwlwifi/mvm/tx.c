@@ -545,12 +545,18 @@ static int iwl_mvm_get_ctrl_vif_queue(struct iwl_mvm *mvm,
 	case NL80211_IFTYPE_AP:
 	case NL80211_IFTYPE_ADHOC:
 		/*
-		 * Handle legacy hostapd as well, where station may be added
-		 * only after assoc. Take care of the case where we send a
-		 * deauth to a station that we don't have.
+		 * Handle legacy hostapd as well, where station will be added
+		 * only just before sending the association response.
+		 * Also take care of the case where we send a deauth to a
+		 * station that we don't have, or similarly an association
+		 * response (with non-success status) for a station we can't
+		 * accept.
+		 * Also, disassociate frames might happen, particular with
+		 * reason 7 ("Class 3 frame received from nonassociated STA").
 		 */
 		if (ieee80211_is_probe_resp(fc) || ieee80211_is_auth(fc) ||
-		    ieee80211_is_deauth(fc))
+		    ieee80211_is_deauth(fc) || ieee80211_is_assoc_resp(fc) ||
+		    ieee80211_is_disassoc(fc))
 			return mvm->probe_queue;
 		if (info->hw_queue == info->control.vif->cab_queue)
 			return info->hw_queue;
@@ -611,10 +617,6 @@ int iwl_mvm_tx_skb_non_sta(struct iwl_mvm *mvm, struct sk_buff *skb)
 	 * (this is not possible for unicast packets as a TLDS discovery
 	 * response are sent without a station entry); otherwise use the
 	 * AUX station.
-	 * In DQA mode, if vif is of type STATION and frames are not multicast
-	 * or offchannel, they should be sent from the BSS queue.
-	 * For example, TDLS setup frames should be sent on this queue,
-	 * as they go through the AP.
 	 */
 	sta_id = mvm->aux_sta.sta_id;
 	if (info.control.vif) {
@@ -639,9 +641,8 @@ int iwl_mvm_tx_skb_non_sta(struct iwl_mvm *mvm, struct sk_buff *skb)
 			if (ap_sta_id != IWL_MVM_INVALID_STA)
 				sta_id = ap_sta_id;
 		} else if (iwl_mvm_is_dqa_supported(mvm) &&
-			   info.control.vif->type == NL80211_IFTYPE_STATION &&
-			   queue != mvm->aux_queue) {
-			queue = IWL_MVM_DQA_BSS_CLIENT_QUEUE;
+			   info.control.vif->type == NL80211_IFTYPE_MONITOR) {
+			queue = mvm->aux_queue;
 		}
 	}
 
@@ -695,11 +696,6 @@ static int iwl_mvm_tx_tso(struct iwl_mvm *mvm, struct sk_buff *skb,
 	snap_ip_tcp = 8 + skb_transport_header(skb) - skb_network_header(skb) +
 		tcp_hdrlen(skb);
 
-	qc = ieee80211_get_qos_ctl(hdr);
-	tid = *qc & IEEE80211_QOS_CTL_TID_MASK;
-	if (WARN_ON_ONCE(tid >= IWL_MAX_TID_COUNT))
-		return -EINVAL;
-
 	dbg_max_amsdu_len = ACCESS_ONCE(mvm->max_amsdu_len);
 
 	if (!sta->max_amsdu_len ||
@@ -709,6 +705,11 @@ static int iwl_mvm_tx_tso(struct iwl_mvm *mvm, struct sk_buff *skb,
 		pad = 0;
 		goto segment;
 	}
+
+	qc = ieee80211_get_qos_ctl(hdr);
+	tid = *qc & IEEE80211_QOS_CTL_TID_MASK;
+	if (WARN_ON_ONCE(tid >= IWL_MAX_TID_COUNT))
+		return -EINVAL;
 
 	/*
 	 * Do not build AMSDU for IPv6 with extension headers.
@@ -829,11 +830,13 @@ segment:
 		if (tcp_payload_len > mss) {
 			skb_shinfo(tmp)->gso_size = mss;
 		} else {
-			qc = ieee80211_get_qos_ctl((void *)tmp->data);
+			if (ieee80211_is_data_qos(hdr->frame_control)) {
+				qc = ieee80211_get_qos_ctl((void *)tmp->data);
 
-			if (ipv4)
-				ip_send_check(ip_hdr(tmp));
-			*qc &= ~IEEE80211_QOS_CTL_A_MSDU_PRESENT;
+				if (ipv4)
+					ip_send_check(ip_hdr(tmp));
+				*qc &= ~IEEE80211_QOS_CTL_A_MSDU_PRESENT;
+			}
 			skb_shinfo(tmp)->gso_size = 0;
 		}
 
