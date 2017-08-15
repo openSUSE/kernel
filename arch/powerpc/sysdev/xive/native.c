@@ -531,7 +531,7 @@ u32 xive_native_default_eq_shift(void)
 }
 EXPORT_SYMBOL_GPL(xive_native_default_eq_shift);
 
-bool xive_native_init(void)
+bool __init xive_native_init(void)
 {
 	struct device_node *np;
 	struct resource r;
@@ -633,8 +633,8 @@ u32 xive_native_alloc_vp_block(u32 max_vcpus)
 	if (max_vcpus > (1 << order))
 		order++;
 
-	pr_info("VP block alloc, for max VCPUs %d use order %d\n",
-		max_vcpus, order);
+	pr_debug("VP block alloc, for max VCPUs %d use order %d\n",
+		 max_vcpus, order);
 
 	for (;;) {
 		rc = opal_xive_alloc_vp_block(order);
