@@ -90,6 +90,7 @@ static void fcopy_timeout_func(struct work_struct *dummy)
 	 * process the pending transaction.
 	 */
 	fcopy_respond_to_host(HV_E_FAIL);
+	pr_info("FCP: timeout after %d seconds\n", HV_UTIL_TIMEOUT);
 	hv_poll_channel(fcopy_transaction.recv_channel, fcopy_poll_wrapper);
 }
 

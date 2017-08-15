@@ -34,7 +34,7 @@
 /*
  * Timeout for services such as KVP and fcopy.
  */
-#define HV_UTIL_TIMEOUT 30
+#define HV_UTIL_TIMEOUT 60
 
 /*
  * Timeout for guest-host handshake for services.
@@ -303,6 +303,13 @@ enum vmbus_connect_state {
 #define MAX_SIZE_CHANNEL_MESSAGE	HV_MESSAGE_PAYLOAD_BYTE_COUNT
 
 struct vmbus_connection {
+	/*
+	 * CPU on which the initial host contact was made.
+	 */
+	int connect_cpu;
+
+	atomic_t offer_in_progress;
+
 	enum vmbus_connect_state conn_state;
 
 	atomic_t next_gpadl_handle;
@@ -411,6 +418,10 @@ static inline void hv_poll_channel(struct vmbus_channel *channel,
 	if (!channel)
 		return;
 
+	if (in_interrupt() && (channel->target_cpu == smp_processor_id())) {
+		cb(channel);
+		return;
+	}
 	smp_call_function_single(channel->target_cpu, cb, channel, true);
 }
 

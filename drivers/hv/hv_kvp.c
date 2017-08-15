@@ -112,7 +112,7 @@ static void kvp_poll_wrapper(void *channel)
 {
 	/* Transaction is finished, reset the state here to avoid races. */
 	kvp_transaction.state = HVUTIL_READY;
-	hv_kvp_onchannelcallback(channel);
+	tasklet_schedule(&((struct vmbus_channel *)channel)->callback_event);
 }
 
 static void kvp_register_done(void)
@@ -154,12 +154,13 @@ static void kvp_timeout_func(struct work_struct *dummy)
 	 */
 	kvp_respond_to_host(NULL, HV_E_FAIL);
 
+	pr_info("KVP: timeout after %d seconds\n", HV_UTIL_TIMEOUT);
 	hv_poll_channel(kvp_transaction.recv_channel, kvp_poll_wrapper);
 }
 
 static void kvp_host_handshake_func(struct work_struct *dummy)
 {
-	hv_poll_channel(kvp_transaction.recv_channel, hv_kvp_onchannelcallback);
+	tasklet_schedule(&kvp_transaction.recv_channel->callback_event);
 }
 
 static int kvp_handle_handshake(struct hv_kvp_msg *msg)
@@ -202,7 +203,14 @@ static int kvp_on_msg(void *msg, int len)
 	int	error = 0;
 
 	if (len < sizeof(*message))
+	{
+		static int i = 0;
+		if (!i) {
+			i = 1;
+			pr_err("bug#1039153 %s(%u) %s[%u], len %d msg %d state %d\n", __func__, __LINE__, current->comm, current->pid, len, (int)sizeof(*message), kvp_transaction.state);
+		}
 		return -EINVAL;
+	}
 
 	/*
 	 * If we are negotiating the version information
@@ -215,7 +223,14 @@ static int kvp_on_msg(void *msg, int len)
 
 	/* We didn't send anything to userspace so the reply is spurious */
 	if (kvp_transaction.state < HVUTIL_USERSPACE_REQ)
+	{
+		static int i = 0;
+		if (!i) {
+			i = 1;
+			pr_err("bug#1039153 %s(%u) %s[%u], state %d < %d\n", __func__, __LINE__, current->comm, current->pid, kvp_transaction.state, HVUTIL_USERSPACE_REQ);
+		}
 		return -EINVAL;
+	}
 
 	kvp_transaction.state = HVUTIL_USERSPACE_RECV;
 
@@ -625,16 +640,17 @@ void hv_kvp_onchannelcallback(void *context)
 		     NEGO_IN_PROGRESS,
 		     NEGO_FINISHED} host_negotiatied = NEGO_NOT_STARTED;
 
-	if (host_negotiatied == NEGO_NOT_STARTED &&
-	    kvp_transaction.state < HVUTIL_READY) {
+	if (kvp_transaction.state < HVUTIL_READY) {
 		/*
 		 * If userspace daemon is not connected and host is asking
 		 * us to negotiate we need to delay to not lose messages.
 		 * This is important for Failover IP setting.
 		 */
-		host_negotiatied = NEGO_IN_PROGRESS;
-		schedule_delayed_work(&kvp_host_handshake_work,
+		if (host_negotiatied == NEGO_NOT_STARTED) {
+			host_negotiatied = NEGO_IN_PROGRESS;
+			schedule_delayed_work(&kvp_host_handshake_work,
 				      HV_UTIL_NEGO_TIMEOUT * HZ);
+		}
 		return;
 	}
 	if (kvp_transaction.state > HVUTIL_READY)
@@ -702,6 +718,7 @@ void hv_kvp_onchannelcallback(void *context)
 				       VM_PKT_DATA_INBAND, 0);
 
 		host_negotiatied = NEGO_FINISHED;
+		hv_poll_channel(kvp_transaction.recv_channel, kvp_poll_wrapper);
 	}
 
 }
