@@ -1897,7 +1897,7 @@ static void megasas_set_static_target_properties(struct scsi_device *sdev,
 
 static int megasas_slave_configure(struct scsi_device *sdev)
 {
-	u16 pd_index = 0;
+	u16 pd_index = 0, ld_index;
 	struct megasas_instance *instance;
 	int ret_target_prop = DCMD_FAILED;
 	bool is_target_prop = false;
@@ -1909,6 +1909,12 @@ static int megasas_slave_configure(struct scsi_device *sdev)
 				sdev->id;
 			if (instance->pd_list[pd_index].driveState !=
 				MR_PD_STATE_SYSTEM)
+				return -ENXIO;
+		}
+		if (MEGASAS_IS_LOGICAL(sdev)) {
+			ld_index = ((sdev->channel - MEGASAS_MAX_PD_CHANNELS) *
+				    MEGASAS_MAX_DEV_PER_CHANNEL) + sdev->id;
+			if (instance->ld_ids[ld_index] == 0xff)
 				return -ENXIO;
 		}
 	}
@@ -4496,7 +4502,6 @@ megasas_ld_list_query(struct megasas_instance *instance, u8 query_type)
 		dev_info(&instance->pdev->dev,
 			"DCMD not supported by firmware - %s %d\n",
 				__func__, __LINE__);
-		ret = megasas_get_ld_list(instance);
 		break;
 	case DCMD_TIMEOUT:
 		switch (dcmd_timeout_ocr_possible(instance)) {
@@ -4524,6 +4529,14 @@ megasas_ld_list_query(struct megasas_instance *instance, u8 query_type)
 		break;
 	case DCMD_SUCCESS:
 		tgtid_count = le32_to_cpu(ci->count);
+		/*
+		 * Some older firmware return '0' if the LD LIST QUERY
+		 * command is not supported.
+		 */
+		if (tgtid_count == 0) {
+			ret = DCMD_FAILED;
+			break;
+		}
 
 		if ((tgtid_count > (instance->fw_supported_vd_count)))
 			break;
@@ -5140,7 +5153,7 @@ static int megasas_init_fw(struct megasas_instance *instance)
 	struct megasas_register_set __iomem *reg_set;
 	struct megasas_ctrl_info *ctrl_info = NULL;
 	unsigned long bar_list;
-	int i, j, loop, fw_msix_count = 0;
+	int i, j, loop, fw_msix_count = 0, ret;
 	struct IOV_111 *iovPtr;
 	struct fusion_context *fusion;
 
@@ -5378,8 +5391,11 @@ static int megasas_init_fw(struct megasas_instance *instance)
 		}
 	}
 
-	if (megasas_ld_list_query(instance,
-				  MR_LD_QUERY_TYPE_EXPOSED_TO_HOST))
+	ret = megasas_ld_list_query(instance,
+				    MR_LD_QUERY_TYPE_EXPOSED_TO_HOST);
+	if (ret == DCMD_FAILED)
+		ret = megasas_get_ld_list(instance);
+	if (ret)
 		goto fail_get_ld_pd_list;
 
 	/*
@@ -7434,8 +7450,12 @@ megasas_aen_polling(struct work_struct *work)
 		case MR_EVT_LD_DELETED:
 		case MR_EVT_LD_CREATED:
 			if (!instance->requestorId ||
-				(instance->requestorId && megasas_get_ld_vf_affiliation(instance, 0)))
+			    (instance->requestorId &&
+			     megasas_get_ld_vf_affiliation(instance, 0))) {
 				dcmd_ret = megasas_ld_list_query(instance, MR_LD_QUERY_TYPE_EXPOSED_TO_HOST);
+				if (dcmd_ret == DCMD_FAILED)
+					dcmd_ret = megasas_get_ld_list(instance);
+			}
 
 			if (dcmd_ret == DCMD_SUCCESS)
 				doscan = SCAN_VD_CHANNEL;
@@ -7451,8 +7471,11 @@ megasas_aen_polling(struct work_struct *work)
 				break;
 
 			if (!instance->requestorId ||
-				(instance->requestorId && megasas_get_ld_vf_affiliation(instance, 0)))
+			    (instance->requestorId && megasas_get_ld_vf_affiliation(instance, 0))) {
 				dcmd_ret = megasas_ld_list_query(instance, MR_LD_QUERY_TYPE_EXPOSED_TO_HOST);
+				if (dcmd_ret == DCMD_FAILED)
+					dcmd_ret = megasas_get_ld_list(instance);
+			}
 
 			if (dcmd_ret != DCMD_SUCCESS)
 				break;
