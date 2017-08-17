@@ -653,6 +653,9 @@ static int nfs_init_server(struct nfs_server *server,
 	struct nfs_client *clp;
 	int error;
 
+	if (data->nfs_server.protocol == XPRT_TRANSPORT_TCP)
+		cl_init.nconnect = data->nfs_server.nconnect;
+
 	nfs_init_timeout_values(&timeparms, data->nfs_server.protocol,
 			data->timeo, data->retrans);
 	if (data->flags & NFS_MOUNT_NORESVPORT)
