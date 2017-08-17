@@ -481,7 +481,7 @@ static int nfs4_match_client(struct nfs_client  *pos,  struct nfs_client *new,
 	 * remaining fields in "pos", especially the client
 	 * ID and serverowner fields.  Wait for CREATE_SESSION
 	 * to finish. */
-	if (pos->cl_cons_state > NFS_CS_READY) {
+	if (pos->cl_cons_state == NFS_CS_SESSION_INITING) {
 		atomic_inc(&pos->cl_count);
 		spin_unlock(&nn->nfs_client_lock);
 

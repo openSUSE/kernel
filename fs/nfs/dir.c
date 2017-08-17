@@ -1606,8 +1606,9 @@ static int nfs4_lookup_revalidate(struct dentry *dentry, unsigned int flags)
 	if (flags & LOOKUP_EXCL)
 		goto no_open;
 
-	/* Let f_op->open() actually open (and revalidate) the file */
-	ret = 1;
+	if (!NFS_STALE(inode))
+		/* Let f_op->open() actually open (and revalidate) the file */
+		ret = 1;
 
 out:
 	return ret;
