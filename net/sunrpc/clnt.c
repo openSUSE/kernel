@@ -520,6 +520,7 @@ struct rpc_clnt *rpc_create(struct rpc_create_args *args)
 		.addrlen = args->addrsize,
 		.servername = args->servername,
 		.bc_xprt = args->bc_xprt,
+		.init_xid = prandom_u32(),
 	};
 	char servername[48];
 	struct rpc_clnt *clnt;
@@ -572,6 +573,12 @@ struct rpc_clnt *rpc_create(struct rpc_create_args *args)
 		xprtargs.servername = servername;
 	}
 
+	if (args->nconnect)
+		xprtargs.bitmask_len = fls(args->nconnect - 1);
+	else
+		xprtargs.bitmask_len = 0;
+	xprtargs.transport_id = 0;
+
 	xprt = xprt_create_transport(&xprtargs);
 	if (IS_ERR(xprt))
 		return (struct rpc_clnt *)xprt;
@@ -591,6 +598,7 @@ struct rpc_clnt *rpc_create(struct rpc_create_args *args)
 		return clnt;
 
 	for (i = 0; i < args->nconnect - 1; i++) {
+		xprtargs.transport_id += 1;
 		if (rpc_clnt_add_xprt(clnt, &xprtargs, NULL, NULL) < 0)
 			break;
 	}
