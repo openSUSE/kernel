@@ -810,6 +810,8 @@ static void update_hid_for_hash(void)
 	asm volatile(PPC_TLBIE_5(%0, %4, %3, %2, %1)
 		     : : "r"(rb), "i"(0), "i"(0), "i"(2), "r"(0) : "memory");
 	asm volatile("eieio; tlbsync; ptesync; isync; slbia": : :"memory");
+	trace_tlbie(0, 0, rb, 0, 2, 0, 0);
+
 	/*
 	 * now switch the HID
 	 */
@@ -1017,6 +1019,7 @@ void __init hash__early_init_mmu(void)
 	__kernel_virt_size = H_KERN_VIRT_SIZE;
 	__vmalloc_start = H_VMALLOC_START;
 	__vmalloc_end = H_VMALLOC_END;
+	__kernel_io_start = H_KERN_IO_START;
 	vmemmap = (struct page *)H_VMEMMAP_BASE;
 	ioremap_bot = IOREMAP_BASE;
 

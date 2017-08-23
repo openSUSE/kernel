@@ -31,6 +31,7 @@
  * registers for winkle support.
  */
 #define _SDR1	GPR3
+#define _PTCR	GPR3
 #define _RPR	GPR4
 #define _SPURR	GPR5
 #define _PURR	GPR6
@@ -39,7 +40,7 @@
 #define _AMOR	GPR9
 #define _WORT	GPR10
 #define _WORC	GPR11
-#define _PTCR	GPR12
+#define _LPCR	GPR12
 
 #define PSSCR_EC_ESL_MASK_SHIFTED          (PSSCR_EC | PSSCR_ESL) >> 16
 
@@ -55,12 +56,14 @@ save_sprs_to_stack:
 	 * here since any thread in the core might wake up first
 	 */
 BEGIN_FTR_SECTION
-	mfspr	r3,SPRN_PTCR
-	std	r3,_PTCR(r1)
 	/*
 	 * Note - SDR1 is dropped in Power ISA v3. Hence not restoring
 	 * SDR1 here
 	 */
+	mfspr	r3,SPRN_PTCR
+	std	r3,_PTCR(r1)
+	mfspr	r3,SPRN_LPCR
+	std	r3,_LPCR(r1)
 FTR_SECTION_ELSE
 	mfspr	r3,SPRN_SDR1
 	std	r3,_SDR1(r1)
@@ -376,6 +379,7 @@ _GLOBAL(power9_idle_stop)
 	mfspr   r5,SPRN_PSSCR
 	andc    r5,r5,r4
 	or      r3,r3,r5
+	std	r3, PACA_REQ_PSSCR(r13)
 	mtspr 	SPRN_PSSCR,r3
 	LOAD_REG_ADDR(r5,power_enter_stop)
 	li	r4,1
@@ -495,12 +499,22 @@ pnv_restore_hyp_resource_arch300:
 	LOAD_REG_ADDRBASE(r5,pnv_first_deep_stop_state)
 	ld	r4,ADDROFF(pnv_first_deep_stop_state)(r5)
 
-	mfspr	r5,SPRN_PSSCR
+BEGIN_FTR_SECTION_NESTED(71)
+	/*
+	 * Assume that we are waking up from the state
+	 * same as the Requested Level (RL) in the PSSCR
+	 * which are Bits 60-63
+	 */
+	ld	r5,PACA_REQ_PSSCR(r13)
+	rldicl  r5,r5,0,60
+FTR_SECTION_ELSE_NESTED(71)
 	/*
 	 * 0-3 bits correspond to Power-Saving Level Status
 	 * which indicates the idle state we are waking up from
 	 */
+	mfspr	r5, SPRN_PSSCR
 	rldicl  r5,r5,4,60
+ALT_FTR_SECTION_END_NESTED_IFSET(CPU_FTR_POWER9_DD1, 71)
 	cmpd	cr4,r5,r4
 	bge	cr4,pnv_wakeup_tb_loss /* returns to caller */
 
@@ -731,13 +745,14 @@ timebase_resync:
 	 * Use cr3 which indicates that we are waking up with atleast partial
 	 * hypervisor state loss to determine if TIMEBASE RESYNC is needed.
 	 */
-	ble	cr3,clear_lock
+	ble	cr3,.Ltb_resynced
 	/* Time base re-sync */
 	bl	opal_resync_timebase;
 	/*
-	 * If waking up from sleep, per core state is not lost, skip to
-	 * clear_lock.
+	 * If waking up from sleep (POWER8), per core state
+	 * is not lost, skip to clear_lock.
 	 */
+.Ltb_resynced:
 	blt	cr4,clear_lock
 
 	/*
@@ -812,6 +827,10 @@ no_segments:
 	mtctr	r12
 	bctrl
 
+BEGIN_FTR_SECTION
+	ld	r4,_LPCR(r1)
+	mtspr	SPRN_LPCR,r4
+END_FTR_SECTION_IFSET(CPU_FTR_ARCH_300)
 hypervisor_state_restored:
 
 	mtspr	SPRN_SRR1,r16
