@@ -207,6 +207,8 @@ struct rpc_xprt {
 	 * Multipath
 	 */
 	struct list_head	xprt_switch;
+	u32 masked_id;
+	u32 xid_mask;
 
 	/*
 	 * Connection of transports
@@ -306,6 +308,9 @@ struct xprt_create {
 	struct svc_xprt		*bc_xprt;	/* NFSv4.1 backchannel */
 	struct rpc_xprt_switch	*bc_xps;
 	unsigned int		flags;
+	u32 transport_id;
+	u32 bitmask_len;
+	u32 init_xid;
 };
 
 struct xprt_class {

@@ -112,6 +112,8 @@ static inline struct hlist_bl_head *d_hash(unsigned int hash)
 #define IN_LOOKUP_SHIFT 10
 static struct hlist_bl_head in_lookup_hashtable[1 << IN_LOOKUP_SHIFT];
 
+static DEFINE_SPINLOCK(s_anon_lock);
+
 static inline struct hlist_bl_head *in_lookup_hash(const struct dentry *parent,
 					unsigned int hash)
 {
@@ -479,10 +481,14 @@ void __d_drop(struct dentry *dentry)
 		else
 			b = d_hash(dentry->d_name.hash);
 
+		if (b == &dentry->d_sb->s_anon)
+			spin_lock(&s_anon_lock);
 		hlist_bl_lock(b);
 		__hlist_bl_del(&dentry->d_hash);
 		dentry->d_hash.pprev = NULL;
 		hlist_bl_unlock(b);
+		if (b == &dentry->d_sb->s_anon)
+			spin_unlock(&s_anon_lock);
 		/* After this call, in-progress rcu-walk path lookup will fail. */
 		write_seqcount_invalidate(&dentry->d_seq);
 	}
@@ -1961,9 +1967,11 @@ static struct dentry *__d_obtain_alias(struct inode *inode, int disconnected)
 	spin_lock(&tmp->d_lock);
 	__d_set_inode_and_type(tmp, inode, add_flags);
 	hlist_add_head(&tmp->d_u.d_alias, &inode->i_dentry);
+	spin_lock(&s_anon_lock);
 	hlist_bl_lock(&tmp->d_sb->s_anon);
 	hlist_bl_add_head(&tmp->d_hash, &tmp->d_sb->s_anon);
 	hlist_bl_unlock(&tmp->d_sb->s_anon);
+	spin_unlock(&s_anon_lock);
 	spin_unlock(&tmp->d_lock);
 	spin_unlock(&inode->i_lock);
 

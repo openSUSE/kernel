@@ -1473,6 +1473,7 @@ static void pending_complete(void *context, int success)
 	}
 	*e = pe->e;
 
+retry:
 	down_write(&s->lock);
 	if (!s->valid) {
 		free_completed_exception(e);
@@ -1481,7 +1482,11 @@ static void pending_complete(void *context, int success)
 	}
 
 	/* Check for conflicting reads */
-	__check_for_conflicting_io(s, pe->e.old_chunk);
+	if (__chunk_is_tracked(s, pe->e.old_chunk)) {
+		up_write(&s->lock);
+		msleep(1);
+		goto retry;
+	}
 
 	/*
 	 * Add a proper exception, and remove the

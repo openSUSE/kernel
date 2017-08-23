@@ -77,6 +77,7 @@ struct nfs_client_initdata {
 	struct nfs_subversion *nfs_mod;
 	int proto;
 	u32 minorversion;
+	unsigned int nconnect;
 	struct net *net;
 	const struct rpc_timeout *timeparms;
 };
@@ -117,6 +118,7 @@ struct nfs_parsed_mount_data {
 		char			*export_path;
 		int			port;
 		unsigned short		protocol;
+		unsigned short		nconnect;
 	} nfs_server;
 
 	struct security_mnt_opts lsm_opts;
