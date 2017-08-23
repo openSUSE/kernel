@@ -494,7 +494,9 @@ void mark_rodata_ro(void)
 		return;
 	}
 
-	if (!radix_enabled())
+	if (radix_enabled())
+		radix__mark_rodata_ro();
+	else
 		hash__mark_rodata_ro();
 }
 #endif
