@@ -1408,7 +1408,6 @@ m64_failed:
 
 static long pnv_pci_ioda2_unset_window(struct iommu_table_group *table_group,
 		int num);
-static void pnv_pci_ioda2_set_bypass(struct pnv_ioda_pe *pe, bool enable);
 
 static void pnv_pci_ioda2_release_dma_pe(struct pci_dev *dev, struct pnv_ioda_pe *pe)
 {
@@ -2280,7 +2279,7 @@ static long pnv_pci_ioda2_set_window(struct iommu_table_group *table_group,
 	return 0;
 }
 
-static void pnv_pci_ioda2_set_bypass(struct pnv_ioda_pe *pe, bool enable)
+void pnv_pci_ioda2_set_bypass(struct pnv_ioda_pe *pe, bool enable)
 {
 	uint16_t window_id = (pe->pe_number << 1 ) + 1;
 	int64_t rc;
@@ -3123,13 +3122,13 @@ static int pnv_pci_diag_data_set(void *data, u64 val)
 	phb = hose->private_data;
 
 	/* Retrieve the diag data from firmware */
-	ret = opal_pci_get_phb_diag_data2(phb->opal_id, phb->diag.blob,
-					  PNV_PCI_DIAG_BUF_SIZE);
+	ret = opal_pci_get_phb_diag_data2(phb->opal_id, phb->diag_data,
+					  phb->diag_data_size);
 	if (ret != OPAL_SUCCESS)
 		return -EIO;
 
 	/* Print the diag data to the kernel log */
-	pnv_pci_dump_phb_diag_data(phb->hose, phb->diag.blob);
+	pnv_pci_dump_phb_diag_data(phb->hose, phb->diag_data);
 	return 0;
 }
 
@@ -3724,6 +3723,15 @@ static void __init pnv_pci_init_ioda_phb(struct device_node *np,
 		phb->model = PNV_PHB_MODEL_NPU2;
 	else
 		phb->model = PNV_PHB_MODEL_UNKNOWN;
+
+	/* Initialize diagnostic data buffer */
+	prop32 = of_get_property(np, "ibm,phb-diag-data-size", NULL);
+	if (prop32)
+		phb->diag_data_size = be32_to_cpup(prop32);
+	else
+		phb->diag_data_size = PNV_PCI_DIAG_BUF_SIZE;
+
+	phb->diag_data = memblock_virt_alloc(phb->diag_data_size, 0);
 
 	/* Parse 32-bit and IO ranges (if any) */
 	pci_process_bridge_OF_ranges(hose, np, !hose->global_number);
