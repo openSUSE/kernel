@@ -210,7 +210,7 @@ static void usbdev_vm_close(struct vm_area_struct *vma)
 	dec_usb_memory_use_count(usbm, &usbm->vma_use_count);
 }
 
-static struct vm_operations_struct usbdev_vm_ops = {
+static const struct vm_operations_struct usbdev_vm_ops = {
 	.open = usbdev_vm_open,
 	.close = usbdev_vm_close
 };
@@ -2536,6 +2536,9 @@ static long usbdev_do_ioctl(struct file *file, unsigned int cmd,
 		break;
 	case USBDEVFS_DROP_PRIVILEGES:
 		ret = proc_drop_privileges(ps, p);
+		break;
+	case USBDEVFS_GET_SPEED:
+		ret = ps->dev->speed;
 		break;
 	}
 
