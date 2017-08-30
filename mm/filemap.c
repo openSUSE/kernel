@@ -881,7 +881,7 @@ static inline int wait_on_page_bit_common(wait_queue_head_t *q,
 	for (;;) {
 		spin_lock_irq(&q->lock);
 
-		if (likely(list_empty(&wait->task_list))) {
+		if (likely(list_empty(&wait->entry))) {
 			__add_wait_queue_entry_tail(q, wait);
 			SetPageWaiters(page);
 		}
