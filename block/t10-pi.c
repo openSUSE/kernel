@@ -28,9 +28,6 @@
 
 typedef __be16 (csum_fn) (void *, unsigned int);
 
-static const __be16 APP_ESCAPE = (__force __be16) 0xffff;
-static const __be32 REF_ESCAPE = (__force __be32) 0xffffffff;
-
 static __be16 t10_pi_crc_fn(void *data, unsigned int len)
 {
 	return cpu_to_be16(crc_t10dif(data, len));
@@ -82,7 +79,7 @@ static int t10_pi_verify(struct blk_integrity_iter *iter, csum_fn *fn,
 		switch (type) {
 		case 1:
 		case 2:
-			if (pi->app_tag == APP_ESCAPE)
+			if (pi->app_tag == T10_PI_APP_ESCAPE)
 				goto next;
 
 			if (be32_to_cpu(pi->ref_tag) !=
@@ -95,8 +92,8 @@ static int t10_pi_verify(struct blk_integrity_iter *iter, csum_fn *fn,
 			}
 			break;
 		case 3:
-			if (pi->app_tag == APP_ESCAPE &&
-			    pi->ref_tag == REF_ESCAPE)
+			if (pi->app_tag == T10_PI_APP_ESCAPE &&
+			    pi->ref_tag == T10_PI_REF_ESCAPE)
 				goto next;
 			break;
 		}
