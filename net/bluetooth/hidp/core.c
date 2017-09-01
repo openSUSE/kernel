@@ -1238,7 +1238,7 @@ static void hidp_session_run(struct hidp_session *session)
 	smp_mb__after_atomic();
 }
 
-static int hidp_session_wake_function(wait_queue_t *wait,
+static int hidp_session_wake_function(wait_queue_entry_t *wait,
 				      unsigned int mode,
 				      int sync, void *key)
 {
