@@ -73,9 +73,8 @@ static int nap_loop(struct cpuidle_device *dev,
 			struct cpuidle_driver *drv,
 			int index)
 {
-	ppc64_runlatch_off();
-	power7_idle();
-	ppc64_runlatch_on();
+	power7_idle_type(PNV_THREAD_NAP);
+
 	return index;
 }
 
@@ -98,7 +97,8 @@ static int fastsleep_loop(struct cpuidle_device *dev,
 	new_lpcr &= ~LPCR_PECE1;
 
 	mtspr(SPRN_LPCR, new_lpcr);
-	power7_sleep();
+
+	power7_idle_type(PNV_THREAD_SLEEP);
 
 	mtspr(SPRN_LPCR, old_lpcr);
 
@@ -110,10 +110,8 @@ static int stop_loop(struct cpuidle_device *dev,
 		     struct cpuidle_driver *drv,
 		     int index)
 {
-	ppc64_runlatch_off();
-	power9_idle_stop(stop_psscr_table[index].val,
+	power9_idle_type(stop_psscr_table[index].val,
 			 stop_psscr_table[index].mask);
-	ppc64_runlatch_on();
 	return index;
 }
 
@@ -228,6 +226,7 @@ static inline int validate_dt_prop_sizes(const char *prop1, int prop1_len,
 	return -1;
 }
 
+extern u32 pnv_get_supported_cpuidle_states(void);
 static int powernv_add_idle_states(void)
 {
 	struct device_node *power_mgt;
@@ -241,6 +240,8 @@ static int powernv_add_idle_states(void)
 	const char *names[CPUIDLE_STATE_MAX];
 	u32 has_stop_states = 0;
 	int i, rc;
+	u32 supported_flags = pnv_get_supported_cpuidle_states();
+
 
 	/* Currently we have snooze statically defined */
 
@@ -355,6 +356,13 @@ static int powernv_add_idle_states(void)
 	for (i = 0; i < dt_idle_states; i++) {
 		unsigned int exit_latency, target_residency;
 		bool stops_timebase = false;
+
+		/*
+		 * Skip the platform idle state whose flag isn't in
+		 * the supported_cpuidle_states flag mask.
+		 */
+		if ((flags[i] & supported_flags) != flags[i])
+			continue;
 		/*
 		 * If an idle state has exit latency beyond
 		 * POWERNV_THRESHOLD_LATENCY_NS then don't use it
