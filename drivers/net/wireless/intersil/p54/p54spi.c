@@ -372,9 +372,9 @@ static int p54spi_rx(struct p54s_priv *priv)
 	}
 
 	if (len <= READAHEAD_SZ) {
-		skb_put_data(skb, rx_head + 1, len);
+		memcpy(skb_put(skb, len), rx_head + 1, len);
 	} else {
-		skb_put_data(skb, rx_head + 1, READAHEAD_SZ);
+		memcpy(skb_put(skb, READAHEAD_SZ), rx_head + 1, READAHEAD_SZ);
 		p54spi_spi_read(priv, SPI_ADRS_DMA_DATA,
 				skb_put(skb, len - READAHEAD_SZ),
 				len - READAHEAD_SZ);

@@ -317,8 +317,7 @@ Amd7930_empty_Dfifo(struct IsdnCardState *cs, int flag)
 							debugl1(cs, "%s", cs->dlog);
 						}
 						/* moves received data in sk-buffer */
-						skb_put_data(skb, cs->rcvbuf,
-							     cs->rcvidx);
+						memcpy(skb_put(skb, cs->rcvidx), cs->rcvbuf, cs->rcvidx);
 						skb_queue_tail(&cs->rq, skb);
 					}
 				}

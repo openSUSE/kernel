@@ -5144,11 +5144,12 @@ static inline int qeth_create_skb_frag(struct qeth_qdio_buffer *qethbuffer,
 
 		skb_reserve(*pskb, ETH_HLEN);
 		if (data_len <= QETH_RX_PULL_LEN) {
-			skb_put_data(*pskb, element->addr + offset, data_len);
+			memcpy(skb_put(*pskb, data_len), element->addr + offset,
+				data_len);
 		} else {
 			get_page(page);
-			skb_put_data(*pskb, element->addr + offset,
-				     QETH_RX_PULL_LEN);
+			memcpy(skb_put(*pskb, QETH_RX_PULL_LEN),
+			       element->addr + offset, QETH_RX_PULL_LEN);
 			skb_fill_page_desc(*pskb, *pfrag, page,
 				offset + QETH_RX_PULL_LEN,
 				data_len - QETH_RX_PULL_LEN);
@@ -5244,7 +5245,8 @@ struct sk_buff *qeth_core_get_next_skb(struct qeth_card *card,
 				    &skb, offset, &frag, data_len))
 					goto no_mem;
 			} else {
-				skb_put_data(skb, data_ptr, data_len);
+				memcpy(skb_put(skb, data_len), data_ptr,
+					data_len);
 			}
 		}
 		skb_len -= data_len;

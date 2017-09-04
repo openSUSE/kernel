@@ -72,7 +72,7 @@ void WILC_WFI_monitor_rx(u8 *buff, u32 size)
 		if (!skb)
 			return;
 
-		skb_put_data(skb, buff, size);
+		memcpy(skb_put(skb, size), buff, size);
 
 		cb_hdr = (struct wilc_wfi_radiotap_cb_hdr *)skb_push(skb, sizeof(*cb_hdr));
 		memset(cb_hdr, 0, sizeof(struct wilc_wfi_radiotap_cb_hdr));
@@ -100,7 +100,7 @@ void WILC_WFI_monitor_rx(u8 *buff, u32 size)
 		if (!skb)
 			return;
 
-		skb_put_data(skb, buff, size);
+		memcpy(skb_put(skb, size), buff, size);
 		hdr = (struct wilc_wfi_radiotap_hdr *)skb_push(skb, sizeof(*hdr));
 		memset(hdr, 0, sizeof(struct wilc_wfi_radiotap_hdr));
 		hdr->hdr.it_version = 0; /* PKTHDR_RADIOTAP_VERSION; */
@@ -200,7 +200,7 @@ static netdev_tx_t WILC_WFI_mon_xmit(struct sk_buff *skb,
 		if (!skb2)
 			return -ENOMEM;
 
-		skb_put_data(skb2, skb->data, skb->len);
+		memcpy(skb_put(skb2, skb->len), skb->data, skb->len);
 
 		cb_hdr = (struct wilc_wfi_radiotap_cb_hdr *)skb_push(skb2, sizeof(*cb_hdr));
 		memset(cb_hdr, 0, sizeof(struct wilc_wfi_radiotap_cb_hdr));

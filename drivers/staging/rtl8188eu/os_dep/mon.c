@@ -53,7 +53,7 @@ static void mon_recv_decrypted(struct net_device *dev, const u8 *data,
 	skb = netdev_alloc_skb(dev, data_len);
 	if (!skb)
 		return;
-	skb_put_data(skb, data, data_len);
+	memcpy(skb_put(skb, data_len), data, data_len);
 
 	/*
 	 * Frame data is not encrypted. Strip off protection so

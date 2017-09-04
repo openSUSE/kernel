@@ -1976,8 +1976,9 @@ err_drop_frame:
 						      MVNETA_MH_SIZE + NET_SKB_PAD,
 						      rx_bytes,
 						      DMA_FROM_DEVICE);
-			skb_put_data(skb, data + MVNETA_MH_SIZE + NET_SKB_PAD,
-				     rx_bytes);
+			memcpy(skb_put(skb, rx_bytes),
+			       data + MVNETA_MH_SIZE + NET_SKB_PAD,
+			       rx_bytes);
 
 			skb->protocol = eth_type_trans(skb, dev);
 			mvneta_rx_csum(pp, rx_status, skb);
@@ -2102,8 +2103,9 @@ err_drop_frame:
 			                              MVNETA_MH_SIZE + NET_SKB_PAD,
 			                              rx_bytes,
 			                              DMA_FROM_DEVICE);
-			skb_put_data(skb, data + MVNETA_MH_SIZE + NET_SKB_PAD,
-				     rx_bytes);
+			memcpy(skb_put(skb, rx_bytes),
+			       data + MVNETA_MH_SIZE + NET_SKB_PAD,
+			       rx_bytes);
 
 			skb->protocol = eth_type_trans(skb, dev);
 			mvneta_rx_csum(pp, rx_status, skb);

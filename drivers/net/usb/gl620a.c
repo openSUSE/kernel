@@ -121,7 +121,8 @@ static int genelink_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 		if (gl_skb) {
 
 			// copy the packet data to the new skb
-			skb_put_data(gl_skb, packet->packet_data, size);
+			memcpy(skb_put(gl_skb, size),
+					packet->packet_data, size);
 			usbnet_skb_return(dev, gl_skb);
 		}
 

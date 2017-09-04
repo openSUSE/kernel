@@ -727,8 +727,7 @@ memory_squeeze:
 					dma_sync_single_for_cpu(dev->dev.parent,
 								(dma_addr_t)SWAP32(rbd->b_data),
 								PKT_BUF_SZ, DMA_FROM_DEVICE);
-					skb_put_data(skb, rbd->v_data,
-						     pkt_len);
+					memcpy(skb_put(skb, pkt_len), rbd->v_data, pkt_len);
 					dma_sync_single_for_device(dev->dev.parent,
 								   (dma_addr_t)SWAP32(rbd->b_data),
 								   PKT_BUF_SZ, DMA_FROM_DEVICE);

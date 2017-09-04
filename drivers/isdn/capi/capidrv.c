@@ -516,7 +516,7 @@ static void send_message(capidrv_contr *card, _cmsg *cmsg)
 		printk(KERN_ERR "capidrv::send_message: can't allocate mem\n");
 		return;
 	}
-	skb_put_data(skb, cmsg->buf, len);
+	memcpy(skb_put(skb, len), cmsg->buf, len);
 	if (capi20_put_message(&global.ap, skb) != CAPI_NOERROR)
 		kfree_skb(skb);
 }

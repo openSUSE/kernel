@@ -1715,7 +1715,8 @@ static int unicast_flush_resp(struct sock *sk, const struct sadb_msg *ihdr)
 	if (!skb)
 		return -ENOBUFS;
 
-	hdr = skb_put_data(skb, ihdr, sizeof(struct sadb_msg));
+	hdr = (struct sadb_msg *) skb_put(skb, sizeof(struct sadb_msg));
+	memcpy(hdr, ihdr, sizeof(struct sadb_msg));
 	hdr->sadb_msg_errno = (uint8_t) 0;
 	hdr->sadb_msg_len = (sizeof(struct sadb_msg) / sizeof(uint64_t));
 

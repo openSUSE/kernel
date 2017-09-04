@@ -697,7 +697,8 @@ ppp_sync_input(struct syncppp *ap, const unsigned char *buf,
 		goto err;
 	}
 
-	p = skb_put_data(skb, buf, count);
+	p = skb_put(skb, count);
+	memcpy(p, buf, count);
 
 	/* strip address/control field if present */
 	p = skb->data;

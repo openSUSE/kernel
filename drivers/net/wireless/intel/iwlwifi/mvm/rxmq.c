@@ -183,8 +183,9 @@ static void iwl_mvm_create_skb(struct sk_buff *skb, struct ieee80211_hdr *hdr,
 	 * present before copying packet data.
 	 */
 	hdrlen += crypt_len;
-	skb_put_data(skb, hdr, hdrlen);
-	skb_put_data(skb, (u8 *)hdr + hdrlen + pad_len, headlen - hdrlen);
+	memcpy(skb_put(skb, hdrlen), hdr, hdrlen);
+	memcpy(skb_put(skb, headlen - hdrlen), (u8 *)hdr + hdrlen + pad_len,
+	       headlen - hdrlen);
 
 	fraglen = len - headlen;
 

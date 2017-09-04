@@ -959,10 +959,11 @@ static int __lpc_handle_recv(struct net_device *ndev, int budget)
 			if (!skb) {
 				ndev->stats.rx_dropped++;
 			} else {
+				prdbuf = skb_put(skb, len);
+
 				/* Copy packet from buffer */
-				prdbuf = skb_put_data(skb,
-						      pldat->rx_buff_v + rxconsidx * ENET_MAXF_SIZE,
-						      len);
+				memcpy(prdbuf, pldat->rx_buff_v +
+					rxconsidx * ENET_MAXF_SIZE, len);
 
 				/* Pass to upper layer */
 				skb->protocol = eth_type_trans(skb, ndev);

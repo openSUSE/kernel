@@ -296,7 +296,8 @@ batadv_frag_merge_packets(struct hlist_head *chain)
 	/* Copy the payload of the each fragment into the last skb */
 	hlist_for_each_entry(entry, chain, list) {
 		size = entry->skb->len - hdr_size;
-		skb_put_data(skb_out, entry->skb->data + hdr_size, size);
+		memcpy(skb_put(skb_out, size), entry->skb->data + hdr_size,
+		       size);
 	}
 
 free:

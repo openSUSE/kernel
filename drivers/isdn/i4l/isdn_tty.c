@@ -474,7 +474,7 @@ isdn_tty_senddown(modem_info *info)
 		return;
 	}
 	skb_reserve(skb, skb_res);
-	skb_put_data(skb, info->port.xmit_buf, buflen);
+	memcpy(skb_put(skb, buflen), info->port.xmit_buf, buflen);
 	info->xmit_count = 0;
 #ifdef CONFIG_ISDN_AUDIO
 	if (info->vonline & 2) {

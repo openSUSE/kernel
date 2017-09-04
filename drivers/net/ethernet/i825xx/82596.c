@@ -809,8 +809,7 @@ memory_squeeze:
 				if (!rx_in_place) {
 					/* 16 byte align the data fields */
 					skb_reserve(skb, 2);
-					skb_put_data(skb, rbd->v_data,
-						     pkt_len);
+					memcpy(skb_put(skb,pkt_len), rbd->v_data, pkt_len);
 				}
 				skb->protocol=eth_type_trans(skb,dev);
 				skb->len = pkt_len;

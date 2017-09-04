@@ -3624,10 +3624,10 @@ de4x5_alloc_rx_buff(struct net_device *dev, int index, int len)
     skb_reserve(p, 2);	                               /* Align */
     if (index < lp->rx_old) {                          /* Wrapped buffer */
 	short tlen = (lp->rxRingSize - lp->rx_old) * RX_BUFF_SZ;
-	skb_put_data(p, lp->rx_bufs + lp->rx_old * RX_BUFF_SZ, tlen);
-	skb_put_data(p, lp->rx_bufs, len - tlen);
+	memcpy(skb_put(p,tlen),lp->rx_bufs + lp->rx_old * RX_BUFF_SZ,tlen);
+	memcpy(skb_put(p,len-tlen),lp->rx_bufs,len-tlen);
     } else {                                           /* Linear buffer */
-	skb_put_data(p, lp->rx_bufs + lp->rx_old * RX_BUFF_SZ, len);
+	memcpy(skb_put(p,len),lp->rx_bufs + lp->rx_old * RX_BUFF_SZ,len);
     }
 
     return p;

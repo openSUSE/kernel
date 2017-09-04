@@ -799,7 +799,7 @@ collect_rx_frame(usb_fifo *fifo, __u8 *data, int len, int finish)
 	}
 	if (len) {
 		if (fifo->skbuff->len + len < fifo->max_size) {
-			skb_put_data(fifo->skbuff, data, len);
+			memcpy(skb_put(fifo->skbuff, len), data, len);
 		} else {
 			DBG(HFCUSB_DBG_FIFO_ERR,
 			    "HCF-USB: got frame exceeded fifo->max_size(%d) fifo(%d)",

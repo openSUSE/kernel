@@ -1459,7 +1459,7 @@ static void smsc_ircc_dma_receive_complete(struct smsc_ircc_cb *self)
 	/* Make sure IP header gets aligned */
 	skb_reserve(skb, 1);
 
-	skb_put_data(skb, self->rx_buff.data, len);
+	memcpy(skb_put(skb, len), self->rx_buff.data, len);
 	self->netdev->stats.rx_packets++;
 	self->netdev->stats.rx_bytes += len;
 

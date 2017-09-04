@@ -202,7 +202,7 @@ static void x25_asy_bump(struct x25_asy *sl)
 		return;
 	}
 	skb_push(skb, 1);	/* LAPB internal control */
-	skb_put_data(skb, sl->rbuff, count);
+	memcpy(skb_put(skb, count), sl->rbuff, count);
 	skb->protocol = x25_type_trans(skb, sl->dev);
 	err = lapb_data_received(skb->dev, skb);
 	if (err != LAPB_OK) {

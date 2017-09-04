@@ -600,7 +600,7 @@ static int fwnet_incoming_packet(struct fwnet_device *dev, __be32 *buf, int len,
 			return -ENOMEM;
 		}
 		skb_reserve(skb, LL_RESERVED_SPACE(net));
-		skb_put_data(skb, buf, len);
+		memcpy(skb_put(skb, len), buf, len);
 
 		return fwnet_finish_incoming_packet(net, skb, source_node_id,
 						    is_broadcast, ether_type);

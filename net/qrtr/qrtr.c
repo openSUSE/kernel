@@ -236,7 +236,7 @@ int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len)
 		return -ENOMEM;
 
 	skb_reset_transport_header(skb);
-	skb_put_data(skb, data, len);
+	memcpy(skb_put(skb, len), data, len);
 
 	skb_queue_tail(&node->rx_queue, skb);
 	schedule_work(&node->work);

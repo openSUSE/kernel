@@ -201,7 +201,7 @@ hysdn_rx_netpkt(hysdn_card *card, unsigned char *buf, unsigned short len)
 		return;
 	}
 	/* copy the data */
-	skb_put_data(skb, buf, len);
+	memcpy(skb_put(skb, len), buf, len);
 
 	/* determine the used protocol */
 	skb->protocol = eth_type_trans(skb, dev);

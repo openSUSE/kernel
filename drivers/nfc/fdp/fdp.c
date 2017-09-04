@@ -228,7 +228,8 @@ static int fdp_nci_send_patch(struct nci_dev *ndev, u8 conn_id, u8 type)
 
 		skb_reserve(skb, NCI_CTRL_HDR_SIZE);
 
-		skb_put_data(skb, fw->data + (fw->size - len), payload_size);
+		memcpy(skb_put(skb, payload_size), fw->data + (fw->size - len),
+		       payload_size);
 
 		rc = nci_send_data(ndev, conn_id, skb);
 

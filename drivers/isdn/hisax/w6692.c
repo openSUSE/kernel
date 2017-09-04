@@ -309,9 +309,7 @@ W6692B_interrupt(struct IsdnCardState *cs, u_char bchan)
 				if (!(skb = dev_alloc_skb(count)))
 					printk(KERN_WARNING "W6692: Bchan receive out of memory\n");
 				else {
-					skb_put_data(skb,
-						     bcs->hw.w6692.rcvbuf,
-						     count);
+					memcpy(skb_put(skb, count), bcs->hw.w6692.rcvbuf, count);
 					skb_queue_tail(&bcs->rqueue, skb);
 				}
 			}
@@ -334,8 +332,7 @@ W6692B_interrupt(struct IsdnCardState *cs, u_char bchan)
 			if (!(skb = dev_alloc_skb(W_B_FIFO_THRESH)))
 				printk(KERN_WARNING "HiSax: receive out of memory\n");
 			else {
-				skb_put_data(skb, bcs->hw.w6692.rcvbuf,
-					     W_B_FIFO_THRESH);
+				memcpy(skb_put(skb, W_B_FIFO_THRESH), bcs->hw.w6692.rcvbuf, W_B_FIFO_THRESH);
 				skb_queue_tail(&bcs->rqueue, skb);
 			}
 			bcs->hw.w6692.rcvidx = 0;
@@ -444,7 +441,7 @@ StartW6692:
 				if (!(skb = alloc_skb(count, GFP_ATOMIC)))
 					printk(KERN_WARNING "HiSax: D receive out of memory\n");
 				else {
-					skb_put_data(skb, cs->rcvbuf, count);
+					memcpy(skb_put(skb, count), cs->rcvbuf, count);
 					skb_queue_tail(&cs->rq, skb);
 				}
 			}
