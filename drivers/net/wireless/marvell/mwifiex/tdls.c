@@ -161,7 +161,7 @@ static void mwifiex_tdls_add_aid(struct mwifiex_private *priv,
 	u8 *pos;
 
 	assoc_rsp = (struct ieee_types_assoc_rsp *)&priv->assoc_rsp_buf;
-	pos = (void *)skb_put(skb, 4);
+	pos = skb_put(skb, 4);
 	*pos++ = WLAN_EID_AID;
 	*pos++ = 2;
 	memcpy(pos, &assoc_rsp->a_id, sizeof(assoc_rsp->a_id));
@@ -175,7 +175,7 @@ static int mwifiex_tdls_add_vht_capab(struct mwifiex_private *priv,
 	struct ieee80211_vht_cap vht_cap;
 	u8 *pos;
 
-	pos = (void *)skb_put(skb, sizeof(struct ieee80211_vht_cap) + 2);
+	pos = skb_put(skb, sizeof(struct ieee80211_vht_cap) + 2);
 	*pos++ = WLAN_EID_VHT_CAPABILITY;
 	*pos++ = sizeof(struct ieee80211_vht_cap);
 
@@ -210,7 +210,7 @@ mwifiex_tdls_add_ht_oper(struct mwifiex_private *priv, const u8 *mac,
 		return 0;
 	}
 
-	pos = (void *)skb_put(skb, sizeof(struct ieee80211_ht_operation) + 2);
+	pos = skb_put(skb, sizeof(struct ieee80211_ht_operation) + 2);
 	*pos++ = WLAN_EID_HT_OPERATION;
 	*pos++ = sizeof(struct ieee80211_ht_operation);
 	ht_oper = (void *)pos;
@@ -275,7 +275,7 @@ static int mwifiex_tdls_add_vht_oper(struct mwifiex_private *priv,
 		ap_vht_cap = bss_desc->bcn_vht_cap;
 	}
 
-	pos = (void *)skb_put(skb, sizeof(struct ieee80211_vht_operation) + 2);
+	pos = skb_put(skb, sizeof(struct ieee80211_vht_operation) + 2);
 	*pos++ = WLAN_EID_VHT_OPERATION;
 	*pos++ = sizeof(struct ieee80211_vht_operation);
 	vht_oper = (struct ieee80211_vht_operation *)pos;
@@ -362,7 +362,7 @@ static void mwifiex_tdls_add_ext_capab(struct mwifiex_private *priv,
 {
 	struct ieee_types_extcap *extcap;
 
-	extcap = (void *)skb_put(skb, sizeof(struct ieee_types_extcap));
+	extcap = skb_put(skb, sizeof(struct ieee_types_extcap));
 	extcap->ieee_hdr.element_id = WLAN_EID_EXT_CAPABILITY;
 	extcap->ieee_hdr.len = 8;
 	memset(extcap->ext_capab, 0, 8);
@@ -375,7 +375,7 @@ static void mwifiex_tdls_add_ext_capab(struct mwifiex_private *priv,
 
 static void mwifiex_tdls_add_qos_capab(struct sk_buff *skb)
 {
-	u8 *pos = (void *)skb_put(skb, 3);
+	u8 *pos = skb_put(skb, 3);
 
 	*pos++ = WLAN_EID_QOS_CAPA;
 	*pos++ = 1;
@@ -416,8 +416,8 @@ mwifiex_add_wmm_info_ie(struct mwifiex_private *priv, struct sk_buff *skb,
 {
 	u8 *buf;
 
-	buf = (void *)skb_put(skb, MWIFIEX_TDLS_WMM_INFO_SIZE +
-			      sizeof(struct ieee_types_header));
+	buf = skb_put(skb,
+		      MWIFIEX_TDLS_WMM_INFO_SIZE + sizeof(struct ieee_types_header));
 
 	*buf++ = WLAN_EID_VENDOR_SPECIFIC;
 	*buf++ = 7; /* len */
@@ -434,7 +434,7 @@ static void mwifiex_tdls_add_bss_co_2040(struct sk_buff *skb)
 {
 	struct ieee_types_bss_co_2040 *bssco;
 
-	bssco = (void *)skb_put(skb, sizeof(struct ieee_types_bss_co_2040));
+	bssco = skb_put(skb, sizeof(struct ieee_types_bss_co_2040));
 	bssco->ieee_hdr.element_id = WLAN_EID_BSS_COEX_2040;
 	bssco->ieee_hdr.len = sizeof(struct ieee_types_bss_co_2040) -
 			      sizeof(struct ieee_types_header);
@@ -446,8 +446,8 @@ static void mwifiex_tdls_add_supported_chan(struct sk_buff *skb)
 	struct ieee_types_generic *supp_chan;
 	u8 chan_supp[] = {1, 11};
 
-	supp_chan = (void *)skb_put(skb, (sizeof(struct ieee_types_header) +
-					  sizeof(chan_supp)));
+	supp_chan = skb_put(skb,
+			    (sizeof(struct ieee_types_header) + sizeof(chan_supp)));
 	supp_chan->ieee_hdr.element_id = WLAN_EID_SUPPORTED_CHANNELS;
 	supp_chan->ieee_hdr.len = sizeof(chan_supp);
 	memcpy(supp_chan->data, chan_supp, sizeof(chan_supp));
@@ -458,8 +458,8 @@ static void mwifiex_tdls_add_oper_class(struct sk_buff *skb)
 	struct ieee_types_generic *reg_class;
 	u8 rc_list[] = {1,
 		1, 2, 3, 4, 12, 22, 23, 24, 25, 27, 28, 29, 30, 32, 33};
-	reg_class = (void *)skb_put(skb, (sizeof(struct ieee_types_header) +
-					  sizeof(rc_list)));
+	reg_class = skb_put(skb,
+			    (sizeof(struct ieee_types_header) + sizeof(rc_list)));
 	reg_class->ieee_hdr.element_id = WLAN_EID_SUPPORTED_REGULATORY_CLASSES;
 	reg_class->ieee_hdr.len = sizeof(rc_list);
 	memcpy(reg_class->data, rc_list, sizeof(rc_list));
@@ -478,7 +478,7 @@ static int mwifiex_prep_tdls_encap_data(struct mwifiex_private *priv,
 
 	capab = priv->curr_bss_params.bss_descriptor.cap_info_bitmap;
 
-	tf = (void *)skb_put(skb, offsetof(struct ieee80211_tdls_data, u));
+	tf = skb_put(skb, offsetof(struct ieee80211_tdls_data, u));
 	memcpy(tf->da, peer, ETH_ALEN);
 	memcpy(tf->sa, priv->curr_addr, ETH_ALEN);
 	tf->ether_type = cpu_to_be16(ETH_P_TDLS);
@@ -497,7 +497,7 @@ static int mwifiex_prep_tdls_encap_data(struct mwifiex_private *priv,
 			return ret;
 		}
 
-		pos = (void *)skb_put(skb, sizeof(struct ieee80211_ht_cap) + 2);
+		pos = skb_put(skb, sizeof(struct ieee80211_ht_cap) + 2);
 		*pos++ = WLAN_EID_HT_CAPABILITY;
 		*pos++ = sizeof(struct ieee80211_ht_cap);
 		ht_cap = (void *)pos;
@@ -537,7 +537,7 @@ static int mwifiex_prep_tdls_encap_data(struct mwifiex_private *priv,
 			return ret;
 		}
 
-		pos = (void *)skb_put(skb, sizeof(struct ieee80211_ht_cap) + 2);
+		pos = skb_put(skb, sizeof(struct ieee80211_ht_cap) + 2);
 		*pos++ = WLAN_EID_HT_CAPABILITY;
 		*pos++ = sizeof(struct ieee80211_ht_cap);
 		ht_cap = (void *)pos;
@@ -619,7 +619,7 @@ mwifiex_tdls_add_link_ie(struct sk_buff *skb, const u8 *src_addr,
 {
 	struct ieee80211_tdls_lnkie *lnkid;
 
-	lnkid = (void *)skb_put(skb, sizeof(struct ieee80211_tdls_lnkie));
+	lnkid = skb_put(skb, sizeof(struct ieee80211_tdls_lnkie));
 	lnkid->ie_type = WLAN_EID_LINK_ID;
 	lnkid->ie_len = sizeof(struct ieee80211_tdls_lnkie) -
 			sizeof(struct ieee_types_header);
@@ -744,7 +744,7 @@ mwifiex_construct_tdls_action_frame(struct mwifiex_private *priv,
 
 	capab = priv->curr_bss_params.bss_descriptor.cap_info_bitmap;
 
-	mgmt = (void *)skb_put(skb, offsetof(struct ieee80211_mgmt, u));
+	mgmt = skb_put(skb, offsetof(struct ieee80211_mgmt, u));
 
 	memset(mgmt, 0, 24);
 	memcpy(mgmt->da, peer, ETH_ALEN);
@@ -778,7 +778,7 @@ mwifiex_construct_tdls_action_frame(struct mwifiex_private *priv,
 			return ret;
 		}
 
-		pos = (void *)skb_put(skb, sizeof(struct ieee80211_ht_cap) + 2);
+		pos = skb_put(skb, sizeof(struct ieee80211_ht_cap) + 2);
 		*pos++ = WLAN_EID_HT_CAPABILITY;
 		*pos++ = sizeof(struct ieee80211_ht_cap);
 		ht_cap = (void *)pos;
