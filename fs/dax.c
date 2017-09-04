@@ -84,7 +84,7 @@ struct exceptional_entry_key {
 };
 
 struct wait_exceptional_entry_queue {
-	wait_queue_t wait;
+	wait_queue_entry_t wait;
 	struct exceptional_entry_key key;
 };
 
@@ -108,7 +108,7 @@ static wait_queue_head_t *dax_entry_waitqueue(struct address_space *mapping,
 	return wait_table + hash;
 }
 
-static int wake_exceptional_entry_func(wait_queue_t *wait, unsigned int mode,
+static int wake_exceptional_entry_func(wait_queue_entry_t *wait, unsigned int mode,
 				       int sync, void *keyp)
 {
 	struct exceptional_entry_key *key = keyp;
@@ -1379,6 +1379,16 @@ static int dax_iomap_pmd_fault(struct vm_fault *vmf,
 	max_pgoff = (i_size_read(inode) - 1) >> PAGE_SHIFT;
 
 	trace_dax_pmd_fault(inode, vmf, max_pgoff, 0);
+
+	/*
+	 * Make sure that the faulting address's PMD offset (color) matches
+	 * the PMD offset from the start of the file.  This is necessary so
+	 * that a PMD range in the page table overlaps exactly with a PMD
+	 * range in the radix tree.
+	 */
+	if ((vmf->pgoff & PG_PMD_COLOUR) !=
+	    ((vmf->address >> PAGE_SHIFT) & PG_PMD_COLOUR))
+		goto fallback;
 
 	/* Fall back to PTEs if we're going to COW */
 	if (write && !(vma->vm_flags & VM_SHARED))

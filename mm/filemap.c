@@ -801,10 +801,10 @@ struct wait_page_key {
 struct wait_page_queue {
 	struct page *page;
 	int bit_nr;
-	wait_queue_t wait;
+	wait_queue_entry_t wait;
 };
 
-static int wake_page_function(wait_queue_t *wait, unsigned mode, int sync, void *arg)
+static int wake_page_function(wait_queue_entry_t *wait, unsigned mode, int sync, void *arg)
 {
 	struct wait_page_key *key = arg;
 	struct wait_page_queue *wait_page
@@ -829,13 +829,33 @@ static void wake_up_page_bit(struct page *page, int bit_nr)
 	wait_queue_head_t *q = page_waitqueue(page);
 	struct wait_page_key key;
 	unsigned long flags;
+	wait_queue_entry_t bookmark;
 
 	key.page = page;
 	key.bit_nr = bit_nr;
 	key.page_match = 0;
 
+	bookmark.flags = 0;
+	bookmark.private = NULL;
+	bookmark.func = NULL;
+	INIT_LIST_HEAD(&bookmark.entry);
+
 	spin_lock_irqsave(&q->lock, flags);
-	__wake_up_locked_key(q, TASK_NORMAL, &key);
+	__wake_up_locked_key_bookmark(q, TASK_NORMAL, &key, &bookmark);
+
+	while (bookmark.flags & WQ_FLAG_BOOKMARK) {
+		/*
+		 * Take a breather from holding the lock,
+		 * allow pages that finish wake up asynchronously
+		 * to acquire the lock and remove themselves
+		 * from wait queue
+		 */
+		spin_unlock_irqrestore(&q->lock, flags);
+		cpu_relax();
+		spin_lock_irqsave(&q->lock, flags);
+		__wake_up_locked_key_bookmark(q, TASK_NORMAL, &key, &bookmark);
+	}
+
 	/*
 	 * It is possible for other pages to have collided on the waitqueue
 	 * hash, so in that case check for a page match. That prevents a long-
@@ -869,7 +889,7 @@ static inline int wait_on_page_bit_common(wait_queue_head_t *q,
 		struct page *page, int bit_nr, int state, bool lock)
 {
 	struct wait_page_queue wait_page;
-	wait_queue_t *wait = &wait_page.wait;
+	wait_queue_entry_t *wait = &wait_page.wait;
 	int ret = 0;
 
 	init_wait(wait);
@@ -881,8 +901,8 @@ static inline int wait_on_page_bit_common(wait_queue_head_t *q,
 	for (;;) {
 		spin_lock_irq(&q->lock);
 
-		if (likely(list_empty(&wait->task_list))) {
-			__add_wait_queue_tail(q, wait);
+		if (likely(list_empty(&wait->entry))) {
+			__add_wait_queue_entry_tail(q, wait);
 			SetPageWaiters(page);
 		}
 
@@ -941,13 +961,13 @@ int wait_on_page_bit_killable(struct page *page, int bit_nr)
  *
  * Add an arbitrary @waiter to the wait queue for the nominated @page.
  */
-void add_page_wait_queue(struct page *page, wait_queue_t *waiter)
+void add_page_wait_queue(struct page *page, wait_queue_entry_t *waiter)
 {
 	wait_queue_head_t *q = page_waitqueue(page);
 	unsigned long flags;
 
 	spin_lock_irqsave(&q->lock, flags);
-	__add_wait_queue(q, waiter);
+	__add_wait_queue_entry_tail(q, waiter);
 	SetPageWaiters(page);
 	spin_unlock_irqrestore(&q->lock, flags);
 }

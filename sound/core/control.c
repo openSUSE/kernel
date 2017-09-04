@@ -1157,7 +1157,7 @@ static int snd_ctl_elem_user_tlv(struct snd_kcontrol *kcontrol,
 		mutex_lock(&ue->card->user_ctl_lock);
 		change = ue->tlv_data_size != size;
 		if (!change)
-			change = memcmp(ue->tlv_data, new_data, size);
+			change = memcmp(ue->tlv_data, new_data, size) != 0;
 		kfree(ue->tlv_data);
 		ue->tlv_data = new_data;
 		ue->tlv_data_size = size;
@@ -1577,7 +1577,7 @@ static ssize_t snd_ctl_read(struct file *file, char __user *buffer,
 		struct snd_ctl_event ev;
 		struct snd_kctl_event *kev;
 		while (list_empty(&ctl->events)) {
-			wait_queue_t wait;
+			wait_queue_entry_t wait;
 			if ((file->f_flags & O_NONBLOCK) != 0 || result > 0) {
 				err = -EAGAIN;
 				goto __end_lock;
