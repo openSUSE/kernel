@@ -2848,7 +2848,8 @@ lwt_xmit_func_proto(enum bpf_func_id func_id)
 	}
 }
 
-static bool __is_valid_access(int off, int size)
+static bool __is_valid_access(int off, int size, enum bpf_access_type type,
+			      int *ctx_field_size)
 {
 	if (off < 0 || off >= sizeof(struct __sk_buff))
 		return false;
@@ -2864,9 +2865,27 @@ static bool __is_valid_access(int off, int size)
 		    offsetof(struct __sk_buff, cb[4]) + sizeof(__u32))
 			return false;
 		break;
-	default:
+	case offsetof(struct __sk_buff, data) ...
+	     offsetof(struct __sk_buff, data) + sizeof(__u32) - 1:
+	case offsetof(struct __sk_buff, data_end) ...
+	     offsetof(struct __sk_buff, data_end) + sizeof(__u32) - 1:
 		if (size != sizeof(__u32))
 			return false;
+		break;
+	default:
+		/* permit narrower load for not cb/data/data_end fields */
+		*ctx_field_size = 4;
+		if (type == BPF_WRITE) {
+			if (size != sizeof(__u32))
+				return false;
+		} else {
+			if (size != sizeof(__u32))
+#ifdef __LITTLE_ENDIAN
+				return (off & 0x3) == 0 && (size == 1 || size == 2);
+#else
+				return (off & 0x3) + size == 4 && (size == 1 || size == 2);
+#endif
+		}
 	}
 
 	return true;
@@ -2874,12 +2893,16 @@ static bool __is_valid_access(int off, int size)
 
 static bool sk_filter_is_valid_access(int off, int size,
 				      enum bpf_access_type type,
-				      enum bpf_reg_type *reg_type)
+				      enum bpf_reg_type *reg_type,
+				      int *ctx_field_size)
 {
 	switch (off) {
-	case offsetof(struct __sk_buff, tc_classid):
-	case offsetof(struct __sk_buff, data):
-	case offsetof(struct __sk_buff, data_end):
+	case offsetof(struct __sk_buff, tc_classid) ...
+	     offsetof(struct __sk_buff, tc_classid) + sizeof(__u32) - 1:
+	case offsetof(struct __sk_buff, data) ...
+	     offsetof(struct __sk_buff, data) + sizeof(__u32) - 1:
+	case offsetof(struct __sk_buff, data_end) ...
+	     offsetof(struct __sk_buff, data_end) + sizeof(__u32) - 1:
 		return false;
 	}
 
@@ -2893,15 +2916,17 @@ static bool sk_filter_is_valid_access(int off, int size,
 		}
 	}
 
-	return __is_valid_access(off, size);
+	return __is_valid_access(off, size, type, ctx_field_size);
 }
 
 static bool lwt_is_valid_access(int off, int size,
 				enum bpf_access_type type,
-				enum bpf_reg_type *reg_type)
+				enum bpf_reg_type *reg_type,
+				int *ctx_field_size)
 {
 	switch (off) {
-	case offsetof(struct __sk_buff, tc_classid):
+	case offsetof(struct __sk_buff, tc_classid) ...
+	     offsetof(struct __sk_buff, tc_classid) + sizeof(__u32) - 1:
 		return false;
 	}
 
@@ -2926,12 +2951,13 @@ static bool lwt_is_valid_access(int off, int size,
 		break;
 	}
 
-	return __is_valid_access(off, size);
+	return __is_valid_access(off, size, type, ctx_field_size);
 }
 
 static bool sock_filter_is_valid_access(int off, int size,
 					enum bpf_access_type type,
-					enum bpf_reg_type *reg_type)
+					enum bpf_reg_type *reg_type,
+					int *ctx_field_size)
 {
 	if (type == BPF_WRITE) {
 		switch (off) {
@@ -2994,7 +3020,8 @@ static int tc_cls_act_prologue(struct bpf_insn *insn_buf, bool direct_write,
 
 static bool tc_cls_act_is_valid_access(int off, int size,
 				       enum bpf_access_type type,
-				       enum bpf_reg_type *reg_type)
+				       enum bpf_reg_type *reg_type,
+				       int *ctx_field_size)
 {
 	if (type == BPF_WRITE) {
 		switch (off) {
@@ -3019,7 +3046,7 @@ static bool tc_cls_act_is_valid_access(int off, int size,
 		break;
 	}
 
-	return __is_valid_access(off, size);
+	return __is_valid_access(off, size, type, ctx_field_size);
 }
 
 static bool __is_valid_xdp_access(int off, int size)
@@ -3036,7 +3063,8 @@ static bool __is_valid_xdp_access(int off, int size)
 
 static bool xdp_is_valid_access(int off, int size,
 				enum bpf_access_type type,
-				enum bpf_reg_type *reg_type)
+				enum bpf_reg_type *reg_type,
+				int *ctx_field_size)
 {
 	if (type == BPF_WRITE)
 		return false;
