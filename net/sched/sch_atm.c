@@ -406,6 +406,7 @@ done:
 		switch (result) {
 		case TC_ACT_QUEUED:
 		case TC_ACT_STOLEN:
+		case TC_ACT_TRAP:
 			__qdisc_drop(skb, to_free);
 			return NET_XMIT_SUCCESS | __NET_XMIT_STOLEN;
 		case TC_ACT_SHOT:
@@ -571,8 +572,10 @@ static void atm_tc_destroy(struct Qdisc *sch)
 	struct atm_flow_data *flow, *tmp;
 
 	pr_debug("atm_tc_destroy(sch %p,[qdisc %p])\n", sch, p);
-	list_for_each_entry(flow, &p->flows, list)
+	list_for_each_entry(flow, &p->flows, list) {
 		tcf_block_put(flow->block);
+		flow->block = NULL;
+	}
 
 	list_for_each_entry_safe(flow, tmp, &p->flows, list) {
 		if (flow->ref > 1)

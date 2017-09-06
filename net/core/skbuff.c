@@ -694,12 +694,9 @@ EXPORT_SYMBOL(__kfree_skb);
  */
 void kfree_skb(struct sk_buff *skb)
 {
-	if (unlikely(!skb))
+	if (!skb_unref(skb))
 		return;
-	if (likely(atomic_read(&skb->users) == 1))
-		smp_rmb();
-	else if (likely(!atomic_dec_and_test(&skb->users)))
-		return;
+
 	trace_kfree_skb(skb, __builtin_return_address(0));
 	__kfree_skb(skb);
 }
@@ -746,12 +743,9 @@ EXPORT_SYMBOL(skb_tx_error);
  */
 void consume_skb(struct sk_buff *skb)
 {
-	if (unlikely(!skb))
+	if (!skb_unref(skb))
 		return;
-	if (likely(atomic_read(&skb->users) == 1))
-		smp_rmb();
-	else if (likely(!atomic_dec_and_test(&skb->users)))
-		return;
+
 	trace_consume_skb(skb);
 	__kfree_skb(skb);
 }
@@ -807,10 +801,9 @@ void napi_consume_skb(struct sk_buff *skb, int budget)
 		return;
 	}
 
-	if (likely(atomic_read(&skb->users) == 1))
-		smp_rmb();
-	else if (likely(!atomic_dec_and_test(&skb->users)))
+	if (!skb_unref(skb))
 		return;
+
 	/* if reaching here SKB is ready to free */
 	trace_consume_skb(skb);
 
@@ -1412,7 +1405,7 @@ EXPORT_SYMBOL(skb_pad);
  *	returned.
  */
 
-unsigned char *pskb_put(struct sk_buff *skb, struct sk_buff *tail, int len)
+void *pskb_put(struct sk_buff *skb, struct sk_buff *tail, int len)
 {
 	if (tail != skb) {
 		skb->data_len += len;
@@ -1431,9 +1424,9 @@ EXPORT_SYMBOL_GPL(pskb_put);
  *	exceed the total buffer size the kernel will panic. A pointer to the
  *	first byte of the extra data is returned.
  */
-unsigned char *skb_put(struct sk_buff *skb, unsigned int len)
+void *skb_put(struct sk_buff *skb, unsigned int len)
 {
-	unsigned char *tmp = skb_tail_pointer(skb);
+	void *tmp = skb_tail_pointer(skb);
 	SKB_LINEAR_ASSERT(skb);
 	skb->tail += len;
 	skb->len  += len;
@@ -1452,7 +1445,7 @@ EXPORT_SYMBOL(skb_put);
  *	start. If this would exceed the total buffer headroom the kernel will
  *	panic. A pointer to the first byte of the extra data is returned.
  */
-unsigned char *skb_push(struct sk_buff *skb, unsigned int len)
+void *skb_push(struct sk_buff *skb, unsigned int len)
 {
 	skb->data -= len;
 	skb->len  += len;
@@ -1472,7 +1465,7 @@ EXPORT_SYMBOL(skb_push);
  *	is returned. Once the data has been pulled future pushes will overwrite
  *	the old data.
  */
-unsigned char *skb_pull(struct sk_buff *skb, unsigned int len)
+void *skb_pull(struct sk_buff *skb, unsigned int len)
 {
 	return skb_pull_inline(skb, len);
 }
@@ -1607,7 +1600,7 @@ EXPORT_SYMBOL(___pskb_trim);
  *
  * It is pretty complicated. Luckily, it is called only in exceptional cases.
  */
-unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
+void *__pskb_pull_tail(struct sk_buff *skb, int delta)
 {
 	/* If skb has not enough free space at tail, get new one
 	 * plus 128 bytes for future expansions. If we have enough
@@ -2243,6 +2236,32 @@ __wsum skb_copy_and_csum_bits(const struct sk_buff *skb, int offset,
 }
 EXPORT_SYMBOL(skb_copy_and_csum_bits);
 
+static __wsum warn_crc32c_csum_update(const void *buff, int len, __wsum sum)
+{
+	net_warn_ratelimited(
+		"%s: attempt to compute crc32c without libcrc32c.ko\n",
+		__func__);
+	return 0;
+}
+
+static __wsum warn_crc32c_csum_combine(__wsum csum, __wsum csum2,
+				       int offset, int len)
+{
+	net_warn_ratelimited(
+		"%s: attempt to compute crc32c without libcrc32c.ko\n",
+		__func__);
+	return 0;
+}
+
+static const struct skb_checksum_ops default_crc32c_ops = {
+	.update  = warn_crc32c_csum_update,
+	.combine = warn_crc32c_csum_combine,
+};
+
+const struct skb_checksum_ops *crc32c_csum_stub __read_mostly =
+	&default_crc32c_ops;
+EXPORT_SYMBOL(crc32c_csum_stub);
+
  /**
  *	skb_zerocopy_headlen - Calculate headroom needed for skb_zerocopy()
  *	@from: source buffer
@@ -2620,7 +2639,8 @@ void skb_split(struct sk_buff *skb, struct sk_buff *skb1, const u32 len)
 {
 	int pos = skb_headlen(skb);
 
-	skb_shinfo(skb1)->tx_flags = skb_shinfo(skb)->tx_flags & SKBTX_SHARED_FRAG;
+	skb_shinfo(skb1)->tx_flags |= skb_shinfo(skb)->tx_flags &
+				      SKBTX_SHARED_FRAG;
 	if (len < pos)	/* Split line is inside header. */
 		skb_split_inside_header(skb, skb1, len, pos);
 	else		/* Second chunk has no header, nothing to copy. */
@@ -3029,7 +3049,7 @@ EXPORT_SYMBOL_GPL(skb_append_pagefrags);
  *	that the checksum difference is zero (e.g., a valid IP header)
  *	or you are setting ip_summed to CHECKSUM_NONE.
  */
-unsigned char *skb_pull_rcsum(struct sk_buff *skb, unsigned int len)
+void *skb_pull_rcsum(struct sk_buff *skb, unsigned int len)
 {
 	unsigned char *data = skb->data;
 
@@ -3235,8 +3255,8 @@ normal:
 		skb_copy_from_linear_data_offset(head_skb, offset,
 						 skb_put(nskb, hsize), hsize);
 
-		skb_shinfo(nskb)->tx_flags = skb_shinfo(head_skb)->tx_flags &
-			SKBTX_SHARED_FRAG;
+		skb_shinfo(nskb)->tx_flags |= skb_shinfo(head_skb)->tx_flags &
+					      SKBTX_SHARED_FRAG;
 
 		while (pos < offset + len) {
 			if (i >= nfrags) {
@@ -3903,7 +3923,8 @@ void __skb_tstamp_tx(struct sk_buff *orig_skb,
 		return;
 
 	if (tsonly) {
-		skb_shinfo(skb)->tx_flags = skb_shinfo(orig_skb)->tx_flags;
+		skb_shinfo(skb)->tx_flags |= skb_shinfo(orig_skb)->tx_flags &
+					     SKBTX_ANY_TSTAMP;
 		skb_shinfo(skb)->tskey = skb_shinfo(orig_skb)->tskey;
 	}
 

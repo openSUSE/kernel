@@ -28,7 +28,7 @@ static void nft_reject_br_push_etherhdr(struct sk_buff *oldskb,
 {
 	struct ethhdr *eth;
 
-	eth = (struct ethhdr *)skb_push(nskb, ETH_HLEN);
+	eth = skb_push(nskb, ETH_HLEN);
 	skb_reset_mac_header(nskb);
 	ether_addr_copy(eth->h_source, eth_hdr(oldskb)->h_dest);
 	ether_addr_copy(eth->h_dest, eth_hdr(oldskb)->h_source);
@@ -111,7 +111,7 @@ static void nft_reject_br_send_v4_unreach(struct net *net,
 	__wsum csum;
 	u8 proto;
 
-	if (oldskb->csum_bad || !nft_bridge_iphdr_validate(oldskb))
+	if (!nft_bridge_iphdr_validate(oldskb))
 		return;
 
 	/* IP header checks: fragment. */
@@ -147,8 +147,7 @@ static void nft_reject_br_send_v4_unreach(struct net *net,
 				   net->ipv4.sysctl_ip_default_ttl);
 
 	skb_reset_transport_header(nskb);
-	icmph = (struct icmphdr *)skb_put(nskb, sizeof(struct icmphdr));
-	memset(icmph, 0, sizeof(*icmph));
+	icmph = skb_put_zero(nskb, sizeof(struct icmphdr));
 	icmph->type     = ICMP_DEST_UNREACH;
 	icmph->code	= code;
 
@@ -225,9 +224,6 @@ static bool reject6_br_csum_ok(struct sk_buff *skb, int hook)
 	__be16 fo;
 	u8 proto = ip6h->nexthdr;
 
-	if (skb->csum_bad)
-		return false;
-
 	if (skb_csum_unnecessary(skb))
 		return true;
 
@@ -277,8 +273,7 @@ static void nft_reject_br_send_v6_unreach(struct net *net,
 				     net->ipv6.devconf_all->hop_limit);
 
 	skb_reset_transport_header(nskb);
-	icmp6h = (struct icmp6hdr *)skb_put(nskb, sizeof(struct icmp6hdr));
-	memset(icmp6h, 0, sizeof(*icmp6h));
+	icmp6h = skb_put_zero(nskb, sizeof(struct icmp6hdr));
 	icmp6h->icmp6_type = ICMPV6_DEST_UNREACH;
 	icmp6h->icmp6_code = code;
 

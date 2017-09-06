@@ -238,6 +238,7 @@ static struct htb_class *htb_classify(struct sk_buff *skb, struct Qdisc *sch,
 		switch (result) {
 		case TC_ACT_QUEUED:
 		case TC_ACT_STOLEN:
+		case TC_ACT_TRAP:
 			*qerr = NET_XMIT_SUCCESS | __NET_XMIT_STOLEN;
 		case TC_ACT_SHOT:
 			return NULL;
@@ -1257,8 +1258,10 @@ static void htb_destroy(struct Qdisc *sch)
 	tcf_block_put(q->block);
 
 	for (i = 0; i < q->clhash.hashsize; i++) {
-		hlist_for_each_entry(cl, &q->clhash.hash[i], common.hnode)
+		hlist_for_each_entry(cl, &q->clhash.hash[i], common.hnode) {
 			tcf_block_put(cl->block);
+			cl->block = NULL;
+		}
 	}
 	for (i = 0; i < q->clhash.hashsize; i++) {
 		hlist_for_each_entry_safe(cl, next, &q->clhash.hash[i],

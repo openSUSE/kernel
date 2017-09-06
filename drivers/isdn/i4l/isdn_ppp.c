@@ -1312,7 +1312,7 @@ isdn_ppp_xmit(struct sk_buff *skb, struct net_device *netdev)
 	/* check if we should pass this packet
 	 * the filter instructions are constructed assuming
 	 * a four-byte PPP header on each packet */
-	*skb_push(skb, 4) = 1; /* indicate outbound */
+	*(u8 *)skb_push(skb, 4) = 1; /* indicate outbound */
 
 	{
 		__be16 *p = (__be16 *)skb->data;
@@ -1509,7 +1509,7 @@ int isdn_ppp_autodial_filter(struct sk_buff *skb, isdn_net_local *lp)
 	 * temporarily remove part of the fake header stuck on
 	 * earlier.
 	 */
-	*skb_pull(skb, IPPP_MAX_HEADER - 4) = 1; /* indicate outbound */
+	*(u8 *)skb_pull(skb, IPPP_MAX_HEADER - 4) = 1; /* indicate outbound */
 
 	{
 		__be16 *p = (__be16 *)skb->data;

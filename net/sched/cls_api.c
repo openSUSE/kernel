@@ -201,19 +201,33 @@ static struct tcf_chain *tcf_chain_create(struct tcf_block *block,
 	return chain;
 }
 
-static void tcf_chain_destroy(struct tcf_chain *chain)
+static void tcf_chain_flush(struct tcf_chain *chain)
 {
 	struct tcf_proto *tp;
 
-	list_del(&chain->list);
+	if (chain->p_filter_chain)
+		RCU_INIT_POINTER(*chain->p_filter_chain, NULL);
 	while ((tp = rtnl_dereference(chain->filter_chain)) != NULL) {
 		RCU_INIT_POINTER(chain->filter_chain, tp->next);
 		tcf_proto_destroy(tp);
 	}
-	kfree(chain);
 }
 
-struct tcf_chain *tcf_chain_get(struct tcf_block *block, u32 chain_index)
+static void tcf_chain_destroy(struct tcf_chain *chain)
+{
+	/* May be already removed from the list by the previous call. */
+	if (!list_empty(&chain->list))
+		list_del_init(&chain->list);
+
+	/* There might still be a reference held when we got here from
+	 * tcf_block_put. Wait for the user to drop reference before free.
+	 */
+	if (!chain->refcnt)
+		kfree(chain);
+}
+
+struct tcf_chain *tcf_chain_get(struct tcf_block *block, u32 chain_index,
+				bool create)
 {
 	struct tcf_chain *chain;
 
@@ -223,7 +237,10 @@ struct tcf_chain *tcf_chain_get(struct tcf_block *block, u32 chain_index)
 			return chain;
 		}
 	}
-	return tcf_chain_create(block, chain_index);
+	if (create)
+		return tcf_chain_create(block, chain_index);
+	else
+		return NULL;
 }
 EXPORT_SYMBOL(tcf_chain_get);
 
@@ -277,8 +294,10 @@ void tcf_block_put(struct tcf_block *block)
 	if (!block)
 		return;
 
-	list_for_each_entry_safe(chain, tmp, &block->chain_list, list)
+	list_for_each_entry_safe(chain, tmp, &block->chain_list, list) {
+		tcf_chain_flush(chain);
 		tcf_chain_destroy(chain);
+	}
 	kfree(block);
 }
 EXPORT_SYMBOL(tcf_block_put);
@@ -293,7 +312,8 @@ int tcf_classify(struct sk_buff *skb, const struct tcf_proto *tp,
 	__be16 protocol = tc_skb_protocol(skb);
 #ifdef CONFIG_NET_CLS_ACT
 	const int max_reclassify_loop = 4;
-	const struct tcf_proto *old_tp = tp;
+	const struct tcf_proto *orig_tp = tp;
+	const struct tcf_proto *first_tp;
 	int limit = 0;
 
 reclassify:
@@ -308,9 +328,10 @@ reclassify:
 		err = tp->classify(skb, tp, res);
 #ifdef CONFIG_NET_CLS_ACT
 		if (unlikely(err == TC_ACT_RECLASSIFY && !compat_mode)) {
+			first_tp = orig_tp;
 			goto reset;
 		} else if (unlikely(TC_ACT_EXT_CMP(err, TC_ACT_GOTO_CHAIN))) {
-			old_tp = res->goto_tp;
+			first_tp = res->goto_tp;
 			goto reset;
 		}
 #endif
@@ -328,7 +349,7 @@ reset:
 		return TC_ACT_SHOT;
 	}
 
-	tp = old_tp;
+	tp = first_tp;
 	protocol = tc_skb_protocol(skb);
 	goto reclassify;
 #endif
@@ -351,7 +372,7 @@ static void tcf_chain_tp_insert(struct tcf_chain *chain,
 {
 	if (chain->p_filter_chain &&
 	    *chain_info->pprev == chain->filter_chain)
-		*chain->p_filter_chain = tp;
+		rcu_assign_pointer(*chain->p_filter_chain, tp);
 	RCU_INIT_POINTER(tp->next, tcf_chain_tp_prev(chain_info));
 	rcu_assign_pointer(*chain_info->pprev, tp);
 }
@@ -363,7 +384,7 @@ static void tcf_chain_tp_remove(struct tcf_chain *chain,
 	struct tcf_proto *next = rtnl_dereference(chain_info->next);
 
 	if (chain->p_filter_chain && tp == chain->filter_chain)
-		*chain->p_filter_chain = next;
+		RCU_INIT_POINTER(*chain->p_filter_chain, next);
 	RCU_INIT_POINTER(*chain_info->pprev, next);
 }
 
@@ -502,15 +523,16 @@ replay:
 		err = -EINVAL;
 		goto errout;
 	}
-	chain = tcf_chain_get(block, chain_index);
+	chain = tcf_chain_get(block, chain_index,
+			      n->nlmsg_type == RTM_NEWTFILTER);
 	if (!chain) {
-		err = -ENOMEM;
+		err = n->nlmsg_type == RTM_NEWTFILTER ? -ENOMEM : -EINVAL;
 		goto errout;
 	}
 
 	if (n->nlmsg_type == RTM_DELTFILTER && prio == 0) {
 		tfilter_notify_chain(net, skb, n, chain, RTM_DELTFILTER);
-		tcf_chain_destroy(chain);
+		tcf_chain_flush(chain);
 		err = 0;
 		goto errout;
 	}

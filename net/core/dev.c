@@ -143,6 +143,7 @@
 #include <linux/hrtimer.h>
 #include <linux/netfilter_ingress.h>
 #include <linux/crash_dump.h>
+#include <linux/sctp.h>
 
 #include "net-sysfs.h"
 
@@ -2639,6 +2640,47 @@ out:
 }
 EXPORT_SYMBOL(skb_checksum_help);
 
+int skb_crc32c_csum_help(struct sk_buff *skb)
+{
+	__le32 crc32c_csum;
+	int ret = 0, offset, start;
+
+	if (skb->ip_summed != CHECKSUM_PARTIAL)
+		goto out;
+
+	if (unlikely(skb_is_gso(skb)))
+		goto out;
+
+	/* Before computing a checksum, we should make sure no frag could
+	 * be modified by an external entity : checksum could be wrong.
+	 */
+	if (unlikely(skb_has_shared_frag(skb))) {
+		ret = __skb_linearize(skb);
+		if (ret)
+			goto out;
+	}
+	start = skb_checksum_start_offset(skb);
+	offset = start + offsetof(struct sctphdr, checksum);
+	if (WARN_ON_ONCE(offset >= skb_headlen(skb))) {
+		ret = -EINVAL;
+		goto out;
+	}
+	if (skb_cloned(skb) &&
+	    !skb_clone_writable(skb, offset + sizeof(__le32))) {
+		ret = pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
+		if (ret)
+			goto out;
+	}
+	crc32c_csum = cpu_to_le32(~__skb_checksum(skb, start,
+						  skb->len - start, ~(__u32)0,
+						  crc32c_csum_stub));
+	*(__le32 *)(skb->data + offset) = crc32c_csum;
+	skb->ip_summed = CHECKSUM_NONE;
+	skb->csum_not_inet = 0;
+out:
+	return ret;
+}
+
 __be16 skb_network_protocol(struct sk_buff *skb, int *depth)
 {
 	__be16 type = skb->protocol;
@@ -2981,6 +3023,17 @@ static struct sk_buff *validate_xmit_vlan(struct sk_buff *skb,
 	return skb;
 }
 
+int skb_csum_hwoffload_help(struct sk_buff *skb,
+			    const netdev_features_t features)
+{
+	if (unlikely(skb->csum_not_inet))
+		return !!(features & NETIF_F_SCTP_CRC) ? 0 :
+			skb_crc32c_csum_help(skb);
+
+	return !!(features & NETIF_F_CSUM_MASK) ? 0 : skb_checksum_help(skb);
+}
+EXPORT_SYMBOL(skb_csum_hwoffload_help);
+
 static struct sk_buff *validate_xmit_skb(struct sk_buff *skb, struct net_device *dev)
 {
 	netdev_features_t features;
@@ -3019,8 +3072,7 @@ static struct sk_buff *validate_xmit_skb(struct sk_buff *skb, struct net_device 
 			else
 				skb_set_transport_header(skb,
 							 skb_checksum_start_offset(skb));
-			if (!(features & NETIF_F_CSUM_MASK) &&
-			    skb_checksum_help(skb))
+			if (skb_csum_hwoffload_help(skb, features))
 				goto out_kfree_skb;
 		}
 	}
@@ -3218,6 +3270,7 @@ sch_handle_egress(struct sk_buff *skb, int *ret, struct net_device *dev)
 		return NULL;
 	case TC_ACT_STOLEN:
 	case TC_ACT_QUEUED:
+	case TC_ACT_TRAP:
 		*ret = NET_XMIT_SUCCESS;
 		consume_skb(skb);
 		return NULL;
@@ -3987,6 +4040,7 @@ sch_handle_ingress(struct sk_buff *skb, struct packet_type **pt_prev, int *ret,
 		return NULL;
 	case TC_ACT_STOLEN:
 	case TC_ACT_QUEUED:
+	case TC_ACT_TRAP:
 		consume_skb(skb);
 		return NULL;
 	case TC_ACT_REDIRECT:
@@ -4661,9 +4715,6 @@ static enum gro_result dev_gro_receive(struct napi_struct *napi, struct sk_buff 
 	int grow;
 
 	if (netif_elide_gro(skb->dev))
-		goto normal;
-
-	if (skb->csum_bad)
 		goto normal;
 
 	gro_list_prepare(napi, skb);
@@ -6893,8 +6944,7 @@ int dev_change_proto_down(struct net_device *dev, bool proto_down)
 }
 EXPORT_SYMBOL(dev_change_proto_down);
 
-bool __dev_xdp_attached(struct net_device *dev, xdp_op_t xdp_op,
-			u32 *prog_id)
+u8 __dev_xdp_attached(struct net_device *dev, xdp_op_t xdp_op, u32 *prog_id)
 {
 	struct netdev_xdp xdp;
 
@@ -6910,14 +6960,18 @@ bool __dev_xdp_attached(struct net_device *dev, xdp_op_t xdp_op,
 }
 
 static int dev_xdp_install(struct net_device *dev, xdp_op_t xdp_op,
-			   struct netlink_ext_ack *extack,
+			   struct netlink_ext_ack *extack, u32 flags,
 			   struct bpf_prog *prog)
 {
 	struct netdev_xdp xdp;
 
 	memset(&xdp, 0, sizeof(xdp));
-	xdp.command = XDP_SETUP_PROG;
+	if (flags & XDP_FLAGS_HW_MODE)
+		xdp.command = XDP_SETUP_PROG_HW;
+	else
+		xdp.command = XDP_SETUP_PROG;
 	xdp.extack = extack;
+	xdp.flags = flags;
 	xdp.prog = prog;
 
 	return xdp_op(dev, &xdp);
@@ -6943,7 +6997,7 @@ int dev_change_xdp_fd(struct net_device *dev, struct netlink_ext_ack *extack,
 	ASSERT_RTNL();
 
 	xdp_op = xdp_chk = ops->ndo_xdp;
-	if (!xdp_op && (flags & XDP_FLAGS_DRV_MODE))
+	if (!xdp_op && (flags & (XDP_FLAGS_DRV_MODE | XDP_FLAGS_HW_MODE)))
 		return -EOPNOTSUPP;
 	if (!xdp_op || (flags & XDP_FLAGS_SKB_MODE))
 		xdp_op = generic_xdp_install;
@@ -6962,7 +7016,7 @@ int dev_change_xdp_fd(struct net_device *dev, struct netlink_ext_ack *extack,
 			return PTR_ERR(prog);
 	}
 
-	err = dev_xdp_install(dev, xdp_op, extack, prog);
+	err = dev_xdp_install(dev, xdp_op, extack, flags, prog);
 	if (err < 0 && prog)
 		bpf_prog_put(prog);
 
@@ -7053,7 +7107,7 @@ static void rollback_registered_many(struct list_head *head)
 
 		if (!dev->rtnl_link_ops ||
 		    dev->rtnl_link_state == RTNL_LINK_INITIALIZED)
-			skb = rtmsg_ifinfo_build_skb(RTM_DELLINK, dev, ~0U,
+			skb = rtmsg_ifinfo_build_skb(RTM_DELLINK, dev, ~0U, 0,
 						     GFP_KERNEL);
 
 		/*

@@ -274,7 +274,7 @@ ieee80211_add_rx_radiotap_header(struct ieee80211_local *local,
 	if (!(has_fcs && ieee80211_hw_check(&local->hw, RX_INCLUDES_FCS)))
 		mpdulen += FCS_LEN;
 
-	rthdr = (struct ieee80211_radiotap_header *)skb_push(skb, rtap_len);
+	rthdr = skb_push(skb, rtap_len);
 	memset(rthdr, 0, rtap_len - rtap.len - rtap.pad);
 	it_present = &rthdr->it_present;
 
@@ -2762,8 +2762,7 @@ static void ieee80211_process_sa_query_req(struct ieee80211_sub_if_data *sdata,
 		return;
 
 	skb_reserve(skb, local->hw.extra_tx_headroom);
-	resp = (struct ieee80211_mgmt *) skb_put(skb, 24);
-	memset(resp, 0, 24);
+	resp = skb_put_zero(skb, 24);
 	memcpy(resp->da, mgmt->sa, ETH_ALEN);
 	memcpy(resp->sa, sdata->vif.addr, ETH_ALEN);
 	memcpy(resp->bssid, sdata->u.mgd.bssid, ETH_ALEN);

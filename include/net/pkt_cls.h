@@ -18,7 +18,8 @@ int register_tcf_proto_ops(struct tcf_proto_ops *ops);
 int unregister_tcf_proto_ops(struct tcf_proto_ops *ops);
 
 #ifdef CONFIG_NET_CLS
-struct tcf_chain *tcf_chain_get(struct tcf_block *block, u32 chain_index);
+struct tcf_chain *tcf_chain_get(struct tcf_block *block, u32 chain_index,
+				bool create);
 void tcf_chain_put(struct tcf_chain *chain);
 int tcf_block_get(struct tcf_block **p_block,
 		  struct tcf_proto __rcu **p_filter_chain);
@@ -153,6 +154,25 @@ static inline void tcf_exts_to_list(const struct tcf_exts *exts,
 
 		list_add_tail(&a->list, actions);
 	}
+#endif
+}
+
+static inline void
+tcf_exts_stats_update(const struct tcf_exts *exts,
+		      u64 bytes, u64 packets, u64 lastuse)
+{
+#ifdef CONFIG_NET_CLS_ACT
+	int i;
+
+	preempt_disable();
+
+	for (i = 0; i < exts->nr_actions; i++) {
+		struct tc_action *a = exts->actions[i];
+
+		tcf_action_stats_update(a, bytes, packets, lastuse);
+	}
+
+	preempt_enable();
 #endif
 }
 

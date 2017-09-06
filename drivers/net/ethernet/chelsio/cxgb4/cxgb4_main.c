@@ -79,6 +79,7 @@
 #include "l2t.h"
 #include "sched.h"
 #include "cxgb4_tc_u32.h"
+#include "cxgb4_ptp.h"
 
 char cxgb4_driver_name[] = KBUILD_MODNAME;
 
@@ -824,8 +825,11 @@ static int setup_sge_queues(struct adapter *adap)
 {
 	int err, i, j;
 	struct sge *s = &adap->sge;
-	struct sge_uld_rxq_info *rxq_info = s->uld_rxq_info[CXGB4_ULD_RDMA];
+	struct sge_uld_rxq_info *rxq_info = NULL;
 	unsigned int cmplqid = 0;
+
+	if (is_uld(adap))
+		rxq_info = s->uld_rxq_info[CXGB4_ULD_RDMA];
 
 	for_each_port(adap, i) {
 		struct net_device *dev = adap->port[i];
@@ -840,8 +844,8 @@ static int setup_sge_queues(struct adapter *adap)
 					       adap->msi_idx, &q->fl,
 					       t4_ethrx_handler,
 					       NULL,
-					       t4_get_mps_bg_map(adap,
-								 pi->tx_chan));
+					       t4_get_tp_ch_map(adap,
+								pi->tx_chan));
 			if (err)
 				goto freeout;
 			q->rspq.idx = j;
@@ -865,6 +869,14 @@ static int setup_sge_queues(struct adapter *adap)
 
 		err = t4_sge_alloc_ctrl_txq(adap, &s->ctrlq[i], adap->port[i],
 					    s->fw_evtq.cntxt_id, cmplqid);
+		if (err)
+			goto freeout;
+	}
+
+	if (!is_t4(adap->params.chip)) {
+		err = t4_sge_alloc_eth_txq(adap, &s->ptptxq, adap->port[0],
+					   netdev_get_tx_queue(adap->port[0], 0)
+					   , s->fw_evtq.cntxt_id);
 		if (err)
 			goto freeout;
 	}
@@ -1175,7 +1187,7 @@ static void mk_tid_release(struct sk_buff *skb, unsigned int chan,
 	struct cpl_tid_release *req;
 
 	set_wr_txq(skb, CPL_PRIORITY_SETUP, chan);
-	req = (struct cpl_tid_release *)__skb_put(skb, sizeof(*req));
+	req = __skb_put(skb, sizeof(*req));
 	INIT_TP_WR(req, tid);
 	OPCODE_TID(req) = htonl(MK_OPCODE_TID(CPL_TID_RELEASE, tid));
 }
@@ -1359,7 +1371,7 @@ int cxgb4_create_server(const struct net_device *dev, unsigned int stid,
 		return -ENOMEM;
 
 	adap = netdev2adap(dev);
-	req = (struct cpl_pass_open_req *)__skb_put(skb, sizeof(*req));
+	req = __skb_put(skb, sizeof(*req));
 	INIT_TP_WR(req, 0);
 	OPCODE_TID(req) = htonl(MK_OPCODE_TID(CPL_PASS_OPEN_REQ, stid));
 	req->local_port = sport;
@@ -1400,7 +1412,7 @@ int cxgb4_create_server6(const struct net_device *dev, unsigned int stid,
 		return -ENOMEM;
 
 	adap = netdev2adap(dev);
-	req = (struct cpl_pass_open_req6 *)__skb_put(skb, sizeof(*req));
+	req = __skb_put(skb, sizeof(*req));
 	INIT_TP_WR(req, 0);
 	OPCODE_TID(req) = htonl(MK_OPCODE_TID(CPL_PASS_OPEN_REQ6, stid));
 	req->local_port = sport;
@@ -1432,7 +1444,7 @@ int cxgb4_remove_server(const struct net_device *dev, unsigned int stid,
 	if (!skb)
 		return -ENOMEM;
 
-	req = (struct cpl_close_listsvr_req *)__skb_put(skb, sizeof(*req));
+	req = __skb_put(skb, sizeof(*req));
 	INIT_TP_WR(req, 0);
 	OPCODE_TID(req) = htonl(MK_OPCODE_TID(CPL_CLOSE_LISTSRV_REQ, stid));
 	req->reply_ctrl = htons(NO_REPLY_V(0) | (ipv6 ? LISTSVR_IPV6_V(1) :
@@ -2435,6 +2447,7 @@ static int cxgb_ioctl(struct net_device *dev, struct ifreq *req, int cmd)
 	unsigned int mbox;
 	int ret = 0, prtad, devad;
 	struct port_info *pi = netdev_priv(dev);
+	struct adapter *adapter = pi->adapter;
 	struct mii_ioctl_data *data = (struct mii_ioctl_data *)&req->ifr_data;
 
 	switch (cmd) {
@@ -2472,18 +2485,69 @@ static int cxgb_ioctl(struct net_device *dev, struct ifreq *req, int cmd)
 				   sizeof(pi->tstamp_config)))
 			return -EFAULT;
 
-		switch (pi->tstamp_config.rx_filter) {
-		case HWTSTAMP_FILTER_NONE:
+		if (!is_t4(adapter->params.chip)) {
+			switch (pi->tstamp_config.tx_type) {
+			case HWTSTAMP_TX_OFF:
+			case HWTSTAMP_TX_ON:
+				break;
+			default:
+				return -ERANGE;
+			}
+
+			switch (pi->tstamp_config.rx_filter) {
+			case HWTSTAMP_FILTER_NONE:
+				pi->rxtstamp = false;
+				break;
+			case HWTSTAMP_FILTER_PTP_V1_L4_EVENT:
+			case HWTSTAMP_FILTER_PTP_V2_L4_EVENT:
+				cxgb4_ptprx_timestamping(pi, pi->port_id,
+							 PTP_TS_L4);
+				break;
+			case HWTSTAMP_FILTER_PTP_V2_EVENT:
+				cxgb4_ptprx_timestamping(pi, pi->port_id,
+							 PTP_TS_L2_L4);
+				break;
+			case HWTSTAMP_FILTER_ALL:
+			case HWTSTAMP_FILTER_PTP_V1_L4_SYNC:
+			case HWTSTAMP_FILTER_PTP_V1_L4_DELAY_REQ:
+			case HWTSTAMP_FILTER_PTP_V2_L4_SYNC:
+			case HWTSTAMP_FILTER_PTP_V2_L4_DELAY_REQ:
+				pi->rxtstamp = true;
+				break;
+			default:
+				pi->tstamp_config.rx_filter =
+					HWTSTAMP_FILTER_NONE;
+				return -ERANGE;
+			}
+
+			if ((pi->tstamp_config.tx_type == HWTSTAMP_TX_OFF) &&
+			    (pi->tstamp_config.rx_filter ==
+				HWTSTAMP_FILTER_NONE)) {
+				if (cxgb4_ptp_txtype(adapter, pi->port_id) >= 0)
+					pi->ptp_enable = false;
+			}
+
+			if (pi->tstamp_config.rx_filter !=
+				HWTSTAMP_FILTER_NONE) {
+				if (cxgb4_ptp_redirect_rx_packet(adapter,
+								 pi) >= 0)
+					pi->ptp_enable = true;
+			}
+		} else {
+			/* For T4 Adapters */
+			switch (pi->tstamp_config.rx_filter) {
+			case HWTSTAMP_FILTER_NONE:
 			pi->rxtstamp = false;
 			break;
-		case HWTSTAMP_FILTER_ALL:
+			case HWTSTAMP_FILTER_ALL:
 			pi->rxtstamp = true;
 			break;
-		default:
-			pi->tstamp_config.rx_filter = HWTSTAMP_FILTER_NONE;
+			default:
+			pi->tstamp_config.rx_filter =
+			HWTSTAMP_FILTER_NONE;
 			return -ERANGE;
+			}
 		}
-
 		return copy_to_user(req->ifr_data, &pi->tstamp_config,
 				    sizeof(pi->tstamp_config)) ?
 			-EFAULT : 0;
@@ -4237,6 +4301,9 @@ static void cfg_queues(struct adapter *adap)
 	for (i = 0; i < ARRAY_SIZE(s->ctrlq); i++)
 		s->ctrlq[i].q.size = 512;
 
+	if (!is_t4(adap->params.chip))
+		s->ptptxq.q.size = 8;
+
 	init_rspq(adap, &s->fw_evtq, 0, 1, 1024, 64);
 	init_rspq(adap, &s->intrq, 0, 1, 512, 64);
 }
@@ -5146,6 +5213,9 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		mutex_unlock(&uld_mutex);
 	}
 
+	if (!is_t4(adapter->params.chip))
+		cxgb4_ptp_init(adapter);
+
 	print_adapter_info(adapter);
 	setup_fw_sge_queues(adapter);
 	return 0;
@@ -5182,13 +5252,15 @@ sriov:
 			      &v, &port_vec);
 	if (err < 0) {
 		dev_err(adapter->pdev_dev, "Could not fetch port params\n");
-		goto free_adapter;
+		goto free_mbox_log;
 	}
 
 	adapter->params.nports = hweight32(port_vec);
 	pci_set_drvdata(pdev, adapter);
 	return 0;
 
+free_mbox_log:
+	kfree(adapter->mbox_log);
  free_adapter:
 	kfree(adapter);
  free_pci_region:
@@ -5255,6 +5327,9 @@ static void remove_one(struct pci_dev *pdev)
 
 		debugfs_remove_recursive(adapter->debugfs_root);
 
+		if (!is_t4(adapter->params.chip))
+			cxgb4_ptp_stop(adapter);
+
 		/* If we allocated filters, free up state associated with any
 		 * valid filters ...
 		 */
@@ -5290,6 +5365,7 @@ static void remove_one(struct pci_dev *pdev)
 			unregister_netdev(adapter->port[0]);
 		iounmap(adapter->regs);
 		kfree(adapter->vfinfo);
+		kfree(adapter->mbox_log);
 		kfree(adapter);
 		pci_disable_sriov(pdev);
 		pci_release_regions(pdev);
@@ -5340,6 +5416,7 @@ static void shutdown_one(struct pci_dev *pdev)
 			unregister_netdev(adapter->port[0]);
 		iounmap(adapter->regs);
 		kfree(adapter->vfinfo);
+		kfree(adapter->mbox_log);
 		kfree(adapter);
 		pci_disable_sriov(pdev);
 		pci_release_regions(pdev);

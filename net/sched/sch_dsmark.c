@@ -243,6 +243,7 @@ static int dsmark_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 #ifdef CONFIG_NET_CLS_ACT
 		case TC_ACT_QUEUED:
 		case TC_ACT_STOLEN:
+		case TC_ACT_TRAP:
 			__qdisc_drop(skb, to_free);
 			return NET_XMIT_SUCCESS | __NET_XMIT_STOLEN;
 
@@ -333,7 +334,7 @@ static int dsmark_init(struct Qdisc *sch, struct nlattr *opt)
 {
 	struct dsmark_qdisc_data *p = qdisc_priv(sch);
 	struct nlattr *tb[TCA_DSMARK_MAX + 1];
-	int err;
+	int err = -EINVAL;
 	u32 default_index = NO_DEFAULT_INDEX;
 	u16 indices;
 	int i;
