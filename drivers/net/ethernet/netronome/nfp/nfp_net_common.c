@@ -2675,10 +2675,13 @@ static bool nfp_net_ebpf_capable(struct nfp_net *nn)
 }
 
 static int
-nfp_net_setup_tc(struct net_device *netdev, u32 handle, __be16 proto,
-		 struct tc_to_netdev *tc)
+nfp_net_setup_tc(struct net_device *netdev, u32 handle, u32 chain_index,
+		 __be16 proto, struct tc_to_netdev *tc)
 {
 	struct nfp_net *nn = netdev_priv(netdev);
+
+	if (chain_index)
+		return -EOPNOTSUPP;
 
 	if (TC_H_MAJ(handle) != TC_H_MAJ(TC_H_INGRESS))
 		return -EOPNOTSUPP;
