@@ -333,6 +333,19 @@ static void setup_pcid(struct cpuinfo_x86 *c)
 {
 	if (cpu_has(c, X86_FEATURE_PCID)) {
 		if (cpu_has(c, X86_FEATURE_PGE)) {
+			/*
+			 * We'd like to use cr4_set_bits_and_update_boot(),
+			 * but we can't.  CR4.PCIDE is special and can only
+			 * be set in long mode, and the early CPU init code
+			 * doesn't know this and would try to restore CR4.PCIDE
+			 * prior to entering long mode.
+			 *
+			 * Instead, we rely on the fact that hotplug, resume,
+			 * etc all fully restore CR4 before they write anything
+			 * that could have nonzero PCID bits to CR3.  CR4.PCIDE
+			 * has no effect on the page tables themselves, so we
+			 * don't need it to be restored early.
+			 */
 			cr4_set_bits(X86_CR4_PCIDE);
 		} else {
 			/*
@@ -1583,6 +1596,7 @@ void cpu_init(void)
 	mmgrab(&init_mm);
 	me->active_mm = &init_mm;
 	BUG_ON(me->mm);
+	initialize_tlbstate_and_flush();
 	enter_lazy_tlb(&init_mm, me);
 
 	load_sp0(t, &current->thread);
@@ -1637,6 +1651,7 @@ void cpu_init(void)
 	mmgrab(&init_mm);
 	curr->active_mm = &init_mm;
 	BUG_ON(curr->mm);
+	initialize_tlbstate_and_flush();
 	enter_lazy_tlb(&init_mm, curr);
 
 	load_sp0(t, thread);
