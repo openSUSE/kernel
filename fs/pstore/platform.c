@@ -75,10 +75,6 @@ static DEFINE_SPINLOCK(pstore_lock);
 struct pstore_info *psinfo;
 
 static char *backend;
-static int auto_action=0;
-module_param(auto_action, int, 0664);
-MODULE_PARM_DESC(auto_action, "action to take on backend "
-		 "registration: 0=nothing, 1=print, 2=print+clear");
 
 /* Compression parameters */
 #ifdef CONFIG_PSTORE_ZLIB_COMPRESS
@@ -103,9 +99,7 @@ static char *big_oops_buf;
 static size_t big_oops_buf_sz;
 
 /* How much of the console log to snapshot */
-static unsigned long kmsg_bytes = 10240;
-module_param(kmsg_bytes, ulong, 0644);
-MODULE_PARM_DESC(kmsg_bytes, "maximum size to save of a crash dump");
+unsigned long kmsg_bytes = PSTORE_DEFAULT_KMSG_BYTES;
 
 void pstore_set_kmsg_bytes(int bytes)
 {
@@ -480,6 +474,20 @@ static size_t copy_kmsg_to_buffer(int hsize, size_t len)
 	return total_len;
 }
 
+void pstore_record_init(struct pstore_record *record,
+			struct pstore_info *psinfo)
+{
+	memset(record, 0, sizeof(*record));
+
+	record->psi = psinfo;
+
+	/* Report zeroed timestamp if called before timekeeping has resumed. */
+	if (__getnstimeofday(&record->time)) {
+		record->time.tv_sec = 0;
+		record->time.tv_nsec = 0;
+	}
+}
+
 /*
  * callback from kmsg_dump. (s2,l2) has the most recently
  * written bytes, older bytes are in (s1,l1). Save as much
@@ -515,15 +523,14 @@ static void pstore_dump(struct kmsg_dumper *dumper,
 		int header_size;
 		int zipped_len = -1;
 		size_t dump_size;
-		struct pstore_record record = {
-			.type = PSTORE_TYPE_DMESG,
-			.count = oopscount,
-			.reason = reason,
-			.part = part,
-			.compressed = false,
-			.buf = psinfo->buf,
-			.psi = psinfo,
-		};
+		struct pstore_record record;
+
+		pstore_record_init(&record, psinfo);
+		record.type = PSTORE_TYPE_DMESG;
+		record.count = oopscount;
+		record.reason = reason;
+		record.part = part;
+		record.buf = psinfo->buf;
 
 		if (big_oops_buf && is_locked) {
 			dst = big_oops_buf;
@@ -593,11 +600,11 @@ static void pstore_console_write(struct console *con, const char *s, unsigned c)
 	const char *e = s + c;
 
 	while (s < e) {
-		struct pstore_record record = {
-			.type = PSTORE_TYPE_CONSOLE,
-			.psi = psinfo,
-		};
+		struct pstore_record record;
 		unsigned long flags;
+
+		pstore_record_init(&record, psinfo);
+		record.type = PSTORE_TYPE_CONSOLE;
 
 		if (c > psinfo->bufsize)
 			c = psinfo->bufsize;
@@ -646,19 +653,16 @@ static int pstore_write_user_compat(struct pstore_record *record,
 	if (record->buf)
 		return -EINVAL;
 
-	record->buf = kmalloc(record->size, GFP_KERNEL);
-	if (!record->buf)
-		return -ENOMEM;
-
-	if (unlikely(copy_from_user(record->buf, buf, record->size))) {
-		ret = -EFAULT;
+	record->buf = memdup_user(buf, record->size);
+	if (unlikely(IS_ERR(record->buf))) {
+		ret = PTR_ERR(record->buf);
 		goto out;
 	}
 
 	ret = record->psi->write(record);
 
-out:
 	kfree(record->buf);
+out:
 	record->buf = NULL;
 
 	return unlikely(ret < 0) ? ret : record->size;
@@ -723,11 +727,7 @@ int pstore_register(struct pstore_info *psi)
 	allocate_buf_for_compression();
 
 	if (pstore_is_mounted())
-		pstore_get_records(PGR_VERBOSE|PGR_POPULATE);
-
-	if (auto_action)
-		pstore_get_records(PGR_SYSLOG|
-				   ((auto_action>1)?PGR_CLEAR:0));
+		pstore_get_records(0);
 
 	if (psi->flags & PSTORE_FLAGS_DMESG)
 		pstore_register_kmsg();
@@ -836,9 +836,10 @@ static void decompress_record(struct pstore_record *record)
  * error records.
  */
 void pstore_get_backend_records(struct pstore_info *psi,
-				struct dentry *root, unsigned flags)
+				struct dentry *root, int quiet)
 {
 	int failed = 0;
+	unsigned int stop_loop = 65536;
 
 	if (!psi || !root)
 		return;
@@ -852,16 +853,16 @@ void pstore_get_backend_records(struct pstore_info *psi,
 	 * may reallocate record.buf. On success, pstore_mkfile() will keep
 	 * the record.buf, so free it only on failure.
 	 */
-	for (;;) {
+	for (; stop_loop; stop_loop--) {
 		struct pstore_record *record;
-		int rc = 0;
+		int rc;
 
 		record = kzalloc(sizeof(*record), GFP_KERNEL);
 		if (!record) {
 			pr_err("out of memory creating record\n");
 			break;
 		}
-		record->psi = psi;
+		pstore_record_init(record, psi);
 
 		record->size = psi->read(record);
 
@@ -872,23 +873,12 @@ void pstore_get_backend_records(struct pstore_info *psi,
 		}
 
 		decompress_record(record);
-		if (flags & PGR_POPULATE)
-			rc = pstore_mkfile(root, record);
-		if (record->type == PSTORE_TYPE_DMESG) {
-			if (flags & PGR_SYSLOG) {
-				pr_notice("---------- pstore: ----------\n");
-				pr_notice("%.*s\n", (int)record->size,
-					  record->buf);
-				pr_notice("-----------------------------\n");
-			}
-			if (flags & PGR_CLEAR && psi->erase)
-				psi->erase(record);
-		}
+		rc = pstore_mkfile(root, record);
 		if (rc) {
 			/* pstore_mkfile() did not take record, so free it. */
 			kfree(record->buf);
 			kfree(record);
-			if (rc != -EEXIST || (flags & PGR_VERBOSE))
+			if (rc != -EEXIST || !quiet)
 				failed++;
 		}
 	}
@@ -898,13 +888,16 @@ out:
 	mutex_unlock(&psi->read_mutex);
 
 	if (failed)
-		pr_warn("failed to load %d record(s) from '%s'\n",
+		pr_warn("failed to create %d record(s) from '%s'\n",
 			failed, psi->name);
+	if (!stop_loop)
+		pr_err("looping? Too many records seen from '%s'\n",
+			psi->name);
 }
 
 static void pstore_dowork(struct work_struct *work)
 {
-	pstore_get_records(PGR_QUIET|PGR_POPULATE);
+	pstore_get_records(1);
 }
 
 static void pstore_timefunc(unsigned long dummy)

@@ -313,10 +313,6 @@ static int __init adb_init(void)
 	if (!machine_is(chrp) && !machine_is(powermac))
 		return 0;
 #endif
-#ifdef CONFIG_PPC64
-	if (!machine_is(powermac))
-		return 0;
-#endif
 #ifdef CONFIG_MAC
 	if (!MACH_IS_MAC)
 		return 0;
@@ -727,8 +723,6 @@ static ssize_t adb_read(struct file *file, char __user *buf,
 		return -EINVAL;
 	if (count > sizeof(req->reply))
 		count = sizeof(req->reply);
-	if (!access_ok(VERIFY_WRITE, buf, count))
-		return -EFAULT;
 
 	req = NULL;
 	spin_lock_irqsave(&state->lock, flags);
@@ -785,8 +779,6 @@ static ssize_t adb_write(struct file *file, const char __user *buf,
 		return -EINVAL;
 	if (adb_controller == NULL)
 		return -ENXIO;
-	if (!access_ok(VERIFY_READ, buf, count))
-		return -EFAULT;
 
 	req = kmalloc(sizeof(struct adb_request),
 					     GFP_KERNEL);

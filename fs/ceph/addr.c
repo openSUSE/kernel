@@ -533,14 +533,10 @@ static int writepage_nounlock(struct page *page, struct writeback_control *wbc)
 	long writeback_stat;
 	u64 truncate_size;
 	u32 truncate_seq;
-	int err = 0, len = PAGE_SIZE;
+	int err, len = PAGE_SIZE;
 
 	dout("writepage %p idx %lu\n", page, page->index);
 
-	if (!page->mapping || !page->mapping->host) {
-		dout("writepage %p - no mapping\n", page);
-		return -EFAULT;
-	}
 	inode = page->mapping->host;
 	ci = ceph_inode(inode);
 	fsc = ceph_inode_to_client(inode);
@@ -550,7 +546,7 @@ static int writepage_nounlock(struct page *page, struct writeback_control *wbc)
 	snapc = page_snap_context(page);
 	if (snapc == NULL) {
 		dout("writepage %p page %p not dirty?\n", inode, page);
-		goto out;
+		return 0;
 	}
 	oldest = get_oldest_context(inode, &snap_size,
 				    &truncate_size, &truncate_seq);
@@ -558,9 +554,10 @@ static int writepage_nounlock(struct page *page, struct writeback_control *wbc)
 		dout("writepage %p page %p snapc %p not writeable - noop\n",
 		     inode, page, snapc);
 		/* we should only noop if called by kswapd */
-		WARN_ON((current->flags & PF_MEMALLOC) == 0);
+		WARN_ON(!(current->flags & PF_MEMALLOC));
 		ceph_put_snap_context(oldest);
-		goto out;
+		redirty_page_for_writepage(wbc, page);
+		return 0;
 	}
 	ceph_put_snap_context(oldest);
 
@@ -570,8 +567,9 @@ static int writepage_nounlock(struct page *page, struct writeback_control *wbc)
 	/* is this a partial page at end of file? */
 	if (page_off >= snap_size) {
 		dout("%p page eof %llu\n", page, snap_size);
-		goto out;
+		return 0;
 	}
+
 	if (snap_size < page_off + len)
 		len = snap_size - page_off;
 
@@ -598,7 +596,7 @@ static int writepage_nounlock(struct page *page, struct writeback_control *wbc)
 			dout("writepage interrupted page %p\n", page);
 			redirty_page_for_writepage(wbc, page);
 			end_page_writeback(page);
-			goto out;
+			return err;
 		}
 		dout("writepage setting page/mapping error %d %p\n",
 		     err, page);
@@ -614,7 +612,6 @@ static int writepage_nounlock(struct page *page, struct writeback_control *wbc)
 	end_page_writeback(page);
 	ceph_put_wrbuffer_cap_refs(ci, 1, snapc);
 	ceph_put_snap_context(snapc);  /* page's reference */
-out:
 	return err;
 }
 
@@ -1324,7 +1321,7 @@ static int ceph_write_end(struct file *file, struct address_space *mapping,
 			  struct page *page, void *fsdata)
 {
 	struct inode *inode = file_inode(file);
-	int check_cap = 0;
+	bool check_cap = false;
 
 	dout("write_end file %p inode %p page %p %d~%d (%d)\n", file,
 	     inode, page, (int)pos, (int)copied, (int)len);
