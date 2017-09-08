@@ -690,6 +690,9 @@ ieee80211_mesh_build_beacon(struct ieee80211_if_mesh *ifmsh)
 		   2 + sizeof(struct ieee80211_channel_sw_ie) +
 		   /* Mesh Channel Switch Parameters */
 		   2 + sizeof(struct ieee80211_mesh_chansw_params_ie) +
+		   /* Channel Switch Wrapper + Wide Bandwidth CSA IE */
+		   2 + 2 + sizeof(struct ieee80211_wide_bw_chansw_ie) +
+		   2 + sizeof(struct ieee80211_sec_chan_offs_ie) +
 		   2 + 8 + /* supported rates */
 		   2 + 3; /* DS params */
 	tail_len = 2 + (IEEE80211_MAX_SUPP_RATES - 8) +
@@ -716,8 +719,7 @@ ieee80211_mesh_build_beacon(struct ieee80211_if_mesh *ifmsh)
 	bcn->head = ((u8 *) bcn) + sizeof(*bcn);
 
 	/* fill in the head */
-	mgmt = (struct ieee80211_mgmt *) skb_put(skb, hdr_len);
-	memset(mgmt, 0, hdr_len);
+	mgmt = skb_put_zero(skb, hdr_len);
 	mgmt->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT |
 					  IEEE80211_STYPE_BEACON);
 	eth_broadcast_addr(mgmt->da);
@@ -736,8 +738,12 @@ ieee80211_mesh_build_beacon(struct ieee80211_if_mesh *ifmsh)
 	rcu_read_lock();
 	csa = rcu_dereference(ifmsh->csa);
 	if (csa) {
-		pos = skb_put(skb, 13);
-		memset(pos, 0, 13);
+		enum nl80211_channel_type ct;
+		struct cfg80211_chan_def *chandef;
+		int ie_len = 2 + sizeof(struct ieee80211_channel_sw_ie) +
+			     2 + sizeof(struct ieee80211_mesh_chansw_params_ie);
+
+		pos = skb_put_zero(skb, ie_len);
 		*pos++ = WLAN_EID_CHANNEL_SWITCH;
 		*pos++ = 3;
 		*pos++ = 0x0;
@@ -760,6 +766,37 @@ ieee80211_mesh_build_beacon(struct ieee80211_if_mesh *ifmsh)
 		pos += 2;
 		put_unaligned_le16(ifmsh->pre_value, pos);
 		pos += 2;
+
+		switch (csa->settings.chandef.width) {
+		case NL80211_CHAN_WIDTH_40:
+			ie_len = 2 + sizeof(struct ieee80211_sec_chan_offs_ie);
+			pos = skb_put_zero(skb, ie_len);
+
+			*pos++ = WLAN_EID_SECONDARY_CHANNEL_OFFSET; /* EID */
+			*pos++ = 1;				    /* len */
+			ct = cfg80211_get_chandef_type(&csa->settings.chandef);
+			if (ct == NL80211_CHAN_HT40PLUS)
+				*pos++ = IEEE80211_HT_PARAM_CHA_SEC_ABOVE;
+			else
+				*pos++ = IEEE80211_HT_PARAM_CHA_SEC_BELOW;
+			break;
+		case NL80211_CHAN_WIDTH_80:
+		case NL80211_CHAN_WIDTH_80P80:
+		case NL80211_CHAN_WIDTH_160:
+			/* Channel Switch Wrapper + Wide Bandwidth CSA IE */
+			ie_len = 2 + 2 +
+				 sizeof(struct ieee80211_wide_bw_chansw_ie);
+			pos = skb_put_zero(skb, ie_len);
+
+			*pos++ = WLAN_EID_CHANNEL_SWITCH_WRAPPER; /* EID */
+			*pos++ = 5;				  /* len */
+			/* put sub IE */
+			chandef = &csa->settings.chandef;
+			ieee80211_ie_build_wide_bw_cs(pos, chandef);
+			break;
+		default:
+			break;
+		}
 	}
 	rcu_read_unlock();
 
@@ -1197,7 +1234,7 @@ static int mesh_fwd_csa_frame(struct ieee80211_sub_if_data *sdata,
 	if (!skb)
 		return -ENOMEM;
 	skb_reserve(skb, local->tx_headroom);
-	mgmt_fwd = (struct ieee80211_mgmt *) skb_put(skb, len);
+	mgmt_fwd = skb_put(skb, len);
 
 	/* offset_ttl is based on whether the secondary channel
 	 * offset is available or not. Subtract 1 from the mesh TTL

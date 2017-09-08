@@ -185,7 +185,7 @@ static void digital_skb_push_dep_sod(struct nfc_digital_dev *ddev,
 	skb->data[0] = skb->len;
 
 	if (ddev->curr_rf_tech == NFC_DIGITAL_RF_TECH_106A)
-		*skb_push(skb, sizeof(u8)) = DIGITAL_NFC_DEP_NFCA_SOD_SB;
+		*(u8 *)skb_push(skb, sizeof(u8)) = DIGITAL_NFC_DEP_NFCA_SOD_SB;
 }
 
 static int digital_skb_pull_dep_sod(struct nfc_digital_dev *ddev,
@@ -654,7 +654,7 @@ static int digital_in_send_rtox(struct nfc_digital_dev *ddev,
 	if (!skb)
 		return -ENOMEM;
 
-	*skb_put(skb, 1) = rtox;
+	skb_put_u8(skb, rtox);
 
 	skb_push(skb, sizeof(struct digital_dep_req_res));
 

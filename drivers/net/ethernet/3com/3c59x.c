@@ -2911,7 +2911,9 @@ static int vortex_get_link_ksettings(struct net_device *dev,
 {
 	struct vortex_private *vp = netdev_priv(dev);
 
-	return mii_ethtool_get_link_ksettings(&vp->mii, cmd);
+	mii_ethtool_get_link_ksettings(&vp->mii, cmd);
+
+	return 0;
 }
 
 static int vortex_set_link_ksettings(struct net_device *dev,

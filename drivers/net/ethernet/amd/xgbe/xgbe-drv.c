@@ -1268,6 +1268,7 @@ static int xgbe_set_hwtstamp_settings(struct xgbe_prv_data *pdata,
 	case HWTSTAMP_FILTER_NONE:
 		break;
 
+	case HWTSTAMP_FILTER_NTP_ALL:
 	case HWTSTAMP_FILTER_ALL:
 		XGMAC_SET_BITS(mac_tscr, MAC_TSCR, TSENALL, 1);
 		XGMAC_SET_BITS(mac_tscr, MAC_TSCR, TSENA, 1);
@@ -1390,8 +1391,7 @@ static void xgbe_prep_tx_tstamp(struct xgbe_prv_data *pdata,
 		spin_unlock_irqrestore(&pdata->tstamp_lock, flags);
 	}
 
-	if (!XGMAC_GET_BITS(packet->attributes, TX_PACKET_ATTRIBUTES, PTP))
-		skb_tx_timestamp(skb);
+	skb_tx_timestamp(skb);
 }
 
 static void xgbe_prep_vlan(struct sk_buff *skb, struct xgbe_packet_data *packet)
@@ -1846,7 +1846,8 @@ static void xgbe_poll_controller(struct net_device *netdev)
 }
 #endif /* End CONFIG_NET_POLL_CONTROLLER */
 
-static int xgbe_setup_tc(struct net_device *netdev, u32 handle, __be16 proto,
+static int xgbe_setup_tc(struct net_device *netdev, u32 handle, u32 chain_index,
+			 __be16 proto,
 			 struct tc_to_netdev *tc_to_netdev)
 {
 	struct xgbe_prv_data *pdata = netdev_priv(netdev);

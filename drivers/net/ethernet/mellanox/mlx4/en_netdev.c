@@ -86,7 +86,8 @@ int mlx4_en_setup_tc(struct net_device *dev, u8 up)
 	return 0;
 }
 
-static int __mlx4_en_setup_tc(struct net_device *dev, u32 handle, __be16 proto,
+static int __mlx4_en_setup_tc(struct net_device *dev, u32 handle,
+			      u32 chain_index, __be16 proto,
 			      struct tc_to_netdev *tc)
 {
 	if (tc->type != TC_SETUP_MQPRIO)
@@ -2375,6 +2376,7 @@ static int mlx4_en_hwtstamp_set(struct net_device *dev, struct ifreq *ifr)
 	case HWTSTAMP_FILTER_PTP_V2_EVENT:
 	case HWTSTAMP_FILTER_PTP_V2_SYNC:
 	case HWTSTAMP_FILTER_PTP_V2_DELAY_REQ:
+	case HWTSTAMP_FILTER_NTP_ALL:
 		config.rx_filter = HWTSTAMP_FILTER_ALL;
 		break;
 	default:
