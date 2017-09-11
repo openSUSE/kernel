@@ -633,6 +633,8 @@ struct mlx5e_tc_table {
 
 	struct rhashtable_params        ht_params;
 	struct rhashtable               ht;
+
+	DECLARE_HASHTABLE(mod_hdr_tbl, 8);
 };
 
 struct mlx5e_vlan_table {
