@@ -1832,6 +1832,8 @@ again:
 	}
 
 	blk_throtl_bio_endio(bio);
+	/* release cgroup info */
+	bio_uninit(bio);
 	if (bio->bi_end_io)
 		bio->bi_end_io(bio);
 }
