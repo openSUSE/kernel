@@ -122,9 +122,6 @@ struct request *blk_mq_sched_get_request(struct request_queue *q,
 	if (likely(!data->hctx))
 		data->hctx = blk_mq_map_queue(q, data->ctx->cpu);
 
-	if (op & REQ_NOWAIT)
-		data->flags |= BLK_MQ_REQ_NOWAIT;
-
 	if (e) {
 		data->flags |= BLK_MQ_REQ_INTERNAL;
 
