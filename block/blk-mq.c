@@ -921,7 +921,7 @@ bool blk_mq_dispatch_rq_list(struct request_queue *q, struct list_head *list)
 {
 	struct blk_mq_hw_ctx *hctx;
 	struct request *rq;
-	int errors, queued, ret = BLK_MQ_RQ_QUEUE_OK;
+	int errors, queued;
 
 	if (list_empty(list))
 		return false;
@@ -932,6 +932,7 @@ bool blk_mq_dispatch_rq_list(struct request_queue *q, struct list_head *list)
 	errors = queued = 0;
 	do {
 		struct blk_mq_queue_data bd;
+		blk_status_t ret;
 
 		rq = list_first_entry(list, struct request, queuelist);
 		if (!blk_mq_get_driver_tag(rq, &hctx, false)) {
@@ -972,25 +973,20 @@ bool blk_mq_dispatch_rq_list(struct request_queue *q, struct list_head *list)
 		}
 
 		ret = q->mq_ops->queue_rq(hctx, &bd);
-		switch (ret) {
-		case BLK_MQ_RQ_QUEUE_OK:
-			queued++;
-			break;
-		case BLK_MQ_RQ_QUEUE_BUSY:
+		if (ret == BLK_STS_RESOURCE) {
 			blk_mq_put_driver_tag_hctx(hctx, rq);
 			list_add(&rq->queuelist, list);
 			__blk_mq_requeue_request(rq);
 			break;
-		default:
-			pr_err("blk-mq: bad return on queue: %d\n", ret);
-		case BLK_MQ_RQ_QUEUE_ERROR:
-			errors++;
-			blk_mq_end_request(rq, BLK_STS_IOERR);
-			break;
 		}
 
-		if (ret == BLK_MQ_RQ_QUEUE_BUSY)
-			break;
+		if (unlikely(ret != BLK_STS_OK)) {
+			errors++;
+			blk_mq_end_request(rq, BLK_STS_IOERR);
+			continue;
+		}
+
+		queued++;
 	} while (!list_empty(list));
 
 	hctx->dispatched[queued_to_index(queued)]++;
@@ -1028,7 +1024,7 @@ bool blk_mq_dispatch_rq_list(struct request_queue *q, struct list_head *list)
 		 * - blk_mq_run_hw_queue() checks whether or not a queue has
 		 *   been stopped before rerunning a queue.
 		 * - Some but not all block drivers stop a queue before
-		 *   returning BLK_MQ_RQ_QUEUE_BUSY. Two exceptions are scsi-mq
+		 *   returning BLK_STS_RESOURCE. Two exceptions are scsi-mq
 		 *   and dm-rq.
 		 */
 		if (!blk_mq_sched_needs_restart(hctx) &&
@@ -1407,7 +1403,7 @@ static void __blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
 		.last = true,
 	};
 	blk_qc_t new_cookie;
-	int ret;
+	blk_status_t ret;
 	bool run_queue = true;
 
 	if (blk_mq_hctx_stopped(hctx)) {
@@ -1429,18 +1425,19 @@ static void __blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
 	 * would have done
 	 */
 	ret = q->mq_ops->queue_rq(hctx, &bd);
-	if (ret == BLK_MQ_RQ_QUEUE_OK) {
+	switch (ret) {
+	case BLK_STS_OK:
 		*cookie = new_cookie;
 		return;
-	}
-
-	if (ret == BLK_MQ_RQ_QUEUE_ERROR) {
+	case BLK_STS_RESOURCE:
+		__blk_mq_requeue_request(rq);
+		goto insert;
+	default:
 		*cookie = BLK_QC_T_NONE;
-		blk_mq_end_request(rq, BLK_STS_IOERR);
+		blk_mq_end_request(rq, ret);
 		return;
 	}
 
-	__blk_mq_requeue_request(rq);
 insert:
 	blk_mq_sched_insert_request(rq, false, run_queue, false, may_sleep);
 }
