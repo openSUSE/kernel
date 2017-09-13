@@ -323,13 +323,13 @@ struct opa_vnic_adapter *opa_vnic_add_netdev(struct ib_device *ibdev,
 	else if (IS_ERR(netdev))
 		return ERR_CAST(netdev);
 
+	rn = netdev_priv(netdev);
 	adapter = kzalloc(sizeof(*adapter), GFP_KERNEL);
 	if (!adapter) {
 		rc = -ENOMEM;
 		goto adapter_err;
 	}
 
-	rn = netdev_priv(netdev);
 	rn->clnt_priv = adapter;
 	rn->hca = ibdev;
 	rn->port_num = port_num;
@@ -367,7 +367,7 @@ netdev_err:
 	mutex_destroy(&adapter->stats_lock);
 	kfree(adapter);
 adapter_err:
-	ibdev->free_rdma_netdev(netdev);
+	rn->free_rdma_netdev(netdev);
 
 	return ERR_PTR(rc);
 }
@@ -376,7 +376,7 @@ adapter_err:
 void opa_vnic_rem_netdev(struct opa_vnic_adapter *adapter)
 {
 	struct net_device *netdev = adapter->netdev;
-	struct ib_device *ibdev = adapter->ibdev;
+	struct rdma_netdev *rn = netdev_priv(netdev);
 
 	v_info("removing\n");
 	unregister_netdev(netdev);
@@ -385,5 +385,5 @@ void opa_vnic_rem_netdev(struct opa_vnic_adapter *adapter)
 	mutex_destroy(&adapter->mactbl_lock);
 	mutex_destroy(&adapter->stats_lock);
 	kfree(adapter);
-	ibdev->free_rdma_netdev(netdev);
+	rn->free_rdma_netdev(netdev);
 }

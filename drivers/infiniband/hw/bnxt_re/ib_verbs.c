@@ -173,8 +173,10 @@ int bnxt_re_query_device(struct ib_device *ibdev,
 	ib_attr->max_pd = dev_attr->max_pd;
 	ib_attr->max_qp_rd_atom = dev_attr->max_qp_rd_atom;
 	ib_attr->max_qp_init_rd_atom = dev_attr->max_qp_init_rd_atom;
-	ib_attr->atomic_cap = IB_ATOMIC_HCA;
-	ib_attr->masked_atomic_cap = IB_ATOMIC_HCA;
+	if (dev_attr->is_atomic) {
+		ib_attr->atomic_cap = IB_ATOMIC_HCA;
+		ib_attr->masked_atomic_cap = IB_ATOMIC_HCA;
+	}
 
 	ib_attr->max_ee_rd_atom = 0;
 	ib_attr->max_res_rd_atom = 0;
@@ -199,7 +201,7 @@ int bnxt_re_query_device(struct ib_device *ibdev,
 	ib_attr->max_fast_reg_page_list_len = MAX_PBL_LVL_1_PGS;
 
 	ib_attr->max_pkeys = 1;
-	ib_attr->local_ca_ack_delay = 0;
+	ib_attr->local_ca_ack_delay = BNXT_RE_DEFAULT_ACK_DELAY;
 	return 0;
 }
 
@@ -588,10 +590,10 @@ static int bnxt_re_create_fence_mr(struct bnxt_re_pd *pd)
 
 	/* Create a fence MW only for kernel consumers */
 	mw = bnxt_re_alloc_mw(&pd->ib_pd, IB_MW_TYPE_1, NULL);
-	if (!mw) {
+	if (IS_ERR(mw)) {
 		dev_err(rdev_to_dev(rdev),
 			"Failed to create fence-MW for PD: %p\n", pd);
-		rc = -EINVAL;
+		rc = PTR_ERR(mw);
 		goto fail;
 	}
 	fence->mw = mw;
@@ -2898,6 +2900,7 @@ int bnxt_re_poll_cq(struct ib_cq *ib_cq, int num_entries, struct ib_wc *wc)
 
 	spin_lock_irqsave(&cq->cq_lock, flags);
 	budget = min_t(u32, num_entries, cq->max_cql);
+	num_entries = budget;
 	if (!cq->cql) {
 		dev_err(rdev_to_dev(cq->rdev), "POLL CQ : no CQL to use");
 		goto exit;
@@ -3023,6 +3026,11 @@ int bnxt_re_req_notify_cq(struct ib_cq *ib_cq,
 	/* Trigger on the next solicited completion */
 	else if (ib_cqn_flags & IB_CQ_SOLICITED)
 		type = DBR_DBR_TYPE_CQ_ARMSE;
+
+	/* Poll to see if there are missed events */
+	if ((ib_cqn_flags & IB_CQ_REPORT_MISSED_EVENTS) &&
+	    !(bnxt_qplib_is_cq_empty(&cq->qplib_cq)))
+		return 1;
 
 	bnxt_qplib_req_notify_cq(&cq->qplib_cq, type);
 

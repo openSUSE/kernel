@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Mellanox Technologies. All rights reserved.
+ * Copyright (c) 2017 Mellanox Technologies. All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -28,29 +28,51 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
+ *
  */
 
-#ifndef __MLX5E_IPOB_H__
-#define __MLX5E_IPOB_H__
+#include <linux/mlx5/device.h>
 
-#include <linux/mlx5/fs.h>
-#include "en.h"
+#include "accel/ipsec.h"
+#include "mlx5_core.h"
+#include "fpga/ipsec.h"
 
-#define MLX5I_MAX_NUM_TC 1
+void *mlx5_accel_ipsec_sa_cmd_exec(struct mlx5_core_dev *mdev,
+				   struct mlx5_accel_ipsec_sa *cmd)
+{
+	if (!MLX5_IPSEC_DEV(mdev))
+		return ERR_PTR(-EOPNOTSUPP);
 
-/* ipoib rdma netdev's private data structure */
-struct mlx5i_priv {
-	struct rdma_netdev rn; /* keep this first */
-	struct mlx5_core_qp qp;
-	u32    qkey;
-	char  *mlx5e_priv[0];
-};
+	return mlx5_fpga_ipsec_sa_cmd_exec(mdev, cmd);
+}
 
-/* Extract mlx5e_priv from IPoIB netdev */
-#define mlx5i_epriv(netdev) ((void *)(((struct mlx5i_priv *)netdev_priv(netdev))->mlx5e_priv))
+int mlx5_accel_ipsec_sa_cmd_wait(void *ctx)
+{
+	return mlx5_fpga_ipsec_sa_cmd_wait(ctx);
+}
 
-netdev_tx_t mlx5i_sq_xmit(struct mlx5e_txqsq *sq, struct sk_buff *skb,
-			  struct mlx5_av *av, u32 dqpn, u32 dqkey);
-void mlx5i_handle_rx_cqe(struct mlx5e_rq *rq, struct mlx5_cqe64 *cqe);
+u32 mlx5_accel_ipsec_device_caps(struct mlx5_core_dev *mdev)
+{
+	return mlx5_fpga_ipsec_device_caps(mdev);
+}
 
-#endif /* __MLX5E_IPOB_H__ */
+unsigned int mlx5_accel_ipsec_counters_count(struct mlx5_core_dev *mdev)
+{
+	return mlx5_fpga_ipsec_counters_count(mdev);
+}
+
+int mlx5_accel_ipsec_counters_read(struct mlx5_core_dev *mdev, u64 *counters,
+				   unsigned int count)
+{
+	return mlx5_fpga_ipsec_counters_read(mdev, counters, count);
+}
+
+int mlx5_accel_ipsec_init(struct mlx5_core_dev *mdev)
+{
+	return mlx5_fpga_ipsec_init(mdev);
+}
+
+void mlx5_accel_ipsec_cleanup(struct mlx5_core_dev *mdev)
+{
+	mlx5_fpga_ipsec_cleanup(mdev);
+}

@@ -29,13 +29,11 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef _QED_ROCE_IF_H
-#define _QED_ROCE_IF_H
+#ifndef _QED_RDMA_IF_H
+#define _QED_RDMA_IF_H
 #include <linux/types.h>
 #include <linux/delay.h>
 #include <linux/list.h>
-#include <linux/mutex.h>
-#include <linux/pci.h>
 #include <linux/slab.h>
 #include <linux/qed/qed_if.h>
 #include <linux/qed/qed_ll2_if.h>
@@ -472,6 +470,101 @@ struct qed_rdma_counters_out_params {
 #define QED_ROCE_TX_HEAD_FAILURE        (1)
 #define QED_ROCE_TX_FRAG_FAILURE        (2)
 
+enum qed_iwarp_event_type {
+	QED_IWARP_EVENT_MPA_REQUEST,	  /* Passive side request received */
+	QED_IWARP_EVENT_PASSIVE_COMPLETE, /* ack on mpa response */
+	QED_IWARP_EVENT_ACTIVE_COMPLETE,  /* Active side reply received */
+	QED_IWARP_EVENT_DISCONNECT,
+	QED_IWARP_EVENT_CLOSE,
+	QED_IWARP_EVENT_IRQ_FULL,
+	QED_IWARP_EVENT_RQ_EMPTY,
+	QED_IWARP_EVENT_LLP_TIMEOUT,
+	QED_IWARP_EVENT_REMOTE_PROTECTION_ERROR,
+	QED_IWARP_EVENT_CQ_OVERFLOW,
+	QED_IWARP_EVENT_QP_CATASTROPHIC,
+	QED_IWARP_EVENT_ACTIVE_MPA_REPLY,
+	QED_IWARP_EVENT_LOCAL_ACCESS_ERROR,
+	QED_IWARP_EVENT_REMOTE_OPERATION_ERROR,
+	QED_IWARP_EVENT_TERMINATE_RECEIVED
+};
+
+enum qed_tcp_ip_version {
+	QED_TCP_IPV4,
+	QED_TCP_IPV6,
+};
+
+struct qed_iwarp_cm_info {
+	enum qed_tcp_ip_version ip_version;
+	u32 remote_ip[4];
+	u32 local_ip[4];
+	u16 remote_port;
+	u16 local_port;
+	u16 vlan;
+	u8 ord;
+	u8 ird;
+	u16 private_data_len;
+	const void *private_data;
+};
+
+struct qed_iwarp_cm_event_params {
+	enum qed_iwarp_event_type event;
+	const struct qed_iwarp_cm_info *cm_info;
+	void *ep_context;	/* To be passed to accept call */
+	int status;
+};
+
+typedef int (*iwarp_event_handler) (void *context,
+				    struct qed_iwarp_cm_event_params *event);
+
+struct qed_iwarp_connect_in {
+	iwarp_event_handler event_cb;
+	void *cb_context;
+	struct qed_rdma_qp *qp;
+	struct qed_iwarp_cm_info cm_info;
+	u16 mss;
+	u8 remote_mac_addr[ETH_ALEN];
+	u8 local_mac_addr[ETH_ALEN];
+};
+
+struct qed_iwarp_connect_out {
+	void *ep_context;
+};
+
+struct qed_iwarp_listen_in {
+	iwarp_event_handler event_cb;
+	void *cb_context;	/* passed to event_cb */
+	u32 max_backlog;
+	enum qed_tcp_ip_version ip_version;
+	u32 ip_addr[4];
+	u16 port;
+	u16 vlan;
+};
+
+struct qed_iwarp_listen_out {
+	void *handle;
+};
+
+struct qed_iwarp_accept_in {
+	void *ep_context;
+	void *cb_context;
+	struct qed_rdma_qp *qp;
+	const void *private_data;
+	u16 private_data_len;
+	u8 ord;
+	u8 ird;
+};
+
+struct qed_iwarp_reject_in {
+	void *ep_context;
+	void *cb_context;
+	const void *private_data;
+	u16 private_data_len;
+};
+
+struct qed_iwarp_send_rtr_in {
+	void *ep_context;
+};
+
 struct qed_roce_ll2_header {
 	void *vaddr;
 	dma_addr_t baddr;
@@ -491,44 +584,9 @@ struct qed_roce_ll2_packet {
 	enum qed_roce_ll2_tx_dest tx_dest;
 };
 
-struct qed_roce_ll2_tx_params {
-	int reserved;
-};
-
-struct qed_roce_ll2_rx_params {
-	u16 vlan_id;
-	u8 smac[ETH_ALEN];
-	int rc;
-};
-
-struct qed_roce_ll2_cbs {
-	void (*tx_cb)(void *pdev, struct qed_roce_ll2_packet *pkt);
-
-	void (*rx_cb)(void *pdev, struct qed_roce_ll2_packet *pkt,
-		      struct qed_roce_ll2_rx_params *params);
-};
-
-struct qed_roce_ll2_params {
-	u16 max_rx_buffers;
-	u16 max_tx_buffers;
-	u16 mtu;
-	u8 mac_address[ETH_ALEN];
-	struct qed_roce_ll2_cbs cbs;
-	void *cb_cookie;
-};
-
-struct qed_roce_ll2_info {
-	u8 handle;
-	struct qed_roce_ll2_cbs cbs;
-	u8 mac_address[ETH_ALEN];
-	void *cb_cookie;
-
-	/* Lock to protect ll2 */
-	struct mutex lock;
-};
-
 enum qed_rdma_type {
 	QED_RDMA_TYPE_ROCE,
+	QED_RDMA_TYPE_IWARP
 };
 
 struct qed_dev_rdma_info {
@@ -579,26 +637,58 @@ struct qed_rdma_ops {
 	int (*rdma_query_qp)(void *rdma_cxt, struct qed_rdma_qp *qp,
 			     struct qed_rdma_query_qp_out_params *oparams);
 	int (*rdma_destroy_qp)(void *rdma_cxt, struct qed_rdma_qp *qp);
+
 	int
 	(*rdma_register_tid)(void *rdma_cxt,
 			     struct qed_rdma_register_tid_in_params *iparams);
+
 	int (*rdma_deregister_tid)(void *rdma_cxt, u32 itid);
 	int (*rdma_alloc_tid)(void *rdma_cxt, u32 *itid);
 	void (*rdma_free_tid)(void *rdma_cxt, u32 itid);
-	int (*roce_ll2_start)(struct qed_dev *cdev,
-			      struct qed_roce_ll2_params *params);
-	int (*roce_ll2_stop)(struct qed_dev *cdev);
-	int (*roce_ll2_tx)(struct qed_dev *cdev,
-			   struct qed_roce_ll2_packet *packet,
-			   struct qed_roce_ll2_tx_params *params);
-	int (*roce_ll2_post_rx_buffer)(struct qed_dev *cdev,
-				       struct qed_roce_ll2_buffer *buf,
-				       u64 cookie, u8 notify_fw);
-	int (*roce_ll2_set_mac_filter)(struct qed_dev *cdev,
-				       u8 *old_mac_address,
-				       u8 *new_mac_address);
-	int (*roce_ll2_stats)(struct qed_dev *cdev,
-			      struct qed_ll2_stats *stats);
+
+	int (*ll2_acquire_connection)(void *rdma_cxt,
+				      struct qed_ll2_acquire_data *data);
+
+	int (*ll2_establish_connection)(void *rdma_cxt, u8 connection_handle);
+	int (*ll2_terminate_connection)(void *rdma_cxt, u8 connection_handle);
+	void (*ll2_release_connection)(void *rdma_cxt, u8 connection_handle);
+
+	int (*ll2_prepare_tx_packet)(void *rdma_cxt,
+				     u8 connection_handle,
+				     struct qed_ll2_tx_pkt_info *pkt,
+				     bool notify_fw);
+
+	int (*ll2_set_fragment_of_tx_packet)(void *rdma_cxt,
+					     u8 connection_handle,
+					     dma_addr_t addr,
+					     u16 nbytes);
+	int (*ll2_post_rx_buffer)(void *rdma_cxt, u8 connection_handle,
+				  dma_addr_t addr, u16 buf_len, void *cookie,
+				  u8 notify_fw);
+	int (*ll2_get_stats)(void *rdma_cxt,
+			     u8 connection_handle,
+			     struct qed_ll2_stats *p_stats);
+	int (*ll2_set_mac_filter)(struct qed_dev *cdev,
+				  u8 *old_mac_address, u8 *new_mac_address);
+
+	int (*iwarp_connect)(void *rdma_cxt,
+			     struct qed_iwarp_connect_in *iparams,
+			     struct qed_iwarp_connect_out *oparams);
+
+	int (*iwarp_create_listen)(void *rdma_cxt,
+				   struct qed_iwarp_listen_in *iparams,
+				   struct qed_iwarp_listen_out *oparams);
+
+	int (*iwarp_accept)(void *rdma_cxt,
+			    struct qed_iwarp_accept_in *iparams);
+
+	int (*iwarp_reject)(void *rdma_cxt,
+			    struct qed_iwarp_reject_in *iparams);
+
+	int (*iwarp_destroy_listen)(void *rdma_cxt, void *handle);
+
+	int (*iwarp_send_rtr)(void *rdma_cxt,
+			      struct qed_iwarp_send_rtr_in *iparams);
 };
 
 const struct qed_rdma_ops *qed_get_rdma_ops(void);

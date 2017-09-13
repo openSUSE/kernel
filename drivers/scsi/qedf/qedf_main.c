@@ -972,25 +972,21 @@ static int qedf_alloc_sq(struct qedf_ctx *qedf, struct qedf_rport *fcport)
 	    sizeof(void *);
 	fcport->sq_pbl_size = fcport->sq_pbl_size + QEDF_PAGE_SIZE;
 
-	fcport->sq = dma_alloc_coherent(&qedf->pdev->dev, fcport->sq_mem_size,
-	    &fcport->sq_dma, GFP_KERNEL);
+	fcport->sq = dma_zalloc_coherent(&qedf->pdev->dev,
+	    fcport->sq_mem_size, &fcport->sq_dma, GFP_KERNEL);
 	if (!fcport->sq) {
-		QEDF_WARN(&(qedf->dbg_ctx), "Could not allocate send "
-			   "queue.\n");
+		QEDF_WARN(&(qedf->dbg_ctx), "Could not allocate send queue.\n");
 		rval = 1;
 		goto out;
 	}
-	memset(fcport->sq, 0, fcport->sq_mem_size);
 
-	fcport->sq_pbl = dma_alloc_coherent(&qedf->pdev->dev,
+	fcport->sq_pbl = dma_zalloc_coherent(&qedf->pdev->dev,
 	    fcport->sq_pbl_size, &fcport->sq_pbl_dma, GFP_KERNEL);
 	if (!fcport->sq_pbl) {
-		QEDF_WARN(&(qedf->dbg_ctx), "Could not allocate send "
-			   "queue PBL.\n");
+		QEDF_WARN(&(qedf->dbg_ctx), "Could not allocate send queue PBL.\n");
 		rval = 1;
 		goto out_free_sq;
 	}
-	memset(fcport->sq_pbl, 0, fcport->sq_pbl_size);
 
 	/* Create PBL */
 	num_pages = fcport->sq_mem_size / QEDF_PAGE_SIZE;
@@ -1231,7 +1227,7 @@ static void qedf_rport_event_handler(struct fc_lport *lport,
 
 		if (rdata->spp_type != FC_TYPE_FCP) {
 			QEDF_INFO(&(qedf->dbg_ctx), QEDF_LOG_DISC,
-			    "Not offlading since since spp type isn't FCP\n");
+			    "Not offloading since spp type isn't FCP\n");
 			break;
 		}
 		if (!(rdata->ids.roles & FC_RPORT_ROLE_FCP_TARGET)) {
@@ -2597,14 +2593,12 @@ static int qedf_alloc_bdq(struct qedf_ctx *qedf)
 	}
 
 	/* Allocate list of PBL pages */
-	qedf->bdq_pbl_list = dma_alloc_coherent(&qedf->pdev->dev,
+	qedf->bdq_pbl_list = dma_zalloc_coherent(&qedf->pdev->dev,
 	    QEDF_PAGE_SIZE, &qedf->bdq_pbl_list_dma, GFP_KERNEL);
 	if (!qedf->bdq_pbl_list) {
-		QEDF_ERR(&(qedf->dbg_ctx), "Could not allocate list of PBL "
-		    "pages.\n");
+		QEDF_ERR(&(qedf->dbg_ctx), "Could not allocate list of PBL pages.\n");
 		return -ENOMEM;
 	}
-	memset(qedf->bdq_pbl_list, 0, QEDF_PAGE_SIZE);
 
 	/*
 	 * Now populate PBL list with pages that contain pointers to the
@@ -2671,8 +2665,9 @@ static int qedf_alloc_global_queues(struct qedf_ctx *qedf)
 		qedf->global_queues[i] = kzalloc(sizeof(struct global_queue),
 		    GFP_KERNEL);
 		if (!qedf->global_queues[i]) {
-			QEDF_WARN(&(qedf->dbg_ctx), "Unable to allocation "
+			QEDF_WARN(&(qedf->dbg_ctx), "Unable to allocate "
 				   "global queue %d.\n", i);
+			status = -ENOMEM;
 			goto mem_alloc_failure;
 		}
 
@@ -2688,32 +2683,26 @@ static int qedf_alloc_global_queues(struct qedf_ctx *qedf)
 		    ALIGN(qedf->global_queues[i]->cq_pbl_size, QEDF_PAGE_SIZE);
 
 		qedf->global_queues[i]->cq =
-		    dma_alloc_coherent(&qedf->pdev->dev,
+		    dma_zalloc_coherent(&qedf->pdev->dev,
 			qedf->global_queues[i]->cq_mem_size,
 			&qedf->global_queues[i]->cq_dma, GFP_KERNEL);
 
 		if (!qedf->global_queues[i]->cq) {
-			QEDF_WARN(&(qedf->dbg_ctx), "Could not allocate "
-				   "cq.\n");
+			QEDF_WARN(&(qedf->dbg_ctx), "Could not allocate cq.\n");
 			status = -ENOMEM;
 			goto mem_alloc_failure;
 		}
-		memset(qedf->global_queues[i]->cq, 0,
-		    qedf->global_queues[i]->cq_mem_size);
 
 		qedf->global_queues[i]->cq_pbl =
-		    dma_alloc_coherent(&qedf->pdev->dev,
+		    dma_zalloc_coherent(&qedf->pdev->dev,
 			qedf->global_queues[i]->cq_pbl_size,
 			&qedf->global_queues[i]->cq_pbl_dma, GFP_KERNEL);
 
 		if (!qedf->global_queues[i]->cq_pbl) {
-			QEDF_WARN(&(qedf->dbg_ctx), "Could not allocate "
-				   "cq PBL.\n");
+			QEDF_WARN(&(qedf->dbg_ctx), "Could not allocate cq PBL.\n");
 			status = -ENOMEM;
 			goto mem_alloc_failure;
 		}
-		memset(qedf->global_queues[i]->cq_pbl, 0,
-		    qedf->global_queues[i]->cq_pbl_size);
 
 		/* Create PBL */
 		num_pages = qedf->global_queues[i]->cq_mem_size /
@@ -2771,11 +2760,9 @@ static int qedf_set_fcoe_pf_param(struct qedf_ctx *qedf)
 	 * we allocation is the minimum off:
 	 *
 	 * Number of CPUs
-	 * Number of MSI-X vectors
-	 * Max number allocated in hardware (QEDF_MAX_NUM_CQS)
+	 * Number allocated by qed for our PCI function
 	 */
-	qedf->num_queues = min((unsigned int)QEDF_MAX_NUM_CQS,
-	    num_online_cpus());
+	qedf->num_queues = MIN_NUM_CPUS_MSIX(qedf);
 
 	QEDF_INFO(&(qedf->dbg_ctx), QEDF_LOG_DISC, "Number of CQs is %d.\n",
 		   qedf->num_queues);
@@ -2806,8 +2793,7 @@ static int qedf_set_fcoe_pf_param(struct qedf_ctx *qedf)
 	cq_mem_size = ALIGN(cq_mem_size, QEDF_PAGE_SIZE);
 	cq_num_entries = cq_mem_size / sizeof(struct fcoe_cqe);
 
-	memset(&(qedf->pf_params), 0,
-	    sizeof(qedf->pf_params));
+	memset(&(qedf->pf_params), 0, sizeof(qedf->pf_params));
 
 	/* Setup the value for fcoe PF */
 	qedf->pf_params.fcoe_pf_params.num_cons = QEDF_MAX_SESSIONS;
@@ -2974,6 +2960,13 @@ static int __qedf_probe(struct pci_dev *pdev, int mode)
 		goto err1;
 	}
 
+	/* Learn information crucial for qedf to progress */
+	rc = qed_ops->fill_dev_info(qedf->cdev, &qedf->dev_info);
+	if (rc) {
+		QEDF_ERR(&(qedf->dbg_ctx), "Failed to dev info.\n");
+		goto err1;
+	}
+
 	/* queue allocation code should come here
 	 * order should be
 	 * 	slowpath_start
@@ -2988,13 +2981,6 @@ static int __qedf_probe(struct pci_dev *pdev, int mode)
 		goto err2;
 	}
 	qed_ops->common->update_pf_params(qedf->cdev, &qedf->pf_params);
-
-	/* Learn information crucial for qedf to progress */
-	rc = qed_ops->fill_dev_info(qedf->cdev, &qedf->dev_info);
-	if (rc) {
-		QEDF_ERR(&(qedf->dbg_ctx), "Failed to dev info.\n");
-		goto err1;
-	}
 
 	/* Record BDQ producer doorbell addresses */
 	qedf->bdq_primary_prod = qedf->dev_info.primary_dbq_rq_addr;
@@ -3077,7 +3063,7 @@ static int __qedf_probe(struct pci_dev *pdev, int mode)
 		   "WWPN=%016llx.\n", qedf->wwnn, qedf->wwpn);
 
 	sprintf(host_buf, "host_%d", host->host_no);
-	qed_ops->common->set_id(qedf->cdev, host_buf, QEDF_VERSION);
+	qed_ops->common->set_name(qedf->cdev, host_buf);
 
 
 	/* Set xid max values */

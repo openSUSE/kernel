@@ -441,6 +441,8 @@ static void rxe_skb_tx_dtor(struct sk_buff *skb)
 	if (unlikely(qp->need_req_skb &&
 		     skb_out < RXE_INFLIGHT_SKBS_PER_QP_LOW))
 		rxe_run_task(&qp->req.task, 1);
+
+	rxe_drop_ref(qp);
 }
 
 int rxe_send(struct rxe_dev *rxe, struct rxe_pkt_info *pkt, struct sk_buff *skb)
@@ -458,12 +460,17 @@ int rxe_send(struct rxe_dev *rxe, struct rxe_pkt_info *pkt, struct sk_buff *skb)
 	nskb->destructor = rxe_skb_tx_dtor;
 	nskb->sk = pkt->qp->sk->sk;
 
+	rxe_add_ref(pkt->qp);
+	atomic_inc(&pkt->qp->skb_out);
+
 	if (av->network_type == RDMA_NETWORK_IPV4) {
 		err = ip_local_out(dev_net(skb_dst(skb)->dev), nskb->sk, nskb);
 	} else if (av->network_type == RDMA_NETWORK_IPV6) {
 		err = ip6_local_out(dev_net(skb_dst(skb)->dev), nskb->sk, nskb);
 	} else {
 		pr_err("Unknown layer 3 protocol: %d\n", av->network_type);
+		atomic_dec(&pkt->qp->skb_out);
+		rxe_drop_ref(pkt->qp);
 		kfree_skb(nskb);
 		return -EINVAL;
 	}
@@ -473,9 +480,7 @@ int rxe_send(struct rxe_dev *rxe, struct rxe_pkt_info *pkt, struct sk_buff *skb)
 		return -EAGAIN;
 	}
 
-	atomic_inc(&pkt->qp->skb_out);
 	kfree_skb(skb);
-
 	return 0;
 }
 
