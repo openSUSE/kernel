@@ -5445,7 +5445,7 @@ int md_run(struct mddev *mddev)
 	}
 
 	if (mddev->bio_set == NULL) {
-		mddev->bio_set = bioset_create(BIO_POOL_SIZE, 0);
+		mddev->bio_set = bioset_create(BIO_POOL_SIZE, 0, BIOSET_NEED_BVECS);
 		if (!mddev->bio_set)
 			return -ENOMEM;
 	}
@@ -5625,7 +5625,7 @@ static int do_md_run(struct mddev *mddev)
 		goto out;
 	}
 	if (mddev->sync_set == NULL) {
-		mddev->sync_set = bioset_create(BIO_POOL_SIZE, 0);
+		mddev->sync_set = bioset_create(BIO_POOL_SIZE, 0, BIOSET_NEED_BVECS);
 		if (!mddev->sync_set)
 			return -ENOMEM;
 	}
