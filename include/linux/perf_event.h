@@ -139,14 +139,6 @@ struct hw_perf_event {
 			/* for tp_event->class */
 			struct list_head	tp_list;
 		};
-		struct { /* intel_cqm */
-			int			cqm_state;
-			u32			cqm_rmid;
-			int			is_group_event;
-			struct list_head	cqm_events_entry;
-			struct list_head	cqm_groups_entry;
-			struct list_head	cqm_group_entry;
-		};
 		struct { /* itrace */
 			int			itrace_started;
 		};
@@ -415,11 +407,6 @@ struct pmu {
 	 */
 	size_t				task_ctx_size;
 
-
-	/*
-	 * Return the count value for a counter.
-	 */
-	u64 (*count)			(struct perf_event *event); /*optional*/
 
 	/*
 	 * Set up pmu-private data structures for an AUX area
@@ -896,7 +883,7 @@ perf_event_create_kernel_counter(struct perf_event_attr *attr,
 				void *context);
 extern void perf_pmu_migrate_context(struct pmu *pmu,
 				int src_cpu, int dst_cpu);
-extern u64 perf_event_read_local(struct perf_event *event);
+int perf_event_read_local(struct perf_event *event, u64 *value);
 extern u64 perf_event_read_value(struct perf_event *event,
 				 u64 *enabled, u64 *running);
 
@@ -1109,11 +1096,6 @@ static inline void perf_event_task_sched_out(struct task_struct *prev,
 		__perf_event_task_sched_out(prev, next);
 }
 
-static inline u64 __perf_event_count(struct perf_event *event)
-{
-	return local64_read(&event->count) + atomic64_read(&event->child_count);
-}
-
 extern void perf_event_mmap(struct vm_area_struct *vma);
 extern struct perf_guest_info_callbacks *perf_guest_cbs;
 extern int perf_register_guest_info_callbacks(struct perf_guest_info_callbacks *callbacks);
@@ -1301,7 +1283,10 @@ static inline const struct perf_event_attr *perf_event_attrs(struct perf_event *
 {
 	return ERR_PTR(-EINVAL);
 }
-static inline u64 perf_event_read_local(struct perf_event *event)	{ return -EINVAL; }
+static inline int perf_event_read_local(struct perf_event *event, u64 *value)
+{
+	return -EINVAL;
+}
 static inline void perf_event_print_debug(void)				{ }
 static inline int perf_event_task_disable(void)				{ return -EINVAL; }
 static inline int perf_event_task_enable(void)				{ return -EINVAL; }
