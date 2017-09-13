@@ -391,7 +391,7 @@ void blk_mq_free_request(struct request *rq)
 }
 EXPORT_SYMBOL_GPL(blk_mq_free_request);
 
-inline void __blk_mq_end_request(struct request *rq, int error)
+inline void __blk_mq_end_request(struct request *rq, blk_status_t error)
 {
 	blk_account_io_done(rq);
 
@@ -406,7 +406,7 @@ inline void __blk_mq_end_request(struct request *rq, int error)
 }
 EXPORT_SYMBOL(__blk_mq_end_request);
 
-void blk_mq_end_request(struct request *rq, int error)
+void blk_mq_end_request(struct request *rq, blk_status_t error)
 {
 	if (blk_update_request(rq, error, blk_rq_bytes(rq)))
 		BUG();
@@ -985,7 +985,7 @@ bool blk_mq_dispatch_rq_list(struct request_queue *q, struct list_head *list)
 			pr_err("blk-mq: bad return on queue: %d\n", ret);
 		case BLK_MQ_RQ_QUEUE_ERROR:
 			errors++;
-			blk_mq_end_request(rq, -EIO);
+			blk_mq_end_request(rq, BLK_STS_IOERR);
 			break;
 		}
 
@@ -1436,7 +1436,7 @@ static void __blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
 
 	if (ret == BLK_MQ_RQ_QUEUE_ERROR) {
 		*cookie = BLK_QC_T_NONE;
-		blk_mq_end_request(rq, -EIO);
+		blk_mq_end_request(rq, BLK_STS_IOERR);
 		return;
 	}
 
