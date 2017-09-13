@@ -491,9 +491,9 @@ static void hold_bio(struct mirror_set *ms, struct bio *bio)
 		 * If device is suspended, complete the bio.
 		 */
 		if (dm_noflush_suspending(ms->ti))
-			bio->bi_error = DM_ENDIO_REQUEUE;
+			bio->bi_status = BLK_STS_DM_REQUEUE;
 		else
-			bio->bi_error = -EIO;
+			bio->bi_status = BLK_STS_IOERR;
 
 		bio_endio(bio);
 		return;
@@ -627,7 +627,7 @@ static void write_callback(unsigned long error, void *context)
 	 * degrade the array.
 	 */
 	if (bio_op(bio) == REQ_OP_DISCARD) {
-		bio->bi_error = -EOPNOTSUPP;
+		bio->bi_status = BLK_STS_NOTSUPP;
 		bio_endio(bio);
 		return;
 	}
@@ -1239,7 +1239,8 @@ static int mirror_map(struct dm_target *ti, struct bio *bio)
 	return DM_MAPIO_REMAPPED;
 }
 
-static int mirror_end_io(struct dm_target *ti, struct bio *bio, int *error)
+static int mirror_end_io(struct dm_target *ti, struct bio *bio,
+		blk_status_t *error)
 {
 	int rw = bio_data_dir(bio);
 	struct mirror_set *ms = (struct mirror_set *) ti->private;
@@ -1258,7 +1259,7 @@ static int mirror_end_io(struct dm_target *ti, struct bio *bio, int *error)
 		return DM_ENDIO_DONE;
 	}
 
-	if (*error == -EOPNOTSUPP)
+	if (*error == BLK_STS_NOTSUPP)
 		goto out;
 
 	if (bio->bi_opf & REQ_RAHEAD)
@@ -1291,7 +1292,7 @@ static int mirror_end_io(struct dm_target *ti, struct bio *bio, int *error)
 
 			dm_bio_restore(bd, bio);
 			bio_record->details.bi_bdev = NULL;
-			bio->bi_error = 0;
+			bio->bi_status = 0;
 
 			queue_bio(ms, bio, rw);
 			return DM_ENDIO_INCOMPLETE;
