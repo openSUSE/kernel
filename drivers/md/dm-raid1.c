@@ -1239,7 +1239,7 @@ static int mirror_map(struct dm_target *ti, struct bio *bio)
 	return DM_MAPIO_REMAPPED;
 }
 
-static int mirror_end_io(struct dm_target *ti, struct bio *bio, int error)
+static int mirror_end_io(struct dm_target *ti, struct bio *bio, int *error)
 {
 	int rw = bio_data_dir(bio);
 	struct mirror_set *ms = (struct mirror_set *) ti->private;
@@ -1255,16 +1255,16 @@ static int mirror_end_io(struct dm_target *ti, struct bio *bio, int error)
 		if (!(bio->bi_opf & REQ_PREFLUSH) &&
 		    bio_op(bio) != REQ_OP_DISCARD)
 			dm_rh_dec(ms->rh, bio_record->write_region);
-		return error;
+		return DM_ENDIO_DONE;
 	}
 
-	if (error == -EOPNOTSUPP)
+	if (*error == -EOPNOTSUPP)
 		goto out;
 
 	if (bio->bi_opf & REQ_RAHEAD)
 		goto out;
 
-	if (unlikely(error)) {
+	if (unlikely(*error)) {
 		if (!bio_record->details.bi_bdev) {
 			/*
 			 * There wasn't enough memory to record necessary
@@ -1302,7 +1302,7 @@ static int mirror_end_io(struct dm_target *ti, struct bio *bio, int error)
 out:
 	bio_record->details.bi_bdev = NULL;
 
-	return error;
+	return DM_ENDIO_DONE;
 }
 
 static void mirror_presuspend(struct dm_target *ti)
