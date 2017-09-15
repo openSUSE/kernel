@@ -2384,6 +2384,8 @@ static int intel_pstate_update_status(const char *buf, size_t size)
 static int no_load __initdata;
 static int no_hwp __initdata;
 static int hwp_only __initdata;
+static int __initdata vanilla_policy;
+static int __initdata server_policy;
 static unsigned int force_load __initdata;
 
 static int __init intel_pstate_msrs_not_valid(void)
@@ -2564,6 +2566,9 @@ static const struct x86_cpu_id hwp_support_ids[] __initconst = {
 static int __init intel_pstate_init(void)
 {
 	int rc;
+#if IS_ENABLED(CONFIG_ACPI)
+	const char *profile = NULL;
+#endif
 
 	if (no_load)
 		return -ENODEV;
@@ -2603,6 +2608,40 @@ hwp_cpu_matched:
 		return -ENOTSUPP;
 
 	pr_info("Intel P-state driver initializing\n");
+
+#if IS_ENABLED(CONFIG_ACPI)
+	if (!vanilla_policy) {
+		switch (acpi_gbl_FADT.preferred_profile) {
+		case PM_WORKSTATION:
+			profile = "Workstation";
+			break;
+		case PM_ENTERPRISE_SERVER:
+			profile = "Enterprise Server";
+			break;
+		case PM_SOHO_SERVER:
+			profile = "SOHO Server";
+			break;
+		case PM_PERFORMANCE_SERVER:
+			profile = "Performance Server";
+			break;
+		default:
+			if (server_policy)
+				profile = "Server";
+		};
+
+		if (profile) {
+			pr_info("Intel P-state setting %s policy\n", profile);
+
+			/*
+			 * setpoint based on observations that siege maxes out
+			 * due to internal mutex usage at roughly an average of
+			 * 50% set use a setpoint of 40% to boost the frequency
+			 * enough to perform reasonably.
+			 */
+			pid_params.setpoint = 40;
+		}
+	}
+#endif
 
 	all_cpu_data = vzalloc(sizeof(void *) * num_possible_cpus());
 	if (!all_cpu_data)
@@ -2645,6 +2684,10 @@ static int __init intel_pstate_setup(char *str)
 		force_load = 1;
 	if (!strcmp(str, "hwp_only"))
 		hwp_only = 1;
+	if (!strcmp(str, "vanilla_policy"))
+		vanilla_policy = 1;
+	if (!strcmp(str, "server_policy"))
+		server_policy = 1;
 	if (!strcmp(str, "per_cpu_perf_limits"))
 		per_cpu_limits = true;
 
