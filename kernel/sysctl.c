@@ -1987,6 +1987,32 @@ static void warn_sysctl_write(struct ctl_table *table)
 }
 
 /**
+ * proc_first_pos_non_zero_ignore - check if firs position is allowed
+ * @ppos: file position
+ * @table: the sysctl table
+ *
+ * Returns true if the first position is non-zero and the sysctl_writes_strict
+ * mode indicates this is not allowed for numeric input types. String proc
+ * hadlers can ignore the return value.
+ */
+static bool proc_first_pos_non_zero_ignore(loff_t *ppos,
+					   struct ctl_table *table)
+{
+	if (!*ppos)
+		return false;
+
+	switch (sysctl_writes_strict) {
+	case SYSCTL_WRITES_STRICT:
+		return true;
+	case SYSCTL_WRITES_WARN:
+		warn_sysctl_write(table);
+		return false;
+	default:
+		return false;
+	}
+}
+
+/**
  * proc_dostring - read a string sysctl
  * @table: the sysctl table
  * @write: %TRUE if this is a write to the sysctl file
@@ -2006,8 +2032,8 @@ static void warn_sysctl_write(struct ctl_table *table)
 int proc_dostring(struct ctl_table *table, int write,
 		  void __user *buffer, size_t *lenp, loff_t *ppos)
 {
-	if (write && *ppos && sysctl_writes_strict == SYSCTL_WRITES_WARN)
-		warn_sysctl_write(table);
+	if (write)
+		proc_first_pos_non_zero_ignore(ppos, table);
 
 	return _proc_do_string((char *)(table->data), table->maxlen, write,
 			       (char __user *)buffer, lenp, ppos);
@@ -2209,17 +2235,8 @@ static int __do_proc_dointvec(void *tbl_data, struct ctl_table *table,
 		conv = do_proc_dointvec_conv;
 
 	if (write) {
-		if (*ppos) {
-			switch (sysctl_writes_strict) {
-			case SYSCTL_WRITES_STRICT:
-				goto out;
-			case SYSCTL_WRITES_WARN:
-				warn_sysctl_write(table);
-				break;
-			default:
-				break;
-			}
-		}
+		if (proc_first_pos_non_zero_ignore(ppos, table))
+			goto out;
 
 		if (left > PAGE_SIZE - 1)
 			left = PAGE_SIZE - 1;
@@ -2484,17 +2501,8 @@ static int __do_proc_doulongvec_minmax(void *data, struct ctl_table *table, int 
 	left = *lenp;
 
 	if (write) {
-		if (*ppos) {
-			switch (sysctl_writes_strict) {
-			case SYSCTL_WRITES_STRICT:
-				goto out;
-			case SYSCTL_WRITES_WARN:
-				warn_sysctl_write(table);
-				break;
-			default:
-				break;
-			}
-		}
+		if (proc_first_pos_non_zero_ignore(ppos, table))
+			goto out;
 
 		if (left > PAGE_SIZE - 1)
 			left = PAGE_SIZE - 1;
