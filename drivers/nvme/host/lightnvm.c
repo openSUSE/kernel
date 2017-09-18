@@ -571,7 +571,7 @@ static struct nvm_dev_ops nvme_nvm_dev_ops = {
 	.max_phys_sect		= 64,
 };
 
-static void nvme_nvm_end_user_vio(struct request *rq, int error)
+static void nvme_nvm_end_user_vio(struct request *rq, blk_status_t status)
 {
 	struct completion *waiting = rq->end_io_data;
 
