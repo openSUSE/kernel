@@ -30,7 +30,6 @@
 #include <linux/iommu.h>
 #include <linux/kmemleak.h>
 #include <linux/mem_encrypt.h>
-#include <linux/crash_dump.h>
 #include <asm/pci-direct.h>
 #include <asm/iommu.h>
 #include <asm/gart.h>
@@ -1943,14 +1942,6 @@ static void init_device_table_dma(void)
 	for (devid = 0; devid <= amd_iommu_last_bdf; ++devid) {
 		set_dev_entry_bit(devid, DEV_ENTRY_VALID);
 		set_dev_entry_bit(devid, DEV_ENTRY_TRANSLATION);
-		/*
-		 * In kdump kernels in-flight DMA from the old kernel might
-		 * cause IO_PAGE_FAULTs. There are no reports that a kdump
-		 * actually failed because of that, so just disable fault
-		 * reporting in the hardware to get rid of the messages
-		 */
-		if (is_kdump_kernel())
-			set_dev_entry_bit(devid, DEV_ENTRY_NO_PAGE_FAULT);
 	}
 }
 
