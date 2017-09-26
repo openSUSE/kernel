@@ -421,15 +421,6 @@ bail:
 	return ret;
 }
 
-static void free_qpn(struct rvt_qpn_table *qpt, u32 qpn)
-{
-	struct rvt_qpn_map *map;
-
-	map = qpt->map + qpn / RVT_BITS_PER_PAGE;
-	if (map->page)
-		clear_bit(qpn & RVT_BITS_PER_PAGE_MASK, map->page);
-}
-
 /**
  * rvt_clear_mr_refs - Drop help mr refs
  * @qp: rvt qp data structure
@@ -643,6 +634,19 @@ static void rvt_reset_qp(struct rvt_dev_info *rdi, struct rvt_qp *qp,
 	lockdep_assert_held(&qp->r_lock);
 	lockdep_assert_held(&qp->s_hlock);
 	lockdep_assert_held(&qp->s_lock);
+}
+
+/** rvt_free_qpn - Free a qpn from the bit map
+ * @qpt: QP table
+ * @qpn: queue pair number to free
+ */
+static void rvt_free_qpn(struct rvt_qpn_table *qpt, u32 qpn)
+{
+	struct rvt_qpn_map *map;
+
+	map = qpt->map + qpn / RVT_BITS_PER_PAGE;
+	if (map->page)
+		clear_bit(qpn & RVT_BITS_PER_PAGE_MASK, map->page);
 }
 
 /**
@@ -914,7 +918,7 @@ bail_ip:
 		kref_put(&qp->ip->ref, rvt_release_mmap_info);
 
 bail_qpn:
-	free_qpn(&rdi->qp_dev->qpn_table, qp->ibqp.qp_num);
+	rvt_free_qpn(&rdi->qp_dev->qpn_table, qp->ibqp.qp_num);
 
 bail_rq_wq:
 	if (!qp->ip)
@@ -1299,19 +1303,6 @@ inval:
 	spin_unlock(&qp->s_hlock);
 	spin_unlock_irq(&qp->r_lock);
 	return -EINVAL;
-}
-
-/** rvt_free_qpn - Free a qpn from the bit map
- * @qpt: QP table
- * @qpn: queue pair number to free
- */
-static void rvt_free_qpn(struct rvt_qpn_table *qpt, u32 qpn)
-{
-	struct rvt_qpn_map *map;
-
-	map = qpt->map + qpn / RVT_BITS_PER_PAGE;
-	if (map->page)
-		clear_bit(qpn & RVT_BITS_PER_PAGE_MASK, map->page);
 }
 
 /**
