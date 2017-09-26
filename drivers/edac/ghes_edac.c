@@ -403,7 +403,6 @@ void ghes_edac_report_mem_error(struct ghes *ghes, int sev,
 	/* Report the error via EDAC API */
 	edac_raw_mc_handle_error(type, mci, e);
 }
-EXPORT_SYMBOL_GPL(ghes_edac_report_mem_error);
 
 int ghes_edac_register(struct ghes *ghes, struct device *dev)
 {
@@ -508,7 +507,6 @@ int ghes_edac_register(struct ghes *ghes, struct device *dev)
 	mutex_unlock(&ghes_edac_lock);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(ghes_edac_register);
 
 void ghes_edac_unregister(struct ghes *ghes)
 {
@@ -524,4 +522,3 @@ void ghes_edac_unregister(struct ghes *ghes)
 		}
 	}
 }
-EXPORT_SYMBOL_GPL(ghes_edac_unregister);
