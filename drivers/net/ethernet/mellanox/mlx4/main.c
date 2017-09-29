@@ -3783,7 +3783,6 @@ err_release_regions:
 
 err_disable_pdev:
 	mlx4_pci_disable_device(&priv->dev);
-	pci_set_drvdata(pdev, NULL);
 	return err;
 }
 
@@ -3998,7 +3997,6 @@ static void mlx4_remove_one(struct pci_dev *pdev)
 	devlink_unregister(devlink);
 	kfree(dev->persist);
 	devlink_free(devlink);
-	pci_set_drvdata(pdev, NULL);
 }
 
 static int restore_current_port_types(struct mlx4_dev *dev,
