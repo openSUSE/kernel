@@ -3672,14 +3672,15 @@ static int nes_port_immutable(struct ib_device *ibdev, u8 port_num,
 	return 0;
 }
 
-static void get_dev_fw_str(struct ib_device *dev, char *str)
+static void get_dev_fw_str(struct ib_device *dev, char *str,
+			   size_t str_len)
 {
 	struct nes_ib_device *nesibdev =
 			container_of(dev, struct nes_ib_device, ibdev);
 	struct nes_vnic *nesvnic = nesibdev->nesvnic;
 
 	nes_debug(NES_DBG_INIT, "\n");
-	snprintf(str, IB_FW_VERSION_NAME_MAX, "%u.%u",
+	snprintf(str, str_len, "%u.%u",
 		 (nesvnic->nesdev->nesadapter->firmware_version >> 16),
 		 (nesvnic->nesdev->nesadapter->firmware_version & 0x000000ff));
 }

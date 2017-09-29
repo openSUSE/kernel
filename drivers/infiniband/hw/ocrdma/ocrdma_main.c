@@ -107,11 +107,12 @@ static int ocrdma_port_immutable(struct ib_device *ibdev, u8 port_num,
 	return 0;
 }
 
-static void get_dev_fw_str(struct ib_device *device, char *str)
+static void get_dev_fw_str(struct ib_device *device, char *str,
+			   size_t str_len)
 {
 	struct ocrdma_dev *dev = get_ocrdma_dev(device);
 
-	snprintf(str, IB_FW_VERSION_NAME_MAX, "%s", &dev->attr.fw_ver[0]);
+	snprintf(str, str_len, "%s", &dev->attr.fw_ver[0]);
 }
 
 static int ocrdma_register_device(struct ocrdma_dev *dev)

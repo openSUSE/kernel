@@ -2587,11 +2587,12 @@ static int mlx4_port_immutable(struct ib_device *ibdev, u8 port_num,
 	return 0;
 }
 
-static void get_fw_ver_str(struct ib_device *device, char *str)
+static void get_fw_ver_str(struct ib_device *device, char *str,
+			   size_t str_len)
 {
 	struct mlx4_ib_dev *dev =
 		container_of(device, struct mlx4_ib_dev, ib_dev);
-	snprintf(str, IB_FW_VERSION_NAME_MAX, "%d.%d.%d",
+	snprintf(str, str_len, "%d.%d.%d",
 		 (int) (dev->dev->caps.fw_ver >> 32),
 		 (int) (dev->dev->caps.fw_ver >> 16) & 0xffff,
 		 (int) dev->dev->caps.fw_ver & 0xffff);

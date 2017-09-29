@@ -333,7 +333,9 @@ static int usnic_port_immutable(struct ib_device *ibdev, u8 port_num,
 	return 0;
 }
 
-static void usnic_get_dev_fw_str(struct ib_device *device, char *str)
+static void usnic_get_dev_fw_str(struct ib_device *device,
+				 char *str,
+				 size_t str_len)
 {
 	struct usnic_ib_dev *us_ibdev =
 		container_of(device, struct usnic_ib_dev, ib_dev);
@@ -343,7 +345,7 @@ static void usnic_get_dev_fw_str(struct ib_device *device, char *str)
 	us_ibdev->netdev->ethtool_ops->get_drvinfo(us_ibdev->netdev, &info);
 	mutex_unlock(&us_ibdev->usdev_lock);
 
-	snprintf(str, IB_FW_VERSION_NAME_MAX, "%s", info.fw_version);
+	snprintf(str, str_len, "%s", info.fw_version);
 }
 
 /* Start of PF discovery section */
