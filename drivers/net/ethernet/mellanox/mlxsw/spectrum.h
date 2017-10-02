@@ -689,7 +689,7 @@ void mlxsw_sp_acl_fini(struct mlxsw_sp *mlxsw_sp);
 extern const struct mlxsw_sp_acl_ops mlxsw_sp_acl_tcam_ops;
 
 int mlxsw_sp_flower_replace(struct mlxsw_sp_port *mlxsw_sp_port, bool ingress,
-			    __be16 protocol, struct tc_cls_flower_offload *f);
+			    struct tc_cls_flower_offload *f);
 void mlxsw_sp_flower_destroy(struct mlxsw_sp_port *mlxsw_sp_port, bool ingress,
 			     struct tc_cls_flower_offload *f);
 int mlxsw_sp_flower_stats(struct mlxsw_sp_port *mlxsw_sp_port, bool ingress,
