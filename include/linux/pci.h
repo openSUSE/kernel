@@ -363,6 +363,8 @@ struct pci_dev {
 	unsigned int	msix_enabled:1;
 	unsigned int	ari_enabled:1;	/* ARI forwarding */
 	unsigned int	ats_enabled:1;	/* Address Translation Service */
+	unsigned int	pasid_enabled:1;	/* Process Address Space ID */
+	unsigned int	pri_enabled:1;		/* Page Request Interface */
 	unsigned int	is_managed:1;
 	unsigned int    needs_freset:1; /* Dev requires fundamental reset */
 	unsigned int	state_saved:1;
@@ -405,6 +407,12 @@ struct pci_dev {
 	u16		ats_cap;	/* ATS Capability offset */
 	u8		ats_stu;	/* ATS Smallest Translation Unit */
 	atomic_t	ats_ref_cnt;	/* number of VFs with ATS enabled */
+#endif
+#ifdef CONFIG_PCI_PRI
+	u32		pri_reqs_alloc; /* Number of PRI requests allocated */
+#endif
+#ifdef CONFIG_PCI_PASID
+	u16		pasid_features;
 #endif
 	phys_addr_t rom; /* Physical address of ROM if it's not from the BAR */
 	size_t romlen; /* Length of ROM if it's not from the BAR */
