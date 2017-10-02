@@ -3033,11 +3033,6 @@ static int dm_integrity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 		ti->error = "Corrupted superblock, journal_sections is 0";
 		goto bad;
 	}
-	if (!le32_to_cpu(ic->sb->journal_sections)) {
-		r = -EINVAL;
-		ti->error = "Corrupted superblock, journal_sections is 0";
-		goto bad;
-	}
 	/* make sure that ti->max_io_len doesn't overflow */
 	if (ic->sb->log2_interleave_sectors < MIN_LOG2_INTERLEAVE_SECTORS ||
 	    ic->sb->log2_interleave_sectors > MAX_LOG2_INTERLEAVE_SECTORS) {
