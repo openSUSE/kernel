@@ -190,6 +190,7 @@ struct vcpu_svm {
 	struct nested_state nested;
 
 	bool nmi_singlestep;
+	u64 nmi_singlestep_guest_rflags;
 
 	unsigned int3_injected;
 	unsigned long int3_rip;
@@ -280,9 +281,9 @@ module_param(avic, int, S_IRUGO);
 static int vls = true;
 module_param(vls, int, 0444);
 
-/* AVIC VM ID bit masks and lock */
-static DECLARE_BITMAP(avic_vm_id_bitmap, AVIC_VM_ID_NR);
-static DEFINE_SPINLOCK(avic_vm_id_lock);
+/* enable/disable Virtual GIF */
+static int vgif = true;
+module_param(vgif, int, 0444);
 
 static void svm_set_cr0(struct kvm_vcpu *vcpu, unsigned long cr0);
 static void svm_flush_tlb(struct kvm_vcpu *vcpu);
@@ -479,19 +480,33 @@ static inline void clr_intercept(struct vcpu_svm *svm, int bit)
 	recalc_intercepts(svm);
 }
 
+static inline bool vgif_enabled(struct vcpu_svm *svm)
+{
+	return !!(svm->vmcb->control.int_ctl & V_GIF_ENABLE_MASK);
+}
+
 static inline void enable_gif(struct vcpu_svm *svm)
 {
-	svm->vcpu.arch.hflags |= HF_GIF_MASK;
+	if (vgif_enabled(svm))
+		svm->vmcb->control.int_ctl |= V_GIF_MASK;
+	else
+		svm->vcpu.arch.hflags |= HF_GIF_MASK;
 }
 
 static inline void disable_gif(struct vcpu_svm *svm)
 {
-	svm->vcpu.arch.hflags &= ~HF_GIF_MASK;
+	if (vgif_enabled(svm))
+		svm->vmcb->control.int_ctl &= ~V_GIF_MASK;
+	else
+		svm->vcpu.arch.hflags &= ~HF_GIF_MASK;
 }
 
 static inline bool gif_set(struct vcpu_svm *svm)
 {
-	return !!(svm->vcpu.arch.hflags & HF_GIF_MASK);
+	if (vgif_enabled(svm))
+		return !!(svm->vmcb->control.int_ctl & V_GIF_MASK);
+	else
+		return !!(svm->vcpu.arch.hflags & HF_GIF_MASK);
 }
 
 static unsigned long iopm_base;
@@ -968,6 +983,19 @@ static void svm_disable_lbrv(struct vcpu_svm *svm)
 	set_msr_interception(msrpm, MSR_IA32_LASTINTTOIP, 0, 0);
 }
 
+static void disable_nmi_singlestep(struct vcpu_svm *svm)
+{
+	svm->nmi_singlestep = false;
+
+	if (!(svm->vcpu.guest_debug & KVM_GUESTDBG_SINGLESTEP)) {
+		/* Clear our flags if they were not set by the guest */
+		if (!(svm->nmi_singlestep_guest_rflags & X86_EFLAGS_TF))
+			svm->vmcb->save.rflags &= ~X86_EFLAGS_TF;
+		if (!(svm->nmi_singlestep_guest_rflags & X86_EFLAGS_RF))
+			svm->vmcb->save.rflags &= ~X86_EFLAGS_RF;
+	}
+}
+
 /* Note:
  * This hash table is used to map VM_ID to a struct kvm_arch,
  * when handling AMD IOMMU GALOG notification to schedule in
@@ -975,6 +1003,8 @@ static void svm_disable_lbrv(struct vcpu_svm *svm)
  */
 #define SVM_VM_DATA_HASH_BITS	8
 static DEFINE_HASHTABLE(svm_vm_data_hash, SVM_VM_DATA_HASH_BITS);
+static u32 next_vm_id = 0;
+static bool next_vm_id_wrapped = 0;
 static DEFINE_SPINLOCK(svm_vm_data_hash_lock);
 
 /* Note:
@@ -1094,6 +1124,13 @@ static __init int svm_hardware_setup(void)
 		}
 	}
 
+	if (vgif) {
+		if (!boot_cpu_has(X86_FEATURE_VGIF))
+			vgif = false;
+		else
+			pr_info("Virtual GIF supported\n");
+	}
+
 	return 0;
 
 err:
@@ -1162,7 +1199,6 @@ static void avic_init_vmcb(struct vcpu_svm *svm)
 	vmcb->control.avic_physical_id = ppa & AVIC_HPA_MASK;
 	vmcb->control.avic_physical_id |= AVIC_MAX_PHYSICAL_ID_COUNT;
 	vmcb->control.int_ctl |= AVIC_ENABLE_MASK;
-	svm->vcpu.arch.apicv_active = true;
 }
 
 static void init_vmcb(struct vcpu_svm *svm)
@@ -1278,7 +1314,7 @@ static void init_vmcb(struct vcpu_svm *svm)
 		set_intercept(svm, INTERCEPT_PAUSE);
 	}
 
-	if (avic)
+	if (kvm_vcpu_apicv_active(&svm->vcpu))
 		avic_init_vmcb(svm);
 
 	/*
@@ -1289,6 +1325,12 @@ static void init_vmcb(struct vcpu_svm *svm)
 		clr_intercept(svm, INTERCEPT_VMLOAD);
 		clr_intercept(svm, INTERCEPT_VMSAVE);
 		svm->vmcb->control.virt_ext |= VIRTUAL_VMLOAD_VMSAVE_ENABLE_MASK;
+	}
+
+	if (vgif) {
+		clr_intercept(svm, INTERCEPT_STGI);
+		clr_intercept(svm, INTERCEPT_CLGI);
+		svm->vmcb->control.int_ctl |= V_GIF_ENABLE_MASK;
 	}
 
 	mark_all_dirty(svm->vmcb);
@@ -1373,34 +1415,6 @@ static int avic_init_backing_page(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
-static inline int avic_get_next_vm_id(void)
-{
-	int id;
-
-	spin_lock(&avic_vm_id_lock);
-
-	/* AVIC VM ID is one-based. */
-	id = find_next_zero_bit(avic_vm_id_bitmap, AVIC_VM_ID_NR, 1);
-	if (id <= AVIC_VM_ID_MASK)
-		__set_bit(id, avic_vm_id_bitmap);
-	else
-		id = -EAGAIN;
-
-	spin_unlock(&avic_vm_id_lock);
-	return id;
-}
-
-static inline int avic_free_vm_id(int id)
-{
-	if (id <= 0 || id > AVIC_VM_ID_MASK)
-		return -EINVAL;
-
-	spin_lock(&avic_vm_id_lock);
-	__clear_bit(id, avic_vm_id_bitmap);
-	spin_unlock(&avic_vm_id_lock);
-	return 0;
-}
-
 static void avic_vm_destroy(struct kvm *kvm)
 {
 	unsigned long flags;
@@ -1408,8 +1422,6 @@ static void avic_vm_destroy(struct kvm *kvm)
 
 	if (!avic)
 		return;
-
-	avic_free_vm_id(vm_data->avic_vm_id);
 
 	if (vm_data->avic_logical_id_table_page)
 		__free_page(vm_data->avic_logical_id_table_page);
@@ -1424,18 +1436,15 @@ static void avic_vm_destroy(struct kvm *kvm)
 static int avic_vm_init(struct kvm *kvm)
 {
 	unsigned long flags;
-	int vm_id, err = -ENOMEM;
+	int err = -ENOMEM;
 	struct kvm_arch *vm_data = &kvm->arch;
 	struct page *p_page;
 	struct page *l_page;
+	struct kvm_arch *ka;
+	u32 vm_id;
 
 	if (!avic)
 		return 0;
-
-	vm_id = avic_get_next_vm_id();
-	if (vm_id < 0)
-		return vm_id;
-	vm_data->avic_vm_id = (u32)vm_id;
 
 	/* Allocating physical APIC ID table (4KB) */
 	p_page = alloc_page(GFP_KERNEL);
@@ -1454,6 +1463,22 @@ static int avic_vm_init(struct kvm *kvm)
 	clear_page(page_address(l_page));
 
 	spin_lock_irqsave(&svm_vm_data_hash_lock, flags);
+ again:
+	vm_id = next_vm_id = (next_vm_id + 1) & AVIC_VM_ID_MASK;
+	if (vm_id == 0) { /* id is 1-based, zero is not okay */
+		next_vm_id_wrapped = 1;
+		goto again;
+	}
+	/* Is it still in use? Only possible if wrapped at least once */
+	if (next_vm_id_wrapped) {
+		hash_for_each_possible(svm_vm_data_hash, ka, hnode, vm_id) {
+			struct kvm *k2 = container_of(ka, struct kvm, arch);
+			struct kvm_arch *vd2 = &k2->arch;
+			if (vd2->avic_vm_id == vm_id)
+				goto again;
+		}
+	}
+	vm_data->avic_vm_id = vm_id;
 	hash_add(svm_vm_data_hash, &vm_data->hnode, vm_data->avic_vm_id);
 	spin_unlock_irqrestore(&svm_vm_data_hash_lock, flags);
 
@@ -1573,6 +1598,23 @@ static void svm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		avic_update_vapic_bar(svm, APIC_DEFAULT_PHYS_BASE);
 }
 
+static int avic_init_vcpu(struct vcpu_svm *svm)
+{
+	int ret;
+
+	if (!kvm_vcpu_apicv_active(&svm->vcpu))
+		return 0;
+
+	ret = avic_init_backing_page(&svm->vcpu);
+	if (ret)
+		return ret;
+
+	INIT_LIST_HEAD(&svm->ir_list);
+	spin_lock_init(&svm->ir_list_lock);
+
+	return ret;
+}
+
 static struct kvm_vcpu *svm_create_vcpu(struct kvm *kvm, unsigned int id)
 {
 	struct vcpu_svm *svm;
@@ -1609,14 +1651,9 @@ static struct kvm_vcpu *svm_create_vcpu(struct kvm *kvm, unsigned int id)
 	if (!hsave_page)
 		goto free_page3;
 
-	if (avic) {
-		err = avic_init_backing_page(&svm->vcpu);
-		if (err)
-			goto free_page4;
-
-		INIT_LIST_HEAD(&svm->ir_list);
-		spin_lock_init(&svm->ir_list_lock);
-	}
+	err = avic_init_vcpu(svm);
+	if (err)
+		goto free_page4;
 
 	/* We initialize this flag to true to make sure that the is_running
 	 * bit would be set the first time the vcpu is loaded.
@@ -1737,11 +1774,24 @@ static void svm_vcpu_unblocking(struct kvm_vcpu *vcpu)
 
 static unsigned long svm_get_rflags(struct kvm_vcpu *vcpu)
 {
-	return to_svm(vcpu)->vmcb->save.rflags;
+	struct vcpu_svm *svm = to_svm(vcpu);
+	unsigned long rflags = svm->vmcb->save.rflags;
+
+	if (svm->nmi_singlestep) {
+		/* Hide our flags if they were not set by the guest */
+		if (!(svm->nmi_singlestep_guest_rflags & X86_EFLAGS_TF))
+			rflags &= ~X86_EFLAGS_TF;
+		if (!(svm->nmi_singlestep_guest_rflags & X86_EFLAGS_RF))
+			rflags &= ~X86_EFLAGS_RF;
+	}
+	return rflags;
 }
 
 static void svm_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags)
 {
+	if (to_svm(vcpu)->nmi_singlestep)
+		rflags |= (X86_EFLAGS_TF | X86_EFLAGS_RF);
+
        /*
         * Any change of EFLAGS.VM is accompanied by a reload of SS
         * (caused by either a task switch or an inter-privilege IRET),
@@ -2131,10 +2181,7 @@ static int db_interception(struct vcpu_svm *svm)
 	}
 
 	if (svm->nmi_singlestep) {
-		svm->nmi_singlestep = false;
-		if (!(svm->vcpu.guest_debug & KVM_GUESTDBG_SINGLESTEP))
-			svm->vmcb->save.rflags &=
-				~(X86_EFLAGS_TF | X86_EFLAGS_RF);
+		disable_nmi_singlestep(svm);
 	}
 
 	if (svm->vcpu.guest_debug &
@@ -2553,6 +2600,31 @@ static int nested_svm_exit_handled_msr(struct vcpu_svm *svm)
 	return (value & mask) ? NESTED_EXIT_DONE : NESTED_EXIT_HOST;
 }
 
+/* DB exceptions for our internal use must not cause vmexit */
+static int nested_svm_intercept_db(struct vcpu_svm *svm)
+{
+	unsigned long dr6;
+
+	/* if we're not singlestepping, it's not ours */
+	if (!svm->nmi_singlestep)
+		return NESTED_EXIT_DONE;
+
+	/* if it's not a singlestep exception, it's not ours */
+	if (kvm_get_dr(&svm->vcpu, 6, &dr6))
+		return NESTED_EXIT_DONE;
+	if (!(dr6 & DR6_BS))
+		return NESTED_EXIT_DONE;
+
+	/* if the guest is singlestepping, it should get the vmexit */
+	if (svm->nmi_singlestep_guest_rflags & X86_EFLAGS_TF) {
+		disable_nmi_singlestep(svm);
+		return NESTED_EXIT_DONE;
+	}
+
+	/* it's ours, the nested hypervisor must not see this one */
+	return NESTED_EXIT_HOST;
+}
+
 static int nested_svm_exit_special(struct vcpu_svm *svm)
 {
 	u32 exit_code = svm->vmcb->control.exit_code;
@@ -2608,8 +2680,12 @@ static int nested_svm_intercept(struct vcpu_svm *svm)
 	}
 	case SVM_EXIT_EXCP_BASE ... SVM_EXIT_EXCP_BASE + 0x1f: {
 		u32 excp_bits = 1 << (exit_code - SVM_EXIT_EXCP_BASE);
-		if (svm->nested.intercept_exceptions & excp_bits)
-			vmexit = NESTED_EXIT_DONE;
+		if (svm->nested.intercept_exceptions & excp_bits) {
+			if (exit_code == SVM_EXIT_EXCP_BASE + DB_VECTOR)
+				vmexit = nested_svm_intercept_db(svm);
+			else
+				vmexit = NESTED_EXIT_DONE;
+		}
 		/* async page fault always cause vmexit */
 		else if ((exit_code == SVM_EXIT_EXCP_BASE + PF_VECTOR) &&
 			 svm->apf_reason != 0)
@@ -3092,6 +3168,13 @@ static int stgi_interception(struct vcpu_svm *svm)
 {
 	if (nested_svm_check_permissions(svm))
 		return 1;
+
+	/*
+	 * If VGIF is enabled, the STGI intercept is only added to
+	 * detect the opening of the NMI window; remove it now.
+	 */
+	if (vgif_enabled(svm))
+		clr_intercept(svm, INTERCEPT_STGI);
 
 	svm->next_rip = kvm_rip_read(&svm->vcpu) + 3;
 	skip_emulated_instruction(&svm->vcpu);
@@ -4323,9 +4406,9 @@ static void svm_set_virtual_x2apic_mode(struct kvm_vcpu *vcpu, bool set)
 	return;
 }
 
-static bool svm_get_enable_apicv(void)
+static bool svm_get_enable_apicv(struct kvm_vcpu *vcpu)
 {
-	return avic;
+	return avic && irqchip_split(vcpu->kvm);
 }
 
 static void svm_hwapic_irr_update(struct kvm_vcpu *vcpu, int max_irr)
@@ -4342,7 +4425,7 @@ static void svm_refresh_apicv_exec_ctrl(struct kvm_vcpu *vcpu)
 	struct vcpu_svm *svm = to_svm(vcpu);
 	struct vmcb *vmcb = svm->vmcb;
 
-	if (!avic)
+	if (!kvm_vcpu_apicv_active(&svm->vcpu))
 		return;
 
 	vmcb->control.int_ctl &= ~AVIC_ENABLE_MASK;
@@ -4631,9 +4714,11 @@ static void enable_irq_window(struct kvm_vcpu *vcpu)
 	 * In case GIF=0 we can't rely on the CPU to tell us when GIF becomes
 	 * 1, because that's a separate STGI/VMRUN intercept.  The next time we
 	 * get that intercept, this function will be called again though and
-	 * we'll get the vintr intercept.
+	 * we'll get the vintr intercept. However, if the vGIF feature is
+	 * enabled, the STGI interception will not occur. Enable the irq
+	 * window under the assumption that the hardware will set the GIF.
 	 */
-	if (gif_set(svm) && nested_svm_intr(svm)) {
+	if ((vgif_enabled(svm) || gif_set(svm)) && nested_svm_intr(svm)) {
 		svm_set_vintr(svm);
 		svm_inject_irq(svm, 0x0);
 	}
@@ -4647,10 +4732,20 @@ static void enable_nmi_window(struct kvm_vcpu *vcpu)
 	    == HF_NMI_MASK)
 		return; /* IRET will cause a vm exit */
 
+	if (!gif_set(svm)) {
+		if (vgif_enabled(svm))
+			set_intercept(svm, INTERCEPT_STGI);
+		return; /* STGI will cause a vm exit */
+	}
+
+	if (svm->nested.exit_required)
+		return; /* we're not going to run the guest yet */
+
 	/*
 	 * Something prevents NMI from been injected. Single step over possible
 	 * problem (IRET or exception injection or interrupt shadow)
 	 */
+	svm->nmi_singlestep_guest_rflags = svm_get_rflags(vcpu);
 	svm->nmi_singlestep = true;
 	svm->vmcb->save.rflags |= (X86_EFLAGS_TF | X86_EFLAGS_RF);
 }
@@ -4790,6 +4885,22 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 	 */
 	if (unlikely(svm->nested.exit_required))
 		return;
+
+	/*
+	 * Disable singlestep if we're injecting an interrupt/exception.
+	 * We don't want our modified rflags to be pushed on the stack where
+	 * we might not be able to easily reset them if we disabled NMI
+	 * singlestep later.
+	 */
+	if (svm->nmi_singlestep && svm->vmcb->control.event_inj) {
+		/*
+		 * Event injection happens before external interrupts cause a
+		 * vmexit and interrupts are disabled here, so smp_send_reschedule
+		 * is enough to force an immediate vmexit.
+		 */
+		disable_nmi_singlestep(svm);
+		smp_send_reschedule(vcpu->cpu);
+	}
 
 	pre_svm_run(svm);
 
@@ -5205,6 +5316,7 @@ static int svm_check_intercept(struct kvm_vcpu *vcpu,
 		 */
 		if (info->rep_prefix != REPE_PREFIX)
 			goto out;
+		break;
 	case SVM_EXIT_IOIO: {
 		u64 exit_info;
 		u32 bytes;
