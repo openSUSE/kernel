@@ -1389,16 +1389,16 @@ mlxsw_sp_port_del_cls_matchall_sample(struct mlxsw_sp_port *mlxsw_sp_port)
 }
 
 static int mlxsw_sp_port_add_cls_matchall(struct mlxsw_sp_port *mlxsw_sp_port,
-					  __be16 protocol,
-					  struct tc_cls_matchall_offload *cls,
+					  struct tc_cls_matchall_offload *f,
 					  bool ingress)
 {
 	struct mlxsw_sp_port_mall_tc_entry *mall_tc_entry;
+	__be16 protocol = f->common.protocol;
 	const struct tc_action *a;
 	LIST_HEAD(actions);
 	int err;
 
-	if (!tc_single_action(cls->exts)) {
+	if (!tcf_exts_has_one_action(f->exts)) {
 		netdev_err(mlxsw_sp_port->dev, "only singular actions are supported\n");
 		return -EOPNOTSUPP;
 	}
@@ -1406,9 +1406,9 @@ static int mlxsw_sp_port_add_cls_matchall(struct mlxsw_sp_port *mlxsw_sp_port,
 	mall_tc_entry = kzalloc(sizeof(*mall_tc_entry), GFP_KERNEL);
 	if (!mall_tc_entry)
 		return -ENOMEM;
-	mall_tc_entry->cookie = cls->cookie;
+	mall_tc_entry->cookie = f->cookie;
 
-	tcf_exts_to_list(cls->exts, &actions);
+	tcf_exts_to_list(f->exts, &actions);
 	a = list_first_entry(&actions, struct tc_action, list);
 
 	if (is_tcf_mirred_egress_mirror(a) && protocol == htons(ETH_P_ALL)) {
@@ -1420,7 +1420,7 @@ static int mlxsw_sp_port_add_cls_matchall(struct mlxsw_sp_port *mlxsw_sp_port,
 							    mirror, a, ingress);
 	} else if (is_tcf_sample(a) && protocol == htons(ETH_P_ALL)) {
 		mall_tc_entry->type = MLXSW_SP_PORT_MALL_SAMPLE;
-		err = mlxsw_sp_port_add_cls_matchall_sample(mlxsw_sp_port, cls,
+		err = mlxsw_sp_port_add_cls_matchall_sample(mlxsw_sp_port, f,
 							    a, ingress);
 	} else {
 		err = -EOPNOTSUPP;
@@ -1438,12 +1438,12 @@ err_add_action:
 }
 
 static void mlxsw_sp_port_del_cls_matchall(struct mlxsw_sp_port *mlxsw_sp_port,
-					   struct tc_cls_matchall_offload *cls)
+					   struct tc_cls_matchall_offload *f)
 {
 	struct mlxsw_sp_port_mall_tc_entry *mall_tc_entry;
 
 	mall_tc_entry = mlxsw_sp_port_mall_tc_entry_find(mlxsw_sp_port,
-							 cls->cookie);
+							 f->cookie);
 	if (!mall_tc_entry) {
 		netdev_dbg(mlxsw_sp_port->dev, "tc entry not found on port\n");
 		return;
@@ -1465,49 +1465,75 @@ static void mlxsw_sp_port_del_cls_matchall(struct mlxsw_sp_port *mlxsw_sp_port,
 	kfree(mall_tc_entry);
 }
 
-static int mlxsw_sp_setup_tc(struct net_device *dev, u32 handle,
-			     u32 chain_index, __be16 proto,
-			     struct tc_to_netdev *tc)
+static int mlxsw_sp_setup_tc_cls_matchall(struct mlxsw_sp_port *mlxsw_sp_port,
+					  struct tc_cls_matchall_offload *f)
 {
-	struct mlxsw_sp_port *mlxsw_sp_port = netdev_priv(dev);
-	bool ingress = TC_H_MAJ(handle) == TC_H_MAJ(TC_H_INGRESS);
+	bool ingress;
 
-	if (chain_index)
+	if (is_classid_clsact_ingress(f->common.classid))
+		ingress = true;
+	else if (is_classid_clsact_egress(f->common.classid))
+		ingress = false;
+	else
 		return -EOPNOTSUPP;
 
-	switch (tc->type) {
-	case TC_SETUP_MATCHALL:
-		switch (tc->cls_mall->command) {
-		case TC_CLSMATCHALL_REPLACE:
-			return mlxsw_sp_port_add_cls_matchall(mlxsw_sp_port,
-							      proto,
-							      tc->cls_mall,
-							      ingress);
-		case TC_CLSMATCHALL_DESTROY:
-			mlxsw_sp_port_del_cls_matchall(mlxsw_sp_port,
-						       tc->cls_mall);
-			return 0;
-		default:
-			return -EOPNOTSUPP;
-		}
-	case TC_SETUP_CLSFLOWER:
-		switch (tc->cls_flower->command) {
-		case TC_CLSFLOWER_REPLACE:
-			return mlxsw_sp_flower_replace(mlxsw_sp_port, ingress,
-						       proto, tc->cls_flower);
-		case TC_CLSFLOWER_DESTROY:
-			mlxsw_sp_flower_destroy(mlxsw_sp_port, ingress,
-						tc->cls_flower);
-			return 0;
-		case TC_CLSFLOWER_STATS:
-			return mlxsw_sp_flower_stats(mlxsw_sp_port, ingress,
-						     tc->cls_flower);
-		default:
-			return -EOPNOTSUPP;
-		}
-	}
+	if (f->common.chain_index)
+		return -EOPNOTSUPP;
 
-	return -EOPNOTSUPP;
+	switch (f->command) {
+	case TC_CLSMATCHALL_REPLACE:
+		return mlxsw_sp_port_add_cls_matchall(mlxsw_sp_port, f,
+						      ingress);
+	case TC_CLSMATCHALL_DESTROY:
+		mlxsw_sp_port_del_cls_matchall(mlxsw_sp_port, f);
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int
+mlxsw_sp_setup_tc_cls_flower(struct mlxsw_sp_port *mlxsw_sp_port,
+			     struct tc_cls_flower_offload *f)
+{
+	bool ingress;
+
+	if (is_classid_clsact_ingress(f->common.classid))
+		ingress = true;
+	else if (is_classid_clsact_egress(f->common.classid))
+		ingress = false;
+	else
+		return -EOPNOTSUPP;
+
+	if (f->common.chain_index)
+		return -EOPNOTSUPP;
+
+	switch (f->command) {
+	case TC_CLSFLOWER_REPLACE:
+		return mlxsw_sp_flower_replace(mlxsw_sp_port, ingress, f);
+	case TC_CLSFLOWER_DESTROY:
+		mlxsw_sp_flower_destroy(mlxsw_sp_port, ingress, f);
+		return 0;
+	case TC_CLSFLOWER_STATS:
+		return mlxsw_sp_flower_stats(mlxsw_sp_port, ingress, f);
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int mlxsw_sp_setup_tc(struct net_device *dev, enum tc_setup_type type,
+			     void *type_data)
+{
+	struct mlxsw_sp_port *mlxsw_sp_port = netdev_priv(dev);
+
+	switch (type) {
+	case TC_SETUP_CLSMATCHALL:
+		return mlxsw_sp_setup_tc_cls_matchall(mlxsw_sp_port, type_data);
+	case TC_SETUP_CLSFLOWER:
+		return mlxsw_sp_setup_tc_cls_flower(mlxsw_sp_port, type_data);
+	default:
+		return -EOPNOTSUPP;
+	}
 }
 
 static const struct net_device_ops mlxsw_sp_port_netdev_ops = {

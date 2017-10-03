@@ -199,17 +199,35 @@ tcf_exts_exec(struct sk_buff *skb, struct tcf_exts *exts,
 	return 0;
 }
 
+/**
+ * tcf_exts_has_actions - check if at least one action is present
+ * @exts: tc filter extensions handle
+ *
+ * Returns true if at least one action is present.
+ */
+static inline bool tcf_exts_has_actions(struct tcf_exts *exts)
+{
 #ifdef CONFIG_NET_CLS_ACT
+	return exts->nr_actions;
+#else
+	return false;
+#endif
+}
 
-#define tc_no_actions(_exts)  ((_exts)->nr_actions == 0)
-#define tc_single_action(_exts) ((_exts)->nr_actions == 1)
-
-#else /* CONFIG_NET_CLS_ACT */
-
-#define tc_no_actions(_exts) true
-#define tc_single_action(_exts) false
-
-#endif /* CONFIG_NET_CLS_ACT */
+/**
+ * tcf_exts_has_one_action - check if exactly one action is present
+ * @exts: tc filter extensions handle
+ *
+ * Returns true if exactly one action is present.
+ */
+static inline bool tcf_exts_has_one_action(struct tcf_exts *exts)
+{
+#ifdef CONFIG_NET_CLS_ACT
+	return exts->nr_actions == 1;
+#else
+	return false;
+#endif
+}
 
 int tcf_exts_validate(struct net *net, struct tcf_proto *tp,
 		      struct nlattr **tb, struct nlattr *rate_tlv,
@@ -441,6 +459,25 @@ tcf_match_indev(struct sk_buff *skb, int ifindex)
 }
 #endif /* CONFIG_NET_CLS_IND */
 
+struct tc_cls_common_offload {
+	u32 handle;
+	u32 chain_index;
+	__be16 protocol;
+	u32 prio;
+	u32 classid;
+};
+
+static inline void
+tc_cls_common_offload_init(struct tc_cls_common_offload *cls_common,
+			   const struct tcf_proto *tp)
+{
+	cls_common->handle = tp->q->handle;
+	cls_common->chain_index = tp->chain->index;
+	cls_common->protocol = tp->protocol;
+	cls_common->prio = tp->prio;
+	cls_common->classid = tp->classid;
+}
+
 struct tc_cls_u32_knode {
 	struct tcf_exts *exts;
 	struct tc_u32_sel *sel;
@@ -467,6 +504,7 @@ enum tc_clsu32_command {
 };
 
 struct tc_cls_u32_offload {
+	struct tc_cls_common_offload common;
 	/* knode values */
 	enum tc_clsu32_command command;
 	union {
@@ -533,13 +571,14 @@ enum tc_fl_command {
 };
 
 struct tc_cls_flower_offload {
+	struct tc_cls_common_offload common;
 	enum tc_fl_command command;
-	u32 prio;
 	unsigned long cookie;
 	struct flow_dissector *dissector;
 	struct fl_flow_key *mask;
 	struct fl_flow_key *key;
 	struct tcf_exts *exts;
+	bool egress_dev;
 };
 
 enum tc_matchall_command {
@@ -548,6 +587,7 @@ enum tc_matchall_command {
 };
 
 struct tc_cls_matchall_offload {
+	struct tc_cls_common_offload common;
 	enum tc_matchall_command command;
 	struct tcf_exts *exts;
 	unsigned long cookie;
@@ -561,6 +601,7 @@ enum tc_clsbpf_command {
 };
 
 struct tc_cls_bpf_offload {
+	struct tc_cls_common_offload common;
 	enum tc_clsbpf_command command;
 	struct tcf_exts *exts;
 	struct bpf_prog *prog;

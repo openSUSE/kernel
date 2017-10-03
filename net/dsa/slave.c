@@ -1049,12 +1049,12 @@ dsa_slave_mall_tc_entry_find(struct dsa_slave_priv *p,
 }
 
 static int dsa_slave_add_cls_matchall(struct net_device *dev,
-				      __be16 protocol,
 				      struct tc_cls_matchall_offload *cls,
 				      bool ingress)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
 	struct dsa_mall_tc_entry *mall_tc_entry;
+	__be16 protocol = cls->common.protocol;
 	struct dsa_switch *ds = p->dp->ds;
 	struct net *net = dev_net(dev);
 	struct dsa_slave_priv *to_p;
@@ -1067,7 +1067,7 @@ static int dsa_slave_add_cls_matchall(struct net_device *dev,
 	if (!ds->ops->port_mirror_add)
 		return err;
 
-	if (!tc_single_action(cls->exts))
+	if (!tcf_exts_has_one_action(cls->exts))
 		return err;
 
 	tcf_exts_to_list(cls->exts, &actions);
@@ -1138,26 +1138,38 @@ static void dsa_slave_del_cls_matchall(struct net_device *dev,
 	kfree(mall_tc_entry);
 }
 
-static int dsa_slave_setup_tc(struct net_device *dev, u32 handle,
-			      u32 chain_index, __be16 protocol,
-			      struct tc_to_netdev *tc)
+static int dsa_slave_setup_tc_cls_matchall(struct net_device *dev,
+					   struct tc_cls_matchall_offload *cls)
 {
-	bool ingress = TC_H_MAJ(handle) == TC_H_MAJ(TC_H_INGRESS);
+	bool ingress;
 
-	if (chain_index)
+	if (is_classid_clsact_ingress(cls->common.classid))
+		ingress = true;
+	else if (is_classid_clsact_egress(cls->common.classid))
+		ingress = false;
+	else
 		return -EOPNOTSUPP;
 
-	switch (tc->type) {
-	case TC_SETUP_MATCHALL:
-		switch (tc->cls_mall->command) {
-		case TC_CLSMATCHALL_REPLACE:
-			return dsa_slave_add_cls_matchall(dev, protocol,
-							  tc->cls_mall,
-							  ingress);
-		case TC_CLSMATCHALL_DESTROY:
-			dsa_slave_del_cls_matchall(dev, tc->cls_mall);
-			return 0;
-		}
+	if (cls->common.chain_index)
+		return -EOPNOTSUPP;
+
+	switch (cls->command) {
+	case TC_CLSMATCHALL_REPLACE:
+		return dsa_slave_add_cls_matchall(dev, cls, ingress);
+	case TC_CLSMATCHALL_DESTROY:
+		dsa_slave_del_cls_matchall(dev, cls);
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int dsa_slave_setup_tc(struct net_device *dev, enum tc_setup_type type,
+			      void *type_data)
+{
+	switch (type) {
+	case TC_SETUP_CLSMATCHALL:
+		return dsa_slave_setup_tc_cls_matchall(dev, type_data);
 	default:
 		return -EOPNOTSUPP;
 	}
