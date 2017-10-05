@@ -208,6 +208,19 @@ int add_to_swap(struct page *page, struct list_head *list)
 			__GFP_HIGH|__GFP_NOMEMALLOC|__GFP_NOWARN);
 
 	if (!err) {
+		/*
+		 * Normally the page will be dirtied in unmap because its pte
+		 * should be dirty. A special case is MADV_FREE page. The page'e
+		 * pte could have dirty bit cleared but the page's SwapBacked
+		 * bit is still set because clearing the dirty bit and
+		 * SwapBacked bit has no lock protected. For such page, unmap
+		 * will not set dirty bit for it, so page reclaim will not write
+		 * the page out. This can cause data corruption when the page is
+		 * swap in later. Always setting the dirty bit for the page
+		 * solves the problem.
+		 */
+		set_page_dirty(page);
+
 		return 1;
 	} else {	/* -ENOMEM radix-tree allocation failure */
 		/*
