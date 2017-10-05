@@ -305,7 +305,7 @@ static long ctcm_check_irb_error(struct ccw_device *cdev, struct irb *irb)
  *  ch		The channel, the sense code belongs to.
  *  sense	The sense code to inspect.
  */
-static inline void ccw_unit_check(struct channel *ch, __u8 sense)
+static void ccw_unit_check(struct channel *ch, __u8 sense)
 {
 	CTCM_DBF_TEXT_(TRACE, CTC_DBF_DEBUG,
 			"%s(%s): %02x",
@@ -1115,7 +1115,7 @@ static const struct net_device_ops ctcm_mpc_netdev_ops = {
 	.ndo_start_xmit		= ctcmpc_tx,
 };
 
-void static ctcm_dev_setup(struct net_device *dev)
+static void ctcm_dev_setup(struct net_device *dev)
 {
 	dev->type = ARPHRD_SLIP;
 	dev->tx_queue_len = 100;
@@ -1770,15 +1770,15 @@ static struct ccwgroup_driver ctcm_group_driver = {
 	.restore     = ctcm_pm_resume,
 };
 
-static ssize_t ctcm_driver_group_store(struct device_driver *ddrv,
-				       const char *buf,	size_t count)
+static ssize_t group_store(struct device_driver *ddrv, const char *buf,
+			   size_t count)
 {
 	int err;
 
 	err = ccwgroup_create_dev(ctcm_root_dev, &ctcm_group_driver, 2, buf);
 	return err ? err : count;
 }
-static DRIVER_ATTR(group, 0200, NULL, ctcm_driver_group_store);
+static DRIVER_ATTR_WO(group);
 
 static struct attribute *ctcm_drv_attrs[] = {
 	&driver_attr_group.attr,

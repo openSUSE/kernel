@@ -934,6 +934,23 @@
  */
 
 /*?
+ * Text: "%s: Configuring the VNIC characteristics failed\n"
+ * Severity: Error
+ * Parameter:
+ *   @1: bus ID of the qeth device
+ * Description:
+ * A qeth device was set online or subject to device recovery. Not all virtual
+ * network interface card (VNIC) characteristics for this device could be
+ * configured. The device might not support VNIC characteristics or might
+ * support only a subset of the possible VNIC characteristics. The state of the
+ * sysfs attributes reflects the current configuration of VNIC characteristics
+ * on the device.
+ * User action:
+ * Read the sysfs attributes in the vnicc subdirectory of the device to find out
+ * the current settings.
+ */
+
+/*?
  * Text: "%s: The qeth driver ran out of channel command buffers\n"
  * Severity: Warning
  * Parameter:
