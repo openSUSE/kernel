@@ -297,7 +297,7 @@ void *devm_memremap_pages(struct device *dev, struct resource *res,
 	pgprot_t pgprot = PAGE_KERNEL;
 	struct dev_pagemap *pgmap;
 	struct page_map *page_map;
-	int error, nid, is_ram;
+	int error, nid, is_ram, i = 0;
 	unsigned long pfn;
 
 	align_start = res->start & ~(SECTION_SIZE - 1);
@@ -391,6 +391,8 @@ void *devm_memremap_pages(struct device *dev, struct resource *res,
 		list_del(&page->lru);
 		page->pgmap = pgmap;
 		percpu_ref_get(ref);
+		if (!(++i % 1024))
+			cond_resched();
 	}
 	devres_add(dev, page_map);
 	return __va(res->start);
