@@ -195,7 +195,6 @@ static void health_care(struct work_struct *work)
 	mlx5_handle_bad_state(dev);
 
 	spin_lock_irqsave(&health->wq_lock, flags);
-	spin_lock(&health->wq_lock);
 	if (!test_bit(MLX5_DROP_NEW_RECOVERY_WORK, &health->flags))
 		schedule_delayed_work(&health->recover_work, recover_delay);
 	else
