@@ -2583,12 +2583,6 @@ static void mlx5e_build_channels_tx_maps(struct mlx5e_priv *priv)
 	}
 }
 
-static bool mlx5e_is_eswitch_vport_mngr(struct mlx5_core_dev *mdev)
-{
-	return (MLX5_CAP_GEN(mdev, vport_group_manager) &&
-		MLX5_CAP_GEN(mdev, port_type) == MLX5_CAP_PORT_TYPE_ETH);
-}
-
 void mlx5e_activate_priv_channels(struct mlx5e_priv *priv)
 {
 	int num_txqs = priv->channels.num * priv->channels.params.num_tc;
@@ -2602,7 +2596,7 @@ void mlx5e_activate_priv_channels(struct mlx5e_priv *priv)
 	mlx5e_activate_channels(&priv->channels);
 	netif_tx_start_all_queues(priv->netdev);
 
-	if (mlx5e_is_eswitch_vport_mngr(priv->mdev))
+	if (MLX5_VPORT_MANAGER(priv->mdev))
 		mlx5e_add_sqs_fwd_rules(priv);
 
 	mlx5e_wait_channels_min_rx_wqes(&priv->channels);
@@ -2613,7 +2607,7 @@ void mlx5e_deactivate_priv_channels(struct mlx5e_priv *priv)
 {
 	mlx5e_redirect_rqts_to_drop(priv);
 
-	if (mlx5e_is_eswitch_vport_mngr(priv->mdev))
+	if (MLX5_VPORT_MANAGER(priv->mdev))
 		mlx5e_remove_sqs_fwd_rules(priv);
 
 	/* FIXME: This is a W/A only for tx timeout watch dog false alarm when
@@ -4074,7 +4068,7 @@ static void mlx5e_build_nic_netdev(struct net_device *netdev)
 	mlx5e_set_netdev_dev_addr(netdev);
 
 #ifdef CONFIG_NET_SWITCHDEV
-	if (MLX5_CAP_GEN(mdev, vport_group_manager))
+	if (MLX5_VPORT_MANAGER(mdev))
 		netdev->switchdev_ops = &mlx5e_switchdev_ops;
 #endif
 
@@ -4216,7 +4210,7 @@ static void mlx5e_nic_enable(struct mlx5e_priv *priv)
 
 	mlx5e_enable_async_events(priv);
 
-	if (MLX5_CAP_GEN(mdev, vport_group_manager))
+	if (MLX5_VPORT_MANAGER(priv->mdev))
 		mlx5e_register_vport_reps(priv);
 
 	if (netdev->reg_state != NETREG_REGISTERED)
@@ -4250,7 +4244,7 @@ static void mlx5e_nic_disable(struct mlx5e_priv *priv)
 
 	queue_work(priv->wq, &priv->set_rx_mode_work);
 
-	if (MLX5_CAP_GEN(mdev, vport_group_manager))
+	if (MLX5_VPORT_MANAGER(priv->mdev))
 		mlx5e_unregister_vport_reps(priv);
 
 	mlx5e_disable_async_events(priv);
@@ -4432,7 +4426,7 @@ static void *mlx5e_add(struct mlx5_core_dev *mdev)
 	if (err)
 		return NULL;
 
-	if (MLX5_CAP_GEN(mdev, vport_group_manager)) {
+	if (MLX5_VPORT_MANAGER(mdev)) {
 		rpriv = mlx5e_alloc_nic_rep_priv(mdev);
 		if (!rpriv) {
 			mlx5_core_warn(mdev, "Failed to alloc NIC rep priv data\n");
