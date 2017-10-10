@@ -9859,7 +9859,7 @@ static int i40e_add_vsi(struct i40e_vsi *vsi)
 			ctxt.pf_num = pf->hw.pf_id;
 			ctxt.vf_num = 0;
 			ctxt.info.valid_sections |=
-			     cpu_to_le16(I40E_AQ_VSI_PROP_SWITCH_VALID);
+				     cpu_to_le16(I40E_AQ_VSI_PROP_SWITCH_VALID);
 			ctxt.info.switch_id =
 				   cpu_to_le16(I40E_AQ_VSI_SW_ID_FLAG_LOCAL_LB);
 			ret = i40e_aq_update_vsi_params(hw, &ctxt, NULL);
@@ -9868,7 +9868,7 @@ static int i40e_add_vsi(struct i40e_vsi *vsi)
 					 "update vsi failed, err %s aq_err %s\n",
 					 i40e_stat_str(&pf->hw, ret),
 					 i40e_aq_str(&pf->hw,
-						    pf->hw.aq.asq_last_status));
+						     pf->hw.aq.asq_last_status));
 				ret = -ENOENT;
 				goto err;
 			}
