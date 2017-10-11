@@ -2196,7 +2196,7 @@ i915_gem_object_put_pages_gtt(struct drm_i915_gem_object *obj,
 static void __i915_gem_object_reset_page_iter(struct drm_i915_gem_object *obj)
 {
 	struct radix_tree_iter iter;
-	void **slot;
+	void __rcu **slot;
 
 	radix_tree_for_each_slot(slot, &obj->mm.get_page.radix, &iter, 0)
 		radix_tree_delete(&obj->mm.get_page.radix, iter.index);
@@ -3370,12 +3370,10 @@ i915_gem_object_flush_gtt_write_domain(struct drm_i915_gem_object *obj)
 	 */
 	wmb();
 	if (INTEL_GEN(dev_priv) >= 6 && !HAS_LLC(dev_priv)) {
-		if (intel_runtime_pm_get_if_in_use(dev_priv)) {
-			spin_lock_irq(&dev_priv->uncore.lock);
-			POSTING_READ_FW(RING_ACTHD(dev_priv->engine[RCS]->mmio_base));
-			spin_unlock_irq(&dev_priv->uncore.lock);
-			intel_runtime_pm_put(dev_priv);
-		}
+		spin_lock_irq(&dev_priv->uncore.lock);
+		POSTING_READ_FW(RING_ACTHD(dev_priv->engine[RCS]->mmio_base));
+		spin_unlock_irq(&dev_priv->uncore.lock);
+		intel_runtime_pm_put(dev_priv);
 	}
 
 	intel_fb_obj_flush(obj, write_origin(obj, I915_GEM_DOMAIN_GTT));
