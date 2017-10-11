@@ -2657,59 +2657,6 @@ void task_tick_numa(struct rq *rq, struct task_struct *curr)
 	}
 }
 
-/*
- * Can a task be moved from prev_cpu to this_cpu without causing a load
- * imbalance that would trigger the load balancer?
- */
-static inline bool numa_wake_affine(struct sched_domain *sd,
-				    struct task_struct *p, int this_cpu,
-				    int prev_cpu, int sync)
-{
-	struct numa_stats prev_load, this_load;
-	s64 this_eff_load, prev_eff_load;
-
-	update_numa_stats(&prev_load, cpu_to_node(prev_cpu));
-	update_numa_stats(&this_load, cpu_to_node(this_cpu));
-
-	/*
-	 * If sync wakeup then subtract the (maximum possible)
-	 * effect of the currently running task from the load
-	 * of the current CPU:
-	 */
-	if (sync) {
-		unsigned long current_load = task_h_load(current);
-
-		if (this_load.load > current_load)
-			this_load.load -= current_load;
-		else
-			this_load.load = 0;
-	}
-
-	/*
-	 * In low-load situations, where this_cpu's node is idle due to the
-	 * sync cause above having dropped this_load.load to 0, move the task.
-	 * Moving to an idle socket will not create a bad imbalance.
-	 *
-	 * Otherwise check if the nodes are near enough in load to allow this
-	 * task to be woken on this_cpu's node.
-	 */
-	if (this_load.load > 0) {
-		unsigned long task_load = task_h_load(p);
-
-		this_eff_load = 100;
-		this_eff_load *= prev_load.compute_capacity;
-
-		prev_eff_load = 100 + (sd->imbalance_pct - 100) / 2;
-		prev_eff_load *= this_load.compute_capacity;
-
-		this_eff_load *= this_load.load + task_load;
-		prev_eff_load *= prev_load.load - task_load;
-
-		return this_eff_load <= prev_eff_load;
-	}
-
-	return true;
-}
 #else
 static void task_tick_numa(struct rq *rq, struct task_struct *curr)
 {
@@ -2723,14 +2670,6 @@ static inline void account_numa_dequeue(struct rq *rq, struct task_struct *p)
 {
 }
 
-#ifdef CONFIG_SMP
-static inline bool numa_wake_affine(struct sched_domain *sd,
-				    struct task_struct *p, int this_cpu,
-				    int prev_cpu, int sync)
-{
-	return true;
-}
-#endif /* !SMP */
 #endif /* CONFIG_NUMA_BALANCING */
 
 static void
@@ -5396,20 +5335,77 @@ static int wake_wide(struct task_struct *p)
 	return 1;
 }
 
+/*
+ * The purpose of wake_affine() is to quickly determine on which CPU we can run
+ * soonest. For the purpose of speed we only consider the waking and previous
+ * CPU.
+ *
+ * wake_affine_idle() - only considers 'now', it check if the waking CPU is (or
+ *			will be) idle.
+ *
+ * wake_affine_weight() - considers the weight to reflect the average
+ *			  scheduling latency of the CPUs. This seems to work
+ *			  for the overloaded case.
+ */
+
+static bool
+wake_affine_idle(struct sched_domain *sd, struct task_struct *p,
+		 int this_cpu, int prev_cpu, int sync)
+{
+	if (idle_cpu(this_cpu))
+		return true;
+
+	if (sync && cpu_rq(this_cpu)->nr_running == 1)
+		return true;
+
+	return false;
+}
+
+static bool
+wake_affine_weight(struct sched_domain *sd, struct task_struct *p,
+		   int this_cpu, int prev_cpu, int sync)
+{
+	s64 this_eff_load, prev_eff_load;
+	unsigned long task_load;
+
+	this_eff_load = target_load(this_cpu, sd->wake_idx);
+	prev_eff_load = source_load(prev_cpu, sd->wake_idx);
+
+	if (sync) {
+		unsigned long current_load = task_h_load(current);
+
+		if (current_load > this_eff_load)
+			return true;
+
+		this_eff_load -= current_load;
+	}
+
+	task_load = task_h_load(p);
+
+	this_eff_load += task_load;
+	if (sched_feat(WA_BIAS))
+		this_eff_load *= 100;
+	this_eff_load *= capacity_of(prev_cpu);
+
+	prev_eff_load -= task_load;
+	if (sched_feat(WA_BIAS))
+		prev_eff_load *= 100 + (sd->imbalance_pct - 100) / 2;
+	prev_eff_load *= capacity_of(this_cpu);
+
+	return this_eff_load <= prev_eff_load;
+}
+
 static int wake_affine(struct sched_domain *sd, struct task_struct *p,
 		       int prev_cpu, int sync)
 {
 	int this_cpu = smp_processor_id();
 	bool affine = false;
 
-	/*
-	 * Common case: CPUs are in the same socket, and select_idle_sibling()
-	 * will do its thing regardless of what we return:
-	 */
-	if (cpus_share_cache(prev_cpu, this_cpu))
-		affine = true;
-	else
-		affine = numa_wake_affine(sd, p, this_cpu, prev_cpu, sync);
+	if (sched_feat(WA_IDLE) && !affine)
+		affine = wake_affine_idle(sd, p, this_cpu, prev_cpu, sync);
+
+	if (sched_feat(WA_WEIGHT) && !affine)
+		affine = wake_affine_weight(sd, p, this_cpu, prev_cpu, sync);
 
 	schedstat_inc(p->se.statistics.nr_wakeups_affine_attempts);
 	if (affine) {
@@ -7056,6 +7052,7 @@ struct sg_lb_stats {
 struct sd_lb_stats {
 	struct sched_group *busiest;	/* Busiest group in this sd */
 	struct sched_group *local;	/* Local group in this sd */
+	unsigned long total_running;
 	unsigned long total_load;	/* Total load of all groups in sd */
 	unsigned long total_capacity;	/* Total capacity of all groups in sd */
 	unsigned long avg_load;	/* Average load across all groups in sd */
@@ -7075,6 +7072,7 @@ static inline void init_sd_lb_stats(struct sd_lb_stats *sds)
 	*sds = (struct sd_lb_stats){
 		.busiest = NULL,
 		.local = NULL,
+		.total_running = 0UL,
 		.total_load = 0UL,
 		.total_capacity = 0UL,
 		.busiest_stat = {
@@ -7566,6 +7564,7 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 
 next_group:
 		/* Now, start updating sd_lb_stats */
+		sds->total_running += sgs->sum_nr_running;
 		sds->total_load += sgs->group_load;
 		sds->total_capacity += sgs->group_capacity;
 
@@ -7580,7 +7579,6 @@ next_group:
 		if (env->dst_rq->rd->overload != overload)
 			env->dst_rq->rd->overload = overload;
 	}
-
 }
 
 /**
@@ -7810,6 +7808,7 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 	if (!sds.busiest || busiest->sum_nr_running == 0)
 		goto out_balanced;
 
+	/* XXX broken for overlapping NUMA groups */
 	sds.avg_load = (SCHED_CAPACITY_SCALE * sds.total_load)
 						/ sds.total_capacity;
 
