@@ -73,8 +73,8 @@
 #define MPT3SAS_DRIVER_NAME		"mpt3sas"
 #define MPT3SAS_AUTHOR "Avago Technologies <MPT-FusionLinux.pdl@avagotech.com>"
 #define MPT3SAS_DESCRIPTION	"LSI MPT Fusion SAS 3.0 Device Driver"
-#define MPT3SAS_DRIVER_VERSION		"15.100.00.00"
-#define MPT3SAS_MAJOR_VERSION		15
+#define MPT3SAS_DRIVER_VERSION		"16.100.00.00"
+#define MPT3SAS_MAJOR_VERSION		16
 #define MPT3SAS_MINOR_VERSION		100
 #define MPT3SAS_BUILD_VERSION		0
 #define MPT3SAS_RELEASE_VERSION	00
@@ -92,6 +92,7 @@
  */
 #define MPT_MAX_PHYS_SEGMENTS	SG_CHUNK_SIZE
 #define MPT_MIN_PHYS_SEGMENTS	16
+#define MPT_KDUMP_MIN_PHYS_SEGMENTS	32
 
 #ifdef CONFIG_SCSI_MPT3SAS_MAX_SGE
 #define MPT3SAS_SG_DEPTH		CONFIG_SCSI_MPT3SAS_MAX_SGE
@@ -111,6 +112,7 @@
 #define MPT3SAS_SATA_QUEUE_DEPTH	32
 #define MPT3SAS_SAS_QUEUE_DEPTH		254
 #define MPT3SAS_RAID_QUEUE_DEPTH	128
+#define MPT3SAS_KDUMP_SCSI_IO_DEPTH	200
 
 #define MPT3SAS_RAID_MAX_SECTORS	8192
 
@@ -467,6 +469,8 @@ struct _internal_cmd {
  * @pfa_led_on: flag for PFA LED status
  * @pend_sas_rphy_add: flag to check if device is in sas_rphy_add()
  *	addition routine.
+ * @chassis_slot: chassis slot
+ * @is_chassis_slot_valid: chassis slot valid or not
  */
 struct _sas_device {
 	struct list_head list;
@@ -489,6 +493,8 @@ struct _sas_device {
 	u8	pfa_led_on;
 	u8	pend_sas_rphy_add;
 	u8	enclosure_level;
+	u8	chassis_slot;
+	u8	is_chassis_slot_valid;
 	u8	connector_name[5];
 	struct kref refcount;
 };

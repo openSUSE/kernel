@@ -615,9 +615,9 @@ _base_display_event_data(struct MPT3SAS_ADAPTER *ioc,
 		    (event_data->ReasonCode == MPI2_EVENT_SAS_DISC_RC_STARTED) ?
 		    "start" : "stop");
 		if (event_data->DiscoveryStatus)
-			pr_info("discovery_status(0x%08x)",
+			pr_cont(" discovery_status(0x%08x)",
 			    le32_to_cpu(event_data->DiscoveryStatus));
-			pr_info("\n");
+		pr_cont("\n");
 		return;
 	}
 	case MPI2_EVENT_SAS_BROADCAST_PRIMITIVE:
@@ -655,7 +655,7 @@ _base_display_event_data(struct MPT3SAS_ADAPTER *ioc,
 		desc = "Temperature Threshold";
 		break;
 	case MPI2_EVENT_ACTIVE_CABLE_EXCEPTION:
-		desc = "Active cable exception";
+		desc = "Cable Event";
 		break;
 	}
 
@@ -1990,7 +1990,7 @@ _base_enable_msix(struct MPT3SAS_ADAPTER *ioc)
 	  ioc->cpu_count, max_msix_vectors);
 
 	if (!ioc->rdpq_array_enable && max_msix_vectors == -1)
-		local_max_msix_vectors = 8;
+		local_max_msix_vectors = (reset_devices) ? 1 : 8;
 	else
 		local_max_msix_vectors = max_msix_vectors;
 
@@ -3313,6 +3313,11 @@ _base_allocate_memory_pools(struct MPT3SAS_ADAPTER *ioc)
 			sg_tablesize = MPT3SAS_SG_DEPTH;
 	}
 
+	/* max sgl entries <= MPT_KDUMP_MIN_PHYS_SEGMENTS in KDUMP mode */
+	if (reset_devices)
+		sg_tablesize = min_t(unsigned short, sg_tablesize,
+		   MPT_KDUMP_MIN_PHYS_SEGMENTS);
+
 	if (sg_tablesize < MPT_MIN_PHYS_SEGMENTS)
 		sg_tablesize = MPT_MIN_PHYS_SEGMENTS;
 	else if (sg_tablesize > MPT_MAX_PHYS_SEGMENTS) {
@@ -3345,7 +3350,10 @@ _base_allocate_memory_pools(struct MPT3SAS_ADAPTER *ioc)
 			ioc->internal_depth, facts->RequestCredit);
 		if (max_request_credit > MAX_HBA_QUEUE_DEPTH)
 			max_request_credit =  MAX_HBA_QUEUE_DEPTH;
-	} else
+	} else if (reset_devices)
+		max_request_credit = min_t(u16, facts->RequestCredit,
+		    (MPT3SAS_KDUMP_SCSI_IO_DEPTH + ioc->internal_depth));
+	else
 		max_request_credit = min_t(u16, facts->RequestCredit,
 		    MAX_HBA_QUEUE_DEPTH);
 
@@ -4451,7 +4459,7 @@ _base_get_ioc_facts(struct MPT3SAS_ADAPTER *ioc)
 	if ((facts->IOCCapabilities & MPI2_IOCFACTS_CAPABILITY_INTEGRATED_RAID))
 		ioc->ir_firmware = 1;
 	if ((facts->IOCCapabilities &
-	      MPI2_IOCFACTS_CAPABILITY_RDPQ_ARRAY_CAPABLE))
+	      MPI2_IOCFACTS_CAPABILITY_RDPQ_ARRAY_CAPABLE) && (!reset_devices))
 		ioc->rdpq_array_capable = 1;
 	if (facts->IOCCapabilities & MPI26_IOCFACTS_CAPABILITY_ATOMIC_REQ)
 		ioc->atomic_desc_capable = 1;
@@ -5522,8 +5530,7 @@ mpt3sas_base_attach(struct MPT3SAS_ADAPTER *ioc)
 	_base_unmask_events(ioc, MPI2_EVENT_IR_OPERATION_STATUS);
 	_base_unmask_events(ioc, MPI2_EVENT_LOG_ENTRY_ADDED);
 	_base_unmask_events(ioc, MPI2_EVENT_TEMP_THRESHOLD);
-	if (ioc->hba_mpi_version_belonged == MPI26_VERSION)
-		_base_unmask_events(ioc, MPI2_EVENT_ACTIVE_CABLE_EXCEPTION);
+	_base_unmask_events(ioc, MPI2_EVENT_ACTIVE_CABLE_EXCEPTION);
 
 	r = _base_make_ioc_operational(ioc);
 	if (r)
