@@ -237,13 +237,17 @@ static void fd_dev_call_rcu(struct rcu_head *p)
 
 static void fd_free_device(struct se_device *dev)
 {
+	call_rcu(&dev->rcu_head, fd_dev_call_rcu);
+}
+
+static void fd_destroy_device(struct se_device *dev)
+{
 	struct fd_dev *fd_dev = FD_DEV(dev);
 
 	if (fd_dev->fd_file) {
 		filp_close(fd_dev->fd_file, NULL);
 		fd_dev->fd_file = NULL;
 	}
-	call_rcu(&dev->rcu_head, fd_dev_call_rcu);
 }
 
 static int fd_do_rw(struct se_cmd *cmd, struct file *fd,
@@ -439,7 +443,7 @@ fd_do_prot_fill(struct se_device *se_dev, sector_t lba, sector_t nolb,
 
 	for (prot = 0; prot < prot_length;) {
 		sector_t len = min_t(sector_t, bufsize, prot_length - prot);
-		ssize_t ret = kernel_write(prot_fd, buf, len, pos + prot);
+		ssize_t ret = kernel_write(prot_fd, buf, len, &pos);
 
 		if (ret != len) {
 			pr_err("vfs_write to prot file failed: %zd\n", ret);
@@ -826,6 +830,7 @@ static const struct target_backend_ops fileio_ops = {
 	.detach_hba		= fd_detach_hba,
 	.alloc_device		= fd_alloc_device,
 	.configure_device	= fd_configure_device,
+	.destroy_device		= fd_destroy_device,
 	.free_device		= fd_free_device,
 	.parse_cdb		= fd_parse_cdb,
 	.set_configfs_dev_params = fd_set_configfs_dev_params,

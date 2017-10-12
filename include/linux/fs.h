@@ -2740,7 +2740,7 @@ extern int kernel_read_file_from_path(char *, void **, loff_t *, loff_t,
 				      enum kernel_read_file_id);
 extern int kernel_read_file_from_fd(int, void **, loff_t *, loff_t,
 				    enum kernel_read_file_id);
-extern ssize_t kernel_write(struct file *, const char *, size_t, loff_t);
+extern ssize_t kernel_write(struct file *, const char *, size_t, loff_t *);
 extern ssize_t __kernel_write(struct file *, const char *, size_t, loff_t *);
 extern struct file * open_exec(const char *);
  
