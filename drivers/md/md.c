@@ -4293,6 +4293,8 @@ new_dev_store(struct mddev *mddev, const char *buf, size_t len)
 	if (err)
 		export_rdev(rdev);
 	mddev_unlock(mddev);
+	if (!err)
+		md_new_event(mddev);
 	return err ? err : len;
 }
 
