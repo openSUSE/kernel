@@ -244,10 +244,15 @@ typedef unsigned int __bitwise iwl_ucode_tlv_api_t;
  * @IWL_UCODE_TLV_API_TKIP_MIC_KEYS: This ucode supports version 2 of
  *	ADD_MODIFY_STA_KEY_API_S_VER_2.
  * @IWL_UCODE_TLV_API_STA_TYPE: This ucode supports station type assignement.
+ * @IWL_UCODE_TLV_API_NAN2_VER2: This ucode supports NAN API version 2
+ * @IWL_UCODE_TLV_API_NEW_RX_STATS: should new RX STATISTICS API be used
+ * @IWL_UCODE_TLV_API_ATS_COEX_EXTERNAL: the coex notification is enlared to
+ *	include information about ACL time sharing.
  *
  * @NUM_IWL_UCODE_TLV_API: number of bits used
  */
 enum iwl_ucode_tlv_api {
+	/* API Set 0 */
 	IWL_UCODE_TLV_API_FRAGMENTED_SCAN	= (__force iwl_ucode_tlv_api_t)8,
 	IWL_UCODE_TLV_API_WIFI_MCC_UPDATE	= (__force iwl_ucode_tlv_api_t)9,
 	IWL_UCODE_TLV_API_LQ_SS_PARAMS		= (__force iwl_ucode_tlv_api_t)18,
@@ -255,6 +260,11 @@ enum iwl_ucode_tlv_api {
 	IWL_UCODE_TLV_API_SCAN_TSF_REPORT	= (__force iwl_ucode_tlv_api_t)28,
 	IWL_UCODE_TLV_API_TKIP_MIC_KEYS		= (__force iwl_ucode_tlv_api_t)29,
 	IWL_UCODE_TLV_API_STA_TYPE		= (__force iwl_ucode_tlv_api_t)30,
+	IWL_UCODE_TLV_API_NAN2_VER2		= (__force iwl_ucode_tlv_api_t)31,
+	/* API Set 1 */
+	IWL_UCODE_TLV_API_NEW_BEACON_TEMPLATE	= (__force iwl_ucode_tlv_api_t)34,
+	IWL_UCODE_TLV_API_NEW_RX_STATS		= (__force iwl_ucode_tlv_api_t)35,
+	IWL_UCODE_TLV_API_COEX_ATS_EXTERNAL	= (__force iwl_ucode_tlv_api_t)37,
 
 	NUM_IWL_UCODE_TLV_API
 #ifdef __CHECKER__
@@ -322,6 +332,7 @@ typedef unsigned int __bitwise iwl_ucode_tlv_capa_t;
  * @IWL_UCODE_TLV_CAPA_TX_POWER_ACK: reduced TX power API has larger
  *	command size (command version 4) that supports toggling ACK TX
  *	power reduction.
+ * @IWL_UCODE_TLV_CAPA_MLME_OFFLOAD: supports MLME offload
  *
  * @NUM_IWL_UCODE_TLV_CAPA: number of bits used
  */
@@ -351,6 +362,7 @@ enum iwl_ucode_tlv_capa {
 	IWL_UCODE_TLV_CAPA_STA_PM_NOTIF			= (__force iwl_ucode_tlv_capa_t)38,
 	IWL_UCODE_TLV_CAPA_BINDING_CDB_SUPPORT		= (__force iwl_ucode_tlv_capa_t)39,
 	IWL_UCODE_TLV_CAPA_CDB_SUPPORT			= (__force iwl_ucode_tlv_capa_t)40,
+	IWL_UCODE_TLV_CAPA_D0I3_END_FIRST		= (__force iwl_ucode_tlv_capa_t)41,
 	IWL_UCODE_TLV_CAPA_EXTENDED_DTS_MEASURE		= (__force iwl_ucode_tlv_capa_t)64,
 	IWL_UCODE_TLV_CAPA_SHORT_PM_TIMEOUTS		= (__force iwl_ucode_tlv_capa_t)65,
 	IWL_UCODE_TLV_CAPA_BT_MPLUT_SUPPORT		= (__force iwl_ucode_tlv_capa_t)67,
@@ -366,6 +378,8 @@ enum iwl_ucode_tlv_capa {
 	IWL_UCODE_TLV_CAPA_EXTEND_SHARED_MEM_CFG	= (__force iwl_ucode_tlv_capa_t)80,
 	IWL_UCODE_TLV_CAPA_LQM_SUPPORT			= (__force iwl_ucode_tlv_capa_t)81,
 	IWL_UCODE_TLV_CAPA_TX_POWER_ACK			= (__force iwl_ucode_tlv_capa_t)84,
+	IWL_UCODE_TLV_CAPA_LED_CMD_SUPPORT		= (__force iwl_ucode_tlv_capa_t)86,
+	IWL_UCODE_TLV_CAPA_MLME_OFFLOAD			= (__force iwl_ucode_tlv_capa_t)96,
 
 	NUM_IWL_UCODE_TLV_CAPA
 #ifdef __CHECKER__
@@ -395,8 +409,8 @@ enum iwl_ucode_tlv_capa {
 #define IWL_UCODE_API(ver)	(((ver) & 0x0000FF00) >> 8)
 #define IWL_UCODE_SERIAL(ver)	((ver) & 0x000000FF)
 
-/*
- * Calibration control struct.
+/**
+ * struct iwl_tlv_calib_ctrl - Calibration control struct.
  * Sent as part of the phy configuration command.
  * @flow_trigger: bitmap for which calibrations to perform according to
  *		flow triggers.
@@ -468,7 +482,7 @@ enum iwl_fw_dbg_reg_operator {
 /**
  * struct iwl_fw_dbg_reg_op - an operation on a register
  *
- * @op: %enum iwl_fw_dbg_reg_operator
+ * @op: &enum iwl_fw_dbg_reg_operator
  * @addr: offset of the register
  * @val: value
  */
@@ -526,7 +540,7 @@ struct iwl_fw_dbg_mem_seg_tlv {
  * struct iwl_fw_dbg_dest_tlv - configures the destination of the debug data
  *
  * @version: version of the TLV - currently 0
- * @monitor_mode: %enum iwl_fw_dbg_monitor_mode
+ * @monitor_mode: &enum iwl_fw_dbg_monitor_mode
  * @size_power: buffer size will be 2^(size_power + 11)
  * @base_reg: addr of the base addr register (PRPH)
  * @end_reg:  addr of the end addr register (PRPH)
@@ -595,15 +609,15 @@ enum iwl_fw_dbg_trigger_vif_type {
 
 /**
  * struct iwl_fw_dbg_trigger_tlv - a TLV that describes the trigger
- * @id: %enum iwl_fw_dbg_trigger
- * @vif_type: %enum iwl_fw_dbg_trigger_vif_type
+ * @id: &enum iwl_fw_dbg_trigger
+ * @vif_type: &enum iwl_fw_dbg_trigger_vif_type
  * @stop_conf_ids: bitmap of configurations this trigger relates to.
  *	if the mode is %IWL_FW_DBG_TRIGGER_STOP, then if the bit corresponding
  *	to the currently running configuration is set, the data should be
  *	collected.
  * @stop_delay: how many milliseconds to wait before collecting the data
  *	after the STOP trigger fires.
- * @mode: %enum iwl_fw_dbg_trigger_mode - can be stop / start of both
+ * @mode: &enum iwl_fw_dbg_trigger_mode - can be stop / start of both
  * @start_conf_id: if mode is %IWL_FW_DBG_TRIGGER_START, this defines what
  *	configuration should be applied when the triggers kicks in.
  * @occurrences: number of occurrences. 0 means the trigger will never fire.

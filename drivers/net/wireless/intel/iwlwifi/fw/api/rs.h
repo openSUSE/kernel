@@ -17,11 +17,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110,
- * USA
- *
  * The full GNU General Public License is included in this distribution
  * in the file called COPYING.
  *
@@ -62,10 +57,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
-#ifndef __fw_api_rs_h__
-#define __fw_api_rs_h__
+#ifndef __iwl_fw_api_rs_h__
+#define __iwl_fw_api_rs_h__
 
-#include "fw-api-mac.h"
+#include "mac.h"
 
 /*
  * These serve as indexes into
@@ -368,6 +363,7 @@ enum {
 /**
  * struct iwl_lq_cmd - link quality command
  * @sta_id: station to update
+ * @reduced_tpc: reduced transmit power control value
  * @control: not used
  * @flags: combination of LQ_FLAG_*
  * @mimo_delim: the first SISO index in rs_table, which separates MIMO
@@ -385,6 +381,7 @@ enum {
  *	0: no limit
  *	1: no aggregation (one frame per aggregation)
  *	2 - 0x3f: maximal number of frames (up to 3f == 63)
+ * @reserved2: reserved
  * @rs_table: array of rates for each TX try, each is rate_n_flags,
  *	meaning it is a combination of RATE_MCS_* and IWL_RATE_*_PLCP
  * @ss_params: single stream features. declare whether STBC or BFER are allowed.
@@ -392,7 +389,7 @@ enum {
 struct iwl_lq_cmd {
 	u8 sta_id;
 	u8 reduced_tpc;
-	u16 control;
+	__le16 control;
 	/* LINK_QUAL_GENERAL_PARAMS_API_S_VER_1 */
 	u8 flags;
 	u8 mimo_delim;
@@ -407,4 +404,5 @@ struct iwl_lq_cmd {
 	__le32 rs_table[LQ_MAX_RETRY_NUM];
 	__le32 ss_params;
 }; /* LINK_QUALITY_CMD_API_S_VER_1 */
-#endif /* __fw_api_rs_h__ */
+
+#endif /* __iwl_fw_api_rs_h__ */
