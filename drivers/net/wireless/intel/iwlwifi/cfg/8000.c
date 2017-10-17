@@ -70,9 +70,9 @@
 #include "iwl-agn-hw.h"
 
 /* Highest firmware API version supported */
-#define IWL8000_UCODE_API_MAX	30
+#define IWL8000_UCODE_API_MAX	34
 #define IWL8000_UCODE_API_DEFAULT_FALLBACK	27
-#define IWL8265_UCODE_API_MAX	30
+#define IWL8265_UCODE_API_MAX	34
 #define IWL8265_UCODE_API_DEFAULT_FALLBACK	27
 
 /* Lowest firmware API version supported */
@@ -100,7 +100,6 @@
 	IWL8265_FW_PRE __stringify(api) ".ucode"
 
 #define NVM_HW_SECTION_NUM_FAMILY_8000		10
-#define DEFAULT_NVM_FILE_FAMILY_8000B		"nvmData-8000B"
 #define DEFAULT_NVM_FILE_FAMILY_8000C		"nvmData-8000C"
 
 /* Max SDIO RX/TX aggregation sizes of the ADDBA request/response */
@@ -164,10 +163,11 @@ static const struct iwl_tt_params iwl8000_tt_params = {
 	.dccm2_len = IWL8260_DCCM2_LEN,					\
 	.smem_offset = IWL8260_SMEM_OFFSET,				\
 	.smem_len = IWL8260_SMEM_LEN,					\
-	.default_nvm_file_B_step = DEFAULT_NVM_FILE_FAMILY_8000B,	\
 	.default_nvm_file_C_step = DEFAULT_NVM_FILE_FAMILY_8000C,	\
 	.thermal_params = &iwl8000_tt_params,				\
-	.apmg_not_supported = true
+	.apmg_not_supported = true,					\
+	.ext_nvm = true,						\
+	.dbgc_supported = true
 
 #define IWL_DEVICE_8000							\
 	IWL_DEVICE_8000_COMMON,						\

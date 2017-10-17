@@ -5,7 +5,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2015 Intel Deutschland GmbH
+ * Copyright(c) 2015 - 2017 Intel Deutschland GmbH
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -16,11 +16,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110,
- * USA
- *
  * The full GNU General Public License is included in this distribution
  * in the file called COPYING.
  *
@@ -30,7 +25,7 @@
  *
  * BSD LICENSE
  *
- * Copyright(c) 2015 Intel Deutschland GmbH
+ * Copyright(c) 2015 - 2017 Intel Deutschland GmbH
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -60,10 +55,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *****************************************************************************/
-#ifndef __fw_api_tof_h__
-#define __fw_api_tof_h__
-
-#include "fw-api.h"
+#ifndef __iwl_fw_api_tof_h__
+#define __iwl_fw_api_tof_h__
 
 /* ToF sub-group command IDs */
 enum iwl_mvm_tof_sub_grp_ids {
@@ -118,11 +111,17 @@ struct iwl_tof_config_cmd {
  * @bandwidth: current AP Bandwidth: 0  20MHz, 1  40MHz, 2  80MHz
  * @rate: current AP rate
  * @ctrl_ch_position: coding of the control channel position relative to
- *	     the center frequency.
- *	     40MHz  0 below center, 1 above center
- *	     80MHz  bits [0..1]: 0  the near 20MHz to the center,
- *				 1  the far  20MHz to the center
- *		    bit[2]  as above 40MHz
+ *	the center frequency:
+ *
+ *	40 MHz
+ *		0 below center, 1 above center
+ *
+ *	80 MHz
+ *		bits [0..1]
+ *		 * 0  the near 20MHz to the center,
+ *		 * 1  the far  20MHz to the center
+ *		bit[2]
+ *		 as above 40MHz
  * @ftm_per_burst: FTMs per Burst
  * @ftm_resp_ts_avail: '0' - we don't measure over the Initial FTM Response,
  *		  '1' - we measure over the Initial FTM Response
@@ -159,6 +158,7 @@ struct iwl_tof_responder_config_cmd {
 /**
  * struct iwl_tof_range_request_ext_cmd - extended range req for WLS
  * @tsf_timer_offset_msec: the recommended time offset (mSec) from the AP's TSF
+ * @reserved: reserved
  * @min_delta_ftm: Minimal time between two consecutive measurements,
  *		   in units of 100us. 0 means no preference by station
  * @ftm_format_and_bw20M: FTM Channel Spacing/Format for 20MHz: recommended
@@ -268,6 +268,7 @@ enum iwl_tof_response_mode {
  *	            '1' Use MAC Address randomization according to the below
  * @macaddr_mask: Bits set to 0 shall be copied from the MAC address template.
  *		  Bits set to 1 shall be randomized by the UMAC
+ * @ap: per-AP request data
  */
 struct iwl_tof_range_req_cmd {
 	__le32 sub_grp_cmd_id;
@@ -294,7 +295,9 @@ struct iwl_tof_gen_resp_cmd {
 
 /**
  * struct iwl_tof_range_rsp_ap_entry_ntfy - AP parameters (response)
- * @measure_status: current APs measurement status
+ * @bssid: BSSID of the AP
+ * @measure_status: current APs measurement status, one of
+ *	&enum iwl_tof_entry_status.
  * @measure_bw: Current AP Bandwidth: 0  20MHz, 1  40MHz, 2  80MHz
  * @rtt: The Round Trip Time that took for the last measurement for
  *	 current AP [nSec]
@@ -304,6 +307,7 @@ struct iwl_tof_gen_resp_cmd {
  * @rssi: RSSI as uploaded in the Channel Estimation notification
  * @rssi_spread: The Difference between the maximum and the minimum RSSI values
  *	        measured for current AP in the current session
+ * @reserved: reserved
  * @range: Measured range [cm]
  * @range_variance: Measured range variance [cm]
  * @timestamp: The GP2 Clock [usec] where Channel Estimation notification was
@@ -330,6 +334,7 @@ struct iwl_tof_range_rsp_ap_entry_ntfy {
  * @request_status: status of current measurement session
  * @last_in_batch: reprot policy (when not all responses are uploaded at once)
  * @num_of_aps: Number of APs to measure (error if > IWL_MVM_TOF_MAX_APS)
+ * @ap: per-AP data
  */
 struct iwl_tof_range_rsp_ntfy {
 	u8 request_id;
@@ -344,6 +349,7 @@ struct iwl_tof_range_rsp_ntfy {
  * struct iwl_tof_mcsi_notif - used for debug
  * @token: token ID for the current session
  * @role: '0' - initiator, '1' - responder
+ * @reserved: reserved
  * @initiator_bssid: initiator machine
  * @responder_bssid: responder machine
  * @mcsi_buffer: debug data
@@ -376,6 +382,7 @@ struct iwl_tof_neighbor_report {
 /**
  * struct iwl_tof_range_abort_cmd
  * @request_id: corresponds to a range request
+ * @reserved: reserved
  */
 struct iwl_tof_range_abort_cmd {
 	__le32 sub_grp_cmd_id;

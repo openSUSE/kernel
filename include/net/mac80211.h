@@ -5470,6 +5470,21 @@ void ieee80211_start_rx_ba_session_offl(struct ieee80211_vif *vif,
 void ieee80211_stop_rx_ba_session_offl(struct ieee80211_vif *vif,
 				       const u8 *addr, u16 tid);
 
+/**
+ * ieee80211_rx_ba_timer_expired - stop a Rx BA session due to timeout
+ *
+ * Some device drivers do not offload AddBa/DelBa negotiation, but handle rx
+ * buffer reording internally, and therefore also handle the session timer.
+ *
+ * Trigger the timeout flow, which sends a DelBa.
+ *
+ * @vif: &struct ieee80211_vif pointer from the add_interface callback
+ * @addr: station mac address
+ * @tid: the rx tid
+ */
+void ieee80211_rx_ba_timer_expired(struct ieee80211_vif *vif,
+				   const u8 *addr, unsigned int tid);
+
 /* Rate control API */
 
 /**
