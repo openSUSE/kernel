@@ -165,11 +165,6 @@ static void node_free(struct fib6_node *fn)
 	call_rcu(&fn->rcu, node_free_rcu);
 }
 
-static void rt6_rcu_free(struct rt6_info *rt)
-{
-	call_rcu(&rt->dst.rcu_head, dst_rcu_free);
-}
-
 static void rt6_free_pcpu(struct rt6_info *non_pcpu_rt)
 {
 	int cpu;
@@ -186,7 +181,6 @@ static void rt6_free_pcpu(struct rt6_info *non_pcpu_rt)
 		if (pcpu_rt) {
 			dst_dev_put(&pcpu_rt->dst);
 			dst_release(&pcpu_rt->dst);
-			rt6_rcu_free(pcpu_rt);
 			*ppcpu_rt = NULL;
 		}
 	}
@@ -201,7 +195,6 @@ static void rt6_release(struct rt6_info *rt)
 		rt6_free_pcpu(rt);
 		dst_dev_put(&rt->dst);
 		dst_release(&rt->dst);
-		rt6_rcu_free(rt);
 	}
 }
 
@@ -1131,9 +1124,7 @@ failure:
 	/* Always release dst as dst->__refcnt is guaranteed
 	 * to be taken before entering this function
 	 */
-	dst_release(&rt->dst);
-	if (!(rt->dst.flags & DST_NOCACHE))
-		dst_free(&rt->dst);
+	dst_release_immediate(&rt->dst);
 	return err;
 }
 
