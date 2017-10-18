@@ -145,7 +145,7 @@ static void qlt_send_busy(struct qla_qpair *, struct atio_from_isp *,
  * Global Variables
  */
 static struct kmem_cache *qla_tgt_mgmt_cmd_cachep;
-static struct kmem_cache *qla_tgt_plogi_cachep;
+struct kmem_cache *qla_tgt_plogi_cachep;
 static mempool_t *qla_tgt_mgmt_cmd_mempool;
 static struct workqueue_struct *qla_tgt_wq;
 static DEFINE_MUTEX(qla_tgt_mutex);
@@ -585,11 +585,13 @@ void qla2x00_async_nack_sp_done(void *s, int res)
 		sp->fcport->fw_login_state = DSC_LS_PLOGI_COMP;
 		sp->fcport->logout_on_delete = 1;
 		sp->fcport->plogi_nack_done_deadline = jiffies + HZ;
+		sp->fcport->send_els_logo = 0;
 		break;
 
 	case SRB_NACK_PRLI:
 		sp->fcport->fw_login_state = DSC_LS_PRLI_COMP;
 		sp->fcport->deleted = 0;
+		sp->fcport->send_els_logo = 0;
 
 		if (!sp->fcport->login_succ &&
 		    !IS_SW_RESV_ADDR(sp->fcport->d_id)) {
@@ -6564,6 +6566,7 @@ void
 qlt_24xx_config_rings(struct scsi_qla_host *vha)
 {
 	struct qla_hw_data *ha = vha->hw;
+	struct init_cb_24xx *icb;
 	if (!QLA_TGT_MODE_ENABLED())
 		return;
 
@@ -6571,14 +6574,19 @@ qlt_24xx_config_rings(struct scsi_qla_host *vha)
 	WRT_REG_DWORD(ISP_ATIO_Q_OUT(vha), 0);
 	RD_REG_DWORD(ISP_ATIO_Q_OUT(vha));
 
-	if (IS_ATIO_MSIX_CAPABLE(ha)) {
+	icb = (struct init_cb_24xx *)ha->init_cb;
+
+	if ((ql2xenablemsix != 0) && IS_ATIO_MSIX_CAPABLE(ha)) {
 		struct qla_msix_entry *msix = &ha->msix_entries[2];
-		struct init_cb_24xx *icb = (struct init_cb_24xx *)ha->init_cb;
 
 		icb->msix_atio = cpu_to_le16(msix->entry);
 		ql_dbg(ql_dbg_init, vha, 0xf072,
 		    "Registering ICB vector 0x%x for atio que.\n",
 		    msix->entry);
+	} else if (ql2xenablemsix == 0) {
+		icb->firmware_options_2 |= cpu_to_le32(BIT_26);
+		ql_dbg(ql_dbg_init, vha, 0xf07f,
+		    "Registering INTx vector for ATIO.\n");
 	}
 }
 
@@ -6823,7 +6831,7 @@ qlt_probe_one_stage1(struct scsi_qla_host *base_vha, struct qla_hw_data *ha)
 	if (!QLA_TGT_MODE_ENABLED())
 		return;
 
-	if  (IS_QLA83XX(ha) || IS_QLA27XX(ha)) {
+	if  ((ql2xenablemsix == 0) || IS_QLA83XX(ha) || IS_QLA27XX(ha)) {
 		ISP_ATIO_Q_IN(base_vha) = &ha->mqiobase->isp25mq.atio_q_in;
 		ISP_ATIO_Q_OUT(base_vha) = &ha->mqiobase->isp25mq.atio_q_out;
 	} else {

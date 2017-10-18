@@ -6,6 +6,7 @@
  * GPL LICENSE SUMMARY
  *
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
+ * Copyright(c) 2017        Intel Deutschland GmbH
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -15,11 +16,6 @@
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110,
- * USA
  *
  * The full GNU General Public License is included in this distribution
  * in the file called COPYING.
@@ -31,6 +27,7 @@
  * BSD LICENSE
  *
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
+ * Copyright(c) 2017        Intel Deutschland GmbH
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -60,8 +57,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
-#ifndef __fw_api_mac_h__
-#define __fw_api_mac_h__
+#ifndef __iwl_fw_api_mac_h__
+#define __iwl_fw_api_mac_h__
 
 /*
  * The first MAC indices (starting from 0) are available to the driver,
@@ -75,8 +72,6 @@
 
 #define IWL_MVM_STATION_COUNT		16
 #define IWL_MVM_INVALID_STA		0xFF
-
-#define IWL_MVM_TDLS_STA_COUNT	4
 
 enum iwl_ac {
 	AC_BK,
@@ -199,6 +194,7 @@ struct iwl_mac_data_ibss {
  * @dtim_reciprocal: 2^32 / dtim_interval , applicable only when associated
  * @listen_interval: in beacon intervals, applicable only when associated
  * @assoc_id: unique ID assigned by the AP during association
+ * @assoc_beacon_arrive_time: TSF of first beacon after association
  */
 struct iwl_mac_data_sta {
 	__le32 is_assoc;
@@ -329,19 +325,20 @@ struct iwl_ac_qos {
  * ( MAC_CONTEXT_CMD = 0x28 )
  * @id_and_color: ID and color of the MAC
  * @action: action to perform, one of FW_CTXT_ACTION_*
- * @mac_type: one of FW_MAC_TYPE_*
- * @tsd_id: TSF HW timer, one of TSF_ID_*
+ * @mac_type: one of &enum iwl_mac_types
+ * @tsf_id: TSF HW timer, one of &enum iwl_tsf_id
  * @node_addr: MAC address
+ * @reserved_for_node_addr: reserved
  * @bssid_addr: BSSID
+ * @reserved_for_bssid_addr: reserved
  * @cck_rates: basic rates available for CCK
  * @ofdm_rates: basic rates available for OFDM
- * @protection_flags: combination of MAC_PROT_FLG_FLAG_*
+ * @protection_flags: combination of &enum iwl_mac_protection_flags
  * @cck_short_preamble: 0x20 for enabling short preamble, 0 otherwise
  * @short_slot: 0x10 for enabling short slots, 0 otherwise
- * @filter_flags: combination of MAC_FILTER_*
- * @qos_flags: from MAC_QOS_FLG_*
+ * @filter_flags: combination of &enum iwl_mac_filter_flags
+ * @qos_flags: from &enum iwl_mac_qos_flags
  * @ac: one iwl_mac_qos configuration for each AC
- * @mac_specific: one of struct iwl_mac_data_*, according to mac_type
  */
 struct iwl_mac_ctx_cmd {
 	/* COMMON_INDEX_HDR_API_S_VER_1 */
@@ -391,4 +388,22 @@ struct iwl_nonqos_seq_query_cmd {
 	__le16 reserved;
 } __packed; /* NON_QOS_TX_COUNTER_GET_SET_API_S_VER_1 */
 
-#endif /* __fw_api_mac_h__ */
+/**
+ * struct iwl_missed_beacons_notif - information on missed beacons
+ * ( MISSED_BEACONS_NOTIFICATION = 0xa2 )
+ * @mac_id: interface ID
+ * @consec_missed_beacons_since_last_rx: number of consecutive missed
+ *	beacons since last RX.
+ * @consec_missed_beacons: number of consecutive missed beacons
+ * @num_expected_beacons: number of expected beacons
+ * @num_recvd_beacons: number of received beacons
+ */
+struct iwl_missed_beacons_notif {
+	__le32 mac_id;
+	__le32 consec_missed_beacons_since_last_rx;
+	__le32 consec_missed_beacons;
+	__le32 num_expected_beacons;
+	__le32 num_recvd_beacons;
+} __packed; /* MISSED_BEACON_NTFY_API_S_VER_3 */
+
+#endif /* __iwl_fw_api_mac_h__ */

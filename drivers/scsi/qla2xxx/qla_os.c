@@ -268,6 +268,15 @@ MODULE_PARM_DESC(ql2xautodetectsfp,
 		 "Detect SFP range and set appropriate distance.\n"
 		 "1 (Default): Enable\n");
 
+int ql2xenablemsix = 1;
+module_param(ql2xenablemsix, int, 0444);
+MODULE_PARM_DESC(ql2xenablemsix,
+		 "Set to enable MSI or MSI-X interrupt mechanism.\n"
+		 " Default is 1, enable MSI-X interrupt mechanism.\n"
+		 " 0 -- enable traditional pin-based mechanism.\n"
+		 " 1 -- enable MSI-X interrupt mechanism.\n"
+		 " 2 -- enable MSI interrupt mechanism.\n");
+
 /*
  * SCSI host template entry points
  */
@@ -424,7 +433,7 @@ static int qla2x00_alloc_queues(struct qla_hw_data *ha, struct req_que *req,
 
 	qla_init_base_qpair(vha, req, rsp);
 
-	if (ql2xmqsupport && ha->max_qpairs) {
+	if ((ql2xmqsupport || ql2xnvmeenable) && ha->max_qpairs) {
 		ha->queue_pair_map = kcalloc(ha->max_qpairs, sizeof(struct qla_qpair *),
 			GFP_KERNEL);
 		if (!ha->queue_pair_map) {
@@ -1967,7 +1976,8 @@ skip_pio:
 	/* Determine queue resources */
 	ha->max_req_queues = ha->max_rsp_queues = 1;
 	ha->msix_count = QLA_BASE_VECTORS;
-	if (!ql2xmqsupport || (!IS_QLA25XX(ha) && !IS_QLA81XX(ha)))
+	if (!ql2xmqsupport || !ql2xnvmeenable ||
+	    (!IS_QLA25XX(ha) && !IS_QLA81XX(ha)))
 		goto mqiobase_exit;
 
 	ha->mqiobase = ioremap(pci_resource_start(ha->pdev, 3),
@@ -2064,7 +2074,7 @@ qla83xx_iospace_config(struct qla_hw_data *ha)
 		 * By default, driver uses at least two msix vectors
 		 * (default & rspq)
 		 */
-		if (ql2xmqsupport) {
+		if (ql2xmqsupport || ql2xnvmeenable) {
 			/* MB interrupt uses 1 vector */
 			ha->max_req_queues = ha->msix_count - 1;
 
@@ -3080,9 +3090,17 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 
 		ql_dbg(ql_dbg_init, base_vha, 0x0192,
 			"blk/scsi-mq enabled, HW queues = %d.\n", host->nr_hw_queues);
-	} else
-		ql_dbg(ql_dbg_init, base_vha, 0x0193,
-			"blk/scsi-mq disabled.\n");
+	} else {
+		if (ql2xnvmeenable) {
+			host->nr_hw_queues = ha->max_qpairs;
+			ql_dbg(ql_dbg_init, base_vha, 0x0194,
+			    "FC-NVMe support is enabled, HW queues=%d\n",
+			    host->nr_hw_queues);
+		} else {
+			ql_dbg(ql_dbg_init, base_vha, 0x0193,
+			    "blk/scsi-mq disabled.\n");
+		}
+	}
 
 	qlt_probe_one_stage1(base_vha, ha);
 
@@ -3400,11 +3418,21 @@ qla2x00_shutdown(struct pci_dev *pdev)
 	scsi_qla_host_t *vha;
 	struct qla_hw_data  *ha;
 
-	if (!atomic_read(&pdev->enable_cnt))
-		return;
-
 	vha = pci_get_drvdata(pdev);
 	ha = vha->hw;
+
+	ql_log(ql_log_info, vha, 0xfffa,
+		"Adapter shutdown\n");
+
+	/*
+	 * Prevent future board_disable and wait
+	 * until any pending board_disable has completed.
+	 */
+	set_bit(PFLG_DRIVER_REMOVING, &vha->pci_flags);
+	cancel_work_sync(&ha->board_disable);
+
+	if (!atomic_read(&pdev->enable_cnt))
+		return;
 
 	/* Notify ISPFX00 firmware */
 	if (IS_QLAFX00(ha))
@@ -3436,8 +3464,9 @@ qla2x00_shutdown(struct pci_dev *pdev)
 
 	qla2x00_free_fw_dump(ha);
 
-	pci_disable_pcie_error_reporting(pdev);
 	pci_disable_device(pdev);
+	ql_log(ql_log_info, vha, 0xfffe,
+		"Adapter shutdown successfully.\n");
 }
 
 /* Deletes all the virtual ports for a given ha */
@@ -4666,9 +4695,10 @@ static
 void qla24xx_create_new_sess(struct scsi_qla_host *vha, struct qla_work_evt *e)
 {
 	unsigned long flags;
-	fc_port_t *fcport =  NULL;
+	fc_port_t *fcport =  NULL, *tfcp;
 	struct qlt_plogi_ack_t *pla =
 	    (struct qlt_plogi_ack_t *)e->u.new_sess.pla;
+	uint8_t free_fcport = 0;
 
 	spin_lock_irqsave(&vha->hw->tgt.sess_lock, flags);
 	fcport = qla2x00_find_fcport_by_wwpn(vha, e->u.new_sess.port_name, 1);
@@ -4683,6 +4713,7 @@ void qla24xx_create_new_sess(struct scsi_qla_host *vha, struct qla_work_evt *e)
 			pla->ref_count--;
 		}
 	} else {
+		spin_unlock_irqrestore(&vha->hw->tgt.sess_lock, flags);
 		fcport = qla2x00_alloc_fcport(vha, GFP_KERNEL);
 		if (fcport) {
 			fcport->d_id = e->u.new_sess.id;
@@ -4692,6 +4723,29 @@ void qla24xx_create_new_sess(struct scsi_qla_host *vha, struct qla_work_evt *e)
 
 			memcpy(fcport->port_name, e->u.new_sess.port_name,
 			    WWN_SIZE);
+		} else {
+			ql_dbg(ql_dbg_disc, vha, 0xffff,
+				   "%s %8phC mem alloc fail.\n",
+				   __func__, e->u.new_sess.port_name);
+
+			if (pla)
+				kmem_cache_free(qla_tgt_plogi_cachep, pla);
+			return;
+		}
+
+		spin_lock_irqsave(&vha->hw->tgt.sess_lock, flags);
+		/* search again to make sure one else got ahead */
+		tfcp = qla2x00_find_fcport_by_wwpn(vha,
+		    e->u.new_sess.port_name, 1);
+		if (tfcp) {
+			/* should rarily happen */
+			ql_dbg(ql_dbg_disc, vha, 0xffff,
+			    "%s %8phC found existing fcport b4 add. DS %d LS %d\n",
+			    __func__, tfcp->port_name, tfcp->disc_state,
+			    tfcp->fw_login_state);
+
+			free_fcport = 1;
+		} else {
 			list_add_tail(&fcport->list, &vha->vp_fcports);
 
 			if (pla) {
@@ -4707,7 +4761,13 @@ void qla24xx_create_new_sess(struct scsi_qla_host *vha, struct qla_work_evt *e)
 		if (pla)
 			qlt_plogi_ack_unref(vha, pla);
 		else
-			qla24xx_async_gnl(vha, fcport);
+			qla24xx_async_gffid(vha, fcport);
+	}
+
+	if (free_fcport) {
+		qla2x00_free_fcport(fcport);
+		if (pla)
+			kmem_cache_free(qla_tgt_plogi_cachep, pla);
 	}
 }
 
@@ -5521,6 +5581,13 @@ qla2x00_disable_board_on_pci_error(struct work_struct *work)
 	ql_log(ql_log_warn, base_vha, 0x015b,
 	    "Disabling adapter.\n");
 
+	if (!atomic_read(&pdev->enable_cnt)) {
+		ql_log(ql_log_info, base_vha, 0xfffc,
+		    "PCI device disabled, no action req for PCI error=%lx\n",
+		    base_vha->pci_flags);
+		return;
+	}
+
 	qla2x00_wait_for_sess_deletion(base_vha);
 
 	set_bit(UNLOADING, &base_vha->dpc_flags);
@@ -6233,10 +6300,16 @@ qla2xxx_pci_error_detected(struct pci_dev *pdev, pci_channel_state_t state)
 	ql_dbg(ql_dbg_aer, vha, 0x9000,
 	    "PCI error detected, state %x.\n", state);
 
+	if (!atomic_read(&pdev->enable_cnt)) {
+		ql_log(ql_log_info, vha, 0xffff,
+			"PCI device is disabled,state %x\n", state);
+		return PCI_ERS_RESULT_NEED_RESET;
+	}
+
 	switch (state) {
 	case pci_channel_io_normal:
 		ha->flags.eeh_busy = 0;
-		if (ql2xmqsupport) {
+		if (ql2xmqsupport || ql2xnvmeenable) {
 			set_bit(QPAIR_ONLINE_CHECK_NEEDED, &vha->dpc_flags);
 			qla2xxx_wake_dpc(vha);
 		}
@@ -6253,7 +6326,7 @@ qla2xxx_pci_error_detected(struct pci_dev *pdev, pci_channel_state_t state)
 		pci_disable_device(pdev);
 		/* Return back all IOs */
 		qla2x00_abort_all_cmds(vha, DID_RESET << 16);
-		if (ql2xmqsupport) {
+		if (ql2xmqsupport || ql2xnvmeenable) {
 			set_bit(QPAIR_ONLINE_CHECK_NEEDED, &vha->dpc_flags);
 			qla2xxx_wake_dpc(vha);
 		}
@@ -6261,7 +6334,7 @@ qla2xxx_pci_error_detected(struct pci_dev *pdev, pci_channel_state_t state)
 	case pci_channel_io_perm_failure:
 		ha->flags.pci_channel_io_perm_failure = 1;
 		qla2x00_abort_all_cmds(vha, DID_NO_CONNECT << 16);
-		if (ql2xmqsupport) {
+		if (ql2xmqsupport || ql2xnvmeenable) {
 			set_bit(QPAIR_ONLINE_CHECK_NEEDED, &vha->dpc_flags);
 			qla2xxx_wake_dpc(vha);
 		}
