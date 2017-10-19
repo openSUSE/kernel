@@ -797,7 +797,7 @@ static int ubifs_do_bulk_read(struct ubifs_info *c, struct bu_info *bu,
 		if (page_offset > end_index)
 			break;
 		page = find_or_create_page(mapping, page_offset,
-					   GFP_NOFS | __GFP_COLD);
+					   GFP_NOFS);
 		if (!page)
 			break;
 		if (!PageUptodate(page))
