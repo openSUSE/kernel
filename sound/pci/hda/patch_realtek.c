@@ -5247,6 +5247,7 @@ enum {
 	ALC233_FIXUP_EAPD_COEF_AND_MIC_NO_PRESENCE,
 	ALC233_FIXUP_LENOVO_MULTI_CODECS,
 	ALC294_FIXUP_LENOVO_MIC_LOCATION,
+	ALC700_FIXUP_INTEL_REFERENCE,
 };
 
 static const struct hda_fixup alc269_fixups[] = {
@@ -6042,6 +6043,21 @@ static const struct hda_fixup alc269_fixups[] = {
 			{ }
 		},
 	},
+	[ALC700_FIXUP_INTEL_REFERENCE] = {
+		.type = HDA_FIXUP_VERBS,
+		.v.verbs = (const struct hda_verb[]) {
+			/* Enables internal speaker */
+			{0x20, AC_VERB_SET_COEF_INDEX, 0x45},
+			{0x20, AC_VERB_SET_PROC_COEF, 0x5289},
+			{0x20, AC_VERB_SET_COEF_INDEX, 0x4A},
+			{0x20, AC_VERB_SET_PROC_COEF, 0x001b},
+			{0x58, AC_VERB_SET_COEF_INDEX, 0x00},
+			{0x58, AC_VERB_SET_PROC_COEF, 0x3888},
+			{0x20, AC_VERB_SET_COEF_INDEX, 0x6f},
+			{0x20, AC_VERB_SET_PROC_COEF, 0x2c0b},
+			{}
+		}
+	},
 };
 
 static const struct snd_pci_quirk alc269_fixup_tbl[] = {
@@ -6193,6 +6209,7 @@ static const struct snd_pci_quirk alc269_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x10cf, 0x15dc, "Lifebook T731", ALC269_FIXUP_LIFEBOOK_HP_PIN),
 	SND_PCI_QUIRK(0x10cf, 0x1757, "Lifebook E752", ALC269_FIXUP_LIFEBOOK_HP_PIN),
 	SND_PCI_QUIRK(0x10cf, 0x1845, "Lifebook U904", ALC269_FIXUP_LIFEBOOK_EXTMIC),
+	SND_PCI_QUIRK(0x10ec, 0x10f2, "Intel Reference board", ALC700_FIXUP_INTEL_REFERENCE),
 	SND_PCI_QUIRK(0x144d, 0xc109, "Samsung Ativ book 9 (NP900X3G)", ALC269_FIXUP_INV_DMIC),
 	SND_PCI_QUIRK(0x144d, 0xc740, "Samsung Ativ book 8 (NP870Z5G)", ALC269_FIXUP_ATIV_BOOK_8),
 	SND_PCI_QUIRK(0x1458, 0xfa53, "Gigabyte BXBT-2807", ALC283_FIXUP_HEADSET_MIC),
@@ -6324,6 +6341,7 @@ static const struct hda_model_fixup alc269_fixup_models[] = {
 	{.id = ALC292_FIXUP_TPT440, .name = "tpt440"},
 	{.id = ALC292_FIXUP_TPT460, .name = "tpt460"},
 	{.id = ALC233_FIXUP_LENOVO_MULTI_CODECS, .name = "dual-codecs"},
+	{.id = ALC700_FIXUP_INTEL_REFERENCE, .name = "alc700-ref"},
 	{}
 };
 #define ALC225_STANDARD_PINS \
