@@ -144,7 +144,7 @@ static void ceph_fscache_inode_now_uncached(void* cookie_netfs_data)
 	pgoff_t first;
 	int loop, nr_pages;
 
-	pagevec_init(&pvec, 0);
+	pagevec_init(&pvec);
 	first = 0;
 
 	dout("ceph inode 0x%p now uncached", ci);

@@ -1059,7 +1059,7 @@ xfs_find_get_desired_pgoff(
 	loff_t			lastoff = startoff;
 	bool			found = false;
 
-	pagevec_init(&pvec, 0);
+	pagevec_init(&pvec);
 
 	index = startoff >> PAGE_SHIFT;
 	endoff = XFS_FSB_TO_B(mp, map->br_startoff + map->br_blockcount);

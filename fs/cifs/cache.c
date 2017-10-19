@@ -299,7 +299,7 @@ static void cifs_fscache_inode_now_uncached(void *cookie_netfs_data)
 	pgoff_t first;
 	int loop, nr_pages;
 
-	pagevec_init(&pvec, 0);
+	pagevec_init(&pvec);
 	first = 0;
 
 	cifs_dbg(FYI, "%s: cifs inode 0x%p now uncached\n", __func__, cifsi);

@@ -501,7 +501,7 @@ bool filemap_range_has_page(struct address_space *mapping,
 	if (mapping->nrpages == 0)
 		return false;
 
-	pagevec_init(&pvec, 0);
+	pagevec_init(&pvec);
 	if (!pagevec_lookup(&pvec, mapping, index, 1))
 		return false;
 	ret = (pvec.pages[0]->index <= end);
@@ -522,7 +522,7 @@ static int __filemap_fdatawait_range(struct address_space *mapping,
 	if (end_byte < start_byte)
 		goto out;
 
-	pagevec_init(&pvec, 0);
+	pagevec_init(&pvec);
 	while ((index <= end) &&
 			(nr_pages = pagevec_lookup_tag(&pvec, mapping, &index,
 			PAGECACHE_TAG_WRITEBACK,
