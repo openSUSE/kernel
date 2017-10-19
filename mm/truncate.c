@@ -25,44 +25,77 @@
 #include <linux/rmap.h>
 #include "internal.h"
 
-static void clear_shadow_entry(struct address_space *mapping, pgoff_t index,
-			       void *entry)
+/*
+ * Regular page slots are stabilized by the page lock even without the tree
+ * itself locked.  These unlocked entries need verification under the tree
+ * lock.
+ */
+static inline void __clear_shadow_entry(struct address_space *mapping,
+				pgoff_t index, void *entry)
 {
 	struct radix_tree_node *node;
 	void **slot;
 
-	spin_lock_irq(&mapping->tree_lock);
-	/*
-	 * Regular page slots are stabilized by the page lock even
-	 * without the tree itself locked.  These unlocked entries
-	 * need verification under the tree lock.
-	 */
 	if (!__radix_tree_lookup(&mapping->page_tree, index, &node, &slot))
-		goto unlock;
+		return;
 	if (*slot != entry)
-		goto unlock;
+		return;
 	__radix_tree_replace(&mapping->page_tree, node, slot, NULL,
 			     workingset_update_node);
 	mapping->nrexceptional--;
-unlock:
+}
+
+static void clear_shadow_entry(struct address_space *mapping, pgoff_t index,
+			       void *entry)
+{
+	spin_lock_irq(&mapping->tree_lock);
+	__clear_shadow_entry(mapping, index, entry);
 	spin_unlock_irq(&mapping->tree_lock);
 }
 
 /*
- * Unconditionally remove exceptional entry. Usually called from truncate path.
+ * Unconditionally remove exceptional entries. Usually called from truncate
+ * path. Note that the pagevec may be altered by this function by removing
+ * exceptional entries similar to what pagevec_remove_exceptionals does.
  */
-static void truncate_exceptional_entry(struct address_space *mapping,
-				       pgoff_t index, void *entry)
+static void truncate_exceptional_pvec_entries(struct address_space *mapping,
+				struct pagevec *pvec, pgoff_t *indices, int ei)
 {
+	int i, j;
+	bool dax;
+
+	/* Return immediately if caller indicates there are no entries */
+	if (ei == PAGEVEC_SIZE)
+		return;
+
 	/* Handled by shmem itself */
 	if (shmem_mapping(mapping))
 		return;
 
-	if (dax_mapping(mapping)) {
-		dax_delete_mapping_entry(mapping, index);
-		return;
+	dax = dax_mapping(mapping);
+	if (!dax)
+		spin_lock_irq(&mapping->tree_lock);
+
+	for (i = ei, j = ei; i < pagevec_count(pvec); i++) {
+		struct page *page = pvec->pages[i];
+		pgoff_t index = indices[i];
+
+		if (!radix_tree_exceptional_entry(page)) {
+			pvec->pages[j++] = page;
+			continue;
+		}
+
+		if (unlikely(dax)) {
+			dax_delete_mapping_entry(mapping, index);
+			continue;
+		}
+
+		__clear_shadow_entry(mapping, index, page);
 	}
-	clear_shadow_entry(mapping, index, entry);
+
+	if (!dax)
+		spin_unlock_irq(&mapping->tree_lock);
+	pvec->nr = j;
 }
 
 /*
@@ -300,6 +333,7 @@ void truncate_inode_pages_range(struct address_space *mapping,
 		 * in a new pagevec.
 		 */
 		struct pagevec locked_pvec;
+		int ei = PAGEVEC_SIZE;
 
 		pagevec_init(&locked_pvec, 0);
 		for (i = 0; i < pagevec_count(&pvec); i++) {
@@ -311,8 +345,8 @@ void truncate_inode_pages_range(struct address_space *mapping,
 				break;
 
 			if (radix_tree_exceptional_entry(page)) {
-				truncate_exceptional_entry(mapping, index,
-							   page);
+				if (ei == PAGEVEC_SIZE)
+					ei = i;
 				continue;
 			}
 
@@ -334,12 +368,11 @@ void truncate_inode_pages_range(struct address_space *mapping,
 		delete_from_page_cache_batch(mapping, &locked_pvec);
 		for (i = 0; i < pagevec_count(&locked_pvec); i++)
 			unlock_page(locked_pvec.pages[i]);
-		pagevec_remove_exceptionals(&pvec);
+		truncate_exceptional_pvec_entries(mapping, &pvec, indices, ei);
 		pagevec_release(&pvec);
 		cond_resched();
 		index++;
 	}
-
 	if (partial_start) {
 		struct page *page = find_lock_page(mapping, start - 1);
 		if (page) {
@@ -381,6 +414,8 @@ void truncate_inode_pages_range(struct address_space *mapping,
 
 	index = start;
 	for ( ; ; ) {
+		int ei = PAGEVEC_SIZE;
+
 		cond_resched();
 		if (!pagevec_lookup_entries(&pvec, mapping, index,
 			min(end - index, (pgoff_t)PAGEVEC_SIZE), indices)) {
@@ -397,6 +432,7 @@ void truncate_inode_pages_range(struct address_space *mapping,
 			pagevec_release(&pvec);
 			break;
 		}
+
 		for (i = 0; i < pagevec_count(&pvec); i++) {
 			struct page *page = pvec.pages[i];
 
@@ -409,8 +445,8 @@ void truncate_inode_pages_range(struct address_space *mapping,
 			}
 
 			if (radix_tree_exceptional_entry(page)) {
-				truncate_exceptional_entry(mapping, index,
-							   page);
+				if (ei == PAGEVEC_SIZE)
+					ei = i;
 				continue;
 			}
 
@@ -420,7 +456,7 @@ void truncate_inode_pages_range(struct address_space *mapping,
 			truncate_inode_page(mapping, page);
 			unlock_page(page);
 		}
-		pagevec_remove_exceptionals(&pvec);
+		truncate_exceptional_pvec_entries(mapping, &pvec, indices, ei);
 		pagevec_release(&pvec);
 		index++;
 	}
