@@ -174,6 +174,9 @@ static void page_cache_tree_delete(struct address_space *mapping,
 				     workingset_update_node, mapping);
 	}
 
+	page->mapping = NULL;
+	/* Leave page->index set: truncation lookup relies upon it */
+
 	if (shadow) {
 		mapping->nrexceptional += nr;
 		/*
@@ -259,9 +262,6 @@ void __delete_from_page_cache(struct page *page, void *shadow)
 					     inode_to_wb(mapping->host));
 	}
 	page_cache_tree_delete(mapping, page, shadow);
-
-	page->mapping = NULL;
-	/* Leave page->index set: truncation lookup relies upon it */
 }
 
 static void page_cache_free_page(struct address_space *mapping,
