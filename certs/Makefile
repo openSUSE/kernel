@@ -9,6 +9,11 @@ obj-$(CONFIG_SYSTEM_BLACKLIST_KEYRING) += blacklist_hashes.o
 else
 obj-$(CONFIG_SYSTEM_BLACKLIST_KEYRING) += blacklist_nohashes.o
 endif
+obj-$(CONFIG_EFI_SIGNATURE_LIST_PARSER) += efi_parser.o
+
+obj-$(CONFIG_LOAD_UEFI_KEYS) += load_uefi.o
+$(obj)/load_uefi.o: KBUILD_CFLAGS += -fshort-wchar
+
 
 ifeq ($(CONFIG_SYSTEM_TRUSTED_KEYRING),y)
 
