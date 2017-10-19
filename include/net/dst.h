@@ -51,13 +51,11 @@ struct dst_entry {
 #define DST_HOST		0x0001
 #define DST_NOXFRM		0x0002
 #define DST_NOPOLICY		0x0004
-#define DST_NOHASH		0x0008
-#define DST_NOCACHE		0x0010
-#define DST_NOCOUNT		0x0020
-#define DST_FAKE_RTABLE		0x0040
-#define DST_XFRM_TUNNEL		0x0080
-#define DST_XFRM_QUEUE		0x0100
-#define DST_METADATA		0x0200
+#define DST_NOCOUNT		0x0008
+#define DST_FAKE_RTABLE		0x0010
+#define DST_XFRM_TUNNEL		0x0020
+#define DST_XFRM_QUEUE		0x0040
+#define DST_METADATA		0x0080
 
 	short			error;
 
@@ -253,7 +251,7 @@ static inline void dst_hold(struct dst_entry *dst)
 	 * __pad_to_align_refcnt declaration in struct dst_entry
 	 */
 	BUILD_BUG_ON(offsetof(struct dst_entry, __refcnt) & 63);
-	atomic_inc(&dst->__refcnt);
+	WARN_ON(atomic_inc_not_zero(&dst->__refcnt) == 0);
 }
 
 static inline void dst_use(struct dst_entry *dst, unsigned long time)
@@ -272,11 +270,13 @@ static inline void dst_use_noref(struct dst_entry *dst, unsigned long time)
 static inline struct dst_entry *dst_clone(struct dst_entry *dst)
 {
 	if (dst)
-		atomic_inc(&dst->__refcnt);
+		dst_hold(dst);
 	return dst;
 }
 
 void dst_release(struct dst_entry *dst);
+
+void dst_release_immediate(struct dst_entry *dst);
 
 static inline void refdst_drop(unsigned long refdst)
 {
@@ -311,21 +311,6 @@ static inline void skb_dst_copy(struct sk_buff *nskb, const struct sk_buff *oskb
 }
 
 /**
- * skb_dst_force - makes sure skb dst is refcounted
- * @skb: buffer
- *
- * If dst is not yet refcounted, let's do it
- */
-static inline void skb_dst_force(struct sk_buff *skb)
-{
-	if (skb_dst_is_noref(skb)) {
-		WARN_ON(!rcu_read_lock_held());
-		skb->_skb_refdst &= ~SKB_DST_NOREF;
-		dst_clone(skb_dst(skb));
-	}
-}
-
-/**
  * dst_hold_safe - Take a reference on a dst if possible
  * @dst: pointer to dst entry
  *
@@ -334,23 +319,21 @@ static inline void skb_dst_force(struct sk_buff *skb)
  */
 static inline bool dst_hold_safe(struct dst_entry *dst)
 {
-	if (dst->flags & DST_NOCACHE)
-		return atomic_inc_not_zero(&dst->__refcnt);
-	dst_hold(dst);
-	return true;
+	return atomic_inc_not_zero(&dst->__refcnt);
 }
 
 /**
- * skb_dst_force_safe - makes sure skb dst is refcounted
+ * skb_dst_force - makes sure skb dst is refcounted
  * @skb: buffer
  *
  * If dst is not yet refcounted and not destroyed, grab a ref on it.
  */
-static inline void skb_dst_force_safe(struct sk_buff *skb)
+static inline void skb_dst_force(struct sk_buff *skb)
 {
 	if (skb_dst_is_noref(skb)) {
 		struct dst_entry *dst = skb_dst(skb);
 
+		WARN_ON(!rcu_read_lock_held());
 		if (!dst_hold_safe(dst))
 			dst = NULL;
 
@@ -423,26 +406,8 @@ void *dst_alloc(struct dst_ops *ops, struct net_device *dev, int initial_ref,
 void dst_init(struct dst_entry *dst, struct dst_ops *ops,
 	      struct net_device *dev, int initial_ref, int initial_obsolete,
 	      unsigned short flags);
-void __dst_free(struct dst_entry *dst);
 struct dst_entry *dst_destroy(struct dst_entry *dst);
-
-static inline void dst_free(struct dst_entry *dst)
-{
-	if (dst->obsolete > 0)
-		return;
-	if (!atomic_read(&dst->__refcnt)) {
-		dst = dst_destroy(dst);
-		if (!dst)
-			return;
-	}
-	__dst_free(dst);
-}
-
-static inline void dst_rcu_free(struct rcu_head *head)
-{
-	struct dst_entry *dst = container_of(head, struct dst_entry, rcu_head);
-	dst_free(dst);
-}
+void dst_dev_put(struct dst_entry *dst);
 
 static inline void dst_confirm(struct dst_entry *dst)
 {
@@ -504,8 +469,6 @@ static inline struct dst_entry *dst_check(struct dst_entry *dst, u32 cookie)
 		dst = dst->ops->check(dst, cookie);
 	return dst;
 }
-
-void dst_subsys_init(void);
 
 /* Flags for xfrm_lookup flags argument. */
 enum {

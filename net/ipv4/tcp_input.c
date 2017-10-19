@@ -112,6 +112,7 @@ int sysctl_tcp_invalid_ratelimit __read_mostly = HZ/2;
 #define FLAG_DSACKING_ACK	0x800 /* SACK blocks contained D-SACK info */
 #define FLAG_SACK_RENEGING	0x2000 /* snd_una advanced to a sacked seq */
 #define FLAG_UPDATE_TS_RECENT	0x4000 /* tcp_replace_ts_recent() */
+#define FLAG_NO_CHALLENGE_ACK	0x8000 /* do not call tcp_send_challenge_ack()	*/
 
 #define FLAG_ACKED		(FLAG_DATA_ACKED|FLAG_SYN_ACKED)
 #define FLAG_NOT_DUP		(FLAG_DATA|FLAG_WIN_UPDATE|FLAG_ACKED)
@@ -3564,7 +3565,8 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 	if (before(ack, prior_snd_una)) {
 		/* RFC 5961 5.2 [Blind Data Injection Attack].[Mitigation] */
 		if (before(ack, prior_snd_una - tp->max_window)) {
-			tcp_send_challenge_ack(sk, skb);
+			if (!(flag & FLAG_NO_CHALLENGE_ACK))
+				tcp_send_challenge_ack(sk, skb);
 			return -1;
 		}
 		goto old_ack;
@@ -4584,8 +4586,8 @@ err:
 static void tcp_data_queue(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-	bool fragstolen = false;
-	int eaten = -1;
+	bool fragstolen;
+	int eaten;
 
 	if (TCP_SKB_CB(skb)->seq == TCP_SKB_CB(skb)->end_seq) {
 		__kfree_skb(skb);
@@ -4607,32 +4609,13 @@ static void tcp_data_queue(struct sock *sk, struct sk_buff *skb)
 			goto out_of_window;
 
 		/* Ok. In sequence. In window. */
-		if (tp->ucopy.task == current &&
-		    tp->copied_seq == tp->rcv_nxt && tp->ucopy.len &&
-		    sock_owned_by_user(sk) && !tp->urg_data) {
-			int chunk = min_t(unsigned int, skb->len,
-					  tp->ucopy.len);
-
-			__set_current_state(TASK_RUNNING);
-
-			if (!skb_copy_datagram_msg(skb, 0, tp->ucopy.msg, chunk)) {
-				tp->ucopy.len -= chunk;
-				tp->copied_seq += chunk;
-				eaten = (chunk == skb->len);
-				tcp_rcv_space_adjust(sk);
-			}
-		}
-
-		if (eaten <= 0) {
 queue_and_out:
-			if (eaten < 0) {
-				if (skb_queue_len(&sk->sk_receive_queue) == 0)
-					sk_forced_mem_schedule(sk, skb->truesize);
-				else if (tcp_try_rmem_schedule(sk, skb, skb->truesize))
-					goto drop;
-			}
-			eaten = tcp_queue_rcv(sk, skb, 0, &fragstolen);
-		}
+		if (skb_queue_len(&sk->sk_receive_queue) == 0)
+			sk_forced_mem_schedule(sk, skb->truesize);
+		else if (tcp_try_rmem_schedule(sk, skb, skb->truesize))
+			goto drop;
+
+		eaten = tcp_queue_rcv(sk, skb, 0, &fragstolen);
 		tcp_rcv_nxt_update(tp, TCP_SKB_CB(skb)->end_seq);
 		if (skb->len)
 			tcp_event_data_recv(sk, skb);
@@ -5182,26 +5165,6 @@ static void tcp_urg(struct sock *sk, struct sk_buff *skb, const struct tcphdr *t
 	}
 }
 
-static int tcp_copy_to_iovec(struct sock *sk, struct sk_buff *skb, int hlen)
-{
-	struct tcp_sock *tp = tcp_sk(sk);
-	int chunk = skb->len - hlen;
-	int err;
-
-	if (skb_csum_unnecessary(skb))
-		err = skb_copy_datagram_msg(skb, hlen, tp->ucopy.msg, chunk);
-	else
-		err = skb_copy_and_csum_datagram_msg(skb, hlen, tp->ucopy.msg);
-
-	if (!err) {
-		tp->ucopy.len -= chunk;
-		tp->copied_seq += chunk;
-		tcp_rcv_space_adjust(sk);
-	}
-
-	return err;
-}
-
 /* Accept RST for rcv_nxt - 1 after a FIN.
  * When tcp connections are abruptly terminated from Mac OSX (via ^C), a
  * FIN is sent followed by a RST packet. The RST is sent with the same
@@ -5441,56 +5404,28 @@ void tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 			int eaten = 0;
 			bool fragstolen = false;
 
-			if (tp->ucopy.task == current &&
-			    tp->copied_seq == tp->rcv_nxt &&
-			    len - tcp_header_len <= tp->ucopy.len &&
-			    sock_owned_by_user(sk)) {
-				__set_current_state(TASK_RUNNING);
+			if (tcp_checksum_complete(skb))
+				goto csum_error;
 
-				if (!tcp_copy_to_iovec(sk, skb, tcp_header_len)) {
-					/* Predicted packet is in window by definition.
-					 * seq == rcv_nxt and rcv_wup <= rcv_nxt.
-					 * Hence, check seq<=rcv_wup reduces to:
-					 */
-					if (tcp_header_len ==
-					    (sizeof(struct tcphdr) +
-					     TCPOLEN_TSTAMP_ALIGNED) &&
-					    tp->rcv_nxt == tp->rcv_wup)
-						tcp_store_ts_recent(tp);
+			if ((int)skb->truesize > sk->sk_forward_alloc)
+				goto step5;
 
-					tcp_rcv_rtt_measure_ts(sk, skb);
+			/* Predicted packet is in window by definition.
+			 * seq == rcv_nxt and rcv_wup <= rcv_nxt.
+			 * Hence, check seq<=rcv_wup reduces to:
+			 */
+			if (tcp_header_len ==
+			    (sizeof(struct tcphdr) + TCPOLEN_TSTAMP_ALIGNED) &&
+			    tp->rcv_nxt == tp->rcv_wup)
+				tcp_store_ts_recent(tp);
 
-					__skb_pull(skb, tcp_header_len);
-					tcp_rcv_nxt_update(tp, TCP_SKB_CB(skb)->end_seq);
-					NET_INC_STATS(sock_net(sk),
-							LINUX_MIB_TCPHPHITSTOUSER);
-					eaten = 1;
-				}
-			}
-			if (!eaten) {
-				if (tcp_checksum_complete(skb))
-					goto csum_error;
+			tcp_rcv_rtt_measure_ts(sk, skb);
 
-				if ((int)skb->truesize > sk->sk_forward_alloc)
-					goto step5;
+			NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPHPHITS);
 
-				/* Predicted packet is in window by definition.
-				 * seq == rcv_nxt and rcv_wup <= rcv_nxt.
-				 * Hence, check seq<=rcv_wup reduces to:
-				 */
-				if (tcp_header_len ==
-				    (sizeof(struct tcphdr) + TCPOLEN_TSTAMP_ALIGNED) &&
-				    tp->rcv_nxt == tp->rcv_wup)
-					tcp_store_ts_recent(tp);
-
-				tcp_rcv_rtt_measure_ts(sk, skb);
-
-				NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPHPHITS);
-
-				/* Bulk data transfer: receiver */
-				eaten = tcp_queue_rcv(sk, skb, tcp_header_len,
-						      &fragstolen);
-			}
+			/* Bulk data transfer: receiver */
+			eaten = tcp_queue_rcv(sk, skb, tcp_header_len,
+					      &fragstolen);
 
 			tcp_event_data_recv(sk, skb);
 
@@ -5950,13 +5885,17 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 
 	/* step 5: check the ACK field */
 	acceptable = tcp_ack(sk, skb, FLAG_SLOWPATH |
-				      FLAG_UPDATE_TS_RECENT) > 0;
+				      FLAG_UPDATE_TS_RECENT |
+				      FLAG_NO_CHALLENGE_ACK) > 0;
 
+	if (!acceptable) {
+		if (sk->sk_state == TCP_SYN_RECV)
+			return 1;	/* send one RST */
+		tcp_send_challenge_ack(sk, skb);
+		goto discard;
+	}
 	switch (sk->sk_state) {
 	case TCP_SYN_RECV:
-		if (!acceptable)
-			return 1;
-
 		if (!tp->srtt_us)
 			tcp_synack_rtt_meas(sk, req);
 
@@ -6025,14 +5964,6 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		 * our SYNACK so stop the SYNACK timer.
 		 */
 		if (req) {
-			/* Return RST if ack_seq is invalid.
-			 * Note that RFC793 only says to generate a
-			 * DUPACK for it but for TCP Fast Open it seems
-			 * better to treat this case like TCP_SYN_RECV
-			 * above.
-			 */
-			if (!acceptable)
-				return 1;
 			/* We no longer need the request sock. */
 			reqsk_fastopen_remove(sk, req, false);
 			tcp_rearm_rto(sk);
