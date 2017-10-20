@@ -251,18 +251,18 @@ struct mm_struct *mm, unsigned long start, unsigned long end)
 		flush->flags |= HV_FLUSH_NON_GLOBAL_MAPPINGS_ONLY;
 		status = hv_do_rep_hypercall(
 			HVCALL_FLUSH_VIRTUAL_ADDRESS_SPACE_EX,
-			0, nr_bank + 2, flush, NULL);
+			0, nr_bank, flush, NULL);
 	} else if (end &&
 		   ((end - start)/HV_TLB_FLUSH_UNIT) > max_gvas) {
 		status = hv_do_rep_hypercall(
 			HVCALL_FLUSH_VIRTUAL_ADDRESS_SPACE_EX,
-			0, nr_bank + 2, flush, NULL);
+			0, nr_bank, flush, NULL);
 	} else {
 		gva_n = fill_gva_list(flush->gva_list, nr_bank,
 				      start, end);
 		status = hv_do_rep_hypercall(
 			HVCALL_FLUSH_VIRTUAL_ADDRESS_LIST_EX,
-			gva_n, nr_bank + 2, flush, NULL);
+			gva_n, nr_bank, flush, NULL);
 	}
 
 	local_irq_restore(flags);
