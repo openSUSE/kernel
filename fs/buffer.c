@@ -1684,7 +1684,7 @@ void clean_bdev_aliases(struct block_device *bdev, sector_t block, sector_t len)
 		return;
 	}
 	end = (block + len - 1) >> (PAGE_SHIFT - bd_inode->i_blkbits);
-	pagevec_init(&pvec, 0);
+	pagevec_init(&pvec);
 	while (index <= end && pagevec_lookup(&pvec, bd_mapping, index,
 			min(end - index, (pgoff_t)PAGEVEC_SIZE - 1) + 1)) {
 		for (i = 0; i < pagevec_count(&pvec); i++) {

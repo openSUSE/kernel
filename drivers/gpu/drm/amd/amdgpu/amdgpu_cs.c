@@ -569,8 +569,7 @@ static int amdgpu_cs_parser_bos(struct amdgpu_cs_parser *p,
 				 * invalidated it. Free it an try again
 				 */
 				release_pages(e->user_pages,
-					      e->robj->tbo.ttm->num_pages,
-					      false);
+					      e->robj->tbo.ttm->num_pages);
 				drm_free_large(e->user_pages);
 				e->user_pages = NULL;
 			}
@@ -706,8 +705,7 @@ error_free_pages:
 				continue;
 
 			release_pages(e->user_pages,
-				      e->robj->tbo.ttm->num_pages,
-				      false);
+				      e->robj->tbo.ttm->num_pages);
 			drm_free_large(e->user_pages);
 		}
 	}

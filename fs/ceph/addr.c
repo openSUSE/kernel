@@ -644,7 +644,7 @@ static void ceph_release_pages(struct page **pages, int num)
 	struct pagevec pvec;
 	int i;
 
-	pagevec_init(&pvec, 0);
+	pagevec_init(&pvec);
 	for (i = 0; i < num; i++) {
 		if (pagevec_add(&pvec, pages[i]) == 0)
 			pagevec_release(&pvec);
@@ -792,7 +792,7 @@ static int ceph_writepages_start(struct address_space *mapping,
 		wsize = PAGE_SIZE;
 	max_pages_ever = wsize >> PAGE_SHIFT;
 
-	pagevec_init(&pvec, 0);
+	pagevec_init(&pvec);
 
 	/* where to start/end? */
 	if (wbc->range_cyclic) {

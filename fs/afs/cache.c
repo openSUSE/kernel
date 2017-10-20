@@ -377,7 +377,7 @@ static void afs_vnode_cache_now_uncached(void *cookie_netfs_data)
 	_enter("{%x,%x,%Lx}",
 	       vnode->fid.vnode, vnode->fid.unique, vnode->status.data_version);
 
-	pagevec_init(&pvec, 0);
+	pagevec_init(&pvec);
 	first = 0;
 
 	for (;;) {

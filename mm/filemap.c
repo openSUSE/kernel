@@ -35,6 +35,7 @@
 #include <linux/hugetlb.h>
 #include <linux/memcontrol.h>
 #include <linux/cleancache.h>
+#include <linux/shmem_fs.h>
 #include <linux/rmap.h>
 #include "internal.h"
 
@@ -143,7 +144,7 @@ static int page_cache_tree_insert(struct address_space *mapping,
 		}
 	}
 	__radix_tree_replace(&mapping->page_tree, node, slot, page,
-			     workingset_update_node, mapping);
+			     workingset_lookup_update(mapping));
 	mapping->nrpages++;
 	return 0;
 }
@@ -171,7 +172,7 @@ static void page_cache_tree_delete(struct address_space *mapping,
 
 		radix_tree_clear_tags(&mapping->page_tree, node, slot);
 		__radix_tree_replace(&mapping->page_tree, node, slot, shadow,
-				     workingset_update_node, mapping);
+				workingset_lookup_update(mapping));
 	}
 
 	page->mapping = NULL;
@@ -368,7 +369,7 @@ page_cache_tree_delete_batch(struct address_space *mapping,
 		}
 		radix_tree_clear_tags(&mapping->page_tree, iter.node, slot);
 		__radix_tree_replace(&mapping->page_tree, iter.node, slot, NULL,
-				     workingset_update_node, mapping);
+				workingset_lookup_update(mapping));
 		total_pages++;
 	}
 	mapping->nrpages -= total_pages;
@@ -500,7 +501,7 @@ bool filemap_range_has_page(struct address_space *mapping,
 	if (mapping->nrpages == 0)
 		return false;
 
-	pagevec_init(&pvec, 0);
+	pagevec_init(&pvec);
 	if (!pagevec_lookup(&pvec, mapping, index, 1))
 		return false;
 	ret = (pvec.pages[0]->index <= end);
@@ -521,7 +522,7 @@ static int __filemap_fdatawait_range(struct address_space *mapping,
 	if (end_byte < start_byte)
 		goto out;
 
-	pagevec_init(&pvec, 0);
+	pagevec_init(&pvec);
 	while ((index <= end) &&
 			(nr_pages = pagevec_lookup_tag(&pvec, mapping, &index,
 			PAGECACHE_TAG_WRITEBACK,
@@ -2141,7 +2142,7 @@ no_cached_page:
 		 * Ok, it wasn't cached, so we need to create a new
 		 * page..
 		 */
-		page = page_cache_alloc_cold(mapping);
+		page = page_cache_alloc(mapping);
 		if (!page) {
 			error = -ENOMEM;
 			goto out;
@@ -2251,7 +2252,7 @@ static int page_cache_read(struct file *file, pgoff_t offset, gfp_t gfp_mask)
 	int ret;
 
 	do {
-		page = __page_cache_alloc(gfp_mask|__GFP_COLD);
+		page = __page_cache_alloc(gfp_mask);
 		if (!page)
 			return -ENOMEM;
 
@@ -2655,7 +2656,7 @@ static struct page *do_read_cache_page(struct address_space *mapping,
 repeat:
 	page = find_get_page(mapping, index);
 	if (!page) {
-		page = __page_cache_alloc(gfp | __GFP_COLD);
+		page = __page_cache_alloc(gfp);
 		if (!page)
 			return ERR_PTR(-ENOMEM);
 		err = add_to_page_cache_lru(page, mapping, index, gfp);
