@@ -1268,6 +1268,8 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 
 		nvchan->channel = device->channel;
 		nvchan->net_device = net_device;
+		u64_stats_init(&nvchan->tx_stats.syncp);
+		u64_stats_init(&nvchan->rx_stats.syncp);
 	}
 
 	/* Enable NAPI handler before init callbacks */
