@@ -36,6 +36,7 @@ struct bpf_map_ops {
 				int fd);
 	void (*map_fd_put_ptr)(void *ptr);
 	u32 (*map_gen_lookup)(struct bpf_map *map, struct bpf_insn *insn_buf);
+	u32 (*map_fd_sys_lookup_elem)(void *ptr);
 };
 
 struct bpf_map {
@@ -46,6 +47,7 @@ struct bpf_map {
 	u32 max_entries;
 	u32 map_flags;
 	u32 pages;
+	u32 id;
 	struct user_struct *user;
 	const struct bpf_map_ops *ops;
 	struct work_struct work;
@@ -115,38 +117,37 @@ enum bpf_access_type {
 };
 
 /* types of values stored in eBPF registers */
+/* Pointer types represent:
+ * pointer
+ * pointer + imm
+ * pointer + (u16) var
+ * pointer + (u16) var + imm
+ * if (range > 0) then [ptr, ptr + range - off) is safe to access
+ * if (id > 0) means that some 'var' was added
+ * if (off > 0) means that 'imm' was added
+ */
 enum bpf_reg_type {
 	NOT_INIT = 0,		 /* nothing was written into register */
-	UNKNOWN_VALUE,		 /* reg doesn't contain a valid pointer */
+	SCALAR_VALUE,		 /* reg doesn't contain a valid pointer */
 	PTR_TO_CTX,		 /* reg points to bpf_context */
 	CONST_PTR_TO_MAP,	 /* reg points to struct bpf_map */
 	PTR_TO_MAP_VALUE,	 /* reg points to map element value */
 	PTR_TO_MAP_VALUE_OR_NULL,/* points to map elem value or NULL */
-	FRAME_PTR,		 /* reg == frame_pointer */
-	PTR_TO_STACK,		 /* reg == frame_pointer + imm */
-	CONST_IMM,		 /* constant integer value */
-
-	/* PTR_TO_PACKET represents:
-	 * skb->data
-	 * skb->data + imm
-	 * skb->data + (u16) var
-	 * skb->data + (u16) var + imm
-	 * if (range > 0) then [ptr, ptr + range - off) is safe to access
-	 * if (id > 0) means that some 'var' was added
-	 * if (off > 0) menas that 'imm' was added
-	 */
-	PTR_TO_PACKET,
+	PTR_TO_STACK,		 /* reg == frame_pointer + offset */
+	PTR_TO_PACKET,		 /* reg points to skb->data */
 	PTR_TO_PACKET_END,	 /* skb->data + headlen */
-
-	/* PTR_TO_MAP_VALUE_ADJ is used for doing pointer math inside of a map
-	 * elem value.  We only allow this if we can statically verify that
-	 * access from this register are going to fall within the size of the
-	 * map element.
-	 */
-	PTR_TO_MAP_VALUE_ADJ,
 };
 
 struct bpf_prog;
+
+/* The information passed from prog-specific *_is_valid_access
+ * back to the verifier.
+ */
+struct bpf_insn_access_aux {
+	enum bpf_reg_type reg_type;
+	int ctx_field_size;
+	int converted_op_size;
+};
 
 struct bpf_verifier_ops {
 	/* return eBPF function prototype for verification */
@@ -156,7 +157,7 @@ struct bpf_verifier_ops {
 	 * with 'type' (read or write) is allowed
 	 */
 	bool (*is_valid_access)(int off, int size, enum bpf_access_type type,
-				enum bpf_reg_type *reg_type, int *ctx_field_size);
+				struct bpf_insn_access_aux *info);
 	int (*gen_prologue)(struct bpf_insn *insn, bool direct_write,
 			    const struct bpf_prog *prog);
 	u32 (*convert_ctx_access)(enum bpf_access_type type,
@@ -246,6 +247,7 @@ struct bpf_prog *bpf_prog_get_type(u32 ufd, enum bpf_prog_type type);
 struct bpf_prog * __must_check bpf_prog_add(struct bpf_prog *prog, int i);
 void bpf_prog_sub(struct bpf_prog *prog, int i);
 struct bpf_prog * __must_check bpf_prog_inc(struct bpf_prog *prog);
+struct bpf_prog * __must_check bpf_prog_inc_not_zero(struct bpf_prog *prog);
 void bpf_prog_put(struct bpf_prog *prog);
 int __bpf_prog_charge(struct user_struct *user, u32 pages);
 void __bpf_prog_uncharge(struct user_struct *user, u32 pages);
@@ -278,9 +280,11 @@ int bpf_stackmap_copy(struct bpf_map *map, void *key, void *value);
 
 int bpf_fd_array_map_update_elem(struct bpf_map *map, struct file *map_file,
 				 void *key, void *value, u64 map_flags);
+int bpf_fd_array_map_lookup_elem(struct bpf_map *map, void *key, u32 *value);
 void bpf_fd_array_map_clear(struct bpf_map *map);
 int bpf_fd_htab_map_update_elem(struct bpf_map *map, struct file *map_file,
 				void *key, void *value, u64 map_flags);
+int bpf_fd_htab_map_lookup_elem(struct bpf_map *map, void *key, u32 *value);
 
 /* memcpy that is used with 8-byte aligned pointers, power-of-8 size and
  * forced to use 'long' read/writes to try to atomically copy long counters.
@@ -326,6 +330,12 @@ static inline void bpf_prog_put(struct bpf_prog *prog)
 }
 
 static inline struct bpf_prog * __must_check bpf_prog_inc(struct bpf_prog *prog)
+{
+	return ERR_PTR(-EOPNOTSUPP);
+}
+
+static inline struct bpf_prog *__must_check
+bpf_prog_inc_not_zero(struct bpf_prog *prog)
 {
 	return ERR_PTR(-EOPNOTSUPP);
 }
