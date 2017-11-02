@@ -3700,8 +3700,9 @@ skl_allocate_pipe_ddb(struct intel_crtc_state *cstate,
  * should allow pixel_rate up to ~2 GHz which seems sufficient since max
  * 2xcdclk is 1350 MHz and the pixel rate should never exceed that.
 */
-static uint_fixed_16_16_t skl_wm_method1(uint32_t pixel_rate, uint8_t cpp,
-					 uint32_t latency)
+static uint_fixed_16_16_t
+skl_wm_method1(const struct drm_i915_private *dev_priv, uint32_t pixel_rate,
+	       uint8_t cpp, uint32_t latency)
 {
 	uint32_t wm_intermediate_val;
 	uint_fixed_16_16_t ret;
@@ -3711,6 +3712,10 @@ static uint_fixed_16_16_t skl_wm_method1(uint32_t pixel_rate, uint8_t cpp,
 
 	wm_intermediate_val = latency * pixel_rate * cpp;
 	ret = fixed_16_16_div_round_up_u64(wm_intermediate_val, 1000 * 512);
+
+	if (INTEL_GEN(dev_priv) >= 10)
+		ret = add_fixed16_u32(ret, 1);
+
 	return ret;
 }
 
@@ -3849,9 +3854,13 @@ static int skl_compute_plane_wm(const struct drm_i915_private *dev_priv,
 	if (y_tiled) {
 		interm_pbpl = DIV_ROUND_UP(plane_bytes_per_line *
 					   y_min_scanlines, 512);
+
+		if (INTEL_GEN(dev_priv) >= 10)
+			interm_pbpl++;
+
 		plane_blocks_per_line =
 		      fixed_16_16_div_round_up(interm_pbpl, y_min_scanlines);
-	} else if (x_tiled) {
+	} else if (x_tiled && INTEL_GEN(dev_priv) == 9) {
 		interm_pbpl = DIV_ROUND_UP(plane_bytes_per_line, 512);
 		plane_blocks_per_line = u32_to_fixed_16_16(interm_pbpl);
 	} else {
@@ -3859,7 +3868,7 @@ static int skl_compute_plane_wm(const struct drm_i915_private *dev_priv,
 		plane_blocks_per_line = u32_to_fixed_16_16(interm_pbpl);
 	}
 
-	method1 = skl_wm_method1(plane_pixel_rate, cpp, latency);
+	method1 = skl_wm_method1(dev_priv, plane_pixel_rate, cpp, latency);
 	method2 = skl_wm_method2(plane_pixel_rate,
 				 cstate->base.adjusted_mode.crtc_htotal,
 				 latency,
