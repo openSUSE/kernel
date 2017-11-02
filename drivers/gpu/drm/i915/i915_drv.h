@@ -1211,8 +1211,8 @@ enum intel_pch {
 	PCH_CPT,	/* Cougarpoint PCH */
 	PCH_LPT,	/* Lynxpoint PCH */
 	PCH_SPT,        /* Sunrisepoint PCH */
-	PCH_KBP,        /* Kabypoint PCH */
-	PCH_CNP,        /* Cannonpoint PCH */
+	PCH_KBP,        /* Kaby Lake PCH */
+	PCH_CNP,        /* Cannon Lake PCH */
 	PCH_NOP,
 };
 
