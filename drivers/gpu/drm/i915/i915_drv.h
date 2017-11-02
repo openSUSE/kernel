@@ -152,6 +152,14 @@ static inline uint_fixed_16_16_t max_fixed_16_16(uint_fixed_16_16_t max1,
 	return max;
 }
 
+static inline uint_fixed_16_16_t clamp_u64_to_fixed16(uint64_t val)
+{
+	uint_fixed_16_16_t fp;
+	WARN_ON(val >> 32);
+	fp.val = clamp_t(uint32_t, val, 0, ~0);
+	return fp;
+}
+
 static inline uint_fixed_16_16_t fixed_16_16_div_round_up(uint32_t val,
 							  uint32_t d)
 {
@@ -186,6 +194,25 @@ static inline uint_fixed_16_16_t mul_u32_fixed_16_16(uint32_t val,
 	WARN_ON(intermediate_val >> 32);
 	fp.val = (uint32_t) intermediate_val;
 	return fp;
+}
+
+static inline uint_fixed_16_16_t add_fixed16(uint_fixed_16_16_t add1,
+					     uint_fixed_16_16_t add2)
+{
+	uint64_t interm_sum;
+
+	interm_sum = (uint64_t) add1.val + add2.val;
+	return clamp_u64_to_fixed16(interm_sum);
+}
+
+static inline uint_fixed_16_16_t add_fixed16_u32(uint_fixed_16_16_t add1,
+						 uint32_t add2)
+{
+	uint64_t interm_sum;
+	uint_fixed_16_16_t interm_add2 = u32_to_fixed_16_16(add2);
+
+	interm_sum = (uint64_t) add1.val + interm_add2.val;
+	return clamp_u64_to_fixed16(interm_sum);
 }
 
 static inline const char *yesno(bool v)
