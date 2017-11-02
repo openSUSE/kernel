@@ -505,7 +505,6 @@ static void hsw_set_power_well(struct drm_i915_private *dev_priv,
 	BIT_ULL(POWER_DOMAIN_PORT_DDI_B_LANES) |		\
 	BIT_ULL(POWER_DOMAIN_PORT_DDI_C_LANES) |		\
 	BIT_ULL(POWER_DOMAIN_PORT_DDI_D_LANES) |		\
-	BIT_ULL(POWER_DOMAIN_PORT_DDI_E_LANES) |		\
 	BIT_ULL(POWER_DOMAIN_AUX_B) |                       \
 	BIT_ULL(POWER_DOMAIN_AUX_C) |			\
 	BIT_ULL(POWER_DOMAIN_AUX_D) |			\
@@ -514,7 +513,6 @@ static void hsw_set_power_well(struct drm_i915_private *dev_priv,
 	BIT_ULL(POWER_DOMAIN_INIT))
 #define CNL_DISPLAY_DDI_A_IO_POWER_DOMAINS (		\
 	BIT_ULL(POWER_DOMAIN_PORT_DDI_A_IO) |		\
-	BIT_ULL(POWER_DOMAIN_PORT_DDI_E_IO) |		\
 	BIT_ULL(POWER_DOMAIN_INIT))
 #define CNL_DISPLAY_DDI_B_IO_POWER_DOMAINS (		\
 	BIT_ULL(POWER_DOMAIN_PORT_DDI_B_IO) |		\
