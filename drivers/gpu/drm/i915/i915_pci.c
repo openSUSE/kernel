@@ -431,7 +431,6 @@ static const struct intel_device_info intel_kabylake_gt3_info = {
 };
 
 #define CFL_PLATFORM \
-	.is_alpha_support = 1, \
 	BDW_FEATURES, \
 	.gen = 9, \
 	.platform = INTEL_COFFEELAKE, \
