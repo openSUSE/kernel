@@ -2166,6 +2166,7 @@ enum skl_disp_power_wells {
 
 #define GAMT_CHKN_BIT_REG	_MMIO(0x4ab8)
 #define   GAMT_CHKN_DISABLE_DYNAMIC_CREDIT_SHARING	(1<<28)
+#define   GAMT_CHKN_DISABLE_I2M_CYCLE_ON_WR_PORT	(1<<24)
 
 #if 0
 #define PRB0_TAIL	_MMIO(0x2030)
