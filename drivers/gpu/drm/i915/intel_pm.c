@@ -3084,7 +3084,8 @@ static bool skl_needs_memory_bw_wa(struct intel_atomic_state *state)
 static bool
 intel_has_sagv(struct drm_i915_private *dev_priv)
 {
-	if (IS_KABYLAKE(dev_priv) || IS_COFFEELAKE(dev_priv))
+	if (IS_KABYLAKE(dev_priv) || IS_COFFEELAKE(dev_priv) ||
+	    IS_CANNONLAKE(dev_priv))
 		return true;
 
 	if (IS_SKYLAKE(dev_priv) &&
