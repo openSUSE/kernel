@@ -2766,7 +2766,8 @@ int test_clear_page_writeback(struct page *page)
 	 * page state that is static across allocation cycles.
 	 */
 	if (ret) {
-		dec_memcg_state(memcg, NR_WRITEBACK);
+		if (memcg)
+			dec_memcg_state(memcg, NR_WRITEBACK);
 		dec_node_page_state(page, NR_WRITEBACK);
 		dec_zone_page_state(page, NR_ZONE_WRITE_PENDING);
 		inc_node_page_state(page, NR_WRITTEN);
