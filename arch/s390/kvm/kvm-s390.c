@@ -1501,7 +1501,7 @@ static int kvm_s390_get_cmma_bits(struct kvm *kvm,
 		if (r < 0)
 			pgstev = 0;
 		/* save the value */
-		res[i++] = (pgstev >> 24) & 0x3;
+		res[i++] = (pgstev >> 24) & 0x43;
 		/*
 		 * if the next bit is too far away, stop.
 		 * if we reached the previous "next", find the next one
@@ -1579,7 +1579,7 @@ static int kvm_s390_set_cmma_bits(struct kvm *kvm,
 
 		pgstev = bits[i];
 		pgstev = pgstev << 24;
-		mask &= _PGSTE_GPS_USAGE_MASK;
+		mask &= _PGSTE_GPS_USAGE_MASK | _PGSTE_GPS_NODAT;
 		set_pgste_bits(kvm->mm, hva, mask, pgstev);
 	}
 	srcu_read_unlock(&kvm->srcu, srcu_idx);
@@ -1856,6 +1856,10 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 
 	set_kvm_facility(kvm->arch.model.fac_mask, 74);
 	set_kvm_facility(kvm->arch.model.fac_list, 74);
+	if (MACHINE_HAS_TLB_GUEST) {
+		set_kvm_facility(kvm->arch.model.fac_mask, 147);
+		set_kvm_facility(kvm->arch.model.fac_list, 147);
+	}
 
 	kvm->arch.model.cpuid = kvm_s390_get_initial_cpuid();
 	kvm->arch.model.ibc = sclp.ibc & 0x0fff;
