@@ -1506,7 +1506,10 @@ static const struct nla_policy ifla_policy[IFLA_MAX+1] = {
 	[IFLA_LINKINFO]		= { .type = NLA_NESTED },
 	[IFLA_NET_NS_PID]	= { .type = NLA_U32 },
 	[IFLA_NET_NS_FD]	= { .type = NLA_U32 },
-	[IFLA_IFALIAS]	        = { .type = NLA_STRING, .len = IFALIASZ-1 },
+	/* IFLA_IFALIAS is a string, but policy is set to NLA_BINARY to
+	 * allow 0-length string (needed to remove an alias).
+	 */
+	[IFLA_IFALIAS]	        = { .type = NLA_BINARY, .len = IFALIASZ - 1 },
 	[IFLA_VFINFO_LIST]	= {. type = NLA_NESTED },
 	[IFLA_VF_PORTS]		= { .type = NLA_NESTED },
 	[IFLA_PORT_SELF]	= { .type = NLA_NESTED },
@@ -3865,6 +3868,9 @@ static int rtnl_fill_statsinfo(struct sk_buff *skb, struct net_device *dev,
 		return -EMSGSIZE;
 
 	ifsm = nlmsg_data(nlh);
+	ifsm->family = PF_UNSPEC;
+	ifsm->pad1 = 0;
+	ifsm->pad2 = 0;
 	ifsm->ifindex = dev->ifindex;
 	ifsm->filter_mask = filter_mask;
 
