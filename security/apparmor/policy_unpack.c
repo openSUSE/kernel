@@ -281,7 +281,7 @@ static bool unpack_u16(struct aa_ext *e, u16 *data, const char *name)
 		if (!inbounds(e, sizeof(u16)))
 			return 0;
 		if (data)
-			*data = le16_to_cpu(get_unaligned((__le16 *) e->pos));
+			*data = le16_to_cpu(get_unaligned((u16 *) e->pos));
 		e->pos += sizeof(u16);
 		return 1;
 	}
@@ -597,13 +597,14 @@ static struct aa_profile *unpack_profile(struct aa_ext *e, char **ns_name)
 	struct aa_profile *profile = NULL;
 	const char *tmpname, *tmpns = NULL, *name = NULL;
 	const char *info = "failed to unpack profile";
-	size_t size = 0, ns_len;
+	size_t ns_len;
 	struct rhashtable_params params = { 0 };
 	char *key = NULL;
 	struct aa_data *data;
 	int i, error = -EPROTO;
 	kernel_cap_t tmpcap;
 	u32 tmp;
+	size_t size = 0;
 
 	*ns_name = NULL;
 
@@ -739,7 +740,6 @@ static struct aa_profile *unpack_profile(struct aa_ext *e, char **ns_name)
 			 */
 			if (i >= AF_MAX) {
 				u16 tmp;
-
 				if (!unpack_u16(e, &tmp, NULL) ||
 				    !unpack_u16(e, &tmp, NULL) ||
 				    !unpack_u16(e, &tmp, NULL))
@@ -756,11 +756,12 @@ static struct aa_profile *unpack_profile(struct aa_ext *e, char **ns_name)
 		if (!unpack_nameX(e, AA_ARRAYEND, NULL))
 			goto fail;
 	}
-	if (VERSION_LT(e->version, v7)) {
-		/* pre v7 policy always allowed these */
-		profile->net.allow[AF_UNIX] = 0xffff;
-		profile->net.allow[AF_NETLINK] = 0xffff;
-	}
+	/*
+	 * allow unix domain and netlink sockets they are handled
+	 * by IPC
+	 */
+	profile->net.allow[AF_UNIX] = 0xffff;
+	profile->net.allow[AF_NETLINK] = 0xffff;
 
 	if (unpack_nameX(e, AA_STRUCT, "policydb")) {
 		/* generic policy dfa - optional and may be NULL */
