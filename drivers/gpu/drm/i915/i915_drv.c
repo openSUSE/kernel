@@ -1869,9 +1869,15 @@ void i915_reset(struct drm_i915_private *dev_priv)
 
 	/*
 	 * Everything depends on having the GTT running, so we need to start
-	 * there.  Fortunately we don't need to do this unless we reset the
-	 * chip at a PCI level.
-	 *
+	 * there.
+	 */
+	ret = i915_ggtt_enable_hw(dev_priv);
+	if (ret) {
+		DRM_ERROR("Failed to re-enable GGTT following reset %d\n", ret);
+		goto error;
+	}
+
+	/*
 	 * Next we need to restore the context, but we don't use those
 	 * yet either...
 	 *
