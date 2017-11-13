@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_X86_UACCESS_H
 #define _ASM_X86_UACCESS_H
 /*
@@ -26,7 +27,12 @@
 
 #define get_ds()	(KERNEL_DS)
 #define get_fs()	(current->thread.addr_limit)
-#define set_fs(x)	(current->thread.addr_limit = (x))
+static inline void set_fs(mm_segment_t fs)
+{
+	current->thread.addr_limit = fs;
+	/* On user-mode return, check fs is correct */
+	set_thread_flag(TIF_FSCHECK);
+}
 
 #define segment_eq(a, b)	((a).seg == (b).seg)
 
@@ -332,7 +338,7 @@ do {									\
 		     _ASM_EXTABLE(1b, 4b)				\
 		     _ASM_EXTABLE(2b, 4b)				\
 		     : "=r" (retval), "=&A"(x)				\
-		     : "m" (__m(__ptr)), "m" __m(((u32 *)(__ptr)) + 1),	\
+		     : "m" (__m(__ptr)), "m" __m(((u32 __user *)(__ptr)) + 1),	\
 		       "i" (errret), "0" (retval));			\
 })
 

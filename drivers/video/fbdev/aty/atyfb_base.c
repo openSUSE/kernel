@@ -274,7 +274,7 @@ static struct fb_var_screeninfo default_var = {
 	0, FB_VMODE_NONINTERLACED
 };
 
-static struct fb_videomode defmode = {
+static const struct fb_videomode defmode = {
 	/* 640x480 @ 60 Hz, 31.5 kHz hsync */
 	NULL, 60, 640, 480, 39721, 40, 24, 32, 11, 96, 2,
 	0, FB_VMODE_NONINTERLACED
@@ -3756,7 +3756,7 @@ static void atyfb_pci_remove(struct pci_dev *pdev)
 	atyfb_remove(info);
 }
 
-static struct pci_device_id atyfb_pci_tbl[] = {
+static const struct pci_device_id atyfb_pci_tbl[] = {
 #ifdef CONFIG_FB_ATY_GX
 	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64GX) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_ATI, PCI_CHIP_MACH64CX) },

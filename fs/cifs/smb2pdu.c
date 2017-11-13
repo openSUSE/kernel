@@ -238,6 +238,18 @@ smb2_reconnect(__le16 smb2_command, struct cifs_tcon *tcon)
 	 * the same SMB session
 	 */
 	mutex_lock(&tcon->ses->session_mutex);
+
+	/*
+	 * Recheck after acquire mutex. If another thread is negotiating
+	 * and the server never sends an answer the socket will be closed
+	 * and tcpStatus set to reconnect.
+	 */
+	if (server->tcpStatus == CifsNeedReconnect) {
+		rc = -EHOSTDOWN;
+		mutex_unlock(&tcon->ses->session_mutex);
+		goto out;
+	}
+
 	rc = cifs_negotiate_protocol(0, tcon->ses);
 	if (!rc && tcon->ses->need_reconnect)
 		rc = cifs_setup_session(0, tcon->ses, nls_codepage);
@@ -636,7 +648,7 @@ int smb3_validate_negotiate(const unsigned int xid, struct cifs_tcon *tcon)
 {
 	int rc = 0;
 	struct validate_negotiate_info_req vneg_inbuf;
-	struct validate_negotiate_info_rsp *pneg_rsp;
+	struct validate_negotiate_info_rsp *pneg_rsp = NULL;
 	u32 rsplen;
 	u32 inbuflen; /* max of 4 dialects */
 
@@ -715,8 +727,9 @@ int smb3_validate_negotiate(const unsigned int xid, struct cifs_tcon *tcon)
 			 rsplen);
 
 		/* relax check since Mac returns max bufsize allowed on ioctl */
-		if (rsplen > CIFSMaxBufSize)
-			return -EIO;
+		if ((rsplen > CIFSMaxBufSize)
+		     || (rsplen < sizeof(struct validate_negotiate_info_rsp)))
+			goto err_rsp_free;
 	}
 
 	/* check validate negotiate info response matches what we got earlier */
@@ -735,10 +748,13 @@ int smb3_validate_negotiate(const unsigned int xid, struct cifs_tcon *tcon)
 
 	/* validate negotiate successful */
 	cifs_dbg(FYI, "validate negotiate info successful\n");
+	kfree(pneg_rsp);
 	return 0;
 
 vneg_out:
 	cifs_dbg(VFS, "protocol revalidation - security settings mismatch\n");
+err_rsp_free:
+	kfree(pneg_rsp);
 	return -EIO;
 }
 
@@ -2182,9 +2198,13 @@ query_info(const unsigned int xid, struct cifs_tcon *tcon,
 	req->PersistentFileId = persistent_fid;
 	req->VolatileFileId = volatile_fid;
 	req->AdditionalInformation = cpu_to_le32(additional_info);
-	/* 4 for rfc1002 length field and 1 for Buffer */
-	req->InputBufferOffset =
-		cpu_to_le16(sizeof(struct smb2_query_info_req) - 1 - 4);
+
+	/*
+	 * We do not use the input buffer (do not send extra byte)
+	 */
+	req->InputBufferOffset = 0;
+	inc_rfc1001_len(req, -1);
+
 	req->OutputBufferLength = cpu_to_le32(output_len);
 
 	iov[0].iov_base = (char *)req;
@@ -2221,6 +2241,18 @@ query_info(const unsigned int xid, struct cifs_tcon *tcon,
 qinf_exit:
 	free_rsp_buf(resp_buftype, rsp);
 	return rc;
+}
+
+int SMB2_query_eas(const unsigned int xid, struct cifs_tcon *tcon,
+		   u64 persistent_fid, u64 volatile_fid,
+		   int ea_buf_size, struct smb2_file_full_ea_info *data)
+{
+	return query_info(xid, tcon, persistent_fid, volatile_fid,
+			  FILE_FULL_EA_INFORMATION, SMB2_O_INFO_FILE, 0,
+			  ea_buf_size,
+			  sizeof(struct smb2_file_full_ea_info),
+			  (void **)&data,
+			  NULL);
 }
 
 int SMB2_query_info(const unsigned int xid, struct cifs_tcon *tcon,
@@ -3260,6 +3292,16 @@ SMB2_set_acl(const unsigned int xid, struct cifs_tcon *tcon,
 	return send_set_info(xid, tcon, persistent_fid, volatile_fid,
 			current->tgid, 0, SMB2_O_INFO_SECURITY, aclflag,
 			1, (void **)&pnntsd, &pacllen);
+}
+
+int
+SMB2_set_ea(const unsigned int xid, struct cifs_tcon *tcon,
+	    u64 persistent_fid, u64 volatile_fid,
+	    struct smb2_file_full_ea_info *buf, int len)
+{
+	return send_set_info(xid, tcon, persistent_fid, volatile_fid,
+		current->tgid, FILE_FULL_EA_INFORMATION, SMB2_O_INFO_FILE,
+		0, 1, (void **)&buf, &len);
 }
 
 int

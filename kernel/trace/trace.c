@@ -1702,6 +1702,9 @@ void tracing_reset_all_online_cpus(void)
 	struct trace_array *tr;
 
 	list_for_each_entry(tr, &ftrace_trace_arrays, list) {
+		if (!tr->clear_trace)
+			continue;
+		tr->clear_trace = false;
 		tracing_reset_online_cpus(&tr->trace_buffer);
 #ifdef CONFIG_TRACER_MAX_TRACE
 		tracing_reset_online_cpus(&tr->max_buffer);
@@ -5360,6 +5363,13 @@ static int tracing_set_tracer(struct trace_array *tr, const char *buf)
 	}
 	if (t == tr->current_trace)
 		goto out;
+
+	/* Some tracers won't work on kernel command line */
+	if (system_state < SYSTEM_RUNNING && t->noboot) {
+		pr_warn("Tracer '%s' is not allowed on command line, ignored\n",
+			t->name);
+		goto out;
+	}
 
 	/* Some tracers are only allowed for the top level buffer */
 	if (!trace_ok_for_array(t, tr)) {

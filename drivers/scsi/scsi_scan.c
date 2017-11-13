@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * scsi_scan.c
  *
@@ -268,7 +269,7 @@ static struct scsi_device *scsi_alloc_sdev(struct scsi_target *starget,
 	if (shost_use_blk_mq(shost))
 		sdev->request_queue = scsi_mq_alloc_queue(sdev);
 	else
-		sdev->request_queue = scsi_alloc_queue(sdev);
+		sdev->request_queue = scsi_old_alloc_queue(sdev);
 	if (!sdev->request_queue) {
 		/* release fn is set up in scsi_sysfs_device_initialise, so
 		 * have to free and put manually here */

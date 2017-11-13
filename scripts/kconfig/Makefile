@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 # ===========================================================================
 # Kernel configuration targets
 # These targets are used from top-level makefile
@@ -84,23 +85,6 @@ PHONY += $(simple-targets)
 
 $(simple-targets): $(obj)/conf
 	$< $(silent) --$@ $(Kconfig)
-
-UNAME_RELEASE := $(shell uname -r)
-CLONECONFIG := $(firstword $(wildcard /proc/config.gz \
-				      /lib/modules/$(UNAME_RELEASE)/.config \
-				      /etc/kernel-config \
-				      /boot/config-$(UNAME_RELEASE)))
-cloneconfig: $(obj)/conf
-	$(Q)case "$(CLONECONFIG)" in				\
-	'')	echo -e "The configuration of the running"	\
-			"kernel could not be determined\n";	\
-		false ;;					\
-	*.gz)	gzip -cd $(CLONECONFIG) > .config.running ;;	\
-	*)	cat $(CLONECONFIG) > .config.running ;;		\
-	esac &&							\
-	echo -e "Cloning configuration file $(CLONECONFIG)\n"
-	$(Q)$< --defconfig=.config.running arch/$(SRCARCH)/Kconfig
-
 
 PHONY += oldnoconfig savedefconfig defconfig
 
@@ -208,7 +192,7 @@ gconf-objs	:= gconf.o zconf.tab.o
 hostprogs-y := conf nconf mconf kxgettext qconf gconf
 
 clean-files	:= qconf.moc .tmp_qtcheck .tmp_gtkcheck
-clean-files	+= zconf.tab.c zconf.lex.c zconf.hash.c gconf.glade.h
+clean-files	+= zconf.tab.c zconf.lex.c gconf.glade.h
 clean-files     += config.pot linux.pot
 
 # Check that we have the required ncurses stuff installed for lxdialog (menuconfig)
@@ -297,7 +281,7 @@ $(obj)/.tmp_gtkcheck:
 	fi
 endif
 
-$(obj)/zconf.tab.o: $(obj)/zconf.lex.c $(obj)/zconf.hash.c
+$(obj)/zconf.tab.o: $(obj)/zconf.lex.c
 
 $(obj)/qconf.o: $(obj)/qconf.moc
 

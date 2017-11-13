@@ -24,6 +24,7 @@
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/once.h>
 #include <linux/pci.h>
 #include <linux/poison.h>
 #include <linux/t10-pi.h>
@@ -540,6 +541,20 @@ static void nvme_dif_complete(u32 p, u32 v, struct t10_pi_tuple *pi)
 }
 #endif
 
+static void nvme_print_sgl(struct scatterlist *sgl, int nents)
+{
+	int i;
+	struct scatterlist *sg;
+
+	for_each_sg(sgl, sg, nents, i) {
+		dma_addr_t phys = sg_phys(sg);
+		pr_warn("sg[%d] phys_addr:%pad offset:%d length:%d "
+			"dma_address:%pad dma_length:%d\n",
+			i, &phys, sg->offset, sg->length, &sg_dma_address(sg),
+			sg_dma_len(sg));
+	}
+}
+
 static blk_status_t nvme_setup_prps(struct nvme_dev *dev, struct request *req)
 {
 	struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
@@ -556,8 +571,10 @@ static blk_status_t nvme_setup_prps(struct nvme_dev *dev, struct request *req)
 	int nprps, i;
 
 	length -= (page_size - offset);
-	if (length <= 0)
+	if (length <= 0) {
+		iod->first_dma = 0;
 		return BLK_STS_OK;
+	}
 
 	dma_len -= (page_size - offset);
 	if (dma_len) {
@@ -620,19 +637,10 @@ static blk_status_t nvme_setup_prps(struct nvme_dev *dev, struct request *req)
 	return BLK_STS_OK;
 
  bad_sgl:
-	if (WARN_ONCE(1, "Invalid SGL for payload:%d nents:%d\n",
-				blk_rq_payload_bytes(req), iod->nents)) {
-		for_each_sg(iod->sg, sg, iod->nents, i) {
-			dma_addr_t phys = sg_phys(sg);
-			pr_warn("sg[%d] phys_addr:%pad offset:%d length:%d "
-			       "dma_address:%pad dma_length:%d\n", i, &phys,
-					sg->offset, sg->length,
-					&sg_dma_address(sg),
-					sg_dma_len(sg));
-		}
-	}
+	WARN(DO_ONCE(nvme_print_sgl, iod->sg, iod->nents),
+			"Invalid SGL for payload:%d nents:%d\n",
+			blk_rq_payload_bytes(req), iod->nents);
 	return BLK_STS_IOERR;
-
 }
 
 static blk_status_t nvme_map_data(struct nvme_dev *dev, struct request *req,
@@ -667,7 +675,7 @@ static blk_status_t nvme_map_data(struct nvme_dev *dev, struct request *req,
 		if (blk_rq_map_integrity_sg(q, req->bio, &iod->meta_sg) != 1)
 			goto out_unmap;
 
-		if (rq_data_dir(req))
+		if (req_op(req) == REQ_OP_WRITE)
 			nvme_dif_remap(req, nvme_dif_prep);
 
 		if (!dma_map_sg(dev->dev, &iod->meta_sg, 1, dma_dir))
@@ -695,7 +703,7 @@ static void nvme_unmap_data(struct nvme_dev *dev, struct request *req)
 	if (iod->nents) {
 		dma_unmap_sg(dev->dev, iod->sg, iod->nents, dma_dir);
 		if (blk_integrity_rq(req)) {
-			if (!rq_data_dir(req))
+			if (req_op(req) == REQ_OP_READ)
 				nvme_dif_remap(req, nvme_dif_complete);
 			dma_unmap_sg(dev->dev, &iod->meta_sg, 1, dma_dir);
 		}
@@ -1311,11 +1319,11 @@ static int nvme_create_queue(struct nvme_queue *nvmeq, int qid)
 	if (result < 0)
 		goto release_cq;
 
+	nvme_init_queue(nvmeq, qid);
 	result = queue_request_irq(nvmeq);
 	if (result < 0)
 		goto release_sq;
 
-	nvme_init_queue(nvmeq, qid);
 	return result;
 
  release_sq:
@@ -1377,6 +1385,7 @@ static int nvme_alloc_admin_tags(struct nvme_dev *dev)
 
 		if (blk_mq_alloc_tag_set(&dev->admin_tagset))
 			return -ENOMEM;
+		dev->ctrl.admin_tagset = &dev->admin_tagset;
 
 		dev->ctrl.admin_q = blk_mq_init_queue(&dev->admin_tagset);
 		if (IS_ERR(dev->ctrl.admin_q)) {
@@ -1461,6 +1470,7 @@ static int nvme_pci_configure_admin_queue(struct nvme_dev *dev)
 		return result;
 
 	nvmeq->cq_vector = 0;
+	nvme_init_queue(nvmeq, 0);
 	result = queue_request_irq(nvmeq);
 	if (result) {
 		nvmeq->cq_vector = -1;
@@ -1622,6 +1632,10 @@ static int __nvme_alloc_host_mem(struct nvme_dev *dev, u64 preferred,
 	tmp = (preferred + chunk_size - 1);
 	do_div(tmp, chunk_size);
 	max_entries = tmp;
+
+	if (dev->ctrl.hmmaxd && dev->ctrl.hmmaxd < max_entries)
+		max_entries = dev->ctrl.hmmaxd;
+
 	descs = dma_zalloc_coherent(dev->dev, max_entries * sizeof(*descs),
 			&descs_dma, GFP_KERNEL);
 	if (!descs)
@@ -1678,7 +1692,7 @@ static int nvme_alloc_host_mem(struct nvme_dev *dev, u64 min, u64 preferred)
 
 	/* start big and work our way down */
 	for (chunk_size = min_t(u64, preferred, PAGE_SIZE * MAX_ORDER_NR_PAGES);
-	     chunk_size >= PAGE_SIZE * 2;
+	     chunk_size >= max_t(u32, dev->ctrl.hmminds * 4096, PAGE_SIZE * 2);
 	     chunk_size /= 2) {
 		if (!__nvme_alloc_host_mem(dev, preferred, chunk_size)) {
 			if (!min || dev->host_mem_size >= min)
@@ -2149,7 +2163,6 @@ static void nvme_reset_work(struct work_struct *work)
 	if (result)
 		goto out;
 
-	nvme_init_queue(dev->queues[0], 0);
 	result = nvme_alloc_admin_tags(dev);
 	if (result)
 		goto out;
@@ -2512,6 +2525,10 @@ static const struct pci_device_id nvme_id_table[] = {
 		.driver_data = NVME_QUIRK_DELAY_BEFORE_CHK_RDY, },
 	{ PCI_DEVICE(0x144d, 0xa822),   /* Samsung PM1725a */
 		.driver_data = NVME_QUIRK_DELAY_BEFORE_CHK_RDY, },
+	{ PCI_DEVICE(0x1d1d, 0x1f1f),	/* LighNVM qemu device */
+		.driver_data = NVME_QUIRK_LIGHTNVM, },
+	{ PCI_DEVICE(0x1d1d, 0x2807),	/* CNEX WL */
+		.driver_data = NVME_QUIRK_LIGHTNVM, },
 	{ PCI_DEVICE_CLASS(PCI_CLASS_STORAGE_EXPRESS, 0xffffff) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2001) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2003) },

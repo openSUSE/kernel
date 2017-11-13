@@ -474,17 +474,6 @@ static int dm_blk_ioctl(struct block_device *bdev, fmode_t mode,
 	if (r < 0)
 		return r;
 
-	if (cmd == BLKRRPART) {
-		r = -EAGAIN;
-		if (dm_suspended_md(md))
-			goto out;
-		r = 0;
-
-		/* Emulate Re-read partitions table */
-		kobject_uevent(&disk_to_dev(md->disk)->kobj, KOBJ_CHANGE);
-		goto out;
-	}
-
 	if (r > 0) {
 		/*
 		 * Target determined this ioctl is being issued against a
@@ -536,7 +525,7 @@ static void start_io_acct(struct dm_io *io)
 	io->start_time = jiffies;
 
 	cpu = part_stat_lock();
-	part_round_stats(cpu, &dm_disk(md)->part0);
+	part_round_stats(md->queue, cpu, &dm_disk(md)->part0);
 	part_stat_unlock();
 	atomic_set(&dm_disk(md)->part0.in_flight[rw],
 		atomic_inc_return(&md->pending[rw]));
@@ -555,7 +544,7 @@ static void end_io_acct(struct dm_io *io)
 	int pending;
 	int rw = bio_data_dir(bio);
 
-	generic_end_io_acct(rw, &dm_disk(md)->part0, io->start_time);
+	generic_end_io_acct(md->queue, rw, &dm_disk(md)->part0, io->start_time);
 
 	if (unlikely(dm_stats_used(&md->stats)))
 		dm_stats_account_io(&md->stats, bio_data_dir(bio),
@@ -872,10 +861,10 @@ static void clone_endio(struct bio *bio)
 
 	if (unlikely(error == BLK_STS_TARGET)) {
 		if (bio_op(bio) == REQ_OP_WRITE_SAME &&
-		    !bdev_get_queue(bio->bi_bdev)->limits.max_write_same_sectors)
+		    !bio->bi_disk->queue->limits.max_write_same_sectors)
 			disable_write_same(md);
 		if (bio_op(bio) == REQ_OP_WRITE_ZEROES &&
-		    !bdev_get_queue(bio->bi_bdev)->limits.max_write_zeroes_sectors)
+		    !bio->bi_disk->queue->limits.max_write_zeroes_sectors)
 			disable_write_zeroes(md);
 	}
 
@@ -1218,8 +1207,8 @@ static void __map_bio(struct dm_target_io *tio)
 		break;
 	case DM_MAPIO_REMAPPED:
 		/* the bio has been remapped so dispatch it */
-		trace_block_bio_remap(bdev_get_queue(clone->bi_bdev), clone,
-				      tio->io->bio->bi_bdev->bd_dev, sector);
+		trace_block_bio_remap(clone->bi_disk->queue, clone,
+				      bio_dev(tio->io->bio), sector);
 		generic_make_request(clone);
 		break;
 	case DM_MAPIO_KILL:
@@ -1545,7 +1534,7 @@ static blk_qc_t dm_make_request(struct request_queue *q, struct bio *bio)
 
 	map = dm_get_live_table(md, &srcu_idx);
 
-	generic_start_io_acct(rw, bio_sectors(bio), &dm_disk(md)->part0);
+	generic_start_io_acct(q, rw, bio_sectors(bio), &dm_disk(md)->part0);
 
 	/* if we're suspended, we have to queue this io for later */
 	if (unlikely(test_bit(DMF_BLOCK_IO_FOR_SUSPEND, &md->flags))) {
@@ -1799,7 +1788,7 @@ static struct mapped_device *alloc_dev(int minor)
 		goto bad;
 
 	bio_init(&md->flush_bio, NULL, 0);
-	md->flush_bio.bi_bdev = md->bdev;
+	bio_set_dev(&md->flush_bio, md->bdev);
 	md->flush_bio.bi_opf = REQ_OP_WRITE | REQ_PREFLUSH | REQ_SYNC;
 
 	dm_stats_init(&md->stats);

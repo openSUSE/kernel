@@ -678,7 +678,7 @@ static int asix_resume(struct usb_interface *intf)
 	struct usbnet *dev = usb_get_intfdata(intf);
 	struct asix_common_private *priv = dev->driver_priv;
 
-	if (priv->resume)
+	if (priv && priv->resume)
 		priv->resume(dev);
 
 	return usbnet_resume(intf);

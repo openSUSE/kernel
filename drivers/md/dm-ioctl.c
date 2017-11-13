@@ -1637,7 +1637,7 @@ static int target_message(struct file *filp, struct dm_ioctl *param, size_t para
  *---------------------------------------------------------------*/
 static ioctl_fn lookup_ioctl(unsigned int cmd, int *ioctl_flags)
 {
-	static struct {
+	static const struct {
 		int cmd;
 		int flags;
 		ioctl_fn fn;

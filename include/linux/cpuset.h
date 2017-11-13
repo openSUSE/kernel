@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_CPUSET_H
 #define _LINUX_CPUSET_H
 /*
@@ -35,12 +36,6 @@ extern struct static_key_false cpusets_enabled_key;
 static inline bool cpusets_enabled(void)
 {
 	return static_branch_unlikely(&cpusets_enabled_key);
-}
-
-static inline int nr_cpusets(void)
-{
-	/* jump label reference count + the top-level cpuset */
-	return static_key_count(&cpusets_enabled_key.key) + 1;
 }
 
 static inline void cpuset_inc(void)

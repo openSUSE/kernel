@@ -155,7 +155,7 @@ static int ovl_set_opaque(struct dentry *dentry, struct dentry *upperdentry)
 static void ovl_instantiate(struct dentry *dentry, struct inode *inode,
 			    struct dentry *newdentry, bool hardlink)
 {
-	ovl_dentry_version_inc(dentry->d_parent);
+	ovl_dentry_version_inc(dentry->d_parent, false);
 	ovl_dentry_set_upper_alias(dentry);
 	if (!hardlink) {
 		ovl_inode_update(inode, newdentry);
@@ -672,7 +672,7 @@ static int ovl_remove_and_whiteout(struct dentry *dentry, bool is_dir)
 	if (flags)
 		ovl_cleanup(wdir, upper);
 
-	ovl_dentry_version_inc(dentry->d_parent);
+	ovl_dentry_version_inc(dentry->d_parent, true);
 out_d_drop:
 	d_drop(dentry);
 	dput(whiteout);
@@ -722,7 +722,7 @@ static int ovl_remove_upper(struct dentry *dentry, bool is_dir)
 		err = vfs_rmdir(dir, upper);
 	else
 		err = vfs_unlink(dir, upper, NULL);
-	ovl_dentry_version_inc(dentry->d_parent);
+	ovl_dentry_version_inc(dentry->d_parent, ovl_type_origin(dentry));
 
 	/*
 	 * Keeping this dentry hashed would mean having to release
@@ -813,7 +813,7 @@ static char *ovl_get_redirect(struct dentry *dentry, bool samedir)
 		goto out;
 	}
 
-	buf = ret = kmalloc(buflen, GFP_TEMPORARY);
+	buf = ret = kmalloc(buflen, GFP_KERNEL);
 	if (!buf)
 		goto out;
 
@@ -1069,8 +1069,9 @@ static int ovl_rename(struct inode *olddir, struct dentry *old,
 			drop_nlink(d_inode(new));
 	}
 
-	ovl_dentry_version_inc(old->d_parent);
-	ovl_dentry_version_inc(new->d_parent);
+	ovl_dentry_version_inc(old->d_parent,
+			       !overwrite && ovl_type_origin(new));
+	ovl_dentry_version_inc(new->d_parent, ovl_type_origin(old));
 
 out_dput:
 	dput(newdentry);

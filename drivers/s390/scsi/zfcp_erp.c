@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * zfcp device driver
  *
@@ -576,9 +577,8 @@ static void zfcp_erp_memwait_handler(unsigned long data)
 
 static void zfcp_erp_strategy_memwait(struct zfcp_erp_action *erp_action)
 {
-	init_timer(&erp_action->timer);
-	erp_action->timer.function = zfcp_erp_memwait_handler;
-	erp_action->timer.data = (unsigned long) erp_action;
+	setup_timer(&erp_action->timer, zfcp_erp_memwait_handler,
+		    (unsigned long) erp_action);
 	erp_action->timer.expires = jiffies + HZ;
 	add_timer(&erp_action->timer);
 }

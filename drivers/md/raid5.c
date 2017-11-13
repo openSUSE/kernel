@@ -494,7 +494,6 @@ static int grow_buffers(struct stripe_head *sh, gfp_t gfp)
 	return 0;
 }
 
-static void raid5_build_block(struct stripe_head *sh, int i, int previous);
 static void stripe_set_idx(sector_t stripe, struct r5conf *conf, int previous,
 			    struct stripe_head *sh);
 
@@ -530,7 +529,7 @@ retry:
 			WARN_ON(1);
 		}
 		dev->flags = 0;
-		raid5_build_block(sh, i, previous);
+		dev->sector = raid5_compute_blocknr(sh, i, previous);
 	}
 	if (read_seqcount_retry(&conf->gen_lock, seq))
 		goto retry;
@@ -1102,7 +1101,7 @@ again:
 
 			set_bit(STRIPE_IO_STARTED, &sh->state);
 
-			bi->bi_bdev = rdev->bdev;
+			bio_set_dev(bi, rdev->bdev);
 			bio_set_op_attrs(bi, op, op_flags);
 			bi->bi_end_io = op_is_write(op)
 				? raid5_end_write_request
@@ -1151,7 +1150,7 @@ again:
 				set_bit(R5_DOUBLE_LOCKED, &sh->dev[i].flags);
 
 			if (conf->mddev->gendisk)
-				trace_block_bio_remap(bdev_get_queue(bi->bi_bdev),
+				trace_block_bio_remap(bi->bi_disk->queue,
 						      bi, disk_devt(conf->mddev->gendisk),
 						      sh->dev[i].sector);
 			if (should_defer && op_is_write(op))
@@ -1166,7 +1165,7 @@ again:
 
 			set_bit(STRIPE_IO_STARTED, &sh->state);
 
-			rbi->bi_bdev = rrdev->bdev;
+			bio_set_dev(rbi, rrdev->bdev);
 			bio_set_op_attrs(rbi, op, op_flags);
 			BUG_ON(!op_is_write(op));
 			rbi->bi_end_io = raid5_end_write_request;
@@ -1199,7 +1198,7 @@ again:
 			if (op == REQ_OP_DISCARD)
 				rbi->bi_vcnt = 0;
 			if (conf->mddev->gendisk)
-				trace_block_bio_remap(bdev_get_queue(rbi->bi_bdev),
+				trace_block_bio_remap(rbi->bi_disk->queue,
 						      rbi, disk_devt(conf->mddev->gendisk),
 						      sh->dev[i].sector);
 			if (should_defer && op_is_write(op))
@@ -2666,14 +2665,6 @@ static void raid5_end_write_request(struct bio *bi)
 
 	if (sh->batch_head && sh != sh->batch_head)
 		raid5_release_stripe(sh->batch_head);
-}
-
-static void raid5_build_block(struct stripe_head *sh, int i, int previous)
-{
-	struct r5dev *dev = &sh->dev[i];
-
-	dev->flags = 0;
-	dev->sector = raid5_compute_blocknr(sh, i, previous);
 }
 
 static void raid5_error(struct mddev *mddev, struct md_rdev *rdev)
@@ -5099,9 +5090,11 @@ static int raid5_congested(struct mddev *mddev, int bits)
 static int in_chunk_boundary(struct mddev *mddev, struct bio *bio)
 {
 	struct r5conf *conf = mddev->private;
-	sector_t sector = bio->bi_iter.bi_sector + get_start_sect(bio->bi_bdev);
+	sector_t sector = bio->bi_iter.bi_sector;
 	unsigned int chunk_sectors;
 	unsigned int bio_sectors = bio_sectors(bio);
+
+	WARN_ON_ONCE(bio->bi_partno);
 
 	chunk_sectors = min(conf->chunk_sectors, conf->prev_chunk_sectors);
 	return  chunk_sectors >=
@@ -5238,7 +5231,7 @@ static int raid5_read_one_chunk(struct mddev *mddev, struct bio *raid_bio)
 		atomic_inc(&rdev->nr_pending);
 		rcu_read_unlock();
 		raid_bio->bi_next = (void*)rdev;
-		align_bi->bi_bdev =  rdev->bdev;
+		bio_set_dev(align_bi, rdev->bdev);
 		bio_clear_flag(align_bi, BIO_SEG_VALID);
 
 		if (is_badblock(rdev, align_bi->bi_iter.bi_sector,
@@ -5260,7 +5253,7 @@ static int raid5_read_one_chunk(struct mddev *mddev, struct bio *raid_bio)
 		spin_unlock_irq(&conf->device_lock);
 
 		if (mddev->gendisk)
-			trace_block_bio_remap(bdev_get_queue(align_bi->bi_bdev),
+			trace_block_bio_remap(align_bi->bi_disk->queue,
 					      align_bi, disk_devt(mddev->gendisk),
 					      raid_bio->bi_iter.bi_sector);
 		generic_make_request(align_bi);
@@ -6582,14 +6575,17 @@ static ssize_t
 raid5_store_group_thread_cnt(struct mddev *mddev, const char *page, size_t len)
 {
 	struct r5conf *conf;
-	unsigned long new;
+	unsigned int new;
 	int err;
 	struct r5worker_group *new_groups, *old_groups;
 	int group_cnt, worker_cnt_per_group;
 
 	if (len >= PAGE_SIZE)
 		return -EINVAL;
-	if (kstrtoul(page, 10, &new))
+	if (kstrtouint(page, 10, &new))
+		return -EINVAL;
+	/* 8192 should be big enough */
+	if (new > 8192)
 		return -EINVAL;
 
 	err = mddev_lock(mddev);
@@ -7252,6 +7248,7 @@ static int raid5_run(struct mddev *mddev)
 		pr_warn("md/raid:%s: using journal device and PPL not allowed - disabling PPL\n",
 			mdname(mddev));
 		clear_bit(MD_HAS_PPL, &mddev->flags);
+		clear_bit(MD_HAS_MULTIPLE_PPLS, &mddev->flags);
 	}
 
 	if (mddev->private == NULL)

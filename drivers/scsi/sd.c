@@ -312,7 +312,7 @@ protection_type_store(struct device *dev, struct device_attribute *attr,
 	if (err)
 		return err;
 
-	if (val >= 0 && val <= T10_PI_TYPE3_PROTECTION)
+	if (val <= T10_PI_TYPE3_PROTECTION)
 		sdkp->protection_type = val;
 
 	return count;
@@ -1021,7 +1021,7 @@ static int sd_setup_read_write_cmnd(struct scsi_cmnd *SCpnt)
 	ret = scsi_init_io(SCpnt);
 	if (ret != BLKPREP_OK)
 		goto out;
-	SCpnt = rq->special;
+	WARN_ON_ONCE(SCpnt != rq->special);
 
 	/* from here on until we're complete, any goto out
 	 * is used for a killable error condition */
@@ -2149,7 +2149,8 @@ sd_spinup_disk(struct scsi_disk *sdkp)
 		 * Yes, this sense key/ASC combination shouldn't
 		 * occur here.  It's characteristic of these devices.
 		 */
-		} else if (sshdr.sense_key == UNIT_ATTENTION &&
+		} else if (sense_valid &&
+				sshdr.sense_key == UNIT_ATTENTION &&
 				sshdr.asc == 0x28) {
 			if (!spintime) {
 				spintime_expire = jiffies + 5 * HZ;
@@ -2922,8 +2923,6 @@ static void sd_read_block_limits(struct scsi_disk *sdkp)
 				sd_config_discard(sdkp, SD_LBP_WS16);
 			else if (sdkp->lbpws10)
 				sd_config_discard(sdkp, SD_LBP_WS10);
-			else if (sdkp->lbpu && sdkp->max_unmap_blocks)
-				sd_config_discard(sdkp, SD_LBP_UNMAP);
 			else
 				sd_config_discard(sdkp, SD_LBP_DISABLE);
 		}
@@ -3242,7 +3241,6 @@ static void sd_probe_async(void *data, async_cookie_t cookie)
 
 	gd->major = sd_major((index & 0xf0) >> 4);
 	gd->first_minor = ((index & 0xf) << 4) | (index & 0xfff00);
-	gd->minors = SD_MINORS;
 
 	gd->fops = &sd_fops;
 	gd->private_data = &sdkp->driver;
@@ -3556,7 +3554,7 @@ static int sd_suspend_common(struct device *dev, bool ignore_stop_errors)
 			 * doesn't support sync. There's not much to do and
 			 * suspend shouldn't fail.
 			 */
-			 ret = 0;
+			ret = 0;
 		}
 	}
 

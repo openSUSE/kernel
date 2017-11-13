@@ -33,12 +33,12 @@
 #include "include/context.h"
 #include "include/file.h"
 #include "include/ipc.h"
-#include "include/net.h"
 #include "include/path.h"
 #include "include/label.h"
 #include "include/policy.h"
 #include "include/policy_ns.h"
 #include "include/procattr.h"
+#include "include/mount.h"
 
 /* Flag indicating whether initialization completed */
 int apparmor_initialized;
@@ -512,6 +512,65 @@ static int apparmor_file_mprotect(struct vm_area_struct *vma,
 			   !(vma->vm_flags & VM_SHARED) ? MAP_PRIVATE : 0);
 }
 
+static int apparmor_sb_mount(const char *dev_name, const struct path *path,
+			     const char *type, unsigned long flags, void *data)
+{
+	struct aa_label *label;
+	int error = 0;
+
+	/* Discard magic */
+	if ((flags & MS_MGC_MSK) == MS_MGC_VAL)
+		flags &= ~MS_MGC_MSK;
+
+	flags &= ~AA_MS_IGNORE_MASK;
+
+	label = __begin_current_label_crit_section();
+	if (!unconfined(label)) {
+		if (flags & MS_REMOUNT)
+			error = aa_remount(label, path, flags, data);
+		else if (flags & MS_BIND)
+			error = aa_bind_mount(label, path, dev_name, flags);
+		else if (flags & (MS_SHARED | MS_PRIVATE | MS_SLAVE |
+				  MS_UNBINDABLE))
+			error = aa_mount_change_type(label, path, flags);
+		else if (flags & MS_MOVE)
+			error = aa_move_mount(label, path, dev_name);
+		else
+			error = aa_new_mount(label, dev_name, path, type,
+					     flags, data);
+	}
+	__end_current_label_crit_section(label);
+
+	return error;
+}
+
+static int apparmor_sb_umount(struct vfsmount *mnt, int flags)
+{
+	struct aa_label *label;
+	int error = 0;
+
+	label = __begin_current_label_crit_section();
+	if (!unconfined(label))
+		error = aa_umount(label, mnt, flags);
+	__end_current_label_crit_section(label);
+
+	return error;
+}
+
+static int apparmor_sb_pivotroot(const struct path *old_path,
+				 const struct path *new_path)
+{
+	struct aa_label *label;
+	int error = 0;
+
+	label = aa_get_current_label();
+	if (!unconfined(label))
+		error = aa_pivotroot(label, old_path, new_path);
+	aa_put_label(label);
+
+	return error;
+}
+
 static int apparmor_getprocattr(struct task_struct *task, char *name,
 				char **value)
 {
@@ -657,102 +716,24 @@ static int apparmor_task_setrlimit(struct task_struct *task,
 	return error;
 }
 
-static int apparmor_socket_create(int family, int type, int protocol, int kern)
+static int apparmor_task_kill(struct task_struct *target, struct siginfo *info,
+			      int sig, u32 secid)
 {
-	struct aa_label *profile;
-	int error = 0;
+	struct aa_label *cl, *tl;
+	int error;
 
-	if (kern)
+	if (secid)
+		/* TODO: after secid to label mapping is done.
+		 *  Dealing with USB IO specific behavior
+		 */
 		return 0;
+	cl = __begin_current_label_crit_section();
+	tl = aa_get_task_label(target);
+	error = aa_may_signal(cl, tl, sig);
+	aa_put_label(tl);
+	__end_current_label_crit_section(cl);
 
-	profile = aa_current_raw_label();
-	if (!unconfined(profile))
-		error = aa_net_perm(OP_CREATE, profile, family, type, protocol,
-				    NULL);
 	return error;
-}
-
-static int apparmor_socket_bind(struct socket *sock,
-				struct sockaddr *address, int addrlen)
-{
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_BIND, sk);
-}
-
-static int apparmor_socket_connect(struct socket *sock,
-				   struct sockaddr *address, int addrlen)
-{
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_CONNECT, sk);
-}
-
-static int apparmor_socket_listen(struct socket *sock, int backlog)
-{
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_LISTEN, sk);
-}
-
-static int apparmor_socket_accept(struct socket *sock, struct socket *newsock)
-{
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_ACCEPT, sk);
-}
-
-static int apparmor_socket_sendmsg(struct socket *sock,
-				   struct msghdr *msg, int size)
-{
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_SENDMSG, sk);
-}
-
-static int apparmor_socket_recvmsg(struct socket *sock,
-				   struct msghdr *msg, int size, int flags)
-{
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_RECVMSG, sk);
-}
-
-static int apparmor_socket_getsockname(struct socket *sock)
-{
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_GETSOCKNAME, sk);
-}
-
-static int apparmor_socket_getpeername(struct socket *sock)
-{
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_GETPEERNAME, sk);
-}
-
-static int apparmor_socket_getsockopt(struct socket *sock, int level,
-				      int optname)
-{
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_GETSOCKOPT, sk);
-}
-
-static int apparmor_socket_setsockopt(struct socket *sock, int level,
-				      int optname)
-{
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_SETSOCKOPT, sk);
-}
-
-static int apparmor_socket_shutdown(struct socket *sock, int how)
-{
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_SHUTDOWN, sk);
 }
 
 static struct security_hook_list apparmor_hooks[] __lsm_ro_after_init = {
@@ -760,6 +741,10 @@ static struct security_hook_list apparmor_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(ptrace_traceme, apparmor_ptrace_traceme),
 	LSM_HOOK_INIT(capget, apparmor_capget),
 	LSM_HOOK_INIT(capable, apparmor_capable),
+
+	LSM_HOOK_INIT(sb_mount, apparmor_sb_mount),
+	LSM_HOOK_INIT(sb_umount, apparmor_sb_umount),
+	LSM_HOOK_INIT(sb_pivotroot, apparmor_sb_pivotroot),
 
 	LSM_HOOK_INIT(path_link, apparmor_path_link),
 	LSM_HOOK_INIT(path_unlink, apparmor_path_unlink),
@@ -785,19 +770,6 @@ static struct security_hook_list apparmor_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(getprocattr, apparmor_getprocattr),
 	LSM_HOOK_INIT(setprocattr, apparmor_setprocattr),
 
-	LSM_HOOK_INIT(socket_create, apparmor_socket_create),
-	LSM_HOOK_INIT(socket_bind, apparmor_socket_bind),
-	LSM_HOOK_INIT(socket_connect, apparmor_socket_connect),
-	LSM_HOOK_INIT(socket_listen, apparmor_socket_listen),
-	LSM_HOOK_INIT(socket_accept, apparmor_socket_accept),
-	LSM_HOOK_INIT(socket_sendmsg, apparmor_socket_sendmsg),
-	LSM_HOOK_INIT(socket_recvmsg, apparmor_socket_recvmsg),
-	LSM_HOOK_INIT(socket_getsockname, apparmor_socket_getsockname),
-	LSM_HOOK_INIT(socket_getpeername, apparmor_socket_getpeername),
-	LSM_HOOK_INIT(socket_getsockopt, apparmor_socket_getsockopt),
-	LSM_HOOK_INIT(socket_setsockopt, apparmor_socket_setsockopt),
-	LSM_HOOK_INIT(socket_shutdown, apparmor_socket_shutdown),
-
 	LSM_HOOK_INIT(cred_alloc_blank, apparmor_cred_alloc_blank),
 	LSM_HOOK_INIT(cred_free, apparmor_cred_free),
 	LSM_HOOK_INIT(cred_prepare, apparmor_cred_prepare),
@@ -806,9 +778,9 @@ static struct security_hook_list apparmor_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(bprm_set_creds, apparmor_bprm_set_creds),
 	LSM_HOOK_INIT(bprm_committing_creds, apparmor_bprm_committing_creds),
 	LSM_HOOK_INIT(bprm_committed_creds, apparmor_bprm_committed_creds),
-	LSM_HOOK_INIT(bprm_secureexec, apparmor_bprm_secureexec),
 
 	LSM_HOOK_INIT(task_setrlimit, apparmor_task_setrlimit),
+	LSM_HOOK_INIT(task_kill, apparmor_task_kill),
 };
 
 /*

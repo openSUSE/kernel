@@ -1109,8 +1109,10 @@ cifs_push_mandatory_locks(struct cifsFileInfo *cfile)
 	struct cifs_tcon *tcon;
 	unsigned int num, max_num, max_buf;
 	LOCKING_ANDX_RANGE *buf, *cur;
-	int types[] = {LOCKING_ANDX_LARGE_FILES,
-		       LOCKING_ANDX_SHARED_LOCK | LOCKING_ANDX_LARGE_FILES};
+	static const int types[] = {
+		LOCKING_ANDX_LARGE_FILES,
+		LOCKING_ANDX_SHARED_LOCK | LOCKING_ANDX_LARGE_FILES
+	};
 	int i;
 
 	xid = get_xid();
@@ -1441,8 +1443,10 @@ cifs_unlock_range(struct cifsFileInfo *cfile, struct file_lock *flock,
 		  unsigned int xid)
 {
 	int rc = 0, stored_rc;
-	int types[] = {LOCKING_ANDX_LARGE_FILES,
-		       LOCKING_ANDX_SHARED_LOCK | LOCKING_ANDX_LARGE_FILES};
+	static const int types[] = {
+		LOCKING_ANDX_LARGE_FILES,
+		LOCKING_ANDX_SHARED_LOCK | LOCKING_ANDX_LARGE_FILES
+	};
 	unsigned int i;
 	unsigned int max_num, num, max_buf;
 	LOCKING_ANDX_RANGE *buf, *cur;
@@ -2336,7 +2340,7 @@ int cifs_strict_fsync(struct file *file, loff_t start, loff_t end,
 	struct inode *inode = file_inode(file);
 	struct cifs_sb_info *cifs_sb = CIFS_SB(inode->i_sb);
 
-	rc = filemap_write_and_wait_range(inode->i_mapping, start, end);
+	rc = file_write_and_wait_range(file, start, end);
 	if (rc)
 		return rc;
 	inode_lock(inode);
@@ -2378,7 +2382,7 @@ int cifs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	struct cifs_sb_info *cifs_sb = CIFS_FILE_SB(file);
 	struct inode *inode = file->f_mapping->host;
 
-	rc = filemap_write_and_wait_range(inode->i_mapping, start, end);
+	rc = file_write_and_wait_range(file, start, end);
 	if (rc)
 		return rc;
 	inode_lock(inode);
