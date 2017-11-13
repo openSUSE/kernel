@@ -1708,9 +1708,9 @@ static bool mga_vga_check_mode_bandwidth(struct drm_display_mode *mode,
 	if (bw > max_bw) {
 		DRM_DEBUG_KMS("Mode %d:%s exceeds bandwidth: %d > %d",
 			      mode->base.id, mode->name, bw, max_bw);
-		return false;
+		return true;
 	}
-	return true;
+	return false;
 }
 
 #define MODE_BANDWIDTH	MODE_BAD
