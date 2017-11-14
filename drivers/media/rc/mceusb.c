@@ -766,6 +766,8 @@ static void mce_request_packet(struct mceusb_dev *ir, unsigned char *data,
 	res = usb_submit_urb(async_urb, GFP_ATOMIC);
 	if (res) {
 		dev_err(dev, "receive request FAILED! (res=%d)", res);
+		kfree(async_buf);
+		usb_free_urb(async_urb);
 		return;
 	}
 	dev_dbg(dev, "receive request complete (res=%d)", res);

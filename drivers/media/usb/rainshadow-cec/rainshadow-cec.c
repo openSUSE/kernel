@@ -119,20 +119,19 @@ static void rain_irq_work_handler(struct work_struct *work)
 
 	while (true) {
 		unsigned long flags;
-		bool exit_loop = false;
 		char data;
 
 		spin_lock_irqsave(&rain->buf_lock, flags);
-		exit_loop = rain->buf_len == 0;
-		if (rain->buf_len) {
-			data = rain->buf[rain->buf_rd_idx];
-			rain->buf_len--;
-			rain->buf_rd_idx = (rain->buf_rd_idx + 1) & 0xff;
-		}
-		spin_unlock_irqrestore(&rain->buf_lock, flags);
-
-		if (exit_loop)
+		if (!rain->buf_len) {
+			spin_unlock_irqrestore(&rain->buf_lock, flags);
 			break;
+		}
+
+		data = rain->buf[rain->buf_rd_idx];
+		rain->buf_len--;
+		rain->buf_rd_idx = (rain->buf_rd_idx + 1) & 0xff;
+
+		spin_unlock_irqrestore(&rain->buf_lock, flags);
 
 		if (!rain->cmd_started && data != '?')
 			continue;
@@ -296,7 +295,7 @@ static int rain_cec_adap_transmit(struct cec_adapter *adap, u8 attempts,
 			 cec_msg_destination(msg), msg->msg[1]);
 		for (i = 2; i < msg->len; i++) {
 			snprintf(hex, sizeof(hex), "%02x", msg->msg[i]);
-			strncat(cmd, hex, sizeof(cmd));
+			strlcat(cmd, hex, sizeof(cmd));
 		}
 	}
 	mutex_lock(&rain->write_lock);
