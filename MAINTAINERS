@@ -527,11 +527,6 @@ W:	http://ez.analog.com/community/linux-device-drivers
 S:	Supported
 F:	drivers/input/misc/adxl34x.c
 
-AEDSP16 DRIVER
-M:	Riccardo Facchetti <fizban@tin.it>
-S:	Maintained
-F:	sound/oss/aedsp16.c
-
 AF9013 MEDIA DRIVER
 M:	Antti Palosaari <crope@iki.fi>
 L:	linux-media@vger.kernel.org
@@ -2029,6 +2024,7 @@ M:	Masahiro Yamada <yamada.masahiro@socionext.com>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/masahiroy/linux-uniphier.git
 S:	Maintained
+F:	Documentation/devicetree/bindings/gpio/gpio-uniphier.txt
 F:	arch/arm/boot/dts/uniphier*
 F:	arch/arm/include/asm/hardware/cache-uniphier.h
 F:	arch/arm/mach-uniphier/
@@ -2036,6 +2032,7 @@ F:	arch/arm/mm/cache-uniphier.c
 F:	arch/arm64/boot/dts/socionext/
 F:	drivers/bus/uniphier-system-bus.c
 F:	drivers/clk/uniphier/
+F:	drivers/gpio/gpio-uniphier.c
 F:	drivers/i2c/busses/i2c-uniphier*
 F:	drivers/irqchip/irq-uniphier-aidet.c
 F:	drivers/pinctrl/uniphier/
@@ -2247,7 +2244,7 @@ F:	include/linux/dmaengine.h
 F:	include/linux/async_tx.h
 
 AT24 EEPROM DRIVER
-M:	Wolfram Sang <wsa@the-dreams.de>
+M:	Bartosz Golaszewski <brgl@bgdev.pl>
 L:	linux-i2c@vger.kernel.org
 S:	Maintained
 F:	drivers/misc/eeprom/at24.c
@@ -2562,10 +2559,12 @@ S:	Maintained
 F:	drivers/net/hamradio/baycom*
 
 BCACHE (BLOCK LAYER CACHE)
+M:	Michael Lyle <mlyle@lyle.org>
 M:	Kent Overstreet <kent.overstreet@gmail.com>
 L:	linux-bcache@vger.kernel.org
 W:	http://bcache.evilpiepirate.org
-S:	Orphan
+C:	irc://irc.oftc.net/bcache
+S:	Maintained
 F:	drivers/md/bcache/
 
 BDISP ST MEDIA DRIVER
@@ -4101,6 +4100,8 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/device-mapper/linux-dm.git
 T:	quilt http://people.redhat.com/agk/patches/linux/editing/
 S:	Maintained
 F:	Documentation/device-mapper/
+F:	drivers/md/Makefile
+F:	drivers/md/Kconfig
 F:	drivers/md/dm*
 F:	drivers/md/persistent-data/
 F:	include/linux/device-mapper.h
@@ -5484,7 +5485,7 @@ F:	include/uapi/linux/fb.h
 
 FREESCALE CAAM (Cryptographic Acceleration and Assurance Module) DRIVER
 M:	Horia Geantă <horia.geanta@nxp.com>
-M:	Dan Douglass <dan.douglass@nxp.com>
+M:	Aymen Sghaier <aymen.sghaier@nxp.com>
 L:	linux-crypto@vger.kernel.org
 S:	Maintained
 F:	drivers/crypto/caam/
@@ -5664,6 +5665,7 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/tytso/fscrypt.git
 S:	Supported
 F:	fs/crypto/
 F:	include/linux/fscrypt*.h
+F:	Documentation/filesystems/fscrypt.rst
 
 FUJITSU FR-V (FRV) PORT
 S:	Orphan
@@ -9215,12 +9217,6 @@ F:	include/linux/dt-bindings/mux/
 F:	include/linux/mux/
 F:	drivers/mux/
 
-MULTISOUND SOUND DRIVER
-M:	Andrew Veliath <andrewtv@usa.net>
-S:	Maintained
-F:	Documentation/sound/oss/MultiSound
-F:	sound/oss/msnd*
-
 MULTITECH MULTIPORT CARD (ISICOM)
 S:	Orphan
 F:	drivers/tty/isicom.c
@@ -11060,7 +11056,6 @@ F:	drivers/mtd/nand/pxa3xx_nand.c
 
 QAT DRIVER
 M:	Giovanni Cabiddu <giovanni.cabiddu@intel.com>
-M:	Salvatore Benedetto <salvatore.benedetto@intel.com>
 L:	qat-linux@intel.com
 S:	Supported
 F:	drivers/crypto/qat/
@@ -11793,7 +11788,7 @@ L:	linux-crypto@vger.kernel.org
 L:	linux-samsung-soc@vger.kernel.org
 S:	Maintained
 F:	drivers/crypto/exynos-rng.c
-F:	Documentation/devicetree/bindings/rng/samsung,exynos-rng4.txt
+F:	Documentation/devicetree/bindings/crypto/samsung,exynos-rng4.txt
 
 SAMSUNG FRAMEBUFFER DRIVER
 M:	Jingoo Han <jingoohan1@gmail.com>
@@ -12085,7 +12080,6 @@ F:	drivers/mmc/host/sdhci-omap.c
 SECURE ENCRYPTING DEVICE (SED) OPAL DRIVER
 M:	Scott Bauer <scott.bauer@intel.com>
 M:	Jonathan Derrick <jonathan.derrick@intel.com>
-M:	Rafael Antognolli <rafael.antognolli@intel.com>
 L:	linux-block@vger.kernel.org
 S:	Supported
 F:	block/sed*
@@ -12486,7 +12480,10 @@ M:	Shaohua Li <shli@kernel.org>
 L:	linux-raid@vger.kernel.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/shli/md.git
 S:	Supported
-F:	drivers/md/
+F:	drivers/md/Makefile
+F:	drivers/md/Kconfig
+F:	drivers/md/md*
+F:	drivers/md/raid*
 F:	include/linux/raid/
 F:	include/uapi/linux/raid/
 
@@ -12939,9 +12936,16 @@ F:	arch/arc/plat-axs10x
 F:	arch/arc/boot/dts/ax*
 F:	Documentation/devicetree/bindings/arc/axs10*
 
+SYNOPSYS DESIGNWARE APB GPIO DRIVER
+M:	Hoan Tran <hotran@apm.com>
+L:	linux-gpio@vger.kernel.org
+S:	Maintained
+F:	drivers/gpio/gpio-dwapb.c
+F:	Documentation/devicetree/bindings/gpio/snps-dwapb-gpio.txt
+
 SYNOPSYS DESIGNWARE DMAC DRIVER
 M:	Viresh Kumar <vireshk@kernel.org>
-M:	Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+R:	Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 S:	Maintained
 F:	include/linux/dma/dw.h
 F:	include/linux/platform_data/dma-dw.h
@@ -14623,6 +14627,7 @@ F:	Documentation/devicetree/bindings/extcon/extcon-arizona.txt
 F:	Documentation/devicetree/bindings/regulator/arizona-regulator.txt
 F:	Documentation/devicetree/bindings/mfd/arizona.txt
 F:	Documentation/devicetree/bindings/mfd/wm831x.txt
+F:	Documentation/devicetree/bindings/sound/wlf,arizona.txt
 F:	arch/arm/mach-s3c64xx/mach-crag6410*
 F:	drivers/clk/clk-wm83*.c
 F:	drivers/extcon/extcon-arizona.c
