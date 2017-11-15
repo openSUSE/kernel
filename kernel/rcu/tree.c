@@ -899,7 +899,7 @@ void rcu_irq_exit(void)
 {
 	struct rcu_dynticks *rdtp;
 
-	RCU_LOCKDEP_WARN(!irqs_disabled(), "rcu_irq_exit() invoked with irqs enabled!!!");
+	lockdep_assert_irqs_disabled();
 	rdtp = this_cpu_ptr(&rcu_dynticks);
 	WARN_ON_ONCE(IS_ENABLED(CONFIG_RCU_EQS_DEBUG) &&
 		     rdtp->dynticks_nesting < 1);
@@ -1031,7 +1031,7 @@ void rcu_irq_enter(void)
 	struct rcu_dynticks *rdtp;
 	long long oldval;
 
-	RCU_LOCKDEP_WARN(!irqs_disabled(), "rcu_irq_enter() invoked with irqs enabled!!!");
+	lockdep_assert_irqs_disabled();
 	rdtp = this_cpu_ptr(&rcu_dynticks);
 	oldval = rdtp->dynticks_nesting;
 	rdtp->dynticks_nesting++;
