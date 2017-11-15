@@ -590,7 +590,7 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
 	/*
 	 * Disarm any old timer after extracting its expiry time.
 	 */
-	WARN_ON_ONCE(!irqs_disabled());
+	lockdep_assert_irqs_disabled();
 
 	ret = 0;
 	old_incr = timer->it.cpu.incr;
@@ -1027,7 +1027,7 @@ void posix_cpu_timer_schedule(struct k_itimer *timer)
 	/*
 	 * Now re-arm for the new expiry time.
 	 */
-	WARN_ON_ONCE(!irqs_disabled());
+	lockdep_assert_irqs_disabled();
 	arm_timer(timer);
 	unlock_task_sighand(p, &flags);
 
@@ -1122,7 +1122,7 @@ void run_posix_cpu_timers(struct task_struct *tsk)
 	struct k_itimer *timer, *next;
 	unsigned long flags;
 
-	WARN_ON_ONCE(!irqs_disabled());
+	lockdep_assert_irqs_disabled();
 
 	/*
 	 * The fast path checks that there are no expired thread or thread
