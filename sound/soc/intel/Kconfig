@@ -164,6 +164,19 @@ config SND_SOC_INTEL_BYTCR_RT5651_MACH
           Say Y if you have such a device.
           If unsure select "N".
 
+config SND_SOC_INTEL_CHT_CX2072X_MACH
+        tristate "ASoC Audio driver for Intel Baytrail and Cherrytrail with CX2072X codec"
+        depends on X86_INTEL_LPSS && I2C && ACPI
+        select SND_SOC_CX2072X
+        select SND_SST_ATOM_HIFI2_PLATFORM
+        select SND_SST_IPC_ACPI
+	select SND_SOC_INTEL_SST_MATCH if ACPI
+        help
+          This adds support for ASoC machine driver for Intel(R) Cherrytrail & Braswell
+          platforms with Conexant CX2072X audio codec.
+          Say Y if you have such a device.
+          If unsure select "N".
+
 config SND_SOC_INTEL_CHT_BSW_RT5672_MACH
         tristate "ASoC Audio driver for Intel Cherrytrail & Braswell with RT5672 codec"
         depends on X86_INTEL_LPSS && I2C && ACPI
