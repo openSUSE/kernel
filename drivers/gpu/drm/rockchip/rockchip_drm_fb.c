@@ -48,7 +48,7 @@ static void rockchip_drm_fb_destroy(struct drm_framebuffer *fb)
 	int i;
 
 	for (i = 0; i < ROCKCHIP_MAX_FB_BUFFER; i++)
-		drm_gem_object_unreference_unlocked(rockchip_fb->obj[i]);
+		drm_gem_object_put_unlocked(rockchip_fb->obj[i]);
 
 	drm_framebuffer_cleanup(fb);
 	kfree(rockchip_fb);
@@ -100,8 +100,9 @@ rockchip_fb_alloc(struct drm_device *dev, const struct drm_mode_fb_cmd2 *mode_cm
 	ret = drm_framebuffer_init(dev, &rockchip_fb->fb,
 				   &rockchip_drm_fb_funcs);
 	if (ret) {
-		dev_err(dev->dev, "Failed to initialize framebuffer: %d\n",
-			ret);
+		DRM_DEV_ERROR(dev->dev,
+			      "Failed to initialize framebuffer: %d\n",
+			      ret);
 		kfree(rockchip_fb);
 		return ERR_PTR(ret);
 	}
@@ -134,7 +135,8 @@ rockchip_user_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 
 		obj = drm_gem_object_lookup(file_priv, mode_cmd->handles[i]);
 		if (!obj) {
-			dev_err(dev->dev, "Failed to lookup GEM object\n");
+			DRM_DEV_ERROR(dev->dev,
+				      "Failed to lookup GEM object\n");
 			ret = -ENXIO;
 			goto err_gem_object_unreference;
 		}
@@ -144,7 +146,7 @@ rockchip_user_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 			width * drm_format_plane_cpp(mode_cmd->pixel_format, i);
 
 		if (obj->size < min_size) {
-			drm_gem_object_unreference_unlocked(obj);
+			drm_gem_object_put_unlocked(obj);
 			ret = -EINVAL;
 			goto err_gem_object_unreference;
 		}
@@ -161,17 +163,15 @@ rockchip_user_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 
 err_gem_object_unreference:
 	for (i--; i >= 0; i--)
-		drm_gem_object_unreference_unlocked(objs[i]);
+		drm_gem_object_put_unlocked(objs[i]);
 	return ERR_PTR(ret);
 }
 
 static void rockchip_drm_output_poll_changed(struct drm_device *dev)
 {
 	struct rockchip_drm_private *private = dev->dev_private;
-	struct drm_fb_helper *fb_helper = &private->fbdev_helper;
 
-	if (fb_helper)
-		drm_fb_helper_hotplug_event(fb_helper);
+	drm_fb_helper_hotplug_event(&private->fbdev_helper);
 }
 
 static void

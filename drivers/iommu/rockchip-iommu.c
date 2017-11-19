@@ -90,7 +90,9 @@ struct rk_iommu {
 	struct device *dev;
 	void __iomem **bases;
 	int num_mmu;
-	int irq;
+	int *irq;
+	int num_irq;
+	bool reset_disabled;
 	struct iommu_device iommu;
 	struct list_head node; /* entry in rk_iommu_domain.iommus */
 	struct iommu_domain *domain; /* domain to which iommu is attached */
@@ -413,6 +415,9 @@ static int rk_iommu_force_reset(struct rk_iommu *iommu)
 {
 	int ret, i;
 	u32 dte_addr;
+
+	if (iommu->reset_disabled)
+		return 0;
 
 	/*
 	 * Check if register DTE_ADDR is working by writing DTE_ADDR_DUMMY
@@ -825,10 +830,12 @@ static int rk_iommu_attach_device(struct iommu_domain *domain,
 
 	iommu->domain = domain;
 
-	ret = devm_request_irq(iommu->dev, iommu->irq, rk_iommu_irq,
-			       IRQF_SHARED, dev_name(dev), iommu);
-	if (ret)
-		return ret;
+	for (i = 0; i < iommu->num_irq; i++) {
+		ret = devm_request_irq(iommu->dev, iommu->irq[i], rk_iommu_irq,
+				       IRQF_SHARED, dev_name(dev), iommu);
+		if (ret)
+			return ret;
+	}
 
 	for (i = 0; i < iommu->num_mmu; i++) {
 		rk_iommu_write(iommu->bases[i], RK_MMU_DTE_ADDR,
@@ -878,7 +885,8 @@ static void rk_iommu_detach_device(struct iommu_domain *domain,
 	}
 	rk_iommu_disable_stall(iommu);
 
-	devm_free_irq(iommu->dev, iommu->irq, iommu);
+	for (i = 0; i < iommu->num_irq; i++)
+		devm_free_irq(iommu->dev, iommu->irq[i], iommu);
 
 	iommu->domain = NULL;
 
@@ -1157,11 +1165,27 @@ static int rk_iommu_probe(struct platform_device *pdev)
 	if (iommu->num_mmu == 0)
 		return PTR_ERR(iommu->bases[0]);
 
-	iommu->irq = platform_get_irq(pdev, 0);
-	if (iommu->irq < 0) {
-		dev_err(dev, "Failed to get IRQ, %d\n", iommu->irq);
+	iommu->num_irq = platform_irq_count(pdev);
+	if (iommu->num_irq < 0)
+		return iommu->num_irq;
+	if (iommu->num_irq == 0)
 		return -ENXIO;
+
+	iommu->irq = devm_kcalloc(dev, iommu->num_irq, sizeof(*iommu->irq),
+				  GFP_KERNEL);
+	if (!iommu->irq)
+		return -ENOMEM;
+
+	for (i = 0; i < iommu->num_irq; i++) {
+		iommu->irq[i] = platform_get_irq(pdev, i);
+		if (iommu->irq[i] < 0) {
+			dev_err(dev, "Failed to get IRQ, %d\n", iommu->irq[i]);
+			return -ENXIO;
+		}
 	}
+
+	iommu->reset_disabled = device_property_read_bool(dev,
+					"rockchip,disable-mmu-reset");
 
 	err = iommu_device_sysfs_add(&iommu->iommu, dev, NULL, dev_name(dev));
 	if (err)
