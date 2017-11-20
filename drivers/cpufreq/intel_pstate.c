@@ -1219,7 +1219,7 @@ static struct attribute *intel_pstate_attributes[] = {
 	NULL
 };
 
-static struct attribute_group intel_pstate_attr_group = {
+static const struct attribute_group intel_pstate_attr_group = {
 	.attrs = intel_pstate_attributes,
 };
 
