@@ -724,6 +724,7 @@ static struct led_classdev eco_led = {
 
 static int acpi_fujitsu_laptop_leds_register(struct acpi_device *device)
 {
+	struct fujitsu_laptop *priv = acpi_driver_data(device);
 	int result;
 
 	if (call_fext_func(FUNC_LEDS, 0x0, 0x0, 0x0) & LOGOLAMP_POWERON) {
@@ -741,12 +742,15 @@ static int acpi_fujitsu_laptop_leds_register(struct acpi_device *device)
 	}
 
 	/*
-	 * BTNI bit 24 seems to indicate the presence of a radio toggle
-	 * button in place of a slide switch, and all such machines appear
-	 * to also have an RF LED.  Therefore use bit 24 as an indicator
-	 * that an RF LED is present.
+	 * Some Fujitsu laptops have a radio toggle button in place of a slide
+	 * switch and all such machines appear to also have an RF LED.  Based on
+	 * comparing DSDT tables of four Fujitsu Lifebook models (E744, E751,
+	 * S7110, S8420; the first one has a radio toggle button, the other
+	 * three have slide switches), bit 17 of flags_supported (the value
+	 * returned by method S000 of ACPI device FUJ02E3) seems to indicate
+	 * whether given model has a radio toggle button.
 	 */
-	if (call_fext_func(FUNC_BUTTONS, 0x0, 0x0, 0x0) & BIT(24)) {
+	if (priv->flags_supported & BIT(17)) {
 		result = devm_led_classdev_register(&device->dev, &radio_led);
 		if (result)
 			return result;
