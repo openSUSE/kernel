@@ -291,28 +291,37 @@ EXPORT_SYMBOL(nr_online_nodes);
 int page_group_by_mobility_disabled __read_mostly;
 
 #ifdef CONFIG_DEFERRED_STRUCT_PAGE_INIT
+
+/*
+ * Determine how many pages need to be initialized durig early boot
+ * (non-deferred initialization).
+ * The value of first_deferred_pfn will be set later, once non-deferred pages
+ * are initialized, but for now set it ULONG_MAX.
+ */
 static inline void reset_deferred_meminit(pg_data_t *pgdat)
 {
-	unsigned long max_initialise;
-	unsigned long reserved_lowmem;
+	phys_addr_t start_addr, end_addr;
+	unsigned long max_pgcnt;
+	unsigned long reserved;
 
 	/*
 	 * Initialise at least 2G of a node but also take into account that
 	 * two large system hashes that can take up 1GB for 0.25TB/node.
 	 */
-	max_initialise = max(2UL << (30 - PAGE_SHIFT),
-		(pgdat->node_spanned_pages >> 8));
+	max_pgcnt = max(2UL << (30 - PAGE_SHIFT),
+			(pgdat->node_spanned_pages >> 8));
 
 	/*
 	 * Compensate the all the memblock reservations (e.g. crash kernel)
 	 * from the initial estimation to make sure we will initialize enough
 	 * memory to boot.
 	 */
-	reserved_lowmem = memblock_reserved_memory_within(pgdat->node_start_pfn,
-			pgdat->node_start_pfn + max_initialise);
-	max_initialise += reserved_lowmem;
+	start_addr = PFN_PHYS(pgdat->node_start_pfn);
+	end_addr = PFN_PHYS(pgdat->node_start_pfn + max_pgcnt);
+	reserved = memblock_reserved_memory_within(start_addr, end_addr);
+	max_pgcnt += PHYS_PFN(reserved);
 
-	pgdat->static_init_size = min(max_initialise, pgdat->node_spanned_pages);
+	pgdat->static_init_pgcnt = min(max_pgcnt, pgdat->node_spanned_pages);
 	pgdat->first_deferred_pfn = ULONG_MAX;
 }
 
@@ -339,7 +348,7 @@ static inline bool update_defer_init(pg_data_t *pgdat,
 	if (zone_end < pgdat_end_pfn(pgdat))
 		return true;
 	(*nr_initialised)++;
-	if ((*nr_initialised > pgdat->static_init_size) &&
+	if ((*nr_initialised > pgdat->static_init_pgcnt) &&
 	    (pfn & (PAGES_PER_SECTION - 1)) == 0) {
 		pgdat->first_deferred_pfn = pfn;
 		return false;
@@ -7380,6 +7389,7 @@ void *__init alloc_large_system_hash(const char *tablename,
  * race condition. So you can't expect this function should be exact.
  */
 bool has_unmovable_pages(struct zone *zone, struct page *page, int count,
+			 int migratetype,
 			 bool skip_hwpoisoned_pages)
 {
 	unsigned long pfn, iter, found;
@@ -7395,6 +7405,15 @@ bool has_unmovable_pages(struct zone *zone, struct page *page, int count,
 	if (mt == MIGRATE_MOVABLE || is_migrate_cma(mt))
 		return false;
 
+	/*
+	 * CMA allocations (alloc_contig_range) really need to mark isolate
+	 * CMA pageblocks even when they are not movable in fact so consider
+	 * them movable here.
+	 */
+	if (is_migrate_cma(migratetype) &&
+			is_migrate_cma(get_pageblock_migratetype(page)))
+		return false;
+
 	pfn = page_to_pfn(page);
 	for (found = 0, iter = 0; iter < pageblock_nr_pages; iter++) {
 		unsigned long check = pfn + iter;
@@ -7403,6 +7422,9 @@ bool has_unmovable_pages(struct zone *zone, struct page *page, int count,
 			continue;
 
 		page = pfn_to_page(check);
+
+		if (PageReserved(page))
+			return true;
 
 		/*
 		 * Hugepages are not in LRU lists, but they're movable.
@@ -7477,7 +7499,7 @@ bool is_pageblock_removable_nolock(struct page *page)
 	if (!zone_spans_pfn(zone, pfn))
 		return false;
 
-	return !has_unmovable_pages(zone, page, 0, true);
+	return !has_unmovable_pages(zone, page, 0, MIGRATE_MOVABLE, true);
 }
 
 #if (defined(CONFIG_MEMORY_ISOLATION) && defined(CONFIG_COMPACTION)) || defined(CONFIG_CMA)
