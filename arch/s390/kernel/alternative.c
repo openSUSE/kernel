@@ -25,7 +25,7 @@ static struct brcl_insn __initdata_or_module nop48 = {
 	0xc004, 0
 };
 
-static const void * const __initdata_or_module nops[] = {
+static const void * __initdata_or_module nops[] = {
 	&nop16,
 	&nop32,
 	&nop48
