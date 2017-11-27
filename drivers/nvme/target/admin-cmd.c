@@ -308,7 +308,7 @@ static void nvmet_execute_identify_ns(struct nvmet_req *req)
 	}
 
 	/*
-	 * nuse = ncap = nsze isn't aways true, but we have no way to find
+	 * nuse = ncap = nsze isn't always true, but we have no way to find
 	 * that out from the underlying device.
 	 */
 	id->ncap = id->nuse = id->nsze =
@@ -432,7 +432,7 @@ out:
 }
 
 /*
- * A "mimimum viable" abort implementation: the command is mandatory in the
+ * A "minimum viable" abort implementation: the command is mandatory in the
  * spec, but we are not required to do any useful work.  We couldn't really
  * do a useful abort, so don't bother even with waiting for the command
  * to be exectuted and return immediately telling the command to abort
