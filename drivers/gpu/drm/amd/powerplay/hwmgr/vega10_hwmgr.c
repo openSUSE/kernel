@@ -2890,6 +2890,8 @@ static int vega10_apply_state_adjust_rules(struct pp_hwmgr *hwmgr,
 
 	if (phm_cap_enabled(hwmgr->platform_descriptor.platformCaps,
 			PHM_PlatformCaps_StablePState)) {
+		stable_pstate_sclk_dpm_percentage =
+			data->registry_data.stable_pstate_sclk_dpm_percentage;
 		PP_ASSERT_WITH_CODE(
 			data->registry_data.stable_pstate_sclk_dpm_percentage >= 1 &&
 			data->registry_data.stable_pstate_sclk_dpm_percentage <= 100,
