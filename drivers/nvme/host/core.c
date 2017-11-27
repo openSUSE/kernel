@@ -52,9 +52,6 @@ static u8 nvme_max_retries = 5;
 module_param_named(max_retries, nvme_max_retries, byte, 0644);
 MODULE_PARM_DESC(max_retries, "max number of retries a command may have");
 
-static int nvme_char_major;
-module_param(nvme_char_major, int, 0);
-
 static unsigned long default_ps_max_latency_us = 100000;
 module_param(default_ps_max_latency_us, ulong, 0644);
 MODULE_PARM_DESC(default_ps_max_latency_us,
@@ -71,11 +68,8 @@ MODULE_PARM_DESC(streams, "turn on support for Streams write directives");
 struct workqueue_struct *nvme_wq;
 EXPORT_SYMBOL_GPL(nvme_wq);
 
-static LIST_HEAD(nvme_ctrl_list);
-static DEFINE_SPINLOCK(dev_list_lock);
-
 static DEFINE_IDA(nvme_instance_ida);
-
+static dev_t nvme_chr_devt;
 static struct class *nvme_class;
 
 static __le32 nvme_get_log_dw10(u8 lid, size_t size)
@@ -102,6 +96,46 @@ static int nvme_reset_ctrl_sync(struct nvme_ctrl *ctrl)
 		flush_work(&ctrl->reset_work);
 	return ret;
 }
+
+static void nvme_delete_ctrl_work(struct work_struct *work)
+{
+	struct nvme_ctrl *ctrl =
+		container_of(work, struct nvme_ctrl, delete_work);
+
+	flush_work(&ctrl->reset_work);
+	nvme_stop_ctrl(ctrl);
+	nvme_remove_namespaces(ctrl);
+	ctrl->ops->delete_ctrl(ctrl);
+	nvme_uninit_ctrl(ctrl);
+	nvme_put_ctrl(ctrl);
+}
+
+int nvme_delete_ctrl(struct nvme_ctrl *ctrl)
+{
+	if (!nvme_change_ctrl_state(ctrl, NVME_CTRL_DELETING))
+		return -EBUSY;
+	if (!queue_work(nvme_wq, &ctrl->delete_work))
+		return -EBUSY;
+	return 0;
+}
+EXPORT_SYMBOL_GPL(nvme_delete_ctrl);
+
+int nvme_delete_ctrl_sync(struct nvme_ctrl *ctrl)
+{
+	int ret = 0;
+
+	/*
+	 * Keep a reference until the work is flushed since ->delete_ctrl
+	 * can free the controller.
+	 */
+	nvme_get_ctrl(ctrl);
+	ret = nvme_delete_ctrl(ctrl);
+	if (!ret)
+		flush_work(&ctrl->delete_work);
+	nvme_put_ctrl(ctrl);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(nvme_delete_ctrl_sync);
 
 static blk_status_t nvme_error_status(struct request *req)
 {
@@ -207,6 +241,7 @@ bool nvme_change_ctrl_state(struct nvme_ctrl *ctrl,
 	case NVME_CTRL_RECONNECTING:
 		switch (old_state) {
 		case NVME_CTRL_LIVE:
+		case NVME_CTRL_RESETTING:
 			changed = true;
 			/* FALLTHRU */
 		default:
@@ -253,12 +288,6 @@ static void nvme_free_ns(struct kref *kref)
 	if (ns->ndev)
 		nvme_nvm_unregister(ns);
 
-	if (ns->disk) {
-		spin_lock(&dev_list_lock);
-		ns->disk->private_data = NULL;
-		spin_unlock(&dev_list_lock);
-	}
-
 	put_disk(ns->disk);
 	ida_simple_remove(&ns->ctrl->ns_ida, ns->instance);
 	nvme_put_ctrl(ns->ctrl);
@@ -268,29 +297,6 @@ static void nvme_free_ns(struct kref *kref)
 static void nvme_put_ns(struct nvme_ns *ns)
 {
 	kref_put(&ns->kref, nvme_free_ns);
-}
-
-static struct nvme_ns *nvme_get_ns_from_disk(struct gendisk *disk)
-{
-	struct nvme_ns *ns;
-
-	spin_lock(&dev_list_lock);
-	ns = disk->private_data;
-	if (ns) {
-		if (!kref_get_unless_zero(&ns->kref))
-			goto fail;
-		if (!try_module_get(ns->ctrl->ops->module))
-			goto fail_put_ns;
-	}
-	spin_unlock(&dev_list_lock);
-
-	return ns;
-
-fail_put_ns:
-	kref_put(&ns->kref, nvme_free_ns);
-fail:
-	spin_unlock(&dev_list_lock);
-	return NULL;
 }
 
 struct request *nvme_alloc_request(struct request_queue *q,
@@ -1059,15 +1065,16 @@ static int nvme_ioctl(struct block_device *bdev, fmode_t mode,
 
 static int nvme_open(struct block_device *bdev, fmode_t mode)
 {
-	return nvme_get_ns_from_disk(bdev->bd_disk) ? 0 : -ENXIO;
+	struct nvme_ns *ns = bdev->bd_disk->private_data;
+
+	if (!kref_get_unless_zero(&ns->kref))
+		return -ENXIO;
+	return 0;
 }
 
 static void nvme_release(struct gendisk *disk, fmode_t mode)
 {
-	struct nvme_ns *ns = disk->private_data;
-
-	module_put(ns->ctrl->ops->module);
-	nvme_put_ns(ns);
+	nvme_put_ns(disk->private_data);
 }
 
 static int nvme_getgeo(struct block_device *bdev, struct hd_geometry *geo)
@@ -1244,6 +1251,7 @@ static int nvme_revalidate_disk(struct gendisk *disk)
 		goto out;
 	}
 
+	__nvme_revalidate_disk(disk, id);
 	nvme_report_ns_ids(ctrl, ns->ns_id, id, eui64, nguid, &uuid);
 	if (!uuid_equal(&ns->uuid, &uuid) ||
 	    memcmp(&ns->nguid, &nguid, sizeof(ns->nguid)) ||
@@ -1925,33 +1933,12 @@ EXPORT_SYMBOL_GPL(nvme_init_identify);
 
 static int nvme_dev_open(struct inode *inode, struct file *file)
 {
-	struct nvme_ctrl *ctrl;
-	int instance = iminor(inode);
-	int ret = -ENODEV;
+	struct nvme_ctrl *ctrl =
+		container_of(inode->i_cdev, struct nvme_ctrl, cdev);
 
-	spin_lock(&dev_list_lock);
-	list_for_each_entry(ctrl, &nvme_ctrl_list, node) {
-		if (ctrl->instance != instance)
-			continue;
-
-		if (!ctrl->admin_q) {
-			ret = -EWOULDBLOCK;
-			break;
-		}
-		if (!kref_get_unless_zero(&ctrl->kref))
-			break;
-		file->private_data = ctrl;
-		ret = 0;
-		break;
-	}
-	spin_unlock(&dev_list_lock);
-
-	return ret;
-}
-
-static int nvme_dev_release(struct inode *inode, struct file *file)
-{
-	nvme_put_ctrl(file->private_data);
+	if (ctrl->state != NVME_CTRL_LIVE)
+		return -EWOULDBLOCK;
+	file->private_data = ctrl;
 	return 0;
 }
 
@@ -2015,7 +2002,6 @@ static long nvme_dev_ioctl(struct file *file, unsigned int cmd,
 static const struct file_operations nvme_dev_fops = {
 	.owner		= THIS_MODULE,
 	.open		= nvme_dev_open,
-	.release	= nvme_dev_release,
 	.unlocked_ioctl	= nvme_dev_ioctl,
 	.compat_ioctl	= nvme_dev_ioctl,
 };
@@ -2181,7 +2167,7 @@ static ssize_t nvme_sysfs_delete(struct device *dev,
 	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
 
 	if (device_remove_file_self(dev, attr))
-		ctrl->ops->delete_ctrl(ctrl);
+		nvme_delete_ctrl_sync(ctrl);
 	return count;
 }
 static DEVICE_ATTR(delete_controller, S_IWUSR, NULL, nvme_sysfs_delete);
@@ -2293,7 +2279,8 @@ static struct nvme_ns *nvme_find_get_ns(struct nvme_ctrl *ctrl, unsigned nsid)
 	mutex_lock(&ctrl->namespaces_mutex);
 	list_for_each_entry(ns, &ctrl->namespaces, list) {
 		if (ns->ns_id == nsid) {
-			kref_get(&ns->kref);
+			if (!kref_get_unless_zero(&ns->kref))
+				continue;
 			ret = ns;
 			break;
 		}
@@ -2396,7 +2383,7 @@ static void nvme_alloc_ns(struct nvme_ctrl *ctrl, unsigned nsid)
 	list_add_tail(&ns->list, &ctrl->namespaces);
 	mutex_unlock(&ctrl->namespaces_mutex);
 
-	kref_get(&ctrl->kref);
+	nvme_get_ctrl(ctrl);
 
 	kfree(id);
 
@@ -2654,7 +2641,7 @@ static void nvme_fw_act_work(struct work_struct *work)
 		return;
 
 	nvme_start_queues(ctrl);
-	/* read FW slot informationi to clear the AER*/
+	/* read FW slot information to clear the AER */
 	nvme_get_fw_slot_info(ctrl);
 }
 
@@ -2725,30 +2712,20 @@ EXPORT_SYMBOL_GPL(nvme_start_ctrl);
 
 void nvme_uninit_ctrl(struct nvme_ctrl *ctrl)
 {
-	device_destroy(nvme_class, MKDEV(nvme_char_major, ctrl->instance));
-
-	spin_lock(&dev_list_lock);
-	list_del(&ctrl->node);
-	spin_unlock(&dev_list_lock);
+	cdev_device_del(&ctrl->cdev, ctrl->device);
 }
 EXPORT_SYMBOL_GPL(nvme_uninit_ctrl);
 
-static void nvme_free_ctrl(struct kref *kref)
+static void nvme_free_ctrl(struct device *dev)
 {
-	struct nvme_ctrl *ctrl = container_of(kref, struct nvme_ctrl, kref);
+	struct nvme_ctrl *ctrl =
+		container_of(dev, struct nvme_ctrl, ctrl_device);
 
-	put_device(ctrl->device);
 	ida_simple_remove(&nvme_instance_ida, ctrl->instance);
 	ida_destroy(&ctrl->ns_ida);
 
 	ctrl->ops->free_ctrl(ctrl);
 }
-
-void nvme_put_ctrl(struct nvme_ctrl *ctrl)
-{
-	kref_put(&ctrl->kref, nvme_free_ctrl);
-}
-EXPORT_SYMBOL_GPL(nvme_put_ctrl);
 
 /*
  * Initialize a NVMe controller structures.  This needs to be called during
@@ -2764,33 +2741,38 @@ int nvme_init_ctrl(struct nvme_ctrl *ctrl, struct device *dev,
 	spin_lock_init(&ctrl->lock);
 	INIT_LIST_HEAD(&ctrl->namespaces);
 	mutex_init(&ctrl->namespaces_mutex);
-	kref_init(&ctrl->kref);
 	ctrl->dev = dev;
 	ctrl->ops = ops;
 	ctrl->quirks = quirks;
 	INIT_WORK(&ctrl->scan_work, nvme_scan_work);
 	INIT_WORK(&ctrl->async_event_work, nvme_async_event_work);
 	INIT_WORK(&ctrl->fw_act_work, nvme_fw_act_work);
+	INIT_WORK(&ctrl->delete_work, nvme_delete_ctrl_work);
 
 	ret = ida_simple_get(&nvme_instance_ida, 0, 0, GFP_KERNEL);
 	if (ret < 0)
 		goto out;
 	ctrl->instance = ret;
 
-	ctrl->device = device_create_with_groups(nvme_class, ctrl->dev,
-				MKDEV(nvme_char_major, ctrl->instance),
-				ctrl, nvme_dev_attr_groups,
-				"nvme%d", ctrl->instance);
-	if (IS_ERR(ctrl->device)) {
-		ret = PTR_ERR(ctrl->device);
+	device_initialize(&ctrl->ctrl_device);
+	ctrl->device = &ctrl->ctrl_device;
+	ctrl->device->devt = MKDEV(MAJOR(nvme_chr_devt), ctrl->instance);
+	ctrl->device->class = nvme_class;
+	ctrl->device->parent = ctrl->dev;
+	ctrl->device->groups = nvme_dev_attr_groups;
+	ctrl->device->release = nvme_free_ctrl;
+	dev_set_drvdata(ctrl->device, ctrl);
+	ret = dev_set_name(ctrl->device, "nvme%d", ctrl->instance);
+	if (ret)
 		goto out_release_instance;
-	}
-	get_device(ctrl->device);
-	ida_init(&ctrl->ns_ida);
 
-	spin_lock(&dev_list_lock);
-	list_add_tail(&ctrl->node, &nvme_ctrl_list);
-	spin_unlock(&dev_list_lock);
+	cdev_init(&ctrl->cdev, &nvme_dev_fops);
+	ctrl->cdev.owner = ops->module;
+	ret = cdev_device_add(&ctrl->cdev, ctrl->device);
+	if (ret)
+		goto out_free_name;
+
+	ida_init(&ctrl->ns_ida);
 
 	/*
 	 * Initialize latency tolerance controls.  The sysfs files won't
@@ -2801,6 +2783,8 @@ int nvme_init_ctrl(struct nvme_ctrl *ctrl, struct device *dev,
 		min(default_ps_max_latency_us, (unsigned long)S32_MAX));
 
 	return 0;
+out_free_name:
+	kfree_const(dev->kobj.name);
 out_release_instance:
 	ida_simple_remove(&nvme_instance_ida, ctrl->instance);
 out:
@@ -2911,6 +2895,16 @@ void nvme_start_queues(struct nvme_ctrl *ctrl)
 }
 EXPORT_SYMBOL_GPL(nvme_start_queues);
 
+int nvme_reinit_tagset(struct nvme_ctrl *ctrl, struct blk_mq_tag_set *set)
+{
+	if (!ctrl->ops->reinit_request)
+		return 0;
+
+	return blk_mq_tagset_iter(set, set->driver_data,
+			ctrl->ops->reinit_request);
+}
+EXPORT_SYMBOL_GPL(nvme_reinit_tagset);
+
 int __init nvme_core_init(void)
 {
 	int result;
@@ -2920,12 +2914,9 @@ int __init nvme_core_init(void)
 	if (!nvme_wq)
 		return -ENOMEM;
 
-	result = __register_chrdev(nvme_char_major, 0, NVME_MINORS, "nvme",
-							&nvme_dev_fops);
+	result = alloc_chrdev_region(&nvme_chr_devt, 0, NVME_MINORS, "nvme");
 	if (result < 0)
 		goto destroy_wq;
-	else if (result > 0)
-		nvme_char_major = result;
 
 	nvme_class = class_create(THIS_MODULE, "nvme");
 	if (IS_ERR(nvme_class)) {
@@ -2936,7 +2927,7 @@ int __init nvme_core_init(void)
 	return 0;
 
 unregister_chrdev:
-	__unregister_chrdev(nvme_char_major, 0, NVME_MINORS, "nvme");
+	unregister_chrdev_region(nvme_chr_devt, NVME_MINORS);
 destroy_wq:
 	destroy_workqueue(nvme_wq);
 	return result;
@@ -2945,7 +2936,7 @@ destroy_wq:
 void nvme_core_exit(void)
 {
 	class_destroy(nvme_class);
-	__unregister_chrdev(nvme_char_major, 0, NVME_MINORS, "nvme");
+	unregister_chrdev_region(nvme_chr_devt, NVME_MINORS);
 	destroy_workqueue(nvme_wq);
 }
 
