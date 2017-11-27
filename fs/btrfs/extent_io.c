@@ -2056,7 +2056,7 @@ int repair_io_failure(struct btrfs_inode *inode, u64 start, u64 length,
 		bio_put(bio);
 		return -EIO;
 	}
-	bio->bi_bdev = dev->bdev;
+	bio_set_dev(bio, dev->bdev);
 	bio->bi_opf = REQ_OP_WRITE | REQ_SYNC;
 	bio_add_page(bio, page, length, pg_offset);
 
@@ -2362,7 +2362,7 @@ struct bio *btrfs_create_repair_bio(struct inode *inode, struct bio *failed_bio,
 
 	bio->bi_end_io = endio_func;
 	bio->bi_iter.bi_sector = failrec->logical >> 9;
-	bio->bi_bdev = fs_info->fs_devices->latest_bdev;
+	bio_set_dev(bio, fs_info->fs_devices->latest_bdev);
 	bio->bi_iter.bi_size = 0;
 	bio->bi_private = data;
 
@@ -2701,7 +2701,7 @@ btrfs_bio_alloc(struct block_device *bdev, u64 first_sector, int nr_vecs,
 	}
 
 	if (bio) {
-		bio->bi_bdev = bdev;
+		bio_set_dev(bio, bdev);
 		bio->bi_iter.bi_sector = first_sector;
 		btrfs_bio = btrfs_io_bio(bio);
 		btrfs_bio->csum = NULL;
@@ -2716,7 +2716,7 @@ struct bio *btrfs_bio_clone(struct bio *bio, gfp_t gfp_mask)
 	struct btrfs_io_bio *btrfs_bio;
 	struct bio *new;
 
-	new = bio_clone_bioset(bio, gfp_mask, btrfs_bioset);
+	new = bio_clone_fast(bio, gfp_mask, btrfs_bioset);
 	if (new) {
 		btrfs_bio = btrfs_io_bio(new);
 		btrfs_bio->csum = NULL;
@@ -2742,6 +2742,24 @@ struct bio *btrfs_io_bio_alloc(gfp_t gfp_mask, unsigned int nr_iovecs)
 	return bio;
 }
 
+struct bio *btrfs_bio_clone_partial(struct bio *orig, gfp_t gfp_mask,
+				    int offset, int size)
+{
+	struct bio *bio;
+	struct btrfs_io_bio *btrfs_bio;
+
+	/* this will never fail when it's backed by a bioset */
+	bio = bio_clone_fast(orig, gfp_mask, btrfs_bioset);
+	ASSERT(bio);
+
+	btrfs_bio = btrfs_io_bio(bio);
+	btrfs_bio->csum = NULL;
+	btrfs_bio->csum_allocated = NULL;
+	btrfs_bio->end_io = NULL;
+
+	bio_trim(bio, offset >> 9, size >> 9);
+	return bio;
+}
 
 static int __must_check submit_one_bio(struct bio *bio, int mirror_num,
 				       unsigned long bio_flags)

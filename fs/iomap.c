@@ -711,7 +711,7 @@ iomap_dio_zero(struct iomap_dio *dio, struct iomap *iomap, loff_t pos,
 	struct bio *bio;
 
 	bio = bio_alloc(GFP_KERNEL, 1);
-	bio->bi_bdev = iomap->bdev;
+	bio_set_dev(bio, iomap->bdev);
 	bio->bi_iter.bi_sector =
 		iomap->blkno + ((pos - iomap->offset) >> 9);
 	bio->bi_private = dio;
@@ -790,7 +790,7 @@ iomap_dio_actor(struct inode *inode, loff_t pos, loff_t length,
 			return 0;
 
 		bio = bio_alloc(GFP_KERNEL, nr_pages);
-		bio->bi_bdev = iomap->bdev;
+		bio_set_dev(bio, iomap->bdev);
 		bio->bi_iter.bi_sector =
 			iomap->blkno + ((pos - iomap->offset) >> 9);
 		bio->bi_private = dio;
@@ -938,7 +938,7 @@ iomap_dio_rw(struct kiocb *iocb, struct iov_iter *iter,
 
 			if (!(iocb->ki_flags & IOCB_HIPRI) ||
 			    !dio->submit.last_queue ||
-			    !blk_mq_poll(dio->submit.last_queue,
+			    !blk_poll(dio->submit.last_queue,
 					 dio->submit.cookie))
 				io_schedule();
 		}

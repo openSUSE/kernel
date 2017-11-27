@@ -1362,7 +1362,7 @@ static int dispatch_rw_block_io(struct xen_blkif_ring *ring,
 				goto fail_put_bio;
 
 			biolist[nbio++] = bio;
-			bio->bi_bdev    = preq.bdev;
+			bio_set_dev(bio, preq.bdev);
 			bio->bi_private = pending_req;
 			bio->bi_end_io  = end_block_io_op;
 			bio->bi_iter.bi_sector  = preq.sector_number;
@@ -1381,7 +1381,7 @@ static int dispatch_rw_block_io(struct xen_blkif_ring *ring,
 			goto fail_put_bio;
 
 		biolist[nbio++] = bio;
-		bio->bi_bdev    = preq.bdev;
+		bio_set_dev(bio, preq.bdev);
 		bio->bi_private = pending_req;
 		bio->bi_end_io  = end_block_io_op;
 		bio_set_op_attrs(bio, operation, operation_flags);

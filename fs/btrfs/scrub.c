@@ -1743,7 +1743,7 @@ static void scrub_recheck_block(struct btrfs_fs_info *fs_info,
 			sblock->no_io_error_seen = 0;
 			continue;
 		}
-		bio->bi_bdev = page->dev->bdev;
+		bio_set_dev(bio, page->dev->bdev);
 
 		bio_add_page(bio, page->page, PAGE_SIZE, 0);
 		if (!retry_failed_mirror && scrub_is_page_on_raid56(page)) {
@@ -1833,7 +1833,7 @@ static int scrub_repair_page_from_good_copy(struct scrub_block *sblock_bad,
 		bio = btrfs_io_bio_alloc(GFP_NOFS, 1);
 		if (!bio)
 			return -EIO;
-		bio->bi_bdev = page_bad->dev->bdev;
+		bio_set_dev(bio, page_bad->dev->bdev);
 		bio->bi_iter.bi_sector = page_bad->physical >> 9;
 		bio_set_op_attrs(bio, REQ_OP_WRITE, 0);
 
@@ -1934,7 +1934,7 @@ again:
 
 		bio->bi_private = sbio;
 		bio->bi_end_io = scrub_wr_bio_end_io;
-		bio->bi_bdev = sbio->dev->bdev;
+		bio_set_dev(bio, sbio->dev->bdev);
 		bio->bi_iter.bi_sector = sbio->physical >> 9;
 		bio_set_op_attrs(bio, REQ_OP_WRITE, 0);
 		sbio->status = 0;
@@ -1978,7 +1978,7 @@ static void scrub_wr_submit(struct scrub_ctx *sctx)
 
 	sbio = wr_ctx->wr_curr_bio;
 	wr_ctx->wr_curr_bio = NULL;
-	WARN_ON(!sbio->bio->bi_bdev);
+	WARN_ON(!sbio->bio->bi_disk);
 	scrub_pending_bio_inc(sctx);
 	/* process all writes in a single worker thread. Then the block layer
 	 * orders the requests before sending them to the driver which
@@ -2338,7 +2338,7 @@ again:
 
 		bio->bi_private = sbio;
 		bio->bi_end_io = scrub_bio_end_io;
-		bio->bi_bdev = sbio->dev->bdev;
+		bio_set_dev(bio, sbio->dev->bdev);
 		bio->bi_iter.bi_sector = sbio->physical >> 9;
 		bio_set_op_attrs(bio, REQ_OP_READ, 0);
 		sbio->status = 0;
@@ -4682,7 +4682,7 @@ static int write_page_nocow(struct scrub_ctx *sctx,
 	}
 	bio->bi_iter.bi_size = 0;
 	bio->bi_iter.bi_sector = physical_for_dev_replace >> 9;
-	bio->bi_bdev = dev->bdev;
+	bio_set_dev(bio, dev->bdev);
 	bio->bi_opf = REQ_OP_WRITE | REQ_SYNC;
 	ret = bio_add_page(bio, page, PAGE_SIZE, 0);
 	if (ret != PAGE_SIZE) {
