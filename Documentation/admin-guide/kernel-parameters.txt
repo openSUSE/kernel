@@ -3157,6 +3157,18 @@
 	printk.time=	Show timing data prefixed to each printk message line
 			Format: <bool>  (1/Y/y=enable, 0/N/n=disable)
 
+	printk.synchronous=
+			This parameter controls whether kernel messages must be
+			printed to console synchronously or asynchronously.
+			Asynchronous printing avoids kernel stalling behind
+			slow serial console and thus avoids softlockups,
+			interrupt timeouts, or userspace timing out during
+			heavy printing. printk switches back to synchronous mode
+			during early boot or when oops is happening. For the
+			time being, synchronous mode considered to be more
+			reliable, besides, for debugging, printing messages to
+			console immediately (synchronous mode) is desirable.
+
 	processor.max_cstate=	[HW,ACPI]
 			Limit processor to maximum C-state
 			max_cstate=9 overrides any DMI blacklist limit.
