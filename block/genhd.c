@@ -790,7 +790,7 @@ struct gendisk *get_gendisk(dev_t devt, int *partno)
 		spin_unlock_bh(&ext_devt_lock);
 	}
 
-	if (unlikely(disk->flags & GENHD_FL_HIDDEN)) {
+	if (disk && unlikely(disk->flags & GENHD_FL_HIDDEN)) {
 		put_disk(disk);
 		disk = NULL;
 	}
