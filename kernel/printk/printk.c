@@ -2887,6 +2887,8 @@ static void wake_up_klogd_work_func(struct irq_work *irq_work)
 
 	if (pending & PRINTK_PENDING_OUTPUT) {
 		if (can_printk_async()) {
+			/* Offload printing to a schedulable context. */
+			printk_kthread_need_flush_console = true;
 			wake_up_process(printk_kthread);
 		} else {
 			/*
