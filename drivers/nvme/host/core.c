@@ -661,11 +661,7 @@ static int nvme_submit_user_cmd(struct request_queue *q,
 		if (!disk)
 			goto submit;
 		bio = req->bio;
-		bio->bi_bdev = bdget_disk(disk, 0);
-		if (!bio->bi_bdev) {
-			ret = -ENODEV;
-			goto out_unmap;
-		}
+		bio->bi_disk = disk;
 
 		if (disk && meta_buffer && meta_len) {
 			meta = nvme_add_user_metadata(bio, meta_buffer, meta_len,
@@ -690,11 +686,8 @@ static int nvme_submit_user_cmd(struct request_queue *q,
 	}
 	kfree(meta);
  out_unmap:
-	if (bio) {
-		if (disk && bio->bi_bdev)
-			bdput(bio->bi_bdev);
+	if (bio)
 		blk_rq_unmap_user(bio);
-	}
  out:
 	blk_mq_free_request(req);
 	return ret;

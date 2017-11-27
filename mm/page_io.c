@@ -31,7 +31,10 @@ static struct bio *get_swap_bio(gfp_t gfp_flags,
 
 	bio = bio_alloc(gfp_flags, 1);
 	if (bio) {
-		bio->bi_iter.bi_sector = map_swap_page(page, &bio->bi_bdev);
+		struct block_device *bdev;
+
+		bio->bi_iter.bi_sector = map_swap_page(page, &bdev);
+		bio_set_dev(bio, bdev);
 		bio->bi_iter.bi_sector <<= PAGE_SHIFT - 9;
 		bio->bi_end_io = end_io;
 
@@ -57,8 +60,7 @@ void end_swap_bio_write(struct bio *bio)
 		 */
 		set_page_dirty(page);
 		pr_alert("Write-error on swap-device (%u:%u:%llu)\n",
-			 imajor(bio->bi_bdev->bd_inode),
-			 iminor(bio->bi_bdev->bd_inode),
+			 MAJOR(bio_dev(bio)), MINOR(bio_dev(bio)),
 			 (unsigned long long)bio->bi_iter.bi_sector);
 		ClearPageReclaim(page);
 	}
@@ -122,8 +124,7 @@ static void end_swap_bio_read(struct bio *bio)
 		SetPageError(page);
 		ClearPageUptodate(page);
 		pr_alert("Read-error on swap-device (%u:%u:%llu)\n",
-			 imajor(bio->bi_bdev->bd_inode),
-			 iminor(bio->bi_bdev->bd_inode),
+			 MAJOR(bio_dev(bio)), MINOR(bio_dev(bio)),
 			 (unsigned long long)bio->bi_iter.bi_sector);
 		goto out;
 	}
