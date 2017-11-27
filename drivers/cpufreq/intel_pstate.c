@@ -43,6 +43,8 @@
 #define INTEL_CPUFREQ_TRANSITION_LATENCY	20000
 #define INTEL_CPUFREQ_TRANSITION_DELAY		500
 
+#define CPUFREQ_SERVER_DEFAULT_SETPOINT		30
+
 #ifdef CONFIG_ACPI
 #include <acpi/processor.h>
 #include <acpi/cppc_acpi.h>
@@ -2606,10 +2608,10 @@ hwp_cpu_matched:
 			/*
 			 * setpoint based on observations that siege maxes out
 			 * due to internal mutex usage at roughly an average of
-			 * 50% set use a setpoint of 40% to boost the frequency
+			 * 50% set use a setpoint of 30% to boost the frequency
 			 * enough to perform reasonably.
 			 */
-			pid_params.setpoint = 40;
+			pid_params.setpoint = CPUFREQ_SERVER_DEFAULT_SETPOINT;
 		}
 	}
 #endif
