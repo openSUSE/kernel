@@ -1104,7 +1104,9 @@ struct amdgpu_cs_parser {
 	struct list_head		validated;
 	struct dma_fence		*fence;
 	uint64_t			bytes_moved_threshold;
+	uint64_t			bytes_moved_vis_threshold;
 	uint64_t			bytes_moved;
+	uint64_t			bytes_moved_vis;
 	struct amdgpu_bo_list_entry	*evictable;
 
 	/* user fence */
@@ -1530,6 +1532,7 @@ struct amdgpu_device {
 		spinlock_t		lock;
 		s64			last_update_us;
 		s64			accum_us; /* accumulated microseconds */
+		s64			accum_us_vis; /* for visible VRAM */
 		u32			log2_max_MBps;
 	} mm_stats;
 
@@ -1852,7 +1855,8 @@ int amdgpu_cs_parser_init(struct amdgpu_cs_parser *p, void *data);
 int amdgpu_cs_get_ring(struct amdgpu_device *adev, u32 ip_type,
 		       u32 ip_instance, u32 ring,
 		       struct amdgpu_ring **out_ring);
-void amdgpu_cs_report_moved_bytes(struct amdgpu_device *adev, u64 num_bytes);
+void amdgpu_cs_report_moved_bytes(struct amdgpu_device *adev, u64 num_bytes,
+				  u64 num_vis_bytes);
 void amdgpu_ttm_placement_from_domain(struct amdgpu_bo *abo, u32 domain);
 bool amdgpu_ttm_bo_is_amdgpu_bo(struct ttm_buffer_object *bo);
 int amdgpu_ttm_tt_get_user_pages(struct ttm_tt *ttm, struct page **pages);
