@@ -4,6 +4,7 @@
 #include <linux/err.h>
 #include <linux/efi.h>
 #include <linux/slab.h>
+#include <linux/ucs2_string.h>
 #include <keys/asymmetric-type.h>
 #include <keys/system_keyring.h>
 #include "internal.h"
@@ -32,6 +33,24 @@ static __init bool uefi_check_ignore_db(void)
 	return status == EFI_SUCCESS;
 }
 
+static __init void print_get_fail(efi_char16_t *char16_str, efi_status_t status)
+{
+	char *utf8_str;
+	unsigned long utf8_size;
+
+	if (!char16_str)
+		return;
+	utf8_size = ucs2_utf8size(char16_str) + 1;
+	utf8_str = kmalloc(utf8_size, GFP_KERNEL);
+	if (!utf8_str)
+		return;
+	ucs2_as_utf8(utf8_str, char16_str, utf8_size);
+
+	pr_info("MODSIGN: Couldn't get UEFI %s: %s\n",
+		utf8_str, efi_status_to_str(status));
+	kfree(utf8_str);
+}
+
 /*
  * Get a certificate list blob from the named EFI variable.
  */
@@ -45,25 +64,29 @@ static __init void *get_cert_list(efi_char16_t *name, efi_guid_t *guid,
 
 	status = efi.get_variable(name, guid, NULL, &lsize, &tmpdb);
 	if (status != EFI_BUFFER_TOO_SMALL) {
-		pr_err("Couldn't get size: 0x%lx\n", status);
-		return NULL;
+		if (status != EFI_NOT_FOUND)
+			pr_err("Couldn't get size: 0x%lx\n", status);
+		goto err;
 	}
 
 	db = kmalloc(lsize, GFP_KERNEL);
 	if (!db) {
 		pr_err("Couldn't allocate memory for uefi cert list\n");
-		return NULL;
+		goto err;
 	}
 
 	status = efi.get_variable(name, guid, NULL, &lsize, db);
 	if (status != EFI_SUCCESS) {
 		kfree(db);
 		pr_err("Error reading db var: 0x%lx\n", status);
-		return NULL;
+		goto err;
 	}
 
 	*size = lsize;
 	return db;
+err:
+	print_get_fail(name, status);
+	return NULL;
 }
 
 /*
@@ -153,9 +176,7 @@ static int __init load_uefi_certs(void)
 	 */
 	if (!uefi_check_ignore_db()) {
 		db = get_cert_list(L"db", &secure_var, &dbsize);
-		if (!db) {
-			pr_err("MODSIGN: Couldn't get UEFI db list\n");
-		} else {
+		if (db) {
 			rc = parse_efi_signature_list("UEFI:db",
 						      db, dbsize, get_handler_for_db);
 			if (rc)
@@ -165,9 +186,7 @@ static int __init load_uefi_certs(void)
 	}
 
 	dbx = get_cert_list(L"dbx", &secure_var, &dbxsize);
-	if (!dbx) {
-		pr_info("MODSIGN: Couldn't get UEFI dbx list\n");
-	} else {
+	if (dbx) {
 		rc = parse_efi_signature_list("UEFI:dbx",
 					      dbx, dbxsize,
 					      get_handler_for_dbx);
@@ -181,9 +200,7 @@ static int __init load_uefi_certs(void)
 		return 0;
 
 	mok = get_cert_list(L"MokListRT", &mok_var, &moksize);
-	if (!mok) {
-		pr_info("MODSIGN: Couldn't get UEFI MokListRT\n");
-	} else {
+	if (mok) {
 		rc = parse_efi_signature_list("UEFI:MokListRT",
 					      mok, moksize, get_handler_for_db);
 		if (rc)
