@@ -697,8 +697,6 @@ static int nvme_submit_user_cmd(struct request_queue *q,
 				GFP_KERNEL);
 		if (ret)
 			goto out;
-		if (!disk)
-			goto submit;
 		bio = req->bio;
 		bio->bi_disk = disk;
 
@@ -711,7 +709,7 @@ static int nvme_submit_user_cmd(struct request_queue *q,
 			}
 		}
 	}
- submit:
+
 	blk_execute_rq(req->q, disk, req, 0);
 	if (nvme_req(req)->flags & NVME_REQ_CANCELLED)
 		ret = -EINTR;
