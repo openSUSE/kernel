@@ -75,6 +75,7 @@
 #include <asm/firmware.h>
 #include <linux/workqueue.h>
 #include <linux/if_vlan.h>
+#include <linux/utsname.h>
 
 #include "ibmvnic.h"
 
@@ -573,6 +574,15 @@ static int reset_tx_pools(struct ibmvnic_adapter *adapter)
 	return 0;
 }
 
+static void release_vpd_data(struct ibmvnic_adapter *adapter)
+{
+	if (!adapter->vpd)
+		return;
+
+	kfree(adapter->vpd->buff);
+	kfree(adapter->vpd);
+}
+
 static void release_tx_pools(struct ibmvnic_adapter *adapter)
 {
 	struct ibmvnic_tx_pool *tx_pool;
@@ -753,6 +763,8 @@ static void release_resources(struct ibmvnic_adapter *adapter)
 {
 	int i;
 
+	release_vpd_data(adapter);
+
 	release_tx_pools(adapter);
 	release_rx_pools(adapter);
 
@@ -833,6 +845,56 @@ static int set_real_num_queues(struct net_device *netdev)
 	return rc;
 }
 
+static int ibmvnic_get_vpd(struct ibmvnic_adapter *adapter)
+{
+	struct device *dev = &adapter->vdev->dev;
+	union ibmvnic_crq crq;
+	int len = 0;
+
+	if (adapter->vpd->buff)
+		len = adapter->vpd->len;
+
+	reinit_completion(&adapter->fw_done);
+	crq.get_vpd_size.first = IBMVNIC_CRQ_CMD;
+	crq.get_vpd_size.cmd = GET_VPD_SIZE;
+	ibmvnic_send_crq(adapter, &crq);
+	wait_for_completion(&adapter->fw_done);
+
+	if (!adapter->vpd->len)
+		return -ENODATA;
+
+	if (!adapter->vpd->buff)
+		adapter->vpd->buff = kzalloc(adapter->vpd->len, GFP_KERNEL);
+	else if (adapter->vpd->len != len)
+		adapter->vpd->buff =
+			krealloc(adapter->vpd->buff,
+				 adapter->vpd->len, GFP_KERNEL);
+
+	if (!adapter->vpd->buff) {
+		dev_err(dev, "Could allocate VPD buffer\n");
+		return -ENOMEM;
+	}
+
+	adapter->vpd->dma_addr =
+		dma_map_single(dev, adapter->vpd->buff, adapter->vpd->len,
+			       DMA_FROM_DEVICE);
+	if (dma_mapping_error(dev, adapter->vpd->dma_addr)) {
+		dev_err(dev, "Could not map VPD buffer\n");
+		kfree(adapter->vpd->buff);
+		return -ENOMEM;
+	}
+
+	reinit_completion(&adapter->fw_done);
+	crq.get_vpd.first = IBMVNIC_CRQ_CMD;
+	crq.get_vpd.cmd = GET_VPD;
+	crq.get_vpd.ioba = cpu_to_be32(adapter->vpd->dma_addr);
+	crq.get_vpd.len = cpu_to_be32((u32)adapter->vpd->len);
+	ibmvnic_send_crq(adapter, &crq);
+	wait_for_completion(&adapter->fw_done);
+
+	return 0;
+}
+
 static int init_resources(struct ibmvnic_adapter *adapter)
 {
 	struct net_device *netdev = adapter->netdev;
@@ -849,6 +911,10 @@ static int init_resources(struct ibmvnic_adapter *adapter)
 	rc = init_stats_token(adapter);
 	if (rc)
 		return rc;
+
+	adapter->vpd = kzalloc(sizeof(*adapter->vpd), GFP_KERNEL);
+	if (!adapter->vpd)
+		return -ENOMEM;
 
 	adapter->map_id = 1;
 	adapter->napi = kcalloc(adapter->req_rx_queues,
@@ -923,7 +989,7 @@ static int __ibmvnic_open(struct net_device *netdev)
 static int ibmvnic_open(struct net_device *netdev)
 {
 	struct ibmvnic_adapter *adapter = netdev_priv(netdev);
-	int rc;
+	int rc, vpd;
 
 	mutex_lock(&adapter->reset_lock);
 
@@ -950,6 +1016,12 @@ static int ibmvnic_open(struct net_device *netdev)
 
 	rc = __ibmvnic_open(netdev);
 	netif_carrier_on(netdev);
+
+	/* Vital Product Data (VPD) */
+	vpd = ibmvnic_get_vpd(adapter);
+	if (vpd)
+		netdev_err(netdev, "failed to initialize Vital Product Data (VPD)\n");
+
 	mutex_unlock(&adapter->reset_lock);
 
 	return rc;
@@ -1878,11 +1950,15 @@ static int ibmvnic_get_link_ksettings(struct net_device *netdev,
 	return 0;
 }
 
-static void ibmvnic_get_drvinfo(struct net_device *dev,
+static void ibmvnic_get_drvinfo(struct net_device *netdev,
 				struct ethtool_drvinfo *info)
 {
+	struct ibmvnic_adapter *adapter = netdev_priv(netdev);
+
 	strlcpy(info->driver, ibmvnic_driver_name, sizeof(info->driver));
 	strlcpy(info->version, IBMVNIC_DRIVER_VERSION, sizeof(info->version));
+	strlcpy(info->fw_version, adapter->fw_version,
+		sizeof(info->fw_version));
 }
 
 static u32 ibmvnic_get_msglevel(struct net_device *netdev)
@@ -2813,6 +2889,55 @@ static int send_version_xchg(struct ibmvnic_adapter *adapter)
 	return ibmvnic_send_crq(adapter, &crq);
 }
 
+struct vnic_login_client_data {
+	u8	type;
+	__be16	len;
+	char	name;
+} __packed;
+
+static int vnic_client_data_len(struct ibmvnic_adapter *adapter)
+{
+	int len;
+
+	/* Calculate the amount of buffer space needed for the
+	 * vnic client data in the login buffer. There are four entries,
+	 * OS name, LPAR name, device name, and a null last entry.
+	 */
+	len = 4 * sizeof(struct vnic_login_client_data);
+	len += 6; /* "Linux" plus NULL */
+	len += strlen(utsname()->nodename) + 1;
+	len += strlen(adapter->netdev->name) + 1;
+
+	return len;
+}
+
+static void vnic_add_client_data(struct ibmvnic_adapter *adapter,
+				 struct vnic_login_client_data *vlcd)
+{
+	const char *os_name = "Linux";
+	int len;
+
+	/* Type 1 - LPAR OS */
+	vlcd->type = 1;
+	len = strlen(os_name) + 1;
+	vlcd->len = cpu_to_be16(len);
+	strncpy(&vlcd->name, os_name, len);
+	vlcd = (struct vnic_login_client_data *)((char *)&vlcd->name + len);
+
+	/* Type 2 - LPAR name */
+	vlcd->type = 2;
+	len = strlen(utsname()->nodename) + 1;
+	vlcd->len = cpu_to_be16(len);
+	strncpy(&vlcd->name, utsname()->nodename, len);
+	vlcd = (struct vnic_login_client_data *)((char *)&vlcd->name + len);
+
+	/* Type 3 - device name */
+	vlcd->type = 3;
+	len = strlen(adapter->netdev->name) + 1;
+	vlcd->len = cpu_to_be16(len);
+	strncpy(&vlcd->name, adapter->netdev->name, len);
+}
+
 static void send_login(struct ibmvnic_adapter *adapter)
 {
 	struct ibmvnic_login_rsp_buffer *login_rsp_buffer;
@@ -2825,13 +2950,18 @@ static void send_login(struct ibmvnic_adapter *adapter)
 	size_t buffer_size;
 	__be64 *tx_list_p;
 	__be64 *rx_list_p;
+	int client_data_len;
+	struct vnic_login_client_data *vlcd;
 	int i;
+
+	client_data_len = vnic_client_data_len(adapter);
 
 	buffer_size =
 	    sizeof(struct ibmvnic_login_buffer) +
-	    sizeof(u64) * (adapter->req_tx_queues + adapter->req_rx_queues);
+	    sizeof(u64) * (adapter->req_tx_queues + adapter->req_rx_queues) +
+	    client_data_len;
 
-	login_buffer = kmalloc(buffer_size, GFP_ATOMIC);
+	login_buffer = kzalloc(buffer_size, GFP_ATOMIC);
 	if (!login_buffer)
 		goto buf_alloc_failed;
 
@@ -2897,6 +3027,15 @@ static void send_login(struct ibmvnic_adapter *adapter)
 						   crq_num);
 		}
 	}
+
+	/* Insert vNIC login client data */
+	vlcd = (struct vnic_login_client_data *)
+		((char *)rx_list_p + (sizeof(u64) * adapter->req_rx_queues));
+	login_buffer->client_data_offset =
+			cpu_to_be32((char *)vlcd - (char *)login_buffer);
+	login_buffer->client_data_len = cpu_to_be32(client_data_len);
+
+	vnic_add_client_data(adapter, vlcd);
 
 	netdev_dbg(adapter->netdev, "Login Buffer:\n");
 	for (i = 0; i < (adapter->login_buf_sz - 1) / 8 + 1; i++) {
@@ -3074,6 +3213,73 @@ static void send_cap_queries(struct ibmvnic_adapter *adapter)
 	crq.query_capability.capability = cpu_to_be16(TX_RX_DESC_REQ);
 	atomic_inc(&adapter->running_cap_crqs);
 	ibmvnic_send_crq(adapter, &crq);
+}
+
+static void handle_vpd_size_rsp(union ibmvnic_crq *crq,
+				struct ibmvnic_adapter *adapter)
+{
+	struct device *dev = &adapter->vdev->dev;
+
+	if (crq->get_vpd_size_rsp.rc.code) {
+		dev_err(dev, "Error retrieving VPD size, rc=%x\n",
+			crq->get_vpd_size_rsp.rc.code);
+		complete(&adapter->fw_done);
+		return;
+	}
+
+	adapter->vpd->len = be64_to_cpu(crq->get_vpd_size_rsp.len);
+	complete(&adapter->fw_done);
+}
+
+static void handle_vpd_rsp(union ibmvnic_crq *crq,
+			   struct ibmvnic_adapter *adapter)
+{
+	struct device *dev = &adapter->vdev->dev;
+	unsigned char *substr = NULL, *ptr = NULL;
+	u8 fw_level_len = 0;
+
+	memset(adapter->fw_version, 0, 32);
+
+	dma_unmap_single(dev, adapter->vpd->dma_addr, adapter->vpd->len,
+			 DMA_FROM_DEVICE);
+
+	if (crq->get_vpd_rsp.rc.code) {
+		dev_err(dev, "Error retrieving VPD from device, rc=%x\n",
+			crq->get_vpd_rsp.rc.code);
+		goto complete;
+	}
+
+	/* get the position of the firmware version info
+	 * located after the ASCII 'RM' substring in the buffer
+	 */
+	substr = strnstr(adapter->vpd->buff, "RM", adapter->vpd->len);
+	if (!substr) {
+		dev_info(dev, "No FW level provided by VPD\n");
+		goto complete;
+	}
+
+	/* get length of firmware level ASCII substring */
+	if ((substr + 2) < (adapter->vpd->buff + adapter->vpd->len)) {
+		fw_level_len = *(substr + 2);
+	} else {
+		dev_info(dev, "Length of FW substr extrapolated VDP buff\n");
+		goto complete;
+	}
+
+	/* copy firmware version string from vpd into adapter */
+	if ((substr + 3 + fw_level_len) <
+	    (adapter->vpd->buff + adapter->vpd->len)) {
+		ptr = strncpy((char *)adapter->fw_version,
+			      substr + 3, fw_level_len);
+
+		if (!ptr)
+			dev_err(dev, "Failed to isolate FW level string\n");
+	} else {
+		dev_info(dev, "FW substr extrapolated VPD buff\n");
+	}
+
+complete:
+	complete(&adapter->fw_done);
 }
 
 static void handle_query_ip_offload_rsp(struct ibmvnic_adapter *adapter)
@@ -3806,6 +4012,12 @@ static void ibmvnic_handle_crq(union ibmvnic_crq *crq,
 	case COLLECT_FW_TRACE_RSP:
 		netdev_dbg(netdev, "Got Collect firmware trace Response\n");
 		complete(&adapter->fw_done);
+		break;
+	case GET_VPD_SIZE_RSP:
+		handle_vpd_size_rsp(crq, adapter);
+		break;
+	case GET_VPD_RSP:
+		handle_vpd_rsp(crq, adapter);
 		break;
 	default:
 		netdev_err(netdev, "Got an invalid cmd type 0x%02x\n",

@@ -68,6 +68,7 @@ _GLOBAL_TOC(kvmppc_hv_entry_trampoline)
 	std	r0, PPC_LR_STKOFF(r1)
 	stdu	r1, -112(r1)
 	mfmsr	r10
+	std	r10, HSTATE_HOST_MSR(r13)
 	LOAD_REG_ADDR(r5, kvmppc_call_hv_entry)
 	li	r0,MSR_RI
 	andc	r0,r10,r0
@@ -152,19 +153,20 @@ END_FTR_SECTION_IFSET(CPU_FTR_ARCH_207S)
 	stb	r0, HSTATE_HWTHREAD_REQ(r13)
 
 	/*
-	 * For external and machine check interrupts, we need
-	 * to call the Linux handler to process the interrupt.
-	 * We do that by jumping to absolute address 0x500 for
-	 * external interrupts, or the machine_check_fwnmi label
-	 * for machine checks (since firmware might have patched
-	 * the vector area at 0x200).  The [h]rfid at the end of the
-	 * handler will return to the book3s_hv_interrupts.S code.
-	 * For other interrupts we do the rfid to get back
-	 * to the book3s_hv_interrupts.S code here.
+	 * For external interrupts we need to call the Linux
+	 * handler to process the interrupt. We do that by jumping
+	 * to absolute address 0x500 for external interrupts.
+	 * The [h]rfid at the end of the handler will return to
+	 * the book3s_hv_interrupts.S code. For other interrupts
+	 * we do the rfid to get back to the book3s_hv_interrupts.S
+	 * code here.
 	 */
 	ld	r8, 112+PPC_LR_STKOFF(r1)
 	addi	r1, r1, 112
 	ld	r7, HSTATE_HOST_MSR(r13)
+
+	/* Return the trap number on this thread as the return value */
+	mr	r3, r12
 
 	/*
 	 * If we came back from the guest via a relocation-on interrupt,
@@ -175,58 +177,19 @@ END_FTR_SECTION_IFSET(CPU_FTR_ARCH_207S)
 	andi.	r0, r0, MSR_IR		/* in real mode? */
 	bne	.Lvirt_return
 
-	cmpwi	cr1, r12, BOOK3S_INTERRUPT_MACHINE_CHECK
-	cmpwi	r12, BOOK3S_INTERRUPT_EXTERNAL
-	beq	11f
-	cmpwi	r12, BOOK3S_INTERRUPT_H_DOORBELL
-	beq 	15f	/* Invoke the H_DOORBELL handler */
-	cmpwi	cr2, r12, BOOK3S_INTERRUPT_HMI
-	beq	cr2, 14f			/* HMI check */
-
-	/* RFI into the highmem handler, or branch to interrupt handler */
+	/* RFI into the highmem handler */
 	mfmsr	r6
 	li	r0, MSR_RI
 	andc	r6, r6, r0
 	mtmsrd	r6, 1			/* Clear RI in MSR */
 	mtsrr0	r8
 	mtsrr1	r7
-	beq	cr1, 13f		/* machine check */
 	RFI
 
-	/* On POWER7, we have external interrupts set to use HSRR0/1 */
-11:	mtspr	SPRN_HSRR0, r8
-	mtspr	SPRN_HSRR1, r7
-	ba	0x500
-
-13:	b	machine_check_fwnmi
-
-14:	mtspr	SPRN_HSRR0, r8
-	mtspr	SPRN_HSRR1, r7
-	b	hmi_exception_after_realmode
-
-15:	mtspr SPRN_HSRR0, r8
-	mtspr SPRN_HSRR1, r7
-	ba    0xe80
-
-	/* Virtual-mode return - can't get here for HMI or machine check */
+	/* Virtual-mode return */
 .Lvirt_return:
-	cmpwi	r12, BOOK3S_INTERRUPT_EXTERNAL
-	beq	16f
-	cmpwi	r12, BOOK3S_INTERRUPT_H_DOORBELL
-	beq	17f
-	andi.	r0, r7, MSR_EE		/* were interrupts hard-enabled? */
-	beq	18f
-	mtmsrd	r7, 1			/* if so then re-enable them */
-18:	mtlr	r8
+	mtlr	r8
 	blr
-
-16:	mtspr	SPRN_HSRR0, r8		/* jump to reloc-on external vector */
-	mtspr	SPRN_HSRR1, r7
-	b	exc_virt_0x4500_hardware_interrupt
-
-17:	mtspr	SPRN_HSRR0, r8
-	mtspr	SPRN_HSRR1, r7
-	b	exc_virt_0x4e80_h_doorbell
 
 kvmppc_primary_no_guest:
 	/* We handle this much like a ceded vcpu */
@@ -1007,13 +970,14 @@ ALT_FTR_SECTION_END_IFCLR(CPU_FTR_ARCH_300)
 	beq	no_xive
 	ld	r11, VCPU_XIVE_SAVED_STATE(r4)
 	li	r9, TM_QW1_OS
-	stdcix	r11,r9,r10
 	eieio
+	stdcix	r11,r9,r10
 	lwz	r11, VCPU_XIVE_CAM_WORD(r4)
 	li	r9, TM_QW1_OS + TM_WORD2
 	stwcix	r11,r9,r10
 	li	r9, 1
 	stw	r9, VCPU_XIVE_PUSHED(r4)
+	eieio
 no_xive:
 #endif /* CONFIG_KVM_XICS */
 
@@ -1235,6 +1199,15 @@ END_FTR_SECTION_IFSET(CPU_FTR_HAS_PPR)
 
 	stw	r12,VCPU_TRAP(r9)
 
+	/*
+	 * Now that we have saved away SRR0/1 and HSRR0/1,
+	 * interrupts are recoverable in principle, so set MSR_RI.
+	 * This becomes important for relocation-on interrupts from
+	 * the guest, which we can get in radix mode on POWER9.
+	 */
+	li	r0, MSR_RI
+	mtmsrd	r0, 1
+
 #ifdef CONFIG_KVM_BOOK3S_HV_EXIT_TIMING
 	addi	r3, r9, VCPU_TB_RMINTR
 	mr	r4, r9
@@ -1373,8 +1346,8 @@ guest_exit_cont:		/* r9 = vcpu, r12 = trap, r13 = paca */
 	cmpldi	cr0, r10, 0
 	beq	1f
 	/* First load to pull the context, we ignore the value */
-	lwzx	r11, r7, r10
 	eieio
+	lwzx	r11, r7, r10
 	/* Second load to recover the context state (Words 0 and 1) */
 	ldx	r11, r6, r10
 	b	3f
@@ -1382,8 +1355,8 @@ guest_exit_cont:		/* r9 = vcpu, r12 = trap, r13 = paca */
 	cmpldi	cr0, r10, 0
 	beq	1f
 	/* First load to pull the context, we ignore the value */
-	lwzcix	r11, r7, r10
 	eieio
+	lwzcix	r11, r7, r10
 	/* Second load to recover the context state (Words 0 and 1) */
 	ldcix	r11, r6, r10
 3:	std	r11, VCPU_XIVE_SAVED_STATE(r9)
@@ -1393,6 +1366,7 @@ guest_exit_cont:		/* r9 = vcpu, r12 = trap, r13 = paca */
 	stw	r10, VCPU_XIVE_PUSHED(r9)
 	stb	r10, (VCPU_XIVE_SAVED_STATE+3)(r9)
 	stb	r0, (VCPU_XIVE_SAVED_STATE+4)(r9)
+	eieio
 1:
 #endif /* CONFIG_KVM_XICS */
 	/* Save more register state  */
@@ -2652,22 +2626,32 @@ machine_check_realmode:
 	ld	r9, HSTATE_KVM_VCPU(r13)
 	li	r12, BOOK3S_INTERRUPT_MACHINE_CHECK
 	/*
-	 * Deliver unhandled/fatal (e.g. UE) MCE errors to guest through
-	 * machine check interrupt (set HSRR0 to 0x200). And for handled
-	 * errors (no-fatal), just go back to guest execution with current
-	 * HSRR0 instead of exiting guest. This new approach will inject
-	 * machine check to guest for fatal error causing guest to crash.
+	 * For the guest that is FWNMI capable, deliver all the MCE errors
+	 * (handled/unhandled) by exiting the guest with KVM_EXIT_NMI exit
+	 * reason. This new approach injects machine check errors in guest
+	 * address space to guest with additional information in the form
+	 * of RTAS event, thus enabling guest kernel to suitably handle
+	 * such errors.
 	 *
-	 * The old code used to return to host for unhandled errors which
-	 * was causing guest to hang with soft lockups inside guest and
-	 * makes it difficult to recover guest instance.
-	 *
+	 * For the guest that is not FWNMI capable (old QEMU) fallback
+	 * to old behaviour for backward compatibility:
+	 * Deliver unhandled/fatal (e.g. UE) MCE errors to guest either
+	 * through machine check interrupt (set HSRR0 to 0x200).
+	 * For handled errors (no-fatal), just go back to guest execution
+	 * with current HSRR0.
 	 * if we receive machine check with MSR(RI=0) then deliver it to
 	 * guest as machine check causing guest to crash.
 	 */
 	ld	r11, VCPU_MSR(r9)
 	rldicl.	r0, r11, 64-MSR_HV_LG, 63 /* check if it happened in HV mode */
 	bne	mc_cont			/* if so, exit to host */
+	/* Check if guest is capable of handling NMI exit */
+	ld	r10, VCPU_KVM(r9)
+	lbz	r10, KVM_FWNMI(r10)
+	cmpdi	r10, 1			/* FWNMI capable? */
+	beq	mc_cont			/* if so, exit with KVM_EXIT_NMI. */
+
+	/* if not, fall through for backward compatibility. */
 	andi.	r10, r11, MSR_RI	/* check for unrecoverable exception */
 	beq	1f			/* Deliver a machine check to guest */
 	ld	r10, VCPU_PC(r9)

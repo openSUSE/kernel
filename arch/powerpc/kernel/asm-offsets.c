@@ -185,7 +185,7 @@ int main(void)
 #ifdef CONFIG_PPC_MM_SLICES
 	OFFSET(PACALOWSLICESPSIZE, paca_struct, mm_ctx_low_slices_psize);
 	OFFSET(PACAHIGHSLICEPSIZE, paca_struct, mm_ctx_high_slices_psize);
-	DEFINE(PACA_ADDR_LIMIT, offsetof(struct paca_struct, addr_limit));
+	OFFSET(PACA_SLB_ADDR_LIMIT, paca_struct, mm_ctx_slb_addr_limit);
 	DEFINE(MMUPSIZEDEFSIZE, sizeof(struct mmu_psize_def));
 #endif /* CONFIG_PPC_MM_SLICES */
 #endif
@@ -485,6 +485,7 @@ int main(void)
 	OFFSET(KVM_ENABLED_HCALLS, kvm, arch.enabled_hcalls);
 	OFFSET(KVM_VRMA_SLB_V, kvm, arch.vrma_slb_v);
 	OFFSET(KVM_RADIX, kvm, arch.radix);
+	OFFSET(KVM_FWNMI, kvm, arch.fwnmi_enabled);
 	OFFSET(VCPU_DSISR, kvm_vcpu, arch.shregs.dsisr);
 	OFFSET(VCPU_DAR, kvm_vcpu, arch.shregs.dar);
 	OFFSET(VCPU_VPA, kvm_vcpu, arch.vpa.pinned_addr);
