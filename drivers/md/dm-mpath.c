@@ -508,8 +508,6 @@ static int multipath_clone_and_map(struct dm_target *ti, struct request *rq,
 	if (IS_ERR(clone)) {
 		/* EBUSY, ENODEV or EWOULDBLOCK: requeue */
 		bool queue_dying = q ? blk_queue_dying(q) : false;
-		DMERR_LIMIT("blk_get_request() returned %ld%s - requeuing",
-			    PTR_ERR(clone), queue_dying ? " (path offline)" : "");
 		if (queue_dying) {
 			atomic_inc(&m->pg_init_in_progress);
 			activate_or_offline_path(pgpath);
