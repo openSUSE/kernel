@@ -41,14 +41,6 @@
 
 #define NVME_RDMA_MAX_INLINE_SEGMENTS	1
 
-/*
- * We handle AEN commands ourselves and don't even let the
- * block layer know about them.
- */
-#define NVME_RDMA_NR_AEN_COMMANDS      1
-#define NVME_RDMA_AQ_BLKMQ_DEPTH       \
-	(NVME_AQ_DEPTH - NVME_RDMA_NR_AEN_COMMANDS)
-
 struct nvme_rdma_device {
 	struct ib_device	*dev;
 	struct ib_pd		*pd;
@@ -493,7 +485,7 @@ static int nvme_rdma_create_queue_ib(struct nvme_rdma_queue *queue)
 	return 0;
 
 out_destroy_qp:
-	ib_destroy_qp(queue->qp);
+	rdma_destroy_qp(queue->cm_id);
 out_destroy_ib_cq:
 	ib_free_cq(queue->ib_cq);
 out_put_dev:
@@ -696,7 +688,7 @@ static struct blk_mq_tag_set *nvme_rdma_alloc_tagset(struct nvme_ctrl *nctrl,
 		set = &ctrl->admin_tag_set;
 		memset(set, 0, sizeof(*set));
 		set->ops = &nvme_rdma_admin_mq_ops;
-		set->queue_depth = NVME_RDMA_AQ_BLKMQ_DEPTH;
+		set->queue_depth = NVME_AQ_MQ_TAG_DEPTH;
 		set->reserved_tags = 2; /* connect + keep-alive */
 		set->numa_node = NUMA_NO_NODE;
 		set->cmd_size = sizeof(struct nvme_rdma_request) +
@@ -1309,7 +1301,7 @@ static struct blk_mq_tags *nvme_rdma_tagset(struct nvme_rdma_queue *queue)
 	return queue->ctrl->tag_set.tags[queue_idx - 1];
 }
 
-static void nvme_rdma_submit_async_event(struct nvme_ctrl *arg, int aer_idx)
+static void nvme_rdma_submit_async_event(struct nvme_ctrl *arg)
 {
 	struct nvme_rdma_ctrl *ctrl = to_rdma_ctrl(arg);
 	struct nvme_rdma_queue *queue = &ctrl->queues[0];
@@ -1319,14 +1311,11 @@ static void nvme_rdma_submit_async_event(struct nvme_ctrl *arg, int aer_idx)
 	struct ib_sge sge;
 	int ret;
 
-	if (WARN_ON_ONCE(aer_idx != 0))
-		return;
-
 	ib_dma_sync_single_for_cpu(dev, sqe->dma, sizeof(*cmd), DMA_TO_DEVICE);
 
 	memset(cmd, 0, sizeof(*cmd));
 	cmd->common.opcode = nvme_admin_async_event;
-	cmd->common.command_id = NVME_RDMA_AQ_BLKMQ_DEPTH;
+	cmd->common.command_id = NVME_AQ_BLK_MQ_DEPTH;
 	cmd->common.flags |= NVME_CMD_SGL_METABUF;
 	nvme_rdma_set_sg_null(cmd);
 
@@ -1388,7 +1377,7 @@ static int __nvme_rdma_recv_done(struct ib_cq *cq, struct ib_wc *wc, int tag)
 	 * for them but rather special case them here.
 	 */
 	if (unlikely(nvme_rdma_queue_idx(queue) == 0 &&
-			cqe->command_id >= NVME_RDMA_AQ_BLKMQ_DEPTH))
+			cqe->command_id >= NVME_AQ_BLK_MQ_DEPTH))
 		nvme_complete_async_event(&queue->ctrl->ctrl, cqe->status,
 				&cqe->result);
 	else
