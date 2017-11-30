@@ -380,7 +380,6 @@ struct i40iw_sc_qp {
 	u8 *q2_buf;
 	u64 qp_compl_ctx;
 	u16 qs_handle;
-	u16 exception_lan_queue;
 	u16 push_idx;
 	u8 sq_tph_val;
 	u8 rq_tph_val;
@@ -459,7 +458,8 @@ struct i40iw_sc_vsi {
 	u32 ieq_count;
 	struct i40iw_virt_mem ieq_mem;
 	struct i40iw_puda_rsrc *ieq;
-	u16 mss;
+	u16 exception_lan_queue;
+	u16 mtu;
 	u8 fcn_id;
 	bool stats_fcn_id_alloc;
 	struct i40iw_qos qos[I40IW_MAX_USER_PRIORITY];
@@ -501,7 +501,6 @@ struct i40iw_sc_dev {
 
 	struct i40iw_hmc_fpm_misc hmc_fpm_misc;
 	u32 debug_mask;
-	u16 exception_lan_queue;
 	u8 hmc_fn_id;
 	bool is_pf;
 	bool vchnl_up;
@@ -568,13 +567,14 @@ struct i40iw_ccq_cqe_info {
 
 struct i40iw_l2params {
 	u16 qs_handle_list[I40IW_MAX_USER_PRIORITY];
-	u16 mss;
+	u16 mtu;
 };
 
 struct i40iw_vsi_init_info {
 	struct i40iw_sc_dev *dev;
 	void  *back_vsi;
 	struct i40iw_l2params *params;
+	u16 exception_lan_queue;
 };
 
 struct i40iw_vsi_stats_info {
@@ -592,7 +592,6 @@ struct i40iw_device_init_info {
 	struct i40iw_hw *hw;
 	void __iomem *bar0;
 	enum i40iw_status_code (*vchnl_send)(struct i40iw_sc_dev *, u32, u8 *, u16);
-	u16 exception_lan_queue;
 	u8 hmc_fn_id;
 	bool is_pf;
 	u32 debug_mask;

@@ -394,6 +394,7 @@ int bnxt_re_add_gid(struct ib_device *ibdev, u8 port_num,
 	ctx->idx = tbl_idx;
 	ctx->refcnt = 1;
 	ctx_tbl[tbl_idx] = ctx;
+	*context = ctx;
 
 	return rc;
 }
@@ -796,6 +797,7 @@ int bnxt_re_destroy_qp(struct ib_qp *ib_qp)
 	struct bnxt_re_dev *rdev = qp->rdev;
 	int rc;
 
+	bnxt_qplib_flush_cqn_wq(&qp->qplib_qp);
 	bnxt_qplib_del_flush_qp(&qp->qplib_qp);
 	rc = bnxt_qplib_destroy_qp(&rdev->qplib_res, &qp->qplib_qp);
 	if (rc) {
@@ -3008,8 +3010,10 @@ int bnxt_re_req_notify_cq(struct ib_cq *ib_cq,
 			  enum ib_cq_notify_flags ib_cqn_flags)
 {
 	struct bnxt_re_cq *cq = container_of(ib_cq, struct bnxt_re_cq, ib_cq);
-	int type = 0;
+	int type = 0, rc = 0;
+	unsigned long flags;
 
+	spin_lock_irqsave(&cq->cq_lock, flags);
 	/* Trigger on the very next completion */
 	if (ib_cqn_flags & IB_CQ_NEXT_COMP)
 		type = DBR_DBR_TYPE_CQ_ARMALL;
@@ -3019,12 +3023,15 @@ int bnxt_re_req_notify_cq(struct ib_cq *ib_cq,
 
 	/* Poll to see if there are missed events */
 	if ((ib_cqn_flags & IB_CQ_REPORT_MISSED_EVENTS) &&
-	    !(bnxt_qplib_is_cq_empty(&cq->qplib_cq)))
-		return 1;
-
+	    !(bnxt_qplib_is_cq_empty(&cq->qplib_cq))) {
+		rc = 1;
+		goto exit;
+	}
 	bnxt_qplib_req_notify_cq(&cq->qplib_cq, type);
 
-	return 0;
+exit:
+	spin_unlock_irqrestore(&cq->cq_lock, flags);
+	return rc;
 }
 
 /* Memory Regions */

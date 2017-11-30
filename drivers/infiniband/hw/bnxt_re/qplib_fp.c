@@ -297,6 +297,12 @@ static void bnxt_qplib_service_nq(unsigned long data)
 		if (!NQE_CMP_VALID(nqe, raw_cons, hwq->max_elements))
 			break;
 
+		/*
+		 * The valid test of the entry must be done first before
+		 * reading any further.
+		 */
+		dma_rmb();
+
 		type = le16_to_cpu(nqe->info10_type) & NQ_BASE_TYPE_MASK;
 		switch (type) {
 		case NQ_BASE_TYPE_CQ_NOTIFICATION:
@@ -1118,6 +1124,11 @@ static void __clean_cq(struct bnxt_qplib_cq *cq, u64 qp)
 		hw_cqe = &hw_cqe_ptr[CQE_PG(i)][CQE_IDX(i)];
 		if (!CQE_CMP_VALID(hw_cqe, i, cq_hwq->max_elements))
 			continue;
+		/*
+		 * The valid test of the entry must be done first before
+		 * reading any further.
+		 */
+		dma_rmb();
 		switch (hw_cqe->cqe_type_toggle & CQ_BASE_CQE_TYPE_MASK) {
 		case CQ_BASE_CQE_TYPE_REQ:
 		case CQ_BASE_CQE_TYPE_TERMINAL:
@@ -1901,6 +1912,11 @@ static int do_wa9060(struct bnxt_qplib_qp *qp, struct bnxt_qplib_cq *cq,
 			/* If the next hwcqe is VALID */
 			if (CQE_CMP_VALID(peek_hwcqe, peek_raw_cq_cons,
 					  cq->hwq.max_elements)) {
+			/*
+			 * The valid test of the entry must be done first before
+			 * reading any further.
+			 */
+				dma_rmb();
 				/* If the next hwcqe is a REQ */
 				if ((peek_hwcqe->cqe_type_toggle &
 				    CQ_BASE_CQE_TYPE_MASK) ==
@@ -2107,6 +2123,7 @@ static int bnxt_qplib_cq_process_res_rc(struct bnxt_qplib_cq *cq,
 	*pcqe = cqe;
 
 	if (hwcqe->status != CQ_RES_RC_STATUS_OK) {
+		qp->state = CMDQ_MODIFY_QP_NEW_STATE_ERR;
 		 /* Add qp to flush list of the CQ */
 		bnxt_qplib_lock_buddy_cq(qp, cq);
 		__bnxt_qplib_add_flush_qp(qp);
@@ -2170,6 +2187,7 @@ static int bnxt_qplib_cq_process_res_ud(struct bnxt_qplib_cq *cq,
 	*pcqe = cqe;
 
 	if (hwcqe->status != CQ_RES_RC_STATUS_OK) {
+		qp->state = CMDQ_MODIFY_QP_NEW_STATE_ERR;
 		/* Add qp to flush list of the CQ */
 		bnxt_qplib_lock_buddy_cq(qp, cq);
 		__bnxt_qplib_add_flush_qp(qp);
@@ -2257,6 +2275,7 @@ static int bnxt_qplib_cq_process_res_raweth_qp1(struct bnxt_qplib_cq *cq,
 	*pcqe = cqe;
 
 	if (hwcqe->status != CQ_RES_RC_STATUS_OK) {
+		qp->state = CMDQ_MODIFY_QP_NEW_STATE_ERR;
 		/* Add qp to flush list of the CQ */
 		bnxt_qplib_lock_buddy_cq(qp, cq);
 		__bnxt_qplib_add_flush_qp(qp);
@@ -2445,6 +2464,11 @@ int bnxt_qplib_poll_cq(struct bnxt_qplib_cq *cq, struct bnxt_qplib_cqe *cqe,
 		if (!CQE_CMP_VALID(hw_cqe, raw_cons, cq->hwq.max_elements))
 			break;
 
+		/*
+		 * The valid test of the entry must be done first before
+		 * reading any further.
+		 */
+		dma_rmb();
 		/* From the device's respective CQE format to qplib_wc*/
 		switch (hw_cqe->cqe_type_toggle & CQ_BASE_CQE_TYPE_MASK) {
 		case CQ_BASE_CQE_TYPE_REQ:
@@ -2517,4 +2541,11 @@ void bnxt_qplib_req_notify_cq(struct bnxt_qplib_cq *cq, u32 arm_type)
 	/* Using cq->arm_state variable to track whether to issue cq handler */
 	atomic_set(&cq->arm_state, 1);
 	spin_unlock_irqrestore(&cq->hwq.lock, flags);
+}
+
+void bnxt_qplib_flush_cqn_wq(struct bnxt_qplib_qp *qp)
+{
+	flush_workqueue(qp->scq->nq->cqn_wq);
+	if (qp->scq != qp->rcq)
+		flush_workqueue(qp->rcq->nq->cqn_wq);
 }

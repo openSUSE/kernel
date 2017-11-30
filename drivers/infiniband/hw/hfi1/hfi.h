@@ -95,6 +95,9 @@
 #define DROP_PACKET_OFF		0
 #define DROP_PACKET_ON		1
 
+#define NEIGHBOR_TYPE_HFI		0
+#define NEIGHBOR_TYPE_SWITCH	1
+
 extern unsigned long hfi1_cap_mask;
 #define HFI1_CAP_KGET_MASK(mask, cap) ((mask) & HFI1_CAP_##cap)
 #define HFI1_CAP_UGET_MASK(mask, cap) \
@@ -390,6 +393,7 @@ struct hfi1_packet {
 /*
  * OPA 16B L2/L4 Encodings
  */
+#define OPA_16B_L4_9B		0x00
 #define OPA_16B_L2_TYPE		0x02
 #define OPA_16B_L4_IB_LOCAL	0x09
 #define OPA_16B_L4_IB_GLOBAL	0x0A
@@ -1047,6 +1051,8 @@ struct hfi1_devdata {
 	u64 z_send_schedule;
 
 	u64 __percpu *send_schedule;
+	/* number of reserved contexts for VNIC usage */
+	u16 num_vnic_contexts;
 	/* number of receive contexts in use by the driver */
 	u32 num_rcv_contexts;
 	/* number of pio send contexts in use by the driver */

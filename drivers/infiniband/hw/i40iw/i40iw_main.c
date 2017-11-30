@@ -958,7 +958,7 @@ static enum i40iw_status_code i40iw_initialize_ieq(struct i40iw_device *iwdev)
 	memset(&info, 0, sizeof(info));
 	info.type = I40IW_PUDA_RSRC_TYPE_IEQ;
 	info.cq_id = 2;
-	info.qp_id = iwdev->sc_dev.exception_lan_queue;
+	info.qp_id = iwdev->vsi.exception_lan_queue;
 	info.count = 1;
 	info.pd_id = 2;
 	info.sq_size = 8192;
@@ -1327,8 +1327,8 @@ static enum i40iw_status_code i40iw_initialize_dev(struct i40iw_device *iwdev,
 	info.bar0 = ldev->hw_addr;
 	info.hw = &iwdev->hw;
 	info.debug_mask = debug;
-	l2params.mss =
-		(ldev->params.mtu) ? ldev->params.mtu - I40IW_MTU_TO_MSS : I40IW_DEFAULT_MSS;
+	l2params.mtu =
+		(ldev->params.mtu) ? ldev->params.mtu : I40IW_DEFAULT_MTU;
 	for (i = 0; i < I40E_CLIENT_MAX_USER_PRIORITY; i++) {
 		qset = ldev->params.qos.prio_qos[i].qs_handle;
 		l2params.qs_handle_list[i] = qset;
@@ -1338,7 +1338,6 @@ static enum i40iw_status_code i40iw_initialize_dev(struct i40iw_device *iwdev,
 			iwdev->dcb = true;
 	}
 	i40iw_pr_info("DCB is set/clear = %d\n", iwdev->dcb);
-	info.exception_lan_queue = 1;
 	info.vchnl_send = i40iw_virtchnl_send;
 	status = i40iw_device_init(&iwdev->sc_dev, &info);
 
@@ -1348,6 +1347,7 @@ static enum i40iw_status_code i40iw_initialize_dev(struct i40iw_device *iwdev,
 	vsi_info.dev = &iwdev->sc_dev;
 	vsi_info.back_vsi = (void *)iwdev;
 	vsi_info.params = &l2params;
+	vsi_info.exception_lan_queue = 1;
 	i40iw_sc_vsi_init(&iwdev->vsi, &vsi_info);
 
 	if (dev->is_pf) {
@@ -1748,7 +1748,7 @@ static void i40iw_l2param_change(struct i40e_info *ldev, struct i40e_client *cli
 	for (i = 0; i < I40E_CLIENT_MAX_USER_PRIORITY; i++)
 		l2params->qs_handle_list[i] = params->qos.prio_qos[i].qs_handle;
 
-	l2params->mss = (params->mtu) ? params->mtu - I40IW_MTU_TO_MSS : iwdev->vsi.mss;
+	l2params->mtu = (params->mtu) ? params->mtu : iwdev->vsi.mtu;
 
 	INIT_WORK(&work->work, i40iw_l2params_worker);
 	queue_work(iwdev->param_wq, &work->work);

@@ -615,8 +615,10 @@ static enum i40iw_status_code i40iw_puda_qp_create(struct i40iw_puda_rsrc *rsrc)
 		ret = i40iw_cqp_qp_create_cmd(rsrc->dev, qp);
 	else
 		ret = i40iw_puda_qp_wqe(rsrc->dev, qp);
-	if (ret)
+	if (ret) {
+		i40iw_qp_rem_qos(qp);
 		i40iw_free_dma_mem(rsrc->dev->hw, &rsrc->qpmem);
+	}
 	return ret;
 }
 
@@ -1400,7 +1402,8 @@ static void i40iw_ieq_handle_exception(struct i40iw_puda_rsrc *ieq,
 		pfpdu->rcv_nxt = fps;
 		pfpdu->fps = fps;
 		pfpdu->mode = true;
-		pfpdu->max_fpdu_data = ieq->vsi->mss;
+		pfpdu->max_fpdu_data = (buf->ipv4) ? (ieq->vsi->mtu - I40IW_MTU_TO_MSS_IPV4) :
+				       (ieq->vsi->mtu - I40IW_MTU_TO_MSS_IPV6);
 		pfpdu->pmode_count++;
 		INIT_LIST_HEAD(rxlist);
 		i40iw_ieq_check_first_buf(buf, fps);
