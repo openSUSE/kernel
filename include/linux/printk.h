@@ -146,6 +146,9 @@ static inline __printf(1, 2) __cold
 void early_printk(const char *s, ...) { }
 #endif
 
+extern void printk_force_sync_mode(void);
+extern void printk_relax_sync_mode(void);
+
 #ifdef CONFIG_PRINTK_NMI
 extern void printk_nmi_enter(void);
 extern void printk_nmi_exit(void);
