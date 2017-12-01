@@ -30,28 +30,6 @@ static inline void arch_memcpy_to_pmem(void *dst, const void *src, size_t n)
 {
 	BUG();
 }
-
-static inline size_t arch_copy_from_iter_pmem(void *addr, size_t bytes,
-		struct iov_iter *i)
-{
-	BUG();
-	return 0;
-}
-
-static inline void arch_clear_pmem(void *addr, size_t size)
-{
-	BUG();
-}
-
-static inline void arch_wb_cache_pmem(void *addr, size_t size)
-{
-	BUG();
-}
-
-static inline void arch_invalidate_pmem(void *addr, size_t size)
-{
-	BUG();
-}
 #endif
 
 static inline bool arch_has_pmem_api(void)
@@ -77,66 +55,5 @@ static inline void memcpy_to_pmem(void *dst, const void *src, size_t n)
 		arch_memcpy_to_pmem(dst, src, n);
 	else
 		memcpy(dst, src, n);
-}
-
-/**
- * copy_from_iter_pmem - copy data from an iterator to PMEM
- * @addr:	PMEM destination address
- * @bytes:	number of bytes to copy
- * @i:		iterator with source data
- *
- * Copy data from the iterator 'i' to the PMEM buffer starting at 'addr'.
- * See blkdev_issue_flush() note for memcpy_to_pmem().
- */
-static inline size_t copy_from_iter_pmem(void *addr, size_t bytes,
-		struct iov_iter *i)
-{
-	if (arch_has_pmem_api())
-		return arch_copy_from_iter_pmem(addr, bytes, i);
-	return copy_from_iter_nocache(addr, bytes, i);
-}
-
-/**
- * clear_pmem - zero a PMEM memory range
- * @addr:	virtual start address
- * @size:	number of bytes to zero
- *
- * Write zeros into the memory range starting at 'addr' for 'size' bytes.
- * See blkdev_issue_flush() note for memcpy_to_pmem().
- */
-static inline void clear_pmem(void *addr, size_t size)
-{
-	if (arch_has_pmem_api())
-		arch_clear_pmem(addr, size);
-	else
-		memset(addr, 0, size);
-}
-
-/**
- * invalidate_pmem - flush a pmem range from the cache hierarchy
- * @addr:	virtual start address
- * @size:	bytes to invalidate (internally aligned to cache line size)
- *
- * For platforms that support clearing poison this flushes any poisoned
- * ranges out of the cache
- */
-static inline void invalidate_pmem(void *addr, size_t size)
-{
-	if (arch_has_pmem_api())
-		arch_invalidate_pmem(addr, size);
-}
-
-/**
- * wb_cache_pmem - write back processor cache for PMEM memory range
- * @addr:	virtual start address
- * @size:	number of bytes to write back
- *
- * Write back the processor cache range starting at 'addr' for 'size' bytes.
- * See blkdev_issue_flush() note for memcpy_to_pmem().
- */
-static inline void wb_cache_pmem(void *addr, size_t size)
-{
-	if (arch_has_pmem_api())
-		arch_wb_cache_pmem(addr, size);
 }
 #endif /* __PMEM_H__ */

@@ -698,7 +698,7 @@ static int dax_writeback_one(struct block_device *bdev,
 	}
 
 	dax_mapping_entry_mkclean(mapping, index, pfn_t_to_pfn(pfn));
-	wb_cache_pmem(kaddr, size);
+	dax_flush(dax_dev, kaddr, size);
 	/*
 	 * After we have flushed the cache, we can clear the dirty tag. There
 	 * cannot be new dirty data in the pfn after the flush has completed as
@@ -894,7 +894,8 @@ int __dax_zero_page_range(struct block_device *bdev,
 			dax_read_unlock(id);
 			return rc;
 		}
-		clear_pmem(kaddr + offset, size);
+		memset(kaddr + offset, 0, size);
+		dax_flush(dax_dev, kaddr + offset, size);
 		dax_read_unlock(id);
 	}
 	return 0;
@@ -973,7 +974,8 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 		 * vfs_write(), depending on which operation we are doing.
 		 */
 		if (iov_iter_rw(iter) == WRITE)
-			map_len = copy_from_iter_pmem(kaddr, map_len, iter);
+			map_len = dax_copy_from_iter(dax_dev, pgoff, kaddr,
+					map_len, iter);
 		else
 			map_len = copy_to_iter(kaddr, map_len, iter);
 		if (map_len <= 0) {
