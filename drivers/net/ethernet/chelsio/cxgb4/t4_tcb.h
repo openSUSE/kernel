@@ -1,7 +1,7 @@
 /*
- * This file is part of the Chelsio T4 Ethernet driver for Linux.
+ * This file is part of the Chelsio T4/T5/T6 Ethernet driver for Linux.
  *
- * Copyright (c) 2003-2016 Chelsio Communications, Inc. All rights reserved.
+ * Copyright (c) 2017 Chelsio Communications, Inc. All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -32,25 +32,38 @@
  * SOFTWARE.
  */
 
-#ifndef __CXGB4_FILTER_H
-#define __CXGB4_FILTER_H
+#ifndef __T4_TCB_H
+#define __T4_TCB_H
 
-#include "t4_msg.h"
+#define TCB_SMAC_SEL_W		0
+#define TCB_SMAC_SEL_S		24
+#define TCB_SMAC_SEL_M		0xffULL
+#define TCB_SMAC_SEL_V(x)	((x) << TCB_SMAC_SEL_S)
 
-#define WORD_MASK	0xffffffff
+#define TCB_T_FLAGS_W		1
 
-void filter_rpl(struct adapter *adap, const struct cpl_set_tcb_rpl *rpl);
-void hash_filter_rpl(struct adapter *adap, const struct cpl_act_open_rpl *rpl);
-void hash_del_filter_rpl(struct adapter *adap,
-			 const struct cpl_abort_rpl_rss *rpl);
-void clear_filter(struct adapter *adap, struct filter_entry *f);
+#define TF_CCTRL_ECE_S		60
+#define TF_CCTRL_CWR_S		61
+#define TF_CCTRL_RFR_S		62
 
-int set_filter_wr(struct adapter *adapter, int fidx);
-int delete_filter(struct adapter *adapter, unsigned int fidx);
+#define TCB_RSS_INFO_W		3
+#define TCB_RSS_INFO_S		0
+#define TCB_RSS_INFO_M		0x3ffULL
+#define TCB_RSS_INFO_V(x)	((x) << TCB_RSS_INFO_S)
 
-int writable_filter(struct filter_entry *f);
-void clear_all_filters(struct adapter *adapter);
-int init_hash_filter(struct adapter *adap);
-bool is_filter_exact_match(struct adapter *adap,
-			   struct ch_filter_specification *fs);
-#endif /* __CXGB4_FILTER_H */
+#define TCB_TIMESTAMP_W		5
+#define TCB_TIMESTAMP_S		0
+#define TCB_TIMESTAMP_M		0xffffffffULL
+#define TCB_TIMESTAMP_V(x)	((x) << TCB_TIMESTAMP_S)
+
+#define TCB_RTT_TS_RECENT_AGE_W		6
+#define TCB_RTT_TS_RECENT_AGE_S		0
+#define TCB_RTT_TS_RECENT_AGE_M		0xffffffffULL
+#define TCB_RTT_TS_RECENT_AGE_V(x)	((x) << TCB_RTT_TS_RECENT_AGE_S)
+
+#define TCB_SND_UNA_RAW_W	10
+#define TCB_RX_FRAG2_PTR_RAW_W	27
+#define TCB_RX_FRAG3_LEN_RAW_W	29
+#define TCB_RX_FRAG3_START_IDX_OFFSET_RAW_W	30
+#define TCB_PDU_HDR_LEN_W	31
+#endif /* __T4_TCB_H */
