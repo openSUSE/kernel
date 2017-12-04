@@ -322,8 +322,10 @@ static struct aa_profile *__attach_match(const char *name,
 	struct aa_profile *profile, *candidate = NULL;
 
 	list_for_each_entry_rcu(profile, head, base.list) {
-		if (profile->label.flags & FLAG_NULL)
+		if (profile->label.flags & FLAG_NULL &&
+		    &profile->label == ns_unconfined(profile->ns))
 			continue;
+
 		if (profile->xmatch && profile->xmatch_len > len) {
 			unsigned int state = aa_dfa_match(profile->xmatch,
 							  DFA_START, name);
