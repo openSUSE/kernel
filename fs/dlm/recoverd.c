@@ -290,8 +290,11 @@ static int dlm_recoverd(void *arg)
 	while (!kthread_should_stop()) {
 		set_current_state(TASK_INTERRUPTIBLE);
 		if (!test_bit(LSFL_RECOVER_WORK, &ls->ls_flags) &&
-		    !test_bit(LSFL_RECOVER_DOWN, &ls->ls_flags))
+		    !test_bit(LSFL_RECOVER_DOWN, &ls->ls_flags)) {
+			if (kthread_should_stop())
+				break;
 			schedule();
+		}
 		set_current_state(TASK_RUNNING);
 
 		if (test_and_clear_bit(LSFL_RECOVER_DOWN, &ls->ls_flags)) {
