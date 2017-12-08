@@ -1793,7 +1793,7 @@ static struct pstate_funcs core_funcs = {
 	.get_turbo = core_get_turbo_pstate,
 	.get_scaling = core_get_scaling,
 	.get_val = core_get_val,
-	.update_util = intel_pstate_update_util_pid,
+	.update_util = intel_pstate_update_util,
 };
 
 static const struct pstate_funcs silvermont_funcs = {
@@ -1826,7 +1826,7 @@ static const struct pstate_funcs knl_funcs = {
 	.get_aperf_mperf_shift = knl_get_aperf_mperf_shift,
 	.get_scaling = core_get_scaling,
 	.get_val = core_get_val,
-	.update_util = intel_pstate_update_util_pid,
+	.update_util = intel_pstate_update_util,
 };
 
 static const struct pstate_funcs bxt_funcs = {
@@ -2374,6 +2374,7 @@ static int no_hwp __initdata;
 static int hwp_only __initdata;
 static int __initdata vanilla_policy;
 static int __initdata server_policy;
+static int __initdata use_pid_policy;
 static unsigned int force_load __initdata;
 
 static int __init intel_pstate_msrs_not_valid(void)
@@ -2386,24 +2387,6 @@ static int __init intel_pstate_msrs_not_valid(void)
 	return 0;
 }
 
-#ifdef CONFIG_ACPI
-static void intel_pstate_use_acpi_profile(void)
-{
-	switch (acpi_gbl_FADT.preferred_profile) {
-	case PM_MOBILE:
-	case PM_TABLET:
-	case PM_APPLIANCE_PC:
-	case PM_DESKTOP:
-	case PM_WORKSTATION:
-		pstate_funcs.update_util = intel_pstate_update_util;
-	}
-}
-#else
-static void intel_pstate_use_acpi_profile(void)
-{
-}
-#endif
-
 static void __init copy_cpu_funcs(struct pstate_funcs *funcs)
 {
 	pstate_funcs.get_max   = funcs->get_max;
@@ -2415,8 +2398,6 @@ static void __init copy_cpu_funcs(struct pstate_funcs *funcs)
 	pstate_funcs.get_vid   = funcs->get_vid;
 	pstate_funcs.update_util = funcs->update_util;
 	pstate_funcs.get_aperf_mperf_shift = funcs->get_aperf_mperf_shift;
-
-	intel_pstate_use_acpi_profile();
 }
 
 #ifdef CONFIG_ACPI
@@ -2585,6 +2566,18 @@ hwp_cpu_matched:
 #if IS_ENABLED(CONFIG_ACPI)
 	if (!vanilla_policy) {
 		switch (acpi_gbl_FADT.preferred_profile) {
+		case PM_MOBILE:
+			profile = "Mobile\n";
+			break;
+		case PM_TABLET:
+			profile = "Tablet\n";
+			break;
+		case PM_APPLIANCE_PC:
+			profile = "Appliance PC\n";
+			break;
+		case PM_DESKTOP:
+			profile = "Desktop";
+			break;
 		case PM_WORKSTATION:
 			profile = "Workstation";
 			break;
@@ -2603,17 +2596,24 @@ hwp_cpu_matched:
 		};
 
 		if (profile) {
-			pr_info("Intel P-state setting %s policy\n", profile);
+			pr_info("Intel P-state setting %s %s policy\n", profile,
+				use_pid_policy ? "PID" : "Load-based");
 
 			/*
 			 * setpoint based on observations that siege maxes out
 			 * due to internal mutex usage at roughly an average of
 			 * 50% set use a setpoint of 30% to boost the frequency
 			 * enough to perform reasonably.
+			 *
+			 * Note that this is meaningless unless the PID
+			 * controller is used which means specifying
+			 * vanilla_pid_policy or server_pid_policy.
 			 */
 			pid_params.setpoint = CPUFREQ_SERVER_DEFAULT_SETPOINT;
 		}
 	}
+	if (use_pid_policy)
+		pstate_funcs.update_util = intel_pstate_update_util_pid;
 #endif
 
 	all_cpu_data = vzalloc(sizeof(void *) * num_possible_cpus());
@@ -2657,10 +2657,22 @@ static int __init intel_pstate_setup(char *str)
 		force_load = 1;
 	if (!strcmp(str, "hwp_only"))
 		hwp_only = 1;
-	if (!strcmp(str, "vanilla_policy"))
+	if (!strcmp(str, "vanilla_policy")) {
 		vanilla_policy = 1;
-	if (!strcmp(str, "server_policy"))
+		use_pid_policy = 0;
+	}
+	if (!strcmp(str, "vanilla_pid_policy")) {
+		vanilla_policy = 1;
+		use_pid_policy = 1;
+	}
+	if (!strcmp(str, "server_policy")) {
 		server_policy = 1;
+		use_pid_policy = 0;
+	}
+	if (!strcmp(str, "server_pid_policy")) {
+		server_policy = 1;
+		use_pid_policy = 1;
+	}
 	if (!strcmp(str, "per_cpu_perf_limits"))
 		per_cpu_limits = true;
 
