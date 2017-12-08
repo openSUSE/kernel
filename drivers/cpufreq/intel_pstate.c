@@ -1628,7 +1628,7 @@ static inline int32_t get_target_pstate_use_cpu_load(struct cpudata *cpu)
 {
 	struct sample *sample = &cpu->sample;
 	int32_t busy_frac, boost;
-	int target, avg_pstate;
+	int target, avg_pstate, max_target;
 
 	busy_frac = div_fp(sample->mperf << cpu->aperf_mperf_shift,
 			   sample->tsc);
@@ -1641,10 +1641,10 @@ static inline int32_t get_target_pstate_use_cpu_load(struct cpudata *cpu)
 
 	sample->busy_scaled = busy_frac * 100;
 
-	target = global.no_turbo || global.turbo_disabled ?
+	max_target = global.no_turbo || global.turbo_disabled ?
 			cpu->pstate.max_pstate : cpu->pstate.turbo_pstate;
-	target += target >> 2;
-	target = mul_fp(target, busy_frac);
+	max_target += max_target >> 2;
+	target = mul_fp(max_target, busy_frac);
 	if (target < cpu->pstate.min_pstate)
 		target = cpu->pstate.min_pstate;
 
@@ -1658,6 +1658,19 @@ static inline int32_t get_target_pstate_use_cpu_load(struct cpudata *cpu)
 	avg_pstate = get_avg_pstate(cpu);
 	if (avg_pstate > target)
 		target += (avg_pstate - target) >> 1;
+
+	/*
+	 * If the policy is the Server Enterprise policy then ramp up faster
+	 * once utilisation hits CPUFREQ_SERVER_DEFAULT_SETPOINT similar to
+	 * the setpoint for the PID policy.
+	 */
+	if (sample->busy_scaled >= CPUFREQ_SERVER_DEFAULT_SETPOINT &&
+	    pid_params.setpoint == CPUFREQ_SERVER_DEFAULT_SETPOINT) {
+		int delta = max(0, max_target - target);
+
+		target += delta >> 1;
+		target = min(max_target, target);
+	}
 
 	return target;
 }
