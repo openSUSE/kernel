@@ -1677,13 +1677,20 @@ xfs_fs_fill_super(
 			error = -EINVAL;
 			goto out_filestream_unmount;
 		}
+		error = xfs_check_unsupported(mp, "EXPERIMENTAL reverse mapping btree");
+		if (error)
+			goto out_filestream_unmount;
 		xfs_alert(mp,
 	"EXPERIMENTAL reverse mapping btree feature enabled. Use at your own risk!");
 	}
 
-	if (xfs_sb_version_hasreflink(&mp->m_sb))
+	if (xfs_sb_version_hasreflink(&mp->m_sb))  {
+		error = xfs_check_unsupported(mp, "EXPERIMENTAL reflink support");
+		if (error)
+			goto out_filestream_unmount;
 		xfs_alert(mp,
 	"EXPERIMENTAL reflink feature enabled. Use at your own risk!");
+	}
 
 	error = xfs_mountfs(mp);
 	if (error)
