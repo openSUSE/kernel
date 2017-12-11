@@ -243,6 +243,7 @@ struct ttm_bo_driver hibmc_bo_driver = {
 	.verify_access		= hibmc_bo_verify_access,
 	.io_mem_reserve		= &hibmc_ttm_io_mem_reserve,
 	.io_mem_free		= NULL,
+	.io_mem_pfn		= ttm_bo_default_io_mem_pfn,
 };
 
 int hibmc_mm_init(struct hibmc_drm_private *hibmc)
