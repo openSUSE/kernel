@@ -294,8 +294,8 @@ static void offload_pedit(struct ch_filter_specification *fs, u32 val, u32 mask,
 			  u8 field)
 {
 	u32 set_val = val & ~mask;
-	u32 offset;
-	u8 size;
+	u32 offset = 0;
+	u8 size = 1;
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(pedits); i++) {
