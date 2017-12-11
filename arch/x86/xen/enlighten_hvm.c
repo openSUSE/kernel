@@ -21,30 +21,10 @@
 #include "mmu.h"
 #include "smp.h"
 
-void __ref xen_hvm_init_shared_info(void)
+void xen_hvm_init_shared_info(void)
 {
 	int cpu;
 	struct xen_add_to_physmap xatp;
-	u64 pa;
-
-	if (HYPERVISOR_shared_info == &xen_dummy_shared_info) {
-		/*
-		 * Search for a free page starting at 4kB physical address.
-		 * Low memory is preferred to avoid an EPT large page split up
-		 * by the mapping.
-		 * Starting below X86_RESERVE_LOW (usually 64kB) is fine as
-		 * the BIOS used for HVM guests is well behaved and won't
-		 * clobber memory other than the first 4kB.
-		 */
-		for (pa = PAGE_SIZE;
-		     !e820__mapped_all(pa, pa + PAGE_SIZE, E820_TYPE_RAM) ||
-		     memblock_is_reserved(pa);
-		     pa += PAGE_SIZE)
-			;
-
-		memblock_reserve(pa, PAGE_SIZE);
-		HYPERVISOR_shared_info = __va(pa);
-	}
 
 	xatp.domid = DOMID_SELF;
 	xatp.idx = 0;
@@ -68,6 +48,28 @@ void __ref xen_hvm_init_shared_info(void)
 		per_cpu(xen_vcpu, cpu) =
 			&HYPERVISOR_shared_info->vcpu_info[xen_vcpu_nr(cpu)];
 	}
+}
+
+static void __init reserve_shared_info(void)
+{
+	u64 pa;
+
+	/*
+	 * Search for a free page starting at 4kB physical address.
+	 * Low memory is preferred to avoid an EPT large page split up
+	 * by the mapping.
+	 * Starting below X86_RESERVE_LOW (usually 64kB) is fine as
+	 * the BIOS used for HVM guests is well behaved and won't
+	 * clobber memory other than the first 4kB.
+	 */
+	for (pa = PAGE_SIZE;
+	     !e820__mapped_all(pa, pa + PAGE_SIZE, E820_TYPE_RAM) ||
+	     memblock_is_reserved(pa);
+	     pa += PAGE_SIZE)
+		;
+
+	memblock_reserve(pa, PAGE_SIZE);
+	HYPERVISOR_shared_info = __va(pa);
 }
 
 static void __init init_hvm_pv_info(void)
@@ -169,6 +171,7 @@ static void __init xen_hvm_guest_init(void)
 
 	init_hvm_pv_info();
 
+	reserve_shared_info();
 	xen_hvm_init_shared_info();
 
 	xen_panic_handler_init();
