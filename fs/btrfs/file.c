@@ -2468,8 +2468,7 @@ static int btrfs_punch_hole_lock_range(struct inode *inode,
 	return 0;
 }
 
-static int btrfs_punch_hole(struct inode *inode, loff_t offset, loff_t len,
-			    bool lock_inode)
+static int btrfs_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 {
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	struct btrfs_root *root = BTRFS_I(inode)->root;
@@ -2498,8 +2497,7 @@ static int btrfs_punch_hole(struct inode *inode, loff_t offset, loff_t len,
 	if (ret)
 		return ret;
 
-	if (lock_inode)
-		inode_lock(inode);
+	inode_lock(inode);
 	ino_size = round_up(inode->i_size, fs_info->sectorsize);
 	ret = find_first_non_hole(inode, &offset, &len);
 	if (ret < 0)
@@ -2538,8 +2536,7 @@ static int btrfs_punch_hole(struct inode *inode, loff_t offset, loff_t len,
 		truncated_block = true;
 		ret = btrfs_truncate_block(inode, offset, 0, 0);
 		if (ret) {
-			if (lock_inode)
-				inode_unlock(inode);
+			inode_unlock(inode);
 			return ret;
 		}
 	}
@@ -2590,9 +2587,8 @@ static int btrfs_punch_hole(struct inode *inode, loff_t offset, loff_t len,
 	ret = btrfs_punch_hole_lock_range(inode, lockstart, lockend,
 					  &cached_state);
 	if (ret) {
-		if (lock_inode)
-			inode_unlock(inode);
-		return ret;
+		inode_unlock(inode);
+		goto out_only_mutex;
 	}
 
 	path = btrfs_alloc_path();
@@ -2755,8 +2751,7 @@ out_only_mutex:
 			ret = btrfs_end_transaction(trans);
 		}
 	}
-	if (lock_inode)
-		inode_unlock(inode);
+	inode_unlock(inode);
 	if (ret && !err)
 		err = ret;
 	return err;
@@ -2802,39 +2797,36 @@ insert:
 	return 0;
 }
 
-static int btrfs_zero_range_update_isize(struct inode *inode,
-					 const loff_t offset,
-					 const loff_t len,
-					 const int mode)
+static int btrfs_fallocate_update_isize(struct inode *inode,
+					const u64 end,
+					const int mode)
 {
-	struct btrfs_root *root = BTRFS_I(inode)->root;
 	struct btrfs_trans_handle *trans;
-	const u64 end = offset + len;
+	struct btrfs_root *root = BTRFS_I(inode)->root;
 	int ret;
+	int ret2;
 
 	if (mode & FALLOC_FL_KEEP_SIZE || end <= i_size_read(inode))
 		return 0;
 
+	trans = btrfs_start_transaction(root, 1);
+	if (IS_ERR(trans))
+		return PTR_ERR(trans);
+
+	inode->i_ctime = current_time(inode);
 	i_size_write(inode, end);
 	btrfs_ordered_update_i_size(inode, end, NULL);
-	trans = btrfs_start_transaction(root, 1);
-	if (IS_ERR(trans)) {
-		ret = PTR_ERR(trans);
-	} else {
-		int err;
+	ret = btrfs_update_inode(trans, root, inode);
+	ret2 = btrfs_end_transaction(trans);
 
-		ret = btrfs_update_inode(trans, root, inode);
-		err = btrfs_end_transaction(trans);
-		ret = ret ? ret : err;
-	}
-	return ret;
+	return ret ? ret : ret2;
 }
 
 static int btrfs_zero_range_check_range_boundary(struct inode *inode,
 						 u64 offset)
 {
 	const u64 sectorsize = btrfs_inode_sectorsize(inode);
-	struct extent_map *em = NULL;
+	struct extent_map *em;
 	int ret = 0;
 
 	offset = round_down(offset, sectorsize);
@@ -2863,7 +2855,6 @@ static int btrfs_zero_range(struct inode *inode,
 	u64 alloc_end = round_up(offset + len, sectorsize);
 	u64 bytes_to_reserve = 0;
 	bool space_reserved = false;
-	bool punch_hole = false;
 
 	inode_dio_wait(inode);
 
@@ -2893,8 +2884,8 @@ static int btrfs_zero_range(struct inode *inode,
 			 * needed.
 			 */
 			free_extent_map(em);
-			ret = btrfs_zero_range_update_isize(inode, offset,
-							    len, mode);
+			ret = btrfs_fallocate_update_isize(inode, offset + len,
+							   mode);
 			goto out;
 		}
 		/*
@@ -2920,15 +2911,20 @@ static int btrfs_zero_range(struct inode *inode,
 
 		if (test_bit(EXTENT_FLAG_PREALLOC, &em->flags)) {
 			free_extent_map(em);
-			ret = btrfs_zero_range_update_isize(inode, offset,
-							    len, mode);
+			ret = btrfs_fallocate_update_isize(inode, offset + len,
+							   mode);
 			goto out;
 		}
-		if (len < sectorsize && em->block_start != EXTENT_MAP_HOLE)
-			punch_hole = true;
+		if (len < sectorsize && em->block_start != EXTENT_MAP_HOLE) {
+			free_extent_map(em);
+			ret = btrfs_truncate_block(inode, offset, len, 0);
+			if (!ret)
+				ret = btrfs_fallocate_update_isize(inode,
+								   offset + len,
+								   mode);
+			return ret;
+		}
 		free_extent_map(em);
-		if (punch_hole)
-			goto punch_hole;
 		alloc_start = round_down(offset, sectorsize);
 		alloc_end = alloc_start + sectorsize;
 		goto reserve_space;
@@ -2973,10 +2969,12 @@ static int btrfs_zero_range(struct inode *inode,
 	}
 
 reserve_space:
-	if (alloc_start < alloc_end)
-		bytes_to_reserve += alloc_end - alloc_start;
+	if (alloc_start < alloc_end) {
+		struct extent_state *cached_state = NULL;
+		const u64 lockstart = alloc_start;
+		const u64 lockend = alloc_end - 1;
 
-	if (!punch_hole && bytes_to_reserve > 0) {
+		bytes_to_reserve = alloc_end - alloc_start;
 		ret = btrfs_alloc_data_chunk_ondemand(BTRFS_I(inode),
 						      bytes_to_reserve);
 		if (ret < 0)
@@ -2986,19 +2984,6 @@ reserve_space:
 						alloc_start, bytes_to_reserve);
 		if (ret)
 			goto out;
-	}
-
-punch_hole:
-	if (punch_hole) {
-		ret = btrfs_punch_hole(inode, offset, len, false);
-		if (ret)
-			goto out;
-		ret = btrfs_zero_range_update_isize(inode, offset, len, mode);
-	} else {
-		struct extent_state *cached_state = NULL;
-		const u64 lockstart = alloc_start;
-		const u64 lockend = alloc_end - 1;
-
 		ret = btrfs_punch_hole_lock_range(inode, lockstart, lockend,
 						  &cached_state);
 		if (ret)
@@ -3050,7 +3035,7 @@ static long btrfs_fallocate(struct file *file, int mode,
 		return -EOPNOTSUPP;
 
 	if (mode & FALLOC_FL_PUNCH_HOLE)
-		return btrfs_punch_hole(inode, offset, len, true);
+		return btrfs_punch_hole(inode, offset, len);
 
 	/*
 	 * Only trigger disk allocation, don't trigger qgroup reserve
@@ -3204,36 +3189,18 @@ static long btrfs_fallocate(struct file *file, int mode,
 	if (ret < 0)
 		goto out_unlock;
 
-	if (actual_end > inode->i_size &&
-	    !(mode & FALLOC_FL_KEEP_SIZE)) {
-		struct btrfs_trans_handle *trans;
-		struct btrfs_root *root = BTRFS_I(inode)->root;
-
-		/*
-		 * We didn't need to allocate any more space, but we
-		 * still extended the size of the file so we need to
-		 * update i_size and the inode item.
-		 */
-		trans = btrfs_start_transaction(root, 1);
-		if (IS_ERR(trans)) {
-			ret = PTR_ERR(trans);
-		} else {
-			inode->i_ctime = current_time(inode);
-			i_size_write(inode, actual_end);
-			btrfs_ordered_update_i_size(inode, actual_end, NULL);
-			ret = btrfs_update_inode(trans, root, inode);
-			if (ret)
-				btrfs_end_transaction(trans);
-			else
-				ret = btrfs_end_transaction(trans);
-		}
-	}
+	/*
+	 * We didn't need to allocate any more space, but we still extended the
+	 * size of the file so we need to update i_size and the inode item.
+	 */
+	ret = btrfs_fallocate_update_isize(inode, actual_end, mode);
 out_unlock:
 	unlock_extent_cached(&BTRFS_I(inode)->io_tree, alloc_start, locked_end,
 			     &cached_state, GFP_KERNEL);
 out:
 	inode_unlock(inode);
 	/* Let go of our reservation. */
+
 	if (ret != 0 && !(mode & FALLOC_FL_ZERO_RANGE))
 		btrfs_free_reserved_data_space(inode, alloc_start,
 				       alloc_end - cur_offset);
