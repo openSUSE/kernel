@@ -43,7 +43,7 @@
 #define INTEL_CPUFREQ_TRANSITION_LATENCY	20000
 #define INTEL_CPUFREQ_TRANSITION_DELAY		500
 
-#define CPUFREQ_SERVER_DEFAULT_SETPOINT		30
+#define CPUFREQ_SERVER_DEFAULT_SETPOINT		10
 
 #ifdef CONFIG_ACPI
 #include <acpi/processor.h>
@@ -1628,7 +1628,7 @@ static inline int32_t get_target_pstate_use_cpu_load(struct cpudata *cpu)
 {
 	struct sample *sample = &cpu->sample;
 	int32_t busy_frac, boost;
-	int target, avg_pstate;
+	int target, avg_pstate, max_target;
 
 	busy_frac = div_fp(sample->mperf << cpu->aperf_mperf_shift,
 			   sample->tsc);
@@ -1641,10 +1641,10 @@ static inline int32_t get_target_pstate_use_cpu_load(struct cpudata *cpu)
 
 	sample->busy_scaled = busy_frac * 100;
 
-	target = global.no_turbo || global.turbo_disabled ?
+	max_target = global.no_turbo || global.turbo_disabled ?
 			cpu->pstate.max_pstate : cpu->pstate.turbo_pstate;
-	target += target >> 2;
-	target = mul_fp(target, busy_frac);
+	max_target += max_target >> 2;
+	target = mul_fp(max_target, busy_frac);
 	if (target < cpu->pstate.min_pstate)
 		target = cpu->pstate.min_pstate;
 
@@ -1658,6 +1658,19 @@ static inline int32_t get_target_pstate_use_cpu_load(struct cpudata *cpu)
 	avg_pstate = get_avg_pstate(cpu);
 	if (avg_pstate > target)
 		target += (avg_pstate - target) >> 1;
+
+	/*
+	 * If the policy is the Server Enterprise policy then ramp up faster
+	 * once utilisation hits CPUFREQ_SERVER_DEFAULT_SETPOINT similar to
+	 * the setpoint for the PID policy.
+	 */
+	if (sample->busy_scaled >= CPUFREQ_SERVER_DEFAULT_SETPOINT &&
+	    pid_params.setpoint == CPUFREQ_SERVER_DEFAULT_SETPOINT) {
+		int delta = max(0, max_target - target);
+
+		target += delta >> 1;
+		target = min(max_target, target);
+	}
 
 	return target;
 }
@@ -1767,6 +1780,15 @@ static void intel_pstate_update_util(struct update_util_data *data, u64 time,
 
 	if (flags & SCHED_CPUFREQ_IOWAIT) {
 		cpu->iowait_boost = int_tofp(1);
+		cpu->last_update = time;
+		/*
+		 * The last time the busy was 100% so P-state was max anyway
+		 * so avoid overhead of computation.
+		 */
+		if (fp_toint(cpu->sample.busy_scaled) == 100)
+			return;
+
+		goto set_pstate;
 	} else if (cpu->iowait_boost) {
 		/* Clear iowait_boost if the CPU may have been idle. */
 		delta_ns = time - cpu->last_update;
@@ -1778,6 +1800,7 @@ static void intel_pstate_update_util(struct update_util_data *data, u64 time,
 	if ((s64)delta_ns < INTEL_PSTATE_DEFAULT_SAMPLING_INTERVAL)
 		return;
 
+set_pstate:
 	if (intel_pstate_sample(cpu, time)) {
 		int target_pstate;
 
@@ -1793,7 +1816,7 @@ static struct pstate_funcs core_funcs = {
 	.get_turbo = core_get_turbo_pstate,
 	.get_scaling = core_get_scaling,
 	.get_val = core_get_val,
-	.update_util = intel_pstate_update_util_pid,
+	.update_util = intel_pstate_update_util,
 };
 
 static const struct pstate_funcs silvermont_funcs = {
@@ -1826,7 +1849,7 @@ static const struct pstate_funcs knl_funcs = {
 	.get_aperf_mperf_shift = knl_get_aperf_mperf_shift,
 	.get_scaling = core_get_scaling,
 	.get_val = core_get_val,
-	.update_util = intel_pstate_update_util_pid,
+	.update_util = intel_pstate_update_util,
 };
 
 static const struct pstate_funcs bxt_funcs = {
@@ -2374,6 +2397,7 @@ static int no_hwp __initdata;
 static int hwp_only __initdata;
 static int __initdata vanilla_policy;
 static int __initdata server_policy;
+static int __initdata use_pid_policy;
 static unsigned int force_load __initdata;
 
 static int __init intel_pstate_msrs_not_valid(void)
@@ -2386,24 +2410,6 @@ static int __init intel_pstate_msrs_not_valid(void)
 	return 0;
 }
 
-#ifdef CONFIG_ACPI
-static void intel_pstate_use_acpi_profile(void)
-{
-	switch (acpi_gbl_FADT.preferred_profile) {
-	case PM_MOBILE:
-	case PM_TABLET:
-	case PM_APPLIANCE_PC:
-	case PM_DESKTOP:
-	case PM_WORKSTATION:
-		pstate_funcs.update_util = intel_pstate_update_util;
-	}
-}
-#else
-static void intel_pstate_use_acpi_profile(void)
-{
-}
-#endif
-
 static void __init copy_cpu_funcs(struct pstate_funcs *funcs)
 {
 	pstate_funcs.get_max   = funcs->get_max;
@@ -2415,8 +2421,6 @@ static void __init copy_cpu_funcs(struct pstate_funcs *funcs)
 	pstate_funcs.get_vid   = funcs->get_vid;
 	pstate_funcs.update_util = funcs->update_util;
 	pstate_funcs.get_aperf_mperf_shift = funcs->get_aperf_mperf_shift;
-
-	intel_pstate_use_acpi_profile();
 }
 
 #ifdef CONFIG_ACPI
@@ -2585,6 +2589,18 @@ hwp_cpu_matched:
 #if IS_ENABLED(CONFIG_ACPI)
 	if (!vanilla_policy) {
 		switch (acpi_gbl_FADT.preferred_profile) {
+		case PM_MOBILE:
+			profile = "Mobile\n";
+			break;
+		case PM_TABLET:
+			profile = "Tablet\n";
+			break;
+		case PM_APPLIANCE_PC:
+			profile = "Appliance PC\n";
+			break;
+		case PM_DESKTOP:
+			profile = "Desktop";
+			break;
 		case PM_WORKSTATION:
 			profile = "Workstation";
 			break;
@@ -2603,17 +2619,24 @@ hwp_cpu_matched:
 		};
 
 		if (profile) {
-			pr_info("Intel P-state setting %s policy\n", profile);
+			pr_info("Intel P-state setting %s %s policy\n", profile,
+				use_pid_policy ? "PID" : "Load-based");
 
 			/*
 			 * setpoint based on observations that siege maxes out
 			 * due to internal mutex usage at roughly an average of
 			 * 50% set use a setpoint of 30% to boost the frequency
 			 * enough to perform reasonably.
+			 *
+			 * Note that this is meaningless unless the PID
+			 * controller is used which means specifying
+			 * vanilla_pid_policy or server_pid_policy.
 			 */
 			pid_params.setpoint = CPUFREQ_SERVER_DEFAULT_SETPOINT;
 		}
 	}
+	if (use_pid_policy)
+		pstate_funcs.update_util = intel_pstate_update_util_pid;
 #endif
 
 	all_cpu_data = vzalloc(sizeof(void *) * num_possible_cpus());
@@ -2657,10 +2680,22 @@ static int __init intel_pstate_setup(char *str)
 		force_load = 1;
 	if (!strcmp(str, "hwp_only"))
 		hwp_only = 1;
-	if (!strcmp(str, "vanilla_policy"))
+	if (!strcmp(str, "vanilla_policy")) {
 		vanilla_policy = 1;
-	if (!strcmp(str, "server_policy"))
+		use_pid_policy = 0;
+	}
+	if (!strcmp(str, "vanilla_pid_policy")) {
+		vanilla_policy = 1;
+		use_pid_policy = 1;
+	}
+	if (!strcmp(str, "server_policy")) {
 		server_policy = 1;
+		use_pid_policy = 0;
+	}
+	if (!strcmp(str, "server_pid_policy")) {
+		server_policy = 1;
+		use_pid_policy = 1;
+	}
 	if (!strcmp(str, "per_cpu_perf_limits"))
 		per_cpu_limits = true;
 

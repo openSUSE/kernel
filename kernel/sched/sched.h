@@ -396,6 +396,7 @@ struct cfs_bandwidth { };
 /* CFS-related fields in a runqueue */
 struct cfs_rq {
 	struct load_weight load;
+	unsigned long runnable_weight;
 	unsigned int nr_running, h_nr_running;
 
 	u64 exec_clock;
@@ -422,18 +423,22 @@ struct cfs_rq {
 	 * CFS load tracking
 	 */
 	struct sched_avg avg;
-	u64 runnable_load_sum;
-	unsigned long runnable_load_avg;
-#ifdef CONFIG_FAIR_GROUP_SCHED
-	unsigned long tg_load_avg_contrib;
-	unsigned long propagate_avg;
-#endif
-	atomic_long_t removed_load_avg, removed_util_avg;
 #ifndef CONFIG_64BIT
 	u64 load_last_update_time_copy;
 #endif
+	struct {
+		raw_spinlock_t	lock ____cacheline_aligned;
+		int		nr;
+		unsigned long	load_avg;
+		unsigned long	util_avg;
+		unsigned long	runnable_sum;
+	} removed;
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
+	unsigned long tg_load_avg_contrib;
+	long propagate;
+	long prop_runnable_sum;
+
 	/*
 	 *   h_load = weight * f(tg)
 	 *
@@ -1475,6 +1480,8 @@ extern void update_max_interval(void);
 extern void init_sched_dl_class(void);
 extern void init_sched_rt_class(void);
 extern void init_sched_fair_class(void);
+
+extern void reweight_task(struct task_struct *p, int prio);
 
 extern void resched_curr(struct rq *rq);
 extern void resched_cpu(int cpu);
