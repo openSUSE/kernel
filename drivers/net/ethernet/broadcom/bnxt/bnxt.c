@@ -1698,12 +1698,16 @@ static int bnxt_async_event_process(struct bnxt *bp,
 
 		if (BNXT_VF(bp))
 			goto async_event_process_exit;
-		if (data1 & 0x20000) {
+
+		/* print unsupported speed warning in forced speed mode only */
+		if (!(link_info->autoneg & BNXT_AUTONEG_SPEED) &&
+		    (data1 & 0x20000)) {
 			u16 fw_speed = link_info->force_link_speed;
 			u32 speed = bnxt_fw_to_ethtool_speed(fw_speed);
 
-			netdev_warn(bp->dev, "Link speed %d no longer supported\n",
-				    speed);
+			if (speed != SPEED_UNKNOWN)
+				netdev_warn(bp->dev, "Link speed %d no longer supported\n",
+					    speed);
 		}
 		set_bit(BNXT_LINK_SPEED_CHNG_SP_EVENT, &bp->sp_event);
 		/* fall thru */
@@ -3359,6 +3363,7 @@ static int bnxt_hwrm_do_send_msg(struct bnxt *bp, void *msg, u32 msg_len,
 	u16 cp_ring_id, len = 0;
 	struct hwrm_err_output *resp = bp->hwrm_cmd_resp_addr;
 	u16 max_req_len = BNXT_HWRM_MAX_REQ_LEN;
+	struct hwrm_short_input short_input = {0};
 
 	req->seq_id = cpu_to_le16(bp->hwrm_cmd_seq++);
 	memset(resp, 0, PAGE_SIZE);
@@ -3367,7 +3372,6 @@ static int bnxt_hwrm_do_send_msg(struct bnxt *bp, void *msg, u32 msg_len,
 
 	if (bp->flags & BNXT_FLAG_SHORT_CMD) {
 		void *short_cmd_req = bp->hwrm_short_cmd_req_addr;
-		struct hwrm_short_input short_input = {0};
 
 		memcpy(short_cmd_req, req, msg_len);
 		memset(short_cmd_req + msg_len, 0, BNXT_HWRM_MAX_REQ_LEN -
@@ -8218,8 +8222,9 @@ static void bnxt_shutdown(struct pci_dev *pdev)
 	if (netif_running(dev))
 		dev_close(dev);
 
+	bnxt_ulp_shutdown(bp);
+
 	if (system_state == SYSTEM_POWER_OFF) {
-		bnxt_ulp_shutdown(bp);
 		bnxt_clear_int_mode(bp);
 		pci_wake_from_d3(pdev, bp->wol);
 		pci_set_power_state(pdev, PCI_D3hot);

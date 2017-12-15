@@ -814,7 +814,7 @@ static inline void hfi1_make_rc_ack_16B(struct rvt_qp *qp,
 	struct hfi1_pportdata *ppd = ppd_from_ibp(ibp);
 	struct hfi1_16b_header *hdr = &opa_hdr->opah;
 	struct ib_other_headers *ohdr;
-	u32 bth0, bth1;
+	u32 bth0, bth1 = 0;
 	u16 len, pkey;
 	u8 becn = !!is_fecn;
 	u8 l4 = OPA_16B_L4_IB_LOCAL;
@@ -843,11 +843,11 @@ static inline void hfi1_make_rc_ack_16B(struct rvt_qp *qp,
 	/* Convert dwords to flits */
 	len = (*hwords + *nwords) >> 1;
 
-	hfi1_make_16b_hdr(hdr,
-			  ppd->lid | rdma_ah_get_path_bits(&qp->remote_ah_attr),
+	hfi1_make_16b_hdr(hdr, ppd->lid |
+			  (rdma_ah_get_path_bits(&qp->remote_ah_attr) &
+			  ((1 << ppd->lmc) - 1)),
 			  opa_get_lid(rdma_ah_get_dlid(&qp->remote_ah_attr),
-				      16B),
-			  len, pkey, becn, 0, l4, sc5);
+				      16B), len, pkey, becn, 0, l4, sc5);
 
 	bth0 = pkey | (OP(ACKNOWLEDGE) << 24);
 	bth0 |= extra_bytes << 20;
