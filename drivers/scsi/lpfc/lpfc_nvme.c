@@ -908,7 +908,7 @@ out_err:
 					 wcqe->total_data_placed);
 			nCmd->transferred_length = 0;
 			nCmd->rcv_rsplen = 0;
-			nCmd->status = NVME_SC_FC_TRANSPORT_ERROR;
+			nCmd->status = NVME_SC_INTERNAL;
 		}
 	}
 
@@ -948,7 +948,7 @@ out_err:
 	/* NVME targets need completion held off until the abort exchange
 	 * completes.
 	 */
-	if (!lpfc_ncmd->flags & LPFC_SBUF_XBUSY)
+	if (!(lpfc_ncmd->flags & LPFC_SBUF_XBUSY))
 		nCmd->done(nCmd);
 
 	spin_lock_irqsave(&phba->hbalock, flags);
