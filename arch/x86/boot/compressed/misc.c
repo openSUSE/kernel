@@ -412,7 +412,7 @@ asmlinkage __visible void *extract_kernel(void *rmode, memptr heap,
 	return output;
 }
 
-#if CONFIG_RANDOMIZE_BASE
+#if defined(CONFIG_RANDOMIZE_BASE) || defined(CONFIG_EFI_SECRET_KEY)
 unsigned long rotate_xor(unsigned long hash, const void *area,
 			size_t size)
 {
