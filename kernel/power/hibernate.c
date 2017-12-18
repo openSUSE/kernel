@@ -694,6 +694,7 @@ int hibernate(void)
 		pr_debug("Hibernation not available.\n");
 		return -EPERM;
 	}
+	efi_skey_stop_regen();
 
 	error = snapshot_create_trampoline();
 	if (error)
