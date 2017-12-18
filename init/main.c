@@ -663,6 +663,7 @@ asmlinkage __visible void __init start_kernel(void)
 	fork_init();
 	proc_caches_init();
 	buffer_init();
+	hidden_area_init();
 	key_init();
 	security_init();
 	dbg_late_init();

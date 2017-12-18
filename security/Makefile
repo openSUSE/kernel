@@ -32,3 +32,5 @@ obj-$(CONFIG_INTEGRITY)			+= integrity/
 
 # Allow the kernel to be locked down
 obj-$(CONFIG_LOCK_DOWN_KERNEL)		+= lock_down.o
+
+obj-$(CONFIG_HIDDEN_AREA)              += hidden_area.o
