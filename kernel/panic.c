@@ -321,6 +321,7 @@ const struct taint_flag taint_flags[TAINT_FLAGS_COUNT] = {
 	{ 'E', ' ', true },	/* TAINT_UNSIGNED_MODULE */
 	{ 'L', ' ', false },	/* TAINT_SOFTLOCKUP */
 	{ 'K', ' ', true },	/* TAINT_LIVEPATCH */
+	{ 'H', ' ', false },	/* TAINT_UNSAFE_HIBERNATE */
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
 	{ 'N', ' ', true },	/* TAINT_NO_SUPPORT */
 	{ 'X', ' ', true },	/* TAINT_EXTERNAL_SUPPORT */
@@ -346,6 +347,7 @@ const struct taint_flag taint_flags[TAINT_FLAGS_COUNT] = {
  *  'E' - Unsigned module has been loaded.
  *  'L' - A soft lockup has previously occurred.
  *  'K' - Kernel has been live patched.
+ *  'H' - System restored from unsafe hibernate snapshot image.
  *  'N' - Unsuported modules loaded.
  *  'X' - Modules with external support loaded.
  *
