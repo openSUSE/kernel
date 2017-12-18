@@ -72,7 +72,19 @@ static const struct platform_hibernation_ops *hibernation_ops;
 
 bool hibernation_available(void)
 {
-	return nohibernate == 0 && !kernel_is_locked_down();
+	if (nohibernate != 0)
+		return false;
+
+	if (kernel_is_locked_down() || snapshot_is_enforce_verify()) {
+		snapshot_set_enforce_verify();
+		if (get_efi_secret_key())
+			return true;
+		else
+			pr_warn("the secret key is invalid\n");
+		return false;
+	} else {
+		return true;
+	}
 }
 
 /**
