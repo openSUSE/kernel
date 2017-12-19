@@ -1464,7 +1464,7 @@ long kvm_vm_ioctl_resize_hpt_prepare(struct kvm *kvm,
 	struct kvm_resize_hpt *resize;
 	int ret;
 
-	if (flags != 0)
+	if (flags != 0 || kvm_is_radix(kvm))
 		return -EINVAL;
 
 	if (shift && ((shift < 18) || (shift > 46)))
@@ -1530,7 +1530,7 @@ long kvm_vm_ioctl_resize_hpt_commit(struct kvm *kvm,
 	struct kvm_resize_hpt *resize;
 	long ret;
 
-	if (flags != 0)
+	if (flags != 0 || kvm_is_radix(kvm))
 		return -EINVAL;
 
 	if (shift && ((shift < 18) || (shift > 46)))
@@ -1716,6 +1716,8 @@ static ssize_t kvm_htab_read(struct file *file, char __user *buf,
 
 	if (!access_ok(VERIFY_WRITE, buf, count))
 		return -EFAULT;
+	if (kvm_is_radix(kvm))
+		return 0;
 
 	first_pass = ctx->first_pass;
 	flags = ctx->flags;
@@ -1813,6 +1815,8 @@ static ssize_t kvm_htab_write(struct file *file, const char __user *buf,
 
 	if (!access_ok(VERIFY_READ, buf, count))
 		return -EFAULT;
+	if (kvm_is_radix(kvm))
+		return -EINVAL;
 
 	/* lock out vcpus from running while we're doing this */
 	mutex_lock(&kvm->lock);
@@ -2011,6 +2015,10 @@ static ssize_t debugfs_htab_read(struct file *file, char __user *buf,
 	struct kvm *kvm;
 	__be64 *hptp;
 
+	kvm = p->kvm;
+	if (kvm_is_radix(kvm))
+		return 0;
+
 	ret = mutex_lock_interruptible(&p->mutex);
 	if (ret)
 		return ret;
@@ -2033,7 +2041,6 @@ static ssize_t debugfs_htab_read(struct file *file, char __user *buf,
 		}
 	}
 
-	kvm = p->kvm;
 	i = p->hpt_index;
 	hptp = (__be64 *)(kvm->arch.hpt.virt + (i * HPTE_SIZE));
 	for (; len != 0 && i < kvmppc_hpt_npte(&kvm->arch.hpt);
