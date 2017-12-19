@@ -1013,6 +1013,9 @@ rpcrdma_reply_handler(struct work_struct *work)
 	if (rpcrdma_is_bcall(headerp))
 		goto out_bcall;
 #endif
+	if (headerp->rm_vers != rpcrdma_version)
+		goto out_badversion;
+
 
 	/* Match incoming rpcrdma_rep to an rpcrdma_req to
 	 * get context for handling any incoming chunks.
@@ -1056,8 +1059,6 @@ rpcrdma_reply_handler(struct work_struct *work)
 	if (!rqst)
 		goto out_norqst;
 	xprt->reestablish_timeout = 0;
-	if (headerp->rm_vers != rpcrdma_version)
-		goto out_badversion;
 
 	/* check for expected message types */
 	/* The order of some of these tests is important. */
@@ -1155,17 +1156,15 @@ out_bcall:
 	return;
 #endif
 
+out_badversion:
+	dprintk("RPC:       %s: invalid version %d\n",
+		__func__, be32_to_cpu(headerp->rm_vers));
+	goto repost;
+
 /* If the incoming reply terminated a pending RPC, the next
  * RPC call will post a replacement receive buffer as it is
  * being marshaled.
  */
-out_badversion:
-	dprintk("RPC:       %s: invalid version %d\n",
-		__func__, be32_to_cpu(headerp->rm_vers));
-	status = -EIO;
-	r_xprt->rx_stats.bad_reply_count++;
-	goto out;
-
 out_rdmaerr:
 	rmerr = be32_to_cpu(headerp->rm_body.rm_error.rm_err);
 	switch (rmerr) {
