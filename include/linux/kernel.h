@@ -527,6 +527,7 @@ extern enum system_states {
 #define TAINT_UNSIGNED_MODULE		13
 #define TAINT_SOFTLOCKUP		14
 #define TAINT_LIVEPATCH			15
+#define TAINT_UNSAFE_HIBERNATE		16
 /* !!! Keep TAINT_FLAGS_COUNT in sync !!! */
 
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
@@ -538,7 +539,7 @@ extern enum system_states {
 #define TAINT_EXTERNAL_SUPPORT		31
 #define TAINT_FLAGS_COUNT		32
 #else
-#define TAINT_FLAGS_COUNT		16
+#define TAINT_FLAGS_COUNT		17
 #endif
 
 struct taint_flag {

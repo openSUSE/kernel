@@ -8,6 +8,7 @@
 #define SETUP_PCI			3
 #define SETUP_EFI			4
 #define SETUP_APPLE_PROPERTIES		5
+#define SETUP_EFI_SECRET_KEY		6
 
 /* ram_size flags */
 #define RAMDISK_IMAGE_START_MASK	0x07FF

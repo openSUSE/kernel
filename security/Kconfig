@@ -213,6 +213,12 @@ config ALLOW_LOCKDOWN_LIFT
 	  ability of userspace to access the kernel image (eg. by SysRq+x under
 	  x86).
 
+config HIDDEN_AREA
+	def_bool n
+        help
+          The data in hidden area will be filtered out when user space uses
+          /dev/mem, /dev/kmem, hibernation, kdump...
+
 source security/selinux/Kconfig
 source security/smack/Kconfig
 source security/tomoyo/Kconfig
