@@ -7353,7 +7353,7 @@ static int bnxt_setup_flower(struct net_device *dev,
 {
 	struct bnxt *bp = netdev_priv(dev);
 
-	if (BNXT_VF(bp))
+	if (!bnxt_tc_flower_enabled(bp))
 		return -EOPNOTSUPP;
 
 	return bnxt_tc_setup_flower(bp, bp->pf.fw_fid, cls_flower);
