@@ -115,7 +115,7 @@ void hyperv_init(void)
 	__u8 d1 = 0x10; /* SuSE */
 	__u16 d2 = 0x0; /* -d of a.b.c-d */
 
-	if (x86_hyper != &x86_hyper_ms_hyperv)
+	if (x86_hyper_type != X86_HYPER_MS_HYPERV)
 		return;
 
 	/* Allocate percpu VP index */
