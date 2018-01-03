@@ -238,6 +238,7 @@ GLOBAL(entry_SYSCALL_64_after_hwframe)
 
 	TRACE_IRQS_OFF
 
+	STUFF_RSB
 	/*
 	 * If we need to do entry work or if we guess we'll need to do
 	 * exit work, go straight to the slow path.
@@ -656,6 +657,13 @@ END(irq_entries_start)
 	ALLOC_PT_GPREGS_ON_STACK
 	SAVE_C_REGS
 	SAVE_EXTRA_REGS
+
+	/*
+	 * Have to do stuffing before encoding frame pointer.
+	 * Could add some unnecessary RSB clearing if coming
+	 * from kernel for non-SMEP platform.
+	 */
+	STUFF_RSB
 	ENCODE_FRAME_POINTER
 
 	testb	$3, CS(%rsp)
@@ -1267,6 +1275,10 @@ ENTRY(paranoid_entry)
 	cld
 	SAVE_C_REGS 8
 	SAVE_EXTRA_REGS 8
+	/*
+	 * Do the stuffing unconditionally from user/kernel to be safe
+	 */
+	STUFF_RSB
 	ENCODE_FRAME_POINTER 8
 	movl	$1, %ebx
 	movl	$MSR_GS_BASE, %ecx
@@ -1321,6 +1333,7 @@ ENTRY(error_entry)
 	cld
 	SAVE_C_REGS 8
 	SAVE_EXTRA_REGS 8
+	STUFF_RSB
 	ENCODE_FRAME_POINTER 8
 	xorl	%ebx, %ebx
 	testb	$3, CS+8(%rsp)

@@ -98,6 +98,8 @@ ENTRY(entry_SYSENTER_compat)
 	pushq   $0			/* pt_regs->r15 = 0 */
 	cld
 
+	STUFF_RSB
+
 	/*
 	 * SYSENTER doesn't filter flags, so we need to clear NT and AC
 	 * ourselves.  To save a few cycles, we can check whether
@@ -227,6 +229,7 @@ GLOBAL(entry_SYSCALL_compat_after_hwframe)
 	 */
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rdi
 	ENABLE_IBRS_CLOBBER
+	STUFF_RSB
 
 	/*
 	 * User mode is traced as though IRQs are on, and SYSENTER
@@ -353,6 +356,8 @@ ENTRY(entry_INT80_compat)
 	pushq   %r14                    /* pt_regs->r14 */
 	pushq   %r15                    /* pt_regs->r15 */
 	cld
+
+	STUFF_RSB
 
 	/*
 	 * User mode is traced as though IRQs are on, and the interrupt
