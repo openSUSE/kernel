@@ -3845,6 +3845,12 @@ static void free_loaded_vmcs(struct loaded_vmcs *loaded_vmcs)
 	free_vmcs(loaded_vmcs->vmcs);
 	loaded_vmcs->vmcs = NULL;
 	WARN_ON(loaded_vmcs->shadow_vmcs != NULL);
+	/*
+	 * The VMCS could be recycled, causing a false negative in vmx_vcpu_load;
+	 * block speculative execution.
+	 */
+	if (ibpb_inuse)
+		wrmsrl(MSR_IA32_PRED_CMD, FEATURE_SET_IBPB);
 }
 
 static void free_kvm_area(void)
