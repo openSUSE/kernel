@@ -528,6 +528,8 @@ struct svm_cpu_data {
 	struct kvm_ldttss_desc *tss_desc;
 
 	struct page *save_area;
+
+	struct vmcb *current_vmcb;
 };
 
 static DEFINE_PER_CPU(struct svm_cpu_data *, svm_data);
@@ -1705,11 +1707,19 @@ static void svm_free_vcpu(struct kvm_vcpu *vcpu)
 	__free_pages(virt_to_page(svm->nested.msrpm), MSRPM_ALLOC_ORDER);
 	kvm_vcpu_uninit(vcpu);
 	kmem_cache_free(kvm_vcpu_cache, svm);
+
+	/*
+	 * The VMCB could be recycled, causing a false negative in svm_vcpu_load;
+	 * block speculative execution.
+	 */
+	if (static_cpu_has(X86_FEATURE_IBPB_SUPPORT))
+		wrmsrl(MSR_IA32_PRED_CMD, FEATURE_SET_IBPB);
 }
 
 static void svm_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
+	struct svm_cpu_data *sd = per_cpu(svm_data, cpu);
 	int i;
 
 	if (unlikely(cpu != vcpu->cpu)) {
@@ -1737,6 +1747,12 @@ static void svm_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	/* This assumes that the kernel never uses MSR_TSC_AUX */
 	if (static_cpu_has(X86_FEATURE_RDTSCP))
 		wrmsrl(MSR_TSC_AUX, svm->tsc_aux);
+
+	if (sd->current_vmcb != svm->vmcb) {
+		sd->current_vmcb = svm->vmcb;
+		if (static_cpu_has(X86_FEATURE_IBPB_SUPPORT))
+			wrmsrl(MSR_IA32_PRED_CMD, FEATURE_SET_IBPB);
+	}
 
 	avic_vcpu_load(vcpu, cpu);
 }
@@ -2766,6 +2782,11 @@ static int nested_svm_vmexit(struct vcpu_svm *svm)
 	if (!nested_vmcb)
 		return 1;
 
+	/*
+	 * No need for IBPB here, the L1 hypervisor should be running with
+	 * IBRS=1 and inserts one already when switching L2 VMs.
+	 */
+
 	/* Exit Guest-Mode */
 	leave_guest_mode(&svm->vcpu);
 	svm->nested.vmcb = 0;
@@ -2931,6 +2952,11 @@ static bool nested_svm_vmrun(struct vcpu_svm *svm)
 	nested_vmcb = nested_svm_map(svm, svm->vmcb->save.rax, &page);
 	if (!nested_vmcb)
 		return false;
+
+	/*
+	 * No need for IBPB here, since the nested VM is less privileged.  The
+	 * L1 hypervisor inserts one already when switching L2 VMs.
+	 */
 
 	if (!nested_vmcb_checks(nested_vmcb)) {
 		nested_vmcb->control.exit_code    = SVM_EXIT_ERR;
