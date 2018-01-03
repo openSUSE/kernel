@@ -210,6 +210,8 @@
 
 #define X86_FEATURE_MBA			( 7*32+18) /* Memory Bandwidth Allocation */
 #define X86_FEATURE_SPEC_CTRL		( 7*32+19) /* Control Speculation Control */
+#define X86_FEATURE_IA32_ARCH_CAPS	( 7*32+21) /* Control Speculation Control */
+#define X86_FEATURE_IBRS_ATT		( 7*32+22) /* IBRS all the time */
 
 /* Virtualization flags: Linux defined, word 8 */
 #define X86_FEATURE_TPR_SHADOW		( 8*32+ 0) /* Intel TPR Shadow */

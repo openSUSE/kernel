@@ -25,6 +25,7 @@ static const struct cpuid_bit cpuid_bits[] = {
 	{ X86_FEATURE_AVX512_4VNNIW,    CPUID_EDX,  2, 0x00000007, 0 },
 	{ X86_FEATURE_AVX512_4FMAPS,    CPUID_EDX,  3, 0x00000007, 0 },
 	{ X86_FEATURE_SPEC_CTRL,	CPUID_EDX, 26, 0x00000007, 0 },
+	{ X86_FEATURE_IA32_ARCH_CAPS,	CPUID_EDX, 29, 0x00000007, 0 },
 	{ X86_FEATURE_CAT_L3,		CPUID_EBX,  1, 0x00000010, 0 },
 	{ X86_FEATURE_CAT_L2,		CPUID_EBX,  2, 0x00000010, 0 },
 	{ X86_FEATURE_CDP_L3,		CPUID_ECX,  2, 0x00000010, 1 },
@@ -56,6 +57,13 @@ void init_scattered_cpuid_features(struct cpuinfo_x86 *c)
 
 		if (regs[cb->reg] & (1 << cb->bit))
 			set_cpu_cap(c, cb->feature);
+	}
+
+	if (cpu_has(c, X86_FEATURE_IA32_ARCH_CAPS)) {
+		u64 cap;
+		rdmsrl(MSR_IA32_ARCH_CAPABILITIES, cap);
+		if (cap & 2) /* IBRS all the time */
+			set_cpu_cap(c, X86_FEATURE_IBRS_ATT);
 	}
 }
 
