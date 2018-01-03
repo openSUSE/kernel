@@ -156,6 +156,25 @@ For 32-bit we have the following conventions - kernel is built with
 	popq %rbx
 	.endm
 
+	.macro RESTORE_EXTRA_REGS offset=0
+	movq 0*8+\offset(%rsp), %r15
+	movq 1*8+\offset(%rsp), %r14
+	movq 2*8+\offset(%rsp), %r13
+	movq 3*8+\offset(%rsp), %r12
+	movq 4*8+\offset(%rsp), %rbp
+	movq 5*8+\offset(%rsp), %rbx
+	UNWIND_HINT_REGS offset=\offset extra=0
+	.endm
+
+	.macro CLEAR_EXTRA_REGS
+	xorq %r15, %r15
+	xorq %r14, %r14
+	xorq %r13, %r13
+	xorq %r12, %r12
+	xorq %rbp, %rbp
+	xorq %rbx, %rbx
+	.endm
+
 	.macro POP_C_REGS
 	popq %r11
 	popq %r10
