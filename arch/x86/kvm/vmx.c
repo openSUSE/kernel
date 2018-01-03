@@ -9365,7 +9365,7 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	    vcpu->arch.pkru != vmx->host_pkru)
 		__write_pkru(vcpu->arch.pkru);
 
-	if (static_cpu_has(X86_FEATURE_SPEC_CTRL) &&
+	if (ibpb_inuse &&
 	    vmx->spec_ctrl != FEATURE_ENABLE_IBRS)
 		wrmsrl(MSR_IA32_SPEC_CTRL, vmx->spec_ctrl);
 
@@ -9498,7 +9498,7 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 #endif
 	      );
 
-	if (static_cpu_has(X86_FEATURE_SPEC_CTRL)) {
+	if (ibpb_inuse) {
 		rdmsrl(MSR_IA32_SPEC_CTRL, vmx->spec_ctrl);
 		if (vmx->spec_ctrl)
 			wrmsrl(MSR_IA32_SPEC_CTRL, FEATURE_ENABLE_IBRS);
