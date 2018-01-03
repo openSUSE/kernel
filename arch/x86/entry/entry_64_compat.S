@@ -14,6 +14,7 @@
 #include <asm/irqflags.h>
 #include <asm/asm.h>
 #include <asm/smap.h>
+#include <asm/spec_ctrl.h>
 #include <linux/linkage.h>
 #include <linux/err.h>
 
@@ -54,6 +55,7 @@ ENTRY(entry_SYSENTER_compat)
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rsp
 
 	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp
+	ENABLE_IBRS
 
 	/*
 	 * User tracing code (ptrace or signal handlers) might assume that
@@ -224,6 +226,7 @@ GLOBAL(entry_SYSCALL_compat_after_hwframe)
 	 * preserved during the C calls inside TRACE_IRQS_OFF anyway.
 	 */
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rdi
+	ENABLE_IBRS_CLOBBER
 
 	/*
 	 * User mode is traced as though IRQs are on, and SYSENTER
@@ -240,6 +243,7 @@ GLOBAL(entry_SYSCALL_compat_after_hwframe)
 	/* Opportunistic SYSRET */
 sysret32_from_system_call:
 	TRACE_IRQS_ON			/* User mode traces as IRQs on. */
+	DISABLE_IBRS_CLOBBER
 	movq	RBX(%rsp), %rbx		/* pt_regs->rbx */
 	movq	RBP(%rsp), %rbp		/* pt_regs->rbp */
 	movq	EFLAGS(%rsp), %r11	/* pt_regs->flags (in r11) */
