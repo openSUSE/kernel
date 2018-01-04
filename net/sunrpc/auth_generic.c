@@ -81,9 +81,20 @@ static struct rpc_cred *generic_bind_cred(struct rpc_task *task,
 static int
 generic_hash_cred(struct auth_cred *acred, unsigned int hashbits)
 {
-	return hash_64(from_kgid(&init_user_ns, acred->gid) |
-		((u64)from_kuid(&init_user_ns, acred->uid) <<
-			(sizeof(gid_t) * 8)), hashbits);
+	u32 uid = from_kuid(&init_user_ns, acred->uid);
+	u32 gid;
+	int ret = hash_32(uid, 32);
+
+	if (acred->group_info) {
+		int g;
+
+		for (g = 0; g < acred->group_info->ngroups; g++) {
+			gid = from_kgid(&init_user_ns, acred->group_info->gid[g]);
+			ret = hash_32(ret ^ gid, 32);
+		}
+	}
+	gid = from_kgid(&init_user_ns, acred->gid);
+	return hash_32(ret ^ gid, hashbits);
 }
 
 /*
