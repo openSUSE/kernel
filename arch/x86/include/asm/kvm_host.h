@@ -126,6 +126,7 @@ static inline gfn_t gfn_to_index(gfn_t gfn, gfn_t base_gfn, int level)
 
 static inline void stuff_RSB(void)
 {
+#ifdef CONFIG_X86_64
 	__asm__ __volatile__("       call 1f; pause;"
 			     "1:     call 2f; pause;"
 			     "2:     call 3f; pause;"
@@ -159,6 +160,7 @@ static inline void stuff_RSB(void)
 			     "30:    call 31f; pause;"
 			     "31:    call 32f; pause;"
 			     "32:    add $(32*8), %%rsp": : :"memory");
+#endif
 }
 
 enum kvm_reg {
