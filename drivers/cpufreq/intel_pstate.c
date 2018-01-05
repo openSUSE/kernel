@@ -2614,8 +2614,8 @@ hwp_cpu_matched:
 			profile = "Performance Server";
 			break;
 		default:
-			if (server_policy)
-				profile = "Server";
+			profile = "Unspecified SLE Server";
+			break;
 		};
 
 		if (profile) {
