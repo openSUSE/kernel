@@ -45,6 +45,9 @@
 #define PF_BASE(idx) (PF0_BASE + (idx) * PF_STRIDE)
 #define PF_REG(idx, reg) (PF_BASE(idx) + (reg))
 
+#define NUM_CIM_CTL_TSCH_CHANNEL_INSTANCES 4
+#define NUM_CIM_CTL_TSCH_CHANNEL_TSCH_CLASS_INSTANCES 16
+
 #define MYPORT_BASE 0x1c000
 #define MYPORT_REG(reg_addr) (MYPORT_BASE + (reg_addr))
 
@@ -960,6 +963,10 @@
 #define EXT_MEM_SIZE_G(x) (((x) >> EXT_MEM_SIZE_S) & EXT_MEM_SIZE_M)
 
 #define MA_EXT_MEMORY1_BAR_A 0x7808
+
+#define HMA_MUX_S    5
+#define HMA_MUX_V(x) ((x) << HMA_MUX_S)
+#define HMA_MUX_F    HMA_MUX_V(1U)
 
 #define EXT_MEM1_BASE_S    16
 #define EXT_MEM1_BASE_M    0xfffU
