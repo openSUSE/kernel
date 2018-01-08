@@ -250,6 +250,7 @@ static int ife_validate_metatype(struct tcf_meta_ops *ops, void *val, int len)
 	return ret;
 }
 
+#ifdef CONFIG_MODULES
 static const char *ife_meta_id2name(u32 metaid)
 {
 	switch (metaid) {
@@ -263,6 +264,7 @@ static const char *ife_meta_id2name(u32 metaid)
 		return "unknown";
 	}
 }
+#endif
 
 /* called when adding new meta information
  * under ife->tcf_lock for existing action
