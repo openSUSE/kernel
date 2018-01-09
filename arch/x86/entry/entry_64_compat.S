@@ -201,8 +201,6 @@ ENTRY(entry_SYSCALL_compat)
 
 	/* Use %rsp as scratch reg. User ESP is stashed in r8 */
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rsp
-	ENABLE_IBRS_CLOBBER
-	STUFF_RSB
 
 	/* Switch to the kernel stack */
 	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp
@@ -233,6 +231,9 @@ GLOBAL(entry_SYSCALL_compat_after_hwframe)
 	pushq   %r15                    /* pt_regs->r15 */
 
 	CLEAR_R8_TO_R15
+
+	ENABLE_IBRS_CLOBBER
+	STUFF_RSB
 
 	/*
 	 * User mode is traced as though IRQs are on, and SYSENTER
