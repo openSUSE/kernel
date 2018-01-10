@@ -195,9 +195,6 @@ struct pv_irq_ops {
 	void (*safe_halt)(void);
 	void (*halt)(void);
 
-#ifdef CONFIG_X86_64
-	void (*adjust_exception_frame)(void);
-#endif
 };
 
 struct pv_mmu_ops {
