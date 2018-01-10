@@ -1645,8 +1645,9 @@ static inline int32_t get_target_pstate_use_cpu_load(struct cpudata *cpu)
 	/* Exit from long idle boosting */
 	if (cpu->idle_boost &&
 	    pid_params.setpoint == CPUFREQ_SERVER_DEFAULT_SETPOINT) {
+		int32_t min_scaled = int_tofp(CPUFREQ_SERVER_DEFAULT_SETPOINT);
 		cpu->idle_boost >>= 1;
-		sample->busy_scaled = max(sample->busy_scaled, CPUFREQ_SERVER_DEFAULT_SETPOINT);
+		sample->busy_scaled = max(sample->busy_scaled, min_scaled);
 	}
 
 	max_target = global.no_turbo || global.turbo_disabled ?
