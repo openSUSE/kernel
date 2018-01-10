@@ -17,6 +17,8 @@
 
 #include "internal.h"
 
+static bool watchdog_failed;
+
 /**
  * Returns true if this system should prefer ACPI based watchdog instead of
  * the native one (which are typically the same hardware).
@@ -25,7 +27,7 @@ bool acpi_has_watchdog(void)
 {
 	struct acpi_table_header hdr;
 
-	if (acpi_disabled)
+	if (acpi_disabled || watchdog_failed)
 		return false;
 
 	return ACPI_SUCCESS(acpi_get_table_header(ACPI_SIG_WDAT, 0, &hdr));
@@ -43,6 +45,8 @@ void __init acpi_watchdog_init(void)
 	size_t nresources = 0;
 	acpi_status status;
 	int i;
+
+	watchdog_failed = true;
 
 	status = acpi_get_table(ACPI_SIG_WDAT, 0,
 				(struct acpi_table_header **)&wdat);
@@ -115,6 +119,8 @@ void __init acpi_watchdog_init(void)
 					       resources, nresources);
 	if (IS_ERR(pdev))
 		pr_err("Device creation failed: %ld\n", PTR_ERR(pdev));
+	else
+		watchdog_failed = false; /* probe success */
 
 	kfree(resources);
 
