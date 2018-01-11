@@ -37,6 +37,11 @@
 #include <asm/tm.h>
 #include <asm/ppc-opcode.h>
 #include <asm/export.h>
+#ifdef CONFIG_PPC_BOOK3S
+#include <asm/exception-64s.h>
+#else
+#include <asm/exception-64e.h>
+#endif
 
 /*
  * System calls.
@@ -384,8 +389,7 @@ tabort_syscall:
 	mtmsrd	r10, 1
 	mtspr	SPRN_SRR0, r11
 	mtspr	SPRN_SRR1, r12
-
-	rfid
+	RFI_TO_USER
 	b	.	/* prevent speculative execution */
 #endif
 
@@ -1055,7 +1059,7 @@ _GLOBAL(enter_rtas)
 	
 	mtspr	SPRN_SRR0,r5
 	mtspr	SPRN_SRR1,r6
-	rfid
+	RFI_TO_KERNEL
 	b	.	/* prevent speculative execution */
 
 rtas_return_loc:
@@ -1080,7 +1084,7 @@ rtas_return_loc:
 
 	mtspr	SPRN_SRR0,r3
 	mtspr	SPRN_SRR1,r4
-	rfid
+	RFI_TO_KERNEL
 	b	.	/* prevent speculative execution */
 
 	.align	3
@@ -1151,7 +1155,7 @@ _GLOBAL(enter_prom)
 	LOAD_REG_IMMEDIATE(r12, MSR_SF | MSR_ISF | MSR_LE)
 	andc	r11,r11,r12
 	mtsrr1	r11
-	rfid
+	RFI_TO_KERNEL
 #endif /* CONFIG_PPC_BOOK3E */
 
 1:	/* Return from OF */
