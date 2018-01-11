@@ -163,6 +163,10 @@ static int __maybe_unused chtdc_ti_resume(struct device *dev)
 
 static SIMPLE_DEV_PM_OPS(chtdc_ti_pm_ops, chtdc_ti_suspend, chtdc_ti_resume);
 
+static const struct i2c_device_id chtdc_ti_i2c_id[] = {
+	{}
+};
+
 static const struct acpi_device_id chtdc_ti_acpi_ids[] = {
 	{ "INT33F5" },
 	{ },
@@ -177,6 +181,7 @@ static struct i2c_driver chtdc_ti_i2c_driver = {
 	},
 	.probe_new = chtdc_ti_probe,
 	.shutdown = chtdc_ti_shutdown,
+	.id_table = chtdc_ti_i2c_id,
 };
 module_i2c_driver(chtdc_ti_i2c_driver);
 
