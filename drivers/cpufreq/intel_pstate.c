@@ -1645,9 +1645,12 @@ static inline int32_t get_target_pstate_use_cpu_load(struct cpudata *cpu)
 	/* Exit from long idle boosting */
 	if (cpu->idle_boost &&
 	    pid_params.setpoint == CPUFREQ_SERVER_DEFAULT_SETPOINT) {
-		int32_t min_scaled = int_tofp(CPUFREQ_SERVER_DEFAULT_SETPOINT);
+		boost = max_t(int32_t, pid_params.setpoint, cpu->idle_boost);
 		cpu->idle_boost >>= 1;
-		sample->busy_scaled = max(sample->busy_scaled, min_scaled);
+		if (busy_frac < boost && !is_idle_task(current)) {
+			busy_frac = boost;
+			sample->busy_scaled = boost * 100;
+		}
 	}
 
 	max_target = global.no_turbo || global.turbo_disabled ?
@@ -1805,7 +1808,8 @@ static void intel_pstate_update_util(struct update_util_data *data, u64 time,
 			if (cpu->iowait_boost)
 				cpu->iowait_boost = 0;
 
-			cpu->idle_boost = int_tofp(1);
+			if (!is_idle_task(current))
+				cpu->idle_boost = int_tofp(1);
 		}
 	}
 	cpu->last_update = time;
