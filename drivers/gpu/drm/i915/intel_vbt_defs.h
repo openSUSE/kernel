@@ -230,6 +230,14 @@ struct bdb_general_features {
 #define DEVICE_PORT_DVOB	0x01
 #define DEVICE_PORT_DVOC	0x02
 
+/* DDC Bus DDI Type 155+ */
+enum vbt_gmbus_ddi {
+	DDC_BUS_DDI_B = 0x1,
+	DDC_BUS_DDI_C,
+	DDC_BUS_DDI_D,
+	DDC_BUS_DDI_F,
+};
+
 /*
  * We used to keep this struct but without any version control. We should avoid
  * using it in the future, but it should be safe to keep using it in the old
