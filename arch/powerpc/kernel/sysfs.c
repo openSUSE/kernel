@@ -1079,6 +1079,9 @@ static int __init topology_init(void)
 	WARN_ON(r < 0);
 #ifdef CONFIG_PPC64
 	sysfs_create_dscr_default();
+#ifdef CONFIG_PPC_BOOK3S
+	sysfs_create_rfi_flush();
+#endif
 #endif /* CONFIG_PPC64 */
 
 	return 0;
