@@ -1580,7 +1580,7 @@ static void qeth_l3_free_vlan_addresses4(struct qeth_card *card,
 
 	addr = qeth_l3_get_addr_buffer(QETH_PROT_IPV4);
 	if (!addr)
-		return;
+		goto out;
 
 	spin_lock_bh(&card->ip_lock);
 
@@ -1594,6 +1594,7 @@ static void qeth_l3_free_vlan_addresses4(struct qeth_card *card,
 	spin_unlock_bh(&card->ip_lock);
 
 	kfree(addr);
+out:
 	in_dev_put(in_dev);
 }
 
@@ -1618,7 +1619,7 @@ static void qeth_l3_free_vlan_addresses6(struct qeth_card *card,
 
 	addr = qeth_l3_get_addr_buffer(QETH_PROT_IPV6);
 	if (!addr)
-		return;
+		goto out;
 
 	spin_lock_bh(&card->ip_lock);
 
@@ -1633,6 +1634,7 @@ static void qeth_l3_free_vlan_addresses6(struct qeth_card *card,
 	spin_unlock_bh(&card->ip_lock);
 
 	kfree(addr);
+out:
 	in6_dev_put(in6_dev);
 #endif /* CONFIG_QETH_IPV6 */
 }
