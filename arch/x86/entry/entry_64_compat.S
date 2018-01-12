@@ -47,7 +47,7 @@
  */
 ENTRY(entry_SYSENTER_compat)
 	/* Interrupts are off on entry. */
-	SWAPGS_UNSAFE_STACK
+	SWAPGS
 	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp
 
 	/*
@@ -183,14 +183,11 @@ ENDPROC(entry_SYSENTER_compat)
  */
 ENTRY(entry_SYSCALL_compat)
 	/* Interrupts are off on entry. */
-	SWAPGS_UNSAFE_STACK
+	swapgs
 
 	/* Stash user ESP and switch to the kernel stack. */
 	movl	%esp, %r8d
 	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp
-
-	/* Zero-extending 32-bit regs, do not remove */
-	movl	%eax, %eax
 
 	/* Construct struct pt_regs on stack */
 	pushq	$__USER32_DS		/* pt_regs->ss */
@@ -198,6 +195,8 @@ ENTRY(entry_SYSCALL_compat)
 	pushq	%r11			/* pt_regs->flags */
 	pushq	$__USER32_CS		/* pt_regs->cs */
 	pushq	%rcx			/* pt_regs->ip */
+GLOBAL(entry_SYSCALL_compat_after_hwframe)
+	movl	%eax, %eax		/* discard orig_ax high bits */
 	pushq	%rax			/* pt_regs->orig_ax */
 	pushq	%rdi			/* pt_regs->di */
 	pushq	%rsi			/* pt_regs->si */
@@ -306,8 +305,11 @@ ENTRY(entry_INT80_compat)
 	 */
 	movl	%eax, %eax
 
-	/* Construct struct pt_regs on stack (iret frame is already on stack) */
 	pushq	%rax			/* pt_regs->orig_ax */
+
+	/* switch to thread stack expects orig_ax to be pushed */
+	call	switch_to_thread_stack
+
 	pushq	%rdi			/* pt_regs->di */
 	pushq	%rsi			/* pt_regs->si */
 	pushq	%rdx			/* pt_regs->dx */
