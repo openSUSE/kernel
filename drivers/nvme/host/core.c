@@ -157,13 +157,20 @@ static blk_status_t nvme_error_status(struct request *req)
 		return BLK_STS_OK;
 	case NVME_SC_CAP_EXCEEDED:
 		return BLK_STS_NOSPC;
+	case NVME_SC_LBA_RANGE:
+		return BLK_STS_TARGET;
+	case NVME_SC_BAD_ATTRIBUTES:
 	case NVME_SC_ONCS_NOT_SUPPORTED:
+	case NVME_SC_INVALID_OPCODE:
+	case NVME_SC_INVALID_FIELD:
+	case NVME_SC_INVALID_NS:
 		return BLK_STS_NOTSUPP;
 	case NVME_SC_WRITE_FAULT:
 	case NVME_SC_READ_ERROR:
 	case NVME_SC_UNWRITTEN_BLOCK:
 	case NVME_SC_ACCESS_DENIED:
 	case NVME_SC_READ_ONLY:
+	case NVME_SC_COMPARE_FAILED:
 		return BLK_STS_MEDIUM;
 	case NVME_SC_GUARD_CHECK:
 	case NVME_SC_APPTAG_CHECK:
@@ -190,8 +197,10 @@ static inline bool nvme_req_needs_retry(struct request *req)
 
 void nvme_complete_rq(struct request *req)
 {
-	if (unlikely(nvme_req(req)->status && nvme_req_needs_retry(req))) {
-		if (nvme_req_needs_failover(req)) {
+	blk_status_t status = nvme_error_status(req);
+
+	if (unlikely(status != BLK_STS_OK && nvme_req_needs_retry(req))) {
+		if (nvme_req_needs_failover(req, status)) {
 			nvme_failover_req(req);
 			return;
 		}
@@ -202,8 +211,7 @@ void nvme_complete_rq(struct request *req)
 			return;
 		}
 	}
-
-	blk_mq_end_request(req, nvme_error_status(req));
+	blk_mq_end_request(req, status);
 }
 EXPORT_SYMBOL_GPL(nvme_complete_rq);
 
