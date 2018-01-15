@@ -106,7 +106,7 @@ static inline int cpumask_to_vp_set(struct hv_flush_pcpu_ex *flush,
 }
 
 static void hyperv_flush_tlb_others(const struct cpumask *cpus,
-struct mm_struct *mm, unsigned long start, unsigned long end)
+				    const struct flush_tlb_info *info)
 {
 	int cpu, vcpu, gva_n, max_gvas;
 	struct hv_flush_pcpu **flush_pcpu;
@@ -114,7 +114,7 @@ struct mm_struct *mm, unsigned long start, unsigned long end)
 	u64 status = U64_MAX;
 	unsigned long flags;
 
-	trace_hyperv_mmu_flush_tlb_others(cpus, mm, start, end);
+	trace_hyperv_mmu_flush_tlb_others(cpus, info);
 
 	if (!pcpu_flush || !hv_hypercall_pg)
 		goto do_native;
@@ -136,8 +136,8 @@ struct mm_struct *mm, unsigned long start, unsigned long end)
 		goto do_native;
 	}
 
-	if (mm) {
-		flush->address_space = virt_to_phys(mm->pgd);
+	if (info->mm) {
+		flush->address_space = virt_to_phys(info->mm->pgd);
 		flush->flags = 0;
 	} else {
 		flush->address_space = 0;
@@ -164,17 +164,17 @@ struct mm_struct *mm, unsigned long start, unsigned long end)
 	 */
 	max_gvas = (PAGE_SIZE - sizeof(*flush)) / sizeof(flush->gva_list[0]);
 
-	if (end == TLB_FLUSH_ALL) {
+	if (info->end == TLB_FLUSH_ALL) {
 		flush->flags |= HV_FLUSH_NON_GLOBAL_MAPPINGS_ONLY;
 		status = hv_do_hypercall(HVCALL_FLUSH_VIRTUAL_ADDRESS_SPACE,
 					 flush, NULL);
-	} else if (end &&
-		   ((end - start)/HV_TLB_FLUSH_UNIT) > max_gvas) {
+	} else if (info->end &&
+		   ((info->end - info->start)/HV_TLB_FLUSH_UNIT) > max_gvas) {
 		status = hv_do_hypercall(HVCALL_FLUSH_VIRTUAL_ADDRESS_SPACE,
 					 flush, NULL);
 	} else {
 		gva_n = fill_gva_list(flush->gva_list, 0,
-				      start, end);
+				      info->start, info->end);
 		status = hv_do_rep_hypercall(HVCALL_FLUSH_VIRTUAL_ADDRESS_LIST,
 					     gva_n, 0, flush, NULL);
 	}
@@ -184,11 +184,11 @@ struct mm_struct *mm, unsigned long start, unsigned long end)
 	if (!(status & HV_HYPERCALL_RESULT_MASK))
 		return;
 do_native:
-	native_flush_tlb_others(cpus, mm, start, end);
+	native_flush_tlb_others(cpus, info);
 }
 
 static void hyperv_flush_tlb_others_ex(const struct cpumask *cpus,
-struct mm_struct *mm, unsigned long start, unsigned long end)
+				       const struct flush_tlb_info *info)
 {
 	int nr_bank = 0, max_gvas, gva_n;
 	struct hv_flush_pcpu_ex **flush_pcpu;
@@ -196,7 +196,7 @@ struct mm_struct *mm, unsigned long start, unsigned long end)
 	u64 status = U64_MAX;
 	unsigned long flags;
 
-	trace_hyperv_mmu_flush_tlb_others(cpus, mm, start, end);
+	trace_hyperv_mmu_flush_tlb_others(cpus, info);
 
 	if (!pcpu_flush_ex || !hv_hypercall_pg)
 		goto do_native;
@@ -218,8 +218,8 @@ struct mm_struct *mm, unsigned long start, unsigned long end)
 		goto do_native;
 	}
 
-	if (mm) {
-		flush->address_space = virt_to_phys(mm->pgd);
+	if (info->mm) {
+		flush->address_space = virt_to_phys(info->mm->pgd);
 		flush->flags = 0;
 	} else {
 		flush->address_space = 0;
@@ -247,19 +247,19 @@ struct mm_struct *mm, unsigned long start, unsigned long end)
 		 sizeof(flush->hv_vp_set.bank_contents[0])) /
 		sizeof(flush->gva_list[0]);
 
-	if (end == TLB_FLUSH_ALL) {
+	if (info->end == TLB_FLUSH_ALL) {
 		flush->flags |= HV_FLUSH_NON_GLOBAL_MAPPINGS_ONLY;
 		status = hv_do_rep_hypercall(
 			HVCALL_FLUSH_VIRTUAL_ADDRESS_SPACE_EX,
 			0, nr_bank, flush, NULL);
-	} else if (end &&
-		   ((end - start)/HV_TLB_FLUSH_UNIT) > max_gvas) {
+	} else if (info->end &&
+		   ((info->end - info->start)/HV_TLB_FLUSH_UNIT) > max_gvas) {
 		status = hv_do_rep_hypercall(
 			HVCALL_FLUSH_VIRTUAL_ADDRESS_SPACE_EX,
 			0, nr_bank, flush, NULL);
 	} else {
 		gva_n = fill_gva_list(flush->gva_list, nr_bank,
-				      start, end);
+				      info->start, info->end);
 		status = hv_do_rep_hypercall(
 			HVCALL_FLUSH_VIRTUAL_ADDRESS_LIST_EX,
 			gva_n, nr_bank, flush, NULL);
@@ -270,7 +270,7 @@ struct mm_struct *mm, unsigned long start, unsigned long end)
 	if (!(status & HV_HYPERCALL_RESULT_MASK))
 		return;
 do_native:
-	native_flush_tlb_others(cpus, mm, start, end);
+	native_flush_tlb_others(cpus, info);
 }
 
 void hyperv_setup_mmu_ops(void)
