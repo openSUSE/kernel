@@ -47,8 +47,8 @@ struct bpf_map {
 	u32 max_entries;
 	u32 map_flags;
 	u32 pages;
-	bool unpriv_array;
 	u32 id;
+	bool unpriv_array;
 	struct user_struct *user;
 	const struct bpf_map_ops *ops;
 	struct work_struct work;
