@@ -301,16 +301,6 @@ static inline bool arch_vma_access_permitted(struct vm_area_struct *vma,
 	return __pkru_allows_pkey(vma_pkey(vma), write);
 }
 
-static inline unsigned long build_cr3(struct mm_struct *mm, u16 asid)
-{
-	return __sme_pa(mm->pgd) | asid;
-}
-
-static inline unsigned long build_cr3_noflush(struct mm_struct *mm, u16 asid)
-{
-	return __sme_pa(mm->pgd) | asid | CR3_NOFLUSH;
-}
-
 /*
  * This can be used from process context to figure out what the value of
  * CR3 is without needing to do a (slow) read_cr3().
@@ -320,7 +310,7 @@ static inline unsigned long build_cr3_noflush(struct mm_struct *mm, u16 asid)
  */
 static inline unsigned long __get_current_cr3_fast(void)
 {
-	unsigned long cr3 = build_cr3(this_cpu_read(cpu_tlbstate.loaded_mm),
+	unsigned long cr3 = build_cr3(this_cpu_read(cpu_tlbstate.loaded_mm)->pgd,
 		this_cpu_read(cpu_tlbstate.loaded_mm_asid));
 
 	/* For now, be very restrictive about when this can be called. */
