@@ -15,11 +15,11 @@
  * In practice this is far bigger than any realistic pointer offset; this limit
  * ensures that umax_value + (int)off + (int)size cannot overflow a u64.
  */
-#define BPF_MAX_VAR_OFF	(1ULL << 31)
+#define BPF_MAX_VAR_OFF	(1 << 29)
 /* Maximum variable size permitted for ARG_CONST_SIZE[_OR_ZERO].  This ensures
  * that converting umax_value to int cannot overflow.
  */
-#define BPF_MAX_VAR_SIZ	INT_MAX
+#define BPF_MAX_VAR_SIZ	(1 << 29)
 
 /* Liveness marks, used for registers and spilled-regs (in stack slots).
  * Read marks propagate upwards until they find a write mark; they record that
@@ -110,10 +110,23 @@ struct bpf_insn_aux_data {
 		struct bpf_map *map_ptr;	/* pointer for call insn into lookup_elem */
 	};
 	int ctx_field_size; /* the ctx field size for load insn, maybe 0 */
-	int converted_op_size; /* the valid value width after perceived conversion */
+	bool seen; /* this insn was processed by the verifier */
 };
 
 #define MAX_USED_MAPS 64 /* max number of maps accessed by one eBPF program */
+
+struct bpf_verifer_log {
+	u32 level;
+	char *kbuf;
+	char __user *ubuf;
+	u32 len_used;
+	u32 len_total;
+};
+
+static inline bool bpf_verifier_log_full(const struct bpf_verifer_log *log)
+{
+	return log->len_used >= log->len_total - 1;
+}
 
 struct bpf_verifier_env;
 struct bpf_ext_analyzer_ops {
@@ -139,6 +152,8 @@ struct bpf_verifier_env {
 	bool allow_ptr_leaks;
 	bool seen_direct_write;
 	struct bpf_insn_aux_data *insn_aux_data; /* array of per-insn state */
+
+	struct bpf_verifer_log log;
 };
 
 int bpf_analyzer(struct bpf_prog *prog, const struct bpf_ext_analyzer_ops *ops,
