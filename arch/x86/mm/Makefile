@@ -9,7 +9,7 @@ CFLAGS_REMOVE_mem_encrypt.o	= -pg
 endif
 
 obj-y	:=  init.o init_$(BITS).o fault.o ioremap.o extable.o pageattr.o mmap.o \
-	    pat.o pgtable.o physaddr.o gup.o setup_nx.o tlb.o
+	    pat.o pgtable.o physaddr.o gup.o setup_nx.o tlb.o cpu_entry_area.o
 
 # Make sure __phys_addr has no stackprotector
 nostackp := $(call cc-option, -fno-stack-protector)
