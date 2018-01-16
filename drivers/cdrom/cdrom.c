@@ -281,7 +281,9 @@
 #include <linux/fcntl.h>
 #include <linux/blkdev.h>
 #include <linux/times.h>
+#include <linux/delay.h>
 #include <linux/uaccess.h>
+#include <linux/sched/signal.h>
 #include <scsi/scsi_request.h>
 
 /* used to tell the module to turn on full debugging messages */
@@ -1030,6 +1032,18 @@ static void cdrom_count_tracks(struct cdrom_device_info *cdi, tracktype *tracks)
 	       tracks->cdi, tracks->xa);
 }
 
+static int tray_close(struct cdrom_device_info *cdi)
+{
+	int ret;
+
+	ret = cdi->ops->tray_move(cdi, 0);
+	if (ret)
+		return ret;
+
+	return poll_event_interruptible(CDS_TRAY_OPEN !=
+			cdi->ops->drive_status(cdi, CDSL_CURRENT), 500);
+}
+
 static
 int open_for_common(struct cdrom_device_info *cdi, tracktype *tracks)
 {
@@ -1048,7 +1062,9 @@ int open_for_common(struct cdrom_device_info *cdi, tracktype *tracks)
 			if (CDROM_CAN(CDC_CLOSE_TRAY) &&
 			    cdi->options & CDO_AUTO_CLOSE) {
 				cd_dbg(CD_OPEN, "trying to close the tray\n");
-				ret = cdo->tray_move(cdi, 0);
+				ret = tray_close(cdi);
+				if (ret == -ERESTARTSYS)
+					return ret;
 				if (ret) {
 					cd_dbg(CD_OPEN, "bummer. tried to close the tray but failed.\n");
 					/* Ignore the error from the low
@@ -2306,7 +2322,8 @@ static int cdrom_ioctl_closetray(struct cdrom_device_info *cdi)
 
 	if (!CDROM_CAN(CDC_CLOSE_TRAY))
 		return -ENOSYS;
-	return cdi->ops->tray_move(cdi, 0);
+
+	return tray_close(cdi);
 }
 
 static int cdrom_ioctl_eject_sw(struct cdrom_device_info *cdi,
