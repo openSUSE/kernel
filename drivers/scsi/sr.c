@@ -529,6 +529,16 @@ static int sr_block_open(struct block_device *bdev, fmode_t mode)
 	cd = scsi_cd_get(bdev->bd_disk);
 	if (cd) {
 		ret = cdrom_open(&cd->cdi, bdev, mode);
+		/* wait for drive to get ready */
+		if ((ret == -ENOMEDIUM) && !(mode & FMODE_NDELAY))
+			switch (sr_disk_status(&cd->cdi)) {
+				case CDS_NO_DISC:
+				case CDS_NO_INFO:
+				case CDS_AUDIO:
+					break;;
+				default: /* looks like data disc was detected */
+					ret = cdrom_open(&cd->cdi, bdev, mode);
+			}
 		if (ret)
 			scsi_cd_put(cd);
 	}
