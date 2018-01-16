@@ -1744,6 +1744,9 @@ static int validate_branch(struct objtool_file *file, struct instruction *first,
 			return 0;
 
 		case INSN_CALL:
+			if (!insn->call_dest)
+				break;
+
 			if (is_fentry_call(insn))
 				break;
 
