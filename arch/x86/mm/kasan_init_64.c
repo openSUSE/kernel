@@ -12,6 +12,7 @@
 #include <asm/tlbflush.h>
 #include <asm/sections.h>
 #include <asm/pgtable.h>
+#include <asm/cpu_entry_area.h>
 
 extern struct range pfn_mapped[E820_MAX_ENTRIES];
 
@@ -139,15 +140,17 @@ void __init kasan_init(void)
 	}
 	kasan_populate_zero_shadow(
 		kasan_mem_to_shadow((void *)PAGE_OFFSET + MAXMEM),
-		kasan_mem_to_shadow((void *)__START_KERNEL_map));
+		shadow_cpu_entry_begin);
 
-	vmemmap_populate((unsigned long)kasan_mem_to_shadow(_stext),
-			(unsigned long)kasan_mem_to_shadow(_end),
-			NUMA_NO_NODE);
+	kasan_populate_zero_shadow(shadow_cpu_entry_end,
+				kasan_mem_to_shadow((void *)__START_KERNEL_map));
+
+	kasan_populate_shadow((unsigned long)kasan_mem_to_shadow(_stext),
+			      (unsigned long)kasan_mem_to_shadow(_end),
+			      early_pfn_to_nid(__pa(_stext)));
 
 	kasan_populate_zero_shadow(kasan_mem_to_shadow((void *)MODULES_END),
-			(void *)KASAN_SHADOW_END);
-
+				(void *)KASAN_SHADOW_END);
 	load_cr3(init_top_pgt);
 	__flush_tlb_all();
 
