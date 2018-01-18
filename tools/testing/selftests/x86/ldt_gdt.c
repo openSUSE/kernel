@@ -114,7 +114,7 @@ static void check_valid_segment(uint16_t index, int ldt,
 		return;
 	}
 
-	if (ar != expected_ar) {
+	if (ar != expected_ar && ar != (expected_ar | AR_ACCESSED)) {
 		printf("[FAIL]\t%s entry %hu has AR 0x%08X but expected 0x%08X\n",
 		       (ldt ? "LDT" : "GDT"), index, ar, expected_ar);
 		nerrs++;
