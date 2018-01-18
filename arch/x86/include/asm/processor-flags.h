@@ -39,7 +39,7 @@
 #define CR3_NOFLUSH (1UL << 63)
 
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
-# define X86_CR3_PTI_SWITCH_BIT	11
+# define X86_CR3_PTI_PCID_USER_BIT	11
 #endif
 
 #else
