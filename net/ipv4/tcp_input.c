@@ -3003,13 +3003,13 @@ void tcp_rearm_rto(struct sock *sk)
 		if (icsk->icsk_pending == ICSK_TIME_REO_TIMEOUT ||
 		    icsk->icsk_pending == ICSK_TIME_LOSS_PROBE) {
 			struct sk_buff *skb = tcp_write_queue_head(sk);
-			const u32 rto_time_stamp =
-				tcp_skb_timestamp(skb) + rto;
-			s32 delta = (s32)(rto_time_stamp - tcp_jiffies32);
-			/* delta may not be positive if the socket is locked
+			u64 rto_time_stamp = skb->skb_mstamp +
+					     jiffies_to_usecs(rto);
+			s64 delta_us = rto_time_stamp - tp->tcp_mstamp;
+			/* delta_us may not be positive if the socket is locked
 			 * when the retrans timer fires and is rescheduled.
 			 */
-			rto = max(delta, 1);
+			rto = usecs_to_jiffies(max_t(int, delta_us, 1));
 		}
 		inet_csk_reset_xmit_timer(sk, ICSK_TIME_RETRANS, rto,
 					  TCP_RTO_MAX);
