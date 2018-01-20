@@ -13,8 +13,8 @@ ffffea0000000000 - ffffeaffffffffff (=40 bits) virtual memory map (1TB)
 ffffec0000000000 - fffffbffffffffff (=44 bits) kasan shadow memory (16TB)
 ... unused hole ...
 				    vaddr_end for KASLR
-fffffe0000000000 - fffffe7fffffffff (=39 bits) LDT remap for PTI
-fffffe8000000000 - fffffeffffffffff (=39 bits) cpu_entry_area mapping
+fffffe0000000000 - fffffe7fffffffff (=39 bits) cpu_entry_area mapping
+fffffe8000000000 - fffffeffffffffff (=39 bits) LDT remap for PTI
 ffffff0000000000 - ffffff7fffffffff (=39 bits) %esp fixup stacks
 ... unused hole ...
 ffffffef00000000 - fffffffeffffffff (=64 GB) EFI region mapping space
@@ -36,7 +36,7 @@ ffa0000000000000 - ffd1ffffffffffff (=54 bits) vmalloc/ioremap space (12800 TB)
 ffd2000000000000 - ffd3ffffffffffff (=49 bits) hole
 ffd4000000000000 - ffd5ffffffffffff (=49 bits) virtual memory map (512TB)
 ... unused hole ...
-ffd8000000000000 - fff7ffffffffffff (=53 bits) kasan shadow memory (8PB)
+fffffe0000000000 - fffffe7fffffffff (=39 bits) cpu_entry_area mapping
 ... unused hole ...
 ffffff0000000000 - ffffff7fffffffff (=39 bits) %esp fixup stacks
 ... unused hole ...
