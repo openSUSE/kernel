@@ -2680,7 +2680,7 @@ int proc_dointvec_ibrs_ctrl(struct ctl_table *table, int write,
 		clear_ibrs_disabled();
 		if (ibrs_supported) {
 			for_each_online_cpu(cpu)
-				wrmsrl_on_cpu(cpu, MSR_IA32_SPEC_CTRL, FEATURE_ENABLE_IBRS);
+				wrmsrl_on_cpu(cpu, MSR_IA32_SPEC_CTRL, SPEC_CTRL_IBRS);
 		} else {
 			sysctl_ibrs_enabled = 0;
 		}

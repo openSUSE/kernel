@@ -116,7 +116,7 @@ static inline void mwait_idle_with_hints(unsigned long eax, unsigned long ecx)
 			__mwait(eax, ecx);
 
 		if (ibrs_inuse)
-			native_wrmsrl(MSR_IA32_SPEC_CTRL, FEATURE_ENABLE_IBRS);
+			native_wrmsrl(MSR_IA32_SPEC_CTRL, SPEC_CTRL_IBRS);
 	}
 	current_clr_polling();
 }

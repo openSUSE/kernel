@@ -2295,7 +2295,7 @@ static void vmx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		per_cpu(current_vmcs, cpu) = vmx->loaded_vmcs->vmcs;
 		vmcs_load(vmx->loaded_vmcs->vmcs);
 		if (ibpb_inuse)
-			native_wrmsrl(MSR_IA32_PRED_CMD, FEATURE_SET_IBPB);
+			native_wrmsrl(MSR_IA32_PRED_CMD, PRED_CMD_IBPB);
 	}
 
 	if (!already_loaded) {
@@ -3859,7 +3859,7 @@ static void free_loaded_vmcs(struct loaded_vmcs *loaded_vmcs)
 	 * block speculative execution.
 	 */
 	if (ibpb_inuse)
-		wrmsrl(MSR_IA32_PRED_CMD, FEATURE_SET_IBPB);
+		wrmsrl(MSR_IA32_PRED_CMD, PRED_CMD_IBPB);
 }
 
 static void free_kvm_area(void)
@@ -9381,7 +9381,7 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 		__write_pkru(vcpu->arch.pkru);
 
 	if (ibpb_inuse &&
-	    vmx->spec_ctrl != FEATURE_ENABLE_IBRS)
+	    vmx->spec_ctrl != SPEC_CTRL_IBRS)
 		wrmsrl(MSR_IA32_SPEC_CTRL, vmx->spec_ctrl);
 
 	atomic_switch_perf_msrs(vmx);
@@ -9511,7 +9511,7 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	if (ibpb_inuse) {
 		rdmsrl(MSR_IA32_SPEC_CTRL, vmx->spec_ctrl);
 		if (vmx->spec_ctrl)
-			wrmsrl(MSR_IA32_SPEC_CTRL, FEATURE_ENABLE_IBRS);
+			wrmsrl(MSR_IA32_SPEC_CTRL, SPEC_CTRL_IBRS);
 	}
 	/* Eliminate branch target predictions from guest mode */
 	vmexit_fill_RSB();

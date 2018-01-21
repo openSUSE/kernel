@@ -125,7 +125,7 @@ static void delay_mwaitx(unsigned long __loops)
 		__mwaitx(MWAITX_DISABLE_CSTATES, delay, MWAITX_ECX_TIMER_ENABLE);
 
 		if (ibrs_inuse && (delay > IBRS_DISABLE_THRESHOLD))
-			native_wrmsrl(MSR_IA32_SPEC_CTRL, FEATURE_ENABLE_IBRS);
+			native_wrmsrl(MSR_IA32_SPEC_CTRL, SPEC_CTRL_IBRS);
 
 		end = rdtsc_ordered();
 

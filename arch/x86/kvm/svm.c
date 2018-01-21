@@ -1721,7 +1721,7 @@ static void svm_free_vcpu(struct kvm_vcpu *vcpu)
 	 * block speculative execution.
 	 */
 	if (ibpb_inuse)
-		wrmsrl(MSR_IA32_PRED_CMD, FEATURE_SET_IBPB);
+		wrmsrl(MSR_IA32_PRED_CMD, PRED_CMD_IBPB);
 }
 
 static void svm_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
@@ -1759,7 +1759,7 @@ static void svm_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	if (sd->current_vmcb != svm->vmcb) {
 		sd->current_vmcb = svm->vmcb;
 		if (ibpb_inuse)
-			wrmsrl(MSR_IA32_PRED_CMD, FEATURE_SET_IBPB);
+			wrmsrl(MSR_IA32_PRED_CMD, PRED_CMD_IBPB);
 	}
 
 	avic_vcpu_load(vcpu, cpu);
@@ -4962,7 +4962,7 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 	local_irq_enable();
 
 	if (ibrs_inuse &&
-	    svm->spec_ctrl != FEATURE_ENABLE_IBRS)
+	    svm->spec_ctrl != SPEC_CTRL_IBRS)
 		wrmsrl(MSR_IA32_SPEC_CTRL, svm->spec_ctrl);
 
 	asm volatile (
@@ -5059,8 +5059,8 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 
 	if (ibrs_inuse) {
 		rdmsrl(MSR_IA32_SPEC_CTRL, svm->spec_ctrl);
-		if (svm->spec_ctrl != FEATURE_ENABLE_IBRS)
-			wrmsrl(MSR_IA32_SPEC_CTRL, FEATURE_ENABLE_IBRS);
+		if (svm->spec_ctrl != SPEC_CTRL_IBRS)
+			wrmsrl(MSR_IA32_SPEC_CTRL, SPEC_CTRL_IBRS);
 	}
 	/* Eliminate branch target predictions from guest mode */
 	vmexit_fill_RSB();
