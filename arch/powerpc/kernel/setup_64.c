@@ -852,9 +852,10 @@ static void init_fallback_flush(void)
 
 void setup_rfi_flush(enum l1d_flush_type types, bool enable)
 {
+	init_fallback_flush();
+
 	if (types & L1D_FLUSH_FALLBACK) {
 		pr_info("rfi-flush: Using fallback displacement flush\n");
-		init_fallback_flush();
 	}
 
 	if (types & L1D_FLUSH_ORI)
