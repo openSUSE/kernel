@@ -577,8 +577,7 @@ static int mlx5_core_set_hca_defaults(struct mlx5_core_dev *dev)
 	int ret = 0;
 
 	/* Disable local_lb by default */
-	if ((MLX5_CAP_GEN(dev, port_type) == MLX5_CAP_PORT_TYPE_ETH) &&
-	    MLX5_CAP_GEN(dev, disable_local_lb))
+	if (MLX5_CAP_GEN(dev, port_type) == MLX5_CAP_PORT_TYPE_ETH)
 		ret = mlx5_nic_vport_update_local_lb(dev, false);
 
 	return ret;
@@ -1117,9 +1116,12 @@ static int mlx5_load_one(struct mlx5_core_dev *dev, struct mlx5_priv *priv,
 		goto err_stop_poll;
 	}
 
-	if (boot && mlx5_init_once(dev, priv)) {
-		dev_err(&pdev->dev, "sw objs init failed\n");
-		goto err_stop_poll;
+	if (boot) {
+		err = mlx5_init_once(dev, priv);
+		if (err) {
+			dev_err(&pdev->dev, "sw objs init failed\n");
+			goto err_stop_poll;
+		}
 	}
 
 	err = mlx5_alloc_irq_vectors(dev);
@@ -1129,8 +1131,9 @@ static int mlx5_load_one(struct mlx5_core_dev *dev, struct mlx5_priv *priv,
 	}
 
 	dev->priv.uar = mlx5_get_uars_page(dev);
-	if (!dev->priv.uar) {
+	if (IS_ERR(dev->priv.uar)) {
 		dev_err(&pdev->dev, "Failed allocating uar, aborting\n");
+		err = PTR_ERR(dev->priv.uar);
 		goto err_disable_msix;
 	}
 
