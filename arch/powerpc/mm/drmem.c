@@ -15,6 +15,7 @@
 #include <linux/of.h>
 #include <linux/of_fdt.h>
 #include <linux/memblock.h>
+#include <linux/slab.h>
 #include <asm/prom.h>
 #include <asm/drmem.h>
 
