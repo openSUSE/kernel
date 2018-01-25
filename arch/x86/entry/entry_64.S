@@ -39,7 +39,6 @@
 #include <asm/export.h>
 #include <asm/frame.h>
 #include <asm/nospec-branch.h>
-#include <asm/spec_ctrl.h>
 #include <linux/err.h>
 
 #include "calling.h"
@@ -173,7 +172,8 @@ ENTRY(entry_SYSCALL_64_trampoline)
 
 	/* Load the top of the task stack into RSP */
 	movq	CPU_ENTRY_AREA_tss + TSS_sp1 + CPU_ENTRY_AREA, %rsp
-	ENABLE_IBRS
+	/* Restrict indirect branch speculation */
+	RESTRICT_IB_SPEC
 
 	/* Start building the simulated IRET frame. */
 	pushq	$__USER_DS			/* pt_regs->ss */
@@ -217,6 +217,8 @@ ENTRY(entry_SYSCALL_64)
 	 */
 	movq	%rsp, PER_CPU_VAR(rsp_scratch)
 	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp
+	/* Restrict Indirect Branch Speculation */
+	RESTRICT_IB_SPEC
 
 	/* Construct struct pt_regs on stack */
 	pushq	$__USER_DS			/* pt_regs->ss */
@@ -235,19 +237,11 @@ GLOBAL(entry_SYSCALL_64_after_hwframe)
 	pushq	%r9				/* pt_regs->r9 */
 	pushq	%r10				/* pt_regs->r10 */
 	pushq	%r11				/* pt_regs->r11 */
-	sub	$(6*8), %rsp			/* pt_regs->bp, bx, r12-15 not used */
+	sub	$(6*8), %rsp			/* pt_regs->bp, bx, r12-15 not saved */
 	UNWIND_HINT_REGS extra=0
 
 	TRACE_IRQS_OFF
 
-	/*
-	 * Clear the unused extra regs for code hygiene.
-	 * Will restore the callee saved extra regs at end of syscall.
-	 */
-	SAVE_EXTRA_REGS
-	CLEAR_EXTRA_REGS
-
-	STUFF_RSB
 	/*
 	 * If we need to do entry work or if we guess we'll need to do
 	 * exit work, go straight to the slow path.
@@ -305,9 +299,7 @@ entry_SYSCALL_64_fastpath:
 	TRACE_IRQS_ON		/* user mode is traced as IRQs on */
 	movq	RIP(%rsp), %rcx
 	movq	EFLAGS(%rsp), %r11
-	RESTORE_EXTRA_REGS
 	addq	$6*8, %rsp	/* skip extra regs -- they were preserved */
-
 	UNWIND_HINT_EMPTY
 	jmp	.Lpop_c_regs_except_rcx_r11_and_sysret
 
@@ -319,12 +311,14 @@ entry_SYSCALL_64_fastpath:
 	 */
 	TRACE_IRQS_ON
 	ENABLE_INTERRUPTS(CLBR_ANY)
+	SAVE_EXTRA_REGS
 	movq	%rsp, %rdi
 	call	syscall_return_slowpath	/* returns with IRQs disabled */
 	jmp	return_from_SYSCALL_64
 
 entry_SYSCALL64_slow_path:
 	/* IRQs are off. */
+	SAVE_EXTRA_REGS
 	movq	%rsp, %rdi
 	call	do_syscall_64		/* returns with IRQs disabled */
 
@@ -421,11 +415,12 @@ syscall_return_via_sysret:
 	pushq	RSP-RDI(%rdi)	/* RSP */
 	pushq	(%rdi)		/* RDI */
 
+	/* Unrestrict Indirect Branch Speculation */
+	UNRESTRICT_IB_SPEC
 	/*
 	 * We are on the trampoline stack.  All regs except RDI are live.
 	 * We can do future final exit work right here.
 	 */
-	DISABLE_IBRS
 	SWITCH_TO_USER_CR3_STACK scratch_reg=%rdi
 
 	popq	%rdi
@@ -683,13 +678,6 @@ END(irq_entries_start)
 	ALLOC_PT_GPREGS_ON_STACK
 	SAVE_C_REGS
 	SAVE_EXTRA_REGS
-
-	/*
-	 * Have to do stuffing before encoding frame pointer.
-	 * Could add some unnecessary RSB clearing if coming
-	 * from kernel for non-SMEP platform.
-	 */
-	STUFF_RSB
 	ENCODE_FRAME_POINTER
 
 	testb	$3, CS(%rsp)
@@ -777,12 +765,12 @@ GLOBAL(swapgs_restore_regs_and_return_to_usermode)
 	/* Push user RDI on the trampoline stack. */
 	pushq	(%rdi)
 
+	/* Unrestrict Indirect Branch Speculation */
+	UNRESTRICT_IB_SPEC
 	/*
 	 * We are on the trampoline stack.  All regs except RDI are live.
 	 * We can do future final exit work right here.
 	 */
-
-	DISABLE_IBRS
 	SWITCH_TO_USER_CR3_STACK scratch_reg=%rdi
 
 	/* Restore RDI. */
@@ -871,11 +859,10 @@ native_irq_return_ldt:
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rdi	/* to kernel CR3 */
 
 	/*
-	 * Nomrally we enable IBRS when we switch to kernel's CR3.
-	 * But we are going to switch back to user CR3 immediately
-	 * in this routine after fixing ESPFIX stack.  There is
-	 * no vulnerable code branching for IBRS to protect.
-	 * We don't toggle IBRS to avoid the cost of two MSR writes.
+	 * There is no point in disabling Indirect Branch Speculation
+	 * here as this is going to return to user space immediately
+	 * after fixing ESPFIX stack.  There is no vulnerable code
+	 * to protect so spare two MSR writes.
 	 */
 
 	movq	PER_CPU_VAR(espfix_waddr), %rdi
@@ -1011,7 +998,8 @@ ENTRY(switch_to_thread_stack)
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rdi
 	movq	%rsp, %rdi
 	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp
-	ENABLE_IBRS
+	/* Restrict Indirect Branch Speculation */
+	RESTRICT_IB_SPEC
 	UNWIND_HINT sp_offset=16 sp_reg=ORC_REG_DI
 
 	pushq	7*8(%rdi)		/* regs->ss */
@@ -1301,10 +1289,6 @@ ENTRY(paranoid_entry)
 	cld
 	SAVE_C_REGS 8
 	SAVE_EXTRA_REGS 8
-	/*
-	 * Do the stuffing unconditionally from user/kernel to be safe
-	 */
-	STUFF_RSB
 	ENCODE_FRAME_POINTER 8
 	movl	$1, %ebx
 	movl	$MSR_GS_BASE, %ecx
@@ -1316,7 +1300,8 @@ ENTRY(paranoid_entry)
 
 1:
 	SAVE_AND_SWITCH_TO_KERNEL_CR3 scratch_reg=%rax save_reg=%r14
-	ENABLE_IBRS_SAVE_AND_CLOBBER save_reg=%r13d
+	/* Restrict Indirect Branch speculation */
+	RESTRICT_IB_SPEC_SAVE_AND_CLOBBER save_reg=%r13d
 
 	ret
 END(paranoid_entry)
@@ -1340,7 +1325,8 @@ ENTRY(paranoid_exit)
 	testl	%ebx, %ebx			/* swapgs needed? */
 	jnz	.Lparanoid_exit_no_swapgs
 	TRACE_IRQS_IRETQ
-	RESTORE_IBRS_CLOBBER save_reg=%r13d
+	/* Restore Indirect Branch Speculation to the previous state */
+	RESTORE_IB_SPEC_CLOBBER save_reg=%r13d
 	RESTORE_CR3	scratch_reg=%rbx save_reg=%r14
 	SWAPGS_UNSAFE_STACK
 	jmp	.Lparanoid_exit_restore
@@ -1359,7 +1345,6 @@ ENTRY(error_entry)
 	cld
 	SAVE_C_REGS 8
 	SAVE_EXTRA_REGS 8
-	STUFF_RSB
 	ENCODE_FRAME_POINTER 8
 	xorl	%ebx, %ebx
 	testb	$3, CS+8(%rsp)
@@ -1372,7 +1357,8 @@ ENTRY(error_entry)
 	SWAPGS
 	/* We have user CR3.  Change to kernel CR3. */
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rax
-	ENABLE_IBRS_CLOBBER
+	/* Restrict Indirect Branch Speculation */
+	RESTRICT_IB_SPEC_CLOBBER
 
 .Lerror_entry_from_usermode_after_swapgs:
 	/* Put us onto the real thread stack. */
@@ -1420,7 +1406,8 @@ ENTRY(error_entry)
 	 */
 	SWAPGS
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rax
-	ENABLE_IBRS_CLOBBER
+	/* Restrict Indirect Branch Speculation */
+	RESTRICT_IB_SPEC_CLOBBER
 	jmp .Lerror_entry_done
 
 .Lbstep_iret:
@@ -1435,7 +1422,8 @@ ENTRY(error_entry)
 	 */
 	SWAPGS
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rax
-	ENABLE_IBRS
+	/* Restrict Indirect Branch Speculation */
+	RESTRICT_IB_SPEC
 
 	/*
 	 * Pretend that the exception came from user mode: set up pt_regs
@@ -1537,7 +1525,10 @@ ENTRY(nmi)
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rdx
 	movq	%rsp, %rdx
 	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp
-	ENABLE_IBRS
+
+	/* Restrict Indirect Branch Speculation */
+	RESTRICT_IB_SPEC
+
 	UNWIND_HINT_IRET_REGS base=%rdx offset=8
 	pushq	5*8(%rdx)	/* pt_regs->ss */
 	pushq	4*8(%rdx)	/* pt_regs->rsp */
@@ -1788,7 +1779,9 @@ end_repeat_nmi:
 	movq	$-1, %rsi
 	call	do_nmi
 
-	RESTORE_IBRS_CLOBBER save_reg=%r13d
+	/* Restore Indirect Branch speculation to the previous state */
+	RESTORE_IB_SPEC_CLOBBER save_reg=%r13d
+
 	RESTORE_CR3 scratch_reg=%r15 save_reg=%r14
 
 	testl	%ebx, %ebx			/* swapgs needed? */

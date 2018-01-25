@@ -14,7 +14,6 @@
 #include <asm/irqflags.h>
 #include <asm/asm.h>
 #include <asm/smap.h>
-#include <asm/spec_ctrl.h>
 #include <linux/linkage.h>
 #include <linux/err.h>
 
@@ -55,7 +54,8 @@ ENTRY(entry_SYSENTER_compat)
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rsp
 
 	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp
-	ENABLE_IBRS
+	/* Restrict Indirect Branch Speculation */
+	RESTRICT_IB_SPEC
 
 	/*
 	 * User tracing code (ptrace or signal handlers) might assume that
@@ -97,10 +97,6 @@ ENTRY(entry_SYSENTER_compat)
 	pushq   $0			/* pt_regs->r14 = 0 */
 	pushq   $0			/* pt_regs->r15 = 0 */
 	cld
-
-	STUFF_RSB
-
-	CLEAR_R8_TO_R15
 
 	/*
 	 * SYSENTER doesn't filter flags, so we need to clear NT and AC
@@ -225,22 +221,23 @@ GLOBAL(entry_SYSCALL_compat_after_hwframe)
 	pushq   $0			/* pt_regs->r11 = 0 */
 	pushq   %rbx                    /* pt_regs->rbx */
 	pushq   %rbp                    /* pt_regs->rbp (will be overwritten) */
-	pushq   %r12                    /* pt_regs->r12 */
-	pushq   %r13                    /* pt_regs->r13 */
-	pushq   %r14                    /* pt_regs->r14 */
-	pushq   %r15                    /* pt_regs->r15 */
+	pushq   $0			/* pt_regs->r12 = 0 */
+	pushq   $0			/* pt_regs->r13 = 0 */
+	pushq   $0			/* pt_regs->r14 = 0 */
+	pushq   $0			/* pt_regs->r15 = 0 */
 
-	CLEAR_R8_TO_R15
+	/* Restrict Indirect Branch Speculation. All registers are saved already */
+	RESTRICT_IB_SPEC_CLOBBER
 
-	ENABLE_IBRS_CLOBBER
-	STUFF_RSB
-
-	/*
-	 * User mode is traced as though IRQs are on, and SYSENTER
+	/* User mode is traced as though IRQs are on, and SYSENTER
 	 * turned them off.
 	 */
 	TRACE_IRQS_OFF
 
+	/*
+	 * We just saved %rdi so it is safe to clobber.  It is not
+	 * preserved during the C calls inside TRACE_IRQS_OFF anyway.
+	 */
 	movq	%rsp, %rdi
 	call	do_fast_syscall_32
 	/* XEN PV guests always use IRET path */
@@ -250,11 +247,15 @@ GLOBAL(entry_SYSCALL_compat_after_hwframe)
 	/* Opportunistic SYSRET */
 sysret32_from_system_call:
 	TRACE_IRQS_ON			/* User mode traces as IRQs on. */
-	DISABLE_IBRS_CLOBBER
-	movq    R15(%rsp), %r15         /* pt_regs->r15 */
-	movq    R14(%rsp), %r14         /* pt_regs->r14 */
-	movq    R13(%rsp), %r13         /* pt_regs->r13 */
-	movq    R12(%rsp), %r12         /* pt_regs->r12 */
+
+	/*
+	 * Unrestrict Indirect Branch Speculation. This is safe to do here
+	 * because there are no indirect branches between here and the
+	 * return to userspace (sysretl).
+	 * Clobber of %rax, %rcx, %rdx is OK before register restoring.
+	 */
+	UNRESTRICT_IB_SPEC_CLOBBER
+
 	movq	RBX(%rsp), %rbx		/* pt_regs->rbx */
 	movq	RBP(%rsp), %rbp		/* pt_regs->rbp */
 	movq	EFLAGS(%rsp), %r11	/* pt_regs->flags (in r11) */
@@ -364,10 +365,6 @@ ENTRY(entry_INT80_compat)
 	pushq   %r14                    /* pt_regs->r14 */
 	pushq   %r15                    /* pt_regs->r15 */
 	cld
-
-	STUFF_RSB
-
-	CLEAR_R8_TO_R15
 
 	/*
 	 * User mode is traced as though IRQs are on, and the interrupt

@@ -28,7 +28,6 @@ static const struct cpuid_bit cpuid_bits[] = {
 	{ X86_FEATURE_HW_PSTATE,	CPUID_EDX,  7, 0x80000007, 0 },
 	{ X86_FEATURE_CPB,		CPUID_EDX,  9, 0x80000007, 0 },
 	{ X86_FEATURE_PROC_FEEDBACK,    CPUID_EDX, 11, 0x80000007, 0 },
-	{ X86_FEATURE_AMD_PRED_CMD,	CPUID_EBX, 12, 0x80000008, 0 },
 	{ X86_FEATURE_SME,		CPUID_EAX,  0, 0x8000001f, 0 },
 	{ 0, 0, 0, 0, 0 }
 };
@@ -53,25 +52,6 @@ void init_scattered_cpuid_features(struct cpuinfo_x86 *c)
 
 		if (regs[cb->reg] & (1 << cb->bit))
 			set_cpu_cap(c, cb->feature);
-	}
-
-	if (!c->cpu_index) {
-		if (boot_cpu_has(X86_FEATURE_SPEC_CTRL)) {
-			printk(KERN_INFO "FEATURE SPEC_CTRL Present\n");
-			set_ibrs_supported();
-			set_ibpb_supported();
-			if (ibrs_inuse)
-				sysctl_ibrs_enabled = 1;
-			if (ibpb_inuse)
-				sysctl_ibpb_enabled = 1;
-		} else if (boot_cpu_has(X86_FEATURE_IBPB)) {
-			printk_once(KERN_INFO "FEATURE IBPB Present\n");
-			set_ibpb_supported();
-			if (ibpb_inuse)
-				sysctl_ibpb_enabled = 1;
-		} else {
-			printk(KERN_INFO "FEATURE SPEC_CTRL Not Present\n");
-		}
 	}
 }
 

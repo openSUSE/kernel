@@ -6,15 +6,14 @@
 #include <linux/interrupt.h>
 #include <linux/export.h>
 #include <linux/cpu.h>
-#include <linux/ptrace.h>
+#include <linux/debugfs.h>
 
 #include <asm/tlbflush.h>
 #include <asm/mmu_context.h>
+#include <asm/nospec-branch.h>
 #include <asm/cache.h>
 #include <asm/apic.h>
 #include <asm/uv/uv.h>
-#include <asm/microcode.h>
-#include <linux/debugfs.h>
 
 /*
  *	TLB flushing, formerly SMP-only
@@ -222,10 +221,24 @@ void switch_mm_irqs_off(struct mm_struct *prev, struct mm_struct *next,
 		u16 new_asid;
 		bool need_flush;
 
-		/* Null tsk means switching to kernel, so that's safe */
-		if (ibpb_inuse && tsk &&
-			___ptrace_may_access(tsk, current, PTRACE_MODE_IBPB))
-			native_wrmsrl(MSR_IA32_PRED_CMD, PRED_CMD_IBPB);
+		/*
+		 * Avoid user/user BTB poisoning by flushing the branch predictor
+		 * when switching between processes. This stops one process from
+		 * doing Spectre-v2 attacks on another.
+		 *
+                 * As an optimization flush indirect branches only when
+                 * switching into processes that disable dumping.
+                 *
+                 * This will not flush branches when switching into kernel
+                 * threads, but it would flush them when switching to the
+                 * idle thread and back.
+                 *
+                 * It might be useful to have a one-off cache here
+                 * to also not flush the idle case, but we would need some
+                 * kind of stable sequence number to remember the previous mm.
+		 */
+		if (tsk && tsk->mm && get_dumpable(tsk->mm) != SUID_DUMP_USER)
+			indirect_branch_prediction_barrier();
 
 		if (IS_ENABLED(CONFIG_VMAP_STACK)) {
 			/*

@@ -184,8 +184,6 @@ struct vcpu_svm {
 		u64 gs_base;
 	} host;
 
-	u64 spec_ctrl;
-
 	u32 *msrpm;
 
 	ulong nmi_iret_rip;
@@ -255,8 +253,6 @@ static const struct svm_direct_access_msrs {
 	{ .index = MSR_IA32_LASTBRANCHTOIP,		.always = false },
 	{ .index = MSR_IA32_LASTINTFROMIP,		.always = false },
 	{ .index = MSR_IA32_LASTINTTOIP,		.always = false },
-	{ .index = MSR_IA32_SPEC_CTRL,			.always = false },
-	{ .index = MSR_IA32_PRED_CMD,			.always = false },
 	{ .index = MSR_INVALID,				.always = false },
 };
 
@@ -533,7 +529,6 @@ struct svm_cpu_data {
 	struct kvm_ldttss_desc *tss_desc;
 
 	struct page *save_area;
-
 	struct vmcb *current_vmcb;
 };
 
@@ -925,8 +920,8 @@ static void svm_vcpu_init_msrpm(u32 *msrpm)
 		set_msr_interception(msrpm, direct_access_msrs[i].index, 1, 1);
 	}
 
-	set_msr_interception(msrpm, MSR_IA32_SPEC_CTRL, 0, 0);
-	set_msr_interception(msrpm, MSR_IA32_PRED_CMD,  0, 0);
+	if (boot_cpu_has(X86_FEATURE_AMD_PRED_CMD))
+		set_msr_interception(msrpm, MSR_IA32_PRED_CMD, 1, 1);
 }
 
 static void add_msr_offset(u32 offset)
@@ -1715,13 +1710,11 @@ static void svm_free_vcpu(struct kvm_vcpu *vcpu)
 	__free_pages(virt_to_page(svm->nested.msrpm), MSRPM_ALLOC_ORDER);
 	kvm_vcpu_uninit(vcpu);
 	kmem_cache_free(kvm_vcpu_cache, svm);
-
 	/*
-	 * The VMCB could be recycled, causing a false negative in svm_vcpu_load;
-	 * block speculative execution.
+	 * The vmcb page can be recycled, causing a false negative in
+	 * svm_vcpu_load(). So do a full IBPB now.
 	 */
-	if (ibpb_inuse)
-		wrmsrl(MSR_IA32_PRED_CMD, PRED_CMD_IBPB);
+	indirect_branch_prediction_barrier();
 }
 
 static void svm_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
@@ -1758,10 +1751,8 @@ static void svm_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 
 	if (sd->current_vmcb != svm->vmcb) {
 		sd->current_vmcb = svm->vmcb;
-		if (ibpb_inuse)
-			wrmsrl(MSR_IA32_PRED_CMD, PRED_CMD_IBPB);
+		indirect_branch_prediction_barrier();
 	}
-
 	avic_vcpu_load(vcpu, cpu);
 }
 
@@ -2790,11 +2781,6 @@ static int nested_svm_vmexit(struct vcpu_svm *svm)
 	if (!nested_vmcb)
 		return 1;
 
-	/*
-	 * No need for IBPB here, the L1 hypervisor should be running with
-	 * IBRS=1 and inserts one already when switching L2 VMs.
-	 */
-
 	/* Exit Guest-Mode */
 	leave_guest_mode(&svm->vcpu);
 	svm->nested.vmcb = 0;
@@ -2960,11 +2946,6 @@ static bool nested_svm_vmrun(struct vcpu_svm *svm)
 	nested_vmcb = nested_svm_map(svm, svm->vmcb->save.rax, &page);
 	if (!nested_vmcb)
 		return false;
-
-	/*
-	 * No need for IBPB here, since the nested VM is less privileged.  The
-	 * L1 hypervisor inserts one already when switching L2 VMs.
-	 */
 
 	if (!nested_vmcb_checks(nested_vmcb)) {
 		nested_vmcb->control.exit_code    = SVM_EXIT_ERR;
@@ -3612,9 +3593,6 @@ static int svm_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	case MSR_VM_CR:
 		msr_info->data = svm->nested.vm_cr_msr;
 		break;
-	case MSR_IA32_SPEC_CTRL:
-		msr_info->data = svm->spec_ctrl;
-		break;
 	case MSR_IA32_UCODE_REV:
 		msr_info->data = 0x01000065;
 		break;
@@ -3769,9 +3747,6 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 		return svm_set_vm_cr(vcpu, data);
 	case MSR_VM_IGNNE:
 		vcpu_unimpl(vcpu, "unimplemented wrmsr: 0x%x data 0x%llx\n", ecx, data);
-		break;
-	case MSR_IA32_SPEC_CTRL:
-		svm->spec_ctrl = data;
 		break;
 	case MSR_IA32_APICBASE:
 		if (kvm_vcpu_apicv_active(vcpu))
@@ -4961,10 +4936,6 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 
 	local_irq_enable();
 
-	if (ibrs_inuse &&
-	    svm->spec_ctrl != SPEC_CTRL_IBRS)
-		wrmsrl(MSR_IA32_SPEC_CTRL, svm->spec_ctrl);
-
 	asm volatile (
 		"push %%" _ASM_BP "; \n\t"
 		"mov %c[rbx](%[svm]), %%" _ASM_BX " \n\t"
@@ -5057,11 +5028,6 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 #endif
 		);
 
-	if (ibrs_inuse) {
-		rdmsrl(MSR_IA32_SPEC_CTRL, svm->spec_ctrl);
-		if (svm->spec_ctrl != SPEC_CTRL_IBRS)
-			wrmsrl(MSR_IA32_SPEC_CTRL, SPEC_CTRL_IBRS);
-	}
 	/* Eliminate branch target predictions from guest mode */
 	vmexit_fill_RSB();
 

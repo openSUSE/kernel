@@ -582,11 +582,10 @@ struct vcpu_vmx {
 	u64 		      msr_host_kernel_gs_base;
 	u64 		      msr_guest_kernel_gs_base;
 #endif
-	u64		      spec_ctrl;
-
 	u32 vm_entry_controls_shadow;
 	u32 vm_exit_controls_shadow;
 	u32 secondary_exec_control;
+	u64 spec_ctrl;
 
 	/*
 	 * loaded_vmcs points to the VMCS currently used in this vcpu. For a
@@ -1508,7 +1507,6 @@ static void vmcs_load(struct vmcs *vmcs)
 	if (error)
 		printk(KERN_ERR "kvm: vmptrld %p/%llx failed\n",
 		       vmcs, phys_addr);
-
 }
 
 #ifdef CONFIG_KEXEC_CORE
@@ -2289,8 +2287,7 @@ static void vmx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	if (per_cpu(current_vmcs, cpu) != vmx->loaded_vmcs->vmcs) {
 		per_cpu(current_vmcs, cpu) = vmx->loaded_vmcs->vmcs;
 		vmcs_load(vmx->loaded_vmcs->vmcs);
-		if (ibpb_inuse)
-			native_wrmsrl(MSR_IA32_PRED_CMD, PRED_CMD_IBPB);
+		indirect_branch_prediction_barrier();
 	}
 
 	if (!already_loaded) {
@@ -3849,12 +3846,6 @@ static void free_loaded_vmcs(struct loaded_vmcs *loaded_vmcs)
 	free_vmcs(loaded_vmcs->vmcs);
 	loaded_vmcs->vmcs = NULL;
 	WARN_ON(loaded_vmcs->shadow_vmcs != NULL);
-	/*
-	 * The VMCS could be recycled, causing a false negative in vmx_vcpu_load;
-	 * block speculative execution.
-	 */
-	if (ibpb_inuse)
-		wrmsrl(MSR_IA32_PRED_CMD, PRED_CMD_IBPB);
 }
 
 static void free_kvm_area(void)
@@ -6841,14 +6832,25 @@ static __init int hardware_setup(void)
 		kvm_tsc_scaling_ratio_frac_bits = 48;
 	}
 
+	/*
+	 * The AMD_PRED_CMD bit might be exposed by hypervisors on Intel
+	 * chips which only want to expose PRED_CMD to guests and not
+	 * SPEC_CTRL. Because PRED_CMD is one-shot write-only, while
+	 * PRED_CMD requires storage, live migration support, etc.
+	 */
+	if (boot_cpu_has(X86_FEATURE_SPEC_CTRL) ||
+	    boot_cpu_has(X86_FEATURE_AMD_PRED_CMD))
+		vmx_disable_intercept_for_msr(MSR_IA32_PRED_CMD, false);
+
+	if (boot_cpu_has(X86_FEATURE_SPEC_CTRL))
+		vmx_disable_intercept_for_msr(MSR_IA32_SPEC_CTRL, false);
+
 	vmx_disable_intercept_for_msr(MSR_FS_BASE, false);
 	vmx_disable_intercept_for_msr(MSR_GS_BASE, false);
 	vmx_disable_intercept_for_msr(MSR_KERNEL_GS_BASE, true);
 	vmx_disable_intercept_for_msr(MSR_IA32_SYSENTER_CS, false);
 	vmx_disable_intercept_for_msr(MSR_IA32_SYSENTER_ESP, false);
 	vmx_disable_intercept_for_msr(MSR_IA32_SYSENTER_EIP, false);
-	vmx_disable_intercept_for_msr(MSR_IA32_SPEC_CTRL, false);
-	vmx_disable_intercept_for_msr(MSR_IA32_PRED_CMD, false);
 
 	memcpy(vmx_msr_bitmap_legacy_x2apic_apicv,
 			vmx_msr_bitmap_legacy, PAGE_SIZE);
@@ -9375,17 +9377,21 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	    vcpu->arch.pkru != vmx->host_pkru)
 		__write_pkru(vcpu->arch.pkru);
 
-	if (ibpb_inuse &&
-	    vmx->spec_ctrl != SPEC_CTRL_IBRS)
-		wrmsrl(MSR_IA32_SPEC_CTRL, vmx->spec_ctrl);
-
 	atomic_switch_perf_msrs(vmx);
-
 	debugctlmsr = get_debugctlmsr();
 
 	vmx_arm_hv_timer(vcpu);
 
 	vmx->__launched = vmx->loaded_vmcs->launched;
+
+	/*
+	 * Just update whatever the value was set for the MSR in guest.
+	 * If this is unlaunched: Assume that initialized value is 0.
+	 * IRQ's also need to be disabled. If guest value is 0, an interrupt
+	 * could start running in unprotected mode (i.e with IBRS=0).
+	 */
+	restore_branch_speculation(vmx->spec_ctrl);
+
 	asm(
 		/* Store host registers */
 		"push %%" _ASM_DX "; push %%" _ASM_BP ";"
@@ -9503,13 +9509,10 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 #endif
 	      );
 
-	if (ibpb_inuse) {
-		rdmsrl(MSR_IA32_SPEC_CTRL, vmx->spec_ctrl);
-		if (vmx->spec_ctrl)
-			wrmsrl(MSR_IA32_SPEC_CTRL, SPEC_CTRL_IBRS);
-	}
 	/* Eliminate branch target predictions from guest mode */
 	vmexit_fill_RSB();
+
+	vmx->spec_ctrl = save_and_restrict_branch_speculation();
 
 	/* MSR_IA32_DEBUGCTLMSR is zeroed on vmexit. Restore it if needed */
 	if (debugctlmsr)
