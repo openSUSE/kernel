@@ -29,6 +29,7 @@
 #include "xfs_error.h"
 #include "xfs_trace.h"
 #include "xfs_log.h"
+#include "xfs_inode.h"
 
 
 kmem_zone_t	*xfs_buf_item_zone;
@@ -1051,6 +1052,31 @@ xfs_buf_do_callbacks(
 	}
 }
 
+/*
+ * Invoke the error state callback for each log item affected by the failed I/O.
+ *
+ * If a metadata buffer write fails with a non-permanent error, the buffer is
+ * eventually resubmitted and so the completion callbacks are not run. The error
+ * state may need to be propagated to the log items attached to the buffer,
+ * however, so the next AIL push of the item knows hot to handle it correctly.
+ */
+STATIC void
+xfs_buf_do_callbacks_fail(
+	struct xfs_buf		*bp)
+{
+	struct xfs_log_item	*next;
+	struct xfs_log_item	*lip = bp->b_fspriv;
+	struct xfs_ail		*ailp = lip->li_ailp;
+
+	spin_lock(&ailp->xa_lock);
+	for (; lip; lip = next) {
+		next = lip->li_bio_list;
+		if (lip->li_ops->iop_error)
+			lip->li_ops->iop_error(lip, bp);
+	}
+	spin_unlock(&ailp->xa_lock);
+}
+
 static bool
 xfs_buf_iodone_callback_error(
 	struct xfs_buf		*bp)
@@ -1120,7 +1146,11 @@ xfs_buf_iodone_callback_error(
 	if ((mp->m_flags & XFS_MOUNT_UNMOUNTING) && mp->m_fail_unmount)
 		goto permanent_error;
 
-	/* still a transient error, higher layers will retry */
+	/*
+	 * Still a transient error, run IO completion failure callbacks and let
+	 * the higher layers retry the buffer.
+	 */
+	xfs_buf_do_callbacks_fail(bp);
 	xfs_buf_ioerror(bp, 0);
 	xfs_buf_relse(bp);
 	return true;
@@ -1200,4 +1230,32 @@ xfs_buf_iodone(
 	spin_lock(&ailp->xa_lock);
 	xfs_trans_ail_delete(ailp, lip, SHUTDOWN_CORRUPT_INCORE);
 	xfs_buf_item_free(BUF_ITEM(lip));
+}
+
+/*
+ * Requeue a failed buffer for writeback
+ *
+ * Return true if the buffer has been re-queued properly, false otherwise
+ */
+bool
+xfs_buf_resubmit_failed_buffers(
+	struct xfs_buf		*bp,
+	struct xfs_log_item	*lip,
+	struct list_head	*buffer_list)
+{
+	struct xfs_log_item	*next;
+
+	/*
+	 * Clear XFS_LI_FAILED flag from all items before resubmit
+	 *
+	 * XFS_LI_FAILED set/clear is protected by xa_lock, caller  this
+	 * function already have it acquired
+	 */
+	for (; lip; lip = next) {
+		next = lip->li_bio_list;
+		xfs_clear_li_failed(lip);
+	}
+
+	/* Add this buffer back to the delayed write list */
+	return xfs_buf_delwri_queue(bp, buffer_list);
 }

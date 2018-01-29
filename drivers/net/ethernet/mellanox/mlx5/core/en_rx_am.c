@@ -189,7 +189,6 @@ static void mlx5e_am_exit_parking(struct mlx5e_rx_am *am)
 static int mlx5e_am_stats_compare(struct mlx5e_rx_am_stats *curr,
 				  struct mlx5e_rx_am_stats *prev)
 {
-
 	if (!prev->bpms)
 		return curr->bpms ? MLX5E_AM_STATS_BETTER :
 				    MLX5E_AM_STATS_SAME;
@@ -200,14 +199,13 @@ static int mlx5e_am_stats_compare(struct mlx5e_rx_am_stats *curr,
 
 	if (!prev->ppms)
 		return curr->ppms ? MLX5E_AM_STATS_BETTER :
-		MLX5E_AM_STATS_SAME;
+				    MLX5E_AM_STATS_SAME;
 
 	if (IS_SIGNIFICANT_DIFF(curr->ppms, prev->ppms))
 		return (curr->ppms > prev->ppms) ? MLX5E_AM_STATS_BETTER :
 						   MLX5E_AM_STATS_WORSE;
 	if (!prev->epms)
-		return curr->epms ? MLX5E_AM_STATS_WORSE :
-				    MLX5E_AM_STATS_SAME;
+		return MLX5E_AM_STATS_SAME;
 
 	if (IS_SIGNIFICANT_DIFF(curr->epms, prev->epms))
 		return (curr->epms < prev->epms) ? MLX5E_AM_STATS_BETTER :
