@@ -355,6 +355,11 @@ static inline int __bpf_prog_charge(struct user_struct *user, u32 pages)
 static inline void __bpf_prog_uncharge(struct user_struct *user, u32 pages)
 {
 }
+
+static inline int bpf_obj_get_user(const char __user *pathname)
+{
+	return -EOPNOTSUPP;
+}
 #endif /* CONFIG_BPF_SYSCALL */
 
 /* verifier prototypes for helper functions called from eBPF programs */

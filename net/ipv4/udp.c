@@ -2158,9 +2158,10 @@ static struct sock *__udp4_lib_demux_lookup(struct net *net,
 	return NULL;
 }
 
-void udp_v4_early_demux(struct sk_buff *skb)
+int udp_v4_early_demux(struct sk_buff *skb)
 {
 	struct net *net = dev_net(skb->dev);
+	struct in_device *in_dev = NULL;
 	const struct iphdr *iph;
 	const struct udphdr *uh;
 	struct sock *sk = NULL;
@@ -2170,25 +2171,21 @@ void udp_v4_early_demux(struct sk_buff *skb)
 
 	/* validate the packet */
 	if (!pskb_may_pull(skb, skb_transport_offset(skb) + sizeof(struct udphdr)))
-		return;
+		return 0;
 
 	iph = ip_hdr(skb);
 	uh = udp_hdr(skb);
 
-	if (skb->pkt_type == PACKET_BROADCAST ||
-	    skb->pkt_type == PACKET_MULTICAST) {
-		struct in_device *in_dev = __in_dev_get_rcu(skb->dev);
+	if (skb->pkt_type == PACKET_MULTICAST) {
+		in_dev = __in_dev_get_rcu(skb->dev);
 
 		if (!in_dev)
-			return;
+			return 0;
 
-		/* we are supposed to accept bcast packets */
-		if (skb->pkt_type == PACKET_MULTICAST) {
-			ours = ip_check_mc_rcu(in_dev, iph->daddr, iph->saddr,
-					       iph->protocol);
-			if (!ours)
-				return;
-		}
+		ours = ip_check_mc_rcu(in_dev, iph->daddr, iph->saddr,
+				       iph->protocol);
+		if (!ours)
+			return 0;
 
 		sk = __udp4_lib_mcast_demux_lookup(net, uh->dest, iph->daddr,
 						   uh->source, iph->saddr, dif);
@@ -2198,7 +2195,7 @@ void udp_v4_early_demux(struct sk_buff *skb)
 	}
 
 	if (!sk || !atomic_inc_not_zero_hint(&sk->sk_refcnt, 2))
-		return;
+		return 0;
 
 	skb->sk = sk;
 	skb->destructor = sock_efree;
@@ -2207,12 +2204,23 @@ void udp_v4_early_demux(struct sk_buff *skb)
 	if (dst)
 		dst = dst_check(dst, 0);
 	if (dst) {
+		u32 itag = 0;
+
 		/* set noref for now.
 		 * any place which wants to hold dst has to call
 		 * dst_hold_safe()
 		 */
 		skb_dst_set_noref(skb, dst);
+
+		/* for unconnected multicast sockets we need to validate
+		 * the source on each packet
+		 */
+		if (!inet_sk(sk)->inet_daddr && in_dev)
+			return ip_mc_validate_source(skb, iph->daddr,
+						     iph->saddr, iph->tos,
+						     skb->dev, in_dev, &itag);
 	}
+	return 0;
 }
 
 int udp_rcv(struct sk_buff *skb)

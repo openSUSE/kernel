@@ -1429,8 +1429,8 @@ static int nf_tables_newchain(struct net *net, struct sock *nlsk,
 			chain2 = nf_tables_chain_lookup(table,
 							nla[NFTA_CHAIN_NAME],
 							genmask);
-			if (IS_ERR(chain2))
-				return PTR_ERR(chain2);
+			if (!IS_ERR(chain2))
+				return -EEXIST;
 		}
 
 		if (nla[NFTA_CHAIN_COUNTERS]) {

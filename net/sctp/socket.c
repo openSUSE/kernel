@@ -3835,12 +3835,16 @@ static int sctp_setsockopt_reset_streams(struct sock *sk,
 	struct sctp_association *asoc;
 	int retval = -EINVAL;
 
-	if (optlen < sizeof(struct sctp_reset_streams))
+	if (optlen < sizeof(*params))
 		return -EINVAL;
 
 	params = memdup_user(optval, optlen);
 	if (IS_ERR(params))
 		return PTR_ERR(params);
+
+	if (params->srs_number_streams * sizeof(__u16) >
+	    optlen - sizeof(*params))
+		goto out;
 
 	asoc = sctp_id2assoc(sk, params->srs_assoc_id);
 	if (!asoc)
@@ -4374,7 +4378,7 @@ static int sctp_init_sock(struct sock *sk)
 	SCTP_DBG_OBJCNT_INC(sock);
 
 	local_bh_disable();
-	percpu_counter_inc(&sctp_sockets_allocated);
+	sk_sockets_allocated_inc(sk);
 	sock_prot_inuse_add(net, sk->sk_prot, 1);
 
 	/* Nothing can fail after this block, otherwise
@@ -4418,7 +4422,7 @@ static void sctp_destroy_sock(struct sock *sk)
 	}
 	sctp_endpoint_free(sp->ep);
 	local_bh_disable();
-	percpu_counter_dec(&sctp_sockets_allocated);
+	sk_sockets_allocated_dec(sk);
 	sock_prot_inuse_add(sock_net(sk), sk->sk_prot, -1);
 	local_bh_enable();
 }
@@ -4656,29 +4660,39 @@ int sctp_transport_lookup_process(int (*cb)(struct sctp_transport *, void *),
 EXPORT_SYMBOL_GPL(sctp_transport_lookup_process);
 
 int sctp_for_each_transport(int (*cb)(struct sctp_transport *, void *),
-			    struct net *net, int pos, void *p) {
+			    int (*cb_done)(struct sctp_transport *, void *),
+			    struct net *net, int *pos, void *p) {
 	struct rhashtable_iter hti;
-	void *obj;
-	int err;
+	struct sctp_transport *tsp;
+	int ret;
 
-	err = sctp_transport_walk_start(&hti);
-	if (err)
-		return err;
+again:
+	ret = sctp_transport_walk_start(&hti);
+	if (ret)
+		return ret;
 
-	obj = sctp_transport_get_idx(net, &hti, pos + 1);
-	for (; !IS_ERR_OR_NULL(obj); obj = sctp_transport_get_next(net, &hti)) {
-		struct sctp_transport *transport = obj;
-
-		if (!sctp_transport_hold(transport))
+	tsp = sctp_transport_get_idx(net, &hti, *pos + 1);
+	for (; !IS_ERR_OR_NULL(tsp); tsp = sctp_transport_get_next(net, &hti)) {
+		if (!sctp_transport_hold(tsp))
 			continue;
-		err = cb(transport, p);
-		sctp_transport_put(transport);
-		if (err)
+		ret = cb(tsp, p);
+		if (ret)
 			break;
+		(*pos)++;
+		sctp_transport_put(tsp);
 	}
 	sctp_transport_walk_stop(&hti);
 
-	return err;
+	if (ret) {
+		if (cb_done && !cb_done(tsp, p)) {
+			(*pos)++;
+			sctp_transport_put(tsp);
+			goto again;
+		}
+		sctp_transport_put(tsp);
+	}
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(sctp_for_each_transport);
 
