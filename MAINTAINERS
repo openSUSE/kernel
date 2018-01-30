@@ -329,7 +329,7 @@ F:	drivers/acpi/apei/
 
 ACPI COMPONENT ARCHITECTURE (ACPICA)
 M:	Robert Moore <robert.moore@intel.com>
-M:	Lv Zheng <lv.zheng@intel.com>
+M:	Erik Schmauss <erik.schmauss@intel.com>
 M:	"Rafael J. Wysocki" <rafael.j.wysocki@intel.com>
 L:	linux-acpi@vger.kernel.org
 L:	devel@acpica.org
@@ -874,6 +874,12 @@ L:	devel@driverdev.osuosl.org
 S:	Supported
 F:	drivers/android/
 F:	drivers/staging/android/
+
+ANDROID GOLDFISH PIC DRIVER
+M:	Miodrag Dinic <miodrag.dinic@mips.com>
+S:	Supported
+F:	Documentation/devicetree/bindings/interrupt-controller/google,goldfish-pic.txt
+F:	drivers/irqchip/irq-goldfish-pic.c
 
 ANDROID GOLDFISH RTC DRIVER
 M:	Miodrag Dinic <miodrag.dinic@mips.com>
@@ -1591,6 +1597,7 @@ F:	arch/arm/boot/dts/kirkwood*
 F:	arch/arm/configs/mvebu_*_defconfig
 F:	arch/arm/mach-mvebu/
 F:	arch/arm64/boot/dts/marvell/armada*
+F:	drivers/cpufreq/armada-37xx-cpufreq.c
 F:	drivers/cpufreq/mvebu-cpufreq.c
 F:	drivers/irqchip/irq-armada-370-xp.c
 F:	drivers/irqchip/irq-mvebu-*
@@ -2390,13 +2397,6 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/input/atmel,maxtouch.txt
 F:	drivers/input/touchscreen/atmel_mxt_ts.c
 F:	include/linux/platform_data/atmel_mxt_ts.h
-
-ATMEL NAND DRIVER
-M:	Wenyou Yang <wenyou.yang@atmel.com>
-M:	Josh Wu <rainyfeeling@outlook.com>
-L:	linux-mtd@lists.infradead.org
-S:	Supported
-F:	drivers/mtd/nand/atmel/*
 
 ATMEL SAMA5D2 ADC DRIVER
 M:	Ludovic Desroches <ludovic.desroches@microchip.com>
@@ -5146,6 +5146,12 @@ M:	Tony Luck <tony.luck@intel.com>
 L:	linux-edac@vger.kernel.org
 S:	Maintained
 F:	drivers/edac/skx_edac.c
+
+EDAC-TI
+M:	Tero Kristo <t-kristo@ti.com>
+L:	linux-edac@vger.kernel.org
+S:	Maintained
+F:	drivers/edac/ti_edac.c
 
 EDIROL UA-101/UA-1000 DRIVER
 M:	Clemens Ladisch <clemens@ladisch.de>
@@ -8405,6 +8411,13 @@ L:	linux-wireless@vger.kernel.org
 S:	Odd Fixes
 F:	drivers/net/wireless/marvell/mwl8k.c
 
+MARVELL NAND CONTROLLER DRIVER
+M:	Miquel Raynal <miquel.raynal@free-electrons.com>
+L:	linux-mtd@lists.infradead.org
+S:	Maintained
+F:	drivers/mtd/nand/marvell_nand.c
+F:	Documentation/devicetree/bindings/mtd/marvell-nand.txt
+
 MARVELL SOC MMC/SD/SDIO CONTROLLER DRIVER
 M:	Nicolas Pitre <nico@fluxnic.net>
 S:	Odd Fixes
@@ -8952,7 +8965,7 @@ L:	linux-mtd@lists.infradead.org
 W:	http://www.linux-mtd.infradead.org/
 Q:	http://patchwork.ozlabs.org/project/linux-mtd/list/
 T:	git git://git.infradead.org/linux-mtd.git master
-T:	git git://git.infradead.org/l2-mtd.git master
+T:	git git://git.infradead.org/linux-mtd.git mtd/next
 S:	Maintained
 F:	Documentation/devicetree/bindings/mtd/
 F:	drivers/mtd/
@@ -9040,6 +9053,14 @@ S:	Supported
 F:	drivers/media/platform/atmel/atmel-isc.c
 F:	drivers/media/platform/atmel/atmel-isc-regs.h
 F:	devicetree/bindings/media/atmel-isc.txt
+
+MICROCHIP / ATMEL NAND DRIVER
+M:	Wenyou Yang <wenyou.yang@microchip.com>
+M:	Josh Wu <rainyfeeling@outlook.com>
+L:	linux-mtd@lists.infradead.org
+S:	Supported
+F:	drivers/mtd/nand/atmel/*
+F:	Documentation/devicetree/bindings/mtd/atmel-nand.txt
 
 MICROCHIP KSZ SERIES ETHERNET SWITCH DRIVER
 M:	Woojung Huh <Woojung.Huh@microchip.com>
@@ -9341,7 +9362,7 @@ L:	linux-mtd@lists.infradead.org
 W:	http://www.linux-mtd.infradead.org/
 Q:	http://patchwork.ozlabs.org/project/linux-mtd/list/
 T:	git git://git.infradead.org/linux-mtd.git nand/fixes
-T:	git git://git.infradead.org/l2-mtd.git nand/next
+T:	git git://git.infradead.org/linux-mtd.git nand/next
 S:	Maintained
 F:	drivers/mtd/nand/
 F:	include/linux/mtd/*nand*.h
@@ -9742,6 +9763,15 @@ S:	Supported
 F:	Documentation/filesystems/ntfs.txt
 F:	fs/ntfs/
 
+NUBUS SUBSYSTEM
+M:	Finn Thain <fthain@telegraphics.com.au>
+L:	linux-m68k@lists.linux-m68k.org
+S:	Maintained
+F:	arch/*/include/asm/nubus.h
+F:	drivers/nubus/
+F:	include/linux/nubus.h
+F:	include/uapi/linux/nubus.h
+
 NVIDIA (rivafb and nvidiafb) FRAMEBUFFER DRIVER
 M:	Antonino Daplas <adaplas@gmail.com>
 L:	linux-fbdev@vger.kernel.org
@@ -9802,6 +9832,7 @@ NXP TFA9879 DRIVER
 M:	Peter Rosin <peda@axentia.se>
 L:	alsa-devel@alsa-project.org (moderated for non-subscribers)
 S:	Maintained
+F:	Documentation/devicetree/bindings/sound/tfa9879.txt
 F:	sound/soc/codecs/tfa9879*
 
 NXP-NCI NFC DRIVER
@@ -10888,6 +10919,7 @@ F:	include/linux/pm.h
 F:	include/linux/pm_*
 F:	include/linux/powercap.h
 F:	drivers/powercap/
+F:	kernel/configs/nopm.config
 
 POWER STATE COORDINATION INTERFACE (PSCI)
 M:	Mark Rutland <mark.rutland@arm.com>
@@ -12590,6 +12622,12 @@ F:	include/media/soc*
 F:	drivers/media/i2c/soc_camera/
 F:	drivers/media/platform/soc_camera/
 
+SOCIONEXT UNIPHIER SOUND DRIVER
+M:	Katsuhiro Suzuki <suzuki.katsuhiro@socionext.com>
+L:	alsa-devel@alsa-project.org (moderated for non-subscribers)
+S:	Maintained
+F:	sound/soc/uniphier/
+
 SOEKRIS NET48XX LED SUPPORT
 M:	Chris Boot <bootc@bootc.net>
 S:	Maintained
@@ -12778,7 +12816,7 @@ L:	linux-mtd@lists.infradead.org
 W:	http://www.linux-mtd.infradead.org/
 Q:	http://patchwork.ozlabs.org/project/linux-mtd/list/
 T:	git git://git.infradead.org/linux-mtd.git spi-nor/fixes
-T:	git git://git.infradead.org/l2-mtd.git spi-nor/next
+T:	git git://git.infradead.org/linux-mtd.git spi-nor/next
 S:	Maintained
 F:	drivers/mtd/spi-nor/
 F:	include/linux/mtd/spi-nor.h
@@ -13848,6 +13886,13 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jikos/trivial.git
 S:	Maintained
 K:	^Subject:.*(?i)trivial
 
+TEMPO SEMICONDUCTOR DRIVERS
+M:	Steven Eckhoff <steven.eckhoff.opensource@gmail.com>
+S:	Maintained
+F:	sound/soc/codecs/tscs*.c
+F:	sound/soc/codecs/tscs*.h
+F:	Documentation/devicetree/bindings/sound/tscs*.txt
+
 TTY LAYER
 M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
 M:	Jiri Slaby <jslaby@suse.com>
@@ -14646,6 +14691,7 @@ W:	http://www.slimlogic.co.uk/?p=48
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/broonie/regulator.git
 S:	Supported
 F:	Documentation/devicetree/bindings/regulator/
+F:	Documentation/power/regulator/
 F:	drivers/regulator/
 F:	include/dt-bindings/regulator/
 F:	include/linux/regulator/
