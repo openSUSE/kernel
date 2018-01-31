@@ -12,6 +12,7 @@
 #define arch_override_mprotect_pkey(vma, prot, pkey) (0)
 #define PKEY_DEDICATED_EXECUTE_ONLY 0
 #define ARCH_VM_PKEY_FLAGS 0
+#define vma_pkey(vma) 0
 
 static inline bool mm_pkey_is_allocated(struct mm_struct *mm, int pkey)
 {
@@ -32,6 +33,11 @@ static inline int arch_set_user_pkey_access(struct task_struct *tsk, int pkey,
 			unsigned long init_val)
 {
 	return 0;
+}
+
+static inline bool arch_pkeys_enabled(void)
+{
+	return false;
 }
 
 static inline void copy_init_pkru_to_fpregs(void)
