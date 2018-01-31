@@ -636,7 +636,7 @@ EXC_COMMON_BEGIN(slb_miss_realmode)
 	std	r3,PACA_EXSLB+EX_DAR(r13)
 
 	crset	4*cr0+eq
-#ifdef CONFIG_PPC_STD_MMU_64
+#ifdef CONFIG_PPC_BOOK3S_64
 BEGIN_MMU_FTR_SECTION
 	bl	slb_allocate_realmode
 END_MMU_FTR_SECTION_IFCLR(MMU_FTR_TYPE_RADIX)
@@ -1609,7 +1609,7 @@ USE_TEXT_SECTION()
  */
 	.balign	IFETCH_ALIGN_BYTES
 do_hash_page:
-	#ifdef CONFIG_PPC_STD_MMU_64
+#ifdef CONFIG_PPC_BOOK3S_64
 	lis	r0,DSISR_BAD_FAULT_64S@h
 	ori	r0,r0,DSISR_BAD_FAULT_64S@l
 	and.	r0,r4,r0		/* weird error? */
@@ -1640,7 +1640,7 @@ do_hash_page:
 
 	/* Reload DSISR into r4 for the DABR check below */
 	ld      r4,_DSISR(r1)
-#endif /* CONFIG_PPC_STD_MMU_64 */
+#endif /* CONFIG_PPC_BOOK3S_64 */
 
 /* Here we have a page fault that hash_page can't handle. */
 handle_page_fault:
@@ -1669,7 +1669,7 @@ handle_dabr_fault:
 12:	b       ret_from_except_lite
 
 
-#ifdef CONFIG_PPC_STD_MMU_64
+#ifdef CONFIG_PPC_BOOK3S_64
 /* We have a page fault that hash_page could handle but HV refused
  * the PTE insertion
  */
