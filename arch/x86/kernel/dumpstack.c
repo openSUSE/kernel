@@ -71,7 +71,8 @@ static void printk_stack_address(unsigned long address, int reliable,
 
 void show_iret_regs(struct pt_regs *regs)
 {
-	printk(KERN_DEFAULT "RIP: %04x:%pS\n", (int)regs->cs, (void *)regs->ip);
+	printk(KERN_DEFAULT "RIP: %04x:%pS\n", (int)regs->cs & 0xffff,
+		(void *)regs->ip);
 	printk(KERN_DEFAULT "RSP: %04x:%016lx EFLAGS: %08lx", (int)regs->ss,
 		regs->sp, regs->flags);
 }
