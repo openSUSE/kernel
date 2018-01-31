@@ -205,7 +205,7 @@ int do_page_fault(struct pt_regs *regs, unsigned long address,
 	int trap = TRAP(regs);
  	int is_exec = trap == 0x400;
 	int is_user = user_mode(regs);
-	int fault;
+	int fault, major = 0;
 	int rc = 0, store_update_sp = 0;
 
 #if !(defined(CONFIG_4xx) || defined(CONFIG_BOOKE))
@@ -436,6 +436,7 @@ good_area:
 	 * the fault.
 	 */
 	fault = handle_mm_fault(vma, address, flags);
+	major |= fault & VM_FAULT_MAJOR;
 
 	/*
 	 * Handle the retry right now, the mmap_sem has been released in that
@@ -470,7 +471,7 @@ good_area:
 	/*
 	 * Major/minor page fault accounting.
 	 */
-	if (fault & VM_FAULT_MAJOR) {
+	if (major) {
 		current->maj_flt++;
 		perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS_MAJ, 1,
 			      regs, address);
