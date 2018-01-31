@@ -18,6 +18,7 @@
 #define u16 uint16_t
 #define u32 uint32_t
 #define u64 uint64_t
+#define pkey_reg_t u32
 
 #ifdef __i386__
 #define SYS_mprotect_key 380
@@ -80,12 +81,12 @@ static inline void sigsafe_printf(const char *format, ...)
 #define dprintf3(args...) dprintf_level(3, args)
 #define dprintf4(args...) dprintf_level(4, args)
 
-extern unsigned int shadow_pkey_reg;
-static inline unsigned int __rdpkey_reg(void)
+extern pkey_reg_t shadow_pkey_reg;
+static inline pkey_reg_t __rdpkey_reg(void)
 {
 	unsigned int eax, edx;
 	unsigned int ecx = 0;
-	unsigned int pkey_reg;
+	pkey_reg_t pkey_reg;
 
 	asm volatile(".byte 0x0f,0x01,0xee\n\t"
 		     : "=a" (eax), "=d" (edx)
@@ -94,11 +95,11 @@ static inline unsigned int __rdpkey_reg(void)
 	return pkey_reg;
 }
 
-static inline unsigned int _rdpkey_reg(int line)
+static inline pkey_reg_t _rdpkey_reg(int line)
 {
-	unsigned int pkey_reg = __rdpkey_reg();
+	pkey_reg_t pkey_reg = __rdpkey_reg();
 
-	dprintf4("rdpkey_reg(line=%d) pkey_reg: %x shadow: %x\n",
+	dprintf4("rdpkey_reg(line=%d) pkey_reg: %016lx shadow: %016lx\n",
 			line, pkey_reg, shadow_pkey_reg);
 	assert(pkey_reg == shadow_pkey_reg);
 
@@ -107,11 +108,11 @@ static inline unsigned int _rdpkey_reg(int line)
 
 #define rdpkey_reg() _rdpkey_reg(__LINE__)
 
-static inline void __wrpkey_reg(unsigned int pkey_reg)
+static inline void __wrpkey_reg(pkey_reg_t pkey_reg)
 {
-	unsigned int eax = pkey_reg;
-	unsigned int ecx = 0;
-	unsigned int edx = 0;
+	pkey_reg_t eax = pkey_reg;
+	pkey_reg_t ecx = 0;
+	pkey_reg_t edx = 0;
 
 	dprintf4("%s() changing %08x to %08x\n", __func__,
 			__rdpkey_reg(), pkey_reg);
@@ -120,7 +121,7 @@ static inline void __wrpkey_reg(unsigned int pkey_reg)
 	assert(pkey_reg == __rdpkey_reg());
 }
 
-static inline void wrpkey_reg(unsigned int pkey_reg)
+static inline void wrpkey_reg(pkey_reg_t pkey_reg)
 {
 	dprintf4("%s() changing %08x to %08x\n", __func__,
 			__rdpkey_reg(), pkey_reg);
@@ -138,7 +139,7 @@ static inline void wrpkey_reg(unsigned int pkey_reg)
  */
 static inline void __pkey_access_allow(int pkey, int do_allow)
 {
-	unsigned int pkey_reg = rdpkey_reg();
+	pkey_reg_t pkey_reg = rdpkey_reg();
 	int bit = pkey * 2;
 
 	if (do_allow)
@@ -152,7 +153,7 @@ static inline void __pkey_access_allow(int pkey, int do_allow)
 
 static inline void __pkey_write_allow(int pkey, int do_allow_write)
 {
-	long pkey_reg = rdpkey_reg();
+	pkey_reg_t pkey_reg = rdpkey_reg();
 	int bit = pkey * 2 + 1;
 
 	if (do_allow_write)
