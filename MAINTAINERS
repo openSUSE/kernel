@@ -1327,7 +1327,8 @@ F:	tools/perf/arch/arm/util/pmu.c
 F:	tools/perf/arch/arm/util/auxtrace.c
 F:	tools/perf/arch/arm/util/cs-etm.c
 F:	tools/perf/arch/arm/util/cs-etm.h
-F:	tools/perf/util/cs-etm.h
+F:	tools/perf/util/cs-etm.*
+F:	tools/perf/util/cs-etm-decoder/*
 
 ARM/CORGI MACHINE SUPPORT
 M:	Richard Purdie <rpurdie@rpsys.net>
@@ -8196,6 +8197,7 @@ F:	arch/*/include/asm/rwsem.h
 F:	include/linux/seqlock.h
 F:	lib/locking*.[ch]
 F:	kernel/locking/
+X:	kernel/locking/locktorture.c
 
 LOGICAL DISK MANAGER SUPPORT (LDM, Windows 2000/XP/Vista Dynamic Disks)
 M:	"Richard Russon (FlatCap)" <ldm@flatcap.org>
@@ -11480,15 +11482,6 @@ L:	linux-wireless@vger.kernel.org
 S:	Orphan
 F:	drivers/net/wireless/ray*
 
-RCUTORTURE MODULE
-M:	Josh Triplett <josh@joshtriplett.org>
-M:	"Paul E. McKenney" <paulmck@linux.vnet.ibm.com>
-L:	linux-kernel@vger.kernel.org
-S:	Supported
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/paulmck/linux-rcu.git
-F:	Documentation/RCU/torture.txt
-F:	kernel/rcu/rcutorture.c
-
 RCUTORTURE TEST FRAMEWORK
 M:	"Paul E. McKenney" <paulmck@linux.vnet.ibm.com>
 M:	Josh Triplett <josh@joshtriplett.org>
@@ -12652,6 +12645,15 @@ L:	linux-media@vger.kernel.org
 S:	Supported
 F:	drivers/media/pci/solo6x10/
 
+SOFTWARE DELEGATED EXCEPTION INTERFACE (SDEI)
+M:	James Morse <james.morse@arm.com>
+L:	linux-arm-kernel@lists.infradead.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/arm/firmware/sdei.txt
+F:	drivers/firmware/arm_sdei.c
+F:	include/linux/sdei.h
+F:	include/uapi/linux/sdei.h
+
 SOFTWARE RAID (Multiple Disks) SUPPORT
 M:	Shaohua Li <shli@kernel.org>
 L:	linux-raid@vger.kernel.org
@@ -13802,6 +13804,18 @@ M:	Herton Ronaldo Krzesinski <herton@canonical.com>
 L:	platform-driver-x86@vger.kernel.org
 S:	Maintained
 F:	drivers/platform/x86/topstar-laptop.c
+
+TORTURE-TEST MODULES
+M:	Davidlohr Bueso <dave@stgolabs.net>
+M:	"Paul E. McKenney" <paulmck@linux.vnet.ibm.com>
+M:	Josh Triplett <josh@joshtriplett.org>
+L:	linux-kernel@vger.kernel.org
+S:	Supported
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/paulmck/linux-rcu.git
+F:	Documentation/RCU/torture.txt
+F:	kernel/torture.c
+F:	kernel/rcu/rcutorture.c
+F:	kernel/locking/locktorture.c
 
 TOSHIBA ACPI EXTRAS DRIVER
 M:	Azael Avalos <coproscefalo@gmail.com>
