@@ -205,6 +205,7 @@ int do_page_fault(struct pt_regs *regs, unsigned long address,
 	int trap = TRAP(regs);
  	int is_exec = trap == 0x400;
 	int is_user = user_mode(regs);
+	int pkey = 0;
 	int fault, major = 0;
 	int rc = 0, store_update_sp = 0;
 
@@ -270,6 +271,7 @@ int do_page_fault(struct pt_regs *regs, unsigned long address,
 
 	if (error_code & DSISR_KEYFAULT) {
 		code = SEGV_PKUERR;
+		pkey = get_mm_addr_key(mm, address);
 		goto bad_area_nosemaphore;
 	}
 
@@ -451,7 +453,13 @@ good_area:
 	if (unlikely(fault & VM_FAULT_SIGSEGV) &&
 		!arch_vma_access_permitted(vma, flags & FAULT_FLAG_WRITE,
 			is_exec, 0)) {
-		int pkey = vma_pkey(vma);
+		/*
+		 * The PGD-PDT...PMD-PTE tree may not have been fully setup.
+		 * Hence we cannot walk the tree to locate the PTE, to locate
+		 * the key. Hence let's use vma_pkey() to get the key; instead
+		 * of get_mm_addr_key().
+		 */
+		pkey = vma_pkey(vma);
 
 		if (likely(pkey)) {
 			code = SEGV_PKUERR;
@@ -524,7 +532,7 @@ bad_area:
 bad_area_nosemaphore:
 	/* User mode accesses cause a SIGSEGV */
 	if (is_user) {
-		_exception(SIGSEGV, regs, code, address);
+		_exception_pkey(SIGSEGV, regs, code, address, pkey);
 		goto bail;
 	}
 
