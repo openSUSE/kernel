@@ -454,16 +454,17 @@ int dm_get_device(struct dm_target *ti, const char *path, fmode_t mode,
 		if (dd->dm_dev->mode != mode)
 			t->mode = dd->dm_dev->mode;
 
-		atomic_set(&dd->count, 0);
+		refcount_set(&dd->count, 1);
 		list_add(&dd->list, &t->devices);
+		goto out;
 
 	} else if (dd->dm_dev->mode != (mode | dd->dm_dev->mode)) {
 		r = upgrade_mode(dd, mode, t->md);
 		if (r)
 			return r;
 	}
-	atomic_inc(&dd->count);
-
+	refcount_inc(&dd->count);
+out:
 	*result = dd->dm_dev;
 	return 0;
 }
@@ -521,7 +522,7 @@ void dm_put_device(struct dm_target *ti, struct dm_dev *d)
 		       dm_device_name(ti->table->md), d->name);
 		return;
 	}
-	if (atomic_dec_and_test(&dd->count)) {
+	if (refcount_dec_and_test(&dd->count)) {
 		dm_put_table_device(ti->table->md, d);
 		list_del(&dd->list);
 		kfree(dd);
@@ -1006,7 +1007,7 @@ verify_rq_based:
 	list_for_each_entry(dd, devices, list) {
 		struct request_queue *q = bdev_get_queue(dd->dm_dev->bdev);
 
-		if (!blk_queue_stackable(q)) {
+		if (!queue_is_rq_based(q)) {
 			DMERR("table load rejected: including"
 			      " non-request-stackable devices");
 			return -EINVAL;
@@ -1807,9 +1808,15 @@ void dm_table_set_restrictions(struct dm_table *t, struct request_queue *q,
 	 */
 	q->limits = *limits;
 
-	if (!dm_table_supports_discards(t))
+	if (!dm_table_supports_discards(t)) {
 		queue_flag_clear_unlocked(QUEUE_FLAG_DISCARD, q);
-	else
+		/* Must also clear discard limits... */
+		q->limits.max_discard_sectors = 0;
+		q->limits.max_hw_discard_sectors = 0;
+		q->limits.discard_granularity = 0;
+		q->limits.discard_alignment = 0;
+		q->limits.discard_misaligned = 0;
+	} else
 		queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, q);
 
 	if (dm_table_supports_flush(t, (1UL << QUEUE_FLAG_WC))) {
@@ -1848,19 +1855,6 @@ void dm_table_set_restrictions(struct dm_table *t, struct request_queue *q,
 	 */
 	if (blk_queue_add_random(q) && dm_table_all_devices_attribute(t, device_is_not_random))
 		queue_flag_clear_unlocked(QUEUE_FLAG_ADD_RANDOM, q);
-
-	/*
-	 * QUEUE_FLAG_STACKABLE must be set after all queue settings are
-	 * visible to other CPUs because, once the flag is set, incoming bios
-	 * are processed by request-based dm, which refers to the queue
-	 * settings.
-	 * Until the flag set, bios are passed to bio-based dm and queued to
-	 * md->deferred where queue settings are not needed yet.
-	 * Those bios are passed to request-based dm at the resume time.
-	 */
-	smp_mb();
-	if (dm_table_request_based(t))
-		queue_flag_set_unlocked(QUEUE_FLAG_STACKABLE, q);
 }
 
 unsigned int dm_table_get_num_targets(struct dm_table *t)

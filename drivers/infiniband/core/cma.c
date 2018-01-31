@@ -801,6 +801,7 @@ struct rdma_cm_id *rdma_create_id(struct net *net,
 	INIT_LIST_HEAD(&id_priv->mc_list);
 	get_random_bytes(&id_priv->seq_num, sizeof id_priv->seq_num);
 	id_priv->id.route.addr.dev_addr.net = get_net(net);
+	id_priv->seq_num &= 0x00ffffff;
 
 	return &id_priv->id;
 }
@@ -1846,9 +1847,7 @@ static struct rdma_id_private *cma_new_conn_id(struct rdma_cm_id *listen_id,
 		rt->path_rec[1] = *ib_event->param.req_rcvd.alternate_path;
 
 	if (net_dev) {
-		ret = rdma_copy_addr(&rt->addr.dev_addr, net_dev, NULL);
-		if (ret)
-			goto err;
+		rdma_copy_addr(&rt->addr.dev_addr, net_dev, NULL);
 	} else {
 		if (!cma_protocol_roce(listen_id) &&
 		    cma_any_addr(cma_src_addr(id_priv))) {
@@ -1894,9 +1893,7 @@ static struct rdma_id_private *cma_new_udp_id(struct rdma_cm_id *listen_id,
 		goto err;
 
 	if (net_dev) {
-		ret = rdma_copy_addr(&id->route.addr.dev_addr, net_dev, NULL);
-		if (ret)
-			goto err;
+		rdma_copy_addr(&id->route.addr.dev_addr, net_dev, NULL);
 	} else {
 		if (!cma_any_addr(cma_src_addr(id_priv))) {
 			ret = cma_translate_addr(cma_src_addr(id_priv),
@@ -4461,7 +4458,7 @@ out:
 	return skb->len;
 }
 
-static const struct rdma_nl_cbs cma_cb_table[] = {
+static const struct rdma_nl_cbs cma_cb_table[RDMA_NL_RDMA_CM_NUM_OPS] = {
 	[RDMA_NL_RDMA_CM_ID_STATS] = { .dump = cma_get_id_stats},
 };
 

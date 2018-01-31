@@ -481,33 +481,6 @@ int af_alg_cmsg_send(struct msghdr *msg, struct af_alg_control *con)
 }
 EXPORT_SYMBOL_GPL(af_alg_cmsg_send);
 
-int af_alg_wait_for_completion(int err, struct af_alg_completion *completion)
-{
-	switch (err) {
-	case -EINPROGRESS:
-	case -EBUSY:
-		wait_for_completion(&completion->completion);
-		reinit_completion(&completion->completion);
-		err = completion->err;
-		break;
-	};
-
-	return err;
-}
-EXPORT_SYMBOL_GPL(af_alg_wait_for_completion);
-
-void af_alg_complete(struct crypto_async_request *req, int err)
-{
-	struct af_alg_completion *completion = req->data;
-
-	if (err == -EINPROGRESS)
-		return;
-
-	completion->err = err;
-	complete(&completion->completion);
-}
-EXPORT_SYMBOL_GPL(af_alg_complete);
-
 /**
  * af_alg_alloc_tsgl - allocate the TX SGL
  *
@@ -691,7 +664,7 @@ void af_alg_free_areq_sgls(struct af_alg_async_req *areq)
 	unsigned int i;
 
 	list_for_each_entry_safe(rsgl, tmp, &areq->rsgl_list, list) {
-		ctx->rcvused -= rsgl->sg_num_bytes;
+		atomic_sub(rsgl->sg_num_bytes, &ctx->rcvused);
 		af_alg_free_sg(&rsgl->sgl);
 		list_del(&rsgl->list);
 		if (rsgl != &areq->first_rsgl)
@@ -1190,7 +1163,7 @@ int af_alg_get_rsgl(struct sock *sk, struct msghdr *msg, int flags,
 
 		areq->last_rsgl = rsgl;
 		len += err;
-		ctx->rcvused += err;
+		atomic_add(err, &ctx->rcvused);
 		rsgl->sg_num_bytes = err;
 		iov_iter_advance(&msg->msg_iter, err);
 	}

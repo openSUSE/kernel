@@ -42,6 +42,8 @@
 #include <asm/cmpxchg.h>
 #include <asm/fixmap.h>
 #include <linux/mmdebug.h>
+#include <linux/mm_types.h>
+#include <linux/sched.h>
 
 extern void __pte_error(const char *file, int line, unsigned long val);
 extern void __pmd_error(const char *file, int line, unsigned long val);
@@ -215,9 +217,6 @@ static inline void set_pte(pte_t *ptep, pte_t pte)
 	}
 }
 
-struct mm_struct;
-struct vm_area_struct;
-
 extern void __sync_icache_dcache(pte_t pteval, unsigned long addr);
 
 /*
@@ -246,7 +245,8 @@ static inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
 	 * hardware updates of the pte (ptep_set_access_flags safely changes
 	 * valid ptes without going through an invalid entry).
 	 */
-	if (pte_valid(*ptep) && pte_valid(pte)) {
+	if (IS_ENABLED(CONFIG_DEBUG_VM) && pte_valid(*ptep) && pte_valid(pte) &&
+	   (mm == current->active_mm || atomic_read(&mm->mm_users) > 1)) {
 		VM_WARN_ONCE(!pte_young(pte),
 			     "%s: racy access flag clearing: 0x%016llx -> 0x%016llx",
 			     __func__, pte_val(*ptep), pte_val(pte));
@@ -353,7 +353,6 @@ static inline int pmd_protnone(pmd_t pmd)
 
 #define pmd_thp_or_huge(pmd)	(pmd_huge(pmd) || pmd_trans_huge(pmd))
 
-#define __HAVE_ARCH_PMD_WRITE
 #define pmd_write(pmd)		pte_write(pmd_pte(pmd))
 
 #define pmd_mkhuge(pmd)		(__pmd(pmd_val(pmd) & ~PMD_TABLE_BIT))

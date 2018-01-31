@@ -372,6 +372,8 @@ struct iscsi_np *iscsit_add_np(
 	init_completion(&np->np_restart_comp);
 	INIT_LIST_HEAD(&np->np_list);
 
+	timer_setup(&np->np_login_timer, iscsi_handle_login_thread_timeout, 0);
+
 	ret = iscsi_target_setup_login_socket(np, sockaddr);
 	if (ret != 0) {
 		kfree(np);
@@ -500,7 +502,7 @@ void iscsit_aborted_task(struct iscsi_conn *conn, struct iscsi_cmd *cmd)
 EXPORT_SYMBOL(iscsit_aborted_task);
 
 static void iscsit_do_crypto_hash_buf(struct ahash_request *, const void *,
-				      u32, u32, u8 *, u8 *);
+				      u32, u32, const void *, void *);
 static void iscsit_tx_thread_wait_for_tcp(struct iscsi_conn *);
 
 static int
@@ -521,7 +523,7 @@ iscsit_xmit_nondatain_pdu(struct iscsi_conn *conn, struct iscsi_cmd *cmd,
 
 		iscsit_do_crypto_hash_buf(conn->conn_tx_hash, hdr,
 					  ISCSI_HDR_LEN, 0, NULL,
-					  (u8 *)header_digest);
+					  header_digest);
 
 		iov[0].iov_len += ISCSI_CRC_LEN;
 		tx_size += ISCSI_CRC_LEN;
@@ -548,9 +550,8 @@ iscsit_xmit_nondatain_pdu(struct iscsi_conn *conn, struct iscsi_cmd *cmd,
 		if (conn->conn_ops->DataDigest) {
 			iscsit_do_crypto_hash_buf(conn->conn_tx_hash,
 						  data_buf, data_buf_len,
-						  padding,
-						  (u8 *)&cmd->pad_bytes,
-						  (u8 *)&cmd->data_crc);
+						  padding, &cmd->pad_bytes,
+						  &cmd->data_crc);
 
 			iov[niov].iov_base = &cmd->data_crc;
 			iov[niov++].iov_len = ISCSI_CRC_LEN;
@@ -595,7 +596,7 @@ iscsit_xmit_datain_pdu(struct iscsi_conn *conn, struct iscsi_cmd *cmd,
 
 		iscsit_do_crypto_hash_buf(conn->conn_tx_hash, cmd->pdu,
 					  ISCSI_HDR_LEN, 0, NULL,
-					  (u8 *)header_digest);
+					  header_digest);
 
 		iov[0].iov_len += ISCSI_CRC_LEN;
 		tx_size += ISCSI_CRC_LEN;
@@ -1409,13 +1410,9 @@ static u32 iscsit_do_crypto_hash_sg(
 	return data_crc;
 }
 
-static void iscsit_do_crypto_hash_buf(
-	struct ahash_request *hash,
-	const void *buf,
-	u32 payload_length,
-	u32 padding,
-	u8 *pad_bytes,
-	u8 *data_crc)
+static void iscsit_do_crypto_hash_buf(struct ahash_request *hash,
+	const void *buf, u32 payload_length, u32 padding,
+	const void *pad_bytes, void *data_crc)
 {
 	struct scatterlist sg[2];
 
@@ -1461,9 +1458,9 @@ __iscsit_check_dataout_hdr(struct iscsi_conn *conn, void *buf,
 	iscsit_mod_dataout_timer(cmd);
 
 	if ((be32_to_cpu(hdr->offset) + payload_length) > cmd->se_cmd.data_length) {
-		pr_err("DataOut Offset: %u, Length %u greater than"
-			" iSCSI Command EDTL %u, protocol error.\n",
-			hdr->offset, payload_length, cmd->se_cmd.data_length);
+		pr_err("DataOut Offset: %u, Length %u greater than iSCSI Command EDTL %u, protocol error.\n",
+		       be32_to_cpu(hdr->offset), payload_length,
+		       cmd->se_cmd.data_length);
 		return iscsit_reject_cmd(cmd, ISCSI_REASON_BOOKMARK_INVALID, buf);
 	}
 
@@ -1877,10 +1874,9 @@ static int iscsit_handle_nop_out(struct iscsi_conn *conn, struct iscsi_cmd *cmd,
 		}
 
 		if (conn->conn_ops->DataDigest) {
-			iscsit_do_crypto_hash_buf(conn->conn_rx_hash,
-					ping_data, payload_length,
-					padding, cmd->pad_bytes,
-					(u8 *)&data_crc);
+			iscsit_do_crypto_hash_buf(conn->conn_rx_hash, ping_data,
+						  payload_length, padding,
+						  cmd->pad_bytes, &data_crc);
 
 			if (checksum != data_crc) {
 				pr_err("Ping data CRC32C DataDigest"
@@ -2284,10 +2280,9 @@ iscsit_handle_text_cmd(struct iscsi_conn *conn, struct iscsi_cmd *cmd,
 			goto reject;
 
 		if (conn->conn_ops->DataDigest) {
-			iscsit_do_crypto_hash_buf(conn->conn_rx_hash,
-					text_in, payload_length,
-					padding, (u8 *)&pad_bytes,
-					(u8 *)&data_crc);
+			iscsit_do_crypto_hash_buf(conn->conn_rx_hash, text_in,
+						  payload_length, padding,
+						  &pad_bytes, &data_crc);
 
 			if (checksum != data_crc) {
 				pr_err("Text data CRC32C DataDigest"
@@ -3975,9 +3970,9 @@ static void iscsit_get_rx_pdu(struct iscsi_conn *conn)
 				return;
 			}
 
-			iscsit_do_crypto_hash_buf(conn->conn_rx_hash,
-					buffer, ISCSI_HDR_LEN,
-					0, NULL, (u8 *)&checksum);
+			iscsit_do_crypto_hash_buf(conn->conn_rx_hash, buffer,
+						  ISCSI_HDR_LEN, 0, NULL,
+						  &checksum);
 
 			if (digest != checksum) {
 				pr_err("HeaderDigest CRC32C failed,"

@@ -12,7 +12,7 @@
 #include "raid1.h"
 #include "raid5.h"
 #include "raid10.h"
-#include "bitmap.h"
+#include "md-bitmap.h"
 
 #include <linux/device-mapper.h>
 
@@ -2887,9 +2887,6 @@ static void configure_discard_support(struct raid_set *rs)
 	bool raid456;
 	struct dm_target *ti = rs->ti;
 
-	/* Assume discards not supported until after checks below. */
-	ti->discards_supported = false;
-
 	/*
 	 * XXX: RAID level 4,5,6 require zeroing for safety.
 	 */
@@ -2913,9 +2910,6 @@ static void configure_discard_support(struct raid_set *rs)
 			}
 		}
 	}
-
-	/* All RAID members properly support discards */
-	ti->discards_supported = true;
 
 	/*
 	 * RAID1 and RAID10 personalities require bio splitting,
@@ -3630,8 +3624,11 @@ static void raid_postsuspend(struct dm_target *ti)
 {
 	struct raid_set *rs = ti->private;
 
-	if (!test_and_set_bit(RT_FLAG_RS_SUSPENDED, &rs->runtime_flags))
+	if (!test_and_set_bit(RT_FLAG_RS_SUSPENDED, &rs->runtime_flags)) {
+		mddev_lock_nointr(&rs->md);
 		mddev_suspend(&rs->md);
+		mddev_unlock(&rs->md);
+	}
 
 	rs->md.ro = 1;
 }
@@ -3888,8 +3885,11 @@ static void raid_resume(struct dm_target *ti)
 	if (!(rs->ctr_flags & RESUME_STAY_FROZEN_FLAGS))
 		clear_bit(MD_RECOVERY_FROZEN, &mddev->recovery);
 
-	if (test_and_clear_bit(RT_FLAG_RS_SUSPENDED, &rs->runtime_flags))
+	if (test_and_clear_bit(RT_FLAG_RS_SUSPENDED, &rs->runtime_flags)) {
+		mddev_lock_nointr(mddev);
 		mddev_resume(mddev);
+		mddev_unlock(mddev);
+	}
 }
 
 static struct target_type raid_target = {

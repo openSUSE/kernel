@@ -80,8 +80,8 @@ static int lpfc_sli4_fp_handle_cqe(struct lpfc_hba *, struct lpfc_queue *,
 				    struct lpfc_cqe *);
 static int lpfc_sli4_post_sgl_list(struct lpfc_hba *, struct list_head *,
 				       int);
-static int lpfc_sli4_hba_handle_eqe(struct lpfc_hba *phba,
-				    struct lpfc_eqe *eqe, uint32_t qidx);
+static void lpfc_sli4_hba_handle_eqe(struct lpfc_hba *phba,
+				     struct lpfc_eqe *eqe, uint32_t qidx);
 static bool lpfc_sli4_mbox_completions_pending(struct lpfc_hba *phba);
 static bool lpfc_sli4_process_missed_mbox_completions(struct lpfc_hba *phba);
 static int lpfc_sli4_abort_nvme_io(struct lpfc_hba *phba,
@@ -2732,7 +2732,8 @@ lpfc_sli_process_unsol_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
  *
  * This function looks up the iocb_lookup table to get the command iocb
  * corresponding to the given response iocb using the iotag of the
- * response iocb. This function is called with the hbalock held.
+ * response iocb. This function is called with the hbalock held
+ * for sli3 devices or the ring_lock for sli4 devices.
  * This function returns the command iocb object if it finds the command
  * iocb else returns NULL.
  **/
@@ -2828,9 +2829,15 @@ lpfc_sli_process_sol_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 	unsigned long iflag;
 
 	/* Based on the iotag field, get the cmd IOCB from the txcmplq */
-	spin_lock_irqsave(&phba->hbalock, iflag);
+	if (phba->sli_rev == LPFC_SLI_REV4)
+		spin_lock_irqsave(&pring->ring_lock, iflag);
+	else
+		spin_lock_irqsave(&phba->hbalock, iflag);
 	cmdiocbp = lpfc_sli_iocbq_lookup(phba, pring, saveq);
-	spin_unlock_irqrestore(&phba->hbalock, iflag);
+	if (phba->sli_rev == LPFC_SLI_REV4)
+		spin_unlock_irqrestore(&pring->ring_lock, iflag);
+	else
+		spin_unlock_irqrestore(&phba->hbalock, iflag);
 
 	if (cmdiocbp) {
 		if (cmdiocbp->iocb_cmpl) {
@@ -3004,13 +3011,13 @@ lpfc_sli_rsp_pointers_error(struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
  * and wake up worker thread to process it. Otherwise, it will set up the
  * Error Attention polling timer for the next poll.
  **/
-void lpfc_poll_eratt(unsigned long ptr)
+void lpfc_poll_eratt(struct timer_list *t)
 {
 	struct lpfc_hba *phba;
 	uint32_t eratt = 0;
 	uint64_t sli_intr, cnt;
 
-	phba = (struct lpfc_hba *)ptr;
+	phba = from_timer(phba, t, eratt_poll);
 
 	/* Here we will also keep track of interrupts per sec of the hba */
 	sli_intr = phba->sli.slistat.sli_intr;
@@ -7167,9 +7174,9 @@ out_free_mbox:
  * done by the worker thread function lpfc_mbox_timeout_handler.
  **/
 void
-lpfc_mbox_timeout(unsigned long ptr)
+lpfc_mbox_timeout(struct timer_list *t)
 {
-	struct lpfc_hba  *phba = (struct lpfc_hba *) ptr;
+	struct lpfc_hba  *phba = from_timer(phba, t, sli.mbox_tmo);
 	unsigned long iflag;
 	uint32_t tmo_posted;
 
@@ -13025,14 +13032,11 @@ lpfc_sli4_sp_handle_cqe(struct lpfc_hba *phba, struct lpfc_queue *cq,
  * completion queue, and then return.
  *
  **/
-static int
+static void
 lpfc_sli4_sp_handle_eqe(struct lpfc_hba *phba, struct lpfc_eqe *eqe,
 	struct lpfc_queue *speq)
 {
 	struct lpfc_queue *cq = NULL, *childq;
-	struct lpfc_cqe *cqe;
-	bool workposted = false;
-	int ecount = 0;
 	uint16_t cqid;
 
 	/* Get the reference to the corresponding CQ */
@@ -13049,48 +13053,84 @@ lpfc_sli4_sp_handle_eqe(struct lpfc_hba *phba, struct lpfc_eqe *eqe,
 			lpfc_printf_log(phba, KERN_ERR, LOG_SLI,
 					"0365 Slow-path CQ identifier "
 					"(%d) does not exist\n", cqid);
-		return 0;
+		return;
 	}
 
 	/* Save EQ associated with this CQ */
 	cq->assoc_qp = speq;
+
+	if (!queue_work(phba->wq, &cq->spwork))
+		lpfc_printf_log(phba, KERN_ERR, LOG_SLI,
+				"0390 Cannot schedule soft IRQ "
+				"for CQ eqcqid=%d, cqid=%d on CPU %d\n",
+				cqid, cq->queue_id, smp_processor_id());
+}
+
+/**
+ * lpfc_sli4_sp_process_cq - Process a slow-path event queue entry
+ * @phba: Pointer to HBA context object.
+ *
+ * This routine process a event queue entry from the slow-path event queue.
+ * It will check the MajorCode and MinorCode to determine this is for a
+ * completion event on a completion queue, if not, an error shall be logged
+ * and just return. Otherwise, it will get to the corresponding completion
+ * queue and process all the entries on that completion queue, rearm the
+ * completion queue, and then return.
+ *
+ **/
+static void
+lpfc_sli4_sp_process_cq(struct work_struct *work)
+{
+	struct lpfc_queue *cq =
+		container_of(work, struct lpfc_queue, spwork);
+	struct lpfc_hba *phba = cq->phba;
+	struct lpfc_cqe *cqe;
+	bool workposted = false;
+	int ccount = 0;
 
 	/* Process all the entries to the CQ */
 	switch (cq->type) {
 	case LPFC_MCQ:
 		while ((cqe = lpfc_sli4_cq_get(cq))) {
 			workposted |= lpfc_sli4_sp_handle_mcqe(phba, cqe);
-			if (!(++ecount % cq->entry_repost))
+			if (!(++ccount % cq->entry_repost))
 				break;
 			cq->CQ_mbox++;
 		}
 		break;
 	case LPFC_WCQ:
 		while ((cqe = lpfc_sli4_cq_get(cq))) {
-			if ((cq->subtype == LPFC_FCP) ||
-			    (cq->subtype == LPFC_NVME))
+			if (cq->subtype == LPFC_FCP ||
+			    cq->subtype == LPFC_NVME) {
+#ifdef CONFIG_SCSI_LPFC_DEBUG_FS
+				if (phba->ktime_on)
+					cq->isr_timestamp = ktime_get_ns();
+				else
+					cq->isr_timestamp = 0;
+#endif
 				workposted |= lpfc_sli4_fp_handle_cqe(phba, cq,
 								       cqe);
-			else
+			} else {
 				workposted |= lpfc_sli4_sp_handle_cqe(phba, cq,
 								      cqe);
-			if (!(++ecount % cq->entry_repost))
+			}
+			if (!(++ccount % cq->entry_repost))
 				break;
 		}
 
 		/* Track the max number of CQEs processed in 1 EQ */
-		if (ecount > cq->CQ_max_cqe)
-			cq->CQ_max_cqe = ecount;
+		if (ccount > cq->CQ_max_cqe)
+			cq->CQ_max_cqe = ccount;
 		break;
 	default:
 		lpfc_printf_log(phba, KERN_ERR, LOG_SLI,
 				"0370 Invalid completion queue type (%d)\n",
 				cq->type);
-		return 0;
+		return;
 	}
 
 	/* Catch the no cq entry condition, log an error */
-	if (unlikely(ecount == 0))
+	if (unlikely(ccount == 0))
 		lpfc_printf_log(phba, KERN_ERR, LOG_SLI,
 				"0371 No entry from the CQ: identifier "
 				"(x%x), type (%d)\n", cq->queue_id, cq->type);
@@ -13101,8 +13141,6 @@ lpfc_sli4_sp_handle_eqe(struct lpfc_hba *phba, struct lpfc_eqe *eqe,
 	/* wake up worker thread if there are works to be done */
 	if (workposted)
 		lpfc_worker_wake_up(phba);
-
-	return ecount;
 }
 
 /**
@@ -13158,11 +13196,9 @@ lpfc_sli4_fp_handle_fcp_wcqe(struct lpfc_hba *phba, struct lpfc_queue *cq,
 				bf_get(lpfc_wcqe_c_request_tag, wcqe));
 		return;
 	}
-
-	if (cq->assoc_qp)
-		cmdiocbq->isr_timestamp =
-			cq->assoc_qp->isr_timestamp;
-
+#ifdef CONFIG_SCSI_LPFC_DEBUG_FS
+	cmdiocbq->isr_timestamp = cq->isr_timestamp;
+#endif
 	if (cmdiocbq->iocb_cmpl == NULL) {
 		if (cmdiocbq->wqe_cmpl) {
 			if (cmdiocbq->iocb_flag & LPFC_DRIVER_ABORTED) {
@@ -13307,7 +13343,7 @@ lpfc_sli4_nvmet_handle_rcqe(struct lpfc_hba *phba, struct lpfc_queue *cq,
 			dma_buf->bytes_recv = bf_get(lpfc_rcqe_length,  rcqe);
 			lpfc_nvmet_unsol_fcp_event(
 				phba, idx, dma_buf,
-				cq->assoc_qp->isr_timestamp);
+				cq->isr_timestamp);
 			return false;
 		}
 drop:
@@ -13410,15 +13446,12 @@ lpfc_sli4_fp_handle_cqe(struct lpfc_hba *phba, struct lpfc_queue *cq,
  * queue and process all the entries on the completion queue, rearm the
  * completion queue, and then return.
  **/
-static int
+static void
 lpfc_sli4_hba_handle_eqe(struct lpfc_hba *phba, struct lpfc_eqe *eqe,
 			uint32_t qidx)
 {
 	struct lpfc_queue *cq = NULL;
-	struct lpfc_cqe *cqe;
-	bool workposted = false;
 	uint16_t cqid, id;
-	int ecount = 0;
 
 	if (unlikely(bf_get_le32(lpfc_eqe_major_code, eqe) != 0)) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_SLI,
@@ -13426,7 +13459,7 @@ lpfc_sli4_hba_handle_eqe(struct lpfc_hba *phba, struct lpfc_eqe *eqe,
 				"event: majorcode=x%x, minorcode=x%x\n",
 				bf_get_le32(lpfc_eqe_major_code, eqe),
 				bf_get_le32(lpfc_eqe_minor_code, eqe));
-		return 0;
+		return;
 	}
 
 	/* Get the reference to the corresponding CQ */
@@ -13463,9 +13496,8 @@ lpfc_sli4_hba_handle_eqe(struct lpfc_hba *phba, struct lpfc_eqe *eqe,
 
 	/* Otherwise this is a Slow path event */
 	if (cq == NULL) {
-		ecount = lpfc_sli4_sp_handle_eqe(phba, eqe,
-						 phba->sli4_hba.hba_eq[qidx]);
-		return ecount;
+		lpfc_sli4_sp_handle_eqe(phba, eqe, phba->sli4_hba.hba_eq[qidx]);
+		return;
 	}
 
 process_cq:
@@ -13474,26 +13506,61 @@ process_cq:
 				"0368 Miss-matched fast-path completion "
 				"queue identifier: eqcqid=%d, fcpcqid=%d\n",
 				cqid, cq->queue_id);
-		return 0;
+		return;
 	}
 
 	/* Save EQ associated with this CQ */
 	cq->assoc_qp = phba->sli4_hba.hba_eq[qidx];
 
+	if (!queue_work(phba->wq, &cq->irqwork))
+		lpfc_printf_log(phba, KERN_ERR, LOG_SLI,
+				"0363 Cannot schedule soft IRQ "
+				"for CQ eqcqid=%d, cqid=%d on CPU %d\n",
+				cqid, cq->queue_id, smp_processor_id());
+}
+
+/**
+ * lpfc_sli4_hba_process_cq - Process a fast-path event queue entry
+ * @phba: Pointer to HBA context object.
+ * @eqe: Pointer to fast-path event queue entry.
+ *
+ * This routine process a event queue entry from the fast-path event queue.
+ * It will check the MajorCode and MinorCode to determine this is for a
+ * completion event on a completion queue, if not, an error shall be logged
+ * and just return. Otherwise, it will get to the corresponding completion
+ * queue and process all the entries on the completion queue, rearm the
+ * completion queue, and then return.
+ **/
+static void
+lpfc_sli4_hba_process_cq(struct work_struct *work)
+{
+	struct lpfc_queue *cq =
+		container_of(work, struct lpfc_queue, irqwork);
+	struct lpfc_hba *phba = cq->phba;
+	struct lpfc_cqe *cqe;
+	bool workposted = false;
+	int ccount = 0;
+
 	/* Process all the entries to the CQ */
 	while ((cqe = lpfc_sli4_cq_get(cq))) {
+#ifdef CONFIG_SCSI_LPFC_DEBUG_FS
+		if (phba->ktime_on)
+			cq->isr_timestamp = ktime_get_ns();
+		else
+			cq->isr_timestamp = 0;
+#endif
 		workposted |= lpfc_sli4_fp_handle_cqe(phba, cq, cqe);
-		if (!(++ecount % cq->entry_repost))
+		if (!(++ccount % cq->entry_repost))
 			break;
 	}
 
 	/* Track the max number of CQEs processed in 1 EQ */
-	if (ecount > cq->CQ_max_cqe)
-		cq->CQ_max_cqe = ecount;
-	cq->assoc_qp->EQ_cqe_cnt += ecount;
+	if (ccount > cq->CQ_max_cqe)
+		cq->CQ_max_cqe = ccount;
+	cq->assoc_qp->EQ_cqe_cnt += ccount;
 
 	/* Catch the no cq entry condition */
-	if (unlikely(ecount == 0))
+	if (unlikely(ccount == 0))
 		lpfc_printf_log(phba, KERN_ERR, LOG_SLI,
 				"0369 No entry from fast-path completion "
 				"queue fcpcqid=%d\n", cq->queue_id);
@@ -13504,8 +13571,6 @@ process_cq:
 	/* wake up worker thread if there are works to be done */
 	if (workposted)
 		lpfc_worker_wake_up(phba);
-
-	return ecount;
 }
 
 static void
@@ -13539,10 +13604,7 @@ static void
 lpfc_sli4_fof_handle_eqe(struct lpfc_hba *phba, struct lpfc_eqe *eqe)
 {
 	struct lpfc_queue *cq;
-	struct lpfc_cqe *cqe;
-	bool workposted = false;
 	uint16_t cqid;
-	int ecount = 0;
 
 	if (unlikely(bf_get_le32(lpfc_eqe_major_code, eqe) != 0)) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_SLI,
@@ -13577,30 +13639,12 @@ lpfc_sli4_fof_handle_eqe(struct lpfc_hba *phba, struct lpfc_eqe *eqe)
 	/* Save EQ associated with this CQ */
 	cq->assoc_qp = phba->sli4_hba.fof_eq;
 
-	/* Process all the entries to the OAS CQ */
-	while ((cqe = lpfc_sli4_cq_get(cq))) {
-		workposted |= lpfc_sli4_fp_handle_cqe(phba, cq, cqe);
-		if (!(++ecount % cq->entry_repost))
-			break;
-	}
-
-	/* Track the max number of CQEs processed in 1 EQ */
-	if (ecount > cq->CQ_max_cqe)
-		cq->CQ_max_cqe = ecount;
-	cq->assoc_qp->EQ_cqe_cnt += ecount;
-
-	/* Catch the no cq entry condition */
-	if (unlikely(ecount == 0))
+	/* CQ work will be processed on CPU affinitized to this IRQ */
+	if (!queue_work(phba->wq, &cq->irqwork))
 		lpfc_printf_log(phba, KERN_ERR, LOG_SLI,
-				"9153 No entry from fast-path completion "
-				"queue fcpcqid=%d\n", cq->queue_id);
-
-	/* In any case, flash and re-arm the CQ */
-	lpfc_sli4_cq_release(cq, LPFC_QUEUE_REARM);
-
-	/* wake up worker thread if there are works to be done */
-	if (workposted)
-		lpfc_worker_wake_up(phba);
+				"0367 Cannot schedule soft IRQ "
+				"for CQ eqcqid=%d, cqid=%d on CPU %d\n",
+				cqid, cq->queue_id, smp_processor_id());
 }
 
 /**
@@ -13726,7 +13770,6 @@ lpfc_sli4_hba_intr_handler(int irq, void *dev_id)
 	struct lpfc_eqe *eqe;
 	unsigned long iflag;
 	int ecount = 0;
-	int ccount = 0;
 	int hba_eqidx;
 
 	/* Get the driver's phba structure from the dev_id */
@@ -13743,11 +13786,6 @@ lpfc_sli4_hba_intr_handler(int irq, void *dev_id)
 	fpeq = phba->sli4_hba.hba_eq[hba_eqidx];
 	if (unlikely(!fpeq))
 		return IRQ_NONE;
-
-#ifdef CONFIG_SCSI_LPFC_DEBUG_FS
-	if (phba->ktime_on)
-		fpeq->isr_timestamp = ktime_get_ns();
-#endif
 
 	if (lpfc_fcp_look_ahead) {
 		if (atomic_dec_and_test(&hba_eq_hdl->hba_eq_in_use))
@@ -13775,12 +13813,8 @@ lpfc_sli4_hba_intr_handler(int irq, void *dev_id)
 	 * Process all the event on FCP fast-path EQ
 	 */
 	while ((eqe = lpfc_sli4_eq_get(fpeq))) {
-		if (eqe == NULL)
-			break;
-
-		ccount += lpfc_sli4_hba_handle_eqe(phba, eqe, hba_eqidx);
-		if (!(++ecount % fpeq->entry_repost) ||
-		    ccount > LPFC_MAX_ISR_CQE)
+		lpfc_sli4_hba_handle_eqe(phba, eqe, hba_eqidx);
+		if (!(++ecount % fpeq->entry_repost))
 			break;
 		fpeq->EQ_processed++;
 	}
@@ -13963,6 +13997,8 @@ lpfc_sli4_queue_alloc(struct lpfc_hba *phba, uint32_t entry_size,
 	queue->entry_size = entry_size;
 	queue->entry_count = entry_count;
 	queue->phba = phba;
+	INIT_WORK(&queue->irqwork, lpfc_sli4_hba_process_cq);
+	INIT_WORK(&queue->spwork, lpfc_sli4_sp_process_cq);
 
 	/* entry_repost will be set during q creation */
 

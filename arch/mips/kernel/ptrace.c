@@ -144,6 +144,9 @@ int ptrace_setregs(struct task_struct *child, struct user_pt_regs __user *data)
 
 	/* badvaddr, status, and cause may not be written.  */
 
+	/* System call number may have been changed */
+	mips_syscall_update_nr(child, regs);
+
 	return 0;
 }
 
@@ -345,6 +348,9 @@ static int gpr32_set(struct task_struct *target,
 		}
 	}
 
+	/* System call number may have been changed */
+	mips_syscall_update_nr(target, regs);
+
 	return 0;
 }
 
@@ -404,6 +410,9 @@ static int gpr64_set(struct task_struct *target,
 			break;
 		}
 	}
+
+	/* System call number may have been changed */
+	mips_syscall_update_nr(target, regs);
 
 	return 0;
 }
@@ -867,6 +876,12 @@ long arch_ptrace(struct task_struct *child, long request,
 		switch (addr) {
 		case 0 ... 31:
 			regs->regs[addr] = data;
+			/* System call number may have been changed */
+			if (addr == 2)
+				mips_syscall_update_nr(child, regs);
+			else if (addr == 4 &&
+				 mips_syscall_is_indirect(child, regs))
+				mips_syscall_update_nr(child, regs);
 			break;
 		case FPR_BASE ... FPR_BASE + 31: {
 			union fpureg *fregs = get_fpu_regs(child);
@@ -978,9 +993,11 @@ asmlinkage long syscall_trace_enter(struct pt_regs *regs, long syscall)
 
 	current_thread_info()->syscall = syscall;
 
-	if (test_thread_flag(TIF_SYSCALL_TRACE) &&
-	    tracehook_report_syscall_entry(regs))
-		return -1;
+	if (test_thread_flag(TIF_SYSCALL_TRACE)) {
+		if (tracehook_report_syscall_entry(regs))
+			return -1;
+		syscall = current_thread_info()->syscall;
+	}
 
 #ifdef CONFIG_SECCOMP
 	if (unlikely(test_thread_flag(TIF_SECCOMP))) {
@@ -998,6 +1015,7 @@ asmlinkage long syscall_trace_enter(struct pt_regs *regs, long syscall)
 		ret = __secure_computing(&sd);
 		if (ret == -1)
 			return ret;
+		syscall = current_thread_info()->syscall;
 	}
 #endif
 

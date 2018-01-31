@@ -262,7 +262,7 @@ static struct attribute *arm_ccn_pmu_format_attrs[] = {
 	NULL
 };
 
-static struct attribute_group arm_ccn_pmu_format_attr_group = {
+static const struct attribute_group arm_ccn_pmu_format_attr_group = {
 	.name = "format",
 	.attrs = arm_ccn_pmu_format_attrs,
 };
@@ -451,7 +451,7 @@ static struct arm_ccn_pmu_event arm_ccn_pmu_events[] = {
 static struct attribute
 		*arm_ccn_pmu_events_attrs[ARRAY_SIZE(arm_ccn_pmu_events) + 1];
 
-static struct attribute_group arm_ccn_pmu_events_attr_group = {
+static const struct attribute_group arm_ccn_pmu_events_attr_group = {
 	.name = "events",
 	.is_visible = arm_ccn_pmu_events_is_visible,
 	.attrs = arm_ccn_pmu_events_attrs,
@@ -548,7 +548,7 @@ static struct attribute *arm_ccn_pmu_cmp_mask_attrs[] = {
 	NULL
 };
 
-static struct attribute_group arm_ccn_pmu_cmp_mask_attr_group = {
+static const struct attribute_group arm_ccn_pmu_cmp_mask_attr_group = {
 	.name = "cmp_mask",
 	.attrs = arm_ccn_pmu_cmp_mask_attrs,
 };
@@ -569,7 +569,7 @@ static struct attribute *arm_ccn_pmu_cpumask_attrs[] = {
 	NULL,
 };
 
-static struct attribute_group arm_ccn_pmu_cpumask_attr_group = {
+static const struct attribute_group arm_ccn_pmu_cpumask_attr_group = {
 	.attrs = arm_ccn_pmu_cpumask_attrs,
 };
 
@@ -1268,14 +1268,12 @@ static int arm_ccn_pmu_init(struct arm_ccn *ccn)
 	if (ccn->dt.id == 0) {
 		name = "ccn";
 	} else {
-		int len = snprintf(NULL, 0, "ccn_%d", ccn->dt.id);
-
-		name = devm_kzalloc(ccn->dev, len + 1, GFP_KERNEL);
+		name = devm_kasprintf(ccn->dev, GFP_KERNEL, "ccn_%d",
+				      ccn->dt.id);
 		if (!name) {
 			err = -ENOMEM;
 			goto error_choose_name;
 		}
-		snprintf(name, len + 1, "ccn_%d", ccn->dt.id);
 	}
 
 	/* Perf driver registration */

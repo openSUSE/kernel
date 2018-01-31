@@ -77,7 +77,7 @@ static void unref_worker(struct drm_flip_work *work, void *val)
 	struct drm_device *dev = tilcdc_crtc->base.dev;
 
 	mutex_lock(&dev->mode_config.mutex);
-	drm_framebuffer_unreference(val);
+	drm_framebuffer_put(val);
 	mutex_unlock(&dev->mode_config.mutex);
 }
 
@@ -464,7 +464,7 @@ static void tilcdc_crtc_set_mode(struct drm_crtc *crtc)
 
 	set_scanout(crtc, fb);
 
-	drm_framebuffer_reference(fb);
+	drm_framebuffer_get(fb);
 
 	crtc->hwmode = crtc->state->adjusted_mode;
 
@@ -478,7 +478,6 @@ static void tilcdc_crtc_enable(struct drm_crtc *crtc)
 	struct tilcdc_crtc *tilcdc_crtc = to_tilcdc_crtc(crtc);
 	unsigned long flags;
 
-	WARN_ON(!drm_modeset_is_locked(&crtc->mutex));
 	mutex_lock(&tilcdc_crtc->enable_lock);
 	if (tilcdc_crtc->enabled || tilcdc_crtc->shutdown) {
 		mutex_unlock(&tilcdc_crtc->enable_lock);
@@ -575,7 +574,6 @@ static void tilcdc_crtc_off(struct drm_crtc *crtc, bool shutdown)
 
 static void tilcdc_crtc_disable(struct drm_crtc *crtc)
 {
-	WARN_ON(!drm_modeset_is_locked(&crtc->mutex));
 	tilcdc_crtc_off(crtc, false);
 }
 
@@ -619,9 +617,7 @@ static void tilcdc_crtc_destroy(struct drm_crtc *crtc)
 	struct tilcdc_crtc *tilcdc_crtc = to_tilcdc_crtc(crtc);
 	struct tilcdc_drm_private *priv = crtc->dev->dev_private;
 
-	drm_modeset_lock(&crtc->mutex, NULL);
-	tilcdc_crtc_disable(crtc);
-	drm_modeset_unlock(&crtc->mutex);
+	tilcdc_crtc_shutdown(crtc);
 
 	flush_workqueue(priv->wq);
 
@@ -637,14 +633,12 @@ int tilcdc_crtc_update_fb(struct drm_crtc *crtc,
 	struct tilcdc_crtc *tilcdc_crtc = to_tilcdc_crtc(crtc);
 	struct drm_device *dev = crtc->dev;
 
-	WARN_ON(!drm_modeset_is_locked(&crtc->mutex));
-
 	if (tilcdc_crtc->event) {
 		dev_err(dev->dev, "already pending page flip!\n");
 		return -EBUSY;
 	}
 
-	drm_framebuffer_reference(fb);
+	drm_framebuffer_get(fb);
 
 	crtc->primary->fb = fb;
 	tilcdc_crtc->event = event;
@@ -739,11 +733,39 @@ static void tilcdc_crtc_disable_vblank(struct drm_crtc *crtc)
 {
 }
 
+static void tilcdc_crtc_reset(struct drm_crtc *crtc)
+{
+	struct tilcdc_crtc *tilcdc_crtc = to_tilcdc_crtc(crtc);
+	struct drm_device *dev = crtc->dev;
+	int ret;
+
+	drm_atomic_helper_crtc_reset(crtc);
+
+	/* Turn the raster off if it for some reason is on. */
+	pm_runtime_get_sync(dev->dev);
+	if (tilcdc_read(dev, LCDC_RASTER_CTRL_REG) & LCDC_RASTER_ENABLE) {
+		/* Enable DMA Frame Done Interrupt */
+		tilcdc_write(dev, LCDC_INT_ENABLE_SET_REG, LCDC_FRAME_DONE);
+		tilcdc_clear_irqstatus(dev, 0xffffffff);
+
+		tilcdc_crtc->frame_done = false;
+		tilcdc_clear(dev, LCDC_RASTER_CTRL_REG, LCDC_RASTER_ENABLE);
+
+		ret = wait_event_timeout(tilcdc_crtc->frame_done_wq,
+					 tilcdc_crtc->frame_done,
+					 msecs_to_jiffies(500));
+		if (ret == 0)
+			dev_err(dev->dev, "%s: timeout waiting for framedone\n",
+				__func__);
+	}
+	pm_runtime_put_sync(dev->dev);
+}
+
 static const struct drm_crtc_funcs tilcdc_crtc_funcs = {
 	.destroy        = tilcdc_crtc_destroy,
 	.set_config     = drm_atomic_helper_set_config,
 	.page_flip      = drm_atomic_helper_page_flip,
-	.reset		= drm_atomic_helper_crtc_reset,
+	.reset		= tilcdc_crtc_reset,
 	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
 	.enable_vblank	= tilcdc_crtc_enable_vblank,

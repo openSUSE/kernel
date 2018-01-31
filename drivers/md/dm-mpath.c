@@ -463,6 +463,38 @@ do {									\
 } while (0)
 
 /*
+ * Check whether bios must be queued in the device-mapper core rather
+ * than here in the target.
+ *
+ * If MPATHF_QUEUE_IF_NO_PATH and MPATHF_SAVED_QUEUE_IF_NO_PATH hold
+ * the same value then we are not between multipath_presuspend()
+ * and multipath_resume() calls and we have no need to check
+ * for the DMF_NOFLUSH_SUSPENDING flag.
+ */
+static bool __must_push_back(struct multipath *m, unsigned long flags)
+{
+	return ((test_bit(MPATHF_QUEUE_IF_NO_PATH, &flags) !=
+		 test_bit(MPATHF_SAVED_QUEUE_IF_NO_PATH, &flags)) &&
+		dm_noflush_suspending(m->ti));
+}
+
+/*
+ * Following functions use READ_ONCE to get atomic access to
+ * all m->flags to avoid taking spinlock
+ */
+static bool must_push_back_rq(struct multipath *m)
+{
+	unsigned long flags = READ_ONCE(m->flags);
+	return test_bit(MPATHF_QUEUE_IF_NO_PATH, &flags) || __must_push_back(m, flags);
+}
+
+static bool must_push_back_bio(struct multipath *m)
+{
+	unsigned long flags = READ_ONCE(m->flags);
+	return __must_push_back(m, flags);
+}
+
+/*
  * Map cloned requests (request-based multipath)
  */
 static int multipath_clone_and_map(struct dm_target *ti, struct request *rq,
@@ -483,7 +515,7 @@ static int multipath_clone_and_map(struct dm_target *ti, struct request *rq,
 		pgpath = choose_pgpath(m, nr_bytes);
 
 	if (!pgpath) {
-		if (test_bit(MPATHF_QUEUE_IF_NO_PATH, &m->flags))
+		if (must_push_back_rq(m))
 			return DM_MAPIO_DELAY_REQUEUE;
 		dm_report_EIO(m);	/* Failed */
 		return DM_MAPIO_KILL;
@@ -562,7 +594,7 @@ static int __multipath_map_bio(struct multipath *m, struct bio *bio, struct dm_m
 	}
 
 	if (!pgpath || !pgpath->path.dev) {
-		if (test_bit(MPATHF_QUEUE_IF_NO_PATH, &m->flags))
+		if (must_push_back_bio(m))
 			return DM_MAPIO_REQUEUE;
 		dm_report_EIO(m);
 		return DM_MAPIO_KILL;
@@ -648,14 +680,6 @@ static void process_queued_bios(struct work_struct *work)
 	blk_finish_plug(&plug);
 }
 
-static void assign_bit(bool value, long nr, unsigned long *addr)
-{
-	if (value)
-		set_bit(nr, addr);
-	else
-		clear_bit(nr, addr);
-}
-
 /*
  * If we run out of usable paths, should we queue I/O or error it?
  */
@@ -665,11 +689,10 @@ static int queue_if_no_path(struct multipath *m, bool queue_if_no_path,
 	unsigned long flags;
 
 	spin_lock_irqsave(&m->lock, flags);
-	assign_bit((save_old_value && test_bit(MPATHF_QUEUE_IF_NO_PATH, &m->flags)) ||
-		   (!save_old_value && queue_if_no_path),
-		   MPATHF_SAVED_QUEUE_IF_NO_PATH, &m->flags);
-	assign_bit(queue_if_no_path || dm_noflush_suspending(m->ti),
-		   MPATHF_QUEUE_IF_NO_PATH, &m->flags);
+	assign_bit(MPATHF_SAVED_QUEUE_IF_NO_PATH, &m->flags,
+		   (save_old_value && test_bit(MPATHF_QUEUE_IF_NO_PATH, &m->flags)) ||
+		   (!save_old_value && queue_if_no_path));
+	assign_bit(MPATHF_QUEUE_IF_NO_PATH, &m->flags, queue_if_no_path);
 	spin_unlock_irqrestore(&m->lock, flags);
 
 	if (!queue_if_no_path) {
@@ -1549,7 +1572,7 @@ static int multipath_end_io(struct dm_target *ti, struct request *clone,
 			fail_path(pgpath);
 
 		if (atomic_read(&m->nr_valid_paths) == 0 &&
-		    !test_bit(MPATHF_QUEUE_IF_NO_PATH, &m->flags)) {
+		    !must_push_back_rq(m)) {
 			if (error == BLK_STS_IOERR)
 				dm_report_EIO(m);
 			/* complete with the original error */
@@ -1584,8 +1607,12 @@ static int multipath_end_io_bio(struct dm_target *ti, struct bio *clone,
 
 	if (atomic_read(&m->nr_valid_paths) == 0 &&
 	    !test_bit(MPATHF_QUEUE_IF_NO_PATH, &m->flags)) {
-		dm_report_EIO(m);
-		*error = BLK_STS_IOERR;
+		if (must_push_back_bio(m)) {
+			r = DM_ENDIO_REQUEUE;
+		} else {
+			dm_report_EIO(m);
+			*error = BLK_STS_IOERR;
+		}
 		goto done;
 	}
 
@@ -1641,8 +1668,8 @@ static void multipath_resume(struct dm_target *ti)
 	unsigned long flags;
 
 	spin_lock_irqsave(&m->lock, flags);
-	assign_bit(test_bit(MPATHF_SAVED_QUEUE_IF_NO_PATH, &m->flags),
-		   MPATHF_QUEUE_IF_NO_PATH, &m->flags);
+	assign_bit(MPATHF_QUEUE_IF_NO_PATH, &m->flags,
+		   test_bit(MPATHF_SAVED_QUEUE_IF_NO_PATH, &m->flags));
 	spin_unlock_irqrestore(&m->lock, flags);
 }
 

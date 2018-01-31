@@ -98,8 +98,7 @@ static void wd_lockup_ipi(struct pt_regs *regs)
 	else
 		dump_stack();
 
-	if (hardlockup_panic)
-		nmi_panic(regs, "Hard LOCKUP");
+	/* Do not panic from here because that can recurse into NMI IPI layer */
 }
 
 static void set_cpumask_stuck(const struct cpumask *cpumask, u64 tb)
@@ -135,15 +134,18 @@ static void watchdog_smp_panic(int cpu, u64 tb)
 	pr_emerg("Watchdog CPU:%d detected Hard LOCKUP other CPUS:%*pbl\n",
 			cpu, cpumask_pr_args(&wd_smp_cpus_pending));
 
-	/*
-	 * Try to trigger the stuck CPUs.
-	 */
-	for_each_cpu(c, &wd_smp_cpus_pending) {
-		if (c == cpu)
-			continue;
-		smp_send_nmi_ipi(c, wd_lockup_ipi, 1000000);
+	if (!sysctl_hardlockup_all_cpu_backtrace) {
+		/*
+		 * Try to trigger the stuck CPUs, unless we are going to
+		 * get a backtrace on all of them anyway.
+		 */
+		for_each_cpu(c, &wd_smp_cpus_pending) {
+			if (c == cpu)
+				continue;
+			smp_send_nmi_ipi(c, wd_lockup_ipi, 1000000);
+		}
+		smp_flush_nmi_ipi(1000000);
 	}
-	smp_flush_nmi_ipi(1000000);
 
 	/* Take the stuck CPUs out of the watch group */
 	set_cpumask_stuck(&wd_smp_cpus_pending, tb);
@@ -262,9 +264,8 @@ static void wd_timer_reset(unsigned int cpu, struct timer_list *t)
 	add_timer_on(t, cpu);
 }
 
-static void wd_timer_fn(unsigned long data)
+static void wd_timer_fn(struct timer_list *t)
 {
-	struct timer_list *t = this_cpu_ptr(&wd_timer);
 	int cpu = smp_processor_id();
 
 	watchdog_timer_interrupt(cpu);
@@ -291,7 +292,7 @@ static void start_watchdog_timer_on(unsigned int cpu)
 
 	per_cpu(wd_timer_tb, cpu) = get_tb();
 
-	setup_pinned_timer(t, wd_timer_fn, 0);
+	timer_setup(t, wd_timer_fn, TIMER_PINNED);
 	wd_timer_reset(cpu, t);
 }
 

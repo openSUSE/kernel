@@ -20,7 +20,6 @@
 #include <asm/cpufeature.h>		/* boot_cpu_has, ...		*/
 #include <asm/traps.h>			/* dotraplinkage, ...		*/
 #include <asm/pgalloc.h>		/* pgd_*(), ...			*/
-#include <asm/kmemcheck.h>		/* kmemcheck_*(), ...		*/
 #include <asm/fixmap.h>			/* VSYSCALL_ADDR		*/
 #include <asm/vsyscall.h>		/* emulate_vsyscall		*/
 #include <asm/vm86.h>			/* struct vm86			*/
@@ -440,18 +439,13 @@ static noinline int vmalloc_fault(unsigned long address)
 	if (pgd_none(*pgd_ref))
 		return -1;
 
-	if (pgd_none(*pgd)) {
-		set_pgd(pgd, *pgd_ref);
-		arch_flush_lazy_mmu_mode();
-	} else if (CONFIG_PGTABLE_LEVELS > 4) {
-		/*
-		 * With folded p4d, pgd_none() is always false, so the pgd may
-		 * point to an empty page table entry and pgd_page_vaddr()
-		 * will return garbage.
-		 *
-		 * We will do the correct sanity check on the p4d level.
-		 */
-		BUG_ON(pgd_page_vaddr(*pgd) != pgd_page_vaddr(*pgd_ref));
+	if (CONFIG_PGTABLE_LEVELS > 4) {
+		if (pgd_none(*pgd)) {
+			set_pgd(pgd, *pgd_ref);
+			arch_flush_lazy_mmu_mode();
+		} else {
+			BUG_ON(pgd_page_vaddr(*pgd) != pgd_page_vaddr(*pgd_ref));
+		}
 	}
 
 	/* With 4-level paging, copying happens on the p4d level. */
@@ -460,7 +454,7 @@ static noinline int vmalloc_fault(unsigned long address)
 	if (p4d_none(*p4d_ref))
 		return -1;
 
-	if (p4d_none(*p4d)) {
+	if (p4d_none(*p4d) && CONFIG_PGTABLE_LEVELS == 4) {
 		set_p4d(p4d, *p4d_ref);
 		arch_flush_lazy_mmu_mode();
 	} else {
@@ -471,6 +465,7 @@ static noinline int vmalloc_fault(unsigned long address)
 	 * Below here mismatches are bugs because these lower tables
 	 * are shared:
 	 */
+	BUILD_BUG_ON(CONFIG_PGTABLE_LEVELS < 4);
 
 	pud = pud_offset(p4d, address);
 	pud_ref = pud_offset(p4d_ref, address);
@@ -703,7 +698,7 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code,
 	else
 		printk(KERN_CONT "paging request");
 
-	printk(KERN_CONT " at %p\n", (void *) address);
+	printk(KERN_CONT " at %px\n", (void *) address);
 	printk(KERN_ALERT "IP: %pS\n", (void *)regs->ip);
 
 	dump_pagetable(address);
@@ -862,7 +857,7 @@ show_signal_msg(struct pt_regs *regs, unsigned long error_code,
 	if (!printk_ratelimit())
 		return;
 
-	printk("%s%s[%d]: segfault at %lx ip %p sp %p error %lx",
+	printk("%s%s[%d]: segfault at %lx ip %px sp %px error %lx",
 		task_pid_nr(tsk) > 1 ? KERN_INFO : KERN_EMERG,
 		tsk->comm, task_pid_nr(tsk), address,
 		(void *)regs->ip, (void *)regs->sp, error_code);
@@ -1257,8 +1252,6 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
 	 * Detect and handle instructions that would cause a page fault for
 	 * both a tracked kernel page and a userspace page.
 	 */
-	if (kmemcheck_active(regs))
-		kmemcheck_hide(regs);
 	prefetchw(&mm->mmap_sem);
 
 	if (unlikely(kmmio_fault(regs, address)))
@@ -1280,9 +1273,6 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
 	if (unlikely(fault_in_kernel_space(address))) {
 		if (!(error_code & (X86_PF_RSVD | X86_PF_USER | X86_PF_PROT))) {
 			if (vmalloc_fault(address) >= 0)
-				return;
-
-			if (kmemcheck_fault(regs, address, error_code))
 				return;
 		}
 

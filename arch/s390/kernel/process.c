@@ -44,26 +44,14 @@ asmlinkage void ret_from_fork(void) asm ("ret_from_fork");
 
 extern void kernel_thread_starter(void);
 
-/*
- * Free current thread data structures etc..
- */
-void exit_thread(struct task_struct *tsk)
-{
-	if (tsk == current)
-		exit_thread_gs();
-}
-
 void flush_thread(void)
-{
-}
-
-void release_thread(struct task_struct *dead_task)
 {
 }
 
 void arch_release_task_struct(struct task_struct *tsk)
 {
 	runtime_instr_release(tsk);
+	guarded_storage_release(tsk);
 }
 
 int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)

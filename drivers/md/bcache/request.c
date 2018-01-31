@@ -27,12 +27,12 @@ struct kmem_cache *bch_search_cache;
 
 static void bch_data_insert_start(struct closure *);
 
-static unsigned cache_mode(struct cached_dev *dc, struct bio *bio)
+static unsigned cache_mode(struct cached_dev *dc)
 {
 	return BDEV_CACHE_MODE(&dc->sb);
 }
 
-static bool verify(struct cached_dev *dc, struct bio *bio)
+static bool verify(struct cached_dev *dc)
 {
 	return dc->verify;
 }
@@ -370,7 +370,7 @@ static struct hlist_head *iohash(struct cached_dev *dc, uint64_t k)
 static bool check_should_bypass(struct cached_dev *dc, struct bio *bio)
 {
 	struct cache_set *c = dc->disk.c;
-	unsigned mode = cache_mode(dc, bio);
+	unsigned mode = cache_mode(dc);
 	unsigned sectors, congested = bch_get_congested(c);
 	struct task_struct *task = current;
 	struct io *i;
@@ -383,6 +383,14 @@ static bool check_should_bypass(struct cached_dev *dc, struct bio *bio)
 	if (mode == CACHE_MODE_NONE ||
 	    (mode == CACHE_MODE_WRITEAROUND &&
 	     op_is_write(bio_op(bio))))
+		goto skip;
+
+	/*
+	 * Flag for bypass if the IO is for read-ahead or background,
+	 * unless the read-ahead request is for metadata (eg, for gfs2).
+	 */
+	if (bio->bi_opf & (REQ_RAHEAD|REQ_BACKGROUND) &&
+	    !(bio->bi_opf & REQ_META))
 		goto skip;
 
 	if (bio->bi_iter.bi_sector & (c->sb.block_size - 1) ||
@@ -749,7 +757,7 @@ static void cached_dev_read_done(struct closure *cl)
 		s->cache_miss = NULL;
 	}
 
-	if (verify(dc, &s->bio.bio) && s->recoverable && !s->read_dirty_data)
+	if (verify(dc) && s->recoverable && !s->read_dirty_data)
 		bch_data_verify(dc, s->orig_bio);
 
 	bio_complete(s);
@@ -774,7 +782,7 @@ static void cached_dev_read_done_bh(struct closure *cl)
 
 	if (s->iop.status)
 		continue_at_nobarrier(cl, cached_dev_read_error, bcache_wq);
-	else if (s->iop.bio || verify(dc, &s->bio.bio))
+	else if (s->iop.bio || verify(dc))
 		continue_at_nobarrier(cl, cached_dev_read_done, bcache_wq);
 	else
 		continue_at_nobarrier(cl, cached_dev_bio_complete, NULL);
@@ -903,7 +911,7 @@ static void cached_dev_write(struct cached_dev *dc, struct search *s)
 		s->iop.bypass = true;
 
 	if (should_writeback(dc, s->orig_bio,
-			     cache_mode(dc, bio),
+			     cache_mode(dc),
 			     s->iop.bypass)) {
 		s->iop.bypass = false;
 		s->iop.writeback = true;

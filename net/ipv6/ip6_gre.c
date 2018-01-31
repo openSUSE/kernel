@@ -337,10 +337,11 @@ static struct ip6_tnl *ip6gre_tunnel_locate(struct net *net,
 
 	nt->dev = dev;
 	nt->net = dev_net(dev);
-	ip6gre_tnl_link_config(nt, 1);
 
 	if (register_netdevice(dev) < 0)
 		goto failed_free;
+
+	ip6gre_tnl_link_config(nt, 1);
 
 	/* Can use a lockless transmit, unless we generate output sequences */
 	if (!(nt->parms.o_flags & TUNNEL_SEQ))
@@ -369,6 +370,7 @@ static void ip6gre_tunnel_uninit(struct net_device *dev)
 static void ip6gre_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 		       u8 type, u8 code, int offset, __be32 info)
 {
+	struct net *net = dev_net(skb->dev);
 	const struct gre_base_hdr *greh;
 	const struct ipv6hdr *ipv6h;
 	int grehlen = sizeof(*greh);
@@ -402,9 +404,8 @@ static void ip6gre_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 		return;
 
 	switch (type) {
-		__u32 teli;
 		struct ipv6_tlv_tnl_enc_lim *tel;
-		__u32 mtu;
+		__u32 teli;
 	case ICMPV6_DEST_UNREACH:
 		net_dbg_ratelimited("%s: Path to destination invalid or inactive!\n",
 				    t->parms.name);
@@ -435,12 +436,11 @@ static void ip6gre_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 		}
 		return;
 	case ICMPV6_PKT_TOOBIG:
-		mtu = be32_to_cpu(info) - offset - t->tun_hlen;
-		if (t->dev->type == ARPHRD_ETHER)
-			mtu -= ETH_HLEN;
-		if (mtu < IPV6_MIN_MTU)
-			mtu = IPV6_MIN_MTU;
-		t->dev->mtu = mtu;
+		ip6_update_pmtu(skb, net, info, 0, 0, sock_net_uid(net, NULL));
+		return;
+	case NDISC_REDIRECT:
+		ip6_redirect(skb, net, skb->dev->ifindex, 0,
+			     sock_net_uid(net, NULL));
 		return;
 	}
 
@@ -503,7 +503,6 @@ static netdev_tx_t __gre6_xmit(struct sk_buff *skb,
 			       __u32 *pmtu, __be16 proto)
 {
 	struct ip6_tnl *tunnel = netdev_priv(dev);
-	struct dst_entry *dst = skb_dst(skb);
 	__be16 protocol;
 
 	if (dev->type == ARPHRD_ETHER)
@@ -521,10 +520,6 @@ static netdev_tx_t __gre6_xmit(struct sk_buff *skb,
 	protocol = (dev->type == ARPHRD_ETHER) ? htons(ETH_P_TEB) : proto;
 	gre_build_header(skb, tunnel->tun_hlen, tunnel->parms.o_flags,
 			 protocol, tunnel->parms.o_key, htonl(tunnel->o_seqno));
-
-	/* TooBig packet may have updated dst->dev's mtu */
-	if (dst && dst_mtu(dst) > dst->dev->mtu)
-		dst->ops->update_pmtu(dst, NULL, skb, dst->dev->mtu);
 
 	return ip6_tnl_xmit(skb, dev, dsfield, fl6, encap_limit, pmtu,
 			    NEXTHDR_GRE);
@@ -1196,19 +1191,21 @@ err_alloc_dev:
 	return err;
 }
 
-static void __net_exit ip6gre_exit_net(struct net *net)
+static void __net_exit ip6gre_exit_batch_net(struct list_head *net_list)
 {
+	struct net *net;
 	LIST_HEAD(list);
 
 	rtnl_lock();
-	ip6gre_destroy_tunnels(net, &list);
+	list_for_each_entry(net, net_list, exit_list)
+		ip6gre_destroy_tunnels(net, &list);
 	unregister_netdevice_many(&list);
 	rtnl_unlock();
 }
 
 static struct pernet_operations ip6gre_net_ops = {
 	.init = ip6gre_init_net,
-	.exit = ip6gre_exit_net,
+	.exit_batch = ip6gre_exit_batch_net,
 	.id   = &ip6gre_net_id,
 	.size = sizeof(struct ip6gre_net),
 };
@@ -1307,7 +1304,6 @@ static void ip6gre_netlink_parms(struct nlattr *data[],
 
 static int ip6gre_tap_init(struct net_device *dev)
 {
-	struct ip6_tnl *tunnel;
 	int ret;
 
 	ret = ip6gre_tunnel_init_common(dev);
@@ -1315,10 +1311,6 @@ static int ip6gre_tap_init(struct net_device *dev)
 		return ret;
 
 	dev->priv_flags |= IFF_LIVE_ADDR_CHANGE;
-
-	tunnel = netdev_priv(dev);
-
-	ip6gre_tnl_link_config(tunnel, 1);
 
 	return 0;
 }
@@ -1339,6 +1331,7 @@ static void ip6gre_tap_setup(struct net_device *dev)
 
 	ether_setup(dev);
 
+	dev->max_mtu = 0;
 	dev->netdev_ops = &ip6gre_tap_netdev_ops;
 	dev->needs_free_netdev = true;
 	dev->priv_destructor = ip6gre_dev_free;
@@ -1411,11 +1404,15 @@ static int ip6gre_newlink(struct net *src_net, struct net_device *dev,
 
 	nt->dev = dev;
 	nt->net = dev_net(dev);
-	ip6gre_tnl_link_config(nt, !tb[IFLA_MTU]);
 
 	err = register_netdevice(dev);
 	if (err)
 		goto out;
+
+	ip6gre_tnl_link_config(nt, !tb[IFLA_MTU]);
+
+	if (tb[IFLA_MTU])
+		ip6_tnl_change_mtu(dev, nla_get_u32(tb[IFLA_MTU]));
 
 	dev_hold(dev);
 	ip6gre_tunnel_link(ign, nt);

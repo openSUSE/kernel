@@ -1720,7 +1720,7 @@ int vmw_kms_cursor_bypass_ioctl(struct drm_device *dev, void *data,
 		return 0;
 	}
 
-	crtc = drm_crtc_find(dev, arg->crtc_id);
+	crtc = drm_crtc_find(dev, file_priv, arg->crtc_id);
 	if (!crtc) {
 		ret = -ENOENT;
 		goto out;
@@ -1863,7 +1863,7 @@ u32 vmw_get_vblank_counter(struct drm_device *dev, unsigned int pipe)
  */
 int vmw_enable_vblank(struct drm_device *dev, unsigned int pipe)
 {
-	return -ENOSYS;
+	return -EINVAL;
 }
 
 /**

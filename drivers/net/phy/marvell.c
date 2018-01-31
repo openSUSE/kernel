@@ -637,6 +637,10 @@ static int m88e1510_config_aneg(struct phy_device *phydev)
 	if (err < 0)
 		goto error;
 
+	/* Do not touch the fiber page if we're in copper->sgmii mode */
+	if (phydev->interface == PHY_INTERFACE_MODE_SGMII)
+		return 0;
+
 	/* Then the fiber link */
 	err = marvell_set_page(phydev, MII_MARVELL_FIBER_PAGE);
 	if (err < 0)
@@ -875,6 +879,8 @@ static int m88e1510_config_init(struct phy_device *phydev)
 
 	/* SGMII-to-Copper mode initialization */
 	if (phydev->interface == PHY_INTERFACE_MODE_SGMII) {
+		u32 pause;
+
 		/* Select page 18 */
 		err = marvell_set_page(phydev, 18);
 		if (err < 0)
@@ -898,6 +904,16 @@ static int m88e1510_config_init(struct phy_device *phydev)
 		err = marvell_set_page(phydev, MII_MARVELL_COPPER_PAGE);
 		if (err < 0)
 			return err;
+
+		/* There appears to be a bug in the 88e1512 when used in
+		 * SGMII to copper mode, where the AN advertisment register
+		 * clears the pause bits each time a negotiation occurs.
+		 * This means we can never be truely sure what was advertised,
+		 * so disable Pause support.
+		 */
+		pause = SUPPORTED_Pause | SUPPORTED_Asym_Pause;
+		phydev->supported &= ~pause;
+		phydev->advertising &= ~pause;
 	}
 
 	return m88e1121_config_init(phydev);
