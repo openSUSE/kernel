@@ -40,7 +40,7 @@ struct vsie_page {
 	__u8 reserved[0x0700 - 0x0230];		/* 0x0230 */
 	struct kvm_s390_crypto_cb crycb;	/* 0x0700 */
 	__u8 fac[S390_ARCH_FAC_LIST_SIZE_BYTE];	/* 0x0800 */
-} __packed;
+};
 
 /* trigger a validity icpt for the given scb */
 static int set_validity_icpt(struct kvm_s390_sie_block *scb,
