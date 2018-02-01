@@ -196,6 +196,9 @@ config HAVE_OPTPROBES
 config HAVE_KPROBES_ON_FTRACE
 	bool
 
+config HAVE_FUNCTION_ERROR_INJECTION
+	bool
+
 config HAVE_NMI
 	bool
 
@@ -937,6 +940,10 @@ config STRICT_MODULE_RWX
 	  If this is set, module text and rodata memory will be made read-only,
 	  and non-text memory will be made non-executable. This provides
 	  protection against certain security exploits (e.g. writing to text)
+
+# select if the architecture provides an asm/dma-direct.h header
+config ARCH_HAS_PHYS_TO_DMA
+	bool
 
 config ARCH_HAS_REFCOUNT
 	bool
