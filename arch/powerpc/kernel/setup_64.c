@@ -861,6 +861,8 @@ static bool init_fallback_flush(void)
 		paca[cpu].l1d_flush_congruence = c;
 		paca[cpu].l1d_flush_sets = c / 128;
 	}
+
+	return true;
 }
 
 void setup_rfi_flush(enum l1d_flush_type types, bool enable)
