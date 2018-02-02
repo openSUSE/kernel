@@ -270,6 +270,7 @@ ACCES 104-QUAD-8 IIO DRIVER
 M:	William Breathitt Gray <vilhelm.gray@gmail.com>
 L:	linux-iio@vger.kernel.org
 S:	Maintained
+F:	Documentation/ABI/testing/sysfs-bus-iio-counter-104-quad-8
 F:	drivers/iio/counter/104-quad-8.c
 
 ACCES PCI-IDIO-16 GPIO DRIVER
@@ -859,6 +860,8 @@ M:	Michael Hennerich <Michael.Hennerich@analog.com>
 W:	http://wiki.analog.com/
 W:	http://ez.analog.com/community/linux-device-drivers
 S:	Supported
+F:	Documentation/ABI/testing/sysfs-bus-iio-frequency-ad9523
+F:	Documentation/ABI/testing/sysfs-bus-iio-frequency-adf4350
 F:	drivers/iio/*/ad*
 F:	drivers/iio/adc/ltc2497*
 X:	drivers/iio/*/adjd*
@@ -1275,6 +1278,12 @@ L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Supported
 F:	drivers/net/ethernet/cavium/thunder/
 
+ARM/CIRRUS LOGIC BK3 MACHINE SUPPORT
+M:	Lukasz Majewski <lukma@denx.de>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+S:	Maintained
+F:	arch/arm/mach-ep93xx/ts72xx.c
+
 ARM/CIRRUS LOGIC CLPS711X ARM ARCHITECTURE
 M:	Alexander Shiyan <shc_work@mail.ru>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
@@ -1659,14 +1668,38 @@ ARM/NEC MOBILEPRO 900/c MACHINE SUPPORT
 M:	Michael Petchkovsky <mkpetch@internode.on.net>
 S:	Maintained
 
-ARM/NOMADIK ARCHITECTURE
-M:	Alessandro Rubini <rubini@unipv.it>
+ARM/NOMADIK/U300/Ux500 ARCHITECTURES
 M:	Linus Walleij <linus.walleij@linaro.org>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 F:	arch/arm/mach-nomadik/
-F:	drivers/pinctrl/nomadik/
+F:	arch/arm/mach-u300/
+F:	arch/arm/mach-ux500/
+F:	arch/arm/boot/dts/ste-*
+F:	drivers/clk/clk-nomadik.c
+F:	drivers/clk/clk-u300.c
+F:	drivers/clocksource/clksrc-dbx500-prcmu.c
+F:	drivers/clocksource/timer-u300.c
+F:	drivers/dma/coh901318*
+F:	drivers/dma/ste_dma40*
+F:	drivers/hwspinlock/u8500_hsem.c
 F:	drivers/i2c/busses/i2c-nomadik.c
+F:	drivers/i2c/busses/i2c-stu300.c
+F:	drivers/mfd/ab3100*
+F:	drivers/mfd/ab8500*
+F:	drivers/mfd/abx500*
+F:	drivers/mfd/dbx500*
+F:	drivers/mfd/db8500*
+F:	drivers/pinctrl/nomadik/
+F:	drivers/pinctrl/pinctrl-coh901*
+F:	drivers/pinctrl/pinctrl-u300.c
+F:	drivers/rtc/rtc-ab3100.c
+F:	drivers/rtc/rtc-ab8500.c
+F:	drivers/rtc/rtc-coh901331.c
+F:	drivers/rtc/rtc-pl031.c
+F:	drivers/watchdog/coh901327_wdt.c
+F:	Documentation/devicetree/bindings/arm/ste-*
+F:	Documentation/devicetree/bindings/arm/ux500/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-nomadik.git
 
 ARM/NUVOTON W90X900 ARM ARCHITECTURE
@@ -1980,9 +2013,10 @@ N:	stm32
 F:	drivers/clocksource/armv7m_systick.c
 
 ARM/TANGO ARCHITECTURE
-M:	Marc Gonzalez <marc_gonzalez@sigmadesigns.com>
+M:	Marc Gonzalez <marc.w.gonzalez@free.fr>
+M:	Mans Rullgard <mans@mansr.com>
 L:	linux-arm-kernel@lists.infradead.org
-S:	Maintained
+S:	Odd Fixes
 N:	tango
 
 ARM/TECHNOLOGIC SYSTEMS TS7250 MACHINE SUPPORT
@@ -2046,21 +2080,6 @@ M:	Dmitry Eremin-Solenikov <dbaryshkov@gmail.com>
 M:	Dirk Opfer <dirk@opfer-online.de>
 S:	Maintained
 
-ARM/U300 MACHINE SUPPORT
-M:	Linus Walleij <linus.walleij@linaro.org>
-L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
-S:	Supported
-F:	arch/arm/mach-u300/
-F:	drivers/clocksource/timer-u300.c
-F:	drivers/i2c/busses/i2c-stu300.c
-F:	drivers/rtc/rtc-coh901331.c
-F:	drivers/watchdog/coh901327_wdt.c
-F:	drivers/dma/coh901318*
-F:	drivers/mfd/ab3100*
-F:	drivers/rtc/rtc-ab3100.c
-F:	drivers/rtc/rtc-coh901331.c
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-stericsson.git
-
 ARM/UNIPHIER ARCHITECTURE
 M:	Masahiro Yamada <yamada.masahiro@socionext.com>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
@@ -2081,24 +2100,6 @@ F:	drivers/pinctrl/uniphier/
 F:	drivers/reset/reset-uniphier.c
 F:	drivers/tty/serial/8250/8250_uniphier.c
 N:	uniphier
-
-ARM/Ux500 ARM ARCHITECTURE
-M:	Linus Walleij <linus.walleij@linaro.org>
-L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
-S:	Maintained
-F:	arch/arm/mach-ux500/
-F:	drivers/clocksource/clksrc-dbx500-prcmu.c
-F:	drivers/dma/ste_dma40*
-F:	drivers/hwspinlock/u8500_hsem.c
-F:	drivers/mfd/abx500*
-F:	drivers/mfd/ab8500*
-F:	drivers/mfd/dbx500*
-F:	drivers/mfd/db8500*
-F:	drivers/pinctrl/nomadik/pinctrl-ab*
-F:	drivers/pinctrl/nomadik/pinctrl-nomadik*
-F:	drivers/rtc/rtc-ab8500.c
-F:	drivers/rtc/rtc-pl031.c
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-stericsson.git
 
 ARM/Ux500 CLOCK FRAMEWORK SUPPORT
 M:	Ulf Hansson <ulf.hansson@linaro.org>
@@ -2518,6 +2519,8 @@ L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 F:	Documentation/devicetree/bindings/arm/axentia.txt
 F:	arch/arm/boot/dts/at91-linea.dtsi
+F:	arch/arm/boot/dts/at91-natte.dtsi
+F:	arch/arm/boot/dts/at91-nattis-2-natte-2.dts
 F:	arch/arm/boot/dts/at91-tse850-3.dts
 
 AXENTIA ASOC DRIVERS
@@ -3418,8 +3421,8 @@ M:	Arnd Bergmann <arnd@arndb.de>
 M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/char-misc.git
 S:	Supported
-F:	drivers/char/*
-F:	drivers/misc/*
+F:	drivers/char/
+F:	drivers/misc/
 F:	include/linux/miscdevice.h
 
 CHECKPATCH
@@ -4145,6 +4148,7 @@ DEVANTECH SRF ULTRASONIC RANGER IIO DRIVER
 M:	Andreas Klinger <ak@it-klinger.de>
 L:	linux-iio@vger.kernel.org
 S:	Maintained
+F:	Documentation/ABI/testing/sysfs-bus-iio-distance-srf08
 F:	drivers/iio/proximity/srf*.c
 
 DEVICE COREDUMP (DEV_COREDUMP)
@@ -4482,6 +4486,12 @@ T:	git git://anongit.freedesktop.org/drm/drm-misc
 S:	Maintained
 F:	drivers/gpu/drm/tve200/
 
+DRM DRIVER FOR ILITEK ILI9225 PANELS
+M:	David Lechner <david@lechnology.com>
+S:	Maintained
+F:	drivers/gpu/drm/tinydrm/ili9225.c
+F:	Documentation/devicetree/bindings/display/ili9225.txt
+
 DRM DRIVER FOR INTEL I810 VIDEO CARDS
 S:	Orphan / Obsolete
 F:	drivers/gpu/drm/i810/
@@ -4568,6 +4578,12 @@ S:	Maintained
 F:	drivers/gpu/drm/tinydrm/st7586.c
 F:	Documentation/devicetree/bindings/display/st7586.txt
 
+DRM DRIVER FOR SITRONIX ST7735R PANELS
+M:	David Lechner <david@lechnology.com>
+S:	Maintained
+F:	drivers/gpu/drm/tinydrm/st7735r.c
+F:	Documentation/devicetree/bindings/display/st7735r.txt
+
 DRM DRIVER FOR TDFX VIDEO CARDS
 S:	Orphan / Obsolete
 F:	drivers/gpu/drm/tdfx/
@@ -4607,7 +4623,7 @@ F:	include/linux/vga*
 
 DRM DRIVERS AND MISC GPU PATCHES
 M:	Daniel Vetter <daniel.vetter@intel.com>
-M:	Jani Nikula <jani.nikula@linux.intel.com>
+M:	Gustavo Padovan <gustavo@padovan.org>
 M:	Sean Paul <seanpaul@chromium.org>
 W:	https://01.org/linuxgraphics/gfx-docs/maintainer-tools/drm-misc.html
 S:	Maintained
@@ -4736,7 +4752,8 @@ F:	Documentation/devicetree/bindings/display/bridge/renesas,dw-hdmi.txt
 F:	Documentation/devicetree/bindings/display/renesas,du.txt
 
 DRM DRIVERS FOR ROCKCHIP
-M:	Mark Yao <mark.yao@rock-chips.com>
+M:	Sandy Huang <hjc@rock-chips.com>
+M:	Heiko Stübner <heiko@sntech.de>
 L:	dri-devel@lists.freedesktop.org
 S:	Maintained
 F:	drivers/gpu/drm/rockchip/
@@ -4823,6 +4840,15 @@ T:	git git://anongit.freedesktop.org/drm/drm-misc
 S:	Maintained
 F:	drivers/gpu/drm/tinydrm/
 F:	include/drm/tinydrm/
+
+DRM TTM SUBSYSTEM
+M:	Christian Koenig <christian.koenig@amd.com>
+M:	Roger He <Hongbo.He@amd.com>
+T:	git git://people.freedesktop.org/~agd5f/linux
+S:	Maintained
+L:	dri-devel@lists.freedesktop.org
+F:	include/drm/ttm/
+F:	drivers/gpu/drm/ttm/
 
 DSBR100 USB FM RADIO DRIVER
 M:	Alexey Klimov <klimov.linux@gmail.com>
@@ -6850,6 +6876,8 @@ R:	Peter Meerwald-Stadler <pmeerw@pmeerw.net>
 L:	linux-iio@vger.kernel.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jic23/iio.git
 S:	Maintained
+F:	Documentation/ABI/testing/configfs-iio*
+F:	Documentation/ABI/testing/sysfs-bus-iio*
 F:	Documentation/devicetree/bindings/iio/
 F:	drivers/iio/
 F:	drivers/staging/iio/
@@ -7050,7 +7078,7 @@ M:	Zhi Wang <zhi.a.wang@intel.com>
 L:	intel-gvt-dev@lists.freedesktop.org
 L:	intel-gfx@lists.freedesktop.org
 W:	https://01.org/igvt-g
-T:	git https://github.com/01org/gvt-linux.git
+T:	git https://github.com/intel/gvt-linux.git
 S:	Supported
 F:	drivers/gpu/drm/i915/gvt/
 
@@ -7331,17 +7359,16 @@ F:	drivers/tty/ipwireless/
 
 IPX NETWORK LAYER
 L:	netdev@vger.kernel.org
-S:	Odd fixes
-F:	include/net/ipx.h
+S:	Obsolete
 F:	include/uapi/linux/ipx.h
-F:	net/ipx/
+F:	drivers/staging/ipx/
 
 IRDA SUBSYSTEM
 M:	Samuel Ortiz <samuel@sortiz.org>
 L:	irda-users@lists.sourceforge.net (subscribers-only)
 L:	netdev@vger.kernel.org
 W:	http://irda.sourceforge.net/
-S:	Maintained
+S:	Obsolete
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/sameo/irda-2.6.git
 F:	Documentation/networking/irda.txt
 F:	drivers/staging/irda/
@@ -9408,8 +9435,8 @@ F:	drivers/net/ethernet/natsemi/natsemi.c
 
 NCP FILESYSTEM
 M:	Petr Vandrovec <petr@vandrovec.name>
-S:	Odd Fixes
-F:	fs/ncpfs/
+S:	Obsolete
+F:	drivers/staging/ncpfs/
 
 NCR 5380 SCSI DRIVERS
 M:	Finn Thain <fthain@telegraphics.com.au>
@@ -11421,6 +11448,7 @@ F:	drivers/net/wireless/quantenna
 RADEON and AMDGPU DRM DRIVERS
 M:	Alex Deucher <alexander.deucher@amd.com>
 M:	Christian König <christian.koenig@amd.com>
+M:	David (ChunMing) Zhou <David1.Zhou@amd.com>
 L:	amd-gfx@lists.freedesktop.org
 T:	git git://people.freedesktop.org/~agd5f/linux
 S:	Supported
@@ -12521,6 +12549,13 @@ F:	lib/siphash.c
 F:	lib/test_siphash.c
 F:	include/linux/siphash.h
 
+SIOX
+M:	Gavin Schenk <g.schenk@eckelmann.de>
+M:	Uwe Kleine-König <kernel@pengutronix.de>
+S:	Supported
+F:	drivers/siox/*
+F:	include/trace/events/siox.h
+
 SIS 190 ETHERNET DRIVER
 M:	Francois Romieu <romieu@fr.zoreil.com>
 L:	netdev@vger.kernel.org
@@ -12571,6 +12606,14 @@ S:	Supported
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/paulmck/linux-rcu.git
 F:	include/linux/srcu.h
 F:	kernel/rcu/srcu.c
+
+SERIAL LOW-POWER INTER-CHIP MEDIA BUS (SLIMbus)
+M:	Srinivas Kandagatla <srinivas.kandagatla@linaro.org>
+L:	alsa-devel@alsa-project.org (moderated for non-subscribers)
+S:	Maintained
+F:	drivers/slimbus/
+F:	Documentation/devicetree/bindings/slimbus/
+F:	include/linux/slimbus.h
 
 SMACK SECURITY MODULE
 M:	Casey Schaufler <casey@schaufler-ca.com>
@@ -12796,6 +12839,16 @@ F:	Documentation/devicetree/bindings/sound/
 F:	Documentation/sound/alsa/soc/
 F:	sound/soc/
 F:	include/sound/soc*
+
+SOUNDWIRE SUBSYSTEM
+M:	Vinod Koul <vinod.koul@intel.com>
+M:	Sanyog Kale <sanyog.r.kale@intel.com>
+R:	Pierre-Louis Bossart <pierre-louis.bossart@linux.intel.com>
+L:	alsa-devel@alsa-project.org (moderated for non-subscribers)
+S:	Supported
+F:	Documentation/driver-api/soundwire/
+F:	drivers/soundwire/
+F:	include/linux/soundwire/
 
 SP2 MEDIA DRIVER
 M:	Olli Salonen <olli.salonen@iki.fi>
@@ -13180,6 +13233,11 @@ M:	Eugeniy Paltsev <Eugeniy.Paltsev@synopsys.com>
 S:	Supported
 F:	drivers/reset/reset-axs10x.c
 F:	Documentation/devicetree/bindings/reset/snps,axs10x-reset.txt
+
+SYNOPSYS DESIGNWARE 8250 UART DRIVER
+R:	Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+S:	Maintained
+F:	drivers/tty/serial/8250/8250_dw.c
 
 SYNOPSYS DESIGNWARE APB GPIO DRIVER
 M:	Hoan Tran <hotran@apm.com>
@@ -14114,6 +14172,8 @@ UNISYS S-PAR DRIVERS
 M:	David Kershner <david.kershner@unisys.com>
 L:	sparmaintainer@unisys.com (Unisys internal)
 S:	Supported
+F:	include/linux/visorbus.h
+F:	drivers/visorbus/
 F:	drivers/staging/unisys/
 
 UNIVERSAL FLASH STORAGE HOST CONTROLLER DRIVER
@@ -14659,6 +14719,15 @@ M:	Gerd Hoffmann <kraxel@redhat.com>
 S:	Maintained
 F:	drivers/virtio/virtio_input.c
 F:	include/uapi/linux/virtio_input.h
+
+VIRTUAL BOX GUEST DEVICE DRIVER
+M:	Hans de Goede <hdegoede@redhat.com>
+M:	Arnd Bergmann <arnd@arndb.de>
+M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+S:	Maintained
+F:	include/linux/vbox_utils.h
+F:	include/uapi/linux/vbox*.h
+F:	drivers/virt/vboxguest/
 
 VIRTUAL SERIO DEVICE DRIVER
 M:	Stephen Chandler Paul <thatslyude@gmail.com>
