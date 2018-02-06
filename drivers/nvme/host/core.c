@@ -245,6 +245,15 @@ bool nvme_change_ctrl_state(struct nvme_ctrl *ctrl,
 
 	old_state = ctrl->state;
 	switch (new_state) {
+	case NVME_CTRL_ADMIN_ONLY:
+		switch (old_state) {
+		case NVME_CTRL_RESETTING:
+			changed = true;
+			/* FALLTHRU */
+		default:
+			break;
+		}
+		break;
 	case NVME_CTRL_LIVE:
 		switch (old_state) {
 		case NVME_CTRL_NEW:
@@ -260,6 +269,7 @@ bool nvme_change_ctrl_state(struct nvme_ctrl *ctrl,
 		switch (old_state) {
 		case NVME_CTRL_NEW:
 		case NVME_CTRL_LIVE:
+		case NVME_CTRL_ADMIN_ONLY:
 			changed = true;
 			/* FALLTHRU */
 		default:
@@ -279,6 +289,7 @@ bool nvme_change_ctrl_state(struct nvme_ctrl *ctrl,
 	case NVME_CTRL_DELETING:
 		switch (old_state) {
 		case NVME_CTRL_LIVE:
+		case NVME_CTRL_ADMIN_ONLY:
 		case NVME_CTRL_RESETTING:
 		case NVME_CTRL_RECONNECTING:
 			changed = true;
@@ -2358,8 +2369,14 @@ static int nvme_dev_open(struct inode *inode, struct file *file)
 	struct nvme_ctrl *ctrl =
 		container_of(inode->i_cdev, struct nvme_ctrl, cdev);
 
-	if (ctrl->state != NVME_CTRL_LIVE)
+	switch (ctrl->state) {
+	case NVME_CTRL_LIVE:
+	case NVME_CTRL_ADMIN_ONLY:
+		break;
+	default:
 		return -EWOULDBLOCK;
+	}
+
 	file->private_data = ctrl;
 	return 0;
 }
@@ -2623,6 +2640,7 @@ static ssize_t nvme_sysfs_show_state(struct device *dev,
 	static const char *const state_name[] = {
 		[NVME_CTRL_NEW]		= "new",
 		[NVME_CTRL_LIVE]	= "live",
+		[NVME_CTRL_ADMIN_ONLY]	= "only-admin",
 		[NVME_CTRL_RESETTING]	= "resetting",
 		[NVME_CTRL_RECONNECTING]= "reconnecting",
 		[NVME_CTRL_DELETING]	= "deleting",
@@ -3096,6 +3114,8 @@ static void nvme_scan_work(struct work_struct *work)
 	if (ctrl->state != NVME_CTRL_LIVE)
 		return;
 
+	WARN_ON_ONCE(!ctrl->tagset);
+
 	if (nvme_identify_ctrl(ctrl, &id))
 		return;
 
@@ -3116,8 +3136,7 @@ static void nvme_scan_work(struct work_struct *work)
 void nvme_queue_scan(struct nvme_ctrl *ctrl)
 {
 	/*
-	 * Do not queue new scan work when a controller is reset during
-	 * removal.
+	 * Only new queue scan work when admin and IO queues are both alive
 	 */
 	if (ctrl->state == NVME_CTRL_LIVE)
 		queue_work(nvme_wq, &ctrl->scan_work);
