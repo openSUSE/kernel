@@ -2887,7 +2887,6 @@ static void nvme_alloc_ns(struct nvme_ctrl *ctrl, unsigned nsid)
 
 	blk_queue_logical_block_size(ns->queue, 1 << ns->lba_shift);
 	nvme_set_queue_limits(ctrl, ns->queue);
-	nvme_setup_streams_ns(ctrl, ns);
 
 	id = nvme_identify_ns(ctrl, nsid);
 	if (!id)
@@ -2898,6 +2897,7 @@ static void nvme_alloc_ns(struct nvme_ctrl *ctrl, unsigned nsid)
 
 	if (nvme_init_ns_head(ns, nsid, id, &new))
 		goto out_free_id;
+	nvme_setup_streams_ns(ctrl, ns);
 	
 #ifdef CONFIG_NVME_MULTIPATH
 	/*
