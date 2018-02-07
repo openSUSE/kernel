@@ -1026,23 +1026,14 @@ static void its_free_tables(struct its_node *its)
 
 static int its_alloc_tables(struct its_node *its)
 {
-	u64 typer = gic_read_typer(its->base + GITS_TYPER);
-	u32 ids = GITS_TYPER_DEVBITS(typer);
 	u64 shr = GITS_BASER_InnerShareable;
 	u64 cache = GITS_BASER_RaWaWb;
 	u32 psz = SZ_64K;
 	int err, i;
 
-	if (its->flags & ITS_FLAGS_WORKAROUND_CAVIUM_22375) {
-		/*
-		* erratum 22375: only alloc 8MB table size
-		* erratum 24313: ignore memory access type
-		*/
-		cache   = GITS_BASER_nCnB;
-		ids     = 0x14;                 /* 20 bits, 8MB */
-	}
-
-	its->device_ids = ids;
+	if (its->flags & ITS_FLAGS_WORKAROUND_CAVIUM_22375)
+		/* erratum 24313: ignore memory access type */
+		cache = GITS_BASER_nCnB;
 
 	for (i = 0; i < GITS_BASER_NR_REGS; i++) {
 		struct its_baser *baser = its->tables + i;
@@ -1591,6 +1582,8 @@ static void __maybe_unused its_enable_quirk_cavium_22375(void *data)
 {
 	struct its_node *its = data;
 
+	/* erratum 22375: only alloc 8MB table size */
+	its->device_ids = 0x14;		/* 20 bits, 8MB */
 	its->flags |= ITS_FLAGS_WORKAROUND_CAVIUM_22375;
 }
 
@@ -1712,6 +1705,7 @@ static int __init its_probe_one(struct resource *res,
 	its->base = its_base;
 	its->phys_base = res->start;
 	its->ite_size = ((gic_read_typer(its_base + GITS_TYPER) >> 4) & 0xf) + 1;
+	its->device_ids = GITS_TYPER_DEVBITS(typer);
 	its->numa_node = numa_node;
 
 	its->cmd_base = (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO,
