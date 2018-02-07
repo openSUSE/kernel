@@ -68,8 +68,8 @@ struct mlx5_flow_steering {
 	struct mlx5_core_dev *dev;
 	struct mlx5_flow_root_namespace *root_ns;
 	struct mlx5_flow_root_namespace *fdb_root_ns;
-	struct mlx5_flow_root_namespace *esw_egress_root_ns;
-	struct mlx5_flow_root_namespace *esw_ingress_root_ns;
+	struct mlx5_flow_root_namespace **esw_egress_root_ns;
+	struct mlx5_flow_root_namespace **esw_ingress_root_ns;
 	struct mlx5_flow_root_namespace	*sniffer_tx_root_ns;
 	struct mlx5_flow_root_namespace	*sniffer_rx_root_ns;
 };
@@ -147,6 +147,11 @@ struct mlx5_fc {
 	struct mlx5_fc_cache cache ____cacheline_aligned_in_smp;
 };
 
+struct mlx5_ft_underlay_qp {
+	struct list_head list;
+	u32 qpn;
+};
+
 #define MLX5_FTE_MATCH_PARAM_RESERVED	reserved_at_600
 /* Calculate the fte_match_param length and without the reserved length.
  * Make sure the reserved field is the last.
@@ -212,7 +217,7 @@ struct mlx5_flow_root_namespace {
 	struct mlx5_flow_table		*root_ft;
 	/* Should be held when chaining flow tables */
 	struct mutex			chain_lock;
-	u32				underlay_qpn;
+	struct list_head		underlay_qpns;
 };
 
 int mlx5_init_fc_stats(struct mlx5_core_dev *dev);
