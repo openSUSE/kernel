@@ -2064,8 +2064,8 @@ static int kvm_pv_enable_async_pf(struct kvm_vcpu *vcpu, u64 data)
 {
 	gpa_t gpa = data & ~0x3f;
 
-	/* Bits 2:5 are reserved, Should be zero */
-	if (data & 0x3c)
+	/* Bits 3:5 are reserved, Should be zero */
+	if (data & 0x38)
 		return 1;
 
 	vcpu->arch.apf.msr_val = data;
@@ -2081,6 +2081,7 @@ static int kvm_pv_enable_async_pf(struct kvm_vcpu *vcpu, u64 data)
 		return 1;
 
 	vcpu->arch.apf.send_user_only = !(data & KVM_ASYNC_PF_SEND_ALWAYS);
+	vcpu->arch.apf.delivery_as_pf_vmexit = data & KVM_ASYNC_PF_DELIVERY_AS_PF_VMEXIT;
 	kvm_async_pf_wakeup_all(vcpu);
 	return 0;
 }
@@ -8633,7 +8634,7 @@ void kvm_arch_async_page_present(struct kvm_vcpu *vcpu,
 		    vcpu->arch.exception.pending &&
 		    vcpu->arch.exception.nr == PF_VECTOR &&
 		    !apf_put_user(vcpu, 0)) {
-			vcpu->arch.exception.reinject = false;
+			vcpu->arch.exception.injected = false;
 			vcpu->arch.exception.pending = false;
 			vcpu->arch.exception.nr = 0;
 			vcpu->arch.exception.has_error_code = false;
