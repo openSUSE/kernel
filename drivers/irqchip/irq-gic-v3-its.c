@@ -447,9 +447,9 @@ static void its_flush_cmd(struct its_node *its, struct its_cmd_block *cmd)
 		dsb(ishst);
 }
 
-static void its_wait_for_range_completion(struct its_node *its,
-					  struct its_cmd_block *from,
-					  struct its_cmd_block *to)
+static int its_wait_for_range_completion(struct its_node *its,
+					 struct its_cmd_block *from,
+					 struct its_cmd_block *to)
 {
 	u64 rd_idx, from_idx, to_idx;
 	u32 count = 1000000;	/* 1s! */
@@ -464,12 +464,15 @@ static void its_wait_for_range_completion(struct its_node *its,
 
 		count--;
 		if (!count) {
-			pr_err_ratelimited("ITS queue timeout\n");
-			return;
+			pr_err_ratelimited("ITS queue timeout (%llu %llu %llu)\n",
+					   from_idx, to_idx, rd_idx);
+			return -1;
 		}
 		cpu_relax();
 		udelay(1);
 	}
+
+	return 0;
 }
 
 static void its_send_single_command(struct its_node *its,
@@ -507,7 +510,8 @@ post:
 	next_cmd = its_post_commands(its);
 	raw_spin_unlock_irqrestore(&its->lock, flags);
 
-	its_wait_for_range_completion(its, cmd, next_cmd);
+	if (its_wait_for_range_completion(its, cmd, next_cmd))
+		pr_err_ratelimited("ITS cmd %ps failed\n", builder);
 }
 
 static void its_send_inv(struct its_device *dev, u32 event_id)
