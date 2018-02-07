@@ -2335,7 +2335,7 @@ static int emulator_has_longmode(struct x86_emulate_ctxt *ctxt)
 
 	eax = 0x80000001;
 	ecx = 0;
-	ctxt->ops->get_cpuid(ctxt, &eax, &ebx, &ecx, &edx);
+	ctxt->ops->get_cpuid(ctxt, &eax, &ebx, &ecx, &edx, false);
 	return edx & bit(X86_FEATURE_LM);
 }
 
@@ -2638,7 +2638,7 @@ static bool vendor_intel(struct x86_emulate_ctxt *ctxt)
 	u32 eax, ebx, ecx, edx;
 
 	eax = ecx = 0;
-	ctxt->ops->get_cpuid(ctxt, &eax, &ebx, &ecx, &edx);
+	ctxt->ops->get_cpuid(ctxt, &eax, &ebx, &ecx, &edx, false);
 	return ebx == X86EMUL_CPUID_VENDOR_GenuineIntel_ebx
 		&& ecx == X86EMUL_CPUID_VENDOR_GenuineIntel_ecx
 		&& edx == X86EMUL_CPUID_VENDOR_GenuineIntel_edx;
@@ -2658,7 +2658,7 @@ static bool em_syscall_is_enabled(struct x86_emulate_ctxt *ctxt)
 
 	eax = 0x00000000;
 	ecx = 0x00000000;
-	ops->get_cpuid(ctxt, &eax, &ebx, &ecx, &edx);
+	ops->get_cpuid(ctxt, &eax, &ebx, &ecx, &edx, false);
 	/*
 	 * Intel ("GenuineIntel")
 	 * remark: Intel CPUs only support "syscall" in 64bit
@@ -3553,7 +3553,7 @@ static int em_movbe(struct x86_emulate_ctxt *ctxt)
 	/*
 	 * Check MOVBE is set in the guest-visible CPUID leaf.
 	 */
-	ctxt->ops->get_cpuid(ctxt, &eax, &ebx, &ecx, &edx);
+	ctxt->ops->get_cpuid(ctxt, &eax, &ebx, &ecx, &edx, false);
 	if (!(ecx & FFL(MOVBE)))
 		return emulate_ud(ctxt);
 
@@ -3867,7 +3867,7 @@ static int em_cpuid(struct x86_emulate_ctxt *ctxt)
 
 	eax = reg_read(ctxt, VCPU_REGS_RAX);
 	ecx = reg_read(ctxt, VCPU_REGS_RCX);
-	ctxt->ops->get_cpuid(ctxt, &eax, &ebx, &ecx, &edx);
+	ctxt->ops->get_cpuid(ctxt, &eax, &ebx, &ecx, &edx, true);
 	*reg_write(ctxt, VCPU_REGS_RAX) = eax;
 	*reg_write(ctxt, VCPU_REGS_RBX) = ebx;
 	*reg_write(ctxt, VCPU_REGS_RCX) = ecx;
@@ -3926,7 +3926,7 @@ static int check_fxsr(struct x86_emulate_ctxt *ctxt)
 {
 	u32 eax = 1, ebx, ecx = 0, edx;
 
-	ctxt->ops->get_cpuid(ctxt, &eax, &ebx, &ecx, &edx);
+	ctxt->ops->get_cpuid(ctxt, &eax, &ebx, &ecx, &edx, false);
 	if (!(edx & FFL(FXSR)))
 		return emulate_ud(ctxt);
 
