@@ -416,7 +416,7 @@ static const u8 srr1_to_lazyirq[0x10] = {
 	PACA_IRQ_HMI,
 	0, 0, 0, 0, 0 };
 
-static noinline void replay_system_reset(void)
+void replay_system_reset(void)
 {
 	struct pt_regs regs;
 
@@ -426,6 +426,7 @@ static noinline void replay_system_reset(void)
 	system_reset_exception(&regs);
 	get_paca()->in_nmi = 0;
 }
+EXPORT_SYMBOL_GPL(replay_system_reset);
 
 void irq_set_pending_from_srr1(unsigned long srr1)
 {
