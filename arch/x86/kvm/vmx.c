@@ -4292,14 +4292,12 @@ static void vmx_set_cr0(struct kvm_vcpu *vcpu, unsigned long cr0)
 
 static u64 construct_eptp(struct kvm_vcpu *vcpu, unsigned long root_hpa)
 {
-	u64 eptp;
+	u64 eptp = VMX_EPTP_MT_WB | VMX_EPTP_PWL_4;
 
 	/* TODO write the value reading from MSR */
-	eptp = VMX_EPT_DEFAULT_MT |
-		VMX_EPT_DEFAULT_GAW << VMX_EPT_GAW_EPTP_SHIFT;
 	if (enable_ept_ad_bits &&
 	    (!is_guest_mode(vcpu) || nested_ept_ad_enabled(vcpu)))
-		eptp |= VMX_EPT_AD_ENABLE_BIT;
+		eptp |= VMX_EPTP_AD_ENABLE_BIT;
 	eptp |= (root_hpa & PAGE_MASK);
 
 	return eptp;
@@ -7885,16 +7883,15 @@ static int handle_preemption_timer(struct kvm_vcpu *vcpu)
 static bool valid_ept_address(struct kvm_vcpu *vcpu, u64 address)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	u64 mask = address & 0x7;
 	int maxphyaddr = cpuid_maxphyaddr(vcpu);
 
 	/* Check for memory type validity */
-	switch (mask) {
-	case 0:
+	switch (address & VMX_EPTP_MT_MASK) {
+	case VMX_EPTP_MT_UC:
 		if (!(vmx->nested.nested_vmx_ept_caps & VMX_EPTP_UC_BIT))
 			return false;
 		break;
-	case 6:
+	case VMX_EPTP_MT_WB:
 		if (!(vmx->nested.nested_vmx_ept_caps & VMX_EPTP_WB_BIT))
 			return false;
 		break;
@@ -7902,8 +7899,8 @@ static bool valid_ept_address(struct kvm_vcpu *vcpu, u64 address)
 		return false;
 	}
 
-	/* Bits 5:3 must be 3 */
-	if (((address >> VMX_EPT_GAW_EPTP_SHIFT) & 0x7) != VMX_EPT_DEFAULT_GAW)
+	/* only 4 levels page-walk length are valid */
+	if ((address & VMX_EPTP_PWL_MASK) != VMX_EPTP_PWL_4)
 		return false;
 
 	/* Reserved bits should not be set */
@@ -7911,7 +7908,7 @@ static bool valid_ept_address(struct kvm_vcpu *vcpu, u64 address)
 		return false;
 
 	/* AD, if set, should be supported */
-	if ((address & VMX_EPT_AD_ENABLE_BIT)) {
+	if (address & VMX_EPTP_AD_ENABLE_BIT) {
 		if (!(vmx->nested.nested_vmx_ept_caps & VMX_EPT_AD_BIT))
 			return false;
 	}
@@ -7939,7 +7936,7 @@ static int nested_vmx_eptp_switching(struct kvm_vcpu *vcpu,
 				     &address, index * 8, 8))
 		return 1;
 
-	accessed_dirty = !!(address & VMX_EPT_AD_ENABLE_BIT);
+	accessed_dirty = !!(address & VMX_EPTP_AD_ENABLE_BIT);
 
 	/*
 	 * If the (L2) guest does a vmfunc to the currently
@@ -9506,7 +9503,7 @@ static void __init vmx_check_processor_compat(void *rtn)
 
 static int get_ept_level(void)
 {
-	return VMX_EPT_DEFAULT_GAW + 1;
+	return 4;
 }
 
 static u64 vmx_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio)
@@ -9707,7 +9704,7 @@ static void nested_ept_inject_page_fault(struct kvm_vcpu *vcpu,
 
 static bool nested_ept_ad_enabled(struct kvm_vcpu *vcpu)
 {
-	return nested_ept_get_cr3(vcpu) & VMX_EPT_AD_ENABLE_BIT;
+	return nested_ept_get_cr3(vcpu) & VMX_EPTP_AD_ENABLE_BIT;
 }
 
 /* Callbacks for nested_ept_init_mmu_context: */
