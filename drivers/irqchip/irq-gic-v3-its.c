@@ -975,6 +975,9 @@ static void its_send_vmovp(struct its_vpe *vpe)
 		if (!its->is_v4)
 			continue;
 
+		if (!vpe->its_vm->vlpi_count[its->list_nr])
+			continue;
+
 		desc.its_vmovp_cmd.col = &its->collections[col_id];
 		its_send_single_vcommand(its, its_build_vmovp_cmd, &desc);
 	}
@@ -1158,6 +1161,58 @@ static int its_irq_set_irqchip_state(struct irq_data *d,
 	return 0;
 }
 
+static void its_map_vm(struct its_node *its, struct its_vm *vm)
+{
+	unsigned long flags;
+
+	/* Not using the ITS list? Everything is always mapped. */
+	if (!its_list_map)
+		return;
+
+	raw_spin_lock_irqsave(&vmovp_lock, flags);
+
+	/*
+	 * If the VM wasn't mapped yet, iterate over the vpes and get
+	 * them mapped now.
+	 */
+	vm->vlpi_count[its->list_nr]++;
+
+	if (vm->vlpi_count[its->list_nr] == 1) {
+		int i;
+
+		for (i = 0; i < vm->nr_vpes; i++) {
+			struct its_vpe *vpe = vm->vpes[i];
+
+			/* Map the VPE to the first possible CPU */
+			vpe->col_idx = cpumask_first(cpu_online_mask);
+			its_send_vmapp(its, vpe, true);
+			its_send_vinvall(its, vpe);
+		}
+	}
+
+	raw_spin_unlock_irqrestore(&vmovp_lock, flags);
+}
+
+static void its_unmap_vm(struct its_node *its, struct its_vm *vm)
+{
+	unsigned long flags;
+
+	/* Not using the ITS list? Everything is always mapped. */
+	if (!its_list_map)
+		return;
+
+	raw_spin_lock_irqsave(&vmovp_lock, flags);
+
+	if (!--vm->vlpi_count[its->list_nr]) {
+		int i;
+
+		for (i = 0; i < vm->nr_vpes; i++)
+			its_send_vmapp(its, vm->vpes[i], false);
+	}
+
+	raw_spin_unlock_irqrestore(&vmovp_lock, flags);
+}
+
 static int its_vlpi_map(struct irq_data *d, struct its_cmd_info *info)
 {
 	struct its_device *its_dev = irq_data_get_irq_chip_data(d);
@@ -1193,6 +1248,9 @@ static int its_vlpi_map(struct irq_data *d, struct its_cmd_info *info)
 		/* Already mapped, move it around */
 		its_send_vmovi(its_dev, event);
 	} else {
+		/* Ensure all the VPEs are mapped on this ITS */
+		its_map_vm(its_dev->its, info->map->vm);
+
 		/* Drop the physical mapping */
 		its_send_discard(its_dev, event);
 
@@ -1253,6 +1311,9 @@ static int its_vlpi_unmap(struct irq_data *d)
 	lpi_update_config(d, 0xff, (LPI_PROP_DEFAULT_PRIO |
 				    LPI_PROP_ENABLED |
 				    LPI_PROP_GROUP1));
+
+	/* Potentially unmap the VM from this ITS */
+	its_unmap_vm(its_dev->its, its_dev->event_map.vm);
 
 	/*
 	 * Drop the refcount and make the device available again if
@@ -2485,6 +2546,9 @@ static void its_vpe_invall(struct its_vpe *vpe)
 		if (!its->is_v4)
 			continue;
 
+		if (its_list_map && !vpe->its_vm->vlpi_count[its->list_nr])
+			continue;
+
 		its_send_vinvall(its, vpe);
 	}
 }
@@ -2735,6 +2799,10 @@ static void its_vpe_irq_domain_activate(struct irq_domain *domain,
 	struct its_vpe *vpe = irq_data_get_irq_chip_data(d);
 	struct its_node *its;
 
+	/* If we use the list map, we issue VMAPP on demand... */
+	if (its_list_map)
+		return true;
+
 	/* Map the VPE to the first possible CPU */
 	vpe->col_idx = cpumask_first(cpu_online_mask);
 
@@ -2752,6 +2820,13 @@ static void its_vpe_irq_domain_deactivate(struct irq_domain *domain,
 {
 	struct its_vpe *vpe = irq_data_get_irq_chip_data(d);
 	struct its_node *its;
+
+	/*
+	 * If we use the list map, we unmap the VPE once no VLPIs are
+	 * associated with the VM.
+	 */
+	if (its_list_map)
+		return;
 
 	list_for_each_entry(its, &its_nodes, entry) {
 		if (!its->is_v4)
