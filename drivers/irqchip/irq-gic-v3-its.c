@@ -1182,11 +1182,13 @@ static void its_map_vm(struct its_node *its, struct its_vm *vm)
 
 		for (i = 0; i < vm->nr_vpes; i++) {
 			struct its_vpe *vpe = vm->vpes[i];
+			struct irq_data *d = irq_get_irq_data(vpe->irq);
 
 			/* Map the VPE to the first possible CPU */
 			vpe->col_idx = cpumask_first(cpu_online_mask);
 			its_send_vmapp(its, vpe, true);
 			its_send_vinvall(its, vpe);
+			irq_data_update_effective_affinity(d, cpumask_of(vpe->col_idx));
 		}
 	}
 
@@ -2471,6 +2473,8 @@ static int its_vpe_set_affinity(struct irq_data *d,
 		its_vpe_db_proxy_move(vpe, from, cpu);
 	}
 
+	irq_data_update_effective_affinity(d, cpumask_of(cpu));
+
 	return IRQ_SET_MASK_OK_DONE;
 }
 
@@ -2655,6 +2659,8 @@ static int its_vpe_set_irqchip_state(struct irq_data *d,
 		else
 			its_vpe_send_cmd(vpe, its_send_clear);
 	}
+
+	irq_data_update_effective_affinity(d, cpumask_of(vpe->col_idx));
 
 	return 0;
 }
