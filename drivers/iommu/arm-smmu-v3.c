@@ -413,6 +413,10 @@
 #define MSI_IOVA_BASE			0x8000000
 #define MSI_IOVA_LENGTH			0x100000
 
+#ifndef ACPI_IORT_SMMU_HISILICON_HI161X
+#define ACPI_IORT_SMMU_HISILICON_HI161X		0x1
+#endif
+
 static bool disable_bypass;
 module_param_named(disable_bypass, disable_bypass, bool, S_IRUGO);
 MODULE_PARM_DESC(disable_bypass,
@@ -2670,8 +2674,14 @@ static int arm_smmu_device_hw_probe(struct arm_smmu_device *smmu)
 #ifdef CONFIG_ACPI
 static void acpi_smmu_get_options(u32 model, struct arm_smmu_device *smmu)
 {
-	if (model == ACPI_IORT_SMMU_V3_CAVIUM_CN99XX)
+	switch (model) {
+	case ACPI_IORT_SMMU_V3_CAVIUM_CN99XX:
 		smmu->options |= ARM_SMMU_OPT_PAGE0_REGS_ONLY;
+		break;
+	case ACPI_IORT_SMMU_HISILICON_HI161X:
+		smmu->options |= ARM_SMMU_OPT_SKIP_PREFETCH;
+		break;
+	}
 
 	dev_notice(smmu->dev, "option mask 0x%x\n", smmu->options);
 }
