@@ -1729,7 +1729,7 @@ static int its_init_domain(struct fwnode_handle *handle, struct its_node *its)
 	}
 
 	inner_domain->parent = its_parent;
-	inner_domain->bus_token = DOMAIN_BUS_NEXUS;
+	irq_domain_update_bus_token(inner_domain, DOMAIN_BUS_NEXUS);
 	inner_domain->flags |= its->msi_domain_flags;
 	info->ops = &its_msi_domain_ops;
 	info->data = its;
