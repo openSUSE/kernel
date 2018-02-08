@@ -275,6 +275,11 @@ static inline bool irqd_is_level_type(struct irq_data *d)
 	return __irqd_to_state(d) & IRQD_LEVEL;
 }
 
+static inline void irqd_set_single_target(struct irq_data *d)
+{
+	/* agraf@suse.com: Stub out - we do not support single targets yet */
+}
+
 static inline bool irqd_is_wakeup_set(struct irq_data *d)
 {
 	return __irqd_to_state(d) & IRQD_WAKEUP_STATE;
@@ -741,6 +746,11 @@ static inline struct cpumask *irq_get_affinity_mask(int irq)
 static inline struct cpumask *irq_data_get_affinity_mask(struct irq_data *d)
 {
 	return d->common->affinity;
+}
+
+static inline void irq_data_update_effective_affinity(struct irq_data *d,
+						      const struct cpumask *m)
+{
 }
 
 unsigned int arch_dynirq_lower_bound(unsigned int from);
