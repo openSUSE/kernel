@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006 Intel Corporation.  All rights reserved.
+ * Copyright (c) 2017, Mellanox Technologies, Ltd.  All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -30,25 +30,22 @@
  * SOFTWARE.
  */
 
-#if !defined(RDMA_CM_IB_H)
-#define RDMA_CM_IB_H
+#ifndef __LIB_CLOCK_H__
+#define __LIB_CLOCK_H__
 
-#include <rdma/rdma_cm.h>
+void mlx5_init_clock(struct mlx5_core_dev *mdev);
+void mlx5_cleanup_clock(struct mlx5_core_dev *mdev);
 
-/**
- * rdma_set_ib_path - Manually sets the path record used to establish a
- *   connection.
- * @id: Connection identifier associated with the request.
- * @path_rec: Reference to the path record
- *
- * This call permits a user to specify routing information for rdma_cm_id's
- * bound to InfiniBand devices. It is called on the client side of a
- * connection and replaces the call to rdma_resolve_route.
- */
-int rdma_set_ib_path(struct rdma_cm_id *id,
-		     struct sa_path_rec *path_rec);
+static inline ktime_t mlx5_timecounter_cyc2time(struct mlx5_clock *clock,
+						u64 timestamp)
+{
+	u64 nsec;
 
-/* Global qkey for UDP QPs and multicast groups. */
-#define RDMA_UDP_QKEY 0x01234567
+	read_lock(&clock->lock);
+	nsec = timecounter_cyc2time(&clock->tc, timestamp);
+	read_unlock(&clock->lock);
 
-#endif /* RDMA_CM_IB_H */
+	return ns_to_ktime(nsec);
+}
+
+#endif

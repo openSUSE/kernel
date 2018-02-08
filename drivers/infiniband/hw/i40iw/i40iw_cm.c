@@ -125,13 +125,16 @@ static u8 i40iw_derive_hw_ird_setting(u16 cm_ird)
  * @conn_ird: connection IRD
  * @conn_ord: connection ORD
  */
-static void i40iw_record_ird_ord(struct i40iw_cm_node *cm_node, u16 conn_ird, u16 conn_ord)
+static void i40iw_record_ird_ord(struct i40iw_cm_node *cm_node, u32 conn_ird,
+				 u32 conn_ord)
 {
 	if (conn_ird > I40IW_MAX_IRD_SIZE)
 		conn_ird = I40IW_MAX_IRD_SIZE;
 
 	if (conn_ord > I40IW_MAX_ORD_SIZE)
 		conn_ord = I40IW_MAX_ORD_SIZE;
+	else if (!conn_ord && cm_node->send_rdma0_op == SEND_RDMA_READ_ZERO)
+		conn_ord = 1;
 
 	cm_node->ird_size = conn_ird;
 	cm_node->ord_size = conn_ord;
@@ -2879,21 +2882,22 @@ static struct i40iw_cm_listener *i40iw_make_listen_node(
  * i40iw_create_cm_node - make a connection node with params
  * @cm_core: cm's core
  * @iwdev: iwarp device structure
- * @private_data_len: len to provate data for mpa request
- * @private_data: pointer to private data for connection
+ * @conn_param: upper layer connection parameters
  * @cm_info: quad info for connection
  */
 static struct i40iw_cm_node *i40iw_create_cm_node(
 					struct i40iw_cm_core *cm_core,
 					struct i40iw_device *iwdev,
-					u16 private_data_len,
-					void *private_data,
+					struct iw_cm_conn_param *conn_param,
 					struct i40iw_cm_info *cm_info)
 {
 	struct i40iw_cm_node *cm_node;
 	struct i40iw_cm_listener *loopback_remotelistener;
 	struct i40iw_cm_node *loopback_remotenode;
 	struct i40iw_cm_info loopback_cm_info;
+
+	u16 private_data_len = conn_param->private_data_len;
+	const void *private_data = conn_param->private_data;
 
 	/* create a CM connection node */
 	cm_node = i40iw_make_cm_node(cm_core, iwdev, cm_info, NULL);
@@ -2902,6 +2906,8 @@ static struct i40iw_cm_node *i40iw_create_cm_node(
 	/* set our node side to client (active) side */
 	cm_node->tcp_cntxt.client = 1;
 	cm_node->tcp_cntxt.rcv_wscale = I40IW_CM_DEFAULT_RCV_WND_SCALE;
+
+	i40iw_record_ird_ord(cm_node, conn_param->ird, conn_param->ord);
 
 	if (!memcmp(cm_info->loc_addr, cm_info->rem_addr, sizeof(cm_info->loc_addr))) {
 		loopback_remotelistener = i40iw_find_listener(
@@ -2935,6 +2941,10 @@ static struct i40iw_cm_node *i40iw_create_cm_node(
 			memcpy(loopback_remotenode->pdata_buf, private_data,
 			       private_data_len);
 			loopback_remotenode->pdata.size = private_data_len;
+
+			if (loopback_remotenode->ord_size > cm_node->ird_size)
+				loopback_remotenode->ord_size =
+					cm_node->ird_size;
 
 			cm_node->state = I40IW_CM_STATE_OFFLOADED;
 			cm_node->tcp_cntxt.rcv_nxt =
@@ -3817,9 +3827,7 @@ int i40iw_connect(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 		    __func__, cm_id->tos, cm_info.user_pri);
 	cm_id->add_ref(cm_id);
 	cm_node = i40iw_create_cm_node(&iwdev->cm_core, iwdev,
-				       conn_param->private_data_len,
-				       (void *)conn_param->private_data,
-				       &cm_info);
+				       conn_param, &cm_info);
 
 	if (IS_ERR(cm_node)) {
 		ret = PTR_ERR(cm_node);
@@ -3851,11 +3859,6 @@ int i40iw_connect(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 	}
 
 	cm_node->apbvt_set = true;
-	i40iw_record_ird_ord(cm_node, (u16)conn_param->ird, (u16)conn_param->ord);
-	if (cm_node->send_rdma0_op == SEND_RDMA_READ_ZERO &&
-	    !cm_node->ord_size)
-		cm_node->ord_size = 1;
-
 	iwqp->cm_node = cm_node;
 	cm_node->iwqp = iwqp;
 	iwqp->cm_id = cm_id;
@@ -4244,10 +4247,16 @@ set_qhash:
 }
 
 /**
- * i40iw_cm_disconnect_all - disconnect all connected qp's
+ * i40iw_cm_teardown_connections - teardown QPs
  * @iwdev: device pointer
+ * @ipaddr: Pointer to IPv4 or IPv6 address
+ * @ipv4: flag indicating IPv4 when true
+ * @disconnect_all: flag indicating disconnect all QPs
+ * teardown QPs where source or destination addr matches ip addr
  */
-void i40iw_cm_disconnect_all(struct i40iw_device *iwdev)
+void i40iw_cm_teardown_connections(struct i40iw_device *iwdev, u32 *ipaddr,
+				   struct i40iw_cm_info *nfo,
+				   bool disconnect_all)
 {
 	struct i40iw_cm_core *cm_core = &iwdev->cm_core;
 	struct list_head *list_core_temp;
@@ -4261,8 +4270,13 @@ void i40iw_cm_disconnect_all(struct i40iw_device *iwdev)
 	spin_lock_irqsave(&cm_core->ht_lock, flags);
 	list_for_each_safe(list_node, list_core_temp, &cm_core->connected_nodes) {
 		cm_node = container_of(list_node, struct i40iw_cm_node, list);
-		atomic_inc(&cm_node->ref_count);
-		list_add(&cm_node->connected_entry, &connected_list);
+		if (disconnect_all ||
+		    (nfo->vlan_id == cm_node->vlan_id &&
+		    (!memcmp(cm_node->loc_addr, ipaddr, nfo->ipv4 ? 4 : 16) ||
+		     !memcmp(cm_node->rem_addr, ipaddr, nfo->ipv4 ? 4 : 16)))) {
+			atomic_inc(&cm_node->ref_count);
+			list_add(&cm_node->connected_entry, &connected_list);
+		}
 	}
 	spin_unlock_irqrestore(&cm_core->ht_lock, flags);
 
@@ -4296,6 +4310,9 @@ void i40iw_if_notify(struct i40iw_device *iwdev, struct net_device *netdev,
 	enum i40iw_quad_hash_manage_type op =
 		ifup ? I40IW_QHASH_MANAGE_TYPE_ADD : I40IW_QHASH_MANAGE_TYPE_DELETE;
 
+	nfo.vlan_id = vlan_id;
+	nfo.ipv4 = ipv4;
+
 	/* Disable or enable qhash for listeners */
 	spin_lock_irqsave(&cm_core->listen_list_lock, flags);
 	list_for_each_entry(listen_node, &cm_core->listen_nodes, list) {
@@ -4305,8 +4322,6 @@ void i40iw_if_notify(struct i40iw_device *iwdev, struct net_device *netdev,
 			memcpy(nfo.loc_addr, listen_node->loc_addr,
 			       sizeof(nfo.loc_addr));
 			nfo.loc_port = listen_node->loc_port;
-			nfo.ipv4 = listen_node->ipv4;
-			nfo.vlan_id = listen_node->vlan_id;
 			nfo.user_pri = listen_node->user_pri;
 			if (!list_empty(&listen_node->child_listen_list)) {
 				i40iw_qhash_ctrl(iwdev,
@@ -4328,7 +4343,7 @@ void i40iw_if_notify(struct i40iw_device *iwdev, struct net_device *netdev,
 	}
 	spin_unlock_irqrestore(&cm_core->listen_list_lock, flags);
 
-	/* disconnect any connected qp's on ifdown */
+	/* teardown connected qp's on ifdown */
 	if (!ifup)
-		i40iw_cm_disconnect_all(iwdev);
+		i40iw_cm_teardown_connections(iwdev, ipaddr, &nfo, false);
 }
