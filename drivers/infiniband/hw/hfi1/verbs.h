@@ -105,6 +105,11 @@ enum {
 	HFI1_HAS_GRH = (1 << 0),
 };
 
+#define LRH_16B_BYTES (FIELD_SIZEOF(struct hfi1_16b_header, lrh))
+#define LRH_16B_DWORDS (LRH_16B_BYTES / sizeof(u32))
+#define LRH_9B_BYTES (FIELD_SIZEOF(struct ib_header, lrh))
+#define LRH_9B_DWORDS (LRH_9B_BYTES / sizeof(u32))
+
 struct hfi1_16b_header {
 	u32 lrh[4];
 	union {
@@ -243,17 +248,6 @@ static inline struct rvt_qp *iowait_to_qp(struct  iowait *s_iowait)
 
 	priv = container_of(s_iowait, struct hfi1_qp_priv, s_iowait);
 	return priv->owner;
-}
-
-/*
- * Send if not busy or waiting for I/O and either
- * a RC response is pending or we can process send work requests.
- */
-static inline int hfi1_send_ok(struct rvt_qp *qp)
-{
-	return !(qp->s_flags & (RVT_S_BUSY | RVT_S_ANY_WAIT_IO)) &&
-		(qp->s_hdrwords || (qp->s_flags & RVT_S_RESP_PENDING) ||
-		 !(qp->s_flags & RVT_S_ANY_WAIT_SEND));
 }
 
 /*
