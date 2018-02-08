@@ -2919,7 +2919,7 @@ static int its_init_vpe_domain(void)
 		return -ENOMEM;
 	}
 
-	BUG_ON(entries != vpe_proxy.dev->nr_ites);
+	BUG_ON(entries > vpe_proxy.dev->nr_ites);
 
 	raw_spin_lock_init(&vpe_proxy.lock);
 	vpe_proxy.next_victim = 0;
