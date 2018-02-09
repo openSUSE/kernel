@@ -137,7 +137,8 @@ struct rds_connection {
 	__be32			c_faddr;
 	unsigned int		c_loopback:1,
 				c_ping_triggered:1,
-				c_pad_to_32:30;
+				c_destroy_in_prog:1,
+				c_pad_to_32:29;
 	int			c_npaths;
 	struct rds_connection	*c_passive;
 	struct rds_transport	*c_trans;
@@ -147,7 +148,7 @@ struct rds_connection {
 
 	/* Protocol version */
 	unsigned int		c_version;
-	struct net		*c_net;
+	possible_net_t		c_net;
 
 	struct list_head	c_map_item;
 	unsigned long		c_map_queued;
@@ -162,13 +163,13 @@ struct rds_connection {
 static inline
 struct net *rds_conn_net(struct rds_connection *conn)
 {
-	return conn->c_net;
+	return read_pnet(&conn->c_net);
 }
 
 static inline
 void rds_conn_net_set(struct rds_connection *conn, struct net *net)
 {
-	conn->c_net = get_net(net);
+	write_pnet(&conn->c_net, net);
 }
 
 #define RDS_FLAG_CONG_BITMAP	0x01
