@@ -186,12 +186,18 @@ int _raw_read_trylock_retry(arch_rwlock_t *rw)
 EXPORT_SYMBOL(_raw_read_trylock_retry);
 
 #ifdef CONFIG_HAVE_MARCH_Z196_FEATURES
-
 void _raw_write_lock_wait(arch_rwlock_t *rw, int prev)
+#else
+void _raw_write_lock_wait(arch_rwlock_t *rw)
+#endif
 {
 	int count = spin_retry;
 	int owner, old;
 
+#ifdef CONFIG_HAVE_MARCH_Z196_FEATURES
+	if (prev > 0)
+		__RAW_UNLOCK(&rw->lock, 0x7fffffff, __RAW_OP_AND);
+#endif
 	owner = 0;
 	while (1) {
 		if (count-- <= 0) {
@@ -201,46 +207,11 @@ void _raw_write_lock_wait(arch_rwlock_t *rw, int prev)
 		}
 		old = ACCESS_ONCE(rw->lock);
 		owner = ACCESS_ONCE(rw->owner);
-		smp_mb();
-		if (old >= 0) {
-			prev = __RAW_LOCK(&rw->lock, 0x80000000, __RAW_OP_OR);
-			old = prev;
-		}
-		if ((old & 0x7fffffff) == 0 && prev >= 0)
+		if (old == 0 && __atomic_cmpxchg_bool(&rw->lock, 0, 0x80000000))
 			break;
 	}
 }
 EXPORT_SYMBOL(_raw_write_lock_wait);
-
-#else /* CONFIG_HAVE_MARCH_Z196_FEATURES */
-
-void _raw_write_lock_wait(arch_rwlock_t *rw)
-{
-	int count = spin_retry;
-	int owner, old, prev;
-
-	prev = 0x80000000;
-	owner = 0;
-	while (1) {
-		if (count-- <= 0) {
-			if (owner && arch_vcpu_is_preempted(~owner))
-				smp_yield_cpu(~owner);
-			count = spin_retry;
-		}
-		old = ACCESS_ONCE(rw->lock);
-		owner = ACCESS_ONCE(rw->owner);
-		if (old >= 0 &&
-		    __atomic_cmpxchg_bool(&rw->lock, old, old | 0x80000000))
-			prev = old;
-		else
-			smp_mb();
-		if ((old & 0x7fffffff) == 0 && prev >= 0)
-			break;
-	}
-}
-EXPORT_SYMBOL(_raw_write_lock_wait);
-
-#endif /* CONFIG_HAVE_MARCH_Z196_FEATURES */
 
 int _raw_write_trylock_retry(arch_rwlock_t *rw)
 {

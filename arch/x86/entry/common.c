@@ -21,6 +21,7 @@
 #include <linux/export.h>
 #include <linux/context_tracking.h>
 #include <linux/user-return-notifier.h>
+#include <linux/nospec.h>
 #include <linux/uprobes.h>
 #include <linux/livepatch.h>
 
@@ -152,6 +153,9 @@ static void exit_to_usermode_loop(struct pt_regs *regs, u32 cached_flags)
 		if (cached_flags & _TIF_UPROBE)
 			uprobe_notify_resume(regs);
 
+		if (cached_flags & _TIF_PATCH_PENDING)
+			klp_update_patch_state(current);
+
 		/* deal with pending signal delivery */
 		if (cached_flags & _TIF_SIGPENDING)
 			do_signal(regs);
@@ -163,9 +167,6 @@ static void exit_to_usermode_loop(struct pt_regs *regs, u32 cached_flags)
 
 		if (cached_flags & _TIF_USER_RETURN_NOTIFY)
 			fire_user_return_notifiers();
-
-		if (cached_flags & _TIF_PATCH_PENDING)
-			klp_update_patch_state(current);
 
 		/* Disable IRQs and retry */
 		local_irq_disable();
@@ -279,7 +280,8 @@ __visible void do_syscall_64(struct pt_regs *regs)
 	 * regs->orig_ax, which changes the behavior of some syscalls.
 	 */
 	if (likely((nr & __SYSCALL_MASK) < NR_syscalls)) {
-		regs->ax = sys_call_table[nr & __SYSCALL_MASK](
+		nr = array_index_nospec(nr & __SYSCALL_MASK, NR_syscalls);
+		regs->ax = sys_call_table[nr](
 			regs->di, regs->si, regs->dx,
 			regs->r10, regs->r8, regs->r9);
 	}
@@ -315,6 +317,7 @@ static __always_inline void do_syscall_32_irqs_on(struct pt_regs *regs)
 	}
 
 	if (likely(nr < IA32_NR_syscalls)) {
+		nr = array_index_nospec(nr, IA32_NR_syscalls);
 		/*
 		 * It's possible that a 32-bit syscall implementation
 		 * takes a 64-bit parameter but nonetheless assumes that

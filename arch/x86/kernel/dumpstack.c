@@ -71,7 +71,8 @@ static void printk_stack_address(unsigned long address, int reliable,
 
 void show_iret_regs(struct pt_regs *regs)
 {
-	printk(KERN_DEFAULT "RIP: %04x:%pS\n", (int)regs->cs, (void *)regs->ip);
+	printk(KERN_DEFAULT "RIP: %04x:%pS\n", (int)regs->cs & 0xffff,
+		(void *)regs->ip);
 	printk(KERN_DEFAULT "RSP: %04x:%016lx EFLAGS: %08lx", (int)regs->ss,
 		regs->sp, regs->flags);
 }
@@ -109,7 +110,7 @@ void show_trace_log_lvl(struct task_struct *task, struct pt_regs *regs,
 	struct stack_info stack_info = {0};
 	unsigned long visit_mask = 0;
 	int graph_idx = 0;
-	bool partial;
+	bool partial = false;
 
 	printk("%sCall Trace:\n", log_lvl);
 

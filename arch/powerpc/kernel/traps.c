@@ -20,6 +20,7 @@
 #include <linux/sched/debug.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
+#include <linux/pkeys.h>
 #include <linux/stddef.h>
 #include <linux/unistd.h>
 #include <linux/ptrace.h>
@@ -248,7 +249,9 @@ void user_single_step_siginfo(struct task_struct *tsk,
 	info->si_addr = (void __user *)regs->nip;
 }
 
-void _exception(int signr, struct pt_regs *regs, int code, unsigned long addr)
+
+void _exception_pkey(int signr, struct pt_regs *regs, int code,
+		unsigned long addr, int key)
 {
 	siginfo_t info;
 	const char fmt32[] = KERN_INFO "%s[%d]: unhandled signal %d " \
@@ -271,11 +274,25 @@ void _exception(int signr, struct pt_regs *regs, int code, unsigned long addr)
 		local_irq_enable();
 
 	current->thread.trap_nr = code;
+
+	/*
+	 * Save all the pkey registers AMR/IAMR/UAMOR. Eg: Core dumps need
+	 * to capture the content, if the task gets killed.
+	 */
+	thread_pkey_regs_save(&current->thread);
+
 	memset(&info, 0, sizeof(info));
 	info.si_signo = signr;
 	info.si_code = code;
 	info.si_addr = (void __user *) addr;
+	info.si_pkey = key;
+
 	force_sig_info(signr, &info, current);
+}
+
+void _exception(int signr, struct pt_regs *regs, int code, unsigned long addr)
+{
+	_exception_pkey(signr, regs, code, addr, 0);
 }
 
 void system_reset_exception(struct pt_regs *regs)

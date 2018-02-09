@@ -825,6 +825,10 @@ struct mbox_list {
 	struct list_head list;
 };
 
+struct mps_encap_entry {
+	atomic_t refcnt;
+};
+
 struct adapter {
 	void __iomem *regs;
 	void __iomem *bar2;
@@ -839,6 +843,10 @@ struct adapter {
 	enum chip_type chip;
 
 	int msg_enable;
+	__be16 vxlan_port;
+	u8 vxlan_port_cnt;
+	__be16 geneve_port;
+	u8 geneve_port_cnt;
 
 	struct adapter_params params;
 	struct cxgb4_virt_res vres;
@@ -868,7 +876,10 @@ struct adapter {
 	unsigned int clipt_start;
 	unsigned int clipt_end;
 	struct clip_tbl *clipt;
+	unsigned int rawf_start;
+	unsigned int rawf_cnt;
 	struct smt_data *smt;
+	struct mps_encap_entry *mps_encap;
 	struct cxgb4_uld_info *uld;
 	void *uld_handle[CXGB4_ULD_MAX];
 	unsigned int num_uld;
@@ -1303,6 +1314,7 @@ void t4_sge_start(struct adapter *adap);
 void t4_sge_stop(struct adapter *adap);
 void cxgb4_set_ethtool_ops(struct net_device *netdev);
 int cxgb4_write_rss(const struct port_info *pi, const u16 *queues);
+enum cpl_tx_tnl_lso_type cxgb_encap_offload_supported(struct sk_buff *skb);
 extern int dbfifo_int_thresh;
 
 #define for_each_port(adapter, iter) \
@@ -1620,6 +1632,12 @@ int t4_free_vi(struct adapter *adap, unsigned int mbox,
 int t4_set_rxmode(struct adapter *adap, unsigned int mbox, unsigned int viid,
 		int mtu, int promisc, int all_multi, int bcast, int vlanex,
 		bool sleep_ok);
+int t4_free_raw_mac_filt(struct adapter *adap, unsigned int viid,
+			 const u8 *addr, const u8 *mask, unsigned int idx,
+			 u8 lookup_type, u8 port_id, bool sleep_ok);
+int t4_alloc_raw_mac_filt(struct adapter *adap, unsigned int viid,
+			  const u8 *addr, const u8 *mask, unsigned int idx,
+			  u8 lookup_type, u8 port_id, bool sleep_ok);
 int t4_alloc_mac_filt(struct adapter *adap, unsigned int mbox,
 		      unsigned int viid, bool free, unsigned int naddr,
 		      const u8 **addr, u16 *idx, u64 *hash, bool sleep_ok);

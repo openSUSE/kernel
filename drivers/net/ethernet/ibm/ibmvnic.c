@@ -354,6 +354,8 @@ static void release_stats_buffers(struct ibmvnic_adapter *adapter)
 {
 	kfree(adapter->tx_stats_buffers);
 	kfree(adapter->rx_stats_buffers);
+	adapter->tx_stats_buffers = NULL;
+	adapter->rx_stats_buffers = NULL;
 }
 
 static int init_stats_buffers(struct ibmvnic_adapter *adapter)
@@ -599,6 +601,8 @@ static void release_vpd_data(struct ibmvnic_adapter *adapter)
 
 	kfree(adapter->vpd->buff);
 	kfree(adapter->vpd);
+
+	adapter->vpd = NULL;
 }
 
 static void release_tx_pools(struct ibmvnic_adapter *adapter)
@@ -909,6 +913,7 @@ static int ibmvnic_get_vpd(struct ibmvnic_adapter *adapter)
 	if (dma_mapping_error(dev, adapter->vpd->dma_addr)) {
 		dev_err(dev, "Could not map VPD buffer\n");
 		kfree(adapter->vpd->buff);
+		adapter->vpd->buff = NULL;
 		return -ENOMEM;
 	}
 
@@ -1548,15 +1553,19 @@ static int __ibmvnic_set_mac(struct net_device *netdev, struct sockaddr *p)
 	crq.change_mac_addr.first = IBMVNIC_CRQ_CMD;
 	crq.change_mac_addr.cmd = CHANGE_MAC_ADDR;
 	ether_addr_copy(&crq.change_mac_addr.mac_addr[0], addr->sa_data);
+
+	init_completion(&adapter->fw_done);
 	ibmvnic_send_crq(adapter, &crq);
+	wait_for_completion(&adapter->fw_done);
 	/* netdev->dev_addr is changed in handle_change_mac_rsp function */
-	return 0;
+	return adapter->fw_done_rc ? -EIO : 0;
 }
 
 static int ibmvnic_set_mac(struct net_device *netdev, void *p)
 {
 	struct ibmvnic_adapter *adapter = netdev_priv(netdev);
 	struct sockaddr *addr = p;
+	int rc;
 
 	if (adapter->state == VNIC_PROBED) {
 		memcpy(&adapter->desired.mac, addr, sizeof(struct sockaddr));
@@ -1564,9 +1573,9 @@ static int ibmvnic_set_mac(struct net_device *netdev, void *p)
 		return 0;
 	}
 
-	__ibmvnic_set_mac(netdev, addr);
+	rc = __ibmvnic_set_mac(netdev, addr);
 
-	return 0;
+	return rc;
 }
 
 /**
@@ -1827,7 +1836,8 @@ restart_poll:
 		u16 offset;
 		u8 flags = 0;
 
-		if (unlikely(adapter->resetting)) {
+		if (unlikely(adapter->resetting &&
+			     adapter->reset_reason != VNIC_RESET_NON_FATAL)) {
 			enable_scrq_irq(adapter, adapter->rx_scrq[scrq_num]);
 			napi_complete_done(napi, frames_processed);
 			return frames_processed;
@@ -3282,7 +3292,7 @@ static void handle_vpd_rsp(union ibmvnic_crq *crq,
 			   struct ibmvnic_adapter *adapter)
 {
 	struct device *dev = &adapter->vdev->dev;
-	unsigned char *substr = NULL, *ptr = NULL;
+	unsigned char *substr = NULL;
 	u8 fw_level_len = 0;
 
 	memset(adapter->fw_version, 0, 32);
@@ -3301,7 +3311,7 @@ static void handle_vpd_rsp(union ibmvnic_crq *crq,
 	 */
 	substr = strnstr(adapter->vpd->buff, "RM", adapter->vpd->len);
 	if (!substr) {
-		dev_info(dev, "No FW level provided by VPD\n");
+		dev_info(dev, "Warning - No FW level has been provided in the VPD buffer by the VIOS Server\n");
 		goto complete;
 	}
 
@@ -3316,16 +3326,14 @@ static void handle_vpd_rsp(union ibmvnic_crq *crq,
 	/* copy firmware version string from vpd into adapter */
 	if ((substr + 3 + fw_level_len) <
 	    (adapter->vpd->buff + adapter->vpd->len)) {
-		ptr = strncpy((char *)adapter->fw_version,
-			      substr + 3, fw_level_len);
-
-		if (!ptr)
-			dev_err(dev, "Failed to isolate FW level string\n");
+		strncpy((char *)adapter->fw_version, substr + 3, fw_level_len);
 	} else {
 		dev_info(dev, "FW substr extrapolated VPD buff\n");
 	}
 
 complete:
+	if (adapter->fw_version[0] == '\0')
+		strncpy((char *)adapter->fw_version, "N/A", 3 * sizeof(char));
 	complete(&adapter->fw_done);
 }
 
@@ -3569,8 +3577,8 @@ static void handle_error_indication(union ibmvnic_crq *crq,
 		ibmvnic_reset(adapter, VNIC_RESET_NON_FATAL);
 }
 
-static void handle_change_mac_rsp(union ibmvnic_crq *crq,
-				  struct ibmvnic_adapter *adapter)
+static int handle_change_mac_rsp(union ibmvnic_crq *crq,
+				 struct ibmvnic_adapter *adapter)
 {
 	struct net_device *netdev = adapter->netdev;
 	struct device *dev = &adapter->vdev->dev;
@@ -3579,10 +3587,13 @@ static void handle_change_mac_rsp(union ibmvnic_crq *crq,
 	rc = crq->change_mac_addr_rsp.rc.code;
 	if (rc) {
 		dev_err(dev, "Error %ld in CHANGE_MAC_ADDR_RSP\n", rc);
-		return;
+		goto out;
 	}
 	memcpy(netdev->dev_addr, &crq->change_mac_addr_rsp.mac_addr[0],
 	       ETH_ALEN);
+out:
+	complete(&adapter->fw_done);
+	return rc;
 }
 
 static void handle_request_cap_rsp(union ibmvnic_crq *crq,
@@ -4042,7 +4053,7 @@ static void ibmvnic_handle_crq(union ibmvnic_crq *crq,
 		break;
 	case CHANGE_MAC_ADDR_RSP:
 		netdev_dbg(netdev, "Got MAC address change Response\n");
-		handle_change_mac_rsp(crq, adapter);
+		adapter->fw_done_rc = handle_change_mac_rsp(crq, adapter);
 		break;
 	case ERROR_INDICATION:
 		netdev_dbg(netdev, "Got Error Indication\n");

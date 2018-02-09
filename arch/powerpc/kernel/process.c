@@ -42,6 +42,7 @@
 #include <linux/hw_breakpoint.h>
 #include <linux/uaccess.h>
 #include <linux/elf-randomize.h>
+#include <linux/pkeys.h>
 
 #include <asm/pgtable.h>
 #include <asm/io.h>
@@ -1112,6 +1113,8 @@ static inline void save_sprs(struct thread_struct *t)
 		t->tar = mfspr(SPRN_TAR);
 	}
 #endif
+
+	thread_pkey_regs_save(t);
 }
 
 static inline void restore_sprs(struct thread_struct *old_thread,
@@ -1147,6 +1150,8 @@ static inline void restore_sprs(struct thread_struct *old_thread,
 			mtspr(SPRN_TAR, new_thread->tar);
 	}
 #endif
+
+	thread_pkey_regs_restore(new_thread, old_thread);
 }
 
 struct task_struct *__switch_to(struct task_struct *prev,
@@ -1177,7 +1182,7 @@ struct task_struct *__switch_to(struct task_struct *prev,
 	}
 #endif /* CONFIG_PPC64 */
 
-#ifdef CONFIG_PPC_STD_MMU_64
+#ifdef CONFIG_PPC_BOOK3S_64
 	batch = this_cpu_ptr(&ppc64_tlb_batch);
 	if (batch->active) {
 		current_thread_info()->local_flags |= _TLF_LAZY_MMU;
@@ -1185,7 +1190,7 @@ struct task_struct *__switch_to(struct task_struct *prev,
 			__flush_tlb_pending(batch);
 		batch->active = 0;
 	}
-#endif /* CONFIG_PPC_STD_MMU_64 */
+#endif /* CONFIG_PPC_BOOK3S_64 */
 
 #ifdef CONFIG_PPC_ADV_DEBUG_REGS
 	switch_booke_debug_regs(&new->thread.debug);
@@ -1231,7 +1236,7 @@ struct task_struct *__switch_to(struct task_struct *prev,
 
 	last = _switch(old_thread, new_thread);
 
-#ifdef CONFIG_PPC_STD_MMU_64
+#ifdef CONFIG_PPC_BOOK3S_64
 	if (current_thread_info()->local_flags & _TLF_LAZY_MMU) {
 		current_thread_info()->local_flags &= ~_TLF_LAZY_MMU;
 		batch = this_cpu_ptr(&ppc64_tlb_batch);
@@ -1240,7 +1245,7 @@ struct task_struct *__switch_to(struct task_struct *prev,
 
 	if (current_thread_info()->task->thread.regs)
 		restore_math(current_thread_info()->task->thread.regs);
-#endif /* CONFIG_PPC_STD_MMU_64 */
+#endif /* CONFIG_PPC_BOOK3S_64 */
 
 	return last;
 }
@@ -1469,7 +1474,7 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 
 static void setup_ksp_vsid(struct task_struct *p, unsigned long sp)
 {
-#ifdef CONFIG_PPC_STD_MMU_64
+#ifdef CONFIG_PPC_BOOK3S_64
 	unsigned long sp_vsid;
 	unsigned long llp = mmu_psize_defs[mmu_linear_psize].sllp;
 
@@ -1707,6 +1712,8 @@ void start_thread(struct pt_regs *regs, unsigned long start, unsigned long sp)
 	current->thread.tm_tfiar = 0;
 	current->thread.load_tm = 0;
 #endif /* CONFIG_PPC_TRANSACTIONAL_MEM */
+
+	thread_pkey_regs_init(&current->thread);
 }
 EXPORT_SYMBOL(start_thread);
 
@@ -2029,7 +2036,7 @@ unsigned long arch_randomize_brk(struct mm_struct *mm)
 	unsigned long base = mm->brk;
 	unsigned long ret;
 
-#ifdef CONFIG_PPC_STD_MMU_64
+#ifdef CONFIG_PPC_BOOK3S_64
 	/*
 	 * If we are using 1TB segments and we are allowed to randomise
 	 * the heap, we can put it above 1TB so it is backed by a 1TB

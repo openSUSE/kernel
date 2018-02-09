@@ -32,6 +32,8 @@ extern unsigned int admin_timeout;
 #define NVME_KATO_GRACE		10
 
 extern struct workqueue_struct *nvme_wq;
+extern struct workqueue_struct *nvme_reset_wq;
+extern struct workqueue_struct *nvme_delete_wq;
 
 enum {
 	NVME_NS_LBA		= 0,
@@ -114,11 +116,12 @@ static inline struct nvme_request *nvme_req(struct request *req)
  * NVME_QUIRK_DELAY_BEFORE_CHK_RDY quirk enabled. The value (in ms) was
  * found empirically.
  */
-#define NVME_QUIRK_DELAY_AMOUNT		2000
+#define NVME_QUIRK_DELAY_AMOUNT		2300
 
 enum nvme_ctrl_state {
 	NVME_CTRL_NEW,
 	NVME_CTRL_LIVE,
+	NVME_CTRL_ADMIN_ONLY,    /* Only admin queue live */
 	NVME_CTRL_RESETTING,
 	NVME_CTRL_RECONNECTING,
 	NVME_CTRL_DELETING,
@@ -392,6 +395,7 @@ int nvme_set_queue_count(struct nvme_ctrl *ctrl, int *count);
 void nvme_start_keep_alive(struct nvme_ctrl *ctrl);
 void nvme_stop_keep_alive(struct nvme_ctrl *ctrl);
 int nvme_reset_ctrl(struct nvme_ctrl *ctrl);
+int nvme_reset_ctrl_sync(struct nvme_ctrl *ctrl);
 int nvme_delete_ctrl(struct nvme_ctrl *ctrl);
 int nvme_delete_ctrl_sync(struct nvme_ctrl *ctrl);
 

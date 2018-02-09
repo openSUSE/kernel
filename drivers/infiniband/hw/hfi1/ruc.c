@@ -757,8 +757,9 @@ static inline void hfi1_make_ruc_header_16B(struct rvt_qp *qp,
 	u32 slid;
 	u16 pkey = hfi1_get_pkey(ibp, qp->s_pkey_index);
 	u8 l4 = OPA_16B_L4_IB_LOCAL;
-	u8 extra_bytes = hfi1_get_16b_padding((qp->s_hdrwords << 2),
-				   ps->s_txreq->s_cur_size);
+	u8 extra_bytes = hfi1_get_16b_padding(
+				(ps->s_txreq->hdr_dwords << 2),
+				ps->s_txreq->s_cur_size);
 	u32 nwords = SIZE_OF_CRC + ((ps->s_txreq->s_cur_size +
 				 extra_bytes + SIZE_OF_LT) >> 2);
 	u8 becn = 0;
@@ -768,8 +769,6 @@ static inline void hfi1_make_ruc_header_16B(struct rvt_qp *qp,
 		struct ib_grh *grh;
 		struct ib_global_route *grd =
 			rdma_ah_retrieve_grh(&qp->remote_ah_attr);
-		int hdrwords;
-
 		/*
 		 * Ensure OPA GIDs are transformed to IB gids
 		 * before creating the GRH.
@@ -778,9 +777,10 @@ static inline void hfi1_make_ruc_header_16B(struct rvt_qp *qp,
 			grd->sgid_index = 0;
 		grh = &ps->s_txreq->phdr.hdr.opah.u.l.grh;
 		l4 = OPA_16B_L4_IB_GLOBAL;
-		hdrwords = qp->s_hdrwords - 4;
-		qp->s_hdrwords += hfi1_make_grh(ibp, grh, grd,
-						hdrwords, nwords);
+		ps->s_txreq->hdr_dwords +=
+			hfi1_make_grh(ibp, grh, grd,
+				      ps->s_txreq->hdr_dwords - LRH_16B_DWORDS,
+				      nwords);
 		middle = 0;
 	}
 
@@ -814,7 +814,7 @@ static inline void hfi1_make_ruc_header_16B(struct rvt_qp *qp,
 			  slid,
 			  opa_get_lid(rdma_ah_get_dlid(&qp->remote_ah_attr),
 				      16B),
-			  (qp->s_hdrwords + nwords) >> 1,
+			  (ps->s_txreq->hdr_dwords + nwords) >> 1,
 			  pkey, becn, 0, l4, priv->s_sc);
 }
 
@@ -836,13 +836,13 @@ static inline void hfi1_make_ruc_header_9B(struct rvt_qp *qp,
 
 	if (unlikely(rdma_ah_get_ah_flags(&qp->remote_ah_attr) & IB_AH_GRH)) {
 		struct ib_grh *grh = &ps->s_txreq->phdr.hdr.ibh.u.l.grh;
-		int hdrwords = qp->s_hdrwords - 2;
 
 		lrh0 = HFI1_LRH_GRH;
-		qp->s_hdrwords +=
+		ps->s_txreq->hdr_dwords +=
 			hfi1_make_grh(ibp, grh,
 				      rdma_ah_read_grh(&qp->remote_ah_attr),
-				      hdrwords, nwords);
+				      ps->s_txreq->hdr_dwords - LRH_9B_DWORDS,
+				      nwords);
 		middle = 0;
 	}
 	lrh0 |= (priv->s_sc & 0xf) << 12 |
@@ -875,7 +875,7 @@ static inline void hfi1_make_ruc_header_9B(struct rvt_qp *qp,
 			((1 << ppd->lmc) - 1));
 	hfi1_make_ib_hdr(&ps->s_txreq->phdr.hdr.ibh,
 			 lrh0,
-			 qp->s_hdrwords + nwords,
+			 ps->s_txreq->hdr_dwords + nwords,
 			 opa_get_lid(rdma_ah_get_dlid(&qp->remote_ah_attr), 9B),
 			 ppd_from_ibp(ibp)->lid |
 				rdma_ah_get_path_bits(&qp->remote_ah_attr));
@@ -1040,7 +1040,7 @@ void hfi1_do_send(struct rvt_qp *qp, bool in_thread)
 	ps.s_txreq = get_waiting_verbs_txreq(qp);
 	do {
 		/* Check for a constructed packet to be sent. */
-		if (qp->s_hdrwords != 0) {
+		if (ps.s_txreq) {
 			spin_unlock_irqrestore(&qp->s_lock, ps.flags);
 			/*
 			 * If the packet cannot be sent now, return and
@@ -1048,8 +1048,6 @@ void hfi1_do_send(struct rvt_qp *qp, bool in_thread)
 			 */
 			if (hfi1_verbs_send(qp, &ps))
 				return;
-			/* Record that s_ahg is empty. */
-			qp->s_hdrwords = 0;
 			/* allow other tasks to run */
 			if (schedule_send_yield(qp, &ps))
 				return;

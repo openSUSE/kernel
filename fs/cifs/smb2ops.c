@@ -283,7 +283,6 @@ SMB3_request_interfaces(const unsigned int xid, struct cifs_tcon *tcon)
 
 	rc = SMB2_ioctl(xid, tcon, NO_FILE_ID, NO_FILE_ID,
 			FSCTL_QUERY_NETWORK_INTERFACE_INFO, true /* is_fsctl */,
-			false /* use_ipc */,
 			NULL /* no data input */, 0 /* no data input */,
 			(char **)&out_buf, &ret_data_len);
 	if (rc != 0)
@@ -573,7 +572,6 @@ SMB2_request_res_key(const unsigned int xid, struct cifs_tcon *tcon,
 
 	rc = SMB2_ioctl(xid, tcon, persistent_fid, volatile_fid,
 			FSCTL_SRV_REQUEST_RESUME_KEY, true /* is_fsctl */,
-			false /* use_ipc */,
 			NULL, 0 /* no input */,
 			(char **)&res_key, &ret_data_len);
 
@@ -639,8 +637,7 @@ smb2_copychunk_range(const unsigned int xid,
 		/* Request server copy to target from src identified by key */
 		rc = SMB2_ioctl(xid, tcon, trgtfile->fid.persistent_fid,
 			trgtfile->fid.volatile_fid, FSCTL_SRV_COPYCHUNK_WRITE,
-			true /* is_fsctl */, false /* use_ipc */,
-			(char *)pcchunk,
+			true /* is_fsctl */, (char *)pcchunk,
 			sizeof(struct copychunk_ioctl),	(char **)&retbuf,
 			&ret_data_len);
 		if (rc == 0) {
@@ -797,7 +794,7 @@ static bool smb2_set_sparse(const unsigned int xid, struct cifs_tcon *tcon,
 
 	rc = SMB2_ioctl(xid, tcon, cfile->fid.persistent_fid,
 			cfile->fid.volatile_fid, FSCTL_SET_SPARSE,
-			true /* is_fctl */, false /* use_ipc */,
+			true /* is_fctl */,
 			&setsparse, 1, NULL, NULL);
 	if (rc) {
 		tcon->broken_sparse_sup = true;
@@ -868,7 +865,7 @@ smb2_duplicate_extents(const unsigned int xid,
 	rc = SMB2_ioctl(xid, tcon, trgtfile->fid.persistent_fid,
 			trgtfile->fid.volatile_fid,
 			FSCTL_DUPLICATE_EXTENTS_TO_FILE,
-			true /* is_fsctl */, false /* use_ipc */,
+			true /* is_fsctl */,
 			(char *)&dup_ext_buf,
 			sizeof(struct duplicate_extents_to_file),
 			NULL,
@@ -903,7 +900,7 @@ smb3_set_integrity(const unsigned int xid, struct cifs_tcon *tcon,
 	return SMB2_ioctl(xid, tcon, cfile->fid.persistent_fid,
 			cfile->fid.volatile_fid,
 			FSCTL_SET_INTEGRITY_INFORMATION,
-			true /* is_fsctl */, false /* use_ipc */,
+			true /* is_fsctl */,
 			(char *)&integr_info,
 			sizeof(struct fsctl_set_integrity_information_req),
 			NULL,
@@ -923,7 +920,7 @@ smb3_enum_snapshots(const unsigned int xid, struct cifs_tcon *tcon,
 	rc = SMB2_ioctl(xid, tcon, cfile->fid.persistent_fid,
 			cfile->fid.volatile_fid,
 			FSCTL_SRV_ENUMERATE_SNAPSHOTS,
-			true /* is_fsctl */, false /* use_ipc */,
+			true /* is_fsctl */,
 			NULL, 0 /* no input data */,
 			(char **)&retbuf,
 			&ret_data_len);
@@ -1142,16 +1139,20 @@ smb2_get_dfs_refer(const unsigned int xid, struct cifs_ses *ses,
 	cifs_dbg(FYI, "smb2_get_dfs_refer path <%s>\n", search_name);
 
 	/*
-	 * Use any tcon from the current session. Here, the first one.
+	 * Try to use the IPC tcon, otherwise just use any
 	 */
-	spin_lock(&cifs_tcp_ses_lock);
-	tcon = list_first_entry_or_null(&ses->tcon_list, struct cifs_tcon,
-					tcon_list);
-	if (tcon)
-		tcon->tc_count++;
-	spin_unlock(&cifs_tcp_ses_lock);
+	tcon = ses->tcon_ipc;
+	if (tcon == NULL) {
+		spin_lock(&cifs_tcp_ses_lock);
+		tcon = list_first_entry_or_null(&ses->tcon_list,
+						struct cifs_tcon,
+						tcon_list);
+		if (tcon)
+			tcon->tc_count++;
+		spin_unlock(&cifs_tcp_ses_lock);
+	}
 
-	if (!tcon) {
+	if (tcon == NULL) {
 		cifs_dbg(VFS, "session %p has no tcon available for a dfs referral request\n",
 			 ses);
 		rc = -ENOTCONN;
@@ -1180,20 +1181,11 @@ smb2_get_dfs_refer(const unsigned int xid, struct cifs_ses *ses,
 	memcpy(dfs_req->RequestFileName, utf16_path, utf16_path_len);
 
 	do {
-		/* try first with IPC */
 		rc = SMB2_ioctl(xid, tcon, NO_FILE_ID, NO_FILE_ID,
 				FSCTL_DFS_GET_REFERRALS,
-				true /* is_fsctl */, true /* use_ipc */,
+				true /* is_fsctl */,
 				(char *)dfs_req, dfs_req_size,
 				(char **)&dfs_rsp, &dfs_rsp_size);
-		if (rc == -ENOTCONN) {
-			/* try with normal tcon */
-			rc = SMB2_ioctl(xid, tcon, NO_FILE_ID, NO_FILE_ID,
-					FSCTL_DFS_GET_REFERRALS,
-					true /* is_fsctl */, false /*use_ipc*/,
-					(char *)dfs_req, dfs_req_size,
-					(char **)&dfs_rsp, &dfs_rsp_size);
-		}
 	} while (rc == -EAGAIN);
 
 	if (rc) {
@@ -1211,7 +1203,8 @@ smb2_get_dfs_refer(const unsigned int xid, struct cifs_ses *ses,
 	}
 
  out:
-	if (tcon) {
+	if (tcon && !tcon->ipc) {
+		/* ipc tcons are not refcounted */
 		spin_lock(&cifs_tcp_ses_lock);
 		tcon->tc_count--;
 		spin_unlock(&cifs_tcp_ses_lock);
@@ -1344,7 +1337,7 @@ static long smb3_zero_range(struct file *file, struct cifs_tcon *tcon,
 
 	rc = SMB2_ioctl(xid, tcon, cfile->fid.persistent_fid,
 			cfile->fid.volatile_fid, FSCTL_SET_ZERO_DATA,
-			true /* is_fctl */, false /* use_ipc */,
+			true /* is_fctl */,
 			(char *)&fsctl_buf,
 			sizeof(struct file_zero_data_information), NULL, NULL);
 	free_xid(xid);
@@ -1379,8 +1372,7 @@ static long smb3_punch_hole(struct file *file, struct cifs_tcon *tcon,
 
 	rc = SMB2_ioctl(xid, tcon, cfile->fid.persistent_fid,
 			cfile->fid.volatile_fid, FSCTL_SET_ZERO_DATA,
-			true /* is_fctl */, false /* use_ipc */,
-			(char *)&fsctl_buf,
+			true /* is_fctl */, (char *)&fsctl_buf,
 			sizeof(struct file_zero_data_information), NULL, NULL);
 	free_xid(xid);
 	return rc;

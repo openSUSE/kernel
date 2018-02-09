@@ -204,7 +204,9 @@ int do_page_fault(struct pt_regs *regs, unsigned long address,
 	int is_write = 0;
 	int trap = TRAP(regs);
  	int is_exec = trap == 0x400;
-	int fault;
+	int is_user = user_mode(regs);
+	int pkey = 0;
+	int fault, major = 0;
 	int rc = 0, store_update_sp = 0;
 
 #if !(defined(CONFIG_4xx) || defined(CONFIG_BOOKE))
@@ -214,7 +216,7 @@ int do_page_fault(struct pt_regs *regs, unsigned long address,
 	 * bits we are interested in.  But there are some bits which
 	 * indicate errors in DSISR but can validly be set in SRR1.
 	 */
-	if (trap == 0x400)
+	if (is_exec)
 		error_code &= 0x48200000;
 	else
 		is_write = error_code & DSISR_ISSTORE;
@@ -232,7 +234,7 @@ int do_page_fault(struct pt_regs *regs, unsigned long address,
 	 * The kernel should never take an execute fault nor should it
 	 * take a page fault to a kernel address.
 	 */
-	if (!user_mode(regs) && (is_exec || (address >= TASK_SIZE))) {
+	if (!is_user && (is_exec || (address >= TASK_SIZE))) {
 		rc = SIGSEGV;
 		goto bail;
 	}
@@ -251,7 +253,7 @@ int do_page_fault(struct pt_regs *regs, unsigned long address,
 		local_irq_enable();
 
 	if (faulthandler_disabled() || mm == NULL) {
-		if (!user_mode(regs)) {
+		if (!is_user) {
 			rc = SIGSEGV;
 			goto bail;
 		}
@@ -267,16 +269,26 @@ int do_page_fault(struct pt_regs *regs, unsigned long address,
 
 	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, address);
 
+	if (error_code & DSISR_KEYFAULT) {
+		code = SEGV_PKUERR;
+		pkey = get_mm_addr_key(mm, address);
+		goto bad_area_nosemaphore;
+	}
+
 	/*
 	 * We want to do this outside mmap_sem, because reading code around nip
 	 * can result in fault, which will cause a deadlock when called with
 	 * mmap_sem held
 	 */
-	if (!is_exec && user_mode(regs))
+	if (is_write && is_user)
 		store_update_sp = store_updates_sp(regs);
 
-	if (user_mode(regs))
+	if (is_user)
 		flags |= FAULT_FLAG_USER;
+	if (is_write)
+		flags |= FAULT_FLAG_WRITE;
+	if (is_exec)
+		flags |= FAULT_FLAG_INSTRUCTION;
 
 	/* When running in the kernel we expect faults to occur only to
 	 * addresses in user space.  All other faults represent errors in the
@@ -294,7 +306,7 @@ int do_page_fault(struct pt_regs *regs, unsigned long address,
 	 * thus avoiding the deadlock.
 	 */
 	if (!down_read_trylock(&mm->mmap_sem)) {
-		if (!user_mode(regs) && !search_exception_tables(regs->nip))
+		if (!is_user && !search_exception_tables(regs->nip))
 			goto bad_area_nosemaphore;
 
 retry:
@@ -386,7 +398,6 @@ good_area:
 	} else if (is_write) {
 		if (!(vma->vm_flags & VM_WRITE))
 			goto bad_area;
-		flags |= FAULT_FLAG_WRITE;
 	/* a read */
 	} else {
 		if (!(vma->vm_flags & (VM_READ | VM_EXEC | VM_WRITE)))
@@ -433,6 +444,32 @@ good_area:
 	 */
 	fault = handle_mm_fault(vma, address, flags);
 
+#ifdef CONFIG_PPC_MEM_KEYS
+	/*
+	 * if the HPTE is not hashed, hardware will not detect
+	 * a key fault. Lets check if we failed because of a
+	 * software detected key fault.
+	 */
+	if (unlikely(fault & VM_FAULT_SIGSEGV) &&
+		!arch_vma_access_permitted(vma, flags & FAULT_FLAG_WRITE,
+			is_exec, 0)) {
+		/*
+		 * The PGD-PDT...PMD-PTE tree may not have been fully setup.
+		 * Hence we cannot walk the tree to locate the PTE, to locate
+		 * the key. Hence let's use vma_pkey() to get the key; instead
+		 * of get_mm_addr_key().
+		 */
+		pkey = vma_pkey(vma);
+
+		if (likely(pkey)) {
+			code = SEGV_PKUERR;
+			goto bad_area;
+		}
+	}
+#endif /* CONFIG_PPC_MEM_KEYS */
+
+	major |= fault & VM_FAULT_MAJOR;
+
 	/*
 	 * Handle the retry right now, the mmap_sem has been released in that
 	 * case.
@@ -466,7 +503,7 @@ good_area:
 	/*
 	 * Major/minor page fault accounting.
 	 */
-	if (fault & VM_FAULT_MAJOR) {
+	if (major) {
 		current->maj_flt++;
 		perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS_MAJ, 1,
 			      regs, address);
@@ -494,8 +531,8 @@ bad_area:
 
 bad_area_nosemaphore:
 	/* User mode accesses cause a SIGSEGV */
-	if (user_mode(regs)) {
-		_exception(SIGSEGV, regs, code, address);
+	if (is_user) {
+		_exception_pkey(SIGSEGV, regs, code, address, pkey);
 		goto bail;
 	}
 

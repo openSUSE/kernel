@@ -208,7 +208,7 @@ int main(void)
 	OFFSET(TCD_ESEL_FIRST, tlb_core_data, esel_first);
 #endif /* CONFIG_PPC_BOOK3E */
 
-#ifdef CONFIG_PPC_STD_MMU_64
+#ifdef CONFIG_PPC_BOOK3S_64
 	OFFSET(PACASLBCACHE, paca_struct, slb_cache);
 	OFFSET(PACASLBCACHEPTR, paca_struct, slb_cache_ptr);
 	OFFSET(PACAVMALLOCSLLP, paca_struct, vmalloc_sllp);
@@ -230,7 +230,7 @@ int main(void)
 	OFFSET(LPPACA_DTLIDX, lppaca, dtl_idx);
 	OFFSET(LPPACA_YIELDCOUNT, lppaca, yield_count);
 	OFFSET(PACA_DTL_RIDX, paca_struct, dtl_ridx);
-#endif /* CONFIG_PPC_STD_MMU_64 */
+#endif /* CONFIG_PPC_BOOK3S_64 */
 	OFFSET(PACAEMERGSP, paca_struct, emergency_sp);
 #ifdef CONFIG_PPC_BOOK3S_64
 	OFFSET(PACAMCEMERGSP, paca_struct, mc_emergency_sp);
@@ -239,8 +239,7 @@ int main(void)
 	OFFSET(PACA_IN_NMI, paca_struct, in_nmi);
 	OFFSET(PACA_RFI_FLUSH_FALLBACK_AREA, paca_struct, rfi_flush_fallback_area);
 	OFFSET(PACA_EXRFI, paca_struct, exrfi);
-	OFFSET(PACA_L1D_FLUSH_CONGRUENCE, paca_struct, l1d_flush_congruence);
-	OFFSET(PACA_L1D_FLUSH_SETS, paca_struct, l1d_flush_sets);
+	OFFSET(PACA_L1D_FLUSH_SIZE, paca_struct, l1d_flush_size);
 
 #endif
 	OFFSET(PACAHWCPUID, paca_struct, hw_cpu_id);
