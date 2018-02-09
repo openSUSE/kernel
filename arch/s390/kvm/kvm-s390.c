@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * hosting zSeries kernel virtual machines
+ * hosting IBM Z kernel virtual machines (s390x)
  *
- * Copyright IBM Corp. 2008, 2009
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License (version 2 only)
- * as published by the Free Software Foundation.
+ * Copyright IBM Corp. 2008, 2017
  *
  *    Author(s): Carsten Otte <cotte@de.ibm.com>
  *               Christian Borntraeger <borntraeger@de.ibm.com>
@@ -129,6 +126,12 @@ struct kvm_stats_debugfs_item debugfs_entries[] = {
 	{ "diagnose_500", VCPU_STAT(diagnose_500) },
 	{ NULL }
 };
+
+struct kvm_s390_tod_clock_ext {
+	__u8 epoch_idx;
+	__u64 tod;
+	__u8 reserved[7];
+} __packed;
 
 /* allow nested virtualization in KVM (if enabled by user space) */
 static int nested;
@@ -389,6 +392,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	case KVM_CAP_S390_USER_INSTR0:
 	case KVM_CAP_S390_CMMA_MIGRATION:
 	case KVM_CAP_S390_AIS:
+	case KVM_CAP_S390_AIS_MIGRATION:
 		r = 1;
 		break;
 	case KVM_CAP_S390_MEM_OP:
@@ -416,6 +420,9 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		break;
 	case KVM_CAP_S390_GS:
 		r = test_facility(133);
+		break;
+	case KVM_CAP_S390_BPB:
+		r = test_facility(82);
 		break;
 	default:
 		r = 0;
@@ -875,6 +882,26 @@ static int kvm_s390_vm_get_migration(struct kvm *kvm,
 	return 0;
 }
 
+static int kvm_s390_set_tod_ext(struct kvm *kvm, struct kvm_device_attr *attr)
+{
+	struct kvm_s390_vm_tod_clock gtod;
+
+	if (copy_from_user(&gtod, (void __user *)attr->addr, sizeof(gtod)))
+		return -EFAULT;
+
+	if (test_kvm_facility(kvm, 139))
+		kvm_s390_set_tod_clock_ext(kvm, &gtod);
+	else if (gtod.epoch_idx == 0)
+		kvm_s390_set_tod_clock(kvm, gtod.tod);
+	else
+		return -EINVAL;
+
+	VM_EVENT(kvm, 3, "SET: TOD extension: 0x%x, TOD base: 0x%llx",
+		gtod.epoch_idx, gtod.tod);
+
+	return 0;
+}
+
 static int kvm_s390_set_tod_high(struct kvm *kvm, struct kvm_device_attr *attr)
 {
 	u8 gtod_high;
@@ -910,6 +937,9 @@ static int kvm_s390_set_tod(struct kvm *kvm, struct kvm_device_attr *attr)
 		return -EINVAL;
 
 	switch (attr->attr) {
+	case KVM_S390_VM_TOD_EXT:
+		ret = kvm_s390_set_tod_ext(kvm, attr);
+		break;
 	case KVM_S390_VM_TOD_HIGH:
 		ret = kvm_s390_set_tod_high(kvm, attr);
 		break;
@@ -921,6 +951,43 @@ static int kvm_s390_set_tod(struct kvm *kvm, struct kvm_device_attr *attr)
 		break;
 	}
 	return ret;
+}
+
+static void kvm_s390_get_tod_clock_ext(struct kvm *kvm,
+					struct kvm_s390_vm_tod_clock *gtod)
+{
+	struct kvm_s390_tod_clock_ext htod;
+
+	preempt_disable();
+
+	get_tod_clock_ext((char *)&htod);
+
+	gtod->tod = htod.tod + kvm->arch.epoch;
+	gtod->epoch_idx = htod.epoch_idx + kvm->arch.epdx;
+
+	if (gtod->tod < htod.tod)
+		gtod->epoch_idx += 1;
+
+	preempt_enable();
+}
+
+static int kvm_s390_get_tod_ext(struct kvm *kvm, struct kvm_device_attr *attr)
+{
+	struct kvm_s390_vm_tod_clock gtod;
+
+	memset(&gtod, 0, sizeof(gtod));
+
+	if (test_kvm_facility(kvm, 139))
+		kvm_s390_get_tod_clock_ext(kvm, &gtod);
+	else
+		gtod.tod = kvm_s390_get_tod_clock_fast(kvm);
+
+	if (copy_to_user((void __user *)attr->addr, &gtod, sizeof(gtod)))
+		return -EFAULT;
+
+	VM_EVENT(kvm, 3, "QUERY: TOD extension: 0x%x, TOD base: 0x%llx",
+		gtod.epoch_idx, gtod.tod);
+	return 0;
 }
 
 static int kvm_s390_get_tod_high(struct kvm *kvm, struct kvm_device_attr *attr)
@@ -955,6 +1022,9 @@ static int kvm_s390_get_tod(struct kvm *kvm, struct kvm_device_attr *attr)
 		return -EINVAL;
 
 	switch (attr->attr) {
+	case KVM_S390_VM_TOD_EXT:
+		ret = kvm_s390_get_tod_ext(kvm, attr);
+		break;
 	case KVM_S390_VM_TOD_HIGH:
 		ret = kvm_s390_get_tod_high(kvm, attr);
 		break;
@@ -1325,7 +1395,7 @@ static long kvm_s390_get_skeys(struct kvm *kvm, struct kvm_s390_skeys *args)
 {
 	uint8_t *keys;
 	uint64_t hva;
-	int i, r = 0;
+	int srcu_idx, i, r = 0;
 
 	if (args->flags != 0)
 		return -EINVAL;
@@ -1343,6 +1413,7 @@ static long kvm_s390_get_skeys(struct kvm *kvm, struct kvm_s390_skeys *args)
 		return -ENOMEM;
 
 	down_read(&current->mm->mmap_sem);
+	srcu_idx = srcu_read_lock(&kvm->srcu);
 	for (i = 0; i < args->count; i++) {
 		hva = gfn_to_hva(kvm, args->start_gfn + i);
 		if (kvm_is_error_hva(hva)) {
@@ -1354,6 +1425,7 @@ static long kvm_s390_get_skeys(struct kvm *kvm, struct kvm_s390_skeys *args)
 		if (r)
 			break;
 	}
+	srcu_read_unlock(&kvm->srcu, srcu_idx);
 	up_read(&current->mm->mmap_sem);
 
 	if (!r) {
@@ -1371,7 +1443,7 @@ static long kvm_s390_set_skeys(struct kvm *kvm, struct kvm_s390_skeys *args)
 {
 	uint8_t *keys;
 	uint64_t hva;
-	int i, r = 0;
+	int srcu_idx, i, r = 0;
 
 	if (args->flags != 0)
 		return -EINVAL;
@@ -1397,6 +1469,7 @@ static long kvm_s390_set_skeys(struct kvm *kvm, struct kvm_s390_skeys *args)
 		goto out;
 
 	down_read(&current->mm->mmap_sem);
+	srcu_idx = srcu_read_lock(&kvm->srcu);
 	for (i = 0; i < args->count; i++) {
 		hva = gfn_to_hva(kvm, args->start_gfn + i);
 		if (kvm_is_error_hva(hva)) {
@@ -1414,6 +1487,7 @@ static long kvm_s390_set_skeys(struct kvm *kvm, struct kvm_s390_skeys *args)
 		if (r)
 			break;
 	}
+	srcu_read_unlock(&kvm->srcu, srcu_idx);
 	up_read(&current->mm->mmap_sem);
 out:
 	kvfree(keys);
@@ -1857,6 +1931,10 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	memcpy(kvm->arch.model.fac_list, kvm->arch.model.fac_mask,
 	       S390_ARCH_FAC_LIST_SIZE_BYTE);
 
+	/* we are always in czam mode - even on pre z14 machines */
+	set_kvm_facility(kvm->arch.model.fac_mask, 138);
+	set_kvm_facility(kvm->arch.model.fac_list, 138);
+	/* we emulate STHYI in kvm */
 	set_kvm_facility(kvm->arch.model.fac_mask, 74);
 	set_kvm_facility(kvm->arch.model.fac_list, 74);
 	if (MACHINE_HAS_TLB_GUEST) {
@@ -2127,6 +2205,8 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 	kvm_s390_set_prefix(vcpu, 0);
 	if (test_kvm_facility(vcpu->kvm, 64))
 		vcpu->run->kvm_valid_regs |= KVM_SYNC_RICCB;
+	if (test_kvm_facility(vcpu->kvm, 82))
+		vcpu->run->kvm_valid_regs |= KVM_SYNC_BPBC;
 	if (test_kvm_facility(vcpu->kvm, 133))
 		vcpu->run->kvm_valid_regs |= KVM_SYNC_GSCB;
 	/* fprs can be synchronized via vrs, even if the guest has no vx. With
@@ -2268,6 +2348,7 @@ static void kvm_s390_vcpu_initial_reset(struct kvm_vcpu *vcpu)
 	current->thread.fpu.fpc = 0;
 	vcpu->arch.sie_block->gbea = 1;
 	vcpu->arch.sie_block->pp = 0;
+	vcpu->arch.sie_block->fpf &= ~FPF_BPBC;
 	vcpu->arch.pfault_token = KVM_S390_PFAULT_TOKEN_INVALID;
 	kvm_clear_async_pf_completion_queue(vcpu);
 	if (!kvm_s390_user_cpu_state_ctrl(vcpu->kvm))
@@ -2372,6 +2453,9 @@ int kvm_arch_vcpu_setup(struct kvm_vcpu *vcpu)
 		vcpu->arch.sie_block->eca |= ECA_VX;
 		vcpu->arch.sie_block->ecd |= ECD_HOSTREGMGMT;
 	}
+	if (test_kvm_facility(vcpu->kvm, 139))
+		vcpu->arch.sie_block->ecd |= ECD_MEF;
+
 	vcpu->arch.sie_block->sdnxo = ((unsigned long) &vcpu->run->s.regs.sdnx)
 					| SDNXC;
 	vcpu->arch.sie_block->riccbd = (unsigned long) &vcpu->run->s.regs.riccb;
@@ -2448,6 +2532,11 @@ out:
 int kvm_arch_vcpu_runnable(struct kvm_vcpu *vcpu)
 {
 	return kvm_s390_vcpu_has_irq(vcpu, 0);
+}
+
+bool kvm_arch_vcpu_in_kernel(struct kvm_vcpu *vcpu)
+{
+	return !(vcpu->arch.sie_block->gpsw.mask & PSW_MASK_PSTATE);
 }
 
 void kvm_s390_vcpu_block(struct kvm_vcpu *vcpu)
@@ -2782,7 +2871,7 @@ static int kvm_s390_handle_requests(struct kvm_vcpu *vcpu)
 {
 retry:
 	kvm_s390_vcpu_request_handled(vcpu);
-	if (!vcpu->requests)
+	if (!kvm_request_pending(vcpu))
 		return 0;
 	/*
 	 * We use MMU_RELOAD just to re-arm the ipte notifier for the
@@ -2856,6 +2945,35 @@ retry:
 	kvm_clear_request(KVM_REQ_UNHALT, vcpu);
 
 	return 0;
+}
+
+void kvm_s390_set_tod_clock_ext(struct kvm *kvm,
+				 const struct kvm_s390_vm_tod_clock *gtod)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_s390_tod_clock_ext htod;
+	int i;
+
+	mutex_lock(&kvm->lock);
+	preempt_disable();
+
+	get_tod_clock_ext((char *)&htod);
+
+	kvm->arch.epoch = gtod->tod - htod.tod;
+	kvm->arch.epdx = gtod->epoch_idx - htod.epoch_idx;
+
+	if (kvm->arch.epoch > gtod->tod)
+		kvm->arch.epdx -= 1;
+
+	kvm_s390_vcpu_block_all(kvm);
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		vcpu->arch.sie_block->epoch = kvm->arch.epoch;
+		vcpu->arch.sie_block->epdx  = kvm->arch.epdx;
+	}
+
+	kvm_s390_vcpu_unblock_all(kvm);
+	preempt_enable();
+	mutex_unlock(&kvm->lock);
 }
 
 void kvm_s390_set_tod_clock(struct kvm *kvm, u64 tod)
@@ -3190,6 +3308,11 @@ static void sync_regs(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 		vcpu->arch.sie_block->ecd |= ECD_HOSTREGMGMT;
 		vcpu->arch.gs_enabled = 1;
 	}
+	if ((kvm_run->kvm_dirty_regs & KVM_SYNC_BPBC) &&
+	    test_kvm_facility(vcpu->kvm, 82)) {
+		vcpu->arch.sie_block->fpf &= ~FPF_BPBC;
+		vcpu->arch.sie_block->fpf |= kvm_run->s.regs.bpbc ? FPF_BPBC : 0;
+	}
 	save_access_regs(vcpu->arch.host_acrs);
 	restore_access_regs(vcpu->run->s.regs.acrs);
 	/* save host (userspace) fprs/vrs */
@@ -3236,6 +3359,7 @@ static void store_regs(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 	kvm_run->s.regs.pft = vcpu->arch.pfault_token;
 	kvm_run->s.regs.pfs = vcpu->arch.pfault_select;
 	kvm_run->s.regs.pfc = vcpu->arch.pfault_compare;
+	kvm_run->s.regs.bpbc = (vcpu->arch.sie_block->fpf & FPF_BPBC) == FPF_BPBC;
 	save_access_regs(vcpu->run->s.regs.acrs);
 	restore_access_regs(vcpu->arch.host_acrs);
 	/* Save guest register state */
@@ -3262,7 +3386,6 @@ static void store_regs(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 {
 	int rc;
-	sigset_t sigsaved;
 
 	if (kvm_run->immediate_exit)
 		return -EINTR;
@@ -3272,8 +3395,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 		return 0;
 	}
 
-	if (vcpu->sigset_active)
-		sigprocmask(SIG_SETMASK, &vcpu->sigset, &sigsaved);
+	kvm_sigset_activate(vcpu);
 
 	if (!kvm_s390_user_cpu_state_ctrl(vcpu->kvm)) {
 		kvm_s390_vcpu_start(vcpu);
@@ -3307,8 +3429,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 	disable_cpu_timer_accounting(vcpu);
 	store_regs(vcpu, kvm_run);
 
-	if (vcpu->sigset_active)
-		sigprocmask(SIG_SETMASK, &sigsaved, NULL);
+	kvm_sigset_deactivate(vcpu);
 
 	vcpu->stat.exit_userspace++;
 	return rc;
@@ -3701,6 +3822,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 			r = -EINVAL;
 			break;
 		}
+		/* do not use irq_state.flags, it will break old QEMUs */
 		r = kvm_s390_set_irq_state(vcpu,
 					   (void __user *) irq_state.buf,
 					   irq_state.len);
@@ -3716,6 +3838,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 			r = -EINVAL;
 			break;
 		}
+		/* do not use irq_state.flags, it will break old QEMUs */
 		r = kvm_s390_get_irq_state(vcpu,
 					   (__u8 __user *)  irq_state.buf,
 					   irq_state.len);

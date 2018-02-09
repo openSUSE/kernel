@@ -1128,6 +1128,7 @@ This ioctl is required on Intel-based hosts.  This is needed on Intel hardware
 because of a quirk in the virtualization implementation (see the internals
 documentation when it pops into existence).
 
+Fails if any VCPU has already been created.
 
 4.41 KVM_SET_BOOT_CPU_ID
 
@@ -2897,13 +2898,18 @@ userspace buffer and its length:
 
 struct kvm_s390_irq_state {
 	__u64 buf;
-	__u32 flags;
+	__u32 flags;        /* will stay unused for compatibility reasons */
 	__u32 len;
-	__u32 reserved[4];
+	__u32 reserved[4];  /* will stay unused for compatibility reasons */
 };
 
 Userspace passes in the above struct and for each pending interrupt a
 struct kvm_s390_irq is copied to the provided buffer.
+
+The structure contains a flags and a reserved field for future extensions. As
+the kernel never checked for flags == 0 and QEMU never pre-zeroed flags and
+reserved, these fields can not be used in the future without breaking
+compatibility.
 
 If -ENOBUFS is returned the buffer provided was too small and userspace
 may retry with a bigger buffer.
@@ -2928,9 +2934,13 @@ containing a struct kvm_s390_irq_state:
 
 struct kvm_s390_irq_state {
 	__u64 buf;
+	__u32 flags;        /* will stay unused for compatibility reasons */
 	__u32 len;
-	__u32 pad;
+	__u32 reserved[4];  /* will stay unused for compatibility reasons */
 };
+
+The restrictions for flags and reserved apply as well.
+(see KVM_S390_GET_IRQ_STATE)
 
 The userspace memory referenced by buf contains a struct kvm_s390_irq
 for each interrupt to be injected into the guest.
@@ -3389,6 +3399,52 @@ if the flags field was not 0, with -EFAULT if the userspace address is
 invalid, if invalid pages are written to (e.g. after the end of memory)
 or if no page table is present for the addresses (e.g. when using
 hugepages).
+
+4.108 KVM_PPC_GET_CPU_CHAR
+
+Capability: KVM_CAP_PPC_GET_CPU_CHAR
+Architectures: powerpc
+Type: vm ioctl
+Parameters: struct kvm_ppc_cpu_char (out)
+Returns: 0 on successful completion
+	 -EFAULT if struct kvm_ppc_cpu_char cannot be written
+
+This ioctl gives userspace information about certain characteristics
+of the CPU relating to speculative execution of instructions and
+possible information leakage resulting from speculative execution (see
+CVE-2017-5715, CVE-2017-5753 and CVE-2017-5754).  The information is
+returned in struct kvm_ppc_cpu_char, which looks like this:
+
+struct kvm_ppc_cpu_char {
+	__u64	character;		/* characteristics of the CPU */
+	__u64	behaviour;		/* recommended software behaviour */
+	__u64	character_mask;		/* valid bits in character */
+	__u64	behaviour_mask;		/* valid bits in behaviour */
+};
+
+For extensibility, the character_mask and behaviour_mask fields
+indicate which bits of character and behaviour have been filled in by
+the kernel.  If the set of defined bits is extended in future then
+userspace will be able to tell whether it is running on a kernel that
+knows about the new bits.
+
+The character field describes attributes of the CPU which can help
+with preventing inadvertent information disclosure - specifically,
+whether there is an instruction to flash-invalidate the L1 data cache
+(ori 30,30,0 or mtspr SPRN_TRIG2,rN), whether the L1 data cache is set
+to a mode where entries can only be used by the thread that created
+them, whether the bcctr[l] instruction prevents speculation, and
+whether a speculation barrier instruction (ori 31,31,0) is provided.
+
+The behaviour field describes actions that software should take to
+prevent inadvertent information disclosure, and thus describes which
+vulnerabilities the hardware is subject to; specifically whether the
+L1 data cache should be flushed when returning to user mode from the
+kernel, and whether a speculation barrier should be placed between an
+array bounds check and the array access.
+
+These fields use the same bit definitions as the new
+H_GET_CPU_CHARACTERISTICS hypercall.
 
 5. The kvm_run structure
 ------------------------
@@ -4142,6 +4198,23 @@ enables QEMU to build error log and branch to guest kernel registered
 machine check handling routine. Without this capability KVM will
 branch to guests' 0x200 interrupt vector.
 
+7.11 KVM_CAP_PPC_SMT
+
+Architectures: ppc
+Parameters: vsmt_mode, flags
+
+Enabling this capability on a VM provides userspace with a way to set
+the desired virtual SMT mode (i.e. the number of virtual CPUs per
+virtual core).  The virtual SMT mode, vsmt_mode, must be a power of 2
+between 1 and 8.  On POWER8, vsmt_mode must also be no greater than
+the number of threads per subcore for the host.  Currently flags must
+be 0.  A successful call to enable this capability will result in
+vsmt_mode being returned when the KVM_CAP_PPC_SMT capability is
+subsequently queried for the VM.  This capability is only supported by
+HV KVM, and can only be set before any VCPUs have been created.
+The KVM_CAP_PPC_SMT_POSSIBLE capability indicates which virtual SMT
+modes are available.
+
 8. Other capabilities.
 ----------------------
 
@@ -4303,3 +4376,39 @@ Currently the following bits are defined for the device_irq_level bitmap:
 Future versions of kvm may implement additional events. These will get
 indicated by returning a higher number from KVM_CHECK_EXTENSION and will be
 listed above.
+
+8.10 KVM_CAP_PPC_SMT_POSSIBLE
+
+Architectures: ppc
+
+Querying this capability returns a bitmap indicating the possible
+virtual SMT modes that can be set using KVM_CAP_PPC_SMT.  If bit N
+(counting from the right) is set, then a virtual SMT mode of 2^N is
+available.
+
+8.11 KVM_CAP_HYPERV_SYNIC2
+
+Architectures: x86
+
+This capability enables a newer version of Hyper-V Synthetic interrupt
+controller (SynIC).  The only difference with KVM_CAP_HYPERV_SYNIC is that KVM
+doesn't clear SynIC message and event flags pages when they are enabled by
+writing to the respective MSRs.
+
+8.12 KVM_CAP_HYPERV_VP_INDEX
+
+Architectures: x86
+
+This capability indicates that userspace can load HV_X64_MSR_VP_INDEX msr.  Its
+value is used to denote the target vcpu for a SynIC interrupt.  For
+compatibilty, KVM initializes this msr to KVM's internal vcpu index.  When this
+capability is absent, userspace can still query this msr's value.
+
+8.13 KVM_CAP_S390_AIS_MIGRATION
+
+Architectures: s390
+Parameters: none
+
+This capability indicates if the flic device will be able to get/set the
+AIS states for migration via the KVM_DEV_FLIC_AISM_ALL attribute and allows
+to discover this without having to create a flic device.

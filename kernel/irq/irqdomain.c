@@ -156,6 +156,39 @@ void irq_domain_remove(struct irq_domain *domain)
 }
 EXPORT_SYMBOL_GPL(irq_domain_remove);
 
+void irq_domain_update_bus_token(struct irq_domain *domain,
+				 enum irq_domain_bus_token bus_token)
+{
+	char *name;
+
+	if (domain->bus_token == bus_token)
+		return;
+
+	mutex_lock(&irq_domain_mutex);
+
+	domain->bus_token = bus_token;
+
+	name = kasprintf(GFP_KERNEL, "%s-%d", domain->name, bus_token);
+	if (!name) {
+		mutex_unlock(&irq_domain_mutex);
+		return;
+	}
+
+	/* agraf@suse.com: Skip as domain dirs are not backported */
+	/* debugfs_remove_domain_dir(domain); */
+
+	if (domain->flags & IRQ_DOMAIN_NAME_ALLOCATED)
+		kfree(domain->name);
+	else
+		domain->flags |= IRQ_DOMAIN_NAME_ALLOCATED;
+
+	domain->name = name;
+	/* agraf@suse.com: Skip as domain dirs are not backported */
+	/* debugfs_add_domain_dir(domain); */
+
+	mutex_unlock(&irq_domain_mutex);
+}
+
 /**
  * irq_domain_add_simple() - Register an irq_domain and optionally map a range of irqs
  * @of_node: pointer to interrupt controller's device tree node.
@@ -1189,43 +1222,18 @@ void irq_domain_free_irqs_top(struct irq_domain *domain, unsigned int virq,
 	irq_domain_free_irqs_common(domain, virq, nr_irqs);
 }
 
-static bool irq_domain_is_auto_recursive(struct irq_domain *domain)
-{
-	return domain->flags & IRQ_DOMAIN_FLAG_AUTO_RECURSIVE;
-}
-
-static void irq_domain_free_irqs_recursive(struct irq_domain *domain,
+static void irq_domain_free_irqs_hierarchy(struct irq_domain *domain,
 					   unsigned int irq_base,
 					   unsigned int nr_irqs)
 {
 	domain->ops->free(domain, irq_base, nr_irqs);
-	if (irq_domain_is_auto_recursive(domain)) {
-		BUG_ON(!domain->parent);
-		irq_domain_free_irqs_recursive(domain->parent, irq_base,
-					       nr_irqs);
-	}
 }
 
-int irq_domain_alloc_irqs_recursive(struct irq_domain *domain,
+int irq_domain_alloc_irqs_hierarchy(struct irq_domain *domain,
 				    unsigned int irq_base,
 				    unsigned int nr_irqs, void *arg)
 {
-	int ret = 0;
-	struct irq_domain *parent = domain->parent;
-	bool recursive = irq_domain_is_auto_recursive(domain);
-
-	BUG_ON(recursive && !parent);
-	if (recursive)
-		ret = irq_domain_alloc_irqs_recursive(parent, irq_base,
-						      nr_irqs, arg);
-	if (ret < 0)
-		return ret;
-
-	ret = domain->ops->alloc(domain, irq_base, nr_irqs, arg);
-	if (ret < 0 && recursive)
-		irq_domain_free_irqs_recursive(parent, irq_base, nr_irqs);
-
-	return ret;
+	return domain->ops->alloc(domain, irq_base, nr_irqs, arg);
 }
 
 /**
@@ -1286,7 +1294,7 @@ int __irq_domain_alloc_irqs(struct irq_domain *domain, int irq_base,
 	}
 
 	mutex_lock(&irq_domain_mutex);
-	ret = irq_domain_alloc_irqs_recursive(domain, virq, nr_irqs, arg);
+	ret = irq_domain_alloc_irqs_hierarchy(domain, virq, nr_irqs, arg);
 	if (ret < 0) {
 		mutex_unlock(&irq_domain_mutex);
 		goto out_free_irq_data;
@@ -1321,7 +1329,7 @@ void irq_domain_free_irqs(unsigned int virq, unsigned int nr_irqs)
 	mutex_lock(&irq_domain_mutex);
 	for (i = 0; i < nr_irqs; i++)
 		irq_domain_remove_irq(virq + i);
-	irq_domain_free_irqs_recursive(data->domain, virq, nr_irqs);
+	irq_domain_free_irqs_hierarchy(data->domain, virq, nr_irqs);
 	mutex_unlock(&irq_domain_mutex);
 
 	irq_domain_free_irq_data(virq, nr_irqs);
@@ -1341,15 +1349,11 @@ int irq_domain_alloc_irqs_parent(struct irq_domain *domain,
 				 unsigned int irq_base, unsigned int nr_irqs,
 				 void *arg)
 {
-	/* irq_domain_alloc_irqs_recursive() has called parent's alloc() */
-	if (irq_domain_is_auto_recursive(domain))
-		return 0;
+	if (!domain->parent)
+		return -ENOSYS;
 
-	domain = domain->parent;
-	if (domain)
-		return irq_domain_alloc_irqs_recursive(domain, irq_base,
-						       nr_irqs, arg);
-	return -ENOSYS;
+	return irq_domain_alloc_irqs_hierarchy(domain->parent, irq_base,
+					       nr_irqs, arg);
 }
 EXPORT_SYMBOL_GPL(irq_domain_alloc_irqs_parent);
 
@@ -1364,10 +1368,10 @@ EXPORT_SYMBOL_GPL(irq_domain_alloc_irqs_parent);
 void irq_domain_free_irqs_parent(struct irq_domain *domain,
 				 unsigned int irq_base, unsigned int nr_irqs)
 {
-	/* irq_domain_free_irqs_recursive() will call parent's free */
-	if (!irq_domain_is_auto_recursive(domain) && domain->parent)
-		irq_domain_free_irqs_recursive(domain->parent, irq_base,
-					       nr_irqs);
+	if (!domain->parent)
+		return;
+
+	irq_domain_free_irqs_hierarchy(domain->parent, irq_base, nr_irqs);
 }
 EXPORT_SYMBOL_GPL(irq_domain_free_irqs_parent);
 

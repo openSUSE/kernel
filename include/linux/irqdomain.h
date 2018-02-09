@@ -174,8 +174,8 @@ enum {
 	/* Irq domain is hierarchical */
 	IRQ_DOMAIN_FLAG_HIERARCHY	= (1 << 0),
 
-	/* Core calls alloc/free recursive through the domain hierarchy. */
-	IRQ_DOMAIN_FLAG_AUTO_RECURSIVE	= (1 << 1),
+	/* Irq domain name was allocated in __irq_domain_add() */
+	IRQ_DOMAIN_NAME_ALLOCATED       = (1 << 6),
 
 	/* Irq domain is an IPI domain with virq per cpu */
 	IRQ_DOMAIN_FLAG_IPI_PER_CPU	= (1 << 2),
@@ -204,6 +204,14 @@ static inline struct device_node *irq_domain_get_of_node(struct irq_domain *d)
 
 #ifdef CONFIG_IRQ_DOMAIN
 struct fwnode_handle *irq_domain_alloc_fwnode(void *data);
+
+static inline
+struct fwnode_handle *irq_domain_alloc_named_id_fwnode(const char *name, int id)
+{
+	/* agraf@suse.com: We don't know what named domains are, stub out */
+	return irq_domain_alloc_fwnode(NULL);
+}
+
 void irq_domain_free_fwnode(struct fwnode_handle *fwnode);
 struct irq_domain *__irq_domain_add(struct fwnode_handle *fwnode, int size,
 				    irq_hw_number_t hwirq_max, int direct_max,
@@ -237,6 +245,9 @@ static inline bool is_fwnode_irqchip(struct fwnode_handle *fwnode)
 {
 	return fwnode && fwnode->type == FWNODE_IRQCHIP;
 }
+
+extern void irq_domain_update_bus_token(struct irq_domain *domain,
+					enum irq_domain_bus_token bus_token);
 
 static inline
 struct irq_domain *irq_find_matching_fwnode(struct fwnode_handle *fwnode,
@@ -410,7 +421,7 @@ static inline int irq_domain_alloc_irqs(struct irq_domain *domain,
 				       NULL);
 }
 
-extern int irq_domain_alloc_irqs_recursive(struct irq_domain *domain,
+extern int irq_domain_alloc_irqs_hierarchy(struct irq_domain *domain,
 					   unsigned int irq_base,
 					   unsigned int nr_irqs, void *arg);
 extern int irq_domain_set_hwirq_and_chip(struct irq_domain *domain,
