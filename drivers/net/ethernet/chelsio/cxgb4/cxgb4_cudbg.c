@@ -385,13 +385,14 @@ static void cxgb4_cudbg_collect_entity(struct cudbg_init *pdbg_init,
 int cxgb4_cudbg_collect(struct adapter *adap, void *buf, u32 *buf_size,
 			u32 flag)
 {
-	struct cudbg_init cudbg_init = { 0 };
 	struct cudbg_buffer dbg_buff = { 0 };
 	u32 size, min_size, total_size = 0;
+	struct cudbg_init cudbg_init;
 	struct cudbg_hdr *cudbg_hdr;
 
 	size = *buf_size;
 
+	memset(&cudbg_init, 0, sizeof(struct cudbg_init));
 	cudbg_init.adap = adap;
 	cudbg_init.outbuf = buf;
 	cudbg_init.outbuf_size = size;
