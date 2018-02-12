@@ -27,6 +27,8 @@
 #include <linux/irqreturn.h>
 #include <linux/dmaengine.h>
 
+#include "sp-dev.h"
+
 #define MAX_CCP_NAME_LEN		16
 #define MAX_DMAPOOL_NAME_LEN		32
 
@@ -333,12 +335,11 @@ struct ccp_device {
 	char rngname[MAX_CCP_NAME_LEN];
 
 	struct device *dev;
+	struct sp_device *sp;
 
 	/* Bus specific device information
 	 */
 	void *dev_specific;
-	int (*get_irq)(struct ccp_device *ccp);
-	void (*free_irq)(struct ccp_device *ccp);
 	unsigned int qim;
 	unsigned int irq;
 	bool use_tasklet;
@@ -351,7 +352,6 @@ struct ccp_device {
 	 *   them.
 	 */
 	struct mutex req_mutex ____cacheline_aligned;
-	void __iomem *io_map;
 	void __iomem *io_regs;
 
 	/* Master lists that all cmds are queued on. Because there can be
@@ -609,18 +609,12 @@ struct ccp5_desc {
 	struct dword7 dw7;
 };
 
-int ccp_pci_init(void);
-void ccp_pci_exit(void);
-
-int ccp_platform_init(void);
-void ccp_platform_exit(void);
-
 void ccp_add_device(struct ccp_device *ccp);
 void ccp_del_device(struct ccp_device *ccp);
 
 extern void ccp_log_error(struct ccp_device *, int);
 
-struct ccp_device *ccp_alloc_struct(struct device *dev);
+struct ccp_device *ccp_alloc_struct(struct sp_device *sp);
 bool ccp_queues_suspended(struct ccp_device *ccp);
 int ccp_cmd_queue_thread(void *data);
 int ccp_trng_read(struct hwrng *rng, void *data, size_t max, bool wait);
@@ -649,16 +643,7 @@ struct ccp_actions {
 	irqreturn_t (*irqhandler)(int, void *);
 };
 
-/* Structure to hold CCP version-specific values */
-struct ccp_vdata {
-	const unsigned int version;
-	const unsigned int dma_chan_attr;
-	void (*setup)(struct ccp_device *);
-	const struct ccp_actions *perform;
-	const unsigned int bar;
-	const unsigned int offset;
-};
-
+extern const struct ccp_vdata ccpv3_platform;
 extern const struct ccp_vdata ccpv3;
 extern const struct ccp_vdata ccpv5a;
 extern const struct ccp_vdata ccpv5b;
