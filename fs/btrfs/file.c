@@ -3004,9 +3004,12 @@ reserve_space:
 		unlock_extent_cached(&BTRFS_I(inode)->io_tree, lockstart,
 				     lockend, &cached_state, GFP_KERNEL);
 		/* btrfs_prealloc_file_range releases reserved space on error */
-		if (ret)
+		if (ret) {
 			space_reserved = false;
+			goto out;
+		}
 	}
+	ret = btrfs_fallocate_update_isize(inode, offset + len, mode);
  out:
 	if (ret && space_reserved)
 		btrfs_free_reserved_data_space(inode,
