@@ -3444,8 +3444,7 @@ static struct sysrq_key_op sysrq_xmon_op = {
 
 static int __init setup_xmon_sysrq(void)
 {
-	register_sysrq_key('x', &sysrq_xmon_op);
-	return 0;
+	return xmon_on ? register_sysrq_key('x', &sysrq_xmon_op) : 0;
 }
 device_initcall(setup_xmon_sysrq);
 #endif /* CONFIG_MAGIC_SYSRQ */
