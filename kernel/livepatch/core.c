@@ -1071,7 +1071,7 @@ static void klp_cleanup_module_patches_limited(struct module *mod,
 
 				pr_notice("reverting patch '%s' on unloading module '%s'\n",
 					  patch->mod->name, obj->mod->name);
-				klp_unpatch_object(obj);
+				klp_unpatch_object(obj, KLP_FUNC_ANY);
 
 				klp_post_unpatch_callback(obj);
 			}

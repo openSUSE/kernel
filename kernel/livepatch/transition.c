@@ -92,7 +92,7 @@ static void klp_complete_transition(void)
 		 * All tasks have transitioned to KLP_UNPATCHED so we can now
 		 * remove the new functions from the func_stack.
 		 */
-		klp_unpatch_objects(klp_transition_patch);
+		klp_unpatch_objects(klp_transition_patch, KLP_FUNC_ANY);
 
 		/*
 		 * Make sure klp_ftrace_handler() can no longer see functions
