@@ -2734,7 +2734,7 @@ intel_find_initial_plane_obj(struct intel_crtc *intel_crtc,
 
 		if (intel_plane_ggtt_offset(state) == plane_config->base) {
 			fb = c->primary->fb;
-			drm_framebuffer_reference(fb);
+			drm_framebuffer_get(fb);
 			goto valid_fb;
 		}
 	}
@@ -2765,7 +2765,7 @@ valid_fb:
 			  intel_crtc->pipe, PTR_ERR(intel_state->vma));
 
 		intel_state->vma = NULL;
-		drm_framebuffer_unreference(fb);
+		drm_framebuffer_put(fb);
 		return;
 	}
 
@@ -2786,7 +2786,7 @@ valid_fb:
 	if (i915_gem_object_is_tiled(obj))
 		dev_priv->preserve_bios_swizzle = true;
 
-	drm_framebuffer_reference(fb);
+	drm_framebuffer_get(fb);
 	primary->fb = primary->state->fb = fb;
 	primary->crtc = primary->state->crtc = &intel_crtc->base;
 
@@ -5628,8 +5628,8 @@ static u64 get_crtc_power_domains(struct drm_crtc *crtc,
 	if (!crtc_state->base.active)
 		return 0;
 
-	mask = BIT(POWER_DOMAIN_PIPE(pipe));
-	mask |= BIT(POWER_DOMAIN_TRANSCODER(transcoder));
+	mask = BIT_ULL(POWER_DOMAIN_PIPE(pipe));
+	mask |= BIT_ULL(POWER_DOMAIN_TRANSCODER(transcoder));
 	if (crtc_state->pch_pfit.enabled ||
 	    crtc_state->pch_pfit.force_thru)
 		mask |= BIT_ULL(POWER_DOMAIN_PIPE_PANEL_FITTER(pipe));
@@ -5641,7 +5641,7 @@ static u64 get_crtc_power_domains(struct drm_crtc *crtc,
 	}
 
 	if (HAS_DDI(dev_priv) && crtc_state->has_audio)
-		mask |= BIT(POWER_DOMAIN_AUDIO);
+		mask |= BIT_ULL(POWER_DOMAIN_AUDIO);
 
 	if (crtc_state->shared_dpll)
 		mask |= BIT_ULL(POWER_DOMAIN_PLLS);
@@ -9503,7 +9503,7 @@ mode_fits_in_fbdev(struct drm_device *dev,
 	if (obj->base.size < mode->vdisplay * fb->pitches[0])
 		return NULL;
 
-	drm_framebuffer_reference(fb);
+	drm_framebuffer_get(fb);
 	return fb;
 #else
 	return NULL;
@@ -9679,10 +9679,9 @@ found:
 	}
 
 	ret = intel_modeset_setup_plane_state(state, crtc, mode, fb, 0, 0);
+	drm_framebuffer_put(fb);
 	if (ret)
 		goto fail;
-
-	drm_framebuffer_unreference(fb);
 
 	ret = drm_atomic_set_mode_for_crtc(&crtc_state->base, mode);
 	if (ret)
