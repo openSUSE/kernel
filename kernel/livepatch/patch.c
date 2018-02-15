@@ -236,15 +236,29 @@ err:
 	return ret;
 }
 
-void klp_unpatch_object(struct klp_object *obj)
+/*
+ * Remove ftrace handler for the given object and function type.
+ *
+ * It keeps obj->patched flag true when any listed function is still patched.
+ * The caller is responsible for removing the unpatched functions to
+ * make the flag clean again.
+ */
+void klp_unpatch_object(struct klp_object *obj, enum klp_func_type ftype)
 {
 	struct klp_func *func;
+	bool patched = false;
 
-	klp_for_each_func(obj, func)
-		if (func->patched)
+	klp_for_each_func(obj, func) {
+		if (!func->patched)
+			continue;
+
+		if (klp_is_func_type(func, ftype))
 			klp_unpatch_func(func);
+		else
+			patched = true;
+	}
 
-	obj->patched = false;
+	obj->patched = patched;
 }
 
 int klp_patch_object(struct klp_object *obj)
@@ -258,7 +272,7 @@ int klp_patch_object(struct klp_object *obj)
 	klp_for_each_func(obj, func) {
 		ret = klp_patch_func(func);
 		if (ret) {
-			klp_unpatch_object(obj);
+			klp_unpatch_object(obj, KLP_FUNC_ANY);
 			return ret;
 		}
 	}
@@ -267,11 +281,12 @@ int klp_patch_object(struct klp_object *obj)
 	return 0;
 }
 
-void klp_unpatch_objects(struct klp_patch *patch)
+/* Removes ftrace handler in all objects for the given function type. */
+void klp_unpatch_objects(struct klp_patch *patch, enum klp_func_type ftype)
 {
 	struct klp_object *obj;
 
 	klp_for_each_object(patch, obj)
 		if (obj->patched)
-			klp_unpatch_object(obj);
+			klp_unpatch_object(obj, ftype);
 }
