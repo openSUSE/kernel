@@ -665,16 +665,17 @@ static struct kobj_type klp_ktype_func = {
 };
 
 /*
- * Free all functions' kobjects in the array up to some limit. When limit is
- * NULL, all kobjects are freed.
+ * Free all funcs that have the kobject initialized. Otherwise,
+ * nothing is needed.
  */
-static void klp_free_funcs_limited(struct klp_object *obj,
-				   struct klp_func *limit)
+static void klp_free_funcs(struct klp_object *obj)
 {
 	struct klp_func *func;
 
-	for (func = obj->funcs; func->old_name && func != limit; func++)
-		kobject_put(&func->kobj);
+	klp_for_each_func(obj, func) {
+		if (func->kobj.state_initialized)
+			kobject_put(&func->kobj);
+	}
 }
 
 /* Clean up when a patched object is unloaded */
@@ -689,23 +690,25 @@ static void klp_free_object_loaded(struct klp_object *obj)
 }
 
 /*
- * Free all objects' kobjects in the array up to some limit. When limit is
- * NULL, all kobjects are freed.
+ * Free all funcs and objects that have the kobject initialized.
+ * Otherwise, nothing is needed.
  */
-static void klp_free_objects_limited(struct klp_patch *patch,
-				     struct klp_object *limit)
+static void klp_free_objects(struct klp_patch *patch)
 {
 	struct klp_object *obj;
 
-	for (obj = patch->objs; obj->funcs && obj != limit; obj++) {
-		klp_free_funcs_limited(obj, NULL);
-		kobject_put(&obj->kobj);
+	klp_for_each_object(patch, obj) {
+		klp_free_funcs(obj);
+
+		if (obj->kobj.state_initialized)
+			kobject_put(&obj->kobj);
 	}
 }
 
 static void klp_free_patch(struct klp_patch *patch)
 {
-	klp_free_objects_limited(patch, NULL);
+	klp_free_objects(patch);
+
 	if (!list_empty(&patch->list))
 		list_del(&patch->list);
 }
@@ -802,21 +805,16 @@ static int klp_init_object(struct klp_patch *patch, struct klp_object *obj)
 	klp_for_each_func(obj, func) {
 		ret = klp_init_func(obj, func);
 		if (ret)
-			goto free;
+			return ret;
 	}
 
 	if (klp_is_object_loaded(obj)) {
 		ret = klp_init_object_loaded(patch, obj);
 		if (ret)
-			goto free;
+			return ret;
 	}
 
 	return 0;
-
-free:
-	klp_free_funcs_limited(obj, func);
-	kobject_put(&obj->kobj);
-	return ret;
 }
 
 static int klp_init_patch(struct klp_patch *patch)
@@ -853,7 +851,7 @@ static int klp_init_patch(struct klp_patch *patch)
 	return 0;
 
 free:
-	klp_free_objects_limited(patch, obj);
+	klp_free_objects(patch);
 
 	mutex_unlock(&klp_mutex);
 
