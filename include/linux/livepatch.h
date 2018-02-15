@@ -42,6 +42,7 @@
 enum klp_func_type {
 	KLP_FUNC_ANY = -1,	/* Substitute any type */
 	KLP_FUNC_STATIC = 0,    /* Original statically defined structure */
+	KLP_FUNC_NOP,		/* Dynamically allocated NOP function patch */
 };
 
 /**
@@ -153,6 +154,7 @@ struct klp_object {
  * struct klp_patch - patch structure for live patching
  * @mod:	reference to the live patch module
  * @objs:	object entries for kernel objects to be patched
+ * @replace:	replace all already registered patches
  * @list:	list node for global list of registered patches
  * @kobj:	kobject for sysfs resources
  * @obj_list:	head of list for struct klp_object
@@ -163,6 +165,7 @@ struct klp_patch {
 	/* external */
 	struct module *mod;
 	struct klp_object *objs;
+	bool replace;
 
 	/* internal */
 	struct list_head list;

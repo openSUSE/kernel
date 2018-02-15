@@ -87,6 +87,36 @@ static void klp_complete_transition(void)
 		 klp_transition_patch->mod->name,
 		 klp_target_state == KLP_PATCHED ? "patching" : "unpatching");
 
+	/*
+	 * For replace patches, we disable all previous patches, and replace
+	 * the dynamic no-op functions by removing the ftrace hook.
+	 */
+	if (klp_transition_patch->replace && klp_target_state == KLP_PATCHED) {
+		/*
+		 * Make sure that no ftrace handler accesses any older patch
+		 * on the stack.  This might happen when the user forced the
+		 * transaction while some running tasks were still falling
+		 * back to the old code.  There might even still be ftrace
+		 * handlers that have not seen the last patch on the stack yet.
+		 *
+		 * It probably is not necessary because of the rcu-safe access.
+		 * But better be safe than sorry.
+		 */
+		if (klp_forced)
+			klp_synchronize_transition();
+
+		klp_throw_away_replaced_patches(klp_transition_patch,
+						klp_forced);
+
+		/*
+		 * There is no need to synchronize the transition after removing
+		 * nops. They must be the last on the func_stack. Ftrace
+		 * gurantees that nobody will stay in the trampoline after
+		 * the ftrace handler is unregistered.
+		 */
+		klp_unpatch_objects(klp_transition_patch, KLP_FUNC_NOP);
+	}
+
 	if (klp_target_state == KLP_UNPATCHED) {
 		/*
 		 * All tasks have transitioned to KLP_UNPATCHED so we can now
@@ -142,6 +172,15 @@ static void klp_complete_transition(void)
 	 */
 	if (!klp_forced && klp_target_state == KLP_UNPATCHED)
 		module_put(klp_transition_patch->mod);
+
+	/*
+	 * We do not need to wait until the objects are really freed.
+	 * The patch must be on the bottom of the stack. Therefore it
+	 * will never replace anything else. The only important thing
+	 * is that we wait when the patch is being unregistered.
+	 */
+	if (klp_transition_patch->replace && klp_target_state == KLP_PATCHED)
+		klp_free_objects(klp_transition_patch, KLP_FUNC_NOP);
 
 	klp_target_state = KLP_UNDEFINED;
 	klp_transition_patch = NULL;

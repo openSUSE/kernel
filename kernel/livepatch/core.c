@@ -142,6 +142,21 @@ static bool klp_initialized(void)
 	return !!klp_root_kobj;
 }
 
+static struct klp_func *klp_find_func(struct klp_object *obj,
+				      struct klp_func *old_func)
+{
+	struct klp_func *func;
+
+	klp_for_each_func(obj, func) {
+		if ((strcmp(old_func->old_name, func->old_name) == 0) &&
+		    (old_func->old_sympos == func->old_sympos)) {
+			return func;
+		}
+	}
+
+	return NULL;
+}
+
 static struct klp_object *klp_find_object(struct klp_patch *patch,
 					  struct klp_object *old_obj)
 {
@@ -351,6 +366,39 @@ static void klp_taint_kernel(const struct klp_patch *patch)
 #endif
 }
 
+/*
+ * This function removes replaced patches from both func_stack
+ * and klp_patches stack.
+ *
+ * We could be pretty aggressive here. It is called in situation
+ * when these structures are not longer accessible. All functions
+ * are redirected using the klp_transition_patch. They use either
+ * a new code or they in the original code because of the special
+ * nop function patches.
+ */
+void klp_throw_away_replaced_patches(struct klp_patch *new_patch,
+				     bool keep_module)
+{
+	struct klp_patch *old_patch, *tmp_patch;
+
+	list_for_each_entry_safe(old_patch, tmp_patch, &klp_patches, list) {
+		if (old_patch == new_patch)
+			return;
+
+		klp_unpatch_objects(old_patch, KLP_FUNC_ANY);
+		old_patch->enabled = false;
+
+		/*
+		 * Replaced patches could not get re-enabled to keep
+		 * the code sane.
+		 */
+		list_move(&old_patch->list, &klp_replaced_patches);
+
+		if (!keep_module)
+			module_put(old_patch->mod);
+	}
+}
+
 static int __klp_disable_patch(struct klp_patch *patch)
 {
 	struct klp_object *obj;
@@ -548,7 +596,7 @@ static ssize_t enabled_store(struct kobject *kobj, struct kobj_attribute *attr,
 	if (!klp_is_patch_usable(patch)) {
 		/*
 		 * Module with the patch could either disappear meanwhile or is
-		 * not properly initialized yet.
+		 * not properly initialized yet or the patch was just replaced.
 		 */
 		ret = -EINVAL;
 		goto err;
@@ -673,8 +721,16 @@ static struct attribute *klp_patch_attrs[] = {
 /*
  * Dynamically allocated objects and functions.
  */
+static void klp_free_func_nop(struct klp_func *func)
+{
+	kfree(func->old_name);
+	kfree(func);
+}
+
 static void klp_free_func_dynamic(struct klp_func *func)
 {
+	if (func->ftype == KLP_FUNC_NOP)
+		klp_free_func_nop(func);
 }
 
 static void klp_free_object_dynamic(struct klp_object *obj)
@@ -717,6 +773,102 @@ static struct klp_object *klp_get_or_add_object(struct klp_patch *patch,
 
 	klp_init_object_list(patch, obj);
 	return obj;
+}
+
+static struct klp_func *klp_alloc_func_nop(struct klp_func *old_func,
+					   struct klp_object *obj)
+{
+	struct klp_func *func;
+
+	func = kzalloc(sizeof(*func), GFP_KERNEL);
+	if (!func)
+		return ERR_PTR(-ENOMEM);
+
+	if (old_func->old_name) {
+		func->old_name = kstrdup(old_func->old_name, GFP_KERNEL);
+		if (!func->old_name) {
+			kfree(func);
+			return ERR_PTR(-ENOMEM);
+		}
+	}
+	func->old_sympos = old_func->old_sympos;
+	/* NOP func is the same as using the original implementation. */
+	func->new_func = (void *)old_func->old_addr;
+	func->ftype = KLP_FUNC_NOP;
+
+	return func;
+}
+
+static int klp_add_func_nop(struct klp_object *obj,
+			    struct klp_func *old_func)
+{
+	struct klp_func *func;
+
+	func = klp_find_func(obj, old_func);
+
+	if (func)
+		return 0;
+
+	func = klp_alloc_func_nop(old_func, obj);
+	if (IS_ERR(func))
+		return PTR_ERR(func);
+
+	klp_init_func_list(obj, func);
+
+	return 0;
+}
+
+static int klp_add_object_nops(struct klp_patch *patch,
+			       struct klp_object *old_obj)
+{
+	struct klp_object *obj;
+	struct klp_func *old_func;
+	int err = 0;
+
+	obj = klp_get_or_add_object(patch, old_obj);
+	if (IS_ERR(obj))
+		return PTR_ERR(obj);
+
+	klp_for_each_func(old_obj, old_func) {
+		err = klp_add_func_nop(obj, old_func);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
+/*
+ * Add 'nop' functions which simply return to the caller to run
+ * the original function. The 'nop' functions are added to a
+ * patch to facilitate a 'replace' mode
+ *
+ * The nops are generated for all patches on the stack when
+ * the new patch is initialized. It is safe even though some
+ * older patches might get disabled and removed before the
+ * new one is enabled. In the worst case, there might be nops
+ * there will not be really needed. But it does not harm and
+ * simplifies the implementation a lot. Especially we could
+ * use the init functions as is.
+ */
+static int klp_add_nops(struct klp_patch *patch)
+{
+	struct klp_patch *old_patch;
+	struct klp_object *old_obj;
+	int err = 0;
+
+	if (WARN_ON(!patch->replace))
+		return -EINVAL;
+
+	list_for_each_entry(old_patch, &klp_patches, list) {
+		klp_for_each_object(old_patch, old_obj) {
+			err = klp_add_object_nops(patch, old_obj);
+			if (err)
+				return err;
+		}
+	}
+
+	return 0;
 }
 
 /*
@@ -961,6 +1113,12 @@ static int klp_init_patch(struct klp_patch *patch)
 	if (ret) {
 		mutex_unlock(&klp_mutex);
 		return ret;
+	}
+
+	if (patch->replace) {
+		ret = klp_add_nops(patch);
+		if (ret)
+			goto free;
 	}
 
 	klp_for_each_object(patch, obj) {
