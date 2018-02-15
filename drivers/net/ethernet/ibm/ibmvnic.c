@@ -791,6 +791,18 @@ static int ibmvnic_login(struct net_device *netdev)
 	return 0;
 }
 
+static void release_login_buffer(struct ibmvnic_adapter *adapter)
+{
+	kfree(adapter->login_buf);
+	adapter->login_buf = NULL;
+}
+
+static void release_login_rsp_buffer(struct ibmvnic_adapter *adapter)
+{
+	kfree(adapter->login_rsp_buf);
+	adapter->login_rsp_buf = NULL;
+}
+
 static void release_resources(struct ibmvnic_adapter *adapter)
 {
 	int i;
@@ -813,6 +825,10 @@ static void release_resources(struct ibmvnic_adapter *adapter)
 			}
 		}
 	}
+	kfree(adapter->napi);
+	adapter->napi = NULL;
+
+	release_login_rsp_buffer(adapter);
 }
 
 static int set_link_state(struct ibmvnic_adapter *adapter, u8 link_state)
@@ -1057,6 +1073,35 @@ static int ibmvnic_open(struct net_device *netdev)
 	return rc;
 }
 
+static void clean_rx_pools(struct ibmvnic_adapter *adapter)
+{
+	struct ibmvnic_rx_pool *rx_pool;
+	u64 rx_entries;
+	int rx_scrqs;
+	int i, j;
+
+	if (!adapter->rx_pool)
+		return;
+
+	rx_scrqs = be32_to_cpu(adapter->login_rsp_buf->num_rxadd_subcrqs);
+	rx_entries = adapter->req_rx_add_entries_per_subcrq;
+
+	/* Free any remaining skbs in the rx buffer pools */
+	for (i = 0; i < rx_scrqs; i++) {
+		rx_pool = &adapter->rx_pool[i];
+		if (!rx_pool)
+			continue;
+
+		netdev_dbg(adapter->netdev, "Cleaning rx_pool[%d]\n", i);
+		for (j = 0; j < rx_entries; j++) {
+			if (rx_pool->rx_buff[j].skb) {
+				dev_kfree_skb_any(rx_pool->rx_buff[j].skb);
+				rx_pool->rx_buff[j].skb = NULL;
+			}
+		}
+	}
+}
+
 static void clean_tx_pools(struct ibmvnic_adapter *adapter)
 {
 	struct ibmvnic_tx_pool *tx_pool;
@@ -1134,7 +1179,7 @@ static int __ibmvnic_close(struct net_device *netdev)
 			}
 		}
 	}
-
+	clean_rx_pools(adapter);
 	clean_tx_pools(adapter);
 	adapter->state = VNIC_CLOSED;
 	return rc;
@@ -1419,10 +1464,7 @@ static int ibmvnic_xmit(struct sk_buff *skb, struct net_device *netdev)
 		hdrs += 2;
 	}
 	/* determine if l2/3/4 headers are sent to firmware */
-	if ((*hdrs >> 7) & 1 &&
-	    (skb->protocol == htons(ETH_P_IP) ||
-	     skb->protocol == htons(ETH_P_IPV6) ||
-	     skb->protocol == htons(ETH_P_ARP))) {
+	if ((*hdrs >> 7) & 1) {
 		build_hdr_descs_arr(tx_buff, &num_entries, *hdrs);
 		tx_crq.v1.n_crq_elem = num_entries;
 		tx_buff->indir_arr[0] = tx_crq;
@@ -1644,6 +1686,7 @@ static int do_reset(struct ibmvnic_adapter *adapter,
 				return rc;
 		} else if (adapter->req_rx_queues != old_num_rx_queues ||
 			   adapter->req_tx_queues != old_num_tx_queues) {
+			adapter->map_id = 1;
 			release_rx_pools(adapter);
 			release_tx_pools(adapter);
 			init_rx_pools(netdev);
@@ -1672,14 +1715,14 @@ static int do_reset(struct ibmvnic_adapter *adapter,
 		return 0;
 	}
 
-	netif_carrier_on(netdev);
-
 	/* kick napi */
 	for (i = 0; i < adapter->req_rx_queues; i++)
 		napi_schedule(&adapter->napi[i]);
 
 	if (adapter->reset_reason != VNIC_RESET_FAILOVER)
 		netdev_notify_peers(netdev);
+
+	netif_carrier_on(netdev);
 
 	return 0;
 }
@@ -1855,6 +1898,7 @@ restart_poll:
 				   be16_to_cpu(next->rx_comp.rc));
 			/* free the entry */
 			next->rx_comp.first = 0;
+			dev_kfree_skb_any(rx_buff->skb);
 			remove_buff_from_pool(adapter, rx_buff);
 			continue;
 		}
@@ -3015,6 +3059,7 @@ static void send_login(struct ibmvnic_adapter *adapter)
 	struct vnic_login_client_data *vlcd;
 	int i;
 
+	release_login_rsp_buffer(adapter);
 	client_data_len = vnic_client_data_len(adapter);
 
 	buffer_size =
@@ -3710,6 +3755,7 @@ static int handle_login_rsp(union ibmvnic_crq *login_rsp_crq,
 
 	dma_unmap_single(dev, adapter->login_buf_token, adapter->login_buf_sz,
 			 DMA_BIDIRECTIONAL);
+	release_login_buffer(adapter);
 	dma_unmap_single(dev, adapter->login_rsp_buf_token,
 			 adapter->login_rsp_buf_sz, DMA_BIDIRECTIONAL);
 
