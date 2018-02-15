@@ -24,6 +24,7 @@
 #include <linux/module.h>
 #include <linux/ftrace.h>
 #include <linux/completion.h>
+#include <linux/list.h>
 
 #if IS_ENABLED(CONFIG_LIVEPATCH)
 
@@ -43,6 +44,7 @@
  * @old_addr:	the address of the function being patched
  * @kobj:	kobject for sysfs resources
  * @stack_node:	list node for klp_ops func_stack list
+ * @func_entry:	links struct klp_func to struct klp_object
  * @old_size:	size of the old function
  * @new_size:	size of the new function
  * @patched:	the func has been added to the klp_ops list
@@ -80,6 +82,7 @@ struct klp_func {
 	unsigned long old_addr;
 	struct kobject kobj;
 	struct list_head stack_node;
+	struct list_head func_entry;
 	unsigned long old_size, new_size;
 	bool patched;
 	bool transition;
@@ -117,6 +120,8 @@ struct klp_callbacks {
  * @kobj:	kobject for sysfs resources
  * @mod:	kernel module associated with the patched object
  *		(NULL for vmlinux)
+ * @func_list:	head of list for struct klp_func
+ * @obj_entry:	links struct klp_object to struct klp_patch
  * @patched:	the object's funcs have been added to the klp_ops list
  */
 struct klp_object {
@@ -127,6 +132,8 @@ struct klp_object {
 
 	/* internal */
 	struct kobject kobj;
+	struct list_head func_list;
+	struct list_head obj_entry;
 	struct module *mod;
 	bool patched;
 };
@@ -137,6 +144,7 @@ struct klp_object {
  * @objs:	object entries for kernel objects to be patched
  * @list:	list node for global list of registered patches
  * @kobj:	kobject for sysfs resources
+ * @obj_list:	head of list for struct klp_object
  * @enabled:	the patch is enabled (but operation may be incomplete)
  * @finish:	for waiting till it is safe to remove the patch module
  */
@@ -148,17 +156,24 @@ struct klp_patch {
 	/* internal */
 	struct list_head list;
 	struct kobject kobj;
+	struct list_head obj_list;
 	bool enabled;
 	struct completion finish;
 };
 
-#define klp_for_each_object(patch, obj) \
+#define klp_for_each_object_static(patch, obj) \
 	for (obj = patch->objs; obj->funcs || obj->name; obj++)
 
-#define klp_for_each_func(obj, func) \
+#define klp_for_each_object(patch, obj)	\
+	list_for_each_entry(obj, &patch->obj_list, obj_entry)
+
+#define klp_for_each_func_static(obj, func) \
 	for (func = obj->funcs; \
 	     func->old_name || func->new_func || func->old_sympos; \
 	     func++)
+
+#define klp_for_each_func(obj, func)	\
+	list_for_each_entry(func, &obj->func_list, func_entry)
 
 int klp_register_patch(struct klp_patch *);
 int klp_unregister_patch(struct klp_patch *);

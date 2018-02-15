@@ -49,6 +49,32 @@ static LIST_HEAD(klp_patches);
 
 static struct kobject *klp_root_kobj;
 
+static void klp_init_func_list(struct klp_object *obj, struct klp_func *func)
+{
+	list_add(&func->func_entry, &obj->func_list);
+}
+
+static void klp_init_object_list(struct klp_patch *patch,
+				 struct klp_object *obj)
+{
+	struct klp_func *func;
+
+	list_add(&obj->obj_entry, &patch->obj_list);
+
+	INIT_LIST_HEAD(&obj->func_list);
+	klp_for_each_func_static(obj, func)
+		klp_init_func_list(obj, func);
+}
+
+static void klp_init_patch_list(struct klp_patch *patch)
+{
+	struct klp_object *obj;
+
+	INIT_LIST_HEAD(&patch->obj_list);
+	klp_for_each_object_static(patch, obj)
+		klp_init_object_list(patch, obj);
+}
+
 static bool klp_is_module(struct klp_object *obj)
 {
 	return obj->name;
@@ -805,6 +831,7 @@ static int klp_init_patch(struct klp_patch *patch)
 
 	patch->enabled = false;
 	init_completion(&patch->finish);
+	klp_init_patch_list(patch);
 
 	ret = kobject_init_and_add(&patch->kobj, &klp_ktype_patch,
 				   klp_root_kobj, "%s", patch->mod->name);
