@@ -755,10 +755,14 @@ lpfc_rq_buf_free(struct lpfc_hba *phba, struct lpfc_dmabuf *mp)
 	if (rc < 0) {
 		(rqbp->rqb_free_buffer)(phba, rqb_entry);
 		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
-				"6409 Cannot post to RQ %d: %x %x\n",
+				"6409 Cannot post to HRQ %d: %x %x %x "
+				"DRQ %x %x\n",
 				rqb_entry->hrq->queue_id,
 				rqb_entry->hrq->host_index,
-				rqb_entry->hrq->hba_index);
+				rqb_entry->hrq->hba_index,
+				rqb_entry->hrq->entry_count,
+				rqb_entry->drq->host_index,
+				rqb_entry->drq->hba_index);
 	} else {
 		list_add_tail(&rqb_entry->hbuf.list, &rqbp->rqb_buffer_list);
 		rqbp->buffer_count++;
