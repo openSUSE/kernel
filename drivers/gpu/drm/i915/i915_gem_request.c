@@ -829,6 +829,8 @@ static void i915_gem_mark_busy(const struct intel_engine_cs *engine)
 	if (INTEL_GEN(dev_priv) >= 6)
 		gen6_rps_busy(dev_priv);
 
+	i915_queue_hangcheck(dev_priv);
+
 	queue_delayed_work(dev_priv->wq,
 			   &dev_priv->gt.retire_work,
 			   round_jiffies_up_relative(HZ));
