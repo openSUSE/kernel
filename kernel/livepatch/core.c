@@ -124,6 +124,26 @@ static bool klp_initialized(void)
 	return !!klp_root_kobj;
 }
 
+static struct klp_object *klp_find_object(struct klp_patch *patch,
+					  struct klp_object *old_obj)
+{
+	struct klp_object *obj;
+	bool mod = klp_is_module(old_obj);
+
+	klp_for_each_object(patch, obj) {
+		if (mod) {
+			if (klp_is_module(obj) &&
+			    strcmp(old_obj->name, obj->name) == 0) {
+				return obj;
+			}
+		} else if (!klp_is_module(obj)) {
+			return obj;
+		}
+	}
+
+	return NULL;
+}
+
 struct klp_find_arg {
 	const char *objname;
 	const char *name;
@@ -632,6 +652,66 @@ static struct attribute *klp_patch_attrs[] = {
 	NULL
 };
 
+/*
+ * Dynamically allocated objects and functions.
+ */
+static void klp_free_func_dynamic(struct klp_func *func)
+{
+}
+
+static void klp_free_object_dynamic(struct klp_object *obj)
+{
+	kfree(obj->name);
+	kfree(obj);
+}
+
+static struct klp_object *klp_alloc_object_dynamic(const char *name)
+{
+	struct klp_object *obj;
+
+	obj = kzalloc(sizeof(*obj), GFP_KERNEL);
+	if (!obj)
+		return ERR_PTR(-ENOMEM);
+
+	if (name) {
+		obj->name = kstrdup(name, GFP_KERNEL);
+		if (!obj->name) {
+			kfree(obj);
+			return ERR_PTR(-ENOMEM);
+		}
+	}
+
+	return obj;
+}
+
+static struct klp_object *klp_get_or_add_object(struct klp_patch *patch,
+						struct klp_object *old_obj)
+{
+	struct klp_object *obj;
+
+	obj = klp_find_object(patch, old_obj);
+	if (obj)
+		return obj;
+
+	obj = klp_alloc_object_dynamic(old_obj->name);
+	if (IS_ERR(obj))
+		return obj;
+
+	klp_init_object_list(patch, obj);
+	return obj;
+}
+
+/*
+ * Patch release framework must support the following scenarios:
+ *
+ *   + Asynchonous release is used when kobjects are initialized.
+ *
+ *   + Direct release is used in error paths for structures that
+ *     have not had kobj initialized yet.
+ *
+ *   + Allow to release dynamic structures of the given type when
+ *     they are not longer needed.
+ */
 static void klp_kobj_release_patch(struct kobject *kobj)
 {
 	struct klp_patch *patch;
@@ -648,6 +728,12 @@ static struct kobj_type klp_ktype_patch = {
 
 static void klp_kobj_release_object(struct kobject *kobj)
 {
+	struct klp_object *obj;
+
+	obj = container_of(kobj, struct klp_object, kobj);
+
+	if (klp_is_object_dynamic(obj))
+		klp_free_object_dynamic(obj);
 }
 
 static struct kobj_type klp_ktype_object = {
@@ -657,6 +743,12 @@ static struct kobj_type klp_ktype_object = {
 
 static void klp_kobj_release_func(struct kobject *kobj)
 {
+	struct klp_func *func;
+
+	func = container_of(kobj, struct klp_func, kobj);
+
+	if (klp_is_func_dynamic(func))
+		klp_free_func_dynamic(func);
 }
 
 static struct kobj_type klp_ktype_func = {
@@ -665,16 +757,25 @@ static struct kobj_type klp_ktype_func = {
 };
 
 /*
- * Free all funcs that have the kobject initialized. Otherwise,
- * nothing is needed.
+ * Free all funcs of the given ftype. Use the kobject when it has already
+ * been initialized. Otherwise, do it directly.
  */
-static void klp_free_funcs(struct klp_object *obj)
+static void klp_free_funcs(struct klp_object *obj,
+			   enum klp_func_type ftype)
 {
-	struct klp_func *func;
+	struct klp_func *func, *tmp_func;
 
-	klp_for_each_func(obj, func) {
+	klp_for_each_func_safe(obj, func, tmp_func) {
+		if (!klp_is_func_type(func, ftype))
+			continue;
+
+		/* Avoid double free and allow to detect empty objects. */
+		list_del(&func->func_entry);
+
 		if (func->kobj.state_initialized)
 			kobject_put(&func->kobj);
+		else if (klp_is_func_dynamic(func))
+			klp_free_func_dynamic(func);
 	}
 }
 
@@ -690,24 +791,33 @@ static void klp_free_object_loaded(struct klp_object *obj)
 }
 
 /*
- * Free all funcs and objects that have the kobject initialized.
- * Otherwise, nothing is needed.
+ * Free all linked funcs of the given ftype. Then free empty objects.
+ * Use the kobject when it has already been initialized. Otherwise,
+ * do it directly.
  */
-static void klp_free_objects(struct klp_patch *patch)
+void klp_free_objects(struct klp_patch *patch, enum klp_func_type ftype)
 {
-	struct klp_object *obj;
+	struct klp_object *obj, *tmp_obj;
 
-	klp_for_each_object(patch, obj) {
-		klp_free_funcs(obj);
+	klp_for_each_object_safe(patch, obj, tmp_obj) {
+		klp_free_funcs(obj, ftype);
+
+		if (!list_empty(&obj->func_list))
+			continue;
+
+		/* Avoid freeing the object twice. */
+		list_del(&obj->obj_entry);
 
 		if (obj->kobj.state_initialized)
 			kobject_put(&obj->kobj);
+		else if (klp_is_object_dynamic(obj))
+			klp_free_object_dynamic(obj);
 	}
 }
 
 static void klp_free_patch(struct klp_patch *patch)
 {
-	klp_free_objects(patch);
+	klp_free_objects(patch, KLP_FUNC_ANY);
 
 	if (!list_empty(&patch->list))
 		list_del(&patch->list);
@@ -788,9 +898,6 @@ static int klp_init_object(struct klp_patch *patch, struct klp_object *obj)
 	int ret;
 	const char *name;
 
-	if (!obj->funcs)
-		return -EINVAL;
-
 	obj->patched = false;
 	obj->mod = NULL;
 
@@ -851,7 +958,7 @@ static int klp_init_patch(struct klp_patch *patch)
 	return 0;
 
 free:
-	klp_free_objects(patch);
+	klp_free_objects(patch, KLP_FUNC_ANY);
 
 	mutex_unlock(&klp_mutex);
 

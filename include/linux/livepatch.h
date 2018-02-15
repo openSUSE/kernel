@@ -35,12 +35,22 @@
 #define KLP_UNPATCHED	 0
 #define KLP_PATCHED	 1
 
+/*
+ * Function type is used to distinguish dynamically allocated structures
+ * and limit some operations.
+ */
+enum klp_func_type {
+	KLP_FUNC_ANY = -1,	/* Substitute any type */
+	KLP_FUNC_STATIC = 0,    /* Original statically defined structure */
+};
+
 /**
  * struct klp_func - function structure for live patching
  * @old_name:	name of the function to be patched
  * @new_func:	pointer to the patched function code
  * @old_sympos: a hint indicating which symbol position the old function
  *		can be found (optional)
+ * @ftype:	distinguish static and dynamic structures
  * @old_addr:	the address of the function being patched
  * @kobj:	kobject for sysfs resources
  * @stack_node:	list node for klp_ops func_stack list
@@ -79,6 +89,7 @@ struct klp_func {
 	unsigned long old_sympos;
 
 	/* internal */
+	enum klp_func_type ftype;
 	unsigned long old_addr;
 	struct kobject kobj;
 	struct list_head stack_node;
@@ -164,16 +175,40 @@ struct klp_patch {
 #define klp_for_each_object_static(patch, obj) \
 	for (obj = patch->objs; obj->funcs || obj->name; obj++)
 
+#define klp_for_each_object_safe(patch, obj, tmp_obj)		\
+	list_for_each_entry_safe(obj, tmp_obj, &patch->obj_list, obj_entry)
+
 #define klp_for_each_object(patch, obj)	\
 	list_for_each_entry(obj, &patch->obj_list, obj_entry)
 
+/* Support also dynamically allocated struct klp_object */
 #define klp_for_each_func_static(obj, func) \
 	for (func = obj->funcs; \
-	     func->old_name || func->new_func || func->old_sympos; \
+	     func && (func->old_name || func->new_func || func->old_sympos); \
 	     func++)
+
+#define klp_for_each_func_safe(obj, func, tmp_func)			\
+	list_for_each_entry_safe(func, tmp_func, &obj->func_list, func_entry)
 
 #define klp_for_each_func(obj, func)	\
 	list_for_each_entry(func, &obj->func_list, func_entry)
+
+static inline bool klp_is_object_dynamic(struct klp_object *obj)
+{
+	return !obj->funcs;
+}
+
+static inline bool klp_is_func_dynamic(struct klp_func *func)
+{
+	WARN_ON_ONCE(func->ftype == KLP_FUNC_ANY);
+	return func->ftype != KLP_FUNC_STATIC;
+}
+
+static inline bool klp_is_func_type(struct klp_func *func,
+				    enum klp_func_type ftype)
+{
+	return ftype == KLP_FUNC_ANY || ftype == func->ftype;
+}
 
 int klp_register_patch(struct klp_patch *);
 int klp_unregister_patch(struct klp_patch *);
