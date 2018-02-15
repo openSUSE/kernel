@@ -47,6 +47,13 @@ DEFINE_MUTEX(klp_mutex);
 
 static LIST_HEAD(klp_patches);
 
+/*
+ * List of 'replaced' patches that have been replaced by a patch that has the
+ * 'replace' bit set. When they are added to this list, they are disabled and
+ * can not be re-enabled, but they can be unregistered().
+ */
+LIST_HEAD(klp_replaced_patches);
+
 static struct kobject *klp_root_kobj;
 
 static void klp_init_func_list(struct klp_object *obj, struct klp_func *func)
@@ -108,15 +115,26 @@ static void klp_find_object_module(struct klp_object *obj)
 	mutex_unlock(&module_mutex);
 }
 
-static bool klp_is_patch_registered(struct klp_patch *patch)
+static bool klp_is_patch_in_list(struct klp_patch *patch,
+				 struct list_head *head)
 {
 	struct klp_patch *mypatch;
 
-	list_for_each_entry(mypatch, &klp_patches, list)
+	list_for_each_entry(mypatch, head, list)
 		if (mypatch == patch)
 			return true;
 
 	return false;
+}
+
+static bool klp_is_patch_usable(struct klp_patch *patch)
+{
+	return klp_is_patch_in_list(patch, &klp_patches);
+}
+
+static bool klp_is_patch_replaced(struct klp_patch *patch)
+{
+	return klp_is_patch_in_list(patch, &klp_replaced_patches);
 }
 
 static bool klp_initialized(void)
@@ -386,7 +404,7 @@ int klp_disable_patch(struct klp_patch *patch)
 
 	mutex_lock(&klp_mutex);
 
-	if (!klp_is_patch_registered(patch)) {
+	if (!klp_is_patch_usable(patch)) {
 		ret = -EINVAL;
 		goto err;
 	}
@@ -486,7 +504,7 @@ int klp_enable_patch(struct klp_patch *patch)
 
 	mutex_lock(&klp_mutex);
 
-	if (!klp_is_patch_registered(patch)) {
+	if (!klp_is_patch_usable(patch)) {
 		ret = -EINVAL;
 		goto err;
 	}
@@ -527,7 +545,7 @@ static ssize_t enabled_store(struct kobject *kobj, struct kobj_attribute *attr,
 
 	mutex_lock(&klp_mutex);
 
-	if (!klp_is_patch_registered(patch)) {
+	if (!klp_is_patch_usable(patch)) {
 		/*
 		 * Module with the patch could either disappear meanwhile or is
 		 * not properly initialized yet.
@@ -982,7 +1000,7 @@ int klp_unregister_patch(struct klp_patch *patch)
 
 	mutex_lock(&klp_mutex);
 
-	if (!klp_is_patch_registered(patch)) {
+	if (!klp_is_patch_usable(patch) && !klp_is_patch_replaced(patch)) {
 		ret = -EINVAL;
 		goto err;
 	}
