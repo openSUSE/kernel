@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017 Broadcom. All Rights Reserved. The term      *
+ * Copyright (C) 2017-2018 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Limited and/or its subsidiaries.  *
  * Copyright (C) 2009-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -145,6 +145,7 @@ struct lpfc_rqb {
 struct lpfc_queue {
 	struct list_head list;
 	struct list_head wq_list;
+	struct list_head wqfull_list;
 	enum lpfc_sli4_queue_type type;
 	enum lpfc_sli4_queue_subtype subtype;
 	struct lpfc_hba *phba;
@@ -173,9 +174,11 @@ struct lpfc_queue {
 #define LPFC_EXPANDED_PAGE_SIZE	16384
 #define LPFC_DEFAULT_PAGE_SIZE	4096
 	uint16_t chann;		/* IO channel this queue is associated with */
-	uint16_t db_format;
+	uint8_t db_format;
 #define LPFC_DB_RING_FORMAT	0x01
 #define LPFC_DB_LIST_FORMAT	0x02
+	uint8_t q_flag;
+#define HBA_NVMET_WQFULL	0x1 /* We hit WQ Full condition for NVMET */
 	void __iomem *db_regaddr;
 	/* For q stats */
 	uint32_t q_cnt_1;
@@ -484,6 +487,11 @@ struct lpfc_pc_sli4_params {
 #define LPFC_WQ_SZ128_SUPPORT	2
 	uint8_t wqpcnt;
 };
+
+#define LPFC_CQ_4K_PAGE_SZ	0x1
+#define LPFC_CQ_16K_PAGE_SZ	0x4
+#define LPFC_WQ_4K_PAGE_SZ	0x1
+#define LPFC_WQ_16K_PAGE_SZ	0x4
 
 struct lpfc_iov {
 	uint32_t pf_number;

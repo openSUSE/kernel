@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017 Broadcom. All Rights Reserved. The term      *
+ * Copyright (C) 2017-2018 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Limited and/or its subsidiaries.  *
  * Copyright (C) 2009-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -3212,6 +3212,9 @@ struct lpfc_sli4_parameters {
 #define cfg_cqv_SHIFT				14
 #define cfg_cqv_MASK				0x00000003
 #define cfg_cqv_WORD				word4
+#define cfg_cqpsize_SHIFT			16
+#define cfg_cqpsize_MASK			0x000000ff
+#define cfg_cqpsize_WORD			word4
 	uint32_t word5;
 	uint32_t word6;
 #define cfg_mqv_SHIFT				14
@@ -3290,6 +3293,9 @@ struct lpfc_sli4_parameters {
 #define cfg_eqdr_SHIFT				8
 #define cfg_eqdr_MASK				0x00000001
 #define cfg_eqdr_WORD				word19
+#define cfg_nosr_SHIFT				9
+#define cfg_nosr_MASK				0x00000001
+#define cfg_nosr_WORD				word19
 #define LPFC_NODELAY_MAX_IO		32
 };
 
@@ -4343,9 +4349,9 @@ struct lpfc_nvme_prli {
 #define prli_init_SHIFT                 5
 #define prli_init_MASK                  0x00000001
 #define prli_init_WORD                  word4
-#define prli_recov_SHIFT                8
-#define prli_recov_MASK                 0x00000001
-#define prli_recov_WORD                 word4
+#define prli_conf_SHIFT                 7
+#define prli_conf_MASK                  0x00000001
+#define prli_conf_WORD                  word4
 	uint32_t word5;
 #define prli_fb_sz_SHIFT                0
 #define prli_fb_sz_MASK                 0x0000ffff

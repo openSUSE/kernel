@@ -919,7 +919,7 @@ static int __nd_ioctl(struct nvdimm_bus *nvdimm_bus, struct nvdimm *nvdimm,
 	u32 in_len = 0, out_len = 0;
 	unsigned long cmd_mask;
 	void *buf;
-	u64 buf_len;
+	u64 buf_len = 0;
 	int rc, i, cmd_rc;
 
 	if (nvdimm) {

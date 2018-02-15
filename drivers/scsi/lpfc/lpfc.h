@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017 Broadcom. All Rights Reserved. The term      *
+ * Copyright (C) 2017-2018 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Limited and/or its subsidiaries.  *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -760,6 +760,7 @@ struct lpfc_hba {
 	uint8_t  mds_diags_support;
 	uint32_t initial_imax;
 	uint8_t  bbcredit_support;
+	uint8_t  enab_exp_wqcq_pages;
 
 	/* HBA Config Parameters */
 	uint32_t cfg_ack0;

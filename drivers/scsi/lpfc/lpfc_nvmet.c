@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channsel Host Bus Adapters.                               *
- * Copyright (C) 2017 Broadcom. All Rights Reserved. The term      *
+ * Copyright (C) 2017-2018 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Limited and/or its subsidiaries.  *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -36,7 +36,7 @@
 #include <scsi/scsi_transport_fc.h>
 #include <scsi/fc/fc_fs.h>
 
-#include <../drivers/nvme/host/nvme.h>
+#include <linux/nvme.h>
 #include <linux/nvme-fc-driver.h>
 #include <linux/nvme-fc.h>
 
@@ -71,6 +71,8 @@ static int lpfc_nvmet_unsol_fcp_issue_abort(struct lpfc_hba *,
 static int lpfc_nvmet_unsol_ls_issue_abort(struct lpfc_hba *,
 					   struct lpfc_nvmet_rcv_ctx *,
 					   uint32_t, uint16_t);
+static void lpfc_nvmet_wqfull_flush(struct lpfc_hba *, struct lpfc_queue *,
+				    struct lpfc_nvmet_rcv_ctx *);
 
 void
 lpfc_nvmet_defer_release(struct lpfc_hba *phba, struct lpfc_nvmet_rcv_ctx *ctxp)
@@ -130,7 +132,7 @@ lpfc_nvmet_xmt_ls_rsp_cmp(struct lpfc_hba *phba, struct lpfc_iocbq *cmdwqe,
 	if (tgtp) {
 		if (status) {
 			atomic_inc(&tgtp->xmt_ls_rsp_error);
-			if (status == IOERR_ABORT_REQUESTED)
+			if (result == IOERR_ABORT_REQUESTED)
 				atomic_inc(&tgtp->xmt_ls_rsp_aborted);
 			if (bf_get(lpfc_wcqe_c_xb, wcqe))
 				atomic_inc(&tgtp->xmt_ls_rsp_xb_set);
@@ -268,8 +270,6 @@ lpfc_nvmet_ctxbuf_post(struct lpfc_hba *phba, struct lpfc_nvmet_ctxbuf *ctx_buf)
 					 "NVMET RCV BUSY: xri x%x sz %d "
 					 "from %06x\n",
 					 oxid, size, sid);
-			/* defer repost rcv buffer till .defer_rcv callback */
-			ctxp->flag &= ~LPFC_NVMET_DEFER_RCV_REPOST;
 			atomic_inc(&tgtp->rcv_fcp_cmd_out);
 			return;
 		}
@@ -541,7 +541,7 @@ lpfc_nvmet_xmt_fcp_op_cmp(struct lpfc_hba *phba, struct lpfc_iocbq *cmdwqe,
 		rsp->transferred_length = 0;
 		if (tgtp) {
 			atomic_inc(&tgtp->xmt_fcp_rsp_error);
-			if (status == IOERR_ABORT_REQUESTED)
+			if (result == IOERR_ABORT_REQUESTED)
 				atomic_inc(&tgtp->xmt_fcp_rsp_aborted);
 		}
 
@@ -741,7 +741,10 @@ lpfc_nvmet_xmt_fcp_op(struct nvmet_fc_target_port *tgtport,
 	struct lpfc_nvmet_rcv_ctx *ctxp =
 		container_of(rsp, struct lpfc_nvmet_rcv_ctx, ctx.fcp_req);
 	struct lpfc_hba *phba = ctxp->phba;
+	struct lpfc_queue *wq;
 	struct lpfc_iocbq *nvmewqeq;
+	struct lpfc_sli_ring *pring;
+	unsigned long iflags;
 	int rc;
 
 	if (phba->pport->load_flag & FC_UNLOADING) {
@@ -820,6 +823,22 @@ lpfc_nvmet_xmt_fcp_op(struct nvmet_fc_target_port *tgtport,
 		return 0;
 	}
 
+	if (rc == -EBUSY) {
+		/*
+		 * WQ was full, so queue nvmewqeq to be sent after
+		 * WQE release CQE
+		 */
+		ctxp->flag |= LPFC_NVMET_DEFER_WQFULL;
+		wq = phba->sli4_hba.nvme_wq[rsp->hwqid];
+		pring = wq->pring;
+		spin_lock_irqsave(&pring->ring_lock, iflags);
+		list_add_tail(&nvmewqeq->list, &wq->wqfull_list);
+		wq->q_flag |= HBA_NVMET_WQFULL;
+		spin_unlock_irqrestore(&pring->ring_lock, iflags);
+		atomic_inc(&lpfc_nvmep->defer_wqfull);
+		return 0;
+	}
+
 	/* Give back resources */
 	atomic_inc(&lpfc_nvmep->xmt_fcp_drop);
 	lpfc_printf_log(phba, KERN_ERR, LOG_NVME_IOERR,
@@ -851,6 +870,7 @@ lpfc_nvmet_xmt_fcp_abort(struct nvmet_fc_target_port *tgtport,
 	struct lpfc_nvmet_rcv_ctx *ctxp =
 		container_of(req, struct lpfc_nvmet_rcv_ctx, ctx.fcp_req);
 	struct lpfc_hba *phba = ctxp->phba;
+	struct lpfc_queue *wq;
 	unsigned long flags;
 
 	if (phba->pport->load_flag & FC_UNLOADING)
@@ -879,6 +899,14 @@ lpfc_nvmet_xmt_fcp_abort(struct nvmet_fc_target_port *tgtport,
 		return;
 	}
 	ctxp->flag |= LPFC_NVMET_ABORT_OP;
+
+	if (ctxp->flag & LPFC_NVMET_DEFER_WQFULL) {
+		lpfc_nvmet_unsol_fcp_issue_abort(phba, ctxp, ctxp->sid,
+						 ctxp->oxid);
+		wq = phba->sli4_hba.nvme_wq[ctxp->wqeq->hba_wqidx];
+		lpfc_nvmet_wqfull_flush(phba, wq, ctxp);
+		return;
+	}
 
 	/* An state of LPFC_NVMET_STE_RCV means we have just received
 	 * the NVME command and have not started processing it.
@@ -946,11 +974,9 @@ lpfc_nvmet_defer_rcv(struct nvmet_fc_target_port *tgtport,
 
 	tgtp = phba->targetport->private;
 	atomic_inc(&tgtp->rcv_fcp_cmd_defer);
-	if (ctxp->flag & LPFC_NVMET_DEFER_RCV_REPOST)
-		lpfc_rq_buf_free(phba, &nvmebuf->hbuf); /* repost */
-	else
-		nvmebuf->hrq->rqbp->rqb_free_buffer(phba, nvmebuf);
-	ctxp->flag &= ~LPFC_NVMET_DEFER_RCV_REPOST;
+
+	/* Free the nvmebuf since a new buffer already replaced it */
+	nvmebuf->hrq->rqbp->rqb_free_buffer(phba, nvmebuf);
 }
 
 static struct nvmet_fc_target_template lpfc_tgttemplate = {
@@ -1280,6 +1306,9 @@ lpfc_nvmet_create_targetport(struct lpfc_hba *phba)
 		atomic_set(&tgtp->xmt_abort_sol, 0);
 		atomic_set(&tgtp->xmt_abort_rsp, 0);
 		atomic_set(&tgtp->xmt_abort_rsp_error, 0);
+		atomic_set(&tgtp->defer_ctx, 0);
+		atomic_set(&tgtp->defer_fod, 0);
+		atomic_set(&tgtp->defer_wqfull, 0);
 	}
 	return error;
 }
@@ -1435,16 +1464,103 @@ lpfc_nvmet_rcv_unsol_abort(struct lpfc_vport *vport,
 	return 0;
 }
 
+static void
+lpfc_nvmet_wqfull_flush(struct lpfc_hba *phba, struct lpfc_queue *wq,
+			struct lpfc_nvmet_rcv_ctx *ctxp)
+{
+	struct lpfc_sli_ring *pring;
+	struct lpfc_iocbq *nvmewqeq;
+	struct lpfc_iocbq *next_nvmewqeq;
+	unsigned long iflags;
+	struct lpfc_wcqe_complete wcqe;
+	struct lpfc_wcqe_complete *wcqep;
+
+	pring = wq->pring;
+	wcqep = &wcqe;
+
+	/* Fake an ABORT error code back to cmpl routine */
+	memset(wcqep, 0, sizeof(struct lpfc_wcqe_complete));
+	bf_set(lpfc_wcqe_c_status, wcqep, IOSTAT_LOCAL_REJECT);
+	wcqep->parameter = IOERR_ABORT_REQUESTED;
+
+	spin_lock_irqsave(&pring->ring_lock, iflags);
+	list_for_each_entry_safe(nvmewqeq, next_nvmewqeq,
+				 &wq->wqfull_list, list) {
+		if (ctxp) {
+			/* Checking for a specific IO to flush */
+			if (nvmewqeq->context2 == ctxp) {
+				list_del(&nvmewqeq->list);
+				spin_unlock_irqrestore(&pring->ring_lock,
+						       iflags);
+				lpfc_nvmet_xmt_fcp_op_cmp(phba, nvmewqeq,
+							  wcqep);
+				return;
+			}
+			continue;
+		} else {
+			/* Flush all IOs */
+			list_del(&nvmewqeq->list);
+			spin_unlock_irqrestore(&pring->ring_lock, iflags);
+			lpfc_nvmet_xmt_fcp_op_cmp(phba, nvmewqeq, wcqep);
+			spin_lock_irqsave(&pring->ring_lock, iflags);
+		}
+	}
+	if (!ctxp)
+		wq->q_flag &= ~HBA_NVMET_WQFULL;
+	spin_unlock_irqrestore(&pring->ring_lock, iflags);
+}
+
+void
+lpfc_nvmet_wqfull_process(struct lpfc_hba *phba,
+			  struct lpfc_queue *wq)
+{
+#if (IS_ENABLED(CONFIG_NVME_TARGET_FC))
+	struct lpfc_sli_ring *pring;
+	struct lpfc_iocbq *nvmewqeq;
+	unsigned long iflags;
+	int rc;
+
+	/*
+	 * Some WQE slots are available, so try to re-issue anything
+	 * on the WQ wqfull_list.
+	 */
+	pring = wq->pring;
+	spin_lock_irqsave(&pring->ring_lock, iflags);
+	while (!list_empty(&wq->wqfull_list)) {
+		list_remove_head(&wq->wqfull_list, nvmewqeq, struct lpfc_iocbq,
+				 list);
+		spin_unlock_irqrestore(&pring->ring_lock, iflags);
+		rc = lpfc_sli4_issue_wqe(phba, LPFC_FCP_RING, nvmewqeq);
+		spin_lock_irqsave(&pring->ring_lock, iflags);
+		if (rc == -EBUSY) {
+			/* WQ was full again, so put it back on the list */
+			list_add(&nvmewqeq->list, &wq->wqfull_list);
+			spin_unlock_irqrestore(&pring->ring_lock, iflags);
+			return;
+		}
+	}
+	wq->q_flag &= ~HBA_NVMET_WQFULL;
+	spin_unlock_irqrestore(&pring->ring_lock, iflags);
+
+#endif
+}
+
 void
 lpfc_nvmet_destroy_targetport(struct lpfc_hba *phba)
 {
 #if (IS_ENABLED(CONFIG_NVME_TARGET_FC))
 	struct lpfc_nvmet_tgtport *tgtp;
+	struct lpfc_queue *wq;
+	uint32_t qidx;
 
 	if (phba->nvmet_support == 0)
 		return;
 	if (phba->targetport) {
 		tgtp = (struct lpfc_nvmet_tgtport *)phba->targetport->private;
+		for (qidx = 0; qidx < phba->cfg_nvme_io_channel; qidx++) {
+			wq = phba->sli4_hba.nvme_wq[qidx];
+			lpfc_nvmet_wqfull_flush(phba, wq, NULL);
+		}
 		init_completion(&tgtp->tport_unreg_done);
 		nvmet_fc_unregister_targetport(phba->targetport);
 		wait_for_completion_timeout(&tgtp->tport_unreg_done, 5);
@@ -1694,6 +1810,8 @@ lpfc_nvmet_unsol_fcp_buffer(struct lpfc_hba *phba,
 	lpfc_nvmeio_data(phba, "NVMET FCP  RCV: xri x%x sz %d CPU %02x\n",
 			 oxid, size, smp_processor_id());
 
+	tgtp = (struct lpfc_nvmet_tgtport *)phba->targetport->private;
+
 	if (!ctx_buf) {
 		/* Queue this NVME IO to process later */
 		spin_lock_irqsave(&phba->sli4_hba.nvmet_io_wait_lock, iflag);
@@ -1709,10 +1827,11 @@ lpfc_nvmet_unsol_fcp_buffer(struct lpfc_hba *phba,
 		lpfc_post_rq_buffer(
 			phba, phba->sli4_hba.nvmet_mrq_hdr[qno],
 			phba->sli4_hba.nvmet_mrq_data[qno], 1, qno);
+
+		atomic_inc(&tgtp->defer_ctx);
 		return;
 	}
 
-	tgtp = (struct lpfc_nvmet_tgtport *)phba->targetport->private;
 	payload = (uint32_t *)(nvmebuf->dbuf.virt);
 	sid = sli4_sid_from_fc_hdr(fc_hdr);
 
@@ -1776,12 +1895,20 @@ lpfc_nvmet_unsol_fcp_buffer(struct lpfc_hba *phba,
 
 	/* Processing of FCP command is deferred */
 	if (rc == -EOVERFLOW) {
+		/*
+		 * Post a brand new DMA buffer to RQ and defer
+		 * freeing rcv buffer till .defer_rcv callback
+		 */
+		qno = nvmebuf->idx;
+		lpfc_post_rq_buffer(
+			phba, phba->sli4_hba.nvmet_mrq_hdr[qno],
+			phba->sli4_hba.nvmet_mrq_data[qno], 1, qno);
+
 		lpfc_nvmeio_data(phba,
 				 "NVMET RCV BUSY: xri x%x sz %d from %06x\n",
 				 oxid, size, sid);
-		/* defer reposting rcv buffer till .defer_rcv callback */
-		ctxp->flag |= LPFC_NVMET_DEFER_RCV_REPOST;
 		atomic_inc(&tgtp->rcv_fcp_cmd_out);
+		atomic_inc(&tgtp->defer_fod);
 		return;
 	}
 	ctxp->rqb_buffer = nvmebuf;
@@ -2163,9 +2290,10 @@ lpfc_nvmet_prep_fcp_wqe(struct lpfc_hba *phba,
 		if (rsp->op == NVMET_FCOP_READDATA_RSP) {
 			atomic_inc(&tgtp->xmt_fcp_read_rsp);
 			bf_set(wqe_ar, &wqe->fcp_tsend.wqe_com, 1);
-			if ((ndlp->nlp_flag & NLP_SUPPRESS_RSP) &&
-			    (rsp->rsplen == 12)) {
-				bf_set(wqe_sup, &wqe->fcp_tsend.wqe_com, 1);
+			if (rsp->rsplen == LPFC_NVMET_SUCCESS_LEN) {
+				if (ndlp->nlp_flag & NLP_SUPPRESS_RSP)
+					bf_set(wqe_sup,
+					       &wqe->fcp_tsend.wqe_com, 1);
 				bf_set(wqe_wqes, &wqe->fcp_tsend.wqe_com, 0);
 				bf_set(wqe_irsp, &wqe->fcp_tsend.wqe_com, 0);
 				bf_set(wqe_irsplen, &wqe->fcp_tsend.wqe_com, 0);

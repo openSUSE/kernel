@@ -1,8 +1,7 @@
-
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017 Broadcom. All Rights Reserved. The term      *
+ * Copyright (C) 2017-2018 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Limited and/or its subsidiaries.  *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -129,6 +128,8 @@ lpfc_sli4_wq_put(struct lpfc_queue *q, union lpfc_wqe *wqe)
 	/* set consumption flag every once in a while */
 	if (!((q->host_index + 1) % q->entry_repost))
 		bf_set(wqe_wqec, &wqe->generic.wqe_com, 1);
+	else
+		bf_set(wqe_wqec, &wqe->generic.wqe_com, 0);
 	if (q->phba->sli3_options & LPFC_SLI4_PHWQ_ENABLED)
 		bf_set(wqe_wqid, &wqe->generic.wqe_com, q->queue_id);
 	lpfc_sli_pcimem_bcopy(wqe, temp_wqe, q->entry_size);
@@ -3776,6 +3777,7 @@ lpfc_sli_flush_fcp_rings(struct lpfc_hba *phba)
 	struct lpfc_sli *psli = &phba->sli;
 	struct lpfc_sli_ring  *pring;
 	uint32_t i;
+	struct lpfc_iocbq *piocb, *next_iocb;
 
 	spin_lock_irq(&phba->hbalock);
 	/* Indicate the I/O queues are flushed */
@@ -3790,6 +3792,9 @@ lpfc_sli_flush_fcp_rings(struct lpfc_hba *phba)
 			spin_lock_irq(&pring->ring_lock);
 			/* Retrieve everything on txq */
 			list_splice_init(&pring->txq, &txq);
+			list_for_each_entry_safe(piocb, next_iocb,
+						 &pring->txcmplq, list)
+				piocb->iocb_flag &= ~LPFC_IO_ON_TXCMPLQ;
 			/* Retrieve everything on the txcmplq */
 			list_splice_init(&pring->txcmplq, &txcmplq);
 			pring->txq_cnt = 0;
@@ -3811,6 +3816,9 @@ lpfc_sli_flush_fcp_rings(struct lpfc_hba *phba)
 		spin_lock_irq(&phba->hbalock);
 		/* Retrieve everything on txq */
 		list_splice_init(&pring->txq, &txq);
+		list_for_each_entry_safe(piocb, next_iocb,
+					 &pring->txcmplq, list)
+			piocb->iocb_flag &= ~LPFC_IO_ON_TXCMPLQ;
 		/* Retrieve everything on the txcmplq */
 		list_splice_init(&pring->txcmplq, &txcmplq);
 		pring->txq_cnt = 0;
@@ -3842,6 +3850,7 @@ lpfc_sli_flush_nvme_rings(struct lpfc_hba *phba)
 	LIST_HEAD(txcmplq);
 	struct lpfc_sli_ring  *pring;
 	uint32_t i;
+	struct lpfc_iocbq *piocb, *next_iocb;
 
 	if (phba->sli_rev < LPFC_SLI_REV4)
 		return;
@@ -3858,8 +3867,11 @@ lpfc_sli_flush_nvme_rings(struct lpfc_hba *phba)
 	for (i = 0; i < phba->cfg_nvme_io_channel; i++) {
 		pring = phba->sli4_hba.nvme_wq[i]->pring;
 
-		/* Retrieve everything on the txcmplq */
 		spin_lock_irq(&pring->ring_lock);
+		list_for_each_entry_safe(piocb, next_iocb,
+					 &pring->txcmplq, list)
+			piocb->iocb_flag &= ~LPFC_IO_ON_TXCMPLQ;
+		/* Retrieve everything on the txcmplq */
 		list_splice_init(&pring->txcmplq, &txcmplq);
 		pring->txcmplq_cnt = 0;
 		spin_unlock_irq(&pring->ring_lock);
@@ -6533,9 +6545,11 @@ lpfc_post_rq_buffer(struct lpfc_hba *phba, struct lpfc_queue *hrq,
 	struct lpfc_rqe hrqe;
 	struct lpfc_rqe drqe;
 	struct lpfc_rqb *rqbp;
+	unsigned long flags;
 	struct rqb_dmabuf *rqb_buffer;
 	LIST_HEAD(rqb_buf_list);
 
+	spin_lock_irqsave(&phba->hbalock, flags);
 	rqbp = hrq->rqbp;
 	for (i = 0; i < count; i++) {
 		/* IF RQ is already full, don't bother */
@@ -6559,6 +6573,15 @@ lpfc_post_rq_buffer(struct lpfc_hba *phba, struct lpfc_queue *hrq,
 		drqe.address_hi = putPaddrHigh(rqb_buffer->dbuf.phys);
 		rc = lpfc_sli4_rq_put(hrq, drq, &hrqe, &drqe);
 		if (rc < 0) {
+			lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+					"6421 Cannot post to HRQ %d: %x %x %x "
+					"DRQ %x %x\n",
+					hrq->queue_id,
+					hrq->host_index,
+					hrq->hba_index,
+					hrq->entry_count,
+					drq->host_index,
+					drq->hba_index);
 			rqbp->rqb_free_buffer(phba, rqb_buffer);
 		} else {
 			list_add_tail(&rqb_buffer->hbuf.list,
@@ -6566,6 +6589,7 @@ lpfc_post_rq_buffer(struct lpfc_hba *phba, struct lpfc_queue *hrq,
 			rqbp->buffer_count++;
 		}
 	}
+	spin_unlock_irqrestore(&phba->hbalock, flags);
 	return 1;
 }
 
@@ -13230,6 +13254,8 @@ lpfc_sli4_fp_handle_rel_wcqe(struct lpfc_hba *phba, struct lpfc_queue *cq,
 		if (childwq->queue_id == hba_wqid) {
 			lpfc_sli4_wq_release(childwq,
 					bf_get(lpfc_wcqe_r_wqe_index, wcqe));
+			if (childwq->q_flag & HBA_NVMET_WQFULL)
+				lpfc_nvmet_wqfull_process(phba, childwq);
 			wqid_matched = true;
 			break;
 		}
@@ -13948,6 +13974,7 @@ lpfc_sli4_queue_alloc(struct lpfc_hba *phba, uint32_t page_size,
 
 	INIT_LIST_HEAD(&queue->list);
 	INIT_LIST_HEAD(&queue->wq_list);
+	INIT_LIST_HEAD(&queue->wqfull_list);
 	INIT_LIST_HEAD(&queue->page_list);
 	INIT_LIST_HEAD(&queue->child_list);
 
@@ -14908,7 +14935,8 @@ lpfc_wq_create(struct lpfc_hba *phba, struct lpfc_queue *wq,
 	bf_set(lpfc_mbox_hdr_version, &shdr->request,
 	       phba->sli4_hba.pc_sli4_params.wqv);
 
-	if (phba->sli4_hba.pc_sli4_params.wqsize & LPFC_WQ_SZ128_SUPPORT)
+	if ((phba->sli4_hba.pc_sli4_params.wqsize & LPFC_WQ_SZ128_SUPPORT) ||
+	    (wq->page_size > SLI4_PAGE_SIZE))
 		wq_create_version = LPFC_Q_CREATE_VERSION_1;
 	else
 		wq_create_version = LPFC_Q_CREATE_VERSION_0;
