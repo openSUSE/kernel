@@ -97,9 +97,6 @@ static const int bxt_rates[] = { 162000, 216000, 243000, 270000,
 				  324000, 432000, 540000 };
 static const int skl_rates[] = { 162000, 216000, 270000,
 				  324000, 432000, 540000 };
-static const int cnl_rates[] = { 162000, 216000, 270000,
-				 324000, 432000, 540000,
-				 648000, 810000 };
 static const int default_rates[] = { 162000, 270000, 540000 };
 
 /**
@@ -226,20 +223,11 @@ intel_dp_source_rates(struct intel_dp *intel_dp, const int **source_rates)
 {
 	struct intel_digital_port *dig_port = dp_to_dig_port(intel_dp);
 	struct drm_i915_private *dev_priv = to_i915(dig_port->base.base.dev);
-	enum port port = dig_port->port;
 	int size;
-	u32 voltage;
 
 	if (IS_GEN9_LP(dev_priv)) {
 		*source_rates = bxt_rates;
 		size = ARRAY_SIZE(bxt_rates);
-	} else if (IS_CANNONLAKE(dev_priv)) {
-		*source_rates = cnl_rates;
-		size = ARRAY_SIZE(cnl_rates);
-		voltage = I915_READ(CNL_PORT_COMP_DW3) & VOLTAGE_INFO_MASK;
-		if (port == PORT_A || port == PORT_D ||
-		    voltage == VOLTAGE_INFO_0_85V)
-			size -= 2;
 	} else if (IS_GEN9_BC(dev_priv)) {
 		*source_rates = skl_rates;
 		size = ARRAY_SIZE(skl_rates);
@@ -766,7 +754,7 @@ static void intel_pps_get_registers(struct drm_i915_private *dev_priv,
 	regs->pp_stat = PP_STATUS(pps_idx);
 	regs->pp_on = PP_ON_DELAYS(pps_idx);
 	regs->pp_off = PP_OFF_DELAYS(pps_idx);
-	if (!IS_GEN9_LP(dev_priv) && !HAS_PCH_CNP(dev_priv))
+	if (!IS_GEN9_LP(dev_priv))
 		regs->pp_div = PP_DIVISOR(pps_idx);
 }
 
@@ -3424,11 +3412,13 @@ intel_dp_set_signal_levels(struct intel_dp *intel_dp)
 	uint32_t signal_levels, mask = 0;
 	uint8_t train_set = intel_dp->train_set[0];
 
-	if (IS_GEN9_LP(dev_priv) || IS_CANNONLAKE(dev_priv)) {
-		signal_levels = bxt_signal_levels(intel_dp);
-	} else if (HAS_DDI(dev_priv)) {
+	if (HAS_DDI(dev_priv)) {
 		signal_levels = ddi_signal_levels(intel_dp);
-		mask = DDI_BUF_EMP_MASK;
+
+		if (IS_GEN9_LP(dev_priv))
+			signal_levels = 0;
+		else
+			mask = DDI_BUF_EMP_MASK;
 	} else if (IS_CHERRYVIEW(dev_priv)) {
 		signal_levels = chv_signal_levels(intel_dp);
 	} else if (IS_VALLEYVIEW(dev_priv)) {
@@ -5153,7 +5143,7 @@ intel_pps_readout_hw_state(struct drm_i915_private *dev_priv,
 
 	pp_on = I915_READ(regs.pp_on);
 	pp_off = I915_READ(regs.pp_off);
-	if (!IS_GEN9_LP(dev_priv) && !HAS_PCH_CNP(dev_priv)) {
+	if (!IS_GEN9_LP(dev_priv)) {
 		I915_WRITE(regs.pp_ctrl, pp_ctl);
 		pp_div = I915_READ(regs.pp_div);
 	}
@@ -5171,7 +5161,7 @@ intel_pps_readout_hw_state(struct drm_i915_private *dev_priv,
 	seq->t10 = (pp_off & PANEL_POWER_DOWN_DELAY_MASK) >>
 		   PANEL_POWER_DOWN_DELAY_SHIFT;
 
-	if (IS_GEN9_LP(dev_priv) || HAS_PCH_CNP(dev_priv)) {
+	if (IS_GEN9_LP(dev_priv)) {
 		u16 tmp = (pp_ctl & BXT_POWER_CYCLE_DELAY_MASK) >>
 			BXT_POWER_CYCLE_DELAY_SHIFT;
 		if (tmp > 0)
@@ -5328,7 +5318,7 @@ intel_dp_init_panel_power_sequencer_registers(struct drm_device *dev,
 		 (seq->t10 << PANEL_POWER_DOWN_DELAY_SHIFT);
 	/* Compute the divisor for the pp clock, simply match the Bspec
 	 * formula. */
-	if (IS_GEN9_LP(dev_priv) || HAS_PCH_CNP(dev_priv)) {
+	if (IS_GEN9_LP(dev_priv)) {
 		pp_div = I915_READ(regs.pp_ctrl);
 		pp_div &= ~BXT_POWER_CYCLE_DELAY_MASK;
 		pp_div |= (DIV_ROUND_UP((seq->t11_t12 + 1), 1000)
@@ -5354,7 +5344,7 @@ intel_dp_init_panel_power_sequencer_registers(struct drm_device *dev,
 
 	I915_WRITE(regs.pp_on, pp_on);
 	I915_WRITE(regs.pp_off, pp_off);
-	if (IS_GEN9_LP(dev_priv) || HAS_PCH_CNP(dev_priv))
+	if (IS_GEN9_LP(dev_priv))
 		I915_WRITE(regs.pp_ctrl, pp_div);
 	else
 		I915_WRITE(regs.pp_div, pp_div);
@@ -5362,7 +5352,7 @@ intel_dp_init_panel_power_sequencer_registers(struct drm_device *dev,
 	DRM_DEBUG_KMS("panel power sequencer register settings: PP_ON %#x, PP_OFF %#x, PP_DIV %#x\n",
 		      I915_READ(regs.pp_on),
 		      I915_READ(regs.pp_off),
-		      (IS_GEN9_LP(dev_priv) || HAS_PCH_CNP(dev_priv)) ?
+		      IS_GEN9_LP(dev_priv) ?
 		      (I915_READ(regs.pp_ctrl) & BXT_POWER_CYCLE_DELAY_MASK) :
 		      I915_READ(regs.pp_div));
 }

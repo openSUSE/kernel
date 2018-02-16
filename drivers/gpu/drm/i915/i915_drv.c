@@ -139,9 +139,6 @@ static enum intel_pch intel_virt_detect_pch(struct drm_i915_private *dev_priv)
 	} else if (IS_SKYLAKE(dev_priv) || IS_KABYLAKE(dev_priv)) {
 		ret = PCH_SPT;
 		DRM_DEBUG_KMS("Assuming SunrisePoint PCH\n");
-	} else if (IS_COFFEELAKE(dev_priv) || IS_CANNONLAKE(dev_priv)) {
-		ret = PCH_CNP;
-		DRM_DEBUG_KMS("Assuming CannonPoint PCH\n");
 	}
 
 	return ret;
@@ -173,7 +170,6 @@ static void intel_detect_pch(struct drm_i915_private *dev_priv)
 	while ((pch = pci_get_class(PCI_CLASS_BRIDGE_ISA << 8, pch))) {
 		if (pch->vendor == PCI_VENDOR_ID_INTEL) {
 			unsigned short id = pch->device & INTEL_PCH_DEVICE_ID_MASK;
-
 			dev_priv->pch_id = id;
 
 			if (id == INTEL_PCH_IBX_DEVICE_ID_TYPE) {
@@ -205,22 +201,6 @@ static void intel_detect_pch(struct drm_i915_private *dev_priv)
 					!IS_BROADWELL(dev_priv));
 				WARN_ON(!IS_HSW_ULT(dev_priv) &&
 					!IS_BDW_ULT(dev_priv));
-			} else if (id == INTEL_PCH_WPT_DEVICE_ID_TYPE) {
-				/* WildcatPoint is LPT compatible */
-				dev_priv->pch_type = PCH_LPT;
-				DRM_DEBUG_KMS("Found WildcatPoint PCH\n");
-				WARN_ON(!IS_HASWELL(dev_priv) &&
-					!IS_BROADWELL(dev_priv));
-				WARN_ON(IS_HSW_ULT(dev_priv) ||
-					IS_BDW_ULT(dev_priv));
-			} else if (id == INTEL_PCH_WPT_LP_DEVICE_ID_TYPE) {
-				/* WildcatPoint is LPT compatible */
-				dev_priv->pch_type = PCH_LPT;
-				DRM_DEBUG_KMS("Found WildcatPoint LP PCH\n");
-				WARN_ON(!IS_HASWELL(dev_priv) &&
-					!IS_BROADWELL(dev_priv));
-				WARN_ON(!IS_HSW_ULT(dev_priv) &&
-					!IS_BDW_ULT(dev_priv));
 			} else if (id == INTEL_PCH_SPT_DEVICE_ID_TYPE) {
 				dev_priv->pch_type = PCH_SPT;
 				DRM_DEBUG_KMS("Found SunrisePoint PCH\n");
@@ -233,20 +213,9 @@ static void intel_detect_pch(struct drm_i915_private *dev_priv)
 					!IS_KABYLAKE(dev_priv));
 			} else if (id == INTEL_PCH_KBP_DEVICE_ID_TYPE) {
 				dev_priv->pch_type = PCH_KBP;
-				DRM_DEBUG_KMS("Found Kaby Lake PCH (KBP)\n");
+				DRM_DEBUG_KMS("Found KabyPoint PCH\n");
 				WARN_ON(!IS_SKYLAKE(dev_priv) &&
-					!IS_KABYLAKE(dev_priv) &&
-					!IS_COFFEELAKE(dev_priv));
-			} else if (id == INTEL_PCH_CNP_DEVICE_ID_TYPE) {
-				dev_priv->pch_type = PCH_CNP;
-				DRM_DEBUG_KMS("Found Cannon Lake PCH (CNP)\n");
-				WARN_ON(!IS_CANNONLAKE(dev_priv) &&
-					!IS_COFFEELAKE(dev_priv));
-			} else if (id == INTEL_PCH_CNP_LP_DEVICE_ID_TYPE) {
-				dev_priv->pch_type = PCH_CNP;
-				DRM_DEBUG_KMS("Found Cannon Lake LP PCH (CNP-LP)\n");
-				WARN_ON(!IS_CANNONLAKE(dev_priv) &&
-					!IS_COFFEELAKE(dev_priv));
+					!IS_KABYLAKE(dev_priv));
 			} else if ((id == INTEL_PCH_P2X_DEVICE_ID_TYPE) ||
 				   (id == INTEL_PCH_P3X_DEVICE_ID_TYPE) ||
 				   ((id == INTEL_PCH_QEMU_DEVICE_ID_TYPE) &&
@@ -1673,7 +1642,6 @@ static int i915_drm_resume(struct drm_device *dev)
 	intel_guc_resume(dev_priv);
 
 	intel_modeset_init_hw(dev);
-	intel_init_clock_gating(dev_priv);
 
 	spin_lock_irq(&dev_priv->irq_lock);
 	if (dev_priv->display.hpd_irq_setup)
@@ -1786,8 +1754,6 @@ static int i915_drm_resume_early(struct drm_device *dev)
 	if (IS_GEN9_LP(dev_priv) ||
 	    !(dev_priv->suspended_to_idle && dev_priv->csr.dmc_payload))
 		intel_power_domains_init_hw(dev_priv, true);
-	else
-		intel_display_set_init_power(dev_priv, true);
 
 	i915_gem_sanitize(dev_priv);
 
@@ -1872,15 +1838,9 @@ void i915_reset(struct drm_i915_private *dev_priv)
 
 	/*
 	 * Everything depends on having the GTT running, so we need to start
-	 * there.
-	 */
-	ret = i915_ggtt_enable_hw(dev_priv);
-	if (ret) {
-		DRM_ERROR("Failed to re-enable GGTT following reset %d\n", ret);
-		goto error;
-	}
-
-	/*
+	 * there.  Fortunately we don't need to do this unless we reset the
+	 * chip at a PCI level.
+	 *
 	 * Next we need to restore the context, but we don't use those
 	 * yet either...
 	 *

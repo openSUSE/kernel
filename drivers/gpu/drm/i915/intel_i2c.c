@@ -68,20 +68,11 @@ static const struct gmbus_pin gmbus_pins_bxt[] = {
 	[GMBUS_PIN_3_BXT] = { "misc", GPIOD },
 };
 
-static const struct gmbus_pin gmbus_pins_cnp[] = {
-	[GMBUS_PIN_1_BXT] = { "dpb", GPIOB },
-	[GMBUS_PIN_2_BXT] = { "dpc", GPIOC },
-	[GMBUS_PIN_3_BXT] = { "misc", GPIOD },
-	[GMBUS_PIN_4_CNP] = { "dpd", GPIOE },
-};
-
 /* pin is expected to be valid */
 static const struct gmbus_pin *get_gmbus_pin(struct drm_i915_private *dev_priv,
 					     unsigned int pin)
 {
-	if (HAS_PCH_CNP(dev_priv))
-		return &gmbus_pins_cnp[pin];
-	else if (IS_GEN9_LP(dev_priv))
+	if (IS_GEN9_LP(dev_priv))
 		return &gmbus_pins_bxt[pin];
 	else if (IS_GEN9_BC(dev_priv))
 		return &gmbus_pins_skl[pin];
@@ -96,9 +87,7 @@ bool intel_gmbus_is_valid_pin(struct drm_i915_private *dev_priv,
 {
 	unsigned int size;
 
-	if (HAS_PCH_CNP(dev_priv))
-		size = ARRAY_SIZE(gmbus_pins_cnp);
-	else if (IS_GEN9_LP(dev_priv))
+	if (IS_GEN9_LP(dev_priv))
 		size = ARRAY_SIZE(gmbus_pins_bxt);
 	else if (IS_GEN9_BC(dev_priv))
 		size = ARRAY_SIZE(gmbus_pins_skl);
@@ -438,9 +427,7 @@ static bool
 gmbus_is_index_read(struct i2c_msg *msgs, int i, int num)
 {
 	return (i + 1 < num &&
-		msgs[i].addr == msgs[i + 1].addr &&
-		!(msgs[i].flags & I2C_M_RD) &&
-		(msgs[i].len == 1 || msgs[i].len == 2) &&
+		!(msgs[i].flags & I2C_M_RD) && msgs[i].len <= 2 &&
 		(msgs[i + 1].flags & I2C_M_RD));
 }
 

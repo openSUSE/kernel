@@ -2196,12 +2196,10 @@ i915_gem_object_put_pages_gtt(struct drm_i915_gem_object *obj,
 static void __i915_gem_object_reset_page_iter(struct drm_i915_gem_object *obj)
 {
 	struct radix_tree_iter iter;
-	void __rcu **slot;
+	void **slot;
 
-	rcu_read_lock();
 	radix_tree_for_each_slot(slot, &obj->mm.get_page.radix, &iter, 0)
 		radix_tree_delete(&obj->mm.get_page.radix, iter.index);
-	rcu_read_unlock();
 }
 
 void __i915_gem_object_put_pages(struct drm_i915_gem_object *obj,
@@ -2638,9 +2636,6 @@ i915_gem_object_pwrite_gtt(struct drm_i915_gem_object *obj,
 	if (READ_ONCE(obj->mm.pages))
 		return -ENODEV;
 
-	if (obj->mm.madv != I915_MADV_WILLNEED)
-		return -EFAULT;
-
 	/* Before the pages are instantiated the object is treated as being
 	 * in the CPU domain. The pages will be clflushed as required before
 	 * use, and we can freely write into the pages directly. If userspace
@@ -2954,14 +2949,9 @@ void i915_gem_reset_finish(struct drm_i915_private *dev_priv)
 
 static void nop_submit_request(struct drm_i915_gem_request *request)
 {
-	unsigned long flags;
-
 	dma_fence_set_error(&request->fence, -EIO);
-
-	spin_lock_irqsave(&request->engine->timeline->lock, flags);
-	__i915_gem_request_submit(request);
+	i915_gem_request_submit(request);
 	intel_engine_init_global_seqno(request->engine, request->global_seqno);
-	spin_unlock_irqrestore(&request->engine->timeline->lock, flags);
 }
 
 static void engine_set_wedged(struct intel_engine_cs *engine)
@@ -3113,15 +3103,16 @@ i915_gem_retire_work_handler(struct work_struct *work)
 		mutex_unlock(&dev->struct_mutex);
 	}
 
-	/*
-	 * Keep the retire handler running until we are finally idle.
+	/* Keep the retire handler running until we are finally idle.
 	 * We do not need to do this test under locking as in the worst-case
 	 * we queue the retire worker once too often.
 	 */
-	if (READ_ONCE(dev_priv->gt.awake))
+	if (READ_ONCE(dev_priv->gt.awake)) {
+		i915_queue_hangcheck(dev_priv);
 		queue_delayed_work(dev_priv->wq,
 				   &dev_priv->gt.retire_work,
 				   round_jiffies_up_relative(HZ));
+	}
 }
 
 static void
@@ -3379,10 +3370,12 @@ i915_gem_object_flush_gtt_write_domain(struct drm_i915_gem_object *obj)
 	 */
 	wmb();
 	if (INTEL_GEN(dev_priv) >= 6 && !HAS_LLC(dev_priv)) {
-		spin_lock_irq(&dev_priv->uncore.lock);
-		POSTING_READ_FW(RING_ACTHD(dev_priv->engine[RCS]->mmio_base));
-		spin_unlock_irq(&dev_priv->uncore.lock);
-		intel_runtime_pm_put(dev_priv);
+		if (intel_runtime_pm_get_if_in_use(dev_priv)) {
+			spin_lock_irq(&dev_priv->uncore.lock);
+			POSTING_READ_FW(RING_ACTHD(dev_priv->engine[RCS]->mmio_base));
+			spin_unlock_irq(&dev_priv->uncore.lock);
+			intel_runtime_pm_put(dev_priv);
+		}
 	}
 
 	intel_fb_obj_flush(obj, write_origin(obj, I915_GEM_DOMAIN_GTT));

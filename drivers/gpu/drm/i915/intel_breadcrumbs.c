@@ -126,6 +126,17 @@ static void intel_breadcrumbs_fake_irq(unsigned long data)
 		return;
 
 	mod_timer(&b->fake_irq, jiffies + 1);
+
+	/* Ensure that even if the GPU hangs, we get woken up.
+	 *
+	 * However, note that if no one is waiting, we never notice
+	 * a gpu hang. Eventually, we will have to wait for a resource
+	 * held by the GPU and so trigger a hangcheck. In the most
+	 * pathological case, this will be upon memory starvation! To
+	 * prevent this, we also queue the hangcheck from the retire
+	 * worker.
+	 */
+	i915_queue_hangcheck(engine->i915);
 }
 
 static void irq_enable(struct intel_engine_cs *engine)
@@ -496,7 +507,6 @@ static void __intel_engine_remove_wait(struct intel_engine_cs *engine,
 
 	GEM_BUG_ON(RB_EMPTY_NODE(&wait->node));
 	rb_erase(&wait->node, &b->waiters);
-	RB_CLEAR_NODE(&wait->node);
 
 out:
 	GEM_BUG_ON(b->irq_wait == wait);

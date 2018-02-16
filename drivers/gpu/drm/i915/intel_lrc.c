@@ -138,7 +138,6 @@
 #include "i915_drv.h"
 #include "intel_mocs.h"
 
-#define GEN10_LR_CONTEXT_RENDER_SIZE	(18 * PAGE_SIZE)
 #define GEN9_LR_CONTEXT_RENDER_SIZE (22 * PAGE_SIZE)
 #define GEN8_LR_CONTEXT_RENDER_SIZE (20 * PAGE_SIZE)
 #define GEN8_LR_CONTEXT_OTHER_SIZE (2 * PAGE_SIZE)
@@ -209,7 +208,6 @@
 
 #define GEN8_CTX_RCS_INDIRECT_CTX_OFFSET_DEFAULT	0x17
 #define GEN9_CTX_RCS_INDIRECT_CTX_OFFSET_DEFAULT	0x26
-#define GEN10_CTX_RCS_INDIRECT_CTX_OFFSET_DEFAULT	0x19
 
 /* Typical size of the average request (2 pipecontrols and a MI_BB) */
 #define EXECLISTS_REQUEST_SIZE 64 /* bytes */
@@ -1094,8 +1092,6 @@ static int intel_init_workaround_bb(struct intel_engine_cs *engine)
 		return -EINVAL;
 
 	switch (INTEL_GEN(engine->i915)) {
-	case 10:
-		return 0;
 	case 9:
 		wa_bb_fn[0] = gen9_init_indirectctx_bb;
 		wa_bb_fn[1] = gen9_init_perctx_bb;
@@ -1147,14 +1143,6 @@ static u32 port_seqno(struct execlist_port *port)
 	return port->request ? port->request->global_seqno : 0;
 }
 
-static u8 gtiir[] = {
-	[RCS] = 0,
-	[BCS] = 0,
-	[VCS] = 1,
-	[VCS2] = 1,
-	[VECS] = 3,
-};
-
 static int gen8_init_common_ring(struct intel_engine_cs *engine)
 {
 	struct drm_i915_private *dev_priv = engine->i915;
@@ -1176,22 +1164,8 @@ static int gen8_init_common_ring(struct intel_engine_cs *engine)
 
 	DRM_DEBUG_DRIVER("Execlists enabled for %s\n", engine->name);
 
-	GEM_BUG_ON(engine->id >= ARRAY_SIZE(gtiir));
-
-	/*
-	 * Clear any pending interrupt state.
-	 *
-	 * We do it twice out of paranoia that some of the IIR are double
-	 * buffered, and if we only reset it once there may still be
-	 * an interrupt pending.
-	 */
-	I915_WRITE(GEN8_GT_IIR(gtiir[engine->id]),
-		   GT_CONTEXT_SWITCH_INTERRUPT << engine->irq_shift);
-	I915_WRITE(GEN8_GT_IIR(gtiir[engine->id]),
-		   GT_CONTEXT_SWITCH_INTERRUPT << engine->irq_shift);
-	clear_bit(ENGINE_IRQ_EXECLIST, &engine->irq_posted);
-
 	/* After a GPU reset, we may have requests to replay */
+	clear_bit(ENGINE_IRQ_EXECLIST, &engine->irq_posted);
 	if (!i915.enable_guc_submission && !execlists_elsp_idle(engine)) {
 		DRM_DEBUG_DRIVER("Restarting %s from requests [0x%x, 0x%x]\n",
 				 engine->name,
@@ -1799,10 +1773,6 @@ static u32 intel_lr_indirect_ctx_offset(struct intel_engine_cs *engine)
 	default:
 		MISSING_CASE(INTEL_GEN(engine->i915));
 		/* fall through */
-	case 10:
-		indirect_ctx_offset =
-			GEN10_CTX_RCS_INDIRECT_CTX_OFFSET_DEFAULT;
-		break;
 	case 9:
 		indirect_ctx_offset =
 			GEN9_CTX_RCS_INDIRECT_CTX_OFFSET_DEFAULT;
@@ -1958,10 +1928,8 @@ uint32_t intel_lr_context_size(struct intel_engine_cs *engine)
 
 	switch (engine->id) {
 	case RCS:
-		if (INTEL_GEN(engine->i915) == 9)
+		if (INTEL_GEN(engine->i915) >= 9)
 			ret = GEN9_LR_CONTEXT_RENDER_SIZE;
-		else if (INTEL_GEN(engine->i915) == 10)
-			ret = GEN10_LR_CONTEXT_RENDER_SIZE;
 		else
 			ret = GEN8_LR_CONTEXT_RENDER_SIZE;
 		break;

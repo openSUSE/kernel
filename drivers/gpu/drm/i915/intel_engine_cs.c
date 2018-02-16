@@ -686,28 +686,26 @@ static int gen9_init_workarounds(struct intel_engine_cs *engine)
 	struct drm_i915_private *dev_priv = engine->i915;
 	int ret;
 
-	/* WaConextSwitchWithConcurrentTLBInvalidate:skl,bxt,kbl,glk,cfl */
+	/* WaConextSwitchWithConcurrentTLBInvalidate:skl,bxt,kbl,glk */
 	I915_WRITE(GEN9_CSFE_CHICKEN1_RCS, _MASKED_BIT_ENABLE(GEN9_PREEMPT_GPGPU_SYNC_SWITCH_DISABLE));
 
-	/* WaEnableLbsSlaRetryTimerDecrement:skl,bxt,kbl,glk,cfl */
+	/* WaEnableLbsSlaRetryTimerDecrement:skl,bxt,kbl,glk */
 	I915_WRITE(BDW_SCRATCH1, I915_READ(BDW_SCRATCH1) |
 		   GEN9_LBS_SLA_RETRY_TIMER_DECREMENT_ENABLE);
 
 	/* WaDisableKillLogic:bxt,skl,kbl */
-	if (!IS_COFFEELAKE(dev_priv))
-		I915_WRITE(GAM_ECOCHK, I915_READ(GAM_ECOCHK) |
-			   ECOCHK_DIS_TLB);
+	I915_WRITE(GAM_ECOCHK, I915_READ(GAM_ECOCHK) |
+		   ECOCHK_DIS_TLB);
 
-	/* WaClearFlowControlGpgpuContextSave:skl,bxt,kbl,glk,cfl */
-	/* WaDisablePartialInstShootdown:skl,bxt,kbl,glk,cfl */
+	/* WaClearFlowControlGpgpuContextSave:skl,bxt,kbl,glk */
+	/* WaDisablePartialInstShootdown:skl,bxt,kbl,glk */
 	WA_SET_BIT_MASKED(GEN8_ROW_CHICKEN,
 			  FLOW_CONTROL_ENABLE |
 			  PARTIAL_INSTRUCTION_SHOOTDOWN_DISABLE);
 
 	/* Syncing dependencies between camera and graphics:skl,bxt,kbl */
-	if (!IS_COFFEELAKE(dev_priv))
-		WA_SET_BIT_MASKED(HALF_SLICE_CHICKEN3,
-				  GEN9_DISABLE_OCL_OOB_SUPPRESS_LOGIC);
+	WA_SET_BIT_MASKED(HALF_SLICE_CHICKEN3,
+			  GEN9_DISABLE_OCL_OOB_SUPPRESS_LOGIC);
 
 	/* WaDisableDgMirrorFixInHalfSliceChicken5:bxt */
 	if (IS_BXT_REVID(dev_priv, 0, BXT_REVID_A1))
@@ -725,18 +723,16 @@ static int gen9_init_workarounds(struct intel_engine_cs *engine)
 		 */
 	}
 
-	/* WaEnableYV12BugFixInHalfSliceChicken7:skl,bxt,kbl,glk,cfl */
-	/* WaEnableSamplerGPGPUPreemptionSupport:skl,bxt,kbl,cfl */
+	/* WaEnableSamplerGPGPUPreemptionSupport:skl,bxt,kbl */
 	WA_SET_BIT_MASKED(GEN9_HALF_SLICE_CHICKEN7,
-			  GEN9_ENABLE_YV12_BUGFIX |
 			  GEN9_ENABLE_GPGPU_PREEMPTION);
 
-	/* Wa4x4STCOptimizationDisable:skl,bxt,kbl,glk,cfl */
-	/* WaDisablePartialResolveInVc:skl,bxt,kbl,cfl */
+	/* Wa4x4STCOptimizationDisable:skl,bxt,kbl,glk */
+	/* WaDisablePartialResolveInVc:skl,bxt,kbl */
 	WA_SET_BIT_MASKED(CACHE_MODE_1, (GEN8_4x4_STC_OPTIMIZATION_DISABLE |
 					 GEN9_PARTIAL_RESOLVE_IN_VC_DISABLE));
 
-	/* WaCcsTlbPrefetchDisable:skl,bxt,kbl,glk,cfl */
+	/* WaCcsTlbPrefetchDisable:skl,bxt,kbl,glk */
 	WA_CLR_BIT_MASKED(GEN9_HALF_SLICE_CHICKEN5,
 			  GEN9_CCS_TLB_PREFETCH_ENABLE);
 
@@ -745,7 +741,7 @@ static int gen9_init_workarounds(struct intel_engine_cs *engine)
 		WA_SET_BIT_MASKED(SLICE_ECO_CHICKEN0,
 				  PIXEL_MASK_CAMMING_DISABLE);
 
-	/* WaForceContextSaveRestoreNonCoherent:skl,bxt,kbl,cfl */
+	/* WaForceContextSaveRestoreNonCoherent:skl,bxt,kbl */
 	WA_SET_BIT_MASKED(HDC_CHICKEN0,
 			  HDC_FORCE_CONTEXT_SAVE_RESTORE_NON_COHERENT |
 			  HDC_FORCE_CSR_NON_COHERENT_OVR_DISABLE);
@@ -763,40 +759,39 @@ static int gen9_init_workarounds(struct intel_engine_cs *engine)
 	 * a TLB invalidation occurs during a PSD flush.
 	 */
 
-	/* WaForceEnableNonCoherent:skl,bxt,kbl,cfl */
+	/* WaForceEnableNonCoherent:skl,bxt,kbl */
 	WA_SET_BIT_MASKED(HDC_CHICKEN0,
 			  HDC_FORCE_NON_COHERENT);
 
-	/* WaDisableHDCInvalidation:skl,bxt,kbl,cfl */
+	/* WaDisableHDCInvalidation:skl,bxt,kbl */
 	I915_WRITE(GAM_ECOCHK, I915_READ(GAM_ECOCHK) |
 		   BDW_DISABLE_HDC_INVALIDATION);
 
-	/* WaDisableSamplerPowerBypassForSOPingPong:skl,bxt,kbl,cfl */
+	/* WaDisableSamplerPowerBypassForSOPingPong:skl,bxt,kbl */
 	if (IS_SKYLAKE(dev_priv) ||
 	    IS_KABYLAKE(dev_priv) ||
-	    IS_COFFEELAKE(dev_priv) ||
 	    IS_BXT_REVID(dev_priv, 0, BXT_REVID_B0))
 		WA_SET_BIT_MASKED(HALF_SLICE_CHICKEN3,
 				  GEN8_SAMPLER_POWER_BYPASS_DIS);
 
-	/* WaDisableSTUnitPowerOptimization:skl,bxt,kbl,glk,cfl */
+	/* WaDisableSTUnitPowerOptimization:skl,bxt,kbl,glk */
 	WA_SET_BIT_MASKED(HALF_SLICE_CHICKEN2, GEN8_ST_PO_DISABLE);
 
-	/* WaOCLCoherentLineFlush:skl,bxt,kbl,cfl */
+	/* WaOCLCoherentLineFlush:skl,bxt,kbl */
 	I915_WRITE(GEN8_L3SQCREG4, (I915_READ(GEN8_L3SQCREG4) |
 				    GEN8_LQSC_FLUSH_COHERENT_LINES));
 
-	/* WaVFEStateAfterPipeControlwithMediaStateClear:skl,bxt,glk,cfl */
+	/* WaVFEStateAfterPipeControlwithMediaStateClear:skl,bxt,glk */
 	ret = wa_ring_whitelist_reg(engine, GEN9_CTX_PREEMPT_REG);
 	if (ret)
 		return ret;
 
-	/* WaEnablePreemptionGranularityControlByUMD:skl,bxt,kbl,cfl */
+	/* WaEnablePreemptionGranularityControlByUMD:skl,bxt,kbl */
 	ret= wa_ring_whitelist_reg(engine, GEN8_CS_CHICKEN1);
 	if (ret)
 		return ret;
 
-	/* WaAllowUMDToModifyHDCChicken1:skl,bxt,kbl,glk,cfl */
+	/* WaAllowUMDToModifyHDCChicken1:skl,bxt,kbl,glk */
 	ret = wa_ring_whitelist_reg(engine, GEN8_HDC_CHICKEN1);
 	if (ret)
 		return ret;
@@ -951,51 +946,6 @@ static int bxt_init_workarounds(struct intel_engine_cs *engine)
 	return 0;
 }
 
-static int cnl_init_workarounds(struct intel_engine_cs *engine)
-{
-	struct drm_i915_private *dev_priv = engine->i915;
-	int ret;
-
-	/* WaDisableI2mCycleOnWRPort: cnl (pre-prod) */
-	if (IS_CNL_REVID(dev_priv, CNL_REVID_B0, CNL_REVID_B0))
-		WA_SET_BIT(GAMT_CHKN_BIT_REG,
-			   GAMT_CHKN_DISABLE_I2M_CYCLE_ON_WR_PORT);
-
-	/* WaForceContextSaveRestoreNonCoherent:cnl */
-	WA_SET_BIT_MASKED(CNL_HDC_CHICKEN0,
-			  HDC_FORCE_CONTEXT_SAVE_RESTORE_NON_COHERENT);
-
-	/* WaThrottleEUPerfToAvoidTDBackPressure:cnl(pre-prod) */
-	if (IS_CNL_REVID(dev_priv, CNL_REVID_B0, CNL_REVID_B0))
-		WA_SET_BIT_MASKED(GEN8_ROW_CHICKEN, THROTTLE_12_5);
-
-	/* WaDisableReplayBufferBankArbitrationOptimization:cnl */
-	WA_SET_BIT_MASKED(COMMON_SLICE_CHICKEN2,
-			  GEN8_SBE_DISABLE_REPLAY_BUF_OPTIMIZATION);
-
-	/* WaDisableEnhancedSBEVertexCaching:cnl (pre-prod) */
-	if (IS_CNL_REVID(dev_priv, 0, CNL_REVID_B0))
-		WA_SET_BIT_MASKED(COMMON_SLICE_CHICKEN2,
-				  GEN8_CSC2_SBE_VUE_CACHE_CONSERVATIVE);
-
-	/* WaInPlaceDecompressionHang:cnl */
-	WA_SET_BIT(GEN9_GAMT_ECO_REG_RW_IA,
-		   GAMT_ECO_ENABLE_IN_PLACE_DECOMPRESS);
-
-	/* WaPushConstantDereferenceHoldDisable:cnl */
-	WA_SET_BIT(GEN7_ROW_CHICKEN2, PUSH_CONSTANT_DEREF_DISABLE);
-
-	/* FtrEnableFastAnisoL1BankingFix: cnl */
-	WA_SET_BIT_MASKED(HALF_SLICE_CHICKEN3, CNL_FAST_ANISO_L1_BANKING_FIX);
-
-	/* WaEnablePreemptionGranularityControlByUMD:cnl */
-	ret= wa_ring_whitelist_reg(engine, GEN8_CS_CHICKEN1);
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
 static int kbl_init_workarounds(struct intel_engine_cs *engine)
 {
 	struct drm_i915_private *dev_priv = engine->i915;
@@ -1060,38 +1010,6 @@ static int glk_init_workarounds(struct intel_engine_cs *engine)
 	return 0;
 }
 
-static int cfl_init_workarounds(struct intel_engine_cs *engine)
-{
-	struct drm_i915_private *dev_priv = engine->i915;
-	int ret;
-
-	ret = gen9_init_workarounds(engine);
-	if (ret)
-		return ret;
-
-	/* WaEnableGapsTsvCreditFix:cfl */
-	I915_WRITE(GEN8_GARBCNTL, (I915_READ(GEN8_GARBCNTL) |
-				   GEN9_GAPS_TSV_CREDIT_DISABLE));
-
-	/* WaToEnableHwFixForPushConstHWBug:cfl */
-	WA_SET_BIT_MASKED(COMMON_SLICE_CHICKEN2,
-			  GEN8_SBE_DISABLE_REPLAY_BUF_OPTIMIZATION);
-
-	/* WaDisableGafsUnitClkGating:cfl */
-	WA_SET_BIT(GEN7_UCGCTL4, GEN8_EU_GAUNIT_CLOCK_GATE_DISABLE);
-
-	/* WaDisableSbeCacheDispatchPortSharing:cfl */
-	WA_SET_BIT_MASKED(
-		GEN7_HALF_SLICE_CHICKEN1,
-		GEN7_SBE_SS_CACHE_DISPATCH_PORT_SHARING_DISABLE);
-
-	/* WaInPlaceDecompressionHang:cfl */
-	WA_SET_BIT(GEN9_GAMT_ECO_REG_RW_IA,
-		   GAMT_ECO_ENABLE_IN_PLACE_DECOMPRESS);
-
-	return 0;
-}
-
 int init_workarounds_ring(struct intel_engine_cs *engine)
 {
 	struct drm_i915_private *dev_priv = engine->i915;
@@ -1114,10 +1032,6 @@ int init_workarounds_ring(struct intel_engine_cs *engine)
 		err = kbl_init_workarounds(engine);
 	else if (IS_GEMINILAKE(dev_priv))
 		err =  glk_init_workarounds(engine);
-	else if (IS_COFFEELAKE(dev_priv))
-		err = cfl_init_workarounds(engine);
-	else if (IS_CANNONLAKE(dev_priv))
-		err = cnl_init_workarounds(engine);
 	else
 		err = 0;
 	if (err)

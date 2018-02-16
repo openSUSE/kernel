@@ -642,7 +642,7 @@ find_fw_domain(struct drm_i915_private *dev_priv, u32 offset)
 	{ .start = (s), .end = (e), .domains = (d) }
 
 #define HAS_FWTABLE(dev_priv) \
-	(INTEL_GEN(dev_priv) >= 9 || \
+	(IS_GEN9(dev_priv) || \
 	 IS_CHERRYVIEW(dev_priv) || \
 	 IS_VALLEYVIEW(dev_priv))
 
@@ -1177,7 +1177,7 @@ static void intel_uncore_fw_domains_init(struct drm_i915_private *dev_priv)
 		dev_priv->uncore.fw_clear = _MASKED_BIT_DISABLE(FORCEWAKE_KERNEL);
 	}
 
-	if (INTEL_GEN(dev_priv) >= 9) {
+	if (IS_GEN9(dev_priv)) {
 		dev_priv->uncore.funcs.force_wake_get = fw_domains_get;
 		dev_priv->uncore.funcs.force_wake_put = fw_domains_put;
 		fw_domain_init(dev_priv, FW_DOMAIN_ID_RENDER,
@@ -1376,7 +1376,7 @@ static const struct register_whitelist {
 } whitelist[] = {
 	{ .offset_ldw = RING_TIMESTAMP(RENDER_RING_BASE),
 	  .offset_udw = RING_TIMESTAMP_UDW(RENDER_RING_BASE),
-	  .size = 8, .gen_bitmask = GEN_RANGE(4, 10) },
+	  .size = 8, .gen_bitmask = GEN_RANGE(4, 9) },
 };
 
 int i915_reg_read_ioctl(struct drm_device *dev,

@@ -58,13 +58,10 @@ static inline bool i915_mmio_reg_valid(i915_reg_t reg)
 #define _MMIO_TRANS(tran, a, b) _MMIO(_TRANS(tran, a, b))
 #define _PORT(port, a, b) ((a) + (port)*((b)-(a)))
 #define _MMIO_PORT(port, a, b) _MMIO(_PORT(port, a, b))
-#define _MMIO_PIPE3(pipe, a, b, c) _MMIO(_PICK(pipe, a, b, c))
-#define _MMIO_PORT3(pipe, a, b, c) _MMIO(_PICK(pipe, a, b, c))
-#define _PLL(pll, a, b) ((a) + (pll)*((b)-(a)))
-#define _MMIO_PLL(pll, a, b) _MMIO(_PLL(pll, a, b))
-#define _MMIO_PORT6(port, a, b, c, d, e, f) _MMIO(_PICK(port, a, b, c, d, e, f))
-#define _MMIO_PORT6_LN(port, ln, a0, a1, b, c, d, e, f)			\
-	_MMIO(_PICK(port, a0, b, c, d, e, f) + (ln * (a1 - a0)))
+#define _PIPE3(pipe, ...) _PICK(pipe, __VA_ARGS__)
+#define _MMIO_PIPE3(pipe, a, b, c) _MMIO(_PIPE3(pipe, a, b, c))
+#define _PORT3(port, ...) _PICK(port, __VA_ARGS__)
+#define _MMIO_PORT3(pipe, a, b, c) _MMIO(_PORT3(pipe, a, b, c))
 #define _PHY3(phy, ...) _PICK(phy, __VA_ARGS__)
 #define _MMIO_PHY3(phy, a, b, c) _MMIO(_PHY3(phy, a, b, c))
 
@@ -1060,7 +1057,6 @@ enum skl_disp_power_wells {
 	SKL_DISP_PW_MISC_IO,
 	SKL_DISP_PW_DDI_A_E,
 	GLK_DISP_PW_DDI_A = SKL_DISP_PW_DDI_A_E,
-	CNL_DISP_PW_DDI_A = SKL_DISP_PW_DDI_A_E,
 	SKL_DISP_PW_DDI_B,
 	SKL_DISP_PW_DDI_C,
 	SKL_DISP_PW_DDI_D,
@@ -1068,10 +1064,6 @@ enum skl_disp_power_wells {
 	GLK_DISP_PW_AUX_A = 8,
 	GLK_DISP_PW_AUX_B,
 	GLK_DISP_PW_AUX_C,
-	CNL_DISP_PW_AUX_A = GLK_DISP_PW_AUX_A,
-	CNL_DISP_PW_AUX_B = GLK_DISP_PW_AUX_B,
-	CNL_DISP_PW_AUX_C = GLK_DISP_PW_AUX_C,
-	CNL_DISP_PW_AUX_D,
 
 	SKL_DISP_PW_1 = 14,
 	SKL_DISP_PW_2,
@@ -1658,10 +1650,6 @@ enum skl_disp_power_wells {
 #define   PHY_RESERVED			(1 << 7)
 #define BXT_PORT_CL1CM_DW0(phy)		_BXT_PHY((phy), _PORT_CL1CM_DW0_BC)
 
-#define CNL_PORT_CL1CM_DW5		_MMIO(0x162014)
-#define   CL_POWER_DOWN_ENABLE		(1 << 4)
-#define   SUS_CLOCK_CONFIG		(3 << 0)
-
 #define _PORT_CL1CM_DW9_A		0x162024
 #define _PORT_CL1CM_DW9_BC		0x6C024
 #define   IREF0RC_OFFSET_SHIFT		8
@@ -1686,155 +1674,6 @@ enum skl_disp_power_wells {
 #define   OCL2_LDOFUSE_PWR_DIS		(1 << 6)
 #define BXT_PORT_CL1CM_DW30(phy)	_BXT_PHY((phy), _PORT_CL1CM_DW30_BC)
 
-#define _CNL_PORT_PCS_DW1_GRP_AE	0x162304
-#define _CNL_PORT_PCS_DW1_GRP_B		0x162384
-#define _CNL_PORT_PCS_DW1_GRP_C		0x162B04
-#define _CNL_PORT_PCS_DW1_GRP_D		0x162B84
-#define _CNL_PORT_PCS_DW1_GRP_F		0x162A04
-#define _CNL_PORT_PCS_DW1_LN0_AE	0x162404
-#define _CNL_PORT_PCS_DW1_LN0_B		0x162604
-#define _CNL_PORT_PCS_DW1_LN0_C		0x162C04
-#define _CNL_PORT_PCS_DW1_LN0_D		0x162E04
-#define _CNL_PORT_PCS_DW1_LN0_F		0x162804
-#define CNL_PORT_PCS_DW1_GRP(port)	_MMIO_PORT6(port, \
-						    _CNL_PORT_PCS_DW1_GRP_AE, \
-						    _CNL_PORT_PCS_DW1_GRP_B, \
-						    _CNL_PORT_PCS_DW1_GRP_C, \
-						    _CNL_PORT_PCS_DW1_GRP_D, \
-						    _CNL_PORT_PCS_DW1_GRP_AE, \
-						    _CNL_PORT_PCS_DW1_GRP_F)
-#define CNL_PORT_PCS_DW1_LN0(port)	_MMIO_PORT6(port, \
-						    _CNL_PORT_PCS_DW1_LN0_AE, \
-						    _CNL_PORT_PCS_DW1_LN0_B, \
-						    _CNL_PORT_PCS_DW1_LN0_C, \
-						    _CNL_PORT_PCS_DW1_LN0_D, \
-						    _CNL_PORT_PCS_DW1_LN0_AE, \
-						    _CNL_PORT_PCS_DW1_LN0_F)
-#define   COMMON_KEEPER_EN		(1 << 26)
-
-#define _CNL_PORT_TX_DW2_GRP_AE		0x162348
-#define _CNL_PORT_TX_DW2_GRP_B		0x1623C8
-#define _CNL_PORT_TX_DW2_GRP_C		0x162B48
-#define _CNL_PORT_TX_DW2_GRP_D		0x162BC8
-#define _CNL_PORT_TX_DW2_GRP_F		0x162A48
-#define _CNL_PORT_TX_DW2_LN0_AE		0x162448
-#define _CNL_PORT_TX_DW2_LN0_B		0x162648
-#define _CNL_PORT_TX_DW2_LN0_C		0x162C48
-#define _CNL_PORT_TX_DW2_LN0_D		0x162E48
-#define _CNL_PORT_TX_DW2_LN0_F		0x162A48
-#define CNL_PORT_TX_DW2_GRP(port)	_MMIO_PORT6(port, \
-						    _CNL_PORT_TX_DW2_GRP_AE, \
-						    _CNL_PORT_TX_DW2_GRP_B, \
-						    _CNL_PORT_TX_DW2_GRP_C, \
-						    _CNL_PORT_TX_DW2_GRP_D, \
-						    _CNL_PORT_TX_DW2_GRP_AE, \
-						    _CNL_PORT_TX_DW2_GRP_F)
-#define CNL_PORT_TX_DW2_LN0(port)	_MMIO_PORT6(port, \
-						    _CNL_PORT_TX_DW2_LN0_AE, \
-						    _CNL_PORT_TX_DW2_LN0_B, \
-						    _CNL_PORT_TX_DW2_LN0_C, \
-						    _CNL_PORT_TX_DW2_LN0_D, \
-						    _CNL_PORT_TX_DW2_LN0_AE, \
-						    _CNL_PORT_TX_DW2_LN0_F)
-#define   SWING_SEL_UPPER(x)		((x >> 3) << 15)
-#define   SWING_SEL_UPPER_MASK		(1 << 15)
-#define   SWING_SEL_LOWER(x)		((x & 0x7) << 11)
-#define   SWING_SEL_LOWER_MASK		(0x7 << 11)
-#define   RCOMP_SCALAR(x)		((x) << 0)
-#define   RCOMP_SCALAR_MASK		(0xFF << 0)
-
-#define _CNL_PORT_TX_DW4_GRP_AE		0x162350
-#define _CNL_PORT_TX_DW4_GRP_B		0x1623D0
-#define _CNL_PORT_TX_DW4_GRP_C		0x162B50
-#define _CNL_PORT_TX_DW4_GRP_D		0x162BD0
-#define _CNL_PORT_TX_DW4_GRP_F		0x162A50
-#define _CNL_PORT_TX_DW4_LN0_AE		0x162450
-#define _CNL_PORT_TX_DW4_LN1_AE		0x1624D0
-#define _CNL_PORT_TX_DW4_LN0_B		0x162650
-#define _CNL_PORT_TX_DW4_LN0_C		0x162C50
-#define _CNL_PORT_TX_DW4_LN0_D		0x162E50
-#define _CNL_PORT_TX_DW4_LN0_F		0x162850
-#define CNL_PORT_TX_DW4_GRP(port)       _MMIO_PORT6(port, \
-						    _CNL_PORT_TX_DW4_GRP_AE, \
-						    _CNL_PORT_TX_DW4_GRP_B, \
-						    _CNL_PORT_TX_DW4_GRP_C, \
-						    _CNL_PORT_TX_DW4_GRP_D, \
-						    _CNL_PORT_TX_DW4_GRP_AE, \
-						    _CNL_PORT_TX_DW4_GRP_F)
-#define CNL_PORT_TX_DW4_LN(port, ln)       _MMIO_PORT6_LN(port, ln,	\
-						    _CNL_PORT_TX_DW4_LN0_AE, \
-						    _CNL_PORT_TX_DW4_LN1_AE, \
-						    _CNL_PORT_TX_DW4_LN0_B, \
-						    _CNL_PORT_TX_DW4_LN0_C, \
-						    _CNL_PORT_TX_DW4_LN0_D, \
-						    _CNL_PORT_TX_DW4_LN0_AE, \
-						    _CNL_PORT_TX_DW4_LN0_F)
-#define   LOADGEN_SELECT		(1 << 31)
-#define   POST_CURSOR_1(x)		((x) << 12)
-#define   POST_CURSOR_1_MASK		(0x3F << 12)
-#define   POST_CURSOR_2(x)		((x) << 6)
-#define   POST_CURSOR_2_MASK		(0x3F << 6)
-#define   CURSOR_COEFF(x)		((x) << 0)
-#define   CURSOR_COEFF_MASK		(0x3F << 0)
-
-#define _CNL_PORT_TX_DW5_GRP_AE		0x162354
-#define _CNL_PORT_TX_DW5_GRP_B		0x1623D4
-#define _CNL_PORT_TX_DW5_GRP_C		0x162B54
-#define _CNL_PORT_TX_DW5_GRP_D		0x162BD4
-#define _CNL_PORT_TX_DW5_GRP_F		0x162A54
-#define _CNL_PORT_TX_DW5_LN0_AE		0x162454
-#define _CNL_PORT_TX_DW5_LN0_B		0x162654
-#define _CNL_PORT_TX_DW5_LN0_C		0x162C54
-#define _CNL_PORT_TX_DW5_LN0_D		0x162ED4
-#define _CNL_PORT_TX_DW5_LN0_F		0x162854
-#define CNL_PORT_TX_DW5_GRP(port)	_MMIO_PORT6(port, \
-						    _CNL_PORT_TX_DW5_GRP_AE, \
-						    _CNL_PORT_TX_DW5_GRP_B, \
-						    _CNL_PORT_TX_DW5_GRP_C, \
-						    _CNL_PORT_TX_DW5_GRP_D, \
-						    _CNL_PORT_TX_DW5_GRP_AE, \
-						    _CNL_PORT_TX_DW5_GRP_F)
-#define CNL_PORT_TX_DW5_LN0(port)	_MMIO_PORT6(port, \
-						    _CNL_PORT_TX_DW5_LN0_AE, \
-						    _CNL_PORT_TX_DW5_LN0_B, \
-						    _CNL_PORT_TX_DW5_LN0_C, \
-						    _CNL_PORT_TX_DW5_LN0_D, \
-						    _CNL_PORT_TX_DW5_LN0_AE, \
-						    _CNL_PORT_TX_DW5_LN0_F)
-#define   TX_TRAINING_EN		(1 << 31)
-#define   TAP3_DISABLE			(1 << 29)
-#define   SCALING_MODE_SEL(x)		((x) << 18)
-#define   SCALING_MODE_SEL_MASK		(0x7 << 18)
-#define   RTERM_SELECT(x)		((x) << 3)
-#define   RTERM_SELECT_MASK		(0x7 << 3)
-
-#define _CNL_PORT_TX_DW7_GRP_AE		0x16235C
-#define _CNL_PORT_TX_DW7_GRP_B		0x1623DC
-#define _CNL_PORT_TX_DW7_GRP_C		0x162B5C
-#define _CNL_PORT_TX_DW7_GRP_D		0x162BDC
-#define _CNL_PORT_TX_DW7_GRP_F		0x162A5C
-#define _CNL_PORT_TX_DW7_LN0_AE		0x16245C
-#define _CNL_PORT_TX_DW7_LN0_B		0x16265C
-#define _CNL_PORT_TX_DW7_LN0_C		0x162C5C
-#define _CNL_PORT_TX_DW7_LN0_D		0x162EDC
-#define _CNL_PORT_TX_DW7_LN0_F		0x16285C
-#define CNL_PORT_TX_DW7_GRP(port)	_MMIO_PORT6(port, \
-						    _CNL_PORT_TX_DW7_GRP_AE, \
-						    _CNL_PORT_TX_DW7_GRP_B, \
-						    _CNL_PORT_TX_DW7_GRP_C, \
-						    _CNL_PORT_TX_DW7_GRP_D, \
-						    _CNL_PORT_TX_DW7_GRP_AE, \
-						    _CNL_PORT_TX_DW7_GRP_F)
-#define CNL_PORT_TX_DW7_LN0(port)	_MMIO_PORT6(port, \
-						    _CNL_PORT_TX_DW7_LN0_AE, \
-						    _CNL_PORT_TX_DW7_LN0_B, \
-						    _CNL_PORT_TX_DW7_LN0_C, \
-						    _CNL_PORT_TX_DW7_LN0_D, \
-						    _CNL_PORT_TX_DW7_LN0_AE, \
-						    _CNL_PORT_TX_DW7_LN0_F)
-#define   N_SCALAR(x)			((x) << 24)
-#define   N_SCALAR_MASK			(0x7F << 24)
-
 /* The spec defines this only for BXT PHY0, but lets assume that this
  * would exist for PHY1 too if it had a second channel.
  */
@@ -1842,23 +1681,6 @@ enum skl_disp_power_wells {
 #define _PORT_CL2CM_DW6_BC		0x6C358
 #define BXT_PORT_CL2CM_DW6(phy)		_BXT_PHY((phy), _PORT_CL2CM_DW6_BC)
 #define   DW6_OLDO_DYN_PWR_DOWN_EN	(1 << 28)
-
-#define CNL_PORT_COMP_DW0		_MMIO(0x162100)
-#define   COMP_INIT			(1 << 31)
-#define CNL_PORT_COMP_DW1		_MMIO(0x162104)
-#define CNL_PORT_COMP_DW3		_MMIO(0x16210c)
-#define   PROCESS_INFO_DOT_0		(0 << 26)
-#define   PROCESS_INFO_DOT_1		(1 << 26)
-#define   PROCESS_INFO_DOT_4		(2 << 26)
-#define   PROCESS_INFO_MASK		(7 << 26)
-#define   PROCESS_INFO_SHIFT		26
-#define   VOLTAGE_INFO_0_85V		(0 << 24)
-#define   VOLTAGE_INFO_0_95V		(1 << 24)
-#define   VOLTAGE_INFO_1_05V		(2 << 24)
-#define   VOLTAGE_INFO_MASK		(3 << 24)
-#define   VOLTAGE_INFO_SHIFT		24
-#define CNL_PORT_COMP_DW9		_MMIO(0x162124)
-#define CNL_PORT_COMP_DW10		_MMIO(0x162128)
 
 /* BXT PHY Ref registers */
 #define _PORT_REF_DW3_A			0x16218C
@@ -2129,7 +1951,6 @@ enum skl_disp_power_wells {
 #define DONE_REG		_MMIO(0x40b0)
 #define GEN8_PRIVATE_PAT_LO	_MMIO(0x40e0)
 #define GEN8_PRIVATE_PAT_HI	_MMIO(0x40e0 + 4)
-#define GEN10_PAT_INDEX(index)	_MMIO(0x40e0 + index*4)
 #define BSD_HWS_PGA_GEN7	_MMIO(0x04180)
 #define BLT_HWS_PGA_GEN7	_MMIO(0x04280)
 #define VEBOX_HWS_PGA_GEN7	_MMIO(0x04380)
@@ -2166,7 +1987,6 @@ enum skl_disp_power_wells {
 
 #define GAMT_CHKN_BIT_REG	_MMIO(0x4ab8)
 #define   GAMT_CHKN_DISABLE_DYNAMIC_CREDIT_SHARING	(1<<28)
-#define   GAMT_CHKN_DISABLE_I2M_CYCLE_ON_WR_PORT	(1<<24)
 
 #if 0
 #define PRB0_TAIL	_MMIO(0x2030)
@@ -2285,7 +2105,6 @@ enum skl_disp_power_wells {
 # define _3D_CHICKEN2_WM_READ_PIPELINED			(1 << 14)
 #define _3D_CHICKEN3	_MMIO(0x2090)
 #define  _3D_CHICKEN_SF_DISABLE_OBJEND_CULL		(1 << 10)
-#define  _3D_CHICKEN3_AA_LINE_QUALITY_FIX_ENABLE	(1 << 5)
 #define  _3D_CHICKEN3_SF_DISABLE_FASTCLIP_CULL		(1 << 5)
 #define  _3D_CHICKEN_SDE_LIMIT_FIFO_POLY_DEPTH(x)	((x)<<1) /* gen8+ */
 #define  _3D_CHICKEN3_SF_DISABLE_PIPELINED_ATTR_FETCH	(1 << 1) /* gen6 */
@@ -2520,11 +2339,6 @@ enum skl_disp_power_wells {
 #define   GEN9_F2_SS_DIS_SHIFT		20
 #define   GEN9_F2_SS_DIS_MASK		(0xf << GEN9_F2_SS_DIS_SHIFT)
 
-#define   GEN10_F2_S_ENA_SHIFT		22
-#define   GEN10_F2_S_ENA_MASK		(0x3f << GEN10_F2_S_ENA_SHIFT)
-#define   GEN10_F2_SS_DIS_SHIFT		18
-#define   GEN10_F2_SS_DIS_MASK		(0xf << GEN10_F2_SS_DIS_SHIFT)
-
 #define GEN8_EU_DISABLE0		_MMIO(0x9134)
 #define   GEN8_EU_DIS0_S0_MASK		0xffffff
 #define   GEN8_EU_DIS0_S1_SHIFT		24
@@ -2539,9 +2353,6 @@ enum skl_disp_power_wells {
 #define   GEN8_EU_DIS2_S2_MASK		0xff
 
 #define GEN9_EU_DISABLE(slice)		_MMIO(0x9134 + (slice)*0x4)
-
-#define GEN10_EU_DISABLE3		_MMIO(0x9140)
-#define   GEN10_EU_DIS_SS_MASK		0xff
 
 #define GEN6_BSD_SLEEP_PSMI_CONTROL	_MMIO(0x12050)
 #define   GEN6_BSD_SLEEP_MSG_DISABLE	(1 << 0)
@@ -2807,10 +2618,9 @@ enum skl_disp_power_wells {
 #define   GMBUS_PIN_DPB		5 /* SDVO, HDMIB */
 #define   GMBUS_PIN_DPD		6 /* HDMID */
 #define   GMBUS_PIN_RESERVED	7 /* 7 reserved */
-#define   GMBUS_PIN_1_BXT	1 /* BXT+ (atom) and CNP+ (big core) */
+#define   GMBUS_PIN_1_BXT	1
 #define   GMBUS_PIN_2_BXT	2
 #define   GMBUS_PIN_3_BXT	3
-#define   GMBUS_PIN_4_CNP	4
 #define   GMBUS_NUM_PINS	7 /* including 0 */
 #define GMBUS1			_MMIO(dev_priv->gpio_mmio_base + 0x5104) /* command/status */
 #define   GMBUS_SW_CLR_INT	(1<<31)
@@ -3503,7 +3313,7 @@ enum skl_disp_power_wells {
 #define INTERVAL_1_28_US(us)	roundup(((us) * 100) >> 7, 25)
 #define INTERVAL_1_33_US(us)	(((us) * 3)   >> 2)
 #define INTERVAL_0_833_US(us)	(((us) * 6) / 5)
-#define GT_INTERVAL_FROM_US(dev_priv, us) (INTEL_GEN(dev_priv) >= 9 ? \
+#define GT_INTERVAL_FROM_US(dev_priv, us) (IS_GEN9(dev_priv) ? \
 				(IS_GEN9_LP(dev_priv) ? \
 				INTERVAL_0_833_US(us) : \
 				INTERVAL_1_33_US(us)) : \
@@ -3512,7 +3322,7 @@ enum skl_disp_power_wells {
 #define INTERVAL_1_28_TO_US(interval)  (((interval) << 7) / 100)
 #define INTERVAL_1_33_TO_US(interval)  (((interval) << 2) / 3)
 #define INTERVAL_0_833_TO_US(interval) (((interval) * 5)  / 6)
-#define GT_PM_INTERVAL_TO_US(dev_priv, interval) (INTEL_GEN(dev_priv) >= 9 ? \
+#define GT_PM_INTERVAL_TO_US(dev_priv, interval) (IS_GEN9(dev_priv) ? \
                            (IS_GEN9_LP(dev_priv) ? \
                            INTERVAL_0_833_TO_US(interval) : \
                            INTERVAL_1_33_TO_US(interval)) : \
@@ -3615,22 +3425,6 @@ enum {
 #define GEN9_CLKGATE_DIS_0		_MMIO(0x46530)
 #define   PWM2_GATING_DIS		(1 << 14)
 #define   PWM1_GATING_DIS		(1 << 13)
-
-#define _CLKGATE_DIS_PSL_A		0x46520
-#define _CLKGATE_DIS_PSL_B		0x46524
-#define _CLKGATE_DIS_PSL_C		0x46528
-#define   DPF_GATING_DIS		(1 << 10)
-#define   DPF_RAM_GATING_DIS		(1 << 9)
-#define   DPFR_GATING_DIS		(1 << 8)
-
-#define CLKGATE_DIS_PSL(pipe) \
-	_MMIO_PIPE(pipe, _CLKGATE_DIS_PSL_A, _CLKGATE_DIS_PSL_B)
-
-/*
- * GEN10 clock gating regs
- */
-#define SLICE_UNIT_LEVEL_CLKGATE	_MMIO(0x94d4)
-#define  SARBUNIT_CLKGATE_DIS		(1 << 5)
 
 /*
  * Display engine regs
@@ -6714,9 +6508,6 @@ enum {
 #define  GLK_CL1_PWR_DOWN	(1 << 11)
 #define  GLK_CL2_PWR_DOWN	(1 << 12)
 
-#define CHICKEN_MISC_2		_MMIO(0x42084)
-#define  COMP_PWR_DOWN		(1 << 23)
-
 #define _CHICKEN_PIPESL_1_A	0x420b0
 #define _CHICKEN_PIPESL_1_B	0x420b4
 #define  HSW_FBCQ_DIS			(1 << 22)
@@ -6745,7 +6536,6 @@ enum {
 #define  RESET_PCH_HANDSHAKE_ENABLE	(1<<4)
 
 #define GEN8_CHICKEN_DCPR_1		_MMIO(0x46430)
-#define   SKL_SELECT_ALTERNATE_DC_EXIT	(1<<30)
 #define   MASK_WAKEMEM			(1<<13)
 
 #define SKL_DFSM			_MMIO(0x51000)
@@ -6757,9 +6547,6 @@ enum {
 #define SKL_DFSM_PIPE_A_DISABLE		(1 << 30)
 #define SKL_DFSM_PIPE_B_DISABLE		(1 << 21)
 #define SKL_DFSM_PIPE_C_DISABLE		(1 << 28)
-
-#define SKL_DSSM			_MMIO(0x51004)
-#define CNL_DSSM_CDCLK_PLL_REFCLK_24MHz	(1 << 31)
 
 #define GEN7_FF_SLICE_CS_CHICKEN1	_MMIO(0x20e0)
 #define   GEN9_FFSC_PERCTX_PREEMPT_CTRL	(1<<14)
@@ -6819,7 +6606,6 @@ enum {
 
 /* GEN8 chicken */
 #define HDC_CHICKEN0				_MMIO(0x7300)
-#define CNL_HDC_CHICKEN0			_MMIO(0xE5F0)
 #define  HDC_FORCE_CSR_NON_COHERENT_OVR_DISABLE	(1<<15)
 #define  HDC_FENCE_DEST_SLM_DISABLE		(1<<14)
 #define  HDC_DONOT_FETCH_MEM_WHEN_MASKED	(1<<11)
@@ -7054,10 +6840,6 @@ enum {
 #define  FDL_TP2_TIMER_SHIFT    10
 #define  FDL_TP2_TIMER_MASK     (3<<10)
 #define  RAWCLK_FREQ_MASK       0x3ff
-#define  CNP_RAWCLK_DIV_MASK	(0x3ff << 16)
-#define  CNP_RAWCLK_DIV(div)	((div) << 16)
-#define  CNP_RAWCLK_FRAC_MASK	(0xf << 26)
-#define  CNP_RAWCLK_FRAC(frac)	((frac) << 26)
 
 #define PCH_DPLL_TMR_CFG        _MMIO(0xc6208)
 
@@ -7256,8 +7038,6 @@ enum {
 #define  FDI_PHASE_SYNC_OVR(pipe) (1<<(FDIA_PHASE_SYNC_SHIFT_OVR - ((pipe) * 2)))
 #define  FDI_PHASE_SYNC_EN(pipe) (1<<(FDIA_PHASE_SYNC_SHIFT_EN - ((pipe) * 2)))
 #define  FDI_BC_BIFURCATION_SELECT	(1 << 12)
-#define  CHASSIS_CLK_REQ_DURATION_MASK	(0xf << 8)
-#define  CHASSIS_CLK_REQ_DURATION(x)	((x) << 8)
 #define  SPT_PWM_GRANULARITY		(1<<0)
 #define SOUTH_CHICKEN2		_MMIO(0xc2004)
 #define  FDI_MPHY_IOSFSB_RESET_STATUS	(1<<13)
@@ -7275,7 +7055,6 @@ enum {
 #define  PCH_DPLUNIT_CLOCK_GATE_DISABLE (1<<30)
 #define  PCH_DPLSUNIT_CLOCK_GATE_DISABLE (1<<29)
 #define  PCH_CPUNIT_CLOCK_GATE_DISABLE (1<<14)
-#define  CNP_PWM_CGE_GATING_DISABLE (1<<13)
 #define  PCH_LP_PARTITION_LEVEL_DISABLE  (1<<12)
 
 /* CPU: FDI_TX */
@@ -7850,12 +7629,10 @@ enum {
 #define   FLOW_CONTROL_ENABLE		(1<<15)
 #define   PARTIAL_INSTRUCTION_SHOOTDOWN_DISABLE	(1<<8)
 #define   STALL_DOP_GATING_DISABLE		(1<<5)
-#define   THROTTLE_12_5				(7<<2)
 
 #define GEN7_ROW_CHICKEN2		_MMIO(0xe4f4)
 #define GEN7_ROW_CHICKEN2_GT2		_MMIO(0xf4f4)
 #define   DOP_CLOCK_GATING_DISABLE	(1<<0)
-#define   PUSH_CONSTANT_DEREF_DISABLE	(1<<8)
 
 #define HSW_ROW_CHICKEN3		_MMIO(0xe49c)
 #define  HSW_ROW_CHICKEN3_L3_GLOBAL_ATOMICS_DISABLE    (1 << 6)
@@ -7867,7 +7644,6 @@ enum {
 #define   HSW_SAMPLE_C_PERFORMANCE	(1<<9)
 #define   GEN8_CENTROID_PIXEL_OPT_DIS	(1<<8)
 #define   GEN9_DISABLE_OCL_OOB_SUPPRESS_LOGIC	(1<<5)
-#define   CNL_FAST_ANISO_L1_BANKING_FIX	(1<<4)
 #define   GEN8_SAMPLER_POWER_BYPASS_DIS	(1<<1)
 
 #define GEN9_HALF_SLICE_CHICKEN7	_MMIO(0xe194)
@@ -8265,7 +8041,6 @@ enum {
 #define  BXT_CDCLK_CD2X_DIV_SEL_2	(2<<22)
 #define  BXT_CDCLK_CD2X_DIV_SEL_4	(3<<22)
 #define  BXT_CDCLK_CD2X_PIPE(pipe)	((pipe)<<20)
-#define  CDCLK_DIVMUX_CD_OVERRIDE	(1<<19)
 #define  BXT_CDCLK_CD2X_PIPE_NONE	BXT_CDCLK_CD2X_PIPE(3)
 #define  BXT_CDCLK_SSA_PRECHARGE_ENABLE	(1<<16)
 #define  CDCLK_FREQ_DECIMAL_MASK	(0x7ff)
@@ -8334,63 +8109,6 @@ enum {
 #define DPLL_CFGCR1(id)	_MMIO_PIPE((id) - SKL_DPLL1, _DPLL1_CFGCR1, _DPLL2_CFGCR1)
 #define DPLL_CFGCR2(id)	_MMIO_PIPE((id) - SKL_DPLL1, _DPLL1_CFGCR2, _DPLL2_CFGCR2)
 
-/*
- * CNL Clocks
- */
-#define DPCLKA_CFGCR0				_MMIO(0x6C200)
-#define  DPCLKA_CFGCR0_DDI_CLK_OFF(port)	(1 << ((port)+10))
-#define  DPCLKA_CFGCR0_DDI_CLK_SEL_MASK(port)	(3 << ((port)*2))
-#define  DPCLKA_CFGCR0_DDI_CLK_SEL_SHIFT(port)	((port)*2)
-#define  DPCLKA_CFGCR0_DDI_CLK_SEL(pll, port)	((pll) << ((port)*2))
-
-/* CNL PLL */
-#define DPLL0_ENABLE		0x46010
-#define DPLL1_ENABLE		0x46014
-#define  PLL_ENABLE		(1 << 31)
-#define  PLL_LOCK		(1 << 30)
-#define  PLL_POWER_ENABLE	(1 << 27)
-#define  PLL_POWER_STATE	(1 << 26)
-#define CNL_DPLL_ENABLE(pll)	_MMIO_PLL(pll, DPLL0_ENABLE, DPLL1_ENABLE)
-
-#define _CNL_DPLL0_CFGCR0		0x6C000
-#define _CNL_DPLL1_CFGCR0		0x6C080
-#define  DPLL_CFGCR0_HDMI_MODE		(1 << 30)
-#define  DPLL_CFGCR0_SSC_ENABLE		(1 << 29)
-#define  DPLL_CFGCR0_LINK_RATE_MASK	(0xf << 25)
-#define  DPLL_CFGCR0_LINK_RATE_2700	(0 << 25)
-#define  DPLL_CFGCR0_LINK_RATE_1350	(1 << 25)
-#define  DPLL_CFGCR0_LINK_RATE_810	(2 << 25)
-#define  DPLL_CFGCR0_LINK_RATE_1620	(3 << 25)
-#define  DPLL_CFGCR0_LINK_RATE_1080	(4 << 25)
-#define  DPLL_CFGCR0_LINK_RATE_2160	(5 << 25)
-#define  DPLL_CFGCR0_LINK_RATE_3240	(6 << 25)
-#define  DPLL_CFGCR0_LINK_RATE_4050	(7 << 25)
-#define  DPLL_CFGCR0_DCO_FRACTION_MASK	(0x7fff << 10)
-#define  DPLL_CFGCR0_DCO_FRACTION_SHIFT	(10)
-#define  DPLL_CFGCR0_DCO_FRACTION(x)	((x) << 10)
-#define  DPLL_CFGCR0_DCO_INTEGER_MASK	(0x3ff)
-#define CNL_DPLL_CFGCR0(pll)		_MMIO_PLL(pll, _CNL_DPLL0_CFGCR0, _CNL_DPLL1_CFGCR0)
-
-#define _CNL_DPLL0_CFGCR1		0x6C004
-#define _CNL_DPLL1_CFGCR1		0x6C084
-#define  DPLL_CFGCR1_QDIV_RATIO_MASK	(0xff << 10)
-#define  DPLL_CFGCR1_QDIV_RATIO_SHIFT	(10)
-#define  DPLL_CFGCR1_QDIV_RATIO(x)	((x) << 10)
-#define  DPLL_CFGCR1_QDIV_MODE(x)	((x) << 9)
-#define  DPLL_CFGCR1_KDIV_MASK		(7 << 6)
-#define  DPLL_CFGCR1_KDIV(x)		((x) << 6)
-#define  DPLL_CFGCR1_KDIV_1		(1 << 6)
-#define  DPLL_CFGCR1_KDIV_2		(2 << 6)
-#define  DPLL_CFGCR1_KDIV_4		(4 << 6)
-#define  DPLL_CFGCR1_PDIV_MASK		(0xf << 2)
-#define  DPLL_CFGCR1_PDIV(x)		((x) << 2)
-#define  DPLL_CFGCR1_PDIV_2		(1 << 2)
-#define  DPLL_CFGCR1_PDIV_3		(2 << 2)
-#define  DPLL_CFGCR1_PDIV_5		(4 << 2)
-#define  DPLL_CFGCR1_PDIV_7		(8 << 2)
-#define  DPLL_CFGCR1_CENTRAL_FREQ	(3 << 0)
-#define CNL_DPLL_CFGCR1(pll)		_MMIO_PLL(pll, _CNL_DPLL0_CFGCR1, _CNL_DPLL1_CFGCR1)
-
 /* BXT display engine PLL */
 #define BXT_DE_PLL_CTL			_MMIO(0x6d000)
 #define   BXT_DE_PLL_RATIO(x)		(x)	/* {60,65,100} * 19.2MHz */
@@ -8399,8 +8117,6 @@ enum {
 #define BXT_DE_PLL_ENABLE		_MMIO(0x46070)
 #define   BXT_DE_PLL_PLL_ENABLE		(1 << 31)
 #define   BXT_DE_PLL_LOCK		(1 << 30)
-#define   CNL_CDCLK_PLL_RATIO(x)	(x)
-#define   CNL_CDCLK_PLL_RATIO_MASK	0xff
 
 /* GEN9 DC */
 #define DC_STATE_EN			_MMIO(0x45504)
@@ -8434,7 +8150,6 @@ enum {
 /* SFUSE_STRAP */
 #define SFUSE_STRAP			_MMIO(0xc2014)
 #define  SFUSE_STRAP_FUSE_LOCK		(1<<13)
-#define  SFUSE_STRAP_RAW_FREQUENCY	(1<<8)
 #define  SFUSE_STRAP_DISPLAY_DISABLED	(1<<7)
 #define  SFUSE_STRAP_CRT_DISABLED	(1<<6)
 #define  SFUSE_STRAP_DDIB_DETECTED	(1<<2)

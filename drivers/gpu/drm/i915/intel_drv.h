@@ -1248,7 +1248,6 @@ void intel_ddi_clock_get(struct intel_encoder *encoder,
 			 struct intel_crtc_state *pipe_config);
 void intel_ddi_set_vc_payload_alloc(const struct intel_crtc_state *crtc_state,
 				    bool state);
-u32 bxt_signal_levels(struct intel_dp *intel_dp);
 uint32_t ddi_signal_levels(struct intel_dp *intel_dp);
 u8 intel_ddi_dp_voltage_max(struct intel_encoder *encoder);
 
@@ -1269,8 +1268,6 @@ void intel_audio_deinit(struct drm_i915_private *dev_priv);
 /* intel_cdclk.c */
 void skl_init_cdclk(struct drm_i915_private *dev_priv);
 void skl_uninit_cdclk(struct drm_i915_private *dev_priv);
-void cnl_init_cdclk(struct drm_i915_private *dev_priv);
-void cnl_uninit_cdclk(struct drm_i915_private *dev_priv);
 void bxt_init_cdclk(struct drm_i915_private *dev_priv);
 void bxt_uninit_cdclk(struct drm_i915_private *dev_priv);
 void intel_init_cdclk_hooks(struct drm_i915_private *dev_priv);
@@ -1680,7 +1677,7 @@ extern struct drm_display_mode *intel_find_panel_downclock(
 int intel_backlight_device_register(struct intel_connector *connector);
 void intel_backlight_device_unregister(struct intel_connector *connector);
 #else /* CONFIG_BACKLIGHT_CLASS_DEVICE */
-static inline int intel_backlight_device_register(struct intel_connector *connector)
+static int intel_backlight_device_register(struct intel_connector *connector)
 {
 	return 0;
 }

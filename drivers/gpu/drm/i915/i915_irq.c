@@ -2582,8 +2582,7 @@ gen8_de_irq_handler(struct drm_i915_private *dev_priv, u32 master_ctl)
 			I915_WRITE(SDEIIR, iir);
 			ret = IRQ_HANDLED;
 
-			if (HAS_PCH_SPT(dev_priv) || HAS_PCH_KBP(dev_priv) ||
-			    HAS_PCH_CNP(dev_priv))
+			if (HAS_PCH_SPT(dev_priv) || HAS_PCH_KBP(dev_priv))
 				spt_irq_handler(dev_priv, iir);
 			else
 				cpt_irq_handler(dev_priv, iir);
@@ -3144,15 +3143,7 @@ static void ibx_hpd_irq_setup(struct drm_i915_private *dev_priv)
 
 static void spt_hpd_detection_setup(struct drm_i915_private *dev_priv)
 {
-	u32 val, hotplug;
-
-	/* Display WA #1179 WaHardHangonHotPlug: cnp */
-	if (HAS_PCH_CNP(dev_priv)) {
-		val = I915_READ(SOUTH_CHICKEN1);
-		val &= ~CHASSIS_CLK_REQ_DURATION_MASK;
-		val |= CHASSIS_CLK_REQ_DURATION(0xf);
-		I915_WRITE(SOUTH_CHICKEN1, val);
-	}
+	u32 hotplug;
 
 	/* Enable digital hotplug on the PCH */
 	hotplug = I915_READ(PCH_PORT_HOTPLUG);
@@ -4328,8 +4319,7 @@ void intel_irq_init(struct drm_i915_private *dev_priv)
 		dev->driver->disable_vblank = gen8_disable_vblank;
 		if (IS_GEN9_LP(dev_priv))
 			dev_priv->display.hpd_irq_setup = bxt_hpd_irq_setup;
-		else if (HAS_PCH_SPT(dev_priv) || HAS_PCH_KBP(dev_priv) ||
-			 HAS_PCH_CNP(dev_priv))
+		else if (HAS_PCH_SPT(dev_priv) || HAS_PCH_KBP(dev_priv))
 			dev_priv->display.hpd_irq_setup = spt_hpd_irq_setup;
 		else
 			dev_priv->display.hpd_irq_setup = ilk_hpd_irq_setup;

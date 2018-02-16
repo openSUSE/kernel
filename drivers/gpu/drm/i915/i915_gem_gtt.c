@@ -1103,17 +1103,14 @@ static int gen8_ppgtt_alloc_pd(struct i915_address_space *vm,
 
 	gen8_for_each_pde(pt, pd, start, length, pde) {
 		if (pt == vm->scratch_pt) {
-			pd->used_pdes++;
-
 			pt = alloc_pt(vm);
-			if (IS_ERR(pt)) {
-				pd->used_pdes--;
+			if (IS_ERR(pt))
 				goto unwind;
-			}
 
 			gen8_initialize_pt(vm, pt);
 
 			gen8_ppgtt_set_pde(vm, pd, pt, pde);
+			pd->used_pdes++;
 			GEM_BUG_ON(pd->used_pdes > I915_PDES);
 		}
 
@@ -1137,16 +1134,13 @@ static int gen8_ppgtt_alloc_pdp(struct i915_address_space *vm,
 
 	gen8_for_each_pdpe(pd, pdp, start, length, pdpe) {
 		if (pd == vm->scratch_pd) {
-			pdp->used_pdpes++;
-
 			pd = alloc_pd(vm);
-			if (IS_ERR(pd)) {
-				pdp->used_pdpes--;
+			if (IS_ERR(pd))
 				goto unwind;
-			}
 
 			gen8_initialize_pd(vm, pd);
 			gen8_ppgtt_set_pdpe(vm, pdp, pd, pdpe);
+			pdp->used_pdpes++;
 			GEM_BUG_ON(pdp->used_pdpes > i915_pdpes_per_pdp(vm));
 
 			mark_tlbs_dirty(i915_vm_to_ppgtt(vm));
@@ -1892,12 +1886,12 @@ static void gtt_write_workarounds(struct drm_i915_private *dev_priv)
 	 * called on driver load and after a GPU reset, so you can place
 	 * workarounds here even if they get overwritten by GPU reset.
 	 */
-	/* WaIncreaseDefaultTLBEntries:chv,bdw,skl,bxt,kbl,glk,cfl,cnl */
+	/* WaIncreaseDefaultTLBEntries:chv,bdw,skl,bxt,kbl,glk */
 	if (IS_BROADWELL(dev_priv))
 		I915_WRITE(GEN8_L3_LRA_1_GPGPU, GEN8_L3_LRA_1_GPGPU_DEFAULT_VALUE_BDW);
 	else if (IS_CHERRYVIEW(dev_priv))
 		I915_WRITE(GEN8_L3_LRA_1_GPGPU, GEN8_L3_LRA_1_GPGPU_DEFAULT_VALUE_CHV);
-	else if (IS_GEN9_BC(dev_priv) || IS_GEN10(dev_priv))
+	else if (IS_GEN9_BC(dev_priv))
 		I915_WRITE(GEN8_L3_LRA_1_GPGPU, GEN9_L3_LRA_1_GPGPU_DEFAULT_VALUE_SKL);
 	else if (IS_GEN9_LP(dev_priv))
 		I915_WRITE(GEN8_L3_LRA_1_GPGPU, GEN9_L3_LRA_1_GPGPU_DEFAULT_VALUE_BXT);
@@ -2735,13 +2729,13 @@ static int ggtt_probe_common(struct i915_ggtt *ggtt, u64 size)
 	phys_addr = pci_resource_start(pdev, 0) + pci_resource_len(pdev, 0) / 2;
 
 	/*
-	 * On BXT+/CNL+ writes larger than 64 bit to the GTT pagetable range
-	 * will be dropped. For WC mappings in general we have 64 byte burst
-	 * writes when the WC buffer is flushed, so we can't use it, but have to
+	 * On BXT writes larger than 64 bit to the GTT pagetable range will be
+	 * dropped. For WC mappings in general we have 64 byte burst writes
+	 * when the WC buffer is flushed, so we can't use it, but have to
 	 * resort to an uncached mapping. The WC issue is easily caught by the
 	 * readback check when writing GTT PTE entries.
 	 */
-	if (IS_GEN9_LP(dev_priv) || INTEL_GEN(dev_priv) >= 10)
+	if (IS_GEN9_LP(dev_priv))
 		ggtt->gsm = ioremap_nocache(phys_addr, size);
 	else
 		ggtt->gsm = ioremap_wc(phys_addr, size);
@@ -2759,24 +2753,6 @@ static int ggtt_probe_common(struct i915_ggtt *ggtt, u64 size)
 	}
 
 	return 0;
-}
-
-static void cnl_setup_private_ppat(struct drm_i915_private *dev_priv)
-{
-	/* XXX: spec is unclear if this is still needed for CNL+ */
-	if (!USES_PPGTT(dev_priv)) {
-		I915_WRITE(GEN10_PAT_INDEX(0), GEN8_PPAT_UC);
-		return;
-	}
-
-	I915_WRITE(GEN10_PAT_INDEX(0), GEN8_PPAT_WB | GEN8_PPAT_LLC);
-	I915_WRITE(GEN10_PAT_INDEX(1), GEN8_PPAT_WC | GEN8_PPAT_LLCELLC);
-	I915_WRITE(GEN10_PAT_INDEX(2), GEN8_PPAT_WT | GEN8_PPAT_LLCELLC);
-	I915_WRITE(GEN10_PAT_INDEX(3), GEN8_PPAT_UC);
-	I915_WRITE(GEN10_PAT_INDEX(4), GEN8_PPAT_WB | GEN8_PPAT_LLCELLC | GEN8_PPAT_AGE(0));
-	I915_WRITE(GEN10_PAT_INDEX(5), GEN8_PPAT_WB | GEN8_PPAT_LLCELLC | GEN8_PPAT_AGE(1));
-	I915_WRITE(GEN10_PAT_INDEX(6), GEN8_PPAT_WB | GEN8_PPAT_LLCELLC | GEN8_PPAT_AGE(2));
-	I915_WRITE(GEN10_PAT_INDEX(7), GEN8_PPAT_WB | GEN8_PPAT_LLCELLC | GEN8_PPAT_AGE(3));
 }
 
 /* The GGTT and PPGTT need a private PPAT setup in order to handle cacheability
@@ -2889,9 +2865,7 @@ static int gen8_gmch_probe(struct i915_ggtt *ggtt)
 
 	ggtt->base.total = (size / sizeof(gen8_pte_t)) << PAGE_SHIFT;
 
-	if (INTEL_GEN(dev_priv) >= 10)
-		cnl_setup_private_ppat(dev_priv);
-	else if (IS_CHERRYVIEW(dev_priv) || IS_GEN9_LP(dev_priv))
+	if (IS_CHERRYVIEW(dev_priv) || IS_GEN9_LP(dev_priv))
 		chv_setup_private_ppat(dev_priv);
 	else
 		bdw_setup_private_ppat(dev_priv);
@@ -3167,9 +3141,7 @@ void i915_gem_restore_gtt_mappings(struct drm_i915_private *dev_priv)
 	ggtt->base.closed = false;
 
 	if (INTEL_GEN(dev_priv) >= 8) {
-		if (INTEL_GEN(dev_priv) >= 10)
-			cnl_setup_private_ppat(dev_priv);
-		else if (IS_CHERRYVIEW(dev_priv) || IS_GEN9_LP(dev_priv))
+		if (IS_CHERRYVIEW(dev_priv) || IS_GEN9_LP(dev_priv))
 			chv_setup_private_ppat(dev_priv);
 		else
 			bdw_setup_private_ppat(dev_priv);

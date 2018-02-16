@@ -476,8 +476,7 @@ static void intel_hdmi_set_avi_infoframe(struct drm_encoder *encoder,
 					   crtc_state->limited_color_range ?
 					   HDMI_QUANTIZATION_RANGE_LIMITED :
 					   HDMI_QUANTIZATION_RANGE_FULL,
-					   intel_hdmi->rgb_quant_range_selectable,
-					   is_hdmi2_sink);
+					   intel_hdmi->rgb_quant_range_selectable);
 
 	intel_write_infoframe(encoder, crtc_state, &frame);
 }
@@ -1331,11 +1330,6 @@ static bool hdmi_12bpc_possible(struct intel_crtc_state *crtc_state)
 			return false;
 	}
 
-	/* Display Wa #1139 */
-	if (IS_GLK_REVID(dev_priv, 0, GLK_REVID_A1) &&
-	    crtc_state->base.adjusted_mode.htotal > 5460)
-		return false;
-
 	return true;
 }
 
@@ -1901,21 +1895,19 @@ static u8 intel_hdmi_ddc_pin(struct drm_i915_private *dev_priv,
 
 	switch (port) {
 	case PORT_B:
-		if (IS_GEN9_LP(dev_priv) || HAS_PCH_CNP(dev_priv))
+		if (IS_GEN9_LP(dev_priv))
 			ddc_pin = GMBUS_PIN_1_BXT;
 		else
 			ddc_pin = GMBUS_PIN_DPB;
 		break;
 	case PORT_C:
-		if (IS_GEN9_LP(dev_priv) || HAS_PCH_CNP(dev_priv))
+		if (IS_GEN9_LP(dev_priv))
 			ddc_pin = GMBUS_PIN_2_BXT;
 		else
 			ddc_pin = GMBUS_PIN_DPC;
 		break;
 	case PORT_D:
-		if (HAS_PCH_CNP(dev_priv))
-			ddc_pin = GMBUS_PIN_4_CNP;
-		else if (IS_CHERRYVIEW(dev_priv))
+		if (IS_CHERRYVIEW(dev_priv))
 			ddc_pin = GMBUS_PIN_DPD_CHV;
 		else
 			ddc_pin = GMBUS_PIN_DPD;
