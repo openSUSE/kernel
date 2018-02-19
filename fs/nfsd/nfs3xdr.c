@@ -8,6 +8,7 @@
 
 #include <linux/namei.h>
 #include <linux/sunrpc/svc_xprt.h>
+#include <linux/iversion.h>
 #include "xdr3.h"
 #include "auth.h"
 #include "netns.h"
@@ -260,7 +261,7 @@ void fill_post_wcc(struct svc_fh *fhp)
 		printk("nfsd: inode locked twice during operation.\n");
 
 	err = fh_getattr(fhp, &fhp->fh_post_attr);
-	fhp->fh_post_change = d_inode(fhp->fh_dentry)->i_version;
+	fhp->fh_post_change = inode_query_iversion(d_inode(fhp->fh_dentry));
 	if (err) {
 		fhp->fh_post_saved = false;
 		/* Grab the ctime anyway - set_change_info might use it */

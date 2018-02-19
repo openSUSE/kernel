@@ -10,6 +10,7 @@
 #include <linux/crc32.h>
 #include <linux/sunrpc/svc.h>
 #include <uapi/linux/nfsd/nfsfh.h>
+#include <linux/iversion.h>
 
 static inline __u32 ino_t_to_u32(ino_t ino)
 {
@@ -253,7 +254,7 @@ fill_pre_wcc(struct svc_fh *fhp)
 		fhp->fh_pre_mtime = inode->i_mtime;
 		fhp->fh_pre_ctime = inode->i_ctime;
 		fhp->fh_pre_size  = inode->i_size;
-		fhp->fh_pre_change = inode->i_version;
+		fhp->fh_pre_change = inode_query_iversion(inode);
 		fhp->fh_pre_saved = true;
 	}
 }
