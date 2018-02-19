@@ -1281,8 +1281,6 @@ static void l2tp_tunnel_destruct(struct sock *sk)
 	spin_unlock_bh(&pn->l2tp_tunnel_list_lock);
 	atomic_dec(&l2tp_tunnel_count);
 
-	l2tp_tunnel_closeall(tunnel);
-
 	tunnel->sock = NULL;
 	l2tp_tunnel_dec_refcount(tunnel);
 
