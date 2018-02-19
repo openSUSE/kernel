@@ -1438,12 +1438,13 @@ TRAMP_REAL_BEGIN(rfi_flush_fallback)
 	mfctr	r9
 	ld	r10,PACA_RFI_FLUSH_FALLBACK_AREA(r13)
 	ld	r11,PACA_L1D_FLUSH_SIZE(r13)
-	srdi	r11,r11,(7 + 3)	/* 128 byte lines, unrolled 8x */
+	srdi	r11,r11,(7 + 3) /* 128 byte lines, unrolled 8x */
 	mtctr	r11
 	DCBT_STOP_ALL_STREAM_IDS(r11) /* Stop prefetch streams */
 
 	/* order ld/st prior to dcbt stop all streams with flushing */
 	sync
+
 	/*
 	 * The load adresses are at staggered offsets within cachelines,
 	 * which suits some pipelines better (on others it should not
@@ -1477,13 +1478,13 @@ TRAMP_REAL_BEGIN(hrfi_flush_fallback)
 	mfctr	r9
 	ld	r10,PACA_RFI_FLUSH_FALLBACK_AREA(r13)
 	ld	r11,PACA_L1D_FLUSH_SIZE(r13)
-	srdi	r11,r11,(7 + 3)	/* 128 byte lines, unrolled 8x */
-	addi	r12,r12,8
+	srdi	r11,r11,(7 + 3) /* 128 byte lines, unrolled 8x */
 	mtctr	r11
 	DCBT_STOP_ALL_STREAM_IDS(r11) /* Stop prefetch streams */
 
 	/* order ld/st prior to dcbt stop all streams with flushing */
 	sync
+
 	/*
 	 * The load adresses are at staggered offsets within cachelines,
 	 * which suits some pipelines better (on others it should not
