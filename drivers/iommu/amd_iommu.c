@@ -3884,13 +3884,12 @@ static int alloc_irq_index(u16 devid, int count, bool align)
 
 	/* Scan table for free entries */
 	for (index = ALIGN(table->min_index, alignment), c = 0;
-	     index < MAX_IRQS_PER_TABLE;
-	     index++) {
+	     index < MAX_IRQS_PER_TABLE;) {
 		if (!iommu->irte_ops->is_allocated(table, index)) {
 			c += 1;
 		} else {
 			c     = 0;
-			index = ALIGN(index, alignment);
+			index = ALIGN(index + 1, alignment);
 			continue;
 		}
 
@@ -3901,6 +3900,8 @@ static int alloc_irq_index(u16 devid, int count, bool align)
 			index -= count - 1;
 			goto out;
 		}
+
+		index++;
 	}
 
 	index = -ENOSPC;
