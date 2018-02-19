@@ -125,7 +125,7 @@ static void ima_check_last_writer(struct integrity_iint_cache *iint,
 	inode_lock(inode);
 	if (atomic_read(&inode->i_writecount) == 1) {
 		if (!IS_I_VERSION(inode) ||
-		    inode_cmp_iversion(inode, iint->version) ||
+		    !inode_eq_iversion(inode, iint->version) ||
 		    (iint->flags & IMA_NEW_FILE)) {
 			iint->flags &= ~(IMA_DONE_MASK | IMA_NEW_FILE);
 			iint->measured_pcrs = 0;
