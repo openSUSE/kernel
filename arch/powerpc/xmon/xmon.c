@@ -2294,7 +2294,6 @@ static void dump_one_paca(int cpu)
 		printf(" slb_cache[%d]:        = 0x%016lx\n", i, p->slb_cache[i]);
 
 	DUMP(p, rfi_flush_fallback_area, "px");
-	DUMP(p, l1d_flush_size, "llx");
 #endif
 	DUMP(p, dscr_default, "llx");
 #ifdef CONFIG_PPC_BOOK3E
