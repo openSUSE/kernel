@@ -595,13 +595,6 @@ static struct xfrm_state *xfrm_state_construct(struct net *net,
 			goto error;
 	}
 
-	if (attrs[XFRMA_OFFLOAD_DEV]) {
-		err = xfrm_dev_state_add(net, x,
-					 nla_data(attrs[XFRMA_OFFLOAD_DEV]));
-		if (err)
-			goto error;
-	}
-
 	if ((err = xfrm_alloc_replay_state_esn(&x->replay_esn, &x->preplay_esn,
 					       attrs[XFRMA_REPLAY_ESN_VAL])))
 		goto error;
@@ -616,6 +609,14 @@ static struct xfrm_state *xfrm_state_construct(struct net *net,
 
 	/* override default values from above */
 	xfrm_update_ae_params(x, attrs, 0);
+
+	/* configure the hardware if offload is requested */
+	if (attrs[XFRMA_OFFLOAD_DEV]) {
+		err = xfrm_dev_state_add(net, x,
+					 nla_data(attrs[XFRMA_OFFLOAD_DEV]));
+		if (err)
+			goto error;
+	}
 
 	return x;
 
@@ -654,9 +655,13 @@ static int xfrm_add_sa(struct sk_buff *skb, struct nlmsghdr *nlh,
 
 	if (err < 0) {
 		x->km.state = XFRM_STATE_DEAD;
+		xfrm_dev_state_delete(x);
 		__xfrm_state_put(x);
 		goto out;
 	}
+
+	if (x->km.state == XFRM_STATE_VOID)
+		x->km.state = XFRM_STATE_VALID;
 
 	c.seq = nlh->nlmsg_seq;
 	c.portid = nlh->nlmsg_pid;

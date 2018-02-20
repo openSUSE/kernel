@@ -327,6 +327,7 @@ success:
 			tb->fastuid = uid;
 			tb->fast_rcv_saddr = sk->sk_rcv_saddr;
 			tb->fast_ipv6_only = ipv6_only_sock(sk);
+			tb->fast_sk_family = sk->sk_family;
 #if IS_ENABLED(CONFIG_IPV6)
 			tb->fast_v6_rcv_saddr = sk->sk_v6_rcv_saddr;
 #endif
@@ -353,6 +354,7 @@ success:
 				tb->fastuid = uid;
 				tb->fast_rcv_saddr = sk->sk_rcv_saddr;
 				tb->fast_ipv6_only = ipv6_only_sock(sk);
+				tb->fast_sk_family = sk->sk_family;
 #if IS_ENABLED(CONFIG_IPV6)
 				tb->fast_v6_rcv_saddr = sk->sk_v6_rcv_saddr;
 #endif
@@ -915,7 +917,6 @@ static void inet_child_forget(struct sock *sk, struct request_sock *req,
 		tcp_sk(child)->fastopen_rsk = NULL;
 	}
 	inet_csk_destroy_sock(child);
-	reqsk_put(req);
 }
 
 struct sock *inet_csk_reqsk_queue_add(struct sock *sk,
@@ -986,6 +987,7 @@ void inet_csk_listen_stop(struct sock *sk)
 		sock_hold(child);
 
 		inet_child_forget(sk, req, child);
+		reqsk_put(req);
 		bh_unlock_sock(child);
 		local_bh_enable();
 		sock_put(child);

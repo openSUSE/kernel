@@ -78,6 +78,9 @@ const char *sctp_cname(const sctp_subtype_t cid)
 	case SCTP_CID_AUTH:
 		return "AUTH";
 
+	case SCTP_CID_RECONF:
+		return "RECONF";
+
 	default:
 		break;
 	}
