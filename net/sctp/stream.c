@@ -152,15 +152,31 @@ int sctp_send_reset_streams(struct sctp_association *asoc,
 
 	str_nums = params->srs_number_streams;
 	str_list = params->srs_stream_list;
-	if (out && str_nums)
-		for (i = 0; i < str_nums; i++)
-			if (str_list[i] >= stream->outcnt)
-				goto out;
+	if (str_nums) {
+		int param_len = 0;
 
-	if (in && str_nums)
-		for (i = 0; i < str_nums; i++)
-			if (str_list[i] >= stream->incnt)
-				goto out;
+		if (out) {
+			for (i = 0; i < str_nums; i++)
+				if (str_list[i] >= stream->outcnt)
+					goto out;
+
+			param_len = str_nums * sizeof(__u16) +
+				    sizeof(struct sctp_strreset_outreq);
+		}
+
+		if (in) {
+			for (i = 0; i < str_nums; i++)
+				if (str_list[i] >= stream->incnt)
+					goto out;
+
+			param_len += str_nums * sizeof(__u16) +
+				     sizeof(struct sctp_strreset_inreq);
+		}
+
+		if (param_len > SCTP_MAX_CHUNK_LEN -
+				sizeof(struct sctp_reconf_chunk))
+			goto out;
+	}
 
 	for (i = 0; i < str_nums; i++)
 		str_list[i] = htons(str_list[i]);
@@ -537,7 +553,7 @@ struct sctp_chunk *sctp_process_strreset_tsnreq(
 		i = asoc->strreset_inseq - request_seq - 1;
 		result = asoc->strreset_result[i];
 		if (result == SCTP_STRRESET_PERFORMED) {
-			next_tsn = asoc->next_tsn;
+			next_tsn = asoc->ctsn_ack_point + 1;
 			init_tsn =
 				sctp_tsnmap_get_ctsn(&asoc->peer.tsn_map) + 1;
 		}

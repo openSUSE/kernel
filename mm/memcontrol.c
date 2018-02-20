@@ -5782,7 +5782,6 @@ void mem_cgroup_sk_alloc(struct sock *sk)
 	 * decision in this case.
 	 */
 	if (sk->sk_memcg) {
-		BUG_ON(mem_cgroup_is_root(sk->sk_memcg));
 		css_get(&sk->sk_memcg->css);
 		return;
 	}
