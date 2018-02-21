@@ -1145,6 +1145,12 @@ static bool ring_is_idle(struct intel_engine_cs *engine)
  */
 bool intel_engine_is_idle(struct intel_engine_cs *engine)
 {
+	struct drm_i915_private *dev_priv = engine->i915;
+
+	/* More white lies, if wedged, hw state is inconsistent */
+	if (i915_terminally_wedged(&dev_priv->gpu_error))
+		return true;
+
 	/* Any inflight/incomplete requests? */
 	if (!i915_seqno_passed(intel_engine_get_seqno(engine),
 			       intel_engine_last_submit(engine)))
