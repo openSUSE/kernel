@@ -3896,6 +3896,8 @@ static void wm_latency_show(struct seq_file *m, const uint16_t wm[8])
 		num_levels = 3;
 	else if (IS_VALLEYVIEW(dev_priv))
 		num_levels = 1;
+	else if (IS_G4X(dev_priv))
+		num_levels = 3;
 	else
 		num_levels = ilk_wm_max_level(dev_priv) + 1;
 
@@ -3908,8 +3910,10 @@ static void wm_latency_show(struct seq_file *m, const uint16_t wm[8])
 		 * - WM1+ latency values in 0.5us units
 		 * - latencies are in us on gen9/vlv/chv
 		 */
-		if (INTEL_GEN(dev_priv) >= 9 || IS_VALLEYVIEW(dev_priv) ||
-		    IS_CHERRYVIEW(dev_priv))
+		if (INTEL_GEN(dev_priv) >= 9 ||
+		    IS_VALLEYVIEW(dev_priv) ||
+		    IS_CHERRYVIEW(dev_priv) ||
+		    IS_G4X(dev_priv))
 			latency *= 10;
 		else if (level > 0)
 			latency *= 5;
@@ -3970,7 +3974,7 @@ static int pri_wm_latency_open(struct inode *inode, struct file *file)
 {
 	struct drm_i915_private *dev_priv = inode->i_private;
 
-	if (INTEL_GEN(dev_priv) < 5)
+	if (INTEL_GEN(dev_priv) < 5 && !IS_G4X(dev_priv))
 		return -ENODEV;
 
 	return single_open(file, pri_wm_latency_show, dev_priv);
@@ -4012,6 +4016,8 @@ static ssize_t wm_latency_write(struct file *file, const char __user *ubuf,
 		num_levels = 3;
 	else if (IS_VALLEYVIEW(dev_priv))
 		num_levels = 1;
+	else if (IS_G4X(dev_priv))
+		num_levels = 3;
 	else
 		num_levels = ilk_wm_max_level(dev_priv) + 1;
 
