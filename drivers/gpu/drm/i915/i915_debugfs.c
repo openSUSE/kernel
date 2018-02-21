@@ -2688,20 +2688,36 @@ static int i915_sink_crc(struct seq_file *m, void *data)
 	drm_connector_list_iter_begin(dev, &conn_iter);
 	for_each_intel_connector_iter(connector, &conn_iter) {
 		struct drm_crtc *crtc;
-
-		if (!connector->base.state->best_encoder)
-			continue;
-
-		crtc = connector->base.state->crtc;
-		if (!crtc->state->active)
-			continue;
+		struct drm_connector_state *state;
+		struct intel_crtc_state *crtc_state;
 
 		if (connector->base.connector_type != DRM_MODE_CONNECTOR_eDP)
 			continue;
 
-		intel_dp = enc_to_intel_dp(connector->base.state->best_encoder);
+		state = connector->base.state;
+		if (!state->best_encoder)
+			continue;
 
-		ret = intel_dp_sink_crc(intel_dp, crc);
+		crtc = state->crtc;
+
+		crtc_state = to_intel_crtc_state(crtc->state);
+		if (!crtc_state->base.active)
+			continue;
+
+		/*
+		 * We need to wait for all crtc updates to complete, to make
+		 * sure any pending modesets and plane updates are completed.
+		 */
+		if (crtc_state->base.commit) {
+			ret = wait_for_completion_interruptible(&crtc_state->base.commit->hw_done);
+
+			if (ret)
+				goto out;
+		}
+
+		intel_dp = enc_to_intel_dp(state->best_encoder);
+
+		ret = intel_dp_sink_crc(intel_dp, crtc_state, crc);
 		if (ret)
 			goto out;
 
