@@ -7912,7 +7912,6 @@ void intel_init_gt_powersave(struct drm_i915_private *dev_priv)
 		intel_runtime_pm_get(dev_priv);
 	}
 
-	mutex_lock(&dev_priv->drm.struct_mutex);
 	mutex_lock(&dev_priv->pcu_lock);
 
 	/* Initialize RPS limits (for userspace) */
@@ -7954,7 +7953,6 @@ void intel_init_gt_powersave(struct drm_i915_private *dev_priv)
 	rps->boost_freq = rps->max_freq;
 
 	mutex_unlock(&dev_priv->pcu_lock);
-	mutex_unlock(&dev_priv->drm.struct_mutex);
 
 	intel_autoenable_gt_powersave(dev_priv);
 }
