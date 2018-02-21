@@ -1319,7 +1319,7 @@ int i915_driver_load(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	ret = i915_load_modeset_init(&dev_priv->drm);
 	if (ret < 0)
-		goto out_cleanup_vblank;
+		goto out_cleanup_hw;
 
 	i915_driver_register(dev_priv);
 
@@ -1336,8 +1336,6 @@ int i915_driver_load(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	return 0;
 
-out_cleanup_vblank:
-	drm_vblank_cleanup(&dev_priv->drm);
 out_cleanup_hw:
 	i915_driver_cleanup_hw(dev_priv);
 out_cleanup_mmio:
@@ -1372,8 +1370,6 @@ void i915_driver_unload(struct drm_device *dev)
 	intel_gvt_cleanup(dev_priv);
 
 	i915_driver_unregister(dev_priv);
-
-	drm_vblank_cleanup(dev);
 
 	intel_modeset_cleanup(dev);
 
