@@ -1180,6 +1180,11 @@ static int glk_calc_cdclk(int min_cdclk)
 		return 79200;
 }
 
+static u8 bxt_calc_voltage_level(int cdclk)
+{
+	return DIV_ROUND_UP(cdclk, 25000);
+}
+
 static int bxt_de_pll_vco(struct drm_i915_private *dev_priv, int cdclk)
 {
 	int ratio;
@@ -1256,7 +1261,7 @@ static void bxt_get_cdclk(struct drm_i915_private *dev_priv,
 	cdclk_state->cdclk = cdclk_state->ref;
 
 	if (cdclk_state->vco == 0)
-		return;
+		goto out;
 
 	divider = I915_READ(CDCLK_CTL) & BXT_CDCLK_CD2X_DIV_SEL_MASK;
 
@@ -1280,6 +1285,14 @@ static void bxt_get_cdclk(struct drm_i915_private *dev_priv,
 	}
 
 	cdclk_state->cdclk = DIV_ROUND_CLOSEST(cdclk_state->vco, div);
+
+ out:
+	/*
+	 * Can't read this out :( Let's assume it's
+	 * at least what the CDCLK frequency requires.
+	 */
+	cdclk_state->voltage_level =
+		bxt_calc_voltage_level(cdclk_state->cdclk);
 }
 
 static void bxt_de_pll_disable(struct drm_i915_private *dev_priv)
@@ -1382,7 +1395,7 @@ static void bxt_set_cdclk(struct drm_i915_private *dev_priv,
 
 	mutex_lock(&dev_priv->pcu_lock);
 	ret = sandybridge_pcode_write(dev_priv, HSW_PCODE_DE_WRITE_FREQ_REQ,
-				      DIV_ROUND_UP(cdclk, 25000));
+				      cdclk_state->voltage_level);
 	mutex_unlock(&dev_priv->pcu_lock);
 
 	if (ret) {
@@ -1474,6 +1487,7 @@ void bxt_init_cdclk(struct drm_i915_private *dev_priv)
 		cdclk_state.cdclk = bxt_calc_cdclk(0);
 		cdclk_state.vco = bxt_de_pll_vco(dev_priv, cdclk_state.cdclk);
 	}
+	cdclk_state.voltage_level = bxt_calc_voltage_level(cdclk_state.cdclk);
 
 	bxt_set_cdclk(dev_priv, &cdclk_state);
 }
@@ -1491,6 +1505,7 @@ void bxt_uninit_cdclk(struct drm_i915_private *dev_priv)
 
 	cdclk_state.cdclk = cdclk_state.ref;
 	cdclk_state.vco = 0;
+	cdclk_state.voltage_level = bxt_calc_voltage_level(cdclk_state.cdclk);
 
 	bxt_set_cdclk(dev_priv, &cdclk_state);
 }
@@ -2048,6 +2063,8 @@ static int bxt_modeset_calc_cdclk(struct drm_atomic_state *state)
 
 	intel_state->cdclk.logical.vco = vco;
 	intel_state->cdclk.logical.cdclk = cdclk;
+	intel_state->cdclk.logical.voltage_level =
+		bxt_calc_voltage_level(cdclk);
 
 	if (!intel_state->active_crtcs) {
 		if (IS_GEMINILAKE(dev_priv)) {
@@ -2060,6 +2077,8 @@ static int bxt_modeset_calc_cdclk(struct drm_atomic_state *state)
 
 		intel_state->cdclk.actual.vco = vco;
 		intel_state->cdclk.actual.cdclk = cdclk;
+		intel_state->cdclk.actual.voltage_level =
+			bxt_calc_voltage_level(cdclk);
 	} else {
 		intel_state->cdclk.actual =
 			intel_state->cdclk.logical;
