@@ -29,7 +29,7 @@
 #include <linux/debugfs.h>
 #include <linux/sort.h>
 #include "intel_drv.h"
-#include "i915_guc_submission.h"
+#include "intel_guc_submission.h"
 
 static inline struct drm_i915_private *node_to_i915(struct drm_info_node *node)
 {
