@@ -1657,10 +1657,10 @@ intel_dp_compute_config(struct intel_encoder *encoder,
 
 		if (HAS_GMCH_DISPLAY(dev_priv))
 			intel_gmch_panel_fitting(intel_crtc, pipe_config,
-						 intel_connector->panel.fitting_mode);
+						 conn_state->scaling_mode);
 		else
 			intel_pch_panel_fitting(intel_crtc, pipe_config,
-						intel_connector->panel.fitting_mode);
+						conn_state->scaling_mode);
 	}
 
 	if (adjusted_mode->flags & DRM_MODE_FLAG_DBLCLK)
@@ -4807,7 +4807,6 @@ intel_dp_set_property(struct drm_connector *connector,
 		      uint64_t val)
 {
 	struct drm_i915_private *dev_priv = to_i915(connector->dev);
-	struct intel_connector *intel_connector = to_intel_connector(connector);
 	struct intel_encoder *intel_encoder = intel_attached_encoder(connector);
 	struct intel_dp *intel_dp = enc_to_intel_dp(&intel_encoder->base);
 	int ret;
@@ -4876,11 +4875,11 @@ intel_dp_set_property(struct drm_connector *connector,
 			return -EINVAL;
 		}
 
-		if (intel_connector->panel.fitting_mode == val) {
+		if (connector->state->scaling_mode == val) {
 			/* the eDP scaling property is not changed */
 			return 0;
 		}
-		intel_connector->panel.fitting_mode = val;
+		connector->state->scaling_mode = val;
 
 		goto done;
 	}
@@ -5158,8 +5157,6 @@ bool intel_dp_is_edp(struct drm_i915_private *dev_priv, enum port port)
 static void
 intel_dp_add_properties(struct intel_dp *intel_dp, struct drm_connector *connector)
 {
-	struct intel_connector *intel_connector = to_intel_connector(connector);
-
 	intel_attach_force_audio_property(connector);
 	intel_attach_broadcast_rgb_property(connector);
 	intel_dp->color_range_auto = true;
@@ -5170,7 +5167,7 @@ intel_dp_add_properties(struct intel_dp *intel_dp, struct drm_connector *connect
 			&connector->base,
 			connector->dev->mode_config.scaling_mode_property,
 			DRM_MODE_SCALE_ASPECT);
-		intel_connector->panel.fitting_mode = DRM_MODE_SCALE_ASPECT;
+		connector->state->scaling_mode = DRM_MODE_SCALE_ASPECT;
 	}
 }
 
