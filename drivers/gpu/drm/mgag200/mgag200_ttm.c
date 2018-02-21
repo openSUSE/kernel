@@ -323,8 +323,10 @@ int mgag200_bo_create(struct drm_device *dev, int size, int align,
 		return -ENOMEM;
 
 	ret = drm_gem_object_init(dev, &mgabo->gem, size);
-	if (ret)
-		goto err;
+	if (ret) {
+		kfree(mgabo);
+		return ret;
+	}
 
 	mgabo->bo.bdev = &mdev->ttm.bdev;
 
@@ -338,13 +340,10 @@ int mgag200_bo_create(struct drm_device *dev, int size, int align,
 			  align >> PAGE_SHIFT, false, NULL, acc_size,
 			  NULL, NULL, mgag200_bo_ttm_destroy);
 	if (ret)
-		goto err;
+		return ret;
 
 	*pmgabo = mgabo;
 	return 0;
-err:
-	kfree(mgabo);
-	return ret;
 }
 
 static inline u64 mgag200_bo_gpu_offset(struct mgag200_bo *bo)
