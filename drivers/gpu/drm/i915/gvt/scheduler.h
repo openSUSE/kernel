@@ -147,8 +147,5 @@ intel_vgpu_create_workload(struct intel_vgpu *vgpu, int ring_id,
 
 void intel_vgpu_destroy_workload(struct intel_vgpu_workload *workload);
 
-void release_shadow_wa_ctx(struct intel_shadow_wa_ctx *wa_ctx);
-
 int intel_gvt_generate_request(struct intel_vgpu_workload *workload);
-
 #endif
