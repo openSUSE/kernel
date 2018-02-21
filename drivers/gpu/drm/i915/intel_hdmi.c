@@ -1207,7 +1207,8 @@ static void g4x_disable_hdmi(struct intel_encoder *encoder,
 			     const struct drm_connector_state *old_conn_state)
 {
 	if (old_crtc_state->has_audio)
-		intel_audio_codec_disable(encoder);
+		intel_audio_codec_disable(encoder,
+					  old_crtc_state, old_conn_state);
 
 	intel_disable_hdmi(encoder, old_crtc_state, old_conn_state);
 }
@@ -1217,7 +1218,8 @@ static void pch_disable_hdmi(struct intel_encoder *encoder,
 			     const struct drm_connector_state *old_conn_state)
 {
 	if (old_crtc_state->has_audio)
-		intel_audio_codec_disable(encoder);
+		intel_audio_codec_disable(encoder,
+					  old_crtc_state, old_conn_state);
 }
 
 static void pch_post_disable_hdmi(struct intel_encoder *encoder,
