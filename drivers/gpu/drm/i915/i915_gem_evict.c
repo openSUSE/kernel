@@ -209,6 +209,7 @@ search_again:
 		if (ret)
 			return ret;
 
+		cond_resched();
 		goto search_again;
 	}
 
