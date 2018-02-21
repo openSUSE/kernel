@@ -6325,9 +6325,13 @@ static void gen9_disable_rps(struct drm_i915_private *dev_priv)
 	I915_WRITE(GEN6_RP_CONTROL, 0);
 }
 
-static void gen6_disable_rps(struct drm_i915_private *dev_priv)
+static void gen6_disable_rc6(struct drm_i915_private *dev_priv)
 {
 	I915_WRITE(GEN6_RC_CONTROL, 0);
+}
+
+static void gen6_disable_rps(struct drm_i915_private *dev_priv)
+{
 	I915_WRITE(GEN6_RPNSWREQ, 1 << 31);
 	I915_WRITE(GEN6_RP_CONTROL, 0);
 }
@@ -6685,7 +6689,7 @@ static void gen8_enable_rps(struct drm_i915_private *dev_priv)
 	intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
 }
 
-static void gen6_enable_rps(struct drm_i915_private *dev_priv)
+static void gen6_enable_rc6(struct drm_i915_private *dev_priv)
 {
 	struct intel_engine_cs *engine;
 	enum intel_engine_id id;
@@ -6696,12 +6700,6 @@ static void gen6_enable_rps(struct drm_i915_private *dev_priv)
 
 	WARN_ON(!mutex_is_locked(&dev_priv->rps.hw_lock));
 
-	/* Here begins a magic sequence of register writes to enable
-	 * auto-downclocking.
-	 *
-	 * Perhaps there might be some value in exposing these to
-	 * userspace...
-	 */
 	I915_WRITE(GEN6_RC_STATE, 0);
 
 	/* Clear the DBG now so we don't confuse earlier errors */
@@ -6755,12 +6753,6 @@ static void gen6_enable_rps(struct drm_i915_private *dev_priv)
 		   GEN6_RC_CTL_EI_MODE(1) |
 		   GEN6_RC_CTL_HW_ENABLE);
 
-	/* Power down if completely idle for over 50ms */
-	I915_WRITE(GEN6_RP_DOWN_TIMEOUT, 50000);
-	I915_WRITE(GEN6_RP_IDLE_HYSTERSIS, 10);
-
-	reset_rps(dev_priv, gen6_set_rps);
-
 	rc6vids = 0;
 	ret = sandybridge_pcode_read(dev_priv, GEN6_PCODE_READ_RC6VIDS, &rc6vids);
 	if (IS_GEN6(dev_priv) && ret) {
@@ -6774,6 +6766,27 @@ static void gen6_enable_rps(struct drm_i915_private *dev_priv)
 		if (ret)
 			DRM_ERROR("Couldn't fix incorrect rc6 voltage\n");
 	}
+
+	intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
+}
+
+static void gen6_enable_rps(struct drm_i915_private *dev_priv)
+{
+	WARN_ON(!mutex_is_locked(&dev_priv->rps.hw_lock));
+
+	/* Here begins a magic sequence of register writes to enable
+	 * auto-downclocking.
+	 *
+	 * Perhaps there might be some value in exposing these to
+	 * userspace...
+	 */
+	intel_uncore_forcewake_get(dev_priv, FORCEWAKE_ALL);
+
+	/* Power down if completely idle for over 50ms */
+	I915_WRITE(GEN6_RP_DOWN_TIMEOUT, 50000);
+	I915_WRITE(GEN6_RP_IDLE_HYSTERSIS, 10);
+
+	reset_rps(dev_priv, gen6_set_rps);
 
 	intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
 }
@@ -7927,6 +7940,7 @@ void intel_disable_gt_powersave(struct drm_i915_private *dev_priv)
 	} else if (IS_VALLEYVIEW(dev_priv)) {
 		valleyview_disable_rps(dev_priv);
 	} else if (INTEL_GEN(dev_priv) >= 6) {
+		gen6_disable_rc6(dev_priv);
 		gen6_disable_rps(dev_priv);
 	}  else if (IS_IRONLAKE_M(dev_priv)) {
 		ironlake_disable_drps(dev_priv);
@@ -7963,6 +7977,7 @@ void intel_enable_gt_powersave(struct drm_i915_private *dev_priv)
 		gen8_enable_rps(dev_priv);
 		gen6_update_ring_freq(dev_priv);
 	} else if (INTEL_GEN(dev_priv) >= 6) {
+		gen6_enable_rc6(dev_priv);
 		gen6_enable_rps(dev_priv);
 		gen6_update_ring_freq(dev_priv);
 	} else if (IS_IRONLAKE_M(dev_priv)) {
