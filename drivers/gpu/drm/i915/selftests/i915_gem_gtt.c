@@ -262,7 +262,9 @@ static int lowlevel_hole(struct drm_i915_private *i915,
 			mock_vma.node.size = BIT_ULL(size);
 			mock_vma.node.start = addr;
 
+			intel_runtime_pm_get(i915);
 			vm->insert_entries(vm, &mock_vma, I915_CACHE_NONE, 0);
+			intel_runtime_pm_put(i915);
 		}
 		count = n;
 
@@ -1042,6 +1044,7 @@ static int igt_ggtt_page(void *arg)
 		goto out_remove;
 	}
 
+	intel_runtime_pm_get(i915);
 	for (n = 0; n < count; n++) {
 		u64 offset = tmp.start + order[n] * PAGE_SIZE;
 		u32 __iomem *vaddr;
@@ -1081,6 +1084,7 @@ static int igt_ggtt_page(void *arg)
 			break;
 		}
 	}
+	intel_runtime_pm_put(i915);
 
 	kfree(order);
 out_remove:
