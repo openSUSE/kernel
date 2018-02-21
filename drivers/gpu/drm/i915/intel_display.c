@@ -4846,8 +4846,9 @@ static void ironlake_pfit_enable(struct intel_crtc *crtc)
 	}
 }
 
-void hsw_enable_ips(struct intel_crtc *crtc)
+void hsw_enable_ips(const struct intel_crtc_state *crtc_state)
 {
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->base.crtc);
 	struct drm_device *dev = crtc->base.dev;
 	struct drm_i915_private *dev_priv = to_i915(dev);
 
@@ -4886,12 +4887,13 @@ void hsw_enable_ips(struct intel_crtc *crtc)
 	}
 }
 
-void hsw_disable_ips(struct intel_crtc *crtc)
+void hsw_disable_ips(const struct intel_crtc_state *crtc_state)
 {
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->base.crtc);
 	struct drm_device *dev = crtc->base.dev;
 	struct drm_i915_private *dev_priv = to_i915(dev);
 
-	if (!crtc->config->ips_enabled)
+	if (!crtc_state->ips_enabled)
 		return;
 
 	assert_plane_enabled(to_intel_plane(crtc->base.primary));
@@ -4940,7 +4942,8 @@ static void intel_crtc_dpms_overlay_disable(struct intel_crtc *intel_crtc)
  * completely hide the primary plane.
  */
 static void
-intel_post_enable_primary(struct drm_crtc *crtc)
+intel_post_enable_primary(struct drm_crtc *crtc,
+			  const struct intel_crtc_state *new_crtc_state)
 {
 	struct drm_device *dev = crtc->dev;
 	struct drm_i915_private *dev_priv = to_i915(dev);
@@ -4953,7 +4956,7 @@ intel_post_enable_primary(struct drm_crtc *crtc)
 	 * when going from primary only to sprite only and vice
 	 * versa.
 	 */
-	hsw_enable_ips(intel_crtc);
+	hsw_enable_ips(new_crtc_state);
 
 	/*
 	 * Gen2 reports pipe underruns whenever all planes are disabled.
@@ -4972,7 +4975,8 @@ intel_post_enable_primary(struct drm_crtc *crtc)
 
 /* FIXME move all this to pre_plane_update() with proper state tracking */
 static void
-intel_pre_disable_primary(struct drm_crtc *crtc)
+intel_pre_disable_primary(struct drm_crtc *crtc,
+			  const struct intel_crtc_state *old_crtc_state)
 {
 	struct drm_device *dev = crtc->dev;
 	struct drm_i915_private *dev_priv = to_i915(dev);
@@ -4994,7 +4998,7 @@ intel_pre_disable_primary(struct drm_crtc *crtc)
 	 * when going from primary only to sprite only and vice
 	 * versa.
 	 */
-	hsw_disable_ips(intel_crtc);
+	hsw_disable_ips(old_crtc_state);
 }
 
 /* FIXME get rid of this and use pre_plane_update */
@@ -5006,7 +5010,7 @@ intel_pre_disable_primary_noatomic(struct drm_crtc *crtc)
 	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
 	int pipe = intel_crtc->pipe;
 
-	intel_pre_disable_primary(crtc);
+	intel_pre_disable_primary(crtc, to_intel_crtc_state(crtc->state));
 
 	/*
 	 * Vblank time updates from the shadow to live plane control register
@@ -5050,7 +5054,7 @@ static void intel_post_plane_update(struct intel_crtc_state *old_crtc_state)
 		if (primary_state->base.visible &&
 		    (needs_modeset(&pipe_config->base) ||
 		     !old_primary_state->base.visible))
-			intel_post_enable_primary(&crtc->base);
+			intel_post_enable_primary(&crtc->base, pipe_config);
 	}
 }
 
@@ -5079,7 +5083,7 @@ static void intel_pre_plane_update(struct intel_crtc_state *old_crtc_state,
 
 		if (old_primary_state->base.visible &&
 		    (modeset || !primary_state->base.visible))
-			intel_pre_disable_primary(&crtc->base);
+			intel_pre_disable_primary(&crtc->base, old_crtc_state);
 	}
 
 	/*
