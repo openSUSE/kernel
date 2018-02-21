@@ -149,7 +149,8 @@ static int drm_set_busid(struct drm_device *dev, struct drm_file *file_priv)
 			drm_unset_busid(dev, master);
 			return ret;
 		}
-	} else if (dev_is_pci(dev->dev)) {
+	} else if (dev->dev && dev_is_pci(dev->dev)) {
+
 		ret = drm_pci_set_busid(dev, master);
 		if (ret) {
 			drm_unset_busid(dev, master);
