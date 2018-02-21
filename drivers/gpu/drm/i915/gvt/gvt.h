@@ -151,8 +151,8 @@ enum {
 
 struct intel_vgpu_submission_ops {
 	const char *name;
-	int (*init)(struct intel_vgpu *vgpu);
-	void (*clean)(struct intel_vgpu *vgpu);
+	int (*init)(struct intel_vgpu *vgpu, unsigned long engine_mask);
+	void (*clean)(struct intel_vgpu *vgpu, unsigned long engine_mask);
 	void (*reset)(struct intel_vgpu *vgpu, unsigned long engine_mask);
 };
 
