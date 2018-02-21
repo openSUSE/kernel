@@ -56,6 +56,7 @@ struct intel_gvt_mpt {
 	int (*set_trap_area)(unsigned long handle, u64 start, u64 end,
 			     bool map);
 	int (*set_opregion)(void *vgpu);
+	bool (*is_valid_gfn)(unsigned long handle, unsigned long gfn);
 };
 
 extern struct intel_gvt_mpt xengt_mpt;
