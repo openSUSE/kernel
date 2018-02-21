@@ -1632,8 +1632,7 @@ static int stall_checks(struct drm_crtc *crtc, bool nonblock)
 				return -EBUSY;
 			}
 		} else if (i == 1) {
-			stall_commit = commit;
-			drm_crtc_commit_get(stall_commit);
+			stall_commit = drm_crtc_commit_get(commit);
 			break;
 		}
 
