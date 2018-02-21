@@ -1642,7 +1642,12 @@ intel_dp_compute_config(struct intel_encoder *encoder,
 		pipe_config->has_pch_encoder = true;
 
 	pipe_config->has_drrs = false;
-	pipe_config->has_audio = intel_dp->has_audio && port != PORT_A;
+	if (port == PORT_A)
+		pipe_config->has_audio = false;
+	else if (intel_dp->force_audio == HDMI_AUDIO_AUTO)
+		pipe_config->has_audio = intel_dp->has_audio;
+	else
+		pipe_config->has_audio = intel_dp->force_audio == HDMI_AUDIO_ON;
 
 	if (is_edp(intel_dp) && intel_connector->panel.fixed_mode) {
 		intel_fixed_panel_mode(intel_connector->panel.fixed_mode,
@@ -4576,10 +4581,7 @@ intel_dp_set_edid(struct intel_dp *intel_dp)
 	edid = intel_dp_get_edid(intel_dp);
 	intel_connector->detect_edid = edid;
 
-	if (intel_dp->force_audio != HDMI_AUDIO_AUTO)
-		intel_dp->has_audio = intel_dp->force_audio == HDMI_AUDIO_ON;
-	else
-		intel_dp->has_audio = drm_detect_monitor_audio(edid);
+	intel_dp->has_audio = drm_detect_monitor_audio(edid);
 }
 
 static void
@@ -4788,19 +4790,6 @@ static int intel_dp_get_modes(struct drm_connector *connector)
 	return 0;
 }
 
-static bool
-intel_dp_detect_audio(struct drm_connector *connector)
-{
-	bool has_audio = false;
-	struct edid *edid;
-
-	edid = to_intel_connector(connector)->detect_edid;
-	if (edid)
-		has_audio = drm_detect_monitor_audio(edid);
-
-	return has_audio;
-}
-
 static int
 intel_dp_set_property(struct drm_connector *connector,
 		      struct drm_property *property,
@@ -4817,22 +4806,27 @@ intel_dp_set_property(struct drm_connector *connector,
 
 	if (property == dev_priv->force_audio_property) {
 		int i = val;
-		bool has_audio;
+		bool has_audio, old_has_audio;
+		int old_force_audio = intel_dp->force_audio;
 
 		if (i == intel_dp->force_audio)
 			return 0;
 
+		if (old_force_audio == HDMI_AUDIO_AUTO)
+			old_has_audio = intel_dp->has_audio;
+		else
+			old_has_audio = old_force_audio;
+
 		intel_dp->force_audio = i;
 
 		if (i == HDMI_AUDIO_AUTO)
-			has_audio = intel_dp_detect_audio(connector);
+			has_audio = intel_dp->has_audio;
 		else
 			has_audio = (i == HDMI_AUDIO_ON);
 
-		if (has_audio == intel_dp->has_audio)
+		if (has_audio == old_has_audio)
 			return 0;
 
-		intel_dp->has_audio = has_audio;
 		goto done;
 	}
 
