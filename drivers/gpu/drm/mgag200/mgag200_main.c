@@ -20,7 +20,7 @@ static void mga_user_framebuffer_destroy(struct drm_framebuffer *fb)
 
 	drm_gem_object_unreference_unlocked(mga_fb->obj);
 	drm_framebuffer_cleanup(fb);
-	kfree(fb);
+	kfree(mga_fb);
 }
 
 static const struct drm_framebuffer_funcs mga_fb_funcs = {
@@ -155,6 +155,116 @@ static int mga_vram_init(struct mga_device *mdev)
 	return 0;
 }
 
+#define MGA_BIOS_OFFSET 0x7ffc
+
+static void mgag200_interpret_bios(struct mga_device *mdev,
+				   unsigned char __iomem *bios,
+				   size_t size)
+{
+	static const unsigned int expected_length[6] = {
+		0, 64, 64, 64, 128, 128
+	};
+	unsigned char __iomem *pins;
+	unsigned int pins_len, version;
+	int offset;
+	int tmp;
+
+	if (size < MGA_BIOS_OFFSET + 1)
+		return;
+
+	if (bios[45] != 'M' || bios[46] != 'A' || bios[47] != 'T' ||
+	    bios[48] != 'R' || bios[49] != 'O' || bios[50] != 'X')
+		return;
+
+	offset = (bios[MGA_BIOS_OFFSET + 1] << 8) | bios[MGA_BIOS_OFFSET];
+
+	if (offset + 5 > size)
+		return;
+
+	pins = bios + offset;
+	if (pins[0] == 0x2e && pins[1] == 0x41) {
+		version = pins[5];
+		pins_len = pins[2];
+	} else {
+		version = 1;
+		pins_len = pins[0] + (pins[1] << 8);
+	}
+
+	if (version < 1 || version > 5) {
+		DRM_WARN("Unknown BIOS PInS version: %d\n", version);
+		return;
+	}
+	if (pins_len != expected_length[version]) {
+		DRM_WARN("Unexpected BIOS PInS size: %d expeced: %d\n",
+			 pins_len, expected_length[version]);
+		return;
+	}
+
+	if (offset + pins_len > size)
+		return;
+
+	DRM_DEBUG_KMS("MATROX BIOS PInS version %d size: %d found\n",
+		      version, pins_len);
+
+	switch (version) {
+	case 1:
+		tmp = pins[24] + (pins[25] << 8);
+		if (tmp)
+			mdev->bios.pclk_max = tmp * 10;
+		break;
+	case 2:
+		if (pins[41] != 0xff)
+			mdev->bios.pclk_max = (pins[41] + 100) * 1000;
+		break;
+	case 3:
+		if (pins[36] != 0xff)
+			mdev->bios.pclk_max = (pins[36] + 100) * 1000;
+		if (pins[52] & 0x20)
+			mdev->bios.ref_clk = 14318;
+		break;
+	case 4:
+		if (pins[39] != 0xff)
+			mdev->bios.pclk_max = pins[39] * 4 * 1000;
+		if (pins[92] & 0x01)
+			mdev->bios.ref_clk = 14318;
+		break;
+	case 5:
+		tmp = pins[4] ? 8000 : 6000;
+		if (pins[123] != 0xff)
+			mdev->bios.pclk_min = pins[123] * tmp;
+		if (pins[38] != 0xff)
+			mdev->bios.pclk_max = pins[38] * tmp;
+		if (pins[110] & 0x01)
+			mdev->bios.ref_clk = 14318;
+		break;
+	default:
+		break;
+	}
+}
+
+static void mgag200_probe_bios(struct mga_device *mdev)
+{
+	unsigned char __iomem *bios;
+	size_t size;
+
+	mdev->bios.pclk_min = 50000;
+	mdev->bios.pclk_max = 230000;
+	mdev->bios.ref_clk = 27050;
+
+	bios = pci_map_rom(mdev->dev->pdev, &size);
+	if (!bios)
+		return;
+
+	if (size != 0 && bios[0] == 0x55 && bios[1] == 0xaa)
+		mgag200_interpret_bios(mdev, bios, size);
+
+	pci_unmap_rom(mdev->dev->pdev, bios);
+
+	DRM_DEBUG_KMS("pclk_min: %ld pclk_max: %ld ref_clk: %ld\n",
+		      mdev->bios.pclk_min, mdev->bios.pclk_max,
+		      mdev->bios.ref_clk);
+}
+
 static int mgag200_device_init(struct drm_device *dev,
 			       uint32_t flags)
 {
@@ -186,6 +296,9 @@ static int mgag200_device_init(struct drm_device *dev,
 	/* stash G200 SE model number for later use */
 	if (IS_G200_SE(mdev))
 		mdev->unique_rev_id = RREG32(0x1e24);
+
+	if (mdev->type == G200_PCI || mdev->type == G200)
+		mgag200_probe_bios(mdev);
 
 	ret = mga_vram_init(mdev);
 	if (ret)
@@ -226,10 +339,22 @@ int mgag200_driver_load(struct drm_device *dev, unsigned long flags)
 
 	drm_mode_config_init(dev);
 	dev->mode_config.funcs = (void *)&mga_mode_funcs;
-	if (IS_G200_SE(mdev) && mdev->mc.vram_size < (2048*1024))
-		dev->mode_config.preferred_depth = 16;
-	else
-		dev->mode_config.preferred_depth = 24;
+	if (mgag200_preferred_depth == 0) {
+		/* prefer 16bpp on low end gpus with limited VRAM */
+		if (IS_G200_SE(mdev) && mdev->mc.vram_size <= 2048 * 1024) {
+			mdev->preferred_bpp =
+				dev->mode_config.preferred_depth = 16;
+		} else {
+			mdev->preferred_bpp = 32;
+			dev->mode_config.preferred_depth = 24;
+		}
+	} else {
+		if (mgag200_preferred_depth == 16)
+			mdev->preferred_bpp = 16;
+		else /* mgag200_preferred_depth == 24 */
+			mdev->preferred_bpp = 32;
+		dev->mode_config.preferred_depth = mgag200_preferred_depth;
+	}
 	dev->mode_config.prefer_shadow = 1;
 
 	r = mgag200_modeset_init(mdev);
@@ -241,9 +366,12 @@ int mgag200_driver_load(struct drm_device *dev, unsigned long flags)
 	/* Make small buffers to store a hardware cursor (double buffered icon updates) */
 	mgag200_bo_create(dev, roundup(48*64, PAGE_SIZE), 0, 0,
 					  &mdev->cursor.pixels_1);
-	mgag200_bo_create(dev, roundup(48*64, PAGE_SIZE), 0, 0,
-					  &mdev->cursor.pixels_2);
+	if (mdev->cursor.pixels_1)
+		mgag200_bo_create(dev, roundup(48*64, PAGE_SIZE), 0, 0,
+				  &mdev->cursor.pixels_2);
 	if (!mdev->cursor.pixels_2 || !mdev->cursor.pixels_1) {
+		if (mdev->cursor.pixels_1)
+			drm_gem_object_unreference_unlocked(&mdev->cursor.pixels_1->gem);
 		mdev->cursor.pixels_1 = NULL;
 		mdev->cursor.pixels_2 = NULL;
 		dev_warn(&dev->pdev->dev,
@@ -271,6 +399,10 @@ void mgag200_driver_unload(struct drm_device *dev)
 	if (mdev == NULL)
 		return;
 	mgag200_modeset_fini(mdev);
+	if (mdev->cursor.pixels_1)
+		drm_gem_object_unreference_unlocked(&mdev->cursor.pixels_1->gem);
+	if (mdev->cursor.pixels_2)
+		drm_gem_object_unreference_unlocked(&mdev->cursor.pixels_2->gem);
 	mgag200_fbdev_fini(mdev);
 	drm_mode_config_cleanup(dev);
 	mgag200_mm_fini(mdev);

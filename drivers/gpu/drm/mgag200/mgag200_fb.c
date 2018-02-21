@@ -267,11 +267,6 @@ int mgag200_fbdev_init(struct mga_device *mdev)
 {
 	struct mga_fbdev *mfbdev;
 	int ret;
-	int bpp_sel = 32;
-
-	/* prefer 16bpp on low end gpus with limited VRAM */
-	if (IS_G200_SE(mdev) && mdev->mc.vram_size < (2048*1024))
-		bpp_sel = 16;
 
 	mfbdev = devm_kzalloc(mdev->dev->dev, sizeof(struct mga_fbdev), GFP_KERNEL);
 	if (!mfbdev)
@@ -294,7 +289,7 @@ int mgag200_fbdev_init(struct mga_device *mdev)
 	/* disable all the possible outputs/crtcs before entering KMS mode */
 	drm_helper_disable_unused_functions(mdev->dev);
 
-	ret = drm_fb_helper_initial_config(&mfbdev->helper, bpp_sel);
+	ret = drm_fb_helper_initial_config(&mfbdev->helper, mdev->preferred_bpp);
 	if (ret)
 		goto err_fb_setup;
 
@@ -314,4 +309,11 @@ void mgag200_fbdev_fini(struct mga_device *mdev)
 		return;
 
 	mga_fbdev_destroy(mdev->dev, mdev->mfbdev);
+}
+
+void mgag200_fbdev_set_base(struct mga_device *mdev, unsigned long gpu_addr)
+{
+	mdev->mfbdev->helper.fbdev->fix.smem_start =
+		mdev->mfbdev->helper.fbdev->apertures->ranges[0].base + gpu_addr;
+	mdev->mfbdev->helper.fbdev->fix.smem_len = mdev->mc.vram_size - gpu_addr;
 }
