@@ -6198,6 +6198,9 @@ bool intel_dp_init(struct drm_i915_private *dev_priv,
 	intel_dig_port->hpd_pulse = intel_dp_hpd_pulse;
 	dev_priv->hotplug.irq_port[port] = intel_dig_port;
 
+	if (port != PORT_A)
+		intel_infoframe_init(intel_dig_port);
+
 	if (!intel_dp_init_connector(intel_dig_port, intel_connector))
 		goto err_init_connector;
 
