@@ -206,6 +206,7 @@ static int intelfb_create(struct drm_fb_helper *helper,
 	}
 
 	mutex_lock(&dev->struct_mutex);
+	intel_runtime_pm_get(dev_priv);
 
 	/* Pin the GGTT vma for our access via info->screen_base.
 	 * This also validates that any existing fb inherited from the
@@ -270,6 +271,7 @@ static int intelfb_create(struct drm_fb_helper *helper,
 		      fb->width, fb->height, i915_ggtt_offset(vma));
 	ifbdev->vma = vma;
 
+	intel_runtime_pm_put(dev_priv);
 	mutex_unlock(&dev->struct_mutex);
 	vga_switcheroo_client_fb_set(pdev, info);
 	return 0;
@@ -277,6 +279,7 @@ static int intelfb_create(struct drm_fb_helper *helper,
 out_unpin:
 	intel_unpin_fb_vma(vma);
 out_unlock:
+	intel_runtime_pm_put(dev_priv);
 	mutex_unlock(&dev->struct_mutex);
 	return ret;
 }
