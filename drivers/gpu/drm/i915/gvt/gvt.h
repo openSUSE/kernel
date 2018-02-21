@@ -535,6 +535,8 @@ struct intel_gvt_ops {
 			const char *name);
 	bool (*get_gvt_attrs)(struct attribute ***type_attrs,
 			struct attribute_group ***intel_vgpu_type_groups);
+	int (*write_protect_handler)(struct intel_vgpu *, u64, void *,
+				     unsigned int);
 };
 
 
