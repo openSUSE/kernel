@@ -7431,8 +7431,7 @@ i9xx_get_initial_plane_config(struct intel_crtc *crtc,
 	struct drm_framebuffer *fb;
 	struct intel_framebuffer *intel_fb;
 
-	val = I915_READ(DSPCNTR(i9xx_plane));
-	if (!(val & DISPLAY_PLANE_ENABLE))
+	if (!plane->get_hw_state(plane))
 		return;
 
 	intel_fb = kzalloc(sizeof(*intel_fb), GFP_KERNEL);
@@ -7444,6 +7443,8 @@ i9xx_get_initial_plane_config(struct intel_crtc *crtc,
 	fb = &intel_fb->base;
 
 	fb->dev = dev;
+
+	val = I915_READ(DSPCNTR(i9xx_plane));
 
 	if (INTEL_GEN(dev_priv) >= 4) {
 		if (val & DISPPLANE_TILED) {
@@ -8460,6 +8461,9 @@ skylake_get_initial_plane_config(struct intel_crtc *crtc,
 	struct drm_framebuffer *fb;
 	struct intel_framebuffer *intel_fb;
 
+	if (!plane->get_hw_state(plane))
+		return;
+
 	intel_fb = kzalloc(sizeof(*intel_fb), GFP_KERNEL);
 	if (!intel_fb) {
 		DRM_DEBUG_KMS("failed to alloc fb\n");
@@ -8471,8 +8475,6 @@ skylake_get_initial_plane_config(struct intel_crtc *crtc,
 	fb->dev = dev;
 
 	val = I915_READ(PLANE_CTL(pipe, plane_id));
-	if (!(val & PLANE_CTL_ENABLE))
-		goto error;
 
 	pixel_format = val & PLANE_CTL_FORMAT_MASK;
 
