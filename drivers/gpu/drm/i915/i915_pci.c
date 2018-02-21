@@ -202,6 +202,8 @@ static const struct intel_device_info intel_gm45_info __initconst = {
 	.has_hotplug = 1, \
 	.ring_mask = RENDER_RING | BSD_RING, \
 	.has_snoop = true, \
+	/* ilk does support rc6, but we do not implement [power] contexts */ \
+	.has_rc6 = 0, \
 	GEN_DEFAULT_PIPEOFFSETS, \
 	CURSOR_OFFSETS
 
