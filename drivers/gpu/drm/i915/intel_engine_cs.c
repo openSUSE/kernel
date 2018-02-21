@@ -1860,16 +1860,22 @@ void intel_engine_dump(struct intel_engine_cs *engine, struct drm_printer *m)
  */
 int intel_enable_engine_stats(struct intel_engine_cs *engine)
 {
+	struct intel_engine_execlists *execlists = &engine->execlists;
 	unsigned long flags;
+	int err = 0;
 
 	if (!intel_engine_supports_stats(engine))
 		return -ENODEV;
 
+	tasklet_disable(&execlists->tasklet);
 	spin_lock_irqsave(&engine->stats.lock, flags);
-	if (engine->stats.enabled == ~0)
-		goto busy;
+
+	if (unlikely(engine->stats.enabled == ~0)) {
+		err = -EBUSY;
+		goto unlock;
+	}
+
 	if (engine->stats.enabled++ == 0) {
-		struct intel_engine_execlists *execlists = &engine->execlists;
 		const struct execlist_port *port = execlists->port;
 		unsigned int num_ports = execlists_num_ports(execlists);
 
@@ -1884,14 +1890,12 @@ int intel_enable_engine_stats(struct intel_engine_cs *engine)
 		if (engine->stats.active)
 			engine->stats.start = engine->stats.enabled_at;
 	}
+
+unlock:
 	spin_unlock_irqrestore(&engine->stats.lock, flags);
+	tasklet_enable(&execlists->tasklet);
 
-	return 0;
-
-busy:
-	spin_unlock_irqrestore(&engine->stats.lock, flags);
-
-	return -EBUSY;
+	return err;
 }
 
 static ktime_t __intel_engine_get_busy_time(struct intel_engine_cs *engine)
