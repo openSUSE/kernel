@@ -1106,6 +1106,7 @@ struct intel_fbc {
 		} fb;
 
 		int cfb_size;
+		unsigned int gen9_wa_cfb_stride;
 	} params;
 
 	struct intel_fbc_work {
