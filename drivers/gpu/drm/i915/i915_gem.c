@@ -2533,6 +2533,8 @@ err_pages:
 void __i915_gem_object_set_pages(struct drm_i915_gem_object *obj,
 				 struct sg_table *pages)
 {
+	struct drm_i915_private *i915 = to_i915(obj->base.dev);
+
 	lockdep_assert_held(&obj->mm.lock);
 
 	obj->mm.get_page.sg_pos = pages->sgl;
@@ -2541,11 +2543,15 @@ void __i915_gem_object_set_pages(struct drm_i915_gem_object *obj,
 	obj->mm.pages = pages;
 
 	if (i915_gem_object_is_tiled(obj) &&
-	    to_i915(obj->base.dev)->quirks & QUIRK_PIN_SWIZZLED_PAGES) {
+	    i915->quirks & QUIRK_PIN_SWIZZLED_PAGES) {
 		GEM_BUG_ON(obj->mm.quirked);
 		__i915_gem_object_pin_pages(obj);
 		obj->mm.quirked = true;
 	}
+
+	spin_lock(&i915->mm.obj_lock);
+	list_add(&obj->mm.link, &i915->mm.unbound_list);
+	spin_unlock(&i915->mm.obj_lock);
 }
 
 static int ____i915_gem_object_get_pages(struct drm_i915_gem_object *obj)
