@@ -2469,7 +2469,7 @@ intel_fill_fb_info(struct drm_i915_private *dev_priv,
 
 		offset = _intel_compute_tile_offset(dev_priv, &x, &y,
 						    fb, i, fb->pitches[i],
-						    DRM_ROTATE_0, tile_size);
+						    DRM_MODE_ROTATE_0, tile_size);
 		offset /= tile_size;
 
 		if (fb->modifier != DRM_FORMAT_MOD_LINEAR) {
@@ -2504,7 +2504,7 @@ intel_fill_fb_info(struct drm_i915_private *dev_priv,
 			drm_rect_rotate(&r,
 					rot_info->plane[i].width * tile_width,
 					rot_info->plane[i].height * tile_height,
-					DRM_ROTATE_270);
+					DRM_MODE_ROTATE_270);
 			x = r.x1;
 			y = r.y1;
 
@@ -2940,7 +2940,7 @@ int skl_check_plane_surface(struct intel_plane_state *plane_state)
 	if (drm_rotation_90_or_270(rotation))
 		drm_rect_rotate(&plane_state->base.src,
 				fb->width << 16, fb->height << 16,
-				DRM_ROTATE_270);
+				DRM_MODE_ROTATE_270);
 
 	/*
 	 * Handle the AUX surface first since
@@ -3018,10 +3018,10 @@ static u32 i9xx_plane_ctl(const struct intel_crtc_state *crtc_state,
 	    fb->modifier == I915_FORMAT_MOD_X_TILED)
 		dspcntr |= DISPPLANE_TILED;
 
-	if (rotation & DRM_ROTATE_180)
+	if (rotation & DRM_MODE_ROTATE_180)
 		dspcntr |= DISPPLANE_ROTATE_180;
 
-	if (rotation & DRM_REFLECT_X)
+	if (rotation & DRM_MODE_REFLECT_X)
 		dspcntr |= DISPPLANE_MIRROR;
 
 	return dspcntr;
@@ -3049,10 +3049,10 @@ int i9xx_check_plane_surface(struct intel_plane_state *plane_state)
 		int src_w = drm_rect_width(&plane_state->base.src) >> 16;
 		int src_h = drm_rect_height(&plane_state->base.src) >> 16;
 
-		if (rotation & DRM_ROTATE_180) {
+		if (rotation & DRM_MODE_ROTATE_180) {
 			src_x += src_w - 1;
 			src_y += src_h - 1;
-		} else if (rotation & DRM_REFLECT_X) {
+		} else if (rotation & DRM_MODE_REFLECT_X) {
 			src_x += src_w - 1;
 		}
 	}
@@ -3272,17 +3272,17 @@ static u32 skl_plane_ctl_tiling(uint64_t fb_modifier)
 static u32 skl_plane_ctl_rotation(unsigned int rotation)
 {
 	switch (rotation) {
-	case DRM_ROTATE_0:
+	case DRM_MODE_ROTATE_0:
 		break;
 	/*
-	 * DRM_ROTATE_ is counter clockwise to stay compatible with Xrandr
+	 * DRM_MODE_ROTATE_ is counter clockwise to stay compatible with Xrandr
 	 * while i915 HW rotation is clockwise, thats why this swapping.
 	 */
-	case DRM_ROTATE_90:
+	case DRM_MODE_ROTATE_90:
 		return PLANE_CTL_ROTATE_270;
-	case DRM_ROTATE_180:
+	case DRM_MODE_ROTATE_180:
 		return PLANE_CTL_ROTATE_180;
-	case DRM_ROTATE_270:
+	case DRM_MODE_ROTATE_270:
 		return PLANE_CTL_ROTATE_90;
 	default:
 		MISSING_CASE(rotation);
@@ -9249,7 +9249,7 @@ static u32 i9xx_cursor_ctl(const struct intel_crtc_state *crtc_state,
 		return 0;
 	}
 
-	if (plane_state->base.rotation & DRM_ROTATE_180)
+	if (plane_state->base.rotation & DRM_MODE_ROTATE_180)
 		cntl |= CURSOR_ROTATE_180;
 
 	return cntl;
@@ -9310,7 +9310,7 @@ static void intel_crtc_update_cursor(struct drm_crtc *crtc,
 
 		/* ILK+ do this automagically */
 		if (HAS_GMCH_DISPLAY(dev_priv) &&
-		    plane_state->base.rotation & DRM_ROTATE_180) {
+		    plane_state->base.rotation & DRM_MODE_ROTATE_180) {
 			base += (plane_state->base.crtc_h *
 				 plane_state->base.crtc_w - 1) * 4;
 		}
@@ -13626,22 +13626,22 @@ intel_primary_plane_create(struct drm_i915_private *dev_priv, enum pipe pipe)
 
 	if (INTEL_GEN(dev_priv) >= 9) {
 		supported_rotations =
-			DRM_ROTATE_0 | DRM_ROTATE_90 |
-			DRM_ROTATE_180 | DRM_ROTATE_270;
+			DRM_MODE_ROTATE_0 | DRM_MODE_ROTATE_90 |
+			DRM_MODE_ROTATE_180 | DRM_MODE_ROTATE_270;
 	} else if (IS_CHERRYVIEW(dev_priv) && pipe == PIPE_B) {
 		supported_rotations =
-			DRM_ROTATE_0 | DRM_ROTATE_180 |
-			DRM_REFLECT_X;
+			DRM_MODE_ROTATE_0 | DRM_MODE_ROTATE_180 |
+			DRM_MODE_REFLECT_X;
 	} else if (INTEL_GEN(dev_priv) >= 4) {
 		supported_rotations =
-			DRM_ROTATE_0 | DRM_ROTATE_180;
+			DRM_MODE_ROTATE_0 | DRM_MODE_ROTATE_180;
 	} else {
-		supported_rotations = DRM_ROTATE_0;
+		supported_rotations = DRM_MODE_ROTATE_0;
 	}
 
 	if (INTEL_GEN(dev_priv) >= 4)
 		drm_plane_create_rotation_property(&primary->base,
-						   DRM_ROTATE_0,
+						   DRM_MODE_ROTATE_0,
 						   supported_rotations);
 
 	drm_plane_helper_add(&primary->base, &intel_plane_helper_funcs);
@@ -13796,9 +13796,9 @@ intel_cursor_plane_create(struct drm_i915_private *dev_priv, enum pipe pipe)
 
 	if (INTEL_GEN(dev_priv) >= 4)
 		drm_plane_create_rotation_property(&cursor->base,
-						   DRM_ROTATE_0,
-						   DRM_ROTATE_0 |
-						   DRM_ROTATE_180);
+						   DRM_MODE_ROTATE_0,
+						   DRM_MODE_ROTATE_0 |
+						   DRM_MODE_ROTATE_180);
 
 	if (INTEL_GEN(dev_priv) >= 9)
 		state->scaler_id = -1;
