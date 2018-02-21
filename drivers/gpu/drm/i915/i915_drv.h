@@ -823,7 +823,6 @@ struct intel_csr {
 	func(has_gmch_display); \
 	func(has_guc); \
 	func(has_hotplug); \
-	func(has_hw_contexts); \
 	func(has_l3_dpf); \
 	func(has_llc); \
 	func(has_logical_ring_contexts); \
@@ -2867,7 +2866,6 @@ intel_info(const struct drm_i915_private *dev_priv)
 
 #define HWS_NEEDS_PHYSICAL(dev_priv)	((dev_priv)->info.hws_needs_physical)
 
-#define HAS_HW_CONTEXTS(dev_priv)	    ((dev_priv)->info.has_hw_contexts)
 #define HAS_LOGICAL_RING_CONTEXTS(dev_priv) \
 		((dev_priv)->info.has_logical_ring_contexts)
 #define USES_PPGTT(dev_priv)		(i915.enable_ppgtt)
