@@ -4887,8 +4887,6 @@ int i915_gem_init(struct drm_i915_private *dev_priv)
 {
 	int ret;
 
-	mutex_lock(&dev_priv->drm.struct_mutex);
-
 	dev_priv->mm.unordered_timeline = dma_fence_context_alloc(1);
 
 	if (!i915_modparams.enable_execlists) {
@@ -4899,17 +4897,18 @@ int i915_gem_init(struct drm_i915_private *dev_priv)
 		dev_priv->gt.cleanup_engine = intel_logical_ring_cleanup;
 	}
 
+	ret = i915_gem_init_userptr(dev_priv);
+	if (ret)
+		return ret;
+
 	/* This is just a security blanket to placate dragons.
 	 * On some systems, we very sporadically observe that the first TLBs
 	 * used by the CS may be stale, despite us poking the TLB reset. If
 	 * we hold the forcewake during initialisation these problems
 	 * just magically go away.
 	 */
+	mutex_lock(&dev_priv->drm.struct_mutex);
 	intel_uncore_forcewake_get(dev_priv, FORCEWAKE_ALL);
-
-	ret = i915_gem_init_userptr(dev_priv);
-	if (ret)
-		goto out_unlock;
 
 	ret = i915_gem_init_ggtt(dev_priv);
 	if (ret)
