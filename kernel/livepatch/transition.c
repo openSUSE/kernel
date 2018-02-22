@@ -29,6 +29,8 @@
 #define MAX_STACK_ENTRIES  100
 #define STACK_ERR_BUF_SIZE 128
 
+#define SIGNALS_TIMEOUT 10
+
 struct klp_patch *klp_transition_patch;
 
 static int klp_target_state = KLP_UNDEFINED;
@@ -406,6 +408,7 @@ void klp_try_complete_transition(void)
 	unsigned int cpu;
 	struct task_struct *g, *task;
 	bool complete = true;
+	static unsigned int signals_cnt = 0;
 
 	WARN_ON_ONCE(klp_target_state == KLP_UNDEFINED);
 
@@ -442,6 +445,9 @@ void klp_try_complete_transition(void)
 	put_online_cpus();
 
 	if (!complete) {
+		if (!(++signals_cnt % SIGNALS_TIMEOUT))
+			klp_send_signals();
+
 		/*
 		 * Some tasks weren't able to be switched over.  Try again
 		 * later and/or wait for other methods like kernel exit
@@ -449,10 +455,12 @@ void klp_try_complete_transition(void)
 		 */
 		schedule_delayed_work(&klp_transition_work,
 				      round_jiffies_relative(HZ));
+
 		return;
 	}
 
 	/* we're done, now cleanup the data structures */
+	signals_cnt = 0;
 	klp_complete_transition();
 }
 
