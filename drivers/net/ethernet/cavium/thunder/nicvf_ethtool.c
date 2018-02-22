@@ -16,7 +16,7 @@
 #include "q_struct.h"
 #include "thunder_bgx.h"
 
-#define DRV_NAME	"thunder-nicvf"
+#define DRV_NAME	"nicvf"
 #define DRV_VERSION     "1.0"
 
 struct nicvf_stat {
