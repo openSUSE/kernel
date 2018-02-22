@@ -82,11 +82,11 @@ static void cancel_userptr(struct work_struct *work)
 	/* We are inside a kthread context and can't be interrupted */
 	if (i915_gem_object_unbind(obj) == 0)
 		__i915_gem_object_put_pages(obj, I915_MM_NORMAL);
-	WARN_ONCE(obj->mm.pages,
-		  "Failed to release pages: bind_count=%d, pages_pin_count=%d, pin_display=%d\n",
+	WARN_ONCE(i915_gem_object_has_pages(obj),
+		  "Failed to release pages: bind_count=%d, pages_pin_count=%d, pin_global=%d\n",
 		  obj->bind_count,
 		  atomic_read(&obj->mm.pages_pin_count),
-		  obj->pin_display);
+		  obj->pin_global);
 
 	mutex_unlock(&obj->base.dev->struct_mutex);
 
@@ -164,7 +164,6 @@ static struct i915_mmu_notifier *
 i915_mmu_notifier_create(struct mm_struct *mm)
 {
 	struct i915_mmu_notifier *mn;
-	int ret;
 
 	mn = kmalloc(sizeof(*mn), GFP_KERNEL);
 	if (mn == NULL)
@@ -173,18 +172,12 @@ i915_mmu_notifier_create(struct mm_struct *mm)
 	spin_lock_init(&mn->lock);
 	mn->mn.ops = &i915_gem_userptr_notifier;
 	mn->objects = RB_ROOT;
-	mn->wq = alloc_workqueue("i915-userptr-release", WQ_UNBOUND, 0);
+	mn->wq = alloc_workqueue("i915-userptr-release",
+				 WQ_UNBOUND | WQ_MEM_RECLAIM,
+				 0);
 	if (mn->wq == NULL) {
 		kfree(mn);
 		return ERR_PTR(-ENOMEM);
-	}
-
-	 /* Protected by mmap_sem (write-lock) */
-	ret = __mmu_notifier_register(&mn->mn, mm);
-	if (ret) {
-		destroy_workqueue(mn->wq);
-		kfree(mn);
-		return ERR_PTR(ret);
 	}
 
 	return mn;
@@ -210,23 +203,42 @@ i915_gem_userptr_release__mmu_notifier(struct drm_i915_gem_object *obj)
 static struct i915_mmu_notifier *
 i915_mmu_notifier_find(struct i915_mm_struct *mm)
 {
-	struct i915_mmu_notifier *mn = mm->mn;
+	struct i915_mmu_notifier *mn;
+	int err = 0;
 
 	mn = mm->mn;
 	if (mn)
 		return mn;
 
+	mn = i915_mmu_notifier_create(mm->mm);
+	if (IS_ERR(mn))
+		err = PTR_ERR(mn);
+
 	down_write(&mm->mm->mmap_sem);
 	mutex_lock(&mm->i915->mm_lock);
-	if ((mn = mm->mn) == NULL) {
-		mn = i915_mmu_notifier_create(mm->mm);
-		if (!IS_ERR(mn))
-			mm->mn = mn;
+	if (mm->mn == NULL && !err) {
+		/* Protected by mmap_sem (write-lock) */
+		err = __mmu_notifier_register(&mn->mn, mm->mm);
+		if (!err) {
+			/* Protected by mm_lock */
+			mm->mn = fetch_and_zero(&mn);
+		}
+	} else if (mm->mn) {
+		/*
+		 * Someone else raced and successfully installed the mmu
+		 * notifier, we can cancel our own errors.
+		 */
+		err = 0;
 	}
 	mutex_unlock(&mm->i915->mm_lock);
 	up_write(&mm->mm->mmap_sem);
 
-	return mn;
+	if (mn && !IS_ERR(mn)) {
+		destroy_workqueue(mn->wq);
+		kfree(mn);
+	}
+
+	return err ? ERR_PTR(err) : mm->mn;
 }
 
 static int
@@ -378,7 +390,7 @@ __i915_mm_struct_free(struct kref *kref)
 	mutex_unlock(&mm->i915->mm_lock);
 
 	INIT_WORK(&mm->work, __i915_mm_struct_free__worker);
-	schedule_work(&mm->work);
+	queue_work(mm->i915->mm.userptr_wq, &mm->work);
 }
 
 static void
@@ -598,7 +610,7 @@ __i915_gem_userptr_get_pages_schedule(struct drm_i915_gem_object *obj)
 	get_task_struct(work->task);
 
 	INIT_WORK(&work->work, __i915_gem_userptr_get_pages_worker);
-	schedule_work(&work->work);
+	queue_work(to_i915(obj->base.dev)->mm.userptr_wq, &work->work);
 
 	return ERR_PTR(-EAGAIN);
 }
@@ -802,9 +814,9 @@ i915_gem_userptr_ioctl(struct drm_device *dev, void *data, struct drm_file *file
 
 	drm_gem_private_object_init(dev, &obj->base, args->user_size);
 	i915_gem_object_init(obj, &i915_gem_userptr_ops);
-	obj->cache_level = I915_CACHE_LLC;
-	obj->base.write_domain = I915_GEM_DOMAIN_CPU;
 	obj->base.read_domains = I915_GEM_DOMAIN_CPU;
+	obj->base.write_domain = I915_GEM_DOMAIN_CPU;
+	i915_gem_object_set_cache_coherency(obj, I915_CACHE_LLC);
 
 	obj->userptr.ptr = args->user_ptr;
 	obj->userptr.read_only = !!(args->flags & I915_USERPTR_READ_ONLY);
@@ -828,8 +840,22 @@ i915_gem_userptr_ioctl(struct drm_device *dev, void *data, struct drm_file *file
 	return 0;
 }
 
-void i915_gem_init_userptr(struct drm_i915_private *dev_priv)
+int i915_gem_init_userptr(struct drm_i915_private *dev_priv)
 {
 	mutex_init(&dev_priv->mm_lock);
 	hash_init(dev_priv->mm_structs);
+
+	dev_priv->mm.userptr_wq =
+		alloc_workqueue("i915-userptr-acquire",
+				WQ_HIGHPRI | WQ_UNBOUND,
+				0);
+	if (!dev_priv->mm.userptr_wq)
+		return -ENOMEM;
+
+	return 0;
+}
+
+void i915_gem_cleanup_userptr(struct drm_i915_private *dev_priv)
+{
+	destroy_workqueue(dev_priv->mm.userptr_wq);
 }

@@ -126,13 +126,13 @@ typedef u64 gen8_ppgtt_pml4e_t;
  * tables */
 #define GEN8_PDPE_MASK			0x1ff
 
-#define PPAT_UNCACHED_INDEX		(_PAGE_PWT | _PAGE_PCD)
-#define PPAT_CACHED_PDE_INDEX		0 /* WB LLC */
-#define PPAT_CACHED_INDEX		_PAGE_PAT /* WB LLCeLLC */
-#define PPAT_DISPLAY_ELLC_INDEX		_PAGE_PCD /* WT eLLC */
+#define PPAT_UNCACHED			(_PAGE_PWT | _PAGE_PCD)
+#define PPAT_CACHED_PDE			0 /* WB LLC */
+#define PPAT_CACHED			_PAGE_PAT /* WB LLCeLLC */
+#define PPAT_DISPLAY_ELLC		_PAGE_PCD /* WT eLLC */
 
 #define CHV_PPAT_SNOOP			(1<<6)
-#define GEN8_PPAT_AGE(x)		(x<<4)
+#define GEN8_PPAT_AGE(x)		((x)<<4)
 #define GEN8_PPAT_LLCeLLC		(3<<2)
 #define GEN8_PPAT_LLCELLC		(2<<2)
 #define GEN8_PPAT_LLC			(1<<2)
@@ -142,6 +142,11 @@ typedef u64 gen8_ppgtt_pml4e_t;
 #define GEN8_PPAT_UC			(0<<0)
 #define GEN8_PPAT_ELLC_OVERRIDE		(0<<2)
 #define GEN8_PPAT(i, x)			((u64)(x) << ((i) * 8))
+
+#define GEN8_PPAT_GET_CA(x) ((x) & 3)
+#define GEN8_PPAT_GET_TC(x) ((x) & (3 << 2))
+#define GEN8_PPAT_GET_AGE(x) ((x) & (3 << 4))
+#define CHV_PPAT_GET_SNOOP(x) ((x) & (1 << 6))
 
 struct sg_table;
 
@@ -255,6 +260,7 @@ struct i915_address_space {
 	struct drm_i915_file_private *file;
 	struct list_head global_link;
 	u64 total;		/* size addr space maps (ex. 2GB for ggtt) */
+	u64 reserved;		/* size addr space reserved */
 
 	bool closed;
 
@@ -312,8 +318,7 @@ struct i915_address_space {
 			    enum i915_cache_level cache_level,
 			    u32 flags);
 	void (*insert_entries)(struct i915_address_space *vm,
-			       struct sg_table *st,
-			       u64 start,
+			       struct i915_vma *vma,
 			       enum i915_cache_level cache_level,
 			       u32 flags);
 	void (*cleanup)(struct i915_address_space *vm);
@@ -345,23 +350,10 @@ i915_vm_is_48bit(const struct i915_address_space *vm)
  */
 struct i915_ggtt {
 	struct i915_address_space base;
-	struct io_mapping mappable;	/* Mapping to our CPU mappable region */
 
-	phys_addr_t mappable_base;	/* PA of our GMADR */
-	u64 mappable_end;		/* End offset that we can CPU map */
-
-	/* Stolen memory is segmented in hardware with different portions
-	 * offlimits to certain functions.
-	 *
-	 * The drm_mm is initialised to the total accessible range, as found
-	 * from the PCI config. On Broadwell+, this is further restricted to
-	 * avoid the first page! The upper end of stolen memory is reserved for
-	 * hardware functions and similarly removed from the accessible range.
-	 */
-	u32 stolen_size;		/* Total size of stolen memory */
-	u32 stolen_usable_size;	/* Total size minus reserved ranges */
-	u32 stolen_reserved_base;
-	u32 stolen_reserved_size;
+	struct io_mapping iomap;	/* Mapping to our CPU mappable region */
+	struct resource gmadr;          /* GMADR resource */
+	resource_size_t mappable_end;	/* End offset that we can CPU map */
 
 	/** "Graphics Stolen Memory" holds the global PTEs */
 	void __iomem *gsm;
@@ -536,6 +528,37 @@ i915_vm_to_ggtt(struct i915_address_space *vm)
 	return container_of(vm, struct i915_ggtt, base);
 }
 
+#define INTEL_MAX_PPAT_ENTRIES 8
+#define INTEL_PPAT_PERFECT_MATCH (~0U)
+
+struct intel_ppat;
+
+struct intel_ppat_entry {
+	struct intel_ppat *ppat;
+	struct kref ref;
+	u8 value;
+};
+
+struct intel_ppat {
+	struct intel_ppat_entry entries[INTEL_MAX_PPAT_ENTRIES];
+	DECLARE_BITMAP(used, INTEL_MAX_PPAT_ENTRIES);
+	DECLARE_BITMAP(dirty, INTEL_MAX_PPAT_ENTRIES);
+	unsigned int max_entries;
+	u8 clear_value;
+	/*
+	 * Return a score to show how two PPAT values match,
+	 * a INTEL_PPAT_PERFECT_MATCH indicates a perfect match
+	 */
+	unsigned int (*match)(u8 src, u8 dst);
+	void (*update_hw)(struct drm_i915_private *i915);
+
+	struct drm_i915_private *i915;
+};
+
+const struct intel_ppat_entry *
+intel_ppat_get(struct drm_i915_private *i915, u8 value);
+void intel_ppat_put(const struct intel_ppat_entry *entry);
+
 int i915_gem_init_aliasing_ppgtt(struct drm_i915_private *i915);
 void i915_gem_fini_aliasing_ppgtt(struct drm_i915_private *i915);
 
@@ -588,6 +611,7 @@ int i915_gem_gtt_insert(struct i915_address_space *vm,
 #define PIN_MAPPABLE		BIT(1)
 #define PIN_ZONE_4G		BIT(2)
 #define PIN_NONFAULT		BIT(3)
+#define PIN_NOEVICT		BIT(4)
 
 #define PIN_MBZ			BIT(5) /* I915_VMA_PIN_OVERFLOW */
 #define PIN_GLOBAL		BIT(6) /* I915_VMA_GLOBAL_BIND */

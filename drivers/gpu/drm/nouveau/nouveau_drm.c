@@ -981,7 +981,7 @@ driver_stub = {
 	.enable_vblank = nouveau_display_vblank_enable,
 	.disable_vblank = nouveau_display_vblank_disable,
 	.get_scanout_position = nouveau_display_scanoutpos,
-	.get_vblank_timestamp = nouveau_display_vblstamp,
+	.get_vblank_timestamp = drm_calc_vbltimestamp_from_scanoutpos,
 
 	.ioctls = nouveau_ioctls,
 	.num_ioctls = ARRAY_SIZE(nouveau_ioctls),
@@ -1105,7 +1105,6 @@ static int __init
 nouveau_drm_init(void)
 {
 	driver_pci = driver_stub;
-	driver_pci.set_busid = drm_pci_set_busid;
 	driver_platform = driver_stub;
 
 	nouveau_display_options();
@@ -1124,7 +1123,12 @@ nouveau_drm_init(void)
 
 	nouveau_register_dsm_handler();
 	nouveau_backlight_ctor();
-	return drm_pci_init(&driver_pci, &nouveau_drm_pci_driver);
+
+#ifdef CONFIG_PCI
+	return pci_register_driver(&nouveau_drm_pci_driver);
+#else
+	return 0;
+#endif
 }
 
 static void __exit
@@ -1133,7 +1137,9 @@ nouveau_drm_exit(void)
 	if (!nouveau_modeset)
 		return;
 
-	drm_pci_exit(&driver_pci, &nouveau_drm_pci_driver);
+#ifdef CONFIG_PCI
+	pci_unregister_driver(&nouveau_drm_pci_driver);
+#endif
 	nouveau_backlight_dtor();
 	nouveau_unregister_dsm_handler();
 

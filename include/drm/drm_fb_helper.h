@@ -48,6 +48,7 @@ struct drm_fb_helper_crtc {
 	struct drm_mode_set mode_set;
 	struct drm_display_mode *desired_mode;
 	int x, y;
+	int rotation;
 };
 
 /**
@@ -169,7 +170,6 @@ struct drm_fb_helper_connector {
  * @crtc_info: per-CRTC helper state (mode, x/y offset, etc)
  * @connector_count: number of connected connectors
  * @connector_info_alloc_count: size of connector_info
- * @connector_info: array of per-connector information
  * @funcs: driver callbacks for fb helper
  * @fbdev: emulated fbdev device info struct
  * @pseudo_palette: fake palette of 16 colors
@@ -191,6 +191,19 @@ struct drm_fb_helper {
 	struct drm_fb_helper_crtc *crtc_info;
 	int connector_count;
 	int connector_info_alloc_count;
+	/**
+	 * @sw_rotations:
+	 * Bitmask of all rotations requested for panel-orientation which
+	 * could not be handled in hardware. If only one bit is set
+	 * fbdev->fbcon_rotate_hint gets set to the requested rotation.
+	 */
+	int sw_rotations;
+	/**
+	 * @connector_info:
+	 *
+	 * Array of per-connector information. Do not iterate directly, but use
+	 * drm_fb_helper_for_each_connector.
+	 */
 	struct drm_fb_helper_connector **connector_info;
 	const struct drm_fb_helper_funcs *funcs;
 	struct fb_info *fbdev;
@@ -199,6 +212,18 @@ struct drm_fb_helper {
 	spinlock_t dirty_lock;
 	struct work_struct dirty_work;
 	struct work_struct resume_work;
+
+	/**
+	 * @lock:
+	 *
+	 * Top-level FBDEV helper lock. This protects all internal data
+	 * structures and lists, such as @connector_info and @crtc_info.
+	 *
+	 * FIXME: fbdev emulation locking is a mess and long term we want to
+	 * protect all helper internal state with this lock as well as reduce
+	 * core KMS locking as much as possible.
+	 */
+	struct mutex lock;
 
 	/**
 	 * @kernel_fb_list:
@@ -215,6 +240,29 @@ struct drm_fb_helper {
 	 * needs to be reprobe when fbdev is in control again.
 	 */
 	bool delayed_hotplug;
+
+	/**
+	 * @deferred_setup:
+	 *
+	 * If no outputs are connected (disconnected or unknown) the FB helper
+	 * code will defer setup until at least one of the outputs shows up.
+	 * This field keeps track of the status so that setup can be retried
+	 * at every hotplug event until it succeeds eventually.
+	 *
+	 * Protected by @lock.
+	 */
+	bool deferred_setup;
+
+	/**
+	 * @preferred_bpp:
+	 *
+	 * Temporary storage for the driver's preferred BPP setting passed to
+	 * FB helper initialization. This needs to be tracked so that deferred
+	 * FB helper setup can pass this on.
+	 *
+	 * See also: @deferred_setup
+	 */
+	int preferred_bpp;
 };
 
 /**

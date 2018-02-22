@@ -81,6 +81,9 @@
 #include <drm/drm_debugfs.h>
 #include <drm/drm_ioctl.h>
 #include <drm/drm_sysfs.h>
+#include <drm/drm_vblank.h>
+#include <drm/drm_irq.h>
+
 
 struct module;
 
@@ -293,23 +296,6 @@ struct pci_controller;
 /* Format strings and argument splitters to simplify printing
  * various "complex" objects
  */
-#define DRM_MODE_FMT    "%d:\"%s\" %d %d %d %d %d %d %d %d %d %d 0x%x 0x%x"
-#define DRM_MODE_ARG(m) \
-	(m)->base.id, (m)->name, (m)->vrefresh, (m)->clock, \
-	(m)->hdisplay, (m)->hsync_start, (m)->hsync_end, (m)->htotal, \
-	(m)->vdisplay, (m)->vsync_start, (m)->vsync_end, (m)->vtotal, \
-	(m)->type, (m)->flags
-
-#define DRM_RECT_FMT    "%dx%d%+d%+d"
-#define DRM_RECT_ARG(r) drm_rect_width(r), drm_rect_height(r), (r)->x1, (r)->y1
-
-/* for rect's in fixed-point format: */
-#define DRM_RECT_FP_FMT "%d.%06ux%d.%06u%+d.%06u%+d.%06u"
-#define DRM_RECT_FP_ARG(r) \
-		drm_rect_width(r) >> 16, ((drm_rect_width(r) & 0xffff) * 15625) >> 10, \
-		drm_rect_height(r) >> 16, ((drm_rect_height(r) & 0xffff) * 15625) >> 10, \
-		(r)->x1 >> 16, (((r)->x1 & 0xffff) * 15625) >> 10, \
-		(r)->y1 >> 16, (((r)->y1 & 0xffff) * 15625) >> 10
 
 /*@}*/
 
@@ -319,15 +305,6 @@ struct pci_controller;
 
 #define DRM_IF_VERSION(maj, min) (maj << 16 | min)
 
-
-/* Flags and return codes for get_vblank_timestamp() driver function. */
-#define DRM_CALLED_FROM_VBLIRQ 1
-#define DRM_VBLANKTIME_SCANOUTPOS_METHOD (1 << 0)
-
-/* get_scanout_position() return flags */
-#define DRM_SCANOUTPOS_VALID        (1 << 0)
-#define DRM_SCANOUTPOS_IN_VBLANK    (1 << 1)
-#define DRM_SCANOUTPOS_ACCURATE     (1 << 2)
 
 /**
  * DRM device structure. This structure represent a complete card that
@@ -401,27 +378,59 @@ struct drm_device {
 	int last_context;		/**< Last current context */
 	/*@} */
 
-	/** \name VBLANK IRQ support */
-	/*@{ */
+	/**
+	 * @irq_enabled:
+	 *
+	 * Indicates that interrupt handling is enabled, specifically vblank
+	 * handling. Drivers which don't use drm_irq_install() need to set this
+	 * to true manually.
+	 */
 	bool irq_enabled;
 	int irq;
 
-	/*
+	/**
+	 * @vblank_disable_immediate:
+	 *
 	 * If true, vblank interrupt will be disabled immediately when the
 	 * refcount drops to zero, as opposed to via the vblank disable
 	 * timer.
-	 * This can be set to true it the hardware has a working vblank
-	 * counter and the driver uses drm_vblank_on() and drm_vblank_off()
-	 * appropriately.
+	 *
+	 * This can be set to true it the hardware has a working vblank counter
+	 * with high-precision timestamping (otherwise there are races) and the
+	 * driver uses drm_crtc_vblank_on() and drm_crtc_vblank_off()
+	 * appropriately. See also @max_vblank_count and
+	 * &drm_crtc_funcs.get_vblank_counter.
 	 */
 	bool vblank_disable_immediate;
 
-	/* array of size num_crtcs */
+	/**
+	 * @vblank:
+	 *
+	 * Array of vblank tracking structures, one per &struct drm_crtc. For
+	 * historical reasons (vblank support predates kernel modesetting) this
+	 * is free-standing and not part of &struct drm_crtc itself. It must be
+	 * initialized explicitly by calling drm_vblank_init().
+	 */
 	struct drm_vblank_crtc *vblank;
 
 	spinlock_t vblank_time_lock;    /**< Protects vblank count and time updates during vblank enable/disable */
 	spinlock_t vbl_lock;
 
+	/**
+	 * @max_vblank_count:
+	 *
+	 * Maximum value of the vblank registers. This value +1 will result in a
+	 * wrap-around of the vblank register. It is used by the vblank core to
+	 * handle wrap-arounds.
+	 *
+	 * If set to zero the vblank core will try to guess the elapsed vblanks
+	 * between times when the vblank interrupt is disabled through
+	 * high-precision timestamps. That approach is suffering from small
+	 * races and imprecision over longer time periods, hence exposing a
+	 * hardware vblank counter is always recommended.
+	 *
+	 * If non-zeor, &drm_crtc_funcs.get_vblank_counter must be set.
+	 */
 	u32 max_vblank_count;           /**< size of vblank counter register */
 
 	/**
@@ -438,8 +447,6 @@ struct drm_device {
 #ifdef __alpha__
 	struct pci_controller *hose;
 #endif
-
-	struct virtio_device *virtdev;
 
 	struct drm_sg_mem *sg;	/**< Scatter gather memory */
 	unsigned int num_crtcs;                  /**< Number of CRTCs on this device */
@@ -475,8 +482,6 @@ static inline bool drm_drv_uses_atomic_modeset(struct drm_device *dev)
 {
 	return dev->mode_config.funcs->atomic_commit != NULL;
 }
-
-#include <drm/drm_irq.h>
 
 #define DRM_SWITCH_POWER_ON 0
 #define DRM_SWITCH_POWER_OFF 1

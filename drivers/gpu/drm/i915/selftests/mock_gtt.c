@@ -33,8 +33,7 @@ static void mock_insert_page(struct i915_address_space *vm,
 }
 
 static void mock_insert_entries(struct i915_address_space *vm,
-				struct sg_table *st,
-				u64 start,
+				struct i915_vma *vma,
 				enum i915_cache_level level, u32 flags)
 {
 }
@@ -116,8 +115,8 @@ void mock_init_ggtt(struct drm_i915_private *i915)
 
 	ggtt->base.i915 = i915;
 
-	ggtt->mappable_base = 0;
-	ggtt->mappable_end = 2048 * PAGE_SIZE;
+	ggtt->gmadr = (struct resource) DEFINE_RES_MEM(0, 2048 * PAGE_SIZE);
+	ggtt->mappable_end = resource_size(&ggtt->gmadr);
 	ggtt->base.total = 4096 * PAGE_SIZE;
 
 	ggtt->base.clear_range = nop_clear_range;

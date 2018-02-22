@@ -1556,21 +1556,20 @@ static void had_audio_wq(struct work_struct *work)
 	struct snd_intelhad *ctx =
 		container_of(work, struct snd_intelhad, hdmi_audio_wq);
 	struct intel_hdmi_lpe_audio_pdata *pdata = ctx->dev->platform_data;
+	struct intel_hdmi_lpe_audio_port_pdata *ppdata = &pdata->port;
 
 	pm_runtime_get_sync(ctx->dev);
 	mutex_lock(&ctx->mutex);
-	if (!pdata->hdmi_connected) {
+	if (ppdata->pipe < 0) {
 		dev_dbg(ctx->dev, "%s: Event: HAD_NOTIFY_HOT_UNPLUG\n",
 			__func__);
 		memset(ctx->eld, 0, sizeof(ctx->eld)); /* clear the old ELD */
 		had_process_hot_unplug(ctx);
 	} else {
-		struct intel_hdmi_lpe_audio_eld *eld = &pdata->eld;
-
 		dev_dbg(ctx->dev, "%s: HAD_NOTIFY_ELD : port = %d, tmds = %d\n",
-			__func__, eld->port_id,	pdata->tmds_clock_speed);
+			__func__, ppdata->port, ppdata->ls_clock);
 
-		switch (eld->pipe_id) {
+		switch (ppdata->pipe) {
 		case 0:
 			ctx->had_config_offset = AUDIO_HDMI_CONFIG_A;
 			break;
@@ -1582,15 +1581,20 @@ static void had_audio_wq(struct work_struct *work)
 			break;
 		default:
 			dev_dbg(ctx->dev, "Invalid pipe %d\n",
-				eld->pipe_id);
+				ppdata->pipe);
 			break;
 		}
 
-		memcpy(ctx->eld, eld->eld_data, sizeof(ctx->eld));
+		memcpy(ctx->eld, ppdata->eld, sizeof(ctx->eld));
 
-		ctx->dp_output = pdata->dp_output;
-		ctx->tmds_clock_speed = pdata->tmds_clock_speed;
-		ctx->link_rate = pdata->link_rate;
+		ctx->dp_output = ppdata->dp_output;
+		if (ctx->dp_output) {
+			ctx->tmds_clock_speed = 0;
+			ctx->link_rate = ppdata->ls_clock;
+		} else {
+			ctx->tmds_clock_speed = ppdata->ls_clock;
+			ctx->link_rate = 0;
+		}
 
 		had_process_hot_plug(ctx);
 
@@ -1811,7 +1815,6 @@ static int hdmi_lpe_audio_probe(struct platform_device *pdev)
 
 	spin_lock_irq(&pdata->lpe_audio_slock);
 	pdata->notify_audio_lpe = notify_audio_lpe;
-	pdata->notify_pending = false;
 	spin_unlock_irq(&pdata->lpe_audio_slock);
 
 	pm_runtime_use_autosuspend(&pdev->dev);

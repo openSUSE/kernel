@@ -24,6 +24,7 @@
 #include <drm/drm_connector.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_encoder.h>
+#include <drm/drm_utils.h>
 
 #include "drm_crtc_internal.h"
 #include "drm_internal.h"
@@ -231,6 +232,8 @@ int drm_connector_init(struct drm_device *dev,
 	mutex_init(&connector->mutex);
 	connector->edid_blob_ptr = NULL;
 	connector->status = connector_status_unknown;
+	connector->display_info.panel_orientation =
+		DRM_MODE_PANEL_ORIENTATION_UNKNOWN;
 
 	drm_connector_get_cmdline_mode(connector);
 
@@ -708,6 +711,13 @@ static const struct drm_prop_enum_list drm_aspect_ratio_enum_list[] = {
 	{ DRM_MODE_PICTURE_ASPECT_16_9, "16:9" },
 };
 
+static const struct drm_prop_enum_list drm_panel_orientation_enum_list[] = {
+	{ DRM_MODE_PANEL_ORIENTATION_NORMAL,	"Normal"	},
+	{ DRM_MODE_PANEL_ORIENTATION_BOTTOM_UP,	"Upside Down"	},
+	{ DRM_MODE_PANEL_ORIENTATION_LEFT_UP,	"Left Side Up"	},
+	{ DRM_MODE_PANEL_ORIENTATION_RIGHT_UP,	"Right Side Up"	},
+};
+
 static const struct drm_prop_enum_list drm_dvi_i_select_enum_list[] = {
 	{ DRM_MODE_SUBCONNECTOR_Automatic, "Automatic" }, /* DVI-I and TV-out */
 	{ DRM_MODE_SUBCONNECTOR_DVID,      "DVI-D"     }, /* DVI-I  */
@@ -760,9 +770,9 @@ DRM_ENUM_NAME_FN(drm_get_tv_subconnector_name,
  * 	drivers, it remaps to controlling the "ACTIVE" property on the CRTC the
  * 	connector is linked to. Drivers should never set this property directly,
  * 	it is handled by the DRM core by calling the &drm_connector_funcs.dpms
- * 	callback. Atomic drivers should implement this hook using
- * 	drm_atomic_helper_connector_dpms(). This is the only property standard
- * 	connector property that userspace can change.
+ * 	callback. For atomic drivers the remapping to the "ACTIVE" property is
+ * 	implemented in the DRM core.  This is the only standard connector
+ * 	property that userspace can change.
  * PATH:
  * 	Connector path property to identify how this sink is physically
  * 	connected. Used by DP MST. This should be set by calling
@@ -789,6 +799,18 @@ DRM_ENUM_NAME_FN(drm_get_tv_subconnector_name,
  *
  * CRTC_ID:
  * 	Mode object ID of the &drm_crtc this connector should be connected to.
+ *
+ * Connectors for LCD panels may also have one standardized property:
+ *
+ * panel orientation:
+ *	On some devices the LCD panel is mounted in the casing in such a way
+ *	that the up/top side of the panel does not match with the top side of
+ *	the device. Userspace can use this property to check for this.
+ *	Note that input coordinates from touchscreens (input devices with
+ *	INPUT_PROP_DIRECT) will still map 1:1 to the actual LCD panel
+ *	coordinates, so if userspace rotates the picture to adjust for
+ *	the orientation it must also apply the same transformation to the
+ *	touchscreen input coordinates.
  */
 
 int drm_connector_create_standard_properties(struct drm_device *dev)
@@ -984,6 +1006,10 @@ EXPORT_SYMBOL(drm_mode_create_tv_properties);
  *
  * Called by a driver the first time it's needed, must be attached to desired
  * connectors.
+ *
+ * Atomic drivers should use drm_connector_attach_scaling_mode_property()
+ * instead to correctly assign &drm_connector_state.picture_aspect_ratio
+ * in the atomic state.
  */
 int drm_mode_create_scaling_mode_property(struct drm_device *dev)
 {
@@ -1002,6 +1028,66 @@ int drm_mode_create_scaling_mode_property(struct drm_device *dev)
 	return 0;
 }
 EXPORT_SYMBOL(drm_mode_create_scaling_mode_property);
+
+/**
+ * drm_connector_attach_scaling_mode_property - attach atomic scaling mode property
+ * @connector: connector to attach scaling mode property on.
+ * @scaling_mode_mask: or'ed mask of BIT(%DRM_MODE_SCALE_\*).
+ *
+ * This is used to add support for scaling mode to atomic drivers.
+ * The scaling mode will be set to &drm_connector_state.picture_aspect_ratio
+ * and can be used from &drm_connector_helper_funcs->atomic_check for validation.
+ *
+ * This is the atomic version of drm_mode_create_scaling_mode_property().
+ *
+ * Returns:
+ * Zero on success, negative errno on failure.
+ */
+int drm_connector_attach_scaling_mode_property(struct drm_connector *connector,
+					       u32 scaling_mode_mask)
+{
+	struct drm_device *dev = connector->dev;
+	struct drm_property *scaling_mode_property;
+	int i, j = 0;
+	const unsigned valid_scaling_mode_mask =
+		(1U << ARRAY_SIZE(drm_scaling_mode_enum_list)) - 1;
+
+	if (WARN_ON(hweight32(scaling_mode_mask) < 2 ||
+		    scaling_mode_mask & ~valid_scaling_mode_mask))
+		return -EINVAL;
+
+	scaling_mode_property =
+		drm_property_create(dev, DRM_MODE_PROP_ENUM, "scaling mode",
+				    hweight32(scaling_mode_mask));
+
+	if (!scaling_mode_property)
+		return -ENOMEM;
+
+	for (i = 0; i < ARRAY_SIZE(drm_scaling_mode_enum_list); i++) {
+		int ret;
+
+		if (!(BIT(i) & scaling_mode_mask))
+			continue;
+
+		ret = drm_property_add_enum(scaling_mode_property, j++,
+					    drm_scaling_mode_enum_list[i].type,
+					    drm_scaling_mode_enum_list[i].name);
+
+		if (ret) {
+			drm_property_destroy(dev, scaling_mode_property);
+
+			return ret;
+		}
+	}
+
+	drm_object_attach_property(&connector->base,
+				   scaling_mode_property, 0);
+
+	connector->scaling_mode_property = scaling_mode_property;
+
+	return 0;
+}
+EXPORT_SYMBOL(drm_connector_attach_scaling_mode_property);
 
 /**
  * drm_mode_create_aspect_ratio_property - create aspect ratio property
@@ -1191,6 +1277,57 @@ void drm_mode_connector_set_link_status_property(struct drm_connector *connector
 }
 EXPORT_SYMBOL(drm_mode_connector_set_link_status_property);
 
+/**
+ * drm_connector_init_panel_orientation_property -
+ *	initialize the connecters panel_orientation property
+ * @connector: connector for which to init the panel-orientation property.
+ * @width: width in pixels of the panel, used for panel quirk detection
+ * @height: height in pixels of the panel, used for panel quirk detection
+ *
+ * This function should only be called for built-in panels, after setting
+ * connector->display_info.panel_orientation first (if known).
+ *
+ * This function will check for platform specific (e.g. DMI based) quirks
+ * overriding display_info.panel_orientation first, then if panel_orientation
+ * is not DRM_MODE_PANEL_ORIENTATION_UNKNOWN it will attach the
+ * "panel orientation" property to the connector.
+ *
+ * Returns:
+ * Zero on success, negative errno on failure.
+ */
+int drm_connector_init_panel_orientation_property(
+	struct drm_connector *connector, int width, int height)
+{
+	struct drm_device *dev = connector->dev;
+	struct drm_display_info *info = &connector->display_info;
+	struct drm_property *prop;
+	int orientation_quirk;
+
+	orientation_quirk = drm_get_panel_orientation_quirk(width, height);
+	if (orientation_quirk != DRM_MODE_PANEL_ORIENTATION_UNKNOWN)
+		info->panel_orientation = orientation_quirk;
+
+	if (info->panel_orientation == DRM_MODE_PANEL_ORIENTATION_UNKNOWN)
+		return 0;
+
+	prop = dev->mode_config.panel_orientation_property;
+	if (!prop) {
+		prop = drm_property_create_enum(dev, DRM_MODE_PROP_IMMUTABLE,
+				"panel orientation",
+				drm_panel_orientation_enum_list,
+				ARRAY_SIZE(drm_panel_orientation_enum_list));
+		if (!prop)
+			return -ENOMEM;
+
+		dev->mode_config.panel_orientation_property = prop;
+	}
+
+	drm_object_attach_property(&connector->base, prop,
+				   info->panel_orientation);
+	return 0;
+}
+EXPORT_SYMBOL(drm_connector_init_panel_orientation_property);
+
 int drm_mode_connector_set_obj_prop(struct drm_mode_object *obj,
 				    struct drm_property *property,
 				    uint64_t value)
@@ -1204,7 +1341,6 @@ int drm_mode_connector_set_obj_prop(struct drm_mode_object *obj,
 	} else if (connector->funcs->set_property)
 		ret = connector->funcs->set_property(connector, property, value);
 
-	/* store the property value if successful */
 	if (!ret)
 		drm_object_property_set_value(&connector->base, property, value);
 	return ret;
@@ -1268,7 +1404,7 @@ int drm_mode_getconnector(struct drm_device *dev, void *data,
 
 	memset(&u_mode, 0, sizeof(struct drm_mode_modeinfo));
 
-	connector = drm_connector_lookup(dev, out_resp->connector_id);
+	connector = drm_connector_lookup(dev, file_priv, out_resp->connector_id);
 	if (!connector)
 		return -ENOENT;
 

@@ -273,7 +273,7 @@ void ipu_plane_state_reset(struct drm_plane *plane)
 
 	if (ipu_state) {
 		ipu_state->base.plane = plane;
-		ipu_state->base.rotation = DRM_ROTATE_0;
+		ipu_state->base.rotation = DRM_MODE_ROTATE_0;
 	}
 
 	plane->state = &ipu_state->base;
@@ -718,8 +718,8 @@ struct ipu_plane *ipu_plane_init(struct drm_device *dev, struct ipu_soc *ipu,
 
 	ret = drm_universal_plane_init(dev, &ipu_plane->base, possible_crtcs,
 				       &ipu_plane_funcs, ipu_plane_formats,
-				       ARRAY_SIZE(ipu_plane_formats), type,
-				       NULL);
+				       ARRAY_SIZE(ipu_plane_formats),
+				       NULL, type, NULL);
 	if (ret) {
 		DRM_ERROR("failed to initialize plane\n");
 		kfree(ipu_plane);

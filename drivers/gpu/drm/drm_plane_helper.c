@@ -336,7 +336,7 @@ int drm_primary_helper_update(struct drm_plane *plane, struct drm_crtc *crtc,
 
 	ret = drm_plane_helper_check_update(plane, crtc, fb,
 					    &src, &dest, &clip,
-					    DRM_ROTATE_0,
+					    DRM_MODE_ROTATE_0,
 					    DRM_PLANE_HELPER_NO_SCALING,
 					    DRM_PLANE_HELPER_NO_SCALING,
 					    false, false, &visible);
@@ -511,12 +511,10 @@ int drm_plane_helper_commit(struct drm_plane *plane,
 	if (plane_funcs->cleanup_fb)
 		plane_funcs->cleanup_fb(plane, plane_state);
 out:
-	if (plane_state) {
-		if (plane->funcs->atomic_destroy_state)
-			plane->funcs->atomic_destroy_state(plane, plane_state);
-		else
-			drm_atomic_helper_plane_destroy_state(plane, plane_state);
-	}
+	if (plane->funcs->atomic_destroy_state)
+		plane->funcs->atomic_destroy_state(plane, plane_state);
+	else
+		drm_atomic_helper_plane_destroy_state(plane, plane_state);
 
 	return ret;
 }

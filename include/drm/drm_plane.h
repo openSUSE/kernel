@@ -123,6 +123,13 @@ struct drm_plane_state {
 	 */
 	bool visible;
 
+	/**
+	 * @commit: Tracks the pending commit to prevent use-after-free conditions.
+	 *
+	 * Is only set when @crtc is NULL.
+	 */
+	struct drm_crtc_commit *commit;
+
 	struct drm_atomic_state *state;
 };
 
@@ -233,11 +240,9 @@ struct drm_plane_funcs {
 	 * This is the legacy entry point to update a property attached to the
 	 * plane.
 	 *
-	 * Drivers implementing atomic modeset should use
-	 * drm_atomic_helper_plane_set_property() to implement this hook.
-	 *
 	 * This callback is optional if the driver does not support any legacy
-	 * driver-private properties.
+	 * driver-private properties. For atomic drivers it is not used because
+	 * property handling is done entirely in the DRM core.
 	 *
 	 * RETURNS:
 	 *
@@ -392,6 +397,22 @@ struct drm_plane_funcs {
 	 */
 	void (*atomic_print_state)(struct drm_printer *p,
 				   const struct drm_plane_state *state);
+
+	/**
+	 * @format_mod_supported:
+	 *
+	 * This optional hook is used for the DRM to determine if the given
+	 * format/modifier combination is valid for the plane. This allows the
+	 * DRM to generate the correct format bitmask (which formats apply to
+	 * which modifier).
+	 *
+	 * Returns:
+	 *
+	 * True if the given modifier is valid for that format on the plane.
+	 * False otherwise.
+	 */
+	bool (*format_mod_supported)(struct drm_plane *plane, uint32_t format,
+				     uint64_t modifier);
 };
 
 /**
@@ -487,6 +508,9 @@ struct drm_plane {
 	unsigned int format_count;
 	bool format_default;
 
+	uint64_t *modifiers;
+	unsigned int modifier_count;
+
 	struct drm_crtc *crtc;
 	struct drm_framebuffer *fb;
 
@@ -527,13 +551,14 @@ struct drm_plane {
 
 #define obj_to_plane(x) container_of(x, struct drm_plane, base)
 
-__printf(8, 9)
+__printf(9, 10)
 int drm_universal_plane_init(struct drm_device *dev,
 			     struct drm_plane *plane,
 			     uint32_t possible_crtcs,
 			     const struct drm_plane_funcs *funcs,
 			     const uint32_t *formats,
 			     unsigned int format_count,
+			     const uint64_t *format_modifiers,
 			     enum drm_plane_type type,
 			     const char *name, ...);
 int drm_plane_init(struct drm_device *dev,
@@ -571,10 +596,11 @@ int drm_mode_plane_set_obj_prop(struct drm_plane *plane,
  * drm_mode_object_find().
  */
 static inline struct drm_plane *drm_plane_find(struct drm_device *dev,
+		struct drm_file *file_priv,
 		uint32_t id)
 {
 	struct drm_mode_object *mo;
-	mo = drm_mode_object_find(dev, id, DRM_MODE_OBJECT_PLANE);
+	mo = drm_mode_object_find(dev, file_priv, id, DRM_MODE_OBJECT_PLANE);
 	return mo ? obj_to_plane(mo) : NULL;
 }
 

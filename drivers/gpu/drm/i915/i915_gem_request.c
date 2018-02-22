@@ -61,8 +61,8 @@ static bool i915_fence_enable_signaling(struct dma_fence *fence)
 	if (i915_fence_signaled(fence))
 		return false;
 
-	intel_engine_enable_signaling(to_request(fence));
-	return true;
+	intel_engine_enable_signaling(to_request(fence), true);
+	return !i915_fence_signaled(fence);
 }
 
 static signed long i915_fence_wait(struct dma_fence *fence,
@@ -159,7 +159,7 @@ i915_priotree_fini(struct drm_i915_private *i915, struct i915_priotree *pt)
 {
 	struct i915_dependency *dep, *next;
 
-	GEM_BUG_ON(!RB_EMPTY_NODE(&pt->node));
+	GEM_BUG_ON(!list_empty(&pt->link));
 
 	/* Everyone we depended upon (the fences we wait to be signaled)
 	 * should retire before us and remove themselves from our list.
@@ -185,8 +185,8 @@ i915_priotree_init(struct i915_priotree *pt)
 {
 	INIT_LIST_HEAD(&pt->signalers_list);
 	INIT_LIST_HEAD(&pt->waiters_list);
-	RB_CLEAR_NODE(&pt->node);
-	pt->priority = INT_MIN;
+	INIT_LIST_HEAD(&pt->link);
+	pt->priority = I915_PRIORITY_INVALID;
 }
 
 static int reset_all_global_seqno(struct drm_i915_private *i915, u32 seqno)
@@ -213,13 +213,17 @@ static int reset_all_global_seqno(struct drm_i915_private *i915, u32 seqno)
 				cond_resched();
 		}
 
+		/* Check we are idle before we fiddle with hw state! */
+		GEM_BUG_ON(!intel_engine_is_idle(engine));
+		GEM_BUG_ON(i915_gem_active_isset(&engine->timeline->last_request));
+
 		/* Finally reset hw state */
-		tl->seqno = seqno;
 		intel_engine_init_global_seqno(engine, seqno);
+		tl->seqno = seqno;
 
 		list_for_each_entry(timeline, &i915->gt.timelines, link)
-			memset(timeline->engine[id].sync_seqno, 0,
-			       sizeof(timeline->engine[id].sync_seqno));
+			memset(timeline->engine[id].global_sync, 0,
+			       sizeof(timeline->engine[id].global_sync));
 	}
 
 	return 0;
@@ -240,27 +244,78 @@ int i915_gem_set_global_seqno(struct drm_device *dev, u32 seqno)
 	return reset_all_global_seqno(dev_priv, seqno - 1);
 }
 
-static int reserve_seqno(struct intel_engine_cs *engine)
+static void mark_busy(struct drm_i915_private *i915)
 {
+	if (i915->gt.awake)
+		return;
+
+	GEM_BUG_ON(!i915->gt.active_requests);
+
+	intel_runtime_pm_get_noresume(i915);
+
+	/*
+	 * It seems that the DMC likes to transition between the DC states a lot
+	 * when there are no connected displays (no active power domains) during
+	 * command submission.
+	 *
+	 * This activity has negative impact on the performance of the chip with
+	 * huge latencies observed in the interrupt handler and elsewhere.
+	 *
+	 * Work around it by grabbing a GT IRQ power domain whilst there is any
+	 * GT activity, preventing any DC state transitions.
+	 */
+	intel_display_power_get(i915, POWER_DOMAIN_GT_IRQ);
+
+	i915->gt.awake = true;
+
+	intel_enable_gt_powersave(i915);
+	i915_update_gfx_val(i915);
+	if (INTEL_GEN(i915) >= 6)
+		gen6_rps_busy(i915);
+
+	intel_engines_unpark(i915);
+
+	i915_queue_hangcheck(i915);
+
+	queue_delayed_work(i915->wq,
+			   &i915->gt.retire_work,
+			   round_jiffies_up_relative(HZ));
+}
+
+static int reserve_engine(struct intel_engine_cs *engine)
+{
+	struct drm_i915_private *i915 = engine->i915;
 	u32 active = ++engine->timeline->inflight_seqnos;
 	u32 seqno = engine->timeline->seqno;
 	int ret;
 
 	/* Reservation is fine until we need to wrap around */
-	if (likely(!add_overflows(seqno, active)))
-		return 0;
-
-	ret = reset_all_global_seqno(engine->i915, 0);
-	if (ret) {
-		engine->timeline->inflight_seqnos--;
-		return ret;
+	if (unlikely(add_overflows(seqno, active))) {
+		ret = reset_all_global_seqno(i915, 0);
+		if (ret) {
+			engine->timeline->inflight_seqnos--;
+			return ret;
+		}
 	}
+
+	if (!i915->gt.active_requests++)
+		mark_busy(i915);
 
 	return 0;
 }
 
-static void unreserve_seqno(struct intel_engine_cs *engine)
+static void unreserve_engine(struct intel_engine_cs *engine)
 {
+	struct drm_i915_private *i915 = engine->i915;
+
+	if (!--i915->gt.active_requests) {
+		/* Cancel the mark_busy() from our reserve_engine() */
+		GEM_BUG_ON(!i915->gt.awake);
+		mod_delayed_work(i915->wq,
+				 &i915->gt.idle_work,
+				 msecs_to_jiffies(100));
+	}
+
 	GEM_BUG_ON(!engine->timeline->inflight_seqnos);
 	engine->timeline->inflight_seqnos--;
 }
@@ -269,6 +324,40 @@ void i915_gem_retire_noop(struct i915_gem_active *active,
 			  struct drm_i915_gem_request *request)
 {
 	/* Space left intentionally blank */
+}
+
+static void advance_ring(struct drm_i915_gem_request *request)
+{
+	unsigned int tail;
+
+	/* We know the GPU must have read the request to have
+	 * sent us the seqno + interrupt, so use the position
+	 * of tail of the request to update the last known position
+	 * of the GPU head.
+	 *
+	 * Note this requires that we are always called in request
+	 * completion order.
+	 */
+	if (list_is_last(&request->ring_link, &request->ring->request_list))
+		tail = request->ring->tail;
+	else
+		tail = request->postfix;
+	list_del(&request->ring_link);
+
+	request->ring->head = tail;
+}
+
+static void free_capture_list(struct drm_i915_gem_request *request)
+{
+	struct i915_gem_capture_list *capture;
+
+	capture = request->capture_list;
+	while (capture) {
+		struct i915_gem_capture_list *next = capture->next;
+
+		kfree(capture);
+		capture = next;
+	}
 }
 
 static void i915_gem_request_retire(struct drm_i915_gem_request *request)
@@ -287,23 +376,10 @@ static void i915_gem_request_retire(struct drm_i915_gem_request *request)
 	list_del_init(&request->link);
 	spin_unlock_irq(&engine->timeline->lock);
 
-	/* We know the GPU must have read the request to have
-	 * sent us the seqno + interrupt, so use the position
-	 * of tail of the request to update the last known position
-	 * of the GPU head.
-	 *
-	 * Note this requires that we are always called in request
-	 * completion order.
-	 */
-	list_del(&request->ring_link);
-	request->ring->head = request->postfix;
-	if (!--request->i915->gt.active_requests) {
-		GEM_BUG_ON(!request->i915->gt.awake);
-		mod_delayed_work(request->i915->wq,
-				 &request->i915->gt.idle_work,
-				 msecs_to_jiffies(100));
-	}
-	unreserve_seqno(request->engine);
+	unreserve_engine(request->engine);
+	advance_ring(request);
+
+	free_capture_list(request);
 
 	/* Walk through the active list, calling retire on each. This allows
 	 * objects to track their GPU activity and mark themselves as idle
@@ -335,8 +411,7 @@ static void i915_gem_request_retire(struct drm_i915_gem_request *request)
 	i915_gem_request_remove_from_client(request);
 
 	/* Retirement decays the ban score as it is a sign of ctx progress */
-	if (request->ctx->ban_score > 0)
-		request->ctx->ban_score--;
+	atomic_dec_if_positive(&request->ctx->ban_score);
 
 	/* The backing object for the context is done after switching to the
 	 * *next* context. Therefore we cannot retire the previous context until
@@ -349,7 +424,11 @@ static void i915_gem_request_retire(struct drm_i915_gem_request *request)
 		engine->context_unpin(engine, engine->last_retired_context);
 	engine->last_retired_context = request->ctx;
 
-	dma_fence_signal(&request->fence);
+	spin_lock_irq(&request->lock);
+	if (request->waitboost)
+		atomic_dec(&request->i915->gt_pm.rps.num_waiters);
+	dma_fence_signal_locked(&request->fence);
+	spin_unlock_irq(&request->lock);
 
 	i915_priotree_fini(request->i915, &request->priotree);
 	i915_gem_request_put(request);
@@ -393,6 +472,7 @@ void __i915_gem_request_submit(struct drm_i915_gem_request *request)
 	/* Transfer from per-context onto the global per-engine timeline */
 	timeline = engine->timeline;
 	GEM_BUG_ON(timeline == request->timeline);
+	GEM_BUG_ON(request->global_seqno);
 
 	seqno = timeline_get_seqno(timeline);
 	GEM_BUG_ON(!seqno);
@@ -402,7 +482,7 @@ void __i915_gem_request_submit(struct drm_i915_gem_request *request)
 	spin_lock_nested(&request->lock, SINGLE_DEPTH_NESTING);
 	request->global_seqno = seqno;
 	if (test_bit(DMA_FENCE_FLAG_ENABLE_SIGNAL_BIT, &request->fence.flags))
-		intel_engine_enable_signaling(request);
+		intel_engine_enable_signaling(request, false);
 	spin_unlock(&request->lock);
 
 	engine->emit_breadcrumb(request,
@@ -439,6 +519,7 @@ void __i915_gem_request_unsubmit(struct drm_i915_gem_request *request)
 	/* Only unwind in reverse order, required so that the per-context list
 	 * is kept in seqno/ring order.
 	 */
+	GEM_BUG_ON(!request->global_seqno);
 	GEM_BUG_ON(request->global_seqno != engine->timeline->seqno);
 	engine->timeline->seqno--;
 
@@ -487,7 +568,16 @@ submit_notify(struct i915_sw_fence *fence, enum i915_sw_fence_notify state)
 	switch (state) {
 	case FENCE_COMPLETE:
 		trace_i915_gem_request_submit(request);
+		/*
+		 * We need to serialize use of the submit_request() callback with its
+		 * hotplugging performed during an emergency i915_gem_set_wedged().
+		 * We use the RCU mechanism to mark the critical section in order to
+		 * force i915_gem_set_wedged() to wait until the submit_request() is
+		 * completed before proceeding.
+		 */
+		rcu_read_lock();
 		request->engine->submit_request(request);
+		rcu_read_unlock();
 		break;
 
 	case FENCE_FREE:
@@ -503,9 +593,6 @@ submit_notify(struct i915_sw_fence *fence, enum i915_sw_fence_notify state)
  *
  * @engine: engine that we wish to issue the request on.
  * @ctx: context that the request will be associated with.
- *       This can be NULL if the request is not directly related to
- *       any specific user context, in which case this function will
- *       choose an appropriate context to use.
  *
  * Returns a pointer to the allocated request if successful,
  * or an error code if not.
@@ -516,9 +603,17 @@ i915_gem_request_alloc(struct intel_engine_cs *engine,
 {
 	struct drm_i915_private *dev_priv = engine->i915;
 	struct drm_i915_gem_request *req;
+	struct intel_ring *ring;
 	int ret;
 
 	lockdep_assert_held(&dev_priv->drm.struct_mutex);
+
+	/*
+	 * Preempt contexts are reserved for exclusive use to inject a
+	 * preemption context switch. They are never to be used for any trivial
+	 * request!
+	 */
+	GEM_BUG_ON(ctx == dev_priv->preempt_context);
 
 	/* ABI: Before userspace accesses the GPU (e.g. execbuffer), report
 	 * EIO if the GPU is already wedged.
@@ -530,13 +625,18 @@ i915_gem_request_alloc(struct intel_engine_cs *engine,
 	 * GGTT space, so do this first before we reserve a seqno for
 	 * ourselves.
 	 */
-	ret = engine->context_pin(engine, ctx);
-	if (ret)
-		return ERR_PTR(ret);
+	ring = engine->context_pin(engine, ctx);
+	if (IS_ERR(ring))
+		return ERR_CAST(ring);
+	GEM_BUG_ON(!ring);
 
-	ret = reserve_seqno(engine);
+	ret = reserve_engine(engine);
 	if (ret)
 		goto err_unpin;
+
+	ret = intel_ring_wait_for_space(ring, MIN_SPACE_FOR_ADD_REQUEST);
+	if (ret)
+		goto err_unreserve;
 
 	/* Move the oldest request to the slab-cache (if not in use!) */
 	req = list_first_entry_or_null(&engine->timeline->requests,
@@ -572,10 +672,21 @@ i915_gem_request_alloc(struct intel_engine_cs *engine,
 	 *
 	 * Do not use kmem_cache_zalloc() here!
 	 */
-	req = kmem_cache_alloc(dev_priv->requests, GFP_KERNEL);
-	if (!req) {
-		ret = -ENOMEM;
-		goto err_unreserve;
+	req = kmem_cache_alloc(dev_priv->requests,
+			       GFP_KERNEL | __GFP_NOWARN);
+	if (unlikely(!req)) {
+		/* Ratelimit ourselves to prevent oom from malicious clients */
+		ret = i915_gem_wait_for_idle(dev_priv,
+					     I915_WAIT_LOCKED |
+					     I915_WAIT_INTERRUPTIBLE);
+		if (ret)
+			goto err_unreserve;
+
+		req = kmem_cache_alloc(dev_priv->requests, GFP_KERNEL);
+		if (!req) {
+			ret = -ENOMEM;
+			goto err_unreserve;
+		}
 	}
 
 	req->timeline = i915_gem_context_lookup_timeline(ctx, engine);
@@ -598,11 +709,14 @@ i915_gem_request_alloc(struct intel_engine_cs *engine,
 	req->i915 = dev_priv;
 	req->engine = engine;
 	req->ctx = ctx;
+	req->ring = ring;
 
 	/* No zalloc, must clear what we need by hand */
 	req->global_seqno = 0;
 	req->file_priv = NULL;
 	req->batch = NULL;
+	req->capture_list = NULL;
+	req->waitboost = false;
 
 	/*
 	 * Reserve space in the ring buffer for all the commands required to
@@ -614,22 +728,30 @@ i915_gem_request_alloc(struct intel_engine_cs *engine,
 	req->reserved_space = MIN_SPACE_FOR_ADD_REQUEST;
 	GEM_BUG_ON(req->reserved_space < engine->emit_breadcrumb_sz);
 
-	ret = engine->request_alloc(req);
-	if (ret)
-		goto err_ctx;
-
-	/* Record the position of the start of the request so that
+	/*
+	 * Record the position of the start of the request so that
 	 * should we detect the updated seqno part-way through the
 	 * GPU processing the request, we never over-estimate the
 	 * position of the head.
 	 */
 	req->head = req->ring->emit;
 
+	/* Unconditionally invalidate GPU caches and TLBs. */
+	ret = engine->emit_flush(req, EMIT_INVALIDATE);
+	if (ret)
+		goto err_unwind;
+
+	ret = engine->request_alloc(req);
+	if (ret)
+		goto err_unwind;
+
 	/* Check that we didn't interrupt ourselves with a new request */
 	GEM_BUG_ON(req->timeline->seqno != req->fence.seqno);
 	return req;
 
-err_ctx:
+err_unwind:
+	req->ring->emit = req->head;
+
 	/* Make sure we didn't add ourselves to external state before freeing */
 	GEM_BUG_ON(!list_empty(&req->active_list));
 	GEM_BUG_ON(!list_empty(&req->priotree.signalers_list));
@@ -637,7 +759,7 @@ err_ctx:
 
 	kmem_cache_free(dev_priv->requests, req);
 err_unreserve:
-	unreserve_seqno(engine);
+	unreserve_engine(engine);
 err_unpin:
 	engine->context_unpin(engine, ctx);
 	return ERR_PTR(ret);
@@ -647,10 +769,10 @@ static int
 i915_gem_request_await_request(struct drm_i915_gem_request *to,
 			       struct drm_i915_gem_request *from)
 {
-	u32 seqno;
 	int ret;
 
 	GEM_BUG_ON(to == from);
+	GEM_BUG_ON(to->timeline == from->timeline);
 
 	if (i915_gem_request_completed(from))
 		return 0;
@@ -663,66 +785,48 @@ i915_gem_request_await_request(struct drm_i915_gem_request *to,
 			return ret;
 	}
 
-	if (to->timeline == from->timeline)
-		return 0;
-
 	if (to->engine == from->engine) {
 		ret = i915_sw_fence_await_sw_fence_gfp(&to->submit,
 						       &from->submit,
-						       GFP_KERNEL);
+						       I915_FENCE_GFP);
 		return ret < 0 ? ret : 0;
 	}
 
-	seqno = i915_gem_request_global_seqno(from);
-	if (!seqno) {
-		ret = i915_sw_fence_await_dma_fence(&to->submit,
-						    &from->fence, 0,
-						    GFP_KERNEL);
-		return ret < 0 ? ret : 0;
-	}
+	if (to->engine->semaphore.sync_to) {
+		u32 seqno;
 
-	if (seqno <= to->timeline->sync_seqno[from->engine->id])
-		return 0;
+		GEM_BUG_ON(!from->engine->semaphore.signal);
 
-	trace_i915_gem_ring_sync_to(to, from);
-	if (!i915.semaphores) {
-		if (!i915_spin_request(from, TASK_INTERRUPTIBLE, 2)) {
-			ret = i915_sw_fence_await_dma_fence(&to->submit,
-							    &from->fence, 0,
-							    GFP_KERNEL);
-			if (ret < 0)
-				return ret;
-		}
-	} else {
+		seqno = i915_gem_request_global_seqno(from);
+		if (!seqno)
+			goto await_dma_fence;
+
+		if (seqno <= to->timeline->global_sync[from->engine->id])
+			return 0;
+
+		trace_i915_gem_ring_sync_to(to, from);
 		ret = to->engine->semaphore.sync_to(to, from);
 		if (ret)
 			return ret;
+
+		to->timeline->global_sync[from->engine->id] = seqno;
+		return 0;
 	}
 
-	to->timeline->sync_seqno[from->engine->id] = seqno;
-	return 0;
+await_dma_fence:
+	ret = i915_sw_fence_await_dma_fence(&to->submit,
+					    &from->fence, 0,
+					    I915_FENCE_GFP);
+	return ret < 0 ? ret : 0;
 }
 
 int
 i915_gem_request_await_dma_fence(struct drm_i915_gem_request *req,
 				 struct dma_fence *fence)
 {
-	struct dma_fence_array *array;
+	struct dma_fence **child = &fence;
+	unsigned int nchild = 1;
 	int ret;
-	int i;
-
-	if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags))
-		return 0;
-
-	if (dma_fence_is_i915(fence))
-		return i915_gem_request_await_request(req, to_request(fence));
-
-	if (!dma_fence_is_array(fence)) {
-		ret = i915_sw_fence_await_dma_fence(&req->submit,
-						    fence, I915_FENCE_TIMEOUT,
-						    GFP_KERNEL);
-		return ret < 0 ? ret : 0;
-	}
 
 	/* Note that if the fence-array was created in signal-on-any mode,
 	 * we should *not* decompose it into its individual fences. However,
@@ -731,21 +835,46 @@ i915_gem_request_await_dma_fence(struct drm_i915_gem_request *req,
 	 * amdgpu and we should not see any incoming fence-array from
 	 * sync-file being in signal-on-any mode.
 	 */
+	if (dma_fence_is_array(fence)) {
+		struct dma_fence_array *array = to_dma_fence_array(fence);
 
-	array = to_dma_fence_array(fence);
-	for (i = 0; i < array->num_fences; i++) {
-		struct dma_fence *child = array->fences[i];
+		child = array->fences;
+		nchild = array->num_fences;
+		GEM_BUG_ON(!nchild);
+	}
 
-		if (dma_fence_is_i915(child))
+	do {
+		fence = *child++;
+		if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags))
+			continue;
+
+		/*
+		 * Requests on the same timeline are explicitly ordered, along
+		 * with their dependencies, by i915_add_request() which ensures
+		 * that requests are submitted in-order through each ring.
+		 */
+		if (fence->context == req->fence.context)
+			continue;
+
+		/* Squash repeated waits to the same timelines */
+		if (fence->context != req->i915->mm.unordered_timeline &&
+		    intel_timeline_sync_is_later(req->timeline, fence))
+			continue;
+
+		if (dma_fence_is_i915(fence))
 			ret = i915_gem_request_await_request(req,
-							     to_request(child));
+							     to_request(fence));
 		else
-			ret = i915_sw_fence_await_dma_fence(&req->submit,
-							    child, I915_FENCE_TIMEOUT,
-							    GFP_KERNEL);
+			ret = i915_sw_fence_await_dma_fence(&req->submit, fence,
+							    I915_FENCE_TIMEOUT,
+							    I915_FENCE_GFP);
 		if (ret < 0)
 			return ret;
-	}
+
+		/* Record the latest fence used against each timeline */
+		if (fence->context != req->i915->mm.unordered_timeline)
+			intel_timeline_sync_set(req->timeline, fence);
+	} while (--nchild);
 
 	return 0;
 }
@@ -810,30 +939,6 @@ i915_gem_request_await_object(struct drm_i915_gem_request *to,
 	}
 
 	return ret;
-}
-
-static void i915_gem_mark_busy(const struct intel_engine_cs *engine)
-{
-	struct drm_i915_private *dev_priv = engine->i915;
-
-	if (dev_priv->gt.awake)
-		return;
-
-	GEM_BUG_ON(!dev_priv->gt.active_requests);
-
-	intel_runtime_pm_get_noresume(dev_priv);
-	dev_priv->gt.awake = true;
-
-	intel_enable_gt_powersave(dev_priv);
-	i915_update_gfx_val(dev_priv);
-	if (INTEL_GEN(dev_priv) >= 6)
-		gen6_rps_busy(dev_priv);
-
-	i915_queue_hangcheck(dev_priv);
-
-	queue_delayed_work(dev_priv->wq,
-			   &dev_priv->gt.retire_work,
-			   round_jiffies_up_relative(HZ));
 }
 
 /*
@@ -917,9 +1022,6 @@ void __i915_add_request(struct drm_i915_gem_request *request, bool flush_caches)
 	list_add_tail(&request->ring_link, &ring->request_list);
 	request->emitted_jiffies = jiffies;
 
-	if (!request->i915->gt.active_requests++)
-		i915_gem_mark_busy(engine);
-
 	/* Let the backend know a new request has arrived that may need
 	 * to adjust the existing execution schedule due to a high priority
 	 * request - i.e. we may want to preempt the current request in order
@@ -970,11 +1072,27 @@ static bool busywait_stop(unsigned long timeout, unsigned int cpu)
 	return this_cpu != cpu;
 }
 
-bool __i915_spin_request(const struct drm_i915_gem_request *req,
-			 u32 seqno, int state, unsigned long timeout_us)
+static bool __i915_spin_request(const struct drm_i915_gem_request *req,
+				u32 seqno, int state, unsigned long timeout_us)
 {
 	struct intel_engine_cs *engine = req->engine;
 	unsigned int irq, cpu;
+
+	GEM_BUG_ON(!seqno);
+
+	/*
+	 * Only wait for the request if we know it is likely to complete.
+	 *
+	 * We don't track the timestamps around requests, nor the average
+	 * request length, so we do not have a good indicator that this
+	 * request will complete within the timeout. What we do know is the
+	 * order in which requests are executed by the engine and so we can
+	 * tell if the request has started. If the request hasn't started yet,
+	 * it is a fair assumption that it will not complete within our
+	 * relatively short timeout.
+	 */
+	if (!i915_seqno_passed(intel_engine_get_seqno(engine), seqno - 1))
+		return false;
 
 	/* When waiting for high frequency requests, e.g. during synchronous
 	 * rendering split between the CPU and GPU, the finite amount of time
@@ -989,12 +1107,8 @@ bool __i915_spin_request(const struct drm_i915_gem_request *req,
 	irq = atomic_read(&engine->irq_count);
 	timeout_us += local_clock_us(&cpu);
 	do {
-		if (seqno != i915_gem_request_global_seqno(req))
-			break;
-
-		if (i915_seqno_passed(intel_engine_get_seqno(req->engine),
-				      seqno))
-			return true;
+		if (i915_seqno_passed(intel_engine_get_seqno(engine), seqno))
+			return seqno == i915_gem_request_global_seqno(req);
 
 		/* Seqno are meant to be ordered *before* the interrupt. If
 		 * we see an interrupt without a corresponding seqno advance,
@@ -1022,7 +1136,7 @@ static bool __i915_wait_request_check_and_reset(struct drm_i915_gem_request *req
 		return false;
 
 	__set_current_state(TASK_RUNNING);
-	i915_reset(request->i915);
+	i915_reset(request->i915, 0);
 	return true;
 }
 
@@ -1105,7 +1219,7 @@ restart:
 	GEM_BUG_ON(!i915_sw_fence_signaled(&req->submit));
 
 	/* Optimistic short spin before touching IRQs */
-	if (i915_spin_request(req, state, 5))
+	if (__i915_spin_request(req, wait.seqno, state, 5))
 		goto complete;
 
 	set_current_state(state);
@@ -1162,7 +1276,7 @@ wakeup:
 			continue;
 
 		/* Only spin if we know the GPU is processing this request */
-		if (i915_spin_request(req, state, 2))
+		if (__i915_spin_request(req, wait.seqno, state, 2))
 			break;
 
 		if (!intel_wait_check_request(&wait, req)) {

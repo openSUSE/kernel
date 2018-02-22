@@ -1033,7 +1033,7 @@ nv50_wndw_reset(struct drm_plane *plane)
 		plane->funcs->atomic_destroy_state(plane, plane->state);
 	plane->state = &asyw->state;
 	plane->state->plane = plane;
-	plane->state->rotation = DRM_ROTATE_0;
+	plane->state->rotation = DRM_MODE_ROTATE_0;
 }
 
 static void
@@ -1081,8 +1081,9 @@ nv50_wndw_ctor(const struct nv50_wndw_func *func, struct drm_device *dev,
 	wndw->func = func;
 	wndw->dmac = dmac;
 
-	ret = drm_universal_plane_init(dev, &wndw->plane, 0, &nv50_wndw, format,
-				       nformat, type, "%s-%d", name, index);
+	ret = drm_universal_plane_init(dev, &wndw->plane, 0, &nv50_wndw,
+				       format, nformat, NULL,
+				       type, "%s-%d", name, index);
 	if (ret)
 		return ret;
 
@@ -4039,7 +4040,7 @@ nv50_disp_atomic_commit_tail(struct drm_atomic_state *state)
 		if (crtc->state->event) {
 			unsigned long flags;
 			/* Get correct count/ts if racing with vblank irq */
-			drm_accurate_vblank_count(crtc);
+			drm_crtc_accurate_vblank_count(crtc);
 			spin_lock_irqsave(&crtc->dev->event_lock, flags);
 			drm_crtc_send_vblank_event(crtc, crtc->state->event);
 			spin_unlock_irqrestore(&crtc->dev->event_lock, flags);

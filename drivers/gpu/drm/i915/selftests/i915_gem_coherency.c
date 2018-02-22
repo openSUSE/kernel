@@ -33,7 +33,7 @@ static int cpu_set(struct drm_i915_gem_object *obj,
 {
 	unsigned int needs_clflush;
 	struct page *page;
-	typeof(v) *map;
+	u32 *map;
 	int err;
 
 	err = i915_gem_obj_prepare_shmem_write(obj, &needs_clflush);
@@ -59,7 +59,7 @@ static int cpu_get(struct drm_i915_gem_object *obj,
 {
 	unsigned int needs_clflush;
 	struct page *page;
-	typeof(v) map;
+	u32 *map;
 	int err;
 
 	err = i915_gem_obj_prepare_shmem_read(obj, &needs_clflush);
@@ -82,7 +82,7 @@ static int gtt_set(struct drm_i915_gem_object *obj,
 		   u32 v)
 {
 	struct i915_vma *vma;
-	typeof(v) *map;
+	u32 __iomem *map;
 	int err;
 
 	err = i915_gem_object_set_to_gtt_domain(obj, true);
@@ -98,7 +98,7 @@ static int gtt_set(struct drm_i915_gem_object *obj,
 	if (IS_ERR(map))
 		return PTR_ERR(map);
 
-	map[offset / sizeof(*map)] = v;
+	iowrite32(v, &map[offset / sizeof(*map)]);
 	i915_vma_unpin_iomap(vma);
 
 	return 0;
@@ -109,7 +109,7 @@ static int gtt_get(struct drm_i915_gem_object *obj,
 		   u32 *v)
 {
 	struct i915_vma *vma;
-	typeof(v) map;
+	u32 __iomem *map;
 	int err;
 
 	err = i915_gem_object_set_to_gtt_domain(obj, false);
@@ -125,7 +125,7 @@ static int gtt_get(struct drm_i915_gem_object *obj,
 	if (IS_ERR(map))
 		return PTR_ERR(map);
 
-	*v = map[offset / sizeof(*map)];
+	*v = ioread32(&map[offset / sizeof(*map)]);
 	i915_vma_unpin_iomap(vma);
 
 	return 0;
@@ -135,13 +135,10 @@ static int wc_set(struct drm_i915_gem_object *obj,
 		  unsigned long offset,
 		  u32 v)
 {
-	typeof(v) *map;
+	u32 *map;
 	int err;
 
-	/* XXX GTT write followed by WC write go missing */
-	i915_gem_object_flush_gtt_write_domain(obj);
-
-	err = i915_gem_object_set_to_gtt_domain(obj, true);
+	err = i915_gem_object_set_to_wc_domain(obj, true);
 	if (err)
 		return err;
 
@@ -159,13 +156,10 @@ static int wc_get(struct drm_i915_gem_object *obj,
 		  unsigned long offset,
 		  u32 *v)
 {
-	typeof(v) map;
+	u32 *map;
 	int err;
 
-	/* XXX WC write followed by GTT write go missing */
-	i915_gem_object_flush_gtt_write_domain(obj);
-
-	err = i915_gem_object_set_to_gtt_domain(obj, false);
+	err = i915_gem_object_set_to_wc_domain(obj, false);
 	if (err)
 		return err;
 
@@ -247,7 +241,7 @@ static bool always_valid(struct drm_i915_private *i915)
 
 static bool needs_mi_store_dword(struct drm_i915_private *i915)
 {
-	return igt_can_mi_store_dword_imm(i915);
+	return intel_engine_can_store_dword(i915->engine[RCS]);
 }
 
 static const struct igt_coherency_mode {
