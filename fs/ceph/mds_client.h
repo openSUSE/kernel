@@ -8,6 +8,7 @@
 #include <linux/rbtree.h>
 #include <linux/spinlock.h>
 #include <linux/refcount.h>
+#include <linux/utsname.h>
 
 #include <linux/ceph/types.h>
 #include <linux/ceph/messenger.h>
@@ -368,6 +369,8 @@ struct ceph_mds_client {
 
 	struct rw_semaphore     pool_perm_rwsem;
 	struct rb_root		pool_perm_tree;
+
+	char nodename[__NEW_UTS_LEN + 1];
 };
 
 extern const char *ceph_mds_op_name(int op);
@@ -440,4 +443,7 @@ ceph_mdsc_open_export_target_session(struct ceph_mds_client *mdsc, int target);
 extern void ceph_mdsc_open_export_target_sessions(struct ceph_mds_client *mdsc,
 					  struct ceph_mds_session *session);
 
+extern int ceph_trim_caps(struct ceph_mds_client *mdsc,
+			  struct ceph_mds_session *session,
+			  int max_caps);
 #endif
