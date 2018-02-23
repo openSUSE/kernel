@@ -227,6 +227,7 @@ extern const char *ceph_osd_state_name(int s);
 	f(TRUNCATE,	__CEPH_OSD_OP(WR, DATA, 3),	"truncate")	    \
 	f(ZERO,		__CEPH_OSD_OP(WR, DATA, 4),	"zero")		    \
 	f(DELETE,	__CEPH_OSD_OP(WR, DATA, 5),	"delete")	    \
+	f(WRITESAME,	__CEPH_OSD_OP(WR, DATA, 38),	"write-same")	    \
 									    \
 	/* fancy write */						    \
 	f(APPEND,	__CEPH_OSD_OP(WR, DATA, 6),	"append")	    \
@@ -268,6 +269,9 @@ extern const char *ceph_osd_state_name(int s);
 									    \
 	/* hints */							    \
 	f(SETALLOCHINT,	__CEPH_OSD_OP(WR, DATA, 35),	"set-alloc-hint")   \
+									    \
+	/* ESX/SCSI */							    \
+	f(CMPEXT,       __CEPH_OSD_OP(RD, DATA, 32),    "cmpext")	    \
 									    \
 	/** multi **/							    \
 	f(CLONERANGE,	__CEPH_OSD_OP(WR, MULTI, 1),	"clonerange")	    \
@@ -496,6 +500,11 @@ struct ceph_osd_op {
 			__le64 expected_object_size;
 			__le64 expected_write_size;
 		} __attribute__ ((packed)) alloc_hint;
+		struct {
+			__le64 offset;
+			__le64 length;
+			__le64 data_length;
+		} __attribute__ ((packed)) writesame;
 	};
 	__le32 payload_len;
 } __attribute__ ((packed));

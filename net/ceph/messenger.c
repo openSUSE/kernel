@@ -927,6 +927,78 @@ static bool ceph_msg_data_bio_advance(struct ceph_msg_data_cursor *cursor,
 #endif /* CONFIG_BLOCK */
 
 /*
+ * For a sg data item, a piece is whatever remains of the next
+ * entry in the current sg entry, or the first entry in the next
+ * sg in the list.
+ */
+static void ceph_msg_data_sg_cursor_init(struct ceph_msg_data_cursor *cursor,
+					 size_t length)
+{
+	struct ceph_msg_data *data = cursor->data;
+	struct scatterlist *sg;
+
+	BUG_ON(data->type != CEPH_MSG_DATA_SG);
+
+	sg = data->sgl;
+	BUG_ON(!sg);
+
+	cursor->resid = min_t(u64, length, data->sgl_length);
+	cursor->sg = sg;
+	cursor->sg_consumed = data->sgl_init_offset;
+	if (cursor->resid <= (sg->length - data->sgl_init_offset))
+		cursor->last_piece = true;
+	else
+		cursor->last_piece = false;
+}
+
+static struct page *ceph_msg_data_sg_next(struct ceph_msg_data_cursor *cursor,
+					  size_t *page_offset, size_t *length)
+{
+	struct ceph_msg_data *data = cursor->data;
+	struct scatterlist *sg;
+
+	BUG_ON(data->type != CEPH_MSG_DATA_SG);
+
+	sg = cursor->sg;
+	BUG_ON(!sg);
+
+	*page_offset = sg->offset + cursor->sg_consumed;
+
+	if (cursor->last_piece)
+		*length = cursor->resid;
+	else
+		*length = sg->length - cursor->sg_consumed;
+
+	/* currently support non clustered sg pages */
+	return sg_page(sg);
+}
+
+static bool ceph_msg_data_sg_advance(struct ceph_msg_data_cursor *cursor,
+				     size_t bytes)
+{
+	BUG_ON(cursor->data->type != CEPH_MSG_DATA_SG);
+
+	/* Advance the cursor offset */
+	BUG_ON(cursor->resid < bytes);
+	cursor->resid -= bytes;
+	cursor->sg_consumed += bytes;
+
+	if (!bytes || cursor->sg_consumed < cursor->sg->length)
+		return false;	/* more bytes to process in the current page */
+
+	if (!cursor->resid)
+		return false;	/* no more data */
+
+	/* For WRITE_SAME we have a single sg that is written over and over */
+	if (sg_next(cursor->sg))
+		cursor->sg = sg_next(cursor->sg);
+	cursor->sg_consumed = 0;
+
+	cursor->last_piece = cursor->resid <= cursor->sg->length;
+	return true;
+}
+
+/*
  * For a page array, a piece comes from the first page in the array
  * that has not already been fully consumed.
  */
@@ -1109,6 +1181,9 @@ static void __ceph_msg_data_cursor_init(struct ceph_msg_data_cursor *cursor)
 		ceph_msg_data_bio_cursor_init(cursor, length);
 		break;
 #endif /* CONFIG_BLOCK */
+	case CEPH_MSG_DATA_SG:
+		ceph_msg_data_sg_cursor_init(cursor, length);
+		break;
 	case CEPH_MSG_DATA_NONE:
 	default:
 		/* BUG(); */
@@ -1157,6 +1232,9 @@ static struct page *ceph_msg_data_next(struct ceph_msg_data_cursor *cursor,
 		page = ceph_msg_data_bio_next(cursor, page_offset, length);
 		break;
 #endif /* CONFIG_BLOCK */
+	case CEPH_MSG_DATA_SG:
+		page = ceph_msg_data_sg_next(cursor, page_offset, length);
+		break;
 	case CEPH_MSG_DATA_NONE:
 	default:
 		page = NULL;
@@ -1193,6 +1271,9 @@ static void ceph_msg_data_advance(struct ceph_msg_data_cursor *cursor,
 		new_piece = ceph_msg_data_bio_advance(cursor, bytes);
 		break;
 #endif /* CONFIG_BLOCK */
+	case CEPH_MSG_DATA_SG:
+		new_piece = ceph_msg_data_sg_advance(cursor, bytes);
+		break;
 	case CEPH_MSG_DATA_NONE:
 	default:
 		BUG();
@@ -3278,6 +3359,24 @@ void ceph_msg_data_add_bio(struct ceph_msg *msg, struct bio *bio,
 }
 EXPORT_SYMBOL(ceph_msg_data_add_bio);
 #endif	/* CONFIG_BLOCK */
+
+void ceph_msg_data_add_sg(struct ceph_msg *msg, struct scatterlist *sgl,
+			  unsigned int sgl_init_offset, u64 length)
+{
+	struct ceph_msg_data *data;
+
+	BUG_ON(!sgl);
+
+	data = ceph_msg_data_create(CEPH_MSG_DATA_SG);
+	BUG_ON(!data);
+	data->sgl = sgl;
+	data->sgl_length = length;
+	data->sgl_init_offset = sgl_init_offset;
+
+	list_add_tail(&data->links, &msg->data);
+	msg->data_length += length;
+}
+EXPORT_SYMBOL(ceph_msg_data_add_sg);
 
 /*
  * construct a new message with given type, size

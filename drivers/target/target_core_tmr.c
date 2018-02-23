@@ -424,13 +424,22 @@ int core_tmr_lun_reset(
 	 * Clear any legacy SPC-2 reservation when called during
 	 * LOGICAL UNIT RESET
 	 */
-	if (!preempt_and_abort_list &&
-	     (dev->dev_reservation_flags & DRF_SPC2_RESERVATIONS)) {
-		spin_lock(&dev->dev_reservation_lock);
-		dev->dev_reserved_node_acl = NULL;
-		dev->dev_reservation_flags &= ~DRF_SPC2_RESERVATIONS;
-		spin_unlock(&dev->dev_reservation_lock);
-		pr_debug("LUN_RESET: SCSI-2 Released reservation\n");
+	if (!preempt_and_abort_list) {
+		if (dev->transport->pr_ops && dev->transport->pr_ops->reset) {
+			sense_reason_t ret;
+
+			ret = dev->transport->pr_ops->reset(dev);
+			if (ret != TCM_NO_SENSE) {
+				pr_err("LUN_RESET: failed to release "
+				       "reservations: %u\n", ret);
+			}
+		} else if (dev->dev_reservation_flags & DRF_SPC2_RESERVATIONS) {
+			spin_lock(&dev->dev_reservation_lock);
+			dev->dev_reserved_node_acl = NULL;
+			dev->dev_reservation_flags &= ~DRF_SPC2_RESERVATIONS;
+			spin_unlock(&dev->dev_reservation_lock);
+			pr_debug("LUN_RESET: SCSI-2 Released reservation\n");
+		}
 	}
 
 	atomic_long_inc(&dev->num_resets);
