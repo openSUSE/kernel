@@ -2392,7 +2392,15 @@ static int read_capacity_16(struct scsi_disk *sdkp, struct scsi_device *sdp,
 		if (buffer[14] & 0x40) /* LBPRZ */
 			sdkp->lbprz = 1;
 
-		sd_config_discard(sdkp, SD_LBP_WS16);
+		/*
+		 * sbc3r36 states:
+		 * The device server in a logical unit the supports
+		 * logical block provisioning management shall support
+		 * the Logical Block Provisioning VPD page.
+		 * So VPD pages should be supported if lbpme is set.
+		 */
+		if (!scsi_device_supports_vpd(sdp))
+			sdp->try_vpd_pages = 1;
 	}
 
 	sdkp->capacity = lba + 1;
