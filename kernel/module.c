@@ -2837,8 +2837,9 @@ static inline void kmemleak_load_module(const struct module *mod,
 #ifdef CONFIG_MODULE_SIG
 static int module_sig_check(struct load_info *info, int flags)
 {
-	int err = -ENOKEY;
+	int err = -ENODATA;
 	const unsigned long markerlen = sizeof(MODULE_SIG_STRING) - 1;
+	const char *reason;
 	const void *mod = info->hdr;
 
 	/*
@@ -2853,16 +2854,42 @@ static int module_sig_check(struct load_info *info, int flags)
 		err = mod_verify_sig(mod, &info->len);
 	}
 
-	if (!err) {
+	switch (err) {
+	case 0:
 		info->sig_ok = true;
 		return 0;
+
+		/* We don't permit modules to be loaded into trusted kernels
+		 * without a valid signature on them, but if we're not
+		 * enforcing, certain errors are non-fatal.
+		 */
+	case -ENODATA:
+		reason = "Loading of unsigned module";
+		goto decide;
+	case -ENOPKG:
+		reason = "Loading of module with unsupported crypto";
+		goto decide;
+	case -ENOKEY:
+		reason = "Loading of module with unavailable key";
+	decide:
+		if (sig_enforce) {
+			pr_notice("%s is rejected\n", reason);
+			return -EKEYREJECTED;
+		}
+		if (kernel_is_locked_down()) {
+			pr_notice("%s is rejected, kernel is locked down\n", reason);
+			return -EPERM;
+		}
+		return 0;
+
+		/* All other errors are fatal, including nomem, unparseable
+		 * signatures and signature check failures - even if signatures
+		 * aren't required.
+		 */
+	default:
+		return err;
 	}
 
-	/* Not having a signature is only an error if we're strict. */
-	if (err == -ENOKEY && !sig_enforce && !kernel_is_locked_down())
-		err = 0;
-
-	return err;
 }
 #else /* !CONFIG_MODULE_SIG */
 static int module_sig_check(struct load_info *info, int flags)
