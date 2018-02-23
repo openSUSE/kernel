@@ -26,7 +26,6 @@ static unsigned long shared_info_pfn;
 
 void xen_hvm_init_shared_info(void)
 {
-	int cpu;
 	struct xen_add_to_physmap xatp;
 
 	xatp.domid = DOMID_SELF;
@@ -35,22 +34,6 @@ void xen_hvm_init_shared_info(void)
 	xatp.gpfn = shared_info_pfn;
 	if (HYPERVISOR_memory_op(XENMEM_add_to_physmap, &xatp))
 		BUG();
-
-	/* xen_vcpu is a pointer to the vcpu_info struct in the shared_info
-	 * page, we use it in the event channel upcall and in some pvclock
-	 * related functions. We don't need the vcpu_info placement
-	 * optimizations because we don't use any pv_mmu or pv_irq op on
-	 * HVM.
-	 * When xen_hvm_init_shared_info is run at boot time only vcpu 0 is
-	 * online but xen_hvm_init_shared_info is run at resume time too and
-	 * in that case multiple vcpus might be online. */
-	for_each_online_cpu(cpu) {
-		/* Leave it to be NULL. */
-		if (xen_vcpu_nr(cpu) >= MAX_VIRT_CPUS)
-			continue;
-		per_cpu(xen_vcpu, cpu) =
-			&HYPERVISOR_shared_info->vcpu_info[xen_vcpu_nr(cpu)];
-	}
 }
 
 static void __init reserve_shared_info(void)
@@ -184,6 +167,13 @@ static void __init xen_hvm_guest_init(void)
 
 	reserve_shared_info();
 	xen_hvm_init_shared_info();
+
+	/*
+	 * xen_vcpu is a pointer to the vcpu_info struct in the shared_info
+	 * page, we use it in the event channel upcall and in some pvclock
+	 * related functions.
+	 */
+	xen_vcpu_info_reset(0);
 
 	xen_panic_handler_init();
 
