@@ -677,8 +677,7 @@ static void target_complete_failure_work(struct work_struct *work)
 {
 	struct se_cmd *cmd = container_of(work, struct se_cmd, work);
 
-	transport_generic_request_failure(cmd,
-			TCM_LOGICAL_UNIT_COMMUNICATION_FAILURE);
+	transport_generic_request_failure(cmd, cmd->sense_reason);
 }
 
 /*
@@ -722,13 +721,15 @@ void transport_copy_sense_to_cmd(struct se_cmd *cmd, unsigned char *sense)
 }
 EXPORT_SYMBOL(transport_copy_sense_to_cmd);
 
-void target_complete_cmd(struct se_cmd *cmd, u8 scsi_status)
+static void __target_complete_cmd(struct se_cmd *cmd, u8 scsi_status,
+				  sense_reason_t sense_reason)
 {
 	struct se_device *dev = cmd->se_dev;
 	int success;
 	unsigned long flags;
 
 	cmd->scsi_status = scsi_status;
+	cmd->sense_reason = sense_reason;
 
 	spin_lock_irqsave(&cmd->t_state_lock, flags);
 	switch (cmd->scsi_status) {
@@ -776,7 +777,21 @@ void target_complete_cmd(struct se_cmd *cmd, u8 scsi_status)
 	else
 		queue_work(target_completion_wq, &cmd->work);
 }
+
+void target_complete_cmd(struct se_cmd *cmd, u8 scsi_status)
+{
+	__target_complete_cmd(cmd, scsi_status, scsi_status ?
+			     TCM_LOGICAL_UNIT_COMMUNICATION_FAILURE :
+			     TCM_NO_SENSE);
+}
 EXPORT_SYMBOL(target_complete_cmd);
+
+void target_complete_cmd_with_sense(struct se_cmd *cmd,
+				    sense_reason_t sense_reason)
+{
+	__target_complete_cmd(cmd, SAM_STAT_CHECK_CONDITION, sense_reason);
+}
+EXPORT_SYMBOL(target_complete_cmd_with_sense);
 
 void target_complete_cmd_with_length(struct se_cmd *cmd, u8 scsi_status, int length)
 {
@@ -1770,6 +1785,7 @@ void transport_generic_request_failure(struct se_cmd *cmd,
 	case TCM_UNSUPPORTED_TARGET_DESC_TYPE_CODE:
 	case TCM_TOO_MANY_SEGMENT_DESCS:
 	case TCM_UNSUPPORTED_SEGMENT_DESC_TYPE_CODE:
+	case TCM_MISCOMPARE_VERIFY:
 		break;
 	case TCM_OUT_OF_RESOURCES:
 		sense_reason = TCM_LOGICAL_UNIT_COMMUNICATION_FAILURE;
@@ -3008,11 +3024,13 @@ bool transport_wait_for_tasks(struct se_cmd *cmd)
 }
 EXPORT_SYMBOL(transport_wait_for_tasks);
 
+
 struct sense_info {
 	u8 key;
 	u8 asc;
 	u8 ascq;
 	bool add_sector_info;
+	bool add_sense_info;
 };
 
 static const struct sense_info sense_info_table[] = {
@@ -3110,6 +3128,7 @@ static const struct sense_info sense_info_table[] = {
 		.key = MISCOMPARE,
 		.asc = 0x1d, /* MISCOMPARE DURING VERIFY OPERATION */
 		.ascq = 0x00,
+		.add_sense_info = true,
 	},
 	[TCM_LOGICAL_BLOCK_GUARD_CHECK_FAILED] = {
 		.key = ABORTED_COMMAND,
@@ -3147,6 +3166,13 @@ static const struct sense_info sense_info_table[] = {
 	},
 };
 
+static void transport_err_sense_info(unsigned char *buffer, u32 info)
+{
+	buffer[SPC_INFO_VALIDITY_OFFSET] |= 0x80;
+	/* Sense Information */
+	put_unaligned_be32(info, &buffer[3]);
+}
+
 static int translate_sense_reason(struct se_cmd *cmd, sense_reason_t reason)
 {
 	const struct sense_info *si;
@@ -3178,6 +3204,9 @@ static int translate_sense_reason(struct se_cmd *cmd, sense_reason_t reason)
 		return scsi_set_sense_information(buffer,
 						  cmd->scsi_sense_length,
 						  cmd->bad_sector);
+
+	if (si->add_sense_info)
+		transport_err_sense_info(buffer, cmd->sense_info);
 
 	return 0;
 }
