@@ -15,6 +15,9 @@
 #define BLIST_ISROM     	0x100	/* Treat as (removable) CD-ROM */
 #define BLIST_LARGELUN		0x200	/* LUNs past 7 on a SCSI-2 device */
 #define BLIST_INQUIRY_36	0x400	/* override additional length field */
+#define BLIST_ABORTED_CMD_QUIRK 0x800   /* Device uses special return codes for
+					   ABORTED COMMAND,
+					   see scsi_aborted_cmd_quirk() */
 #define BLIST_NOSTARTONADD	0x1000	/* do not do automatic start on add */
 #define BLIST_REPORTLUN2	0x20000	/* try REPORT_LUNS even for SCSI-2 devs
  					   (if HBA supports more than 8 LUNs) */
