@@ -824,6 +824,9 @@ static int ceph_mknod(struct inode *dir, struct dentry *dentry,
 	if (ceph_snap(dir) != CEPH_NOSNAP)
 		return -EROFS;
 
+	if (ceph_quota_is_max_files_exceeded(dir))
+		return -EDQUOT;
+
 	err = ceph_pre_init_acls(dir, &mode, &acls);
 	if (err < 0)
 		return err;
@@ -877,6 +880,9 @@ static int ceph_symlink(struct inode *dir, struct dentry *dentry,
 	if (ceph_snap(dir) != CEPH_NOSNAP)
 		return -EROFS;
 
+	if (ceph_quota_is_max_files_exceeded(dir))
+		return -EDQUOT;
+
 	dout("symlink in dir %p dentry %p to '%s'\n", dir, dentry, dest);
 	req = ceph_mdsc_create_request(mdsc, CEPH_MDS_OP_SYMLINK, USE_AUTH_MDS);
 	if (IS_ERR(req)) {
@@ -923,6 +929,12 @@ static int ceph_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 		dout("mkdir dir %p dn %p mode 0%ho\n", dir, dentry, mode);
 		op = CEPH_MDS_OP_MKDIR;
 	} else {
+		goto out;
+	}
+
+	if (op == CEPH_MDS_OP_MKDIR &&
+	    ceph_quota_is_max_files_exceeded(dir)) {
+		err = -EDQUOT;
 		goto out;
 	}
 
@@ -1085,6 +1097,11 @@ static int ceph_rename(struct inode *old_dir, struct dentry *old_dentry,
 		else
 			return -EROFS;
 	}
+	/* don't allow cross-quota renames */
+	if ((old_dir != new_dir) &&
+	    (!ceph_quota_is_same_realm(old_dir, new_dir)))
+		return -EXDEV;
+
 	dout("rename dir %p dentry %p to dir %p dentry %p\n",
 	     old_dir, old_dentry, new_dir, new_dentry);
 	req = ceph_mdsc_create_request(mdsc, op, USE_AUTH_MDS);

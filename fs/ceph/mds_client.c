@@ -99,6 +99,26 @@ static int parse_reply_info_in(void **p, void *end,
 	} else
 		info->inline_version = CEPH_INLINE_NONE;
 
+	if (features & CEPH_FEATURE_MDS_QUOTA) {
+		u8 struct_v, struct_compat;
+		u32 struct_len;
+
+		/*
+		 * both struct_v and struct_compat are expected to be >= 1
+		 */
+		ceph_decode_8_safe(p, end, struct_v, bad);
+		ceph_decode_8_safe(p, end, struct_compat, bad);
+		if (!struct_v || !struct_compat)
+			goto bad;
+		ceph_decode_32_safe(p, end, struct_len, bad);
+		ceph_decode_need(p, end, struct_len, bad);
+		ceph_decode_64_safe(p, end, info->max_bytes, bad);
+		ceph_decode_64_safe(p, end, info->max_files, bad);
+	} else {
+		info->max_bytes = 0;
+		info->max_files = 0;
+	}
+
 	info->pool_ns_len = 0;
 	info->pool_ns_data = NULL;
 	if (features & CEPH_FEATURE_FS_FILE_LAYOUT_V2) {
@@ -3586,6 +3606,7 @@ int ceph_mdsc_init(struct ceph_fs_client *fsc)
 	atomic_set(&mdsc->num_sessions, 0);
 	mdsc->max_sessions = 0;
 	mdsc->stopping = 0;
+	atomic64_set(&mdsc->quotarealms_count, 0);
 	mdsc->last_snap_seq = 0;
 	init_rwsem(&mdsc->snap_rwsem);
 	mdsc->snap_realms = RB_ROOT;
@@ -4075,6 +4096,9 @@ static void dispatch(struct ceph_connection *con, struct ceph_msg *msg)
 		break;
 	case CEPH_MSG_CLIENT_LEASE:
 		handle_lease(mdsc, s, msg);
+		break;
+	case CEPH_MSG_CLIENT_QUOTA:
+		ceph_handle_quota(mdsc, s, msg);
 		break;
 
 	default:
