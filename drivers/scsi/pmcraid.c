@@ -1595,12 +1595,7 @@ static void pmcraid_handle_config_change(struct pmcraid_instance *pinstance)
 	if (pinstance->ccn.hcam->notification_type ==
 	    NOTIFICATION_TYPE_ENTRY_CHANGED &&
 	    cfg_entry->resource_type == RES_TYPE_VSET) {
-
-		if (fw_version <= PMCRAID_FW_VERSION_1)
-			hidden_entry = (cfg_entry->unique_flags1 & 0x80) != 0;
-		else
-			hidden_entry = (cfg_entry->unique_flags1 & 0x80) != 0;
-
+		hidden_entry = (cfg_entry->unique_flags1 & 0x80) != 0;
 	} else if (!pmcraid_expose_resource(fw_version, cfg_entry)) {
 		goto out_notify_apps;
 	}
@@ -5228,7 +5223,7 @@ static unsigned short pmcraid_get_minor(void)
 {
 	int minor;
 
-	minor = find_first_zero_bit(pmcraid_minor, sizeof(pmcraid_minor));
+	minor = find_first_zero_bit(pmcraid_minor, PMCRAID_MAX_ADAPTERS);
 	__set_bit(minor, pmcraid_minor);
 	return minor;
 }
