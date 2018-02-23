@@ -911,7 +911,6 @@ static void setinqstr(struct aac_dev *dev, void *data, int tindex)
 	sup_adap_info = &dev->supplement_adapter_info;
 	str = (struct scsi_inq *)(data); /* cast data to scsi inq block */
 	memset(str, ' ', sizeof(*str));
-
 	if (sup_adap_info->adapter_type_text[0]) {
 		char *cp = sup_adap_info->adapter_type_text;
 		int c;
