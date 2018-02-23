@@ -2382,6 +2382,7 @@ cifs_setup_ipc(struct cifs_ses *ses, struct smb_vol *volume_info)
 	 * If the mount request that resulted in the creation of the
 	 * session requires encryption, force IPC to be encrypted too.
 	 */
+#ifdef CONFIG_CIFS_SMB2
 	if (volume_info->seal) {
 		if (ses->server->capabilities & SMB2_GLOBAL_CAP_ENCRYPTION)
 			seal = true;
@@ -2391,6 +2392,7 @@ cifs_setup_ipc(struct cifs_ses *ses, struct smb_vol *volume_info)
 			return -EOPNOTSUPP;
 		}
 	}
+#endif /* CONFIG_CIFS_SMB2 */
 
 	tcon = tconInfoAlloc();
 	if (tcon == NULL)
