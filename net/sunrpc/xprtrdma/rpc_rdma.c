@@ -142,7 +142,7 @@ static bool rpcrdma_args_inline(struct rpcrdma_xprt *r_xprt,
 	if (xdr->page_len) {
 		remaining = xdr->page_len;
 		offset = xdr->page_base & ~PAGE_MASK;
-		count = 0;
+		count = RPCRDMA_MIN_SEND_SGES;
 		while (remaining) {
 			remaining -= min_t(unsigned int,
 					   PAGE_SIZE - offset, remaining);
@@ -400,7 +400,7 @@ rpcrdma_encode_write_list(struct rpcrdma_xprt *r_xprt, struct rpcrdma_req *req,
 			mw->mw_handle, n < nsegs ? "more" : "last");
 
 		r_xprt->rx_stats.write_chunk_count++;
-		r_xprt->rx_stats.total_rdma_request += seg->mr_len;
+		r_xprt->rx_stats.total_rdma_request += mw->mw_length;
 		nchunks++;
 		seg   += n;
 		nsegs -= n;
@@ -465,7 +465,7 @@ rpcrdma_encode_reply_chunk(struct rpcrdma_xprt *r_xprt,
 			mw->mw_handle, n < nsegs ? "more" : "last");
 
 		r_xprt->rx_stats.reply_chunk_count++;
-		r_xprt->rx_stats.total_rdma_request += seg->mr_len;
+		r_xprt->rx_stats.total_rdma_request += mw->mw_length;
 		nchunks++;
 		seg   += n;
 		nsegs -= n;
