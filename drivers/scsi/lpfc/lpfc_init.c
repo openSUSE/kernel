@@ -8070,6 +8070,7 @@ lpfc_alloc_nvme_wq_cq(struct lpfc_hba *phba, int wqidx)
 				wqidx);
 		return 1;
 	}
+	qdesc->qe_valid = 1;
 	phba->sli4_hba.nvme_cq[wqidx] = qdesc;
 
 	qdesc = lpfc_sli4_queue_alloc(phba, LPFC_EXPANDED_PAGE_SIZE,
@@ -8107,6 +8108,7 @@ lpfc_alloc_fcp_wq_cq(struct lpfc_hba *phba, int wqidx)
 			"0499 Failed allocate fast-path FCP CQ (%d)\n", wqidx);
 		return 1;
 	}
+	qdesc->qe_valid = 1;
 	phba->sli4_hba.fcp_cq[wqidx] = qdesc;
 
 	/* Create Fast Path FCP WQs */
@@ -8300,6 +8302,7 @@ lpfc_sli4_queue_create(struct lpfc_hba *phba)
 					"0497 Failed allocate EQ (%d)\n", idx);
 			goto out_error;
 		}
+		qdesc->qe_valid = 1;
 		phba->sli4_hba.hba_eq[idx] = qdesc;
 	}
 
@@ -8325,6 +8328,7 @@ lpfc_sli4_queue_create(struct lpfc_hba *phba)
 					"CQ Set (%d)\n", idx);
 				goto out_error;
 			}
+			qdesc->qe_valid = 1;
 			phba->sli4_hba.nvmet_cqset[idx] = qdesc;
 		}
 	}
@@ -8342,6 +8346,7 @@ lpfc_sli4_queue_create(struct lpfc_hba *phba)
 				"0500 Failed allocate slow-path mailbox CQ\n");
 		goto out_error;
 	}
+	qdesc->qe_valid = 1;
 	phba->sli4_hba.mbx_cq = qdesc;
 
 	/* Create slow-path ELS Complete Queue */
@@ -8353,6 +8358,7 @@ lpfc_sli4_queue_create(struct lpfc_hba *phba)
 				"0501 Failed allocate slow-path ELS CQ\n");
 		goto out_error;
 	}
+	qdesc->qe_valid = 1;
 	phba->sli4_hba.els_cq = qdesc;
 
 
@@ -8398,6 +8404,7 @@ lpfc_sli4_queue_create(struct lpfc_hba *phba)
 					"6079 Failed allocate NVME LS CQ\n");
 			goto out_error;
 		}
+		qdesc->qe_valid = 1;
 		phba->sli4_hba.nvmels_cq = qdesc;
 
 		/* Create NVME LS Work Queue */
@@ -10576,6 +10583,8 @@ lpfc_get_sli4_parameters(struct lpfc_hba *phba, LPFC_MBOXQ_t *mboxq)
 	sli4_params->mqv = bf_get(cfg_mqv, mbx_sli4_parameters);
 	sli4_params->wqv = bf_get(cfg_wqv, mbx_sli4_parameters);
 	sli4_params->rqv = bf_get(cfg_rqv, mbx_sli4_parameters);
+	sli4_params->eqav = bf_get(cfg_eqav, mbx_sli4_parameters);
+	sli4_params->cqav = bf_get(cfg_cqav, mbx_sli4_parameters);
 	sli4_params->wqsize = bf_get(cfg_wqsize, mbx_sli4_parameters);
 	sli4_params->sgl_pages_max = bf_get(cfg_sgl_page_cnt,
 					    mbx_sli4_parameters);
@@ -12394,6 +12403,7 @@ lpfc_fof_queue_create(struct lpfc_hba *phba)
 	if (!qdesc)
 		goto out_error;
 
+	qdesc->qe_valid = 1;
 	phba->sli4_hba.fof_eq = qdesc;
 
 	if (phba->cfg_fof) {
@@ -12412,6 +12422,7 @@ lpfc_fof_queue_create(struct lpfc_hba *phba)
 		if (!qdesc)
 			goto out_error;
 
+		qdesc->qe_valid = 1;
 		phba->sli4_hba.oas_cq = qdesc;
 
 		/* Create OAS WQ */
