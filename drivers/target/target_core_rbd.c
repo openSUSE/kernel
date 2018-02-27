@@ -358,6 +358,12 @@ static sense_reason_t tcm_rbd_execute_unmap(struct se_cmd *cmd,
 	struct tcm_rbd_dev *tcm_rbd_dev = TCM_RBD_DEV(cmd->se_dev);
 	struct rbd_device *rbd_dev = tcm_rbd_dev->rbd_dev;
 
+	if (nolb == 0) {
+		pr_debug("ignoring zero length unmap at lba: %llu\n",
+			 (unsigned long long)lba);
+		return TCM_NO_SENSE;
+	}
+
 	return tcm_rbd_execute_cmd(cmd, rbd_dev, NULL, OBJ_OP_DISCARD,
 				   lba << SECTOR_SHIFT, nolb << SECTOR_SHIFT,
 				   true);
