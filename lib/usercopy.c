@@ -16,7 +16,7 @@ EXPORT_SYMBOL(_copy_from_user);
 #endif
 
 #ifndef INLINE_COPY_TO_USER
-unsigned long _copy_to_user(void *to, const void __user *from, unsigned long n)
+unsigned long _copy_to_user(void __user *to, const void *from, unsigned long n)
 {
 	if (likely(access_ok(VERIFY_WRITE, to, n)))
 		n = raw_copy_to_user(to, from, n);
