@@ -114,26 +114,10 @@ static int tcm_rbd_configure_device(struct se_device *dev)
 	dev->dev_attrib.hw_max_sectors = queue_max_hw_sectors(q);
 	dev->dev_attrib.hw_queue_depth = q->nr_requests;
 
-	/*
-	 * Check if the underlying struct block_device request_queue supports
-	 * the QUEUE_FLAG_DISCARD bit for UNMAP/WRITE_SAME in SCSI + TRIM
-	 * in ATA and we need to set TPE=1
-	 */
-	if (blk_queue_discard(q)) {
-		dev->dev_attrib.max_unmap_lba_count =
-				q->limits.max_discard_sectors;
+	if (target_configure_unmap_from_queue(&dev->dev_attrib, q))
+		pr_debug("RBD: BLOCK Discard support available,"
+			 " disabled by default\n");
 
-		/*
-		 * Currently hardcoded to 1 in Linux/SCSI code..
-		 */
-		dev->dev_attrib.max_unmap_block_desc_count = 1;
-		dev->dev_attrib.unmap_granularity =
-				q->limits.discard_granularity >> 9;
-		dev->dev_attrib.unmap_granularity_alignment =
-				q->limits.discard_alignment;
-
-		pr_debug("TCM RBD: BLOCK Discard support available disabled by default\n");
-	}
 	/*
 	 * Enable write same emulation for RBD and use 0xFFFF as
 	 * the smaller WRITE_SAME(10) only has a two-byte block count.
