@@ -4958,7 +4958,7 @@ int rbd_dev_setxattr(struct rbd_device *rbd_dev, char *key, void *val,
 
 	ceph_oid_copy(&req->r_base_oid, &rbd_dev->header_oid);
 	ceph_oloc_copy(&req->r_base_oloc, &rbd_dev->header_oloc);
-	req->r_flags = CEPH_OSD_FLAG_WRITE | CEPH_OSD_FLAG_ONDISK;
+	req->r_flags = CEPH_OSD_FLAG_WRITE;
 
 	ret = ceph_osdc_alloc_messages(req, GFP_KERNEL);
 	if (ret)
@@ -4994,7 +4994,7 @@ int rbd_dev_cmpsetxattr(struct rbd_device *rbd_dev, char *key, void *oldval,
 
 	ceph_oid_copy(&req->r_base_oid, &rbd_dev->header_oid);
 	ceph_oloc_copy(&req->r_base_oloc, &rbd_dev->header_oloc);
-	req->r_flags = CEPH_OSD_FLAG_WRITE | CEPH_OSD_FLAG_ONDISK;
+	req->r_flags = CEPH_OSD_FLAG_WRITE;
 
 	ret = ceph_osdc_alloc_messages(req, GFP_KERNEL);
 	if (ret)
