@@ -481,14 +481,26 @@ void scsi_attach_vpd(struct scsi_device *sdev)
 
 	/* Ask for all the pages supported by this device */
 	vpd_buf = scsi_get_vpd_buf(sdev, 0);
-	if (!vpd_buf)
+	if (!vpd_buf) {
+		sdev->skip_vpd_pages = true;
 		return;
+	}
 
 	for (i = 4; i < vpd_buf->len; i++) {
-		if (vpd_buf->data[i] == 0x80)
+		if (vpd_buf->data[i] == 0x80) {
 			scsi_update_vpd_page(sdev, 0x80, &sdev->vpd_pg80);
-		if (vpd_buf->data[i] == 0x83)
+			if (sdev->vpd_pg80 == NULL) {
+				sdev->skip_vpd_pages = true;
+				break;
+			}
+		}
+		if (vpd_buf->data[i] == 0x83) {
 			scsi_update_vpd_page(sdev, 0x83, &sdev->vpd_pg83);
+			if (sdev->vpd_pg83 == NULL) {
+				sdev->skip_vpd_pages = true;
+				break;
+			}
+		}
 	}
 	kfree(vpd_buf);
 }

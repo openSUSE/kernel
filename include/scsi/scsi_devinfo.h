@@ -15,13 +15,16 @@
 #define BLIST_ISROM     	0x100	/* Treat as (removable) CD-ROM */
 #define BLIST_LARGELUN		0x200	/* LUNs past 7 on a SCSI-2 device */
 #define BLIST_INQUIRY_36	0x400	/* override additional length field */
+#define BLIST_ABORTED_CMD_QUIRK 0x800   /* Device uses special return codes for
+					   ABORTED COMMAND,
+					   see scsi_aborted_cmd_quirk() */
 #define BLIST_NOSTARTONADD	0x1000	/* do not do automatic start on add */
 #define BLIST_REPORTLUN2	0x20000	/* try REPORT_LUNS even for SCSI-2 devs
  					   (if HBA supports more than 8 LUNs) */
 #define BLIST_NOREPORTLUN	0x40000	/* don't try REPORT_LUNS scan (SCSI-3 devs) */
 #define BLIST_NOT_LOCKABLE	0x80000	/* don't use PREVENT-ALLOW commands */
 #define BLIST_NO_ULD_ATTACH	0x100000 /* device is actually for RAID config */
-#define BLIST_SELECT_NO_ATN	0x200000 /* select without ATN */
+#define BLIST_TESTLUN		0x200000 /* Sent TEST UNIT READY before scanning */
 #define BLIST_RETRY_HWERROR	0x400000 /* retry HARDWARE_ERROR */
 #define BLIST_MAX_512		0x800000 /* maximum 512 sector cdb length */
 #define BLIST_NO_DIF		0x2000000 /* Disable T10 PI (DIF) */
