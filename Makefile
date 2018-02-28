@@ -1051,6 +1051,15 @@ endef
 include/config/kernel.release: include/config/auto.conf FORCE
 	$(call filechk,kernel.release)
 
+suse_version_h := include/generated/uapi/linux/suse_version.h
+
+define filechk_suse_version
+	$(CONFIG_SHELL) $(srctree)/scripts/gen-suse_version_h.sh
+endef
+
+$(suse_version_h): include/config/auto.conf FORCE
+	$(call filechk,suse_version)
+
 
 # Things we need to do before we recursively start building the kernel
 # or the modules are listed in "prepare".
@@ -1080,7 +1089,7 @@ endif
 prepare2: prepare3 prepare-compiler-check outputmakefile asm-generic
 
 prepare1: prepare2 $(version_h) include/generated/utsrelease.h \
-                   include/config/auto.conf
+                   include/config/auto.conf $(suse_version_h)
 	$(cmd_crmodverdir)
 
 archprepare: archheaders archscripts prepare1 scripts_basic
