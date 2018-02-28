@@ -380,14 +380,6 @@ again:
 		}
 	}
 
-	if (cpus_have_const_cap(ARM64_HARDEN_BP_POST_GUEST_EXIT)) {
-		u32 midr = read_cpuid_id();
-
-		/* Apply BTAC predictors mitigation to all Falkor chips */
-		if ((midr & MIDR_CPU_MODEL_MASK) == MIDR_QCOM_FALKOR_V1)
-			__qcom_hyp_sanitize_btac_predictors();
-	}
-
 	if (static_branch_unlikely(&vgic_v3_cpuif_trap) &&
 	    exit_code == ARM_EXCEPTION_TRAP &&
 	    (kvm_vcpu_trap_get_class(vcpu) == ESR_ELx_EC_SYS64 ||
@@ -402,6 +394,14 @@ again:
 		}
 
 		/* 0 falls through to be handled out of EL2 */
+	}
+
+	if (cpus_have_const_cap(ARM64_HARDEN_BP_POST_GUEST_EXIT)) {
+		u32 midr = read_cpuid_id();
+
+		/* Apply BTAC predictors mitigation to all Falkor chips */
+		if ((midr & MIDR_CPU_MODEL_MASK) == MIDR_QCOM_FALKOR_V1)
+			__qcom_hyp_sanitize_btac_predictors();
 	}
 
 	fp_enabled = __fpsimd_enabled();
