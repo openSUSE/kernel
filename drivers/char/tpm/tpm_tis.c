@@ -100,7 +100,7 @@ static int tpm_tcg_read_bytes(struct tpm_tis_data *data, u32 addr, u16 len,
 }
 
 static int tpm_tcg_write_bytes(struct tpm_tis_data *data, u32 addr, u16 len,
-			       u8 *value)
+			       const u8 *value)
 {
 	struct tpm_tis_tcg_phy *phy = to_tpm_tis_tcg_phy(data);
 
@@ -332,11 +332,9 @@ static int tpm_tis_plat_probe(struct platform_device *pdev)
 	}
 	tpm_info.res = *res;
 
-	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	if (res) {
-		tpm_info.irq = res->start;
-	} else {
-		if (pdev == force_pdev)
+	tpm_info.irq = platform_get_irq(pdev, 0);
+	if (tpm_info.irq <= 0) {
+		if (pdev != force_pdev)
 			tpm_info.irq = -1;
 		else
 			/* When forcing auto probe the IRQ */
