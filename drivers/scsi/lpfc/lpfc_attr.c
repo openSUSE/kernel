@@ -4126,23 +4126,32 @@ lpfc_link_speed_store(struct device *dev, struct device_attribute *attr,
 	    ((val == LPFC_USER_LINK_SPEED_8G) && !(phba->lmt & LMT_8Gb)) ||
 	    ((val == LPFC_USER_LINK_SPEED_10G) && !(phba->lmt & LMT_10Gb)) ||
 	    ((val == LPFC_USER_LINK_SPEED_16G) && !(phba->lmt & LMT_16Gb)) ||
-	    ((val == LPFC_USER_LINK_SPEED_32G) && !(phba->lmt & LMT_32Gb))) {
+	    ((val == LPFC_USER_LINK_SPEED_32G) && !(phba->lmt & LMT_32Gb)) ||
+	    ((val == LPFC_USER_LINK_SPEED_64G) && !(phba->lmt & LMT_64Gb))) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
 				"2879 lpfc_link_speed attribute cannot be set "
 				"to %d. Speed is not supported by this port.\n",
 				val);
 		return -EINVAL;
 	}
-	if (val == LPFC_USER_LINK_SPEED_16G &&
-		 phba->fc_topology == LPFC_TOPOLOGY_LOOP) {
+	if (val >= LPFC_USER_LINK_SPEED_16G &&
+	    phba->fc_topology == LPFC_TOPOLOGY_LOOP) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
 				"3112 lpfc_link_speed attribute cannot be set "
 				"to %d. Speed is not supported in loop mode.\n",
 				val);
 		return -EINVAL;
 	}
-	if ((val >= 0) && (val <= LPFC_USER_LINK_SPEED_MAX) &&
-	    (LPFC_USER_LINK_SPEED_BITMAP & (1 << val))) {
+
+	switch (val) {
+	case LPFC_USER_LINK_SPEED_AUTO:
+	case LPFC_USER_LINK_SPEED_1G:
+	case LPFC_USER_LINK_SPEED_2G:
+	case LPFC_USER_LINK_SPEED_4G:
+	case LPFC_USER_LINK_SPEED_8G:
+	case LPFC_USER_LINK_SPEED_16G:
+	case LPFC_USER_LINK_SPEED_32G:
+	case LPFC_USER_LINK_SPEED_64G:
 		prev_val = phba->cfg_link_speed;
 		phba->cfg_link_speed = val;
 		if (nolip)
@@ -4152,13 +4161,18 @@ lpfc_link_speed_store(struct device *dev, struct device_attribute *attr,
 		if (err) {
 			phba->cfg_link_speed = prev_val;
 			return -EINVAL;
-		} else
-			return strlen(buf);
+		}
+		return strlen(buf);
+	default:
+		break;
 	}
+
 	lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
-		"0469 lpfc_link_speed attribute cannot be set to %d, "
-		"allowed values are ["LPFC_LINK_SPEED_STRING"]\n", val);
+			"0469 lpfc_link_speed attribute cannot be set to %d, "
+			"allowed values are [%s]\n",
+			val, LPFC_LINK_SPEED_STRING);
 	return -EINVAL;
+
 }
 
 static int lpfc_link_speed = 0;
@@ -4185,24 +4199,33 @@ lpfc_param_show(link_speed)
 static int
 lpfc_link_speed_init(struct lpfc_hba *phba, int val)
 {
-	if (val == LPFC_USER_LINK_SPEED_16G && phba->cfg_topology == 4) {
+	if (val >= LPFC_USER_LINK_SPEED_16G && phba->cfg_topology == 4) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
 			"3111 lpfc_link_speed of %d cannot "
 			"support loop mode, setting topology to default.\n",
 			 val);
 		phba->cfg_topology = 0;
 	}
-	if ((val >= 0) && (val <= LPFC_USER_LINK_SPEED_MAX) &&
-	    (LPFC_USER_LINK_SPEED_BITMAP & (1 << val))) {
+
+	switch (val) {
+	case LPFC_USER_LINK_SPEED_AUTO:
+	case LPFC_USER_LINK_SPEED_1G:
+	case LPFC_USER_LINK_SPEED_2G:
+	case LPFC_USER_LINK_SPEED_4G:
+	case LPFC_USER_LINK_SPEED_8G:
+	case LPFC_USER_LINK_SPEED_16G:
+	case LPFC_USER_LINK_SPEED_32G:
+	case LPFC_USER_LINK_SPEED_64G:
 		phba->cfg_link_speed = val;
 		return 0;
+	default:
+		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+				"0405 lpfc_link_speed attribute cannot "
+				"be set to %d, allowed values are "
+				"["LPFC_LINK_SPEED_STRING"]\n", val);
+		phba->cfg_link_speed = LPFC_USER_LINK_SPEED_AUTO;
+		return -EINVAL;
 	}
-	lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
-			"0405 lpfc_link_speed attribute cannot "
-			"be set to %d, allowed values are "
-			"["LPFC_LINK_SPEED_STRING"]\n", val);
-	phba->cfg_link_speed = LPFC_USER_LINK_SPEED_AUTO;
-	return -EINVAL;
 }
 
 static DEVICE_ATTR(lpfc_link_speed, S_IRUGO | S_IWUSR,
@@ -5037,6 +5060,18 @@ LPFC_ATTR_RW(nvme_oas, 0, 0, 1,
 	     "Use OAS bit on NVME IOs");
 
 /*
+ * lpfc_nvme_embed_cmd: Use the oas bit when sending NVME/NVMET IOs
+ *
+ *      0  = Put NVME Command in SGL
+ *      1  = Embed NVME Command in WQE (unless G7)
+ *      2 =  Embed NVME Command in WQE (force)
+ *
+ * Value range is [0,2]. Default value is 1.
+ */
+LPFC_ATTR_RW(nvme_embed_cmd, 1, 0, 2,
+	     "Embed NVME Command in WQE");
+
+/*
  * lpfc_fcp_io_channel: Set the number of FCP IO channels the driver
  * will advertise it supports to the SCSI layer. This also will map to
  * the number of WQs the driver will create.
@@ -5204,6 +5239,14 @@ LPFC_ATTR_R(enable_mds_diags, 0, 0, 1, "Enable MDS Diagnostics");
  */
 LPFC_BBCR_ATTR_RW(enable_bbcr, 1, 0, 1, "Enable BBC Recovery");
 
+/*
+ * lpfc_enable_dpp: Enable DPP on G7
+ *       0  = DPP on G7 disabled
+ *       1  = DPP on G7 enabled (default)
+ * Value range is [0,1]. Default value is 1.
+ */
+LPFC_ATTR_RW(enable_dpp, 1, 0, 1, "Enable Direct Packet Push");
+
 struct device_attribute *lpfc_hba_attrs[] = {
 	&dev_attr_nvme_info,
 	&dev_attr_bg_info,
@@ -5269,6 +5312,7 @@ struct device_attribute *lpfc_hba_attrs[] = {
 	&dev_attr_lpfc_task_mgmt_tmo,
 	&dev_attr_lpfc_use_msi,
 	&dev_attr_lpfc_nvme_oas,
+	&dev_attr_lpfc_nvme_embed_cmd,
 	&dev_attr_lpfc_auto_imax,
 	&dev_attr_lpfc_fcp_imax,
 	&dev_attr_lpfc_fcp_cpu_map,
@@ -5312,6 +5356,7 @@ struct device_attribute *lpfc_hba_attrs[] = {
 	&dev_attr_lpfc_xlane_supported,
 	&dev_attr_lpfc_enable_mds_diags,
 	&dev_attr_lpfc_enable_bbcr,
+	&dev_attr_lpfc_enable_dpp,
 	NULL,
 };
 
@@ -5724,6 +5769,9 @@ lpfc_get_host_speed(struct Scsi_Host *shost)
 			break;
 		case LPFC_LINK_SPEED_32GHZ:
 			fc_host_speed(shost) = FC_PORTSPEED_32GBIT;
+			break;
+		case LPFC_LINK_SPEED_64GHZ:
+			fc_host_speed(shost) = FC_PORTSPEED_64GBIT;
 			break;
 		default:
 			fc_host_speed(shost) = FC_PORTSPEED_UNKNOWN;
@@ -6289,6 +6337,7 @@ lpfc_get_cfgparam(struct lpfc_hba *phba)
 	lpfc_enable_SmartSAN_init(phba, lpfc_enable_SmartSAN);
 	lpfc_use_msi_init(phba, lpfc_use_msi);
 	lpfc_nvme_oas_init(phba, lpfc_nvme_oas);
+	lpfc_nvme_embed_cmd_init(phba, lpfc_nvme_embed_cmd);
 	lpfc_auto_imax_init(phba, lpfc_auto_imax);
 	lpfc_fcp_imax_init(phba, lpfc_fcp_imax);
 	lpfc_fcp_cpu_map_init(phba, lpfc_fcp_cpu_map);
@@ -6324,6 +6373,7 @@ lpfc_get_cfgparam(struct lpfc_hba *phba)
 	lpfc_fcp_io_channel_init(phba, lpfc_fcp_io_channel);
 	lpfc_nvme_io_channel_init(phba, lpfc_nvme_io_channel);
 	lpfc_enable_bbcr_init(phba, lpfc_enable_bbcr);
+	lpfc_enable_dpp_init(phba, lpfc_enable_dpp);
 
 	if (phba->sli_rev != LPFC_SLI_REV4) {
 		/* NVME only supported on SLI4 */
