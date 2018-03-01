@@ -239,6 +239,7 @@ out:
 }
 
 struct l2tp_tunnel *l2tp_tunnel_get(const struct net *net, u32 tunnel_id);
+void l2tp_tunnel_free(struct l2tp_tunnel *tunnel);
 
 struct l2tp_session *l2tp_session_get(const struct net *net,
 				      struct l2tp_tunnel *tunnel,
@@ -287,7 +288,7 @@ static inline void l2tp_tunnel_inc_refcount(struct l2tp_tunnel *tunnel)
 static inline void l2tp_tunnel_dec_refcount(struct l2tp_tunnel *tunnel)
 {
 	if (atomic_dec_and_test(&tunnel->ref_count))
-		kfree_rcu(tunnel, rcu);
+		l2tp_tunnel_free(tunnel);
 }
 
 /* Session reference counts. Incremented when code obtains a reference
