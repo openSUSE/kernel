@@ -157,7 +157,7 @@ static int l2tp_ip6_recv(struct sk_buff *skb)
 	}
 
 	/* Ok, this is a data packet. Lookup the session. */
-	session = l2tp_session_get(net, NULL, session_id, true);
+	session = l2tp_session_get(net, NULL, session_id);
 	if (!session)
 		goto discard;
 
@@ -213,8 +213,6 @@ pass_up:
 	return sk_receive_skb(sk, skb, 1);
 
 discard_sess:
-	if (session->deref)
-		session->deref(session);
 	l2tp_session_dec_refcount(session);
 	goto discard;
 
@@ -250,16 +248,14 @@ static void l2tp_ip6_close(struct sock *sk, long timeout)
 
 static void l2tp_ip6_destroy_sock(struct sock *sk)
 {
-	struct l2tp_tunnel *tunnel = l2tp_sock_to_tunnel(sk);
+	struct l2tp_tunnel *tunnel = sk->sk_user_data;
 
 	lock_sock(sk);
 	ip6_flush_pending_frames(sk);
 	release_sock(sk);
 
-	if (tunnel) {
-		l2tp_tunnel_closeall(tunnel);
-		sock_put(sk);
-	}
+	if (tunnel)
+		l2tp_tunnel_delete(tunnel);
 
 	inet6_destroy_sock(sk);
 }
