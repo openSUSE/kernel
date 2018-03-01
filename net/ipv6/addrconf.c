@@ -3848,8 +3848,8 @@ static void addrconf_dad_begin(struct inet6_ifaddr *ifp)
 		goto out;
 
 	if (dev->flags&(IFF_NOARP|IFF_LOOPBACK) ||
-	    dev_net(dev)->ipv6.devconf_all->accept_dad < 1 ||
-	    idev->cnf.accept_dad < 1 ||
+	    (dev_net(dev)->ipv6.devconf_all->accept_dad < 1 &&
+	     idev->cnf.accept_dad < 1) ||
 	    !(ifp->flags&IFA_F_TENTATIVE) ||
 	    ifp->flags & IFA_F_NODAD) {
 		bool send_na = false;
