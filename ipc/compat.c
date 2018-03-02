@@ -715,6 +715,7 @@ COMPAT_SYSCALL_DEFINE3(shmctl, int, first, int, second, void __user *, uptr)
 
 	case IPC_STAT:
 	case SHM_STAT:
+	case SHM_STAT_ANY:
 		p = compat_alloc_user_space(sizeof(sem64));
 		err = sys_shmctl(first, second, p);
 		if (err < 0)

@@ -3061,6 +3061,7 @@ static int smack_shm_shmctl(struct shmid_kernel *shp, int cmd)
 	switch (cmd) {
 	case IPC_STAT:
 	case SHM_STAT:
+	case SHM_STAT_ANY:
 		may = MAY_READ;
 		break;
 	case IPC_SET:
