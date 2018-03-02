@@ -269,6 +269,7 @@ static long do_compat_semctl(int first, int second, int third, u32 pad)
 
 	case IPC_STAT:
 	case SEM_STAT:
+	case SEM_STAT_ANY:
 		up64 = compat_alloc_user_space(sizeof(sem64));
 		fourth = (unsigned long)up64;
 		err = sys_semctl(first, second, third, fourth);
