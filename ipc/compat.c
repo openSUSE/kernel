@@ -269,6 +269,7 @@ static long do_compat_semctl(int first, int second, int third, u32 pad)
 
 	case IPC_STAT:
 	case SEM_STAT:
+	case SEM_STAT_ANY:
 		up64 = compat_alloc_user_space(sizeof(sem64));
 		fourth = (unsigned long)up64;
 		err = sys_semctl(first, second, third, fourth);
@@ -528,6 +529,7 @@ COMPAT_SYSCALL_DEFINE3(msgctl, int, first, int, second, void __user *, uptr)
 
 	case IPC_STAT:
 	case MSG_STAT:
+	case MSG_STAT_ANY:
 		p = compat_alloc_user_space(sizeof(m64));
 		err = sys_msgctl(first, second, p);
 		if (err < 0)
@@ -715,6 +717,7 @@ COMPAT_SYSCALL_DEFINE3(shmctl, int, first, int, second, void __user *, uptr)
 
 	case IPC_STAT:
 	case SHM_STAT:
+	case SHM_STAT_ANY:
 		p = compat_alloc_user_space(sizeof(sem64));
 		err = sys_shmctl(first, second, p);
 		if (err < 0)

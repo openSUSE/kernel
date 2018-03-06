@@ -1217,6 +1217,7 @@ static int semctl_nolock(struct ipc_namespace *ns, int semid,
 	}
 	case IPC_STAT:
 	case SEM_STAT:
+	case SEM_STAT_ANY:
 	{
 		struct semid64_ds tbuf;
 		int id = 0;
@@ -1224,7 +1225,7 @@ static int semctl_nolock(struct ipc_namespace *ns, int semid,
 		memset(&tbuf, 0, sizeof(tbuf));
 
 		rcu_read_lock();
-		if (cmd == SEM_STAT) {
+		if (cmd == SEM_STAT || cmd == SEM_STAT_ANY) {
 			sma = sem_obtain_object(ns, semid);
 			if (IS_ERR(sma)) {
 				err = PTR_ERR(sma);
@@ -1239,9 +1240,14 @@ static int semctl_nolock(struct ipc_namespace *ns, int semid,
 			}
 		}
 
-		err = -EACCES;
-		if (ipcperms(ns, &sma->sem_perm, S_IRUGO))
-			goto out_unlock;
+		/* see comment for SHM_STAT_ANY */
+		if (cmd == SEM_STAT_ANY)
+			audit_ipc_obj(&sma->sem_perm);
+		else {
+			err = -EACCES;
+			if (ipcperms(ns, &sma->sem_perm, S_IRUGO))
+				goto out_unlock;
+		}
 
 		err = security_sem_semctl(sma, cmd);
 		if (err)
@@ -1601,6 +1607,7 @@ SYSCALL_DEFINE4(semctl, int, semid, int, semnum, int, cmd, unsigned long, arg)
 	case SEM_INFO:
 	case IPC_STAT:
 	case SEM_STAT:
+	case SEM_STAT_ANY:
 		return semctl_nolock(ns, semid, cmd, version, p);
 	case GETALL:
 	case GETVAL:
