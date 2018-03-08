@@ -227,6 +227,7 @@ static int intel_th_output_activate(struct intel_th_device *thdev)
 {
 	struct intel_th_driver *thdrv =
 		to_intel_th_driver_or_null(thdev->dev.driver);
+	struct intel_th *th = to_intel_th(thdev);
 	int ret = 0;
 
 	if (!thdrv)
@@ -237,15 +238,28 @@ static int intel_th_output_activate(struct intel_th_device *thdev)
 
 	pm_runtime_get_sync(&thdev->dev);
 
+	if (th->activate)
+		ret = th->activate(th);
+	if (ret)
+		goto fail_put;
+
 	if (thdrv->activate)
 		ret = thdrv->activate(thdev);
 	else
 		intel_th_trace_enable(thdev);
 
-	if (ret) {
-		pm_runtime_put(&thdev->dev);
-		module_put(thdrv->driver.owner);
-	}
+	if (ret)
+		goto fail_deactivate;
+
+	return 0;
+
+fail_deactivate:
+	if (th->deactivate)
+		th->deactivate(th);
+
+fail_put:
+	pm_runtime_put(&thdev->dev);
+	module_put(thdrv->driver.owner);
 
 	return ret;
 }
@@ -254,6 +268,7 @@ static void intel_th_output_deactivate(struct intel_th_device *thdev)
 {
 	struct intel_th_driver *thdrv =
 		to_intel_th_driver_or_null(thdev->dev.driver);
+	struct intel_th *th = to_intel_th(thdev);
 
 	if (!thdrv)
 		return;
@@ -262,6 +277,9 @@ static void intel_th_output_deactivate(struct intel_th_device *thdev)
 		thdrv->deactivate(thdev);
 	else
 		intel_th_trace_disable(thdev);
+
+	if (th->deactivate)
+		th->deactivate(th);
 
 	pm_runtime_put(&thdev->dev);
 	module_put(thdrv->driver.owner);
