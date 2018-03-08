@@ -48,8 +48,8 @@ static inline struct irq_domain *iort_get_device_domain(struct device *dev,
 static inline void acpi_configure_pmsi_domain(struct device *dev) { }
 /* IOMMU interface */
 static inline void iort_set_dma_mask(struct device *dev) { }
-static inline
-const struct iommu_ops *iort_iommu_configure(struct device *dev)
+static inline const struct iommu_ops *iort_iommu_configure(
+				      struct device *dev)
 { return NULL; }
 #endif
 
