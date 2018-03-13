@@ -52,7 +52,7 @@ static LIST_HEAD(klp_patches);
  * 'replace' bit set. When they are added to this list, they are disabled and
  * can not be re-enabled, but they can be unregistered().
  */
-LIST_HEAD(klp_replaced_patches);
+static LIST_HEAD(klp_replaced_patches);
 
 static struct kobject *klp_root_kobj;
 
