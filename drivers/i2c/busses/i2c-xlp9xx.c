@@ -10,12 +10,14 @@
 #include <linux/clk.h>
 #include <linux/completion.h>
 #include <linux/i2c.h>
+#include <linux/i2c-smbus.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/delay.h>
 
 #define XLP9XX_I2C_DIV			0x0
 #define XLP9XX_I2C_CTRL			0x1
@@ -35,6 +37,8 @@
 #define XLP9XX_I2C_WAITCNT		0xF
 #define XLP9XX_I2C_TIMEOUT		0X10
 #define XLP9XX_I2C_GENCALLADDR		0x11
+
+#define XLP9XX_I2C_STATUS_BUSY		BIT(0)
 
 #define XLP9XX_I2C_CMD_START		BIT(7)
 #define XLP9XX_I2C_CMD_STOP		BIT(6)
@@ -71,6 +75,7 @@
 #define XLP9XX_I2C_HIGH_FREQ		400000
 #define XLP9XX_I2C_FIFO_SIZE		0x80U
 #define XLP9XX_I2C_TIMEOUT_MS		1000
+#define XLP9XX_I2C_BUSY_TIMEOUT		50
 
 #define XLP9XX_I2C_FIFO_WCNT_MASK	0xff
 #define XLP9XX_I2C_STATUS_ERRMASK	(XLP9XX_I2C_INTEN_ARLOST | \
@@ -80,6 +85,8 @@ struct xlp9xx_i2c_dev {
 	struct device *dev;
 	struct i2c_adapter adapter;
 	struct completion msg_complete;
+	struct i2c_smbus_alert_setup alert_data;
+	struct i2c_client *ara;
 	int irq;
 	bool msg_read;
 	bool len_recv;
@@ -125,7 +132,16 @@ static void xlp9xx_i2c_update_rx_fifo_thres(struct xlp9xx_i2c_dev *priv)
 {
 	u32 thres;
 
-	thres = min(priv->msg_buf_remaining, XLP9XX_I2C_FIFO_SIZE);
+	if (priv->len_recv)
+		/* interrupt after the first read to examine
+		 * the length byte before proceeding further
+		 */
+		thres = 1;
+	else if (priv->msg_buf_remaining > XLP9XX_I2C_FIFO_SIZE)
+		thres = XLP9XX_I2C_FIFO_SIZE;
+	else
+		thres = priv->msg_buf_remaining;
+
 	xlp9xx_write_i2c_reg(priv, XLP9XX_I2C_MFIFOCTRL,
 			     thres << XLP9XX_I2C_MFIFOCTRL_HITH_SHIFT);
 }
@@ -144,7 +160,7 @@ static void xlp9xx_i2c_fill_tx_fifo(struct xlp9xx_i2c_dev *priv)
 
 static void xlp9xx_i2c_drain_rx_fifo(struct xlp9xx_i2c_dev *priv)
 {
-	u32 len, i;
+	u32 len, i, val;
 	u8 rlen, *buf = priv->msg_buf;
 
 	len = xlp9xx_read_i2c_reg(priv, XLP9XX_I2C_FIFOWCNT) &
@@ -156,19 +172,27 @@ static void xlp9xx_i2c_drain_rx_fifo(struct xlp9xx_i2c_dev *priv)
 		rlen = xlp9xx_read_i2c_reg(priv, XLP9XX_I2C_MRXFIFO);
 		*buf++ = rlen;
 		len--;
+
 		if (priv->client_pec)
 			++rlen;
 		/* update remaining bytes and message length */
 		priv->msg_buf_remaining = rlen;
 		priv->msg_len = rlen + 1;
 		priv->len_recv = false;
+
+		/* Update transfer length to read only actual data */
+		val = xlp9xx_read_i2c_reg(priv, XLP9XX_I2C_CTRL);
+		val = (val & ~XLP9XX_I2C_CTRL_MCTLEN_MASK) |
+			((rlen + 1) << XLP9XX_I2C_CTRL_MCTLEN_SHIFT);
+		xlp9xx_write_i2c_reg(priv, XLP9XX_I2C_CTRL, val);
+	} else {
+		len = min(priv->msg_buf_remaining, len);
+		for (i = 0; i < len; i++, buf++)
+			*buf = xlp9xx_read_i2c_reg(priv, XLP9XX_I2C_MRXFIFO);
+
+		priv->msg_buf_remaining -= len;
 	}
 
-	len = min(priv->msg_buf_remaining, len);
-	for (i = 0; i < len; i++, buf++)
-		*buf = xlp9xx_read_i2c_reg(priv, XLP9XX_I2C_MRXFIFO);
-
-	priv->msg_buf_remaining -= len;
 	priv->msg_buf = buf;
 
 	if (priv->msg_buf_remaining)
@@ -222,6 +246,26 @@ xfer_done:
 	xlp9xx_write_i2c_reg(priv, XLP9XX_I2C_INTEN, 0);
 	complete(&priv->msg_complete);
 	return IRQ_HANDLED;
+}
+
+static int xlp9xx_i2c_check_bus_status(struct xlp9xx_i2c_dev *priv)
+{
+	u32 status;
+	u32 busy_timeout = XLP9XX_I2C_BUSY_TIMEOUT;
+
+	while (busy_timeout) {
+		status = xlp9xx_read_i2c_reg(priv, XLP9XX_I2C_STATUS);
+		if ((status & XLP9XX_I2C_STATUS_BUSY) == 0)
+			break;
+
+		busy_timeout--;
+		usleep_range(1000, 1100);
+	}
+
+	if (!busy_timeout)
+		return -EIO;
+
+	return 0;
 }
 
 static int xlp9xx_i2c_init(struct xlp9xx_i2c_dev *priv)
@@ -311,7 +355,9 @@ static int xlp9xx_i2c_xfer_msg(struct xlp9xx_i2c_dev *priv, struct i2c_msg *msg,
 
 	/* set cmd reg */
 	cmd = XLP9XX_I2C_CMD_START;
-	cmd |= (priv->msg_read ? XLP9XX_I2C_CMD_READ : XLP9XX_I2C_CMD_WRITE);
+	if (msg->len)
+		cmd |= (priv->msg_read ?
+			XLP9XX_I2C_CMD_READ : XLP9XX_I2C_CMD_WRITE);
 	if (last_msg)
 		cmd |= XLP9XX_I2C_CMD_STOP;
 
@@ -320,11 +366,12 @@ static int xlp9xx_i2c_xfer_msg(struct xlp9xx_i2c_dev *priv, struct i2c_msg *msg,
 	timeleft = msecs_to_jiffies(XLP9XX_I2C_TIMEOUT_MS);
 	timeleft = wait_for_completion_timeout(&priv->msg_complete, timeleft);
 
-	if (priv->msg_err) {
+	if (priv->msg_err & XLP9XX_I2C_INTEN_BUSERR) {
 		dev_dbg(priv->dev, "transfer error %x!\n", priv->msg_err);
-		if (priv->msg_err & XLP9XX_I2C_INTEN_BUSERR)
-			xlp9xx_i2c_init(priv);
+		xlp9xx_write_i2c_reg(priv, XLP9XX_I2C_CMD, XLP9XX_I2C_CMD_STOP);
 		return -EIO;
+	} else if (priv->msg_err & XLP9XX_I2C_INTEN_NACKADDR) {
+		return -ENXIO;
 	}
 
 	if (timeleft == 0) {
@@ -345,6 +392,14 @@ static int xlp9xx_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 	int i, ret;
 	struct xlp9xx_i2c_dev *priv = i2c_get_adapdata(adap);
 
+	ret = xlp9xx_i2c_check_bus_status(priv);
+	if (ret) {
+		xlp9xx_i2c_init(priv);
+		ret = xlp9xx_i2c_check_bus_status(priv);
+		if (ret)
+			return ret;
+	}
+
 	for (i = 0; i < num; i++) {
 		ret = xlp9xx_i2c_xfer_msg(priv, &msgs[i], i == num - 1);
 		if (ret != 0)
@@ -356,8 +411,8 @@ static int xlp9xx_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 
 static u32 xlp9xx_i2c_functionality(struct i2c_adapter *adapter)
 {
-	return I2C_FUNC_SMBUS_EMUL | I2C_FUNC_I2C |
-		I2C_FUNC_10BIT_ADDR;
+	return I2C_FUNC_SMBUS_EMUL | I2C_FUNC_SMBUS_READ_BLOCK_DATA |
+			I2C_FUNC_I2C | I2C_FUNC_10BIT_ADDR;
 }
 
 static const struct i2c_algorithm xlp9xx_i2c_algo = {
@@ -395,6 +450,21 @@ static int xlp9xx_i2c_get_frequency(struct platform_device *pdev,
 	return 0;
 }
 
+static int xlp9xx_i2c_smbus_setup(struct xlp9xx_i2c_dev *priv,
+				  struct platform_device *pdev)
+{
+	if (!priv->alert_data.irq)
+		return -EINVAL;
+
+	priv->alert_data.alert_edge_triggered = 0;
+
+	priv->ara = i2c_setup_smbus_alert(&priv->adapter, &priv->alert_data);
+	if (!priv->ara)
+		return -ENODEV;
+
+	return 0;
+}
+
 static int xlp9xx_i2c_probe(struct platform_device *pdev)
 {
 	struct xlp9xx_i2c_dev *priv;
@@ -415,6 +485,10 @@ static int xlp9xx_i2c_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "invalid irq!\n");
 		return priv->irq;
 	}
+	/* SMBAlert irq */
+	priv->alert_data.irq = platform_get_irq(pdev, 1);
+	if (priv->alert_data.irq <= 0)
+		priv->alert_data.irq = 0;
 
 	xlp9xx_i2c_get_frequency(pdev, priv);
 	xlp9xx_i2c_init(priv);
@@ -440,6 +514,10 @@ static int xlp9xx_i2c_probe(struct platform_device *pdev)
 	err = i2c_add_adapter(&priv->adapter);
 	if (err)
 		return err;
+
+	err = xlp9xx_i2c_smbus_setup(priv, pdev);
+	if (err)
+		dev_info(&pdev->dev, "No active SMBus alert %d\n", err);
 
 	platform_set_drvdata(pdev, priv);
 	dev_dbg(&pdev->dev, "I2C bus:%d added\n", priv->adapter.nr);
