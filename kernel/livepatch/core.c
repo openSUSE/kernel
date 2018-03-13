@@ -792,8 +792,10 @@ static struct klp_func *klp_alloc_func_nop(struct klp_func *old_func,
 		}
 	}
 	func->old_sympos = old_func->old_sympos;
-	/* NOP func is the same as using the original implementation. */
-	func->new_func = (void *)old_func->old_addr;
+	/*
+	 * func->new_func is same as func->old_addr. These addresses are
+	 * set when the object is loaded, see klp_init_object_loaded().
+	 */
 	func->ftype = KLP_FUNC_NOP;
 
 	return func;
@@ -956,8 +958,12 @@ static void klp_free_object_loaded(struct klp_object *obj)
 
 	obj->mod = NULL;
 
-	klp_for_each_func(obj, func)
+	klp_for_each_func(obj, func) {
 		func->old_addr = 0;
+
+		if (klp_is_func_type(func, KLP_FUNC_NOP))
+			func->new_func = NULL;
+	}
 }
 
 /*
@@ -995,7 +1001,14 @@ static void klp_free_patch(struct klp_patch *patch)
 
 static int klp_init_func(struct klp_object *obj, struct klp_func *func)
 {
-	if (!func->old_name || !func->new_func)
+	if (!func->old_name)
+		return -EINVAL;
+
+	/*
+	 * NOPs get the address later. The the patched module must be loaded,
+	 * see klp_init_object_loaded().
+	 */
+	if (!func->new_func && !klp_is_func_type(func, KLP_FUNC_NOP))
 		return -EINVAL;
 
 	INIT_LIST_HEAD(&func->stack_node);
@@ -1049,6 +1062,9 @@ static int klp_init_object_loaded(struct klp_patch *patch,
 			       func->old_name);
 			return -ENOENT;
 		}
+
+		if (klp_is_func_type(func, KLP_FUNC_NOP))
+			func->new_func = (void *)func->old_addr;
 
 		ret = kallsyms_lookup_size_offset((unsigned long)func->new_func,
 						  &func->new_size, NULL);
