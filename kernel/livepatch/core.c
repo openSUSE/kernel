@@ -371,9 +371,9 @@ static void klp_taint_kernel(const struct klp_patch *patch)
  * and klp_patches stack.
  *
  * We could be pretty aggressive here. It is called in situation
- * when these structures are not longer accessible. All functions
+ * when these structures are no longer accessible. All functions
  * are redirected using the klp_transition_patch. They use either
- * a new code or they in the original code because of the special
+ * a new code or they are in the original code because of the special
  * nop function patches.
  */
 void klp_throw_away_replaced_patches(struct klp_patch *new_patch,
@@ -847,7 +847,7 @@ static int klp_add_object_nops(struct klp_patch *patch,
  * the new patch is initialized. It is safe even though some
  * older patches might get disabled and removed before the
  * new one is enabled. In the worst case, there might be nops
- * there will not be really needed. But it does not harm and
+ * which will not be really needed. But it does not harm and
  * simplifies the implementation a lot. Especially we could
  * use the init functions as is.
  */
@@ -965,7 +965,7 @@ static void klp_free_object_loaded(struct klp_object *obj)
  * Use the kobject when it has already been initialized. Otherwise,
  * do it directly.
  */
-static void klp_free_objects(struct klp_patch *patch, enum klp_func_type ftype)
+void klp_free_objects(struct klp_patch *patch, enum klp_func_type ftype)
 {
 	struct klp_object *obj, *tmp_obj;
 
