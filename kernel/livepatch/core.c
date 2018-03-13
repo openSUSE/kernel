@@ -754,6 +754,7 @@ static struct klp_object *klp_alloc_object_dynamic(const char *name)
 			return ERR_PTR(-ENOMEM);
 		}
 	}
+	obj->otype = KLP_OBJECT_DYNAMIC;
 
 	return obj;
 }
@@ -979,6 +980,15 @@ void klp_free_objects(struct klp_patch *patch, enum klp_func_type ftype)
 		klp_free_funcs(obj, ftype);
 
 		if (!list_empty(&obj->func_list))
+			continue;
+
+		/*
+		 * Keep objects from the original patch initialized until
+		 * the entire patch is being freed.
+		 */
+		if (!klp_is_object_dynamic(obj) &&
+		    ftype != KLP_FUNC_STATIC &&
+		    ftype != KLP_FUNC_ANY)
 			continue;
 
 		/* Avoid freeing the object twice. */
