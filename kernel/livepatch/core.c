@@ -965,7 +965,7 @@ static void klp_free_object_loaded(struct klp_object *obj)
  * Use the kobject when it has already been initialized. Otherwise,
  * do it directly.
  */
-void klp_free_objects(struct klp_patch *patch, enum klp_func_type ftype)
+static void klp_free_objects(struct klp_patch *patch, enum klp_func_type ftype)
 {
 	struct klp_object *obj, *tmp_obj;
 
