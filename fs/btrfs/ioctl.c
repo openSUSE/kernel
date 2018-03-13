@@ -2245,7 +2245,7 @@ static noinline int btrfs_search_path_in_tree(struct btrfs_fs_info *info,
 	if (!path)
 		return -ENOMEM;
 
-	ptr = &name[BTRFS_INO_LOOKUP_PATH_MAX];
+	ptr = &name[BTRFS_INO_LOOKUP_PATH_MAX - 1];
 
 	key.objectid = tree_id;
 	key.type = BTRFS_ROOT_ITEM_KEY;
@@ -3996,6 +3996,7 @@ static long btrfs_ioctl_trans_start(struct file *file)
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	struct btrfs_root *root = BTRFS_I(inode)->root;
 	struct btrfs_trans_handle *trans;
+	struct btrfs_file_private *private;
 	int ret;
 
 	ret = -EPERM;
@@ -4003,8 +4004,16 @@ static long btrfs_ioctl_trans_start(struct file *file)
 		goto out;
 
 	ret = -EINPROGRESS;
-	if (file->private_data)
+	private = file->private_data;
+	if (private && private->trans)
 		goto out;
+	if (!private) {
+		private = kzalloc(sizeof(struct btrfs_file_private),
+				  GFP_KERNEL);
+		if (!private)
+			return -ENOMEM;
+		file->private_data = private;
+	}
 
 	ret = -EROFS;
 	if (btrfs_root_readonly(root))
@@ -4021,7 +4030,7 @@ static long btrfs_ioctl_trans_start(struct file *file)
 	if (IS_ERR(trans))
 		goto out_drop;
 
-	file->private_data = trans;
+	private->trans = trans;
 	return 0;
 
 out_drop:
@@ -4276,14 +4285,13 @@ long btrfs_ioctl_trans_end(struct file *file)
 {
 	struct inode *inode = file_inode(file);
 	struct btrfs_root *root = BTRFS_I(inode)->root;
-	struct btrfs_trans_handle *trans;
+	struct btrfs_file_private *private = file->private_data;
 
-	trans = file->private_data;
-	if (!trans)
+	if (!private || !private->trans)
 		return -EINVAL;
-	file->private_data = NULL;
 
-	btrfs_end_transaction(trans);
+	btrfs_end_transaction(private->trans);
+	private->trans = NULL;
 
 	atomic_dec(&root->fs_info->open_ioctl_trans);
 
