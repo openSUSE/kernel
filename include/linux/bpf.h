@@ -71,6 +71,7 @@ enum bpf_arg_type {
 	 * functions that access data on eBPF program stack
 	 */
 	ARG_PTR_TO_MEM,		/* pointer to valid memory (stack, packet, map value) */
+	ARG_PTR_TO_MEM_OR_NULL, /* pointer to valid memory or NULL */
 	ARG_PTR_TO_UNINIT_MEM,	/* pointer to memory does not need to be initialized,
 				 * helper function must fill all bytes or clear
 				 * them in error case.
@@ -155,6 +156,11 @@ bpf_ctx_record_field_size(struct bpf_insn_access_aux *aux, u32 size)
 	aux->ctx_field_size = size;
 }
 
+struct bpf_prog_ops {
+	int (*test_run)(struct bpf_prog *prog, const union bpf_attr *kattr,
+			union bpf_attr __user *uattr);
+};
+
 struct bpf_verifier_ops {
 	/* return eBPF function prototype for verification */
 	const struct bpf_func_proto *(*get_func_proto)(enum bpf_func_id func_id);
@@ -170,8 +176,6 @@ struct bpf_verifier_ops {
 				  const struct bpf_insn *src,
 				  struct bpf_insn *dst,
 				  struct bpf_prog *prog, u32 *target_size);
-	int (*test_run)(struct bpf_prog *prog, const union bpf_attr *kattr,
-			union bpf_attr __user *uattr);
 };
 
 struct bpf_prog_aux {
@@ -182,7 +186,7 @@ struct bpf_prog_aux {
 	u32 id;
 	struct latch_tree_node ksym_tnode;
 	struct list_head ksym_lnode;
-	const struct bpf_verifier_ops *ops;
+	const struct bpf_prog_ops *ops;
 	struct bpf_map **used_maps;
 	struct bpf_prog *prog;
 	struct user_struct *user;
@@ -241,13 +245,17 @@ int bpf_prog_test_run_skb(struct bpf_prog *prog, const union bpf_attr *kattr,
 #ifdef CONFIG_BPF_SYSCALL
 DECLARE_PER_CPU(int, bpf_prog_active);
 
-#define BPF_PROG_TYPE(_id, _ops) \
-	extern const struct bpf_verifier_ops _ops;
+#define BPF_PROG_TYPE(_id, _name) \
+	extern const struct bpf_prog_ops _name ## _prog_ops; \
+	extern const struct bpf_verifier_ops _name ## _verifier_ops;
 #define BPF_MAP_TYPE(_id, _ops) \
 	extern const struct bpf_map_ops _ops;
 #include <linux/bpf_types.h>
 #undef BPF_PROG_TYPE
 #undef BPF_MAP_TYPE
+
+extern const struct bpf_verifier_ops tc_cls_act_analyzer_ops;
+extern const struct bpf_verifier_ops xdp_analyzer_ops;
 
 struct bpf_prog *bpf_prog_get(u32 ufd);
 struct bpf_prog *bpf_prog_get_type(u32 ufd, enum bpf_prog_type type);

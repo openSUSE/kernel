@@ -295,5 +295,5 @@ int main(void)
 	test_tcp_estats();
 
 	printf("Summary: %d PASSED, %d FAILED\n", pass_cnt, error_cnt);
-	return 0;
+	return error_cnt ? EXIT_FAILURE : EXIT_SUCCESS;
 }

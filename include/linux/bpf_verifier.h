@@ -88,14 +88,19 @@ enum bpf_stack_slot_type {
 
 #define BPF_REG_SIZE 8	/* size of eBPF register in bytes */
 
+struct bpf_stack_state {
+	struct bpf_reg_state spilled_ptr;
+	u8 slot_type[BPF_REG_SIZE];
+};
+
 /* state of the program:
  * type of all registers and stack info
  */
 struct bpf_verifier_state {
 	struct bpf_reg_state regs[MAX_BPF_REG];
-	u8 stack_slot_type[MAX_BPF_STACK];
-	struct bpf_reg_state spilled_regs[MAX_BPF_STACK / BPF_REG_SIZE];
 	struct bpf_verifier_state *parent;
+	int allocated_stack;
+	struct bpf_stack_state *stack;
 };
 
 /* linked list of verifier states used to prune search */
@@ -115,9 +120,11 @@ struct bpf_insn_aux_data {
 
 #define MAX_USED_MAPS 64 /* max number of maps accessed by one eBPF program */
 
+#define BPF_VERIFIER_TMP_LOG_SIZE	1024
+
 struct bpf_verifer_log {
 	u32 level;
-	char *kbuf;
+	char kbuf[BPF_VERIFIER_TMP_LOG_SIZE];
 	char __user *ubuf;
 	u32 len_used;
 	u32 len_total;
@@ -139,10 +146,11 @@ struct bpf_ext_analyzer_ops {
  */
 struct bpf_verifier_env {
 	struct bpf_prog *prog;		/* eBPF program being verified */
+	const struct bpf_verifier_ops *ops;
 	struct bpf_verifier_stack_elem *head; /* stack of verifier states to be processed */
 	int stack_size;			/* number of states to be processed */
 	bool strict_alignment;		/* perform strict pointer alignment checks */
-	struct bpf_verifier_state cur_state; /* current verifier state */
+	struct bpf_verifier_state *cur_state; /* current verifier state */
 	struct bpf_verifier_state_list **explored_states; /* search pruning optimization */
 	const struct bpf_ext_analyzer_ops *analyzer_ops; /* external analyzer ops */
 	void *analyzer_priv; /* pointer to external analyzer's private data */
@@ -155,6 +163,11 @@ struct bpf_verifier_env {
 
 	struct bpf_verifer_log log;
 };
+
+static inline struct bpf_reg_state *cur_regs(struct bpf_verifier_env *env)
+{
+	return env->cur_state->regs;
+}
 
 int bpf_analyzer(struct bpf_prog *prog, const struct bpf_ext_analyzer_ops *ops,
 		 void *priv);
