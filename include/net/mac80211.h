@@ -919,21 +919,10 @@ struct ieee80211_tx_info {
 				unsigned long jiffies;
 			};
 			/* NB: vif can be NULL for injected frames */
-			union {
-				/* NB: vif can be NULL for injected frames */
-				struct ieee80211_vif *vif;
-
-				/* When packets are enqueued on txq it's easy
-				 * to re-construct the vif pointer. There's no
-				 * more space in tx_info so it can be used to
-				 * store the necessary enqueue time for packet
-				 * sojourn time computation.
-				 */
-				codel_time_t enqueue_time;
-			};
+			struct ieee80211_vif *vif;
 			struct ieee80211_key_conf *hw_key;
 			u32 flags;
-			/* 4 bytes free */
+			codel_time_t enqueue_time;
 		} control;
 		struct {
 			u64 cookie;
@@ -4465,10 +4454,15 @@ struct sk_buff *ieee80211_pspoll_get(struct ieee80211_hw *hw,
  * ieee80211_nullfunc_get - retrieve a nullfunc template
  * @hw: pointer obtained from ieee80211_alloc_hw().
  * @vif: &struct ieee80211_vif pointer from the add_interface callback.
+ * @qos_ok: QoS NDP is acceptable to the caller, this should be set
+ *	if at all possible
  *
  * Creates a Nullfunc template which can, for example, uploaded to
  * hardware. The template must be updated after association so that correct
  * BSSID and address is used.
+ *
+ * If @qos_ndp is set and the association is to an AP with QoS/WMM, the
+ * returned packet will be QoS NDP.
  *
  * Note: Caller (or hardware) is responsible for setting the
  * &IEEE80211_FCTL_PM bit as well as Duration and Sequence Control fields.
@@ -4476,7 +4470,8 @@ struct sk_buff *ieee80211_pspoll_get(struct ieee80211_hw *hw,
  * Return: The nullfunc template. %NULL on error.
  */
 struct sk_buff *ieee80211_nullfunc_get(struct ieee80211_hw *hw,
-				       struct ieee80211_vif *vif);
+				       struct ieee80211_vif *vif,
+				       bool qos_ok);
 
 /**
  * ieee80211_probereq_get - retrieve a Probe Request template

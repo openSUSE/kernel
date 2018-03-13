@@ -1276,11 +1276,6 @@ static void ieee80211_set_skb_enqueue_time(struct sk_buff *skb)
 	IEEE80211_SKB_CB(skb)->control.enqueue_time = codel_get_time();
 }
 
-static void ieee80211_set_skb_vif(struct sk_buff *skb, struct txq_info *txqi)
-{
-	IEEE80211_SKB_CB(skb)->control.vif = txqi->txq.vif;
-}
-
 static u32 codel_skb_len_func(const struct sk_buff *skb)
 {
 	return skb->len;
@@ -3407,6 +3402,7 @@ struct sk_buff *ieee80211_tx_dequeue(struct ieee80211_hw *hw,
 	struct ieee80211_tx_info *info;
 	struct ieee80211_tx_data tx;
 	ieee80211_tx_result r;
+	struct ieee80211_vif *vif;
 
 	spin_lock_bh(&fq->lock);
 
@@ -3422,8 +3418,6 @@ begin:
 	skb = fq_tin_dequeue(fq, tin, fq_tin_dequeue_func);
 	if (!skb)
 		goto out;
-
-	ieee80211_set_skb_vif(skb, txqi);
 
 	hdr = (struct ieee80211_hdr *)skb->data;
 	info = IEEE80211_SKB_CB(skb);
@@ -3481,6 +3475,34 @@ begin:
 		}
 	}
 
+	switch (tx.sdata->vif.type) {
+	case NL80211_IFTYPE_MONITOR:
+		if (tx.sdata->u.mntr.flags & MONITOR_FLAG_ACTIVE) {
+			vif = &tx.sdata->vif;
+			break;
+		}
+		tx.sdata = rcu_dereference(local->monitor_sdata);
+		if (tx.sdata) {
+			vif = &tx.sdata->vif;
+			info->hw_queue =
+				vif->hw_queue[skb_get_queue_mapping(skb)];
+		} else if (ieee80211_hw_check(&local->hw, QUEUE_CONTROL)) {
+			ieee80211_free_txskb(&local->hw, skb);
+			goto begin;
+		} else {
+			vif = NULL;
+		}
+		break;
+	case NL80211_IFTYPE_AP_VLAN:
+		tx.sdata = container_of(tx.sdata->bss,
+					struct ieee80211_sub_if_data, u.ap);
+		/* fall through */
+	default:
+		vif = &tx.sdata->vif;
+		break;
+	}
+
+	IEEE80211_SKB_CB(skb)->control.vif = vif;
 out:
 	spin_unlock_bh(&fq->lock);
 
@@ -4375,13 +4397,15 @@ struct sk_buff *ieee80211_pspoll_get(struct ieee80211_hw *hw,
 EXPORT_SYMBOL(ieee80211_pspoll_get);
 
 struct sk_buff *ieee80211_nullfunc_get(struct ieee80211_hw *hw,
-				       struct ieee80211_vif *vif)
+				       struct ieee80211_vif *vif,
+				       bool qos_ok)
 {
 	struct ieee80211_hdr_3addr *nullfunc;
 	struct ieee80211_sub_if_data *sdata;
 	struct ieee80211_if_managed *ifmgd;
 	struct ieee80211_local *local;
 	struct sk_buff *skb;
+	bool qos = false;
 
 	if (WARN_ON(vif->type != NL80211_IFTYPE_STATION))
 		return NULL;
@@ -4390,7 +4414,17 @@ struct sk_buff *ieee80211_nullfunc_get(struct ieee80211_hw *hw,
 	ifmgd = &sdata->u.mgd;
 	local = sdata->local;
 
-	skb = dev_alloc_skb(local->hw.extra_tx_headroom + sizeof(*nullfunc));
+	if (qos_ok) {
+		struct sta_info *sta;
+
+		rcu_read_lock();
+		sta = sta_info_get(sdata, ifmgd->bssid);
+		qos = sta && sta->sta.wme;
+		rcu_read_unlock();
+	}
+
+	skb = dev_alloc_skb(local->hw.extra_tx_headroom +
+			    sizeof(*nullfunc) + 2);
 	if (!skb)
 		return NULL;
 
@@ -4400,6 +4434,19 @@ struct sk_buff *ieee80211_nullfunc_get(struct ieee80211_hw *hw,
 	nullfunc->frame_control = cpu_to_le16(IEEE80211_FTYPE_DATA |
 					      IEEE80211_STYPE_NULLFUNC |
 					      IEEE80211_FCTL_TODS);
+	if (qos) {
+		__le16 qos = cpu_to_le16(7);
+
+		BUILD_BUG_ON((IEEE80211_STYPE_QOS_NULLFUNC |
+			      IEEE80211_STYPE_NULLFUNC) !=
+			     IEEE80211_STYPE_QOS_NULLFUNC);
+		nullfunc->frame_control |=
+			cpu_to_le16(IEEE80211_STYPE_QOS_NULLFUNC);
+		skb->priority = 7;
+		skb_set_queue_mapping(skb, IEEE80211_AC_VO);
+		skb_put_data(skb, &qos, sizeof(qos));
+	}
+
 	memcpy(nullfunc->addr1, ifmgd->bssid, ETH_ALEN);
 	memcpy(nullfunc->addr2, vif->addr, ETH_ALEN);
 	memcpy(nullfunc->addr3, ifmgd->bssid, ETH_ALEN);
