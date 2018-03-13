@@ -57,3 +57,4 @@ static void fsi_exit(void)
 
 module_init(fsi_init);
 module_exit(fsi_exit);
+MODULE_LICENSE("GPL");
