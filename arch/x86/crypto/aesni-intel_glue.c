@@ -28,6 +28,7 @@
 #include <crypto/cryptd.h>
 #include <crypto/ctr.h>
 #include <crypto/b128ops.h>
+#include <crypto/gcm.h>
 #include <crypto/xts.h>
 #include <asm/cpu_device_id.h>
 #include <asm/fpu/api.h>
@@ -1040,7 +1041,7 @@ static struct aead_alg aesni_aead_algs[] = { {
 	.setauthsize		= common_rfc4106_set_authsize,
 	.encrypt		= helper_rfc4106_encrypt,
 	.decrypt		= helper_rfc4106_decrypt,
-	.ivsize			= 8,
+	.ivsize			= GCM_RFC4106_IV_SIZE,
 	.maxauthsize		= 16,
 	.base = {
 		.cra_name		= "__gcm-aes-aesni",
@@ -1058,7 +1059,7 @@ static struct aead_alg aesni_aead_algs[] = { {
 	.setauthsize		= rfc4106_set_authsize,
 	.encrypt		= rfc4106_encrypt,
 	.decrypt		= rfc4106_decrypt,
-	.ivsize			= 8,
+	.ivsize			= GCM_RFC4106_IV_SIZE,
 	.maxauthsize		= 16,
 	.base = {
 		.cra_name		= "rfc4106(gcm(aes))",
