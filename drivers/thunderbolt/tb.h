@@ -40,8 +40,6 @@ struct tb_switch_nvm {
 };
 
 #define TB_SWITCH_KEY_SIZE		32
-/* Each physical port contains 2 links on modern controllers */
-#define TB_SWITCH_LINKS_PER_PHY_PORT	2
 
 /**
  * struct tb_switch - a thunderbolt switch
@@ -367,9 +365,11 @@ struct tb_switch *tb_switch_find_by_link_depth(struct tb *tb, u8 link,
 					       u8 depth);
 struct tb_switch *tb_switch_find_by_uuid(struct tb *tb, const uuid_be *uuid);
 
+#define TB_LINKS_PER_PHY_PORT  2
+
 static inline unsigned int tb_switch_phy_port_from_link(unsigned int link)
 {
-	return (link - 1) / TB_SWITCH_LINKS_PER_PHY_PORT;
+	return (link - 1) / TB_LINKS_PER_PHY_PORT;
 }
 
 static inline void tb_switch_put(struct tb_switch *sw)
