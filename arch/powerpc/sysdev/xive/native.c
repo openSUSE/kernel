@@ -42,6 +42,7 @@ static u32 xive_provision_chip_count;
 static u32 xive_queue_shift;
 static u32 xive_pool_vps = XIVE_INVALID_VP;
 static struct kmem_cache *xive_provision_cache;
+static bool xive_has_single_esc;
 
 int xive_native_populate_irq_data(u32 hw_irq, struct xive_irq_data *data)
 {
@@ -511,13 +512,13 @@ static bool xive_parse_provisioning(struct device_node *np)
 static void xive_native_setup_pools(void)
 {
 	/* Allocate a pool big enough */
-	pr_debug("XIVE: Allocating VP block for pool size %d\n", nr_cpu_ids);
+	pr_debug("XIVE: Allocating VP block for pool size %u\n", nr_cpu_ids);
 
 	xive_pool_vps = xive_native_alloc_vp_block(nr_cpu_ids);
 	if (WARN_ON(xive_pool_vps == XIVE_INVALID_VP))
 		pr_err("XIVE: Failed to allocate pool VP, KVM might not function\n");
 
-	pr_debug("XIVE: Pool VPs allocated at 0x%x for %d max CPUs\n",
+	pr_debug("XIVE: Pool VPs allocated at 0x%x for %u max CPUs\n",
 		 xive_pool_vps, nr_cpu_ids);
 }
 
@@ -570,6 +571,10 @@ bool __init xive_native_init(void)
 		if (val == PAGE_SHIFT)
 			break;
 	}
+
+	/* Do we support single escalation */
+	if (of_get_property(np, "single-escalation-support", NULL) != NULL)
+		xive_has_single_esc = true;
 
 	/* Configure Thread Management areas for KVM */
 	for_each_possible_cpu(cpu)
@@ -667,12 +672,15 @@ void xive_native_free_vp_block(u32 vp_base)
 }
 EXPORT_SYMBOL_GPL(xive_native_free_vp_block);
 
-int xive_native_enable_vp(u32 vp_id)
+int xive_native_enable_vp(u32 vp_id, bool single_escalation)
 {
 	s64 rc;
+	u64 flags = OPAL_XIVE_VP_ENABLED;
 
+	if (single_escalation)
+		flags |= OPAL_XIVE_VP_SINGLE_ESCALATION;
 	for (;;) {
-		rc = opal_xive_set_vp_info(vp_id, OPAL_XIVE_VP_ENABLED, 0);
+		rc = opal_xive_set_vp_info(vp_id, flags, 0);
 		if (rc != OPAL_BUSY)
 			break;
 		msleep(1);
@@ -710,3 +718,9 @@ int xive_native_get_vp_info(u32 vp_id, u32 *out_cam_id, u32 *out_chip_id)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(xive_native_get_vp_info);
+
+bool xive_native_has_single_escalation(void)
+{
+	return xive_has_single_esc;
+}
+EXPORT_SYMBOL_GPL(xive_native_has_single_escalation);
