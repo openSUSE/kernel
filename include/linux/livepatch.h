@@ -45,6 +45,11 @@ enum klp_func_type {
 	KLP_FUNC_NOP,		/* Dynamically allocated NOP function patch */
 };
 
+enum klp_object_type {
+	KLP_OBJECT_STATIC = 0,  /* Original statically defined structure */
+	KLP_OBJECT_DYNAMIC,	/* Dynamically allocated structure. */
+};
+
 /**
  * struct klp_func - function structure for live patching
  * @old_name:	name of the function to be patched
@@ -143,6 +148,7 @@ struct klp_object {
 	struct klp_callbacks callbacks;
 
 	/* internal */
+	enum klp_object_type otype;
 	struct kobject kobj;
 	struct list_head func_list;
 	struct list_head obj_entry;
@@ -198,7 +204,7 @@ struct klp_patch {
 
 static inline bool klp_is_object_dynamic(struct klp_object *obj)
 {
-	return !obj->funcs;
+	return obj->otype == KLP_OBJECT_DYNAMIC;
 }
 
 static inline bool klp_is_func_dynamic(struct klp_func *func)

@@ -118,7 +118,12 @@ static void notrace klp_ftrace_handler(unsigned long ip,
 		}
 	}
 
+	/* Survive ugly mistakes, for example, when handling NOPs. */
+	if (WARN_ON_ONCE(!func->new_func))
+		goto unlock;
+
 	klp_arch_set_pc(regs, (unsigned long)func->new_func);
+
 unlock:
 	preempt_enable_notrace();
 }

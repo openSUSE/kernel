@@ -52,7 +52,7 @@ static LIST_HEAD(klp_patches);
  * 'replace' bit set. When they are added to this list, they are disabled and
  * can not be re-enabled, but they can be unregistered().
  */
-LIST_HEAD(klp_replaced_patches);
+static LIST_HEAD(klp_replaced_patches);
 
 static struct kobject *klp_root_kobj;
 
@@ -371,9 +371,9 @@ static void klp_taint_kernel(const struct klp_patch *patch)
  * and klp_patches stack.
  *
  * We could be pretty aggressive here. It is called in situation
- * when these structures are not longer accessible. All functions
+ * when these structures are no longer accessible. All functions
  * are redirected using the klp_transition_patch. They use either
- * a new code or they in the original code because of the special
+ * a new code or they are in the original code because of the special
  * nop function patches.
  */
 void klp_throw_away_replaced_patches(struct klp_patch *new_patch,
@@ -385,17 +385,19 @@ void klp_throw_away_replaced_patches(struct klp_patch *new_patch,
 		if (old_patch == new_patch)
 			return;
 
-		klp_unpatch_objects(old_patch, KLP_FUNC_ANY);
-		old_patch->enabled = false;
+		if (old_patch->enabled) {
+			klp_unpatch_objects(old_patch, KLP_FUNC_ANY);
+			old_patch->enabled = false;
+
+			if (!keep_module)
+				module_put(old_patch->mod);
+		}
 
 		/*
 		 * Replaced patches could not get re-enabled to keep
 		 * the code sane.
 		 */
 		list_move(&old_patch->list, &klp_replaced_patches);
-
-		if (!keep_module)
-			module_put(old_patch->mod);
 	}
 }
 
@@ -481,8 +483,16 @@ static int __klp_enable_patch(struct klp_patch *patch)
 	if (WARN_ON(patch->enabled))
 		return -EINVAL;
 
-	/* enforce stacking: only the first disabled patch can be enabled */
-	if (patch->list.prev != &klp_patches &&
+	if (!klp_is_patch_usable(patch))
+		return -EINVAL;
+
+	/*
+	 * Enforce stacking: only the first disabled patch can be enabled.
+	 * This is not required for patches with the replace flags. They
+	 * override even disabled patches that were registered earlier.
+	 */
+	if (!patch->replace &&
+	    patch->list.prev != &klp_patches &&
 	    !list_prev_entry(patch, list)->enabled)
 		return -EBUSY;
 
@@ -754,6 +764,7 @@ static struct klp_object *klp_alloc_object_dynamic(const char *name)
 			return ERR_PTR(-ENOMEM);
 		}
 	}
+	obj->otype = KLP_OBJECT_DYNAMIC;
 
 	return obj;
 }
@@ -792,8 +803,10 @@ static struct klp_func *klp_alloc_func_nop(struct klp_func *old_func,
 		}
 	}
 	func->old_sympos = old_func->old_sympos;
-	/* NOP func is the same as using the original implementation. */
-	func->new_func = (void *)old_func->old_addr;
+	/*
+	 * func->new_func is same as func->old_addr. These addresses are
+	 * set when the object is loaded, see klp_init_object_loaded().
+	 */
 	func->ftype = KLP_FUNC_NOP;
 
 	return func;
@@ -847,7 +860,7 @@ static int klp_add_object_nops(struct klp_patch *patch,
  * the new patch is initialized. It is safe even though some
  * older patches might get disabled and removed before the
  * new one is enabled. In the worst case, there might be nops
- * there will not be really needed. But it does not harm and
+ * which will not be really needed. But it does not harm and
  * simplifies the implementation a lot. Especially we could
  * use the init functions as is.
  */
@@ -956,8 +969,12 @@ static void klp_free_object_loaded(struct klp_object *obj)
 
 	obj->mod = NULL;
 
-	klp_for_each_func(obj, func)
+	klp_for_each_func(obj, func) {
 		func->old_addr = 0;
+
+		if (klp_is_func_type(func, KLP_FUNC_NOP))
+			func->new_func = NULL;
+	}
 }
 
 /*
@@ -973,6 +990,15 @@ void klp_free_objects(struct klp_patch *patch, enum klp_func_type ftype)
 		klp_free_funcs(obj, ftype);
 
 		if (!list_empty(&obj->func_list))
+			continue;
+
+		/*
+		 * Keep objects from the original patch initialized until
+		 * the entire patch is being freed.
+		 */
+		if (!klp_is_object_dynamic(obj) &&
+		    ftype != KLP_FUNC_STATIC &&
+		    ftype != KLP_FUNC_ANY)
 			continue;
 
 		/* Avoid freeing the object twice. */
@@ -995,7 +1021,14 @@ static void klp_free_patch(struct klp_patch *patch)
 
 static int klp_init_func(struct klp_object *obj, struct klp_func *func)
 {
-	if (!func->old_name || !func->new_func)
+	if (!func->old_name)
+		return -EINVAL;
+
+	/*
+	 * NOPs get the address later. The the patched module must be loaded,
+	 * see klp_init_object_loaded().
+	 */
+	if (!func->new_func && !klp_is_func_type(func, KLP_FUNC_NOP))
 		return -EINVAL;
 
 	INIT_LIST_HEAD(&func->stack_node);
@@ -1049,6 +1082,9 @@ static int klp_init_object_loaded(struct klp_patch *patch,
 			       func->old_name);
 			return -ENOENT;
 		}
+
+		if (klp_is_func_type(func, KLP_FUNC_NOP))
+			func->new_func = (void *)func->old_addr;
 
 		ret = kallsyms_lookup_size_offset((unsigned long)func->new_func,
 						  &func->new_size, NULL);
