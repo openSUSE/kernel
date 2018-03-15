@@ -173,7 +173,7 @@ struct tb_property *tb_property_get_next(struct tb_property_dir *dir,
  * @hop_count: Number of rings (end point hops) supported by NHI.
  */
 struct tb_nhi {
-	struct mutex lock;
+	spinlock_t lock;
 	struct pci_dev *pdev;
 	void __iomem *iobase;
 	struct tb_ring **tx_rings;
