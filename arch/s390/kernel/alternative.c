@@ -37,6 +37,13 @@ static int __init nospec_setup_early(char *str)
 }
 early_param("nospec", nospec_setup_early);
 
+static int __init nogmb_setup_early(char *str)
+{
+	__clear_facility(81, S390_lowcore.alt_stfle_fac_list);
+	return 0;
+}
+early_param("nogmb", nogmb_setup_early);
+
 struct brcl_insn {
 	u16 opc;
 	s32 disp;
