@@ -349,7 +349,7 @@ void post_mobility_fixup(void)
 			"failed: %d\n", rc);
 
 	/* Possibly switch to a new RFI flush type */
-	pseries_setup_rfi_flush();
+	pseries_setup_rfi_nospec();
 
 	return;
 }
