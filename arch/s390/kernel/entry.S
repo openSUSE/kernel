@@ -162,7 +162,7 @@ _PIF_WORK	= (_PIF_PER_TRAP | _PIF_SYSCALL_RESTART)
 660:	.long	0xb2e8c000
 	.popsection
 661:	.long	0x47000000
-	.pushsection .altnobp, "a"
+	.pushsection .altinstructions, "a"
 	.long 661b - .
 	.long 660b - .
 	.word 82
@@ -176,7 +176,7 @@ _PIF_WORK	= (_PIF_PER_TRAP | _PIF_SYSCALL_RESTART)
 662:	.long	0xb2e8d000
 	.popsection
 663:	.long	0x47000000
-	.pushsection .altnobp, "a"
+	.pushsection .altinstructions, "a"
 	.long 663b - .
 	.long 662b - .
 	.word 82
@@ -261,8 +261,9 @@ ENTRY(sie64a)
 	BPON
 .Lsie_entry:
 	sie	0(%r14)
-.Lsie_skip:
+.Lsie_exit:
 	BPOFF
+.Lsie_skip:
 	ni	__SIE_PROG0C+3(%r14),0xfe	# no longer in SIE
 	lctlg	%c1,%c1,__LC_USER_ASCE		# load primary asce
 .Lsie_done:
@@ -305,9 +306,9 @@ EXPORT_SYMBOL(sie_exit)
 
 ENTRY(system_call)
 	stpt	__LC_SYNC_ENTER_TIMER
-	BPOFF
 .Lsysc_stmg:
 	stmg	%r8,%r15,__LC_SAVE_AREA_SYNC
+	BPOFF
 	lg	%r12,__LC_CURRENT
 	lghi	%r13,__TASK_thread
 	lghi	%r14,_PIF_SYSCALL
@@ -688,7 +689,7 @@ ENTRY(io_int_handler)
 	lmg	%r0,%r10,__PT_R0(%r11)
 	mvc	__LC_RETURN_PSW(16),__PT_PSW(%r11)
 	tm	__PT_PSW+1(%r11),0x01	# returning to user ?
-	jno	.Lio_exit_timer
+	jno	.Lio_exit_kernel
 	BPON
 .Lio_exit_timer:
 	stpt	__LC_EXIT_TIMER
