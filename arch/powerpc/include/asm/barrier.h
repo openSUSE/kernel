@@ -76,6 +76,15 @@ do {									\
 
 #define smp_mb__before_spinlock()   smp_mb()
 
+/* TODO: add patching so this can be disabled */
+/* Prevent speculative execution past this barrier. */
+#define barrier_nospec_asm ori 31,31,0
+#ifdef __ASSEMBLY__
+#define barrier_nospec barrier_nospec_asm
+#else
+#define barrier_nospec() __asm__ __volatile__ (stringify_in_c(barrier_nospec_asm) : : :)
+#endif
+
 #include <asm-generic/barrier.h>
 
 #endif /* _ASM_POWERPC_BARRIER_H */
