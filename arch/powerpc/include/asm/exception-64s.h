@@ -61,8 +61,8 @@
  * L1-D cache when returning to userspace or a guest.
  */
 #define RFI_FLUSH_SLOT							\
+	barrier_nospec_asm;						\
 	RFI_FLUSH_FIXUP_SECTION;					\
-	nop;								\
 	nop;								\
 	nop
 
