@@ -802,6 +802,28 @@ static int __init handle_no_pti(char *p)
 }
 early_param("nopti", handle_no_pti);
 
+static int __init nospectre_v2_setup_early(char *str)
+{
+	no_nospec = true;
+	return 0;
+}
+early_param("nospectre_v2", nospectre_v2_setup_early);
+
+static int __init spectre_v2_setup_early(char *str)
+{
+	if (str && !strncmp(str, "on", 2))
+		no_nospec = false;
+
+	if (str && !strncmp(str, "off", 3))
+		no_nospec = true;
+
+	if (str && !strncmp(str, "auto", 4))
+		no_nospec = false;
+
+	return 0;
+}
+early_param("spectre_v2", spectre_v2_setup_early);
+
 static void do_nothing(void *unused)
 {
 	/*
