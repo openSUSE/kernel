@@ -872,11 +872,11 @@ void barrier_nospec_enable(bool enable)
 
 	if (enable) {
 		powerpc_barrier_nospec = barrier_nospec_type;
-		do_barrier_nospec_fixups(powerpc_barrier_nospec);
+		do_barrier_nospec_fixups_kernel(powerpc_barrier_nospec);
 		on_each_cpu(do_nothing, NULL, 1);
 	} else {
 		powerpc_barrier_nospec = SPEC_BARRIER_NONE;
-		do_barrier_nospec_fixups(powerpc_barrier_nospec);
+		do_barrier_nospec_fixups_kernel(powerpc_barrier_nospec);
 	}
 }
 
