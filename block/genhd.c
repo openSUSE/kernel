@@ -792,7 +792,10 @@ struct gendisk *get_gendisk(dev_t devt, int *partno)
 	}
 
 	if (disk && unlikely(disk->flags & GENHD_FL_HIDDEN)) {
+		struct module *owner = disk->fops->owner;
+
 		put_disk(disk);
+		module_put(owner);
 		disk = NULL;
 	}
 	return disk;
