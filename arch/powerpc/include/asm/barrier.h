@@ -76,9 +76,9 @@ do {									\
 
 #define smp_mb__before_spinlock()   smp_mb()
 
-/* TODO: add patching so this can be disabled */
 /* Prevent speculative execution past this barrier. */
-#define barrier_nospec_asm ori 31,31,0
+#define barrier_nospec_asm SPEC_BARRIER_FIXUP_SECTION;			\
+				nop
 #ifdef __ASSEMBLY__
 #define barrier_nospec barrier_nospec_asm
 #else

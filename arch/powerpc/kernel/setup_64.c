@@ -777,6 +777,10 @@ static enum l1d_flush_type enabled_flush_types;
 static void *l1d_flush_fallback_area;
 static bool no_rfi_flush;
 bool rfi_flush;
+enum spec_barrier_type powerpc_barrier_nospec;
+static enum spec_barrier_type barrier_nospec_type;
+static bool no_nospec;
+bool barrier_nospec_enabled;
 
 static int __init handle_no_rfi_flush(char *p)
 {
@@ -860,6 +864,32 @@ void setup_rfi_flush(enum l1d_flush_type types, bool enable)
 
 	if (!no_rfi_flush)
 		rfi_flush_enable(enable);
+}
+
+void barrier_nospec_enable(bool enable)
+{
+	barrier_nospec_enabled = enable;
+
+	if (enable) {
+		powerpc_barrier_nospec = barrier_nospec_type;
+		do_barrier_nospec_fixups(powerpc_barrier_nospec);
+		on_each_cpu(do_nothing, NULL, 1);
+	} else {
+		powerpc_barrier_nospec = SPEC_BARRIER_NONE;
+		do_barrier_nospec_fixups(powerpc_barrier_nospec);
+	}
+}
+
+void setup_barrier_nospec(enum spec_barrier_type type, bool enable)
+{
+	/*
+	 * Only one barrier type is supported and it does nothing when the
+	 * firmware does not enable it. So the only meaningful thing to do
+	 * here is check the user preference.
+	 */
+	barrier_nospec_type = SPEC_BARRIER_ORI;
+
+	barrier_nospec_enable(!no_nospec && enable);
 }
 
 #ifdef CONFIG_DEBUG_FS

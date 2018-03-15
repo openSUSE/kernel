@@ -195,11 +195,20 @@ label##3:					       	\
 	FTR_ENTRY_OFFSET 951b-952b;			\
 	.popsection;
 
+#define SPEC_BARRIER_FIXUP_SECTION			\
+953:							\
+	.pushsection __spec_barrier_fixup,"a";		\
+	.align 2;					\
+954:							\
+	FTR_ENTRY_OFFSET 953b-954b;			\
+	.popsection;
+
 
 #ifndef __ASSEMBLY__
 #include <linux/types.h>
 
 extern long __start___rfi_flush_fixup, __stop___rfi_flush_fixup;
+extern long __start___spec_barrier_fixup, __stop___spec_barrier_fixup;
 
 void apply_feature_fixups(void);
 void setup_feature_keys(void);
