@@ -5919,7 +5919,7 @@ lpfc_sli4_driver_resource_setup(struct lpfc_hba *phba)
 	 * Since lpfc_sg_seg_cnt is module param, the sg_dma_buf_size
 	 * used to create the sg_dma_buf_pool must be calculated.
 	 */
-	if (phba->cfg_enable_bg) {
+	if (phba->sli3_options & LPFC_SLI3_BG_ENABLED) {
 		/*
 		 * The scsi_buf for a T10-DIF I/O holds the FCP cmnd,
 		 * the FCP rsp, and a SGE. Sice we have no control
@@ -12590,6 +12590,8 @@ lpfc_init(void)
 		fc_release_transport(lpfc_transport_template);
 		return -ENOMEM;
 	}
+	lpfc_nvme_cmd_template();
+	lpfc_nvmet_cmd_template();
 
 	/* Initialize in case vector mapping is needed */
 	lpfc_used_cpu = NULL;

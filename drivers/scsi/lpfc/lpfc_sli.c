@@ -109,7 +109,7 @@ lpfc_get_iocb_from_iocbq(struct lpfc_iocbq *iocbq)
  * The caller is expected to hold the hbalock when calling this routine.
  **/
 static int
-lpfc_sli4_wq_put(struct lpfc_queue *q, union lpfc_wqe *wqe)
+lpfc_sli4_wq_put(struct lpfc_queue *q, union lpfc_wqe128 *wqe)
 {
 	union lpfc_wqe *temp_wqe;
 	struct lpfc_register doorbell;
@@ -2381,18 +2381,18 @@ lpfc_sli_chk_mbx_command(uint8_t mbxCommand)
 void
 lpfc_sli_wake_mbox_wait(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
 {
-	wait_queue_head_t *pdone_q;
 	unsigned long drvr_flag;
+	struct completion *pmbox_done;
 
 	/*
-	 * If pdone_q is empty, the driver thread gave up waiting and
+	 * If pmbox_done is empty, the driver thread gave up waiting and
 	 * continued running.
 	 */
 	pmboxq->mbox_flag |= LPFC_MBX_WAKE;
 	spin_lock_irqsave(&phba->hbalock, drvr_flag);
-	pdone_q = (wait_queue_head_t *) pmboxq->context1;
-	if (pdone_q)
-		wake_up_interruptible(pdone_q);
+	pmbox_done = (struct completion *)pmboxq->context3;
+	if (pmbox_done)
+		complete(pmbox_done);
 	spin_unlock_irqrestore(&phba->hbalock, drvr_flag);
 	return;
 }
@@ -4986,13 +4986,14 @@ lpfc_sli_config_port(struct lpfc_hba *phba, int sli_mode)
 		phba->hbq_get = phba->mbox->us.s3_pgp.hbq_get;
 		phba->port_gp = phba->mbox->us.s3_pgp.port;
 
-		if (phba->cfg_enable_bg) {
-			if (pmb->u.mb.un.varCfgPort.gbg)
-				phba->sli3_options |= LPFC_SLI3_BG_ENABLED;
-			else
+		if (phba->sli3_options & LPFC_SLI3_BG_ENABLED) {
+			if (pmb->u.mb.un.varCfgPort.gbg == 0) {
+				phba->cfg_enable_bg = 0;
+				phba->sli3_options &= ~LPFC_SLI3_BG_ENABLED;
 				lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
 						"0443 Adapter did not grant "
 						"BlockGuard\n");
+			}
 		}
 	} else {
 		phba->hbq_get = NULL;
@@ -6984,12 +6985,12 @@ lpfc_sli4_hba_setup(struct lpfc_hba *phba)
 	 * then turn off the global config parameters to disable the
 	 * feature in the driver.  This is not a fatal error.
 	 */
-	phba->sli3_options &= ~LPFC_SLI3_BG_ENABLED;
-	if (phba->cfg_enable_bg) {
-		if (bf_get(lpfc_mbx_rq_ftr_rsp_dif, &mqe->un.req_ftrs))
-			phba->sli3_options |= LPFC_SLI3_BG_ENABLED;
-		else
+	if (phba->sli3_options & LPFC_SLI3_BG_ENABLED) {
+		if (!(bf_get(lpfc_mbx_rq_ftr_rsp_dif, &mqe->un.req_ftrs))) {
+			phba->cfg_enable_bg = 0;
+			phba->sli3_options &= ~LPFC_SLI3_BG_ENABLED;
 			ftr_rsp++;
+		}
 	}
 
 	if (phba->max_vpi && phba->cfg_enable_npiv &&
@@ -8874,7 +8875,7 @@ lpfc_sli4_bpl2sgl(struct lpfc_hba *phba, struct lpfc_iocbq *piocbq,
  **/
 static int
 lpfc_sli4_iocb2wqe(struct lpfc_hba *phba, struct lpfc_iocbq *iocbq,
-		union lpfc_wqe *wqe)
+		union lpfc_wqe128 *wqe)
 {
 	uint32_t xmit_len = 0, total_len = 0;
 	uint8_t ct = 0;
@@ -9089,29 +9090,27 @@ lpfc_sli4_iocb2wqe(struct lpfc_hba *phba, struct lpfc_iocbq *iocbq,
 		if (phba->fcp_embed_io) {
 			struct lpfc_scsi_buf *lpfc_cmd;
 			struct sli4_sge *sgl;
-			union lpfc_wqe128 *wqe128;
 			struct fcp_cmnd *fcp_cmnd;
 			uint32_t *ptr;
 
 			/* 128 byte wqe support here */
-			wqe128 = (union lpfc_wqe128 *)wqe;
 
 			lpfc_cmd = iocbq->context1;
 			sgl = (struct sli4_sge *)lpfc_cmd->fcp_bpl;
 			fcp_cmnd = lpfc_cmd->fcp_cmnd;
 
 			/* Word 0-2 - FCP_CMND */
-			wqe128->generic.bde.tus.f.bdeFlags =
+			wqe->generic.bde.tus.f.bdeFlags =
 				BUFF_TYPE_BDE_IMMED;
-			wqe128->generic.bde.tus.f.bdeSize = sgl->sge_len;
-			wqe128->generic.bde.addrHigh = 0;
-			wqe128->generic.bde.addrLow =  88;  /* Word 22 */
+			wqe->generic.bde.tus.f.bdeSize = sgl->sge_len;
+			wqe->generic.bde.addrHigh = 0;
+			wqe->generic.bde.addrLow =  88;  /* Word 22 */
 
-			bf_set(wqe_wqes, &wqe128->fcp_iwrite.wqe_com, 1);
-			bf_set(wqe_dbde, &wqe128->fcp_iwrite.wqe_com, 0);
+			bf_set(wqe_wqes, &wqe->fcp_iwrite.wqe_com, 1);
+			bf_set(wqe_dbde, &wqe->fcp_iwrite.wqe_com, 0);
 
 			/* Word 22-29  FCP CMND Payload */
-			ptr = &wqe128->words[22];
+			ptr = &wqe->words[22];
 			memcpy(ptr, fcp_cmnd, sizeof(struct fcp_cmnd));
 		}
 		break;
@@ -9155,29 +9154,27 @@ lpfc_sli4_iocb2wqe(struct lpfc_hba *phba, struct lpfc_iocbq *iocbq,
 		if (phba->fcp_embed_io) {
 			struct lpfc_scsi_buf *lpfc_cmd;
 			struct sli4_sge *sgl;
-			union lpfc_wqe128 *wqe128;
 			struct fcp_cmnd *fcp_cmnd;
 			uint32_t *ptr;
 
 			/* 128 byte wqe support here */
-			wqe128 = (union lpfc_wqe128 *)wqe;
 
 			lpfc_cmd = iocbq->context1;
 			sgl = (struct sli4_sge *)lpfc_cmd->fcp_bpl;
 			fcp_cmnd = lpfc_cmd->fcp_cmnd;
 
 			/* Word 0-2 - FCP_CMND */
-			wqe128->generic.bde.tus.f.bdeFlags =
+			wqe->generic.bde.tus.f.bdeFlags =
 				BUFF_TYPE_BDE_IMMED;
-			wqe128->generic.bde.tus.f.bdeSize = sgl->sge_len;
-			wqe128->generic.bde.addrHigh = 0;
-			wqe128->generic.bde.addrLow =  88;  /* Word 22 */
+			wqe->generic.bde.tus.f.bdeSize = sgl->sge_len;
+			wqe->generic.bde.addrHigh = 0;
+			wqe->generic.bde.addrLow =  88;  /* Word 22 */
 
-			bf_set(wqe_wqes, &wqe128->fcp_iread.wqe_com, 1);
-			bf_set(wqe_dbde, &wqe128->fcp_iread.wqe_com, 0);
+			bf_set(wqe_wqes, &wqe->fcp_iread.wqe_com, 1);
+			bf_set(wqe_dbde, &wqe->fcp_iread.wqe_com, 0);
 
 			/* Word 22-29  FCP CMND Payload */
-			ptr = &wqe128->words[22];
+			ptr = &wqe->words[22];
 			memcpy(ptr, fcp_cmnd, sizeof(struct fcp_cmnd));
 		}
 		break;
@@ -9214,29 +9211,27 @@ lpfc_sli4_iocb2wqe(struct lpfc_hba *phba, struct lpfc_iocbq *iocbq,
 		if (phba->fcp_embed_io) {
 			struct lpfc_scsi_buf *lpfc_cmd;
 			struct sli4_sge *sgl;
-			union lpfc_wqe128 *wqe128;
 			struct fcp_cmnd *fcp_cmnd;
 			uint32_t *ptr;
 
 			/* 128 byte wqe support here */
-			wqe128 = (union lpfc_wqe128 *)wqe;
 
 			lpfc_cmd = iocbq->context1;
 			sgl = (struct sli4_sge *)lpfc_cmd->fcp_bpl;
 			fcp_cmnd = lpfc_cmd->fcp_cmnd;
 
 			/* Word 0-2 - FCP_CMND */
-			wqe128->generic.bde.tus.f.bdeFlags =
+			wqe->generic.bde.tus.f.bdeFlags =
 				BUFF_TYPE_BDE_IMMED;
-			wqe128->generic.bde.tus.f.bdeSize = sgl->sge_len;
-			wqe128->generic.bde.addrHigh = 0;
-			wqe128->generic.bde.addrLow =  88;  /* Word 22 */
+			wqe->generic.bde.tus.f.bdeSize = sgl->sge_len;
+			wqe->generic.bde.addrHigh = 0;
+			wqe->generic.bde.addrLow =  88;  /* Word 22 */
 
-			bf_set(wqe_wqes, &wqe128->fcp_icmd.wqe_com, 1);
-			bf_set(wqe_dbde, &wqe128->fcp_icmd.wqe_com, 0);
+			bf_set(wqe_wqes, &wqe->fcp_icmd.wqe_com, 1);
+			bf_set(wqe_dbde, &wqe->fcp_icmd.wqe_com, 0);
 
 			/* Word 22-29  FCP CMND Payload */
-			ptr = &wqe128->words[22];
+			ptr = &wqe->words[22];
 			memcpy(ptr, fcp_cmnd, sizeof(struct fcp_cmnd));
 		}
 		break;
@@ -9474,8 +9469,7 @@ __lpfc_sli_issue_iocb_s4(struct lpfc_hba *phba, uint32_t ring_number,
 			 struct lpfc_iocbq *piocb, uint32_t flag)
 {
 	struct lpfc_sglq *sglq;
-	union lpfc_wqe *wqe;
-	union lpfc_wqe128 wqe128;
+	union lpfc_wqe128 wqe;
 	struct lpfc_queue *wq;
 	struct lpfc_sli_ring *pring;
 
@@ -9495,9 +9489,7 @@ __lpfc_sli_issue_iocb_s4(struct lpfc_hba *phba, uint32_t ring_number,
 
 	/*
 	 * The WQE can be either 64 or 128 bytes,
-	 * so allocate space on the stack assuming the largest.
 	 */
-	wqe = (union lpfc_wqe *)&wqe128;
 
 	lockdep_assert_held(&phba->hbalock);
 
@@ -9547,10 +9539,10 @@ __lpfc_sli_issue_iocb_s4(struct lpfc_hba *phba, uint32_t ring_number,
 			return IOCB_ERROR;
 	}
 
-	if (lpfc_sli4_iocb2wqe(phba, piocb, wqe))
+	if (lpfc_sli4_iocb2wqe(phba, piocb, &wqe))
 		return IOCB_ERROR;
 
-	if (lpfc_sli4_wq_put(wq, wqe))
+	if (lpfc_sli4_wq_put(wq, &wqe))
 		return IOCB_ERROR;
 	lpfc_sli_ringtxcmpl_put(phba, pring, piocb);
 
@@ -10920,7 +10912,7 @@ lpfc_sli4_abort_nvme_io(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 {
 	struct lpfc_vport *vport = cmdiocb->vport;
 	struct lpfc_iocbq *abtsiocbp;
-	union lpfc_wqe *abts_wqe;
+	union lpfc_wqe128 *abts_wqe;
 	int retval;
 
 	/*
@@ -11667,31 +11659,25 @@ int
 lpfc_sli_issue_mbox_wait(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq,
 			 uint32_t timeout)
 {
-	DECLARE_WAIT_QUEUE_HEAD_ONSTACK(done_q);
-	MAILBOX_t *mb = NULL;
+	struct completion mbox_done;
 	int retval;
 	unsigned long flag;
-
-	/* The caller might set context1 for extended buffer */
-	if (pmboxq->context1)
-		mb = (MAILBOX_t *)pmboxq->context1;
 
 	pmboxq->mbox_flag &= ~LPFC_MBX_WAKE;
 	/* setup wake call as IOCB callback */
 	pmboxq->mbox_cmpl = lpfc_sli_wake_mbox_wait;
-	/* setup context field to pass wait_queue pointer to wake function  */
-	pmboxq->context1 = &done_q;
 
+	/* setup context3 field to pass wait_queue pointer to wake function  */
+	init_completion(&mbox_done);
+	pmboxq->context3 = &mbox_done;
 	/* now issue the command */
 	retval = lpfc_sli_issue_mbox(phba, pmboxq, MBX_NOWAIT);
 	if (retval == MBX_BUSY || retval == MBX_SUCCESS) {
-		wait_event_interruptible_timeout(done_q,
-				pmboxq->mbox_flag & LPFC_MBX_WAKE,
-				msecs_to_jiffies(timeout * 1000));
+		wait_for_completion_timeout(&mbox_done,
+					    msecs_to_jiffies(timeout * 1000));
 
 		spin_lock_irqsave(&phba->hbalock, flag);
-		/* restore the possible extended buffer for free resource */
-		pmboxq->context1 = (uint8_t *)mb;
+		pmboxq->context3 = NULL;
 		/*
 		 * if LPFC_MBX_WAKE flag is set the mailbox is completed
 		 * else do not free the resources.
@@ -11703,11 +11689,7 @@ lpfc_sli_issue_mbox_wait(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq,
 			pmboxq->mbox_cmpl = lpfc_sli_def_mbox_cmpl;
 		}
 		spin_unlock_irqrestore(&phba->hbalock, flag);
-	} else {
-		/* restore the possible extended buffer for free resource */
-		pmboxq->context1 = (uint8_t *)mb;
 	}
-
 	return retval;
 }
 
@@ -19041,8 +19023,7 @@ lpfc_drain_txq(struct lpfc_hba *phba)
 	unsigned long iflags = 0;
 	char *fail_msg = NULL;
 	struct lpfc_sglq *sglq;
-	union lpfc_wqe128 wqe128;
-	union lpfc_wqe *wqe = (union lpfc_wqe *) &wqe128;
+	union lpfc_wqe128 wqe;
 	uint32_t txq_cnt = 0;
 
 	pring = lpfc_phba_elsring(phba);
@@ -19085,9 +19066,9 @@ lpfc_drain_txq(struct lpfc_hba *phba)
 		piocbq->sli4_xritag = sglq->sli4_xritag;
 		if (NO_XRI == lpfc_sli4_bpl2sgl(phba, piocbq, sglq))
 			fail_msg = "to convert bpl to sgl";
-		else if (lpfc_sli4_iocb2wqe(phba, piocbq, wqe))
+		else if (lpfc_sli4_iocb2wqe(phba, piocbq, &wqe))
 			fail_msg = "to convert iocb to wqe";
-		else if (lpfc_sli4_wq_put(phba->sli4_hba.els_wq, wqe))
+		else if (lpfc_sli4_wq_put(phba->sli4_hba.els_wq, &wqe))
 			fail_msg = " - Wq is full";
 		else
 			lpfc_sli_ringtxcmpl_put(phba, pring, piocbq);
@@ -19137,7 +19118,7 @@ lpfc_wqe_bpl2sgl(struct lpfc_hba *phba, struct lpfc_iocbq *pwqeq,
 	struct ulp_bde64 bde;
 	struct sli4_sge *sgl  = NULL;
 	struct lpfc_dmabuf *dmabuf;
-	union lpfc_wqe *wqe;
+	union lpfc_wqe128 *wqe;
 	int numBdes = 0;
 	int i = 0;
 	uint32_t offset = 0; /* accumulated offset in the sg request list */
@@ -19246,7 +19227,7 @@ int
 lpfc_sli4_issue_wqe(struct lpfc_hba *phba, uint32_t ring_number,
 		    struct lpfc_iocbq *pwqe)
 {
-	union lpfc_wqe *wqe = &pwqe->wqe;
+	union lpfc_wqe128 *wqe = &pwqe->wqe;
 	struct lpfc_nvmet_rcv_ctx *ctxp;
 	struct lpfc_queue *wq;
 	struct lpfc_sglq *sglq;
