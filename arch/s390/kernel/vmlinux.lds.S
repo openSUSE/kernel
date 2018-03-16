@@ -115,9 +115,6 @@ SECTIONS
 		__alt_instructions = .;
 		*(.altinstructions)
 		__alt_instructions_end = .;
-		__alt_nobp = .;
-		*(.altnobp)
-		__alt_nobp_end = .;
 	}
 
 	/*
@@ -128,6 +125,20 @@ SECTIONS
 	 */
 	.altinstr_replacement : {
 		*(.altinstr_replacement)
+	}
+
+	/*
+	 * Table with the patch locations to undo expolines
+	*/
+	.nospec_call_table : {
+		__nospec_call_start = . ;
+		*(.s390_indirect*)
+		__nospec_call_end = . ;
+	}
+	.nospec_return_table : {
+		__nospec_return_start = . ;
+		*(.s390_return*)
+		__nospec_return_end = . ;
 	}
 
 	/* early.c uses stsi, which requires page aligned data. */
