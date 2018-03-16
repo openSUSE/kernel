@@ -248,6 +248,12 @@ enum {
 	AHCI_HFLAG_MULTI_MSI		= 0,
 #endif
 	AHCI_HFLAG_WAKE_BEFORE_STOP	= (1 << 22), /* wake before DMA stop */
+	AHCI_HFLAG_YES_ALPM		= (1 << 23), /* force ALPM cap on */
+	AHCI_HFLAG_NO_WRITE_TO_RO	= (1 << 24), /* don't write to read
+							only registers */
+	AHCI_HFLAG_IS_MOBILE		= (1 << 25), /* mobile chipset, use
+							SATA_MOBILE_LPM_POLICY
+							as default lpm_policy */
 
 	/* ap->flags bits */
 
