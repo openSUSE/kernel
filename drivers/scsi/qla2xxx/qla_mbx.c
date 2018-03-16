@@ -1025,9 +1025,12 @@ qla2x00_get_fw_version(scsi_qla_host_t *vha)
 		 * FW supports nvme and driver load parameter requested nvme.
 		 * BIT 26 of fw_attributes indicates NVMe support.
 		 */
-		if ((ha->fw_attributes_h & 0x400) && ql2xnvmeenable)
+		if ((ha->fw_attributes_h & 0x400) && ql2xnvmeenable) {
 			vha->flags.nvme_enabled = 1;
-
+			ql_log(ql_log_info, vha, 0xd302,
+			    "%s: FC-NVMe is Enabled (0x%x)\n",
+			     __func__, ha->fw_attributes_h);
+		}
 	}
 
 	if (IS_QLA27XX(ha)) {
@@ -3744,6 +3747,7 @@ qla24xx_report_id_acquisition(scsi_qla_host_t *vha,
 	id.b.area   = rptid_entry->port_id[1];
 	id.b.al_pa  = rptid_entry->port_id[0];
 	id.b.rsvd_1 = 0;
+	ha->flags.n2n_ae = 0;
 
 	if (rptid_entry->format == 0) {
 		/* loop */
@@ -3796,6 +3800,7 @@ qla24xx_report_id_acquisition(scsi_qla_host_t *vha,
 			set_bit(N2N_LOGIN_NEEDED, &vha->dpc_flags);
 			set_bit(REGISTER_FC4_NEEDED, &vha->dpc_flags);
 			set_bit(REGISTER_FDMI_NEEDED, &vha->dpc_flags);
+			ha->flags.n2n_ae = 1;
 			return;
 		}
 
@@ -3872,6 +3877,7 @@ qla24xx_report_id_acquisition(scsi_qla_host_t *vha,
 		vha->d_id.b.area = rptid_entry->port_id[1];
 		vha->d_id.b.al_pa = rptid_entry->port_id[0];
 
+		ha->flags.n2n_ae = 1;
 		spin_lock_irqsave(&ha->vport_slock, flags);
 		qlt_update_vp_map(vha, SET_AL_PA);
 		spin_unlock_irqrestore(&ha->vport_slock, flags);
