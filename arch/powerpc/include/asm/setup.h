@@ -48,8 +48,19 @@ enum l1d_flush_type {
 	L1D_FLUSH_MTTRIG	= 0x8,
 };
 
+/* These are bit flags */
+enum spec_barrier_type {
+	SPEC_BARRIER_NONE	= 0x1,
+	SPEC_BARRIER_ORI	= 0x2,
+};
+
 void setup_rfi_flush(enum l1d_flush_type, bool enable);
 void do_rfi_flush_fixups(enum l1d_flush_type types);
+void setup_barrier_nospec(enum spec_barrier_type, bool enable);
+void do_barrier_nospec_fixups_kernel(enum spec_barrier_type type);
+void do_barrier_nospec_fixups(enum spec_barrier_type type,
+			      void *start, void *end);
+extern enum spec_barrier_type powerpc_barrier_nospec;
 
 #endif /* !__ASSEMBLY__ */
 

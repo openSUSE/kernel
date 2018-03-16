@@ -459,38 +459,47 @@ static void __init find_and_init_phbs(void)
 	of_pci_check_probe_only();
 }
 
-void pseries_setup_rfi_flush(void)
+void pseries_setup_rfi_nospec(void)
 {
 	struct h_cpu_char_result result;
-	enum l1d_flush_type types;
-	bool enable;
+	enum l1d_flush_type flush_types;
+	enum spec_barrier_type barrier_type;
+	bool flush_enable;
+	bool barrier_enable;
 	long rc;
 
 	/* Enable by default */
-	enable = true;
+	flush_enable = true;
+	flush_types = L1D_FLUSH_FALLBACK;
+	barrier_enable = true;
+	/* no fallback available if the firmware does not tell us */
+	barrier_type = SPEC_BARRIER_NONE;
 
 	rc = plpar_get_cpu_characteristics(&result);
 	if (rc == H_SUCCESS) {
-		types = L1D_FLUSH_NONE;
-
 		if (result.character & H_CPU_CHAR_L1D_FLUSH_TRIG2)
-			types |= L1D_FLUSH_MTTRIG;
+			flush_types |= L1D_FLUSH_MTTRIG;
 		if (result.character & H_CPU_CHAR_L1D_FLUSH_ORI30)
-			types |= L1D_FLUSH_ORI;
-
-		/* Use fallback if nothing set in hcall */
-		if (types == L1D_FLUSH_NONE)
-			types = L1D_FLUSH_FALLBACK;
+			flush_types |= L1D_FLUSH_ORI;
+		if (result.character & H_CPU_CHAR_SPEC_BAR_ORI31)
+			barrier_type |= SPEC_BARRIER_ORI;
 
 		if ((!(result.behaviour & H_CPU_BEHAV_L1D_FLUSH_PR)) ||
 		    (!(result.behaviour & H_CPU_BEHAV_FAVOUR_SECURITY)))
-			enable = false;
+			flush_enable = false;
+		/*
+		 * Do not check H_CPU_BEHAV_BNDS_CHK_SPEC_BAR - the ORI does
+		 * nothing anyway when not supported.
+		 */
+		if ((!(result.behaviour & H_CPU_BEHAV_FAVOUR_SECURITY)))
+			barrier_enable = false;
 	} else {
 		/* Default to fallback if case hcall is not available */
-		types = L1D_FLUSH_FALLBACK;
+		flush_types = L1D_FLUSH_FALLBACK;
 	}
 
-	setup_rfi_flush(types, enable);
+	setup_barrier_nospec(barrier_type, barrier_enable);
+	setup_rfi_flush(flush_types, flush_enable);
 }
 
 #ifdef CONFIG_PCI_IOV
@@ -666,7 +675,7 @@ static void __init pSeries_setup_arch(void)
 
 	fwnmi_init();
 
-	pseries_setup_rfi_flush();
+	pseries_setup_rfi_nospec();
 
 	/* By default, only probe PCI (can be overridden by rtas_pci) */
 	pci_add_flags(PCI_PROBE_ONLY);

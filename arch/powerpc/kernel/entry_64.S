@@ -36,6 +36,7 @@
 #include <asm/context_tracking.h>
 #include <asm/tm.h>
 #include <asm/ppc-opcode.h>
+#include <asm/barrier.h>
 #include <asm/export.h>
 #ifdef CONFIG_PPC_BOOK3S
 #include <asm/exception-64s.h>
@@ -159,6 +160,7 @@ END_FW_FTR_SECTION_IFSET(FW_FEATURE_SPLPAR)
 	andi.	r11,r10,_TIF_SYSCALL_DOTRACE
 	bne	syscall_dotrace		/* does not return */
 	cmpldi	0,r0,NR_syscalls
+	barrier_nospec
 	bge-	syscall_enosys
 
 system_call:			/* label this so stack traces look sane */
@@ -307,6 +309,7 @@ syscall_dotrace:
 	ld	r10,TI_FLAGS(r10)
 
 	cmpldi	r0,NR_syscalls
+	barrier_nospec
 	blt+	system_call
 
 	/* Return code is already in r3 thanks to do_syscall_trace_enter() */

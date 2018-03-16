@@ -119,7 +119,7 @@ void do_feature_fixups(unsigned long value, void *fixup_start, void *fixup_end)
 #ifdef CONFIG_PPC_BOOK3S_64
 void do_rfi_flush_fixups(enum l1d_flush_type types)
 {
-	unsigned int instrs[3], *dest;
+	unsigned int instrs[2], *dest;
 	long *start, *end;
 	int i;
 
@@ -128,15 +128,13 @@ void do_rfi_flush_fixups(enum l1d_flush_type types)
 
 	instrs[0] = 0x60000000; /* nop */
 	instrs[1] = 0x60000000; /* nop */
-	instrs[2] = 0x60000000; /* nop */
 
 	if (types & L1D_FLUSH_FALLBACK)
-		/* b .+16 to fallback flush */
-		instrs[0] = 0x48000010;
+		/* b .+12 to fallback flush */
+		instrs[0] = 0x4800000c;
 
 	i = 0;
 	if (types & L1D_FLUSH_ORI) {
-		instrs[i++] = 0x63ff0000; /* ori 31,31,0 speculation barrier */
 		instrs[i++] = 0x63de0000; /* ori 30,30,0 L1d flush*/
 	}
 
@@ -150,11 +148,55 @@ void do_rfi_flush_fixups(enum l1d_flush_type types)
 
 		patch_instruction(dest, instrs[0]);
 		patch_instruction(dest + 1, instrs[1]);
-		patch_instruction(dest + 2, instrs[2]);
 	}
 
-	printk(KERN_DEBUG "rfi-flush: patched %d locations\n", i);
+	printk(KERN_DEBUG "rfi-flush: patched %d locations (%s flush)\n", i,
+		(types == L1D_FLUSH_NONE)       ? "no" :
+		(types == L1D_FLUSH_FALLBACK)   ? "fallback displacement" :
+		(types &  L1D_FLUSH_ORI)        ? (types & L1D_FLUSH_MTTRIG)
+							? "ori+mttrig type"
+							: "ori type" :
+		(types &  L1D_FLUSH_MTTRIG)     ? "mttrig type"
+						: "unknown");
 }
+
+void do_barrier_nospec_fixups(enum spec_barrier_type type,
+			      void *fixup_start, void *fixup_end)
+{
+	unsigned int instr, *dest;
+	long *start, *end;
+	int i;
+
+	start = fixup_start;
+	end = fixup_end;
+
+	instr = 0x60000000; /* nop */
+
+	if (type == SPEC_BARRIER_ORI) {
+		pr_info("barrier_nospec: using ORI speculation barrier\n");
+		instr = 0x63ff0000; /* ori 31,31,0 speculation barrier */
+	}
+
+	for (i = 0; start < end; start++, i++) {
+		dest = (void *)start + *start;
+
+		pr_devel("patching dest %lx\n", (unsigned long)dest);
+		patch_instruction(dest, instr);
+	}
+
+	printk(KERN_DEBUG "barrier-nospec: patched %d locations\n", i);
+}
+
+void do_barrier_nospec_fixups_kernel(enum spec_barrier_type type)
+{
+	void *start, *end;
+
+	start = PTRRELOC(&__start___spec_barrier_fixup),
+	end = PTRRELOC(&__stop___spec_barrier_fixup);
+
+	do_barrier_nospec_fixups(type, start, end);
+}
+
 #endif /* CONFIG_PPC_BOOK3S_64 */
 
 void do_lwsync_fixups(unsigned long value, void *fixup_start, void *fixup_end)

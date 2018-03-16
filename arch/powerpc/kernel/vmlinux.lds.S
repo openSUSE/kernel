@@ -141,6 +141,13 @@ SECTIONS
 		*(__rfi_flush_fixup)
 		__stop___rfi_flush_fixup = .;
 	}
+
+	. = ALIGN(8);
+	__spec_barrier_fixup : AT(ADDR(__spec_barrier_fixup) - LOAD_OFFSET) {
+		__start___spec_barrier_fixup = .;
+		*(__spec_barrier_fixup)
+		__stop___spec_barrier_fixup = .;
+	}
 #endif
 
 	EXCEPTION_TABLE(0)

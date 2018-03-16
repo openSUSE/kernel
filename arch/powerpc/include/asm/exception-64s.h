@@ -35,7 +35,6 @@
  * implementations as possible.
  */
 #include <asm/head-64.h>
-#include <asm/bug.h>
 
 /* PACA save area offsets (exgen, exmc, etc) */
 #define EX_R9		0
@@ -62,29 +61,15 @@
  * L1-D cache when returning to userspace or a guest.
  */
 #define RFI_FLUSH_SLOT							\
+	barrier_nospec_asm;						\
 	RFI_FLUSH_FIXUP_SECTION;					\
-	nop;								\
 	nop;								\
 	nop
 
-#ifdef CONFIG_PPC_DEBUG_RFI
-#define CHECK_TARGET_MSR_PR(srr_reg, expected_pr)			\
-	SET_SCRATCH0(r3);						\
-	mfspr	r3,srr_reg;						\
-	extrdi	r3,r3,1,63-MSR_PR_LG;					\
-666:	tdnei	r3,expected_pr;						\
-	EMIT_BUG_ENTRY 666b,__FILE__,__LINE__,0;			\
-	GET_SCRATCH0(r3);
-#else
-#define CHECK_TARGET_MSR_PR(srr_reg, expected_pr)
-#endif
-
 #define RFI_TO_KERNEL							\
-	CHECK_TARGET_MSR_PR(SPRN_SRR1, 0);				\
 	rfid
 
 #define RFI_TO_USER							\
-	CHECK_TARGET_MSR_PR(SPRN_SRR1, 1);				\
 	RFI_FLUSH_SLOT;							\
 	rfid;								\
 	b	rfi_flush_fallback
@@ -100,11 +85,9 @@
 	b	rfi_flush_fallback
 
 #define HRFI_TO_KERNEL							\
-	CHECK_TARGET_MSR_PR(SPRN_HSRR1, 0);				\
 	hrfid
 
 #define HRFI_TO_USER							\
-	CHECK_TARGET_MSR_PR(SPRN_HSRR1, 1);				\
 	RFI_FLUSH_SLOT;							\
 	hrfid;								\
 	b	hrfi_flush_fallback
@@ -268,7 +251,7 @@ END_FTR_SECTION_NESTED(ftr,ftr,943)
 	mtspr	SPRN_##h##SRR0,r12;					\
 	mfspr	r12,SPRN_##h##SRR1;	/* and SRR1 */			\
 	mtspr	SPRN_##h##SRR1,r10;					\
-	h##rfid; /* h##RFI_TO_KERNEL runs out of space */		\
+	h##RFI_TO_KERNEL;						\
 	b	.	/* prevent speculative execution */
 #define EXCEPTION_PROLOG_PSERIES_1(label, h)				\
 	__EXCEPTION_PROLOG_PSERIES_1(label, h)
