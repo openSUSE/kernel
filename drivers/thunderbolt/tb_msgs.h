@@ -15,23 +15,6 @@
 #include <linux/types.h>
 #include <linux/uuid.h>
 
-enum tb_cfg_pkg_type {
-	TB_CFG_PKG_READ = 1,
-	TB_CFG_PKG_WRITE = 2,
-	TB_CFG_PKG_ERROR = 3,
-	TB_CFG_PKG_NOTIFY_ACK = 4,
-	TB_CFG_PKG_EVENT = 5,
-	TB_CFG_PKG_XDOMAIN_REQ = 6,
-	TB_CFG_PKG_XDOMAIN_RESP = 7,
-	TB_CFG_PKG_OVERRIDE = 8,
-	TB_CFG_PKG_RESET = 9,
-	TB_CFG_PKG_ICM_EVENT = 10,
-	TB_CFG_PKG_ICM_CMD = 11,
-	TB_CFG_PKG_ICM_RESP = 12,
-	TB_CFG_PKG_PREPARE_TO_SLEEP = 0xd,
-
-};
-
 enum tb_cfg_space {
 	TB_CFG_HOPS = 0,
 	TB_CFG_PORT = 1,
@@ -130,7 +113,7 @@ struct icm_pkg_header {
 	u8 flags;
 	u8 packet_id;
 	u8 total_packets;
-} __packed;
+};
 
 #define ICM_FLAGS_ERROR			BIT(0)
 #define ICM_FLAGS_NO_KEY		BIT(1)
@@ -139,20 +122,20 @@ struct icm_pkg_header {
 
 struct icm_pkg_driver_ready {
 	struct icm_pkg_header hdr;
-} __packed;
+};
 
 struct icm_pkg_driver_ready_response {
 	struct icm_pkg_header hdr;
 	u8 romver;
 	u8 ramver;
 	u16 security_level;
-} __packed;
+};
 
 /* Falcon Ridge & Alpine Ridge common messages */
 
 struct icm_fr_pkg_get_topology {
 	struct icm_pkg_header hdr;
-} __packed;
+};
 
 #define ICM_GET_TOPOLOGY_PACKETS	14
 
@@ -167,7 +150,7 @@ struct icm_fr_pkg_get_topology_response {
 	u32 reserved[2];
 	u32 ports[16];
 	u32 port_hop_info[16];
-} __packed;
+};
 
 #define ICM_SWITCH_USED			BIT(0)
 #define ICM_SWITCH_UPSTREAM_PORT_MASK	GENMASK(7, 1)
@@ -184,7 +167,7 @@ struct icm_fr_event_device_connected {
 	u8 connection_id;
 	u16 link_info;
 	u32 ep_name[55];
-} __packed;
+};
 
 #define ICM_LINK_INFO_LINK_MASK		0x7
 #define ICM_LINK_INFO_DEPTH_SHIFT	4
@@ -197,13 +180,13 @@ struct icm_fr_pkg_approve_device {
 	u8 connection_key;
 	u8 connection_id;
 	u16 reserved;
-} __packed;
+};
 
 struct icm_fr_event_device_disconnected {
 	struct icm_pkg_header hdr;
 	u16 reserved;
 	u16 link_info;
-} __packed;
+};
 
 struct icm_fr_pkg_add_device_key {
 	struct icm_pkg_header hdr;
@@ -212,7 +195,7 @@ struct icm_fr_pkg_add_device_key {
 	u8 connection_id;
 	u16 reserved;
 	u32 key[8];
-} __packed;
+};
 
 struct icm_fr_pkg_add_device_key_response {
 	struct icm_pkg_header hdr;
@@ -220,7 +203,7 @@ struct icm_fr_pkg_add_device_key_response {
 	u8 connection_key;
 	u8 connection_id;
 	u16 reserved;
-} __packed;
+};
 
 struct icm_fr_pkg_challenge_device {
 	struct icm_pkg_header hdr;
@@ -229,7 +212,7 @@ struct icm_fr_pkg_challenge_device {
 	u8 connection_id;
 	u16 reserved;
 	u32 challenge[8];
-} __packed;
+};
 
 struct icm_fr_pkg_challenge_device_response {
 	struct icm_pkg_header hdr;
@@ -239,7 +222,7 @@ struct icm_fr_pkg_challenge_device_response {
 	u16 reserved;
 	u32 challenge[8];
 	u32 response[8];
-} __packed;
+};
 
 /* Alpine Ridge only messages */
 
@@ -247,7 +230,7 @@ struct icm_ar_pkg_get_route {
 	struct icm_pkg_header hdr;
 	u16 reserved;
 	u16 link_info;
-} __packed;
+};
 
 struct icm_ar_pkg_get_route_response {
 	struct icm_pkg_header hdr;
@@ -255,6 +238,6 @@ struct icm_ar_pkg_get_route_response {
 	u16 link_info;
 	u32 route_hi;
 	u32 route_lo;
-} __packed;
+};
 
 #endif
