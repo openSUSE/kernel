@@ -160,7 +160,6 @@ END_FW_FTR_SECTION_IFSET(FW_FEATURE_SPLPAR)
 	andi.	r11,r10,_TIF_SYSCALL_DOTRACE
 	bne	syscall_dotrace		/* does not return */
 	cmpldi	0,r0,NR_syscalls
-	barrier_nospec
 	bge-	syscall_enosys
 
 system_call:			/* label this so stack traces look sane */
@@ -168,6 +167,7 @@ system_call:			/* label this so stack traces look sane */
  * Need to vector to 32 Bit or default sys_call_table here,
  * based on caller's run-mode / personality.
  */
+	barrier_nospec
 	ld	r11,SYS_CALL_TABLE@toc(2)
 	andi.	r10,r10,_TIF_32BIT
 	beq	15f
@@ -309,7 +309,6 @@ syscall_dotrace:
 	ld	r10,TI_FLAGS(r10)
 
 	cmpldi	r0,NR_syscalls
-	barrier_nospec
 	blt+	system_call
 
 	/* Return code is already in r3 thanks to do_syscall_trace_enter() */
