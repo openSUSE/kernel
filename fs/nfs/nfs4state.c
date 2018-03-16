@@ -2178,6 +2178,8 @@ again:
 		clnt = clp->cl_rpcclient;
 		goto again;
 
+	case -NFS4ERR_INVAL:
+		/* Server confused - assume this minor isn't supported */
 	case -NFS4ERR_MINOR_VERS_MISMATCH:
 		status = -EPROTONOSUPPORT;
 		break;
