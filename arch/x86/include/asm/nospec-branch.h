@@ -225,7 +225,6 @@ extern char __indirect_thunk_end[];
  */
 static inline void vmexit_fill_RSB(void)
 {
-#ifdef CONFIG_RETPOLINE
 	unsigned long loops;
 
 	asm volatile (ANNOTATE_NOSPEC_ALTERNATIVE
@@ -235,7 +234,6 @@ static inline void vmexit_fill_RSB(void)
 		      "910:"
 		      : "=r" (loops), ASM_CALL_CONSTRAINT
 		      : : "memory" );
-#endif
 }
 
 #define alternative_msr_write(_msr, _val, _feature)		\
