@@ -79,6 +79,7 @@ enum spectre_v2_mitigation_cmd {
 	SPECTRE_V2_CMD_RETPOLINE,
 	SPECTRE_V2_CMD_RETPOLINE_GENERIC,
 	SPECTRE_V2_CMD_RETPOLINE_AMD,
+	SPECTRE_V2_CMD_IBRS,
 };
 
 static const char *spectre_v2_strings[] = {
@@ -87,15 +88,17 @@ static const char *spectre_v2_strings[] = {
 	[SPECTRE_V2_RETPOLINE_MINIMAL_AMD]	= "Vulnerable: Minimal AMD ASM retpoline",
 	[SPECTRE_V2_RETPOLINE_GENERIC]		= "Mitigation: Full generic retpoline",
 	[SPECTRE_V2_RETPOLINE_AMD]		= "Mitigation: Full AMD retpoline",
+	[SPECTRE_V2_IBRS]			= "Mitigation: Indirect Branch Restricted Speculation",
 };
 
 #undef pr_fmt
 #define pr_fmt(fmt)     "Spectre V2 : " fmt
 
 static enum spectre_v2_mitigation spectre_v2_enabled = SPECTRE_V2_NONE;
-static bool spectre_v2_bad_module;
 
 #ifdef RETPOLINE
+static bool spectre_v2_bad_module;
+
 bool retpoline_module_ok(bool has_retpoline)
 {
 	if (spectre_v2_enabled == SPECTRE_V2_NONE || has_retpoline)
@@ -105,6 +108,13 @@ bool retpoline_module_ok(bool has_retpoline)
 	spectre_v2_bad_module = true;
 	return false;
 }
+
+static inline const char *spectre_v2_module_string(void)
+{
+	return spectre_v2_bad_module ? " - vulnerable module loaded" : "";
+}
+#else
+static inline const char *spectre_v2_module_string(void) { return ""; }
 #endif
 
 static void __init spec2_print_if_insecure(const char *reason)
@@ -141,6 +151,7 @@ static const struct {
 	{ "retpoline",         SPECTRE_V2_CMD_RETPOLINE,         false },
 	{ "retpoline,amd",     SPECTRE_V2_CMD_RETPOLINE_AMD,     false },
 	{ "retpoline,generic", SPECTRE_V2_CMD_RETPOLINE_GENERIC, false },
+	{ "ibrs",              SPECTRE_V2_CMD_IBRS,              false },
 	{ "auto",              SPECTRE_V2_CMD_AUTO,              false },
 };
 
@@ -192,7 +203,7 @@ static enum spectre_v2_mitigation_cmd __init spectre_v2_parse_cmdline(void)
 	return cmd;
 }
 
-/* Check for Skylake-like CPUs (for RSB handling) */
+/* Check for Skylake-like CPUs (for RSB and IBRS handling) */
 static bool __init is_skylake_era(void)
 {
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL &&
@@ -226,19 +237,34 @@ static void __init spectre_v2_select_mitigation(void)
 	case SPECTRE_V2_CMD_NONE:
 		return;
 
-	case SPECTRE_V2_CMD_FORCE:
-		/* FALLTRHU */
-	case SPECTRE_V2_CMD_AUTO:
-		goto retpoline_auto;
-
 	case SPECTRE_V2_CMD_RETPOLINE_AMD:
 		if (IS_ENABLED(CONFIG_RETPOLINE))
 			goto retpoline_amd;
 		break;
+
 	case SPECTRE_V2_CMD_RETPOLINE_GENERIC:
 		if (IS_ENABLED(CONFIG_RETPOLINE))
 			goto retpoline_generic;
 		break;
+
+	case SPECTRE_V2_CMD_IBRS:
+		mode = SPECTRE_V2_IBRS;
+		setup_force_cpu_cap(X86_FEATURE_USE_IBRS);
+		goto enabled;
+
+	case SPECTRE_V2_CMD_AUTO:
+	case SPECTRE_V2_CMD_FORCE:
+		/*
+		 * If we have IBRS support, and either Skylake or !RETPOLINE,
+		 * then that's what we do.
+		 */
+		if (boot_cpu_has(X86_FEATURE_IBRS) &&
+		    (is_skylake_era() || !retp_compiler())) {
+			mode = SPECTRE_V2_IBRS;
+			setup_force_cpu_cap(X86_FEATURE_USE_IBRS);
+			goto enabled;
+		}
+		/* fall through */
 	case SPECTRE_V2_CMD_RETPOLINE:
 		if (IS_ENABLED(CONFIG_RETPOLINE))
 			goto retpoline_auto;
@@ -265,6 +291,7 @@ retpoline_auto:
 		setup_force_cpu_cap(X86_FEATURE_RETPOLINE);
 	}
 
+ enabled:
 	spectre_v2_enabled = mode;
 	pr_info("%s\n", spectre_v2_strings[mode]);
 
@@ -280,8 +307,8 @@ retpoline_auto:
 	 * or deactivated in favour of retpolines the RSB fill on context
 	 * switch is required.
 	 */
-	if ((!boot_cpu_has(X86_FEATURE_PTI) &&
-	     !boot_cpu_has(X86_FEATURE_SMEP)) || is_skylake_era()) {
+	if ((!boot_cpu_has(X86_FEATURE_PTI) && !boot_cpu_has(X86_FEATURE_SMEP)) ||
+	    (!boot_cpu_has(X86_FEATURE_USE_IBRS) && is_skylake_era())) {
 		setup_force_cpu_cap(X86_FEATURE_RSB_CTXSW);
 		pr_info("Spectre v2 mitigation: Filling RSB on context switch\n");
 	}
@@ -290,6 +317,15 @@ retpoline_auto:
 	if (boot_cpu_has(X86_FEATURE_IBPB)) {
 		setup_force_cpu_cap(X86_FEATURE_USE_IBPB);
 		pr_info("Spectre v2 mitigation: Enabling Indirect Branch Prediction Barrier\n");
+	}
+
+	/*
+	 * Retpoline means the kernel is safe because it has no indirect
+	 * branches. But firmware isn't, so use IBRS to protect that.
+	 */
+	if (boot_cpu_has(X86_FEATURE_IBRS)) {
+		setup_force_cpu_cap(X86_FEATURE_USE_IBRS_FW);
+		pr_info("Enabling Restricted Speculation for firmware calls\n");
 	}
 }
 
@@ -317,8 +353,9 @@ ssize_t cpu_show_spectre_v2(struct device *dev, struct device_attribute *attr, c
 	if (!boot_cpu_has_bug(X86_BUG_SPECTRE_V2))
 		return sprintf(buf, "Not affected\n");
 
-	return sprintf(buf, "%s%s%s\n", spectre_v2_strings[spectre_v2_enabled],
+	return sprintf(buf, "%s%s%s%s\n", spectre_v2_strings[spectre_v2_enabled],
 		       boot_cpu_has(X86_FEATURE_USE_IBPB) ? ", IBPB" : "",
-		       spectre_v2_bad_module ? " - vulnerable module loaded" : "");
+		       boot_cpu_has(X86_FEATURE_USE_IBRS_FW) ? ", IBRS_FW" : "",
+		       spectre_v2_module_string());
 }
 #endif
