@@ -253,6 +253,42 @@ static inline void indirect_branch_prediction_barrier(void)
 }
 
 /*
+ * This also performs a barrier, and setting it again when it was already
+ * set is NOT a no-op.
+ */
+static inline void restrict_branch_speculation(void)
+{
+	unsigned long ax, cx, dx;
+
+	asm volatile(ALTERNATIVE("",
+				 "movl %[msr], %%ecx\n\t"
+				 "movl %[val], %%eax\n\t"
+				 "movl $0, %%edx\n\t"
+				 "wrmsr",
+				 X86_FEATURE_USE_IBRS)
+		     : "=a" (ax), "=c" (cx), "=d" (dx)
+		     : [msr] "i" (MSR_IA32_SPEC_CTRL),
+		       [val] "i" (SPEC_CTRL_IBRS)
+		     : "memory");
+}
+
+static inline void unrestrict_branch_speculation(void)
+{
+	unsigned long ax, cx, dx;
+
+	asm volatile(ALTERNATIVE("",
+				 "movl %[msr], %%ecx\n\t"
+				 "movl %[val], %%eax\n\t"
+				 "movl $0, %%edx\n\t"
+				 "wrmsr",
+				 X86_FEATURE_USE_IBRS)
+		     : "=a" (ax), "=c" (cx), "=d" (dx)
+		     : [msr] "i" (MSR_IA32_SPEC_CTRL),
+		       [val] "i" (0)
+		     : "memory");
+}
+
+/*
  * With retpoline, we must use IBRS to restrict branch prediction
  * before calling into firmware.
  *
