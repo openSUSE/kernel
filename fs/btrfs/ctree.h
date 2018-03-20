@@ -382,8 +382,9 @@ struct btrfs_dev_replace {
 
 /* For raid type sysfs entries */
 struct raid_kobject {
-	int raid_type;
+	u64 flags;
 	struct kobject kobj;
+	struct list_head list;
 };
 
 struct btrfs_space_info {
@@ -953,6 +954,8 @@ struct btrfs_fs_info {
 	int thread_pool_size;
 
 	struct kobject *space_info_kobj;
+	struct list_head pending_raid_kobjs;
+	spinlock_t pending_raid_kobjs_lock; /* uncontended */
 
 	u64 total_pinned;
 
@@ -2677,6 +2680,7 @@ int btrfs_make_block_group(struct btrfs_trans_handle *trans,
 			   struct btrfs_fs_info *fs_info, u64 bytes_used,
 			   u64 type, u64 chunk_objectid, u64 chunk_offset,
 			   u64 size);
+void btrfs_add_raid_kobjects(struct btrfs_fs_info *fs_info);
 struct btrfs_trans_handle *btrfs_start_trans_remove_block_group(
 				struct btrfs_fs_info *fs_info,
 				const u64 chunk_offset);
