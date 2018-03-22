@@ -3518,15 +3518,15 @@ static blk_status_t write_dev_flush(struct btrfs_device *device, int wait)
 {
 	struct request_queue *q = bdev_get_queue(device->bdev);
 	struct bio *bio;
-	blk_status_t ret = 0;
+	blk_status_t ret = BLK_STS_OK;
 
 	if (!test_bit(QUEUE_FLAG_WC, &q->queue_flags))
-		return 0;
+		return BLK_STS_OK;
 
 	if (wait) {
 		bio = device->flush_bio;
 		if (!bio)
-			return 0;
+			return BLK_STS_OK;
 
 		wait_for_completion(&device->flush_wait);
 
