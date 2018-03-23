@@ -251,7 +251,7 @@ TRACE_EVENT(xfs_iext_insert,
 		  __print_flags(__entry->bmap_state, "|", XFS_BMAP_EXT_FLAGS),
 		  (long)__entry->idx,
 		  __entry->startoff,
-		  (__int64_t)__entry->startblock,
+		  (int64_t)__entry->startblock,
 		  __entry->blockcount,
 		  __entry->state,
 		  (char *)__entry->caller_ip)
@@ -295,7 +295,7 @@ DECLARE_EVENT_CLASS(xfs_bmap_class,
 		  __print_flags(__entry->bmap_state, "|", XFS_BMAP_EXT_FLAGS),
 		  (long)__entry->idx,
 		  __entry->startoff,
-		  (__int64_t)__entry->startblock,
+		  (int64_t)__entry->startblock,
 		  __entry->blockcount,
 		  __entry->state,
 		  (char *)__entry->caller_ip)
@@ -516,7 +516,6 @@ DEFINE_BUF_ITEM_EVENT(xfs_buf_item_size);
 DEFINE_BUF_ITEM_EVENT(xfs_buf_item_size_ordered);
 DEFINE_BUF_ITEM_EVENT(xfs_buf_item_size_stale);
 DEFINE_BUF_ITEM_EVENT(xfs_buf_item_format);
-DEFINE_BUF_ITEM_EVENT(xfs_buf_item_format_ordered);
 DEFINE_BUF_ITEM_EVENT(xfs_buf_item_format_stale);
 DEFINE_BUF_ITEM_EVENT(xfs_buf_item_ordered);
 DEFINE_BUF_ITEM_EVENT(xfs_buf_item_pin);
@@ -1301,7 +1300,7 @@ DECLARE_EVENT_CLASS(xfs_imap_class,
 		  __entry->count,
 		  __print_symbolic(__entry->type, XFS_IO_TYPES),
 		  __entry->startoff,
-		  (__int64_t)__entry->startblock,
+		  (int64_t)__entry->startblock,
 		  __entry->blockcount)
 )
 
@@ -2078,7 +2077,7 @@ DECLARE_EVENT_CLASS(xfs_log_recover_buf_item_class,
 	TP_ARGS(log, buf_f),
 	TP_STRUCT__entry(
 		__field(dev_t, dev)
-		__field(__int64_t, blkno)
+		__field(int64_t, blkno)
 		__field(unsigned short, len)
 		__field(unsigned short, flags)
 		__field(unsigned short, size)
@@ -2127,7 +2126,7 @@ DECLARE_EVENT_CLASS(xfs_log_recover_ino_item_class,
 		__field(int, fields)
 		__field(unsigned short, asize)
 		__field(unsigned short, dsize)
-		__field(__int64_t, blkno)
+		__field(int64_t, blkno)
 		__field(int, len)
 		__field(int, boffset)
 	),
@@ -3277,8 +3276,8 @@ DECLARE_EVENT_CLASS(xfs_fsmap_class,
 		__field(xfs_agnumber_t, agno)
 		__field(xfs_fsblock_t, bno)
 		__field(xfs_filblks_t, len)
-		__field(__uint64_t, owner)
-		__field(__uint64_t, offset)
+		__field(uint64_t, owner)
+		__field(uint64_t, offset)
 		__field(unsigned int, flags)
 	),
 	TP_fast_assign(
@@ -3318,9 +3317,9 @@ DECLARE_EVENT_CLASS(xfs_getfsmap_class,
 		__field(dev_t, keydev)
 		__field(xfs_daddr_t, block)
 		__field(xfs_daddr_t, len)
-		__field(__uint64_t, owner)
-		__field(__uint64_t, offset)
-		__field(__uint64_t, flags)
+		__field(uint64_t, owner)
+		__field(uint64_t, offset)
+		__field(uint64_t, flags)
 	),
 	TP_fast_assign(
 		__entry->dev = mp->m_super->s_dev;

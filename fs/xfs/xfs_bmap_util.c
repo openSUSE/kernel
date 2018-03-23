@@ -84,6 +84,7 @@ xfs_zero_extent(
 		GFP_NOFS, 0);
 }
 
+#ifdef CONFIG_XFS_RT
 int
 xfs_bmap_rtalloc(
 	struct xfs_bmalloca	*ap)	/* bmap alloc argument struct */
@@ -190,6 +191,7 @@ xfs_bmap_rtalloc(
 	}
 	return 0;
 }
+#endif /* CONFIG_XFS_RT */
 
 /*
  * Check if the endoff is outside the last extent. If so the caller will grow
@@ -389,11 +391,11 @@ xfs_getbmapx_fix_eof_hole(
 	struct getbmapx		*out,		/* output structure */
 	int			prealloced,	/* this is a file with
 						 * preallocated data space */
-	__int64_t		end,		/* last block requested */
+	int64_t			end,		/* last block requested */
 	xfs_fsblock_t		startblock,
 	bool			moretocome)
 {
-	__int64_t		fixlen;
+	int64_t			fixlen;
 	xfs_mount_t		*mp;		/* file system mount point */
 	xfs_ifork_t		*ifp;		/* inode fork pointer */
 	xfs_extnum_t		lastx;		/* last extent pointer */
@@ -514,9 +516,9 @@ xfs_getbmap(
 	xfs_bmap_format_t	formatter,	/* format to user */
 	void			*arg)		/* formatter arg */
 {
-	__int64_t		bmvend;		/* last block requested */
+	int64_t			bmvend;		/* last block requested */
 	int			error = 0;	/* return value */
-	__int64_t		fixlen;		/* length for -1 case */
+	int64_t			fixlen;		/* length for -1 case */
 	int			i;		/* extent number */
 	int			lock;		/* lock state */
 	xfs_bmbt_irec_t		*map;		/* buffer for user's data */
@@ -605,7 +607,7 @@ xfs_getbmap(
 	if (bmv->bmv_length == -1) {
 		fixlen = XFS_FSB_TO_BB(mp, XFS_B_TO_FSB(mp, fixlen));
 		bmv->bmv_length =
-			max_t(__int64_t, fixlen - bmv->bmv_offset, 0);
+			max_t(int64_t, fixlen - bmv->bmv_offset, 0);
 	} else if (bmv->bmv_length == 0) {
 		bmv->bmv_entries = 0;
 		return 0;
@@ -742,7 +744,7 @@ xfs_getbmap(
 				out[cur_ext].bmv_offset +
 				out[cur_ext].bmv_length;
 			bmv->bmv_length =
-				max_t(__int64_t, 0, bmvend - bmv->bmv_offset);
+				max_t(int64_t, 0, bmvend - bmv->bmv_offset);
 
 			/*
 			 * In case we don't want to return the hole,
@@ -1434,7 +1436,19 @@ xfs_shift_file_space(
 		return error;
 
 	/*
-	 * The extent shiting code works on extent granularity. So, if
+	 * Clean out anything hanging around in the cow fork now that
+	 * we've flushed all the dirty data out to disk to avoid having
+	 * CoW extents at the wrong offsets.
+	 */
+	if (xfs_is_reflink_inode(ip)) {
+		error = xfs_reflink_cancel_cow_range(ip, offset, NULLFILEOFF,
+				true);
+		if (error)
+			return error;
+	}
+
+	/*
+	 * The extent shifting code works on extent granularity. So, if
 	 * stop_fsb is not the starting block of extent, we need to split
 	 * the extent at stop_fsb.
 	 */
@@ -1676,7 +1690,7 @@ xfs_swap_extent_rmap(
 	xfs_filblks_t			ilen;
 	xfs_filblks_t			rlen;
 	int				nimaps;
-	__uint64_t			tip_flags2;
+	uint64_t			tip_flags2;
 
 	/*
 	 * If the source file has shared blocks, we must flag the donor
@@ -1792,7 +1806,7 @@ xfs_swap_extent_forks(
 	int			aforkblks = 0;
 	int			taforkblks = 0;
 	xfs_extnum_t		nextents;
-	__uint64_t		tmp;
+	uint64_t		tmp;
 	int			error;
 
 	/*
@@ -1814,29 +1828,18 @@ xfs_swap_extent_forks(
 	}
 
 	/*
-	 * Before we've swapped the forks, lets set the owners of the forks
-	 * appropriately. We have to do this as we are demand paging the btree
-	 * buffers, and so the validation done on read will expect the owner
-	 * field to be correctly set. Once we change the owners, we can swap the
-	 * inode forks.
+	 * Btree format (v3) inodes have the inode number stamped in the bmbt
+	 * block headers. We can't start changing the bmbt blocks until the
+	 * inode owner change is logged so recovery does the right thing in the
+	 * event of a crash. Set the owner change log flags now and leave the
+	 * bmbt scan as the last step.
 	 */
 	if (ip->i_d.di_version == 3 &&
-	    ip->i_d.di_format == XFS_DINODE_FMT_BTREE) {
+	    ip->i_d.di_format == XFS_DINODE_FMT_BTREE)
 		(*target_log_flags) |= XFS_ILOG_DOWNER;
-		error = xfs_bmbt_change_owner(tp, ip, XFS_DATA_FORK,
-					      tip->i_ino, NULL);
-		if (error)
-			return error;
-	}
-
 	if (tip->i_d.di_version == 3 &&
-	    tip->i_d.di_format == XFS_DINODE_FMT_BTREE) {
+	    tip->i_d.di_format == XFS_DINODE_FMT_BTREE)
 		(*src_log_flags) |= XFS_ILOG_DOWNER;
-		error = xfs_bmbt_change_owner(tp, tip, XFS_DATA_FORK,
-					      ip->i_ino, NULL);
-		if (error)
-			return error;
-	}
 
 	/*
 	 * Swap the data forks of the inodes
@@ -1850,15 +1853,15 @@ xfs_swap_extent_forks(
 	/*
 	 * Fix the on-disk inode values
 	 */
-	tmp = (__uint64_t)ip->i_d.di_nblocks;
+	tmp = (uint64_t)ip->i_d.di_nblocks;
 	ip->i_d.di_nblocks = tip->i_d.di_nblocks - taforkblks + aforkblks;
 	tip->i_d.di_nblocks = tmp + taforkblks - aforkblks;
 
-	tmp = (__uint64_t) ip->i_d.di_nextents;
+	tmp = (uint64_t) ip->i_d.di_nextents;
 	ip->i_d.di_nextents = tip->i_d.di_nextents;
 	tip->i_d.di_nextents = tmp;
 
-	tmp = (__uint64_t) ip->i_d.di_format;
+	tmp = (uint64_t) ip->i_d.di_format;
 	ip->i_d.di_format = tip->i_d.di_format;
 	tip->i_d.di_format = tmp;
 
@@ -1914,6 +1917,48 @@ xfs_swap_extent_forks(
 	return 0;
 }
 
+/*
+ * Fix up the owners of the bmbt blocks to refer to the current inode. The
+ * change owner scan attempts to order all modified buffers in the current
+ * transaction. In the event of ordered buffer failure, the offending buffer is
+ * physically logged as a fallback and the scan returns -EAGAIN. We must roll
+ * the transaction in this case to replenish the fallback log reservation and
+ * restart the scan. This process repeats until the scan completes.
+ */
+static int
+xfs_swap_change_owner(
+	struct xfs_trans	**tpp,
+	struct xfs_inode	*ip,
+	struct xfs_inode	*tmpip)
+{
+	int			error;
+	struct xfs_trans	*tp = *tpp;
+
+	do {
+		error = xfs_bmbt_change_owner(tp, ip, XFS_DATA_FORK, ip->i_ino,
+					      NULL);
+		/* success or fatal error */
+		if (error != -EAGAIN)
+			break;
+
+		error = xfs_trans_roll(tpp, NULL);
+		if (error)
+			break;
+		tp = *tpp;
+
+		/*
+		 * Redirty both inodes so they can relog and keep the log tail
+		 * moving forward.
+		 */
+		xfs_trans_ijoin(tp, ip, 0);
+		xfs_trans_ijoin(tp, tmpip, 0);
+		xfs_trans_log_inode(tp, ip, XFS_ILOG_CORE);
+		xfs_trans_log_inode(tp, tmpip, XFS_ILOG_CORE);
+	} while (true);
+
+	return error;
+}
+
 int
 xfs_swap_extents(
 	struct xfs_inode	*ip,	/* target inode */
@@ -1927,8 +1972,8 @@ xfs_swap_extents(
 	int			error = 0;
 	int			lock_flags;
 	struct xfs_ifork	*cowfp;
-	__uint64_t		f;
-	int			resblks;
+	uint64_t		f;
+	int			resblks = 0;
 
 	/*
 	 * Lock the inodes against other IO, page faults and truncate to
@@ -1976,11 +2021,8 @@ xfs_swap_extents(
 			  XFS_SWAP_RMAP_SPACE_RES(mp,
 				XFS_IFORK_NEXTENTS(tip, XFS_DATA_FORK),
 				XFS_DATA_FORK);
-		error = xfs_trans_alloc(mp, &M_RES(mp)->tr_write, resblks,
-				0, 0, &tp);
-	} else
-		error = xfs_trans_alloc(mp, &M_RES(mp)->tr_ichange, 0,
-				0, 0, &tp);
+	}
+	error = xfs_trans_alloc(mp, &M_RES(mp)->tr_write, resblks, 0, 0, &tp);
 	if (error)
 		goto out_unlock;
 
@@ -2055,15 +2097,52 @@ xfs_swap_extents(
 		ip->i_d.di_flags2 |= tip->i_d.di_flags2 & XFS_DIFLAG2_REFLINK;
 		tip->i_d.di_flags2 &= ~XFS_DIFLAG2_REFLINK;
 		tip->i_d.di_flags2 |= f & XFS_DIFLAG2_REFLINK;
+	}
+
+	/* Swap the cow forks. */
+	if (xfs_sb_version_hasreflink(&mp->m_sb)) {
+		xfs_extnum_t	extnum;
+
+		ASSERT(ip->i_cformat == XFS_DINODE_FMT_EXTENTS);
+		ASSERT(tip->i_cformat == XFS_DINODE_FMT_EXTENTS);
+
+		extnum = ip->i_cnextents;
+		ip->i_cnextents = tip->i_cnextents;
+		tip->i_cnextents = extnum;
+
 		cowfp = ip->i_cowfp;
 		ip->i_cowfp = tip->i_cowfp;
 		tip->i_cowfp = cowfp;
-		xfs_inode_set_cowblocks_tag(ip);
-		xfs_inode_set_cowblocks_tag(tip);
+
+		if (ip->i_cowfp && ip->i_cnextents)
+			xfs_inode_set_cowblocks_tag(ip);
+		else
+			xfs_inode_clear_cowblocks_tag(ip);
+		if (tip->i_cowfp && tip->i_cnextents)
+			xfs_inode_set_cowblocks_tag(tip);
+		else
+			xfs_inode_clear_cowblocks_tag(tip);
 	}
 
 	xfs_trans_log_inode(tp, ip,  src_log_flags);
 	xfs_trans_log_inode(tp, tip, target_log_flags);
+
+	/*
+	 * The extent forks have been swapped, but crc=1,rmapbt=0 filesystems
+	 * have inode number owner values in the bmbt blocks that still refer to
+	 * the old inode. Scan each bmbt to fix up the owner values with the
+	 * inode number of the current inode.
+	 */
+	if (src_log_flags & XFS_ILOG_DOWNER) {
+		error = xfs_swap_change_owner(&tp, ip, tip);
+		if (error)
+			goto out_trans_cancel;
+	}
+	if (target_log_flags & XFS_ILOG_DOWNER) {
+		error = xfs_swap_change_owner(&tp, tip, ip);
+		if (error)
+			goto out_trans_cancel;
+	}
 
 	/*
 	 * If this is a synchronous mount, make sure that the
