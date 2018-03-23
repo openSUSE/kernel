@@ -3907,6 +3907,8 @@ nv50_disp_atomic_commit_tail(struct drm_atomic_state *state)
 
 		NV_ATOMIC(drm, "%s: clr %04x (set %04x)\n", crtc->name,
 			  asyh->clr.mask, asyh->set.mask);
+		if (crtc_state->active && !asyh->state.active)
+			drm_crtc_vblank_off(crtc);
 
 		if (asyh->clr.mask) {
 			nv50_head_flush_clr(head, asyh, atom->flush_disable);
@@ -3992,11 +3994,13 @@ nv50_disp_atomic_commit_tail(struct drm_atomic_state *state)
 			nv50_head_flush_set(head, asyh);
 			interlock_core = 1;
 		}
-	}
 
-	for_each_crtc_in_state(state, crtc, crtc_state, i) {
-		if (crtc->state->event)
-			drm_crtc_vblank_get(crtc);
+		if (asyh->state.active) {
+			if (!crtc_state->active)
+				drm_crtc_vblank_on(crtc);
+			if (asyh->state.event)
+				drm_crtc_vblank_get(crtc);
+		}
 	}
 
 	/* Update plane(s). */
@@ -4043,12 +4047,14 @@ nv50_disp_atomic_commit_tail(struct drm_atomic_state *state)
 		if (crtc->state->event) {
 			unsigned long flags;
 			/* Get correct count/ts if racing with vblank irq */
-			drm_crtc_accurate_vblank_count(crtc);
+			if (crtc->state->active)
+				drm_crtc_accurate_vblank_count(crtc);
 			spin_lock_irqsave(&crtc->dev->event_lock, flags);
 			drm_crtc_send_vblank_event(crtc, crtc->state->event);
 			spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
 			crtc->state->event = NULL;
-			drm_crtc_vblank_put(crtc);
+			if (crtc->state->active)
+				drm_crtc_vblank_put(crtc);
 		}
 	}
 
@@ -4400,6 +4406,7 @@ nv50_display_create(struct drm_device *dev)
 	nouveau_display(dev)->fini = nv50_display_fini;
 	disp->disp = &nouveau_display(dev)->disp;
 	dev->mode_config.funcs = &nv50_disp_func;
+	dev->driver->driver_features |= DRIVER_PREFER_XBGR_30BPP;
 	if (nouveau_atomic)
 		dev->driver->driver_features |= DRIVER_ATOMIC;
 

@@ -293,14 +293,17 @@ int amdgpu_uvd_suspend(struct amdgpu_device *adev)
 	if (adev->uvd.vcpu_bo == NULL)
 		return 0;
 
-	for (i = 0; i < adev->uvd.max_handles; ++i)
-		if (atomic_read(&adev->uvd.handles[i]))
-			break;
-
-	if (i == AMDGPU_MAX_UVD_HANDLES)
-		return 0;
-
 	cancel_delayed_work_sync(&adev->uvd.idle_work);
+
+	/* only valid for physical mode */
+	if (adev->asic_type < CHIP_POLARIS10) {
+		for (i = 0; i < adev->uvd.max_handles; ++i)
+			if (atomic_read(&adev->uvd.handles[i]))
+				break;
+
+		if (i == adev->uvd.max_handles)
+			return 0;
+	}
 
 	size = amdgpu_bo_size(adev->uvd.vcpu_bo);
 	ptr = adev->uvd.cpu_addr;
