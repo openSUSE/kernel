@@ -45,6 +45,7 @@ struct metrousb_private {
 static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(FOCUS_VENDOR_ID, FOCUS_PRODUCT_ID_BI) },
 	{ USB_DEVICE(FOCUS_VENDOR_ID, FOCUS_PRODUCT_ID_UNI) },
+	{ USB_DEVICE_INTERFACE_CLASS(0x0c2e, 0x0730, 0xff) },	/* MS7820 */
 	{ }, /* Terminating entry. */
 };
 MODULE_DEVICE_TABLE(usb, id_table);
@@ -188,7 +189,7 @@ static int metrousb_open(struct tty_struct *tty, struct usb_serial_port *port)
 		dev_err(&port->dev,
 			"%s - failed submitting interrupt in urb, error code=%d\n",
 			__func__, result);
-		goto exit;
+		return result;
 	}
 
 	/* Send activate cmd to device */
@@ -197,9 +198,14 @@ static int metrousb_open(struct tty_struct *tty, struct usb_serial_port *port)
 		dev_err(&port->dev,
 			"%s - failed to configure device, error code=%d\n",
 			__func__, result);
-		goto exit;
+		goto err_kill_urb;
 	}
-exit:
+
+	return 0;
+
+err_kill_urb:
+	usb_kill_urb(port->interrupt_in_urb);
+
 	return result;
 }
 
