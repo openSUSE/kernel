@@ -1273,7 +1273,7 @@ static struct btrfs_subvolume_writers *btrfs_alloc_subvolume_writers(void)
 	if (!writers)
 		return ERR_PTR(-ENOMEM);
 
-	ret = percpu_counter_init(&writers->counter, 0, GFP_KERNEL);
+	ret = percpu_counter_init(&writers->counter, 0, GFP_NOFS);
 	if (ret < 0) {
 		kfree(writers);
 		return ERR_PTR(ret);
@@ -2620,6 +2620,8 @@ int open_ctree(struct super_block *sb,
 	INIT_LIST_HEAD(&fs_info->delayed_iputs);
 	INIT_LIST_HEAD(&fs_info->delalloc_roots);
 	INIT_LIST_HEAD(&fs_info->caching_block_groups);
+	INIT_LIST_HEAD(&fs_info->pending_raid_kobjs);
+	spin_lock_init(&fs_info->pending_raid_kobjs_lock);
 	spin_lock_init(&fs_info->delalloc_root_lock);
 	spin_lock_init(&fs_info->trans_lock);
 	spin_lock_init(&fs_info->fs_roots_radix_lock);
@@ -3516,15 +3518,15 @@ static blk_status_t write_dev_flush(struct btrfs_device *device, int wait)
 {
 	struct request_queue *q = bdev_get_queue(device->bdev);
 	struct bio *bio;
-	blk_status_t ret = 0;
+	blk_status_t ret = BLK_STS_OK;
 
 	if (!test_bit(QUEUE_FLAG_WC, &q->queue_flags))
-		return 0;
+		return BLK_STS_OK;
 
 	if (wait) {
 		bio = device->flush_bio;
 		if (!bio)
-			return 0;
+			return BLK_STS_OK;
 
 		wait_for_completion(&device->flush_wait);
 

@@ -553,7 +553,7 @@ add_delayed_ref_head(struct btrfs_fs_info *fs_info,
 		     struct btrfs_delayed_ref_node *ref,
 		     struct btrfs_qgroup_extent_record *qrecord,
 		     u64 bytenr, u64 num_bytes, u64 ref_root, u64 reserved,
-		     int action, int is_data, int *qrecord_inserted_ret,
+		     int action, int is_data,
 		     int *old_ref_mod, int *new_ref_mod)
 {
 	struct btrfs_delayed_ref_head *existing;
@@ -561,7 +561,6 @@ add_delayed_ref_head(struct btrfs_fs_info *fs_info,
 	struct btrfs_delayed_ref_root *delayed_refs;
 	int count_mod = 1;
 	int must_insert_reserved = 0;
-	int qrecord_inserted = 0;
 
 	/* If reserved is provided, it must be a data extent. */
 	BUG_ON(!is_data && reserved);
@@ -628,8 +627,6 @@ add_delayed_ref_head(struct btrfs_fs_info *fs_info,
 		if(btrfs_qgroup_trace_extent_nolock(fs_info,
 					delayed_refs, qrecord))
 			kfree(qrecord);
-		else
-			qrecord_inserted = 1;
 	}
 
 	spin_lock_init(&head_ref->lock);
@@ -660,8 +657,6 @@ add_delayed_ref_head(struct btrfs_fs_info *fs_info,
 		atomic_inc(&delayed_refs->num_entries);
 		trans->delayed_ref_updates++;
 	}
-	if (qrecord_inserted_ret)
-		*qrecord_inserted_ret = qrecord_inserted;
 	if (new_ref_mod)
 		*new_ref_mod = head_ref->total_ref_mod;
 	return head_ref;
@@ -794,7 +789,6 @@ int btrfs_add_delayed_tree_ref(struct btrfs_fs_info *fs_info,
 	struct btrfs_delayed_ref_head *head_ref;
 	struct btrfs_delayed_ref_root *delayed_refs;
 	struct btrfs_qgroup_extent_record *record = NULL;
-	int qrecord_inserted;
 
 	BUG_ON(extent_op && extent_op->is_data);
 	ref = kmem_cache_alloc(btrfs_delayed_tree_ref_cachep, GFP_NOFS);
@@ -823,15 +817,12 @@ int btrfs_add_delayed_tree_ref(struct btrfs_fs_info *fs_info,
 	 */
 	head_ref = add_delayed_ref_head(fs_info, trans, &head_ref->node, record,
 					bytenr, num_bytes, 0, 0, action, 0,
-					&qrecord_inserted, old_ref_mod,
-					new_ref_mod);
+					old_ref_mod, new_ref_mod);
 
 	add_delayed_tree_ref(fs_info, trans, head_ref, &ref->node, bytenr,
 			     num_bytes, parent, ref_root, level, action);
 	spin_unlock(&delayed_refs->lock);
 
-	if (qrecord_inserted)
-		return btrfs_qgroup_trace_extent_post(fs_info, record);
 	return 0;
 
 free_head_ref:
@@ -856,7 +847,6 @@ int btrfs_add_delayed_data_ref(struct btrfs_fs_info *fs_info,
 	struct btrfs_delayed_ref_head *head_ref;
 	struct btrfs_delayed_ref_root *delayed_refs;
 	struct btrfs_qgroup_extent_record *record = NULL;
-	int qrecord_inserted;
 
 	ref = kmem_cache_alloc(btrfs_delayed_data_ref_cachep, GFP_NOFS);
 	if (!ref)
@@ -890,7 +880,7 @@ int btrfs_add_delayed_data_ref(struct btrfs_fs_info *fs_info,
 	 */
 	head_ref = add_delayed_ref_head(fs_info, trans, &head_ref->node, record,
 					bytenr, num_bytes, ref_root, reserved,
-					action, 1, &qrecord_inserted,
+					action, 1,
 					old_ref_mod, new_ref_mod);
 
 	add_delayed_data_ref(fs_info, trans, head_ref, &ref->node, bytenr,
@@ -898,8 +888,6 @@ int btrfs_add_delayed_data_ref(struct btrfs_fs_info *fs_info,
 				   action);
 	spin_unlock(&delayed_refs->lock);
 
-	if (qrecord_inserted)
-		return btrfs_qgroup_trace_extent_post(fs_info, record);
 	return 0;
 }
 
@@ -922,7 +910,7 @@ int btrfs_add_delayed_extent_op(struct btrfs_fs_info *fs_info,
 
 	add_delayed_ref_head(fs_info, trans, &head_ref->node, NULL, bytenr,
 			     num_bytes, 0, 0, BTRFS_UPDATE_DELAYED_HEAD,
-			     extent_op->is_data, NULL, NULL, NULL);
+			     extent_op->is_data, NULL, NULL);
 
 	spin_unlock(&delayed_refs->lock);
 	return 0;

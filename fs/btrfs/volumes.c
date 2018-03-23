@@ -2952,6 +2952,16 @@ static int btrfs_relocate_chunk(struct btrfs_fs_info *fs_info, u64 chunk_offset)
 	if (ret)
 		return ret;
 
+	/*
+	 * We add the kobjects here (and after forcing data chunk creation)
+	 * since relocation is the only place we'll create chunks of a new
+	 * type at runtime.  The only place where we'll remove the last
+	 * chunk of a type is the call immediately below this one.  Even
+	 * so, we're protected against races with the cleaner thread since
+	 * we're covered by the delete_unused_bgs_mutex.
+	 */
+	btrfs_add_raid_kobjects(fs_info);
+
 	trans = btrfs_start_trans_remove_block_group(root->fs_info,
 						     chunk_offset);
 	if (IS_ERR(trans)) {
@@ -3078,6 +3088,8 @@ static int btrfs_may_alloc_data_chunk(struct btrfs_fs_info *fs_info,
 			btrfs_end_transaction(trans);
 			if (ret < 0)
 				return ret;
+
+			btrfs_add_raid_kobjects(fs_info);
 
 			return 1;
 		}
@@ -6251,8 +6263,8 @@ static void bbio_error(struct btrfs_bio *bbio, struct bio *bio, u64 logical)
 	}
 }
 
-int btrfs_map_bio(struct btrfs_fs_info *fs_info, struct bio *bio,
-		  int mirror_num, int async_submit)
+blk_status_t btrfs_map_bio(struct btrfs_fs_info *fs_info, struct bio *bio,
+			   int mirror_num, int async_submit)
 {
 	struct btrfs_device *dev;
 	struct bio *first_bio = bio;
@@ -6272,7 +6284,7 @@ int btrfs_map_bio(struct btrfs_fs_info *fs_info, struct bio *bio,
 				&map_length, &bbio, mirror_num, 1);
 	if (ret) {
 		btrfs_bio_counter_dec(fs_info);
-		return ret;
+		return errno_to_blk_status(ret);
 	}
 
 	total_devs = bbio->num_stripes;
@@ -6295,7 +6307,7 @@ int btrfs_map_bio(struct btrfs_fs_info *fs_info, struct bio *bio,
 		}
 
 		btrfs_bio_counter_dec(fs_info);
-		return ret;
+		return errno_to_blk_status(ret);
 	}
 
 	if (map_length < length) {
@@ -6323,7 +6335,7 @@ int btrfs_map_bio(struct btrfs_fs_info *fs_info, struct bio *bio,
 				  dev_nr, async_submit);
 	}
 	btrfs_bio_counter_dec(fs_info);
-	return 0;
+	return BLK_STS_OK;
 }
 
 struct btrfs_device *btrfs_find_device(struct btrfs_fs_info *fs_info, u64 devid,

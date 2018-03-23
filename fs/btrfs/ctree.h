@@ -382,8 +382,9 @@ struct btrfs_dev_replace {
 
 /* For raid type sysfs entries */
 struct raid_kobject {
-	int raid_type;
+	u64 flags;
 	struct kobject kobj;
+	struct list_head list;
 };
 
 struct btrfs_space_info {
@@ -953,6 +954,8 @@ struct btrfs_fs_info {
 	int thread_pool_size;
 
 	struct kobject *space_info_kobj;
+	struct list_head pending_raid_kobjs;
+	spinlock_t pending_raid_kobjs_lock; /* uncontended */
 
 	u64 total_pinned;
 
@@ -967,9 +970,9 @@ struct btrfs_fs_info {
 	struct btrfs_fs_devices *fs_devices;
 
 	/*
-	 * the space_info list is almost entirely read only.  It only changes
-	 * when we add a new raid type to the FS, and that happens
-	 * very rarely.  RCU is used to protect it.
+	 * The space_info list is effectively read only after initial
+	 * setup.  It is populated at mount time and cleaned up after
+	 * all block groups are removed.  RCU is used to protect it.
 	 */
 	struct list_head space_info;
 
@@ -2677,6 +2680,7 @@ int btrfs_make_block_group(struct btrfs_trans_handle *trans,
 			   struct btrfs_fs_info *fs_info, u64 bytes_used,
 			   u64 type, u64 chunk_objectid, u64 chunk_offset,
 			   u64 size);
+void btrfs_add_raid_kobjects(struct btrfs_fs_info *fs_info);
 struct btrfs_trans_handle *btrfs_start_trans_remove_block_group(
 				struct btrfs_fs_info *fs_info,
 				const u64 chunk_offset);
@@ -3077,7 +3081,10 @@ btrfs_lookup_inode_extref(struct btrfs_trans_handle *trans,
 			  u64 inode_objectid, u64 ref_objectid, int ins_len,
 			  int cow);
 
-int btrfs_find_name_in_ext_backref(struct btrfs_path *path,
+int btrfs_find_name_in_backref(struct extent_buffer *leaf, int slot,
+			       const char *name,
+			       int name_len, struct btrfs_inode_ref **ref_ret);
+int btrfs_find_name_in_ext_backref(struct extent_buffer *leaf, int slot,
 				   u64 ref_objectid, const char *name,
 				   int name_len,
 				   struct btrfs_inode_extref **extref_ret);
