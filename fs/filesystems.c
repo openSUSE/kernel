@@ -274,6 +274,9 @@ struct file_system_type *get_fs_type(const char *name)
 	const char *dot = strchr(name, '.');
 	int len = dot ? dot - name : strlen(name);
 
+       if (len >= PATH_MAX)
+               return NULL;
+
 	fs = __get_fs_type(name, len);
 	if (!fs && (request_module("fs-%.*s", len, name) == 0))
 		fs = __get_fs_type(name, len);
