@@ -164,20 +164,8 @@ static void oops_end(unsigned long flags, struct pt_regs *regs,
 
 	crash_fadump(regs, "die oops");
 
-	/*
-	 * A system reset (0x100) is a request to dump, so we always send
-	 * it through the crashdump code.
-	 */
-	if (kexec_should_crash(current) || (TRAP(regs) == 0x100)) {
+	if (kexec_should_crash(current))
 		crash_kexec(regs);
-
-		/*
-		 * We aren't the primary crash CPU. We need to send it
-		 * to a holding pattern to avoid it ending up in the panic
-		 * code.
-		 */
-		crash_kexec_secondary(regs);
-	}
 
 	if (!signr)
 		return;
@@ -311,17 +299,44 @@ void system_reset_exception(struct pt_regs *regs)
 			goto out;
 	}
 
+	if (debugger(regs))
+		goto out;
+
+	/*
+	 * A system reset is a request to dump, so we always send
+	 * it through the crashdump code (if fadump or kdump are
+	 * registered).
+	 */
+	crash_fadump(regs, "System Reset");
+
+	crash_kexec(regs);
+
+	/*
+	 * We aren't the primary crash CPU. We need to send it
+	 * to a holding pattern to avoid it ending up in the panic
+	 * code.
+	 */
+	crash_kexec_secondary(regs);
+
+	/*
+	 * No debugger or crash dump registered, print logs then
+	 * panic.
+	 */
 	die("System Reset", regs, SIGABRT);
+
+	mdelay(2*MSEC_PER_SEC); /* Wait a little while for others to print */
+	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);
+	nmi_panic(regs, "System Reset");
 
 out:
 #ifdef CONFIG_PPC_BOOK3S_64
 	BUG_ON(get_paca()->in_nmi == 0);
 	if (get_paca()->in_nmi > 1)
-		panic("Unrecoverable nested System Reset");
+		nmi_panic(regs, "Unrecoverable nested System Reset");
 #endif
 	/* Must die if the interrupt is not recoverable */
 	if (!(regs->msr & MSR_RI))
-		panic("Unrecoverable System Reset");
+		nmi_panic(regs, "Unrecoverable System Reset");
 
 	if (!nested)
 		nmi_exit();
