@@ -15,6 +15,7 @@
 #include <linux/pci.h>
 #include <linux/pcieport_if.h>
 #include "../pci.h"
+#include "aer/aerdrv.h"
 
 struct dpc_dev {
 	struct pcie_device	*dev;
@@ -121,6 +122,9 @@ static int dpc_probe(struct pcie_device *dev)
 	struct pci_dev *pdev = dev->port;
 	int status;
 	u16 ctl, cap;
+
+	if (pcie_aer_get_firmware_first(pdev))
+		return -ENOTSUPP;
 
 	dpc = devm_kzalloc(&dev->device, sizeof(*dpc), GFP_KERNEL);
 	if (!dpc)
