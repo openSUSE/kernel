@@ -505,6 +505,22 @@ alternative_endif
 	mrs	\rd, sp_el0
 	.endm
 
+/*
+ * Arrange a physical address in a TTBR register, taking care of 52-bit
+ * addresses.
+ *
+ * 	phys:	physical address, preserved
+ * 	ttbr:	returns the TTBR value
+ */
+	.macro	phys_to_ttbr, phys, ttbr
+#ifdef CONFIG_ARM64_PA_BITS_52
+	orr	\ttbr, \phys, \phys, lsr #46
+	and	\ttbr, \ttbr, #TTBR_BADDR_MASK_52
+#else
+	mov	\ttbr, \phys
+#endif
+	.endm
+
 	.macro	pte_to_phys, phys, pte
 #ifdef CONFIG_ARM64_PA_BITS_52
 	ubfiz	\phys, \pte, #(48 - 16 - 12), #16

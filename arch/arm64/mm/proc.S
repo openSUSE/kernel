@@ -146,7 +146,8 @@ ENTRY(cpu_do_switch_mm)
 	bfi	x2, x1, #48, #16		// set the ASID
 	msr	ttbr1_el1, x2			// in TTBR1 (since TCR.A1 is set)
 	isb
-	msr	ttbr0_el1, x0			// now update TTBR0
+	phys_to_ttbr x0, x2
+	msr	ttbr0_el1, x2			// now update TTBR0
 	isb
 	b	post_ttbr_update_workaround	// Back to C code...
 ENDPROC(cpu_do_switch_mm)
@@ -155,6 +156,7 @@ ENDPROC(cpu_do_switch_mm)
 
 .macro	__idmap_cpu_set_reserved_ttbr1, tmp1, tmp2
 	adrp	\tmp1, empty_zero_page
+	phys_to_ttbr \tmp1, \tmp2
 	msr	ttbr1_el1, \tmp2
 	isb
 	tlbi	vmalle1
@@ -171,9 +173,10 @@ ENDPROC(cpu_do_switch_mm)
 ENTRY(idmap_cpu_replace_ttbr1)
 	save_and_disable_daif flags=x2
 
-	__idmap_cpu_set_reserved_ttbr1 x1, x1
+	__idmap_cpu_set_reserved_ttbr1 x1, x3
 
-	msr	ttbr1_el1, x0
+	phys_to_ttbr x0, x3
+	msr	ttbr1_el1, x3
 	isb
 
 	restore_daif x2
