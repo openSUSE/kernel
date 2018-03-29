@@ -1761,3 +1761,11 @@ void __init boot_cpu_state_init(void)
 {
 	per_cpu_ptr(&cpuhp_state, smp_processor_id())->state = CPUHP_ONLINE;
 }
+
+/* kabi */
+#undef get_online_cpus
+#undef put_online_cpus
+static void get_online_cpus(void) { cpus_read_lock(); }
+static void put_online_cpus(void) { cpus_read_unlock(); }
+EXPORT_SYMBOL_GPL(get_online_cpus);
+EXPORT_SYMBOL_GPL(put_online_cpus);

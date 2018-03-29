@@ -128,10 +128,10 @@ static inline void cpu_hotplug_enable(void) { }
 #endif	/* !CONFIG_HOTPLUG_CPU */
 
 /* Wrappers which go away once all code is converted */
-static inline void cpu_hotplug_begin(void) { cpus_write_lock(); }
-static inline void cpu_hotplug_done(void) { cpus_write_unlock(); }
-static inline void get_online_cpus(void) { cpus_read_lock(); }
-static inline void put_online_cpus(void) { cpus_read_unlock(); }
+#define cpu_hotplug_begin cpus_write_lock
+#define cpu_hotplug_done cpus_write_unlock
+#define get_online_cpus cpus_read_lock
+#define put_online_cpus cpus_read_unlock
 
 #ifdef CONFIG_PM_SLEEP_SMP
 extern int freeze_secondary_cpus(int primary);
