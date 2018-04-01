@@ -149,16 +149,8 @@ save_stack_trace_tsk_reliable(struct task_struct *tsk,
 
 		/* Examine the saved LR: it must point into kernel code. */
 		ip = stack[STACK_FRAME_LR_SAVE];
-		if (!firstframe) {
-			if (!func_ptr_is_kernel_text((void *)ip)) {
-#ifdef CONFIG_MODULES
-				struct module *mod = __module_text_address(ip);
-
-				if (!mod)
-#endif
-					return 1;
-			}
-		}
+		if (!firstframe && !__kernel_text_address(ip))
+			return 1;
 		firstframe = 0;
 
 		if (!trace->skip)
