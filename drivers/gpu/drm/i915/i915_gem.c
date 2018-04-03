@@ -475,10 +475,11 @@ static void __fence_set_priority(struct dma_fence *fence, int prio)
 
 	rq = to_request(fence);
 	engine = rq->engine;
-	if (!engine->schedule)
-		return;
 
-	engine->schedule(rq, prio);
+	rcu_read_lock();
+	if (engine->schedule)
+		engine->schedule(rq, prio);
+	rcu_read_unlock();
 }
 
 static void fence_set_priority(struct dma_fence *fence, int prio)
@@ -3185,7 +3186,9 @@ void i915_gem_set_wedged(struct drm_i915_private *i915)
 	 */
 	for_each_engine(engine, i915, id) {
 		i915_gem_reset_prepare_engine(engine);
+
 		engine->submit_request = nop_submit_request;
+		engine->schedule = NULL;
 	}
 
 	/*
