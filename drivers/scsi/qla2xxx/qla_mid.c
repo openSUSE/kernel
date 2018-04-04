@@ -50,10 +50,11 @@ qla24xx_allocate_vp_id(scsi_qla_host_t *vha)
 
 	spin_lock_irqsave(&ha->vport_slock, flags);
 	list_add_tail(&vha->list, &ha->vp_list);
-
-	qlt_update_vp_map(vha, SET_VP_IDX);
-
 	spin_unlock_irqrestore(&ha->vport_slock, flags);
+
+	spin_lock_irqsave(&ha->hardware_lock, flags);
+	qlt_update_vp_map(vha, SET_VP_IDX);
+	spin_unlock_irqrestore(&ha->hardware_lock, flags);
 
 	mutex_unlock(&ha->vport_lock);
 	return vp_id;
@@ -158,9 +159,9 @@ qla24xx_disable_vp(scsi_qla_host_t *vha)
 	atomic_set(&vha->loop_down_timer, LOOP_DOWN_TIME);
 
 	/* Remove port id from vp target map */
-	spin_lock_irqsave(&vha->hw->vport_slock, flags);
+	spin_lock_irqsave(&vha->hw->hardware_lock, flags);
 	qlt_update_vp_map(vha, RESET_AL_PA);
-	spin_unlock_irqrestore(&vha->hw->vport_slock, flags);
+	spin_unlock_irqrestore(&vha->hw->hardware_lock, flags);
 
 	qla2x00_mark_vp_devices_dead(vha);
 	atomic_set(&vha->vp_state, VP_FAILED);
@@ -264,12 +265,19 @@ qla2x00_alert_all_vps(struct rsp_que *rsp, uint16_t *mb)
 			case MBA_LIP_RESET:
 			case MBA_POINT_TO_POINT:
 			case MBA_CHG_IN_CONNECTION:
-			case MBA_PORT_UPDATE:
-			case MBA_RSCN_UPDATE:
 				ql_dbg(ql_dbg_async, vha, 0x5024,
 				    "Async_event for VP[%d], mb=0x%x vha=%p.\n",
 				    i, *mb, vha);
 				qla2x00_async_event(vha, rsp, mb);
+				break;
+			case MBA_PORT_UPDATE:
+			case MBA_RSCN_UPDATE:
+				if ((mb[3] & 0xff) == vha->vp_idx) {
+					ql_dbg(ql_dbg_async, vha, 0x5024,
+					    "Async_event for VP[%d], mb=0x%x vha=%p\n",
+					    i, *mb, vha);
+					qla2x00_async_event(vha, rsp, mb);
+				}
 				break;
 			}
 
@@ -319,8 +327,6 @@ qla2x00_do_dpc_vp(scsi_qla_host_t *vha)
 	ql_dbg(ql_dbg_dpc + ql_dbg_verbose, vha, 0x4012,
 	    "Entering %s vp_flags: 0x%lx.\n", __func__, vha->vp_flags);
 
-	qla2x00_do_work(vha);
-
 	/* Check if Fw is ready to configure VP first */
 	if (test_bit(VP_CONFIG_OK, &base_vha->vp_flags)) {
 		if (test_and_clear_bit(VP_IDX_ACQUIRED, &vha->vp_flags)) {
@@ -354,9 +360,7 @@ qla2x00_do_dpc_vp(scsi_qla_host_t *vha)
 
 			ql_dbg(ql_dbg_dpc, vha, 0x4018,
 			    "Relogin needed scheduled.\n");
-			qla2x00_relogin(vha);
-			ql_dbg(ql_dbg_dpc, vha, 0x4019,
-			    "Relogin needed end.\n");
+			qla24xx_post_relogin_work(vha);
 		}
 	}
 
@@ -481,7 +485,7 @@ qla24xx_create_vhost(struct fc_vport *fc_vport)
 		    "Couldn't allocate vp_id.\n");
 		goto create_vhost_failed;
 	}
-	vha->mgmt_svr_loop_id = 10 + vha->vp_idx;
+	vha->mgmt_svr_loop_id = NPH_MGMT_SERVER;
 
 	vha->dpc_flags = 0L;
 
@@ -893,4 +897,80 @@ que_failed:
 	qla25xx_free_rsp_que(base_vha, rsp);
 failed:
 	return 0;
+}
+
+static void qla_ctrlvp_sp_done(void *s, int res)
+{
+	struct srb *sp = s;
+
+	complete(&sp->comp);
+	/* don't free sp here. Let the caller do the free */
+}
+
+/**
+ * qla24xx_control_vp() - Enable a virtual port for given host
+ * @vha:	adapter block pointer
+ * @cmd:	command type to be sent for enable virtual port
+ *
+ * Return:	qla2xxx local function return status code.
+ */
+int qla24xx_control_vp(scsi_qla_host_t *vha, int cmd)
+{
+	int rval = QLA_MEMORY_ALLOC_FAILED;
+	struct qla_hw_data *ha = vha->hw;
+	int	vp_index = vha->vp_idx;
+	struct scsi_qla_host *base_vha = pci_get_drvdata(ha->pdev);
+	srb_t *sp;
+
+	ql_dbg(ql_dbg_vport, vha, 0x10c1,
+	    "Entered %s cmd %x index %d.\n", __func__, cmd, vp_index);
+
+	if (vp_index == 0 || vp_index >= ha->max_npiv_vports)
+		return QLA_PARAMETER_ERROR;
+
+	sp = qla2x00_get_sp(base_vha, NULL, GFP_KERNEL);
+	if (!sp)
+		goto done;
+
+	sp->type = SRB_CTRL_VP;
+	sp->name = "ctrl_vp";
+	sp->done = qla_ctrlvp_sp_done;
+	qla2x00_init_timer(sp, qla2x00_get_async_timeout(vha) + 2);
+	sp->u.iocb_cmd.timeout = qla2x00_async_iocb_timeout;
+	sp->u.iocb_cmd.u.ctrlvp.cmd = cmd;
+	sp->u.iocb_cmd.u.ctrlvp.vp_index = vp_index;
+
+	rval = qla2x00_start_sp(sp);
+	if (rval != QLA_SUCCESS) {
+		ql_dbg(ql_dbg_async, vha, 0xffff,
+		    "%s: %s Failed submission. %x.\n",
+		    __func__, sp->name, rval);
+		goto done_free_sp;
+	}
+
+	ql_dbg(ql_dbg_vport, vha, 0x113f, "%s hndl %x submitted\n",
+	    sp->name, sp->handle);
+
+	wait_for_completion(&sp->comp);
+	rval = sp->rc;
+	switch (rval) {
+	case QLA_FUNCTION_TIMEOUT:
+		ql_dbg(ql_dbg_vport, vha, 0xffff, "%s: %s Timeout. %x.\n",
+		    __func__, sp->name, rval);
+		break;
+	case QLA_SUCCESS:
+		ql_dbg(ql_dbg_vport, vha, 0xffff, "%s: %s done.\n",
+		    __func__, sp->name);
+		goto done_free_sp;
+	default:
+		ql_dbg(ql_dbg_vport, vha, 0xffff, "%s: %s Failed. %x.\n",
+		    __func__, sp->name, rval);
+		goto done_free_sp;
+	}
+done:
+	return rval;
+
+done_free_sp:
+	sp->free(sp);
+	return rval;
 }

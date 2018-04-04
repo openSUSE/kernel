@@ -364,12 +364,25 @@ ENTRY(entry_INT80_compat)
 	 */
 	movl	%eax, %eax
 
+	/* switch to thread stack expects orig_ax and rdi to be pushed */
 	pushq	%rax			/* pt_regs->orig_ax */
-
-	/* switch to thread stack expects orig_ax to be pushed */
-	call	switch_to_thread_stack
-
 	pushq	%rdi			/* pt_regs->di */
+
+	/* Need to switch before accessing the thread stack. */
+	SWITCH_TO_KERNEL_CR3 scratch_reg=%rdi
+	movq	%rsp, %rdi
+	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp
+	/* Restrict Indirect Branch Speculation */
+	RESTRICT_IB_SPEC
+
+	pushq	6*8(%rdi)		/* regs->ss */
+	pushq	5*8(%rdi)		/* regs->rsp */
+	pushq	4*8(%rdi)		/* regs->eflags */
+	pushq	3*8(%rdi)		/* regs->cs */
+	pushq	2*8(%rdi)		/* regs->ip */
+	pushq	1*8(%rdi)		/* regs->orig_ax */
+
+	pushq	(%rdi)			/* pt_regs->di */
 	pushq	%rsi			/* pt_regs->si */
 	pushq	%rdx			/* pt_regs->dx */
 	pushq	%rcx			/* pt_regs->cx */
@@ -410,15 +423,3 @@ ENTRY(entry_INT80_compat)
 	TRACE_IRQS_ON
 	jmp	swapgs_restore_regs_and_return_to_usermode
 END(entry_INT80_compat)
-
-ENTRY(stub32_clone)
-	/*
-	 * The 32-bit clone ABI is: clone(..., int tls_val, int *child_tidptr).
-	 * The 64-bit clone ABI is: clone(..., int *child_tidptr, int tls_val).
-	 *
-	 * The native 64-bit kernel's sys_clone() implements the latter,
-	 * so we need to swap arguments here before calling it:
-	 */
-	xchg	%r8, %rcx
-	jmp	sys_clone
-ENDPROC(stub32_clone)

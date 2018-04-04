@@ -219,8 +219,6 @@ static int mlx4_ib_update_gids_v1_v2(struct gid_entry *gids,
 			gid_tbl[i].version = 2;
 			if (!ipv6_addr_v4mapped((struct in6_addr *)&gids[i].gid))
 				gid_tbl[i].type = 1;
-			else
-				memset(&gid_tbl[i].gid, 0, 12);
 		}
 	}
 
@@ -366,8 +364,13 @@ static int mlx4_ib_del_gid(struct ib_device *device,
 		if (!gids) {
 			ret = -ENOMEM;
 		} else {
-			for (i = 0; i < MLX4_MAX_PORT_GIDS; i++)
-				memcpy(&gids[i].gid, &port_gid_table->gids[i].gid, sizeof(union ib_gid));
+			for (i = 0; i < MLX4_MAX_PORT_GIDS; i++) {
+				memcpy(&gids[i].gid,
+				       &port_gid_table->gids[i].gid,
+				       sizeof(union ib_gid));
+				gids[i].gid_type =
+				    port_gid_table->gids[i].gid_type;
+			}
 		}
 	}
 	spin_unlock_bh(&iboe->lock);
@@ -589,6 +592,7 @@ static int mlx4_ib_query_device(struct ib_device *ibdev,
 		if (props->rss_caps.supported_qpts) {
 			resp.rss_caps.rx_hash_function =
 				MLX4_IB_RX_HASH_FUNC_TOEPLITZ;
+
 			resp.rss_caps.rx_hash_fields_mask =
 				MLX4_IB_RX_HASH_SRC_IPV4 |
 				MLX4_IB_RX_HASH_DST_IPV4 |
@@ -598,6 +602,11 @@ static int mlx4_ib_query_device(struct ib_device *ibdev,
 				MLX4_IB_RX_HASH_DST_PORT_TCP |
 				MLX4_IB_RX_HASH_SRC_PORT_UDP |
 				MLX4_IB_RX_HASH_DST_PORT_UDP;
+
+			if (dev->dev->caps.tunnel_offload_mode ==
+			    MLX4_TUNNEL_OFFLOAD_MODE_VXLAN)
+				resp.rss_caps.rx_hash_fields_mask |=
+					MLX4_IB_RX_HASH_INNER;
 		}
 	}
 

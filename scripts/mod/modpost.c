@@ -23,6 +23,7 @@
 #include "../../include/generated/autoconf.h"
 #include "../../include/linux/license.h"
 #include "../../include/linux/export.h"
+#include "../../include/generated/uapi/linux/suse_version.h"
 
 /* Are we using CONFIG_MODVERSIONS? */
 static int modversions = 0;
@@ -1686,7 +1687,7 @@ static void extable_mismatch_handler(const char* modname, struct elf_info *elf,
 static void check_section_mismatch(const char *modname, struct elf_info *elf,
 				   Elf_Rela *r, Elf_Sym *sym, const char *fromsec)
 {
-	const char *tosec = sec_name(elf, get_secindex(elf, sym));;
+	const char *tosec = sec_name(elf, get_secindex(elf, sym));
 	const struct sectioncheck *mismatch = section_mismatch(fromsec, tosec);
 
 	if (mismatch) {
@@ -2387,6 +2388,14 @@ static void add_srcversion(struct buffer *b, struct module *mod)
 	}
 }
 
+static void add_suserelease(struct buffer *b, struct module *mod)
+{
+#ifdef SUSE_PRODUCT_SHORTNAME
+	buf_printf(b, "\n");
+	buf_printf(b, "MODULE_INFO(suserelease, \"%s\");\n",
+		   SUSE_PRODUCT_SHORTNAME);
+#endif
+}
 static void write_if_changed(struct buffer *b, const char *fname)
 {
 	char *tmp;
@@ -2647,6 +2656,7 @@ int main(int argc, char **argv)
 		add_depends(&buf, mod, modules);
 		add_moddevtable(&buf, mod);
 		add_srcversion(&buf, mod);
+		add_suserelease(&buf, mod);
 
 		sprintf(fname, "%s.mod.c", mod->name);
 		write_if_changed(&buf, fname);

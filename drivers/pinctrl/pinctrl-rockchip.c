@@ -136,7 +136,7 @@ struct rockchip_drv {
  * @iomux: array describing the 4 iomux sources of the bank
  * @drv: array describing the 4 drive strength sources of the bank
  * @pull_type: array describing the 4 pull type sources of the bank
- * @valid: are all necessary informations present
+ * @valid: is all necessary information present
  * @of_node: dt node of this bank
  * @drvdata: common pinctrl basedata
  * @domain: irqdomain of the gpio bank
@@ -1988,7 +1988,7 @@ static int rockchip_pmx_set(struct pinctrl_dev *pctldev, unsigned selector,
 		info->functions[selector].name, info->groups[group].name);
 
 	/*
-	 * for each pin in the pin group selected, program the correspoding pin
+	 * for each pin in the pin group selected, program the corresponding
 	 * pin function number in the config register.
 	 */
 	for (cnt = 0; cnt < info->groups[group].npins; cnt++) {
@@ -2408,18 +2408,14 @@ static int rockchip_pinctrl_parse_dt(struct platform_device *pdev,
 	info->functions = devm_kzalloc(dev, info->nfunctions *
 					      sizeof(struct rockchip_pmx_func),
 					      GFP_KERNEL);
-	if (!info->functions) {
-		dev_err(dev, "failed to allocate memory for function list\n");
+	if (!info->functions)
 		return -EINVAL;
-	}
 
 	info->groups = devm_kzalloc(dev, info->ngroups *
 					    sizeof(struct rockchip_pin_group),
 					    GFP_KERNEL);
-	if (!info->groups) {
-		dev_err(dev, "failed allocate memory for ping group list\n");
+	if (!info->groups)
 		return -EINVAL;
-	}
 
 	i = 0;
 
@@ -2455,10 +2451,9 @@ static int rockchip_pinctrl_register(struct platform_device *pdev,
 
 	pindesc = devm_kzalloc(&pdev->dev, sizeof(*pindesc) *
 			info->ctrl->nr_pins, GFP_KERNEL);
-	if (!pindesc) {
-		dev_err(&pdev->dev, "mem alloc for pin descriptors failed\n");
+	if (!pindesc)
 		return -ENOMEM;
-	}
+
 	ctrldesc->pins = pindesc;
 	ctrldesc->npins = info->ctrl->nr_pins;
 
@@ -2540,7 +2535,7 @@ static int rockchip_gpio_get(struct gpio_chip *gc, unsigned offset)
 
 /*
  * gpiolib gpio_direction_input callback function. The setting of the pin
- * mux function as 'gpio input' will be handled by the pinctrl susbsystem
+ * mux function as 'gpio input' will be handled by the pinctrl subsystem
  * interface.
  */
 static int rockchip_gpio_direction_input(struct gpio_chip *gc, unsigned offset)
@@ -2550,7 +2545,7 @@ static int rockchip_gpio_direction_input(struct gpio_chip *gc, unsigned offset)
 
 /*
  * gpiolib gpio_direction_output callback function. The setting of the pin
- * mux function as 'gpio output' will be handled by the pinctrl susbsystem
+ * mux function as 'gpio output' will be handled by the pinctrl subsystem
  * interface.
  */
 static int rockchip_gpio_direction_output(struct gpio_chip *gc,
@@ -3171,7 +3166,7 @@ static int rockchip_pinctrl_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	info = devm_kzalloc(dev, sizeof(struct rockchip_pinctrl), GFP_KERNEL);
+	info = devm_kzalloc(dev, sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return -ENOMEM;
 

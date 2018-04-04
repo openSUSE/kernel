@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * PCIe driver for Renesas R-Car SoCs
  *  Copyright (C) 2014 Renesas Electronics Europe Ltd
@@ -8,10 +9,6 @@
  *  Copyright (C) 2009 - 2011  Paul Mundt
  *
  * Author: Phil Edworthy <phil.edworthy@renesas.com>
- *
- * This file is licensed under the terms of the GNU General Public
- * License version 2.  This program is licensed "as is" without any
- * warranty of any kind, whether express or implied.
  */
 
 #include <linux/clk.h>
@@ -459,7 +456,7 @@ static int rcar_pcie_enable(struct rcar_pcie *pcie)
 
 	rcar_pcie_setup(&bridge->windows, pcie);
 
-	pci_add_flags(PCI_REASSIGN_ALL_RSRC | PCI_REASSIGN_ALL_BUS);
+	pci_add_flags(PCI_REASSIGN_ALL_BUS);
 
 	bridge->dev.parent = dev;
 	bridge->sysdata = pcie;

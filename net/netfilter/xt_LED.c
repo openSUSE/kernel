@@ -111,10 +111,8 @@ static int led_tg_check(const struct xt_tgchk_param *par)
 	struct xt_led_info_internal *ledinternal;
 	int err;
 
-	if (ledinfo->id[0] == '\0') {
-		pr_info("No 'id' parameter given.\n");
+	if (ledinfo->id[0] == '\0')
 		return -EINVAL;
-	}
 
 	mutex_lock(&xt_led_mutex);
 
@@ -138,7 +136,7 @@ static int led_tg_check(const struct xt_tgchk_param *par)
 
 	err = led_trigger_register(&ledinternal->netfilter_led_trigger);
 	if (err) {
-		pr_err("Trigger name is already in use.\n");
+		pr_info_ratelimited("Trigger name is already in use.\n");
 		goto exit_alloc;
 	}
 
@@ -198,6 +196,7 @@ static struct xt_target led_tg_reg __read_mostly = {
 	.family		= NFPROTO_UNSPEC,
 	.target		= led_tg,
 	.targetsize	= sizeof(struct xt_led_info),
+	.usersize	= offsetof(struct xt_led_info, internal_data),
 	.checkentry	= led_tg_check,
 	.destroy	= led_tg_destroy,
 	.me		= THIS_MODULE,

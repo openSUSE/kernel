@@ -31,7 +31,73 @@
 #include "tpm.h"
 #include "tpm_tis_core.h"
 
+/* This is a polling delay to check for status and burstcount.
+ * As per ddwg input, expectation is that status check and burstcount
+ * check should return within few usecs.
+ */
+#define TPM_POLL_SLEEP	1  /* msec */
+
 static void tpm_tis_clkrun_enable(struct tpm_chip *chip, bool value);
+
+static bool wait_for_tpm_stat_cond(struct tpm_chip *chip, u8 mask,
+					bool check_cancel, bool *canceled)
+{
+	u8 status = chip->ops->status(chip);
+
+	*canceled = false;
+	if ((status & mask) == mask)
+		return true;
+	if (check_cancel && chip->ops->req_canceled(chip, status)) {
+		*canceled = true;
+		return true;
+	}
+	return false;
+}
+
+static int wait_for_tpm_stat(struct tpm_chip *chip, u8 mask,
+		unsigned long timeout, wait_queue_head_t *queue,
+		bool check_cancel)
+{
+	unsigned long stop;
+	long rc;
+	u8 status;
+	bool canceled = false;
+
+	/* check current status */
+	status = chip->ops->status(chip);
+	if ((status & mask) == mask)
+		return 0;
+
+	stop = jiffies + timeout;
+
+	if (chip->flags & TPM_CHIP_FLAG_IRQ) {
+again:
+		timeout = stop - jiffies;
+		if ((long)timeout <= 0)
+			return -ETIME;
+		rc = wait_event_interruptible_timeout(*queue,
+			wait_for_tpm_stat_cond(chip, mask, check_cancel,
+					       &canceled),
+			timeout);
+		if (rc > 0) {
+			if (canceled)
+				return -ECANCELED;
+			return 0;
+		}
+		if (rc == -ERESTARTSYS && freezing(current)) {
+			clear_thread_flag(TIF_SIGPENDING);
+			goto again;
+		}
+	} else {
+		do {
+			tpm_msleep(TPM_POLL_SLEEP);
+			status = chip->ops->status(chip);
+			if ((status & mask) == mask)
+				return 0;
+		} while (time_before(jiffies, stop));
+	}
+	return -ETIME;
+}
 
 /* Before we attempt to access the TPM we must see that the valid bit is set.
  * The specification says that this bit is 0 at reset and remains 0 until the
@@ -166,7 +232,7 @@ static int get_burstcount(struct tpm_chip *chip)
 		burstcnt = (value >> 8) & 0xFFFF;
 		if (burstcnt)
 			return burstcnt;
-		tpm_msleep(TPM_TIMEOUT);
+		tpm_msleep(TPM_POLL_SLEEP);
 	} while (time_before(jiffies, stop));
 	return -EBUSY;
 }
@@ -751,7 +817,9 @@ int tpm_tis_core_init(struct device *dev, struct tpm_tis_data *priv, int irq,
 		      const struct tpm_tis_phy_ops *phy_ops,
 		      acpi_handle acpi_dev_handle)
 {
-	u32 vendor, intfcaps, intmask;
+	u32 vendor;
+	u32 intfcaps;
+	u32 intmask;
 	u32 clkrun_val;
 	u8 rid;
 	int rc, probe;

@@ -2494,7 +2494,7 @@ static int its_vpe_set_affinity(struct irq_data *d,
 
 static void its_vpe_schedule(struct its_vpe *vpe)
 {
-	void * __iomem vlpi_base = gic_data_rdist_vlpi_base();
+	void __iomem *vlpi_base = gic_data_rdist_vlpi_base();
 	u64 val;
 
 	/* Schedule the VPE */
@@ -2526,7 +2526,7 @@ static void its_vpe_schedule(struct its_vpe *vpe)
 
 static void its_vpe_deschedule(struct its_vpe *vpe)
 {
-	void * __iomem vlpi_base = gic_data_rdist_vlpi_base();
+	void __iomem *vlpi_base = gic_data_rdist_vlpi_base();
 	u32 count = 1000000;	/* 1s! */
 	bool clean;
 	u64 val;
@@ -3313,6 +3313,8 @@ static int __init its_of_probe(struct device_node *node)
 
 	for (np = of_find_matching_node(node, its_device_id); np;
 	     np = of_find_matching_node(np, its_device_id)) {
+		if (!of_device_is_available(np))
+			continue;
 		if (!of_property_read_bool(np, "msi-controller")) {
 			pr_warn("%pOF: no msi-controller property, ITS ignored\n",
 				np);

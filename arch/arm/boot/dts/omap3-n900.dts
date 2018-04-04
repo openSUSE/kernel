@@ -35,6 +35,8 @@
 		i2c1 = &i2c1;
 		i2c2 = &i2c2;
 		i2c3 = &i2c3;
+		display0 = &lcd;
+		display1 = &tv;
 	};
 
 	cpus {
@@ -778,6 +780,8 @@
 
 		reset-gpio = <&gpio4 6 GPIO_ACTIVE_HIGH>; /* 102 */
 
+		lens-focus = <&ad5820>;
+
 		port {
 			csi_cam1: endpoint {
 				bus-type = <3>; /* CCP2 */
@@ -838,6 +842,7 @@
 	onenand@0,0 {
 		#address-cells = <1>;
 		#size-cells = <1>;
+		compatible = "ti,omap2-onenand";
 		reg = <0 0 0x20000>;	/* CS0, offset 0, IO size 128K */
 
 		gpmc,sync-read;
@@ -965,7 +970,7 @@
 		ti,esd-recovery-timeout-ms = <8000>;
 	};
 
-	acx565akm@2 {
+	lcd: acx565akm@2 {
 		compatible = "sony,acx565akm";
 		spi-max-frequency = <6000000>;
 		reg = <2>;

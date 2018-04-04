@@ -22,11 +22,10 @@
  */
 
 #include "amdgpu.h"
-#include "vega10/soc15ip.h"
-#include "vega10/NBIO/nbio_6_1_offset.h"
-#include "vega10/NBIO/nbio_6_1_sh_mask.h"
-#include "vega10/GC/gc_9_0_offset.h"
-#include "vega10/GC/gc_9_0_sh_mask.h"
+#include "nbio/nbio_6_1_offset.h"
+#include "nbio/nbio_6_1_sh_mask.h"
+#include "gc/gc_9_0_offset.h"
+#include "gc/gc_9_0_sh_mask.h"
 #include "soc15.h"
 #include "vega10_ih.h"
 #include "soc15_common.h"
@@ -254,7 +253,7 @@ static void xgpu_ai_mailbox_flr_work(struct work_struct *work)
 	}
 
 	/* Trigger recovery due to world switch failure */
-	amdgpu_sriov_gpu_reset(adev, NULL);
+	amdgpu_device_gpu_recover(adev, NULL, false);
 }
 
 static int xgpu_ai_set_mailbox_rcv_irq(struct amdgpu_device *adev,
@@ -278,7 +277,7 @@ static int xgpu_ai_mailbox_rcv_irq(struct amdgpu_device *adev,
 	int r;
 
 	/* trigger gpu-reset by hypervisor only if TDR disbaled */
-	if (amdgpu_lockup_timeout == 0) {
+	if (!amdgpu_gpu_recovery) {
 		/* see what event we get */
 		r = xgpu_ai_mailbox_rcv_msg(adev, IDH_FLR_NOTIFICATION);
 
@@ -361,5 +360,6 @@ const struct amdgpu_virt_ops xgpu_ai_virt_ops = {
 	.req_full_gpu	= xgpu_ai_request_full_gpu_access,
 	.rel_full_gpu	= xgpu_ai_release_full_gpu_access,
 	.reset_gpu = xgpu_ai_request_reset,
+	.wait_reset = NULL,
 	.trans_msg = xgpu_ai_mailbox_trans_msg,
 };

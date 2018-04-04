@@ -138,6 +138,7 @@ static int __dead_end_function(struct objtool_file *file, struct symbol *func,
 		"__reiserfs_panic",
 		"lbug_with_loc",
 		"fortify_panic",
+		"usercopy_abort",
 	};
 
 	if (func->bind == STB_WEAK)
@@ -1383,6 +1384,17 @@ static int update_insn_state(struct instruction *insn, struct insn_state *state)
 				 */
 				state->vals[op->dest.reg].base = CFI_CFA;
 				state->vals[op->dest.reg].offset = -state->stack_size;
+			}
+
+			else if (op->src.reg == CFI_BP && op->dest.reg == CFI_SP &&
+				 cfa->base == CFI_BP) {
+
+				/*
+				 * mov %rbp, %rsp
+				 *
+				 * Restore the original stack pointer (Clang).
+				 */
+				state->stack_size = -state->regs[CFI_BP].offset;
 			}
 
 			else if (op->dest.reg == cfa->base) {
