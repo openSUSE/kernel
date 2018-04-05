@@ -148,6 +148,7 @@ static void mt_post_parse(struct mt_device *td);
 /* reserved					0x0011 */
 #define MT_CLS_WIN_8				0x0012
 #define MT_CLS_EXPORT_ALL_INPUTS		0x0013
+#define MT_CLS_WIN_8_DUAL			0x0014
 
 /* vendor specific classes */
 #define MT_CLS_3M				0x0101
@@ -215,6 +216,12 @@ static struct mt_class mt_classes[] = {
 			MT_QUIRK_CONTACT_CNT_ACCURATE },
 	{ .name = MT_CLS_EXPORT_ALL_INPUTS,
 		.quirks = MT_QUIRK_ALWAYS_VALID |
+			MT_QUIRK_CONTACT_CNT_ACCURATE,
+		.export_all_inputs = true },
+	{ .name = MT_CLS_WIN_8_DUAL,
+		.quirks = MT_QUIRK_ALWAYS_VALID |
+			MT_QUIRK_IGNORE_DUPLICATES |
+			MT_QUIRK_HOVERING |
 			MT_QUIRK_CONTACT_CNT_ACCURATE,
 		.export_all_inputs = true },
 
@@ -512,7 +519,8 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 			mt_store_field(usage, td, hi);
 			return 1;
 		case HID_DG_CONFIDENCE:
-			if (cls->name == MT_CLS_WIN_8 &&
+			if ((cls->name == MT_CLS_WIN_8 ||
+				cls->name == MT_CLS_WIN_8_DUAL) &&
 				field->application == HID_DG_TOUCHPAD)
 				cls->quirks |= MT_QUIRK_CONFIDENCE;
 			mt_store_field(usage, td, hi);
@@ -579,7 +587,8 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 		 * MS PTP spec says that external buttons left and right have
 		 * usages 2 and 3.
 		 */
-		if (cls->name == MT_CLS_WIN_8 &&
+		if ((cls->name == MT_CLS_WIN_8 ||
+			cls->name == MT_CLS_WIN_8_DUAL) &&
 		    field->application == HID_DG_TOUCHPAD &&
 		    (usage->hid & HID_USAGE) > 1)
 			code--;
@@ -700,9 +709,11 @@ static int mt_touch_event(struct hid_device *hid, struct hid_field *field,
 }
 
 static void mt_process_mt_event(struct hid_device *hid, struct hid_field *field,
-				struct hid_usage *usage, __s32 value)
+				struct hid_usage *usage, __s32 value,
+				bool first_packet)
 {
 	struct mt_device *td = hid_get_drvdata(hid);
+	__s32 cls = td->mtclass.name;
 	__s32 quirks = td->mtclass.quirks;
 	struct input_dev *input = field->hidinput->input;
 
@@ -756,6 +767,15 @@ static void mt_process_mt_event(struct hid_device *hid, struct hid_field *field,
 			break;
 
 		default:
+			/*
+			 * For Win8 PTP touchpads we should only look at
+			 * non finger/touch events in the first_packet of
+			 * a (possible) multi-packet frame.
+			 */
+			if ((cls == MT_CLS_WIN_8 || cls == MT_CLS_WIN_8_DUAL) &&
+			    !first_packet)
+				return;
+
 			if (usage->type)
 				input_event(input, usage->type, usage->code,
 						value);
@@ -775,6 +795,7 @@ static void mt_touch_report(struct hid_device *hid, struct hid_report *report)
 {
 	struct mt_device *td = hid_get_drvdata(hid);
 	struct hid_field *field;
+	bool first_packet;
 	unsigned count;
 	int r, n;
 
@@ -789,6 +810,7 @@ static void mt_touch_report(struct hid_device *hid, struct hid_report *report)
 			td->num_expected = value;
 	}
 
+	first_packet = td->num_received == 0;
 	for (r = 0; r < report->maxfield; r++) {
 		field = report->field[r];
 		count = field->report_count;
@@ -798,7 +820,7 @@ static void mt_touch_report(struct hid_device *hid, struct hid_report *report)
 
 		for (n = 0; n < count; n++)
 			mt_process_mt_event(hid, field, &field->usage[n],
-					field->value[n]);
+					    field->value[n], first_packet);
 	}
 
 	if (td->num_received >= td->num_expected)
@@ -1281,6 +1303,16 @@ static const struct hid_device_id mt_devices[] = {
 	{ .driver_data = MT_CLS_3M,
 		MT_USB_DEVICE(USB_VENDOR_ID_3M,
 			USB_DEVICE_ID_3M3266) },
+
+	/* Alps devices */
+	{ .driver_data = MT_CLS_WIN_8_DUAL,
+		HID_DEVICE(BUS_I2C, HID_GROUP_MULTITOUCH_WIN_8,
+			USB_VENDOR_ID_ALPS_JP,
+			HID_DEVICE_ID_ALPS_U1_DUAL_PTP) },
+	{ .driver_data = MT_CLS_WIN_8_DUAL,
+		HID_DEVICE(BUS_I2C, HID_GROUP_MULTITOUCH_WIN_8,
+			USB_VENDOR_ID_ALPS_JP,
+			HID_DEVICE_ID_ALPS_U1_DUAL_3BTN_PTP) },
 
 	/* Anton devices */
 	{ .driver_data = MT_CLS_EXPORT_ALL_INPUTS,
