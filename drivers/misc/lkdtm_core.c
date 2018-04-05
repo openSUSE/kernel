@@ -158,7 +158,7 @@ struct crashpoint crashpoints[] = {
 	CRASHPOINT("INT_HARDWARE_ENTRY",	lkdtm_debugfs_entry,
 		   "do_IRQ",			jp_do_irq),
 	CRASHPOINT("INT_HW_IRQ_EN",		lkdtm_debugfs_entry,
-		   "handle_IRQ_event",		jp_handle_irq_event),
+		   "handle_irq_event",		jp_handle_irq_event),
 	CRASHPOINT("INT_TASKLET_ENTRY",		lkdtm_debugfs_entry,
 		   "tasklet_action",		jp_tasklet_action),
 	CRASHPOINT("FS_DEVRW",			lkdtm_debugfs_entry,
