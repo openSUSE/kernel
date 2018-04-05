@@ -360,10 +360,26 @@ alternative_endif
  * tcr_set_idmap_t0sz - update TCR.T0SZ so that we can load the ID map
  */
 	.macro	tcr_set_idmap_t0sz, valreg, tmpreg
-#ifndef CONFIG_ARM64_VA_BITS_48
 	ldr_l	\tmpreg, idmap_t0sz
 	bfi	\valreg, \tmpreg, #TCR_T0SZ_OFFSET, #TCR_TxSZ_WIDTH
-#endif
+	.endm
+
+/*
+ * tcr_compute_pa_size - set TCR.(I)PS to the highest supported
+ * ID_AA64MMFR0_EL1.PARange value
+ *
+ *	tcr:		register with the TCR_ELx value to be updated
+ *	pos:		IPS or PS bitfield position
+ *	tmp{0,1}:	temporary registers
+ */
+	.macro	tcr_compute_pa_size, tcr, pos, tmp0, tmp1
+	mrs	\tmp0, ID_AA64MMFR0_EL1
+	// Narrow PARange to fit the PS field in TCR_ELx
+	ubfx	\tmp0, \tmp0, #ID_AA64MMFR0_PARANGE_SHIFT, #3
+	mov	\tmp1, #ID_AA64MMFR0_PARANGE_MAX
+	cmp	\tmp0, \tmp1
+	csel	\tmp0, \tmp1, \tmp0, hi
+	bfi	\tcr, \tmp0, \pos, #3
 	.endm
 
 /*
@@ -485,6 +501,22 @@ alternative_endif
  */
 	.macro	get_thread_info, rd
 	mrs	\rd, sp_el0
+	.endm
+
+/*
+ * Arrange a physical address in a TTBR register, taking care of 52-bit
+ * addresses.
+ *
+ * 	phys:	physical address, preserved
+ * 	ttbr:	returns the TTBR value
+ */
+	.macro	phys_to_ttbr, ttbr, phys
+#ifdef CONFIG_ARM64_PA_BITS_52
+	orr	\ttbr, \phys, \phys, lsr #46
+	and	\ttbr, \ttbr, #TTBR_BADDR_MASK_52
+#else
+	mov	\ttbr, \phys
+#endif
 	.endm
 
 	.macro	pte_to_phys, phys, pte

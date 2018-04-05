@@ -140,13 +140,14 @@ ENDPROC(cpu_do_resume)
 ENTRY(cpu_do_switch_mm)
 	mrs	x2, ttbr1_el1
 	mmid	x1, x1				// get mm->context.id
+	phys_to_ttbr x3, x0
 #ifdef CONFIG_ARM64_SW_TTBR0_PAN
-	bfi	x0, x1, #48, #16		// set the ASID field in TTBR0
+	bfi	x3, x1, #48, #16		// set the ASID field in TTBR0
 #endif
 	bfi	x2, x1, #48, #16		// set the ASID
 	msr	ttbr1_el1, x2			// in TTBR1 (since TCR.A1 is set)
 	isb
-	msr	ttbr0_el1, x0			// now update TTBR0
+	msr	ttbr0_el1, x3			// now update TTBR0
 	isb
 	b	post_ttbr_update_workaround	// Back to C code...
 ENDPROC(cpu_do_switch_mm)
@@ -155,6 +156,7 @@ ENDPROC(cpu_do_switch_mm)
 
 .macro	__idmap_cpu_set_reserved_ttbr1, tmp1, tmp2
 	adrp	\tmp1, empty_zero_page
+	phys_to_ttbr \tmp2, \tmp1
 	msr	ttbr1_el1, \tmp2
 	isb
 	tlbi	vmalle1
@@ -171,9 +173,10 @@ ENDPROC(cpu_do_switch_mm)
 ENTRY(idmap_cpu_replace_ttbr1)
 	save_and_disable_daif flags=x2
 
-	__idmap_cpu_set_reserved_ttbr1 x1, x1
+	__idmap_cpu_set_reserved_ttbr1 x1, x3
 
-	msr	ttbr1_el1, x0
+	phys_to_ttbr x3, x0
+	msr	ttbr1_el1, x3
 	isb
 
 	restore_daif x2
@@ -420,11 +423,9 @@ ENTRY(__cpu_setup)
 	tcr_set_idmap_t0sz	x10, x9
 
 	/*
-	 * Read the PARange bits from ID_AA64MMFR0_EL1 and set the IPS bits in
-	 * TCR_EL1.
+	 * Set the IPS bits in TCR_EL1.
 	 */
-	mrs	x9, ID_AA64MMFR0_EL1
-	bfi	x10, x9, #32, #3
+	tcr_compute_pa_size x10, #TCR_IPS_SHIFT, x5, x6
 #ifdef CONFIG_ARM64_HW_AFDBM
 	/*
 	 * Hardware update of the Access and Dirty bits.
