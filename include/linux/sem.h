@@ -18,7 +18,7 @@ struct sem {
 	 *  - semctl, via SETVAL and SETALL.
 	 *  - at task exit when performing undo adjustments (see exit_sem).
 	 */
-	int	sempid;
+	struct pid *sempid;
 	spinlock_t	lock;	/* spinlock for fine-grained semtimedop */
 	struct list_head pending_alter; /* pending single-sop operations */
 					/* that alter the semaphore */
