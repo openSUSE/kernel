@@ -930,7 +930,7 @@ int fix_alignment(struct pt_regs *regs)
 	 * when pasting to a co-processor. Furthermore, paste_last is the
 	 * synchronisation point for preceding copy/paste sequences.
 	 */
-	if ((instruction & 0xfc0006fe) == PPC_INST_COPY)
+	if ((instruction & 0xfc0006fe) == PPC_INST_COPY & 0xfc0006fe)
 		return -EIO;
 
 	/* A size of 0 indicates an instruction we don't support, with
