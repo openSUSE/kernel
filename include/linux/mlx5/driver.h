@@ -434,13 +434,17 @@ struct mlx5_core_srq {
 	struct mlx5_core_rsc_common	common; /* must be first */
 	u32		srqn;
 	int		max;
-	size_t		max_gs;
-	size_t		max_avail_gather;
+	int		max_gs;
+	int		max_avail_gather;
 	int		wqe_shift;
 	void (*event)	(struct mlx5_core_srq *, enum mlx5_event);
 
 	atomic_t		refcount;
 	struct completion	free;
+#ifndef __GENKSYMS__
+	size_t		max_gs_st;
+	size_t		max_avail_gather_st;
+#endif
 };
 
 struct mlx5_eq_table {

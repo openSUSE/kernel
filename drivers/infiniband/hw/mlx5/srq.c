@@ -262,17 +262,17 @@ struct ib_srq *mlx5_ib_create_srq(struct ib_pd *pd,
 	mutex_init(&srq->mutex);
 	spin_lock_init(&srq->lock);
 	srq->msrq.max    = roundup_pow_of_two(init_attr->attr.max_wr + 1);
-	srq->msrq.max_gs = init_attr->attr.max_sge;
+	srq->msrq.max_gs_st = init_attr->attr.max_sge;
 
 	desc_size = sizeof(struct mlx5_wqe_srq_next_seg) +
-		    srq->msrq.max_gs * sizeof(struct mlx5_wqe_data_seg);
-	if (desc_size == 0 || srq->msrq.max_gs > desc_size)
+		    srq->msrq.max_gs_st * sizeof(struct mlx5_wqe_data_seg);
+	if (desc_size == 0 || srq->msrq.max_gs_st > desc_size)
 		return ERR_PTR(-EINVAL);
 	desc_size = roundup_pow_of_two(desc_size);
 	desc_size = max_t(size_t, 32, desc_size);
 	if (desc_size < sizeof(struct mlx5_wqe_srq_next_seg))
 		return ERR_PTR(-EINVAL);
-	srq->msrq.max_avail_gather = (desc_size - sizeof(struct mlx5_wqe_srq_next_seg)) /
+	srq->msrq.max_avail_gather_st = (desc_size - sizeof(struct mlx5_wqe_srq_next_seg)) /
 		sizeof(struct mlx5_wqe_data_seg);
 	srq->msrq.wqe_shift = ilog2(desc_size);
 	buf_size = srq->msrq.max * desc_size;
@@ -401,7 +401,7 @@ int mlx5_ib_query_srq(struct ib_srq *ibsrq, struct ib_srq_attr *srq_attr)
 
 	srq_attr->srq_limit = out->lwm;
 	srq_attr->max_wr    = srq->msrq.max - 1;
-	srq_attr->max_sge   = srq->msrq.max_gs;
+	srq_attr->max_sge   = srq->msrq.max_gs_st;
 
 out_box:
 	kfree(out);
@@ -462,7 +462,7 @@ int mlx5_ib_post_srq_recv(struct ib_srq *ibsrq, struct ib_recv_wr *wr,
 	}
 
 	for (nreq = 0; wr; nreq++, wr = wr->next) {
-		if (unlikely(wr->num_sge > srq->msrq.max_gs)) {
+		if (unlikely(wr->num_sge > srq->msrq.max_gs_st)) {
 			err = -EINVAL;
 			*bad_wr = wr;
 			break;
@@ -486,7 +486,7 @@ int mlx5_ib_post_srq_recv(struct ib_srq *ibsrq, struct ib_recv_wr *wr,
 			scat[i].addr       = cpu_to_be64(wr->sg_list[i].addr);
 		}
 
-		if (i < srq->msrq.max_avail_gather) {
+		if (i < srq->msrq.max_avail_gather_st) {
 			scat[i].byte_count = 0;
 			scat[i].lkey       = cpu_to_be32(MLX5_INVALID_LKEY);
 			scat[i].addr       = 0;
