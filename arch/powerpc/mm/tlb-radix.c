@@ -150,7 +150,7 @@ static inline void _tlbie_pid(unsigned long pid, unsigned long ric)
 	trace_tlbie(0, 0, rb, rs, ric, prs, r);
 }
 
-static inline void _tlbiel_va(unsigned long va, unsigned long pid,
+static inline void __tlbiel_va(unsigned long va, unsigned long pid,
 			      unsigned long ap, unsigned long ric)
 {
 	unsigned long rb,rs,prs,r;
@@ -161,14 +161,20 @@ static inline void _tlbiel_va(unsigned long va, unsigned long pid,
 	prs = 1; /* process scoped */
 	r = 1;   /* raidx format */
 
-	asm volatile("ptesync": : :"memory");
 	asm volatile(PPC_TLBIEL(%0, %4, %3, %2, %1)
 		     : : "r"(rb), "i"(r), "i"(prs), "i"(ric), "r"(rs) : "memory");
-	asm volatile("ptesync": : :"memory");
 	trace_tlbie(0, 1, rb, rs, ric, prs, r);
 }
 
-static inline void _tlbie_va(unsigned long va, unsigned long pid,
+static inline void _tlbiel_va(unsigned long va, unsigned long pid,
+			      unsigned long ap, unsigned long ric)
+{
+	asm volatile("ptesync": : :"memory");
+	__tlbiel_va(va, pid, ap, ric);
+	asm volatile("ptesync": : :"memory");
+}
+
+static inline void __tlbie_va(unsigned long va, unsigned long pid,
 			     unsigned long ap, unsigned long ric)
 {
 	unsigned long rb,rs,prs,r;
@@ -179,12 +185,19 @@ static inline void _tlbie_va(unsigned long va, unsigned long pid,
 	prs = 1; /* process scoped */
 	r = 1;   /* raidx format */
 
-	asm volatile("ptesync": : :"memory");
 	asm volatile(PPC_TLBIE_5(%0, %4, %3, %2, %1)
 		     : : "r"(rb), "i"(r), "i"(prs), "i"(ric), "r"(rs) : "memory");
-	asm volatile("eieio; tlbsync; ptesync": : :"memory");
 	trace_tlbie(0, 0, rb, rs, ric, prs, r);
 }
+
+static inline void _tlbie_va(unsigned long va, unsigned long pid,
+			     unsigned long ap, unsigned long ric)
+{
+	asm volatile("ptesync": : :"memory");
+	__tlbie_va(va, pid, ap, ric);
+	asm volatile("eieio; tlbsync; ptesync": : :"memory");
+}
+
 
 /*
  * Base TLB flushing operations:
@@ -408,13 +421,17 @@ void radix__flush_tlb_range_psize(struct mm_struct *mm, unsigned long start,
 			_tlbie_pid(pid, RIC_FLUSH_TLB);
 		goto err_out;
 	}
+	asm volatile("ptesync": : :"memory");
 	for (addr = start; addr < end; addr += page_size) {
-
 		if (local)
-			_tlbiel_va(addr, pid, ap, RIC_FLUSH_TLB);
+			__tlbiel_va(addr, pid, ap, RIC_FLUSH_TLB);
 		else
-			_tlbie_va(addr, pid, ap, RIC_FLUSH_TLB);
+			__tlbie_va(addr, pid, ap, RIC_FLUSH_TLB);
 	}
+	if (local)
+		asm volatile("ptesync": : :"memory");
+	else
+		asm volatile("eieio; tlbsync; ptesync": : :"memory");
 err_out:
 	preempt_enable();
 }
@@ -446,6 +463,7 @@ void radix__flush_tlb_collapsed_pmd(struct mm_struct *mm, unsigned long addr)
 		_tlbie_pid(pid, RIC_FLUSH_PWC);
 
 	/* Then iterate the pages */
+	asm volatile("ptesync": : :"memory");
 	end = addr + HPAGE_PMD_SIZE;
 	for (; addr < end; addr += PAGE_SIZE) {
 		if (local)
@@ -453,6 +471,12 @@ void radix__flush_tlb_collapsed_pmd(struct mm_struct *mm, unsigned long addr)
 		else
 			_tlbie_va(addr, pid, ap, RIC_FLUSH_TLB);
 	}
+
+	if (local)
+		asm volatile("ptesync": : :"memory");
+	else
+		asm volatile("eieio; tlbsync; ptesync": : :"memory");
+
 no_context:
 	preempt_enable();
 }
