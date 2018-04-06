@@ -118,8 +118,11 @@ static void notrace klp_ftrace_handler(unsigned long ip,
 		}
 	}
 
-	/* Survive ugly mistakes, for example, when handling NOPs. */
-	if (WARN_ON_ONCE(!func->new_func))
+	/*
+	 * NOPs are used to replace existing patches with original code.
+	 * Do nothing! Setting pc would cause an infinite loop.
+	 */
+	if (func->nop)
 		goto unlock;
 
 	klp_arch_set_pc(regs, (unsigned long)func->new_func);
@@ -241,29 +244,26 @@ err:
 	return ret;
 }
 
-/*
- * Remove ftrace handler for the given object and function type.
- *
- * It keeps obj->patched flag true when any listed function is still patched.
- * The caller is responsible for removing the unpatched functions to
- * make the flag clean again.
- */
-void klp_unpatch_object(struct klp_object *obj, enum klp_func_type ftype)
+static void __klp_unpatch_object(struct klp_object *obj, bool unpatch_all)
 {
 	struct klp_func *func;
-	bool patched = false;
 
 	klp_for_each_func(obj, func) {
-		if (!func->patched)
+		if (!unpatch_all && !func->nop)
 			continue;
 
-		if (klp_is_func_type(func, ftype))
+		if (func->patched)
 			klp_unpatch_func(func);
-		else
-			patched = true;
 	}
 
-	obj->patched = patched;
+	if (unpatch_all || obj->dynamic)
+		obj->patched = false;
+}
+
+
+void klp_unpatch_object(struct klp_object *obj)
+{
+	__klp_unpatch_object(obj, true);
 }
 
 int klp_patch_object(struct klp_object *obj)
@@ -277,7 +277,7 @@ int klp_patch_object(struct klp_object *obj)
 	klp_for_each_func(obj, func) {
 		ret = klp_patch_func(func);
 		if (ret) {
-			klp_unpatch_object(obj, KLP_FUNC_ANY);
+			klp_unpatch_object(obj);
 			return ret;
 		}
 	}
@@ -286,12 +286,21 @@ int klp_patch_object(struct klp_object *obj)
 	return 0;
 }
 
-/* Removes ftrace handler in all objects for the given function type. */
-void klp_unpatch_objects(struct klp_patch *patch, enum klp_func_type ftype)
+static void __klp_unpatch_objects(struct klp_patch *patch, bool unpatch_all)
 {
 	struct klp_object *obj;
 
 	klp_for_each_object(patch, obj)
 		if (obj->patched)
-			klp_unpatch_object(obj, ftype);
+			__klp_unpatch_object(obj, unpatch_all);
+}
+
+void klp_unpatch_objects(struct klp_patch *patch)
+{
+	__klp_unpatch_objects(patch, true);
+}
+
+void klp_unpatch_objects_dynamic(struct klp_patch *patch)
+{
+	__klp_unpatch_objects(patch, false);
 }
