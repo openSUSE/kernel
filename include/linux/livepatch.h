@@ -35,34 +35,19 @@
 #define KLP_UNPATCHED	 0
 #define KLP_PATCHED	 1
 
-/*
- * Function type is used to distinguish dynamically allocated structures
- * and limit some operations.
- */
-enum klp_func_type {
-	KLP_FUNC_ANY = -1,	/* Substitute any type */
-	KLP_FUNC_STATIC = 0,    /* Original statically defined structure */
-	KLP_FUNC_NOP,		/* Dynamically allocated NOP function patch */
-};
-
-enum klp_object_type {
-	KLP_OBJECT_STATIC = 0,  /* Original statically defined structure */
-	KLP_OBJECT_DYNAMIC,	/* Dynamically allocated structure. */
-};
-
 /**
  * struct klp_func - function structure for live patching
  * @old_name:	name of the function to be patched
  * @new_func:	pointer to the patched function code
  * @old_sympos: a hint indicating which symbol position the old function
  *		can be found (optional)
- * @ftype:	distinguish static and dynamic structures
  * @old_addr:	the address of the function being patched
  * @kobj:	kobject for sysfs resources
+ * @node:	list node for klp_object func_list
  * @stack_node:	list node for klp_ops func_stack list
- * @func_entry:	links struct klp_func to struct klp_object
  * @old_size:	size of the old function
  * @new_size:	size of the new function
+ * @nop:        temporary patch to use the original code again; dyn. allocated
  * @patched:	the func has been added to the klp_ops list
  * @transition:	the func is currently being applied or reverted
  *
@@ -95,12 +80,12 @@ struct klp_func {
 	unsigned long old_sympos;
 
 	/* internal */
-	enum klp_func_type ftype;
 	unsigned long old_addr;
 	struct kobject kobj;
+	struct list_head node;
 	struct list_head stack_node;
-	struct list_head func_entry;
 	unsigned long old_size, new_size;
+	bool nop;
 	bool patched;
 	bool transition;
 };
@@ -137,8 +122,9 @@ struct klp_callbacks {
  * @kobj:	kobject for sysfs resources
  * @mod:	kernel module associated with the patched object
  *		(NULL for vmlinux)
- * @func_list:	head of list for struct klp_func
- * @obj_entry:	links struct klp_object to struct klp_patch
+ * @func_list:	dynamic list of the function entries
+ * @node:	list node for klp_patch obj_list
+ * @dynamic:    temporary object for nop functions; dynamically allocated
  * @patched:	the object's funcs have been added to the klp_ops list
  */
 struct klp_object {
@@ -148,11 +134,11 @@ struct klp_object {
 	struct klp_callbacks callbacks;
 
 	/* internal */
-	enum klp_object_type otype;
 	struct kobject kobj;
 	struct list_head func_list;
-	struct list_head obj_entry;
+	struct list_head node;
 	struct module *mod;
+	bool dynamic;
 	bool patched;
 };
 
@@ -163,7 +149,8 @@ struct klp_object {
  * @replace:	replace all already registered patches
  * @list:	list node for global list of registered patches
  * @kobj:	kobject for sysfs resources
- * @obj_list:	head of list for struct klp_object
+ * @obj_list:	dynamic list of the object entries
+ * @registered: reliable way to check registration status
  * @enabled:	the patch is enabled (but operation may be incomplete)
  * @finish:	for waiting till it is safe to remove the patch module
  */
@@ -177,6 +164,7 @@ struct klp_patch {
 	struct list_head list;
 	struct kobject kobj;
 	struct list_head obj_list;
+	bool registered;
 	bool enabled;
 	struct completion finish;
 };
@@ -185,39 +173,21 @@ struct klp_patch {
 	for (obj = patch->objs; obj->funcs || obj->name; obj++)
 
 #define klp_for_each_object_safe(patch, obj, tmp_obj)		\
-	list_for_each_entry_safe(obj, tmp_obj, &patch->obj_list, obj_entry)
+	list_for_each_entry_safe(obj, tmp_obj, &patch->obj_list, node)
 
 #define klp_for_each_object(patch, obj)	\
-	list_for_each_entry(obj, &patch->obj_list, obj_entry)
+	list_for_each_entry(obj, &patch->obj_list, node)
 
-/* Support also dynamically allocated struct klp_object */
 #define klp_for_each_func_static(obj, func) \
 	for (func = obj->funcs; \
-	     func && (func->old_name || func->new_func || func->old_sympos); \
+	     func->old_name || func->new_func || func->old_sympos; \
 	     func++)
 
 #define klp_for_each_func_safe(obj, func, tmp_func)			\
-	list_for_each_entry_safe(func, tmp_func, &obj->func_list, func_entry)
+	list_for_each_entry_safe(func, tmp_func, &obj->func_list, node)
 
 #define klp_for_each_func(obj, func)	\
-	list_for_each_entry(func, &obj->func_list, func_entry)
-
-static inline bool klp_is_object_dynamic(struct klp_object *obj)
-{
-	return obj->otype == KLP_OBJECT_DYNAMIC;
-}
-
-static inline bool klp_is_func_dynamic(struct klp_func *func)
-{
-	WARN_ON_ONCE(func->ftype == KLP_FUNC_ANY);
-	return func->ftype != KLP_FUNC_STATIC;
-}
-
-static inline bool klp_is_func_type(struct klp_func *func,
-				    enum klp_func_type ftype)
-{
-	return ftype == KLP_FUNC_ANY || ftype == func->ftype;
-}
+	list_for_each_entry(func, &obj->func_list, node)
 
 int klp_register_patch(struct klp_patch *);
 int klp_unregister_patch(struct klp_patch *);

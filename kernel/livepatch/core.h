@@ -5,9 +5,9 @@
 
 extern struct mutex klp_mutex;
 
-void klp_throw_away_replaced_patches(struct klp_patch *new_patch,
-				     bool keep_module);
-void klp_free_objects(struct klp_patch *patch, enum klp_func_type ftype);
+void klp_discard_replaced_patches(struct klp_patch *new_patch,
+				  bool keep_module);
+void klp_free_objects_dynamic(struct klp_patch *patch);
 
 static inline bool klp_is_object_loaded(struct klp_object *obj)
 {

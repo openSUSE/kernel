@@ -2,16 +2,17 @@
 Atomic Replace & Cumulative Patches
 ===================================
 
-There are dependencies between livepatches when more patches modify the same
-function(s). Then any newer livepatch must include changes from the older ones.
-Also the patches must be registered in the right order.
+There might be dependencies between livepatches. If multiple patches need
+to do different changes to the same function(s) then we need to define
+an order in which the patches will be installed. And function implementations
+from any newer livepatch must be done on top of the older ones.
 
 This might become a maintenance nightmare. Especially if anyone would want
 to remove a patch that is in the middle of the stack.
 
 An elegant solution comes with the feature called "Atomic Replace". It allows
-to create cumulative patches that completely replace all older livepatches.
-
+to create so called "Cumulative Patches". They include all wanted changes
+from all older livepatches and completely replace them in one transition.
 
 Usage
 -----
@@ -25,31 +26,59 @@ for example:
 		.replace = true,
 	};
 
-Such a patch is added on top of the livepatch stack when registered. It might
+Such a patch is added on top of the livepatch stack when registered. It can
 be enabled even when some earlier patches have not been enabled yet.
 
 All processes are then migrated to use the code only from the new patch.
 Once the transition is finished, all older patches are removed from the stack
-of patches.
+of patches. Even the older not-enabled patches mentioned above. They can
+even be unregistered and the related modules unloaded.
 
-Ftrace handlers are transparently removed from functions that are not
+Ftrace handlers are transparently removed from functions that are no
 longer modified by the new cumulative patch.
 
-As a result, the livepatch author might maintain sources only for one
+As a result, the livepatch authors might maintain sources only for one
 cumulative patch. It helps to keep the patch consistent while adding or
 removing various fixes or features.
+
+Users could keep only the last patch installed on the system after
+the transition to has finished. It helps to clearly see what code is
+actually in use. Also the livepatch might then be seen as a "normal"
+module that modifies the kernel behavior. The only difference is that
+it can be updated at runtime without breaking its functionality.
+
+
+Features
+--------
+
+The atomic replace allows:
+
+  + Atomically revert some functions in a previous patch while
+    upgrading other functions.
+
+  + Remove eventual performance impact caused by core redirection
+    for functions that are no longer patched.
+
+  + Decrease user confusion about stacking order and what patches are
+    currently in effect.
 
 
 Limitations:
 ------------
 
-  + Replaced patches can not longer be enabled. But if the transition
-    was not forced, the older patches might be unregistered, removed
-    and eventually used again.
+  + Replaced patches can no longer be enabled. But if the transition
+    to the cumulative patch was not forced, the kernel modules with
+    the older livepatches can be removed and eventually added again.
+
+    A good practice is to set .replace flag in any released livepatch.
+    Then re-adding an older livepatch is equivalent to downgrading
+    to that patch. This is safe as long as the livepatches do _not_ do
+    extra modifications in (un)patching callbacks or in the module_init()
+    or module_exit() functions, see below.
 
 
   + Only the (un)patching callbacks from the _new_ cumulative livepatch are
-    proceed. Any callbacks from the replaced patches are ignored.
+    executed. Any callbacks from the replaced patches are ignored.
 
     By other words, the cumulative patch is responsible for doing any actions
     that are necessary to properly replace any older patch.
