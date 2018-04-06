@@ -52,7 +52,7 @@ void * __meminit vmemmap_alloc_block(unsigned long size, int node)
 {
 	/* If the main allocator is up use that, fallback to bootmem. */
 	if (slab_is_available()) {
-		gfp_t gfp_mask = GFP_KERNEL|__GFP_REPEAT |__GFP_NOWARN;
+		gfp_t gfp_mask = GFP_KERNEL|__GFP_REPEAT |__GFP_NOWARN|__GFP_ZERO;
 		int order = get_order(size);
 		static bool warned;
 		struct page *page;
