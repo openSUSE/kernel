@@ -261,6 +261,16 @@ void radix__local_flush_tlb_page(struct vm_area_struct *vma, unsigned long vmadd
 }
 EXPORT_SYMBOL(radix__local_flush_tlb_page);
 
+static bool mm_needs_flush_escalation(struct mm_struct *mm)
+{
+	/*
+	 * P9 nest MMU has issues with the page walk cache
+	 * caching PTEs and not flushing them properly when
+	 * RIC = 0 for a PID/LPID invalidate
+	 */
+	return atomic_read(&mm->context.copros) != 0;
+}
+
 #ifdef CONFIG_SMP
 void radix__flush_tlb_mm(struct mm_struct *mm)
 {
@@ -271,9 +281,12 @@ void radix__flush_tlb_mm(struct mm_struct *mm)
 	if (unlikely(pid == MMU_NO_CONTEXT))
 		goto no_context;
 
-	if (!mm_is_thread_local(mm))
-		_tlbie_pid(pid, RIC_FLUSH_TLB);
-	else
+	if (!mm_is_thread_local(mm)) {
+		if (mm_needs_flush_escalation(mm))
+			_tlbie_pid(pid, RIC_FLUSH_ALL);
+		else
+			_tlbie_pid(pid, RIC_FLUSH_TLB);
+	} else
 		_tlbiel_pid(pid, RIC_FLUSH_TLB);
 no_context:
 	preempt_enable();
@@ -415,10 +428,14 @@ void radix__flush_tlb_range_psize(struct mm_struct *mm, unsigned long start,
 
 	if (end == TLB_FLUSH_ALL ||
 	    (end - start) > tlb_single_page_flush_ceiling * page_size) {
-		if (local)
+		if (local) {
 			_tlbiel_pid(pid, RIC_FLUSH_TLB);
-		else
-			_tlbie_pid(pid, RIC_FLUSH_TLB);
+		} else {
+			if (mm_needs_flush_escalation(mm))
+				_tlbie_pid(pid, RIC_FLUSH_ALL);
+			else
+				_tlbie_pid(pid, RIC_FLUSH_TLB);
+		}
 		goto err_out;
 	}
 	asm volatile("ptesync": : :"memory");
