@@ -87,6 +87,7 @@ save_stack_trace_tsk_reliable(struct task_struct *tsk,
 {
 	unsigned long sp;
 	unsigned long stack_page = (unsigned long)task_stack_page(tsk);
+	unsigned long stack_end;
 
 	/* The last frame (unwinding first) may not yet have saved
 	 * its LR onto the stack.
@@ -98,9 +99,35 @@ save_stack_trace_tsk_reliable(struct task_struct *tsk,
 	else
 		sp = tsk->thread.ksp;
 
-	if (sp < stack_page + sizeof(struct thread_struct)
-	    || sp > stack_page + THREAD_SIZE - STACK_FRAME_OVERHEAD)
+	stack_end = stack_page + THREAD_SIZE;
+	if (!is_idle_task(tsk)) {
+		/*
+		 * For user tasks, this is the SP value loaded on
+		 * kernel entry, see "PACAKSAVE(r13)" in _switch() and
+		 * system_call_common()/EXCEPTION_PROLOG_COMMON().
+		 *
+		 * Likewise for non-swapper kernel threads,
+		 * this also happens to be the top of the stack
+		 * as setup by copy_thread().
+		 *
+		 * Note that stack backlinks are not properly setup by
+		 * copy_thread() and thus, a forked task() will have
+		 * an unreliable stack trace until it's been
+		 * _switch()'ed to for the first time.
+		 */
+		stack_end -= STACK_FRAME_OVERHEAD + sizeof(struct pt_regs);
+	} else {
+		/*
+		 * idle tasks have a custom stack layout,
+		 * c.f. cpu_idle_thread_init().
+		 */
+		stack_end -= STACK_FRAME_OVERHEAD;
+	}
+
+	if (sp < stack_page + sizeof(struct thread_struct) ||
+	    sp > stack_end - STACK_FRAME_MIN_SIZE) {
 		return 1;
+	}
 
 	for (;;) {
 		unsigned long *stack = (unsigned long *) sp;
@@ -115,21 +142,15 @@ save_stack_trace_tsk_reliable(struct task_struct *tsk,
 		if (newsp <= sp)
 			return 1;
 
-		if (newsp >= stack_page + THREAD_SIZE)
+		if (newsp != stack_end &&
+		    newsp > stack_end - STACK_FRAME_MIN_SIZE) {
 			return 1; /* invalid backlink, too far up. */
+		}
 
 		/* Examine the saved LR: it must point into kernel code. */
 		ip = stack[STACK_FRAME_LR_SAVE];
-		if (!firstframe) {
-			if (!func_ptr_is_kernel_text((void *)ip)) {
-#ifdef CONFIG_MODULES
-				struct module *mod = __module_text_address(ip);
-
-				if (!mod)
-#endif
-					return 1;
-			}
-		}
+		if (!firstframe && !__kernel_text_address(ip))
+			return 1;
 		firstframe = 0;
 
 		if (!trace->skip)
@@ -137,11 +158,7 @@ save_stack_trace_tsk_reliable(struct task_struct *tsk,
 		else
 			trace->skip--;
 
-		/* SP value loaded on kernel entry, see "PACAKSAVE(r13)" in
-		 * _switch() and system_call_common()
-		 */
-		if (newsp == stack_page + THREAD_SIZE - /* SWITCH_FRAME_SIZE */
-		    (STACK_FRAME_OVERHEAD + sizeof(struct pt_regs)))
+		if (newsp == stack_end)
 			break;
 
 		if (trace->nr_entries >= trace->max_entries)
