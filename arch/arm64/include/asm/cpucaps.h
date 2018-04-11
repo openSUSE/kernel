@@ -43,6 +43,7 @@
 #define ARM64_HARDEN_BRANCH_PREDICTOR		22
 #define ARM64_HARDEN_BP_POST_GUEST_EXIT		23
 
-#define ARM64_NCAPS				24
+/* kabi: reserve 24 - 31 for future cpu capabilities */
+#define ARM64_NCAPS				32
 
 #endif /* __ASM_CPUCAPS_H */
