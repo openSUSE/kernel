@@ -292,14 +292,15 @@ static const struct bpf_func_proto bpf_perf_event_read_proto = {
 	.arg2_type	= ARG_ANYTHING,
 };
 
+static DEFINE_PER_CPU(struct perf_sample_data, bpf_trace_sd);
+
 static __always_inline u64
 __bpf_perf_event_output(struct pt_regs *regs, struct bpf_map *map,
-			u64 flags, struct perf_raw_record *raw)
+			u64 flags, struct perf_sample_data *sd)
 {
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
 	unsigned int cpu = smp_processor_id();
 	u64 index = flags & BPF_F_INDEX_MASK;
-	struct perf_sample_data sample_data;
 	struct bpf_event_entry *ee;
 	struct perf_event *event;
 
@@ -320,15 +321,14 @@ __bpf_perf_event_output(struct pt_regs *regs, struct bpf_map *map,
 	if (unlikely(event->oncpu != cpu))
 		return -EOPNOTSUPP;
 
-	perf_sample_data_init(&sample_data, 0, 0);
-	sample_data.raw = raw;
-	perf_event_output(event, &sample_data, regs);
+	perf_event_output(event, sd, regs);
 	return 0;
 }
 
 BPF_CALL_5(bpf_perf_event_output, struct pt_regs *, regs, struct bpf_map *, map,
 	   u64, flags, void *, data, u64, size)
 {
+	struct perf_sample_data *sd = this_cpu_ptr(&bpf_trace_sd);
 	struct perf_raw_record raw = {
 		.frag = {
 			.size = size,
@@ -339,7 +339,10 @@ BPF_CALL_5(bpf_perf_event_output, struct pt_regs *, regs, struct bpf_map *, map,
 	if (unlikely(flags & ~(BPF_F_INDEX_MASK)))
 		return -EINVAL;
 
-	return __bpf_perf_event_output(regs, map, flags, &raw);
+	perf_sample_data_init(sd, 0, 0);
+	sd->raw = &raw;
+
+	return __bpf_perf_event_output(regs, map, flags, sd);
 }
 
 static const struct bpf_func_proto bpf_perf_event_output_proto = {
@@ -354,10 +357,12 @@ static const struct bpf_func_proto bpf_perf_event_output_proto = {
 };
 
 static DEFINE_PER_CPU(struct pt_regs, bpf_pt_regs);
+static DEFINE_PER_CPU(struct perf_sample_data, bpf_misc_sd);
 
 u64 bpf_event_output(struct bpf_map *map, u64 flags, void *meta, u64 meta_size,
 		     void *ctx, u64 ctx_size, bpf_ctx_copy_t ctx_copy)
 {
+	struct perf_sample_data *sd = this_cpu_ptr(&bpf_misc_sd);
 	struct pt_regs *regs = this_cpu_ptr(&bpf_pt_regs);
 	struct perf_raw_frag frag = {
 		.copy		= ctx_copy,
@@ -375,8 +380,10 @@ u64 bpf_event_output(struct bpf_map *map, u64 flags, void *meta, u64 meta_size,
 	};
 
 	perf_fetch_caller_regs(regs);
+	perf_sample_data_init(sd, 0, 0);
+	sd->raw = &raw;
 
-	return __bpf_perf_event_output(regs, map, flags, &raw);
+	return __bpf_perf_event_output(regs, map, flags, sd);
 }
 
 BPF_CALL_0(bpf_get_current_task)
