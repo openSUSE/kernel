@@ -141,6 +141,12 @@ save_stack_trace_tsk_reliable(struct task_struct *tsk,
 		if (sp & 0xF)
 			return 1;
 
+		/* Mark stacktraces with exception frames as unreliable. */
+		if (sp <= stack_end - STACK_INT_FRAME_SIZE &&
+		    stack[STACK_FRAME_MARKER] == STACK_FRAME_REGS_MARKER) {
+			return 1;
+		}
+
 		newsp = stack[0];
 		/* Stack grows downwards; unwinder may only go up. */
 		if (newsp <= sp)
