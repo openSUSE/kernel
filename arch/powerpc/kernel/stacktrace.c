@@ -19,6 +19,9 @@
 #include <linux/stacktrace.h>
 #include <asm/ptrace.h>
 #include <asm/processor.h>
+#ifndef __GENKSYMS__
+#include <linux/ftrace.h>
+#endif
 
 /*
  * Save stack-backtrace addresses into a stack_trace buffer.
@@ -88,6 +91,7 @@ save_stack_trace_tsk_reliable(struct task_struct *tsk,
 	unsigned long sp;
 	unsigned long stack_page = (unsigned long)task_stack_page(tsk);
 	unsigned long stack_end;
+	int graph_idx = 0;
 
 	/* The last frame (unwinding first) may not yet have saved
 	 * its LR onto the stack.
@@ -152,6 +156,8 @@ save_stack_trace_tsk_reliable(struct task_struct *tsk,
 		if (!firstframe && !__kernel_text_address(ip))
 			return 1;
 		firstframe = 0;
+
+		ip = ftrace_graph_ret_addr(tsk, &graph_idx, ip, NULL);
 
 		if (!trace->skip)
 			trace->entries[trace->nr_entries++] = ip;
