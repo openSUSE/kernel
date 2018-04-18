@@ -3996,6 +3996,12 @@ static int balance_kthread(void *data)
 	struct btrfs_fs_info *fs_info = data;
 	int ret = 0;
 
+	if (fs_info->relocation_recovery_started) {
+		btrfs_info(fs_info,
+			   "waiting for relocation recovery before resuming balance");
+		wait_for_completion(&fs_info->relocation_recovery_completion);
+	}
+
 	mutex_lock(&fs_info->volume_mutex);
 	mutex_lock(&fs_info->balance_mutex);
 
