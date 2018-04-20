@@ -4450,7 +4450,7 @@ btrfs_resume_relocation(void *data)
 	struct btrfs_fs_info *fs_info = data;
 	struct btrfs_trans_handle *trans;
 	struct reloc_control *rc = fs_info->reloc_ctl;
-	int err, ret;
+	int err = 0, ret;
 
 	btrfs_info(fs_info, "resuming relocation");
 
