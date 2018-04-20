@@ -1749,7 +1749,6 @@ static inline void btrfs_remount_cleanup(struct btrfs_fs_info *fs_info,
 static int btrfs_remount(struct super_block *sb, int *flags, char *data)
 {
 	struct btrfs_fs_info *fs_info = btrfs_sb(sb);
-	struct btrfs_root *root = fs_info->tree_root;
 	unsigned old_flags = sb->s_flags;
 	unsigned long old_opts = fs_info->mount_opt;
 	unsigned long old_compress_type = fs_info->compress_type;
@@ -1817,6 +1816,8 @@ static int btrfs_remount(struct super_block *sb, int *flags, char *data)
 		btrfs_scrub_cancel(fs_info);
 		btrfs_pause_balance(fs_info);
 
+		btrfs_wait_for_relocation_completion(fs_info);
+
 		ret = btrfs_commit_super(fs_info);
 		if (ret)
 			goto restore;
@@ -1858,7 +1859,7 @@ static int btrfs_remount(struct super_block *sb, int *flags, char *data)
 
 		/* recover relocation */
 		mutex_lock(&fs_info->cleaner_mutex);
-		ret = btrfs_recover_relocation(root);
+		ret = btrfs_recover_relocation(fs_info);
 		mutex_unlock(&fs_info->cleaner_mutex);
 		if (ret)
 			goto restore;
