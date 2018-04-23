@@ -21,6 +21,7 @@
 #include <asm/processor.h>
 #ifndef __GENKSYMS__
 #include <linux/ftrace.h>
+#include <asm/kprobes.h>
 #endif
 
 /*
@@ -164,6 +165,13 @@ save_stack_trace_tsk_reliable(struct task_struct *tsk,
 		firstframe = 0;
 
 		ip = ftrace_graph_ret_addr(tsk, &graph_idx, ip, NULL);
+
+		/*
+		 * Mark stacktraces with kretprobed functions on them
+		 * as unreliable.
+		 */
+		if (ip == (unsigned long)kretprobe_trampoline)
+			return 1;
 
 		if (!trace->skip)
 			trace->entries[trace->nr_entries++] = ip;
