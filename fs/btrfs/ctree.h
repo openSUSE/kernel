@@ -874,6 +874,7 @@ struct btrfs_fs_info {
 
 	struct list_head trans_list;
 	struct list_head dead_roots;
+	spinlock_t caching_block_groups_lock;
 	struct list_head caching_block_groups;
 
 	spinlock_t delayed_iput_lock;
