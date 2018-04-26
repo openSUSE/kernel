@@ -19,6 +19,10 @@
 #include <linux/stacktrace.h>
 #include <asm/ptrace.h>
 #include <asm/processor.h>
+#ifndef __GENKSYMS__
+#include <linux/ftrace.h>
+#include <asm/kprobes.h>
+#endif
 
 /*
  * Save stack-backtrace addresses into a stack_trace buffer.
@@ -88,6 +92,7 @@ save_stack_trace_tsk_reliable(struct task_struct *tsk,
 	unsigned long sp;
 	unsigned long stack_page = (unsigned long)task_stack_page(tsk);
 	unsigned long stack_end;
+	int graph_idx = 0;
 
 	/* The last frame (unwinding first) may not yet have saved
 	 * its LR onto the stack.
@@ -137,6 +142,12 @@ save_stack_trace_tsk_reliable(struct task_struct *tsk,
 		if (sp & 0xF)
 			return 1;
 
+		/* Mark stacktraces with exception frames as unreliable. */
+		if (sp <= stack_end - STACK_INT_FRAME_SIZE &&
+		    stack[STACK_FRAME_MARKER] == STACK_FRAME_REGS_MARKER) {
+			return 1;
+		}
+
 		newsp = stack[0];
 		/* Stack grows downwards; unwinder may only go up. */
 		if (newsp <= sp)
@@ -152,6 +163,15 @@ save_stack_trace_tsk_reliable(struct task_struct *tsk,
 		if (!firstframe && !__kernel_text_address(ip))
 			return 1;
 		firstframe = 0;
+
+		ip = ftrace_graph_ret_addr(tsk, &graph_idx, ip, NULL);
+
+		/*
+		 * Mark stacktraces with kretprobed functions on them
+		 * as unreliable.
+		 */
+		if (ip == (unsigned long)kretprobe_trampoline)
+			return 1;
 
 		if (!trace->skip)
 			trace->entries[trace->nr_entries++] = ip;
