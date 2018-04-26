@@ -1064,6 +1064,7 @@ struct btrfs_fs_info {
 	struct btrfs_workqueue *qgroup_rescan_workers;
 	struct completion qgroup_rescan_completion;
 	struct btrfs_work qgroup_rescan_work;
+	/* qgroup rescan worker is running or queued to run */
 	bool qgroup_rescan_running;	/* protected by qgroup_rescan_lock */
 
 	/* relocation recovery items */
