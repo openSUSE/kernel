@@ -1270,6 +1270,10 @@ bpt_cmds(void)
 	switch (cmd) {
 #ifndef CONFIG_8xx
 	case 'd':	/* bd - hardware data breakpoint */
+		if (!ppc_breakpoint_available()) {
+			printf("Hardware data breakpoint not supported on this cpu\n");
+			break;
+		}
 		mode = 7;
 		cmd = inchar();
 		if (cmd == 'r')
