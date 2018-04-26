@@ -33,13 +33,12 @@ static inline void tlbiel_radix_set_isa300(unsigned int set, unsigned int is,
 {
 	unsigned long rb;
 	unsigned long rs;
-	unsigned int r = 1; /* radix format */
 
 	rb = (set << PPC_BITLSHIFT(51)) | (is << PPC_BITLSHIFT(53));
 	rs = ((unsigned long)pid << PPC_BITLSHIFT(31));
 
-	asm volatile(PPC_TLBIEL(%0, %1, %2, %3, %4)
-		     : : "r"(rb), "r"(rs), "i"(ric), "i"(prs), "r"(r)
+	asm volatile(PPC_TLBIEL(%0, %1, %2, %3, 1)
+		     : : "r"(rb), "r"(rs), "i"(ric), "i"(prs)
 		     : "memory");
 }
 
@@ -566,7 +565,7 @@ void radix__flush_tlb_pte_p9_dd1(unsigned long old_pte, struct mm_struct *mm,
 #ifdef CONFIG_KVM_BOOK3S_HV_POSSIBLE
 extern void radix_kvm_prefetch_workaround(struct mm_struct *mm)
 {
-	unsigned int pid = mm->context.id;
+	unsigned long pid = mm->context.id;
 
 	if (unlikely(pid == MMU_NO_CONTEXT))
 		return;
