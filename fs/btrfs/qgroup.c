@@ -2023,6 +2023,30 @@ cleanup:
 	return ret;
 }
 
+static void queue_rescan_worker(struct btrfs_fs_info *fs_info)
+{
+	mutex_lock(&fs_info->qgroup_rescan_lock);
+	if (btrfs_fs_closing(fs_info)) {
+		mutex_unlock(&fs_info->qgroup_rescan_lock);
+		return;
+	}
+	if (WARN_ON(fs_info->qgroup_rescan_running)) {
+		btrfs_warn(fs_info, "rescan worker already queued");
+		mutex_unlock(&fs_info->qgroup_rescan_lock);
+		return;
+	}
+
+	/*
+	 * Being queued is enough for btrfs_qgroup_wait_for_completion
+	 * to need to wait.
+	 */
+	fs_info->qgroup_rescan_running = true;
+	mutex_unlock(&fs_info->qgroup_rescan_lock);
+
+	btrfs_queue_work(fs_info->qgroup_rescan_workers,
+			 &fs_info->qgroup_rescan_work);
+}
+
 /*
  * called from commit_transaction. Writes all changed qgroups to disk.
  */
@@ -2076,8 +2100,7 @@ int btrfs_run_qgroups(struct btrfs_trans_handle *trans,
 		ret = qgroup_rescan_init(fs_info, 0, 1);
 		if (!ret) {
 			qgroup_rescan_zero_tracking(fs_info);
-			btrfs_queue_work(fs_info->qgroup_rescan_workers,
-					 &fs_info->qgroup_rescan_work);
+			queue_rescan_worker(fs_info);
 		}
 		ret = 0;
 	}
@@ -2661,7 +2684,6 @@ qgroup_rescan_init(struct btrfs_fs_info *fs_info, u64 progress_objectid,
 		sizeof(fs_info->qgroup_rescan_progress));
 	fs_info->qgroup_rescan_progress.objectid = progress_objectid;
 	init_completion(&fs_info->qgroup_rescan_completion);
-	fs_info->qgroup_rescan_running = true;
 
 	spin_unlock(&fs_info->qgroup_lock);
 	mutex_unlock(&fs_info->qgroup_rescan_lock);
@@ -2733,9 +2755,7 @@ btrfs_qgroup_rescan(struct btrfs_fs_info *fs_info)
 
 	qgroup_rescan_zero_tracking(fs_info);
 
-	btrfs_queue_work(fs_info->qgroup_rescan_workers,
-			 &fs_info->qgroup_rescan_work);
-
+	queue_rescan_worker(fs_info);
 	return 0;
 }
 
@@ -2746,9 +2766,7 @@ int btrfs_qgroup_wait_for_completion(struct btrfs_fs_info *fs_info,
 	int ret = 0;
 
 	mutex_lock(&fs_info->qgroup_rescan_lock);
-	spin_lock(&fs_info->qgroup_lock);
 	running = fs_info->qgroup_rescan_running;
-	spin_unlock(&fs_info->qgroup_lock);
 	mutex_unlock(&fs_info->qgroup_rescan_lock);
 
 	if (!running)
@@ -2767,12 +2785,10 @@ int btrfs_qgroup_wait_for_completion(struct btrfs_fs_info *fs_info,
  * this is only called from open_ctree where we're still single threaded, thus
  * locking is omitted here.
  */
-void
-btrfs_qgroup_rescan_resume(struct btrfs_fs_info *fs_info)
+void btrfs_qgroup_rescan_resume(struct btrfs_fs_info *fs_info)
 {
 	if (fs_info->qgroup_flags & BTRFS_QGROUP_STATUS_FLAG_RESCAN)
-		btrfs_queue_work(fs_info->qgroup_rescan_workers,
-				 &fs_info->qgroup_rescan_work);
+		queue_rescan_worker(fs_info);
 }
 
 /*
