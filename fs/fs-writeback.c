@@ -745,12 +745,11 @@ int inode_congested(struct inode *inode, int cong_bits)
 	 */
 	if (inode && inode_to_wb_is_valid(inode)) {
 		struct bdi_writeback *wb;
-		struct wb_lock_cookie lock_cookie = {};
-		bool congested;
+		bool locked, congested;
 
-		wb = unlocked_inode_to_wb_begin(inode, &lock_cookie);
+		wb = unlocked_inode_to_wb_begin(inode, &locked);
 		congested = wb_congested(wb, cong_bits);
-		unlocked_inode_to_wb_end(inode, &lock_cookie);
+		unlocked_inode_to_wb_end(inode, locked);
 		return congested;
 	}
 
@@ -1961,7 +1960,7 @@ void wb_workfn(struct work_struct *work)
 	}
 
 	if (!list_empty(&wb->work_list))
-		wb_wakeup(wb);
+		mod_delayed_work(bdi_wq, &wb->dwork, 0);
 	else if (wb_has_dirty_io(wb) && dirty_writeback_interval)
 		wb_wakeup_delayed(wb);
 

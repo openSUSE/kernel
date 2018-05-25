@@ -224,8 +224,6 @@ void hyperv_init(void)
 {
 	u64 guest_id, required_msrs;
 	union hv_x64_msr_hypercall_contents hypercall_msr;
-	__u8 d1 = 0x10; /* SuSE */
-	__u16 d2 = 0x0; /* -d of a.b.c-d */
 
 	if (x86_hyper_type != X86_HYPER_MS_HYPERV)
 		return;
@@ -252,7 +250,7 @@ void hyperv_init(void)
 	 * 1. Register the guest ID
 	 * 2. Enable the hypercall and register the hypercall page
 	 */
-	guest_id = generate_guest_id(d1, LINUX_VERSION_CODE, d2);
+	guest_id = generate_guest_id(0, LINUX_VERSION_CODE, 0);
 	wrmsrl(HV_X64_MSR_GUEST_OS_ID, guest_id);
 
 	hv_hypercall_pg  = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_RX);

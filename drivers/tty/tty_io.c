@@ -2816,10 +2816,7 @@ struct tty_struct *alloc_tty_struct(struct tty_driver *driver, int idx)
 
 	kref_init(&tty->kref);
 	tty->magic = TTY_MAGIC;
-	if (tty_ldisc_init(tty)) {
-		kfree(tty);
-		return NULL;
-	}
+	tty_ldisc_init(tty);
 	tty->session = NULL;
 	tty->pgrp = NULL;
 	mutex_init(&tty->legacy_mutex);

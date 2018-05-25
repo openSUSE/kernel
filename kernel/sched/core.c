@@ -23,7 +23,6 @@
 #include <linux/mmu_context.h>
 #include <linux/module.h>
 #include <linux/nmi.h>
-#include <linux/nospec.h>
 #include <linux/prefetch.h>
 #include <linux/profile.h>
 #include <linux/security.h>
@@ -6874,15 +6873,11 @@ static int cpu_weight_nice_write_s64(struct cgroup_subsys_state *css,
 				     struct cftype *cft, s64 nice)
 {
 	unsigned long weight;
-	int idx;
 
 	if (nice < MIN_NICE || nice > MAX_NICE)
 		return -ERANGE;
 
-	idx = NICE_TO_PRIO(nice) - MAX_RT_PRIO;
-	idx = array_index_nospec(idx, 40);
-	weight = sched_prio_to_weight[idx];
-
+	weight = sched_prio_to_weight[NICE_TO_PRIO(nice) - MAX_RT_PRIO];
 	return sched_group_set_shares(css_tg(css), scale_load(weight));
 }
 #endif

@@ -1279,10 +1279,7 @@ const struct v4l2_file_operations atomisp_fops = {
 	.mmap = atomisp_mmap,
 	.unlocked_ioctl = video_ioctl2,
 #ifdef CONFIG_COMPAT
-	/*
-	 * There are problems with this code. Disable this for now.
 	.compat_ioctl32 = atomisp_compat_ioctl32,
-	 */
 #endif
 	.poll = atomisp_poll,
 };
@@ -1294,10 +1291,7 @@ const struct v4l2_file_operations atomisp_file_fops = {
 	.mmap = atomisp_file_mmap,
 	.unlocked_ioctl = video_ioctl2,
 #ifdef CONFIG_COMPAT
-	/*
-	 * There are problems with this code. Disable this for now.
 	.compat_ioctl32 = atomisp_compat_ioctl32,
-	 */
 #endif
 	.poll = atomisp_poll,
 };

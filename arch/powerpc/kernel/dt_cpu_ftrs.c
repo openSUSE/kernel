@@ -84,7 +84,6 @@ static int hv_mode;
 
 static struct {
 	u64	lpcr;
-	u64	lpcr_clear;
 	u64	hfscr;
 	u64	fscr;
 } system_registers;
@@ -93,8 +92,6 @@ static void (*init_pmu_registers)(void);
 
 static void __restore_cpu_cpufeatures(void)
 {
-	u64 lpcr;
-
 	/*
 	 * LPCR is restored by the power on engine already. It can be changed
 	 * after early init e.g., by radix enable, and we have no unified API
@@ -107,10 +104,8 @@ static void __restore_cpu_cpufeatures(void)
 	 * The best we can do to accommodate secondary boot and idle restore
 	 * for now is "or" LPCR with existing.
 	 */
-	lpcr = mfspr(SPRN_LPCR);
-	lpcr |= system_registers.lpcr;
-	lpcr &= ~system_registers.lpcr_clear;
-	mtspr(SPRN_LPCR, lpcr);
+
+	mtspr(SPRN_LPCR, system_registers.lpcr | mfspr(SPRN_LPCR));
 	if (hv_mode) {
 		mtspr(SPRN_LPID, 0);
 		mtspr(SPRN_HFSCR, system_registers.hfscr);
@@ -330,9 +325,8 @@ static int __init feat_enable_mmu_hash_v3(struct dt_cpu_feature *f)
 {
 	u64 lpcr;
 
-	system_registers.lpcr_clear |= (LPCR_ISL | LPCR_UPRT | LPCR_HR);
 	lpcr = mfspr(SPRN_LPCR);
-	lpcr &= ~(LPCR_ISL | LPCR_UPRT | LPCR_HR);
+	lpcr &= ~LPCR_ISL;
 	mtspr(SPRN_LPCR, lpcr);
 
 	cur_cpu_spec->mmu_features |= MMU_FTRS_HASH_BASE;
@@ -664,13 +658,6 @@ static void __init cpufeatures_setup_start(u32 isa)
 		cur_cpu_spec->cpu_features |= CPU_FTR_ARCH_300;
 		cur_cpu_spec->cpu_user_features2 |= PPC_FEATURE2_ARCH_3_00;
 	}
-
-	/*
-	 * PKEY was not in the initial base or feature node
-	 * specification, but it should become optional in the next
-	 * cpu feature version sequence.
-	 */
-	cur_cpu_spec->cpu_features |= CPU_FTR_PKEY;
 }
 
 static bool __init cpufeatures_process_feature(struct dt_cpu_feature *f)

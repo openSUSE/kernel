@@ -5334,9 +5334,8 @@ ext4_ext_shift_extents(struct inode *inode, handle_t *handle,
 	stop = le32_to_cpu(extent->ee_block);
 
        /*
-	* For left shifts, make sure the hole on the left is big enough to
-	* accommodate the shift.  For right shifts, make sure the last extent
-	* won't be shifted beyond EXT_MAX_BLOCKS.
+	 * In case of left shift, Don't start shifting extents until we make
+	 * sure the hole is big enough to accommodate the shift.
 	*/
 	if (SHIFT == SHIFT_LEFT) {
 		path = ext4_find_extent(inode, start - 1, &path,
@@ -5356,14 +5355,9 @@ ext4_ext_shift_extents(struct inode *inode, handle_t *handle,
 
 		if ((start == ex_start && shift > ex_start) ||
 		    (shift > start - ex_end)) {
-			ret = -EINVAL;
-			goto out;
-		}
-	} else {
-		if (shift > EXT_MAX_BLOCKS -
-		    (stop + ext4_ext_get_actual_len(extent))) {
-			ret = -EINVAL;
-			goto out;
+			ext4_ext_drop_refs(path);
+			kfree(path);
+			return -EINVAL;
 		}
 	}
 

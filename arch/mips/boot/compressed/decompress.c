@@ -76,7 +76,12 @@ void error(char *x)
 #include "../../../../lib/decompress_unxz.c"
 #endif
 
-const unsigned long __stack_chk_guard = 0x000a0dff;
+unsigned long __stack_chk_guard;
+
+void __stack_chk_guard_setup(void)
+{
+	__stack_chk_guard = 0x000a0dff;
+}
 
 void __stack_chk_fail(void)
 {
@@ -86,6 +91,8 @@ void __stack_chk_fail(void)
 void decompress_kernel(unsigned long boot_heap_start)
 {
 	unsigned long zimage_start, zimage_size;
+
+	__stack_chk_guard_setup();
 
 	zimage_start = (unsigned long)(&__image_begin);
 	zimage_size = (unsigned long)(&__image_end) -

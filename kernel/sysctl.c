@@ -793,15 +793,6 @@ static struct ctl_table kern_table[] = {
 		.extra1		= &pid_max_min,
 		.extra2		= &pid_max_max,
 	},
-#if defined(CONFIG_MODULES) && defined(CONFIG_SUSE_KERNEL_SUPPORTED)
-	{
-		.procname	= "unsupported",
-		.data		= &suse_unsupported,
-		.maxlen		= sizeof(int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec,
-	},
-#endif
 	{
 		.procname	= "panic_on_oops",
 		.data		= &panic_on_oops,
@@ -1034,13 +1025,6 @@ static struct ctl_table kern_table[] = {
 		.proc_handler	= proc_dointvec,
 	},
 #endif
-	{
-		.procname	= "suid_dumpable",
-		.data		= &suid_dumpable,
-		.maxlen		= sizeof(int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
-	},
 #if defined(CONFIG_S390) && defined(CONFIG_SMP)
 	{
 		.procname	= "spin_retry",

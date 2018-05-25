@@ -47,11 +47,7 @@ struct l2tp_dfs_seq_data {
 
 static void l2tp_dfs_next_tunnel(struct l2tp_dfs_seq_data *pd)
 {
-	/* Drop reference taken during previous invocation */
-	if (pd->tunnel)
-		l2tp_tunnel_dec_refcount(pd->tunnel);
-
-	pd->tunnel = l2tp_tunnel_get_nth(pd->net, pd->tunnel_idx);
+	pd->tunnel = l2tp_tunnel_find_nth(pd->net, pd->tunnel_idx);
 	pd->tunnel_idx++;
 }
 
@@ -100,17 +96,7 @@ static void *l2tp_dfs_seq_next(struct seq_file *m, void *v, loff_t *pos)
 
 static void l2tp_dfs_seq_stop(struct seq_file *p, void *v)
 {
-	struct l2tp_dfs_seq_data *pd = v;
-
-	if (!pd || pd == SEQ_START_TOKEN)
-		return;
-
-	/* Drop reference taken by last invocation of l2tp_dfs_next_tunnel() */
-	if (pd->tunnel) {
-		l2tp_tunnel_dec_refcount(pd->tunnel);
-		pd->tunnel = NULL;
-		pd->session = NULL;
-	}
+	/* nothing to do */
 }
 
 static void l2tp_dfs_seq_tunnel_show(struct seq_file *m, void *v)

@@ -308,10 +308,7 @@ struct intel_gvt {
 	wait_queue_head_t service_thread_wq;
 	unsigned long service_request;
 
-	struct {
-		struct engine_mmio *mmio;
-		int ctx_mmio_count[I915_NUM_ENGINES];
-	} engine_mmio_list;
+	struct engine_mmio *engine_mmio_list;
 
 	struct dentry *debugfs_root;
 };

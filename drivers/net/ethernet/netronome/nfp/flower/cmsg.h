@@ -178,10 +178,7 @@ struct nfp_fl_set_ipv4_udp_tun {
 	__be16 reserved;
 	__be64 tun_id __packed;
 	__be32 tun_type_index;
-	__be16 reserved2;
-	u8 ttl;
-	u8 reserved3;
-	__be32 extra[2];
+	__be32 extra[3];
 };
 
 /* Metadata with L2 (1W/4B)

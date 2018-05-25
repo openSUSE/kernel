@@ -29,7 +29,6 @@
 #include "../seq_lock.h"
 #include <linux/init.h>
 #include <linux/slab.h>
-#include <linux/nospec.h>
 
 
 /*
@@ -316,7 +315,6 @@ get_mididev(struct seq_oss_devinfo *dp, int dev)
 {
 	if (dev < 0 || dev >= dp->max_mididev)
 		return NULL;
-	dev = array_index_nospec(dev, dp->max_mididev);
 	return get_mdev(dev);
 }
 

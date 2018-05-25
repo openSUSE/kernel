@@ -171,8 +171,9 @@ struct nfit_mem {
 	struct resource *flush_wpq;
 	unsigned long dsm_mask;
 	int family;
-	bool has_lsr;
-	bool has_lsw;
+	u32 has_lsi:1;
+	u32 has_lsr:1;
+	u32 has_lsw:1;
 };
 
 struct acpi_nfit_desc {

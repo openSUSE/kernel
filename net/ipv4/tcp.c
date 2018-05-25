@@ -688,7 +688,7 @@ static bool tcp_should_autocork(struct sock *sk, struct sk_buff *skb,
 {
 	return skb->len < size_goal &&
 	       sock_net(sk)->ipv4.sysctl_tcp_autocorking &&
-	       !tcp_rtx_queue_empty(sk) &&
+	       skb != tcp_write_queue_head(sk) &&
 	       refcount_read(&sk->sk_wmem_alloc) > skb->truesize;
 }
 
@@ -1210,8 +1210,7 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 			uarg->zerocopy = 0;
 	}
 
-	if (unlikely(flags & MSG_FASTOPEN || inet_sk(sk)->defer_connect) &&
-	    !tp->repair) {
+	if (unlikely(flags & MSG_FASTOPEN || inet_sk(sk)->defer_connect)) {
 		err = tcp_sendmsg_fastopen(sk, msg, &copied_syn, size);
 		if (err == -EINPROGRESS && copied_syn > 0)
 			goto out;
@@ -2386,7 +2385,6 @@ void tcp_write_queue_purge(struct sock *sk)
 	INIT_LIST_HEAD(&tcp_sk(sk)->tsorted_sent_queue);
 	sk_mem_reclaim(sk);
 	tcp_clear_all_retrans_hints(tcp_sk(sk));
-	tcp_sk(sk)->packets_out = 0;
 }
 
 int tcp_disconnect(struct sock *sk, int flags)
@@ -2436,6 +2434,7 @@ int tcp_disconnect(struct sock *sk, int flags)
 	icsk->icsk_backoff = 0;
 	tp->snd_cwnd = 2;
 	icsk->icsk_probes_out = 0;
+	tp->packets_out = 0;
 	tp->snd_ssthresh = TCP_INFINITE_SSTHRESH;
 	tp->snd_cwnd_cnt = 0;
 	tp->window_clamp = 0;
@@ -2691,7 +2690,7 @@ static int do_tcp_setsockopt(struct sock *sk, int level,
 	case TCP_REPAIR_QUEUE:
 		if (!tp->repair)
 			err = -EPERM;
-		else if ((unsigned int)val < TCP_QUEUES_NR)
+		else if (val < TCP_QUEUES_NR)
 			tp->repair_queue = val;
 		else
 			err = -EINVAL;
@@ -2831,10 +2830,8 @@ static int do_tcp_setsockopt(struct sock *sk, int level,
 #ifdef CONFIG_TCP_MD5SIG
 	case TCP_MD5SIG:
 	case TCP_MD5SIG_EXT:
-		if ((1 << sk->sk_state) & (TCPF_CLOSE | TCPF_LISTEN))
-			err = tp->af_specific->md5_parse(sk, optname, optval, optlen);
-		else
-			err = -EINVAL;
+		/* Read the IP->Key mappings from userspace */
+		err = tp->af_specific->md5_parse(sk, optname, optval, optlen);
 		break;
 #endif
 	case TCP_USER_TIMEOUT:

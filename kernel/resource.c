@@ -651,8 +651,7 @@ static int __find_resource(struct resource *root, struct resource *old,
 			alloc.start = constraint->alignf(constraint->alignf_data, &avail,
 					size, constraint->align);
 			alloc.end = alloc.start + size - 1;
-			if (alloc.start <= alloc.end &&
-			    resource_contains(&avail, &alloc)) {
+			if (resource_contains(&avail, &alloc)) {
 				new->start = alloc.start;
 				new->end = alloc.end;
 				return 0;

@@ -317,7 +317,7 @@ static unsigned long calc_hpet_ref(u64 deltatsc, u64 hpet1, u64 hpet2)
 	hpet2 -= hpet1;
 	tmp = ((u64)hpet2 * hpet_readl(HPET_PERIOD));
 	do_div(tmp, 1000000);
-	deltatsc = div64_u64(deltatsc, tmp);
+	do_div(deltatsc, tmp);
 
 	return (unsigned long) deltatsc;
 }
@@ -1067,7 +1067,6 @@ static struct clocksource clocksource_tsc_early = {
 	.resume			= tsc_resume,
 	.mark_unstable		= tsc_cs_mark_unstable,
 	.tick_stable		= tsc_cs_tick_stable,
-	.list			= LIST_HEAD_INIT(clocksource_tsc_early.list),
 };
 
 /*
@@ -1087,7 +1086,6 @@ static struct clocksource clocksource_tsc = {
 	.resume			= tsc_resume,
 	.mark_unstable		= tsc_cs_mark_unstable,
 	.tick_stable		= tsc_cs_tick_stable,
-	.list			= LIST_HEAD_INIT(clocksource_tsc.list),
 };
 
 void mark_tsc_unstable(char *reason)
@@ -1100,9 +1098,13 @@ void mark_tsc_unstable(char *reason)
 		clear_sched_clock_stable();
 	disable_sched_clock_irqtime();
 	pr_info("Marking TSC unstable due to %s\n", reason);
-
-	clocksource_mark_unstable(&clocksource_tsc_early);
-	clocksource_mark_unstable(&clocksource_tsc);
+	/* Change only the rating, when not registered */
+	if (clocksource_tsc.mult) {
+		clocksource_mark_unstable(&clocksource_tsc);
+	} else {
+		clocksource_tsc.flags |= CLOCK_SOURCE_UNSTABLE;
+		clocksource_tsc.rating = 0;
+	}
 }
 
 EXPORT_SYMBOL_GPL(mark_tsc_unstable);
@@ -1203,7 +1205,7 @@ static void tsc_refine_calibration_work(struct work_struct *work)
 
 	/* Don't bother refining TSC on unstable systems */
 	if (tsc_unstable)
-		goto unreg;
+		return;
 
 	/*
 	 * Since the work is started early in boot, we may be
@@ -1256,12 +1258,11 @@ static void tsc_refine_calibration_work(struct work_struct *work)
 
 out:
 	if (tsc_unstable)
-		goto unreg;
+		return;
 
 	if (boot_cpu_has(X86_FEATURE_ART))
 		art_related_clocksource = &clocksource_tsc;
 	clocksource_register_khz(&clocksource_tsc, tsc_khz);
-unreg:
 	clocksource_unregister(&clocksource_tsc_early);
 }
 
@@ -1271,8 +1272,8 @@ static int __init init_tsc_clocksource(void)
 	if (!boot_cpu_has(X86_FEATURE_TSC) || tsc_disabled > 0 || !tsc_khz)
 		return 0;
 
-	if (tsc_unstable)
-		goto unreg;
+	if (check_tsc_unstable())
+		return 0;
 
 	if (tsc_clocksource_reliable)
 		clocksource_tsc.flags &= ~CLOCK_SOURCE_MUST_VERIFY;
@@ -1288,7 +1289,6 @@ static int __init init_tsc_clocksource(void)
 		if (boot_cpu_has(X86_FEATURE_ART))
 			art_related_clocksource = &clocksource_tsc;
 		clocksource_register_khz(&clocksource_tsc, tsc_khz);
-unreg:
 		clocksource_unregister(&clocksource_tsc_early);
 		return 0;
 	}

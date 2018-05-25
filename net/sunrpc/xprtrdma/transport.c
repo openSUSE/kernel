@@ -52,6 +52,7 @@
 #include <linux/slab.h>
 #include <linux/seq_file.h>
 #include <linux/sunrpc/addr.h>
+#include <linux/smp.h>
 
 #include "xprt_rdma.h"
 
@@ -650,6 +651,7 @@ xprt_rdma_allocate(struct rpc_task *task)
 	if (!rpcrdma_get_recvbuf(r_xprt, req, rqst->rq_rcvsize, flags))
 		goto out_fail;
 
+	req->rl_cpu = smp_processor_id();
 	req->rl_connect_cookie = 0;	/* our reserved value */
 	rpcrdma_set_xprtdata(rqst, req);
 	rqst->rq_buffer = req->rl_sendbuf->rg_base;

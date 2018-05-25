@@ -775,10 +775,8 @@ static int ping_v4_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	ipc.addr = faddr = daddr;
 
 	if (ipc.opt && ipc.opt->opt.srr) {
-		if (!daddr) {
-			err = -EINVAL;
-			goto out_free;
-		}
+		if (!daddr)
+			return -EINVAL;
 		faddr = ipc.opt->opt.faddr;
 	}
 	tos = get_rttos(&ipc, inet);
@@ -844,7 +842,6 @@ back_from_confirm:
 
 out:
 	ip_rt_put(rt);
-out_free:
 	if (free)
 		kfree(ipc.opt);
 	if (!err) {

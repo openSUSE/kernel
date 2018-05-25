@@ -185,7 +185,6 @@ static void del_sw_ns(struct fs_node *node);
 static void del_sw_hw_rule(struct fs_node *node);
 static bool mlx5_flow_dests_cmp(struct mlx5_flow_destination *d1,
 				struct mlx5_flow_destination *d2);
-static void cleanup_root_ns(struct mlx5_flow_root_namespace *root_ns);
 static struct mlx5_flow_rule *
 find_flow_rule(struct fs_fte *fte,
 	       struct mlx5_flow_destination *dest);
@@ -2330,27 +2329,23 @@ static int create_anchor_flow_table(struct mlx5_flow_steering *steering)
 
 static int init_root_ns(struct mlx5_flow_steering *steering)
 {
-	int err;
-
 	steering->root_ns = create_root_ns(steering, FS_FT_NIC_RX);
 	if (!steering->root_ns)
-		return -ENOMEM;
+		goto cleanup;
 
-	err = init_root_tree(steering, &root_fs, &steering->root_ns->ns.node);
-	if (err)
-		goto out_err;
+	if (init_root_tree(steering, &root_fs, &steering->root_ns->ns.node))
+		goto cleanup;
 
 	set_prio_attrs(steering->root_ns);
-	err = create_anchor_flow_table(steering);
-	if (err)
-		goto out_err;
+
+	if (create_anchor_flow_table(steering))
+		goto cleanup;
 
 	return 0;
 
-out_err:
-	cleanup_root_ns(steering->root_ns);
-	steering->root_ns = NULL;
-	return err;
+cleanup:
+	mlx5_cleanup_fs(steering->dev);
+	return -ENOMEM;
 }
 
 static void clean_tree(struct fs_node *node)

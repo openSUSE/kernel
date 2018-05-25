@@ -803,9 +803,7 @@ static void bbr_update_min_rtt(struct sock *sk, const struct rate_sample *rs)
 			}
 		}
 	}
-	/* Restart after idle ends only once we process a new S/ACK for data */
-	if (rs->delivered > 0)
-		bbr->idle_restart = 0;
+	bbr->idle_restart = 0;
 }
 
 static void bbr_update_model(struct sock *sk, const struct rate_sample *rs)

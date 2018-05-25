@@ -281,7 +281,7 @@ static int omap_dmic_dai_trigger(struct snd_pcm_substream *substream,
 static int omap_dmic_select_fclk(struct omap_dmic *dmic, int clk_id,
 				 unsigned int freq)
 {
-	struct clk *parent_clk, *mux;
+	struct clk *parent_clk;
 	char *parent_clk_name;
 	int ret = 0;
 
@@ -329,21 +329,14 @@ static int omap_dmic_select_fclk(struct omap_dmic *dmic, int clk_id,
 		return -ENODEV;
 	}
 
-	mux = clk_get_parent(dmic->fclk);
-	if (IS_ERR(mux)) {
-		dev_err(dmic->dev, "can't get fck mux parent\n");
-		clk_put(parent_clk);
-		return -ENODEV;
-	}
-
 	mutex_lock(&dmic->mutex);
 	if (dmic->active) {
 		/* disable clock while reparenting */
 		pm_runtime_put_sync(dmic->dev);
-		ret = clk_set_parent(mux, parent_clk);
+		ret = clk_set_parent(dmic->fclk, parent_clk);
 		pm_runtime_get_sync(dmic->dev);
 	} else {
-		ret = clk_set_parent(mux, parent_clk);
+		ret = clk_set_parent(dmic->fclk, parent_clk);
 	}
 	mutex_unlock(&dmic->mutex);
 
@@ -356,7 +349,6 @@ static int omap_dmic_select_fclk(struct omap_dmic *dmic, int clk_id,
 	dmic->fclk_freq = freq;
 
 err_busy:
-	clk_put(mux);
 	clk_put(parent_clk);
 
 	return ret;

@@ -1027,7 +1027,7 @@ bool dev_valid_name(const char *name)
 {
 	if (*name == '\0')
 		return false;
-	if (strnlen(name, IFNAMSIZ) == IFNAMSIZ)
+	if (strlen(name) >= IFNAMSIZ)
 		return false;
 	if (!strcmp(name, ".") || !strcmp(name, ".."))
 		return false;
@@ -2942,7 +2942,7 @@ netdev_features_t passthru_features_check(struct sk_buff *skb,
 }
 EXPORT_SYMBOL(passthru_features_check);
 
-static netdev_features_t dflt_features_check(struct sk_buff *skb,
+static netdev_features_t dflt_features_check(const struct sk_buff *skb,
 					     struct net_device *dev,
 					     netdev_features_t features)
 {

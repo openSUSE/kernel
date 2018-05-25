@@ -951,11 +951,9 @@ void aq_nic_shutdown(struct aq_nic_s *self)
 
 	netif_device_detach(self->ndev);
 
-	if (netif_running(self->ndev)) {
-		err = aq_nic_stop(self);
-		if (err < 0)
-			goto err_exit;
-	}
+	err = aq_nic_stop(self);
+	if (err < 0)
+		goto err_exit;
 	aq_nic_deinit(self);
 
 err_exit:

@@ -15,7 +15,6 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
-#include <fnmatch.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <errno.h>
@@ -23,7 +22,6 @@
 #include "../../include/generated/autoconf.h"
 #include "../../include/linux/license.h"
 #include "../../include/linux/export.h"
-#include "../../include/generated/uapi/linux/suse_version.h"
 
 /* Are we using CONFIG_MODVERSIONS? */
 static int modversions = 0;
@@ -1943,99 +1941,6 @@ static char *remove_dot(char *s)
 	return s;
 }
 
-#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-/*
- * Replace dashes with underscores.
- * Dashes inside character range patterns (e.g. [0-9]) are left unchanged.
- * (copied from module-init-tools/util.c)
- */
-static char *underscores(char *string)
-{
-	unsigned int i;
-
-	if (!string)
-		return NULL;
-
-	for (i = 0; string[i]; i++) {
-		switch (string[i]) {
-		case '-':
-			string[i] = '_';
-			break;
-
-		case ']':
-			warn("Unmatched bracket in %s\n", string);
-			break;
-
-		case '[':
-			i += strcspn(&string[i], "]");
-			if (!string[i])
-				warn("Unmatched bracket in %s\n", string);
-			break;
-		}
-	}
-	return string;
-}
-
-void *supported_file;
-unsigned long supported_size;
-
-static const char *supported(const char *modname)
-{
-	unsigned long pos = 0;
-	char *line;
-
-	/* In a first shot, do a simple linear scan. */
-	while ((line = get_next_line(&pos, supported_file,
-				     supported_size))) {
-		const char *how = "yes";
-		char *l = line;
-		char *pat_basename, *mod, *orig_mod, *mod_basename;
-
-		/* optional type-of-support flag */
-		for (l = line; *l != '\0'; l++) {
-			if (*l == ' ' || *l == '\t') {
-				*l = '\0';
-				how = l + 1;
-				break;
-			}
-		}
-		/* strip .ko extension */
-		l = line + strlen(line);
-		if (l - line > 3 && !strcmp(l-3, ".ko"))
-			*(l-3) = '\0';
-
-		/*
-		 * convert dashes to underscores in the last path component
-		 * of line and mod
-		 */
-		if ((pat_basename = strrchr(line, '/')))
-			pat_basename++;
-		else
-			pat_basename = line;
-		underscores(pat_basename);
-
-		orig_mod = mod = strdup(modname);
-		if ((mod_basename = strrchr(mod, '/')))
-			mod_basename++;
-		else
-			mod_basename = mod;
-		underscores(mod_basename);
-
-		/* only compare the last component if no wildcards are used */
-		if (strcspn(line, "[]*?") == strlen(line)) {
-			line = pat_basename;
-			mod = mod_basename;
-		}
-		if (!fnmatch(line, mod, 0)) {
-			free(orig_mod);
-			return how;
-		}
-		free(orig_mod);
-	}
-	return NULL;
-}
-#endif
-
 static void read_symbols(char *modname)
 {
 	const char *symname;
@@ -2276,15 +2181,6 @@ static void add_staging_flag(struct buffer *b, const char *name)
 		buf_printf(b, "\nMODULE_INFO(staging, \"Y\");\n");
 }
 
-#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-static void add_supported_flag(struct buffer *b, struct module *mod)
-{
-	const char *how = supported(mod->name);
-	if (how)
-		buf_printf(b, "\nMODULE_INFO(supported, \"%s\");\n", how);
-}
-#endif
-
 /**
  * Record CRCs for unresolved symbols
  **/
@@ -2388,14 +2284,6 @@ static void add_srcversion(struct buffer *b, struct module *mod)
 	}
 }
 
-static void add_suserelease(struct buffer *b, struct module *mod)
-{
-#ifdef SUSE_PRODUCT_SHORTNAME
-	buf_printf(b, "\n");
-	buf_printf(b, "MODULE_INFO(suserelease, \"%s\");\n",
-		   SUSE_PRODUCT_SHORTNAME);
-#endif
-}
 static void write_if_changed(struct buffer *b, const char *fname)
 {
 	char *tmp;
@@ -2439,15 +2327,6 @@ static void write_if_changed(struct buffer *b, const char *fname)
 	}
 	fclose(file);
 }
-
-#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-static void read_supported(const char *fname)
-{
-	supported_file = grab_file(fname, &supported_size);
-	if (!supported_file)
-		; /* ignore error */
-}
-#endif
 
 /* parse Module.symvers file. line format:
  * 0x12345678<tab>symbol<tab>module[[<tab>export]<tab>something]
@@ -2545,15 +2424,12 @@ int main(int argc, char **argv)
 	struct buffer buf = { };
 	char *kernel_read = NULL, *module_read = NULL;
 	char *dump_write = NULL, *files_source = NULL;
-#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-	const char *supported = NULL;
-#endif
 	int opt;
 	int err;
 	struct ext_sym_list *extsym_iter;
 	struct ext_sym_list *extsym_start = NULL;
 
-	while ((opt = getopt(argc, argv, "i:I:e:mnsST:o:awM:K:EN:")) != -1) {
+	while ((opt = getopt(argc, argv, "i:I:e:mnsST:o:awM:K:E")) != -1) {
 		switch (opt) {
 		case 'i':
 			kernel_read = optarg;
@@ -2597,20 +2473,11 @@ int main(int argc, char **argv)
 		case 'E':
 			sec_mismatch_fatal = 1;
 			break;
-		case 'N':
-#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-			supported = optarg;
-#endif
-			break;
 		default:
 			exit(1);
 		}
 	}
 
-#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-	if (supported)
-		read_supported(supported);
-#endif
 	if (kernel_read)
 		read_dump(kernel_read, 1);
 	if (module_read)
@@ -2649,14 +2516,10 @@ int main(int argc, char **argv)
 		add_intree_flag(&buf, !external_module);
 		add_retpoline(&buf);
 		add_staging_flag(&buf, mod->name);
-#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-		add_supported_flag(&buf, mod);
-#endif
 		err |= add_versions(&buf, mod);
 		add_depends(&buf, mod, modules);
 		add_moddevtable(&buf, mod);
 		add_srcversion(&buf, mod);
-		add_suserelease(&buf, mod);
 
 		sprintf(fname, "%s.mod.c", mod->name);
 		write_if_changed(&buf, fname);

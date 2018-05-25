@@ -365,15 +365,13 @@ static loff_t ext4_dir_llseek(struct file *file, loff_t offset, int whence)
 {
 	struct inode *inode = file->f_mapping->host;
 	int dx_dir = is_dx_dir(inode);
-	loff_t ret, htree_max = ext4_get_htree_eof(file);
+	loff_t htree_max = ext4_get_htree_eof(file);
 
 	if (likely(dx_dir))
-		ret = generic_file_llseek_size(file, offset, whence,
+		return generic_file_llseek_size(file, offset, whence,
 						    htree_max, htree_max);
 	else
-		ret = ext4_llseek(file, offset, whence);
-	file->f_version = inode_peek_iversion(inode) - 1;
-	return ret;
+		return ext4_llseek(file, offset, whence);
 }
 
 /*

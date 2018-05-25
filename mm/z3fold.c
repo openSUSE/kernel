@@ -144,8 +144,7 @@ enum z3fold_page_flags {
 	PAGE_HEADLESS = 0,
 	MIDDLE_CHUNK_MAPPED,
 	NEEDS_COMPACTING,
-	PAGE_STALE,
-	UNDER_RECLAIM
+	PAGE_STALE
 };
 
 /*****************
@@ -174,7 +173,6 @@ static struct z3fold_header *init_z3fold_page(struct page *page,
 	clear_bit(MIDDLE_CHUNK_MAPPED, &page->private);
 	clear_bit(NEEDS_COMPACTING, &page->private);
 	clear_bit(PAGE_STALE, &page->private);
-	clear_bit(UNDER_RECLAIM, &page->private);
 
 	spin_lock_init(&zhdr->page_lock);
 	kref_init(&zhdr->refcount);
@@ -750,10 +748,6 @@ static void z3fold_free(struct z3fold_pool *pool, unsigned long handle)
 		atomic64_dec(&pool->pages_nr);
 		return;
 	}
-	if (test_bit(UNDER_RECLAIM, &page->private)) {
-		z3fold_page_unlock(zhdr);
-		return;
-	}
 	if (test_and_set_bit(NEEDS_COMPACTING, &page->private)) {
 		z3fold_page_unlock(zhdr);
 		return;
@@ -838,8 +832,6 @@ static int z3fold_reclaim_page(struct z3fold_pool *pool, unsigned int retries)
 			kref_get(&zhdr->refcount);
 			list_del_init(&zhdr->buddy);
 			zhdr->cpu = -1;
-			set_bit(UNDER_RECLAIM, &page->private);
-			break;
 		}
 
 		list_del_init(&page->lru);
@@ -887,35 +879,25 @@ static int z3fold_reclaim_page(struct z3fold_pool *pool, unsigned int retries)
 				goto next;
 		}
 next:
+		spin_lock(&pool->lock);
 		if (test_bit(PAGE_HEADLESS, &page->private)) {
 			if (ret == 0) {
+				spin_unlock(&pool->lock);
 				free_z3fold_page(page);
 				return 0;
 			}
-			spin_lock(&pool->lock);
-			list_add(&page->lru, &pool->lru);
+		} else if (kref_put(&zhdr->refcount, release_z3fold_page)) {
+			atomic64_dec(&pool->pages_nr);
 			spin_unlock(&pool->lock);
-		} else {
-			z3fold_page_lock(zhdr);
-			clear_bit(UNDER_RECLAIM, &page->private);
-			if (kref_put(&zhdr->refcount,
-					release_z3fold_page_locked)) {
-				atomic64_dec(&pool->pages_nr);
-				return 0;
-			}
-			/*
-			 * if we are here, the page is still not completely
-			 * free. Take the global pool lock then to be able
-			 * to add it back to the lru list
-			 */
-			spin_lock(&pool->lock);
-			list_add(&page->lru, &pool->lru);
-			spin_unlock(&pool->lock);
-			z3fold_page_unlock(zhdr);
+			return 0;
 		}
 
-		/* We started off locked to we need to lock the pool back */
-		spin_lock(&pool->lock);
+		/*
+		 * Add to the beginning of LRU.
+		 * Pool lock has to be kept here to ensure the page has
+		 * not already been released
+		 */
+		list_add(&page->lru, &pool->lru);
 	}
 	spin_unlock(&pool->lock);
 	return -EAGAIN;

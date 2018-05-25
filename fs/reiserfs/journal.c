@@ -2643,7 +2643,7 @@ static int journal_init_dev(struct super_block *super,
 	if (IS_ERR(journal->j_dev_bd)) {
 		result = PTR_ERR(journal->j_dev_bd);
 		journal->j_dev_bd = NULL;
-		reiserfs_warning(super, "sh-457",
+		reiserfs_warning(super,
 				 "journal_init_dev: Cannot open '%s': %i",
 				 jdev_name, result);
 		return result;

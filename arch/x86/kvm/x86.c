@@ -1045,7 +1045,6 @@ static u32 emulated_msrs[] = {
 	MSR_SMI_COUNT,
 	MSR_PLATFORM_INFO,
 	MSR_MISC_FEATURES_ENABLES,
-	MSR_AMD64_VIRT_SPEC_CTRL,
 };
 
 static unsigned num_emulated_msrs;
@@ -2844,7 +2843,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		 * fringe case that is not enabled except via specific settings
 		 * of the module parameters.
 		 */
-		r = kvm_x86_ops->has_emulated_msr(MSR_IA32_SMBASE);
+		r = kvm_x86_ops->cpu_has_high_real_mode_segbase();
 		break;
 	case KVM_CAP_VAPIC:
 		r = !kvm_x86_ops->cpu_has_accelerated_tpr();
@@ -4523,8 +4522,14 @@ static void kvm_init_msr_list(void)
 	num_msrs_to_save = j;
 
 	for (i = j = 0; i < ARRAY_SIZE(emulated_msrs); i++) {
-		if (!kvm_x86_ops->has_emulated_msr(emulated_msrs[i]))
-			continue;
+		switch (emulated_msrs[i]) {
+		case MSR_IA32_SMBASE:
+			if (!kvm_x86_ops->cpu_has_high_real_mode_segbase())
+				continue;
+			break;
+		default:
+			break;
+		}
 
 		if (j < i)
 			emulated_msrs[j] = emulated_msrs[i];

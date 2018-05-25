@@ -942,7 +942,6 @@ vc4_validate_shader(struct drm_gem_cma_object *shader_obj)
 fail:
 	kfree(validation_state.branch_targets);
 	if (validated_shader) {
-		kfree(validated_shader->uniform_addr_offsets);
 		kfree(validated_shader->texture_samples);
 		kfree(validated_shader);
 	}

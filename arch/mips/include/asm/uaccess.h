@@ -654,13 +654,6 @@ __clear_user(void __user *addr, __kernel_size_t size)
 {
 	__kernel_size_t res;
 
-#ifdef CONFIG_CPU_MICROMIPS
-/* micromips memset / bzero also clobbers t7 & t8 */
-#define bzero_clobbers "$4", "$5", "$6", __UA_t0, __UA_t1, "$15", "$24", "$31"
-#else
-#define bzero_clobbers "$4", "$5", "$6", __UA_t0, __UA_t1, "$31"
-#endif /* CONFIG_CPU_MICROMIPS */
-
 	if (eva_kernel_access()) {
 		__asm__ __volatile__(
 			"move\t$4, %1\n\t"
@@ -670,7 +663,7 @@ __clear_user(void __user *addr, __kernel_size_t size)
 			"move\t%0, $6"
 			: "=r" (res)
 			: "r" (addr), "r" (size)
-			: bzero_clobbers);
+			: "$4", "$5", "$6", __UA_t0, __UA_t1, "$31");
 	} else {
 		might_fault();
 		__asm__ __volatile__(
@@ -681,7 +674,7 @@ __clear_user(void __user *addr, __kernel_size_t size)
 			"move\t%0, $6"
 			: "=r" (res)
 			: "r" (addr), "r" (size)
-			: bzero_clobbers);
+			: "$4", "$5", "$6", __UA_t0, __UA_t1, "$31");
 	}
 
 	return res;

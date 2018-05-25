@@ -195,7 +195,6 @@ static void vc4_bo_destroy(struct vc4_bo *bo)
 	vc4_bo_set_label(obj, -1);
 
 	if (bo->validated_shader) {
-		kfree(bo->validated_shader->uniform_addr_offsets);
 		kfree(bo->validated_shader->texture_samples);
 		kfree(bo->validated_shader);
 		bo->validated_shader = NULL;
@@ -592,7 +591,6 @@ void vc4_free_object(struct drm_gem_object *gem_bo)
 	}
 
 	if (bo->validated_shader) {
-		kfree(bo->validated_shader->uniform_addr_offsets);
 		kfree(bo->validated_shader->texture_samples);
 		kfree(bo->validated_shader);
 		bo->validated_shader = NULL;

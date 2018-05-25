@@ -450,7 +450,7 @@ static void rlb_update_client(struct rlb_client_info *client_info)
 {
 	int i;
 
-	if (!client_info->slave || !is_valid_ether_addr(client_info->mac_dst))
+	if (!client_info->slave)
 		return;
 
 	for (i = 0; i < RLB_ARP_BURST_SIZE; i++) {
@@ -943,10 +943,6 @@ static void alb_send_lp_vid(struct slave *slave, u8 mac_addr[],
 	skb->priority = TC_PRIO_CONTROL;
 	skb->dev = slave->dev;
 
-	netdev_dbg(slave->bond->dev,
-		   "Send learning packet: dev %s mac %pM vlan %d\n",
-		   slave->dev->name, mac_addr, vid);
-
 	if (vid)
 		__vlan_hwaccel_put_tag(skb, vlan_proto, vid);
 
@@ -969,13 +965,14 @@ static int alb_upper_dev_walk(struct net_device *upper, void *_data)
 	u8 *mac_addr = data->mac_addr;
 	struct bond_vlan_tag *tags;
 
-	if (is_vlan_dev(upper) &&
-	    bond->nest_level == vlan_get_encap_level(upper) - 1) {
-		if (upper->addr_assign_type == NET_ADDR_STOLEN) {
+	if (is_vlan_dev(upper) && vlan_get_encap_level(upper) == 0) {
+		if (strict_match &&
+		    ether_addr_equal_64bits(mac_addr,
+					    upper->dev_addr)) {
 			alb_send_lp_vid(slave, mac_addr,
 					vlan_dev_vlan_proto(upper),
 					vlan_dev_vlan_id(upper));
-		} else {
+		} else if (!strict_match) {
 			alb_send_lp_vid(slave, upper->dev_addr,
 					vlan_dev_vlan_proto(upper),
 					vlan_dev_vlan_id(upper));

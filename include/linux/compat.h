@@ -222,8 +222,6 @@ typedef struct compat_siginfo {
 #ifdef __ARCH_SI_TRAPNO
 			int _trapno;	/* TRAP # which caused the signal */
 #endif
-#define __COMPAT_ADDR_BND_PKEY_PAD  (__alignof__(compat_uptr_t) < sizeof(short) ? \
-				     sizeof(short) : __alignof__(compat_uptr_t))
 			union {
 				/*
 				 * used when si_code=BUS_MCEERR_AR or
@@ -232,13 +230,13 @@ typedef struct compat_siginfo {
 				short int _addr_lsb;	/* Valid LSB of the reported address. */
 				/* used when si_code=SEGV_BNDERR */
 				struct {
-					char _dummy_bnd[__COMPAT_ADDR_BND_PKEY_PAD];
+					compat_uptr_t _dummy_bnd;
 					compat_uptr_t _lower;
 					compat_uptr_t _upper;
 				} _addr_bnd;
 				/* used when si_code=SEGV_PKUERR */
 				struct {
-					char _dummy_pkey[__COMPAT_ADDR_BND_PKEY_PAD];
+					compat_uptr_t _dummy_pkey;
 					u32 _pkey;
 				} _addr_pkey;
 			};

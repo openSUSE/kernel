@@ -1179,7 +1179,7 @@ static void kvaser_usb_rx_can_msg(const struct kvaser_usb *dev,
 
 	skb = alloc_can_skb(priv->netdev, &cf);
 	if (!skb) {
-		stats->rx_dropped++;
+		stats->tx_dropped++;
 		return;
 	}
 

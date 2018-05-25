@@ -996,9 +996,7 @@ static void musb_bulk_nak_timeout(struct musb *musb, struct musb_hw_ep *ep,
 			/* set tx_reinit and schedule the next qh */
 			ep->tx_reinit = 1;
 		}
-
-		if (next_qh)
-			musb_start_urb(musb, is_in, next_qh);
+		musb_start_urb(musb, is_in, next_qh);
 	}
 }
 

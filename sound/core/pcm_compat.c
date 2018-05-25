@@ -27,11 +27,10 @@ static int snd_pcm_ioctl_delay_compat(struct snd_pcm_substream *substream,
 				      s32 __user *src)
 {
 	snd_pcm_sframes_t delay;
-	int err;
 
-	err = snd_pcm_delay(substream, &delay);
-	if (err)
-		return err;
+	delay = snd_pcm_delay(substream);
+	if (delay < 0)
+		return delay;
 	if (put_user(delay, src))
 		return -EFAULT;
 	return 0;
@@ -423,8 +422,6 @@ static int snd_pcm_ioctl_xfern_compat(struct snd_pcm_substream *substream,
 		return -ENOTTY;
 	if (substream->stream != dir)
 		return -EINVAL;
-	if (substream->runtime->status->state == SNDRV_PCM_STATE_OPEN)
-		return -EBADFD;
 
 	if ((ch = substream->runtime->channels) > 128)
 		return -EINVAL;

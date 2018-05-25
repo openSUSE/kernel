@@ -32,7 +32,6 @@
  *  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#include <linux/fs_struct.h>
 #include <linux/file.h>
 #include <linux/falloc.h>
 #include <linux/slab.h>
@@ -253,13 +252,11 @@ do_open_lookup(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate, stru
 		 * Note: create modes (UNCHECKED,GUARDED...) are the same
 		 * in NFSv4 as in v3 except EXCLUSIVE4_1.
 		 */
-		current->fs->umask = open->op_umask;
 		status = do_nfsd_create(rqstp, current_fh, open->op_fname.data,
 					open->op_fname.len, &open->op_iattr,
 					*resfh, open->op_createmode,
 					(u32 *)open->op_verf.data,
 					&open->op_truncate, &open->op_created);
-		current->fs->umask = 0;
 
 		if (!status && open->op_label.len)
 			nfsd4_security_inode_setsecctx(*resfh, &open->op_label, open->op_bmval);
@@ -606,7 +603,6 @@ nfsd4_create(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	if (status)
 		return status;
 
-	current->fs->umask = create->cr_umask;
 	switch (create->cr_type) {
 	case NF4LNK:
 		status = nfsd_symlink(rqstp, &cstate->current_fh,
@@ -615,22 +611,20 @@ nfsd4_create(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 		break;
 
 	case NF4BLK:
-		status = nfserr_inval;
 		rdev = MKDEV(create->cr_specdata1, create->cr_specdata2);
 		if (MAJOR(rdev) != create->cr_specdata1 ||
 		    MINOR(rdev) != create->cr_specdata2)
-			goto out_umask;
+			return nfserr_inval;
 		status = nfsd_create(rqstp, &cstate->current_fh,
 				     create->cr_name, create->cr_namelen,
 				     &create->cr_iattr, S_IFBLK, rdev, &resfh);
 		break;
 
 	case NF4CHR:
-		status = nfserr_inval;
 		rdev = MKDEV(create->cr_specdata1, create->cr_specdata2);
 		if (MAJOR(rdev) != create->cr_specdata1 ||
 		    MINOR(rdev) != create->cr_specdata2)
-			goto out_umask;
+			return nfserr_inval;
 		status = nfsd_create(rqstp, &cstate->current_fh,
 				     create->cr_name, create->cr_namelen,
 				     &create->cr_iattr,S_IFCHR, rdev, &resfh);
@@ -674,8 +668,6 @@ nfsd4_create(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	fh_dup2(&cstate->current_fh, &resfh);
 out:
 	fh_put(&resfh);
-out_umask:
-	current->fs->umask = 0;
 	return status;
 }
 

@@ -20,7 +20,6 @@
 #include <linux/cpu.h>
 #include <linux/cpufreq.h>
 #include <linux/dmi.h>
-#include <linux/time.h>
 #include <linux/vmalloc.h>
 
 #include <asm/unaligned.h>
@@ -163,8 +162,6 @@ static int cppc_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	policy->cpuinfo.max_freq = cppc_dmi_max_khz;
 
 	policy->cpuinfo.transition_latency = cppc_get_transition_latency(cpu_num);
-	policy->transition_delay_us = cppc_get_transition_latency(cpu_num) /
-		NSEC_PER_USEC;
 	policy->shared_type = cpu->shared_type;
 
 	if (policy->shared_type == CPUFREQ_SHARED_TYPE_ANY)

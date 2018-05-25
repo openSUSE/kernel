@@ -60,9 +60,10 @@ static int ccp_rsa_complete(struct crypto_async_request *async_req, int ret)
 
 static unsigned int ccp_rsa_maxsize(struct crypto_akcipher *tfm)
 {
-	struct ccp_ctx *ctx = akcipher_tfm_ctx(tfm);
-
-	return ctx->u.rsa.n_len;
+	if (ccp_version() > CCP_VERSION(3, 0))
+		return CCP5_RSA_MAXMOD;
+	else
+		return CCP_RSA_MAXMOD;
 }
 
 static int ccp_rsa_crypt(struct akcipher_request *req, bool encrypt)

@@ -131,11 +131,8 @@ static int tcf_skbmod_init(struct net *net, struct nlattr *nla,
 	if (exists && bind)
 		return 0;
 
-	if (!lflags) {
-		if (exists)
-			tcf_idr_release(*a, bind);
+	if (!lflags)
 		return -EINVAL;
-	}
 
 	if (!exists) {
 		ret = tcf_idr_create(tn, parm->index, est, a,

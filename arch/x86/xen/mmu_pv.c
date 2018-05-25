@@ -1280,10 +1280,12 @@ unsigned long xen_read_cr2_direct(void)
 	return this_cpu_read(xen_vcpu_info.arch.cr2);
 }
 
-static noinline void xen_flush_tlb(void)
+static void xen_flush_tlb(void)
 {
 	struct mmuext_op *op;
 	struct multicall_space mcs;
+
+	trace_xen_mmu_flush_tlb(0);
 
 	preempt_disable();
 

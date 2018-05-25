@@ -716,7 +716,7 @@ static void remove_compat_control_link(struct drm_device *dev)
 	if (!minor)
 		return;
 
-	name = kasprintf(GFP_KERNEL, "controlD%d", minor->index + 64);
+	name = kasprintf(GFP_KERNEL, "controlD%d", minor->index);
 	if (!name)
 		return;
 

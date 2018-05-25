@@ -675,13 +675,6 @@ int pstore_register(struct pstore_info *psi)
 {
 	struct module *owner = psi->owner;
 
-	if (!backend && !strcmp(psi->name, "efi")) {
-		pr_info("Efi pstore disabled, enforce via pstore.backend=efi");
-		pr_info("On a broken BIOS, this can severely harm your system");
-		pr_info("Only enable efi based pstore when you know what you are doing");
-		return -EINVAL;
-	}
-
 	if (backend && strcmp(backend, psi->name)) {
 		pr_warn("ignoring unexpected backend '%s'\n", psi->name);
 		return -EPERM;

@@ -404,8 +404,7 @@ static int f_midi_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 		if (err) {
 			ERROR(midi, "%s: couldn't enqueue request: %d\n",
 				    midi->out_ep->name, err);
-			if (req->buf != NULL)
-				free_ep_req(midi->out_ep, req);
+			free_ep_req(midi->out_ep, req);
 			return err;
 		}
 	}

@@ -407,9 +407,9 @@ static int compute_score(struct sock *sk, struct net *net,
 		bool dev_match = (sk->sk_bound_dev_if == dif ||
 				  sk->sk_bound_dev_if == sdif);
 
-		if (!dev_match)
+		if (exact_dif && !dev_match)
 			return -1;
-		if (sk->sk_bound_dev_if)
+		if (sk->sk_bound_dev_if && dev_match)
 			score += 4;
 	}
 
@@ -958,10 +958,8 @@ int udp_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	sock_tx_timestamp(sk, ipc.sockc.tsflags, &ipc.tx_flags);
 
 	if (ipc.opt && ipc.opt->opt.srr) {
-		if (!daddr) {
-			err = -EINVAL;
-			goto out_free;
-		}
+		if (!daddr)
+			return -EINVAL;
 		faddr = ipc.opt->opt.faddr;
 		connected = 0;
 	}
@@ -1082,7 +1080,6 @@ do_append_data:
 
 out:
 	ip_rt_put(rt);
-out_free:
 	if (free)
 		kfree(ipc.opt);
 	if (!err)

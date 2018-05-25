@@ -347,25 +347,16 @@ int dm_deleting_md(struct mapped_device *md)
 static int dm_blk_open(struct block_device *bdev, fmode_t mode)
 {
 	struct mapped_device *md;
-	int retval = 0;
 
 	spin_lock(&_minor_lock);
 
 	md = bdev->bd_disk->private_data;
-	if (!md) {
-		retval = -ENXIO;
+	if (!md)
 		goto out;
-	}
 
 	if (test_bit(DMF_FREEING, &md->flags) ||
 	    dm_deleting_md(md)) {
 		md = NULL;
-		retval = -ENXIO;
-		goto out;
-	}
-	if (get_disk_ro(md->disk) && (mode & FMODE_WRITE)) {
-		md = NULL;
-		retval = -EROFS;
 		goto out;
 	}
 
@@ -374,7 +365,7 @@ static int dm_blk_open(struct block_device *bdev, fmode_t mode)
 out:
 	spin_unlock(&_minor_lock);
 
-	return retval;
+	return md ? 0 : -ENXIO;
 }
 
 static void dm_blk_close(struct gendisk *disk, fmode_t mode)
@@ -789,12 +780,7 @@ int dm_get_table_device(struct mapped_device *md, dev_t dev, fmode_t mode,
 		td->dm_dev.mode = mode;
 		td->dm_dev.bdev = NULL;
 
-		r = open_table_device(td, dev, md);
-		if (r == -EROFS) {
-			td->dm_dev.mode &= ~FMODE_WRITE;
-			r = open_table_device(td, dev, md);
-		}
-		if (r) {
+		if ((r = open_table_device(td, dev, md))) {
 			mutex_unlock(&md->table_devices_lock);
 			kfree(td);
 			return r;
@@ -1491,23 +1477,6 @@ static int __send_write_zeroes(struct clone_info *ci, struct dm_target *ti)
 	return __send_changing_extent_only(ci, ti, get_num_write_zeroes_bios, NULL);
 }
 
-static bool __process_abnormal_io(struct clone_info *ci, struct dm_target *ti,
-				  int *result)
-{
-	struct bio *bio = ci->bio;
-
-	if (bio_op(bio) == REQ_OP_DISCARD)
-		*result = __send_discard(ci, ti);
-	else if (bio_op(bio) == REQ_OP_WRITE_SAME)
-		*result = __send_write_same(ci, ti);
-	else if (bio_op(bio) == REQ_OP_WRITE_ZEROES)
-		*result = __send_write_zeroes(ci, ti);
-	else
-		return false;
-
-	return true;
-}
-
 /*
  * Select the correct strategy for processing a non-flush bio.
  */
@@ -1522,8 +1491,12 @@ static int __split_and_process_non_flush(struct clone_info *ci)
 	if (!dm_target_is_valid(ti))
 		return -EIO;
 
-	if (unlikely(__process_abnormal_io(ci, ti, &r)))
-		return r;
+	if (unlikely(bio_op(bio) == REQ_OP_DISCARD))
+		return __send_discard(ci, ti);
+	else if (unlikely(bio_op(bio) == REQ_OP_WRITE_SAME))
+		return __send_write_same(ci, ti);
+	else if (unlikely(bio_op(bio) == REQ_OP_WRITE_ZEROES))
+		return __send_write_zeroes(ci, ti);
 
 	if (bio_op(bio) == REQ_OP_ZONE_REPORT)
 		len = ci->sector_count;
@@ -1644,12 +1617,9 @@ static blk_qc_t __process_bio(struct mapped_device *md,
 			goto out;
 		}
 
+		tio = alloc_tio(&ci, ti, 0, GFP_NOIO);
 		ci.bio = bio;
 		ci.sector_count = bio_sectors(bio);
-		if (unlikely(__process_abnormal_io(&ci, ti, &error)))
-			goto out;
-
-		tio = alloc_tio(&ci, ti, 0, GFP_NOIO);
 		ret = __clone_and_map_simple_bio(&ci, tio, NULL);
 	}
 out:
@@ -2089,10 +2059,6 @@ static struct dm_table *__bind(struct mapped_device *md, struct dm_table *t,
 	md->immutable_target_type = dm_table_get_immutable_target_type(t);
 
 	dm_table_set_restrictions(t, q, limits);
-	if (!(dm_table_get_mode(t) & FMODE_WRITE))
-		set_disk_ro(md->disk, 1);
-	else
-		set_disk_ro(md->disk, 0);
 	if (old_map)
 		dm_sync_table(md);
 

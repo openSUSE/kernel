@@ -393,7 +393,6 @@ static int prop_compression_apply(struct inode *inode,
 				  const char *value,
 				  size_t len)
 {
-	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	int type;
 
 	if (len == 0) {
@@ -404,17 +403,14 @@ static int prop_compression_apply(struct inode *inode,
 		return 0;
 	}
 
-	if (!strncmp("lzo", value, 3)) {
+	if (!strncmp("lzo", value, 3))
 		type = BTRFS_COMPRESS_LZO;
-		btrfs_set_fs_incompat(fs_info, COMPRESS_LZO);
-	} else if (!strncmp("zlib", value, 4)) {
+	else if (!strncmp("zlib", value, 4))
 		type = BTRFS_COMPRESS_ZLIB;
-	} else if (!strncmp("zstd", value, len)) {
+	else if (!strncmp("zstd", value, len))
 		type = BTRFS_COMPRESS_ZSTD;
-		btrfs_set_fs_incompat(fs_info, COMPRESS_ZSTD);
-	} else {
+	else
 		return -EINVAL;
-	}
 
 	BTRFS_I(inode)->flags &= ~BTRFS_INODE_NOCOMPRESS;
 	BTRFS_I(inode)->flags |= BTRFS_INODE_COMPRESS;

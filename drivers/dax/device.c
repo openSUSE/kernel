@@ -19,7 +19,6 @@
 #include <linux/dax.h>
 #include <linux/fs.h>
 #include <linux/mm.h>
-#include <linux/mman.h>
 #include "dax-private.h"
 #include "dax.h"
 
@@ -535,7 +534,6 @@ static const struct file_operations dax_fops = {
 	.release = dax_release,
 	.get_unmapped_area = dax_get_unmapped_area,
 	.mmap = dax_mmap,
-	.mmap_supported_flags = MAP_SYNC,
 };
 
 static void dev_dax_release(struct device *dev)
