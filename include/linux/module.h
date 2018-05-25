@@ -502,6 +502,9 @@ bool is_module_address(unsigned long addr);
 bool __is_module_percpu_address(unsigned long addr, unsigned long *can_addr);
 bool is_module_percpu_address(unsigned long addr);
 bool is_module_text_address(unsigned long addr);
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+const char *supported_printable(int taint);
+#endif
 
 static inline bool within_module_core(unsigned long addr,
 				      const struct module *mod)

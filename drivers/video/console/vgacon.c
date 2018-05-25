@@ -1277,7 +1277,7 @@ static int vgacon_font_set(struct vc_data *c, struct console_font *font, unsigne
 	unsigned charcount = font->charcount;
 	int rc;
 
-	if (vga_video_type < VIDEO_TYPE_EGAM)
+	if (vga_video_type < VIDEO_TYPE_EGAM || vga_is_gfx)
 		return -EINVAL;
 
 	if (font->width != VGA_FONTWIDTH ||
@@ -1295,7 +1295,7 @@ static int vgacon_font_set(struct vc_data *c, struct console_font *font, unsigne
 
 static int vgacon_font_get(struct vc_data *c, struct console_font *font)
 {
-	if (vga_video_type < VIDEO_TYPE_EGAM)
+	if (vga_video_type < VIDEO_TYPE_EGAM || vga_is_gfx)
 		return -EINVAL;
 
 	font->width = VGA_FONTWIDTH;

@@ -680,15 +680,6 @@ static void tun_queue_purge(struct tun_file *tfile)
 	skb_queue_purge(&tfile->sk.sk_error_queue);
 }
 
-static void tun_cleanup_tx_ring(struct tun_file *tfile)
-{
-	if (tfile->tx_ring.queue) {
-		ptr_ring_cleanup(&tfile->tx_ring, tun_ptr_free);
-		xdp_rxq_info_unreg(&tfile->xdp_rxq);
-		memset(&tfile->tx_ring, 0, sizeof(tfile->tx_ring));
-	}
-}
-
 static void __tun_detach(struct tun_file *tfile, bool clean)
 {
 	struct tun_file *ntfile;
@@ -735,7 +726,9 @@ static void __tun_detach(struct tun_file *tfile, bool clean)
 			    tun->dev->reg_state == NETREG_REGISTERED)
 				unregister_netdevice(tun->dev);
 		}
-		tun_cleanup_tx_ring(tfile);
+		if (tun)
+			xdp_rxq_info_unreg(&tfile->xdp_rxq);
+		ptr_ring_cleanup(&tfile->tx_ring, tun_ptr_free);
 		sock_put(&tfile->sk);
 	}
 }
@@ -775,14 +768,14 @@ static void tun_detach_all(struct net_device *dev)
 		tun_napi_del(tun, tfile);
 		/* Drop read queue */
 		tun_queue_purge(tfile);
+		xdp_rxq_info_unreg(&tfile->xdp_rxq);
 		sock_put(&tfile->sk);
-		tun_cleanup_tx_ring(tfile);
 	}
 	list_for_each_entry_safe(tfile, tmp, &tun->disabled, next) {
 		tun_enable_queue(tfile);
 		tun_queue_purge(tfile);
+		xdp_rxq_info_unreg(&tfile->xdp_rxq);
 		sock_put(&tfile->sk);
-		tun_cleanup_tx_ring(tfile);
 	}
 	BUG_ON(tun->numdisabled != 0);
 
@@ -826,7 +819,8 @@ static int tun_attach(struct tun_struct *tun, struct file *file,
 	}
 
 	if (!tfile->detached &&
-	    ptr_ring_init(&tfile->tx_ring, dev->tx_queue_len, GFP_KERNEL)) {
+	    ptr_ring_resize(&tfile->tx_ring, dev->tx_queue_len,
+			    GFP_KERNEL, tun_ptr_free)) {
 		err = -ENOMEM;
 		goto out;
 	}
@@ -1094,12 +1088,7 @@ static netdev_tx_t tun_net_xmit(struct sk_buff *skb, struct net_device *dev)
 		goto drop;
 
 	len = run_ebpf_filter(tun, skb, len);
-
-	/* Trim extra bytes since we may insert vlan proto & TCI
-	 * in tun_put_user().
-	 */
-	len -= skb_vlan_tag_present(skb) ? sizeof(struct veth) : 0;
-	if (len <= 0 || pskb_trim(skb, len))
+	if (len == 0 || pskb_trim(skb, len))
 		goto drop;
 
 	if (unlikely(skb_orphan_frags_rx(skb, GFP_ATOMIC)))
@@ -3136,6 +3125,11 @@ static int tun_chr_open(struct inode *inode, struct file * file)
 					    &tun_proto, 0);
 	if (!tfile)
 		return -ENOMEM;
+	if (ptr_ring_init(&tfile->tx_ring, 0, GFP_KERNEL)) {
+		sk_free(&tfile->sk);
+		return -ENOMEM;
+	}
+
 	RCU_INIT_POINTER(tfile->tun, NULL);
 	tfile->flags = 0;
 	tfile->ifindex = 0;
@@ -3155,8 +3149,6 @@ static int tun_chr_open(struct inode *inode, struct file * file)
 	INIT_LIST_HEAD(&tfile->next);
 
 	sock_set_flag(&tfile->sk, SOCK_ZEROCOPY);
-
-	memset(&tfile->tx_ring, 0, sizeof(tfile->tx_ring));
 
 	return 0;
 }

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 VERSION = 4
 PATCHLEVEL = 16
-SUBLEVEL = 0
+SUBLEVEL = 12
 EXTRAVERSION =
 NAME = Fearless Coyote
 
@@ -427,6 +427,11 @@ KBUILD_AFLAGS_MODULE  := -DMODULE
 KBUILD_CFLAGS_MODULE  := -DMODULE
 KBUILD_LDFLAGS_MODULE := -T $(srctree)/scripts/module-common.lds
 GCC_PLUGINS_CFLAGS :=
+
+# Warn about unsupported modules in kernels built inside Autobuild
+ifneq ($(wildcard /.buildenv),)
+CFLAGS		+= -DUNSUPPORTED_MODULES=2
+endif
 
 export ARCH SRCARCH CONFIG_SHELL HOSTCC HOSTCFLAGS CROSS_COMPILE AS LD CC
 export CPP AR NM STRIP OBJCOPY OBJDUMP HOSTLDFLAGS HOST_LOADLIBES
@@ -1067,6 +1072,15 @@ endef
 include/config/kernel.release: include/config/auto.conf FORCE
 	$(call filechk,kernel.release)
 
+suse_version_h := include/generated/uapi/linux/suse_version.h
+
+define filechk_suse_version
+	$(CONFIG_SHELL) $(srctree)/scripts/gen-suse_version_h.sh
+endef
+
+$(suse_version_h): include/config/auto.conf FORCE
+	$(call filechk,suse_version)
+
 
 # Things we need to do before we recursively start building the kernel
 # or the modules are listed in "prepare".
@@ -1096,7 +1110,7 @@ endif
 prepare2: prepare3 prepare-compiler-check outputmakefile asm-generic
 
 prepare1: prepare2 $(version_h) include/generated/utsrelease.h \
-                   include/config/auto.conf
+                   include/config/auto.conf $(suse_version_h)
 	$(cmd_crmodverdir)
 
 archprepare: archheaders archscripts prepare1 scripts_basic

@@ -200,7 +200,7 @@ acpi_parse_x2apic(struct acpi_subtable_header *header, const unsigned long end)
 {
 	struct acpi_madt_local_x2apic *processor = NULL;
 #ifdef CONFIG_X86_X2APIC
-	int apic_id;
+	u32 apic_id;
 	u8 enabled;
 #endif
 
@@ -215,6 +215,10 @@ acpi_parse_x2apic(struct acpi_subtable_header *header, const unsigned long end)
 	apic_id = processor->local_apic_id;
 	enabled = processor->lapic_flags & ACPI_MADT_ENABLED;
 
+	/* Ignore invalid ID */
+	if (apic_id == 0xffffffff)
+		return 0;
+
 	/*
 	 * We need to register disabled CPU as well to permit
 	 * counting disabled CPUs. This allows us to size
@@ -222,10 +226,13 @@ acpi_parse_x2apic(struct acpi_subtable_header *header, const unsigned long end)
 	 * to not preallocating memory for all NR_CPUS
 	 * when we use CPU hotplug.
 	 */
-	if (!apic->apic_id_valid(apic_id) && enabled)
-		printk(KERN_WARNING PREFIX "x2apic entry ignored\n");
-	else
-		acpi_register_lapic(apic_id, processor->uid, enabled);
+	if (!apic->apic_id_valid(apic_id)) {
+		if (enabled)
+			pr_warn(PREFIX "x2apic entry ignored\n");
+		return 0;
+	}
+
+	acpi_register_lapic(apic_id, processor->uid, enabled);
 #else
 	printk(KERN_WARNING PREFIX "x2apic entry ignored\n");
 #endif
@@ -1369,6 +1376,21 @@ static int __init dmi_ignore_irq0_timer_override(const struct dmi_system_id *d)
 	return 0;
 }
 
+static int __init force_acpi_rsdt(const struct dmi_system_id *d)
+{
+	if (!acpi_force) {
+		printk(KERN_NOTICE "%s detected: force use of acpi=rsdt\n",
+		       d->ident);
+		acpi_gbl_do_not_use_xsdt = TRUE;
+	} else {
+		printk(KERN_NOTICE
+		       "Warning: acpi=force overrules DMI blacklist: "
+		       "acpi=rsdt\n");
+	}
+	return 0;
+
+}
+
 /*
  * ACPI offers an alternative platform interface model that removes
  * ACPI hardware requirements for platforms that do not implement
@@ -1464,6 +1486,32 @@ static const struct dmi_system_id acpi_dmi_table[] __initconst = {
 		     DMI_MATCH(DMI_PRODUCT_NAME, "TravelMate 360"),
 		     },
 	 },
+
+	/*
+	 * Boxes that need RSDT as ACPI root table
+	 */
+	{
+	    .callback = force_acpi_rsdt,
+	    .ident = "ThinkPad ", /* R40e, broken C-states */
+	    .matches = {
+		DMI_MATCH(DMI_BIOS_VENDOR, "IBM"),
+		DMI_MATCH(DMI_BIOS_VERSION, "1SET")},
+	},
+	{
+	    .callback = force_acpi_rsdt,
+	    .ident = "ThinkPad ", /* R50e, slow booting */
+	    .matches = {
+		DMI_MATCH(DMI_BIOS_VENDOR, "IBM"),
+		DMI_MATCH(DMI_BIOS_VERSION, "1WET")},
+	},
+	{
+	    .callback = force_acpi_rsdt,
+	    .ident = "ThinkPad ", /* T40, T40p, T41, T41p, T42, T42p
+				     R50, R50p */
+	    .matches = {
+		DMI_MATCH(DMI_BIOS_VENDOR, "IBM"),
+		DMI_MATCH(DMI_BIOS_VERSION, "1RET")},
+	},
 	{}
 };
 
@@ -1671,6 +1719,18 @@ static int __init parse_acpi(char *arg)
 	return 0;
 }
 early_param("acpi", parse_acpi);
+
+/* Alias for acpi=rsdt for compatibility with openSUSE 11.1 and SLE11 */
+static int __init parse_acpi_root_table(char *opt)
+{
+	if (!strcmp(opt, "rsdt")) {
+		acpi_gbl_do_not_use_xsdt = TRUE;
+		printk(KERN_WARNING "acpi_root_table=rsdt is deprecated. "
+		       "Please use acpi=rsdt instead.\n");
+	}
+	return 0;
+}
+early_param("acpi_root_table", parse_acpi_root_table);
 
 /* FIXME: Using pci= for an ACPI parameter is a travesty. */
 static int __init parse_pci(char *arg)

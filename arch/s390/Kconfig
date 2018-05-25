@@ -120,6 +120,7 @@ config S390
 	select GENERIC_CLOCKEVENTS
 	select GENERIC_CPU_AUTOPROBE
 	select GENERIC_CPU_DEVICES if !SMP
+	select GENERIC_CPU_VULNERABILITIES
 	select GENERIC_FIND_FIRST_BIT
 	select GENERIC_SMP_IDLE_THREAD
 	select GENERIC_TIME_VSYSCALL
@@ -289,12 +290,12 @@ config MARCH_Z13
 	  older machines.
 
 config MARCH_Z14
-	bool "IBM z14"
+	bool "IBM z14 ZR1 and z14"
 	select HAVE_MARCH_Z14_FEATURES
 	help
-	  Select this to enable optimizations for IBM z14 (3906 series).
-	  The kernel will be slightly faster but will not work on older
-	  machines.
+	  Select this to enable optimizations for IBM z14 ZR1 and z14 (3907
+	  and 3906 series). The kernel will be slightly faster but will not
+	  work on older machines.
 
 endchoice
 
@@ -576,7 +577,7 @@ choice
 config EXPOLINE_OFF
 	bool "spectre_v2=off"
 
-config EXPOLINE_MEDIUM
+config EXPOLINE_AUTO
 	bool "spectre_v2=auto"
 
 config EXPOLINE_FULL

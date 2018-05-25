@@ -973,10 +973,6 @@ static void smc_tcp_listen_work(struct work_struct *work)
 	}
 
 out:
-	if (lsmc->clcsock) {
-		sock_release(lsmc->clcsock);
-		lsmc->clcsock = NULL;
-	}
 	release_sock(lsk);
 	sock_put(&lsmc->sk); /* sock_hold in smc_listen */
 }
@@ -1165,13 +1161,15 @@ static __poll_t smc_poll(struct file *file, struct socket *sock,
 		/* delegate to CLC child sock */
 		release_sock(sk);
 		mask = smc->clcsock->ops->poll(file, smc->clcsock, wait);
-		/* if non-blocking connect finished ... */
 		lock_sock(sk);
-		if ((sk->sk_state == SMC_INIT) && (mask & EPOLLOUT)) {
-			sk->sk_err = smc->clcsock->sk->sk_err;
-			if (sk->sk_err) {
-				mask |= EPOLLERR;
-			} else {
+		sk->sk_err = smc->clcsock->sk->sk_err;
+		if (sk->sk_err) {
+			mask |= EPOLLERR;
+		} else {
+			/* if non-blocking connect finished ... */
+			if (sk->sk_state == SMC_INIT &&
+			    mask & EPOLLOUT &&
+			    smc->clcsock->sk->sk_state != TCP_CLOSE) {
 				rc = smc_connect_rdma(smc);
 				if (rc < 0)
 					mask |= EPOLLERR;
@@ -1254,14 +1252,12 @@ static int smc_shutdown(struct socket *sock, int how)
 		rc = smc_close_shutdown_write(smc);
 		break;
 	case SHUT_RD:
-		if (sk->sk_state == SMC_LISTEN)
-			rc = smc_close_active(smc);
-		else
-			rc = 0;
-			/* nothing more to do because peer is not involved */
+		rc = 0;
+		/* nothing more to do because peer is not involved */
 		break;
 	}
-	rc1 = kernel_sock_shutdown(smc->clcsock, how);
+	if (smc->clcsock)
+		rc1 = kernel_sock_shutdown(smc->clcsock, how);
 	/* map sock_shutdown_cmd constants to sk_shutdown value range */
 	sk->sk_shutdown |= how + 1;
 
