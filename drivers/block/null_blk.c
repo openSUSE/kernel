@@ -16,10 +16,8 @@
 #include <linux/badblocks.h>
 #include <linux/fault-inject.h>
 
-#define SECTOR_SHIFT		9
 #define PAGE_SECTORS_SHIFT	(PAGE_SHIFT - SECTOR_SHIFT)
 #define PAGE_SECTORS		(1 << PAGE_SECTORS_SHIFT)
-#define SECTOR_SIZE		(1 << SECTOR_SHIFT)
 #define SECTOR_MASK		(PAGE_SECTORS - 1)
 
 #define FREE_BATCH		16
@@ -29,6 +27,7 @@
 
 #ifdef CONFIG_BLK_DEV_NULL_BLK_FAULT_INJECTION
 static DECLARE_FAULT_ATTR(null_timeout_attr);
+static DECLARE_FAULT_ATTR(null_requeue_attr);
 #endif
 
 static inline u64 mb_per_tick(int mbps)
@@ -53,6 +52,7 @@ struct nullb_queue {
 	wait_queue_head_t wait;
 	unsigned int queue_depth;
 	struct nullb_device *dev;
+	unsigned int requeue_selection;
 
 	struct nullb_cmd *cmds;
 };
@@ -171,6 +171,9 @@ MODULE_PARM_DESC(home_node, "Home node for the device");
 #ifdef CONFIG_BLK_DEV_NULL_BLK_FAULT_INJECTION
 static char g_timeout_str[80];
 module_param_string(timeout, g_timeout_str, sizeof(g_timeout_str), S_IRUGO);
+
+static char g_requeue_str[80];
+module_param_string(requeue, g_requeue_str, sizeof(g_requeue_str), S_IRUGO);
 #endif
 
 static int g_queue_mode = NULL_Q_MQ;
@@ -1388,7 +1391,15 @@ static bool should_timeout_request(struct request *rq)
 	if (g_timeout_str[0])
 		return should_fail(&null_timeout_attr, 1);
 #endif
+	return false;
+}
 
+static bool should_requeue_request(struct request *rq)
+{
+#ifdef CONFIG_BLK_DEV_NULL_BLK_FAULT_INJECTION
+	if (g_requeue_str[0])
+		return should_fail(&null_requeue_attr, 1);
+#endif
 	return false;
 }
 
@@ -1399,11 +1410,17 @@ static void null_request_fn(struct request_queue *q)
 	while ((rq = blk_fetch_request(q)) != NULL) {
 		struct nullb_cmd *cmd = rq->special;
 
-		if (!should_timeout_request(rq)) {
-			spin_unlock_irq(q->queue_lock);
-			null_handle_cmd(cmd);
-			spin_lock_irq(q->queue_lock);
+		/* just ignore the request */
+		if (should_timeout_request(rq))
+			continue;
+		if (should_requeue_request(rq)) {
+			blk_requeue_request(q, rq);
+			continue;
 		}
+
+		spin_unlock_irq(q->queue_lock);
+		null_handle_cmd(cmd);
+		spin_lock_irq(q->queue_lock);
 	}
 }
 
@@ -1430,10 +1447,23 @@ static blk_status_t null_queue_rq(struct blk_mq_hw_ctx *hctx,
 
 	blk_mq_start_request(bd->rq);
 
-	if (!should_timeout_request(bd->rq))
-		return null_handle_cmd(cmd);
+	if (should_requeue_request(bd->rq)) {
+		/*
+		 * Alternate between hitting the core BUSY path, and the
+		 * driver driven requeue path
+		 */
+		nq->requeue_selection++;
+		if (nq->requeue_selection & 1)
+			return BLK_STS_RESOURCE;
+		else {
+			blk_mq_requeue_request(bd->rq, true);
+			return BLK_STS_OK;
+		}
+	}
+	if (should_timeout_request(bd->rq))
+		return BLK_STS_OK;
 
-	return BLK_STS_OK;
+	return null_handle_cmd(cmd);
 }
 
 static const struct blk_mq_ops null_mq_ops = {
@@ -1493,7 +1523,7 @@ static void null_config_discard(struct nullb *nullb)
 	nullb->q->limits.discard_granularity = nullb->dev->blocksize;
 	nullb->q->limits.discard_alignment = nullb->dev->blocksize;
 	blk_queue_max_discard_sectors(nullb->q, UINT_MAX >> 9);
-	queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, nullb->q);
+	blk_queue_flag_set(QUEUE_FLAG_DISCARD, nullb->q);
 }
 
 static int null_open(struct block_device *bdev, fmode_t mode)
@@ -1667,16 +1697,27 @@ static void null_validate_conf(struct nullb_device *dev)
 		dev->mbps = 0;
 }
 
+#ifdef CONFIG_BLK_DEV_NULL_BLK_FAULT_INJECTION
+static bool __null_setup_fault(struct fault_attr *attr, char *str)
+{
+	if (!str[0])
+		return true;
+
+	if (!setup_fault_attr(attr, str))
+		return false;
+
+	attr->verbose = 0;
+	return true;
+}
+#endif
+
 static bool null_setup_fault(void)
 {
 #ifdef CONFIG_BLK_DEV_NULL_BLK_FAULT_INJECTION
-	if (!g_timeout_str[0])
-		return true;
-
-	if (!setup_fault_attr(&null_timeout_attr, g_timeout_str))
+	if (!__null_setup_fault(&null_timeout_attr, g_timeout_str))
 		return false;
-
-	null_timeout_attr.verbose = 0;
+	if (!__null_setup_fault(&null_requeue_attr, g_requeue_str))
+		return false;
 #endif
 	return true;
 }
@@ -1725,7 +1766,8 @@ static int null_add_dev(struct nullb_device *dev)
 		}
 		null_init_queues(nullb);
 	} else if (dev->queue_mode == NULL_Q_BIO) {
-		nullb->q = blk_alloc_queue_node(GFP_KERNEL, dev->home_node);
+		nullb->q = blk_alloc_queue_node(GFP_KERNEL, dev->home_node,
+						NULL);
 		if (!nullb->q) {
 			rv = -ENOMEM;
 			goto out_cleanup_queues;
@@ -1766,8 +1808,8 @@ static int null_add_dev(struct nullb_device *dev)
 	}
 
 	nullb->q->queuedata = nullb;
-	queue_flag_set_unlocked(QUEUE_FLAG_NONROT, nullb->q);
-	queue_flag_clear_unlocked(QUEUE_FLAG_ADD_RANDOM, nullb->q);
+	blk_queue_flag_set(QUEUE_FLAG_NONROT, nullb->q);
+	blk_queue_flag_clear(QUEUE_FLAG_ADD_RANDOM, nullb->q);
 
 	mutex_lock(&lock);
 	nullb->index = ida_simple_get(&nullb_indexes, 0, 0, GFP_KERNEL);

@@ -133,7 +133,7 @@ int nvdimm_init_config_data(struct nvdimm_drvdata *ndd)
 		}
 		memcpy(ndd->data + offset, cmd->out_buf, cmd->in_length);
 	}
-	dev_dbg(ndd->dev, "%s: len: %zu rc: %d\n", __func__, offset, rc);
+	dev_dbg(ndd->dev, "len: %zu rc: %d\n", offset, rc);
 	kfree(cmd);
 
 	return rc;
@@ -268,8 +268,7 @@ void nvdimm_drvdata_release(struct kref *kref)
 	struct device *dev = ndd->dev;
 	struct resource *res, *_r;
 
-	dev_dbg(dev, "%s\n", __func__);
-
+	dev_dbg(dev, "trace\n");
 	nvdimm_bus_lock(dev);
 	for_each_dpa_resource_safe(ndd, res, _r)
 		nvdimm_free_dpa(ndd, res);
@@ -662,7 +661,7 @@ int nvdimm_bus_check_dimm_count(struct nvdimm_bus *nvdimm_bus, int dimm_count)
 	nd_synchronize();
 
 	device_for_each_child(&nvdimm_bus->dev, &count, count_dimms);
-	dev_dbg(&nvdimm_bus->dev, "%s: count: %d\n", __func__, count);
+	dev_dbg(&nvdimm_bus->dev, "count: %d\n", count);
 	if (count != dimm_count)
 		return -ENXIO;
 	return 0;

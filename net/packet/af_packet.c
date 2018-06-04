@@ -3420,7 +3420,7 @@ out:
 }
 
 static int packet_getname_spkt(struct socket *sock, struct sockaddr *uaddr,
-			       int *uaddr_len, int peer)
+			       int peer)
 {
 	struct net_device *dev;
 	struct sock *sk	= sock->sk;
@@ -3435,13 +3435,12 @@ static int packet_getname_spkt(struct socket *sock, struct sockaddr *uaddr,
 	if (dev)
 		strlcpy(uaddr->sa_data, dev->name, sizeof(uaddr->sa_data));
 	rcu_read_unlock();
-	*uaddr_len = sizeof(*uaddr);
 
-	return 0;
+	return sizeof(*uaddr);
 }
 
 static int packet_getname(struct socket *sock, struct sockaddr *uaddr,
-			  int *uaddr_len, int peer)
+			  int peer)
 {
 	struct net_device *dev;
 	struct sock *sk = sock->sk;
@@ -3466,9 +3465,8 @@ static int packet_getname(struct socket *sock, struct sockaddr *uaddr,
 		sll->sll_halen = 0;
 	}
 	rcu_read_unlock();
-	*uaddr_len = offsetof(struct sockaddr_ll, sll_addr) + sll->sll_halen;
 
-	return 0;
+	return offsetof(struct sockaddr_ll, sll_addr) + sll->sll_halen;
 }
 
 static int packet_dev_mc(struct net_device *dev, struct packet_mclist *i,

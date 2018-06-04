@@ -53,19 +53,6 @@ struct dt_cpu_feature {
 	int disabled;
 };
 
-#define CPU_FTRS_BASE \
-	   (CPU_FTR_USE_TB | \
-	    CPU_FTR_LWSYNC | \
-	    CPU_FTR_FPU_UNAVAILABLE |\
-	    CPU_FTR_NODSISRALIGN |\
-	    CPU_FTR_NOEXECUTE |\
-	    CPU_FTR_COHERENT_ICACHE | \
-	    CPU_FTR_STCX_CHECKS_ADDRESS |\
-	    CPU_FTR_POPCNTB | CPU_FTR_POPCNTD | \
-	    CPU_FTR_DAWR | \
-	    CPU_FTR_ARCH_206 |\
-	    CPU_FTR_ARCH_207S)
-
 #define MMU_FTRS_HASH_BASE (MMU_FTRS_POWER8)
 
 #define COMMON_USER_BASE	(PPC_FEATURE_32 | PPC_FEATURE_64 | \
@@ -126,7 +113,7 @@ static char dt_cpu_name[64];
 
 static struct cpu_spec __initdata base_cpu_spec = {
 	.cpu_name		= NULL,
-	.cpu_features		= CPU_FTRS_BASE,
+	.cpu_features		= CPU_FTRS_DT_CPU_BASE,
 	.cpu_user_features	= COMMON_USER_BASE,
 	.cpu_user_features2	= COMMON_USER2_BASE,
 	.mmu_features		= 0,
@@ -597,6 +584,8 @@ static struct dt_cpu_feature_match __initdata
 	{"virtual-page-class-key-protection", feat_enable, 0},
 	{"transactional-memory", feat_enable_tm, CPU_FTR_TM},
 	{"transactional-memory-v3", feat_enable_tm, 0},
+	{"tm-suspend-hypervisor-assist", feat_enable, CPU_FTR_P9_TM_HV_ASSIST},
+	{"tm-suspend-xer-so-bug", feat_enable, CPU_FTR_P9_TM_XER_SO_BUG},
 	{"idle-nap", feat_enable_idle_nap, 0},
 	{"alignment-interrupt-dsisr", feat_enable_align_dsisr, 0},
 	{"idle-stop", feat_enable_idle_stop, 0},
@@ -665,13 +654,6 @@ static void __init cpufeatures_setup_start(u32 isa)
 		cur_cpu_spec->cpu_features |= CPU_FTR_ARCH_300;
 		cur_cpu_spec->cpu_user_features2 |= PPC_FEATURE2_ARCH_3_00;
 	}
-
-	/*
-	 * PKEY was not in the initial base or feature node
-	 * specification, but it should become optional in the next
-	 * cpu feature version sequence.
-	 */
-	cur_cpu_spec->cpu_features |= CPU_FTR_PKEY;
 }
 
 static bool __init cpufeatures_process_feature(struct dt_cpu_feature *f)
@@ -721,11 +703,28 @@ static __init void cpufeatures_cpu_quirks(void)
 	 */
 	if ((version & 0xffffff00) == 0x004e0100)
 		cur_cpu_spec->cpu_features |= CPU_FTR_POWER9_DD1;
+	else if ((version & 0xffffefff) == 0x004e0200)
+		; /* DD2.0 has no feature flag */
 	else if ((version & 0xffffefff) == 0x004e0201)
 		cur_cpu_spec->cpu_features |= CPU_FTR_POWER9_DD2_1;
+	else if ((version & 0xffffefff) == 0x004e0202) {
+		cur_cpu_spec->cpu_features |= CPU_FTR_P9_TM_HV_ASSIST;
+		cur_cpu_spec->cpu_features |= CPU_FTR_P9_TM_XER_SO_BUG;
+		cur_cpu_spec->cpu_features |= CPU_FTR_POWER9_DD2_1;
+	} else /* DD2.1 and up have DD2_1 */
+		cur_cpu_spec->cpu_features |= CPU_FTR_POWER9_DD2_1;
 
-	if ((version & 0xffff0000) == 0x004e0000)
+	if ((version & 0xffff0000) == 0x004e0000) {
+		cur_cpu_spec->cpu_features &= ~(CPU_FTR_DAWR);
 		cur_cpu_spec->cpu_features |= CPU_FTR_P9_TLBIE_BUG;
+	}
+
+	/*
+	 * PKEY was not in the initial base or feature node
+	 * specification, but it should become optional in the next
+	 * cpu feature version sequence.
+	 */
+	cur_cpu_spec->cpu_features |= CPU_FTR_PKEY;
 }
 
 static void __init cpufeatures_setup_finished(void)

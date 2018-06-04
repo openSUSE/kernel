@@ -839,10 +839,10 @@ static int cx23885_dev_setup(struct cx23885_dev *dev)
 
 	/* Configure the internal memory */
 	if (dev->pci->device == 0x8880) {
-		/* Could be 887 or 888, assume a default */
-		dev->bridge = CX23885_BRIDGE_887;
+		/* Could be 887 or 888, assume an 888 default */
+		dev->bridge = CX23885_BRIDGE_888;
 		/* Apply a sensible clock frequency for the PCIe bridge */
-		dev->clk_freq = 25000000;
+		dev->clk_freq = 50000000;
 		dev->sram_channels = cx23887_sram_channels;
 	} else
 	if (dev->pci->device == 0x8852) {
@@ -867,6 +867,14 @@ static int cx23885_dev_setup(struct cx23885_dev *dev)
 	if (UNSET == dev->board) {
 		dev->board = CX23885_BOARD_UNKNOWN;
 		cx23885_card_list(dev);
+	}
+
+	if (dev->pci->device == 0x8852) {
+		/* no DIF on cx23885, so no analog tuner support possible */
+		if (dev->board == CX23885_BOARD_HAUPPAUGE_QUADHD_ATSC)
+			dev->board = CX23885_BOARD_HAUPPAUGE_QUADHD_ATSC_885;
+		else if (dev->board == CX23885_BOARD_HAUPPAUGE_QUADHD_DVB)
+			dev->board = CX23885_BOARD_HAUPPAUGE_QUADHD_DVB_885;
 	}
 
 	/* If the user specific a clk freq override, apply it */
@@ -975,7 +983,7 @@ static int cx23885_dev_setup(struct cx23885_dev *dev)
 	cx23885_i2c_register(&dev->i2c_bus[1]);
 	cx23885_i2c_register(&dev->i2c_bus[2]);
 	cx23885_card_setup(dev);
-	call_all(dev, core, s_power, 0);
+	call_all(dev, tuner, standby);
 	cx23885_ir_init(dev);
 
 	if (dev->board == CX23885_BOARD_VIEWCAST_460E) {

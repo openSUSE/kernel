@@ -600,16 +600,6 @@ static void qed_ll2_rxq_flush(struct qed_hwfn *p_hwfn, u8 connection_handle)
 	spin_unlock_irqrestore(&p_rx->lock, flags);
 }
 
-static u8 qed_ll2_convert_rx_parse_to_tx_flags(u16 parse_flags)
-{
-	u8 bd_flags = 0;
-
-	if (GET_FIELD(parse_flags, PARSING_AND_ERR_FLAGS_TAG8021QEXIST))
-		SET_FIELD(bd_flags, CORE_TX_BD_DATA_VLAN_INSERTION, 1);
-
-	return bd_flags;
-}
-
 static bool
 qed_ll2_lb_rxq_handler_slowpath(struct qed_hwfn *p_hwfn,
 				struct core_rx_slow_path_cqe *p_cqe)
@@ -779,7 +769,6 @@ qed_ooo_submit_tx_buffers(struct qed_hwfn *p_hwfn,
 	struct qed_ooo_buffer *p_buffer;
 	u16 l4_hdr_offset_w;
 	dma_addr_t first_frag;
-	u16 parse_flags;
 	u8 bd_flags;
 	int rc;
 
@@ -791,8 +780,6 @@ qed_ooo_submit_tx_buffers(struct qed_hwfn *p_hwfn,
 
 		first_frag = p_buffer->rx_buffer_phys_addr +
 			     p_buffer->placement_offset;
-		parse_flags = p_buffer->parse_flags;
-		bd_flags = qed_ll2_convert_rx_parse_to_tx_flags(parse_flags);
 		SET_FIELD(bd_flags, CORE_TX_BD_DATA_FORCE_VLAN_MODE, 1);
 		SET_FIELD(bd_flags, CORE_TX_BD_DATA_L4_PROTOCOL, 1);
 
@@ -2422,7 +2409,7 @@ static int qed_ll2_start_xmit(struct qed_dev *cdev, struct sk_buff *skb)
 	u8 flags = 0;
 
 	if (unlikely(skb->ip_summed != CHECKSUM_NONE)) {
-		DP_INFO(cdev, "Cannot transmit a checksumed packet\n");
+		DP_INFO(cdev, "Cannot transmit a checksummed packet\n");
 		return -EINVAL;
 	}
 

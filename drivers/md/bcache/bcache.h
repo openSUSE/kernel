@@ -188,6 +188,7 @@
 #include <linux/refcount.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
+#include <linux/kthread.h>
 
 #include "bset.h"
 #include "util.h"
@@ -287,6 +288,12 @@ struct io {
 	sector_t		last;
 };
 
+enum stop_on_failure {
+	BCH_CACHED_DEV_STOP_AUTO = 0,
+	BCH_CACHED_DEV_STOP_ALWAYS,
+	BCH_CACHED_DEV_STOP_MODE_MAX,
+};
+
 struct cached_dev {
 	struct list_head	list;
 	struct bcache_device	disk;
@@ -360,6 +367,7 @@ struct cached_dev {
 	unsigned		sequential_cutoff;
 	unsigned		readahead;
 
+	unsigned		io_disable:1;
 	unsigned		verify:1;
 	unsigned		bypass_torture_test:1;
 
@@ -379,6 +387,13 @@ struct cached_dev {
 	unsigned		writeback_rate_i_term_inverse;
 	unsigned		writeback_rate_p_term_inverse;
 	unsigned		writeback_rate_minimum;
+
+	enum stop_on_failure	stop_when_cache_set_failed;
+#define DEFAULT_CACHED_DEV_ERROR_LIMIT	64
+	atomic_t		io_errors;
+	unsigned		error_limit;
+
+	char			backing_dev_name[BDEVNAME_SIZE];
 };
 
 enum alloc_reserve {
@@ -451,6 +466,8 @@ struct cache {
 	atomic_long_t		meta_sectors_written;
 	atomic_long_t		btree_sectors_written;
 	atomic_long_t		sectors_written;
+
+	char			cache_dev_name[BDEVNAME_SIZE];
 };
 
 struct gc_stat {
@@ -475,10 +492,15 @@ struct gc_stat {
  *
  * CACHE_SET_RUNNING means all cache devices have been registered and journal
  * replay is complete.
+ *
+ * CACHE_SET_IO_DISABLE is set when bcache is stopping the whold cache set, all
+ * external and internal I/O should be denied when this flag is set.
+ *
  */
 #define CACHE_SET_UNREGISTERING		0
 #define	CACHE_SET_STOPPING		1
 #define	CACHE_SET_RUNNING		2
+#define CACHE_SET_IO_DISABLE		3
 
 struct cache_set {
 	struct closure		cl;
@@ -868,8 +890,36 @@ static inline void wake_up_allocators(struct cache_set *c)
 		wake_up_process(ca->alloc_thread);
 }
 
+static inline void closure_bio_submit(struct cache_set *c,
+				      struct bio *bio,
+				      struct closure *cl)
+{
+	closure_get(cl);
+	if (unlikely(test_bit(CACHE_SET_IO_DISABLE, &c->flags))) {
+		bio->bi_status = BLK_STS_IOERR;
+		bio_endio(bio);
+		return;
+	}
+	generic_make_request(bio);
+}
+
+/*
+ * Prevent the kthread exits directly, and make sure when kthread_stop()
+ * is called to stop a kthread, it is still alive. If a kthread might be
+ * stopped by CACHE_SET_IO_DISABLE bit set, wait_for_kthread_stop() is
+ * necessary before the kthread returns.
+ */
+static inline void wait_for_kthread_stop(void)
+{
+	while (!kthread_should_stop()) {
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule();
+	}
+}
+
 /* Forward declarations */
 
+void bch_count_backing_io_errors(struct cached_dev *dc, struct bio *bio);
 void bch_count_io_errors(struct cache *, blk_status_t, int, const char *);
 void bch_bbio_count_io_errors(struct cache_set *, struct bio *,
 			      blk_status_t, const char *);
@@ -897,6 +947,7 @@ int bch_bucket_alloc_set(struct cache_set *, unsigned,
 			 struct bkey *, int, bool);
 bool bch_alloc_sectors(struct cache_set *, struct bkey *, unsigned,
 		       unsigned, unsigned, bool);
+bool bch_cached_dev_error(struct cached_dev *dc);
 
 __printf(2, 3)
 bool bch_cache_set_error(struct cache_set *, const char *, ...);
@@ -906,6 +957,7 @@ void bch_write_bdev_super(struct cached_dev *, struct closure *);
 
 extern struct workqueue_struct *bcache_wq;
 extern const char * const bch_cache_modes[];
+extern const char * const bch_stop_on_failure_modes[];
 extern struct mutex bch_register_lock;
 extern struct list_head bch_cache_sets;
 

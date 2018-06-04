@@ -182,7 +182,7 @@ static void ipip6_tunnel_clone_6rd(struct net_device *dev, struct sit_net *sitn)
 #ifdef CONFIG_IPV6_SIT_6RD
 	struct ip_tunnel *t = netdev_priv(dev);
 
-	if (dev == sitn->fb_tunnel_dev) {
+	if (dev == sitn->fb_tunnel_dev || !sitn->fb_tunnel_dev) {
 		ipv6_addr_set(&t->ip6rd.prefix, htonl(0x20020000), 0, 0, 0);
 		t->ip6rd.relay_prefix = 0;
 		t->ip6rd.prefixlen = 16;
@@ -1371,7 +1371,7 @@ static void ipip6_tunnel_setup(struct net_device *dev)
 	dev->hard_header_len	= LL_MAX_HEADER + t_hlen;
 	dev->mtu		= ETH_DATA_LEN - t_hlen;
 	dev->min_mtu		= IPV6_MIN_MTU;
-	dev->max_mtu		= 0xFFF8 - t_hlen;
+	dev->max_mtu		= IP6_MAX_MTU - t_hlen;
 	dev->flags		= IFF_NOARP;
 	netif_keep_dst(dev);
 	dev->addr_len		= 4;
@@ -1583,7 +1583,8 @@ static int ipip6_newlink(struct net *src_net, struct net_device *dev,
 	if (tb[IFLA_MTU]) {
 		u32 mtu = nla_get_u32(tb[IFLA_MTU]);
 
-		if (mtu >= IPV6_MIN_MTU && mtu <= 0xFFF8 - dev->hard_header_len)
+		if (mtu >= IPV6_MIN_MTU &&
+		    mtu <= IP6_MAX_MTU - dev->hard_header_len)
 			dev->mtu = mtu;
 	}
 
@@ -1836,6 +1837,9 @@ static int __net_init sit_init_net(struct net *net)
 	sitn->tunnels[1] = sitn->tunnels_l;
 	sitn->tunnels[2] = sitn->tunnels_r;
 	sitn->tunnels[3] = sitn->tunnels_r_l;
+
+	if (!net_has_fallback_tunnels(net))
+		return 0;
 
 	sitn->fb_tunnel_dev = alloc_netdev(sizeof(struct ip_tunnel), "sit0",
 					   NET_NAME_UNKNOWN,

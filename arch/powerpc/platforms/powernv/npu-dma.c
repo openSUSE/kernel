@@ -34,6 +34,12 @@
 #define npu_to_phb(x) container_of(x, struct pnv_phb, npu)
 
 /*
+ * spinlock to protect initialisation of an npu_context for a particular
+ * mm_struct.
+ */
+static DEFINE_SPINLOCK(npu_context_lock);
+
+/*
  * When an address shootdown range exceeds this threshold we invalidate the
  * entire TLB on the GPU for the given PID rather than each specific address in
  * the range.
@@ -408,7 +414,7 @@ struct npu_context {
 	bool nmmu_flush;
 
 	/* Callback to stop translation requests on a given GPU */
-	struct npu_context *(*release_cb)(struct npu_context *, void *);
+	void (*release_cb)(struct npu_context *context, void *priv);
 
 	/*
 	 * Private pointer passed to the above callback for usage by
@@ -711,11 +717,12 @@ static const struct mmu_notifier_ops nv_nmmu_notifier_ops = {
  * Returns an error if there no contexts are currently available or a
  * npu_context which should be passed to pnv_npu2_handle_fault().
  *
- * mmap_sem must be held in write mode.
+ * mmap_sem must be held in write mode and must not be called from interrupt
+ * context.
  */
 struct npu_context *pnv_npu2_init_context(struct pci_dev *gpdev,
 			unsigned long flags,
-			struct npu_context *(*cb)(struct npu_context *, void *),
+			void (*cb)(struct npu_context *, void *),
 			void *priv)
 {
 	int rc;
@@ -739,6 +746,11 @@ struct npu_context *pnv_npu2_init_context(struct pci_dev *gpdev,
 		/* No nvlink associated with this GPU device */
 		return ERR_PTR(-ENODEV);
 
+	nvlink_dn = of_parse_phandle(npdev->dev.of_node, "ibm,nvlink", 0);
+	if (WARN_ON(of_property_read_u32(nvlink_dn, "ibm,npu-link-index",
+							&nvlink_index)))
+		return ERR_PTR(-ENODEV);
+
 	if (!mm || mm->context.id == 0) {
 		/*
 		 * Kernel thread contexts are not supported and context id 0 is
@@ -753,7 +765,9 @@ struct npu_context *pnv_npu2_init_context(struct pci_dev *gpdev,
 	/*
 	 * Setup the NPU context table for a particular GPU. These need to be
 	 * per-GPU as we need the tables to filter ATSDs when there are no
-	 * active contexts on a particular GPU.
+	 * active contexts on a particular GPU. It is safe for these to be
+	 * called concurrently with destroy as the OPAL call takes appropriate
+	 * locks and refcounts on init/destroy.
 	 */
 	rc = opal_npu_init_context(nphb->opal_id, mm->context.id, flags,
 				PCI_DEVID(gpdev->bus->number, gpdev->devfn));
@@ -764,27 +778,51 @@ struct npu_context *pnv_npu2_init_context(struct pci_dev *gpdev,
 	 * We store the npu pci device so we can more easily get at the
 	 * associated npus.
 	 */
+	spin_lock(&npu_context_lock);
 	npu_context = mm->context.npu_context;
+	if (npu_context) {
+		if (npu_context->release_cb != cb ||
+			npu_context->priv != priv) {
+			spin_unlock(&npu_context_lock);
+			opal_npu_destroy_context(nphb->opal_id, mm->context.id,
+						PCI_DEVID(gpdev->bus->number,
+							gpdev->devfn));
+			return ERR_PTR(-EINVAL);
+		}
+
+		WARN_ON(!kref_get_unless_zero(&npu_context->kref));
+	}
+	spin_unlock(&npu_context_lock);
+
 	if (!npu_context) {
+		/*
+		 * We can set up these fields without holding the
+		 * npu_context_lock as the npu_context hasn't been returned to
+		 * the caller meaning it can't be destroyed. Parallel allocation
+		 * is protected against by mmap_sem.
+		 */
+		rc = -ENOMEM;
 		npu_context = kzalloc(sizeof(struct npu_context), GFP_KERNEL);
-		if (!npu_context)
-			return ERR_PTR(-ENOMEM);
+		if (npu_context) {
+			kref_init(&npu_context->kref);
+			npu_context->mm = mm;
+			npu_context->mn.ops = &nv_nmmu_notifier_ops;
+			rc = __mmu_notifier_register(&npu_context->mn, mm);
+		}
+
+		if (rc) {
+			kfree(npu_context);
+			opal_npu_destroy_context(nphb->opal_id, mm->context.id,
+					PCI_DEVID(gpdev->bus->number,
+						gpdev->devfn));
+			return ERR_PTR(rc);
+		}
 
 		mm->context.npu_context = npu_context;
-		npu_context->mm = mm;
-		npu_context->mn.ops = &nv_nmmu_notifier_ops;
-		__mmu_notifier_register(&npu_context->mn, mm);
-		kref_init(&npu_context->kref);
-	} else {
-		kref_get(&npu_context->kref);
 	}
 
 	npu_context->release_cb = cb;
 	npu_context->priv = priv;
-	nvlink_dn = of_parse_phandle(npdev->dev.of_node, "ibm,nvlink", 0);
-	if (WARN_ON(of_property_read_u32(nvlink_dn, "ibm,npu-link-index",
-							&nvlink_index)))
-		return ERR_PTR(-ENODEV);
 
 	/*
 	 * npdev is a pci_dev pointer setup by the PCI code. We assign it to
@@ -819,15 +857,16 @@ static void pnv_npu2_release_context(struct kref *kref)
 		mm_context_remove_copro(npu_context->mm);
 
 	npu_context->mm->context.npu_context = NULL;
-	mmu_notifier_unregister(&npu_context->mn,
-				npu_context->mm);
-
-	kfree(npu_context);
 }
 
+/*
+ * Destroy a context on the given GPU. May free the npu_context if it is no
+ * longer active on any GPUs. Must not be called from interrupt context.
+ */
 void pnv_npu2_destroy_context(struct npu_context *npu_context,
 			struct pci_dev *gpdev)
 {
+	int removed;
 	struct pnv_phb *nphb;
 	struct npu *npu;
 	struct pci_dev *npdev = pnv_pci_get_npu_dev(gpdev, 0);
@@ -849,7 +888,21 @@ void pnv_npu2_destroy_context(struct npu_context *npu_context,
 	WRITE_ONCE(npu_context->npdev[npu->index][nvlink_index], NULL);
 	opal_npu_destroy_context(nphb->opal_id, npu_context->mm->context.id,
 				PCI_DEVID(gpdev->bus->number, gpdev->devfn));
-	kref_put(&npu_context->kref, pnv_npu2_release_context);
+	spin_lock(&npu_context_lock);
+	removed = kref_put(&npu_context->kref, pnv_npu2_release_context);
+	spin_unlock(&npu_context_lock);
+
+	/*
+	 * We need to do this outside of pnv_npu2_release_context so that it is
+	 * outside the spinlock as mmu_notifier_destroy uses SRCU.
+	 */
+	if (removed) {
+		mmu_notifier_unregister(&npu_context->mn,
+					npu_context->mm);
+
+		kfree(npu_context);
+	}
+
 }
 EXPORT_SYMBOL(pnv_npu2_destroy_context);
 

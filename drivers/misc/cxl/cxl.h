@@ -717,6 +717,7 @@ struct cxl {
 	bool perst_select_user;
 	bool perst_same_image;
 	bool psl_timebase_synced;
+	bool tunneled_ops_supported;
 
 	/*
 	 * number of contexts mapped on to this card. Possible values are:
@@ -1069,7 +1070,7 @@ int cxl_psl_purge(struct cxl_afu *afu);
 int cxl_calc_capp_routing(struct pci_dev *dev, u64 *chipid,
 			  u32 *phb_index, u64 *capp_unit_id);
 int cxl_slot_is_switched(struct pci_dev *dev);
-int cxl_get_xsl9_dsnctl(u64 capp_unit_id, u64 *reg);
+int cxl_get_xsl9_dsnctl(struct pci_dev *dev, u64 capp_unit_id, u64 *reg);
 u64 cxl_calculate_sr(bool master, bool kernel, bool real_mode, bool p9);
 
 void cxl_native_irq_dump_regs_psl9(struct cxl_context *ctx);

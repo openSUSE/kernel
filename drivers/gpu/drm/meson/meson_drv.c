@@ -197,6 +197,8 @@ static int meson_drv_bind_master(struct device *dev, bool has_components)
 	priv->io_base = regs;
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "hhi");
+	if (!res)
+		return -EINVAL;
 	/* Simply ioremap since it may be a shared register zone */
 	regs = devm_ioremap(dev, res->start, resource_size(res));
 	if (!regs) {
@@ -213,6 +215,8 @@ static int meson_drv_bind_master(struct device *dev, bool has_components)
 	}
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "dmc");
+	if (!res)
+		return -EINVAL;
 	/* Simply ioremap since it may be a shared register zone */
 	regs = devm_ioremap(dev, res->start, resource_size(res));
 	if (!regs) {
@@ -292,7 +296,7 @@ static int meson_drv_bind_master(struct device *dev, bool has_components)
 	return 0;
 
 free_drm:
-	drm_dev_unref(drm);
+	drm_dev_put(drm);
 
 	return ret;
 }
@@ -311,7 +315,7 @@ static void meson_drv_unbind(struct device *dev)
 	drm_kms_helper_poll_fini(drm);
 	drm_fbdev_cma_fini(priv->fbdev);
 	drm_mode_config_cleanup(drm);
-	drm_dev_unref(drm);
+	drm_dev_put(drm);
 
 }
 

@@ -1121,14 +1121,15 @@ static void team_port_disable_netpoll(struct team_port *port)
 }
 #endif
 
-static int team_upper_dev_link(struct team *team, struct team_port *port)
+static int team_upper_dev_link(struct team *team, struct team_port *port,
+			       struct netlink_ext_ack *extack)
 {
 	struct netdev_lag_upper_info lag_upper_info;
 	int err;
 
 	lag_upper_info.tx_type = team->mode->lag_tx_type;
 	err = netdev_master_upper_dev_link(port->dev, team->dev, NULL,
-					   &lag_upper_info, NULL);
+					   &lag_upper_info, extack);
 	if (err)
 		return err;
 	port->dev->priv_flags |= IFF_TEAM_PORT;
@@ -1145,7 +1146,8 @@ static void __team_port_change_port_added(struct team_port *port, bool linkup);
 static int team_dev_type_check_change(struct net_device *dev,
 				      struct net_device *port_dev);
 
-static int team_port_add(struct team *team, struct net_device *port_dev)
+static int team_port_add(struct team *team, struct net_device *port_dev,
+			 struct netlink_ext_ack *extack)
 {
 	struct net_device *dev = team->dev;
 	struct team_port *port;
@@ -1153,12 +1155,14 @@ static int team_port_add(struct team *team, struct net_device *port_dev)
 	int err;
 
 	if (port_dev->flags & IFF_LOOPBACK) {
+		NL_SET_ERR_MSG(extack, "Loopback device can't be added as a team port");
 		netdev_err(dev, "Device %s is loopback device. Loopback devices can't be added as a team port\n",
 			   portname);
 		return -EINVAL;
 	}
 
 	if (team_port_exists(port_dev)) {
+		NL_SET_ERR_MSG(extack, "Device is already a port of a team device");
 		netdev_err(dev, "Device %s is already a port "
 				"of a team device\n", portname);
 		return -EBUSY;
@@ -1166,6 +1170,7 @@ static int team_port_add(struct team *team, struct net_device *port_dev)
 
 	if (port_dev->features & NETIF_F_VLAN_CHALLENGED &&
 	    vlan_uses_dev(dev)) {
+		NL_SET_ERR_MSG(extack, "Device is VLAN challenged and team device has VLAN set up");
 		netdev_err(dev, "Device %s is VLAN challenged and team device has VLAN set up\n",
 			   portname);
 		return -EPERM;
@@ -1176,6 +1181,7 @@ static int team_port_add(struct team *team, struct net_device *port_dev)
 		return err;
 
 	if (port_dev->flags & IFF_UP) {
+		NL_SET_ERR_MSG(extack, "Device is up. Set it down before adding it as a team port");
 		netdev_err(dev, "Device %s is up. Set it down before adding it as a team port\n",
 			   portname);
 		return -EBUSY;
@@ -1238,7 +1244,7 @@ static int team_port_add(struct team *team, struct net_device *port_dev)
 		goto err_handler_register;
 	}
 
-	err = team_upper_dev_link(team, port);
+	err = team_upper_dev_link(team, port, extack);
 	if (err) {
 		netdev_err(dev, "Device %s failed to set upper link\n",
 			   portname);
@@ -1935,7 +1941,7 @@ static int team_add_slave(struct net_device *dev, struct net_device *port_dev,
 	int err;
 
 	mutex_lock(&team->lock);
-	err = team_port_add(team, port_dev);
+	err = team_port_add(team, port_dev, extack);
 	mutex_unlock(&team->lock);
 
 	if (!err)

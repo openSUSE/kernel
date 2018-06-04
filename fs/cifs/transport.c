@@ -790,7 +790,8 @@ cifs_send_recv(const unsigned int xid, struct cifs_ses *ses,
 
 	buf = (char *)midQ->resp_buf;
 	resp_iov->iov_base = buf;
-	resp_iov->iov_len = get_rfc1002_length(buf) + 4;
+	resp_iov->iov_len = midQ->resp_buf_size +
+		ses->server->vals->header_preamble_size;
 	if (midQ->large_buf)
 		*resp_buf_type = CIFS_LARGE_BUFFER;
 	else
@@ -833,8 +834,11 @@ SendReceive2(const unsigned int xid, struct cifs_ses *ses,
 	if (n_vec + 1 > CIFS_MAX_IOV_SIZE) {
 		new_iov = kmalloc(sizeof(struct kvec) * (n_vec + 1),
 				  GFP_KERNEL);
-		if (!new_iov)
+		if (!new_iov) {
+			/* otherwise cifs_send_recv below sets resp_buf_type */
+			*resp_buf_type = CIFS_NO_BUFFER;
 			return -ENOMEM;
+		}
 	} else
 		new_iov = s_iov;
 

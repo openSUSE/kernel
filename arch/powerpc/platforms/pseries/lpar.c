@@ -99,7 +99,7 @@ void vpa_init(int cpu)
 	 * reports that.  All SPLPAR support SLB shadow buffer.
 	 */
 	if (!radix_enabled() && firmware_has_feature(FW_FEATURE_SPLPAR)) {
-		addr = __pa(paca[cpu].slb_shadow_ptr);
+		addr = __pa(paca_ptrs[cpu]->slb_shadow_ptr);
 		ret = register_slb_shadow(hwcpu, addr);
 		if (ret)
 			pr_err("WARNING: SLB shadow buffer registration for "
@@ -111,7 +111,7 @@ void vpa_init(int cpu)
 	/*
 	 * Register dispatch trace log, if one has been allocated.
 	 */
-	pp = &paca[cpu];
+	pp = paca_ptrs[cpu];
 	dtl = pp->dispatch_log;
 	if (dtl) {
 		pp->dtl_ridx = 0;
@@ -306,13 +306,13 @@ static long pSeries_lpar_hpte_updatepp(unsigned long slot,
 
 	want_v = hpte_encode_avpn(vpn, psize, ssize);
 
-	pr_devel("    update: avpnv=%016lx, hash=%016lx, f=%lx, psize: %d ...",
-		 want_v, slot, flags, psize);
-
 	flags = (newpp & 7) | H_AVPN;
 	if (mmu_has_feature(MMU_FTR_KERNEL_RO))
 		/* Move pp0 into bit 8 (IBM 55) */
 		flags |= (newpp & HPTE_R_PP0) >> 55;
+
+	pr_devel("    update: avpnv=%016lx, hash=%016lx, f=%lx, psize: %d ...",
+		 want_v, slot, flags, psize);
 
 	lpar_rc = plpar_pte_protect(flags, slot, want_v);
 

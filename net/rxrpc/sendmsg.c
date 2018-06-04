@@ -223,6 +223,15 @@ static void rxrpc_queue_packet(struct rxrpc_sock *rx, struct rxrpc_call *call,
 
 	ret = rxrpc_send_data_packet(call, skb, false);
 	if (ret < 0) {
+		switch (ret) {
+		case -ENETUNREACH:
+		case -EHOSTUNREACH:
+		case -ECONNREFUSED:
+			rxrpc_set_call_completion(call,
+						  RXRPC_CALL_LOCAL_ERROR,
+						  0, ret);
+			goto out;
+		}
 		_debug("need instant resend %d", ret);
 		rxrpc_instant_resend(call, ix);
 	} else {
@@ -241,6 +250,7 @@ static void rxrpc_queue_packet(struct rxrpc_sock *rx, struct rxrpc_call *call,
 					rxrpc_timer_set_for_send);
 	}
 
+out:
 	rxrpc_free_skb(skb, rxrpc_skb_tx_freed);
 	_leave("");
 }
@@ -556,6 +566,7 @@ static struct rxrpc_call *
 rxrpc_new_client_call_for_sendmsg(struct rxrpc_sock *rx, struct msghdr *msg,
 				  struct rxrpc_send_params *p)
 	__releases(&rx->sk.sk_lock.slock)
+	__acquires(&call->user_mutex)
 {
 	struct rxrpc_conn_parameters cp;
 	struct rxrpc_call *call;
@@ -581,9 +592,11 @@ rxrpc_new_client_call_for_sendmsg(struct rxrpc_sock *rx, struct msghdr *msg,
 	cp.exclusive		= rx->exclusive | p->exclusive;
 	cp.upgrade		= p->upgrade;
 	cp.service_id		= srx->srx_service;
-	call = rxrpc_new_client_call(rx, &cp, srx, &p->call, GFP_KERNEL);
+	call = rxrpc_new_client_call(rx, &cp, srx, &p->call, GFP_KERNEL,
+				     atomic_inc_return(&rxrpc_debug_id));
 	/* The socket is now unlocked */
 
+	rxrpc_put_peer(cp.peer);
 	_leave(" = %p\n", call);
 	return call;
 }
@@ -595,6 +608,7 @@ rxrpc_new_client_call_for_sendmsg(struct rxrpc_sock *rx, struct msghdr *msg,
  */
 int rxrpc_do_sendmsg(struct rxrpc_sock *rx, struct msghdr *msg, size_t len)
 	__releases(&rx->sk.sk_lock.slock)
+	__releases(&call->user_mutex)
 {
 	enum rxrpc_call_state state;
 	struct rxrpc_call *call;

@@ -181,15 +181,18 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned num_ibs,
 		}
 	}
 
-	if (ring->funcs->init_cond_exec)
+	if (job && ring->funcs->init_cond_exec)
 		patch_offset = amdgpu_ring_init_cond_exec(ring);
 
-	if (ring->funcs->emit_hdp_flush
 #ifdef CONFIG_X86_64
-	    && !(adev->flags & AMD_IS_APU)
+	if (!(adev->flags & AMD_IS_APU))
 #endif
-	   )
-		amdgpu_ring_emit_hdp_flush(ring);
+	{
+		if (ring->funcs->emit_hdp_flush)
+			amdgpu_ring_emit_hdp_flush(ring);
+		else
+			amdgpu_asic_flush_hdp(adev, ring);
+	}
 
 	skip_preamble = ring->current_ctx == fence_ctx;
 	need_ctx_switch = ring->current_ctx != fence_ctx;
@@ -219,12 +222,10 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned num_ibs,
 	if (ring->funcs->emit_tmz)
 		amdgpu_ring_emit_tmz(ring, false);
 
-	if (ring->funcs->emit_hdp_invalidate
 #ifdef CONFIG_X86_64
-	    && !(adev->flags & AMD_IS_APU)
+	if (!(adev->flags & AMD_IS_APU))
 #endif
-	   )
-		amdgpu_ring_emit_hdp_invalidate(ring);
+		amdgpu_asic_invalidate_hdp(adev, ring);
 
 	r = amdgpu_fence_emit(ring, f);
 	if (r) {
@@ -278,11 +279,6 @@ int amdgpu_ib_pool_init(struct amdgpu_device *adev)
 		return r;
 	}
 
-	r = amdgpu_sa_bo_manager_start(adev, &adev->ring_tmp_bo);
-	if (r) {
-		return r;
-	}
-
 	adev->ib_pool_ready = true;
 	if (amdgpu_debugfs_sa_init(adev)) {
 		dev_err(adev->dev, "failed to register debugfs file for SA\n");
@@ -301,7 +297,6 @@ int amdgpu_ib_pool_init(struct amdgpu_device *adev)
 void amdgpu_ib_pool_fini(struct amdgpu_device *adev)
 {
 	if (adev->ib_pool_ready) {
-		amdgpu_sa_bo_manager_suspend(adev, &adev->ring_tmp_bo);
 		amdgpu_sa_bo_manager_fini(adev, &adev->ring_tmp_bo);
 		adev->ib_pool_ready = false;
 	}

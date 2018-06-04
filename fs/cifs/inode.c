@@ -710,7 +710,7 @@ cgfi_exit:
 /* Simple function to return a 64 bit hash of string.  Rarely called */
 static __u64 simple_hashstr(const char *str)
 {
-	const __u64 hash_mult =  1125899906842597L; /* a big enough prime */
+	const __u64 hash_mult =  1125899906842597ULL; /* a big enough prime */
 	__u64 hash = 0;
 
 	while (*str)
@@ -1099,10 +1099,7 @@ iget_no_retry:
 
 out:
 	kfree(path);
-	/* can not call macro free_xid here since in a void func
-	 * TODO: This is no longer true
-	 */
-	_free_xid(xid);
+	free_xid(xid);
 	return inode;
 }
 

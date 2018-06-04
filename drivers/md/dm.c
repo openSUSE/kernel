@@ -467,67 +467,56 @@ static int dm_blk_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	return dm_get_geometry(md, geo);
 }
 
-static char *_dm_claim_ptr = "I belong to device-mapper";
-
-static int dm_get_bdev_for_ioctl(struct mapped_device *md,
-				 struct block_device **bdev,
-				 fmode_t *mode)
+static int dm_prepare_ioctl(struct mapped_device *md, int *srcu_idx,
+			    struct block_device **bdev)
+	__acquires(md->io_barrier)
 {
 	struct dm_target *tgt;
 	struct dm_table *map;
-	int srcu_idx, r, r2;
+	int r;
 
 retry:
 	r = -ENOTTY;
-	map = dm_get_live_table(md, &srcu_idx);
+	map = dm_get_live_table(md, srcu_idx);
 	if (!map || !dm_table_get_size(map))
-		goto out;
+		return r;
 
 	/* We only support devices that have a single target */
 	if (dm_table_get_num_targets(map) != 1)
-		goto out;
+		return r;
 
 	tgt = dm_table_get_target(map, 0);
 	if (!tgt->type->prepare_ioctl)
-		goto out;
+		return r;
 
-	if (dm_suspended_md(md)) {
-		r = -EAGAIN;
-		goto out;
-	}
+	if (dm_suspended_md(md))
+		return -EAGAIN;
 
-	r = tgt->type->prepare_ioctl(tgt, bdev, mode);
-	if (r < 0)
-		goto out;
-
-	bdgrab(*bdev);
-	r2 = blkdev_get(*bdev, *mode, _dm_claim_ptr);
-	if (r2 < 0) {
-		r = r2;
-		goto out;
-	}
-
-	dm_put_live_table(md, srcu_idx);
-	return r;
-
-out:
-	dm_put_live_table(md, srcu_idx);
+	r = tgt->type->prepare_ioctl(tgt, bdev);
 	if (r == -ENOTCONN && !fatal_signal_pending(current)) {
+		dm_put_live_table(md, *srcu_idx);
 		msleep(10);
 		goto retry;
 	}
+
 	return r;
+}
+
+static void dm_unprepare_ioctl(struct mapped_device *md, int srcu_idx)
+	__releases(md->io_barrier)
+{
+	dm_put_live_table(md, srcu_idx);
 }
 
 static int dm_blk_ioctl(struct block_device *bdev, fmode_t mode,
 			unsigned int cmd, unsigned long arg)
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
-	int r;
+	int r, srcu_idx;
 
-	r = dm_get_bdev_for_ioctl(md, &bdev, &mode);
+	r = dm_prepare_ioctl(md, &srcu_idx, &bdev);
 	if (r < 0)
-		return r;
+		goto out;
 
 	if (r > 0) {
 		/*
@@ -545,7 +534,7 @@ static int dm_blk_ioctl(struct block_device *bdev, fmode_t mode,
 
 	r =  __blkdev_driver_ioctl(bdev, mode, cmd, arg);
 out:
-	blkdev_put(bdev, mode);
+	dm_unprepare_ioctl(md, srcu_idx);
 	return r;
 }
 
@@ -718,6 +707,8 @@ static void dm_put_live_table_fast(struct mapped_device *md) __releases(RCU)
 {
 	rcu_read_unlock();
 }
+
+static char *_dm_claim_ptr = "I belong to device-mapper";
 
 /*
  * Open a table device so we can use it as a map destination.
@@ -1043,7 +1034,8 @@ int dm_set_target_max_io_len(struct dm_target *ti, sector_t len)
 EXPORT_SYMBOL_GPL(dm_set_target_max_io_len);
 
 static struct dm_target *dm_dax_get_live_target(struct mapped_device *md,
-		sector_t sector, int *srcu_idx)
+						sector_t sector, int *srcu_idx)
+	__acquires(md->io_barrier)
 {
 	struct dm_table *map;
 	struct dm_target *ti;
@@ -1060,7 +1052,7 @@ static struct dm_target *dm_dax_get_live_target(struct mapped_device *md,
 }
 
 static long dm_dax_direct_access(struct dax_device *dax_dev, pgoff_t pgoff,
-		long nr_pages, void **kaddr, pfn_t *pfn)
+				 long nr_pages, void **kaddr, pfn_t *pfn)
 {
 	struct mapped_device *md = dax_get_private(dax_dev);
 	sector_t sector = pgoff * PAGE_SECTORS;
@@ -1088,7 +1080,7 @@ static long dm_dax_direct_access(struct dax_device *dax_dev, pgoff_t pgoff,
 }
 
 static size_t dm_dax_copy_from_iter(struct dax_device *dax_dev, pgoff_t pgoff,
-		void *addr, size_t bytes, struct iov_iter *i)
+				    void *addr, size_t bytes, struct iov_iter *i)
 {
 	struct mapped_device *md = dax_get_private(dax_dev);
 	sector_t sector = pgoff * PAGE_SECTORS;
@@ -1428,6 +1420,11 @@ static unsigned get_num_discard_bios(struct dm_target *ti)
 	return ti->num_discard_bios;
 }
 
+static unsigned get_num_secure_erase_bios(struct dm_target *ti)
+{
+	return ti->num_secure_erase_bios;
+}
+
 static unsigned get_num_write_same_bios(struct dm_target *ti)
 {
 	return ti->num_write_same_bios;
@@ -1481,6 +1478,11 @@ static int __send_discard(struct clone_info *ci, struct dm_target *ti)
 					   is_split_required_for_discard);
 }
 
+static int __send_secure_erase(struct clone_info *ci, struct dm_target *ti)
+{
+	return __send_changing_extent_only(ci, ti, get_num_secure_erase_bios, NULL);
+}
+
 static int __send_write_same(struct clone_info *ci, struct dm_target *ti)
 {
 	return __send_changing_extent_only(ci, ti, get_num_write_same_bios, NULL);
@@ -1498,6 +1500,8 @@ static bool __process_abnormal_io(struct clone_info *ci, struct dm_target *ti,
 
 	if (bio_op(bio) == REQ_OP_DISCARD)
 		*result = __send_discard(ci, ti);
+	else if (bio_op(bio) == REQ_OP_SECURE_ERASE)
+		*result = __send_secure_erase(ci, ti);
 	else if (bio_op(bio) == REQ_OP_WRITE_SAME)
 		*result = __send_write_same(ci, ti);
 	else if (bio_op(bio) == REQ_OP_WRITE_ZEROES)
@@ -1837,7 +1841,7 @@ static void cleanup_mapped_device(struct mapped_device *md)
 static struct mapped_device *alloc_dev(int minor)
 {
 	int r, numa_node_id = dm_get_numa_node();
-	struct dax_device *dax_dev;
+	struct dax_device *dax_dev = NULL;
 	struct mapped_device *md;
 	void *old_md;
 
@@ -1878,7 +1882,7 @@ static struct mapped_device *alloc_dev(int minor)
 	INIT_LIST_HEAD(&md->table_devices);
 	spin_lock_init(&md->uevent_lock);
 
-	md->queue = blk_alloc_queue_node(GFP_KERNEL, numa_node_id);
+	md->queue = blk_alloc_queue_node(GFP_KERNEL, numa_node_id, NULL);
 	if (!md->queue)
 		goto bad;
 	md->queue->queuedata = md;
@@ -1903,9 +1907,11 @@ static struct mapped_device *alloc_dev(int minor)
 	md->disk->private_data = md;
 	sprintf(md->disk->disk_name, "dm-%d", minor);
 
-	dax_dev = alloc_dax(md, md->disk->disk_name, &dm_dax_ops);
-	if (!dax_dev)
-		goto bad;
+	if (IS_ENABLED(CONFIG_DAX_DRIVER)) {
+		dax_dev = alloc_dax(md, md->disk->disk_name, &dm_dax_ops);
+		if (!dax_dev)
+			goto bad;
+	}
 	md->dax_dev = dax_dev;
 
 	add_disk_no_queue_reg(md->disk);
@@ -3049,20 +3055,19 @@ static int dm_pr_reserve(struct block_device *bdev, u64 key, enum pr_type type,
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
 	const struct pr_ops *ops;
-	fmode_t mode;
-	int r;
+	int r, srcu_idx;
 
-	r = dm_get_bdev_for_ioctl(md, &bdev, &mode);
+	r = dm_prepare_ioctl(md, &srcu_idx, &bdev);
 	if (r < 0)
-		return r;
+		goto out;
 
 	ops = bdev->bd_disk->fops->pr_ops;
 	if (ops && ops->pr_reserve)
 		r = ops->pr_reserve(bdev, key, type, flags);
 	else
 		r = -EOPNOTSUPP;
-
-	blkdev_put(bdev, mode);
+out:
+	dm_unprepare_ioctl(md, srcu_idx);
 	return r;
 }
 
@@ -3070,20 +3075,19 @@ static int dm_pr_release(struct block_device *bdev, u64 key, enum pr_type type)
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
 	const struct pr_ops *ops;
-	fmode_t mode;
-	int r;
+	int r, srcu_idx;
 
-	r = dm_get_bdev_for_ioctl(md, &bdev, &mode);
+	r = dm_prepare_ioctl(md, &srcu_idx, &bdev);
 	if (r < 0)
-		return r;
+		goto out;
 
 	ops = bdev->bd_disk->fops->pr_ops;
 	if (ops && ops->pr_release)
 		r = ops->pr_release(bdev, key, type);
 	else
 		r = -EOPNOTSUPP;
-
-	blkdev_put(bdev, mode);
+out:
+	dm_unprepare_ioctl(md, srcu_idx);
 	return r;
 }
 
@@ -3092,20 +3096,19 @@ static int dm_pr_preempt(struct block_device *bdev, u64 old_key, u64 new_key,
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
 	const struct pr_ops *ops;
-	fmode_t mode;
-	int r;
+	int r, srcu_idx;
 
-	r = dm_get_bdev_for_ioctl(md, &bdev, &mode);
+	r = dm_prepare_ioctl(md, &srcu_idx, &bdev);
 	if (r < 0)
-		return r;
+		goto out;
 
 	ops = bdev->bd_disk->fops->pr_ops;
 	if (ops && ops->pr_preempt)
 		r = ops->pr_preempt(bdev, old_key, new_key, type, abort);
 	else
 		r = -EOPNOTSUPP;
-
-	blkdev_put(bdev, mode);
+out:
+	dm_unprepare_ioctl(md, srcu_idx);
 	return r;
 }
 
@@ -3113,20 +3116,19 @@ static int dm_pr_clear(struct block_device *bdev, u64 key)
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
 	const struct pr_ops *ops;
-	fmode_t mode;
-	int r;
+	int r, srcu_idx;
 
-	r = dm_get_bdev_for_ioctl(md, &bdev, &mode);
+	r = dm_prepare_ioctl(md, &srcu_idx, &bdev);
 	if (r < 0)
-		return r;
+		goto out;
 
 	ops = bdev->bd_disk->fops->pr_ops;
 	if (ops && ops->pr_clear)
 		r = ops->pr_clear(bdev, key);
 	else
 		r = -EOPNOTSUPP;
-
-	blkdev_put(bdev, mode);
+out:
+	dm_unprepare_ioctl(md, srcu_idx);
 	return r;
 }
 

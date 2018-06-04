@@ -214,10 +214,10 @@ static void __loop_update_dio(struct loop_device *lo, bool dio)
 	blk_mq_freeze_queue(lo->lo_queue);
 	lo->use_dio = use_dio;
 	if (use_dio) {
-		queue_flag_clear_unlocked(QUEUE_FLAG_NOMERGES, lo->lo_queue);
+		blk_queue_flag_clear(QUEUE_FLAG_NOMERGES, lo->lo_queue);
 		lo->lo_flags |= LO_FLAGS_DIRECT_IO;
 	} else {
-		queue_flag_set_unlocked(QUEUE_FLAG_NOMERGES, lo->lo_queue);
+		blk_queue_flag_set(QUEUE_FLAG_NOMERGES, lo->lo_queue);
 		lo->lo_flags &= ~LO_FLAGS_DIRECT_IO;
 	}
 	blk_mq_unfreeze_queue(lo->lo_queue);
@@ -451,25 +451,47 @@ static int lo_req_flush(struct loop_device *lo, struct request *rq)
 static void lo_complete_rq(struct request *rq)
 {
 	struct loop_cmd *cmd = blk_mq_rq_to_pdu(rq);
+	blk_status_t ret = BLK_STS_OK;
 
-	if (unlikely(req_op(cmd->rq) == REQ_OP_READ && cmd->use_aio &&
-		     cmd->ret >= 0 && cmd->ret < blk_rq_bytes(cmd->rq))) {
-		struct bio *bio = cmd->rq->bio;
-
-		bio_advance(bio, cmd->ret);
-		zero_fill_bio(bio);
+	if (!cmd->use_aio || cmd->ret < 0 || cmd->ret == blk_rq_bytes(rq) ||
+	    req_op(rq) != REQ_OP_READ) {
+		if (cmd->ret < 0)
+			ret = BLK_STS_IOERR;
+		goto end_io;
 	}
 
-	blk_mq_end_request(rq, cmd->ret < 0 ? BLK_STS_IOERR : BLK_STS_OK);
+	/*
+	 * Short READ - if we got some data, advance our request and
+	 * retry it. If we got no data, end the rest with EIO.
+	 */
+	if (cmd->ret) {
+		blk_update_request(rq, BLK_STS_OK, cmd->ret);
+		cmd->ret = 0;
+		blk_mq_requeue_request(rq, true);
+	} else {
+		if (cmd->use_aio) {
+			struct bio *bio = rq->bio;
+
+			while (bio) {
+				zero_fill_bio(bio);
+				bio = bio->bi_next;
+			}
+		}
+		ret = BLK_STS_IOERR;
+end_io:
+		blk_mq_end_request(rq, ret);
+	}
 }
 
 static void lo_rw_aio_do_completion(struct loop_cmd *cmd)
 {
+	struct request *rq = blk_mq_rq_from_pdu(cmd);
+
 	if (!atomic_dec_and_test(&cmd->ref))
 		return;
 	kfree(cmd->bvec);
 	cmd->bvec = NULL;
-	blk_mq_complete_request(cmd->rq);
+	blk_mq_complete_request(rq);
 }
 
 static void lo_rw_aio_complete(struct kiocb *iocb, long ret, long ret2)
@@ -487,7 +509,7 @@ static int lo_rw_aio(struct loop_device *lo, struct loop_cmd *cmd,
 {
 	struct iov_iter iter;
 	struct bio_vec *bvec;
-	struct request *rq = cmd->rq;
+	struct request *rq = blk_mq_rq_from_pdu(cmd);
 	struct bio *bio = rq->bio;
 	struct file *file = lo->lo_backing_file;
 	unsigned int offset;
@@ -817,7 +839,7 @@ static void loop_config_discard(struct loop_device *lo)
 		q->limits.discard_alignment = 0;
 		blk_queue_max_discard_sectors(q, 0);
 		blk_queue_max_write_zeroes_sectors(q, 0);
-		queue_flag_clear_unlocked(QUEUE_FLAG_DISCARD, q);
+		blk_queue_flag_clear(QUEUE_FLAG_DISCARD, q);
 		return;
 	}
 
@@ -826,7 +848,7 @@ static void loop_config_discard(struct loop_device *lo)
 
 	blk_queue_max_discard_sectors(q, UINT_MAX >> 9);
 	blk_queue_max_write_zeroes_sectors(q, UINT_MAX >> 9);
-	queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, q);
+	blk_queue_flag_set(QUEUE_FLAG_DISCARD, q);
 }
 
 static void loop_unprepare_queue(struct loop_device *lo)
@@ -1046,6 +1068,7 @@ static int loop_clr_fd(struct loop_device *lo)
 	if (bdev) {
 		bdput(bdev);
 		invalidate_bdev(bdev);
+		bdev->bd_inode->i_mapping->wb_err = 0;
 	}
 	set_capacity(lo->lo_disk, 0);
 	loop_sysfs_exit(lo);
@@ -1366,7 +1389,10 @@ static int lo_ioctl(struct block_device *bdev, fmode_t mode,
 	struct loop_device *lo = bdev->bd_disk->private_data;
 	int err;
 
-	mutex_lock_nested(&lo->lo_ctl_mutex, 1);
+	err = mutex_lock_killable_nested(&lo->lo_ctl_mutex, 1);
+	if (err)
+		goto out_unlocked;
+
 	switch (cmd) {
 	case LOOP_SET_FD:
 		err = loop_set_fd(lo, mode, bdev, arg);
@@ -1552,16 +1578,20 @@ static int lo_compat_ioctl(struct block_device *bdev, fmode_t mode,
 
 	switch(cmd) {
 	case LOOP_SET_STATUS:
-		mutex_lock(&lo->lo_ctl_mutex);
-		err = loop_set_status_compat(
-			lo, (const struct compat_loop_info __user *) arg);
-		mutex_unlock(&lo->lo_ctl_mutex);
+		err = mutex_lock_killable(&lo->lo_ctl_mutex);
+		if (!err) {
+			err = loop_set_status_compat(lo,
+						     (const struct compat_loop_info __user *)arg);
+			mutex_unlock(&lo->lo_ctl_mutex);
+		}
 		break;
 	case LOOP_GET_STATUS:
-		mutex_lock(&lo->lo_ctl_mutex);
-		err = loop_get_status_compat(
-			lo, (struct compat_loop_info __user *) arg);
-		/* loop_get_status() unlocks lo_ctl_mutex */
+		err = mutex_lock_killable(&lo->lo_ctl_mutex);
+		if (!err) {
+			err = loop_get_status_compat(lo,
+						     (struct compat_loop_info __user *)arg);
+			/* loop_get_status() unlocks lo_ctl_mutex */
+		}
 		break;
 	case LOOP_SET_CAPACITY:
 	case LOOP_CLR_FD:
@@ -1695,15 +1725,16 @@ EXPORT_SYMBOL(loop_unregister_transfer);
 static blk_status_t loop_queue_rq(struct blk_mq_hw_ctx *hctx,
 		const struct blk_mq_queue_data *bd)
 {
-	struct loop_cmd *cmd = blk_mq_rq_to_pdu(bd->rq);
-	struct loop_device *lo = cmd->rq->q->queuedata;
+	struct request *rq = bd->rq;
+	struct loop_cmd *cmd = blk_mq_rq_to_pdu(rq);
+	struct loop_device *lo = rq->q->queuedata;
 
-	blk_mq_start_request(bd->rq);
+	blk_mq_start_request(rq);
 
 	if (lo->lo_state != Lo_bound)
 		return BLK_STS_IOERR;
 
-	switch (req_op(cmd->rq)) {
+	switch (req_op(rq)) {
 	case REQ_OP_FLUSH:
 	case REQ_OP_DISCARD:
 	case REQ_OP_WRITE_ZEROES:
@@ -1716,8 +1747,8 @@ static blk_status_t loop_queue_rq(struct blk_mq_hw_ctx *hctx,
 
 	/* always use the first bio's css */
 #ifdef CONFIG_BLK_CGROUP
-	if (cmd->use_aio && cmd->rq->bio && cmd->rq->bio->bi_css) {
-		cmd->css = cmd->rq->bio->bi_css;
+	if (cmd->use_aio && rq->bio && rq->bio->bi_css) {
+		cmd->css = rq->bio->bi_css;
 		css_get(cmd->css);
 	} else
 #endif
@@ -1729,8 +1760,9 @@ static blk_status_t loop_queue_rq(struct blk_mq_hw_ctx *hctx,
 
 static void loop_handle_cmd(struct loop_cmd *cmd)
 {
-	const bool write = op_is_write(req_op(cmd->rq));
-	struct loop_device *lo = cmd->rq->q->queuedata;
+	struct request *rq = blk_mq_rq_from_pdu(cmd);
+	const bool write = op_is_write(req_op(rq));
+	struct loop_device *lo = rq->q->queuedata;
 	int ret = 0;
 
 	if (write && (lo->lo_flags & LO_FLAGS_READ_ONLY)) {
@@ -1738,12 +1770,12 @@ static void loop_handle_cmd(struct loop_cmd *cmd)
 		goto failed;
 	}
 
-	ret = do_req_filebacked(lo, cmd->rq);
+	ret = do_req_filebacked(lo, rq);
  failed:
 	/* complete non-aio request */
 	if (!cmd->use_aio || ret) {
 		cmd->ret = ret ? -EIO : 0;
-		blk_mq_complete_request(cmd->rq);
+		blk_mq_complete_request(rq);
 	}
 }
 
@@ -1760,9 +1792,7 @@ static int loop_init_request(struct blk_mq_tag_set *set, struct request *rq,
 {
 	struct loop_cmd *cmd = blk_mq_rq_to_pdu(rq);
 
-	cmd->rq = rq;
 	kthread_init_work(&cmd->work, loop_queue_work);
-
 	return 0;
 }
 
@@ -1825,7 +1855,7 @@ static int loop_add(struct loop_device **l, int i)
 	 * page. For directio mode, merge does help to dispatch bigger request
 	 * to underlayer disk. We will enable merge once directio is enabled.
 	 */
-	queue_flag_set_unlocked(QUEUE_FLAG_NOMERGES, lo->lo_queue);
+	blk_queue_flag_set(QUEUE_FLAG_NOMERGES, lo->lo_queue);
 
 	err = -ENOMEM;
 	disk = lo->lo_disk = alloc_disk(1 << part_shift);
@@ -1881,8 +1911,8 @@ out:
 
 static void loop_remove(struct loop_device *lo)
 {
-	blk_cleanup_queue(lo->lo_queue);
 	del_gendisk(lo->lo_disk);
+	blk_cleanup_queue(lo->lo_queue);
 	blk_mq_free_tag_set(&lo->tag_set);
 	put_disk(lo->lo_disk);
 	kfree(lo);
@@ -1966,7 +1996,9 @@ static long loop_control_ioctl(struct file *file, unsigned int cmd,
 		ret = loop_lookup(&lo, parm);
 		if (ret < 0)
 			break;
-		mutex_lock(&lo->lo_ctl_mutex);
+		ret = mutex_lock_killable(&lo->lo_ctl_mutex);
+		if (ret)
+			break;
 		if (lo->lo_state != Lo_unbound) {
 			ret = -EBUSY;
 			mutex_unlock(&lo->lo_ctl_mutex);

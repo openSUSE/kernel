@@ -2060,6 +2060,14 @@ static void intel_pmu_del_event(struct perf_event *event)
 		intel_pmu_pebs_del(event);
 }
 
+static void intel_pmu_read_event(struct perf_event *event)
+{
+	if (event->hw.flags & PERF_X86_EVENT_AUTO_RELOAD)
+		intel_pmu_auto_reload_read(event);
+	else
+		x86_perf_event_update(event);
+}
+
 static void intel_pmu_enable_fixed(struct hw_perf_event *hwc)
 {
 	int idx = hwc->idx - INTEL_PMC_IDX_FIXED;
@@ -3331,7 +3339,8 @@ static void intel_pmu_cpu_starting(int cpu)
 
 	cpuc->lbr_sel = NULL;
 
-	flip_smm_bit(&x86_pmu.attr_freeze_on_smi);
+	if (x86_pmu.version > 1)
+		flip_smm_bit(&x86_pmu.attr_freeze_on_smi);
 
 	if (!cpuc->shared_regs)
 		return;
@@ -3494,6 +3503,8 @@ static __initconst const struct x86_pmu core_pmu = {
 	.cpu_dying		= intel_pmu_cpu_dying,
 };
 
+static struct attribute *intel_pmu_attrs[];
+
 static __initconst const struct x86_pmu intel_pmu = {
 	.name			= "Intel",
 	.handle_irq		= intel_pmu_handle_irq,
@@ -3503,6 +3514,7 @@ static __initconst const struct x86_pmu intel_pmu = {
 	.disable		= intel_pmu_disable_event,
 	.add			= intel_pmu_add_event,
 	.del			= intel_pmu_del_event,
+	.read			= intel_pmu_read_event,
 	.hw_config		= intel_pmu_hw_config,
 	.schedule_events	= x86_schedule_events,
 	.eventsel		= MSR_ARCH_PERFMON_EVENTSEL0,
@@ -3523,6 +3535,8 @@ static __initconst const struct x86_pmu intel_pmu = {
 
 	.format_attrs		= intel_arch3_formats_attr,
 	.events_sysfs_show	= intel_event_sysfs_show,
+
+	.attrs			= intel_pmu_attrs,
 
 	.cpu_prepare		= intel_pmu_cpu_prepare,
 	.cpu_starting		= intel_pmu_cpu_starting,
@@ -3902,8 +3916,6 @@ __init int intel_pmu_init(void)
 
 	x86_pmu.max_pebs_events		= min_t(unsigned, MAX_PEBS_EVENTS, x86_pmu.num_counters);
 
-
-	x86_pmu.attrs			= intel_pmu_attrs;
 	/*
 	 * Quirk: v2 perfmon does not report fixed-purpose events, so
 	 * assume at least 3 events, when not running in a hypervisor:

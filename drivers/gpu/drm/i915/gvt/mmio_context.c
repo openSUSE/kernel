@@ -190,7 +190,7 @@ static void load_render_mocs(struct drm_i915_private *dev_priv)
 
 static int
 restore_context_mmio_for_inhibit(struct intel_vgpu *vgpu,
-				 struct drm_i915_gem_request *req)
+				 struct i915_request *req)
 {
 	u32 *cs;
 	int ret;
@@ -236,7 +236,7 @@ restore_context_mmio_for_inhibit(struct intel_vgpu *vgpu,
 
 static int
 restore_render_mocs_control_for_inhibit(struct intel_vgpu *vgpu,
-					struct drm_i915_gem_request *req)
+					struct i915_request *req)
 {
 	unsigned int index;
 	u32 *cs;
@@ -263,7 +263,7 @@ restore_render_mocs_control_for_inhibit(struct intel_vgpu *vgpu,
 
 static int
 restore_render_mocs_l3cc_for_inhibit(struct intel_vgpu *vgpu,
-				     struct drm_i915_gem_request *req)
+				     struct i915_request *req)
 {
 	unsigned int index;
 	u32 *cs;
@@ -294,7 +294,7 @@ restore_render_mocs_l3cc_for_inhibit(struct intel_vgpu *vgpu,
  * render_mocs_l3cc.
  */
 int intel_vgpu_restore_inhibit_context(struct intel_vgpu *vgpu,
-				       struct drm_i915_gem_request *req)
+				       struct i915_request *req)
 {
 	int ret;
 	u32 *cs;

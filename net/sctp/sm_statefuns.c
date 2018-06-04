@@ -318,6 +318,11 @@ enum sctp_disposition sctp_sf_do_5_1B_init(struct net *net,
 	struct sctp_packet *packet;
 	int len;
 
+	/* Update socket peer label if first association. */
+	if (security_sctp_assoc_request((struct sctp_endpoint *)ep,
+					chunk->skb))
+		return sctp_sf_pdiscard(net, ep, asoc, type, arg, commands);
+
 	/* 6.10 Bundling
 	 * An endpoint MUST NOT bundle INIT, INIT ACK or
 	 * SHUTDOWN COMPLETE with any other chunks.
@@ -688,7 +693,7 @@ enum sctp_disposition sctp_sf_do_5_1D_ce(struct net *net,
 					 void *arg,
 					 struct sctp_cmd_seq *commands)
 {
-	struct sctp_ulpevent *ev, *ai_ev = NULL;
+	struct sctp_ulpevent *ev, *ai_ev = NULL, *auth_ev = NULL;
 	struct sctp_association *new_asoc;
 	struct sctp_init_chunk *peer_init;
 	struct sctp_chunk *chunk = arg;
@@ -821,6 +826,14 @@ enum sctp_disposition sctp_sf_do_5_1D_ce(struct net *net,
 			goto nomem_aiev;
 	}
 
+	if (!new_asoc->peer.auth_capable) {
+		auth_ev = sctp_ulpevent_make_authkey(new_asoc, 0,
+						     SCTP_AUTH_NO_AUTH,
+						     GFP_ATOMIC);
+		if (!auth_ev)
+			goto nomem_authev;
+	}
+
 	/* Add all the state machine commands now since we've created
 	 * everything.  This way we don't introduce memory corruptions
 	 * during side-effect processing and correclty count established
@@ -848,8 +861,14 @@ enum sctp_disposition sctp_sf_do_5_1D_ce(struct net *net,
 		sctp_add_cmd_sf(commands, SCTP_CMD_EVENT_ULP,
 				SCTP_ULPEVENT(ai_ev));
 
+	if (auth_ev)
+		sctp_add_cmd_sf(commands, SCTP_CMD_EVENT_ULP,
+				SCTP_ULPEVENT(auth_ev));
+
 	return SCTP_DISPOSITION_CONSUME;
 
+nomem_authev:
+	sctp_ulpevent_free(ai_ev);
 nomem_aiev:
 	sctp_ulpevent_free(ev);
 nomem_ev:
@@ -909,6 +928,9 @@ enum sctp_disposition sctp_sf_do_5_1E_ca(struct net *net,
 	 */
 	sctp_add_cmd_sf(commands, SCTP_CMD_INIT_COUNTER_RESET, SCTP_NULL());
 
+	/* Set peer label for connection. */
+	security_inet_conn_established(ep->base.sk, chunk->skb);
+
 	/* RFC 2960 5.1 Normal Establishment of an Association
 	 *
 	 * E) Upon reception of the COOKIE ACK, endpoint "A" will move
@@ -950,6 +972,15 @@ enum sctp_disposition sctp_sf_do_5_1E_ca(struct net *net,
 		if (!ev)
 			goto nomem;
 
+		sctp_add_cmd_sf(commands, SCTP_CMD_EVENT_ULP,
+				SCTP_ULPEVENT(ev));
+	}
+
+	if (!asoc->peer.auth_capable) {
+		ev = sctp_ulpevent_make_authkey(asoc, 0, SCTP_AUTH_NO_AUTH,
+						GFP_ATOMIC);
+		if (!ev)
+			goto nomem;
 		sctp_add_cmd_sf(commands, SCTP_CMD_EVENT_ULP,
 				SCTP_ULPEVENT(ev));
 	}
@@ -1437,6 +1468,11 @@ static enum sctp_disposition sctp_sf_do_unexpected_init(
 	struct sctp_packet *packet;
 	int len;
 
+	/* Update socket peer label if first association. */
+	if (security_sctp_assoc_request((struct sctp_endpoint *)ep,
+					chunk->skb))
+		return sctp_sf_pdiscard(net, ep, asoc, type, arg, commands);
+
 	/* 6.10 Bundling
 	 * An endpoint MUST NOT bundle INIT, INIT ACK or
 	 * SHUTDOWN COMPLETE with any other chunks.
@@ -1759,6 +1795,9 @@ static enum sctp_disposition sctp_sf_do_dupcook_a(
 			       GFP_ATOMIC))
 		goto nomem;
 
+	if (sctp_auth_asoc_init_active_key(new_asoc, GFP_ATOMIC))
+		goto nomem;
+
 	if (!sctp_auth_chunk_verify(net, chunk, new_asoc))
 		return SCTP_DISPOSITION_DISCARD;
 
@@ -1873,6 +1912,9 @@ static enum sctp_disposition sctp_sf_do_dupcook_b(
 			       GFP_ATOMIC))
 		goto nomem;
 
+	if (sctp_auth_asoc_init_active_key(new_asoc, GFP_ATOMIC))
+		goto nomem;
+
 	if (!sctp_auth_chunk_verify(net, chunk, new_asoc))
 		return SCTP_DISPOSITION_DISCARD;
 
@@ -1913,6 +1955,9 @@ static enum sctp_disposition sctp_sf_do_dupcook_b(
 	 */
 	if (asoc->peer.adaptation_ind)
 		sctp_add_cmd_sf(commands, SCTP_CMD_ADAPTATION_IND, SCTP_NULL());
+
+	if (!asoc->peer.auth_capable)
+		sctp_add_cmd_sf(commands, SCTP_CMD_PEER_NO_AUTH, SCTP_NULL());
 
 	return SCTP_DISPOSITION_CONSUME;
 
@@ -1960,7 +2005,7 @@ static enum sctp_disposition sctp_sf_do_dupcook_d(
 					struct sctp_cmd_seq *commands,
 					struct sctp_association *new_asoc)
 {
-	struct sctp_ulpevent *ev = NULL, *ai_ev = NULL;
+	struct sctp_ulpevent *ev = NULL, *ai_ev = NULL, *auth_ev = NULL;
 	struct sctp_chunk *repl;
 
 	/* Clarification from Implementor's Guide:
@@ -2010,6 +2055,14 @@ static enum sctp_disposition sctp_sf_do_dupcook_d(
 				goto nomem;
 
 		}
+
+		if (!asoc->peer.auth_capable) {
+			auth_ev = sctp_ulpevent_make_authkey(asoc, 0,
+							     SCTP_AUTH_NO_AUTH,
+							     GFP_ATOMIC);
+			if (!auth_ev)
+				goto nomem;
+		}
 	}
 
 	repl = sctp_make_cookie_ack(asoc, chunk);
@@ -2024,10 +2077,15 @@ static enum sctp_disposition sctp_sf_do_dupcook_d(
 	if (ai_ev)
 		sctp_add_cmd_sf(commands, SCTP_CMD_EVENT_ULP,
 					SCTP_ULPEVENT(ai_ev));
+	if (auth_ev)
+		sctp_add_cmd_sf(commands, SCTP_CMD_EVENT_ULP,
+				SCTP_ULPEVENT(auth_ev));
 
 	return SCTP_DISPOSITION_CONSUME;
 
 nomem:
+	if (auth_ev)
+		sctp_ulpevent_free(auth_ev);
 	if (ai_ev)
 		sctp_ulpevent_free(ai_ev);
 	if (ev)
@@ -2114,6 +2172,11 @@ enum sctp_disposition sctp_sf_do_5_2_4_dupcook(
 			return sctp_sf_pdiscard(net, ep, asoc, type, arg, commands);
 		}
 	}
+
+	/* Update socket peer label if first association. */
+	if (security_sctp_assoc_request((struct sctp_endpoint *)ep,
+					chunk->skb))
+		return sctp_sf_pdiscard(net, ep, asoc, type, arg, commands);
 
 	/* Set temp so that it won't be added into hashtable */
 	new_asoc->temp = 1;
@@ -4120,6 +4183,7 @@ static enum sctp_ierror sctp_sf_authenticate(
 					const struct sctp_association *asoc,
 					struct sctp_chunk *chunk)
 {
+	struct sctp_shared_key *sh_key = NULL;
 	struct sctp_authhdr *auth_hdr;
 	__u8 *save_digest, *digest;
 	struct sctp_hmac *hmac;
@@ -4141,9 +4205,11 @@ static enum sctp_ierror sctp_sf_authenticate(
 	 * configured
 	 */
 	key_id = ntohs(auth_hdr->shkey_id);
-	if (key_id != asoc->active_key_id && !sctp_auth_get_shkey(asoc, key_id))
-		return SCTP_IERROR_AUTH_BAD_KEYID;
-
+	if (key_id != asoc->active_key_id) {
+		sh_key = sctp_auth_get_shkey(asoc, key_id);
+		if (!sh_key)
+			return SCTP_IERROR_AUTH_BAD_KEYID;
+	}
 
 	/* Make sure that the length of the signature matches what
 	 * we expect.
@@ -4172,7 +4238,7 @@ static enum sctp_ierror sctp_sf_authenticate(
 
 	sctp_auth_calculate_hmac(asoc, chunk->skb,
 				 (struct sctp_auth_chunk *)chunk->chunk_hdr,
-				 GFP_ATOMIC);
+				 sh_key, GFP_ATOMIC);
 
 	/* Discard the packet if the digests do not match */
 	if (memcmp(save_digest, digest, sig_len)) {
@@ -4249,7 +4315,7 @@ enum sctp_disposition sctp_sf_eat_auth(struct net *net,
 		struct sctp_ulpevent *ev;
 
 		ev = sctp_ulpevent_make_authkey(asoc, ntohs(auth_hdr->shkey_id),
-				    SCTP_AUTH_NEWKEY, GFP_ATOMIC);
+				    SCTP_AUTH_NEW_KEY, GFP_ATOMIC);
 
 		if (!ev)
 			return -ENOMEM;

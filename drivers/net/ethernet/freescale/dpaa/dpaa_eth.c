@@ -454,6 +454,16 @@ static void dpaa_set_rx_mode(struct net_device *net_dev)
 				  err);
 	}
 
+	if (!!(net_dev->flags & IFF_ALLMULTI) != priv->mac_dev->allmulti) {
+		priv->mac_dev->allmulti = !priv->mac_dev->allmulti;
+		err = priv->mac_dev->set_allmulti(priv->mac_dev->fman_mac,
+						  priv->mac_dev->allmulti);
+		if (err < 0)
+			netif_err(priv, drv, net_dev,
+				  "mac_dev->set_allmulti() = %d\n",
+				  err);
+	}
+
 	err = priv->mac_dev->set_multi(net_dev, priv->mac_dev);
 	if (err < 0)
 		netif_err(priv, drv, net_dev, "mac_dev->set_multi() = %d\n",
@@ -2054,19 +2064,23 @@ static int dpaa_start_xmit(struct sk_buff *skb, struct net_device *net_dev)
 	/* MAX_SKB_FRAGS is equal or larger than our dpaa_SGT_MAX_ENTRIES;
 	 * make sure we don't feed FMan with more fragments than it supports.
 	 */
-	if (nonlinear &&
-	    likely(skb_shinfo(skb)->nr_frags < DPAA_SGT_MAX_ENTRIES)) {
+	if (unlikely(nonlinear &&
+		     (skb_shinfo(skb)->nr_frags >= DPAA_SGT_MAX_ENTRIES))) {
+		/* If the egress skb contains more fragments than we support
+		 * we have no choice but to linearize it ourselves.
+		 */
+		if (__skb_linearize(skb))
+			goto enomem;
+
+		nonlinear = skb_is_nonlinear(skb);
+	}
+
+	if (nonlinear) {
 		/* Just create a S/G fd based on the skb */
 		err = skb_to_sg_fd(priv, skb, &fd);
 		percpu_priv->tx_frag_skbuffs++;
 	} else {
-		/* If the egress skb contains more fragments than we support
-		 * we have no choice but to linearize it ourselves.
-		 */
-		if (unlikely(nonlinear) && __skb_linearize(skb))
-			goto enomem;
-
-		/* Finally, create a contig FD from this skb */
+		/* Create a contig FD from this skb */
 		err = skb_to_contig_fd(priv, skb, &fd, &offset);
 	}
 	if (unlikely(err < 0))
@@ -2203,14 +2217,8 @@ static enum qman_cb_dqrr_result rx_error_dqrr(struct qman_portal *portal,
 	if (dpaa_eth_napi_schedule(percpu_priv, portal))
 		return qman_cb_dqrr_stop;
 
-	if (dpaa_eth_refill_bpools(priv))
-		/* Unable to refill the buffer pool due to insufficient
-		 * system memory. Just release the frame back into the pool,
-		 * otherwise we'll soon end up with an empty buffer pool.
-		 */
-		dpaa_fd_release(net_dev, &dq->fd);
-	else
-		dpaa_rx_error(net_dev, priv, percpu_priv, &dq->fd, fq->fqid);
+	dpaa_eth_refill_bpools(priv);
+	dpaa_rx_error(net_dev, priv, percpu_priv, &dq->fd, fq->fqid);
 
 	return qman_cb_dqrr_consume;
 }
@@ -2769,7 +2777,7 @@ static int dpaa_eth_probe(struct platform_device *pdev)
 
 	priv->channel = (u16)channel;
 
-	/* Start a thread that will walk the CPUs with affine portals
+	/* Walk the CPUs with affine portals
 	 * and add this pool channel to each's dequeue mask.
 	 */
 	dpaa_eth_add_channel(priv->channel);

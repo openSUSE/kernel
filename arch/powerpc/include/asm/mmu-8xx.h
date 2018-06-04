@@ -186,16 +186,31 @@
 #define M_APG2		0x00000040
 #define M_APG3		0x00000060
 
+#ifdef CONFIG_PPC_MM_SLICES
+#include <asm/nohash/32/slice.h>
+#define SLICE_ARRAY_SIZE	(1 << (32 - SLICE_LOW_SHIFT - 1))
+#endif
+
 #ifndef __ASSEMBLY__
+struct slice_mask {
+	u64 low_slices;
+	DECLARE_BITMAP(high_slices, 0);
+};
+
 typedef struct {
 	unsigned int id;
 	unsigned int active;
 	unsigned long vdso_base;
 #ifdef CONFIG_PPC_MM_SLICES
 	u16 user_psize;		/* page size index */
-	u64 low_slices_psize;	/* page size encodings */
+	unsigned char low_slices_psize[SLICE_ARRAY_SIZE];
 	unsigned char high_slices_psize[0];
 	unsigned long slb_addr_limit;
+	struct slice_mask mask_base_psize; /* 4k or 16k */
+# ifdef CONFIG_HUGETLB_PAGE
+	struct slice_mask mask_512k;
+	struct slice_mask mask_8m;
+# endif
 #endif
 } mm_context_t;
 

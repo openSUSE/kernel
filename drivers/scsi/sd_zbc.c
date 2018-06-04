@@ -512,8 +512,9 @@ sd_zbc_alloc_zone_bitmap(u32 nr_zones, int numa_node)
  * sd_zbc_get_seq_zones - Parse report zones reply to identify sequential zones
  * @sdkp: disk used
  * @buf: report reply buffer
+ * @buflen: length of @buf
  * @zone_shift: logarithm base 2 of the number of blocks in a zone
- * @seq_zone_bitamp: bitmap of sequential zones to set
+ * @seq_zones_bitmap: bitmap of sequential zones to set
  *
  * Parse reported zone descriptors in @buf to identify sequential zones and
  * set the reported zone bit in @seq_zones_bitmap accordingly.
