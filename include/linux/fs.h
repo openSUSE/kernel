@@ -1364,9 +1364,9 @@ struct super_block {
 	void                    *s_security;
 #endif
 	const struct xattr_handler **s_xattr;
-
+#if IS_ENABLED(CONFIG_FS_ENCRYPTION)
 	const struct fscrypt_operations	*s_cop;
-
+#endif
 	struct hlist_bl_head	s_roots;	/* alternate root dentries for NFS */
 	struct list_head	s_mounts;	/* list of mounts; _not_ for fs use */
 	struct block_device	*s_bdev;
@@ -1595,6 +1595,11 @@ static inline void sb_start_pagefault(struct super_block *sb)
 static inline void sb_start_intwrite(struct super_block *sb)
 {
 	__sb_start_write(sb, SB_FREEZE_FS, true);
+}
+
+static inline int sb_start_intwrite_trylock(struct super_block *sb)
+{
+	return __sb_start_write(sb, SB_FREEZE_FS, false);
 }
 
 
