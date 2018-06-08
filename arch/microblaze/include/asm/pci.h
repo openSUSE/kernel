@@ -19,7 +19,6 @@
 #include <linux/scatterlist.h>
 
 #include <asm/io.h>
-#include <asm/prom.h>
 #include <asm/pci-bridge.h>
 
 #define PCIBIOS_MIN_IO		0x1000
@@ -61,10 +60,6 @@ extern int pci_mmap_legacy_page_range(struct pci_bus *bus,
 				      enum pci_mmap_state mmap_state);
 
 #define HAVE_PCI_LEGACY	1
-
-extern void pcibios_claim_one_bus(struct pci_bus *b);
-
-extern void pcibios_finish_adding_to_bus(struct pci_bus *bus);
 
 extern void pcibios_resource_survey(void);
 
