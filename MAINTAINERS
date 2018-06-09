@@ -9022,6 +9022,13 @@ L:	linux-wireless@vger.kernel.org
 S:	Maintained
 F:	drivers/net/wireless/mediatek/mt7601u/
 
+MEDIATEK NAND CONTROLLER DRIVER
+M:	Xiaolei Li <xiaolei.li@mediatek.com>
+L:	linux-mtd@lists.infradead.org
+S:	Maintained
+F:	drivers/mtd/nand/raw/mtk_*
+F:	Documentation/devicetree/bindings/mtd/mtk-nand.txt
+
 MEDIATEK RANDOM NUMBER GENERATOR SUPPORT
 M:	Sean Wang <sean.wang@mediatek.com>
 S:	Maintained
@@ -9666,6 +9673,7 @@ F:	drivers/net/ethernet/myricom/myri10ge/
 
 NAND FLASH SUBSYSTEM
 M:	Boris Brezillon <boris.brezillon@bootlin.com>
+M:	Miquel Raynal <miquel.raynal@bootlin.com>
 R:	Richard Weinberger <richard@nod.at>
 L:	linux-mtd@lists.infradead.org
 W:	http://www.linux-mtd.infradead.org/
@@ -11782,6 +11790,14 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/rkuo/linux-hexagon-kernel.g
 S:	Supported
 F:	arch/hexagon/
 
+QUALCOMM HIDMA DRIVER
+M:	Sinan Kaya <okaya@codeaurora.org>
+L:	linux-arm-kernel@lists.infradead.org
+L:	linux-arm-msm@vger.kernel.org
+L:	dmaengine@vger.kernel.org
+S:	Supported
+F:	drivers/dma/qcom/hidma*
+
 QUALCOMM IOMMU
 M:	Rob Clark <robdclark@gmail.com>
 L:	iommu@lists.linux-foundation.org
@@ -13592,6 +13608,12 @@ L:	netdev@vger.kernel.org
 S:	Supported
 F:	net/switchdev/
 F:	include/net/switchdev.h
+
+SY8106A REGULATOR DRIVER
+M:	Icenowy Zheng <icenowy@aosc.io>
+S:	Maintained
+F:	drivers/regulator/sy8106a-regulator.c
+F:	Documentation/devicetree/bindings/regulator/sy8106a-regulator.txt
 
 SYNC FILE FRAMEWORK
 M:	Sumit Semwal <sumit.semwal@linaro.org>
