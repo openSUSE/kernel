@@ -1419,6 +1419,7 @@ M:	Shawn Guo <shawnguo@kernel.org>
 M:	Sascha Hauer <s.hauer@pengutronix.de>
 R:	Pengutronix Kernel Team <kernel@pengutronix.de>
 R:	Fabio Estevam <fabio.estevam@nxp.com>
+R:	NXP Linux Team <linux-imx@nxp.com>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux.git
@@ -1829,7 +1830,7 @@ F:	drivers/spi/spi-qup.c
 F:	drivers/tty/serial/msm_serial.c
 F:	drivers/*/pm8???-*
 F:	drivers/mfd/ssbi.c
-F:	drivers/firmware/qcom_scm.c
+F:	drivers/firmware/qcom_scm*
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/agross/linux.git
 
 ARM/RADISYS ENP2611 MACHINE SUPPORT
@@ -2606,6 +2607,7 @@ BACKLIGHT CLASS/SUBSYSTEM
 M:	Lee Jones <lee.jones@linaro.org>
 M:	Daniel Thompson <daniel.thompson@linaro.org>
 M:	Jingoo Han <jingoohan1@gmail.com>
+L:	dri-devel@lists.freedesktop.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/lee/backlight.git
 S:	Maintained
 F:	drivers/video/backlight/
@@ -13561,6 +13563,16 @@ L:	linux-media@vger.kernel.org
 T:	git git://linuxtv.org/media_tree.git
 S:	Maintained
 F:	drivers/media/usb/stk1160/
+
+STM32 TIMER/LPTIMER DRIVERS
+M:	Fabrice Gasnier <fabrice.gasnier@st.com>
+S:	Maintained
+F:	drivers/*/stm32-*timer*
+F:	drivers/pwm/pwm-stm32*
+F:	include/linux/*/stm32-*tim*
+F:	Documentation/ABI/testing/*timer-stm32
+F:	Documentation/devicetree/bindings/*/stm32-*timer
+F:	Documentation/devicetree/bindings/pwm/pwm-stm32*
 
 STMMAC ETHERNET DRIVER
 M:	Giuseppe Cavallaro <peppe.cavallaro@st.com>
