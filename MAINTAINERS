@@ -12179,7 +12179,7 @@ F:	drivers/mtd/nand/raw/r852.h
 
 RISC-V ARCHITECTURE
 M:	Palmer Dabbelt <palmer@sifive.com>
-M:	Albert Ou <albert@sifive.com>
+M:	Albert Ou <aou@eecs.berkeley.edu>
 L:	linux-riscv@lists.infradead.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/palmer/riscv-linux.git
 S:	Supported
@@ -12938,6 +12938,14 @@ F:	drivers/media/common/siano/
 F:	drivers/media/usb/siano/
 F:	drivers/media/usb/siano/
 F:	drivers/media/mmc/siano/
+
+SIFIVE DRIVERS
+M:	Palmer Dabbelt <palmer@sifive.com>
+L:	linux-riscv@lists.infradead.org
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/palmer/riscv-linux.git
+S:	Supported
+K:	sifive
+N:	sifive
 
 SILEAD TOUCHSCREEN DRIVER
 M:	Hans de Goede <hdegoede@redhat.com>
@@ -15007,8 +15015,7 @@ F:	drivers/media/usb/zr364xx/
 USER-MODE LINUX (UML)
 M:	Jeff Dike <jdike@addtoit.com>
 M:	Richard Weinberger <richard@nod.at>
-L:	user-mode-linux-devel@lists.sourceforge.net
-L:	user-mode-linux-user@lists.sourceforge.net
+L:	linux-um@lists.infradead.org
 W:	http://user-mode-linux.sourceforge.net
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/rw/uml.git
 S:	Maintained
