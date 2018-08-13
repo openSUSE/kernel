@@ -973,7 +973,7 @@ static int netsec_alloc_dring(struct netsec_priv *priv, enum ring_id id)
 		goto err;
 	}
 
-	dring->desc = kzalloc(DESC_NUM * sizeof(*dring->desc), GFP_KERNEL);
+	dring->desc = kcalloc(DESC_NUM, sizeof(*dring->desc), GFP_KERNEL);
 	if (!dring->desc) {
 		ret = -ENOMEM;
 		goto err;
@@ -1317,8 +1317,8 @@ static int netsec_netdev_open(struct net_device *ndev)
 	napi_enable(&priv->napi);
 	netif_start_queue(ndev);
 
-	/* Enable RX intr. */
-	netsec_write(priv, NETSEC_REG_INTEN_SET, NETSEC_IRQ_RX);
+	/* Enable TX+RX intr. */
+	netsec_write(priv, NETSEC_REG_INTEN_SET, NETSEC_IRQ_RX | NETSEC_IRQ_TX);
 
 	return 0;
 err3:

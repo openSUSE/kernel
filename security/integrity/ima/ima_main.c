@@ -32,8 +32,6 @@
 
 #include "ima.h"
 
-int ima_initialized;
-
 #ifdef CONFIG_IMA_APPRAISE
 int ima_appraise = IMA_APPRAISE_ENFORCE;
 #else
@@ -61,14 +59,11 @@ static int __init hash_setup(char *str)
 		goto out;
 	}
 
-	for (i = 0; i < HASH_ALGO__LAST; i++) {
-		if (strcmp(str, hash_algo_name[i]) == 0) {
-			ima_hash_algo = i;
-			break;
-		}
-	}
-	if (i == HASH_ALGO__LAST)
+	i = match_string(hash_algo_name, HASH_ALGO__LAST, str);
+	if (i < 0)
 		return 1;
+
+	ima_hash_algo = i;
 out:
 	hash_setup_done = 1;
 	return 1;
@@ -518,10 +513,9 @@ static int __init init_ima(void)
 		error = ima_init();
 	}
 
-	if (!error) {
-		ima_initialized = 1;
+	if (!error)
 		ima_update_policy_flag();
-	}
+
 	return error;
 }
 

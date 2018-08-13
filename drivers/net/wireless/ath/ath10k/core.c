@@ -90,6 +90,8 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = 0x20,
 		.target_64bit = false,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL,
+		.shadow_reg_support = false,
+		.rri_on_ddr = false,
 	},
 	{
 		.id = QCA988X_HW_2_0_VERSION,
@@ -119,6 +121,9 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = 0x20,
 		.target_64bit = false,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL,
+		.per_ce_irq = false,
+		.shadow_reg_support = false,
+		.rri_on_ddr = false,
 	},
 	{
 		.id = QCA9887_HW_1_0_VERSION,
@@ -148,6 +153,9 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = 0x20,
 		.target_64bit = false,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL,
+		.per_ce_irq = false,
+		.shadow_reg_support = false,
+		.rri_on_ddr = false,
 	},
 	{
 		.id = QCA6174_HW_2_1_VERSION,
@@ -176,6 +184,9 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = 0x20,
 		.target_64bit = false,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL,
+		.per_ce_irq = false,
+		.shadow_reg_support = false,
+		.rri_on_ddr = false,
 	},
 	{
 		.id = QCA6174_HW_2_1_VERSION,
@@ -204,6 +215,9 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = 0x20,
 		.target_64bit = false,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL,
+		.per_ce_irq = false,
+		.shadow_reg_support = false,
+		.rri_on_ddr = false,
 	},
 	{
 		.id = QCA6174_HW_3_0_VERSION,
@@ -232,6 +246,9 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = 0x20,
 		.target_64bit = false,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL,
+		.per_ce_irq = false,
+		.shadow_reg_support = false,
+		.rri_on_ddr = false,
 	},
 	{
 		.id = QCA6174_HW_3_2_VERSION,
@@ -263,6 +280,9 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = 0x20,
 		.target_64bit = false,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL,
+		.per_ce_irq = false,
+		.shadow_reg_support = false,
+		.rri_on_ddr = false,
 	},
 	{
 		.id = QCA99X0_HW_2_0_DEV_VERSION,
@@ -297,6 +317,9 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = 0x20,
 		.target_64bit = false,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL,
+		.per_ce_irq = false,
+		.shadow_reg_support = false,
+		.rri_on_ddr = false,
 	},
 	{
 		.id = QCA9984_HW_1_0_DEV_VERSION,
@@ -336,6 +359,9 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = 0x20,
 		.target_64bit = false,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL,
+		.per_ce_irq = false,
+		.shadow_reg_support = false,
+		.rri_on_ddr = false,
 	},
 	{
 		.id = QCA9888_HW_2_0_DEV_VERSION,
@@ -374,6 +400,9 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = 0x20,
 		.target_64bit = false,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL,
+		.per_ce_irq = false,
+		.shadow_reg_support = false,
+		.rri_on_ddr = false,
 	},
 	{
 		.id = QCA9377_HW_1_0_DEV_VERSION,
@@ -402,6 +431,9 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = 0x20,
 		.target_64bit = false,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL,
+		.per_ce_irq = false,
+		.shadow_reg_support = false,
+		.rri_on_ddr = false,
 	},
 	{
 		.id = QCA9377_HW_1_1_DEV_VERSION,
@@ -432,6 +464,9 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = 0x20,
 		.target_64bit = false,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL,
+		.per_ce_irq = false,
+		.shadow_reg_support = false,
+		.rri_on_ddr = false,
 	},
 	{
 		.id = QCA4019_HW_1_0_DEV_VERSION,
@@ -467,6 +502,9 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = 0x20,
 		.target_64bit = false,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL,
+		.per_ce_irq = false,
+		.shadow_reg_support = false,
+		.rri_on_ddr = false,
 	},
 	{
 		.id = WCN3990_HW_1_0_DEV_VERSION,
@@ -487,6 +525,9 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.num_wds_entries = TARGET_HL_10_TLV_NUM_WDS_ENTRIES,
 		.target_64bit = true,
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL_DUAL_MAC,
+		.per_ce_irq = true,
+		.shadow_reg_support = true,
+		.rri_on_ddr = true,
 	},
 };
 
@@ -653,7 +694,7 @@ static const struct firmware *ath10k_fetch_fw_file(struct ath10k *ar,
 		dir = ".";
 
 	snprintf(filename, sizeof(filename), "%s/%s", dir, file);
-	ret = request_firmware(&fw, filename, ar->dev);
+	ret = firmware_request_nowarn(&fw, filename, ar->dev);
 	ath10k_dbg(ar, ATH10K_DBG_BOOT, "boot fw request '%s': %d\n",
 		   filename, ret);
 
@@ -2482,6 +2523,14 @@ static int ath10k_core_probe_fw(struct ath10k *ar)
 		ar->hw->wiphy->hw_version = target_info.version;
 		break;
 	case ATH10K_BUS_SNOC:
+		memset(&target_info, 0, sizeof(target_info));
+		ret = ath10k_hif_get_target_info(ar, &target_info);
+		if (ret) {
+			ath10k_err(ar, "could not get target info (%d)\n", ret);
+			goto err_power_down;
+		}
+		ar->target_version = target_info.version;
+		ar->hw->wiphy->hw_version = target_info.version;
 		break;
 	default:
 		ath10k_err(ar, "incorrect hif bus type: %d\n", ar->hif.bus);

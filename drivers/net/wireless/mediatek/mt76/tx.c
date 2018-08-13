@@ -332,7 +332,7 @@ mt76_txq_send_burst(struct mt76_dev *dev, struct mt76_queue *hwq,
 		if (probe)
 			break;
 
-		if (test_bit(MT76_SCANNING, &dev->state) ||
+		if (test_bit(MT76_OFFCHANNEL, &dev->state) ||
 		    test_bit(MT76_RESET, &dev->state))
 			return -EBUSY;
 
@@ -384,6 +384,10 @@ restart:
 	while (!list_empty(&hwq->swq)) {
 		bool empty = false;
 		int cur;
+
+		if (test_bit(MT76_OFFCHANNEL, &dev->state) ||
+		    test_bit(MT76_RESET, &dev->state))
+			return -EBUSY;
 
 		mtxq = list_first_entry(&hwq->swq, struct mt76_txq, list);
 		if (mtxq->send_bar && mtxq->aggr) {

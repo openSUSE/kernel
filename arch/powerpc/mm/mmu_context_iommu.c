@@ -169,7 +169,7 @@ long mm_iommu_get(struct mm_struct *mm, unsigned long ua, unsigned long entries,
 	 * smaller than huge pages but still bigger than PAGE_SIZE.
 	 */
 	mem->pageshift = __ffs(ua | (entries << PAGE_SHIFT));
-	mem->hpas = vzalloc(entries * sizeof(mem->hpas[0]));
+	mem->hpas = vzalloc(array_size(entries, sizeof(mem->hpas[0])));
 	if (!mem->hpas) {
 		kfree(mem);
 		ret = -ENOMEM;

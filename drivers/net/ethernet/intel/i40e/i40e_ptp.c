@@ -1,29 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-/*******************************************************************************
- *
- * Intel Ethernet Controller XL710 Family Linux Driver
- * Copyright(c) 2013 - 2014 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * The full GNU General Public License is included in this distribution in
- * the file called "COPYING".
- *
- * Contact Information:
- * e1000-devel Mailing List <e1000-devel@lists.sourceforge.net>
- * Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
- *
- ******************************************************************************/
+/* Copyright(c) 2013 - 2018 Intel Corporation. */
 
 #include "i40e.h"
 #include <linux/ptp_classify.h>
@@ -341,7 +317,7 @@ void i40e_ptp_rx_hang(struct i40e_pf *pf)
  * This watchdog task is run periodically to make sure that we clear the Tx
  * timestamp logic if we don't obtain a timestamp in a reasonable amount of
  * time. It is unexpected in the normal case but if it occurs it results in
- * permanently prevent timestamps of future packets
+ * permanently preventing timestamps of future packets.
  **/
 void i40e_ptp_tx_hang(struct i40e_pf *pf)
 {
@@ -525,7 +501,7 @@ void i40e_ptp_set_increment(struct i40e_pf *pf)
 /**
  * i40e_ptp_get_ts_config - ioctl interface to read the HW timestamping
  * @pf: Board private structure
- * @ifreq: ioctl data
+ * @ifr: ioctl data
  *
  * Obtain the current hardware timestamping settigs as requested. To do this,
  * keep a shadow copy of the timestamp settings rather than attempting to
@@ -669,7 +645,7 @@ static int i40e_ptp_set_timestamp_mode(struct i40e_pf *pf,
 /**
  * i40e_ptp_set_ts_config - ioctl interface to control the HW timestamping
  * @pf: Board private structure
- * @ifreq: ioctl data
+ * @ifr: ioctl data
  *
  * Respond to the user filter requests and make the appropriate hardware
  * changes here. The XL710 cannot support splitting of the Tx/Rx timestamping
@@ -823,9 +799,11 @@ void i40e_ptp_stop(struct i40e_pf *pf)
 	pf->ptp_rx = false;
 
 	if (pf->ptp_tx_skb) {
-		dev_kfree_skb_any(pf->ptp_tx_skb);
+		struct sk_buff *skb = pf->ptp_tx_skb;
+
 		pf->ptp_tx_skb = NULL;
 		clear_bit_unlock(__I40E_PTP_TX_IN_PROGRESS, pf->state);
+		dev_kfree_skb_any(skb);
 	}
 
 	if (pf->ptp_clock) {

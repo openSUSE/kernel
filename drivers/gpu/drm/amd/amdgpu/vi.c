@@ -305,9 +305,10 @@ static void vi_init_golden_registers(struct amdgpu_device *adev)
 							stoney_mgcg_cgcg_init,
 							ARRAY_SIZE(stoney_mgcg_cgcg_init));
 		break;
-	case CHIP_POLARIS11:
 	case CHIP_POLARIS10:
+	case CHIP_POLARIS11:
 	case CHIP_POLARIS12:
+	case CHIP_VEGAM:
 	default:
 		break;
 	}
@@ -919,6 +920,27 @@ static void vi_invalidate_hdp(struct amdgpu_device *adev,
 	}
 }
 
+static bool vi_need_full_reset(struct amdgpu_device *adev)
+{
+	switch (adev->asic_type) {
+	case CHIP_CARRIZO:
+	case CHIP_STONEY:
+		/* CZ has hang issues with full reset at the moment */
+		return false;
+	case CHIP_FIJI:
+	case CHIP_TONGA:
+		/* XXX: soft reset should work on fiji and tonga */
+		return true;
+	case CHIP_POLARIS10:
+	case CHIP_POLARIS11:
+	case CHIP_POLARIS12:
+	case CHIP_TOPAZ:
+	default:
+		/* change this when we support soft reset */
+		return true;
+	}
+}
+
 static const struct amdgpu_asic_funcs vi_asic_funcs =
 {
 	.read_disabled_bios = &vi_read_disabled_bios,
@@ -932,6 +954,7 @@ static const struct amdgpu_asic_funcs vi_asic_funcs =
 	.get_config_memsize = &vi_get_config_memsize,
 	.flush_hdp = &vi_flush_hdp,
 	.invalidate_hdp = &vi_invalidate_hdp,
+	.need_full_reset = &vi_need_full_reset,
 };
 
 #define CZ_REV_BRISTOL(rev)	 \
@@ -1073,6 +1096,30 @@ static int vi_common_early_init(void *handle)
 			AMD_CG_SUPPORT_VCE_MGCG;
 		adev->pg_flags = 0;
 		adev->external_rev_id = adev->rev_id + 0x64;
+		break;
+	case CHIP_VEGAM:
+		adev->cg_flags = 0;
+			/*AMD_CG_SUPPORT_GFX_MGCG |
+			AMD_CG_SUPPORT_GFX_RLC_LS |
+			AMD_CG_SUPPORT_GFX_CP_LS |
+			AMD_CG_SUPPORT_GFX_CGCG |
+			AMD_CG_SUPPORT_GFX_CGLS |
+			AMD_CG_SUPPORT_GFX_3D_CGCG |
+			AMD_CG_SUPPORT_GFX_3D_CGLS |
+			AMD_CG_SUPPORT_SDMA_MGCG |
+			AMD_CG_SUPPORT_SDMA_LS |
+			AMD_CG_SUPPORT_BIF_MGCG |
+			AMD_CG_SUPPORT_BIF_LS |
+			AMD_CG_SUPPORT_HDP_MGCG |
+			AMD_CG_SUPPORT_HDP_LS |
+			AMD_CG_SUPPORT_ROM_MGCG |
+			AMD_CG_SUPPORT_MC_MGCG |
+			AMD_CG_SUPPORT_MC_LS |
+			AMD_CG_SUPPORT_DRM_LS |
+			AMD_CG_SUPPORT_UVD_MGCG |
+			AMD_CG_SUPPORT_VCE_MGCG;*/
+		adev->pg_flags = 0;
+		adev->external_rev_id = adev->rev_id + 0x6E;
 		break;
 	case CHIP_CARRIZO:
 		adev->cg_flags = AMD_CG_SUPPORT_UVD_MGCG |
@@ -1465,6 +1512,7 @@ static int vi_common_set_clockgating_state(void *handle,
 	case CHIP_POLARIS10:
 	case CHIP_POLARIS11:
 	case CHIP_POLARIS12:
+	case CHIP_VEGAM:
 		vi_common_set_clockgating_state_by_smu(adev, state);
 	default:
 		break;
@@ -1594,9 +1642,10 @@ int vi_set_ip_blocks(struct amdgpu_device *adev)
 			amdgpu_device_ip_block_add(adev, &vce_v3_0_ip_block);
 		}
 		break;
-	case CHIP_POLARIS11:
 	case CHIP_POLARIS10:
+	case CHIP_POLARIS11:
 	case CHIP_POLARIS12:
+	case CHIP_VEGAM:
 		amdgpu_device_ip_block_add(adev, &vi_common_ip_block);
 		amdgpu_device_ip_block_add(adev, &gmc_v8_1_ip_block);
 		amdgpu_device_ip_block_add(adev, &tonga_ih_ip_block);

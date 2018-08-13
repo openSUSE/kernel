@@ -38,6 +38,8 @@
 #include <core/tegra.h>
 
 #include <nvif/driver.h>
+#include <nvif/fifo.h>
+#include <nvif/user.h>
 
 #include <nvif/class.h>
 #include <nvif/cl0002.h>
@@ -309,6 +311,16 @@ nouveau_accel_init(struct nouveau_drm *drm)
 	if (nouveau_noaccel)
 		return;
 
+	ret = nouveau_channels_init(drm);
+	if (ret)
+		return;
+
+	if (drm->client.device.info.family >= NV_DEVICE_INFO_V0_VOLTA) {
+		ret = nvif_user_init(device);
+		if (ret)
+			return;
+	}
+
 	/* initialise synchronisation routines */
 	/*XXX: this is crap, but the fence/channel stuff is a little
 	 *     backwards in some places.  this will be fixed.
@@ -340,6 +352,7 @@ nouveau_accel_init(struct nouveau_drm *drm)
 		case KEPLER_CHANNEL_GPFIFO_B:
 		case MAXWELL_CHANNEL_GPFIFO_A:
 		case PASCAL_CHANNEL_GPFIFO_A:
+		case VOLTA_CHANNEL_GPFIFO_A:
 			ret = nvc0_fence_create(drm);
 			break;
 		default:
@@ -356,13 +369,12 @@ nouveau_accel_init(struct nouveau_drm *drm)
 
 	if (device->info.family >= NV_DEVICE_INFO_V0_KEPLER) {
 		ret = nouveau_channel_new(drm, &drm->client.device,
-					  NVA06F_V0_ENGINE_CE0 |
-					  NVA06F_V0_ENGINE_CE1,
-					  0, &drm->cechan);
+					  nvif_fifo_runlist_ce(device), 0,
+					  &drm->cechan);
 		if (ret)
 			NV_ERROR(drm, "failed to create ce channel, %d\n", ret);
 
-		arg0 = NVA06F_V0_ENGINE_GR;
+		arg0 = nvif_fifo_runlist(device, NV_DEVICE_INFO_ENGINE_GR);
 		arg1 = 1;
 	} else
 	if (device->info.chipset >= 0xa3 &&
@@ -388,36 +400,34 @@ nouveau_accel_init(struct nouveau_drm *drm)
 		return;
 	}
 
-	ret = nvif_object_init(&drm->channel->user, NVDRM_NVSW,
-			       nouveau_abi16_swclass(drm), NULL, 0, &drm->nvsw);
-	if (ret == 0) {
-		ret = RING_SPACE(drm->channel, 2);
+	if (device->info.family < NV_DEVICE_INFO_V0_TESLA) {
+		ret = nvif_object_init(&drm->channel->user, NVDRM_NVSW,
+				       nouveau_abi16_swclass(drm), NULL, 0,
+				       &drm->nvsw);
 		if (ret == 0) {
-			if (device->info.family < NV_DEVICE_INFO_V0_FERMI) {
+			ret = RING_SPACE(drm->channel, 2);
+			if (ret == 0) {
 				BEGIN_NV04(drm->channel, NvSubSw, 0, 1);
-				OUT_RING  (drm->channel, NVDRM_NVSW);
-			} else
-			if (device->info.family < NV_DEVICE_INFO_V0_KEPLER) {
-				BEGIN_NVC0(drm->channel, FermiSw, 0, 1);
-				OUT_RING  (drm->channel, 0x001f0000);
+				OUT_RING  (drm->channel, drm->nvsw.handle);
+			}
+
+			ret = nvif_notify_init(&drm->nvsw,
+					       nouveau_flip_complete,
+					       false, NV04_NVSW_NTFY_UEVENT,
+					       NULL, 0, 0, &drm->flip);
+			if (ret == 0)
+				ret = nvif_notify_get(&drm->flip);
+			if (ret) {
+				nouveau_accel_fini(drm);
+				return;
 			}
 		}
 
-		ret = nvif_notify_init(&drm->nvsw, nouveau_flip_complete,
-				       false, NV04_NVSW_NTFY_UEVENT,
-				       NULL, 0, 0, &drm->flip);
-		if (ret == 0)
-			ret = nvif_notify_get(&drm->flip);
 		if (ret) {
+			NV_ERROR(drm, "failed to allocate sw class, %d\n", ret);
 			nouveau_accel_fini(drm);
 			return;
 		}
-	}
-
-	if (ret) {
-		NV_ERROR(drm, "failed to allocate software object, %d\n", ret);
-		nouveau_accel_fini(drm);
-		return;
 	}
 
 	if (device->info.family < NV_DEVICE_INFO_V0_FERMI) {

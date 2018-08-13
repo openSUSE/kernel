@@ -1130,24 +1130,13 @@ EXPORT_SYMBOL(sock_create_lite);
 /* No kernel lock held - perfect */
 static __poll_t sock_poll(struct file *file, poll_table *wait)
 {
-	__poll_t busy_flag = 0;
-	struct socket *sock;
+	struct socket *sock = file->private_data;
+	__poll_t events = poll_requested_events(wait);
 
-	/*
-	 *      We can't return errors to poll, so it's either yes or no.
-	 */
-	sock = file->private_data;
-
-	if (sk_can_busy_loop(sock->sk)) {
-		/* this socket can poll_ll so tell the system call */
-		busy_flag = POLL_BUSY_LOOP;
-
-		/* once, only if requested by syscall */
-		if (wait && (wait->_key & POLL_BUSY_LOOP))
-			sk_busy_loop(sock->sk, 1);
-	}
-
-	return busy_flag | sock->ops->poll(file, sock, wait);
+	sock_poll_busy_loop(sock, events);
+	if (!sock->ops->poll)
+		return 0;
+	return sock->ops->poll(file, sock, wait) | sock_poll_busy_flag(sock);
 }
 
 static int sock_mmap(struct file *file, struct vm_area_struct *vma)
@@ -1429,6 +1418,13 @@ int __sys_socketpair(int family, int type, int protocol, int __user *usockvec)
 
 	err = sock_create(family, type, protocol, &sock2);
 	if (unlikely(err < 0)) {
+		sock_release(sock1);
+		goto out;
+	}
+
+	err = security_socket_socketpair(sock1, sock2);
+	if (unlikely(err)) {
+		sock_release(sock2);
 		sock_release(sock1);
 		goto out;
 	}
