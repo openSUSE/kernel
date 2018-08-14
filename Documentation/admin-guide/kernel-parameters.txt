@@ -2835,8 +2835,6 @@
 
 	nosync		[HW,M68K] Disables sync negotiation for all devices.
 
-	notsc		[BUGS=X86-32] Disable Time Stamp Counter
-
 	nowatchdog	[KNL] Disable both lockup detectors, i.e.
 			soft-lockup and NMI watchdog (hard-lockup).
 
@@ -3632,8 +3630,8 @@
 			Set time (s) after boot for CPU-hotplug testing.
 
 	rcutorture.onoff_interval= [KNL]
-			Set time (s) between CPU-hotplug operations, or
-			zero to disable CPU-hotplug testing.
+			Set time (jiffies) between CPU-hotplug operations,
+			or zero to disable CPU-hotplug testing.
 
 	rcutorture.shuffle_interval= [KNL]
 			Set task-shuffle interval (s).  Shuffling tasks

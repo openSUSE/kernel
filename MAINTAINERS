@@ -8317,10 +8317,16 @@ M:	Jade Alglave <j.alglave@ucl.ac.uk>
 M:	Luc Maranget <luc.maranget@inria.fr>
 M:	"Paul E. McKenney" <paulmck@linux.vnet.ibm.com>
 R:	Akira Yokosawa <akiyks@gmail.com>
+R:	Daniel Lustig <dlustig@nvidia.com>
 L:	linux-kernel@vger.kernel.org
+L:	linux-arch@vger.kernel.org
 S:	Supported
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/paulmck/linux-rcu.git
 F:	tools/memory-model/
+F:	Documentation/atomic_bitops.txt
+F:	Documentation/atomic_t.txt
+F:	Documentation/core-api/atomic_ops.rst
+F:	Documentation/core-api/refcount-vs-atomic.rst
 F:	Documentation/memory-barriers.txt
 
 LINUX SECURITY MODULE (LSM) FRAMEWORK
@@ -12039,9 +12045,9 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/paulmck/linux-rcu.git
 F:	Documentation/RCU/
 X:	Documentation/RCU/torture.txt
 F:	include/linux/rcu*
-X:	include/linux/srcu.h
+X:	include/linux/srcu*.h
 F:	kernel/rcu/
-X:	kernel/torture.c
+X:	kernel/rcu/srcu*.c
 
 REAL TIME CLOCK (RTC) SUBSYSTEM
 M:	Alessandro Zummo <a.zummo@towertech.it>
@@ -12402,7 +12408,6 @@ F:	drivers/pci/hotplug/s390_pci_hpc.c
 
 S390 VFIO-CCW DRIVER
 M:	Cornelia Huck <cohuck@redhat.com>
-M:	Dong Jia Shi <bjsdjshi@linux.ibm.com>
 M:	Halil Pasic <pasic@linux.ibm.com>
 L:	linux-s390@vger.kernel.org
 L:	kvm@vger.kernel.org
@@ -13078,8 +13083,8 @@ L:	linux-kernel@vger.kernel.org
 W:	http://www.rdrop.com/users/paulmck/RCU/
 S:	Supported
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/paulmck/linux-rcu.git
-F:	include/linux/srcu.h
-F:	kernel/rcu/srcu.c
+F:	include/linux/srcu*.h
+F:	kernel/rcu/srcu*.c
 
 SERIAL LOW-POWER INTER-CHIP MEDIA BUS (SLIMbus)
 M:	Srinivas Kandagatla <srinivas.kandagatla@linaro.org>
@@ -14438,6 +14443,7 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/paulmck/linux-rcu.git
 F:	Documentation/RCU/torture.txt
 F:	kernel/torture.c
 F:	kernel/rcu/rcutorture.c
+F:	kernel/rcu/rcuperf.c
 F:	kernel/locking/locktorture.c
 
 TOSHIBA ACPI EXTRAS DRIVER
