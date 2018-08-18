@@ -199,12 +199,13 @@ F:	drivers/net/ethernet/8390/
 
 9P FILE SYSTEM
 M:	Eric Van Hensbergen <ericvh@gmail.com>
-M:	Ron Minnich <rminnich@sandia.gov>
 M:	Latchesar Ionkov <lucho@ionkov.net>
+M:	Dominique Martinet <asmadeus@codewreck.org>
 L:	v9fs-developer@lists.sourceforge.net
 W:	http://swik.net/v9fs
 Q:	http://patchwork.kernel.org/project/v9fs-devel/list/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/ericvh/v9fs.git
+T:	git git://github.com/martinetd/linux.git
 S:	Maintained
 F:	Documentation/filesystems/9p.txt
 F:	fs/9p/
@@ -812,11 +813,6 @@ L:	netdev@vger.kernel.org
 S:	Supported
 F:	drivers/net/ethernet/amd/xgbe/
 F:	arch/arm64/boot/dts/amd/amd-seattle-xgbe*.dtsi
-
-AMS (Apple Motion Sensor) DRIVER
-M:	Michael Hanselmann <linux-kernel@hansmi.ch>
-S:	Supported
-F:	drivers/macintosh/ams/
 
 ANALOG DEVICES INC AD5686 DRIVER
 M:	Stefan Popa <stefan.popa@analog.com>
@@ -3541,7 +3537,6 @@ F:	drivers/net/ethernet/cisco/enic/
 
 CISCO VIC LOW LATENCY NIC DRIVER
 M:	Christian Benvenuti <benve@cisco.com>
-M:	Dave Goodell <dgoodell@cisco.com>
 S:	Supported
 F:	drivers/infiniband/hw/usnic/
 
@@ -7628,9 +7623,8 @@ S:	Maintained
 F:	drivers/firmware/iscsi_ibft*
 
 ISCSI EXTENSIONS FOR RDMA (ISER) INITIATOR
-M:	Or Gerlitz <ogerlitz@mellanox.com>
 M:	Sagi Grimberg <sagi@grimberg.me>
-M:	Roi Dayan <roid@mellanox.com>
+M:	Max Gurtovoy <maxg@mellanox.com>
 L:	linux-rdma@vger.kernel.org
 S:	Supported
 W:	http://www.openfabrics.org
@@ -12759,14 +12753,20 @@ S:	Maintained
 F:	drivers/scsi/sr*
 
 SCSI RDMA PROTOCOL (SRP) INITIATOR
-M:	Bart Van Assche <bart.vanassche@sandisk.com>
+M:	Bart Van Assche <bvanassche@acm.org>
 L:	linux-rdma@vger.kernel.org
 S:	Supported
-W:	http://www.openfabrics.org
 Q:	http://patchwork.kernel.org/project/linux-rdma/list/
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/dad/srp-initiator.git
 F:	drivers/infiniband/ulp/srp/
 F:	include/scsi/srp.h
+
+SCSI RDMA PROTOCOL (SRP) TARGET
+M:	Bart Van Assche <bvanassche@acm.org>
+L:	linux-rdma@vger.kernel.org
+L:	target-devel@vger.kernel.org
+S:	Supported
+Q:	http://patchwork.kernel.org/project/linux-rdma/list/
+F:	drivers/infiniband/ulp/srpt/
 
 SCSI SG DRIVER
 M:	Doug Gilbert <dgilbert@interlog.com>
