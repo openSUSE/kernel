@@ -842,6 +842,13 @@ S:	Supported
 F:	drivers/mux/adgs1408.c
 F:	Documentation/devicetree/bindings/mux/adgs1408.txt
 
+ANALOG DEVICES INC ADP5061 DRIVER
+M:	Stefan Popa <stefan.popa@analog.com>
+L:	linux-pm@vger.kernel.org
+W:	http://ez.analog.com/community/linux-device-drivers
+S:	Supported
+F:	drivers/power/supply/adp5061.c
+
 ANALOG DEVICES INC ADV7180 DRIVER
 M:	Lars-Peter Clausen <lars@metafoo.de>
 L:	linux-media@vger.kernel.org
@@ -5960,6 +5967,14 @@ S:	Supported
 F:	fs/crypto/
 F:	include/linux/fscrypt*.h
 F:	Documentation/filesystems/fscrypt.rst
+
+FSI-ATTACHED I2C DRIVER
+M:	Eddie James <eajames@linux.vnet.ibm.com>
+L:	linux-i2c@vger.kernel.org
+L:	openbmc@lists.ozlabs.org (moderated for non-subscribers)
+S:	Maintained
+F:	drivers/i2c/busses/i2c-fsi.c
+F:	Documentation/devicetree/bindings/i2c/i2c-fsi.txt
 
 FSNOTIFY: FILESYSTEM NOTIFICATION INFRASTRUCTURE
 M:	Jan Kara <jack@suse.cz>
@@ -12013,6 +12028,14 @@ M:	Timur Tabi <timur@kernel.org>
 L:	netdev@vger.kernel.org
 S:	Maintained
 F:	drivers/net/ethernet/qualcomm/emac/
+
+QUALCOMM GENERIC INTERFACE I2C DRIVER
+M:	Alok Chauhan <alokc@codeaurora.org>
+M:	Karthikeyan Ramasubramanian <kramasub@codeaurora.org>
+L:	linux-i2c@vger.kernel.org
+L:	linux-arm-msm@vger.kernel.org
+S:	Supported
+F:	drivers/i2c/busses/i2c-qcom-geni.c
 
 QUALCOMM HEXAGON ARCHITECTURE
 M:	Richard Kuo <rkuo@codeaurora.org>
