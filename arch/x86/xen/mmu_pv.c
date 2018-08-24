@@ -67,6 +67,7 @@
 #include <asm/init.h>
 #include <asm/pat.h>
 #include <asm/smp.h>
+#include <asm/tlb.h>
 
 #include <asm/xen/hypercall.h>
 #include <asm/xen/hypervisor.h>
@@ -2171,6 +2172,8 @@ void __init xen_relocate_p2m(void)
 #else	/* !CONFIG_X86_64 */
 static RESERVE_BRK_ARRAY(pmd_t, initial_kernel_pmd, PTRS_PER_PMD);
 static RESERVE_BRK_ARRAY(pmd_t, swapper_kernel_pmd, PTRS_PER_PMD);
+RESERVE_BRK(fixup_kernel_pmd, PAGE_SIZE);
+RESERVE_BRK(fixup_kernel_pte, PAGE_SIZE);
 
 static void __init xen_write_cr3_init(unsigned long cr3)
 {
@@ -2397,6 +2400,7 @@ static const struct pv_mmu_ops xen_mmu_ops __initconst = {
 	.flush_tlb_kernel = xen_flush_tlb,
 	.flush_tlb_one_user = xen_flush_tlb_one_user,
 	.flush_tlb_others = xen_flush_tlb_others,
+	.tlb_remove_table = tlb_remove_table,
 
 	.pgd_alloc = xen_pgd_alloc,
 	.pgd_free = xen_pgd_free,
