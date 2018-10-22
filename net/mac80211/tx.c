@@ -214,6 +214,7 @@ ieee80211_tx_h_dynamic_ps(struct ieee80211_tx_data *tx)
 {
 	struct ieee80211_local *local = tx->local;
 	struct ieee80211_if_managed *ifmgd;
+	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(tx->skb);
 
 	/* driver doesn't support power save */
 	if (!ieee80211_hw_check(&local->hw, SUPPORTS_PS))
@@ -240,6 +241,9 @@ ieee80211_tx_h_dynamic_ps(struct ieee80211_tx_data *tx)
 
 	/* dynamic ps is supported only in managed mode */
 	if (tx->sdata->vif.type != NL80211_IFTYPE_STATION)
+		return TX_CONTINUE;
+
+	if (unlikely(info->flags & IEEE80211_TX_INTFL_OFFCHAN_TX_OK))
 		return TX_CONTINUE;
 
 	ifmgd = &tx->sdata->u.mgd;
@@ -825,6 +829,8 @@ ieee80211_tx_h_sequence(struct ieee80211_tx_data *tx)
 	 */
 	if (!ieee80211_is_data_qos(hdr->frame_control) ||
 	    is_multicast_ether_addr(hdr->addr1)) {
+		if (tx->flags & IEEE80211_TX_NO_SEQNO)
+			return TX_CONTINUE;
 		/* driver should assign sequence number */
 		info->flags |= IEEE80211_TX_CTL_ASSIGN_SEQ;
 		/* for pure STA mode without beacons, we can do it */
@@ -1247,7 +1253,7 @@ static struct txq_info *ieee80211_get_txq(struct ieee80211_local *local,
 	    (info->control.flags & IEEE80211_TX_CTRL_PS_RESPONSE))
 		return NULL;
 
-	if (!ieee80211_is_data(hdr->frame_control))
+	if (!ieee80211_is_data_present(hdr->frame_control))
 		return NULL;
 
 	if (sta) {
@@ -1854,7 +1860,7 @@ EXPORT_SYMBOL(ieee80211_tx_prepare_skb);
  */
 static bool ieee80211_tx(struct ieee80211_sub_if_data *sdata,
 			 struct sta_info *sta, struct sk_buff *skb,
-			 bool txpending)
+			 bool txpending, u32 txdata_flags)
 {
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_tx_data tx;
@@ -1872,6 +1878,8 @@ static bool ieee80211_tx(struct ieee80211_sub_if_data *sdata,
 	led_len = skb->len;
 	res_prepare = ieee80211_tx_prepare(sdata, &tx, sta, skb);
 
+	tx.flags |= txdata_flags;
+
 	if (unlikely(res_prepare == TX_DROP)) {
 		ieee80211_free_txskb(&local->hw, skb);
 		return true;
@@ -1886,7 +1894,7 @@ static bool ieee80211_tx(struct ieee80211_sub_if_data *sdata,
 			sdata->vif.hw_queue[skb_get_queue_mapping(skb)];
 
 	if (invoke_tx_handlers_early(&tx))
-		return false;
+		return true;
 
 	if (ieee80211_queue_skb(local, sdata, tx.sta, tx.skb))
 		return true;
@@ -1933,7 +1941,8 @@ static int ieee80211_skb_resize(struct ieee80211_sub_if_data *sdata,
 }
 
 void ieee80211_xmit(struct ieee80211_sub_if_data *sdata,
-		    struct sta_info *sta, struct sk_buff *skb)
+		    struct sta_info *sta, struct sk_buff *skb,
+		    u32 txdata_flags)
 {
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
@@ -1968,7 +1977,7 @@ void ieee80211_xmit(struct ieee80211_sub_if_data *sdata,
 	}
 
 	ieee80211_set_qos_hdr(sdata, skb);
-	ieee80211_tx(sdata, sta, skb, false);
+	ieee80211_tx(sdata, sta, skb, false, txdata_flags);
 }
 
 static bool ieee80211_parse_tx_radiotap(struct ieee80211_local *local,
@@ -2289,7 +2298,7 @@ netdev_tx_t ieee80211_monitor_start_xmit(struct sk_buff *skb,
 	if (!ieee80211_parse_tx_radiotap(local, skb))
 		goto fail_rcu;
 
-	ieee80211_xmit(sdata, NULL, skb);
+	ieee80211_xmit(sdata, NULL, skb, 0);
 	rcu_read_unlock();
 
 	return NETDEV_TX_OK;
@@ -3654,7 +3663,7 @@ void __ieee80211_subif_start_xmit(struct sk_buff *skb,
 
 		ieee80211_tx_stats(dev, skb->len);
 
-		ieee80211_xmit(sdata, sta, skb);
+		ieee80211_xmit(sdata, sta, skb, 0);
 	}
 	goto out;
  out_free:
@@ -3873,7 +3882,7 @@ static bool ieee80211_tx_pending_skb(struct ieee80211_local *local,
 			return true;
 		}
 		info->band = chanctx_conf->def.chan->band;
-		result = ieee80211_tx(sdata, NULL, skb, true);
+		result = ieee80211_tx(sdata, NULL, skb, true, 0);
 	} else {
 		struct sk_buff_head skbs;
 
@@ -4789,7 +4798,7 @@ EXPORT_SYMBOL(ieee80211_unreserve_tid);
 
 void __ieee80211_tx_skb_tid_band(struct ieee80211_sub_if_data *sdata,
 				 struct sk_buff *skb, int tid,
-				 enum nl80211_band band)
+				 enum nl80211_band band, u32 txdata_flags)
 {
 	int ac = ieee80211_ac_from_tid(tid);
 
@@ -4806,7 +4815,7 @@ void __ieee80211_tx_skb_tid_band(struct ieee80211_sub_if_data *sdata,
 	 */
 	local_bh_disable();
 	IEEE80211_SKB_CB(skb)->band = band;
-	ieee80211_xmit(sdata, NULL, skb);
+	ieee80211_xmit(sdata, NULL, skb, txdata_flags);
 	local_bh_enable();
 }
 

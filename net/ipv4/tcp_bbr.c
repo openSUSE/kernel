@@ -206,7 +206,11 @@ static u32 bbr_bw(const struct sock *sk)
  */
 static u64 bbr_rate_bytes_per_sec(struct sock *sk, u64 rate, int gain)
 {
-	rate *= tcp_mss_to_mtu(sk, tcp_sk(sk)->mss_cache);
+	unsigned int mss = tcp_sk(sk)->mss_cache;
+
+	if (!tcp_needs_internal_pacing(sk))
+		mss = tcp_mss_to_mtu(sk, mss);
+	rate *= mss;
 	rate *= gain;
 	rate >>= BBR_SCALE;
 	rate *= USEC_PER_SEC;
@@ -416,10 +420,10 @@ static void bbr_set_cwnd(struct sock *sk, const struct rate_sample *rs,
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct bbr *bbr = inet_csk_ca(sk);
-	u32 cwnd = 0, target_cwnd = 0;
+	u32 cwnd = tp->snd_cwnd, target_cwnd = 0;
 
 	if (!acked)
-		return;
+		goto done;  /* no packet fully ACKed; just apply caps */
 
 	if (bbr_set_cwnd_to_recover_or_restore(sk, rs, acked, &cwnd))
 		goto done;

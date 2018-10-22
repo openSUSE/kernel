@@ -177,6 +177,35 @@ static void clear_stage2_pmd_entry(struct kvm *kvm, pmd_t *pmd, phys_addr_t addr
 	put_page(virt_to_page(pmd));
 }
 
+static inline void kvm_set_pte(pte_t *ptep, pte_t new_pte)
+{
+	WRITE_ONCE(*ptep, new_pte);
+	dsb(ishst);
+}
+
+static inline void kvm_set_pmd(pmd_t *pmdp, pmd_t new_pmd)
+{
+	WRITE_ONCE(*pmdp, new_pmd);
+	dsb(ishst);
+}
+
+static inline void kvm_pmd_populate(pmd_t *pmdp, pte_t *ptep)
+{
+	kvm_set_pmd(pmdp, kvm_mk_pmd(ptep));
+}
+
+static inline void kvm_pud_populate(pud_t *pudp, pmd_t *pmdp)
+{
+	WRITE_ONCE(*pudp, kvm_mk_pud(pmdp));
+	dsb(ishst);
+}
+
+static inline void kvm_pgd_populate(pgd_t *pgdp, pud_t *pudp)
+{
+	WRITE_ONCE(*pgdp, kvm_mk_pgd(pudp));
+	dsb(ishst);
+}
+
 /*
  * Unmapping vs dcache management:
  *
@@ -196,6 +225,10 @@ static void clear_stage2_pmd_entry(struct kvm *kvm, pmd_t *pmd, phys_addr_t addr
  * This is why right after unmapping a page/section and invalidating
  * the corresponding TLBs, we call kvm_flush_dcache_p*() to make sure
  * the IO subsystem will never hit in the cache.
+ *
+ * This is all avoided on systems that have ARM64_HAS_STAGE2_FWB, as
+ * we then fully enforce cacheability of RAM, no matter what the guest
+ * does.
  */
 static void unmap_stage2_ptes(struct kvm *kvm, pmd_t *pmd,
 		       phys_addr_t addr, phys_addr_t end)
@@ -576,7 +609,6 @@ static void create_hyp_pte_mappings(pmd_t *pmd, unsigned long start,
 		pte = pte_offset_kernel(pmd, addr);
 		kvm_set_pte(pte, pfn_pte(pfn, prot));
 		get_page(virt_to_page(pte));
-		kvm_flush_dcache_to_poc(pte, sizeof(*pte));
 		pfn++;
 	} while (addr += PAGE_SIZE, addr != end);
 }
@@ -601,9 +633,8 @@ static int create_hyp_pmd_mappings(pud_t *pud, unsigned long start,
 				kvm_err("Cannot allocate Hyp pte\n");
 				return -ENOMEM;
 			}
-			pmd_populate_kernel(NULL, pmd, pte);
+			kvm_pmd_populate(pmd, pte);
 			get_page(virt_to_page(pmd));
-			kvm_flush_dcache_to_poc(pmd, sizeof(*pmd));
 		}
 
 		next = pmd_addr_end(addr, end);
@@ -634,9 +665,8 @@ static int create_hyp_pud_mappings(pgd_t *pgd, unsigned long start,
 				kvm_err("Cannot allocate Hyp pmd\n");
 				return -ENOMEM;
 			}
-			pud_populate(NULL, pud, pmd);
+			kvm_pud_populate(pud, pmd);
 			get_page(virt_to_page(pud));
-			kvm_flush_dcache_to_poc(pud, sizeof(*pud));
 		}
 
 		next = pud_addr_end(addr, end);
@@ -671,9 +701,8 @@ static int __create_hyp_mappings(pgd_t *pgdp, unsigned long ptrs_per_pgd,
 				err = -ENOMEM;
 				goto out;
 			}
-			pgd_populate(NULL, pgd, pud);
+			kvm_pgd_populate(pgd, pud);
 			get_page(virt_to_page(pgd));
-			kvm_flush_dcache_to_poc(pgd, sizeof(*pgd));
 		}
 
 		next = pgd_addr_end(addr, end);
@@ -1106,7 +1135,7 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		if (!cache)
 			return 0; /* ignore calls from kvm_set_spte_hva */
 		pte = mmu_memory_cache_alloc(cache);
-		pmd_populate_kernel(NULL, pmd, pte);
+		kvm_pmd_populate(pmd, pte);
 		get_page(virt_to_page(pmd));
 	}
 
@@ -1785,18 +1814,6 @@ static int handle_hva_to_gpa(struct kvm *kvm,
 static int kvm_unmap_hva_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data)
 {
 	unmap_stage2_range(kvm, gpa, size);
-	return 0;
-}
-
-int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
-{
-	unsigned long end = hva + PAGE_SIZE;
-
-	if (!kvm->arch.pgd)
-		return 0;
-
-	trace_kvm_unmap_hva(hva);
-	handle_hva_to_gpa(kvm, hva, end, &kvm_unmap_hva_handler, NULL);
 	return 0;
 }
 

@@ -596,11 +596,18 @@ static enum hrtimer_restart qdisc_watchdog(struct hrtimer *timer)
 	return HRTIMER_NORESTART;
 }
 
-void qdisc_watchdog_init(struct qdisc_watchdog *wd, struct Qdisc *qdisc)
+void qdisc_watchdog_init_clockid(struct qdisc_watchdog *wd, struct Qdisc *qdisc,
+				 clockid_t clockid)
 {
-	hrtimer_init(&wd->timer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS_PINNED);
+	hrtimer_init(&wd->timer, clockid, HRTIMER_MODE_ABS_PINNED);
 	wd->timer.function = qdisc_watchdog;
 	wd->qdisc = qdisc;
+}
+EXPORT_SYMBOL(qdisc_watchdog_init_clockid);
+
+void qdisc_watchdog_init(struct qdisc_watchdog *wd, struct Qdisc *qdisc)
+{
+	qdisc_watchdog_init_clockid(wd, qdisc, CLOCK_MONOTONIC);
 }
 EXPORT_SYMBOL(qdisc_watchdog_init);
 
@@ -1300,10 +1307,6 @@ check_loop_fn(struct Qdisc *q, unsigned long cl, struct qdisc_walker *w)
 	return 0;
 }
 
-/*
- * Delete/get qdisc.
- */
-
 const struct nla_policy rtm_tca_policy[TCA_MAX + 1] = {
 	[TCA_KIND]		= { .type = NLA_STRING },
 	[TCA_OPTIONS]		= { .type = NLA_NESTED },
@@ -1315,6 +1318,10 @@ const struct nla_policy rtm_tca_policy[TCA_MAX + 1] = {
 	[TCA_INGRESS_BLOCK]	= { .type = NLA_U32 },
 	[TCA_EGRESS_BLOCK]	= { .type = NLA_U32 },
 };
+
+/*
+ * Delete/get qdisc.
+ */
 
 static int tc_get_qdisc(struct sk_buff *skb, struct nlmsghdr *n,
 			struct netlink_ext_ack *extack)
@@ -2052,7 +2059,8 @@ static int tc_dump_tclass_root(struct Qdisc *root, struct sk_buff *skb,
 
 	if (tcm->tcm_parent) {
 		q = qdisc_match_from_root(root, TC_H_MAJ(tcm->tcm_parent));
-		if (q && tc_dump_tclass_qdisc(q, skb, tcm, cb, t_p, s_t) < 0)
+		if (q && q != root &&
+		    tc_dump_tclass_qdisc(q, skb, tcm, cb, t_p, s_t) < 0)
 			return -1;
 		return 0;
 	}

@@ -551,14 +551,9 @@ static int ena_refill_rx_bufs(struct ena_ring *rx_ring, u32 num)
 			    rx_ring->qid, i, num);
 	}
 
-	if (likely(i)) {
-		/* Add memory barrier to make sure the desc were written before
-		 * issue a doorbell
-		 */
-		wmb();
-		ena_com_write_sq_doorbell(rx_ring->ena_com_io_sq, true);
-		mmiowb();
-	}
+	/* ena_com_write_sq_doorbell issues a wmb() */
+	if (likely(i))
+		ena_com_write_sq_doorbell(rx_ring->ena_com_io_sq);
 
 	rx_ring->next_to_use = next_to_use;
 
@@ -1580,8 +1575,6 @@ static int ena_up_complete(struct ena_adapter *adapter)
 	if (rc)
 		return rc;
 
-	ena_init_napi(adapter);
-
 	ena_change_mtu(adapter->netdev, adapter->netdev->mtu);
 
 	ena_refill_all_rx_bufs(adapter);
@@ -1734,6 +1727,13 @@ static int ena_up(struct ena_adapter *adapter)
 	netdev_dbg(adapter->netdev, "%s\n", __func__);
 
 	ena_setup_io_intr(adapter);
+
+	/* napi poll functions should be initialized before running
+	 * request_irq(), to handle a rare condition where there is a pending
+	 * interrupt, causing the ISR to fire immediately while the poll
+	 * function wasn't set yet, causing a null dereference
+	 */
+	ena_init_napi(adapter);
 
 	rc = ena_request_io_irq(adapter);
 	if (rc)
@@ -2112,12 +2112,6 @@ static netdev_tx_t ena_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	tx_ring->next_to_use = ENA_TX_RING_IDX_NEXT(next_to_use,
 		tx_ring->ring_size);
 
-	/* This WMB is aimed to:
-	 * 1 - perform smp barrier before reading next_to_completion
-	 * 2 - make sure the desc were written before trigger DB
-	 */
-	wmb();
-
 	/* stop the queue when no more space available, the packet can have up
 	 * to sgl_size + 2. one for the meta descriptor and one for header
 	 * (if the header is larger than tx_max_header_size).
@@ -2136,10 +2130,11 @@ static netdev_tx_t ena_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		 * stop the queue but meanwhile clean_tx_irq updates
 		 * next_to_completion and terminates.
 		 * The queue will remain stopped forever.
-		 * To solve this issue this function perform rmb, check
-		 * the wakeup condition and wake up the queue if needed.
+		 * To solve this issue add a mb() to make sure that
+		 * netif_tx_stop_queue() write is vissible before checking if
+		 * there is additional space in the queue.
 		 */
-		smp_rmb();
+		smp_mb();
 
 		if (ena_com_sq_empty_space(tx_ring->ena_com_io_sq)
 				> ENA_TX_WAKEUP_THRESH) {
@@ -2151,8 +2146,10 @@ static netdev_tx_t ena_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	if (netif_xmit_stopped(txq) || !skb->xmit_more) {
-		/* trigger the dma engine */
-		ena_com_write_sq_doorbell(tx_ring->ena_com_io_sq, false);
+		/* trigger the dma engine. ena_com_write_sq_doorbell()
+		 * has a mb
+		 */
+		ena_com_write_sq_doorbell(tx_ring->ena_com_io_sq);
 		u64_stats_update_begin(&tx_ring->syncp);
 		tx_ring->tx_stats.doorbells++;
 		u64_stats_update_end(&tx_ring->syncp);
@@ -2193,27 +2190,9 @@ error_drop_packet:
 	return NETDEV_TX_OK;
 }
 
-#ifdef CONFIG_NET_POLL_CONTROLLER
-static void ena_netpoll(struct net_device *netdev)
-{
-	struct ena_adapter *adapter = netdev_priv(netdev);
-	int i;
-
-	/* Dont schedule NAPI if the driver is in the middle of reset
-	 * or netdev is down.
-	 */
-
-	if (!test_bit(ENA_FLAG_DEV_UP, &adapter->flags) ||
-	    test_bit(ENA_FLAG_TRIGGER_RESET, &adapter->flags))
-		return;
-
-	for (i = 0; i < adapter->num_queues; i++)
-		napi_schedule(&adapter->ena_napi[i].napi);
-}
-#endif /* CONFIG_NET_POLL_CONTROLLER */
-
 static u16 ena_select_queue(struct net_device *dev, struct sk_buff *skb,
-			    void *accel_priv, select_queue_fallback_t fallback)
+			    struct net_device *sb_dev,
+			    select_queue_fallback_t fallback)
 {
 	u16 qid;
 	/* we suspect that this is good for in--kernel network services that
@@ -2223,7 +2202,7 @@ static u16 ena_select_queue(struct net_device *dev, struct sk_buff *skb,
 	if (skb_rx_queue_recorded(skb))
 		qid = skb_get_rx_queue(skb);
 	else
-		qid = fallback(dev, skb);
+		qid = fallback(dev, skb, NULL);
 
 	return qid;
 }
@@ -2376,9 +2355,6 @@ static const struct net_device_ops ena_netdev_ops = {
 	.ndo_change_mtu		= ena_change_mtu,
 	.ndo_set_mac_address	= NULL,
 	.ndo_validate_addr	= eth_validate_addr,
-#ifdef CONFIG_NET_POLL_CONTROLLER
-	.ndo_poll_controller	= ena_netpoll,
-#endif /* CONFIG_NET_POLL_CONTROLLER */
 };
 
 static int ena_device_validate_params(struct ena_adapter *adapter,
@@ -2648,7 +2624,11 @@ err_disable_msix:
 	ena_free_mgmnt_irq(adapter);
 	ena_disable_msix(adapter);
 err_device_destroy:
+	ena_com_abort_admin_commands(ena_dev);
+	ena_com_wait_for_abort_completion(ena_dev);
 	ena_com_admin_destroy(ena_dev);
+	ena_com_mmio_reg_read_request_destroy(ena_dev);
+	ena_com_dev_reset(ena_dev, ENA_REGS_RESET_DRIVER_INVALID_STATE);
 err:
 	clear_bit(ENA_FLAG_DEVICE_RUNNING, &adapter->flags);
 	clear_bit(ENA_FLAG_ONGOING_RESET, &adapter->flags);
@@ -3128,15 +3108,8 @@ err_rss_init:
 
 static void ena_release_bars(struct ena_com_dev *ena_dev, struct pci_dev *pdev)
 {
-	int release_bars;
+	int release_bars = pci_select_bars(pdev, IORESOURCE_MEM) & ENA_BAR_MASK;
 
-	if (ena_dev->mem_bar)
-		devm_iounmap(&pdev->dev, ena_dev->mem_bar);
-
-	if (ena_dev->reg_bar)
-		devm_iounmap(&pdev->dev, ena_dev->reg_bar);
-
-	release_bars = pci_select_bars(pdev, IORESOURCE_MEM) & ENA_BAR_MASK;
 	pci_release_selected_regions(pdev, release_bars);
 }
 

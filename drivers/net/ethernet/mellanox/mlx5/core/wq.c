@@ -39,11 +39,6 @@ u32 mlx5_wq_cyc_get_size(struct mlx5_wq_cyc *wq)
 	return (u32)wq->fbc.sz_m1 + 1;
 }
 
-u16 mlx5_wq_cyc_get_frag_size(struct mlx5_wq_cyc *wq)
-{
-	return wq->fbc.frag_sz_m1 + 1;
-}
-
 u32 mlx5_cqwq_get_size(struct mlx5_cqwq *wq)
 {
 	return wq->fbc.sz_m1 + 1;
@@ -138,7 +133,7 @@ int mlx5_wq_qp_create(struct mlx5_core_dev *mdev, struct mlx5_wq_param *param,
 		      void *qpc, struct mlx5_wq_qp *wq,
 		      struct mlx5_wq_ctrl *wq_ctrl)
 {
-	u32 sq_strides_offset;
+	u16 sq_strides_offset;
 	u32 rq_pg_remainder;
 	int err;
 

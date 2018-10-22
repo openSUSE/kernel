@@ -830,7 +830,7 @@ static void r4k_flush_icache_user_range(unsigned long start, unsigned long end)
 	return __r4k_flush_icache_range(start, end, true);
 }
 
-#if defined(CONFIG_DMA_NONCOHERENT) || defined(CONFIG_DMA_MAYBE_COHERENT)
+#ifdef CONFIG_DMA_NONCOHERENT
 
 static void r4k_dma_cache_wback_inv(unsigned long addr, unsigned long size)
 {
@@ -906,7 +906,7 @@ static void r4k_dma_cache_inv(unsigned long addr, unsigned long size)
 	bc_inv(addr, size);
 	__sync();
 }
-#endif /* CONFIG_DMA_NONCOHERENT || CONFIG_DMA_MAYBE_COHERENT */
+#endif /* CONFIG_DMA_NONCOHERENT */
 
 struct flush_cache_sigtramp_args {
 	struct mm_struct *mm;
@@ -1506,6 +1506,14 @@ static void probe_pcache(void)
 	/* Physically indexed caches don't suffer from virtual aliasing */
 	if (c->dcache.flags & MIPS_CACHE_PINDEX)
 		c->dcache.flags &= ~MIPS_CACHE_ALIASES;
+
+	/*
+	 * In systems with CM the icache fills from L2 or closer caches, and
+	 * thus sees remote stores without needing to write them back any
+	 * further than that.
+	 */
+	if (mips_cm_present())
+		c->icache.flags |= MIPS_IC_SNOOPS_REMOTE;
 
 	switch (current_cpu_type()) {
 	case CPU_20KC:

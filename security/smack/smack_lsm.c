@@ -28,6 +28,7 @@
 #include <linux/tcp.h>
 #include <linux/udp.h>
 #include <linux/dccp.h>
+#include <linux/icmpv6.h>
 #include <linux/slab.h>
 #include <linux/mutex.h>
 #include <linux/pipe_fs_i.h>
@@ -1927,9 +1928,9 @@ static int smack_file_receive(struct file *file)
  *
  * Returns 0
  */
-static int smack_file_open(struct file *file, const struct cred *cred)
+static int smack_file_open(struct file *file)
 {
-	struct task_smack *tsp = cred->security;
+	struct task_smack *tsp = file->f_cred->security;
 	struct inode *inode = file_inode(file);
 	struct smk_audit_info ad;
 	int rc;
@@ -1937,7 +1938,7 @@ static int smack_file_open(struct file *file, const struct cred *cred)
 	smk_ad_init(&ad, __func__, LSM_AUDIT_DATA_PATH);
 	smk_ad_setfield_u_fs_path(&ad, file->f_path);
 	rc = smk_tskacc(tsp, smk_of_inode(inode), MAY_READ, &ad);
-	rc = smk_bu_credfile(cred, file, MAY_READ, rc);
+	rc = smk_bu_credfile(file->f_cred, file, MAY_READ, rc);
 
 	return rc;
 }
@@ -3896,6 +3897,7 @@ static int smk_skb_to_addr_ipv6(struct sk_buff *skb, struct sockaddr_in6 *sip)
 			sip->sin6_port = th->source;
 		break;
 	case IPPROTO_UDP:
+	case IPPROTO_UDPLITE:
 		uh = skb_header_pointer(skb, offset, sizeof(_udph), &_udph);
 		if (uh != NULL)
 			sip->sin6_port = uh->source;
@@ -3986,7 +3988,8 @@ access_check:
 #if IS_ENABLED(CONFIG_IPV6)
 	case PF_INET6:
 		proto = smk_skb_to_addr_ipv6(skb, &sadd);
-		if (proto != IPPROTO_UDP && proto != IPPROTO_TCP)
+		if (proto != IPPROTO_UDP && proto != IPPROTO_UDPLITE &&
+		    proto != IPPROTO_TCP && proto != IPPROTO_DCCP)
 			break;
 #ifdef SMACK_IPV6_SECMARK_LABELING
 		if (skb && skb->secmark != 0)
@@ -4008,6 +4011,9 @@ access_check:
 #ifdef SMACK_IPV6_PORT_LABELING
 		rc = smk_ipv6_port_check(sk, &sadd, SMK_RECEIVING);
 #endif /* SMACK_IPV6_PORT_LABELING */
+		if (rc != 0)
+			icmpv6_send(skb, ICMPV6_DEST_UNREACH,
+					ICMPV6_ADM_PROHIBITED, 0);
 		break;
 #endif /* CONFIG_IPV6 */
 	}

@@ -1997,8 +1997,11 @@ static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 		goto no_route;
 	}
 
-	if (res->type == RTN_BROADCAST)
+	if (res->type == RTN_BROADCAST) {
+		if (IN_DEV_BFORWARD(in_dev))
+			goto make_route;
 		goto brd_input;
+	}
 
 	if (res->type == RTN_LOCAL) {
 		err = fib_validate_source(skb, saddr, daddr, tos,
@@ -2015,6 +2018,7 @@ static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 	if (res->type != RTN_UNICAST)
 		goto martian_destination;
 
+make_route:
 	err = ip_mkroute_input(skb, res, in_dev, daddr, saddr, tos, flkeys);
 out:	return err;
 

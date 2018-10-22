@@ -1226,18 +1226,13 @@ static struct dm_thin_new_mapping *get_next_mapping(struct pool *pool)
 static void ll_zero(struct thin_c *tc, struct dm_thin_new_mapping *m,
 		    sector_t begin, sector_t end)
 {
-	int r;
 	struct dm_io_region to;
 
 	to.bdev = tc->pool_dev->bdev;
 	to.sector = begin;
 	to.count = end - begin;
 
-	r = dm_kcopyd_zero(tc->pool->copier, 1, &to, 0, copy_complete, m);
-	if (r < 0) {
-		DMERR_LIMIT("dm_kcopyd_zero() failed");
-		copy_complete(1, 1, m);
-	}
+	dm_kcopyd_zero(tc->pool->copier, 1, &to, 0, copy_complete, m);
 }
 
 static void remap_and_issue_overwrite(struct thin_c *tc, struct bio *bio,
@@ -1263,7 +1258,6 @@ static void schedule_copy(struct thin_c *tc, dm_block_t virt_block,
 			  struct dm_bio_prison_cell *cell, struct bio *bio,
 			  sector_t len)
 {
-	int r;
 	struct pool *pool = tc->pool;
 	struct dm_thin_new_mapping *m = get_next_mapping(pool);
 
@@ -1302,19 +1296,8 @@ static void schedule_copy(struct thin_c *tc, dm_block_t virt_block,
 		to.sector = data_dest * pool->sectors_per_block;
 		to.count = len;
 
-		r = dm_kcopyd_copy(pool->copier, &from, 1, &to,
-				   0, copy_complete, m);
-		if (r < 0) {
-			DMERR_LIMIT("dm_kcopyd_copy() failed");
-			copy_complete(1, 1, m);
-
-			/*
-			 * We allow the zero to be issued, to simplify the
-			 * error path.  Otherwise we'd need to start
-			 * worrying about decrementing the prepare_actions
-			 * counter.
-			 */
-		}
+		dm_kcopyd_copy(pool->copier, &from, 1, &to,
+			       0, copy_complete, m);
 
 		/*
 		 * Do we need to zero a tail region?
@@ -3949,6 +3932,8 @@ static void pool_status(struct dm_target *ti, status_type_t type,
 		else
 			DMEMIT("- ");
 
+		DMEMIT("%llu ", (unsigned long long)calc_metadata_threshold(pt));
+
 		break;
 
 	case STATUSTYPE_TABLE:
@@ -4038,7 +4023,7 @@ static struct target_type pool_target = {
 	.name = "thin-pool",
 	.features = DM_TARGET_SINGLETON | DM_TARGET_ALWAYS_WRITEABLE |
 		    DM_TARGET_IMMUTABLE,
-	.version = {1, 19, 0},
+	.version = {1, 20, 0},
 	.module = THIS_MODULE,
 	.ctr = pool_ctr,
 	.dtr = pool_dtr,
@@ -4412,7 +4397,7 @@ static void thin_io_hints(struct dm_target *ti, struct queue_limits *limits)
 
 static struct target_type thin_target = {
 	.name = "thin",
-	.version = {1, 19, 0},
+	.version = {1, 20, 0},
 	.module	= THIS_MODULE,
 	.ctr = thin_ctr,
 	.dtr = thin_dtr,

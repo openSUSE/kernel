@@ -422,16 +422,16 @@ static ssize_t queue_poll_store(struct request_queue *q, const char *page,
 
 static ssize_t queue_wb_lat_show(struct request_queue *q, char *page)
 {
-	if (!q->rq_wb)
+	if (!wbt_rq_qos(q))
 		return -EINVAL;
 
-	return sprintf(page, "%llu\n", div_u64(q->rq_wb->min_lat_nsec, 1000));
+	return sprintf(page, "%llu\n", div_u64(wbt_get_min_lat(q), 1000));
 }
 
 static ssize_t queue_wb_lat_store(struct request_queue *q, const char *page,
 				  size_t count)
 {
-	struct rq_wb *rwb;
+	struct rq_qos *rqos;
 	ssize_t ret;
 	s64 val;
 
@@ -441,23 +441,38 @@ static ssize_t queue_wb_lat_store(struct request_queue *q, const char *page,
 	if (val < -1)
 		return -EINVAL;
 
-	rwb = q->rq_wb;
-	if (!rwb) {
+	rqos = wbt_rq_qos(q);
+	if (!rqos) {
 		ret = wbt_init(q);
 		if (ret)
 			return ret;
 	}
 
-	rwb = q->rq_wb;
 	if (val == -1)
-		rwb->min_lat_nsec = wbt_default_latency_nsec(q);
+		val = wbt_default_latency_nsec(q);
 	else if (val >= 0)
-		rwb->min_lat_nsec = val * 1000ULL;
+		val *= 1000ULL;
 
-	if (rwb->enable_state == WBT_STATE_ON_DEFAULT)
-		rwb->enable_state = WBT_STATE_ON_MANUAL;
+	/*
+	 * Ensure that the queue is idled, in case the latency update
+	 * ends up either enabling or disabling wbt completely. We can't
+	 * have IO inflight if that happens.
+	 */
+	if (q->mq_ops) {
+		blk_mq_freeze_queue(q);
+		blk_mq_quiesce_queue(q);
+	} else
+		blk_queue_bypass_start(q);
 
-	wbt_update_limits(rwb);
+	wbt_set_min_lat(q, val);
+	wbt_update_limits(q);
+
+	if (q->mq_ops) {
+		blk_mq_unquiesce_queue(q);
+		blk_mq_unfreeze_queue(q);
+	} else
+		blk_queue_bypass_end(q);
+
 	return count;
 }
 
@@ -815,7 +830,7 @@ static void __blk_release_queue(struct work_struct *work)
 		blk_exit_queue(q);
 	}
 
-	WARN(blkg_root_lookup(q),
+	WARN(blk_queue_root_blkg(q),
 	     "request queue %p is being released but it has not yet been removed from the blkcg controller\n",
 	     q);
 
@@ -979,7 +994,7 @@ void blk_unregister_queue(struct gendisk *disk)
 	kobject_del(&q->kobj);
 	blk_trace_remove_sysfs(disk_to_dev(disk));
 
-	wbt_exit(q);
+	rq_qos_exit(q);
 
 	mutex_lock(&q->sysfs_lock);
 	if (q->request_fn || (q->mq_ops && q->elevator))

@@ -18,6 +18,7 @@
 #include <linux/string.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/mount.h>
 #include <linux/namei.h>
 #include <linux/uaccess.h>
@@ -153,15 +154,9 @@ int autofs_expire_run(struct super_block *, struct vfsmount *,
 		      struct autofs_sb_info *,
 		      struct autofs_packet_expire __user *);
 int autofs_do_expire_multi(struct super_block *sb, struct vfsmount *mnt,
-			   struct autofs_sb_info *sbi, int when);
+			   struct autofs_sb_info *sbi, unsigned int how);
 int autofs_expire_multi(struct super_block *, struct vfsmount *,
 			struct autofs_sb_info *, int __user *);
-struct dentry *autofs_expire_direct(struct super_block *sb,
-				    struct vfsmount *mnt,
-				    struct autofs_sb_info *sbi, int how);
-struct dentry *autofs_expire_indirect(struct super_block *sb,
-				      struct vfsmount *mnt,
-				      struct autofs_sb_info *sbi, int how);
 
 /* Device node initialization */
 

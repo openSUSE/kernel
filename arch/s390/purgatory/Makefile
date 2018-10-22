@@ -21,16 +21,15 @@ LDFLAGS_purgatory.ro += -z nodefaultlib
 KBUILD_CFLAGS := -fno-strict-aliasing -Wall -Wstrict-prototypes
 KBUILD_CFLAGS += -Wno-pointer-sign -Wno-sign-compare
 KBUILD_CFLAGS += -fno-zero-initialized-in-bss -fno-builtin -ffreestanding
-KBUILD_CFLAGS += -c -MD -Os -m64 -msoft-float
+KBUILD_CFLAGS += -c -MD -Os -m64 -msoft-float -fno-common
 KBUILD_CFLAGS += $(call cc-option,-fno-PIE)
 KBUILD_AFLAGS := $(filter-out -DCC_USING_EXPOLINE,$(KBUILD_AFLAGS))
 
 $(obj)/purgatory.ro: $(PURGATORY_OBJS) FORCE
 		$(call if_changed,ld)
 
-CMD_BIN2C = $(objtree)/scripts/basic/bin2c
 quiet_cmd_bin2c = BIN2C   $@
-      cmd_bin2c = $(CMD_BIN2C) kexec_purgatory < $< > $@
+      cmd_bin2c = $(objtree)/scripts/bin2c kexec_purgatory < $< > $@
 
 $(obj)/kexec-purgatory.c: $(obj)/purgatory.ro FORCE
 	$(call if_changed,bin2c)

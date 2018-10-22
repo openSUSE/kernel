@@ -121,8 +121,6 @@ static int quota_getinfo(struct super_block *sb, int type, void __user *addr)
 	struct if_dqinfo uinfo;
 	int ret;
 
-	/* This checks whether qc_state has enough entries... */
-	BUILD_BUG_ON(MAXQUOTAS > XQM_MAXQUOTAS);
 	if (!sb->s_qcop->get_state)
 		return -ENOSYS;
 	ret = sb->s_qcop->get_state(sb, &state);
@@ -355,10 +353,10 @@ static int quota_getstate(struct super_block *sb, struct fs_quota_stat *fqs)
 	 * GETXSTATE quotactl has space for just one set of time limits so
 	 * report them for the first enabled quota type
 	 */
-	for (type = 0; type < XQM_MAXQUOTAS; type++)
+	for (type = 0; type < MAXQUOTAS; type++)
 		if (state.s_state[type].flags & QCI_ACCT_ENABLED)
 			break;
-	BUG_ON(type == XQM_MAXQUOTAS);
+	BUG_ON(type == MAXQUOTAS);
 	fqs->qs_btimelimit = state.s_state[type].spc_timelimit;
 	fqs->qs_itimelimit = state.s_state[type].ino_timelimit;
 	fqs->qs_rtbtimelimit = state.s_state[type].rt_spc_timelimit;
@@ -428,10 +426,10 @@ static int quota_getstatev(struct super_block *sb, struct fs_quota_statv *fqs)
 	 * GETXSTATV quotactl has space for just one set of time limits so
 	 * report them for the first enabled quota type
 	 */
-	for (type = 0; type < XQM_MAXQUOTAS; type++)
+	for (type = 0; type < MAXQUOTAS; type++)
 		if (state.s_state[type].flags & QCI_ACCT_ENABLED)
 			break;
-	BUG_ON(type == XQM_MAXQUOTAS);
+	BUG_ON(type == MAXQUOTAS);
 	fqs->qs_btimelimit = state.s_state[type].spc_timelimit;
 	fqs->qs_itimelimit = state.s_state[type].ino_timelimit;
 	fqs->qs_rtbtimelimit = state.s_state[type].rt_spc_timelimit;
@@ -702,7 +700,7 @@ static int do_quotactl(struct super_block *sb, int type, int cmd, qid_t id,
 {
 	int ret;
 
-	if (type >= (XQM_COMMAND(cmd) ? XQM_MAXQUOTAS : MAXQUOTAS))
+	if (type >= MAXQUOTAS)
 		return -EINVAL;
 	type = array_index_nospec(type, MAXQUOTAS);
 	/*

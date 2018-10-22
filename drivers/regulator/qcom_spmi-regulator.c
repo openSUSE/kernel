@@ -1060,7 +1060,7 @@ static irqreturn_t spmi_regulator_vs_ocp_isr(int irq, void *data)
 #define SAW3_AVS_CTL_TGGL_MASK	0x8000000
 #define SAW3_AVS_CTL_CLEAR_MASK	0x7efc00
 
-static struct regmap *saw_regmap = NULL;
+static struct regmap *saw_regmap;
 
 static void spmi_saw_set_vdd(void *data)
 {
@@ -1728,7 +1728,7 @@ static const struct spmi_regulator_data pmi8994_regulators[] = {
 	{ "s2", 0x1700, "vdd_s2", },
 	{ "s3", 0x1a00, "vdd_s3", },
 	{ "l1", 0x4000, "vdd_l1", },
-        { }
+	{ }
 };
 
 static const struct of_device_id qcom_spmi_regulator_match[] = {

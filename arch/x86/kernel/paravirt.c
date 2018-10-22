@@ -41,6 +41,7 @@
 #include <asm/tlbflush.h>
 #include <asm/timer.h>
 #include <asm/special_insns.h>
+#include <asm/tlb.h>
 
 /*
  * nop stub, which must not clobber anything *including the stack* to
@@ -90,7 +91,7 @@ unsigned paravirt_patch_call(void *insnbuf,
 
 	if (len < 5) {
 #ifdef CONFIG_RETPOLINE
-		WARN_ONCE("Failing to patch indirect CALL in %ps\n", (void *)addr);
+		WARN_ONCE(1, "Failing to patch indirect CALL in %ps\n", (void *)addr);
 #endif
 		return len;	/* call too long for patch site */
 	}
@@ -110,7 +111,7 @@ unsigned paravirt_patch_jmp(void *insnbuf, const void *target,
 
 	if (len < 5) {
 #ifdef CONFIG_RETPOLINE
-		WARN_ONCE("Failing to patch indirect JMP in %ps\n", (void *)addr);
+		WARN_ONCE(1, "Failing to patch indirect JMP in %ps\n", (void *)addr);
 #endif
 		return len;	/* call too long for patch site */
 	}
@@ -409,6 +410,7 @@ struct pv_mmu_ops pv_mmu_ops __ro_after_init = {
 	.flush_tlb_kernel = native_flush_tlb_global,
 	.flush_tlb_one_user = native_flush_tlb_one_user,
 	.flush_tlb_others = native_flush_tlb_others,
+	.tlb_remove_table = (void (*)(struct mmu_gather *, void *))tlb_remove_page,
 
 	.pgd_alloc = __paravirt_pgd_alloc,
 	.pgd_free = paravirt_nop,

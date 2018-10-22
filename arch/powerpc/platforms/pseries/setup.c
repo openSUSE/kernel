@@ -41,6 +41,7 @@
 #include <linux/root_dev.h>
 #include <linux/of.h>
 #include <linux/of_pci.h>
+#include <linux/memblock.h>
 
 #include <asm/mmu.h>
 #include <asm/processor.h>
@@ -69,6 +70,7 @@
 #include <asm/kexec.h>
 #include <asm/isa-bridge.h>
 #include <asm/security_features.h>
+#include <asm/asm-const.h>
 
 #include "pseries.h"
 #include "../../../../drivers/pci/pci.h"
@@ -102,6 +104,9 @@ static void pSeries_show_cpuinfo(struct seq_file *m)
 static void __init fwnmi_init(void)
 {
 	unsigned long system_reset_addr, machine_check_addr;
+	u8 *mce_data_buf;
+	unsigned int i;
+	int nr_cpus = num_possible_cpus();
 
 	int ibm_nmi_register = rtas_token("ibm,nmi-register");
 	if (ibm_nmi_register == RTAS_UNKNOWN_SERVICE)
@@ -115,6 +120,18 @@ static void __init fwnmi_init(void)
 	if (0 == rtas_call(ibm_nmi_register, 2, 1, NULL, system_reset_addr,
 				machine_check_addr))
 		fwnmi_active = 1;
+
+	/*
+	 * Allocate a chunk for per cpu buffer to hold rtas errorlog.
+	 * It will be used in real mode mce handler, hence it needs to be
+	 * below RMA.
+	 */
+	mce_data_buf = __va(memblock_alloc_base(RTAS_ERROR_LOG_MAX * nr_cpus,
+					RTAS_ERROR_LOG_MAX, ppc64_rma_size));
+	for_each_possible_cpu(i) {
+		paca_ptrs[i]->mce_data_buf = mce_data_buf +
+						(RTAS_ERROR_LOG_MAX * i);
+	}
 }
 
 static void pseries_8259_cascade(struct irq_desc *desc)
@@ -485,6 +502,12 @@ static void init_cpu_char_feature_flags(struct h_cpu_char_result *result)
 	if (result->character & H_CPU_CHAR_COUNT_CACHE_DISABLED)
 		security_ftr_set(SEC_FTR_COUNT_CACHE_DISABLED);
 
+	if (result->character & H_CPU_CHAR_BCCTR_FLUSH_ASSIST)
+		security_ftr_set(SEC_FTR_BCCTR_FLUSH_ASSIST);
+
+	if (result->behaviour & H_CPU_BEHAV_FLUSH_COUNT_CACHE)
+		security_ftr_set(SEC_FTR_FLUSH_COUNT_CACHE);
+
 	/*
 	 * The features below are enabled by default, so we instead look to see
 	 * if firmware has *disabled* them, and clear them if so.
@@ -535,7 +558,7 @@ void pseries_setup_rfi_flush(void)
 		 security_ftr_enabled(SEC_FTR_L1D_FLUSH_PR);
 
 	setup_rfi_flush(types, enable);
-	setup_barrier_nospec();
+	setup_count_cache_flush();
 }
 
 #ifdef CONFIG_PCI_IOV

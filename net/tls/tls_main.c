@@ -52,15 +52,6 @@ enum {
 	TLSV6,
 	TLS_NUM_PROTS,
 };
-enum {
-	TLS_BASE,
-	TLS_SW,
-#ifdef CONFIG_TLS_DEVICE
-	TLS_HW,
-#endif
-	TLS_HW_RECORD,
-	TLS_NUM_CONFIG,
-};
 
 static struct proto *saved_tcpv6_prot;
 static DEFINE_MUTEX(tcpv6_prot_mutex);
@@ -306,7 +297,10 @@ static void tls_sk_proto_close(struct sock *sk, long timeout)
 	}
 
 #ifdef CONFIG_TLS_DEVICE
-	if (ctx->tx_conf != TLS_HW) {
+	if (ctx->rx_conf == TLS_HW)
+		tls_device_offload_cleanup_rx(sk);
+
+	if (ctx->tx_conf != TLS_HW && ctx->rx_conf != TLS_HW) {
 #else
 	{
 #endif
@@ -486,8 +480,16 @@ static int do_tls_setsockopt_conf(struct sock *sk, char __user *optval,
 			conf = TLS_SW;
 		}
 	} else {
-		rc = tls_set_sw_offload(sk, ctx, 0);
-		conf = TLS_SW;
+#ifdef CONFIG_TLS_DEVICE
+		rc = tls_set_device_offload_rx(sk, ctx);
+		conf = TLS_HW;
+		if (rc) {
+#else
+		{
+#endif
+			rc = tls_set_sw_offload(sk, ctx, 0);
+			conf = TLS_SW;
+		}
 	}
 
 	if (rc)
@@ -645,6 +647,12 @@ static void build_protos(struct proto prot[TLS_NUM_CONFIG][TLS_NUM_CONFIG],
 	prot[TLS_HW][TLS_SW] = prot[TLS_BASE][TLS_SW];
 	prot[TLS_HW][TLS_SW].sendmsg		= tls_device_sendmsg;
 	prot[TLS_HW][TLS_SW].sendpage		= tls_device_sendpage;
+
+	prot[TLS_BASE][TLS_HW] = prot[TLS_BASE][TLS_SW];
+
+	prot[TLS_SW][TLS_HW] = prot[TLS_SW][TLS_SW];
+
+	prot[TLS_HW][TLS_HW] = prot[TLS_HW][TLS_SW];
 #endif
 
 	prot[TLS_HW_RECORD][TLS_HW_RECORD] = *base;

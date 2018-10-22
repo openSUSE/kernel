@@ -363,19 +363,11 @@ module_param_named(hdmimhz, nouveau_hdmimhz, int, 0400);
 struct nouveau_encoder *
 find_encoder(struct drm_connector *connector, int type)
 {
-	struct drm_device *dev = connector->dev;
 	struct nouveau_encoder *nv_encoder;
 	struct drm_encoder *enc;
-	int i, id;
+	int i;
 
-	for (i = 0; i < DRM_CONNECTOR_MAX_ENCODER; i++) {
-		id = connector->encoder_ids[i];
-		if (!id)
-			break;
-
-		enc = drm_encoder_find(dev, NULL, id);
-		if (!enc)
-			continue;
+	drm_connector_for_each_possible_encoder(connector, enc, i) {
 		nv_encoder = nouveau_encoder(enc);
 
 		if (type == DCB_OUTPUT_ANY ||
@@ -417,66 +409,45 @@ static struct nouveau_encoder *
 nouveau_connector_ddc_detect(struct drm_connector *connector)
 {
 	struct drm_device *dev = connector->dev;
-	struct nouveau_connector *nv_connector = nouveau_connector(connector);
-	struct nouveau_drm *drm = nouveau_drm(dev);
-	struct nvkm_gpio *gpio = nvxx_gpio(&drm->client.device);
-	struct nouveau_encoder *nv_encoder;
+	struct nouveau_encoder *nv_encoder = NULL, *found = NULL;
 	struct drm_encoder *encoder;
-	int i, panel = -ENODEV;
+	int i, ret;
+	bool switcheroo_ddc = false;
 
-	/* eDP panels need powering on by us (if the VBIOS doesn't default it
-	 * to on) before doing any AUX channel transactions.  LVDS panel power
-	 * is handled by the SOR itself, and not required for LVDS DDC.
-	 */
-	if (nv_connector->type == DCB_CONNECTOR_eDP) {
-		panel = nvkm_gpio_get(gpio, 0, DCB_GPIO_PANEL_POWER, 0xff);
-		if (panel == 0) {
-			nvkm_gpio_set(gpio, 0, DCB_GPIO_PANEL_POWER, 0xff, 1);
-			msleep(300);
-		}
-	}
-
-	for (i = 0; nv_encoder = NULL, i < DRM_CONNECTOR_MAX_ENCODER; i++) {
-		int id = connector->encoder_ids[i];
-		if (id == 0)
-			break;
-
-		encoder = drm_encoder_find(dev, NULL, id);
-		if (!encoder)
-			continue;
+	drm_connector_for_each_possible_encoder(connector, encoder, i) {
 		nv_encoder = nouveau_encoder(encoder);
 
-		if (nv_encoder->dcb->type == DCB_OUTPUT_DP) {
-			int ret = nouveau_dp_detect(nv_encoder);
+		switch (nv_encoder->dcb->type) {
+		case DCB_OUTPUT_DP:
+			ret = nouveau_dp_detect(nv_encoder);
 			if (ret == NOUVEAU_DP_MST)
 				return NULL;
-			if (ret == NOUVEAU_DP_SST)
+			else if (ret == NOUVEAU_DP_SST)
+				found = nv_encoder;
+
+			break;
+		case DCB_OUTPUT_LVDS:
+			switcheroo_ddc = !!(vga_switcheroo_handler_flags() &
+					    VGA_SWITCHEROO_CAN_SWITCH_DDC);
+		/* fall-through */
+		default:
+			if (!nv_encoder->i2c)
 				break;
-		} else
-		if ((vga_switcheroo_handler_flags() &
-		     VGA_SWITCHEROO_CAN_SWITCH_DDC) &&
-		    nv_encoder->dcb->type == DCB_OUTPUT_LVDS &&
-		    nv_encoder->i2c) {
-			int ret;
-			vga_switcheroo_lock_ddc(dev->pdev);
-			ret = nvkm_probe_i2c(nv_encoder->i2c, 0x50);
-			vga_switcheroo_unlock_ddc(dev->pdev);
-			if (ret)
-				break;
-		} else
-		if (nv_encoder->i2c) {
+
+			if (switcheroo_ddc)
+				vga_switcheroo_lock_ddc(dev->pdev);
 			if (nvkm_probe_i2c(nv_encoder->i2c, 0x50))
-				break;
+				found = nv_encoder;
+			if (switcheroo_ddc)
+				vga_switcheroo_unlock_ddc(dev->pdev);
+
+			break;
 		}
+		if (found)
+			break;
 	}
 
-	/* eDP panel not detected, restore panel power GPIO to previous
-	 * state to avoid confusing the SOR for other output types.
-	 */
-	if (!nv_encoder && panel == 0)
-		nvkm_gpio_set(gpio, 0, DCB_GPIO_PANEL_POWER, 0xff, panel);
-
-	return nv_encoder;
+	return found;
 }
 
 static struct nouveau_encoder *
@@ -565,7 +536,7 @@ nouveau_connector_detect(struct drm_connector *connector, bool force)
 
 	/* Cleanup the previous EDID block. */
 	if (nv_connector->edid) {
-		drm_mode_connector_update_edid_property(connector, NULL);
+		drm_connector_update_edid_property(connector, NULL);
 		kfree(nv_connector->edid);
 		nv_connector->edid = NULL;
 	}
@@ -594,7 +565,7 @@ nouveau_connector_detect(struct drm_connector *connector, bool force)
 		else
 			nv_connector->edid = drm_get_edid(connector, i2c);
 
-		drm_mode_connector_update_edid_property(connector,
+		drm_connector_update_edid_property(connector,
 							nv_connector->edid);
 		if (!nv_connector->edid) {
 			NV_ERROR(drm, "DDC responded, but no EDID for %s\n",
@@ -674,7 +645,7 @@ nouveau_connector_detect_lvds(struct drm_connector *connector, bool force)
 
 	/* Cleanup the previous EDID block. */
 	if (nv_connector->edid) {
-		drm_mode_connector_update_edid_property(connector, NULL);
+		drm_connector_update_edid_property(connector, NULL);
 		kfree(nv_connector->edid);
 		nv_connector->edid = NULL;
 	}
@@ -738,7 +709,7 @@ out:
 		status = connector_status_unknown;
 #endif
 
-	drm_mode_connector_update_edid_property(connector, nv_connector->edid);
+	drm_connector_update_edid_property(connector, nv_connector->edid);
 	nouveau_connector_set_encoder(connector, nv_encoder);
 	return status;
 }

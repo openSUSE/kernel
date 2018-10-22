@@ -139,6 +139,9 @@ cifs_read_super(struct super_block *sb)
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_POSIXACL)
 		sb->s_flags |= SB_POSIXACL;
 
+	if (tcon->snapshot_time)
+		sb->s_flags |= SB_RDONLY;
+
 	if (tcon->ses->capabilities & tcon->ses->server->vals->cap_large_files)
 		sb->s_maxbytes = MAX_LFS_FILESIZE;
 	else
@@ -429,7 +432,7 @@ cifs_show_options(struct seq_file *s, struct dentry *root)
 	else if (tcon->ses->user_name)
 		seq_show_option(s, "username", tcon->ses->user_name);
 
-	if (tcon->ses->domainName)
+	if (tcon->ses->domainName && tcon->ses->domainName[0] != 0)
 		seq_show_option(s, "domain", tcon->ses->domainName);
 
 	if (srcaddr->sa_family != AF_UNSPEC) {
@@ -483,20 +486,12 @@ cifs_show_options(struct seq_file *s, struct dentry *root)
 		seq_puts(s, ",persistenthandles");
 	else if (tcon->use_resilient)
 		seq_puts(s, ",resilienthandles");
-
-#ifdef CONFIG_CIFS_SMB311
 	if (tcon->posix_extensions)
 		seq_puts(s, ",posix");
 	else if (tcon->unix_ext)
 		seq_puts(s, ",unix");
 	else
 		seq_puts(s, ",nounix");
-#else
-	if (tcon->unix_ext)
-		seq_puts(s, ",unix");
-	else
-		seq_puts(s, ",nounix");
-#endif /* SMB311 */
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_POSIX_PATHS)
 		seq_puts(s, ",posixpaths");
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_SET_UID)
@@ -548,6 +543,8 @@ cifs_show_options(struct seq_file *s, struct dentry *root)
 	seq_printf(s, ",wsize=%u", cifs_sb->wsize);
 	seq_printf(s, ",echo_interval=%lu",
 			tcon->ses->server->echo_interval / HZ);
+	if (tcon->snapshot_time)
+		seq_printf(s, ",snapshot=%llu", tcon->snapshot_time);
 	/* convert actimeo and display it in seconds */
 	seq_printf(s, ",actimeo=%lu", cifs_sb->actimeo / HZ);
 

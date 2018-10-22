@@ -116,16 +116,14 @@ static int bnxt_tc_parse_actions(struct bnxt *bp,
 				 struct tcf_exts *tc_exts)
 {
 	const struct tc_action *tc_act;
-	LIST_HEAD(tc_actions);
-	int rc;
+	int i, rc;
 
 	if (!tcf_exts_has_actions(tc_exts)) {
 		netdev_info(bp->dev, "no actions");
 		return -EINVAL;
 	}
 
-	tcf_exts_to_list(tc_exts, &tc_actions);
-	list_for_each_entry(tc_act, &tc_actions, list) {
+	tcf_exts_for_each_action(i, tc_act, tc_exts) {
 		/* Drop action */
 		if (is_tcf_gact_shot(tc_act)) {
 			actions->flags |= BNXT_TC_ACTION_FLAG_DROP;
@@ -1576,22 +1574,16 @@ void bnxt_tc_flow_stats_work(struct bnxt *bp)
 int bnxt_tc_setup_flower(struct bnxt *bp, u16 src_fid,
 			 struct tc_cls_flower_offload *cls_flower)
 {
-	int rc = 0;
-
 	switch (cls_flower->command) {
 	case TC_CLSFLOWER_REPLACE:
-		rc = bnxt_tc_add_flow(bp, src_fid, cls_flower);
-		break;
-
+		return bnxt_tc_add_flow(bp, src_fid, cls_flower);
 	case TC_CLSFLOWER_DESTROY:
-		rc = bnxt_tc_del_flow(bp, cls_flower);
-		break;
-
+		return bnxt_tc_del_flow(bp, cls_flower);
 	case TC_CLSFLOWER_STATS:
-		rc = bnxt_tc_get_flow_stats(bp, cls_flower);
-		break;
+		return bnxt_tc_get_flow_stats(bp, cls_flower);
+	default:
+		return -EOPNOTSUPP;
 	}
-	return rc;
 }
 
 static const struct rhashtable_params bnxt_tc_flow_ht_params = {

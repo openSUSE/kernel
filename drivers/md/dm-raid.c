@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010-2011 Neil Brown
- * Copyright (C) 2010-2017 Red Hat, Inc. All rights reserved.
+ * Copyright (C) 2010-2018 Red Hat, Inc. All rights reserved.
  *
  * This file is released under the GPL.
  */
@@ -2626,7 +2626,7 @@ static int rs_adjust_data_offsets(struct raid_set *rs)
 		return 0;
 	}
 
-	/* HM FIXME: get InSync raid_dev? */
+	/* HM FIXME: get In_Sync raid_dev? */
 	rdev = &rs->dev[0].rdev;
 
 	if (rs->delta_disks < 0) {
@@ -3224,6 +3224,8 @@ static int raid_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	/* Start raid set read-only and assumed clean to change in raid_resume() */
 	rs->md.ro = 1;
 	rs->md.in_sync = 1;
+
+	/* Keep array frozen */
 	set_bit(MD_RECOVERY_FROZEN, &rs->md.recovery);
 
 	/* Has to be held on running the array */
@@ -3247,7 +3249,7 @@ static int raid_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	rs->callbacks.congested_fn = raid_is_congested;
 	dm_table_add_target_callbacks(ti->table, &rs->callbacks);
 
-	/* If raid4/5/6 journal mode explictely requested (only possible with journal dev) -> set it */
+	/* If raid4/5/6 journal mode explicitly requested (only possible with journal dev) -> set it */
 	if (test_bit(__CTR_FLAG_JOURNAL_MODE, &rs->ctr_flags)) {
 		r = r5c_journal_mode_set(&rs->md, rs->journal_dev.mode);
 		if (r) {
@@ -3351,7 +3353,7 @@ static const char *sync_str(enum sync_state state)
 };
 
 /* Return enum sync_state for @mddev derived from @recovery flags */
-static const enum sync_state decipher_sync_action(struct mddev *mddev, unsigned long recovery)
+static enum sync_state decipher_sync_action(struct mddev *mddev, unsigned long recovery)
 {
 	if (test_bit(MD_RECOVERY_FROZEN, &recovery))
 		return st_frozen;
@@ -3853,7 +3855,7 @@ static int __load_dirty_region_bitmap(struct raid_set *rs)
 	/* Try loading the bitmap unless "raid0", which does not have one */
 	if (!rs_is_raid0(rs) &&
 	    !test_and_set_bit(RT_FLAG_RS_BITMAP_LOADED, &rs->runtime_flags)) {
-		r = bitmap_load(&rs->md);
+		r = md_bitmap_load(&rs->md);
 		if (r)
 			DMERR("Failed to load bitmap");
 	}
@@ -3953,8 +3955,8 @@ static int raid_preresume(struct dm_target *ti)
 	/* Resize bitmap to adjust to changed region size (aka MD bitmap chunksize) */
 	if (test_bit(RT_FLAG_RS_BITMAP_LOADED, &rs->runtime_flags) && mddev->bitmap &&
 	    mddev->bitmap_info.chunksize != to_bytes(rs->requested_bitmap_chunk_sectors)) {
-		r = bitmap_resize(mddev->bitmap, mddev->dev_sectors,
-				  to_bytes(rs->requested_bitmap_chunk_sectors), 0);
+		r = md_bitmap_resize(mddev->bitmap, mddev->dev_sectors,
+				     to_bytes(rs->requested_bitmap_chunk_sectors), 0);
 		if (r)
 			DMERR("Failed to resize bitmap");
 	}
@@ -4012,7 +4014,7 @@ static void raid_resume(struct dm_target *ti)
 
 static struct target_type raid_target = {
 	.name = "raid",
-	.version = {1, 13, 2},
+	.version = {1, 14, 0},
 	.module = THIS_MODULE,
 	.ctr = raid_ctr,
 	.dtr = raid_dtr,

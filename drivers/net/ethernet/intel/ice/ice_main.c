@@ -901,7 +901,7 @@ static int __ice_clean_ctrlq(struct ice_pf *pf, enum ice_ctl_q q_type)
 		case ice_aqc_opc_get_link_status:
 			if (ice_handle_link_event(pf))
 				dev_err(&pf->pdev->dev,
-					"Could not handle link event");
+					"Could not handle link event\n");
 			break;
 		default:
 			dev_dbg(&pf->pdev->dev,
@@ -1704,15 +1704,12 @@ static void ice_ena_misc_vector(struct ice_pf *pf)
 	wr32(hw, PFINT_OICR_ENA, 0);	/* disable all */
 	rd32(hw, PFINT_OICR);		/* read to clear */
 
-	val = (PFINT_OICR_HLP_RDY_M |
-	       PFINT_OICR_CPM_RDY_M |
-	       PFINT_OICR_ECC_ERR_M |
+	val = (PFINT_OICR_ECC_ERR_M |
 	       PFINT_OICR_MAL_DETECT_M |
 	       PFINT_OICR_GRST_M |
 	       PFINT_OICR_PCI_EXCEPTION_M |
-	       PFINT_OICR_GPIO_M |
-	       PFINT_OICR_STORM_DETECT_M |
-	       PFINT_OICR_HMC_ERR_M);
+	       PFINT_OICR_HMC_ERR_M |
+	       PFINT_OICR_PE_CRITERR_M);
 
 	wr32(hw, PFINT_OICR_ENA, val);
 
@@ -3287,7 +3284,7 @@ static int ice_probe(struct pci_dev *pdev,
 
 	err = pcim_iomap_regions(pdev, BIT(ICE_BAR0), pci_name(pdev));
 	if (err) {
-		dev_err(&pdev->dev, "I/O map error %d\n", err);
+		dev_err(&pdev->dev, "BAR0 I/O map error %d\n", err);
 		return err;
 	}
 
@@ -4005,7 +4002,7 @@ static int ice_setup_rx_ctx(struct ice_ring *ring)
 	/* clear the context structure first */
 	memset(&rlan_ctx, 0, sizeof(rlan_ctx));
 
-	rlan_ctx.base = ring->dma >> 7;
+	rlan_ctx.base = ring->dma >> ICE_RLAN_BASE_S;
 
 	rlan_ctx.qlen = ring->count;
 
@@ -4809,30 +4806,6 @@ void ice_get_stats64(struct net_device *netdev, struct rtnl_link_stats64 *stats)
 	stats->rx_length_errors = vsi_stats->rx_length_errors;
 }
 
-#ifdef CONFIG_NET_POLL_CONTROLLER
-/**
- * ice_netpoll - polling "interrupt" handler
- * @netdev: network interface device structure
- *
- * Used by netconsole to send skbs without having to re-enable interrupts.
- * This is not called in the normal interrupt path.
- */
-static void ice_netpoll(struct net_device *netdev)
-{
-	struct ice_netdev_priv *np = netdev_priv(netdev);
-	struct ice_vsi *vsi = np->vsi;
-	struct ice_pf *pf = vsi->back;
-	int i;
-
-	if (test_bit(__ICE_DOWN, vsi->state) ||
-	    !test_bit(ICE_FLAG_MSIX_ENA, pf->flags))
-		return;
-
-	for (i = 0; i < vsi->num_q_vectors; i++)
-		ice_msix_clean_rings(0, vsi->q_vectors[i]);
-}
-#endif /* CONFIG_NET_POLL_CONTROLLER */
-
 /**
  * ice_napi_disable_all - Disable NAPI for all q_vectors in the VSI
  * @vsi: VSI having NAPI disabled
@@ -5255,7 +5228,7 @@ static int ice_change_mtu(struct net_device *netdev, int new_mtu)
 	u8 count = 0;
 
 	if (new_mtu == netdev->mtu) {
-		netdev_warn(netdev, "mtu is already %d\n", netdev->mtu);
+		netdev_warn(netdev, "mtu is already %u\n", netdev->mtu);
 		return 0;
 	}
 
@@ -5500,9 +5473,6 @@ static const struct net_device_ops ice_netdev_ops = {
 	.ndo_validate_addr = eth_validate_addr,
 	.ndo_change_mtu = ice_change_mtu,
 	.ndo_get_stats64 = ice_get_stats64,
-#ifdef CONFIG_NET_POLL_CONTROLLER
-	.ndo_poll_controller = ice_netpoll,
-#endif /* CONFIG_NET_POLL_CONTROLLER */
 	.ndo_vlan_rx_add_vid = ice_vlan_rx_add_vid,
 	.ndo_vlan_rx_kill_vid = ice_vlan_rx_kill_vid,
 	.ndo_set_features = ice_set_features,

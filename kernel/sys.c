@@ -71,9 +71,6 @@
 #include <asm/io.h>
 #include <asm/unistd.h>
 
-/* Hardening for Spectre-v1 */
-#include <linux/nospec.h>
-
 #include "uid16.h"
 
 #ifndef SET_UNALIGN_CTL
@@ -2507,11 +2504,11 @@ static int do_sysinfo(struct sysinfo *info)
 {
 	unsigned long mem_total, sav_total;
 	unsigned int mem_unit, bitcount;
-	struct timespec tp;
+	struct timespec64 tp;
 
 	memset(info, 0, sizeof(struct sysinfo));
 
-	get_monotonic_boottime(&tp);
+	ktime_get_boottime_ts64(&tp);
 	info->uptime = tp.tv_sec + (tp.tv_nsec ? 1 : 0);
 
 	get_avenrun(info->loads, 0, SI_LOAD_SHIFT - FSHIFT);

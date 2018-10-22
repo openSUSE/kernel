@@ -42,7 +42,7 @@
 #include "blk.h"
 #include "blk-mq.h"
 #include "blk-mq-sched.h"
-#include "blk-wbt.h"
+#include "blk-rq-qos.h"
 
 #ifdef CONFIG_DEBUG_FS
 struct dentry *blk_debugfs_root;
@@ -1036,7 +1036,6 @@ struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id,
 		    laptop_mode_timer_fn, 0);
 	timer_setup(&q->timeout, blk_rq_timed_out_timer, 0);
 	INIT_WORK(&q->timeout_work, NULL);
-	INIT_LIST_HEAD(&q->queue_head);
 	INIT_LIST_HEAD(&q->timeout_list);
 	INIT_LIST_HEAD(&q->icq_list);
 #ifdef CONFIG_BLK_CGROUP
@@ -1652,7 +1651,7 @@ void blk_requeue_request(struct request_queue *q, struct request *rq)
 	blk_delete_timer(rq);
 	blk_clear_rq_complete(rq);
 	trace_block_rq_requeue(q, rq);
-	wbt_requeue(q->rq_wb, rq);
+	rq_qos_requeue(q, rq);
 
 	if (rq->rq_flags & RQF_QUEUED)
 		blk_queue_end_tag(q, rq);
@@ -1759,7 +1758,7 @@ void __blk_put_request(struct request_queue *q, struct request *req)
 	/* this is a bio leak */
 	WARN_ON(req->bio != NULL);
 
-	wbt_done(q->rq_wb, req);
+	rq_qos_done(q, req);
 
 	/*
 	 * Request may not have originated from ll_rw_blk. if not,
@@ -1993,7 +1992,6 @@ static blk_qc_t blk_queue_bio(struct request_queue *q, struct bio *bio)
 	int where = ELEVATOR_INSERT_SORT;
 	struct request *req, *free;
 	unsigned int request_count = 0;
-	unsigned int wb_acct;
 
 	/*
 	 * low level driver can indicate that it wants pages above a
@@ -2051,7 +2049,7 @@ static blk_qc_t blk_queue_bio(struct request_queue *q, struct bio *bio)
 	}
 
 get_rq:
-	wb_acct = wbt_wait(q->rq_wb, bio, q->queue_lock);
+	rq_qos_throttle(q, bio, q->queue_lock);
 
 	/*
 	 * Grab a free request. This is might sleep but can not fail.
@@ -2061,7 +2059,7 @@ get_rq:
 	req = get_request(q, bio->bi_opf, bio, 0, GFP_NOIO);
 	if (IS_ERR(req)) {
 		blk_queue_exit(q);
-		__wbt_done(q->rq_wb, wb_acct);
+		rq_qos_cleanup(q, bio);
 		if (PTR_ERR(req) == -ENOMEM)
 			bio->bi_status = BLK_STS_RESOURCE;
 		else
@@ -2070,7 +2068,7 @@ get_rq:
 		goto out_unlock;
 	}
 
-	wbt_track(req, wb_acct);
+	rq_qos_track(q, req, bio);
 
 	/*
 	 * After dropping the lock and possibly sleeping here, our request
@@ -2716,13 +2714,13 @@ EXPORT_SYMBOL_GPL(blk_rq_err_bytes);
 void blk_account_io_completion(struct request *req, unsigned int bytes)
 {
 	if (blk_do_io_stat(req)) {
-		const int rw = rq_data_dir(req);
+		const int sgrp = op_stat_group(req_op(req));
 		struct hd_struct *part;
 		int cpu;
 
 		cpu = part_stat_lock();
 		part = req->part;
-		part_stat_add(cpu, part, sectors[rw], bytes >> 9);
+		part_stat_add(cpu, part, sectors[sgrp], bytes >> 9);
 		part_stat_unlock();
 	}
 }
@@ -2735,19 +2733,17 @@ void blk_account_io_done(struct request *req, u64 now)
 	 * containing request is enough.
 	 */
 	if (blk_do_io_stat(req) && !(req->rq_flags & RQF_FLUSH_SEQ)) {
-		unsigned long duration;
-		const int rw = rq_data_dir(req);
+		const int sgrp = op_stat_group(req_op(req));
 		struct hd_struct *part;
 		int cpu;
 
-		duration = nsecs_to_jiffies(now - req->start_time_ns);
 		cpu = part_stat_lock();
 		part = req->part;
 
-		part_stat_inc(cpu, part, ios[rw]);
-		part_stat_add(cpu, part, ticks[rw], duration);
+		part_stat_inc(cpu, part, ios[sgrp]);
+		part_stat_add(cpu, part, nsecs[sgrp], now - req->start_time_ns);
 		part_round_stats(req->q, cpu, part);
-		part_dec_in_flight(req->q, part, rw);
+		part_dec_in_flight(req->q, part, rq_data_dir(req));
 
 		hd_struct_put(part);
 		part_stat_unlock();
@@ -2767,9 +2763,9 @@ static bool blk_pm_allow_request(struct request *rq)
 		return rq->rq_flags & RQF_PM;
 	case RPM_SUSPENDED:
 		return false;
+	default:
+		return true;
 	}
-
-	return true;
 }
 #else
 static bool blk_pm_allow_request(struct request *rq)
@@ -2996,7 +2992,7 @@ void blk_start_request(struct request *req)
 		req->throtl_size = blk_rq_sectors(req);
 #endif
 		req->rq_flags |= RQF_STATS;
-		wbt_issue(req->q->rq_wb, req);
+		rq_qos_issue(req->q, req);
 	}
 
 	BUG_ON(blk_rq_is_complete(req));
@@ -3068,6 +3064,10 @@ EXPORT_SYMBOL_GPL(blk_steal_bios);
  *
  *     Passing the result of blk_rq_bytes() as @nr_bytes guarantees
  *     %false return from this function.
+ *
+ * Note:
+ *	The RQF_SPECIAL_PAYLOAD flag is ignored on purpose in both
+ *	blk_rq_bytes() and in blk_update_request().
  *
  * Return:
  *     %false - this request doesn't have any more data
@@ -3216,7 +3216,7 @@ void blk_finish_request(struct request *req, blk_status_t error)
 	blk_account_io_done(req, now);
 
 	if (req->end_io) {
-		wbt_done(req->q->rq_wb, req);
+		rq_qos_done(q, req);
 		req->end_io(req, error);
 	} else {
 		if (blk_bidi_rq(req))

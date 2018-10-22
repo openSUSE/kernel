@@ -702,7 +702,6 @@ static struct iommu_ops msm_iommu_ops = {
 	.detach_dev = msm_iommu_detach_dev,
 	.map = msm_iommu_map,
 	.unmap = msm_iommu_unmap,
-	.map_sg = default_iommu_map_sg,
 	.iova_to_phys = msm_iommu_iova_to_phys,
 	.add_device = msm_iommu_add_device,
 	.remove_device = msm_iommu_remove_device,
@@ -870,8 +869,6 @@ static void __exit msm_iommu_driver_exit(void)
 
 subsys_initcall(msm_iommu_driver_init);
 module_exit(msm_iommu_driver_exit);
-
-IOMMU_OF_DECLARE(msm_iommu_of, "qcom,apq8064-iommu");
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Stepan Moskovchenko <stepanm@codeaurora.org>");

@@ -449,6 +449,7 @@ static void omap_rtc_power_off(void)
 
 	if (tm2bcd(&tm) < 0) {
 		dev_err(&rtc->rtc->dev, "power off failed\n");
+		rtc->type->lock(rtc);
 		return;
 	}
 
@@ -582,9 +583,7 @@ static int rtc_pinconf_get(struct pinctrl_dev *pctldev,
 	u32 val;
 	u16 arg = 0;
 
-	rtc->type->unlock(rtc);
 	val = rtc_readl(rtc, OMAP_RTC_PMIC_REG);
-	rtc->type->lock(rtc);
 
 	switch (param) {
 	case PIN_CONFIG_INPUT_ENABLE:
@@ -614,9 +613,7 @@ static int rtc_pinconf_set(struct pinctrl_dev *pctldev,
 	u32 param_val;
 	int i;
 
-	rtc->type->unlock(rtc);
 	val = rtc_readl(rtc, OMAP_RTC_PMIC_REG);
-	rtc->type->lock(rtc);
 
 	/* active low by default */
 	val |= OMAP_RTC_PMIC_EXT_WKUP_POL(pin);

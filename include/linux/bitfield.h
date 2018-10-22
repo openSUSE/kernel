@@ -53,7 +53,7 @@
 	({								\
 		BUILD_BUG_ON_MSG(!__builtin_constant_p(_mask),		\
 				 _pfx "mask is not constant");		\
-		BUILD_BUG_ON_MSG(!(_mask), _pfx "mask is zero");	\
+		BUILD_BUG_ON_MSG((_mask) == 0, _pfx "mask is zero");	\
 		BUILD_BUG_ON_MSG(__builtin_constant_p(_val) ?		\
 				 ~((_mask) >> __bf_shf(_mask)) & (_val) : 0, \
 				 _pfx "value too large for the field"); \
@@ -143,6 +143,7 @@ static __always_inline base type##_get_bits(__##type v, base field)	\
 	____MAKE_OP(le##size,u##size,cpu_to_le##size,le##size##_to_cpu)	\
 	____MAKE_OP(be##size,u##size,cpu_to_be##size,be##size##_to_cpu)	\
 	____MAKE_OP(u##size,u##size,,)
+____MAKE_OP(u8,u8,,)
 __MAKE_OP(16)
 __MAKE_OP(32)
 __MAKE_OP(64)

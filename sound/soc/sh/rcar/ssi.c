@@ -1,16 +1,12 @@
-/*
- * Renesas R-Car SSIU/SSI support
- *
- * Copyright (C) 2013 Renesas Solutions Corp.
- * Kuninori Morimoto <kuninori.morimoto.gx@renesas.com>
- *
- * Based on fsi.c
- * Kuninori Morimoto <morimoto.kuninori@renesas.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- */
+// SPDX-License-Identifier: GPL-2.0
+//
+// Renesas R-Car SSIU/SSI support
+//
+// Copyright (C) 2013 Renesas Solutions Corp.
+// Kuninori Morimoto <kuninori.morimoto.gx@renesas.com>
+//
+// Based on fsi.c
+// Kuninori Morimoto <morimoto.kuninori@renesas.com>
 
 /*
  * you can enable below define if you don't need
@@ -1069,9 +1065,10 @@ struct rsnd_mod *rsnd_ssi_mod_get(struct rsnd_priv *priv, int id)
 
 int __rsnd_ssi_is_pin_sharing(struct rsnd_mod *mod)
 {
-	struct rsnd_ssi *ssi = rsnd_mod_to_ssi(mod);
+	if (!mod)
+		return 0;
 
-	return !!(rsnd_flags_has(ssi, RSND_SSI_CLK_PIN_SHARE));
+	return !!(rsnd_flags_has(rsnd_mod_to_ssi(mod), RSND_SSI_CLK_PIN_SHARE));
 }
 
 static u32 *rsnd_ssi_get_status(struct rsnd_dai_stream *io,

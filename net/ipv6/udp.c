@@ -235,6 +235,8 @@ struct sock *__udp6_lib_lookup(struct net *net,
 						  exact_dif, hslot2,
 						  skb);
 		}
+		if (unlikely(IS_ERR(result)))
+			return NULL;
 		return result;
 	}
 begin:
@@ -249,6 +251,8 @@ begin:
 						    saddr, sport);
 				result = reuseport_select_sock(sk, hash, skb,
 							sizeof(struct udphdr));
+				if (unlikely(IS_ERR(result)))
+					return NULL;
 				if (result)
 					return result;
 			}
@@ -762,11 +766,9 @@ static int udp6_unicast_rcv_skb(struct sock *sk, struct sk_buff *skb,
 
 	ret = udpv6_queue_rcv_skb(sk, skb);
 
-	/* a return value > 0 means to resubmit the input, but
-	 * it wants the return to be -protocol, or 0
-	 */
+	/* a return value > 0 means to resubmit the input */
 	if (ret > 0)
-		return -ret;
+		return ret;
 	return 0;
 }
 
@@ -1150,13 +1152,10 @@ int udpv6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	int err;
 	int is_udplite = IS_UDPLITE(sk);
 	int (*getfrag)(void *, char *, int, int, int, struct sk_buff *);
-	struct sockcm_cookie sockc;
 
-	ipc6.hlimit = -1;
-	ipc6.tclass = -1;
-	ipc6.dontfrag = -1;
+	ipcm6_init(&ipc6);
 	ipc6.gso_size = up->gso_size;
-	sockc.tsflags = sk->sk_tsflags;
+	ipc6.sockc.tsflags = sk->sk_tsflags;
 
 	/* destination address check */
 	if (sin6) {
@@ -1291,7 +1290,7 @@ do_udp_sendmsg:
 		err = udp_cmsg_send(sk, msg, &ipc6.gso_size);
 		if (err > 0)
 			err = ip6_datagram_send_ctl(sock_net(sk), sk, msg, &fl6,
-						    &ipc6, &sockc);
+						    &ipc6);
 		if (err < 0) {
 			fl6_sock_release(flowlabel);
 			return err;
@@ -1385,7 +1384,7 @@ back_from_confirm:
 		skb = ip6_make_skb(sk, getfrag, msg, ulen,
 				   sizeof(struct udphdr), &ipc6,
 				   &fl6, (struct rt6_info *)dst,
-				   msg->msg_flags, &cork, &sockc);
+				   msg->msg_flags, &cork);
 		err = PTR_ERR(skb);
 		if (!IS_ERR_OR_NULL(skb))
 			err = udp_v6_send_skb(skb, &fl6, &cork.base);
@@ -1411,7 +1410,7 @@ do_append_data:
 	up->len += ulen;
 	err = ip6_append_data(sk, getfrag, msg, ulen, sizeof(struct udphdr),
 			      &ipc6, &fl6, (struct rt6_info *)dst,
-			      corkreq ? msg->msg_flags|MSG_MORE : msg->msg_flags, &sockc);
+			      corkreq ? msg->msg_flags|MSG_MORE : msg->msg_flags);
 	if (err)
 		udp_v6_flush_pending_frames(sk);
 	else if (!corkreq)

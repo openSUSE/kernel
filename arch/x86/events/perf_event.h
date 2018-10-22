@@ -163,6 +163,7 @@ struct intel_excl_cntrs {
 	unsigned	core_id;	/* per-core: core id */
 };
 
+struct x86_perf_task_context;
 #define MAX_LBR_ENTRIES		32
 
 enum {
@@ -214,6 +215,8 @@ struct cpu_hw_events {
 	struct perf_branch_entry	lbr_entries[MAX_LBR_ENTRIES];
 	struct er_account		*lbr_sel;
 	u64				br_sel;
+	struct x86_perf_task_context	*last_task_ctx;
+	int				last_log_id;
 
 	/*
 	 * Intel host/guest exclude bits
@@ -651,6 +654,7 @@ struct x86_perf_task_context {
 	int valid_lbrs;
 	int lbr_callstack_users;
 	int lbr_stack_state;
+	int log_id;
 };
 
 #define x86_add_quirk(func_)						\
@@ -669,6 +673,7 @@ do {									\
 #define PMU_FL_HAS_RSP_1	0x2 /* has 2 equivalent offcore_rsp regs   */
 #define PMU_FL_EXCL_CNTRS	0x4 /* has exclusive counter requirements  */
 #define PMU_FL_EXCL_ENABLED	0x8 /* exclusive counter active */
+#define PMU_FL_PEBS_ALL		0x10 /* all events are valid PEBS events */
 
 #define EVENT_VAR(_id)  event_attr_##_id
 #define EVENT_PTR(_id) &event_attr_##_id.attr.attr

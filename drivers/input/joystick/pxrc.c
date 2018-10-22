@@ -3,7 +3,6 @@
  * Driver for Phoenix RC Flight Controller Adapter
  *
  * Copyright (C) 2018 Marcus Folkesson <marcus.folkesson@gmail.com>
- *
  */
 
 #include <linux/kernel.h>
@@ -16,31 +15,22 @@
 #include <linux/mutex.h>
 #include <linux/input.h>
 
-#define PXRC_VENDOR_ID	(0x1781)
-#define PXRC_PRODUCT_ID	(0x0898)
-
-static const struct usb_device_id pxrc_table[] = {
-	{ USB_DEVICE(PXRC_VENDOR_ID, PXRC_PRODUCT_ID) },
-	{ }
-};
-MODULE_DEVICE_TABLE(usb, pxrc_table);
+#define PXRC_VENDOR_ID		0x1781
+#define PXRC_PRODUCT_ID		0x0898
 
 struct pxrc {
 	struct input_dev	*input;
-	struct usb_device	*udev;
 	struct usb_interface	*intf;
 	struct urb		*urb;
 	struct mutex		pm_mutex;
 	bool			is_open;
-	__u8			epaddr;
 	char			phys[64];
-	unsigned char           *data;
-	size_t			bsize;
 };
 
 static void pxrc_usb_irq(struct urb *urb)
 {
 	struct pxrc *pxrc = urb->context;
+	u8 *data = urb->transfer_buffer;
 	int error;
 
 	switch (urb->status) {
@@ -68,15 +58,15 @@ static void pxrc_usb_irq(struct urb *urb)
 	}
 
 	if (urb->actual_length == 8) {
-		input_report_abs(pxrc->input, ABS_X, pxrc->data[0]);
-		input_report_abs(pxrc->input, ABS_Y, pxrc->data[2]);
-		input_report_abs(pxrc->input, ABS_RX, pxrc->data[3]);
-		input_report_abs(pxrc->input, ABS_RY, pxrc->data[4]);
-		input_report_abs(pxrc->input, ABS_RUDDER, pxrc->data[5]);
-		input_report_abs(pxrc->input, ABS_THROTTLE, pxrc->data[6]);
-		input_report_abs(pxrc->input, ABS_MISC, pxrc->data[7]);
+		input_report_abs(pxrc->input, ABS_X, data[0]);
+		input_report_abs(pxrc->input, ABS_Y, data[2]);
+		input_report_abs(pxrc->input, ABS_RX, data[3]);
+		input_report_abs(pxrc->input, ABS_RY, data[4]);
+		input_report_abs(pxrc->input, ABS_RUDDER, data[5]);
+		input_report_abs(pxrc->input, ABS_THROTTLE, data[6]);
+		input_report_abs(pxrc->input, ABS_MISC, data[7]);
 
-		input_report_key(pxrc->input, BTN_A, pxrc->data[1]);
+		input_report_key(pxrc->input, BTN_A, data[1]);
 	}
 
 exit:
@@ -127,57 +117,66 @@ static void pxrc_free_urb(void *_pxrc)
 	usb_free_urb(pxrc->urb);
 }
 
-static int pxrc_usb_init(struct pxrc *pxrc)
+static int pxrc_probe(struct usb_interface *intf,
+		      const struct usb_device_id *id)
 {
+	struct usb_device *udev = interface_to_usbdev(intf);
+	struct pxrc *pxrc;
 	struct usb_endpoint_descriptor *epirq;
-	unsigned int pipe;
+	size_t xfer_size;
+	void *xfer_buf;
 	int error;
 
-	/* Set up the endpoint information */
-	/* This device only has an interrupt endpoint */
-	error = usb_find_common_endpoints(pxrc->intf->cur_altsetting,
+	/*
+	 * Locate the endpoint information. This device only has an
+	 * interrupt endpoint.
+	 */
+	error = usb_find_common_endpoints(intf->cur_altsetting,
 					  NULL, NULL, &epirq, NULL);
 	if (error) {
-		dev_err(&pxrc->intf->dev, "Could not find endpoint\n");
+		dev_err(&intf->dev, "Could not find endpoint\n");
 		return error;
 	}
 
-	pxrc->bsize = usb_endpoint_maxp(epirq);
-	pxrc->epaddr = epirq->bEndpointAddress;
-	pxrc->data = devm_kmalloc(&pxrc->intf->dev, pxrc->bsize, GFP_KERNEL);
-	if (!pxrc->data)
+	pxrc = devm_kzalloc(&intf->dev, sizeof(*pxrc), GFP_KERNEL);
+	if (!pxrc)
 		return -ENOMEM;
 
+	mutex_init(&pxrc->pm_mutex);
+	pxrc->intf = intf;
+
 	usb_set_intfdata(pxrc->intf, pxrc);
-	usb_make_path(pxrc->udev, pxrc->phys, sizeof(pxrc->phys));
-	strlcat(pxrc->phys, "/input0", sizeof(pxrc->phys));
+
+	xfer_size = usb_endpoint_maxp(epirq);
+	xfer_buf = devm_kmalloc(&intf->dev, xfer_size, GFP_KERNEL);
+	if (!xfer_buf)
+		return -ENOMEM;
 
 	pxrc->urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!pxrc->urb)
 		return -ENOMEM;
 
-	error = devm_add_action_or_reset(&pxrc->intf->dev, pxrc_free_urb, pxrc);
+	error = devm_add_action_or_reset(&intf->dev, pxrc_free_urb, pxrc);
 	if (error)
 		return error;
 
-	pipe = usb_rcvintpipe(pxrc->udev, pxrc->epaddr),
-	usb_fill_int_urb(pxrc->urb, pxrc->udev, pipe, pxrc->data, pxrc->bsize,
-						pxrc_usb_irq, pxrc, 1);
+	usb_fill_int_urb(pxrc->urb, udev,
+			 usb_rcvintpipe(udev, epirq->bEndpointAddress),
+			 xfer_buf, xfer_size, pxrc_usb_irq, pxrc, 1);
 
-	return 0;
-}
-
-static int pxrc_input_init(struct pxrc *pxrc)
-{
-	pxrc->input = devm_input_allocate_device(&pxrc->intf->dev);
-	if (pxrc->input == NULL) {
-		dev_err(&pxrc->intf->dev, "couldn't allocate input device\n");
+	pxrc->input = devm_input_allocate_device(&intf->dev);
+	if (!pxrc->input) {
+		dev_err(&intf->dev, "couldn't allocate input device\n");
 		return -ENOMEM;
 	}
 
 	pxrc->input->name = "PXRC Flight Controller Adapter";
+
+	usb_make_path(udev, pxrc->phys, sizeof(pxrc->phys));
+	strlcat(pxrc->phys, "/input0", sizeof(pxrc->phys));
 	pxrc->input->phys = pxrc->phys;
-	usb_to_input_id(pxrc->udev, &pxrc->input->id);
+
+	usb_to_input_id(udev, &pxrc->input->id);
 
 	pxrc->input->open = pxrc_open;
 	pxrc->input->close = pxrc_close;
@@ -193,28 +192,7 @@ static int pxrc_input_init(struct pxrc *pxrc)
 
 	input_set_drvdata(pxrc->input, pxrc);
 
-	return input_register_device(pxrc->input);
-}
-
-static int pxrc_probe(struct usb_interface *intf,
-		      const struct usb_device_id *id)
-{
-	struct pxrc *pxrc;
-	int error;
-
-	pxrc = devm_kzalloc(&intf->dev, sizeof(*pxrc), GFP_KERNEL);
-	if (!pxrc)
-		return -ENOMEM;
-
-	mutex_init(&pxrc->pm_mutex);
-	pxrc->udev = usb_get_dev(interface_to_usbdev(intf));
-	pxrc->intf = intf;
-
-	error = pxrc_usb_init(pxrc);
-	if (error)
-		return error;
-
-	error = pxrc_input_init(pxrc);
+	error = input_register_device(pxrc->input);
 	if (error)
 		return error;
 
@@ -277,6 +255,12 @@ static int pxrc_reset_resume(struct usb_interface *intf)
 {
 	return pxrc_resume(intf);
 }
+
+static const struct usb_device_id pxrc_table[] = {
+	{ USB_DEVICE(PXRC_VENDOR_ID, PXRC_PRODUCT_ID) },
+	{ }
+};
+MODULE_DEVICE_TABLE(usb, pxrc_table);
 
 static struct usb_driver pxrc_driver = {
 	.name =		"pxrc",

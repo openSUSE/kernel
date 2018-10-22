@@ -10,7 +10,7 @@ KBUILD_DEFCONFIG := nsim_700_defconfig
 
 cflags-y	+= -fno-common -pipe -fno-builtin -mmedium-calls -D__linux__
 cflags-$(CONFIG_ISA_ARCOMPACT)	+= -mA7
-cflags-$(CONFIG_ISA_ARCV2)	+= -mcpu=archs
+cflags-$(CONFIG_ISA_ARCV2)	+= -mcpu=hs38
 
 ifdef CONFIG_ARC_CURR_IN_REG
 # For a global register defintion, make sure it gets passed to every file
@@ -21,10 +21,7 @@ ifdef CONFIG_ARC_CURR_IN_REG
 LINUXINCLUDE	+=  -include ${src}/arch/arc/include/asm/current.h
 endif
 
-upto_gcc44    :=  $(call cc-ifversion, -le, 0404, y)
-atleast_gcc44 :=  $(call cc-ifversion, -ge, 0404, y)
-
-cflags-$(atleast_gcc44)			+= -fsection-anchors
+cflags-y				+= -fsection-anchors
 
 cflags-$(CONFIG_ARC_HAS_LLSC)		+= -mlock
 cflags-$(CONFIG_ARC_HAS_SWAPE)		+= -mswape
@@ -60,11 +57,6 @@ cflags-$(disable_small_data)		+= -mno-sdata -fcall-used-gp
 cflags-$(CONFIG_CPU_BIG_ENDIAN)		+= -mbig-endian
 ldflags-$(CONFIG_CPU_BIG_ENDIAN)	+= -EB
 
-# STAR 9000518362: (fixed with binutils shipping with gcc 4.8)
-# arc-linux-uclibc-ld (buildroot) or arceb-elf32-ld (EZChip) don't accept
-# --build-id w/o "-marclinux". Default arc-elf32-ld is OK
-ldflags-$(upto_gcc44)			+= -marclinux
-
 LIBGCC	= $(shell $(CC) $(cflags-y) --print-libgcc-file-name)
 
 # Modules with short calls might break for calls into builtin-kernel
@@ -73,7 +65,7 @@ KBUILD_CFLAGS_MODULE	+= -mlong-calls -mno-millicode
 # Finally dump eveything into kernel build system
 KBUILD_CFLAGS	+= $(cflags-y)
 KBUILD_AFLAGS	+= $(KBUILD_CFLAGS)
-LDFLAGS		+= $(ldflags-y)
+KBUILD_LDFLAGS	+= $(ldflags-y)
 
 head-y		:= arch/arc/kernel/head.o
 

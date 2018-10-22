@@ -1028,11 +1028,6 @@ static const char *etnaviv_fence_get_timeline_name(struct dma_fence *fence)
 	return dev_name(f->gpu->dev);
 }
 
-static bool etnaviv_fence_enable_signaling(struct dma_fence *fence)
-{
-	return true;
-}
-
 static bool etnaviv_fence_signaled(struct dma_fence *fence)
 {
 	struct etnaviv_fence *f = to_etnaviv_fence(fence);
@@ -1050,9 +1045,7 @@ static void etnaviv_fence_release(struct dma_fence *fence)
 static const struct dma_fence_ops etnaviv_fence_ops = {
 	.get_driver_name = etnaviv_fence_get_driver_name,
 	.get_timeline_name = etnaviv_fence_get_timeline_name,
-	.enable_signaling = etnaviv_fence_enable_signaling,
 	.signaled = etnaviv_fence_signaled,
-	.wait = dma_fence_default_wait,
 	.release = etnaviv_fence_release,
 };
 
@@ -1734,7 +1727,7 @@ static int etnaviv_gpu_platform_probe(struct platform_device *pdev)
 
 	gpu->dev = &pdev->dev;
 	mutex_init(&gpu->lock);
-	mutex_init(&gpu->fence_idr_lock);
+	mutex_init(&gpu->fence_lock);
 
 	/* Map registers: */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
