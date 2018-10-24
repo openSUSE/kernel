@@ -48,6 +48,7 @@ config X86
 	select ACPI_SYSTEM_POWER_STATES_SUPPORT	if ACPI
 	select ANON_INODES
 	select ARCH_CLOCKSOURCE_DATA
+	select ARCH_CLOCKSOURCE_INIT
 	select ARCH_DISCARD_MEMBLOCK
 	select ARCH_HAS_ACPI_TABLE_UPGRADE	if ACPI
 	select ARCH_HAS_DEBUG_VIRTUAL
@@ -119,6 +120,7 @@ config X86
 	select HAVE_ARCH_AUDITSYSCALL
 	select HAVE_ARCH_HUGE_VMAP		if X86_64 || X86_PAE
 	select HAVE_ARCH_JUMP_LABEL
+	select HAVE_ARCH_JUMP_LABEL_RELATIVE
 	select HAVE_ARCH_KASAN			if X86_64
 	select HAVE_ARCH_KGDB
 	select HAVE_ARCH_MMAP_RND_BITS		if MMU
@@ -447,7 +449,6 @@ config RETPOLINE
 
 config INTEL_RDT
 	bool "Intel Resource Director Technology support"
-	default n
 	depends on X86 && CPU_SUP_INTEL
 	select KERNFS
 	help
@@ -523,6 +524,7 @@ config X86_VSMP
 	bool "ScaleMP vSMP"
 	select HYPERVISOR_GUEST
 	select PARAVIRT
+	select PARAVIRT_XXL
 	depends on X86_64 && PCI
 	depends on X86_EXTENDED_PLATFORM
 	depends on SMP
@@ -701,7 +703,6 @@ config STA2X11
 	select SWIOTLB
 	select MFD_STA2X11
 	select GPIOLIB
-	default n
 	---help---
 	  This adds support for boards based on the STA2X11 IO-Hub,
 	  a.k.a. "ConneXt". The chip is used in place of the standard
@@ -754,6 +755,9 @@ config PARAVIRT
 	  over full virtualization.  However, when run without a hypervisor
 	  the kernel is theoretically slower and slightly larger.
 
+config PARAVIRT_XXL
+	bool
+
 config PARAVIRT_DEBUG
 	bool "paravirt-ops debugging"
 	depends on PARAVIRT && DEBUG_KERNEL
@@ -799,7 +803,6 @@ config KVM_GUEST
 config KVM_DEBUG_FS
 	bool "Enable debug information for KVM Guests in debugfs"
 	depends on KVM_GUEST && DEBUG_FS
-	default n
 	---help---
 	  This option enables collection of various statistics for KVM guest.
 	  Statistics are displayed in debugfs filesystem. Enabling this option
@@ -808,7 +811,6 @@ config KVM_DEBUG_FS
 config PARAVIRT_TIME_ACCOUNTING
 	bool "Paravirtual steal time accounting"
 	depends on PARAVIRT
-	default n
 	---help---
 	  Select this option to enable fine granularity task steal time
 	  accounting. Time spent executing other tasks in parallel with
@@ -1168,7 +1170,6 @@ source "arch/x86/events/Kconfig"
 
 config X86_LEGACY_VM86
 	bool "Legacy VM86 support"
-	default n
 	depends on X86_32
 	---help---
 	  This option allows user programs to put the CPU into V8086
@@ -1490,6 +1491,14 @@ config X86_DIRECT_GBPAGES
 	  linear 1 GB mappings (even if the CPU otherwise
 	  supports them), so don't confuse the user by printing
 	  that we have them enabled.
+
+config X86_CPA_STATISTICS
+	bool "Enable statistic for Change Page Attribute"
+	depends on DEBUG_FS
+	---help---
+	  Expose statistics about the Change Page Attribute mechanims, which
+	  helps to determine the effectivness of preserving large and huge
+	  page mappings when mapping protections are changed.
 
 config ARCH_HAS_MEM_ENCRYPT
 	def_bool y
@@ -2220,7 +2229,6 @@ config HOTPLUG_CPU
 
 config BOOTPARAM_HOTPLUG_CPU0
 	bool "Set default setting of cpu0_hotpluggable"
-	default n
 	depends on HOTPLUG_CPU
 	---help---
 	  Set whether default state of cpu0_hotpluggable is on or off.
@@ -2742,8 +2750,7 @@ config OLPC
 
 config OLPC_XO1_PM
 	bool "OLPC XO-1 Power Management"
-	depends on OLPC && MFD_CS5535 && PM_SLEEP
-	select MFD_CORE
+	depends on OLPC && MFD_CS5535=y && PM_SLEEP
 	---help---
 	  Add support for poweroff and suspend of the OLPC XO-1 laptop.
 
@@ -2825,7 +2832,6 @@ source "drivers/pcmcia/Kconfig"
 config RAPIDIO
 	tristate "RapidIO support"
 	depends on PCI
-	default n
 	help
 	  If enabled this option will include drivers and the core
 	  infrastructure code to support RapidIO interconnect devices.
