@@ -387,12 +387,12 @@ int main(void)
 	OFFSET(CFG_SYSCALL_MAP64, vdso_data, syscall_map_64);
 	OFFSET(TVAL64_TV_SEC, timeval, tv_sec);
 	OFFSET(TVAL64_TV_USEC, timeval, tv_usec);
-	OFFSET(TVAL32_TV_SEC, compat_timeval, tv_sec);
-	OFFSET(TVAL32_TV_USEC, compat_timeval, tv_usec);
+	OFFSET(TVAL32_TV_SEC, old_timeval32, tv_sec);
+	OFFSET(TVAL32_TV_USEC, old_timeval32, tv_usec);
 	OFFSET(TSPC64_TV_SEC, timespec, tv_sec);
 	OFFSET(TSPC64_TV_NSEC, timespec, tv_nsec);
-	OFFSET(TSPC32_TV_SEC, compat_timespec, tv_sec);
-	OFFSET(TSPC32_TV_NSEC, compat_timespec, tv_nsec);
+	OFFSET(TSPC32_TV_SEC, old_timespec32, tv_sec);
+	OFFSET(TSPC32_TV_NSEC, old_timespec32, tv_nsec);
 #else
 	OFFSET(TVAL32_TV_SEC, timeval, tv_sec);
 	OFFSET(TVAL32_TV_USEC, timeval, tv_usec);
@@ -438,7 +438,7 @@ int main(void)
 #ifdef CONFIG_PPC_BOOK3S
 	OFFSET(VCPU_TAR, kvm_vcpu, arch.tar);
 #endif
-	OFFSET(VCPU_CR, kvm_vcpu, arch.cr);
+	OFFSET(VCPU_CR, kvm_vcpu, arch.regs.ccr);
 	OFFSET(VCPU_PC, kvm_vcpu, arch.regs.nip);
 #ifdef CONFIG_KVM_BOOK3S_HV_POSSIBLE
 	OFFSET(VCPU_MSR, kvm_vcpu, arch.shregs.msr);
@@ -503,6 +503,7 @@ int main(void)
 	OFFSET(VCPU_VPA, kvm_vcpu, arch.vpa.pinned_addr);
 	OFFSET(VCPU_VPA_DIRTY, kvm_vcpu, arch.vpa.dirty);
 	OFFSET(VCPU_HEIR, kvm_vcpu, arch.emul_inst);
+	OFFSET(VCPU_NESTED, kvm_vcpu, arch.nested);
 	OFFSET(VCPU_CPU, kvm_vcpu, cpu);
 	OFFSET(VCPU_THREAD_CPU, kvm_vcpu, arch.thread_cpu);
 #endif
@@ -695,7 +696,7 @@ int main(void)
 #endif /* CONFIG_PPC_BOOK3S_64 */
 
 #else /* CONFIG_PPC_BOOK3S */
-	OFFSET(VCPU_CR, kvm_vcpu, arch.cr);
+	OFFSET(VCPU_CR, kvm_vcpu, arch.regs.ccr);
 	OFFSET(VCPU_XER, kvm_vcpu, arch.regs.xer);
 	OFFSET(VCPU_LR, kvm_vcpu, arch.regs.link);
 	OFFSET(VCPU_CTR, kvm_vcpu, arch.regs.ctr);
