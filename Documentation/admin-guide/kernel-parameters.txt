@@ -856,7 +856,8 @@
 			causing system reset or hang due to sending
 			INIT from AP to BSP.
 
-	disable_counter_freezing [HW]
+	perf_v4_pmi=	[X86,INTEL]
+			Format: <bool>
 			Disable Intel PMU counter freezing feature.
 			The feature only exists starting from
 			Arch Perfmon v4 (Skylake and newer).
@@ -3503,6 +3504,10 @@
 	prompt_ramdisk=	[RAM] List of RAM disks to prompt for floppy disk
 			before loading.
 			See Documentation/blockdev/ramdisk.txt.
+
+	psi=		[KNL] Enable or disable pressure stall information
+			tracking.
+			Format: <bool>
 
 	psmouse.proto=	[HW,MOUSE] Highest PS2 mouse protocol extension to
 			probe for; one of (bare|imps|exps|lifebook|any).
