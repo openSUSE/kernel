@@ -6,7 +6,7 @@ always		:= $(hostprogs-y) empty.o
 
 ksym-provides-objs	:= ksym-provides.o
 
-HOSTLOADLIBES_ksym-provides := -lelf
+HOSTLDLIBS_ksym-provides := -lelf
 
 modpost-objs	:= modpost.o file2alias.o sumversion.o
 
