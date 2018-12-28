@@ -198,24 +198,19 @@ static u16 hv_get_dev_type(const struct vmbus_channel *channel)
 }
 
 /**
- * vmbus_prep_negotiate_resp() - Create default response for Hyper-V Negotiate message
+ * vmbus_prep_negotiate_resp() - Create default response for Negotiate message
  * @icmsghdrp: Pointer to msg header structure
- * @icmsg_negotiate: Pointer to negotiate message structure
  * @buf: Raw buffer channel data
+ * @fw_version: The framework versions we can support.
+ * @fw_vercnt: The size of @fw_version.
+ * @srv_version: The service versions we can support.
+ * @srv_vercnt: The size of @srv_version.
+ * @nego_fw_version: The selected framework version.
+ * @nego_srv_version: The selected service version.
  *
- * @icmsghdrp is of type &struct icmsg_hdr.
+ * Note: Versions are given in decreasing order.
+ *
  * Set up and fill in default negotiate response message.
- *
- * The fw_version and fw_vercnt specifies the framework version that
- * we can support.
- *
- * The srv_version and srv_vercnt specifies the service
- * versions we can support.
- *
- * Versions are given in decreasing order.
- *
- * nego_fw_version and nego_srv_version store the selected protocol versions.
- *
  * Mainly used by Hyper-V drivers.
  */
 bool vmbus_prep_negotiate_resp(struct icmsg_hdr *icmsghdrp,
@@ -385,21 +380,14 @@ static void vmbus_release_relid(u32 relid)
 	trace_vmbus_release_relid(&msg, ret);
 }
 
-void hv_process_channel_removal(u32 relid)
+void hv_process_channel_removal(struct vmbus_channel *channel)
 {
+	struct vmbus_channel *primary_channel;
 	unsigned long flags;
-	struct vmbus_channel *primary_channel, *channel;
 
 	BUG_ON(!mutex_is_locked(&vmbus_connection.channel_mutex));
-
-	/*
-	 * Make sure channel is valid as we may have raced.
-	 */
-	channel = relid2channel(relid);
-	if (!channel)
-		return;
-
 	BUG_ON(!channel->rescind);
+
 	if (channel->target_cpu != get_cpu()) {
 		put_cpu();
 		smp_call_function_single(channel->target_cpu,
@@ -429,7 +417,7 @@ void hv_process_channel_removal(u32 relid)
 		cpumask_clear_cpu(channel->target_cpu,
 				  &primary_channel->alloced_cpus_in_node);
 
-	vmbus_release_relid(relid);
+	vmbus_release_relid(channel->offermsg.child_relid);
 
 	free_channel(channel);
 }
@@ -1010,7 +998,7 @@ static void vmbus_onoffer_rescind(struct vmbus_channel_message_header *hdr)
 			 * The channel is currently not open;
 			 * it is safe for us to cleanup the channel.
 			 */
-			hv_process_channel_removal(rescind->child_relid);
+			hv_process_channel_removal(channel);
 		} else {
 			complete(&channel->rescind_event);
 		}

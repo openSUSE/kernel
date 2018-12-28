@@ -1,19 +1,8 @@
-/*
- * clk-s2mps11.c - Clock driver for S2MPS11.
- *
- * Copyright (C) 2013,2014 Samsung Electornics
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- */
+// SPDX-License-Identifier: GPL-2.0+
+//
+// clk-s2mps11.c - Clock driver for S2MPS11.
+//
+// Copyright (C) 2013,2014 Samsung Electornics
 
 #include <linux/module.h>
 #include <linux/err.h>
@@ -28,12 +17,7 @@
 #include <linux/mfd/samsung/s5m8767.h>
 #include <linux/mfd/samsung/core.h>
 
-enum {
-	S2MPS11_CLK_AP = 0,
-	S2MPS11_CLK_CP,
-	S2MPS11_CLK_BT,
-	S2MPS11_CLKS_NUM,
-};
+#include <dt-bindings/clock/samsung,s2mps11.h>
 
 struct s2mps11_clk {
 	struct sec_pmic_dev *iodev;
@@ -255,7 +239,7 @@ MODULE_DEVICE_TABLE(platform, s2mps11_clk_id);
  * This requires of_device_id table.  In the same time this will not change the
  * actual *device* matching so do not add .of_match_table.
  */
-static const struct of_device_id s2mps11_dt_match[] = {
+static const struct of_device_id s2mps11_dt_match[] __used = {
 	{
 		.compatible = "samsung,s2mps11-clk",
 		.data = (void *)S2MPS11X,

@@ -63,14 +63,14 @@ EXPORT_SYMBOL_GPL(nfs_pgheader_init);
 
 void nfs_set_pgio_error(struct nfs_pgio_header *hdr, int error, loff_t pos)
 {
-	spin_lock(&hdr->lock);
-	if (!test_and_set_bit(NFS_IOHDR_ERROR, &hdr->flags)
-	    || pos < hdr->io_start + hdr->good_bytes) {
+	unsigned int new = pos - hdr->io_start;
+
+	if (hdr->good_bytes > new) {
+		hdr->good_bytes = new;
 		clear_bit(NFS_IOHDR_EOF, &hdr->flags);
-		hdr->good_bytes = pos - hdr->io_start;
-		hdr->error = error;
+		if (!test_and_set_bit(NFS_IOHDR_ERROR, &hdr->flags))
+			hdr->error = error;
 	}
-	spin_unlock(&hdr->lock);
 }
 
 static inline struct nfs_page *
@@ -494,7 +494,6 @@ struct nfs_pgio_header *nfs_pgio_header_alloc(const struct nfs_rw_ops *ops)
 
 	if (hdr) {
 		INIT_LIST_HEAD(&hdr->pages);
-		spin_lock_init(&hdr->lock);
 		hdr->rw_ops = ops;
 	}
 	return hdr;
@@ -1175,10 +1174,6 @@ int nfs_pageio_add_request(struct nfs_pageio_descriptor *desc,
 	return 1;
 
 out_failed:
-	/* remember fatal errors */
-	if (nfs_error_is_fatal(desc->pg_error))
-		nfs_context_set_write_error(req->wb_context,
-						desc->pg_error);
 	nfs_pageio_error_cleanup(desc);
 	return 0;
 }

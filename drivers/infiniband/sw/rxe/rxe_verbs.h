@@ -158,6 +158,7 @@ struct rxe_comp_info {
 	int			opcode;
 	int			timeout;
 	int			timeout_retry;
+	int			started_retry;
 	u32			retry_cnt;
 	u32			rnr_retry;
 	struct rxe_task		task;
@@ -250,6 +251,7 @@ struct rxe_qp {
 
 	struct socket		*sk;
 	u32			dst_cookie;
+	u16			src_port;
 
 	struct rxe_av		pri_av;
 	struct rxe_av		alt_av;

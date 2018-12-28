@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * rcar_du_kms.c  --  R-Car Display Unit Mode Setting
  *
  * Copyright (C) 2013-2015 Renesas Electronics Corporation
  *
  * Contact: Laurent Pinchart (laurent.pinchart@ideasonboard.com)
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #include <drm/drmP.h>
@@ -101,6 +97,38 @@ static const struct rcar_du_format_info rcar_du_format_infos[] = {
 	 * associated .pnmr or .edf settings.
 	 */
 	{
+		.fourcc = DRM_FORMAT_RGB332,
+		.bpp = 8,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_ARGB4444,
+		.bpp = 16,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_XRGB4444,
+		.bpp = 16,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_BGR888,
+		.bpp = 24,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_RGB888,
+		.bpp = 24,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_BGRA8888,
+		.bpp = 32,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_BGRX8888,
+		.bpp = 32,
+		.planes = 1,
+	}, {
+		.fourcc = DRM_FORMAT_YVYU,
+		.bpp = 16,
+		.planes = 1,
+	}, {
 		.fourcc = DRM_FORMAT_NV61,
 		.bpp = 16,
 		.planes = 2,
@@ -176,7 +204,6 @@ rcar_du_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 	const struct rcar_du_format_info *format;
 	unsigned int max_pitch;
 	unsigned int align;
-	unsigned int bpp;
 	unsigned int i;
 
 	format = rcar_du_format_info(mode_cmd->pixel_format);
@@ -186,20 +213,32 @@ rcar_du_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 		return ERR_PTR(-EINVAL);
 	}
 
-	/*
-	 * The pitch and alignment constraints are expressed in pixels on the
-	 * hardware side and in bytes in the DRM API.
-	 */
-	bpp = format->planes == 1 ? format->bpp / 8 : 1;
-	max_pitch =  4096 * bpp;
+	if (rcdu->info->gen < 3) {
+		/*
+		 * On Gen2 the DU limits the pitch to 4095 pixels and requires
+		 * buffers to be aligned to a 16 pixels boundary (or 128 bytes
+		 * on some platforms).
+		 */
+		unsigned int bpp = format->planes == 1 ? format->bpp / 8 : 1;
 
-	if (rcar_du_needs(rcdu, RCAR_DU_QUIRK_ALIGN_128B))
-		align = 128;
-	else
-		align = 16 * bpp;
+		max_pitch = 4095 * bpp;
+
+		if (rcar_du_needs(rcdu, RCAR_DU_QUIRK_ALIGN_128B))
+			align = 128;
+		else
+			align = 16 * bpp;
+	} else {
+		/*
+		 * On Gen3 the memory interface is handled by the VSP that
+		 * limits the pitch to 65535 bytes and has no alignment
+		 * constraint.
+		 */
+		max_pitch = 65535;
+		align = 1;
+	}
 
 	if (mode_cmd->pitches[0] & (align - 1) ||
-	    mode_cmd->pitches[0] >= max_pitch) {
+	    mode_cmd->pitches[0] > max_pitch) {
 		dev_dbg(dev->dev, "invalid pitch value %u\n",
 			mode_cmd->pitches[0]);
 		return ERR_PTR(-EINVAL);
@@ -505,6 +544,7 @@ int rcar_du_modeset_init(struct rcar_du_device *rcdu)
 	struct drm_device *dev = rcdu->ddev;
 	struct drm_encoder *encoder;
 	struct drm_fbdev_cma *fbdev;
+	unsigned int dpad0_sources;
 	unsigned int num_encoders;
 	unsigned int num_groups;
 	unsigned int swindex;
@@ -626,6 +666,17 @@ int rcar_du_modeset_init(struct rcar_du_device *rcdu)
 		encoder->possible_crtcs = route->possible_crtcs;
 		encoder->possible_clones = (1 << num_encoders) - 1;
 	}
+
+	/*
+	 * Initialize the default DPAD0 source to the index of the first DU
+	 * channel that can be connected to DPAD0. The exact value doesn't
+	 * matter as it should be overwritten by mode setting for the RGB
+	 * output, but it is nonetheless required to ensure a valid initial
+	 * hardware configuration on Gen3 where DU0 can't always be connected to
+	 * DPAD0.
+	 */
+	dpad0_sources = rcdu->info->routes[RCAR_DU_OUTPUT_DPAD0].possible_crtcs;
+	rcdu->dpad0_source = ffs(dpad0_sources) - 1;
 
 	drm_mode_config_reset(dev);
 

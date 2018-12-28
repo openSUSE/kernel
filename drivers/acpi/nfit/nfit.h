@@ -157,6 +157,13 @@ struct nfit_memdev {
 	struct acpi_nfit_memory_map memdev[0];
 };
 
+enum nfit_mem_flags {
+	NFIT_MEM_LSR,
+	NFIT_MEM_LSW,
+	NFIT_MEM_DIRTY,
+	NFIT_MEM_DIRTY_COUNT,
+};
+
 /* assembled tables for a given dimm/memory-device */
 struct nfit_mem {
 	struct nvdimm *nvdimm;
@@ -176,9 +183,9 @@ struct nfit_mem {
 	struct acpi_nfit_desc *acpi_desc;
 	struct resource *flush_wpq;
 	unsigned long dsm_mask;
+	unsigned long flags;
+	u32 dirty_shutdown;
 	int family;
-	bool has_lsr;
-	bool has_lsw;
 };
 
 struct acpi_nfit_desc {

@@ -19,7 +19,6 @@
 #include <linux/ethtool.h>
 #include <linux/module.h>
 #include <linux/slab.h>
-#include <linux/netdevice.h>
 #include <linux/netpoll.h>
 #include <linux/rtnetlink.h>
 #include <linux/if_vlan.h>
@@ -765,8 +764,10 @@ struct failover *net_failover_create(struct net_device *standby_dev)
 	netif_carrier_off(failover_dev);
 
 	failover = failover_register(failover_dev, &net_failover_ops);
-	if (IS_ERR(failover))
+	if (IS_ERR(failover)) {
+		err = PTR_ERR(failover);
 		goto err_failover_register;
+	}
 
 	return failover;
 

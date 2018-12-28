@@ -33,6 +33,36 @@ static void ice_adminq_init_regs(struct ice_hw *hw)
 }
 
 /**
+ * ice_mailbox_init_regs - Initialize Mailbox registers
+ * @hw: pointer to the hardware structure
+ *
+ * This assumes the alloc_sq and alloc_rq functions have already been called
+ */
+static void ice_mailbox_init_regs(struct ice_hw *hw)
+{
+	struct ice_ctl_q_info *cq = &hw->mailboxq;
+
+	/* set head and tail registers in our local struct */
+	cq->sq.head = PF_MBX_ATQH;
+	cq->sq.tail = PF_MBX_ATQT;
+	cq->sq.len = PF_MBX_ATQLEN;
+	cq->sq.bah = PF_MBX_ATQBAH;
+	cq->sq.bal = PF_MBX_ATQBAL;
+	cq->sq.len_mask = PF_MBX_ATQLEN_ATQLEN_M;
+	cq->sq.len_ena_mask = PF_MBX_ATQLEN_ATQENABLE_M;
+	cq->sq.head_mask = PF_MBX_ATQH_ATQH_M;
+
+	cq->rq.head = PF_MBX_ARQH;
+	cq->rq.tail = PF_MBX_ARQT;
+	cq->rq.len = PF_MBX_ARQLEN;
+	cq->rq.bah = PF_MBX_ARQBAH;
+	cq->rq.bal = PF_MBX_ARQBAL;
+	cq->rq.len_mask = PF_MBX_ARQLEN_ARQLEN_M;
+	cq->rq.len_ena_mask = PF_MBX_ARQLEN_ARQENABLE_M;
+	cq->rq.head_mask = PF_MBX_ARQH_ARQH_M;
+}
+
+/**
  * ice_check_sq_alive
  * @hw: pointer to the hw struct
  * @cq: pointer to the specific Control queue
@@ -605,11 +635,11 @@ static enum ice_status ice_init_check_adminq(struct ice_hw *hw)
 	return 0;
 
 init_ctrlq_free_rq:
-	if (cq->rq.head) {
+	if (cq->rq.count) {
 		ice_shutdown_rq(hw, cq);
 		mutex_destroy(&cq->rq_lock);
 	}
-	if (cq->sq.head) {
+	if (cq->sq.count) {
 		ice_shutdown_sq(hw, cq);
 		mutex_destroy(&cq->sq_lock);
 	}
@@ -638,6 +668,10 @@ static enum ice_status ice_init_ctrlq(struct ice_hw *hw, enum ice_ctl_q q_type)
 	case ICE_CTL_Q_ADMIN:
 		ice_adminq_init_regs(hw);
 		cq = &hw->adminq;
+		break;
+	case ICE_CTL_Q_MAILBOX:
+		ice_mailbox_init_regs(hw);
+		cq = &hw->mailboxq;
 		break;
 	default:
 		return ICE_ERR_PARAM;
@@ -696,7 +730,12 @@ enum ice_status ice_init_all_ctrlq(struct ice_hw *hw)
 	if (ret_code)
 		return ret_code;
 
-	return ice_init_check_adminq(hw);
+	ret_code = ice_init_check_adminq(hw);
+	if (ret_code)
+		return ret_code;
+
+	/* Init Mailbox queue */
+	return ice_init_ctrlq(hw, ICE_CTL_Q_MAILBOX);
 }
 
 /**
@@ -714,15 +753,18 @@ static void ice_shutdown_ctrlq(struct ice_hw *hw, enum ice_ctl_q q_type)
 		if (ice_check_sq_alive(hw, cq))
 			ice_aq_q_shutdown(hw, true);
 		break;
+	case ICE_CTL_Q_MAILBOX:
+		cq = &hw->mailboxq;
+		break;
 	default:
 		return;
 	}
 
-	if (cq->sq.head) {
+	if (cq->sq.count) {
 		ice_shutdown_sq(hw, cq);
 		mutex_destroy(&cq->sq_lock);
 	}
-	if (cq->rq.head) {
+	if (cq->rq.count) {
 		ice_shutdown_rq(hw, cq);
 		mutex_destroy(&cq->rq_lock);
 	}
@@ -736,6 +778,8 @@ void ice_shutdown_all_ctrlq(struct ice_hw *hw)
 {
 	/* Shutdown FW admin queue */
 	ice_shutdown_ctrlq(hw, ICE_CTL_Q_ADMIN);
+	/* Shutdown PF-VF Mailbox */
+	ice_shutdown_ctrlq(hw, ICE_CTL_Q_MAILBOX);
 }
 
 /**
@@ -814,6 +858,9 @@ ice_sq_send_cmd(struct ice_hw *hw, struct ice_ctl_q_info *cq,
 	u16 retval = 0;
 	u32 val = 0;
 
+	/* if reset is in progress return a soft error */
+	if (hw->reset_ongoing)
+		return ICE_ERR_RESET_ONGOING;
 	mutex_lock(&cq->sq_lock);
 
 	cq->sq_last_status = ICE_AQ_RC_OK;
@@ -855,7 +902,7 @@ ice_sq_send_cmd(struct ice_hw *hw, struct ice_ctl_q_info *cq,
 
 	details = ICE_CTL_Q_DETAILS(cq->sq, cq->sq.next_to_use);
 	if (cd)
-		memcpy(details, cd, sizeof(*details));
+		*details = *cd;
 	else
 		memset(details, 0, sizeof(*details));
 

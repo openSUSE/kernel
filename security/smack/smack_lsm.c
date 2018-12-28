@@ -2258,7 +2258,7 @@ static int smack_task_movememory(struct task_struct *p)
  * Return 0 if write access is permitted
  *
  */
-static int smack_task_kill(struct task_struct *p, struct siginfo *info,
+static int smack_task_kill(struct task_struct *p, struct kernel_siginfo *info,
 			   int sig, const struct cred *cred)
 {
 	struct smk_audit_info ad;
@@ -3474,7 +3474,7 @@ static void smack_d_instantiate(struct dentry *opt_dentry, struct inode *inode)
 		 */
 		final = &smack_known_star;
 		/*
-		 * No break.
+		 * Fall through.
 		 *
 		 * If a smack value has been set we want to use it,
 		 * but since tmpfs isn't giving us the opportunity
@@ -4889,4 +4889,7 @@ static __init int smack_init(void)
  * Smack requires early initialization in order to label
  * all processes and objects when they are created.
  */
-security_initcall(smack_init);
+DEFINE_LSM(smack) = {
+	.name = "smack",
+	.init = smack_init,
+};

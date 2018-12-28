@@ -144,7 +144,7 @@ static int submit_lookup_objects(struct msm_gem_submit *submit,
 			goto out_unlock;
 		}
 
-		drm_gem_object_reference(obj);
+		drm_gem_object_get(obj);
 
 		submit->bos[i].obj = msm_obj;
 
@@ -317,6 +317,9 @@ static int submit_reloc(struct msm_gem_submit *submit, struct msm_gem_object *ob
 	uint32_t *ptr;
 	int ret = 0;
 
+	if (!nr_relocs)
+		return 0;
+
 	if (offset % 4) {
 		DRM_ERROR("non-aligned cmdstream buffer: %u\n", offset);
 		return -EINVAL;
@@ -396,7 +399,7 @@ static void submit_cleanup(struct msm_gem_submit *submit)
 		struct msm_gem_object *msm_obj = submit->bos[i].obj;
 		submit_unlock_unpin_bo(submit, i, false);
 		list_del_init(&msm_obj->submit_entry);
-		drm_gem_object_unreference(&msm_obj->base);
+		drm_gem_object_put(&msm_obj->base);
 	}
 
 	ww_acquire_fini(&submit->ticket);
