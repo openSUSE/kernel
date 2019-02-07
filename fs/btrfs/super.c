@@ -1697,6 +1697,7 @@ static struct dentry *btrfs_mount(struct file_system_type *fs_type, int flags,
 			if (IS_ERR(mnt_root)) {
 				root = ERR_CAST(mnt_root);
 				mutex_unlock(&subvol_lock);
+				kfree(subvol_name);
 				goto out;
 			}
 
@@ -1707,6 +1708,7 @@ static struct dentry *btrfs_mount(struct file_system_type *fs_type, int flags,
 				root = ERR_PTR(error);
 				mntput(mnt_root);
 				mutex_unlock(&subvol_lock);
+				kfree(subvol_name);
 				goto out;
 			}
 		}
@@ -1715,6 +1717,7 @@ static struct dentry *btrfs_mount(struct file_system_type *fs_type, int flags,
 
 	if (IS_ERR(mnt_root)) {
 		root = ERR_CAST(mnt_root);
+		kfree(subvol_name);
 		goto out;
 	}
 
