@@ -276,7 +276,7 @@ Commands:\n\
   X	exit monitor and don't recover\n"
 #if defined(CONFIG_PPC64) && !defined(CONFIG_PPC_BOOK3E)
 "  u	dump segment table or SLB\n"
-#elif defined(CONFIG_PPC_STD_MMU_32)
+#elif defined(CONFIG_PPC_BOOK3S_32)
 "  u	dump segment registers\n"
 #elif defined(CONFIG_44x) || defined(CONFIG_PPC_BOOK3E)
 "  u	dump TLB\n"
@@ -1060,7 +1060,7 @@ cmds(struct pt_regs *excp)
 		case 'P':
 			show_tasks();
 			break;
-#ifdef CONFIG_PPC_STD_MMU
+#ifdef CONFIG_PPC_BOOK3S
 		case 'u':
 			dump_segments();
 			break;
@@ -2795,7 +2795,7 @@ print_address(unsigned long addr)
 	xmon_print_symbol(addr, "\t# ", "");
 }
 
-void
+static void
 dump_log_buf(void)
 {
 	struct kmsg_dumper dumper = { .active = 1 };
@@ -2996,13 +2996,13 @@ static void show_task(struct task_struct *tsk)
 
 	printf("%px %016lx %6d %6d %c %2d %s\n", tsk,
 		tsk->thread.ksp,
-		tsk->pid, tsk->parent->pid,
+		tsk->pid, rcu_dereference(tsk->parent)->pid,
 		state, task_thread_info(tsk)->cpu,
 		tsk->comm);
 }
 
 #ifdef CONFIG_PPC_BOOK3S_64
-void format_pte(void *ptep, unsigned long pte)
+static void format_pte(void *ptep, unsigned long pte)
 {
 	pte_t entry = __pte(pte);
 
@@ -3497,14 +3497,14 @@ void dump_segments(void)
 }
 #endif
 
-#ifdef CONFIG_PPC_STD_MMU_32
+#ifdef CONFIG_PPC_BOOK3S_32
 void dump_segments(void)
 {
 	int i;
 
 	printf("sr0-15 =");
 	for (i = 0; i < 16; ++i)
-		printf(" %x", mfsrin(i));
+		printf(" %x", mfsrin(i << 28));
 	printf("\n");
 }
 #endif
@@ -4043,6 +4043,7 @@ static int do_spu_cmd(void)
 		subcmd = inchar();
 		if (isxdigit(subcmd) || subcmd == '\n')
 			termch = subcmd;
+		/* fall through */
 	case 'f':
 		scanhex(&num);
 		if (num >= XMON_NUM_SPUS || !spu_info[num].spu) {

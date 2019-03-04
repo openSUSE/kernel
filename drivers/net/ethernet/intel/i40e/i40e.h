@@ -147,6 +147,7 @@ enum i40e_state_t {
 	__I40E_CLIENT_SERVICE_REQUESTED,
 	__I40E_CLIENT_L2_CHANGE,
 	__I40E_CLIENT_RESET,
+	__I40E_VIRTCHNL_OP_PENDING,
 	/* This must be last as it determines the size of the BITMAP */
 	__I40E_STATE_SIZE__,
 };
@@ -495,7 +496,6 @@ struct i40e_pf {
 #define I40E_HW_STOP_FW_LLDP			BIT(16)
 #define I40E_HW_PORT_ID_VALID			BIT(17)
 #define I40E_HW_RESTART_AUTONEG			BIT(18)
-#define I40E_HW_STOPPABLE_FW_LLDP		BIT(19)
 
 	u32 flags;
 #define I40E_FLAG_RX_CSUM_ENABLED		BIT(0)

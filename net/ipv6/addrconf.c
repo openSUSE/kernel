@@ -2821,7 +2821,7 @@ int addrconf_set_dstaddr(struct net *net, void __user *arg)
 			dev = __dev_get_by_name(net, p.name);
 			if (!dev)
 				goto err_exit;
-			err = dev_open(dev);
+			err = dev_open(dev, NULL);
 		}
 	}
 #endif
@@ -3496,8 +3496,8 @@ static int addrconf_notify(struct notifier_block *this, unsigned long event,
 
 			if (!addrconf_link_ready(dev)) {
 				/* device is not ready yet. */
-				pr_info("ADDRCONF(NETDEV_UP): %s: link is not ready\n",
-					dev->name);
+				pr_debug("ADDRCONF(NETDEV_UP): %s: link is not ready\n",
+					 dev->name);
 				break;
 			}
 
@@ -4737,8 +4737,8 @@ inet6_rtm_newaddr(struct sk_buff *skb, struct nlmsghdr *nlh,
 			 IFA_F_MCAUTOJOIN | IFA_F_OPTIMISTIC;
 
 	idev = ipv6_find_idev(dev);
-	if (IS_ERR(idev))
-		return PTR_ERR(idev);
+	if (!idev)
+		return -ENOBUFS;
 
 	if (!ipv6_allow_optimistic_dad(net, idev))
 		cfg.ifa_flags &= ~IFA_F_OPTIMISTIC;

@@ -33,6 +33,7 @@
 #include <linux/mount.h>
 #include <linux/slab.h>
 #include <linux/swap.h>
+#include <linux/mm.h>
 #include <asm/div64.h>
 #include "cifsfs.h"
 #include "cifspdu.h"
@@ -1104,10 +1105,10 @@ try_again:
 	rc = posix_lock_file(file, flock, NULL);
 	up_write(&cinode->lock_sem);
 	if (rc == FILE_LOCK_DEFERRED) {
-		rc = wait_event_interruptible(flock->fl_wait, !flock->fl_next);
+		rc = wait_event_interruptible(flock->fl_wait, !flock->fl_blocker);
 		if (!rc)
 			goto try_again;
-		posix_unblock_lock(flock);
+		locks_delete_block(flock);
 	}
 	return rc;
 }
@@ -3994,7 +3995,7 @@ readpages_get_pages(struct address_space *mapping, struct list_head *page_list,
 
 	INIT_LIST_HEAD(tmplist);
 
-	page = list_entry(page_list->prev, struct page, lru);
+	page = lru_to_page(page_list);
 
 	/*
 	 * Lock the page and put it in the cache. Since no one else

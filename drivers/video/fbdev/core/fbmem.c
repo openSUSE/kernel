@@ -53,6 +53,9 @@ EXPORT_SYMBOL(registered_fb);
 int num_registered_fb __read_mostly;
 EXPORT_SYMBOL(num_registered_fb);
 
+bool fb_center_logo __read_mostly;
+EXPORT_SYMBOL(fb_center_logo);
+
 static struct fb_info *get_fb_info(unsigned int idx)
 {
 	struct fb_info *fb_info;
@@ -506,8 +509,24 @@ static int fb_show_logo_line(struct fb_info *info, int rotate,
 		fb_set_logo(info, logo, logo_new, fb_logo.depth);
 	}
 
-	image.dx = 0;
-	image.dy = y;
+	if (fb_center_logo) {
+		int xres = info->var.xres;
+		int yres = info->var.yres;
+
+		if (rotate == FB_ROTATE_CW || rotate == FB_ROTATE_CCW) {
+			xres = info->var.yres;
+			yres = info->var.xres;
+		}
+
+		while (n && (n * (logo->width + 8) - 8 > xres))
+			--n;
+		image.dx = (xres - n * (logo->width + 8) - 8) / 2;
+		image.dy = y ?: (yres - logo->height) / 2;
+	} else {
+		image.dx = 0;
+		image.dy = y;
+	}
+
 	image.width = logo->width;
 	image.height = logo->height;
 
@@ -525,7 +544,7 @@ static int fb_show_logo_line(struct fb_info *info, int rotate,
 		info->pseudo_palette = saved_pseudo_palette;
 	kfree(logo_new);
 	kfree(logo_rotate);
-	return logo->height;
+	return image.dy + logo->height;
 }
 
 
@@ -577,8 +596,8 @@ static int fb_show_extra_logos(struct fb_info *info, int y, int rotate)
 	unsigned int i;
 
 	for (i = 0; i < fb_logo_ex_num; i++)
-		y += fb_show_logo_line(info, rotate,
-				       fb_logo_ex[i].logo, y, fb_logo_ex[i].n);
+		y = fb_show_logo_line(info, rotate,
+				      fb_logo_ex[i].logo, y, fb_logo_ex[i].n);
 
 	return y;
 }
@@ -604,6 +623,7 @@ int fb_prepare_logo(struct fb_info *info, int rotate)
 {
 	int depth = fb_get_color_depth(&info->var, &info->fix);
 	unsigned int yres;
+	int height;
 
 	memset(&fb_logo, 0, sizeof(struct logo_data));
 
@@ -665,7 +685,11 @@ int fb_prepare_logo(struct fb_info *info, int rotate)
  		}
  	}
 
-	return fb_prepare_extra_logos(info, fb_logo.logo->height, yres);
+	height = fb_logo.logo->height;
+	if (fb_center_logo)
+		height += (yres - fb_logo.logo->height) / 2;
+
+	return fb_prepare_extra_logos(info, height, yres);
 }
 
 int fb_show_logo(struct fb_info *info, int rotate)

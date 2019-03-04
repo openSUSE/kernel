@@ -11,6 +11,7 @@
 #include <linux/types.h>
 #include <linux/wait_bit.h>
 #include <linux/xarray.h>
+#include <linux/hmm.h>
 
 static DEFINE_XARRAY(pgmap_array);
 #define SECTION_MASK ~((1UL << PA_SECTION_SHIFT) - 1)
@@ -24,6 +25,9 @@ vm_fault_t device_private_entry_fault(struct vm_area_struct *vma,
 		       pmd_t *pmdp)
 {
 	struct page *page = device_private_entry_to_page(entry);
+	struct hmm_devmem *devmem;
+
+	devmem = container_of(page->pgmap, typeof(*devmem), pagemap);
 
 	/*
 	 * The page_fault() callback must migrate page back to system memory
@@ -39,7 +43,7 @@ vm_fault_t device_private_entry_fault(struct vm_area_struct *vma,
 	 * There is a more in-depth description of what that callback can and
 	 * cannot do, in include/linux/memremap.h
 	 */
-	return page->pgmap->page_fault(vma, addr, page, flags, pmdp);
+	return devmem->page_fault(vma, addr, page, flags, pmdp);
 }
 EXPORT_SYMBOL(device_private_entry_fault);
 #endif /* CONFIG_DEVICE_PRIVATE */
@@ -87,6 +91,7 @@ static void devm_memremap_pages_release(void *data)
 	struct resource *res = &pgmap->res;
 	resource_size_t align_start, align_size;
 	unsigned long pfn;
+	int nid;
 
 	pgmap->kill(pgmap->ref);
 	for_each_device_pfn(pfn, pgmap)
@@ -97,13 +102,15 @@ static void devm_memremap_pages_release(void *data)
 	align_size = ALIGN(res->start + resource_size(res), SECTION_SIZE)
 		- align_start;
 
+	nid = page_to_nid(pfn_to_page(align_start >> PAGE_SHIFT));
+
 	mem_hotplug_begin();
 	if (pgmap->type == MEMORY_DEVICE_PRIVATE) {
 		pfn = align_start >> PAGE_SHIFT;
 		__remove_pages(page_zone(pfn_to_page(pfn)), pfn,
 				align_size >> PAGE_SHIFT, NULL);
 	} else {
-		arch_remove_memory(align_start, align_size,
+		arch_remove_memory(nid, align_start, align_size,
 				pgmap->altmap_valid ? &pgmap->altmap : NULL);
 		kasan_remove_zero_shadow(__va(align_start), align_size);
 	}

@@ -20,7 +20,7 @@
  * new data the application may have written before commit.
  */
 enum {
-	BTRFS_INODE_ORDERED_DATA_CLOSE = 0,
+	BTRFS_INODE_ORDERED_DATA_CLOSE,
 	BTRFS_INODE_DUMMY,
 	BTRFS_INODE_IN_DEFRAG,
 	BTRFS_INODE_HAS_ASYNC_EXTENT,
@@ -258,6 +258,11 @@ static inline bool btrfs_is_free_space_inode(struct btrfs_inode *inode)
 	if (inode->location.objectid == BTRFS_FREE_INO_OBJECTID)
 		return true;
 	return false;
+}
+
+static inline bool is_data_inode(struct inode *inode)
+{
+	return btrfs_ino(BTRFS_I(inode)) != BTRFS_BTREE_INODE_OBJECTID;
 }
 
 static inline void btrfs_mod_outstanding_extents(struct btrfs_inode *inode,

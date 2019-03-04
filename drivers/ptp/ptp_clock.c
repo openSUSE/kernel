@@ -117,7 +117,10 @@ static int ptp_clock_gettime(struct posix_clock *pc, struct timespec64 *tp)
 	struct ptp_clock *ptp = container_of(pc, struct ptp_clock, clock);
 	int err;
 
-	err = ptp->info->gettime64(ptp->info, tp);
+	if (ptp->info->gettimex64)
+		err = ptp->info->gettimex64(ptp->info, tp, NULL);
+	else
+		err = ptp->info->gettime64(ptp->info, tp);
 	return err;
 }
 
@@ -262,8 +265,8 @@ struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info,
 		pps.mode = PTP_PPS_MODE;
 		pps.owner = info->owner;
 		ptp->pps_source = pps_register_source(&pps, PTP_PPS_DEFAULTS);
-		if (!ptp->pps_source) {
-			err = -EINVAL;
+		if (IS_ERR(ptp->pps_source)) {
+			err = PTR_ERR(ptp->pps_source);
 			pr_err("failed to register pps source\n");
 			goto no_pps;
 		}

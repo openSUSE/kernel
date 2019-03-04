@@ -56,6 +56,7 @@ enum mt76x02_eeprom_field {
 #define MT_TX_POWER_GROUP_SIZE_5G		5
 #define MT_TX_POWER_GROUPS_5G			6
 	MT_EE_TX_POWER_0_START_5G =		0x062,
+	MT_EE_TSSI_SLOPE_2G =			0x06e,
 
 	MT_EE_TX_POWER_0_GRP3_TX_POWER_DELTA =	0x074,
 	MT_EE_TX_POWER_0_GRP4_TSSI_SLOPE =	0x076,
@@ -86,6 +87,7 @@ enum mt76x02_eeprom_field {
 	MT_EE_TSSI_BOUND5 =			0x0dc,
 	MT_EE_TX_POWER_BYRATE_BASE =		0x0de,
 
+	MT_EE_TSSI_SLOPE_5G =			0x0f0,
 	MT_EE_RF_TEMP_COMP_SLOPE_5G =		0x0f2,
 	MT_EE_RF_TEMP_COMP_SLOPE_2G =		0x0f4,
 
@@ -188,5 +190,8 @@ u8 mt76x02_get_lna_gain(struct mt76x02_dev *dev,
 			s8 *lna_2g, s8 *lna_5g,
 			struct ieee80211_channel *chan);
 void mt76x02_eeprom_parse_hw_cap(struct mt76x02_dev *dev);
+int mt76x02_eeprom_copy(struct mt76x02_dev *dev,
+			enum mt76x02_eeprom_field field,
+			void *dest, int len);
 
 #endif /* __MT76x02_EEPROM_H */

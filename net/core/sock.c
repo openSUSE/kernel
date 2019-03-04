@@ -567,6 +567,8 @@ static int sock_setbindtodevice(struct sock *sk, char __user *optval,
 
 	lock_sock(sk);
 	sk->sk_bound_dev_if = index;
+	if (sk->sk_prot->rehash)
+		sk->sk_prot->rehash(sk);
 	sk_dst_reset(sk);
 	release_sock(sk);
 
@@ -951,10 +953,12 @@ set_rcvbuf:
 			clear_bit(SOCK_PASSSEC, &sock->flags);
 		break;
 	case SO_MARK:
-		if (!ns_capable(sock_net(sk)->user_ns, CAP_NET_ADMIN))
+		if (!ns_capable(sock_net(sk)->user_ns, CAP_NET_ADMIN)) {
 			ret = -EPERM;
-		else
+		} else if (val != sk->sk_mark) {
 			sk->sk_mark = val;
+			sk_dst_reset(sk);
+		}
 		break;
 
 	case SO_RXQ_OVFL:
@@ -1015,7 +1019,10 @@ set_rcvbuf:
 
 	case SO_ZEROCOPY:
 		if (sk->sk_family == PF_INET || sk->sk_family == PF_INET6) {
-			if (sk->sk_protocol != IPPROTO_TCP)
+			if (!((sk->sk_type == SOCK_STREAM &&
+			       sk->sk_protocol == IPPROTO_TCP) ||
+			      (sk->sk_type == SOCK_DGRAM &&
+			       sk->sk_protocol == IPPROTO_UDP)))
 				ret = -ENOTSUPP;
 		} else if (sk->sk_family != PF_RDS) {
 			ret = -ENOTSUPP;
@@ -2373,7 +2380,7 @@ int __sk_mem_raise_allocated(struct sock *sk, int size, int amt, int kind)
 	}
 
 	if (sk_has_memory_pressure(sk)) {
-		int alloc;
+		u64 alloc;
 
 		if (!sk_under_memory_pressure(sk))
 			return 1;

@@ -289,12 +289,14 @@ static inline void erofs_workstation_cleanup_all(struct super_block *sb)
 }
 
 #ifdef EROFS_FS_HAS_MANAGED_CACHE
-#define EROFS_UNALLOCATED_CACHED_PAGE	((void *)0x5F0EF00D)
-
 extern int erofs_try_to_free_all_cached_pages(struct erofs_sb_info *sbi,
 	struct erofs_workgroup *egrp);
 extern int erofs_try_to_free_cached_page(struct address_space *mapping,
 	struct page *page);
+
+#define MNGD_MAPPING(sbi)	((sbi)->managed_cache->i_mapping)
+#else
+#define MNGD_MAPPING(sbi)	(NULL)
 #endif
 
 #define DEFAULT_MAX_SYNC_DECOMPRESS_PAGES	3

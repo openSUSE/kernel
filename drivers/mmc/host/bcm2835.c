@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * bcm2835 sdhost driver.
  *
@@ -25,18 +26,6 @@
  *  sdhci-bcm2708.c by Broadcom
  *  sdhci-bcm2835.c by Stephen Warren and Oleksandr Tymoshenko
  *  sdhci.c and sdhci-pci.c by Pierre Ossman
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -464,7 +453,7 @@ static void bcm2835_transfer_pio(struct bcm2835_host *host)
 static
 void bcm2835_prepare_dma(struct bcm2835_host *host, struct mmc_data *data)
 {
-	int len, dir_data, dir_slave;
+	int sg_len, dir_data, dir_slave;
 	struct dma_async_tx_descriptor *desc = NULL;
 	struct dma_chan *dma_chan;
 
@@ -510,23 +499,24 @@ void bcm2835_prepare_dma(struct bcm2835_host *host, struct mmc_data *data)
 				     &host->dma_cfg_rx :
 				     &host->dma_cfg_tx);
 
-	len = dma_map_sg(dma_chan->device->dev, data->sg, data->sg_len,
-			 dir_data);
+	sg_len = dma_map_sg(dma_chan->device->dev, data->sg, data->sg_len,
+			    dir_data);
+	if (!sg_len)
+		return;
 
-	if (len > 0) {
-		desc = dmaengine_prep_slave_sg(dma_chan, data->sg,
-					       len, dir_slave,
-					       DMA_PREP_INTERRUPT |
-					       DMA_CTRL_ACK);
+	desc = dmaengine_prep_slave_sg(dma_chan, data->sg, sg_len, dir_slave,
+				       DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
+
+	if (!desc) {
+		dma_unmap_sg(dma_chan->device->dev, data->sg, sg_len, dir_data);
+		return;
 	}
 
-	if (desc) {
-		desc->callback = bcm2835_dma_complete;
-		desc->callback_param = host;
-		host->dma_desc = desc;
-		host->dma_chan = dma_chan;
-		host->dma_dir = dir_data;
-	}
+	desc->callback = bcm2835_dma_complete;
+	desc->callback_param = host;
+	host->dma_desc = desc;
+	host->dma_chan = dma_chan;
+	host->dma_dir = dir_data;
 }
 
 static void bcm2835_start_dma(struct bcm2835_host *host)
@@ -608,7 +598,7 @@ static void bcm2835_finish_request(struct bcm2835_host *host)
 	struct dma_chan *terminate_chan = NULL;
 	struct mmc_request *mrq;
 
-	cancel_delayed_work(&host->timeout_work);
+	cancel_delayed_work_sync(&host->timeout_work);
 
 	mrq = host->mrq;
 
@@ -1064,9 +1054,11 @@ static void bcm2835_dma_complete_work(struct work_struct *work)
 {
 	struct bcm2835_host *host =
 		container_of(work, struct bcm2835_host, dma_work);
-	struct mmc_data *data = host->data;
+	struct mmc_data *data;
 
 	mutex_lock(&host->mutex);
+
+	data = host->data;
 
 	if (host->dma_chan) {
 		dma_unmap_sg(host->dma_chan->device->dev,
@@ -1192,9 +1184,6 @@ static void bcm2835_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		return;
 	}
 
-	if (host->use_dma && mrq->data && (mrq->data->blocks > PIO_THRESHOLD))
-		bcm2835_prepare_dma(host, mrq->data);
-
 	mutex_lock(&host->mutex);
 
 	WARN_ON(host->mrq);
@@ -1217,6 +1206,9 @@ static void bcm2835_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		mutex_unlock(&host->mutex);
 		return;
 	}
+
+	if (host->use_dma && mrq->data && (mrq->data->blocks > PIO_THRESHOLD))
+		bcm2835_prepare_dma(host, mrq->data);
 
 	host->use_sbc = !!mrq->sbc && host->mrq->data &&
 			(host->mrq->data->flags & MMC_DATA_READ);
@@ -1458,6 +1450,9 @@ static int bcm2835_remove(struct platform_device *pdev)
 
 	cancel_work_sync(&host->dma_work);
 	cancel_delayed_work_sync(&host->timeout_work);
+
+	if (host->dma_chan_rxtx)
+		dma_release_channel(host->dma_chan_rxtx);
 
 	mmc_free_host(host->mmc);
 	platform_set_drvdata(pdev, NULL);

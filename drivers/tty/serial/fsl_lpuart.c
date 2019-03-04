@@ -1684,7 +1684,7 @@ lpuart32_set_termios(struct uart_port *port, struct ktermios *termios,
 			ctrl &= ~UARTCTRL_PE;
 			ctrl |= UARTCTRL_M;
 		} else {
-			ctrl |= UARTCR1_PE;
+			ctrl |= UARTCTRL_PE;
 			if ((termios->c_cflag & CSIZE) == CS8)
 				ctrl |= UARTCTRL_M;
 			if (termios->c_cflag & PARODD)
@@ -1697,7 +1697,7 @@ lpuart32_set_termios(struct uart_port *port, struct ktermios *termios,
 	}
 
 	/* ask the core to calculate the divisor */
-	baud = uart_get_baud_rate(port, termios, old, 50, port->uartclk / 16);
+	baud = uart_get_baud_rate(port, termios, old, 50, port->uartclk / 4);
 
 	spin_lock_irqsave(&sport->port.lock, flags);
 

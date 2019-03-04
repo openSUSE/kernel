@@ -1680,7 +1680,7 @@ static void ip_handle_martian_source(struct net_device *dev,
 			print_hex_dump(KERN_WARNING, "ll header: ",
 				       DUMP_PREFIX_OFFSET, 16, 1,
 				       skb_mac_header(skb),
-				       dev->hard_header_len, true);
+				       dev->hard_header_len, false);
 		}
 	}
 #endif
@@ -2803,7 +2803,7 @@ static int inet_rtm_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh,
 
 	if (tb[RTA_IP_PROTO]) {
 		err = rtm_getroute_parse_ip_proto(tb[RTA_IP_PROTO],
-						  &ip_proto, extack);
+						  &ip_proto, AF_INET, extack);
 		if (err)
 			return err;
 	}
@@ -2852,6 +2852,7 @@ static int inet_rtm_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh,
 			err = -rt->dst.error;
 	} else {
 		fl4.flowi4_iif = LOOPBACK_IFINDEX;
+		skb->dev = net->loopback_dev;
 		rt = ip_route_output_key_hash_rcu(net, &fl4, &res, skb);
 		err = 0;
 		if (IS_ERR(rt))

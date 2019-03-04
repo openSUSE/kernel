@@ -743,14 +743,6 @@ void wil_netif_rx_any(struct sk_buff *skb, struct net_device *ndev)
 
 	stats = &wil->sta[cid].stats;
 
-	if (ndev->features & NETIF_F_RXHASH)
-		/* fake L4 to ensure it won't be re-calculated later
-		 * set hash to any non-zero value to activate rps
-		 * mechanism, core will be chosen according
-		 * to user-level rps configuration.
-		 */
-		skb_set_hash(skb, 1, PKT_HASH_TYPE_L4);
-
 	skb_orphan(skb);
 
 	if (security && (wil->txrx_ops.rx_crypto_check(wil, skb) != 0)) {
@@ -880,7 +872,7 @@ static void wil_rx_buf_len_init(struct wil6210_priv *wil)
 	}
 }
 
-static int wil_rx_init(struct wil6210_priv *wil, u16 size)
+static int wil_rx_init(struct wil6210_priv *wil, uint order)
 {
 	struct wil_ring *vring = &wil->ring_rx;
 	int rc;
@@ -894,7 +886,7 @@ static int wil_rx_init(struct wil6210_priv *wil, u16 size)
 
 	wil_rx_buf_len_init(wil);
 
-	vring->size = size;
+	vring->size = 1 << order;
 	vring->is_rx = true;
 	rc = wil_vring_alloc(wil, vring);
 	if (rc)

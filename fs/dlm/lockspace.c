@@ -431,7 +431,7 @@ static int new_lockspace(const char *name, const char *cluster,
 	int do_unreg = 0;
 	int namelen = strlen(name);
 
-	if (namelen > DLM_LOCKSPACE_LEN)
+	if (namelen > DLM_LOCKSPACE_LEN || namelen == 0)
 		return -EINVAL;
 
 	if (!lvblen || (lvblen % 8))
@@ -681,10 +681,8 @@ static int new_lockspace(const char *name, const char *cluster,
  out_lkbidr:
 	idr_destroy(&ls->ls_lkbidr);
  out_rsbtbl:
-	for (i = 0; i < DLM_REMOVE_NAMES_MAX; i++) {
-		if (ls->ls_remove_names[i])
-			kfree(ls->ls_remove_names[i]);
-	}
+	for (i = 0; i < DLM_REMOVE_NAMES_MAX; i++)
+		kfree(ls->ls_remove_names[i]);
 	vfree(ls->ls_rsbtbl);
  out_lsfree:
 	if (do_unreg)
@@ -807,6 +805,7 @@ static int release_lockspace(struct dlm_ls *ls, int force)
 
 	dlm_delete_debug_file(ls);
 
+	idr_destroy(&ls->ls_recover_idr);
 	kfree(ls->ls_recover_buf);
 
 	/*

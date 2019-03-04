@@ -36,6 +36,7 @@ struct sk_msg_sg {
 	struct scatterlist		data[MAX_MSG_FRAGS + 1];
 };
 
+/* UAPI in filter.c depends on struct sk_msg_sg being first element. */
 struct sk_msg {
 	struct sk_msg_sg		sg;
 	void				*data;

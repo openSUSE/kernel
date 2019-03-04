@@ -988,6 +988,45 @@ static int write_group_desc(struct feat_fd *ff,
 }
 
 /*
+ * Return the CPU id as a raw string.
+ *
+ * Each architecture should provide a more precise id string that
+ * can be use to match the architecture's "mapfile".
+ */
+char * __weak get_cpuid_str(struct perf_pmu *pmu __maybe_unused)
+{
+	return NULL;
+}
+
+/* Return zero when the cpuid from the mapfile.csv matches the
+ * cpuid string generated on this platform.
+ * Otherwise return non-zero.
+ */
+int __weak strcmp_cpuid_str(const char *mapcpuid, const char *cpuid)
+{
+	regex_t re;
+	regmatch_t pmatch[1];
+	int match;
+
+	if (regcomp(&re, mapcpuid, REG_EXTENDED) != 0) {
+		/* Warn unable to generate match particular string. */
+		pr_info("Invalid regular expression %s\n", mapcpuid);
+		return 1;
+	}
+
+	match = !regexec(&re, cpuid, 1, pmatch, 0);
+	regfree(&re);
+	if (match) {
+		size_t match_len = (pmatch[0].rm_eo - pmatch[0].rm_so);
+
+		/* Verify the entire string matched. */
+		if (match_len == strlen(cpuid))
+			return 0;
+	}
+	return 1;
+}
+
+/*
  * default get_cpuid(): nothing gets recorded
  * actual implementation must be in arch/$(SRCARCH)/util/header.c
  */
@@ -2761,7 +2800,7 @@ static int perf_header__adds_write(struct perf_header *header,
 	lseek(fd, sec_start, SEEK_SET);
 	/*
 	 * may write more than needed due to dropped feature, but
-	 * this is okay, reader will skip the mising entries
+	 * this is okay, reader will skip the missing entries
 	 */
 	err = do_write(&ff, feat_sec, sec_size);
 	if (err < 0)
@@ -3231,7 +3270,7 @@ static int read_attr(int fd, struct perf_header *ph,
 static int perf_evsel__prepare_tracepoint_event(struct perf_evsel *evsel,
 						struct tep_handle *pevent)
 {
-	struct tep_event_format *event;
+	struct tep_event *event;
 	char bf[128];
 
 	/* already prepared */
@@ -3585,7 +3624,7 @@ perf_event__synthesize_event_update_name(struct perf_tool *tool,
 	if (ev == NULL)
 		return -ENOMEM;
 
-	strncpy(ev->data, evsel->name, len);
+	strlcpy(ev->data, evsel->name, len + 1);
 	err = process(tool, (union perf_event*) ev, NULL, NULL);
 	free(ev);
 	return err;

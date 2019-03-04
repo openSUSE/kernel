@@ -1676,13 +1676,20 @@ err_out:
 int i40e_pci_sriov_configure(struct pci_dev *pdev, int num_vfs)
 {
 	struct i40e_pf *pf = pci_get_drvdata(pdev);
+	int ret = 0;
+
+	if (test_and_set_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state)) {
+		dev_warn(&pdev->dev, "Unable to configure VFs, other operation is pending.\n");
+		return -EAGAIN;
+	}
 
 	if (num_vfs) {
 		if (!(pf->flags & I40E_FLAG_VEB_MODE_ENABLED)) {
 			pf->flags |= I40E_FLAG_VEB_MODE_ENABLED;
 			i40e_do_reset_safe(pf, I40E_PF_RESET_FLAG);
 		}
-		return i40e_pci_sriov_enable(pdev, num_vfs);
+		ret = i40e_pci_sriov_enable(pdev, num_vfs);
+		goto sriov_configure_out;
 	}
 
 	if (!pci_vfs_assigned(pf->pdev)) {
@@ -1691,9 +1698,12 @@ int i40e_pci_sriov_configure(struct pci_dev *pdev, int num_vfs)
 		i40e_do_reset_safe(pf, I40E_PF_RESET_FLAG);
 	} else {
 		dev_warn(&pdev->dev, "Unable to free VFs because some are assigned to VMs.\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto sriov_configure_out;
 	}
-	return 0;
+sriov_configure_out:
+	clear_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state);
+	return ret;
 }
 
 /***********************virtual channel routines******************/
@@ -3894,6 +3904,11 @@ int i40e_ndo_set_vf_mac(struct net_device *netdev, int vf_id, u8 *mac)
 		goto error_param;
 	}
 
+	if (test_and_set_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state)) {
+		dev_warn(&pf->pdev->dev, "Unable to configure VFs, other operation is pending.\n");
+		return -EAGAIN;
+	}
+
 	if (is_multicast_ether_addr(mac)) {
 		dev_err(&pf->pdev->dev,
 			"Invalid Ethernet address %pM for VF %d\n", mac, vf_id);
@@ -3942,6 +3957,7 @@ int i40e_ndo_set_vf_mac(struct net_device *netdev, int vf_id, u8 *mac)
 	dev_info(&pf->pdev->dev, "Bring down and up the VF interface to make this change effective.\n");
 
 error_param:
+	clear_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state);
 	return ret;
 }
 
@@ -3992,6 +4008,11 @@ int i40e_ndo_set_vf_port_vlan(struct net_device *netdev, int vf_id,
 	struct i40e_vsi *vsi;
 	struct i40e_vf *vf;
 	int ret = 0;
+
+	if (test_and_set_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state)) {
+		dev_warn(&pf->pdev->dev, "Unable to configure VFs, other operation is pending.\n");
+		return -EAGAIN;
+	}
 
 	/* validate the request */
 	ret = i40e_validate_vf(pf, vf_id);
@@ -4108,6 +4129,7 @@ int i40e_ndo_set_vf_port_vlan(struct net_device *netdev, int vf_id,
 	ret = 0;
 
 error_pvid:
+	clear_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state);
 	return ret;
 }
 
@@ -4128,6 +4150,11 @@ int i40e_ndo_set_vf_bw(struct net_device *netdev, int vf_id, int min_tx_rate,
 	struct i40e_vsi *vsi;
 	struct i40e_vf *vf;
 	int ret = 0;
+
+	if (test_and_set_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state)) {
+		dev_warn(&pf->pdev->dev, "Unable to configure VFs, other operation is pending.\n");
+		return -EAGAIN;
+	}
 
 	/* validate the request */
 	ret = i40e_validate_vf(pf, vf_id);
@@ -4155,6 +4182,7 @@ int i40e_ndo_set_vf_bw(struct net_device *netdev, int vf_id, int min_tx_rate,
 
 	vf->tx_rate = max_tx_rate;
 error:
+	clear_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state);
 	return ret;
 }
 
@@ -4174,6 +4202,11 @@ int i40e_ndo_get_vf_config(struct net_device *netdev,
 	struct i40e_pf *pf = vsi->back;
 	struct i40e_vf *vf;
 	int ret = 0;
+
+	if (test_and_set_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state)) {
+		dev_warn(&pf->pdev->dev, "Unable to configure VFs, other operation is pending.\n");
+		return -EAGAIN;
+	}
 
 	/* validate the request */
 	ret = i40e_validate_vf(pf, vf_id);
@@ -4210,6 +4243,7 @@ int i40e_ndo_get_vf_config(struct net_device *netdev,
 	ret = 0;
 
 error_param:
+	clear_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state);
 	return ret;
 }
 
@@ -4230,6 +4264,11 @@ int i40e_ndo_set_vf_link_state(struct net_device *netdev, int vf_id, int link)
 	struct i40e_vf *vf;
 	int abs_vf_id;
 	int ret = 0;
+
+	if (test_and_set_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state)) {
+		dev_warn(&pf->pdev->dev, "Unable to configure VFs, other operation is pending.\n");
+		return -EAGAIN;
+	}
 
 	/* validate the request */
 	if (vf_id >= pf->num_alloc_vfs) {
@@ -4274,6 +4313,7 @@ int i40e_ndo_set_vf_link_state(struct net_device *netdev, int vf_id, int link)
 			       0, (u8 *)&pfe, sizeof(pfe), NULL);
 
 error_out:
+	clear_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state);
 	return ret;
 }
 
@@ -4294,6 +4334,11 @@ int i40e_ndo_set_vf_spoofchk(struct net_device *netdev, int vf_id, bool enable)
 	struct i40e_hw *hw = &pf->hw;
 	struct i40e_vf *vf;
 	int ret = 0;
+
+	if (test_and_set_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state)) {
+		dev_warn(&pf->pdev->dev, "Unable to configure VFs, other operation is pending.\n");
+		return -EAGAIN;
+	}
 
 	/* validate the request */
 	if (vf_id >= pf->num_alloc_vfs) {
@@ -4328,6 +4373,7 @@ int i40e_ndo_set_vf_spoofchk(struct net_device *netdev, int vf_id, bool enable)
 		ret = -EIO;
 	}
 out:
+	clear_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state);
 	return ret;
 }
 
@@ -4346,15 +4392,22 @@ int i40e_ndo_set_vf_trust(struct net_device *netdev, int vf_id, bool setting)
 	struct i40e_vf *vf;
 	int ret = 0;
 
+	if (test_and_set_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state)) {
+		dev_warn(&pf->pdev->dev, "Unable to configure VFs, other operation is pending.\n");
+		return -EAGAIN;
+	}
+
 	/* validate the request */
 	if (vf_id >= pf->num_alloc_vfs) {
 		dev_err(&pf->pdev->dev, "Invalid VF Identifier %d\n", vf_id);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 	}
 
 	if (pf->flags & I40E_FLAG_MFP_ENABLED) {
 		dev_err(&pf->pdev->dev, "Trusted VF not supported in MFP mode.\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 	}
 
 	vf = &pf->vf[vf_id];
@@ -4377,5 +4430,6 @@ int i40e_ndo_set_vf_trust(struct net_device *netdev, int vf_id, bool setting)
 	}
 
 out:
+	clear_bit(__I40E_VIRTCHNL_OP_PENDING, pf->state);
 	return ret;
 }

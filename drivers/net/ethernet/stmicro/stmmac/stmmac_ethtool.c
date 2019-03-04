@@ -458,8 +458,10 @@ stmmac_get_pauseparam(struct net_device *netdev,
 		if (!adv_lp.pause)
 			return;
 	} else {
-		if (!(netdev->phydev->supported & SUPPORTED_Pause) ||
-		    !(netdev->phydev->supported & SUPPORTED_Asym_Pause))
+		if (!linkmode_test_bit(ETHTOOL_LINK_MODE_Pause_BIT,
+				       netdev->phydev->supported) ||
+		    linkmode_test_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT,
+				      netdev->phydev->supported))
 			return;
 	}
 
@@ -487,8 +489,10 @@ stmmac_set_pauseparam(struct net_device *netdev,
 		if (!adv_lp.pause)
 			return -EOPNOTSUPP;
 	} else {
-		if (!(phy->supported & SUPPORTED_Pause) ||
-		    !(phy->supported & SUPPORTED_Asym_Pause))
+		if (!linkmode_test_bit(ETHTOOL_LINK_MODE_Pause_BIT,
+				       phy->supported) ||
+		    linkmode_test_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT,
+				      phy->supported))
 			return -EOPNOTSUPP;
 	}
 
@@ -719,8 +723,11 @@ static u32 stmmac_usec2riwt(u32 usec, struct stmmac_priv *priv)
 {
 	unsigned long clk = clk_get_rate(priv->plat->stmmac_clk);
 
-	if (!clk)
-		return 0;
+	if (!clk) {
+		clk = priv->plat->clk_ref_rate;
+		if (!clk)
+			return 0;
+	}
 
 	return (usec * (clk / 1000000)) / 256;
 }
@@ -729,8 +736,11 @@ static u32 stmmac_riwt2usec(u32 riwt, struct stmmac_priv *priv)
 {
 	unsigned long clk = clk_get_rate(priv->plat->stmmac_clk);
 
-	if (!clk)
-		return 0;
+	if (!clk) {
+		clk = priv->plat->clk_ref_rate;
+		if (!clk)
+			return 0;
+	}
 
 	return (riwt * 256) / (clk / 1000000);
 }

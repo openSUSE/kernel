@@ -1519,19 +1519,6 @@ static void devm_gpio_chip_release(struct device *dev, void *res)
 	gpiochip_remove(chip);
 }
 
-static int devm_gpio_chip_match(struct device *dev, void *res, void *data)
-
-{
-	struct gpio_chip **r = res;
-
-	if (!r || !*r) {
-		WARN_ON(!r || !*r);
-		return 0;
-	}
-
-	return *r == data;
-}
-
 /**
  * devm_gpiochip_add_data() - Resource manager gpiochip_add_data()
  * @dev: pointer to the device that gpio_chip belongs to.
@@ -1570,23 +1557,6 @@ int devm_gpiochip_add_data(struct device *dev, struct gpio_chip *chip,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(devm_gpiochip_add_data);
-
-/**
- * devm_gpiochip_remove() - Resource manager of gpiochip_remove()
- * @dev: device for which which resource was allocated
- * @chip: the chip to remove
- *
- * A gpio_chip with any GPIOs still requested may not be removed.
- */
-void devm_gpiochip_remove(struct device *dev, struct gpio_chip *chip)
-{
-	int ret;
-
-	ret = devres_release(dev, devm_gpio_chip_release,
-			     devm_gpio_chip_match, chip);
-	WARN_ON(ret);
-}
-EXPORT_SYMBOL_GPL(devm_gpiochip_remove);
 
 /**
  * gpiochip_find() - iterator for locating a specific gpio_chip
@@ -2492,6 +2462,7 @@ EXPORT_SYMBOL_GPL(gpiochip_is_requested);
  * @chip: GPIO chip
  * @hwnum: hardware number of the GPIO for which to request the descriptor
  * @label: label for the GPIO
+ * @flags: flags for this GPIO or 0 if default
  *
  * Function allows GPIO chip drivers to request and use their own GPIO
  * descriptors via gpiolib API. Difference to gpiod_request() is that this
@@ -2504,7 +2475,8 @@ EXPORT_SYMBOL_GPL(gpiochip_is_requested);
  * code on failure.
  */
 struct gpio_desc *gpiochip_request_own_desc(struct gpio_chip *chip, u16 hwnum,
-					    const char *label)
+					    const char *label,
+					    enum gpiod_flags flags)
 {
 	struct gpio_desc *desc = gpiochip_get_desc(chip, hwnum);
 	int err;
@@ -2517,6 +2489,13 @@ struct gpio_desc *gpiochip_request_own_desc(struct gpio_chip *chip, u16 hwnum,
 	err = gpiod_request_commit(desc, label);
 	if (err < 0)
 		return ERR_PTR(err);
+
+	err = gpiod_configure_flags(desc, label, 0, flags);
+	if (err) {
+		chip_err(chip, "setup of own GPIO %s failed\n", label);
+		gpiod_free_commit(desc);
+		return ERR_PTR(err);
+	}
 
 	return desc;
 }
@@ -4229,6 +4208,8 @@ struct gpio_desc *gpiod_get_from_of_node(struct device_node *node,
 	transitory = flags & OF_GPIO_TRANSITORY;
 
 	ret = gpiod_request(desc, label);
+	if (ret == -EBUSY && (flags & GPIOD_FLAGS_BIT_NONEXCLUSIVE))
+		return desc;
 	if (ret)
 		return ERR_PTR(ret);
 
@@ -4370,7 +4351,15 @@ int gpiod_hog(struct gpio_desc *desc, const char *name,
 	chip = gpiod_to_chip(desc);
 	hwnum = gpio_chip_hwgpio(desc);
 
-	local_desc = gpiochip_request_own_desc(chip, hwnum, name);
+	/*
+	 * FIXME: not very elegant that we call gpiod_configure_flags()
+	 * twice here (once inside gpiochip_request_own_desc() and
+	 * again here), but the gpiochip_request_own_desc() is external
+	 * and cannot really pass the lflags so this is the lesser evil
+	 * at the moment. Pass zero as dflags on this first call so we
+	 * don't screw anything up.
+	 */
+	local_desc = gpiochip_request_own_desc(chip, hwnum, name, 0);
 	if (IS_ERR(local_desc)) {
 		status = PTR_ERR(local_desc);
 		pr_err("requesting hog GPIO %s (chip %s, offset %d) failed, %d\n",

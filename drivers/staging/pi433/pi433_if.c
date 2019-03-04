@@ -14,16 +14,6 @@
  *
  * Copyright (C) 2016 Wolf-Entwicklungen
  *	Marcus Wolf <linux@wolf-entwicklungen.de>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #undef DEBUG
@@ -1264,7 +1254,7 @@ static int pi433_probe(struct spi_device *spi)
 	retval = cdev_add(device->cdev, device->devt, 1);
 	if (retval) {
 		dev_dbg(device->dev, "register of cdev failed");
-		goto cdev_failed;
+		goto del_cdev;
 	}
 
 	/* spi setup */
@@ -1272,6 +1262,8 @@ static int pi433_probe(struct spi_device *spi)
 
 	return 0;
 
+del_cdev:
+	cdev_del(device->cdev);
 cdev_failed:
 	kthread_stop(device->tx_task_struct);
 send_thread_failed:

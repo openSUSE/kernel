@@ -19,6 +19,7 @@
 #include <linux/of_fdt.h>
 #include <linux/of.h>
 #include <linux/cache.h>
+#include <uapi/linux/mount.h>
 #include <asm/sections.h>
 #include <asm/arcregs.h>
 #include <asm/tlb.h>
@@ -122,6 +123,7 @@ static void read_arc_build_cfg_regs(void)
 	struct cpuinfo_arc *cpu = &cpuinfo_arc700[smp_processor_id()];
 	const struct id_to_str *tbl;
 	struct bcr_isa_arcv2 isa;
+	struct bcr_actionpoint ap;
 
 	FIX_PTR(cpu);
 
@@ -194,28 +196,46 @@ static void read_arc_build_cfg_regs(void)
 		cpu->bpu.full = bpu.ft;
 		cpu->bpu.num_cache = 256 << bpu.bce;
 		cpu->bpu.num_pred = 2048 << bpu.pte;
+		cpu->bpu.ret_stk = 4 << bpu.rse;
 
 		if (cpu->core.family >= 0x54) {
-			unsigned int exec_ctrl;
 
-			READ_BCR(AUX_EXEC_CTRL, exec_ctrl);
-			cpu->extn.dual_enb = !(exec_ctrl & 1);
+			struct bcr_uarch_build_arcv2 uarch;
 
-			/* dual issue always present for this core */
-			cpu->extn.dual = 1;
+			/*
+			 * The first 0x54 core (uarch maj:min 0:1 or 0:2) was
+			 * dual issue only (HS4x). But next uarch rev (1:0)
+			 * allows it be configured for single issue (HS3x)
+			 * Ensure we fiddle with dual issue only on HS4x
+			 */
+			READ_BCR(ARC_REG_MICRO_ARCH_BCR, uarch);
+
+			if (uarch.prod == 4) {
+				unsigned int exec_ctrl;
+
+				/* dual issue hardware always present */
+				cpu->extn.dual = 1;
+
+				READ_BCR(AUX_EXEC_CTRL, exec_ctrl);
+
+				/* dual issue hardware enabled ? */
+				cpu->extn.dual_enb = !(exec_ctrl & 1);
+
+			}
 		}
 	}
 
-	READ_BCR(ARC_REG_AP_BCR, bcr);
-	cpu->extn.ap = bcr.ver ? 1 : 0;
+	READ_BCR(ARC_REG_AP_BCR, ap);
+	if (ap.ver) {
+		cpu->extn.ap_num = 2 << ap.num;
+		cpu->extn.ap_full = !ap.min;
+	}
 
 	READ_BCR(ARC_REG_SMART_BCR, bcr);
 	cpu->extn.smart = bcr.ver ? 1 : 0;
 
 	READ_BCR(ARC_REG_RTT_BCR, bcr);
 	cpu->extn.rtt = bcr.ver ? 1 : 0;
-
-	cpu->extn.debug = cpu->extn.ap | cpu->extn.smart | cpu->extn.rtt;
 
 	READ_BCR(ARC_REG_ISA_CFG_BCR, isa);
 
@@ -298,10 +318,10 @@ static char *arc_cpu_mumbojumbo(int cpu_id, char *buf, int len)
 
 	if (cpu->bpu.ver)
 		n += scnprintf(buf + n, len - n,
-			      "BPU\t\t: %s%s match, cache:%d, Predict Table:%d",
+			      "BPU\t\t: %s%s match, cache:%d, Predict Table:%d Return stk: %d",
 			      IS_AVAIL1(cpu->bpu.full, "full"),
 			      IS_AVAIL1(!cpu->bpu.full, "partial"),
-			      cpu->bpu.num_cache, cpu->bpu.num_pred);
+			      cpu->bpu.num_cache, cpu->bpu.num_pred, cpu->bpu.ret_stk);
 
 	if (is_isa_arcv2()) {
 		struct bcr_lpb lpb;
@@ -335,11 +355,17 @@ static char *arc_extn_mumbojumbo(int cpu_id, char *buf, int len)
 			       IS_AVAIL1(cpu->extn.fpu_sp, "SP "),
 			       IS_AVAIL1(cpu->extn.fpu_dp, "DP "));
 
-	if (cpu->extn.debug)
-		n += scnprintf(buf + n, len - n, "DEBUG\t\t: %s%s%s\n",
-			       IS_AVAIL1(cpu->extn.ap, "ActionPoint "),
+	if (cpu->extn.ap_num | cpu->extn.smart | cpu->extn.rtt) {
+		n += scnprintf(buf + n, len - n, "DEBUG\t\t: %s%s",
 			       IS_AVAIL1(cpu->extn.smart, "smaRT "),
 			       IS_AVAIL1(cpu->extn.rtt, "RTT "));
+		if (cpu->extn.ap_num) {
+			n += scnprintf(buf + n, len - n, "ActionPoint %d/%s",
+				       cpu->extn.ap_num,
+				       cpu->extn.ap_full ? "full":"min");
+		}
+		n += scnprintf(buf + n, len - n, "\n");
+	}
 
 	if (cpu->dccm.sz || cpu->iccm.sz)
 		n += scnprintf(buf + n, len - n, "Extn [CCM]\t: DCCM @ %x, %d KB / ICCM: @ %x, %d KB\n",
@@ -477,7 +503,6 @@ void __init handle_uboot_args(void)
 	bool use_embedded_dtb = true;
 	bool append_cmdline = false;
 
-#ifdef CONFIG_ARC_UBOOT_SUPPORT
 	/* check that we know this tag */
 	if (uboot_tag != UBOOT_TAG_NONE &&
 	    uboot_tag != UBOOT_TAG_CMDLINE &&
@@ -504,7 +529,6 @@ void __init handle_uboot_args(void)
 		append_cmdline = true;
 
 ignore_uboot_args:
-#endif
 
 	if (use_embedded_dtb) {
 		machine_desc = setup_machine_fdt(__dtb_start);

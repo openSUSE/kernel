@@ -50,7 +50,6 @@ struct of_irq_controller;
 
 struct device_node {
 	const char *name;
-	const char *type;
 	phandle phandle;
 	const char *full_name;
 	struct fwnode_handle fwnode;
@@ -66,7 +65,6 @@ struct device_node {
 	unsigned long _flags;
 	void	*data;
 #if defined(CONFIG_SPARC)
-	const char *path_component_name;
 	unsigned int unique_id;
 	struct of_irq_controller *irq_trans;
 #endif
@@ -989,6 +987,12 @@ static inline int of_map_rid(struct device_node *np, u32 rid,
 #define of_prop_cmp(s1, s2)		strcmp((s1), (s2))
 #define of_node_cmp(s1, s2)		strcasecmp((s1), (s2))
 #endif
+
+static inline int of_prop_val_eq(struct property *p1, struct property *p2)
+{
+	return p1->length == p2->length &&
+	       !memcmp(p1->value, p2->value, (size_t)p1->length);
+}
 
 #if defined(CONFIG_OF) && defined(CONFIG_NUMA)
 extern int of_node_to_nid(struct device_node *np);

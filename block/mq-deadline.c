@@ -771,7 +771,7 @@ static const struct blk_mq_debugfs_attr deadline_queue_debugfs_attrs[] = {
 #endif
 
 static struct elevator_type mq_deadline = {
-	.ops.mq = {
+	.ops = {
 		.insert_requests	= dd_insert_requests,
 		.dispatch_request	= dd_dispatch_request,
 		.prepare_request	= dd_prepare_request,
@@ -787,7 +787,6 @@ static struct elevator_type mq_deadline = {
 		.exit_sched		= dd_exit_queue,
 	},
 
-	.uses_mq	= true,
 #ifdef CONFIG_BLK_DEBUG_FS
 	.queue_debugfs_attrs = deadline_queue_debugfs_attrs,
 #endif

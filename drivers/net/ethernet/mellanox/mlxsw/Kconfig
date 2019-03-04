@@ -81,6 +81,7 @@ config MLXSW_SPECTRUM
 	depends on VXLAN || VXLAN=n
 	select GENERIC_ALLOCATOR
 	select PARMAN
+	select OBJAGG
 	select MLXFW
 	default m
 	---help---
