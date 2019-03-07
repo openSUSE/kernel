@@ -711,6 +711,9 @@ config HAVE_ARCH_HASH
 	  file which provides platform-specific implementations of some
 	  functions in <linux/hash.h> or fs/namei.c.
 
+config HAVE_ARCH_NVRAM_OPS
+	bool
+
 config ISA_BUS_API
 	def_bool ISA
 
@@ -894,6 +897,9 @@ config HAVE_ARCH_PREL32_RELOCATIONS
 	  for PCI fixup, initcalls etc which are only half the size on 64 bit
 	  architectures, and don't require runtime relocation on relocatable
 	  kernels.
+
+config ARCH_USE_MEMREMAP_PROT
+	bool
 
 source "kernel/gcov/Kconfig"
 
