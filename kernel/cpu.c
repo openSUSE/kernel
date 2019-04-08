@@ -180,6 +180,12 @@ static int cpu_notify(unsigned long val, void *v)
 
 #ifdef CONFIG_HOTPLUG_CPU
 
+/*
+ * Architectures that need SMT-specific errata handling during SMT hotplug
+ * should override this.
+ */
+void __weak arch_smt_update(void) { };
+
 static void cpu_notify_nofail(unsigned long val, void *v)
 {
 	BUG_ON(cpu_notify(val, v));
@@ -290,6 +296,7 @@ out_release:
 	cpu_hotplug_done();
 	if (!err)
 		cpu_notify_nofail(CPU_POST_DEAD | mod, hcpu);
+	arch_smt_update();
 	return err;
 }
 
@@ -429,7 +436,7 @@ out_notify:
 	if (ret != 0)
 		__cpu_notify(CPU_UP_CANCELED | mod, hcpu, nr_calls, NULL);
 	cpu_hotplug_done();
-
+	arch_smt_update();
 	return ret;
 }
 
@@ -813,12 +820,6 @@ static void cpuhp_online_cpu_device(unsigned int cpu)
 	/* Tell user space about the state change */
 	kobject_uevent(&sys_dev->kobj, KOBJ_ONLINE);
 }
-
-/*
- * Architectures that need SMT-specific errata handling during SMT hotplug
- * should override this.
- */
-void __weak arch_smt_update(void) { };
 
 static int cpuhp_smt_disable(enum cpuhp_smt_control ctrlval)
 {

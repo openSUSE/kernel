@@ -14,6 +14,7 @@
 #include <linux/module.h>
 #include <linux/swap.h>
 #include <linux/cpu.h>
+#include <linux/sched/smt.h>
 
 #include <asm/nospec-branch.h>
 #include <asm/spec_ctrl.h>
