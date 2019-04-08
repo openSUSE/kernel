@@ -329,6 +329,7 @@ static inline const char *spectre_v2_module_string(void) { return ""; }
 #define NO_SSB		BIT(2)
 #define NO_L1TF		BIT(3)
 #define NO_MDS		BIT(4)
+#define MSBDS_ONLY	BIT(5)
 
 #define VULNWL(_vendor, _family, _model, _whitelist)	\
 	{ X86_VENDOR_##_vendor, _family, _model, X86_FEATURE_ANY, _whitelist }
@@ -352,16 +353,16 @@ static const __initconst struct x86_cpu_id cpu_vuln_whitelist[] = {
 	VULNWL_INTEL(ATOM_BONNELL,		NO_SPECULATION),
 	VULNWL_INTEL(ATOM_BONNELL_MID,		NO_SPECULATION),
 
-	VULNWL_INTEL(ATOM_SILVERMONT,		NO_SSB | NO_L1TF),
-	VULNWL_INTEL(ATOM_SILVERMONT_X,		NO_SSB | NO_L1TF),
-	VULNWL_INTEL(ATOM_SILVERMONT_MID,	NO_SSB | NO_L1TF),
-	VULNWL_INTEL(ATOM_AIRMONT,		NO_SSB | NO_L1TF),
-	VULNWL_INTEL(XEON_PHI_KNL,		NO_SSB | NO_L1TF),
-	VULNWL_INTEL(XEON_PHI_KNM,		NO_SSB | NO_L1TF),
+	VULNWL_INTEL(ATOM_SILVERMONT,		NO_SSB | NO_L1TF | MSBDS_ONLY),
+	VULNWL_INTEL(ATOM_SILVERMONT_X,		NO_SSB | NO_L1TF | MSBDS_ONLY),
+	VULNWL_INTEL(ATOM_SILVERMONT_MID,	NO_SSB | NO_L1TF | MSBDS_ONLY),
+	VULNWL_INTEL(ATOM_AIRMONT,		NO_SSB | NO_L1TF | MSBDS_ONLY),
+	VULNWL_INTEL(XEON_PHI_KNL,		NO_SSB | NO_L1TF | MSBDS_ONLY),
+	VULNWL_INTEL(XEON_PHI_KNM,		NO_SSB | NO_L1TF | MSBDS_ONLY),
 
 	VULNWL_INTEL(CORE_YONAH,		NO_SSB),
 
-	VULNWL_INTEL(ATOM_AIRMONT_MID,		NO_L1TF),
+	VULNWL_INTEL(ATOM_AIRMONT_MID,		NO_L1TF | MSBDS_ONLY),
 	VULNWL_INTEL(ATOM_GOLDMONT,		NO_MDS | NO_L1TF),
 	VULNWL_INTEL(ATOM_GOLDMONT_X,		NO_MDS | NO_L1TF),
 	VULNWL_INTEL(ATOM_GOLDMONT_PLUS,	NO_MDS | NO_L1TF),
@@ -388,6 +389,7 @@ static bool x86_bug_spectre_v1, x86_bug_spectre_v2, x86_bug_meltdown;
 static bool x86_bug_spec_store_bypass;
 static bool x86_bug_l1tf;
 static bool x86_bug_mds;
+static bool x86_bug_msbds_only;
 
 bool arch_has_pfn_modify_check(void)
 {
@@ -409,8 +411,11 @@ void setup_force_cpu_bugs(unsigned long __unused)
 	if (!cpu_matches(NO_SSB))
 		x86_bug_spec_store_bypass = true;
 
-	if (!cpu_matches(NO_MDS) && !(ia32_cap & ARCH_CAP_MDS_NO))
+	if (!cpu_matches(NO_MDS) && !(ia32_cap & ARCH_CAP_MDS_NO)) {
 		x86_bug_mds = true;
+		if (cpu_matches(MSBDS_ONLY))
+			x86_bug_msbds_only = true;
+	}
 
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD)
 		x86_bug_meltdown = false;
