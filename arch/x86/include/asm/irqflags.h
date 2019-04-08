@@ -8,6 +8,8 @@
  * Interrupt control:
  */
 
+#include <asm/nospec-branch.h>
+
 static inline unsigned long native_save_fl(void)
 {
 	unsigned long flags;
@@ -46,11 +48,13 @@ static inline void native_irq_enable(void)
 
 static inline void native_safe_halt(void)
 {
+	mds_idle_clear_cpu_buffers();
 	asm volatile("sti; hlt": : :"memory");
 }
 
 static inline void native_halt(void)
 {
+	mds_idle_clear_cpu_buffers();
 	asm volatile("hlt": : :"memory");
 }
 
