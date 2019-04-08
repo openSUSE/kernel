@@ -37,6 +37,7 @@
 
 /* Control MDS CPU buffer clear before returning to user space */
 bool mds_user_clear;
+EXPORT_SYMBOL_GPL(mds_user_clear);
 
 static void ssb_init_cmd_line(void);
 
