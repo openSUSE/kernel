@@ -128,6 +128,8 @@
  */
 #define RUNTIME_INF	((u64)~0ULL)
 
+bool sched_smt_present;
+
 static inline int rt_policy(int policy)
 {
 	if (unlikely(policy == SCHED_FIFO || policy == SCHED_RR))
@@ -6974,12 +6976,31 @@ static struct notifier_block __cpuinitdata migration_notifier = {
 	.priority = CPU_PRI_MIGRATION,
 };
 
+#ifdef CONFIG_SCHED_SMT
+static const struct cpumask *cpu_smt_mask(int cpu)
+{
+	return topology_thread_cpumask(cpu);
+}
+#endif
+
 static int __cpuinit sched_cpu_active(struct notifier_block *nfb,
 				      unsigned long action, void *hcpu)
 {
 	switch (action & ~CPU_TASKS_FROZEN) {
 	case CPU_ONLINE:
 	case CPU_DOWN_FAILED:
+#ifdef CONFIG_SCHED_SMT
+	/*
+	 * The sched_smt_present static key needs to be evaluated on every
+	 * hotplug event because at boot time SMT might be disabled when
+	 * the number of booted CPUs is limited.
+	 *
+	 * If then later a sibling gets hotplugged, then the key would stay
+	 * off and SMT scheduling would never be functional.
+	 */
+	if (cpumask_weight(cpu_smt_mask(0)) > 1)
+		sched_smt_present = true;
+#endif
 		set_cpu_active((long)hcpu, true);
 		return NOTIFY_OK;
 	default:
@@ -7979,13 +8000,6 @@ static void claim_allocations(int cpu, struct sched_domain *sd)
 		*per_cpu_ptr(sdd->sgp, cpu) = NULL;
 }
 
-#ifdef CONFIG_SCHED_SMT
-static const struct cpumask *cpu_smt_mask(int cpu)
-{
-	return topology_thread_cpumask(cpu);
-}
-#endif
-
 /*
  * Topology list, bottom-up.
  */
@@ -8542,22 +8556,6 @@ static int update_runtime(struct notifier_block *nfb,
 	}
 }
 
-#ifdef CONFIG_SCHED_SMT
-bool sched_smt_present;
-
-static void sched_init_smt(void)
-{
-	/*
-	 * We've enumerated all CPUs and will assume that if any CPU
-	 * has SMT siblings, CPU0 will too.
-	 */
-	if (cpumask_weight(cpu_smt_mask(0)) > 1)
-		sched_smt_present = true;
-}
-#else
-static inline void sched_init_smt(void) { }
-#endif
-
 void __init sched_init_smp(void)
 {
 	cpumask_var_t non_isolated_cpus;
@@ -8589,9 +8587,6 @@ void __init sched_init_smp(void)
 	free_cpumask_var(non_isolated_cpus);
 
 	init_sched_rt_class();
-
-	sched_init_smt();
-
 }
 #else
 void __init sched_init_smp(void)
