@@ -195,6 +195,7 @@ static void __init spectre_v2_select_mitigation(void);
 void ssb_select_mitigation(void);
 static void x86_amd_ssbd_disable(void);
 static void __init l1tf_select_mitigation(void);
+static void __init mds_select_mitigation(void);
 
 /* The base value of the SPEC_CTRL MSR that always has to be preserved. */
 u64 x86_spec_ctrl_base;
@@ -249,6 +250,8 @@ void __init check_bugs(void)
 
 	l1tf_select_mitigation();
 
+	mds_select_mitigation();
+
 	/*
 	 * Select proper mitigation for any exposure to the Speculative Store
 	 * Bypass vulnerability.
@@ -286,6 +289,52 @@ void __init check_bugs(void)
 #endif /* CONFIG_XEN */
 #endif
 }
+
+#undef pr_fmt
+#define pr_fmt(fmt)	"MDS: " fmt
+
+/* Default mitigation for L1TF-affected CPUs */
+static enum mds_mitigations mds_mitigation = MDS_MITIGATION_FULL;
+
+static const char * const mds_strings[] = {
+	[MDS_MITIGATION_OFF]	= "Vulnerable",
+	[MDS_MITIGATION_FULL]	= "Mitigation: Clear CPU buffers"
+};
+
+static bool x86_bug_mds;
+
+static void __init mds_select_mitigation(void)
+{
+	if (!x86_bug_mds) {
+		mds_mitigation = MDS_MITIGATION_OFF;
+		return;
+	}
+
+	if (mds_mitigation == MDS_MITIGATION_FULL) {
+		if (boot_cpu_has(X86_FEATURE_MD_CLEAR))
+			mds_user_clear = true;
+		else
+			mds_mitigation = MDS_MITIGATION_OFF;
+	}
+	pr_info("%s\n", mds_strings[mds_mitigation]);
+}
+
+static int __init mds_cmdline(char *str)
+{
+	if (!x86_bug_mds)
+		return 0;
+
+	if (!str)
+		return -EINVAL;
+
+	if (!strcmp(str, "off"))
+		mds_mitigation = MDS_MITIGATION_OFF;
+	else if (!strcmp(str, "full"))
+		mds_mitigation = MDS_MITIGATION_FULL;
+
+	return 0;
+}
+early_param("mds", mds_cmdline);
 
 /* The kernel command line selection */
 enum spectre_v2_mitigation_cmd {
@@ -395,7 +444,6 @@ static bool __init cpu_matches(unsigned long which)
 static bool x86_bug_spectre_v1, x86_bug_spectre_v2, x86_bug_meltdown;
 static bool x86_bug_spec_store_bypass;
 static bool x86_bug_l1tf;
-static bool x86_bug_mds;
 static bool x86_bug_msbds_only;
 
 bool arch_has_pfn_modify_check(void)
@@ -521,10 +569,24 @@ static bool __init is_skylake_era(void)
 	return false;
 }
 
-void arch_smt_update(void)
+/* Update the static key controlling the MDS CPU buffer clear in idle */
+static void update_mds_branch_idle(void)
 {
-	mutex_lock(&spec_ctrl_mutex);
-	mutex_unlock(&spec_ctrl_mutex);
+	/*
+	 * Enable the idle clearing if SMT is active on CPUs which are
+	 * affected only by MSBDS and not any other MDS variant.
+	 *
+	 * The other variants cannot be mitigated when SMT is enabled, so
+	 * clearing the buffers on idle just to prevent the Store Buffer
+	 * repartitioning leak would be a window dressing exercise.
+	 */
+	if (!x86_bug_msbds_only)
+		return;
+
+	if (sched_smt_active())
+		mds_idle_clear = true;
+	else
+		mds_idle_clear = false;
 }
 
 static void __init spectre_v2_select_mitigation(void)
@@ -607,8 +669,17 @@ retpoline_auto:
 
 	/* Enable STIBP if appropriate */
 	arch_smt_update();
-
 }
+
+void arch_smt_update(void)
+{
+	mutex_lock(&spec_ctrl_mutex);
+	if (mds_mitigation == MDS_MITIGATION_FULL)
+		update_mds_branch_idle();
+
+	mutex_unlock(&spec_ctrl_mutex);
+}
+
 /* Default mitigation for L1TF-affected CPUs */
 enum l1tf_mitigations l1tf_mitigation = L1TF_MITIGATION_FLUSH;
 EXPORT_SYMBOL_GPL(l1tf_mitigation);
