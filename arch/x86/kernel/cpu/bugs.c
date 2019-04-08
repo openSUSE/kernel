@@ -34,6 +34,7 @@
 #include <asm/nospec-branch.h>
 #include <asm/spec-ctrl.h>
 #include <asm/e820.h>
+#include <asm/hypervisor.h>
 
 /* Control MDS CPU buffer clear before returning to user space */
 bool mds_user_clear;
@@ -1105,6 +1106,27 @@ ssize_t cpu_show_l1tf(struct device *dev,
 	if (!x86_bug_l1tf)
 		return sprintf(buf, "Not affected\n");
 	return l1tf_show_state(buf);;
+}
+
+static ssize_t mds_show_state(char *buf)
+{
+	if (x86_hyper) {
+		return sprintf(buf, "%s; SMT Host state unknown\n",
+			       mds_strings[mds_mitigation]);
+	}
+
+	if (x86_bug_msbds_only) {
+		return sprintf(buf, "%s; SMT %s\n", mds_strings[mds_mitigation],
+			       sched_smt_active() ? "mitigated" : "disabled");
+	}
+
+	return sprintf(buf, "%s; SMT %s\n", mds_strings[mds_mitigation],
+		       sched_smt_active() ? "vulnerable" : "disabled");
+}
+
+ssize_t cpu_show_mds(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return mds_show_state(buf);
 }
 #endif
 
