@@ -90,6 +90,7 @@ struct sched_param {
 #include <linux/task_io_accounting.h>
 #include <linux/latencytop.h>
 #include <linux/cred.h>
+#include <linux/sched/smt.h>
 
 #include <asm/processor.h>
 
@@ -809,13 +810,6 @@ static inline int sched_info_on(void)
 	return 0;
 #endif
 }
-
-
-#ifdef CONFIG_SCHED_SMT
-
-extern bool sched_smt_present;
-
-#endif
 
 enum cpu_idle_type {
 	CPU_IDLE,
