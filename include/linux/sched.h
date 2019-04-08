@@ -810,6 +810,13 @@ static inline int sched_info_on(void)
 #endif
 }
 
+
+#ifdef CONFIG_SCHED_SMT
+
+extern bool sched_smt_present;
+
+#endif
+
 enum cpu_idle_type {
 	CPU_IDLE,
 	CPU_NOT_IDLE,

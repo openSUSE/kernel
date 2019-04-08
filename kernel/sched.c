@@ -8542,6 +8542,22 @@ static int update_runtime(struct notifier_block *nfb,
 	}
 }
 
+#ifdef CONFIG_SCHED_SMT
+bool sched_smt_present;
+
+static void sched_init_smt(void)
+{
+	/*
+	 * We've enumerated all CPUs and will assume that if any CPU
+	 * has SMT siblings, CPU0 will too.
+	 */
+	if (cpumask_weight(cpu_smt_mask(0)) > 1)
+		sched_smt_present = true;
+}
+#else
+static inline void sched_init_smt(void) { }
+#endif
+
 void __init sched_init_smp(void)
 {
 	cpumask_var_t non_isolated_cpus;
@@ -8573,6 +8589,9 @@ void __init sched_init_smp(void)
 	free_cpumask_var(non_isolated_cpus);
 
 	init_sched_rt_class();
+
+	sched_init_smt();
+
 }
 #else
 void __init sched_init_smp(void)
