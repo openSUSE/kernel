@@ -328,6 +328,7 @@ static inline const char *spectre_v2_module_string(void) { return ""; }
 #define NO_MELTDOWN	BIT(1)
 #define NO_SSB		BIT(2)
 #define NO_L1TF		BIT(3)
+#define NO_MDS		BIT(4)
 
 #define VULNWL(_vendor, _family, _model, _whitelist)	\
 	{ X86_VENDOR_##_vendor, _family, _model, X86_FEATURE_ANY, _whitelist }
@@ -344,6 +345,7 @@ static const __initconst struct x86_cpu_id cpu_vuln_whitelist[] = {
 	VULNWL(INTEL,	5, X86_MODEL_ANY,	NO_SPECULATION),
 	VULNWL(NSC,	5, X86_MODEL_ANY,	NO_SPECULATION),
 
+	/* Intel Family 6 */
 	VULNWL_INTEL(ATOM_SALTWELL,		NO_SPECULATION),
 	VULNWL_INTEL(ATOM_SALTWELL_TABLET,	NO_SPECULATION),
 	VULNWL_INTEL(ATOM_SALTWELL_MID,		NO_SPECULATION),
@@ -360,17 +362,18 @@ static const __initconst struct x86_cpu_id cpu_vuln_whitelist[] = {
 	VULNWL_INTEL(CORE_YONAH,		NO_SSB),
 
 	VULNWL_INTEL(ATOM_AIRMONT_MID,		NO_L1TF),
-	VULNWL_INTEL(ATOM_GOLDMONT,		NO_L1TF),
-	VULNWL_INTEL(ATOM_GOLDMONT_X,		NO_L1TF),
-	VULNWL_INTEL(ATOM_GOLDMONT_PLUS,	NO_L1TF),
+	VULNWL_INTEL(ATOM_GOLDMONT,		NO_MDS | NO_L1TF),
+	VULNWL_INTEL(ATOM_GOLDMONT_X,		NO_MDS | NO_L1TF),
+	VULNWL_INTEL(ATOM_GOLDMONT_PLUS,	NO_MDS | NO_L1TF),
 
-	VULNWL_AMD(0x0f,		NO_MELTDOWN | NO_SSB | NO_L1TF),
-	VULNWL_AMD(0x10,		NO_MELTDOWN | NO_SSB | NO_L1TF),
-	VULNWL_AMD(0x11,		NO_MELTDOWN | NO_SSB | NO_L1TF),
-	VULNWL_AMD(0x12,		NO_MELTDOWN | NO_SSB | NO_L1TF),
+	/* AMD Family 0xf - 0x12 */
+	VULNWL_AMD(0x0f,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
+	VULNWL_AMD(0x10,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
+	VULNWL_AMD(0x11,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
+	VULNWL_AMD(0x12,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
 
 	/* FAMILY_ANY must be last, otherwise 0x0f - 0x12 matches won't work */
-	VULNWL_AMD(X86_FAMILY_ANY,	NO_MELTDOWN | NO_L1TF),
+	VULNWL_AMD(X86_FAMILY_ANY,	NO_MELTDOWN | NO_L1TF | NO_MDS),
 	{}
 };
 
@@ -384,6 +387,7 @@ static bool __init cpu_matches(unsigned long which)
 static bool x86_bug_spectre_v1, x86_bug_spectre_v2, x86_bug_meltdown;
 static bool x86_bug_spec_store_bypass;
 static bool x86_bug_l1tf;
+static bool x86_bug_mds;
 
 bool arch_has_pfn_modify_check(void)
 {
@@ -393,12 +397,20 @@ EXPORT_SYMBOL_GPL(arch_has_pfn_modify_check);
 
 void setup_force_cpu_bugs(unsigned long __unused)
 {
+        u64 ia32_cap = 0;
+
 	x86_bug_spectre_v1 = true;
 	x86_bug_spectre_v2 = true;
 	x86_bug_l1tf = true;
 
+	if (boot_cpu_has(X86_FEATURE_ARCH_CAPABILITIES))
+		rdmsrl(MSR_IA32_ARCH_CAPABILITIES, ia32_cap);
+
 	if (!cpu_matches(NO_SSB))
 		x86_bug_spec_store_bypass = true;
+
+	if (!cpu_matches(NO_MDS) && !(ia32_cap & ARCH_CAP_MDS_NO))
+		x86_bug_mds = true;
 
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD)
 		x86_bug_meltdown = false;
