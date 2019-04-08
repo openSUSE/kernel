@@ -299,7 +299,8 @@ static enum mds_mitigations mds_mitigation = MDS_MITIGATION_FULL;
 
 static const char * const mds_strings[] = {
 	[MDS_MITIGATION_OFF]	= "Vulnerable",
-	[MDS_MITIGATION_FULL]	= "Mitigation: Clear CPU buffers"
+	[MDS_MITIGATION_FULL]	= "Mitigation: Clear CPU buffers",
+	[MDS_MITIGATION_VMWERV]	= "Vulnerable: Clear CPU buffers attempted, no microcode",
 };
 
 static bool x86_bug_mds;
@@ -312,10 +313,9 @@ static void __init mds_select_mitigation(void)
 	}
 
 	if (mds_mitigation == MDS_MITIGATION_FULL) {
-		if (boot_cpu_has(X86_FEATURE_MD_CLEAR))
-			mds_user_clear = true;
-		else
-			mds_mitigation = MDS_MITIGATION_OFF;
+		if (!boot_cpu_has(X86_FEATURE_MD_CLEAR))
+			mds_mitigation = MDS_MITIGATION_VMWERV;
+		mds_user_clear = true;
 	}
 	pr_info("%s\n", mds_strings[mds_mitigation]);
 }
@@ -675,8 +675,14 @@ retpoline_auto:
 void arch_smt_update(void)
 {
 	mutex_lock(&spec_ctrl_mutex);
-	if (mds_mitigation == MDS_MITIGATION_FULL)
+	switch (mds_mitigation) {
+	case MDS_MITIGATION_FULL:
+	case MDS_MITIGATION_VMWERV:
 		update_mds_branch_idle();
+		break;
+	case MDS_MITIGATION_OFF:
+		break;
+	}
 
 	mutex_unlock(&spec_ctrl_mutex);
 }
