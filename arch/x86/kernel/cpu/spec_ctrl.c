@@ -131,3 +131,9 @@ int __init nospec(char *str)
 	return 0;
 }
 early_param("nospec", nospec);
+
+/* Wrapper callable by asm */
+void mds_clear_user(void)
+{
+	return mds_user_clear_cpu_buffers();
+}

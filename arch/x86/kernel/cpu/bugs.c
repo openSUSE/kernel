@@ -35,6 +35,9 @@
 #include <asm/spec-ctrl.h>
 #include <asm/e820.h>
 
+/* Control MDS CPU buffer clear before returning to user space */
+bool mds_user_clear;
+
 static void ssb_init_cmd_line(void);
 
 #ifdef CONFIG_X86_32
