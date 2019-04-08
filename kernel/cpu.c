@@ -814,6 +814,12 @@ static void cpuhp_online_cpu_device(unsigned int cpu)
 	kobject_uevent(&sys_dev->kobj, KOBJ_ONLINE);
 }
 
+/*
+ * Architectures that need SMT-specific errata handling during SMT hotplug
+ * should override this.
+ */
+void __weak arch_smt_update(void) { };
+
 static int cpuhp_smt_disable(enum cpuhp_smt_control ctrlval)
 {
 	int cpu, ret = 0;

@@ -188,11 +188,9 @@ void ssb_select_mitigation(void);
 static void x86_amd_ssbd_disable(void);
 static void __init l1tf_select_mitigation(void);
 
-/*
- * Our boot-time value of the SPEC_CTRL MSR. We read it once so that any
- * writes to SPEC_CTRL contain whatever reserved bits have been set.
- */
+/* The base value of the SPEC_CTRL MSR that always has to be preserved. */
 u64 x86_spec_ctrl_base;
+static DEFINE_MUTEX(spec_ctrl_mutex);
 
 /*
  * The vendor and possibly platform specific bits which can be modified in
@@ -480,6 +478,12 @@ static bool __init is_skylake_era(void)
 	return false;
 }
 
+void arch_smt_update(void)
+{
+	mutex_lock(&spec_ctrl_mutex);
+	mutex_unlock(&spec_ctrl_mutex);
+}
+
 static void __init spectre_v2_select_mitigation(void)
 {
 	enum spectre_v2_mitigation_cmd cmd = spectre_v2_parse_cmdline();
@@ -557,6 +561,10 @@ retpoline_auto:
 		pr_info("Retpolines enabled, force-disabling IBRS due to !SKL-era core\n");
 		ibrs_state = 0;
 	}
+
+	/* Enable STIBP if appropriate */
+	arch_smt_update();
+
 }
 /* Default mitigation for L1TF-affected CPUs */
 enum l1tf_mitigations l1tf_mitigation = L1TF_MITIGATION_FLUSH;
