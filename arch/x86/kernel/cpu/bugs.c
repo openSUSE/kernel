@@ -294,6 +294,12 @@ void __init check_bugs(void)
 #undef pr_fmt
 #define pr_fmt(fmt)	"MDS: " fmt
 
+enum mds_mitigations {
+	MDS_MITIGATION_OFF,
+	MDS_MITIGATION_FULL,
+	MDS_MITIGATION_VMWERV,
+};
+
 /* Default mitigation for L1TF-affected CPUs */
 static enum mds_mitigations mds_mitigation = MDS_MITIGATION_FULL;
 
@@ -1116,10 +1122,12 @@ ssize_t cpu_show_l1tf(struct device *dev,
 
 static ssize_t mds_show_state(char *buf)
 {
+#ifndef CONFIG_XEN
 	if (x86_hyper) {
 		return sprintf(buf, "%s; SMT Host state unknown\n",
 			       mds_strings[mds_mitigation]);
 	}
+#endif
 
 	if (x86_bug_msbds_only) {
 		return sprintf(buf, "%s; SMT %s\n", mds_strings[mds_mitigation],
