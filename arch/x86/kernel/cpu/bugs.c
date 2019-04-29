@@ -592,6 +592,9 @@ static bool __init is_skylake_era(void)
 	return false;
 }
 
+#undef pr_fmt
+#define pr_fmt(fmt) fmt
+
 /* Update the static key controlling the MDS CPU buffer clear in idle */
 static void update_mds_branch_idle(void)
 {
@@ -691,12 +694,16 @@ retpoline_auto:
 	}
 }
 
+#define MDS_MSG_SMT "MDS CPU bug present and SMT on, data leak possible. See https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/mds.html for more details.\n"
+
 void arch_smt_update(void)
 {
 	mutex_lock(&spec_ctrl_mutex);
 	switch (mds_mitigation) {
 	case MDS_MITIGATION_FULL:
 	case MDS_MITIGATION_VMWERV:
+		if (sched_smt_active() && !x86_bug_msbds_only)
+			pr_warn_once(MDS_MSG_SMT);
 		update_mds_branch_idle();
 		break;
 	case MDS_MITIGATION_OFF:
@@ -705,6 +712,9 @@ void arch_smt_update(void)
 
 	mutex_unlock(&spec_ctrl_mutex);
 }
+
+#undef pr_fmt
+#define pr_fmt(fmt) "L1TF: " fmt
 
 /* Default mitigation for L1TF-affected CPUs */
 enum l1tf_mitigations l1tf_mitigation = L1TF_MITIGATION_FLUSH;
