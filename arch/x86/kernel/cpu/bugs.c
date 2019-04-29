@@ -317,7 +317,7 @@ static bool x86_bug_msbds_only;
 
 static void __init mds_select_mitigation(void)
 {
-	if (!x86_bug_mds) {
+	if (!x86_bug_mds || cpu_mitigations_off()) {
 		mds_mitigation = MDS_MITIGATION_OFF;
 		return;
 	}
@@ -328,7 +328,8 @@ static void __init mds_select_mitigation(void)
 
 		mds_user_clear = true;
 
-		if (mds_nosmt && !x86_bug_msbds_only)
+		if (!x86_bug_msbds_only &&
+		    (mds_nosmt || cpu_mitigations_auto_nosmt()))
 			cpu_smt_disable(false);
 	}
 
