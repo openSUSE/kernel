@@ -302,6 +302,7 @@ enum mds_mitigations {
 
 /* Default mitigation for L1TF-affected CPUs */
 static enum mds_mitigations mds_mitigation = MDS_MITIGATION_FULL;
+static bool mds_nosmt = false;
 
 static const char * const mds_strings[] = {
 	[MDS_MITIGATION_OFF]	= "Vulnerable",
@@ -310,6 +311,7 @@ static const char * const mds_strings[] = {
 };
 
 static bool x86_bug_mds;
+static bool x86_bug_msbds_only;
 
 static void __init mds_select_mitigation(void)
 {
@@ -321,8 +323,13 @@ static void __init mds_select_mitigation(void)
 	if (mds_mitigation == MDS_MITIGATION_FULL) {
 		if (!boot_cpu_has(X86_FEATURE_MD_CLEAR))
 			mds_mitigation = MDS_MITIGATION_VMWERV;
+
 		mds_user_clear = true;
+
+		if (mds_nosmt && !x86_bug_msbds_only)
+			cpu_smt_disable(false);
 	}
+
 	pr_info("%s\n", mds_strings[mds_mitigation]);
 }
 
@@ -338,6 +345,10 @@ static int __init mds_cmdline(char *str)
 		mds_mitigation = MDS_MITIGATION_OFF;
 	else if (!strcmp(str, "full"))
 		mds_mitigation = MDS_MITIGATION_FULL;
+	else if (!strcmp(str, "full,nosmt")) {
+		mds_mitigation = MDS_MITIGATION_FULL;
+		mds_nosmt = true;
+	}
 
 	return 0;
 }
@@ -451,7 +462,6 @@ static bool __init cpu_matches(unsigned long which)
 static bool x86_bug_spectre_v1, x86_bug_spectre_v2, x86_bug_meltdown;
 static bool x86_bug_spec_store_bypass;
 static bool x86_bug_l1tf;
-static bool x86_bug_msbds_only;
 
 bool arch_has_pfn_modify_check(void)
 {
