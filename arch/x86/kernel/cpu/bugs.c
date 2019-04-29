@@ -253,6 +253,8 @@ void __init check_bugs(void)
 
 	mds_select_mitigation();
 
+	arch_smt_update();
+
 	/*
 	 * Select proper mitigation for any exposure to the Speculative Store
 	 * Bypass vulnerability.
@@ -687,9 +689,6 @@ retpoline_auto:
 		pr_info("Retpolines enabled, force-disabling IBRS due to !SKL-era core\n");
 		ibrs_state = 0;
 	}
-
-	/* Enable STIBP if appropriate */
-	arch_smt_update();
 }
 
 void arch_smt_update(void)
