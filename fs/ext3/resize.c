@@ -316,8 +316,7 @@ static int setup_new_group_blocks(struct super_block *sb,
 	if (err)
 		goto exit_bh;
 
-	mark_bitmap_end(input->blocks_count, EXT3_BLOCKS_PER_GROUP(sb),
-			bh->b_data);
+	mark_bitmap_end(input->blocks_count, sb->s_blocksize * 8, bh->b_data);
 	err = ext3_journal_dirty_metadata(handle, bh);
 	if (err)
 		goto exit_bh;
@@ -331,7 +330,7 @@ static int setup_new_group_blocks(struct super_block *sb,
 		goto exit_journal;
 	}
 
-	mark_bitmap_end(EXT3_INODES_PER_GROUP(sb), EXT3_BLOCKS_PER_GROUP(sb),
+	mark_bitmap_end(EXT3_INODES_PER_GROUP(sb), sb->s_blocksize * 8,
 			bh->b_data);
 	err = ext3_journal_dirty_metadata(handle, bh);
 exit_bh:
