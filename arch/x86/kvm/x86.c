@@ -6564,7 +6564,8 @@ static int kvm_fast_pio_out(struct kvm_vcpu *vcpu, int size,
 	 * Workaround userspace that relies on old KVM behavior of %rip being
 	 * incremented prior to exiting to userspace to handle "OUT 0x7e".
 	 */
-	if (port == 0x7e) {
+	if (port == 0x7e &&
+	    kvm_check_has_quirk(vcpu->kvm, KVM_X86_QUIRK_OUT_7E_INC_RIP)) {
 		vcpu->arch.complete_userspace_io =
 			complete_fast_pio_out_port_0x7e;
 		kvm_skip_emulated_instruction(vcpu);
