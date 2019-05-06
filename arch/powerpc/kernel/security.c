@@ -8,6 +8,7 @@
 #include <linux/device.h>
 #include <linux/seq_buf.h>
 #include <linux/debugfs.h>
+#include <linux/cpu.h>
 
 #include <asm/asm-prototypes.h>
 #include <asm/code-patching.h>
@@ -277,7 +278,7 @@ void setup_stf_barrier(void)
 
 	stf_enabled_flush_types = type;
 
-	if (!no_stf_barrier)
+	if (!no_stf_barrier && !cpu_mitigations_off())
 		stf_barrier_enable(enable);
 }
 

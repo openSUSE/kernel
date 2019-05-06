@@ -14,6 +14,7 @@
 #include <linux/module.h>
 #include <linux/swap.h>
 #include <linux/cpu.h>
+#include <linux/sched/smt.h>
 
 #include <asm/nospec-branch.h>
 #include <asm/spec_ctrl.h>
@@ -33,6 +34,14 @@
 #include <asm/nospec-branch.h>
 #include <asm/spec-ctrl.h>
 #include <asm/e820.h>
+#include <asm/hypervisor.h>
+
+/* Control MDS CPU buffer clear before returning to user space */
+bool mds_user_clear;
+EXPORT_SYMBOL_GPL(mds_user_clear);
+/* Control MDS CPU buffer clear before idling (halt, mwait) */
+bool mds_idle_clear;
+EXPORT_SYMBOL_GPL(mds_idle_clear);
 
 static void ssb_init_cmd_line(void);
 
@@ -187,12 +196,11 @@ static void __init spectre_v2_select_mitigation(void);
 void ssb_select_mitigation(void);
 static void x86_amd_ssbd_disable(void);
 static void __init l1tf_select_mitigation(void);
+static void __init mds_select_mitigation(void);
 
-/*
- * Our boot-time value of the SPEC_CTRL MSR. We read it once so that any
- * writes to SPEC_CTRL contain whatever reserved bits have been set.
- */
+/* The base value of the SPEC_CTRL MSR that always has to be preserved. */
 u64 x86_spec_ctrl_base;
+static DEFINE_MUTEX(spec_ctrl_mutex);
 
 /*
  * The vendor and possibly platform specific bits which can be modified in
@@ -243,6 +251,10 @@ void __init check_bugs(void)
 
 	l1tf_select_mitigation();
 
+	mds_select_mitigation();
+
+	arch_smt_update();
+
 	/*
 	 * Select proper mitigation for any exposure to the Speculative Store
 	 * Bypass vulnerability.
@@ -280,6 +292,70 @@ void __init check_bugs(void)
 #endif /* CONFIG_XEN */
 #endif
 }
+
+#undef pr_fmt
+#define pr_fmt(fmt)	"MDS: " fmt
+
+enum mds_mitigations {
+	MDS_MITIGATION_OFF,
+	MDS_MITIGATION_FULL,
+	MDS_MITIGATION_VMWERV,
+};
+
+/* Default mitigation for L1TF-affected CPUs */
+static enum mds_mitigations mds_mitigation = MDS_MITIGATION_FULL;
+static bool mds_nosmt = false;
+
+static const char * const mds_strings[] = {
+	[MDS_MITIGATION_OFF]	= "Vulnerable",
+	[MDS_MITIGATION_FULL]	= "Mitigation: Clear CPU buffers",
+	[MDS_MITIGATION_VMWERV]	= "Vulnerable: Clear CPU buffers attempted, no microcode",
+};
+
+static bool x86_bug_mds;
+static bool x86_bug_msbds_only;
+
+static void __init mds_select_mitigation(void)
+{
+	if (!x86_bug_mds || cpu_mitigations_off()) {
+		mds_mitigation = MDS_MITIGATION_OFF;
+		return;
+	}
+
+	if (mds_mitigation == MDS_MITIGATION_FULL) {
+		if (!boot_cpu_has(X86_FEATURE_MD_CLEAR))
+			mds_mitigation = MDS_MITIGATION_VMWERV;
+
+		mds_user_clear = true;
+
+		if (!x86_bug_msbds_only &&
+		    (mds_nosmt || cpu_mitigations_auto_nosmt()))
+			cpu_smt_disable(false);
+	}
+
+	pr_info("%s\n", mds_strings[mds_mitigation]);
+}
+
+static int __init mds_cmdline(char *str)
+{
+	if (!x86_bug_mds)
+		return 0;
+
+	if (!str)
+		return -EINVAL;
+
+	if (!strcmp(str, "off"))
+		mds_mitigation = MDS_MITIGATION_OFF;
+	else if (!strcmp(str, "full"))
+		mds_mitigation = MDS_MITIGATION_FULL;
+	else if (!strcmp(str, "full,nosmt")) {
+		mds_mitigation = MDS_MITIGATION_FULL;
+		mds_nosmt = true;
+	}
+
+	return 0;
+}
+early_param("mds", mds_cmdline);
 
 /* The kernel command line selection */
 enum spectre_v2_mitigation_cmd {
@@ -325,44 +401,66 @@ static inline const char *spectre_v2_module_string(void)
 static inline const char *spectre_v2_module_string(void) { return ""; }
 #endif
 
-static const __initconst struct x86_cpu_id cpu_no_spec_store_bypass[] = {
-        { X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_PINEVIEW	},
-        { X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_LINCROFT	},
-        { X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_PENWELL		},
-        { X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_CLOVERVIEW	},
-        { X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_CEDARVIEW	},
-        { X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_SILVERMONT1	},
-        { X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_AIRMONT		},
-        { X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_SILVERMONT2	},
-        { X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_MERRIFIELD1	},
-        { X86_VENDOR_INTEL,	6,	INTEL_FAM6_CORE_YONAH		},
-        { X86_VENDOR_INTEL,	6,	INTEL_FAM6_XEON_PHI_KNL		},
-        { X86_VENDOR_INTEL,	6,	INTEL_FAM6_XEON_PHI_KNM		},
-        { X86_VENDOR_CENTAUR,	5,					},
-        { X86_VENDOR_INTEL,	5,					},
-        { X86_VENDOR_NSC,	5,					},
-        { X86_VENDOR_AMD,	0x12,					},
-        { X86_VENDOR_AMD,	0x11,					},
-        { X86_VENDOR_AMD,	0x10,					},
-        { X86_VENDOR_AMD,	0xf,					},
-        { X86_VENDOR_ANY,	4,					},
-        {}
-};
+#define NO_SPECULATION	BIT(0)
+#define NO_MELTDOWN	BIT(1)
+#define NO_SSB		BIT(2)
+#define NO_L1TF		BIT(3)
+#define NO_MDS		BIT(4)
+#define MSBDS_ONLY	BIT(5)
 
-static const __initconst struct x86_cpu_id cpu_no_l1tf[] = {
-	/* in addition to cpu_no_speculation */
-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_SILVERMONT1	},
-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_SILVERMONT2	},
-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_AIRMONT		},
-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_MERRIFIELD	},
-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_MOOREFIELD	},
-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_GOLDMONT	},
-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_DENVERTON	},
-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_GEMINI_LAKE	},
-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_XEON_PHI_KNL		},
-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_XEON_PHI_KNM		},
+#define VULNWL(_vendor, _family, _model, _whitelist)	\
+	{ X86_VENDOR_##_vendor, _family, _model, X86_FEATURE_ANY, _whitelist }
+
+#define VULNWL_INTEL(model, whitelist)		\
+	VULNWL(INTEL, 6, INTEL_FAM6_##model, whitelist)
+
+#define VULNWL_AMD(family, whitelist)		\
+	VULNWL(AMD, family, X86_MODEL_ANY, whitelist)
+
+static const __initconst struct x86_cpu_id cpu_vuln_whitelist[] = {
+	VULNWL(ANY,	4, X86_MODEL_ANY,	NO_SPECULATION),
+	VULNWL(CENTAUR,	5, X86_MODEL_ANY,	NO_SPECULATION),
+	VULNWL(INTEL,	5, X86_MODEL_ANY,	NO_SPECULATION),
+	VULNWL(NSC,	5, X86_MODEL_ANY,	NO_SPECULATION),
+
+	/* Intel Family 6 */
+	VULNWL_INTEL(ATOM_SALTWELL,		NO_SPECULATION),
+	VULNWL_INTEL(ATOM_SALTWELL_TABLET,	NO_SPECULATION),
+	VULNWL_INTEL(ATOM_SALTWELL_MID,		NO_SPECULATION),
+	VULNWL_INTEL(ATOM_BONNELL,		NO_SPECULATION),
+	VULNWL_INTEL(ATOM_BONNELL_MID,		NO_SPECULATION),
+
+	VULNWL_INTEL(ATOM_SILVERMONT,		NO_SSB | NO_L1TF | MSBDS_ONLY),
+	VULNWL_INTEL(ATOM_SILVERMONT_X,		NO_SSB | NO_L1TF | MSBDS_ONLY),
+	VULNWL_INTEL(ATOM_SILVERMONT_MID,	NO_SSB | NO_L1TF | MSBDS_ONLY),
+	VULNWL_INTEL(ATOM_AIRMONT,		NO_SSB | NO_L1TF | MSBDS_ONLY),
+	VULNWL_INTEL(XEON_PHI_KNL,		NO_SSB | NO_L1TF | MSBDS_ONLY),
+	VULNWL_INTEL(XEON_PHI_KNM,		NO_SSB | NO_L1TF | MSBDS_ONLY),
+
+	VULNWL_INTEL(CORE_YONAH,		NO_SSB),
+
+	VULNWL_INTEL(ATOM_AIRMONT_MID,		NO_L1TF | MSBDS_ONLY),
+	VULNWL_INTEL(ATOM_GOLDMONT,		NO_MDS | NO_L1TF),
+	VULNWL_INTEL(ATOM_GOLDMONT_X,		NO_MDS | NO_L1TF),
+	VULNWL_INTEL(ATOM_GOLDMONT_PLUS,	NO_MDS | NO_L1TF),
+
+	/* AMD Family 0xf - 0x12 */
+	VULNWL_AMD(0x0f,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
+	VULNWL_AMD(0x10,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
+	VULNWL_AMD(0x11,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
+	VULNWL_AMD(0x12,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
+
+	/* FAMILY_ANY must be last, otherwise 0x0f - 0x12 matches won't work */
+	VULNWL_AMD(X86_FAMILY_ANY,	NO_MELTDOWN | NO_L1TF | NO_MDS),
 	{}
 };
+
+static bool __init cpu_matches(unsigned long which)
+{
+	const struct x86_cpu_id *m = x86_match_cpu(cpu_vuln_whitelist);
+
+	return m && !!(m->driver_data & which);
+}
 
 static bool x86_bug_spectre_v1, x86_bug_spectre_v2, x86_bug_meltdown;
 static bool x86_bug_spec_store_bypass;
@@ -376,19 +474,30 @@ EXPORT_SYMBOL_GPL(arch_has_pfn_modify_check);
 
 void setup_force_cpu_bugs(unsigned long __unused)
 {
+        u64 ia32_cap = 0;
+
 	x86_bug_spectre_v1 = true;
 	x86_bug_spectre_v2 = true;
 	x86_bug_l1tf = true;
 
-	if (!x86_match_cpu(cpu_no_spec_store_bypass))
+	if (boot_cpu_has(X86_FEATURE_ARCH_CAPABILITIES))
+		rdmsrl(MSR_IA32_ARCH_CAPABILITIES, ia32_cap);
+
+	if (!cpu_matches(NO_SSB))
 		x86_bug_spec_store_bypass = true;
+
+	if (!cpu_matches(NO_MDS) && !(ia32_cap & ARCH_CAP_MDS_NO)) {
+		x86_bug_mds = true;
+		if (cpu_matches(MSBDS_ONLY))
+			x86_bug_msbds_only = true;
+	}
 
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD)
 		x86_bug_meltdown = false;
 	else
 		x86_bug_meltdown = true;
 
-	if (x86_match_cpu(cpu_no_l1tf))
+	if (cpu_matches(NO_L1TF))
 		x86_bug_l1tf = false;
 }
 
@@ -426,6 +535,12 @@ static enum spectre_v2_mitigation_cmd __init spectre_v2_parse_cmdline(void)
 	char arg[20];
 	int ret;
 
+	if (cmdline_find_option_bool(boot_command_line, "nospectre_v2") ||
+	    cpu_mitigations_off()) {
+		cmd = SPECTRE_V2_CMD_NONE;
+		goto done;
+	}
+
 	ret = cmdline_find_option(boot_command_line, "spectre_v2", arg, sizeof(arg));
 	if (ret > 0)  {
 		if (match_option(arg, ret, "off")) {
@@ -452,9 +567,7 @@ static enum spectre_v2_mitigation_cmd __init spectre_v2_parse_cmdline(void)
 		}
 	}
 
-	if (cmdline_find_option_bool(boot_command_line, "nospectre_v2"))
-		cmd = SPECTRE_V2_CMD_NONE;
-
+done:
 	if (cmd == SPECTRE_V2_CMD_NONE ||
 	    cmd == SPECTRE_V2_CMD_RETPOLINE ||
 	    cmd == SPECTRE_V2_CMD_RETPOLINE_GENERIC)
@@ -478,6 +591,29 @@ static bool __init is_skylake_era(void)
 		}
 	}
 	return false;
+}
+
+#undef pr_fmt
+#define pr_fmt(fmt) fmt
+
+/* Update the static key controlling the MDS CPU buffer clear in idle */
+static void update_mds_branch_idle(void)
+{
+	/*
+	 * Enable the idle clearing if SMT is active on CPUs which are
+	 * affected only by MSBDS and not any other MDS variant.
+	 *
+	 * The other variants cannot be mitigated when SMT is enabled, so
+	 * clearing the buffers on idle just to prevent the Store Buffer
+	 * repartitioning leak would be a window dressing exercise.
+	 */
+	if (!x86_bug_msbds_only)
+		return;
+
+	if (sched_smt_active())
+		mds_idle_clear = true;
+	else
+		mds_idle_clear = false;
 }
 
 static void __init spectre_v2_select_mitigation(void)
@@ -558,6 +694,29 @@ retpoline_auto:
 		ibrs_state = 0;
 	}
 }
+
+#define MDS_MSG_SMT "MDS CPU bug present and SMT on, data leak possible. See https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/mds.html for more details.\n"
+
+void arch_smt_update(void)
+{
+	mutex_lock(&spec_ctrl_mutex);
+	switch (mds_mitigation) {
+	case MDS_MITIGATION_FULL:
+	case MDS_MITIGATION_VMWERV:
+		if (sched_smt_active() && !x86_bug_msbds_only)
+			pr_warn_once(MDS_MSG_SMT);
+		update_mds_branch_idle();
+		break;
+	case MDS_MITIGATION_OFF:
+		break;
+	}
+
+	mutex_unlock(&spec_ctrl_mutex);
+}
+
+#undef pr_fmt
+#define pr_fmt(fmt) "L1TF: " fmt
+
 /* Default mitigation for L1TF-affected CPUs */
 enum l1tf_mitigations l1tf_mitigation = L1TF_MITIGATION_FLUSH;
 EXPORT_SYMBOL_GPL(l1tf_mitigation);
@@ -612,6 +771,11 @@ static void __init l1tf_select_mitigation(void)
 
 	if (!x86_bug_l1tf)
 		return;
+
+	if (cpu_mitigations_off())
+		l1tf_mitigation = L1TF_MITIGATION_OFF;
+	else if (cpu_mitigations_auto_nosmt())
+		l1tf_mitigation = L1TF_MITIGATION_FLUSH_NOSMT;
 
 	override_cache_bits(&boot_cpu_data);
 
@@ -712,7 +876,8 @@ static enum ssb_mitigation_cmd __init ssb_parse_cmdline(void)
 	char arg[20];
 	int ret, i;
 
-	if (cmdline_find_option_bool(boot_command_line, "nospec_store_bypass_disable")) {
+	if (cmdline_find_option_bool(boot_command_line, "nospec_store_bypass_disable") ||
+	    cpu_mitigations_off()) {
 		return SPEC_STORE_BYPASS_CMD_NONE;
 	} else {
 		ret = cmdline_find_option(boot_command_line, "spec_store_bypass_disable",
@@ -983,6 +1148,30 @@ ssize_t cpu_show_l1tf(struct device *dev,
 	if (!x86_bug_l1tf)
 		return sprintf(buf, "Not affected\n");
 	return l1tf_show_state(buf);;
+}
+
+static ssize_t mds_show_state(char *buf)
+{
+#ifndef CONFIG_XEN
+	if (x86_hyper) {
+		return sprintf(buf, "%s; SMT Host state unknown\n",
+			       mds_strings[mds_mitigation]);
+	}
+#endif
+
+	if (x86_bug_msbds_only) {
+		return sprintf(buf, "%s; SMT %s\n", mds_strings[mds_mitigation],
+			       (mds_mitigation == MDS_MITIGATION_OFF ? "vulnerable" :
+			        sched_smt_active() ? "mitigated" : "disabled"));
+	}
+
+	return sprintf(buf, "%s; SMT %s\n", mds_strings[mds_mitigation],
+		       sched_smt_active() ? "vulnerable" : "disabled");
+}
+
+ssize_t cpu_show_mds(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return mds_show_state(buf);
 }
 #endif
 

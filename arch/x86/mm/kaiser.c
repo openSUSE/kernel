@@ -10,6 +10,7 @@
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/uaccess.h>
+#include <linux/cpu.h>
 
 extern struct mm_struct init_mm;
 
@@ -303,7 +304,8 @@ void __init kaiser_check_boottime_disable(void)
 			goto skip;
 	}
 
-	if (cmdline_find_option_bool(boot_command_line, "nopti"))
+	if (cmdline_find_option_bool(boot_command_line, "nopti") ||
+	    cpu_mitigations_off())
 		goto disable;
 
 skip:

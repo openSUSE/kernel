@@ -128,6 +128,8 @@
  */
 #define RUNTIME_INF	((u64)~0ULL)
 
+bool sched_smt_present;
+
 static inline int rt_policy(int policy)
 {
 	if (unlikely(policy == SCHED_FIFO || policy == SCHED_RR))
@@ -6974,13 +6976,29 @@ static struct notifier_block __cpuinitdata migration_notifier = {
 	.priority = CPU_PRI_MIGRATION,
 };
 
+#ifdef CONFIG_SCHED_SMT
+static const struct cpumask *cpu_smt_mask(int cpu)
+{
+	return topology_thread_cpumask(cpu);
+}
+#endif
+
 static int __cpuinit sched_cpu_active(struct notifier_block *nfb,
 				      unsigned long action, void *hcpu)
 {
+	long cpu = (long)hcpu;
+
 	switch (action & ~CPU_TASKS_FROZEN) {
 	case CPU_ONLINE:
 	case CPU_DOWN_FAILED:
-		set_cpu_active((long)hcpu, true);
+#ifdef CONFIG_SCHED_SMT
+	/*
+	 * When going up, increment the number of cores with SMT present.
+	 */
+	if (cpumask_weight(cpu_smt_mask(cpu)) == 2)
+		sched_smt_present = true;
+#endif
+		set_cpu_active(cpu, true);
 		return NOTIFY_OK;
 	default:
 		return NOTIFY_DONE;
@@ -6990,9 +7008,19 @@ static int __cpuinit sched_cpu_active(struct notifier_block *nfb,
 static int __cpuinit sched_cpu_inactive(struct notifier_block *nfb,
 					unsigned long action, void *hcpu)
 {
+	long cpu = (long)hcpu;
+
 	switch (action & ~CPU_TASKS_FROZEN) {
 	case CPU_DOWN_PREPARE:
-		set_cpu_active((long)hcpu, false);
+		set_cpu_active(cpu, false);
+
+#ifdef CONFIG_SCHED_SMT
+	/*
+	 * When going down, decrement the number of cores with SMT present.
+	 */
+	if (cpumask_weight(cpu_smt_mask(cpu)) == 2)
+		sched_smt_present = false;
+#endif
 		return NOTIFY_OK;
 	default:
 		return NOTIFY_DONE;
@@ -7978,13 +8006,6 @@ static void claim_allocations(int cpu, struct sched_domain *sd)
 	if (atomic_read(&(*per_cpu_ptr(sdd->sgp, cpu))->ref))
 		*per_cpu_ptr(sdd->sgp, cpu) = NULL;
 }
-
-#ifdef CONFIG_SCHED_SMT
-static const struct cpumask *cpu_smt_mask(int cpu)
-{
-	return topology_thread_cpumask(cpu);
-}
-#endif
 
 /*
  * Topology list, bottom-up.

@@ -185,6 +185,9 @@
 #define X86_FEATURE_PTS		(7*32+ 6) /* Intel Package Thermal Status */
 #define X86_FEATURE_DTHERM	(7*32+ 7) /* Digital Thermal Sensor */
 #define X86_FEATURE_INVPCID_SINGLE (7*32+ 8) /* Effectively INVPCID && CR4.PCIDE=1 */
+#define X86_FEATURE_MD_CLEAR	(7*32+ 9) /* VERW clears CPU buffers */
+#define X86_FEATURE_ARCH_CAPABILITIES (7*32+10) /* IA32_ARCH_CAPABILITIES MSR (Intel) */
+
 #define X86_FEATURE_RSB_CTXSW	( 7*32+19) /* Fill RSB on context switches */
 #define X86_FEATURE_SPEC_CTRL	( 7*32+20) /* Control Speculation Control */
 #define X86_FEATURE_IBRS	( 7*32+21) /* "" Indirect Branch Restricted Speculation */
