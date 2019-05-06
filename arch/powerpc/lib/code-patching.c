@@ -34,6 +34,22 @@ void patch_branch(unsigned int *addr, unsigned long target, int flags)
 	patch_instruction(addr, create_branch(addr, target, flags));
 }
 
+void patch_branch_site(s32 *site, unsigned long target, int flags)
+{
+	unsigned int *addr;
+
+	addr = (unsigned int *)((unsigned long)site + *site);
+	patch_instruction(addr, create_branch(addr, target, flags));
+}
+
+void patch_instruction_site(s32 *site, unsigned int instr)
+{
+	unsigned int *addr;
+
+	addr = (unsigned int *)((unsigned long)site + *site);
+	patch_instruction(addr, instr);
+}
+
 unsigned int create_branch(const unsigned int *addr,
 			   unsigned long target, int flags)
 {
