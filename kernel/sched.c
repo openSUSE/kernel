@@ -128,7 +128,7 @@
  */
 #define RUNTIME_INF	((u64)~0ULL)
 
-bool sched_smt_present;
+atomic_t sched_smt_present = ATOMIC_INIT(0);
 
 static inline int rt_policy(int policy)
 {
@@ -6996,7 +6996,7 @@ static int __cpuinit sched_cpu_active(struct notifier_block *nfb,
 	 * When going up, increment the number of cores with SMT present.
 	 */
 	if (cpumask_weight(cpu_smt_mask(cpu)) == 2)
-		sched_smt_present = true;
+		atomic_inc(&sched_smt_present);
 #endif
 		set_cpu_active(cpu, true);
 		return NOTIFY_OK;
@@ -7019,7 +7019,7 @@ static int __cpuinit sched_cpu_inactive(struct notifier_block *nfb,
 	 * When going down, decrement the number of cores with SMT present.
 	 */
 	if (cpumask_weight(cpu_smt_mask(cpu)) == 2)
-		sched_smt_present = false;
+		atomic_dec_if_positive(&sched_smt_present);
 #endif
 		return NOTIFY_OK;
 	default:

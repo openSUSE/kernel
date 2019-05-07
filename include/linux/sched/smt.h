@@ -2,14 +2,14 @@
 #define _LINUX_SCHED_SMT_H
 
 #ifdef CONFIG_SCHED_SMT
-extern bool sched_smt_present;
+extern atomic_t sched_smt_present;
 
-static __always_inline bool sched_smt_active(void)
+static __always_inline int sched_smt_active(void)
 {
-	return sched_smt_present;
+	return atomic_read(&sched_smt_present);
 }
 #else
-static inline bool sched_smt_active(void) { return false; }
+static inline int sched_smt_active(void) { return 0; }
 #endif
 
 void arch_smt_update(void);
