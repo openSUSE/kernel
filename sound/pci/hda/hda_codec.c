@@ -813,7 +813,6 @@ void snd_hda_codec_register(struct hda_codec *codec)
 	if (codec->registered)
 		return;
 	if (device_is_registered(hda_codec_dev(codec))) {
-		snd_hda_register_beep_device(codec);
 		codec_display_power(codec, true);
 		pm_runtime_enable(hda_codec_dev(codec));
 		/* it was powered up in snd_hda_codec_new(), now all done */
@@ -825,14 +824,6 @@ void snd_hda_codec_register(struct hda_codec *codec)
 static int snd_hda_codec_dev_register(struct snd_device *device)
 {
 	snd_hda_codec_register(device->device_data);
-	return 0;
-}
-
-static int snd_hda_codec_dev_disconnect(struct snd_device *device)
-{
-	struct hda_codec *codec = device->device_data;
-
-	snd_hda_detach_beep_device(codec);
 	return 0;
 }
 
@@ -921,7 +912,6 @@ int snd_hda_codec_device_new(struct hda_bus *bus, struct snd_card *card,
 	int err;
 	static struct snd_device_ops dev_ops = {
 		.dev_register = snd_hda_codec_dev_register,
-		.dev_disconnect = snd_hda_codec_dev_disconnect,
 		.dev_free = snd_hda_codec_dev_free,
 	};
 
@@ -979,6 +969,7 @@ int snd_hda_codec_device_new(struct hda_bus *bus, struct snd_card *card,
 
 	/* power-up all before initialization */
 	hda_set_power_state(codec, AC_PWRST_D0);
+	codec->core.dev.power.power_state = PMSG_ON;
 
 	snd_hda_codec_proc_new(codec);
 
@@ -2924,12 +2915,9 @@ static void hda_call_codec_resume(struct hda_codec *codec)
 static int hda_codec_runtime_suspend(struct device *dev)
 {
 	struct hda_codec *codec = dev_to_hda_codec(dev);
-	struct hda_pcm *pcm;
 	unsigned int state;
 
 	cancel_delayed_work_sync(&codec->jackpoll_work);
-	list_for_each_entry(pcm, &codec->pcm_list_head, list)
-		snd_pcm_suspend_all(pcm->pcm);
 	state = hda_call_codec_suspend(codec);
 	if (codec->link_down_at_suspend ||
 	    (codec_has_clkstop(codec) && codec_has_epss(codec) &&

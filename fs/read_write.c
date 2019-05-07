@@ -426,7 +426,7 @@ ssize_t kernel_read(struct file *file, void *buf, size_t count, loff_t *pos)
 	ssize_t result;
 
 	old_fs = get_fs();
-	set_fs(get_ds());
+	set_fs(KERNEL_DS);
 	/* The cast to a user pointer is valid due to the set_fs() */
 	result = vfs_read(file, (void __user *)buf, count, pos);
 	set_fs(old_fs);
@@ -478,8 +478,8 @@ static ssize_t new_sync_write(struct file *filp, const char __user *buf, size_t 
 	return ret;
 }
 
-ssize_t __vfs_write(struct file *file, const char __user *p, size_t count,
-		    loff_t *pos)
+static ssize_t __vfs_write(struct file *file, const char __user *p,
+			   size_t count, loff_t *pos)
 {
 	if (file->f_op->write)
 		return file->f_op->write(file, p, count, pos);
@@ -499,7 +499,7 @@ ssize_t __kernel_write(struct file *file, const void *buf, size_t count, loff_t 
 		return -EINVAL;
 
 	old_fs = get_fs();
-	set_fs(get_ds());
+	set_fs(KERNEL_DS);
 	p = (__force const char __user *)buf;
 	if (count > MAX_RW_COUNT)
 		count =  MAX_RW_COUNT;
@@ -521,7 +521,7 @@ ssize_t kernel_write(struct file *file, const void *buf, size_t count,
 	ssize_t res;
 
 	old_fs = get_fs();
-	set_fs(get_ds());
+	set_fs(KERNEL_DS);
 	/* The cast to a user pointer is valid due to the set_fs() */
 	res = vfs_write(file, (__force const char __user *)buf, count, pos);
 	set_fs(old_fs);
@@ -560,12 +560,13 @@ ssize_t vfs_write(struct file *file, const char __user *buf, size_t count, loff_
 
 static inline loff_t file_pos_read(struct file *file)
 {
-	return file->f_pos;
+	return file->f_mode & FMODE_STREAM ? 0 : file->f_pos;
 }
 
 static inline void file_pos_write(struct file *file, loff_t pos)
 {
-	file->f_pos = pos;
+	if ((file->f_mode & FMODE_STREAM) == 0)
+		file->f_pos = pos;
 }
 
 ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)

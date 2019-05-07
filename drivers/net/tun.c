@@ -1928,7 +1928,7 @@ drop:
 	}
 
 	skb_reset_network_header(skb);
-	skb_probe_transport_header(skb, 0);
+	skb_probe_transport_header(skb);
 
 	if (skb_xdp) {
 		struct bpf_prog *xdp_prog;
@@ -2490,7 +2490,7 @@ build:
 
 	skb->protocol = eth_type_trans(skb, tun->dev);
 	skb_reset_network_header(skb);
-	skb_probe_transport_header(skb, 0);
+	skb_probe_transport_header(skb);
 
 	if (skb_xdp) {
 		err = do_xdp_generic(xdp_prog, skb);

@@ -131,7 +131,8 @@ config SUN5I_HSTIMER
 config TEGRA_TIMER
 	bool "Tegra timer driver" if COMPILE_TEST
 	select CLKSRC_MMIO
-	depends on ARM
+	select TIMER_OF
+	depends on ARM || ARM64
 	help
 	  Enables support for the Tegra driver.
 
@@ -144,6 +145,7 @@ config VT8500_TIMER
 config NPCM7XX_TIMER
 	bool "NPCM7xx timer driver" if COMPILE_TEST
 	depends on HAS_IOMEM
+	select TIMER_OF
 	select CLKSRC_MMIO
 	help
 	  Enable 24-bit TIMER0 and TIMER1 counters in the NPCM7xx architecture,
@@ -643,5 +645,14 @@ config GX6605S_TIMER
 	select TIMER_OF
 	help
 	  This option enables support for gx6605s SOC's timer.
+
+config MILBEAUT_TIMER
+	bool "Milbeaut timer driver" if COMPILE_TEST
+	depends on OF
+	depends on ARM
+	select TIMER_OF
+	select CLKSRC_MMIO
+	help
+	  Enables the support for Milbeaut timer driver.
 
 endmenu

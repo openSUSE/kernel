@@ -63,7 +63,7 @@ void jbd2_journal_free_transaction(transaction_t *transaction)
 /*
  * jbd2_get_transaction: obtain a new transaction_t object.
  *
- * Simply allocate and initialise a new transaction.  Create it in
+ * Simply initialise a new transaction. Initialize it in
  * RUNNING state and add it to the current journal (which should not
  * have an existing running transaction: we only make a new transaction
  * once we have started to commit the old one).
@@ -75,8 +75,8 @@ void jbd2_journal_free_transaction(transaction_t *transaction)
  *
  */
 
-static transaction_t *
-jbd2_get_transaction(journal_t *journal, transaction_t *transaction)
+static void jbd2_get_transaction(journal_t *journal,
+				transaction_t *transaction)
 {
 	transaction->t_journal = journal;
 	transaction->t_state = T_RUNNING;
@@ -100,8 +100,6 @@ jbd2_get_transaction(journal_t *journal, transaction_t *transaction)
 	transaction->t_max_wait = 0;
 	transaction->t_start = jiffies;
 	transaction->t_requested = 0;
-
-	return transaction;
 }
 
 /*
@@ -1597,9 +1595,7 @@ int jbd2_journal_forget (handle_t *handle, struct buffer_head *bh)
 			__jbd2_journal_unfile_buffer(jh);
 			if (!buffer_jbd(bh)) {
 				spin_unlock(&journal->j_list_lock);
-				jbd_unlock_bh_state(bh);
-				__bforget(bh);
-				goto drop;
+				goto not_jbd;
 			}
 		}
 		spin_unlock(&journal->j_list_lock);
@@ -1632,9 +1628,40 @@ int jbd2_journal_forget (handle_t *handle, struct buffer_head *bh)
 			if (was_modified)
 				drop_reserve = 1;
 		}
+	} else {
+		/*
+		 * Finally, if the buffer is not belongs to any
+		 * transaction, we can just drop it now if it has no
+		 * checkpoint.
+		 */
+		spin_lock(&journal->j_list_lock);
+		if (!jh->b_cp_transaction) {
+			JBUFFER_TRACE(jh, "belongs to none transaction");
+			spin_unlock(&journal->j_list_lock);
+			goto not_jbd;
+		}
+
+		/*
+		 * Otherwise, if the buffer has been written to disk,
+		 * it is safe to remove the checkpoint and drop it.
+		 */
+		if (!buffer_dirty(bh)) {
+			__jbd2_journal_remove_checkpoint(jh);
+			spin_unlock(&journal->j_list_lock);
+			goto not_jbd;
+		}
+
+		/*
+		 * The buffer is still not written to disk, we should
+		 * attach this buffer to current transaction so that the
+		 * buffer can be checkpointed only after the current
+		 * transaction commits.
+		 */
+		clear_buffer_dirty(bh);
+		__jbd2_journal_file_buffer(jh, transaction, BJ_Forget);
+		spin_unlock(&journal->j_list_lock);
 	}
 
-not_jbd:
 	jbd_unlock_bh_state(bh);
 	__brelse(bh);
 drop:
@@ -1643,6 +1670,11 @@ drop:
 		handle->h_buffer_credits++;
 	}
 	return err;
+
+not_jbd:
+	jbd_unlock_bh_state(bh);
+	__bforget(bh);
+	goto drop;
 }
 
 /**

@@ -136,10 +136,14 @@ EXPORT_SYMBOL_GPL(kvm_default_tsc_scaling_ratio);
 static u32 __read_mostly tsc_tolerance_ppm = 250;
 module_param(tsc_tolerance_ppm, uint, S_IRUGO | S_IWUSR);
 
-/* lapic timer advance (tscdeadline mode only) in nanoseconds */
-unsigned int __read_mostly lapic_timer_advance_ns = 1000;
+/*
+ * lapic timer advance (tscdeadline mode only) in nanoseconds.  '-1' enables
+ * adaptive tuning starting from default advancment of 1000ns.  '0' disables
+ * advancement entirely.  Any other value is used as-is and disables adaptive
+ * tuning, i.e. allows priveleged userspace to set an exact advancement time.
+ */
+static int __read_mostly lapic_timer_advance_ns = -1;
 module_param(lapic_timer_advance_ns, uint, S_IRUGO | S_IWUSR);
-EXPORT_SYMBOL_GPL(lapic_timer_advance_ns);
 
 static bool __read_mostly vector_hashing = true;
 module_param(vector_hashing, bool, S_IRUGO);
@@ -3095,7 +3099,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		break;
 	case KVM_CAP_NESTED_STATE:
 		r = kvm_x86_ops->get_nested_state ?
-			kvm_x86_ops->get_nested_state(NULL, 0, 0) : 0;
+			kvm_x86_ops->get_nested_state(NULL, NULL, 0) : 0;
 		break;
 	default:
 		break;
@@ -3530,7 +3534,7 @@ static void kvm_vcpu_ioctl_x86_get_vcpu_events(struct kvm_vcpu *vcpu,
 	memset(&events->reserved, 0, sizeof(events->reserved));
 }
 
-static void kvm_set_hflags(struct kvm_vcpu *vcpu, unsigned emul_flags);
+static void kvm_smm_changed(struct kvm_vcpu *vcpu);
 
 static int kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
 					      struct kvm_vcpu_events *events)
@@ -3590,12 +3594,13 @@ static int kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
 		vcpu->arch.apic->sipi_vector = events->sipi_vector;
 
 	if (events->flags & KVM_VCPUEVENT_VALID_SMM) {
-		u32 hflags = vcpu->arch.hflags;
-		if (events->smi.smm)
-			hflags |= HF_SMM_MASK;
-		else
-			hflags &= ~HF_SMM_MASK;
-		kvm_set_hflags(vcpu, hflags);
+		if (!!(vcpu->arch.hflags & HF_SMM_MASK) != events->smi.smm) {
+			if (events->smi.smm)
+				vcpu->arch.hflags |= HF_SMM_MASK;
+			else
+				vcpu->arch.hflags &= ~HF_SMM_MASK;
+			kvm_smm_changed(vcpu);
+		}
 
 		vcpu->arch.smi_pending = events->smi.pending;
 
@@ -3893,7 +3898,8 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		r = -EINVAL;
 		if (!lapic_in_kernel(vcpu))
 			goto out;
-		u.lapic = kzalloc(sizeof(struct kvm_lapic_state), GFP_KERNEL);
+		u.lapic = kzalloc(sizeof(struct kvm_lapic_state),
+				GFP_KERNEL_ACCOUNT);
 
 		r = -ENOMEM;
 		if (!u.lapic)
@@ -4080,7 +4086,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		break;
 	}
 	case KVM_GET_XSAVE: {
-		u.xsave = kzalloc(sizeof(struct kvm_xsave), GFP_KERNEL);
+		u.xsave = kzalloc(sizeof(struct kvm_xsave), GFP_KERNEL_ACCOUNT);
 		r = -ENOMEM;
 		if (!u.xsave)
 			break;
@@ -4104,7 +4110,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		break;
 	}
 	case KVM_GET_XCRS: {
-		u.xcrs = kzalloc(sizeof(struct kvm_xcrs), GFP_KERNEL);
+		u.xcrs = kzalloc(sizeof(struct kvm_xcrs), GFP_KERNEL_ACCOUNT);
 		r = -ENOMEM;
 		if (!u.xcrs)
 			break;
@@ -4271,7 +4277,7 @@ static int kvm_vm_ioctl_set_identity_map_addr(struct kvm *kvm,
 }
 
 static int kvm_vm_ioctl_set_nr_mmu_pages(struct kvm *kvm,
-					  u32 kvm_nr_mmu_pages)
+					 unsigned long kvm_nr_mmu_pages)
 {
 	if (kvm_nr_mmu_pages < KVM_MIN_ALLOC_MMU_PAGES)
 		return -EINVAL;
@@ -4285,7 +4291,7 @@ static int kvm_vm_ioctl_set_nr_mmu_pages(struct kvm *kvm,
 	return 0;
 }
 
-static int kvm_vm_ioctl_get_nr_mmu_pages(struct kvm *kvm)
+static unsigned long kvm_vm_ioctl_get_nr_mmu_pages(struct kvm *kvm)
 {
 	return kvm->arch.n_max_mmu_pages;
 }
@@ -5959,12 +5965,18 @@ static unsigned emulator_get_hflags(struct x86_emulate_ctxt *ctxt)
 
 static void emulator_set_hflags(struct x86_emulate_ctxt *ctxt, unsigned emul_flags)
 {
-	kvm_set_hflags(emul_to_vcpu(ctxt), emul_flags);
+	emul_to_vcpu(ctxt)->arch.hflags = emul_flags;
 }
 
-static int emulator_pre_leave_smm(struct x86_emulate_ctxt *ctxt, u64 smbase)
+static int emulator_pre_leave_smm(struct x86_emulate_ctxt *ctxt,
+				  const char *smstate)
 {
-	return kvm_x86_ops->pre_leave_smm(emul_to_vcpu(ctxt), smbase);
+	return kvm_x86_ops->pre_leave_smm(emul_to_vcpu(ctxt), smstate);
+}
+
+static void emulator_post_leave_smm(struct x86_emulate_ctxt *ctxt)
+{
+	kvm_smm_changed(emul_to_vcpu(ctxt));
 }
 
 static const struct x86_emulate_ops emulate_ops = {
@@ -6007,6 +6019,7 @@ static const struct x86_emulate_ops emulate_ops = {
 	.get_hflags          = emulator_get_hflags,
 	.set_hflags          = emulator_set_hflags,
 	.pre_leave_smm       = emulator_pre_leave_smm,
+	.post_leave_smm      = emulator_post_leave_smm,
 };
 
 static void toggle_interruptibility(struct kvm_vcpu *vcpu, u32 mask)
@@ -6246,16 +6259,6 @@ static void kvm_smm_changed(struct kvm_vcpu *vcpu)
 	}
 
 	kvm_mmu_reset_context(vcpu);
-}
-
-static void kvm_set_hflags(struct kvm_vcpu *vcpu, unsigned emul_flags)
-{
-	unsigned changed = vcpu->arch.hflags ^ emul_flags;
-
-	vcpu->arch.hflags = emul_flags;
-
-	if (changed & HF_SMM_MASK)
-		kvm_smm_changed(vcpu);
 }
 
 static int kvm_vcpu_check_hw_bp(unsigned long addr, u32 type, u32 dr7,
@@ -7102,6 +7105,13 @@ static void kvm_pv_kick_cpu_op(struct kvm *kvm, unsigned long flags, int apicid)
 
 void kvm_vcpu_deactivate_apicv(struct kvm_vcpu *vcpu)
 {
+	if (!lapic_in_kernel(vcpu)) {
+		WARN_ON_ONCE(vcpu->arch.apicv_active);
+		return;
+	}
+	if (!vcpu->arch.apicv_active)
+		return;
+
 	vcpu->arch.apicv_active = false;
 	kvm_x86_ops->refresh_apicv_exec_ctrl(vcpu);
 }
@@ -7452,9 +7462,9 @@ static void enter_smm_save_state_32(struct kvm_vcpu *vcpu, char *buf)
 	put_smstate(u32, buf, 0x7ef8, vcpu->arch.smbase);
 }
 
+#ifdef CONFIG_X86_64
 static void enter_smm_save_state_64(struct kvm_vcpu *vcpu, char *buf)
 {
-#ifdef CONFIG_X86_64
 	struct desc_ptr dt;
 	struct kvm_segment seg;
 	unsigned long val;
@@ -7504,10 +7514,8 @@ static void enter_smm_save_state_64(struct kvm_vcpu *vcpu, char *buf)
 
 	for (i = 0; i < 6; i++)
 		enter_smm_save_seg_64(vcpu, buf, i);
-#else
-	WARN_ON_ONCE(1);
-#endif
 }
+#endif
 
 static void enter_smm(struct kvm_vcpu *vcpu)
 {
@@ -7518,9 +7526,11 @@ static void enter_smm(struct kvm_vcpu *vcpu)
 
 	trace_kvm_enter_smm(vcpu->vcpu_id, vcpu->arch.smbase, true);
 	memset(buf, 0, 512);
+#ifdef CONFIG_X86_64
 	if (guest_cpuid_has(vcpu, X86_FEATURE_LM))
 		enter_smm_save_state_64(vcpu, buf);
 	else
+#endif
 		enter_smm_save_state_32(vcpu, buf);
 
 	/*
@@ -7578,8 +7588,10 @@ static void enter_smm(struct kvm_vcpu *vcpu)
 	kvm_set_segment(vcpu, &ds, VCPU_SREG_GS);
 	kvm_set_segment(vcpu, &ds, VCPU_SREG_SS);
 
+#ifdef CONFIG_X86_64
 	if (guest_cpuid_has(vcpu, X86_FEATURE_LM))
 		kvm_x86_ops->set_efer(vcpu, 0);
+#endif
 
 	kvm_update_cpuid(vcpu);
 	kvm_mmu_reset_context(vcpu);
@@ -7882,7 +7894,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	}
 
 	trace_kvm_entry(vcpu->vcpu_id);
-	if (lapic_timer_advance_ns)
+	if (lapic_in_kernel(vcpu) &&
+	    vcpu->arch.apic->lapic_timer.timer_advance_ns)
 		wait_lapic_expire(vcpu);
 	guest_enter_irqoff();
 
@@ -9049,7 +9062,6 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 	struct page *page;
 	int r;
 
-	vcpu->arch.apicv_active = kvm_x86_ops->get_enable_apicv(vcpu);
 	vcpu->arch.emulate_ctxt.ops = &emulate_ops;
 	if (!irqchip_in_kernel(vcpu->kvm) || kvm_vcpu_is_reset_bsp(vcpu))
 		vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
@@ -9070,21 +9082,23 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 		goto fail_free_pio_data;
 
 	if (irqchip_in_kernel(vcpu->kvm)) {
-		r = kvm_create_lapic(vcpu);
+		vcpu->arch.apicv_active = kvm_x86_ops->get_enable_apicv(vcpu);
+		r = kvm_create_lapic(vcpu, lapic_timer_advance_ns);
 		if (r < 0)
 			goto fail_mmu_destroy;
 	} else
 		static_key_slow_inc(&kvm_no_apic_vcpu);
 
 	vcpu->arch.mce_banks = kzalloc(KVM_MAX_MCE_BANKS * sizeof(u64) * 4,
-				       GFP_KERNEL);
+				       GFP_KERNEL_ACCOUNT);
 	if (!vcpu->arch.mce_banks) {
 		r = -ENOMEM;
 		goto fail_free_lapic;
 	}
 	vcpu->arch.mcg_cap = KVM_MAX_MCE_BANKS;
 
-	if (!zalloc_cpumask_var(&vcpu->arch.wbinvd_dirty_mask, GFP_KERNEL)) {
+	if (!zalloc_cpumask_var(&vcpu->arch.wbinvd_dirty_mask,
+				GFP_KERNEL_ACCOUNT)) {
 		r = -ENOMEM;
 		goto fail_free_mce_banks;
 	}
@@ -9148,7 +9162,6 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 
 	INIT_HLIST_HEAD(&kvm->arch.mask_notifier_list);
 	INIT_LIST_HEAD(&kvm->arch.active_mmu_pages);
-	INIT_LIST_HEAD(&kvm->arch.zapped_obsolete_pages);
 	INIT_LIST_HEAD(&kvm->arch.assigned_dev_head);
 	atomic_set(&kvm->arch.noncoherent_dma_count, 0);
 
@@ -9343,13 +9356,13 @@ int kvm_arch_create_memslot(struct kvm *kvm, struct kvm_memory_slot *slot,
 
 		slot->arch.rmap[i] =
 			kvcalloc(lpages, sizeof(*slot->arch.rmap[i]),
-				 GFP_KERNEL);
+				 GFP_KERNEL_ACCOUNT);
 		if (!slot->arch.rmap[i])
 			goto out_free;
 		if (i == 0)
 			continue;
 
-		linfo = kvcalloc(lpages, sizeof(*linfo), GFP_KERNEL);
+		linfo = kvcalloc(lpages, sizeof(*linfo), GFP_KERNEL_ACCOUNT);
 		if (!linfo)
 			goto out_free;
 
@@ -9465,13 +9478,9 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 				const struct kvm_memory_slot *new,
 				enum kvm_mr_change change)
 {
-	int nr_mmu_pages = 0;
-
 	if (!kvm->arch.n_requested_mmu_pages)
-		nr_mmu_pages = kvm_mmu_calculate_mmu_pages(kvm);
-
-	if (nr_mmu_pages)
-		kvm_mmu_change_mmu_pages(kvm, nr_mmu_pages);
+		kvm_mmu_change_mmu_pages(kvm,
+				kvm_mmu_calculate_default_mmu_pages(kvm));
 
 	/*
 	 * Dirty logging tracks sptes in 4k granularity, meaning that large
@@ -9506,7 +9515,7 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 
 void kvm_arch_flush_shadow_all(struct kvm *kvm)
 {
-	kvm_mmu_invalidate_zap_all_pages(kvm);
+	kvm_mmu_zap_all(kvm);
 }
 
 void kvm_arch_flush_shadow_memslot(struct kvm *kvm,

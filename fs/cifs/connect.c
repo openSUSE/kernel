@@ -350,7 +350,7 @@ static int reconn_set_ipaddr(struct TCP_Server_Info *server)
 		cifs_dbg(FYI, "%s: failed to create UNC path\n", __func__);
 		return -ENOMEM;
 	}
-	snprintf(unc, len, "\\\\%s", server->hostname);
+	scnprintf(unc, len, "\\\\%s", server->hostname);
 
 	rc = dns_resolve_server_name_to_ip(unc, &ipaddr);
 	kfree(unc);
@@ -594,6 +594,7 @@ cifs_reconnect(struct TCP_Server_Info *server)
 			msleep(3000);
 		} else {
 			atomic_inc(&tcpSesReconnectCount);
+			set_credits(server, 1);
 			spin_lock(&GlobalMid_Lock);
 			if (server->tcpStatus != CifsExiting)
 				server->tcpStatus = CifsNeedNegotiate;
@@ -1055,7 +1056,7 @@ cifs_handle_standard(struct TCP_Server_Info *server, struct mid_q_entry *mid)
 	}
 
 	if (server->ops->is_status_pending &&
-	    server->ops->is_status_pending(buf, server, length))
+	    server->ops->is_status_pending(buf, server))
 		return -1;
 
 	if (!mid)
@@ -1064,6 +1065,26 @@ cifs_handle_standard(struct TCP_Server_Info *server, struct mid_q_entry *mid)
 	handle_mid(mid, server, buf, length);
 	return 0;
 }
+
+static void
+smb2_add_credits_from_hdr(char *buffer, struct TCP_Server_Info *server)
+{
+	struct smb2_sync_hdr *shdr = (struct smb2_sync_hdr *)buffer;
+
+	/*
+	 * SMB1 does not use credits.
+	 */
+	if (server->vals->header_preamble_size)
+		return;
+
+	if (shdr->CreditRequest) {
+		spin_lock(&server->req_lock);
+		server->credits += le16_to_cpu(shdr->CreditRequest);
+		spin_unlock(&server->req_lock);
+		wake_up(&server->request_q);
+	}
+}
+
 
 static int
 cifs_demultiplex_thread(void *p)
@@ -1171,10 +1192,6 @@ next_pdu:
 			continue;
 		}
 
-		if (server->large_buf)
-			buf = server->bigbuf;
-
-
 		server->lstrp = jiffies;
 
 		for (i = 0; i < num_mids; i++) {
@@ -1194,6 +1211,7 @@ next_pdu:
 			} else if (server->ops->is_oplock_break &&
 				   server->ops->is_oplock_break(bufs[i],
 								server)) {
+				smb2_add_credits_from_hdr(bufs[i], server);
 				cifs_dbg(FYI, "Received oplock break\n");
 			} else {
 				cifs_dbg(VFS, "No task to wake, unknown frame "
@@ -1205,6 +1223,7 @@ next_pdu:
 				if (server->ops->dump_detail)
 					server->ops->dump_detail(bufs[i],
 								 server);
+				smb2_add_credits_from_hdr(bufs[i], server);
 				cifs_dump_mids(server);
 #endif /* CIFS_DEBUG2 */
 			}
@@ -2651,7 +2670,7 @@ cifs_get_tcp_session(struct smb_vol *volume_info)
 		volume_info->target_rfc1001_name, RFC1001_NAME_LEN_WITH_NULL);
 	tcp_ses->session_estab = false;
 	tcp_ses->sequence_number = 0;
-	tcp_ses->reconnect_instance = 0;
+	tcp_ses->reconnect_instance = 1;
 	tcp_ses->lstrp = jiffies;
 	spin_lock_init(&tcp_ses->req_lock);
 	INIT_LIST_HEAD(&tcp_ses->tcp_ses_list);
@@ -2812,7 +2831,7 @@ cifs_setup_ipc(struct cifs_ses *ses, struct smb_vol *volume_info)
 	if (tcon == NULL)
 		return -ENOMEM;
 
-	snprintf(unc, sizeof(unc), "\\\\%s\\IPC$", ses->server->hostname);
+	scnprintf(unc, sizeof(unc), "\\\\%s\\IPC$", ses->server->hostname);
 
 	/* cannot fail */
 	nls_codepage = load_nls_default();
@@ -4253,7 +4272,7 @@ static int update_vol_info(const struct dfs_cache_tgt_iterator *tgt_it,
 	new_unc = kmalloc(len, GFP_KERNEL);
 	if (!new_unc)
 		return -ENOMEM;
-	snprintf(new_unc, len, "\\%s", tgt);
+	scnprintf(new_unc, len, "\\%s", tgt);
 
 	kfree(vol->UNC);
 	vol->UNC = new_unc;
@@ -4956,8 +4975,6 @@ cifs_negotiate_protocol(const unsigned int xid, struct cifs_ses *ses)
 	/* only send once per connect */
 	if (!server->ops->need_neg(server))
 		return 0;
-
-	set_credits(server, 1);
 
 	rc = server->ops->negotiate(xid, ses);
 	if (rc == 0) {

@@ -25,7 +25,6 @@
 #define KERNEL_DS	MAKE_MM_SEG(-1UL)
 #define USER_DS 	MAKE_MM_SEG(TASK_SIZE_MAX)
 
-#define get_ds()	(KERNEL_DS)
 #define get_fs()	(current->thread.addr_limit)
 static inline void set_fs(mm_segment_t fs)
 {
@@ -35,10 +34,7 @@ static inline void set_fs(mm_segment_t fs)
 }
 
 #define segment_eq(a, b)	((a).seg == (b).seg)
-
 #define user_addr_max() (current->thread.addr_limit.seg)
-#define __addr_ok(addr) 	\
-	((unsigned long __force)(addr) < user_addr_max())
 
 /*
  * Test whether a block of memory is a valid user space address.

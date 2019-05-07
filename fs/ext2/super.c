@@ -1035,8 +1035,6 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 	sbi->s_frags_per_group = le32_to_cpu(es->s_frags_per_group);
 	sbi->s_inodes_per_group = le32_to_cpu(es->s_inodes_per_group);
 
-	if (EXT2_INODE_SIZE(sb) == 0)
-		goto cantfind_ext2;
 	sbi->s_inodes_per_block = sb->s_blocksize / EXT2_INODE_SIZE(sb);
 	if (sbi->s_inodes_per_block == 0 || sbi->s_inodes_per_group == 0)
 		goto cantfind_ext2;
@@ -1098,12 +1096,14 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 					   sizeof(struct buffer_head *),
 					   GFP_KERNEL);
 	if (sbi->s_group_desc == NULL) {
+		ret = -ENOMEM;
 		ext2_msg(sb, KERN_ERR, "error: not enough memory");
 		goto failed_mount;
 	}
 	bgl_lock_init(sbi->s_blockgroup_lock);
 	sbi->s_debts = kcalloc(sbi->s_groups_count, sizeof(*sbi->s_debts), GFP_KERNEL);
 	if (!sbi->s_debts) {
+		ret = -ENOMEM;
 		ext2_msg(sb, KERN_ERR, "error: not enough memory");
 		goto failed_mount_group_desc;
 	}
@@ -1159,6 +1159,7 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 #ifdef CONFIG_EXT2_FS_XATTR
 	sbi->s_ea_block_cache = ext2_xattr_create_cache();
 	if (!sbi->s_ea_block_cache) {
+		ret = -ENOMEM;
 		ext2_msg(sb, KERN_ERR, "Failed to create ea_block_cache");
 		goto failed_mount3;
 	}

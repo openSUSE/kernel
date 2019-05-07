@@ -44,6 +44,12 @@ static unsigned int bfq_class_idx(struct bfq_entity *entity)
 		BFQ_DEFAULT_GRP_CLASS - 1;
 }
 
+unsigned int bfq_tot_busy_queues(struct bfq_data *bfqd)
+{
+	return bfqd->busy_queues[0] + bfqd->busy_queues[1] +
+		bfqd->busy_queues[2];
+}
+
 static struct bfq_entity *bfq_lookup_next_entity(struct bfq_sched_data *sd,
 						 bool expiration);
 
@@ -1006,7 +1012,7 @@ static void __bfq_activate_entity(struct bfq_entity *entity,
 		entity->on_st = true;
 	}
 
-#ifdef BFQ_GROUP_IOSCHED_ENABLED
+#ifdef CONFIG_BFQ_GROUP_IOSCHED
 	if (!bfq_entity_to_bfqq(entity)) { /* bfq_group */
 		struct bfq_group *bfqg =
 			container_of(entity, struct bfq_group, entity);
@@ -1513,7 +1519,7 @@ struct bfq_queue *bfq_get_next_queue(struct bfq_data *bfqd)
 	struct bfq_sched_data *sd;
 	struct bfq_queue *bfqq;
 
-	if (bfqd->busy_queues == 0)
+	if (bfq_tot_busy_queues(bfqd) == 0)
 		return NULL;
 
 	/*
@@ -1678,7 +1684,7 @@ void bfq_del_bfqq_busy(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 
 	bfq_clear_bfqq_busy(bfqq);
 
-	bfqd->busy_queues--;
+	bfqd->busy_queues[bfqq->ioprio_class - 1]--;
 
 	if (bfqq->wr_coeff > 1)
 		bfqd->wr_busy_queues--;
@@ -1701,7 +1707,7 @@ void bfq_add_bfqq_busy(struct bfq_data *bfqd, struct bfq_queue *bfqq)
 	bfq_activate_bfqq(bfqd, bfqq);
 
 	bfq_mark_bfqq_busy(bfqq);
-	bfqd->busy_queues++;
+	bfqd->busy_queues[bfqq->ioprio_class - 1]++;
 
 	if (!bfqq->dispatched)
 		if (bfqq->wr_coeff == 1)

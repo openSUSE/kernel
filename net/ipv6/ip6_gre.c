@@ -524,7 +524,8 @@ static int ip6gre_rcv(struct sk_buff *skb, const struct tnl_ptk_info *tpi)
 	return PACKET_REJECT;
 }
 
-static int ip6erspan_rcv(struct sk_buff *skb, struct tnl_ptk_info *tpi,
+static int ip6erspan_rcv(struct sk_buff *skb,
+			 struct tnl_ptk_info *tpi,
 			 int gre_hdr_len)
 {
 	struct erspan_base_hdr *ershdr;

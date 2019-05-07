@@ -2286,14 +2286,8 @@ static void rt6_do_update_pmtu(struct rt6_info *rt, u32 mtu)
 
 static bool rt6_cache_allowed_for_pmtu(const struct rt6_info *rt)
 {
-	bool from_set;
-
-	rcu_read_lock();
-	from_set = !!rcu_dereference(rt->from);
-	rcu_read_unlock();
-
 	return !(rt->rt6i_flags & RTF_CACHE) &&
-		(rt->rt6i_flags & RTF_PCPU || from_set);
+		(rt->rt6i_flags & RTF_PCPU || rcu_access_pointer(rt->from));
 }
 
 static void __ip6_rt_update_pmtu(struct dst_entry *dst, const struct sock *sk,
@@ -3663,23 +3657,34 @@ int ipv6_route_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 
 static int ip6_pkt_drop(struct sk_buff *skb, u8 code, int ipstats_mib_noroutes)
 {
-	int type;
 	struct dst_entry *dst = skb_dst(skb);
+	struct net *net = dev_net(dst->dev);
+	struct inet6_dev *idev;
+	int type;
+
+	if (netif_is_l3_master(skb->dev) &&
+	    dst->dev == net->loopback_dev)
+		idev = __in6_dev_get_safely(dev_get_by_index_rcu(net, IP6CB(skb)->iif));
+	else
+		idev = ip6_dst_idev(dst);
+
 	switch (ipstats_mib_noroutes) {
 	case IPSTATS_MIB_INNOROUTES:
 		type = ipv6_addr_type(&ipv6_hdr(skb)->daddr);
 		if (type == IPV6_ADDR_ANY) {
-			IP6_INC_STATS(dev_net(dst->dev),
-				      __in6_dev_get_safely(skb->dev),
-				      IPSTATS_MIB_INADDRERRORS);
+			IP6_INC_STATS(net, idev, IPSTATS_MIB_INADDRERRORS);
 			break;
 		}
 		/* FALLTHROUGH */
 	case IPSTATS_MIB_OUTNOROUTES:
-		IP6_INC_STATS(dev_net(dst->dev), ip6_dst_idev(dst),
-			      ipstats_mib_noroutes);
+		IP6_INC_STATS(net, idev, ipstats_mib_noroutes);
 		break;
 	}
+
+	/* Start over by dropping the dst for l3mdev case */
+	if (netif_is_l3_master(skb->dev))
+		skb_dst_drop(skb);
+
 	icmpv6_send(skb, ICMPV6_DEST_UNREACH, code, 0);
 	kfree_skb(skb);
 	return 0;
@@ -4827,6 +4832,73 @@ int rt6_dump_route(struct fib6_info *rt, void *p_arg)
 			     arg->cb->nlh->nlmsg_seq, flags);
 }
 
+static int inet6_rtm_valid_getroute_req(struct sk_buff *skb,
+					const struct nlmsghdr *nlh,
+					struct nlattr **tb,
+					struct netlink_ext_ack *extack)
+{
+	struct rtmsg *rtm;
+	int i, err;
+
+	if (nlh->nlmsg_len < nlmsg_msg_size(sizeof(*rtm))) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Invalid header for get route request");
+		return -EINVAL;
+	}
+
+	if (!netlink_strict_get_check(skb))
+		return nlmsg_parse(nlh, sizeof(*rtm), tb, RTA_MAX,
+				   rtm_ipv6_policy, extack);
+
+	rtm = nlmsg_data(nlh);
+	if ((rtm->rtm_src_len && rtm->rtm_src_len != 128) ||
+	    (rtm->rtm_dst_len && rtm->rtm_dst_len != 128) ||
+	    rtm->rtm_table || rtm->rtm_protocol || rtm->rtm_scope ||
+	    rtm->rtm_type) {
+		NL_SET_ERR_MSG_MOD(extack, "Invalid values in header for get route request");
+		return -EINVAL;
+	}
+	if (rtm->rtm_flags & ~RTM_F_FIB_MATCH) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Invalid flags for get route request");
+		return -EINVAL;
+	}
+
+	err = nlmsg_parse_strict(nlh, sizeof(*rtm), tb, RTA_MAX,
+				 rtm_ipv6_policy, extack);
+	if (err)
+		return err;
+
+	if ((tb[RTA_SRC] && !rtm->rtm_src_len) ||
+	    (tb[RTA_DST] && !rtm->rtm_dst_len)) {
+		NL_SET_ERR_MSG_MOD(extack, "rtm_src_len and rtm_dst_len must be 128 for IPv6");
+		return -EINVAL;
+	}
+
+	for (i = 0; i <= RTA_MAX; i++) {
+		if (!tb[i])
+			continue;
+
+		switch (i) {
+		case RTA_SRC:
+		case RTA_DST:
+		case RTA_IIF:
+		case RTA_OIF:
+		case RTA_MARK:
+		case RTA_UID:
+		case RTA_SPORT:
+		case RTA_DPORT:
+		case RTA_IP_PROTO:
+			break;
+		default:
+			NL_SET_ERR_MSG_MOD(extack, "Unsupported attribute in get route request");
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
 static int inet6_rtm_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh,
 			      struct netlink_ext_ack *extack)
 {
@@ -4841,8 +4913,7 @@ static int inet6_rtm_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh,
 	struct flowi6 fl6 = {};
 	bool fibmatch;
 
-	err = nlmsg_parse(nlh, sizeof(*rtm), tb, RTA_MAX, rtm_ipv6_policy,
-			  extack);
+	err = inet6_rtm_valid_getroute_req(in_skb, nlh, tb, extack);
 	if (err < 0)
 		goto errout;
 

@@ -28,21 +28,6 @@
 
 #define MT_TX_CPU_FROM_FCE_CPU_DESC_IDX	0x09a8
 
-static struct sk_buff *
-mt76x02u_mcu_msg_alloc(const void *data, int len)
-{
-	struct sk_buff *skb;
-
-	skb = alloc_skb(MT_CMD_HDR_LEN + len + 8, GFP_KERNEL);
-	if (!skb)
-		return NULL;
-
-	skb_reserve(skb, MT_CMD_HDR_LEN);
-	skb_put_data(skb, data, len);
-
-	return skb;
-}
-
 static void
 mt76x02u_multiple_mcu_reads(struct mt76_dev *dev, u8 *data, int len)
 {
@@ -76,34 +61,21 @@ mt76x02u_multiple_mcu_reads(struct mt76_dev *dev, u8 *data, int len)
 static int mt76x02u_mcu_wait_resp(struct mt76_dev *dev, u8 seq)
 {
 	struct mt76_usb *usb = &dev->usb;
-	struct mt76u_buf *buf = &usb->mcu.res;
-	struct urb *urb = buf->urb;
-	int i, ret;
+	u8 *data = usb->mcu.data;
+	int i, len, ret;
 	u32 rxfce;
-	u8 *data;
 
 	for (i = 0; i < 5; i++) {
-		if (!wait_for_completion_timeout(&usb->mcu.cmpl,
-						 msecs_to_jiffies(300)))
+		ret = mt76u_bulk_msg(dev, data, MCU_RESP_URB_SIZE, &len, 300);
+		if (ret == -ETIMEDOUT)
 			continue;
+		if (ret)
+			goto out;
 
-		if (urb->status)
-			return -EIO;
-
-		data = sg_virt(&urb->sg[0]);
 		if (usb->mcu.rp)
-			mt76x02u_multiple_mcu_reads(dev, data + 4,
-						    urb->actual_length - 8);
+			mt76x02u_multiple_mcu_reads(dev, data + 4, len - 8);
 
 		rxfce = get_unaligned_le32(data);
-		ret = mt76u_submit_buf(dev, USB_DIR_IN,
-				       MT_EP_IN_CMD_RESP,
-				       buf, GFP_KERNEL,
-				       mt76u_mcu_complete_urb,
-				       &usb->mcu.cmpl);
-		if (ret)
-			return ret;
-
 		if (seq == FIELD_GET(MT_RX_FCE_INFO_CMD_SEQ, rxfce) &&
 		    FIELD_GET(MT_RX_FCE_INFO_EVT_TYPE, rxfce) == EVT_CMD_DONE)
 			return 0;
@@ -112,9 +84,9 @@ static int mt76x02u_mcu_wait_resp(struct mt76_dev *dev, u8 seq)
 			FIELD_GET(MT_RX_FCE_INFO_EVT_TYPE, rxfce),
 			seq, FIELD_GET(MT_RX_FCE_INFO_CMD_SEQ, rxfce));
 	}
-
-	dev_err(dev->dev, "error: %s timed out\n", __func__);
-	return -ETIMEDOUT;
+out:
+	dev_err(dev->dev, "error: %s failed with %d\n", __func__, ret);
+	return ret;
 }
 
 static int
@@ -142,7 +114,7 @@ __mt76x02u_mcu_send_msg(struct mt76_dev *dev, struct sk_buff *skb,
 	if (ret)
 		return ret;
 
-	ret = mt76u_bulk_msg(dev, skb->data, skb->len, 500);
+	ret = mt76u_bulk_msg(dev, skb->data, skb->len, NULL, 500);
 	if (ret)
 		return ret;
 
@@ -162,7 +134,7 @@ mt76x02u_mcu_send_msg(struct mt76_dev *dev, int cmd, const void *data,
 	struct sk_buff *skb;
 	int err;
 
-	skb = mt76x02u_mcu_msg_alloc(data, len);
+	skb = mt76_mcu_msg_alloc(data, MT_CMD_HDR_LEN, len, 8);
 	if (!skb)
 		return -ENOMEM;
 
@@ -287,7 +259,7 @@ __mt76x02u_mcu_fw_send_data(struct mt76x02_dev *dev, u8 *data,
 
 	data_len = MT_CMD_HDR_LEN + len + sizeof(info);
 
-	err = mt76u_bulk_msg(&dev->mt76, data, data_len, 1000);
+	err = mt76u_bulk_msg(&dev->mt76, data, data_len, NULL, 1000);
 	if (err) {
 		dev_err(dev->mt76.dev, "firmware upload failed: %d\n", err);
 		return err;

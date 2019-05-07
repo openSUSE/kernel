@@ -70,12 +70,10 @@ struct vimc_cap_buffer {
 static int vimc_cap_querycap(struct file *file, void *priv,
 			     struct v4l2_capability *cap)
 {
-	struct vimc_cap_device *vcap = video_drvdata(file);
-
-	strscpy(cap->driver, KBUILD_MODNAME, sizeof(cap->driver));
+	strscpy(cap->driver, VIMC_PDEV_NAME, sizeof(cap->driver));
 	strscpy(cap->card, KBUILD_MODNAME, sizeof(cap->card));
 	snprintf(cap->bus_info, sizeof(cap->bus_info),
-		 "platform:%s", vcap->vdev.v4l2_dev->name);
+		 "platform:%s", VIMC_PDEV_NAME);
 
 	return 0;
 }
@@ -431,7 +429,7 @@ static int vimc_cap_comp_bind(struct device *comp, struct device *master,
 	/* Initialize the vb2 queue */
 	q = &vcap->queue;
 	q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	q->io_modes = VB2_MMAP | VB2_DMABUF;
+	q->io_modes = VB2_MMAP | VB2_DMABUF | VB2_USERPTR;
 	q->drv_priv = vcap;
 	q->buf_struct_size = sizeof(struct vimc_cap_buffer);
 	q->ops = &vimc_cap_qops;

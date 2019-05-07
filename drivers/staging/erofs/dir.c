@@ -39,8 +39,8 @@ static void debug_one_dentry(unsigned char d_type, const char *de_name,
 }
 
 static int erofs_fill_dentries(struct dir_context *ctx,
-	void *dentry_blk, unsigned int *ofs,
-	unsigned int nameoff, unsigned int maxsize)
+			       void *dentry_blk, unsigned int *ofs,
+			       unsigned int nameoff, unsigned int maxsize)
 {
 	struct erofs_dirent *de = dentry_blk;
 	const struct erofs_dirent *end = dentry_blk + nameoff;
@@ -103,15 +103,14 @@ static int erofs_readdir(struct file *f, struct dir_context *ctx)
 		if (IS_ERR(dentry_page))
 			continue;
 
-		lock_page(dentry_page);
 		de = (struct erofs_dirent *)kmap(dentry_page);
 
 		nameoff = le16_to_cpu(de->nameoff);
 
 		if (unlikely(nameoff < sizeof(struct erofs_dirent) ||
-			nameoff >= PAGE_SIZE)) {
+			     nameoff >= PAGE_SIZE)) {
 			errln("%s, invalid de[0].nameoff %u",
-				__func__, nameoff);
+			      __func__, nameoff);
 
 			err = -EIO;
 			goto skip_this;
@@ -133,7 +132,6 @@ static int erofs_readdir(struct file *f, struct dir_context *ctx)
 skip_this:
 		kunmap(dentry_page);
 
-		unlock_page(dentry_page);
 		put_page(dentry_page);
 
 		ctx->pos = blknr_to_addr(i) + ofs;
@@ -149,6 +147,6 @@ skip_this:
 const struct file_operations erofs_dir_fops = {
 	.llseek		= generic_file_llseek,
 	.read		= generic_read_dir,
-	.iterate	= erofs_readdir,
+	.iterate_shared	= erofs_readdir,
 };
 

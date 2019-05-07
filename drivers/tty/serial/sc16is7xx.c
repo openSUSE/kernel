@@ -1187,9 +1187,7 @@ static int sc16is7xx_probe(struct device *dev,
 		return PTR_ERR(regmap);
 
 	/* Alloc port structure */
-	s = devm_kzalloc(dev, sizeof(*s) +
-			 sizeof(struct sc16is7xx_one) * devtype->nr_uart,
-			 GFP_KERNEL);
+	s = devm_kzalloc(dev, struct_size(s, p, devtype->nr_uart), GFP_KERNEL);
 	if (!s) {
 		dev_err(dev, "Error allocating port structure\n");
 		return -ENOMEM;
@@ -1522,11 +1520,13 @@ static int __init sc16is7xx_init(void)
 #endif
 	return ret;
 
+#ifdef CONFIG_SERIAL_SC16IS7XX_SPI
 err_spi:
+#endif
 #ifdef CONFIG_SERIAL_SC16IS7XX_I2C
 	i2c_del_driver(&sc16is7xx_i2c_uart_driver);
-#endif
 err_i2c:
+#endif
 	uart_unregister_driver(&sc16is7xx_uart);
 	return ret;
 }

@@ -183,7 +183,7 @@ static inline void vcpu_cache_mmio_info(struct kvm_vcpu *vcpu,
 {
 	u64 gen = kvm_memslots(vcpu->kvm)->generation;
 
-	if (unlikely(gen & 1))
+	if (unlikely(gen & KVM_MEMSLOT_GEN_UPDATE_IN_PROGRESS))
 		return;
 
 	/*
@@ -293,8 +293,6 @@ extern u64 host_xcr0;
 extern u64 kvm_supported_xcr0(void);
 
 extern unsigned int min_timer_period_us;
-
-extern unsigned int lapic_timer_advance_ns;
 
 extern bool enable_vmware_backdoor;
 

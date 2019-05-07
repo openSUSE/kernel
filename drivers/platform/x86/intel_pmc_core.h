@@ -47,6 +47,7 @@
 #define SPT_PMC_LTR_SATA			0x368
 #define SPT_PMC_LTR_GBE				0x36C
 #define SPT_PMC_LTR_XHCI			0x370
+#define SPT_PMC_LTR_RESERVED			0x374
 #define SPT_PMC_LTR_ME				0x378
 #define SPT_PMC_LTR_EVA				0x37C
 #define SPT_PMC_LTR_SPC				0x380
@@ -160,6 +161,7 @@ enum ppfear_regs {
 #define CNP_PMC_LTR_SATA			0x1B68
 #define CNP_PMC_LTR_GBE				0x1B6C
 #define CNP_PMC_LTR_XHCI			0x1B70
+#define CNP_PMC_LTR_RESERVED			0x1B74
 #define CNP_PMC_LTR_ME				0x1B78
 #define CNP_PMC_LTR_EVA				0x1B7C
 #define CNP_PMC_LTR_SPC				0x1B80
@@ -179,6 +181,10 @@ enum ppfear_regs {
 #define LTR_DECODED_SCALE			GENMASK(12, 10)
 #define LTR_REQ_SNOOP				BIT(15)
 #define LTR_REQ_NONSNOOP			BIT(31)
+
+#define ICL_PPFEAR_NUM_ENTRIES			9
+#define ICL_NUM_IP_IGN_ALLOWED			20
+#define ICL_PMC_LTR_WIGIG			0x1BFC
 
 struct pmc_bit_map {
 	const char *name;
@@ -212,6 +218,7 @@ struct pmc_reg_map {
 	const struct pmc_bit_map *pll_sts;
 	const struct pmc_bit_map **slps0_dbg_maps;
 	const struct pmc_bit_map *ltr_show_sts;
+	const struct pmc_bit_map *msr_sts;
 	const u32 slp_s0_offset;
 	const u32 ltr_ignore_offset;
 	const int regmap_length;

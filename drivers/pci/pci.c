@@ -861,7 +861,7 @@ static int pci_raw_set_power_state(struct pci_dev *dev, pci_power_t state)
 		if ((pmcsr & PCI_PM_CTRL_STATE_MASK) == PCI_D3hot
 		 && !(pmcsr & PCI_PM_CTRL_NO_SOFT_RESET))
 			need_restore = true;
-		/* Fall-through: force to D0 */
+		/* Fall-through - force to D0 */
 	default:
 		pmcsr = 0;
 		break;
@@ -2304,7 +2304,7 @@ static pci_power_t pci_target_state(struct pci_dev *dev, bool wakeup)
 		case PCI_D2:
 			if (pci_no_d1d2(dev))
 				break;
-			/* else: fall through */
+			/* else, fall through */
 		default:
 			target_state = state;
 		}
@@ -5129,39 +5129,42 @@ unlock:
 	return 0;
 }
 
-/* Save and disable devices from the top of the tree down */
-static void pci_bus_save_and_disable(struct pci_bus *bus)
+/*
+ * Save and disable devices from the top of the tree down while holding
+ * the @dev mutex lock for the entire tree.
+ */
+static void pci_bus_save_and_disable_locked(struct pci_bus *bus)
 {
 	struct pci_dev *dev;
 
 	list_for_each_entry(dev, &bus->devices, bus_list) {
-		pci_dev_lock(dev);
 		pci_dev_save_and_disable(dev);
-		pci_dev_unlock(dev);
 		if (dev->subordinate)
-			pci_bus_save_and_disable(dev->subordinate);
+			pci_bus_save_and_disable_locked(dev->subordinate);
 	}
 }
 
 /*
- * Restore devices from top of the tree down - parent bridges need to be
- * restored before we can get to subordinate devices.
+ * Restore devices from top of the tree down while holding @dev mutex lock
+ * for the entire tree.  Parent bridges need to be restored before we can
+ * get to subordinate devices.
  */
-static void pci_bus_restore(struct pci_bus *bus)
+static void pci_bus_restore_locked(struct pci_bus *bus)
 {
 	struct pci_dev *dev;
 
 	list_for_each_entry(dev, &bus->devices, bus_list) {
-		pci_dev_lock(dev);
 		pci_dev_restore(dev);
-		pci_dev_unlock(dev);
 		if (dev->subordinate)
-			pci_bus_restore(dev->subordinate);
+			pci_bus_restore_locked(dev->subordinate);
 	}
 }
 
-/* Save and disable devices from the top of the tree down */
-static void pci_slot_save_and_disable(struct pci_slot *slot)
+/*
+ * Save and disable devices from the top of the tree down while holding
+ * the @dev mutex lock for the entire tree.
+ */
+static void pci_slot_save_and_disable_locked(struct pci_slot *slot)
 {
 	struct pci_dev *dev;
 
@@ -5170,26 +5173,25 @@ static void pci_slot_save_and_disable(struct pci_slot *slot)
 			continue;
 		pci_dev_save_and_disable(dev);
 		if (dev->subordinate)
-			pci_bus_save_and_disable(dev->subordinate);
+			pci_bus_save_and_disable_locked(dev->subordinate);
 	}
 }
 
 /*
- * Restore devices from top of the tree down - parent bridges need to be
- * restored before we can get to subordinate devices.
+ * Restore devices from top of the tree down while holding @dev mutex lock
+ * for the entire tree.  Parent bridges need to be restored before we can
+ * get to subordinate devices.
  */
-static void pci_slot_restore(struct pci_slot *slot)
+static void pci_slot_restore_locked(struct pci_slot *slot)
 {
 	struct pci_dev *dev;
 
 	list_for_each_entry(dev, &slot->bus->devices, bus_list) {
 		if (!dev->slot || dev->slot != slot)
 			continue;
-		pci_dev_lock(dev);
 		pci_dev_restore(dev);
-		pci_dev_unlock(dev);
 		if (dev->subordinate)
-			pci_bus_restore(dev->subordinate);
+			pci_bus_restore_locked(dev->subordinate);
 	}
 }
 
@@ -5248,16 +5250,14 @@ static int __pci_reset_slot(struct pci_slot *slot)
 	if (rc)
 		return rc;
 
-	pci_slot_save_and_disable(slot);
-
 	if (pci_slot_trylock(slot)) {
+		pci_slot_save_and_disable_locked(slot);
 		might_sleep();
 		rc = pci_reset_hotplug_slot(slot->hotplug, 0);
+		pci_slot_restore_locked(slot);
 		pci_slot_unlock(slot);
 	} else
 		rc = -EAGAIN;
-
-	pci_slot_restore(slot);
 
 	return rc;
 }
@@ -5344,16 +5344,14 @@ static int __pci_reset_bus(struct pci_bus *bus)
 	if (rc)
 		return rc;
 
-	pci_bus_save_and_disable(bus);
-
 	if (pci_bus_trylock(bus)) {
+		pci_bus_save_and_disable_locked(bus);
 		might_sleep();
 		rc = pci_bridge_secondary_bus_reset(bus->self);
+		pci_bus_restore_locked(bus);
 		pci_bus_unlock(bus);
 	} else
 		rc = -EAGAIN;
-
-	pci_bus_restore(bus);
 
 	return rc;
 }
@@ -6071,8 +6069,7 @@ void pci_reassigndev_resource_alignment(struct pci_dev *dev)
 	 * to enable the kernel to reassign new resource
 	 * window later on.
 	 */
-	if (dev->hdr_type == PCI_HEADER_TYPE_BRIDGE &&
-	    (dev->class >> 8) == PCI_CLASS_BRIDGE_PCI) {
+	if (dev->hdr_type == PCI_HEADER_TYPE_BRIDGE) {
 		for (i = PCI_BRIDGE_RESOURCES; i < PCI_NUM_RESOURCES; i++) {
 			r = &dev->resource[i];
 			if (!(r->flags & IORESOURCE_MEM))
@@ -6105,19 +6102,18 @@ static ssize_t pci_get_resource_alignment_param(char *buf, size_t size)
 	return count;
 }
 
-static ssize_t pci_resource_alignment_show(struct bus_type *bus, char *buf)
+static ssize_t resource_alignment_show(struct bus_type *bus, char *buf)
 {
 	return pci_get_resource_alignment_param(buf, PAGE_SIZE);
 }
 
-static ssize_t pci_resource_alignment_store(struct bus_type *bus,
+static ssize_t resource_alignment_store(struct bus_type *bus,
 					const char *buf, size_t count)
 {
 	return pci_set_resource_alignment_param(buf, count);
 }
 
-static BUS_ATTR(resource_alignment, 0644, pci_resource_alignment_show,
-					pci_resource_alignment_store);
+static BUS_ATTR_RW(resource_alignment);
 
 static int __init pci_resource_alignment_sysfs_init(void)
 {
@@ -6266,8 +6262,7 @@ static int __init pci_setup(char *str)
 			} else if (!strncmp(str, "pcie_scan_all", 13)) {
 				pci_add_flags(PCI_SCAN_ALL_PCIE_DEVS);
 			} else if (!strncmp(str, "disable_acs_redir=", 18)) {
-				disable_acs_redir_param =
-					kstrdup(str + 18, GFP_KERNEL);
+				disable_acs_redir_param = str + 18;
 			} else {
 				printk(KERN_ERR "PCI: Unknown option `%s'\n",
 						str);
@@ -6278,3 +6273,19 @@ static int __init pci_setup(char *str)
 	return 0;
 }
 early_param("pci", pci_setup);
+
+/*
+ * 'disable_acs_redir_param' is initialized in pci_setup(), above, to point
+ * to data in the __initdata section which will be freed after the init
+ * sequence is complete. We can't allocate memory in pci_setup() because some
+ * architectures do not have any memory allocation service available during
+ * an early_param() call. So we allocate memory and copy the variable here
+ * before the init section is freed.
+ */
+static int __init pci_realloc_setup_params(void)
+{
+	disable_acs_redir_param = kstrdup(disable_acs_redir_param, GFP_KERNEL);
+
+	return 0;
+}
+pure_initcall(pci_realloc_setup_params);

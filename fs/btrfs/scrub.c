@@ -3741,25 +3741,33 @@ static noinline_for_stack int scrub_workers_get(struct btrfs_fs_info *fs_info,
 	unsigned int flags = WQ_FREEZABLE | WQ_UNBOUND;
 	int max_active = fs_info->thread_pool_size;
 
-	if (fs_info->scrub_workers_refcnt == 0) {
+	lockdep_assert_held(&fs_info->scrub_lock);
+
+	if (refcount_read(&fs_info->scrub_workers_refcnt) == 0) {
+		ASSERT(fs_info->scrub_workers == NULL);
 		fs_info->scrub_workers = btrfs_alloc_workqueue(fs_info, "scrub",
 				flags, is_dev_replace ? 1 : max_active, 4);
 		if (!fs_info->scrub_workers)
 			goto fail_scrub_workers;
 
+		ASSERT(fs_info->scrub_wr_completion_workers == NULL);
 		fs_info->scrub_wr_completion_workers =
 			btrfs_alloc_workqueue(fs_info, "scrubwrc", flags,
 					      max_active, 2);
 		if (!fs_info->scrub_wr_completion_workers)
 			goto fail_scrub_wr_completion_workers;
 
+		ASSERT(fs_info->scrub_parity_workers == NULL);
 		fs_info->scrub_parity_workers =
 			btrfs_alloc_workqueue(fs_info, "scrubparity", flags,
 					      max_active, 2);
 		if (!fs_info->scrub_parity_workers)
 			goto fail_scrub_parity_workers;
+
+		refcount_set(&fs_info->scrub_workers_refcnt, 1);
+	} else {
+		refcount_inc(&fs_info->scrub_workers_refcnt);
 	}
-	++fs_info->scrub_workers_refcnt;
 	return 0;
 
 fail_scrub_parity_workers:
@@ -3828,7 +3836,7 @@ int btrfs_scrub_dev(struct btrfs_fs_info *fs_info, u64 devid, u64 start,
 		return PTR_ERR(sctx);
 
 	mutex_lock(&fs_info->fs_devices->device_list_mutex);
-	dev = btrfs_find_device(fs_info, devid, NULL, NULL);
+	dev = btrfs_find_device(fs_info->fs_devices, devid, NULL, NULL, true);
 	if (!dev || (test_bit(BTRFS_DEV_STATE_MISSING, &dev->dev_state) &&
 		     !is_dev_replace)) {
 		mutex_unlock(&fs_info->fs_devices->device_list_mutex);
@@ -3896,6 +3904,7 @@ int btrfs_scrub_dev(struct btrfs_fs_info *fs_info, u64 devid, u64 start,
 	 */
 	nofs_flag = memalloc_nofs_save();
 	if (!is_dev_replace) {
+		btrfs_info(fs_info, "scrub: started on devid %llu", devid);
 		/*
 		 * by holding device list mutex, we can
 		 * kick off writing super in log tree sync.
@@ -3918,12 +3927,20 @@ int btrfs_scrub_dev(struct btrfs_fs_info *fs_info, u64 devid, u64 start,
 	if (progress)
 		memcpy(progress, &sctx->stat, sizeof(*progress));
 
+	if (!is_dev_replace)
+		btrfs_info(fs_info, "scrub: %s on devid %llu with status: %d",
+			ret ? "not finished" : "finished", devid, ret);
+
 	mutex_lock(&fs_info->scrub_lock);
 	dev->scrub_ctx = NULL;
-	if (--fs_info->scrub_workers_refcnt == 0) {
+	if (refcount_dec_and_test(&fs_info->scrub_workers_refcnt)) {
 		scrub_workers = fs_info->scrub_workers;
 		scrub_wr_comp = fs_info->scrub_wr_completion_workers;
 		scrub_parity = fs_info->scrub_parity_workers;
+
+		fs_info->scrub_workers = NULL;
+		fs_info->scrub_wr_completion_workers = NULL;
+		fs_info->scrub_parity_workers = NULL;
 	}
 	mutex_unlock(&fs_info->scrub_lock);
 
@@ -4012,7 +4029,7 @@ int btrfs_scrub_progress(struct btrfs_fs_info *fs_info, u64 devid,
 	struct scrub_ctx *sctx = NULL;
 
 	mutex_lock(&fs_info->fs_devices->device_list_mutex);
-	dev = btrfs_find_device(fs_info, devid, NULL, NULL);
+	dev = btrfs_find_device(fs_info->fs_devices, devid, NULL, NULL, true);
 	if (dev)
 		sctx = dev->scrub_ctx;
 	if (sctx)

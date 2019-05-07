@@ -1120,7 +1120,7 @@ static int dm_integrity_rw_tag(struct dm_integrity_c *ic, unsigned char *tag, se
 			return r;
 
 		data = dm_bufio_read(ic->bufio, *metadata_block, &b);
-		if (unlikely(IS_ERR(data)))
+		if (IS_ERR(data))
 			return PTR_ERR(data);
 
 		to_copy = min((1U << SECTOR_SHIFT << ic->log2_buffer_sectors) - *metadata_offset, total_size);
@@ -3614,7 +3614,7 @@ static struct target_type integrity_target = {
 	.io_hints		= dm_integrity_io_hints,
 };
 
-int __init dm_integrity_init(void)
+static int __init dm_integrity_init(void)
 {
 	int r;
 
@@ -3633,7 +3633,7 @@ int __init dm_integrity_init(void)
 	return r;
 }
 
-void dm_integrity_exit(void)
+static void __exit dm_integrity_exit(void)
 {
 	dm_unregister_target(&integrity_target);
 	kmem_cache_destroy(journal_io_cache);

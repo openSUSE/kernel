@@ -1293,8 +1293,7 @@ again:
 
 				if (!path->skip_locking) {
 					btrfs_tree_read_lock(eb);
-					btrfs_set_lock_blocking_rw(eb,
-							BTRFS_READ_LOCK);
+					btrfs_set_lock_blocking_read(eb);
 				}
 				ret = find_extent_in_eb(eb, bytenr,
 							*extent_item_pos, &eie, ignore_offset);
@@ -1657,7 +1656,7 @@ char *btrfs_ref_to_path(struct btrfs_root *fs_root, struct btrfs_path *path,
 		/* make sure we can use eb after releasing the path */
 		if (eb != eb_in) {
 			if (!path->skip_locking)
-				btrfs_set_lock_blocking_rw(eb, BTRFS_READ_LOCK);
+				btrfs_set_lock_blocking_read(eb);
 			path->nodes[0] = NULL;
 			path->locks[0] = 0;
 		}

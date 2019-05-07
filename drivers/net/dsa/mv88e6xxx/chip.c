@@ -456,10 +456,12 @@ static int mv88e6xxx_g1_irq_setup(struct mv88e6xxx_chip *chip)
 	 */
 	irq_set_lockdep_class(chip->irq, &lock_key, &request_key);
 
+	mutex_unlock(&chip->reg_lock);
 	err = request_threaded_irq(chip->irq, NULL,
 				   mv88e6xxx_g1_irq_thread_fn,
 				   IRQF_ONESHOT | IRQF_SHARED,
 				   dev_name(chip->dev), chip);
+	mutex_lock(&chip->reg_lock);
 	if (err)
 		mv88e6xxx_g1_irq_free_common(chip);
 
@@ -488,7 +490,7 @@ static int mv88e6xxx_irq_poll_setup(struct mv88e6xxx_chip *chip)
 	kthread_init_delayed_work(&chip->irq_poll_work,
 				  mv88e6xxx_irq_poll);
 
-	chip->kworker = kthread_create_worker(0, dev_name(chip->dev));
+	chip->kworker = kthread_create_worker(0, "%s", dev_name(chip->dev));
 	if (IS_ERR(chip->kworker))
 		return PTR_ERR(chip->kworker);
 
@@ -547,9 +549,9 @@ int mv88e6xxx_update(struct mv88e6xxx_chip *chip, int addr, int reg, u16 update)
 	return mv88e6xxx_write(chip, addr, reg, val);
 }
 
-static int mv88e6xxx_port_setup_mac(struct mv88e6xxx_chip *chip, int port,
-				    int link, int speed, int duplex, int pause,
-				    phy_interface_t mode)
+int mv88e6xxx_port_setup_mac(struct mv88e6xxx_chip *chip, int port, int link,
+			     int speed, int duplex, int pause,
+			     phy_interface_t mode)
 {
 	int err;
 
@@ -659,6 +661,20 @@ static void mv88e6185_phylink_validate(struct mv88e6xxx_chip *chip, int port,
 	mv88e6065_phylink_validate(chip, port, mask, state);
 }
 
+static void mv88e6341_phylink_validate(struct mv88e6xxx_chip *chip, int port,
+				       unsigned long *mask,
+				       struct phylink_link_state *state)
+{
+	if (port >= 5)
+		phylink_set(mask, 2500baseX_Full);
+
+	/* No ethtool bits for 200Mbps */
+	phylink_set(mask, 1000baseT_Full);
+	phylink_set(mask, 1000baseX_Full);
+
+	mv88e6065_phylink_validate(chip, port, mask, state);
+}
+
 static void mv88e6352_phylink_validate(struct mv88e6xxx_chip *chip, int port,
 				       unsigned long *mask,
 				       struct phylink_link_state *state)
@@ -674,8 +690,10 @@ static void mv88e6390_phylink_validate(struct mv88e6xxx_chip *chip, int port,
 				       unsigned long *mask,
 				       struct phylink_link_state *state)
 {
-	if (port >= 9)
+	if (port >= 9) {
 		phylink_set(mask, 2500baseX_Full);
+		phylink_set(mask, 2500baseT_Full);
+	}
 
 	/* No ethtool bits for 200Mbps */
 	phylink_set(mask, 1000baseT_Full);
@@ -2387,8 +2405,7 @@ static int mv88e6xxx_port_enable(struct dsa_switch *ds, int port,
 	return err;
 }
 
-static void mv88e6xxx_port_disable(struct dsa_switch *ds, int port,
-				   struct phy_device *phydev)
+static void mv88e6xxx_port_disable(struct dsa_switch *ds, int port)
 {
 	struct mv88e6xxx_chip *chip = ds->priv;
 
@@ -3080,7 +3097,7 @@ static const struct mv88e6xxx_ops mv88e6141_ops = {
 	.vtu_loadpurge = mv88e6352_g1_vtu_loadpurge,
 	.serdes_power = mv88e6341_serdes_power,
 	.gpio_ops = &mv88e6352_gpio_ops,
-	.phylink_validate = mv88e6390_phylink_validate,
+	.phylink_validate = mv88e6341_phylink_validate,
 };
 
 static const struct mv88e6xxx_ops mv88e6161_ops = {
@@ -3717,7 +3734,7 @@ static const struct mv88e6xxx_ops mv88e6341_ops = {
 	.gpio_ops = &mv88e6352_gpio_ops,
 	.avb_ops = &mv88e6390_avb_ops,
 	.ptp_ops = &mv88e6352_ptp_ops,
-	.phylink_validate = mv88e6390_phylink_validate,
+	.phylink_validate = mv88e6341_phylink_validate,
 };
 
 static const struct mv88e6xxx_ops mv88e6350_ops = {
@@ -4719,6 +4736,22 @@ static int mv88e6xxx_port_mdb_del(struct dsa_switch *ds, int port,
 	return err;
 }
 
+static int mv88e6xxx_port_egress_floods(struct dsa_switch *ds, int port,
+					 bool unicast, bool multicast)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	int err = -EOPNOTSUPP;
+
+	mutex_lock(&chip->reg_lock);
+	if (chip->info->ops->port_set_egress_floods)
+		err = chip->info->ops->port_set_egress_floods(chip, port,
+							      unicast,
+							      multicast);
+	mutex_unlock(&chip->reg_lock);
+
+	return err;
+}
+
 static const struct dsa_switch_ops mv88e6xxx_switch_ops = {
 #if IS_ENABLED(CONFIG_NET_DSA_LEGACY)
 	.probe			= mv88e6xxx_drv_probe,
@@ -4746,6 +4779,7 @@ static const struct dsa_switch_ops mv88e6xxx_switch_ops = {
 	.set_ageing_time	= mv88e6xxx_set_ageing_time,
 	.port_bridge_join	= mv88e6xxx_port_bridge_join,
 	.port_bridge_leave	= mv88e6xxx_port_bridge_leave,
+	.port_egress_floods	= mv88e6xxx_port_egress_floods,
 	.port_stp_state_set	= mv88e6xxx_port_stp_state_set,
 	.port_fast_age		= mv88e6xxx_port_fast_age,
 	.port_vlan_filtering	= mv88e6xxx_port_vlan_filtering,
@@ -4808,6 +4842,21 @@ static const void *pdata_device_get_match_data(struct device *dev)
 	}
 	return NULL;
 }
+
+/* There is no suspend to RAM support at DSA level yet, the switch configuration
+ * would be lost after a power cycle so prevent it to be suspended.
+ */
+static int __maybe_unused mv88e6xxx_suspend(struct device *dev)
+{
+	return -EOPNOTSUPP;
+}
+
+static int __maybe_unused mv88e6xxx_resume(struct device *dev)
+{
+	return 0;
+}
+
+static SIMPLE_DEV_PM_OPS(mv88e6xxx_pm_ops, mv88e6xxx_suspend, mv88e6xxx_resume);
 
 static int mv88e6xxx_probe(struct mdio_device *mdiodev)
 {
@@ -4994,6 +5043,7 @@ static struct mdio_driver mv88e6xxx_driver = {
 	.mdiodrv.driver = {
 		.name = "mv88e6085",
 		.of_match_table = mv88e6xxx_of_match,
+		.pm = &mv88e6xxx_pm_ops,
 	},
 };
 

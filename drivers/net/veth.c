@@ -541,8 +541,10 @@ static struct sk_buff *veth_xdp_rcv_one(struct veth_rq *rq,
 			goto xdp_xmit;
 		default:
 			bpf_warn_invalid_xdp_action(act);
+			/* fall through */
 		case XDP_ABORTED:
 			trace_xdp_exception(rq->dev, xdp_prog, act);
+			/* fall through */
 		case XDP_DROP:
 			goto err_xdp;
 		}
@@ -662,8 +664,10 @@ static struct sk_buff *veth_xdp_rcv_skb(struct veth_rq *rq, struct sk_buff *skb,
 		goto xdp_xmit;
 	default:
 		bpf_warn_invalid_xdp_action(act);
+		/* fall through */
 	case XDP_ABORTED:
 		trace_xdp_exception(rq->dev, xdp_prog, act);
+		/* fall through */
 	case XDP_DROP:
 		goto drop;
 	}

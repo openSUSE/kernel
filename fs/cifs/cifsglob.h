@@ -222,6 +222,7 @@ struct cifs_io_parms;
 struct cifs_search_info;
 struct cifsInodeInfo;
 struct cifs_open_parms;
+struct cifs_credits;
 
 struct smb_version_operations {
 	int (*send_cancel)(struct TCP_Server_Info *, struct smb_rqst *,
@@ -236,8 +237,9 @@ struct smb_version_operations {
 	/* check response: verify signature, map error */
 	int (*check_receive)(struct mid_q_entry *, struct TCP_Server_Info *,
 			     bool);
-	void (*add_credits)(struct TCP_Server_Info *, const unsigned int,
-			    const int);
+	void (*add_credits)(struct TCP_Server_Info *server,
+			    const struct cifs_credits *credits,
+			    const int optype);
 	void (*set_credits)(struct TCP_Server_Info *, const int);
 	int * (*get_credits_field)(struct TCP_Server_Info *, const int);
 	unsigned int (*get_credits)(struct mid_q_entry *);
@@ -391,8 +393,8 @@ struct smb_version_operations {
 			 struct cifs_fid *);
 	/* calculate a size of SMB message */
 	unsigned int (*calc_smb_size)(void *buf, struct TCP_Server_Info *ptcpi);
-	/* check for STATUS_PENDING and process it in a positive case */
-	bool (*is_status_pending)(char *, struct TCP_Server_Info *, int);
+	/* check for STATUS_PENDING and process the response if yes */
+	bool (*is_status_pending)(char *buf, struct TCP_Server_Info *server);
 	/* check for STATUS_NETWORK_SESSION_EXPIRED */
 	bool (*is_session_expired)(char *);
 	/* send oplock break response */
@@ -460,7 +462,11 @@ struct smb_version_operations {
 	unsigned int (*wp_retry_size)(struct inode *);
 	/* get mtu credits */
 	int (*wait_mtu_credits)(struct TCP_Server_Info *, unsigned int,
-				unsigned int *, unsigned int *);
+				unsigned int *, struct cifs_credits *);
+	/* adjust previously taken mtu credits to request size */
+	int (*adjust_credits)(struct TCP_Server_Info *server,
+			      struct cifs_credits *credits,
+			      const unsigned int payload_size);
 	/* check if we need to issue closedir */
 	bool (*dir_needs_close)(struct cifsFileInfo *);
 	long (*fallocate)(struct file *, struct cifs_tcon *, int, loff_t,
@@ -479,6 +485,14 @@ struct smb_version_operations {
 				struct cifs_tcon *tcon,
 				__le16 *path, int is_dir,
 				unsigned long p);
+	/* make unix special files (block, char, fifo, socket) */
+	int (*make_node)(unsigned int xid,
+			 struct inode *inode,
+			 struct dentry *dentry,
+			 struct cifs_tcon *tcon,
+			 char *full_path,
+			 umode_t mode,
+			 dev_t device_number);
 };
 
 struct smb_version_values {
@@ -720,6 +734,11 @@ struct TCP_Server_Info {
 	int nr_targets;
 };
 
+struct cifs_credits {
+	unsigned int value;
+	unsigned int instance;
+};
+
 static inline unsigned int
 in_flight(struct TCP_Server_Info *server)
 {
@@ -731,28 +750,28 @@ in_flight(struct TCP_Server_Info *server)
 }
 
 static inline bool
-has_credits(struct TCP_Server_Info *server, int *credits)
+has_credits(struct TCP_Server_Info *server, int *credits, int num_credits)
 {
 	int num;
 	spin_lock(&server->req_lock);
 	num = *credits;
 	spin_unlock(&server->req_lock);
-	return num > 0;
+	return num >= num_credits;
 }
 
 static inline void
-add_credits(struct TCP_Server_Info *server, const unsigned int add,
+add_credits(struct TCP_Server_Info *server, const struct cifs_credits *credits,
 	    const int optype)
 {
-	server->ops->add_credits(server, add, optype);
+	server->ops->add_credits(server, credits, optype);
 }
 
 static inline void
-add_credits_and_wake_if(struct TCP_Server_Info *server, const unsigned int add,
-			const int optype)
+add_credits_and_wake_if(struct TCP_Server_Info *server,
+			const struct cifs_credits *credits, const int optype)
 {
-	if (add) {
-		server->ops->add_credits(server, add, optype);
+	if (credits->value) {
+		server->ops->add_credits(server, credits, optype);
 		wake_up(&server->request_q);
 	}
 }
@@ -761,6 +780,14 @@ static inline void
 set_credits(struct TCP_Server_Info *server, const int val)
 {
 	server->ops->set_credits(server, val);
+}
+
+static inline int
+adjust_credits(struct TCP_Server_Info *server, struct cifs_credits *credits,
+	       const unsigned int payload_size)
+{
+	return server->ops->adjust_credits ?
+		server->ops->adjust_credits(server, credits, payload_size) : 0;
 }
 
 static inline __le64
@@ -950,11 +977,14 @@ cap_unix(struct cifs_ses *ses)
 
 struct cached_fid {
 	bool is_valid:1;	/* Do we have a useable root fid */
+	bool file_all_info_is_valid:1;
+
 	struct kref refcount;
 	struct cifs_fid *fid;
 	struct mutex fid_mutex;
 	struct cifs_tcon *tcon;
 	struct work_struct lease_break;
+	struct smb2_file_all_info file_all_info;
 };
 
 /*
@@ -1261,7 +1291,7 @@ struct cifs_readdata {
 	unsigned int			pagesz;
 	unsigned int			page_offset;
 	unsigned int			tailsz;
-	unsigned int			credits;
+	struct cifs_credits		credits;
 	unsigned int			nr_pages;
 	struct page			**pages;
 };
@@ -1287,7 +1317,7 @@ struct cifs_writedata {
 	unsigned int			pagesz;
 	unsigned int			page_offset;
 	unsigned int			tailsz;
-	unsigned int			credits;
+	struct cifs_credits		credits;
 	unsigned int			nr_pages;
 	struct page			**pages;
 };
@@ -1725,6 +1755,7 @@ require use of the stronger protocol */
  *  GlobalMid_Lock protects:
  *	list operations on pending_mid_q and oplockQ
  *      updates to XID counters, multiplex id  and SMB sequence numbers
+ *      list operations on global DnotifyReqList
  *  tcp_ses_lock protects:
  *	list operations on tcp and SMB session lists
  *  tcon->open_file_lock protects the list of open files hanging off the tcon
