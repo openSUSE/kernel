@@ -382,10 +382,11 @@ static inline void xfs_ifunlock(xfs_inode_t *ip)
 #define XFS_IFILESTREAM		0x0010	/* inode is in a filestream directory */
 #define XFS_ITRUNCATED		0x0020	/* truncated down so flush-on-close */
 #define XFS_IDIRTY_RELEASE	0x0040	/* dirty release already seen */
+#define XFS_IDONTCACHE		(1 << 9) /* don't cache the inode long term */
 
 /*
  * Per-lifetime flags need to be reset when re-using a reclaimable inode during
- * inode lookup. Thi prevents unintended behaviour on the new inode from
+ * inode lookup. This prevents unintended behaviour on the new inode from
  * ocurring.
  */
 #define XFS_IRECLAIM_RESET_FLAGS	\
@@ -537,6 +538,7 @@ do { \
  */
 #define XFS_IGET_CREATE		0x1
 #define XFS_IGET_UNTRUSTED	0x2
+#define XFS_IGET_DONTCACHE	0x4
 
 int		xfs_inotobp(struct xfs_mount *, struct xfs_trans *,
 			    xfs_ino_t, struct xfs_dinode **,
