@@ -1337,6 +1337,15 @@ static void mce_timer_fn(unsigned long data)
 	int cpu = smp_processor_id();
 	unsigned long iv;
 
+	/*
+	 * Return if the CPU has been offlined by "nosmt" or other similar
+	 * mitigation switches. The offlining happens before the CPU notifier is
+	 * registered so we cannot do proper cleanup like cancelling the timer.
+	 * So do the easy thing here. It also fixes a Xen issue, see bsc#929141.
+	 */
+	if (!cpu_online(data))
+		return;
+
 	WARN_ON(cpu != data);
 
 	iv = __this_cpu_read(mce_next_interval);
