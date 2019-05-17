@@ -1653,6 +1653,7 @@ cifs_iovec_write(struct kiocb *iocb, const struct iovec *iov,
 		npages = i;
 
 		do {
+			written = 0;
 			if (open_file->invalidHandle) {
 				rc = cifs_reopen_file(open_file, false);
 				if (rc != 0)
