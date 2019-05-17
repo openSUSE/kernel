@@ -37,7 +37,7 @@ static int lru_shrinker_id(struct list_lru *lru)
 
 static inline bool list_lru_memcg_aware(struct list_lru *lru)
 {
-	return !!lru->node[first_online_node].memcg_lrus;
+	return lru->memcg_aware;
 }
 
 static inline struct list_lru_one *
@@ -446,6 +446,8 @@ static void memcg_cancel_update_list_lru_node(struct list_lru_node *nlru,
 static int memcg_init_list_lru(struct list_lru *lru, bool memcg_aware)
 {
 	int i;
+
+	lru->memcg_aware = memcg_aware;
 
 	if (!memcg_aware)
 		return 0;
