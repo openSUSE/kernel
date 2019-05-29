@@ -114,6 +114,9 @@ static void xfrm_hash_resize(struct work_struct *work)
 
 	mutex_lock(&hash_resize_mutex);
 
+	if ((net->xfrm.state_hmask + 1) >= xfrm_state_hashmax)
+		goto out_unlock;
+
 	nsize = xfrm_hash_new_size(net->xfrm.state_hmask);
 	ndst = xfrm_hash_alloc(nsize);
 	if (!ndst)
