@@ -187,6 +187,14 @@ tcp_bnc879921_hack - INTEGER
 	the connection is fully recovered from previous one, especially if
 	reno congestion control is used.
 
+tcp_min_snd_mss - INTEGER
+	TCP SYN and SYNACK messages usually advertise an ADVMSS option,
+	as described in RFC 1122 and RFC 6691.
+	If this ADVMSS option is smaller than tcp_min_snd_mss,
+	it is silently capped to tcp_min_snd_mss.
+
+	Default : 48 (at least 8 bytes of payload per segment)
+
 tcp_congestion_control - STRING
 	Set the congestion control algorithm to be used for new
 	connections. The algorithm "reno" is always available, but
