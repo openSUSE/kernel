@@ -954,7 +954,8 @@ static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 
 	assert_spin_locked(&t->sighand->siglock);
 
-	if (!prepare_signal(sig, t, from_ancestor_ns))
+	if (!prepare_signal(sig, t,
+			from_ancestor_ns || (info == SEND_SIG_FORCED)))
 		return 0;
 
 	pending = group ? &t->signal->shared_pending : &t->pending;
