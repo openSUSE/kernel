@@ -46,17 +46,17 @@ static void smp_task_timedout(unsigned long _task)
 	unsigned long flags;
 
 	spin_lock_irqsave(&task->task_state_lock, flags);
-	if (!(task->task_state_flags & SAS_TASK_STATE_DONE))
+	if (!(task->task_state_flags & SAS_TASK_STATE_DONE)) {
 		task->task_state_flags |= SAS_TASK_STATE_ABORTED;
+		complete(&task->completion);
+	}
 	spin_unlock_irqrestore(&task->task_state_lock, flags);
 
-	complete(&task->completion);
 }
 
 static void smp_task_done(struct sas_task *task)
 {
-	if (!del_timer(&task->timer))
-		return;
+	del_timer(&task->timer);
 	complete(&task->completion);
 }
 
