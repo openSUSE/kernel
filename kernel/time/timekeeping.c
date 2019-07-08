@@ -21,6 +21,7 @@
 #include <linux/stop_machine.h>
 #include <linux/pvclock_gtod.h>
 #include <linux/compiler.h>
+#include <linux/audit.h>
 
 #include "tick-internal.h"
 #include "ntp_internal.h"
@@ -720,7 +721,7 @@ static void timekeeping_forward_now(struct timekeeper *tk)
 void ktime_get_real_ts64(struct timespec64 *ts)
 {
 	struct timekeeper *tk = &tk_core.timekeeper;
-	unsigned long seq;
+	unsigned int seq;
 	u64 nsecs;
 
 	WARN_ON(timekeeping_suspended);
@@ -830,7 +831,7 @@ EXPORT_SYMBOL_GPL(ktime_get_coarse_with_offset);
 ktime_t ktime_mono_to_any(ktime_t tmono, enum tk_offsets offs)
 {
 	ktime_t *offset = offsets[offs];
-	unsigned long seq;
+	unsigned int seq;
 	ktime_t tconv;
 
 	do {
@@ -961,7 +962,7 @@ time64_t __ktime_get_real_seconds(void)
 void ktime_get_snapshot(struct system_time_snapshot *systime_snapshot)
 {
 	struct timekeeper *tk = &tk_core.timekeeper;
-	unsigned long seq;
+	unsigned int seq;
 	ktime_t base_raw;
 	ktime_t base_real;
 	u64 nsec_raw;
@@ -1123,7 +1124,7 @@ int get_device_system_crosststamp(int (*get_time_fn)
 	ktime_t base_real, base_raw;
 	u64 nsec_real, nsec_raw;
 	u8 cs_was_changed_seq;
-	unsigned long seq;
+	unsigned int seq;
 	bool do_interp;
 	int ret;
 
@@ -1250,6 +1251,9 @@ out:
 
 	/* signal hrtimers about time change */
 	clock_was_set();
+
+	if (!ret)
+		audit_tk_injoffset(ts_delta);
 
 	return ret;
 }
@@ -1410,7 +1414,7 @@ int timekeeping_notify(struct clocksource *clock)
 void ktime_get_raw_ts64(struct timespec64 *ts)
 {
 	struct timekeeper *tk = &tk_core.timekeeper;
-	unsigned long seq;
+	unsigned int seq;
 	u64 nsecs;
 
 	do {
@@ -1432,7 +1436,7 @@ EXPORT_SYMBOL(ktime_get_raw_ts64);
 int timekeeping_valid_for_hres(void)
 {
 	struct timekeeper *tk = &tk_core.timekeeper;
-	unsigned long seq;
+	unsigned int seq;
 	int ret;
 
 	do {
@@ -1451,7 +1455,7 @@ int timekeeping_valid_for_hres(void)
 u64 timekeeping_max_deferment(void)
 {
 	struct timekeeper *tk = &tk_core.timekeeper;
-	unsigned long seq;
+	unsigned int seq;
 	u64 ret;
 
 	do {
@@ -2151,7 +2155,7 @@ EXPORT_SYMBOL_GPL(getboottime64);
 void ktime_get_coarse_real_ts64(struct timespec64 *ts)
 {
 	struct timekeeper *tk = &tk_core.timekeeper;
-	unsigned long seq;
+	unsigned int seq;
 
 	do {
 		seq = read_seqcount_begin(&tk_core.seq);
@@ -2165,7 +2169,7 @@ void ktime_get_coarse_ts64(struct timespec64 *ts)
 {
 	struct timekeeper *tk = &tk_core.timekeeper;
 	struct timespec64 now, mono;
-	unsigned long seq;
+	unsigned int seq;
 
 	do {
 		seq = read_seqcount_begin(&tk_core.seq);
@@ -2304,6 +2308,7 @@ static int timekeeping_validate_timex(const struct __kernel_timex *txc)
 int do_adjtimex(struct __kernel_timex *txc)
 {
 	struct timekeeper *tk = &tk_core.timekeeper;
+	struct audit_ntp_data ad;
 	unsigned long flags;
 	struct timespec64 ts;
 	s32 orig_tai, tai;
@@ -2323,7 +2328,11 @@ int do_adjtimex(struct __kernel_timex *txc)
 		ret = timekeeping_inject_offset(&delta);
 		if (ret)
 			return ret;
+
+		audit_tk_injoffset(delta);
 	}
+
+	audit_ntp_init(&ad);
 
 	ktime_get_real_ts64(&ts);
 
@@ -2331,7 +2340,7 @@ int do_adjtimex(struct __kernel_timex *txc)
 	write_seqcount_begin(&tk_core.seq);
 
 	orig_tai = tai = tk->tai_offset;
-	ret = __do_adjtimex(txc, &ts, &tai);
+	ret = __do_adjtimex(txc, &ts, &tai, &ad);
 
 	if (tai != orig_tai) {
 		__timekeeping_set_tai_offset(tk, tai);
@@ -2341,6 +2350,8 @@ int do_adjtimex(struct __kernel_timex *txc)
 
 	write_seqcount_end(&tk_core.seq);
 	raw_spin_unlock_irqrestore(&timekeeper_lock, flags);
+
+	audit_ntp_log(&ad);
 
 	/* Update the multiplier immediately if frequency was set directly */
 	if (txc->modes & (ADJ_FREQUENCY | ADJ_TICK))

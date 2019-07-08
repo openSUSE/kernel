@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2004 IBM Corporation
  * Copyright (C) 2014 Intel Corporation
@@ -12,12 +13,6 @@
  * Maintained by: <tpmdd-devel@lists.sourceforge.net>
  *
  * TPM chip management routines.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation, version 2 of the
- * License.
- *
  */
 
 #include <linux/poll.h>
@@ -551,6 +546,39 @@ static int tpm_add_hwrng(struct tpm_chip *chip)
 }
 
 /*
+ * tpm_pcr_allocation() - initializes the chip allocated banks for PCRs
+ */
+static int tpm_pcr_allocation(struct tpm_chip *chip)
+{
+	int rc = 0;
+
+	if (chip->flags & TPM_CHIP_FLAG_TPM2) {
+		rc = tpm2_get_pcr_allocation(chip);
+		if (rc)
+			goto out;
+	}
+
+	/* Initialize TPM 1.2 */
+	chip->allocated_banks = kcalloc(1, sizeof(*chip->allocated_banks),
+			GFP_KERNEL);
+	if (!chip->allocated_banks) {
+		rc = -ENOMEM;
+		goto out;
+	}
+
+	chip->allocated_banks[0].alg_id = TPM_ALG_SHA1;
+	chip->allocated_banks[0].digest_size = hash_digest_size[HASH_ALGO_SHA1];
+	chip->allocated_banks[0].crypto_id = HASH_ALGO_SHA1;
+	chip->nr_allocated_banks = 1;
+
+	return 0;
+out:
+	if (rc < 0)
+		rc = -ENODEV;
+	return rc;
+}
+
+/*
  * tpm_chip_register() - create a character device for the TPM chip
  * @chip: TPM chip to use.
  *
@@ -570,6 +598,10 @@ int tpm_chip_register(struct tpm_chip *chip)
 		return rc;
 	rc = tpm_auto_startup(chip);
 	tpm_chip_stop(chip);
+	if (rc)
+		return rc;
+
+	rc = tpm_pcr_allocation(chip);
 	if (rc)
 		return rc;
 

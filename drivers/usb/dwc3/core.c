@@ -828,6 +828,7 @@ static void dwc3_set_incr_burst_type(struct dwc3 *dwc)
 	ret = device_property_read_u32_array(dev,
 			"snps,incr-burst-type-adjustment", vals, ntype);
 	if (ret) {
+		kfree(vals);
 		dev_err(dev, "Error to get property\n");
 		return;
 	}
@@ -845,6 +846,8 @@ static void dwc3_set_incr_burst_type(struct dwc3 *dwc)
 		/* INCRX burst mode */
 		incrx_mode = INCRX_BURST_MODE;
 	}
+
+	kfree(vals);
 
 	/* Enable Undefined Length INCR Burst and Enable INCRx Burst */
 	cfg &= ~DWC3_GSBUSCFG0_INCRBRST_MASK;
@@ -892,12 +895,6 @@ static int dwc3_core_init(struct dwc3 *dwc)
 {
 	u32			reg;
 	int			ret;
-
-	if (!dwc3_core_is_valid(dwc)) {
-		dev_err(dwc->dev, "this is not a DesignWare USB3 DRD Core\n");
-		ret = -ENODEV;
-		goto err0;
-	}
 
 	/*
 	 * Write Linux Version Code to our GUID register so it's easy to figure
@@ -1425,6 +1422,11 @@ static int dwc3_probe(struct platform_device *pdev)
 
 	dwc->regs	= regs;
 	dwc->regs_size	= resource_size(&dwc_res);
+
+	if (!dwc3_core_is_valid(dwc)) {
+		dev_err(dwc->dev, "this is not a DesignWare USB3 DRD Core\n");
+		return -ENODEV;
+	}
 
 	dwc3_get_properties(dwc);
 

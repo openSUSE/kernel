@@ -1,13 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * CCM: Counter with CBC-MAC
  *
  * (C) Copyright IBM Corp. 2007 - Joy Latten <latten@us.ibm.com>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the Free
- * Software Foundation; either version 2 of the License, or (at your option)
- * any later version.
- *
  */
 
 #include <crypto/internal/aead.h>
@@ -1006,7 +1001,7 @@ static void __exit crypto_ccm_module_exit(void)
 				    ARRAY_SIZE(crypto_ccm_tmpls));
 }
 
-module_init(crypto_ccm_module_init);
+subsys_initcall(crypto_ccm_module_init);
 module_exit(crypto_ccm_module_exit);
 
 MODULE_LICENSE("GPL");

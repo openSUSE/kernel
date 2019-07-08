@@ -196,7 +196,7 @@ CAP_LAST_CAP from the kernel.
 core_pattern:
 
 core_pattern is used to specify a core dumpfile pattern name.
-. max length 128 characters; default value is "core"
+. max length 127 characters; default value is "core"
 . core_pattern is used as a pattern template for the output filename;
   certain string patterns (beginning with '%') are substituted with
   their actual values.
@@ -1056,8 +1056,8 @@ ORed together. The letters are seen in "Tainted" line of Oops reports.
  32768 (K): kernel has been live patched
  65536 (X): Auxiliary taint, defined and used by for distros
 131072 (T): The kernel was built with the struct randomization plugin
-0x40000000 (N): An unsupported kernel module was loaded.
-0x80000000 (X): An kernel module with external support was loaded.
+ 0x40000000 (x): - An unsupported kernel module was loaded.
+ 0x80000000 (n): - An kernel module with external support was loaded.
 
 See Documentation/admin-guide/tainted-kernels.rst for more information.
 

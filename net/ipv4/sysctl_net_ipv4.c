@@ -552,6 +552,27 @@ static struct ctl_table ipv4_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_doulongvec_minmax,
 	},
+	{
+		.procname	= "fib_sync_mem",
+		.data		= &sysctl_fib_sync_mem,
+		.maxlen		= sizeof(sysctl_fib_sync_mem),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+		.extra1		= &sysctl_fib_sync_mem_min,
+		.extra2		= &sysctl_fib_sync_mem_max,
+	},
+	{
+		.procname	= "tcp_rx_skb_cache",
+		.data		= &tcp_rx_skb_cache_key.key,
+		.mode		= 0644,
+		.proc_handler	= proc_do_static_key,
+	},
+	{
+		.procname	= "tcp_tx_skb_cache",
+		.data		= &tcp_tx_skb_cache_key.key,
+		.mode		= 0644,
+		.proc_handler	= proc_do_static_key,
+	},
 	{ }
 };
 

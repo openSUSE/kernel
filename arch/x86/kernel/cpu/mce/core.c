@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Machine check handler.
  *
@@ -458,23 +459,6 @@ static void mce_schedule_work(void)
 static void mce_irq_work_cb(struct irq_work *entry)
 {
 	mce_schedule_work();
-}
-
-static void mce_report_event(struct pt_regs *regs)
-{
-	if (regs->flags & (X86_VM_MASK|X86_EFLAGS_IF)) {
-		mce_notify_irq();
-		/*
-		 * Triggering the work queue here is just an insurance
-		 * policy in case the syscall exit notify handler
-		 * doesn't run soon enough or ends up running on the
-		 * wrong CPU (can happen when audit sleeps)
-		 */
-		mce_schedule_work();
-		return;
-	}
-
-	irq_work_queue(&mce_irq_work);
 }
 
 /*
@@ -1331,7 +1315,8 @@ void do_machine_check(struct pt_regs *regs, long error_code)
 		mce_panic("Fatal machine check on current CPU", &m, msg);
 
 	if (worst > 0)
-		mce_report_event(regs);
+		irq_work_queue(&mce_irq_work);
+
 	mce_wrmsrl(MSR_IA32_MCG_STATUS, 0);
 
 	sync_core();
@@ -2453,8 +2438,8 @@ static int fake_panic_set(void *data, u64 val)
 	return 0;
 }
 
-DEFINE_SIMPLE_ATTRIBUTE(fake_panic_fops, fake_panic_get,
-			fake_panic_set, "%llu\n");
+DEFINE_DEBUGFS_ATTRIBUTE(fake_panic_fops, fake_panic_get, fake_panic_set,
+			 "%llu\n");
 
 static int __init mcheck_debugfs_init(void)
 {
@@ -2463,8 +2448,8 @@ static int __init mcheck_debugfs_init(void)
 	dmce = mce_get_debugfs_dir();
 	if (!dmce)
 		return -ENOMEM;
-	ffake_panic = debugfs_create_file("fake_panic", 0444, dmce, NULL,
-					  &fake_panic_fops);
+	ffake_panic = debugfs_create_file_unsafe("fake_panic", 0444, dmce,
+						 NULL, &fake_panic_fops);
 	if (!ffake_panic)
 		return -ENOMEM;
 

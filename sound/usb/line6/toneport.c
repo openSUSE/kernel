@@ -1,13 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Line 6 Linux USB driver
  *
  * Copyright (C) 2004-2010 Markus Grabner (grabner@icg.tugraz.at)
  *                         Emil Myhrman (emil.myhrman@gmail.com)
- *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License as
- *	published by the Free Software Foundation, version 2.
- *
  */
 
 #include <linux/wait.h>
@@ -285,8 +281,8 @@ static bool toneport_has_led(struct usb_line6_toneport *toneport)
 	}
 }
 
-static const char * const led_colors[2] = { "red", "green" };
-static const int led_init_vals[2] = { 0x00, 0x26 };
+static const char * const toneport_led_colors[2] = { "red", "green" };
+static const int toneport_led_init_vals[2] = { 0x00, 0x26 };
 
 static void toneport_update_led(struct usb_line6_toneport *toneport)
 {
@@ -314,9 +310,9 @@ static int toneport_init_leds(struct usb_line6_toneport *toneport)
 
 		led->toneport = toneport;
 		snprintf(led->name, sizeof(led->name), "%s::%s",
-			 dev_name(dev), led_colors[i]);
+			 dev_name(dev), toneport_led_colors[i]);
 		leddev->name = led->name;
-		leddev->brightness = led_init_vals[i];
+		leddev->brightness = toneport_led_init_vals[i];
 		leddev->max_brightness = 0x26;
 		leddev->brightness_set = toneport_led_brightness_set;
 		err = led_classdev_register(dev, leddev);

@@ -1,17 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2009, Microsoft Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Authors:
  *   Haiyang Zhang <haiyangz@microsoft.com>
@@ -969,7 +958,7 @@ int netvsc_send(struct net_device *ndev,
 	/* Keep aggregating only if stack says more data is coming
 	 * and not doing mixed modes send and not flow blocked
 	 */
-	xmit_more = skb->xmit_more &&
+	xmit_more = netdev_xmit_more() &&
 		!packet->cp_partial &&
 		!netif_xmit_stopped(netdev_get_tx_queue(ndev, packet->q_idx));
 

@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * V4L2 Deinterlacer Subdev for Freescale i.MX5/6 SOC
  *
  * Copyright (c) 2017 Mentor Graphics Inc.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 #include <linux/delay.h>
 #include <linux/interrupt.h>
@@ -750,7 +746,7 @@ static int vdic_link_setup(struct media_entity *entity,
 		remote_sd = media_entity_to_v4l2_subdev(remote->entity);
 
 		/* direct pad must connect to a CSI */
-		if (!(remote_sd->grp_id & IMX_MEDIA_GRP_ID_CSI) ||
+		if (!(remote_sd->grp_id & IMX_MEDIA_GRP_ID_IPU_CSI) ||
 		    remote->index != CSI_SRC_PAD_DIRECT) {
 			ret = -EINVAL;
 			goto out;
@@ -964,7 +960,7 @@ static int imx_vdic_probe(struct platform_device *pdev)
 	priv->sd.flags = V4L2_SUBDEV_FL_HAS_DEVNODE;
 	/* get our group id */
 	priv->sd.grp_id = pdata->grp_id;
-	strncpy(priv->sd.name, pdata->sd_name, sizeof(priv->sd.name));
+	strscpy(priv->sd.name, pdata->sd_name, sizeof(priv->sd.name));
 
 	mutex_init(&priv->lock);
 

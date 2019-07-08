@@ -58,7 +58,6 @@
  ******************************************************************************/
 
 enum {
-	LINK_RATE_REF_FREQ_IN_MHZ = 27,
 	PEAK_FACTOR_X1000 = 1006,
 	/*
 	* Some receivers fail to train on first try and are good
@@ -515,6 +514,40 @@ static void link_disconnect_remap(struct dc_sink *prev_sink, struct dc_link *lin
 }
 
 
+static void read_edp_current_link_settings_on_detect(struct dc_link *link)
+{
+	union lane_count_set lane_count_set = { {0} };
+	uint8_t link_bw_set;
+	uint8_t link_rate_set;
+
+	// Read DPCD 00101h to find out the number of lanes currently set
+	core_link_read_dpcd(link, DP_LANE_COUNT_SET,
+			&lane_count_set.raw, sizeof(lane_count_set));
+	link->cur_link_settings.lane_count = lane_count_set.bits.LANE_COUNT_SET;
+
+	// Read DPCD 00100h to find if standard link rates are set
+	core_link_read_dpcd(link, DP_LINK_BW_SET,
+			&link_bw_set, sizeof(link_bw_set));
+
+	if (link_bw_set == 0) {
+		/* If standard link rates are not being used,
+		 * Read DPCD 00115h to find the link rate set used
+		 */
+		core_link_read_dpcd(link, DP_LINK_RATE_SET,
+				&link_rate_set, sizeof(link_rate_set));
+
+		if (link_rate_set < link->dpcd_caps.edp_supported_link_rates_count) {
+			link->cur_link_settings.link_rate =
+				link->dpcd_caps.edp_supported_link_rates[link_rate_set];
+			link->cur_link_settings.link_rate_set = link_rate_set;
+			link->cur_link_settings.use_link_rate_set = true;
+		}
+	} else {
+		link->cur_link_settings.link_rate = link_bw_set;
+		link->cur_link_settings.use_link_rate_set = false;
+	}
+}
+
 static bool detect_dp(
 	struct dc_link *link,
 	struct display_sink_capability *sink_caps,
@@ -640,7 +673,8 @@ bool dc_link_detect(struct dc_link *link, enum dc_detect_reason reason)
 	bool same_dpcd = true;
 	enum dc_connection_type new_connection_type = dc_connection_none;
 	DC_LOGGER_INIT(link->ctx->logger);
-	if (link->connector_signal == SIGNAL_TYPE_VIRTUAL)
+
+	if (dc_is_virtual_signal(link->connector_signal))
 		return false;
 
 	if (false == dc_link_detect_sink(link, &new_connection_type)) {
@@ -648,9 +682,14 @@ bool dc_link_detect(struct dc_link *link, enum dc_detect_reason reason)
 		return false;
 	}
 
-	if (link->connector_signal == SIGNAL_TYPE_EDP &&
-			link->local_sink)
-		return true;
+	if (link->connector_signal == SIGNAL_TYPE_EDP) {
+		/* On detect, we want to make sure current link settings are
+		 * up to date, especially if link was powered on by GOP.
+		 */
+		read_edp_current_link_settings_on_detect(link);
+		if (link->local_sink)
+			return true;
+	}
 
 	if (link->connector_signal == SIGNAL_TYPE_LVDS &&
 			link->local_sink)
@@ -720,9 +759,8 @@ bool dc_link_detect(struct dc_link *link, enum dc_detect_reason reason)
 					same_dpcd = false;
 			}
 			/* Active dongle plug in without display or downstream unplug*/
-			if (link->type == dc_connection_active_dongle
-					&& link->dpcd_caps.sink_count.
-					bits.SINK_COUNT == 0) {
+			if (link->type == dc_connection_active_dongle &&
+				link->dpcd_caps.sink_count.bits.SINK_COUNT == 0) {
 				if (prev_sink != NULL) {
 					/* Downstream unplug */
 					dc_sink_release(prev_sink);
@@ -1172,8 +1210,6 @@ static bool construct(
 		goto create_fail;
 	}
 
-
-
 	/* TODO: #DAL3 Implement id to str function.*/
 	LINK_INFO("Connector[%d] description:"
 			"signal %d\n",
@@ -1207,7 +1243,7 @@ static bool construct(
 	link->link_enc = link->dc->res_pool->funcs->link_enc_create(
 								&enc_init_data);
 
-	if( link->link_enc == NULL) {
+	if (link->link_enc == NULL) {
 		DC_ERROR("Failed to create link encoder!\n");
 		goto link_enc_create_fail;
 	}
@@ -1399,18 +1435,24 @@ static enum dc_status enable_link_dp(
 	/* get link settings for video mode timing */
 	decide_link_settings(stream, &link_settings);
 
-	/* If link settings are different than current and link already enabled
-	 * then need to disable before programming to new rate.
-	 */
-	if (link->link_status.link_active &&
-		(link->cur_link_settings.lane_count != link_settings.lane_count ||
-		 link->cur_link_settings.link_rate != link_settings.link_rate)) {
-		dp_disable_link_phy(link, pipe_ctx->stream->signal);
+	if (pipe_ctx->stream->signal == SIGNAL_TYPE_EDP) {
+		/* If link settings are different than current and link already enabled
+		 * then need to disable before programming to new rate.
+		 */
+		if (link->link_status.link_active &&
+			(link->cur_link_settings.lane_count != link_settings.lane_count ||
+			 link->cur_link_settings.link_rate != link_settings.link_rate)) {
+			dp_disable_link_phy(link, pipe_ctx->stream->signal);
+		}
+
+		/*in case it is not on*/
+		link->dc->hwss.edp_power_control(link, true);
+		link->dc->hwss.edp_wait_for_hpd_ready(link, true);
 	}
 
 	pipe_ctx->stream_res.pix_clk_params.requested_sym_clk =
 			link_settings.link_rate * LINK_RATE_REF_FREQ_IN_KHZ;
-	state->dccg->funcs->update_clocks(state->dccg, state, false);
+	state->clk_mgr->funcs->update_clocks(state->clk_mgr, state, false);
 
 	dp_enable_link_phy(
 		link,
@@ -1451,14 +1493,8 @@ static enum dc_status enable_link_edp(
 		struct pipe_ctx *pipe_ctx)
 {
 	enum dc_status status;
-	struct dc_stream_state *stream = pipe_ctx->stream;
-	struct dc_link *link = stream->link;
-	/*in case it is not on*/
-	link->dc->hwss.edp_power_control(link, true);
-	link->dc->hwss.edp_wait_for_hpd_ready(link, true);
 
 	status = enable_link_dp(state, pipe_ctx);
-
 
 	return status;
 }
@@ -1475,13 +1511,13 @@ static enum dc_status enable_link_dp_mst(
 	if (link->cur_link_settings.lane_count != LANE_COUNT_UNKNOWN)
 		return DC_OK;
 
-	/* to make sure the pending down rep can be processed
-	 * before clear payload table
-	 */
-	dm_helpers_dp_mst_poll_pending_down_reply(link->ctx, link);
-
 	/* clear payload table */
 	dm_helpers_dp_mst_clear_payload_allocation_table(link->ctx, link);
+
+	/* to make sure the pending down rep can be processed
+	 * before enabling the link
+	 */
+	dm_helpers_dp_mst_poll_pending_down_reply(link->ctx, link);
 
 	/* set the sink to MST mode before enabling the link */
 	dp_enable_mst_on_sink(link, true);
@@ -1991,7 +2027,7 @@ static void enable_link_hdmi(struct pipe_ctx *pipe_ctx)
 			pipe_ctx->stream->signal,
 			stream->phy_pix_clk);
 
-	if (pipe_ctx->stream->signal == SIGNAL_TYPE_HDMI_TYPE_A)
+	if (dc_is_hdmi_signal(pipe_ctx->stream->signal))
 		dal_ddc_service_read_scdc_data(link->ddc);
 }
 
@@ -2161,7 +2197,7 @@ static bool dp_active_dongle_validate_timing(
 		return false;
 	}
 
-	if (get_timing_pixel_clock_100hz(timing) > (dongle_caps->dp_hdmi_max_pixel_clk * 10))
+	if (get_timing_pixel_clock_100hz(timing) > (dongle_caps->dp_hdmi_max_pixel_clk_in_khz * 10))
 		return false;
 
 	return true;
@@ -2300,14 +2336,13 @@ void core_link_resume(struct dc_link *link)
 
 static struct fixed31_32 get_pbn_per_slot(struct dc_stream_state *stream)
 {
-	struct dc_link_settings *link_settings =
-			&stream->link->cur_link_settings;
-	uint32_t link_rate_in_mbps =
-			link_settings->link_rate * LINK_RATE_REF_FREQ_IN_MHZ;
-	struct fixed31_32 mbps = dc_fixpt_from_int(
-			link_rate_in_mbps * link_settings->lane_count);
+	struct fixed31_32 mbytes_per_sec;
+	uint32_t link_rate_in_mbytes_per_sec = dc_link_bandwidth_kbps(stream->link, &stream->link->cur_link_settings);
+	link_rate_in_mbytes_per_sec /= 8000; /* Kbits to MBytes */
 
-	return dc_fixpt_div_int(mbps, 54);
+	mbytes_per_sec = dc_fixpt_from_int(link_rate_in_mbytes_per_sec);
+
+	return dc_fixpt_div_int(mbytes_per_sec, 54);
 }
 
 static int get_color_depth(enum dc_color_depth color_depth)
@@ -2567,12 +2602,12 @@ void core_link_enable_stream(
 		struct dc_state *state,
 		struct pipe_ctx *pipe_ctx)
 {
-	struct dc  *core_dc = pipe_ctx->stream->ctx->dc;
+	struct dc *core_dc = pipe_ctx->stream->ctx->dc;
 	struct dc_stream_state *stream = pipe_ctx->stream;
 	enum dc_status status;
 	DC_LOGGER_INIT(pipe_ctx->stream->ctx->logger);
 
-	if (pipe_ctx->stream->signal != SIGNAL_TYPE_VIRTUAL) {
+	if (!dc_is_virtual_signal(pipe_ctx->stream->signal)) {
 		stream->link->link_enc->funcs->setup(
 			stream->link->link_enc,
 			pipe_ctx->stream->signal);
@@ -2586,9 +2621,10 @@ void core_link_enable_stream(
 		pipe_ctx->stream_res.stream_enc->funcs->dp_set_stream_attribute(
 			pipe_ctx->stream_res.stream_enc,
 			&stream->timing,
-			stream->output_color_space);
+			stream->output_color_space,
+			stream->link->dpcd_caps.dprx_feature.bits.SST_SPLIT_SDP_CAP);
 
-	if (dc_is_hdmi_signal(pipe_ctx->stream->signal))
+	if (dc_is_hdmi_tmds_signal(pipe_ctx->stream->signal))
 		pipe_ctx->stream_res.stream_enc->funcs->hdmi_set_stream_attribute(
 			pipe_ctx->stream_res.stream_enc,
 			&stream->timing,

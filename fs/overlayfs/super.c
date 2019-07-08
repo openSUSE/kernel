@@ -1,10 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *
  * Copyright (C) 2011 Novell Inc.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published by
- * the Free Software Foundation.
  */
 
 #include <uapi/linux/magic.h>
@@ -31,29 +28,29 @@ struct ovl_dir_cache;
 
 static bool ovl_redirect_dir_def = IS_ENABLED(CONFIG_OVERLAY_FS_REDIRECT_DIR);
 module_param_named(redirect_dir, ovl_redirect_dir_def, bool, 0644);
-MODULE_PARM_DESC(ovl_redirect_dir_def,
+MODULE_PARM_DESC(redirect_dir,
 		 "Default to on or off for the redirect_dir feature");
 
 static bool ovl_redirect_always_follow =
 	IS_ENABLED(CONFIG_OVERLAY_FS_REDIRECT_ALWAYS_FOLLOW);
 module_param_named(redirect_always_follow, ovl_redirect_always_follow,
 		   bool, 0644);
-MODULE_PARM_DESC(ovl_redirect_always_follow,
+MODULE_PARM_DESC(redirect_always_follow,
 		 "Follow redirects even if redirect_dir feature is turned off");
 
 static bool ovl_index_def = IS_ENABLED(CONFIG_OVERLAY_FS_INDEX);
 module_param_named(index, ovl_index_def, bool, 0644);
-MODULE_PARM_DESC(ovl_index_def,
+MODULE_PARM_DESC(index,
 		 "Default to on or off for the inodes index feature");
 
 static bool ovl_nfs_export_def = IS_ENABLED(CONFIG_OVERLAY_FS_NFS_EXPORT);
 module_param_named(nfs_export, ovl_nfs_export_def, bool, 0644);
-MODULE_PARM_DESC(ovl_nfs_export_def,
+MODULE_PARM_DESC(nfs_export,
 		 "Default to on or off for the NFS export feature");
 
 static bool ovl_xino_auto_def = IS_ENABLED(CONFIG_OVERLAY_FS_XINO_AUTO);
 module_param_named(xino_auto, ovl_xino_auto_def, bool, 0644);
-MODULE_PARM_DESC(ovl_xino_auto_def,
+MODULE_PARM_DESC(xino_auto,
 		 "Auto enable xino feature");
 
 static void ovl_entry_stack_free(struct ovl_entry *oe)
@@ -66,7 +63,7 @@ static void ovl_entry_stack_free(struct ovl_entry *oe)
 
 static bool ovl_metacopy_def = IS_ENABLED(CONFIG_OVERLAY_FS_METACOPY);
 module_param_named(metacopy, ovl_metacopy_def, bool, 0644);
-MODULE_PARM_DESC(ovl_metacopy_def,
+MODULE_PARM_DESC(metacopy,
 		 "Default to on or off for the metadata only copy up feature");
 
 static void ovl_dentry_release(struct dentry *dentry)
@@ -190,11 +187,13 @@ static struct inode *ovl_alloc_inode(struct super_block *sb)
 	return &oi->vfs_inode;
 }
 
-static void ovl_i_callback(struct rcu_head *head)
+static void ovl_free_inode(struct inode *inode)
 {
-	struct inode *inode = container_of(head, struct inode, i_rcu);
+	struct ovl_inode *oi = OVL_I(inode);
 
-	kmem_cache_free(ovl_inode_cachep, OVL_I(inode));
+	kfree(oi->redirect);
+	mutex_destroy(&oi->lock);
+	kmem_cache_free(ovl_inode_cachep, oi);
 }
 
 static void ovl_destroy_inode(struct inode *inode)
@@ -207,10 +206,6 @@ static void ovl_destroy_inode(struct inode *inode)
 		ovl_dir_cache_free(inode);
 	else
 		iput(oi->lowerdata);
-	kfree(oi->redirect);
-	mutex_destroy(&oi->lock);
-
-	call_rcu(&inode->i_rcu, ovl_i_callback);
 }
 
 static void ovl_free_fs(struct ovl_fs *ofs)
@@ -377,6 +372,7 @@ static int ovl_remount(struct super_block *sb, int *flags, char *data)
 
 static const struct super_operations ovl_super_operations = {
 	.alloc_inode	= ovl_alloc_inode,
+	.free_inode	= ovl_free_inode,
 	.destroy_inode	= ovl_destroy_inode,
 	.drop_inode	= generic_delete_inode,
 	.put_super	= ovl_put_super,

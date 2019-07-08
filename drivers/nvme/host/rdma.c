@@ -213,6 +213,11 @@ static struct nvme_rdma_qe *nvme_rdma_alloc_ring(struct ib_device *ibdev,
 	if (!ring)
 		return NULL;
 
+	/*
+	 * Bind the CQEs (post recv buffers) DMA mapping to the RDMA queue
+	 * lifetime. It's safe, since any chage in the underlying RDMA device
+	 * will issue error recovery and queue re-creation.
+	 */
 	for (i = 0; i < ib_queue_size; i++) {
 		if (nvme_rdma_alloc_qe(ibdev, &ring[i], capsule_size, dir))
 			goto out_free_ring;
@@ -274,14 +279,9 @@ static int nvme_rdma_create_qp(struct nvme_rdma_queue *queue, const int factor)
 static void nvme_rdma_exit_request(struct blk_mq_tag_set *set,
 		struct request *rq, unsigned int hctx_idx)
 {
-	struct nvme_rdma_ctrl *ctrl = set->driver_data;
 	struct nvme_rdma_request *req = blk_mq_rq_to_pdu(rq);
-	int queue_idx = (set == &ctrl->tag_set) ? hctx_idx + 1 : 0;
-	struct nvme_rdma_queue *queue = &ctrl->queues[queue_idx];
-	struct nvme_rdma_device *dev = queue->device;
 
-	nvme_rdma_free_qe(dev->dev, &req->sqe, sizeof(struct nvme_command),
-			DMA_TO_DEVICE);
+	kfree(req->sqe.data);
 }
 
 static int nvme_rdma_init_request(struct blk_mq_tag_set *set,
@@ -292,15 +292,11 @@ static int nvme_rdma_init_request(struct blk_mq_tag_set *set,
 	struct nvme_rdma_request *req = blk_mq_rq_to_pdu(rq);
 	int queue_idx = (set == &ctrl->tag_set) ? hctx_idx + 1 : 0;
 	struct nvme_rdma_queue *queue = &ctrl->queues[queue_idx];
-	struct nvme_rdma_device *dev = queue->device;
-	struct ib_device *ibdev = dev->dev;
-	int ret;
 
 	nvme_req(rq)->ctrl = &ctrl->ctrl;
-	ret = nvme_rdma_alloc_qe(ibdev, &req->sqe, sizeof(struct nvme_command),
-			DMA_TO_DEVICE);
-	if (ret)
-		return ret;
+	req->sqe.data = kzalloc(sizeof(struct nvme_command), GFP_KERNEL);
+	if (!req->sqe.data)
+		return -ENOMEM;
 
 	req->queue = queue;
 
@@ -707,15 +703,6 @@ out_free_queues:
 	return ret;
 }
 
-static void nvme_rdma_free_tagset(struct nvme_ctrl *nctrl,
-		struct blk_mq_tag_set *set)
-{
-	struct nvme_rdma_ctrl *ctrl = to_rdma_ctrl(nctrl);
-
-	blk_mq_free_tag_set(set);
-	nvme_rdma_dev_put(ctrl->device);
-}
-
 static struct blk_mq_tag_set *nvme_rdma_alloc_tagset(struct nvme_ctrl *nctrl,
 		bool admin)
 {
@@ -754,24 +741,9 @@ static struct blk_mq_tag_set *nvme_rdma_alloc_tagset(struct nvme_ctrl *nctrl,
 
 	ret = blk_mq_alloc_tag_set(set);
 	if (ret)
-		goto out;
-
-	/*
-	 * We need a reference on the device as long as the tag_set is alive,
-	 * as the MRs in the request structures need a valid ib_device.
-	 */
-	ret = nvme_rdma_dev_get(ctrl->device);
-	if (!ret) {
-		ret = -EINVAL;
-		goto out_free_tagset;
-	}
+		return ERR_PTR(ret);
 
 	return set;
-
-out_free_tagset:
-	blk_mq_free_tag_set(set);
-out:
-	return ERR_PTR(ret);
 }
 
 static void nvme_rdma_destroy_admin_queue(struct nvme_rdma_ctrl *ctrl,
@@ -779,7 +751,7 @@ static void nvme_rdma_destroy_admin_queue(struct nvme_rdma_ctrl *ctrl,
 {
 	if (remove) {
 		blk_cleanup_queue(ctrl->ctrl.admin_q);
-		nvme_rdma_free_tagset(&ctrl->ctrl, ctrl->ctrl.admin_tagset);
+		blk_mq_free_tag_set(ctrl->ctrl.admin_tagset);
 	}
 	if (ctrl->async_event_sqe.data) {
 		nvme_rdma_free_qe(ctrl->device->dev, &ctrl->async_event_sqe,
@@ -803,6 +775,11 @@ static int nvme_rdma_configure_admin_queue(struct nvme_rdma_ctrl *ctrl,
 
 	ctrl->max_fr_pages = nvme_rdma_get_max_fr_pages(ctrl->device->dev);
 
+	/*
+	 * Bind the async event SQE DMA mapping to the admin queue lifetime.
+	 * It's safe, since any chage in the underlying RDMA device will issue
+	 * error recovery and queue re-creation.
+	 */
 	error = nvme_rdma_alloc_qe(ctrl->device->dev, &ctrl->async_event_sqe,
 			sizeof(struct nvme_command), DMA_TO_DEVICE);
 	if (error)
@@ -857,7 +834,7 @@ out_cleanup_queue:
 		blk_cleanup_queue(ctrl->ctrl.admin_q);
 out_free_tagset:
 	if (new)
-		nvme_rdma_free_tagset(&ctrl->ctrl, ctrl->ctrl.admin_tagset);
+		blk_mq_free_tag_set(ctrl->ctrl.admin_tagset);
 out_free_async_qe:
 	nvme_rdma_free_qe(ctrl->device->dev, &ctrl->async_event_sqe,
 		sizeof(struct nvme_command), DMA_TO_DEVICE);
@@ -872,7 +849,7 @@ static void nvme_rdma_destroy_io_queues(struct nvme_rdma_ctrl *ctrl,
 {
 	if (remove) {
 		blk_cleanup_queue(ctrl->ctrl.connect_q);
-		nvme_rdma_free_tagset(&ctrl->ctrl, ctrl->ctrl.tagset);
+		blk_mq_free_tag_set(ctrl->ctrl.tagset);
 	}
 	nvme_rdma_free_io_queues(ctrl);
 }
@@ -913,7 +890,7 @@ out_cleanup_connect_q:
 		blk_cleanup_queue(ctrl->ctrl.connect_q);
 out_free_tag_set:
 	if (new)
-		nvme_rdma_free_tagset(&ctrl->ctrl, ctrl->ctrl.tagset);
+		blk_mq_free_tag_set(ctrl->ctrl.tagset);
 out_free_io_queues:
 	nvme_rdma_free_io_queues(ctrl);
 	return ret;
@@ -1743,12 +1720,20 @@ static blk_status_t nvme_rdma_queue_rq(struct blk_mq_hw_ctx *hctx,
 		return nvmf_fail_nonready_command(&queue->ctrl->ctrl, rq);
 
 	dev = queue->device->dev;
+
+	req->sqe.dma = ib_dma_map_single(dev, req->sqe.data,
+					 sizeof(struct nvme_command),
+					 DMA_TO_DEVICE);
+	err = ib_dma_mapping_error(dev, req->sqe.dma);
+	if (unlikely(err))
+		return BLK_STS_RESOURCE;
+
 	ib_dma_sync_single_for_cpu(dev, sqe->dma,
 			sizeof(struct nvme_command), DMA_TO_DEVICE);
 
 	ret = nvme_setup_cmd(ns, rq, c);
 	if (ret)
-		return ret;
+		goto unmap_qe;
 
 	blk_mq_start_request(rq);
 
@@ -1773,10 +1758,16 @@ static blk_status_t nvme_rdma_queue_rq(struct blk_mq_hw_ctx *hctx,
 	}
 
 	return BLK_STS_OK;
+
 err:
 	if (err == -ENOMEM || err == -EAGAIN)
-		return BLK_STS_RESOURCE;
-	return BLK_STS_IOERR;
+		ret = BLK_STS_RESOURCE;
+	else
+		ret = BLK_STS_IOERR;
+unmap_qe:
+	ib_dma_unmap_single(dev, req->sqe.dma, sizeof(struct nvme_command),
+			    DMA_TO_DEVICE);
+	return ret;
 }
 
 static int nvme_rdma_poll(struct blk_mq_hw_ctx *hctx)
@@ -1789,8 +1780,12 @@ static int nvme_rdma_poll(struct blk_mq_hw_ctx *hctx)
 static void nvme_rdma_complete_rq(struct request *rq)
 {
 	struct nvme_rdma_request *req = blk_mq_rq_to_pdu(rq);
+	struct nvme_rdma_queue *queue = req->queue;
+	struct ib_device *ibdev = queue->device->dev;
 
-	nvme_rdma_unmap_data(req->queue, rq);
+	nvme_rdma_unmap_data(queue, rq);
+	ib_dma_unmap_single(ibdev, req->sqe.dma, sizeof(struct nvme_command),
+			    DMA_TO_DEVICE);
 	nvme_complete_rq(rq);
 }
 

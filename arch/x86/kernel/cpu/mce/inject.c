@@ -1,11 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Machine check injection support.
  * Copyright 2008 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; version 2
- * of the License.
  *
  * Authors:
  * Andi Kleen
@@ -15,9 +11,6 @@
  * for testing different aspects of the RAS code. This driver should be
  * built as module so that it can be loaded on production kernels for
  * testing purposes.
- *
- * This file may be distributed under the terms of the GNU General Public
- * License version 2.
  *
  * Copyright (c) 2010-17:  Borislav Petkov <bp@alien8.de>
  *			   Advanced Micro Devices Inc.
@@ -526,7 +519,7 @@ static void do_inject(void)
 	 * only on the node base core. Refer to D18F3x44[NbMcaToMstCpuEn] for
 	 * Fam10h and later BKDGs.
 	 */
-	if (static_cpu_has(X86_FEATURE_AMD_DCM) &&
+	if (boot_cpu_has(X86_FEATURE_AMD_DCM) &&
 	    b == 4 &&
 	    boot_cpu_data.x86 < 0x17) {
 		toggle_nb_mca_mst_cpu(amd_get_nb_id(cpu));

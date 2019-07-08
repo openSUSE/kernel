@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * ChaCha20-Poly1305 AEAD, RFC7539
  *
  * Copyright (C) 2015 Martin Willi
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #include <crypto/internal/aead.h>
@@ -725,7 +721,7 @@ static void __exit chacha20poly1305_module_exit(void)
 				    ARRAY_SIZE(rfc7539_tmpls));
 }
 
-module_init(chacha20poly1305_module_init);
+subsys_initcall(chacha20poly1305_module_init);
 module_exit(chacha20poly1305_module_exit);
 
 MODULE_LICENSE("GPL");

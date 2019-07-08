@@ -78,6 +78,13 @@ static unsigned long zynqmp_clk_divider_recalc_rate(struct clk_hw *hw,
 	else
 		value = div >> 16;
 
+	if (!value) {
+		WARN(!(divider->flags & CLK_DIVIDER_ALLOW_ZERO),
+		     "%s: Zero divisor and CLK_DIVIDER_ALLOW_ZERO not set\n",
+		     clk_name);
+		return parent_rate;
+	}
+
 	return DIV_ROUND_UP_ULL(parent_rate, value);
 }
 
@@ -217,4 +224,3 @@ struct clk_hw *zynqmp_clk_register_divider(const char *name,
 
 	return hw;
 }
-EXPORT_SYMBOL_GPL(zynqmp_clk_register_divider);

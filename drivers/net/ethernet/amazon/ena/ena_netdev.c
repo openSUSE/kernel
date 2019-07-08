@@ -1825,6 +1825,7 @@ err_setup_rx:
 err_setup_tx:
 	ena_free_io_irq(adapter);
 err_req_irq:
+	ena_del_napi(adapter);
 
 	return rc;
 }
@@ -2241,7 +2242,7 @@ static netdev_tx_t ena_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		}
 	}
 
-	if (netif_xmit_stopped(txq) || !skb->xmit_more) {
+	if (netif_xmit_stopped(txq) || !netdev_xmit_more()) {
 		/* trigger the dma engine. ena_com_write_sq_doorbell()
 		 * has a mb
 		 */
@@ -2263,8 +2264,7 @@ error_drop_packet:
 }
 
 static u16 ena_select_queue(struct net_device *dev, struct sk_buff *skb,
-			    struct net_device *sb_dev,
-			    select_queue_fallback_t fallback)
+			    struct net_device *sb_dev)
 {
 	u16 qid;
 	/* we suspect that this is good for in--kernel network services that
@@ -2274,7 +2274,7 @@ static u16 ena_select_queue(struct net_device *dev, struct sk_buff *skb,
 	if (skb_rx_queue_recorded(skb))
 		qid = skb_get_rx_queue(skb);
 	else
-		qid = fallback(dev, skb, NULL);
+		qid = netdev_pick_tx(dev, skb, NULL);
 
 	return qid;
 }

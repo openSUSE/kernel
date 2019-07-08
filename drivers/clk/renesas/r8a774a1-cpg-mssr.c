@@ -71,8 +71,8 @@ static const struct cpg_core_clk r8a774a1_core_clks[] __initconst = {
 	DEF_GEN3_OSC(".r",      CLK_RINT,          CLK_EXTAL,      32),
 
 	/* Core Clock Outputs */
-	DEF_BASE("z",           R8A774A1_CLK_Z,     CLK_TYPE_GEN3_Z, CLK_PLL0),
-	DEF_BASE("z2",          R8A774A1_CLK_Z2,    CLK_TYPE_GEN3_Z2, CLK_PLL2),
+	DEF_GEN3_Z("z",		R8A774A1_CLK_Z,     CLK_TYPE_GEN3_Z,  CLK_PLL0, 2, 8),
+	DEF_GEN3_Z("z2",	R8A774A1_CLK_Z2,    CLK_TYPE_GEN3_Z,  CLK_PLL2, 2, 0),
 	DEF_FIXED("ztr",        R8A774A1_CLK_ZTR,   CLK_PLL1_DIV2,  6, 1),
 	DEF_FIXED("ztrd2",      R8A774A1_CLK_ZTRD2, CLK_PLL1_DIV2, 12, 1),
 	DEF_FIXED("zt",         R8A774A1_CLK_ZT,    CLK_PLL1_DIV2,  4, 1),
@@ -165,9 +165,9 @@ static const struct mssr_mod_clk r8a774a1_mod_clks[] __initconst = {
 	DEF_MOD("vspd0",		 623,	R8A774A1_CLK_S0D2),
 	DEF_MOD("vspb",			 626,	R8A774A1_CLK_S0D1),
 	DEF_MOD("vspi0",		 631,	R8A774A1_CLK_S0D1),
-	DEF_MOD("ehci1",		 702,	R8A774A1_CLK_S3D4),
-	DEF_MOD("ehci0",		 703,	R8A774A1_CLK_S3D4),
-	DEF_MOD("hsusb",		 704,	R8A774A1_CLK_S3D4),
+	DEF_MOD("ehci1",		 702,	R8A774A1_CLK_S3D2),
+	DEF_MOD("ehci0",		 703,	R8A774A1_CLK_S3D2),
+	DEF_MOD("hsusb",		 704,	R8A774A1_CLK_S3D2),
 	DEF_MOD("csi20",		 714,	R8A774A1_CLK_CSI0),
 	DEF_MOD("csi40",		 716,	R8A774A1_CLK_CSI0),
 	DEF_MOD("du2",			 722,	R8A774A1_CLK_S2D1),

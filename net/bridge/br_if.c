@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *	Userspace interface
  *	Linux ethernet bridge
  *
  *	Authors:
  *	Lennert Buytenhek		<buytenh@gnu.org>
- *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License
- *	as published by the Free Software Foundation; either version
- *	2 of the License, or (at your option) any later version.
  */
 
 #include <linux/kernel.h>
@@ -179,7 +175,7 @@ int nbp_backup_change(struct net_bridge_port *p,
 	ASSERT_RTNL();
 
 	if (backup_dev) {
-		if (!br_port_exists(backup_dev))
+		if (!netif_is_bridge_port(backup_dev))
 			return -ENOENT;
 
 		backup_p = br_port_get_rtnl(backup_dev);

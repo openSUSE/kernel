@@ -41,6 +41,7 @@ MODULE_PARM_DESC(led_id,
 
 #define WIL_WAIT_FOR_SUSPEND_RESUME_COMP 200
 #define WIL_WMI_CALL_GENERAL_TO_MS 100
+#define WIL_WMI_PCP_STOP_TO_MS 5000
 
 /**
  * WMI event receiving - theory of operations
@@ -2195,7 +2196,8 @@ int wmi_pcp_stop(struct wil6210_vif *vif)
 		return rc;
 
 	return wmi_call(wil, WMI_PCP_STOP_CMDID, vif->mid, NULL, 0,
-			WMI_PCP_STOPPED_EVENTID, NULL, 0, 20);
+			WMI_PCP_STOPPED_EVENTID, NULL, 0,
+			WIL_WMI_PCP_STOP_TO_MS);
 }
 
 int wmi_set_ssid(struct wil6210_vif *vif, u8 ssid_len, const void *ssid)
@@ -2957,6 +2959,10 @@ static const char *suspend_status2name(u8 status)
 	switch (status) {
 	case WMI_TRAFFIC_SUSPEND_REJECTED_LINK_NOT_IDLE:
 		return "LINK_NOT_IDLE";
+	case WMI_TRAFFIC_SUSPEND_REJECTED_DISCONNECT:
+		return "DISCONNECT";
+	case WMI_TRAFFIC_SUSPEND_REJECTED_OTHER:
+		return "OTHER";
 	default:
 		return "Untracked status";
 	}
@@ -3046,6 +3052,9 @@ static void resume_triggers2string(u32 triggers, char *string, int str_size)
 
 	if (triggers & WMI_RESUME_TRIGGER_WMI_EVT)
 		strlcat(string, " WMI_EVT", str_size);
+
+	if (triggers & WMI_RESUME_TRIGGER_DISCONNECT)
+		strlcat(string, " DISCONNECT", str_size);
 }
 
 int wmi_resume(struct wil6210_priv *wil)
@@ -3196,7 +3205,7 @@ static void wmi_event_handle(struct wil6210_priv *wil,
 
 		if (mid == MID_BROADCAST)
 			mid = 0;
-		if (mid >= ARRAY_SIZE(wil->vifs) || mid >= wil->max_vifs) {
+		if (mid >= GET_MAX_VIFS(wil)) {
 			wil_dbg_wmi(wil, "invalid mid %d, event skipped\n",
 				    mid);
 			return;

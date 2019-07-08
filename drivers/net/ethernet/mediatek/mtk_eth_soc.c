@@ -1,11 +1,5 @@
-/*   This program is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; version 2 of the License
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
+// SPDX-License-Identifier: GPL-2.0-only
+/*
  *
  *   Copyright (C) 2009-2016 John Crispin <blogic@openwrt.org>
  *   Copyright (C) 2009-2016 Felix Fietkau <nbd@openwrt.org>
@@ -767,7 +761,8 @@ static int mtk_tx_map(struct sk_buff *skb, struct net_device *dev,
 	 */
 	wmb();
 
-	if (netif_xmit_stopped(netdev_get_tx_queue(dev, 0)) || !skb->xmit_more)
+	if (netif_xmit_stopped(netdev_get_tx_queue(dev, 0)) ||
+	    !netdev_xmit_more())
 		mtk_w32(eth, txd->txd2, MTK_QTX_CTX_PTR);
 
 	return 0;
@@ -2028,7 +2023,7 @@ static int __init mtk_init(struct net_device *dev)
 	const char *mac_addr;
 
 	mac_addr = of_get_mac_address(mac->of_node);
-	if (mac_addr)
+	if (!IS_ERR(mac_addr))
 		ether_addr_copy(dev->dev_addr, mac_addr);
 
 	/* If the mac address is invalid, use random mac address  */

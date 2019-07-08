@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * V4L2 fwnode binding parsing library
  *
@@ -12,10 +13,6 @@
  *
  * Copyright (C) 2012 Renesas Electronics Corp.
  * Author: Guennadi Liakhovetski <g.liakhovetski@gmx.de>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of version 2 of the GNU General Public License as
- * published by the Free Software Foundation.
  */
 #include <linux/acpi.h>
 #include <linux/kernel.h>
@@ -828,7 +825,10 @@ error:
  * underneath the fwnode identified by the previous tuple, etc. until you
  * reached the fwnode you need.
  *
- * An example with a graph, as defined in Documentation/acpi/dsd/graph.txt:
+ * THIS EXAMPLE EXISTS MERELY TO DOCUMENT THIS FUNCTION. DO NOT USE IT AS A
+ * REFERENCE IN HOW ACPI TABLES SHOULD BE WRITTEN!! See documentation under
+ * Documentation/acpi/dsd instead and especially graph.txt,
+ * data-node-references.txt and leds.txt .
  *
  *	Scope (\_SB.PCI0.I2C2)
  *	{

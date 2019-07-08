@@ -1,14 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright(c) 2017 Intel Corporation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of version 2 of the GNU General Public License as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
  */
 #include <linux/pagemap.h>
 #include <linux/module.h>
@@ -438,11 +430,9 @@ static struct dax_device *to_dax_dev(struct inode *inode)
 	return container_of(inode, struct dax_device, inode);
 }
 
-static void dax_i_callback(struct rcu_head *head)
+static void dax_free_inode(struct inode *inode)
 {
-	struct inode *inode = container_of(head, struct inode, i_rcu);
 	struct dax_device *dax_dev = to_dax_dev(inode);
-
 	kfree(dax_dev->host);
 	dax_dev->host = NULL;
 	if (inode->i_rdev)
@@ -453,16 +443,15 @@ static void dax_i_callback(struct rcu_head *head)
 static void dax_destroy_inode(struct inode *inode)
 {
 	struct dax_device *dax_dev = to_dax_dev(inode);
-
 	WARN_ONCE(test_bit(DAXDEV_ALIVE, &dax_dev->flags),
 			"kill_dax() must be called before final iput()\n");
-	call_rcu(&inode->i_rcu, dax_i_callback);
 }
 
 static const struct super_operations dax_sops = {
 	.statfs = simple_statfs,
 	.alloc_inode = dax_alloc_inode,
 	.destroy_inode = dax_destroy_inode,
+	.free_inode = dax_free_inode,
 	.drop_inode = generic_delete_inode,
 };
 

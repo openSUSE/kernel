@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *	Generic address resolution entity
  *
  *	Authors:
  *	Pedro Roque		<roque@di.fc.ul.pt>
  *	Alexey Kuznetsov	<kuznet@ms2.inr.ac.ru>
- *
- *	This program is free software; you can redistribute it and/or
- *      modify it under the terms of the GNU General Public License
- *      as published by the Free Software Foundation; either version
- *      2 of the License, or (at your option) any later version.
  *
  *	Fixes:
  *	Vitaly E. Lavrov	releasing NULL neighbor in neigh_add.
@@ -1865,7 +1861,8 @@ static int neigh_add(struct sk_buff *skb, struct nlmsghdr *nlh,
 	int err;
 
 	ASSERT_RTNL();
-	err = nlmsg_parse(nlh, sizeof(*ndm), tb, NDA_MAX, nda_policy, extack);
+	err = nlmsg_parse_deprecated(nlh, sizeof(*ndm), tb, NDA_MAX,
+				     nda_policy, extack);
 	if (err < 0)
 		goto out;
 
@@ -1923,6 +1920,11 @@ static int neigh_add(struct sk_buff *skb, struct nlmsghdr *nlh,
 		goto out;
 	}
 
+	if (tbl->allow_add && !tbl->allow_add(dev, extack)) {
+		err = -EINVAL;
+		goto out;
+	}
+
 	neigh = neigh_lookup(tbl, dst, dev);
 	if (neigh == NULL) {
 		bool exempt_from_gc;
@@ -1977,7 +1979,7 @@ static int neightbl_fill_parms(struct sk_buff *skb, struct neigh_parms *parms)
 {
 	struct nlattr *nest;
 
-	nest = nla_nest_start(skb, NDTA_PARMS);
+	nest = nla_nest_start_noflag(skb, NDTA_PARMS);
 	if (nest == NULL)
 		return -ENOBUFS;
 
@@ -2179,8 +2181,8 @@ static int neightbl_set(struct sk_buff *skb, struct nlmsghdr *nlh,
 	bool found = false;
 	int err, tidx;
 
-	err = nlmsg_parse(nlh, sizeof(*ndtmsg), tb, NDTA_MAX,
-			  nl_neightbl_policy, extack);
+	err = nlmsg_parse_deprecated(nlh, sizeof(*ndtmsg), tb, NDTA_MAX,
+				     nl_neightbl_policy, extack);
 	if (err < 0)
 		goto errout;
 
@@ -2217,8 +2219,9 @@ static int neightbl_set(struct sk_buff *skb, struct nlmsghdr *nlh,
 		struct neigh_parms *p;
 		int i, ifindex = 0;
 
-		err = nla_parse_nested(tbp, NDTPA_MAX, tb[NDTA_PARMS],
-				       nl_ntbl_parm_policy, extack);
+		err = nla_parse_nested_deprecated(tbp, NDTPA_MAX,
+						  tb[NDTA_PARMS],
+						  nl_ntbl_parm_policy, extack);
 		if (err < 0)
 			goto errout_tbl_lock;
 
@@ -2658,11 +2661,12 @@ static int neigh_valid_dump_req(const struct nlmsghdr *nlh,
 			return -EINVAL;
 		}
 
-		err = nlmsg_parse_strict(nlh, sizeof(struct ndmsg), tb, NDA_MAX,
-					 nda_policy, extack);
+		err = nlmsg_parse_deprecated_strict(nlh, sizeof(struct ndmsg),
+						    tb, NDA_MAX, nda_policy,
+						    extack);
 	} else {
-		err = nlmsg_parse(nlh, sizeof(struct ndmsg), tb, NDA_MAX,
-				  nda_policy, extack);
+		err = nlmsg_parse_deprecated(nlh, sizeof(struct ndmsg), tb,
+					     NDA_MAX, nda_policy, extack);
 	}
 	if (err < 0)
 		return err;
@@ -2762,8 +2766,8 @@ static int neigh_valid_get_req(const struct nlmsghdr *nlh,
 		return -EINVAL;
 	}
 
-	err = nlmsg_parse_strict(nlh, sizeof(struct ndmsg), tb, NDA_MAX,
-				 nda_policy, extack);
+	err = nlmsg_parse_deprecated_strict(nlh, sizeof(struct ndmsg), tb,
+					    NDA_MAX, nda_policy, extack);
 	if (err < 0)
 		return err;
 

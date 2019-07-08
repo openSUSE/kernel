@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Block multiqueue core code
  *
@@ -143,13 +144,14 @@ void blk_mq_in_flight_rw(struct request_queue *q, struct hd_struct *part,
 
 void blk_freeze_queue_start(struct request_queue *q)
 {
-	int freeze_depth;
-
-	freeze_depth = atomic_inc_return(&q->mq_freeze_depth);
-	if (freeze_depth == 1) {
+	mutex_lock(&q->mq_freeze_lock);
+	if (++q->mq_freeze_depth == 1) {
 		percpu_ref_kill(&q->q_usage_counter);
+		mutex_unlock(&q->mq_freeze_lock);
 		if (queue_is_mq(q))
 			blk_mq_run_hw_queues(q, false);
+	} else {
+		mutex_unlock(&q->mq_freeze_lock);
 	}
 }
 EXPORT_SYMBOL_GPL(blk_freeze_queue_start);
@@ -198,14 +200,14 @@ EXPORT_SYMBOL_GPL(blk_mq_freeze_queue);
 
 void blk_mq_unfreeze_queue(struct request_queue *q)
 {
-	int freeze_depth;
-
-	freeze_depth = atomic_dec_return(&q->mq_freeze_depth);
-	WARN_ON_ONCE(freeze_depth < 0);
-	if (!freeze_depth) {
+	mutex_lock(&q->mq_freeze_lock);
+	q->mq_freeze_depth--;
+	WARN_ON_ONCE(q->mq_freeze_depth < 0);
+	if (!q->mq_freeze_depth) {
 		percpu_ref_resurrect(&q->q_usage_counter);
 		wake_up_all(&q->mq_freeze_wq);
 	}
+	mutex_unlock(&q->mq_freeze_lock);
 }
 EXPORT_SYMBOL_GPL(blk_mq_unfreeze_queue);
 
@@ -2062,7 +2064,7 @@ void blk_mq_free_rqs(struct blk_mq_tag_set *set, struct blk_mq_tags *tags,
 		list_del_init(&page->lru);
 		/*
 		 * Remove kmemleak object previously allocated in
-		 * blk_mq_init_rq_map().
+		 * blk_mq_alloc_rqs().
 		 */
 		kmemleak_free(page_address(page));
 		__free_pages(page, page->private);
@@ -2268,6 +2270,10 @@ static void blk_mq_exit_hctx(struct request_queue *q,
 		set->ops->exit_hctx(hctx, hctx_idx);
 
 	blk_mq_remove_cpuhp(hctx);
+
+	spin_lock(&q->unused_hctx_lock);
+	list_add(&hctx->hctx_list, &q->unused_hctx_list);
+	spin_unlock(&q->unused_hctx_lock);
 }
 
 static void blk_mq_exit_hw_queues(struct request_queue *q,
@@ -2349,6 +2355,8 @@ blk_mq_alloc_hctx(struct request_queue *q, struct blk_mq_tag_set *set,
 	INIT_LIST_HEAD(&hctx->dispatch);
 	hctx->queue = q;
 	hctx->flags = set->flags & ~BLK_MQ_F_TAG_SHARED;
+
+	INIT_LIST_HEAD(&hctx->hctx_list);
 
 	/*
 	 * Allocate space for all possible cpus to avoid allocation at
@@ -2663,15 +2671,17 @@ static int blk_mq_alloc_ctxs(struct request_queue *q)
  */
 void blk_mq_release(struct request_queue *q)
 {
-	struct blk_mq_hw_ctx *hctx;
-	unsigned int i;
+	struct blk_mq_hw_ctx *hctx, *next;
+	int i;
 
 	cancel_delayed_work_sync(&q->requeue_work);
 
-	/* hctx kobj stays in hctx */
-	queue_for_each_hw_ctx(q, hctx, i) {
-		if (!hctx)
-			continue;
+	queue_for_each_hw_ctx(q, hctx, i)
+		WARN_ON_ONCE(hctx && list_empty(&hctx->hctx_list));
+
+	/* all hctx are in .unused_hctx_list now */
+	list_for_each_entry_safe(hctx, next, &q->unused_hctx_list, hctx_list) {
+		list_del_init(&hctx->hctx_list);
 		kobject_put(&hctx->kobj);
 	}
 
@@ -2738,9 +2748,22 @@ static struct blk_mq_hw_ctx *blk_mq_alloc_and_init_hctx(
 		struct blk_mq_tag_set *set, struct request_queue *q,
 		int hctx_idx, int node)
 {
-	struct blk_mq_hw_ctx *hctx;
+	struct blk_mq_hw_ctx *hctx = NULL, *tmp;
 
-	hctx = blk_mq_alloc_hctx(q, set, node);
+	/* reuse dead hctx first */
+	spin_lock(&q->unused_hctx_lock);
+	list_for_each_entry(tmp, &q->unused_hctx_list, hctx_list) {
+		if (tmp->numa_node == node) {
+			hctx = tmp;
+			break;
+		}
+	}
+	if (hctx)
+		list_del_init(&hctx->hctx_list);
+	spin_unlock(&q->unused_hctx_lock);
+
+	if (!hctx)
+		hctx = blk_mq_alloc_hctx(q, set, node);
 	if (!hctx)
 		goto fail;
 
@@ -2778,10 +2801,8 @@ static void blk_mq_realloc_hw_ctxs(struct blk_mq_tag_set *set,
 
 		hctx = blk_mq_alloc_and_init_hctx(set, q, i, node);
 		if (hctx) {
-			if (hctxs[i]) {
+			if (hctxs[i])
 				blk_mq_exit_hctx(q, set, hctxs[i], i);
-				kobject_put(&hctxs[i]->kobj);
-			}
 			hctxs[i] = hctx;
 		} else {
 			if (hctxs[i])
@@ -2812,9 +2833,7 @@ static void blk_mq_realloc_hw_ctxs(struct blk_mq_tag_set *set,
 			if (hctx->tags)
 				blk_mq_free_map_and_requests(set, j);
 			blk_mq_exit_hctx(q, set, hctx, j);
-			kobject_put(&hctx->kobj);
 			hctxs[j] = NULL;
-
 		}
 	}
 	mutex_unlock(&q->sysfs_lock);
@@ -2856,6 +2875,9 @@ struct request_queue *blk_mq_init_allocated_queue(struct blk_mq_tag_set *set,
 						GFP_KERNEL, set->numa_node);
 	if (!q->queue_hw_ctx)
 		goto err_sys_init;
+
+	INIT_LIST_HEAD(&q->unused_hctx_list);
+	spin_lock_init(&q->unused_hctx_lock);
 
 	blk_mq_realloc_hw_ctxs(set, q);
 	if (!q->nr_hw_queues)

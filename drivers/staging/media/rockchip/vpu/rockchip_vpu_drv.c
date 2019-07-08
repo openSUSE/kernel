@@ -22,7 +22,6 @@
 #include <media/v4l2-event.h>
 #include <media/v4l2-mem2mem.h>
 #include <media/videobuf2-core.h>
-#include <media/videobuf2-core.h>
 #include <media/videobuf2-vmalloc.h>
 
 #include "rockchip_vpu_common.h"
@@ -353,7 +352,7 @@ static int rockchip_vpu_video_device_register(struct rockchip_vpu_dev *vpu)
 	vpu->vfd_enc = vfd;
 	video_set_drvdata(vfd, vpu);
 
-	ret = video_register_device(vfd, VFL_TYPE_GRABBER, 0);
+	ret = video_register_device(vfd, VFL_TYPE_GRABBER, -1);
 	if (ret) {
 		v4l2_err(&vpu->v4l2_dev, "Failed to register video device\n");
 		goto err_free_dev;
@@ -463,7 +462,9 @@ static int rockchip_vpu_probe(struct platform_device *pdev)
 	}
 
 	vpu->mdev.dev = vpu->dev;
-	strlcpy(vpu->mdev.model, DRIVER_NAME, sizeof(vpu->mdev.model));
+	strscpy(vpu->mdev.model, DRIVER_NAME, sizeof(vpu->mdev.model));
+	strscpy(vpu->mdev.bus_info, "platform: " DRIVER_NAME,
+		sizeof(vpu->mdev.model));
 	media_device_init(&vpu->mdev);
 	vpu->v4l2_dev.mdev = &vpu->mdev;
 

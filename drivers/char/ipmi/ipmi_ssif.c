@@ -1995,7 +1995,7 @@ static int dmi_ipmi_probe(struct platform_device *pdev)
 
 	rv = device_property_read_u8(&pdev->dev, "slave-addr", &slave_addr);
 	if (rv)
-		dev_warn(&pdev->dev, "device has no slave-addr property");
+		slave_addr = 0x20;
 
 	return new_ssif_client(i2c_addr, NULL, 0,
 			       slave_addr, SI_SMBIOS, &pdev->dev);
@@ -2111,7 +2111,8 @@ static void cleanup_ipmi_ssif(void)
 
 	kfree(ssif_i2c_driver.address_list);
 
-	platform_driver_unregister(&ipmi_driver);
+	if (ssif_trydmi)
+		platform_driver_unregister(&ipmi_driver);
 
 	free_ssif_clients();
 }

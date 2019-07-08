@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/backing-dev.h>
@@ -34,6 +35,8 @@ static void blk_mq_hw_sysfs_release(struct kobject *kobj)
 {
 	struct blk_mq_hw_ctx *hctx = container_of(kobj, struct blk_mq_hw_ctx,
 						  kobj);
+
+	cancel_delayed_work_sync(&hctx->run_work);
 
 	if (hctx->flags & BLK_MQ_F_BLOCKING)
 		cleanup_srcu_struct(hctx->srcu);
@@ -179,10 +182,6 @@ static ssize_t blk_mq_hw_sysfs_cpus_show(struct blk_mq_hw_ctx *hctx, char *page)
 	return ret;
 }
 
-static struct attribute *default_ctx_attrs[] = {
-	NULL,
-};
-
 static struct blk_mq_hw_ctx_sysfs_entry blk_mq_hw_sysfs_nr_tags = {
 	.attr = {.name = "nr_tags", .mode = 0444 },
 	.show = blk_mq_hw_sysfs_nr_tags_show,
@@ -202,6 +201,7 @@ static struct attribute *default_hw_ctx_attrs[] = {
 	&blk_mq_hw_sysfs_cpus.attr,
 	NULL,
 };
+ATTRIBUTE_GROUPS(default_hw_ctx);
 
 static const struct sysfs_ops blk_mq_sysfs_ops = {
 	.show	= blk_mq_sysfs_show,
@@ -220,13 +220,12 @@ static struct kobj_type blk_mq_ktype = {
 
 static struct kobj_type blk_mq_ctx_ktype = {
 	.sysfs_ops	= &blk_mq_sysfs_ops,
-	.default_attrs	= default_ctx_attrs,
 	.release	= blk_mq_ctx_sysfs_release,
 };
 
 static struct kobj_type blk_mq_hw_ktype = {
 	.sysfs_ops	= &blk_mq_hw_sysfs_ops,
-	.default_attrs	= default_hw_ctx_attrs,
+	.default_groups = default_hw_ctx_groups,
 	.release	= blk_mq_hw_sysfs_release,
 };
 

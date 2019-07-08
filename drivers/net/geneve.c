@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * GENEVE: Generic Network Virtualization Encapsulation
  *
  * Copyright (c) 2015 Red Hat, Inc.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -14,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/etherdevice.h>
 #include <linux/hash.h>
+#include <net/ipv6_stubs.h>
 #include <net/dst_metadata.h>
 #include <net/gro_cells.h>
 #include <net/rtnetlink.h>
@@ -21,8 +19,6 @@
 #include <net/protocol.h>
 
 #define GENEVE_NETDEV_VER	"0.6"
-
-#define GENEVE_UDP_PORT		6081
 
 #define GENEVE_N_VID		(1u << 24)
 #define GENEVE_VID_MASK		(GENEVE_N_VID - 1)

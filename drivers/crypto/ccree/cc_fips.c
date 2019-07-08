@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-/* Copyright (C) 2012-2018 ARM Limited or its affiliates. */
+/* Copyright (C) 2012-2019 ARM Limited (or its affiliates). */
 
 #include <linux/kernel.h>
 #include <linux/fips.h>
@@ -49,8 +49,6 @@ void cc_fips_fini(struct cc_drvdata *drvdata)
 
 	/* Kill tasklet */
 	tasklet_kill(&fips_h->tasklet);
-
-	kfree(fips_h);
 	drvdata->fips_handle = NULL;
 }
 
@@ -112,7 +110,7 @@ int cc_fips_init(struct cc_drvdata *p_drvdata)
 	if (p_drvdata->hw_rev < CC_HW_REV_712)
 		return 0;
 
-	fips_h = kzalloc(sizeof(*fips_h), GFP_KERNEL);
+	fips_h = devm_kzalloc(dev, sizeof(*fips_h), GFP_KERNEL);
 	if (!fips_h)
 		return -ENOMEM;
 

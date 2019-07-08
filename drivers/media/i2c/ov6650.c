@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * V4L2 subdevice driver for OmniVision OV6650 Camera Sensor
  *
@@ -18,10 +19,6 @@
  * Hardware specific bits initially based on former work by Matt Callow
  * drivers/media/video/omap/sensor_ov6650.c
  * Copyright (C) 2006 Matt Callow
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/bitops.h>
@@ -804,8 +801,9 @@ static int ov6650_prog_dflt(struct i2c_client *client)
 	return ret;
 }
 
-static int ov6650_video_probe(struct i2c_client *client)
+static int ov6650_video_probe(struct v4l2_subdev *sd)
 {
+	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	struct ov6650 *priv = to_ov6650(client);
 	u8		pidh, pidl, midh, midl;
 	int		ret;
@@ -817,7 +815,7 @@ static int ov6650_video_probe(struct i2c_client *client)
 		return ret;
 	}
 
-	ret = ov6650_s_power(&priv->subdev, 1);
+	ret = ov6650_s_power(sd, 1);
 	if (ret < 0)
 		goto eclkput;
 
@@ -855,7 +853,7 @@ static int ov6650_video_probe(struct i2c_client *client)
 		ret = v4l2_ctrl_handler_setup(&priv->hdl);
 
 done:
-	ov6650_s_power(&priv->subdev, 0);
+	ov6650_s_power(sd, 0);
 	if (!ret)
 		return 0;
 eclkput:
@@ -943,6 +941,10 @@ static const struct v4l2_subdev_ops ov6650_subdev_ops = {
 	.pad	= &ov6650_pad_ops,
 };
 
+static const struct v4l2_subdev_internal_ops ov6650_internal_ops = {
+	.registered = ov6650_video_probe,
+};
+
 /*
  * i2c_driver function
  */
@@ -1003,7 +1005,10 @@ static int ov6650_probe(struct i2c_client *client,
 	priv->code	  = MEDIA_BUS_FMT_YUYV8_2X8;
 	priv->colorspace  = V4L2_COLORSPACE_JPEG;
 
-	ret = ov6650_video_probe(client);
+	priv->subdev.internal_ops = &ov6650_internal_ops;
+	priv->subdev.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
+
+	ret = v4l2_async_register_subdev(&priv->subdev);
 	if (ret)
 		v4l2_ctrl_handler_free(&priv->hdl);
 
@@ -1015,7 +1020,7 @@ static int ov6650_remove(struct i2c_client *client)
 	struct ov6650 *priv = to_ov6650(client);
 
 	v4l2_clk_put(priv->clk);
-	v4l2_device_unregister_subdev(&priv->subdev);
+	v4l2_async_unregister_subdev(&priv->subdev);
 	v4l2_ctrl_handler_free(&priv->hdl);
 	return 0;
 }

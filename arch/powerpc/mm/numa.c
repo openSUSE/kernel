@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * pSeries NUMA support
  *
  * Copyright (C) 2002 Anton Blanchard <anton@au.ibm.com>, IBM
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
  */
 #define pr_fmt(fmt) "numa: " fmt
 
@@ -32,7 +28,6 @@
 #include <asm/sparsemem.h>
 #include <asm/prom.h>
 #include <asm/smp.h>
-#include <asm/cputhreads.h>
 #include <asm/topology.h>
 #include <asm/firmware.h>
 #include <asm/paca.h>
@@ -908,16 +903,22 @@ static int __init early_numa(char *p)
 }
 early_param("numa", early_numa);
 
-static bool topology_updates_enabled = true;
+/*
+ * The platform can inform us through one of several mechanisms
+ * (post-migration device tree updates, PRRN or VPHN) that the NUMA
+ * assignment of a resource has changed. This controls whether we act
+ * on that. Disabled by default.
+ */
+static bool topology_updates_enabled;
 
 static int __init early_topology_updates(char *p)
 {
 	if (!p)
 		return 0;
 
-	if (!strcmp(p, "off")) {
-		pr_info("Disabling topology updates\n");
-		topology_updates_enabled = false;
+	if (!strcmp(p, "on")) {
+		pr_warn("Caution: enabling topology updates\n");
+		topology_updates_enabled = true;
 	}
 
 	return 0;
@@ -1063,7 +1064,7 @@ u64 memory_hotplug_max(void)
 /* Virtual Processor Home Node (VPHN) support */
 #ifdef CONFIG_PPC_SPLPAR
 
-#include "vphn.h"
+#include "book3s64/vphn.h"
 
 struct topology_update_data {
 	struct topology_update_data *next;

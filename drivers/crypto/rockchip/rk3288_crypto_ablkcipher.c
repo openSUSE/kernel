@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Crypto acceleration support for Rockchip RK3288
  *
  * Copyright (c) 2015, Fuzhou Rockchip Electronics Co., Ltd
  *
  * Author: Zain Wang <zain.wang@rock-chips.com>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
  *
  * Some ideas are from marvell-cesa.c and s5p-sss.c driver.
  */
@@ -46,24 +43,36 @@ static int rk_aes_setkey(struct crypto_ablkcipher *cipher,
 	return 0;
 }
 
-static int rk_tdes_setkey(struct crypto_ablkcipher *cipher,
-			  const u8 *key, unsigned int keylen)
+static int rk_des_setkey(struct crypto_ablkcipher *cipher,
+			 const u8 *key, unsigned int keylen)
 {
 	struct crypto_tfm *tfm = crypto_ablkcipher_tfm(cipher);
 	struct rk_cipher_ctx *ctx = crypto_tfm_ctx(tfm);
 	u32 tmp[DES_EXPKEY_WORDS];
 
-	if (keylen != DES_KEY_SIZE && keylen != DES3_EDE_KEY_SIZE) {
-		crypto_ablkcipher_set_flags(cipher, CRYPTO_TFM_RES_BAD_KEY_LEN);
+	if (!des_ekey(tmp, key) &&
+	    (tfm->crt_flags & CRYPTO_TFM_REQ_FORBID_WEAK_KEYS)) {
+		tfm->crt_flags |= CRYPTO_TFM_RES_WEAK_KEY;
 		return -EINVAL;
 	}
 
-	if (keylen == DES_KEY_SIZE) {
-		if (!des_ekey(tmp, key) &&
-		    (tfm->crt_flags & CRYPTO_TFM_REQ_FORBID_WEAK_KEYS)) {
-			tfm->crt_flags |= CRYPTO_TFM_RES_WEAK_KEY;
-			return -EINVAL;
-		}
+	ctx->keylen = keylen;
+	memcpy_toio(ctx->dev->reg + RK_CRYPTO_TDES_KEY1_0, key, keylen);
+	return 0;
+}
+
+static int rk_tdes_setkey(struct crypto_ablkcipher *cipher,
+			  const u8 *key, unsigned int keylen)
+{
+	struct rk_cipher_ctx *ctx = crypto_ablkcipher_ctx(cipher);
+	u32 flags;
+	int err;
+
+	flags = crypto_ablkcipher_get_flags(cipher);
+	err = __des3_verify_key(&flags, key);
+	if (unlikely(err)) {
+		crypto_ablkcipher_set_flags(cipher, flags);
+		return err;
 	}
 
 	ctx->keylen = keylen;
@@ -468,7 +477,7 @@ struct rk_crypto_tmp rk_ecb_des_alg = {
 		.cra_u.ablkcipher	= {
 			.min_keysize	= DES_KEY_SIZE,
 			.max_keysize	= DES_KEY_SIZE,
-			.setkey		= rk_tdes_setkey,
+			.setkey		= rk_des_setkey,
 			.encrypt	= rk_des_ecb_encrypt,
 			.decrypt	= rk_des_ecb_decrypt,
 		}
@@ -494,7 +503,7 @@ struct rk_crypto_tmp rk_cbc_des_alg = {
 			.min_keysize	= DES_KEY_SIZE,
 			.max_keysize	= DES_KEY_SIZE,
 			.ivsize		= DES_BLOCK_SIZE,
-			.setkey		= rk_tdes_setkey,
+			.setkey		= rk_des_setkey,
 			.encrypt	= rk_des_cbc_encrypt,
 			.decrypt	= rk_des_cbc_decrypt,
 		}

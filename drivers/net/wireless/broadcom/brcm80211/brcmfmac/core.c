@@ -1088,6 +1088,14 @@ static int brcmf_revinfo_read(struct seq_file *s, void *data)
 	return 0;
 }
 
+static void brcmf_core_bus_reset(struct work_struct *work)
+{
+	struct brcmf_pub *drvr = container_of(work, struct brcmf_pub,
+					      bus_reset);
+
+	brcmf_bus_reset(drvr->bus_if);
+}
+
 static int brcmf_bus_started(struct brcmf_pub *drvr, struct cfg80211_ops *ops)
 {
 	int ret = -1;
@@ -1158,6 +1166,8 @@ static int brcmf_bus_started(struct brcmf_pub *drvr, struct cfg80211_ops *ops)
 	}
 #endif
 #endif /* CONFIG_INET */
+
+	INIT_WORK(&drvr->bus_reset, brcmf_core_bus_reset);
 
 	/* populate debugfs */
 	brcmf_debugfs_add_entry(drvr, "revinfo", brcmf_revinfo_read);
@@ -1275,6 +1285,18 @@ void brcmf_dev_coredump(struct device *dev)
 
 	if (brcmf_debug_create_memdump(bus_if, NULL, 0) < 0)
 		brcmf_dbg(TRACE, "failed to create coredump\n");
+}
+
+void brcmf_fw_crashed(struct device *dev)
+{
+	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
+	struct brcmf_pub *drvr = bus_if->drvr;
+
+	bphy_err(drvr, "Firmware has halted or crashed\n");
+
+	brcmf_dev_coredump(dev);
+
+	schedule_work(&drvr->bus_reset);
 }
 
 void brcmf_detach(struct device *dev)

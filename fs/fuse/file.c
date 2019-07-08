@@ -464,7 +464,7 @@ int fuse_fsync_common(struct file *file, loff_t start, loff_t end,
 
 	memset(&inarg, 0, sizeof(inarg));
 	inarg.fh = ff->fh;
-	inarg.fsync_flags = datasync ? 1 : 0;
+	inarg.fsync_flags = datasync ? FUSE_FSYNC_FDATASYNC : 0;
 	args.in.h.opcode = opcode;
 	args.in.h.nodeid = get_node_id(inode);
 	args.in.numargs = 1;
@@ -1377,10 +1377,17 @@ ssize_t fuse_direct_io(struct fuse_io_priv *io, struct iov_iter *iter,
 		if (err && !nbytes)
 			break;
 
-		if (write)
+		if (write) {
+			if (!capable(CAP_FSETID)) {
+				struct fuse_write_in *inarg;
+
+				inarg = &req->misc.write.in;
+				inarg->write_flags |= FUSE_WRITE_KILL_PRIV;
+			}
 			nres = fuse_send_write(req, io, pos, nbytes, owner);
-		else
+		} else {
 			nres = fuse_send_read(req, io, pos, nbytes, owner);
+		}
 
 		if (!io->async)
 			fuse_release_user_pages(req, io->should_dirty);
@@ -2578,8 +2585,13 @@ long fuse_do_ioctl(struct file *file, unsigned int cmd, unsigned long arg,
 #if BITS_PER_LONG == 32
 	inarg.flags |= FUSE_IOCTL_32BIT;
 #else
-	if (flags & FUSE_IOCTL_COMPAT)
+	if (flags & FUSE_IOCTL_COMPAT) {
 		inarg.flags |= FUSE_IOCTL_32BIT;
+#ifdef CONFIG_X86_X32
+		if (in_x32_syscall())
+			inarg.flags |= FUSE_IOCTL_COMPAT_X32;
+#endif
+	}
 #endif
 
 	/* assume all the iovs returned by client always fits in a page */
@@ -3009,6 +3021,16 @@ fuse_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 	return ret;
 }
 
+static int fuse_writeback_range(struct inode *inode, loff_t start, loff_t end)
+{
+	int err = filemap_write_and_wait_range(inode->i_mapping, start, end);
+
+	if (!err)
+		fuse_sync_writes(inode);
+
+	return err;
+}
+
 static long fuse_file_fallocate(struct file *file, int mode, loff_t offset,
 				loff_t length)
 {
@@ -3037,12 +3059,10 @@ static long fuse_file_fallocate(struct file *file, int mode, loff_t offset,
 		inode_lock(inode);
 		if (mode & FALLOC_FL_PUNCH_HOLE) {
 			loff_t endbyte = offset + length - 1;
-			err = filemap_write_and_wait_range(inode->i_mapping,
-							   offset, endbyte);
+
+			err = fuse_writeback_range(inode, offset, endbyte);
 			if (err)
 				goto out;
-
-			fuse_sync_writes(inode);
 		}
 	}
 
@@ -3124,10 +3144,7 @@ static ssize_t fuse_copy_file_range(struct file *file_in, loff_t pos_in,
 
 	if (fc->writeback_cache) {
 		inode_lock(inode_in);
-		err = filemap_write_and_wait_range(inode_in->i_mapping,
-						   pos_in, pos_in + len);
-		if (!err)
-			fuse_sync_writes(inode_in);
+		err = fuse_writeback_range(inode_in, pos_in, pos_in + len);
 		inode_unlock(inode_in);
 		if (err)
 			return err;
@@ -3136,12 +3153,9 @@ static ssize_t fuse_copy_file_range(struct file *file_in, loff_t pos_in,
 	inode_lock(inode_out);
 
 	if (fc->writeback_cache) {
-		err = filemap_write_and_wait_range(inode_out->i_mapping,
-						   pos_out, pos_out + len);
+		err = fuse_writeback_range(inode_out, pos_out, pos_out + len);
 		if (err)
 			goto out;
-
-		fuse_sync_writes(inode_out);
 	}
 
 	if (is_unstable)

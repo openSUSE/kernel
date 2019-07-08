@@ -278,6 +278,7 @@ static int ext4_ioctl_setflags(struct inode *inode,
 	struct ext4_iloc iloc;
 	unsigned int oldflags, mask, i;
 	unsigned int jflag;
+	struct super_block *sb = inode->i_sb;
 
 	/* Is it quota file? Do not allow user to mess with it */
 	if (ext4_is_quota_file(inode))
@@ -320,6 +321,23 @@ static int ext4_ioctl_setflags(struct inode *inode,
 		err = ext4_truncate(inode);
 		if (err)
 			goto flags_out;
+	}
+
+	if ((flags ^ oldflags) & EXT4_CASEFOLD_FL) {
+		if (!ext4_has_feature_casefold(sb)) {
+			err = -EOPNOTSUPP;
+			goto flags_out;
+		}
+
+		if (!S_ISDIR(inode->i_mode)) {
+			err = -ENOTDIR;
+			goto flags_out;
+		}
+
+		if (!ext4_empty_dir(inode)) {
+			err = -ENOTEMPTY;
+			goto flags_out;
+		}
 	}
 
 	handle = ext4_journal_start(inode, EXT4_HT_INODE, 1);
@@ -590,7 +608,7 @@ static int ext4_getfsmap_format(struct ext4_fsmap *xfm, void *priv)
 static int ext4_ioc_getfsmap(struct super_block *sb,
 			     struct fsmap_head __user *arg)
 {
-	struct getfsmap_info info = {0};
+	struct getfsmap_info info = { NULL };
 	struct ext4_fsmap_head xhead = {0};
 	struct fsmap_head head;
 	bool aborted = false;

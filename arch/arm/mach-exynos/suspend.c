@@ -31,6 +31,7 @@
 #include <asm/suspend.h>
 
 #include "common.h"
+#include "smc.h"
 
 #define REG_TABLE_END (-1U)
 
@@ -62,6 +63,8 @@ struct exynos_pm_state {
 	int cpu_state;
 	unsigned int pmu_spare3;
 	void __iomem *sysram_base;
+	phys_addr_t sysram_phys;
+	bool secure_firmware;
 };
 
 static const struct exynos_pm_data *pm_data __ro_after_init;
@@ -265,9 +268,7 @@ static int exynos5420_cpu_suspend(unsigned long arg)
 	unsigned int cluster = MPIDR_AFFINITY_LEVEL(mpidr, 1);
 	unsigned int cpu = MPIDR_AFFINITY_LEVEL(mpidr, 0);
 
-	writel_relaxed(0x0, pm_state.sysram_base + EXYNOS5420_CPU_STATE);
-
-	if (IS_ENABLED(CONFIG_EXYNOS5420_MCPM)) {
+	if (IS_ENABLED(CONFIG_MCPM)) {
 		mcpm_set_entry_vector(cpu, cluster, exynos_cpu_resume);
 		mcpm_cpu_suspend();
 	}
@@ -341,11 +342,16 @@ static void exynos5420_pm_prepare(void)
 	 */
 	pm_state.cpu_state = readl_relaxed(pm_state.sysram_base +
 					   EXYNOS5420_CPU_STATE);
+	writel_relaxed(0x0, pm_state.sysram_base + EXYNOS5420_CPU_STATE);
+	if (pm_state.secure_firmware)
+		exynos_smc(SMC_CMD_REG, SMC_REG_ID_SFR_W(pm_state.sysram_phys +
+							 EXYNOS5420_CPU_STATE),
+			   0, 0);
 
 	exynos_pm_enter_sleep_mode();
 
 	/* ensure at least INFORM0 has the resume address */
-	if (IS_ENABLED(CONFIG_EXYNOS5420_MCPM))
+	if (IS_ENABLED(CONFIG_MCPM))
 		pmu_raw_writel(__pa_symbol(mcpm_entry_point), S5P_INFORM0);
 
 	tmp = pmu_raw_readl(EXYNOS_L2_OPTION(0));
@@ -449,7 +455,7 @@ static void exynos5420_prepare_pm_resume(void)
 	mpidr = read_cpuid_mpidr();
 	cluster = MPIDR_AFFINITY_LEVEL(mpidr, 1);
 
-	if (IS_ENABLED(CONFIG_EXYNOS5420_MCPM))
+	if (IS_ENABLED(CONFIG_MCPM))
 		WARN_ON(mcpm_cpu_powered_up());
 
 	if (IS_ENABLED(CONFIG_HW_PERF_EVENTS) && cluster != 0) {
@@ -479,6 +485,11 @@ static void exynos5420_pm_resume(void)
 	/* Restore the sysram cpu state register */
 	writel_relaxed(pm_state.cpu_state,
 		       pm_state.sysram_base + EXYNOS5420_CPU_STATE);
+	if (pm_state.secure_firmware)
+		exynos_smc(SMC_CMD_REG,
+			   SMC_REG_ID_SFR_W(pm_state.sysram_phys +
+					    EXYNOS5420_CPU_STATE),
+			   EXYNOS_AFTR_MAGIC, 0);
 
 	pmu_raw_writel(EXYNOS5420_USE_STANDBY_WFI_ALL,
 			S5P_CENTRAL_SEQ_OPTION);
@@ -680,8 +691,11 @@ void __init exynos_pm_init(void)
 	 * Applicable as of now only to Exynos542x. If booted under secure
 	 * firmware, the non-secure region of sysram should be used.
 	 */
-	if (exynos_secure_firmware_available())
+	if (exynos_secure_firmware_available()) {
+		pm_state.sysram_phys = sysram_base_phys;
 		pm_state.sysram_base = sysram_ns_base_addr;
-	else
+		pm_state.secure_firmware = true;
+	} else {
 		pm_state.sysram_base = sysram_base_addr;
+	}
 }

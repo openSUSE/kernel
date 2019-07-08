@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  scsi_error.c Copyright (C) 1997 Eric Youngdale
  *
@@ -2394,7 +2395,6 @@ out_put_autopm_host:
 	scsi_autopm_put_host(shost);
 	return error;
 }
-EXPORT_SYMBOL(scsi_ioctl_reset);
 
 bool scsi_command_normalize_sense(const struct scsi_cmnd *cmd,
 				  struct scsi_sense_hdr *sshdr)
