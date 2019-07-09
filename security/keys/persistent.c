@@ -12,6 +12,27 @@
 
 unsigned persistent_keyring_expiry = 3 * 24 * 3600; /* Expire after 3 days of non-use */
 
+static struct key_acl persistent_register_keyring_acl = {
+	.usage	= REFCOUNT_INIT(1),
+	.nr_ace	= 2,
+	.aces = {
+		KEY_POSSESSOR_ACE(KEY_ACE_SEARCH | KEY_ACE_WRITE),
+		KEY_OWNER_ACE(KEY_ACE_VIEW | KEY_ACE_READ),
+	}
+};
+
+static struct key_acl persistent_keyring_acl = {
+	.usage	= REFCOUNT_INIT(1),
+	.nr_ace	= 2,
+	.possessor_viewable = true,
+	.aces = {
+		KEY_POSSESSOR_ACE(KEY_ACE_VIEW | KEY_ACE_READ | KEY_ACE_WRITE |
+				  KEY_ACE_SEARCH | KEY_ACE_LINK |
+				  KEY_ACE_CLEAR | KEY_ACE_INVAL),
+		KEY_OWNER_ACE(KEY_ACE_VIEW | KEY_ACE_READ),
+	}
+};
+
 /*
  * Create the persistent keyring register for the current user namespace.
  *
@@ -22,8 +43,7 @@ static int key_create_persistent_register(struct user_namespace *ns)
 	struct key *reg = keyring_alloc(".persistent_register",
 					KUIDT_INIT(0), KGIDT_INIT(0),
 					current_cred(),
-					((KEY_POS_ALL & ~KEY_POS_SETATTR) |
-					 KEY_USR_VIEW | KEY_USR_READ),
+					&persistent_register_keyring_acl,
 					KEY_ALLOC_NOT_IN_QUOTA, NULL, NULL);
 	if (IS_ERR(reg))
 		return PTR_ERR(reg);
@@ -56,8 +76,7 @@ static key_ref_t key_create_persistent(struct user_namespace *ns, kuid_t uid,
 
 	persistent = keyring_alloc(index_key->description,
 				   uid, INVALID_GID, current_cred(),
-				   ((KEY_POS_ALL & ~KEY_POS_SETATTR) |
-				    KEY_USR_VIEW | KEY_USR_READ),
+				   &persistent_keyring_acl,
 				   KEY_ALLOC_NOT_IN_QUOTA, NULL,
 				   ns->persistent_keyring_register);
 	if (IS_ERR(persistent))
@@ -80,15 +99,17 @@ static long key_get_persistent(struct user_namespace *ns, kuid_t uid,
 	long ret;
 
 	/* Look in the register if it exists */
+	memset(&index_key, 0, sizeof(index_key));
 	index_key.type = &key_type_keyring;
 	index_key.description = buf;
 	index_key.desc_len = sprintf(buf, "_persistent.%u", from_kuid(ns, uid));
+	key_set_index_key(&index_key);
 
 	if (ns->persistent_keyring_register) {
 		reg_ref = make_key_ref(ns->persistent_keyring_register, true);
-		down_read(&ns->persistent_keyring_register_sem);
+		down_read(&ns->keyring_sem);
 		persistent_ref = find_key_to_update(reg_ref, &index_key);
-		up_read(&ns->persistent_keyring_register_sem);
+		up_read(&ns->keyring_sem);
 
 		if (persistent_ref)
 			goto found;
@@ -97,9 +118,9 @@ static long key_get_persistent(struct user_namespace *ns, kuid_t uid,
 	/* It wasn't in the register, so we'll need to create it.  We might
 	 * also need to create the register.
 	 */
-	down_write(&ns->persistent_keyring_register_sem);
+	down_write(&ns->keyring_sem);
 	persistent_ref = key_create_persistent(ns, uid, &index_key);
-	up_write(&ns->persistent_keyring_register_sem);
+	up_write(&ns->keyring_sem);
 	if (!IS_ERR(persistent_ref))
 		goto found;
 

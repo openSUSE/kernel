@@ -40,14 +40,26 @@
 #include <linux/cred.h>
 #include <linux/dns_resolver.h>
 #include <linux/err.h>
+#include <net/net_namespace.h>
 
 #include <keys/dns_resolver-type.h>
 #include <keys/user-type.h>
 
 #include "internal.h"
 
+static struct key_acl dns_key_acl = {
+	.usage	= REFCOUNT_INIT(1),
+	.nr_ace	= 2,
+	.possessor_viewable = true,
+	.aces = {
+		KEY_POSSESSOR_ACE(KEY_ACE_VIEW | KEY_ACE_SEARCH | KEY_ACE_READ),
+		KEY_OWNER_ACE(KEY_ACE_VIEW | KEY_ACE_INVAL),
+	}
+};
+
 /**
  * dns_query - Query the DNS
+ * @net: The network namespace to operate in.
  * @type: Query type (or NULL for straight host->IP lookup)
  * @name: Name to look up
  * @namelen: Length of name
@@ -69,7 +81,8 @@
  *
  * Returns the size of the result on success, -ve error code otherwise.
  */
-int dns_query(const char *type, const char *name, size_t namelen,
+int dns_query(struct net *net,
+	      const char *type, const char *name, size_t namelen,
 	      const char *options, char **_result, time64_t *_expiry,
 	      bool invalidate)
 {
@@ -122,7 +135,8 @@ int dns_query(const char *type, const char *name, size_t namelen,
 	 * add_key() to preinstall malicious redirections
 	 */
 	saved_cred = override_creds(dns_resolver_cache);
-	rkey = request_key(&key_type_dns_resolver, desc, options);
+	rkey = request_key_net(&key_type_dns_resolver, desc, net, options,
+			       &dns_key_acl);
 	revert_creds(saved_cred);
 	kfree(desc);
 	if (IS_ERR(rkey)) {
@@ -132,8 +146,6 @@ int dns_query(const char *type, const char *name, size_t namelen,
 
 	down_read(&rkey->sem);
 	set_bit(KEY_FLAG_ROOT_CAN_INVAL, &rkey->flags);
-	rkey->perm |= KEY_USR_VIEW;
-
 	ret = key_validate(rkey);
 	if (ret < 0)
 		goto put;

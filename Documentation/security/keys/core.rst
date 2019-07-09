@@ -57,9 +57,9 @@ Each key has a number of attributes:
      type provides an operation to perform a match between the description on a
      key and a criterion string.
 
-  *  Each key has an owner user ID, a group ID and a permissions mask. These
-     are used to control what a process may do to a key from userspace, and
-     whether a kernel service will be able to find the key.
+  *  Each key has an owner user ID, a group ID and an ACL.  These are used to
+     control what a process may do to a key from userspace, and whether a
+     kernel service will be able to find the key.
 
   *  Each key can be set to expire at a specific time by the key type's
      instantiation function. Keys can also be immortal.
@@ -198,42 +198,109 @@ The key service provides a number of features besides keys:
 Key Access Permissions
 ======================
 
-Keys have an owner user ID, a group access ID, and a permissions mask. The mask
-has up to eight bits each for possessor, user, group and other access. Only
-six of each set of eight bits are defined. These permissions granted are:
+Keys have an owner user ID, a group ID and an ACL.  The ACL is made up of a
+sequence of ACEs that each contain three elements:
 
-  *  View
+  * The type of subject.
+  * The subject.
 
-     This permits a key or keyring's attributes to be viewed - including key
-     type and description.
+    These two together indicate the subject to whom the permits are granted.
+    The type can be one of:
 
-  *  Read
+     * ``KEY_ACE_SUBJ_STANDARD``
 
-     This permits a key's payload to be viewed or a keyring's list of linked
-     keys.
+       The subject is a standard 'macro' type.  The subject can be one of:
 
-  *  Write
+        * ``KEY_ACE_EVERYONE``
 
-     This permits a key's payload to be instantiated or updated, or it allows a
-     link to be added to or removed from a keyring.
+	  The permits are granted to everyone.  It replaces the old 'other'
+	  type on the assumption that you wouldn't grant a permission to other
+	  that you you wouldn't grant to everyone else.
 
-  *  Search
+	* ``KEY_ACE_OWNER``
 
-     This permits keyrings to be searched and keys to be found. Searches can
-     only recurse into nested keyrings that have search permission set.
+	  The permits are granted to the owner of the key (key->uid).
 
-  *  Link
+	* ``KEY_ACE_GROUP``
 
-     This permits a key or keyring to be linked to. To create a link from a
-     keyring to a key, a process must have Write permission on the keyring and
-     Link permission on the key.
+	  The permits are granted to the key's group (key->gid).
 
-  *  Set Attribute
+	* ``KEY_ACE_POSSESSOR``
 
-     This permits a key's UID, GID and permissions mask to be changed.
+	  The permits are granted to anyone who possesses the key.
+
+  * The set of permits granted to the subject.  These include:
+
+     * ``KEY_ACE_VIEW``
+
+       This permits a key or keyring's attributes to be viewed - including the
+       key type and description.
+
+     * ``KEY_ACE_READ``
+
+       This permits a key's payload to be viewed or a keyring's list of linked
+       keys.
+
+     * ``KEY_ACE_WRITE``
+
+       This permits a key's payload to be instantiated or updated, or it allows
+       a link to be added to or removed from a keyring.
+
+     * ``KEY_ACE_SEARCH``
+
+       This permits keyrings to be searched and keys to be found. Searches can
+       only recurse into nested keyrings that have search permission set.
+
+     * ``KEY_ACE_LINK``
+
+       This permits a key or keyring to be linked to. To create a link from a
+       keyring to a key, a process must have Write permission on the keyring
+       and Link permission on the key.
+
+     * ``KEY_ACE_SET_SECURITY``
+
+       This permits a key's UID, GID and permissions mask to be changed.
+
+     * ``KEY_ACE_INVAL``
+
+       This permits a key to be invalidated with KEYCTL_INVALIDATE.
+
+     * ``KEY_ACE_REVOKE``
+
+       This permits a key to be revoked with KEYCTL_REVOKE.
+
+     * ``KEY_ACE_JOIN``
+
+       This permits a keyring to be joined as a session by
+       KEYCTL_JOIN_SESSION_KEYRING or KEYCTL_SESSION_TO_PARENT.
+
+     * ``KEY_ACE_CLEAR``
+
+       This permits a keyring to be cleared.
 
 For changing the ownership, group ID or permissions mask, being the owner of
 the key or having the sysadmin capability is sufficient.
+
+The legacy KEYCTL_SETPERM and KEYCTL_DESCRIBE functions can only see/generate
+View, Read, Write, Search, Link and SetAttr permits, and do this for each of
+possessor, user, group and other permission sets as a 32-bit flag mask.  These
+will be approximated/inferred:
+
+	SETPERM Permit	Implied ACE Permit
+	===============	=======================
+	Search		Inval, Join
+	Write		Revoke, Clear
+	Setattr		Set Security, Revoke
+
+	ACE Permit	Described as
+	===============	=======================
+	Inval		Search
+	Join		Search
+	Revoke		Write (unless Setattr)
+	Clear		write
+	Set Security	Setattr
+
+'Other' will be approximated as/inferred from the 'Everyone' subject.
 
 
 SELinux Support
@@ -433,6 +500,10 @@ The main syscalls are:
      /sbin/request-key will be invoked in an attempt to obtain a key. The
      callout_info string will be passed as an argument to the program.
 
+     To link a key into the destination keyring the key must grant link
+     permission on the key to the caller and the keyring must grant write
+     permission.
+
      See also Documentation/security/keys/request-key.rst.
 
 
@@ -575,6 +646,27 @@ The keyctl syscall functions are:
      Any links within the keyring to keys that match the new key in terms of
      type and description will be discarded from the keyring as the new one is
      added.
+
+
+  *  Move a key from one keyring to another::
+
+	long keyctl(KEYCTL_MOVE,
+		    key_serial_t id,
+		    key_serial_t from_ring_id,
+		    key_serial_t to_ring_id,
+		    unsigned int flags);
+
+     Move the key specified by "id" from the keyring specified by
+     "from_ring_id" to the keyring specified by "to_ring_id".  If the two
+     keyrings are the same, nothing is done.
+
+     "flags" can have KEYCTL_MOVE_EXCL set in it to cause the operation to fail
+     with EEXIST if a matching key exists in the destination keyring, otherwise
+     such a key will be replaced.
+
+     A process must have link permission on the key for this function to be
+     successful and write permission on both keyrings.  Any errors that can
+     occur from KEYCTL_LINK also apply on the destination keyring here.
 
 
   *  Unlink a key or keyring from another keyring::
@@ -1059,7 +1151,8 @@ payload contents" for more information.
 
 	struct key *request_key(const struct key_type *type,
 				const char *description,
-				const char *callout_info);
+				const char *callout_info,
+				struct key_acl *acl);
 
     This is used to request a key or keyring with a description that matches
     the description specified according to the key type's match_preparse()
@@ -1074,52 +1167,50 @@ payload contents" for more information.
     If successful, the key will have been attached to the default keyring for
     implicitly obtained request-key keys, as set by KEYCTL_SET_REQKEY_KEYRING.
 
+    If a key is created, it will be given the specified ACL.
+
     See also Documentation/security/keys/request-key.rst.
+
+
+ *  To search for a key in a specific domain, call:
+
+	struct key *request_key_tag(const struct key_type *type,
+				    const char *description,
+				    struct key_tag *domain_tag,
+				    const char *callout_info,
+				    struct key_acl *acl);
+
+    This is identical to request_key(), except that a domain tag may be
+    specifies that causes search algorithm to only match keys matching that
+    tag.  The domain_tag may be NULL, specifying a global domain that is
+    separate from any nominated domain.
 
 
  *  To search for a key, passing auxiliary data to the upcaller, call::
 
 	struct key *request_key_with_auxdata(const struct key_type *type,
 					     const char *description,
+					     struct key_tag *domain_tag,
 					     const void *callout_info,
 					     size_t callout_len,
-					     void *aux);
+					     void *aux,
+					     struct key_acl *acl);
 
-    This is identical to request_key(), except that the auxiliary data is
-    passed to the key_type->request_key() op if it exists, and the callout_info
-    is a blob of length callout_len, if given (the length may be 0).
+    This is identical to request_key_tag(), except that the auxiliary data is
+    passed to the key_type->request_key() op if it exists, and the
+    callout_info is a blob of length callout_len, if given (the length may be
+    0).
 
 
- *  A key can be requested asynchronously by calling one of::
+ *  To search for a key under RCU conditions, call::
 
-	struct key *request_key_async(const struct key_type *type,
-				      const char *description,
-				      const void *callout_info,
-				      size_t callout_len);
+	struct key *request_key_rcu(const struct key_type *type,
+				    const char *description,
+				    struct key_tag *domain_tag);
 
-    or::
-
-	struct key *request_key_async_with_auxdata(const struct key_type *type,
-						   const char *description,
-						   const char *callout_info,
-					     	   size_t callout_len,
-					     	   void *aux);
-
-    which are asynchronous equivalents of request_key() and
-    request_key_with_auxdata() respectively.
-
-    These two functions return with the key potentially still under
-    construction.  To wait for construction completion, the following should be
-    called::
-
-	int wait_for_key_construction(struct key *key, bool intr);
-
-    The function will wait for the key to finish being constructed and then
-    invokes key_validate() to return an appropriate value to indicate the state
-    of the key (0 indicates the key is usable).
-
-    If intr is true, then the wait can be interrupted by a signal, in which
-    case error ERESTARTSYS will be returned.
+    which is similar to request_key_tag() except that it does not check for
+    keys that are under construction and it will not call out to userspace to
+    construct a key if it can't find a match.
 
 
  *  When it is no longer required, the key should be released using::
@@ -1159,11 +1250,13 @@ payload contents" for more information.
 
 	key_ref_t keyring_search(key_ref_t keyring_ref,
 				 const struct key_type *type,
-				 const char *description)
+				 const char *description,
+				 bool recurse)
 
-    This searches the keyring tree specified for a matching key. Error ENOKEY
-    is returned upon failure (use IS_ERR/PTR_ERR to determine). If successful,
-    the returned key will need to be released.
+    This searches the specified keyring only (recurse == false) or keyring tree
+    (recurse == true) specified for a matching key. Error ENOKEY is returned
+    upon failure (use IS_ERR/PTR_ERR to determine). If successful, the returned
+    key will need to be released.
 
     The possession attribute from the keyring reference is used to control
     access through the permissions mask and is propagated to the returned key
@@ -1174,7 +1267,7 @@ payload contents" for more information.
 
 	struct key *keyring_alloc(const char *description, uid_t uid, gid_t gid,
 				  const struct cred *cred,
-				  key_perm_t perm,
+				  struct key_acl *acl,
 				  struct key_restriction *restrict_link,
 				  unsigned long flags,
 				  struct key *dest);

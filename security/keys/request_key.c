@@ -13,14 +13,40 @@
 #include <linux/err.h>
 #include <linux/keyctl.h>
 #include <linux/slab.h>
+#include <net/net_namespace.h>
 #include "internal.h"
 #include <keys/request_key_auth-type.h>
 
 #define key_negative_timeout	60	/* default timeout on a negative key's existence */
 
+static struct key *check_cached_key(struct keyring_search_context *ctx)
+{
+#ifdef CONFIG_KEYS_REQUEST_CACHE
+	struct key *key = current->cached_requested_key;
+
+	if (key &&
+	    ctx->match_data.cmp(key, &ctx->match_data) &&
+	    !(key->flags & ((1 << KEY_FLAG_INVALIDATED) |
+			    (1 << KEY_FLAG_REVOKED))))
+		return key_get(key);
+#endif
+	return NULL;
+}
+
+static void cache_requested_key(struct key *key)
+{
+#ifdef CONFIG_KEYS_REQUEST_CACHE
+	struct task_struct *t = current;
+
+	key_put(t->cached_requested_key);
+	t->cached_requested_key = key_get(key);
+	set_tsk_thread_flag(t, TIF_NOTIFY_RESUME);
+#endif
+}
+
 /**
  * complete_request_key - Complete the construction of a key.
- * @auth_key: The authorisation key.
+ * @authkey: The authorisation key.
  * @error: The success or failute of the construction.
  *
  * Complete the attempt to construct a key.  The key will be negated
@@ -92,7 +118,7 @@ static int call_sbin_request_key(struct key *authkey, void *aux)
 	struct request_key_auth *rka = get_request_key_auth(authkey);
 	const struct cred *cred = current_cred();
 	key_serial_t prkey, sskey;
-	struct key *key = rka->target_key, *keyring, *session;
+	struct key *key = rka->target_key, *keyring, *session, *user_session;
 	char *argv[9], *envp[3], uid_str[12], gid_str[12];
 	char key_str[12], keyring_str[3][12];
 	char desc[20];
@@ -100,17 +126,16 @@ static int call_sbin_request_key(struct key *authkey, void *aux)
 
 	kenter("{%d},{%d},%s", key->serial, authkey->serial, rka->op);
 
-	ret = install_user_keyrings();
+	ret = look_up_user_keyrings(NULL, &user_session);
 	if (ret < 0)
-		goto error_alloc;
+		goto error_us;
 
 	/* allocate a new session keyring */
 	sprintf(desc, "_req.%u", key->serial);
 
 	cred = get_current_cred();
 	keyring = keyring_alloc(desc, cred->fsuid, cred->fsgid, cred,
-				KEY_POS_ALL | KEY_USR_VIEW | KEY_USR_READ,
-				KEY_ALLOC_QUOTA_OVERRUN, NULL, NULL);
+				NULL, KEY_ALLOC_QUOTA_OVERRUN, NULL, NULL);
 	put_cred(cred);
 	if (IS_ERR(keyring)) {
 		ret = PTR_ERR(keyring);
@@ -140,7 +165,7 @@ static int call_sbin_request_key(struct key *authkey, void *aux)
 
 	session = cred->session_keyring;
 	if (!session)
-		session = cred->user->session_keyring;
+		session = user_session;
 	sskey = session->serial;
 
 	sprintf(keyring_str[2], "%d", sskey);
@@ -182,6 +207,8 @@ error_link:
 	key_put(keyring);
 
 error_alloc:
+	key_put(user_session);
+error_us:
 	complete_request_key(authkey, ret);
 	kleave(" = %d", ret);
 	return ret;
@@ -218,7 +245,7 @@ static int construct_key(struct key *key, const void *callout_info,
 	/* check that the actor called complete_request_key() prior to
 	 * returning an error */
 	WARN_ON(ret < 0 &&
-		!test_bit(KEY_FLAG_REVOKED, &authkey->flags));
+		!test_bit(KEY_FLAG_INVALIDATED, &authkey->flags));
 
 	key_put(authkey);
 	kleave(" = %d", ret);
@@ -288,13 +315,15 @@ static int construct_get_dest_keyring(struct key **_dest_keyring)
 
 			/* fall through */
 		case KEY_REQKEY_DEFL_USER_SESSION_KEYRING:
-			dest_keyring =
-				key_get(READ_ONCE(cred->user->session_keyring));
+			ret = look_up_user_keyrings(NULL, &dest_keyring);
+			if (ret < 0)
+				return ret;
 			break;
 
 		case KEY_REQKEY_DEFL_USER_KEYRING:
-			dest_keyring =
-				key_get(READ_ONCE(cred->user->uid_keyring));
+			ret = look_up_user_keyrings(&dest_keyring, NULL);
+			if (ret < 0)
+				return ret;
 			break;
 
 		case KEY_REQKEY_DEFL_GROUP_KEYRING:
@@ -337,11 +366,11 @@ static int construct_alloc_key(struct keyring_search_context *ctx,
 			       struct key *dest_keyring,
 			       unsigned long flags,
 			       struct key_user *user,
+			       struct key_acl *acl,
 			       struct key **_key)
 {
-	struct assoc_array_edit *edit;
+	struct assoc_array_edit *edit = NULL;
 	struct key *key;
-	key_perm_t perm;
 	key_ref_t key_ref;
 	int ret;
 
@@ -351,23 +380,18 @@ static int construct_alloc_key(struct keyring_search_context *ctx,
 	*_key = NULL;
 	mutex_lock(&user->cons_lock);
 
-	perm = KEY_POS_VIEW | KEY_POS_SEARCH | KEY_POS_LINK | KEY_POS_SETATTR;
-	perm |= KEY_USR_VIEW;
-	if (ctx->index_key.type->read)
-		perm |= KEY_POS_READ;
-	if (ctx->index_key.type == &key_type_keyring ||
-	    ctx->index_key.type->update)
-		perm |= KEY_POS_WRITE;
-
 	key = key_alloc(ctx->index_key.type, ctx->index_key.description,
 			ctx->cred->fsuid, ctx->cred->fsgid, ctx->cred,
-			perm, flags, NULL);
+			acl, flags, NULL);
 	if (IS_ERR(key))
 		goto alloc_failed;
 
 	set_bit(KEY_FLAG_USER_CONSTRUCT, &key->flags);
 
 	if (dest_keyring) {
+		ret = __key_link_lock(dest_keyring, &ctx->index_key);
+		if (ret < 0)
+			goto link_lock_failed;
 		ret = __key_link_begin(dest_keyring, &ctx->index_key, &edit);
 		if (ret < 0)
 			goto link_prealloc_failed;
@@ -378,7 +402,9 @@ static int construct_alloc_key(struct keyring_search_context *ctx,
 	 * waited for locks */
 	mutex_lock(&key_construction_mutex);
 
-	key_ref = search_process_keyrings(ctx);
+	rcu_read_lock();
+	key_ref = search_process_keyrings_rcu(ctx);
+	rcu_read_unlock();
 	if (!IS_ERR(key_ref))
 		goto key_already_present;
 
@@ -419,6 +445,8 @@ link_check_failed:
 	return ret;
 
 link_prealloc_failed:
+	__key_link_end(dest_keyring, &ctx->index_key, edit);
+link_lock_failed:
 	mutex_unlock(&user->cons_lock);
 	key_put(key);
 	kleave(" = %d [prelink]", ret);
@@ -437,6 +465,7 @@ static struct key *construct_key_and_link(struct keyring_search_context *ctx,
 					  const char *callout_info,
 					  size_t callout_len,
 					  void *aux,
+					  struct key_acl *acl,
 					  struct key *dest_keyring,
 					  unsigned long flags)
 {
@@ -459,7 +488,7 @@ static struct key *construct_key_and_link(struct keyring_search_context *ctx,
 		goto error_put_dest_keyring;
 	}
 
-	ret = construct_alloc_key(ctx, dest_keyring, flags, user, &key);
+	ret = construct_alloc_key(ctx, dest_keyring, flags, user, acl, &key);
 	key_user_put(user);
 
 	if (ret == 0) {
@@ -493,16 +522,19 @@ error:
  * request_key_and_link - Request a key and cache it in a keyring.
  * @type: The type of key we want.
  * @description: The searchable description of the key.
+ * @domain_tag: The domain in which the key operates.
  * @callout_info: The data to pass to the instantiation upcall (or NULL).
  * @callout_len: The length of callout_info.
  * @aux: Auxiliary data for the upcall.
+ * @acl: The ACL to attach if a new key is created.
  * @dest_keyring: Where to cache the key.
  * @flags: Flags to key_alloc().
  *
- * A key matching the specified criteria is searched for in the process's
- * keyrings and returned with its usage count incremented if found.  Otherwise,
- * if callout_info is not NULL, a key will be allocated and some service
- * (probably in userspace) will be asked to instantiate it.
+ * A key matching the specified criteria (type, description, domain_tag) is
+ * searched for in the process's keyrings and returned with its usage count
+ * incremented if found.  Otherwise, if callout_info is not NULL, a key will be
+ * allocated and some service (probably in userspace) will be asked to
+ * instantiate it.
  *
  * If successfully found or created, the key will be linked to the destination
  * keyring if one is provided.
@@ -518,14 +550,17 @@ error:
  */
 struct key *request_key_and_link(struct key_type *type,
 				 const char *description,
+				 struct key_tag *domain_tag,
 				 const void *callout_info,
 				 size_t callout_len,
 				 void *aux,
+				 struct key_acl *acl,
 				 struct key *dest_keyring,
 				 unsigned long flags)
 {
 	struct keyring_search_context ctx = {
 		.index_key.type		= type,
+		.index_key.domain_tag	= domain_tag,
 		.index_key.description	= description,
 		.index_key.desc_len	= strlen(description),
 		.cred			= current_cred(),
@@ -533,7 +568,8 @@ struct key *request_key_and_link(struct key_type *type,
 		.match_data.raw_data	= description,
 		.match_data.lookup_type	= KEYRING_SEARCH_LOOKUP_DIRECT,
 		.flags			= (KEYRING_SEARCH_DO_STATE_CHECK |
-					   KEYRING_SEARCH_SKIP_EXPIRED),
+					   KEYRING_SEARCH_SKIP_EXPIRED |
+					   KEYRING_SEARCH_RECURSE),
 	};
 	struct key *key;
 	key_ref_t key_ref;
@@ -551,10 +587,26 @@ struct key *request_key_and_link(struct key_type *type,
 		}
 	}
 
+	key = check_cached_key(&ctx);
+	if (key)
+		return key;
+
 	/* search all the process keyrings for a key */
-	key_ref = search_process_keyrings(&ctx);
+	rcu_read_lock();
+	key_ref = search_process_keyrings_rcu(&ctx);
+	rcu_read_unlock();
 
 	if (!IS_ERR(key_ref)) {
+		if (dest_keyring) {
+			ret = key_task_permission(key_ref, current_cred(),
+						  KEY_NEED_LINK);
+			if (ret < 0) {
+				key_ref_put(key_ref);
+				key = ERR_PTR(ret);
+				goto error_free;
+			}
+		}
+
 		key = key_ref_to_ptr(key_ref);
 		if (dest_keyring) {
 			ret = key_link(dest_keyring, key);
@@ -564,6 +616,9 @@ struct key *request_key_and_link(struct key_type *type,
 				goto error_free;
 			}
 		}
+
+		/* Only cache the key on immediate success */
+		cache_requested_key(key);
 	} else if (PTR_ERR(key_ref) != -EAGAIN) {
 		key = ERR_CAST(key_ref);
 	} else  {
@@ -574,7 +629,7 @@ struct key *request_key_and_link(struct key_type *type,
 			goto error_free;
 
 		key = construct_key_and_link(&ctx, callout_info, callout_len,
-					     aux, dest_keyring, flags);
+					     aux, acl, dest_keyring, flags);
 	}
 
 error_free:
@@ -612,10 +667,12 @@ int wait_for_key_construction(struct key *key, bool intr)
 EXPORT_SYMBOL(wait_for_key_construction);
 
 /**
- * request_key - Request a key and wait for construction
+ * request_key_tag - Request a key and wait for construction
  * @type: Type of key.
  * @description: The searchable description of the key.
+ * @domain_tag: The domain in which the key operates.
  * @callout_info: The data to pass to the instantiation upcall (or NULL).
+ * @acl: The ACL to attach if a new key is created.
  *
  * As for request_key_and_link() except that it does not add the returned key
  * to a keyring if found, new keys are always allocated in the user's quota,
@@ -625,9 +682,11 @@ EXPORT_SYMBOL(wait_for_key_construction);
  * Furthermore, it then works as wait_for_key_construction() to wait for the
  * completion of keys undergoing construction with a non-interruptible wait.
  */
-struct key *request_key(struct key_type *type,
-			const char *description,
-			const char *callout_info)
+struct key *request_key_tag(struct key_type *type,
+			    const char *description,
+			    struct key_tag *domain_tag,
+			    const char *callout_info,
+			    struct key_acl *acl)
 {
 	struct key *key;
 	size_t callout_len = 0;
@@ -635,8 +694,9 @@ struct key *request_key(struct key_type *type,
 
 	if (callout_info)
 		callout_len = strlen(callout_info);
-	key = request_key_and_link(type, description, callout_info, callout_len,
-				   NULL, NULL, KEY_ALLOC_IN_QUOTA);
+	key = request_key_and_link(type, description, domain_tag,
+				   callout_info, callout_len,
+				   NULL, acl, NULL, KEY_ALLOC_IN_QUOTA);
 	if (!IS_ERR(key)) {
 		ret = wait_for_key_construction(key, false);
 		if (ret < 0) {
@@ -646,15 +706,17 @@ struct key *request_key(struct key_type *type,
 	}
 	return key;
 }
-EXPORT_SYMBOL(request_key);
+EXPORT_SYMBOL(request_key_tag);
 
 /**
  * request_key_with_auxdata - Request a key with auxiliary data for the upcaller
  * @type: The type of key we want.
  * @description: The searchable description of the key.
+ * @domain_tag: The domain in which the key operates.
  * @callout_info: The data to pass to the instantiation upcall (or NULL).
  * @callout_len: The length of callout_info.
  * @aux: Auxiliary data for the upcall.
+ * @acl: The ACL to attach if a new key is created.
  *
  * As for request_key_and_link() except that it does not add the returned key
  * to a keyring if found and new keys are always allocated in the user's quota.
@@ -664,15 +726,18 @@ EXPORT_SYMBOL(request_key);
  */
 struct key *request_key_with_auxdata(struct key_type *type,
 				     const char *description,
+				     struct key_tag *domain_tag,
 				     const void *callout_info,
 				     size_t callout_len,
-				     void *aux)
+				     void *aux,
+				     struct key_acl *acl)
 {
 	struct key *key;
 	int ret;
 
-	key = request_key_and_link(type, description, callout_info, callout_len,
-				   aux, NULL, KEY_ALLOC_IN_QUOTA);
+	key = request_key_and_link(type, description, domain_tag,
+				   callout_info, callout_len,
+				   aux, acl, NULL, KEY_ALLOC_IN_QUOTA);
 	if (!IS_ERR(key)) {
 		ret = wait_for_key_construction(key, false);
 		if (ret < 0) {
@@ -684,52 +749,55 @@ struct key *request_key_with_auxdata(struct key_type *type,
 }
 EXPORT_SYMBOL(request_key_with_auxdata);
 
-/*
- * request_key_async - Request a key (allow async construction)
- * @type: Type of key.
- * @description: The searchable description of the key.
- * @callout_info: The data to pass to the instantiation upcall (or NULL).
- * @callout_len: The length of callout_info.
+/**
+ * request_key_rcu - Request key from RCU-read-locked context
+ * @type: The type of key we want.
+ * @description: The name of the key we want.
+ * @domain_tag: The domain in which the key operates.
  *
- * As for request_key_and_link() except that it does not add the returned key
- * to a keyring if found, new keys are always allocated in the user's quota and
- * no auxiliary data can be passed.
+ * Request a key from a context that we may not sleep in (such as RCU-mode
+ * pathwalk).  Keys under construction are ignored.
  *
- * The caller should call wait_for_key_construction() to wait for the
- * completion of the returned key if it is still undergoing construction.
+ * Return a pointer to the found key if successful, -ENOKEY if we couldn't find
+ * a key or some other error if the key found was unsuitable or inaccessible.
  */
-struct key *request_key_async(struct key_type *type,
-			      const char *description,
-			      const void *callout_info,
-			      size_t callout_len)
+struct key *request_key_rcu(struct key_type *type,
+			    const char *description,
+			    struct key_tag *domain_tag)
 {
-	return request_key_and_link(type, description, callout_info,
-				    callout_len, NULL, NULL,
-				    KEY_ALLOC_IN_QUOTA);
-}
-EXPORT_SYMBOL(request_key_async);
+	struct keyring_search_context ctx = {
+		.index_key.type		= type,
+		.index_key.domain_tag	= domain_tag,
+		.index_key.description	= description,
+		.index_key.desc_len	= strlen(description),
+		.cred			= current_cred(),
+		.match_data.cmp		= key_default_cmp,
+		.match_data.raw_data	= description,
+		.match_data.lookup_type	= KEYRING_SEARCH_LOOKUP_DIRECT,
+		.flags			= (KEYRING_SEARCH_DO_STATE_CHECK |
+					   KEYRING_SEARCH_SKIP_EXPIRED),
+	};
+	struct key *key;
+	key_ref_t key_ref;
 
-/*
- * request a key with auxiliary data for the upcaller (allow async construction)
- * @type: Type of key.
- * @description: The searchable description of the key.
- * @callout_info: The data to pass to the instantiation upcall (or NULL).
- * @callout_len: The length of callout_info.
- * @aux: Auxiliary data for the upcall.
- *
- * As for request_key_and_link() except that it does not add the returned key
- * to a keyring if found and new keys are always allocated in the user's quota.
- *
- * The caller should call wait_for_key_construction() to wait for the
- * completion of the returned key if it is still undergoing construction.
- */
-struct key *request_key_async_with_auxdata(struct key_type *type,
-					   const char *description,
-					   const void *callout_info,
-					   size_t callout_len,
-					   void *aux)
-{
-	return request_key_and_link(type, description, callout_info,
-				    callout_len, aux, NULL, KEY_ALLOC_IN_QUOTA);
+	kenter("%s,%s", type->name, description);
+
+	key = check_cached_key(&ctx);
+	if (key)
+		return key;
+
+	/* search all the process keyrings for a key */
+	key_ref = search_process_keyrings_rcu(&ctx);
+	if (IS_ERR(key_ref)) {
+		key = ERR_CAST(key_ref);
+		if (PTR_ERR(key_ref) == -EAGAIN)
+			key = ERR_PTR(-ENOKEY);
+	} else {
+		key = key_ref_to_ptr(key_ref);
+		cache_requested_key(key);
+	}
+
+	kleave(" = %p", key);
+	return key;
 }
-EXPORT_SYMBOL(request_key_async_with_auxdata);
+EXPORT_SYMBOL(request_key_rcu);
