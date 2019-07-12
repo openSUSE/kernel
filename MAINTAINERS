@@ -551,6 +551,7 @@ W:	http://wiki.analog.com/ADXL345
 W:	http://ez.analog.com/community/linux-device-drivers
 S:	Supported
 F:	drivers/input/misc/adxl34x.c
+F:	Documentation/devicetree/bindings/iio/accel/adi,adxl345.yaml
 
 ADXL372 THREE-AXIS DIGITAL ACCELEROMETER DRIVER
 M:	Stefan Popa <stefan.popa@analog.com>
@@ -559,7 +560,7 @@ S:	Supported
 F:	drivers/iio/accel/adxl372.c
 F:	drivers/iio/accel/adxl372_spi.c
 F:	drivers/iio/accel/adxl372_i2c.c
-F:	Documentation/devicetree/bindings/iio/accel/adxl372.txt
+F:	Documentation/devicetree/bindings/iio/accel/adi,adxl372.yaml
 
 AF9013 MEDIA DRIVER
 M:	Antti Palosaari <crope@iki.fi>
@@ -916,6 +917,15 @@ S:	Supported
 F:	drivers/iio/adc/ad7768-1.c
 F:	Documentation/devicetree/bindings/iio/adc/adi,ad7768-1.txt
 
+ANALOG DEVICES INC AD7780 DRIVER
+M:	Michael Hennerich <Michael.Hennerich@analog.com>
+M:	Renato Lui Geh <renatogeh@gmail.com>
+L:	linux-iio@vger.kernel.org
+W:	http://ez.analog.com/community/linux-device-drivers
+S:	Supported
+F:	drivers/iio/adc/ad7780.c
+F:	Documentation/devicetree/bindings/iio/adc/adi,ad7780.yaml
+
 ANALOG DEVICES INC AD9389B DRIVER
 M:	Hans Verkuil <hverkuil-cisco@xs4all.nl>
 L:	linux-media@vger.kernel.org
@@ -927,6 +937,13 @@ M:	Mircea Caprioru <mircea.caprioru@analog.com>
 S:	Supported
 F:	drivers/mux/adgs1408.c
 F:	Documentation/devicetree/bindings/mux/adi,adgs1408.txt
+
+ANALOG DEVICES INC ADIS DRIVER LIBRARY
+M:	Alexandru Ardelean <alexandru.ardelean@analog.com>
+S:	Supported
+L:	linux-iio@vger.kernel.org
+F:	include/linux/iio/imu/adis.h
+F:	drivers/iio/imu/adis.c
 
 ANALOG DEVICES INC ADP5061 DRIVER
 M:	Stefan Popa <stefan.popa@analog.com>
@@ -1146,6 +1163,15 @@ M:	Laurent Pinchart <Laurent.pinchart@ideasonboard.com>
 L:	linux-media@vger.kernel.org
 S:	Maintained
 F:	drivers/media/i2c/aptina-pll.*
+
+AQUANTIA ETHERNET DRIVER (atlantic)
+M:	Igor Russkikh <igor.russkikh@aquantia.com>
+L:	netdev@vger.kernel.org
+S:	Supported
+W:	http://www.aquantia.com
+Q:	http://patchwork.ozlabs.org/project/netdev/list/
+F:	drivers/net/ethernet/aquantia/atlantic/
+F:	Documentation/networking/device_drivers/aquantia/atlantic.txt
 
 ARC FRAMEBUFFER DRIVER
 M:	Jaya Kumar <jayalk@intworks.biz>
@@ -2114,7 +2140,7 @@ F:	arch/arm/boot/dts/rda8810pl-*
 F:	drivers/clocksource/timer-rda.c
 F:	drivers/irqchip/irq-rda-intc.c
 F:	drivers/tty/serial/rda-uart.c
-F:	Documentation/devicetree/bindings/arm/rda.txt
+F:	Documentation/devicetree/bindings/arm/rda.yaml
 F:	Documentation/devicetree/bindings/interrupt-controller/rda,8810pl-intc.txt
 F:	Documentation/devicetree/bindings/serial/rda,8810pl-uart.txt
 F:	Documentation/devicetree/bindings/timer/rda,8810pl-timer.txt
@@ -3766,7 +3792,7 @@ F:	scripts/extract-cert.c
 CERTIFIED WIRELESS USB (WUSB) SUBSYSTEM:
 L:	linux-usb@vger.kernel.org
 S:	Orphan
-F:	Documentation/usb/WUSB-Design-overview.txt
+F:	Documentation/usb/wusb-design-overview.rst
 F:	Documentation/usb/wusb-cbaf
 F:	drivers/usb/host/hwa-hc.c
 F:	drivers/usb/host/whci/
@@ -4953,13 +4979,6 @@ L:	linux-kernel@vger.kernel.org
 S:	Maintained
 F:	drivers/staging/fsl-dpaa2/ethsw
 
-DPAA2 PTP CLOCK DRIVER
-M:	Yangbo Lu <yangbo.lu@nxp.com>
-L:	netdev@vger.kernel.org
-S:	Maintained
-F:	drivers/net/ethernet/freescale/dpaa2/dpaa2-ptp*
-F:	drivers/net/ethernet/freescale/dpaa2/dprtc*
-
 DPT_I2O SCSI RAID DRIVER
 M:	Adaptec OEM Raid Solutions <aacraid@microsemi.com>
 L:	linux-scsi@vger.kernel.org
@@ -5631,7 +5650,8 @@ F:	include/linux/dynamic_debug.h
 DYNAMIC INTERRUPT MODERATION
 M:	Tal Gilboa <talgi@mellanox.com>
 S:	Maintained
-F:	include/linux/net_dim.h
+F:	include/linux/dim.h
+F:	lib/dim/
 
 DZ DECSTATION DZ11 SERIAL DRIVER
 M:	"Maciej W. Rozycki" <macro@linux-mips.org>
@@ -6005,6 +6025,7 @@ M:	Heiner Kallweit <hkallweit1@gmail.com>
 L:	netdev@vger.kernel.org
 S:	Maintained
 F:	Documentation/ABI/testing/sysfs-bus-mdio
+F:	Documentation/devicetree/bindings/net/ethernet-phy.yaml
 F:	Documentation/devicetree/bindings/net/mdio*
 F:	Documentation/networking/phy.rst
 F:	drivers/net/phy/
@@ -6255,6 +6276,14 @@ M:	Philip Kelleher <pjk1939@linux.ibm.com>
 S:	Maintained
 F:	drivers/block/rsxx/
 
+FLEXTIMER FTM-QUADDEC DRIVER
+M:	Patrick Havelange <patrick.havelange@essensium.com>
+L:	linux-iio@vger.kernel.org
+S:	Maintained
+F:	Documentation/ABI/testing/sysfs-bus-counter-ftm-quadddec
+F:	Documentation/devicetree/bindings/counter/ftm-quaddec.txt
+F:	drivers/counter/ftm-quaddec.c
+
 FLOPPY DRIVER
 M:	Jiri Kosina <jikos@kernel.org>
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jikos/floppy.git
@@ -6414,6 +6443,8 @@ FREESCALE QORIQ PTP CLOCK DRIVER
 M:	Yangbo Lu <yangbo.lu@nxp.com>
 L:	netdev@vger.kernel.org
 S:	Maintained
+F:	drivers/net/ethernet/freescale/dpaa2/dpaa2-ptp*
+F:	drivers/net/ethernet/freescale/dpaa2/dprtc*
 F:	drivers/net/ethernet/freescale/enetc/enetc_ptp.c
 F:	drivers/ptp/ptp_qoriq.c
 F:	drivers/ptp/ptp_qoriq_debugfs.c
@@ -6531,6 +6562,19 @@ S:	Supported
 F:	fs/crypto/
 F:	include/linux/fscrypt*.h
 F:	Documentation/filesystems/fscrypt.rst
+
+FSI SUBSYSTEM
+M:	Jeremy Kerr <jk@ozlabs.org>
+M:	Joel Stanley <joel@jms.id.au>
+R:	Alistar Popple <alistair@popple.id.au>
+R:	Eddie James <eajames@linux.ibm.com>
+L:	linux-fsi@lists.ozlabs.org
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/joel/fsi.git
+Q:	http://patchwork.ozlabs.org/project/linux-fsi/list/
+S:	Supported
+F:	drivers/fsi/
+F:	include/linux/fsi*.h
+F:	include/trace/events/fsi*.h
 
 FSI-ATTACHED I2C DRIVER
 M:	Eddie James <eajames@linux.ibm.com>
@@ -6746,9 +6790,7 @@ M:	Paul Bolle <pebolle@tiscali.nl>
 L:	gigaset307x-common@lists.sourceforge.net
 W:	http://gigaset307x.sourceforge.net/
 S:	Odd Fixes
-F:	Documentation/isdn/README.gigaset
-F:	drivers/isdn/gigaset/
-F:	include/uapi/linux/gigaset_dev.h
+F:	drivers/staging/isdn/gigaset/
 
 GNSS SUBSYSTEM
 M:	Johan Hovold <johan@kernel.org>
@@ -6770,6 +6812,15 @@ M:	Bastien Nocera <hadess@hadess.net>
 L:	linux-input@vger.kernel.org
 S:	Maintained
 F:	drivers/input/touchscreen/goodix.c
+
+GOOGLE ETHERNET DRIVERS
+M:	Catherine Sullivan <csully@google.com>
+R:	Sagi Shahar <sagis@google.com>
+R:	Jon Olson <jonolson@google.com>
+L:	netdev@vger.kernel.org
+S:	Supported
+F:	Documentation/networking/device_drivers/google/gve.txt
+F:	drivers/net/ethernet/google
 
 GPD POCKET FAN DRIVER
 M:	Hans de Goede <hdegoede@redhat.com>
@@ -7830,6 +7881,12 @@ W:	http://industrypack.sourceforge.net
 S:	Maintained
 F:	drivers/ipack/
 
+INFINEON DPS310 Driver
+M:	Eddie James <eajames@linux.ibm.com>
+L:	linux-iio@vger.kernel.org
+F:	drivers/iio/pressure/dps310.c
+S:	Maintained
+
 INFINIBAND SUBSYSTEM
 M:	Doug Ledford <dledford@redhat.com>
 M:	Jason Gunthorpe <jgg@mellanox.com>
@@ -8091,7 +8148,7 @@ F:	include/uapi/linux/mei.h
 F:	include/linux/mei_cl_bus.h
 F:	drivers/misc/mei/*
 F:	drivers/watchdog/mei_wdt.c
-F:	Documentation/misc-devices/mei/*
+F:	Documentation/driver-api/mei/*
 F:	samples/mei/*
 
 INTEL MENLOW THERMAL DRIVER
@@ -8432,18 +8489,26 @@ S:	Supported
 W:	http://www.linux-iscsi.org
 F:	drivers/infiniband/ulp/isert
 
-ISDN SUBSYSTEM
+ISDN/mISDN SUBSYSTEM
 M:	Karsten Keil <isdn@linux-pingi.de>
 L:	isdn4linux@listserv.isdn4linux.de (subscribers-only)
 L:	netdev@vger.kernel.org
 W:	http://www.isdn4linux.de
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/kkeil/isdn-2.6.git
 S:	Maintained
+F:	drivers/isdn/mISDN
+F:	drivers/isdn/hardware
+
+ISDN/CAPI SUBSYSTEM
+M:	Karsten Keil <isdn@linux-pingi.de>
+L:	isdn4linux@listserv.isdn4linux.de (subscribers-only)
+L:	netdev@vger.kernel.org
+W:	http://www.isdn4linux.de
+S:	Odd Fixes
 F:	Documentation/isdn/
-F:	drivers/isdn/
-F:	include/linux/isdn.h
+F:	drivers/isdn/capi/
+F:	drivers/staging/isdn/
+F:	net/bluetooth/cmtp/
 F:	include/linux/isdn/
-F:	include/uapi/linux/isdn.h
 F:	include/uapi/linux/isdn/
 
 IT87 HARDWARE MONITORING DRIVER
@@ -8916,7 +8981,7 @@ F:	include/linux/leds.h
 LEGACY EEPROM DRIVER
 M:	Jean Delvare <jdelvare@suse.com>
 S:	Maintained
-F:	Documentation/misc-devices/eeprom
+F:	Documentation/misc-devices/eeprom.rst
 F:	drivers/misc/eeprom/eeprom.c
 
 LEGO MINDSTORMS EV3
@@ -9202,7 +9267,7 @@ F:	Documentation/memory-barriers.txt
 LIS3LV02D ACCELEROMETER DRIVER
 M:	Eric Piel <eric.piel@tremplin-utc.net>
 S:	Maintained
-F:	Documentation/misc-devices/lis3lv02d
+F:	Documentation/misc-devices/lis3lv02d.rst
 F:	drivers/misc/lis3lv02d/
 F:	drivers/platform/x86/hp_accel.c
 
@@ -10170,6 +10235,7 @@ Q:	http://patchwork.ozlabs.org/project/netdev/list/
 S:	Supported
 F:	drivers/net/ethernet/mellanox/mlx5/core/
 F:	include/linux/mlx5/
+F:	Documentation/networking/device_drivers/mellanox/
 
 MELLANOX MLX5 IB driver
 M:	Leon Romanovsky <leonro@mellanox.com>
@@ -10943,7 +11009,7 @@ F:	drivers/net/ethernet/neterion/
 
 NETFILTER
 M:	Pablo Neira Ayuso <pablo@netfilter.org>
-M:	Jozsef Kadlecsik <kadlec@blackhole.kfki.hu>
+M:	Jozsef Kadlecsik <kadlec@netfilter.org>
 M:	Florian Westphal <fw@strlen.de>
 L:	netfilter-devel@vger.kernel.org
 L:	coreteam@netfilter.org
@@ -11155,6 +11221,15 @@ M:	GR-Linux-NIC-Dev@marvell.com
 L:	netdev@vger.kernel.org
 S:	Supported
 F:	drivers/net/ethernet/qlogic/netxen/
+
+NEXTHOP
+M:	David Ahern <dsahern@kernel.org>
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	include/net/nexthop.h
+F:	include/uapi/linux/nexthop.h
+F:	include/net/netns/nexthop.h
+F:	net/ipv4/nexthop.c
 
 NFC SUBSYSTEM
 L:	netdev@vger.kernel.org
@@ -11749,16 +11824,6 @@ S:	Maintained
 F:	drivers/mtd/nand/onenand/
 F:	include/linux/mtd/onenand*.h
 
-ONSTREAM SCSI TAPE DRIVER
-M:	Willem Riede <osst@riede.org>
-L:	osst-users@lists.sourceforge.net
-L:	linux-scsi@vger.kernel.org
-S:	Maintained
-F:	Documentation/scsi/osst.txt
-F:	drivers/scsi/osst.*
-F:	drivers/scsi/osst_*.h
-F:	drivers/scsi/st.h
-
 OP-TEE DRIVER
 M:	Jens Wiklander <jens.wiklander@linaro.org>
 S:	Maintained
@@ -11948,6 +12013,14 @@ S:	Maintained
 F:	kernel/padata.c
 F:	include/linux/padata.h
 F:	Documentation/padata.txt
+
+PAGE POOL
+M:	Jesper Dangaard Brouer <hawk@kernel.org>
+M:	Ilias Apalodimas <ilias.apalodimas@linaro.org>
+L:	netdev@vger.kernel.org
+S:	Supported
+F:	net/core/page_pool.c
+F:	include/net/page_pool.h
 
 PANASONIC LAPTOP ACPI EXTRAS DRIVER
 M:	Harald Welte <laforge@gnumonks.org>
@@ -12642,8 +12715,7 @@ S:	Orphan
 F:	drivers/scsi/pmcraid.*
 
 PMC SIERRA PM8001 DRIVER
-M:	Jack Wang <jinpu.wang@profitbricks.com>
-M:	lindar_liu@usish.com
+M:	Jack Wang <jinpu.wang@cloud.ionos.com>
 L:	linux-scsi@vger.kernel.org
 S:	Supported
 F:	drivers/scsi/pm8001/
@@ -14239,6 +14311,12 @@ S:	Maintained
 F:	drivers/misc/phantom.c
 F:	include/uapi/linux/phantom.h
 
+SENSIRION SPS30 AIR POLLUTION SENSOR DRIVER
+M:	Tomasz Duszynski <tduszyns@gmail.com>
+S:	Maintained
+F:	drivers/iio/chemical/sps30.c
+F:	Documentation/devicetree/bindings/iio/chemical/sensirion,sps30.yaml
+
 SERIAL DEVICE BUS
 M:	Rob Herring <robh@kernel.org>
 L:	linux-serial@vger.kernel.org
@@ -15012,6 +15090,17 @@ M:	Chao Yu <yuchao0@huawei.com>
 L:	linux-erofs@lists.ozlabs.org
 S:	Maintained
 F:	drivers/staging/erofs/
+
+STAGING - FIELDBUS SUBSYSTEM
+M:	Sven Van Asbroeck <TheSven73@gmail.com>
+S:	Maintained
+F:	drivers/staging/fieldbus/*
+F:	drivers/staging/fieldbus/Documentation/
+
+STAGING - HMS ANYBUS-S BUS
+M:	Sven Van Asbroeck <TheSven73@gmail.com>
+S:	Maintained
+F:	drivers/staging/fieldbus/anybuss/
 
 STAGING - INDUSTRIAL IO
 M:	Jonathan Cameron <jic23@kernel.org>
@@ -16334,7 +16423,7 @@ USB ACM DRIVER
 M:	Oliver Neukum <oneukum@suse.com>
 L:	linux-usb@vger.kernel.org
 S:	Maintained
-F:	Documentation/usb/acm.txt
+F:	Documentation/usb/acm.rst
 F:	drivers/usb/class/cdc-acm.*
 
 USB AR5523 WIRELESS DRIVER
@@ -16387,7 +16476,7 @@ USB EHCI DRIVER
 M:	Alan Stern <stern@rowland.harvard.edu>
 L:	linux-usb@vger.kernel.org
 S:	Maintained
-F:	Documentation/usb/ehci.txt
+F:	Documentation/usb/ehci.rst
 F:	drivers/usb/host/ehci*
 
 USB GADGET/PERIPHERAL SUBSYSTEM
@@ -16405,7 +16494,7 @@ M:	Benjamin Tissoires <benjamin.tissoires@redhat.com>
 L:	linux-usb@vger.kernel.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/hid/hid.git
 S:	Maintained
-F:	Documentation/hid/hiddev.txt
+F:	Documentation/hid/hiddev.rst
 F:	drivers/hid/usbhid/
 
 USB INTEL XHCI ROLE MUX DRIVER
@@ -16461,7 +16550,7 @@ USB OHCI DRIVER
 M:	Alan Stern <stern@rowland.harvard.edu>
 L:	linux-usb@vger.kernel.org
 S:	Maintained
-F:	Documentation/usb/ohci.txt
+F:	Documentation/usb/ohci.rst
 F:	drivers/usb/host/ohci*
 
 USB OTG FSM (Finite State Machine)
@@ -16477,7 +16566,7 @@ M:	Shuah Khan <shuah@kernel.org>
 M:	Shuah Khan <skhan@linuxfoundation.org>
 L:	linux-usb@vger.kernel.org
 S:	Maintained
-F:	Documentation/usb/usbip_protocol.txt
+F:	Documentation/usb/usbip_protocol.rst
 F:	drivers/usb/usbip/
 F:	tools/usb/usbip/
 F:	tools/testing/selftests/drivers/usb/usbip/
@@ -16525,7 +16614,7 @@ M:	Johan Hovold <johan@kernel.org>
 L:	linux-usb@vger.kernel.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/johan/usb-serial.git
 S:	Maintained
-F:	Documentation/usb/usb-serial.txt
+F:	Documentation/usb/usb-serial.rst
 F:	drivers/usb/serial/
 F:	include/linux/usb/serial.h
 
@@ -17361,6 +17450,7 @@ N:	xdp
 XDP SOCKETS (AF_XDP)
 M:	Björn Töpel <bjorn.topel@intel.com>
 M:	Magnus Karlsson <magnus.karlsson@intel.com>
+R:	Jonathan Lemon <jonathan.lemon@gmail.com>
 L:	netdev@vger.kernel.org
 L:	bpf@vger.kernel.org
 S:	Maintained
