@@ -7422,6 +7422,7 @@ F:	net/vmw_vsock/hyperv_transport.c
 F:	include/clocksource/hyperv_timer.h
 F:	include/linux/hyperv.h
 F:	include/uapi/linux/hyperv.h
+F:	include/asm-generic/mshyperv.h
 F:	tools/hv/
 F:	Documentation/ABI/stable/sysfs-bus-vmbus
 
@@ -11260,7 +11261,7 @@ F:	include/uapi/linux/nfs*
 F:	include/uapi/linux/sunrpc/
 
 NILFS2 FILESYSTEM
-M:	Ryusuke Konishi <konishi.ryusuke@lab.ntt.co.jp>
+M:	Ryusuke Konishi <konishi.ryusuke@gmail.com>
 L:	linux-nilfs@vger.kernel.org
 W:	https://nilfs.sourceforge.io/
 W:	https://nilfs.osdn.jp/
@@ -12929,7 +12930,6 @@ F:	include/linux/regset.h
 F:	include/linux/tracehook.h
 F:	include/uapi/linux/ptrace.h
 F:	include/uapi/linux/ptrace.h
-F:	include/asm-generic/ptrace.h
 F:	kernel/ptrace.c
 F:	arch/*/ptrace*.c
 F:	arch/*/*/ptrace*.c
@@ -17544,7 +17544,13 @@ W:	http://xfs.org/
 T:	git git://git.kernel.org/pub/scm/fs/xfs/xfs-linux.git
 S:	Supported
 F:	Documentation/filesystems/xfs.txt
+F:	Documentation/ABI/testing/sysfs-fs-xfs
+F:	Documentation/filesystems/xfs.txt
+F:	Documentation/filesystems/xfs-delayed-logging-design.txt
+F:	Documentation/filesystems/xfs-self-describing-metadata.txt
 F:	fs/xfs/
+F:	include/uapi/linux/dqblk_xfs.h
+F:	include/uapi/linux/fsmap.h
 
 XILINX AXI ETHERNET DRIVER
 M:	Anirudha Sarangi <anirudh@xilinx.com>
