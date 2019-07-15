@@ -52,6 +52,10 @@ static struct property *dlpar_parse_cc_property(struct cc_workarea *ccwa)
 
 	name = (char *)ccwa + ccwa->name_offset;
 	prop->name = kstrdup(name, GFP_KERNEL);
+	if (!prop->name) {
+		dlpar_free_cc_property(prop);
+		return NULL;
+	}
 
 	prop->length = ccwa->prop_length;
 	value = (char *)ccwa + ccwa->prop_offset;
