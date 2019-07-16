@@ -90,6 +90,7 @@ needed).
 
    driver-api/index
    core-api/index
+   infiniband/index
    media/index
    networking/index
    input/index
@@ -102,6 +103,7 @@ needed).
    vm/index
    bpf/index
    usb/index
+   PCI/index
    misc-devices/index
 
 Architecture-specific documentation
