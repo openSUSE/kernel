@@ -4683,6 +4683,13 @@ L:	linux-mtd@lists.infradead.org
 S:	Supported
 F:	drivers/mtd/nand/raw/denali*
 
+DESIGNWARE EDMA CORE IP DRIVER
+M:	Gustavo Pimentel <gustavo.pimentel@synopsys.com>
+L:	dmaengine@vger.kernel.org
+S:	Maintained
+F:	drivers/dma/dw-edma/
+F:	include/linux/dma/edma.h
+
 DESIGNWARE USB2 DRD IP DRIVER
 M:	Minas Harutyunyan <hminas@synopsys.com>
 L:	linux-usb@vger.kernel.org
@@ -7954,6 +7961,33 @@ M:	Harvey Hunt <harveyhuntnexus@gmail.com>
 L:	linux-mtd@lists.infradead.org
 S:	Maintained
 F:	drivers/mtd/nand/raw/ingenic/
+
+INGENIC JZ47xx SoCs
+M:	Paul Cercueil <paul@crapouillou.net>
+S:	Maintained
+F:	arch/mips/boot/dts/ingenic/
+F:	arch/mips/include/asm/mach-jz4740/
+F:	arch/mips/jz4740/
+F:	drivers/clk/ingenic/
+F:	drivers/dma/dma-jz4780.c
+F:	drivers/gpu/drm/ingenic/
+F:	drivers/i2c/busses/i2c-jz4780.c
+F:	drivers/iio/adc/ingenic-adc.c
+F:	drivers/irqchip/irq-ingenic.c
+F:	drivers/memory/jz4780-nemc.c
+F:	drivers/mmc/host/jz4740_mmc.c
+F:	drivers/mtd/nand/raw/ingenic/
+F:	drivers/pinctrl/pinctrl-ingenic.c
+F:	drivers/power/supply/ingenic-battery.c
+F:	drivers/pwm/pwm-jz4740.c
+F:	drivers/rtc/rtc-jz4740.c
+F:	drivers/tty/serial/8250/8250_ingenic.c
+F:	drivers/usb/musb/jz4740.c
+F:	drivers/watchdog/jz4740_wdt.c
+F:	include/dt-bindings/iio/adc/ingenic,adc.h
+F:	include/linux/mfd/ingenic-tcu.h
+F:	sound/soc/jz4740/
+F:	sound/soc/codecs/jz47*
 
 INOTIFY
 M:	Jan Kara <jack@suse.cz>
@@ -13556,9 +13590,11 @@ L:	linux-remoteproc@vger.kernel.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/ohad/remoteproc.git
 S:	Maintained
 F:	Documentation/devicetree/bindings/remoteproc/
+F:	Documentation/ABI/testing/sysfs-class-remoteproc
 F:	Documentation/remoteproc.txt
 F:	drivers/remoteproc/
 F:	include/linux/remoteproc.h
+F:	include/linux/remoteproc/
 
 REMOTE PROCESSOR MESSAGING (RPMSG) SUBSYSTEM
 M:	Ohad Ben-Cohen <ohad@wizery.com>
@@ -13568,8 +13604,11 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/ohad/rpmsg.git
 S:	Maintained
 F:	drivers/rpmsg/
 F:	Documentation/rpmsg.txt
+F:	Documentation/ABI/testing/sysfs-bus-rpmsg
 F:	include/linux/rpmsg.h
 F:	include/linux/rpmsg/
+F:	include/uapi/linux/rpmsg.h
+F:	samples/rpmsg/
 
 RENESAS CLOCK DRIVERS
 M:	Geert Uytterhoeven <geert+renesas@glider.be>
@@ -15857,7 +15896,7 @@ M:	Viresh Kumar <viresh.kumar@linaro.org>
 M:	Javi Merino <javi.merino@kernel.org>
 L:	linux-pm@vger.kernel.org
 S:	Supported
-F:	Documentation/thermal/cpu-cooling-api.txt
+F:	Documentation/thermal/cpu-cooling-api.rst
 F:	drivers/thermal/cpu_cooling.c
 F:	include/linux/cpu_cooling.h
 
@@ -17072,6 +17111,13 @@ M:	Gerd Hoffmann <kraxel@redhat.com>
 S:	Maintained
 F:	drivers/virtio/virtio_input.c
 F:	include/uapi/linux/virtio_input.h
+
+VIRTIO IOMMU DRIVER
+M:	Jean-Philippe Brucker <jean-philippe.brucker@arm.com>
+L:	virtualization@lists.linux-foundation.org
+S:	Maintained
+F:	drivers/iommu/virtio-iommu.c
+F:	include/uapi/linux/virtio_iommu.h
 
 VIRTUAL BOX GUEST DEVICE DRIVER
 M:	Hans de Goede <hdegoede@redhat.com>
