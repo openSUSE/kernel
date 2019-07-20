@@ -3777,10 +3777,6 @@ int __init shmem_init(void)
 {
 	int error;
 
-	/* If rootfs called this, don't re-init */
-	if (shmem_inode_cachep)
-		return 0;
-
 	shmem_init_inodecache();
 
 	error = register_filesystem(&shmem_fs_type);
@@ -3874,6 +3870,9 @@ bool shmem_huge_enabled(struct vm_area_struct *vma)
 	loff_t i_size;
 	pgoff_t off;
 
+	if ((vma->vm_flags & VM_NOHUGEPAGE) ||
+	    test_bit(MMF_DISABLE_THP, &vma->vm_mm->flags))
+		return false;
 	if (shmem_huge == SHMEM_HUGE_FORCE)
 		return true;
 	if (shmem_huge == SHMEM_HUGE_DENY)
