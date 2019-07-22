@@ -1369,7 +1369,6 @@ static int netif_poll(struct napi_struct *napi, int budget)
 	struct sk_buff_head rxq;
 	struct sk_buff_head errq;
 	struct sk_buff_head tmpq;
-	unsigned long flags;
 	unsigned int len;
 	int pages_flipped = 0;
 	int err;
@@ -1544,7 +1543,7 @@ err:
 	}
 
 	if (work_done < budget) {
-		local_irq_save(flags);
+		napi_complete(napi);
 
 		RING_FINAL_CHECK_FOR_RESPONSES(&np->rx, more_to_do);
 
@@ -1558,10 +1557,8 @@ err:
 				np->accel_vif_state.hooks->start_napi_irq(dev);
 		}
 
-		if (!more_to_do && !accel_more_to_do)
-			__napi_complete(napi);
-
-		local_irq_restore(flags);
+		if (more_to_do || accel_more_to_do)
+			napi_schedule(napi);
 	}
 
 	spin_unlock(&np->rx_lock);
