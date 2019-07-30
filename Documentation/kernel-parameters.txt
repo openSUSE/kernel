@@ -1675,7 +1675,7 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 				improves system performance, but it may also
 				expose users to several CPU vulnerabilities.
 				Equivalent to: nopti [X86,PPC]
-					       nospectre_v1 [PPC]
+					       nospectre_v1 [x86,PPC]
 					       nobp=0 [S390]
 					       nospectre_v2 [X86,PPC,S390]
 					       spectre_v2_user=off [X86]
