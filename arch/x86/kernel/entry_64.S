@@ -333,9 +333,12 @@ ENTRY(save_args)
 	testl $3, CS(%rdi)
 	je 1f
 	SWAPGS
+	FENCE_SWAPGS_USER_ENTRY
 	SWITCH_KERNEL_CR3
-
+	jmp 2f
 1:
+	FENCE_SWAPGS_KERNEL_ENTRY
+2:
 	/* Switch to proper stack if we are on trampoline stack */
 	movq PER_CPU_VAR(init_tss + TSS_sp0), %rcx
 	cmpq %rcx, %rsp
@@ -421,6 +424,7 @@ ENTRY(save_paranoid)
 	xorl %ebx,%ebx
 1:
 	SAVE_AND_SWITCH_TO_KERNEL_CR3 scratch_reg=%rax save_reg=%r14
+	FENCE_SWAPGS_KERNEL_ENTRY
 	ENABLE_IBRS
 	ret
 	CFI_ENDPROC
@@ -946,6 +950,7 @@ swapgs_restore_regs_and_return_to_usermode:
 	movq (%rax), %rax
 	SWITCH_USER_CR3_NO_STACK
 	SWAPGS
+	FENCE_SWAPGS_KERNEL_ENTRY
 	jmp irq_return
 
 paranoid_userspace_restore_all:
@@ -1629,6 +1634,7 @@ ENTRY(error_entry)
 	je error_kernelspace
 error_swapgs:
 	SWAPGS
+	FENCE_SWAPGS_USER_ENTRY
 	SWITCH_KERNEL_CR3
 error_sti:
 	movq PER_CPU_VAR(init_tss + TSS_sp0), %rcx
@@ -1677,6 +1683,7 @@ bstep_iret:
 
 error_bad_iret:
 	SWAPGS
+	FENCE_SWAPGS_USER_ENTRY
 	SWITCH_KERNEL_CR3
 	mov %rsp,%rdi
 	call fixup_bad_iret
