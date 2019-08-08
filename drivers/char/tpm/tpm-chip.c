@@ -554,18 +554,16 @@ static int tpm_add_hwrng(struct tpm_chip *chip)
 	return hwrng_register(&chip->hwrng);
 }
 
-/*
- * tpm_get_pcr_allocation() - initialize the chip allocated banks for PCRs
- * @chip: TPM chip to use.
- */
 static int tpm_get_pcr_allocation(struct tpm_chip *chip)
 {
 	int rc;
 
-	if (chip->flags & TPM_CHIP_FLAG_TPM2)
-		rc = tpm2_get_pcr_allocation(chip);
-	else
-		rc = tpm1_get_pcr_allocation(chip);
+	rc = (chip->flags & TPM_CHIP_FLAG_TPM2) ?
+	     tpm2_get_pcr_allocation(chip) :
+	     tpm1_get_pcr_allocation(chip);
+
+	if (rc > 0)
+		return -ENODEV;
 
 	return rc;
 }
