@@ -81,6 +81,7 @@ Scott Hill shill@gtcocalcomp.com
 
 /* Max size of a single report */
 #define REPORT_MAX_SIZE       10
+#define MAX_COLLECTION_LEVELS  10
 
 
 /* Bitmask whether pen is in range */
@@ -225,8 +226,7 @@ static void parse_hid_report_descriptor(struct gtco *device, char * report,
 	char  maintype = 'x';
 	char  globtype[12];
 	int   indent = 0;
-	char  indentstr[10] = "";
-
+	char  indentstr[MAX_COLLECTION_LEVELS + 1] = { 0 };
 
 	dbg("======>>>>>>PARSE<<<<<<======");
 
@@ -351,6 +351,13 @@ static void parse_hid_report_descriptor(struct gtco *device, char * report,
 			case TAG_MAIN_COL_START:
 				maintype = 'S';
 
+				if (indent == MAX_COLLECTION_LEVELS) {
+					err("Collection level %d would exceed limit of %d\n",
+						indent + 1,
+						MAX_COLLECTION_LEVELS);
+					break;
+				}
+
 				if (data == 0) {
 					dbg("======>>>>>> Physical");
 					strcpy(globtype, "Physical");
@@ -370,8 +377,15 @@ static void parse_hid_report_descriptor(struct gtco *device, char * report,
 				break;
 
 			case TAG_MAIN_COL_END:
-				dbg("<<<<<<======");
 				maintype = 'E';
+
+				if (indent == 0) {
+					err("Collection level already at zero\n");
+					break;
+				}
+
+				dbg("<<<<<<======");
+
 				indent--;
 				for (x = 0; x < indent; x++)
 					indentstr[x] = '-';
