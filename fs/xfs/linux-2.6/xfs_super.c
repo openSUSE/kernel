@@ -1088,6 +1088,10 @@ xfs_fs_put_super(
 {
 	struct xfs_mount	*mp = XFS_M(sb);
 
+	/* if ->fill_super failed, we have no mount to tear down */
+	if (!sb->s_fs_info)
+		return;
+
 	/*
 	 * Unregister the memory shrinker before we tear down the mount
 	 * structure so we don't have memory reclaim racing with us here.
@@ -1113,6 +1117,7 @@ xfs_fs_put_super(
 	xfs_icsb_destroy_counters(mp);
 	xfs_destroy_mount_workqueues(mp);
 	xfs_close_devices(mp);
+	sb->s_fs_info = NULL;
 	xfs_dmops_put(mp);
 	xfs_free_fsname(mp);
 	kfree(mp->m_mtpt);
@@ -1538,6 +1543,7 @@ out_destroy_workqueues:
  out_put_dmops:
 	xfs_dmops_put(mp);
  out_free_fsname:
+	sb->s_fs_info = NULL;
 	xfs_free_fsname(mp);
 	kfree(mtpt);
 	kfree(mp);
