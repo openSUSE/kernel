@@ -18,11 +18,6 @@
 extern u32 acpi_pm_read_verified(void);
 extern u32 pmtmr_ioport;
 
-static inline bool acpi_pm_timer_available(void)
-{
-	return pmtmr_ioport != 0;
-}
-
 static inline u32 acpi_pm_read_early(void)
 {
 	if (!pmtmr_ioport)
@@ -32,11 +27,6 @@ static inline u32 acpi_pm_read_early(void)
 }
 
 #else
-
-static inline bool acpi_pm_timer_available(void)
-{
-	return false;
-}
 
 static inline u32 acpi_pm_read_early(void)
 {

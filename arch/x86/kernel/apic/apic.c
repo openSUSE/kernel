@@ -722,7 +722,7 @@ static __initdata unsigned long lapic_cal_pm1, lapic_cal_pm2;
 static __initdata unsigned long lapic_cal_j1, lapic_cal_j2;
 
 /*
- * Temporary interrupt handler.
+ * Temporary interrupt handler and polled calibration function.
  */
 static void __init lapic_cal_handler(struct clock_event_device *dev)
 {
@@ -857,8 +857,8 @@ static int __init calibrate_APIC_clock(void)
 	 * making the calibration conditional on that, use a polling based
 	 * approach everywhere.
 	 */
-
 	local_irq_disable();
+
 	/*
 	 * Setup the APIC counter to maximum. There is no way the lapic
 	 * can underflow in the 100ms detection time frame
@@ -877,13 +877,13 @@ static int __init calibrate_APIC_clock(void)
 		tsc_perj = div_u64((u64)tsc_khz * 1000, HZ);
 	}
 
-	while (lapic_cal_loops <= LAPIC_CAL_LOOPS) {
-		/*
-		 * Enable interrupts so the tick can fire, if a global
-		 * clockevent device is available
-		 */
-		local_irq_enable();
+	/*
+	 * Enable interrupts so the tick can fire, if a global
+	 * clockevent device is available
+	 */
+	local_irq_enable();
 
+	while (lapic_cal_loops <= LAPIC_CAL_LOOPS) {
 		/* Wait for a tick to elapse */
 		while (1) {
 			if (tsc_khz) {
