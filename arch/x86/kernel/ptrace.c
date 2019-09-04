@@ -22,6 +22,7 @@
 #include <linux/perf_event.h>
 #include <linux/hw_breakpoint.h>
 #include <linux/module.h>
+#include <linux/nospec.h>
 
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
@@ -703,12 +704,13 @@ static unsigned long ptrace_get_debugreg(struct task_struct *tsk, int n)
 	unsigned long val = 0;
 
 	if (n < HBP_NUM) {
+		int index = array_index_nospec(n, HBP_NUM);
 		struct perf_event *bp;
 
 		if (ptrace_get_breakpoints(tsk) < 0)
 			return -ESRCH;
 
-		bp = thread->ptrace_bps[n];
+		bp = thread->ptrace_bps[index];
 		if (!bp)
 			val = 0;
 		else
