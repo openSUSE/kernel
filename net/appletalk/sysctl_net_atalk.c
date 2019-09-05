@@ -50,9 +50,12 @@ static struct ctl_path atalk_path[] = {
 
 static struct ctl_table_header *atalk_table_header;
 
-void atalk_register_sysctl(void)
+int __init atalk_register_sysctl(void)
 {
 	atalk_table_header = register_sysctl_paths(atalk_path, atalk_table);
+	if (!atalk_table_header)
+		return -ENOMEM;
+	return 0;
 }
 
 void atalk_unregister_sysctl(void)

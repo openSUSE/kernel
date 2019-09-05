@@ -1536,4 +1536,22 @@ static inline struct tcp_extend_values *tcp_xv(struct request_values *rvp)
 extern void tcp_v4_init(void);
 extern void tcp_init(void);
 
+static inline struct sk_buff *tcp_rtx_queue_head(struct sock *sk)
+{
+	struct sk_buff *skb = tcp_write_queue_head(sk);
+
+	return skb == tcp_send_head(sk) ? NULL : skb;
+}
+
+static inline struct sk_buff *tcp_rtx_queue_tail(struct sock *sk)
+{
+	struct sk_buff *skb = tcp_send_head(sk);
+
+	/* empty retransmit queue, for example due to zero window */
+	if (skb == tcp_write_queue_head(sk))
+		return NULL;
+
+	return skb ? tcp_write_queue_prev(sk, skb) : tcp_write_queue_tail(sk);
+}
+
 #endif	/* _TCP_H */
