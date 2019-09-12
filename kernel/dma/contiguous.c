@@ -23,6 +23,7 @@
 #include <linux/sizes.h>
 #include <linux/dma-contiguous.h>
 #include <linux/cma.h>
+#include <linux/of_fdt.h>
 
 #ifdef CONFIG_CMA_SIZE_MBYTES
 #define CMA_SIZE_MBYTES CONFIG_CMA_SIZE_MBYTES
@@ -113,6 +114,15 @@ void __init dma_contiguous_reserve(phys_addr_t limit)
 
 	pr_debug("%s(limit %08lx)\n", __func__, (unsigned long)limit);
 
+#ifdef CONFIG_OF_EARLY_FLATTREE
+	if (size_cmdline == -1) {
+		/* bsc#1123536: Reserve 64 MiB of CMA for RPi3's VC4. */
+		static const char model_name[] = "Raspberry Pi 3";
+		const char* model = of_flat_dt_get_machine_name();
+		if (model && !strncmp(model, model_name, strlen(model_name)))
+			size_cmdline = 64 << 20;
+	}
+#endif
 	if (size_cmdline != -1) {
 		selected_size = size_cmdline;
 		selected_base = base_cmdline;
@@ -230,9 +240,7 @@ bool dma_release_from_contiguous(struct device *dev, struct page *pages,
  */
 struct page *dma_alloc_contiguous(struct device *dev, size_t size, gfp_t gfp)
 {
-	int node = dev ? dev_to_node(dev) : NUMA_NO_NODE;
-	size_t count = PAGE_ALIGN(size) >> PAGE_SHIFT;
-	size_t align = get_order(PAGE_ALIGN(size));
+	size_t count = size >> PAGE_SHIFT;
 	struct page *page = NULL;
 	struct cma *cma = NULL;
 
@@ -243,14 +251,12 @@ struct page *dma_alloc_contiguous(struct device *dev, size_t size, gfp_t gfp)
 
 	/* CMA can be used only in the context which permits sleeping */
 	if (cma && gfpflags_allow_blocking(gfp)) {
+		size_t align = get_order(size);
 		size_t cma_align = min_t(size_t, align, CONFIG_CMA_ALIGNMENT);
 
 		page = cma_alloc(cma, count, cma_align, gfp & __GFP_NOWARN);
 	}
 
-	/* Fallback allocation of normal pages */
-	if (!page)
-		page = alloc_pages_node(node, gfp, align);
 	return page;
 }
 

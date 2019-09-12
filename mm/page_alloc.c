@@ -2238,26 +2238,11 @@ static int move_freepages(struct zone *zone,
 	unsigned int order;
 	int pages_moved = 0;
 
-#ifndef CONFIG_HOLES_IN_ZONE
-	/*
-	 * page_zone is not safe to call in this context when
-	 * CONFIG_HOLES_IN_ZONE is set. This bug check is probably redundant
-	 * anyway as we check zone boundaries in move_freepages_block().
-	 * Remove at a later date when no bug reports exist related to
-	 * grouping pages by mobility
-	 */
-	VM_BUG_ON(pfn_valid(page_to_pfn(start_page)) &&
-	          pfn_valid(page_to_pfn(end_page)) &&
-	          page_zone(start_page) != page_zone(end_page));
-#endif
 	for (page = start_page; page <= end_page;) {
 		if (!pfn_valid_within(page_to_pfn(page))) {
 			page++;
 			continue;
 		}
-
-		/* Make sure we are not inadvertently changing nodes */
-		VM_BUG_ON_PAGE(page_to_nid(page) != zone_to_nid(zone), page);
 
 		if (!PageBuddy(page)) {
 			/*
@@ -2272,6 +2257,10 @@ static int move_freepages(struct zone *zone,
 			page++;
 			continue;
 		}
+
+		/* Make sure we are not inadvertently changing nodes */
+		VM_BUG_ON_PAGE(page_to_nid(page) != zone_to_nid(zone), page);
+		VM_BUG_ON_PAGE(page_zone(page) != zone, page);
 
 		order = page_order(page);
 		move_to_free_area(page, &zone->free_area[order], migratetype);
@@ -3522,7 +3511,7 @@ bool zone_watermark_ok_safe(struct zone *z, unsigned int order,
 static bool zone_allows_reclaim(struct zone *local_zone, struct zone *zone)
 {
 	return node_distance(zone_to_nid(local_zone), zone_to_nid(zone)) <=
-				RECLAIM_DISTANCE;
+				node_reclaim_distance;
 }
 #else	/* CONFIG_NUMA */
 static bool zone_allows_reclaim(struct zone *local_zone, struct zone *zone)
@@ -5814,6 +5803,31 @@ void __ref build_all_zonelists(pg_data_t *pgdat)
 #ifdef CONFIG_NUMA
 	pr_info("Policy zone: %s\n", zone_names[policy_zone]);
 #endif
+
+	/*
+	 * Check normal :movable ratio when memory node hot-remove/mirrored
+	 * memory is enabled
+	 */
+	if (movable_node_is_enabled()) {
+		unsigned long nr_movable = 0;
+		struct zone *zone;
+
+		for_each_zone(zone) {
+			if (!populated_zone(zone) || zone_idx(zone) != ZONE_MOVABLE)
+				continue;
+
+			nr_movable += zone_managed_pages(zone);
+		}
+
+		/* Warn if lowmem:movable is worse than 1:3 */
+		if ((vm_total_pages >> 2) < nr_movable) {
+			pr_warn("lowmem:movable memory is very high. "
+				"There may be OOM or performance problems if the kernel "
+				"cannot allocate memory as it is all marked "
+				"for movable nodes.\n");
+			WARN_ON_ONCE(1);
+		}
+	}
 }
 
 /* If zone is ZONE_MOVABLE but memory is mirrored, it is an overlapped init */
@@ -7416,6 +7430,7 @@ static int __init cmdline_parse_kernelcore(char *p)
 	/* parse kernelcore=mirror */
 	if (parse_option_str(p, "mirror")) {
 		mirrored_kernelcore = true;
+		pr_info("Kernel memory mirroring enabled.\n");
 		return 0;
 	}
 

@@ -2534,13 +2534,16 @@ static void dump_pacas(void)
 static void dump_one_xive(int cpu)
 {
 	unsigned int hwid = get_hard_smp_processor_id(cpu);
+	bool hv = cpu_has_feature(CPU_FTR_HVMODE);
 
-	opal_xive_dump(XIVE_DUMP_TM_HYP, hwid);
-	opal_xive_dump(XIVE_DUMP_TM_POOL, hwid);
-	opal_xive_dump(XIVE_DUMP_TM_OS, hwid);
-	opal_xive_dump(XIVE_DUMP_TM_USER, hwid);
-	opal_xive_dump(XIVE_DUMP_VP, hwid);
-	opal_xive_dump(XIVE_DUMP_EMU_STATE, hwid);
+	if (hv) {
+		opal_xive_dump(XIVE_DUMP_TM_HYP, hwid);
+		opal_xive_dump(XIVE_DUMP_TM_POOL, hwid);
+		opal_xive_dump(XIVE_DUMP_TM_OS, hwid);
+		opal_xive_dump(XIVE_DUMP_TM_USER, hwid);
+		opal_xive_dump(XIVE_DUMP_VP, hwid);
+		opal_xive_dump(XIVE_DUMP_EMU_STATE, hwid);
+	}
 
 	if (setjmp(bus_error_jmp) != 0) {
 		catch_memory_errors = 0;
@@ -2571,14 +2574,33 @@ static void dump_all_xives(void)
 
 static void dump_one_xive_irq(u32 num)
 {
-	s64 rc;
-	__be64 vp;
+	int rc;
+	u32 target;
 	u8 prio;
-	__be32 lirq;
+	u32 lirq;
 
-	rc = opal_xive_get_irq_config(num, &vp, &prio, &lirq);
-	xmon_printf("IRQ 0x%x config: vp=0x%llx prio=%d lirq=0x%x (rc=%lld)\n",
-		    num, be64_to_cpu(vp), prio, be32_to_cpu(lirq), rc);
+	rc = xmon_xive_get_irq_config(num, &target, &prio, &lirq);
+	xmon_printf("IRQ 0x%08x : target=0x%x prio=%d lirq=0x%x (rc=%d)\n",
+		    num, target, prio, lirq, rc);
+}
+
+static void dump_all_xive_irq(void)
+{
+	unsigned int i;
+	struct irq_desc *desc;
+
+	for_each_irq_desc(i, desc) {
+		struct irq_data *d = irq_desc_get_irq_data(desc);
+		unsigned int hwirq;
+
+		if (!d)
+			continue;
+
+		hwirq = (unsigned int)irqd_to_hwirq(d);
+		/* IPIs are special (HW number 0) */
+		if (hwirq)
+			dump_one_xive_irq(hwirq);
+	}
 }
 
 static void dump_xives(void)
@@ -2598,6 +2620,8 @@ static void dump_xives(void)
 	} else if (c == 'i') {
 		if (scanhex(&num))
 			dump_one_xive_irq(num);
+		else
+			dump_all_xive_irq();
 		return;
 	}
 

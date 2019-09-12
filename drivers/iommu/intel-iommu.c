@@ -339,6 +339,8 @@ static void domain_exit(struct dmar_domain *domain);
 static void domain_remove_dev_info(struct dmar_domain *domain);
 static void dmar_remove_one_dev_info(struct device *dev);
 static void __dmar_remove_one_dev_info(struct device_domain_info *info);
+static void domain_context_clear(struct intel_iommu *iommu,
+				 struct device *dev);
 static int domain_detach_iommu(struct dmar_domain *domain,
 			       struct intel_iommu *iommu);
 static bool device_is_rmrr_locked(struct device *dev);
@@ -2105,9 +2107,26 @@ out_unlock:
 	return ret;
 }
 
+struct domain_context_mapping_data {
+	struct dmar_domain *domain;
+	struct intel_iommu *iommu;
+	struct pasid_table *table;
+};
+
+static int domain_context_mapping_cb(struct pci_dev *pdev,
+				     u16 alias, void *opaque)
+{
+	struct domain_context_mapping_data *data = opaque;
+
+	return domain_context_mapping_one(data->domain, data->iommu,
+					  data->table, PCI_BUS_NUM(alias),
+					  alias & 0xff);
+}
+
 static int
 domain_context_mapping(struct dmar_domain *domain, struct device *dev)
 {
+	struct domain_context_mapping_data data;
 	struct pasid_table *table;
 	struct intel_iommu *iommu;
 	u8 bus, devfn;
@@ -2117,7 +2136,17 @@ domain_context_mapping(struct dmar_domain *domain, struct device *dev)
 		return -ENODEV;
 
 	table = intel_pasid_get_table(dev);
-	return domain_context_mapping_one(domain, iommu, table, bus, devfn);
+
+	if (!dev_is_pci(dev))
+		return domain_context_mapping_one(domain, iommu, table,
+						  bus, devfn);
+
+	data.domain = domain;
+	data.iommu = iommu;
+	data.table = table;
+
+	return pci_for_each_dma_alias(to_pci_dev(dev),
+				      &domain_context_mapping_cb, &data);
 }
 
 static int domain_context_mapped_cb(struct pci_dev *pdev,
@@ -3449,6 +3478,7 @@ static bool iommu_need_mapping(struct device *dev)
 				dmar_domain = to_dmar_domain(domain);
 				dmar_domain->flags |= DOMAIN_FLAG_LOSE_CHILDREN;
 			}
+			dmar_remove_one_dev_info(dev);
 			get_private_domain_for_dev(dev);
 		}
 
@@ -4758,6 +4788,28 @@ out_free_dmar:
 	return ret;
 }
 
+static int domain_context_clear_one_cb(struct pci_dev *pdev, u16 alias, void *opaque)
+{
+	struct intel_iommu *iommu = opaque;
+
+	domain_context_clear_one(iommu, PCI_BUS_NUM(alias), alias & 0xff);
+	return 0;
+}
+
+/*
+ * NB - intel-iommu lacks any sort of reference counting for the users of
+ * dependent devices.  If multiple endpoints have intersecting dependent
+ * devices, unbinding the driver from any one of them will possibly leave
+ * the others unable to operate.
+ */
+static void domain_context_clear(struct intel_iommu *iommu, struct device *dev)
+{
+	if (!iommu || !dev || !dev_is_pci(dev))
+		return;
+
+	pci_for_each_dma_alias(to_pci_dev(dev), &domain_context_clear_one_cb, iommu);
+}
+
 static void __dmar_remove_one_dev_info(struct device_domain_info *info)
 {
 	struct dmar_domain *domain;
@@ -4778,7 +4830,7 @@ static void __dmar_remove_one_dev_info(struct device_domain_info *info)
 					PASID_RID2PASID);
 
 		iommu_disable_dev_iotlb(info);
-		domain_context_clear_one(iommu, info->bus, info->devfn);
+		domain_context_clear(iommu, info->dev);
 		intel_pasid_free_table(info->dev);
 	}
 
@@ -4790,7 +4842,8 @@ static void __dmar_remove_one_dev_info(struct device_domain_info *info)
 
 	/* free the private domain */
 	if (domain->flags & DOMAIN_FLAG_LOSE_CHILDREN &&
-	    !(domain->flags & DOMAIN_FLAG_STATIC_IDENTITY))
+	    !(domain->flags & DOMAIN_FLAG_STATIC_IDENTITY) &&
+	    list_empty(&domain->devices))
 		domain_exit(info->domain);
 
 	free_devinfo_mem(info);
@@ -4803,7 +4856,8 @@ static void dmar_remove_one_dev_info(struct device *dev)
 
 	spin_lock_irqsave(&device_domain_lock, flags);
 	info = dev->archdata.iommu;
-	__dmar_remove_one_dev_info(info);
+	if (info)
+		__dmar_remove_one_dev_info(info);
 	spin_unlock_irqrestore(&device_domain_lock, flags);
 }
 
@@ -5281,6 +5335,7 @@ static int intel_iommu_add_device(struct device *dev)
 		if (device_def_domain_type(dev) == IOMMU_DOMAIN_IDENTITY) {
 			ret = iommu_request_dm_for_dev(dev);
 			if (ret) {
+				dmar_remove_one_dev_info(dev);
 				dmar_domain->flags |= DOMAIN_FLAG_LOSE_CHILDREN;
 				domain_add_dev_info(si_domain, dev);
 				dev_info(dev,
@@ -5291,6 +5346,7 @@ static int intel_iommu_add_device(struct device *dev)
 		if (device_def_domain_type(dev) == IOMMU_DOMAIN_DMA) {
 			ret = iommu_request_dma_domain_for_dev(dev);
 			if (ret) {
+				dmar_remove_one_dev_info(dev);
 				dmar_domain->flags |= DOMAIN_FLAG_LOSE_CHILDREN;
 				if (!get_private_domain_for_dev(dev)) {
 					dev_warn(dev,
@@ -5315,6 +5371,8 @@ static void intel_iommu_remove_device(struct device *dev)
 	iommu = device_to_iommu(dev, &bus, &devfn);
 	if (!iommu)
 		return;
+
+	dmar_remove_one_dev_info(dev);
 
 	iommu_group_remove_device(dev);
 

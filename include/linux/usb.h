@@ -257,6 +257,7 @@ struct usb_interface {
 	struct device dev;		/* interface specific device info */
 	struct device *usb_dev;
 	struct work_struct reset_ws;	/* for resets in atomic context */
+	void *suse_kabi_padding;
 };
 #define	to_usb_interface(d) container_of(d, struct usb_interface, dev)
 
@@ -402,6 +403,7 @@ struct usb_host_bos {
 	struct usb_ssp_cap_descriptor	*ssp_cap;
 	struct usb_ss_container_id_descriptor	*ss_id;
 	struct usb_ptm_cap_descriptor	*ptm_cap;
+	void *suse_kabi_padding;
 };
 
 int __usb_get_extra_descriptor(char *buffer, unsigned size,
@@ -466,6 +468,7 @@ struct usb_bus {
 	struct mon_bus *mon_bus;	/* non-null when associated */
 	int monitored;			/* non-zero when monitored */
 #endif
+	void *suse_kabi_padding;
 };
 
 struct usb_dev_state;
@@ -709,6 +712,8 @@ struct usb_device {
 	unsigned lpm_disable_count;
 
 	u16 hub_delay;
+
+	void *suse_kabi_padding;
 };
 #define	to_usb_device(d) container_of(d, struct usb_device, dev)
 
@@ -1201,6 +1206,7 @@ struct usb_driver {
 
 	struct usb_dynids dynids;
 	struct usbdrv_wrap drvwrap;
+	void *suse_kabi_padding;
 	unsigned int no_dynamic_id:1;
 	unsigned int supports_autosuspend:1;
 	unsigned int disable_hub_initiated_lpm:1;
@@ -1457,7 +1463,7 @@ typedef void (*usb_complete_t)(struct urb *);
  * field rather than determining a dma address themselves.
  *
  * Note that transfer_buffer must still be set if the controller
- * does not support DMA (as indicated by bus.uses_dma) and when talking
+ * does not support DMA (as indicated by hcd_uses_dma()) and when talking
  * to root hub. If you have to trasfer between highmem zone and the device
  * on such controller, create a bounce buffer or bail out with an error.
  * If transfer_buffer cannot be set (is in highmem) and the controller is DMA
@@ -1579,6 +1585,7 @@ struct urb {
 	usb_complete_t complete;	/* (in) completion routine */
 	struct usb_iso_packet_descriptor iso_frame_desc[0];
 					/* (in) ISO ONLY */
+	void *suse_kabi_padding;
 };
 
 /* ----------------------------------------------------------------------- */

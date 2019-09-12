@@ -225,6 +225,7 @@ struct usb_hcd {
 	 * (ohci 32, uhci 1024, ehci 256/512/1024).
 	 */
 
+	void *suse_kabi_padding;
 	/* The HC driver's private data is stored at the end of
 	 * this structure.
 	 */
@@ -409,6 +410,7 @@ struct hc_driver {
 	/* Call for power on/off the port if necessary */
 	int	(*port_power)(struct usb_hcd *hcd, int portnum, bool enable);
 
+	void *suse_kabi_padding;
 };
 
 static inline int hcd_giveback_urb_in_bh(struct usb_hcd *hcd)
@@ -421,6 +423,9 @@ static inline bool hcd_periodic_completion_in_progress(struct usb_hcd *hcd,
 {
 	return hcd->high_prio_bh.completing_ep == ep;
 }
+
+#define hcd_uses_dma(hcd) \
+	(IS_ENABLED(CONFIG_HAS_DMA) && (hcd)->self.uses_dma)
 
 extern int usb_hcd_link_urb_to_ep(struct usb_hcd *hcd, struct urb *urb);
 extern int usb_hcd_check_unlink_urb(struct usb_hcd *hcd, struct urb *urb,
@@ -554,6 +559,8 @@ struct usb_tt {
 	spinlock_t		lock;
 	struct list_head	clear_list;	/* of usb_tt_clear */
 	struct work_struct	clear_work;
+
+	void *suse_kabi_padding;
 };
 
 struct usb_tt_clear {

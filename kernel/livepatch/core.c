@@ -224,7 +224,7 @@ static int klp_resolve_symbols(Elf_Shdr *relasec, struct module *pmod)
 
 		/* Format: .klp.sym.objname.symname,sympos */
 		cnt = sscanf(strtab + sym->st_name,
-			     ".klp.sym.%55[^.].%127[^,],%lu",
+			     KLP_SYM_PREFIX "%55[^.].%127[^,],%lu",
 			     objname, symname, &sympos);
 		if (cnt != 3) {
 			pr_err("symbol %s has an incorrectly formatted name\n",
@@ -270,7 +270,7 @@ static int klp_write_object_relocations(struct module *pmod,
 		 * See comment in klp_resolve_symbols() for an explanation
 		 * of the selected field width value.
 		 */
-		cnt = sscanf(secname, ".klp.rela.%55[^.]", sec_objname);
+		cnt = sscanf(secname, KLP_RELA_PREFIX "%55[^.]", sec_objname);
 		if (cnt != 1) {
 			pr_err("section %s has an incorrectly formatted name\n",
 			       secname);
@@ -869,6 +869,15 @@ static int klp_init_patch(struct klp_patch *patch)
 	return 0;
 }
 
+static void klp_taint_kernel(const struct klp_patch *patch)
+{
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+	pr_warn("attempt to disable live patch %s, setting NO_SUPPORT taint flag\n",
+			patch->mod->name);
+	add_taint(TAINT_NO_SUPPORT, LOCKDEP_STILL_OK);
+#endif
+}
+
 static int __klp_disable_patch(struct klp_patch *patch)
 {
 	struct klp_object *obj;
@@ -878,6 +887,8 @@ static int __klp_disable_patch(struct klp_patch *patch)
 
 	if (klp_transition_patch)
 		return -EBUSY;
+
+	klp_taint_kernel(patch);
 
 	klp_init_transition(patch, KLP_UNPATCHED);
 
