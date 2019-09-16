@@ -351,12 +351,13 @@ static void hsr_dev_destroy(struct net_device *hsr_dev)
 {
 	struct hsr_priv *hsr;
 	struct hsr_port *port;
+	struct hsr_port *tmp;
 
 	hsr = netdev_priv(hsr_dev);
 
 	hsr_debugfs_term(hsr);
 
-	hsr_for_each_port(hsr, port)
+	list_for_each_entry_safe(port, tmp, &hsr->ports, port_list)
 		hsr_del_port(port);
 
 	del_timer_sync(&hsr->prune_timer);
@@ -427,6 +428,7 @@ int hsr_dev_finalize(struct net_device *hsr_dev, struct net_device *slave[2],
 {
 	struct hsr_priv *hsr;
 	struct hsr_port *port;
+	struct hsr_port *tmp;
 	int res;
 
 	hsr = netdev_priv(hsr_dev);
@@ -491,7 +493,7 @@ int hsr_dev_finalize(struct net_device *hsr_dev, struct net_device *slave[2],
 	return 0;
 
 fail:
-	hsr_for_each_port(hsr, port)
+	list_for_each_entry_safe(port, tmp, &hsr->ports, port_list)
 		hsr_del_port(port);
 err_add_port:
 	hsr_del_self_node(&hsr->self_node_db);

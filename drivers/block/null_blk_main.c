@@ -1198,7 +1198,7 @@ static blk_status_t null_handle_cmd(struct nullb_cmd *cmd)
 	if (!cmd->error && dev->zoned) {
 		sector_t sector;
 		unsigned int nr_sectors;
-		int op;
+		enum req_opf op;
 
 		if (dev->queue_mode == NULL_Q_BIO) {
 			op = bio_op(cmd->bio);
@@ -1489,7 +1489,6 @@ static int setup_queues(struct nullb *nullb)
 	if (!nullb->queues)
 		return -ENOMEM;
 
-	nullb->nr_queues = 0;
 	nullb->queue_depth = nullb->dev->hw_queue_depth;
 
 	return 0;

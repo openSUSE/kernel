@@ -888,7 +888,9 @@ int fbtft_unregister_framebuffer(struct fb_info *fb_info)
 	if (par->fbtftops.unregister_backlight)
 		par->fbtftops.unregister_backlight(par);
 	fbtft_sysfs_exit(par);
-	return unregister_framebuffer(fb_info);
+	unregister_framebuffer(fb_info);
+
+	return 0;
 }
 EXPORT_SYMBOL(fbtft_unregister_framebuffer);
 

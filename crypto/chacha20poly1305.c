@@ -135,14 +135,10 @@ static int chacha_decrypt(struct aead_request *req)
 
 	chacha_iv(creq->iv, req, 1);
 
-	sg_init_table(rctx->src, 2);
 	src = scatterwalk_ffwd(rctx->src, req->src, req->assoclen);
 	dst = src;
-
-	if (req->src != req->dst) {
-		sg_init_table(rctx->dst, 2);
+	if (req->src != req->dst)
 		dst = scatterwalk_ffwd(rctx->dst, req->dst, req->assoclen);
-	}
 
 	skcipher_request_set_callback(&creq->req, rctx->flags,
 				      chacha_decrypt_done, req);
@@ -178,15 +174,11 @@ static int poly_tail(struct aead_request *req)
 	struct chachapoly_ctx *ctx = crypto_aead_ctx(tfm);
 	struct chachapoly_req_ctx *rctx = aead_request_ctx(req);
 	struct poly_req *preq = &rctx->u.poly;
-	__le64 len;
 	int err;
 
-	sg_init_table(preq->src, 1);
-	len = cpu_to_le64(rctx->assoclen);
-	memcpy(&preq->tail.assoclen, &len, sizeof(len));
-	len = cpu_to_le64(rctx->cryptlen);
-	memcpy(&preq->tail.cryptlen, &len, sizeof(len));
-	sg_set_buf(preq->src, &preq->tail, sizeof(preq->tail));
+	preq->tail.assoclen = cpu_to_le64(rctx->assoclen);
+	preq->tail.cryptlen = cpu_to_le64(rctx->cryptlen);
+	sg_init_one(preq->src, &preq->tail, sizeof(preq->tail));
 
 	ahash_request_set_callback(&preq->req, rctx->flags,
 				   poly_tail_done, req);
@@ -211,13 +203,12 @@ static int poly_cipherpad(struct aead_request *req)
 	struct chachapoly_ctx *ctx = crypto_aead_ctx(crypto_aead_reqtfm(req));
 	struct chachapoly_req_ctx *rctx = aead_request_ctx(req);
 	struct poly_req *preq = &rctx->u.poly;
-	unsigned int padlen, bs = POLY1305_BLOCK_SIZE;
+	unsigned int padlen;
 	int err;
 
-	padlen = (bs - (rctx->cryptlen % bs)) % bs;
+	padlen = -rctx->cryptlen % POLY1305_BLOCK_SIZE;
 	memset(preq->pad, 0, sizeof(preq->pad));
-	sg_init_table(preq->src, 1);
-	sg_set_buf(preq->src, &preq->pad, padlen);
+	sg_init_one(preq->src, preq->pad, padlen);
 
 	ahash_request_set_callback(&preq->req, rctx->flags,
 				   poly_cipherpad_done, req);
@@ -247,7 +238,6 @@ static int poly_cipher(struct aead_request *req)
 	if (rctx->cryptlen == req->cryptlen) /* encrypting */
 		crypt = req->dst;
 
-	sg_init_table(rctx->src, 2);
 	crypt = scatterwalk_ffwd(rctx->src, crypt, req->assoclen);
 
 	ahash_request_set_callback(&preq->req, rctx->flags,
@@ -272,13 +262,12 @@ static int poly_adpad(struct aead_request *req)
 	struct chachapoly_ctx *ctx = crypto_aead_ctx(crypto_aead_reqtfm(req));
 	struct chachapoly_req_ctx *rctx = aead_request_ctx(req);
 	struct poly_req *preq = &rctx->u.poly;
-	unsigned int padlen, bs = POLY1305_BLOCK_SIZE;
+	unsigned int padlen;
 	int err;
 
-	padlen = (bs - (rctx->assoclen % bs)) % bs;
+	padlen = -rctx->assoclen % POLY1305_BLOCK_SIZE;
 	memset(preq->pad, 0, sizeof(preq->pad));
-	sg_init_table(preq->src, 1);
-	sg_set_buf(preq->src, preq->pad, padlen);
+	sg_init_one(preq->src, preq->pad, padlen);
 
 	ahash_request_set_callback(&preq->req, rctx->flags,
 				   poly_adpad_done, req);
@@ -328,8 +317,7 @@ static int poly_setkey(struct aead_request *req)
 	struct poly_req *preq = &rctx->u.poly;
 	int err;
 
-	sg_init_table(preq->src, 1);
-	sg_set_buf(preq->src, rctx->key, sizeof(rctx->key));
+	sg_init_one(preq->src, rctx->key, sizeof(rctx->key));
 
 	ahash_request_set_callback(&preq->req, rctx->flags,
 				   poly_setkey_done, req);
@@ -387,9 +375,8 @@ static int poly_genkey(struct aead_request *req)
 		rctx->assoclen -= 8;
 	}
 
-	sg_init_table(creq->src, 1);
 	memset(rctx->key, 0, sizeof(rctx->key));
-	sg_set_buf(creq->src, rctx->key, sizeof(rctx->key));
+	sg_init_one(creq->src, rctx->key, sizeof(rctx->key));
 
 	chacha_iv(creq->iv, req, 0);
 
@@ -424,14 +411,10 @@ static int chacha_encrypt(struct aead_request *req)
 
 	chacha_iv(creq->iv, req, 1);
 
-	sg_init_table(rctx->src, 2);
 	src = scatterwalk_ffwd(rctx->src, req->src, req->assoclen);
 	dst = src;
-
-	if (req->src != req->dst) {
-		sg_init_table(rctx->dst, 2);
+	if (req->src != req->dst)
 		dst = scatterwalk_ffwd(rctx->dst, req->dst, req->assoclen);
-	}
 
 	skcipher_request_set_callback(&creq->req, rctx->flags,
 				      chacha_encrypt_done, req);

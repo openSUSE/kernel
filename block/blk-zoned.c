@@ -120,8 +120,7 @@ static bool blkdev_report_zone(struct block_device *bdev, struct blk_zone *rep)
 }
 
 static int blk_report_zones(struct gendisk *disk, sector_t sector,
-			    struct blk_zone *zones, unsigned int *nr_zones,
-			    gfp_t gfp_mask)
+			    struct blk_zone *zones, unsigned int *nr_zones)
 {
 	struct request_queue *q = disk->queue;
 	unsigned int z = 0, n, nrz = *nr_zones;
@@ -130,8 +129,7 @@ static int blk_report_zones(struct gendisk *disk, sector_t sector,
 
 	while (z < nrz && sector < capacity) {
 		n = nrz - z;
-		ret = disk->fops->report_zones(disk, sector, &zones[z], &n,
-					       gfp_mask);
+		ret = disk->fops->report_zones(disk, sector, &zones[z], &n);
 		if (ret)
 			return ret;
 		if (!n)
@@ -152,17 +150,18 @@ static int blk_report_zones(struct gendisk *disk, sector_t sector,
  * @sector:	Sector from which to report zones
  * @zones:	Array of zone structures where to return the zones information
  * @nr_zones:	Number of zone structures in the zone array
- * @gfp_mask:	Memory allocation flags (for bio_alloc)
  *
  * Description:
  *    Get zone information starting from the zone containing @sector.
  *    The number of zone information reported may be less than the number
  *    requested by @nr_zones. The number of zones actually reported is
  *    returned in @nr_zones.
+ *    The caller must use memalloc_noXX_save/restore() calls to control
+ *    memory allocations done within this function (zone array and command
+ *    buffer allocation by the device driver).
  */
 int blkdev_report_zones(struct block_device *bdev, sector_t sector,
-			struct blk_zone *zones, unsigned int *nr_zones,
-			gfp_t gfp_mask)
+			struct blk_zone *zones, unsigned int *nr_zones)
 {
 	struct request_queue *q = bdev_get_queue(bdev);
 	unsigned int i, nrz;
@@ -187,7 +186,7 @@ int blkdev_report_zones(struct block_device *bdev, sector_t sector,
 	nrz = min(*nr_zones,
 		  __blkdev_nr_zones(q, bdev->bd_part->nr_sects - sector));
 	ret = blk_report_zones(bdev->bd_disk, get_start_sect(bdev) + sector,
-			       zones, &nrz, gfp_mask);
+			       zones, &nrz);
 	if (ret)
 		return ret;
 
@@ -308,9 +307,7 @@ int blkdev_report_zones_ioctl(struct block_device *bdev, fmode_t mode,
 	if (!zones)
 		return -ENOMEM;
 
-	ret = blkdev_report_zones(bdev, rep.sector,
-				  zones, &rep.nr_zones,
-				  GFP_KERNEL);
+	ret = blkdev_report_zones(bdev, rep.sector, zones, &rep.nr_zones);
 	if (ret)
 		goto out;
 
@@ -462,7 +459,7 @@ int blk_revalidate_disk_zones(struct gendisk *disk)
 
 	while (z < nr_zones) {
 		nrz = min(nr_zones - z, rep_nr_zones);
-		ret = blk_report_zones(disk, sector, zones, &nrz, GFP_NOIO);
+		ret = blk_report_zones(disk, sector, zones, &nrz);
 		if (ret)
 			goto out;
 		if (!nrz)

@@ -88,6 +88,8 @@
  */
 #define FIELD_SIZEOF(t, f) (sizeof(((t*)0)->f))
 
+#define typeof_member(T, m)	typeof(((T*)0)->m)
+
 #define DIV_ROUND_UP __KERNEL_DIV_ROUND_UP
 
 #define DIV_ROUND_DOWN_ULL(ll, d) \
@@ -582,8 +584,8 @@ extern enum system_states {
  * Take the upper bits to hopefully allow them
  * to stay the same for more than one release.
  */
-#  define TAINT_NO_SUPPORT		30
-#  define TAINT_EXTERNAL_SUPPORT	31
+#  define TAINT_EXTERNAL_SUPPORT	TAINT_AUX
+#  define TAINT_NO_SUPPORT		31
 #  if TAINT_FLAGS_COUNT >= TAINT_NO_SUPPORT
 #    error Upstream taint flags overlap with SUSE flags
 #  endif

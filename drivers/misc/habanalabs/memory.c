@@ -1659,17 +1659,10 @@ int hl_vm_init(struct hl_device *hdev)
 	struct hl_vm *vm = &hdev->vm;
 	int rc;
 
-	rc = hl_mmu_init(hdev);
-	if (rc) {
-		dev_err(hdev->dev, "Failed to init MMU\n");
-		return rc;
-	}
-
 	vm->dram_pg_pool = gen_pool_create(__ffs(prop->dram_page_size), -1);
 	if (!vm->dram_pg_pool) {
 		dev_err(hdev->dev, "Failed to create dram page pool\n");
-		rc = -ENOMEM;
-		goto pool_create_err;
+		return -ENOMEM;
 	}
 
 	kref_init(&vm->dram_pg_pool_refcount);
@@ -1695,8 +1688,6 @@ int hl_vm_init(struct hl_device *hdev)
 
 pool_add_err:
 	gen_pool_destroy(vm->dram_pg_pool);
-pool_create_err:
-	hl_mmu_fini(hdev);
 
 	return rc;
 }
@@ -1725,8 +1716,6 @@ void hl_vm_fini(struct hl_device *hdev)
 	if (kref_put(&vm->dram_pg_pool_refcount, dram_pg_pool_do_release) != 1)
 		dev_warn(hdev->dev, "dram_pg_pool was not destroyed on %s\n",
 				__func__);
-
-	hl_mmu_fini(hdev);
 
 	vm->init_done = false;
 }

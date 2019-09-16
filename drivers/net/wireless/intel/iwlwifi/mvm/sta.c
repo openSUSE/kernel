@@ -1685,9 +1685,7 @@ int iwl_mvm_add_sta(struct iwl_mvm *mvm,
 	if (iwl_mvm_has_tlc_offload(mvm))
 		iwl_mvm_rs_add_sta(mvm, mvm_sta);
 	else
-		mutex_init(&mvm_sta->lq_sta.rs_drv.mutex);
-
-	INIT_WORK(&mvm_sta->rs_init_wk, iwl_mvm_rs_init_wk);
+		spin_lock_init(&mvm_sta->lq_sta.rs_drv.pers.lock);
 
 	iwl_mvm_toggle_tx_ant(mvm, &mvm_sta->tx_ant);
 
@@ -1849,8 +1847,6 @@ int iwl_mvm_rm_sta(struct iwl_mvm *mvm,
 	ret = iwl_mvm_drain_sta(mvm, mvm_sta, true);
 	if (ret)
 		return ret;
-
-	cancel_work_sync(&mvm_sta->rs_init_wk);
 
 	/* flush its queues here since we are freeing mvm_sta */
 	ret = iwl_mvm_flush_sta(mvm, mvm_sta, false, 0);
@@ -2427,7 +2423,7 @@ int iwl_mvm_rm_mcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 
 static void iwl_mvm_sync_rxq_del_ba(struct iwl_mvm *mvm, u8 baid)
 {
-	struct iwl_mvm_delba_notif notif = {
+	struct iwl_mvm_rss_sync_notif notif = {
 		.metadata.type = IWL_MVM_RXQ_NOTIF_DEL_BA,
 		.metadata.sync = 1,
 		.delba.baid = baid,

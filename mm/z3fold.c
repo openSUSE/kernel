@@ -26,7 +26,6 @@
 #include <linux/atomic.h>
 #include <linux/sched.h>
 #include <linux/cpumask.h>
-#include <linux/dcache.h>
 #include <linux/list.h>
 #include <linux/mm.h>
 #include <linux/module.h>
@@ -36,6 +35,7 @@
 #include <linux/compaction.h>
 #include <linux/percpu.h>
 #include <linux/mount.h>
+#include <linux/pseudo_fs.h>
 #include <linux/fs.h>
 #include <linux/preempt.h>
 #include <linux/workqueue.h>
@@ -43,6 +43,7 @@
 #include <linux/spinlock.h>
 #include <linux/wait.h>
 #include <linux/zpool.h>
+#include <linux/magic.h>
 
 /*
  * NCHUNKS_ORDER determines the internal allocation granularity, effectively
@@ -201,8 +202,10 @@ static void compact_page_work(struct work_struct *w);
 static inline struct z3fold_buddy_slots *alloc_slots(struct z3fold_pool *pool,
 							gfp_t gfp)
 {
-	struct z3fold_buddy_slots *slots = kmem_cache_alloc(pool->c_handle,
-							    gfp);
+	struct z3fold_buddy_slots *slots;
+
+	slots = kmem_cache_alloc(pool->c_handle,
+				 (gfp & ~(__GFP_HIGHMEM | __GFP_MOVABLE)));
 
 	if (slots) {
 		memset(slots->slot, 0, sizeof(slots->slot));
@@ -249,19 +252,14 @@ static inline void free_handle(unsigned long handle)
 	}
 }
 
-static struct dentry *z3fold_do_mount(struct file_system_type *fs_type,
-				int flags, const char *dev_name, void *data)
+static int z3fold_init_fs_context(struct fs_context *fc)
 {
-	static const struct dentry_operations ops = {
-		.d_dname = simple_dname,
-	};
-
-	return mount_pseudo(fs_type, "z3fold:", NULL, &ops, 0x33);
+	return init_pseudo(fc, Z3FOLD_MAGIC) ? 0 : -ENOMEM;
 }
 
 static struct file_system_type z3fold_fs = {
 	.name		= "z3fold",
-	.mount		= z3fold_do_mount,
+	.init_fs_context = z3fold_init_fs_context,
 	.kill_sb	= kill_anon_super,
 };
 
@@ -895,7 +893,7 @@ static int z3fold_alloc(struct z3fold_pool *pool, size_t size, gfp_t gfp,
 	enum buddy bud;
 	bool can_sleep = gfpflags_allow_blocking(gfp);
 
-	if (!size || (gfp & __GFP_HIGHMEM))
+	if (!size)
 		return -EINVAL;
 
 	if (size > PAGE_SIZE)
@@ -1408,6 +1406,7 @@ static bool z3fold_page_isolate(struct page *page, isolate_mode_t mode)
 				 * should freak out.
 				 */
 				WARN(1, "Z3fold is experiencing kref problems\n");
+				z3fold_page_unlock(zhdr);
 				return false;
 			}
 			z3fold_page_unlock(zhdr);
@@ -1439,16 +1438,11 @@ static int z3fold_page_migrate(struct address_space *mapping, struct page *newpa
 	zhdr = page_address(page);
 	pool = zhdr_to_pool(zhdr);
 
-	if (!trylock_page(page))
-		return -EAGAIN;
-
 	if (!z3fold_page_trylock(zhdr)) {
-		unlock_page(page);
 		return -EAGAIN;
 	}
 	if (zhdr->mapped_count != 0) {
 		z3fold_page_unlock(zhdr);
-		unlock_page(page);
 		return -EBUSY;
 	}
 	if (work_pending(&zhdr->work)) {
@@ -1494,7 +1488,6 @@ static int z3fold_page_migrate(struct address_space *mapping, struct page *newpa
 	spin_unlock(&pool->lock);
 
 	page_mapcount_reset(page);
-	unlock_page(page);
 	put_page(page);
 	return 0;
 }

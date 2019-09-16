@@ -3930,7 +3930,7 @@ static void __init config_types(void)
 	if (!UDP->cmos)
 		UDP->cmos = FLOPPY0_TYPE;
 	drive = 1;
-	if (!UDP->cmos && FLOPPY1_TYPE)
+	if (!UDP->cmos)
 		UDP->cmos = FLOPPY1_TYPE;
 
 	/* FIXME: additional physical CMOS drive detection should go here */
@@ -4454,7 +4454,7 @@ static int __init floppy_setup(char *str)
 		pr_cont("\n");
 	} else
 		DPRINT("botched floppy option\n");
-	DPRINT("Read Documentation/blockdev/floppy.txt\n");
+	DPRINT("Read Documentation/admin-guide/blockdev/floppy.rst\n");
 	return 0;
 }
 

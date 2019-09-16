@@ -368,15 +368,14 @@ const struct taint_flag taint_flags[TAINT_FLAGS_COUNT] = {
 	[ TAINT_AUX ]			= { 'X', ' ', true },
 	[ TAINT_RANDSTRUCT ]		= { 'T', ' ', true },
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-	[ TAINT_EXTERNAL_SUPPORT ]	= { 'x', ' ', true }, /* should move to TAINT_AUX? */
-	[ TAINT_NO_SUPPORT ]		= { 'n', ' ', true },
+	[ TAINT_NO_SUPPORT ]		= { 'N', ' ', true },
 #endif
 };
 
 /**
  * print_tainted - return a string to represent the kernel taint state.
  *
- * For individual taint flag meanings, see Documentation/sysctl/kernel.txt
+ * For individual taint flag meanings, see Documentation/admin-guide/sysctl/kernel.rst
  *
  * The string is overwritten by the next call to print_tainted(),
  * but is always NULL terminated.

@@ -238,7 +238,7 @@ static bool iwl_alive_fn(struct iwl_notif_wait_data *notif_wait,
 	iwl_fw_lmac1_set_alive_err_table(mvm->trans, lmac_error_event_table);
 
 	if (lmac2)
-		mvm->trans->lmac_error_event_table[1] =
+		mvm->trans->dbg.lmac_error_event_table[1] =
 			le32_to_cpu(lmac2->dbg_ptrs.error_event_table_ptr);
 
 	umac_error_event_table = le32_to_cpu(umac->dbg_ptrs.error_info_addr);
@@ -275,6 +275,8 @@ static bool iwl_alive_fn(struct iwl_notif_wait_data *notif_wait,
 		     "UMAC version: Major - 0x%x, Minor - 0x%x\n",
 		     le32_to_cpu(umac->umac_major),
 		     le32_to_cpu(umac->umac_minor));
+
+	iwl_fwrt_update_fw_versions(&mvm->fwrt, lmac1, umac);
 
 	return true;
 }
@@ -860,6 +862,9 @@ int iwl_mvm_sar_select_profile(struct iwl_mvm *mvm, int prof_a, int prof_b)
 			return -ENOENT;
 		}
 
+		IWL_DEBUG_INFO(mvm,
+			       "SAR EWRD: chain %d profile index %d\n",
+			       i, profs[i]);
 		IWL_DEBUG_RADIO(mvm, "  Chain[%d]:\n", i);
 		for (j = 0; j < ACPI_SAR_NUM_SUB_BANDS; j++) {
 			idx = (i * ACPI_SAR_NUM_SUB_BANDS) + j;
@@ -1186,7 +1191,7 @@ int iwl_mvm_up(struct iwl_mvm *mvm)
 	if (ret)
 		IWL_ERR(mvm, "Failed to initialize Smart Fifo\n");
 
-	if (!mvm->trans->ini_valid) {
+	if (!mvm->trans->dbg.ini_valid) {
 		mvm->fwrt.dump.conf = FW_DBG_INVALID;
 		/* if we have a destination, assume EARLY START */
 		if (mvm->fw->dbg.dest_tlv)
