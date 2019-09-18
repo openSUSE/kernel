@@ -1044,6 +1044,10 @@
 			specified address. The serial port must already be
 			setup and configured. Options are not yet supported.
 
+		sbi
+			Use RISC-V SBI (Supervisor Binary Interface) for early
+			console.
+
 		smh	Use ARM semihosting calls for early console.
 
 		s3c2410,<addr>
@@ -1196,12 +1200,6 @@
 	elanfreq=	[X86-32]
 			See comment before function elanfreq_setup() in
 			arch/x86/kernel/cpu/cpufreq/elanfreq.c.
-
-	elevator=	[IOSCHED]
-			Format: { "mq-deadline" | "kyber" | "bfq" }
-			See Documentation/block/deadline-iosched.rst,
-			Documentation/block/kyber-iosched.rst and
-			Documentation/block/bfq-iosched.rst for details.
 
 	elfcorehdr=[size[KMG]@]offset[KMG] [IA64,PPC,SH,X86,S390]
 			Specifies physical address of start of kernel core
