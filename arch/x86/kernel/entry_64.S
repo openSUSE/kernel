@@ -950,7 +950,6 @@ swapgs_restore_regs_and_return_to_usermode:
 	movq (%rax), %rax
 	SWITCH_USER_CR3_NO_STACK
 	SWAPGS
-	FENCE_SWAPGS_KERNEL_ENTRY
 	jmp irq_return
 
 paranoid_userspace_restore_all:
@@ -1674,6 +1673,7 @@ error_kernelspace:
 	je bstep_iret
 	cmpq $gs_change,RIP+8(%rsp)
 	je error_swapgs
+	FENCE_SWAPGS_KERNEL_ENTRY
 	jmp error_sti
 
 bstep_iret:
