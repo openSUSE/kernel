@@ -1622,6 +1622,9 @@ static bool update_transition_efer(struct vcpu_vmx *vmx, int efer_offset)
 #endif
 	guest_efer &= ~ignore_bits;
 	guest_efer |= host_efer & ignore_bits;
+	/* Shadow paging assumes NX to be available.  */
+	if (!enable_ept)
+		guest_efer |= EFER_NX;
 	vmx->guest_msrs[efer_offset].data = guest_efer;
 	vmx->guest_msrs[efer_offset].mask = ~ignore_bits;
 
