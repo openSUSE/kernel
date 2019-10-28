@@ -2294,6 +2294,7 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t v, int write,
 			break;
 		}
 
+		drop_large_spte(vcpu, iterator.sptep);
 		if (*iterator.sptep == shadow_trap_nonpresent_pte) {
 			u64 base_addr = iterator.addr;
 
