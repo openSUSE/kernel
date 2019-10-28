@@ -2273,50 +2273,46 @@ static void direct_pte_prefetch(struct kvm_vcpu *vcpu, u64 *sptep)
 	__direct_pte_prefetch(vcpu, sp, sptep);
 }
 
-static int __direct_map(struct kvm_vcpu *vcpu, gpa_t v, int write,
-			int map_writable, int level, gfn_t gfn, pfn_t pfn,
+static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, int write,
+			int map_writable, int level, pfn_t pfn,
 			bool prefault)
 {
-	struct kvm_shadow_walk_iterator iterator;
+	struct kvm_shadow_walk_iterator it;
 	struct kvm_mmu_page *sp;
-	int pt_write = 0;
-	gfn_t pseudo_gfn;
+	unsigned pte_access = ACC_ALL;
+	int ret = 0;
+	gfn_t gfn = gpa >> PAGE_SHIFT;
+	gfn_t base_gfn = gfn;
 
-	for_each_shadow_entry(vcpu, (u64)gfn << PAGE_SHIFT, iterator) {
-		if (iterator.level == level) {
-			unsigned pte_access = ACC_ALL;
-
-			mmu_set_spte(vcpu, iterator.sptep, ACC_ALL, pte_access,
-				     0, write, 1, &pt_write,
-				     level, gfn, pfn, prefault, map_writable);
-			direct_pte_prefetch(vcpu, iterator.sptep);
-			++vcpu->stat.pf_fixed;
+	for_each_shadow_entry(vcpu, gpa, it) {
+		base_gfn = gfn & ~(KVM_PAGES_PER_HPAGE(it.level) - 1);
+		if (it.level == level)
 			break;
-		}
 
-		drop_large_spte(vcpu, iterator.sptep);
-		if (*iterator.sptep == shadow_trap_nonpresent_pte) {
-			u64 base_addr = iterator.addr;
-
-			base_addr &= PT64_LVL_ADDR_MASK(iterator.level);
-			pseudo_gfn = base_addr >> PAGE_SHIFT;
-			sp = kvm_mmu_get_page(vcpu, pseudo_gfn, iterator.addr,
-					      iterator.level - 1,
-					      1, ACC_ALL, iterator.sptep);
+		drop_large_spte(vcpu, it.sptep);
+		if (*it.sptep == shadow_trap_nonpresent_pte) {
+			sp = kvm_mmu_get_page(vcpu, base_gfn, it.addr,
+					      it.level - 1, 1, ACC_ALL, it.sptep);
 			if (!sp) {
 				pgprintk("nonpaging_map: ENOMEM\n");
 				kvm_release_pfn_clean(pfn);
 				return -ENOMEM;
 			}
-
-			__set_spte(iterator.sptep,
+			__set_spte(it.sptep,
 				   __pa(sp->spt)
 				   | PT_PRESENT_MASK | PT_WRITABLE_MASK
 				   | shadow_user_mask | shadow_x_mask
 				   | shadow_accessed_mask);
 		}
 	}
-	return pt_write;
+
+	mmu_set_spte(vcpu, it.sptep, ACC_ALL, pte_access,
+		     0, write, 1, &ret,
+		     level, base_gfn, pfn, prefault, map_writable);
+	direct_pte_prefetch(vcpu, it.sptep);
+	++vcpu->stat.pf_fixed;
+
+	return ret;
 }
 
 static void kvm_send_hwpoison_signal(unsigned long address, struct task_struct *tsk)
@@ -2430,8 +2426,7 @@ static int nonpaging_map(struct kvm_vcpu *vcpu, gva_t v, int write, gfn_t gfn,
 	kvm_mmu_free_some_pages(vcpu);
 	if (likely(!force_pt_level))
 		transparent_hugepage_adjust(vcpu, &gfn, &pfn, &level);
-	r = __direct_map(vcpu, v, write, map_writable, level, gfn, pfn,
-			 prefault);
+	r = __direct_map(vcpu, v, write, map_writable, level, pfn, prefault);
 	spin_unlock(&vcpu->kvm->mmu_lock);
 
 
@@ -2802,8 +2797,7 @@ static int tdp_page_fault(struct kvm_vcpu *vcpu, gva_t gpa, u32 error_code,
 	kvm_mmu_free_some_pages(vcpu);
 	if (likely(!force_pt_level))
 		transparent_hugepage_adjust(vcpu, &gfn, &pfn, &level);
-	r = __direct_map(vcpu, gpa, write, map_writable,
-			 level, gfn, pfn, prefault);
+	r = __direct_map(vcpu, gpa, write, map_writable, level, pfn, prefault);
 	spin_unlock(&vcpu->kvm->mmu_lock);
 
 	return r;

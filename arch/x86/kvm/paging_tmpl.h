@@ -483,6 +483,7 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 	int top_level;
 	unsigned direct_access;
 	struct kvm_shadow_walk_iterator it;
+	gfn_t base_gfn;
 
 	if (!is_present_gpte(gw->ptes[gw->level - 1]))
 		return NULL;
@@ -528,28 +529,26 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 			link_shadow_page(it.sptep, sp);
 	}
 
-	for (;
-	     shadow_walk_okay(&it) && it.level > hlevel;
-	     shadow_walk_next(&it)) {
-		gfn_t direct_gfn;
+	base_gfn = gw->gfn;
+	for (; shadow_walk_okay(&it); shadow_walk_next(&it)) {
+		base_gfn = gw->gfn & ~(KVM_PAGES_PER_HPAGE(it.level) - 1);
+		if (it.level == hlevel)
+			break;
 
 		validate_direct_spte(vcpu, it.sptep, direct_access);
 
 		drop_large_spte(vcpu, it.sptep);
 
-		if (is_shadow_present_pte(*it.sptep))
-			continue;
-
-		direct_gfn = gw->gfn & ~(KVM_PAGES_PER_HPAGE(it.level) - 1);
-
-		sp = kvm_mmu_get_page(vcpu, direct_gfn, addr, it.level-1,
-				      true, direct_access, it.sptep);
-		link_shadow_page(it.sptep, sp);
+		if (!is_shadow_present_pte(*it.sptep)) {
+			sp = kvm_mmu_get_page(vcpu, base_gfn, addr, it.level-1,
+					      true, direct_access, it.sptep);
+			link_shadow_page(it.sptep, sp);
+		}
 	}
 
 	mmu_set_spte(vcpu, it.sptep, access, gw->pte_access & access,
 		     user_fault, write_fault, dirty, ptwrite, it.level,
-		     gw->gfn, pfn, prefault, map_writable);
+		     base_gfn, pfn, prefault, map_writable);
 	FNAME(pte_prefetch)(vcpu, gw, it.sptep);
 
 	return it.sptep;
@@ -651,7 +650,6 @@ static int FNAME(page_fault)(struct kvm_vcpu *vcpu, gva_t addr, u32 error_code,
 	if (!write_pt)
 		vcpu->arch.last_pt_write_count = 0; /* reset fork detector */
 
-	++vcpu->stat.pf_fixed;
 	trace_kvm_mmu_audit(vcpu, AUDIT_POST_PAGE_FAULT);
 	spin_unlock(&vcpu->kvm->mmu_lock);
 
