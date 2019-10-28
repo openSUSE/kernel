@@ -104,7 +104,7 @@
 
 #define ASYNC_PF_PER_VCPU 64
 
-extern raw_spinlock_t kvm_lock;
+extern struct mutex kvm_lock;
 extern struct list_head vm_list;
 
 struct kvm_vcpu;

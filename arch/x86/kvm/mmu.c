@@ -3659,7 +3659,7 @@ static int mmu_shrink(struct shrinker *shrink, struct shrink_control *sc)
 	if (nr_to_scan == 0)
 		goto out;
 
-	raw_spin_lock(&kvm_lock);
+	mutex_lock(&kvm_lock);
 
 	list_for_each_entry(kvm, &vm_list, vm_list) {
 		int idx, freed_pages;
@@ -3682,7 +3682,7 @@ static int mmu_shrink(struct shrinker *shrink, struct shrink_control *sc)
 	if (kvm_freed)
 		list_move_tail(&kvm_freed->vm_list, &vm_list);
 
-	raw_spin_unlock(&kvm_lock);
+	mutex_unlock(&kvm_lock);
 
 out:
 	return percpu_counter_read_positive(&kvm_total_used_mmu_pages);
