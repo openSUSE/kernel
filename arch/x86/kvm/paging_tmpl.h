@@ -475,7 +475,7 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 			 struct guest_walker *gw,
 			 int user_fault, int write_fault, int hlevel,
 			 int *ptwrite, pfn_t pfn, bool map_writable,
-			 bool prefault)
+			 bool prefault, bool lpage_disallowed)
 {
 	unsigned access = gw->pt_access;
 	struct kvm_mmu_page *sp = NULL;
@@ -483,7 +483,7 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 	int top_level;
 	unsigned direct_access;
 	struct kvm_shadow_walk_iterator it;
-	gfn_t base_gfn;
+	gfn_t gfn, base_gfn;
 
 	if (!is_present_gpte(gw->ptes[gw->level - 1]))
 		return NULL;
@@ -529,9 +529,21 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 			link_shadow_page(it.sptep, sp);
 	}
 
-	base_gfn = gw->gfn;
+	/*
+	 * FNAME(page_fault) might have clobbered the bottom bits of
+	 * gw->gfn, restore them from the virtual address.
+	 */
+	gfn = gw->gfn | ((addr & PT_LVL_OFFSET_MASK(gw->level)) >> PAGE_SHIFT);
+	base_gfn = gfn;
+
 	for (; shadow_walk_okay(&it); shadow_walk_next(&it)) {
-		base_gfn = gw->gfn & ~(KVM_PAGES_PER_HPAGE(it.level) - 1);
+		/*
+		 * We cannot overwrite existing page tables with an NX
+		 * large page, as the leaf could be executable.
+		 */
+		disallowed_hugepage_adjust(it, gfn, &pfn, &hlevel);
+
+		base_gfn = gfn & ~(KVM_PAGES_PER_HPAGE(it.level) - 1);
 		if (it.level == hlevel)
 			break;
 
@@ -543,6 +555,8 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 			sp = kvm_mmu_get_page(vcpu, base_gfn, addr, it.level-1,
 					      true, direct_access, it.sptep);
 			link_shadow_page(it.sptep, sp);
+			if (lpage_disallowed)
+				account_huge_nx_page(vcpu->kvm, sp);
 		}
 	}
 
@@ -588,6 +602,8 @@ static int FNAME(page_fault)(struct kvm_vcpu *vcpu, gva_t addr, u32 error_code,
 	int force_pt_level;
 	unsigned long mmu_seq;
 	bool map_writable;
+	bool lpage_disallowed = (error_code & PFERR_FETCH_MASK) &&
+				is_nx_huge_page_enabled();
 
 	pgprintk("%s: addr %lx err %x\n", __func__, addr, error_code);
 
@@ -614,7 +630,8 @@ static int FNAME(page_fault)(struct kvm_vcpu *vcpu, gva_t addr, u32 error_code,
 	}
 
 	if (walker.level >= PT_DIRECTORY_LEVEL)
-		force_pt_level = mapping_level_dirty_bitmap(vcpu, walker.gfn);
+		force_pt_level = lpage_disallowed ||
+				 mapping_level_dirty_bitmap(vcpu, walker.gfn);
 	else
 		force_pt_level = 1;
 	if (!force_pt_level) {
@@ -642,7 +659,8 @@ static int FNAME(page_fault)(struct kvm_vcpu *vcpu, gva_t addr, u32 error_code,
 	if (!force_pt_level)
 		transparent_hugepage_adjust(vcpu, &walker.gfn, &pfn, &level);
 	sptep = FNAME(fetch)(vcpu, addr, &walker, user_fault, write_fault,
-			     level, &write_pt, pfn, map_writable, prefault);
+			     level, &write_pt, pfn, map_writable, prefault,
+			     lpage_disallowed);
 	(void)sptep;
 	pgprintk("%s: shadow pte %p %llx ptwrite %d\n", __func__,
 		 sptep, *sptep, write_pt);

@@ -1079,6 +1079,9 @@ void ssb_select_mitigation(void)
 		pr_info("%s\n", ssb_strings[ssb_mode]);
 }
 
+bool itlb_multihit_kvm_mitigation;
+EXPORT_SYMBOL_GPL(itlb_multihit_kvm_mitigation);
+
 #undef pr_fmt
 #define pr_fmt(fmt)     "Speculation prctl: " fmt
 
@@ -1281,7 +1284,10 @@ ssize_t cpu_show_mds(struct device *dev, struct device_attribute *attr, char *bu
 
 ssize_t cpu_show_itlb_multihit(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	return sprintf(buf, "Processor vulnerable\n");
+	if (itlb_multihit_kvm_mitigation)
+		return sprintf(buf, "KVM: Mitigation: Split huge pages\n");
+	else
+		return sprintf(buf, "KVM: Vulnerable\n");
 }
 #endif
 

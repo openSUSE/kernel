@@ -233,6 +233,7 @@ struct kvm_mmu_page {
 	DECLARE_BITMAP(slot_bitmap, KVM_MEMORY_SLOTS + KVM_PRIVATE_MEM_SLOTS);
 	bool multimapped;         /* More than one parent_pte? */
 	bool unsync;
+	bool lpage_disallowed; /* Can't be replaced by an equiv large page */
 	int root_count;          /* Currently serving as active root */
 	unsigned int unsync_children;
 	union {
@@ -520,6 +521,7 @@ struct kvm_vm_stat {
 	u32 mmu_unsync;
 	u32 remote_tlb_flush;
 	u32 lpages;
+	u32 nx_lpage_splits;
 };
 
 struct kvm_vcpu_stat {
