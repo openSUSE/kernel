@@ -861,6 +861,7 @@ static inline unsigned long page_level_mask(enum pg_level level)
 extern bool pfn_modify_allowed(unsigned long pfn, pgprot_t prot);
 
 extern bool arch_has_pfn_modify_check(void);
+extern bool has_bug_itlb_multihit(void);
 
 #include <asm-generic/pgtable.h>
 #endif	/* __ASSEMBLY__ */
