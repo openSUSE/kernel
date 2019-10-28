@@ -64,7 +64,7 @@ enum KTHREAD_BITS {
  * and this will return true.  You should then return, and your return
  * value will be passed through to kthread_stop().
  */
-bool kthread_should_stop(void)
+int kthread_should_stop(void)
 {
 	return test_bit(KTHREAD_SHOULD_STOP, &to_kthread(current)->flags);
 }

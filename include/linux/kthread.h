@@ -39,7 +39,7 @@ struct task_struct *kthread_create_on_cpu(int (*threadfn)(void *data),
 
 void kthread_bind(struct task_struct *k, unsigned int cpu);
 int kthread_stop(struct task_struct *k);
-bool kthread_should_stop(void);
+int kthread_should_stop(void);
 bool kthread_should_park(void);
 void *kthread_data(struct task_struct *k);
 int kthread_park(struct task_struct *k);

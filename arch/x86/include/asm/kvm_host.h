@@ -215,8 +215,6 @@ union kvm_mmu_page_role {
 struct kvm_mmu_page {
 	struct list_head link;
 	struct hlist_node hash_link;
-	struct list_head lpage_disallowed_link;
-
 
 	/*
 	 * The following two entries are used to key the shadow page in the
@@ -235,15 +233,19 @@ struct kvm_mmu_page {
 	DECLARE_BITMAP(slot_bitmap, KVM_MEMORY_SLOTS + KVM_PRIVATE_MEM_SLOTS);
 	bool multimapped;         /* More than one parent_pte? */
 	bool unsync;
-	bool lpage_disallowed; /* Can't be replaced by an equiv large page */
 	int root_count;          /* Currently serving as active root */
 	unsigned int unsync_children;
 	union {
 		u64 *parent_pte;               /* !multimapped */
 		struct hlist_head parent_ptes; /* multimapped, kvm_pte_chain */
 	};
-	unsigned long mmu_valid_gen;
 	DECLARE_BITMAP(unsync_child_bitmap, 512);
+
+#ifndef __GENKSYMS__
+	struct list_head lpage_disallowed_link;
+	bool lpage_disallowed; /* Can't be replaced by an equiv large page */
+	unsigned long mmu_valid_gen;
+#endif
 };
 
 struct kvm_pv_mmu_op_buffer {
@@ -468,7 +470,6 @@ struct kvm_arch {
 	unsigned int n_used_mmu_pages;
 	unsigned int n_requested_mmu_pages;
 	unsigned int n_max_mmu_pages;
-	unsigned long mmu_valid_gen;
 	atomic_t invlpg_counter;
 	struct hlist_head mmu_page_hash[KVM_NUM_MMU_PAGES];
 	/*
@@ -476,7 +477,6 @@ struct kvm_arch {
 	 */
 	struct list_head active_mmu_pages;
 	struct list_head assigned_dev_head;
-	struct list_head lpage_disallowed_mmu_pages;
 	struct iommu_domain *iommu_domain;
 	int iommu_flags;
 	struct kvm_pic *vpic;
@@ -512,7 +512,11 @@ struct kvm_arch {
 	int audit_point;
 	#endif
 
+#ifndef __GENKSYMS__
+	unsigned long mmu_valid_gen;
+	struct list_head lpage_disallowed_mmu_pages;
 	struct task_struct *nx_lpage_recovery_thread;
+#endif
 };
 
 struct kvm_vm_stat {
@@ -526,7 +530,9 @@ struct kvm_vm_stat {
 	u32 mmu_unsync;
 	u32 remote_tlb_flush;
 	u32 lpages;
+#ifndef __GENKSYMS__
 	u32 nx_lpage_splits;
+#endif
 };
 
 struct kvm_vcpu_stat {
