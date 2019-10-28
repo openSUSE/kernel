@@ -415,6 +415,12 @@ static int qla25xx_setup_mode(struct scsi_qla_host *vha)
 			goto fail;
 		}
 		ha->wq = alloc_workqueue("qla2xxx_wq", WQ_MEM_RECLAIM, 1);
+		if (!ha->wq) {
+			ql_log(ql_log_warn, vha, 0x00e0,
+			    "Failed to create workqueue qla2xxx_wq.\n");
+			goto fail2;
+		}
+
 		vha->req = ha->req_q_map[req];
 		options |= BIT_1;
 		for (ques = 1; ques < ha->max_rsp_queues; ques++) {
@@ -422,7 +428,7 @@ static int qla25xx_setup_mode(struct scsi_qla_host *vha)
 			if (!ret) {
 				ql_log(ql_log_warn, vha, 0x00e8,
 				    "Failed to create response queue.\n");
-				goto fail2;
+				goto fail3;
 			}
 		}
 		ha->flags.cpu_affinity_enabled = 1;
@@ -436,9 +442,10 @@ static int qla25xx_setup_mode(struct scsi_qla_host *vha)
 		    ha->max_rsp_queues, ha->max_req_queues);
 	}
 	return 0;
+fail3:
+	destroy_workqueue(ha->wq);
 fail2:
 	qla25xx_delete_queues(vha);
-	destroy_workqueue(ha->wq);
 	ha->wq = NULL;
 fail:
 	ha->mqenable = 0;
