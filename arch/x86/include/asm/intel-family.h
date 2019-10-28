@@ -63,6 +63,7 @@
 #define INTEL_FAM6_ATOM_SILVERMONT_MID	0x4A /* Tangier */
 #define INTEL_FAM6_ATOM_AIRMONT_MID	0x5A /* Anniedale */
 #define INTEL_FAM6_ATOM_GOLDMONT_PLUS	0x7A
+#define INTEL_FAM6_ATOM_TREMONT_X	0x86 /* Jacobsville */
 
 /* Xeon Phi */
 
