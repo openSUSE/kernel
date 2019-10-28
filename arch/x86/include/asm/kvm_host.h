@@ -215,6 +215,8 @@ union kvm_mmu_page_role {
 struct kvm_mmu_page {
 	struct list_head link;
 	struct hlist_node hash_link;
+	struct list_head lpage_disallowed_link;
+
 
 	/*
 	 * The following two entries are used to key the shadow page in the
@@ -474,6 +476,7 @@ struct kvm_arch {
 	 */
 	struct list_head active_mmu_pages;
 	struct list_head assigned_dev_head;
+	struct list_head lpage_disallowed_mmu_pages;
 	struct iommu_domain *iommu_domain;
 	int iommu_flags;
 	struct kvm_pic *vpic;
@@ -508,6 +511,8 @@ struct kvm_arch {
 	#ifdef CONFIG_KVM_MMU_AUDIT
 	int audit_point;
 	#endif
+
+	struct task_struct *nx_lpage_recovery_thread;
 };
 
 struct kvm_vm_stat {

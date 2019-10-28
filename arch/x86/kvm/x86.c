@@ -6575,6 +6575,7 @@ int kvm_arch_init_vm(struct kvm *kvm)
 {
 	INIT_LIST_HEAD(&kvm->arch.active_mmu_pages);
 	INIT_LIST_HEAD(&kvm->arch.assigned_dev_head);
+	INIT_LIST_HEAD(&kvm->arch.lpage_disallowed_mmu_pages);
 
 	/* Reserve bit 0 of irq_sources_bitmap for userspace irq source */
 	set_bit(KVM_USERSPACE_IRQ_SOURCE_ID, &kvm->arch.irq_sources_bitmap);
@@ -6583,6 +6584,11 @@ int kvm_arch_init_vm(struct kvm *kvm)
 	mutex_init(&kvm->arch.apic_map_lock);
 
 	return 0;
+}
+
+int kvm_arch_post_init_vm(struct kvm *kvm)
+{
+	return kvm_mmu_post_init_vm(kvm);
 }
 
 static void kvm_unload_vcpu_mmu(struct kvm_vcpu *vcpu)
@@ -6621,6 +6627,11 @@ void kvm_arch_sync_events(struct kvm *kvm)
 {
 	kvm_free_all_assigned_devices(kvm);
 	kvm_free_pit(kvm);
+}
+
+void kvm_arch_pre_destroy_vm(struct kvm *kvm)
+{
+	kvm_mmu_pre_destroy_vm(kvm);
 }
 
 void kvm_arch_destroy_vm(struct kvm *kvm)
