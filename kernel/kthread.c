@@ -116,6 +116,7 @@ void kthread_parkme(void)
 {
 	__kthread_parkme(to_kthread(current));
 }
+EXPORT_SYMBOL_GPL(kthread_parkme);
 
 static int kthread(void *_create)
 {
@@ -353,6 +354,7 @@ void kthread_unpark(struct task_struct *k)
 	}
 	put_task_struct(k);
 }
+EXPORT_SYMBOL_GPL(kthread_unpark);
 
 /**
  * kthread_park - park a thread created by kthread_create().
@@ -384,6 +386,7 @@ int kthread_park(struct task_struct *k)
 	put_task_struct(k);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(kthread_park);
 
 /**
  * kthread_stop - stop a thread created by kthread_create().
