@@ -18,6 +18,7 @@
 #include <linux/msi.h>
 #include <linux/slab.h>
 #include <linux/rcupdate.h>
+#include <linux/completion.h>
 #include <asm/signal.h>
 
 #include <linux/kvm.h>
@@ -782,6 +783,12 @@ static inline long kvm_vm_ioctl_assigned_device(struct kvm *kvm, unsigned ioctl,
 }
 
 #endif
+
+typedef int (*kvm_vm_thread_fn_t)(struct kvm *kvm, uintptr_t data);
+
+int kvm_vm_create_worker_thread(struct kvm *kvm, kvm_vm_thread_fn_t thread_fn,
+				uintptr_t data, const char *name,
+				struct task_struct **thread_ptr);
 
 static inline void kvm_make_request(int req, struct kvm_vcpu *vcpu)
 {

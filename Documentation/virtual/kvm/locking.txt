@@ -10,7 +10,7 @@ KVM Lock Overview
 ------------
 
 Name:		kvm_lock
-Type:		raw_spinlock
+Type:		mutex
 Arch:		any
 Protects:	- vm_list
 		- hardware virtualization enable/disable

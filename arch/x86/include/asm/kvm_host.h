@@ -104,7 +104,7 @@
 
 #define ASYNC_PF_PER_VCPU 64
 
-extern raw_spinlock_t kvm_lock;
+extern struct mutex kvm_lock;
 extern struct list_head vm_list;
 
 struct kvm_vcpu;
@@ -240,6 +240,12 @@ struct kvm_mmu_page {
 		struct hlist_head parent_ptes; /* multimapped, kvm_pte_chain */
 	};
 	DECLARE_BITMAP(unsync_child_bitmap, 512);
+
+#ifndef __GENKSYMS__
+	struct list_head lpage_disallowed_link;
+	bool lpage_disallowed; /* Can't be replaced by an equiv large page */
+	unsigned long mmu_valid_gen;
+#endif
 };
 
 struct kvm_pv_mmu_op_buffer {
@@ -505,6 +511,12 @@ struct kvm_arch {
 	#ifdef CONFIG_KVM_MMU_AUDIT
 	int audit_point;
 	#endif
+
+#ifndef __GENKSYMS__
+	unsigned long mmu_valid_gen;
+	struct list_head lpage_disallowed_mmu_pages;
+	struct task_struct *nx_lpage_recovery_thread;
+#endif
 };
 
 struct kvm_vm_stat {
@@ -518,6 +530,9 @@ struct kvm_vm_stat {
 	u32 mmu_unsync;
 	u32 remote_tlb_flush;
 	u32 lpages;
+#ifndef __GENKSYMS__
+	u32 nx_lpage_splits;
+#endif
 };
 
 struct kvm_vcpu_stat {

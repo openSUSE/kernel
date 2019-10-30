@@ -147,6 +147,7 @@ struct kvm_stats_debugfs_item debugfs_entries[] = {
 	{ "mmu_unsync", VM_STAT(mmu_unsync) },
 	{ "remote_tlb_flush", VM_STAT(remote_tlb_flush) },
 	{ "largepages", VM_STAT(lpages) },
+	{ "nx_largepages_splitted", VM_STAT(nx_lpage_splits) },
 	{ NULL }
 };
 
@@ -5061,7 +5062,7 @@ static int kvmclock_cpufreq_notifier(struct notifier_block *nb, unsigned long va
 
 	smp_call_function_single(freq->cpu, tsc_khz_changed, freq, 1);
 
-	raw_spin_lock(&kvm_lock);
+	mutex_lock(&kvm_lock);
 	list_for_each_entry(kvm, &vm_list, vm_list) {
 		kvm_for_each_vcpu(i, vcpu, kvm) {
 			if (vcpu->cpu != freq->cpu)
@@ -5071,7 +5072,7 @@ static int kvmclock_cpufreq_notifier(struct notifier_block *nb, unsigned long va
 				send_ipi = 1;
 		}
 	}
-	raw_spin_unlock(&kvm_lock);
+	mutex_unlock(&kvm_lock);
 
 	if (freq->old < freq->new && send_ipi) {
 		/*
@@ -6574,6 +6575,7 @@ int kvm_arch_init_vm(struct kvm *kvm)
 {
 	INIT_LIST_HEAD(&kvm->arch.active_mmu_pages);
 	INIT_LIST_HEAD(&kvm->arch.assigned_dev_head);
+	INIT_LIST_HEAD(&kvm->arch.lpage_disallowed_mmu_pages);
 
 	/* Reserve bit 0 of irq_sources_bitmap for userspace irq source */
 	set_bit(KVM_USERSPACE_IRQ_SOURCE_ID, &kvm->arch.irq_sources_bitmap);
@@ -6582,6 +6584,11 @@ int kvm_arch_init_vm(struct kvm *kvm)
 	mutex_init(&kvm->arch.apic_map_lock);
 
 	return 0;
+}
+
+int kvm_arch_post_init_vm(struct kvm *kvm)
+{
+	return kvm_mmu_post_init_vm(kvm);
 }
 
 static void kvm_unload_vcpu_mmu(struct kvm_vcpu *vcpu)
@@ -6620,6 +6627,11 @@ void kvm_arch_sync_events(struct kvm *kvm)
 {
 	kvm_free_all_assigned_devices(kvm);
 	kvm_free_pit(kvm);
+}
+
+void kvm_arch_pre_destroy_vm(struct kvm *kvm)
+{
+	kvm_mmu_pre_destroy_vm(kvm);
 }
 
 void kvm_arch_destroy_vm(struct kvm *kvm)

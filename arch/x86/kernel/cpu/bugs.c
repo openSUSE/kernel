@@ -506,12 +506,13 @@ static inline const char *spectre_v2_module_string(void)
 static inline const char *spectre_v2_module_string(void) { return ""; }
 #endif
 
-#define NO_SPECULATION	BIT(0)
-#define NO_MELTDOWN	BIT(1)
-#define NO_SSB		BIT(2)
-#define NO_L1TF		BIT(3)
-#define NO_MDS		BIT(4)
-#define MSBDS_ONLY	BIT(5)
+#define NO_SPECULATION		BIT(0)
+#define NO_MELTDOWN		BIT(1)
+#define NO_SSB			BIT(2)
+#define NO_L1TF			BIT(3)
+#define NO_MDS			BIT(4)
+#define MSBDS_ONLY		BIT(5)
+#define NO_ITLB_MULTIHIT	BIT(7)
 
 #define VULNWL(_vendor, _family, _model, _whitelist)	\
 	{ X86_VENDOR_##_vendor, _family, _model, X86_FEATURE_ANY, _whitelist }
@@ -529,34 +530,36 @@ static const __initconst struct x86_cpu_id cpu_vuln_whitelist[] = {
 	VULNWL(NSC,	5, X86_MODEL_ANY,	NO_SPECULATION),
 
 	/* Intel Family 6 */
-	VULNWL_INTEL(ATOM_SALTWELL,		NO_SPECULATION),
-	VULNWL_INTEL(ATOM_SALTWELL_TABLET,	NO_SPECULATION),
-	VULNWL_INTEL(ATOM_SALTWELL_MID,		NO_SPECULATION),
-	VULNWL_INTEL(ATOM_BONNELL,		NO_SPECULATION),
-	VULNWL_INTEL(ATOM_BONNELL_MID,		NO_SPECULATION),
+	VULNWL_INTEL(ATOM_SALTWELL,		NO_SPECULATION | NO_ITLB_MULTIHIT),
+	VULNWL_INTEL(ATOM_SALTWELL_TABLET,	NO_SPECULATION | NO_ITLB_MULTIHIT),
+	VULNWL_INTEL(ATOM_SALTWELL_MID,		NO_SPECULATION | NO_ITLB_MULTIHIT),
+	VULNWL_INTEL(ATOM_BONNELL,		NO_SPECULATION | NO_ITLB_MULTIHIT),
+	VULNWL_INTEL(ATOM_BONNELL_MID,		NO_SPECULATION | NO_ITLB_MULTIHIT),
 
-	VULNWL_INTEL(ATOM_SILVERMONT,		NO_SSB | NO_L1TF | MSBDS_ONLY),
-	VULNWL_INTEL(ATOM_SILVERMONT_X,		NO_SSB | NO_L1TF | MSBDS_ONLY),
-	VULNWL_INTEL(ATOM_SILVERMONT_MID,	NO_SSB | NO_L1TF | MSBDS_ONLY),
-	VULNWL_INTEL(ATOM_AIRMONT,		NO_SSB | NO_L1TF | MSBDS_ONLY),
-	VULNWL_INTEL(XEON_PHI_KNL,		NO_SSB | NO_L1TF | MSBDS_ONLY),
-	VULNWL_INTEL(XEON_PHI_KNM,		NO_SSB | NO_L1TF | MSBDS_ONLY),
+	VULNWL_INTEL(ATOM_SILVERMONT,		NO_SSB | NO_L1TF | MSBDS_ONLY | NO_ITLB_MULTIHIT),
+	VULNWL_INTEL(ATOM_SILVERMONT_X,		NO_SSB | NO_L1TF | MSBDS_ONLY | NO_ITLB_MULTIHIT),
+	VULNWL_INTEL(ATOM_SILVERMONT_MID,	NO_SSB | NO_L1TF | MSBDS_ONLY | NO_ITLB_MULTIHIT),
+	VULNWL_INTEL(ATOM_AIRMONT,		NO_SSB | NO_L1TF | MSBDS_ONLY | NO_ITLB_MULTIHIT),
+	VULNWL_INTEL(XEON_PHI_KNL,		NO_SSB | NO_L1TF | MSBDS_ONLY | NO_ITLB_MULTIHIT),
+	VULNWL_INTEL(XEON_PHI_KNM,		NO_SSB | NO_L1TF | MSBDS_ONLY | NO_ITLB_MULTIHIT),
 
 	VULNWL_INTEL(CORE_YONAH,		NO_SSB),
 
-	VULNWL_INTEL(ATOM_AIRMONT_MID,		NO_L1TF | MSBDS_ONLY),
-	VULNWL_INTEL(ATOM_GOLDMONT,		NO_MDS | NO_L1TF),
-	VULNWL_INTEL(ATOM_GOLDMONT_X,		NO_MDS | NO_L1TF),
-	VULNWL_INTEL(ATOM_GOLDMONT_PLUS,	NO_MDS | NO_L1TF),
+	VULNWL_INTEL(ATOM_AIRMONT_MID,		NO_L1TF | MSBDS_ONLY | NO_ITLB_MULTIHIT),
+	VULNWL_INTEL(ATOM_GOLDMONT,		NO_MDS | NO_L1TF | NO_ITLB_MULTIHIT),
+	VULNWL_INTEL(ATOM_GOLDMONT_X,		NO_MDS | NO_L1TF | NO_ITLB_MULTIHIT),
+	VULNWL_INTEL(ATOM_GOLDMONT_PLUS,	NO_MDS | NO_L1TF | NO_ITLB_MULTIHIT),
+
+	VULNWL_INTEL(ATOM_TREMONT_X,		NO_ITLB_MULTIHIT),
 
 	/* AMD Family 0xf - 0x12 */
-	VULNWL_AMD(0x0f,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
-	VULNWL_AMD(0x10,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
-	VULNWL_AMD(0x11,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
-	VULNWL_AMD(0x12,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
+	VULNWL_AMD(0x0f,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS | NO_ITLB_MULTIHIT),
+	VULNWL_AMD(0x10,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS | NO_ITLB_MULTIHIT),
+	VULNWL_AMD(0x11,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS | NO_ITLB_MULTIHIT),
+	VULNWL_AMD(0x12,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS | NO_ITLB_MULTIHIT),
 
 	/* FAMILY_ANY must be last, otherwise 0x0f - 0x12 matches won't work */
-	VULNWL_AMD(X86_FAMILY_ANY,	NO_MELTDOWN | NO_L1TF | NO_MDS),
+	VULNWL_AMD(X86_FAMILY_ANY,	NO_MELTDOWN | NO_L1TF | NO_MDS | NO_ITLB_MULTIHIT),
 	{}
 };
 
@@ -569,12 +572,19 @@ static bool __init cpu_matches(unsigned long which)
 
 static bool x86_bug_spec_store_bypass;
 static bool x86_bug_l1tf;
+static bool x86_bug_itlb_multihit;
 
 bool arch_has_pfn_modify_check(void)
 {
 	return x86_bug_l1tf;
 }
 EXPORT_SYMBOL_GPL(arch_has_pfn_modify_check);
+
+bool has_bug_itlb_multihit(void)
+{
+	return x86_bug_itlb_multihit;
+}
+EXPORT_SYMBOL_GPL(has_bug_itlb_multihit);
 
 void setup_force_cpu_bugs(unsigned long __unused)
 {
@@ -586,6 +596,10 @@ void setup_force_cpu_bugs(unsigned long __unused)
 
 	if (boot_cpu_has(X86_FEATURE_ARCH_CAPABILITIES))
 		rdmsrl(MSR_IA32_ARCH_CAPABILITIES, ia32_cap);
+
+	/* Set ITLB_MULTIHIT bug if cpu is not in the whitelist and not mitigated */
+	if (!cpu_matches(NO_ITLB_MULTIHIT) && !(ia32_cap & ARCH_CAP_PSCHANGE_MC_NO))
+		x86_bug_itlb_multihit = true;
 
 	if (!cpu_matches(NO_SSB))
 		x86_bug_spec_store_bypass = true;
@@ -1065,6 +1079,9 @@ void ssb_select_mitigation(void)
 		pr_info("%s\n", ssb_strings[ssb_mode]);
 }
 
+bool itlb_multihit_kvm_mitigation;
+EXPORT_SYMBOL_GPL(itlb_multihit_kvm_mitigation);
+
 #undef pr_fmt
 #define pr_fmt(fmt)     "Speculation prctl: " fmt
 
@@ -1236,6 +1253,11 @@ ssize_t cpu_show_l1tf(struct device *dev,
 	return l1tf_show_state(buf);;
 }
 
+ssize_t itlb_multihit_show_state(char *buf)
+{
+	return sprintf(buf, "Processor vulnerable\n");
+}
+
 static ssize_t mds_show_state(char *buf)
 {
 #ifndef CONFIG_XEN
@@ -1258,6 +1280,14 @@ static ssize_t mds_show_state(char *buf)
 ssize_t cpu_show_mds(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	return mds_show_state(buf);
+}
+
+ssize_t cpu_show_itlb_multihit(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	if (itlb_multihit_kvm_mitigation)
+		return sprintf(buf, "KVM: Mitigation: Split huge pages\n");
+	else
+		return sprintf(buf, "KVM: Vulnerable\n");
 }
 #endif
 

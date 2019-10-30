@@ -76,4 +76,9 @@ static inline int is_present_gpte(unsigned long pte)
 	return pte & PT_PRESENT_MASK;
 }
 
+void kvm_mmu_invalidate_zap_all_pages(struct kvm *kvm);
+
+int kvm_mmu_post_init_vm(struct kvm *kvm);
+void kvm_mmu_pre_destroy_vm(struct kvm *kvm);
+
 #endif
