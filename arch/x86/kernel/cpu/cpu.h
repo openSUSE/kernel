@@ -43,4 +43,6 @@ extern void get_cpu_cap(struct cpuinfo_x86 *c);
 extern int detect_extended_topology_early(struct cpuinfo_x86 *c);
 extern int detect_ht_early(struct cpuinfo_x86 *c);
 
+extern u64 x86_read_arch_cap_msr(void);
+
 #endif
