@@ -1527,3 +1527,14 @@ void x86_sync_spec_ctrl(void)
 {
 }
 EXPORT_SYMBOL_GPL(x86_sync_spec_ctrl);
+
+/*
+ * Simulate X86_BUG_<X> macros from upstream.
+ */
+bool boot_cpu_has_bug(enum x86_cpu_bugs bug)
+{
+	switch (bug) {
+	case X86_BUG_TAA:	return x86_bug_taa;
+	default:		return false;
+	}
+}
