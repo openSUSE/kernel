@@ -503,6 +503,11 @@ static void __cpuinit init_intel(struct cpuinfo_x86 *c)
 	}
 
 	x86_spec_check();
+
+	if (tsx_ctrl_state == TSX_CTRL_ENABLE)
+		tsx_enable();
+	if (tsx_ctrl_state == TSX_CTRL_DISABLE)
+		tsx_disable();
 }
 
 #ifdef CONFIG_X86_32
@@ -581,4 +586,3 @@ static const struct cpu_dev __cpuinitconst intel_cpu_dev = {
 };
 
 cpu_dev_register(intel_cpu_dev);
-
