@@ -3794,6 +3794,12 @@ static void mmu_destroy_caches(void)
 		kmem_cache_destroy(mmu_page_header_cache);
 }
 
+static bool get_nx_auto_mode(void)
+{
+	/* Return true when CPU has the bug, and mitigations are ON */
+	return has_bug_itlb_multihit() && !cpu_mitigations_off();
+}
+
 static void __set_nx_huge_pages(bool val)
 {
 	nx_huge_pages = itlb_multihit_kvm_mitigation = val;
@@ -3810,7 +3816,7 @@ static int set_nx_huge_pages(const char *val, const struct kernel_param *kp)
 	else if (sysfs_streq(val, "force"))
 		new_val = 1;
 	else if (sysfs_streq(val, "auto"))
-		new_val = has_bug_itlb_multihit();
+		new_val = get_nx_auto_mode();
 	else if (strtobool(val, &new_val) < 0)
 		return -EINVAL;
 
@@ -3838,7 +3844,7 @@ static int set_nx_huge_pages(const char *val, const struct kernel_param *kp)
 int kvm_mmu_module_init(void)
 {
 	if (nx_huge_pages == -1)
-		__set_nx_huge_pages(has_bug_itlb_multihit());
+		__set_nx_huge_pages(get_nx_auto_mode());
 
 	pte_chain_cache = kmem_cache_create("kvm_pte_chain",
 					    sizeof(struct kvm_pte_chain),
