@@ -190,7 +190,6 @@ int amdgpu_driver_load_kms(struct drm_device *dev, unsigned long flags)
 		pm_runtime_put_autosuspend(dev->dev);
 	}
 
-	amdgpu_register_gpu_instance(adev);
 out:
 	if (r) {
 		/* balance pm_runtime_get_sync in amdgpu_driver_unload_kms */
@@ -373,23 +372,38 @@ static int amdgpu_hw_ip_info(struct amdgpu_device *adev,
 		break;
 	case AMDGPU_HW_IP_VCN_DEC:
 		type = AMD_IP_BLOCK_TYPE_VCN;
-		if (adev->vcn.ring_dec.sched.ready)
-			++num_rings;
+		for (i = 0; i < adev->vcn.num_vcn_inst; i++) {
+			if (adev->uvd.harvest_config & (1 << i))
+				continue;
+
+			if (adev->vcn.inst[i].ring_dec.sched.ready)
+				++num_rings;
+		}
 		ib_start_alignment = 16;
 		ib_size_alignment = 16;
 		break;
 	case AMDGPU_HW_IP_VCN_ENC:
 		type = AMD_IP_BLOCK_TYPE_VCN;
-		for (i = 0; i < adev->vcn.num_enc_rings; i++)
-			if (adev->vcn.ring_enc[i].sched.ready)
-				++num_rings;
+		for (i = 0; i < adev->vcn.num_vcn_inst; i++) {
+			if (adev->uvd.harvest_config & (1 << i))
+				continue;
+
+			for (j = 0; j < adev->vcn.num_enc_rings; j++)
+				if (adev->vcn.inst[i].ring_enc[j].sched.ready)
+					++num_rings;
+		}
 		ib_start_alignment = 64;
 		ib_size_alignment = 1;
 		break;
 	case AMDGPU_HW_IP_VCN_JPEG:
 		type = AMD_IP_BLOCK_TYPE_VCN;
-		if (adev->vcn.ring_jpeg.sched.ready)
-			++num_rings;
+		for (i = 0; i < adev->vcn.num_vcn_inst; i++) {
+			if (adev->uvd.harvest_config & (1 << i))
+				continue;
+
+			if (adev->vcn.inst[i].ring_jpeg.sched.ready)
+				++num_rings;
+		}
 		ib_start_alignment = 16;
 		ib_size_alignment = 16;
 		break;
@@ -635,15 +649,19 @@ static int amdgpu_info_ioctl(struct drm_device *dev, void *data, struct drm_file
 			return -ENOMEM;
 		alloc_size = info->read_mmr_reg.count * sizeof(*regs);
 
-		for (i = 0; i < info->read_mmr_reg.count; i++)
+		amdgpu_gfx_off_ctrl(adev, false);
+		for (i = 0; i < info->read_mmr_reg.count; i++) {
 			if (amdgpu_asic_read_register(adev, se_num, sh_num,
 						      info->read_mmr_reg.dword_offset + i,
 						      &regs[i])) {
 				DRM_DEBUG_KMS("unallowed offset %#x\n",
 					      info->read_mmr_reg.dword_offset + i);
 				kfree(regs);
+				amdgpu_gfx_off_ctrl(adev, true);
 				return -EFAULT;
 			}
+		}
+		amdgpu_gfx_off_ctrl(adev, true);
 		n = copy_to_user(out, regs, min(size, alloc_size));
 		kfree(regs);
 		return n ? -EFAULT : 0;
@@ -736,6 +754,8 @@ static int amdgpu_info_ioctl(struct drm_device *dev, void *data, struct drm_file
 		if (adev->family >= AMDGPU_FAMILY_NV)
 			dev_info.pa_sc_tile_steering_override =
 				adev->gfx.config.pa_sc_tile_steering_override;
+
+		dev_info.tcc_disabled_mask = adev->gfx.config.tcc_disabled_mask;
 
 		return copy_to_user(out, &dev_info,
 				    min((size_t)size, sizeof(dev_info))) ? -EFAULT : 0;
@@ -1056,7 +1076,7 @@ void amdgpu_driver_postclose_kms(struct drm_device *dev,
 	amdgpu_vm_fini(adev, &fpriv->vm);
 
 	if (pasid)
-		amdgpu_pasid_free_delayed(pd->tbo.resv, pasid);
+		amdgpu_pasid_free_delayed(pd->tbo.base.resv, pasid);
 	amdgpu_bo_unref(&pd);
 
 	idr_for_each_entry(&fpriv->bo_list_handles, list, handle)

@@ -8,7 +8,12 @@
 #include "pci.h"
 #include "tx.h"
 #include "rx.h"
+#include "fw.h"
 #include "debug.h"
+
+static bool rtw_disable_msi;
+module_param_named(disable_msi, rtw_disable_msi, bool, 0644);
+MODULE_PARM_DESC(disable_msi, "Set Y to disable MSI interrupt support");
 
 static u32 rtw_pci_tx_queue_idx_addr[] = {
 	[RTW_TX_QUEUE_BK]	= RTK_PCI_TXBD_IDX_BKQ,
@@ -85,16 +90,13 @@ static inline void *rtw_pci_get_tx_desc(struct rtw_pci_tx_ring *tx_ring, u8 idx)
 	return tx_ring->r.head + offset;
 }
 
-static void rtw_pci_free_tx_ring(struct rtw_dev *rtwdev,
-				 struct rtw_pci_tx_ring *tx_ring)
+static void rtw_pci_free_tx_ring_skbs(struct rtw_dev *rtwdev,
+				      struct rtw_pci_tx_ring *tx_ring)
 {
 	struct pci_dev *pdev = to_pci_dev(rtwdev->dev);
 	struct rtw_pci_tx_data *tx_data;
 	struct sk_buff *skb, *tmp;
 	dma_addr_t dma;
-	u8 *head = tx_ring->r.head;
-	u32 len = tx_ring->r.len;
-	int ring_sz = len * tx_ring->r.desc_size;
 
 	/* free every skb remained in tx list */
 	skb_queue_walk_safe(&tx_ring->queue, skb, tmp) {
@@ -105,21 +107,30 @@ static void rtw_pci_free_tx_ring(struct rtw_dev *rtwdev,
 		pci_unmap_single(pdev, dma, skb->len, PCI_DMA_TODEVICE);
 		dev_kfree_skb_any(skb);
 	}
+}
+
+static void rtw_pci_free_tx_ring(struct rtw_dev *rtwdev,
+				 struct rtw_pci_tx_ring *tx_ring)
+{
+	struct pci_dev *pdev = to_pci_dev(rtwdev->dev);
+	u8 *head = tx_ring->r.head;
+	u32 len = tx_ring->r.len;
+	int ring_sz = len * tx_ring->r.desc_size;
+
+	rtw_pci_free_tx_ring_skbs(rtwdev, tx_ring);
 
 	/* free the ring itself */
 	pci_free_consistent(pdev, ring_sz, head, tx_ring->r.dma);
 	tx_ring->r.head = NULL;
 }
 
-static void rtw_pci_free_rx_ring(struct rtw_dev *rtwdev,
-				 struct rtw_pci_rx_ring *rx_ring)
+static void rtw_pci_free_rx_ring_skbs(struct rtw_dev *rtwdev,
+				      struct rtw_pci_rx_ring *rx_ring)
 {
 	struct pci_dev *pdev = to_pci_dev(rtwdev->dev);
 	struct sk_buff *skb;
-	dma_addr_t dma;
-	u8 *head = rx_ring->r.head;
 	int buf_sz = RTK_PCI_RX_BUF_SIZE;
-	int ring_sz = rx_ring->r.desc_size * rx_ring->r.len;
+	dma_addr_t dma;
 	int i;
 
 	for (i = 0; i < rx_ring->r.len; i++) {
@@ -132,6 +143,16 @@ static void rtw_pci_free_rx_ring(struct rtw_dev *rtwdev,
 		dev_kfree_skb(skb);
 		rx_ring->buf[i] = NULL;
 	}
+}
+
+static void rtw_pci_free_rx_ring(struct rtw_dev *rtwdev,
+				 struct rtw_pci_rx_ring *rx_ring)
+{
+	struct pci_dev *pdev = to_pci_dev(rtwdev->dev);
+	u8 *head = rx_ring->r.head;
+	int ring_sz = rx_ring->r.desc_size * rx_ring->r.len;
+
+	rtw_pci_free_rx_ring_skbs(rtwdev, rx_ring);
 
 	pci_free_consistent(pdev, ring_sz, head, rx_ring->r.dma);
 }
@@ -479,6 +500,17 @@ static void rtw_pci_dma_reset(struct rtw_dev *rtwdev, struct rtw_pci *rtwpci)
 	rtwpci->rx_tag = 0;
 }
 
+static void rtw_pci_dma_release(struct rtw_dev *rtwdev, struct rtw_pci *rtwpci)
+{
+	struct rtw_pci_tx_ring *tx_ring;
+	u8 queue;
+
+	for (queue = 0; queue < RTK_MAX_TX_QUEUE_NUM; queue++) {
+		tx_ring = &rtwpci->tx_rings[queue];
+		rtw_pci_free_tx_ring_skbs(rtwdev, tx_ring);
+	}
+}
+
 static int rtw_pci_start(struct rtw_dev *rtwdev)
 {
 	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
@@ -500,6 +532,7 @@ static void rtw_pci_stop(struct rtw_dev *rtwdev)
 
 	spin_lock_irqsave(&rtwpci->irq_lock, flags);
 	rtw_pci_disable_interrupt(rtwdev, rtwpci);
+	rtw_pci_dma_release(rtwdev, rtwpci);
 	spin_unlock_irqrestore(&rtwpci->irq_lock, flags);
 }
 
@@ -822,10 +855,7 @@ static void rtw_pci_rx_isr(struct rtw_dev *rtwdev, struct rtw_pci *rtwpci,
 		skb_put_data(new, skb->data, new_len);
 
 		if (pkt_stat.is_c2h) {
-			 /* pass rx_desc & offset for further operation */
-			*((u32 *)new->cb) = pkt_offset;
-			skb_queue_tail(&rtwdev->c2h_queue, new);
-			ieee80211_queue_work(rtwdev->hw, &rtwdev->c2h_work);
+			rtw_fw_c2h_cmd_rx_irqsafe(rtwdev, pkt_offset, new);
 		} else {
 			/* remove rx_desc */
 			skb_pull(new, pkt_offset);
@@ -868,12 +898,34 @@ static irqreturn_t rtw_pci_interrupt_handler(int irq, void *dev)
 {
 	struct rtw_dev *rtwdev = dev;
 	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
-	u32 irq_status[4];
 
 	spin_lock(&rtwpci->irq_lock);
 	if (!rtwpci->irq_enabled)
 		goto out;
 
+	/* disable RTW PCI interrupt to avoid more interrupts before the end of
+	 * thread function
+	 *
+	 * disable HIMR here to also avoid new HISR flag being raised before
+	 * the HISRs have been Write-1-cleared for MSI. If not all of the HISRs
+	 * are cleared, the edge-triggered interrupt will not be generated when
+	 * a new HISR flag is set.
+	 */
+	rtw_pci_disable_interrupt(rtwdev, rtwpci);
+out:
+	spin_unlock(&rtwpci->irq_lock);
+
+	return IRQ_WAKE_THREAD;
+}
+
+static irqreturn_t rtw_pci_interrupt_threadfn(int irq, void *dev)
+{
+	struct rtw_dev *rtwdev = dev;
+	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
+	unsigned long flags;
+	u32 irq_status[4];
+
+	spin_lock_irqsave(&rtwpci->irq_lock, flags);
 	rtw_pci_irq_recognized(rtwdev, rtwpci, irq_status);
 
 	if (irq_status[0] & IMR_MGNTDOK)
@@ -893,8 +945,9 @@ static irqreturn_t rtw_pci_interrupt_handler(int irq, void *dev)
 	if (irq_status[0] & IMR_ROK)
 		rtw_pci_rx_isr(rtwdev, rtwpci, RTW_RX_QUEUE_MPDU);
 
-out:
-	spin_unlock(&rtwpci->irq_lock);
+	/* all of the jobs for this interrupt have been done */
+	rtw_pci_enable_interrupt(rtwdev, rtwpci);
+	spin_unlock_irqrestore(&rtwpci->irq_lock, flags);
 
 	return IRQ_HANDLED;
 }
@@ -990,7 +1043,6 @@ static void rtw_pci_phy_cfg(struct rtw_dev *rtwdev)
 	u16 cut;
 	u16 value;
 	u16 offset;
-	u16 ip_sel;
 	int i;
 
 	cut = BIT(0) << rtwdev->hal.cut_version;
@@ -1003,7 +1055,6 @@ static void rtw_pci_phy_cfg(struct rtw_dev *rtwdev)
 			break;
 		offset = para->offset;
 		value = para->value;
-		ip_sel = para->ip_sel;
 		if (para->ip_sel == RTW_IP_SEL_PHY)
 			rtw_mdio_write(rtwdev, offset, value, true);
 		else
@@ -1018,7 +1069,6 @@ static void rtw_pci_phy_cfg(struct rtw_dev *rtwdev)
 			break;
 		offset = para->offset;
 		value = para->value;
-		ip_sel = para->ip_sel;
 		if (para->ip_sel == RTW_IP_SEL_PHY)
 			rtw_mdio_write(rtwdev, offset, value, false);
 		else
@@ -1103,6 +1153,38 @@ static struct rtw_hci_ops rtw_pci_ops = {
 	.write_data_h2c = rtw_pci_write_data_h2c,
 };
 
+static int rtw_pci_request_irq(struct rtw_dev *rtwdev, struct pci_dev *pdev)
+{
+	unsigned int flags = PCI_IRQ_LEGACY;
+	int ret;
+
+	if (!rtw_disable_msi)
+		flags |= PCI_IRQ_MSI;
+
+	ret = pci_alloc_irq_vectors(pdev, 1, 1, flags);
+	if (ret < 0) {
+		rtw_err(rtwdev, "failed to alloc PCI irq vectors\n");
+		return ret;
+	}
+
+	ret = devm_request_threaded_irq(rtwdev->dev, pdev->irq,
+					rtw_pci_interrupt_handler,
+					rtw_pci_interrupt_threadfn,
+					IRQF_SHARED, KBUILD_MODNAME, rtwdev);
+	if (ret) {
+		rtw_err(rtwdev, "failed to request irq %d\n", ret);
+		pci_free_irq_vectors(pdev);
+	}
+
+	return ret;
+}
+
+static void rtw_pci_free_irq(struct rtw_dev *rtwdev, struct pci_dev *pdev)
+{
+	devm_free_irq(rtwdev->dev, pdev->irq, rtwdev);
+	pci_free_irq_vectors(pdev);
+}
+
 static int rtw_pci_probe(struct pci_dev *pdev,
 			 const struct pci_device_id *id)
 {
@@ -1157,8 +1239,7 @@ static int rtw_pci_probe(struct pci_dev *pdev,
 		goto err_destroy_pci;
 	}
 
-	ret = request_irq(pdev->irq, &rtw_pci_interrupt_handler,
-			  IRQF_SHARED, KBUILD_MODNAME, rtwdev);
+	ret = rtw_pci_request_irq(rtwdev, pdev);
 	if (ret) {
 		ieee80211_unregister_hw(hw);
 		goto err_destroy_pci;
@@ -1197,7 +1278,7 @@ static void rtw_pci_remove(struct pci_dev *pdev)
 	rtw_pci_disable_interrupt(rtwdev, rtwpci);
 	rtw_pci_destroy(rtwdev, pdev);
 	rtw_pci_declaim(rtwdev, pdev);
-	free_irq(rtwpci->pdev->irq, rtwdev);
+	rtw_pci_free_irq(rtwdev, pdev);
 	rtw_core_deinit(rtwdev);
 	ieee80211_free_hw(hw);
 }

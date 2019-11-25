@@ -6,9 +6,9 @@
 #include <linux/delay.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/mfd/cros_ec.h>
-#include <linux/mfd/cros_ec_commands.h>
 #include <linux/of.h>
+#include <linux/platform_data/cros_ec_commands.h>
+#include <linux/platform_data/cros_ec_proto.h>
 #include <linux/platform_device.h>
 #include <linux/rpmsg.h>
 #include <linux/slab.h>
@@ -257,9 +257,29 @@ static void cros_ec_rpmsg_remove(struct rpmsg_device *rpdev)
 	struct cros_ec_device *ec_dev = dev_get_drvdata(&rpdev->dev);
 	struct cros_ec_rpmsg *ec_rpmsg = ec_dev->priv;
 
+	cros_ec_unregister(ec_dev);
 	rpmsg_destroy_ept(ec_rpmsg->ept);
 	cancel_work_sync(&ec_rpmsg->host_event_work);
 }
+
+#ifdef CONFIG_PM_SLEEP
+static int cros_ec_rpmsg_suspend(struct device *dev)
+{
+	struct cros_ec_device *ec_dev = dev_get_drvdata(dev);
+
+	return cros_ec_suspend(ec_dev);
+}
+
+static int cros_ec_rpmsg_resume(struct device *dev)
+{
+	struct cros_ec_device *ec_dev = dev_get_drvdata(dev);
+
+	return cros_ec_resume(ec_dev);
+}
+#endif
+
+static SIMPLE_DEV_PM_OPS(cros_ec_rpmsg_pm_ops, cros_ec_rpmsg_suspend,
+			 cros_ec_rpmsg_resume);
 
 static const struct of_device_id cros_ec_rpmsg_of_match[] = {
 	{ .compatible = "google,cros-ec-rpmsg", },
@@ -271,6 +291,7 @@ static struct rpmsg_driver cros_ec_driver_rpmsg = {
 	.drv = {
 		.name   = "cros-ec-rpmsg",
 		.of_match_table = cros_ec_rpmsg_of_match,
+		.pm	= &cros_ec_rpmsg_pm_ops,
 	},
 	.probe		= cros_ec_rpmsg_probe,
 	.remove		= cros_ec_rpmsg_remove,

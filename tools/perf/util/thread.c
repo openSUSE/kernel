@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0
-#include "../perf.h"
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <linux/kernel.h>
 #include <linux/zalloc.h>
+#include "dso.h"
 #include "session.h"
 #include "thread.h"
 #include "thread-stack.h"
@@ -169,7 +169,7 @@ struct namespaces *thread__namespaces(struct thread *thread)
 }
 
 static int __thread__set_namespaces(struct thread *thread, u64 timestamp,
-				    struct namespaces_event *event)
+				    struct perf_record_namespaces *event)
 {
 	struct namespaces *new, *curr = __thread__namespaces(thread);
 
@@ -193,7 +193,7 @@ static int __thread__set_namespaces(struct thread *thread, u64 timestamp,
 }
 
 int thread__set_namespaces(struct thread *thread, u64 timestamp,
-			   struct namespaces_event *event)
+			   struct perf_record_namespaces *event)
 {
 	int ret;
 

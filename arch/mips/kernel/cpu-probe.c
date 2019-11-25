@@ -1384,15 +1384,6 @@ static inline void cpu_probe_legacy(struct cpuinfo_mips *c, unsigned int cpu)
 			break;
 		}
 		break;
-	case PRID_IMP_R4300:
-		c->cputype = CPU_R4300;
-		__cpu_name[cpu] = "R4300";
-		set_isa(c, MIPS_CPU_ISA_III);
-		c->fpu_msk31 |= FPU_CSR_CONDX;
-		c->options = R4K_OPTS | MIPS_CPU_FPU | MIPS_CPU_32FPR |
-			     MIPS_CPU_LLSC;
-		c->tlbsize = 32;
-		break;
 	case PRID_IMP_R4600:
 		c->cputype = CPU_R4600;
 		__cpu_name[cpu] = "R4600";
@@ -1468,14 +1459,6 @@ static inline void cpu_probe_legacy(struct cpuinfo_mips *c, unsigned int cpu)
 			     MIPS_CPU_LLSC;
 		c->tlbsize = 48;
 		break;
-	case PRID_IMP_R5432:
-		c->cputype = CPU_R5432;
-		__cpu_name[cpu] = "R5432";
-		set_isa(c, MIPS_CPU_ISA_IV);
-		c->options = R4K_OPTS | MIPS_CPU_FPU | MIPS_CPU_32FPR |
-			     MIPS_CPU_WATCH | MIPS_CPU_LLSC;
-		c->tlbsize = 48;
-		break;
 	case PRID_IMP_R5500:
 		c->cputype = CPU_R5500;
 		__cpu_name[cpu] = "R5500";
@@ -1507,15 +1490,6 @@ static inline void cpu_probe_legacy(struct cpuinfo_mips *c, unsigned int cpu)
 		 *	   0 =>	   48 entry JTLB
 		 */
 		c->tlbsize = (read_c0_info() & (1 << 29)) ? 64 : 48;
-		break;
-	case PRID_IMP_R8000:
-		c->cputype = CPU_R8000;
-		__cpu_name[cpu] = "RM8000";
-		set_isa(c, MIPS_CPU_ISA_IV);
-		c->options = MIPS_CPU_TLB | MIPS_CPU_4KEX |
-			     MIPS_CPU_FPU | MIPS_CPU_32FPR |
-			     MIPS_CPU_LLSC;
-		c->tlbsize = 384;      /* has weird TLB: 3-way x 128 */
 		break;
 	case PRID_IMP_R10000:
 		c->cputype = CPU_R10000;
@@ -1962,12 +1936,20 @@ static inline void cpu_probe_loongson(struct cpuinfo_mips *c, unsigned int cpu)
 static inline void cpu_probe_ingenic(struct cpuinfo_mips *c, unsigned int cpu)
 {
 	decode_configs(c);
-	/* JZRISC does not implement the CP0 counter. */
+
+	/*
+	 * XBurst misses a config2 register, so config3 decode was skipped in
+	 * decode_configs().
+	 */
+	decode_config3(c);
+
+	/* XBurst does not implement the CP0 counter. */
 	c->options &= ~MIPS_CPU_COUNTER;
 	BUG_ON(!__builtin_constant_p(cpu_has_counter) || cpu_has_counter);
+
 	switch (c->processor_id & PRID_IMP_MASK) {
-	case PRID_IMP_JZRISC:
-		c->cputype = CPU_JZRISC;
+	case PRID_IMP_XBURST:
+		c->cputype = CPU_XBURST;
 		c->writecombine = _CACHE_UNCACHED_ACCELERATED;
 		__cpu_name[cpu] = "Ingenic JZRISC";
 		/*

@@ -81,9 +81,7 @@ static int i2c_multi_inst_probe(struct platform_device *pdev)
 	if (ret < 0)
 		return ret;
 
-	multi = devm_kmalloc(dev,
-			offsetof(struct i2c_multi_inst_data, clients[ret]),
-			GFP_KERNEL);
+	multi = devm_kmalloc(dev, struct_size(multi, clients, ret), GFP_KERNEL);
 	if (!multi)
 		return -ENOMEM;
 
@@ -110,6 +108,7 @@ static int i2c_multi_inst_probe(struct platform_device *pdev)
 			if (ret < 0) {
 				dev_dbg(dev, "Error requesting irq at index %d: %d\n",
 					inst_data[i].irq_idx, ret);
+				goto error;
 			}
 			board_info.irq = ret;
 			break;

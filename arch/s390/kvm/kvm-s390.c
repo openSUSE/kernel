@@ -332,7 +332,7 @@ static inline int plo_test_bit(unsigned char nr)
 	return cc == 0;
 }
 
-static inline void __insn32_query(unsigned int opcode, u8 *query)
+static __always_inline void __insn32_query(unsigned int opcode, u8 *query)
 {
 	register unsigned long r0 asm("0") = 0;	/* query function */
 	register unsigned long r1 asm("1") = (unsigned long) query;
@@ -3999,6 +3999,10 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 
 	if (kvm_run->immediate_exit)
 		return -EINTR;
+
+	if (kvm_run->kvm_valid_regs & ~KVM_SYNC_S390_VALID_FIELDS ||
+	    kvm_run->kvm_dirty_regs & ~KVM_SYNC_S390_VALID_FIELDS)
+		return -EINVAL;
 
 	vcpu_load(vcpu);
 
