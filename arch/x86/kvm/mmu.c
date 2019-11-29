@@ -2347,7 +2347,9 @@ static void disallowed_hugepage_adjust(struct kvm_shadow_walk_iterator it,
 		 * the address.
 		 */
 		u64 page_mask = KVM_PAGES_PER_HPAGE(level) - KVM_PAGES_PER_HPAGE(level - 1);
+		kvm_release_pfn_clean(*pfnp);
 		*pfnp |= gfn & page_mask;
+		kvm_get_pfn(*pfnp);
 		(*levelp)--;
 	}
 }
