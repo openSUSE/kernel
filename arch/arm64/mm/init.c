@@ -20,6 +20,7 @@
 #include <linux/sort.h>
 #include <linux/of.h>
 #include <linux/of_fdt.h>
+#include <linux/dma-direct.h>
 #include <linux/dma-mapping.h>
 #include <linux/dma-contiguous.h>
 #include <linux/efi.h>
@@ -40,6 +41,8 @@
 #include <linux/sizes.h>
 #include <asm/tlb.h>
 #include <asm/alternative.h>
+
+#define ARM64_ZONE_DMA_BITS	30
 
 /*
  * We need to be able to catch inadvertent references to memstart_addr
@@ -63,7 +66,7 @@ EXPORT_SYMBOL(vmemmap);
  * bit addressable memory area.
  */
 phys_addr_t arm64_dma_phys_limit __ro_after_init;
-phys_addr_t arm64_dma32_phys_limit __ro_after_init;
+static phys_addr_t arm64_dma32_phys_limit __ro_after_init;
 
 #ifdef CONFIG_KEXEC_CORE
 /*
@@ -88,7 +91,7 @@ static void __init reserve_crashkernel(void)
 
 	if (crash_base == 0) {
 		/* Current arm64 boot protocol requires 2MB alignment */
-		crash_base = memblock_find_in_range(0, ARCH_LOW_ADDRESS_LIMIT,
+		crash_base = memblock_find_in_range(0, arm64_dma32_phys_limit,
 				crash_size, SZ_2M);
 		if (crash_base == 0) {
 			pr_warn("cannot allocate crashkernel (size:0x%llx)\n",
@@ -211,15 +214,14 @@ static void __init zone_sizes_init(unsigned long min, unsigned long max)
 {
 	struct memblock_region *reg;
 	unsigned long zone_size[MAX_NR_ZONES], zhole_size[MAX_NR_ZONES];
-	unsigned long max_dma32 = min;
-	unsigned long max_dma = min;
+	unsigned long __maybe_unused max_dma, max_dma32;
 
 	memset(zone_size, 0, sizeof(zone_size));
 
+	max_dma = max_dma32 = min;
 #ifdef CONFIG_ZONE_DMA
-	max_dma = PFN_DOWN(arm64_dma_phys_limit);
+	max_dma = max_dma32 = PFN_DOWN(arm64_dma_phys_limit);
 	zone_size[ZONE_DMA] = max_dma - min;
-	max_dma32 = max_dma;
 #endif
 #ifdef CONFIG_ZONE_DMA32
 	max_dma32 = PFN_DOWN(arm64_dma32_phys_limit);
@@ -233,25 +235,23 @@ static void __init zone_sizes_init(unsigned long min, unsigned long max)
 		unsigned long start = memblock_region_memory_base_pfn(reg);
 		unsigned long end = memblock_region_memory_end_pfn(reg);
 
-		if (start >= max)
-			continue;
 #ifdef CONFIG_ZONE_DMA
-		if (start < max_dma) {
-			unsigned long dma_end = min_not_zero(end, max_dma);
+		if (start >= min && start < max_dma) {
+			unsigned long dma_end = min(end, max_dma);
 			zhole_size[ZONE_DMA] -= dma_end - start;
+			start = dma_end;
 		}
 #endif
 #ifdef CONFIG_ZONE_DMA32
-		if (start < max_dma32) {
+		if (start >= max_dma && start < max_dma32) {
 			unsigned long dma32_end = min(end, max_dma32);
-			unsigned long dma32_start = max(start, max_dma);
-			zhole_size[ZONE_DMA32] -= dma32_end - dma32_start;
+			zhole_size[ZONE_DMA32] -= dma32_end - start;
+			start = dma32_end;
 		}
 #endif
-		if (end > max_dma32) {
+		if (start >= max_dma32 && start < max) {
 			unsigned long normal_end = min(end, max);
-			unsigned long normal_start = max(start, max_dma32);
-			zhole_size[ZONE_NORMAL] -= normal_end - normal_start;
+			zhole_size[ZONE_NORMAL] -= normal_end - start;
 		}
 	}
 
@@ -440,8 +440,10 @@ void __init arm64_memblock_init(void)
 
 	early_init_fdt_scan_reserved_mem();
 
-	if (IS_ENABLED(CONFIG_ZONE_DMA))
-		arm64_dma_phys_limit = max_zone_phys(ARCH_ZONE_DMA_BITS);
+	if (IS_ENABLED(CONFIG_ZONE_DMA)) {
+		zone_dma_bits = ARM64_ZONE_DMA_BITS;
+		arm64_dma_phys_limit = max_zone_phys(ARM64_ZONE_DMA_BITS);
+	}
 
 	if (IS_ENABLED(CONFIG_ZONE_DMA32))
 		arm64_dma32_phys_limit = max_zone_phys(32);
@@ -454,7 +456,7 @@ void __init arm64_memblock_init(void)
 
 	high_memory = __va(memblock_end_of_DRAM() - 1) + 1;
 
-	dma_contiguous_reserve(arm64_dma_phys_limit ? : arm64_dma32_phys_limit);
+	dma_contiguous_reserve(arm64_dma32_phys_limit);
 }
 
 void __init bootmem_init(void)
@@ -595,7 +597,7 @@ void free_initmem(void)
 {
 	free_reserved_area(lm_alias(__init_begin),
 			   lm_alias(__init_end),
-			   0, "unused kernel");
+			   POISON_FREE_INITMEM, "unused kernel");
 	/*
 	 * Unmap the __init region but leave the VM area in place. This
 	 * prevents the region from being reused for kernel modules, which
@@ -603,18 +605,6 @@ void free_initmem(void)
 	 */
 	unmap_kernel_range((u64)__init_begin, (u64)(__init_end - __init_begin));
 }
-
-#ifdef CONFIG_BLK_DEV_INITRD
-void __init free_initrd_mem(unsigned long start, unsigned long end)
-{
-	unsigned long aligned_start, aligned_end;
-
-	aligned_start = __virt_to_phys(start) & PAGE_MASK;
-	aligned_end = PAGE_ALIGN(__virt_to_phys(end));
-	memblock_free(aligned_start, aligned_end - aligned_start);
-	free_reserved_area((void *)start, (void *)end, 0, "initrd");
-}
-#endif
 
 /*
  * Dump out memory limit information on panic.
