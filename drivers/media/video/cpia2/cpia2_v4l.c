@@ -1561,8 +1561,7 @@ static int __init cpia2_init(void)
 	LOG("%s v%d.%d.%d\n",
 	    ABOUT, CPIA2_MAJ_VER, CPIA2_MIN_VER, CPIA2_PATCH_VER);
 	check_parameters();
-	cpia2_usb_init();
-	return 0;
+	return cpia2_usb_init();
 }
 
 
