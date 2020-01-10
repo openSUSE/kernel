@@ -3090,9 +3090,11 @@ static int iwl_mac_cancel_remain_on_channel(struct ieee80211_hw *hw)
  *
  *****************************************************************************/
 
-static void iwl_setup_deferred_work(struct iwl_priv *priv)
+static int iwl_setup_deferred_work(struct iwl_priv *priv)
 {
 	priv->workqueue = create_singlethread_workqueue(DRV_NAME);
+	if (!priv->workqueue)
+		return -ENOMEM;
 
 	init_waitqueue_head(&priv->wait_command_queue);
 
@@ -3124,6 +3126,8 @@ static void iwl_setup_deferred_work(struct iwl_priv *priv)
 
 	tasklet_init(&priv->irq_tasklet, (void (*)(unsigned long))
 		iwl_irq_tasklet, (unsigned long)priv);
+
+	return 0;
 }
 
 static void iwl_cancel_deferred_work(struct iwl_priv *priv)
@@ -3571,7 +3575,9 @@ static int iwl_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto out_disable_msi;
 	}
 
-	iwl_setup_deferred_work(priv);
+	err = iwl_setup_deferred_work(priv);
+	if (err < 0)
+		goto out_free_irq;
 	iwl_setup_rx_handlers(priv);
 	iwl_testmode_init(priv);
 
@@ -3611,6 +3617,7 @@ static int iwl_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
  out_destroy_workqueue:
 	destroy_workqueue(priv->workqueue);
 	priv->workqueue = NULL;
+ out_free_irq:
 	free_irq(priv->pci_dev->irq, priv);
 	iwl_free_isr_ict(priv);
  out_disable_msi:
