@@ -442,7 +442,7 @@ static struct k_itimer * alloc_posix_timer(void)
 
 static void k_itimer_rcu_free(struct rcu_head *head)
 {
-	struct k_itimer *tmr = container_of(head, struct k_itimer, it.rcu);
+	struct k_itimer *tmr = container_of(head, struct k_itimer, rcu);
 
 	kmem_cache_free(posix_timers_cache, tmr);
 }
@@ -459,7 +459,7 @@ static void release_posix_timer(struct k_itimer *tmr, int it_id_set)
 	}
 	put_pid(tmr->it_pid);
 	sigqueue_free(tmr->sigq);
-	call_rcu(&tmr->it.rcu, k_itimer_rcu_free);
+	call_rcu(&tmr->rcu, k_itimer_rcu_free);
 }
 
 static int common_timer_create(struct k_itimer *new_timer)
@@ -805,6 +805,17 @@ static int common_hrtimer_try_to_cancel(struct k_itimer *timr)
 	return hrtimer_try_to_cancel(&timr->it.real.timer);
 }
 
+static void timer_wait_for_callback(const struct k_clock *kc, struct k_itimer *timer)
+{
+	if (kc->timer_arm == common_hrtimer_arm)
+		hrtimer_grab_expiry_lock(&timer->it.real.timer);
+	else if (kc == &alarm_clock)
+		hrtimer_grab_expiry_lock(&timer->it.alarm.alarmtimer.timer);
+	else
+		/* posix-cpu-timers */
+		cpu_timers_grab_expiry_lock(timer);
+}
+
 /* Set a POSIX.1b interval timer. */
 int common_timer_set(struct k_itimer *timr, int flags,
 		     struct itimerspec64 *new_setting,
@@ -870,11 +881,15 @@ retry:
 	else
 		error = kc->timer_set(timr, flags, new_spec64, old_spec64);
 
-	unlock_timer(timr, flag);
 	if (error == TIMER_RETRY) {
+		rcu_read_lock();
+		unlock_timer(timr, flag);
+		timer_wait_for_callback(kc, timr);
+		rcu_read_unlock();
 		old_spec64 = NULL;	// We already got the old time...
 		goto retry;
 	}
+	unlock_timer(timr, flag);
 
 	return error;
 }
@@ -936,13 +951,21 @@ int common_timer_del(struct k_itimer *timer)
 	return 0;
 }
 
-static inline int timer_delete_hook(struct k_itimer *timer)
+static int timer_delete_hook(struct k_itimer *timer)
 {
 	const struct k_clock *kc = timer->kclock;
+	int ret;
 
 	if (WARN_ON_ONCE(!kc || !kc->timer_del))
 		return -EINVAL;
-	return kc->timer_del(timer);
+	ret = kc->timer_del(timer);
+	if (ret == TIMER_RETRY) {
+		rcu_read_lock();
+		spin_unlock_irq(&timer->it_lock);
+		timer_wait_for_callback(kc, timer);
+		rcu_read_unlock();
+	}
+	return ret;
 }
 
 /* Delete a POSIX.1b interval timer. */
@@ -956,10 +979,8 @@ retry_delete:
 	if (!timer)
 		return -EINVAL;
 
-	if (timer_delete_hook(timer) == TIMER_RETRY) {
-		unlock_timer(timer, flags);
+	if (timer_delete_hook(timer) == TIMER_RETRY)
 		goto retry_delete;
-	}
 
 	spin_lock(&current->sighand->siglock);
 	list_del(&timer->list);
@@ -983,10 +1004,9 @@ static void itimer_delete(struct k_itimer *timer)
 retry_delete:
 	spin_lock_irq(&timer->it_lock);
 
-	if (timer_delete_hook(timer) == TIMER_RETRY) {
-		spin_unlock_irq(&timer->it_lock);
+	if (timer_delete_hook(timer) == TIMER_RETRY)
 		goto retry_delete;
-	}
+
 	list_del(&timer->list);
 
 	spin_unlock_irq(&timer->it_lock);

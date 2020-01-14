@@ -31,6 +31,8 @@
 #include "rwsem.h"
 #include "lock_events.h"
 
+#ifndef CONFIG_PREEMPT_RT_FULL
+
 /*
  * The least significant 3 bits of the owner value has the following
  * meanings when set.
@@ -1485,6 +1487,17 @@ static inline void __downgrade_write(struct rw_semaphore *sem)
 	if (tmp & RWSEM_FLAG_WAITERS)
 		rwsem_downgrade_wake(sem);
 }
+
+#else /* !PREEMPT_RT_FULL */
+
+static inline void __rwsem_set_reader_owned(struct rw_semaphore *sem,
+					    struct task_struct *owner)
+{
+}
+
+#define DEBUG_RWSEMS_WARN_ON(c, sem)
+
+#endif /* PREEMPT_RT_FULL */
 
 /*
  * lock for reading

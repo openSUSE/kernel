@@ -7097,6 +7097,14 @@ int kvm_arch_init(void *opaque)
 		goto out;
 	}
 
+#ifdef CONFIG_PREEMPT_RT_FULL
+	if (!boot_cpu_has(X86_FEATURE_CONSTANT_TSC)) {
+		pr_err("RT requires X86_FEATURE_CONSTANT_TSC\n");
+		r = -EOPNOTSUPP;
+		goto out;
+	}
+#endif
+
 	r = -ENOMEM;
 	x86_fpu_cache = kmem_cache_create("x86_fpu", sizeof(struct fpu),
 					  __alignof__(struct fpu), SLAB_ACCOUNT,
