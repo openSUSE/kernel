@@ -38,9 +38,12 @@
 #define LM3532_REG_ZN_2_LO	0x65
 #define LM3532_REG_ZN_3_HI	0x66
 #define LM3532_REG_ZN_3_LO	0x67
+#define LM3532_REG_ZONE_TRGT_A	0x70
+#define LM3532_REG_ZONE_TRGT_B	0x75
+#define LM3532_REG_ZONE_TRGT_C	0x7a
 #define LM3532_REG_MAX		0x7e
 
-/* Contorl Enable */
+/* Control Enable */
 #define LM3532_CTRL_A_ENABLE	BIT(0)
 #define LM3532_CTRL_B_ENABLE	BIT(1)
 #define LM3532_CTRL_C_ENABLE	BIT(2)
@@ -116,6 +119,7 @@ struct lm3532_als_data {
  * @priv - Pointer the device data structure
  * @control_bank - Control bank the LED is associated to
  * @mode - Mode of the LED string
+ * @ctrl_brt_pointer - Zone target register that controls the sink
  * @num_leds - Number of LED strings are supported in this array
  * @led_strings - The LED strings supported in this array
  * @label - LED label
@@ -126,6 +130,7 @@ struct lm3532_led {
 
 	int control_bank;
 	int mode;
+	int ctrl_brt_pointer;
 	int num_leds;
 	u32 led_strings[LM3532_MAX_CONTROL_BANKS];
 	char label[LED_MAX_NAME_SIZE];
@@ -302,7 +307,7 @@ static int lm3532_led_disable(struct lm3532_led *led_data)
 	int ret;
 
 	ret = regmap_update_bits(led_data->priv->regmap, LM3532_REG_ENABLE,
-					 ctrl_en_val, ~ctrl_en_val);
+					 ctrl_en_val, 0);
 	if (ret) {
 		dev_err(led_data->priv->dev, "Failed to set ctrl:%d\n", ret);
 		return ret;
@@ -321,7 +326,7 @@ static int lm3532_brightness_set(struct led_classdev *led_cdev,
 
 	mutex_lock(&led->priv->lock);
 
-	if (led->mode == LM3532_BL_MODE_ALS) {
+	if (led->mode == LM3532_ALS_CTRL) {
 		if (brt_val > LED_OFF)
 			ret = lm3532_led_enable(led);
 		else
@@ -339,8 +344,8 @@ static int lm3532_brightness_set(struct led_classdev *led_cdev,
 	if (ret)
 		goto unlock;
 
-	brightness_reg = LM3532_REG_CTRL_A_BRT + led->control_bank * 2;
-	brt_val = brt_val / LM3532_BRT_VAL_ADJUST;
+	brightness_reg = LM3532_REG_ZONE_TRGT_A + led->control_bank * 5 +
+			 (led->ctrl_brt_pointer >> 2);
 
 	ret = regmap_write(led->priv->regmap, brightness_reg, brt_val);
 
@@ -356,7 +361,29 @@ static int lm3532_init_registers(struct lm3532_led *led)
 	unsigned int output_cfg_val = 0;
 	unsigned int output_cfg_shift = 0;
 	unsigned int output_cfg_mask = 0;
+	unsigned int brightness_config_reg;
+	unsigned int brightness_config_val;
 	int ret, i;
+
+	if (drvdata->enable_gpio)
+		gpiod_direction_output(drvdata->enable_gpio, 1);
+
+	brightness_config_reg = LM3532_REG_ZONE_CFG_A + led->control_bank * 2;
+	/*
+	 * This could be hard coded to the default value but the control
+	 * brightness register may have changed during boot.
+	 */
+	ret = regmap_read(drvdata->regmap, brightness_config_reg,
+			  &led->ctrl_brt_pointer);
+	if (ret)
+		return ret;
+
+	led->ctrl_brt_pointer &= LM3532_ZONE_MASK;
+	brightness_config_val = led->ctrl_brt_pointer | led->mode;
+	ret = regmap_write(drvdata->regmap, brightness_config_reg,
+			   brightness_config_val);
+	if (ret)
+		return ret;
 
 	for (i = 0; i < led->num_leds; i++) {
 		output_cfg_shift = led->led_strings[i] * 2;
@@ -382,7 +409,6 @@ static int lm3532_als_configure(struct lm3532_data *priv,
 	struct lm3532_als_data *als = priv->als_data;
 	u32 als_vmin, als_vmax, als_vstep;
 	int zone_reg = LM3532_REG_ZN_0_HI;
-	int brightnes_config_reg;
 	int ret;
 	int i;
 
@@ -411,14 +437,7 @@ static int lm3532_als_configure(struct lm3532_data *priv,
 	als->config = (als->als_avrg_time | (LM3532_ENABLE_ALS) |
 		(als->als_input_mode << LM3532_ALS_SEL_SHIFT));
 
-	ret = regmap_write(priv->regmap, LM3532_ALS_CONFIG, als->config);
-	if (ret)
-		return ret;
-
-	brightnes_config_reg = LM3532_REG_ZONE_CFG_A + led->control_bank * 2;
-
-	return regmap_update_bits(priv->regmap, brightnes_config_reg,
-				  LM3532_I2C_CTRL, LM3532_ALS_CTRL);
+	return regmap_write(priv->regmap, LM3532_ALS_CONFIG, als->config);
 }
 
 static int lm3532_parse_als(struct lm3532_data *priv)
@@ -542,11 +561,14 @@ static int lm3532_parse_node(struct lm3532_data *priv)
 		}
 
 		if (led->mode == LM3532_BL_MODE_ALS) {
+			led->mode = LM3532_ALS_CTRL;
 			ret = lm3532_parse_als(priv);
 			if (ret)
 				dev_err(&priv->client->dev, "Failed to parse als\n");
 			else
 				lm3532_als_configure(priv, led);
+		} else {
+			led->mode = LM3532_I2C_CTRL;
 		}
 
 		led->num_leds = fwnode_property_read_u32_array(child,
@@ -590,7 +612,13 @@ static int lm3532_parse_node(struct lm3532_data *priv)
 			goto child_out;
 		}
 
-		lm3532_init_registers(led);
+		ret = lm3532_init_registers(led);
+		if (ret) {
+			dev_err(&priv->client->dev, "register init err: %d\n",
+				ret);
+			fwnode_handle_put(child);
+			goto child_out;
+		}
 
 		i++;
 	}
@@ -636,9 +664,6 @@ static int lm3532_probe(struct i2c_client *client,
 		dev_err(&client->dev, "Failed to parse node\n");
 		return ret;
 	}
-
-	if (drvdata->enable_gpio)
-		gpiod_direction_output(drvdata->enable_gpio, 1);
 
 	return ret;
 }

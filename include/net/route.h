@@ -53,10 +53,11 @@ struct rtable {
 	unsigned int		rt_flags;
 	__u16			rt_type;
 	__u8			rt_is_input;
-	u8			rt_gw_family;
+	__u8			rt_uses_gateway;
 
 	int			rt_iif;
 
+	u8			rt_gw_family;
 	/* Info on neighbour */
 	union {
 		__be32		rt_gw4;
@@ -183,6 +184,10 @@ int ip_route_input_noref(struct sk_buff *skb, __be32 dst, __be32 src,
 int ip_route_input_rcu(struct sk_buff *skb, __be32 dst, __be32 src,
 		       u8 tos, struct net_device *devin,
 		       struct fib_result *res);
+
+int ip_route_use_hint(struct sk_buff *skb, __be32 dst, __be32 src,
+		      u8 tos, struct net_device *devin,
+		      const struct sk_buff *hint);
 
 static inline int ip_route_input(struct sk_buff *skb, __be32 dst, __be32 src,
 				 u8 tos, struct net_device *devin)

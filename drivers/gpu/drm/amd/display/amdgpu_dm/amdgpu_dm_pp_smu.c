@@ -329,12 +329,13 @@ bool dm_pp_get_clock_levels_by_type(
 	if (adev->powerplay.pp_funcs && adev->powerplay.pp_funcs->get_clock_by_type) {
 		if (adev->powerplay.pp_funcs->get_clock_by_type(pp_handle,
 			dc_to_pp_clock_type(clk_type), &pp_clks)) {
-		/* Error in pplib. Provide default values. */
+			/* Error in pplib. Provide default values. */
+			get_default_clock_levels(clk_type, dc_clks);
 			return true;
 		}
 	} else if (adev->smu.funcs && adev->smu.funcs->get_clock_by_type) {
 		if (smu_get_clock_by_type(&adev->smu,
-					  dc_to_smu_clock_type(clk_type),
+					  dc_to_pp_clock_type(clk_type),
 					  &pp_clks)) {
 			get_default_clock_levels(clk_type, dc_clks);
 			return true;
@@ -419,7 +420,7 @@ bool dm_pp_get_clock_levels_by_type_with_latency(
 			return false;
 	} else if (adev->smu.ppt_funcs && adev->smu.ppt_funcs->get_clock_by_type_with_latency) {
 		if (smu_get_clock_by_type_with_latency(&adev->smu,
-						       dc_to_pp_clock_type(clk_type),
+						       dc_to_smu_clock_type(clk_type),
 						       &pp_clks))
 			return false;
 	}

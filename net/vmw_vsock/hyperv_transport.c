@@ -426,7 +426,7 @@ static void hvs_open_connection(struct vmbus_channel *chan)
 
 	if (conn_from_host) {
 		new->sk_state = TCP_ESTABLISHED;
-		sk->sk_ack_backlog++;
+		sk_acceptq_added(sk);
 
 		hvs_addr_init(&vnew->local_addr, if_type);
 		hvs_remote_addr_init(&vnew->remote_addr, &vnew->local_addr);
@@ -559,7 +559,7 @@ static void hvs_release(struct vsock_sock *vsk)
 	struct sock *sk = sk_vsock(vsk);
 	bool remove_sock;
 
-	lock_sock(sk);
+	lock_sock_nested(sk, SINGLE_DEPTH_NESTING);
 	remove_sock = hvs_close_lock_held(vsk);
 	release_sock(sk);
 	if (remove_sock)

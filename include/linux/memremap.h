@@ -17,6 +17,7 @@ struct device;
  */
 struct vmem_altmap {
 	const unsigned long base_pfn;
+	const unsigned long end_pfn;
 	const unsigned long reserve;
 	unsigned long free;
 	unsigned long align;
@@ -112,7 +113,6 @@ struct dev_pagemap {
 	struct device *dev;
 	enum memory_type type;
 	unsigned int flags;
-	u64 pci_p2pdma_bus_offset;
 	const struct dev_pagemap_ops *ops;
 };
 

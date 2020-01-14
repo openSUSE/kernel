@@ -184,7 +184,7 @@ static int fuse_direntplus_link(struct file *file,
 
 	if (invalid_nodeid(o->nodeid))
 		return -EIO;
-	if (!fuse_valid_type(o->attr.mode))
+	if (fuse_invalid_attr(&o->attr))
 		return -EIO;
 
 	fc = get_fuse_conn(dir);
@@ -372,10 +372,12 @@ static enum fuse_parse_result fuse_parse_cache(struct fuse_file *ff,
 	for (;;) {
 		struct fuse_dirent *dirent = addr + offset;
 		unsigned int nbytes = size - offset;
-		size_t reclen = FUSE_DIRENT_SIZE(dirent);
+		size_t reclen;
 
 		if (nbytes < FUSE_NAME_OFFSET || !dirent->namelen)
 			break;
+
+		reclen = FUSE_DIRENT_SIZE(dirent); /* derefs ->namelen */
 
 		if (WARN_ON(dirent->namelen > FUSE_NAME_MAX))
 			return FOUND_ERR;
