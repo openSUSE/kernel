@@ -2472,7 +2472,7 @@ int cpia2_remap_buffer(struct camera_data *cam, struct vm_area_struct *vma)
 
 	if (size > cam->frame_size*cam->num_frames  ||
 	    (start_offset % cam->frame_size) != 0 ||
-	    (start_offset+size > cam->frame_size*cam->num_frames))
+	    (start_offset > cam->frame_size*cam->num_frames - size))
 		return -EINVAL;
 
 	pos = ((unsigned long) (cam->frame_buffer)) + start_offset;
