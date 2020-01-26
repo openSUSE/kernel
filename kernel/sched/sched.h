@@ -921,6 +921,9 @@ struct rq {
 	/* For active balancing */
 	int			active_balance;
 	int			push_cpu;
+#ifdef CONFIG_HPC_CPUSETS
+	unsigned int		cpuset_flags;
+#endif
 	struct cpu_stop_work	active_balance_work;
 
 	/* CPU of this runqueue: */
@@ -2491,3 +2494,16 @@ static inline void membarrier_switch_mm(struct rq *rq,
 {
 }
 #endif
+
+#ifdef CONFIG_HPC_CPUSETS
+extern int tick_do_timer_cpu __read_mostly;
+static inline int rq_cpuset_flag(struct rq *rq, unsigned flag)
+{
+	return rq->cpuset_flags & flag;
+}
+#ifndef CONFIG_NO_HZ
+static inline void wake_up_idle_cpu(int cpu) { }
+#endif
+#else /* !CONFIG_HPC_CPUSETS */
+static inline int rq_cpuset_flag(struct rq *rq, unsigned flag) { return 0; }
+#endif /* CONFIG_HPC_CPUSETS */

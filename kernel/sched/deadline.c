@@ -502,7 +502,7 @@ static int push_dl_task(struct rq *rq);
 
 static inline bool need_pull_dl_task(struct rq *rq, struct task_struct *prev)
 {
-	return dl_task(prev);
+	return !rq_cpuset_flag(rq, RQ_HPCRT) && dl_task(prev);
 }
 
 static DEFINE_PER_CPU(struct callback_head, dl_push_head);
@@ -2361,6 +2361,9 @@ static void switched_from_dl(struct rq *rq, struct task_struct *p)
 	if (!task_on_rq_queued(p) || rq->dl.dl_nr_running)
 		return;
 
+	if (rq_cpuset_flag(rq, RQ_HPCRT))
+		return;
+
 	deadline_queue_pull_task(rq);
 }
 
@@ -2382,6 +2385,8 @@ static void switched_to_dl(struct rq *rq, struct task_struct *p)
 
 	if (rq->curr != p) {
 #ifdef CONFIG_SMP
+		if (rq_cpuset_flag(rq, RQ_HPCRT))
+			return;
 		if (p->nr_cpus_allowed > 1 && rq->dl.overloaded)
 			deadline_queue_push_tasks(rq);
 #endif
@@ -2407,7 +2412,7 @@ static void prio_changed_dl(struct rq *rq, struct task_struct *p,
 		 * we can't argue if the task is increasing
 		 * or lowering its prio, so...
 		 */
-		if (!rq->dl.overloaded)
+		if (!rq->dl.overloaded && !rq_cpuset_flag(rq, RQ_HPCRT))
 			deadline_queue_pull_task(rq);
 
 		/*

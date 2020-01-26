@@ -262,7 +262,7 @@ static void pull_rt_task(struct rq *this_rq);
 static inline bool need_pull_rt_task(struct rq *rq, struct task_struct *prev)
 {
 	/* Try to pull RT tasks here if we lower this rq's prio */
-	return rq->rt.highest_prio.curr > prev->prio;
+	return !rq_cpuset_flag(rq, RQ_HPCRT) && rq->rt.highest_prio.curr > prev->prio;
 }
 
 static inline int rt_overloaded(struct rq *rq)
@@ -1044,8 +1044,13 @@ inc_rt_prio_smp(struct rt_rq *rt_rq, int prio, int prev_prio)
 	if (&rq->rt != rt_rq)
 		return;
 #endif
-	if (rq->online && prio < prev_prio)
-		cpupri_set(&rq->rd->cpupri, rq->cpu, prio);
+	if (!rq->online || rq_cpuset_flag(rq, RQ_HPCRT))
+		return;
+
+	if (prio >= prev_prio)
+		return;
+
+	cpupri_set(&rq->rd->cpupri, rq->cpu, prio);
 }
 
 static void
@@ -1060,8 +1065,13 @@ dec_rt_prio_smp(struct rt_rq *rt_rq, int prio, int prev_prio)
 	if (&rq->rt != rt_rq)
 		return;
 #endif
-	if (rq->online && rt_rq->highest_prio.curr != prev_prio)
-		cpupri_set(&rq->rd->cpupri, rq->cpu, rt_rq->highest_prio.curr);
+	if (!rq->online || rq_cpuset_flag(rq, RQ_HPCRT))
+		return;
+
+	if (rt_rq->highest_prio.curr == prev_prio)
+		return;
+
+	cpupri_set(&rq->rd->cpupri, rq->cpu, rt_rq->highest_prio.curr);
 }
 
 #else /* CONFIG_SMP */
@@ -2191,6 +2201,9 @@ static void switched_from_rt(struct rq *rq, struct task_struct *p)
 	 * now.
 	 */
 	if (!task_on_rq_queued(p) || rq->rt.rt_nr_running)
+		return;
+
+	if (rq_cpuset_flag(rq, RQ_HPCRT))
 		return;
 
 	rt_queue_pull_task(rq);

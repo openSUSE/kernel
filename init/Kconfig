@@ -993,6 +993,17 @@ config CPUSETS
 
 	  Say N if unsure.
 
+config HPC_CPUSETS
+	bool "HPC cpusets"
+	depends on CPUSETS && SMP
+	default n
+	help
+	  This option provides per CPUSET scheduler behavior control switches.
+	  This is primarily useful on large SMP systems where some partitions
+	  may be dedicated to sensitive HPC applications, while others are not.
+
+	  Say N if unsure.
+
 config PROC_PID_CPUSET
 	bool "Include legacy /proc/<pid>/cpuset file"
 	depends on CPUSETS

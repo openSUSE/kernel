@@ -289,6 +289,20 @@ static void create_kthread(struct kthread_create_info *create)
 	}
 }
 
+static struct sched_param fifo_param, normal_param;
+
+static void kthread_set_sched_params(struct task_struct *kthread)
+{
+	if (!fifo_param.sched_priority)
+		return;
+	sched_setscheduler_nocheck(kthread, SCHED_FIFO, &fifo_param);
+}
+
+static void kthread_clr_sched_params(struct task_struct *kthread)
+{
+	sched_setscheduler_nocheck(kthread, SCHED_NORMAL, &normal_param);
+}
+
 static __printf(4, 0)
 struct task_struct *__kthread_create_on_node(int (*threadfn)(void *data),
 						    void *data, int node,
@@ -333,7 +347,6 @@ struct task_struct *__kthread_create_on_node(int (*threadfn)(void *data),
 	}
 	task = create->result;
 	if (!IS_ERR(task)) {
-		static const struct sched_param param = { .sched_priority = 0 };
 		char name[TASK_COMM_LEN];
 
 		/*
@@ -346,7 +359,10 @@ struct task_struct *__kthread_create_on_node(int (*threadfn)(void *data),
 		 * root may have changed our (kthreadd's) priority or CPU mask.
 		 * The kernel thread should not inherit these properties.
 		 */
-		sched_setscheduler_nocheck(task, SCHED_NORMAL, &param);
+		if (!fifo_param.sched_priority)
+			kthread_clr_sched_params(task);
+		else
+			kthread_set_sched_params(task);
 		set_cpus_allowed_ptr(task, cpu_all_mask);
 	}
 	kfree(create);
@@ -555,6 +571,7 @@ int kthread_stop(struct task_struct *k)
 	kthread = to_kthread(k);
 	set_bit(KTHREAD_SHOULD_STOP, &kthread->flags);
 	kthread_unpark(k);
+	kthread_clr_sched_params(k);
 	wake_up_process(k);
 	wait_for_completion(&kthread->exited);
 	ret = k->exit_code;
@@ -574,6 +591,7 @@ int kthreadd(void *unused)
 	ignore_signals(tsk);
 	set_cpus_allowed_ptr(tsk, cpu_all_mask);
 	set_mems_allowed(node_states[N_MEMORY]);
+	kthread_set_sched_params(current);
 
 	current->flags |= PF_NOFREEZE;
 	cgroup_init_kthreadd();
@@ -1240,3 +1258,17 @@ struct cgroup_subsys_state *kthread_blkcg(void)
 }
 EXPORT_SYMBOL(kthread_blkcg);
 #endif
+
+static int __init setup_rtkthreads(char *str)
+{
+	int prio;
+
+	if (kstrtoint(str, 0, &prio) || prio < 1 || prio > 99) {
+		prio = 0;
+		pr_warn("Unable to set kthread default priority\n");
+	}
+	fifo_param.sched_priority = prio;
+
+        return 1;
+}
+__setup("rtkthreads=", setup_rtkthreads);

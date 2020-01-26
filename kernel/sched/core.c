@@ -6748,6 +6748,9 @@ void __init sched_init(void)
 		rq->last_blocked_load_update_tick = jiffies;
 		atomic_set(&rq->nohz_flags, 0);
 #endif
+#ifdef CONFIG_HPC_CPUSETS
+		rq->cpuset_flags = 0;
+#endif
 #endif /* CONFIG_SMP */
 		hrtick_rq_init(rq);
 		atomic_set(&rq->nr_iowait, 0);
@@ -7960,3 +7963,84 @@ static void migrate_disabled_sched(struct task_struct *p)
 {
 }
 #endif
+
+#ifdef CONFIG_HPC_CPUSETS
+static int nr_hpc_cpus;
+
+/* Called with cpuset_mutex held */
+void cpuset_flags_set(int cpu, unsigned bits)
+{
+	struct rq *rq = cpu_rq(cpu);
+	unsigned long flags;
+	unsigned nr, bit;
+
+	raw_spin_lock_irqsave(&rq->lock, flags);
+	/* Set blocker flags before taking any action */
+	bits ^= rq->cpuset_flags;
+	rq->cpuset_flags |= bits;
+	for (nr = 0; bits; nr++) {
+		bit = 1 << nr;
+		if (!(bits & bit))
+			continue;
+		switch (nr) {
+		case RQ_TICK:
+			wake_up_idle_cpu(cpu);
+			break;
+		case RQ_HPC:
+			/* Ensure that jiffies doesn't go stale */
+			if (!nr_hpc_cpus++) {
+				tick_do_timer_cpu = 0;
+				/* safe, CPU0 is modifier excluded */
+				cpuset_flags_set(0, RQ_TICK);
+			}
+			break;
+		case RQ_HPCRT:
+			cpupri_set(&rq->rd->cpupri, cpu, CPUPRI_INVALID);
+			break;
+		}
+		bits &= ~bit;
+	}
+	raw_spin_unlock_irqrestore(&rq->lock, flags);
+}
+
+/* Called with cpuset_mutex held */
+void cpuset_flags_clr(int cpu, unsigned bits)
+{
+	struct rq *rq = cpu_rq(cpu);
+	unsigned long flags;
+	unsigned nr, bit;
+
+	raw_spin_lock_irqsave(&rq->lock, flags);
+	bits &= rq->cpuset_flags;
+	rq->cpuset_flags &= ~bits;
+	for (nr = 0; bits; nr++) {
+		bit = 1 << nr;
+		if (!(bits & bit))
+			continue;
+		switch (nr) {
+		case RQ_TICK:
+			break;
+		case RQ_HPC:
+			/* Let CPU0 resume nohz mode */
+			if (nr_hpc_cpus && !--nr_hpc_cpus)
+				cpuset_flags_clr(0, RQ_TICK);
+			break;
+		case RQ_HPCRT:
+			cpupri_set(&rq->rd->cpupri, cpu, rq->rt.highest_prio.curr);
+			break;
+		}
+		bits &= ~bit;
+	}
+	raw_spin_unlock_irqrestore(&rq->lock, flags);
+}
+
+int runqueue_is_isolated(int cpu)
+{
+	return !cpu_rq(cpu)->sd;
+}
+
+int runqueue_is_flagged(int cpu, unsigned flag)
+{
+	return rq_cpuset_flag(cpu_rq(cpu), flag);
+}
+#endif /* CONFIG_HPC_CPUSETS */

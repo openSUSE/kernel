@@ -1852,6 +1852,27 @@ static inline int need_resched_now(void)
 	return test_thread_flag(TIF_NEED_RESCHED);
 }
 
+/* Cpuset runqueue behavior modifier flags */
+enum
+{
+	RQ_TICK		= 1 << 0,
+	RQ_HPC		= 1 << 1,
+	RQ_HPCRT	= 1 << 2,
+	RQ_CLEAR	= ~0,
+};
+
+#ifdef CONFIG_HPC_CPUSETS
+extern int runqueue_is_flagged(int cpu, unsigned flag);
+extern int runqueue_is_isolated(int cpu);
+extern void cpuset_flags_set(int cpu, unsigned bits);
+extern void cpuset_flags_clr(int cpu, unsigned bits);
+#else /* !CONFIG_HPC_CPUSETS */
+static inline int runqueue_is_flagged(int cpu, unsigned flag) { return 0; }
+static inline int runqueue_is_isolated(int cpu) { return 0; }
+static inline void cpuset_flag_set(int cpu, unsigned bits) { }
+static inline void cpuset_flag_clr(int cpu, unsigned bits) { }
+#endif /* CONFIG_HPC_CPUSETS */
+
 #endif
 
 
@@ -2016,6 +2037,27 @@ extern long sched_getaffinity(pid_t pid, struct cpumask *mask);
 #ifndef TASK_SIZE_OF
 #define TASK_SIZE_OF(tsk)	TASK_SIZE
 #endif
+
+/* Cpuset runqueue behavior modifier flags */
+enum
+{
+	RQ_TICK		= 1 << 0,
+	RQ_HPC		= 1 << 1,
+	RQ_HPCRT	= 1 << 2,
+	RQ_CLEAR	= ~0,
+};
+
+#ifdef CONFIG_HPC_CPUSETS
+extern int runqueue_is_flagged(int cpu, unsigned flag);
+extern int runqueue_is_isolated(int cpu);
+extern void cpuset_flags_set(int cpu, unsigned bits);
+extern void cpuset_flags_clr(int cpu, unsigned bits);
+#else /* !CONFIG_HPC_CPUSETS */
+static inline int runqueue_is_flagged(int cpu, unsigned flag) { return 0; }
+static inline int runqueue_is_isolated(int cpu) { return 0; }
+static inline void cpuset_flag_set(int cpu, unsigned bits) { }
+static inline void cpuset_flag_clr(int cpu, unsigned bits) { }
+#endif /* CONFIG_HPC_CPUSETS */
 
 #ifdef CONFIG_RSEQ
 

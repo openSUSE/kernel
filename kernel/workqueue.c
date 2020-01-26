@@ -51,6 +51,7 @@
 #include <linux/sched/isolation.h>
 #include <linux/nmi.h>
 #include <linux/swait.h>
+#include <uapi/linux/sched/types.h>
 
 #include "workqueue_internal.h"
 
@@ -1831,6 +1832,15 @@ static struct worker *alloc_worker(int node)
 	return worker;
 }
 
+static struct sched_param fifo_param;
+
+static void kworker_set_sched_params(struct task_struct *worker)
+{
+	if (!fifo_param.sched_priority)
+		return;
+	sched_setscheduler_nocheck(worker, SCHED_FIFO, &fifo_param);
+}
+
 /**
  * worker_attach_to_pool() - attach a worker to a pool
  * @worker: worker to be attached
@@ -1944,6 +1954,7 @@ static struct worker *create_worker(struct worker_pool *pool)
 	raw_spin_lock_irq(&pool->lock);
 	worker->pool->nr_workers++;
 	worker_enter_idle(worker);
+	kworker_set_sched_params(worker->task);
 	wake_up_process(worker->task);
 	raw_spin_unlock_irq(&pool->lock);
 
@@ -4205,6 +4216,7 @@ static int init_rescuer(struct workqueue_struct *wq)
 
 	wq->rescuer = rescuer;
 	kthread_bind_mask(rescuer->task, cpu_possible_mask);
+	kworker_set_sched_params(rescuer->task);
 	wake_up_process(rescuer->task);
 
 	return 0;
@@ -5987,3 +5999,17 @@ int __init workqueue_init(void)
 
 	return 0;
 }
+
+static int __init setup_rtworkqueues(char *str)
+{
+	int prio;
+
+	if (kstrtoint(str, 0, &prio) || prio < 1 || prio > 99) {
+		prio = 0;
+		pr_warn("Unable to set kworker default priority\n");
+	}
+	fifo_param.sched_priority = prio;
+
+        return 1;
+}
+__setup("rtworkqueues=", setup_rtworkqueues);
