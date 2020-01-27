@@ -234,6 +234,10 @@ static void update_v_total_for_static_ramp(
 			current_duration_in_us) * (stream->timing.pix_clk_100hz / 10)),
 				stream->timing.h_total), 1000);
 
+	/* v_total cannot be less than nominal */
+	if (v_total < stream->timing.v_total)
+		v_total = stream->timing.v_total;
+
 	in_out_vrr->adjust.v_total_min = v_total;
 	in_out_vrr->adjust.v_total_max = v_total;
 }
@@ -979,12 +983,8 @@ void mod_freesync_get_settings(struct mod_freesync *mod_freesync,
 		unsigned int *inserted_frames,
 		unsigned int *inserted_duration_in_us)
 {
-	struct core_freesync *core_freesync = NULL;
-
 	if (mod_freesync == NULL)
 		return;
-
-	core_freesync = MOD_FREESYNC_TO_CORE(mod_freesync);
 
 	if (vrr->supported) {
 		*v_total_min = vrr->adjust.v_total_min;

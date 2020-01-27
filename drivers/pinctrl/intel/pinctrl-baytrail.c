@@ -493,34 +493,34 @@ static const struct intel_pinctrl_soc_data byt_sus_soc_data = {
 };
 
 static const struct pinctrl_pin_desc byt_ncore_pins[] = {
-	PINCTRL_PIN(0, "GPIO_NCORE0"),
-	PINCTRL_PIN(1, "GPIO_NCORE1"),
-	PINCTRL_PIN(2, "GPIO_NCORE2"),
-	PINCTRL_PIN(3, "GPIO_NCORE3"),
-	PINCTRL_PIN(4, "GPIO_NCORE4"),
-	PINCTRL_PIN(5, "GPIO_NCORE5"),
-	PINCTRL_PIN(6, "GPIO_NCORE6"),
-	PINCTRL_PIN(7, "GPIO_NCORE7"),
-	PINCTRL_PIN(8, "GPIO_NCORE8"),
-	PINCTRL_PIN(9, "GPIO_NCORE9"),
-	PINCTRL_PIN(10, "GPIO_NCORE10"),
-	PINCTRL_PIN(11, "GPIO_NCORE11"),
-	PINCTRL_PIN(12, "GPIO_NCORE12"),
-	PINCTRL_PIN(13, "GPIO_NCORE13"),
-	PINCTRL_PIN(14, "GPIO_NCORE14"),
-	PINCTRL_PIN(15, "GPIO_NCORE15"),
-	PINCTRL_PIN(16, "GPIO_NCORE16"),
-	PINCTRL_PIN(17, "GPIO_NCORE17"),
-	PINCTRL_PIN(18, "GPIO_NCORE18"),
-	PINCTRL_PIN(19, "GPIO_NCORE19"),
-	PINCTRL_PIN(20, "GPIO_NCORE20"),
-	PINCTRL_PIN(21, "GPIO_NCORE21"),
-	PINCTRL_PIN(22, "GPIO_NCORE22"),
-	PINCTRL_PIN(23, "GPIO_NCORE23"),
-	PINCTRL_PIN(24, "GPIO_NCORE24"),
-	PINCTRL_PIN(25, "GPIO_NCORE25"),
-	PINCTRL_PIN(26, "GPIO_NCORE26"),
-	PINCTRL_PIN(27, "GPIO_NCORE27"),
+	PINCTRL_PIN(0, "HV_DDI0_HPD"),
+	PINCTRL_PIN(1, "HV_DDI0_DDC_SDA"),
+	PINCTRL_PIN(2, "HV_DDI0_DDC_SCL"),
+	PINCTRL_PIN(3, "PANEL0_VDDEN"),
+	PINCTRL_PIN(4, "PANEL0_BKLTEN"),
+	PINCTRL_PIN(5, "PANEL0_BKLTCTL"),
+	PINCTRL_PIN(6, "HV_DDI1_HPD"),
+	PINCTRL_PIN(7, "HV_DDI1_DDC_SDA"),
+	PINCTRL_PIN(8, "HV_DDI1_DDC_SCL"),
+	PINCTRL_PIN(9, "PANEL1_VDDEN"),
+	PINCTRL_PIN(10, "PANEL1_BKLTEN"),
+	PINCTRL_PIN(11, "PANEL1_BKLTCTL"),
+	PINCTRL_PIN(12, "GP_INTD_DSI_TE1"),
+	PINCTRL_PIN(13, "HV_DDI2_DDC_SDA"),
+	PINCTRL_PIN(14, "HV_DDI2_DDC_SCL"),
+	PINCTRL_PIN(15, "GP_CAMERASB00"),
+	PINCTRL_PIN(16, "GP_CAMERASB01"),
+	PINCTRL_PIN(17, "GP_CAMERASB02"),
+	PINCTRL_PIN(18, "GP_CAMERASB03"),
+	PINCTRL_PIN(19, "GP_CAMERASB04"),
+	PINCTRL_PIN(20, "GP_CAMERASB05"),
+	PINCTRL_PIN(21, "GP_CAMERASB06"),
+	PINCTRL_PIN(22, "GP_CAMERASB07"),
+	PINCTRL_PIN(23, "GP_CAMERASB08"),
+	PINCTRL_PIN(24, "GP_CAMERASB09"),
+	PINCTRL_PIN(25, "GP_CAMERASB10"),
+	PINCTRL_PIN(26, "GP_CAMERASB11"),
+	PINCTRL_PIN(27, "GP_INTD_DSI_TE2"),
 };
 
 static const unsigned int byt_ncore_pins_map[BYT_NGPIO_NCORE] = {
@@ -1451,9 +1451,9 @@ static void byt_init_irq_valid_mask(struct gpio_chip *chip,
 	 */
 }
 
-static void byt_gpio_irq_init_hw(struct byt_gpio *vg)
+static int byt_gpio_irq_init_hw(struct gpio_chip *chip)
 {
-	struct gpio_chip *gc = &vg->chip;
+	struct byt_gpio *vg = gpiochip_get_data(chip);
 	struct device *dev = &vg->pdev->dev;
 	void __iomem *reg;
 	u32 base, value;
@@ -1477,7 +1477,7 @@ static void byt_gpio_irq_init_hw(struct byt_gpio *vg)
 
 		value = readl(reg);
 		if (value & BYT_DIRECT_IRQ_EN) {
-			clear_bit(i, gc->irq.valid_mask);
+			clear_bit(i, chip->irq.valid_mask);
 			dev_dbg(dev, "excluding GPIO %d from IRQ domain\n", i);
 		} else if ((value & BYT_PIN_MUX) == byt_get_gpio_mux(vg, i)) {
 			byt_gpio_clear_triggering(vg, i);
@@ -1505,6 +1505,21 @@ static void byt_gpio_irq_init_hw(struct byt_gpio *vg)
 				"GPIO interrupt error, pins misconfigured. INT_STAT%u: 0x%08x\n",
 				base / 32, value);
 	}
+
+	return 0;
+}
+
+static int byt_gpio_add_pin_ranges(struct gpio_chip *chip)
+{
+	struct byt_gpio *vg = gpiochip_get_data(chip);
+	struct device *dev = &vg->pdev->dev;
+	int ret;
+
+	ret = gpiochip_add_pin_range(chip, dev_name(dev), 0, 0, vg->soc_data->npins);
+	if (ret)
+		dev_err(dev, "failed to add GPIO pin range\n");
+
+	return ret;
 }
 
 static int byt_gpio_probe(struct byt_gpio *vg)
@@ -1519,6 +1534,7 @@ static int byt_gpio_probe(struct byt_gpio *vg)
 	gc->label	= dev_name(&vg->pdev->dev);
 	gc->base	= -1;
 	gc->can_sleep	= false;
+	gc->add_pin_ranges = byt_gpio_add_pin_ranges;
 	gc->parent	= &vg->pdev->dev;
 	gc->ngpio	= vg->soc_data->npins;
 	gc->irq.init_valid_mask	= byt_init_irq_valid_mask;
@@ -1529,33 +1545,30 @@ static int byt_gpio_probe(struct byt_gpio *vg)
 	if (!vg->saved_context)
 		return -ENOMEM;
 #endif
-	ret = devm_gpiochip_add_data(&vg->pdev->dev, gc, vg);
-	if (ret) {
-		dev_err(&vg->pdev->dev, "failed adding byt-gpio chip\n");
-		return ret;
-	}
-
-	ret = gpiochip_add_pin_range(&vg->chip, dev_name(&vg->pdev->dev),
-				     0, 0, vg->soc_data->npins);
-	if (ret) {
-		dev_err(&vg->pdev->dev, "failed to add GPIO pin range\n");
-		return ret;
-	}
 
 	/* set up interrupts  */
 	irq_rc = platform_get_resource(vg->pdev, IORESOURCE_IRQ, 0);
 	if (irq_rc && irq_rc->start) {
-		byt_gpio_irq_init_hw(vg);
-		ret = gpiochip_irqchip_add(gc, &byt_irqchip, 0,
-					   handle_bad_irq, IRQ_TYPE_NONE);
-		if (ret) {
-			dev_err(&vg->pdev->dev, "failed to add irqchip\n");
-			return ret;
-		}
+		struct gpio_irq_chip *girq;
 
-		gpiochip_set_chained_irqchip(gc, &byt_irqchip,
-					     (unsigned)irq_rc->start,
-					     byt_gpio_irq_handler);
+		girq = &gc->irq;
+		girq->chip = &byt_irqchip;
+		girq->init_hw = byt_gpio_irq_init_hw;
+		girq->parent_handler = byt_gpio_irq_handler;
+		girq->num_parents = 1;
+		girq->parents = devm_kcalloc(&vg->pdev->dev, girq->num_parents,
+					     sizeof(*girq->parents), GFP_KERNEL);
+		if (!girq->parents)
+			return -ENOMEM;
+		girq->parents[0] = (unsigned int)irq_rc->start;
+		girq->default_type = IRQ_TYPE_NONE;
+		girq->handler = handle_bad_irq;
+	}
+
+	ret = devm_gpiochip_add_data(&vg->pdev->dev, gc, vg);
+	if (ret) {
+		dev_err(&vg->pdev->dev, "failed adding byt-gpio chip\n");
+		return ret;
 	}
 
 	return ret;

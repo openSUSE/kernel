@@ -904,9 +904,9 @@ static u8 get_adv_instance_scan_rsp_len(struct hci_dev *hdev, u8 instance)
 {
 	struct adv_info *adv_instance;
 
-	/* Ignore instance 0 */
+	/* Instance 0x00 always set local name */
 	if (instance == 0x00)
-		return 0;
+		return 1;
 
 	adv_instance = hci_find_adv_instance(hdev, instance);
 	if (!adv_instance)
@@ -923,9 +923,9 @@ static u8 get_cur_adv_instance_scan_rsp_len(struct hci_dev *hdev)
 	u8 instance = hdev->cur_adv_instance;
 	struct adv_info *adv_instance;
 
-	/* Ignore instance 0 */
+	/* Instance 0x00 always set local name */
 	if (instance == 0x00)
-		return 0;
+		return 1;
 
 	adv_instance = hci_find_adv_instance(hdev, instance);
 	if (!adv_instance)
@@ -1699,7 +1699,7 @@ int __hci_req_enable_ext_advertising(struct hci_request *req, u8 instance)
 	 * scheduling it.
 	 */
 	if (adv_instance && adv_instance->duration) {
-		u16 duration = adv_instance->duration * MSEC_PER_SEC;
+		u16 duration = adv_instance->timeout * MSEC_PER_SEC;
 
 		/* Time = N * 10 ms */
 		adv_set->duration = cpu_to_le16(duration / 10);

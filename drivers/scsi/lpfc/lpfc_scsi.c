@@ -134,21 +134,21 @@ lpfc_sli4_set_rsp_sgl_last(struct lpfc_hba *phba,
 
 /**
  * lpfc_update_stats - Update statistical data for the command completion
- * @phba: Pointer to HBA object.
+ * @vport: The virtual port on which this call is executing.
  * @lpfc_cmd: lpfc scsi command object pointer.
  *
  * This function is called when there is a command completion and this
  * function updates the statistical data for the command completion.
  **/
 static void
-lpfc_update_stats(struct lpfc_hba *phba, struct lpfc_io_buf *lpfc_cmd)
+lpfc_update_stats(struct lpfc_vport *vport, struct lpfc_io_buf *lpfc_cmd)
 {
+	struct lpfc_hba *phba = vport->phba;
 	struct lpfc_rport_data *rdata;
 	struct lpfc_nodelist *pnode;
 	struct scsi_cmnd *cmd = lpfc_cmd->pCmd;
 	unsigned long flags;
-	struct Scsi_Host  *shost = cmd->device->host;
-	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
+	struct Scsi_Host *shost = lpfc_shost_from_vport(vport);
 	unsigned long latency;
 	int i;
 
@@ -719,7 +719,7 @@ lpfc_get_scsi_buf_s4(struct lpfc_hba *phba, struct lpfc_nodelist *ndlp,
 	iocb->ulpLe = 1;
 	iocb->ulpClass = CLASS3;
 
-	if (lpfc_ndlp_check_qdepth(phba, ndlp) && lpfc_cmd) {
+	if (lpfc_ndlp_check_qdepth(phba, ndlp)) {
 		atomic_inc(&ndlp->cmd_pending);
 		lpfc_cmd->flags |= LPFC_SBUF_BUMP_QDEPTH;
 	}
@@ -3812,7 +3812,7 @@ lpfc_scsi_cmd_iocb_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *pIocbIn,
 
 	/* Sanity check on return of outstanding command */
 	cmd = lpfc_cmd->pCmd;
-	if (!cmd) {
+	if (!cmd || !phba) {
 		lpfc_printf_vlog(vport, KERN_ERR, LOG_INIT,
 				 "2621 IO completion: Not an active IO\n");
 		spin_unlock(&lpfc_cmd->buf_lock);
@@ -3824,7 +3824,7 @@ lpfc_scsi_cmd_iocb_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *pIocbIn,
 		phba->sli4_hba.hdwq[idx].scsi_cstat.io_cmpls++;
 
 #ifdef CONFIG_SCSI_LPFC_DEBUG_FS
-	if (phba->cpucheck_on & LPFC_CHECK_SCSI_IO) {
+	if (unlikely(phba->cpucheck_on & LPFC_CHECK_SCSI_IO)) {
 		cpu = raw_smp_processor_id();
 		if (cpu < LPFC_CHECK_CPU_CNT && phba->sli4_hba.hdwq)
 			phba->sli4_hba.hdwq[idx].cpucheck_cmpl_io[cpu]++;
@@ -3872,7 +3872,7 @@ lpfc_scsi_cmd_iocb_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *pIocbIn,
 	}
 #endif
 
-	if (lpfc_cmd->status) {
+	if (unlikely(lpfc_cmd->status)) {
 		if (lpfc_cmd->status == IOSTAT_LOCAL_REJECT &&
 		    (lpfc_cmd->result & IOERR_DRVR_MASK))
 			lpfc_cmd->status = IOSTAT_DRIVER_REJECT;
@@ -4005,7 +4005,7 @@ lpfc_scsi_cmd_iocb_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *pIocbIn,
 				 scsi_get_resid(cmd));
 	}
 
-	lpfc_update_stats(phba, lpfc_cmd);
+	lpfc_update_stats(vport, lpfc_cmd);
 	if (vport->cfg_max_scsicmpl_time &&
 	   time_after(jiffies, lpfc_cmd->start_time +
 		msecs_to_jiffies(vport->cfg_max_scsicmpl_time))) {
@@ -4613,17 +4613,18 @@ lpfc_queuecommand(struct Scsi_Host *shost, struct scsi_cmnd *cmnd)
 		err = lpfc_scsi_prep_dma_buf(phba, lpfc_cmd);
 	}
 
-	if (err == 2) {
-		cmnd->result = DID_ERROR << 16;
-		goto out_fail_command_release_buf;
-	} else if (err) {
+	if (unlikely(err)) {
+		if (err == 2) {
+			cmnd->result = DID_ERROR << 16;
+			goto out_fail_command_release_buf;
+		}
 		goto out_host_busy_free_buf;
 	}
 
 	lpfc_scsi_prep_cmnd(vport, lpfc_cmd, ndlp);
 
 #ifdef CONFIG_SCSI_LPFC_DEBUG_FS
-	if (phba->cpucheck_on & LPFC_CHECK_SCSI_IO) {
+	if (unlikely(phba->cpucheck_on & LPFC_CHECK_SCSI_IO)) {
 		cpu = raw_smp_processor_id();
 		if (cpu < LPFC_CHECK_CPU_CNT) {
 			struct lpfc_sli4_hdw_queue *hdwq =

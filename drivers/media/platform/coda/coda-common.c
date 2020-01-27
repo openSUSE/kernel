@@ -933,7 +933,8 @@ static int coda_g_selection(struct file *file, void *fh,
 		rsel = &r;
 		/* fallthrough */
 	case V4L2_SEL_TGT_CROP:
-		if (s->type != V4L2_BUF_TYPE_VIDEO_OUTPUT)
+		if (s->type != V4L2_BUF_TYPE_VIDEO_OUTPUT ||
+		    ctx->inst_type == CODA_INST_DECODER)
 			return -EINVAL;
 		break;
 	case V4L2_SEL_TGT_COMPOSE_BOUNDS:
@@ -942,7 +943,8 @@ static int coda_g_selection(struct file *file, void *fh,
 		/* fallthrough */
 	case V4L2_SEL_TGT_COMPOSE:
 	case V4L2_SEL_TGT_COMPOSE_DEFAULT:
-		if (s->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		if (s->type != V4L2_BUF_TYPE_VIDEO_CAPTURE ||
+		    ctx->inst_type == CODA_INST_ENCODER)
 			return -EINVAL;
 		break;
 	default:
@@ -2387,6 +2389,7 @@ int coda_decoder_queue_init(void *priv, struct vb2_queue *src_vq,
 
 	dst_vq->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	dst_vq->io_modes = VB2_DMABUF | VB2_MMAP;
+	dst_vq->dma_attrs = DMA_ATTR_NO_KERNEL_MAPPING;
 	dst_vq->mem_ops = &vb2_dma_contig_memops;
 
 	return coda_queue_init(priv, dst_vq);
@@ -2958,8 +2961,6 @@ static int coda_probe(struct platform_device *pdev)
 		dev->devtype = &coda_devdata[pdev_id->driver_data];
 	else
 		return -EINVAL;
-
-	spin_lock_init(&dev->irqlock);
 
 	dev->dev = &pdev->dev;
 	dev->clk_per = devm_clk_get(&pdev->dev, "per");

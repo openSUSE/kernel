@@ -383,9 +383,9 @@ static void rtw_coex_update_wl_link_info(struct rtw_dev *rtwdev, u8 reason)
 	u8 rssi_step;
 	u8 rssi;
 
-	scan = rtw_flag_check(rtwdev, RTW_FLAG_SCANNING);
+	scan = test_bit(RTW_FLAG_SCANNING, rtwdev->flags);
 	coex_stat->wl_connected = !!rtwdev->sta_cnt;
-	coex_stat->wl_gl_busy = rtw_flag_check(rtwdev, RTW_FLAG_BUSY_TRAFFIC);
+	coex_stat->wl_gl_busy = test_bit(RTW_FLAG_BUSY_TRAFFIC, rtwdev->flags);
 
 	if (stats->tx_throughput > stats->rx_throughput)
 		coex_stat->wl_tput_dir = COEX_WL_TPUT_TX;
@@ -810,8 +810,6 @@ static void rtw_coex_ignore_wlan_act(struct rtw_dev *rtwdev, bool enable)
 static void rtw_coex_power_save_state(struct rtw_dev *rtwdev, u8 ps_type,
 				      u8 lps_val, u8 rpwm_val)
 {
-	struct rtw_lps_conf *lps_conf = &rtwdev->lps_conf;
-	struct rtw_vif *rtwvif;
 	struct rtw_coex *coex = &rtwdev->coex;
 	struct rtw_coex_stat *coex_stat = &coex->stat;
 	u8 lps_mode = 0x0;
@@ -823,18 +821,14 @@ static void rtw_coex_power_save_state(struct rtw_dev *rtwdev, u8 ps_type,
 		/* recover to original 32k low power setting */
 		coex_stat->wl_force_lps_ctrl = false;
 
-		rtwvif = lps_conf->rtwvif;
-		if (rtwvif && rtw_in_lps(rtwdev))
-			rtw_leave_lps(rtwdev, rtwvif);
+		rtw_leave_lps(rtwdev);
 		break;
 	case COEX_PS_LPS_OFF:
 		coex_stat->wl_force_lps_ctrl = true;
 		if (lps_mode)
 			rtw_fw_coex_tdma_type(rtwdev, 0x8, 0, 0, 0, 0);
 
-		rtwvif = lps_conf->rtwvif;
-		if (rtwvif && rtw_in_lps(rtwdev))
-			rtw_leave_lps(rtwdev, rtwvif);
+		rtw_leave_lps(rtwdev);
 		break;
 	default:
 		break;

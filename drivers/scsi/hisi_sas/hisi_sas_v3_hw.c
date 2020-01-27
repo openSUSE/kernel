@@ -795,13 +795,14 @@ static void setup_itct_v3_hw(struct hisi_hba *hisi_hba,
 					(0x1ULL << ITCT_HDR_RTOLT_OFF));
 }
 
-static void clear_itct_v3_hw(struct hisi_hba *hisi_hba,
-			      struct hisi_sas_device *sas_dev)
+static int clear_itct_v3_hw(struct hisi_hba *hisi_hba,
+			    struct hisi_sas_device *sas_dev)
 {
 	DECLARE_COMPLETION_ONSTACK(completion);
 	u64 dev_id = sas_dev->device_id;
 	struct hisi_sas_itct *itct = &hisi_hba->itct[dev_id];
 	u32 reg_val = hisi_sas_read32(hisi_hba, ENT_INT_SRC3);
+	struct device *dev = hisi_hba->dev;
 
 	sas_dev->completion = &completion;
 
@@ -814,8 +815,14 @@ static void clear_itct_v3_hw(struct hisi_hba *hisi_hba,
 	reg_val = ITCT_CLR_EN_MSK | (dev_id & ITCT_DEV_MSK);
 	hisi_sas_write32(hisi_hba, ITCT_CLR, reg_val);
 
-	wait_for_completion(sas_dev->completion);
+	if (!wait_for_completion_timeout(sas_dev->completion,
+					 CLEAR_ITCT_TIMEOUT * HZ)) {
+		dev_warn(dev, "failed to clear ITCT\n");
+		return -ETIMEDOUT;
+	}
+
 	memset(itct, 0, sizeof(struct hisi_sas_itct));
+	return 0;
 }
 
 static void dereg_device_v3_hw(struct hisi_hba *hisi_hba,
@@ -1541,6 +1548,8 @@ static irqreturn_t phy_down_v3_hw(int phy_no, struct hisi_hba *hisi_hba)
 	struct hisi_sas_phy *phy = &hisi_hba->phy[phy_no];
 	u32 phy_state, sl_ctrl, txid_auto;
 	struct device *dev = hisi_hba->dev;
+
+	atomic_inc(&phy->down_cnt);
 
 	del_timer(&phy->timer);
 	hisi_sas_phy_write32(hisi_hba, phy_no, PHYCTRL_NOT_RDY_MSK, 1);
@@ -3293,8 +3302,6 @@ static void hisi_sas_v3_remove(struct pci_dev *pdev)
 	struct hisi_hba *hisi_hba = sha->lldd_ha;
 	struct Scsi_Host *shost = sha->core.shost;
 
-	hisi_sas_debugfs_exit(hisi_hba);
-
 	if (timer_pending(&hisi_hba->timer))
 		del_timer(&hisi_hba->timer);
 
@@ -3306,6 +3313,7 @@ static void hisi_sas_v3_remove(struct pci_dev *pdev)
 	pci_release_regions(pdev);
 	pci_disable_device(pdev);
 	hisi_sas_free(hisi_hba);
+	hisi_sas_debugfs_exit(hisi_hba);
 	scsi_host_put(shost);
 }
 

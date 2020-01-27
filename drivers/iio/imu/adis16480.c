@@ -181,7 +181,7 @@ static ssize_t adis16480_show_firmware_revision(struct file *file,
 	int ret;
 
 	ret = adis_read_reg_16(&adis16480->adis, ADIS16480_REG_FIRM_REV, &rev);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	len = scnprintf(buf, sizeof(buf), "%x.%x\n", rev >> 8, rev & 0xff);
@@ -206,11 +206,11 @@ static ssize_t adis16480_show_firmware_date(struct file *file,
 	int ret;
 
 	ret = adis_read_reg_16(&adis16480->adis, ADIS16480_REG_FIRM_Y, &year);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	ret = adis_read_reg_16(&adis16480->adis, ADIS16480_REG_FIRM_DM, &md);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	len = snprintf(buf, sizeof(buf), "%.2x-%.2x-%.4x\n",
@@ -234,7 +234,7 @@ static int adis16480_show_serial_number(void *arg, u64 *val)
 
 	ret = adis_read_reg_16(&adis16480->adis, ADIS16480_REG_SERIAL_NUM,
 		&serial);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	*val = serial;
@@ -252,7 +252,7 @@ static int adis16480_show_product_id(void *arg, u64 *val)
 
 	ret = adis_read_reg_16(&adis16480->adis, ADIS16480_REG_PROD_ID,
 		&prod_id);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	*val = prod_id;
@@ -270,7 +270,7 @@ static int adis16480_show_flash_count(void *arg, u64 *val)
 
 	ret = adis_read_reg_32(&adis16480->adis, ADIS16480_REG_FLASH_CNT,
 		&flash_count);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	*val = flash_count;
@@ -353,7 +353,7 @@ static int adis16480_get_freq(struct iio_dev *indio_dev, int *val, int *val2)
 	struct adis16480 *st = iio_priv(indio_dev);
 	uint16_t t;
 	int ret;
-	unsigned freq;
+	unsigned int freq;
 	unsigned int reg;
 
 	if (st->clk_mode == ADIS16480_CLK_PPS)
@@ -362,7 +362,7 @@ static int adis16480_get_freq(struct iio_dev *indio_dev, int *val, int *val2)
 		reg = ADIS16480_REG_DEC_RATE;
 
 	ret = adis_read_reg_16(&st->adis, reg, &t);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	/*
@@ -464,10 +464,10 @@ static int adis16480_get_calibbias(struct iio_dev *indio_dev,
 			*bias = sign_extend32(val32, 31);
 		break;
 	default:
-			ret = -EINVAL;
+		ret = -EINVAL;
 	}
 
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	return IIO_VAL_INT;
@@ -494,7 +494,7 @@ static int adis16480_get_calibscale(struct iio_dev *indio_dev,
 	int ret;
 
 	ret = adis_read_reg_16(&st->adis, reg, &val16);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	*scale = sign_extend32(val16, 15);
@@ -540,7 +540,7 @@ static int adis16480_get_filter_freq(struct iio_dev *indio_dev,
 	enable_mask = BIT(offset + 2);
 
 	ret = adis_read_reg_16(&st->adis, reg, &val);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	if (!(val & enable_mask))
@@ -566,7 +566,7 @@ static int adis16480_set_filter_freq(struct iio_dev *indio_dev,
 	enable_mask = BIT(offset + 2);
 
 	ret = adis_read_reg_16(&st->adis, reg, &val);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	if (freq == 0) {
@@ -948,7 +948,7 @@ static int adis16480_enable_irq(struct adis *adis, bool enable)
 	int ret;
 
 	ret = adis_read_reg_16(adis, ADIS16480_REG_FNCTIO_CTRL, &val);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	val &= ~ADIS16480_DRDY_EN_MSK;
@@ -1126,7 +1126,7 @@ static int adis16480_ext_clk_config(struct adis16480 *st,
 	int ret;
 
 	ret = adis_read_reg_16(&st->adis, ADIS16480_REG_FNCTIO_CTRL, &val);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	pin = adis16480_of_get_ext_clk_pin(st, of_node);
@@ -1152,7 +1152,7 @@ static int adis16480_ext_clk_config(struct adis16480 *st,
 	val |= mode;
 
 	ret = adis_write_reg_16(&st->adis, ADIS16480_REG_FNCTIO_CTRL, val);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	return clk_prepare_enable(st->ext_clk);

@@ -318,7 +318,7 @@ static int hns_roce_set_rq_size(struct hns_roce_dev *hr_dev,
 					      * hr_qp->rq.max_gs);
 	}
 
-	cap->max_recv_wr = hr_qp->rq.max_post = hr_qp->rq.wqe_cnt;
+	cap->max_recv_wr = hr_qp->rq.wqe_cnt;
 	cap->max_recv_sge = hr_qp->rq.max_gs;
 
 	return 0;
@@ -393,37 +393,37 @@ static int hns_roce_set_user_sq_size(struct hns_roce_dev *hr_dev,
 
 	/* Get buf size, SQ and RQ  are aligned to page_szie */
 	if (hr_dev->caps.max_sq_sg <= 2) {
-		hr_qp->buff_size = HNS_ROCE_ALOGN_UP((hr_qp->rq.wqe_cnt <<
+		hr_qp->buff_size = HNS_ROCE_ALIGN_UP((hr_qp->rq.wqe_cnt <<
 					     hr_qp->rq.wqe_shift), PAGE_SIZE) +
-				   HNS_ROCE_ALOGN_UP((hr_qp->sq.wqe_cnt <<
+				   HNS_ROCE_ALIGN_UP((hr_qp->sq.wqe_cnt <<
 					     hr_qp->sq.wqe_shift), PAGE_SIZE);
 
 		hr_qp->sq.offset = 0;
-		hr_qp->rq.offset = HNS_ROCE_ALOGN_UP((hr_qp->sq.wqe_cnt <<
+		hr_qp->rq.offset = HNS_ROCE_ALIGN_UP((hr_qp->sq.wqe_cnt <<
 					     hr_qp->sq.wqe_shift), PAGE_SIZE);
 	} else {
 		page_size = 1 << (hr_dev->caps.mtt_buf_pg_sz + PAGE_SHIFT);
 		hr_qp->sge.sge_cnt = ex_sge_num ?
 		   max(page_size / (1 << hr_qp->sge.sge_shift), ex_sge_num) : 0;
-		hr_qp->buff_size = HNS_ROCE_ALOGN_UP((hr_qp->rq.wqe_cnt <<
+		hr_qp->buff_size = HNS_ROCE_ALIGN_UP((hr_qp->rq.wqe_cnt <<
 					     hr_qp->rq.wqe_shift), page_size) +
-				   HNS_ROCE_ALOGN_UP((hr_qp->sge.sge_cnt <<
+				   HNS_ROCE_ALIGN_UP((hr_qp->sge.sge_cnt <<
 					     hr_qp->sge.sge_shift), page_size) +
-				   HNS_ROCE_ALOGN_UP((hr_qp->sq.wqe_cnt <<
+				   HNS_ROCE_ALIGN_UP((hr_qp->sq.wqe_cnt <<
 					     hr_qp->sq.wqe_shift), page_size);
 
 		hr_qp->sq.offset = 0;
 		if (ex_sge_num) {
-			hr_qp->sge.offset = HNS_ROCE_ALOGN_UP(
+			hr_qp->sge.offset = HNS_ROCE_ALIGN_UP(
 							(hr_qp->sq.wqe_cnt <<
 							hr_qp->sq.wqe_shift),
 							page_size);
 			hr_qp->rq.offset = hr_qp->sge.offset +
-					HNS_ROCE_ALOGN_UP((hr_qp->sge.sge_cnt <<
+					HNS_ROCE_ALIGN_UP((hr_qp->sge.sge_cnt <<
 						hr_qp->sge.sge_shift),
 						page_size);
 		} else {
-			hr_qp->rq.offset = HNS_ROCE_ALOGN_UP(
+			hr_qp->rq.offset = HNS_ROCE_ALIGN_UP(
 							(hr_qp->sq.wqe_cnt <<
 							hr_qp->sq.wqe_shift),
 							page_size);
@@ -593,24 +593,24 @@ static int hns_roce_set_kernel_sq_size(struct hns_roce_dev *hr_dev,
 	/* Get buf size, SQ and RQ are aligned to PAGE_SIZE */
 	page_size = 1 << (hr_dev->caps.mtt_buf_pg_sz + PAGE_SHIFT);
 	hr_qp->sq.offset = 0;
-	size = HNS_ROCE_ALOGN_UP(hr_qp->sq.wqe_cnt << hr_qp->sq.wqe_shift,
+	size = HNS_ROCE_ALIGN_UP(hr_qp->sq.wqe_cnt << hr_qp->sq.wqe_shift,
 				 page_size);
 
 	if (hr_dev->caps.max_sq_sg > 2 && hr_qp->sge.sge_cnt) {
 		hr_qp->sge.sge_cnt = max(page_size/(1 << hr_qp->sge.sge_shift),
 					(u32)hr_qp->sge.sge_cnt);
 		hr_qp->sge.offset = size;
-		size += HNS_ROCE_ALOGN_UP(hr_qp->sge.sge_cnt <<
+		size += HNS_ROCE_ALIGN_UP(hr_qp->sge.sge_cnt <<
 					  hr_qp->sge.sge_shift, page_size);
 	}
 
 	hr_qp->rq.offset = size;
-	size += HNS_ROCE_ALOGN_UP((hr_qp->rq.wqe_cnt << hr_qp->rq.wqe_shift),
+	size += HNS_ROCE_ALIGN_UP((hr_qp->rq.wqe_cnt << hr_qp->rq.wqe_shift),
 				  page_size);
 	hr_qp->buff_size = size;
 
 	/* Get wr and sge number which send */
-	cap->max_send_wr = hr_qp->sq.max_post = hr_qp->sq.wqe_cnt;
+	cap->max_send_wr = hr_qp->sq.wqe_cnt;
 	cap->max_send_sge = hr_qp->sq.max_gs;
 
 	/* We don't support inline sends for kernel QPs (yet) */
@@ -745,7 +745,7 @@ static int hns_roce_create_qp_common(struct hns_roce_dev *hr_dev,
 		}
 
 		hr_qp->umem = ib_umem_get(udata, ucmd.buf_addr,
-					  hr_qp->buff_size, 0, 0);
+					  hr_qp->buff_size, 0);
 		if (IS_ERR(hr_qp->umem)) {
 			dev_err(dev, "ib_umem_get error for create qp\n");
 			ret = PTR_ERR(hr_qp->umem);
@@ -1019,7 +1019,6 @@ struct ib_qp *hns_roce_create_qp(struct ib_pd *pd,
 {
 	struct hns_roce_dev *hr_dev = to_hr_dev(pd->device);
 	struct ib_device *ibdev = &hr_dev->ib_dev;
-	struct hns_roce_sqp *hr_sqp;
 	struct hns_roce_qp *hr_qp;
 	int ret;
 
@@ -1032,7 +1031,7 @@ struct ib_qp *hns_roce_create_qp(struct ib_pd *pd,
 		ret = hns_roce_create_qp_common(hr_dev, pd, init_attr, udata, 0,
 						hr_qp);
 		if (ret) {
-			ibdev_err(ibdev, "Create RC QP 0x%06lx failed(%d)\n",
+			ibdev_err(ibdev, "Create QP 0x%06lx failed(%d)\n",
 				  hr_qp->qpn, ret);
 			kfree(hr_qp);
 			return ERR_PTR(ret);
@@ -1049,11 +1048,10 @@ struct ib_qp *hns_roce_create_qp(struct ib_pd *pd,
 			return ERR_PTR(-EINVAL);
 		}
 
-		hr_sqp = kzalloc(sizeof(*hr_sqp), GFP_KERNEL);
-		if (!hr_sqp)
+		hr_qp = kzalloc(sizeof(*hr_qp), GFP_KERNEL);
+		if (!hr_qp)
 			return ERR_PTR(-ENOMEM);
 
-		hr_qp = &hr_sqp->hr_qp;
 		hr_qp->port = init_attr->port_num - 1;
 		hr_qp->phy_port = hr_dev->iboe.phy_port[hr_qp->port];
 
@@ -1068,7 +1066,7 @@ struct ib_qp *hns_roce_create_qp(struct ib_pd *pd,
 						hr_qp->ibqp.qp_num, hr_qp);
 		if (ret) {
 			ibdev_err(ibdev, "Create GSI QP failed!\n");
-			kfree(hr_sqp);
+			kfree(hr_qp);
 			return ERR_PTR(ret);
 		}
 
@@ -1291,7 +1289,7 @@ bool hns_roce_wq_overflow(struct hns_roce_wq *hr_wq, int nreq,
 	u32 cur;
 
 	cur = hr_wq->head - hr_wq->tail;
-	if (likely(cur + nreq < hr_wq->max_post))
+	if (likely(cur + nreq < hr_wq->wqe_cnt))
 		return false;
 
 	hr_cq = to_hr_cq(ib_cq);
@@ -1299,7 +1297,7 @@ bool hns_roce_wq_overflow(struct hns_roce_wq *hr_wq, int nreq,
 	cur = hr_wq->head - hr_wq->tail;
 	spin_unlock(&hr_cq->lock);
 
-	return cur + nreq >= hr_wq->max_post;
+	return cur + nreq >= hr_wq->wqe_cnt;
 }
 
 int hns_roce_init_qp_table(struct hns_roce_dev *hr_dev)

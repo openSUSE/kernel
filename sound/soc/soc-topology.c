@@ -548,12 +548,12 @@ static void remove_link(struct snd_soc_component *comp,
 	if (dobj->ops && dobj->ops->link_unload)
 		dobj->ops->link_unload(comp, dobj);
 
+	list_del(&dobj->list);
+	snd_soc_remove_dai_link(comp->card, link);
+
 	kfree(link->name);
 	kfree(link->stream_name);
 	kfree(link->cpus->dai_name);
-
-	list_del(&dobj->list);
-	snd_soc_remove_dai_link(comp->card, link);
 	kfree(link);
 }
 
@@ -1800,6 +1800,9 @@ static int soc_tplg_dai_create(struct soc_tplg *tplg,
 	struct snd_soc_dai_driver *dai_drv;
 	struct snd_soc_pcm_stream *stream;
 	struct snd_soc_tplg_stream_caps *caps;
+	struct snd_soc_dai *dai;
+	struct snd_soc_dapm_context *dapm =
+		snd_soc_component_get_dapm(tplg->comp);
 	int ret;
 
 	dai_drv = kzalloc(sizeof(struct snd_soc_dai_driver), GFP_KERNEL);
@@ -1842,7 +1845,19 @@ static int soc_tplg_dai_create(struct soc_tplg *tplg,
 	list_add(&dai_drv->dobj.list, &tplg->comp->dobj_list);
 
 	/* register the DAI to the component */
-	return snd_soc_register_dai(tplg->comp, dai_drv);
+	dai = snd_soc_register_dai(tplg->comp, dai_drv, false);
+	if (!dai)
+		return -ENOMEM;
+
+	/* Create the DAI widgets here */
+	ret = snd_soc_dapm_new_dai_widgets(dapm, dai);
+	if (ret != 0) {
+		dev_err(dai->dev, "Failed to create DAI widgets %d\n", ret);
+		snd_soc_unregister_dai(dai);
+		return ret;
+	}
+
+	return ret;
 }
 
 static void set_link_flags(struct snd_soc_dai_link *link,

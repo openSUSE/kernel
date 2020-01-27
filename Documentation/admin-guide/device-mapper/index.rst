@@ -10,6 +10,7 @@ Device Mapper
     delay
     dm-clone
     dm-crypt
+    dm-dust
     dm-flakey
     dm-init
     dm-integrity

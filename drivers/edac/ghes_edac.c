@@ -21,8 +21,7 @@ struct ghes_edac_pvt {
 	struct mem_ctl_info *mci;
 
 	/* Buffers for the error handling routine */
-	char detail_location[240];
-	char other_detail[160];
+	char other_detail[400];
 	char msg[80];
 };
 
@@ -90,12 +89,13 @@ static void ghes_edac_count_dimms(const struct dmi_header *dh, void *arg)
 
 static int get_dimm_smbios_index(struct mem_ctl_info *mci, u16 handle)
 {
-	int i;
+	struct dimm_info *dimm;
 
-	for (i = 0; i < mci->tot_dimms; i++) {
-		if (mci->dimms[i]->smbios_handle == handle)
-			return i;
+	mci_for_each_dimm(mci, dimm) {
+		if (dimm->smbios_handle == handle)
+			return dimm->idx;
 	}
+
 	return -1;
 }
 
@@ -106,9 +106,7 @@ static void ghes_edac_dmidecode(const struct dmi_header *dh, void *arg)
 
 	if (dh->type == DMI_ENTRY_MEM_DEVICE) {
 		struct memdev_dmi_entry *entry = (struct memdev_dmi_entry *)dh;
-		struct dimm_info *dimm = EDAC_DIMM_PTR(mci->layers, mci->dimms,
-						       mci->n_layers,
-						       dimm_fill->count, 0, 0);
+		struct dimm_info *dimm = edac_get_dimm(mci, dimm_fill->count, 0, 0);
 		u16 rdr_mask = BIT(7) | BIT(13);
 
 		if (entry->size == 0xffff) {
@@ -209,7 +207,6 @@ void ghes_edac_report_mem_error(int sev, struct cper_sec_mem_err *mem_err)
 	struct ghes_edac_pvt *pvt;
 	unsigned long flags;
 	char *p;
-	u8 grain_bits;
 
 	/*
 	 * We can do the locking below because GHES defers error processing
@@ -321,8 +318,8 @@ void ghes_edac_report_mem_error(int sev, struct cper_sec_mem_err *mem_err)
 
 	/* Error address */
 	if (mem_err->validation_bits & CPER_MEM_VALID_PA) {
-		e->page_frame_number = mem_err->physical_addr >> PAGE_SHIFT;
-		e->offset_in_page = mem_err->physical_addr & ~PAGE_MASK;
+		e->page_frame_number = PHYS_PFN(mem_err->physical_addr);
+		e->offset_in_page = offset_in_page(mem_err->physical_addr);
 	}
 
 	/* Error grain */
@@ -370,6 +367,8 @@ void ghes_edac_report_mem_error(int sev, struct cper_sec_mem_err *mem_err)
 
 	/* All other fields are mapped on e->other_detail */
 	p = pvt->other_detail;
+	p += snprintf(p, sizeof(pvt->other_detail),
+		"APEI location: %s ", e->location);
 	if (mem_err->validation_bits & CPER_MEM_VALID_ERROR_STATUS) {
 		u64 status = mem_err->error_status;
 
@@ -442,20 +441,6 @@ void ghes_edac_report_mem_error(int sev, struct cper_sec_mem_err *mem_err)
 			     (long long)mem_err->responder_id);
 	if (p > pvt->other_detail)
 		*(p - 1) = '\0';
-
-	/* Sanity-check driver-supplied grain value. */
-	if (WARN_ON_ONCE(!e->grain))
-		e->grain = 1;
-
-	grain_bits = fls_long(e->grain - 1);
-
-	/* Generate the trace event */
-	snprintf(pvt->detail_location, sizeof(pvt->detail_location),
-		 "APEI location: %s %s", e->location, e->other_detail);
-	trace_mc_event(type, e->msg, e->label, e->error_count,
-		       mci->mc_idx, e->top_layer, e->mid_layer, e->low_layer,
-		       (e->page_frame_number << PAGE_SHIFT) | e->offset_in_page,
-		       grain_bits, e->syndrome, pvt->detail_location);
 
 	edac_raw_mc_handle_error(type, mci, e);
 
@@ -550,8 +535,7 @@ int ghes_edac_register(struct ghes *ghes, struct device *dev)
 		dimm_fill.mci = mci;
 		dmi_walk(ghes_edac_dmidecode, &dimm_fill);
 	} else {
-		struct dimm_info *dimm = EDAC_DIMM_PTR(mci->layers, mci->dimms,
-						       mci->n_layers, 0, 0, 0);
+		struct dimm_info *dimm = edac_get_dimm(mci, 0, 0, 0);
 
 		dimm->nr_pages = 1;
 		dimm->grain = 128;

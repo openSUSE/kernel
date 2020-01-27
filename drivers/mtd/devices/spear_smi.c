@@ -813,9 +813,6 @@ static int spear_smi_probe_config_dt(struct platform_device *pdev,
 
 	/* Fill structs for each subnode (flash device) */
 	while ((pp = of_get_next_child(np, pp))) {
-		struct spear_smi_flash_info *flash_info;
-
-		flash_info = &pdata->board_flash_info[i];
 		pdata->np[i] = pp;
 
 		/* Read base-addr and size from DT */
@@ -969,7 +966,6 @@ static int spear_smi_probe(struct platform_device *pdev)
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {
 		ret = -ENODEV;
-		dev_err(&pdev->dev, "invalid smi irq\n");
 		goto err;
 	}
 

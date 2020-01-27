@@ -124,7 +124,7 @@
 
 #define DEF_AECH		0x4D
 
-#define CLKRC_6MHz		0x00
+#define CLKRC_8MHz		0x00
 #define CLKRC_12MHz		0x40
 #define CLKRC_16MHz		0x80
 #define CLKRC_24MHz		0xc0
@@ -197,12 +197,33 @@ struct ov6650 {
 	struct v4l2_clk		*clk;
 	bool			half_scale;	/* scale down output by 2 */
 	struct v4l2_rect	rect;		/* sensor cropping window */
-	unsigned long		pclk_limit;	/* from host */
-	unsigned long		pclk_max;	/* from resolution and format */
 	struct v4l2_fract	tpf;		/* as requested with s_frame_interval */
 	u32 code;
 };
 
+struct ov6650_xclk {
+	unsigned long	rate;
+	u8		clkrc;
+};
+
+static const struct ov6650_xclk ov6650_xclk[] = {
+{
+	.rate	= 8000000,
+	.clkrc	= CLKRC_8MHz,
+},
+{
+	.rate	= 12000000,
+	.clkrc	= CLKRC_12MHz,
+},
+{
+	.rate	= 16000000,
+	.clkrc	= CLKRC_16MHz,
+},
+{
+	.rate	= 24000000,
+	.clkrc	= CLKRC_24MHz,
+},
+};
 
 static u32 ov6650_codes[] = {
 	MEDIA_BUS_FMT_YUYV8_2X8,
@@ -546,22 +567,7 @@ static bool is_unscaled_ok(int width, int height, struct v4l2_rect *rect)
 	return width > rect->width >> 1 || height > rect->height >> 1;
 }
 
-static u8 to_clkrc(struct v4l2_fract *timeperframe,
-		unsigned long pclk_limit, unsigned long pclk_max)
-{
-	unsigned long pclk;
-
-	if (timeperframe->numerator && timeperframe->denominator)
-		pclk = pclk_max * timeperframe->denominator /
-				(FRAME_RATE_MAX * timeperframe->numerator);
-	else
-		pclk = pclk_max;
-
-	if (pclk_limit && pclk_limit < pclk)
-		pclk = pclk_limit;
-
-	return (pclk_max - 1) / pclk;
-}
+#define to_clkrc(div)	((div) - 1)
 
 /* set the format we will capture in */
 static int ov6650_s_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt *mf)
@@ -580,8 +586,7 @@ static int ov6650_s_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt *mf)
 		.r.height = mf->height << half_scale,
 	};
 	u32 code = mf->code;
-	unsigned long mclk, pclk;
-	u8 coma_set = 0, coma_mask = 0, coml_set, coml_mask, clkrc;
+	u8 coma_set = 0, coma_mask = 0, coml_set, coml_mask;
 	int ret;
 
 	/* select color matrix configuration for given color encoding */
@@ -635,38 +640,22 @@ static int ov6650_s_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt *mf)
 			code == MEDIA_BUS_FMT_SBGGR8_1X8) {
 		coml_mask = COML_ONE_CHANNEL;
 		coml_set = 0;
-		priv->pclk_max = 4000000;
 	} else {
 		coml_mask = 0;
 		coml_set = COML_ONE_CHANNEL;
-		priv->pclk_max = 8000000;
 	}
 
 	if (half_scale) {
 		dev_dbg(&client->dev, "max resolution: QCIF\n");
 		coma_set |= COMA_QCIF;
-		priv->pclk_max /= 2;
 	} else {
 		dev_dbg(&client->dev, "max resolution: CIF\n");
 		coma_mask |= COMA_QCIF;
 	}
 
-	clkrc = CLKRC_12MHz;
-	mclk = 12000000;
-	priv->pclk_limit = 1334000;
-	dev_dbg(&client->dev, "using 12MHz input clock\n");
-
-	clkrc |= to_clkrc(&priv->tpf, priv->pclk_limit, priv->pclk_max);
-
-	pclk = priv->pclk_max / GET_CLKRC_DIV(clkrc);
-	dev_dbg(&client->dev, "pixel clock divider: %ld.%ld\n",
-			mclk / pclk, 10 * mclk % pclk / pclk);
-
 	ret = ov6650_set_selection(sd, NULL, &sel);
 	if (!ret)
 		ret = ov6650_reg_rmw(client, REG_COMA, coma_set, coma_mask);
-	if (!ret)
-		ret = ov6650_reg_write(client, REG_CLKRC, clkrc);
 	if (!ret) {
 		priv->half_scale = half_scale;
 
@@ -755,9 +744,7 @@ static int ov6650_g_frame_interval(struct v4l2_subdev *sd,
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	struct ov6650 *priv = to_ov6650(client);
 
-	ival->interval.numerator = GET_CLKRC_DIV(to_clkrc(&priv->tpf,
-			priv->pclk_limit, priv->pclk_max));
-	ival->interval.denominator = FRAME_RATE_MAX;
+	ival->interval = priv->tpf;
 
 	dev_dbg(&client->dev, "Frame interval: %u/%u s\n",
 		ival->interval.numerator, ival->interval.denominator);
@@ -772,7 +759,6 @@ static int ov6650_s_frame_interval(struct v4l2_subdev *sd,
 	struct ov6650 *priv = to_ov6650(client);
 	struct v4l2_fract *tpf = &ival->interval;
 	int div, ret;
-	u8 clkrc;
 
 	if (tpf->numerator == 0 || tpf->denominator == 0)
 		div = 1;  /* Reset to full rate */
@@ -784,14 +770,9 @@ static int ov6650_s_frame_interval(struct v4l2_subdev *sd,
 	else if (div > GET_CLKRC_DIV(CLKRC_DIV_MASK))
 		div = GET_CLKRC_DIV(CLKRC_DIV_MASK);
 
-	tpf->numerator = div;
-	tpf->denominator = FRAME_RATE_MAX;
-
-	clkrc = to_clkrc(tpf, priv->pclk_limit, priv->pclk_max);
-
-	ret = ov6650_reg_rmw(client, REG_CLKRC, clkrc, CLKRC_DIV_MASK);
+	ret = ov6650_reg_rmw(client, REG_CLKRC, to_clkrc(div), CLKRC_DIV_MASK);
 	if (!ret) {
-		priv->tpf.numerator = GET_CLKRC_DIV(clkrc);
+		priv->tpf.numerator = div;
 		priv->tpf.denominator = FRAME_RATE_MAX;
 
 		*tpf = priv->tpf;
@@ -816,13 +797,15 @@ static int ov6650_reset(struct i2c_client *client)
 }
 
 /* program default register values */
-static int ov6650_prog_dflt(struct i2c_client *client)
+static int ov6650_prog_dflt(struct i2c_client *client, u8 clkrc)
 {
 	int ret;
 
 	dev_dbg(&client->dev, "initializing\n");
 
 	ret = ov6650_reg_write(client, REG_COMA, 0);	/* ~COMA_RESET */
+	if (!ret)
+		ret = ov6650_reg_write(client, REG_CLKRC, clkrc);
 	if (!ret)
 		ret = ov6650_reg_rmw(client, REG_COMB, 0, COMB_BAND_FILTER);
 
@@ -833,14 +816,43 @@ static int ov6650_video_probe(struct v4l2_subdev *sd)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	struct ov6650 *priv = to_ov6650(client);
-	u8		pidh, pidl, midh, midl;
-	int		ret;
+	const struct ov6650_xclk *xclk = NULL;
+	unsigned long rate;
+	u8 pidh, pidl, midh, midl;
+	int i, ret = 0;
 
 	priv->clk = v4l2_clk_get(&client->dev, NULL);
 	if (IS_ERR(priv->clk)) {
 		ret = PTR_ERR(priv->clk);
 		dev_err(&client->dev, "v4l2_clk request err: %d\n", ret);
 		return ret;
+	}
+
+	rate = v4l2_clk_get_rate(priv->clk);
+	for (i = 0; rate && i < ARRAY_SIZE(ov6650_xclk); i++) {
+		if (rate != ov6650_xclk[i].rate)
+			continue;
+
+		xclk = &ov6650_xclk[i];
+		dev_info(&client->dev, "using host default clock rate %lukHz\n",
+			 rate / 1000);
+		break;
+	}
+	for (i = 0; !xclk && i < ARRAY_SIZE(ov6650_xclk); i++) {
+		ret = v4l2_clk_set_rate(priv->clk, ov6650_xclk[i].rate);
+		if (ret || v4l2_clk_get_rate(priv->clk) != ov6650_xclk[i].rate)
+			continue;
+
+		xclk = &ov6650_xclk[i];
+		dev_info(&client->dev, "using negotiated clock rate %lukHz\n",
+			 xclk->rate / 1000);
+		break;
+	}
+	if (!xclk) {
+		dev_err(&client->dev, "unable to get supported clock rate\n");
+		if (!ret)
+			ret = -EINVAL;
+		goto eclkput;
 	}
 
 	ret = ov6650_s_power(sd, 1);
@@ -876,7 +888,7 @@ static int ov6650_video_probe(struct v4l2_subdev *sd)
 
 	ret = ov6650_reset(client);
 	if (!ret)
-		ret = ov6650_prog_dflt(client);
+		ret = ov6650_prog_dflt(client, xclk->clkrc);
 	if (!ret) {
 		struct v4l2_mbus_framefmt mf = ov6650_def_fmt;
 
@@ -1079,6 +1091,6 @@ static struct i2c_driver ov6650_i2c_driver = {
 
 module_i2c_driver(ov6650_i2c_driver);
 
-MODULE_DESCRIPTION("SoC Camera driver for OmniVision OV6650");
-MODULE_AUTHOR("Janusz Krzysztofik <jkrzyszt@tis.icnet.pl>");
+MODULE_DESCRIPTION("V4L2 subdevice driver for OmniVision OV6650 camera sensor");
+MODULE_AUTHOR("Janusz Krzysztofik <jmkrzyszt@gmail.com");
 MODULE_LICENSE("GPL v2");

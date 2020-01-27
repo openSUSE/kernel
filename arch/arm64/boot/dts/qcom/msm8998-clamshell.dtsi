@@ -23,6 +23,20 @@
 	};
 };
 
+&blsp1_uart3 {
+	status = "okay";
+
+	bluetooth {
+		compatible = "qcom,wcn3990-bt";
+
+		vddio-supply = <&vreg_s4a_1p8>;
+		vddxo-supply = <&vreg_l7a_1p8>;
+		vddrf-supply = <&vreg_l17a_1p3>;
+		vddch0-supply = <&vreg_l25a_3p3>;
+		max-speed = <3200000>;
+	};
+};
+
 /*
  * The laptop FW does not appear to support the retention state as it is
  * not advertised as enabled in ACPI, and enabling it in DT can cause boot
@@ -141,6 +155,7 @@
 		vreg_l7a_1p8: l7 {
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
+			regulator-allow-set-load;
 		};
 		vreg_l8a_1p2: l8 {
 			regulator-min-microvolt = <1200000>;
@@ -181,6 +196,7 @@
 		vreg_l17a_1p3: l17 {
 			regulator-min-microvolt = <1304000>;
 			regulator-max-microvolt = <1304000>;
+			regulator-allow-set-load;
 		};
 		vreg_l18a_2p7: l18 {
 			regulator-min-microvolt = <2704000>;
@@ -216,6 +232,7 @@
 		vreg_l25a_3p3: l25 {
 			regulator-min-microvolt = <3104000>;
 			regulator-max-microvolt = <3312000>;
+			regulator-allow-set-load;
 		};
 		vreg_l26a_1p2: l26 {
 			regulator-min-microvolt = <1200000>;

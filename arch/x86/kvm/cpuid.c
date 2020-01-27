@@ -780,6 +780,11 @@ static inline int __do_cpuid_func(struct kvm_cpuid_entry2 *entry, u32 function,
 	case 0x8000001a:
 	case 0x8000001e:
 		break;
+	/* Support memory encryption cpuid if host supports it */
+	case 0x8000001F:
+		if (!boot_cpu_has(X86_FEATURE_SEV))
+			entry->eax = entry->ebx = entry->ecx = entry->edx = 0;
+		break;
 	/*Add support for Centaur's CPUID instruction*/
 	case 0xC0000000:
 		/*Just support up to 0xC0000004 now*/
@@ -820,8 +825,6 @@ static int do_cpuid_func(struct kvm_cpuid_entry2 *entry, u32 func,
 
 	return __do_cpuid_func(entry, func, nent, maxnent);
 }
-
-#undef F
 
 struct kvm_cpuid_param {
 	u32 func;
@@ -1020,6 +1023,12 @@ bool kvm_cpuid(struct kvm_vcpu *vcpu, u32 *eax, u32 *ebx,
 		*ebx = entry->ebx;
 		*ecx = entry->ecx;
 		*edx = entry->edx;
+		if (function == 7 && index == 0) {
+			u64 data;
+		        if (!__kvm_get_msr(vcpu, MSR_IA32_TSX_CTRL, &data, true) &&
+			    (data & TSX_CTRL_CPUID_CLEAR))
+				*ebx &= ~(F(RTM) | F(HLE));
+		}
 	} else {
 		*eax = *ebx = *ecx = *edx = 0;
 		/*

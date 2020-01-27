@@ -703,7 +703,7 @@ static const struct ath10k_mem_region qca99x0_hw20_mem_regions[] = {
 	},
 	{
 		.type = ATH10K_MEM_REGION_TYPE_REG,
-		.start = 0x98000,
+		.start = 0x980000,
 		.len = 0x50000,
 		.name = "IRAM",
 		.section_table = {
@@ -786,7 +786,7 @@ static const struct ath10k_mem_region qca9984_hw10_mem_regions[] = {
 	},
 	{
 		.type = ATH10K_MEM_REGION_TYPE_REG,
-		.start = 0x98000,
+		.start = 0x980000,
 		.len = 0x50000,
 		.name = "IRAM",
 		.section_table = {
@@ -891,7 +891,7 @@ static const struct ath10k_mem_region qca4019_hw10_mem_regions[] = {
 	},
 	{
 		.type = ATH10K_MEM_REGION_TYPE_REG,
-		.start = 0x98000,
+		.start = 0x980000,
 		.len = 0x50000,
 		.name = "IRAM",
 		.section_table = {
@@ -947,6 +947,19 @@ static const struct ath10k_mem_region qca4019_hw10_mem_regions[] = {
 		.section_table = {
 			.sections = ipq4019_soc_reg_range,
 			.size = ARRAY_SIZE(ipq4019_soc_reg_range),
+		},
+	},
+};
+
+static const struct ath10k_mem_region wcn399x_hw10_mem_regions[] = {
+	{
+		/* MSA region start is not fixed, hence it is assigned at runtime */
+		.type = ATH10K_MEM_REGION_TYPE_MSA,
+		.len = 0x100000,
+		.name = "DRAM",
+		.section_table = {
+			.sections = NULL,
+			.size = 0,
 		},
 	},
 };
@@ -1046,6 +1059,14 @@ static const struct ath10k_hw_mem_layout hw_mem_layouts[] = {
 		.region_table = {
 			.regions = qca4019_hw10_mem_regions,
 			.size = ARRAY_SIZE(qca4019_hw10_mem_regions),
+		},
+	},
+	{
+		.hw_id = WCN3990_HW_1_0_DEV_VERSION,
+		.hw_rev = ATH10K_HW_WCN3990,
+		.region_table = {
+			.regions = wcn399x_hw10_mem_regions,
+			.size = ARRAY_SIZE(wcn399x_hw10_mem_regions),
 		},
 	},
 };

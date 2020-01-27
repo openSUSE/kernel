@@ -449,10 +449,10 @@ static vm_fault_t gfs2_page_mkwrite(struct vm_fault *vmf)
 	struct gfs2_inode *ip = GFS2_I(inode);
 	struct gfs2_sbd *sdp = GFS2_SB(inode);
 	struct gfs2_alloc_parms ap = { .aflags = 0, };
-	unsigned long last_index;
-	u64 pos = page_offset(page);
+	u64 offset = page_offset(page);
 	unsigned int data_blocks, ind_blocks, rblocks;
 	struct gfs2_holder gh;
+	unsigned int length;
 	loff_t size;
 	int ret;
 
@@ -462,20 +462,39 @@ static vm_fault_t gfs2_page_mkwrite(struct vm_fault *vmf)
 	if (ret)
 		goto out;
 
-	gfs2_size_hint(vmf->vma->vm_file, pos, PAGE_SIZE);
-
 	gfs2_holder_init(ip->i_gl, LM_ST_EXCLUSIVE, 0, &gh);
 	ret = gfs2_glock_nq(&gh);
 	if (ret)
 		goto out_uninit;
 
+	/* Check page index against inode size */
+	size = i_size_read(inode);
+	if (offset >= size) {
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
 	/* Update file times before taking page lock */
 	file_update_time(vmf->vma->vm_file);
+
+	/* page is wholly or partially inside EOF */
+	if (offset > size - PAGE_SIZE)
+		length = offset_in_page(size);
+	else
+		length = PAGE_SIZE;
+
+	gfs2_size_hint(vmf->vma->vm_file, offset, length);
 
 	set_bit(GLF_DIRTY, &ip->i_gl->gl_flags);
 	set_bit(GIF_SW_PAGED, &ip->i_flags);
 
-	if (!gfs2_write_alloc_required(ip, pos, PAGE_SIZE)) {
+	/*
+	 * iomap_writepage / iomap_writepages currently don't support inline
+	 * files, so always unstuff here.
+	 */
+
+	if (!gfs2_is_stuffed(ip) &&
+	    !gfs2_write_alloc_required(ip, offset, length)) {
 		lock_page(page);
 		if (!PageUptodate(page) || page->mapping != inode->i_mapping) {
 			ret = -EAGAIN;
@@ -488,7 +507,7 @@ static vm_fault_t gfs2_page_mkwrite(struct vm_fault *vmf)
 	if (ret)
 		goto out_unlock;
 
-	gfs2_write_calc_reserv(ip, PAGE_SIZE, &data_blocks, &ind_blocks);
+	gfs2_write_calc_reserv(ip, length, &data_blocks, &ind_blocks);
 	ap.target = data_blocks + ind_blocks;
 	ret = gfs2_quota_lock_check(ip, &ap);
 	if (ret)
@@ -509,13 +528,6 @@ static vm_fault_t gfs2_page_mkwrite(struct vm_fault *vmf)
 		goto out_trans_fail;
 
 	lock_page(page);
-	ret = -EINVAL;
-	size = i_size_read(inode);
-	last_index = (size - 1) >> PAGE_SHIFT;
-	/* Check page index against inode size */
-	if (size == 0 || (page->index > last_index))
-		goto out_trans_end;
-
 	ret = -EAGAIN;
 	/* If truncated, we must retry the operation, we may have raced
 	 * with the glock demotion code.
@@ -528,7 +540,7 @@ static vm_fault_t gfs2_page_mkwrite(struct vm_fault *vmf)
 	if (gfs2_is_stuffed(ip))
 		ret = gfs2_unstuff_dinode(ip, page);
 	if (ret == 0)
-		ret = gfs2_allocate_page_backing(page, PAGE_SIZE);
+		ret = gfs2_allocate_page_backing(page, length);
 
 out_trans_end:
 	if (ret)
@@ -759,7 +771,8 @@ static ssize_t gfs2_file_direct_read(struct kiocb *iocb, struct iov_iter *to)
 	if (ret)
 		goto out_uninit;
 
-	ret = iomap_dio_rw(iocb, to, &gfs2_iomap_ops, NULL);
+	ret = iomap_dio_rw(iocb, to, &gfs2_iomap_ops, NULL,
+			   is_sync_kiocb(iocb));
 
 	gfs2_glock_dq(&gh);
 out_uninit:
@@ -794,7 +807,8 @@ static ssize_t gfs2_file_direct_write(struct kiocb *iocb, struct iov_iter *from)
 	if (offset + len > i_size_read(&ip->i_inode))
 		goto out;
 
-	ret = iomap_dio_rw(iocb, from, &gfs2_iomap_ops, NULL);
+	ret = iomap_dio_rw(iocb, from, &gfs2_iomap_ops, NULL,
+			   is_sync_kiocb(iocb));
 
 out:
 	gfs2_glock_dq(&gh);
@@ -960,6 +974,7 @@ out:
 	brelse(dibh);
 	return error;
 }
+
 /**
  * calc_max_reserv() - Reverse of write_calc_reserv. Given a number of
  *                     blocks, determine how many bytes can be written.
@@ -1207,7 +1222,7 @@ static int gfs2_lock(struct file *file, int cmd, struct file_lock *fl)
 		cmd = F_SETLK;
 		fl->fl_type = F_UNLCK;
 	}
-	if (unlikely(test_bit(SDF_WITHDRAWN, &sdp->sd_flags))) {
+	if (unlikely(gfs2_withdrawn(sdp))) {
 		if (fl->fl_type == F_UNLCK)
 			locks_lock_file_wait(file, fl);
 		return -EIO;
