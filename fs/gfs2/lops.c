@@ -422,7 +422,7 @@ static bool gfs2_jhead_pg_srch(struct gfs2_jdesc *jd,
 
 	for (offset = 0; offset < PAGE_SIZE; offset += sdp->sd_sb.sb_bsize) {
 		if (!__get_log_header(sdp, kaddr + offset, 0, &lh)) {
-			if (lh.lh_sequence > head->lh_sequence)
+			if (lh.lh_sequence >= head->lh_sequence)
 				*head = lh;
 			else {
 				ret = true;
@@ -866,7 +866,7 @@ static void revoke_lo_before_commit(struct gfs2_sbd *sdp, struct gfs2_trans *tr)
 	if (!sdp->sd_log_num_revoke)
 		return;
 
-	length = gfs2_struct2blk(sdp, sdp->sd_log_num_revoke, sizeof(u64));
+	length = gfs2_struct2blk(sdp, sdp->sd_log_num_revoke);
 	page = gfs2_get_log_desc(sdp, GFS2_LOG_DESC_REVOKE, length, sdp->sd_log_num_revoke);
 	offset = sizeof(struct gfs2_log_descriptor);
 

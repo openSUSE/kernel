@@ -33,11 +33,7 @@
 /* BRCM_PCIE_CAP_REGS - Offset for the mandatory capability config regs */
 #define BRCM_PCIE_CAP_REGS				0x00ac
 
-/*
- * Broadcom STB PCIe Register Offsets. The names are from the chip's RDB and we
- * use them here so that a script can correlate this code and the RDB to
- * prevent discrepancies.
- */
+/* Broadcom STB PCIe Register Offsets */
 #define PCIE_RC_CFG_VENDOR_VENDOR_SPECIFIC_REG1				0x0188
 #define  PCIE_RC_CFG_VENDOR_VENDOR_SPECIFIC_REG1_ENDIAN_MODE_BAR2_MASK	0xc
 #define  PCIE_RC_CFG_VENDOR_SPCIFIC_REG1_LITTLE_ENDIAN			0x0
@@ -385,7 +381,7 @@ static void brcm_msi_compose_msi_msg(struct irq_data *data, struct msi_msg *msg)
 
 	msg->address_lo = lower_32_bits(msi->target_addr);
 	msg->address_hi = upper_32_bits(msi->target_addr);
-	msg->data = 0x6540 | data->hwirq;
+	msg->data = (0xffff & PCIE_MISC_MSI_DATA_CONFIG_VAL) | data->hwirq;
 }
 
 static int brcm_msi_set_affinity(struct irq_data *irq_data,
@@ -532,6 +528,7 @@ static int brcm_pcie_enable_msi(struct brcm_pcie *pcie)
 	if (!msi)
 		return -ENOMEM;
 
+	mutex_init(&msi->lock);
 	msi->dev = dev;
 	msi->base = pcie->base;
 	msi->np = pcie->np;
@@ -630,9 +627,15 @@ static inline int brcm_pcie_get_rc_bar2_size_and_offset(struct brcm_pcie *pcie,
 	if (!entry)
 		return -ENODEV;
 
+
+	/*
+	 * The controller expects the inbound window offset to be calculated as
+	 * the difference between PCIe's address space and CPU's. The offset
+	 * provided by the firmware is calculated the opposite way, so we
+	 * negate it.
+	 */
 	*rc_bar2_offset = -entry->offset;
-	*rc_bar2_size = roundup_pow_of_two_u64(entry->res->end -
-					       entry->res->start + 1);
+	*rc_bar2_size = 1ULL << fls64(entry->res->end - entry->res->start);
 
 	/*
 	 * We validate the inbound memory view even though we should trust
@@ -796,7 +799,7 @@ static int brcm_pcie_setup(struct brcm_pcie *pcie)
 
 		brcm_pcie_set_outbound_win(pcie, num_out_wins, res->start,
 					   res->start - entry->offset,
-					   res->end - res->start + 1);
+					   resource_size(res));
 		num_out_wins++;
 	}
 
@@ -993,7 +996,6 @@ fail:
 
 static const struct of_device_id brcm_pcie_match[] = {
 	{ .compatible = "brcm,bcm2711-pcie" },
-	{ .compatible = "brcm,bcm7445-pcie" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, brcm_pcie_match);

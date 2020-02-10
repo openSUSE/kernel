@@ -217,7 +217,6 @@ static const struct of_device_id iproc_rng200_of_match[] = {
 	{ .compatible = "brcm,bcm7211-rng200", },
 	{ .compatible = "brcm,bcm7278-rng200", },
 	{ .compatible = "brcm,iproc-rng200", },
-	{ .compatible = "brcm,bcm2838-rng200"},
 	{},
 };
 MODULE_DEVICE_TABLE(of, iproc_rng200_of_match);

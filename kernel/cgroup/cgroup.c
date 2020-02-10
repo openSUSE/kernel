@@ -1816,15 +1816,10 @@ enum cgroup2_param {
 	nr__cgroup2_params
 };
 
-static const struct fs_parameter_spec cgroup2_param_specs[] = {
+static const struct fs_parameter_spec cgroup2_fs_parameters[] = {
 	fsparam_flag("nsdelegate",		Opt_nsdelegate),
 	fsparam_flag("memory_localevents",	Opt_memory_localevents),
 	{}
-};
-
-static const struct fs_parameter_description cgroup2_fs_parameters = {
-	.name		= "cgroup2",
-	.specs		= cgroup2_param_specs,
 };
 
 static int cgroup2_parse_param(struct fs_context *fc, struct fs_parameter *param)
@@ -1833,7 +1828,7 @@ static int cgroup2_parse_param(struct fs_context *fc, struct fs_parameter *param
 	struct fs_parse_result result;
 	int opt;
 
-	opt = fs_parse(fc, &cgroup2_fs_parameters, param, &result);
+	opt = fs_parse(fc, cgroup2_fs_parameters, param, &result);
 	if (opt < 0)
 		return opt;
 
@@ -2156,7 +2151,7 @@ static void cgroup_kill_sb(struct super_block *sb)
 struct file_system_type cgroup_fs_type = {
 	.name			= "cgroup",
 	.init_fs_context	= cgroup_init_fs_context,
-	.parameters		= &cgroup1_fs_parameters,
+	.parameters		= cgroup1_fs_parameters,
 	.kill_sb		= cgroup_kill_sb,
 	.fs_flags		= FS_USERNS_MOUNT,
 };
@@ -2164,7 +2159,7 @@ struct file_system_type cgroup_fs_type = {
 static struct file_system_type cgroup2_fs_type = {
 	.name			= "cgroup2",
 	.init_fs_context	= cgroup_init_fs_context,
-	.parameters		= &cgroup2_fs_parameters,
+	.parameters		= cgroup2_fs_parameters,
 	.kill_sb		= cgroup_kill_sb,
 	.fs_flags		= FS_USERNS_MOUNT,
 };
@@ -6289,12 +6284,13 @@ void cgroup_sk_free(struct sock_cgroup_data *skcd)
 
 #ifdef CONFIG_CGROUP_BPF
 int cgroup_bpf_attach(struct cgroup *cgrp, struct bpf_prog *prog,
-		      enum bpf_attach_type type, u32 flags)
+		      struct bpf_prog *replace_prog, enum bpf_attach_type type,
+		      u32 flags)
 {
 	int ret;
 
 	mutex_lock(&cgroup_mutex);
-	ret = __cgroup_bpf_attach(cgrp, prog, type, flags);
+	ret = __cgroup_bpf_attach(cgrp, prog, replace_prog, type, flags);
 	mutex_unlock(&cgroup_mutex);
 	return ret;
 }
