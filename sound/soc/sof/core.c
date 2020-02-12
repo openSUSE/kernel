@@ -455,7 +455,7 @@ static int sof_probe_continue(struct snd_sof_dev *sdev)
 
 	if (IS_ERR(plat_data->pdev_mach)) {
 		ret = PTR_ERR(plat_data->pdev_mach);
-		goto fw_run_err;
+		goto fw_trace_err;
 	}
 
 	dev_dbg(sdev->dev, "created machine %s\n",
