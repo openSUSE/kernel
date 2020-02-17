@@ -16,7 +16,7 @@
 .endm
 
 .macro ENABLE_IBRS_CLOBBER
-	call x86_ibrs_enabled
+	call x86_ibrs_enabled_asm
 	test %eax, %eax
 	jz .Llfence_\@
 
@@ -33,7 +33,7 @@
 
 	pushq %rax
 
-	call x86_ibrs_enabled
+	call x86_ibrs_enabled_asm
 	test %eax, %eax
 	jz .Llfence_\@
 
@@ -59,7 +59,7 @@
 
 	pushq %rax
 
-	call x86_ibrs_enabled
+	call x86_ibrs_enabled_asm
 	test %eax, %eax
 	jz .Llfence_\@
 

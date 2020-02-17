@@ -1565,6 +1565,10 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 				     SMT on vulnerable CPUs
 			off        - Unconditionally disable MDS mitigation
 
+			On TAA-affected machines, mds=off can be prevented by
+			an active TAA mitigation as both vulnerabilities are
+			mitigated with the same mechanism.
+
 			Not specifying this option is equivalent to
 			mds=full.
 
