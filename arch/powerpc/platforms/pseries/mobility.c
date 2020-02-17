@@ -16,6 +16,9 @@
 #include <linux/device.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
+#include <linux/netdevice.h>
+#include <linux/rtnetlink.h>
+#include <net/net_namespace.h>
 
 #include <asm/rtas.h>
 #include "pseries.h"
@@ -280,6 +283,8 @@ void post_mobility_fixup(void)
 {
 	int rc;
 	int activate_fw_token;
+	struct net_device *netdev;
+	struct net *net;
 
 	activate_fw_token = rtas_token("ibm,activate-firmware");
 	if (activate_fw_token == RTAS_UNKNOWN_SERVICE) {
@@ -302,6 +307,20 @@ void post_mobility_fixup(void)
 
 	/* Possibly switch to a new RFI flush type */
 	pseries_setup_rfi_flush();
+
+	/* need to force a gratuitous ARP on running interfaces */
+	rtnl_lock();
+	for_each_net(net) {
+		for_each_netdev(net, netdev) {
+			if (netif_device_present(netdev) &&
+			    netif_running(netdev) &&
+			    !(netdev->flags & (IFF_NOARP | IFF_LOOPBACK))) {
+				call_netdevice_notifiers(NETDEV_NOTIFY_PEERS,
+							 netdev);
+			}
+		}
+	}
+	rtnl_unlock();
 
 	return;
 }
