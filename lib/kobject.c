@@ -531,6 +531,16 @@ struct kobject *kobject_get(struct kobject *kobj)
 	return kobj;
 }
 
+struct kobject * __must_check kobject_get_unless_zero(struct kobject *kobj)
+{
+	if (!kobj)
+		return NULL;
+	if (!kref_get_unless_zero(&kobj->kref))
+		kobj = NULL;
+	return kobj;
+}
+EXPORT_SYMBOL(kobject_get_unless_zero);
+
 /*
  * kobject_cleanup - free kobject resources.
  * @kobj: object to cleanup
@@ -785,7 +795,7 @@ struct kobject *kset_find_obj_hinted(struct kset *kset, const char *name,
 slow_search:
 	list_for_each_entry(k, &kset->list, entry) {
 		if (kobject_name(k) && !strcmp(kobject_name(k), name)) {
-			ret = kobject_get(k);
+			ret = kobject_get_unless_zero(k);
 			break;
 		}
 	}
