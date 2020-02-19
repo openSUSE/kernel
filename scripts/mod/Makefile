@@ -1,10 +1,14 @@
 # SPDX-License-Identifier: GPL-2.0
 OBJECT_FILES_NON_STANDARD := y
 
-hostprogs	:= modpost mk_elfconfig
+hostprogs	:= modpost mk_elfconfig ksym-provides
 always-y	:= $(hostprogs) empty.o
 
 modpost-objs	:= modpost.o file2alias.o sumversion.o
+
+ksym-provides-objs	:= ksym-provides.o
+
+HOSTLOADLIBES_ksym-provides := -lelf
 
 devicetable-offsets-file := devicetable-offsets.h
 
