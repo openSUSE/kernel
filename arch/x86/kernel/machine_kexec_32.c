@@ -49,7 +49,12 @@ static void machine_kexec_free_page_tables(struct kimage *image)
 
 static int machine_kexec_alloc_page_tables(struct kimage *image)
 {
-	image->arch.pgd = (pgd_t *)get_zeroed_page(GFP_KERNEL);
+	int gfp_order = 0;
+
+	if (kaiser_enabled)
+		gfp_order = 1;
+
+	image->arch.pgd = (pgd_t *)__get_free_pages(GFP_KERNEL | __GFP_ZERO, gfp_order);
 #ifdef CONFIG_X86_PAE
 #ifdef CONFIG_XEN /* machine address must fit into xki->page_list[PA_PGD] */
 	if (image->arch.pgd) {
