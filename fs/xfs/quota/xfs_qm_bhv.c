@@ -61,7 +61,7 @@ xfs_fill_statvfs_from_dquot(
 		statp->f_files = limit;
 		statp->f_ffree =
 			(statp->f_files > be64_to_cpu(dp->d_icount)) ?
-			 (statp->f_ffree - be64_to_cpu(dp->d_icount)) : 0;
+			 (statp->f_files - be64_to_cpu(dp->d_icount)) : 0;
 	}
 }
 
