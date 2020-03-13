@@ -135,7 +135,7 @@ static int store_utf8(u16 c, char *p)
 }
 
 /* set the current selection. Invoked by ioctl() or by kernel code. */
-int set_selection(const struct tiocl_selection __user *sel, struct tty_struct *tty)
+static int __set_selection(const struct tiocl_selection __user *sel, struct tty_struct *tty)
 {
 	struct vc_data *vc = vc_cons[fg_console].d;
 	int sel_mode, new_sel_start, new_sel_end, spc;
@@ -305,6 +305,17 @@ int set_selection(const struct tiocl_selection __user *sel, struct tty_struct *t
 	sel_buffer_lth = bp - sel_buffer;
 unlock:
 	mutex_unlock(&sel_lock);
+	return ret;
+}
+
+int set_selection(const struct tiocl_selection __user *sel, struct tty_struct *tty)
+{
+	int ret;
+
+	console_lock();
+	ret = __set_selection(sel, tty);
+	console_unlock();
+
 	return ret;
 }
 
