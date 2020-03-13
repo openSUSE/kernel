@@ -5,7 +5,7 @@ config PREEMPT
 
 config PREEMPT_RT_BASE
 	bool
-	select PREEMPT
+	select PREEMPTION
 
 config HAVE_PREEMPT_LAZY
 	bool
@@ -88,3 +88,7 @@ endchoice
 
 config PREEMPT_COUNT
        bool
+
+config PREEMPTION
+       bool
+       select PREEMPT_COUNT

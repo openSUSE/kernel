@@ -211,7 +211,7 @@ __irq_svc:
 	svc_entry
 	irq_handler
 
-#ifdef CONFIG_PREEMPT
+#ifdef CONFIG_PREEMPTION
 	ldr	r8, [tsk, #TI_PREEMPT]		@ get preempt count
 	teq	r8, #0				@ if preempt count != 0
 	bne	1f				@ return from exeption
@@ -233,7 +233,7 @@ ENDPROC(__irq_svc)
 
 	.ltorg
 
-#ifdef CONFIG_PREEMPT
+#ifdef CONFIG_PREEMPTION
 svc_preempt:
 	mov	r8, lr
 1:	bl	preempt_schedule_irq		@ irq en/disable is done inside

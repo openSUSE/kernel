@@ -219,8 +219,6 @@ do { \
 # define preempt_check_resched_rt() barrier();
 #endif
 
-#define preemptible()	(preempt_count() == 0 && !irqs_disabled())
-
 #if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT_BASE)
 
 extern void migrate_disable(void);
@@ -246,7 +244,9 @@ static inline int __migrate_disabled(struct task_struct *p)
 }
 #endif
 
-#ifdef CONFIG_PREEMPT
+#define preemptible()	(preempt_count() == 0 && !irqs_disabled())
+
+#ifdef CONFIG_PREEMPTION
 #define preempt_enable() \
 do { \
 	barrier(); \
@@ -274,7 +274,7 @@ do { \
 	preempt_check_resched(); \
 } while (0)
 
-#else /* !CONFIG_PREEMPT */
+ #else /* !CONFIG_PREEMPTION */
 #define preempt_enable() \
 do { \
 	barrier(); \
@@ -294,7 +294,7 @@ do { \
 } while (0)
 
 #define preempt_check_resched() do { } while (0)
-#endif /* CONFIG_PREEMPT */
+#endif /* CONFIG_PREEMPTION */
 
 #define preempt_disable_notrace() \
 do { \

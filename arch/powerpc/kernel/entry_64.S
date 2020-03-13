@@ -857,7 +857,7 @@ resume_kernel:
 	bne-	0b
 1:
 
-#ifdef CONFIG_PREEMPT
+#ifdef CONFIG_PREEMPTION
 	/* Check if we need to preempt */
 	lwz	r8,TI_PREEMPT(r9)
 	cmpwi	0,r8,0		/* if non-zero, just restore regs and return */
@@ -896,7 +896,7 @@ check_count:
 	li	r10,MSR_RI
 	mtmsrd	r10,1		  /* Update machine state */
 #endif /* CONFIG_PPC_BOOK3E */
-#endif /* CONFIG_PREEMPT */
+#endif /* CONFIG_PREEMPTION */
 
 	.globl	fast_exc_return_irq
 fast_exc_return_irq:

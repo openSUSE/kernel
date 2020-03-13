@@ -9,10 +9,10 @@
 #ifndef PADATA_H
 #define PADATA_H
 
+#include <linux/compiler_types.h>
 #include <linux/workqueue.h>
 #include <linux/spinlock.h>
 #include <linux/list.h>
-#include <linux/timer.h>
 #include <linux/notifier.h>
 #include <linux/kobject.h>
 
@@ -36,6 +36,7 @@ struct padata_priv {
 	struct parallel_data	*pd;
 	int			cb_cpu;
 	int			cpu;
+	unsigned int		seq_nr;
 	int			info;
 	void                    (*parallel)(struct padata_priv *padata);
 	void                    (*serial)(struct padata_priv *padata);
@@ -73,18 +74,14 @@ struct padata_serial_queue {
  * @serial: List to wait for serialization after reordering.
  * @pwork: work struct for parallelization.
  * @swork: work struct for serialization.
- * @pd: Backpointer to the internal control structure.
  * @work: work struct for parallelization.
- * @reorder_work: work struct for reordering.
  * @num_obj: Number of objects that are processed by this cpu.
  * @cpu_index: Index of the cpu.
  */
 struct padata_parallel_queue {
        struct padata_list    parallel;
        struct padata_list    reorder;
-       struct parallel_data *pd;
        struct work_struct    work;
-       struct work_struct    reorder_work;
        atomic_t              num_obj;
        int                   cpu_index;
 };
@@ -104,37 +101,59 @@ struct padata_cpumask {
  * struct parallel_data - Internal control structure, covers everything
  * that depends on the cpumask in use.
  *
- * @pinst: padata instance.
+ * @sh: padata_shell object.
  * @pqueue: percpu padata queues used for parallelization.
  * @squeue: percpu padata queues used for serialuzation.
  * @reorder_objects: Number of objects waiting in the reorder queues.
  * @refcnt: Number of objects holding a reference on this parallel_data.
  * @max_seq_nr:  Maximal used sequence number.
- * @cpumask: The cpumasks in use for parallel and serial workers.
- * @lock: Reorder lock.
  * @processed: Number of already processed objects.
- * @timer: Reorder timer.
+ * @cpu: Next CPU to be processed.
+ * @cpumask: The cpumasks in use for parallel and serial workers.
+ * @reorder_work: work struct for reordering.
+ * @lock: Reorder lock.
  */
 struct parallel_data {
-	struct padata_instance		*pinst;
+	struct padata_shell		*ps;
 	struct padata_parallel_queue	__percpu *pqueue;
 	struct padata_serial_queue	__percpu *squeue;
 	atomic_t			reorder_objects;
 	atomic_t			refcnt;
 	atomic_t			seq_nr;
-	struct padata_cpumask		cpumask;
-	spinlock_t                      lock ____cacheline_aligned;
 	unsigned int			processed;
-	struct timer_list		timer;
+	int				cpu;
+	struct padata_cpumask		cpumask;
+	struct work_struct		reorder_work;
+	spinlock_t                      lock ____cacheline_aligned;
+};
+
+/**
+ * struct padata_shell - Wrapper around struct parallel_data, its
+ * purpose is to allow the underlying control structure to be replaced
+ * on the fly using RCU.
+ *
+ * @pinst: padat instance.
+ * @pd: Actual parallel_data structure which may be substituted on the fly.
+ * @opd: Pointer to old pd to be freed by padata_replace.
+ * @list: List entry in padata_instance list.
+ */
+struct padata_shell {
+	struct padata_instance		*pinst;
+	struct parallel_data __rcu	*pd;
+	struct parallel_data		*opd;
+	struct list_head		list;
 };
 
 /**
  * struct padata_instance - The overall control structure.
  *
  * @cpu_notifier: cpu hotplug notifier.
- * @wq: The workqueue in use.
- * @pd: The internal control structure.
+ * @parallel_wq: The workqueue used for parallel work.
+ * @serial_wq: The workqueue used for serial work.
+ * @pslist: List of padata_shell objects attached to this instance.
  * @cpumask: User supplied cpumasks for parallel and serial works.
+ * @rcpumask: Actual cpumasks based on user cpumask and cpu_online_mask.
+ * @omask: Temporary storage used to compute the notification mask.
  * @cpumask_change_notifier: Notifiers chain for user-defined notify
  *            callbacks that will be called when either @pcpu or @cbcpu
  *            or both cpumasks change.
@@ -144,9 +163,12 @@ struct parallel_data {
  */
 struct padata_instance {
 	struct hlist_node		 node;
-	struct workqueue_struct		*wq;
-	struct parallel_data		*pd;
+	struct workqueue_struct		*parallel_wq;
+	struct workqueue_struct		*serial_wq;
+	struct list_head		pslist;
 	struct padata_cpumask		cpumask;
+	struct padata_cpumask		rcpumask;
+	cpumask_var_t			omask;
 	struct blocking_notifier_head	 cpumask_change_notifier;
 	struct kobject                   kobj;
 	struct mutex			 lock;
@@ -156,11 +178,12 @@ struct padata_instance {
 #define	PADATA_INVALID	4
 };
 
-extern struct padata_instance *padata_alloc_possible(
-					struct workqueue_struct *wq);
+extern struct padata_instance *padata_alloc_possible(const char *name);
 extern void padata_free(struct padata_instance *pinst);
-extern int padata_do_parallel(struct padata_instance *pinst,
-			      struct padata_priv *padata, int cb_cpu);
+extern struct padata_shell *padata_alloc_shell(struct padata_instance *pinst);
+extern void padata_free_shell(struct padata_shell *ps);
+extern int padata_do_parallel(struct padata_shell *ps,
+			      struct padata_priv *padata, int *cb_cpu);
 extern void padata_do_serial(struct padata_priv *padata);
 extern int padata_set_cpumask(struct padata_instance *pinst, int cpumask_type,
 			      cpumask_var_t cpumask);

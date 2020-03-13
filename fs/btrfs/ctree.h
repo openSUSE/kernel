@@ -29,6 +29,7 @@
 #include <linux/dynamic_debug.h>
 #include <linux/refcount.h>
 #include <linux/crc32c.h>
+#include <linux/unsupported-feature.h>
 #include "extent_io.h"
 #include "extent_map.h"
 #include "async-thread.h"
@@ -845,14 +846,12 @@ struct btrfs_fs_info {
 	atomic_t nr_delayed_iputs;
 	wait_queue_head_t delayed_iputs_wait;
 
-	/* this protects tree_mod_seq_list */
-	spinlock_t tree_mod_seq_lock;
 	atomic64_t tree_mod_seq;
-	struct list_head tree_mod_seq_list;
 
-	/* this protects tree_mod_log */
+	/* this protects tree_mod_log and tree_mod_seq_list */
 	rwlock_t tree_mod_log_lock;
 	struct rb_root tree_mod_log;
+	struct list_head tree_mod_seq_list;
 
 	atomic_t async_delalloc_pages;
 
@@ -1020,6 +1019,8 @@ struct btrfs_fs_info {
 	struct btrfs_workqueue *qgroup_rescan_workers;
 	struct completion qgroup_rescan_completion;
 	struct btrfs_work qgroup_rescan_work;
+	/* qgroup rescan worker is running or queued to run */
+	bool qgroup_rescan_ready;
 	bool qgroup_rescan_running;	/* protected by qgroup_rescan_lock */
 
 	/* filesystem state */
@@ -3729,6 +3730,13 @@ static inline int btrfs_is_testing(struct btrfs_fs_info *fs_info)
 {
 	return 0;
 }
+
+/*
+ * Module parameter
+ */
+DECLARE_SUSE_UNSUPPORTED_FEATURE(btrfs)
+#define btrfs_allow_unsupported btrfs_allow_unsupported()
+
 #endif
 
 static inline void cond_wake_up(struct wait_queue_head *wq)

@@ -110,7 +110,6 @@ void __init kvm_update_va_mask(struct alt_instr *alt,
 
 	BUG_ON(nr_inst != 5);
 
-
 	for (i = 0; i < nr_inst; i++) {
 		u32 rd, rn, insn, oinsn;
 

@@ -107,7 +107,7 @@ config STATIC_KEYS_SELFTEST
 config OPTPROBES
 	def_bool y
 	depends on KPROBES && HAVE_OPTPROBES
-	select TASKS_RCU if PREEMPT
+	select TASKS_RCU if PREEMPTION
 
 config KPROBES_ON_FTRACE
 	def_bool y
@@ -388,9 +388,6 @@ config HAVE_ARCH_JUMP_LABEL_RELATIVE
 	bool
 
 config HAVE_RCU_TABLE_FREE
-	bool
-
-config HAVE_RCU_TABLE_NO_INVALIDATE
 	bool
 
 config HAVE_MMU_GATHER_PAGE_SIZE

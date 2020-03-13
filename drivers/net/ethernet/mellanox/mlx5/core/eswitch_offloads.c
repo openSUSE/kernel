@@ -904,6 +904,7 @@ create_next_size_table(struct mlx5_eswitch *esw,
 		       int level,
 		       u32 flags)
 {
+	struct mlx5_flow_table_attr ft_attr = {};
 	struct mlx5_flow_table *fdb;
 	int sz;
 
@@ -911,12 +912,12 @@ create_next_size_table(struct mlx5_eswitch *esw,
 	if (!sz)
 		return ERR_PTR(-ENOSPC);
 
-	fdb = mlx5_create_auto_grouped_flow_table(ns,
-						  table_prio,
-						  sz,
-						  ESW_OFFLOADS_NUM_GROUPS,
-						  level,
-						  flags);
+	ft_attr.max_fte = sz;
+	ft_attr.prio = table_prio;
+	ft_attr.level = level;
+	ft_attr.flags = flags;
+	ft_attr.autogroup.max_num_groups = ESW_OFFLOADS_NUM_GROUPS;
+	fdb = mlx5_create_auto_grouped_flow_table(ns, &ft_attr);
 	if (IS_ERR(fdb)) {
 		esw_warn(esw->dev, "Failed to create FDB Table err %d (table prio: %d, level: %d, size: %d)\n",
 			 (int)PTR_ERR(fdb), table_prio, level, sz);
@@ -1377,7 +1378,7 @@ static int esw_offloads_start(struct mlx5_eswitch *esw,
 		return -EINVAL;
 	}
 
-	mlx5_eswitch_disable(esw, true);
+	mlx5_eswitch_disable(esw, false);
 	mlx5_eswitch_update_num_of_vfs(esw, esw->dev->priv.sriov.num_vfs);
 	err = mlx5_eswitch_enable(esw, MLX5_ESWITCH_OFFLOADS);
 	if (err) {
@@ -2271,7 +2272,7 @@ static int esw_offloads_stop(struct mlx5_eswitch *esw,
 {
 	int err, err1;
 
-	mlx5_eswitch_disable(esw, true);
+	mlx5_eswitch_disable(esw, false);
 	err = mlx5_eswitch_enable(esw, MLX5_ESWITCH_LEGACY);
 	if (err) {
 		NL_SET_ERR_MSG_MOD(extack, "Failed setting eswitch to legacy");
