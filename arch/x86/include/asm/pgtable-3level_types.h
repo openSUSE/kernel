@@ -19,7 +19,7 @@ typedef union {
 #endif	/* !__ASSEMBLY__ */
 
 #ifdef CONFIG_PARAVIRT_MMU
-#define SHARED_KERNEL_PMD	(pv_info.shared_kernel_pmd)
+#define SHARED_KERNEL_PMD	(pv_info.shared_kernel_pmd && !kaiser_enabled)
 #else
 #define SHARED_KERNEL_PMD	1
 #endif
