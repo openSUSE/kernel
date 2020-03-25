@@ -688,6 +688,7 @@ static void io_kill_timeout(struct io_kiocb *req)
 	if (ret != -1) {
 		atomic_inc(&req->ctx->cq_timeouts);
 		list_del_init(&req->list);
+		req->flags |= REQ_F_COMP_LOCKED;
 		io_cqring_fill_event(req, 0);
 		io_put_req(req);
 	}
@@ -3097,6 +3098,9 @@ static int io_req_defer_prep(struct io_kiocb *req,
 {
 	ssize_t ret = 0;
 
+	if (!sqe)
+		return 0;
+
 	switch (req->opcode) {
 	case IORING_OP_NOP:
 		break;
@@ -3680,6 +3684,11 @@ err_req:
 			req->flags |= REQ_F_HARDLINK;
 
 		INIT_LIST_HEAD(&req->link_list);
+
+		if (io_alloc_async_ctx(req)) {
+			ret = -EAGAIN;
+			goto err_req;
+		}
 		ret = io_req_defer_prep(req, sqe);
 		if (ret)
 			req->flags |= REQ_F_FAIL_LINK;
