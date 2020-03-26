@@ -1520,6 +1520,8 @@ static inline struct device_node *dev_of_node(struct device *dev)
 	return dev->of_node;
 }
 
+void driver_init(void);
+
 static inline bool dev_has_sync_state(struct device *dev)
 {
 	if (!dev)
@@ -1530,8 +1532,6 @@ static inline bool dev_has_sync_state(struct device *dev)
 		return true;
 	return false;
 }
-
-void driver_init(void);
 
 /*
  * High level routines for use by the bus drivers
