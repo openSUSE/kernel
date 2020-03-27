@@ -56,7 +56,7 @@ do {						\
 # define lockdep_softirq_exit()		do { } while (0)
 #endif
 
-#if defined(CONFIG_TRACE_IRQFLAGS) && !defined(CONFIG_PREEMPT_RT_FULL)
+#if defined(CONFIG_TRACE_IRQFLAGS) && !defined(CONFIG_PREEMPT_RT)
 # define lockdep_softirq_enter()		\
 do {						\
 	current->softirq_context++;		\

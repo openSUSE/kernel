@@ -77,7 +77,7 @@
 #define ZS_MAX_PAGES_PER_ZSPAGE (_AC(1, UL) << ZS_MAX_ZSPAGE_ORDER)
 #define ZS_HANDLE_SIZE (sizeof(unsigned long))
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 
 struct zsmalloc_handle {
 	unsigned long addr;
@@ -368,7 +368,7 @@ static unsigned long cache_alloc_handle(struct zs_pool *pool, gfp_t gfp)
 
 	p = kmem_cache_alloc(pool->handle_cachep,
 			     gfp & ~(__GFP_HIGHMEM|__GFP_MOVABLE));
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	if (p) {
 		struct zsmalloc_handle *zh = p;
 
@@ -378,7 +378,7 @@ static unsigned long cache_alloc_handle(struct zs_pool *pool, gfp_t gfp)
 	return (unsigned long)p;
 }
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 static struct zsmalloc_handle *zs_get_pure_handle(unsigned long handle)
 {
 	return (void *)(handle &~((1 << OBJ_TAG_BITS) - 1));
@@ -403,7 +403,7 @@ static void cache_free_zspage(struct zs_pool *pool, struct zspage *zspage)
 
 static void record_obj(unsigned long handle, unsigned long obj)
 {
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	struct zsmalloc_handle *zh = zs_get_pure_handle(handle);
 
 	WRITE_ONCE(zh->addr, obj);
@@ -910,7 +910,7 @@ static unsigned long location_to_obj(struct page *page, unsigned int obj_idx)
 
 static unsigned long handle_to_obj(unsigned long handle)
 {
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	struct zsmalloc_handle *zh = zs_get_pure_handle(handle);
 
 	return zh->addr;
@@ -930,7 +930,7 @@ static unsigned long obj_to_head(struct page *page, void *obj)
 
 static inline int testpin_tag(unsigned long handle)
 {
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	struct zsmalloc_handle *zh = zs_get_pure_handle(handle);
 
 	return mutex_is_locked(&zh->lock);
@@ -941,7 +941,7 @@ static inline int testpin_tag(unsigned long handle)
 
 static inline int trypin_tag(unsigned long handle)
 {
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	struct zsmalloc_handle *zh = zs_get_pure_handle(handle);
 
 	return mutex_trylock(&zh->lock);
@@ -952,7 +952,7 @@ static inline int trypin_tag(unsigned long handle)
 
 static void pin_tag(unsigned long handle)
 {
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	struct zsmalloc_handle *zh = zs_get_pure_handle(handle);
 
 	return mutex_lock(&zh->lock);
@@ -963,7 +963,7 @@ static void pin_tag(unsigned long handle)
 
 static void unpin_tag(unsigned long handle)
 {
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	struct zsmalloc_handle *zh = zs_get_pure_handle(handle);
 
 	return mutex_unlock(&zh->lock);

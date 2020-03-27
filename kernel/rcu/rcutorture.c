@@ -1252,7 +1252,7 @@ rcutorture_extend_mask(int oldmask, struct torture_random_state *trsp)
 	 * (regardless of RT), but until then don't stop testing
 	 * them on non-RT.
 	 */
-	if (IS_ENABLED(CONFIG_PREEMPT_RT_FULL)) {
+	if (IS_ENABLED(CONFIG_PREEMPT_RT)) {
 		/*
 		 * Can't release the outermost rcu lock in an irq disabled
 		 * section without preemption also being disabled, if irqs

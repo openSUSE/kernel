@@ -190,7 +190,7 @@ irqreturn_t handle_irq_event_percpu(struct irq_desc *desc)
 
 	retval = __handle_irq_event_percpu(desc, &flags);
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	desc->random_ip = ip;
 #else
 	add_interrupt_randomness(desc->irq_data.irq, flags, ip);

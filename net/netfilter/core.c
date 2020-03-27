@@ -29,7 +29,7 @@
 
 #include "nf_internals.h"
 
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 DEFINE_LOCAL_IRQ_LOCK(xt_write_lock);
 EXPORT_PER_CPU_SYMBOL(xt_write_lock);
 #endif

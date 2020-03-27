@@ -131,7 +131,7 @@ int irq_init_percpu_irqstack(unsigned int cpu)
 	return 0;
 }
 
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 void do_softirq_own_stack(void)
 {
 	struct irq_stack *irqstk;

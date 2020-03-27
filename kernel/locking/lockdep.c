@@ -4335,7 +4335,7 @@ static void check_flags(unsigned long flags)
 		}
 	}
 
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 	/*
 	 * We dont accurately track softirq state in e.g.
 	 * hardirq contexts (such as on 4KSTACKS), so only

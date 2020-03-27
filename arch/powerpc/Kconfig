@@ -144,6 +144,7 @@ config PPC
 	select ARCH_MIGHT_HAVE_PC_SERIO
 	select ARCH_OPTIONAL_KERNEL_RWX		if ARCH_HAS_STRICT_KERNEL_RWX
 	select ARCH_SUPPORTS_ATOMIC_RMW
+	select ARCH_SUPPORTS_RT
 	select ARCH_USE_BUILTIN_BSWAP
 	select ARCH_USE_CMPXCHG_LOCKREF		if PPC64
 	select ARCH_WANT_IPC_PARSE_VERSION
@@ -397,7 +398,7 @@ menu "Kernel options"
 
 config HIGHMEM
 	bool "High memory support"
-	depends on PPC32 && !PREEMPT_RT_FULL
+	depends on PPC32 && !PREEMPT_RT
 
 source "kernel/Kconfig.hz"
 

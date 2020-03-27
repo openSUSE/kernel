@@ -96,7 +96,7 @@ void *kmap_atomic(struct page *page)
 	 * in place, so the contained TLB flush ensures the TLB is updated
 	 * with the new mapping.
 	 */
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	current->kmap_pte[type] = pte;
 #endif
 	set_fixmap_pte(idx, pte);
@@ -116,7 +116,7 @@ void __kunmap_atomic(void *kvaddr)
 
 		if (cache_is_vivt())
 			__cpuc_flush_dcache_area((void *)vaddr, PAGE_SIZE);
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 		current->kmap_pte[type] = __pte(0);
 #endif
 #ifdef CONFIG_DEBUG_HIGHMEM
@@ -153,14 +153,14 @@ void *kmap_atomic_pfn(unsigned long pfn)
 #ifdef CONFIG_DEBUG_HIGHMEM
 	BUG_ON(!pte_none(get_fixmap_pte(vaddr)));
 #endif
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	current->kmap_pte[type] = pte;
 #endif
 	set_fixmap_pte(idx, pte);
 
 	return (void *)vaddr;
 }
-#if defined CONFIG_PREEMPT_RT_FULL
+#if defined CONFIG_PREEMPT_RT
 void switch_kmaps(struct task_struct *prev_p, struct task_struct *next_p)
 {
 	int i;

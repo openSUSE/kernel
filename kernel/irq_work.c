@@ -62,7 +62,7 @@ void __weak arch_irq_work_raise(void)
 static void __irq_work_queue_local(struct irq_work *work)
 {
 	struct llist_head *list;
-	bool lazy_work, realtime = IS_ENABLED(CONFIG_PREEMPT_RT_FULL);
+	bool lazy_work, realtime = IS_ENABLED(CONFIG_PREEMPT_RT);
 
 	lazy_work = work->flags & IRQ_WORK_LAZY;
 
@@ -119,7 +119,7 @@ bool irq_work_queue_on(struct irq_work *work, int cpu)
 
 		/* Arch remote IPI send/receive backend aren't NMI safe */
 		WARN_ON_ONCE(in_nmi());
-		if (IS_ENABLED(CONFIG_PREEMPT_RT_FULL) && !(work->flags & IRQ_WORK_HARD_IRQ))
+		if (IS_ENABLED(CONFIG_PREEMPT_RT) && !(work->flags & IRQ_WORK_HARD_IRQ))
 			list = &per_cpu(lazy_list, cpu);
 		else
 			list = &per_cpu(raised_list, cpu);
@@ -158,7 +158,7 @@ static void irq_work_run_list(struct llist_head *list)
 	struct llist_node *llnode;
 	unsigned long flags;
 
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 	/*
 	 * nort: On RT IRQ-work may run in SOFTIRQ context.
 	 */
@@ -195,7 +195,7 @@ static void irq_work_run_list(struct llist_head *list)
 void irq_work_run(void)
 {
 	irq_work_run_list(this_cpu_ptr(&raised_list));
-	if (IS_ENABLED(CONFIG_PREEMPT_RT_FULL)) {
+	if (IS_ENABLED(CONFIG_PREEMPT_RT)) {
 		/*
 		 * NOTE: we raise softirq via IPI for safety,
 		 * and execute in irq_work_tick() to move the
@@ -215,11 +215,11 @@ void irq_work_tick(void)
 	if (!llist_empty(raised) && !arch_irq_work_has_interrupt())
 		irq_work_run_list(raised);
 
-	if (!IS_ENABLED(CONFIG_PREEMPT_RT_FULL))
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT))
 		irq_work_run_list(this_cpu_ptr(&lazy_list));
 }
 
-#if defined(CONFIG_IRQ_WORK) && defined(CONFIG_PREEMPT_RT_FULL)
+#if defined(CONFIG_IRQ_WORK) && defined(CONFIG_PREEMPT_RT)
 void irq_work_tick_soft(void)
 {
 	irq_work_run_list(this_cpu_ptr(&lazy_list));

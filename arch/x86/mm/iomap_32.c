@@ -58,7 +58,7 @@ void *kmap_atomic_prot_pfn(unsigned long pfn, pgprot_t prot)
 	vaddr = __fix_to_virt(FIX_KMAP_BEGIN + idx);
 	WARN_ON(!pte_none(*(kmap_pte - idx)));
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	current->kmap_pte[type] = pte;
 #endif
 	set_pte(kmap_pte - idx, pte);
@@ -112,7 +112,7 @@ iounmap_atomic(void __iomem *kvaddr)
 		 * is a bad idea also, in case the page changes cacheability
 		 * attributes or becomes a protected page in a hypervisor.
 		 */
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 		current->kmap_pte[type] = __pte(0);
 #endif
 		kpte_clear_flush(kmap_pte-idx, vaddr);

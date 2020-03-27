@@ -34,7 +34,7 @@
 
 struct hlist_bl_head {
 	struct hlist_bl_node *first;
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 	raw_spinlock_t lock;
 #endif
 };
@@ -43,7 +43,7 @@ struct hlist_bl_node {
 	struct hlist_bl_node *next, **pprev;
 };
 
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 #define INIT_HLIST_BL_HEAD(h)		\
 do {					\
 	(h)->first = NULL;		\
@@ -157,7 +157,7 @@ static inline void hlist_bl_del_init(struct hlist_bl_node *n)
 
 static inline void hlist_bl_lock(struct hlist_bl_head *b)
 {
-#ifndef CONFIG_PREEMPT_RT_BASE
+#ifndef CONFIG_PREEMPT_RT
 	bit_spin_lock(0, (unsigned long *)b);
 #else
 	raw_spin_lock(&b->lock);
@@ -169,7 +169,7 @@ static inline void hlist_bl_lock(struct hlist_bl_head *b)
 
 static inline void hlist_bl_unlock(struct hlist_bl_head *b)
 {
-#ifndef CONFIG_PREEMPT_RT_BASE
+#ifndef CONFIG_PREEMPT_RT
 	__bit_spin_unlock(0, (unsigned long *)b);
 #else
 #if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)

@@ -60,7 +60,7 @@ static unsigned int skip_txen_test; /* force skip of txen test at init time */
  * so - so don't drop work spuriously and spam the
  * syslog:
  */
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 # define PASS_LIMIT	1000000
 #else
 # define PASS_LIMIT	512

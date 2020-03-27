@@ -1635,7 +1635,7 @@ static struct page *allocate_slab(struct kmem_cache *s, gfp_t flags, int node)
 	if (gfpflags_allow_blocking(flags))
 		enableirqs = true;
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	if (system_state > SYSTEM_BOOTING)
 		enableirqs = true;
 #endif
@@ -3737,7 +3737,7 @@ static void list_slab_objects(struct kmem_cache *s, struct page *page,
 							const char *text)
 {
 #ifdef CONFIG_SLUB_DEBUG
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 	/* XXX move out of irq-off section */
 	slab_err(s, page, text, s->name);
 #else

@@ -360,7 +360,7 @@ EXPORT_SYMBOL(nr_online_nodes);
 
 static DEFINE_LOCAL_IRQ_LOCK(pa_lock);
 
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 # define cpu_lock_irqsave(cpu, flags)		\
 	local_lock_irqsave_on(pa_lock, flags, cpu)
 # define cpu_unlock_irqrestore(cpu, flags)	\
@@ -2899,7 +2899,7 @@ void drain_local_pages(struct zone *zone)
 		drain_pages(cpu);
 }
 
-#ifndef CONFIG_PREEMPT_RT_BASE
+#ifndef CONFIG_PREEMPT_RT
 static void drain_local_pages_wq(struct work_struct *work)
 {
 	struct pcpu_drain *drain;
@@ -2985,7 +2985,7 @@ void drain_all_pages(struct zone *zone)
 			cpumask_clear_cpu(cpu, &cpus_with_pcps);
 	}
 
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 	for_each_cpu(cpu, &cpus_with_pcps) {
 		if (zone)
 			drain_pages_zone(cpu, zone);

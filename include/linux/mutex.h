@@ -29,7 +29,7 @@ struct ww_acquire_ctx;
 # define __DEP_MAP_MUTEX_INITIALIZER(lockname)
 #endif
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 # include <linux/mutex_rt.h>
 #else
 
@@ -214,6 +214,6 @@ enum mutex_trylock_recursive_enum {
 extern /* __deprecated */ __must_check enum mutex_trylock_recursive_enum
 mutex_trylock_recursive(struct mutex *lock);
 
-#endif /* !PREEMPT_RT_FULL */
+#endif /* !PREEMPT_RT */
 
 #endif /* __LINUX_MUTEX_H */

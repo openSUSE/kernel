@@ -3652,7 +3652,7 @@ end_run:
 	 * This permits qdisc->running owner to get the lock more
 	 * often and dequeue packets faster.
 	 */
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	contended = true;
 #else
 	contended = qdisc_is_running(q);
@@ -6199,7 +6199,7 @@ bool napi_schedule_prep(struct napi_struct *n)
 }
 EXPORT_SYMBOL(napi_schedule_prep);
 
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 /**
  * __napi_schedule_irqoff - schedule for receive
  * @n: entry to schedule

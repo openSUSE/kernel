@@ -6781,7 +6781,7 @@ void mem_cgroup_swapout(struct page *page, swp_entry_t entry)
 	 * only synchronisation we have for updating the per-CPU variables.
 	 */
 	local_lock_irqsave(event_lock, flags);
-#ifndef CONFIG_PREEMPT_RT_BASE
+#ifndef CONFIG_PREEMPT_RT
 	VM_BUG_ON(!irqs_disabled());
 #endif
 	mem_cgroup_charge_statistics(memcg, page, PageTransHuge(page),

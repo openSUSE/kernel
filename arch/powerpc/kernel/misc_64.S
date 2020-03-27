@@ -27,7 +27,7 @@
 
 	.text
 
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 _GLOBAL(call_do_softirq)
 	mflr	r0
 	std	r0,16(r1)

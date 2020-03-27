@@ -616,7 +616,7 @@ static void __blk_mq_complete_request(struct request *rq)
 	 * Avoid SMP function calls for completions because they acquire
 	 * sleeping spinlocks on RT.
 	 */
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	shared = true;
 #else
 	if (!test_bit(QUEUE_FLAG_SAME_FORCE, &q->queue_flags))

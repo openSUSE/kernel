@@ -5,8 +5,7 @@ TARGET=$1
 ARCH=$2
 SMP=$3
 PREEMPT=$4
-RT=$5
-CC=$6
+CC=$5
 
 vecho() { [ "${quiet}" = "silent_" ] || echo "$@" ; }
 
@@ -54,7 +53,6 @@ UTS_VERSION="#$VERSION"
 CONFIG_FLAGS=""
 if [ -n "$SMP" ] ; then CONFIG_FLAGS="SMP"; fi
 if [ -n "$PREEMPT" ] ; then CONFIG_FLAGS="$CONFIG_FLAGS PREEMPT"; fi
-if [ -n "$RT" ] ; then CONFIG_FLAGS="$CONFIG_FLAGS RT"; fi
 
 # Truncate to maximum length
 UTS_LEN=64

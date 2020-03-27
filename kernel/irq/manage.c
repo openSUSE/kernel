@@ -24,7 +24,7 @@
 #include "internals.h"
 
 #ifdef CONFIG_IRQ_FORCED_THREADING
-# ifndef CONFIG_PREEMPT_RT_BASE
+# ifndef CONFIG_PREEMPT_RT
 __read_mostly bool force_irqthreads;
 EXPORT_SYMBOL_GPL(force_irqthreads);
 
@@ -1101,7 +1101,7 @@ static int irq_thread(void *data)
 		if (action_ret == IRQ_WAKE_THREAD)
 			irq_wake_secondary(desc, action);
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 		migrate_disable();
 		add_interrupt_randomness(action->irq, 0,
 				 desc->random_ip ^ (unsigned long) action);

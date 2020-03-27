@@ -56,7 +56,7 @@ const_debug unsigned int sysctl_sched_features =
  * Number of tasks to iterate in a single balance run.
  * Limited because this is done with IRQs disabled.
  */
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 const_debug unsigned int sysctl_sched_nr_migrate = 8;
 #else
 const_debug unsigned int sysctl_sched_nr_migrate = 32;
@@ -1531,7 +1531,7 @@ void set_cpus_allowed_common(struct task_struct *p, const struct cpumask *new_ma
 		p->nr_cpus_allowed = cpumask_weight(new_mask);
 }
 
-#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT_BASE)
+#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
 int __migrate_disabled(struct task_struct *p)
 {
 	return p->migrate_disable;
@@ -7789,7 +7789,7 @@ const u32 sched_prio_to_wmult[40] = {
 
 #undef CREATE_TRACE_POINTS
 
-#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT_BASE)
+#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
 
 static inline void
 update_nr_migratory(struct task_struct *p, long delta)
@@ -7920,7 +7920,7 @@ int cpu_nr_pinned(int cpu)
 	return rq->nr_pinned;
 }
 
-#elif !defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT_BASE)
+#elif !defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
 static void migrate_disabled_sched(struct task_struct *p)
 {
 }

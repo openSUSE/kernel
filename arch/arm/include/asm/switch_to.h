@@ -4,7 +4,7 @@
 
 #include <linux/thread_info.h>
 
-#if defined CONFIG_PREEMPT_RT_FULL && defined CONFIG_HIGHMEM
+#if defined CONFIG_PREEMPT_RT && defined CONFIG_HIGHMEM
 void switch_kmaps(struct task_struct *prev_p, struct task_struct *next_p);
 #else
 static inline void

@@ -31,7 +31,7 @@
  * We store the saved ksp_limit in the unused part
  * of the STACK_FRAME_OVERHEAD
  */
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 _GLOBAL(call_do_softirq)
 	mflr	r0
 	stw	r0,4(r1)

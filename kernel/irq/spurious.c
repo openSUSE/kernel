@@ -442,8 +442,8 @@ MODULE_PARM_DESC(noirqdebug, "Disable irq lockup detection when true");
 
 static int __init irqfixup_setup(char *str)
 {
-#ifdef CONFIG_PREEMPT_RT_BASE
-	pr_warn("irqfixup boot option not supported w/ CONFIG_PREEMPT_RT_BASE\n");
+#ifdef CONFIG_PREEMPT_RT
+	pr_warn("irqfixup boot option not supported w/ CONFIG_PREEMPT_RT\n");
 	return 1;
 #endif
 	irqfixup = 1;
@@ -458,8 +458,8 @@ module_param(irqfixup, int, 0644);
 
 static int __init irqpoll_setup(char *str)
 {
-#ifdef CONFIG_PREEMPT_RT_BASE
-	pr_warn("irqpoll boot option not supported w/ CONFIG_PREEMPT_RT_BASE\n");
+#ifdef CONFIG_PREEMPT_RT
+	pr_warn("irqpoll boot option not supported w/ CONFIG_PREEMPT_RT\n");
 	return 1;
 #endif
 	irqfixup = 2;

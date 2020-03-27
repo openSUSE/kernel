@@ -1816,7 +1816,7 @@ int nfs_rmdir(struct inode *dir, struct dentry *dentry)
 
 	trace_nfs_rmdir_enter(dir, dentry);
 	if (d_really_is_positive(dentry)) {
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 		down(&NFS_I(d_inode(dentry))->rmdir_sem);
 #else
 		down_write(&NFS_I(d_inode(dentry))->rmdir_sem);
@@ -1830,7 +1830,7 @@ int nfs_rmdir(struct inode *dir, struct dentry *dentry)
 		case -ENOENT:
 			nfs_dentry_handle_enoent(dentry);
 		}
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 		up(&NFS_I(d_inode(dentry))->rmdir_sem);
 #else
 		up_write(&NFS_I(d_inode(dentry))->rmdir_sem);

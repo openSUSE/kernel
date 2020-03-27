@@ -47,7 +47,7 @@ void *kmap_atomic_prot(struct page *page, pgprot_t prot)
 	idx = type + KM_TYPE_NR*smp_processor_id();
 	vaddr = __fix_to_virt(FIX_KMAP_BEGIN + idx);
 	BUG_ON(!pte_none(*(kmap_pte-idx)));
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	current->kmap_pte[type] = pte;
 #endif
 	set_pte(kmap_pte-idx, pte);
@@ -93,7 +93,7 @@ void __kunmap_atomic(void *kvaddr)
 		 * is a bad idea also, in case the page changes cacheability
 		 * attributes or becomes a protected page in a hypervisor.
 		 */
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 		current->kmap_pte[type] = __pte(0);
 #endif
 		kpte_clear_flush(kmap_pte-idx, vaddr);
