@@ -963,7 +963,7 @@ takeit:
 	return 1;
 }
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 /*
  * preemptible spin_lock functions:
  */
@@ -1258,9 +1258,9 @@ __rt_spin_lock_init(spinlock_t *lock, const char *name, struct lock_class_key *k
 }
 EXPORT_SYMBOL(__rt_spin_lock_init);
 
-#endif /* PREEMPT_RT_FULL */
+#endif /* PREEMPT_RT */
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	static inline int __sched
 __mutex_lock_check_stamp(struct rt_mutex *lock, struct ww_acquire_ctx *ctx)
 {
@@ -1671,7 +1671,7 @@ static __always_inline void ww_mutex_lock_acquired(struct ww_mutex *ww,
 	ww_ctx->acquired++;
 }
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 static void ww_mutex_account_lock(struct rt_mutex *lock,
 				  struct ww_acquire_ctx *ww_ctx)
 {
@@ -1715,7 +1715,7 @@ int __sched rt_mutex_slowlock_locked(struct rt_mutex *lock, int state,
 {
 	int ret;
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	if (ww_ctx) {
 		struct ww_mutex *ww;
 
@@ -2138,7 +2138,7 @@ EXPORT_SYMBOL_GPL(rt_mutex_timed_lock);
 
 int __sched __rt_mutex_trylock(struct rt_mutex *lock)
 {
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	if (WARN_ON_ONCE(in_irq() || in_nmi()))
 #else
 	if (WARN_ON_ONCE(in_irq() || in_nmi() || in_serving_softirq()))
@@ -2375,7 +2375,7 @@ int __rt_mutex_start_proxy_lock(struct rt_mutex *lock,
 	if (try_to_take_rt_mutex(lock, task, NULL))
 		return 1;
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	/*
 	 * In PREEMPT_RT there's an added race.
 	 * If the task, that we are about to requeue, times out,
@@ -2602,7 +2602,7 @@ ww_mutex_deadlock_injection(struct ww_mutex *lock, struct ww_acquire_ctx *ctx)
 	return 0;
 }
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 int __sched
 ww_mutex_lock_interruptible(struct ww_mutex *lock, struct ww_acquire_ctx *ctx)
 {

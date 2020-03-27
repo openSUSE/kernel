@@ -438,7 +438,7 @@ typedef struct {
 /*
  * Read side functions for starting and finalizing a read side section.
  */
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 static inline unsigned read_seqbegin(const seqlock_t *sl)
 {
 	return read_seqcount_begin(&sl->seqcount);

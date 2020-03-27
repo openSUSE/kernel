@@ -4,7 +4,7 @@
 
 #include <linux/preempt.h>
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 extern void __local_bh_disable_ip(unsigned long ip, unsigned int cnt);
 #else
 

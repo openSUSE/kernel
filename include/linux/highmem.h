@@ -112,13 +112,13 @@ static inline void __kunmap_atomic(void *addr)
 
 #if defined(CONFIG_HIGHMEM) || defined(CONFIG_X86_32)
 
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 DECLARE_PER_CPU(int, __kmap_atomic_idx);
 #endif
 
 static inline int kmap_atomic_idx_push(void)
 {
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 	int idx = __this_cpu_inc_return(__kmap_atomic_idx) - 1;
 
 # ifdef CONFIG_DEBUG_HIGHMEM
@@ -135,7 +135,7 @@ static inline int kmap_atomic_idx_push(void)
 
 static inline int kmap_atomic_idx(void)
 {
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 	return __this_cpu_read(__kmap_atomic_idx) - 1;
 #else
 	return current->kmap_idx - 1;
@@ -144,7 +144,7 @@ static inline int kmap_atomic_idx(void)
 
 static inline void kmap_atomic_idx_pop(void)
 {
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 # ifdef CONFIG_DEBUG_HIGHMEM
 	int idx = __this_cpu_dec_return(__kmap_atomic_idx);
 

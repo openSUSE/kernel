@@ -25,7 +25,7 @@
 #include <linux/smpboot.h>
 #include <linux/tick.h>
 #include <linux/irq.h>
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 #include <linux/locallock.h>
 #endif
 
@@ -105,7 +105,7 @@ static bool ksoftirqd_running(unsigned long pending)
  * softirq and whether we just have bh disabled.
  */
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 static DEFINE_LOCAL_IRQ_LOCK(bh_lock);
 static DEFINE_PER_CPU(long, softirq_counter);
 
@@ -368,7 +368,7 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 	pending = local_softirq_pending();
 	account_irq_enter_time(current);
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	current->softirq_count |= SOFTIRQ_OFFSET;
 #else
 	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
@@ -406,7 +406,7 @@ restart:
 		h++;
 		pending >>= softirq_bit;
 	}
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 	if (__this_cpu_read(ksoftirqd) == current)
 		rcu_softirq_qs();
 #endif
@@ -423,7 +423,7 @@ restart:
 
 	lockdep_softirq_end(in_hardirq);
 	account_irq_exit_time(current);
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	current->softirq_count &= ~SOFTIRQ_OFFSET;
 #else
 	__local_bh_enable(SOFTIRQ_OFFSET);
@@ -432,7 +432,7 @@ restart:
 	current_restore_flags(old_flags, PF_MEMALLOC);
 }
 
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 asmlinkage __visible void do_softirq(void)
 {
 	__u32 pending;
@@ -471,7 +471,7 @@ void irq_enter(void)
 	__irq_enter();
 }
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 
 static inline void invoke_softirq(void)
 {
@@ -544,7 +544,7 @@ void irq_exit(void)
 /*
  * This function must run with irqs disabled!
  */
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 void raise_softirq_irqoff(unsigned int nr)
 {
 	__raise_softirq_irqoff(nr);
@@ -830,7 +830,7 @@ static struct smp_hotplug_thread softirq_threads = {
 
 static __init int spawn_ksoftirqd(void)
 {
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	int cpu;
 
 	for_each_possible_cpu(cpu)
@@ -845,7 +845,7 @@ static __init int spawn_ksoftirqd(void)
 }
 early_initcall(spawn_ksoftirqd);
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 
 /*
  * On preempt-rt a softirq running context might be blocked on a

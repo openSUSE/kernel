@@ -1220,7 +1220,7 @@ static void __run_posix_cpu_timers(struct task_struct *tsk)
 	spin_unlock(expiry_lock);
 }
 
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 #include <linux/kthread.h>
 #include <linux/cpu.h>
 DEFINE_PER_CPU(struct task_struct *, posix_timer_task);
@@ -1359,13 +1359,13 @@ static int __init posix_cpu_thread_init(void)
 	return 0;
 }
 early_initcall(posix_cpu_thread_init);
-#else /* CONFIG_PREEMPT_RT_BASE */
+#else /* CONFIG_PREEMPT_RT */
 void run_posix_cpu_timers(struct task_struct *tsk)
 {
 	lockdep_assert_irqs_disabled();
 	__run_posix_cpu_timers(tsk);
 }
-#endif /* CONFIG_PREEMPT_RT_BASE */
+#endif /* CONFIG_PREEMPT_RT */
 
 /*
  * Set one of the process-wide special case CPU timers or RLIMIT_CPU.

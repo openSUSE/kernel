@@ -1,17 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-only
-config PREEMPT
-	bool
-	select PREEMPT_COUNT
-
-config PREEMPT_RT_BASE
-	bool
-	select PREEMPTION
 
 config HAVE_PREEMPT_LAZY
 	bool
 
 config PREEMPT_LAZY
-	def_bool y if HAVE_PREEMPT_LAZY && PREEMPT_RT_FULL
+	def_bool y if HAVE_PREEMPT_LAZY && PREEMPT_RT
 
 choice
 	prompt "Preemption Model"
@@ -48,10 +41,10 @@ config PREEMPT_VOLUNTARY
 
 	  Select this if you are building a kernel for a desktop system.
 
-config PREEMPT__LL
+config PREEMPT
 	bool "Preemptible Kernel (Low-Latency Desktop)"
 	depends on !ARCH_NO_PREEMPT
-	select PREEMPT
+	select PREEMPTION
 	select UNINLINE_SPIN_UNLOCK if !ARCH_INLINE_SPIN_UNLOCK
 	help
 	  This option reduces the latency of the kernel by making
@@ -68,21 +61,22 @@ config PREEMPT__LL
 	  embedded system with latency requirements in the milliseconds
 	  range.
 
-config PREEMPT_RTB
-	bool "Preemptible Kernel (Basic RT)"
-	select PREEMPT_RT_BASE
+config PREEMPT_RT
+	bool "Fully Preemptible Kernel (Real-Time)"
+	depends on EXPERT && ARCH_SUPPORTS_RT
+	select PREEMPTION
 	help
-	  This option is basically the same as (Low-Latency Desktop) but
-	  enables changes which are preliminary for the full preemptible
-	  RT kernel.
+	  This option turns the kernel into a real-time kernel by replacing
+	  various locking primitives (spinlocks, rwlocks, etc.) with
+	  preemptible priority-inheritance aware variants, enforcing
+	  interrupt threading and introducing mechanisms to break up long
+	  non-preemptible sections. This makes the kernel, except for very
+	  low level and critical code pathes (entry code, scheduler, low
+	  level interrupt handling) fully preemptible and brings most
+	  execution contexts under scheduler control.
 
-config PREEMPT_RT_FULL
-	bool "Fully Preemptible Kernel (RT)"
-	depends on IRQ_FORCED_THREADING
-	select PREEMPT_RT_BASE
-	select PREEMPT_RCU
-	help
-	  All and everything
+	  Select this if you are building a kernel for systems which
+	  require real-time guarantees.
 
 endchoice
 

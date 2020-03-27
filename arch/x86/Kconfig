@@ -88,6 +88,7 @@ config X86
 	select ARCH_SUPPORTS_ACPI
 	select ARCH_SUPPORTS_ATOMIC_RMW
 	select ARCH_SUPPORTS_NUMA_BALANCING	if X86_64
+	select ARCH_SUPPORTS_RT
 	select ARCH_USE_BUILTIN_BSWAP
 	select ARCH_USE_QUEUED_RWLOCKS
 	select ARCH_USE_QUEUED_SPINLOCKS
@@ -131,8 +132,8 @@ config X86
 	select HAVE_ALIGNED_STRUCT_PAGE		if SLUB
 	select HAVE_ARCH_AUDITSYSCALL
 	select HAVE_ARCH_HUGE_VMAP		if X86_64 || X86_PAE
-	select HAVE_ARCH_JUMP_LABEL		if !PREEMPT_RT_FULL
-	select HAVE_ARCH_JUMP_LABEL_RELATIVE	if !PREEMPT_RT_FULL
+	select HAVE_ARCH_JUMP_LABEL		if !PREEMPT_RT
+	select HAVE_ARCH_JUMP_LABEL_RELATIVE	if !PREEMPT_RT
 	select HAVE_ARCH_KASAN			if X86_64
 	select HAVE_ARCH_KGDB
 	select HAVE_ARCH_MMAP_RND_BITS		if MMU
@@ -963,7 +964,7 @@ config CALGARY_IOMMU_ENABLED_BY_DEFAULT
 config MAXSMP
 	bool "Enable Maximum number of SMP Processors and NUMA Nodes"
 	depends on X86_64 && SMP && DEBUG_KERNEL
-	select CPUMASK_OFFSTACK if !PREEMPT_RT_FULL
+	select CPUMASK_OFFSTACK if !PREEMPT_RT
 	---help---
 	  Enable maximum number of CPUS and NUMA Nodes for this architecture.
 	  If unsure, say N.

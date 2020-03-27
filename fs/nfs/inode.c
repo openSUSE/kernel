@@ -2105,7 +2105,7 @@ static void init_once(void *foo)
 	atomic_long_set(&nfsi->nrequests, 0);
 	atomic_long_set(&nfsi->commit_info.ncommit, 0);
 	atomic_set(&nfsi->commit_info.rpcs_out, 0);
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 	sema_init(&nfsi->rmdir_sem, 1);
 #else
 	init_rwsem(&nfsi->rmdir_sem);

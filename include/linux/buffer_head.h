@@ -76,7 +76,7 @@ struct buffer_head {
 	struct address_space *b_assoc_map;	/* mapping this buffer is
 						   associated with */
 	atomic_t b_count;		/* users using this buffer_head */
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 	spinlock_t b_uptodate_lock;
 #endif
 };
@@ -85,7 +85,7 @@ static inline unsigned long bh_uptodate_lock_irqsave(struct buffer_head *bh)
 {
 	unsigned long flags;
 
-#ifndef CONFIG_PREEMPT_RT_BASE
+#ifndef CONFIG_PREEMPT_RT
 	local_irq_save(flags);
 	bit_spin_lock(BH_Uptodate_Lock, &bh->b_state);
 #else
@@ -97,7 +97,7 @@ static inline unsigned long bh_uptodate_lock_irqsave(struct buffer_head *bh)
 static inline void
 bh_uptodate_unlock_irqrestore(struct buffer_head *bh, unsigned long flags)
 {
-#ifndef CONFIG_PREEMPT_RT_BASE
+#ifndef CONFIG_PREEMPT_RT
 	bit_spin_unlock(BH_Uptodate_Lock, &bh->b_state);
 	local_irq_restore(flags);
 #else
@@ -107,7 +107,7 @@ bh_uptodate_unlock_irqrestore(struct buffer_head *bh, unsigned long flags)
 
 static inline void buffer_head_init_locks(struct buffer_head *bh)
 {
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 	spin_lock_init(&bh->b_uptodate_lock);
 #endif
 }

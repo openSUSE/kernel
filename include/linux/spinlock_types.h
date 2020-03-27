@@ -11,7 +11,7 @@
 
 #include <linux/spinlock_types_raw.h>
 
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 # include <linux/spinlock_types_nort.h>
 # include <linux/rwlock_types.h>
 #else

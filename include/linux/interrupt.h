@@ -472,7 +472,7 @@ extern int irq_set_irqchip_state(unsigned int irq, enum irqchip_irq_state which,
 				 bool state);
 
 #ifdef CONFIG_IRQ_FORCED_THREADING
-# ifdef CONFIG_PREEMPT_RT_BASE
+# ifdef CONFIG_PREEMPT_RT
 #  define force_irqthreads	(true)
 # else
 extern bool force_irqthreads;
@@ -545,7 +545,7 @@ struct softirq_action
 asmlinkage void do_softirq(void);
 asmlinkage void __do_softirq(void);
 
-#if defined(__ARCH_HAS_DO_SOFTIRQ) && !defined(CONFIG_PREEMPT_RT_FULL)
+#if defined(__ARCH_HAS_DO_SOFTIRQ) && !defined(CONFIG_PREEMPT_RT)
 void do_softirq_own_stack(void);
 #else
 static inline void do_softirq_own_stack(void)

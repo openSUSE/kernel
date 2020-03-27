@@ -53,7 +53,7 @@ static void nfs_async_unlink_done(struct rpc_task *task, void *calldata)
 		rpc_restart_call_prepare(task);
 }
 
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 static void nfs_down_anon(struct semaphore *sema)
 {
 	down(sema);

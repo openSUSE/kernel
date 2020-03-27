@@ -20,9 +20,9 @@
 #include <linux/osq_lock.h>
 #endif
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 #include <linux/rwsem-rt.h>
-#else /* PREEMPT_RT_FULL */
+#else /* PREEMPT_RT */
 
 /*
  * For an uncontended rwsem, count and owner are the only fields a task
@@ -125,7 +125,7 @@ static inline int rwsem_is_contended(struct rw_semaphore *sem)
 	return !list_empty(&sem->wait_list);
 }
 
-#endif /* !PREEMPT_RT_FULL */
+#endif /* !PREEMPT_RT */
 
 /*
  * The functions below are the same for all rwsem implementations including

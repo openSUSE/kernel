@@ -730,18 +730,18 @@ struct task_struct {
 	int				nr_cpus_allowed;
 	const cpumask_t			*cpus_ptr;
 	cpumask_t			cpus_mask;
-#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT_BASE)
+#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
 	int				migrate_disable;
 	bool				migrate_disable_scheduled;
 # ifdef CONFIG_SCHED_DEBUG
 	int				pinned_on_cpu;
 # endif
-#elif !defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT_BASE)
+#elif !defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
 # ifdef CONFIG_SCHED_DEBUG
 	int				migrate_disable;
 # endif
 #endif
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	int				sleeping_lock;
 #endif
 
@@ -910,7 +910,7 @@ struct task_struct {
 #ifdef CONFIG_POSIX_TIMERS
 	struct task_cputime		cputime_expires;
 	struct list_head		cpu_timers[3];
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 	struct task_struct		*posix_timer_list;
 #endif
 #endif
@@ -969,7 +969,7 @@ struct task_struct {
 	/* Restored if set_restore_sigmask() was used: */
 	sigset_t			saved_sigmask;
 	struct sigpending		pending;
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	/* TODO: move me into ->restart_block ? */
 	struct				kernel_siginfo forced_info;
 #endif
@@ -1030,7 +1030,7 @@ struct task_struct {
 	int				softirqs_enabled;
 	int				softirq_context;
 #endif
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	int				softirq_count;
 #endif
 
@@ -1296,10 +1296,10 @@ struct task_struct {
 	unsigned int			sequential_io;
 	unsigned int			sequential_io_avg;
 #endif
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 	struct rcu_head			put_rcu;
 #endif
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 # if defined CONFIG_HIGHMEM || defined CONFIG_X86_32
 	int				kmap_idx;
 	pte_t				kmap_pte[KM_TYPE_NR];
@@ -1855,27 +1855,6 @@ static inline int need_resched_now(void)
 	return test_thread_flag(TIF_NEED_RESCHED);
 }
 
-/* Cpuset runqueue behavior modifier flags */
-enum
-{
-	RQ_TICK		= 1 << 0,
-	RQ_HPC		= 1 << 1,
-	RQ_HPCRT	= 1 << 2,
-	RQ_CLEAR	= ~0,
-};
-
-#ifdef CONFIG_HPC_CPUSETS
-extern int runqueue_is_flagged(int cpu, unsigned flag);
-extern int runqueue_is_isolated(int cpu);
-extern void cpuset_flags_set(int cpu, unsigned bits);
-extern void cpuset_flags_clr(int cpu, unsigned bits);
-#else /* !CONFIG_HPC_CPUSETS */
-static inline int runqueue_is_flagged(int cpu, unsigned flag) { return 0; }
-static inline int runqueue_is_isolated(int cpu) { return 0; }
-static inline void cpuset_flag_set(int cpu, unsigned bits) { }
-static inline void cpuset_flag_clr(int cpu, unsigned bits) { }
-#endif /* CONFIG_HPC_CPUSETS */
-
 #endif
 
 
@@ -1883,7 +1862,7 @@ static inline bool __task_is_stopped_or_traced(struct task_struct *task)
 {
 	if (task->state & (__TASK_STOPPED | __TASK_TRACED))
 		return true;
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	if (task->saved_state & (__TASK_STOPPED | __TASK_TRACED))
 		return true;
 #endif
@@ -1894,7 +1873,7 @@ static inline bool task_is_stopped_or_traced(struct task_struct *task)
 {
 	bool traced_stopped;
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	unsigned long flags;
 
 	raw_spin_lock_irqsave(&task->pi_lock, flags);
@@ -1912,7 +1891,7 @@ static inline bool task_is_traced(struct task_struct *task)
 
 	if (task->state & __TASK_TRACED)
 		return true;
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	/* in case the task is sleeping on tasklist_lock */
 	raw_spin_lock_irq(&task->pi_lock);
 	if (task->state & __TASK_TRACED)
@@ -1976,7 +1955,7 @@ static __always_inline bool need_resched(void)
 	return unlikely(tif_need_resched());
 }
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 static inline void sleeping_lock_inc(void)
 {
 	current->sleeping_lock++;

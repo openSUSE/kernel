@@ -138,7 +138,7 @@ KERNEL_ATTR_RO(vmcoreinfo);
 
 #endif /* CONFIG_CRASH_CORE */
 
-#if defined(CONFIG_PREEMPT_RT_FULL)
+#if defined(CONFIG_PREEMPT_RT)
 static ssize_t realtime_show(struct kobject *kobj,
 			     struct kobj_attribute *attr, char *buf)
 {
@@ -269,7 +269,7 @@ static struct attribute * kernel_attrs[] = {
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
 	&supported_attr.attr,
 #endif
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 	&realtime_attr.attr,
 #endif
 	NULL

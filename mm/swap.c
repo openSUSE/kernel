@@ -590,7 +590,7 @@ void lru_add_drain_cpu(int cpu)
 		unsigned long flags;
 
 		/* No harm done if a racing interrupt already did this */
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 		local_lock_irqsave_on(rotate_lock, flags, cpu);
 		pagevec_move_tail(pvec);
 		local_unlock_irqrestore_on(rotate_lock, flags, cpu);
@@ -668,7 +668,7 @@ void lru_add_drain(void)
 
 #ifdef CONFIG_SMP
 
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 static inline void remote_lru_add_drain(int cpu, struct cpumask *has_work)
 {
 	local_lock_on(swapvec_lock, cpu);
@@ -741,7 +741,7 @@ void lru_add_drain_all(void)
 			remote_lru_add_drain(cpu, &has_work);
 	}
 
-#ifndef CONFIG_PREEMPT_RT_BASE
+#ifndef CONFIG_PREEMPT_RT
 	for_each_cpu(cpu, &has_work)
 		flush_work(&per_cpu(lru_add_drain_work, cpu));
 #endif

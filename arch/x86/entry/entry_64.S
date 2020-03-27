@@ -1090,7 +1090,7 @@ bad_gs:
 	jmp	2b
 	.previous
 
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 /* Call softirq on interrupt stack. Interrupts are off. */
 ENTRY(do_softirq_own_stack)
 	pushq	%rbp

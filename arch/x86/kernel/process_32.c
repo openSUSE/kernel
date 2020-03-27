@@ -197,7 +197,7 @@ start_thread(struct pt_regs *regs, unsigned long new_ip, unsigned long new_sp)
 }
 EXPORT_SYMBOL_GPL(start_thread);
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 static void switch_kmaps(struct task_struct *prev_p, struct task_struct *next_p)
 {
 	int i;

@@ -76,7 +76,7 @@ static __always_inline void boot_init_stack_canary(void)
 	 * due to locking constraints. We just leave canary
 	 * uninitialized and use the TSC based randomness on top of it.
 	 */
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 	get_random_bytes(&canary, sizeof(canary));
 #endif
 	tsc = rdtsc();

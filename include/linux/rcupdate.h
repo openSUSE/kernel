@@ -52,7 +52,7 @@ void __rcu_read_unlock(void);
  * types of kernel builds, the rcu_read_lock() nesting depth is unknowable.
  */
 #define rcu_preempt_depth() (current->rcu_read_lock_nesting)
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifndef CONFIG_PREEMPT_RT
 #define sched_rcu_preempt_depth()	rcu_preempt_depth()
 #else
 static inline int sched_rcu_preempt_depth(void) { return 0; }
@@ -280,7 +280,7 @@ static inline void rcu_preempt_sleep_check(void) { }
 #define rcu_sleep_check()						\
 	do {								\
 		rcu_preempt_sleep_check();				\
-		if (!IS_ENABLED(CONFIG_PREEMPT_RT_FULL))		\
+		if (!IS_ENABLED(CONFIG_PREEMPT_RT))		\
 		    RCU_LOCKDEP_WARN(lock_is_held(&rcu_bh_lock_map),	\
 				 "Illegal context switch in RCU-bh read-side critical section"); \
 		RCU_LOCKDEP_WARN(lock_is_held(&rcu_sched_lock_map),	\

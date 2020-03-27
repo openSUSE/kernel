@@ -65,7 +65,7 @@ static inline void ssleep(unsigned int seconds)
 	msleep(seconds * 1000);
 }
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 extern void cpu_chill(void);
 #else
 # define cpu_chill()	cpu_relax()

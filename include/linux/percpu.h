@@ -19,7 +19,7 @@
 #define PERCPU_MODULE_RESERVE		0
 #endif
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT
 
 #define get_local_var(var) (*({	\
 	migrate_disable();	\

@@ -114,7 +114,7 @@ static inline struct task_struct *get_task_struct(struct task_struct *t)
 	return t;
 }
 
-#ifdef CONFIG_PREEMPT_RT_BASE
+#ifdef CONFIG_PREEMPT_RT
 extern void __put_task_struct_cb(struct rcu_head *rhp);
 
 static inline void put_task_struct(struct task_struct *t)
