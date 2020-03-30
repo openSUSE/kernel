@@ -21,6 +21,7 @@
 #include <linux/platform_device.h>
 
 #include <linux/device.h>
+#include <linux/dmaengine.h>
 #include <linux/init.h>
 #include <linux/errno.h>
 #include <linux/interrupt.h>
@@ -30,15 +31,13 @@
 #include <linux/of_device.h>
 #include <linux/delay.h>
 #include <linux/crypto.h>
-#include <linux/cryptohash.h>
 #include <crypto/scatterwalk.h>
 #include <crypto/algapi.h>
 #include <crypto/internal/des.h>
-#include <crypto/hash.h>
-#include <crypto/internal/hash.h>
 #include <crypto/internal/skcipher.h>
-#include <linux/platform_data/crypto-atmel.h>
 #include "atmel-tdes-regs.h"
+
+#define ATMEL_TDES_PRIORITY	300
 
 /* TDES flags  */
 /* Reserve bits [17:16], [13:12], [2:0] for AES Mode Register */
@@ -103,7 +102,6 @@ struct atmel_tdes_dev {
 	int					irq;
 
 	unsigned long		flags;
-	int			err;
 
 	spinlock_t		lock;
 	struct crypto_queue	queue;
@@ -192,7 +190,7 @@ static inline void atmel_tdes_write(struct atmel_tdes_dev *dd,
 }
 
 static void atmel_tdes_write_n(struct atmel_tdes_dev *dd, u32 offset,
-					u32 *value, int count)
+			       const u32 *value, int count)
 {
 	for (; count--; value++, offset += 4)
 		atmel_tdes_write(dd, offset, *value);
@@ -229,7 +227,6 @@ static int atmel_tdes_hw_init(struct atmel_tdes_dev *dd)
 	if (!(dd->flags & TDES_FLAGS_INIT)) {
 		atmel_tdes_write(dd, TDES_CR, TDES_CR_SWRST);
 		dd->flags |= TDES_FLAGS_INIT;
-		dd->err = 0;
 	}
 
 	return 0;
@@ -240,9 +237,13 @@ static inline unsigned int atmel_tdes_get_version(struct atmel_tdes_dev *dd)
 	return atmel_tdes_read(dd, TDES_HW_VERSION) & 0x00000fff;
 }
 
-static void atmel_tdes_hw_version_init(struct atmel_tdes_dev *dd)
+static int atmel_tdes_hw_version_init(struct atmel_tdes_dev *dd)
 {
-	atmel_tdes_hw_init(dd);
+	int err;
+
+	err = atmel_tdes_hw_init(dd);
+	if (err)
+		return err;
 
 	dd->hw_version = atmel_tdes_get_version(dd);
 
@@ -250,6 +251,8 @@ static void atmel_tdes_hw_version_init(struct atmel_tdes_dev *dd)
 			"version: 0x%x\n", dd->hw_version);
 
 	clk_disable_unprepare(dd->iclk);
+
+	return 0;
 }
 
 static void atmel_tdes_dma_callback(void *data)
@@ -263,7 +266,7 @@ static void atmel_tdes_dma_callback(void *data)
 static int atmel_tdes_write_ctrl(struct atmel_tdes_dev *dd)
 {
 	int err;
-	u32 valcr = 0, valmr = TDES_MR_SMOD_PDC;
+	u32 valmr = TDES_MR_SMOD_PDC;
 
 	err = atmel_tdes_hw_init(dd);
 
@@ -287,7 +290,6 @@ static int atmel_tdes_write_ctrl(struct atmel_tdes_dev *dd)
 
 	valmr |= dd->flags & TDES_FLAGS_MODE_MASK;
 
-	atmel_tdes_write(dd, TDES_CR, valcr);
 	atmel_tdes_write(dd, TDES_MR, valmr);
 
 	atmel_tdes_write_n(dd, TDES_KEY1W1R, dd->ctx->key,
@@ -380,11 +382,10 @@ static void atmel_tdes_buff_cleanup(struct atmel_tdes_dev *dd)
 	free_page((unsigned long)dd->buf_in);
 }
 
-static int atmel_tdes_crypt_pdc(struct crypto_tfm *tfm, dma_addr_t dma_addr_in,
-			       dma_addr_t dma_addr_out, int length)
+static int atmel_tdes_crypt_pdc(struct atmel_tdes_dev *dd,
+				dma_addr_t dma_addr_in,
+				dma_addr_t dma_addr_out, int length)
 {
-	struct atmel_tdes_ctx *ctx = crypto_tfm_ctx(tfm);
-	struct atmel_tdes_dev *dd = ctx->dd;
 	struct atmel_tdes_reqctx *rctx = skcipher_request_ctx(dd->req);
 	int len32;
 
@@ -424,11 +425,10 @@ static int atmel_tdes_crypt_pdc(struct crypto_tfm *tfm, dma_addr_t dma_addr_in,
 	return 0;
 }
 
-static int atmel_tdes_crypt_dma(struct crypto_tfm *tfm, dma_addr_t dma_addr_in,
-			       dma_addr_t dma_addr_out, int length)
+static int atmel_tdes_crypt_dma(struct atmel_tdes_dev *dd,
+				dma_addr_t dma_addr_in,
+				dma_addr_t dma_addr_out, int length)
 {
-	struct atmel_tdes_ctx *ctx = crypto_tfm_ctx(tfm);
-	struct atmel_tdes_dev *dd = ctx->dd;
 	struct atmel_tdes_reqctx *rctx = skcipher_request_ctx(dd->req);
 	struct scatterlist sg[2];
 	struct dma_async_tx_descriptor	*in_desc, *out_desc;
@@ -497,8 +497,6 @@ static int atmel_tdes_crypt_dma(struct crypto_tfm *tfm, dma_addr_t dma_addr_in,
 
 static int atmel_tdes_crypt_start(struct atmel_tdes_dev *dd)
 {
-	struct crypto_tfm *tfm = crypto_skcipher_tfm(
-					crypto_skcipher_reqtfm(dd->req));
 	int err, fast = 0, in, out;
 	size_t count;
 	dma_addr_t addr_in, addr_out;
@@ -554,9 +552,9 @@ static int atmel_tdes_crypt_start(struct atmel_tdes_dev *dd)
 	dd->total -= count;
 
 	if (dd->caps.has_dma)
-		err = atmel_tdes_crypt_dma(tfm, addr_in, addr_out, count);
+		err = atmel_tdes_crypt_dma(dd, addr_in, addr_out, count);
 	else
-		err = atmel_tdes_crypt_pdc(tfm, addr_in, addr_out, count);
+		err = atmel_tdes_crypt_pdc(dd, addr_in, addr_out, count);
 
 	if (err && (dd->flags & TDES_FLAGS_FAST)) {
 		dma_unmap_sg(dd->dev, dd->in_sg, 1, DMA_TO_DEVICE);
@@ -599,7 +597,7 @@ static void atmel_tdes_finish_req(struct atmel_tdes_dev *dd, int err)
 
 	dd->flags &= ~TDES_FLAGS_BUSY;
 
-	if ((rctx->mode & TDES_FLAGS_OPMODE_MASK) != TDES_FLAGS_ECB)
+	if (!err && (rctx->mode & TDES_FLAGS_OPMODE_MASK) != TDES_FLAGS_ECB)
 		atmel_tdes_set_iv_as_last_ciphertext_block(dd);
 
 	req->base.complete(&req->base, err);
@@ -743,33 +741,17 @@ static int atmel_tdes_crypt(struct skcipher_request *req, unsigned long mode)
 	return atmel_tdes_handle_queue(ctx->dd, req);
 }
 
-static bool atmel_tdes_filter(struct dma_chan *chan, void *slave)
+static int atmel_tdes_dma_init(struct atmel_tdes_dev *dd)
 {
-	struct at_dma_slave	*sl = slave;
-
-	if (sl && sl->dma_dev == chan->device->dev) {
-		chan->private = sl;
-		return true;
-	} else {
-		return false;
-	}
-}
-
-static int atmel_tdes_dma_init(struct atmel_tdes_dev *dd,
-			struct crypto_platform_data *pdata)
-{
-	dma_cap_mask_t mask;
-
-	dma_cap_zero(mask);
-	dma_cap_set(DMA_SLAVE, mask);
+	int ret;
 
 	/* Try to grab 2 DMA channels */
-	dd->dma_lch_in.chan = dma_request_slave_channel_compat(mask,
-			atmel_tdes_filter, &pdata->dma_slave->rxdata, dd->dev, "tx");
-	if (!dd->dma_lch_in.chan)
+	dd->dma_lch_in.chan = dma_request_chan(dd->dev, "tx");
+	if (IS_ERR(dd->dma_lch_in.chan)) {
+		ret = PTR_ERR(dd->dma_lch_in.chan);
 		goto err_dma_in;
+	}
 
-	dd->dma_lch_in.dma_conf.direction = DMA_MEM_TO_DEV;
 	dd->dma_lch_in.dma_conf.dst_addr = dd->phys_base +
 		TDES_IDATA1R;
 	dd->dma_lch_in.dma_conf.src_maxburst = 1;
@@ -780,12 +762,12 @@ static int atmel_tdes_dma_init(struct atmel_tdes_dev *dd,
 		DMA_SLAVE_BUSWIDTH_4_BYTES;
 	dd->dma_lch_in.dma_conf.device_fc = false;
 
-	dd->dma_lch_out.chan = dma_request_slave_channel_compat(mask,
-			atmel_tdes_filter, &pdata->dma_slave->txdata, dd->dev, "rx");
-	if (!dd->dma_lch_out.chan)
+	dd->dma_lch_out.chan = dma_request_chan(dd->dev, "rx");
+	if (IS_ERR(dd->dma_lch_out.chan)) {
+		ret = PTR_ERR(dd->dma_lch_out.chan);
 		goto err_dma_out;
+	}
 
-	dd->dma_lch_out.dma_conf.direction = DMA_DEV_TO_MEM;
 	dd->dma_lch_out.dma_conf.src_addr = dd->phys_base +
 		TDES_ODATA1R;
 	dd->dma_lch_out.dma_conf.src_maxburst = 1;
@@ -801,8 +783,8 @@ static int atmel_tdes_dma_init(struct atmel_tdes_dev *dd,
 err_dma_out:
 	dma_release_channel(dd->dma_lch_in.chan);
 err_dma_in:
-	dev_warn(dd->dev, "no DMA channel available\n");
-	return -ENODEV;
+	dev_err(dd->dev, "no DMA channel available\n");
+	return ret;
 }
 
 static void atmel_tdes_dma_cleanup(struct atmel_tdes_dev *dd)
@@ -926,18 +908,23 @@ static int atmel_tdes_init_tfm(struct crypto_skcipher *tfm)
 	return 0;
 }
 
+static void atmel_tdes_skcipher_alg_init(struct skcipher_alg *alg)
+{
+	alg->base.cra_priority = ATMEL_TDES_PRIORITY;
+	alg->base.cra_flags = CRYPTO_ALG_ASYNC;
+	alg->base.cra_ctxsize = sizeof(struct atmel_tdes_ctx),
+	alg->base.cra_module = THIS_MODULE;
+
+	alg->init = atmel_tdes_init_tfm;
+}
+
 static struct skcipher_alg tdes_algs[] = {
 {
 	.base.cra_name		= "ecb(des)",
 	.base.cra_driver_name	= "atmel-ecb-des",
-	.base.cra_priority	= 100,
-	.base.cra_flags		= CRYPTO_ALG_ASYNC,
 	.base.cra_blocksize	= DES_BLOCK_SIZE,
-	.base.cra_ctxsize	= sizeof(struct atmel_tdes_ctx),
 	.base.cra_alignmask	= 0x7,
-	.base.cra_module	= THIS_MODULE,
 
-	.init			= atmel_tdes_init_tfm,
 	.min_keysize		= DES_KEY_SIZE,
 	.max_keysize		= DES_KEY_SIZE,
 	.setkey			= atmel_des_setkey,
@@ -947,14 +934,9 @@ static struct skcipher_alg tdes_algs[] = {
 {
 	.base.cra_name		= "cbc(des)",
 	.base.cra_driver_name	= "atmel-cbc-des",
-	.base.cra_priority	= 100,
-	.base.cra_flags		= CRYPTO_ALG_ASYNC,
 	.base.cra_blocksize	= DES_BLOCK_SIZE,
-	.base.cra_ctxsize	= sizeof(struct atmel_tdes_ctx),
 	.base.cra_alignmask	= 0x7,
-	.base.cra_module	= THIS_MODULE,
 
-	.init			= atmel_tdes_init_tfm,
 	.min_keysize		= DES_KEY_SIZE,
 	.max_keysize		= DES_KEY_SIZE,
 	.ivsize			= DES_BLOCK_SIZE,
@@ -965,14 +947,9 @@ static struct skcipher_alg tdes_algs[] = {
 {
 	.base.cra_name		= "cfb(des)",
 	.base.cra_driver_name	= "atmel-cfb-des",
-	.base.cra_priority	= 100,
-	.base.cra_flags		= CRYPTO_ALG_ASYNC,
 	.base.cra_blocksize	= DES_BLOCK_SIZE,
-	.base.cra_ctxsize	= sizeof(struct atmel_tdes_ctx),
 	.base.cra_alignmask	= 0x7,
-	.base.cra_module	= THIS_MODULE,
 
-	.init			= atmel_tdes_init_tfm,
 	.min_keysize		= DES_KEY_SIZE,
 	.max_keysize		= DES_KEY_SIZE,
 	.ivsize			= DES_BLOCK_SIZE,
@@ -983,14 +960,9 @@ static struct skcipher_alg tdes_algs[] = {
 {
 	.base.cra_name		= "cfb8(des)",
 	.base.cra_driver_name	= "atmel-cfb8-des",
-	.base.cra_priority	= 100,
-	.base.cra_flags		= CRYPTO_ALG_ASYNC,
 	.base.cra_blocksize	= CFB8_BLOCK_SIZE,
-	.base.cra_ctxsize	= sizeof(struct atmel_tdes_ctx),
 	.base.cra_alignmask	= 0,
-	.base.cra_module	= THIS_MODULE,
 
-	.init			= atmel_tdes_init_tfm,
 	.min_keysize		= DES_KEY_SIZE,
 	.max_keysize		= DES_KEY_SIZE,
 	.ivsize			= DES_BLOCK_SIZE,
@@ -1001,14 +973,9 @@ static struct skcipher_alg tdes_algs[] = {
 {
 	.base.cra_name		= "cfb16(des)",
 	.base.cra_driver_name	= "atmel-cfb16-des",
-	.base.cra_priority	= 100,
-	.base.cra_flags		= CRYPTO_ALG_ASYNC,
 	.base.cra_blocksize	= CFB16_BLOCK_SIZE,
-	.base.cra_ctxsize	= sizeof(struct atmel_tdes_ctx),
 	.base.cra_alignmask	= 0x1,
-	.base.cra_module	= THIS_MODULE,
 
-	.init			= atmel_tdes_init_tfm,
 	.min_keysize		= DES_KEY_SIZE,
 	.max_keysize		= DES_KEY_SIZE,
 	.ivsize			= DES_BLOCK_SIZE,
@@ -1019,14 +986,9 @@ static struct skcipher_alg tdes_algs[] = {
 {
 	.base.cra_name		= "cfb32(des)",
 	.base.cra_driver_name	= "atmel-cfb32-des",
-	.base.cra_priority	= 100,
-	.base.cra_flags		= CRYPTO_ALG_ASYNC,
 	.base.cra_blocksize	= CFB32_BLOCK_SIZE,
-	.base.cra_ctxsize	= sizeof(struct atmel_tdes_ctx),
 	.base.cra_alignmask	= 0x3,
-	.base.cra_module	= THIS_MODULE,
 
-	.init			= atmel_tdes_init_tfm,
 	.min_keysize		= DES_KEY_SIZE,
 	.max_keysize		= DES_KEY_SIZE,
 	.ivsize			= DES_BLOCK_SIZE,
@@ -1037,14 +999,9 @@ static struct skcipher_alg tdes_algs[] = {
 {
 	.base.cra_name		= "ofb(des)",
 	.base.cra_driver_name	= "atmel-ofb-des",
-	.base.cra_priority	= 100,
-	.base.cra_flags		= CRYPTO_ALG_ASYNC,
 	.base.cra_blocksize	= DES_BLOCK_SIZE,
-	.base.cra_ctxsize	= sizeof(struct atmel_tdes_ctx),
 	.base.cra_alignmask	= 0x7,
-	.base.cra_module	= THIS_MODULE,
 
-	.init			= atmel_tdes_init_tfm,
 	.min_keysize		= DES_KEY_SIZE,
 	.max_keysize		= DES_KEY_SIZE,
 	.ivsize			= DES_BLOCK_SIZE,
@@ -1055,14 +1012,9 @@ static struct skcipher_alg tdes_algs[] = {
 {
 	.base.cra_name		= "ecb(des3_ede)",
 	.base.cra_driver_name	= "atmel-ecb-tdes",
-	.base.cra_priority	= 100,
-	.base.cra_flags		= CRYPTO_ALG_ASYNC,
 	.base.cra_blocksize	= DES_BLOCK_SIZE,
-	.base.cra_ctxsize	= sizeof(struct atmel_tdes_ctx),
 	.base.cra_alignmask	= 0x7,
-	.base.cra_module	= THIS_MODULE,
 
-	.init			= atmel_tdes_init_tfm,
 	.min_keysize		= DES3_EDE_KEY_SIZE,
 	.max_keysize		= DES3_EDE_KEY_SIZE,
 	.setkey			= atmel_tdes_setkey,
@@ -1072,14 +1024,9 @@ static struct skcipher_alg tdes_algs[] = {
 {
 	.base.cra_name		= "cbc(des3_ede)",
 	.base.cra_driver_name	= "atmel-cbc-tdes",
-	.base.cra_priority	= 100,
-	.base.cra_flags		= CRYPTO_ALG_ASYNC,
 	.base.cra_blocksize	= DES_BLOCK_SIZE,
-	.base.cra_ctxsize	= sizeof(struct atmel_tdes_ctx),
 	.base.cra_alignmask	= 0x7,
-	.base.cra_module	= THIS_MODULE,
 
-	.init			= atmel_tdes_init_tfm,
 	.min_keysize		= DES3_EDE_KEY_SIZE,
 	.max_keysize		= DES3_EDE_KEY_SIZE,
 	.setkey			= atmel_tdes_setkey,
@@ -1090,14 +1037,9 @@ static struct skcipher_alg tdes_algs[] = {
 {
 	.base.cra_name		= "ofb(des3_ede)",
 	.base.cra_driver_name	= "atmel-ofb-tdes",
-	.base.cra_priority	= 100,
-	.base.cra_flags		= CRYPTO_ALG_ASYNC,
 	.base.cra_blocksize	= DES_BLOCK_SIZE,
-	.base.cra_ctxsize	= sizeof(struct atmel_tdes_ctx),
 	.base.cra_alignmask	= 0x7,
-	.base.cra_module	= THIS_MODULE,
 
-	.init			= atmel_tdes_init_tfm,
 	.min_keysize		= DES3_EDE_KEY_SIZE,
 	.max_keysize		= DES3_EDE_KEY_SIZE,
 	.setkey			= atmel_tdes_setkey,
@@ -1123,8 +1065,6 @@ static void atmel_tdes_done_task(unsigned long data)
 		err = atmel_tdes_crypt_pdc_stop(dd);
 	else
 		err = atmel_tdes_crypt_dma_stop(dd);
-
-	err = dd->err ? : err;
 
 	if (dd->total && !err) {
 		if (dd->flags & TDES_FLAGS_FAST) {
@@ -1174,6 +1114,8 @@ static int atmel_tdes_register_algs(struct atmel_tdes_dev *dd)
 	int err, i, j;
 
 	for (i = 0; i < ARRAY_SIZE(tdes_algs); i++) {
+		atmel_tdes_skcipher_alg_init(&tdes_algs[i]);
+
 		err = crypto_register_skcipher(&tdes_algs[i]);
 		if (err)
 			goto err_tdes_algs;
@@ -1215,49 +1157,18 @@ static const struct of_device_id atmel_tdes_dt_ids[] = {
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, atmel_tdes_dt_ids);
-
-static struct crypto_platform_data *atmel_tdes_of_init(struct platform_device *pdev)
-{
-	struct device_node *np = pdev->dev.of_node;
-	struct crypto_platform_data *pdata;
-
-	if (!np) {
-		dev_err(&pdev->dev, "device node not found\n");
-		return ERR_PTR(-EINVAL);
-	}
-
-	pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
-	if (!pdata)
-		return ERR_PTR(-ENOMEM);
-
-	pdata->dma_slave = devm_kzalloc(&pdev->dev,
-					sizeof(*(pdata->dma_slave)),
-					GFP_KERNEL);
-	if (!pdata->dma_slave)
-		return ERR_PTR(-ENOMEM);
-
-	return pdata;
-}
-#else /* CONFIG_OF */
-static inline struct crypto_platform_data *atmel_tdes_of_init(struct platform_device *pdev)
-{
-	return ERR_PTR(-EINVAL);
-}
 #endif
 
 static int atmel_tdes_probe(struct platform_device *pdev)
 {
 	struct atmel_tdes_dev *tdes_dd;
-	struct crypto_platform_data	*pdata;
 	struct device *dev = &pdev->dev;
 	struct resource *tdes_res;
 	int err;
 
 	tdes_dd = devm_kmalloc(&pdev->dev, sizeof(*tdes_dd), GFP_KERNEL);
-	if (tdes_dd == NULL) {
-		err = -ENOMEM;
-		goto tdes_dd_err;
-	}
+	if (!tdes_dd)
+		return -ENOMEM;
 
 	tdes_dd->dev = dev;
 
@@ -1278,7 +1189,7 @@ static int atmel_tdes_probe(struct platform_device *pdev)
 	if (!tdes_res) {
 		dev_err(dev, "no MEM resource info\n");
 		err = -ENODEV;
-		goto res_err;
+		goto err_tasklet_kill;
 	}
 	tdes_dd->phys_base = tdes_res->start;
 
@@ -1286,14 +1197,14 @@ static int atmel_tdes_probe(struct platform_device *pdev)
 	tdes_dd->irq = platform_get_irq(pdev,  0);
 	if (tdes_dd->irq < 0) {
 		err = tdes_dd->irq;
-		goto res_err;
+		goto err_tasklet_kill;
 	}
 
 	err = devm_request_irq(&pdev->dev, tdes_dd->irq, atmel_tdes_irq,
 			       IRQF_SHARED, "atmel-tdes", tdes_dd);
 	if (err) {
 		dev_err(dev, "unable to request tdes irq.\n");
-		goto res_err;
+		goto err_tasklet_kill;
 	}
 
 	/* Initializing the clock */
@@ -1301,41 +1212,30 @@ static int atmel_tdes_probe(struct platform_device *pdev)
 	if (IS_ERR(tdes_dd->iclk)) {
 		dev_err(dev, "clock initialization failed.\n");
 		err = PTR_ERR(tdes_dd->iclk);
-		goto res_err;
+		goto err_tasklet_kill;
 	}
 
 	tdes_dd->io_base = devm_ioremap_resource(&pdev->dev, tdes_res);
 	if (IS_ERR(tdes_dd->io_base)) {
 		dev_err(dev, "can't ioremap\n");
 		err = PTR_ERR(tdes_dd->io_base);
-		goto res_err;
+		goto err_tasklet_kill;
 	}
 
-	atmel_tdes_hw_version_init(tdes_dd);
+	err = atmel_tdes_hw_version_init(tdes_dd);
+	if (err)
+		goto err_tasklet_kill;
 
 	atmel_tdes_get_cap(tdes_dd);
 
 	err = atmel_tdes_buff_init(tdes_dd);
 	if (err)
-		goto err_tdes_buff;
+		goto err_tasklet_kill;
 
 	if (tdes_dd->caps.has_dma) {
-		pdata = pdev->dev.platform_data;
-		if (!pdata) {
-			pdata = atmel_tdes_of_init(pdev);
-			if (IS_ERR(pdata)) {
-				dev_err(&pdev->dev, "platform data not available\n");
-				err = PTR_ERR(pdata);
-				goto err_pdata;
-			}
-		}
-		if (!pdata->dma_slave) {
-			err = -ENXIO;
-			goto err_pdata;
-		}
-		err = atmel_tdes_dma_init(tdes_dd, pdata);
+		err = atmel_tdes_dma_init(tdes_dd);
 		if (err)
-			goto err_tdes_dma;
+			goto err_buff_cleanup;
 
 		dev_info(dev, "using %s, %s for DMA transfers\n",
 				dma_chan_name(tdes_dd->dma_lch_in.chan),
@@ -1360,15 +1260,11 @@ err_algs:
 	spin_unlock(&atmel_tdes.lock);
 	if (tdes_dd->caps.has_dma)
 		atmel_tdes_dma_cleanup(tdes_dd);
-err_tdes_dma:
-err_pdata:
+err_buff_cleanup:
 	atmel_tdes_buff_cleanup(tdes_dd);
-err_tdes_buff:
-res_err:
+err_tasklet_kill:
 	tasklet_kill(&tdes_dd->done_task);
 	tasklet_kill(&tdes_dd->queue_task);
-tdes_dd_err:
-	dev_err(dev, "initialization failed.\n");
 
 	return err;
 }

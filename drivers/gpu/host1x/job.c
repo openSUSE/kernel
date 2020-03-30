@@ -248,6 +248,7 @@ static unsigned int pin_job(struct host1x *host, struct host1x_job *job)
 				goto unpin;
 			}
 
+			job->unpins[job->num_unpins].dir = DMA_TO_DEVICE;
 			job->unpins[job->num_unpins].dev = host->dev;
 			phys_addr = sg_dma_address(sgt->sgl);
 		}
@@ -255,7 +256,6 @@ static unsigned int pin_job(struct host1x *host, struct host1x_job *job)
 		job->addr_phys[job->num_unpins] = phys_addr;
 		job->gather_addr_phys[i] = phys_addr;
 
-		job->unpins[job->num_unpins].dir = DMA_TO_DEVICE;
 		job->unpins[job->num_unpins].bo = g->bo;
 		job->unpins[job->num_unpins].sgt = sgt;
 		job->num_unpins++;
@@ -270,8 +270,7 @@ unpin:
 
 static int do_relocs(struct host1x_job *job, struct host1x_job_gather *g)
 {
-	u32 last_page = ~0;
-	void *cmdbuf_page_addr = NULL;
+	void *cmdbuf_addr = NULL;
 	struct host1x_bo *cmdbuf = g->bo;
 	unsigned int i;
 
@@ -293,28 +292,22 @@ static int do_relocs(struct host1x_job *job, struct host1x_job_gather *g)
 			goto patch_reloc;
 		}
 
-		if (last_page != reloc->cmdbuf.offset >> PAGE_SHIFT) {
-			if (cmdbuf_page_addr)
-				host1x_bo_kunmap(cmdbuf, last_page,
-						 cmdbuf_page_addr);
+		if (!cmdbuf_addr) {
+			cmdbuf_addr = host1x_bo_mmap(cmdbuf);
 
-			cmdbuf_page_addr = host1x_bo_kmap(cmdbuf,
-					reloc->cmdbuf.offset >> PAGE_SHIFT);
-			last_page = reloc->cmdbuf.offset >> PAGE_SHIFT;
-
-			if (unlikely(!cmdbuf_page_addr)) {
+			if (unlikely(!cmdbuf_addr)) {
 				pr_err("Could not map cmdbuf for relocation\n");
 				return -ENOMEM;
 			}
 		}
 
-		target = cmdbuf_page_addr + (reloc->cmdbuf.offset & ~PAGE_MASK);
+		target = cmdbuf_addr + reloc->cmdbuf.offset;
 patch_reloc:
 		*target = reloc_addr;
 	}
 
-	if (cmdbuf_page_addr)
-		host1x_bo_kunmap(cmdbuf, last_page, cmdbuf_page_addr);
+	if (cmdbuf_addr)
+		host1x_bo_munmap(cmdbuf, cmdbuf_addr);
 
 	return 0;
 }

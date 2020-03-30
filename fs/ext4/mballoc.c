@@ -3914,6 +3914,7 @@ ext4_mb_discard_group_preallocations(struct super_block *sb,
 	bitmap_bh = ext4_read_block_bitmap(sb, group);
 	if (IS_ERR(bitmap_bh)) {
 		err = PTR_ERR(bitmap_bh);
+		ext4_set_errno(sb, -err);
 		ext4_error(sb, "Error %d reading block bitmap for %u",
 			   err, group);
 		return 0;
@@ -4082,6 +4083,7 @@ repeat:
 		err = ext4_mb_load_buddy_gfp(sb, group, &e4b,
 					     GFP_NOFS|__GFP_NOFAIL);
 		if (err) {
+			ext4_set_errno(sb, -err);
 			ext4_error(sb, "Error %d loading buddy information for %u",
 				   err, group);
 			continue;
@@ -4090,6 +4092,7 @@ repeat:
 		bitmap_bh = ext4_read_block_bitmap(sb, group);
 		if (IS_ERR(bitmap_bh)) {
 			err = PTR_ERR(bitmap_bh);
+			ext4_set_errno(sb, -err);
 			ext4_error(sb, "Error %d reading block bitmap for %u",
 					err, group);
 			ext4_mb_unload_buddy(&e4b);
@@ -4344,6 +4347,7 @@ ext4_mb_discard_lg_preallocations(struct super_block *sb,
 		err = ext4_mb_load_buddy_gfp(sb, group, &e4b,
 					     GFP_NOFS|__GFP_NOFAIL);
 		if (err) {
+			ext4_set_errno(sb, -err);
 			ext4_error(sb, "Error %d loading buddy information for %u",
 				   err, group);
 			continue;

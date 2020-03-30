@@ -62,7 +62,7 @@ u64 kvm_supported_xcr0(void)
 	return xcr0;
 }
 
-#define F(x) bit(X86_FEATURE_##x)
+#define F feature_bit
 
 int kvm_update_cpuid(struct kvm_vcpu *vcpu)
 {
@@ -281,8 +281,9 @@ out:
 	return r;
 }
 
-static void cpuid_mask(u32 *word, int wordnum)
+static __always_inline void cpuid_mask(u32 *word, int wordnum)
 {
+	reverse_cpuid_check(wordnum);
 	*word &= boot_cpu_data.x86_capability[wordnum];
 }
 

@@ -42,7 +42,7 @@ int cc_pm_resume(struct device *dev)
 		dev_err(dev, "failed getting clock back on. We're toast.\n");
 		return rc;
 	}
-	/* wait for Crytpcell reset completion */
+	/* wait for Cryptocell reset completion */
 	if (!cc_wait_for_reset_completion(drvdata)) {
 		dev_err(dev, "Cryptocell reset not completed");
 		return -EBUSY;
@@ -73,17 +73,14 @@ int cc_pm_get(struct device *dev)
 	return (rc == 1 ? 0 : rc);
 }
 
-int cc_pm_put_suspend(struct device *dev)
+void cc_pm_put_suspend(struct device *dev)
 {
-	int rc = 0;
 	struct cc_drvdata *drvdata = dev_get_drvdata(dev);
 
 	if (drvdata->pm_on) {
 		pm_runtime_mark_last_busy(dev);
-		rc = pm_runtime_put_autosuspend(dev);
+		pm_runtime_put_autosuspend(dev);
 	}
-
-	return rc;
 }
 
 bool cc_pm_is_dev_suspended(struct device *dev)
@@ -96,7 +93,7 @@ int cc_pm_init(struct cc_drvdata *drvdata)
 {
 	struct device *dev = drvdata_to_dev(drvdata);
 
-	/* must be before the enabling to avoid resdundent suspending */
+	/* must be before the enabling to avoid redundant suspending */
 	pm_runtime_set_autosuspend_delay(dev, CC_SUSPEND_TIMEOUT);
 	pm_runtime_use_autosuspend(dev);
 	/* set us as active - note we won't do PM ops until cc_pm_go()! */

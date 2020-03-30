@@ -206,6 +206,22 @@ enum {
 	CONTEXT_BEACON_PACKET
 };
 
+struct vnt_rx_header {
+	u32 wbk_status;
+	u8 rx_sts;
+	u8 rx_rate;
+	u16 pay_load_len;
+} __packed;
+
+struct vnt_rx_tail {
+	__le64 tsf_time;
+	u8 sq;
+	u8 new_rsr;
+	u8 rssi;
+	u8 rsr;
+	u8 sq_3;
+} __packed;
+
 /* RCB (Receive Control Block) */
 struct vnt_rcb {
 	void *priv;
@@ -264,7 +280,6 @@ struct vnt_private {
 	struct usb_interface *intf;
 
 	u64 tsf_time;
-	u8 rx_rate;
 
 	u32 rx_buf_sz;
 	int mc_list_count;

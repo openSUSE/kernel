@@ -2,7 +2,7 @@
 /*
  * padata.c - generic interface to process data streams in parallel
  *
- * See Documentation/padata.txt for an api documentation.
+ * See Documentation/core-api/padata.rst for more information.
  *
  * Copyright (C) 2008, 2009 secunet Security Networks AG
  * Copyright (C) 2008, 2009 Steffen Klassert <steffen.klassert@secunet.com>
@@ -99,6 +99,8 @@ static void padata_parallel_worker(struct work_struct *parallel_work)
  * The parallelization callback function will run with BHs off.
  * Note: Every object which is parallelized by padata_do_parallel
  * must be seen by padata_do_serial.
+ *
+ * Return: 0 on success or else negative error code.
  */
 int padata_do_parallel(struct padata_shell *ps,
 		       struct padata_priv *padata, int *cb_cpu)
@@ -163,14 +165,12 @@ EXPORT_SYMBOL(padata_do_parallel);
 /*
  * padata_find_next - Find the next object that needs serialization.
  *
- * Return values are:
- *
- * A pointer to the control struct of the next object that needs
- * serialization, if present in one of the percpu reorder queues.
- *
- * NULL, if the next object that needs serialization will
- *  be parallel processed by another cpu and is not yet present in
- *  the cpu's reorder queue.
+ * Return:
+ * * A pointer to the control struct of the next object that needs
+ *   serialization, if present in one of the percpu reorder queues.
+ * * NULL, if the next object that needs serialization will
+ *   be parallel processed by another cpu and is not yet present in
+ *   the cpu's reorder queue.
  */
 static struct padata_priv *padata_find_next(struct parallel_data *pd,
 					    bool remove_object)
@@ -202,7 +202,6 @@ static struct padata_priv *padata_find_next(struct parallel_data *pd,
 
 	if (remove_object) {
 		list_del_init(&padata->list);
-		atomic_dec(&pd->reorder_objects);
 		++pd->processed;
 		pd->cpu = cpumask_next_wrap(cpu, pd->cpumask.pcpu, -1, false);
 	}
@@ -336,7 +335,6 @@ void padata_do_serial(struct padata_priv *padata)
 		if (cur->seq_nr < padata->seq_nr)
 			break;
 	list_add(&padata->list, &cur->list);
-	atomic_inc(&pd->reorder_objects);
 	spin_unlock(&pqueue->reorder.lock);
 
 	/*
@@ -455,7 +453,6 @@ static struct parallel_data *padata_alloc_pd(struct padata_shell *ps)
 	padata_init_pqueues(pd);
 	padata_init_squeues(pd);
 	atomic_set(&pd->seq_nr, -1);
-	atomic_set(&pd->reorder_objects, 0);
 	atomic_set(&pd->refcnt, 1);
 	spin_lock_init(&pd->lock);
 	pd->cpu = cpumask_first(pd->cpumask.pcpu);
@@ -514,23 +511,16 @@ static int padata_replace_one(struct padata_shell *ps)
 
 static int padata_replace(struct padata_instance *pinst)
 {
-	int notification_mask = 0;
 	struct padata_shell *ps;
 	int err;
 
 	pinst->flags |= PADATA_RESET;
 
-	cpumask_copy(pinst->omask, pinst->rcpumask.pcpu);
 	cpumask_and(pinst->rcpumask.pcpu, pinst->cpumask.pcpu,
 		    cpu_online_mask);
-	if (!cpumask_equal(pinst->omask, pinst->rcpumask.pcpu))
-		notification_mask |= PADATA_CPU_PARALLEL;
 
-	cpumask_copy(pinst->omask, pinst->rcpumask.cbcpu);
 	cpumask_and(pinst->rcpumask.cbcpu, pinst->cpumask.cbcpu,
 		    cpu_online_mask);
-	if (!cpumask_equal(pinst->omask, pinst->rcpumask.cbcpu))
-		notification_mask |= PADATA_CPU_SERIAL;
 
 	list_for_each_entry(ps, &pinst->pslist, list) {
 		err = padata_replace_one(ps);
@@ -544,47 +534,10 @@ static int padata_replace(struct padata_instance *pinst)
 		if (atomic_dec_and_test(&ps->opd->refcnt))
 			padata_free_pd(ps->opd);
 
-	if (notification_mask)
-		blocking_notifier_call_chain(&pinst->cpumask_change_notifier,
-					     notification_mask,
-					     &pinst->cpumask);
-
 	pinst->flags &= ~PADATA_RESET;
 
 	return err;
 }
-
-/**
- * padata_register_cpumask_notifier - Registers a notifier that will be called
- *                             if either pcpu or cbcpu or both cpumasks change.
- *
- * @pinst: A poineter to padata instance
- * @nblock: A pointer to notifier block.
- */
-int padata_register_cpumask_notifier(struct padata_instance *pinst,
-				     struct notifier_block *nblock)
-{
-	return blocking_notifier_chain_register(&pinst->cpumask_change_notifier,
-						nblock);
-}
-EXPORT_SYMBOL(padata_register_cpumask_notifier);
-
-/**
- * padata_unregister_cpumask_notifier - Unregisters cpumask notifier
- *        registered earlier  using padata_register_cpumask_notifier
- *
- * @pinst: A pointer to data instance.
- * @nlock: A pointer to notifier block.
- */
-int padata_unregister_cpumask_notifier(struct padata_instance *pinst,
-				       struct notifier_block *nblock)
-{
-	return blocking_notifier_chain_unregister(
-		&pinst->cpumask_change_notifier,
-		nblock);
-}
-EXPORT_SYMBOL(padata_unregister_cpumask_notifier);
-
 
 /* If cpumask contains no active cpu, we mark the instance as invalid. */
 static bool padata_validate_cpumask(struct padata_instance *pinst,
@@ -629,13 +582,14 @@ out_replace:
 }
 
 /**
- * padata_set_cpumask: Sets specified by @cpumask_type cpumask to the value
- *                     equivalent to @cpumask.
- *
+ * padata_set_cpumask - Sets specified by @cpumask_type cpumask to the value
+ *                      equivalent to @cpumask.
  * @pinst: padata instance
  * @cpumask_type: PADATA_CPU_SERIAL or PADATA_CPU_PARALLEL corresponding
  *                to parallel and serial cpumasks respectively.
  * @cpumask: the cpumask to use
+ *
+ * Return: 0 on success or negative error code
  */
 int padata_set_cpumask(struct padata_instance *pinst, int cpumask_type,
 		       cpumask_var_t cpumask)
@@ -643,8 +597,8 @@ int padata_set_cpumask(struct padata_instance *pinst, int cpumask_type,
 	struct cpumask *serial_mask, *parallel_mask;
 	int err = -EINVAL;
 
-	mutex_lock(&pinst->lock);
 	get_online_cpus();
+	mutex_lock(&pinst->lock);
 
 	switch (cpumask_type) {
 	case PADATA_CPU_PARALLEL:
@@ -662,8 +616,8 @@ int padata_set_cpumask(struct padata_instance *pinst, int cpumask_type,
 	err =  __padata_set_cpumasks(pinst, parallel_mask, serial_mask);
 
 out:
-	put_online_cpus();
 	mutex_unlock(&pinst->lock);
+	put_online_cpus();
 
 	return err;
 }
@@ -673,6 +627,8 @@ EXPORT_SYMBOL(padata_set_cpumask);
  * padata_start - start the parallel processing
  *
  * @pinst: padata instance to start
+ *
+ * Return: 0 on success or negative error code
  */
 int padata_start(struct padata_instance *pinst)
 {
@@ -736,41 +692,6 @@ static int __padata_remove_cpu(struct padata_instance *pinst, int cpu)
 	return err;
 }
 
- /**
- * padata_remove_cpu - remove a cpu from the one or both(serial and parallel)
- *                     padata cpumasks.
- *
- * @pinst: padata instance
- * @cpu: cpu to remove
- * @mask: bitmask specifying from which cpumask @cpu should be removed
- *        The @mask may be any combination of the following flags:
- *          PADATA_CPU_SERIAL   - serial cpumask
- *          PADATA_CPU_PARALLEL - parallel cpumask
- */
-int padata_remove_cpu(struct padata_instance *pinst, int cpu, int mask)
-{
-	int err;
-
-	if (!(mask & (PADATA_CPU_SERIAL | PADATA_CPU_PARALLEL)))
-		return -EINVAL;
-
-	mutex_lock(&pinst->lock);
-
-	get_online_cpus();
-	if (mask & PADATA_CPU_SERIAL)
-		cpumask_clear_cpu(cpu, pinst->cpumask.cbcpu);
-	if (mask & PADATA_CPU_PARALLEL)
-		cpumask_clear_cpu(cpu, pinst->cpumask.pcpu);
-
-	err = __padata_remove_cpu(pinst, cpu);
-	put_online_cpus();
-
-	mutex_unlock(&pinst->lock);
-
-	return err;
-}
-EXPORT_SYMBOL(padata_remove_cpu);
-
 static inline int pinst_has_cpu(struct padata_instance *pinst, int cpu)
 {
 	return cpumask_test_cpu(cpu, pinst->cpumask.pcpu) ||
@@ -820,7 +741,6 @@ static void __padata_free(struct padata_instance *pinst)
 	WARN_ON(!list_empty(&pinst->pslist));
 
 	padata_stop(pinst);
-	free_cpumask_var(pinst->omask);
 	free_cpumask_var(pinst->rcpumask.cbcpu);
 	free_cpumask_var(pinst->rcpumask.pcpu);
 	free_cpumask_var(pinst->cpumask.pcpu);
@@ -963,6 +883,8 @@ static struct kobj_type padata_attr_type = {
  * @name: used to identify the instance
  * @pcpumask: cpumask that will be used for padata parallelization
  * @cbcpumask: cpumask that will be used for padata serialization
+ *
+ * Return: new instance on success, NULL on error
  */
 static struct padata_instance *padata_alloc(const char *name,
 					    const struct cpumask *pcpumask,
@@ -1000,8 +922,6 @@ static struct padata_instance *padata_alloc(const char *name,
 		goto err_free_masks;
 	if (!alloc_cpumask_var(&pinst->rcpumask.cbcpu, GFP_KERNEL))
 		goto err_free_rcpumask_pcpu;
-	if (!alloc_cpumask_var(&pinst->omask, GFP_KERNEL))
-		goto err_free_rcpumask_cbcpu;
 
 	INIT_LIST_HEAD(&pinst->pslist);
 
@@ -1011,11 +931,10 @@ static struct padata_instance *padata_alloc(const char *name,
 	cpumask_and(pinst->rcpumask.cbcpu, cbcpumask, cpu_online_mask);
 
 	if (padata_setup_cpumasks(pinst))
-		goto err_free_omask;
+		goto err_free_rcpumask_cbcpu;
 
 	pinst->flags = 0;
 
-	BLOCKING_INIT_NOTIFIER_HEAD(&pinst->cpumask_change_notifier);
 	kobject_init(&pinst->kobj, &padata_attr_type);
 	mutex_init(&pinst->lock);
 
@@ -1029,8 +948,6 @@ static struct padata_instance *padata_alloc(const char *name,
 
 	return pinst;
 
-err_free_omask:
-	free_cpumask_var(pinst->omask);
 err_free_rcpumask_cbcpu:
 	free_cpumask_var(pinst->rcpumask.cbcpu);
 err_free_rcpumask_pcpu:
@@ -1055,6 +972,8 @@ err:
  *                         parallel workers.
  *
  * @name: used to identify the instance
+ *
+ * Return: new instance on success, NULL on error
  */
 struct padata_instance *padata_alloc_possible(const char *name)
 {
@@ -1065,7 +984,7 @@ EXPORT_SYMBOL(padata_alloc_possible);
 /**
  * padata_free - free a padata instance
  *
- * @padata_inst: padata instance to free
+ * @pinst: padata instance to free
  */
 void padata_free(struct padata_instance *pinst)
 {
@@ -1077,6 +996,8 @@ EXPORT_SYMBOL(padata_free);
  * padata_alloc_shell - Allocate and initialize padata shell.
  *
  * @pinst: Parent padata_instance object.
+ *
+ * Return: new shell on success, NULL on error
  */
 struct padata_shell *padata_alloc_shell(struct padata_instance *pinst)
 {

@@ -13,14 +13,13 @@
 #include <linux/workqueue.h>
 #include <linux/spinlock.h>
 #include <linux/list.h>
-#include <linux/notifier.h>
 #include <linux/kobject.h>
 
 #define PADATA_CPU_SERIAL   0x01
 #define PADATA_CPU_PARALLEL 0x02
 
 /**
- * struct padata_priv -  Embedded to the users data structure.
+ * struct padata_priv - Represents one job
  *
  * @list: List entry, to attach to the padata lists.
  * @pd: Pointer to the internal control structure.
@@ -43,7 +42,7 @@ struct padata_priv {
 };
 
 /**
- * struct padata_list
+ * struct padata_list - one per work type per CPU
  *
  * @list: List head.
  * @lock: List lock.
@@ -71,9 +70,6 @@ struct padata_serial_queue {
  *
  * @parallel: List to wait for parallelization.
  * @reorder: List to wait for reordering after parallel processing.
- * @serial: List to wait for serialization after reordering.
- * @pwork: work struct for parallelization.
- * @swork: work struct for serialization.
  * @work: work struct for parallelization.
  * @num_obj: Number of objects that are processed by this cpu.
  */
@@ -99,12 +95,11 @@ struct padata_cpumask {
  * struct parallel_data - Internal control structure, covers everything
  * that depends on the cpumask in use.
  *
- * @sh: padata_shell object.
+ * @ps: padata_shell object.
  * @pqueue: percpu padata queues used for parallelization.
  * @squeue: percpu padata queues used for serialuzation.
- * @reorder_objects: Number of objects waiting in the reorder queues.
  * @refcnt: Number of objects holding a reference on this parallel_data.
- * @max_seq_nr:  Maximal used sequence number.
+ * @seq_nr: Sequence number of the parallelized data object.
  * @processed: Number of already processed objects.
  * @cpu: Next CPU to be processed.
  * @cpumask: The cpumasks in use for parallel and serial workers.
@@ -115,14 +110,13 @@ struct parallel_data {
 	struct padata_shell		*ps;
 	struct padata_parallel_queue	__percpu *pqueue;
 	struct padata_serial_queue	__percpu *squeue;
-	atomic_t			reorder_objects;
 	atomic_t			refcnt;
 	atomic_t			seq_nr;
 	unsigned int			processed;
 	int				cpu;
 	struct padata_cpumask		cpumask;
 	struct work_struct		reorder_work;
-	spinlock_t                      lock ____cacheline_aligned;
+	spinlock_t                      ____cacheline_aligned lock;
 };
 
 /**
@@ -145,16 +139,12 @@ struct padata_shell {
 /**
  * struct padata_instance - The overall control structure.
  *
- * @cpu_notifier: cpu hotplug notifier.
+ * @node: Used by CPU hotplug.
  * @parallel_wq: The workqueue used for parallel work.
  * @serial_wq: The workqueue used for serial work.
  * @pslist: List of padata_shell objects attached to this instance.
  * @cpumask: User supplied cpumasks for parallel and serial works.
  * @rcpumask: Actual cpumasks based on user cpumask and cpu_online_mask.
- * @omask: Temporary storage used to compute the notification mask.
- * @cpumask_change_notifier: Notifiers chain for user-defined notify
- *            callbacks that will be called when either @pcpu or @cbcpu
- *            or both cpumasks change.
  * @kobj: padata instance kernel object.
  * @lock: padata instance lock.
  * @flags: padata flags.
@@ -166,8 +156,6 @@ struct padata_instance {
 	struct list_head		pslist;
 	struct padata_cpumask		cpumask;
 	struct padata_cpumask		rcpumask;
-	cpumask_var_t			omask;
-	struct blocking_notifier_head	 cpumask_change_notifier;
 	struct kobject                   kobj;
 	struct mutex			 lock;
 	u8				 flags;
@@ -187,8 +175,4 @@ extern int padata_set_cpumask(struct padata_instance *pinst, int cpumask_type,
 			      cpumask_var_t cpumask);
 extern int padata_start(struct padata_instance *pinst);
 extern void padata_stop(struct padata_instance *pinst);
-extern int padata_register_cpumask_notifier(struct padata_instance *pinst,
-					    struct notifier_block *nblock);
-extern int padata_unregister_cpumask_notifier(struct padata_instance *pinst,
-					      struct notifier_block *nblock);
 #endif
