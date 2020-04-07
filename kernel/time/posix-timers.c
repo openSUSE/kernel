@@ -824,15 +824,27 @@ static int common_hrtimer_try_to_cancel(struct k_itimer *timr)
 	return hrtimer_try_to_cancel(&timr->it.real.timer);
 }
 
-static void timer_wait_for_callback(const struct k_clock *kc, struct k_itimer *timer)
+static void common_timer_wait_running(struct k_itimer *timer)
 {
-	if (kc->timer_arm == common_hrtimer_arm)
-		hrtimer_grab_expiry_lock(&timer->it.real.timer);
-	else if (kc == &alarm_clock)
-		hrtimer_grab_expiry_lock(&timer->it.alarm.alarmtimer.timer);
-	else
-		/* posix-cpu-timers */
-		cpu_timers_grab_expiry_lock(timer);
+	hrtimer_cancel_wait_running(&timer->it.real.timer);
+}
+
+static struct k_itimer *timer_wait_running(struct k_itimer *timer,
+					   unsigned long *flags)
+{
+	const struct k_clock *kc = READ_ONCE(timer->kclock);
+	timer_t timer_id = READ_ONCE(timer->it_id);
+
+	/* Prevent kfree(timer) after dropping the lock */
+	rcu_read_lock();
+	unlock_timer(timer, *flags);
+
+	if (!WARN_ON_ONCE(!kc->timer_wait_running))
+		kc->timer_wait_running(timer);
+
+	rcu_read_unlock();
+	/* Relock the timer. It might be not longer hashed. */
+	return lock_timer(timer_id, flags);
 }
 
 /* Set a POSIX.1b interval timer. */
@@ -876,13 +888,13 @@ int common_timer_set(struct k_itimer *timr, int flags,
 	return 0;
 }
 
-static int do_timer_settime(timer_t timer_id, int flags,
+static int do_timer_settime(timer_t timer_id, int tmr_flags,
 			    struct itimerspec64 *new_spec64,
 			    struct itimerspec64 *old_spec64)
 {
 	const struct k_clock *kc;
 	struct k_itimer *timr;
-	unsigned long flag;
+	unsigned long flags;
 	int error = 0;
 
 	if (!timespec64_valid(&new_spec64->it_interval) ||
@@ -891,8 +903,9 @@ static int do_timer_settime(timer_t timer_id, int flags,
 
 	if (old_spec64)
 		memset(old_spec64, 0, sizeof(*old_spec64));
+
+	timr = lock_timer(timer_id, &flags);
 retry:
-	timr = lock_timer(timer_id, &flag);
 	if (!timr)
 		return -EINVAL;
 
@@ -900,17 +913,16 @@ retry:
 	if (WARN_ON_ONCE(!kc || !kc->timer_set))
 		error = -EINVAL;
 	else
-		error = kc->timer_set(timr, flags, new_spec64, old_spec64);
+		error = kc->timer_set(timr, tmr_flags, new_spec64, old_spec64);
 
 	if (error == TIMER_RETRY) {
-		rcu_read_lock();
-		unlock_timer(timr, flag);
-		timer_wait_for_callback(kc, timr);
-		rcu_read_unlock();
-		old_spec64 = NULL;	// We already got the old time...
+		// We already got the old time...
+		old_spec64 = NULL;
+		/* Unlocks and relocks the timer if it still exists */
+		timr = timer_wait_running(timr, &flags);
 		goto retry;
 	}
-	unlock_timer(timr, flag);
+	unlock_timer(timr, flags);
 
 	return error;
 }
@@ -972,21 +984,13 @@ int common_timer_del(struct k_itimer *timer)
 	return 0;
 }
 
-static int timer_delete_hook(struct k_itimer *timer)
+static inline int timer_delete_hook(struct k_itimer *timer)
 {
 	const struct k_clock *kc = timer->kclock;
-	int ret;
 
 	if (WARN_ON_ONCE(!kc || !kc->timer_del))
 		return -EINVAL;
-	ret = kc->timer_del(timer);
-	if (ret == TIMER_RETRY) {
-		rcu_read_lock();
-		spin_unlock_irq(&timer->it_lock);
-		timer_wait_for_callback(kc, timer);
-		rcu_read_unlock();
-	}
-	return ret;
+	return kc->timer_del(timer);
 }
 
 /* Delete a POSIX.1b interval timer. */
@@ -995,13 +999,17 @@ SYSCALL_DEFINE1(timer_delete, timer_t, timer_id)
 	struct k_itimer *timer;
 	unsigned long flags;
 
-retry_delete:
 	timer = lock_timer(timer_id, &flags);
+
+retry_delete:
 	if (!timer)
 		return -EINVAL;
 
-	if (timer_delete_hook(timer) == TIMER_RETRY)
+	if (unlikely(timer_delete_hook(timer) == TIMER_RETRY)) {
+		/* Unlocks and relocks the timer if it still exists */
+		timer = timer_wait_running(timer, &flags);
 		goto retry_delete;
+	}
 
 	spin_lock(&current->sighand->siglock);
 	list_del(&timer->list);
@@ -1025,9 +1033,10 @@ static void itimer_delete(struct k_itimer *timer)
 retry_delete:
 	spin_lock_irq(&timer->it_lock);
 
-	if (timer_delete_hook(timer) == TIMER_RETRY)
+	if (timer_delete_hook(timer) == TIMER_RETRY) {
+		spin_unlock_irq(&timer->it_lock);
 		goto retry_delete;
-
+	}
 	list_del(&timer->list);
 
 	spin_unlock_irq(&timer->it_lock);
@@ -1295,6 +1304,7 @@ static const struct k_clock clock_realtime = {
 	.timer_forward		= common_hrtimer_forward,
 	.timer_remaining	= common_hrtimer_remaining,
 	.timer_try_to_cancel	= common_hrtimer_try_to_cancel,
+	.timer_wait_running	= common_timer_wait_running,
 	.timer_arm		= common_hrtimer_arm,
 };
 
@@ -1311,6 +1321,7 @@ static const struct k_clock clock_monotonic = {
 	.timer_forward		= common_hrtimer_forward,
 	.timer_remaining	= common_hrtimer_remaining,
 	.timer_try_to_cancel	= common_hrtimer_try_to_cancel,
+	.timer_wait_running	= common_timer_wait_running,
 	.timer_arm		= common_hrtimer_arm,
 };
 
@@ -1342,6 +1353,7 @@ static const struct k_clock clock_tai = {
 	.timer_forward		= common_hrtimer_forward,
 	.timer_remaining	= common_hrtimer_remaining,
 	.timer_try_to_cancel	= common_hrtimer_try_to_cancel,
+	.timer_wait_running	= common_timer_wait_running,
 	.timer_arm		= common_hrtimer_arm,
 };
 
@@ -1358,6 +1370,7 @@ static const struct k_clock clock_boottime = {
 	.timer_forward		= common_hrtimer_forward,
 	.timer_remaining	= common_hrtimer_remaining,
 	.timer_try_to_cancel	= common_hrtimer_try_to_cancel,
+	.timer_wait_running	= common_timer_wait_running,
 	.timer_arm		= common_hrtimer_arm,
 };
 

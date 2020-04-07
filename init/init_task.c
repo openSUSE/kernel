@@ -30,8 +30,6 @@ static struct signal_struct init_signals = {
 	.posix_timers = LIST_HEAD_INIT(init_signals.posix_timers),
 	.cputimer	= {
 		.cputime_atomic	= INIT_CPUTIME_ATOMIC,
-		.running	= false,
-		.checking_timer = false,
 	},
 #endif
 	INIT_CPU_TIMERS(init_signals)
@@ -50,12 +48,6 @@ static struct sighand_struct init_sighand = {
 	.siglock	= __SPIN_LOCK_UNLOCKED(init_sighand.siglock),
 	.signalfd_wqh	= __WAIT_QUEUE_HEAD_INITIALIZER(init_sighand.signalfd_wqh),
 };
-
-#if defined(CONFIG_POSIX_TIMERS) && defined(CONFIG_PREEMPT_RT)
-# define INIT_TIMER_LIST		.posix_timer_list = NULL,
-#else
-# define INIT_TIMER_LIST
-#endif
 
 /*
  * Set up the first task table, touch at your own risk!. Base=0,
@@ -130,7 +122,6 @@ struct task_struct init_task
 	INIT_CPU_TIMERS(init_task)
 	.pi_lock	= __RAW_SPIN_LOCK_UNLOCKED(init_task.pi_lock),
 	.timer_slack_ns = 50000, /* 50 usec default slack */
-	INIT_TIMER_LIST
 	.thread_pid	= &init_struct_pid,
 	.thread_group	= LIST_HEAD_INIT(init_task.thread_group),
 	.thread_node	= LIST_HEAD_INIT(init_signals.thread_head),
