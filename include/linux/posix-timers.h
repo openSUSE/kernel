@@ -72,6 +72,7 @@ struct cpu_timer {
 	struct task_struct	*task;
 	struct list_head	elist;
 	int			firing;
+	int			firing_cpu;
 };
 
 static inline bool cpu_timer_requeue(struct cpu_timer *ctmr)
