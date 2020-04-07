@@ -474,11 +474,7 @@ static int do_timerfd_settime(int ufd, int flags,
 				break;
 		}
 		spin_unlock_irq(&ctx->wqh.lock);
-
-		if (isalarm(ctx))
-			hrtimer_grab_expiry_lock(&ctx->t.alarm.timer);
-		else
-			hrtimer_grab_expiry_lock(&ctx->t.tmr);
+		cpu_relax();
 	}
 
 	/*

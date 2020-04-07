@@ -196,7 +196,6 @@ EXPORT_SYMBOL(jiffies_64);
 struct timer_base {
 	raw_spinlock_t		lock;
 	struct timer_list	*running_timer;
-	spinlock_t		expiry_lock;
 	unsigned long		clk;
 	unsigned long		next_expiry;
 	unsigned int		cpu;
@@ -1202,25 +1201,6 @@ int del_timer(struct timer_list *timer)
 }
 EXPORT_SYMBOL(del_timer);
 
-static int __try_to_del_timer_sync(struct timer_list *timer,
-				   struct timer_base **basep)
-{
-	struct timer_base *base;
-	unsigned long flags;
-	int ret = -1;
-
-	debug_assert_init(timer);
-
-	*basep = base = lock_timer_base(timer, &flags);
-
-	if (base->running_timer != timer)
-		ret = detach_if_pending(timer, base, true);
-
-	raw_spin_unlock_irqrestore(&base->lock, flags);
-
-	return ret;
-}
-
 /**
  * try_to_del_timer_sync - Try to deactivate a timer
  * @timer: timer to delete
@@ -1231,31 +1211,23 @@ static int __try_to_del_timer_sync(struct timer_list *timer,
 int try_to_del_timer_sync(struct timer_list *timer)
 {
 	struct timer_base *base;
+	unsigned long flags;
+	int ret = -1;
 
-	return __try_to_del_timer_sync(timer, &base);
+	debug_assert_init(timer);
+
+	base = lock_timer_base(timer, &flags);
+
+	if (base->running_timer != timer)
+		ret = detach_if_pending(timer, base, true);
+
+	raw_spin_unlock_irqrestore(&base->lock, flags);
+
+	return ret;
 }
 EXPORT_SYMBOL(try_to_del_timer_sync);
 
-#if defined(CONFIG_SMP) || defined(CONFIG_PREEMPT_RT)
-static int __del_timer_sync(struct timer_list *timer)
-{
-	struct timer_base *base;
-	int ret;
-
-	for (;;) {
-		ret = __try_to_del_timer_sync(timer, &base);
-		if (ret >= 0)
-			return ret;
-
-		/*
-		 * When accessing the lock, timers of base are no longer expired
-		 * and so timer is no longer running.
-		 */
-		spin_lock(&base->expiry_lock);
-		spin_unlock(&base->expiry_lock);
-	}
-}
-
+#ifdef CONFIG_SMP
 /**
  * del_timer_sync - deactivate a timer and wait for the handler to finish.
  * @timer: the timer to be deactivated
@@ -1311,8 +1283,12 @@ int del_timer_sync(struct timer_list *timer)
 	 * could lead to deadlock.
 	 */
 	WARN_ON(in_irq() && !(timer->flags & TIMER_IRQSAFE));
-
-	return __del_timer_sync(timer);
+	for (;;) {
+		int ret = try_to_del_timer_sync(timer);
+		if (ret >= 0)
+			return ret;
+		cpu_relax();
+	}
 }
 EXPORT_SYMBOL(del_timer_sync);
 #endif
@@ -1381,20 +1357,13 @@ static void expire_timers(struct timer_base *base, struct hlist_head *head)
 
 		fn = timer->function;
 
-		if (!IS_ENABLED(CONFIG_PREEMPT_RT) &&
-		    timer->flags & TIMER_IRQSAFE) {
+		if (timer->flags & TIMER_IRQSAFE) {
 			raw_spin_unlock(&base->lock);
 			call_timer_fn(timer, fn, baseclk);
-			base->running_timer = NULL;
-			spin_unlock(&base->expiry_lock);
-			spin_lock(&base->expiry_lock);
 			raw_spin_lock(&base->lock);
 		} else {
 			raw_spin_unlock_irq(&base->lock);
 			call_timer_fn(timer, fn, baseclk);
-			base->running_timer = NULL;
-			spin_unlock(&base->expiry_lock);
-			spin_lock(&base->expiry_lock);
 			raw_spin_lock_irq(&base->lock);
 		}
 	}
@@ -1691,7 +1660,6 @@ static inline void __run_timers(struct timer_base *base)
 	if (!time_after_eq(jiffies, base->clk))
 		return;
 
-	spin_lock(&base->expiry_lock);
 	raw_spin_lock_irq(&base->lock);
 
 	/*
@@ -1718,8 +1686,8 @@ static inline void __run_timers(struct timer_base *base)
 		while (levels--)
 			expire_timers(base, heads + levels);
 	}
+	base->running_timer = NULL;
 	raw_spin_unlock_irq(&base->lock);
-	spin_unlock(&base->expiry_lock);
 }
 
 /*
@@ -1966,7 +1934,6 @@ static void __init init_timer_cpu(int cpu)
 		base->cpu = cpu;
 		raw_spin_lock_init(&base->lock);
 		base->clk = jiffies;
-		spin_lock_init(&base->expiry_lock);
 	}
 }
 
