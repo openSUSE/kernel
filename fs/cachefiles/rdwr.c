@@ -739,8 +739,8 @@ int cachefiles_read_or_alloc_pages(struct fscache_retrieval *op,
 		block = page->index;
 		block <<= shift;
 
-		ret = bmap(inode, &block);
-		ASSERT(!ret);
+		if (bmap(inode, &block) != 0)
+			ASSERT(0);
 
 		_debug("%llx -> %llx",
 		       (unsigned long long) (page->index << shift),
