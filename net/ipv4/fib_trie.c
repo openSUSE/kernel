@@ -35,9 +35,6 @@
  *		Paul E. McKenney <paulmck@us.ibm.com>
  *		Patrick McHardy <kaber@trash.net>
  */
-
-#define VERSION "0.409"
-
 #include <linux/cache.h>
 #include <linux/uaccess.h>
 #include <linux/bitops.h>
@@ -304,8 +301,6 @@ static inline void alias_free_mem_rcu(struct fib_alias *fa)
 	call_rcu(&fa->rcu, __alias_free_mem);
 }
 
-#define TNODE_KMALLOC_MAX \
-	ilog2((PAGE_SIZE - TNODE_SIZE(0)) / sizeof(struct key_vector *))
 #define TNODE_VMALLOC_MAX \
 	ilog2((SIZE_MAX - TNODE_SIZE(0)) / sizeof(struct key_vector *))
 
@@ -1684,7 +1679,7 @@ int fib_table_delete(struct net *net, struct fib_table *tb,
 		     fi->fib_prefsrc == cfg->fc_prefsrc) &&
 		    (!cfg->fc_protocol ||
 		     fi->fib_protocol == cfg->fc_protocol) &&
-		    fib_nh_match(cfg, fi, extack) == 0 &&
+		    fib_nh_match(net, cfg, fi, extack) == 0 &&
 		    fib_metrics_match(cfg, fi)) {
 			fa_to_delete = fa;
 			break;

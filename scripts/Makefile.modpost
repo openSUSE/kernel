@@ -48,16 +48,17 @@ modulesymfile := $(firstword $(KBUILD_EXTMOD))/Module.symvers
 
 MODVERDIR := $(if $(KBUILD_EXTMOD),$(firstword $(KBUILD_EXTMOD))/).tmp_versions
 
-MODPOST = scripts/mod/modpost						\
-	$(if $(CONFIG_MODVERSIONS),-m)					\
-	$(if $(CONFIG_MODULE_SRCVERSION_ALL),-a)			\
-	$(if $(KBUILD_EXTMOD),-i,-o) $(kernelsymfile)			\
-	$(if $(KBUILD_EXTMOD),$(addprefix -e ,$(KBUILD_EXTRA_SYMBOLS)))	\
-	$(if $(KBUILD_EXTMOD),-o $(modulesymfile))			\
-	$(if $(CONFIG_SECTION_MISMATCH_WARN_ONLY),,-E)			\
-	$(if $(KBUILD_MODPOST_WARN),-w)					\
-	$(if $(CONFIG_SUSE_KERNEL_SUPPORTED),				\
-		-N $(firstword $(wildcard $(dir $(MODVERDIR))/Module.supported \
+MODPOST = scripts/mod/modpost								\
+	$(if $(CONFIG_MODVERSIONS),-m)							\
+	$(if $(CONFIG_MODULE_SRCVERSION_ALL),-a)					\
+	$(if $(KBUILD_EXTMOD),-i,-o) $(kernelsymfile)					\
+	$(if $(KBUILD_EXTMOD),$(addprefix -e ,$(KBUILD_EXTRA_SYMBOLS)))			\
+	$(if $(KBUILD_EXTMOD),-o $(modulesymfile))					\
+	$(if $(CONFIG_SECTION_MISMATCH_WARN_ONLY),,-E)					\
+	$(if $(CONFIG_MODULE_ALLOW_MISSING_NAMESPACE_IMPORTS)$(KBUILD_NSDEPS),-N) 	\
+	$(if $(KBUILD_MODPOST_WARN),-w)							\
+	$(if $(CONFIG_SUSE_KERNEL_SUPPORTED),						\
+		-S $(firstword $(wildcard $(dir $(MODVERDIR))/Module.supported		\
 		$(if $(KBUILD_EXTMOD),,$(srctree)/Module.supported) /dev/null)))
 
 ifdef MODPOST_VMLINUX
