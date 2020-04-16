@@ -360,7 +360,7 @@ struct request_queue
 	unsigned int		sg_reserved_size;
 	int			node;
 #ifdef CONFIG_BLK_DEV_IO_TRACE
-	struct blk_trace	*blk_trace;
+	struct blk_trace __rcu	*blk_trace;
 #endif
 	/*
 	 * for flush operations
@@ -386,6 +386,11 @@ struct request_queue
 #ifdef CONFIG_BLK_DEV_THROTTLING
 	/* Throttle data */
 	struct throtl_data *td;
+#endif
+#ifdef CONFIG_BLK_DEV_IO_TRACE
+#ifndef __GENKSYMS__
+	struct mutex		blk_trace_mutex;
+#endif
 #endif
 };
 
