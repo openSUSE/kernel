@@ -227,7 +227,7 @@ static int __down_trylock_console_sem(unsigned long ip)
 
 static void __up_console_sem(unsigned long ip)
 {
-	mutex_release(&console_lock_dep_map, 1, ip);
+	mutex_release(&console_lock_dep_map, ip);
 
 	up(&console_sem);
 }

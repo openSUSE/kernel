@@ -359,7 +359,7 @@ EXPORT_SYMBOL(rt_write_lock);
 
 void __lockfunc rt_read_unlock(rwlock_t *rwlock)
 {
-	rwlock_release(&rwlock->dep_map, 1, _RET_IP_);
+	rwlock_release(&rwlock->dep_map, _RET_IP_);
 	do_read_rt_unlock(rwlock);
 	migrate_enable();
 	rcu_read_unlock();
@@ -369,7 +369,7 @@ EXPORT_SYMBOL(rt_read_unlock);
 
 void __lockfunc rt_write_unlock(rwlock_t *rwlock)
 {
-	rwlock_release(&rwlock->dep_map, 1, _RET_IP_);
+	rwlock_release(&rwlock->dep_map, _RET_IP_);
 	do_write_rt_unlock(rwlock);
 	migrate_enable();
 	rcu_read_unlock();

@@ -1502,7 +1502,7 @@ static void ww_test_edeadlk_normal(void)
 
 	mutex_lock(&o2.base);
 	o2.ctx = &t2;
-	mutex_release(&o2.base.dep_map, 1, _THIS_IP_);
+	mutex_release(&o2.base.dep_map, _THIS_IP_);
 
 	WWAI(&t);
 	t2 = t;
@@ -1527,7 +1527,7 @@ static void ww_test_edeadlk_normal_slow(void)
 	int ret;
 
 	mutex_lock(&o2.base);
-	mutex_release(&o2.base.dep_map, 1, _THIS_IP_);
+	mutex_release(&o2.base.dep_map, _THIS_IP_);
 	o2.ctx = &t2;
 
 	WWAI(&t);
@@ -1554,7 +1554,7 @@ static void ww_test_edeadlk_no_unlock(void)
 
 	mutex_lock(&o2.base);
 	o2.ctx = &t2;
-	mutex_release(&o2.base.dep_map, 1, _THIS_IP_);
+	mutex_release(&o2.base.dep_map, _THIS_IP_);
 
 	WWAI(&t);
 	t2 = t;
@@ -1578,7 +1578,7 @@ static void ww_test_edeadlk_no_unlock_slow(void)
 	int ret;
 
 	mutex_lock(&o2.base);
-	mutex_release(&o2.base.dep_map, 1, _THIS_IP_);
+	mutex_release(&o2.base.dep_map, _THIS_IP_);
 	o2.ctx = &t2;
 
 	WWAI(&t);
@@ -1603,7 +1603,7 @@ static void ww_test_edeadlk_acquire_more(void)
 	int ret;
 
 	mutex_lock(&o2.base);
-	mutex_release(&o2.base.dep_map, 1, _THIS_IP_);
+	mutex_release(&o2.base.dep_map, _THIS_IP_);
 	o2.ctx = &t2;
 
 	WWAI(&t);
@@ -1624,7 +1624,7 @@ static void ww_test_edeadlk_acquire_more_slow(void)
 	int ret;
 
 	mutex_lock(&o2.base);
-	mutex_release(&o2.base.dep_map, 1, _THIS_IP_);
+	mutex_release(&o2.base.dep_map, _THIS_IP_);
 	o2.ctx = &t2;
 
 	WWAI(&t);
@@ -1645,11 +1645,11 @@ static void ww_test_edeadlk_acquire_more_edeadlk(void)
 	int ret;
 
 	mutex_lock(&o2.base);
-	mutex_release(&o2.base.dep_map, 1, _THIS_IP_);
+	mutex_release(&o2.base.dep_map, _THIS_IP_);
 	o2.ctx = &t2;
 
 	mutex_lock(&o3.base);
-	mutex_release(&o3.base.dep_map, 1, _THIS_IP_);
+	mutex_release(&o3.base.dep_map, _THIS_IP_);
 	o3.ctx = &t2;
 
 	WWAI(&t);
@@ -1671,11 +1671,11 @@ static void ww_test_edeadlk_acquire_more_edeadlk_slow(void)
 	int ret;
 
 	mutex_lock(&o2.base);
-	mutex_release(&o2.base.dep_map, 1, _THIS_IP_);
+	mutex_release(&o2.base.dep_map, _THIS_IP_);
 	o2.ctx = &t2;
 
 	mutex_lock(&o3.base);
-	mutex_release(&o3.base.dep_map, 1, _THIS_IP_);
+	mutex_release(&o3.base.dep_map, _THIS_IP_);
 	o3.ctx = &t2;
 
 	WWAI(&t);
@@ -1696,7 +1696,7 @@ static void ww_test_edeadlk_acquire_wrong(void)
 	int ret;
 
 	mutex_lock(&o2.base);
-	mutex_release(&o2.base.dep_map, 1, _THIS_IP_);
+	mutex_release(&o2.base.dep_map, _THIS_IP_);
 	o2.ctx = &t2;
 
 	WWAI(&t);
@@ -1721,7 +1721,7 @@ static void ww_test_edeadlk_acquire_wrong_slow(void)
 	int ret;
 
 	mutex_lock(&o2.base);
-	mutex_release(&o2.base.dep_map, 1, _THIS_IP_);
+	mutex_release(&o2.base.dep_map, _THIS_IP_);
 	o2.ctx = &t2;
 
 	WWAI(&t);
