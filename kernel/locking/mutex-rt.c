@@ -110,7 +110,7 @@ int __lockfunc _mutex_lock_interruptible(struct mutex *lock)
 	mutex_acquire(&lock->dep_map, 0, 0, _RET_IP_);
 	ret = __rt_mutex_lock_state(&lock->lock, TASK_INTERRUPTIBLE);
 	if (ret)
-		mutex_release(&lock->dep_map, 1, _RET_IP_);
+		mutex_release(&lock->dep_map, _RET_IP_);
 	return ret;
 }
 EXPORT_SYMBOL(_mutex_lock_interruptible);
@@ -122,7 +122,7 @@ int __lockfunc _mutex_lock_killable(struct mutex *lock)
 	mutex_acquire(&lock->dep_map, 0, 0, _RET_IP_);
 	ret = __rt_mutex_lock_state(&lock->lock, TASK_KILLABLE);
 	if (ret)
-		mutex_release(&lock->dep_map, 1, _RET_IP_);
+		mutex_release(&lock->dep_map, _RET_IP_);
 	return ret;
 }
 EXPORT_SYMBOL(_mutex_lock_killable);
@@ -162,7 +162,7 @@ int __lockfunc _mutex_lock_interruptible_nested(struct mutex *lock, int subclass
 	mutex_acquire_nest(&lock->dep_map, subclass, 0, NULL, _RET_IP_);
 	ret = __rt_mutex_lock_state(&lock->lock, TASK_INTERRUPTIBLE);
 	if (ret)
-		mutex_release(&lock->dep_map, 1, _RET_IP_);
+		mutex_release(&lock->dep_map, _RET_IP_);
 	return ret;
 }
 EXPORT_SYMBOL(_mutex_lock_interruptible_nested);
@@ -174,7 +174,7 @@ int __lockfunc _mutex_lock_killable_nested(struct mutex *lock, int subclass)
 	mutex_acquire(&lock->dep_map, subclass, 0, _RET_IP_);
 	ret = __rt_mutex_lock_state(&lock->lock, TASK_KILLABLE);
 	if (ret)
-		mutex_release(&lock->dep_map, 1, _RET_IP_);
+		mutex_release(&lock->dep_map, _RET_IP_);
 	return ret;
 }
 EXPORT_SYMBOL(_mutex_lock_killable_nested);
@@ -193,7 +193,7 @@ EXPORT_SYMBOL(_mutex_trylock);
 
 void __lockfunc _mutex_unlock(struct mutex *lock)
 {
-	mutex_release(&lock->dep_map, 1, _RET_IP_);
+	mutex_release(&lock->dep_map, _RET_IP_);
 	__rt_mutex_unlock(&lock->lock);
 }
 EXPORT_SYMBOL(_mutex_unlock);
