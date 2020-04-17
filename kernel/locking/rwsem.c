@@ -28,7 +28,6 @@
 #include <linux/rwsem.h>
 #include <linux/atomic.h>
 
-#include "rwsem.h"
 #include "lock_events.h"
 
 #ifndef CONFIG_PREEMPT_RT
@@ -1340,7 +1339,7 @@ static struct rw_semaphore *rwsem_downgrade_wake(struct rw_semaphore *sem)
 /*
  * lock for reading
  */
-inline void __down_read(struct rw_semaphore *sem)
+static inline void __down_read(struct rw_semaphore *sem)
 {
 	if (!rwsem_read_trylock(sem)) {
 		rwsem_down_read_slowpath(sem, TASK_UNINTERRUPTIBLE);
@@ -1385,7 +1384,7 @@ static inline int __down_read_trylock(struct rw_semaphore *sem)
 /*
  * lock for writing
  */
-inline void __down_write(struct rw_semaphore *sem)
+static inline void __down_write(struct rw_semaphore *sem)
 {
 	long tmp = RWSEM_UNLOCKED_VALUE;
 
@@ -1428,7 +1427,7 @@ static inline int __down_write_trylock(struct rw_semaphore *sem)
 /*
  * unlock after reading
  */
-inline void __up_read(struct rw_semaphore *sem)
+static inline void __up_read(struct rw_semaphore *sem)
 {
 	long tmp;
 
@@ -1448,7 +1447,7 @@ inline void __up_read(struct rw_semaphore *sem)
 /*
  * unlock after writing
  */
-inline void __up_write(struct rw_semaphore *sem)
+static inline void __up_write(struct rw_semaphore *sem)
 {
 	long tmp;
 
