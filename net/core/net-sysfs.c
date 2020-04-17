@@ -1029,7 +1029,7 @@ static int register_queue_kobjects(struct net_device *net)
 error:
 	netdev_queue_update_kobjects(net, txq, 0);
 	net_rx_queue_update_kobjects(net, rxq, 0);
-#ifdef CONFIG_SYSFS
+#if defined(CONFIG_RPS) || defined(CONFIG_XPS)
 	kset_unregister(net->queues_kset);
 #endif
 	return error;
