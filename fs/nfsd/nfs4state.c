@@ -2281,6 +2281,7 @@ alloc_init_open_stateowner(unsigned int strhashval, struct nfs4_client *clp, str
 	sop->so_client = clp;
 	sop->so_seqid = open->op_seqid;
 	sop->so_confirmed = 0;
+	sop->so_new = 1;
 	rp = &sop->so_replay;
 	rp->rp_status = nfserr_serverfault;
 	rp->rp_buflen = 0;
@@ -2532,7 +2533,6 @@ renew:
 			return nfserr_jukebox;
 		open->op_stateowner = sop;
 	}
-	list_del_init(&sop->so_close_lru);
 	renew_client(sop->so_client);
 	return nfs_ok;
 }
@@ -2954,6 +2954,23 @@ out:
 		open->op_rflags |= NFS4_OPEN_RESULT_CONFIRM;
 
 	return status;
+}
+
+void nfsd4_cleanup_open_state(struct nfsd4_open *open, __be32 status)
+{
+	if (open->op_stateowner) {
+		struct nfs4_stateowner *oo = open->op_stateowner;
+
+		if (!list_empty(&oo->so_stateids))
+			list_del_init(&oo->so_close_lru);
+		if (oo->so_new) {
+			if (status) {
+				release_openowner(oo);
+				open->op_stateowner = NULL;
+			} else
+				oo->so_new = 0;
+		}
+	}
 }
 
 __be32
