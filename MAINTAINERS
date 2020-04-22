@@ -9329,6 +9329,7 @@ M:	Christian Borntraeger <borntraeger@de.ibm.com>
 M:	Janosch Frank <frankja@linux.ibm.com>
 R:	David Hildenbrand <david@redhat.com>
 R:	Cornelia Huck <cohuck@redhat.com>
+R:	Claudio Imbrenda <imbrenda@linux.ibm.com>
 L:	kvm@vger.kernel.org
 S:	Supported
 W:	http://www.ibm.com/developerworks/linux/linux390/
@@ -9415,6 +9416,13 @@ F:	include/linux/key.h
 F:	include/linux/keyctl.h
 F:	include/uapi/linux/keyctl.h
 F:	security/keys/
+
+KFIFO
+M:	Stefani Seibold <stefani@seibold.net>
+S:	Maintained
+F:	include/linux/kfifo.h
+F:	lib/kfifo.c
+F:	samples/kfifo/
 
 KGDB / KDB /debug_core
 M:	Jason Wessel <jason.wessel@windriver.com>
