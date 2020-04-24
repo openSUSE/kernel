@@ -96,6 +96,10 @@ struct serial8250_config {
 #define SERIAL8250_SHARE_IRQS 0
 #endif
 
+void set_ier(struct uart_8250_port *up, unsigned char ier);
+void clear_ier(struct uart_8250_port *up);
+void restore_ier(struct uart_8250_port *up);
+
 #define SERIAL8250_PORT_FLAGS(_base, _irq, _flags)		\
 	{							\
 		.iobase		= _base,			\
@@ -120,10 +124,6 @@ static inline void serial_out(struct uart_8250_port *up, int offset, int value)
 
 void serial8250_clear_and_reinit_fifos(struct uart_8250_port *p);
 
-void set_ier(struct uart_8250_port *up, unsigned char ier);
-void clear_ier(struct uart_8250_port *up);
-void restore_ier(struct uart_8250_port *up);
-
 static inline int serial_dl_read(struct uart_8250_port *up)
 {
 	return up->dl_read(up);
@@ -139,11 +139,29 @@ static inline bool serial8250_set_THRI(struct uart_8250_port *up)
 	if (up->ier & UART_IER_THRI)
 		return false;
 	up->ier |= UART_IER_THRI;
+	serial_out(up, UART_IER, up->ier);
+	return true;
+}
+
+static inline bool serial8250_set_THRI_sier(struct uart_8250_port *up)
+{
+	if (up->ier & UART_IER_THRI)
+		return false;
+	up->ier |= UART_IER_THRI;
 	set_ier(up, up->ier);
 	return true;
 }
 
 static inline bool serial8250_clear_THRI(struct uart_8250_port *up)
+{
+	if (!(up->ier & UART_IER_THRI))
+		return false;
+	up->ier &= ~UART_IER_THRI;
+	serial_out(up, UART_IER, up->ier);
+	return true;
+}
+
+static inline bool serial8250_clear_THRI_sier(struct uart_8250_port *up)
 {
 	if (!(up->ier & UART_IER_THRI))
 		return false;

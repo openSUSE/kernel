@@ -1502,7 +1502,7 @@ static void __stop_tx_rs485(struct uart_8250_port *p)
 
 static inline void __do_stop_tx(struct uart_8250_port *p)
 {
-	if (serial8250_clear_THRI(p))
+	if (serial8250_clear_THRI_sier(p))
 		serial8250_rpm_put_tx(p);
 }
 
@@ -1552,7 +1552,7 @@ static inline void __start_tx(struct uart_port *port)
 	if (up->dma && !up->dma->tx_dma(up))
 		return;
 
-	if (serial8250_set_THRI(up)) {
+	if (serial8250_set_THRI_sier(up)) {
 		if (up->bugs & UART_BUG_TXEN) {
 			unsigned char lsr;
 
