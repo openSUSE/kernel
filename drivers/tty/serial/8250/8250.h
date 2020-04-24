@@ -120,10 +120,6 @@ static inline void serial_out(struct uart_8250_port *up, int offset, int value)
 
 void serial8250_clear_and_reinit_fifos(struct uart_8250_port *p);
 
-void set_ier(struct uart_8250_port *up, unsigned char ier);
-void clear_ier(struct uart_8250_port *up);
-void restore_ier(struct uart_8250_port *up);
-
 static inline int serial_dl_read(struct uart_8250_port *up)
 {
 	return up->dl_read(up);
@@ -134,12 +130,55 @@ static inline void serial_dl_write(struct uart_8250_port *up, int value)
 	up->dl_write(up, value);
 }
 
+static inline void serial8250_set_IER(struct uart_8250_port *up,
+				      unsigned char ier)
+{
+	struct uart_port *port = &up->port;
+	unsigned int flags;
+	bool is_console;
+
+	is_console = uart_console(port);
+
+	if (is_console)
+		console_atomic_lock(&flags);
+
+	serial_out(up, UART_IER, ier);
+
+	if (is_console)
+		console_atomic_unlock(flags);
+}
+
+static inline unsigned char serial8250_clear_IER(struct uart_8250_port *up)
+{
+	struct uart_port *port = &up->port;
+	unsigned int clearval = 0;
+	unsigned int prior;
+	unsigned int flags;
+	bool is_console;
+
+	is_console = uart_console(port);
+
+	if (up->capabilities & UART_CAP_UUE)
+		clearval = UART_IER_UUE;
+
+	if (is_console)
+		console_atomic_lock(&flags);
+
+	prior = serial_port_in(port, UART_IER);
+	serial_port_out(port, UART_IER, clearval);
+
+	if (is_console)
+		console_atomic_unlock(flags);
+
+	return prior;
+}
+
 static inline bool serial8250_set_THRI(struct uart_8250_port *up)
 {
 	if (up->ier & UART_IER_THRI)
 		return false;
 	up->ier |= UART_IER_THRI;
-	set_ier(up, up->ier);
+	serial8250_set_IER(up, up->ier);
 	return true;
 }
 
@@ -148,7 +187,7 @@ static inline bool serial8250_clear_THRI(struct uart_8250_port *up)
 	if (!(up->ier & UART_IER_THRI))
 		return false;
 	up->ier &= ~UART_IER_THRI;
-	set_ier(up, up->ier);
+	serial8250_set_IER(up, up->ier);
 	return true;
 }
 
