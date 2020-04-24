@@ -22,9 +22,6 @@ enum bh_state_bits {
 	BH_Dirty,	/* Is dirty */
 	BH_Lock,	/* Is locked */
 	BH_Req,		/* Has been submitted for I/O */
-	BH_Uptodate_Lock,/* Used by the first bh in a page, to serialise
-			  * IO completion of other buffers in the page
-			  */
 
 	BH_Mapped,	/* Has a disk mapping */
 	BH_New,		/* Disk mapping was newly created by get_block */
@@ -76,41 +73,10 @@ struct buffer_head {
 	struct address_space *b_assoc_map;	/* mapping this buffer is
 						   associated with */
 	atomic_t b_count;		/* users using this buffer_head */
-#ifdef CONFIG_PREEMPT_RT
-	spinlock_t b_uptodate_lock;
-#endif
+	spinlock_t b_uptodate_lock;	/* Used by the first bh in a page, to
+					 * serialise IO completion of other
+					 * buffers in the page */
 };
-
-static inline unsigned long bh_uptodate_lock_irqsave(struct buffer_head *bh)
-{
-	unsigned long flags;
-
-#ifndef CONFIG_PREEMPT_RT
-	local_irq_save(flags);
-	bit_spin_lock(BH_Uptodate_Lock, &bh->b_state);
-#else
-	spin_lock_irqsave(&bh->b_uptodate_lock, flags);
-#endif
-	return flags;
-}
-
-static inline void
-bh_uptodate_unlock_irqrestore(struct buffer_head *bh, unsigned long flags)
-{
-#ifndef CONFIG_PREEMPT_RT
-	bit_spin_unlock(BH_Uptodate_Lock, &bh->b_state);
-	local_irq_restore(flags);
-#else
-	spin_unlock_irqrestore(&bh->b_uptodate_lock, flags);
-#endif
-}
-
-static inline void buffer_head_init_locks(struct buffer_head *bh)
-{
-#ifdef CONFIG_PREEMPT_RT
-	spin_lock_init(&bh->b_uptodate_lock);
-#endif
-}
 
 /*
  * macro tricks to expand the set_buffer_foo(), clear_buffer_foo()
