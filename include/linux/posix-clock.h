@@ -136,6 +136,8 @@ struct posix_clock {
  * Returns zero on success, non-zero otherwise.
  */
 int posix_clock_register(struct posix_clock *clk, dev_t devid);
+int __posix_clock_register(struct posix_clock *clk, dev_t devid,
+			   struct device *parent);
 
 /**
  * posix_clock_unregister() - unregister a clock
