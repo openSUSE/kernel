@@ -13,7 +13,6 @@
 #include <linux/llist.h>
 #include <linux/timer.h>
 #include <linux/workqueue.h>
-#include <linux/kthread.h>
 #include <linux/pagemap.h>
 #include <linux/backing-dev-defs.h>
 #include <linux/wait.h>
@@ -566,7 +565,6 @@ struct request_queue {
 #endif
 	struct rcu_head		rcu_head;
 	wait_queue_head_t	mq_freeze_wq;
-	struct work_struct	mq_pcpu_wake;
 	/*
 	 * Protect concurrent access to q_usage_counter by
 	 * percpu_ref_kill() and percpu_ref_reinit().
