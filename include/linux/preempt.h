@@ -100,7 +100,7 @@
 				   (NMI_MASK | HARDIRQ_MASK | SOFTIRQ_OFFSET)))
 #ifdef CONFIG_PREEMPT_RT
 
-#define softirq_count()		(current->softirq_count)
+#define softirq_count()		((long)current->softirq_count)
 #define in_softirq()		(softirq_count())
 #define in_serving_softirq()	(current->softirq_count & SOFTIRQ_OFFSET)
 
