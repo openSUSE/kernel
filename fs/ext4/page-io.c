@@ -87,10 +87,10 @@ static void ext4_finish_bio(struct bio *bio)
 		}
 		bh = head = page_buffers(page);
 		/*
-		 * We check all buffers in the page under BH_Uptodate_Lock
+		 * We check all buffers in the page under b_uptodate_lock
 		 * to avoid races with other end io clearing async_write flags
 		 */
-		flags = bh_uptodate_lock_irqsave(head);
+		spin_lock_irqsave(&head->b_uptodate_lock, flags);
 		do {
 			if (bh_offset(bh) < bio_start ||
 			    bh_offset(bh) + bh->b_size > bio_end) {
@@ -102,7 +102,7 @@ static void ext4_finish_bio(struct bio *bio)
 			if (bio->bi_status)
 				buffer_io_error(bh);
 		} while ((bh = bh->b_this_page) != head);
-		bh_uptodate_unlock_irqrestore(head, flags);
+		spin_unlock_irqrestore(&head->b_uptodate_lock, flags);
 		if (!under_io) {
 			fscrypt_free_bounce_page(bounce_page);
 			end_page_writeback(page);
