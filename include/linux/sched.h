@@ -1273,9 +1273,6 @@ struct task_struct {
 	unsigned int			sequential_io_avg;
 #endif
 #ifdef CONFIG_PREEMPT_RT
-	struct rcu_head			put_rcu;
-#endif
-#ifdef CONFIG_PREEMPT_RT
 # if defined CONFIG_HIGHMEM || defined CONFIG_X86_32
 	int				kmap_idx;
 	pte_t				kmap_pte[KM_TYPE_NR];

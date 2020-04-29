@@ -22,6 +22,7 @@
 #include <linux/clockchips.h>
 #include <linux/cpu.h>
 #include <linux/sched/task_stack.h>
+#include <linux/irq.h>
 
 #include <asm/mshyperv.h>
 #include <linux/delay.h>

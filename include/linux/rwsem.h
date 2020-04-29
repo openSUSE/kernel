@@ -16,13 +16,14 @@
 #include <linux/spinlock.h>
 #include <linux/atomic.h>
 #include <linux/err.h>
-#ifdef CONFIG_RWSEM_SPIN_ON_OWNER
-#include <linux/osq_lock.h>
-#endif
 
 #ifdef CONFIG_PREEMPT_RT
 #include <linux/rwsem-rt.h>
 #else /* PREEMPT_RT */
+
+#ifdef CONFIG_RWSEM_SPIN_ON_OWNER
+#include <linux/osq_lock.h>
+#endif
 
 /*
  * For an uncontended rwsem, count and owner are the only fields a task

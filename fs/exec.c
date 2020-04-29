@@ -1032,7 +1032,6 @@ static int exec_mmap(struct mm_struct *mm)
 		}
 	}
 	task_lock(tsk);
-	preempt_disable_rt();
 	active_mm = tsk->active_mm;
 	membarrier_exec_mmap(mm);
 	tsk->mm = mm;
@@ -1040,7 +1039,6 @@ static int exec_mmap(struct mm_struct *mm)
 	activate_mm(active_mm, mm);
 	tsk->mm->vmacache_seqnum = 0;
 	vmacache_flush(tsk);
-	preempt_enable_rt();
 	task_unlock(tsk);
 	if (old_mm) {
 		up_read(&old_mm->mmap_sem);

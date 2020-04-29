@@ -281,7 +281,7 @@ static inline void free_thread_stack(struct task_struct *tsk)
 			return;
 		}
 
-		vfree_atomic(tsk->stack);
+		vfree(tsk->stack);
 		return;
 	}
 #endif
@@ -733,9 +733,6 @@ static inline void put_signal_struct(struct signal_struct *sig)
 		free_signal_struct(sig);
 }
 
-#ifdef CONFIG_PREEMPT_RT
-static
-#endif
 void __put_task_struct(struct task_struct *tsk)
 {
 	WARN_ON(!tsk->exit_state);
@@ -761,18 +758,7 @@ void __put_task_struct(struct task_struct *tsk)
 	if (!profile_handoff_task(tsk))
 		free_task(tsk);
 }
-#ifndef CONFIG_PREEMPT_RT
 EXPORT_SYMBOL_GPL(__put_task_struct);
-#else
-void __put_task_struct_cb(struct rcu_head *rhp)
-{
-	struct task_struct *tsk = container_of(rhp, struct task_struct, put_rcu);
-
-	__put_task_struct(tsk);
-
-}
-EXPORT_SYMBOL_GPL(__put_task_struct_cb);
-#endif
 
 void __init __weak arch_task_cache_init(void) { }
 

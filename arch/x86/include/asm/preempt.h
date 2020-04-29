@@ -116,7 +116,6 @@ static __always_inline bool should_resched(int preempt_offset)
 {
 #ifdef CONFIG_PREEMPT_LAZY
 	u32 tmp;
-
 	tmp = raw_cpu_read_4(__preempt_count);
 	if (tmp == preempt_offset)
 		return true;
@@ -125,6 +124,7 @@ static __always_inline bool should_resched(int preempt_offset)
 	tmp &= ~PREEMPT_NEED_RESCHED;
 	if (tmp != preempt_offset)
 		return false;
+	/* XXX PREEMPT_LOCK_OFFSET */
 	if (current_thread_info()->preempt_lazy_count)
 		return false;
 	return test_thread_flag(TIF_NEED_RESCHED_LAZY);

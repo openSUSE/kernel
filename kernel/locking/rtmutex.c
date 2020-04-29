@@ -8,7 +8,7 @@
  *  Copyright (C) 2005-2006 Timesys Corp., Thomas Gleixner <tglx@timesys.com>
  *  Copyright (C) 2005 Kihon Technologies Inc., Steven Rostedt
  *  Copyright (C) 2006 Esben Nielsen
- *  Adaptive Spinlocks:
+ * Adaptive Spinlocks:
  *  Copyright (C) 2008 Novell, Inc., Gregory Haskins, Sven Dietrich,
  *				     and Peter Morreale,
  * Adaptive Spinlocks simplification:
@@ -1167,7 +1167,6 @@ EXPORT_SYMBOL(rt_spin_lock_nested);
 
 void __lockfunc rt_spin_unlock(spinlock_t *lock)
 {
-	/* NOTE: we always pass in '1' for nested, for simplicity */
 	spin_release(&lock->dep_map, _RET_IP_);
 	rt_spin_lock_fastunlock(&lock->lock, rt_spin_lock_slowunlock);
 	migrate_enable();
@@ -2645,13 +2644,11 @@ EXPORT_SYMBOL_GPL(ww_mutex_lock);
 
 void __sched ww_mutex_unlock(struct ww_mutex *lock)
 {
-	int nest = !!lock->ctx;
-
 	/*
 	 * The unlocking fastpath is the 0->1 transition from 'locked'
 	 * into 'unlocked' state:
 	 */
-	if (nest) {
+	if (lock->ctx) {
 #ifdef CONFIG_DEBUG_MUTEXES
 		DEBUG_LOCKS_WARN_ON(!lock->ctx->acquired);
 #endif

@@ -689,7 +689,7 @@ alternative_else_nop_endif
 	ldr	x0, [tsk, #TSK_TI_FLAGS]		// get flags
 	tbz	x0, #TIF_NEED_RESCHED_LAZY, 2f		// needs rescheduling?
 1:
-	bl	preempt_schedule_irq		// irq en/disable is done inside
+	bl	preempt_schedule_irq			// irq en/disable is done inside
 2:
 #endif
 

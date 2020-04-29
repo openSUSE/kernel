@@ -114,16 +114,6 @@ static inline struct task_struct *get_task_struct(struct task_struct *t)
 	return t;
 }
 
-#ifdef CONFIG_PREEMPT_RT
-extern void __put_task_struct_cb(struct rcu_head *rhp);
-
-static inline void put_task_struct(struct task_struct *t)
-{
-	if (refcount_dec_and_test(&t->usage))
-		call_rcu(&t->put_rcu, __put_task_struct_cb);
-}
-#else
-
 extern void __put_task_struct(struct task_struct *t);
 
 static inline void put_task_struct(struct task_struct *t)
@@ -131,7 +121,7 @@ static inline void put_task_struct(struct task_struct *t)
 	if (refcount_dec_and_test(&t->usage))
 		__put_task_struct(t);
 }
-#endif
+
 void put_task_struct_rcu_user(struct task_struct *task);
 
 #ifdef CONFIG_ARCH_WANTS_DYNAMIC_TASK_STRUCT

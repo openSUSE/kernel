@@ -2494,6 +2494,8 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 	int cpu, success = 0;
 
 	preempt_disable();
+
+#ifndef CONFIG_PREEMPT_RT
 	if (p == current) {
 		/*
 		 * We're waking current, this means 'p->on_rq' and 'task_cpu(p)
@@ -2516,7 +2518,7 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 		trace_sched_wakeup(p);
 		goto out;
 	}
-
+#endif
 	/*
 	 * If we are going to wake up a thread waiting for CONDITION we
 	 * need to ensure that CONDITION=1 done by the caller can not be
@@ -2537,9 +2539,9 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 				success = 1;
 			}
 		}
-		goto unlock;
+		raw_spin_unlock_irqrestore(&p->pi_lock, flags);
+		goto out_nostat;
 	}
-
 	/*
 	 * If this is a regular wakeup, then we can unconditionally
 	 * clear the saved state of a "lock sleeper".
@@ -2637,9 +2639,12 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 	ttwu_queue(p, cpu, wake_flags);
 unlock:
 	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
+#ifndef CONFIG_PREEMPT_RT
 out:
+#endif
 	if (success)
 		ttwu_stat(p, cpu, wake_flags);
+out_nostat:
 	preempt_enable();
 
 	return success;
@@ -6320,7 +6325,6 @@ static void migrate_tasks(struct rq *dead_rq, struct rq_flags *rf)
 			break;
 
 		next = __pick_migrate_task(rq);
-
 		WARN_ON_ONCE(__migrate_disabled(next));
 
 		/*
@@ -7957,10 +7961,12 @@ void migrate_enable(void)
 	barrier();
 }
 EXPORT_SYMBOL(migrate_enable);
+
 #else
 static void migrate_disabled_sched(struct task_struct *p)
 {
 }
+
 #endif
 
 #ifdef CONFIG_HPC_CPUSETS

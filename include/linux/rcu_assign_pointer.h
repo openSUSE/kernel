@@ -48,15 +48,15 @@
  * please be careful when making changes to rcu_assign_pointer() and the
  * other macros that it invokes.
  */
-#define rcu_assign_pointer(p, v)					      \
-do {									      \
-	uintptr_t _r_a_p__v = (uintptr_t)(v);				      \
-	rcu_check_sparse(p, __rcu);					      \
-									      \
-	if (__builtin_constant_p(v) && (_r_a_p__v) == (uintptr_t)NULL)	      \
-		WRITE_ONCE((p), (typeof(p))(_r_a_p__v));		      \
-	else								      \
-		smp_store_release(&p, RCU_INITIALIZER((typeof(p))_r_a_p__v)); \
+#define rcu_assign_pointer(p, v)					\
+do {									\
+	uintptr_t _r_a_p__v = (uintptr_t)(v);				\
+	rcu_check_sparse(p, __rcu);					\
+									\
+	if (__builtin_constant_p(v) && (_r_a_p__v) == (uintptr_t)NULL)	\
+		WRITE_ONCE((p), (typeof(p))(_r_a_p__v));		\
+	else								\
+		smp_store_release(&p, RCU_INITIALIZER((typeof(p))_r_a_p__v));	\
 } while (0)
 
 #endif

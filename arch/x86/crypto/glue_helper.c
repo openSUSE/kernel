@@ -261,7 +261,7 @@ int glue_xts_req_128bit(const struct common_glue_ctx *gctx,
 {
 	const unsigned int bsize = 128 / 8;
 	struct skcipher_walk walk;
-	bool fpu_enabled;
+	bool fpu_enabled = false;
 	unsigned int nbytes;
 	int err;
 
@@ -272,7 +272,7 @@ int glue_xts_req_128bit(const struct common_glue_ctx *gctx,
 
 	/* set minimum length to bsize, for tweak_fn */
 	fpu_enabled = glue_fpu_begin(bsize, gctx->fpu_blocks_limit,
-				     &walk, false,
+				     &walk, fpu_enabled,
 				     nbytes < bsize ? bsize : nbytes);
 
 	/* calculate first value of T */
@@ -286,9 +286,12 @@ int glue_xts_req_128bit(const struct common_glue_ctx *gctx,
 
 		glue_fpu_end(fpu_enabled);
 		fpu_enabled = false;
+
 		err = skcipher_walk_done(&walk, nbytes);
 		nbytes = walk.nbytes;
 	}
+
+	glue_fpu_end(fpu_enabled);
 
 	return err;
 }

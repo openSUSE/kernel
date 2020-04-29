@@ -1123,6 +1123,7 @@ restore_all_kernel:
 
 	testl	$_TIF_NEED_RESCHED_LAZY, TASK_TI_flags(%ebp)
 	jz	.Lno_preempt
+
 test_int_off:
 #endif
 	testl	$X86_EFLAGS_IF, PT_EFLAGS(%esp)	# interrupts off (exception path) ?
