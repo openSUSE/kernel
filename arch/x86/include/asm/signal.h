@@ -41,19 +41,6 @@ typedef struct {
 #define ARCH_RT_DELAYS_SIGNAL_SEND
 #endif
 
-/*
- * Because some traps use the IST stack, we must keep preemption
- * disabled while calling do_trap(), but do_trap() may call
- * force_sig_info() which will grab the signal spin_locks for the
- * task, which in PREEMPT_RT are mutexes.  By defining
- * ARCH_RT_DELAYS_SIGNAL_SEND the force_sig_info() will set
- * TIF_NOTIFY_RESUME and set up the signal to be sent on exit of the
- * trap.
- */
-#if defined(CONFIG_PREEMPT_RT) && defined(CONFIG_X86_64)
-#define ARCH_RT_DELAYS_SIGNAL_SEND
-#endif
-
 #ifndef CONFIG_COMPAT
 typedef sigset_t compat_sigset_t;
 #endif

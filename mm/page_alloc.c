@@ -2899,7 +2899,6 @@ void drain_local_pages(struct zone *zone)
 		drain_pages(cpu);
 }
 
-#ifndef CONFIG_PREEMPT_RT
 static void drain_local_pages_wq(struct work_struct *work)
 {
 	struct pcpu_drain *drain;
@@ -2917,7 +2916,6 @@ static void drain_local_pages_wq(struct work_struct *work)
 	drain_local_pages(drain->zone);
 	preempt_enable();
 }
-#endif
 
 /*
  * Spill all the per-cpu pages from all CPUs back into the buddy allocator.
@@ -2985,14 +2983,6 @@ void drain_all_pages(struct zone *zone)
 			cpumask_clear_cpu(cpu, &cpus_with_pcps);
 	}
 
-#ifdef CONFIG_PREEMPT_RT
-	for_each_cpu(cpu, &cpus_with_pcps) {
-		if (zone)
-			drain_pages_zone(cpu, zone);
-		else
-			drain_pages(cpu);
-	}
-#else
 	for_each_cpu(cpu, &cpus_with_pcps) {
 		struct pcpu_drain *drain = per_cpu_ptr(&pcpu_drain, cpu);
 
@@ -3002,7 +2992,6 @@ void drain_all_pages(struct zone *zone)
 	}
 	for_each_cpu(cpu, &cpus_with_pcps)
 		flush_work(&per_cpu_ptr(&pcpu_drain, cpu)->work);
-#endif
 
 	mutex_unlock(&pcpu_drain_mutex);
 }
