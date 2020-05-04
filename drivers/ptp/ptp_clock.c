@@ -164,13 +164,14 @@ static struct posix_clock_operations ptp_clock_ops = {
 	.read		= ptp_read,
 };
 
-static void delete_ptp_clock(struct posix_clock *pc)
+static void ptp_clock_release(struct device *dev)
 {
-	struct ptp_clock *ptp = container_of(pc, struct ptp_clock, clock);
+	struct ptp_clock *ptp = dev_get_drvdata(dev);
 
 	mutex_destroy(&ptp->tsevq_mux);
 	ida_simple_remove(&ptp_clocks_map, ptp->index);
 	kfree(ptp);
+	kfree(dev);
 }
 
 /* public interface */
@@ -197,7 +198,6 @@ struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info,
 	}
 
 	ptp->clock.ops = ptp_clock_ops;
-	ptp->clock.release = delete_ptp_clock;
 	ptp->info = info;
 	ptp->devid = MKDEV(major, index);
 	ptp->index = index;
@@ -212,6 +212,7 @@ struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info,
 		goto no_device;
 
 	dev_set_drvdata(ptp->dev, ptp);
+	ptp->dev->release = ptp_clock_release; /* XXX hackish hackish */
 
 	err = ptp_populate_sysfs(ptp);
 	if (err)
@@ -232,7 +233,8 @@ struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info,
 	}
 
 	/* Create a posix clock. */
-	err = posix_clock_register(&ptp->clock, ptp->devid);
+	err = __posix_clock_register(&ptp->clock, ptp->devid,
+				     ptp->dev);
 	if (err) {
 		pr_err("failed to create posix clock\n");
 		goto no_clock;
@@ -246,7 +248,9 @@ no_clock:
 no_pps:
 	ptp_cleanup_sysfs(ptp);
 no_sysfs:
-	device_destroy(ptp_class, ptp->devid);
+	device_unregister(ptp->dev);
+	return ERR_PTR(err);
+
 no_device:
 	mutex_destroy(&ptp->tsevq_mux);
 no_slot:
@@ -265,9 +269,11 @@ int ptp_clock_unregister(struct ptp_clock *ptp)
 	if (ptp->pps_source)
 		pps_unregister_source(ptp->pps_source);
 	ptp_cleanup_sysfs(ptp);
-	device_destroy(ptp_class, ptp->devid);
 
+	device_del(ptp->dev);
 	posix_clock_unregister(&ptp->clock);
+	put_device(ptp->dev);
+	/* ptp object gets released via device release ops */
 	return 0;
 }
 EXPORT_SYMBOL(ptp_clock_unregister);

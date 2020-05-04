@@ -205,7 +205,8 @@ static const struct file_operations posix_clock_file_operations = {
 #endif
 };
 
-int posix_clock_register(struct posix_clock *clk, dev_t devid)
+int __posix_clock_register(struct posix_clock *clk, dev_t devid,
+			   struct device *parent)
 {
 	int err;
 
@@ -214,9 +215,17 @@ int posix_clock_register(struct posix_clock *clk, dev_t devid)
 
 	cdev_init(&clk->cdev, &posix_clock_file_operations);
 	clk->cdev.owner = clk->ops.owner;
+	if (parent)
+		clk->cdev.kobj.parent = &parent->kobj;
 	err = cdev_add(&clk->cdev, devid, 1);
 
 	return err;
+}
+EXPORT_SYMBOL_GPL(__posix_clock_register);
+
+int posix_clock_register(struct posix_clock *clk, dev_t devid)
+{
+	return __posix_clock_register(clk, devid, NULL);
 }
 EXPORT_SYMBOL_GPL(posix_clock_register);
 
