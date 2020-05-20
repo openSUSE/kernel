@@ -809,7 +809,7 @@ static const struct x86_cpu_id cpu_vuln_blacklist[] __initconst = {
 
 static bool __init cpu_matches(const struct x86_cpu_id *table, unsigned long which)
 {
-	const struct x86_cpu_id *m = x86_match_cpu(table);
+	const struct x86_cpu_id *m = x86_match_cpu_stp(table);
 
 	return m && !!(m->driver_data & which);
 }

@@ -162,6 +162,11 @@
 #define X86_MATCH_INTEL_FAM6_MODEL(model, data)				\
 	X86_MATCH_VENDOR_FAM_MODEL(INTEL, 6, INTEL_FAM6_##model, data)
 
-extern const struct x86_cpu_id *x86_match_cpu(const struct x86_cpu_id *match);
+#ifndef __GENKSYMS__
+const struct x86_cpu_id_legacy *x86_match_cpu(const struct x86_cpu_id_legacy *match);
+#else
+const struct x86_cpu_id *x86_match_cpu(const struct x86_cpu_id *match);
+#endif
 
+const struct x86_cpu_id *x86_match_cpu_stp(const struct x86_cpu_id *match);
 #endif

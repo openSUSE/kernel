@@ -33,7 +33,44 @@
  * This always matches against the boot cpu, assuming models and features are
  * consistent over all CPUs.
  */
+
+/*
+ * kABI workaround notes: since drivers have arrays of that struct, add the
+ * function signature which uses a legacy variant of the structure without the
+ * new member so that old modules can see the same layout and x86_match_cpu()
+ * can work for them without change.
+ *
+ * Rename the new variant to x86_match_cpu_stp() to denote that it matches
+ * steppings too and have modules which are recompiled, use that instead.
+ */
+#ifndef __GENKSYMS__
+const struct x86_cpu_id_legacy *x86_match_cpu(const struct x86_cpu_id_legacy *match)
+#else
 const struct x86_cpu_id *x86_match_cpu(const struct x86_cpu_id *match)
+#endif
+{
+	const struct x86_cpu_id_legacy *m;
+	struct cpuinfo_x86 *c = &boot_cpu_data;
+
+	for (m = match;
+	     m->vendor | m->family | m->model | m->feature;
+	     m++) {
+		if (m->vendor != X86_VENDOR_ANY && c->x86_vendor != m->vendor)
+			continue;
+		if (m->family != X86_FAMILY_ANY && c->x86 != m->family)
+			continue;
+		if (m->model != X86_MODEL_ANY && c->x86_model != m->model)
+			continue;
+		if (m->feature != X86_FEATURE_ANY && !cpu_has(c, m->feature))
+			continue;
+		return m;
+	}
+	return NULL;
+}
+EXPORT_SYMBOL(x86_match_cpu);
+
+/* As above but with steppings. */
+const struct x86_cpu_id *x86_match_cpu_stp(const struct x86_cpu_id *match)
 {
 	const struct x86_cpu_id *m;
 	struct cpuinfo_x86 *c = &boot_cpu_data;
@@ -56,4 +93,4 @@ const struct x86_cpu_id *x86_match_cpu(const struct x86_cpu_id *match)
 	}
 	return NULL;
 }
-EXPORT_SYMBOL(x86_match_cpu);
+EXPORT_SYMBOL(x86_match_cpu_stp);
