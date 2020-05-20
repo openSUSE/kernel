@@ -642,8 +642,8 @@ static inline const char *spectre_v2_module_string(void) { return ""; }
 #define MSBDS_ONLY		BIT(5)
 #define NO_ITLB_MULTIHIT	BIT(7)
 
-#define VULNWL(_vendor, _family, _model, _whitelist)	\
-	{ X86_VENDOR_##_vendor, _family, _model, X86_FEATURE_ANY, _whitelist }
+#define VULNWL(vendor, family, model, whitelist)	\
+	X86_MATCH_VENDOR_FAM_MODEL(vendor, family, model, whitelist)
 
 #define VULNWL_INTEL(model, whitelist)		\
 	VULNWL(INTEL, 6, INTEL_FAM6_##model, whitelist)
