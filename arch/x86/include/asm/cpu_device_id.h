@@ -19,7 +19,7 @@
 #define X86_CENTAUR_FAM6_C7_D		0xd
 #define X86_CENTAUR_FAM6_NANO		0xf
 
-#define X86_STEPPINGS(mins, maxs)    GENMASK(maxs, mins)
+#define X86_STEPPINGS(mins, maxs)    GENMASK(mins, maxs)
 /**
  * X86_MATCH_VENDOR_FAM_MODEL_STEPPINGS_FEATURE - Base macro for CPU matching
  * @_vendor:	The vendor name, e.g. INTEL, AMD, HYGON, ..., ANY

@@ -1027,6 +1027,7 @@ void __cpuinit identify_secondary_cpu(struct cpuinfo_x86 *c)
 	mtrr_ap_init();
 
 	x86_spec_ctrl_setup_ap();
+	update_srbds_msr();
 }
 
 struct msr_range {

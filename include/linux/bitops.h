@@ -11,6 +11,14 @@
 #define BITS_TO_LONGS(nr)	DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
 #endif
 
+/*
+ * Create a contiguous bitmask starting at bit position @lo and ending at
+ * position @hi. For example
+ *
+ * GENMASK(21, 39) gives us the 64bit vector 0x000000ffffe00000.
+ */
+#define GENMASK(lo, hi)			(((1ULL << ((hi) - (lo) + 1)) - 1) << (lo))
+
 extern unsigned int __sw_hweight8(unsigned int w);
 extern unsigned int __sw_hweight16(unsigned int w);
 extern unsigned int __sw_hweight32(unsigned int w);

@@ -64,6 +64,7 @@
 #define X86_FEATURE_RECOVERY	(2*32+ 0) /* CPU in recovery mode */
 #define X86_FEATURE_LONGRUN	(2*32+ 1) /* Longrun power control */
 #define X86_FEATURE_LRTI	(2*32+ 3) /* LongRun table interface */
+#define X86_FEATURE_SRBDS_CTRL	(2*32+ 4) /* "" SRBDS mitigation MSR available */
 
 /* Other features, Linux-defined mapping, word 3 */
 /* This range is used for feature bits which conflict or are synthesized */
