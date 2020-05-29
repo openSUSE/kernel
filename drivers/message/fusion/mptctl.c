@@ -125,29 +125,29 @@ static int mptctl_hp_targetinfo(MPT_ADAPTER *iocp, unsigned long arg);
 
 #if defined(CPQ_CIM)
 /* csmisas proto's*/
-static int csmisas_get_driver_info(unsigned long arg);
-static int csmisas_get_cntlr_status(unsigned long arg);
-static int csmisas_get_cntlr_config(unsigned long arg);
-static int csmisas_get_phy_info(unsigned long arg);
-static int csmisas_get_scsi_address(unsigned long arg);
-static int csmisas_get_link_errors(unsigned long arg);
-static int csmisas_smp_passthru(unsigned long arg);
-static int csmisas_firmware_download(unsigned long arg);
-static int csmisas_get_raid_info(unsigned long arg);
-static int csmisas_get_raid_config(unsigned long arg);
-static int csmisas_get_raid_features(unsigned long arg);
-static int csmisas_set_raid_control(unsigned long arg);
-static int csmisas_get_raid_element(unsigned long arg);
-static int csmisas_set_raid_operation(unsigned long arg);
-static int csmisas_set_phy_info(unsigned long arg);
-static int csmisas_ssp_passthru(unsigned long arg);
-static int csmisas_stp_passthru(unsigned long arg);
-static int csmisas_get_sata_signature(unsigned long arg);
-static int csmisas_get_device_address(unsigned long arg);
-static int csmisas_task_managment(unsigned long arg);
-static int csmisas_phy_control(unsigned long arg);
-static int csmisas_get_connector_info(unsigned long arg);
-static int csmisas_get_location(unsigned long arg);
+static int csmisas_get_driver_info(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_get_cntlr_status(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_get_cntlr_config(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_get_phy_info(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_get_scsi_address(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_get_link_errors(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_smp_passthru(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_firmware_download(MPT_ADAPTER *iocp, unsigned long arg);
+static int csmisas_get_raid_info(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_get_raid_config(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_get_raid_features(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_set_raid_control(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_get_raid_element(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_set_raid_operation(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_set_phy_info(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_ssp_passthru(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_stp_passthru(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_get_sata_signature(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_get_device_address(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_task_managment(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_phy_control(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_get_connector_info(MPT_ADAPTER *ioc, unsigned long arg);
+static int csmisas_get_location(MPT_ADAPTER *ioc, unsigned long arg);
 #endif // CPQ_CIM
 
 #if defined(DIAG_BUFFER_SUPPORT)
@@ -715,13 +715,13 @@ __mptctl_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 #if defined(CPQ_CIM)
 /* csmisas static data calls*/
 	} else if (cmd == CC_CSMI_SAS_GET_DRIVER_INFO) {
-		return csmisas_get_driver_info(arg);
+		return csmisas_get_driver_info(iocp, arg);
 	} else if (cmd == CC_CSMI_SAS_GET_CNTLR_STATUS) {
-		return csmisas_get_cntlr_status(arg);
+		return csmisas_get_cntlr_status(iocp, arg);
 	} else if (cmd == CC_CSMI_SAS_GET_SCSI_ADDRESS) {
-		return csmisas_get_scsi_address(arg);
+		return csmisas_get_scsi_address(iocp, arg);
 	} else if (cmd == CC_CSMI_SAS_GET_DEVICE_ADDRESS){
-		return csmisas_get_device_address(arg);
+		return csmisas_get_device_address(iocp, arg);
 #endif // CPQ_CIM
 	}
 
@@ -746,43 +746,43 @@ __mptctl_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 #if defined(CPQ_CIM)
 /* csmisas requiring fw calls*/
 	else if (cmd == CC_CSMI_SAS_GET_CNTLR_CONFIG)
-		ret = csmisas_get_cntlr_config(arg);
+		ret = csmisas_get_cntlr_config(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_GET_PHY_INFO)
-		ret = csmisas_get_phy_info(arg);
+		ret = csmisas_get_phy_info(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_GET_SATA_SIGNATURE)
-		ret = csmisas_get_sata_signature(arg);
+		ret = csmisas_get_sata_signature(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_GET_LINK_ERRORS)
-		ret = csmisas_get_link_errors(arg);
+		ret = csmisas_get_link_errors(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_SMP_PASSTHRU)
-		ret = csmisas_smp_passthru(arg);
+		ret = csmisas_smp_passthru(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_SSP_PASSTHRU)
-		ret = csmisas_ssp_passthru(arg);
+		ret = csmisas_ssp_passthru(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_FIRMWARE_DOWNLOAD)
-		ret = csmisas_firmware_download(arg);
+		ret = csmisas_firmware_download(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_GET_RAID_INFO)
-		ret = csmisas_get_raid_info(arg);
+		ret = csmisas_get_raid_info(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_GET_RAID_CONFIG)
-		ret = csmisas_get_raid_config(arg);
+		ret = csmisas_get_raid_config(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_GET_RAID_FEATURES)
-		ret = csmisas_get_raid_features(arg);
+		ret = csmisas_get_raid_features(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_SET_RAID_CONTROL)
-		ret = csmisas_set_raid_control(arg);
+		ret = csmisas_set_raid_control(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_GET_RAID_ELEMENT)
-		ret = csmisas_get_raid_element(arg);
+		ret = csmisas_get_raid_element(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_SET_RAID_OPERATION)
-		ret = csmisas_set_raid_operation(arg);
+		ret = csmisas_set_raid_operation(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_SET_PHY_INFO)
-		ret = csmisas_set_phy_info(arg);
+		ret = csmisas_set_phy_info(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_STP_PASSTHRU)
-		ret = csmisas_stp_passthru(arg);
+		ret = csmisas_stp_passthru(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_TASK_MANAGEMENT)
-		ret = csmisas_task_managment(arg);
+		ret = csmisas_task_managment(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_PHY_CONTROL)
-		ret = csmisas_phy_control(arg);
+		ret = csmisas_phy_control(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_GET_CONNECTOR_INFO)
-		ret = csmisas_get_connector_info(arg);
+		ret = csmisas_get_connector_info(iocp, arg);
 	else if (cmd == CC_CSMI_SAS_GET_LOCATION)
-		ret = csmisas_get_location(arg);
+		ret = csmisas_get_location(iocp, arg);
 #endif // CPQ_CIM
 
 #if defined(DIAG_BUFFER_SUPPORT)
